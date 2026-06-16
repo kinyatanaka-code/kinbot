@@ -27,13 +27,20 @@ function headers() {
  * @returns {Promise<string>} botId
  */
 export async function createBot({ meetingUrl, webhookUrl, languageCode = "ja" }) {
+  // Recall標準の文字起こしは「低遅延モード=英語のみ」。
+  // 日本語など英語以外は accuracy モードを使う（少し遅延は増えるが対応言語が広い）。
+  const mode =
+    process.env.RECALL_MODE ||
+    (String(languageCode).toLowerCase().startsWith("en")
+      ? "prioritize_low_latency"
+      : "prioritize_accuracy");
+
   const body = {
     meeting_url: meetingUrl,
     recording_config: {
       transcript: {
         provider: {
-          // 低遅延モード。日本語は "ja"、自動判定は "auto"
-          recallai_streaming: { mode: "prioritize_low_latency", language_code: languageCode },
+          recallai_streaming: { mode, language_code: languageCode },
         },
         // 参加者ごとに別ストリーム＝正確な話者分離（話者名が付く）
         diarization: { use_separate_streams_when_available: true },
