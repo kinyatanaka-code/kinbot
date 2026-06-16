@@ -49,4 +49,58 @@ $("saveBtn").addEventListener("click", async () => {
   }
 });
 
+async function loadCalendar() {
+  const statusEl = $("calStatus");
+  const connectBtn = $("calConnect");
+  const disconnectBtn = $("calDisconnect");
+  const eventsEl = $("calEvents");
+  try {
+    const res = await fetch("/api/calendar/status");
+    const d = await res.json();
+    if (!d.configured) {
+      statusEl.textContent = "未設定（GOOGLE_CLIENT_ID / SECRET が必要）";
+      eventsEl.innerHTML = "";
+      return;
+    }
+    if (d.connected) {
+      statusEl.textContent = "連携済み";
+      statusEl.classList.add("ok");
+      connectBtn.hidden = true;
+      disconnectBtn.hidden = false;
+      const evs = d.events || [];
+      eventsEl.innerHTML = evs.length
+        ? evs
+            .map((e) => {
+              const when = new Date(e.start).toLocaleString("ja-JP", {
+                month: "numeric",
+                day: "numeric",
+                hour: "2-digit",
+                minute: "2-digit",
+              });
+              return `<li><span>${escapeHtml(e.title)} <span class="badge">Zoom</span></span><span class="ev-when">${when} 入室予定</span></li>`;
+            })
+            .join("")
+        : '<li><span class="ev-when">直近にZoomリンク付きの予定はありません。</span></li>';
+    } else {
+      statusEl.textContent = "未連携";
+      statusEl.classList.remove("ok");
+      connectBtn.hidden = false;
+      disconnectBtn.hidden = true;
+      eventsEl.innerHTML = "";
+    }
+  } catch {
+    statusEl.textContent = "状態の取得に失敗しました";
+  }
+}
+function escapeHtml(s) {
+  return String(s ?? "").replace(/[&<>"']/g, (c) =>
+    ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c])
+  );
+}
+document.getElementById("calDisconnect").addEventListener("click", async () => {
+  await fetch("/api/calendar/disconnect", { method: "POST" });
+  loadCalendar();
+});
+
 load();
+loadCalendar();

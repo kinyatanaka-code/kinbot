@@ -58,7 +58,10 @@ async function loadDetail(botId) {
     hdetail.innerHTML = `
       <div class="dhead">
         <div class="dmeta"></div>
-        <a class="btn ghost rec" id="recBtn" hidden target="_blank" rel="noopener">録画を見る</a>
+        <div class="dactions">
+          <button class="btn ghost" id="copyBtn">全文コピー</button>
+          <a class="btn ghost rec" id="recBtn" hidden target="_blank" rel="noopener">録画を見る</a>
+        </div>
       </div>
       <div class="dgrid">
         <div class="dcol">
@@ -72,6 +75,27 @@ async function loadDetail(botId) {
           <div id="dtrans"></div>
         </div>
       </div>`;
+
+    // 全文コピー（話者名つきのプレーンテキスト）
+    const fullText = tr.map((u) => `${labelOf(u.speaker)}: ${u.text}`).join("\n");
+    const copyBtn = hdetail.querySelector("#copyBtn");
+    copyBtn.addEventListener("click", async () => {
+      try {
+        await navigator.clipboard.writeText(fullText);
+        copyBtn.textContent = "コピーしました";
+        setTimeout(() => (copyBtn.textContent = "全文コピー"), 1500);
+      } catch {
+        // クリップボードが使えない環境向けのフォールバック
+        const ta = document.createElement("textarea");
+        ta.value = fullText;
+        document.body.appendChild(ta);
+        ta.select();
+        document.execCommand("copy");
+        ta.remove();
+        copyBtn.textContent = "コピーしました";
+        setTimeout(() => (copyBtn.textContent = "全文コピー"), 1500);
+      }
+    });
 
     hdetail.querySelector(".dmeta").textContent =
       `${fmtDate(m.created_at)}　${m.rep_name || ""}　${m.meeting_url || ""}`;

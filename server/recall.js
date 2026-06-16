@@ -53,6 +53,7 @@ export async function createBot({
   botName = "議事録",
   provider = "recallai",
   deepgramModel = "nova-2",
+  joinAt = null, // ISO文字列。指定すると予約入室（例: 開始3分前）
 }) {
   // recallai_streaming 用：英語以外は accuracy（低遅延は英語のみ対応のため）
   const mode =
@@ -64,6 +65,7 @@ export async function createBot({
   const body = {
     meeting_url: meetingUrl,
     bot_name: botName,
+    ...(joinAt ? { join_at: joinAt } : {}),
     recording_config: {
       transcript: {
         provider: buildProvider(provider, languageCode, deepgramModel, mode),

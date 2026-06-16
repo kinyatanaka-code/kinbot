@@ -38,6 +38,14 @@ export async function initDb() {
       data JSONB
     );
   `);
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS calendar_bots (
+      event_id   TEXT PRIMARY KEY,
+      bot_id     TEXT,
+      start_time TIMESTAMPTZ,
+      created_at TIMESTAMPTZ DEFAULT now()
+    );
+  `);
   console.log("[db] Postgres に接続しました（履歴を保存します）。");
 }
 
@@ -114,5 +122,32 @@ export async function saveSettings(obj) {
   } catch (e) {
     console.error("[db] saveSettings", e.message);
     return { persisted: false };
+  }
+}
+
+// ---- カレンダー予約Botの重複防止（event_id → bot_id） ----
+const memScheduled = new Map();
+
+export async function isScheduled(eventId) {
+  if (!pool) return memScheduled.has(eventId);
+  try {
+    const { rows } = await pool.query(`SELECT 1 FROM calendar_bots WHERE event_id=$1`, [eventId]);
+    return rows.length > 0;
+  } catch {
+    return false;
+  }
+}
+
+export async function markScheduled(eventId, botId, startTime) {
+  memScheduled.set(eventId, botId);
+  if (!pool) return;
+  try {
+    await pool.query(
+      `INSERT INTO calendar_bots (event_id, bot_id, start_time)
+       VALUES ($1,$2,$3) ON CONFLICT (event_id) DO NOTHING`,
+      [eventId, botId, startTime || null]
+    );
+  } catch (e) {
+    console.error("[db] markScheduled", e.message);
   }
 }

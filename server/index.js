@@ -10,6 +10,15 @@ import { createSession, getSession, removeSession } from "./sessions.js";
 import { analyzerInfo } from "./analyzer.js";
 import { initDb, listMeetings, getMeeting, saveSettings } from "./db.js";
 import { resolveConfig, statusInfo } from "./config.js";
+import {
+  googleConfigured,
+  authUrl,
+  exchangeCode,
+  isConnected as gcalConnected,
+  disconnect as gcalDisconnect,
+  listZoomEvents,
+} from "./google.js";
+import { startScheduler } from "./scheduler.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -142,8 +151,8 @@ app.post("/api/recall/webhook", (req, res) => {
     try {
       const ev = parseTranscriptEvent(req.body);
       if (!ev || !ev.botId) return;
-      const s = getSession(ev.botId);
-      if (!s) return;
+      let s = getSession(ev.botId);
+      if (!s) s = createSession(ev.botId, {}); // 予約Bot等：受信時に遅延作成して保存
       if (ev.type === "final") s.onFinal(ev.speaker, ev.text);
       else s.onPartial(ev.speaker, ev.text);
     } catch (e) {
@@ -189,6 +198,39 @@ app.get("/api/meetings/:id/recording", async (req, res) => {
   }
 });
 
+// --- Googleカレンダー連携 ---
+function googleRedirectUri() {
+  return `${PUBLIC_URL}/auth/google/callback`;
+}
+app.get("/auth/google", (req, res) => {
+  if (!googleConfigured()) return res.status(500).send("GOOGLE_CLIENT_ID/SECRET が未設定です");
+  if (!PUBLIC_URL) return res.status(500).send("PUBLIC_URL が未設定です");
+  res.redirect(authUrl(googleRedirectUri()));
+});
+app.get("/auth/google/callback", async (req, res) => {
+  try {
+    await exchangeCode(req.query.code, googleRedirectUri());
+    res.redirect("/settings.html");
+  } catch (e) {
+    console.error("[google]", e.message);
+    res.status(500).send("連携に失敗しました: " + e.message);
+  }
+});
+app.get("/api/calendar/status", async (_req, res) => {
+  const out = { configured: googleConfigured(), connected: false, events: [] };
+  try {
+    out.connected = await gcalConnected();
+    if (out.connected) out.events = await listZoomEvents(26);
+  } catch (e) {
+    out.error = e.message;
+  }
+  res.json(out);
+});
+app.post("/api/calendar/disconnect", async (_req, res) => {
+  await gcalDisconnect();
+  res.json({ ok: true });
+});
+
 const server = http.createServer(app);
 
 // --- ダッシュボード用 WebSocket ---
@@ -209,7 +251,9 @@ wss.on("connection", (ws, req) => {
 
 server.listen(PORT, async () => {
   await initDb().catch((e) => console.error("[db] init失敗", e.message));
+  startScheduler({ publicUrl: PUBLIC_URL });
   console.log(`\n  kinbot (Bot方式) → http://localhost:${PORT}`);
   console.log(`  公開URL(Webhook受け口): ${PUBLIC_URL || "(未設定)"}`);
-  console.log(`  要約エンジン: ${llm.provider} (${llm.model})\n`);
+  console.log(`  要約エンジン: ${llm.provider} (${llm.model})`);
+  console.log(`  カレンダー連携: ${googleConfigured() ? "設定あり" : "未設定"}\n`);
 });

@@ -47,6 +47,17 @@
           </div>
 
           <div class="set-card">
+            <h3>Googleカレンダー連携</h3>
+            <p class="note">連携すると、Zoomリンクのある予定の<b>開始3分前</b>に「議事録」Botが自動入室します。</p>
+            <div class="cal-row">
+              <span class="cal-status" id="calStatus">確認中…</span>
+              <a class="btn" id="calConnect" href="/auth/google" hidden>連携する</a>
+              <button class="btn ghost" id="calDisconnect" hidden>解除</button>
+            </div>
+            <ul class="cal-events" id="calEvents"></ul>
+          </div>
+
+          <div class="set-card">
             <h3>状態（読み取り専用）</h3>
             <table class="status-table" id="statusTable"></table>
             <p class="note">APIキー（Recall / Gemini / Deepgram など）は Railway の Variables で設定します。ここからは変更しません。</p>

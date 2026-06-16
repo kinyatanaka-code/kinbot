@@ -297,3 +297,16 @@ body {
 .status-table td:first-child { color: var(--muted); width: 42%; }
 
 @media (max-width: 760px) { .settings { grid-template-columns: 1fr; } }
+
+.dactions { display: flex; gap: 8px; }
+/* ---------- カレンダー連携（設定） ---------- */
+.cal-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.cal-status { font-size: 13px; }
+.cal-status.ok { color: var(--accent); font-weight: 700; }
+.cal-events { margin-top: 12px; list-style: none; padding: 0; }
+.cal-events li {
+  font-size: 12.5px; padding: 7px 0; border-bottom: 1px solid var(--line);
+  display: flex; justify-content: space-between; gap: 10px;
+}
+.cal-events .ev-when { color: var(--muted); white-space: nowrap; }
+.badge { font-size: 10px; font-weight: 700; padding: 1px 7px; border-radius: 6px; background: var(--accent-soft); color: var(--accent); }
