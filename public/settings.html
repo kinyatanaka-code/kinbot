@@ -47,6 +47,17 @@
           </div>
 
           <div class="set-card">
+            <h3>登録リンク（Zoom）</h3>
+            <p class="note">よく使うZoomリンクを名前付きで登録。レコーディング画面のプルダウンから選べます。</p>
+            <ul class="link-list" id="linkList"></ul>
+            <div class="link-add">
+              <input id="newLinkName" type="text" placeholder="名前（例：A社 定例）" />
+              <input id="newLinkUrl" type="url" placeholder="https://...zoom.us/j/...?pwd=..." />
+              <button class="btn" id="addLinkBtn">追加</button>
+            </div>
+          </div>
+
+          <div class="set-card">
             <h3>Googleカレンダー連携</h3>
             <p class="note">連携すると、Zoomリンクのある予定の<b>開始3分前</b>に「議事録」Botが自動入室します。</p>
             <div class="cal-row">

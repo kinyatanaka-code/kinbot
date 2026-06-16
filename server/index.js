@@ -7,7 +7,7 @@ import express from "express";
 import { WebSocketServer } from "ws";
 import { createBot, leaveBot, parseTranscriptEvent, getRecordingUrl } from "./recall.js";
 import { createSession, getSession, removeSession } from "./sessions.js";
-import { initDb, listMeetings, getMeeting, saveSettings, saveAnalysis } from "./db.js";
+import { initDb, listMeetings, getMeeting, saveSettings, saveAnalysis, getSettings } from "./db.js";
 import { resolveConfig, statusInfo } from "./config.js";
 import { analyzerInfo, analyzeMeeting } from "./analyzer.js";
 import {
@@ -265,6 +265,30 @@ app.get("/api/calendar/status", async (_req, res) => {
 app.post("/api/calendar/disconnect", async (_req, res) => {
   await gcalDisconnect();
   res.json({ ok: true });
+});
+
+// --- 登録リンク（名前付きZoom URL） ---
+app.get("/api/links", async (_req, res) => {
+  try {
+    const s = await getSettings();
+    res.json({ links: Array.isArray(s.savedLinks) ? s.savedLinks : [] });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+app.put("/api/links", async (req, res) => {
+  try {
+    const links = Array.isArray(req.body?.links)
+      ? req.body.links
+          .filter((l) => l && l.name && l.url)
+          .map((l) => ({ name: String(l.name).slice(0, 80), url: String(l.url).slice(0, 500) }))
+          .slice(0, 50)
+      : [];
+    const r = await saveSettings({ savedLinks: links });
+    res.json({ ok: true, links, ...r });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
 });
 
 const server = http.createServer(app);

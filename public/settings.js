@@ -103,3 +103,57 @@ document.getElementById("calDisconnect").addEventListener("click", async () => {
 
 load();
 loadCalendar();
+
+// ---- 登録リンク ----
+let links = [];
+async function loadLinks() {
+  try {
+    const res = await fetch("/api/links");
+    const d = await res.json();
+    links = Array.isArray(d.links) ? d.links : [];
+  } catch {
+    links = [];
+  }
+  renderLinks();
+}
+function renderLinks() {
+  const list = $("linkList");
+  if (!links.length) {
+    list.innerHTML = '<li class="empty-state">まだ登録がありません。</li>';
+    return;
+  }
+  list.innerHTML = "";
+  links.forEach((l, i) => {
+    const li = document.createElement("li");
+    li.innerHTML = `<span class="ln-name"></span><span class="ln-url"></span><button class="ln-del" data-i="${i}">削除</button>`;
+    li.querySelector(".ln-name").textContent = l.name;
+    li.querySelector(".ln-url").textContent = l.url;
+    li.querySelector(".ln-del").addEventListener("click", async () => {
+      links.splice(i, 1);
+      await saveLinks();
+    });
+    list.appendChild(li);
+  });
+}
+async function saveLinks() {
+  try {
+    const res = await fetch("/api/links", {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ links }),
+    });
+    const d = await res.json();
+    links = d.links || links;
+  } catch {}
+  renderLinks();
+}
+$("addLinkBtn").addEventListener("click", async () => {
+  const name = $("newLinkName").value.trim();
+  const url = $("newLinkUrl").value.trim();
+  if (!name || !url) return;
+  links.push({ name, url });
+  $("newLinkName").value = "";
+  $("newLinkUrl").value = "";
+  await saveLinks();
+});
+loadLinks();

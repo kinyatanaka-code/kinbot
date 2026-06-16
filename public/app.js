@@ -17,6 +17,7 @@ const els = {
   moves: $("moves"),
   sttHint: $("sttHint"),
   summaryHint: $("summaryHint"),
+  linkSelect: $("linkSelect"),
 };
 
 let sessionId = null;
@@ -27,6 +28,26 @@ const speakerColors = new Map();
 
 els.joinBtn.addEventListener("click", joinMeeting);
 els.leaveBtn.addEventListener("click", leaveMeeting);
+
+// 登録リンクをプルダウンに読み込む
+if (els.linkSelect) {
+  els.linkSelect.addEventListener("change", () => {
+    if (els.linkSelect.value) els.meetingUrl.value = els.linkSelect.value;
+  });
+  loadLinks();
+}
+async function loadLinks() {
+  try {
+    const res = await fetch("/api/links");
+    const { links } = await res.json();
+    for (const l of links || []) {
+      const opt = document.createElement("option");
+      opt.value = l.url;
+      opt.textContent = l.name;
+      els.linkSelect.appendChild(opt);
+    }
+  } catch {}
+}
 
 async function joinMeeting() {
   const meetingUrl = els.meetingUrl.value.trim();
