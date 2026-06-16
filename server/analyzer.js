@@ -52,6 +52,8 @@ export function analyzerInfo() {
 function modelFor() {
   if (PROVIDER === "anthropic") return process.env.ANALYZER_MODEL || "claude-sonnet-4-6";
   if (PROVIDER === "ollama") return process.env.OLLAMA_MODEL || "qwen2.5";
+  if (PROVIDER === "groq") return process.env.GROQ_MODEL || "llama-3.3-70b-versatile";
+  if (PROVIDER === "openai") return process.env.OPENAI_MODEL || "gpt-4o-mini";
   return process.env.GEMINI_MODEL || "gemini-2.5-flash";
 }
 
@@ -85,7 +87,46 @@ export async function analyzeMeeting({ transcript, repName }) {
 async function callLLM(system, user, maxTokens = 1400) {
   if (PROVIDER === "anthropic") return callAnthropic(system, user, maxTokens);
   if (PROVIDER === "ollama") return callOllama(system, user);
+  if (PROVIDER === "groq")
+    return callOpenAICompat(system, user, maxTokens, {
+      base: "https://api.groq.com/openai/v1",
+      key: process.env.GROQ_API_KEY,
+      model: process.env.GROQ_MODEL || "llama-3.3-70b-versatile",
+      name: "Groq",
+    });
+  if (PROVIDER === "openai")
+    return callOpenAICompat(system, user, maxTokens, {
+      base: process.env.OPENAI_BASE_URL || "https://api.openai.com/v1",
+      key: process.env.OPENAI_API_KEY,
+      model: process.env.OPENAI_MODEL || "gpt-4o-mini",
+      name: "OpenAI互換",
+    });
   return callGemini(system, user, maxTokens);
+}
+
+// Groq / Cerebras / OpenRouter / OpenAI など OpenAI互換エンドポイント共通
+async function callOpenAICompat(system, user, maxTokens, { base, key, model, name }) {
+  if (!key) throw new Error(`${name} のAPIキーが未設定です`);
+  const res = await fetch(`${base.replace(/\/$/, "")}/chat/completions`, {
+    method: "POST",
+    headers: { "content-type": "application/json", authorization: `Bearer ${key}` },
+    body: JSON.stringify({
+      model,
+      max_tokens: maxTokens,
+      temperature: 0.4,
+      response_format: { type: "json_object" },
+      messages: [
+        { role: "system", content: system },
+        { role: "user", content: user },
+      ],
+    }),
+  });
+  if (!res.ok) {
+    const t = await res.text().catch(() => "");
+    throw new Error(`${name} ${res.status}: ${t.slice(0, 300)}`);
+  }
+  const data = await res.json();
+  return data.choices?.[0]?.message?.content || "";
 }
 
 async function callGemini(system, user, maxTokens) {

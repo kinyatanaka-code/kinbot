@@ -63,7 +63,7 @@ async function loadCalendar() {
       return;
     }
     if (d.connected) {
-      statusEl.textContent = "連携済み";
+      statusEl.textContent = d.email ? `連携済み（${d.email}）` : "連携済み";
       statusEl.classList.add("ok");
       connectBtn.hidden = true;
       disconnectBtn.hidden = false;
@@ -72,15 +72,14 @@ async function loadCalendar() {
         ? evs
             .map((e) => {
               const when = new Date(e.start).toLocaleString("ja-JP", {
-                month: "numeric",
-                day: "numeric",
                 hour: "2-digit",
                 minute: "2-digit",
               });
-              return `<li><span>${escapeHtml(e.title)} <span class="badge">Zoom</span></span><span class="ev-when">${when} 入室予定</span></li>`;
+              const done = new Date(e.start).getTime() < Date.now();
+              return `<li><span>${escapeHtml(e.title)} <span class="badge">Zoom</span></span><span class="ev-when">${when}${done ? "（済）" : " 入室予定"}</span></li>`;
             })
             .join("")
-        : '<li><span class="ev-when">直近にZoomリンク付きの予定はありません。</span></li>';
+        : '<li><span class="ev-when">今日、Zoomリンク付きの予定はありません。</span></li>';
     } else {
       statusEl.textContent = "未連携";
       statusEl.classList.remove("ok");

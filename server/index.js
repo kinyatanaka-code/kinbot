@@ -17,6 +17,7 @@ import {
   isConnected as gcalConnected,
   disconnect as gcalDisconnect,
   listZoomEvents,
+  getPrimaryEmail,
 } from "./google.js";
 import { startScheduler } from "./scheduler.js";
 
@@ -33,7 +34,9 @@ const llm = analyzerInfo();
 const llmKeyOk =
   llm.provider === "ollama" ||
   (llm.provider === "gemini" && process.env.GEMINI_API_KEY) ||
-  (llm.provider === "anthropic" && process.env.ANTHROPIC_API_KEY);
+  (llm.provider === "anthropic" && process.env.ANTHROPIC_API_KEY) ||
+  (llm.provider === "groq" && process.env.GROQ_API_KEY) ||
+  (llm.provider === "openai" && process.env.OPENAI_API_KEY);
 
 if (!process.env.RECALL_API_KEY) {
   console.error("[起動エラー] RECALL_API_KEY を .env に設定してください。");
@@ -208,7 +211,7 @@ app.post("/api/meetings/:id/analyze", async (req, res) => {
     const transcript = tr
       .map((u) => `${u.speaker?.name || "話者" + (u.speaker?.id ?? "")}: ${u.text}`)
       .join("\n")
-      .slice(-24000);
+      .slice(-12000);
     const result = await analyzeMeeting({ transcript, repName: m.rep_name });
     await saveAnalysis(req.params.id, result);
     res.json(result);
@@ -237,10 +240,23 @@ app.get("/auth/google/callback", async (req, res) => {
   }
 });
 app.get("/api/calendar/status", async (_req, res) => {
-  const out = { configured: googleConfigured(), connected: false, events: [] };
+  const out = { configured: googleConfigured(), connected: false, email: null, events: [] };
   try {
     out.connected = await gcalConnected();
-    if (out.connected) out.events = await listZoomEvents(26);
+    if (out.connected) {
+      out.email = await getPrimaryEmail();
+      // 今日1日（日本時間 00:00〜24:00）の範囲
+      const now = new Date();
+      const jst = new Date(now.getTime() + 9 * 3600 * 1000);
+      const start = new Date(
+        Date.UTC(jst.getUTCFullYear(), jst.getUTCMonth(), jst.getUTCDate(), 0, 0, 0) - 9 * 3600 * 1000
+      );
+      const end = new Date(start.getTime() + 24 * 3600 * 1000);
+      out.events = await listZoomEvents({
+        timeMin: start.toISOString(),
+        timeMax: end.toISOString(),
+      });
+    }
   } catch (e) {
     out.error = e.message;
   }

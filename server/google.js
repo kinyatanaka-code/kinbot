@@ -86,15 +86,29 @@ function findZoomUrl(ev) {
   return null;
 }
 
-/** 直近 hoursAhead 時間のうち、Zoomリンクのある予定を返す */
-export async function listZoomEvents(hoursAhead = 26) {
+/** 連携中アカウント（主カレンダーIDはメールアドレス） */
+export async function getPrimaryEmail() {
+  const token = await accessToken();
+  if (!token) return null;
+  const res = await fetch(
+    "https://www.googleapis.com/calendar/v3/calendars/primary",
+    { headers: { Authorization: `Bearer ${token}` } }
+  );
+  if (!res.ok) return null;
+  const data = await res.json();
+  return data.id || null;
+}
+
+/** 指定範囲のうち、Zoomリンクのある予定を返す（範囲未指定なら今〜26時間） */
+export async function listZoomEvents({ timeMin, timeMax } = {}) {
   const token = await accessToken();
   if (!token) return [];
   const now = new Date();
-  const max = new Date(now.getTime() + hoursAhead * 3600 * 1000);
+  const tMin = timeMin || now.toISOString();
+  const tMax = timeMax || new Date(now.getTime() + 26 * 3600 * 1000).toISOString();
   const p = new URLSearchParams({
-    timeMin: now.toISOString(),
-    timeMax: max.toISOString(),
+    timeMin: tMin,
+    timeMax: tMax,
     singleEvents: "true",
     orderBy: "startTime",
     maxResults: "50",

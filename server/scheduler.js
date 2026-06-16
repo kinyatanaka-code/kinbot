@@ -22,7 +22,7 @@ export function startScheduler({ publicUrl: url, intervalMs = 120000 }) {
 async function tick() {
   if (!(await isConnected())) return;
   const cfg = await resolveConfig();
-  const events = await listZoomEvents(26);
+  const events = await listZoomEvents();
   const now = Date.now();
 
   for (const ev of events) {
