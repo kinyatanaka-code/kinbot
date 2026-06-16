@@ -70,7 +70,7 @@ async function accessToken() {
   return data.access_token;
 }
 
-const ZOOM_RE = /https?:\/\/[\w.-]*zoom\.us\/(?:j|w|s)\/[^\s"'<>)]+/i;
+const ZOOM_RE = /https?:\/\/[\w.-]*zoom\.us\/[^\s"'<>)\]]+/i;
 
 function findZoomUrl(ev) {
   const blobs = [
