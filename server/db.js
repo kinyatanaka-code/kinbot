@@ -32,6 +32,7 @@ export async function initDb() {
       suggestions JSONB
     );
   `);
+  await pool.query(`ALTER TABLE meetings ADD COLUMN IF NOT EXISTS feedback JSONB;`);
   await pool.query(`
     CREATE TABLE IF NOT EXISTS settings (
       id   INT PRIMARY KEY,
@@ -94,6 +95,21 @@ export async function getMeeting(botId) {
   if (!pool) return null;
   const { rows } = await pool.query(`SELECT * FROM meetings WHERE bot_id=$1`, [botId]);
   return rows[0] || null;
+}
+
+// 履歴画面からの再生成（要約＋営業フィードバック）を保存
+export async function saveAnalysis(botId, { summary, feedback }) {
+  if (!pool) return { persisted: false };
+  try {
+    await pool.query(
+      `UPDATE meetings SET summary=$2, feedback=$3, updated_at=now() WHERE bot_id=$1`,
+      [botId, summary ? JSON.stringify(summary) : null, feedback ? JSON.stringify(feedback) : null]
+    );
+    return { persisted: true };
+  } catch (e) {
+    console.error("[db] saveAnalysis", e.message);
+    return { persisted: false };
+  }
 }
 
 // ---- アプリ設定（DB保存＋メモリfallback） ----

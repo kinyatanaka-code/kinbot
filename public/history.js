@@ -59,6 +59,7 @@ async function loadDetail(botId) {
       <div class="dhead">
         <div class="dmeta"></div>
         <div class="dactions">
+          <button class="btn" id="genBtn">要約・フィードバックを生成</button>
           <button class="btn ghost" id="copyBtn">全文コピー</button>
           <a class="btn ghost rec" id="recBtn" hidden target="_blank" rel="noopener">録画を見る</a>
         </div>
@@ -67,6 +68,8 @@ async function loadDetail(botId) {
         <div class="dcol">
           <h3>要約</h3>
           <div id="dsummary"></div>
+          <h3>営業フィードバック</h3>
+          <div id="dfeedback"></div>
           <h3>次の一手（記録）</h3>
           <div id="dmoves"></div>
         </div>
@@ -100,20 +103,36 @@ async function loadDetail(botId) {
     hdetail.querySelector(".dmeta").textContent =
       `${fmtDate(m.created_at)}　${m.rep_name || ""}　${m.meeting_url || ""}`;
 
-    // 要約
-    const ds = hdetail.querySelector("#dsummary");
-    if (s.overview) ds.innerHTML = `<p class="overview">${escapeHtml(s.overview)}</p>`;
-    ds.innerHTML += group("要点", s.key_points);
-    ds.innerHTML += group("合意事項", s.agreements);
-    ds.innerHTML += group("宿題・次アクション", s.action_items);
-    ds.innerHTML += group("相手の懸念", s.customer_concerns);
-    if (!s.overview && !(s.key_points || []).length) ds.innerHTML = '<div class="empty-state">要約なし</div>';
+    renderSummaryInto(hdetail.querySelector("#dsummary"), s);
+    renderFeedbackInto(hdetail.querySelector("#dfeedback"), m.feedback || {});
 
-    // 次の一手
+    // 次の一手（ライブ中の記録）
     const dm = hdetail.querySelector("#dmoves");
     dm.innerHTML = sug.length
       ? sug.map((x) => `<div class="mini-card"><b>${escapeHtml(x.title || "")}</b><br>${escapeHtml(x.detail || "")}</div>`).join("")
       : '<div class="empty-state">記録なし</div>';
+
+    // 文字起こしから 要約＋営業フィードバック を生成
+    const genBtn = hdetail.querySelector("#genBtn");
+    if (tr.length === 0) genBtn.disabled = true;
+    genBtn.addEventListener("click", async () => {
+      genBtn.disabled = true;
+      const orig = genBtn.textContent;
+      genBtn.textContent = "生成中…";
+      try {
+        const r = await fetch(`/api/meetings/${encodeURIComponent(botId)}/analyze`, { method: "POST" });
+        const data = await r.json();
+        if (!r.ok) throw new Error(data.error || "生成に失敗しました");
+        renderSummaryInto(hdetail.querySelector("#dsummary"), data.summary || {});
+        renderFeedbackInto(hdetail.querySelector("#dfeedback"), data.feedback || {});
+        loadList(); // 一覧の「要約なし」表示を更新
+      } catch (e) {
+        alert("生成に失敗しました: " + e.message);
+      } finally {
+        genBtn.disabled = false;
+        genBtn.textContent = orig;
+      }
+    });
 
     // 文字起こし
     const dt = hdetail.querySelector("#dtrans");
@@ -135,6 +154,27 @@ async function loadDetail(botId) {
   } catch (e) {
     hdetail.innerHTML = '<div class="empty-state">読み込みに失敗しました。</div>';
   }
+}
+
+function renderSummaryInto(el, s) {
+  s = s || {};
+  let html = "";
+  if (s.overview) html += `<p class="overview">${escapeHtml(s.overview)}</p>`;
+  html += group("要点", s.key_points);
+  html += group("合意事項", s.agreements);
+  html += group("宿題・次アクション", s.action_items);
+  html += group("相手の懸念", s.customer_concerns);
+  el.innerHTML = html || '<div class="empty-state">要約なし（「要約・フィードバックを生成」で作成）</div>';
+}
+function renderFeedbackInto(el, fb) {
+  fb = fb || {};
+  let html = "";
+  if (fb.overall) html += `<p class="overview">${escapeHtml(fb.overall)}</p>`;
+  html += group("良かった点", fb.good_points);
+  html += group("改善点", fb.improvements);
+  html += group("見落とし・機会損失", fb.missed);
+  html += group("次回への宿題", fb.next_steps);
+  el.innerHTML = html || '<div class="empty-state">フィードバックなし（「要約・フィードバックを生成」で作成）</div>';
 }
 
 function group(label, items) {

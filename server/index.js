@@ -7,9 +7,9 @@ import express from "express";
 import { WebSocketServer } from "ws";
 import { createBot, leaveBot, parseTranscriptEvent, getRecordingUrl } from "./recall.js";
 import { createSession, getSession, removeSession } from "./sessions.js";
-import { analyzerInfo } from "./analyzer.js";
-import { initDb, listMeetings, getMeeting, saveSettings } from "./db.js";
+import { initDb, listMeetings, getMeeting, saveSettings, saveAnalysis } from "./db.js";
 import { resolveConfig, statusInfo } from "./config.js";
+import { analyzerInfo, analyzeMeeting } from "./analyzer.js";
 import {
   googleConfigured,
   authUrl,
@@ -195,6 +195,26 @@ app.get("/api/meetings/:id/recording", async (req, res) => {
     res.json({ url: await getRecordingUrl(req.params.id) });
   } catch {
     res.json({ url: null });
+  }
+});
+
+// 履歴：文字起こしから要約＋営業フィードバックを生成して保存
+app.post("/api/meetings/:id/analyze", async (req, res) => {
+  try {
+    const m = await getMeeting(req.params.id);
+    if (!m) return res.status(404).json({ error: "見つかりません" });
+    const tr = Array.isArray(m.transcript) ? m.transcript : [];
+    if (tr.length === 0) return res.status(400).json({ error: "文字起こしがありません" });
+    const transcript = tr
+      .map((u) => `${u.speaker?.name || "話者" + (u.speaker?.id ?? "")}: ${u.text}`)
+      .join("\n")
+      .slice(-24000);
+    const result = await analyzeMeeting({ transcript, repName: m.rep_name });
+    await saveAnalysis(req.params.id, result);
+    res.json(result);
+  } catch (e) {
+    console.error("[analyze meeting]", e.message);
+    res.status(502).json({ error: e.message });
   }
 });
 
