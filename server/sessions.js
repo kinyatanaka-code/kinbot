@@ -2,12 +2,12 @@
 import { analyze } from "./analyzer.js";
 import { createMeeting, saveMeeting } from "./db.js";
 
-const ANALYZE_INTERVAL_MS = Number(process.env.ANALYZE_INTERVAL_MS || 12000);
+const DEFAULT_INTERVAL_MS = Number(process.env.ANALYZE_INTERVAL_MS || 20000);
 
 const sessions = new Map(); // botId -> Session
 
-export function createSession(botId, { repName = "", meetingUrl = "" } = {}) {
-  const s = new Session(botId, repName, meetingUrl);
+export function createSession(botId, { repName = "", meetingUrl = "", analyzeIntervalMs } = {}) {
+  const s = new Session(botId, repName, meetingUrl, analyzeIntervalMs || DEFAULT_INTERVAL_MS);
   sessions.set(botId, s);
   createMeeting(botId, { meetingUrl, repName }); // 履歴に行を作成（DB無効なら無視）
   return s;
@@ -22,7 +22,7 @@ export function removeSession(botId) {
 }
 
 class Session {
-  constructor(botId, repName, meetingUrl) {
+  constructor(botId, repName, meetingUrl, intervalMs) {
     this.botId = botId;
     this.repName = repName;
     this.meetingUrl = meetingUrl;
@@ -31,7 +31,8 @@ class Session {
     this.prevSummary = null;
     this.lastAnalyzedLen = 0;
     this.analyzing = false;
-    this.timer = setInterval(() => this.maybeAnalyze(), ANALYZE_INTERVAL_MS);
+    this.cooldownUntil = 0; // 429などで一時停止する時刻
+    this.timer = setInterval(() => this.maybeAnalyze(), intervalMs);
   }
 
   addSocket(ws) {
@@ -76,6 +77,7 @@ class Session {
   }
 
   async maybeAnalyze() {
+    if (Date.now() < this.cooldownUntil) return; // 429などで休止中
     const full = this.transcriptText();
     if (full.length - this.lastAnalyzedLen < 20) return;
     if (this.analyzing) return;
@@ -98,7 +100,17 @@ class Session {
       });
     } catch (err) {
       console.error("[analyze]", err.message);
-      this.broadcast({ type: "status", state: "analyze_error", message: err.message });
+      // レート上限(429)のときは少し長めに休んでムダ撃ちを防ぐ
+      if (/\b429\b/.test(err.message)) {
+        this.cooldownUntil = Date.now() + 60000;
+        this.broadcast({
+          type: "status",
+          state: "analyze_error",
+          message: "要約AIの無料枠の上限に達しました（約1分休止して再試行します）。",
+        });
+      } else {
+        this.broadcast({ type: "status", state: "analyze_error", message: err.message });
+      }
     } finally {
       this.analyzing = false;
     }

@@ -28,26 +28,32 @@ function headers() {
  */
 // 文字起こしエンジンを選ぶ。RECALL_TRANSCRIBE_PROVIDER = recallai | deepgram | gladia
 // 日本語を低遅延にしたいなら deepgram か gladia を推奨。
-function buildProvider(languageCode, mode) {
-  const p = (process.env.RECALL_TRANSCRIBE_PROVIDER || "recallai").toLowerCase();
+function buildProvider(provider, languageCode, deepgramModel, mode) {
+  const p = (provider || "recallai").toLowerCase();
   if (p === "deepgram") {
     return {
       deepgram_streaming: {
         language: languageCode, // 例: ja
-        model: process.env.DEEPGRAM_MODEL || "nova-2",
+        model: deepgramModel || "nova-2",
         mip_opt_out: true, // 学習に使わせない（機密配慮）
       },
     };
   }
   if (p === "gladia") {
-    // Gladia は多言語・コードスイッチ対応。言語固定が要れば下を調整。
     return { gladia_streaming: {} };
   }
   // 既定: Recall標準（英語以外は accuracy モード）
   return { recallai_streaming: { mode, language_code: languageCode } };
 }
 
-export async function createBot({ meetingUrl, webhookUrl, languageCode = "ja" }) {
+export async function createBot({
+  meetingUrl,
+  webhookUrl,
+  languageCode = "ja",
+  botName = "議事録",
+  provider = "recallai",
+  deepgramModel = "nova-2",
+}) {
   // recallai_streaming 用：英語以外は accuracy（低遅延は英語のみ対応のため）
   const mode =
     process.env.RECALL_MODE ||
@@ -57,10 +63,10 @@ export async function createBot({ meetingUrl, webhookUrl, languageCode = "ja" })
 
   const body = {
     meeting_url: meetingUrl,
-    bot_name: process.env.BOT_NAME || "議事録",
+    bot_name: botName,
     recording_config: {
       transcript: {
-        provider: buildProvider(languageCode, mode),
+        provider: buildProvider(provider, languageCode, deepgramModel, mode),
         // 参加者ごとに別ストリーム＝正確な話者分離（話者名が付く）
         diarization: { use_separate_streams_when_available: true },
       },

@@ -32,6 +32,12 @@ export async function initDb() {
       suggestions JSONB
     );
   `);
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS settings (
+      id   INT PRIMARY KEY,
+      data JSONB
+    );
+  `);
   console.log("[db] Postgres に接続しました（履歴を保存します）。");
 }
 
@@ -80,4 +86,33 @@ export async function getMeeting(botId) {
   if (!pool) return null;
   const { rows } = await pool.query(`SELECT * FROM meetings WHERE bot_id=$1`, [botId]);
   return rows[0] || null;
+}
+
+// ---- アプリ設定（DB保存＋メモリfallback） ----
+let memSettings = {}; // DB未設定時の一時保存
+
+export async function getSettings() {
+  if (!pool) return { ...memSettings };
+  try {
+    const { rows } = await pool.query(`SELECT data FROM settings WHERE id=1`);
+    return rows[0]?.data || {};
+  } catch {
+    return {};
+  }
+}
+
+export async function saveSettings(obj) {
+  memSettings = { ...memSettings, ...obj };
+  if (!pool) return { persisted: false };
+  try {
+    await pool.query(
+      `INSERT INTO settings (id, data) VALUES (1, $1)
+       ON CONFLICT (id) DO UPDATE SET data = settings.data || $1`,
+      [JSON.stringify(obj)]
+    );
+    return { persisted: true };
+  } catch (e) {
+    console.error("[db] saveSettings", e.message);
+    return { persisted: false };
+  }
 }

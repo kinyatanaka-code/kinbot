@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="ja">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>kinbot 設定</title>
+    <link rel="stylesheet" href="style.css" />
+  </head>
+  <body>
+    <div class="app">
+      <nav class="sidebar">
+        <div class="side-brand"><span class="brand-mark"></span><span>kinbot</span></div>
+        <a class="side-item" href="index.html">レコーディング</a>
+        <a class="side-item" href="history.html">商談履歴</a>
+        <a class="side-item active" href="settings.html">設定</a>
+      </nav>
+
+      <div class="main">
+        <header class="topbar"><div class="brand"><span class="brand-name">設定</span></div></header>
+        <main class="settings">
+          <div class="set-card">
+            <h3>動作設定</h3>
+            <label class="field"><span>Bot表示名（会議に出る名前）</span>
+              <input id="botName" type="text" placeholder="議事録" /></label>
+            <label class="field"><span>あなたの表示名（自社担当の既定値）</span>
+              <input id="repName" type="text" placeholder="（任意）" /></label>
+            <label class="field"><span>言語</span>
+              <select id="languageCode">
+                <option value="ja">日本語 (ja)</option>
+                <option value="en">英語 (en)</option>
+              </select></label>
+            <label class="field"><span>文字起こしエンジン</span>
+              <select id="transcribeProvider">
+                <option value="recallai">Recall標準（日本語は遅め・追加キー不要）</option>
+                <option value="deepgram">Deepgram（速い・要キー登録）</option>
+                <option value="gladia">Gladia（速い・多言語・要キー登録）</option>
+              </select></label>
+            <label class="field"><span>Deepgramモデル</span>
+              <input id="deepgramModel" type="text" placeholder="nova-2" /></label>
+            <label class="field"><span>要約・提案の間隔（秒）</span>
+              <input id="analyzeIntervalSec" type="number" min="8" placeholder="20" /></label>
+            <div class="modal-actions">
+              <button class="btn" id="saveBtn">保存</button>
+              <span class="saved" id="saved" hidden>保存しました</span>
+            </div>
+            <p class="note" id="persistNote"></p>
+          </div>
+
+          <div class="set-card">
+            <h3>状態（読み取り専用）</h3>
+            <table class="status-table" id="statusTable"></table>
+            <p class="note">APIキー（Recall / Gemini / Deepgram など）は Railway の Variables で設定します。ここからは変更しません。</p>
+          </div>
+        </main>
+      </div>
+    </div>
+    <script src="settings.js"></script>
+  </body>
+</html>

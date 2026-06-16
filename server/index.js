@@ -8,7 +8,8 @@ import { WebSocketServer } from "ws";
 import { createBot, leaveBot, parseTranscriptEvent, getRecordingUrl } from "./recall.js";
 import { createSession, getSession, removeSession } from "./sessions.js";
 import { analyzerInfo } from "./analyzer.js";
-import { initDb, listMeetings, getMeeting } from "./db.js";
+import { initDb, listMeetings, getMeeting, saveSettings } from "./db.js";
+import { resolveConfig, statusInfo } from "./config.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -76,16 +77,53 @@ app.post("/api/sessions", async (req, res) => {
   if (!meetingUrl) return res.status(400).json({ error: "meetingUrl が必要です" });
   if (!PUBLIC_URL) return res.status(500).json({ error: "PUBLIC_URL が未設定です" });
   try {
+    const cfg = await resolveConfig();
     const botId = await createBot({
       meetingUrl,
       webhookUrl: `${PUBLIC_URL}/api/recall/webhook`,
-      languageCode: languageCode || "ja",
+      languageCode: languageCode || cfg.languageCode,
+      botName: cfg.botName,
+      provider: cfg.transcribeProvider,
+      deepgramModel: cfg.deepgramModel,
     });
-    createSession(botId, { repName, meetingUrl });
+    createSession(botId, {
+      repName: repName || cfg.repName,
+      meetingUrl,
+      analyzeIntervalMs: cfg.analyzeIntervalMs,
+    });
     res.json({ sessionId: botId });
   } catch (e) {
     console.error("[sessions]", e.message);
     res.status(502).json({ error: e.message });
+  }
+});
+
+// --- 設定の取得・保存 ---
+app.get("/api/settings", async (_req, res) => {
+  try {
+    const cfg = await resolveConfig();
+    res.json({ settings: cfg, status: statusInfo(PUBLIC_URL) });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+app.put("/api/settings", async (req, res) => {
+  try {
+    const allowed = [
+      "botName",
+      "languageCode",
+      "transcribeProvider",
+      "deepgramModel",
+      "analyzeIntervalMs",
+      "repName",
+    ];
+    const patch = {};
+    for (const k of allowed) if (k in (req.body || {})) patch[k] = req.body[k];
+    if ("analyzeIntervalMs" in patch) patch.analyzeIntervalMs = Number(patch.analyzeIntervalMs) || 20000;
+    const r = await saveSettings(patch);
+    res.json({ ok: true, ...r });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
   }
 });
 

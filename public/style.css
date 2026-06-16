@@ -242,3 +242,58 @@ body {
   .history { grid-template-columns: 1fr; overflow-y: auto; }
   .dgrid { grid-template-columns: 1fr; }
 }
+
+/* ---------- アプリ構成（サイドバー） ---------- */
+.app { display: flex; flex-direction: row; height: 100vh; width: 100%; }
+.main { flex: 1 1 auto; display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+
+.sidebar {
+  flex: 0 0 200px;
+  background: #1f2421;
+  color: #e8e4da;
+  display: flex;
+  flex-direction: column;
+  padding: 16px 12px;
+  gap: 4px;
+}
+.side-brand {
+  display: flex; align-items: center; gap: 9px;
+  font-size: 16px; font-weight: 700; letter-spacing: 0.06em;
+  padding: 6px 10px 16px;
+}
+.side-brand .brand-mark { width: 11px; height: 11px; border-radius: 3px; background: #3fae8f; }
+.side-item {
+  color: #c9c4b8; text-decoration: none; font-size: 13.5px; font-weight: 600;
+  padding: 10px 12px; border-radius: 9px; letter-spacing: 0.03em;
+}
+.side-item:hover { background: rgba(255,255,255,0.06); color: #fff; }
+.side-item.active { background: var(--accent); color: #fff; }
+
+@media (max-width: 760px) {
+  .app { flex-direction: column; }
+  .sidebar { flex: 0 0 auto; flex-direction: row; overflow-x: auto; padding: 8px; }
+  .side-brand { display: none; }
+}
+
+/* ---------- 設定画面 ---------- */
+.settings {
+  flex: 1 1 auto; overflow-y: auto; padding: 18px;
+  display: grid; grid-template-columns: 1fr 1fr; gap: 16px; align-content: start;
+}
+.set-card {
+  background: var(--panel); border: 1px solid var(--line); border-radius: 14px;
+  box-shadow: var(--shadow); padding: 18px 20px;
+}
+.set-card h3 { margin: 0 0 14px; font-size: 14px; letter-spacing: 0.08em; }
+.set-card .field select,
+.set-card .field input {
+  width: 100%; font-family: inherit; font-size: 13px; padding: 9px 11px;
+  border: 1px solid var(--line); border-radius: 9px; background: var(--panel-2);
+}
+.saved { color: var(--accent); font-size: 12px; margin-left: 10px; }
+.note { font-size: 12px; color: var(--muted); margin-top: 12px; line-height: 1.6; }
+.status-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.status-table td { padding: 7px 4px; border-bottom: 1px solid var(--line); }
+.status-table td:first-child { color: var(--muted); width: 42%; }
+
+@media (max-width: 760px) { .settings { grid-template-columns: 1fr; } }
