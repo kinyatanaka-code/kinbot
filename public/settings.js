@@ -63,10 +63,16 @@ async function loadCalendar() {
       return;
     }
     if (d.connected) {
-      statusEl.textContent = d.email ? `連携済み（${d.email}）` : "連携済み";
-      statusEl.classList.add("ok");
       connectBtn.hidden = true;
       disconnectBtn.hidden = false;
+      if (d.error) {
+        statusEl.textContent = "連携済み（権限エラー）";
+        statusEl.classList.remove("ok");
+        eventsEl.innerHTML = `<li><span class="ev-when">エラー: ${escapeHtml(d.error)}<br>「解除」→「連携する」でやり直し、Googleの画面で<b>カレンダー閲覧の許可にチェック</b>を入れてください。</span></li>`;
+        return;
+      }
+      statusEl.textContent = d.email ? `連携済み（${d.email}）` : "連携済み（アカウント取得中…再連携で表示されます）";
+      statusEl.classList.add("ok");
       const evs = d.events || [];
       eventsEl.innerHTML = evs.length
         ? evs

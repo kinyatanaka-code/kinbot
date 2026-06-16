@@ -4,7 +4,7 @@ import { getSettings, saveSettings } from "./db.js";
 
 const CLIENT_ID = process.env.GOOGLE_CLIENT_ID || "";
 const CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET || "";
-const SCOPE = "https://www.googleapis.com/auth/calendar.events.readonly";
+const SCOPE = "https://www.googleapis.com/auth/calendar.readonly";
 
 export function googleConfigured() {
   return !!(CLIENT_ID && CLIENT_SECRET);
