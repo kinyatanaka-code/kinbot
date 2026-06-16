@@ -3,9 +3,16 @@
 // 仕様: https://docs.recall.ai/docs/bot-real-time-transcription
 // 認証ヘッダは「生のAPIキー」（"Bearer " は付けない）。
 
-const REGION = process.env.RECALL_REGION || "us-west-2";
+// 環境変数に紛れた空白・改行・余計な接頭辞を自動で掃除（事故防止）
+function clean(v, fallback = "") {
+  return (v ?? fallback).toString().trim();
+}
+const REGION = clean(process.env.RECALL_REGION, "us-west-2")
+  .replace(/^https?:\/\//, "") // 誤って https:// を入れても除去
+  .replace(/\.recall\.ai.*$/, "") // 誤って .recall.ai... まで入れても除去
+  .replace(/\s+/g, ""); // 残った空白を除去
 const BASE = `https://${REGION}.recall.ai/api/v1`;
-const API_KEY = process.env.RECALL_API_KEY;
+const API_KEY = clean(process.env.RECALL_API_KEY);
 
 function headers() {
   return {
