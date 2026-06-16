@@ -5,9 +5,10 @@ import http from "node:http";
 import { fileURLToPath } from "node:url";
 import express from "express";
 import { WebSocketServer } from "ws";
-import { createBot, leaveBot, parseTranscriptEvent } from "./recall.js";
+import { createBot, leaveBot, parseTranscriptEvent, getRecordingUrl } from "./recall.js";
 import { createSession, getSession, removeSession } from "./sessions.js";
 import { analyzerInfo } from "./analyzer.js";
+import { initDb, listMeetings, getMeeting } from "./db.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -80,7 +81,7 @@ app.post("/api/sessions", async (req, res) => {
       webhookUrl: `${PUBLIC_URL}/api/recall/webhook`,
       languageCode: languageCode || "ja",
     });
-    createSession(botId, { repName });
+    createSession(botId, { repName, meetingUrl });
     res.json({ sessionId: botId });
   } catch (e) {
     console.error("[sessions]", e.message);
@@ -125,6 +126,31 @@ function verifyRecallRequest(req) {
   return req.get("x-shodan-secret") === WEBHOOK_SECRET;
 }
 
+// --- 履歴API（過去の商談の振り返り） ---
+app.get("/api/meetings", async (_req, res) => {
+  try {
+    res.json(await listMeetings());
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+app.get("/api/meetings/:id", async (req, res) => {
+  try {
+    const m = await getMeeting(req.params.id);
+    if (!m) return res.status(404).json({ error: "見つかりません" });
+    res.json(m);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+app.get("/api/meetings/:id/recording", async (req, res) => {
+  try {
+    res.json({ url: await getRecordingUrl(req.params.id) });
+  } catch {
+    res.json({ url: null });
+  }
+});
+
 const server = http.createServer(app);
 
 // --- ダッシュボード用 WebSocket ---
@@ -143,7 +169,8 @@ wss.on("connection", (ws, req) => {
   ws.on("error", () => s.removeSocket(ws));
 });
 
-server.listen(PORT, () => {
+server.listen(PORT, async () => {
+  await initDb().catch((e) => console.error("[db] init失敗", e.message));
   console.log(`\n  kinbot (Bot方式) → http://localhost:${PORT}`);
   console.log(`  公開URL(Webhook受け口): ${PUBLIC_URL || "(未設定)"}`);
   console.log(`  要約エンジン: ${llm.provider} (${llm.model})\n`);

@@ -1,13 +1,15 @@
 // server/sessions.js
 import { analyze } from "./analyzer.js";
+import { createMeeting, saveMeeting } from "./db.js";
 
 const ANALYZE_INTERVAL_MS = Number(process.env.ANALYZE_INTERVAL_MS || 12000);
 
 const sessions = new Map(); // botId -> Session
 
-export function createSession(botId, { repName = "" } = {}) {
-  const s = new Session(botId, repName);
+export function createSession(botId, { repName = "", meetingUrl = "" } = {}) {
+  const s = new Session(botId, repName, meetingUrl);
   sessions.set(botId, s);
+  createMeeting(botId, { meetingUrl, repName }); // 履歴に行を作成（DB無効なら無視）
   return s;
 }
 export function getSession(botId) {
@@ -20,9 +22,10 @@ export function removeSession(botId) {
 }
 
 class Session {
-  constructor(botId, repName) {
+  constructor(botId, repName, meetingUrl) {
     this.botId = botId;
     this.repName = repName;
+    this.meetingUrl = meetingUrl;
     this.utterances = []; // {speaker:{id,name}, text, ts}
     this.sockets = new Set();
     this.prevSummary = null;
@@ -88,6 +91,11 @@ class Session {
       this.lastSuggestions = result.suggestions;
       this.lastAnalyzedLen = lenAtStart;
       this.broadcast({ type: "analysis", ...result, ts: Date.now() });
+      saveMeeting(this.botId, {
+        transcript: this.utterances,
+        summary: result.summary,
+        suggestions: result.suggestions,
+      });
     } catch (err) {
       console.error("[analyze]", err.message);
       this.broadcast({ type: "status", state: "analyze_error", message: err.message });
@@ -100,5 +108,11 @@ class Session {
     if (this.timer) clearInterval(this.timer);
     this.timer = null;
     this.maybeAnalyze();
+    // 最終状態を保存（分析待ちでも文字起こしは残す）
+    saveMeeting(this.botId, {
+      transcript: this.utterances,
+      summary: this.prevSummary,
+      suggestions: this.lastSuggestions || [],
+    });
   }
 }

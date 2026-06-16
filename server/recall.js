@@ -57,6 +57,7 @@ export async function createBot({ meetingUrl, webhookUrl, languageCode = "ja" })
 
   const body = {
     meeting_url: meetingUrl,
+    bot_name: process.env.BOT_NAME || "議事録",
     recording_config: {
       transcript: {
         provider: buildProvider(languageCode, mode),
@@ -135,4 +136,40 @@ export function parseTranscriptEvent(body) {
     speaker: { id: p.id ?? null, name: p.name ?? null },
     text,
   };
+}
+
+/** Botの詳細を取得（録画URLの取り出しに使う） */
+export async function getBot(botId) {
+  const res = await fetch(`${BASE}/bot/${botId}/`, { headers: headers() });
+  if (!res.ok) throw new Error(`Recall get bot ${res.status}`);
+  return res.json();
+}
+
+/** Botの応答から録画(動画)URLを最善努力で探す（スキーマ差異に強く） */
+export async function getRecordingUrl(botId) {
+  const data = await getBot(botId);
+  let found = null;
+  (function walk(o) {
+    if (found || o == null) return;
+    if (typeof o === "string") {
+      if (/^https?:\/\/.+\.mp4/i.test(o)) found = o;
+      return;
+    }
+    if (Array.isArray(o)) return o.forEach(walk);
+    if (typeof o === "object") {
+      for (const [k, v] of Object.entries(o)) {
+        if (found) break;
+        if (
+          typeof v === "string" &&
+          /^https?:\/\//.test(v) &&
+          /(download_url|\.mp4|video)/i.test(k + " " + v)
+        ) {
+          found = v;
+          break;
+        }
+        walk(v);
+      }
+    }
+  })(data);
+  return found;
 }

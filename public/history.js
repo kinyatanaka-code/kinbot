@@ -1,0 +1,130 @@
+// public/history.js
+const hlist = document.getElementById("hlist");
+const hdetail = document.getElementById("hdetail");
+
+const fmtDate = (s) => {
+  try {
+    return new Date(s).toLocaleString("ja-JP", {
+      month: "numeric",
+      day: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+  } catch {
+    return s || "";
+  }
+};
+const labelOf = (sp) => (sp ? sp.name || "話者" + (sp.id ?? "") : "話者");
+
+async function loadList() {
+  try {
+    const res = await fetch("/api/meetings");
+    const rows = await res.json();
+    if (!Array.isArray(rows) || rows.length === 0) {
+      hlist.innerHTML =
+        '<div class="empty-state">まだ履歴がありません。商談を1件記録すると、ここに並びます。<br><small>（履歴の保存には DATABASE_URL の設定が必要です）</small></div>';
+      return;
+    }
+    hlist.innerHTML = "";
+    for (const r of rows) {
+      const overview = r.summary && r.summary.overview ? r.summary.overview : "（要約なし）";
+      const card = document.createElement("button");
+      card.className = "hcard";
+      card.innerHTML = `<div class="hcard-top"><span class="hcard-date"></span><span class="hcard-rep"></span></div><div class="hcard-ov"></div>`;
+      card.querySelector(".hcard-date").textContent = fmtDate(r.created_at);
+      card.querySelector(".hcard-rep").textContent = r.rep_name || "";
+      card.querySelector(".hcard-ov").textContent = overview;
+      card.addEventListener("click", () => {
+        document.querySelectorAll(".hcard").forEach((c) => c.classList.remove("active"));
+        card.classList.add("active");
+        loadDetail(r.bot_id);
+      });
+      hlist.appendChild(card);
+    }
+  } catch (e) {
+    hlist.innerHTML = '<div class="empty-state">読み込みに失敗しました。</div>';
+  }
+}
+
+async function loadDetail(botId) {
+  hdetail.innerHTML = '<div class="empty-state">読み込み中…</div>';
+  try {
+    const res = await fetch(`/api/meetings/${encodeURIComponent(botId)}`);
+    const m = await res.json();
+    const s = m.summary || {};
+    const sug = Array.isArray(m.suggestions) ? m.suggestions : [];
+    const tr = Array.isArray(m.transcript) ? m.transcript : [];
+
+    hdetail.innerHTML = `
+      <div class="dhead">
+        <div class="dmeta"></div>
+        <a class="btn ghost rec" id="recBtn" hidden target="_blank" rel="noopener">録画を見る</a>
+      </div>
+      <div class="dgrid">
+        <div class="dcol">
+          <h3>要約</h3>
+          <div id="dsummary"></div>
+          <h3>次の一手（記録）</h3>
+          <div id="dmoves"></div>
+        </div>
+        <div class="dcol">
+          <h3>文字起こし</h3>
+          <div id="dtrans"></div>
+        </div>
+      </div>`;
+
+    hdetail.querySelector(".dmeta").textContent =
+      `${fmtDate(m.created_at)}　${m.rep_name || ""}　${m.meeting_url || ""}`;
+
+    // 要約
+    const ds = hdetail.querySelector("#dsummary");
+    if (s.overview) ds.innerHTML = `<p class="overview">${escapeHtml(s.overview)}</p>`;
+    ds.innerHTML += group("要点", s.key_points);
+    ds.innerHTML += group("合意事項", s.agreements);
+    ds.innerHTML += group("宿題・次アクション", s.action_items);
+    ds.innerHTML += group("相手の懸念", s.customer_concerns);
+    if (!s.overview && !(s.key_points || []).length) ds.innerHTML = '<div class="empty-state">要約なし</div>';
+
+    // 次の一手
+    const dm = hdetail.querySelector("#dmoves");
+    dm.innerHTML = sug.length
+      ? sug.map((x) => `<div class="mini-card"><b>${escapeHtml(x.title || "")}</b><br>${escapeHtml(x.detail || "")}</div>`).join("")
+      : '<div class="empty-state">記録なし</div>';
+
+    // 文字起こし
+    const dt = hdetail.querySelector("#dtrans");
+    dt.innerHTML = tr.length
+      ? tr.map((u) => `<div class="tline"><span class="spk2">${escapeHtml(labelOf(u.speaker))}</span>${escapeHtml(u.text)}</div>`).join("")
+      : '<div class="empty-state">文字起こしなし</div>';
+
+    // 録画（あれば）
+    fetch(`/api/meetings/${encodeURIComponent(botId)}/recording`)
+      .then((r) => r.json())
+      .then((d) => {
+        if (d && d.url) {
+          const b = hdetail.querySelector("#recBtn");
+          b.href = d.url;
+          b.hidden = false;
+        }
+      })
+      .catch(() => {});
+  } catch (e) {
+    hdetail.innerHTML = '<div class="empty-state">読み込みに失敗しました。</div>';
+  }
+}
+
+function group(label, items) {
+  if (!Array.isArray(items) || items.length === 0) return "";
+  return (
+    `<div class="sgroup"><div class="label">${label}</div><ul>` +
+    items.map((i) => `<li>${escapeHtml(i)}</li>`).join("") +
+    `</ul></div>`
+  );
+}
+function escapeHtml(s) {
+  return String(s ?? "").replace(/[&<>"']/g, (c) =>
+    ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c])
+  );
+}
+
+loadList();
