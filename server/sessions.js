@@ -1,6 +1,6 @@
 // server/sessions.js
-import { analyze } from "./analyzer.js";
-import { createMeeting, saveMeeting } from "./db.js";
+import { analyze, analyzeMeeting, analyzeDeep } from "./analyzer.js";
+import { createMeeting, saveMeeting, saveAnalysis, saveDeepAnalysis } from "./db.js";
 
 const DEFAULT_INTERVAL_MS = Number(process.env.ANALYZE_INTERVAL_MS || 20000);
 
@@ -126,5 +126,28 @@ class Session {
       summary: this.prevSummary,
       suggestions: this.lastSuggestions || [],
     });
+    // 商談終了 → 要約・営業FB・分析を自動生成（バックグラウンド）
+    this.finalizeAnalysis();
+  }
+
+  // 文字起こしから 要約＋FB と 深掘り分析 を自動生成して保存
+  async finalizeAnalysis() {
+    if (this.finalized) return;
+    this.finalized = true;
+    const transcript = this.transcriptText().slice(-12000);
+    if (transcript.trim().length < 20) return; // 中身がなければ何もしない
+    try {
+      const rev = await analyzeMeeting({ transcript, repName: this.repName });
+      await saveAnalysis(this.botId, rev);
+      this.broadcast({ type: "analysis", ...rev, ts: Date.now() });
+    } catch (e) {
+      console.error("[auto review]", e.message);
+    }
+    try {
+      const deep = await analyzeDeep({ transcript, repName: this.repName });
+      await saveDeepAnalysis(this.botId, deep);
+    } catch (e) {
+      console.error("[auto deep]", e.message);
+    }
   }
 }

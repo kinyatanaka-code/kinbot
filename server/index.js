@@ -154,16 +154,36 @@ app.post("/api/recall/webhook", (req, res) => {
   setImmediate(() => {
     try {
       const ev = parseTranscriptEvent(req.body);
-      if (!ev || !ev.botId) return;
-      let s = getSession(ev.botId);
-      if (!s) s = createSession(ev.botId, {}); // 予約Bot等：受信時に遅延作成して保存
-      if (ev.type === "final") s.onFinal(ev.speaker, ev.text);
-      else s.onPartial(ev.speaker, ev.text);
+      if (ev && ev.botId) {
+        let s = getSession(ev.botId);
+        if (!s) s = createSession(ev.botId, {}); // 予約Bot等：受信時に遅延作成して保存
+        if (ev.type === "final") s.onFinal(ev.speaker, ev.text);
+        else s.onPartial(ev.speaker, ev.text);
+        return;
+      }
+      // 文字起こし以外＝完了/退出系イベントなら、セッションを締めて自動生成
+      const name = String(req.body?.event || req.body?.type || "").toLowerCase();
+      if (/done|ended|finished|fatal|complete|left|leave/.test(name)) {
+        const botId = findBotId(req.body);
+        if (botId && getSession(botId)) removeSession(botId); // dispose→自動で要約/FB/分析
+      }
     } catch (e) {
       console.error("[webhook]", e.message);
     }
   });
 });
+
+// Webhookのいろいろな形からbot idを探す
+function findBotId(body) {
+  const cands = [
+    body?.data?.bot?.id,
+    body?.data?.bot_id,
+    body?.bot?.id,
+    body?.bot_id,
+    body?.data?.id,
+  ];
+  return cands.find((x) => typeof x === "string") || null;
+}
 
 // 署名検証（本番では Recall 公式の検証を実装すること）
 // https://docs.recall.ai/docs/authenticating-requests-from-recallai
