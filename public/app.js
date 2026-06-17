@@ -1,9 +1,9 @@
 // public/app.js
 const $ = (id) => document.getElementById(id);
 const els = {
-  joinBar: $("joinBar"),
+  viewJoin: $("viewJoin"),
+  viewLive: $("viewLive"),
   meetingUrl: $("meetingUrl"),
-  repName: $("repName"),
   meetingTitle: $("meetingTitle"),
   joinBtn: $("joinBtn"),
   liveControls: $("liveControls"),
@@ -52,7 +52,6 @@ async function loadLinks() {
 
 async function joinMeeting() {
   const meetingUrl = els.meetingUrl.value.trim();
-  const repName = els.repName.value.trim();
   const title = els.meetingTitle ? els.meetingTitle.value.trim() : "";
   if (!meetingUrl) {
     setStatus("会議URLを入力してください。");
@@ -64,7 +63,7 @@ async function joinMeeting() {
     const res = await fetch("/api/sessions", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ meetingUrl, repName, title }),
+      body: JSON.stringify({ meetingUrl, title }),
     });
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || "作成に失敗しました");
@@ -79,7 +78,8 @@ async function joinMeeting() {
 }
 
 function enterLiveMode() {
-  els.joinBar.hidden = true;
+  els.viewJoin.hidden = true;
+  els.viewLive.hidden = false;
   els.liveControls.hidden = false;
   els.sttHint.textContent = "接続待ち";
   startTimer();
@@ -97,11 +97,19 @@ async function leaveMeeting() {
   stopTimer();
   setConn("idle");
   els.liveControls.hidden = true;
-  els.joinBar.hidden = false;
+  els.viewLive.hidden = true;
+  els.viewJoin.hidden = false;
   els.joinBtn.disabled = false;
   els.sttHint.textContent = "待機中";
   els.partial.textContent = "";
-  setStatus("Botを退出させました。要約は最後の状態を保持しています。");
+  // 次の商談のために表示をリセット
+  els.transcript.innerHTML = '<div class="empty-state" id="transcriptEmpty">Botが入室すると、発言が話者ごとに流れます。</div>';
+  els.transcriptEmpty = $("transcriptEmpty");
+  els.summary.innerHTML = '<div class="empty-state">会話が進むと、状況・要点・合意・宿題・相手の懸念を自動でまとめます。</div>';
+  els.moves.innerHTML = '<div class="empty-state">深掘り質問・切り返し・クロージングの好機・見落としリスクを提案します。</div>';
+  els.meetingTitle.value = "";
+  els.meetingUrl.value = "";
+  setStatus("Botを退出させました。要約・分析は履歴に保存されます。");
 }
 
 function openSocket() {

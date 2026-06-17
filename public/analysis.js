@@ -20,22 +20,28 @@ async function init() {
   } catch {
     all = [];
   }
-  const reps = [...new Set(all.map((m) => (m.rep_name || "").trim()).filter(Boolean))];
-  for (const r of reps) {
+  // 所有者（録画したアカウント）でプルダウンを構築
+  const seen = new Map(); // owner -> label
+  for (const m of all) {
+    const owner = (m.owner || "").trim();
+    if (!owner) continue;
+    if (!seen.has(owner)) seen.set(owner, (m.owner_name || "").trim() || owner);
+  }
+  for (const [owner, label] of seen) {
     const o = document.createElement("option");
-    o.value = r;
-    o.textContent = r;
+    o.value = owner;
+    o.textContent = label;
     $("fRep").appendChild(o);
   }
   render();
 }
 
 function applyFilter() {
-  const rep = $("fRep").value.trim();
+  const owner = $("fRep").value.trim();
   const from = $("fFrom").value ? new Date($("fFrom").value + "T00:00:00") : null;
   const to = $("fTo").value ? new Date($("fTo").value + "T23:59:59") : null;
   return all.filter((m) => {
-    if (rep && (m.rep_name || "").trim() !== rep) return false;
+    if (owner && (m.owner || "").trim() !== owner) return false;
     const d = new Date(m.created_at);
     if (from && d < from) return false;
     if (to && d > to) return false;
@@ -81,7 +87,7 @@ function renderList(rows) {
     li.className = "arow";
     const ok = m.analysis && m.analysis.scores;
     li.innerHTML = `<span class="a-title">${escapeHtml(m.title || "(商談名なし)")}</span>
-      <span class="a-rep">${escapeHtml(m.rep_name || "")}</span>
+      <span class="a-rep">${escapeHtml(m.owner_name || m.owner || m.rep_name || "")}</span>
       <span class="a-date">${fmtDate(m.created_at)}</span>
       <span class="a-flag ${ok ? "ok" : ""}">${ok ? "分析済み" : "未分析"}</span>`;
     li.addEventListener("click", () => {

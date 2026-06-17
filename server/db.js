@@ -103,13 +103,16 @@ export async function saveMeeting(botId, { transcript, summary, suggestions }) {
 
 export async function listMeetings({ owner, isAdmin } = {}) {
   if (!pool) return [];
-  const base = `SELECT bot_id, meeting_url, rep_name, title, owner, created_at, updated_at, summary, analysis FROM meetings`;
+  const base = `SELECT m.bot_id, m.meeting_url, m.rep_name, m.title, m.owner,
+                       m.created_at, m.updated_at, m.summary, m.analysis,
+                       u.name AS owner_name
+                FROM meetings m LEFT JOIN users u ON u.email = m.owner`;
   if (isAdmin || !owner) {
-    const { rows } = await pool.query(`${base} ORDER BY created_at DESC LIMIT 300`);
+    const { rows } = await pool.query(`${base} ORDER BY m.created_at DESC LIMIT 300`);
     return rows;
   }
   const { rows } = await pool.query(
-    `${base} WHERE owner=$1 OR owner IS NULL OR owner='' ORDER BY created_at DESC LIMIT 300`,
+    `${base} WHERE m.owner=$1 OR m.owner IS NULL OR m.owner='' ORDER BY m.created_at DESC LIMIT 300`,
     [owner]
   );
   return rows;

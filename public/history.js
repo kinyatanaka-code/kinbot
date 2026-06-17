@@ -63,9 +63,9 @@ async function loadDetail(botId) {
           <button class="btn" id="genBtn">要約・FB生成</button>
           <button class="btn" id="deepBtn">分析を生成</button>
           <button class="btn ghost" id="copyBtn">全文コピー</button>
-          <a class="btn ghost rec" id="recBtn" hidden target="_blank" rel="noopener">録画を見る</a>
         </div>
       </div>
+      <div class="drec" id="drec"></div>
       <div class="dgrid">
         <div class="dcol">
           <h3>要約</h3>
@@ -168,17 +168,24 @@ async function loadDetail(botId) {
       ? tr.map((u) => `<div class="tline"><span class="spk2">${escapeHtml(labelOf(u.speaker))}</span>${escapeHtml(u.text)}</div>`).join("")
       : '<div class="empty-state">文字起こしなし</div>';
 
-    // 録画（あれば）
+    // 録画（あれば）アプリ内で再生
+    const drec = hdetail.querySelector("#drec");
+    drec.innerHTML = '<div class="rec-loading">録画を確認中…</div>';
     fetch(`/api/meetings/${encodeURIComponent(botId)}/recording`)
       .then((r) => r.json())
       .then((d) => {
         if (d && d.url) {
-          const b = hdetail.querySelector("#recBtn");
-          b.href = d.url;
-          b.hidden = false;
+          drec.innerHTML = `
+            <video class="rec-video" controls preload="metadata" playsinline></video>
+            <a class="rec-open" href="${escapeHtml(d.url)}" target="_blank" rel="noopener">別タブで開く</a>`;
+          drec.querySelector("video").src = d.url;
+        } else {
+          drec.innerHTML = '<div class="rec-none">録画はまだありません（会議終了後に生成されます）。</div>';
         }
       })
-      .catch(() => {});
+      .catch(() => {
+        drec.innerHTML = '<div class="rec-none">録画を取得できませんでした。</div>';
+      });
   } catch (e) {
     hdetail.innerHTML = '<div class="empty-state">読み込みに失敗しました。</div>';
   }
