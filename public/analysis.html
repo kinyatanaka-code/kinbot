@@ -17,12 +17,28 @@
       </nav>
 
       <div class="main">
-        <header class="topbar"><div class="brand"><span class="brand-name">分析</span></div></header>
-        <main class="history">
-          <aside class="hlist" id="hlist"><div class="empty-state">読み込み中…</div></aside>
-          <section class="hdetail" id="hdetail">
-            <div class="empty-state">左の一覧から商談を選ぶと、トーク割合・質問数などの客観指標と、AIによる評価（スコア・BANT・購買シグナル等）を表示します。</div>
-          </section>
+        <header class="topbar"><div class="brand"><span class="brand-name">分析（全商談の振り返り）</span></div></header>
+        <main class="analysis-page">
+          <div class="filters">
+            <label>営業担当者
+              <select id="fRep"><option value="">全員</option></select>
+            </label>
+            <label>開始日
+              <input type="date" id="fFrom" />
+            </label>
+            <label>終了日
+              <input type="date" id="fTo" />
+            </label>
+            <button class="btn" id="fApply">絞り込み</button>
+            <button class="btn ghost" id="fClear">クリア</button>
+          </div>
+
+          <div class="agg" id="agg"></div>
+
+          <div class="alist-wrap">
+            <h3>対象の商談（クリックで詳細へ）</h3>
+            <ul class="alist" id="alist"><li class="empty-state">読み込み中…</li></ul>
+          </div>
         </main>
       </div>
     </div>

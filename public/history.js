@@ -60,7 +60,8 @@ async function loadDetail(botId) {
       <div class="dhead">
         <div class="dmeta"></div>
         <div class="dactions">
-          <button class="btn" id="genBtn">要約・フィードバックを生成</button>
+          <button class="btn" id="genBtn">要約・FB生成</button>
+          <button class="btn" id="deepBtn">分析を生成</button>
           <button class="btn ghost" id="copyBtn">全文コピー</button>
           <a class="btn ghost rec" id="recBtn" hidden target="_blank" rel="noopener">録画を見る</a>
         </div>
@@ -71,6 +72,10 @@ async function loadDetail(botId) {
           <div id="dsummary"></div>
           <h3>営業フィードバック</h3>
           <div id="dfeedback"></div>
+          <h3>客観指標（自動計算）</h3>
+          <div id="dmetrics"></div>
+          <h3>AIによる評価</h3>
+          <div id="dai"></div>
           <h3>次の一手（記録）</h3>
           <div id="dmoves"></div>
         </div>
@@ -106,6 +111,28 @@ async function loadDetail(botId) {
 
     renderSummaryInto(hdetail.querySelector("#dsummary"), s);
     renderFeedbackInto(hdetail.querySelector("#dfeedback"), m.feedback || {});
+    renderMetricsInto(hdetail.querySelector("#dmetrics"), tr, m.rep_name);
+    renderAiInto(hdetail.querySelector("#dai"), m.analysis);
+
+    // 分析（スコア・BANT等）を生成
+    const deepBtn = hdetail.querySelector("#deepBtn");
+    if (tr.length === 0) deepBtn.disabled = true;
+    deepBtn.addEventListener("click", async () => {
+      deepBtn.disabled = true;
+      const orig = deepBtn.textContent;
+      deepBtn.textContent = "生成中…";
+      try {
+        const r = await fetch(`/api/meetings/${encodeURIComponent(botId)}/deep-analyze`, { method: "POST" });
+        const data = await r.json();
+        if (!r.ok) throw new Error(data.error || "生成に失敗しました");
+        renderAiInto(hdetail.querySelector("#dai"), data);
+      } catch (e) {
+        alert("生成に失敗しました: " + e.message);
+      } finally {
+        deepBtn.disabled = false;
+        deepBtn.textContent = orig;
+      }
+    });
 
     // 次の一手（ライブ中の記録）
     const dm = hdetail.querySelector("#dmoves");
@@ -186,10 +213,89 @@ function group(label, items) {
     `</ul></div>`
   );
 }
+function computeMetrics(tr, repName) {
+  const by = new Map();
+  let total = 0;
+  for (const u of tr) {
+    const name = labelOf(u.speaker);
+    const t = u.text || "";
+    if (!by.has(name)) by.set(name, { chars: 0, turns: 0, questions: 0 });
+    const o = by.get(name);
+    o.chars += t.length;
+    o.turns += 1;
+    if (/[?？]/.test(t)) o.questions += 1;
+    total += t.length;
+  }
+  const speakers = [...by.entries()]
+    .map(([name, o]) => ({
+      name, chars: o.chars, turns: o.turns, questions: o.questions,
+      ratio: total ? Math.round((o.chars / total) * 100) : 0,
+      isRep: repName && name.includes(repName),
+    }))
+    .sort((a, b) => b.chars - a.chars);
+  return { speakers };
+}
+function renderMetricsInto(el, tr, repName) {
+  if (!tr.length) {
+    el.innerHTML = '<div class="empty-state">文字起こしがありません。</div>';
+    return;
+  }
+  const m = computeMetrics(tr, repName);
+  const rep = m.speakers.find((s) => s.isRep);
+  let html = "";
+  if (rep) {
+    const judge = rep.ratio <= 50 ? "良い（相手に話させている）" : "自社が話しすぎ気味";
+    html += `<p class="metric-note">自社トーク割合：<b>${rep.ratio}%</b>（目安40〜50%。${judge}）</p>`;
+  }
+  html += '<div class="bars">';
+  for (const s of m.speakers) {
+    html += `<div class="bar-row"><span class="bar-name">${escapeHtml(s.name)}${s.isRep ? "（自社）" : ""}</span><span class="bar-track"><span class="bar-fill${s.isRep ? " rep" : ""}" style="width:${s.ratio}%"></span></span><span class="bar-val">${s.ratio}%</span></div>`;
+  }
+  html += "</div>";
+  const repQ = rep ? rep.questions : m.speakers.reduce((a, s) => a + s.questions, 0);
+  html += `<p class="metric-note">質問の回数：<b>${repQ}</b>${rep ? "（自社）" : "（全体）"}　／　発話ターン合計：<b>${m.speakers.reduce((a, s) => a + s.turns, 0)}</b></p>`;
+  el.innerHTML = html;
+}
+function renderAiInto(el, a) {
+  if (!a || (!a.scores && !a.bant && !a.needs)) {
+    el.innerHTML = '<div class="empty-state">「分析を生成」を押すと、スコア・BANT・購買シグナル等を作成します。</div>';
+    return;
+  }
+  let html = "";
+  const sc = a.scores || {};
+  const dims = [["hearing", "ヒアリング"], ["proposal", "提案"], ["closing", "クロージング"], ["listening", "傾聴"]];
+  html += '<div class="scores">';
+  for (const [k, jp] of dims) {
+    const v = Number(sc[k]) || 0;
+    html += `<div class="score-row"><span class="score-name">${jp}</span><span class="dots">${[1, 2, 3, 4, 5].map((n) => `<span class="dot${n <= v ? " on" : ""}"></span>`).join("")}</span><span class="score-val">${v}/5</span></div>`;
+  }
+  html += "</div>";
+  const b = a.bant || {};
+  if (b.budget || b.authority || b.need || b.timeline) {
+    html += '<div class="sgroup"><div class="label">BANT</div><table class="bant">';
+    html += `<tr><td>予算</td><td>${escapeHtml(b.budget || "未確認")}</td></tr>`;
+    html += `<tr><td>決裁者</td><td>${escapeHtml(b.authority || "未確認")}</td></tr>`;
+    html += `<tr><td>必要性</td><td>${escapeHtml(b.need || "未確認")}</td></tr>`;
+    html += `<tr><td>時期</td><td>${escapeHtml(b.timeline || "未確認")}</td></tr>`;
+    html += "</table></div>";
+  }
+  if (a.next_step) html += `<div class="sgroup"><div class="label">次アクションの明確さ</div><p>${escapeHtml(a.next_step)}</p></div>`;
+  html += group("把握した課題・ニーズ", a.needs);
+  html += group("購買シグナル", a.buying_signals);
+  html += group("懸念と対応", a.objections);
+  html += group("競合の言及", a.competitors);
+  html += group("コーチング", a.coaching);
+  el.innerHTML = html;
+}
+
 function escapeHtml(s) {
   return String(s ?? "").replace(/[&<>"']/g, (c) =>
     ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c])
   );
 }
 
-loadList();
+loadList().then(() => {
+  // 分析タブなどから ?id=botId で来たら、その商談を自動で開く
+  const id = new URLSearchParams(location.search).get("id");
+  if (id) loadDetail(id);
+});

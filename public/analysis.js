@@ -1,6 +1,6 @@
 // public/analysis.js
-const hlist = document.getElementById("hlist");
-const hdetail = document.getElementById("hdetail");
+const $ = (id) => document.getElementById(id);
+let all = [];
 
 const fmtDate = (s) => {
   try {
@@ -9,167 +9,94 @@ const fmtDate = (s) => {
     return s || "";
   }
 };
-const labelOf = (sp) => (sp ? sp.name || "話者" + (sp.id ?? "") : "話者");
 function escapeHtml(s) {
   return String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 }
 
-async function loadList() {
+async function init() {
   try {
-    const rows = await (await fetch("/api/meetings")).json();
-    if (!Array.isArray(rows) || rows.length === 0) {
-      hlist.innerHTML = '<div class="empty-state">まだ履歴がありません。商談を記録すると、ここで分析できます。</div>';
-      return;
-    }
-    hlist.innerHTML = "";
-    for (const r of rows) {
-      const card = document.createElement("button");
-      card.className = "hcard";
-      card.innerHTML = `<div class="hcard-title"></div><div class="hcard-top"><span class="hcard-date"></span><span class="hcard-rep"></span></div>`;
-      card.querySelector(".hcard-title").textContent = r.title || "(商談名なし)";
-      card.querySelector(".hcard-date").textContent = fmtDate(r.created_at);
-      card.querySelector(".hcard-rep").textContent = r.rep_name || "";
-      card.addEventListener("click", () => {
-        document.querySelectorAll(".hcard").forEach((c) => c.classList.remove("active"));
-        card.classList.add("active");
-        loadDetail(r.bot_id);
-      });
-      hlist.appendChild(card);
-    }
+    all = await (await fetch("/api/meetings")).json();
+    if (!Array.isArray(all)) all = [];
   } catch {
-    hlist.innerHTML = '<div class="empty-state">読み込みに失敗しました。</div>';
+    all = [];
   }
+  const reps = [...new Set(all.map((m) => (m.rep_name || "").trim()).filter(Boolean))];
+  for (const r of reps) {
+    const o = document.createElement("option");
+    o.value = r;
+    o.textContent = r;
+    $("fRep").appendChild(o);
+  }
+  render();
 }
 
-// 文字起こしから客観指標を計算（LLM不要）
-function computeMetrics(tr, repName) {
-  const by = new Map(); // name -> {chars, turns, questions}
-  let totalChars = 0;
-  for (const u of tr) {
-    const name = labelOf(u.speaker);
-    const t = u.text || "";
-    if (!by.has(name)) by.set(name, { chars: 0, turns: 0, questions: 0 });
-    const o = by.get(name);
-    o.chars += t.length;
-    o.turns += 1;
-    if (/[?？]/.test(t)) o.questions += 1;
-    totalChars += t.length;
-  }
-  const speakers = [...by.entries()].map(([name, o]) => ({
-    name,
-    chars: o.chars,
-    turns: o.turns,
-    questions: o.questions,
-    ratio: totalChars ? Math.round((o.chars / totalChars) * 100) : 0,
-    isRep: repName && name.includes(repName),
-  }));
-  speakers.sort((a, b) => b.chars - a.chars);
-  return { speakers, totalChars };
+function applyFilter() {
+  const rep = $("fRep").value.trim();
+  const from = $("fFrom").value ? new Date($("fFrom").value + "T00:00:00") : null;
+  const to = $("fTo").value ? new Date($("fTo").value + "T23:59:59") : null;
+  return all.filter((m) => {
+    if (rep && (m.rep_name || "").trim() !== rep) return false;
+    const d = new Date(m.created_at);
+    if (from && d < from) return false;
+    if (to && d > to) return false;
+    return true;
+  });
 }
 
-function renderMetrics(el, tr, repName) {
-  if (!tr.length) {
-    el.innerHTML = '<div class="empty-state">文字起こしがありません。</div>';
-    return;
-  }
-  const m = computeMetrics(tr, repName);
-  const rep = m.speakers.find((s) => s.isRep);
-  const repRatio = rep ? rep.ratio : null;
-  let html = "";
-  if (repRatio != null) {
-    const judge = repRatio <= 50 ? "良い（相手に話させている）" : "自社が話しすぎ気味";
-    html += `<p class="metric-note">自社トーク割合：<b>${repRatio}%</b>（目安は40〜50%。${judge}）</p>`;
-  }
-  html += '<div class="bars">';
-  for (const s of m.speakers) {
-    html += `<div class="bar-row"><span class="bar-name">${escapeHtml(s.name)}${s.isRep ? "（自社）" : ""}</span>
-      <span class="bar-track"><span class="bar-fill${s.isRep ? " rep" : ""}" style="width:${s.ratio}%"></span></span>
-      <span class="bar-val">${s.ratio}%</span></div>`;
-  }
-  html += "</div>";
-  const repQ = rep ? rep.questions : m.speakers.reduce((a, s) => a + s.questions, 0);
-  html += `<p class="metric-note">質問の回数：<b>${repQ}</b>${rep ? "（自社）" : "（全体）"}　／　発話ターン合計：<b>${m.speakers.reduce((a, s) => a + s.turns, 0)}</b></p>`;
-  el.innerHTML = html;
+function render() {
+  const rows = applyFilter();
+  renderAgg(rows);
+  renderList(rows);
 }
 
-function group(label, items) {
-  if (!Array.isArray(items) || items.length === 0) return "";
-  return `<div class="sgroup"><div class="label">${label}</div><ul>` + items.map((i) => `<li>${escapeHtml(i)}</li>`).join("") + `</ul></div>`;
-}
-
-function renderAi(el, a) {
-  if (!a || (!a.scores && !a.bant && !a.needs)) {
-    el.innerHTML = '<div class="empty-state">「AI分析を生成」を押すと、スコア・BANT・購買シグナル等を作成します。</div>';
-    return;
-  }
-  let html = "";
-  // スコア
-  const sc = a.scores || {};
+function renderAgg(rows) {
+  const analyzed = rows.filter((m) => m.analysis && m.analysis.scores);
   const dims = [["hearing", "ヒアリング"], ["proposal", "提案"], ["closing", "クロージング"], ["listening", "傾聴"]];
-  html += '<div class="scores">';
-  for (const [k, jp] of dims) {
-    const v = Number(sc[k]) || 0;
-    html += `<div class="score-row"><span class="score-name">${jp}</span><span class="dots">${[1, 2, 3, 4, 5].map((n) => `<span class="dot${n <= v ? " on" : ""}"></span>`).join("")}</span><span class="score-val">${v}/5</span></div>`;
+  let html = `<div class="agg-head">対象 <b>${rows.length}</b> 件（うち分析済み <b>${analyzed.length}</b> 件）</div>`;
+  if (analyzed.length) {
+    html += '<div class="agg-scores">';
+    for (const [k, jp] of dims) {
+      const vals = analyzed.map((m) => Number(m.analysis.scores[k]) || 0).filter((v) => v > 0);
+      const avg = vals.length ? vals.reduce((a, b) => a + b, 0) / vals.length : 0;
+      const pct = Math.round((avg / 5) * 100);
+      html += `<div class="agg-row"><span class="agg-name">${jp}</span><span class="bar-track"><span class="bar-fill rep" style="width:${pct}%"></span></span><span class="agg-val">${avg.toFixed(1)}/5</span></div>`;
+    }
+    html += "</div>";
+    html += '<p class="metric-note">※ 平均スコアは「分析を生成」済みの商談のみで計算します。</p>';
+  } else {
+    html += '<p class="metric-note">この条件で分析済みの商談がありません。各商談の詳細で「分析を生成」すると、ここに平均スコアが出ます。</p>';
   }
-  html += "</div>";
-  // BANT
-  const b = a.bant || {};
-  if (b.budget || b.authority || b.need || b.timeline) {
-    html += '<div class="sgroup"><div class="label">BANT</div><table class="bant">';
-    html += `<tr><td>予算</td><td>${escapeHtml(b.budget || "未確認")}</td></tr>`;
-    html += `<tr><td>決裁者</td><td>${escapeHtml(b.authority || "未確認")}</td></tr>`;
-    html += `<tr><td>必要性</td><td>${escapeHtml(b.need || "未確認")}</td></tr>`;
-    html += `<tr><td>時期</td><td>${escapeHtml(b.timeline || "未確認")}</td></tr>`;
-    html += "</table></div>";
-  }
-  if (a.next_step) html += `<div class="sgroup"><div class="label">次アクションの明確さ</div><p>${escapeHtml(a.next_step)}</p></div>`;
-  html += group("把握した課題・ニーズ", a.needs);
-  html += group("購買シグナル", a.buying_signals);
-  html += group("懸念と対応", a.objections);
-  html += group("競合の言及", a.competitors);
-  html += group("コーチング", a.coaching);
-  el.innerHTML = html;
+  $("agg").innerHTML = html;
 }
 
-async function loadDetail(botId) {
-  hdetail.innerHTML = '<div class="empty-state">読み込み中…</div>';
-  try {
-    const m = await (await fetch(`/api/meetings/${encodeURIComponent(botId)}`)).json();
-    const tr = Array.isArray(m.transcript) ? m.transcript : [];
-    hdetail.innerHTML = `
-      <div class="dhead">
-        <div class="dmeta">${escapeHtml(m.title || "(商談名なし)")}　|　${fmtDate(m.created_at)}　${escapeHtml(m.rep_name || "")}</div>
-        <button class="btn" id="genBtn">AI分析を生成</button>
-      </div>
-      <h3>客観指標（自動計算）</h3>
-      <div id="metrics"></div>
-      <h3>AIによる評価</h3>
-      <div id="ai"></div>`;
-
-    renderMetrics(hdetail.querySelector("#metrics"), tr, m.rep_name);
-    renderAi(hdetail.querySelector("#ai"), m.analysis);
-
-    const genBtn = hdetail.querySelector("#genBtn");
-    if (tr.length === 0) genBtn.disabled = true;
-    genBtn.addEventListener("click", async () => {
-      genBtn.disabled = true;
-      const orig = genBtn.textContent;
-      genBtn.textContent = "生成中…";
-      try {
-        const r = await fetch(`/api/meetings/${encodeURIComponent(botId)}/deep-analyze`, { method: "POST" });
-        const data = await r.json();
-        if (!r.ok) throw new Error(data.error || "生成に失敗しました");
-        renderAi(hdetail.querySelector("#ai"), data);
-      } catch (e) {
-        alert("生成に失敗しました: " + e.message);
-      } finally {
-        genBtn.disabled = false;
-        genBtn.textContent = orig;
-      }
+function renderList(rows) {
+  const el = $("alist");
+  if (!rows.length) {
+    el.innerHTML = '<li class="empty-state">該当する商談がありません。</li>';
+    return;
+  }
+  el.innerHTML = "";
+  for (const m of rows) {
+    const li = document.createElement("li");
+    li.className = "arow";
+    const ok = m.analysis && m.analysis.scores;
+    li.innerHTML = `<span class="a-title">${escapeHtml(m.title || "(商談名なし)")}</span>
+      <span class="a-rep">${escapeHtml(m.rep_name || "")}</span>
+      <span class="a-date">${fmtDate(m.created_at)}</span>
+      <span class="a-flag ${ok ? "ok" : ""}">${ok ? "分析済み" : "未分析"}</span>`;
+    li.addEventListener("click", () => {
+      location.href = `history.html?id=${encodeURIComponent(m.bot_id)}`;
     });
-  } catch {
-    hdetail.innerHTML = '<div class="empty-state">読み込みに失敗しました。</div>';
+    el.appendChild(li);
   }
 }
 
-loadList();
+$("fApply").addEventListener("click", render);
+$("fClear").addEventListener("click", () => {
+  $("fRep").value = "";
+  $("fFrom").value = "";
+  $("fTo").value = "";
+  render();
+});
+
+init();

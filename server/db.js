@@ -87,7 +87,7 @@ export async function saveMeeting(botId, { transcript, summary, suggestions }) {
 export async function listMeetings() {
   if (!pool) return [];
   const { rows } = await pool.query(
-    `SELECT bot_id, meeting_url, rep_name, title, created_at, updated_at, summary
+    `SELECT bot_id, meeting_url, rep_name, title, created_at, updated_at, summary, analysis
        FROM meetings ORDER BY created_at DESC LIMIT 200`
   );
   return rows;
