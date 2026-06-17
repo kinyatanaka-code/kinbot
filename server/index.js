@@ -20,6 +20,16 @@ import {
   getPrimaryEmail,
 } from "./google.js";
 import { startScheduler } from "./scheduler.js";
+import {
+  authEnabled,
+  getUser,
+  loginUser,
+  registerUser,
+  setSessionCookie,
+  clearSessionCookie,
+  isAdmin,
+  getDisplayName,
+} from "./auth.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -55,23 +65,33 @@ if (!PUBLIC_URL) {
 
 const app = express();
 
-// 公開時の簡易ガード：APP_PASSWORD を設定すると Basic 認証（Webhook は除外）
-const APP_PASSWORD = process.env.APP_PASSWORD || "";
-if (!APP_PASSWORD) {
-  console.warn(
-    "[警告] APP_PASSWORD 未設定。URLを知る誰でも操作でき、あなたのAPI課金が発生し得ます。公開時は設定を強く推奨。"
-  );
+// --- 個人アカウント認証（Cookieセッション） ---
+const OPEN_PATHS = new Set(["/api/recall/webhook", "/api/login", "/api/register"]);
+if (!authEnabled()) {
+  console.warn("[警告] アカウント未設定。誰でも操作できます。公開時は DATABASE_URL を設定し登録制にしてください。");
 }
 app.use((req, res, next) => {
-  if (!APP_PASSWORD) return next();
-  if (req.path === "/api/recall/webhook") return next(); // Recall からの受信は通す
-  const [scheme, encoded] = (req.get("authorization") || "").split(" ");
-  if (scheme === "Basic" && encoded) {
-    const pass = Buffer.from(encoded, "base64").toString().split(":")[1] || "";
-    if (pass === APP_PASSWORD) return next();
+  if (!authEnabled()) {
+    req.user = "admin";
+    req.isAdmin = true;
+    return next();
   }
-  res.set("WWW-Authenticate", 'Basic realm="shodan-copilot"');
-  return res.status(401).send("認証が必要です");
+  if (OPEN_PATHS.has(req.path)) return next();
+  if (
+    req.path === "/login.html" ||
+    req.path === "/register.html" ||
+    /\.(css|js|png|jpe?g|svg|ico|webp|woff2?)$/i.test(req.path)
+  ) {
+    return next();
+  }
+  const u = getUser(req);
+  if (u) {
+    req.user = u.username;
+    req.isAdmin = u.admin;
+    return next();
+  }
+  if (req.path.startsWith("/api/")) return res.status(401).json({ error: "ログインが必要です" });
+  return res.redirect("/login.html");
 });
 
 app.use(express.static(path.join(__dirname, "..", "public")));
@@ -82,6 +102,37 @@ app.use(
   express.json({ verify: (req, _res, buf) => (req.rawBody = buf) })
 );
 app.use(express.json());
+
+// 登録・ログイン・ログアウト
+app.post("/api/register", async (req, res) => {
+  try {
+    const { email, password, displayName, code } = req.body || {};
+    const r = await registerUser({ email, password, displayName, code });
+    if (r.error) return res.status(400).json({ error: r.error });
+    setSessionCookie(res, r.email);
+    res.json({ ok: true, username: r.email, admin: r.admin });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+app.post("/api/login", async (req, res) => {
+  try {
+    const { email, username, password } = req.body || {};
+    const r = await loginUser({ email: email || username, password });
+    if (r.error) return res.status(401).json({ error: r.error });
+    setSessionCookie(res, r.id);
+    res.json({ ok: true, username: r.id, admin: r.admin });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+app.post("/api/logout", (req, res) => {
+  clearSessionCookie(res);
+  res.json({ ok: true });
+});
+app.get("/api/me", (req, res) => {
+  res.json({ username: req.user || null, admin: !!req.isAdmin });
+});
 
 // --- 商談セッション開始：会議にBotを送り込む ---
 app.post("/api/sessions", async (req, res) => {
@@ -98,10 +149,12 @@ app.post("/api/sessions", async (req, res) => {
       provider: cfg.transcribeProvider,
       deepgramModel: cfg.deepgramModel,
     });
+    const displayName = await getDisplayName(req.user);
     createSession(botId, {
-      repName: repName || cfg.repName,
+      repName: repName || cfg.repName || displayName || req.user || "",
       meetingUrl,
       title: title || "",
+      owner: req.user || "",
       analyzeIntervalMs: cfg.analyzeIntervalMs,
     });
     res.json({ sessionId: botId });
@@ -198,9 +251,13 @@ function verifyRecallRequest(req) {
 }
 
 // --- 履歴API（過去の商談の振り返り） ---
-app.get("/api/meetings", async (_req, res) => {
+function canAccess(m, req) {
+  return req.isAdmin || !m.owner || m.owner === req.user;
+}
+
+app.get("/api/meetings", async (req, res) => {
   try {
-    res.json(await listMeetings());
+    res.json(await listMeetings({ owner: req.user, isAdmin: req.isAdmin }));
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
@@ -209,6 +266,7 @@ app.get("/api/meetings/:id", async (req, res) => {
   try {
     const m = await getMeeting(req.params.id);
     if (!m) return res.status(404).json({ error: "見つかりません" });
+    if (!canAccess(m, req)) return res.status(403).json({ error: "権限がありません" });
     res.json(m);
   } catch (e) {
     res.status(500).json({ error: e.message });
@@ -216,6 +274,8 @@ app.get("/api/meetings/:id", async (req, res) => {
 });
 app.get("/api/meetings/:id/recording", async (req, res) => {
   try {
+    const m = await getMeeting(req.params.id);
+    if (!m || !canAccess(m, req)) return res.json({ url: null });
     res.json({ url: await getRecordingUrl(req.params.id) });
   } catch {
     res.json({ url: null });
@@ -227,6 +287,7 @@ app.post("/api/meetings/:id/analyze", async (req, res) => {
   try {
     const m = await getMeeting(req.params.id);
     if (!m) return res.status(404).json({ error: "見つかりません" });
+    if (!canAccess(m, req)) return res.status(403).json({ error: "権限がありません" });
     const tr = Array.isArray(m.transcript) ? m.transcript : [];
     if (tr.length === 0) return res.status(400).json({ error: "文字起こしがありません" });
     const transcript = tr
@@ -317,6 +378,7 @@ app.post("/api/meetings/:id/deep-analyze", async (req, res) => {
   try {
     const m = await getMeeting(req.params.id);
     if (!m) return res.status(404).json({ error: "見つかりません" });
+    if (!canAccess(m, req)) return res.status(403).json({ error: "権限がありません" });
     const tr = Array.isArray(m.transcript) ? m.transcript : [];
     if (tr.length === 0) return res.status(400).json({ error: "文字起こしがありません" });
     const transcript = tr
@@ -337,6 +399,11 @@ const server = http.createServer(app);
 // --- ダッシュボード用 WebSocket ---
 const wss = new WebSocketServer({ server, path: "/ws" });
 wss.on("connection", (ws, req) => {
+  // ログイン必須（Cookieで確認）
+  if (authEnabled() && !getUser(req)) {
+    ws.close();
+    return;
+  }
   const url = new URL(req.url, "http://localhost");
   const sessionId = url.searchParams.get("session");
   const s = sessionId && getSession(sessionId);

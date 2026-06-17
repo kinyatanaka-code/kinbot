@@ -398,3 +398,30 @@ table.bant td:first-child { color: var(--muted); width: 80px; }
 .arow .a-date { flex: 0 0 110px; color: var(--muted); }
 .arow .a-flag { flex: 0 0 64px; text-align: right; font-size: 11px; color: var(--muted); }
 .arow .a-flag.ok { color: var(--accent); font-weight: 700; }
+
+/* ---------- ログイン / サイドバー下部 ---------- */
+.login-wrap { display: flex; align-items: center; justify-content: center; min-height: 100vh; padding: 20px; }
+.login-card {
+  width: 100%; max-width: 340px; background: var(--panel); border: 1px solid var(--line);
+  border-radius: 16px; box-shadow: var(--shadow); padding: 28px 26px;
+}
+.login-brand { display: flex; align-items: center; gap: 9px; font-size: 20px; font-weight: 700; letter-spacing: 0.06em; }
+.login-brand .brand-mark { width: 12px; height: 12px; border-radius: 3px; background: #3fae8f; }
+.login-sub { color: var(--muted); font-size: 13px; margin: 6px 0 18px; }
+.login-card .field { display: block; margin-bottom: 14px; }
+.login-card .field span { display: block; font-size: 12px; color: var(--muted); margin-bottom: 5px; }
+.login-card .field input {
+  width: 100%; font-family: inherit; font-size: 14px; padding: 10px 12px;
+  border: 1px solid var(--line); border-radius: 9px; background: var(--panel-2); box-sizing: border-box;
+}
+.login-card .btn { width: 100%; margin-top: 4px; }
+.login-err { color: #b4453a; font-size: 12.5px; margin-top: 12px; }
+
+.side-foot { margin-top: auto; padding: 12px 12px 4px; border-top: 1px solid rgba(255,255,255,0.08); }
+.side-foot .who { display: block; font-size: 12px; color: #c9c4b8; margin-bottom: 6px; }
+.side-logout { font-size: 12px; color: #9aa39d; text-decoration: none; }
+.side-logout:hover { color: #fff; text-decoration: underline; }
+
+.login-alt { font-size: 12.5px; color: var(--muted); margin-top: 14px; }
+.login-alt a { color: var(--accent); font-weight: 700; text-decoration: none; }
+.login-alt a:hover { text-decoration: underline; }

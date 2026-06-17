@@ -35,6 +35,7 @@ export async function initDb() {
   await pool.query(`ALTER TABLE meetings ADD COLUMN IF NOT EXISTS feedback JSONB;`);
   await pool.query(`ALTER TABLE meetings ADD COLUMN IF NOT EXISTS title TEXT;`);
   await pool.query(`ALTER TABLE meetings ADD COLUMN IF NOT EXISTS analysis JSONB;`);
+  await pool.query(`ALTER TABLE meetings ADD COLUMN IF NOT EXISTS owner TEXT;`);
   await pool.query(`
     CREATE TABLE IF NOT EXISTS settings (
       id   INT PRIMARY KEY,
@@ -49,16 +50,24 @@ export async function initDb() {
       created_at TIMESTAMPTZ DEFAULT now()
     );
   `);
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS users (
+      email      TEXT PRIMARY KEY,
+      name       TEXT,
+      pass_hash  TEXT NOT NULL,
+      created_at TIMESTAMPTZ DEFAULT now()
+    );
+  `);
   console.log("[db] Postgres に接続しました（履歴を保存します）。");
 }
 
-export async function createMeeting(botId, { meetingUrl, repName, title }) {
+export async function createMeeting(botId, { meetingUrl, repName, title, owner }) {
   if (!pool) return;
   try {
     await pool.query(
-      `INSERT INTO meetings (bot_id, meeting_url, rep_name, title)
-       VALUES ($1,$2,$3,$4) ON CONFLICT (bot_id) DO NOTHING`,
-      [botId, meetingUrl || "", repName || "", title || ""]
+      `INSERT INTO meetings (bot_id, meeting_url, rep_name, title, owner)
+       VALUES ($1,$2,$3,$4,$5) ON CONFLICT (bot_id) DO NOTHING`,
+      [botId, meetingUrl || "", repName || "", title || "", owner || ""]
     );
   } catch (e) {
     console.error("[db] createMeeting", e.message);
@@ -84,11 +93,16 @@ export async function saveMeeting(botId, { transcript, summary, suggestions }) {
   }
 }
 
-export async function listMeetings() {
+export async function listMeetings({ owner, isAdmin } = {}) {
   if (!pool) return [];
+  const base = `SELECT bot_id, meeting_url, rep_name, title, owner, created_at, updated_at, summary, analysis FROM meetings`;
+  if (isAdmin || !owner) {
+    const { rows } = await pool.query(`${base} ORDER BY created_at DESC LIMIT 300`);
+    return rows;
+  }
   const { rows } = await pool.query(
-    `SELECT bot_id, meeting_url, rep_name, title, created_at, updated_at, summary, analysis
-       FROM meetings ORDER BY created_at DESC LIMIT 200`
+    `${base} WHERE owner=$1 OR owner IS NULL OR owner='' ORDER BY created_at DESC LIMIT 300`,
+    [owner]
   );
   return rows;
 }
@@ -183,4 +197,24 @@ export async function markScheduled(eventId, botId, startTime) {
   } catch (e) {
     console.error("[db] markScheduled", e.message);
   }
+}
+
+// ---- ユーザー（メール＋パスワード登録） ----
+export async function dbGetUser(email) {
+  if (!pool) return null;
+  try {
+    const { rows } = await pool.query(`SELECT * FROM users WHERE email=$1`, [email]);
+    return rows[0] || null;
+  } catch (e) {
+    console.error("[db] dbGetUser", e.message);
+    return null;
+  }
+}
+
+export async function dbCreateUser(email, name, passHash) {
+  if (!pool) throw new Error("DB未設定（DATABASE_URLが必要）");
+  await pool.query(
+    `INSERT INTO users (email, name, pass_hash) VALUES ($1,$2,$3)`,
+    [email, name || "", passHash]
+  );
 }

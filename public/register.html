@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="ja">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>kinbot 新規登録</title>
+    <link rel="stylesheet" href="style.css" />
+  </head>
+  <body>
+    <div class="login-wrap">
+      <div class="login-card">
+        <div class="login-brand"><span class="brand-mark"></span> kinbot</div>
+        <p class="login-sub">新規アカウント登録</p>
+        <label class="field"><span>表示名（営業担当者名）</span><input id="name" type="text" autocomplete="name" /></label>
+        <label class="field"><span>メールアドレス</span><input id="email" type="email" autocomplete="email" /></label>
+        <label class="field"><span>パスワード（8文字以上）</span><input id="p" type="password" autocomplete="new-password" /></label>
+        <label class="field" id="codeField" hidden><span>登録コード</span><input id="code" type="text" /></label>
+        <button class="btn" id="regBtn">登録する</button>
+        <p class="login-err" id="err" hidden></p>
+        <p class="login-alt">すでにアカウントがある方は <a href="login.html">ログイン</a></p>
+      </div>
+    </div>
+    <script>
+      const $ = (id) => document.getElementById(id);
+      // 登録コード欄は常に表示（コード不要なら空のままでOK）。必要に応じて運用。
+      $("codeField").hidden = false;
+      async function register() {
+        $("err").hidden = true;
+        try {
+          const res = await fetch("/api/register", {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({
+              email: $("email").value.trim(),
+              password: $("p").value,
+              displayName: $("name").value.trim(),
+              code: $("code").value.trim(),
+            }),
+          });
+          if (!res.ok) {
+            const d = await res.json().catch(() => ({}));
+            throw new Error(d.error || "登録に失敗しました");
+          }
+          location.href = "/";
+        } catch (e) {
+          $("err").textContent = e.message;
+          $("err").hidden = false;
+        }
+      }
+      $("regBtn").addEventListener("click", register);
+      $("p").addEventListener("keydown", (e) => { if (e.key === "Enter") register(); });
+    </script>
+  </body>
+</html>

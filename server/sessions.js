@@ -6,10 +6,10 @@ const DEFAULT_INTERVAL_MS = Number(process.env.ANALYZE_INTERVAL_MS || 20000);
 
 const sessions = new Map(); // botId -> Session
 
-export function createSession(botId, { repName = "", meetingUrl = "", title = "", analyzeIntervalMs } = {}) {
+export function createSession(botId, { repName = "", meetingUrl = "", title = "", owner = "", analyzeIntervalMs } = {}) {
   const s = new Session(botId, repName, meetingUrl, analyzeIntervalMs || DEFAULT_INTERVAL_MS);
   sessions.set(botId, s);
-  createMeeting(botId, { meetingUrl, repName, title }); // 履歴に行を作成（DB無効なら無視）
+  createMeeting(botId, { meetingUrl, repName, title, owner }); // 履歴に行を作成（DB無効なら無視）
   return s;
 }
 export function getSession(botId) {
