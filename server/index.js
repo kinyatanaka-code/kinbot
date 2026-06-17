@@ -29,6 +29,8 @@ import {
   clearSessionCookie,
   isAdmin,
   getDisplayName,
+  makeToken,
+  verifyToken,
 } from "./auth.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -66,7 +68,7 @@ if (!PUBLIC_URL) {
 const app = express();
 
 // --- 個人アカウント認証（Cookieセッション） ---
-const OPEN_PATHS = new Set(["/api/recall/webhook", "/api/login", "/api/register"]);
+const OPEN_PATHS = new Set(["/api/recall/webhook", "/api/login", "/api/register", "/api/auth-info"]);
 if (!authEnabled()) {
   console.warn("[警告] アカウント未設定。誰でも操作できます。公開時は DATABASE_URL を設定し登録制にしてください。");
 }
@@ -132,6 +134,9 @@ app.post("/api/logout", (req, res) => {
 });
 app.get("/api/me", (req, res) => {
   res.json({ username: req.user || null, admin: !!req.isAdmin });
+});
+app.get("/api/auth-info", (req, res) => {
+  res.json({ signupCodeRequired: !!(process.env.SIGNUP_CODE || "") });
 });
 
 // --- 商談セッション開始：会議にBotを送り込む ---
@@ -310,23 +315,28 @@ function googleRedirectUri() {
 app.get("/auth/google", (req, res) => {
   if (!googleConfigured()) return res.status(500).send("GOOGLE_CLIENT_ID/SECRET が未設定です");
   if (!PUBLIC_URL) return res.status(500).send("PUBLIC_URL が未設定です");
-  res.redirect(authUrl(googleRedirectUri()));
+  // state にログイン中ユーザー（署名済み）を載せ、コールバックで誰の連携か判別
+  const state = makeToken(req.user || "");
+  res.redirect(authUrl(googleRedirectUri(), state));
 });
 app.get("/auth/google/callback", async (req, res) => {
   try {
-    await exchangeCode(req.query.code, googleRedirectUri());
+    const owner = verifyToken(req.query.state || "");
+    if (!owner) return res.status(400).send("セッションが無効です。ログインし直してください。");
+    await exchangeCode(req.query.code, googleRedirectUri(), owner);
     res.redirect("/settings.html");
   } catch (e) {
     console.error("[google]", e.message);
     res.status(500).send("連携に失敗しました: " + e.message);
   }
 });
-app.get("/api/calendar/status", async (_req, res) => {
+app.get("/api/calendar/status", async (req, res) => {
   const out = { configured: googleConfigured(), connected: false, email: null, events: [] };
   try {
-    out.connected = await gcalConnected();
+    const owner = req.user;
+    out.connected = await gcalConnected(owner);
     if (out.connected) {
-      out.email = await getPrimaryEmail();
+      out.email = await getPrimaryEmail(owner);
       // 今日1日（日本時間 00:00〜24:00）の範囲
       const now = new Date();
       const jst = new Date(now.getTime() + 9 * 3600 * 1000);
@@ -334,7 +344,7 @@ app.get("/api/calendar/status", async (_req, res) => {
         Date.UTC(jst.getUTCFullYear(), jst.getUTCMonth(), jst.getUTCDate(), 0, 0, 0) - 9 * 3600 * 1000
       );
       const end = new Date(start.getTime() + 24 * 3600 * 1000);
-      out.events = await listZoomEvents({
+      out.events = await listZoomEvents(owner, {
         timeMin: start.toISOString(),
         timeMax: end.toISOString(),
       });
@@ -344,8 +354,8 @@ app.get("/api/calendar/status", async (_req, res) => {
   }
   res.json(out);
 });
-app.post("/api/calendar/disconnect", async (_req, res) => {
-  await gcalDisconnect();
+app.post("/api/calendar/disconnect", async (req, res) => {
+  await gcalDisconnect(req.user);
   res.json({ ok: true });
 });
 

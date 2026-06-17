@@ -1,9 +1,11 @@
 // server/scheduler.js
-// 連携したGoogleカレンダーを定期チェックし、Zoom予定の「開始3分前」にBotを予約する。
-import { listZoomEvents, isConnected } from "./google.js";
+// 連携済みの各ユーザーのGoogleカレンダーを定期チェックし、
+// Zoom予定の「開始3分前」にBotを予約する（商談はその人の所有に）。
+import { listZoomEvents } from "./google.js";
 import { createBot } from "./recall.js";
 import { resolveConfig } from "./config.js";
-import { isScheduled, markScheduled, createMeeting } from "./db.js";
+import { isScheduled, markScheduled, createMeeting, listGoogleAccounts } from "./db.js";
+import { getDisplayName } from "./auth.js";
 
 let publicUrl = "";
 let timer = null;
@@ -20,37 +22,43 @@ export function startScheduler({ publicUrl: url, intervalMs = 120000 }) {
 }
 
 async function tick() {
-  if (!(await isConnected())) return;
+  const accounts = await listGoogleAccounts();
+  if (!accounts.length) return;
   const cfg = await resolveConfig();
-  const events = await listZoomEvents();
   const now = Date.now();
 
-  for (const ev of events) {
-    if (await isScheduled(ev.id)) continue; // 既に予約済み
-    const startMs = new Date(ev.start).getTime();
-    const joinAtMs = startMs - 3 * 60 * 1000; // 開始3分前
-    // 予約は開始10分以上前が必要。近すぎる予定は「今すぐ」に寄せる。
-    const joinAt = new Date(Math.max(joinAtMs, now + 5000)).toISOString();
+  for (const acc of accounts) {
+    const owner = acc.owner;
+    let events;
     try {
-      const botId = await createBot({
-        meetingUrl: ev.zoomUrl,
-        webhookUrl: `${publicUrl}/api/recall/webhook`,
-        languageCode: cfg.languageCode,
-        botName: cfg.botName,
-        provider: cfg.transcribeProvider,
-        deepgramModel: cfg.deepgramModel,
-        joinAt,
-      });
-      await createMeeting(botId, {
-        meetingUrl: ev.zoomUrl,
-        repName: cfg.repName,
-        title: ev.title,
-        owner: process.env.CALENDAR_OWNER || "",
-      });
-      await markScheduled(ev.id, botId, ev.start);
-      console.log(`[scheduler] 予約: 「${ev.title}」→ bot ${botId}（入室 ${joinAt}）`);
+      events = await listZoomEvents(owner);
     } catch (e) {
-      console.error(`[scheduler] 予約失敗「${ev.title}」:`, e.message);
+      console.error(`[scheduler] ${owner} の予定取得失敗:`, e.message);
+      continue;
+    }
+    const repName = await getDisplayName(owner);
+
+    for (const ev of events) {
+      const key = `${owner}::${ev.id}`;
+      if (await isScheduled(key)) continue;
+      const startMs = new Date(ev.start).getTime();
+      const joinAt = new Date(Math.max(startMs - 3 * 60 * 1000, now + 5000)).toISOString();
+      try {
+        const botId = await createBot({
+          meetingUrl: ev.zoomUrl,
+          webhookUrl: `${publicUrl}/api/recall/webhook`,
+          languageCode: cfg.languageCode,
+          botName: cfg.botName,
+          provider: cfg.transcribeProvider,
+          deepgramModel: cfg.deepgramModel,
+          joinAt,
+        });
+        await createMeeting(botId, { meetingUrl: ev.zoomUrl, repName, title: ev.title, owner });
+        await markScheduled(key, botId, ev.start);
+        console.log(`[scheduler] 予約: ${owner}「${ev.title}」→ bot ${botId}（入室 ${joinAt}）`);
+      } catch (e) {
+        console.error(`[scheduler] 予約失敗「${ev.title}」:`, e.message);
+      }
     }
   }
 }

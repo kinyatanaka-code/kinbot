@@ -22,8 +22,11 @@
     </div>
     <script>
       const $ = (id) => document.getElementById(id);
-      // 登録コード欄は常に表示（コード不要なら空のままでOK）。必要に応じて運用。
-      $("codeField").hidden = false;
+      // 登録コードは SIGNUP_CODE が設定されている時だけ表示（通常は不要）
+      fetch("/api/auth-info")
+        .then((r) => r.json())
+        .then((d) => { $("codeField").hidden = !d.signupCodeRequired; })
+        .catch(() => {});
       async function register() {
         $("err").hidden = true;
         try {

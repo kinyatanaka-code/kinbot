@@ -1,6 +1,6 @@
 // server/google.js
-// Googleカレンダーの読み取り連携（OAuth2）。重い依存は使わず fetch で実装。
-import { getSettings, saveSettings } from "./db.js";
+// Googleカレンダー連携（ユーザーごと）。トークンは google_accounts に owner 単位で保存。
+import { getGoogleToken, saveGoogleToken, deleteGoogleToken } from "./db.js";
 
 const CLIENT_ID = process.env.GOOGLE_CLIENT_ID || "";
 const CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET || "";
@@ -10,7 +10,8 @@ export function googleConfigured() {
   return !!(CLIENT_ID && CLIENT_SECRET);
 }
 
-export function authUrl(redirectUri) {
+// state にユーザー識別子（署名済み）を載せて、コールバックで誰の連携かを判別
+export function authUrl(redirectUri, state) {
   const p = new URLSearchParams({
     client_id: CLIENT_ID,
     redirect_uri: redirectUri,
@@ -18,11 +19,25 @@ export function authUrl(redirectUri) {
     scope: SCOPE,
     access_type: "offline",
     prompt: "consent",
+    state: state || "",
   });
   return `https://accounts.google.com/o/oauth2/v2/auth?${p}`;
 }
 
-export async function exchangeCode(code, redirectUri) {
+async function fetchPrimaryEmail(accessToken) {
+  try {
+    const res = await fetch("https://www.googleapis.com/calendar/v3/calendars/primary", {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    });
+    if (!res.ok) return null;
+    const data = await res.json();
+    return data.id || null;
+  } catch {
+    return null;
+  }
+}
+
+export async function exchangeCode(code, redirectUri, owner) {
   const res = await fetch("https://oauth2.googleapis.com/token", {
     method: "POST",
     headers: { "content-type": "application/x-www-form-urlencoded" },
@@ -36,32 +51,32 @@ export async function exchangeCode(code, redirectUri) {
   });
   if (!res.ok) throw new Error(`Google token ${res.status}: ${await res.text()}`);
   const data = await res.json();
+  let gmail = null;
+  if (data.access_token) gmail = await fetchPrimaryEmail(data.access_token);
   if (data.refresh_token) {
-    await saveSettings({ googleRefreshToken: data.refresh_token });
+    await saveGoogleToken(owner, data.refresh_token, gmail);
   }
   return data;
 }
 
-export async function isConnected() {
-  const s = await getSettings();
-  return !!s.googleRefreshToken;
+export async function isConnected(owner) {
+  const row = await getGoogleToken(owner);
+  return !!(row && row.refresh_token);
+}
+export async function disconnect(owner) {
+  await deleteGoogleToken(owner);
 }
 
-export async function disconnect() {
-  await saveSettings({ googleRefreshToken: "" });
-}
-
-async function accessToken() {
-  const s = await getSettings();
-  const refresh = s.googleRefreshToken;
-  if (!refresh) return null;
+async function accessToken(owner) {
+  const row = await getGoogleToken(owner);
+  if (!row || !row.refresh_token) return null;
   const res = await fetch("https://oauth2.googleapis.com/token", {
     method: "POST",
     headers: { "content-type": "application/x-www-form-urlencoded" },
     body: new URLSearchParams({
       client_id: CLIENT_ID,
       client_secret: CLIENT_SECRET,
-      refresh_token: refresh,
+      refresh_token: row.refresh_token,
       grant_type: "refresh_token",
     }),
   });
@@ -70,8 +85,15 @@ async function accessToken() {
   return data.access_token;
 }
 
-const ZOOM_RE = /https?:\/\/[\w.-]*zoom\.us\/[^\s"'<>)\]]+/i;
+export async function getPrimaryEmail(owner) {
+  const row = await getGoogleToken(owner);
+  if (row && row.google_email) return row.google_email;
+  const token = await accessToken(owner);
+  if (!token) return null;
+  return fetchPrimaryEmail(token);
+}
 
+const ZOOM_RE = /https?:\/\/[\w.-]*zoom\.us\/[^\s"'<>)\]]+/i;
 function findZoomUrl(ev) {
   const blobs = [
     ev.hangoutLink,
@@ -86,22 +108,8 @@ function findZoomUrl(ev) {
   return null;
 }
 
-/** 連携中アカウント（主カレンダーIDはメールアドレス） */
-export async function getPrimaryEmail() {
-  const token = await accessToken();
-  if (!token) return null;
-  const res = await fetch(
-    "https://www.googleapis.com/calendar/v3/calendars/primary",
-    { headers: { Authorization: `Bearer ${token}` } }
-  );
-  if (!res.ok) return null;
-  const data = await res.json();
-  return data.id || null;
-}
-
-/** 指定範囲のうち、Zoomリンクのある予定を返す（範囲未指定なら今〜26時間） */
-export async function listZoomEvents({ timeMin, timeMax } = {}) {
-  const token = await accessToken();
+export async function listZoomEvents(owner, { timeMin, timeMax } = {}) {
+  const token = await accessToken(owner);
   if (!token) return [];
   const now = new Date();
   const tMin = timeMin || now.toISOString();
@@ -117,22 +125,14 @@ export async function listZoomEvents({ timeMin, timeMax } = {}) {
     `https://www.googleapis.com/calendar/v3/calendars/primary/events?${p}`,
     { headers: { Authorization: `Bearer ${token}` } }
   );
-  if (!res.ok) {
-    const t = await res.text().catch(() => "");
-    throw new Error(`Google events ${res.status}: ${t.slice(0, 200)}`);
-  }
+  if (!res.ok) throw new Error(`Google events ${res.status}: ${(await res.text()).slice(0, 200)}`);
   const data = await res.json();
   const out = [];
   for (const ev of data.items || []) {
-    if (!ev.start?.dateTime) continue; // 終日予定は除外
+    if (!ev.start?.dateTime) continue;
     const zoom = findZoomUrl(ev);
     if (!zoom) continue;
-    out.push({
-      id: ev.id,
-      title: ev.summary || "(無題)",
-      start: ev.start.dateTime,
-      zoomUrl: zoom,
-    });
+    out.push({ id: ev.id, title: ev.summary || "(無題)", start: ev.start.dateTime, zoomUrl: zoom });
   }
   return out;
 }

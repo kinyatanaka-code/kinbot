@@ -58,6 +58,14 @@ export async function initDb() {
       created_at TIMESTAMPTZ DEFAULT now()
     );
   `);
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS google_accounts (
+      owner         TEXT PRIMARY KEY,
+      refresh_token TEXT,
+      google_email  TEXT,
+      updated_at    TIMESTAMPTZ DEFAULT now()
+    );
+  `);
   console.log("[db] Postgres に接続しました（履歴を保存します）。");
 }
 
@@ -217,4 +225,47 @@ export async function dbCreateUser(email, name, passHash) {
     `INSERT INTO users (email, name, pass_hash) VALUES ($1,$2,$3)`,
     [email, name || "", passHash]
   );
+}
+
+// ---- ユーザーごとのGoogleカレンダー連携 ----
+export async function saveGoogleToken(owner, refreshToken, googleEmail) {
+  if (!pool) return;
+  try {
+    await pool.query(
+      `INSERT INTO google_accounts (owner, refresh_token, google_email, updated_at)
+       VALUES ($1,$2,$3,now())
+       ON CONFLICT (owner) DO UPDATE SET refresh_token=$2, google_email=$3, updated_at=now()`,
+      [owner, refreshToken || null, googleEmail || null]
+    );
+  } catch (e) {
+    console.error("[db] saveGoogleToken", e.message);
+  }
+}
+export async function getGoogleToken(owner) {
+  if (!pool) return null;
+  try {
+    const { rows } = await pool.query(`SELECT * FROM google_accounts WHERE owner=$1`, [owner]);
+    return rows[0] || null;
+  } catch {
+    return null;
+  }
+}
+export async function deleteGoogleToken(owner) {
+  if (!pool) return;
+  try {
+    await pool.query(`DELETE FROM google_accounts WHERE owner=$1`, [owner]);
+  } catch (e) {
+    console.error("[db] deleteGoogleToken", e.message);
+  }
+}
+export async function listGoogleAccounts() {
+  if (!pool) return [];
+  try {
+    const { rows } = await pool.query(
+      `SELECT owner, refresh_token, google_email FROM google_accounts WHERE refresh_token IS NOT NULL`
+    );
+    return rows;
+  } catch {
+    return [];
+  }
 }
