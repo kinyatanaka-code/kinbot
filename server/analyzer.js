@@ -54,7 +54,7 @@ function modelFor() {
   if (PROVIDER === "ollama") return process.env.OLLAMA_MODEL || "qwen2.5";
   if (PROVIDER === "groq") return process.env.GROQ_MODEL || "llama-3.3-70b-versatile";
   if (PROVIDER === "openai") return process.env.OPENAI_MODEL || "gpt-4o-mini";
-  return process.env.GEMINI_MODEL || "gemini-2.5-flash";
+  return process.env.GEMINI_MODEL || "gemini-2.5-flash-lite";
 }
 
 // ライブ：要約＋次の一手
@@ -112,6 +112,29 @@ export async function analyzeDeep({ transcript, repName }) {
 
 // ---- プロバイダ振り分け ----
 async function callLLM(system, user, maxTokens = 1400) {
+  return withRetry(() => callOnce(system, user, maxTokens));
+}
+
+// 503/UNAVAILABLE/overloaded など一時的な混雑は自動リトライ
+async function withRetry(fn, tries = 3) {
+  let last;
+  for (let i = 0; i < tries; i++) {
+    try {
+      return await fn();
+    } catch (e) {
+      last = e;
+      const transient = /\b503\b|\b429\b|UNAVAILABLE|overloaded|high demand|temporarily/i.test(e.message || "");
+      if (i < tries - 1 && transient) {
+        await new Promise((r) => setTimeout(r, 1500 * (i + 1)));
+        continue;
+      }
+      throw e;
+    }
+  }
+  throw last;
+}
+
+async function callOnce(system, user, maxTokens) {
   if (PROVIDER === "anthropic") return callAnthropic(system, user, maxTokens);
   if (PROVIDER === "ollama") return callOllama(system, user);
   if (PROVIDER === "groq")
@@ -159,7 +182,7 @@ async function callOpenAICompat(system, user, maxTokens, { base, key, model, nam
 async function callGemini(system, user, maxTokens) {
   const key = process.env.GEMINI_API_KEY;
   if (!key) throw new Error("GEMINI_API_KEY が未設定です（Google AI Studio で発行）");
-  const model = process.env.GEMINI_MODEL || "gemini-2.5-flash";
+  const model = process.env.GEMINI_MODEL || "gemini-2.5-flash-lite";
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${key}`;
   const res = await fetch(url, {
     method: "POST",
