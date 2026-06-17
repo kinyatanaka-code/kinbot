@@ -83,6 +83,33 @@ export async function analyzeMeeting({ transcript, repName }) {
   return { summary: o.summary || {}, feedback: o.feedback || {} };
 }
 
+// 商談後：深掘り分析（スコア・BANT・購買シグナル等）
+const DEEP_PROMPT = `あなたは B2B 営業のアナリストです。商談の文字起こし（「話者名: 内容」形式、話者分離は正確）を読み、
+自社の営業担当（user で指定）の商談を多角的に評価します。
+
+必ず次の JSON のみを出力（前置き・コードフェンス禁止）:
+{
+  "scores": { "hearing": 1, "proposal": 1, "closing": 1, "listening": 1 },
+  "bant": { "budget": "確認できた内容、無ければ『未確認』", "authority": "...", "need": "...", "timeline": "..." },
+  "needs": ["把握できた相手の課題・ニーズ"],
+  "buying_signals": ["前向きな発言・関心の兆候"],
+  "objections": ["懸念や反論 → それへの対応の良し悪し を1行で"],
+  "next_step": "次アクションが具体的に握れたか（日時・担当・宿題）。曖昧なら指摘",
+  "competitors": ["言及された競合（無ければ空配列）"],
+  "coaching": ["実際の発言を引用しつつ、次はこうすると良いという助言"]
+}
+ルール: scores は各1〜5の整数（hearing=ヒアリング, proposal=提案, closing=クロージング, listening=傾聴）。
+事実に基づき、憶測で作らない。該当が無ければ空配列や『未確認』。日本語で簡潔に。`;
+
+export async function analyzeDeep({ transcript, repName }) {
+  const user =
+    `自社の営業担当: ${repName || "（未指定）"}\n\n` +
+    `商談の文字起こし:\n"""\n${transcript}\n"""\n\n` +
+    `この商談を多角的に分析し、JSON で返してください。`;
+  const text = await callLLM(DEEP_PROMPT, user, 2500);
+  return parseJson(text);
+}
+
 // ---- プロバイダ振り分け ----
 async function callLLM(system, user, maxTokens = 1400) {
   if (PROVIDER === "anthropic") return callAnthropic(system, user, maxTokens);

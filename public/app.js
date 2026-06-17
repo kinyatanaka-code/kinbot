@@ -4,6 +4,7 @@ const els = {
   joinBar: $("joinBar"),
   meetingUrl: $("meetingUrl"),
   repName: $("repName"),
+  meetingTitle: $("meetingTitle"),
   joinBtn: $("joinBtn"),
   liveControls: $("liveControls"),
   leaveBtn: $("leaveBtn"),
@@ -52,6 +53,7 @@ async function loadLinks() {
 async function joinMeeting() {
   const meetingUrl = els.meetingUrl.value.trim();
   const repName = els.repName.value.trim();
+  const title = els.meetingTitle ? els.meetingTitle.value.trim() : "";
   if (!meetingUrl) {
     setStatus("会議URLを入力してください。");
     return;
@@ -62,7 +64,7 @@ async function joinMeeting() {
     const res = await fetch("/api/sessions", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ meetingUrl, repName }),
+      body: JSON.stringify({ meetingUrl, repName, title }),
     });
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || "作成に失敗しました");

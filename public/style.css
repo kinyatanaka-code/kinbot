@@ -338,3 +338,28 @@ body {
 }
 .link-add #newLinkName { flex: 0 0 150px; }
 .link-add #newLinkUrl { flex: 1 1 200px; }
+
+.hcard-title { font-size: 13.5px; font-weight: 700; color: var(--ink); margin-bottom: 4px; }
+#meetingTitle { min-width: 150px; }
+
+/* ---------- 分析ページ ---------- */
+.hdetail h3 { font-size: 13px; letter-spacing: 0.1em; margin: 18px 0 10px; }
+.hdetail h3:first-of-type { margin-top: 0; }
+.metric-note { font-size: 13px; margin: 6px 0 12px; }
+.bars { display: flex; flex-direction: column; gap: 7px; margin-bottom: 8px; }
+.bar-row { display: flex; align-items: center; gap: 10px; font-size: 12.5px; }
+.bar-name { flex: 0 0 130px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.bar-track { flex: 1 1 auto; height: 12px; background: var(--panel-2); border-radius: 6px; overflow: hidden; }
+.bar-fill { display: block; height: 100%; background: #9bbccf; border-radius: 6px; }
+.bar-fill.rep { background: var(--accent); }
+.bar-val { flex: 0 0 40px; text-align: right; font-variant-numeric: tabular-nums; }
+.scores { display: flex; flex-direction: column; gap: 8px; margin-bottom: 6px; }
+.score-row { display: flex; align-items: center; gap: 12px; font-size: 13px; }
+.score-name { flex: 0 0 110px; }
+.dots { display: flex; gap: 5px; flex: 1 1 auto; }
+.dot { width: 14px; height: 14px; border-radius: 50%; background: var(--panel-2); border: 1px solid var(--line); }
+.dot.on { background: var(--accent); border-color: var(--accent); }
+.score-val { flex: 0 0 40px; text-align: right; color: var(--muted); }
+table.bant { width: 100%; border-collapse: collapse; font-size: 13px; }
+table.bant td { padding: 6px 4px; border-bottom: 1px solid var(--line); vertical-align: top; }
+table.bant td:first-child { color: var(--muted); width: 80px; }

@@ -41,7 +41,7 @@ async function tick() {
         deepgramModel: cfg.deepgramModel,
         joinAt,
       });
-      await createMeeting(botId, { meetingUrl: ev.zoomUrl, repName: cfg.repName });
+      await createMeeting(botId, { meetingUrl: ev.zoomUrl, repName: cfg.repName, title: ev.title });
       await markScheduled(ev.id, botId, ev.start);
       console.log(`[scheduler] 予約: 「${ev.title}」→ bot ${botId}（入室 ${joinAt}）`);
     } catch (e) {

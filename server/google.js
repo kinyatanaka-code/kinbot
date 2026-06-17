@@ -117,7 +117,10 @@ export async function listZoomEvents({ timeMin, timeMax } = {}) {
     `https://www.googleapis.com/calendar/v3/calendars/primary/events?${p}`,
     { headers: { Authorization: `Bearer ${token}` } }
   );
-  if (!res.ok) throw new Error(`Google events ${res.status}`);
+  if (!res.ok) {
+    const t = await res.text().catch(() => "");
+    throw new Error(`Google events ${res.status}: ${t.slice(0, 200)}`);
+  }
   const data = await res.json();
   const out = [];
   for (const ev of data.items || []) {

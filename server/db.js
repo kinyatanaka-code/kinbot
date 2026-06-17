@@ -33,6 +33,8 @@ export async function initDb() {
     );
   `);
   await pool.query(`ALTER TABLE meetings ADD COLUMN IF NOT EXISTS feedback JSONB;`);
+  await pool.query(`ALTER TABLE meetings ADD COLUMN IF NOT EXISTS title TEXT;`);
+  await pool.query(`ALTER TABLE meetings ADD COLUMN IF NOT EXISTS analysis JSONB;`);
   await pool.query(`
     CREATE TABLE IF NOT EXISTS settings (
       id   INT PRIMARY KEY,
@@ -50,13 +52,13 @@ export async function initDb() {
   console.log("[db] Postgres に接続しました（履歴を保存します）。");
 }
 
-export async function createMeeting(botId, { meetingUrl, repName }) {
+export async function createMeeting(botId, { meetingUrl, repName, title }) {
   if (!pool) return;
   try {
     await pool.query(
-      `INSERT INTO meetings (bot_id, meeting_url, rep_name)
-       VALUES ($1,$2,$3) ON CONFLICT (bot_id) DO NOTHING`,
-      [botId, meetingUrl || "", repName || ""]
+      `INSERT INTO meetings (bot_id, meeting_url, rep_name, title)
+       VALUES ($1,$2,$3,$4) ON CONFLICT (bot_id) DO NOTHING`,
+      [botId, meetingUrl || "", repName || "", title || ""]
     );
   } catch (e) {
     console.error("[db] createMeeting", e.message);
@@ -85,7 +87,7 @@ export async function saveMeeting(botId, { transcript, summary, suggestions }) {
 export async function listMeetings() {
   if (!pool) return [];
   const { rows } = await pool.query(
-    `SELECT bot_id, meeting_url, rep_name, created_at, updated_at, summary
+    `SELECT bot_id, meeting_url, rep_name, title, created_at, updated_at, summary
        FROM meetings ORDER BY created_at DESC LIMIT 200`
   );
   return rows;
@@ -108,6 +110,21 @@ export async function saveAnalysis(botId, { summary, feedback }) {
     return { persisted: true };
   } catch (e) {
     console.error("[db] saveAnalysis", e.message);
+    return { persisted: false };
+  }
+}
+
+// 深掘り分析（スコア・BANT等）を保存
+export async function saveDeepAnalysis(botId, analysis) {
+  if (!pool) return { persisted: false };
+  try {
+    await pool.query(`UPDATE meetings SET analysis=$2, updated_at=now() WHERE bot_id=$1`, [
+      botId,
+      analysis ? JSON.stringify(analysis) : null,
+    ]);
+    return { persisted: true };
+  } catch (e) {
+    console.error("[db] saveDeepAnalysis", e.message);
     return { persisted: false };
   }
 }

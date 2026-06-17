@@ -30,7 +30,8 @@ async function loadList() {
       const overview = r.summary && r.summary.overview ? r.summary.overview : "（要約なし）";
       const card = document.createElement("button");
       card.className = "hcard";
-      card.innerHTML = `<div class="hcard-top"><span class="hcard-date"></span><span class="hcard-rep"></span></div><div class="hcard-ov"></div>`;
+      card.innerHTML = `<div class="hcard-title"></div><div class="hcard-top"><span class="hcard-date"></span><span class="hcard-rep"></span></div><div class="hcard-ov"></div>`;
+      card.querySelector(".hcard-title").textContent = r.title || "(商談名なし)";
       card.querySelector(".hcard-date").textContent = fmtDate(r.created_at);
       card.querySelector(".hcard-rep").textContent = r.rep_name || "";
       card.querySelector(".hcard-ov").textContent = overview;
@@ -101,7 +102,7 @@ async function loadDetail(botId) {
     });
 
     hdetail.querySelector(".dmeta").textContent =
-      `${fmtDate(m.created_at)}　${m.rep_name || ""}　${m.meeting_url || ""}`;
+      `${m.title || "(商談名なし)"}　|　${fmtDate(m.created_at)}　${m.rep_name || ""}`;
 
     renderSummaryInto(hdetail.querySelector("#dsummary"), s);
     renderFeedbackInto(hdetail.querySelector("#dfeedback"), m.feedback || {});

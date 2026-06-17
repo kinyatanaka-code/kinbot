@@ -7,9 +7,9 @@ import express from "express";
 import { WebSocketServer } from "ws";
 import { createBot, leaveBot, parseTranscriptEvent, getRecordingUrl } from "./recall.js";
 import { createSession, getSession, removeSession } from "./sessions.js";
-import { initDb, listMeetings, getMeeting, saveSettings, saveAnalysis, getSettings } from "./db.js";
+import { initDb, listMeetings, getMeeting, saveSettings, saveAnalysis, getSettings, saveDeepAnalysis } from "./db.js";
 import { resolveConfig, statusInfo } from "./config.js";
-import { analyzerInfo, analyzeMeeting } from "./analyzer.js";
+import { analyzerInfo, analyzeMeeting, analyzeDeep } from "./analyzer.js";
 import {
   googleConfigured,
   authUrl,
@@ -85,7 +85,7 @@ app.use(express.json());
 
 // --- 商談セッション開始：会議にBotを送り込む ---
 app.post("/api/sessions", async (req, res) => {
-  const { meetingUrl, repName, languageCode } = req.body || {};
+  const { meetingUrl, repName, languageCode, title } = req.body || {};
   if (!meetingUrl) return res.status(400).json({ error: "meetingUrl が必要です" });
   if (!PUBLIC_URL) return res.status(500).json({ error: "PUBLIC_URL が未設定です" });
   try {
@@ -101,6 +101,7 @@ app.post("/api/sessions", async (req, res) => {
     createSession(botId, {
       repName: repName || cfg.repName,
       meetingUrl,
+      title: title || "",
       analyzeIntervalMs: cfg.analyzeIntervalMs,
     });
     res.json({ sessionId: botId });
@@ -288,6 +289,26 @@ app.put("/api/links", async (req, res) => {
     res.json({ ok: true, links, ...r });
   } catch (e) {
     res.status(500).json({ error: e.message });
+  }
+});
+
+// 履歴：深掘り分析（スコア・BANT・購買シグナル等）を生成して保存
+app.post("/api/meetings/:id/deep-analyze", async (req, res) => {
+  try {
+    const m = await getMeeting(req.params.id);
+    if (!m) return res.status(404).json({ error: "見つかりません" });
+    const tr = Array.isArray(m.transcript) ? m.transcript : [];
+    if (tr.length === 0) return res.status(400).json({ error: "文字起こしがありません" });
+    const transcript = tr
+      .map((u) => `${u.speaker?.name || "話者" + (u.speaker?.id ?? "")}: ${u.text}`)
+      .join("\n")
+      .slice(-12000);
+    const analysis = await analyzeDeep({ transcript, repName: m.rep_name });
+    await saveDeepAnalysis(req.params.id, analysis);
+    res.json(analysis);
+  } catch (e) {
+    console.error("[deep-analyze]", e.message);
+    res.status(502).json({ error: e.message });
   }
 });
 
