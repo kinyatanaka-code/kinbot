@@ -120,15 +120,22 @@ export async function listMeetings({ owner, isAdmin } = {}) {
   return rows;
 }
 
-// 商談の「何回目」「フェーズ」を更新
-export async function updateMeetingMeta(botId, { round, phase }) {
+// 商談の「何回目」「フェーズ」「商談名」を更新（title は undefined なら変更しない）
+export async function updateMeetingMeta(botId, { round, phase, title }) {
   if (!pool) return;
   try {
-    await pool.query(`UPDATE meetings SET round_no=$2, phase=$3, updated_at=now() WHERE bot_id=$1`, [
-      botId,
-      round ?? null,
-      phase || null,
-    ]);
+    if (title === undefined) {
+      await pool.query(`UPDATE meetings SET round_no=$2, phase=$3, updated_at=now() WHERE bot_id=$1`, [
+        botId,
+        round ?? null,
+        phase || null,
+      ]);
+    } else {
+      await pool.query(
+        `UPDATE meetings SET round_no=$2, phase=$3, title=$4, updated_at=now() WHERE bot_id=$1`,
+        [botId, round ?? null, phase || null, title || ""]
+      );
+    }
   } catch (e) {
     console.error("[db] updateMeetingMeta", e.message);
   }

@@ -114,63 +114,94 @@ async function loadDetail(botId) {
     const tr = Array.isArray(m.transcript) ? m.transcript : [];
 
     hdetail.innerHTML = `
+      <div class="drec" id="drec"></div>
       <div class="dhead">
-        <div class="dmeta"></div>
-        <div class="dmeta-edit">
-          <label>何回目 <input type="number" id="mRound" min="1" max="99" placeholder="-" /></label>
-          <label>フェーズ <select id="mPhase"><option value="">未設定</option></select></label>
-          <span class="dmeta-saved" id="mSaved" hidden>保存しました</span>
-        </div>
+        <input class="dtitle-input" id="mTitle" placeholder="商談名" />
         <div class="dactions">
           <button class="btn" id="genBtn">要約・FB生成</button>
           <button class="btn" id="deepBtn">分析を生成</button>
-          <button class="btn ghost" id="copyBtn">全文コピー</button>
           <button class="btn danger" id="delBtn">削除</button>
         </div>
       </div>
-      <div class="drec" id="drec"></div>
-      <div class="dgrid">
-        <div class="dcol">
-          <h3>要約</h3>
-          <div id="dsummary"></div>
-          <h3>営業フィードバック</h3>
-          <div id="dfeedback"></div>
-          <h3>客観指標（自動計算）</h3>
-          <div id="dmetrics"></div>
-          <h3>AIによる評価</h3>
-          <div id="dai"></div>
-          <h3>次の一手（記録）</h3>
-          <div id="dmoves"></div>
+      <div class="dmeta-edit">
+        <label>何回目 <input type="number" id="mRound" min="1" max="99" placeholder="-" /></label>
+        <label>フェーズ <select id="mPhase"><option value="">未設定</option></select></label>
+        <span class="dmeta-sub" id="dmetaSub"></span>
+        <span class="dmeta-saved" id="mSaved" hidden>保存しました</span>
+      </div>
+      <div class="tabs">
+        <button class="tab active" data-tab="trans">文字起こし</button>
+        <button class="tab" data-tab="summary">要約</button>
+        <button class="tab" data-tab="fb">FB & 分析</button>
+      </div>
+      <div class="tabwrap">
+        <div class="tabpane" data-pane="trans">
+          <div class="pane-bar"><button class="btn ghost copy-mini" id="copyTrans">コピー</button></div>
+          <div id="dtrans" class="pane-content"></div>
         </div>
-        <div class="dcol">
-          <h3>文字起こし</h3>
-          <div id="dtrans"></div>
+        <div class="tabpane" data-pane="summary" hidden>
+          <div class="pane-bar"><button class="btn ghost copy-mini" id="copySummary">コピー</button></div>
+          <div id="dsummary" class="pane-content"></div>
+        </div>
+        <div class="tabpane" data-pane="fb" hidden>
+          <div class="pane-bar"><button class="btn ghost copy-mini" id="copyFb">コピー</button></div>
+          <div class="pane-content" id="dfbwrap">
+            <h3>営業フィードバック</h3>
+            <div id="dfeedback"></div>
+            <h3>客観指標（自動計算）</h3>
+            <div id="dmetrics"></div>
+            <h3>AIによる評価</h3>
+            <div id="dai"></div>
+            <h3>次の一手（記録）</h3>
+            <div id="dmoves"></div>
+          </div>
         </div>
       </div>`;
 
-    // 全文コピー（話者名つきのプレーンテキスト）
-    const fullText = tr.map((u) => `${labelOf(u.speaker)}: ${u.text}`).join("\n");
-    const copyBtn = hdetail.querySelector("#copyBtn");
-    copyBtn.addEventListener("click", async () => {
+    // タブ切替
+    hdetail.querySelectorAll(".tab").forEach((tab) => {
+      tab.addEventListener("click", () => {
+        hdetail.querySelectorAll(".tab").forEach((t) => t.classList.toggle("active", t === tab));
+        const name = tab.dataset.tab;
+        hdetail.querySelectorAll(".tabpane").forEach((p) => (p.hidden = p.dataset.pane !== name));
+      });
+    });
+
+    // コピー（各タブの内容をプレーンテキストで）
+    const copyText = async (text, btn) => {
+      const done = () => {
+        const o = btn.textContent;
+        btn.textContent = "コピーしました";
+        setTimeout(() => (btn.textContent = o), 1500);
+      };
       try {
-        await navigator.clipboard.writeText(fullText);
-        copyBtn.textContent = "コピーしました";
-        setTimeout(() => (copyBtn.textContent = "全文コピー"), 1500);
+        await navigator.clipboard.writeText(text);
+        done();
       } catch {
-        // クリップボードが使えない環境向けのフォールバック
         const ta = document.createElement("textarea");
-        ta.value = fullText;
+        ta.value = text;
         document.body.appendChild(ta);
         ta.select();
         document.execCommand("copy");
         ta.remove();
-        copyBtn.textContent = "コピーしました";
-        setTimeout(() => (copyBtn.textContent = "全文コピー"), 1500);
+        done();
       }
-    });
+    };
+    hdetail.querySelector("#copyTrans").addEventListener("click", (e) =>
+      copyText(hdetail.querySelector("#dtrans").innerText, e.currentTarget)
+    );
+    hdetail.querySelector("#copySummary").addEventListener("click", (e) =>
+      copyText(hdetail.querySelector("#dsummary").innerText, e.currentTarget)
+    );
+    hdetail.querySelector("#copyFb").addEventListener("click", (e) =>
+      copyText(hdetail.querySelector("#dfbwrap").innerText, e.currentTarget)
+    );
 
-    hdetail.querySelector(".dmeta").textContent =
-      `${m.title || "(商談名なし)"}　|　${fmtDate(m.created_at)}　${m.owner_name || m.rep_name || ""}`;
+    // 商談名（編集可）・サブ情報
+    const mTitle = hdetail.querySelector("#mTitle");
+    mTitle.value = m.title || "";
+    hdetail.querySelector("#dmetaSub").textContent =
+      `${fmtDate(m.created_at)}　${m.owner_name || m.rep_name || ""}`;
 
     // 何回目・フェーズ
     const mRound = hdetail.querySelector("#mRound");
@@ -189,19 +220,21 @@ async function loadDetail(botId) {
         await fetch(`/api/meetings/${encodeURIComponent(botId)}/meta`, {
           method: "PUT",
           headers: { "content-type": "application/json" },
-          body: JSON.stringify({ round: mRound.value, phase: mPhase.value }),
+          body: JSON.stringify({ title: mTitle.value.trim(), round: mRound.value, phase: mPhase.value }),
         });
         mSaved.hidden = false;
         setTimeout(() => (mSaved.hidden = true), 1500);
         // 一覧の表示にも反映
         const row = allMeetings.find((x) => x.bot_id === botId);
         if (row) {
+          row.title = mTitle.value.trim();
           row.round_no = mRound.value ? Number(mRound.value) : null;
           row.phase = mPhase.value || null;
         }
         renderList();
       } catch {}
     };
+    mTitle.addEventListener("change", saveMeta);
     mRound.addEventListener("change", saveMeta);
     mPhase.addEventListener("change", saveMeta);
 

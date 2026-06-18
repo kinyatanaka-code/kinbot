@@ -505,3 +505,24 @@ table.bant td:first-child { color: var(--muted); width: 80px; }
   background: var(--panel); border: 1px solid var(--line); border-top: none;
   border-radius: 0 0 12px 12px; padding: 14px 16px; box-shadow: var(--shadow);
 }
+
+/* ---------- 履歴詳細：商談名編集・タブ ---------- */
+.dtitle-input {
+  flex: 1 1 auto; font-family: inherit; font-size: 18px; font-weight: 700; color: var(--ink);
+  border: 1px solid transparent; border-radius: 8px; padding: 6px 8px; background: transparent; min-width: 0;
+}
+.dtitle-input:hover { border-color: var(--line); }
+.dtitle-input:focus { border-color: var(--accent); background: var(--panel-2); outline: none; }
+.dmeta-sub { font-size: 12.5px; color: var(--muted); }
+
+.tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--line); margin: 14px 0 0; }
+.tab {
+  font: inherit; font-size: 13.5px; font-weight: 700; color: var(--muted); cursor: pointer;
+  background: transparent; border: none; padding: 10px 16px; border-bottom: 2px solid transparent; margin-bottom: -1px;
+}
+.tab:hover { color: var(--ink); }
+.tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+.tabwrap { padding-top: 14px; }
+.pane-bar { display: flex; justify-content: flex-end; margin-bottom: 8px; }
+.copy-mini { padding: 5px 12px; font-size: 12px; }
+.pane-content h3:first-child { margin-top: 0; }

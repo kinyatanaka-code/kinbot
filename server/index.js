@@ -152,9 +152,13 @@ app.get("/api/auth-info", (req, res) => {
 // 商談の「何回目」「フェーズ」を更新
 app.put("/api/meetings/:id/meta", async (req, res) => {
   try {
-    const { round, phase } = req.body || {};
+    const { round, phase, title } = req.body || {};
     const r = round === "" || round == null ? null : Number(round);
-    await updateMeetingMeta(req.params.id, { round: Number.isFinite(r) ? r : null, phase: phase || null });
+    await updateMeetingMeta(req.params.id, {
+      round: Number.isFinite(r) ? r : null,
+      phase: phase || null,
+      title: title == null ? undefined : title,
+    });
     res.json({ ok: true });
   } catch (e) {
     res.status(500).json({ error: e.message });
