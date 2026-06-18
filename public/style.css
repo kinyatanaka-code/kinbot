@@ -535,3 +535,23 @@ table.bant td:first-child { color: var(--muted); width: 80px; }
   background: var(--panel-2); border: 1px solid var(--line); border-radius: 8px; padding: 6px 10px; cursor: pointer;
 }
 .fphase-group .chk input { margin: 0; }
+
+/* ---------- 開閉式の複数選択ドロップダウン ---------- */
+.msel { position: relative; display: inline-block; }
+.msel-btn {
+  display: inline-flex; align-items: center; gap: 8px; font: inherit; font-size: 13px;
+  padding: 8px 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel-2);
+  cursor: pointer; color: var(--ink); max-width: 320px;
+}
+.msel-btn .msel-cap { color: var(--muted); }
+.msel-btn .msel-sum { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.msel-caret { color: var(--muted); font-size: 10px; margin-left: auto; }
+.msel-btn.open { border-color: var(--accent); }
+.msel-panel {
+  position: absolute; z-index: 40; top: calc(100% + 4px); left: 0; min-width: 220px; max-height: 280px; overflow-y: auto;
+  background: var(--panel); border: 1px solid var(--line); border-radius: 10px; box-shadow: var(--shadow);
+  padding: 8px; display: flex; flex-direction: column; gap: 2px;
+}
+.msel-opt { display: flex; align-items: center; gap: 8px; font-size: 13px; padding: 7px 8px; border-radius: 6px; cursor: pointer; white-space: nowrap; }
+.msel-opt:hover { background: var(--panel-2); }
+.msel-opt input { margin: 0; }

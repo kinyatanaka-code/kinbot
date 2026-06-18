@@ -40,6 +40,50 @@ function selectedPhases() {
   return [...document.querySelectorAll("#fPhaseGroup input:checked")].map((c) => c.value);
 }
 
+// 開閉式の複数選択ドロップダウン
+function initMultiDropdown(group, labelText, items, onChange) {
+  if (!group) return;
+  group.classList.add("msel");
+  group.innerHTML = `<button type="button" class="msel-btn"><span class="msel-cap">${labelText}：</span><span class="msel-sum">すべて</span><span class="msel-caret">▾</span></button><div class="msel-panel" hidden></div>`;
+  const btn = group.querySelector(".msel-btn");
+  const panel = group.querySelector(".msel-panel");
+  const sum = group.querySelector(".msel-sum");
+  for (const it of items) {
+    const lab = document.createElement("label");
+    lab.className = "msel-opt";
+    const inp = document.createElement("input");
+    inp.type = "checkbox";
+    inp.value = it.value;
+    lab.appendChild(inp);
+    lab.appendChild(document.createTextNode(" " + it.label));
+    panel.appendChild(lab);
+  }
+  const update = () => {
+    const checked = [...panel.querySelectorAll("input:checked")];
+    sum.textContent = checked.length
+      ? items.filter((it) => checked.some((c) => c.value === it.value)).map((it) => it.label).join("・")
+      : "すべて";
+  };
+  group._mselUpdate = update;
+  panel.addEventListener("change", () => {
+    update();
+    onChange();
+  });
+  panel.addEventListener("click", (e) => e.stopPropagation());
+  btn.addEventListener("click", (e) => {
+    e.stopPropagation();
+    const willOpen = panel.hidden;
+    closeAllMsel();
+    panel.hidden = !willOpen;
+    btn.classList.toggle("open", willOpen);
+  });
+}
+function closeAllMsel() {
+  document.querySelectorAll(".msel-panel").forEach((p) => (p.hidden = true));
+  document.querySelectorAll(".msel-btn.open").forEach((b) => b.classList.remove("open"));
+}
+document.addEventListener("click", closeAllMsel);
+
 function applyHistoryFilter() {
   const owner = document.getElementById("fOwner").value.trim();
   const phases = selectedPhases();
@@ -80,15 +124,13 @@ function renderList() {
 }
 
 async function loadList() {
-  // フェーズ選択肢（複数選択チェック）
-  const fGroup = document.getElementById("fPhaseGroup");
-  for (const p of PHASES) {
-    const lab = document.createElement("label");
-    lab.className = "chk";
-    lab.innerHTML = `<input type="checkbox" value="${p.code}" /> ${p.label}`;
-    lab.querySelector("input").addEventListener("change", renderList);
-    fGroup.appendChild(lab);
-  }
+  // フェーズ（開閉式ドロップダウン・複数選択）
+  initMultiDropdown(
+    document.getElementById("fPhaseGroup"),
+    "フェーズ",
+    PHASES.map((p) => ({ value: p.code, label: p.label })),
+    renderList
+  );
   try {
     const res = await fetch("/api/meetings");
     const rows = await res.json();

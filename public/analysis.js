@@ -36,23 +36,20 @@ async function init() {
     if (!owner) continue;
     if (!seen.has(owner)) seen.set(owner, (m.owner_name || "").trim() || owner);
   }
+  // 営業担当者（開閉式ドロップダウン・複数選択）
+  const ownerItems = [];
   for (const [owner, label] of seen) {
     ownerLabels[owner] = label;
-    const lab = document.createElement("label");
-    lab.className = "chk";
-    lab.innerHTML = `<input type="checkbox" value="${owner.replace(/"/g, "&quot;")}" /> ${escapeHtml(label)}`;
-    lab.querySelector("input").addEventListener("change", () => render(true));
-    $("fRepGroup").appendChild(lab);
+    ownerItems.push({ value: owner, label });
   }
-  // フェーズ選択肢（複数選択チェック）
-  const fGroup = $("fPhaseGroup");
-  for (const p of PHASES) {
-    const lab = document.createElement("label");
-    lab.className = "chk";
-    lab.innerHTML = `<input type="checkbox" value="${p.code}" /> ${p.label}`;
-    lab.querySelector("input").addEventListener("change", () => render(true));
-    fGroup.appendChild(lab);
-  }
+  initMultiDropdown($("fRepGroup"), "営業担当者", ownerItems, () => render(true));
+  // フェーズ（開閉式ドロップダウン・複数選択）
+  initMultiDropdown(
+    $("fPhaseGroup"),
+    "フェーズ",
+    PHASES.map((p) => ({ value: p.code, label: p.label })),
+    () => render(true)
+  );
   render();
 }
 
@@ -62,6 +59,50 @@ function selectedOwners() {
 function selectedPhases() {
   return [...document.querySelectorAll("#fPhaseGroup input:checked")].map((c) => c.value);
 }
+
+// 開閉式の複数選択ドロップダウン
+function initMultiDropdown(group, labelText, items, onChange) {
+  if (!group) return;
+  group.classList.add("msel");
+  group.innerHTML = `<button type="button" class="msel-btn"><span class="msel-cap">${labelText}：</span><span class="msel-sum">すべて</span><span class="msel-caret">▾</span></button><div class="msel-panel" hidden></div>`;
+  const btn = group.querySelector(".msel-btn");
+  const panel = group.querySelector(".msel-panel");
+  const sum = group.querySelector(".msel-sum");
+  for (const it of items) {
+    const lab = document.createElement("label");
+    lab.className = "msel-opt";
+    const inp = document.createElement("input");
+    inp.type = "checkbox";
+    inp.value = it.value;
+    lab.appendChild(inp);
+    lab.appendChild(document.createTextNode(" " + it.label));
+    panel.appendChild(lab);
+  }
+  const update = () => {
+    const checked = [...panel.querySelectorAll("input:checked")];
+    sum.textContent = checked.length
+      ? items.filter((it) => checked.some((c) => c.value === it.value)).map((it) => it.label).join("・")
+      : "すべて";
+  };
+  group._mselUpdate = update;
+  panel.addEventListener("change", () => {
+    update();
+    onChange();
+  });
+  panel.addEventListener("click", (e) => e.stopPropagation());
+  btn.addEventListener("click", (e) => {
+    e.stopPropagation();
+    const willOpen = panel.hidden;
+    closeAllMsel();
+    panel.hidden = !willOpen;
+    btn.classList.toggle("open", willOpen);
+  });
+}
+function closeAllMsel() {
+  document.querySelectorAll(".msel-panel").forEach((p) => (p.hidden = true));
+  document.querySelectorAll(".msel-btn.open").forEach((b) => b.classList.remove("open"));
+}
+document.addEventListener("click", closeAllMsel);
 
 function applyFilter() {
   const owners = selectedOwners();
@@ -258,8 +299,9 @@ function renderList(rows) {
 
 $("fApply").addEventListener("click", () => render(true));
 $("fClear").addEventListener("click", () => {
-  document.querySelectorAll("#fRepGroup input:checked").forEach((c) => (c.checked = false));
-  document.querySelectorAll("#fPhaseGroup input:checked").forEach((c) => (c.checked = false));
+  document.querySelectorAll("#fRepGroup input:checked, #fPhaseGroup input:checked").forEach((c) => (c.checked = false));
+  $("fRepGroup")._mselUpdate && $("fRepGroup")._mselUpdate();
+  $("fPhaseGroup")._mselUpdate && $("fPhaseGroup")._mselUpdate();
   $("fFrom").value = "";
   $("fTo").value = "";
   render(true);
