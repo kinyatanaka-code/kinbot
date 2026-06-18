@@ -1,6 +1,7 @@
 // public/analysis.js
 const $ = (id) => document.getElementById(id);
 let all = [];
+let ownerLabels = {};
 
 const PHASES = [
   { code: "01", label: "01 初回商談" },
@@ -36,29 +37,40 @@ async function init() {
     if (!seen.has(owner)) seen.set(owner, (m.owner_name || "").trim() || owner);
   }
   for (const [owner, label] of seen) {
-    const o = document.createElement("option");
-    o.value = owner;
-    o.textContent = label;
-    $("fRep").appendChild(o);
+    ownerLabels[owner] = label;
+    const lab = document.createElement("label");
+    lab.className = "chk";
+    lab.innerHTML = `<input type="checkbox" value="${owner.replace(/"/g, "&quot;")}" /> ${escapeHtml(label)}`;
+    lab.querySelector("input").addEventListener("change", () => render(true));
+    $("fRepGroup").appendChild(lab);
   }
-  // フェーズ選択肢
+  // フェーズ選択肢（複数選択チェック）
+  const fGroup = $("fPhaseGroup");
   for (const p of PHASES) {
-    const o = document.createElement("option");
-    o.value = p.code;
-    o.textContent = p.label;
-    $("fPhase").appendChild(o);
+    const lab = document.createElement("label");
+    lab.className = "chk";
+    lab.innerHTML = `<input type="checkbox" value="${p.code}" /> ${p.label}`;
+    lab.querySelector("input").addEventListener("change", () => render(true));
+    fGroup.appendChild(lab);
   }
   render();
 }
 
+function selectedOwners() {
+  return [...document.querySelectorAll("#fRepGroup input:checked")].map((c) => c.value);
+}
+function selectedPhases() {
+  return [...document.querySelectorAll("#fPhaseGroup input:checked")].map((c) => c.value);
+}
+
 function applyFilter() {
-  const owner = $("fRep").value.trim();
-  const phase = $("fPhase").value.trim();
+  const owners = selectedOwners();
+  const phases = selectedPhases();
   const from = $("fFrom").value ? new Date($("fFrom").value + "T00:00:00") : null;
   const to = $("fTo").value ? new Date($("fTo").value + "T23:59:59") : null;
   return all.filter((m) => {
-    if (owner && (m.owner || "").trim() !== owner) return false;
-    if (phase && (m.phase || "") !== phase) return false;
+    if (owners.length && !owners.includes((m.owner || "").trim())) return false;
+    if (phases.length && !phases.includes(m.phase || "")) return false;
     const d = new Date(m.created_at);
     if (from && d < from) return false;
     if (to && d > to) return false;
@@ -76,8 +88,8 @@ function render(triggered) {
 let setReqSeq = 0;
 function curFilter() {
   return {
-    owner: $("fRep").value.trim(),
-    phase: $("fPhase").value.trim(),
+    owners: selectedOwners(),
+    phases: selectedPhases(),
     from: $("fFrom").value || "",
     to: $("fTo").value || "",
   };
@@ -90,9 +102,10 @@ function renderSetPanel(rows, triggered) {
     el.innerHTML = "";
     return;
   }
-  const ownerSel = $("fRep");
-  const ownerLabel = ownerSel.value ? ownerSel.options[ownerSel.selectedIndex]?.textContent : "全員";
-  const phaseLbl = $("fPhase").value ? phaseLabel($("fPhase").value) : "すべて";
+  const ownersSel = selectedOwners();
+  const ownerLabel = ownersSel.length ? ownersSel.map((o) => ownerLabels[o] || o).join("・") : "全員";
+  const phs = selectedPhases();
+  const phaseLbl = phs.length ? phs.map(phaseLabel).join("・") : "すべて";
   el.innerHTML = `<div class="tend-head"><span>絞り込んだ商談のまとめ分析（${escapeHtml(ownerLabel)} / ${escapeHtml(phaseLbl)} ・ ${rows.length}件）</span>
     <button class="btn" id="setBtn" hidden>再分析</button></div>
     <div class="tend-body" id="setBody"><div class="empty-state">読み込み中…</div></div>`;
@@ -245,8 +258,8 @@ function renderList(rows) {
 
 $("fApply").addEventListener("click", () => render(true));
 $("fClear").addEventListener("click", () => {
-  $("fRep").value = "";
-  $("fPhase").value = "";
+  document.querySelectorAll("#fRepGroup input:checked").forEach((c) => (c.checked = false));
+  document.querySelectorAll("#fPhaseGroup input:checked").forEach((c) => (c.checked = false));
   $("fFrom").value = "";
   $("fTo").value = "";
   render(true);

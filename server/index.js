@@ -193,11 +193,13 @@ app.delete("/api/meetings/:id", async (req, res) => {
 const PHASE_LABELS = { "01": "初回商談", "02": "有効商談", "03": "担当者合意", "04": "企画決定者合意" };
 app.post("/api/analyze-set", async (req, res) => {
   try {
-    const { owner, phase, from, to, force, cachedOnly } = req.body || {};
+    const { owner, owners, phase, phases, from, to, force, cachedOnly } = req.body || {};
+    const ownerList = Array.isArray(owners) ? owners.filter(Boolean) : owner ? [owner] : [];
+    const phaseList = Array.isArray(phases) ? phases.filter(Boolean) : phase ? [phase] : [];
     let rows = await listMeetings({ isAdmin: true });
     rows = rows.filter((m) => {
-      if (owner && (m.owner || "") !== owner) return false;
-      if (phase && (m.phase || "") !== phase) return false;
+      if (ownerList.length && !ownerList.includes(m.owner || "")) return false;
+      if (phaseList.length && !phaseList.includes(m.phase || "")) return false;
       const d = new Date(m.created_at);
       if (from && d < new Date(from + "T00:00:00")) return false;
       if (to && d > new Date(to + "T23:59:59")) return false;
@@ -206,7 +208,7 @@ app.post("/api/analyze-set", async (req, res) => {
     const count = rows.length;
 
     // キャッシュキーと、データ変更を検知する指紋
-    const key = `${owner || ""}|${phase || ""}|${from || ""}|${to || ""}`;
+    const key = `${[...ownerList].sort().join("+")}|${[...phaseList].sort().join("+")}|${from || ""}|${to || ""}`;
     const fingerprint = crypto
       .createHash("sha1")
       .update(
@@ -250,8 +252,11 @@ app.post("/api/analyze-set", async (req, res) => {
     let material = blocks.join("\n\n");
     if (material.length > 14000) material = material.slice(0, 14000);
 
-    const ownerName = owner ? (use.find((m) => m.owner === owner)?.owner_name || owner) : "全員";
-    const filterDesc = `営業担当: ${ownerName} ／ フェーズ: ${phase ? PHASE_LABELS[phase] || phase : "すべて"} ／ 件数: ${count}`;
+    const ownerName = ownerList.length
+      ? ownerList.map((o) => rows.find((m) => m.owner === o)?.owner_name || o).join("・")
+      : "全員";
+    const phaseDesc = phaseList.length ? phaseList.map((p) => PHASE_LABELS[p] || p).join("・") : "すべて";
+    const filterDesc = `営業担当: ${ownerName} ／ フェーズ: ${phaseDesc} ／ 件数: ${count}`;
 
     const result = await analyzeSet({ material, filterDesc });
     const payload = { ...result, used: use.length };

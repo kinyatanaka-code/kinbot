@@ -21,12 +21,8 @@
         <header class="topbar"><div class="brand"><span class="brand-name">分析（全商談の振り返り）</span></div></header>
         <main class="analysis-page">
           <div class="filters">
-            <label>営業担当者
-              <select id="fRep"><option value="">全員</option></select>
-            </label>
-            <label>フェーズ
-              <select id="fPhase"><option value="">すべて</option></select>
-            </label>
+            <div class="fphase-group frep-group" id="fRepGroup"><span class="flabel">営業担当者</span></div>
+            <div class="fphase-group" id="fPhaseGroup"><span class="flabel">フェーズ</span></div>
             <label>開始日
               <input type="date" id="fFrom" />
             </label>

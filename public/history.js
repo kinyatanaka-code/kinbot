@@ -36,12 +36,16 @@ const fmtDate = (s) => {
 };
 const labelOf = (sp) => (sp ? sp.name || "話者" + (sp.id ?? "") : "話者");
 
+function selectedPhases() {
+  return [...document.querySelectorAll("#fPhaseGroup input:checked")].map((c) => c.value);
+}
+
 function applyHistoryFilter() {
   const owner = document.getElementById("fOwner").value.trim();
-  const phase = document.getElementById("fPhase").value.trim();
+  const phases = selectedPhases();
   return allMeetings.filter((m) => {
     if (owner && (m.owner || "").trim() !== owner) return false;
-    if (phase && (m.phase || "") !== phase) return false;
+    if (phases.length && !phases.includes(m.phase || "")) return false;
     return true;
   });
 }
@@ -76,13 +80,14 @@ function renderList() {
 }
 
 async function loadList() {
-  // フェーズ選択肢
-  const fPhase = document.getElementById("fPhase");
+  // フェーズ選択肢（複数選択チェック）
+  const fGroup = document.getElementById("fPhaseGroup");
   for (const p of PHASES) {
-    const o = document.createElement("option");
-    o.value = p.code;
-    o.textContent = p.label;
-    fPhase.appendChild(o);
+    const lab = document.createElement("label");
+    lab.className = "chk";
+    lab.innerHTML = `<input type="checkbox" value="${p.code}" /> ${p.label}`;
+    lab.querySelector("input").addEventListener("change", renderList);
+    fGroup.appendChild(lab);
   }
   try {
     const res = await fetch("/api/meetings");
@@ -107,7 +112,6 @@ async function loadList() {
       fOwner.appendChild(o);
     }
     fOwner.addEventListener("change", renderList);
-    fPhase.addEventListener("change", renderList);
     renderList();
   } catch (e) {
     hlist.innerHTML = '<div class="empty-state">読み込みに失敗しました。</div>';
