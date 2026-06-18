@@ -57,6 +57,8 @@ class Session {
 
   addSocket(ws) {
     this.sockets.add(ws);
+    // 実際のライブ開始時刻を伝える（途中参加でも正しい経過時間を表示するため）
+    this.sendTo(ws, { type: "session", startedAt: this.startedAt });
     // 既存の文字起こしを再送（途中参加の画面用）
     for (const u of this.utterances) {
       this.sendTo(ws, { type: "final", speaker: u.speaker, text: u.text, ts: u.ts });
@@ -137,6 +139,8 @@ class Session {
   }
 
   dispose() {
+    // 視聴中の全員に終了を通知（画面を自動で閉じる）
+    this.broadcast({ type: "ended", ts: Date.now() });
     if (this.timer) clearInterval(this.timer);
     this.timer = null;
     this.maybeAnalyze();

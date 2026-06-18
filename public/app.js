@@ -57,7 +57,7 @@ async function refreshActive() {
       card.innerHTML = `<span class="ac-live">● LIVE</span><span class="ac-title"></span><span class="ac-who"></span>`;
       card.querySelector(".ac-title").textContent = title;
       card.querySelector(".ac-who").textContent = who;
-      card.addEventListener("click", () => openLive(a.botId, { viewer: true }));
+      card.addEventListener("click", () => openLive(a.botId, { viewer: true, startedAt: a.startedAt }));
       els.activeList.appendChild(card);
     }
   } catch {}
@@ -119,21 +119,21 @@ async function joinMeeting() {
 }
 
 // ライブ画面を開く（自分の商談 or 他人の商談の閲覧）
-function openLive(botId, { viewer }) {
+function openLive(botId, { viewer, startedAt }) {
   sessionId = botId;
   viewerMode = !!viewer;
   stopActivePoll();
   openSocket();
-  enterLiveMode();
+  enterLiveMode(startedAt);
   els.leaveBtn.textContent = viewer ? "閉じる" : "退出";
 }
 
-function enterLiveMode() {
+function enterLiveMode(startedAtMs) {
   els.viewJoin.hidden = true;
   els.viewLive.hidden = false;
   els.liveControls.hidden = false;
   els.sttHint.textContent = "接続待ち";
-  startTimer();
+  startTimer(startedAtMs);
 }
 
 async function leaveMeeting() {
@@ -143,7 +143,18 @@ async function leaveMeeting() {
       await fetch(`/api/sessions/${sessionId}/stop`, { method: "POST" });
     } catch {}
   }
-  if (ws) ws.close();
+  resetToJoin("待機中");
+}
+
+// サーバーからライブ終了の通知が来たとき（視聴者も自動で閉じる）
+function endedByServer() {
+  resetToJoin(viewerMode ? "この商談は終了しました。" : "商談が終了しました。要約・分析は履歴に保存されます。");
+}
+
+function resetToJoin(statusMsg) {
+  if (ws) {
+    try { ws.close(); } catch {}
+  }
   ws = null;
   sessionId = null;
   viewerMode = false;
@@ -155,14 +166,13 @@ async function leaveMeeting() {
   els.joinBtn.disabled = false;
   els.sttHint.textContent = "待機中";
   els.partial.textContent = "";
-  // 次の商談のために表示をリセット
   els.transcript.innerHTML = '<div class="empty-state" id="transcriptEmpty">Botが入室すると、発言が話者ごとに流れます。</div>';
   els.transcriptEmpty = $("transcriptEmpty");
   els.summary.innerHTML = '<div class="empty-state">会話が進むと、状況・要点・合意・宿題・相手の懸念を自動でまとめます。</div>';
   els.moves.innerHTML = '<div class="empty-state">深掘り質問・切り返し・クロージングの好機・見落としリスクを提案します。</div>';
   els.meetingTitle.value = "";
   els.meetingUrl.value = "";
-  setStatus("待機中");
+  setStatus(statusMsg || "待機中");
   startActivePoll();
 }
 
@@ -180,6 +190,13 @@ function openSocket() {
 
 function handle(msg) {
   switch (msg.type) {
+    case "session":
+      // 実際のライブ開始時刻にタイマーを合わせる
+      if (msg.startedAt) startTimer(msg.startedAt);
+      break;
+    case "ended":
+      endedByServer();
+      break;
     case "status":
       if (msg.state === "no_session") setStatus("セッションが見つかりません。入り直してください。");
       else if (msg.state === "analyze_error") setStatus("分析エラー: " + (msg.message || ""));
@@ -288,13 +305,16 @@ function renderMoves(list) {
 
 function setConn(state) { els.conn.dataset.state = state; }
 function setStatus(t) { els.status.textContent = t; }
-function startTimer() {
-  startedAt = Date.now();
-  timerId = setInterval(() => {
-    const s = Math.floor((Date.now() - startedAt) / 1000);
+function startTimer(baseMs) {
+  startedAt = baseMs || Date.now();
+  if (timerId) clearInterval(timerId);
+  const tick = () => {
+    const s = Math.max(0, Math.floor((Date.now() - startedAt) / 1000));
     els.timer.textContent =
       String(Math.floor(s / 60)).padStart(2, "0") + ":" + String(s % 60).padStart(2, "0");
-  }, 1000);
+  };
+  tick();
+  timerId = setInterval(tick, 1000);
 }
 function stopTimer() {
   if (timerId) clearInterval(timerId);
