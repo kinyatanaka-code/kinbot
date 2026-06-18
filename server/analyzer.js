@@ -125,20 +125,39 @@ export async function analyzeDeep({ transcript, repName, phase }) {
 }
 
 // ---- プロバイダ振り分け ----
+function isTransient(msg) {
+  return /\b503\b|\b429\b|UNAVAILABLE|overloaded|high demand|temporarily/i.test(msg || "");
+}
+// 一次プロバイダが混雑等で落ちた時の切替先（Groqキーがあれば既定でGroq）
+function fallbackProvider() {
+  const explicit = (process.env.FALLBACK_PROVIDER || "").toLowerCase();
+  if (explicit && explicit !== PROVIDER) return explicit;
+  if (PROVIDER !== "groq" && process.env.GROQ_API_KEY) return "groq";
+  return "";
+}
+
 async function callLLM(system, user, maxTokens = 1400) {
-  return withRetry(() => callOnce(system, user, maxTokens));
+  try {
+    return await withRetry(() => callOnce(PROVIDER, system, user, maxTokens));
+  } catch (e) {
+    const fb = fallbackProvider();
+    if (fb && isTransient(e.message)) {
+      console.warn(`[llm] ${PROVIDER} が混雑等で失敗（${e.message}）→ ${fb} に自動フォールバック`);
+      return await withRetry(() => callOnce(fb, system, user, maxTokens), 2);
+    }
+    throw e;
+  }
 }
 
 // 503/UNAVAILABLE/overloaded など一時的な混雑は自動リトライ
-async function withRetry(fn, tries = 3) {
+async function withRetry(fn, tries = 4) {
   let last;
   for (let i = 0; i < tries; i++) {
     try {
       return await fn();
     } catch (e) {
       last = e;
-      const transient = /\b503\b|\b429\b|UNAVAILABLE|overloaded|high demand|temporarily/i.test(e.message || "");
-      if (i < tries - 1 && transient) {
+      if (i < tries - 1 && isTransient(e.message)) {
         await new Promise((r) => setTimeout(r, 1500 * (i + 1)));
         continue;
       }
@@ -148,17 +167,17 @@ async function withRetry(fn, tries = 3) {
   throw last;
 }
 
-async function callOnce(system, user, maxTokens) {
-  if (PROVIDER === "anthropic") return callAnthropic(system, user, maxTokens);
-  if (PROVIDER === "ollama") return callOllama(system, user);
-  if (PROVIDER === "groq")
+async function callOnce(provider, system, user, maxTokens) {
+  if (provider === "anthropic") return callAnthropic(system, user, maxTokens);
+  if (provider === "ollama") return callOllama(system, user);
+  if (provider === "groq")
     return callOpenAICompat(system, user, maxTokens, {
       base: "https://api.groq.com/openai/v1",
       key: process.env.GROQ_API_KEY,
       model: process.env.GROQ_MODEL || "llama-3.3-70b-versatile",
       name: "Groq",
     });
-  if (PROVIDER === "openai")
+  if (provider === "openai")
     return callOpenAICompat(system, user, maxTokens, {
       base: process.env.OPENAI_BASE_URL || "https://api.openai.com/v1",
       key: process.env.OPENAI_API_KEY,
