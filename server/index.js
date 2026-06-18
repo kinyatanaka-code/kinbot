@@ -16,9 +16,10 @@ import {
   getSettings,
   saveDeepAnalysis,
   updateMeetingMeta,
+  deleteMeeting,
 } from "./db.js";
 import { resolveConfig, statusInfo } from "./config.js";
-import { analyzerInfo, analyzeMeeting, analyzeDeep } from "./analyzer.js";
+import { analyzerInfo, analyzeMeeting, analyzeDeep, analyzeTendency } from "./analyzer.js";
 import {
   googleConfigured,
   authUrl,
@@ -157,6 +158,37 @@ app.put("/api/meetings/:id/meta", async (req, res) => {
     res.json({ ok: true });
   } catch (e) {
     res.status(500).json({ error: e.message });
+  }
+});
+
+// 商談を削除
+app.delete("/api/meetings/:id", async (req, res) => {
+  try {
+    await deleteMeeting(req.params.id);
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// 担当者（所有者）の商談傾向を合成
+app.post("/api/tendency", async (req, res) => {
+  try {
+    const { owner } = req.body || {};
+    if (!owner) return res.status(400).json({ error: "owner が必要です" });
+    const allM = await listMeetings({ isAdmin: true });
+    const items = allM
+      .filter((m) => (m.owner || "") === owner && m.analysis && m.analysis.scores)
+      .map((m) => ({ title: m.title, phase: m.phase, analysis: m.analysis }));
+    if (items.length === 0) {
+      return res.status(400).json({ error: "この担当者の分析済み商談がありません（各商談で『分析を生成』してください）" });
+    }
+    const repName = items[0]?.analysis ? owner : owner;
+    const result = await analyzeTendency({ repName, items });
+    res.json({ ...result, count: items.length });
+  } catch (e) {
+    console.error("[tendency]", e.message);
+    res.status(502).json({ error: e.message });
   }
 });
 

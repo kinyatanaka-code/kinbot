@@ -3,10 +3,10 @@ const $ = (id) => document.getElementById(id);
 let all = [];
 
 const PHASES = [
-  { code: "01", label: "01 初回・ヒアリング" },
-  { code: "02", label: "02 提案・プレゼン" },
-  { code: "03", label: "03 検討・交渉" },
-  { code: "04", label: "04 クロージング" },
+  { code: "01", label: "01 初回商談" },
+  { code: "02", label: "02 有効商談" },
+  { code: "03", label: "03 担当者合意" },
+  { code: "04", label: "04 企画決定者合意" },
 ];
 const phaseLabel = (c) => (PHASES.find((p) => p.code === c) || {}).label || "未設定";
 
@@ -69,7 +69,58 @@ function applyFilter() {
 function render() {
   const rows = applyFilter();
   renderAgg(rows);
+  renderTendency();
   renderList(rows);
+}
+
+function renderTendency() {
+  const el = $("tendency");
+  if (!el) return;
+  const owner = $("fRep").value.trim();
+  if (!owner) {
+    el.innerHTML = "";
+    return;
+  }
+  const label = $("fRep").options[$("fRep").selectedIndex]?.textContent || owner;
+  el.innerHTML = `<div class="tend-head"><span>${escapeHtml(label)} の商談傾向</span>
+    <button class="btn" id="tendBtn">傾向を生成</button></div>
+    <div class="tend-body" id="tendBody"><div class="empty-state">「傾向を生成」を押すと、分析済み商談を横断して強み・弱み・口癖・顧客反応の傾向をまとめます。</div></div>`;
+  $("tendBtn").addEventListener("click", async () => {
+    const btn = $("tendBtn");
+    btn.disabled = true;
+    const orig = btn.textContent;
+    btn.textContent = "生成中…";
+    try {
+      const r = await fetch("/api/tendency", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ owner }),
+      });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.error || "生成に失敗しました");
+      renderTendencyResult(d);
+    } catch (e) {
+      $("tendBody").innerHTML = `<div class="empty-state">${escapeHtml(e.message)}</div>`;
+    } finally {
+      btn.disabled = false;
+      btn.textContent = orig;
+    }
+  });
+}
+
+function tendGroup(label, items) {
+  if (!Array.isArray(items) || items.length === 0) return "";
+  return `<div class="sgroup"><div class="label">${label}</div><ul>` +
+    items.map((i) => `<li>${escapeHtml(i)}</li>`).join("") + `</ul></div>`;
+}
+function renderTendencyResult(d) {
+  let html = `<p class="metric-note">分析済み ${d.count || 0} 件をもとに合成</p>`;
+  html += tendGroup("強み", d.strengths);
+  html += tendGroup("弱み・改善余地", d.weaknesses);
+  html += tendGroup("話し方の癖・口癖", d.habits);
+  html += tendGroup("顧客の反応の傾向", d.customer_tendencies);
+  html += tendGroup("次に伸ばすためのアドバイス", d.advice);
+  $("tendBody").innerHTML = html || '<div class="empty-state">傾向をまとめられませんでした。</div>';
 }
 
 function avgScore(list, k) {

@@ -140,6 +140,17 @@ export async function getMeeting(botId) {
   return rows[0] || null;
 }
 
+// 商談を削除
+export async function deleteMeeting(botId) {
+  if (!pool) return;
+  try {
+    await pool.query(`DELETE FROM meetings WHERE bot_id=$1`, [botId]);
+  } catch (e) {
+    console.error("[db] deleteMeeting", e.message);
+    throw e;
+  }
+}
+
 // 履歴画面からの再生成（要約＋営業フィードバック）を保存
 export async function saveAnalysis(botId, { summary, feedback }) {
   if (!pool) return { persisted: false };

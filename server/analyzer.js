@@ -90,22 +90,25 @@ const DEEP_PROMPT = `あなたは B2B 営業のアナリストです。商談の
 必ず次の JSON のみを出力（前置き・コードフェンス禁止）:
 {
   "scores": { "hearing": 1, "proposal": 1, "closing": 1, "listening": 1 },
+  "score_reasons": { "hearing": "そのスコアにした理由を、商談内の事実に基づき1〜2文で", "proposal": "...", "closing": "...", "listening": "..." },
   "bant": { "budget": "確認できた内容、無ければ『未確認』", "authority": "...", "need": "...", "timeline": "..." },
   "needs": ["把握できた相手の課題・ニーズ"],
   "buying_signals": ["前向きな発言・関心の兆候"],
   "objections": ["懸念や反論 → それへの対応の良し悪し を1行で"],
   "next_step": "次アクションが具体的に握れたか（日時・担当・宿題）。曖昧なら指摘",
   "competitors": ["言及された競合（無ければ空配列）"],
+  "rep_habits": ["営業担当の話し方の癖・口癖（例:『えーと』が多い、専門用語が多い、一方的になりがち 等）。具体的に"],
+  "customer_reactions": ["顧客の反応の特徴（前向き／慎重／価格に敏感 など）。具体的な発言を踏まえて"],
   "coaching": ["実際の発言を引用しつつ、次はこうすると良いという助言"]
 }
 ルール: scores は各1〜5の整数（hearing=ヒアリング, proposal=提案, closing=クロージング, listening=傾聴）。
-事実に基づき、憶測で作らない。該当が無ければ空配列や『未確認』。日本語で簡潔に。`;
+score_reasons は各スコアの根拠を必ず書く。事実に基づき、憶測で作らない。該当が無ければ空配列や『未確認』。日本語で簡潔に。`;
 
 export const PHASE_GUIDE = {
-  "01": "フェーズ01（初回・ヒアリング）。重視点: 関係構築、課題/ニーズの深掘り、BANTの把握、次回アポの設定。",
-  "02": "フェーズ02（提案・プレゼン）。重視点: 課題に対する提案の的確さ、価値訴求、差別化、相手の反応の引き出し。",
-  "03": "フェーズ03（検討・交渉）。重視点: 反論・懸念への対応、競合比較、意思決定プロセスと関係者の確認、条件のすり合わせ。",
-  "04": "フェーズ04（クロージング）。重視点: 合意形成、不安の解消、契約・次アクションの明確化、決裁の後押し。",
+  "01": "フェーズ01（初回商談）。重視点: 関係構築、相手の課題/状況のヒアリング、自社の価値の初期提示、次回につなげるアポ設定。",
+  "02": "フェーズ02（有効商談）。重視点: 課題・ニーズが本物かの見極め、予算/時期/必要性の確認、提案価値のすり合わせ、案件化の手応え。",
+  "03": "フェーズ03（担当者合意）。重視点: 窓口担当者の合意形成、懸念・反論への対応、社内へ上げてもらうための材料提供、意思決定プロセスの把握。",
+  "04": "フェーズ04（企画決定者合意）。重視点: 決裁者の合意・承認、最終条件の調整、不安の解消、契約・導入に向けた具体的な次アクションの確定。",
 };
 
 export async function analyzeDeep({ transcript, repName, phase }) {
@@ -258,4 +261,40 @@ function parseJson(text) {
   } catch {
     return {};
   }
+}
+
+// 担当者の「商談の傾向」を、過去商談の分析結果から合成する
+const TENDENCY_PROMPT = `あなたは B2B 営業のコーチです。ある営業担当者の複数商談の分析データ（スコア・コーチング・口癖・顧客反応・懸念など）を渡します。
+それらを横断して、その担当者の「傾向」をまとめてください。
+
+必ず次の JSON のみを出力（前置き・コードフェンス禁止）:
+{
+  "strengths": ["強み（繰り返し見られる良い点）"],
+  "weaknesses": ["弱み・改善余地（繰り返し見られる課題）"],
+  "habits": ["話し方の癖・口癖の傾向（具体的に）"],
+  "customer_tendencies": ["相手（顧客）の反応に見られる傾向"],
+  "advice": ["次に伸ばすための具体的アドバイス（優先度の高い順に）"]
+}
+事実ベースで、複数商談に共通する点を優先。該当が薄ければ空配列。日本語で簡潔に。`;
+
+export async function analyzeTendency({ repName, items }) {
+  const lines = items
+    .map((it, i) => {
+      const a = it.analysis || {};
+      const parts = [];
+      parts.push(`#${i + 1} 「${it.title || "無題"}」 フェーズ${it.phase || "-"}`);
+      if (a.scores) parts.push(`スコア: ヒア${a.scores.hearing ?? "-"}/提案${a.scores.proposal ?? "-"}/クロ${a.scores.closing ?? "-"}/傾聴${a.scores.listening ?? "-"}`);
+      if (a.rep_habits?.length) parts.push(`口癖: ${a.rep_habits.join(" / ")}`);
+      if (a.customer_reactions?.length) parts.push(`顧客反応: ${a.customer_reactions.join(" / ")}`);
+      if (a.objections?.length) parts.push(`懸念対応: ${a.objections.join(" / ")}`);
+      if (a.coaching?.length) parts.push(`助言: ${a.coaching.join(" / ")}`);
+      return parts.join("\n");
+    })
+    .join("\n\n");
+  const user =
+    `営業担当: ${repName || "（未指定）"}\n商談数: ${items.length}\n\n` +
+    `各商談の分析データ:\n"""\n${lines.slice(-12000)}\n"""\n\n` +
+    `この担当者の傾向を JSON でまとめてください。`;
+  const text = await callLLM(TENDENCY_PROMPT, user, 1800);
+  return parseJson(text);
 }

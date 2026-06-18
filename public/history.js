@@ -3,10 +3,10 @@ const hlist = document.getElementById("hlist");
 const hdetail = document.getElementById("hdetail");
 
 const PHASES = [
-  { code: "01", label: "01 初回・ヒアリング" },
-  { code: "02", label: "02 提案・プレゼン" },
-  { code: "03", label: "03 検討・交渉" },
-  { code: "04", label: "04 クロージング" },
+  { code: "01", label: "01 初回商談" },
+  { code: "02", label: "02 有効商談" },
+  { code: "03", label: "03 担当者合意" },
+  { code: "04", label: "04 企画決定者合意" },
 ];
 const phaseLabel = (c) => (PHASES.find((p) => p.code === c) || {}).label || "";
 
@@ -125,6 +125,7 @@ async function loadDetail(botId) {
           <button class="btn" id="genBtn">要約・FB生成</button>
           <button class="btn" id="deepBtn">分析を生成</button>
           <button class="btn ghost" id="copyBtn">全文コピー</button>
+          <button class="btn danger" id="delBtn">削除</button>
         </div>
       </div>
       <div class="drec" id="drec"></div>
@@ -203,6 +204,26 @@ async function loadDetail(botId) {
     };
     mRound.addEventListener("change", saveMeta);
     mPhase.addEventListener("change", saveMeta);
+
+    // 削除
+    const delBtn = hdetail.querySelector("#delBtn");
+    delBtn.addEventListener("click", async () => {
+      if (!confirm(`「${m.title || "(商談名なし)"}」を削除します。よろしいですか？\nこの操作は取り消せません。`)) return;
+      delBtn.disabled = true;
+      try {
+        const r = await fetch(`/api/meetings/${encodeURIComponent(botId)}`, { method: "DELETE" });
+        if (!r.ok) {
+          const d = await r.json().catch(() => ({}));
+          throw new Error(d.error || "削除に失敗しました");
+        }
+        allMeetings = allMeetings.filter((x) => x.bot_id !== botId);
+        renderList();
+        hdetail.innerHTML = '<div class="empty-state">削除しました。左の一覧から別の商談を選べます。</div>';
+      } catch (e) {
+        alert("削除に失敗しました: " + e.message);
+        delBtn.disabled = false;
+      }
+    });
 
     renderSummaryInto(hdetail.querySelector("#dsummary"), s);
     renderFeedbackInto(hdetail.querySelector("#dfeedback"), m.feedback || {});
@@ -367,9 +388,11 @@ function renderAiInto(el, a) {
   const sc = a.scores || {};
   const dims = [["hearing", "ヒアリング"], ["proposal", "提案"], ["closing", "クロージング"], ["listening", "傾聴"]];
   html += '<div class="scores">';
+  const reasons = a.score_reasons || {};
   for (const [k, jp] of dims) {
     const v = Number(sc[k]) || 0;
     html += `<div class="score-row"><span class="score-name">${jp}</span><span class="dots">${[1, 2, 3, 4, 5].map((n) => `<span class="dot${n <= v ? " on" : ""}"></span>`).join("")}</span><span class="score-val">${v}/5</span></div>`;
+    if (reasons[k]) html += `<div class="score-reason">${escapeHtml(reasons[k])}</div>`;
   }
   html += "</div>";
   const b = a.bant || {};
@@ -386,6 +409,8 @@ function renderAiInto(el, a) {
   html += group("購買シグナル", a.buying_signals);
   html += group("懸念と対応", a.objections);
   html += group("競合の言及", a.competitors);
+  html += group("話し方の癖・口癖", a.rep_habits);
+  html += group("顧客の反応", a.customer_reactions);
   html += group("コーチング", a.coaching);
   el.innerHTML = html;
 }
