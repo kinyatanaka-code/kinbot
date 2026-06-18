@@ -68,6 +68,14 @@ export async function initDb() {
       updated_at    TIMESTAMPTZ DEFAULT now()
     );
   `);
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS set_analysis_cache (
+      key         TEXT PRIMARY KEY,
+      fingerprint TEXT,
+      result      JSONB,
+      updated_at  TIMESTAMPTZ DEFAULT now()
+    );
+  `);
   console.log("[db] Postgres に接続しました（履歴を保存します）。");
 }
 
@@ -304,5 +312,29 @@ export async function listGoogleAccounts() {
     return rows;
   } catch {
     return [];
+  }
+}
+
+// ---- まとめ分析のキャッシュ ----
+export async function getSetCache(key) {
+  if (!pool) return null;
+  try {
+    const { rows } = await pool.query(`SELECT * FROM set_analysis_cache WHERE key=$1`, [key]);
+    return rows[0] || null;
+  } catch {
+    return null;
+  }
+}
+export async function saveSetCache(key, fingerprint, result) {
+  if (!pool) return;
+  try {
+    await pool.query(
+      `INSERT INTO set_analysis_cache (key, fingerprint, result, updated_at)
+       VALUES ($1,$2,$3,now())
+       ON CONFLICT (key) DO UPDATE SET fingerprint=$2, result=$3, updated_at=now()`,
+      [key, fingerprint, JSON.stringify(result)]
+    );
+  } catch (e) {
+    console.error("[db] saveSetCache", e.message);
   }
 }

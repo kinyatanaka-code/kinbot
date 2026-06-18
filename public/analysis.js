@@ -66,14 +66,24 @@ function applyFilter() {
   });
 }
 
-function render() {
+function render(triggered) {
   const rows = applyFilter();
   renderAgg(rows);
-  renderSetPanel(rows);
+  renderSetPanel(rows, !!triggered);
   renderList(rows);
 }
 
-function renderSetPanel(rows) {
+let setReqSeq = 0;
+function curFilter() {
+  return {
+    owner: $("fRep").value.trim(),
+    phase: $("fPhase").value.trim(),
+    from: $("fFrom").value || "",
+    to: $("fTo").value || "",
+  };
+}
+
+function renderSetPanel(rows, triggered) {
   const el = $("tendency");
   if (!el) return;
   if (!rows.length) {
@@ -84,34 +94,75 @@ function renderSetPanel(rows) {
   const ownerLabel = ownerSel.value ? ownerSel.options[ownerSel.selectedIndex]?.textContent : "全員";
   const phaseLbl = $("fPhase").value ? phaseLabel($("fPhase").value) : "すべて";
   el.innerHTML = `<div class="tend-head"><span>絞り込んだ商談のまとめ分析（${escapeHtml(ownerLabel)} / ${escapeHtml(phaseLbl)} ・ ${rows.length}件）</span>
-    <button class="btn" id="setBtn">この条件をまとめて分析</button></div>
-    <div class="tend-body" id="setBody"><div class="empty-state">ボタンを押すと、絞り込んだ商談の内容を横断して、傾向・口癖・顧客反応と、スコアがその水準になっている理由をまとめます。</div></div>`;
-  $("setBtn").addEventListener("click", async () => {
-    const btn = $("setBtn");
+    <button class="btn" id="setBtn" hidden>再分析</button></div>
+    <div class="tend-body" id="setBody"><div class="empty-state">読み込み中…</div></div>`;
+
+  const seq = ++setReqSeq;
+  const filter = curFilter();
+
+  // まずキャッシュを確認（無料・LLMを呼ばない）
+  fetchSet({ ...filter, cachedOnly: true })
+    .then((d) => {
+      if (seq !== setReqSeq) return; // 古い応答は無視
+      if (d && d.overview !== undefined && d.cached) {
+        renderSetResult(d, true);
+        wireReanalyze(filter);
+      } else if (triggered) {
+        // 絞り込み操作なら自動生成（1回だけ・以後はキャッシュ）
+        runGenerate(filter, seq);
+      } else {
+        // 初回表示はボタンだけ（勝手に課金しない）
+        $("setBody").innerHTML = '<div class="empty-state">「この条件をまとめて分析」を押すと、傾向・口癖・顧客反応・スコアの理由をまとめます（結果は保存され、次回からは自動表示）。</div>';
+        showSetButton("この条件をまとめて分析", () => runGenerate(filter, ++setReqSeq));
+      }
+    })
+    .catch(() => {
+      if (seq !== setReqSeq) return;
+      $("setBody").innerHTML = '<div class="empty-state">読み込みに失敗しました。</div>';
+    });
+}
+
+function showSetButton(label, onClick) {
+  const btn = $("setBtn");
+  if (!btn) return;
+  btn.hidden = false;
+  btn.textContent = label;
+  btn.onclick = onClick;
+}
+function wireReanalyze(filter) {
+  showSetButton("再分析", () => runGenerate(filter, ++setReqSeq, true));
+}
+
+async function runGenerate(filter, seq, force) {
+  const btn = $("setBtn");
+  if (btn) {
     btn.disabled = true;
-    const orig = btn.textContent;
+    btn.hidden = false;
     btn.textContent = "分析中…";
-    try {
-      const r = await fetch("/api/analyze-set", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          owner: $("fRep").value.trim(),
-          phase: $("fPhase").value.trim(),
-          from: $("fFrom").value || "",
-          to: $("fTo").value || "",
-        }),
-      });
-      const d = await r.json();
-      if (!r.ok) throw new Error(d.error || "分析に失敗しました");
-      renderSetResult(d);
-    } catch (e) {
-      $("setBody").innerHTML = `<div class="empty-state">${escapeHtml(e.message)}</div>`;
-    } finally {
-      btn.disabled = false;
-      btn.textContent = orig;
-    }
+  }
+  $("setBody").innerHTML = '<div class="empty-state">分析中…（AIが商談内容を横断しています）</div>';
+  try {
+    const d = await fetchSet({ ...filter, force: !!force });
+    if (seq !== setReqSeq) return;
+    if (d.error) throw new Error(d.error);
+    renderSetResult(d, d.cached);
+    wireReanalyze(filter);
+  } catch (e) {
+    if (seq !== setReqSeq) return;
+    $("setBody").innerHTML = `<div class="empty-state">${escapeHtml(e.message || "分析に失敗しました")}</div>`;
+    showSetButton("もう一度試す", () => runGenerate(filter, ++setReqSeq, true));
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
+async function fetchSet(body) {
+  const r = await fetch("/api/analyze-set", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(body),
   });
+  return r.json();
 }
 
 function setGroup(label, items) {
@@ -119,8 +170,8 @@ function setGroup(label, items) {
   return `<div class="sgroup"><div class="label">${label}</div><ul>` +
     items.map((i) => `<li>${escapeHtml(i)}</li>`).join("") + `</ul></div>`;
 }
-function renderSetResult(d) {
-  let html = `<p class="metric-note">対象 ${d.count || 0} 件${d.used && d.used < d.count ? `（うち直近${d.used}件を分析）` : ""}</p>`;
+function renderSetResult(d, cached) {
+  let html = `<p class="metric-note">対象 ${d.count || 0} 件${d.used && d.used < d.count ? `（うち直近${d.used}件を分析）` : ""}${cached ? "・保存済みの結果を表示" : "・たった今分析"}</p>`;
   if (d.overview) html += `<div class="sgroup"><div class="label">全体所感</div><p>${escapeHtml(d.overview)}</p></div>`;
   if (d.score_rationale) html += `<div class="sgroup"><div class="label">スコアの理由</div><p>${escapeHtml(d.score_rationale)}</p></div>`;
   html += setGroup("強み", d.strengths);
@@ -192,13 +243,13 @@ function renderList(rows) {
   }
 }
 
-$("fApply").addEventListener("click", render);
+$("fApply").addEventListener("click", () => render(true));
 $("fClear").addEventListener("click", () => {
   $("fRep").value = "";
   $("fPhase").value = "";
   $("fFrom").value = "";
   $("fTo").value = "";
-  render();
+  render(true);
 });
 
 init();

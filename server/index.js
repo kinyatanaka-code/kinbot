@@ -2,6 +2,7 @@
 import "dotenv/config";
 import path from "node:path";
 import http from "node:http";
+import crypto from "node:crypto";
 import { fileURLToPath } from "node:url";
 import express from "express";
 import { WebSocketServer } from "ws";
@@ -17,6 +18,8 @@ import {
   saveDeepAnalysis,
   updateMeetingMeta,
   deleteMeeting,
+  getSetCache,
+  saveSetCache,
 } from "./db.js";
 import { resolveConfig, statusInfo } from "./config.js";
 import { analyzerInfo, analyzeMeeting, analyzeDeep, analyzeTendency, analyzeSet } from "./analyzer.js";
@@ -175,11 +178,11 @@ app.delete("/api/meetings/:id", async (req, res) => {
   }
 });
 
-// 絞り込んだ商談全体を横断して、傾向・スコア理由を分析
+// 絞り込んだ商談全体を横断して、傾向・スコア理由を分析（結果はキャッシュ）
 const PHASE_LABELS = { "01": "初回商談", "02": "有効商談", "03": "担当者合意", "04": "企画決定者合意" };
 app.post("/api/analyze-set", async (req, res) => {
   try {
-    const { owner, phase, from, to } = req.body || {};
+    const { owner, phase, from, to, force, cachedOnly } = req.body || {};
     let rows = await listMeetings({ isAdmin: true });
     rows = rows.filter((m) => {
       if (owner && (m.owner || "") !== owner) return false;
@@ -189,7 +192,29 @@ app.post("/api/analyze-set", async (req, res) => {
       if (to && d > new Date(to + "T23:59:59")) return false;
       return true;
     });
-    if (rows.length === 0) return res.status(400).json({ error: "対象の商談がありません" });
+    const count = rows.length;
+
+    // キャッシュキーと、データ変更を検知する指紋
+    const key = `${owner || ""}|${phase || ""}|${from || ""}|${to || ""}`;
+    const fingerprint = crypto
+      .createHash("sha1")
+      .update(
+        rows
+          .map((m) => `${m.bot_id}:${new Date(m.updated_at || m.created_at).getTime()}`)
+          .sort()
+          .join(",")
+      )
+      .digest("hex");
+
+    const cache = await getSetCache(key);
+    const valid = cache && cache.fingerprint === fingerprint;
+    if (valid && !force) {
+      return res.json({ ...cache.result, cached: true, count });
+    }
+    if (cachedOnly) {
+      return res.json({ hasCache: false, cached: false, count });
+    }
+    if (count === 0) return res.status(400).json({ error: "対象の商談がありません" });
 
     // 新しい順に最大15件を対象（トークン量を抑制）
     const use = rows.slice(0, 15);
@@ -215,10 +240,12 @@ app.post("/api/analyze-set", async (req, res) => {
     if (material.length > 14000) material = material.slice(0, 14000);
 
     const ownerName = owner ? (use.find((m) => m.owner === owner)?.owner_name || owner) : "全員";
-    const filterDesc = `営業担当: ${ownerName} ／ フェーズ: ${phase ? PHASE_LABELS[phase] || phase : "すべて"} ／ 件数: ${rows.length}`;
+    const filterDesc = `営業担当: ${ownerName} ／ フェーズ: ${phase ? PHASE_LABELS[phase] || phase : "すべて"} ／ 件数: ${count}`;
 
     const result = await analyzeSet({ material, filterDesc });
-    res.json({ ...result, count: rows.length, used: use.length });
+    const payload = { ...result, used: use.length };
+    await saveSetCache(key, fingerprint, payload);
+    res.json({ ...payload, cached: false, count });
   } catch (e) {
     console.error("[analyze-set]", e.message);
     res.status(502).json({ error: e.message });
