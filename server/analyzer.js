@@ -298,3 +298,28 @@ export async function analyzeTendency({ repName, items }) {
   const text = await callLLM(TENDENCY_PROMPT, user, 1800);
   return parseJson(text);
 }
+
+// 絞り込んだ複数商談を横断して、傾向とスコアの理由をまとめて分析する
+const SET_PROMPT = `あなたは B2B 営業のマネージャー兼コーチです。複数商談の内容（要約・分析データ）をまとめて渡します。
+対象範囲を横断して、傾向と、平均スコアがその水準になっている理由を分析してください。
+
+必ず次の JSON のみを出力（前置き・コードフェンス禁止）:
+{
+  "overview": "対象範囲の全体所感（2〜3文）",
+  "score_rationale": "ヒアリング/提案/クロージング/傾聴の平均が、その水準になっている理由を、具体的な傾向（何ができていて何が足りないか）から説明",
+  "strengths": ["繰り返し見られる強み"],
+  "weaknesses": ["繰り返し見られる弱み・改善余地"],
+  "habits": ["話し方の癖・口癖の傾向（具体的に）"],
+  "customer_tendencies": ["顧客の反応に見られる傾向"],
+  "advice": ["優先度の高い改善アドバイス（順に）"]
+}
+事実ベースで、複数商談に共通する点を優先。該当が薄ければ空配列。日本語で簡潔に。`;
+
+export async function analyzeSet({ material, filterDesc }) {
+  const user =
+    `対象範囲: ${filterDesc || "（指定なし）"}\n\n` +
+    `各商談の内容:\n"""\n${material}\n"""\n\n` +
+    `この範囲の傾向とスコアの理由を JSON でまとめてください。`;
+  const text = await callLLM(SET_PROMPT, user, 2000);
+  return parseJson(text);
+}

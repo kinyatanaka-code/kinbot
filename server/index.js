@@ -19,7 +19,7 @@ import {
   deleteMeeting,
 } from "./db.js";
 import { resolveConfig, statusInfo } from "./config.js";
-import { analyzerInfo, analyzeMeeting, analyzeDeep, analyzeTendency } from "./analyzer.js";
+import { analyzerInfo, analyzeMeeting, analyzeDeep, analyzeTendency, analyzeSet } from "./analyzer.js";
 import {
   googleConfigured,
   authUrl,
@@ -168,6 +168,56 @@ app.delete("/api/meetings/:id", async (req, res) => {
     res.json({ ok: true });
   } catch (e) {
     res.status(500).json({ error: e.message });
+  }
+});
+
+// 絞り込んだ商談全体を横断して、傾向・スコア理由を分析
+const PHASE_LABELS = { "01": "初回商談", "02": "有効商談", "03": "担当者合意", "04": "企画決定者合意" };
+app.post("/api/analyze-set", async (req, res) => {
+  try {
+    const { owner, phase, from, to } = req.body || {};
+    let rows = await listMeetings({ isAdmin: true });
+    rows = rows.filter((m) => {
+      if (owner && (m.owner || "") !== owner) return false;
+      if (phase && (m.phase || "") !== phase) return false;
+      const d = new Date(m.created_at);
+      if (from && d < new Date(from + "T00:00:00")) return false;
+      if (to && d > new Date(to + "T23:59:59")) return false;
+      return true;
+    });
+    if (rows.length === 0) return res.status(400).json({ error: "対象の商談がありません" });
+
+    // 新しい順に最大15件を対象（トークン量を抑制）
+    const use = rows.slice(0, 15);
+    const blocks = use.map((m, i) => {
+      const p = [`#${i + 1} 「${m.title || "無題"}」 ${m.round_no ? m.round_no + "回目 " : ""}フェーズ${m.phase || "-"}`];
+      const s = m.summary || {};
+      if (s.overview) p.push(`要約: ${s.overview}`);
+      if (Array.isArray(s.key_points) && s.key_points.length) p.push(`要点: ${s.key_points.join(" / ")}`);
+      const a = m.analysis;
+      if (a && a.scores) {
+        p.push(`スコア ヒア${a.scores.hearing ?? "-"}/提案${a.scores.proposal ?? "-"}/クロ${a.scores.closing ?? "-"}/傾聴${a.scores.listening ?? "-"}`);
+        if (a.score_reasons) {
+          const r = a.score_reasons;
+          p.push(`理由 ヒア「${r.hearing || ""}」提案「${r.proposal || ""}」クロ「${r.closing || ""}」傾聴「${r.listening || ""}」`);
+        }
+        if (a.rep_habits?.length) p.push(`口癖: ${a.rep_habits.join(" / ")}`);
+        if (a.customer_reactions?.length) p.push(`顧客反応: ${a.customer_reactions.join(" / ")}`);
+        if (a.coaching?.length) p.push(`助言: ${a.coaching.join(" / ")}`);
+      }
+      return p.join("\n");
+    });
+    let material = blocks.join("\n\n");
+    if (material.length > 14000) material = material.slice(0, 14000);
+
+    const ownerName = owner ? (use.find((m) => m.owner === owner)?.owner_name || owner) : "全員";
+    const filterDesc = `営業担当: ${ownerName} ／ フェーズ: ${phase ? PHASE_LABELS[phase] || phase : "すべて"} ／ 件数: ${rows.length}`;
+
+    const result = await analyzeSet({ material, filterDesc });
+    res.json({ ...result, count: rows.length, used: use.length });
+  } catch (e) {
+    console.error("[analyze-set]", e.message);
+    res.status(502).json({ error: e.message });
   }
 });
 
