@@ -20,6 +20,7 @@ import {
   deleteMeeting,
   getSetCache,
   saveSetCache,
+  listUsers,
 } from "./db.js";
 import { resolveConfig, statusInfo } from "./config.js";
 import { analyzerInfo, analyzeMeeting, analyzeDeep, analyzeTendency, analyzeSet } from "./analyzer.js";
@@ -155,14 +156,24 @@ app.get("/api/auth-info", (req, res) => {
 // 商談の「何回目」「フェーズ」を更新
 app.put("/api/meetings/:id/meta", async (req, res) => {
   try {
-    const { round, phase, title } = req.body || {};
+    const { round, phase, title, owner } = req.body || {};
     const r = round === "" || round == null ? null : Number(round);
     await updateMeetingMeta(req.params.id, {
       round: Number.isFinite(r) ? r : null,
       phase: phase || null,
-      title: title == null ? undefined : title,
+      title: title === undefined ? undefined : title,
+      owner: owner === undefined ? undefined : owner,
     });
     res.json({ ok: true });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// 登録ユーザー一覧（営業担当の付け替え用）
+app.get("/api/users", async (req, res) => {
+  try {
+    res.json(await listUsers());
   } catch (e) {
     res.status(500).json({ error: e.message });
   }

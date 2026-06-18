@@ -11,6 +11,16 @@ const PHASES = [
 const phaseLabel = (c) => (PHASES.find((p) => p.code === c) || {}).label || "";
 
 let allMeetings = [];
+let usersCache = null;
+async function loadUsers() {
+  if (usersCache) return usersCache;
+  try {
+    usersCache = await (await fetch("/api/users")).json();
+  } catch {
+    usersCache = [];
+  }
+  return usersCache || [];
+}
 
 const fmtDate = (s) => {
   try {
@@ -124,6 +134,7 @@ async function loadDetail(botId) {
         </div>
       </div>
       <div class="dmeta-edit">
+        <label>営業担当 <select id="mOwner"><option value="">未設定</option></select></label>
         <label>何回目 <input type="number" id="mRound" min="1" max="99" placeholder="-" /></label>
         <label>フェーズ <select id="mPhase"><option value="">未設定</option></select></label>
         <span class="dmeta-sub" id="dmetaSub"></span>
@@ -206,6 +217,7 @@ async function loadDetail(botId) {
     // 何回目・フェーズ
     const mRound = hdetail.querySelector("#mRound");
     const mPhase = hdetail.querySelector("#mPhase");
+    const mOwner = hdetail.querySelector("#mOwner");
     const mSaved = hdetail.querySelector("#mSaved");
     for (const p of PHASES) {
       const o = document.createElement("option");
@@ -215,12 +227,37 @@ async function loadDetail(botId) {
     }
     if (m.round_no) mRound.value = m.round_no;
     if (m.phase) mPhase.value = m.phase;
+
+    // 営業担当（登録ユーザーから選択して付け替え）
+    const users = await loadUsers();
+    const present = new Set();
+    for (const u of users) {
+      const o = document.createElement("option");
+      o.value = u.email;
+      o.textContent = u.name || u.email;
+      mOwner.appendChild(o);
+      present.add(u.email);
+    }
+    // 現在の担当者が一覧に無い場合（旧データ等）も選べるように追加
+    if (m.owner && !present.has(m.owner)) {
+      const o = document.createElement("option");
+      o.value = m.owner;
+      o.textContent = m.owner_name || m.owner;
+      mOwner.appendChild(o);
+    }
+    mOwner.value = m.owner || "";
+
     const saveMeta = async () => {
       try {
         await fetch(`/api/meetings/${encodeURIComponent(botId)}/meta`, {
           method: "PUT",
           headers: { "content-type": "application/json" },
-          body: JSON.stringify({ title: mTitle.value.trim(), round: mRound.value, phase: mPhase.value }),
+          body: JSON.stringify({
+            title: mTitle.value.trim(),
+            round: mRound.value,
+            phase: mPhase.value,
+            owner: mOwner.value,
+          }),
         });
         mSaved.hidden = false;
         setTimeout(() => (mSaved.hidden = true), 1500);
@@ -230,13 +267,19 @@ async function loadDetail(botId) {
           row.title = mTitle.value.trim();
           row.round_no = mRound.value ? Number(mRound.value) : null;
           row.phase = mPhase.value || null;
+          row.owner = mOwner.value || "";
+          const u = (usersCache || []).find((x) => x.email === mOwner.value);
+          row.owner_name = u ? u.name || u.email : mOwner.value ? mOwner.value : null;
         }
         renderList();
+        hdetail.querySelector("#dmetaSub").textContent =
+          `${fmtDate(m.created_at)}　${mOwner.options[mOwner.selectedIndex]?.textContent || ""}`;
       } catch {}
     };
     mTitle.addEventListener("change", saveMeta);
     mRound.addEventListener("change", saveMeta);
     mPhase.addEventListener("change", saveMeta);
+    mOwner.addEventListener("change", saveMeta);
 
     // 削除
     const delBtn = hdetail.querySelector("#delBtn");

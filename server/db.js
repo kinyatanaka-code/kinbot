@@ -128,24 +128,37 @@ export async function listMeetings({ owner, isAdmin } = {}) {
   return rows;
 }
 
-// 商談の「何回目」「フェーズ」「商談名」を更新（title は undefined なら変更しない）
-export async function updateMeetingMeta(botId, { round, phase, title }) {
+// 商談の「何回目」「フェーズ」「商談名」「営業担当(owner)」を更新（undefinedの項目は変更しない）
+export async function updateMeetingMeta(botId, { round, phase, title, owner }) {
   if (!pool) return;
+  const sets = ["round_no=$2", "phase=$3"];
+  const vals = [botId, round ?? null, phase || null];
+  let idx = 4;
+  if (title !== undefined) {
+    sets.push(`title=$${idx}`);
+    vals.push(title || "");
+    idx++;
+  }
+  if (owner !== undefined) {
+    sets.push(`owner=$${idx}`);
+    vals.push(owner || "");
+    idx++;
+  }
   try {
-    if (title === undefined) {
-      await pool.query(`UPDATE meetings SET round_no=$2, phase=$3, updated_at=now() WHERE bot_id=$1`, [
-        botId,
-        round ?? null,
-        phase || null,
-      ]);
-    } else {
-      await pool.query(
-        `UPDATE meetings SET round_no=$2, phase=$3, title=$4, updated_at=now() WHERE bot_id=$1`,
-        [botId, round ?? null, phase || null, title || ""]
-      );
-    }
+    await pool.query(`UPDATE meetings SET ${sets.join(", ")}, updated_at=now() WHERE bot_id=$1`, vals);
   } catch (e) {
     console.error("[db] updateMeetingMeta", e.message);
+  }
+}
+
+// 登録ユーザー一覧（営業担当の付け替え用）
+export async function listUsers() {
+  if (!pool) return [];
+  try {
+    const { rows } = await pool.query(`SELECT email, name FROM users ORDER BY name NULLS LAST, email`);
+    return rows;
+  } catch {
+    return [];
   }
 }
 
