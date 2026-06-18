@@ -2,6 +2,16 @@
 const hlist = document.getElementById("hlist");
 const hdetail = document.getElementById("hdetail");
 
+const PHASES = [
+  { code: "01", label: "01 初回・ヒアリング" },
+  { code: "02", label: "02 提案・プレゼン" },
+  { code: "03", label: "03 検討・交渉" },
+  { code: "04", label: "04 クロージング" },
+];
+const phaseLabel = (c) => (PHASES.find((p) => p.code === c) || {}).label || "";
+
+let allMeetings = [];
+
 const fmtDate = (s) => {
   try {
     return new Date(s).toLocaleString("ja-JP", {
@@ -16,32 +26,79 @@ const fmtDate = (s) => {
 };
 const labelOf = (sp) => (sp ? sp.name || "話者" + (sp.id ?? "") : "話者");
 
+function applyHistoryFilter() {
+  const owner = document.getElementById("fOwner").value.trim();
+  const phase = document.getElementById("fPhase").value.trim();
+  return allMeetings.filter((m) => {
+    if (owner && (m.owner || "").trim() !== owner) return false;
+    if (phase && (m.phase || "") !== phase) return false;
+    return true;
+  });
+}
+
+function renderList() {
+  const rows = applyHistoryFilter();
+  if (!rows.length) {
+    hlist.innerHTML = '<div class="empty-state">該当する商談がありません。</div>';
+    return;
+  }
+  hlist.innerHTML = "";
+  for (const r of rows) {
+    const overview = r.summary && r.summary.overview ? r.summary.overview : "（要約なし）";
+    const tags = [];
+    if (r.round_no) tags.push(`${r.round_no}回目`);
+    if (r.phase) tags.push(phaseLabel(r.phase));
+    const card = document.createElement("button");
+    card.className = "hcard";
+    card.innerHTML = `<div class="hcard-title"></div><div class="hcard-top"><span class="hcard-date"></span><span class="hcard-rep"></span></div><div class="hcard-tags"></div><div class="hcard-ov"></div>`;
+    card.querySelector(".hcard-title").textContent = r.title || "(商談名なし)";
+    card.querySelector(".hcard-date").textContent = fmtDate(r.created_at);
+    card.querySelector(".hcard-rep").textContent = r.owner_name || r.rep_name || "";
+    card.querySelector(".hcard-tags").textContent = tags.join("　");
+    card.querySelector(".hcard-ov").textContent = overview;
+    card.addEventListener("click", () => {
+      document.querySelectorAll(".hcard").forEach((c) => c.classList.remove("active"));
+      card.classList.add("active");
+      loadDetail(r.bot_id);
+    });
+    hlist.appendChild(card);
+  }
+}
+
 async function loadList() {
+  // フェーズ選択肢
+  const fPhase = document.getElementById("fPhase");
+  for (const p of PHASES) {
+    const o = document.createElement("option");
+    o.value = p.code;
+    o.textContent = p.label;
+    fPhase.appendChild(o);
+  }
   try {
     const res = await fetch("/api/meetings");
     const rows = await res.json();
-    if (!Array.isArray(rows) || rows.length === 0) {
+    allMeetings = Array.isArray(rows) ? rows : [];
+    if (allMeetings.length === 0) {
       hlist.innerHTML =
         '<div class="empty-state">まだ履歴がありません。商談を1件記録すると、ここに並びます。<br><small>（履歴の保存には DATABASE_URL の設定が必要です）</small></div>';
       return;
     }
-    hlist.innerHTML = "";
-    for (const r of rows) {
-      const overview = r.summary && r.summary.overview ? r.summary.overview : "（要約なし）";
-      const card = document.createElement("button");
-      card.className = "hcard";
-      card.innerHTML = `<div class="hcard-title"></div><div class="hcard-top"><span class="hcard-date"></span><span class="hcard-rep"></span></div><div class="hcard-ov"></div>`;
-      card.querySelector(".hcard-title").textContent = r.title || "(商談名なし)";
-      card.querySelector(".hcard-date").textContent = fmtDate(r.created_at);
-      card.querySelector(".hcard-rep").textContent = r.rep_name || "";
-      card.querySelector(".hcard-ov").textContent = overview;
-      card.addEventListener("click", () => {
-        document.querySelectorAll(".hcard").forEach((c) => c.classList.remove("active"));
-        card.classList.add("active");
-        loadDetail(r.bot_id);
-      });
-      hlist.appendChild(card);
+    // 営業担当（所有者）選択肢
+    const fOwner = document.getElementById("fOwner");
+    const seen = new Map();
+    for (const m of allMeetings) {
+      const owner = (m.owner || "").trim();
+      if (owner && !seen.has(owner)) seen.set(owner, (m.owner_name || "").trim() || owner);
     }
+    for (const [owner, label] of seen) {
+      const o = document.createElement("option");
+      o.value = owner;
+      o.textContent = label;
+      fOwner.appendChild(o);
+    }
+    fOwner.addEventListener("change", renderList);
+    fPhase.addEventListener("change", renderList);
+    renderList();
   } catch (e) {
     hlist.innerHTML = '<div class="empty-state">読み込みに失敗しました。</div>';
   }
@@ -59,6 +116,11 @@ async function loadDetail(botId) {
     hdetail.innerHTML = `
       <div class="dhead">
         <div class="dmeta"></div>
+        <div class="dmeta-edit">
+          <label>何回目 <input type="number" id="mRound" min="1" max="99" placeholder="-" /></label>
+          <label>フェーズ <select id="mPhase"><option value="">未設定</option></select></label>
+          <span class="dmeta-saved" id="mSaved" hidden>保存しました</span>
+        </div>
         <div class="dactions">
           <button class="btn" id="genBtn">要約・FB生成</button>
           <button class="btn" id="deepBtn">分析を生成</button>
@@ -107,7 +169,40 @@ async function loadDetail(botId) {
     });
 
     hdetail.querySelector(".dmeta").textContent =
-      `${m.title || "(商談名なし)"}　|　${fmtDate(m.created_at)}　${m.rep_name || ""}`;
+      `${m.title || "(商談名なし)"}　|　${fmtDate(m.created_at)}　${m.owner_name || m.rep_name || ""}`;
+
+    // 何回目・フェーズ
+    const mRound = hdetail.querySelector("#mRound");
+    const mPhase = hdetail.querySelector("#mPhase");
+    const mSaved = hdetail.querySelector("#mSaved");
+    for (const p of PHASES) {
+      const o = document.createElement("option");
+      o.value = p.code;
+      o.textContent = p.label;
+      mPhase.appendChild(o);
+    }
+    if (m.round_no) mRound.value = m.round_no;
+    if (m.phase) mPhase.value = m.phase;
+    const saveMeta = async () => {
+      try {
+        await fetch(`/api/meetings/${encodeURIComponent(botId)}/meta`, {
+          method: "PUT",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ round: mRound.value, phase: mPhase.value }),
+        });
+        mSaved.hidden = false;
+        setTimeout(() => (mSaved.hidden = true), 1500);
+        // 一覧の表示にも反映
+        const row = allMeetings.find((x) => x.bot_id === botId);
+        if (row) {
+          row.round_no = mRound.value ? Number(mRound.value) : null;
+          row.phase = mPhase.value || null;
+        }
+        renderList();
+      } catch {}
+    };
+    mRound.addEventListener("change", saveMeta);
+    mPhase.addEventListener("change", saveMeta);
 
     renderSummaryInto(hdetail.querySelector("#dsummary"), s);
     renderFeedbackInto(hdetail.querySelector("#dfeedback"), m.feedback || {});

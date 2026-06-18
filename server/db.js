@@ -36,6 +36,8 @@ export async function initDb() {
   await pool.query(`ALTER TABLE meetings ADD COLUMN IF NOT EXISTS title TEXT;`);
   await pool.query(`ALTER TABLE meetings ADD COLUMN IF NOT EXISTS analysis JSONB;`);
   await pool.query(`ALTER TABLE meetings ADD COLUMN IF NOT EXISTS owner TEXT;`);
+  await pool.query(`ALTER TABLE meetings ADD COLUMN IF NOT EXISTS round_no INT;`);
+  await pool.query(`ALTER TABLE meetings ADD COLUMN IF NOT EXISTS phase TEXT;`);
   await pool.query(`
     CREATE TABLE IF NOT EXISTS settings (
       id   INT PRIMARY KEY,
@@ -104,7 +106,7 @@ export async function saveMeeting(botId, { transcript, summary, suggestions }) {
 export async function listMeetings({ owner, isAdmin } = {}) {
   if (!pool) return [];
   const base = `SELECT m.bot_id, m.meeting_url, m.rep_name, m.title, m.owner,
-                       m.created_at, m.updated_at, m.summary, m.analysis,
+                       m.round_no, m.phase, m.created_at, m.updated_at, m.summary, m.analysis,
                        u.name AS owner_name
                 FROM meetings m LEFT JOIN users u ON u.email = m.owner`;
   if (isAdmin || !owner) {
@@ -116,6 +118,20 @@ export async function listMeetings({ owner, isAdmin } = {}) {
     [owner]
   );
   return rows;
+}
+
+// 商談の「何回目」「フェーズ」を更新
+export async function updateMeetingMeta(botId, { round, phase }) {
+  if (!pool) return;
+  try {
+    await pool.query(`UPDATE meetings SET round_no=$2, phase=$3, updated_at=now() WHERE bot_id=$1`, [
+      botId,
+      round ?? null,
+      phase || null,
+    ]);
+  } catch (e) {
+    console.error("[db] updateMeetingMeta", e.message);
+  }
 }
 
 export async function getMeeting(botId) {

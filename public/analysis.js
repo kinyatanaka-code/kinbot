@@ -2,6 +2,14 @@
 const $ = (id) => document.getElementById(id);
 let all = [];
 
+const PHASES = [
+  { code: "01", label: "01 初回・ヒアリング" },
+  { code: "02", label: "02 提案・プレゼン" },
+  { code: "03", label: "03 検討・交渉" },
+  { code: "04", label: "04 クロージング" },
+];
+const phaseLabel = (c) => (PHASES.find((p) => p.code === c) || {}).label || "未設定";
+
 const fmtDate = (s) => {
   try {
     return new Date(s).toLocaleString("ja-JP", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" });
@@ -33,15 +41,24 @@ async function init() {
     o.textContent = label;
     $("fRep").appendChild(o);
   }
+  // フェーズ選択肢
+  for (const p of PHASES) {
+    const o = document.createElement("option");
+    o.value = p.code;
+    o.textContent = p.label;
+    $("fPhase").appendChild(o);
+  }
   render();
 }
 
 function applyFilter() {
   const owner = $("fRep").value.trim();
+  const phase = $("fPhase").value.trim();
   const from = $("fFrom").value ? new Date($("fFrom").value + "T00:00:00") : null;
   const to = $("fTo").value ? new Date($("fTo").value + "T23:59:59") : null;
   return all.filter((m) => {
     if (owner && (m.owner || "").trim() !== owner) return false;
+    if (phase && (m.phase || "") !== phase) return false;
     const d = new Date(m.created_at);
     if (from && d < from) return false;
     if (to && d > to) return false;
@@ -55,6 +72,11 @@ function render() {
   renderList(rows);
 }
 
+function avgScore(list, k) {
+  const vals = list.map((m) => Number(m.analysis.scores[k]) || 0).filter((v) => v > 0);
+  return vals.length ? vals.reduce((a, b) => a + b, 0) / vals.length : 0;
+}
+
 function renderAgg(rows) {
   const analyzed = rows.filter((m) => m.analysis && m.analysis.scores);
   const dims = [["hearing", "ヒアリング"], ["proposal", "提案"], ["closing", "クロージング"], ["listening", "傾聴"]];
@@ -62,13 +84,26 @@ function renderAgg(rows) {
   if (analyzed.length) {
     html += '<div class="agg-scores">';
     for (const [k, jp] of dims) {
-      const vals = analyzed.map((m) => Number(m.analysis.scores[k]) || 0).filter((v) => v > 0);
-      const avg = vals.length ? vals.reduce((a, b) => a + b, 0) / vals.length : 0;
+      const avg = avgScore(analyzed, k);
       const pct = Math.round((avg / 5) * 100);
       html += `<div class="agg-row"><span class="agg-name">${jp}</span><span class="bar-track"><span class="bar-fill rep" style="width:${pct}%"></span></span><span class="agg-val">${avg.toFixed(1)}/5</span></div>`;
     }
     html += "</div>";
-    html += '<p class="metric-note">※ 平均スコアは「分析を生成」済みの商談のみで計算します。</p>';
+
+    // フェーズ別の平均スコア（振り返り用）
+    const byPhase = PHASES
+      .map((p) => ({ p, list: analyzed.filter((m) => (m.phase || "") === p.code) }))
+      .filter((x) => x.list.length);
+    if (byPhase.length) {
+      html += '<div class="phase-breakdown"><div class="pb-title">フェーズ別 平均スコア</div><table class="pb-table"><tr><th>フェーズ</th><th>件数</th><th>ヒアリング</th><th>提案</th><th>クロージング</th><th>傾聴</th></tr>';
+      for (const { p, list } of byPhase) {
+        html += `<tr><td>${p.label}</td><td>${list.length}</td>` +
+          dims.map(([k]) => `<td>${avgScore(list, k).toFixed(1)}</td>`).join("") +
+          "</tr>";
+      }
+      html += "</table></div>";
+    }
+    html += '<p class="metric-note">※ 平均スコアは「分析を生成」済みの商談のみで計算します。営業担当・フェーズで絞り込むと、その条件での平均になります。</p>';
   } else {
     html += '<p class="metric-note">この条件で分析済みの商談がありません。各商談の詳細で「分析を生成」すると、ここに平均スコアが出ます。</p>';
   }
@@ -88,6 +123,7 @@ function renderList(rows) {
     const ok = m.analysis && m.analysis.scores;
     li.innerHTML = `<span class="a-title">${escapeHtml(m.title || "(商談名なし)")}</span>
       <span class="a-rep">${escapeHtml(m.owner_name || m.owner || m.rep_name || "")}</span>
+      <span class="a-phase">${m.phase ? escapeHtml(phaseLabel(m.phase)) : ""}</span>
       <span class="a-date">${fmtDate(m.created_at)}</span>
       <span class="a-flag ${ok ? "ok" : ""}">${ok ? "分析済み" : "未分析"}</span>`;
     li.addEventListener("click", () => {
@@ -100,6 +136,7 @@ function renderList(rows) {
 $("fApply").addEventListener("click", render);
 $("fClear").addEventListener("click", () => {
   $("fRep").value = "";
+  $("fPhase").value = "";
   $("fFrom").value = "";
   $("fTo").value = "";
   render();

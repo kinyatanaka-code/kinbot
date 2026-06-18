@@ -19,16 +19,59 @@ const els = {
   sttHint: $("sttHint"),
   summaryHint: $("summaryHint"),
   linkSelect: $("linkSelect"),
+  activeList: $("activeList"),
 };
 
 let sessionId = null;
 let ws = null;
 let timerId = null;
 let startedAt = 0;
+let viewerMode = false; // 他人の商談を閲覧中（退出でBotを止めない）
+let activePollId = null;
 const speakerColors = new Map();
 
 els.joinBtn.addEventListener("click", joinMeeting);
 els.leaveBtn.addEventListener("click", leaveMeeting);
+
+// 進行中の商談一覧（全員が閲覧できる）
+async function refreshActive() {
+  if (!els.activeList) return;
+  try {
+    const [active, meetings] = await Promise.all([
+      fetch("/api/sessions/active").then((r) => r.json()),
+      fetch("/api/meetings").then((r) => r.json()),
+    ]);
+    const metaById = {};
+    for (const m of meetings || []) metaById[m.bot_id] = m;
+    if (!Array.isArray(active) || active.length === 0) {
+      els.activeList.innerHTML = '<div class="empty-state">いま進行中の商談はありません。</div>';
+      return;
+    }
+    els.activeList.innerHTML = "";
+    for (const a of active) {
+      const meta = metaById[a.botId] || {};
+      const title = a.title || meta.title || "(商談名なし)";
+      const who = meta.owner_name || a.repName || a.owner || "";
+      const card = document.createElement("button");
+      card.className = "active-card";
+      card.innerHTML = `<span class="ac-live">● LIVE</span><span class="ac-title"></span><span class="ac-who"></span>`;
+      card.querySelector(".ac-title").textContent = title;
+      card.querySelector(".ac-who").textContent = who;
+      card.addEventListener("click", () => openLive(a.botId, { viewer: true }));
+      els.activeList.appendChild(card);
+    }
+  } catch {}
+}
+function startActivePoll() {
+  refreshActive();
+  if (activePollId) clearInterval(activePollId);
+  activePollId = setInterval(refreshActive, 10000);
+}
+function stopActivePoll() {
+  if (activePollId) clearInterval(activePollId);
+  activePollId = null;
+}
+startActivePoll();
 
 // 登録リンクをプルダウンに読み込む
 if (els.linkSelect) {
@@ -67,14 +110,22 @@ async function joinMeeting() {
     });
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || "作成に失敗しました");
-    sessionId = data.sessionId;
-    openSocket();
-    enterLiveMode();
+    openLive(data.sessionId, { viewer: false });
     setStatus("Botが入室処理中です。会議で参加を許可してください。");
   } catch (e) {
     setStatus("開始できませんでした: " + e.message);
     els.joinBtn.disabled = false;
   }
+}
+
+// ライブ画面を開く（自分の商談 or 他人の商談の閲覧）
+function openLive(botId, { viewer }) {
+  sessionId = botId;
+  viewerMode = !!viewer;
+  stopActivePoll();
+  openSocket();
+  enterLiveMode();
+  els.leaveBtn.textContent = viewer ? "閉じる" : "退出";
 }
 
 function enterLiveMode() {
@@ -86,7 +137,8 @@ function enterLiveMode() {
 }
 
 async function leaveMeeting() {
-  if (sessionId) {
+  // 自分が開始した商談だけ、退出でBotを止める。閲覧中は接続を閉じるだけ。
+  if (sessionId && !viewerMode) {
     try {
       await fetch(`/api/sessions/${sessionId}/stop`, { method: "POST" });
     } catch {}
@@ -94,6 +146,7 @@ async function leaveMeeting() {
   if (ws) ws.close();
   ws = null;
   sessionId = null;
+  viewerMode = false;
   stopTimer();
   setConn("idle");
   els.liveControls.hidden = true;
@@ -109,7 +162,8 @@ async function leaveMeeting() {
   els.moves.innerHTML = '<div class="empty-state">深掘り質問・切り返し・クロージングの好機・見落としリスクを提案します。</div>';
   els.meetingTitle.value = "";
   els.meetingUrl.value = "";
-  setStatus("Botを退出させました。要約・分析は履歴に保存されます。");
+  setStatus("待機中");
+  startActivePoll();
 }
 
 function openSocket() {

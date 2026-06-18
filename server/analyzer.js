@@ -101,10 +101,21 @@ const DEEP_PROMPT = `あなたは B2B 営業のアナリストです。商談の
 ルール: scores は各1〜5の整数（hearing=ヒアリング, proposal=提案, closing=クロージング, listening=傾聴）。
 事実に基づき、憶測で作らない。該当が無ければ空配列や『未確認』。日本語で簡潔に。`;
 
-export async function analyzeDeep({ transcript, repName }) {
+export const PHASE_GUIDE = {
+  "01": "フェーズ01（初回・ヒアリング）。重視点: 関係構築、課題/ニーズの深掘り、BANTの把握、次回アポの設定。",
+  "02": "フェーズ02（提案・プレゼン）。重視点: 課題に対する提案の的確さ、価値訴求、差別化、相手の反応の引き出し。",
+  "03": "フェーズ03（検討・交渉）。重視点: 反論・懸念への対応、競合比較、意思決定プロセスと関係者の確認、条件のすり合わせ。",
+  "04": "フェーズ04（クロージング）。重視点: 合意形成、不安の解消、契約・次アクションの明確化、決裁の後押し。",
+};
+
+export async function analyzeDeep({ transcript, repName, phase }) {
+  const phaseNote = phase && PHASE_GUIDE[phase]
+    ? `\nこの商談の営業フェーズ: ${PHASE_GUIDE[phase]}\nコーチングと next_step は、このフェーズで特に重要な観点を優先して評価してください。\n`
+    : "";
   const user =
-    `自社の営業担当: ${repName || "（未指定）"}\n\n` +
-    `商談の文字起こし:\n"""\n${transcript}\n"""\n\n` +
+    `自社の営業担当: ${repName || "（未指定）"}\n` +
+    phaseNote +
+    `\n商談の文字起こし:\n"""\n${transcript}\n"""\n\n` +
     `この商談を多角的に分析し、JSON で返してください。`;
   const text = await callLLM(DEEP_PROMPT, user, 2500);
   return parseJson(text);

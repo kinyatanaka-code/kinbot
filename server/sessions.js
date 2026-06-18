@@ -7,7 +7,7 @@ const DEFAULT_INTERVAL_MS = Number(process.env.ANALYZE_INTERVAL_MS || 20000);
 const sessions = new Map(); // botId -> Session
 
 export function createSession(botId, { repName = "", meetingUrl = "", title = "", owner = "", analyzeIntervalMs } = {}) {
-  const s = new Session(botId, repName, meetingUrl, analyzeIntervalMs || DEFAULT_INTERVAL_MS);
+  const s = new Session(botId, { repName, meetingUrl, title, owner }, analyzeIntervalMs || DEFAULT_INTERVAL_MS);
   sessions.set(botId, s);
   createMeeting(botId, { meetingUrl, repName, title, owner }); // 履歴に行を作成（DB無効なら無視）
   return s;
@@ -20,12 +20,26 @@ export function removeSession(botId) {
   if (s) s.dispose();
   sessions.delete(botId);
 }
+// 進行中の商談一覧（全員が閲覧できる）
+export function listActiveSessions() {
+  return [...sessions.values()].map((s) => ({
+    botId: s.botId,
+    title: s.title || "",
+    owner: s.owner || "",
+    repName: s.repName || "",
+    startedAt: s.startedAt,
+    utterances: s.utterances.length,
+  }));
+}
 
 class Session {
-  constructor(botId, repName, meetingUrl, intervalMs) {
+  constructor(botId, { repName = "", meetingUrl = "", title = "", owner = "" } = {}, intervalMs) {
     this.botId = botId;
     this.repName = repName;
     this.meetingUrl = meetingUrl;
+    this.title = title;
+    this.owner = owner;
+    this.startedAt = Date.now();
     this.utterances = []; // {speaker:{id,name}, text, ts}
     this.sockets = new Set();
     this.prevSummary = null;
@@ -33,6 +47,12 @@ class Session {
     this.analyzing = false;
     this.cooldownUntil = 0; // 429などで一時停止する時刻
     this.timer = setInterval(() => this.maybeAnalyze(), intervalMs);
+  }
+  // 後から判明した商談名/所有者を補完（予約Bot用）
+  enrich({ title, owner, repName }) {
+    if (title && !this.title) this.title = title;
+    if (owner && !this.owner) this.owner = owner;
+    if (repName && !this.repName) this.repName = repName;
   }
 
   addSocket(ws) {

@@ -6,8 +6,17 @@ import { fileURLToPath } from "node:url";
 import express from "express";
 import { WebSocketServer } from "ws";
 import { createBot, leaveBot, parseTranscriptEvent, getRecordingUrl } from "./recall.js";
-import { createSession, getSession, removeSession } from "./sessions.js";
-import { initDb, listMeetings, getMeeting, saveSettings, saveAnalysis, getSettings, saveDeepAnalysis } from "./db.js";
+import { createSession, getSession, removeSession, listActiveSessions } from "./sessions.js";
+import {
+  initDb,
+  listMeetings,
+  getMeeting,
+  saveSettings,
+  saveAnalysis,
+  getSettings,
+  saveDeepAnalysis,
+  updateMeetingMeta,
+} from "./db.js";
 import { resolveConfig, statusInfo } from "./config.js";
 import { analyzerInfo, analyzeMeeting, analyzeDeep } from "./analyzer.js";
 import {
@@ -139,6 +148,18 @@ app.get("/api/auth-info", (req, res) => {
   res.json({ signupCodeRequired: !!(process.env.SIGNUP_CODE || "") });
 });
 
+// 商談の「何回目」「フェーズ」を更新
+app.put("/api/meetings/:id/meta", async (req, res) => {
+  try {
+    const { round, phase } = req.body || {};
+    const r = round === "" || round == null ? null : Number(round);
+    await updateMeetingMeta(req.params.id, { round: Number.isFinite(r) ? r : null, phase: phase || null });
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // --- 商談セッション開始：会議にBotを送り込む ---
 app.post("/api/sessions", async (req, res) => {
   const { meetingUrl, repName, languageCode, title } = req.body || {};
@@ -205,16 +226,28 @@ app.post("/api/sessions/:id/stop", async (req, res) => {
   res.json({ ok: true });
 });
 
+// 進行中の商談（全員が閲覧できる）
+app.get("/api/sessions/active", (req, res) => {
+  res.json(listActiveSessions());
+});
+
 // --- Recall からのリアルタイム文字起こし Webhook ---
 app.post("/api/recall/webhook", (req, res) => {
   if (!verifyRecallRequest(req)) return res.status(401).end();
   res.status(200).end(); // まず即ACK（処理は非同期で）
-  setImmediate(() => {
+  setImmediate(async () => {
     try {
       const ev = parseTranscriptEvent(req.body);
       if (ev && ev.botId) {
         let s = getSession(ev.botId);
-        if (!s) s = createSession(ev.botId, {}); // 予約Bot等：受信時に遅延作成して保存
+        if (!s) {
+          s = createSession(ev.botId, {}); // 予約Bot等：受信時に遅延作成
+          // DBの商談行（予約時に作成済み）から商談名・所有者を補完
+          try {
+            const m = await getMeeting(ev.botId);
+            if (m) s.enrich({ title: m.title, owner: m.owner, repName: m.rep_name });
+          } catch {}
+        }
         if (ev.type === "final") s.onFinal(ev.speaker, ev.text);
         else s.onPartial(ev.speaker, ev.text);
         return;
@@ -256,13 +289,15 @@ function verifyRecallRequest(req) {
 }
 
 // --- 履歴API（過去の商談の振り返り） ---
-function canAccess(m, req) {
-  return req.isAdmin || !m.owner || m.owner === req.user;
+// ログインユーザーは全員の商談を閲覧・分析できる（チーム共有方針）
+function canAccess(_m, _req) {
+  return true;
 }
 
 app.get("/api/meetings", async (req, res) => {
   try {
-    res.json(await listMeetings({ owner: req.user, isAdmin: req.isAdmin }));
+    // 全員が全商談を閲覧できる
+    res.json(await listMeetings({ isAdmin: true }));
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
@@ -395,7 +430,7 @@ app.post("/api/meetings/:id/deep-analyze", async (req, res) => {
       .map((u) => `${u.speaker?.name || "話者" + (u.speaker?.id ?? "")}: ${u.text}`)
       .join("\n")
       .slice(-12000);
-    const analysis = await analyzeDeep({ transcript, repName: m.rep_name });
+    const analysis = await analyzeDeep({ transcript, repName: m.rep_name, phase: m.phase });
     await saveDeepAnalysis(req.params.id, analysis);
     res.json(analysis);
   } catch (e) {
