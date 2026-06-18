@@ -54,8 +54,11 @@ function initMultiDropdown(group, labelText, items, onChange) {
     const inp = document.createElement("input");
     inp.type = "checkbox";
     inp.value = it.value;
+    const span = document.createElement("span");
+    span.className = "msel-optlabel";
+    span.textContent = it.label;
     lab.appendChild(inp);
-    lab.appendChild(document.createTextNode(" " + it.label));
+    lab.appendChild(span);
     panel.appendChild(lab);
   }
   const update = () => {
