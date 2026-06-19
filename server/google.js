@@ -136,3 +136,53 @@ export async function listZoomEvents(owner, { timeMin, timeMax } = {}) {
   }
   return out;
 }
+
+// Zoom以外・終日予定も含めて、その範囲の全予定を返す（商談名の選択用）
+const MEET_RE = /https?:\/\/[\w.-]*(?:zoom\.us|meet\.google\.com|teams\.microsoft\.com|teams\.live\.com)\/[^\s"'<>)\]]+/i;
+function findMeetingUrl(ev) {
+  const blobs = [
+    ev.hangoutLink,
+    ev.location,
+    ev.description,
+    ...(ev.conferenceData?.entryPoints || []).map((e) => e.uri),
+  ].filter(Boolean);
+  for (const b of blobs) {
+    const m = String(b).match(MEET_RE);
+    if (m) return m[0];
+  }
+  return null;
+}
+
+export async function listDayEvents(owner, { timeMin, timeMax } = {}) {
+  const token = await accessToken(owner);
+  if (!token) return [];
+  const now = new Date();
+  const tMin = timeMin || now.toISOString();
+  const tMax = timeMax || new Date(now.getTime() + 24 * 3600 * 1000).toISOString();
+  const p = new URLSearchParams({
+    timeMin: tMin,
+    timeMax: tMax,
+    singleEvents: "true",
+    orderBy: "startTime",
+    maxResults: "50",
+  });
+  const res = await fetch(
+    `https://www.googleapis.com/calendar/v3/calendars/primary/events?${p}`,
+    { headers: { Authorization: `Bearer ${token}` } }
+  );
+  if (!res.ok) throw new Error(`Google events ${res.status}: ${(await res.text()).slice(0, 200)}`);
+  const data = await res.json();
+  const out = [];
+  for (const ev of data.items || []) {
+    if (ev.status === "cancelled") continue;
+    const start = ev.start?.dateTime || ev.start?.date || null;
+    out.push({
+      id: ev.id,
+      title: ev.summary || "(無題)",
+      start,
+      allDay: !ev.start?.dateTime,
+      url: findMeetingUrl(ev) || "",
+    });
+  }
+  return out;
+}

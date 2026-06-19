@@ -12,6 +12,89 @@ const phaseLabel = (c) => (PHASES.find((p) => p.code === c) || {}).label || "";
 
 let allMeetings = [];
 let usersCache = null;
+
+// JSTのISO ⇄ datetime-local 文字列
+function isoToLocalInput(iso) {
+  try {
+    return new Date(new Date(iso).getTime() + 9 * 3600 * 1000).toISOString().slice(0, 16);
+  } catch {
+    return "";
+  }
+}
+function localInputToIso(v) {
+  // 入力（JSTのwall-clock）を +09:00 とみなしてISO化
+  const s = v.length <= 16 ? v + ":00+09:00" : v + "+09:00";
+  const d = new Date(s);
+  return isNaN(d.getTime()) ? "" : d.toISOString();
+}
+function jstToday() {
+  return new Date(Date.now() + 9 * 3600 * 1000).toISOString().slice(0, 10);
+}
+function shiftDate(dateStr, delta) {
+  const d = new Date(dateStr + "T00:00:00Z");
+  d.setUTCDate(d.getUTCDate() + delta);
+  return d.toISOString().slice(0, 10);
+}
+// カレンダー予定ピッカー（日付切替つき）
+function openCalPicker(panel, onPick) {
+  panel.hidden = false;
+  let date = jstToday();
+  const render = async () => {
+    panel.innerHTML = `<div class="cal-bar"><button type="button" class="cal-nav" data-d="-1">‹</button><input type="date" class="cal-date" value="${date}"><button type="button" class="cal-nav" data-d="1">›</button></div><div class="cal-list"><div class="cal-empty">読み込み中…</div></div>`;
+    const dateInput = panel.querySelector(".cal-date");
+    const list = panel.querySelector(".cal-list");
+    panel.querySelectorAll(".cal-nav").forEach((b) =>
+      b.addEventListener("click", (e) => {
+        e.stopPropagation();
+        date = shiftDate(date, Number(b.dataset.d));
+        render();
+      })
+    );
+    dateInput.addEventListener("click", (e) => e.stopPropagation());
+    dateInput.addEventListener("change", () => {
+      date = dateInput.value || date;
+      render();
+    });
+    try {
+      const d = await (await fetch("/api/calendar/events?date=" + encodeURIComponent(date))).json();
+      if (!d.connected) {
+        list.innerHTML = '<div class="cal-empty">カレンダー未連携です。「設定」から連携してください。</div>';
+        return;
+      }
+      const events = d.events || [];
+      if (!events.length) {
+        list.innerHTML = '<div class="cal-empty">この日の予定はありません。</div>';
+        return;
+      }
+      list.innerHTML = "";
+      for (const ev of events) {
+        const row = document.createElement("button");
+        row.type = "button";
+        row.className = "cal-row";
+        const time = ev.allDay
+          ? "終日"
+          : new Date(ev.start).toLocaleTimeString("ja-JP", { hour: "2-digit", minute: "2-digit" });
+        row.innerHTML = `<span class="cal-time"></span><span class="cal-name"></span>${ev.url ? '<span class="cal-mark">URL</span>' : ""}`;
+        row.querySelector(".cal-time").textContent = time;
+        row.querySelector(".cal-name").textContent = ev.title;
+        row.addEventListener("click", () => {
+          onPick(ev);
+          panel.hidden = true;
+        });
+        list.appendChild(row);
+      }
+    } catch {
+      list.innerHTML = '<div class="cal-empty">読み込みに失敗しました。</div>';
+    }
+  };
+  render();
+}
+// パネル外クリックで閉じる
+document.addEventListener("click", (e) => {
+  document.querySelectorAll(".cal-panel").forEach((p) => {
+    if (!p.hidden && !p.contains(e.target) && !(e.target.id === "calBtnH")) p.hidden = true;
+  });
+});
 async function loadUsers() {
   if (usersCache) return usersCache;
   try {
@@ -182,7 +265,11 @@ async function loadDetail(botId) {
     hdetail.innerHTML = `
       <div class="drec" id="drec"></div>
       <div class="dhead">
-        <input class="dtitle-input" id="mTitle" placeholder="商談名" />
+        <div class="dtitle-wrap">
+          <input class="dtitle-input" id="mTitle" placeholder="商談名" />
+          <button type="button" id="calBtnH" class="cal-btn" title="カレンダーから選ぶ">📅</button>
+          <div class="cal-panel" id="calPanelH" hidden></div>
+        </div>
         <div class="dactions">
           <button class="btn" id="genBtn">要約・FB生成</button>
           <button class="btn" id="deepBtn">分析を生成</button>
@@ -191,9 +278,9 @@ async function loadDetail(botId) {
       </div>
       <div class="dmeta-edit">
         <label>営業担当 <select id="mOwner"><option value="">未設定</option></select></label>
+        <label>日時 <input type="datetime-local" id="mDatetime" /></label>
         <label>何回目 <input type="number" id="mRound" min="1" max="99" placeholder="-" /></label>
         <label>フェーズ <select id="mPhase"><option value="">未設定</option></select></label>
-        <span class="dmeta-sub" id="dmetaSub"></span>
         <span class="dmeta-saved" id="mSaved" hidden>保存しました</span>
       </div>
       <div class="tabs">
@@ -303,17 +390,17 @@ async function loadDetail(botId) {
       copyText(text, e.currentTarget);
     });
 
-    // 商談名（編集可）・サブ情報
+    // 商談名（編集可）
     const mTitle = hdetail.querySelector("#mTitle");
     mTitle.value = m.title || "";
-    hdetail.querySelector("#dmetaSub").textContent =
-      `${fmtDate(m.created_at)}　${m.owner_name || m.rep_name || ""}`;
 
-    // 何回目・フェーズ
+    // 何回目・フェーズ・日時
     const mRound = hdetail.querySelector("#mRound");
     const mPhase = hdetail.querySelector("#mPhase");
     const mOwner = hdetail.querySelector("#mOwner");
+    const mDatetime = hdetail.querySelector("#mDatetime");
     const mSaved = hdetail.querySelector("#mSaved");
+    if (m.created_at) mDatetime.value = isoToLocalInput(m.created_at);
     for (const p of PHASES) {
       const o = document.createElement("option");
       o.value = p.code;
@@ -344,6 +431,7 @@ async function loadDetail(botId) {
 
     const saveMeta = async () => {
       try {
+        const createdAt = mDatetime.value ? localInputToIso(mDatetime.value) : "";
         await fetch(`/api/meetings/${encodeURIComponent(botId)}/meta`, {
           method: "PUT",
           headers: { "content-type": "application/json" },
@@ -352,6 +440,7 @@ async function loadDetail(botId) {
             round: mRound.value,
             phase: mPhase.value,
             owner: mOwner.value,
+            createdAt,
           }),
         });
         mSaved.hidden = false;
@@ -363,18 +452,36 @@ async function loadDetail(botId) {
           row.round_no = mRound.value ? Number(mRound.value) : null;
           row.phase = mPhase.value || null;
           row.owner = mOwner.value || "";
+          if (createdAt) row.created_at = createdAt;
           const u = (usersCache || []).find((x) => x.email === mOwner.value);
           row.owner_name = u ? u.name || u.email : mOwner.value ? mOwner.value : null;
         }
         renderList();
-        hdetail.querySelector("#dmetaSub").textContent =
-          `${fmtDate(m.created_at)}　${mOwner.options[mOwner.selectedIndex]?.textContent || ""}`;
       } catch {}
     };
     mTitle.addEventListener("change", saveMeta);
     mRound.addEventListener("change", saveMeta);
     mPhase.addEventListener("change", saveMeta);
     mOwner.addEventListener("change", saveMeta);
+    mDatetime.addEventListener("change", saveMeta);
+
+    // 商談名・日時をカレンダーから選ぶ
+    const calBtnH = hdetail.querySelector("#calBtnH");
+    const calPanelH = hdetail.querySelector("#calPanelH");
+    if (calBtnH && calPanelH) {
+      calBtnH.addEventListener("click", (e) => {
+        e.stopPropagation();
+        if (!calPanelH.hidden) {
+          calPanelH.hidden = true;
+          return;
+        }
+        openCalPicker(calPanelH, (ev) => {
+          mTitle.value = ev.title;
+          if (ev.start) mDatetime.value = ev.allDay ? ev.start + "T00:00" : isoToLocalInput(ev.start);
+          saveMeta();
+        });
+      });
+    }
 
     // 削除
     const delBtn = hdetail.querySelector("#delBtn");

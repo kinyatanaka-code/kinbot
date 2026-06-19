@@ -73,7 +73,90 @@ function stopActivePoll() {
 }
 startActivePoll();
 
-// ファイルアップロード → 文字起こし・要約・分析を商談履歴へ
+// 商談名：カレンダーからその日の予定を選ぶ（日付切替つき）
+const calBtn = $("calBtn");
+const calPanel = $("calPanel");
+if (calBtn && calPanel) {
+  document.addEventListener("click", (e) => {
+    if (!calPanel.hidden && !calPanel.contains(e.target) && e.target !== calBtn) calPanel.hidden = true;
+  });
+  calBtn.addEventListener("click", (e) => {
+    e.stopPropagation();
+    if (!calPanel.hidden) {
+      calPanel.hidden = true;
+      return;
+    }
+    openCalPicker(calPanel, (ev) => {
+      $("meetingTitle").value = ev.title;
+      if (ev.url && $("meetingUrl")) $("meetingUrl").value = ev.url;
+    });
+  });
+}
+
+// カレンダー予定ピッカー（日付切替つき）。panel に描画し、選択時 onPick(ev) を呼ぶ。
+function jstToday() {
+  return new Date(Date.now() + 9 * 3600 * 1000).toISOString().slice(0, 10);
+}
+function shiftDate(dateStr, delta) {
+  const d = new Date(dateStr + "T00:00:00Z");
+  d.setUTCDate(d.getUTCDate() + delta);
+  return d.toISOString().slice(0, 10);
+}
+function openCalPicker(panel, onPick) {
+  panel.hidden = false;
+  let date = jstToday();
+  const render = async () => {
+    panel.innerHTML = `<div class="cal-bar"><button type="button" class="cal-nav" data-d="-1">‹</button><input type="date" class="cal-date" value="${date}"><button type="button" class="cal-nav" data-d="1">›</button></div><div class="cal-list"><div class="cal-empty">読み込み中…</div></div>`;
+    const dateInput = panel.querySelector(".cal-date");
+    const list = panel.querySelector(".cal-list");
+    panel.querySelectorAll(".cal-nav").forEach((b) =>
+      b.addEventListener("click", (e) => {
+        e.stopPropagation();
+        date = shiftDate(date, Number(b.dataset.d));
+        render();
+      })
+    );
+    dateInput.addEventListener("click", (e) => e.stopPropagation());
+    dateInput.addEventListener("change", () => {
+      date = dateInput.value || date;
+      render();
+    });
+    try {
+      const d = await (await fetch("/api/calendar/events?date=" + encodeURIComponent(date))).json();
+      if (!d.connected) {
+        list.innerHTML = '<div class="cal-empty">カレンダー未連携です。「設定」から連携してください。</div>';
+        return;
+      }
+      const events = d.events || [];
+      if (!events.length) {
+        list.innerHTML = '<div class="cal-empty">この日の予定はありません。</div>';
+        return;
+      }
+      list.innerHTML = "";
+      for (const ev of events) {
+        const row = document.createElement("button");
+        row.type = "button";
+        row.className = "cal-row";
+        const time = ev.allDay
+          ? "終日"
+          : new Date(ev.start).toLocaleTimeString("ja-JP", { hour: "2-digit", minute: "2-digit" });
+        row.innerHTML = `<span class="cal-time"></span><span class="cal-name"></span>${ev.url ? '<span class="cal-mark">URL</span>' : ""}`;
+        row.querySelector(".cal-time").textContent = time;
+        row.querySelector(".cal-name").textContent = ev.title;
+        row.addEventListener("click", () => {
+          onPick(ev);
+          panel.hidden = true;
+        });
+        list.appendChild(row);
+      }
+    } catch {
+      list.innerHTML = '<div class="cal-empty">読み込みに失敗しました。</div>';
+    }
+  };
+  render();
+}
+
+
 const upBtn = $("upBtn");
 if (upBtn) {
   upBtn.addEventListener("click", async () => {

@@ -137,7 +137,7 @@ export async function listMeetings({ owner, isAdmin } = {}) {
 }
 
 // 商談の「何回目」「フェーズ」「商談名」「営業担当(owner)」を更新（undefinedの項目は変更しない）
-export async function updateMeetingMeta(botId, { round, phase, title, owner }) {
+export async function updateMeetingMeta(botId, { round, phase, title, owner, createdAt }) {
   if (!pool) return;
   const sets = ["round_no=$2", "phase=$3"];
   const vals = [botId, round ?? null, phase || null];
@@ -150,6 +150,11 @@ export async function updateMeetingMeta(botId, { round, phase, title, owner }) {
   if (owner !== undefined) {
     sets.push(`owner=$${idx}`);
     vals.push(owner || "");
+    idx++;
+  }
+  if (createdAt) {
+    sets.push(`created_at=$${idx}`);
+    vals.push(createdAt);
     idx++;
   }
   try {

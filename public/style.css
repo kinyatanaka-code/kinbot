@@ -589,3 +589,36 @@ table.bant td:first-child { color: var(--muted); width: 80px; }
 
 /* 縦積みカード内では高さを内容に合わせる（flex-basisの誤適用を打ち消す） */
 .join-cards .join-card { flex: 0 0 auto; width: 100%; max-width: none; }
+
+/* ---------- 商談名のカレンダー選択 ---------- */
+.title-row { position: relative; display: flex; gap: 8px; align-items: stretch; }
+.title-row #meetingTitle { flex: 1 1 auto; }
+.cal-btn {
+  flex: 0 0 auto; width: 46px; border: 1px solid var(--line); border-radius: 10px; background: var(--panel-2);
+  cursor: pointer; font-size: 18px; line-height: 1;
+}
+.cal-btn:hover { border-color: var(--accent); }
+.cal-panel {
+  position: absolute; z-index: 50; top: calc(100% + 6px); left: 0; right: 0; max-height: 320px; overflow-y: auto;
+  background: var(--panel); border: 1px solid var(--line); border-radius: 12px; box-shadow: var(--shadow); padding: 8px;
+}
+.cal-head { font-size: 12px; color: var(--muted); padding: 4px 8px 8px; }
+.cal-empty { font-size: 13px; color: var(--muted); padding: 14px; text-align: center; }
+.cal-row {
+  display: flex; align-items: center; gap: 10px; width: 100%; text-align: left; background: transparent;
+  border: none; border-radius: 8px; padding: 9px 10px; cursor: pointer; font: inherit; color: var(--ink);
+}
+.cal-row:hover { background: var(--panel-2); }
+.cal-time { flex: 0 0 52px; font-size: 12px; color: var(--muted); }
+.cal-name { flex: 1 1 auto; font-size: 13.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cal-mark { flex: 0 0 auto; font-size: 10px; color: var(--accent); border: 1px solid var(--accent); border-radius: 5px; padding: 1px 5px; }
+
+/* ---------- カレンダーピッカー：日付切替バー・履歴詳細の配置 ---------- */
+.cal-bar { display: flex; align-items: center; gap: 6px; padding: 4px 4px 8px; border-bottom: 1px solid var(--line); margin-bottom: 6px; }
+.cal-nav { flex: 0 0 auto; width: 30px; height: 30px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel-2); cursor: pointer; font-size: 16px; line-height: 1; }
+.cal-nav:hover { border-color: var(--accent); }
+.cal-date { flex: 1 1 auto; font: inherit; font-size: 13px; padding: 6px 8px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel-2); }
+.cal-list { max-height: 260px; overflow-y: auto; }
+.dtitle-wrap { position: relative; display: flex; gap: 8px; align-items: stretch; flex: 1 1 auto; min-width: 0; }
+.dtitle-wrap .dtitle-input { flex: 1 1 auto; min-width: 0; }
+.dtitle-wrap .cal-panel { left: 0; right: auto; width: 340px; }

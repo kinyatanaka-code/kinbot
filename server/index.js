@@ -39,6 +39,7 @@ import {
   isConnected as gcalConnected,
   disconnect as gcalDisconnect,
   listZoomEvents,
+  listDayEvents,
   getPrimaryEmail,
 } from "./google.js";
 import { startScheduler } from "./scheduler.js";
@@ -164,13 +165,14 @@ app.get("/api/auth-info", (req, res) => {
 // 商談の「何回目」「フェーズ」を更新
 app.put("/api/meetings/:id/meta", async (req, res) => {
   try {
-    const { round, phase, title, owner } = req.body || {};
+    const { round, phase, title, owner, createdAt } = req.body || {};
     const r = round === "" || round == null ? null : Number(round);
     await updateMeetingMeta(req.params.id, {
       round: Number.isFinite(r) ? r : null,
       phase: phase || null,
       title: title === undefined ? undefined : title,
       owner: owner === undefined ? undefined : owner,
+      createdAt: createdAt ? createdAt : undefined,
     });
     res.json({ ok: true });
   } catch (e) {
@@ -667,6 +669,32 @@ app.get("/api/calendar/status", async (req, res) => {
 app.post("/api/calendar/disconnect", async (req, res) => {
   await gcalDisconnect(req.user);
   res.json({ ok: true });
+});
+
+// その日の予定一覧（Zoom以外・終日含む）を返す（商談名の選択用）
+app.get("/api/calendar/events", async (req, res) => {
+  const out = { connected: false, events: [] };
+  try {
+    const owner = req.user;
+    out.connected = await gcalConnected(owner);
+    if (!out.connected) return res.json(out);
+    // 対象日（JST）。未指定なら今日
+    let dateStr = (req.query.date || "").toString().trim();
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) {
+      const jst = new Date(Date.now() + 9 * 3600 * 1000);
+      dateStr = jst.toISOString().slice(0, 10);
+    }
+    const start = new Date(`${dateStr}T00:00:00+09:00`);
+    const end = new Date(start.getTime() + 24 * 3600 * 1000);
+    out.date = dateStr;
+    out.events = await listDayEvents(owner, {
+      timeMin: start.toISOString(),
+      timeMax: end.toISOString(),
+    });
+  } catch (e) {
+    out.error = e.message;
+  }
+  res.json(out);
 });
 
 // --- 登録リンク（名前付きZoom URL） ---
