@@ -24,11 +24,11 @@ export function startScheduler({ publicUrl: url, intervalMs = 120000 }) {
 async function tick() {
   const accounts = await listGoogleAccounts();
   if (!accounts.length) return;
-  const cfg = await resolveConfig();
   const now = Date.now();
 
   for (const acc of accounts) {
     const owner = acc.owner;
+    const cfg = await resolveConfig(owner);
     let events;
     try {
       events = await listZoomEvents(owner);

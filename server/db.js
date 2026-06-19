@@ -69,6 +69,13 @@ export async function initDb() {
     );
   `);
   await pool.query(`
+    CREATE TABLE IF NOT EXISTS user_settings (
+      owner      TEXT PRIMARY KEY,
+      data       JSONB DEFAULT '{}'::jsonb,
+      updated_at TIMESTAMPTZ DEFAULT now()
+    );
+  `);
+  await pool.query(`
     CREATE TABLE IF NOT EXISTS set_analysis_cache (
       key         TEXT PRIMARY KEY,
       fingerprint TEXT,
@@ -349,5 +356,34 @@ export async function saveSetCache(key, fingerprint, result) {
     );
   } catch (e) {
     console.error("[db] saveSetCache", e.message);
+  }
+}
+
+// ---- ユーザー別の設定（動作設定・登録リンク・御礼メール例文など） ----
+export async function getUserSettings(owner) {
+  if (!owner) return {};
+  if (!pool) return { ...(memUserSettings[owner] || {}) };
+  try {
+    const { rows } = await pool.query(`SELECT data FROM user_settings WHERE owner=$1`, [owner]);
+    return rows[0]?.data || {};
+  } catch {
+    return {};
+  }
+}
+const memUserSettings = {};
+export async function saveUserSettings(owner, obj) {
+  if (!owner) return { persisted: false };
+  memUserSettings[owner] = { ...(memUserSettings[owner] || {}), ...obj };
+  if (!pool) return { persisted: false };
+  try {
+    await pool.query(
+      `INSERT INTO user_settings (owner, data) VALUES ($1, $2)
+       ON CONFLICT (owner) DO UPDATE SET data = user_settings.data || $2`,
+      [owner, JSON.stringify(obj)]
+    );
+    return { persisted: true };
+  } catch (e) {
+    console.error("[db] saveUserSettings", e.message);
+    return { persisted: false };
   }
 }

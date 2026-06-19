@@ -21,6 +21,8 @@ import {
   getSetCache,
   saveSetCache,
   listUsers,
+  getUserSettings,
+  saveUserSettings,
 } from "./db.js";
 import { resolveConfig, statusInfo } from "./config.js";
 import { analyzerInfo, analyzeMeeting, analyzeDeep, analyzeTendency, analyzeSet, generateThanks } from "./analyzer.js";
@@ -182,7 +184,7 @@ app.get("/api/users", async (req, res) => {
 // 御礼メールの例文（ラウンド別）の取得・保存
 app.get("/api/thanks-examples", async (req, res) => {
   try {
-    const s = await getSettings();
+    const s = await getUserSettings(req.user);
     res.json(s.thanksExamples || {});
   } catch (e) {
     res.status(500).json({ error: e.message });
@@ -191,7 +193,7 @@ app.get("/api/thanks-examples", async (req, res) => {
 app.put("/api/thanks-examples", async (req, res) => {
   try {
     const examples = req.body && typeof req.body === "object" ? req.body.examples || req.body : {};
-    await saveSettings({ thanksExamples: examples });
+    await saveUserSettings(req.user, { thanksExamples: examples });
     res.json({ ok: true });
   } catch (e) {
     res.status(500).json({ error: e.message });
@@ -204,7 +206,7 @@ app.post("/api/meetings/:id/thanks", async (req, res) => {
     const m = await getMeeting(req.params.id);
     if (!m) return res.status(404).json({ error: "見つかりません" });
     const round = m.round_no || (req.body && req.body.round) || "";
-    const s = await getSettings();
+    const s = await getUserSettings(m.owner);
     const all = s.thanksExamples || {};
     let examples = Array.isArray(all[String(round)]) ? all[String(round)] : [];
     // そのラウンドの例が無ければ、他ラウンドの例を手本として流用
@@ -359,7 +361,7 @@ app.post("/api/sessions", async (req, res) => {
   if (!meetingUrl) return res.status(400).json({ error: "meetingUrl が必要です" });
   if (!PUBLIC_URL) return res.status(500).json({ error: "PUBLIC_URL が未設定です" });
   try {
-    const cfg = await resolveConfig();
+    const cfg = await resolveConfig(req.user);
     const botId = await createBot({
       meetingUrl,
       webhookUrl: `${PUBLIC_URL}/api/recall/webhook`,
@@ -384,9 +386,9 @@ app.post("/api/sessions", async (req, res) => {
 });
 
 // --- 設定の取得・保存 ---
-app.get("/api/settings", async (_req, res) => {
+app.get("/api/settings", async (req, res) => {
   try {
-    const cfg = await resolveConfig();
+    const cfg = await resolveConfig(req.user);
     res.json({ settings: cfg, status: statusInfo(PUBLIC_URL) });
   } catch (e) {
     res.status(500).json({ error: e.message });
@@ -405,7 +407,7 @@ app.put("/api/settings", async (req, res) => {
     const patch = {};
     for (const k of allowed) if (k in (req.body || {})) patch[k] = req.body[k];
     if ("analyzeIntervalMs" in patch) patch.analyzeIntervalMs = Number(patch.analyzeIntervalMs) || 20000;
-    const r = await saveSettings(patch);
+    const r = await saveUserSettings(req.user, patch);
     res.json({ ok: true, ...r });
   } catch (e) {
     res.status(500).json({ error: e.message });
@@ -597,9 +599,9 @@ app.post("/api/calendar/disconnect", async (req, res) => {
 });
 
 // --- 登録リンク（名前付きZoom URL） ---
-app.get("/api/links", async (_req, res) => {
+app.get("/api/links", async (req, res) => {
   try {
-    const s = await getSettings();
+    const s = await getUserSettings(req.user);
     res.json({ links: Array.isArray(s.savedLinks) ? s.savedLinks : [] });
   } catch (e) {
     res.status(500).json({ error: e.message });
@@ -613,7 +615,7 @@ app.put("/api/links", async (req, res) => {
           .map((l) => ({ name: String(l.name).slice(0, 80), url: String(l.url).slice(0, 500) }))
           .slice(0, 50)
       : [];
-    const r = await saveSettings({ savedLinks: links });
+    const r = await saveUserSettings(req.user, { savedLinks: links });
     res.json({ ok: true, links, ...r });
   } catch (e) {
     res.status(500).json({ error: e.message });

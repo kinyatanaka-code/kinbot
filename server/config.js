@@ -1,5 +1,5 @@
 // server/config.js
-import { getSettings, dbEnabled } from "./db.js";
+import { getSettings, getUserSettings, dbEnabled } from "./db.js";
 import { analyzerInfo } from "./analyzer.js";
 
 function envDefaults() {
@@ -13,10 +13,11 @@ function envDefaults() {
   };
 }
 
-// 環境変数の既定に、設定画面で保存した値を上書き
-export async function resolveConfig() {
-  const saved = await getSettings();
-  return { ...envDefaults(), ...clean(saved) };
+// 環境既定 ← 全体設定(旧/共有の既定) ← ユーザー個別設定 の順に上書き
+export async function resolveConfig(owner) {
+  const global = await getSettings();
+  const user = owner ? await getUserSettings(owner) : {};
+  return { ...envDefaults(), ...clean(global), ...clean(user) };
 }
 
 function clean(o) {
