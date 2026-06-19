@@ -193,6 +193,7 @@ async function loadDetail(botId) {
         <button class="tab active" data-tab="trans">文字起こし</button>
         <button class="tab" data-tab="summary">要約</button>
         <button class="tab" data-tab="fb">FB & 分析</button>
+        <button class="tab" data-tab="thanks">御礼メール</button>
       </div>
       <div class="tabwrap">
         <div class="tabpane" data-pane="trans">
@@ -214,6 +215,17 @@ async function loadDetail(botId) {
             <div id="dai"></div>
             <h3>次の一手（記録）</h3>
             <div id="dmoves"></div>
+          </div>
+        </div>
+        <div class="tabpane" data-pane="thanks" hidden>
+          <div class="pane-bar">
+            <button class="btn" id="thanksGen">御礼メールを生成</button>
+            <span class="thanks-note" id="thanksNote"></span>
+            <button class="btn ghost copy-mini" id="copyThanks">コピー</button>
+          </div>
+          <div class="thanks-wrap">
+            <label class="thanks-field"><span>件名</span><input id="thanksSubject" type="text" placeholder="生成すると入ります" /></label>
+            <label class="thanks-field"><span>本文</span><textarea id="thanksBody" rows="16" placeholder="「御礼メールを生成」を押すと、この商談（何回目か）に合わせて作成します。"></textarea></label>
           </div>
         </div>
       </div>`;
@@ -256,6 +268,33 @@ async function loadDetail(botId) {
     hdetail.querySelector("#copyFb").addEventListener("click", (e) =>
       copyText(hdetail.querySelector("#dfbwrap").innerText, e.currentTarget)
     );
+    // 御礼メール生成
+    const thanksGen = hdetail.querySelector("#thanksGen");
+    const thanksSubject = hdetail.querySelector("#thanksSubject");
+    const thanksBody = hdetail.querySelector("#thanksBody");
+    const thanksNote = hdetail.querySelector("#thanksNote");
+    thanksGen.addEventListener("click", async () => {
+      thanksGen.disabled = true;
+      const o = thanksGen.textContent;
+      thanksGen.textContent = "生成中…";
+      try {
+        const r = await fetch(`/api/meetings/${encodeURIComponent(botId)}/thanks`, { method: "POST" });
+        const d = await r.json();
+        if (!r.ok) throw new Error(d.error || "生成に失敗しました");
+        thanksSubject.value = d.subject || "";
+        thanksBody.value = d.body || "";
+        thanksNote.textContent = `${d.round || "?"}回目${d.exampleCount ? `・例文${d.exampleCount}件を参照` : "・例文なし"}`;
+      } catch (e) {
+        alert("生成に失敗しました: " + e.message);
+      } finally {
+        thanksGen.disabled = false;
+        thanksGen.textContent = o;
+      }
+    });
+    hdetail.querySelector("#copyThanks").addEventListener("click", (e) => {
+      const text = (thanksSubject.value ? "件名：" + thanksSubject.value + "\n\n" : "") + thanksBody.value;
+      copyText(text, e.currentTarget);
+    });
 
     // 商談名（編集可）・サブ情報
     const mTitle = hdetail.querySelector("#mTitle");

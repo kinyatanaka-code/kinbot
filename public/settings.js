@@ -163,3 +163,73 @@ $("addLinkBtn").addEventListener("click", async () => {
   await saveLinks();
 });
 loadLinks();
+
+// ===== 御礼メールの例文（ラウンド別） =====
+const THANKS_ROUNDS = [
+  { key: "1", label: "1回目の商談" },
+  { key: "2", label: "2回目の商談" },
+  { key: "3", label: "3回目の商談" },
+];
+let thanksData = {};
+
+function renderThanksEditor() {
+  const root = document.getElementById("thanksEditor");
+  if (!root) return;
+  root.innerHTML = "";
+  for (const r of THANKS_ROUNDS) {
+    const list = Array.isArray(thanksData[r.key]) ? thanksData[r.key] : [];
+    const block = document.createElement("div");
+    block.className = "thanks-round";
+    block.innerHTML = `<div class="thanks-round-head">${r.label}（例文 ${list.length}件）</div><div class="thanks-list"></div><button type="button" class="btn ghost thanks-add">＋例を追加</button>`;
+    const listEl = block.querySelector(".thanks-list");
+    const addOne = (val) => {
+      const row = document.createElement("div");
+      row.className = "thanks-ex";
+      row.innerHTML = `<textarea rows="5" placeholder="過去に送ったお礼メールを貼り付け"></textarea><button type="button" class="btn ghost thanks-del">削除</button>`;
+      row.querySelector("textarea").value = val || "";
+      row.querySelector(".thanks-del").addEventListener("click", () => row.remove());
+      listEl.appendChild(row);
+    };
+    list.forEach((v) => addOne(v));
+    block.querySelector(".thanks-add").addEventListener("click", () => addOne(""));
+    root.appendChild(block);
+  }
+}
+async function loadThanks() {
+  try {
+    thanksData = await (await fetch("/api/thanks-examples")).json();
+    if (!thanksData || typeof thanksData !== "object") thanksData = {};
+  } catch {
+    thanksData = {};
+  }
+  renderThanksEditor();
+}
+function collectThanks() {
+  const root = document.getElementById("thanksEditor");
+  const out = {};
+  const blocks = root.querySelectorAll(".thanks-round");
+  blocks.forEach((block, i) => {
+    const key = THANKS_ROUNDS[i].key;
+    const vals = [...block.querySelectorAll("textarea")].map((t) => t.value.trim()).filter(Boolean);
+    if (vals.length) out[key] = vals;
+  });
+  return out;
+}
+const saveThanksBtn = document.getElementById("saveThanksBtn");
+if (saveThanksBtn) {
+  saveThanksBtn.addEventListener("click", async () => {
+    thanksData = collectThanks();
+    try {
+      await fetch("/api/thanks-examples", {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ examples: thanksData }),
+      });
+      const s = document.getElementById("thanksSaved");
+      s.hidden = false;
+      setTimeout(() => (s.hidden = true), 1500);
+      renderThanksEditor();
+    } catch {}
+  });
+}
+loadThanks();

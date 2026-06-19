@@ -346,3 +346,32 @@ export async function analyzeSet({ material, filterDesc }) {
   const text = await callLLM(SET_PROMPT, user, 2000);
   return parseJson(text);
 }
+
+// 御礼メール生成（ラウンド別の過去例を文体の手本に）
+const THANKS_PROMPT = `あなたは法人営業の担当者です。商談後に送る「御礼メール」の下書きを作成します。
+ルール:
+- これは商談「{round}回目」へのお礼メールです。
+- 過去に送った同じラウンドのお礼メール例を渡します。その文体・構成・トーン・長さに合わせてください。
+- 本文は、この商談で実際に話した内容（合意事項・次アクション・相手の関心・懸念）に基づいて具体的に書く。事実を捏造しない。
+- 宛名や差出人など不明な箇所は [〇〇] のようなプレースホルダにする。
+- 過度に長くしない。ビジネスメールとして自然に。
+
+必ず次の JSON のみを出力（前置き・コードフェンス禁止）:
+{ "subject": "件名", "body": "本文（改行は\\n）" }
+日本語で。`;
+
+export async function generateThanks({ round, examples, summaryText, repName, customer }) {
+  const exBlock =
+    examples && examples.length
+      ? examples.map((e, i) => `【例${i + 1}】\n${e}`).join("\n\n")
+      : "（例なし。標準的で丁寧な法人営業のお礼メールの体裁で作成）";
+  const user =
+    `商談ラウンド: ${round || "不明"}回目\n` +
+    `自社担当: ${repName || "[自社担当]"}\n` +
+    `相手（顧客）: ${customer || "[相手担当者]"}\n\n` +
+    `過去のお礼メール例（同ラウンド）:\n"""\n${exBlock}\n"""\n\n` +
+    `今回の商談内容（要約）:\n"""\n${(summaryText || "").slice(-6000)}\n"""\n\n` +
+    `上記の文体に合わせ、今回の商談内容に基づくお礼メールを JSON で作成してください。`;
+  const text = await callLLM(THANKS_PROMPT.replace(/\{round\}/g, String(round || "")), user, 1400);
+  return parseJson(text);
+}

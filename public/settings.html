@@ -71,6 +71,16 @@
           </div>
 
           <div class="set-card">
+            <h3>御礼メールの例文（ラウンド別）</h3>
+            <p class="note">これまで送った御礼メールを、商談の「何回目か」ごとに登録します。御礼メール生成時に、その回の文体・構成の手本になります。各回 2〜3 件あると十分です。</p>
+            <div id="thanksEditor"></div>
+            <div class="set-row">
+              <button class="btn" id="saveThanksBtn">例文を保存</button>
+              <span class="saved" id="thanksSaved" hidden>保存しました</span>
+            </div>
+          </div>
+
+          <div class="set-card">
             <h3>状態（読み取り専用）</h3>
             <table class="status-table" id="statusTable"></table>
             <p class="note">APIキー（Recall / Gemini / Deepgram など）は Railway の Variables で設定します。ここからは変更しません。</p>

@@ -23,7 +23,7 @@ import {
   listUsers,
 } from "./db.js";
 import { resolveConfig, statusInfo } from "./config.js";
-import { analyzerInfo, analyzeMeeting, analyzeDeep, analyzeTendency, analyzeSet } from "./analyzer.js";
+import { analyzerInfo, analyzeMeeting, analyzeDeep, analyzeTendency, analyzeSet, generateThanks } from "./analyzer.js";
 import {
   googleConfigured,
   authUrl,
@@ -176,6 +176,70 @@ app.get("/api/users", async (req, res) => {
     res.json(await listUsers());
   } catch (e) {
     res.status(500).json({ error: e.message });
+  }
+});
+
+// 御礼メールの例文（ラウンド別）の取得・保存
+app.get("/api/thanks-examples", async (req, res) => {
+  try {
+    const s = await getSettings();
+    res.json(s.thanksExamples || {});
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+app.put("/api/thanks-examples", async (req, res) => {
+  try {
+    const examples = req.body && typeof req.body === "object" ? req.body.examples || req.body : {};
+    await saveSettings({ thanksExamples: examples });
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// 御礼メールを生成（商談内容＋そのラウンドの例文を手本に）
+app.post("/api/meetings/:id/thanks", async (req, res) => {
+  try {
+    const m = await getMeeting(req.params.id);
+    if (!m) return res.status(404).json({ error: "見つかりません" });
+    const round = m.round_no || (req.body && req.body.round) || "";
+    const s = await getSettings();
+    const all = s.thanksExamples || {};
+    let examples = Array.isArray(all[String(round)]) ? all[String(round)] : [];
+    // そのラウンドの例が無ければ、他ラウンドの例を手本として流用
+    if (examples.length === 0) {
+      for (const k of Object.keys(all)) {
+        if (Array.isArray(all[k]) && all[k].length) {
+          examples = all[k];
+          break;
+        }
+      }
+    }
+    // 要約テキスト（無ければ文字起こしの末尾）
+    let summaryText = "";
+    const sm = m.summary || {};
+    if (sm.overview) summaryText += sm.overview + "\n";
+    for (const [lab, key] of [["合意", "agreements"], ["次アクション", "action_items"], ["懸念", "customer_concerns"], ["要点", "key_points"]]) {
+      if (Array.isArray(sm[key]) && sm[key].length) summaryText += `\n[${lab}]\n` + sm[key].map((x) => "・" + x).join("\n");
+    }
+    if (!summaryText.trim()) {
+      const tr = Array.isArray(m.transcript) ? m.transcript : [];
+      summaryText = tr.map((u) => `${u.speaker?.name || ""}: ${u.text}`).join("\n").slice(-6000);
+    }
+    const speakers = Array.isArray(m.transcript) ? [...new Set(m.transcript.map((u) => u.speaker?.name).filter(Boolean))] : [];
+    const customer = speakers.find((n) => n && n !== m.rep_name) || "";
+    const result = await generateThanks({
+      round,
+      examples,
+      summaryText,
+      repName: m.owner_name || m.rep_name,
+      customer,
+    });
+    res.json({ ...result, round, exampleCount: examples.length });
+  } catch (e) {
+    console.error("[thanks]", e.message);
+    res.status(502).json({ error: e.message });
   }
 });
 
