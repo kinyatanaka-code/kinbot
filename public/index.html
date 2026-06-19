@@ -32,14 +32,24 @@
         <!-- ステップ1：商談名・URL・入室ボタン＋進行中の商談 -->
         <div class="join-view" id="viewJoin">
           <div class="join-inner">
-            <div class="join-card">
-              <h1 class="join-title">商談を記録する</h1>
-              <p class="join-desc">商談名と会議URLを入れて、Botを入室させます。</p>
-              <select id="linkSelect" class="link-select"><option value="">登録リンクから選ぶ…</option></select>
-              <input id="meetingTitle" type="text" placeholder="商談名（例：A社 初回）" />
-              <input id="meetingUrl" type="url" placeholder="会議のURL（Zoom / Meet / Teams）" />
-              <button class="btn big" id="joinBtn">Botを入室させる</button>
-              <p class="join-consent">Botが参加者として入室します。<strong>相手に録音・記録の同意</strong>を得てください。</p>
+            <div class="join-cards">
+              <div class="join-card">
+                <h1 class="join-title">商談を記録する</h1>
+                <p class="join-desc">商談名と会議URLを入れて、Botを入室させます。</p>
+                <select id="linkSelect" class="link-select"><option value="">登録リンクから選ぶ…</option></select>
+                <input id="meetingTitle" type="text" placeholder="商談名（例：A社 初回）" />
+                <input id="meetingUrl" type="url" placeholder="会議のURL（Zoom / Meet / Teams）" />
+                <button class="btn big" id="joinBtn">Botを入室させる</button>
+                <p class="join-consent">Botが参加者として入室します。<strong>相手に録音・記録の同意</strong>を得てください。</p>
+              </div>
+              <div class="join-card upload-card">
+                <h2 class="join-title">ファイルから記録</h2>
+                <p class="join-desc">音声・動画をアップロードして、文字起こし・要約・分析を作成し、商談履歴に保存します。</p>
+                <input id="upTitle" type="text" placeholder="商談名（任意）" />
+                <input id="upFile" type="file" accept="audio/*,video/*" />
+                <button class="btn big" id="upBtn">アップロードして記録</button>
+                <p class="join-consent" id="upMsg">対応形式：mp3 / m4a / wav / mp4 など。最大2GB。処理完了後、商談履歴に表示されます。</p>
+              </div>
             </div>
             <div class="active-block">
               <h2 class="active-title">進行中の商談（ライブ）</h2>

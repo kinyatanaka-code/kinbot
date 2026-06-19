@@ -5,7 +5,10 @@ import http from "node:http";
 import crypto from "node:crypto";
 import { fileURLToPath } from "node:url";
 import express from "express";
+import multer from "multer";
+import fs from "node:fs";
 import { WebSocketServer } from "ws";
+import { transcribeFile, transcriberAvailable } from "./transcribe.js";
 import { createBot, leaveBot, parseTranscriptEvent, getRecordingUrl } from "./recall.js";
 import { createSession, getSession, removeSession, listActiveSessions } from "./sessions.js";
 import {
@@ -23,6 +26,9 @@ import {
   listUsers,
   getUserSettings,
   saveUserSettings,
+  saveMeeting,
+  setMeetingStatus,
+  createMeeting,
 } from "./db.js";
 import { resolveConfig, statusInfo } from "./config.js";
 import { analyzerInfo, analyzeMeeting, analyzeDeep, analyzeTendency, analyzeSet, generateThanks } from "./analyzer.js";
@@ -425,6 +431,71 @@ app.post("/api/sessions/:id/stop", async (req, res) => {
 app.get("/api/sessions/active", (req, res) => {
   res.json(listActiveSessions());
 });
+
+// ===== 音声/動画ファイルのアップロード → 文字起こし・要約・FB・分析 =====
+try { fs.mkdirSync("/tmp/kinbot-uploads", { recursive: true }); } catch {}
+const upload = multer({ dest: "/tmp/kinbot-uploads", limits: { fileSize: 2 * 1024 * 1024 * 1024 } });
+
+app.post("/api/uploads", upload.single("file"), async (req, res) => {
+  try {
+    if (!transcriberAvailable()) {
+      if (req.file) try { fs.unlinkSync(req.file.path); } catch {}
+      return res.status(500).json({ error: "文字起こし用のキー（DEEPGRAM_API_KEY か GROQ_API_KEY）を Railway に設定してください" });
+    }
+    if (!req.file) return res.status(400).json({ error: "ファイルがありません" });
+    const id = "upload_" + crypto.randomUUID();
+    const title = (req.body.title || "").trim() || req.file.originalname || "アップロード";
+    const round = req.body.round ? Number(req.body.round) : null;
+    const phase = req.body.phase || null;
+    const displayName = await getDisplayName(req.user);
+    await createMeeting(id, { meetingUrl: "", repName: displayName, title, owner: req.user });
+    await updateMeetingMeta(id, { round: Number.isFinite(round) ? round : null, phase });
+    await setMeetingStatus(id, "processing");
+    res.json({ id, status: "processing" });
+    // バックグラウンドで処理（応答後）
+    processUpload(id, req.file, displayName).catch((e) => {
+      console.error("[upload]", e.message);
+      setMeetingStatus(id, "error");
+    });
+  } catch (e) {
+    if (req.file) try { fs.unlinkSync(req.file.path); } catch {}
+    res.status(500).json({ error: e.message });
+  }
+});
+
+async function processUpload(id, file, repName) {
+  try {
+    const utterances = await transcribeFile(file.path, file.mimetype);
+    await saveMeeting(id, { transcript: utterances, summary: null, suggestions: [] });
+    const transcript = utterances.map((u) => `${u.speaker?.name || ""}: ${u.text}`).join("\n").slice(-12000);
+    if (transcript.trim().length >= 20) {
+      const speakers = [...new Set(utterances.map((u) => u.speaker?.name).filter(Boolean))];
+      const dateStr = new Date().toLocaleString("ja-JP", {
+        timeZone: "Asia/Tokyo",
+        year: "numeric",
+        month: "long",
+        day: "numeric",
+        hour: "2-digit",
+        minute: "2-digit",
+      });
+      try {
+        const rev = await analyzeMeeting({ transcript, repName, dateStr, speakers });
+        await saveAnalysis(id, rev);
+      } catch (e) {
+        console.error("[upload review]", e.message);
+      }
+      try {
+        const deep = await analyzeDeep({ transcript, repName });
+        await saveDeepAnalysis(id, deep);
+      } catch (e) {
+        console.error("[upload deep]", e.message);
+      }
+    }
+    await setMeetingStatus(id, "done");
+  } finally {
+    try { fs.unlinkSync(file.path); } catch {}
+  }
+}
 
 // --- Recall からのリアルタイム文字起こし Webhook ---
 app.post("/api/recall/webhook", (req, res) => {

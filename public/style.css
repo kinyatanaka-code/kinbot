@@ -578,3 +578,14 @@ table.bant td:first-child { color: var(--muted); width: 80px; }
   flex: 1 1 auto; font-family: inherit; font-size: 13px; padding: 8px 10px; border: 1px solid var(--line);
   border-radius: 8px; background: var(--panel-2); resize: vertical; line-height: 1.6;
 }
+
+/* ---------- アップロード（ファイルから記録） ---------- */
+.join-cards { display: flex; flex-direction: column; gap: 20px; flex: 0 0 440px; max-width: 440px; }
+.upload-card input[type="file"] {
+  width: 100%; box-sizing: border-box; font-family: inherit; font-size: 13px; padding: 9px 10px;
+  border: 1px dashed var(--line); border-radius: 9px; background: var(--panel-2); margin: 4px 0 10px;
+}
+.upload-card .join-title { font-size: 18px; }
+
+/* 縦積みカード内では高さを内容に合わせる（flex-basisの誤適用を打ち消す） */
+.join-cards .join-card { flex: 0 0 auto; width: 100%; max-width: none; }

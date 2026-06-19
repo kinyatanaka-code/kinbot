@@ -73,6 +73,40 @@ function stopActivePoll() {
 }
 startActivePoll();
 
+// ファイルアップロード → 文字起こし・要約・分析を商談履歴へ
+const upBtn = $("upBtn");
+if (upBtn) {
+  upBtn.addEventListener("click", async () => {
+    const fileEl = $("upFile");
+    const msg = $("upMsg");
+    const file = fileEl && fileEl.files && fileEl.files[0];
+    if (!file) {
+      msg.textContent = "ファイルを選んでください。";
+      return;
+    }
+    upBtn.disabled = true;
+    const orig = upBtn.textContent;
+    upBtn.textContent = "アップロード中…";
+    msg.textContent = "アップロード中です。完了まで画面を閉じないでください。";
+    try {
+      const fd = new FormData();
+      fd.append("file", file);
+      fd.append("title", ($("upTitle") && $("upTitle").value.trim()) || "");
+      const res = await fetch("/api/uploads", { method: "POST", body: fd });
+      const d = await res.json();
+      if (!res.ok) throw new Error(d.error || "アップロードに失敗しました");
+      msg.textContent = "アップロード完了。文字起こし・要約・分析を作成中です。数分後に商談履歴に表示されます。";
+      fileEl.value = "";
+      if ($("upTitle")) $("upTitle").value = "";
+    } catch (e) {
+      msg.textContent = "失敗しました: " + e.message;
+    } finally {
+      upBtn.disabled = false;
+      upBtn.textContent = orig;
+    }
+  });
+}
+
 // 登録リンクをプルダウンに読み込む
 if (els.linkSelect) {
   els.linkSelect.addEventListener("change", () => {

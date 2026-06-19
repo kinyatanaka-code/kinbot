@@ -105,7 +105,14 @@ function renderList() {
   }
   hlist.innerHTML = "";
   for (const r of rows) {
-    const overview = r.summary && r.summary.overview ? r.summary.overview : "（要約なし）";
+    const overview =
+      r.status === "processing"
+        ? "⏳ 文字起こし・分析を処理中…（数分後に表示されます）"
+        : r.status === "error"
+        ? "⚠️ 処理に失敗しました（ファイル形式やキー設定をご確認ください）"
+        : r.summary && r.summary.overview
+        ? r.summary.overview
+        : "（要約なし）";
     const tags = [];
     if (r.round_no) tags.push(`${r.round_no}回目`);
     if (r.phase) tags.push(phaseLabel(r.phase));

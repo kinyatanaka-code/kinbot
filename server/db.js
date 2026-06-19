@@ -38,6 +38,7 @@ export async function initDb() {
   await pool.query(`ALTER TABLE meetings ADD COLUMN IF NOT EXISTS owner TEXT;`);
   await pool.query(`ALTER TABLE meetings ADD COLUMN IF NOT EXISTS round_no INT;`);
   await pool.query(`ALTER TABLE meetings ADD COLUMN IF NOT EXISTS phase TEXT;`);
+  await pool.query(`ALTER TABLE meetings ADD COLUMN IF NOT EXISTS status TEXT;`);
   await pool.query(`
     CREATE TABLE IF NOT EXISTS settings (
       id   INT PRIMARY KEY,
@@ -121,7 +122,7 @@ export async function saveMeeting(botId, { transcript, summary, suggestions }) {
 export async function listMeetings({ owner, isAdmin } = {}) {
   if (!pool) return [];
   const base = `SELECT m.bot_id, m.meeting_url, m.rep_name, m.title, m.owner,
-                       m.round_no, m.phase, m.created_at, m.updated_at, m.summary, m.analysis,
+                       m.round_no, m.phase, m.status, m.created_at, m.updated_at, m.summary, m.analysis,
                        u.name AS owner_name
                 FROM meetings m LEFT JOIN users u ON u.email = m.owner`;
   if (isAdmin || !owner) {
@@ -183,6 +184,16 @@ export async function deleteMeeting(botId) {
   } catch (e) {
     console.error("[db] deleteMeeting", e.message);
     throw e;
+  }
+}
+
+// アップロード処理の状態（processing/done/error）
+export async function setMeetingStatus(botId, status) {
+  if (!pool) return;
+  try {
+    await pool.query(`UPDATE meetings SET status=$2, updated_at=now() WHERE bot_id=$1`, [botId, status || null]);
+  } catch (e) {
+    console.error("[db] setMeetingStatus", e.message);
   }
 }
 
