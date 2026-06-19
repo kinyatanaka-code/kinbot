@@ -463,7 +463,16 @@ app.post("/api/meetings/:id/analyze", async (req, res) => {
       .map((u) => `${u.speaker?.name || "話者" + (u.speaker?.id ?? "")}: ${u.text}`)
       .join("\n")
       .slice(-12000);
-    const result = await analyzeMeeting({ transcript, repName: m.rep_name });
+    const speakers = [...new Set(tr.map((u) => u.speaker?.name).filter(Boolean))];
+    const dateStr = new Date(m.created_at).toLocaleString("ja-JP", {
+      timeZone: "Asia/Tokyo",
+      year: "numeric",
+      month: "long",
+      day: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+    const result = await analyzeMeeting({ transcript, repName: m.rep_name, dateStr, speakers });
     await saveAnalysis(req.params.id, result);
     res.json(result);
   } catch (e) {

@@ -160,8 +160,17 @@ class Session {
     this.finalized = true;
     const transcript = this.transcriptText().slice(-12000);
     if (transcript.trim().length < 20) return; // 中身がなければ何もしない
+    const speakers = [...new Set(this.utterances.map((u) => u.speaker?.name).filter(Boolean))];
+    const dateStr = new Date(this.startedAt).toLocaleString("ja-JP", {
+      timeZone: "Asia/Tokyo",
+      year: "numeric",
+      month: "long",
+      day: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+    });
     try {
-      const rev = await analyzeMeeting({ transcript, repName: this.repName });
+      const rev = await analyzeMeeting({ transcript, repName: this.repName, dateStr, speakers });
       await saveAnalysis(this.botId, rev);
       this.broadcast({ type: "analysis", ...rev, ts: Date.now() });
     } catch (e) {

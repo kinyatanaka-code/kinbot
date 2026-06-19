@@ -434,13 +434,19 @@ async function loadDetail(botId) {
 
 function renderSummaryInto(el, s) {
   s = s || {};
+  if (s.formatted) {
+    el.innerHTML = `<div class="summary-fmt"></div>`;
+    el.querySelector(".summary-fmt").textContent = s.formatted;
+    return;
+  }
+  // 旧データ用フォールバック
   let html = "";
   if (s.overview) html += `<p class="overview">${escapeHtml(s.overview)}</p>`;
   html += group("要点", s.key_points);
   html += group("合意事項", s.agreements);
   html += group("宿題・次アクション", s.action_items);
   html += group("相手の懸念", s.customer_concerns);
-  el.innerHTML = html || '<div class="empty-state">要約なし（「要約・フィードバックを生成」で作成）</div>';
+  el.innerHTML = html || '<div class="empty-state">要約なし（「要約・FB生成」で作成）</div>';
 }
 function renderFeedbackInto(el, fb) {
   fb = fb || {};

@@ -556,3 +556,6 @@ table.bant td:first-child { color: var(--muted); width: 80px; }
 .msel-opt:hover { background: var(--panel-2); }
 .msel-opt input { margin: 0; flex: 0 0 auto; }
 .msel-optlabel { flex: 0 1 auto; }
+
+/* ---------- 要約：指定フォーマット表示 ---------- */
+.summary-fmt { white-space: pre-wrap; font-size: 13.5px; line-height: 1.75; font-family: inherit; color: var(--ink); }
