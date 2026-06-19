@@ -168,7 +168,7 @@ async function loadDetail(botId) {
   try {
     const res = await fetch(`/api/meetings/${encodeURIComponent(botId)}`);
     const m = await res.json();
-    const s = m.summary || {};
+    let s = m.summary || {};
     const sug = Array.isArray(m.suggestions) ? m.suggestions : [];
     const tr = Array.isArray(m.transcript) ? m.transcript : [];
 
@@ -251,7 +251,7 @@ async function loadDetail(botId) {
       copyText(hdetail.querySelector("#dtrans").innerText, e.currentTarget)
     );
     hdetail.querySelector("#copySummary").addEventListener("click", (e) =>
-      copyText(hdetail.querySelector("#dsummary").innerText, e.currentTarget)
+      copyText(summaryToText(s), e.currentTarget)
     );
     hdetail.querySelector("#copyFb").addEventListener("click", (e) =>
       copyText(hdetail.querySelector("#dfbwrap").innerText, e.currentTarget)
@@ -392,6 +392,7 @@ async function loadDetail(botId) {
         const r = await fetch(`/api/meetings/${encodeURIComponent(botId)}/analyze`, { method: "POST" });
         const data = await r.json();
         if (!r.ok) throw new Error(data.error || "生成に失敗しました");
+        s = data.summary || s;
         renderSummaryInto(hdetail.querySelector("#dsummary"), data.summary || {});
         renderFeedbackInto(hdetail.querySelector("#dfeedback"), data.feedback || {});
         loadList(); // 一覧の「要約なし」表示を更新
@@ -434,12 +435,12 @@ async function loadDetail(botId) {
 
 function renderSummaryInto(el, s) {
   s = s || {};
-  if (s.formatted) {
+  // 旧データで formatted のみの場合はそれを表示
+  if (s.formatted && !s.key_points && !s.agreements) {
     el.innerHTML = `<div class="summary-fmt"></div>`;
     el.querySelector(".summary-fmt").textContent = s.formatted;
     return;
   }
-  // 旧データ用フォールバック
   let html = "";
   if (s.overview) html += `<p class="overview">${escapeHtml(s.overview)}</p>`;
   html += group("要点", s.key_points);
@@ -447,6 +448,28 @@ function renderSummaryInto(el, s) {
   html += group("宿題・次アクション", s.action_items);
   html += group("相手の懸念", s.customer_concerns);
   el.innerHTML = html || '<div class="empty-state">要約なし（「要約・FB生成」で作成）</div>';
+}
+
+// Salesforce等に貼りやすいプレーンテキストを生成
+function summaryToText(s) {
+  s = s || {};
+  if (s.formatted && !s.key_points && !s.agreements) return s.formatted;
+  const lines = [];
+  if (s.overview) {
+    lines.push(s.overview, "");
+  }
+  const sec = (label, items) => {
+    if (Array.isArray(items) && items.length) {
+      lines.push("■" + label);
+      items.forEach((i) => lines.push("・" + i));
+      lines.push("");
+    }
+  };
+  sec("要点", s.key_points);
+  sec("合意事項", s.agreements);
+  sec("宿題・次アクション", s.action_items);
+  sec("相手の懸念", s.customer_concerns);
+  return lines.join("\n").trim();
 }
 function renderFeedbackInto(el, fb) {
   fb = fb || {};
