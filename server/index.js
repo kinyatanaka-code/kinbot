@@ -945,7 +945,7 @@ wss.on("connection", (ws, req) => {
     ws.close();
     return;
   }
-  s.addSocket(ws);
+  s.addSocket(ws, getUser(req) || "");
   ws.on("close", () => s.removeSocket(ws));
   ws.on("error", () => s.removeSocket(ws));
 });

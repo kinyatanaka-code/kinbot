@@ -368,6 +368,34 @@ function showLiveVideo(playbackId) {
     clearRetry();
   };
 
+  const showUnmuteButton = () => {
+    let btn = document.getElementById("liveUnmuteBtn");
+    if (!btn) {
+      btn = document.createElement("button");
+      btn.id = "liveUnmuteBtn";
+      btn.className = "live-unmute-btn";
+      btn.textContent = "🔇 タップで音声をオンにする";
+      btn.addEventListener("click", () => {
+        video.muted = false;
+        video.play().catch(() => {});
+        btn.hidden = true;
+      });
+      box.appendChild(btn);
+    }
+    btn.hidden = false;
+  };
+
+  const tryPlayWithSound = () => {
+    // まず音声ありで再生を試みる。ブラウザにブロックされたらミュートで再生し、
+    // 「音声をオンにする」ボタンを表示する（クリックで音声オン）。
+    video.muted = false;
+    video.play().catch(() => {
+      video.muted = true;
+      video.play().catch(() => {});
+      showUnmuteButton();
+    });
+  };
+
   const attach = () => {
     try {
       if (window.Hls && window.Hls.isSupported()) {
@@ -387,7 +415,7 @@ function showLiveVideo(playbackId) {
       } else if (video.canPlayType("application/vnd.apple.mpegurl")) {
         video.src = src;
       }
-      video.play().catch(() => {});
+      tryPlayWithSound();
     } catch {
       clearRetry();
       liveVideoRetry = setTimeout(attach, 5000);
@@ -411,6 +439,8 @@ function hideLiveVideo() {
     try { video.pause(); video.removeAttribute("src"); video.load(); } catch {}
   }
   if (box) box.hidden = true;
+  const ub = document.getElementById("liveUnmuteBtn");
+  if (ub) ub.hidden = true;
 }
 
 function handle(msg) {
@@ -419,7 +449,10 @@ function handle(msg) {
       // 実際のライブ開始時刻にタイマーを合わせる
       if (msg.startedAt) startTimer(msg.startedAt);
       // ライブ映像（Mux）
-      if (msg.muxPlaybackId) {
+      if (msg.isOwner) {
+        // 会議に参加中の本人：音声二重防止のため映像は出さない
+        hideLiveVideo();
+      } else if (msg.muxPlaybackId) {
         showLiveVideo(msg.muxPlaybackId);
       } else if (msg.muxError) {
         showLiveMessage("ライブ映像を開始できませんでした: " + msg.muxError);

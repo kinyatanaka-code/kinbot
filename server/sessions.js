@@ -61,10 +61,18 @@ class Session {
     if (muxPlaybackId && !this.muxPlaybackId) this.muxPlaybackId = muxPlaybackId;
   }
 
-  addSocket(ws) {
+  addSocket(ws, user = "") {
     this.sockets.add(ws);
-    // 実際のライブ開始時刻＋ライブ映像（Mux）を伝える
-    this.sendTo(ws, { type: "session", startedAt: this.startedAt, muxPlaybackId: this.muxPlaybackId || "", muxError: this.muxError || "" });
+    // Botを入れた本人（会議に参加中）は音声が二重になるため映像を出さない。
+    // 視聴者（それ以外）のみライブ映像を受け取る。
+    const isOwner = !!(user && this.owner && user === this.owner);
+    this.sendTo(ws, {
+      type: "session",
+      startedAt: this.startedAt,
+      muxPlaybackId: isOwner ? "" : this.muxPlaybackId || "",
+      muxError: isOwner ? "" : this.muxError || "",
+      isOwner,
+    });
     // 既存の文字起こしを再送（途中参加の画面用）
     for (const u of this.utterances) {
       this.sendTo(ws, { type: "final", speaker: u.speaker, text: u.text, ts: u.ts });
