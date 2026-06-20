@@ -34,7 +34,7 @@ async function generate(parts) {
     headers: { "content-type": "application/json" },
     body: JSON.stringify({
       contents: [{ role: "user", parts }],
-      generationConfig: { temperature: 0.2, maxOutputTokens: 4096 },
+      generationConfig: { temperature: 0.2, maxOutputTokens: 8192 },
     }),
   });
   if (!res.ok) throw new Error(`gemini read ${res.status}: ${(await res.text()).slice(0, 200)}`);

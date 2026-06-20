@@ -434,7 +434,7 @@ async function loadKnowledge() {
       const ref = it.source_ref
         ? `<a class="kb-src" href="${it.source_type === "url" ? escapeHtmlKb(it.source_ref) : "#"}" ${it.source_type === "url" ? 'target="_blank" rel="noopener"' : ""}>${escapeHtmlKb(srcLabel)}</a>`
         : `<span class="kb-src">${srcLabel}</span>`;
-      const preview = (it.body || "").length > 400 ? escapeHtmlKb(it.body.slice(0, 400)) + " …" : escapeHtmlKb(it.body);
+      const preview = escapeHtmlKb(it.body || "");
       li.innerHTML =
         `<div class="kb-item-head"><span class="kb-cat">${escapeHtmlKb(it.category)}</span>` +
         ref +

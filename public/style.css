@@ -668,7 +668,7 @@ table.bant td:first-child { color: var(--muted); width: 80px; }
 .kb-item-head b { font-size: 13px; flex: 1 1 auto; }
 .kb-del { border: none; background: transparent; color: var(--muted); font-size: 12px; cursor: pointer; }
 .kb-del:hover { color: #c0392b; }
-.kb-body { font-size: 12.5px; color: var(--ink); white-space: pre-wrap; line-height: 1.6; }
+.kb-body { font-size: 12.5px; color: var(--ink); white-space: pre-wrap; line-height: 1.6; max-height: 360px; overflow-y: auto; margin-top: 4px; padding-right: 4px; }
 .kb-empty { font-size: 13px; color: var(--muted); }
 
 /* 自社ナレッジ：取り込み */
