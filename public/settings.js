@@ -235,14 +235,14 @@ if (saveThanksBtn) {
 }
 loadThanks();
 
-// ===== タブ切替 =====
+// ===== メニュー切替 =====
 (function () {
-  const tabs = document.getElementById("setTabs");
-  if (!tabs) return;
-  tabs.querySelectorAll(".tab").forEach((tab) => {
-    tab.addEventListener("click", () => {
-      tabs.querySelectorAll(".tab").forEach((t) => t.classList.toggle("active", t === tab));
-      const name = tab.dataset.tab;
+  const menu = document.getElementById("setMenu");
+  if (!menu) return;
+  menu.querySelectorAll(".set-menu-item").forEach((item) => {
+    item.addEventListener("click", () => {
+      menu.querySelectorAll(".set-menu-item").forEach((t) => t.classList.toggle("active", t === item));
+      const name = item.dataset.tab;
       document.querySelectorAll(".set-pane").forEach((p) => (p.hidden = p.dataset.pane !== name));
     });
   });

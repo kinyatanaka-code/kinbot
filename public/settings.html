@@ -20,13 +20,14 @@
       <div class="main">
         <header class="topbar"><div class="brand"><span class="brand-name">設定</span></div></header>
         <main class="settings">
-          <div class="tabs" id="setTabs">
-            <button class="tab active" data-tab="general">動作設定</button>
-            <button class="tab" data-tab="links">登録リンク</button>
-            <button class="tab" data-tab="calendar">カレンダー連携</button>
-            <button class="tab" data-tab="thanks">御礼メール例文</button>
-            <button class="tab" data-tab="status">状態</button>
-          </div>
+          <nav class="set-menu" id="setMenu">
+            <button class="set-menu-item active" data-tab="general">動作設定</button>
+            <button class="set-menu-item" data-tab="links">登録リンク</button>
+            <button class="set-menu-item" data-tab="calendar">カレンダー連携</button>
+            <button class="set-menu-item" data-tab="thanks">御礼メール例文</button>
+            <button class="set-menu-item" data-tab="status">状態</button>
+          </nav>
+          <div class="set-body">
 
           <div class="set-pane" data-pane="general">
             <div class="set-card">
@@ -112,6 +113,7 @@
               <table class="status-table" id="statusTable"></table>
               <p class="note">APIキー（Recall / Gemini / Deepgram など）は Railway の Variables で設定します。ここからは変更しません。</p>
             </div>
+          </div>
           </div>
         </main>
       </div>
