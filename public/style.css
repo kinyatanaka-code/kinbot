@@ -500,7 +500,7 @@ table.bant td:first-child { color: var(--muted); width: 80px; }
 .ac-who { color: var(--muted); font-size: 12px; flex: 0 0 auto; }
 
 /* ---------- 履歴：絞り込み・タグ ---------- */
-.hfilters { display: flex; gap: 16px; padding: 12px 18px 0; flex-wrap: wrap; }
+.hfilters { display: flex; gap: 16px; padding: 12px 18px 0; flex-wrap: wrap; position: relative; z-index: 5; }
 .hfilters label { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--muted); }
 .hfilters select { font-family: inherit; font-size: 13px; padding: 7px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel-2); }
 .hcard-tags { font-size: 11px; color: var(--accent); font-weight: 700; margin-top: 3px; }
