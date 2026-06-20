@@ -36,5 +36,6 @@ export function statusInfo(publicUrl) {
     llmModel: llm.model,
     dbEnabled: dbEnabled(),
     publicUrl: publicUrl || "(未設定)",
+    muxConfigured: !!(process.env.MUX_TOKEN_ID && process.env.MUX_TOKEN_SECRET),
   };
 }

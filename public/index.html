@@ -64,6 +64,10 @@
 
         <!-- ステップ2：ライブ文字起こし・要約・次の一手 -->
         <div class="live-view" id="viewLive" hidden>
+          <div class="live-video" id="liveVideo" hidden>
+            <video id="liveVideoEl" controls autoplay muted playsinline></video>
+            <span class="live-video-tag">ライブ映像</span>
+          </div>
           <main class="grid">
             <section class="panel transcript-panel">
               <div class="panel-head">
@@ -94,6 +98,7 @@
         <footer class="statusbar"><span id="status">待機中</span></footer>
       </div>
     </div>
+    <script src="https://cdn.jsdelivr.net/npm/hls.js@1"></script>
     <script src="app.js"></script>
     <script src="nav.js"></script>
   </body>

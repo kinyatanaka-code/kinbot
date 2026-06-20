@@ -18,6 +18,7 @@ async function load() {
     $("statusTable").innerHTML = `
       <tr><td>要約エンジン</td><td>${st.llmProvider || "-"}（${st.llmModel || "-"}）</td></tr>
       <tr><td>履歴の保存(DB)</td><td>${st.dbEnabled ? "有効" : "無効（DATABASE_URL未設定）"}</td></tr>
+      <tr><td>ライブ映像配信(Mux)</td><td>${st.muxConfigured ? "有効" : "未設定（MUX_TOKEN_ID/SECRET未設定）"}</td></tr>
       <tr><td>公開URL</td><td>${st.publicUrl || "-"}</td></tr>`;
   } catch {
     $("persistNote").textContent = "設定の読み込みに失敗しました。";

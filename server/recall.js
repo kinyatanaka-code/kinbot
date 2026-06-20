@@ -54,6 +54,8 @@ export async function createBot({
   provider = "recallai",
   deepgramModel = "nova-2",
   joinAt = null, // ISO文字列。指定すると予約入室（例: 開始3分前）
+  rtmpUrl = null, // 指定するとミックス映像+音声をRTMPでライブ配信（Mux等）
+  videoLayout = "gallery_view_v2",
 }) {
   // recallai_streaming 用：英語以外は accuracy（低遅延は英語のみ対応のため）
   const mode =
@@ -61,6 +63,17 @@ export async function createBot({
     (String(languageCode).toLowerCase().startsWith("en")
       ? "prioritize_low_latency"
       : "prioritize_accuracy");
+
+  const realtimeEndpoints = [
+    {
+      type: "webhook",
+      url: webhookUrl,
+      events: ["transcript.data", "transcript.partial_data"],
+    },
+  ];
+  if (rtmpUrl) {
+    realtimeEndpoints.push({ type: "rtmp", url: rtmpUrl });
+  }
 
   const body = {
     meeting_url: meetingUrl,
@@ -72,13 +85,8 @@ export async function createBot({
         // 参加者ごとに別ストリーム＝正確な話者分離（話者名が付く）
         diarization: { use_separate_streams_when_available: true },
       },
-      realtime_endpoints: [
-        {
-          type: "webhook",
-          url: webhookUrl,
-          events: ["transcript.data", "transcript.partial_data"],
-        },
-      ],
+      ...(rtmpUrl ? { video_mixed_layout: videoLayout } : {}),
+      realtime_endpoints: realtimeEndpoints,
     },
   };
 

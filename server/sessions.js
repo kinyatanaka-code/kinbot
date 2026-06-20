@@ -1,13 +1,14 @@
 // server/sessions.js
 import { analyze, analyzeMeeting, analyzeDeep } from "./analyzer.js";
 import { createMeeting, saveMeeting, saveAnalysis, saveDeepAnalysis } from "./db.js";
+import { disableLiveStream } from "./mux.js";
 
 const DEFAULT_INTERVAL_MS = Number(process.env.ANALYZE_INTERVAL_MS || 20000);
 
 const sessions = new Map(); // botId -> Session
 
-export function createSession(botId, { repName = "", meetingUrl = "", title = "", owner = "", analyzeIntervalMs } = {}) {
-  const s = new Session(botId, { repName, meetingUrl, title, owner }, analyzeIntervalMs || DEFAULT_INTERVAL_MS);
+export function createSession(botId, { repName = "", meetingUrl = "", title = "", owner = "", analyzeIntervalMs, muxPlaybackId = "", muxLiveStreamId = "" } = {}) {
+  const s = new Session(botId, { repName, meetingUrl, title, owner, muxPlaybackId, muxLiveStreamId }, analyzeIntervalMs || DEFAULT_INTERVAL_MS);
   sessions.set(botId, s);
   createMeeting(botId, { meetingUrl, repName, title, owner }); // 履歴に行を作成（DB無効なら無視）
   return s;
@@ -29,16 +30,19 @@ export function listActiveSessions() {
     repName: s.repName || "",
     startedAt: s.startedAt,
     utterances: s.utterances.length,
+    muxPlaybackId: s.muxPlaybackId || "",
   }));
 }
 
 class Session {
-  constructor(botId, { repName = "", meetingUrl = "", title = "", owner = "" } = {}, intervalMs) {
+  constructor(botId, { repName = "", meetingUrl = "", title = "", owner = "", muxPlaybackId = "", muxLiveStreamId = "" } = {}, intervalMs) {
     this.botId = botId;
     this.repName = repName;
     this.meetingUrl = meetingUrl;
     this.title = title;
     this.owner = owner;
+    this.muxPlaybackId = muxPlaybackId;
+    this.muxLiveStreamId = muxLiveStreamId;
     this.startedAt = Date.now();
     this.utterances = []; // {speaker:{id,name}, text, ts}
     this.sockets = new Set();
@@ -48,17 +52,18 @@ class Session {
     this.cooldownUntil = 0; // 429などで一時停止する時刻
     this.timer = setInterval(() => this.maybeAnalyze(), intervalMs);
   }
-  // 後から判明した商談名/所有者を補完（予約Bot用）
-  enrich({ title, owner, repName }) {
+  // 後から判明した商談名/所有者/Mux再生IDを補完（予約Bot用）
+  enrich({ title, owner, repName, muxPlaybackId }) {
     if (title && !this.title) this.title = title;
     if (owner && !this.owner) this.owner = owner;
     if (repName && !this.repName) this.repName = repName;
+    if (muxPlaybackId && !this.muxPlaybackId) this.muxPlaybackId = muxPlaybackId;
   }
 
   addSocket(ws) {
     this.sockets.add(ws);
-    // 実際のライブ開始時刻を伝える（途中参加でも正しい経過時間を表示するため）
-    this.sendTo(ws, { type: "session", startedAt: this.startedAt });
+    // 実際のライブ開始時刻＋ライブ映像（Mux）を伝える
+    this.sendTo(ws, { type: "session", startedAt: this.startedAt, muxPlaybackId: this.muxPlaybackId || "" });
     // 既存の文字起こしを再送（途中参加の画面用）
     for (const u of this.utterances) {
       this.sendTo(ws, { type: "final", speaker: u.speaker, text: u.text, ts: u.ts });
@@ -152,6 +157,8 @@ class Session {
     });
     // 商談終了 → 要約・営業FB・分析を自動生成（バックグラウンド）
     this.finalizeAnalysis();
+    // ライブ映像配信（Mux）を停止
+    if (this.muxLiveStreamId) disableLiveStream(this.muxLiveStreamId);
   }
 
   // 文字起こしから 要約＋FB と 深掘り分析 を自動生成して保存

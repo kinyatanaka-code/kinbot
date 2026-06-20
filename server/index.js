@@ -44,6 +44,7 @@ import {
   getPrimaryEmail,
 } from "./google.js";
 import { startScheduler } from "./scheduler.js";
+import { muxConfigured, createLiveStream } from "./mux.js";
 import {
   salesforceConfigured,
   authUrl as sfAuthUrl,
@@ -382,6 +383,15 @@ app.post("/api/sessions", async (req, res) => {
   if (!PUBLIC_URL) return res.status(500).json({ error: "PUBLIC_URL が未設定です" });
   try {
     const cfg = await resolveConfig(req.user);
+    // ライブ映像配信（Mux）。設定済みなら配信枠を作成してRTMP送信を仕込む
+    let mux = null;
+    if (muxConfigured()) {
+      try {
+        mux = await createLiveStream();
+      } catch (e) {
+        console.error("[mux] createLiveStream", e.message);
+      }
+    }
     const botId = await createBot({
       meetingUrl,
       webhookUrl: `${PUBLIC_URL}/api/recall/webhook`,
@@ -389,6 +399,7 @@ app.post("/api/sessions", async (req, res) => {
       botName: cfg.botName,
       provider: cfg.transcribeProvider,
       deepgramModel: cfg.deepgramModel,
+      rtmpUrl: mux?.rtmpUrl || null,
     });
     const displayName = await getDisplayName(req.user);
     createSession(botId, {
@@ -397,6 +408,8 @@ app.post("/api/sessions", async (req, res) => {
       title: title || "",
       owner: req.user || "",
       analyzeIntervalMs: cfg.analyzeIntervalMs,
+      muxPlaybackId: mux?.playbackId || "",
+      muxLiveStreamId: mux?.liveStreamId || "",
     });
     res.json({ sessionId: botId });
   } catch (e) {

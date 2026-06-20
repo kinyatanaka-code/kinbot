@@ -278,6 +278,7 @@ function resetToJoin(statusMsg) {
   sessionId = null;
   viewerMode = false;
   stopTimer();
+  hideLiveVideo();
   setConn("idle");
   els.liveControls.hidden = true;
   els.viewLive.hidden = true;
@@ -307,11 +308,50 @@ function openSocket() {
   ws.addEventListener("error", () => setConn("error"));
 }
 
+let hls = null;
+function showLiveVideo(playbackId) {
+  const box = $("liveVideo");
+  const video = $("liveVideoEl");
+  if (!box || !video || !playbackId) return;
+  const src = `https://stream.mux.com/${playbackId}.m3u8`;
+  box.hidden = false;
+  try {
+    if (window.Hls && window.Hls.isSupported()) {
+      if (hls) {
+        try { hls.destroy(); } catch {}
+      }
+      hls = new window.Hls({ liveSyncDuration: 4 });
+      hls.loadSource(src);
+      hls.attachMedia(video);
+    } else if (video.canPlayType("application/vnd.apple.mpegurl")) {
+      // Safari はネイティブHLS
+      video.src = src;
+    }
+    video.play().catch(() => {});
+  } catch (e) {
+    /* 再生開始失敗時も画面は維持 */
+  }
+}
+function hideLiveVideo() {
+  const box = $("liveVideo");
+  const video = $("liveVideoEl");
+  if (hls) {
+    try { hls.destroy(); } catch {}
+    hls = null;
+  }
+  if (video) {
+    try { video.pause(); video.removeAttribute("src"); video.load(); } catch {}
+  }
+  if (box) box.hidden = true;
+}
+
 function handle(msg) {
   switch (msg.type) {
     case "session":
       // 実際のライブ開始時刻にタイマーを合わせる
       if (msg.startedAt) startTimer(msg.startedAt);
+      // ライブ映像（Mux）があれば再生
+      if (msg.muxPlaybackId) showLiveVideo(msg.muxPlaybackId);
       break;
     case "ended":
       endedByServer();
