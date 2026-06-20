@@ -698,3 +698,10 @@ a.kb-src:hover { color: var(--accent); border-color: var(--accent); }
 .kb-folder-del { border: none; border-left: 1px solid var(--line); background: transparent; cursor: pointer; padding: 0 10px; color: var(--muted); }
 .kb-folder-del:hover { color: #c0392b; }
 .kb-move { font-family: inherit; font-size: 11px; padding: 2px 4px; border: 1px solid var(--line); border-radius: 6px; background: var(--panel-2); color: var(--muted); max-width: 130px; }
+
+/* 自社ナレッジ：Googleドライブ検索結果 */
+.kb-drive-results { list-style: none; padding: 0; margin: 6px 0 0; display: flex; flex-direction: column; gap: 6px; }
+.kb-drive-item { display: flex; align-items: center; gap: 8px; border: 1px solid var(--line); border-radius: 8px; padding: 7px 10px; background: var(--panel); }
+.kb-drive-name { flex: 1 1 auto; font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.kb-drive-type { font-size: 11px; color: var(--muted); flex: 0 0 auto; }
+.kb-drive-import { flex: 0 0 auto; font-size: 12px; padding: 5px 12px; }

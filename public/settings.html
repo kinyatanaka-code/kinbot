@@ -146,6 +146,11 @@
                   <input id="kbPdf" type="file" accept="application/pdf,image/*,.pdf" />
                   <button class="btn" id="kbPdfBtn">ファイルを取り込む（PDF/画像）</button>
                 </div>
+                <div class="kb-ingest-row">
+                  <input id="kbDriveQ" type="text" placeholder="Googleドライブを検索（ファイル名）" />
+                  <button class="btn" id="kbDriveBtn">ドライブ検索</button>
+                </div>
+                <ul class="kb-drive-results" id="kbDriveResults"></ul>
                 <p class="kb-note" id="kbIngestNote">AIが資料の中身を読み取り（図・グラフ・スキャン文字も）、要点を構造化して蓄積します。PDF（大容量も自動対応）・画像・Webサイトに対応。動画・Googleドライブは順次対応。</p>
                 <div class="set-row">
                   <button class="btn ghost" id="kbReindexBtn">検索用に再構築</button>

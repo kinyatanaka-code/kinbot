@@ -596,3 +596,91 @@ loadKnowledge();
     }
   });
 })();
+
+// ナレッジ取り込み（Googleドライブ）
+(function () {
+  const note = () => document.getElementById("kbIngestNote");
+  const qInput = document.getElementById("kbDriveQ");
+  const searchBtn = document.getElementById("kbDriveBtn");
+  const results = document.getElementById("kbDriveResults");
+  if (!searchBtn || !results) return;
+
+  const mimeLabel = (mt) => {
+    if (!mt) return "ファイル";
+    if (mt.includes("google-apps.document")) return "Googleドキュメント";
+    if (mt.includes("google-apps.spreadsheet")) return "スプレッドシート";
+    if (mt.includes("google-apps.presentation")) return "スライド";
+    if (mt.includes("google-apps.folder")) return "フォルダ";
+    if (mt === "application/pdf") return "PDF";
+    if (mt.startsWith("image/")) return "画像";
+    return mt;
+  };
+
+  async function doSearch() {
+    searchBtn.disabled = true;
+    const o = searchBtn.textContent;
+    searchBtn.textContent = "検索中…";
+    results.innerHTML = "";
+    try {
+      // 連携状態を確認
+      const st = await (await fetch("/api/drive/status")).json();
+      if (!st.googleConnected) {
+        results.innerHTML = '<li class="kb-empty">Google未連携です。設定→カレンダー連携から連携してください。</li>';
+        return;
+      }
+      if (!st.driveReady) {
+        results.innerHTML =
+          '<li class="kb-empty">ドライブの権限がありません。設定→カレンダー連携で一度「解除」→「連携する」をやり直し、ドライブの許可にチェックしてください。</li>';
+        return;
+      }
+      const r = await fetch("/api/drive/search?q=" + encodeURIComponent(qInput.value.trim()));
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.error || "検索に失敗しました");
+      const files = (d.files || []).filter((f) => !(f.mimeType || "").includes("google-apps.folder"));
+      if (!files.length) {
+        results.innerHTML = '<li class="kb-empty">該当するファイルがありません。</li>';
+        return;
+      }
+      results.innerHTML = "";
+      for (const f of files) {
+        const li = document.createElement("li");
+        li.className = "kb-drive-item";
+        li.innerHTML =
+          `<span class="kb-drive-name">${escapeHtmlKb(f.name)}</span>` +
+          `<span class="kb-drive-type">${escapeHtmlKb(mimeLabel(f.mimeType))}</span>` +
+          `<button class="btn ghost kb-drive-import">取り込む</button>`;
+        li.querySelector(".kb-drive-import").addEventListener("click", async (e) => {
+          const btn = e.currentTarget;
+          btn.disabled = true;
+          btn.textContent = "取り込み中…";
+          if (note()) note().textContent = `「${f.name}」を読み取っています…`;
+          try {
+            const rr = await fetch("/api/knowledge/drive", {
+              method: "POST",
+              headers: { "content-type": "application/json" },
+              body: JSON.stringify({ fileId: f.id, category: $("kbInCategory").value, folder: kbCurrentFolder }),
+            });
+            const dd = await rr.json();
+            if (!rr.ok) throw new Error(dd.error || "失敗しました");
+            const how = dd.read === "ai" ? "AIが読み取り・構造化" : "テキスト抽出";
+            if (note()) note().textContent = `「${f.name}」を取り込みました（${how}・約${(dd.chars || 0).toLocaleString()}文字）。`;
+            btn.textContent = "完了";
+            loadKnowledge();
+          } catch (err) {
+            if (note()) note().textContent = "取り込み失敗: " + err.message;
+            btn.disabled = false;
+            btn.textContent = "取り込む";
+          }
+        });
+        results.appendChild(li);
+      }
+    } catch (e) {
+      results.innerHTML = `<li class="kb-empty">エラー: ${escapeHtmlKb(e.message)}</li>`;
+    } finally {
+      searchBtn.disabled = false;
+      searchBtn.textContent = o;
+    }
+  }
+  searchBtn.addEventListener("click", doSearch);
+  if (qInput) qInput.addEventListener("keydown", (e) => { if (e.key === "Enter") doSearch(); });
+})();

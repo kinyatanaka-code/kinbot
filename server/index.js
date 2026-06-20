@@ -49,6 +49,9 @@ import {
   listZoomEvents,
   listDayEvents,
   getPrimaryEmail,
+  driveReady,
+  driveSearch,
+  driveGetContent,
 } from "./google.js";
 import { startScheduler } from "./scheduler.js";
 import { muxConfigured, createLiveStream } from "./mux.js";
@@ -642,6 +645,67 @@ app.post("/api/knowledge/reindex", async (req, res) => {
     res.json({ ok: true, count: n, embeddings: embeddingsAvailable() });
   } catch (e) {
     res.status(500).json({ error: e.message });
+  }
+});
+
+// --- Googleドライブ連携（自社ナレッジ取り込み） ---
+app.get("/api/drive/status", async (req, res) => {
+  try {
+    const connected = await gcalConnected(req.user);
+    const ready = connected ? await driveReady(req.user) : false;
+    res.json({ googleConnected: connected, driveReady: ready });
+  } catch (e) {
+    res.json({ googleConnected: false, driveReady: false });
+  }
+});
+app.get("/api/drive/search", async (req, res) => {
+  try {
+    const files = await driveSearch(req.user, req.query.q || "");
+    res.json({ files });
+  } catch (e) {
+    res.status(502).json({ error: e.message });
+  }
+});
+app.post("/api/knowledge/drive", async (req, res) => {
+  try {
+    const { fileId, category, folder } = req.body || {};
+    if (!fileId) return res.status(400).json({ error: "fileId が必要です" });
+    const c = await driveGetContent(req.user, fileId);
+    let body = "";
+    let read = "text";
+    let sourceType = "gdrive";
+    if (c.buffer && c.mimeType === "application/pdf") {
+      if (readerAvailable()) {
+        body = await readDocument({ buffer: c.buffer, mimeType: "application/pdf", displayName: c.name }).catch(() => "");
+        if (body) read = "ai";
+      }
+      if (!body) body = await pdfToText(c.buffer).catch(() => "");
+    } else if (c.buffer && (c.mimeType || "").startsWith("image/")) {
+      if (!readerAvailable()) return res.status(422).json({ error: "画像の読み取りには GEMINI_API_KEY が必要です" });
+      body = await readDocument({ buffer: c.buffer, mimeType: c.mimeType, displayName: c.name });
+      read = "ai";
+    } else if (c.text) {
+      body = readerAvailable() ? await readDocument({ text: c.text }).catch(() => c.text) : c.text;
+      read = readerAvailable() && body !== c.text ? "ai" : "text";
+    } else {
+      return res.status(415).json({ error: "この形式は取り込めません" });
+    }
+    if (!body || body.length < 20) return res.status(422).json({ error: "内容を読み取れませんでした" });
+    const name = (c.name || "Driveファイル").replace(/\.[^.]+$/, "");
+    const id = await addKnowledge({
+      category: category || "資料",
+      title: name,
+      body,
+      owner: req.user || "",
+      sourceType,
+      sourceRef: c.name || "",
+      folder: folder || "",
+    });
+    if (id) indexKnowledge(id, { title: name, category: category || "資料", body }).catch((e) => console.error("[index]", e.message));
+    res.json({ ok: true, id, chars: body.length, read });
+  } catch (e) {
+    console.error("[knowledge/drive]", e.message);
+    res.status(502).json({ error: e.message });
   }
 });
 
