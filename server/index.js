@@ -9,7 +9,7 @@ import multer from "multer";
 import fs from "node:fs";
 import { WebSocketServer } from "ws";
 import { transcribeFile, transcriberAvailable } from "./transcribe.js";
-import { createBot, leaveBot, parseTranscriptEvent, getRecordingUrl } from "./recall.js";
+import { createBot, leaveBot, parseTranscriptEvent, getRecordingUrl, getBot } from "./recall.js";
 import { createSession, getSession, removeSession, listActiveSessions } from "./sessions.js";
 import {
   initDb,
@@ -460,6 +460,26 @@ app.get("/api/sessions/active", (req, res) => {
   res.json(listActiveSessions());
 });
 
+// Muxの設定・認証チェック（状態画面用）
+app.get("/api/mux/status", async (req, res) => {
+  const out = { configured: muxConfigured(), ok: false };
+  if (!out.configured) return res.json(out);
+  try {
+    const r = await fetch("https://api.mux.com/video/v1/live-streams?limit=1", {
+      headers: {
+        Authorization:
+          "Basic " +
+          Buffer.from(`${process.env.MUX_TOKEN_ID}:${process.env.MUX_TOKEN_SECRET}`).toString("base64"),
+      },
+    });
+    out.ok = r.ok;
+    if (!r.ok) out.error = `${r.status}`;
+  } catch (e) {
+    out.error = e.message;
+  }
+  res.json(out);
+});
+
 // ===== 音声/動画ファイルのアップロード → 文字起こし・要約・FB・分析 =====
 try { fs.mkdirSync("/tmp/kinbot-uploads", { recursive: true }); } catch {}
 const upload = multer({ dest: "/tmp/kinbot-uploads", limits: { fileSize: 2 * 1024 * 1024 * 1024 } });
@@ -539,7 +559,7 @@ app.post("/api/recall/webhook", (req, res) => {
           // DBの商談行（予約時に作成済み）から商談名・所有者を補完
           try {
             const m = await getMeeting(ev.botId);
-            if (m) s.enrich({ title: m.title, owner: m.owner, repName: m.rep_name });
+            if (m) s.enrich({ title: m.title, owner: m.owner, repName: m.rep_name, muxPlaybackId: m.mux_playback_id });
           } catch {}
         }
         if (ev.type === "final") s.onFinal(ev.speaker, ev.text);
@@ -929,8 +949,43 @@ wss.on("connection", (ws, req) => {
 server.listen(PORT, async () => {
   await initDb().catch((e) => console.error("[db] init失敗", e.message));
   startScheduler({ publicUrl: PUBLIC_URL });
+  startSessionMonitor();
   console.log(`\n  kinbot (Bot方式) → http://localhost:${PORT}`);
   console.log(`  公開URL(Webhook受け口): ${PUBLIC_URL || "(未設定)"}`);
   console.log(`  要約エンジン: ${llm.provider} (${llm.model})`);
   console.log(`  カレンダー連携: ${googleConfigured() ? "設定あり" : "未設定"}\n`);
 });
+
+// 進行中セッションのBot状態をRecallに定期確認し、通話終了なら自動でクローズ
+const SESSION_ENDED_CODES = new Set([
+  "call_ended",
+  "recording_done",
+  "done",
+  "fatal",
+  "recording_permission_denied",
+  "media_expired",
+]);
+function startSessionMonitor() {
+  setInterval(async () => {
+    const active = listActiveSessions();
+    for (const a of active) {
+      // アップロード由来など、Recall botでないものは除外
+      if (!a.botId || String(a.botId).startsWith("upload_")) continue;
+      try {
+        const bot = await getBot(a.botId);
+        const changes = bot?.status_changes || [];
+        const latest = changes.length ? changes[changes.length - 1].code : bot?.status?.code || "";
+        if (SESSION_ENDED_CODES.has(latest)) {
+          console.log(`[monitor] 通話終了を検知（${latest}）→ クローズ: ${a.botId}`);
+          removeSession(a.botId); // dispose → 視聴者へ ended 通知・要約/分析・Mux停止
+        }
+      } catch (e) {
+        // 404等（botが消えている）→ 終了扱いでクローズ
+        if (/\b404\b/.test(e.message)) {
+          console.log(`[monitor] bot未検出→クローズ: ${a.botId}`);
+          removeSession(a.botId);
+        }
+      }
+    }
+  }, 30000);
+}

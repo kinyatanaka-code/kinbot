@@ -309,32 +309,69 @@ function openSocket() {
 }
 
 let hls = null;
+let liveVideoRetry = null;
 function showLiveVideo(playbackId) {
   const box = $("liveVideo");
   const video = $("liveVideoEl");
   if (!box || !video || !playbackId) return;
   const src = `https://stream.mux.com/${playbackId}.m3u8`;
   box.hidden = false;
-  try {
-    if (window.Hls && window.Hls.isSupported()) {
-      if (hls) {
-        try { hls.destroy(); } catch {}
-      }
-      hls = new window.Hls({ liveSyncDuration: 4 });
-      hls.loadSource(src);
-      hls.attachMedia(video);
-    } else if (video.canPlayType("application/vnd.apple.mpegurl")) {
-      // Safari はネイティブHLS
-      video.src = src;
-    }
-    video.play().catch(() => {});
-  } catch (e) {
-    /* 再生開始失敗時も画面は維持 */
+  let overlay = $("liveVideoMsg");
+  if (!overlay) {
+    overlay = document.createElement("div");
+    overlay.id = "liveVideoMsg";
+    overlay.className = "live-video-msg";
+    box.appendChild(overlay);
   }
+  overlay.textContent = "ライブ映像を準備中…(開始直後は数十秒かかります)";
+  overlay.hidden = false;
+
+  const clearRetry = () => {
+    if (liveVideoRetry) {
+      clearTimeout(liveVideoRetry);
+      liveVideoRetry = null;
+    }
+  };
+  const onPlaying = () => {
+    overlay.hidden = true;
+    clearRetry();
+  };
+
+  const attach = () => {
+    try {
+      if (window.Hls && window.Hls.isSupported()) {
+        if (hls) {
+          try { hls.destroy(); } catch {}
+        }
+        hls = new window.Hls({ liveSyncDuration: 4 });
+        hls.loadSource(src);
+        hls.attachMedia(video);
+        hls.on(window.Hls.Events.ERROR, (_e, data) => {
+          // ストリーム未開始（404等）は時間をおいて再試行
+          if (data && data.fatal) {
+            clearRetry();
+            liveVideoRetry = setTimeout(attach, 5000);
+          }
+        });
+      } else if (video.canPlayType("application/vnd.apple.mpegurl")) {
+        video.src = src;
+      }
+      video.play().catch(() => {});
+    } catch {
+      clearRetry();
+      liveVideoRetry = setTimeout(attach, 5000);
+    }
+  };
+  video.addEventListener("playing", onPlaying);
+  attach();
 }
 function hideLiveVideo() {
   const box = $("liveVideo");
   const video = $("liveVideoEl");
+  if (liveVideoRetry) {
+    clearTimeout(liveVideoRetry);
+    liveVideoRetry = null;
+  }
   if (hls) {
     try { hls.destroy(); } catch {}
     hls = null;

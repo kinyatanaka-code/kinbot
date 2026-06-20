@@ -39,6 +39,7 @@ export async function initDb() {
   await pool.query(`ALTER TABLE meetings ADD COLUMN IF NOT EXISTS round_no INT;`);
   await pool.query(`ALTER TABLE meetings ADD COLUMN IF NOT EXISTS phase TEXT;`);
   await pool.query(`ALTER TABLE meetings ADD COLUMN IF NOT EXISTS status TEXT;`);
+  await pool.query(`ALTER TABLE meetings ADD COLUMN IF NOT EXISTS mux_playback_id TEXT;`);
   await pool.query(`
     CREATE TABLE IF NOT EXISTS settings (
       id   INT PRIMARY KEY,
@@ -97,13 +98,13 @@ export async function initDb() {
   console.log("[db] Postgres に接続しました（履歴を保存します）。");
 }
 
-export async function createMeeting(botId, { meetingUrl, repName, title, owner }) {
+export async function createMeeting(botId, { meetingUrl, repName, title, owner, muxPlaybackId }) {
   if (!pool) return;
   try {
     await pool.query(
-      `INSERT INTO meetings (bot_id, meeting_url, rep_name, title, owner)
-       VALUES ($1,$2,$3,$4,$5) ON CONFLICT (bot_id) DO NOTHING`,
-      [botId, meetingUrl || "", repName || "", title || "", owner || ""]
+      `INSERT INTO meetings (bot_id, meeting_url, rep_name, title, owner, mux_playback_id)
+       VALUES ($1,$2,$3,$4,$5,$6) ON CONFLICT (bot_id) DO NOTHING`,
+      [botId, meetingUrl || "", repName || "", title || "", owner || "", muxPlaybackId || null]
     );
   } catch (e) {
     console.error("[db] createMeeting", e.message);

@@ -646,3 +646,6 @@ table.bant td:first-child { color: var(--muted); width: 80px; }
 .live-video { position: relative; margin: 0 0 14px; background: #000; border-radius: 12px; overflow: hidden; max-height: 52vh; }
 .live-video video { width: 100%; max-height: 52vh; display: block; background: #000; }
 .live-video-tag { position: absolute; top: 10px; left: 10px; background: rgba(0,0,0,.6); color: #fff; font-size: 11px; padding: 3px 8px; border-radius: 6px; }
+
+/* ライブ映像：準備中オーバーレイ */
+.live-video-msg { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; color: #fff; font-size: 13px; background: rgba(0,0,0,.45); text-align: center; padding: 12px; }

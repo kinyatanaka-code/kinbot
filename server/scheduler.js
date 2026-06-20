@@ -5,6 +5,7 @@ import { listZoomEvents } from "./google.js";
 import { createBot } from "./recall.js";
 import { resolveConfig } from "./config.js";
 import { isScheduled, markScheduled, createMeeting, listGoogleAccounts } from "./db.js";
+import { muxConfigured, createLiveStream } from "./mux.js";
 import { getDisplayName } from "./auth.js";
 
 let publicUrl = "";
@@ -44,6 +45,14 @@ async function tick() {
       const startMs = new Date(ev.start).getTime();
       const joinAt = new Date(Math.max(startMs - 3 * 60 * 1000, now + 5000)).toISOString();
       try {
+        let mux = null;
+        if (muxConfigured()) {
+          try {
+            mux = await createLiveStream();
+          } catch (e) {
+            console.error("[scheduler][mux]", e.message);
+          }
+        }
         const botId = await createBot({
           meetingUrl: ev.zoomUrl,
           webhookUrl: `${publicUrl}/api/recall/webhook`,
@@ -52,8 +61,15 @@ async function tick() {
           provider: cfg.transcribeProvider,
           deepgramModel: cfg.deepgramModel,
           joinAt,
+          rtmpUrl: mux?.rtmpUrl || null,
         });
-        await createMeeting(botId, { meetingUrl: ev.zoomUrl, repName, title: ev.title, owner });
+        await createMeeting(botId, {
+          meetingUrl: ev.zoomUrl,
+          repName,
+          title: ev.title,
+          owner,
+          muxPlaybackId: mux?.playbackId || null,
+        });
         await markScheduled(key, botId, ev.start);
         console.log(`[scheduler] 予約: ${owner}「${ev.title}」→ bot ${botId}（入室 ${joinAt}）`);
       } catch (e) {
