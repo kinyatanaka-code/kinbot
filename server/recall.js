@@ -72,7 +72,13 @@ export async function createBot({
     },
   ];
   if (rtmpUrl) {
-    realtimeEndpoints.push({ type: "rtmp", url: rtmpUrl });
+    // v1.11: ミックス映像+音声のRTMP配信は video_mixed_flv を有効化し、
+    // rtmpエンドポイントで video_mixed_flv.data を購読する必要がある
+    realtimeEndpoints.push({
+      type: "rtmp",
+      url: rtmpUrl,
+      events: ["video_mixed_flv.data"],
+    });
   }
 
   const body = {
@@ -85,7 +91,7 @@ export async function createBot({
         // 参加者ごとに別ストリーム＝正確な話者分離（話者名が付く）
         diarization: { use_separate_streams_when_available: true },
       },
-      ...(rtmpUrl ? { video_mixed_layout: videoLayout } : {}),
+      ...(rtmpUrl ? { video_mixed_flv: {}, video_mixed_layout: videoLayout } : {}),
       realtime_endpoints: realtimeEndpoints,
     },
   };
