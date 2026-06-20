@@ -36,12 +36,12 @@
               <div class="join-card">
                 <h1 class="join-title">商談を記録する</h1>
                 <p class="join-desc">商談名と会議URLを入れて、Botを入室させます。</p>
-                <select id="linkSelect" class="link-select"><option value="">登録リンクから選ぶ…</option></select>
                 <div class="title-row">
                   <input id="meetingTitle" type="text" placeholder="商談名（例：A社 初回）" />
                   <button type="button" id="calBtn" class="cal-btn" title="カレンダーから選ぶ">📅</button>
                   <div class="cal-panel" id="calPanel" hidden></div>
                 </div>
+                <select id="linkSelect" class="link-select"><option value="">会議リンクを選ぶ…（登録リンク / 予定のリンク）</option></select>
                 <input id="meetingUrl" type="url" placeholder="会議のURL（Zoom / Meet / Teams）" />
                 <button class="btn big" id="joinBtn">Botを入室させる</button>
                 <p class="join-consent">Botが参加者として入室します。<strong>相手に録音・記録の同意</strong>を得てください。</p>

@@ -93,14 +93,11 @@ if (calBtn && calPanel) {
   });
 }
 
-// 予定のリンクを登録リンクのプルダウンに「📅 この予定のリンク」として追加し、選択状態にする。
-// （登録リンクと予定のリンクをプルダウンで選べるようにするため、即上書きしない設計）
+// 予定のリンクを登録リンクのプルダウンに「📅 この予定のリンク」として追加する。
+// カレンダー選択時点ではURLは載せず、プルダウンで「予定のリンク」か「登録リンク」を選んで初めてURLが入る。
 function setCalendarLinkOption(url) {
   const sel = $("linkSelect");
-  if (!sel) {
-    if ($("meetingUrl")) $("meetingUrl").value = url;
-    return;
-  }
+  if (!sel) return;
   // 既存の予定用オプションを除去
   [...sel.options].forEach((o) => { if (o.dataset.cal === "1") o.remove(); });
   const opt = document.createElement("option");
@@ -108,8 +105,7 @@ function setCalendarLinkOption(url) {
   opt.textContent = "📅 この予定のリンク";
   opt.dataset.cal = "1";
   sel.add(opt, sel.options[1] || null); // プレースホルダの直後に挿入
-  sel.value = url;
-  if ($("meetingUrl")) $("meetingUrl").value = url;
+  // ここでは選択もURL反映もしない（ユーザーがプルダウンで選ぶ）
 }
 
 // カレンダー予定ピッカー（日付切替つき）。panel に描画し、選択時 onPick(ev) を呼ぶ。
