@@ -936,3 +936,7 @@ a.kb-src:hover { color: var(--accent); border-color: var(--accent); }
 .heat-rep { font-weight: 700; }
 .heat-cell { color: #06231f; border-radius: 6px; font-weight: 600; }
 @media (max-width: 980px) { .dash-kpis6 { grid-template-columns: repeat(3, 1fr); } .dash-grid2 { grid-template-columns: 1fr; } }
+
+/* フィルター行のドロップダウンを一覧より前面に（.main>* の指定に勝つ詳細度で上書き） */
+.main > .hfilters { position: relative; z-index: 20; }
+.main > .filters { position: relative; z-index: 20; }
