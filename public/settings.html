@@ -24,6 +24,7 @@
             <button class="set-menu-item active" data-tab="general">動作設定</button>
             <button class="set-menu-item" data-tab="links">登録リンク</button>
             <button class="set-menu-item" data-tab="calendar">カレンダー連携</button>
+            <button class="set-menu-item" data-tab="salesforce">Salesforce連携</button>
             <button class="set-menu-item" data-tab="thanks">御礼メール例文</button>
             <button class="set-menu-item" data-tab="status">状態</button>
           </nav>
@@ -91,6 +92,30 @@
               <div class="modal-actions">
                 <button class="btn" id="saveCalFilterBtn">保存</button>
                 <span class="saved" id="calFilterSaved" hidden>保存しました</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="set-pane" data-pane="salesforce" hidden>
+            <div class="set-card">
+              <h3>Salesforce連携</h3>
+              <p class="note">後日の連携作業（接続アプリ作成・環境変数 SF_CLIENT_ID / SF_CLIENT_SECRET の設定）の後に有効になります。</p>
+              <div class="cal-row">
+                <span class="cal-status" id="sfStatus">確認中…</span>
+                <a class="btn" id="sfConnect" href="/auth/salesforce" hidden>連携する</a>
+                <button class="btn ghost" id="sfDisconnect" hidden>解除</button>
+              </div>
+            </div>
+            <div class="set-card">
+              <h3>項目マッピング（kinbot → Salesforce）</h3>
+              <p class="note">kinbotの情報を、Salesforceのどの項目（API参照名）へ入れるかを指定します。空欄の項目は更新対象外です。例：フェーズ→StageName、次のステップ→NextStep、カスタム項目→Xxx__c。</p>
+              <label class="field"><span>フェーズ → SF項目</span><input id="sfmap_stage" type="text" placeholder="StageName" /></label>
+              <label class="field"><span>次のステップ → SF項目</span><input id="sfmap_nextStep" type="text" placeholder="NextStep" /></label>
+              <label class="field"><span>課題・懸念 → SF項目</span><input id="sfmap_issues" type="text" placeholder="例：Issues__c" /></label>
+              <label class="field"><span>要約 → SF項目</span><input id="sfmap_summary" type="text" placeholder="例：Meeting_Summary__c" /></label>
+              <div class="modal-actions">
+                <button class="btn" id="saveSfMapBtn">マッピングを保存</button>
+                <span class="saved" id="sfMapSaved" hidden>保存しました</span>
               </div>
             </div>
           </div>

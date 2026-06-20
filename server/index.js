@@ -29,6 +29,7 @@ import {
   saveMeeting,
   setMeetingStatus,
   createMeeting,
+  setMeetingSfUrl,
 } from "./db.js";
 import { resolveConfig, statusInfo } from "./config.js";
 import { analyzerInfo, analyzeMeeting, analyzeDeep, analyzeTendency, analyzeSet, generateThanks } from "./analyzer.js";
@@ -43,6 +44,17 @@ import {
   getPrimaryEmail,
 } from "./google.js";
 import { startScheduler } from "./scheduler.js";
+import {
+  salesforceConfigured,
+  authUrl as sfAuthUrl,
+  exchangeCode as sfExchangeCode,
+  isConnected as sfConnected,
+  disconnect as sfDisconnect,
+  connectionInfo as sfInfo,
+  extractRecordId,
+  getOpportunity,
+  updateOpportunity,
+} from "./salesforce.js";
 import {
   authEnabled,
   getUser,
@@ -670,6 +682,127 @@ app.get("/api/calendar/status", async (req, res) => {
 app.post("/api/calendar/disconnect", async (req, res) => {
   await gcalDisconnect(req.user);
   res.json({ ok: true });
+});
+
+// --- Salesforce 連携（枠。SF_CLIENT_ID/SECRET 設定後に有効） ---
+function sfRedirectUri() {
+  return `${PUBLIC_URL}/auth/salesforce/callback`;
+}
+app.get("/auth/salesforce", (req, res) => {
+  if (!salesforceConfigured()) return res.status(500).send("SF_CLIENT_ID/SECRET が未設定です（後日の連携作業で設定します）");
+  if (!PUBLIC_URL) return res.status(500).send("PUBLIC_URL が未設定です");
+  const state = makeToken(req.user || "");
+  res.redirect(sfAuthUrl(sfRedirectUri(), state));
+});
+app.get("/auth/salesforce/callback", async (req, res) => {
+  try {
+    const owner = verifyToken(req.query.state || "");
+    if (!owner) return res.status(400).send("セッションが無効です。ログインし直してください。");
+    await sfExchangeCode(req.query.code, sfRedirectUri(), owner);
+    res.redirect("/settings.html");
+  } catch (e) {
+    console.error("[salesforce]", e.message);
+    res.status(500).send("連携に失敗しました: " + e.message);
+  }
+});
+app.get("/api/salesforce/status", async (req, res) => {
+  try {
+    const info = await sfInfo(req.user);
+    const us = await getUserSettings(req.user);
+    res.json({ ...info, mapping: us.sfMapping || {} });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+app.post("/api/salesforce/disconnect", async (req, res) => {
+  await sfDisconnect(req.user);
+  res.json({ ok: true });
+});
+// 項目マッピング（kinbotの情報 → SFの項目API参照名）を保存
+app.put("/api/salesforce/mapping", async (req, res) => {
+  try {
+    const mapping = (req.body && req.body.mapping) || {};
+    await saveUserSettings(req.user, { sfMapping: mapping });
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// 商談にSF商談リンクを保存
+app.put("/api/meetings/:id/sf-link", async (req, res) => {
+  try {
+    await setMeetingSfUrl(req.params.id, (req.body && req.body.url) || "");
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// kinbotの情報からSF更新候補を組み立てる
+const SF_SOURCES = [
+  { key: "stage", label: "フェーズ" },
+  { key: "nextStep", label: "次のステップ" },
+  { key: "issues", label: "課題・懸念" },
+  { key: "summary", label: "要約" },
+];
+function buildProposed(m) {
+  const s = m.summary || {};
+  const a = m.analysis || {};
+  const join = (arr) => (Array.isArray(arr) ? arr.join(" / ") : "");
+  return {
+    stage: m.phase ? PHASE_LABELS[m.phase] || m.phase : "",
+    nextStep: join(s.action_items) || join(a.next_step ? [a.next_step] : []),
+    issues: join(s.customer_concerns) || join(a.objections),
+    summary: s.overview || "",
+  };
+}
+app.post("/api/meetings/:id/sf-fields", async (req, res) => {
+  try {
+    const out = { configured: salesforceConfigured(), connected: false, rows: [] };
+    if (!out.configured) return res.json(out);
+    out.connected = await sfConnected(req.user);
+    if (!out.connected) return res.json(out);
+    const m = await getMeeting(req.params.id);
+    if (!m) return res.status(404).json({ error: "見つかりません" });
+    const url = (req.body && req.body.url) || m.sf_url || "";
+    const recordId = extractRecordId(url);
+    if (!recordId) return res.json({ ...out, needLink: true });
+    const mapping = (await getUserSettings(req.user)).sfMapping || {};
+    const sfFields = SF_SOURCES.map((s) => mapping[s.key]).filter(Boolean);
+    if (sfFields.length === 0) return res.json({ ...out, recordId, needMapping: true });
+    let record = {};
+    try {
+      record = await getOpportunity(req.user, recordId, sfFields);
+    } catch (e) {
+      return res.json({ ...out, recordId, fetchError: e.message });
+    }
+    const proposed = buildProposed(m);
+    const rows = SF_SOURCES.filter((s) => mapping[s.key]).map((s) => ({
+      key: s.key,
+      label: s.label,
+      sfField: mapping[s.key],
+      current: record[mapping[s.key]] ?? "",
+      proposed: proposed[s.key] || "",
+    }));
+    res.json({ ...out, recordId, rows });
+  } catch (e) {
+    res.status(502).json({ error: e.message });
+  }
+});
+
+// SFへ更新を反映
+app.post("/api/meetings/:id/sf-update", async (req, res) => {
+  try {
+    const { recordId, fields } = req.body || {};
+    if (!recordId || !fields || typeof fields !== "object")
+      return res.status(400).json({ error: "recordId と fields が必要です" });
+    await updateOpportunity(req.user, recordId, fields);
+    res.json({ ok: true });
+  } catch (e) {
+    console.error("[sf-update]", e.message);
+    res.status(502).json({ error: e.message });
+  }
 });
 
 // その日の予定一覧（Zoom以外・終日含む）を返す（商談名の選択用）

@@ -70,6 +70,16 @@ export async function initDb() {
     );
   `);
   await pool.query(`
+    CREATE TABLE IF NOT EXISTS salesforce_accounts (
+      owner         TEXT PRIMARY KEY,
+      refresh_token TEXT,
+      instance_url  TEXT,
+      sf_user       TEXT,
+      updated_at    TIMESTAMPTZ DEFAULT now()
+    );
+  `);
+  await pool.query(`ALTER TABLE meetings ADD COLUMN IF NOT EXISTS sf_url TEXT;`);
+  await pool.query(`
     CREATE TABLE IF NOT EXISTS user_settings (
       owner      TEXT PRIMARY KEY,
       data       JSONB DEFAULT '{}'::jsonb,
@@ -401,5 +411,51 @@ export async function saveUserSettings(owner, obj) {
   } catch (e) {
     console.error("[db] saveUserSettings", e.message);
     return { persisted: false };
+  }
+}
+
+// ---- Salesforce 連携トークン ----
+export async function saveSalesforceToken(owner, { refreshToken, instanceUrl, sfUser }) {
+  if (!pool) return;
+  try {
+    await pool.query(
+      `INSERT INTO salesforce_accounts (owner, refresh_token, instance_url, sf_user, updated_at)
+       VALUES ($1,$2,$3,$4,now())
+       ON CONFLICT (owner) DO UPDATE SET
+         refresh_token = COALESCE($2, salesforce_accounts.refresh_token),
+         instance_url  = COALESCE($3, salesforce_accounts.instance_url),
+         sf_user       = COALESCE($4, salesforce_accounts.sf_user),
+         updated_at    = now()`,
+      [owner, refreshToken || null, instanceUrl || null, sfUser || null]
+    );
+  } catch (e) {
+    console.error("[db] saveSalesforceToken", e.message);
+  }
+}
+export async function getSalesforceToken(owner) {
+  if (!pool) return null;
+  try {
+    const { rows } = await pool.query(`SELECT * FROM salesforce_accounts WHERE owner=$1`, [owner]);
+    return rows[0] || null;
+  } catch {
+    return null;
+  }
+}
+export async function deleteSalesforceToken(owner) {
+  if (!pool) return;
+  try {
+    await pool.query(`DELETE FROM salesforce_accounts WHERE owner=$1`, [owner]);
+  } catch (e) {
+    console.error("[db] deleteSalesforceToken", e.message);
+  }
+}
+
+// 商談に紐づくSalesforce商談URLを保存
+export async function setMeetingSfUrl(botId, url) {
+  if (!pool) return;
+  try {
+    await pool.query(`UPDATE meetings SET sf_url=$2, updated_at=now() WHERE bot_id=$1`, [botId, url || null]);
+  } catch (e) {
+    console.error("[db] setMeetingSfUrl", e.message);
   }
 }

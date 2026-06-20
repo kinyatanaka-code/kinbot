@@ -290,6 +290,7 @@ async function loadDetail(botId) {
         <button class="tab" data-tab="summary">要約</button>
         <button class="tab" data-tab="fb">FB & 分析</button>
         <button class="tab" data-tab="thanks">御礼メール</button>
+        <button class="tab" data-tab="sf">SF連携</button>
       </div>
       <div class="tabwrap">
         <div class="tabpane" data-pane="trans">
@@ -322,6 +323,19 @@ async function loadDetail(botId) {
           <div class="thanks-wrap">
             <label class="thanks-field"><span>件名</span><input id="thanksSubject" type="text" placeholder="生成すると入ります" /></label>
             <label class="thanks-field"><span>本文</span><textarea id="thanksBody" rows="16" placeholder="「御礼メールを生成」を押すと、この商談（何回目か）に合わせて作成します。"></textarea></label>
+          </div>
+        </div>
+        <div class="tabpane" data-pane="sf" hidden>
+          <div class="thanks-wrap">
+            <label class="thanks-field"><span>Salesforce 商談リンク</span><input id="sfUrl" type="url" placeholder="https://...lightning.force.com/lightning/r/Opportunity/.../view" /></label>
+            <div class="pane-bar" style="justify-content:flex-start; gap:8px">
+              <button class="btn" id="sfFetchBtn">更新候補を取得</button>
+              <span class="thanks-note" id="sfNote"></span>
+            </div>
+            <div id="sfRows"></div>
+            <div class="pane-bar" style="justify-content:flex-start">
+              <button class="btn" id="sfPushBtn" hidden>Salesforceに更新</button>
+            </div>
           </div>
         </div>
       </div>`;
@@ -390,6 +404,108 @@ async function loadDetail(botId) {
     hdetail.querySelector("#copyThanks").addEventListener("click", (e) => {
       const text = (thanksSubject.value ? "件名：" + thanksSubject.value + "\n\n" : "") + thanksBody.value;
       copyText(text, e.currentTarget);
+    });
+
+    // Salesforce連携タブ
+    const sfUrl = hdetail.querySelector("#sfUrl");
+    const sfFetchBtn = hdetail.querySelector("#sfFetchBtn");
+    const sfRows = hdetail.querySelector("#sfRows");
+    const sfNote = hdetail.querySelector("#sfNote");
+    const sfPushBtn = hdetail.querySelector("#sfPushBtn");
+    let sfRecordId = "";
+    sfUrl.value = m.sf_url || "";
+    sfUrl.addEventListener("change", () => {
+      fetch(`/api/meetings/${encodeURIComponent(botId)}/sf-link`, {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ url: sfUrl.value.trim() }),
+      }).catch(() => {});
+    });
+    sfFetchBtn.addEventListener("click", async () => {
+      sfFetchBtn.disabled = true;
+      const o = sfFetchBtn.textContent;
+      sfFetchBtn.textContent = "取得中…";
+      sfRows.innerHTML = "";
+      sfPushBtn.hidden = true;
+      sfNote.textContent = "";
+      try {
+        const r = await fetch(`/api/meetings/${encodeURIComponent(botId)}/sf-fields`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ url: sfUrl.value.trim() }),
+        });
+        const d = await r.json();
+        if (!d.configured) {
+          sfNote.textContent = "Salesforce未設定（設定→Salesforce連携、後日の連携作業で有効になります）";
+          return;
+        }
+        if (!d.connected) {
+          sfNote.textContent = "未連携です。設定→Salesforce連携から連携してください。";
+          return;
+        }
+        if (d.needLink) {
+          sfNote.textContent = "商談リンクを入力してください。";
+          return;
+        }
+        if (d.needMapping) {
+          sfNote.textContent = "項目マッピングが未設定です。設定→Salesforce連携で指定してください。";
+          return;
+        }
+        if (d.fetchError) {
+          sfNote.textContent = "取得失敗: " + d.fetchError;
+          return;
+        }
+        sfRecordId = d.recordId || "";
+        const rows = d.rows || [];
+        if (!rows.length) {
+          sfNote.textContent = "更新対象の項目がありません。";
+          return;
+        }
+        sfRows.innerHTML = "";
+        for (const row of rows) {
+          const wrap = document.createElement("div");
+          wrap.className = "sf-row";
+          wrap.innerHTML = `<div class="sf-row-head"><b>${escapeHtml(row.label)}</b> <span class="sf-field">${escapeHtml(row.sfField)}</span></div>
+            <div class="sf-current">現在: ${escapeHtml(String(row.current || "（空）"))}</div>
+            <textarea class="sf-input" rows="2"></textarea>`;
+          wrap.querySelector(".sf-input").value = row.proposed || "";
+          wrap.dataset.sfField = row.sfField;
+          sfRows.appendChild(wrap);
+        }
+        sfPushBtn.hidden = false;
+        sfNote.textContent = "内容を確認・編集して「Salesforceに更新」を押してください。";
+      } catch (e) {
+        sfNote.textContent = "エラー: " + e.message;
+      } finally {
+        sfFetchBtn.disabled = false;
+        sfFetchBtn.textContent = o;
+      }
+    });
+    sfPushBtn.addEventListener("click", async () => {
+      const fields = {};
+      sfRows.querySelectorAll(".sf-row").forEach((w) => {
+        const f = w.dataset.sfField;
+        const v = w.querySelector(".sf-input").value;
+        if (f) fields[f] = v;
+      });
+      sfPushBtn.disabled = true;
+      const o = sfPushBtn.textContent;
+      sfPushBtn.textContent = "更新中…";
+      try {
+        const r = await fetch(`/api/meetings/${encodeURIComponent(botId)}/sf-update`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ recordId: sfRecordId, fields }),
+        });
+        const d = await r.json();
+        if (!r.ok) throw new Error(d.error || "更新に失敗しました");
+        sfNote.textContent = "Salesforceを更新しました。";
+      } catch (e) {
+        sfNote.textContent = "更新失敗: " + e.message;
+      } finally {
+        sfPushBtn.disabled = false;
+        sfPushBtn.textContent = o;
+      }
     });
 
     // 商談名（編集可）

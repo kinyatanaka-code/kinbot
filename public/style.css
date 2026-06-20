@@ -634,3 +634,10 @@ table.bant td:first-child { color: var(--muted); width: 80px; }
 .dtitle-wrap { position: relative; display: flex; gap: 8px; align-items: stretch; flex: 1 1 auto; min-width: 0; }
 .dtitle-wrap .dtitle-input { flex: 1 1 auto; min-width: 0; }
 .dtitle-wrap .cal-panel { left: 0; right: auto; width: 340px; }
+
+/* ---------- Salesforce連携 ---------- */
+.sf-row { border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; margin-bottom: 10px; background: var(--panel-2); }
+.sf-row-head { font-size: 13px; margin-bottom: 4px; }
+.sf-row-head .sf-field { color: var(--muted); font-size: 11px; margin-left: 6px; }
+.sf-current { font-size: 12px; color: var(--muted); margin-bottom: 6px; }
+.sf-input { width: 100%; box-sizing: border-box; font-family: inherit; font-size: 13px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); resize: vertical; line-height: 1.6; }

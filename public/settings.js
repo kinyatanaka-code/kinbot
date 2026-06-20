@@ -264,3 +264,66 @@ if (saveCalFilterBtn) {
     } catch {}
   });
 }
+
+// ===== Salesforce 連携 =====
+async function loadSalesforce() {
+  const statusEl = document.getElementById("sfStatus");
+  if (!statusEl) return;
+  try {
+    const d = await (await fetch("/api/salesforce/status")).json();
+    const connect = document.getElementById("sfConnect");
+    const disconnect = document.getElementById("sfDisconnect");
+    if (!d.configured) {
+      statusEl.textContent = "未設定（後日の連携作業で有効化）";
+      connect.hidden = true;
+      disconnect.hidden = true;
+    } else if (d.connected) {
+      statusEl.textContent = "連携済み" + (d.sfUser ? "" : "");
+      statusEl.classList.add("ok");
+      connect.hidden = true;
+      disconnect.hidden = false;
+    } else {
+      statusEl.textContent = "未連携";
+      connect.hidden = false;
+      disconnect.hidden = true;
+    }
+    const map = d.mapping || {};
+    if (document.getElementById("sfmap_stage")) {
+      $("sfmap_stage").value = map.stage || "";
+      $("sfmap_nextStep").value = map.nextStep || "";
+      $("sfmap_issues").value = map.issues || "";
+      $("sfmap_summary").value = map.summary || "";
+    }
+  } catch {
+    statusEl.textContent = "状態の取得に失敗しました";
+  }
+}
+const sfDisconnectBtn = document.getElementById("sfDisconnect");
+if (sfDisconnectBtn) {
+  sfDisconnectBtn.addEventListener("click", async () => {
+    await fetch("/api/salesforce/disconnect", { method: "POST" });
+    loadSalesforce();
+  });
+}
+const saveSfMapBtn = document.getElementById("saveSfMapBtn");
+if (saveSfMapBtn) {
+  saveSfMapBtn.addEventListener("click", async () => {
+    const mapping = {
+      stage: $("sfmap_stage").value.trim(),
+      nextStep: $("sfmap_nextStep").value.trim(),
+      issues: $("sfmap_issues").value.trim(),
+      summary: $("sfmap_summary").value.trim(),
+    };
+    try {
+      await fetch("/api/salesforce/mapping", {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ mapping }),
+      });
+      const s = document.getElementById("sfMapSaved");
+      s.hidden = false;
+      setTimeout(() => (s.hidden = true), 1500);
+    } catch {}
+  });
+}
+loadSalesforce();
