@@ -308,6 +308,36 @@ function openSocket() {
   ws.addEventListener("error", () => setConn("error"));
 }
 
+function showLiveMessage(text) {
+  const box = $("liveVideo");
+  if (!box) return;
+  box.hidden = false;
+  const video = $("liveVideoEl");
+  if (video) video.style.display = "none";
+  let overlay = $("liveVideoMsg");
+  if (!overlay) {
+    overlay = document.createElement("div");
+    overlay.id = "liveVideoMsg";
+    overlay.className = "live-video-msg";
+    box.appendChild(overlay);
+  }
+  overlay.textContent = text;
+  overlay.hidden = false;
+}
+async function checkMuxThenMessage() {
+  try {
+    const d = await (await fetch("/api/mux/status")).json();
+    if (d.configured) {
+      showLiveMessage(
+        d.ok
+          ? "ライブ映像の準備に失敗しました（この商談はMux未連携で開始された可能性）。新しい商談で再度お試しください。"
+          : "Muxキーが無効の可能性があります（設定→状態で確認）。"
+      );
+    }
+    // 未設定なら何も表示しない
+  } catch {}
+}
+
 let hls = null;
 let liveVideoRetry = null;
 function showLiveVideo(playbackId) {
@@ -316,6 +346,7 @@ function showLiveVideo(playbackId) {
   if (!box || !video || !playbackId) return;
   const src = `https://stream.mux.com/${playbackId}.m3u8`;
   box.hidden = false;
+  video.style.display = "";
   let overlay = $("liveVideoMsg");
   if (!overlay) {
     overlay = document.createElement("div");
@@ -387,8 +418,15 @@ function handle(msg) {
     case "session":
       // 実際のライブ開始時刻にタイマーを合わせる
       if (msg.startedAt) startTimer(msg.startedAt);
-      // ライブ映像（Mux）があれば再生
-      if (msg.muxPlaybackId) showLiveVideo(msg.muxPlaybackId);
+      // ライブ映像（Mux）
+      if (msg.muxPlaybackId) {
+        showLiveVideo(msg.muxPlaybackId);
+      } else if (msg.muxError) {
+        showLiveMessage("ライブ映像を開始できませんでした: " + msg.muxError);
+      } else {
+        // Muxが有効なのに再生IDが無い場合のみ案内（未設定なら何も出さない）
+        checkMuxThenMessage();
+      }
       break;
     case "ended":
       endedByServer();

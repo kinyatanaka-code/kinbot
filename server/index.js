@@ -385,10 +385,13 @@ app.post("/api/sessions", async (req, res) => {
     const cfg = await resolveConfig(req.user);
     // ライブ映像配信（Mux）。設定済みなら配信枠を作成してRTMP送信を仕込む
     let mux = null;
+    let muxError = "";
     if (muxConfigured()) {
       try {
         mux = await createLiveStream();
+        if (!mux?.playbackId) muxError = "Muxから再生IDが取得できませんでした";
       } catch (e) {
+        muxError = e.message;
         console.error("[mux] createLiveStream", e.message);
       }
     }
@@ -410,8 +413,9 @@ app.post("/api/sessions", async (req, res) => {
       analyzeIntervalMs: cfg.analyzeIntervalMs,
       muxPlaybackId: mux?.playbackId || "",
       muxLiveStreamId: mux?.liveStreamId || "",
+      muxError,
     });
-    res.json({ sessionId: botId });
+    res.json({ sessionId: botId, muxReady: !!mux?.playbackId, muxError });
   } catch (e) {
     console.error("[sessions]", e.message);
     res.status(502).json({ error: e.message });

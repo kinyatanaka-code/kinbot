@@ -7,10 +7,10 @@ const DEFAULT_INTERVAL_MS = Number(process.env.ANALYZE_INTERVAL_MS || 20000);
 
 const sessions = new Map(); // botId -> Session
 
-export function createSession(botId, { repName = "", meetingUrl = "", title = "", owner = "", analyzeIntervalMs, muxPlaybackId = "", muxLiveStreamId = "" } = {}) {
-  const s = new Session(botId, { repName, meetingUrl, title, owner, muxPlaybackId, muxLiveStreamId }, analyzeIntervalMs || DEFAULT_INTERVAL_MS);
+export function createSession(botId, { repName = "", meetingUrl = "", title = "", owner = "", analyzeIntervalMs, muxPlaybackId = "", muxLiveStreamId = "", muxError = "" } = {}) {
+  const s = new Session(botId, { repName, meetingUrl, title, owner, muxPlaybackId, muxLiveStreamId, muxError }, analyzeIntervalMs || DEFAULT_INTERVAL_MS);
   sessions.set(botId, s);
-  createMeeting(botId, { meetingUrl, repName, title, owner }); // 履歴に行を作成（DB無効なら無視）
+  createMeeting(botId, { meetingUrl, repName, title, owner, muxPlaybackId }); // 履歴に行を作成（DB無効なら無視）
   return s;
 }
 export function getSession(botId) {
@@ -35,7 +35,7 @@ export function listActiveSessions() {
 }
 
 class Session {
-  constructor(botId, { repName = "", meetingUrl = "", title = "", owner = "", muxPlaybackId = "", muxLiveStreamId = "" } = {}, intervalMs) {
+  constructor(botId, { repName = "", meetingUrl = "", title = "", owner = "", muxPlaybackId = "", muxLiveStreamId = "", muxError = "" } = {}, intervalMs) {
     this.botId = botId;
     this.repName = repName;
     this.meetingUrl = meetingUrl;
@@ -43,6 +43,7 @@ class Session {
     this.owner = owner;
     this.muxPlaybackId = muxPlaybackId;
     this.muxLiveStreamId = muxLiveStreamId;
+    this.muxError = muxError;
     this.startedAt = Date.now();
     this.utterances = []; // {speaker:{id,name}, text, ts}
     this.sockets = new Set();
@@ -63,7 +64,7 @@ class Session {
   addSocket(ws) {
     this.sockets.add(ws);
     // 実際のライブ開始時刻＋ライブ映像（Mux）を伝える
-    this.sendTo(ws, { type: "session", startedAt: this.startedAt, muxPlaybackId: this.muxPlaybackId || "" });
+    this.sendTo(ws, { type: "session", startedAt: this.startedAt, muxPlaybackId: this.muxPlaybackId || "", muxError: this.muxError || "" });
     // 既存の文字起こしを再送（途中参加の画面用）
     for (const u of this.utterances) {
       this.sendTo(ws, { type: "final", speaker: u.speaker, text: u.text, ts: u.ts });
