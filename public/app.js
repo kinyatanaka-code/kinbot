@@ -307,6 +307,8 @@ function resetToJoin(statusMsg) {
   els.summary.innerHTML = '<div class="empty-state">会話が進むと、状況・要点・合意・宿題・相手の懸念を自動でまとめます。</div>';
   const feed = $("aiFeed");
   if (feed) feed.innerHTML = '<div class="empty-state">商談が進むと、kinbotが「切り返し」「次の一手」を吹き出しでお知らせします。</div>';
+  aiSeen = new Set();
+  aiHasItems = false;
   const cl = $("checkList");
   if (cl) cl.innerHTML = '<div class="empty-state">会話が進むと、予算・決裁者・時期などの「聞けている／まだの項目」を表示します。</div>';
   const aitab = document.querySelector('.live-tab[data-pane="ai"]');
@@ -524,7 +526,7 @@ function handle(msg) {
     case "analysis":
       renderSummary(msg.summary);
       renderCoverage(msg.coverage);
-      renderAiFeed(msg.objections, msg.suggestions);
+      renderAiFeed(msg.objections, msg.suggestions, msg.ts);
       els.summaryHint.textContent = "更新: " + new Date(msg.ts).toLocaleTimeString("ja-JP");
       kinbotSpeakFromAnalysis(msg);
       break;
@@ -627,59 +629,68 @@ function renderCoverage(list) {
   }
 }
 
-function aiBubble({ kind, label, title, text, sub }) {
+function aiBubble({ kind, label, title, text, sub, time }) {
   const wrap = document.createElement("div");
   wrap.className = "ai-msg";
   const lbl = label ? `<span class="ai-label ai-label-${kind}">${escAi(label)}</span>` : "";
   const ttl = title ? `<div class="ai-b-title">${escAi(title)}</div>` : "";
   const sb = sub ? `<div class="ai-b-sub">${escAi(sub)}</div>` : "";
+  const tm = time ? `<div class="ai-b-time">${escAi(time)}</div>` : "";
   wrap.innerHTML =
     `<img class="ai-ava" src="kinbot.svg" alt="kinbot" />` +
-    `<div class="ai-bubble ai-bubble-${kind}">${lbl}${ttl}<div class="ai-b-text">${escAi(text)}</div>${sb}</div>`;
+    `<div class="ai-bubble ai-bubble-${kind}">${lbl}${ttl}<div class="ai-b-text">${escAi(text)}</div>${sb}${tm}</div>`;
   return wrap;
 }
 function escAi(s) {
   return String(s == null ? "" : s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 }
-function renderAiFeed(objections, suggestions) {
+let aiSeen = new Set();
+let aiHasItems = false;
+function aiKey(s) {
+  return String(s || "").replace(/\s+/g, "").slice(0, 60);
+}
+function renderAiFeed(objections, suggestions, ts) {
   const feed = $("aiFeed");
   if (!feed) return;
   const objs = Array.isArray(objections) ? objections : [];
   const sugs = Array.isArray(suggestions) ? suggestions : [];
+  const time = new Date(ts || Date.now()).toLocaleTimeString("ja-JP", { hour: "2-digit", minute: "2-digit" });
 
-  // 異議タブ（AI提案）バッジ
+  // AI提案タブのバッジ（いま懸念があるか）
   const tab = document.querySelector('.live-tab[data-pane="ai"]');
   if (tab) tab.classList.toggle("alert", objs.length > 0);
 
-  if (!objs.length && !sugs.length) {
-    feed.innerHTML = '<div class="empty-state">いまは特にお知らせはありません。会話を続けてください。</div>';
-    return;
-  }
-  feed.innerHTML = "";
-  // まず異議対応（緊急）
+  const toAdd = [];
   for (const o of objs) {
-    feed.appendChild(
+    const key = "obj:" + aiKey(o.objection) + aiKey(o.response);
+    if (aiSeen.has(key)) continue;
+    aiSeen.add(key);
+    toAdd.push(
       aiBubble({
         kind: "obj",
         label: "切り返し",
         title: o.objection ? "「" + o.objection + "」には…" : "",
         text: o.response || "",
         sub: o.basis ? "根拠: " + o.basis : "",
+        time,
       })
     );
   }
-  // 次の一手
   for (const m of sugs) {
     const type = TYPE_LABEL[m.type] ? m.type : "info";
-    feed.appendChild(
-      aiBubble({
-        kind: type,
-        label: TYPE_LABEL[type] || "補足",
-        title: m.title || "",
-        text: m.detail || "",
-      })
+    const key = "sug:" + aiKey(m.title) + aiKey(m.detail);
+    if (aiSeen.has(key)) continue;
+    aiSeen.add(key);
+    toAdd.push(
+      aiBubble({ kind: type, label: TYPE_LABEL[type] || "補足", title: m.title || "", text: m.detail || "", time })
     );
   }
+  if (!toAdd.length) return;
+  if (!aiHasItems) {
+    feed.innerHTML = ""; // 初回はプレースホルダを消す
+    aiHasItems = true;
+  }
+  for (const el of toAdd) feed.appendChild(el);
   feed.scrollTop = feed.scrollHeight;
 }
 

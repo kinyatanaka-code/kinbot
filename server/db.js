@@ -40,6 +40,7 @@ export async function initDb() {
   await pool.query(`ALTER TABLE meetings ADD COLUMN IF NOT EXISTS phase TEXT;`);
   await pool.query(`ALTER TABLE meetings ADD COLUMN IF NOT EXISTS status TEXT;`);
   await pool.query(`ALTER TABLE meetings ADD COLUMN IF NOT EXISTS mux_playback_id TEXT;`);
+  await pool.query(`ALTER TABLE meetings ADD COLUMN IF NOT EXISTS ai_log JSONB;`);
   await pool.query(`
     CREATE TABLE IF NOT EXISTS knowledge (
       id         SERIAL PRIMARY KEY,
@@ -142,20 +143,21 @@ export async function createMeeting(botId, { meetingUrl, repName, title, owner, 
   }
 }
 
-export async function saveMeeting(botId, { transcript, summary, suggestions }) {
+export async function saveMeeting(botId, { transcript, summary, suggestions, aiLog }) {
   if (!pool) return;
   try {
-    await pool.query(
-      `UPDATE meetings
-         SET transcript=$2, summary=$3, suggestions=$4, updated_at=now()
-       WHERE bot_id=$1`,
-      [
-        botId,
-        JSON.stringify(transcript || []),
-        summary ? JSON.stringify(summary) : null,
-        suggestions ? JSON.stringify(suggestions) : null,
-      ]
-    );
+    const sets = ["transcript=$2", "summary=$3", "suggestions=$4", "updated_at=now()"];
+    const vals = [
+      botId,
+      JSON.stringify(transcript || []),
+      summary ? JSON.stringify(summary) : null,
+      suggestions ? JSON.stringify(suggestions) : null,
+    ];
+    if (aiLog !== undefined) {
+      vals.push(JSON.stringify(aiLog || []));
+      sets.push(`ai_log=$${vals.length}`);
+    }
+    await pool.query(`UPDATE meetings SET ${sets.join(", ")} WHERE bot_id=$1`, vals);
   } catch (e) {
     console.error("[db] saveMeeting", e.message);
   }

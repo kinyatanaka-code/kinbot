@@ -288,6 +288,7 @@ async function loadDetail(botId) {
       <div class="tabs">
         <button class="tab active" data-tab="trans">文字起こし</button>
         <button class="tab" data-tab="summary">要約</button>
+        <button class="tab" data-tab="ailog">AI提案ログ</button>
         <button class="tab" data-tab="fb">FB & 分析</button>
         <button class="tab" data-tab="thanks">御礼メール</button>
         <button class="tab" data-tab="sf">SF連携</button>
@@ -300,6 +301,9 @@ async function loadDetail(botId) {
         <div class="tabpane" data-pane="summary" hidden>
           <div class="pane-bar"><button class="btn ghost copy-mini" id="copySummary">コピー</button></div>
           <div id="dsummary" class="pane-content"></div>
+        </div>
+        <div class="tabpane" data-pane="ailog" hidden>
+          <div class="ai-feed" id="dailog"></div>
         </div>
         <div class="tabpane" data-pane="fb" hidden>
           <div class="pane-bar"><button class="btn ghost copy-mini" id="copyFb">コピー</button></div>
@@ -652,6 +656,9 @@ async function loadDetail(botId) {
       ? sug.map((x) => `<div class="mini-card"><b>${escapeHtml(x.title || "")}</b><br>${escapeHtml(x.detail || "")}</div>`).join("")
       : '<div class="empty-state">記録なし</div>';
 
+    // AI提案ログ（ライブ中の吹き出し全履歴）
+    renderAiLogInto(hdetail.querySelector("#dailog"), Array.isArray(m.ai_log) ? m.ai_log : []);
+
     // 文字起こしから 要約＋営業フィードバック を生成
     const genBtn = hdetail.querySelector("#genBtn");
     if (tr.length === 0) genBtn.disabled = true;
@@ -701,6 +708,40 @@ async function loadDetail(botId) {
       });
   } catch (e) {
     hdetail.innerHTML = '<div class="empty-state">読み込みに失敗しました。</div>';
+  }
+}
+
+const HTYPE_LABEL = { question: "深掘り質問", objection: "切り返し", closing: "クロージング", risk: "リスク", info: "補足" };
+function renderAiLogInto(el, log) {
+  if (!el) return;
+  if (!log || !log.length) {
+    el.innerHTML = '<div class="empty-state">この商談ではAI提案の記録がありません（旧データ、または提案が出る前に終了）。</div>';
+    return;
+  }
+  el.innerHTML = "";
+  for (const e of log) {
+    const time = e.ts ? new Date(e.ts).toLocaleTimeString("ja-JP", { hour: "2-digit", minute: "2-digit" }) : "";
+    const wrap = document.createElement("div");
+    wrap.className = "ai-msg";
+    let kind, label, title, text, sub = "";
+    if (e.t === "obj") {
+      kind = "obj"; label = "切り返し";
+      title = e.objection ? "「" + e.objection + "」には…" : "";
+      text = e.response || "";
+      sub = e.basis ? "根拠: " + e.basis : "";
+    } else {
+      kind = HTYPE_LABEL[e.sugType] ? e.sugType : "info";
+      label = HTYPE_LABEL[kind] || "補足";
+      title = e.title || ""; text = e.detail || "";
+    }
+    const lbl = label ? `<span class="ai-label ai-label-${kind}">${escapeHtml(label)}</span>` : "";
+    const ttl = title ? `<div class="ai-b-title">${escapeHtml(title)}</div>` : "";
+    const sb = sub ? `<div class="ai-b-sub">${escapeHtml(sub)}</div>` : "";
+    const tm = time ? `<div class="ai-b-time">${escapeHtml(time)}</div>` : "";
+    wrap.innerHTML =
+      `<img class="ai-ava" src="kinbot.svg" alt="kinbot" />` +
+      `<div class="ai-bubble ai-bubble-${kind}">${lbl}${ttl}<div class="ai-b-text">${escapeHtml(text)}</div>${sb}${tm}</div>`;
+    el.appendChild(wrap);
   }
 }
 

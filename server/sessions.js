@@ -51,6 +51,8 @@ class Session {
     this.lastAnalyzedLen = 0;
     this.analyzing = false;
     this.cooldownUntil = 0; // 429などで一時停止する時刻
+    this.aiLog = []; // AI提案チャットの全ログ（重複除外して蓄積）
+    this.aiSeen = new Set();
     this.timer = setInterval(() => this.maybeAnalyze(), intervalMs);
   }
   // 後から判明した商談名/所有者/Mux再生IDを補完（予約Bot用）
@@ -112,6 +114,23 @@ class Session {
       .join("\n");
   }
 
+  appendAiLog(result) {
+    const norm = (s) => String(s || "").replace(/\s+/g, "").slice(0, 60);
+    const ts = Date.now();
+    for (const o of result.objections || []) {
+      const key = "obj:" + norm(o.objection) + norm(o.response);
+      if (this.aiSeen.has(key)) continue;
+      this.aiSeen.add(key);
+      this.aiLog.push({ t: "obj", objection: o.objection || "", response: o.response || "", basis: o.basis || "", ts });
+    }
+    for (const m of result.suggestions || []) {
+      const key = "sug:" + norm(m.title) + norm(m.detail);
+      if (this.aiSeen.has(key)) continue;
+      this.aiSeen.add(key);
+      this.aiLog.push({ t: "sug", sugType: m.type || "info", title: m.title || "", detail: m.detail || "", ts });
+    }
+  }
+
   async maybeAnalyze() {
     if (Date.now() < this.cooldownUntil) return; // 429などで休止中
     const full = this.transcriptText();
@@ -128,11 +147,13 @@ class Session {
       this.prevSummary = result.summary;
       this.lastSuggestions = result.suggestions;
       this.lastAnalyzedLen = lenAtStart;
+      this.appendAiLog(result);
       this.broadcast({ type: "analysis", ...result, ts: Date.now() });
       saveMeeting(this.botId, {
         transcript: this.utterances,
         summary: result.summary,
         suggestions: result.suggestions,
+        aiLog: this.aiLog,
       });
     } catch (err) {
       console.error("[analyze]", err.message);
@@ -163,6 +184,7 @@ class Session {
       transcript: this.utterances,
       summary: this.prevSummary,
       suggestions: this.lastSuggestions || [],
+      aiLog: this.aiLog,
     });
     // 商談終了 → 要約・営業FB・分析を自動生成（バックグラウンド）
     this.finalizeAnalysis();

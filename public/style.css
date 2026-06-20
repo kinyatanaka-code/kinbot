@@ -868,3 +868,6 @@ a.kb-src:hover { color: var(--accent); border-color: var(--accent); }
 .subtab { border: none; background: transparent; font: inherit; font-size: 14px; font-weight: 700; color: var(--muted); padding: 8px 4px; margin-right: 10px; cursor: pointer; border-bottom: 2px solid transparent; }
 .subtab.active { color: var(--accent); border-bottom-color: var(--accent); }
 .subpane[hidden] { display: none; }
+
+/* AI提案：吹き出しの時刻 */
+.ai-b-time { font-size: 10px; color: var(--muted); text-align: right; margin-top: 4px; }
