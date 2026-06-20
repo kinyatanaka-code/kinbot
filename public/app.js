@@ -88,9 +88,28 @@ if (calBtn && calPanel) {
     }
     openCalPicker(calPanel, (ev) => {
       $("meetingTitle").value = ev.title;
-      if (ev.url && $("meetingUrl")) $("meetingUrl").value = ev.url;
+      if (ev.url) setCalendarLinkOption(ev.url);
     });
   });
+}
+
+// 予定のリンクを登録リンクのプルダウンに「📅 この予定のリンク」として追加し、選択状態にする。
+// （登録リンクと予定のリンクをプルダウンで選べるようにするため、即上書きしない設計）
+function setCalendarLinkOption(url) {
+  const sel = $("linkSelect");
+  if (!sel) {
+    if ($("meetingUrl")) $("meetingUrl").value = url;
+    return;
+  }
+  // 既存の予定用オプションを除去
+  [...sel.options].forEach((o) => { if (o.dataset.cal === "1") o.remove(); });
+  const opt = document.createElement("option");
+  opt.value = url;
+  opt.textContent = "📅 この予定のリンク";
+  opt.dataset.cal = "1";
+  sel.add(opt, sel.options[1] || null); // プレースホルダの直後に挿入
+  sel.value = url;
+  if ($("meetingUrl")) $("meetingUrl").value = url;
 }
 
 // カレンダー予定ピッカー（日付切替つき）。panel に描画し、選択時 onPick(ev) を呼ぶ。
