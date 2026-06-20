@@ -39,7 +39,7 @@ import {
   deleteKbFolder,
 } from "./db.js";
 import { resolveConfig, statusInfo } from "./config.js";
-import { analyzerInfo, analyzeMeeting, analyzeDeep, analyzeTendency, analyzeSet, generateThanks } from "./analyzer.js";
+import { analyzerInfo, analyzeMeeting, analyzeDeep, analyzeTendency, analyzeSet, generateThanks, getCheckItems } from "./analyzer.js";
 import {
   googleConfigured,
   authUrl,
@@ -462,6 +462,27 @@ app.put("/api/settings", async (req, res) => {
     if ("analyzeIntervalMs" in patch) patch.analyzeIntervalMs = Number(patch.analyzeIntervalMs) || 20000;
     const r = await saveUserSettings(req.user, patch);
     res.json({ ok: true, ...r });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// 抜け漏れチェック項目（チーム共有）
+app.get("/api/check-items", async (req, res) => {
+  try {
+    const items = await getCheckItems();
+    res.json({ items });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+app.put("/api/check-items", async (req, res) => {
+  try {
+    let items = (req.body && req.body.items) || [];
+    if (!Array.isArray(items)) return res.status(400).json({ error: "items は配列で" });
+    items = items.map((s) => String(s).trim()).filter(Boolean).slice(0, 15);
+    const r = await saveSettings({ checkItems: items });
+    res.json({ ok: true, items, ...r });
   } catch (e) {
     res.status(500).json({ error: e.message });
   }

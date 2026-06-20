@@ -59,6 +59,16 @@
               </div>
               <p class="note" id="persistNote"></p>
             </div>
+            <div class="set-card">
+              <h3>抜け漏れチェック項目（チーム共有）</h3>
+              <p class="note">商談中の「チェック」タブで充足を判定する項目です。1行に1項目。商談プロセスに合わせて自由に編集できます（最大15項目）。</p>
+              <textarea id="checkItems" rows="7" placeholder="課題・ニーズ&#10;予算&#10;決裁者・決裁プロセス&#10;導入時期&#10;現状・競合&#10;次のステップ"></textarea>
+              <div class="modal-actions">
+                <button class="btn" id="saveCheckBtn">項目を保存</button>
+                <button class="btn ghost" id="resetCheckBtn">既定に戻す</button>
+                <span class="saved" id="checkSaved" hidden>保存しました</span>
+              </div>
+            </div>
           </div>
 
           <div class="set-pane" data-pane="links" hidden>

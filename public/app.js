@@ -517,8 +517,11 @@ function handle(msg) {
       break;
     case "analysis":
       renderSummary(msg.summary);
+      renderCoverage(msg.coverage);
+      renderObjections(msg.objections);
       renderMoves(msg.suggestions);
       els.summaryHint.textContent = "更新: " + new Date(msg.ts).toLocaleTimeString("ja-JP");
+      kinbotSpeakFromAnalysis(msg);
       break;
   }
 }
@@ -588,6 +591,87 @@ const TYPE_LABEL = {
   risk: "リスク",
   info: "補足",
 };
+
+function renderCoverage(list) {
+  const box = $("checkList");
+  if (!box || !Array.isArray(list)) return;
+  if (list.length === 0) {
+    box.innerHTML = '<div class="empty-state">まだ判定できる発言がありません。</div>';
+    return;
+  }
+  const meta = {
+    covered: { cls: "ok", icon: "✓", label: "確認済み" },
+    partial: { cls: "partial", icon: "◐", label: "一部" },
+    missing: { cls: "miss", icon: "○", label: "未確認" },
+  };
+  const done = list.filter((i) => i.status === "covered").length;
+  const hint = $("checkHint");
+  if (hint) hint.textContent = `${done}/${list.length} 確認済み`;
+  box.innerHTML = "";
+  for (const it of list) {
+    const m = meta[it.status] || meta.missing;
+    const row = document.createElement("div");
+    row.className = `check-item ${m.cls}`;
+    row.innerHTML =
+      `<span class="check-ic">${m.icon}</span>` +
+      `<div class="check-body"><div class="check-name"></div><div class="check-note"></div></div>` +
+      `<span class="check-tag">${m.label}</span>`;
+    row.querySelector(".check-name").textContent = it.item || "";
+    row.querySelector(".check-note").textContent = it.note || "";
+    box.appendChild(row);
+  }
+}
+
+function renderObjections(list) {
+  const box = $("objList");
+  if (!box || !Array.isArray(list)) return;
+  const hint = $("objHint");
+  if (!list.length) {
+    box.innerHTML = '<div class="empty-state">いまは対応が必要な異議はありません。</div>';
+    if (hint) hint.textContent = "相手の懸念に即対応";
+    // 異議タブのバッジを消す
+    const tab = document.querySelector('.live-tab[data-pane="objection"]');
+    if (tab) tab.classList.remove("alert");
+    return;
+  }
+  if (hint) hint.textContent = `${list.length}件の懸念`;
+  const tab = document.querySelector('.live-tab[data-pane="objection"]');
+  if (tab) tab.classList.add("alert");
+  box.innerHTML = "";
+  for (const o of list) {
+    const card = document.createElement("div");
+    card.className = "obj-card";
+    card.innerHTML =
+      `<div class="obj-q"><span class="obj-q-ic">!</span><span></span></div>` +
+      `<div class="obj-a"></div>` +
+      (o.basis ? `<div class="obj-basis"></div>` : "");
+    card.querySelector(".obj-q span:last-child").textContent = o.objection || "";
+    card.querySelector(".obj-a").textContent = o.response || "";
+    if (o.basis) card.querySelector(".obj-basis").textContent = "根拠: " + o.basis;
+    box.appendChild(card);
+  }
+}
+
+let kinbotSayTimer = null;
+function kinbotSpeak(text) {
+  const say = $("kinbotSay");
+  const av = $("kinbotAv");
+  if (say && text) say.textContent = text;
+  if (av) {
+    av.classList.add("talking");
+    if (kinbotSayTimer) clearTimeout(kinbotSayTimer);
+    kinbotSayTimer = setTimeout(() => av.classList.remove("talking"), 3800);
+  }
+}
+function kinbotSpeakFromAnalysis(msg) {
+  // 優先度: 異議 > 次の一手 > 要約
+  const obj = Array.isArray(msg.objections) && msg.objections[0];
+  if (obj && obj.response) { kinbotSpeak("「" + (obj.objection || "懸念") + "」には… " + obj.response); return; }
+  const sug = Array.isArray(msg.suggestions) && msg.suggestions[0];
+  if (sug && (sug.title || sug.detail)) { kinbotSpeak((sug.title ? sug.title + "：" : "") + (sug.detail || "")); return; }
+  const ov = msg.summary && msg.summary.overview;
+  if (ov) kinbotSpeak(ov);
+}
 
 function renderMoves(list) {
   if (!Array.isArray(list)) return;

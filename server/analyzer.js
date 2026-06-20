@@ -1,7 +1,27 @@
 // server/analyzer.js
 // 要約・提案を生成。LLM_PROVIDER で gemini / anthropic / ollama を切替。
 import { retrieve } from "./retrieval.js";
+import { getSettings } from "./db.js";
 const PROVIDER = (process.env.LLM_PROVIDER || "gemini").toLowerCase();
+
+// 抜け漏れチェックの既定項目（設定で上書き可能）
+export const DEFAULT_CHECK_ITEMS = [
+  "課題・ニーズ",
+  "予算",
+  "決裁者・決裁プロセス",
+  "導入時期",
+  "現状・競合（既存の取り組み/比較対象）",
+  "次のステップ（合意）",
+];
+export async function getCheckItems() {
+  try {
+    const s = await getSettings();
+    const a = s && s.checkItems;
+    return Array.isArray(a) && a.length ? a.slice(0, 15) : DEFAULT_CHECK_ITEMS;
+  } catch {
+    return DEFAULT_CHECK_ITEMS;
+  }
+}
 
 // 商談内容に近い自社ナレッジだけを抽出してプロンプト用ブロックに整形（無ければ空）
 async function knowledgeBlock(queryText) {
@@ -31,11 +51,21 @@ const LIVE_PROMPT = `あなたは B2B 商談に同席するベテランの営業
     "action_items": ["宿題・次アクション"],
     "customer_concerns": ["相手の懸念・不安・反対の兆候"]
   },
+  "coverage": [
+    { "item": "（userメッセージで与えられたチェック項目名をそのまま）", "status": "covered | partial | missing", "note": "聞けた内容、または『まだ何が不明か/何を聞くべきか』を短く" }
+  ],
+  "objections": [
+    { "objection": "相手が示した異議・懸念（要約。例: 価格が高い / 他社と比較中 / 今は不要 / 効果が不明）", "response": "自社ナレッジに基づく具体的な切り返しを1〜2文", "basis": "根拠（ナレッジの事実・数字など。無ければ空文字）" }
+  ],
   "suggestions": [
     { "type": "question | objection | closing | risk | info", "title": "12文字程度", "detail": "今すぐ使える具体策を1〜2文" }
   ]
 }
-ルール: suggestionsは最大3件。直近を重視。憶測で事実を作らない。日本語で簡潔に。`;
+ルール:
+- coverage は user メッセージの「チェック項目」を全て、その項目名のまま返す。確認できていれば covered、断片的なら partial、未確認なら missing。note は未確認なら「何を聞くべきか」を一言。
+- objections は直近で相手が価格・競合・必要性・タイミング・効果などの懸念/反対を示した場合のみ、最大3件。該当が無ければ空配列 []。切り返しは自社ナレッジを根拠に、無い情報は作らない。
+- suggestions は最大3件。直近を重視。
+- 憶測で事実を作らない。日本語で簡潔に。`;
 
 // --- 商談後の「要約＋営業フィードバック」 ---
 const REVIEW_PROMPT = `あなたは B2B 営業のベテランマネージャーです。
@@ -72,19 +102,23 @@ function modelFor() {
   return process.env.GEMINI_MODEL || "gemini-2.5-flash-lite";
 }
 
-// ライブ：要約＋次の一手
+// ライブ：要約＋次の一手＋チェック＋異議対応
 export async function analyze({ transcript, prevSummary, repName }) {
   const know = await knowledgeBlock(String(transcript || "").slice(-2000));
+  const items = await getCheckItems();
   const user =
     `自社の営業担当（支援対象）: ${repName || "（未指定）"}\n` +
+    `チェック項目（このリストの各項目を coverage で評価。項目名はそのまま使う）: ${JSON.stringify(items)}\n` +
     know +
     (prevSummary ? `\nこれまでの要約(参考):\n${JSON.stringify(prevSummary)}\n` : "") +
     `\n商談の文字起こし(古い→新しい):\n"""\n${transcript}\n"""\n\n` +
-    `最新状況の要約と次の一手を JSON で返してください。異議対応・提案は自社ナレッジを根拠に。`;
-  const text = await callLLM(LIVE_PROMPT, user, 1400);
+    `最新状況の要約・チェック充足・異議対応・次の一手を JSON で返してください。異議対応/提案は自社ナレッジを根拠に。`;
+  const text = await callLLM(LIVE_PROMPT, user, 1800);
   const o = parseJson(text);
   return {
     summary: o.summary || {},
+    coverage: Array.isArray(o.coverage) ? o.coverage : [],
+    objections: Array.isArray(o.objections) ? o.objections : [],
     suggestions: Array.isArray(o.suggestions) ? o.suggestions : [],
   };
 }

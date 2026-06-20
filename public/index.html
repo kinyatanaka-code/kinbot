@@ -65,9 +65,34 @@
 
         <!-- ステップ2：ライブ文字起こし・要約・次の一手 -->
         <div class="live-view" id="viewLive" hidden>
+          <div class="kinbot-bar" id="kinbotBar">
+            <svg class="kinbot-av" id="kinbotAv" viewBox="0 0 240 240" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+              <defs>
+                <linearGradient id="kbavHead" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#3fae8f"/><stop offset="1" stop-color="#0f6e62"/></linearGradient>
+                <radialGradient id="kbavEye" cx="0.5" cy="0.4" r="0.7"><stop offset="0" stop-color="#aeffe6"/><stop offset="1" stop-color="#39e0b4"/></radialGradient>
+                <linearGradient id="kbavHair" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#1c5249"/><stop offset="1" stop-color="#0c302a"/></linearGradient>
+              </defs>
+              <line x1="120" y1="40" x2="120" y2="18" stroke="#0f6e62" stroke-width="6" stroke-linecap="round"/>
+              <circle cx="120" cy="13" r="9" fill="#7bffd6"/>
+              <path d="M44 122 A78 78 0 0 1 196 122" fill="none" stroke="#0f6e62" stroke-width="12" stroke-linecap="round"/>
+              <g fill="url(#kbavHair)"><circle cx="66" cy="64" r="18"/><circle cx="84" cy="50" r="19"/><circle cx="104" cy="42" r="20"/><circle cx="124" cy="39" r="21"/><circle cx="144" cy="43" r="20"/><circle cx="163" cy="52" r="18"/><circle cx="178" cy="66" r="16"/><circle cx="95" cy="62" r="15"/><circle cx="118" cy="58" r="15"/><circle cx="140" cy="60" r="15"/></g>
+              <rect x="52" y="52" width="136" height="114" rx="34" fill="url(#kbavHead)"/>
+              <rect x="70" y="80" width="100" height="58" rx="24" fill="#06231f"/>
+              <path d="M84 92 Q100 84 115 90" fill="none" stroke="#7bffd6" stroke-width="9" stroke-linecap="round"/>
+              <path d="M125 90 Q140 84 156 92" fill="none" stroke="#7bffd6" stroke-width="9" stroke-linecap="round"/>
+              <circle cx="100" cy="110" r="11" fill="url(#kbavEye)"/>
+              <circle cx="140" cy="110" r="11" fill="url(#kbavEye)"/>
+              <ellipse class="kb-mouth" id="kbMouth" cx="120" cy="128" rx="13" ry="3" fill="#39e0b4"/>
+              <rect x="34" y="104" width="26" height="44" rx="11" fill="#0f6e62"/><rect x="180" y="104" width="26" height="44" rx="11" fill="#0f6e62"/>
+            </svg>
+            <div class="kinbot-say" id="kinbotSay">商談を見守っています。気づいたことをお伝えします。</div>
+          </div>
+
           <div class="live-tabs" id="liveTabs">
             <button class="live-tab" data-pane="video" hidden>ライブ映像</button>
             <button class="live-tab active" data-pane="transcript">文字起こし</button>
+            <button class="live-tab" data-pane="check">チェック</button>
+            <button class="live-tab" data-pane="objection">異議対応</button>
             <button class="live-tab" data-pane="summary">要約</button>
             <button class="live-tab" data-pane="moves">次の一手</button>
           </div>
@@ -88,6 +113,24 @@
                 <div class="empty-state" id="transcriptEmpty">Botが入室すると、発言が話者ごとに流れます。</div>
               </div>
               <div class="partial" id="partial"></div>
+            </section>
+          </div>
+
+          <div class="live-pane" data-pane="check" hidden>
+            <section class="panel check-panel">
+              <div class="panel-head"><h2>抜け漏れチェック</h2><span class="hint" id="checkHint">確認すべき項目</span></div>
+              <div class="check-list" id="checkList">
+                <div class="empty-state">会話が進むと、予算・決裁者・時期などの「聞けている／まだの項目」を表示します。</div>
+              </div>
+            </section>
+          </div>
+
+          <div class="live-pane" data-pane="objection" hidden>
+            <section class="panel obj-panel">
+              <div class="panel-head"><h2>異議対応カード</h2><span class="hint" id="objHint">相手の懸念に即対応</span></div>
+              <div class="obj-list" id="objList">
+                <div class="empty-state">相手が価格・競合・必要性などの懸念を示すと、自社ナレッジに基づく切り返しをカードで表示します。</div>
+              </div>
             </section>
           </div>
 

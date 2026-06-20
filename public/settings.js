@@ -736,3 +736,36 @@ async function loadKnowledge() {
 })();
 
 loadKnowledge();
+
+// ===== 抜け漏れチェック項目（チーム共有） =====
+(function () {
+  const ta = document.getElementById("checkItems");
+  const saveBtn = document.getElementById("saveCheckBtn");
+  const resetBtn = document.getElementById("resetCheckBtn");
+  const saved = document.getElementById("checkSaved");
+  if (!ta || !saveBtn) return;
+  const DEFAULTS = ["課題・ニーズ", "予算", "決裁者・決裁プロセス", "導入時期", "現状・競合（既存の取り組み/比較対象）", "次のステップ（合意）"];
+
+  async function load() {
+    try {
+      const d = await (await fetch("/api/check-items")).json();
+      ta.value = (d.items && d.items.length ? d.items : DEFAULTS).join("\n");
+    } catch { ta.value = DEFAULTS.join("\n"); }
+  }
+  async function save(items) {
+    const r = await fetch("/api/check-items", {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ items }),
+    });
+    const d = await r.json();
+    if (r.ok && saved) { saved.hidden = false; setTimeout(() => (saved.hidden = true), 1500); }
+    if (d.items) ta.value = d.items.join("\n");
+  }
+  saveBtn.addEventListener("click", () => {
+    const items = ta.value.split("\n").map((s) => s.trim()).filter(Boolean);
+    save(items);
+  });
+  if (resetBtn) resetBtn.addEventListener("click", () => save(DEFAULTS));
+  load();
+})();
