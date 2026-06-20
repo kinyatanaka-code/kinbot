@@ -138,7 +138,7 @@ function openCalPicker(panel, onPick) {
       for (const ev of events) {
         const row = document.createElement("button");
         row.type = "button";
-        row.className = "cal-row";
+        row.className = "calp-row";
         const time = ev.allDay
           ? "終日"
           : new Date(ev.start).toLocaleTimeString("ja-JP", { hour: "2-digit", minute: "2-digit" });

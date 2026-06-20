@@ -32,7 +32,6 @@ $("saveBtn").addEventListener("click", async () => {
     transcribeProvider: $("transcribeProvider").value,
     deepgramModel: $("deepgramModel").value.trim() || "nova-2",
     analyzeIntervalMs: (Number($("analyzeIntervalSec").value) || 20) * 1000,
-    calendarFilter: $("calendarFilter").value.trim(),
   };
   try {
     const res = await fetch("/api/settings", {
@@ -235,3 +234,33 @@ if (saveThanksBtn) {
   });
 }
 loadThanks();
+
+// ===== タブ切替 =====
+(function () {
+  const tabs = document.getElementById("setTabs");
+  if (!tabs) return;
+  tabs.querySelectorAll(".tab").forEach((tab) => {
+    tab.addEventListener("click", () => {
+      tabs.querySelectorAll(".tab").forEach((t) => t.classList.toggle("active", t === tab));
+      const name = tab.dataset.tab;
+      document.querySelectorAll(".set-pane").forEach((p) => (p.hidden = p.dataset.pane !== name));
+    });
+  });
+})();
+
+// ===== カレンダーのフィルター文字を保存 =====
+const saveCalFilterBtn = document.getElementById("saveCalFilterBtn");
+if (saveCalFilterBtn) {
+  saveCalFilterBtn.addEventListener("click", async () => {
+    try {
+      await fetch("/api/settings", {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ calendarFilter: $("calendarFilter").value.trim() }),
+      });
+      const s = document.getElementById("calFilterSaved");
+      s.hidden = false;
+      setTimeout(() => (s.hidden = true), 1500);
+    } catch {}
+  });
+}

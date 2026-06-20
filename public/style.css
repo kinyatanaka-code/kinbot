@@ -604,11 +604,11 @@ table.bant td:first-child { color: var(--muted); width: 80px; }
 }
 .cal-head { font-size: 12px; color: var(--muted); padding: 4px 8px 8px; }
 .cal-empty { font-size: 13px; color: var(--muted); padding: 14px; text-align: center; }
-.cal-row {
+.calp-row {
   display: flex; align-items: center; gap: 10px; width: 100%; text-align: left; background: transparent;
   border: none; border-radius: 8px; padding: 9px 10px; cursor: pointer; font: inherit; color: var(--ink);
 }
-.cal-row:hover { background: var(--panel-2); }
+.calp-row:hover { background: var(--panel-2); }
 .cal-time { flex: 0 0 52px; font-size: 12px; color: var(--muted); }
 .cal-name { flex: 1 1 auto; font-size: 13.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .cal-mark { flex: 0 0 auto; font-size: 10px; color: var(--accent); border: 1px solid var(--accent); border-radius: 5px; padding: 1px 5px; }
