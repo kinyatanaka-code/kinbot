@@ -542,7 +542,7 @@ app.post("/api/knowledge/url", async (req, res) => {
 });
 
 // PDFを取り込んでナレッジ化
-const kbUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 30 * 1024 * 1024 } });
+const kbUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 100 * 1024 * 1024 } });
 app.post("/api/knowledge/file", kbUpload.single("file"), async (req, res) => {
   try {
     if (!req.file) return res.status(400).json({ error: "ファイルが必要です" });
@@ -556,10 +556,10 @@ app.post("/api/knowledge/file", kbUpload.single("file"), async (req, res) => {
 
     if (mt === "application/pdf") {
       sourceType = "pdf";
-      // まずAIで中身を読み取り（図・スキャンもOCR）。大きすぎ/失敗時はテキスト抽出に降格。
-      if (readerAvailable() && req.file.size <= 14 * 1024 * 1024) {
+      // AIで中身を読み取り（図・スキャンもOCR）。大容量はFile APIへ自動切替。失敗時のみテキスト抽出に降格。
+      if (readerAvailable()) {
         try {
-          body = await readDocument({ buffer: req.file.buffer, mimeType: "application/pdf" });
+          body = await readDocument({ buffer: req.file.buffer, mimeType: "application/pdf", displayName: name });
           read = "ai";
         } catch (e) {
           console.error("[kb/file] PDF AI読解失敗→テキスト抽出", e.message);

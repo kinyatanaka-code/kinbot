@@ -45,16 +45,69 @@ async function generate(parts) {
     .trim();
 }
 
-// { buffer, mimeType } か { text } を渡すと、構造化テキストを返す
-export async function readDocument({ buffer, mimeType, text }) {
-  if (!GEMINI_KEY) throw new Error("GEMINI_API_KEY 未設定");
-  const parts = [{ text: READ_INSTRUCTION }];
-  if (buffer && mimeType) {
-    parts.push({ inline_data: { mime_type: mimeType, data: buffer.toString("base64") } });
-  } else if (text) {
-    parts.push({ text: "【資料テキスト】\n\n" + String(text).slice(0, 120000) });
-  } else {
-    throw new Error("読み取り対象がありません");
+// --- Gemini File API（大容量ファイル用：アップロード→参照して読解） ---
+async function uploadFile(buffer, mimeType, displayName) {
+  const startRes = await fetch(`https://generativelanguage.googleapis.com/upload/v1beta/files?key=${GEMINI_KEY}`, {
+    method: "POST",
+    headers: {
+      "X-Goog-Upload-Protocol": "resumable",
+      "X-Goog-Upload-Command": "start",
+      "X-Goog-Upload-Header-Content-Length": String(buffer.length),
+      "X-Goog-Upload-Header-Content-Type": mimeType,
+      "content-type": "application/json",
+    },
+    body: JSON.stringify({ file: { display_name: displayName || "doc" } }),
+  });
+  if (!startRes.ok) throw new Error(`file start ${startRes.status}`);
+  const uploadUrl = startRes.headers.get("x-goog-upload-url");
+  if (!uploadUrl) throw new Error("upload url が取得できません");
+  const upRes = await fetch(uploadUrl, {
+    method: "POST",
+    headers: { "X-Goog-Upload-Offset": "0", "X-Goog-Upload-Command": "upload, finalize", "content-type": mimeType },
+    body: buffer,
+  });
+  if (!upRes.ok) throw new Error(`file upload ${upRes.status}`);
+  return (await upRes.json()).file; // {name, uri, mimeType, state}
+}
+async function waitActive(file) {
+  let f = file;
+  for (let i = 0; i < 40 && f && f.state && f.state !== "ACTIVE"; i++) {
+    if (f.state === "FAILED") throw new Error("ファイル処理に失敗しました");
+    await new Promise((r) => setTimeout(r, 1500));
+    const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/${f.name}?key=${GEMINI_KEY}`);
+    if (res.ok) f = await res.json();
   }
-  return generate(parts);
+  return f;
+}
+async function deleteFile(name) {
+  try {
+    await fetch(`https://generativelanguage.googleapis.com/v1beta/${name}?key=${GEMINI_KEY}`, { method: "DELETE" });
+  } catch {}
+}
+
+const INLINE_MAX = 14 * 1024 * 1024; // これ以下はインライン、超えたらFile API
+
+// { buffer, mimeType } か { text } を渡すと、構造化テキストを返す
+export async function readDocument({ buffer, mimeType, text, displayName }) {
+  if (!GEMINI_KEY) throw new Error("GEMINI_API_KEY 未設定");
+  if (text) {
+    return generate([{ text: READ_INSTRUCTION }, { text: "【資料テキスト】\n\n" + String(text).slice(0, 120000) }]);
+  }
+  if (buffer && mimeType) {
+    if (buffer.length <= INLINE_MAX) {
+      return generate([{ text: READ_INSTRUCTION }, { inline_data: { mime_type: mimeType, data: buffer.toString("base64") } }]);
+    }
+    // 大容量：File APIへアップロードしてから読解
+    const up = await uploadFile(buffer, mimeType, displayName);
+    const active = await waitActive(up);
+    try {
+      return await generate([
+        { text: READ_INSTRUCTION },
+        { file_data: { mime_type: active.mimeType || mimeType, file_uri: active.uri } },
+      ]);
+    } finally {
+      if (active?.name) deleteFile(active.name);
+    }
+  }
+  throw new Error("読み取り対象がありません");
 }
