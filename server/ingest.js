@@ -65,3 +65,12 @@ export async function urlToText(url) {
   const { title, text } = htmlToText(html);
   return { title: title || url, text };
 }
+
+// Office（pptx/docx/xlsx 等）→ テキスト
+export async function officeToText(buffer) {
+  const op = await import("officeparser");
+  const parse = op.parseOfficeAsync || (op.default && op.default.parseOfficeAsync);
+  if (!parse) throw new Error("officeparser 未対応");
+  const text = await parse(buffer);
+  return clip(text || "");
+}

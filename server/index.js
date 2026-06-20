@@ -57,7 +57,7 @@ import {
 } from "./google.js";
 import { startScheduler } from "./scheduler.js";
 import { muxConfigured, createLiveStream } from "./mux.js";
-import { pdfToText, urlToText } from "./ingest.js";
+import { pdfToText, urlToText, officeToText } from "./ingest.js";
 import { indexKnowledge, embeddingsAvailable } from "./retrieval.js";
 import { readDocument, readerAvailable } from "./ai_read.js";
 import {
@@ -548,6 +548,42 @@ app.post("/api/knowledge/url", async (req, res) => {
 
 // PDFを取り込んでナレッジ化
 const kbUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 100 * 1024 * 1024 } });
+
+// 各種ソース（buffer/text）から本文テキストを生成（AIで読み取り・構造化）
+const OFFICE_RE = /(presentationml|wordprocessingml|spreadsheetml|officedocument|ms-powerpoint|msword|ms-excel)/i;
+async function extractBody({ buffer, mimeType, text, name }) {
+  const mt = mimeType || "";
+  if (text && !buffer) {
+    const body = readerAvailable() ? await readDocument({ text }).catch(() => text) : text;
+    return { body, read: readerAvailable() && body !== text ? "ai" : "text" };
+  }
+  if (buffer && mt === "application/pdf") {
+    let body = "";
+    if (readerAvailable()) body = await readDocument({ buffer, mimeType: "application/pdf", displayName: name }).catch(() => "");
+    if (!body) {
+      const t = await pdfToText(buffer).catch(() => "");
+      body = t && readerAvailable() ? await readDocument({ text: t }).catch(() => t) : t;
+    }
+    return { body, read: readerAvailable() && body ? "ai" : "text" };
+  }
+  if (buffer && mt.startsWith("image/")) {
+    if (!readerAvailable()) throw new Error("画像の読み取りには GEMINI_API_KEY が必要です");
+    return { body: await readDocument({ buffer, mimeType: mt, displayName: name }), read: "ai" };
+  }
+  if (buffer && OFFICE_RE.test(mt)) {
+    const t = await officeToText(buffer); // pptx/docx/xlsx 等 → テキスト
+    if (!t) throw new Error("テキストを抽出できませんでした");
+    const body = readerAvailable() ? await readDocument({ text: t }).catch(() => t) : t;
+    return { body, read: readerAvailable() && body !== t ? "ai" : "text" };
+  }
+  if (buffer && (mt.startsWith("text/") || mt === "application/json")) {
+    const t = buffer.toString("utf8");
+    const body = readerAvailable() ? await readDocument({ text: t }).catch(() => t) : t;
+    return { body, read: readerAvailable() && body !== t ? "ai" : "text" };
+  }
+  throw new Error("この形式は取り込めません");
+}
+
 app.post("/api/knowledge/file", kbUpload.single("file"), async (req, res) => {
   try {
     if (!req.file) return res.status(400).json({ error: "ファイルが必要です" });
@@ -555,40 +591,15 @@ app.post("/api/knowledge/file", kbUpload.single("file"), async (req, res) => {
     const folder = (req.body && req.body.folder) || "";
     const category = (req.body && req.body.category) || "資料";
     const name = (req.file.originalname || "資料").replace(/\.[^.]+$/, "");
-    let body = "";
-    let sourceType = "text";
-    let read = "text";
+    const sourceType = mt === "application/pdf" ? "pdf" : mt.startsWith("image/") ? "image" : "file";
 
-    if (mt === "application/pdf") {
-      sourceType = "pdf";
-      // AIで中身を読み取り（図・スキャンもOCR）。大容量はFile APIへ自動切替。失敗時のみテキスト抽出に降格。
-      if (readerAvailable()) {
-        try {
-          body = await readDocument({ buffer: req.file.buffer, mimeType: "application/pdf", displayName: name });
-          read = "ai";
-        } catch (e) {
-          console.error("[kb/file] PDF AI読解失敗→テキスト抽出", e.message);
-        }
-      }
-      if (!body) {
-        const t = await pdfToText(req.file.buffer).catch(() => "");
-        if (t && readerAvailable()) {
-          body = await readDocument({ text: t }).catch(() => t);
-          read = body === t ? "text" : "ai";
-        } else {
-          body = t;
-        }
-      }
-    } else if (mt.startsWith("image/")) {
-      sourceType = "image";
-      if (!readerAvailable())
-        return res.status(422).json({ error: "画像の読み取りには GEMINI_API_KEY が必要です（設定後に再度お試しください）" });
-      body = await readDocument({ buffer: req.file.buffer, mimeType: mt });
-      read = "ai";
-    } else {
-      return res.status(415).json({ error: "PDFまたは画像を選んでください" });
+    let result;
+    try {
+      result = await extractBody({ buffer: req.file.buffer, mimeType: mt, name });
+    } catch (e) {
+      return res.status(415).json({ error: e.message });
     }
-
+    const body = result.body;
     if (!body || body.length < 20)
       return res.status(422).json({ error: "内容を読み取れませんでした（画質や形式をご確認ください）" });
     const id = await addKnowledge({
@@ -601,7 +612,7 @@ app.post("/api/knowledge/file", kbUpload.single("file"), async (req, res) => {
       folder,
     });
     if (id) indexKnowledge(id, { title: name, category, body }).catch((e) => console.error("[index]", e.message));
-    res.json({ ok: true, id, chars: body.length, read });
+    res.json({ ok: true, id, chars: body.length, read: result.read });
   } catch (e) {
     console.error("[knowledge/file]", e.message);
     res.status(502).json({ error: e.message });
@@ -702,25 +713,15 @@ app.post("/api/knowledge/drive", async (req, res) => {
     const { fileId, category, folder } = req.body || {};
     if (!fileId) return res.status(400).json({ error: "fileId が必要です" });
     const c = await driveGetContent(req.user, fileId);
-    let body = "";
-    let read = "text";
-    let sourceType = "gdrive";
-    if (c.buffer && c.mimeType === "application/pdf") {
-      if (readerAvailable()) {
-        body = await readDocument({ buffer: c.buffer, mimeType: "application/pdf", displayName: c.name }).catch(() => "");
-        if (body) read = "ai";
-      }
-      if (!body) body = await pdfToText(c.buffer).catch(() => "");
-    } else if (c.buffer && (c.mimeType || "").startsWith("image/")) {
-      if (!readerAvailable()) return res.status(422).json({ error: "画像の読み取りには GEMINI_API_KEY が必要です" });
-      body = await readDocument({ buffer: c.buffer, mimeType: c.mimeType, displayName: c.name });
-      read = "ai";
-    } else if (c.text) {
-      body = readerAvailable() ? await readDocument({ text: c.text }).catch(() => c.text) : c.text;
-      read = readerAvailable() && body !== c.text ? "ai" : "text";
-    } else {
-      return res.status(415).json({ error: "この形式は取り込めません" });
+    let result;
+    try {
+      result = await extractBody({ buffer: c.buffer, mimeType: c.mimeType, text: c.text, name: c.name });
+    } catch (e) {
+      return res.status(415).json({ error: e.message });
     }
+    const body = result.body;
+    const read = result.read;
+    const sourceType = "gdrive";
     if (!body || body.length < 20) return res.status(422).json({ error: "内容を読み取れませんでした" });
     const name = (c.name || "Driveファイル").replace(/\.[^.]+$/, "");
     const id = await addKnowledge({
