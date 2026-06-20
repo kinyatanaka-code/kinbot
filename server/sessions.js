@@ -71,6 +71,7 @@ class Session {
     this.sendTo(ws, {
       type: "session",
       startedAt: this.startedAt,
+      repName: this.repName || "",
       muxPlaybackId: isOwner ? "" : this.muxPlaybackId || "",
       muxError: isOwner ? "" : this.muxError || "",
       isOwner,
@@ -129,6 +130,12 @@ class Session {
       this.aiSeen.add(key);
       this.aiLog.push({ t: "sug", sugType: m.type || "info", title: m.title || "", detail: m.detail || "", ts });
     }
+    for (const g of result.signals || []) {
+      const key = "sig:" + norm(g.type) + norm(g.text);
+      if (this.aiSeen.has(key)) continue;
+      this.aiSeen.add(key);
+      this.aiLog.push({ t: "sig", sigType: g.type === "risk" ? "risk" : "buy", text: g.text || "", hint: g.hint || "", ts });
+    }
   }
 
   async maybeAnalyze() {
@@ -173,6 +180,25 @@ class Session {
     }
   }
 
+  computeMetrics() {
+    const chars = {};
+    for (const u of this.utterances) {
+      const label = (u.speaker && (u.speaker.name || (u.speaker.id != null ? "話者" + u.speaker.id : ""))) || "話者";
+      chars[label] = (chars[label] || 0) + String(u.text || "").length;
+    }
+    const total = Object.values(chars).reduce((a, b) => a + b, 0);
+    let repTalkPct = null;
+    const rep = (this.repName || "").replace(/\s+/g, "");
+    if (rep && total) {
+      let repChars = 0;
+      for (const [l, n] of Object.entries(chars)) if (l.replace(/\s+/g, "").includes(rep)) repChars += n;
+      if (repChars > 0) repTalkPct = Math.round((repChars / total) * 100);
+    }
+    let buyCount = 0, riskCount = 0;
+    for (const e of this.aiLog) if (e.t === "sig") { if (e.sigType === "risk") riskCount++; else buyCount++; }
+    return { repTalkPct, speakerCount: Object.keys(chars).length, buyCount, riskCount };
+  }
+
   dispose() {
     // 視聴中の全員に終了を通知（画面を自動で閉じる）
     this.broadcast({ type: "ended", ts: Date.now() });
@@ -185,6 +211,7 @@ class Session {
       summary: this.prevSummary,
       suggestions: this.lastSuggestions || [],
       aiLog: this.aiLog,
+      metrics: this.computeMetrics(),
     });
     // 商談終了 → 要約・営業FB・分析を自動生成（バックグラウンド）
     this.finalizeAnalysis();

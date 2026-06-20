@@ -309,6 +309,10 @@ function resetToJoin(statusMsg) {
   if (feed) feed.innerHTML = '<div class="empty-state">商談が進むと、kinbotが「切り返し」「次の一手」を吹き出しでお知らせします。</div>';
   aiSeen = new Set();
   aiHasItems = false;
+  talkChars = {};
+  liveRepName = "";
+  const tw = $("talkRatio");
+  if (tw) tw.hidden = true;
   const cl = $("checkList");
   if (cl) cl.innerHTML = '<div class="empty-state">会話が進むと、予算・決裁者・時期などの「聞けている／まだの項目」を表示します。</div>';
   const aitab = document.querySelector('.live-tab[data-pane="ai"]');
@@ -494,6 +498,7 @@ function handle(msg) {
     case "session":
       // 実際のライブ開始時刻にタイマーを合わせる
       if (msg.startedAt) startTimer(msg.startedAt);
+      if (msg.repName) liveRepName = msg.repName;
       // ライブ映像（Mux）
       if (msg.isOwner) {
         // 会議に参加中の本人：音声二重防止のため映像は出さない
@@ -518,6 +523,7 @@ function handle(msg) {
       setConn("ready");
       els.sttHint.textContent = "文字起こし中";
       appendFinal(msg.text, msg.speaker);
+      addTalk(msg.speaker, msg.text);
       els.partial.textContent = "";
       break;
     case "partial":
@@ -526,7 +532,7 @@ function handle(msg) {
     case "analysis":
       renderSummary(msg.summary);
       renderCoverage(msg.coverage);
-      renderAiFeed(msg.objections, msg.suggestions, msg.ts);
+      renderAiFeed(msg.objections, msg.suggestions, msg.ts, msg.signals);
       els.summaryHint.textContent = "更新: " + new Date(msg.ts).toLocaleTimeString("ja-JP");
       kinbotSpeakFromAnalysis(msg);
       break;
@@ -646,21 +652,76 @@ function escAi(s) {
 }
 let aiSeen = new Set();
 let aiHasItems = false;
+let liveRepName = "";
+let talkChars = {}; // speakerラベル -> 文字数
+function addTalk(speaker, text) {
+  const label = (speaker && (speaker.name || (speaker.id != null ? "話者" + speaker.id : ""))) || "話者";
+  talkChars[label] = (talkChars[label] || 0) + String(text || "").length;
+  renderTalkRatio();
+}
+function renderTalkRatio() {
+  const box = $("trChips");
+  const wrap = $("talkRatio");
+  if (!box || !wrap) return;
+  const entries = Object.entries(talkChars).filter(([, n]) => n > 0).sort((a, b) => b[1] - a[1]);
+  const total = entries.reduce((s, [, n]) => s + n, 0);
+  if (!total) { wrap.hidden = true; return; }
+  wrap.hidden = false;
+  const rep = liveRepName ? liveRepName.replace(/\s+/g, "") : "";
+  box.innerHTML = "";
+  for (const [label, n] of entries.slice(0, 5)) {
+    const pct = Math.round((n / total) * 100);
+    const isRep = rep && label.replace(/\s+/g, "").includes(rep);
+    const chip = document.createElement("div");
+    chip.className = "tr-chip" + (isRep ? " me" : "");
+    chip.innerHTML =
+      `<div class="tr-chip-top"><span class="tr-name">${escAi(isRep ? label + "（あなた）" : label)}</span><span class="tr-pct">${pct}%</span></div>` +
+      `<div class="tr-track"><div class="tr-fill" style="width:${pct}%"></div></div>`;
+    box.appendChild(chip);
+  }
+  // 自分が話しすぎなら注意
+  const warn = $("trWarn");
+  if (warn) {
+    let repPct = 0;
+    if (rep) {
+      const repChars = entries.filter(([l]) => l.replace(/\s+/g, "").includes(rep)).reduce((s, [, n]) => s + n, 0);
+      repPct = Math.round((repChars / total) * 100);
+    }
+    warn.hidden = !(rep && repPct >= 65);
+  }
+}
 function aiKey(s) {
   return String(s || "").replace(/\s+/g, "").slice(0, 60);
 }
-function renderAiFeed(objections, suggestions, ts) {
+function renderAiFeed(objections, suggestions, ts, signals) {
   const feed = $("aiFeed");
   if (!feed) return;
   const objs = Array.isArray(objections) ? objections : [];
   const sugs = Array.isArray(suggestions) ? suggestions : [];
+  const sigs = Array.isArray(signals) ? signals : [];
   const time = new Date(ts || Date.now()).toLocaleTimeString("ja-JP", { hour: "2-digit", minute: "2-digit" });
 
-  // AI提案タブのバッジ（いま懸念があるか）
+  // AI提案タブのバッジ（いま懸念 or リスクがあるか）
   const tab = document.querySelector('.live-tab[data-pane="ai"]');
-  if (tab) tab.classList.toggle("alert", objs.length > 0);
+  if (tab) tab.classList.toggle("alert", objs.length > 0 || sigs.some((g) => g.type === "risk"));
 
   const toAdd = [];
+  // 購買/リスクシグナル（最優先で気づかせる）
+  for (const g of sigs) {
+    const buy = g.type !== "risk";
+    const key = "sig:" + aiKey(g.type) + aiKey(g.text);
+    if (aiSeen.has(key)) continue;
+    aiSeen.add(key);
+    toAdd.push(
+      aiBubble({
+        kind: buy ? "buy" : "risk",
+        label: buy ? "🟢 購買シグナル" : "🟡 リスク",
+        title: g.text || "",
+        text: g.hint || "",
+        time,
+      })
+    );
+  }
   for (const o of objs) {
     const key = "obj:" + aiKey(o.objection) + aiKey(o.response);
     if (aiSeen.has(key)) continue;
@@ -706,9 +767,14 @@ function kinbotSpeak(text) {
   }
 }
 function kinbotSpeakFromAnalysis(msg) {
-  // 優先度: 異議 > 次の一手 > 要約
+  // 優先度: リスク > 異議 > 購買シグナル > 次の一手 > 要約
+  const sigs = Array.isArray(msg.signals) ? msg.signals : [];
+  const risk = sigs.find((g) => g.type === "risk");
+  if (risk) { kinbotSpeak("⚠ " + (risk.text || "") + (risk.hint ? " — " + risk.hint : "")); return; }
   const obj = Array.isArray(msg.objections) && msg.objections[0];
   if (obj && obj.response) { kinbotSpeak("「" + (obj.objection || "懸念") + "」には… " + obj.response); return; }
+  const buy = sigs.find((g) => g.type !== "risk");
+  if (buy) { kinbotSpeak("👀 好機: " + (buy.text || "") + (buy.hint ? " — " + buy.hint : "")); return; }
   const sug = Array.isArray(msg.suggestions) && msg.suggestions[0];
   if (sug && (sug.title || sug.detail)) { kinbotSpeak((sug.title ? sug.title + "：" : "") + (sug.detail || "")); return; }
   const ov = msg.summary && msg.summary.overview;

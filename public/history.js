@@ -729,6 +729,11 @@ function renderAiLogInto(el, log) {
       title = e.objection ? "「" + e.objection + "」には…" : "";
       text = e.response || "";
       sub = e.basis ? "根拠: " + e.basis : "";
+    } else if (e.t === "sig") {
+      const buy = e.sigType !== "risk";
+      kind = buy ? "buy" : "risk";
+      label = buy ? "🟢 購買シグナル" : "🟡 リスク";
+      title = e.text || ""; text = e.hint || "";
     } else {
       kind = HTYPE_LABEL[e.sugType] ? e.sugType : "info";
       label = HTYPE_LABEL[kind] || "補足";

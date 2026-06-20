@@ -124,9 +124,157 @@ function applyFilter() {
 
 function render(triggered) {
   const rows = applyFilter();
+  renderDashboard(rows);
   renderAgg(rows);
   renderSetPanel(rows, !!triggered);
   renderList(rows);
+}
+
+// ===== ダッシュボード（フィルタ連動のKPI・チャート） =====
+function ymKey(d) { return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0"); }
+let _charts = {};
+function destroyCharts() { for (const k in _charts) { try { _charts[k].destroy(); } catch {} } _charts = {}; }
+const DIMS = [["hearing", "ヒアリング"], ["proposal", "提案"], ["closing", "クロージング"], ["listening", "傾聴"]];
+function heatColor(v) {
+  if (v == null) return "var(--panel-2)";
+  if (v >= 4.2) return "#1aa884";
+  if (v >= 3.5) return "#7fccae";
+  if (v >= 2.8) return "#f2d27a";
+  if (v >= 2) return "#eab168";
+  return "#df8a6a";
+}
+
+function renderDashboard(rows) {
+  const el = $("dashboard");
+  if (!el) return;
+  const now = new Date();
+  const thisYm = ymKey(now);
+  const total = rows.length;
+  const thisMonth = rows.filter((m) => ymKey(new Date(m.created_at)) === thisYm).length;
+  const analyzed = rows.filter((m) => m.analysis && m.analysis.scores).length;
+  const analyzedPct = total ? Math.round((analyzed / total) * 100) : 0;
+
+  // 勝ち筋指標（metricsから）
+  const withTalk = rows.filter((m) => m.metrics && typeof m.metrics.repTalkPct === "number");
+  const avgTalk = withTalk.length ? Math.round(withTalk.reduce((s, m) => s + m.metrics.repTalkPct, 0) / withTalk.length) : null;
+  const buyTotal = rows.reduce((s, m) => s + ((m.metrics && m.metrics.buyCount) || 0), 0);
+  const riskTotal = rows.reduce((s, m) => s + ((m.metrics && m.metrics.riskCount) || 0), 0);
+  const sfLinked = rows.filter((m) => m.sf_url && String(m.sf_url).trim()).length;
+  const sfPct = total ? Math.round((sfLinked / total) * 100) : 0;
+
+  // 月別（直近6ヶ月）
+  const months = [];
+  for (let i = 5; i >= 0; i--) {
+    const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+    months.push({ key: ymKey(d), label: d.getMonth() + 1 + "月", n: 0 });
+  }
+  for (const m of rows) {
+    const hit = months.find((x) => x.key === ymKey(new Date(m.created_at)));
+    if (hit) hit.n++;
+  }
+
+  // フェーズ分布
+  const phaseCounts = PHASES.map((p) => ({ code: p.code, label: p.label, n: rows.filter((m) => (m.phase || "") === p.code).length }));
+  const unset = rows.filter((m) => !m.phase).length;
+
+  // 担当別 件数
+  const repMap = {};
+  for (const m of rows) {
+    const name = m.owner_name || m.owner || m.rep_name || "(不明)";
+    repMap[name] = (repMap[name] || 0) + 1;
+  }
+  const repRank = Object.entries(repMap).sort((a, b) => b[1] - a[1]).slice(0, 8);
+  const maxRep = Math.max(1, ...repRank.map(([, n]) => n));
+
+  // KPIカード
+  const kpis = [
+    { label: "対象の商談", val: total },
+    { label: "今月の商談", val: thisMonth },
+    { label: "平均トーク比率(営業)", val: avgTalk == null ? "—" : avgTalk + "%", warn: avgTalk != null && avgTalk >= 65 },
+    { label: "購買シグナル", val: buyTotal, tone: "buy" },
+    { label: "リスク", val: riskTotal, tone: "risk" },
+    { label: "分析済み率", val: analyzedPct + "%" },
+  ];
+  let html = '<div class="dash-kpis6">';
+  for (const k of kpis)
+    html += `<div class="kpi ${k.tone || ""}"><div class="kpi-val ${k.warn ? "warn" : ""}">${k.val}</div><div class="kpi-label">${k.label}</div></div>`;
+  html += "</div>";
+
+  // 行1：推移(折れ線) + フェーズ分布(ドーナツ)
+  html += '<div class="dash-grid2">';
+  html += '<div class="dash-card"><div class="dash-title">商談数の推移（月別）</div><div class="chart-box"><canvas id="chTrend"></canvas></div></div>';
+  html += '<div class="dash-card"><div class="dash-title">フェーズ分布</div><div class="chart-box"><canvas id="chPhase"></canvas></div></div>';
+  html += "</div>";
+
+  // 行2：コンバージョン(ファネル+SF) + 担当別件数
+  html += '<div class="dash-grid2">';
+  html += '<div class="dash-card"><div class="dash-title">コンバージョン（フェーズ到達）</div><div class="hbars">';
+  const base01 = phaseCounts[0].n || total || 1;
+  for (const p of phaseCounts) {
+    const w = Math.round((p.n / Math.max(1, base01)) * 100);
+    html += `<div class="hbar"><span class="hbar-name">${escapeHtml(p.label)}</span><span class="hbar-track"><span class="hbar-fill green" style="width:${Math.min(100, w)}%"></span></span><span class="hbar-n">${p.n}</span></div>`;
+  }
+  if (unset) html += `<div class="hbar"><span class="hbar-name">未設定</span><span class="hbar-track"><span class="hbar-fill" style="width:${Math.round((unset / Math.max(1, base01)) * 100)}%"></span></span><span class="hbar-n">${unset}</span></div>`;
+  html += `</div><div class="conv-foot">Salesforce登録済み <b>${sfLinked}</b> 件（${sfPct}%）<span class="metric-note">※受注の実数はSF側のデータ連携が必要です。ここでは登録率を表示。</span></div></div>`;
+
+  html += '<div class="dash-card"><div class="dash-title">営業担当別 件数</div><div class="hbars">';
+  if (!repRank.length) html += '<div class="empty-state">データがありません。</div>';
+  for (const [name, n] of repRank) {
+    const w = Math.round((n / maxRep) * 100);
+    html += `<div class="hbar"><span class="hbar-name">${escapeHtml(name)}</span><span class="hbar-track"><span class="hbar-fill green" style="width:${w}%"></span></span><span class="hbar-n">${n}</span></div>`;
+  }
+  html += "</div></div>";
+  html += "</div>";
+
+  // 担当別の質（ヒートマップ）
+  const repScored = {};
+  for (const m of rows) {
+    if (!(m.analysis && m.analysis.scores)) continue;
+    const name = m.owner_name || m.owner || m.rep_name || "(不明)";
+    (repScored[name] = repScored[name] || []).push(m);
+  }
+  const repNames = Object.keys(repScored);
+  html += '<div class="dash-card heatmap-card"><div class="dash-title">担当別の質（平均スコア・強み/弱み）</div>';
+  if (!repNames.length) {
+    html += '<div class="empty-state">分析済みの商談がありません。各商談で「分析を生成」すると表示されます。</div>';
+  } else {
+    html += '<table class="heat"><tr><th>営業担当</th><th>件数</th>' + DIMS.map(([, jp]) => `<th>${jp}</th>`).join("") + "<th>平均</th></tr>";
+    for (const name of repNames) {
+      const list = repScored[name];
+      const cells = DIMS.map(([k]) => avgScore(list, k));
+      const overall = cells.reduce((a, b) => a + b, 0) / cells.length;
+      html += `<tr><td class="heat-rep">${escapeHtml(name)}</td><td>${list.length}</td>` +
+        cells.map((v) => `<td class="heat-cell" style="background:${heatColor(v)}">${v.toFixed(1)}</td>`).join("") +
+        `<td class="heat-cell" style="background:${heatColor(overall)}"><b>${overall.toFixed(1)}</b></td></tr>`;
+    }
+    html += "</table><p class=\"metric-note\">5点満点。色が濃い緑ほど高評価、オレンジは要改善。</p>";
+  }
+  html += "</div>";
+
+  el.innerHTML = html;
+
+  // Chart.js 描画
+  destroyCharts();
+  if (window.Chart) {
+    const trend = document.getElementById("chTrend");
+    if (trend) {
+      _charts.trend = new Chart(trend, {
+        type: "line",
+        data: { labels: months.map((m) => m.label), datasets: [{ data: months.map((m) => m.n), borderColor: "#0f6e62", backgroundColor: "rgba(57,224,180,.18)", fill: true, tension: 0.3, pointBackgroundColor: "#0f6e62" }] },
+        options: { plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true, ticks: { precision: 0 } } }, maintainAspectRatio: false },
+      });
+    }
+    const ph = document.getElementById("chPhase");
+    if (ph) {
+      const data = phaseCounts.map((p) => p.n).concat(unset ? [unset] : []);
+      const labels = phaseCounts.map((p) => p.label).concat(unset ? ["未設定"] : []);
+      _charts.phase = new Chart(ph, {
+        type: "doughnut",
+        data: { labels, datasets: [{ data, backgroundColor: ["#0f6e62", "#1aa884", "#5dcaa5", "#9fe1cb", "#cbd5d0"] }] },
+        options: { plugins: { legend: { position: "bottom", labels: { font: { size: 11 }, boxWidth: 12 } } }, maintainAspectRatio: false },
+      });
+    }
+  }
 }
 
 let setReqSeq = 0;
