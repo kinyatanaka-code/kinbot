@@ -50,6 +50,8 @@ export async function initDb() {
       created_at TIMESTAMPTZ DEFAULT now()
     );
   `);
+  await pool.query(`ALTER TABLE knowledge ADD COLUMN IF NOT EXISTS source_type TEXT;`);
+  await pool.query(`ALTER TABLE knowledge ADD COLUMN IF NOT EXISTS source_ref TEXT;`);
   await pool.query(`
     CREATE TABLE IF NOT EXISTS settings (
       id   INT PRIMARY KEY,
@@ -476,19 +478,19 @@ export async function listKnowledge() {
   if (!pool) return [];
   try {
     const { rows } = await pool.query(
-      `SELECT id, category, title, body, owner, created_at FROM knowledge ORDER BY category, id`
+      `SELECT id, category, title, body, owner, source_type, source_ref, created_at FROM knowledge ORDER BY category, id`
     );
     return rows;
   } catch {
     return [];
   }
 }
-export async function addKnowledge({ category, title, body, owner }) {
+export async function addKnowledge({ category, title, body, owner, sourceType, sourceRef }) {
   if (!pool) return null;
   try {
     const { rows } = await pool.query(
-      `INSERT INTO knowledge (category, title, body, owner) VALUES ($1,$2,$3,$4) RETURNING id`,
-      [category || "その他", title || "", body || "", owner || ""]
+      `INSERT INTO knowledge (category, title, body, owner, source_type, source_ref) VALUES ($1,$2,$3,$4,$5,$6) RETURNING id`,
+      [category || "その他", title || "", body || "", owner || "", sourceType || "text", sourceRef || ""]
     );
     return rows[0]?.id || null;
   } catch (e) {

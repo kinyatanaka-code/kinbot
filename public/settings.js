@@ -353,11 +353,17 @@ async function loadKnowledge() {
     for (const it of items) {
       const li = document.createElement("li");
       li.className = "kb-item";
+      const srcLabel = { pdf: "PDF", url: "URL", video: "動画", text: "手入力" }[it.source_type] || "手入力";
+      const ref = it.source_ref
+        ? `<a class="kb-src" href="${it.source_type === "url" ? escapeHtmlKb(it.source_ref) : "#"}" ${it.source_type === "url" ? 'target="_blank" rel="noopener"' : ""}>${escapeHtmlKb(srcLabel)}</a>`
+        : `<span class="kb-src">${srcLabel}</span>`;
+      const preview = (it.body || "").length > 400 ? escapeHtmlKb(it.body.slice(0, 400)) + " …" : escapeHtmlKb(it.body);
       li.innerHTML =
         `<div class="kb-item-head"><span class="kb-cat">${escapeHtmlKb(it.category)}</span>` +
+        ref +
         `<b>${escapeHtmlKb(it.title)}</b>` +
         `<button class="kb-del" data-id="${it.id}">削除</button></div>` +
-        `<div class="kb-body">${escapeHtmlKb(it.body)}</div>`;
+        `<div class="kb-body">${preview}</div>`;
       li.querySelector(".kb-del").addEventListener("click", async (e) => {
         const id = e.currentTarget.dataset.id;
         if (!confirm("このナレッジを削除しますか？")) return;
@@ -392,3 +398,66 @@ if (kbAddBtn) {
   });
 }
 loadKnowledge();
+
+// ナレッジ取り込み（URL / PDF）
+(function () {
+  const note = () => document.getElementById("kbIngestNote");
+  const urlBtn = document.getElementById("kbUrlBtn");
+  if (urlBtn) {
+    urlBtn.addEventListener("click", async () => {
+      const url = $("kbUrl").value.trim();
+      if (!url) return;
+      urlBtn.disabled = true;
+      const o = urlBtn.textContent;
+      urlBtn.textContent = "取り込み中…";
+      if (note()) note().textContent = "URLを取り込んでいます…";
+      try {
+        const r = await fetch("/api/knowledge/url", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ url, category: $("kbInCategory").value }),
+        });
+        const d = await r.json();
+        if (!r.ok) throw new Error(d.error || "失敗しました");
+        $("kbUrl").value = "";
+        if (note()) note().textContent = `取り込みました（約${(d.chars || 0).toLocaleString()}文字）。`;
+        loadKnowledge();
+      } catch (e) {
+        if (note()) note().textContent = "取り込み失敗: " + e.message;
+      } finally {
+        urlBtn.disabled = false;
+        urlBtn.textContent = o;
+      }
+    });
+  }
+  const pdfBtn = document.getElementById("kbPdfBtn");
+  if (pdfBtn) {
+    pdfBtn.addEventListener("click", async () => {
+      const f = $("kbPdf").files[0];
+      if (!f) {
+        if (note()) note().textContent = "PDFファイルを選択してください。";
+        return;
+      }
+      pdfBtn.disabled = true;
+      const o = pdfBtn.textContent;
+      pdfBtn.textContent = "取り込み中…";
+      if (note()) note().textContent = "PDFを解析しています…";
+      try {
+        const fd = new FormData();
+        fd.append("file", f);
+        fd.append("category", $("kbInCategory").value);
+        const r = await fetch("/api/knowledge/pdf", { method: "POST", body: fd });
+        const d = await r.json();
+        if (!r.ok) throw new Error(d.error || "失敗しました");
+        $("kbPdf").value = "";
+        if (note()) note().textContent = `取り込みました（約${(d.chars || 0).toLocaleString()}文字）。`;
+        loadKnowledge();
+      } catch (e) {
+        if (note()) note().textContent = "取り込み失敗: " + e.message;
+      } finally {
+        pdfBtn.disabled = false;
+        pdfBtn.textContent = o;
+      }
+    });
+  }
+})();

@@ -49,6 +49,7 @@ import {
 } from "./google.js";
 import { startScheduler } from "./scheduler.js";
 import { muxConfigured, createLiveStream } from "./mux.js";
+import { pdfToText, urlToText } from "./ingest.js";
 import {
   salesforceConfigured,
   authUrl as sfAuthUrl,
@@ -481,6 +482,52 @@ app.put("/api/knowledge/:id", async (req, res) => {
 app.delete("/api/knowledge/:id", async (req, res) => {
   await deleteKnowledge(Number(req.params.id));
   res.json({ ok: true });
+});
+
+// URLを取り込んでナレッジ化
+app.post("/api/knowledge/url", async (req, res) => {
+  try {
+    const { url, category } = req.body || {};
+    if (!url || !/^https?:\/\//i.test(url)) return res.status(400).json({ error: "http(s) のURLを入力してください" });
+    const { title, text } = await urlToText(url);
+    if (!text || text.length < 20) return res.status(422).json({ error: "本文を抽出できませんでした（JS描画/ログインが必要なサイトの可能性）" });
+    const id = await addKnowledge({
+      category: category || "資料",
+      title: title || url,
+      body: text,
+      owner: req.user || "",
+      sourceType: "url",
+      sourceRef: url,
+    });
+    res.json({ ok: true, id, chars: text.length });
+  } catch (e) {
+    console.error("[knowledge/url]", e.message);
+    res.status(502).json({ error: e.message });
+  }
+});
+
+// PDFを取り込んでナレッジ化
+const kbUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 30 * 1024 * 1024 } });
+app.post("/api/knowledge/pdf", kbUpload.single("file"), async (req, res) => {
+  try {
+    if (!req.file) return res.status(400).json({ error: "PDFファイルが必要です" });
+    const text = await pdfToText(req.file.buffer);
+    if (!text || text.length < 20)
+      return res.status(422).json({ error: "テキストを抽出できませんでした（スキャンPDFはOCRが必要です）" });
+    const name = (req.file.originalname || "PDF").replace(/\.pdf$/i, "");
+    const id = await addKnowledge({
+      category: (req.body && req.body.category) || "資料",
+      title: name,
+      body: text,
+      owner: req.user || "",
+      sourceType: "pdf",
+      sourceRef: req.file.originalname || "",
+    });
+    res.json({ ok: true, id, chars: text.length });
+  } catch (e) {
+    console.error("[knowledge/pdf]", e.message);
+    res.status(502).json({ error: e.message });
+  }
 });
 
 // 進行中の商談（全員が閲覧できる）

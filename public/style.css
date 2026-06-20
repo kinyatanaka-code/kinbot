@@ -670,3 +670,15 @@ table.bant td:first-child { color: var(--muted); width: 80px; }
 .kb-del:hover { color: #c0392b; }
 .kb-body { font-size: 12.5px; color: var(--ink); white-space: pre-wrap; line-height: 1.6; }
 .kb-empty { font-size: 13px; color: var(--muted); }
+
+/* 自社ナレッジ：取り込み */
+.kb-ingest { border: 1px solid var(--line); border-radius: 10px; padding: 12px; background: var(--panel-2); margin-bottom: 12px; }
+.kb-ingest-row { display: flex; gap: 8px; margin-bottom: 8px; align-items: center; }
+.kb-ingest-row select, .kb-ingest-row input[type="url"] { flex: 1 1 auto; font-family: inherit; font-size: 13px; padding: 9px 11px; border: 1px solid var(--line); border-radius: 9px; background: var(--panel); box-sizing: border-box; }
+.kb-ingest-row input[type="file"] { flex: 1 1 auto; font-size: 12px; }
+.kb-ingest-row .btn { flex: 0 0 auto; }
+.kb-note { font-size: 12px; color: var(--muted); margin: 4px 0 0; line-height: 1.6; }
+.kb-manual { margin-bottom: 14px; }
+.kb-manual > summary { cursor: pointer; font-size: 13px; color: var(--accent); margin-bottom: 8px; }
+.kb-src { font-size: 11px; color: var(--muted); border: 1px solid var(--line); border-radius: 6px; padding: 1px 7px; text-decoration: none; }
+a.kb-src:hover { color: var(--accent); border-color: var(--accent); }
