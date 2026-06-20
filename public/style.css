@@ -454,6 +454,21 @@ table.bant td:first-child { color: var(--muted); width: 80px; }
 .btn.big { width: 100%; padding: 13px; font-size: 15px; }
 .join-consent { font-size: 12px; color: var(--muted); margin: 16px 0 0; line-height: 1.6; }
 .live-view { flex: 1 1 auto; display: flex; flex-direction: column; min-height: 0; }
+.live-tabs {
+  flex: 0 0 auto; display: flex; gap: 6px; padding: 10px 14px 0; overflow-x: auto;
+}
+.live-tab {
+  border: 1px solid var(--line); background: var(--panel); color: var(--ink);
+  font: inherit; font-size: 13px; font-weight: 700; padding: 9px 16px; border-radius: 10px 10px 0 0;
+  border-bottom: none; cursor: pointer; white-space: nowrap;
+}
+.live-tab.active { background: var(--accent); color: #fff; border-color: var(--accent); }
+.live-pane { flex: 1 1 auto; display: flex; min-height: 0; padding: 14px; }
+.live-pane[hidden] { display: none; }
+.live-pane .panel { flex: 1 1 auto; width: 100%; }
+.live-pane[data-pane="video"] { background: transparent; }
+.live-pane[data-pane="video"] .live-video { margin: 0; width: 100%; max-height: 100%; flex: 1 1 auto; display: flex; align-items: center; justify-content: center; }
+.live-pane[data-pane="video"] .live-video video { max-height: 100%; }
 
 /* ---------- 履歴：録画のインライン再生 ---------- */
 .drec { margin-bottom: 16px; }
@@ -643,8 +658,8 @@ table.bant td:first-child { color: var(--muted); width: 80px; }
 .sf-input { width: 100%; box-sizing: border-box; font-family: inherit; font-size: 13px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); resize: vertical; line-height: 1.6; }
 
 /* ---------- ライブ映像（Mux） ---------- */
-.live-video { position: relative; margin: 0 0 14px; background: #000; border-radius: 12px; overflow: hidden; max-height: 52vh; }
-.live-video video { width: 100%; max-height: 52vh; display: block; background: #000; }
+.live-video { position: relative; margin: 0 0 14px; background: #000; border-radius: 12px; overflow: hidden; max-height: 72vh; }
+.live-video video { width: 100%; max-height: 72vh; display: block; background: #000; }
 .live-video-tag { position: absolute; top: 10px; left: 10px; background: rgba(0,0,0,.6); color: #fff; font-size: 11px; padding: 3px 8px; border-radius: 6px; }
 
 /* ライブ映像：準備中オーバーレイ */

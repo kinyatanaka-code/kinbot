@@ -64,11 +64,21 @@
 
         <!-- ステップ2：ライブ文字起こし・要約・次の一手 -->
         <div class="live-view" id="viewLive" hidden>
-          <div class="live-video" id="liveVideo" hidden>
-            <video id="liveVideoEl" controls autoplay playsinline></video>
-            <span class="live-video-tag">ライブ映像</span>
+          <div class="live-tabs" id="liveTabs">
+            <button class="live-tab" data-pane="video" hidden>ライブ映像</button>
+            <button class="live-tab active" data-pane="transcript">文字起こし</button>
+            <button class="live-tab" data-pane="summary">要約</button>
+            <button class="live-tab" data-pane="moves">次の一手</button>
           </div>
-          <main class="grid">
+
+          <div class="live-pane" data-pane="video" hidden>
+            <div class="live-video" id="liveVideo" hidden>
+              <video id="liveVideoEl" controls autoplay playsinline></video>
+              <span class="live-video-tag">ライブ映像</span>
+            </div>
+          </div>
+
+          <div class="live-pane" data-pane="transcript">
             <section class="panel transcript-panel">
               <div class="panel-head">
                 <h2>ライブ文字起こし</h2><span class="hint" id="sttHint">待機中</span>
@@ -78,21 +88,25 @@
               </div>
               <div class="partial" id="partial"></div>
             </section>
+          </div>
 
+          <div class="live-pane" data-pane="summary" hidden>
             <section class="panel summary-panel">
               <div class="panel-head"><h2>要約</h2><span class="hint" id="summaryHint">—</span></div>
               <div class="summary" id="summary">
                 <div class="empty-state">会話が進むと、状況・要点・合意・宿題・相手の懸念を自動でまとめます。</div>
               </div>
             </section>
+          </div>
 
+          <div class="live-pane" data-pane="moves" hidden>
             <section class="panel moves-panel">
               <div class="panel-head"><h2>次の一手</h2><span class="hint">AI提案</span></div>
               <div class="moves" id="moves">
                 <div class="empty-state">深掘り質問・切り返し・クロージングの好機・見落としリスクを提案します。</div>
               </div>
             </section>
-          </main>
+          </div>
         </div>
 
         <footer class="statusbar"><span id="status">待機中</span></footer>

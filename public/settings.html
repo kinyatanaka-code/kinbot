@@ -23,7 +23,7 @@
           <nav class="set-menu" id="setMenu">
             <button class="set-menu-item active" data-tab="general">動作設定</button>
             <button class="set-menu-item" data-tab="links">登録リンク</button>
-            <button class="set-menu-item" data-tab="calendar">カレンダー連携</button>
+            <button class="set-menu-item" data-tab="calendar">Google連携</button>
             <button class="set-menu-item" data-tab="salesforce">Salesforce連携</button>
             <button class="set-menu-item" data-tab="knowledge">自社ナレッジ</button>
             <button class="set-menu-item" data-tab="thanks">御礼メール例文</button>
@@ -63,8 +63,8 @@
 
           <div class="set-pane" data-pane="links" hidden>
             <div class="set-card">
-              <h3>登録リンク（Zoom）</h3>
-              <p class="note">よく使うZoomリンクを名前付きで登録。レコーディング画面のプルダウンから選べます。</p>
+              <h3>登録リンク</h3>
+              <p class="note">よく使う会議リンク（Zoom / Meet / Teams）を名前付きで登録。レコーディング画面のプルダウンから選べます。</p>
               <ul class="link-list" id="linkList"></ul>
               <div class="link-add">
                 <input id="newLinkName" type="text" placeholder="名前（例：A社 定例）" />
@@ -76,13 +76,18 @@
 
           <div class="set-pane" data-pane="calendar" hidden>
             <div class="set-card">
-              <h3>Googleカレンダー連携</h3>
-              <p class="note">連携すると、Zoomリンクのある予定の<b>開始3分前</b>に「議事録」Botが自動入室します。</p>
+              <h3>Google連携</h3>
+              <p class="note">連携すると、Zoom等のリンクがある予定の<b>開始3分前</b>に「議事録」Botが自動入室し、Googleドライブの資料を自社ナレッジに取り込めます。</p>
               <div class="cal-row">
                 <span class="cal-status" id="calStatus">確認中…</span>
                 <a class="btn" id="calConnect" href="/auth/google" hidden>連携する</a>
                 <button class="btn ghost" id="calDisconnect" hidden>解除</button>
               </div>
+              <table class="status-table" id="googleStatusTable" style="margin-top:12px">
+                <tr><td>カレンダー</td><td id="gsCalendar">—</td></tr>
+                <tr><td>ドライブ</td><td id="gsDrive">—</td></tr>
+              </table>
+              <p class="note">ドライブが「未許可」の場合は、一度「解除」→「連携する」をやり直し、同意画面でドライブの許可にチェックしてください。</p>
               <ul class="cal-events" id="calEvents"></ul>
             </div>
             <div class="set-card">

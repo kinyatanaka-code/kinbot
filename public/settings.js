@@ -63,13 +63,28 @@ async function loadCalendar() {
   const connectBtn = $("calConnect");
   const disconnectBtn = $("calDisconnect");
   const eventsEl = $("calEvents");
+  const gsCal = $("gsCalendar");
+  const gsDrive = $("gsDrive");
   try {
     const res = await fetch("/api/calendar/status");
     const d = await res.json();
     if (!d.configured) {
       statusEl.textContent = "未設定（GOOGLE_CLIENT_ID / SECRET が必要）";
       eventsEl.innerHTML = "";
+      if (gsCal) gsCal.textContent = "—";
+      if (gsDrive) gsDrive.textContent = "—";
       return;
+    }
+    // カレンダー/ドライブの個別状態
+    if (gsCal) gsCal.textContent = d.connected ? (d.error ? "権限エラー" : "連携済み") : "未連携";
+    if (gsDrive) {
+      gsDrive.textContent = "確認中…";
+      fetch("/api/drive/status")
+        .then((r) => r.json())
+        .then((ds) => {
+          if (gsDrive) gsDrive.textContent = !ds.googleConnected ? "未連携" : ds.driveReady ? "連携済み" : "未許可（再連携が必要）";
+        })
+        .catch(() => { if (gsDrive) gsDrive.textContent = "確認失敗"; });
     }
     if (d.connected) {
       connectBtn.hidden = true;

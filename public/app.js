@@ -312,6 +312,8 @@ function showLiveMessage(text) {
   const box = $("liveVideo");
   if (!box) return;
   box.hidden = false;
+  showVideoTab(true);
+  liveSwitchTab("video");
   const video = $("liveVideoEl");
   if (video) video.style.display = "none";
   let overlay = $("liveVideoMsg");
@@ -338,6 +340,22 @@ async function checkMuxThenMessage() {
   } catch {}
 }
 
+function liveSwitchTab(pane) {
+  document.querySelectorAll(".live-tab").forEach((t) => t.classList.toggle("active", t.dataset.pane === pane));
+  document.querySelectorAll(".live-pane").forEach((p) => (p.hidden = p.dataset.pane !== pane));
+}
+(function initLiveTabs() {
+  const tabs = document.getElementById("liveTabs");
+  if (!tabs) return;
+  tabs.querySelectorAll(".live-tab").forEach((t) =>
+    t.addEventListener("click", () => liveSwitchTab(t.dataset.pane))
+  );
+})();
+function showVideoTab(show) {
+  const btn = document.querySelector('.live-tab[data-pane="video"]');
+  if (btn) btn.hidden = !show;
+}
+
 let hls = null;
 let liveVideoRetry = null;
 function showLiveVideo(playbackId) {
@@ -347,6 +365,8 @@ function showLiveVideo(playbackId) {
   const src = `https://stream.mux.com/${playbackId}.m3u8`;
   box.hidden = false;
   video.style.display = "";
+  showVideoTab(true);
+  liveSwitchTab("video");
   let overlay = $("liveVideoMsg");
   if (!overlay) {
     overlay = document.createElement("div");
@@ -441,6 +461,9 @@ function hideLiveVideo() {
   if (box) box.hidden = true;
   const ub = document.getElementById("liveUnmuteBtn");
   if (ub) ub.hidden = true;
+  showVideoTab(false);
+  const onVideo = document.querySelector('.live-pane[data-pane="video"]');
+  if (onVideo && !onVideo.hidden) liveSwitchTab("transcript");
 }
 
 function handle(msg) {
