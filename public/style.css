@@ -862,3 +862,9 @@ a.kb-src:hover { color: var(--accent); border-color: var(--accent); }
 .ai-label-risk { background: #f7d9d4; color: #a8201a; }
 .ai-label-objection { background: #f3d9cf; color: #a8431f; }
 .ai-label-info { background: #eee9df; color: #746d61; }
+
+/* 設定：サブタブ */
+.subtabs { display: flex; gap: 8px; margin-bottom: 14px; border-bottom: 1px solid var(--line); padding-bottom: 0; }
+.subtab { border: none; background: transparent; font: inherit; font-size: 14px; font-weight: 700; color: var(--muted); padding: 8px 4px; margin-right: 10px; cursor: pointer; border-bottom: 2px solid transparent; }
+.subtab.active { color: var(--accent); border-bottom-color: var(--accent); }
+.subpane[hidden] { display: none; }

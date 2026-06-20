@@ -25,7 +25,7 @@
             <button class="set-menu-item" data-tab="links">登録リンク</button>
             <button class="set-menu-item" data-tab="calendar">Google連携</button>
             <button class="set-menu-item" data-tab="salesforce">Salesforce連携</button>
-            <button class="set-menu-item" data-tab="knowledge">自社ナレッジ</button>
+            <button class="set-menu-item" data-tab="ai">AI提案設定</button>
             <button class="set-menu-item" data-tab="thanks">御礼メール例文</button>
             <button class="set-menu-item" data-tab="status">状態</button>
           </nav>
@@ -58,16 +58,6 @@
                 <span class="saved" id="saved" hidden>保存しました</span>
               </div>
               <p class="note" id="persistNote"></p>
-            </div>
-            <div class="set-card">
-              <h3>抜け漏れチェック項目（チーム共有）</h3>
-              <p class="note">商談中の「チェック」タブで充足を判定する項目です。1行に1項目。商談プロセスに合わせて自由に編集できます（最大15項目）。</p>
-              <textarea id="checkItems" rows="7" placeholder="課題・ニーズ&#10;予算&#10;決裁者・決裁プロセス&#10;導入時期&#10;現状・競合&#10;次のステップ"></textarea>
-              <div class="modal-actions">
-                <button class="btn" id="saveCheckBtn">項目を保存</button>
-                <button class="btn ghost" id="resetCheckBtn">既定に戻す</button>
-                <span class="saved" id="checkSaved" hidden>保存しました</span>
-              </div>
             </div>
           </div>
 
@@ -136,7 +126,13 @@
             </div>
           </div>
 
-          <div class="set-pane" data-pane="knowledge" hidden>
+          <div class="set-pane" data-pane="ai" hidden>
+            <div class="subtabs" id="aiSubtabs">
+              <button class="subtab active" data-sub="kb">自社ナレッジ</button>
+              <button class="subtab" data-sub="check">チェック項目</button>
+            </div>
+
+            <div class="subpane" data-sub="kb">
             <div class="set-card">
               <h3>自社ナレッジ（チーム共有）</h3>
               <p class="note">PDF・画像・Webサイト・Googleドライブの資料を取り込むと、AIが中身を読み取り・構造化して蓄積し、ライブの提案／フィードバック／御礼メールに活用します。チーム全員に反映されます。</p>
@@ -163,6 +159,20 @@
               </div>
               <ul class="kb-folders" id="kbFolders"></ul>
               <ul class="kb-list" id="kbList"></ul>
+            </div>
+            </div>
+
+            <div class="subpane" data-sub="check" hidden>
+              <div class="set-card">
+                <h3>抜け漏れチェック項目（チーム共有）</h3>
+                <p class="note">商談中の「チェック」タブで充足を判定する項目です。1行に1項目。商談プロセスに合わせて自由に編集できます（最大15項目）。</p>
+                <textarea id="checkItems" rows="7" placeholder="課題・ニーズ&#10;予算&#10;決裁者・決裁プロセス&#10;導入時期&#10;現状・競合&#10;次のステップ"></textarea>
+                <div class="modal-actions">
+                  <button class="btn" id="saveCheckBtn">項目を保存</button>
+                  <button class="btn ghost" id="resetCheckBtn">既定に戻す</button>
+                  <span class="saved" id="checkSaved" hidden>保存しました</span>
+                </div>
+              </div>
             </div>
           </div>
 

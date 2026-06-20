@@ -271,6 +271,19 @@ loadThanks();
   });
 })();
 
+// ===== AI提案設定：サブタブ（自社ナレッジ / チェック項目） =====
+(function () {
+  const bar = document.getElementById("aiSubtabs");
+  if (!bar) return;
+  bar.querySelectorAll(".subtab").forEach((t) =>
+    t.addEventListener("click", () => {
+      bar.querySelectorAll(".subtab").forEach((x) => x.classList.toggle("active", x === t));
+      const sub = t.dataset.sub;
+      document.querySelectorAll('.set-pane[data-pane="ai"] .subpane').forEach((p) => (p.hidden = p.dataset.sub !== sub));
+    })
+  );
+})();
+
 // ===== カレンダーのフィルター文字を保存 =====
 const saveCalFilterBtn = document.getElementById("saveCalFilterBtn");
 if (saveCalFilterBtn) {
