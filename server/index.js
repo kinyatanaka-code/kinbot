@@ -54,6 +54,7 @@ import { startScheduler } from "./scheduler.js";
 import { muxConfigured, createLiveStream } from "./mux.js";
 import { pdfToText, urlToText } from "./ingest.js";
 import { indexKnowledge, embeddingsAvailable } from "./retrieval.js";
+import { readDocument, readerAvailable } from "./ai_read.js";
 import {
   salesforceConfigured,
   authUrl as sfAuthUrl,
@@ -518,17 +519,22 @@ app.post("/api/knowledge/url", async (req, res) => {
     if (!url || !/^https?:\/\//i.test(url)) return res.status(400).json({ error: "http(s) のURLを入力してください" });
     const { title, text } = await urlToText(url);
     if (!text || text.length < 20) return res.status(422).json({ error: "本文を抽出できませんでした（JS描画/ログインが必要なサイトの可能性）" });
+    // 取得テキストをAIで読み取り・構造化（キーが無ければ素テキストのまま）
+    let body = text;
+    if (readerAvailable()) {
+      body = await readDocument({ text: `タイトル: ${title || url}\nURL: ${url}\n\n${text}` }).catch(() => text);
+    }
     const id = await addKnowledge({
       category: category || "資料",
       title: title || url,
-      body: text,
+      body,
       owner: req.user || "",
       sourceType: "url",
       sourceRef: url,
       folder: folder || "",
     });
-    if (id) indexKnowledge(id, { title: title || url, category: category || "資料", body: text }).catch((e) => console.error("[index]", e.message));
-    res.json({ ok: true, id, chars: text.length });
+    if (id) indexKnowledge(id, { title: title || url, category: category || "資料", body }).catch((e) => console.error("[index]", e.message));
+    res.json({ ok: true, id, chars: body.length, read: readerAvailable() ? "ai" : "text" });
   } catch (e) {
     console.error("[knowledge/url]", e.message);
     res.status(502).json({ error: e.message });
@@ -537,6 +543,65 @@ app.post("/api/knowledge/url", async (req, res) => {
 
 // PDFを取り込んでナレッジ化
 const kbUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 30 * 1024 * 1024 } });
+app.post("/api/knowledge/file", kbUpload.single("file"), async (req, res) => {
+  try {
+    if (!req.file) return res.status(400).json({ error: "ファイルが必要です" });
+    const mt = req.file.mimetype || "";
+    const folder = (req.body && req.body.folder) || "";
+    const category = (req.body && req.body.category) || "資料";
+    const name = (req.file.originalname || "資料").replace(/\.[^.]+$/, "");
+    let body = "";
+    let sourceType = "text";
+    let read = "text";
+
+    if (mt === "application/pdf") {
+      sourceType = "pdf";
+      // まずAIで中身を読み取り（図・スキャンもOCR）。大きすぎ/失敗時はテキスト抽出に降格。
+      if (readerAvailable() && req.file.size <= 14 * 1024 * 1024) {
+        try {
+          body = await readDocument({ buffer: req.file.buffer, mimeType: "application/pdf" });
+          read = "ai";
+        } catch (e) {
+          console.error("[kb/file] PDF AI読解失敗→テキスト抽出", e.message);
+        }
+      }
+      if (!body) {
+        const t = await pdfToText(req.file.buffer).catch(() => "");
+        if (t && readerAvailable()) {
+          body = await readDocument({ text: t }).catch(() => t);
+          read = body === t ? "text" : "ai";
+        } else {
+          body = t;
+        }
+      }
+    } else if (mt.startsWith("image/")) {
+      sourceType = "image";
+      if (!readerAvailable())
+        return res.status(422).json({ error: "画像の読み取りには GEMINI_API_KEY が必要です（設定後に再度お試しください）" });
+      body = await readDocument({ buffer: req.file.buffer, mimeType: mt });
+      read = "ai";
+    } else {
+      return res.status(415).json({ error: "PDFまたは画像を選んでください" });
+    }
+
+    if (!body || body.length < 20)
+      return res.status(422).json({ error: "内容を読み取れませんでした（画質や形式をご確認ください）" });
+    const id = await addKnowledge({
+      category,
+      title: name,
+      body,
+      owner: req.user || "",
+      sourceType,
+      sourceRef: req.file.originalname || "",
+      folder,
+    });
+    if (id) indexKnowledge(id, { title: name, category, body }).catch((e) => console.error("[index]", e.message));
+    res.json({ ok: true, id, chars: body.length, read });
+  } catch (e) {
+    console.error("[knowledge/file]", e.message);
+    res.status(502).json({ error: e.message });
+  }
+});
 app.post("/api/knowledge/pdf", kbUpload.single("file"), async (req, res) => {
   try {
     if (!req.file) return res.status(400).json({ error: "PDFファイルが必要です" });

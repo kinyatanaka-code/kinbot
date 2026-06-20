@@ -541,23 +541,24 @@ loadKnowledge();
     pdfBtn.addEventListener("click", async () => {
       const f = $("kbPdf").files[0];
       if (!f) {
-        if (note()) note().textContent = "PDFファイルを選択してください。";
+        if (note()) note().textContent = "PDFまたは画像ファイルを選択してください。";
         return;
       }
       pdfBtn.disabled = true;
       const o = pdfBtn.textContent;
-      pdfBtn.textContent = "取り込み中…";
-      if (note()) note().textContent = "PDFを解析しています…";
+      pdfBtn.textContent = "読み取り中…";
+      if (note()) note().textContent = "AIが資料を読み取っています（画像・図表も）…少し時間がかかります。";
       try {
         const fd = new FormData();
         fd.append("file", f);
         fd.append("category", $("kbInCategory").value);
         fd.append("folder", kbCurrentFolder);
-        const r = await fetch("/api/knowledge/pdf", { method: "POST", body: fd });
+        const r = await fetch("/api/knowledge/file", { method: "POST", body: fd });
         const d = await r.json();
         if (!r.ok) throw new Error(d.error || "失敗しました");
         $("kbPdf").value = "";
-        if (note()) note().textContent = `取り込みました（約${(d.chars || 0).toLocaleString()}文字）。`;
+        const how = d.read === "ai" ? "AIが読み取り・構造化" : "テキスト抽出";
+        if (note()) note().textContent = `取り込みました（${how}・約${(d.chars || 0).toLocaleString()}文字）。`;
         loadKnowledge();
       } catch (e) {
         if (note()) note().textContent = "取り込み失敗: " + e.message;
