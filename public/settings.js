@@ -351,7 +351,7 @@ if (saveSfMapBtn) {
 }
 loadSalesforce();
 
-// ===== 自社ナレッジ =====
+// ===== 自社ナレッジ（フォルダ＋ソース追加モーダル） =====
 function escapeHtmlKb(s) {
   return String(s == null ? "" : s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 }
@@ -359,6 +359,8 @@ let kbCurrentFolder = "";
 let kbAllFolders = [];
 const kbParentOf = (p) => p.split("/").slice(0, -1).join("/");
 const kbLeaf = (p) => p.split("/").slice(-1)[0];
+const kbCat = () => (document.getElementById("kbInCategory") ? document.getElementById("kbInCategory").value : "資料");
+const kbStatus = (t) => { const e = document.getElementById("kbIngestNote"); if (e) e.textContent = t || ""; };
 
 function kbRenderBreadcrumb() {
   const bc = document.getElementById("kbBreadcrumb");
@@ -372,20 +374,12 @@ function kbRenderBreadcrumb() {
   }
   bc.innerHTML = html;
   bc.querySelectorAll(".kb-crumb").forEach((a) =>
-    a.addEventListener("click", (e) => {
-      e.preventDefault();
-      kbCurrentFolder = e.currentTarget.dataset.path;
-      loadKnowledge();
-    })
+    a.addEventListener("click", (e) => { e.preventDefault(); kbCurrentFolder = e.currentTarget.dataset.path; loadKnowledge(); })
   );
 }
-
 function kbFolderOptions(selected) {
   const opts = ['<option value="">（ルート）</option>'];
-  for (const f of kbAllFolders) {
-    const sel = f === selected ? " selected" : "";
-    opts.push(`<option value="${escapeHtmlKb(f)}"${sel}>${escapeHtmlKb(f)}</option>`);
-  }
+  for (const f of kbAllFolders) opts.push(`<option value="${escapeHtmlKb(f)}"${f === selected ? " selected" : ""}>${escapeHtmlKb(f)}</option>`);
   return opts.join("");
 }
 
@@ -400,10 +394,7 @@ async function loadKnowledge() {
     ]);
     kbAllFolders = Array.isArray(fids) ? fids : [];
     kbRenderBreadcrumb();
-    const ingNote = document.getElementById("kbIngestNote");
-    if (ingNote) ingNote.dataset.folder = kbCurrentFolder;
 
-    // 直下のサブフォルダ
     if (folders) {
       const subs = kbAllFolders.filter((f) => kbParentOf(f) === kbCurrentFolder);
       folders.innerHTML = "";
@@ -414,61 +405,42 @@ async function loadKnowledge() {
         li.innerHTML =
           `<button class="kb-folder-open" data-path="${escapeHtmlKb(f)}">📁 ${escapeHtmlKb(kbLeaf(f))} <span class="kb-folder-count">${count}</span></button>` +
           `<button class="kb-folder-del" data-path="${escapeHtmlKb(f)}" title="フォルダを削除">🗑</button>`;
-        li.querySelector(".kb-folder-open").addEventListener("click", (e) => {
-          kbCurrentFolder = e.currentTarget.dataset.path;
-          loadKnowledge();
-        });
+        li.querySelector(".kb-folder-open").addEventListener("click", (e) => { kbCurrentFolder = e.currentTarget.dataset.path; loadKnowledge(); });
         li.querySelector(".kb-folder-del").addEventListener("click", async (e) => {
           const path = e.currentTarget.dataset.path;
           if (!confirm(`フォルダ「${kbLeaf(path)}」を削除しますか？（空の場合のみ）`)) return;
-          const r = await fetch("/api/knowledge/folders", {
-            method: "DELETE",
-            headers: { "content-type": "application/json" },
-            body: JSON.stringify({ path }),
-          });
-          if (!r.ok) {
-            const d = await r.json().catch(() => ({}));
-            alert(d.error || "削除できませんでした");
-          }
+          const r = await fetch("/api/knowledge/folders", { method: "DELETE", headers: { "content-type": "application/json" }, body: JSON.stringify({ path }) });
+          if (!r.ok) { const d = await r.json().catch(() => ({})); alert(d.error || "削除できませんでした"); }
           loadKnowledge();
         });
         folders.appendChild(li);
       }
     }
 
-    // 現在フォルダ直下の資料
     const here = items.filter((it) => (it.folder || "") === kbCurrentFolder);
     list.innerHTML = "";
-    if (!here.length) {
-      list.innerHTML = '<li class="kb-empty">このフォルダには資料がありません。上の取り込み欄から追加、または既存資料を「移動」で入れられます。</li>';
-    }
+    if (!here.length) list.innerHTML = '<li class="kb-empty">このフォルダには資料がありません。「＋ ソースを追加」から取り込めます。</li>';
     for (const it of here) {
       const li = document.createElement("li");
       li.className = "kb-item";
-      const srcLabel = { pdf: "PDF", url: "URL", video: "動画", text: "手入力" }[it.source_type] || "手入力";
-      const ref = it.source_ref
-        ? `<a class="kb-src" href="${it.source_type === "url" ? escapeHtmlKb(it.source_ref) : "#"}" ${it.source_type === "url" ? 'target="_blank" rel="noopener"' : ""}>${escapeHtmlKb(srcLabel)}</a>`
+      const srcLabel = { pdf: "PDF", url: "URL", video: "動画", gdrive: "Drive", image: "画像", text: "手入力" }[it.source_type] || "手入力";
+      const ref = it.source_ref && it.source_type === "url"
+        ? `<a class="kb-src" href="${escapeHtmlKb(it.source_ref)}" target="_blank" rel="noopener">${escapeHtmlKb(srcLabel)}</a>`
         : `<span class="kb-src">${srcLabel}</span>`;
-      const preview = escapeHtmlKb(it.body || "");
       li.innerHTML =
         `<div class="kb-item-head"><span class="kb-cat">${escapeHtmlKb(it.category)}</span>` +
         ref +
         `<b>${escapeHtmlKb(it.title)}</b>` +
         `<select class="kb-move" title="フォルダを移動">${kbFolderOptions(it.folder || "")}</select>` +
         `<button class="kb-del" data-id="${it.id}">削除</button></div>` +
-        `<div class="kb-body">${preview}</div>`;
+        `<div class="kb-body">${escapeHtmlKb(it.body || "")}</div>`;
       li.querySelector(".kb-del").addEventListener("click", async (e) => {
-        const id = e.currentTarget.dataset.id;
         if (!confirm("このナレッジを削除しますか？")) return;
-        await fetch("/api/knowledge/" + id, { method: "DELETE" });
+        await fetch("/api/knowledge/" + e.currentTarget.dataset.id, { method: "DELETE" });
         loadKnowledge();
       });
       li.querySelector(".kb-move").addEventListener("change", async (e) => {
-        await fetch("/api/knowledge/" + it.id, {
-          method: "PUT",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({ folder: e.currentTarget.value }),
-        });
+        await fetch("/api/knowledge/" + it.id, { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ folder: e.currentTarget.value }) });
         loadKnowledge();
       });
       list.appendChild(li);
@@ -478,7 +450,7 @@ async function loadKnowledge() {
   }
 }
 
-// 新規フォルダ作成（現在フォルダの下に）
+// 新規フォルダ
 (function () {
   const btn = document.getElementById("kbNewFolderBtn");
   if (!btn) return;
@@ -487,215 +459,280 @@ async function loadKnowledge() {
     if (!name) return;
     if (/[\/"'\\]/.test(name)) return alert("/ \" ' \\ は使えません");
     const path = kbCurrentFolder ? `${kbCurrentFolder}/${name}` : name;
-    await fetch("/api/knowledge/folders", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ path }),
-    });
+    await fetch("/api/knowledge/folders", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ path }) });
     loadKnowledge();
   });
 })();
 
-const kbAddBtn = document.getElementById("kbAddBtn");
-if (kbAddBtn) {
-  kbAddBtn.addEventListener("click", async () => {
-    const body = {
-      category: $("kbCategory").value,
-      title: $("kbTitle").value.trim(),
-      body: $("kbBody").value.trim(),
-      folder: kbCurrentFolder,
-    };
-    if (!body.title && !body.body) return;
-    await fetch("/api/knowledge", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify(body),
-    });
-    $("kbTitle").value = "";
-    $("kbBody").value = "";
-    const s = document.getElementById("kbSaved");
-    if (s) { s.hidden = false; setTimeout(() => (s.hidden = true), 1500); }
-    loadKnowledge();
-  });
-}
-loadKnowledge();
-
-// ナレッジ取り込み（URL / PDF）
-(function () {
-  const note = () => document.getElementById("kbIngestNote");
-  const urlBtn = document.getElementById("kbUrlBtn");
-  if (urlBtn) {
-    urlBtn.addEventListener("click", async () => {
-      const url = $("kbUrl").value.trim();
-      if (!url) return;
-      urlBtn.disabled = true;
-      const o = urlBtn.textContent;
-      urlBtn.textContent = "取り込み中…";
-      if (note()) note().textContent = "URLを取り込んでいます…";
-      try {
-        const r = await fetch("/api/knowledge/url", {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({ url, category: $("kbInCategory").value, folder: kbCurrentFolder }),
-        });
-        const d = await r.json();
-        if (!r.ok) throw new Error(d.error || "失敗しました");
-        $("kbUrl").value = "";
-        if (note()) note().textContent = `取り込みました（約${(d.chars || 0).toLocaleString()}文字）。`;
-        loadKnowledge();
-      } catch (e) {
-        if (note()) note().textContent = "取り込み失敗: " + e.message;
-      } finally {
-        urlBtn.disabled = false;
-        urlBtn.textContent = o;
-      }
-    });
-  }
-  const pdfBtn = document.getElementById("kbPdfBtn");
-  if (pdfBtn) {
-    pdfBtn.addEventListener("click", async () => {
-      const f = $("kbPdf").files[0];
-      if (!f) {
-        if (note()) note().textContent = "PDFまたは画像ファイルを選択してください。";
-        return;
-      }
-      pdfBtn.disabled = true;
-      const o = pdfBtn.textContent;
-      pdfBtn.textContent = "読み取り中…";
-      if (note()) note().textContent = "AIが資料を読み取っています（画像・図表も）…少し時間がかかります。";
-      try {
-        const fd = new FormData();
-        fd.append("file", f);
-        fd.append("category", $("kbInCategory").value);
-        fd.append("folder", kbCurrentFolder);
-        const r = await fetch("/api/knowledge/file", { method: "POST", body: fd });
-        const d = await r.json();
-        if (!r.ok) throw new Error(d.error || "失敗しました");
-        $("kbPdf").value = "";
-        const how = d.read === "ai" ? "AIが読み取り・構造化" : "テキスト抽出";
-        if (note()) note().textContent = `取り込みました（${how}・約${(d.chars || 0).toLocaleString()}文字）。`;
-        loadKnowledge();
-      } catch (e) {
-        if (note()) note().textContent = "取り込み失敗: " + e.message;
-      } finally {
-        pdfBtn.disabled = false;
-        pdfBtn.textContent = o;
-      }
-    });
-  }
-})();
-
-// 既存ナレッジの再インデックス
+// 再インデックス
 (function () {
   const btn = document.getElementById("kbReindexBtn");
   const note = document.getElementById("kbReindexNote");
   if (!btn) return;
   btn.addEventListener("click", async () => {
-    btn.disabled = true;
-    const o = btn.textContent;
-    btn.textContent = "再構築中…";
-    if (note) note.textContent = "ナレッジを検索用に処理しています（件数により数十秒）…";
+    btn.disabled = true; const o = btn.textContent; btn.textContent = "再構築中…";
+    if (note) { note.hidden = false; note.textContent = "ナレッジを検索用に処理しています…"; }
     try {
-      const r = await fetch("/api/knowledge/reindex", { method: "POST" });
-      const d = await r.json();
-      if (!r.ok) throw new Error(d.error || "失敗しました");
-      if (note)
-        note.textContent =
-          `${d.count}件を再構築しました。` +
-          (d.embeddings ? "（ベクトル検索が有効）" : "（埋め込みキー未設定のためキーワード検索で動作）");
-    } catch (e) {
-      if (note) note.textContent = "失敗: " + e.message;
-    } finally {
-      btn.disabled = false;
-      btn.textContent = o;
-    }
+      const d = await (await fetch("/api/knowledge/reindex", { method: "POST" })).json();
+      if (note) note.textContent = `${d.count}件を再構築しました。` + (d.embeddings ? "（ベクトル検索が有効）" : "（キーワード検索で動作）");
+    } catch (e) { if (note) note.textContent = "失敗: " + e.message; }
+    finally { btn.disabled = false; btn.textContent = o; }
   });
 })();
 
-// ナレッジ取り込み（Googleドライブ）
+// ===== ソース追加モーダル =====
 (function () {
-  const note = () => document.getElementById("kbIngestNote");
-  const qInput = document.getElementById("kbDriveQ");
-  const searchBtn = document.getElementById("kbDriveBtn");
-  const results = document.getElementById("kbDriveResults");
-  if (!searchBtn || !results) return;
+  const modal = document.getElementById("kbModal");
+  if (!modal) return;
+  const openBtn = document.getElementById("kbAddSourceBtn");
+  const closeBtn = document.getElementById("kbModalClose");
+  const folderLabel = document.getElementById("kbModalFolder");
+  const statusEl = document.getElementById("kbModalStatus");
+  const setStatus = (t) => { if (statusEl) statusEl.textContent = t || ""; };
 
+  const panels = { url: document.getElementById("kbPanelUrl"), text: document.getElementById("kbPanelText"), drive: document.getElementById("kbPanelDrive") };
+  const showPanel = (name) => { for (const k in panels) if (panels[k]) panels[k].hidden = k !== name; };
+
+  function openModal() {
+    modal.hidden = false;
+    if (folderLabel) folderLabel.textContent = "→ " + (kbCurrentFolder || "ルート");
+    showPanel(null);
+    setStatus("");
+  }
+  function closeModal() { modal.hidden = true; }
+  if (openBtn) openBtn.addEventListener("click", openModal);
+  if (closeBtn) closeBtn.addEventListener("click", closeModal);
+  modal.addEventListener("click", (e) => { if (e.target === modal) closeModal(); });
+
+  // ソース種別ボタン
+  modal.querySelectorAll(".kb-source-btn").forEach((b) =>
+    b.addEventListener("click", async () => {
+      const src = b.dataset.src;
+      if (src === "file") { document.getElementById("kbFileInput").click(); return; }
+      if (src === "drive") {
+        // 公式Google Pickerを試し、APIキー未設定なら内製ブラウザにフォールバック
+        let cfg = {};
+        try { cfg = await (await fetch("/api/drive/picker-config")).json(); } catch {}
+        if (cfg.apiKey) {
+          openGooglePicker(cfg);
+          return;
+        }
+        showPanel("drive");
+        driveLoad("recent");
+        return;
+      }
+      showPanel(src);
+    })
+  );
+
+  // ---- 公式 Google Picker ----
+  let pickerLoaded = false;
+  function loadPickerApi(cb) {
+    if (window.google && window.google.picker) return cb();
+    if (pickerLoaded) { const t = setInterval(() => { if (window.google && window.google.picker) { clearInterval(t); cb(); } }, 200); return; }
+    pickerLoaded = true;
+    const s = document.createElement("script");
+    s.src = "https://apis.google.com/js/api.js";
+    s.onload = () => window.gapi.load("picker", { callback: cb });
+    document.head.appendChild(s);
+  }
+  async function openGooglePicker(cfg) {
+    setStatus("Googleドライブを開いています…");
+    try {
+      const st = await (await fetch("/api/drive/status")).json();
+      if (!st.googleConnected || !st.driveReady) {
+        setStatus("");
+        showPanel("drive");
+        driveLoad("recent");
+        return;
+      }
+      const { token } = await (await fetch("/api/drive/token")).json();
+      if (!token) throw new Error("トークン取得に失敗");
+      loadPickerApi(() => {
+        const g = window.google;
+        const view = new g.picker.DocsView(g.picker.ViewId.DOCS).setIncludeFolders(true).setSelectFolderEnabled(false);
+        const shared = new g.picker.DocsView(g.picker.ViewId.DOCS).setEnableDrives(true).setIncludeFolders(true);
+        const builder = new g.picker.PickerBuilder()
+          .addView(view)
+          .addView(shared)
+          .setOAuthToken(token)
+          .setDeveloperKey(cfg.apiKey)
+          .setCallback((data) => pickerCallback(g, data));
+        if (cfg.appId) builder.setAppId(cfg.appId);
+        builder.build().setVisible(true);
+        setStatus("");
+      });
+    } catch (e) {
+      setStatus("Pickerを開けませんでした: " + e.message + "（内製ブラウザに切替）");
+      showPanel("drive");
+      driveLoad("recent");
+    }
+  }
+  async function pickerCallback(g, data) {
+    if (data.action !== g.picker.Action.PICKED) return;
+    const docs = data.docs || [];
+    let ok = 0;
+    for (const doc of docs) {
+      setStatus(`「${doc.name}」を読み取っています…`);
+      try {
+        const rr = await fetch("/api/knowledge/drive", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ fileId: doc.id, category: kbCat(), folder: kbCurrentFolder }),
+        });
+        const dd = await rr.json();
+        if (!rr.ok) throw new Error(dd.error || "失敗");
+        ok++;
+      } catch (e) {
+        setStatus(`「${doc.name}」失敗: ${e.message}`);
+      }
+    }
+    if (ok) setStatus(`${ok}/${docs.length} 件を取り込みました。`);
+    loadKnowledge();
+  }
+
+  // ---- ファイル（複数・ドロップ対応） ----
+  async function uploadOneFile(f) {
+    setStatus(`「${f.name}」を読み取り中…`);
+    const fd = new FormData();
+    fd.append("file", f);
+    fd.append("category", kbCat());
+    fd.append("folder", kbCurrentFolder);
+    const r = await fetch("/api/knowledge/file", { method: "POST", body: fd });
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.error || "失敗");
+    return d;
+  }
+  async function handleFiles(files) {
+    const arr = [...files];
+    let ok = 0;
+    for (const f of arr) {
+      try { await uploadOneFile(f); ok++; setStatus(`${ok}/${arr.length} 件 完了…`); }
+      catch (e) { setStatus(`「${f.name}」失敗: ${e.message}`); }
+    }
+    setStatus(`${ok}/${arr.length} 件を取り込みました。`);
+    loadKnowledge();
+  }
+  const fileInput = document.getElementById("kbFileInput");
+  if (fileInput) fileInput.addEventListener("change", () => { if (fileInput.files.length) handleFiles(fileInput.files); fileInput.value = ""; });
+
+  const dz = document.getElementById("kbDropzone");
+  if (dz) {
+    dz.addEventListener("click", () => fileInput && fileInput.click());
+    ["dragover", "dragenter"].forEach((ev) => dz.addEventListener(ev, (e) => { e.preventDefault(); dz.classList.add("over"); }));
+    ["dragleave", "drop"].forEach((ev) => dz.addEventListener(ev, (e) => { e.preventDefault(); dz.classList.remove("over"); }));
+    dz.addEventListener("drop", (e) => { if (e.dataTransfer && e.dataTransfer.files.length) handleFiles(e.dataTransfer.files); });
+  }
+
+  // ---- URL ----
+  const urlBtn = document.getElementById("kbUrlBtn");
+  if (urlBtn) urlBtn.addEventListener("click", async () => {
+    const url = document.getElementById("kbUrl").value.trim();
+    if (!url) return;
+    urlBtn.disabled = true; setStatus("URLを取り込んでいます…");
+    try {
+      const r = await fetch("/api/knowledge/url", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ url, category: kbCat(), folder: kbCurrentFolder }) });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.error || "失敗");
+      document.getElementById("kbUrl").value = "";
+      setStatus(`取り込みました（約${(d.chars || 0).toLocaleString()}文字）。`);
+      loadKnowledge();
+    } catch (e) { setStatus("取り込み失敗: " + e.message); }
+    finally { urlBtn.disabled = false; }
+  });
+
+  // ---- テキスト ----
+  const addBtn = document.getElementById("kbAddBtn");
+  if (addBtn) addBtn.addEventListener("click", async () => {
+    const title = document.getElementById("kbTitle").value.trim();
+    const body = document.getElementById("kbBody").value.trim();
+    if (!title && !body) return;
+    setStatus("追加しています…");
+    await fetch("/api/knowledge", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ category: kbCat(), title, body, folder: kbCurrentFolder }) });
+    document.getElementById("kbTitle").value = ""; document.getElementById("kbBody").value = "";
+    setStatus("追加しました。");
+    loadKnowledge();
+  });
+
+  // ---- ドライブ閲覧 ----
+  let driveMode = "recent";
+  let driveStack = []; // {id, name}
+  const results = document.getElementById("kbDriveResults");
+  const crumb = document.getElementById("kbDriveCrumb");
+  const qInput = document.getElementById("kbDriveQ");
   const mimeLabel = (mt) => {
     if (!mt) return "ファイル";
-    if (mt.includes("google-apps.document")) return "Googleドキュメント";
-    if (mt.includes("google-apps.spreadsheet")) return "スプレッドシート";
+    if (mt.includes("folder")) return "フォルダ";
+    if (mt.includes("google-apps.document")) return "ドキュメント";
+    if (mt.includes("google-apps.spreadsheet")) return "シート";
     if (mt.includes("google-apps.presentation")) return "スライド";
-    if (mt.includes("google-apps.folder")) return "フォルダ";
     if (mt === "application/pdf") return "PDF";
     if (mt.startsWith("image/")) return "画像";
-    return mt;
+    return "ファイル";
   };
-
-  async function doSearch() {
-    searchBtn.disabled = true;
-    const o = searchBtn.textContent;
-    searchBtn.textContent = "検索中…";
-    results.innerHTML = "";
+  function renderCrumb() {
+    if (!crumb) return;
+    let html = `<a href="#" data-i="-1">マイドライブ</a>`;
+    driveStack.forEach((f, i) => { html += ` › <a href="#" data-i="${i}">${escapeHtmlKb(f.name)}</a>`; });
+    crumb.innerHTML = driveMode === "mydrive" || driveStack.length ? html : "";
+    crumb.querySelectorAll("a").forEach((a) => a.addEventListener("click", (e) => {
+      e.preventDefault(); const i = Number(e.currentTarget.dataset.i);
+      driveStack = i < 0 ? [] : driveStack.slice(0, i + 1);
+      const parent = driveStack.length ? driveStack[driveStack.length - 1].id : "";
+      driveLoad("mydrive", parent);
+    }));
+  }
+  async function driveLoad(mode, parent = "", q = "") {
+    driveMode = mode;
+    if (!results) return;
+    results.innerHTML = '<li class="kb-empty">読み込み中…</li>';
+    renderCrumb();
     try {
-      // 連携状態を確認
       const st = await (await fetch("/api/drive/status")).json();
-      if (!st.googleConnected) {
-        results.innerHTML = '<li class="kb-empty">Google未連携です。設定→カレンダー連携から連携してください。</li>';
-        return;
-      }
-      if (!st.driveReady) {
-        results.innerHTML =
-          '<li class="kb-empty">ドライブの権限がありません。設定→カレンダー連携で一度「解除」→「連携する」をやり直し、ドライブの許可にチェックしてください。</li>';
-        return;
-      }
-      const r = await fetch("/api/drive/search?q=" + encodeURIComponent(qInput.value.trim()));
-      const d = await r.json();
-      if (!r.ok) throw new Error(d.error || "検索に失敗しました");
-      const files = (d.files || []).filter((f) => !(f.mimeType || "").includes("google-apps.folder"));
-      if (!files.length) {
-        results.innerHTML = '<li class="kb-empty">該当するファイルがありません。</li>';
-        return;
-      }
+      if (!st.googleConnected) { results.innerHTML = '<li class="kb-empty">Google未連携です。設定→Google連携から連携してください。</li>'; return; }
+      if (!st.driveReady) { results.innerHTML = '<li class="kb-empty">ドライブ未許可です。Google連携で「解除」→「連携する」をやり直し、ドライブの許可にチェックしてください。</li>'; return; }
+      const params = new URLSearchParams(q ? { q } : parent ? { mode: "mydrive", parent } : { mode });
+      const d = await (await fetch("/api/drive/list?" + params)).json();
+      const files = d.files || [];
+      if (!files.length) { results.innerHTML = '<li class="kb-empty">ファイルがありません。</li>'; return; }
       results.innerHTML = "";
       for (const f of files) {
+        const isFolder = (f.mimeType || "").includes("folder");
         const li = document.createElement("li");
         li.className = "kb-drive-item";
         li.innerHTML =
+          `<span class="kb-drive-ic">${isFolder ? "📁" : "📄"}</span>` +
           `<span class="kb-drive-name">${escapeHtmlKb(f.name)}</span>` +
           `<span class="kb-drive-type">${escapeHtmlKb(mimeLabel(f.mimeType))}</span>` +
-          `<button class="btn ghost kb-drive-import">取り込む</button>`;
-        li.querySelector(".kb-drive-import").addEventListener("click", async (e) => {
-          const btn = e.currentTarget;
-          btn.disabled = true;
-          btn.textContent = "取り込み中…";
-          if (note()) note().textContent = `「${f.name}」を読み取っています…`;
-          try {
-            const rr = await fetch("/api/knowledge/drive", {
-              method: "POST",
-              headers: { "content-type": "application/json" },
-              body: JSON.stringify({ fileId: f.id, category: $("kbInCategory").value, folder: kbCurrentFolder }),
-            });
-            const dd = await rr.json();
-            if (!rr.ok) throw new Error(dd.error || "失敗しました");
-            const how = dd.read === "ai" ? "AIが読み取り・構造化" : "テキスト抽出";
-            if (note()) note().textContent = `「${f.name}」を取り込みました（${how}・約${(dd.chars || 0).toLocaleString()}文字）。`;
-            btn.textContent = "完了";
-            loadKnowledge();
-          } catch (err) {
-            if (note()) note().textContent = "取り込み失敗: " + err.message;
-            btn.disabled = false;
-            btn.textContent = "取り込む";
-          }
-        });
+          (isFolder ? "" : `<button class="btn ghost kb-drive-import">取り込む</button>`);
+        if (isFolder) {
+          li.querySelector(".kb-drive-name").style.cursor = "pointer";
+          li.querySelector(".kb-drive-name").addEventListener("click", () => { driveStack.push({ id: f.id, name: f.name }); driveLoad("mydrive", f.id); });
+          li.querySelector(".kb-drive-ic").style.cursor = "pointer";
+          li.querySelector(".kb-drive-ic").addEventListener("click", () => { driveStack.push({ id: f.id, name: f.name }); driveLoad("mydrive", f.id); });
+        } else {
+          li.querySelector(".kb-drive-import").addEventListener("click", async (e) => {
+            const btn = e.currentTarget; btn.disabled = true; btn.textContent = "取り込み中…";
+            setStatus(`「${f.name}」を読み取っています…`);
+            try {
+              const rr = await fetch("/api/knowledge/drive", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ fileId: f.id, category: kbCat(), folder: kbCurrentFolder }) });
+              const dd = await rr.json();
+              if (!rr.ok) throw new Error(dd.error || "失敗");
+              setStatus(`「${f.name}」を取り込みました（約${(dd.chars || 0).toLocaleString()}文字）。`);
+              btn.textContent = "完了"; loadKnowledge();
+            } catch (err) { setStatus("取り込み失敗: " + err.message); btn.disabled = false; btn.textContent = "取り込む"; }
+          });
+        }
         results.appendChild(li);
       }
-    } catch (e) {
-      results.innerHTML = `<li class="kb-empty">エラー: ${escapeHtmlKb(e.message)}</li>`;
-    } finally {
-      searchBtn.disabled = false;
-      searchBtn.textContent = o;
-    }
+    } catch (e) { results.innerHTML = `<li class="kb-empty">エラー: ${escapeHtmlKb(e.message)}</li>`; }
   }
-  searchBtn.addEventListener("click", doSearch);
-  if (qInput) qInput.addEventListener("keydown", (e) => { if (e.key === "Enter") doSearch(); });
+  modal.querySelectorAll(".kb-drive-tab").forEach((t) => t.addEventListener("click", () => {
+    modal.querySelectorAll(".kb-drive-tab").forEach((x) => x.classList.toggle("active", x === t));
+    driveStack = []; if (qInput) qInput.value = "";
+    driveLoad(t.dataset.mode);
+  }));
+  if (qInput) qInput.addEventListener("keydown", (e) => { if (e.key === "Enter") { driveStack = []; driveLoad("search", "", qInput.value.trim()); } });
 })();
+
+loadKnowledge();

@@ -51,6 +51,8 @@ import {
   getPrimaryEmail,
   driveReady,
   driveSearch,
+  driveList,
+  driveAccessToken,
   driveGetContent,
 } from "./google.js";
 import { startScheduler } from "./scheduler.js";
@@ -665,6 +667,35 @@ app.get("/api/drive/search", async (req, res) => {
   } catch (e) {
     res.status(502).json({ error: e.message });
   }
+});
+app.get("/api/drive/list", async (req, res) => {
+  try {
+    const files = await driveList(req.user, {
+      mode: req.query.mode || "recent",
+      parent: req.query.parent || "",
+      q: req.query.q || "",
+    });
+    res.json({ files });
+  } catch (e) {
+    res.status(502).json({ error: e.message });
+  }
+});
+// 公式Google Picker用：短命アクセストークン
+app.get("/api/drive/token", async (req, res) => {
+  try {
+    const token = await driveAccessToken(req.user);
+    if (!token) return res.status(401).json({ error: "Google未連携" });
+    res.json({ token });
+  } catch (e) {
+    res.status(502).json({ error: e.message });
+  }
+});
+// 公式Google Picker用：APIキー等の設定（未設定なら内製ブラウザにフォールバック）
+app.get("/api/drive/picker-config", (req, res) => {
+  res.json({
+    apiKey: process.env.GOOGLE_API_KEY || "",
+    appId: process.env.GOOGLE_PROJECT_NUMBER || "",
+  });
 });
 app.post("/api/knowledge/drive", async (req, res) => {
   try {

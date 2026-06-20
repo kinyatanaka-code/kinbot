@@ -187,6 +187,11 @@ export async function listDayEvents(owner, { timeMin, timeMax } = {}) {
   return out;
 }
 
+// Picker用：ユーザーの短命アクセストークンを取得
+export async function driveAccessToken(owner) {
+  return accessToken(owner);
+}
+
 // ===== Google Drive 連携（自社ナレッジ取り込み用） =====
 // 連携状態の簡易確認（Driveへ実アクセスできるか）
 export async function driveReady(owner) {
@@ -200,6 +205,40 @@ export async function driveReady(owner) {
   } catch {
     return false;
   }
+}
+
+// ドライブ閲覧（最近/マイドライブ/フォルダ/検索）。フォルダも返す。
+export async function driveList(owner, { mode = "recent", parent = "", q = "" } = {}) {
+  const token = await accessToken(owner);
+  if (!token) throw new Error("Google未連携です");
+  let query;
+  let orderBy = "folder,name";
+  if (q) {
+    query = `name contains '${String(q).replace(/'/g, "\\'")}' and trashed = false`;
+    orderBy = "modifiedTime desc";
+  } else if (parent) {
+    query = `'${parent}' in parents and trashed = false`;
+  } else if (mode === "mydrive") {
+    query = `'root' in parents and trashed = false`;
+  } else {
+    // 最近使用したアイテム（フォルダ除外）
+    query = `trashed = false and mimeType != 'application/vnd.google-apps.folder'`;
+    orderBy = "modifiedTime desc";
+  }
+  const p = new URLSearchParams({
+    q: query,
+    pageSize: "50",
+    fields: "files(id,name,mimeType,modifiedTime)",
+    orderBy,
+    supportsAllDrives: "true",
+    includeItemsFromAllDrives: "true",
+  });
+  const res = await fetch(`https://www.googleapis.com/drive/v3/files?${p}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!res.ok) throw new Error(`Drive一覧 ${res.status}: ${(await res.text()).slice(0, 200)}`);
+  const data = await res.json();
+  return data.files || [];
 }
 
 // ファイル検索（名前部分一致）。フォルダは除外しない（フォルダも返す）

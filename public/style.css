@@ -720,3 +720,41 @@ a.kb-src:hover { color: var(--accent); border-color: var(--accent); }
 .kb-drive-name { flex: 1 1 auto; font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .kb-drive-type { font-size: 11px; color: var(--muted); flex: 0 0 auto; }
 .kb-drive-import { flex: 0 0 auto; font-size: 12px; padding: 5px 12px; }
+
+/* 自社ナレッジ：ツールバー */
+.kb-toolbar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 4px 0 12px; }
+.kb-cat-select { font-family: inherit; font-size: 13px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 9px; background: var(--panel-2); }
+
+/* ソース追加モーダル */
+.kb-modal-backdrop { position: fixed; inset: 0; z-index: 200; background: rgba(0,0,0,.4); display: flex; align-items: center; justify-content: center; padding: 20px; }
+.kb-modal-backdrop[hidden] { display: none; }
+.kb-modal { background: var(--panel); border-radius: 16px; box-shadow: 0 20px 60px rgba(0,0,0,.3); width: 100%; max-width: 640px; max-height: 86vh; overflow: hidden; display: flex; flex-direction: column; }
+.kb-modal-head { display: flex; align-items: center; justify-content: space-between; padding: 16px 20px; border-bottom: 1px solid var(--line); font-weight: 700; }
+.kb-modal-folder { color: var(--muted); font-weight: 400; font-size: 12px; margin-left: 6px; }
+.kb-modal-close { border: none; background: transparent; font-size: 22px; line-height: 1; cursor: pointer; color: var(--muted); }
+.kb-modal-body { padding: 18px 20px; overflow-y: auto; }
+.kb-dropzone { border: 2px dashed var(--line); border-radius: 14px; padding: 34px 16px; text-align: center; cursor: pointer; background: var(--panel-2); transition: border-color .15s, background .15s; }
+.kb-dropzone.over { border-color: var(--accent); background: rgba(63,174,143,.08); }
+.kb-dropzone-main { font-size: 15px; font-weight: 700; }
+.kb-dropzone-sub { font-size: 12px; color: var(--muted); margin-top: 4px; }
+.kb-source-btns { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; }
+.kb-source-btn { flex: 1 1 auto; min-width: 120px; border: 1px solid var(--line); background: var(--panel); border-radius: 10px; padding: 12px; font: inherit; font-size: 13px; cursor: pointer; color: var(--ink); }
+.kb-source-btn:hover { background: var(--panel-2); border-color: var(--accent); }
+.kb-src-panel { margin-top: 14px; display: flex; flex-direction: column; gap: 8px; }
+.kb-src-panel[hidden] { display: none; }
+.kb-src-panel input, .kb-src-panel textarea { font-family: inherit; font-size: 13px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 9px; background: var(--panel-2); box-sizing: border-box; }
+.kb-modal-status { margin-top: 12px; font-size: 12px; color: var(--accent); min-height: 16px; }
+
+/* ドライブ閲覧 */
+.kb-drive-tabs { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.kb-drive-tab { border: 1px solid var(--line); background: var(--panel-2); border-radius: 8px; padding: 6px 12px; font: inherit; font-size: 12px; cursor: pointer; color: var(--ink); }
+.kb-drive-tab.active { background: var(--accent); color: #fff; border-color: var(--accent); }
+.kb-drive-tabs input { flex: 1 1 140px; }
+.kb-drive-crumb { font-size: 12px; color: var(--muted); margin: 6px 0; }
+.kb-drive-crumb a { color: var(--accent); text-decoration: none; }
+.kb-drive-results { list-style: none; padding: 0; margin: 6px 0 0; display: flex; flex-direction: column; gap: 6px; max-height: 320px; overflow-y: auto; }
+.kb-drive-item { display: flex; align-items: center; gap: 8px; border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; background: var(--panel); }
+.kb-drive-ic { flex: 0 0 auto; }
+.kb-drive-name { flex: 1 1 auto; font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.kb-drive-type { font-size: 11px; color: var(--muted); flex: 0 0 auto; }
+.kb-drive-import { flex: 0 0 auto; font-size: 12px; padding: 5px 12px; }
