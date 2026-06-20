@@ -833,3 +833,32 @@ a.kb-src:hover { color: var(--accent); border-color: var(--accent); }
 .obj-basis { font-size: 11.5px; color: var(--muted); margin-top: 6px; }
 .live-tab.alert { position: relative; }
 .live-tab.alert::after { content: ""; position: absolute; top: 6px; right: 7px; width: 7px; height: 7px; border-radius: 50%; background: #e24b4a; }
+
+/* ライブ：AI提案（チェック・異議対応・次の一手を1面に縦積み） */
+.live-pane-scroll { display: block; overflow-y: auto; }
+.ai-stack { display: flex; flex-direction: column; gap: 14px; }
+.ai-stack .panel { overflow: visible; }
+.ai-stack .check-list, .ai-stack .obj-list, .ai-stack .moves { max-height: none; overflow: visible; }
+
+/* ライブ：AI提案＝kinbotのLINE風吹き出し */
+.ai-feed { display: flex; flex-direction: column; gap: 14px; padding: 16px; }
+.ai-msg { display: flex; align-items: flex-start; gap: 9px; max-width: 92%; }
+.ai-ava { width: 34px; height: 34px; flex: 0 0 auto; border-radius: 50%; background: #e7f4ef; padding: 2px; filter: drop-shadow(0 2px 5px rgba(15,110,98,.2)); }
+.ai-bubble { position: relative; background: #eafaf4; border: 1px solid #cfe9e0; border-radius: 4px 16px 16px 16px; padding: 10px 13px; box-shadow: 0 1px 2px rgba(40,33,20,.05); }
+.ai-bubble::before { content: ""; position: absolute; left: -7px; top: 12px; width: 0; height: 0; border-top: 6px solid transparent; border-bottom: 6px solid transparent; border-right: 8px solid #cfe9e0; }
+.ai-bubble::after { content: ""; position: absolute; left: -6px; top: 12px; width: 0; height: 0; border-top: 6px solid transparent; border-bottom: 6px solid transparent; border-right: 8px solid #eafaf4; }
+.ai-label { display: inline-block; font-size: 10.5px; font-weight: 700; border-radius: 999px; padding: 1px 9px; margin-bottom: 5px; }
+.ai-b-title { font-size: 13.5px; font-weight: 700; color: var(--ink); margin-bottom: 3px; }
+.ai-b-text { font-size: 14px; line-height: 1.65; color: var(--ink); }
+.ai-b-sub { font-size: 11.5px; color: var(--muted); margin-top: 6px; }
+
+/* 種別ごとの色 */
+.ai-bubble-obj { background: #fbeeea; border-color: #e6b9ac; }
+.ai-bubble-obj::before { border-right-color: #e6b9ac; }
+.ai-bubble-obj::after { border-right-color: #fbeeea; }
+.ai-label-obj { background: #c0563a; color: #fff; }
+.ai-label-question { background: #dbe6f1; color: #355c8a; }
+.ai-label-closing { background: #d7efe9; color: #0c5f55; }
+.ai-label-risk { background: #f7d9d4; color: #a8201a; }
+.ai-label-objection { background: #f3d9cf; color: #a8431f; }
+.ai-label-info { background: #eee9df; color: #746d61; }

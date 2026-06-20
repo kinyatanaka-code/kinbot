@@ -16,6 +16,7 @@ const els = {
   partial: $("partial"),
   summary: $("summary"),
   moves: $("moves"),
+  aiFeed: $("aiFeed"),
   sttHint: $("sttHint"),
   summaryHint: $("summaryHint"),
   linkSelect: $("linkSelect"),
@@ -304,7 +305,12 @@ function resetToJoin(statusMsg) {
   els.transcript.innerHTML = '<div class="empty-state" id="transcriptEmpty">Botが入室すると、発言が話者ごとに流れます。</div>';
   els.transcriptEmpty = $("transcriptEmpty");
   els.summary.innerHTML = '<div class="empty-state">会話が進むと、状況・要点・合意・宿題・相手の懸念を自動でまとめます。</div>';
-  els.moves.innerHTML = '<div class="empty-state">深掘り質問・切り返し・クロージングの好機・見落としリスクを提案します。</div>';
+  const feed = $("aiFeed");
+  if (feed) feed.innerHTML = '<div class="empty-state">商談が進むと、kinbotが「切り返し」「次の一手」を吹き出しでお知らせします。</div>';
+  const cl = $("checkList");
+  if (cl) cl.innerHTML = '<div class="empty-state">会話が進むと、予算・決裁者・時期などの「聞けている／まだの項目」を表示します。</div>';
+  const aitab = document.querySelector('.live-tab[data-pane="ai"]');
+  if (aitab) aitab.classList.remove("alert");
   els.meetingTitle.value = "";
   els.meetingUrl.value = "";
   setStatus(statusMsg || "待機中");
@@ -518,8 +524,7 @@ function handle(msg) {
     case "analysis":
       renderSummary(msg.summary);
       renderCoverage(msg.coverage);
-      renderObjections(msg.objections);
-      renderMoves(msg.suggestions);
+      renderAiFeed(msg.objections, msg.suggestions);
       els.summaryHint.textContent = "更新: " + new Date(msg.ts).toLocaleTimeString("ja-JP");
       kinbotSpeakFromAnalysis(msg);
       break;
@@ -622,34 +627,60 @@ function renderCoverage(list) {
   }
 }
 
-function renderObjections(list) {
-  const box = $("objList");
-  if (!box || !Array.isArray(list)) return;
-  const hint = $("objHint");
-  if (!list.length) {
-    box.innerHTML = '<div class="empty-state">いまは対応が必要な異議はありません。</div>';
-    if (hint) hint.textContent = "相手の懸念に即対応";
-    // 異議タブのバッジを消す
-    const tab = document.querySelector('.live-tab[data-pane="objection"]');
-    if (tab) tab.classList.remove("alert");
+function aiBubble({ kind, label, title, text, sub }) {
+  const wrap = document.createElement("div");
+  wrap.className = "ai-msg";
+  const lbl = label ? `<span class="ai-label ai-label-${kind}">${escAi(label)}</span>` : "";
+  const ttl = title ? `<div class="ai-b-title">${escAi(title)}</div>` : "";
+  const sb = sub ? `<div class="ai-b-sub">${escAi(sub)}</div>` : "";
+  wrap.innerHTML =
+    `<img class="ai-ava" src="kinbot.svg" alt="kinbot" />` +
+    `<div class="ai-bubble ai-bubble-${kind}">${lbl}${ttl}<div class="ai-b-text">${escAi(text)}</div>${sb}</div>`;
+  return wrap;
+}
+function escAi(s) {
+  return String(s == null ? "" : s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+}
+function renderAiFeed(objections, suggestions) {
+  const feed = $("aiFeed");
+  if (!feed) return;
+  const objs = Array.isArray(objections) ? objections : [];
+  const sugs = Array.isArray(suggestions) ? suggestions : [];
+
+  // 異議タブ（AI提案）バッジ
+  const tab = document.querySelector('.live-tab[data-pane="ai"]');
+  if (tab) tab.classList.toggle("alert", objs.length > 0);
+
+  if (!objs.length && !sugs.length) {
+    feed.innerHTML = '<div class="empty-state">いまは特にお知らせはありません。会話を続けてください。</div>';
     return;
   }
-  if (hint) hint.textContent = `${list.length}件の懸念`;
-  const tab = document.querySelector('.live-tab[data-pane="objection"]');
-  if (tab) tab.classList.add("alert");
-  box.innerHTML = "";
-  for (const o of list) {
-    const card = document.createElement("div");
-    card.className = "obj-card";
-    card.innerHTML =
-      `<div class="obj-q"><span class="obj-q-ic">!</span><span></span></div>` +
-      `<div class="obj-a"></div>` +
-      (o.basis ? `<div class="obj-basis"></div>` : "");
-    card.querySelector(".obj-q span:last-child").textContent = o.objection || "";
-    card.querySelector(".obj-a").textContent = o.response || "";
-    if (o.basis) card.querySelector(".obj-basis").textContent = "根拠: " + o.basis;
-    box.appendChild(card);
+  feed.innerHTML = "";
+  // まず異議対応（緊急）
+  for (const o of objs) {
+    feed.appendChild(
+      aiBubble({
+        kind: "obj",
+        label: "切り返し",
+        title: o.objection ? "「" + o.objection + "」には…" : "",
+        text: o.response || "",
+        sub: o.basis ? "根拠: " + o.basis : "",
+      })
+    );
   }
+  // 次の一手
+  for (const m of sugs) {
+    const type = TYPE_LABEL[m.type] ? m.type : "info";
+    feed.appendChild(
+      aiBubble({
+        kind: type,
+        label: TYPE_LABEL[type] || "補足",
+        title: m.title || "",
+        text: m.detail || "",
+      })
+    );
+  }
+  feed.scrollTop = feed.scrollHeight;
 }
 
 let kinbotSayTimer = null;
@@ -671,25 +702,6 @@ function kinbotSpeakFromAnalysis(msg) {
   if (sug && (sug.title || sug.detail)) { kinbotSpeak((sug.title ? sug.title + "：" : "") + (sug.detail || "")); return; }
   const ov = msg.summary && msg.summary.overview;
   if (ov) kinbotSpeak(ov);
-}
-
-function renderMoves(list) {
-  if (!Array.isArray(list)) return;
-  els.moves.innerHTML = "";
-  if (list.length === 0) {
-    els.moves.innerHTML = '<div class="empty-state">いまは特に提案なし。会話を続けてください。</div>';
-    return;
-  }
-  for (const m of list) {
-    const type = TYPE_LABEL[m.type] ? m.type : "info";
-    const card = document.createElement("div");
-    card.className = `card t-${type}`;
-    card.innerHTML = `<div class="ctype"></div><div class="ctitle"></div><div class="cdetail"></div>`;
-    card.querySelector(".ctype").textContent = TYPE_LABEL[type] || "補足";
-    card.querySelector(".ctitle").textContent = m.title || "";
-    card.querySelector(".cdetail").textContent = m.detail || "";
-    els.moves.appendChild(card);
-  }
 }
 
 function setConn(state) { els.conn.dataset.state = state; }

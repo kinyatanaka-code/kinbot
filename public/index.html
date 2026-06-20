@@ -91,10 +91,9 @@
           <div class="live-tabs" id="liveTabs">
             <button class="live-tab" data-pane="video" hidden>ライブ映像</button>
             <button class="live-tab active" data-pane="transcript">文字起こし</button>
+            <button class="live-tab" data-pane="ai">AI提案</button>
             <button class="live-tab" data-pane="check">チェック</button>
-            <button class="live-tab" data-pane="objection">異議対応</button>
             <button class="live-tab" data-pane="summary">要約</button>
-            <button class="live-tab" data-pane="moves">次の一手</button>
           </div>
 
           <div class="live-pane" data-pane="video" hidden>
@@ -116,6 +115,12 @@
             </section>
           </div>
 
+          <div class="live-pane live-pane-scroll" data-pane="ai" hidden>
+            <div class="ai-feed" id="aiFeed">
+              <div class="empty-state">商談が進むと、kinbotが「切り返し」「次の一手」を吹き出しでお知らせします。</div>
+            </div>
+          </div>
+
           <div class="live-pane" data-pane="check" hidden>
             <section class="panel check-panel">
               <div class="panel-head"><h2>抜け漏れチェック</h2><span class="hint" id="checkHint">確認すべき項目</span></div>
@@ -125,29 +130,11 @@
             </section>
           </div>
 
-          <div class="live-pane" data-pane="objection" hidden>
-            <section class="panel obj-panel">
-              <div class="panel-head"><h2>異議対応カード</h2><span class="hint" id="objHint">相手の懸念に即対応</span></div>
-              <div class="obj-list" id="objList">
-                <div class="empty-state">相手が価格・競合・必要性などの懸念を示すと、自社ナレッジに基づく切り返しをカードで表示します。</div>
-              </div>
-            </section>
-          </div>
-
           <div class="live-pane" data-pane="summary" hidden>
             <section class="panel summary-panel">
               <div class="panel-head"><h2>要約</h2><span class="hint" id="summaryHint">—</span></div>
               <div class="summary" id="summary">
                 <div class="empty-state">会話が進むと、状況・要点・合意・宿題・相手の懸念を自動でまとめます。</div>
-              </div>
-            </section>
-          </div>
-
-          <div class="live-pane" data-pane="moves" hidden>
-            <section class="panel moves-panel">
-              <div class="panel-head"><h2>次の一手</h2><span class="hint">AI提案</span></div>
-              <div class="moves" id="moves">
-                <div class="empty-state">深掘り質問・切り返し・クロージングの好機・見落としリスクを提案します。</div>
               </div>
             </section>
           </div>
