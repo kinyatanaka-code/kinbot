@@ -1,15 +1,15 @@
 // server/analyzer.js
 // 要約・提案を生成。LLM_PROVIDER で gemini / anthropic / ollama を切替。
-import { getKnowledgeContext } from "./db.js";
+import { retrieve } from "./retrieval.js";
 const PROVIDER = (process.env.LLM_PROVIDER || "gemini").toLowerCase();
 
-// 自社ナレッジをプロンプト用ブロックに整形（無ければ空）
-async function knowledgeBlock() {
+// 商談内容に近い自社ナレッジだけを抽出してプロンプト用ブロックに整形（無ければ空）
+async function knowledgeBlock(queryText) {
   try {
-    const ctx = await getKnowledgeContext(6000);
+    const ctx = await retrieve(queryText, { topK: 6, maxChars: 4000 });
     if (!ctx) return "";
     return (
-      `\n【自社ナレッジ】(提案・異議対応・御礼メールの根拠に使う。ここに無い事実は作らない)\n` +
+      `\n【自社ナレッジ（関連箇所のみ）】(提案・異議対応・御礼メールの根拠に使う。ここに無い事実は作らない)\n` +
       `"""\n${ctx}\n"""\n`
     );
   } catch {
@@ -74,7 +74,7 @@ function modelFor() {
 
 // ライブ：要約＋次の一手
 export async function analyze({ transcript, prevSummary, repName }) {
-  const know = await knowledgeBlock();
+  const know = await knowledgeBlock(String(transcript || "").slice(-2000));
   const user =
     `自社の営業担当（支援対象）: ${repName || "（未指定）"}\n` +
     know +
@@ -95,7 +95,7 @@ export async function analyzeMeeting({ transcript, repName, dateStr, speakers })
   if (dateStr) ctx.push(`日時: ${dateStr}`);
   if (speakers && speakers.length) ctx.push(`参加者（話者名）: ${speakers.join("、")}`);
   ctx.push(`自社の営業担当: ${repName || "（未指定）"}`);
-  const know = await knowledgeBlock();
+  const know = await knowledgeBlock(String(transcript || "").slice(-3000));
   const user =
     ctx.join("\n") +
     know +
@@ -388,7 +388,7 @@ export async function generateThanks({ round, examples, summaryText, repName, cu
     examples && examples.length
       ? examples.map((e, i) => `【例${i + 1}】\n${e}`).join("\n\n")
       : "（例なし。標準的で丁寧な法人営業のお礼メールの体裁で作成）";
-  const know = await knowledgeBlock();
+  const know = await knowledgeBlock(String(summaryText || "").slice(-2000));
   const user =
     `商談ラウンド: ${round || "不明"}回目\n` +
     `自社担当: ${repName || "[自社担当]"}\n` +

@@ -682,3 +682,19 @@ table.bant td:first-child { color: var(--muted); width: 80px; }
 .kb-manual > summary { cursor: pointer; font-size: 13px; color: var(--accent); margin-bottom: 8px; }
 .kb-src { font-size: 11px; color: var(--muted); border: 1px solid var(--line); border-radius: 6px; padding: 1px 7px; text-decoration: none; }
 a.kb-src:hover { color: var(--accent); border-color: var(--accent); }
+
+/* 自社ナレッジ：フォルダ */
+.kb-nav { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin: 6px 0 10px; }
+.kb-breadcrumb { font-size: 13px; display: flex; flex-wrap: wrap; align-items: center; gap: 4px; }
+.kb-crumb { color: var(--accent); text-decoration: none; }
+.kb-crumb:hover { text-decoration: underline; }
+.kb-crumb-sep { color: var(--muted); }
+.kb-newfolder { flex: 0 0 auto; font-size: 12px; padding: 6px 12px; }
+.kb-folders { list-style: none; padding: 0; margin: 0 0 10px; display: flex; flex-wrap: wrap; gap: 8px; }
+.kb-folder { display: flex; align-items: stretch; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; background: var(--panel-2); }
+.kb-folder-open { border: none; background: transparent; font: inherit; font-size: 13px; padding: 9px 12px; cursor: pointer; color: var(--ink); }
+.kb-folder-open:hover { background: var(--panel); }
+.kb-folder-count { color: var(--muted); font-size: 11px; margin-left: 4px; }
+.kb-folder-del { border: none; border-left: 1px solid var(--line); background: transparent; cursor: pointer; padding: 0 10px; color: var(--muted); }
+.kb-folder-del:hover { color: #c0392b; }
+.kb-move { font-family: inherit; font-size: 11px; padding: 2px 4px; border: 1px solid var(--line); border-radius: 6px; background: var(--panel-2); color: var(--muted); max-width: 130px; }

@@ -147,6 +147,10 @@
                   <button class="btn" id="kbPdfBtn">PDFを取り込む</button>
                 </div>
                 <p class="kb-note" id="kbIngestNote">PDF・Webサイトを取り込めます。動画・Googleドライブは順次対応します。スキャンPDF（画像のみ）は文字抽出できません。</p>
+                <div class="set-row">
+                  <button class="btn ghost" id="kbReindexBtn">検索用に再構築</button>
+                  <span class="kb-note" id="kbReindexNote">既存のナレッジを取り込み直したとき（または初回）に押すと、賢い検索が効くようになります。</span>
+                </div>
               </div>
 
               <details class="kb-manual">
@@ -171,6 +175,11 @@
                 </div>
               </details>
 
+              <div class="kb-nav">
+                <div class="kb-breadcrumb" id="kbBreadcrumb"></div>
+                <button class="btn ghost kb-newfolder" id="kbNewFolderBtn">＋ 新規フォルダ</button>
+              </div>
+              <ul class="kb-folders" id="kbFolders"></ul>
               <ul class="kb-list" id="kbList"></ul>
             </div>
           </div>

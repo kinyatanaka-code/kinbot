@@ -340,17 +340,94 @@ loadSalesforce();
 function escapeHtmlKb(s) {
   return String(s == null ? "" : s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 }
+let kbCurrentFolder = "";
+let kbAllFolders = [];
+const kbParentOf = (p) => p.split("/").slice(0, -1).join("/");
+const kbLeaf = (p) => p.split("/").slice(-1)[0];
+
+function kbRenderBreadcrumb() {
+  const bc = document.getElementById("kbBreadcrumb");
+  if (!bc) return;
+  const parts = kbCurrentFolder ? kbCurrentFolder.split("/") : [];
+  let acc = "";
+  let html = `<a href="#" class="kb-crumb" data-path="">📁 ルート</a>`;
+  for (const p of parts) {
+    acc = acc ? `${acc}/${p}` : p;
+    html += ` <span class="kb-crumb-sep">›</span> <a href="#" class="kb-crumb" data-path="${escapeHtmlKb(acc)}">${escapeHtmlKb(p)}</a>`;
+  }
+  bc.innerHTML = html;
+  bc.querySelectorAll(".kb-crumb").forEach((a) =>
+    a.addEventListener("click", (e) => {
+      e.preventDefault();
+      kbCurrentFolder = e.currentTarget.dataset.path;
+      loadKnowledge();
+    })
+  );
+}
+
+function kbFolderOptions(selected) {
+  const opts = ['<option value="">（ルート）</option>'];
+  for (const f of kbAllFolders) {
+    const sel = f === selected ? " selected" : "";
+    opts.push(`<option value="${escapeHtmlKb(f)}"${sel}>${escapeHtmlKb(f)}</option>`);
+  }
+  return opts.join("");
+}
+
 async function loadKnowledge() {
   const list = document.getElementById("kbList");
+  const folders = document.getElementById("kbFolders");
   if (!list) return;
   try {
-    const items = await (await fetch("/api/knowledge")).json();
-    if (!items.length) {
-      list.innerHTML = '<li class="kb-empty">まだ登録がありません。よく使う説明・事例・想定問答を入れておくと効果的です。</li>';
-      return;
+    const [items, fids] = await Promise.all([
+      (await fetch("/api/knowledge")).json(),
+      (await fetch("/api/knowledge/folders")).json(),
+    ]);
+    kbAllFolders = Array.isArray(fids) ? fids : [];
+    kbRenderBreadcrumb();
+    const ingNote = document.getElementById("kbIngestNote");
+    if (ingNote) ingNote.dataset.folder = kbCurrentFolder;
+
+    // 直下のサブフォルダ
+    if (folders) {
+      const subs = kbAllFolders.filter((f) => kbParentOf(f) === kbCurrentFolder);
+      folders.innerHTML = "";
+      for (const f of subs) {
+        const count = items.filter((it) => (it.folder || "") === f || (it.folder || "").startsWith(f + "/")).length;
+        const li = document.createElement("li");
+        li.className = "kb-folder";
+        li.innerHTML =
+          `<button class="kb-folder-open" data-path="${escapeHtmlKb(f)}">📁 ${escapeHtmlKb(kbLeaf(f))} <span class="kb-folder-count">${count}</span></button>` +
+          `<button class="kb-folder-del" data-path="${escapeHtmlKb(f)}" title="フォルダを削除">🗑</button>`;
+        li.querySelector(".kb-folder-open").addEventListener("click", (e) => {
+          kbCurrentFolder = e.currentTarget.dataset.path;
+          loadKnowledge();
+        });
+        li.querySelector(".kb-folder-del").addEventListener("click", async (e) => {
+          const path = e.currentTarget.dataset.path;
+          if (!confirm(`フォルダ「${kbLeaf(path)}」を削除しますか？（空の場合のみ）`)) return;
+          const r = await fetch("/api/knowledge/folders", {
+            method: "DELETE",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ path }),
+          });
+          if (!r.ok) {
+            const d = await r.json().catch(() => ({}));
+            alert(d.error || "削除できませんでした");
+          }
+          loadKnowledge();
+        });
+        folders.appendChild(li);
+      }
     }
+
+    // 現在フォルダ直下の資料
+    const here = items.filter((it) => (it.folder || "") === kbCurrentFolder);
     list.innerHTML = "";
-    for (const it of items) {
+    if (!here.length) {
+      list.innerHTML = '<li class="kb-empty">このフォルダには資料がありません。上の取り込み欄から追加、または既存資料を「移動」で入れられます。</li>';
+    }
+    for (const it of here) {
       const li = document.createElement("li");
       li.className = "kb-item";
       const srcLabel = { pdf: "PDF", url: "URL", video: "動画", text: "手入力" }[it.source_type] || "手入力";
@@ -362,6 +439,7 @@ async function loadKnowledge() {
         `<div class="kb-item-head"><span class="kb-cat">${escapeHtmlKb(it.category)}</span>` +
         ref +
         `<b>${escapeHtmlKb(it.title)}</b>` +
+        `<select class="kb-move" title="フォルダを移動">${kbFolderOptions(it.folder || "")}</select>` +
         `<button class="kb-del" data-id="${it.id}">削除</button></div>` +
         `<div class="kb-body">${preview}</div>`;
       li.querySelector(".kb-del").addEventListener("click", async (e) => {
@@ -370,12 +448,39 @@ async function loadKnowledge() {
         await fetch("/api/knowledge/" + id, { method: "DELETE" });
         loadKnowledge();
       });
+      li.querySelector(".kb-move").addEventListener("change", async (e) => {
+        await fetch("/api/knowledge/" + it.id, {
+          method: "PUT",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ folder: e.currentTarget.value }),
+        });
+        loadKnowledge();
+      });
       list.appendChild(li);
     }
   } catch {
     list.innerHTML = '<li class="kb-empty">読み込みに失敗しました。</li>';
   }
 }
+
+// 新規フォルダ作成（現在フォルダの下に）
+(function () {
+  const btn = document.getElementById("kbNewFolderBtn");
+  if (!btn) return;
+  btn.addEventListener("click", async () => {
+    const name = (prompt("新しいフォルダ名") || "").trim();
+    if (!name) return;
+    if (/[\/"'\\]/.test(name)) return alert("/ \" ' \\ は使えません");
+    const path = kbCurrentFolder ? `${kbCurrentFolder}/${name}` : name;
+    await fetch("/api/knowledge/folders", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ path }),
+    });
+    loadKnowledge();
+  });
+})();
+
 const kbAddBtn = document.getElementById("kbAddBtn");
 if (kbAddBtn) {
   kbAddBtn.addEventListener("click", async () => {
@@ -383,6 +488,7 @@ if (kbAddBtn) {
       category: $("kbCategory").value,
       title: $("kbTitle").value.trim(),
       body: $("kbBody").value.trim(),
+      folder: kbCurrentFolder,
     };
     if (!body.title && !body.body) return;
     await fetch("/api/knowledge", {
@@ -415,7 +521,7 @@ loadKnowledge();
         const r = await fetch("/api/knowledge/url", {
           method: "POST",
           headers: { "content-type": "application/json" },
-          body: JSON.stringify({ url, category: $("kbInCategory").value }),
+          body: JSON.stringify({ url, category: $("kbInCategory").value, folder: kbCurrentFolder }),
         });
         const d = await r.json();
         if (!r.ok) throw new Error(d.error || "失敗しました");
@@ -446,6 +552,7 @@ loadKnowledge();
         const fd = new FormData();
         fd.append("file", f);
         fd.append("category", $("kbInCategory").value);
+        fd.append("folder", kbCurrentFolder);
         const r = await fetch("/api/knowledge/pdf", { method: "POST", body: fd });
         const d = await r.json();
         if (!r.ok) throw new Error(d.error || "失敗しました");
@@ -460,4 +567,31 @@ loadKnowledge();
       }
     });
   }
+})();
+
+// 既存ナレッジの再インデックス
+(function () {
+  const btn = document.getElementById("kbReindexBtn");
+  const note = document.getElementById("kbReindexNote");
+  if (!btn) return;
+  btn.addEventListener("click", async () => {
+    btn.disabled = true;
+    const o = btn.textContent;
+    btn.textContent = "再構築中…";
+    if (note) note.textContent = "ナレッジを検索用に処理しています（件数により数十秒）…";
+    try {
+      const r = await fetch("/api/knowledge/reindex", { method: "POST" });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.error || "失敗しました");
+      if (note)
+        note.textContent =
+          `${d.count}件を再構築しました。` +
+          (d.embeddings ? "（ベクトル検索が有効）" : "（埋め込みキー未設定のためキーワード検索で動作）");
+    } catch (e) {
+      if (note) note.textContent = "失敗: " + e.message;
+    } finally {
+      btn.disabled = false;
+      btn.textContent = o;
+    }
+  });
 })();

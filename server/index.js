@@ -34,6 +34,9 @@ import {
   addKnowledge,
   updateKnowledge,
   deleteKnowledge,
+  listKbFolders,
+  addKbFolder,
+  deleteKbFolder,
 } from "./db.js";
 import { resolveConfig, statusInfo } from "./config.js";
 import { analyzerInfo, analyzeMeeting, analyzeDeep, analyzeTendency, analyzeSet, generateThanks } from "./analyzer.js";
@@ -50,6 +53,7 @@ import {
 import { startScheduler } from "./scheduler.js";
 import { muxConfigured, createLiveStream } from "./mux.js";
 import { pdfToText, urlToText } from "./ingest.js";
+import { indexKnowledge, embeddingsAvailable } from "./retrieval.js";
 import {
   salesforceConfigured,
   authUrl as sfAuthUrl,
@@ -469,15 +473,38 @@ app.get("/api/knowledge", async (req, res) => {
   res.json(await listKnowledge());
 });
 app.post("/api/knowledge", async (req, res) => {
-  const { category, title, body } = req.body || {};
+  const { category, title, body, folder } = req.body || {};
   if (!title && !body) return res.status(400).json({ error: "タイトルか本文が必要です" });
-  const id = await addKnowledge({ category, title, body, owner: req.user || "" });
+  const id = await addKnowledge({ category, title, body, owner: req.user || "", sourceType: "text", folder });
+  if (id) indexKnowledge(id, { title, category, body }).catch((e) => console.error("[index]", e.message));
   res.json({ ok: true, id });
 });
 app.put("/api/knowledge/:id", async (req, res) => {
-  const { category, title, body } = req.body || {};
-  await updateKnowledge(Number(req.params.id), { category, title, body });
+  const { category, title, body, folder } = req.body || {};
+  const id = Number(req.params.id);
+  await updateKnowledge(id, { category, title, body, folder });
+  // 本文が変わる場合のみ再インデックス（移動だけなら不要）
+  if (body !== undefined) indexKnowledge(id, { title, category, body }).catch((e) => console.error("[index]", e.message));
   res.json({ ok: true });
+});
+
+// ナレッジのフォルダ操作
+app.get("/api/knowledge/folders", async (req, res) => {
+  res.json(await listKbFolders());
+});
+app.post("/api/knowledge/folders", async (req, res) => {
+  const path = String((req.body && req.body.path) || "").trim().replace(/^\/+|\/+$/g, "");
+  if (!path) return res.status(400).json({ error: "フォルダ名が必要です" });
+  if (/["'\\]/.test(path)) return res.status(400).json({ error: "使えない文字が含まれています" });
+  await addKbFolder(path);
+  res.json({ ok: true });
+});
+app.delete("/api/knowledge/folders", async (req, res) => {
+  const path = String((req.body && req.body.path) || "").trim();
+  const r = await deleteKbFolder(path);
+  if (!r.ok && r.reason === "not_empty")
+    return res.status(409).json({ error: "中に資料やサブフォルダがあるため削除できません" });
+  res.json(r);
 });
 app.delete("/api/knowledge/:id", async (req, res) => {
   await deleteKnowledge(Number(req.params.id));
@@ -487,7 +514,7 @@ app.delete("/api/knowledge/:id", async (req, res) => {
 // URLを取り込んでナレッジ化
 app.post("/api/knowledge/url", async (req, res) => {
   try {
-    const { url, category } = req.body || {};
+    const { url, category, folder } = req.body || {};
     if (!url || !/^https?:\/\//i.test(url)) return res.status(400).json({ error: "http(s) のURLを入力してください" });
     const { title, text } = await urlToText(url);
     if (!text || text.length < 20) return res.status(422).json({ error: "本文を抽出できませんでした（JS描画/ログインが必要なサイトの可能性）" });
@@ -498,7 +525,9 @@ app.post("/api/knowledge/url", async (req, res) => {
       owner: req.user || "",
       sourceType: "url",
       sourceRef: url,
+      folder: folder || "",
     });
+    if (id) indexKnowledge(id, { title: title || url, category: category || "資料", body: text }).catch((e) => console.error("[index]", e.message));
     res.json({ ok: true, id, chars: text.length });
   } catch (e) {
     console.error("[knowledge/url]", e.message);
@@ -522,11 +551,32 @@ app.post("/api/knowledge/pdf", kbUpload.single("file"), async (req, res) => {
       owner: req.user || "",
       sourceType: "pdf",
       sourceRef: req.file.originalname || "",
+      folder: (req.body && req.body.folder) || "",
     });
+    if (id) indexKnowledge(id, { title: name, category: (req.body && req.body.category) || "資料", body: text }).catch((e) => console.error("[index]", e.message));
     res.json({ ok: true, id, chars: text.length });
   } catch (e) {
     console.error("[knowledge/pdf]", e.message);
     res.status(502).json({ error: e.message });
+  }
+});
+
+// 既存ナレッジを検索用に再構築（チャンク＋埋め込み）
+app.post("/api/knowledge/reindex", async (req, res) => {
+  try {
+    const items = await listKnowledge();
+    let n = 0;
+    for (const it of items) {
+      try {
+        await indexKnowledge(it.id, { title: it.title, category: it.category, body: it.body });
+        n++;
+      } catch (e) {
+        console.error("[reindex]", it.id, e.message);
+      }
+    }
+    res.json({ ok: true, count: n, embeddings: embeddingsAvailable() });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
   }
 });
 

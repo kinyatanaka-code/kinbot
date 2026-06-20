@@ -52,6 +52,25 @@ export async function initDb() {
   `);
   await pool.query(`ALTER TABLE knowledge ADD COLUMN IF NOT EXISTS source_type TEXT;`);
   await pool.query(`ALTER TABLE knowledge ADD COLUMN IF NOT EXISTS source_ref TEXT;`);
+  await pool.query(`ALTER TABLE knowledge ADD COLUMN IF NOT EXISTS folder TEXT DEFAULT '';`);
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS kb_folders (
+      path       TEXT PRIMARY KEY,
+      created_at TIMESTAMPTZ DEFAULT now()
+    );
+  `);
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS knowledge_chunks (
+      id           SERIAL PRIMARY KEY,
+      knowledge_id INTEGER REFERENCES knowledge(id) ON DELETE CASCADE,
+      chunk_index  INTEGER,
+      title        TEXT,
+      category     TEXT,
+      text         TEXT,
+      embedding    TEXT,
+      created_at   TIMESTAMPTZ DEFAULT now()
+    );
+  `);
   await pool.query(`
     CREATE TABLE IF NOT EXISTS settings (
       id   INT PRIMARY KEY,
@@ -478,19 +497,19 @@ export async function listKnowledge() {
   if (!pool) return [];
   try {
     const { rows } = await pool.query(
-      `SELECT id, category, title, body, owner, source_type, source_ref, created_at FROM knowledge ORDER BY category, id`
+      `SELECT id, category, title, body, owner, source_type, source_ref, COALESCE(folder,'') AS folder, created_at FROM knowledge ORDER BY folder, category, id`
     );
     return rows;
   } catch {
     return [];
   }
 }
-export async function addKnowledge({ category, title, body, owner, sourceType, sourceRef }) {
+export async function addKnowledge({ category, title, body, owner, sourceType, sourceRef, folder }) {
   if (!pool) return null;
   try {
     const { rows } = await pool.query(
-      `INSERT INTO knowledge (category, title, body, owner, source_type, source_ref) VALUES ($1,$2,$3,$4,$5,$6) RETURNING id`,
-      [category || "その他", title || "", body || "", owner || "", sourceType || "text", sourceRef || ""]
+      `INSERT INTO knowledge (category, title, body, owner, source_type, source_ref, folder) VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING id`,
+      [category || "その他", title || "", body || "", owner || "", sourceType || "text", sourceRef || "", folder || ""]
     );
     return rows[0]?.id || null;
   } catch (e) {
@@ -498,15 +517,69 @@ export async function addKnowledge({ category, title, body, owner, sourceType, s
     return null;
   }
 }
-export async function updateKnowledge(id, { category, title, body }) {
+export async function updateKnowledge(id, { category, title, body, folder }) {
   if (!pool) return;
   try {
-    await pool.query(
-      `UPDATE knowledge SET category=$2, title=$3, body=$4 WHERE id=$1`,
-      [id, category || "その他", title || "", body || ""]
-    );
+    // 渡された項目だけ更新（folderのみの移動も可能に）
+    const sets = [];
+    const vals = [id];
+    if (category !== undefined) { vals.push(category); sets.push(`category=$${vals.length}`); }
+    if (title !== undefined) { vals.push(title); sets.push(`title=$${vals.length}`); }
+    if (body !== undefined) { vals.push(body); sets.push(`body=$${vals.length}`); }
+    if (folder !== undefined) { vals.push(folder || ""); sets.push(`folder=$${vals.length}`); }
+    if (!sets.length) return;
+    await pool.query(`UPDATE knowledge SET ${sets.join(", ")} WHERE id=$1`, vals);
   } catch (e) {
     console.error("[db] updateKnowledge", e.message);
+  }
+}
+
+// ---- ナレッジのフォルダ ----
+export async function listKbFolders() {
+  if (!pool) return [];
+  try {
+    const a = await pool.query(`SELECT path FROM kb_folders`);
+    const b = await pool.query(`SELECT DISTINCT COALESCE(folder,'') AS path FROM knowledge WHERE COALESCE(folder,'') <> ''`);
+    const set = new Set();
+    for (const r of [...a.rows, ...b.rows]) {
+      // 中間パスも全て登録（例 "競合/B社" → "競合" も）
+      const parts = String(r.path).split("/").filter(Boolean);
+      let acc = "";
+      for (const p of parts) {
+        acc = acc ? `${acc}/${p}` : p;
+        set.add(acc);
+      }
+    }
+    return [...set].sort();
+  } catch {
+    return [];
+  }
+}
+export async function addKbFolder(path) {
+  if (!pool || !path) return;
+  try {
+    await pool.query(`INSERT INTO kb_folders (path) VALUES ($1) ON CONFLICT (path) DO NOTHING`, [path]);
+  } catch (e) {
+    console.error("[db] addKbFolder", e.message);
+  }
+}
+export async function deleteKbFolder(path) {
+  if (!pool || !path) return { ok: false, reason: "no path" };
+  try {
+    // 配下に資料/サブフォルダがあれば削除しない（安全）
+    const items = await pool.query(
+      `SELECT COUNT(*)::int AS n FROM knowledge WHERE COALESCE(folder,'')=$1 OR COALESCE(folder,'') LIKE $2`,
+      [path, path + "/%"]
+    );
+    const subs = await pool.query(`SELECT COUNT(*)::int AS n FROM kb_folders WHERE path LIKE $1`, [path + "/%"]);
+    if ((items.rows[0]?.n || 0) > 0 || (subs.rows[0]?.n || 0) > 0) {
+      return { ok: false, reason: "not_empty" };
+    }
+    await pool.query(`DELETE FROM kb_folders WHERE path=$1`, [path]);
+    return { ok: true };
+  } catch (e) {
+    console.error("[db] deleteKbFolder", e.message);
+    return { ok: false, reason: e.message };
   }
 }
 export async function deleteKnowledge(id) {
@@ -534,5 +607,66 @@ export async function getKnowledgeContext(maxChars = 6000) {
     return out.trim();
   } catch {
     return "";
+  }
+}
+
+// ---- ナレッジのチャンク（RAG用） ----
+export async function replaceKnowledgeChunks(knowledgeId, chunks) {
+  if (!pool) return;
+  try {
+    await pool.query(`DELETE FROM knowledge_chunks WHERE knowledge_id=$1`, [knowledgeId]);
+    let i = 0;
+    for (const c of chunks) {
+      await pool.query(
+        `INSERT INTO knowledge_chunks (knowledge_id, chunk_index, title, category, text, embedding)
+         VALUES ($1,$2,$3,$4,$5,$6)`,
+        [knowledgeId, i++, c.title || "", c.category || "", c.text || "", c.embedding ? JSON.stringify(c.embedding) : null]
+      );
+    }
+  } catch (e) {
+    console.error("[db] replaceKnowledgeChunks", e.message);
+  }
+}
+export async function deleteKnowledgeChunks(knowledgeId) {
+  if (!pool) return;
+  try {
+    await pool.query(`DELETE FROM knowledge_chunks WHERE knowledge_id=$1`, [knowledgeId]);
+  } catch (e) {
+    console.error("[db] deleteKnowledgeChunks", e.message);
+  }
+}
+// 全チャンク取得（embeddingはJSONパースして返す）
+export async function listKnowledgeChunks() {
+  if (!pool) return [];
+  try {
+    const { rows } = await pool.query(
+      `SELECT id, knowledge_id, title, category, text, embedding FROM knowledge_chunks`
+    );
+    return rows.map((r) => ({
+      id: r.id,
+      knowledgeId: r.knowledge_id,
+      title: r.title,
+      category: r.category,
+      text: r.text,
+      embedding: r.embedding ? safeParse(r.embedding) : null,
+    }));
+  } catch {
+    return [];
+  }
+}
+function safeParse(s) {
+  try {
+    return JSON.parse(s);
+  } catch {
+    return null;
+  }
+}
+export async function countEmbeddedChunks() {
+  if (!pool) return 0;
+  try {
+    const { rows } = await pool.query(`SELECT COUNT(*)::int AS n FROM knowledge_chunks WHERE embedding IS NOT NULL`);
+    return rows[0]?.n || 0;
+  } catch {
+    return 0;
   }
 }
