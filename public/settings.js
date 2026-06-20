@@ -335,3 +335,60 @@ if (saveSfMapBtn) {
   });
 }
 loadSalesforce();
+
+// ===== 自社ナレッジ =====
+function escapeHtmlKb(s) {
+  return String(s == null ? "" : s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+}
+async function loadKnowledge() {
+  const list = document.getElementById("kbList");
+  if (!list) return;
+  try {
+    const items = await (await fetch("/api/knowledge")).json();
+    if (!items.length) {
+      list.innerHTML = '<li class="kb-empty">まだ登録がありません。よく使う説明・事例・想定問答を入れておくと効果的です。</li>';
+      return;
+    }
+    list.innerHTML = "";
+    for (const it of items) {
+      const li = document.createElement("li");
+      li.className = "kb-item";
+      li.innerHTML =
+        `<div class="kb-item-head"><span class="kb-cat">${escapeHtmlKb(it.category)}</span>` +
+        `<b>${escapeHtmlKb(it.title)}</b>` +
+        `<button class="kb-del" data-id="${it.id}">削除</button></div>` +
+        `<div class="kb-body">${escapeHtmlKb(it.body)}</div>`;
+      li.querySelector(".kb-del").addEventListener("click", async (e) => {
+        const id = e.currentTarget.dataset.id;
+        if (!confirm("このナレッジを削除しますか？")) return;
+        await fetch("/api/knowledge/" + id, { method: "DELETE" });
+        loadKnowledge();
+      });
+      list.appendChild(li);
+    }
+  } catch {
+    list.innerHTML = '<li class="kb-empty">読み込みに失敗しました。</li>';
+  }
+}
+const kbAddBtn = document.getElementById("kbAddBtn");
+if (kbAddBtn) {
+  kbAddBtn.addEventListener("click", async () => {
+    const body = {
+      category: $("kbCategory").value,
+      title: $("kbTitle").value.trim(),
+      body: $("kbBody").value.trim(),
+    };
+    if (!body.title && !body.body) return;
+    await fetch("/api/knowledge", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    $("kbTitle").value = "";
+    $("kbBody").value = "";
+    const s = document.getElementById("kbSaved");
+    if (s) { s.hidden = false; setTimeout(() => (s.hidden = true), 1500); }
+    loadKnowledge();
+  });
+}
+loadKnowledge();

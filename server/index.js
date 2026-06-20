@@ -30,6 +30,10 @@ import {
   setMeetingStatus,
   createMeeting,
   setMeetingSfUrl,
+  listKnowledge,
+  addKnowledge,
+  updateKnowledge,
+  deleteKnowledge,
 } from "./db.js";
 import { resolveConfig, statusInfo } from "./config.js";
 import { analyzerInfo, analyzeMeeting, analyzeDeep, analyzeTendency, analyzeSet, generateThanks } from "./analyzer.js";
@@ -456,6 +460,26 @@ app.put("/api/settings", async (req, res) => {
 app.post("/api/sessions/:id/stop", async (req, res) => {
   await leaveBot(req.params.id);
   removeSession(req.params.id);
+  res.json({ ok: true });
+});
+
+// --- 自社ナレッジ（チーム共有） ---
+app.get("/api/knowledge", async (req, res) => {
+  res.json(await listKnowledge());
+});
+app.post("/api/knowledge", async (req, res) => {
+  const { category, title, body } = req.body || {};
+  if (!title && !body) return res.status(400).json({ error: "タイトルか本文が必要です" });
+  const id = await addKnowledge({ category, title, body, owner: req.user || "" });
+  res.json({ ok: true, id });
+});
+app.put("/api/knowledge/:id", async (req, res) => {
+  const { category, title, body } = req.body || {};
+  await updateKnowledge(Number(req.params.id), { category, title, body });
+  res.json({ ok: true });
+});
+app.delete("/api/knowledge/:id", async (req, res) => {
+  await deleteKnowledge(Number(req.params.id));
   res.json({ ok: true });
 });
 

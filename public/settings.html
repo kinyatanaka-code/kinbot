@@ -25,6 +25,7 @@
             <button class="set-menu-item" data-tab="links">登録リンク</button>
             <button class="set-menu-item" data-tab="calendar">カレンダー連携</button>
             <button class="set-menu-item" data-tab="salesforce">Salesforce連携</button>
+            <button class="set-menu-item" data-tab="knowledge">自社ナレッジ</button>
             <button class="set-menu-item" data-tab="thanks">御礼メール例文</button>
             <button class="set-menu-item" data-tab="status">状態</button>
           </nav>
@@ -117,6 +118,32 @@
                 <button class="btn" id="saveSfMapBtn">マッピングを保存</button>
                 <span class="saved" id="sfMapSaved" hidden>保存しました</span>
               </div>
+            </div>
+          </div>
+
+          <div class="set-pane" data-pane="knowledge" hidden>
+            <div class="set-card">
+              <h3>自社ナレッジ（チーム共有）</h3>
+              <p class="note">製品情報・事例・価格・FAQ・競合比較などを登録すると、ライブの提案／異議対応、商談後のフィードバック、御礼メールが「自社の本物の情報」に基づいて作られます。チーム全員に反映されます。</p>
+              <div class="kb-add">
+                <div class="kb-add-row">
+                  <select id="kbCategory">
+                    <option value="製品・サービス">製品・サービス</option>
+                    <option value="事例">事例</option>
+                    <option value="価格">価格</option>
+                    <option value="FAQ">FAQ</option>
+                    <option value="競合比較">競合比較</option>
+                    <option value="その他">その他</option>
+                  </select>
+                  <input id="kbTitle" type="text" placeholder="タイトル（例：A社導入事例 / 競合B社との違い）" />
+                </div>
+                <textarea id="kbBody" rows="4" placeholder="本文。具体的に（数字・実績・想定問答など）。"></textarea>
+                <div class="set-row">
+                  <button class="btn" id="kbAddBtn">追加</button>
+                  <span class="saved" id="kbSaved" hidden>保存しました</span>
+                </div>
+              </div>
+              <ul class="kb-list" id="kbList"></ul>
             </div>
           </div>
 

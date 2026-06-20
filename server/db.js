@@ -41,6 +41,16 @@ export async function initDb() {
   await pool.query(`ALTER TABLE meetings ADD COLUMN IF NOT EXISTS status TEXT;`);
   await pool.query(`ALTER TABLE meetings ADD COLUMN IF NOT EXISTS mux_playback_id TEXT;`);
   await pool.query(`
+    CREATE TABLE IF NOT EXISTS knowledge (
+      id         SERIAL PRIMARY KEY,
+      category   TEXT,
+      title      TEXT,
+      body       TEXT,
+      owner      TEXT,
+      created_at TIMESTAMPTZ DEFAULT now()
+    );
+  `);
+  await pool.query(`
     CREATE TABLE IF NOT EXISTS settings (
       id   INT PRIMARY KEY,
       data JSONB
@@ -458,5 +468,69 @@ export async function setMeetingSfUrl(botId, url) {
     await pool.query(`UPDATE meetings SET sf_url=$2, updated_at=now() WHERE bot_id=$1`, [botId, url || null]);
   } catch (e) {
     console.error("[db] setMeetingSfUrl", e.message);
+  }
+}
+
+// ---- 自社ナレッジ（チーム共有） ----
+export async function listKnowledge() {
+  if (!pool) return [];
+  try {
+    const { rows } = await pool.query(
+      `SELECT id, category, title, body, owner, created_at FROM knowledge ORDER BY category, id`
+    );
+    return rows;
+  } catch {
+    return [];
+  }
+}
+export async function addKnowledge({ category, title, body, owner }) {
+  if (!pool) return null;
+  try {
+    const { rows } = await pool.query(
+      `INSERT INTO knowledge (category, title, body, owner) VALUES ($1,$2,$3,$4) RETURNING id`,
+      [category || "その他", title || "", body || "", owner || ""]
+    );
+    return rows[0]?.id || null;
+  } catch (e) {
+    console.error("[db] addKnowledge", e.message);
+    return null;
+  }
+}
+export async function updateKnowledge(id, { category, title, body }) {
+  if (!pool) return;
+  try {
+    await pool.query(
+      `UPDATE knowledge SET category=$2, title=$3, body=$4 WHERE id=$1`,
+      [id, category || "その他", title || "", body || ""]
+    );
+  } catch (e) {
+    console.error("[db] updateKnowledge", e.message);
+  }
+}
+export async function deleteKnowledge(id) {
+  if (!pool) return;
+  try {
+    await pool.query(`DELETE FROM knowledge WHERE id=$1`, [id]);
+  } catch (e) {
+    console.error("[db] deleteKnowledge", e.message);
+  }
+}
+// プロンプトに差し込む自社ナレッジ文脈（文字数上限つき）
+export async function getKnowledgeContext(maxChars = 6000) {
+  if (!pool) return "";
+  try {
+    const { rows } = await pool.query(
+      `SELECT category, title, body FROM knowledge ORDER BY category, id`
+    );
+    if (!rows.length) return "";
+    let out = "";
+    for (const r of rows) {
+      const line = `[${r.category || "その他"}] ${r.title || ""}: ${(r.body || "").replace(/\s+/g, " ").trim()}\n`;
+      if (out.length + line.length > maxChars) break;
+      out += line;
+    }
+    return out.trim();
+  } catch {
+    return "";
   }
 }

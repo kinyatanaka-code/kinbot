@@ -1,6 +1,21 @@
 // server/analyzer.js
 // 要約・提案を生成。LLM_PROVIDER で gemini / anthropic / ollama を切替。
+import { getKnowledgeContext } from "./db.js";
 const PROVIDER = (process.env.LLM_PROVIDER || "gemini").toLowerCase();
+
+// 自社ナレッジをプロンプト用ブロックに整形（無ければ空）
+async function knowledgeBlock() {
+  try {
+    const ctx = await getKnowledgeContext(6000);
+    if (!ctx) return "";
+    return (
+      `\n【自社ナレッジ】(提案・異議対応・御礼メールの根拠に使う。ここに無い事実は作らない)\n` +
+      `"""\n${ctx}\n"""\n`
+    );
+  } catch {
+    return "";
+  }
+}
 
 // --- ライブ中の「要約＋次の一手」 ---
 const LIVE_PROMPT = `あなたは B2B 商談に同席するベテランの営業コーチです。
@@ -59,11 +74,13 @@ function modelFor() {
 
 // ライブ：要約＋次の一手
 export async function analyze({ transcript, prevSummary, repName }) {
+  const know = await knowledgeBlock();
   const user =
-    `自社の営業担当（支援対象）: ${repName || "（未指定）"}\n\n` +
-    (prevSummary ? `これまでの要約(参考):\n${JSON.stringify(prevSummary)}\n\n` : "") +
-    `商談の文字起こし(古い→新しい):\n"""\n${transcript}\n"""\n\n` +
-    `最新状況の要約と次の一手を JSON で返してください。`;
+    `自社の営業担当（支援対象）: ${repName || "（未指定）"}\n` +
+    know +
+    (prevSummary ? `\nこれまでの要約(参考):\n${JSON.stringify(prevSummary)}\n` : "") +
+    `\n商談の文字起こし(古い→新しい):\n"""\n${transcript}\n"""\n\n` +
+    `最新状況の要約と次の一手を JSON で返してください。異議対応・提案は自社ナレッジを根拠に。`;
   const text = await callLLM(LIVE_PROMPT, user, 1400);
   const o = parseJson(text);
   return {
@@ -78,10 +95,12 @@ export async function analyzeMeeting({ transcript, repName, dateStr, speakers })
   if (dateStr) ctx.push(`日時: ${dateStr}`);
   if (speakers && speakers.length) ctx.push(`参加者（話者名）: ${speakers.join("、")}`);
   ctx.push(`自社の営業担当: ${repName || "（未指定）"}`);
+  const know = await knowledgeBlock();
   const user =
     ctx.join("\n") +
+    know +
     `\n\n商談の文字起こし:\n"""\n${transcript}\n"""\n\n` +
-    `この商談を、指定テンプレートの要約と営業フィードバックとして JSON で返してください。話された情報だけを使ってください。`;
+    `この商談を、指定テンプレートの要約と営業フィードバックとして JSON で返してください。話された情報だけを使ってください。改善提案は自社ナレッジを踏まえて。`;
   const text = await callLLM(REVIEW_PROMPT, user, 2400);
   const o = parseJson(text);
   return { summary: o.summary || {}, feedback: o.feedback || {} };
@@ -369,13 +388,15 @@ export async function generateThanks({ round, examples, summaryText, repName, cu
     examples && examples.length
       ? examples.map((e, i) => `【例${i + 1}】\n${e}`).join("\n\n")
       : "（例なし。標準的で丁寧な法人営業のお礼メールの体裁で作成）";
+  const know = await knowledgeBlock();
   const user =
     `商談ラウンド: ${round || "不明"}回目\n` +
     `自社担当: ${repName || "[自社担当]"}\n` +
-    `相手（顧客）: ${customer || "[相手担当者]"}\n\n` +
-    `過去のお礼メール例（同ラウンド）:\n"""\n${exBlock}\n"""\n\n` +
+    `相手（顧客）: ${customer || "[相手担当者]"}\n` +
+    know +
+    `\n過去のお礼メール例（同ラウンド）:\n"""\n${exBlock}\n"""\n\n` +
     `今回の商談内容（要約）:\n"""\n${(summaryText || "").slice(-6000)}\n"""\n\n` +
-    `上記の文体に合わせ、今回の商談内容に基づくお礼メールを JSON で作成してください。`;
+    `上記の文体に合わせ、今回の商談内容に基づくお礼メールを JSON で作成してください。サービス適合の一文は自社ナレッジを根拠に。`;
   const text = await callLLM(THANKS_PROMPT.replace(/\{round\}/g, String(round || "")), user, 1400);
   return parseJson(text);
 }
