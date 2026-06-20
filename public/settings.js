@@ -12,6 +12,7 @@ async function load() {
     $("transcribeProvider").value = s.transcribeProvider || "recallai";
     $("deepgramModel").value = s.deepgramModel || "nova-2";
     $("analyzeIntervalSec").value = Math.round((s.analyzeIntervalMs || 20000) / 1000);
+    $("calendarFilter").value = s.calendarFilter || "";
 
     const st = data.status || {};
     $("statusTable").innerHTML = `
@@ -31,6 +32,7 @@ $("saveBtn").addEventListener("click", async () => {
     transcribeProvider: $("transcribeProvider").value,
     deepgramModel: $("deepgramModel").value.trim() || "nova-2",
     analyzeIntervalMs: (Number($("analyzeIntervalSec").value) || 20) * 1000,
+    calendarFilter: $("calendarFilter").value.trim(),
   };
   try {
     const res = await fetch("/api/settings", {

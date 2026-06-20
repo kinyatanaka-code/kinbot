@@ -411,6 +411,7 @@ app.put("/api/settings", async (req, res) => {
       "deepgramModel",
       "analyzeIntervalMs",
       "repName",
+      "calendarFilter",
     ];
     const patch = {};
     for (const k of allowed) if (k in (req.body || {})) patch[k] = req.body[k];
@@ -687,10 +688,24 @@ app.get("/api/calendar/events", async (req, res) => {
     const start = new Date(`${dateStr}T00:00:00+09:00`);
     const end = new Date(start.getTime() + 24 * 3600 * 1000);
     out.date = dateStr;
-    out.events = await listDayEvents(owner, {
+    let events = await listDayEvents(owner, {
       timeMin: start.toISOString(),
       timeMax: end.toISOString(),
     });
+    // 設定のフィルター文字（カンマ/空白/読点区切り・いずれか一致）
+    const us = await getUserSettings(owner);
+    const kws = (us.calendarFilter || "")
+      .split(/[,、\s]+/)
+      .map((k) => k.trim().toLowerCase())
+      .filter(Boolean);
+    if (kws.length) {
+      events = events.filter((ev) => {
+        const t = (ev.title || "").toLowerCase();
+        return kws.some((k) => t.includes(k));
+      });
+    }
+    out.filtered = kws.length > 0;
+    out.events = events;
   } catch (e) {
     out.error = e.message;
   }

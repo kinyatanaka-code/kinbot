@@ -129,7 +129,9 @@ function openCalPicker(panel, onPick) {
       }
       const events = d.events || [];
       if (!events.length) {
-        list.innerHTML = '<div class="cal-empty">この日の予定はありません。</div>';
+        list.innerHTML = d.filtered
+          ? '<div class="cal-empty">条件に一致する予定はありません（設定のフィルター文字を確認）。</div>'
+          : '<div class="cal-empty">この日の予定はありません。</div>';
         return;
       }
       list.innerHTML = "";
