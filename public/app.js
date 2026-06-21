@@ -15,7 +15,6 @@ const els = {
   transcriptEmpty: $("transcriptEmpty"),
   partial: $("partial"),
   summary: $("summary"),
-  moves: $("moves"),
   aiFeed: $("aiFeed"),
   sttHint: $("sttHint"),
   summaryHint: $("summaryHint"),
