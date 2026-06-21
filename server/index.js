@@ -27,6 +27,8 @@ import {
   addActionItem,
   updateActionItem,
   deleteActionItem,
+  listDealStatuses,
+  setDealStatus,
   getSetCache,
   saveSetCache,
   listUsers,
@@ -235,6 +237,30 @@ app.post("/api/meetings/cleanup-empty", async (req, res) => {
     const minutes = Number((req.body && req.body.minutes) || 180);
     const n = await deleteEmptyMeetings(Number.isFinite(minutes) ? minutes : 180);
     res.json({ ok: true, removed: n });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ===== 案件ステータス =====
+app.get("/api/deal-status", async (req, res) => {
+  try {
+    res.json({ statuses: await listDealStatuses() });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+app.put("/api/deal-status", async (req, res) => {
+  try {
+    const { account, status, auto } = req.body || {};
+    if (!account) return res.status(400).json({ error: "account が必要です" });
+    if (auto) {
+      // AIに任せる：手動フラグを解除
+      await setDealStatus(account, { manual: false });
+    } else {
+      await setDealStatus(account, { status, manual: true });
+    }
+    res.json({ ok: true });
   } catch (e) {
     res.status(500).json({ error: e.message });
   }

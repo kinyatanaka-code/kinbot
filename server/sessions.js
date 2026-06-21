@@ -1,6 +1,6 @@
 // server/sessions.js
 import { analyze, analyzeMeeting, analyzeDeep } from "./analyzer.js";
-import { createMeeting, saveMeeting, saveAnalysis, saveDeepAnalysis } from "./db.js";
+import { createMeeting, saveMeeting, saveAnalysis, saveDeepAnalysis, getMeeting, setDealStatusAuto } from "./db.js";
 import { disableLiveStream } from "./mux.js";
 
 const DEFAULT_INTERVAL_MS = Number(process.env.ANALYZE_INTERVAL_MS || 20000);
@@ -244,6 +244,16 @@ class Session {
     try {
       const deep = await analyzeDeep({ transcript, repName: this.repName });
       await saveDeepAnalysis(this.botId, deep);
+      // 案件ステータスをAI自動更新（手動上書きされていない案件のみ）
+      const st = deep && deep.deal_status;
+      if (st && ["進行中", "受注", "失注", "保留"].includes(st)) {
+        let account = this.title || "";
+        try {
+          const m = await getMeeting(this.botId);
+          if (m) account = (m.account && m.account.trim()) || m.title || account;
+        } catch {}
+        if (account) await setDealStatusAuto(account, st);
+      }
     } catch (e) {
       console.error("[auto deep]", e.message);
     }

@@ -989,3 +989,15 @@ a.kb-src:hover { color: var(--accent); border-color: var(--accent); }
 .tl-title { font-size: 13.5px; font-weight: 700; margin: 2px 0; }
 .tl-ov { font-size: 12.5px; color: var(--ink); line-height: 1.6; }
 .tl-link { font-size: 12px; color: var(--accent); text-decoration: none; }
+
+/* 案件ステータス */
+.status-badge { display: inline-block; font-size: 11px; font-weight: 700; border-radius: 999px; padding: 1px 9px; vertical-align: middle; }
+.st-進行中 { background: #dbe6f1; color: #355c8a; }
+.st-受注 { background: #d7efe9; color: #0c5f55; }
+.st-失注 { background: #f3d9cf; color: #a8431f; }
+.st-保留 { background: #eee9df; color: #746d61; }
+.deal-head-top { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.deal-status-pick { display: flex; align-items: center; gap: 8px; }
+.deal-status-pick select { font: inherit; font-size: 12.5px; padding: 6px 10px; border: 1px solid var(--line); border-radius: 9px; background: var(--panel-2); }
+.st-manual { color: #a8431f; font-weight: 700; }
+.st-auto { color: #355c8a; font-weight: 700; }

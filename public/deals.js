@@ -13,10 +13,15 @@ const acctOf = (m) => (m.account && m.account.trim()) || m.title || "(無題)";
 let all = [];
 let groups = {}; // account -> meetings[]
 let current = null;
+let dealStatuses = {}; // account -> {status, manual}
+const STATUS_LIST = ["進行中", "受注", "失注", "保留"];
+const statusOf = (a) => (dealStatuses[a] && dealStatuses[a].status) || "進行中";
 
 async function load() {
   try {
     all = await (await fetch("/api/meetings")).json();
+    const ds = await (await fetch("/api/deal-status")).json();
+    dealStatuses = ds.statuses || {};
   } catch {
     $("dealList").innerHTML = '<div class="empty-state">読み込みに失敗しました。</div>';
     return;
@@ -60,10 +65,11 @@ function renderList() {
   for (const a of names) {
     const ms = groups[a];
     const last = ms[ms.length - 1];
+    const st = statusOf(a);
     const card = document.createElement("div");
     card.className = "deal-card" + (a === current ? " active" : "");
     card.innerHTML =
-      `<div class="deal-name">${esc(a)}</div>` +
+      `<div class="deal-name">${esc(a)} <span class="status-badge st-${st}">${st}</span></div>` +
       `<div class="deal-meta"><span>${ms.length}件</span><span>${esc(last.owner_name || last.owner || "")}</span></div>` +
       `<div class="deal-sub">${esc(PHASE_LABEL[last.phase] || "フェーズ未設定")} ・ 最終 ${fmtDate(last.created_at)}</div>`;
     card.addEventListener("click", () => selectDeal(a));
@@ -91,8 +97,12 @@ async function selectDeal(account) {
 
   det.innerHTML =
     `<div class="deal-head">` +
-    `<h2>${esc(account)}</h2>` +
-    `<div class="deal-head-meta">${ms.length}回の商談 ・ 現在 ${esc(PHASE_LABEL[last.phase] || "フェーズ未設定")} ・ 担当 ${esc(last.owner_name || last.owner || "—")}</div>` +
+    `<div class="deal-head-top"><h2>${esc(account)}</h2>` +
+    `<div class="deal-status-pick"><span class="status-badge st-${statusOf(account)}" id="dealStBadge">${statusOf(account)}</span>` +
+    `<select id="dealStSel">${STATUS_LIST.map((s) => `<option value="${s}" ${statusOf(account) === s ? "selected" : ""}>${s}</option>`).join("")}<option value="__auto">AIに任せる</option></select></div></div>` +
+    `<div class="deal-head-meta">${ms.length}回の商談 ・ 現在 ${esc(PHASE_LABEL[last.phase] || "フェーズ未設定")} ・ 担当 ${esc(last.owner_name || last.owner || "—")}` +
+    (dealStatuses[account] && dealStatuses[account].manual ? ' ・ <span class="st-manual">手動設定</span>' : ' ・ <span class="st-auto">AI自動</span>') +
+    `</div>` +
     `</div>` +
     `<section class="deal-sec"><div class="deal-sec-h">📋 ネクストアクション</div><div id="aiBox"><div class="empty-state">読み込み中…</div></div>` +
     `<div class="ai-add"><input id="aiNew" type="text" placeholder="やることを追加（例：見積もりを送付）" /><input id="aiDue" type="date" /><button class="btn" id="aiAddBtn">追加</button></div></section>` +
@@ -100,6 +110,21 @@ async function selectDeal(account) {
     (concerns.length ? `<ul class="deal-concerns">${concerns.map((c) => `<li>${esc(c)}</li>`).join("")}</ul>` : '<div class="empty-state">記録なし</div>') +
     `</section>` +
     `<section class="deal-sec"><div class="deal-sec-h">🗂 商談の流れ</div><div class="deal-timeline" id="dealTimeline"></div></section>`;
+
+  // ステータス変更
+  $("dealStSel").addEventListener("change", async (e) => {
+    const v = e.target.value;
+    const body = v === "__auto" ? { account, auto: true } : { account, status: v };
+    await fetch("/api/deal-status", { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+    // ローカル状態を更新
+    if (v === "__auto") {
+      if (dealStatuses[account]) dealStatuses[account].manual = false;
+    } else {
+      dealStatuses[account] = { status: v, manual: true };
+    }
+    selectDeal(account);
+    renderList();
+  });
 
   // タイムライン
   const tl = $("dealTimeline");

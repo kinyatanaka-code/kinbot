@@ -58,6 +58,15 @@ export async function initDb() {
   `);
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_action_items_account ON action_items(account);`);
   await pool.query(`
+    CREATE TABLE IF NOT EXISTS deal_status (
+      account     TEXT PRIMARY KEY,
+      status      TEXT NOT NULL DEFAULT '進行中',
+      manual      BOOLEAN DEFAULT false,
+      note        TEXT,
+      updated_at  TIMESTAMPTZ DEFAULT now()
+    );
+  `);
+  await pool.query(`
     CREATE TABLE IF NOT EXISTS knowledge (
       id         SERIAL PRIMARY KEY,
       category   TEXT,
@@ -320,6 +329,54 @@ export async function updateActionItem(id, { done, text, due }) {
 export async function deleteActionItem(id) {
   if (!pool) return;
   try { await pool.query(`DELETE FROM action_items WHERE id=$1`, [id]); } catch (e) { console.error("[db] deleteActionItem", e.message); }
+}
+
+// ===== 案件ステータス =====
+const VALID_STATUS = ["進行中", "受注", "失注", "保留"];
+export async function listDealStatuses() {
+  if (!pool) return {};
+  try {
+    const { rows } = await pool.query(`SELECT account, status, manual FROM deal_status`);
+    const map = {};
+    for (const r of rows) map[r.account] = { status: r.status, manual: r.manual };
+    return map;
+  } catch {
+    return {};
+  }
+}
+export async function setDealStatus(account, { status, manual, note }) {
+  if (!pool || !account) return;
+  if (status && !VALID_STATUS.includes(status)) return;
+  try {
+    await pool.query(
+      `INSERT INTO deal_status (account, status, manual, note, updated_at)
+       VALUES ($1, COALESCE($2,'進行中'), COALESCE($3,false), $4, now())
+       ON CONFLICT (account) DO UPDATE SET
+         status = COALESCE($2, deal_status.status),
+         manual = COALESCE($3, deal_status.manual),
+         note = COALESCE($4, deal_status.note),
+         updated_at = now()`,
+      [account, status || null, manual === undefined ? null : manual, note || null]
+    );
+  } catch (e) {
+    console.error("[db] setDealStatus", e.message);
+  }
+}
+// AI自動更新：手動上書きされていない案件だけ更新
+export async function setDealStatusAuto(account, status) {
+  if (!pool || !account || !VALID_STATUS.includes(status)) return;
+  try {
+    await pool.query(
+      `INSERT INTO deal_status (account, status, manual, updated_at)
+       VALUES ($1, $2, false, now())
+       ON CONFLICT (account) DO UPDATE SET
+         status = CASE WHEN deal_status.manual THEN deal_status.status ELSE $2 END,
+         updated_at = now()`,
+      [account, status]
+    );
+  } catch (e) {
+    console.error("[db] setDealStatusAuto", e.message);
+  }
 }
 
 // 登録ユーザー一覧（営業担当の付け替え用）
