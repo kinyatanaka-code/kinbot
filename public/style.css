@@ -940,3 +940,10 @@ a.kb-src:hover { color: var(--accent); border-color: var(--accent); }
 /* フィルター行のドロップダウンを一覧より前面に（.main>* の指定に勝つ詳細度で上書き） */
 .main > .hfilters { position: relative; z-index: 20; }
 .main > .filters { position: relative; z-index: 20; }
+
+/* 各ページヘッダーのkinbot */
+.topbar .brand { display: flex; align-items: center; gap: 9px; }
+.topbar-bot { width: 26px; height: 26px; flex: 0 0 auto; filter: drop-shadow(0 2px 5px rgba(15,110,98,.2)); }
+/* 履歴の空状態にkinbot */
+.empty-bot { display: flex; flex-direction: column; align-items: center; gap: 12px; text-align: center; }
+.empty-bot img { width: 84px; height: 84px; opacity: 0.95; filter: drop-shadow(0 6px 16px rgba(15,110,98,.18)); }
