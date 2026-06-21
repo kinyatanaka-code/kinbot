@@ -256,8 +256,16 @@ async function loadList() {
 }
 
 async function loadDetail(botId) {
+  const histWrap = document.querySelector(".history");
+  if (histWrap) histWrap.classList.add("m-detail");
+  if (!loadDetail._wired && histWrap) {
+    loadDetail._wired = true;
+    hdetail.addEventListener("click", (e) => {
+      if (e.target.closest(".m-back")) histWrap.classList.remove("m-detail");
+    });
+  }
   hdetail.innerHTML = '<div class="empty-state">読み込み中…</div>';
-  if (window.innerWidth <= 760) hdetail.scrollIntoView({ behavior: "smooth", block: "start" });
+  hdetail.scrollTop = 0;
   try {
     const res = await fetch(`/api/meetings/${encodeURIComponent(botId)}`);
     const m = await res.json();
@@ -266,6 +274,7 @@ async function loadDetail(botId) {
     const tr = Array.isArray(m.transcript) ? m.transcript : [];
 
     hdetail.innerHTML = `
+      <button class="m-back" type="button">← 一覧へ戻る</button>
       <div class="drec" id="drec"></div>
       <div class="dhead">
         <div class="dtitle-wrap">

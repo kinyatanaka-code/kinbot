@@ -10,11 +10,11 @@
     <div class="app">
       <nav class="sidebar">
         <div class="side-brand"><span class="brand-mark"></span><span>kinbot</span></div>
-        <a class="side-item" href="index.html"><span class="side-ico">🎙</span><span class="side-label">レコーディング</span></a>
-        <a class="side-item" href="history.html"><span class="side-ico">🗂</span><span class="side-label">商談履歴</span></a>
-        <a class="side-item" href="deals.html"><span class="side-ico">💼</span><span class="side-label">案件</span></a>
-        <a class="side-item active" href="analysis.html"><span class="side-ico">📊</span><span class="side-label">分析</span></a>
-        <a class="side-item" href="settings.html"><span class="side-ico">⚙️</span><span class="side-label">設定</span></a>
+        <a class="side-item" href="index.html"><span class="side-ico ico-rec"></span><span class="side-label">レコーディング</span></a>
+        <a class="side-item" href="history.html"><span class="side-ico ico-hist"></span><span class="side-label">商談履歴</span></a>
+        <a class="side-item" href="deals.html"><span class="side-ico ico-deal"></span><span class="side-label">案件</span></a>
+        <a class="side-item active" href="analysis.html"><span class="side-ico ico-ana"></span><span class="side-label">分析</span></a>
+        <a class="side-item" href="settings.html"><span class="side-ico ico-set"></span><span class="side-label">設定</span></a>
         <div class="side-foot"><span id="who" class="who"></span><a href="#" id="logout" class="side-logout">ログアウト</a></div>
       </nav>
 
@@ -34,15 +34,23 @@
             <button class="btn ghost" id="fClear">クリア</button>
           </div>
 
-          <div class="dashboard" id="dashboard"></div>
+          <div class="ana-tabs" id="anaTabs">
+            <button class="ana-tab active" data-mp="dash">ダッシュボード</button>
+            <button class="ana-tab" data-mp="agg">スコア</button>
+            <button class="ana-tab" data-mp="tend">まとめ分析</button>
+            <button class="ana-tab" data-mp="win">勝ち負け</button>
+            <button class="ana-tab" data-mp="list">商談一覧</button>
+          </div>
 
-          <div class="agg" id="agg"></div>
+          <div class="dashboard" id="dashboard" data-mpanel="dash"></div>
 
-          <div class="tendency" id="tendency"></div>
+          <div class="agg" id="agg" data-mpanel="agg"></div>
 
-          <div class="winloss" id="winloss"></div>
+          <div class="tendency" id="tendency" data-mpanel="tend"></div>
 
-          <div class="alist-wrap">
+          <div class="winloss" id="winloss" data-mpanel="win"></div>
+
+          <div class="alist-wrap" data-mpanel="list">
             <h3>対象の商談（クリックで詳細へ）</h3>
             <ul class="alist" id="alist"><li class="empty-state">読み込み中…</li></ul>
           </div>
@@ -51,6 +59,18 @@
     </div>
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
     <script src="analysis.js"></script>
+    <script>
+      (function () {
+        const tabs = document.getElementById("anaTabs");
+        if (!tabs) return;
+        const set = (mp) => {
+          tabs.querySelectorAll(".ana-tab").forEach((b) => b.classList.toggle("active", b.dataset.mp === mp));
+          document.querySelectorAll("[data-mpanel]").forEach((el) => el.classList.toggle("m-active", el.dataset.mpanel === mp));
+        };
+        tabs.querySelectorAll(".ana-tab").forEach((b) => b.addEventListener("click", () => set(b.dataset.mp)));
+        set("dash");
+      })();
+    </script>
       <script src="nav.js"></script>
   </body>
 </html>

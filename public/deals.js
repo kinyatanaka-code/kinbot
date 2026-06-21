@@ -82,7 +82,13 @@ async function selectDeal(account) {
   renderList();
   const ms = groups[account] || [];
   const det = $("dealDetail");
-  if (window.innerWidth <= 760) det.scrollIntoView({ behavior: "smooth", block: "start" });
+  const wrap = document.querySelector(".history");
+  if (wrap) wrap.classList.add("m-detail");
+  if (!selectDeal._wired && wrap) {
+    selectDeal._wired = true;
+    det.addEventListener("click", (e) => { if (e.target.closest(".m-back")) wrap.classList.remove("m-detail"); });
+  }
+  det.scrollTop = 0;
   const last = ms[ms.length - 1];
 
   // 相手の懸念（集約・重複除去）
@@ -97,6 +103,7 @@ async function selectDeal(account) {
   }
 
   det.innerHTML =
+    `<button class="m-back" type="button">← 一覧へ戻る</button>` +
     `<div class="deal-head">` +
     `<div class="deal-head-top"><h2>${esc(account)}</h2>` +
     `<div class="deal-status-pick"><span class="status-badge st-${statusOf(account)}" id="dealStBadge">${statusOf(account)}</span>` +

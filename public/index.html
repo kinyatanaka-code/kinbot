@@ -12,11 +12,11 @@
         <div class="side-brand">
           <span class="brand-mark"></span><span>kinbot</span>
         </div>
-        <a class="side-item active" href="index.html"><span class="side-ico">🎙</span><span class="side-label">レコーディング</span></a>
-        <a class="side-item" href="history.html"><span class="side-ico">🗂</span><span class="side-label">商談履歴</span></a>
-        <a class="side-item" href="deals.html"><span class="side-ico">💼</span><span class="side-label">案件</span></a>
-        <a class="side-item" href="analysis.html"><span class="side-ico">📊</span><span class="side-label">分析</span></a>
-        <a class="side-item" href="settings.html"><span class="side-ico">⚙️</span><span class="side-label">設定</span></a>
+        <a class="side-item active" href="index.html"><span class="side-ico ico-rec"></span><span class="side-label">レコーディング</span></a>
+        <a class="side-item" href="history.html"><span class="side-ico ico-hist"></span><span class="side-label">商談履歴</span></a>
+        <a class="side-item" href="deals.html"><span class="side-ico ico-deal"></span><span class="side-label">案件</span></a>
+        <a class="side-item" href="analysis.html"><span class="side-ico ico-ana"></span><span class="side-label">分析</span></a>
+        <a class="side-item" href="settings.html"><span class="side-ico ico-set"></span><span class="side-label">設定</span></a>
         <div class="side-foot"><span id="who" class="who"></span><a href="#" id="logout" class="side-logout">ログアウト</a></div>
       </nav>
 
@@ -30,11 +30,17 @@
           </div>
         </header>
 
+        <div class="rec-tabs" id="recTabs">
+          <button class="rec-tab active" data-rec="rec">商談記録</button>
+          <button class="rec-tab" data-rec="file">ファイルで記録</button>
+          <button class="rec-tab" data-rec="live">ライブ中</button>
+        </div>
+
         <!-- ステップ1：商談名・URL・入室ボタン＋進行中の商談 -->
         <div class="join-view" id="viewJoin">
           <div class="join-inner">
             <div class="join-cards">
-              <div class="join-card">
+              <div class="join-card" data-mrec="rec">
                 <img class="join-mascot" src="kinbot.svg" alt="kinbot" />
                 <h1 class="join-title">商談を記録する</h1>
                 <p class="join-desc">商談名と会議URLを入れて、Botを入室させます。</p>
@@ -48,7 +54,7 @@
                 <button class="btn big" id="joinBtn">Botを入室させる</button>
                 <p class="join-consent">Botが参加者として入室します。<strong>相手に録音・記録の同意</strong>を得てください。</p>
               </div>
-              <div class="join-card upload-card">
+              <div class="join-card upload-card" data-mrec="file">
                 <h2 class="join-title">ファイルから記録</h2>
                 <p class="join-desc">音声・動画をアップロードして、文字起こし・要約・分析を作成し、商談履歴に保存します。</p>
                 <input id="upTitle" type="text" placeholder="商談名（任意）" />
@@ -57,7 +63,7 @@
                 <p class="join-consent" id="upMsg">対応形式：mp3 / m4a / wav / mp4 など。最大2GB。処理完了後、商談履歴に表示されます。</p>
               </div>
             </div>
-            <div class="active-block">
+            <div class="active-block" data-mrec="live">
               <h2 class="active-title with-bot">進行中の商談（ライブ）</h2>
               <div class="active-list" id="activeList"><div class="empty-state">いま進行中の商談はありません。</div></div>
             </div>
@@ -65,7 +71,7 @@
         </div>
 
         <!-- ステップ2：ライブ文字起こし・要約・次の一手 -->
-        <div class="live-view" id="viewLive" hidden>
+        <div class="live-view" id="viewLive" data-mrec="live" hidden>
           <div class="kinbot-bar" id="kinbotBar">
             <svg class="kinbot-av" id="kinbotAv" viewBox="0 0 240 240" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
               <defs>
@@ -154,6 +160,27 @@
     </div>
     <script src="https://cdn.jsdelivr.net/npm/hls.js@1"></script>
     <script src="app.js"></script>
+    <script>
+      (function () {
+        const tabs = document.getElementById("recTabs");
+        if (!tabs) return;
+        const setRec = (name) => {
+          tabs.querySelectorAll(".rec-tab").forEach((b) => b.classList.toggle("active", b.dataset.rec === name));
+          document.querySelectorAll("[data-mrec]").forEach((el) => el.classList.toggle("mrec-on", el.dataset.mrec === name));
+        };
+        tabs.querySelectorAll(".rec-tab").forEach((b) => b.addEventListener("click", () => setRec(b.dataset.rec)));
+        setRec("rec");
+        // ライブ開始/終了に追従してタブを自動切替
+        const live = document.getElementById("viewLive");
+        if (live) {
+          new MutationObserver(() => {
+            if (window.innerWidth > 760) return;
+            if (!live.hidden) setRec("live");
+            else if (tabs.querySelector('.rec-tab[data-rec="live"]').classList.contains("active")) setRec("rec");
+          }).observe(live, { attributes: true, attributeFilter: ["hidden"] });
+        }
+      })();
+    </script>
     <script src="nav.js"></script>
   </body>
 </html>
