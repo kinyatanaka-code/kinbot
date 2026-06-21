@@ -257,6 +257,7 @@ async function loadList() {
 
 async function loadDetail(botId) {
   hdetail.innerHTML = '<div class="empty-state">読み込み中…</div>';
+  if (window.innerWidth <= 760) hdetail.scrollIntoView({ behavior: "smooth", block: "start" });
   try {
     const res = await fetch(`/api/meetings/${encodeURIComponent(botId)}`);
     const m = await res.json();

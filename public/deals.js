@@ -82,6 +82,7 @@ async function selectDeal(account) {
   renderList();
   const ms = groups[account] || [];
   const det = $("dealDetail");
+  if (window.innerWidth <= 760) det.scrollIntoView({ behavior: "smooth", block: "start" });
   const last = ms[ms.length - 1];
 
   // 相手の懸念（集約・重複除去）
