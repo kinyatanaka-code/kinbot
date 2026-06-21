@@ -1001,3 +1001,16 @@ a.kb-src:hover { color: var(--accent); border-color: var(--accent); }
 .deal-status-pick select { font: inherit; font-size: 12.5px; padding: 6px 10px; border: 1px solid var(--line); border-radius: 9px; background: var(--panel-2); }
 .st-manual { color: #a8431f; font-weight: 700; }
 .st-auto { color: #355c8a; font-weight: 700; }
+
+/* 勝ち負け傾向分析 */
+.winloss { margin-top: 16px; }
+.wl-cols { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin: 10px 0; }
+.wl-col { border-radius: 12px; padding: 12px 14px; }
+.wl-col-h { font-size: 13px; font-weight: 800; margin-bottom: 8px; }
+.wl-col ul { margin: 0; padding-left: 18px; font-size: 13px; line-height: 1.7; }
+.wl-lost { background: #fbeeea; border: 1px solid #e6b9ac; }
+.wl-lost .wl-col-h { color: #a8431f; }
+.wl-win { background: #eaf3de; border: 1px solid #c0dd97; }
+.wl-win .wl-col-h { color: #3b6d11; }
+.sgroup.wl-diff .label, .sgroup.wl-rec .label { font-weight: 800; }
+@media (max-width: 820px) { .wl-cols { grid-template-columns: 1fr; } }

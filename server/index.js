@@ -47,7 +47,7 @@ import {
   deleteKbFolder,
 } from "./db.js";
 import { resolveConfig, statusInfo } from "./config.js";
-import { analyzerInfo, analyzeMeeting, analyzeDeep, analyzeTendency, analyzeSet, generateThanks, getCheckItems } from "./analyzer.js";
+import { analyzerInfo, analyzeMeeting, analyzeDeep, analyzeTendency, analyzeSet, analyzeWinLoss, generateThanks, getCheckItems } from "./analyzer.js";
 import {
   googleConfigured,
   authUrl,
@@ -239,6 +239,93 @@ app.post("/api/meetings/cleanup-empty", async (req, res) => {
     res.json({ ok: true, removed: n });
   } catch (e) {
     res.status(500).json({ error: e.message });
+  }
+});
+
+// 失注 vs 進行中・受注 の傾向を比較分析
+app.post("/api/winloss-analysis", async (req, res) => {
+  try {
+    const { owner, owners, phase, phases, from, to, force } = req.body || {};
+    const ownerList = Array.isArray(owners) ? owners.filter(Boolean) : owner ? [owner] : [];
+    const phaseList = Array.isArray(phases) ? phases.filter(Boolean) : phase ? [phase] : [];
+    let rows = await listMeetings({ isAdmin: true });
+    rows = rows.filter((m) => {
+      if (ownerList.length && !ownerList.includes(m.owner || "")) return false;
+      if (phaseList.length && !phaseList.includes(m.phase || "")) return false;
+      const d = new Date(m.created_at);
+      if (from && d < new Date(from + "T00:00:00")) return false;
+      if (to && d > new Date(to + "T23:59:59")) return false;
+      return true;
+    });
+
+    const statuses = await listDealStatuses();
+    const acctOf = (m) => (m.account && m.account.trim()) || m.title || "(無題)";
+    const statusOf = (m) => {
+      const s = statuses[acctOf(m)];
+      if (s && s.status) return s.status;
+      if (m.analysis && m.analysis.deal_status) return m.analysis.deal_status;
+      return "進行中";
+    };
+    const lost = rows.filter((m) => statusOf(m) === "失注");
+    const active = rows.filter((m) => statusOf(m) === "進行中" || statusOf(m) === "受注");
+
+    if (!lost.length || !active.length) {
+      return res.status(400).json({
+        error: `比較には両方の案件が必要です（失注 ${lost.length}件 / 進行中・受注 ${active.length}件）。商談を重ねてステータスが付くと分析できます。`,
+      });
+    }
+
+    const block = (m, i) => {
+      const p = [`#${i + 1} 「${m.title || "無題"}」 ${m.round_no ? m.round_no + "回目 " : ""}フェーズ${m.phase || "-"}`];
+      const s = m.summary || {};
+      if (s.overview) p.push(`要約: ${s.overview}`);
+      if (Array.isArray(s.customer_concerns) && s.customer_concerns.length) p.push(`相手の懸念: ${s.customer_concerns.join(" / ")}`);
+      const mt = m.metrics || {};
+      if (typeof mt.repTalkPct === "number") p.push(`営業トーク比率: ${mt.repTalkPct}%`);
+      if (mt.buyCount || mt.riskCount) p.push(`購買シグナル${mt.buyCount || 0}/リスク${mt.riskCount || 0}`);
+      const a = m.analysis;
+      if (a && a.scores) p.push(`スコア ヒア${a.scores.hearing ?? "-"}/提案${a.scores.proposal ?? "-"}/クロ${a.scores.closing ?? "-"}/傾聴${a.scores.listening ?? "-"}`);
+      if (a && a.objections?.length) p.push(`懸念対応: ${a.objections.join(" / ")}`);
+      if (a && a.rep_habits?.length) p.push(`口癖: ${a.rep_habits.join(" / ")}`);
+      return p.join("\n");
+    };
+    const cut = (arr) => {
+      let s = arr.slice(0, 12).map(block).join("\n\n");
+      return s.length > 8000 ? s.slice(0, 8000) : s;
+    };
+    const lostMaterial = cut(lost);
+    const activeMaterial = cut(active);
+
+    // キャッシュ
+    const key = `winloss|${[...ownerList].sort().join("+")}|${[...phaseList].sort().join("+")}|${from || ""}|${to || ""}`;
+    const fingerprint = crypto
+      .createHash("sha1")
+      .update(
+        rows.map((m) => `${m.bot_id}:${new Date(m.updated_at || m.created_at).getTime()}:${statusOf(m)}`).sort().join(",")
+      )
+      .digest("hex");
+    const cache = await getSetCache(key);
+    if (cache && cache.fingerprint === fingerprint && !force) {
+      return res.json({ ...cache.result, cached: true });
+    }
+
+    const ownerName = ownerList.length ? ownerList.map((o) => rows.find((m) => m.owner === o)?.owner_name || o).join("・") : "全員";
+    const phaseDesc = phaseList.length ? phaseList.map((p) => PHASE_LABELS[p] || p).join("・") : "すべて";
+    const filterDesc = `営業担当: ${ownerName} ／ フェーズ: ${phaseDesc}`;
+
+    const result = await analyzeWinLoss({
+      lostMaterial,
+      activeMaterial,
+      lostCount: lost.length,
+      activeCount: active.length,
+      filterDesc,
+    });
+    const payload = { ...result, lostCount: lost.length, activeCount: active.length };
+    await saveSetCache(key, fingerprint, payload);
+    res.json({ ...payload, cached: false });
+  } catch (e) {
+    console.error("[winloss]", e.message);
+    res.status(502).json({ error: e.message });
   }
 });
 

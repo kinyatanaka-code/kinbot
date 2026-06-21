@@ -408,6 +408,31 @@ export async function analyzeSet({ material, filterDesc }) {
   return parseJson(text);
 }
 
+// 勝ち負け分析：失注案件 vs 進行/受注案件 の傾向を比較
+const WINLOSS_PROMPT = `あなたは B2B 営業の分析責任者です。
+「失注した案件」と「進行中／受注の案件」それぞれに属する複数商談の特徴データ（要約・スコア・営業のトーク比率・購買/リスク兆候・懸念・口癖など）を比較し、
+何が勝ち負けを分けているかを、事実に基づいて言語化します。憶測や一般論ではなく、渡されたデータに根ざした具体的な傾向を抽出してください。
+
+必ず次の JSON のみを出力（前置き・コードフェンス禁止）:
+{
+  "lost_patterns": ["失注案件に共通して見られる傾向（行動・会話・状況の特徴）"],
+  "active_patterns": ["進行中／受注案件に共通して見られる傾向"],
+  "key_differences": ["勝ち負けを分けている決定的な違い（対比で）"],
+  "recommendations": ["明日からの商談で実践できる具体的な打ち手"]
+}
+各配列は3〜6件、日本語で簡潔に。データが少ない場合は断定を避け、その旨を含める。`;
+
+export async function analyzeWinLoss({ lostMaterial, activeMaterial, lostCount, activeCount, filterDesc }) {
+  const user =
+    `対象範囲: ${filterDesc || "（指定なし）"}\n` +
+    `失注案件: ${lostCount}件 ／ 進行中・受注案件: ${activeCount}件\n\n` +
+    `■ 失注した案件の商談データ:\n"""\n${lostMaterial || "（データなし）"}\n"""\n\n` +
+    `■ 進行中・受注の案件の商談データ:\n"""\n${activeMaterial || "（データなし）"}\n"""\n\n` +
+    `両者を比較し、勝ち負けの傾向と打ち手を JSON でまとめてください。`;
+  const text = await callLLM(WINLOSS_PROMPT, user, 2200);
+  return parseJson(text);
+}
+
 // 御礼メール生成（例文をほぼそのまま使い、商談の悩み＋マッチ訴求を3行ほど差し込む）
 const THANKS_PROMPT = `あなたは法人営業の担当者です。商談後の「御礼メール」を作成します。
 これは商談「{round}回目」へのお礼メールです。

@@ -127,7 +127,56 @@ function render(triggered) {
   renderDashboard(rows);
   renderAgg(rows);
   renderSetPanel(rows, !!triggered);
+  renderWinLoss(rows);
   renderList(rows);
+}
+
+// ===== 失注 vs 進行中の傾向分析 =====
+let wlSeq = 0;
+function renderWinLoss(rows) {
+  const el = $("winloss");
+  if (!el) return;
+  if (!rows.length) { el.innerHTML = ""; return; }
+  el.innerHTML = `<div class="tend-head"><span>🏆 失注 vs 進行中・受注 の傾向分析</span><button class="btn" id="wlBtn">分析する</button></div>
+    <div class="tend-body" id="wlBody"><div class="empty-state">案件ステータス（失注／進行中／受注）をもとに、AIが「負けパターン」と「勝ちパターン」を比較してまとめます。ボタンを押すと分析します。</div></div>`;
+  const filter = curFilter();
+  $("wlBtn").onclick = () => runWinLoss(filter, ++wlSeq, true);
+}
+async function runWinLoss(filter, seq, force) {
+  const btn = $("wlBtn");
+  if (btn) { btn.disabled = true; btn.textContent = "分析中…"; }
+  $("wlBody").innerHTML = '<div class="empty-state">分析中…（AIが失注・進行中の商談を横断しています）</div>';
+  try {
+    const r = await fetch("/api/winloss-analysis", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ ...filter, force: !!force }),
+    });
+    const d = await r.json();
+    if (seq !== wlSeq) return;
+    if (d.error) throw new Error(d.error);
+    renderWinLossResult(d);
+    if (btn) { btn.disabled = false; btn.textContent = "再分析"; }
+  } catch (e) {
+    if (seq !== wlSeq) return;
+    $("wlBody").innerHTML = `<div class="empty-state">${escapeHtml(e.message || "分析に失敗しました")}</div>`;
+    if (btn) { btn.disabled = false; btn.textContent = "もう一度試す"; }
+  }
+}
+function wlGroup(label, items, cls) {
+  if (!Array.isArray(items) || !items.length) return "";
+  return `<div class="sgroup ${cls || ""}"><div class="label">${label}</div><ul>` +
+    items.map((i) => `<li>${escapeHtml(i)}</li>`).join("") + `</ul></div>`;
+}
+function renderWinLossResult(d) {
+  let html = `<p class="metric-note">失注 ${d.lostCount || 0}件 ・ 進行中/受注 ${d.activeCount || 0}件 を比較${d.cached ? "・保存済みの結果" : "・たった今分析"}</p>`;
+  html += '<div class="wl-cols">';
+  html += `<div class="wl-col wl-lost"><div class="wl-col-h">⚠️ 失注に多い傾向</div><ul>${(d.lost_patterns || []).map((i) => `<li>${escapeHtml(i)}</li>`).join("") || "<li>—</li>"}</ul></div>`;
+  html += `<div class="wl-col wl-win"><div class="wl-col-h">✅ 進行/受注に多い傾向</div><ul>${(d.active_patterns || []).map((i) => `<li>${escapeHtml(i)}</li>`).join("") || "<li>—</li>"}</ul></div>`;
+  html += "</div>";
+  html += wlGroup("勝ち負けを分ける決定的な違い", d.key_differences, "wl-diff");
+  html += wlGroup("明日からの打ち手", d.recommendations, "wl-rec");
+  $("wlBody").innerHTML = html;
 }
 
 // ===== ダッシュボード（フィルタ連動のKPI・チャート） =====
