@@ -42,6 +42,21 @@ export async function initDb() {
   await pool.query(`ALTER TABLE meetings ADD COLUMN IF NOT EXISTS mux_playback_id TEXT;`);
   await pool.query(`ALTER TABLE meetings ADD COLUMN IF NOT EXISTS ai_log JSONB;`);
   await pool.query(`ALTER TABLE meetings ADD COLUMN IF NOT EXISTS metrics JSONB;`);
+  await pool.query(`ALTER TABLE meetings ADD COLUMN IF NOT EXISTS account TEXT;`);
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS action_items (
+      id          SERIAL PRIMARY KEY,
+      account     TEXT NOT NULL,
+      bot_id      TEXT,
+      text        TEXT NOT NULL,
+      owner       TEXT,
+      done        BOOLEAN DEFAULT false,
+      due_date    DATE,
+      source      TEXT DEFAULT 'manual',
+      created_at  TIMESTAMPTZ DEFAULT now()
+    );
+  `);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_action_items_account ON action_items(account);`);
   await pool.query(`
     CREATE TABLE IF NOT EXISTS knowledge (
       id         SERIAL PRIMARY KEY,
@@ -172,22 +187,41 @@ export async function listMeetings({ owner, isAdmin } = {}) {
   if (!pool) return [];
   const base = `SELECT m.bot_id, m.meeting_url, m.rep_name, m.title, m.owner,
                        m.round_no, m.phase, m.status, m.created_at, m.updated_at, m.summary, m.analysis,
-                       m.metrics, m.sf_url,
+                       m.metrics, m.sf_url, COALESCE(m.account,'') AS account,
                        u.name AS owner_name
                 FROM meetings m LEFT JOIN users u ON u.email = m.owner`;
+  // 文字起こしが無い（空配列/NULL）の商談は履歴に残さない
+  const hasTranscript = `(jsonb_typeof(m.transcript)='array' AND jsonb_array_length(m.transcript) > 0)`;
   if (isAdmin || !owner) {
-    const { rows } = await pool.query(`${base} ORDER BY m.created_at DESC LIMIT 300`);
+    const { rows } = await pool.query(`${base} WHERE ${hasTranscript} ORDER BY m.created_at DESC LIMIT 300`);
     return rows;
   }
   const { rows } = await pool.query(
-    `${base} WHERE m.owner=$1 OR m.owner IS NULL OR m.owner='' ORDER BY m.created_at DESC LIMIT 300`,
+    `${base} WHERE (m.owner=$1 OR m.owner IS NULL OR m.owner='') AND ${hasTranscript} ORDER BY m.created_at DESC LIMIT 300`,
     [owner]
   );
   return rows;
 }
 
+// 文字起こしが無い古い商談を一括削除（定期クリーンアップ用）
+export async function deleteEmptyMeetings(minutes = 180) {
+  if (!pool) return 0;
+  try {
+    const { rowCount } = await pool.query(
+      `DELETE FROM meetings
+        WHERE (transcript IS NULL OR jsonb_typeof(transcript) <> 'array' OR jsonb_array_length(transcript) = 0)
+          AND created_at < now() - ($1 || ' minutes')::interval`,
+      [String(minutes)]
+    );
+    return rowCount || 0;
+  } catch (e) {
+    console.error("[db] deleteEmptyMeetings", e.message);
+    return 0;
+  }
+}
+
 // 商談の「何回目」「フェーズ」「商談名」「営業担当(owner)」を更新（undefinedの項目は変更しない）
-export async function updateMeetingMeta(botId, { round, phase, title, owner, createdAt }) {
+export async function updateMeetingMeta(botId, { round, phase, title, owner, createdAt, account }) {
   if (!pool) return;
   const sets = ["round_no=$2", "phase=$3"];
   const vals = [botId, round ?? null, phase || null];
@@ -207,11 +241,85 @@ export async function updateMeetingMeta(botId, { round, phase, title, owner, cre
     vals.push(createdAt);
     idx++;
   }
+  if (account !== undefined) {
+    sets.push(`account=$${idx}`);
+    vals.push(account || "");
+    idx++;
+  }
   try {
     await pool.query(`UPDATE meetings SET ${sets.join(", ")}, updated_at=now() WHERE bot_id=$1`, vals);
   } catch (e) {
     console.error("[db] updateMeetingMeta", e.message);
   }
+}
+
+// ===== ネクストアクション（案件単位） =====
+export async function syncAccountActionItems(account) {
+  if (!pool || !account) return;
+  try {
+    const { rows } = await pool.query(
+      `SELECT bot_id, summary FROM meetings WHERE COALESCE(NULLIF(account,''), title) = $1`,
+      [account]
+    );
+    for (const r of rows) {
+      const items = (r.summary && r.summary.action_items) || [];
+      for (const t of items) {
+        const text = String(t || "").trim();
+        if (!text) continue;
+        await pool.query(
+          `INSERT INTO action_items (account, bot_id, text, source)
+           SELECT $1,$2,$3,'ai'
+           WHERE NOT EXISTS (SELECT 1 FROM action_items WHERE account=$1 AND bot_id=$2 AND text=$3)`,
+          [account, r.bot_id, text]
+        );
+      }
+    }
+  } catch (e) {
+    console.error("[db] syncAccountActionItems", e.message);
+  }
+}
+export async function listActionItems(account) {
+  if (!pool) return [];
+  try {
+    const { rows } = await pool.query(
+      `SELECT * FROM action_items WHERE account=$1 ORDER BY done ASC, due_date ASC NULLS LAST, created_at ASC`,
+      [account]
+    );
+    return rows;
+  } catch {
+    return [];
+  }
+}
+export async function addActionItem({ account, botId, text, owner, source, due }) {
+  if (!pool || !account || !text) return null;
+  try {
+    const { rows } = await pool.query(
+      `INSERT INTO action_items (account, bot_id, text, owner, source, due_date) VALUES ($1,$2,$3,$4,$5,$6) RETURNING id`,
+      [account, botId || null, text, owner || "", source || "manual", due || null]
+    );
+    return rows[0]?.id || null;
+  } catch (e) {
+    console.error("[db] addActionItem", e.message);
+    return null;
+  }
+}
+export async function updateActionItem(id, { done, text, due }) {
+  if (!pool) return;
+  const sets = [];
+  const vals = [id];
+  if (done !== undefined) { vals.push(!!done); sets.push(`done=$${vals.length}`); }
+  if (text !== undefined) { vals.push(text); sets.push(`text=$${vals.length}`); }
+  if (due !== undefined) { vals.push(due || null); sets.push(`due_date=$${vals.length}`); }
+  if (!sets.length) return;
+  try {
+    await pool.query(`UPDATE action_items SET ${sets.join(", ")} WHERE id=$1`, vals);
+  } catch (e) {
+    console.error("[db] updateActionItem", e.message);
+  }
+}
+export async function deleteActionItem(id) {
+  if (!pool) return;
+  try { await pool.query(`DELETE FROM action_items WHERE id=$1`, [id]); } catch (e) { console.error("[db] deleteActionItem", e.message); }
 }
 
 // 登録ユーザー一覧（営業担当の付け替え用）

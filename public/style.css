@@ -947,3 +947,45 @@ a.kb-src:hover { color: var(--accent); border-color: var(--accent); }
 /* 履歴の空状態にkinbot */
 .empty-bot { display: flex; flex-direction: column; align-items: center; gap: 12px; text-align: center; }
 .empty-bot img { width: 84px; height: 84px; opacity: 0.95; filter: drop-shadow(0 6px 16px rgba(15,110,98,.18)); }
+
+/* 案件ビュー */
+.deal-card { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; margin-bottom: 10px; cursor: pointer; transition: border-color .12s, box-shadow .12s; }
+.deal-card:hover { border-color: var(--accent); }
+.deal-card.active { border-color: var(--accent); box-shadow: 0 0 0 2px rgba(26,168,132,.18); }
+.deal-name { font-weight: 800; font-size: 14px; color: var(--ink); }
+.deal-meta { display: flex; justify-content: space-between; font-size: 12px; color: var(--muted); margin-top: 3px; }
+.deal-sub { font-size: 11.5px; color: var(--muted); margin-top: 4px; }
+.deal-head { border-bottom: 1px solid var(--line); padding-bottom: 12px; margin-bottom: 14px; }
+.deal-head h2 { margin: 0; font-size: 19px; }
+.deal-head-meta { font-size: 12.5px; color: var(--muted); margin-top: 4px; }
+.deal-sec { margin-bottom: 20px; }
+.deal-sec-h { font-size: 13px; font-weight: 800; color: var(--ink); margin-bottom: 10px; }
+.deal-concerns { margin: 0; padding-left: 18px; font-size: 13px; line-height: 1.7; color: var(--ink); }
+.ai-add { display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
+.ai-add input[type="text"] { flex: 1 1 200px; font: inherit; font-size: 13px; padding: 9px 11px; border: 1px solid var(--line); border-radius: 9px; background: var(--panel-2); }
+.ai-add input[type="date"] { font: inherit; font-size: 13px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 9px; background: var(--panel-2); }
+.ai-item { display: flex; align-items: flex-start; gap: 10px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; margin-bottom: 8px; background: var(--panel-2); }
+.ai-item.done { opacity: 0.6; }
+.ai-item.done .ai-text { text-decoration: line-through; }
+.ai-chk-wrap { flex: 0 0 auto; padding-top: 1px; }
+.ai-chk { width: 18px; height: 18px; accent-color: #0f6e62; cursor: pointer; }
+.ai-text { flex: 1 1 auto; font-size: 13.5px; line-height: 1.5; color: var(--ink); }
+.ai-src { font-size: 10px; color: #0c5f55; background: #d7efe9; border-radius: 999px; padding: 1px 7px; margin-left: 8px; }
+.ai-due { font-size: 11px; color: var(--muted); margin-left: 8px; }
+.ai-due.over { color: #c0392b; font-weight: 700; }
+.ai-del { flex: 0 0 auto; border: none; background: transparent; cursor: pointer; color: var(--muted); }
+.ai-del:hover { color: #c0392b; }
+.ai-done-h { font-size: 12px; color: var(--muted); margin: 12px 0 8px; }
+/* タイムライン */
+.deal-timeline { position: relative; padding-left: 6px; }
+.tl-item { display: flex; gap: 12px; padding-bottom: 14px; position: relative; }
+.tl-item::before { content: ""; position: absolute; left: 5px; top: 14px; bottom: -4px; width: 2px; background: var(--line); }
+.tl-item:last-child::before { display: none; }
+.tl-dot { flex: 0 0 auto; width: 12px; height: 12px; border-radius: 50%; background: linear-gradient(135deg, #39e0b4, #0f6e62); margin-top: 3px; z-index: 1; }
+.tl-body { flex: 1 1 auto; min-width: 0; }
+.tl-top { display: flex; justify-content: space-between; align-items: baseline; }
+.tl-top b { font-size: 13px; color: var(--accent); }
+.tl-date { font-size: 11.5px; color: var(--muted); }
+.tl-title { font-size: 13.5px; font-weight: 700; margin: 2px 0; }
+.tl-ov { font-size: 12.5px; color: var(--ink); line-height: 1.6; }
+.tl-link { font-size: 12px; color: var(--accent); text-decoration: none; }

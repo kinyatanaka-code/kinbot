@@ -21,6 +21,12 @@ import {
   saveDeepAnalysis,
   updateMeetingMeta,
   deleteMeeting,
+  deleteEmptyMeetings,
+  syncAccountActionItems,
+  listActionItems,
+  addActionItem,
+  updateActionItem,
+  deleteActionItem,
   getSetCache,
   saveSetCache,
   listUsers,
@@ -193,7 +199,7 @@ app.get("/api/auth-info", (req, res) => {
 // 商談の「何回目」「フェーズ」を更新
 app.put("/api/meetings/:id/meta", async (req, res) => {
   try {
-    const { round, phase, title, owner, createdAt } = req.body || {};
+    const { round, phase, title, owner, createdAt, account } = req.body || {};
     const r = round === "" || round == null ? null : Number(round);
     await updateMeetingMeta(req.params.id, {
       round: Number.isFinite(r) ? r : null,
@@ -201,7 +207,72 @@ app.put("/api/meetings/:id/meta", async (req, res) => {
       title: title === undefined ? undefined : title,
       owner: owner === undefined ? undefined : owner,
       createdAt: createdAt ? createdAt : undefined,
+      account: account === undefined ? undefined : account,
     });
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// 商談を削除（owner本人 or 管理者）
+app.delete("/api/meetings/:id", async (req, res) => {
+  try {
+    const m = await getMeeting(req.params.id);
+    if (!m) return res.status(404).json({ error: "見つかりません" });
+    const allowed = req.isAdmin || !m.owner || m.owner === req.user;
+    if (!allowed) return res.status(403).json({ error: "削除権限がありません" });
+    await deleteMeeting(req.params.id);
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+// 文字起こしの無い古い商談を一括削除（管理者のみ）
+app.post("/api/meetings/cleanup-empty", async (req, res) => {
+  try {
+    if (!req.isAdmin) return res.status(403).json({ error: "管理者のみ" });
+    const minutes = Number((req.body && req.body.minutes) || 180);
+    const n = await deleteEmptyMeetings(Number.isFinite(minutes) ? minutes : 180);
+    res.json({ ok: true, removed: n });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ===== ネクストアクション（案件単位） =====
+app.get("/api/action-items", async (req, res) => {
+  try {
+    const account = String(req.query.account || "").trim();
+    if (!account) return res.json({ items: [] });
+    await syncAccountActionItems(account); // AI抽出の宿題を取り込み（冪等）
+    res.json({ items: await listActionItems(account) });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+app.post("/api/action-items", async (req, res) => {
+  try {
+    const { account, text, due, botId } = req.body || {};
+    if (!account || !text) return res.status(400).json({ error: "account と text が必要です" });
+    const id = await addActionItem({ account, text, due, botId, owner: req.user || "", source: "manual" });
+    res.json({ ok: true, id });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+app.put("/api/action-items/:id", async (req, res) => {
+  try {
+    const { done, text, due } = req.body || {};
+    await updateActionItem(Number(req.params.id), { done, text, due });
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+app.delete("/api/action-items/:id", async (req, res) => {
+  try {
+    await deleteActionItem(Number(req.params.id));
     res.json({ ok: true });
   } catch (e) {
     res.status(500).json({ error: e.message });
@@ -282,15 +353,6 @@ app.post("/api/meetings/:id/thanks", async (req, res) => {
 });
 
 // 商談を削除
-app.delete("/api/meetings/:id", async (req, res) => {
-  try {
-    await deleteMeeting(req.params.id);
-    res.json({ ok: true });
-  } catch (e) {
-    res.status(500).json({ error: e.message });
-  }
-});
-
 // 絞り込んだ商談全体を横断して、傾向・スコア理由を分析（結果はキャッシュ）
 const PHASE_LABELS = { "01": "初回商談", "02": "有効商談", "03": "担当者合意", "04": "企画決定者合意" };
 app.post("/api/analyze-set", async (req, res) => {
@@ -1257,6 +1319,13 @@ server.listen(PORT, async () => {
   await initDb().catch((e) => console.error("[db] init失敗", e.message));
   startScheduler({ publicUrl: PUBLIC_URL });
   startSessionMonitor();
+  // 文字起こしの無い古い商談（3時間以上前）を定期削除：起動1分後＋6時間ごと
+  const cleanup = () =>
+    deleteEmptyMeetings(180)
+      .then((n) => n && console.log(`[cleanup] 空商談を${n}件削除`))
+      .catch(() => {});
+  setTimeout(cleanup, 60 * 1000);
+  setInterval(cleanup, 6 * 60 * 60 * 1000);
   console.log(`\n  kinbot (Bot方式) → http://localhost:${PORT}`);
   console.log(`  公開URL(Webhook受け口): ${PUBLIC_URL || "(未設定)"}`);
   console.log(`  要約エンジン: ${llm.provider} (${llm.model})`);
