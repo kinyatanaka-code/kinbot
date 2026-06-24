@@ -43,6 +43,7 @@ export async function initDb() {
   await pool.query(`ALTER TABLE meetings ADD COLUMN IF NOT EXISTS ai_log JSONB;`);
   await pool.query(`ALTER TABLE meetings ADD COLUMN IF NOT EXISTS metrics JSONB;`);
   await pool.query(`ALTER TABLE meetings ADD COLUMN IF NOT EXISTS account TEXT;`);
+  await pool.query(`ALTER TABLE meetings ADD COLUMN IF NOT EXISTS note TEXT;`);
   await pool.query(`
     CREATE TABLE IF NOT EXISTS action_items (
       id          SERIAL PRIMARY KEY,
@@ -259,6 +260,16 @@ export async function updateMeetingMeta(botId, { round, phase, title, owner, cre
     await pool.query(`UPDATE meetings SET ${sets.join(", ")}, updated_at=now() WHERE bot_id=$1`, vals);
   } catch (e) {
     console.error("[db] updateMeetingMeta", e.message);
+  }
+}
+
+// 商談メモ（手入力）を保存
+export async function saveMeetingNote(botId, note) {
+  if (!pool) return;
+  try {
+    await pool.query(`UPDATE meetings SET note=$2, updated_at=now() WHERE bot_id=$1`, [botId, note || ""]);
+  } catch (e) {
+    console.error("[db] saveMeetingNote", e.message);
   }
 }
 

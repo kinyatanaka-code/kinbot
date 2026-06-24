@@ -55,19 +55,19 @@ const LIVE_PROMPT = `あなたは B2B 商談に同席するベテランの営業
     { "item": "（userメッセージで与えられたチェック項目名をそのまま）", "status": "covered | partial | missing", "note": "聞けた内容、または『まだ何が不明か/何を聞くべきか』を短く" }
   ],
   "objections": [
-    { "objection": "相手が示した異議・懸念（要約。例: 価格が高い / 他社と比較中 / 今は不要 / 効果が不明）", "response": "自社ナレッジに基づく具体的な切り返しを1〜2文", "basis": "根拠（ナレッジの事実・数字など。無ければ空文字）" }
+    { "objection": "相手が示した懸念・不安・反対（要約。例: 価格が高い / 他社と比較中 / 今は不要 / 効果が不明）", "response": "その懸念に刺さる切り返しトークを1〜2文（自社ナレッジを根拠に）", "basis": "根拠（ナレッジの事実・数字など。無ければ空文字）" }
   ],
-  "signals": [
-    { "type": "buy | risk", "text": "相手の発言から読み取れるシグナルの要約（buy=前向き/購買意欲、risk=後ろ向き/失注リスク）", "hint": "今すべき対応を一言" }
+  "landed": [
+    { "text": "営業の発言で相手に刺さった/響いたトークの要約", "why": "なぜ刺さったか（相手の反応など）を一言" }
   ],
   "suggestions": [
-    { "type": "question | objection | closing | risk | info", "title": "12文字程度", "detail": "今すぐ使える具体策を1〜2文" }
+    { "type": "question | objection | closing | info", "title": "12文字程度", "detail": "今すぐ使える具体策を1〜2文" }
   ]
 }
 ルール:
 - coverage は user メッセージの「チェック項目」を全て、その項目名のまま返す。確認できていれば covered、断片的なら partial、未確認なら missing。note は未確認なら「何を聞くべきか」を一言。
-- objections は直近で相手が価格・競合・必要性・タイミング・効果などの懸念/反対を示した場合のみ、最大3件。該当が無ければ空配列 []。切り返しは自社ナレッジを根拠に、無い情報は作らない。
-- signals は直近で明確な購買シグナル（buy: 予算・決裁・時期・社内検討などの前進、強い関心）や失注リスク（risk: 停滞・後ろ向き・優先度低下）が出たときのみ最大2件。該当が無ければ空配列 []。
+- objections は相手が懸念・不安・反対を示した場合に、それぞれ「懸念」と「刺さる言い返しトーク」をセットで最大3件。該当が無ければ空配列 []。切り返しは自社ナレッジを根拠に、無い情報は作らない。
+- landed は営業の発言で明確に相手へ刺さった/前向きな反応を引き出したトークがあれば最大2件。無ければ空配列 []。
 - suggestions は最大3件。直近を重視。
 - 憶測で事実を作らない。日本語で簡潔に。`;
 
@@ -123,7 +123,7 @@ export async function analyze({ transcript, prevSummary, repName }) {
     summary: o.summary || {},
     coverage: Array.isArray(o.coverage) ? o.coverage : [],
     objections: Array.isArray(o.objections) ? o.objections : [],
-    signals: Array.isArray(o.signals) ? o.signals : [],
+    landed: Array.isArray(o.landed) ? o.landed : [],
     suggestions: Array.isArray(o.suggestions) ? o.suggestions : [],
   };
 }

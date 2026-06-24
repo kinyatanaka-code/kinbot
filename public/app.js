@@ -310,6 +310,10 @@ function resetToJoin(statusMsg) {
   aiHasItems = false;
   talkChars = {};
   liveRepName = "";
+  const ln = $("liveNote");
+  if (ln) ln.value = "";
+  const ns = $("noteSaved");
+  if (ns) ns.textContent = "";
   const tw = $("talkRatio");
   if (tw) tw.hidden = true;
   const cl = $("checkList");
@@ -531,7 +535,7 @@ function handle(msg) {
     case "analysis":
       renderSummary(msg.summary);
       renderCoverage(msg.coverage);
-      renderAiFeed(msg.objections, msg.suggestions, msg.ts, msg.signals);
+      renderAiFeed(msg.objections, msg.suggestions, msg.ts, msg.landed);
       els.summaryHint.textContent = "更新: " + new Date(msg.ts).toLocaleTimeString("ja-JP");
       kinbotSpeakFromAnalysis(msg);
       break;
@@ -692,35 +696,20 @@ function renderTalkRatio() {
 function aiKey(s) {
   return String(s || "").replace(/\s+/g, "").slice(0, 60);
 }
-function renderAiFeed(objections, suggestions, ts, signals) {
+function renderAiFeed(objections, suggestions, ts, landed) {
   const feed = $("aiFeed");
   if (!feed) return;
   const objs = Array.isArray(objections) ? objections : [];
   const sugs = Array.isArray(suggestions) ? suggestions : [];
-  const sigs = Array.isArray(signals) ? signals : [];
+  const lands = Array.isArray(landed) ? landed : [];
   const time = new Date(ts || Date.now()).toLocaleTimeString("ja-JP", { hour: "2-digit", minute: "2-digit" });
 
-  // AI提案タブのバッジ（いま懸念 or リスクがあるか）
+  // AI提案タブのバッジ（懸念があるとき）
   const tab = document.querySelector('.live-tab[data-pane="ai"]');
-  if (tab) tab.classList.toggle("alert", objs.length > 0 || sigs.some((g) => g.type === "risk"));
+  if (tab) tab.classList.toggle("alert", objs.length > 0);
 
   const toAdd = [];
-  // 購買/リスクシグナル（最優先で気づかせる）
-  for (const g of sigs) {
-    const buy = g.type !== "risk";
-    const key = "sig:" + aiKey(g.type) + aiKey(g.text);
-    if (aiSeen.has(key)) continue;
-    aiSeen.add(key);
-    toAdd.push(
-      aiBubble({
-        kind: buy ? "buy" : "risk",
-        label: buy ? "🟢 購買シグナル" : "🟡 リスク",
-        title: g.text || "",
-        text: g.hint || "",
-        time,
-      })
-    );
-  }
+  // 懸念 → 刺さった言い返し
   for (const o of objs) {
     const key = "obj:" + aiKey(o.objection) + aiKey(o.response);
     if (aiSeen.has(key)) continue;
@@ -728,14 +717,24 @@ function renderAiFeed(objections, suggestions, ts, signals) {
     toAdd.push(
       aiBubble({
         kind: "obj",
-        label: "切り返し",
-        title: o.objection ? "「" + o.objection + "」には…" : "",
+        label: "懸念 → 刺さる言い返し",
+        title: o.objection ? "「" + o.objection + "」" : "",
         text: o.response || "",
         sub: o.basis ? "根拠: " + o.basis : "",
         time,
       })
     );
   }
+  // 刺さったトーク
+  for (const g of lands) {
+    const key = "land:" + aiKey(g.text);
+    if (aiSeen.has(key)) continue;
+    aiSeen.add(key);
+    toAdd.push(
+      aiBubble({ kind: "land", label: "💡 刺さったトーク", title: g.text || "", text: g.why || "", time })
+    );
+  }
+  // 次の一手
   for (const m of sugs) {
     const type = TYPE_LABEL[m.type] ? m.type : "info";
     const key = "sug:" + aiKey(m.title) + aiKey(m.detail);
@@ -747,7 +746,7 @@ function renderAiFeed(objections, suggestions, ts, signals) {
   }
   if (!toAdd.length) return;
   if (!aiHasItems) {
-    feed.innerHTML = ""; // 初回はプレースホルダを消す
+    feed.innerHTML = "";
     aiHasItems = true;
   }
   for (const el of toAdd) feed.appendChild(el);
@@ -766,14 +765,11 @@ function kinbotSpeak(text) {
   }
 }
 function kinbotSpeakFromAnalysis(msg) {
-  // 優先度: リスク > 異議 > 購買シグナル > 次の一手 > 要約
-  const sigs = Array.isArray(msg.signals) ? msg.signals : [];
-  const risk = sigs.find((g) => g.type === "risk");
-  if (risk) { kinbotSpeak("⚠ " + (risk.text || "") + (risk.hint ? " — " + risk.hint : "")); return; }
+  // 優先度: 懸念(言い返し) > 刺さったトーク > 次の一手 > 要約
   const obj = Array.isArray(msg.objections) && msg.objections[0];
   if (obj && obj.response) { kinbotSpeak("「" + (obj.objection || "懸念") + "」には… " + obj.response); return; }
-  const buy = sigs.find((g) => g.type !== "risk");
-  if (buy) { kinbotSpeak("👀 好機: " + (buy.text || "") + (buy.hint ? " — " + buy.hint : "")); return; }
+  const land = Array.isArray(msg.landed) && msg.landed[0];
+  if (land && land.text) { kinbotSpeak("💡 刺さってます: " + land.text); return; }
   const sug = Array.isArray(msg.suggestions) && msg.suggestions[0];
   if (sug && (sug.title || sug.detail)) { kinbotSpeak((sug.title ? sug.title + "：" : "") + (sug.detail || "")); return; }
   const ov = msg.summary && msg.summary.overview;
@@ -798,3 +794,28 @@ function stopTimer() {
   timerId = null;
   els.timer.textContent = "00:00";
 }
+
+// ===== 商談中メモ（自動保存） =====
+(function () {
+  const ta = document.getElementById("liveNote");
+  if (!ta) return;
+  let t = null;
+  const saved = document.getElementById("noteSaved");
+  ta.addEventListener("input", () => {
+    if (!sessionId) return;
+    if (saved) saved.textContent = "保存中…";
+    clearTimeout(t);
+    t = setTimeout(async () => {
+      try {
+        await fetch(`/api/meetings/${encodeURIComponent(sessionId)}/note`, {
+          method: "PUT",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ note: ta.value }),
+        });
+        if (saved) saved.textContent = "保存しました " + new Date().toLocaleTimeString("ja-JP", { hour: "2-digit", minute: "2-digit" });
+      } catch {
+        if (saved) saved.textContent = "保存に失敗（接続を確認）";
+      }
+    }, 800);
+  });
+})();

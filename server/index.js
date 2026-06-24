@@ -29,6 +29,7 @@ import {
   deleteActionItem,
   listDealStatuses,
   setDealStatus,
+  saveMeetingNote,
   getSetCache,
   saveSetCache,
   listUsers,
@@ -282,7 +283,7 @@ app.post("/api/winloss-analysis", async (req, res) => {
       if (Array.isArray(s.customer_concerns) && s.customer_concerns.length) p.push(`相手の懸念: ${s.customer_concerns.join(" / ")}`);
       const mt = m.metrics || {};
       if (typeof mt.repTalkPct === "number") p.push(`営業トーク比率: ${mt.repTalkPct}%`);
-      if (mt.buyCount || mt.riskCount) p.push(`購買シグナル${mt.buyCount || 0}/リスク${mt.riskCount || 0}`);
+      if (mt.landedCount || mt.concernCount) p.push(`刺さったトーク${mt.landedCount || 0}/懸念${mt.concernCount || 0}`);
       const a = m.analysis;
       if (a && a.scores) p.push(`スコア ヒア${a.scores.hearing ?? "-"}/提案${a.scores.proposal ?? "-"}/クロ${a.scores.closing ?? "-"}/傾聴${a.scores.listening ?? "-"}`);
       if (a && a.objections?.length) p.push(`懸念対応: ${a.objections.join(" / ")}`);
@@ -326,6 +327,16 @@ app.post("/api/winloss-analysis", async (req, res) => {
   } catch (e) {
     console.error("[winloss]", e.message);
     res.status(502).json({ error: e.message });
+  }
+});
+
+// 商談メモの保存
+app.put("/api/meetings/:id/note", async (req, res) => {
+  try {
+    await saveMeetingNote(req.params.id, (req.body && req.body.note) || "");
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
   }
 });
 

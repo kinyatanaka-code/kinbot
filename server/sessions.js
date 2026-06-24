@@ -130,11 +130,11 @@ class Session {
       this.aiSeen.add(key);
       this.aiLog.push({ t: "sug", sugType: m.type || "info", title: m.title || "", detail: m.detail || "", ts });
     }
-    for (const g of result.signals || []) {
-      const key = "sig:" + norm(g.type) + norm(g.text);
+    for (const g of result.landed || []) {
+      const key = "land:" + norm(g.text);
       if (this.aiSeen.has(key)) continue;
       this.aiSeen.add(key);
-      this.aiLog.push({ t: "sig", sigType: g.type === "risk" ? "risk" : "buy", text: g.text || "", hint: g.hint || "", ts });
+      this.aiLog.push({ t: "land", text: g.text || "", why: g.why || "", ts });
     }
   }
 
@@ -194,9 +194,12 @@ class Session {
       for (const [l, n] of Object.entries(chars)) if (l.replace(/\s+/g, "").includes(rep)) repChars += n;
       if (repChars > 0) repTalkPct = Math.round((repChars / total) * 100);
     }
-    let buyCount = 0, riskCount = 0;
-    for (const e of this.aiLog) if (e.t === "sig") { if (e.sigType === "risk") riskCount++; else buyCount++; }
-    return { repTalkPct, speakerCount: Object.keys(chars).length, buyCount, riskCount };
+    let landedCount = 0, concernCount = 0;
+    for (const e of this.aiLog) {
+      if (e.t === "land") landedCount++;
+      else if (e.t === "obj") concernCount++;
+    }
+    return { repTalkPct, speakerCount: Object.keys(chars).length, landedCount, concernCount };
   }
 
   dispose() {

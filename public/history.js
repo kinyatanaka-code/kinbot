@@ -309,6 +309,7 @@ async function loadDetail(botId) {
           <div id="dtrans" class="pane-content"></div>
         </div>
         <div class="tabpane" data-pane="summary" hidden>
+          <div id="dnoteWrap"></div>
           <div class="pane-bar"><button class="btn ghost copy-mini" id="copySummary">コピー</button></div>
           <div id="dsummary" class="pane-content"></div>
         </div>
@@ -636,6 +637,10 @@ async function loadDetail(botId) {
     });
 
     renderSummaryInto(hdetail.querySelector("#dsummary"), s);
+    const noteWrap = hdetail.querySelector("#dnoteWrap");
+    if (noteWrap && m.note && m.note.trim()) {
+      noteWrap.innerHTML = `<div class="dlabel">📝 商談メモ</div><div class="dnote">${escapeHtml(m.note)}</div>`;
+    }
     renderFeedbackInto(hdetail.querySelector("#dfeedback"), m.feedback || {});
     renderMetricsInto(hdetail.querySelector("#dmetrics"), tr, m.rep_name);
     renderAiInto(hdetail.querySelector("#dai"), m.analysis);
@@ -728,21 +733,46 @@ function renderAiLogInto(el, log) {
     el.innerHTML = '<div class="empty-state">この商談ではAI提案の記録がありません（旧データ、または提案が出る前に終了）。</div>';
     return;
   }
-  el.innerHTML = "";
+  // 一覧（刺さったトーク／懸念→刺さった言い返し）
+  const lands = log.filter((e) => e.t === "land");
+  const objs = log.filter((e) => e.t === "obj");
+  let summary = "";
+  if (lands.length) {
+    summary += `<div class="ailog-sec"><div class="ailog-sec-h">💡 刺さったトーク（${lands.length}）</div><ul class="ailog-list">` +
+      lands.map((e) => `<li>${escapeHtml(e.text || "")}${e.why ? `<span class="ailog-sub">（${escapeHtml(e.why)}）</span>` : ""}</li>`).join("") +
+      `</ul></div>`;
+  }
+  if (objs.length) {
+    summary += `<div class="ailog-sec"><div class="ailog-sec-h">⚠️ 懸念 → 刺さった言い返し（${objs.length}）</div><div class="ailog-pairs">` +
+      objs.map((e) =>
+        `<div class="ailog-pair"><div class="ailog-q">「${escapeHtml(e.objection || "")}」</div>` +
+        `<div class="ailog-a">${escapeHtml(e.response || "")}</div>` +
+        (e.basis ? `<div class="ailog-basis">根拠: ${escapeHtml(e.basis)}</div>` : "") + `</div>`
+      ).join("") +
+      `</div></div>`;
+  }
+  const feedHtml = '<div class="ailog-sec-h" style="margin-top:14px;">🗨 タイムライン</div>';
+
+  el.innerHTML = summary + feedHtml + '<div class="ai-feed-inline"></div>';
+  const feed = el.querySelector(".ai-feed-inline");
   for (const e of log) {
     const time = e.ts ? new Date(e.ts).toLocaleTimeString("ja-JP", { hour: "2-digit", minute: "2-digit" }) : "";
     const wrap = document.createElement("div");
     wrap.className = "ai-msg";
     let kind, label, title, text, sub = "";
     if (e.t === "obj") {
-      kind = "obj"; label = "切り返し";
-      title = e.objection ? "「" + e.objection + "」には…" : "";
+      kind = "obj"; label = "懸念 → 刺さる言い返し";
+      title = e.objection ? "「" + e.objection + "」" : "";
       text = e.response || "";
       sub = e.basis ? "根拠: " + e.basis : "";
+    } else if (e.t === "land") {
+      kind = "land"; label = "💡 刺さったトーク";
+      title = e.text || ""; text = e.why || "";
     } else if (e.t === "sig") {
+      // 旧データ互換
       const buy = e.sigType !== "risk";
-      kind = buy ? "buy" : "risk";
-      label = buy ? "🟢 購買シグナル" : "🟡 リスク";
+      kind = buy ? "land" : "obj";
+      label = buy ? "刺さり（旧）" : "懸念（旧）";
       title = e.text || ""; text = e.hint || "";
     } else {
       kind = HTYPE_LABEL[e.sugType] ? e.sugType : "info";
@@ -756,7 +786,7 @@ function renderAiLogInto(el, log) {
     wrap.innerHTML =
       `<img class="ai-ava" src="kinbot.svg" alt="kinbot" />` +
       `<div class="ai-bubble ai-bubble-${kind}">${lbl}${ttl}<div class="ai-b-text">${escapeHtml(text)}</div>${sb}${tm}</div>`;
-    el.appendChild(wrap);
+    feed.appendChild(wrap);
   }
 }
 

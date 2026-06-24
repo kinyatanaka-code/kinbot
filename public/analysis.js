@@ -206,8 +206,8 @@ function renderDashboard(rows) {
   // 勝ち筋指標（metricsから）
   const withTalk = rows.filter((m) => m.metrics && typeof m.metrics.repTalkPct === "number");
   const avgTalk = withTalk.length ? Math.round(withTalk.reduce((s, m) => s + m.metrics.repTalkPct, 0) / withTalk.length) : null;
-  const buyTotal = rows.reduce((s, m) => s + ((m.metrics && m.metrics.buyCount) || 0), 0);
-  const riskTotal = rows.reduce((s, m) => s + ((m.metrics && m.metrics.riskCount) || 0), 0);
+  const landedTotal = rows.reduce((s, m) => s + ((m.metrics && m.metrics.landedCount) || 0), 0);
+  const concernTotal = rows.reduce((s, m) => s + ((m.metrics && m.metrics.concernCount) || 0), 0);
   const sfLinked = rows.filter((m) => m.sf_url && String(m.sf_url).trim()).length;
   const sfPct = total ? Math.round((sfLinked / total) * 100) : 0;
 
@@ -240,8 +240,8 @@ function renderDashboard(rows) {
     { label: "対象の商談", val: total },
     { label: "今月の商談", val: thisMonth },
     { label: "平均トーク比率(営業)", val: avgTalk == null ? "—" : avgTalk + "%", warn: avgTalk != null && avgTalk >= 65 },
-    { label: "購買シグナル", val: buyTotal, tone: "buy" },
-    { label: "リスク", val: riskTotal, tone: "risk" },
+    { label: "刺さったトーク", val: landedTotal, tone: "buy" },
+    { label: "懸念", val: concernTotal, tone: "risk" },
     { label: "分析済み率", val: analyzedPct + "%" },
   ];
   let html = '<div class="dash-kpis6">';

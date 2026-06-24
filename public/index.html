@@ -109,6 +109,7 @@
             <button class="live-tab" data-pane="ai">AI提案</button>
             <button class="live-tab" data-pane="check">チェック</button>
             <button class="live-tab" data-pane="summary">要約</button>
+            <button class="live-tab" data-pane="note">メモ</button>
           </div>
 
           <div class="live-pane" data-pane="video" hidden>
@@ -152,6 +153,11 @@
                 <div class="empty-state">会話が進むと、状況・要点・合意・宿題・相手の懸念を自動でまとめます。</div>
               </div>
             </section>
+          </div>
+
+          <div class="live-pane live-pane-scroll" data-pane="note" hidden>
+            <textarea id="liveNote" class="live-note" placeholder="商談中のメモ（自動保存されます）"></textarea>
+            <div class="note-saved" id="noteSaved"></div>
           </div>
         </div>
 
