@@ -26,6 +26,7 @@
             <button class="set-menu-item" data-tab="links">登録リンク</button>
             <button class="set-menu-item" data-tab="calendar">Google連携</button>
             <button class="set-menu-item" data-tab="salesforce">Salesforce連携</button>
+            <button class="set-menu-item" data-tab="notion">Notion連携</button>
             <button class="set-menu-item" data-tab="ai">AI提案設定</button>
             <button class="set-menu-item" data-tab="thanks">御礼メール例文</button>
             <button class="set-menu-item" data-tab="status">状態</button>
@@ -124,6 +125,22 @@
                 <button class="btn" id="saveSfMapBtn">マッピングを保存</button>
                 <span class="saved" id="sfMapSaved" hidden>保存しました</span>
               </div>
+            </div>
+          </div>
+
+          <div class="set-pane" data-pane="notion" hidden>
+            <div class="set-card">
+              <h3>Notion連携（あなた専用）</h3>
+              <p class="note">この設定は<strong>あなたのアカウント専用</strong>です。ここで登録したNotionに、あなたが送った商談だけが蓄積されます（他のメンバーには影響しません）。<br>
+              準備：①Notionで「内部インテグレーション」を作成しトークン取得 → ②蓄積先データベースを作成（タイトル列があればOK）→ ③そのDBをインテグレーションに「接続（共有）」→ ④下にトークンとデータベースIDを入力。</p>
+              <label class="field"><span>インテグレーション トークン</span><input id="notionToken" type="password" placeholder="secret_xxx / ntn_xxx（保存後は ••• 表示）" /></label>
+              <label class="field"><span>データベースID</span><input id="notionDb" type="text" placeholder="DBページURLに含まれる32桁のID" /></label>
+              <div class="modal-actions">
+                <button class="btn" id="saveNotionBtn">保存</button>
+                <span class="saved" id="notionSaved" hidden>保存しました</span>
+                <span class="cal-status" id="notionStatus"></span>
+              </div>
+              <p class="note">送信は各商談の詳細（商談履歴）にある「Notionに送る」から行います。</p>
             </div>
           </div>
 

@@ -263,6 +263,16 @@ export async function updateMeetingMeta(botId, { round, phase, title, owner, cre
   }
 }
 
+// Mux再生ID（アップロード動画のVOD）を保存
+export async function setMeetingMux(botId, playbackId) {
+  if (!pool) return;
+  try {
+    await pool.query(`UPDATE meetings SET mux_playback_id=$2, updated_at=now() WHERE bot_id=$1`, [botId, playbackId || ""]);
+  } catch (e) {
+    console.error("[db] setMeetingMux", e.message);
+  }
+}
+
 // 商談メモ（手入力）を保存
 export async function saveMeetingNote(botId, note) {
   if (!pool) return;

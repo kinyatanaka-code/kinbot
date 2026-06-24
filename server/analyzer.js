@@ -176,17 +176,34 @@ export const PHASE_GUIDE = {
   "04": "フェーズ04（企画決定者合意）。重視点: 決裁者の合意・承認、最終条件の調整、不安の解消、契約・導入に向けた具体的な次アクションの確定。",
 };
 
-export async function analyzeDeep({ transcript, repName, phase }) {
+export async function analyzeDeep({ transcript, repName, phase, lostSignals }) {
   const phaseNote = phase && PHASE_GUIDE[phase]
     ? `\nこの商談の営業フェーズ: ${PHASE_GUIDE[phase]}\nコーチングと next_step は、このフェーズで特に重要な観点を優先して評価してください。\n`
     : "";
+  const lostNote = Array.isArray(lostSignals) && lostSignals.length
+    ? `\n【過去の失注に多かった予兆（参考）】これらに該当する発言・状況があれば deal_status の判定で重視してください:\n` +
+      lostSignals.slice(0, 12).map((g) => `- ${g.phrase}${g.why ? "（" + g.why + "）" : ""}`).join("\n") + "\n"
+    : "";
   const user =
     `自社の営業担当: ${repName || "（未指定）"}\n` +
-    phaseNote +
+    phaseNote + lostNote +
     `\n商談の文字起こし:\n"""\n${transcript}\n"""\n\n` +
     `この商談を多角的に分析し、JSON で返してください。`;
   const text = await callLLM(DEEP_PROMPT, user, 2500);
   return parseJson(text);
+}
+
+// 過去の失注商談から「失注の予兆フレーズ/状況」を抽出
+const LOST_SIGNAL_PROMPT = `あなたは B2B 営業の失注分析の専門家です。
+複数の「失注した商談」のデータ（要約・懸念・対応など）を読み、顧客側に現れた“失注につながる予兆”を、現場で見分けられる具体的な形で抽出します。
+必ず次の JSON のみ出力（前置き・コードフェンス禁止）:
+{ "signals": [ { "phrase": "顧客が言いがち/起きがちな失注の予兆（具体的な発言例や状況。例:『社内で持ち帰って検討します』が繰り返される / 予算が今期は取れない / 既に他社で進めている）", "why": "なぜ失注につながるかを一言" } ] }
+signals は5〜10件。データに根ざし、汎用的すぎる一般論は避ける。日本語で簡潔に。`;
+export async function extractLostSignals({ lostMaterial }) {
+  const user = `失注した商談のデータ:\n"""\n${lostMaterial || "（データなし）"}\n"""\n\n失注の予兆を JSON で抽出してください。`;
+  const text = await callLLM(LOST_SIGNAL_PROMPT, user, 1500);
+  const o = parseJson(text);
+  return Array.isArray(o.signals) ? o.signals : [];
 }
 
 // ---- プロバイダ振り分け ----

@@ -29,7 +29,9 @@ import {
   deleteActionItem,
   listDealStatuses,
   setDealStatus,
+  setDealStatusAuto,
   saveMeetingNote,
+  setMeetingMux,
   getSetCache,
   saveSetCache,
   listUsers,
@@ -48,7 +50,7 @@ import {
   deleteKbFolder,
 } from "./db.js";
 import { resolveConfig, statusInfo } from "./config.js";
-import { analyzerInfo, analyzeMeeting, analyzeDeep, analyzeTendency, analyzeSet, analyzeWinLoss, generateThanks, getCheckItems } from "./analyzer.js";
+import { analyzerInfo, analyzeMeeting, analyzeDeep, analyzeTendency, analyzeSet, analyzeWinLoss, extractLostSignals, generateThanks, getCheckItems } from "./analyzer.js";
 import {
   googleConfigured,
   authUrl,
@@ -65,7 +67,8 @@ import {
   driveGetContent,
 } from "./google.js";
 import { startScheduler } from "./scheduler.js";
-import { muxConfigured, createLiveStream } from "./mux.js";
+import { muxConfigured, createLiveStream, startVodUpload, waitVodPlayback } from "./mux.js";
+import { notionConfigured, notionStatus, createMeetingPage } from "./notion.js";
 import { pdfToText, urlToText, officeToText } from "./ingest.js";
 import { indexKnowledge, embeddingsAvailable } from "./retrieval.js";
 import { readDocument, readerAvailable } from "./ai_read.js";
@@ -400,6 +403,95 @@ app.delete("/api/action-items/:id", async (req, res) => {
     res.json({ ok: true });
   } catch (e) {
     res.status(500).json({ error: e.message });
+  }
+});
+
+// ===== 失注サイン（学習） =====
+app.get("/api/lost-signals", async (req, res) => {
+  try {
+    const cfg = await getSettings();
+    res.json({ signals: Array.isArray(cfg.lostSignals) ? cfg.lostSignals : [] });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+app.put("/api/lost-signals", async (req, res) => {
+  try {
+    const signals = Array.isArray(req.body?.signals) ? req.body.signals.slice(0, 30) : [];
+    await saveSettings({ lostSignals: signals });
+    res.json({ ok: true, signals });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+app.post("/api/lost-signals/learn", async (req, res) => {
+  try {
+    const statuses = await listDealStatuses();
+    let rows = await listMeetings({ isAdmin: true });
+    const acctOf = (m) => (m.account && m.account.trim()) || m.title || "(無題)";
+    const statusOf = (m) => {
+      const s = statuses[acctOf(m)];
+      if (s && s.status) return s.status;
+      if (m.analysis && m.analysis.deal_status) return m.analysis.deal_status;
+      return "進行中";
+    };
+    const lost = rows.filter((m) => statusOf(m) === "失注");
+    if (!lost.length) return res.status(400).json({ error: "失注の案件がまだありません。商談を重ねてステータスが付くと学習できます。" });
+    const block = (m, i) => {
+      const p = [`#${i + 1} 「${m.title || "無題"}」`];
+      const s = m.summary || {};
+      if (s.overview) p.push(`要約: ${s.overview}`);
+      if (Array.isArray(s.customer_concerns) && s.customer_concerns.length) p.push(`懸念: ${s.customer_concerns.join(" / ")}`);
+      const a = m.analysis;
+      if (a && a.deal_status_reason) p.push(`失注理由(AI): ${a.deal_status_reason}`);
+      if (a && a.objections?.length) p.push(`異議: ${a.objections.join(" / ")}`);
+      return p.join("\n");
+    };
+    let lostMaterial = lost.slice(0, 15).map(block).join("\n\n");
+    if (lostMaterial.length > 8000) lostMaterial = lostMaterial.slice(0, 8000);
+    const signals = await extractLostSignals({ lostMaterial });
+    await saveSettings({ lostSignals: signals });
+    res.json({ ok: true, signals, lostCount: lost.length });
+  } catch (e) {
+    console.error("[lost-signals]", e.message);
+    res.status(502).json({ error: e.message });
+  }
+});
+
+// ===== Notion連携 =====
+app.get("/api/notion/config", async (req, res) => {
+  try {
+    const cfg = await getUserSettings(req.user);
+    res.json(notionStatus(cfg));
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+app.put("/api/notion/config", async (req, res) => {
+  try {
+    const patch = {};
+    if (typeof req.body?.db === "string") patch.notionDb = req.body.db.trim();
+    if (typeof req.body?.token === "string" && req.body.token.trim() && !req.body.token.includes("•"))
+      patch.notionToken = req.body.token.trim();
+    await saveUserSettings(req.user, patch);
+    res.json({ ok: true, ...notionStatus(await getUserSettings(req.user)) });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+app.post("/api/meetings/:id/notion", async (req, res) => {
+  try {
+    const cfg = await getUserSettings(req.user);
+    if (!notionConfigured(cfg)) return res.status(400).json({ error: "あなたのNotion連携が未設定です（設定→Notion連携でトークンとデータベースIDを登録）" });
+    const m = await getMeeting(req.params.id);
+    if (!m) return res.status(404).json({ error: "見つかりません" });
+    if (!canAccess(m, req)) return res.status(403).json({ error: "権限がありません" });
+    const appUrl = (PUBLIC_URL || "").replace(/\/$/, "") + "/history.html";
+    const url = await createMeetingPage(cfg, m, { appUrl });
+    res.json({ ok: true, url });
+  } catch (e) {
+    console.error("[notion]", e.message);
+    res.status(502).json({ error: e.message });
   }
 });
 
@@ -1026,13 +1118,34 @@ async function processUpload(id, file, repName) {
         console.error("[upload review]", e.message);
       }
       try {
-        const deep = await analyzeDeep({ transcript, repName });
+        let lostSignals = [];
+        try { lostSignals = (await getSettings()).lostSignals || []; } catch {}
+        const deep = await analyzeDeep({ transcript, repName, lostSignals });
         await saveDeepAnalysis(id, deep);
+        const st = deep && deep.deal_status;
+        if (st && ["進行中", "受注", "失注", "保留"].includes(st)) {
+          const m = await getMeeting(id);
+          const account = (m && ((m.account && m.account.trim()) || m.title)) || "";
+          if (account) await setDealStatusAuto(account, st);
+        }
       } catch (e) {
         console.error("[upload deep]", e.message);
       }
     }
     await setMeetingStatus(id, "done");
+
+    // 動画/音声をMuxに資産化（再生用）。設定があるときだけ。
+    if (muxConfigured()) {
+      try {
+        const uploadId = await startVodUpload(file.path, file.mimetype, id); // ここまでファイルが必要
+        // エンコード完了は時間がかかるのでバックグラウンドで解決
+        waitVodPlayback(uploadId)
+          .then((pid) => pid && setMeetingMux(id, pid))
+          .catch((e) => console.error("[upload mux wait]", e.message));
+      } catch (e) {
+        console.error("[upload mux]", e.message);
+      }
+    }
   } finally {
     try { fs.unlinkSync(file.path); } catch {}
   }
@@ -1123,6 +1236,9 @@ app.get("/api/meetings/:id/recording", async (req, res) => {
   try {
     const m = await getMeeting(req.params.id);
     if (!m || !canAccess(m, req)) return res.json({ url: null });
+    if (m.mux_playback_id) {
+      return res.json({ url: `https://stream.mux.com/${m.mux_playback_id}.m3u8`, hls: true });
+    }
     res.json({ url: await getRecordingUrl(req.params.id) });
   } catch {
     res.json({ url: null });

@@ -285,6 +285,7 @@ async function loadDetail(botId) {
         <div class="dactions">
           <button class="btn" id="genBtn">要約・FB生成</button>
           <button class="btn" id="deepBtn">分析を生成</button>
+          <button class="btn" id="notionBtn">Notionに送る</button>
           <button class="btn danger" id="delBtn">削除</button>
         </div>
       </div>
@@ -616,6 +617,25 @@ async function loadDetail(botId) {
       });
     }
 
+    // Notionに送る
+    const notionBtn = hdetail.querySelector("#notionBtn");
+    if (notionBtn) notionBtn.addEventListener("click", async () => {
+      notionBtn.disabled = true;
+      const orig = notionBtn.textContent;
+      notionBtn.textContent = "送信中…";
+      try {
+        const r = await fetch(`/api/meetings/${encodeURIComponent(botId)}/notion`, { method: "POST" });
+        const d = await r.json();
+        if (!r.ok) throw new Error(d.error || "送信に失敗しました");
+        notionBtn.textContent = "Notionへ送信済み";
+        if (d.url) window.open(d.url, "_blank", "noopener");
+        setTimeout(() => { notionBtn.textContent = orig; notionBtn.disabled = false; }, 2500);
+      } catch (e) {
+        alert("Notion送信に失敗: " + e.message);
+        notionBtn.textContent = orig; notionBtn.disabled = false;
+      }
+    });
+
     // 削除
     const delBtn = hdetail.querySelector("#delBtn");
     delBtn.addEventListener("click", async () => {
@@ -710,12 +730,20 @@ async function loadDetail(botId) {
       .then((r) => r.json())
       .then((d) => {
         if (d && d.url) {
+          const isHls = d.hls || /\.m3u8(\?|$)/.test(d.url);
           drec.innerHTML = `
-            <video class="rec-video" controls preload="metadata" playsinline></video>
-            <a class="rec-open" href="${escapeHtml(d.url)}" target="_blank" rel="noopener">別タブで開く</a>`;
-          drec.querySelector("video").src = d.url;
+            <video class="rec-video" controls preload="metadata" playsinline></video>` +
+            (isHls ? "" : `<a class="rec-open" href="${escapeHtml(d.url)}" target="_blank" rel="noopener">別タブで開く</a>`);
+          const video = drec.querySelector("video");
+          if (isHls && window.Hls && window.Hls.isSupported() && !video.canPlayType("application/vnd.apple.mpegurl")) {
+            const hls = new Hls();
+            hls.loadSource(d.url);
+            hls.attachMedia(video);
+          } else {
+            video.src = d.url;
+          }
         } else {
-          drec.innerHTML = '<div class="rec-none">録画はまだありません（会議終了後に生成されます）。</div>';
+          drec.innerHTML = '<div class="rec-none">録画はまだありません（会議終了後・アップロード動画は変換完了後に表示されます）。</div>';
         }
       })
       .catch(() => {

@@ -128,7 +128,48 @@ function render(triggered) {
   renderAgg(rows);
   renderSetPanel(rows, !!triggered);
   renderWinLoss(rows);
+  renderLostSignals();
   renderList(rows);
+}
+
+// ===== 失注サイン（学習） =====
+let lostSigLoaded = false;
+async function renderLostSignals() {
+  const el = $("lostsig");
+  if (!el) return;
+  el.innerHTML = `<div class="tend-head"><span>🚩 失注サイン（これを言われたら危険）</span><button class="btn" id="lsLearn">失注商談から学習</button></div>
+    <div class="tend-body" id="lsBody"><div class="empty-state">失注した商談から「失注の予兆フレーズ」をAIが抽出します。学習すると、以後の商談終了時の失注判定にも自動で反映されます。</div></div>`;
+  $("lsLearn").onclick = learnLostSignals;
+  if (!lostSigLoaded) {
+    lostSigLoaded = true;
+    try {
+      const d = await (await fetch("/api/lost-signals")).json();
+      if (d.signals && d.signals.length) paintLostSignals(d.signals);
+    } catch {}
+  }
+}
+function paintLostSignals(signals) {
+  const body = $("lsBody");
+  if (!body) return;
+  if (!signals || !signals.length) { body.innerHTML = '<div class="empty-state">まだ学習結果がありません。</div>'; return; }
+  body.innerHTML = `<ul class="ls-list">` +
+    signals.map((g) => `<li><b>${escapeHtml(g.phrase || "")}</b>${g.why ? `<span class="ls-why">${escapeHtml(g.why)}</span>` : ""}</li>`).join("") +
+    `</ul><p class="metric-note">この内容は商談終了時の失注判定にも反映されます。</p>`;
+}
+async function learnLostSignals() {
+  const btn = $("lsLearn");
+  if (btn) { btn.disabled = true; btn.textContent = "学習中…"; }
+  $("lsBody").innerHTML = '<div class="empty-state">失注商談を分析しています…</div>';
+  try {
+    const r = await fetch("/api/lost-signals/learn", { method: "POST" });
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.error || "学習に失敗");
+    paintLostSignals(d.signals);
+  } catch (e) {
+    $("lsBody").innerHTML = `<div class="empty-state">${escapeHtml(e.message)}</div>`;
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = "再学習"; }
+  }
 }
 
 // ===== 失注 vs 進行中の傾向分析 =====

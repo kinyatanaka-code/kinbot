@@ -782,3 +782,44 @@ loadKnowledge();
   if (resetBtn) resetBtn.addEventListener("click", () => save(DEFAULTS));
   load();
 })();
+
+// ===== Notion連携 =====
+(function () {
+  const saveBtn = document.getElementById("saveNotionBtn");
+  if (!saveBtn) return;
+  const tokenEl = document.getElementById("notionToken");
+  const dbEl = document.getElementById("notionDb");
+  const statusEl = document.getElementById("notionStatus");
+  const savedEl = document.getElementById("notionSaved");
+  async function refresh() {
+    try {
+      const d = await (await fetch("/api/notion/config")).json();
+      if (dbEl && d.db) dbEl.value = d.db;
+      if (tokenEl && d.hasToken) tokenEl.value = "••••••••••••";
+      if (statusEl) statusEl.textContent = d.configured ? "連携済み" : "未設定";
+    } catch {}
+  }
+  saveBtn.addEventListener("click", async () => {
+    saveBtn.disabled = true;
+    try {
+      const body = { db: (dbEl.value || "").trim() };
+      const tv = (tokenEl.value || "").trim();
+      if (tv && !tv.includes("•")) body.token = tv;
+      const r = await fetch("/api/notion/config", {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.error || "保存に失敗");
+      if (savedEl) { savedEl.hidden = false; setTimeout(() => (savedEl.hidden = true), 2000); }
+      if (statusEl) statusEl.textContent = d.configured ? "連携済み" : "未設定";
+      if (tokenEl && d.hasToken) tokenEl.value = "••••••••••••";
+    } catch (e) {
+      alert("保存に失敗: " + e.message);
+    } finally {
+      saveBtn.disabled = false;
+    }
+  });
+  refresh();
+})();

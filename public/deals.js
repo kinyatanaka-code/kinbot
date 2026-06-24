@@ -9,6 +9,17 @@ function fmtDate(d) {
   return `${x.getMonth() + 1}/${x.getDate()} ${String(x.getHours()).padStart(2, "0")}:${String(x.getMinutes()).padStart(2, "0")}`;
 }
 const acctOf = (m) => (m.account && m.account.trim()) || m.title || "(無題)";
+function lastLostReason(ms) {
+  for (let i = ms.length - 1; i >= 0; i--) {
+    const a = ms[i].analysis;
+    if (a && a.deal_status === "失注" && a.deal_status_reason) return a.deal_status_reason;
+  }
+  for (let i = ms.length - 1; i >= 0; i--) {
+    const a = ms[i].analysis;
+    if (a && a.deal_status_reason) return a.deal_status_reason;
+  }
+  return "";
+}
 
 let all = [];
 let groups = {}; // account -> meetings[]
@@ -111,6 +122,7 @@ async function selectDeal(account) {
     `<div class="deal-head-meta">${ms.length}回の商談 ・ 現在 ${esc(PHASE_LABEL[last.phase] || "フェーズ未設定")} ・ 担当 ${esc(last.owner_name || last.owner || "—")}` +
     (dealStatuses[account] && dealStatuses[account].manual ? ' ・ <span class="st-manual">手動設定</span>' : ' ・ <span class="st-auto">AI自動</span>') +
     `</div>` +
+    (statusOf(account) === "失注" && lastLostReason(ms) ? `<div class="lost-reason">AI判定の失注理由: ${esc(lastLostReason(ms))}</div>` : "") +
     `</div>` +
     `<section class="deal-sec"><div class="deal-sec-h">📋 ネクストアクション</div><div id="aiBox"><div class="empty-state">読み込み中…</div></div>` +
     `<div class="ai-add"><input id="aiNew" type="text" placeholder="やることを追加（例：見積もりを送付）" /><input id="aiDue" type="date" /><button class="btn" id="aiAddBtn">追加</button></div></section>` +
