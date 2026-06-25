@@ -131,9 +131,13 @@
             </section>
           </div>
 
-          <div class="live-pane live-pane-scroll" data-pane="ai" hidden>
-            <div class="ai-feed" id="aiFeed">
-              <div class="empty-state">商談が進むと、kinbotが「切り返し」「次の一手」を吹き出しでお知らせします。</div>
+          <div class="live-pane live-pane-scroll coach-pane" data-pane="ai" hidden>
+            <div class="ai-feed coach-feed" id="aiFeed">
+              <div class="empty-state">商談が進むと、kinbotコーチが「切り返し」「聞いておきたい質問」「次の一手」をチャットで送ります。</div>
+            </div>
+            <div class="coach-ask">
+              <input id="coachAsk" type="text" placeholder="コーチに質問する…（例：今の反応どう？）" />
+              <button id="coachAskBtn" class="coach-send" aria-label="送信"><span>送信</span></button>
             </div>
           </div>
 

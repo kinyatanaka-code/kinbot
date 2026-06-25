@@ -950,6 +950,31 @@ app.post("/api/sessions/:id/stop", async (req, res) => {
   res.json({ ok: true });
 });
 
+// ライブ商談中、コーチ(AI)に質問する。今の会話内容を文脈に回答。
+app.post("/api/sessions/:id/ask", async (req, res) => {
+  try {
+    const question = (req.body?.question || "").toString().trim();
+    if (!question) return res.status(400).json({ error: "質問を入力してください" });
+    let context = "";
+    const s = getSession(req.params.id);
+    if (s && typeof s.transcriptText === "function") context = s.transcriptText();
+    if (!context) {
+      const m = await getMeeting(req.params.id);
+      const tr = Array.isArray(m?.transcript) ? m.transcript : [];
+      context = tr.map((u) => `${u.speaker?.name || "話者"}: ${u.text || ""}`).join("\n");
+    }
+    context = (context || "").slice(-12000) || "（まだ会話がありません）";
+    const reply = await chatWithData({
+      messages: [{ role: "user", content: question }],
+      material: "【今の商談の文字起こし】\n" + context,
+    });
+    res.json({ reply });
+  } catch (e) {
+    console.error("[ask]", e.message);
+    res.status(502).json({ error: e.message });
+  }
+});
+
 // --- 自社ナレッジ（チーム共有） ---
 app.get("/api/knowledge", async (req, res) => {
   res.json(await listKnowledge());

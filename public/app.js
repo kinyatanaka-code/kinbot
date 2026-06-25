@@ -638,16 +638,34 @@ function renderCoverage(list) {
   }
 }
 
-function aiBubble({ kind, label, title, text, sub, time }) {
+const COACH_TAG = {
+  obj:   { label: "気になるサイン", cls: "amber" },
+  q:     { label: "聞いておきたい", cls: "blue" },
+  close: { label: "次の一手", cls: "mint" },
+  rebut: { label: "切り返し", cls: "amber" },
+  info:  { label: "メモ", cls: "gray" },
+  land:  { label: "ナイス", cls: "green" },
+  reply: { label: "", cls: "gray" },
+};
+function aiBubble({ kind, text, quote, quoteLabel, sub, time, you }) {
   const wrap = document.createElement("div");
-  wrap.className = "ai-msg";
-  const lbl = label ? `<span class="ai-label ai-label-${kind}">${escAi(label)}</span>` : "";
-  const ttl = title ? `<div class="ai-b-title">${escAi(title)}</div>` : "";
-  const sb = sub ? `<div class="ai-b-sub">${escAi(sub)}</div>` : "";
-  const tm = time ? `<div class="ai-b-time">${escAi(time)}</div>` : "";
+  if (you) {
+    wrap.className = "coach-msg coach-you";
+    wrap.innerHTML = `<div class="coach-bub coach-bub-you"><div class="coach-text">${escAi(text)}</div></div>`;
+    return wrap;
+  }
+  wrap.className = "coach-msg";
+  const meta = COACH_TAG[kind] || COACH_TAG.info;
+  const isLand = kind === "land";
+  const tag = isLand || !meta.label ? "" : `<span class="coach-tag coach-tag-${meta.cls}">${escAi(meta.label)}</span>`;
+  const q = quote
+    ? `<div class="coach-quote"><div class="coach-quote-h">${escAi(quoteLabel || "こう言ってみよう")}</div><div class="coach-quote-t">${escAi(quote)}</div></div>`
+    : "";
+  const sb = sub ? `<div class="coach-sub">${escAi(sub)}</div>` : "";
+  const tm = time ? `<div class="coach-time">${escAi(time)}</div>` : "";
   wrap.innerHTML =
-    `<img class="ai-ava" src="kinbot.svg" alt="kinbot" />` +
-    `<div class="ai-bubble ai-bubble-${kind}">${lbl}${ttl}<div class="ai-b-text">${escAi(text)}</div>${sb}${tm}</div>`;
+    `<img class="coach-ava" src="kinbot.svg" alt="kinbot" />` +
+    `<div class="coach-col"><div class="coach-bub ${isLand ? "coach-bub-land" : "coach-bub-normal"}">${tag}<div class="coach-text">${escAi(text)}</div>${q}${sb}</div>${tm}</div>`;
   return wrap;
 }
 function escAi(s) {
@@ -714,34 +732,37 @@ function renderAiFeed(objections, suggestions, ts, landed) {
     const key = "obj:" + aiKey(o.objection) + aiKey(o.response);
     if (aiSeen.has(key)) continue;
     aiSeen.add(key);
-    toAdd.push(
-      aiBubble({
-        kind: "obj",
-        label: "懸念 → 刺さる言い返し",
-        title: o.objection ? "「" + o.objection + "」" : "",
-        text: o.response || "",
-        sub: o.basis ? "根拠: " + o.basis : "",
-        time,
-      })
-    );
+    const lead = o.objection
+      ? `お客さんが「${o.objection}」と気にしているみたい。ここで流さず切り返しておこう。`
+      : `気になる反応が出てるよ。ここで切り返しておこう。`;
+    toAdd.push(aiBubble({ kind: "obj", text: lead, quote: o.response || "", quoteLabel: "こう言ってみよう", sub: o.basis ? "根拠: " + o.basis : "", time }));
   }
-  // 刺さったトーク
+  // 刺さったトーク（ほめ）
   for (const g of lands) {
     const key = "land:" + aiKey(g.text);
     if (aiSeen.has(key)) continue;
     aiSeen.add(key);
-    toAdd.push(
-      aiBubble({ kind: "land", label: "💡 刺さったトーク", title: g.text || "", text: g.why || "", time })
-    );
+    const t = g.text ? `「${g.text}」、刺さってたよ。いい流れ！` : `今のトーク、刺さってた！いい流れ。`;
+    toAdd.push(aiBubble({ kind: "land", text: t, sub: g.why || "", time }));
   }
   // 次の一手
   for (const m of sugs) {
-    const type = TYPE_LABEL[m.type] ? m.type : "info";
     const key = "sug:" + aiKey(m.title) + aiKey(m.detail);
     if (aiSeen.has(key)) continue;
     aiSeen.add(key);
+    const map = { question: "q", closing: "close", objection: "rebut", info: "info" };
+    const kind = map[m.type] || "info";
+    const qLabel = kind === "q" ? "こう聞いてみよう" : kind === "close" ? "こう切り出そう" : "こう言ってみよう";
+    const useQuote = kind !== "info";
     toAdd.push(
-      aiBubble({ kind: type, label: TYPE_LABEL[type] || "補足", title: m.title || "", text: m.detail || "", time })
+      aiBubble({
+        kind,
+        text: m.title || (kind === "q" ? "これ、聞いておこう。" : "次はこう動こう。"),
+        quote: useQuote ? m.detail || "" : "",
+        quoteLabel: qLabel,
+        sub: useQuote ? "" : m.detail || "",
+        time,
+      })
     );
   }
   if (!toAdd.length) return;
@@ -818,4 +839,43 @@ function stopTimer() {
       }
     }, 800);
   });
+})();
+
+// コーチに質問（ライブ中）
+(function () {
+  const btn = document.getElementById("coachAskBtn");
+  const inp = document.getElementById("coachAsk");
+  if (!btn || !inp) return;
+  const send = async () => {
+    const q = (inp.value || "").trim();
+    if (!q || !sessionId) return;
+    const feed = $("aiFeed");
+    if (aiHasItems === false && feed) { feed.innerHTML = ""; aiHasItems = true; }
+    feed.appendChild(aiBubble({ you: true, text: q }));
+    const time = new Date().toLocaleTimeString("ja-JP", { hour: "2-digit", minute: "2-digit" });
+    const thinking = aiBubble({ kind: "reply", text: "考え中…", time });
+    feed.appendChild(thinking);
+    feed.scrollTop = feed.scrollHeight;
+    inp.value = "";
+    btn.disabled = true;
+    try {
+      const r = await fetch(`/api/sessions/${encodeURIComponent(sessionId)}/ask`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ question: q }),
+      });
+      const d = await r.json();
+      thinking.remove();
+      if (!r.ok) throw new Error(d.error || "応答に失敗");
+      feed.appendChild(aiBubble({ kind: "reply", text: d.reply || "（回答なし）", time }));
+    } catch (e) {
+      thinking.remove();
+      feed.appendChild(aiBubble({ kind: "reply", text: "うまく答えられなかった…(" + e.message + ")", time }));
+    } finally {
+      btn.disabled = false;
+      feed.scrollTop = feed.scrollHeight;
+    }
+  };
+  btn.addEventListener("click", send);
+  inp.addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); send(); } });
 })();

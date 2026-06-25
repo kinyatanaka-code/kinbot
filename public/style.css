@@ -1309,3 +1309,37 @@ a.kb-src:hover { color: var(--accent); border-color: var(--accent); }
 .chat-input { display: flex; gap: 8px; align-items: flex-end; }
 .chat-input textarea { flex: 1; resize: none; border: 1px solid var(--line); border-radius: 12px; padding: 11px 13px; font: inherit; font-size: 14px; line-height: 1.5; background: #fff; color: var(--ink); max-height: 120px; }
 @media (max-width: 760px) { .cbub { max-width: 85%; } }
+
+/* ===== AI提案：コーチ風チャット ===== */
+.coach-pane { display: flex; flex-direction: column; }
+.coach-feed { flex: 1; overflow-y: auto; padding: 12px 12px 6px; }
+.coach-msg { display: flex; align-items: flex-start; gap: 8px; margin-bottom: 14px; }
+.coach-ava { width: 30px; height: 30px; border-radius: 50%; flex: 0 0 auto; background: #eaf6f1; padding: 2px; box-sizing: border-box; }
+.coach-col { max-width: 84%; }
+.coach-bub { border-radius: 14px; border-top-left-radius: 4px; padding: 10px 13px; }
+.coach-bub-normal { background: #fff; border: 1px solid var(--line, #e6ebe8); }
+.coach-bub-land { background: #eaf3de; border: 1px solid #c0dd97; }
+.coach-tag { display: inline-block; font-size: 11px; font-weight: 700; padding: 2px 9px; border-radius: 999px; margin-bottom: 6px; }
+.coach-tag-amber { background: #faeeda; color: #854f0b; }
+.coach-tag-blue  { background: #e6f1fb; color: #185fa5; }
+.coach-tag-mint  { background: #e1f5ee; color: #0f6e56; }
+.coach-tag-gray  { background: #eef1ef; color: #5f6b66; }
+.coach-tag-green { background: #eaf3de; color: #3b6d11; }
+.coach-text { font-size: 13.5px; line-height: 1.7; color: #1d2a24; }
+.coach-bub-land .coach-text { color: #173404; }
+.coach-quote { margin-top: 8px; background: #e1f5ee; border-radius: 10px; padding: 8px 10px; }
+.coach-quote-h { font-size: 10.5px; color: #0f6e56; margin-bottom: 2px; }
+.coach-quote-t { font-size: 13px; line-height: 1.6; color: #04342c; }
+.coach-sub { font-size: 11.5px; color: var(--muted, #6b7770); margin-top: 6px; }
+.coach-time { font-size: 10.5px; color: #9aa6a0; margin-top: 4px; padding-left: 4px; }
+/* あなた（営業）の質問は右側 */
+.coach-you { justify-content: flex-end; }
+.coach-bub-you { background: var(--accent, #1aa884); color: #fff; border-radius: 14px; border-top-right-radius: 4px; padding: 10px 13px; max-width: 84%; }
+.coach-bub-you .coach-text { color: #fff; }
+/* 質問入力バー */
+.coach-ask { display: flex; gap: 8px; align-items: center; padding: 10px 12px; border-top: 1px solid var(--line, #e6ebe8); background: var(--panel, #fff); }
+.coach-ask input { flex: 1; height: 40px; border: 1px solid var(--line, #dfe5e2); border-radius: 999px; padding: 0 15px; font: inherit; font-size: 13.5px; background: #fff; color: var(--ink, #1d2a24); }
+.coach-send { height: 40px; padding: 0 16px; border: none; border-radius: 999px; background: var(--accent, #1aa884); color: #fff; font-weight: 700; font-size: 13px; cursor: pointer; }
+.coach-send:disabled { opacity: .6; }
+
+.live-pane.coach-pane { padding: 0; overflow: hidden; }
