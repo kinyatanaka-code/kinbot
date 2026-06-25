@@ -86,6 +86,8 @@ export async function createBot({
     bot_name: botName,
     ...(joinAt ? { join_at: joinAt } : {}),
     recording_config: {
+      // 後から再生できる録画（ミックスmp4）を必ず生成する
+      video_mixed_mp4: {},
       transcript: {
         provider: buildProvider(provider, languageCode, deepgramModel, mode),
         // 参加者ごとに別ストリーム＝正確な話者分離（話者名が付く）
@@ -170,6 +172,17 @@ export async function getBot(botId) {
 /** Botの応答から録画(動画)URLを最善努力で探す（スキーマ差異に強く） */
 export async function getRecordingUrl(botId) {
   const data = await getBot(botId);
+
+  // 1) v1.11 の標準位置を明示的に探す: recordings[].media_shortcuts.video_mixed.data.download_url
+  const recs = Array.isArray(data?.recordings) ? data.recordings : [];
+  for (const r of recs) {
+    const ms = r?.media_shortcuts || {};
+    const vm = ms.video_mixed || ms.video_mixed_mp4 || null;
+    const url = vm?.data?.download_url;
+    if (typeof url === "string" && /^https?:\/\//.test(url)) return url;
+  }
+
+  // 2) 旧スキーマ等のフォールバック: オブジェクトを走査して mp4/download_url を探す
   let found = null;
   (function walk(o) {
     if (found || o == null) return;

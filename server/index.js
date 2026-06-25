@@ -1236,10 +1236,15 @@ app.get("/api/meetings/:id/recording", async (req, res) => {
   try {
     const m = await getMeeting(req.params.id);
     if (!m || !canAccess(m, req)) return res.json({ url: null });
+    // 1) Bot録画（Recall）があればそれを優先（mp4で確実に再生できる）
+    let recallUrl = null;
+    try { recallUrl = await getRecordingUrl(req.params.id); } catch (e) { console.error("[recording] recall", e.message); }
+    if (recallUrl) return res.json({ url: recallUrl, source: "recall" });
+    // 2) 無ければ Mux VOD（アップロード動画など）
     if (m.mux_playback_id) {
-      return res.json({ url: `https://stream.mux.com/${m.mux_playback_id}.m3u8`, hls: true });
+      return res.json({ url: `https://stream.mux.com/${m.mux_playback_id}.m3u8`, hls: true, source: "mux" });
     }
-    res.json({ url: await getRecordingUrl(req.params.id) });
+    res.json({ url: null, source: null });
   } catch {
     res.json({ url: null });
   }
