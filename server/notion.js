@@ -66,7 +66,45 @@ export async function createMeetingPage(cfg, m, { appUrl } = {}) {
   if (m.note) { children.push(h2("商談メモ")); children.push(para(m.note)); }
   if (appUrl) children.push(para("kinbotで開く: " + appUrl));
 
-  const page = await api("/pages", "POST", { parent: { database_id: dbId }, properties: props, children: children.slice(0, 95) }, tk);
+  // 文字起こし（全文）。長くなるので見出しの後に分割で追記する。
+  const tr = Array.isArray(m.transcript) ? m.transcript : [];
+  const transcriptBlocks = [];
+  for (const u of tr) {
+    const name = (u && u.speaker && u.speaker.name) || "話者";
+    const text = (u && u.text) || "";
+    if (!text) continue;
+    // 1発言が長い場合は2000字制限内に分割
+    for (let i = 0; i < text.length; i += 1800) {
+      const chunk = text.slice(i, i + 1800);
+      transcriptBlocks.push(bullet(`${i === 0 ? name + "： " : ""}${chunk}`));
+    }
+  }
+  if (transcriptBlocks.length) children.push(h2("文字起こし"));
+
+  // 最初の作成リクエストには95ブロックまで入れる
+  const initial = children.slice(0, 95);
+  const overflow = children.slice(95);
+  // 見出しの後に入り切らなかった文字起こしも overflow に回す
+  if (transcriptBlocks.length) {
+    const room = Math.max(0, 95 - initial.length);
+    for (let i = 0; i < transcriptBlocks.length; i++) {
+      if (i < room) initial.push(transcriptBlocks[i]);
+      else overflow.push(transcriptBlocks[i]);
+    }
+  }
+
+  const page = await api("/pages", "POST", { parent: { database_id: dbId }, properties: props, children: initial }, tk);
+  // 残りは append（90ブロックずつ）
+  if (page?.id && overflow.length) {
+    for (let i = 0; i < overflow.length; i += 90) {
+      try {
+        await api(`/blocks/${page.id}/children`, "PATCH", { children: overflow.slice(i, i + 90) }, tk);
+      } catch (e) {
+        console.error("[notion append]", e.message);
+        break; // 失敗しても本体ページは作成済み
+      }
+    }
+  }
   return page.url || null;
 }
 

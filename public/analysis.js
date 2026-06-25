@@ -164,15 +164,15 @@ async function anaBulkNotion() {
   const ids = rows.map((m) => m.bot_id);
   if (!confirm(`絞り込み中の ${rows.length} 件を、あなたのNotionに送信します。\n既に送信済みの商談は自動でスキップします。続けますか？`)) return;
   if (btn) { btn.disabled = true; btn.textContent = "送信中…"; }
-  const setS = (t) => { if (stat) stat.textContent = t; };
-  setS(`送信中… 0/${ids.length}`);
+  const setS = (label, percent) => window.kbProgress(stat, { label, percent });
+  setS(`送信中… 0/${ids.length}`, 0);
   try {
     const d = await window.kinbotBulkNotion(ids, {
-      onProgress: (p) => setS(`送信中… ${p.done}/${p.total}（成功${p.sent}・スキップ${p.skipped}）`),
+      onProgress: (p) => setS(`送信中… ${p.done}/${p.total}（成功${p.sent}・スキップ${p.skipped}）`, (p.done / p.total) * 100),
     });
-    setS(`完了：成功 ${d.sent} / スキップ ${d.skipped} / 失敗 ${d.failed}` + (d.errors && d.errors.length ? `（例: ${d.errors[0]}）` : ""));
+    setS(`完了：成功 ${d.sent} / スキップ ${d.skipped} / 失敗 ${d.failed}` + (d.errors && d.errors.length ? `\n例: ${d.errors[0]}` : ""), 100);
   } catch (e) {
-    setS("失敗: " + e.message);
+    if (stat) stat.textContent = "失敗: " + e.message;
   } finally {
     if (btn) { btn.disabled = false; btn.textContent = "絞り込みをNotionに一括送信"; }
   }
@@ -216,7 +216,7 @@ async function runFree() {
   if (!q) { $("freeQ").focus(); return; }
   const btn = $("freeRun");
   btn.disabled = true; btn.textContent = "分析中…";
-  $("freeAns").innerHTML = '<div class="empty-state">AIが対象の商談を読み込んで分析しています…</div>';
+  window.kbProgress($("freeAns"), { percent: null, label: "AIが対象の商談を読み込んで分析しています…" });
   try {
     const r = await fetch("/api/free-analysis", {
       method: "POST", headers: { "content-type": "application/json" },
@@ -297,7 +297,7 @@ function paintLostSignals(signals) {
 async function learnLostSignals() {
   const btn = $("lsLearn");
   if (btn) { btn.disabled = true; btn.textContent = "学習中…"; }
-  $("lsBody").innerHTML = '<div class="empty-state">失注商談を分析しています…</div>';
+  window.kbProgress($("lsBody"), { percent: null, label: "失注商談を分析して予兆を抽出しています…" });
   try {
     const r = await fetch("/api/lost-signals/learn", { method: "POST" });
     const d = await r.json();
@@ -324,7 +324,7 @@ function renderWinLoss(rows) {
 async function runWinLoss(filter, seq, force) {
   const btn = $("wlBtn");
   if (btn) { btn.disabled = true; btn.textContent = "分析中…"; }
-  $("wlBody").innerHTML = '<div class="empty-state">分析中…（AIが失注・進行中の商談を横断しています）</div>';
+  window.kbProgress($("wlBody"), { percent: null, label: "失注・進行中の商談を横断分析しています…" });
   try {
     const r = await fetch("/api/winloss-analysis", {
       method: "POST",
@@ -573,7 +573,8 @@ async function runGenerate(filter, seq, force) {
     btn.hidden = false;
     btn.textContent = "分析中…";
   }
-  $("setBody").innerHTML = '<div class="empty-state">分析中…（AIが商談内容を横断しています）</div>';
+  $("setBody").innerHTML = "";
+  window.kbProgress($("setBody"), { percent: null, label: "AIが商談内容を横断して傾向をまとめています…" });
   try {
     const d = await fetchSet({ ...filter, force: !!force });
     if (seq !== setReqSeq) return;

@@ -190,15 +190,15 @@ async function bulkSendNotion() {
   const ids = rows.map((m) => m.bot_id);
   if (!confirm(`絞り込み中の ${rows.length} 件を、あなたのNotionに送信します。\n既に送信済みの商談は自動でスキップします。続けますか？`)) return;
   if (btn) { btn.disabled = true; btn.textContent = "送信中…"; }
-  const setS = (t) => { if (stat) stat.textContent = t; };
-  setS(`送信中… 0/${ids.length}`);
+  const setS = (label, percent) => window.kbProgress(stat, { label, percent });
+  setS(`送信中… 0/${ids.length}`, 0);
   try {
     const d = await window.kinbotBulkNotion(ids, {
-      onProgress: (p) => setS(`送信中… ${p.done}/${p.total}（成功${p.sent}・スキップ${p.skipped}）`),
+      onProgress: (p) => setS(`送信中… ${p.done}/${p.total}（成功${p.sent}・スキップ${p.skipped}）`, (p.done / p.total) * 100),
     });
-    setS(`完了：成功 ${d.sent} / スキップ ${d.skipped} / 失敗 ${d.failed}` + (d.errors && d.errors.length ? `（例: ${d.errors[0]}）` : ""));
+    setS(`完了：成功 ${d.sent} / スキップ ${d.skipped} / 失敗 ${d.failed}` + (d.errors && d.errors.length ? `\n例: ${d.errors[0]}` : ""), 100);
   } catch (e) {
-    setS("失敗: " + e.message);
+    if (stat) stat.textContent = "失敗: " + e.message;
   } finally {
     if (btn) { btn.disabled = false; btn.textContent = "絞り込みをNotionに一括送信"; }
   }
@@ -696,12 +696,14 @@ async function loadDetail(botId) {
       deepBtn.disabled = true;
       const orig = deepBtn.textContent;
       deepBtn.textContent = "生成中…";
+      window.kbProgress(hdetail.querySelector("#dai"), { percent: null, label: "AIが商談を多角的に分析しています…" });
       try {
         const r = await fetch(`/api/meetings/${encodeURIComponent(botId)}/deep-analyze`, { method: "POST" });
         const data = await r.json();
         if (!r.ok) throw new Error(data.error || "生成に失敗しました");
         renderAiInto(hdetail.querySelector("#dai"), data);
       } catch (e) {
+        window.kbProgress(hdetail.querySelector("#dai"), { clear: true });
         alert("生成に失敗しました: " + e.message);
       } finally {
         deepBtn.disabled = false;
@@ -725,6 +727,7 @@ async function loadDetail(botId) {
       genBtn.disabled = true;
       const orig = genBtn.textContent;
       genBtn.textContent = "生成中…";
+      window.kbProgress(hdetail.querySelector("#dsummary"), { percent: null, label: "文字起こしから要約・フィードバックを生成しています…" });
       try {
         const r = await fetch(`/api/meetings/${encodeURIComponent(botId)}/analyze`, { method: "POST" });
         const data = await r.json();
@@ -734,6 +737,7 @@ async function loadDetail(botId) {
         renderFeedbackInto(hdetail.querySelector("#dfeedback"), data.feedback || {});
         loadList(); // 一覧の「要約なし」表示を更新
       } catch (e) {
+        window.kbProgress(hdetail.querySelector("#dsummary"), { clear: true });
         alert("生成に失敗しました: " + e.message);
       } finally {
         genBtn.disabled = false;

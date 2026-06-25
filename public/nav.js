@@ -49,3 +49,22 @@ window.kinbotBulkNotion = async function (ids, { onProgress } = {}) {
   }
   return { sent, failed, skipped, total, errors };
 };
+
+// ===== 進捗バー（％ or 不確定アニメ）共通部品 =====
+window.kbProgress = function (el, opts = {}) {
+  if (!el) return;
+  if (opts.clear) { el.innerHTML = ""; return; }
+  let wrap = el.querySelector(".kb-progwrap");
+  const indet = opts.percent == null;
+  if (!wrap) {
+    el.innerHTML = `<div class="kb-progwrap"><div class="kb-prog"><div class="kb-prog-bar"></div></div><div class="kb-prog-label"></div></div>`;
+    wrap = el.querySelector(".kb-progwrap");
+  }
+  const prog = wrap.querySelector(".kb-prog");
+  const bar = wrap.querySelector(".kb-prog-bar");
+  const label = wrap.querySelector(".kb-prog-label");
+  prog.classList.toggle("indet", indet);
+  if (indet) bar.style.width = "";
+  else bar.style.width = Math.max(0, Math.min(100, Math.round(opts.percent))) + "%";
+  label.textContent = (opts.label || "") + (indet ? "" : "  " + Math.round(opts.percent) + "%");
+};
