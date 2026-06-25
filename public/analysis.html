@@ -37,6 +37,7 @@
           <div class="ana-tabs" id="anaTabs">
             <button class="ana-tab active" data-mp="dash"><span class="tico tico-dash"></span><span>ダッシュボード</span></button>
             <button class="ana-tab" data-mp="free"><span class="tico tico-free"></span><span>なんでも分析</span></button>
+            <button class="ana-tab" data-mp="chat"><span class="tico tico-chat"></span><span>AIと会話</span></button>
             <button class="ana-tab" data-mp="agg"><span class="tico tico-agg"></span><span>担当・スコア</span></button>
             <button class="ana-tab" data-mp="tend"><span class="tico tico-tend"></span><span>傾向まとめ</span></button>
             <button class="ana-tab" data-mp="win"><span class="tico tico-win"></span><span>勝ち負け・失注</span></button>
@@ -46,6 +47,20 @@
           <div class="dashboard" id="dashboard" data-mpanel="dash"></div>
 
           <div class="freebox" id="freebox" data-mpanel="free"></div>
+
+          <div class="chatbox" id="chatbox" data-mpanel="chat">
+            <div class="chat-head">
+              <span>💬 AIと会話（Gemini・商談データを参照）</span>
+              <label class="chat-pro"><input type="checkbox" id="chatPro" /> 高精度(Pro)</label>
+            </div>
+            <p class="metric-note" id="chatScope">上の絞り込みの商談を参照します。例：「○○社の状況を要約して」「失注を防ぐには？」「田中の次アクションを提案して」</p>
+            <div class="chat-log" id="chatLog"></div>
+            <div class="chat-input">
+              <textarea id="chatText" rows="1" placeholder="メッセージを入力…"></textarea>
+              <button class="btn" id="chatSend">送信</button>
+              <button class="btn ghost" id="chatClear">クリア</button>
+            </div>
+          </div>
 
           <div class="agg" id="agg" data-mpanel="agg"></div>
 

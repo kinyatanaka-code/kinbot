@@ -53,7 +53,7 @@ import {
   deleteKbFolder,
 } from "./db.js";
 import { resolveConfig, statusInfo } from "./config.js";
-import { analyzerInfo, analyzeMeeting, analyzeDeep, analyzeTendency, analyzeSet, analyzeWinLoss, extractLostSignals, freeAnalyze, generateThanks, getCheckItems } from "./analyzer.js";
+import { analyzerInfo, analyzeMeeting, analyzeDeep, analyzeTendency, analyzeSet, analyzeWinLoss, extractLostSignals, freeAnalyze, chatWithData, generateThanks, getCheckItems } from "./analyzer.js";
 import {
   googleConfigured,
   authUrl,
@@ -440,6 +440,35 @@ app.post("/api/talks", async (req, res) => {
     res.json({ landed, concerns });
   } catch (e) {
     console.error("[talks]", e.message);
+    res.status(502).json({ error: e.message });
+  }
+});
+
+// Geminiと商談データを文脈に会話
+app.post("/api/chat", async (req, res) => {
+  try {
+    const { messages, owner, owners, phase, phases, from, to, pro } = req.body || {};
+    if (!Array.isArray(messages) || !messages.length) return res.status(400).json({ error: "メッセージがありません" });
+    const ownerList = Array.isArray(owners) ? owners.filter(Boolean) : owner ? [owner] : [];
+    const phaseList = Array.isArray(phases) ? phases.filter(Boolean) : phase ? [phase] : [];
+    let rows = await listMeetings({ isAdmin: true });
+    rows = rows.filter((m) => {
+      if (ownerList.length && !ownerList.includes(m.owner || "")) return false;
+      if (phaseList.length && !phaseList.includes(m.phase || "")) return false;
+      const d = new Date(m.created_at);
+      if (from && d < new Date(from + "T00:00:00")) return false;
+      if (to && d > new Date(to + "T23:59:59")) return false;
+      return true;
+    });
+    const statuses = await listDealStatuses();
+    const material = buildMeetingMaterial(rows, statuses, { limit: 25, max: 16000 });
+    // 直近の往復だけ送る（コンテキスト節約）
+    const trimmed = messages.slice(-12).map((m) => ({ role: m.role === "assistant" ? "assistant" : "user", content: m.content }));
+    const model = pro ? (process.env.GEMINI_PRO_MODEL || "gemini-2.5-pro") : undefined;
+    const reply = await chatWithData({ messages: trimmed, material, model });
+    res.json({ reply, count: rows.length, model: model || "(標準)" });
+  } catch (e) {
+    console.error("[chat]", e.message);
     res.status(502).json({ error: e.message });
   }
 });

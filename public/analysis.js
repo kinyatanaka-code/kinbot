@@ -162,6 +162,68 @@ function initAnaTabs() {
       if (c) openTalkModal(c.dataset.talk);
     });
   }
+  initChat();
+}
+
+// ===== AIと会話（Gemini） =====
+let chatMsgs = [];
+function initChat() {
+  const send = $("chatSend");
+  if (!send || send._wired) return;
+  send._wired = true;
+  const ta = $("chatText");
+  send.addEventListener("click", sendChat);
+  ta.addEventListener("keydown", (e) => {
+    if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) { e.preventDefault(); sendChat(); }
+  });
+  $("chatClear").addEventListener("click", () => { chatMsgs = []; renderChat(); });
+  renderChat();
+}
+function renderChat() {
+  const log = $("chatLog");
+  if (!log) return;
+  if (!chatMsgs.length) {
+    log.innerHTML = '<div class="empty-state">商談データをもとに会話できます。質問を入力してください。</div>';
+    return;
+  }
+  log.innerHTML = chatMsgs.map((m) => {
+    if (m.role === "user") return `<div class="cmsg cmsg-u"><div class="cbub">${escapeHtml(m.content)}</div></div>`;
+    if (m.role === "assistant") return `<div class="cmsg cmsg-a"><img class="cava" src="kinbot.svg" alt="kinbot"/><div class="cbub">${mdToHtml(m.content)}</div></div>`;
+    return `<div class="cmsg cmsg-sys">${escapeHtml(m.content)}</div>`;
+  }).join("");
+  log.scrollTop = log.scrollHeight;
+}
+async function sendChat() {
+  const ta = $("chatText");
+  const text = (ta.value || "").trim();
+  if (!text) return;
+  const send = $("chatSend");
+  chatMsgs.push({ role: "user", content: text });
+  ta.value = "";
+  renderChat();
+  const log = $("chatLog");
+  const typing = document.createElement("div");
+  typing.className = "cmsg cmsg-a";
+  typing.innerHTML = '<img class="cava" src="kinbot.svg" alt="kinbot"/><div class="cbub"><span class="cdots">考え中…</span></div>';
+  log.appendChild(typing);
+  log.scrollTop = log.scrollHeight;
+  send.disabled = true;
+  try {
+    const r = await fetch("/api/chat", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ ...curFilter(), messages: chatMsgs, pro: $("chatPro").checked }),
+    });
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.error || "応答に失敗しました");
+    chatMsgs.push({ role: "assistant", content: d.reply || "（空の応答）" });
+    renderChat();
+  } catch (e) {
+    typing.remove();
+    chatMsgs.push({ role: "system", content: "エラー: " + e.message });
+    renderChat();
+  } finally {
+    send.disabled = false;
+  }
 }
 
 // 刺さったトーク・懸念の一覧モーダル

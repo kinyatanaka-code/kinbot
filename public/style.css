@@ -1284,3 +1284,27 @@ a.kb-src:hover { color: var(--accent); border-color: var(--accent); }
 .talk-a { font-size: 13.5px; margin-top: 3px; }
 .talk-sub { font-size: 12px; color: var(--muted); margin-top: 5px; }
 .talk-meta { font-size: 11.5px; color: var(--muted); margin-top: 8px; border-top: 1px dashed var(--line); padding-top: 6px; }
+
+/* AIと会話タブのアイコン */
+.tico-chat { -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M4 4h16a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H9l-5 4v-4H4a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2z'/%3E%3C/svg%3E"); mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M4 4h16a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H9l-5 4v-4H4a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2z'/%3E%3C/svg%3E"); }
+
+/* AIと会話 UI */
+.chatbox { display: flex; flex-direction: column; }
+.chat-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; font-weight: 800; font-size: 14px; }
+.chat-pro { font-size: 12px; font-weight: 600; color: var(--muted); display: inline-flex; align-items: center; gap: 5px; }
+.chat-log { border: 1px solid var(--line); border-radius: 12px; background: var(--panel-2); padding: 12px; min-height: 280px; max-height: 52vh; overflow-y: auto; margin: 10px 0; }
+.cmsg { display: flex; margin-bottom: 12px; }
+.cmsg-u { justify-content: flex-end; }
+.cmsg-a { justify-content: flex-start; align-items: flex-start; gap: 8px; }
+.cmsg-sys { justify-content: center; font-size: 12px; color: #a8431f; }
+.cava { width: 28px; height: 28px; border-radius: 50%; flex: 0 0 auto; }
+.cbub { max-width: 78%; padding: 10px 13px; border-radius: 14px; font-size: 14px; line-height: 1.7; }
+.cmsg-u .cbub { background: var(--accent); color: #fff; border-bottom-right-radius: 4px; }
+.cmsg-a .cbub { background: #fff; border: 1px solid var(--line); border-bottom-left-radius: 4px; }
+.cmsg-a .cbub h4 { font-size: 13.5px; margin: 8px 0 4px; }
+.cmsg-a .cbub ul { margin: 5px 0; padding-left: 18px; }
+.cmsg-a .cbub p { margin: 6px 0; }
+.cdots { color: var(--muted); }
+.chat-input { display: flex; gap: 8px; align-items: flex-end; }
+.chat-input textarea { flex: 1; resize: none; border: 1px solid var(--line); border-radius: 12px; padding: 11px 13px; font: inherit; font-size: 14px; line-height: 1.5; background: #fff; color: var(--ink); max-height: 120px; }
+@media (max-width: 760px) { .cbub { max-width: 85%; } }

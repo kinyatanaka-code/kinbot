@@ -223,6 +223,41 @@ export async function freeAnalyze({ question, material, filterDesc }) {
   return await callLLM(FREE_PROMPT, user, 2600, { json: false });
 }
 
+// 商談データを文脈にしたGeminiとのマルチターン会話
+const CHAT_SYSTEM = `あなたは「kinbot」の営業アシスタントです。ユーザー（営業）の過去の商談データ（要約・懸念・スコア・ステータス等）を文脈として渡されます。
+- そのデータに基づき、日本語で具体的に、会話形式で答えます。
+- データで分からないことは「記録からは分かりません」と正直に伝える。憶測で事実を作らない。
+- 必要に応じて箇条書きで簡潔に。長くなりすぎない。`;
+
+export async function chatWithData({ messages, material, model }) {
+  const key = process.env.GEMINI_API_KEY;
+  if (!key) throw new Error("GEMINI_API_KEY が未設定です（Google AI Studio で発行）");
+  const mdl = model || process.env.GEMINI_CHAT_MODEL || process.env.GEMINI_MODEL || "gemini-2.5-flash";
+  const system =
+    CHAT_SYSTEM +
+    `\n\n【あなたが参照できる商談データ】\n"""\n${material || "（データなし）"}\n"""`;
+  const contents = (messages || [])
+    .filter((m) => m && m.content)
+    .map((m) => ({ role: m.role === "assistant" ? "model" : "user", parts: [{ text: String(m.content).slice(0, 4000) }] }));
+  if (!contents.length) throw new Error("メッセージがありません");
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${mdl}:generateContent?key=${key}`;
+  const res = await fetch(url, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      system_instruction: { parts: [{ text: system }] },
+      contents,
+      generationConfig: { temperature: 0.5, maxOutputTokens: 2048 },
+    }),
+  });
+  if (!res.ok) {
+    const t = await res.text().catch(() => "");
+    throw new Error(`Gemini ${res.status}: ${t.slice(0, 300)}`);
+  }
+  const data = await res.json();
+  return (data.candidates?.[0]?.content?.parts || []).map((p) => p.text || "").join("");
+}
+
 // ---- プロバイダ振り分け ----
 function isTransient(msg) {
   return /\b503\b|\b429\b|UNAVAILABLE|overloaded|high demand|temporarily/i.test(msg || "");
