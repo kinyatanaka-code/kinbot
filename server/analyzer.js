@@ -206,6 +206,23 @@ export async function extractLostSignals({ lostMaterial }) {
   return Array.isArray(o.signals) ? o.signals : [];
 }
 
+// なんでも分析（自由な質問・指示に対して、対象商談データを根拠に回答）
+const FREE_PROMPT = `あなたは B2B 営業データの分析アシスタントです。
+渡された複数の商談データ（要約・懸念・スコア・ステータス等）を根拠に、ユーザーの質問や指示に日本語で答えます。
+重要:
+- 必ず渡されたデータに基づく。憶測で事実を作らない。データで判断できない場合はその旨を述べる。
+- 他のAIツールにも貼り付けて使えるよう、見出し・箇条書きを使った読みやすい Markdown で出力する。
+- 数字や傾向は可能な範囲で具体的に。最後に「次の打ち手」を簡潔に添える。
+出力は本文のみ（コードフェンスや前置きは不要）。`;
+export async function freeAnalyze({ question, material, filterDesc }) {
+  const user =
+    `対象範囲: ${filterDesc || "（指定なし）"}\n\n` +
+    `ユーザーの質問・指示:\n"""\n${question}\n"""\n\n` +
+    `対象の商談データ:\n"""\n${material || "（データなし）"}\n"""\n\n` +
+    `上記データを根拠に、質問に答えてください。`;
+  return await callLLM(FREE_PROMPT, user, 2600);
+}
+
 // ---- プロバイダ振り分け ----
 function isTransient(msg) {
   return /\b503\b|\b429\b|UNAVAILABLE|overloaded|high demand|temporarily/i.test(msg || "");

@@ -129,7 +129,100 @@ function render(triggered) {
   renderSetPanel(rows, !!triggered);
   renderWinLoss(rows);
   renderLostSignals();
+  renderFreeBox(rows);
   renderList(rows);
+}
+
+// ===== なんでも分析（フリー） =====
+let freeWired = false;
+let lastFreeAnswer = "";
+function renderFreeBox(rows) {
+  const el = $("freebox");
+  if (!el) return;
+  if (el.dataset.ready) { // 件数表示だけ更新
+    const c = el.querySelector("#freeCount");
+    if (c) c.textContent = `対象 ${rows.length} 件`;
+    return;
+  }
+  el.dataset.ready = "1";
+  el.innerHTML = `
+    <div class="tend-head"><span>🧠 なんでも分析（自由に質問）</span><span class="metric-note" id="freeCount">対象 ${rows.length} 件</span></div>
+    <p class="metric-note">上の絞り込み（担当・フェーズ・期間）が対象になります。例：「失注の共通点は？」「田中の強み・弱みは？」「来月の重点アクションを3つ」「価格懸念への切り返しを定型化して」</p>
+    <textarea id="freeQ" class="free-q" placeholder="分析したいことを自由に入力…"></textarea>
+    <div class="free-actions">
+      <button class="btn" id="freeRun">分析する</button>
+      <button class="btn ghost" id="freeCopy" hidden>コピー（Markdown）</button>
+      <button class="btn ghost" id="freeNotion" hidden>Notionに送る</button>
+    </div>
+    <div class="free-answer" id="freeAns"></div>`;
+  if (!freeWired) {
+    freeWired = true;
+    el.addEventListener("click", async (e) => {
+      if (e.target.id === "freeRun") return runFree();
+      if (e.target.id === "freeCopy") {
+        try { await navigator.clipboard.writeText(lastFreeAnswer); e.target.textContent = "コピーしました"; setTimeout(() => (e.target.textContent = "コピー（Markdown）"), 1500); } catch {}
+      }
+      if (e.target.id === "freeNotion") return sendFreeToNotion(e.target);
+    });
+  }
+}
+async function runFree() {
+  const q = ($("freeQ").value || "").trim();
+  if (!q) { $("freeQ").focus(); return; }
+  const btn = $("freeRun");
+  btn.disabled = true; btn.textContent = "分析中…";
+  $("freeAns").innerHTML = '<div class="empty-state">AIが対象の商談を読み込んで分析しています…</div>';
+  try {
+    const r = await fetch("/api/free-analysis", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ ...curFilter(), question: q }),
+    });
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.error || "分析に失敗しました");
+    lastFreeAnswer = d.answer || "";
+    $("freeAns").innerHTML = mdToHtml(lastFreeAnswer);
+    $("freeCopy").hidden = false;
+    $("freeNotion").hidden = false;
+  } catch (e) {
+    $("freeAns").innerHTML = `<div class="empty-state">${escapeHtml(e.message)}</div>`;
+  } finally {
+    btn.disabled = false; btn.textContent = "分析する";
+  }
+}
+async function sendFreeToNotion(btn) {
+  if (!lastFreeAnswer) return;
+  btn.disabled = true; const orig = btn.textContent; btn.textContent = "送信中…";
+  try {
+    const title = "分析: " + (($("freeQ").value || "").trim().slice(0, 40) || "なんでも分析");
+    const r = await fetch("/api/notion/report", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ title, markdown: lastFreeAnswer }),
+    });
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.error || "送信に失敗");
+    btn.textContent = "送信済み";
+    if (d.url) window.open(d.url, "_blank", "noopener");
+    setTimeout(() => { btn.textContent = orig; btn.disabled = false; }, 2000);
+  } catch (e) {
+    alert("Notion送信に失敗: " + e.message);
+    btn.textContent = orig; btn.disabled = false;
+  }
+}
+// ごく簡易なMarkdown→HTML（見出し・箇条書き・段落）
+function mdToHtml(md) {
+  const lines = String(md).replace(/\r/g, "").split("\n");
+  let html = "", inUl = false;
+  const esc = (s) => escapeHtml(s).replace(/\*\*(.+?)\*\*/g, "<b>$1</b>");
+  for (const raw of lines) {
+    const line = raw.trimEnd();
+    let m;
+    if ((m = line.match(/^#{1,3}\s+(.*)/))) { if (inUl) { html += "</ul>"; inUl = false; } html += `<h4>${esc(m[1])}</h4>`; }
+    else if ((m = line.match(/^\s*[-*・]\s+(.*)/))) { if (!inUl) { html += "<ul>"; inUl = true; } html += `<li>${esc(m[1])}</li>`; }
+    else if (!line.trim()) { if (inUl) { html += "</ul>"; inUl = false; } }
+    else { if (inUl) { html += "</ul>"; inUl = false; } html += `<p>${esc(line)}</p>`; }
+  }
+  if (inUl) html += "</ul>";
+  return html || '<div class="empty-state">（空の回答）</div>';
 }
 
 // ===== 失注サイン（学習） =====

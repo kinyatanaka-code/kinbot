@@ -1176,3 +1176,13 @@ a.kb-src:hover { color: var(--accent); border-color: var(--accent); }
 .ls-list { margin: 0; padding-left: 18px; font-size: 13px; line-height: 1.8; }
 .ls-why { color: var(--muted); font-size: 11.5px; margin-left: 8px; }
 .lost-reason { margin-top: 8px; font-size: 12.5px; color: #a8431f; background: #fbeeea; border: 1px solid #e6b9ac; border-radius: 8px; padding: 8px 10px; }
+
+/* なんでも分析（フリー） */
+.freebox { margin-top: 16px; }
+.free-q { width: 100%; box-sizing: border-box; min-height: 84px; resize: vertical; border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; font: inherit; font-size: 14px; line-height: 1.6; background: var(--panel-2); color: var(--ink); }
+.free-actions { display: flex; gap: 8px; flex-wrap: wrap; margin: 10px 0; }
+.free-answer { font-size: 14px; line-height: 1.8; }
+.free-answer h4 { font-size: 14px; font-weight: 800; margin: 14px 0 6px; color: var(--ink); }
+.free-answer ul { margin: 6px 0; padding-left: 20px; }
+.free-answer li { margin: 3px 0; }
+.free-answer p { margin: 8px 0; }

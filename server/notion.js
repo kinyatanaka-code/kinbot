@@ -69,3 +69,33 @@ export async function createMeetingPage(cfg, m, { appUrl } = {}) {
   const page = await api("/pages", "POST", { parent: { database_id: dbId }, properties: props, children: children.slice(0, 95) }, tk);
   return page.url || null;
 }
+
+// 自由テキスト（Markdown風）をNotionページとして作成
+function mdToBlocks(markdown) {
+  const lines = String(markdown).replace(/\r/g, "").split("\n");
+  const blocks = [];
+  for (let raw of lines) {
+    const line = raw.replace(/\*\*/g, "").trimEnd();
+    if (!line.trim()) continue;
+    let mm;
+    if ((mm = line.match(/^#{1,2}\s+(.*)/))) blocks.push(h2(mm[1]));
+    else if ((mm = line.match(/^#{3,}\s+(.*)/))) blocks.push(h2(mm[1]));
+    else if ((mm = line.match(/^\s*[-*・]\s+(.*)/))) blocks.push(bullet(mm[1]));
+    else if ((mm = line.match(/^\s*\d+[.)]\s+(.*)/)))
+      blocks.push({ object: "block", type: "numbered_list_item", numbered_list_item: { rich_text: rt(mm[1]) } });
+    else blocks.push(para(line));
+    if (blocks.length >= 95) break;
+  }
+  return blocks.length ? blocks : [para(markdown.slice(0, 1900))];
+}
+
+export async function createReportPage(cfg, { title, markdown }) {
+  const tk = tokenOf(cfg), dbId = dbOf(cfg);
+  if (!tk || !dbId) throw new Error("Notionのトークン/データベースIDが未設定です");
+  const titleName = await titlePropName(dbId, tk);
+  const props = { [titleName]: { title: rt(title || "kinbot 分析レポート") } };
+  const children = [para(`作成: ${new Date().toLocaleString("ja-JP")}（kinbot 分析レポート）`), ...mdToBlocks(markdown)];
+  const page = await api("/pages", "POST", { parent: { database_id: dbId }, properties: props, children: children.slice(0, 95) }, tk);
+  return page.url || null;
+}
+

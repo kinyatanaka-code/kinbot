@@ -50,7 +50,7 @@ import {
   deleteKbFolder,
 } from "./db.js";
 import { resolveConfig, statusInfo } from "./config.js";
-import { analyzerInfo, analyzeMeeting, analyzeDeep, analyzeTendency, analyzeSet, analyzeWinLoss, extractLostSignals, generateThanks, getCheckItems } from "./analyzer.js";
+import { analyzerInfo, analyzeMeeting, analyzeDeep, analyzeTendency, analyzeSet, analyzeWinLoss, extractLostSignals, freeAnalyze, generateThanks, getCheckItems } from "./analyzer.js";
 import {
   googleConfigured,
   authUrl,
@@ -68,7 +68,7 @@ import {
 } from "./google.js";
 import { startScheduler } from "./scheduler.js";
 import { muxConfigured, createLiveStream, startVodUpload, waitVodPlayback } from "./mux.js";
-import { notionConfigured, notionStatus, createMeetingPage } from "./notion.js";
+import { notionConfigured, notionStatus, createMeetingPage, createReportPage } from "./notion.js";
 import { pdfToText, urlToText, officeToText } from "./ingest.js";
 import { indexKnowledge, embeddingsAvailable } from "./retrieval.js";
 import { readDocument, readerAvailable } from "./ai_read.js";
@@ -403,6 +403,79 @@ app.delete("/api/action-items/:id", async (req, res) => {
     res.json({ ok: true });
   } catch (e) {
     res.status(500).json({ error: e.message });
+  }
+});
+
+// ===== なんでも分析（フリー） =====
+function buildMeetingMaterial(rows, statuses, { limit = 20, max = 12000 } = {}) {
+  const acctOf = (m) => (m.account && m.account.trim()) || m.title || "(無題)";
+  const statusOf = (m) => {
+    const s = statuses && statuses[acctOf(m)];
+    if (s && s.status) return s.status;
+    if (m.analysis && m.analysis.deal_status) return m.analysis.deal_status;
+    return "進行中";
+  };
+  const block = (m, i) => {
+    const p = [`#${i + 1} 「${m.title || "無題"}」 ${new Date(m.created_at).toLocaleDateString("ja-JP")} 担当:${m.owner_name || m.owner || "-"} フェーズ:${m.phase || "-"} ステータス:${statusOf(m)}`];
+    const s = m.summary || {};
+    if (s.overview) p.push(`要約: ${s.overview}`);
+    if (s.key_points?.length) p.push(`論点: ${s.key_points.join(" / ")}`);
+    if (s.agreements?.length) p.push(`合意: ${s.agreements.join(" / ")}`);
+    if (s.action_items?.length) p.push(`次アクション: ${s.action_items.join(" / ")}`);
+    if (s.customer_concerns?.length) p.push(`懸念: ${s.customer_concerns.join(" / ")}`);
+    const mt = m.metrics || {};
+    if (typeof mt.repTalkPct === "number") p.push(`営業トーク比率: ${mt.repTalkPct}%`);
+    const a = m.analysis;
+    if (a && a.scores) p.push(`スコア ヒア${a.scores.hearing ?? "-"}/提案${a.scores.proposal ?? "-"}/クロ${a.scores.closing ?? "-"}/傾聴${a.scores.listening ?? "-"}`);
+    if (a && a.deal_status_reason) p.push(`判定理由: ${a.deal_status_reason}`);
+    return p.join("\n");
+  };
+  let s = rows.slice(0, limit).map(block).join("\n\n");
+  return s.length > max ? s.slice(0, max) : s;
+}
+
+app.post("/api/free-analysis", async (req, res) => {
+  try {
+    const { question, owner, owners, phase, phases, from, to } = req.body || {};
+    if (!question || !String(question).trim()) return res.status(400).json({ error: "質問・指示を入力してください" });
+    const ownerList = Array.isArray(owners) ? owners.filter(Boolean) : owner ? [owner] : [];
+    const phaseList = Array.isArray(phases) ? phases.filter(Boolean) : phase ? [phase] : [];
+    let rows = await listMeetings({ isAdmin: true });
+    rows = rows.filter((m) => {
+      if (ownerList.length && !ownerList.includes(m.owner || "")) return false;
+      if (phaseList.length && !phaseList.includes(m.phase || "")) return false;
+      const d = new Date(m.created_at);
+      if (from && d < new Date(from + "T00:00:00")) return false;
+      if (to && d > new Date(to + "T23:59:59")) return false;
+      return true;
+    });
+    if (!rows.length) return res.status(400).json({ error: "対象の商談がありません（絞り込みを見直してください）" });
+    const statuses = await listDealStatuses();
+    const material = buildMeetingMaterial(rows, statuses);
+    const ownerName = ownerList.length ? ownerList.join("・") : "全員";
+    const phaseDesc = phaseList.length ? phaseList.map((p) => PHASE_LABELS[p] || p).join("・") : "すべて";
+    const filterDesc = `対象${rows.length}件 / 担当:${ownerName} / フェーズ:${phaseDesc}`;
+    const answer = await freeAnalyze({ question: String(question).slice(0, 2000), material, filterDesc });
+    res.json({ answer, count: rows.length });
+  } catch (e) {
+    console.error("[free-analysis]", e.message);
+    res.status(502).json({ error: e.message });
+  }
+});
+
+// 分析レポート等の自由テキストを自分のNotionへ送る
+app.post("/api/notion/report", async (req, res) => {
+  try {
+    const cfg = await getUserSettings(req.user);
+    if (!notionConfigured(cfg)) return res.status(400).json({ error: "あなたのNotion連携が未設定です（設定→Notion連携）" });
+    const title = (req.body?.title || "kinbot 分析レポート").toString().slice(0, 200);
+    const markdown = (req.body?.markdown || "").toString();
+    if (!markdown.trim()) return res.status(400).json({ error: "本文がありません" });
+    const url = await createReportPage(cfg, { title, markdown });
+    res.json({ ok: true, url });
+  } catch (e) {
+    console.error("[notion report]", e.message);
+    res.status(502).json({ error: e.message });
   }
 });
 
