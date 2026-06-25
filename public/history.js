@@ -194,7 +194,7 @@ async function bulkSendNotion() {
   setS(`送信中… 0/${ids.length}`, 0);
   try {
     const d = await window.kinbotBulkNotion(ids, {
-      onProgress: (p) => setS(`送信中… ${p.done}/${p.total}（成功${p.sent}・スキップ${p.skipped}）`, (p.done / p.total) * 100),
+      onProgress: (p) => setS(`送信中… ${p.done}/${p.total}（成功${p.sent}・スキップ${p.skipped}${p.busy ? "・送信中…" : ""}）`, (p.done / p.total) * 100),
     });
     setS(`完了：成功 ${d.sent} / スキップ ${d.skipped} / 失敗 ${d.failed}` + (d.errors && d.errors.length ? `\n例: ${d.errors[0]}` : ""), 100);
   } catch (e) {

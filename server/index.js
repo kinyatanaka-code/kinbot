@@ -34,6 +34,7 @@ import {
   setMeetingMux,
   listNotionSent,
   markNotionSent,
+  getAiLogsByIds,
   getSetCache,
   saveSetCache,
   listUsers,
@@ -405,6 +406,41 @@ app.delete("/api/action-items/:id", async (req, res) => {
     res.json({ ok: true });
   } catch (e) {
     res.status(500).json({ error: e.message });
+  }
+});
+
+// 刺さったトーク・懸念の一覧（ダッシュボードKPIクリック用）
+app.post("/api/talks", async (req, res) => {
+  try {
+    const { owner, owners, phase, phases, from, to } = req.body || {};
+    const ownerList = Array.isArray(owners) ? owners.filter(Boolean) : owner ? [owner] : [];
+    const phaseList = Array.isArray(phases) ? phases.filter(Boolean) : phase ? [phase] : [];
+    let rows = await listMeetings({ isAdmin: true });
+    rows = rows.filter((m) => {
+      if (ownerList.length && !ownerList.includes(m.owner || "")) return false;
+      if (phaseList.length && !phaseList.includes(m.phase || "")) return false;
+      const d = new Date(m.created_at);
+      if (from && d < new Date(from + "T00:00:00")) return false;
+      if (to && d > new Date(to + "T23:59:59")) return false;
+      return true;
+    });
+    const logs = await getAiLogsByIds(rows.map((m) => m.bot_id));
+    const landed = [], concerns = [];
+    for (const r of logs) {
+      const meta = { botId: r.bot_id, title: r.title || "(無題)", owner: r.owner_name || r.owner || "-", date: r.created_at };
+      const log = Array.isArray(r.ai_log) ? r.ai_log : [];
+      for (const e of log) {
+        if (e.t === "land") landed.push({ ...meta, text: e.text || "", why: e.why || "" });
+        else if (e.t === "obj") concerns.push({ ...meta, objection: e.objection || "", response: e.response || "", basis: e.basis || "" });
+      }
+    }
+    // 新しい商談順
+    const byDate = (a, b) => new Date(b.date) - new Date(a.date);
+    landed.sort(byDate); concerns.sort(byDate);
+    res.json({ landed, concerns });
+  } catch (e) {
+    console.error("[talks]", e.message);
+    res.status(502).json({ error: e.message });
   }
 });
 

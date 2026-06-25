@@ -222,6 +222,23 @@ export async function listMeetings({ owner, isAdmin } = {}) {
   return rows;
 }
 
+// 指定商談のAI提案ログ（刺さったトーク・懸念）をまとめて取得
+export async function getAiLogsByIds(ids) {
+  if (!pool || !Array.isArray(ids) || !ids.length) return [];
+  try {
+    const { rows } = await pool.query(
+      `SELECT m.bot_id, m.title, m.owner, m.created_at, m.ai_log, u.name AS owner_name
+         FROM meetings m LEFT JOIN users u ON u.email = m.owner
+        WHERE m.bot_id = ANY($1)`,
+      [ids]
+    );
+    return rows;
+  } catch (e) {
+    console.error("[db] getAiLogsByIds", e.message);
+    return [];
+  }
+}
+
 // 文字起こしが無い古い商談を一括削除（定期クリーンアップ用）
 export async function deleteEmptyMeetings(minutes = 180) {
   if (!pool) return 0;

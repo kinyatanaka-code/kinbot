@@ -154,6 +154,51 @@ function initAnaTabs() {
   setAnaTab("dash");
   const bulk = document.getElementById("anaBulkNotion");
   if (bulk && !bulk._wired) { bulk._wired = true; bulk.addEventListener("click", anaBulkNotion); }
+  const dash = $("dashboard");
+  if (dash && !dash._talkWired) {
+    dash._talkWired = true;
+    dash.addEventListener("click", (e) => {
+      const c = e.target.closest("[data-talk]");
+      if (c) openTalkModal(c.dataset.talk);
+    });
+  }
+}
+
+// 刺さったトーク・懸念の一覧モーダル
+async function openTalkModal(type) {
+  let ov = document.getElementById("talkModal");
+  if (!ov) {
+    ov = document.createElement("div");
+    ov.id = "talkModal";
+    ov.className = "talk-ov";
+    ov.innerHTML = `<div class="talk-modal"><div class="talk-head"><span class="talk-title"></span><button class="talk-x" aria-label="閉じる">×</button></div><div class="talk-body"></div></div>`;
+    document.body.appendChild(ov);
+    ov.addEventListener("click", (e) => { if (e.target === ov || e.target.classList.contains("talk-x")) ov.classList.remove("open"); });
+  }
+  const titleEl = ov.querySelector(".talk-title");
+  const bodyEl = ov.querySelector(".talk-body");
+  titleEl.textContent = type === "landed" ? "💡 刺さったトーク一覧" : "⚠️ 懸念 → 刺さった言い返し 一覧";
+  ov.classList.add("open");
+  window.kbProgress(bodyEl, { percent: null, label: "読み込み中…" });
+  try {
+    const r = await fetch("/api/talks", {
+      method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(curFilter()),
+    });
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.error || "取得に失敗しました");
+    const items = type === "landed" ? d.landed : d.concerns;
+    if (!items || !items.length) { bodyEl.innerHTML = '<div class="empty-state">該当するトークがありません（商談で「分析を生成」やライブ記録があると表示されます）。</div>'; return; }
+    const meta = (i) => `<div class="talk-meta">${escapeHtml(i.title)} ・ ${escapeHtml(i.owner)} ・ ${fmtDate(i.date)}</div>`;
+    let html = `<div class="talk-count">${items.length}件</div>`;
+    if (type === "landed") {
+      html += items.map((i) => `<div class="talk-item talk-land"><div class="talk-main">${escapeHtml(i.text)}</div>${i.why ? `<div class="talk-sub">${escapeHtml(i.why)}</div>` : ""}${meta(i)}</div>`).join("");
+    } else {
+      html += items.map((i) => `<div class="talk-item talk-obj"><div class="talk-q">「${escapeHtml(i.objection)}」</div><div class="talk-a">${escapeHtml(i.response)}</div>${i.basis ? `<div class="talk-sub">根拠: ${escapeHtml(i.basis)}</div>` : ""}${meta(i)}</div>`).join("");
+    }
+    bodyEl.innerHTML = html;
+  } catch (e) {
+    bodyEl.innerHTML = `<div class="empty-state">${escapeHtml(e.message)}</div>`;
+  }
 }
 
 async function anaBulkNotion() {
@@ -168,7 +213,7 @@ async function anaBulkNotion() {
   setS(`送信中… 0/${ids.length}`, 0);
   try {
     const d = await window.kinbotBulkNotion(ids, {
-      onProgress: (p) => setS(`送信中… ${p.done}/${p.total}（成功${p.sent}・スキップ${p.skipped}）`, (p.done / p.total) * 100),
+      onProgress: (p) => setS(`送信中… ${p.done}/${p.total}（成功${p.sent}・スキップ${p.skipped}${p.busy ? "・送信中…" : ""}）`, (p.done / p.total) * 100),
     });
     setS(`完了：成功 ${d.sent} / スキップ ${d.skipped} / 失敗 ${d.failed}` + (d.errors && d.errors.length ? `\n例: ${d.errors[0]}` : ""), 100);
   } catch (e) {
@@ -419,13 +464,13 @@ function renderDashboard(rows) {
     { label: "対象の商談", val: total },
     { label: "今月の商談", val: thisMonth },
     { label: "平均トーク比率(営業)", val: avgTalk == null ? "—" : avgTalk + "%", warn: avgTalk != null && avgTalk >= 65 },
-    { label: "刺さったトーク", val: landedTotal, tone: "buy" },
-    { label: "懸念", val: concernTotal, tone: "risk" },
+    { label: "刺さったトーク", val: landedTotal, tone: "buy", click: "landed" },
+    { label: "懸念", val: concernTotal, tone: "risk", click: "concern" },
     { label: "分析済み率", val: analyzedPct + "%" },
   ];
   let html = '<div class="dash-kpis6">';
   for (const k of kpis)
-    html += `<div class="kpi ${k.tone || ""}"><div class="kpi-val ${k.warn ? "warn" : ""}">${k.val}</div><div class="kpi-label">${k.label}</div></div>`;
+    html += `<div class="kpi ${k.tone || ""} ${k.click ? "kpi-click" : ""}" ${k.click ? `data-talk="${k.click}"` : ""}><div class="kpi-val ${k.warn ? "warn" : ""}">${k.val}</div><div class="kpi-label">${k.label}${k.click ? ' <span class="kpi-more">一覧 ›</span>' : ""}</div></div>`;
   html += "</div>";
 
   // 行1：推移(折れ線) + フェーズ分布(ドーナツ)

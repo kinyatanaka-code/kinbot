@@ -16,13 +16,14 @@
 
 // ===== Notion一括送信（自動分割・進捗・重複スキップはサーバー側で実施） =====
 window.kinbotBulkNotion = async function (ids, { onProgress } = {}) {
-  const CHUNK = 25;
+  const CHUNK = 5; // 小さめにして進捗をこまめに更新＋1リクエストを短く（タイムアウト回避）
   let sent = 0, failed = 0, skipped = 0;
   const errors = [];
   const total = ids.length;
   let done = 0;
   for (let i = 0; i < ids.length; i += CHUNK) {
     const part = ids.slice(i, i + CHUNK);
+    if (onProgress) onProgress({ done, total, sent, failed, skipped, busy: part.length });
     let d;
     try {
       const r = await fetch("/api/notion/bulk", {
@@ -33,7 +34,6 @@ window.kinbotBulkNotion = async function (ids, { onProgress } = {}) {
       d = await r.json();
       if (!r.ok) throw new Error(d.error || "送信に失敗しました");
     } catch (e) {
-      // このチャンクは丸ごと失敗扱いにして継続
       failed += part.length;
       if (errors.length < 5) errors.push(e.message);
       done += part.length;
