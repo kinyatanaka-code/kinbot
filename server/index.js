@@ -32,6 +32,8 @@ import {
   setDealStatusAuto,
   saveMeetingNote,
   setMeetingMux,
+  listNotionSent,
+  markNotionSent,
   getSetCache,
   saveSetCache,
   listUsers,
@@ -561,9 +563,45 @@ app.post("/api/meetings/:id/notion", async (req, res) => {
     if (!canAccess(m, req)) return res.status(403).json({ error: "権限がありません" });
     const appUrl = (PUBLIC_URL || "").replace(/\/$/, "") + "/history.html";
     const url = await createMeetingPage(cfg, m, { appUrl });
+    await markNotionSent(req.user, req.params.id, url);
     res.json({ ok: true, url });
   } catch (e) {
     console.error("[notion]", e.message);
+    res.status(502).json({ error: e.message });
+  }
+});
+
+// 絞り込んだ複数商談を自分のNotionへ一括送信（重複スキップ対応・チャンク前提）
+app.post("/api/notion/bulk", async (req, res) => {
+  try {
+    const cfg = await getUserSettings(req.user);
+    if (!notionConfigured(cfg)) return res.status(400).json({ error: "あなたのNotion連携が未設定です（設定→Notion連携）" });
+    let ids = Array.isArray(req.body?.ids) ? req.body.ids.filter((x) => typeof x === "string") : [];
+    if (!ids.length) return res.status(400).json({ error: "対象の商談がありません" });
+    if (ids.length > 30) ids = ids.slice(0, 30); // 1リクエストはタイムアウト回避のため小さめ（クライアントが分割送信）
+    const force = !!req.body?.force;
+    const appUrl = (PUBLIC_URL || "").replace(/\/$/, "") + "/history.html";
+    const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+    const alreadySent = force ? new Set() : await listNotionSent(req.user);
+    let sent = 0, failed = 0, skipped = 0;
+    const errors = [];
+    for (const id of ids) {
+      if (alreadySent.has(id)) { skipped++; continue; }
+      try {
+        const m = await getMeeting(id);
+        if (!m || !canAccess(m, req)) { failed++; continue; }
+        const url = await createMeetingPage(cfg, m, { appUrl });
+        await markNotionSent(req.user, id, url);
+        sent++;
+        await sleep(350); // Notionのレート制限対策
+      } catch (e) {
+        failed++;
+        if (errors.length < 5) errors.push(`${id.slice(0, 8)}…: ${e.message}`);
+      }
+    }
+    res.json({ ok: true, sent, failed, skipped, total: ids.length, errors });
+  } catch (e) {
+    console.error("[notion bulk]", e.message);
     res.status(502).json({ error: e.message });
   }
 });

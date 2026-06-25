@@ -152,6 +152,30 @@ function initAnaTabs() {
   if (!tabs) return;
   tabs.querySelectorAll(".ana-tab").forEach((b) => b.addEventListener("click", () => setAnaTab(b.dataset.mp)));
   setAnaTab("dash");
+  const bulk = document.getElementById("anaBulkNotion");
+  if (bulk && !bulk._wired) { bulk._wired = true; bulk.addEventListener("click", anaBulkNotion); }
+}
+
+async function anaBulkNotion() {
+  const btn = $("anaBulkNotion");
+  const stat = $("anaBulkStatus");
+  const rows = (curRows || []).filter((m) => m.status !== "processing" && m.status !== "error");
+  if (!rows.length) { if (stat) stat.textContent = "対象の商談がありません"; return; }
+  const ids = rows.map((m) => m.bot_id);
+  if (!confirm(`絞り込み中の ${rows.length} 件を、あなたのNotionに送信します。\n既に送信済みの商談は自動でスキップします。続けますか？`)) return;
+  if (btn) { btn.disabled = true; btn.textContent = "送信中…"; }
+  const setS = (t) => { if (stat) stat.textContent = t; };
+  setS(`送信中… 0/${ids.length}`);
+  try {
+    const d = await window.kinbotBulkNotion(ids, {
+      onProgress: (p) => setS(`送信中… ${p.done}/${p.total}（成功${p.sent}・スキップ${p.skipped}）`),
+    });
+    setS(`完了：成功 ${d.sent} / スキップ ${d.skipped} / 失敗 ${d.failed}` + (d.errors && d.errors.length ? `（例: ${d.errors[0]}）` : ""));
+  } catch (e) {
+    setS("失敗: " + e.message);
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = "絞り込みをNotionに一括送信"; }
+  }
 }
 
 // ===== なんでも分析（フリー） =====

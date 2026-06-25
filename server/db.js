@@ -45,6 +45,15 @@ export async function initDb() {
   await pool.query(`ALTER TABLE meetings ADD COLUMN IF NOT EXISTS account TEXT;`);
   await pool.query(`ALTER TABLE meetings ADD COLUMN IF NOT EXISTS note TEXT;`);
   await pool.query(`
+    CREATE TABLE IF NOT EXISTS notion_sent (
+      owner TEXT NOT NULL,
+      bot_id TEXT NOT NULL,
+      page_url TEXT,
+      sent_at TIMESTAMPTZ DEFAULT now(),
+      PRIMARY KEY (owner, bot_id)
+    );
+  `);
+  await pool.query(`
     CREATE TABLE IF NOT EXISTS action_items (
       id          SERIAL PRIMARY KEY,
       account     TEXT NOT NULL,
@@ -260,6 +269,30 @@ export async function updateMeetingMeta(botId, { round, phase, title, owner, cre
     await pool.query(`UPDATE meetings SET ${sets.join(", ")}, updated_at=now() WHERE bot_id=$1`, vals);
   } catch (e) {
     console.error("[db] updateMeetingMeta", e.message);
+  }
+}
+
+// Notion送信済みの記録（ユーザー単位・重複防止用）
+export async function listNotionSent(owner) {
+  if (!pool) return new Set();
+  try {
+    const { rows } = await pool.query(`SELECT bot_id FROM notion_sent WHERE owner=$1`, [owner || ""]);
+    return new Set(rows.map((r) => r.bot_id));
+  } catch (e) {
+    console.error("[db] listNotionSent", e.message);
+    return new Set();
+  }
+}
+export async function markNotionSent(owner, botId, pageUrl) {
+  if (!pool) return;
+  try {
+    await pool.query(
+      `INSERT INTO notion_sent (owner, bot_id, page_url) VALUES ($1,$2,$3)
+       ON CONFLICT (owner, bot_id) DO UPDATE SET page_url=$3, sent_at=now()`,
+      [owner || "", botId, pageUrl || ""]
+    );
+  } catch (e) {
+    console.error("[db] markNotionSent", e.message);
   }
 }
 

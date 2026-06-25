@@ -1240,3 +1240,17 @@ a.kb-src:hover { color: var(--accent); border-color: var(--accent); }
   .ana-tab .tico { width: 16px; height: 16px; }
   .ana-tab span:last-child { font-size: 12px; }
 }
+
+/* 履歴：一括Notion送信 */
+.hfilter-actions { display: flex; align-items: center; gap: 10px; margin-left: auto; }
+.bulk-status { font-size: 12px; color: var(--muted); }
+@media (max-width: 760px) {
+  .hfilter-actions { margin-left: 0; width: 100%; flex-direction: column; align-items: stretch; }
+  .hfilter-actions .btn { width: 100%; }
+}
+
+/* 分析：商談一覧ヘッダーの一括送信 */
+.alist-head { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 8px; }
+.alist-head h3 { margin: 0; }
+.alist-head .hfilter-actions { margin-left: auto; }
+@media (max-width: 760px) { .alist-head .hfilter-actions { margin-left: 0; width: 100%; } }

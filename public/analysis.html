@@ -56,7 +56,13 @@
           <div class="lostsig" id="lostsig" data-mpanel="win"></div>
 
           <div class="alist-wrap" data-mpanel="list">
-            <h3>対象の商談（クリックで詳細へ）</h3>
+            <div class="alist-head">
+              <h3>対象の商談（クリックで詳細へ）</h3>
+              <div class="hfilter-actions">
+                <button class="btn" id="anaBulkNotion">絞り込みをNotionに一括送信</button>
+                <span class="bulk-status" id="anaBulkStatus"></span>
+              </div>
+            </div>
             <ul class="alist" id="alist"><li class="empty-state">読み込み中…</li></ul>
           </div>
         </main>
