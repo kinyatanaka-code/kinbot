@@ -220,7 +220,7 @@ export async function freeAnalyze({ question, material, filterDesc }) {
     `ユーザーの質問・指示:\n"""\n${question}\n"""\n\n` +
     `対象の商談データ:\n"""\n${material || "（データなし）"}\n"""\n\n` +
     `上記データを根拠に、質問に答えてください。`;
-  return await callLLM(FREE_PROMPT, user, 2600);
+  return await callLLM(FREE_PROMPT, user, 2600, { json: false });
 }
 
 // ---- プロバイダ振り分け ----
@@ -235,14 +235,15 @@ function fallbackProvider() {
   return "";
 }
 
-async function callLLM(system, user, maxTokens = 1400) {
+async function callLLM(system, user, maxTokens = 1400, opts = {}) {
+  const json = opts.json !== false;
   try {
-    return await withRetry(() => callOnce(PROVIDER, system, user, maxTokens));
+    return await withRetry(() => callOnce(PROVIDER, system, user, maxTokens, json));
   } catch (e) {
     const fb = fallbackProvider();
     if (fb && isTransient(e.message)) {
       console.warn(`[llm] ${PROVIDER} が混雑等で失敗（${e.message}）→ ${fb} に自動フォールバック`);
-      return await withRetry(() => callOnce(fb, system, user, maxTokens), 2);
+      return await withRetry(() => callOnce(fb, system, user, maxTokens, json), 2);
     }
     throw e;
   }
@@ -266,28 +267,28 @@ async function withRetry(fn, tries = 4) {
   throw last;
 }
 
-async function callOnce(provider, system, user, maxTokens) {
+async function callOnce(provider, system, user, maxTokens, json = true) {
   if (provider === "anthropic") return callAnthropic(system, user, maxTokens);
-  if (provider === "ollama") return callOllama(system, user);
+  if (provider === "ollama") return callOllama(system, user, json);
   if (provider === "groq")
     return callOpenAICompat(system, user, maxTokens, {
       base: "https://api.groq.com/openai/v1",
       key: process.env.GROQ_API_KEY,
       model: process.env.GROQ_MODEL || "llama-3.3-70b-versatile",
       name: "Groq",
-    });
+    }, json);
   if (provider === "openai")
     return callOpenAICompat(system, user, maxTokens, {
       base: process.env.OPENAI_BASE_URL || "https://api.openai.com/v1",
       key: process.env.OPENAI_API_KEY,
       model: process.env.OPENAI_MODEL || "gpt-4o-mini",
       name: "OpenAI互換",
-    });
-  return callGemini(system, user, maxTokens);
+    }, json);
+  return callGemini(system, user, maxTokens, json);
 }
 
 // Groq / Cerebras / OpenRouter / OpenAI など OpenAI互換エンドポイント共通
-async function callOpenAICompat(system, user, maxTokens, { base, key, model, name }) {
+async function callOpenAICompat(system, user, maxTokens, { base, key, model, name }, json = true) {
   if (!key) throw new Error(`${name} のAPIキーが未設定です`);
   const res = await fetch(`${base.replace(/\/$/, "")}/chat/completions`, {
     method: "POST",
@@ -296,7 +297,7 @@ async function callOpenAICompat(system, user, maxTokens, { base, key, model, nam
       model,
       max_tokens: maxTokens,
       temperature: 0.4,
-      response_format: { type: "json_object" },
+      ...(json ? { response_format: { type: "json_object" } } : {}),
       messages: [
         { role: "system", content: system },
         { role: "user", content: user },
@@ -311,7 +312,7 @@ async function callOpenAICompat(system, user, maxTokens, { base, key, model, nam
   return data.choices?.[0]?.message?.content || "";
 }
 
-async function callGemini(system, user, maxTokens) {
+async function callGemini(system, user, maxTokens, json = true) {
   const key = process.env.GEMINI_API_KEY;
   if (!key) throw new Error("GEMINI_API_KEY が未設定です（Google AI Studio で発行）");
   const model = process.env.GEMINI_MODEL || "gemini-2.5-flash-lite";
@@ -322,7 +323,7 @@ async function callGemini(system, user, maxTokens) {
     body: JSON.stringify({
       system_instruction: { parts: [{ text: system }] },
       contents: [{ role: "user", parts: [{ text: user }] }],
-      generationConfig: { temperature: 0.4, maxOutputTokens: maxTokens, responseMimeType: "application/json" },
+      generationConfig: { temperature: 0.4, maxOutputTokens: maxTokens, ...(json ? { responseMimeType: "application/json" } : {}) },
     }),
   });
   if (!res.ok) {
@@ -350,14 +351,14 @@ async function callAnthropic(system, user, maxTokens) {
   return (data.content || []).map((b) => (b.type === "text" ? b.text : "")).join("");
 }
 
-async function callOllama(system, user) {
+async function callOllama(system, user, json = true) {
   const base = (process.env.OLLAMA_URL || "http://localhost:11434").replace(/\/$/, "");
   const model = process.env.OLLAMA_MODEL || "qwen2.5";
   const res = await fetch(`${base}/api/chat`, {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({
-      model, stream: false, format: "json",
+      model, stream: false, ...(json ? { format: "json" } : {}),
       messages: [{ role: "system", content: system }, { role: "user", content: user }],
     }),
   });

@@ -50,6 +50,7 @@ async function init() {
     PHASES.map((p) => ({ value: p.code, label: p.label })),
     () => render(true)
   );
+  initAnaTabs();
   render();
 }
 
@@ -122,15 +123,35 @@ function applyFilter() {
   });
 }
 
+let curRows = [];
+let activeTab = "dash";
+let dashDirty = false;
 function render(triggered) {
   const rows = applyFilter();
-  renderDashboard(rows);
+  curRows = rows;
+  // ダッシュボードのグラフはタブ表示中のみ描画（非表示中はcanvasが潰れるため）
+  if (activeTab === "dash") { renderDashboard(rows); dashDirty = false; }
+  else dashDirty = true;
   renderAgg(rows);
   renderSetPanel(rows, !!triggered);
   renderWinLoss(rows);
   renderLostSignals();
   renderFreeBox(rows);
   renderList(rows);
+}
+
+// タブ切替（PC・スマホ共通）
+function setAnaTab(mp) {
+  activeTab = mp;
+  document.querySelectorAll("#anaTabs .ana-tab").forEach((b) => b.classList.toggle("active", b.dataset.mp === mp));
+  document.querySelectorAll("[data-mpanel]").forEach((el) => el.classList.toggle("m-active", el.dataset.mpanel === mp));
+  if (mp === "dash" && dashDirty) { renderDashboard(curRows); dashDirty = false; }
+}
+function initAnaTabs() {
+  const tabs = document.getElementById("anaTabs");
+  if (!tabs) return;
+  tabs.querySelectorAll(".ana-tab").forEach((b) => b.addEventListener("click", () => setAnaTab(b.dataset.mp)));
+  setAnaTab("dash");
 }
 
 // ===== なんでも分析（フリー） =====
