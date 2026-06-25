@@ -370,9 +370,12 @@ async function checkMuxThenMessage() {
   } catch {}
 }
 
+let activePane = (document.querySelector(".live-tab.active") || {}).dataset?.pane || "transcript";
 function liveSwitchTab(pane) {
+  activePane = pane;
   document.querySelectorAll(".live-tab").forEach((t) => t.classList.toggle("active", t.dataset.pane === pane));
   document.querySelectorAll(".live-pane").forEach((p) => (p.hidden = p.dataset.pane !== pane));
+  if (pane === "ai") clearAiUnread();
 }
 (function initLiveTabs() {
   const tabs = document.getElementById("liveTabs");
@@ -722,11 +725,8 @@ function renderAiFeed(objections, suggestions, ts, landed) {
   const lands = Array.isArray(landed) ? landed : [];
   const time = new Date(ts || Date.now()).toLocaleTimeString("ja-JP", { hour: "2-digit", minute: "2-digit" });
 
-  // AI提案タブのバッジ（懸念があるとき）
-  const tab = document.querySelector('.live-tab[data-pane="ai"]');
-  if (tab) tab.classList.toggle("alert", objs.length > 0);
-
   const toAdd = [];
+  const newItems = []; // {kind, snippet}
   // 懸念 → 刺さった言い返し
   for (const o of objs) {
     const key = "obj:" + aiKey(o.objection) + aiKey(o.response);
@@ -736,6 +736,7 @@ function renderAiFeed(objections, suggestions, ts, landed) {
       ? `お客さんが「${o.objection}」と気にしているみたい。ここで流さず切り返しておこう。`
       : `気になる反応が出てるよ。ここで切り返しておこう。`;
     toAdd.push(aiBubble({ kind: "obj", text: lead, quote: o.response || "", quoteLabel: "こう言ってみよう", sub: o.basis ? "根拠: " + o.basis : "", time }));
+    newItems.push({ kind: "obj", snippet: o.objection ? `「${o.objection}」が引っかかってるよ。切り返そう` : "気になる反応。切り返そう" });
   }
   // 刺さったトーク（ほめ）
   for (const g of lands) {
@@ -744,6 +745,7 @@ function renderAiFeed(objections, suggestions, ts, landed) {
     aiSeen.add(key);
     const t = g.text ? `「${g.text}」、刺さってたよ。いい流れ！` : `今のトーク、刺さってた！いい流れ。`;
     toAdd.push(aiBubble({ kind: "land", text: t, sub: g.why || "", time }));
+    newItems.push({ kind: "land", snippet: "今のトーク刺さってた！いい流れ" });
   }
   // 次の一手
   for (const m of sugs) {
@@ -764,6 +766,7 @@ function renderAiFeed(objections, suggestions, ts, landed) {
         time,
       })
     );
+    newItems.push({ kind, snippet: m.title || (kind === "q" ? "これ聞いておこう" : "次の一手があるよ") });
   }
   if (!toAdd.length) return;
   if (!aiHasItems) {
@@ -772,6 +775,72 @@ function renderAiFeed(objections, suggestions, ts, landed) {
   }
   for (const el of toAdd) feed.appendChild(el);
   feed.scrollTop = feed.scrollHeight;
+
+  // AI提案タブ以外を見ているときは通知（重要なものはトースト＋未読バッジ）
+  if (activePane !== "ai" && newItems.length) {
+    const PRIO = { obj: 0, close: 1, rebut: 2, q: 3, land: 4, info: 5 };
+    const top = [...newItems].sort((a, b) => (PRIO[a.kind] ?? 9) - (PRIO[b.kind] ?? 9))[0];
+    addAiUnread(newItems.length);
+    // 補足(info)・ほめ(land)だけならバッジのみ、重要(懸念/質問/次の一手/切り返し)はトーストも出す
+    const important = newItems.some((i) => i.kind === "obj" || i.kind === "close" || i.kind === "q" || i.kind === "rebut");
+    if (important) showCoachToast(top, newItems.length);
+  }
+}
+
+let aiUnread = 0;
+let coachToastTimer = null;
+function aiTabEl() { return document.querySelector('.live-tab[data-pane="ai"]'); }
+function addAiUnread(n) {
+  aiUnread += n;
+  const tab = aiTabEl();
+  if (!tab) return;
+  let b = tab.querySelector(".live-badge");
+  if (!b) { b = document.createElement("span"); b.className = "live-badge"; tab.appendChild(b); }
+  b.textContent = aiUnread > 99 ? "99+" : String(aiUnread);
+  tab.classList.add("alert");
+}
+function clearAiUnread() {
+  aiUnread = 0;
+  const tab = aiTabEl();
+  if (tab) { const b = tab.querySelector(".live-badge"); if (b) b.remove(); tab.classList.remove("alert"); }
+}
+const TOAST_TAG = {
+  obj: { label: "気になるサイン", cls: "amber" },
+  q: { label: "聞いておきたい", cls: "blue" },
+  close: { label: "次の一手", cls: "mint" },
+  rebut: { label: "切り返し", cls: "amber" },
+  land: { label: "ナイス", cls: "green" },
+  info: { label: "メモ", cls: "gray" },
+};
+function showCoachToast(item, count) {
+  let t = document.getElementById("coachToast");
+  if (!t) {
+    t = document.createElement("div");
+    t.id = "coachToast";
+    t.className = "coach-toast";
+    document.body.appendChild(t);
+    t.addEventListener("click", (e) => {
+      if (e.target.closest(".coach-toast-x")) { hideCoachToast(); e.stopPropagation(); return; }
+      liveSwitchTab("ai");
+      const feed = $("aiFeed"); if (feed) feed.scrollTop = feed.scrollHeight;
+      hideCoachToast();
+    });
+  }
+  const meta = TOAST_TAG[item.kind] || TOAST_TAG.info;
+  const more = count > 1 ? `<span class="coach-toast-more">+${count - 1}件</span>` : "";
+  t.innerHTML =
+    `<img class="coach-toast-ava" src="kinbot.svg" alt="kinbot" />` +
+    `<div class="coach-toast-body"><div class="coach-toast-top"><span class="coach-tag coach-tag-${meta.cls}">${escAi(meta.label)}</span>${more}</div>` +
+    `<div class="coach-toast-text">${escAi(item.snippet)}</div></div>` +
+    `<div class="coach-toast-act"><span class="coach-toast-x" aria-label="閉じる">×</span><span class="coach-toast-open">開く</span></div>`;
+  t.classList.add("show");
+  clearTimeout(coachToastTimer);
+  coachToastTimer = setTimeout(hideCoachToast, 6000);
+}
+function hideCoachToast() {
+  const t = document.getElementById("coachToast");
+  if (t) t.classList.remove("show");
+  clearTimeout(coachToastTimer);
 }
 
 let kinbotSayTimer = null;

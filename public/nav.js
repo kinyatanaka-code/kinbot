@@ -68,3 +68,40 @@ window.kbProgress = function (el, opts = {}) {
   else bar.style.width = Math.max(0, Math.min(100, Math.round(opts.percent))) + "%";
   label.textContent = (opts.label || "") + (indet ? "" : "  " + Math.round(opts.percent) + "%");
 };
+
+// ===== 進行中ライブの「botを退出」バナー（自分が立ち上げた商談・全ページ共通） =====
+(function liveBanner() {
+  if (location.pathname.endsWith("/") || /index\.html$/.test(location.pathname)) return; // 録画ページ自身は除外
+  let el = null;
+  const render = (list) => {
+    if (!list || !list.length) { if (el) { el.remove(); el = null; } return; }
+    const s = list[0];
+    if (!el) {
+      el = document.createElement("div");
+      el.className = "live-banner";
+      document.body.appendChild(el);
+    }
+    const extra = list.length > 1 ? `<span class="lb-extra">ほか${list.length - 1}件</span>` : "";
+    el.innerHTML =
+      `<span class="lb-dot"></span>` +
+      `<span class="lb-text">ライブ商談中：<b>${(s.title || "").replace(/[<>&]/g, "")}</b></span>${extra}` +
+      `<button class="lb-stop" data-id="${s.id}">botを退出させる</button>`;
+    const btn = el.querySelector(".lb-stop");
+    btn.addEventListener("click", async () => {
+      if (!confirm("このライブ商談からbotを退出させます。よろしいですか？\n（録画・要約・分析はこれまでの内容で生成されます）")) return;
+      btn.disabled = true; btn.textContent = "退出中…";
+      try {
+        await fetch(`/api/sessions/${encodeURIComponent(s.id)}/stop`, { method: "POST" });
+      } catch {}
+      poll();
+    });
+  };
+  const poll = async () => {
+    try {
+      const r = await fetch("/api/sessions/active");
+      render(await r.json());
+    } catch { /* 失敗時は何もしない */ }
+  };
+  poll();
+  setInterval(poll, 15000);
+})();
