@@ -239,6 +239,19 @@ export async function getAiLogsByIds(ids) {
   }
 }
 
+// 商談名から会社名を推定（案件のグルーピング用）。
+// 例: 「【新/ヒ】豊長自動車販売株式会社　秋山様」→「豊長自動車販売株式会社」
+export function companyFromTitle(title) {
+  let t = String(title || "").trim();
+  if (!t) return "(無題)";
+  t = t.replace(/^[\s　・※•◆◇■□▶▷*\-–—✉⊠]+/u, "");           // 先頭記号
+  t = t.replace(/[【\[［][^】\]］]*[】\]］]/gu, " ");              // 【…】[…]ラベル除去
+  t = t.replace(/[\s　/／|｜:：][^\s　/／|｜]{0,16}様(?:\s*[・,、][^\s　/／|｜]{0,16}様)*\s*$/u, ""); // 末尾 担当者様（複数可）
+  t = t.replace(/[^\s　/／|｜]{0,16}様\s*$/u, "");                 // 区切り無しの 末尾○○様
+  t = t.replace(/\s+/g, " ").trim();
+  return t || String(title || "(無題)").trim();
+}
+
 // 文字起こしが無い古い商談を一括削除（定期クリーンアップ用）
 export async function deleteEmptyMeetings(minutes = 180) {
   if (!pool) return 0;

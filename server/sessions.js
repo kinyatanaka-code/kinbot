@@ -1,6 +1,6 @@
 // server/sessions.js
 import { analyze, analyzeMeeting, analyzeDeep } from "./analyzer.js";
-import { createMeeting, saveMeeting, saveAnalysis, saveDeepAnalysis, getMeeting, setDealStatusAuto, getSettings } from "./db.js";
+import { createMeeting, saveMeeting, saveAnalysis, saveDeepAnalysis, getMeeting, setDealStatusAuto, getSettings, companyFromTitle } from "./db.js";
 import { disableLiveStream } from "./mux.js";
 
 const DEFAULT_INTERVAL_MS = Number(process.env.ANALYZE_INTERVAL_MS || 20000);
@@ -255,7 +255,7 @@ class Session {
         let account = this.title || "";
         try {
           const m = await getMeeting(this.botId);
-          if (m) account = (m.account && m.account.trim()) || m.title || account;
+          if (m) account = (m.account && m.account.trim()) || companyFromTitle(m.title) || account;
         } catch {}
         if (account) await setDealStatusAuto(account, st);
       }

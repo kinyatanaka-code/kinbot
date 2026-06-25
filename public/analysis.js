@@ -211,7 +211,7 @@ async function sendChat() {
   try {
     const r = await fetch("/api/chat", {
       method: "POST", headers: { "content-type": "application/json" },
-      body: JSON.stringify({ ...curFilter(), messages: chatMsgs, pro: $("chatPro").checked }),
+      body: JSON.stringify({ ...curFilter(), messages: chatMsgs, pro: $("chatPro").checked, web: $("chatWeb").checked }),
     });
     const d = await r.json();
     if (!r.ok) throw new Error(d.error || "応答に失敗しました");

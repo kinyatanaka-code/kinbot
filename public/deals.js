@@ -8,7 +8,17 @@ function fmtDate(d) {
   const x = new Date(d);
   return `${x.getMonth() + 1}/${x.getDate()} ${String(x.getHours()).padStart(2, "0")}:${String(x.getMinutes()).padStart(2, "0")}`;
 }
-const acctOf = (m) => (m.account && m.account.trim()) || m.title || "(無題)";
+function companyFromTitle(title) {
+  let t = String(title || "").trim();
+  if (!t) return "(無題)";
+  t = t.replace(/^[\s　・※•◆◇■□▶▷*\-–—✉⊠]+/u, "");
+  t = t.replace(/[【\[［][^】\]］]*[】\]］]/gu, " ");
+  t = t.replace(/[\s　/／|｜:：][^\s　/／|｜]{0,16}様(?:\s*[・,、][^\s　/／|｜]{0,16}様)*\s*$/u, "");
+  t = t.replace(/[^\s　/／|｜]{0,16}様\s*$/u, "");
+  t = t.replace(/\s+/g, " ").trim();
+  return t || String(title || "(無題)").trim();
+}
+const acctOf = (m) => (m.account && m.account.trim()) || companyFromTitle(m.title) || "(無題)";
 function lastLostReason(ms) {
   for (let i = ms.length - 1; i >= 0; i--) {
     const a = ms[i].analysis;
@@ -158,7 +168,7 @@ async function selectDeal(account) {
       `<div class="tl-body"><div class="tl-top"><b>${m.round_no ? m.round_no + "回目" : ""} ${esc(PHASE_LABEL[m.phase] || "")}</b><span class="tl-date">${fmtDate(m.created_at)}</span></div>` +
       `<div class="tl-title">${esc(m.title || "")}</div>` +
       `<div class="tl-ov">${esc(ov)}</div>` +
-      `<a class="tl-link" href="history.html">詳細を見る →</a></div>`;
+      `<a class="tl-link" href="history.html?m=${encodeURIComponent(m.bot_id)}">詳細を見る →</a></div>`;
     tl.appendChild(item);
   }
 

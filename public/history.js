@@ -274,6 +274,9 @@ async function loadList() {
     const bulkBtn = document.getElementById("bulkNotionBtn");
     if (bulkBtn && !bulkBtn._wired) { bulkBtn._wired = true; bulkBtn.addEventListener("click", bulkSendNotion); }
     renderList();
+    // 案件などから ?m=商談ID で来たら自動で開く
+    const wantId = new URLSearchParams(location.search).get("m");
+    if (wantId && allMeetings.some((x) => x.bot_id === wantId)) loadDetail(wantId);
   } catch (e) {
     hlist.innerHTML = '<div class="empty-state">読み込みに失敗しました。</div>';
   }

@@ -35,6 +35,7 @@ import {
   listNotionSent,
   markNotionSent,
   getAiLogsByIds,
+  companyFromTitle,
   getSetCache,
   saveSetCache,
   listUsers,
@@ -266,7 +267,7 @@ app.post("/api/winloss-analysis", async (req, res) => {
     });
 
     const statuses = await listDealStatuses();
-    const acctOf = (m) => (m.account && m.account.trim()) || m.title || "(無題)";
+    const acctOf = (m) => (m.account && m.account.trim()) || companyFromTitle(m.title) || "(無題)";
     const statusOf = (m) => {
       const s = statuses[acctOf(m)];
       if (s && s.status) return s.status;
@@ -447,7 +448,7 @@ app.post("/api/talks", async (req, res) => {
 // Geminiと商談データを文脈に会話
 app.post("/api/chat", async (req, res) => {
   try {
-    const { messages, owner, owners, phase, phases, from, to, pro } = req.body || {};
+    const { messages, owner, owners, phase, phases, from, to, pro, web } = req.body || {};
     if (!Array.isArray(messages) || !messages.length) return res.status(400).json({ error: "メッセージがありません" });
     const ownerList = Array.isArray(owners) ? owners.filter(Boolean) : owner ? [owner] : [];
     const phaseList = Array.isArray(phases) ? phases.filter(Boolean) : phase ? [phase] : [];
@@ -465,7 +466,7 @@ app.post("/api/chat", async (req, res) => {
     // 直近の往復だけ送る（コンテキスト節約）
     const trimmed = messages.slice(-12).map((m) => ({ role: m.role === "assistant" ? "assistant" : "user", content: m.content }));
     const model = pro ? (process.env.GEMINI_PRO_MODEL || "gemini-2.5-pro") : undefined;
-    const reply = await chatWithData({ messages: trimmed, material, model });
+    const reply = await chatWithData({ messages: trimmed, material, model, web: !!web });
     res.json({ reply, count: rows.length, model: model || "(標準)" });
   } catch (e) {
     console.error("[chat]", e.message);
@@ -475,7 +476,7 @@ app.post("/api/chat", async (req, res) => {
 
 // ===== なんでも分析（フリー） =====
 function buildMeetingMaterial(rows, statuses, { limit = 20, max = 12000 } = {}) {
-  const acctOf = (m) => (m.account && m.account.trim()) || m.title || "(無題)";
+  const acctOf = (m) => (m.account && m.account.trim()) || companyFromTitle(m.title) || "(無題)";
   const statusOf = (m) => {
     const s = statuses && statuses[acctOf(m)];
     if (s && s.status) return s.status;
@@ -568,7 +569,7 @@ app.post("/api/lost-signals/learn", async (req, res) => {
   try {
     const statuses = await listDealStatuses();
     let rows = await listMeetings({ isAdmin: true });
-    const acctOf = (m) => (m.account && m.account.trim()) || m.title || "(無題)";
+    const acctOf = (m) => (m.account && m.account.trim()) || companyFromTitle(m.title) || "(無題)";
     const statusOf = (m) => {
       const s = statuses[acctOf(m)];
       if (s && s.status) return s.status;
@@ -1301,7 +1302,7 @@ async function processUpload(id, file, repName) {
         const st = deep && deep.deal_status;
         if (st && ["進行中", "受注", "失注", "保留"].includes(st)) {
           const m = await getMeeting(id);
-          const account = (m && ((m.account && m.account.trim()) || m.title)) || "";
+          const account = (m && ((m.account && m.account.trim()) || companyFromTitle(m.title))) || "";
           if (account) await setDealStatusAuto(account, st);
         }
       } catch (e) {
