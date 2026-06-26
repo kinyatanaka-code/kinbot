@@ -98,7 +98,7 @@ window.kbProgress = function (el, opts = {}) {
   };
   const poll = async () => {
     try {
-      const r = await fetch("/api/sessions/active");
+      const r = await fetch("/api/sessions/mine");
       render(await r.json());
     } catch { /* 失敗時は何もしない */ }
   };

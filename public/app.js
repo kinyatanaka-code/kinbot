@@ -73,6 +73,16 @@ function stopActivePoll() {
 }
 startActivePoll();
 
+// 別ページから録画ページに戻ったとき、自分が進行中の商談があれば自動でライブに復帰
+(async function resumeOwnLive() {
+  try {
+    const mine = await (await fetch("/api/sessions/mine")).json();
+    if (Array.isArray(mine) && mine.length) {
+      openLive(mine[0].id, { viewer: false, startedAt: mine[0].startedAt });
+    }
+  } catch {}
+})();
+
 // 商談名：カレンダーからその日の予定を選ぶ（日付切替つき）
 const calBtn = $("calBtn");
 const calPanel = $("calPanel");

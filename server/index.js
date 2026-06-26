@@ -951,7 +951,7 @@ app.post("/api/sessions/:id/stop", async (req, res) => {
 });
 
 // 自分が立ち上げて進行中のライブ商談（どのページからでもbot退出できるよう）
-app.get("/api/sessions/active", async (req, res) => {
+app.get("/api/sessions/mine", async (req, res) => {
   try {
     const mine = listActiveSessions().filter((s) => (s.owner || "") === (req.user || ""));
     res.json(mine.map((s) => ({ id: s.botId, title: s.title || "(商談名なし)", startedAt: s.startedAt })));
