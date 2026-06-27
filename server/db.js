@@ -38,6 +38,7 @@ export async function initDb() {
   await pool.query(`ALTER TABLE meetings ADD COLUMN IF NOT EXISTS owner TEXT;`);
   await pool.query(`ALTER TABLE meetings ADD COLUMN IF NOT EXISTS round_no INT;`);
   await pool.query(`ALTER TABLE meetings ADD COLUMN IF NOT EXISTS phase TEXT;`);
+  await pool.query(`ALTER TABLE meetings ADD COLUMN IF NOT EXISTS category TEXT;`);
   await pool.query(`ALTER TABLE meetings ADD COLUMN IF NOT EXISTS status TEXT;`);
   await pool.query(`ALTER TABLE meetings ADD COLUMN IF NOT EXISTS mux_playback_id TEXT;`);
   await pool.query(`ALTER TABLE meetings ADD COLUMN IF NOT EXISTS ai_log JSONB;`);
@@ -206,7 +207,7 @@ export async function listMeetings({ owner, isAdmin } = {}) {
   if (!pool) return [];
   const base = `SELECT m.bot_id, m.meeting_url, m.rep_name, m.title, m.owner,
                        m.round_no, m.phase, m.status, m.created_at, m.updated_at, m.summary, m.analysis,
-                       m.metrics, m.sf_url, COALESCE(m.account,'') AS account,
+                       m.metrics, m.sf_url, COALESCE(m.account,'') AS account, m.category,
                        u.name AS owner_name
                 FROM meetings m LEFT JOIN users u ON u.email = m.owner`;
   // 文字起こしが無い（空配列/NULL）の商談は履歴に残さない
@@ -270,7 +271,7 @@ export async function deleteEmptyMeetings(minutes = 180) {
 }
 
 // 商談の「何回目」「フェーズ」「商談名」「営業担当(owner)」を更新（undefinedの項目は変更しない）
-export async function updateMeetingMeta(botId, { round, phase, title, owner, createdAt, account }) {
+export async function updateMeetingMeta(botId, { round, phase, title, owner, createdAt, account, category }) {
   if (!pool) return;
   const sets = ["round_no=$2", "phase=$3"];
   const vals = [botId, round ?? null, phase || null];
@@ -293,6 +294,11 @@ export async function updateMeetingMeta(botId, { round, phase, title, owner, cre
   if (account !== undefined) {
     sets.push(`account=$${idx}`);
     vals.push(account || "");
+    idx++;
+  }
+  if (category !== undefined) {
+    sets.push(`category=$${idx}`);
+    vals.push(category || null);
     idx++;
   }
   try {

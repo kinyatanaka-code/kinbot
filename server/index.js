@@ -209,7 +209,7 @@ app.get("/api/auth-info", (req, res) => {
 // 商談の「何回目」「フェーズ」を更新
 app.put("/api/meetings/:id/meta", async (req, res) => {
   try {
-    const { round, phase, title, owner, createdAt, account } = req.body || {};
+    const { round, phase, title, owner, createdAt, account, category } = req.body || {};
     const r = round === "" || round == null ? null : Number(round);
     await updateMeetingMeta(req.params.id, {
       round: Number.isFinite(r) ? r : null,
@@ -218,6 +218,7 @@ app.put("/api/meetings/:id/meta", async (req, res) => {
       owner: owner === undefined ? undefined : owner,
       createdAt: createdAt ? createdAt : undefined,
       account: account === undefined ? undefined : account,
+      category: category === undefined ? undefined : category,
     });
     res.json({ ok: true });
   } catch (e) {
@@ -250,6 +251,9 @@ app.post("/api/meetings/cleanup-empty", async (req, res) => {
   }
 });
 
+// 「商談」だけを分析・案件の対象にする（社内MTG/ユーザーフォロー等は除外）
+const isSales = (m) => !m || !m.category || m.category === "商談";
+
 // 失注 vs 進行中・受注 の傾向を比較分析
 app.post("/api/winloss-analysis", async (req, res) => {
   try {
@@ -258,6 +262,7 @@ app.post("/api/winloss-analysis", async (req, res) => {
     const phaseList = Array.isArray(phases) ? phases.filter(Boolean) : phase ? [phase] : [];
     let rows = await listMeetings({ isAdmin: true });
     rows = rows.filter((m) => {
+      if (!isSales(m)) return false;
       if (ownerList.length && !ownerList.includes(m.owner || "")) return false;
       if (phaseList.length && !phaseList.includes(m.phase || "")) return false;
       const d = new Date(m.created_at);
@@ -418,6 +423,7 @@ app.post("/api/talks", async (req, res) => {
     const phaseList = Array.isArray(phases) ? phases.filter(Boolean) : phase ? [phase] : [];
     let rows = await listMeetings({ isAdmin: true });
     rows = rows.filter((m) => {
+      if (!isSales(m)) return false;
       if (ownerList.length && !ownerList.includes(m.owner || "")) return false;
       if (phaseList.length && !phaseList.includes(m.phase || "")) return false;
       const d = new Date(m.created_at);
@@ -454,6 +460,7 @@ app.post("/api/chat", async (req, res) => {
     const phaseList = Array.isArray(phases) ? phases.filter(Boolean) : phase ? [phase] : [];
     let rows = await listMeetings({ isAdmin: true });
     rows = rows.filter((m) => {
+      if (!isSales(m)) return false;
       if (ownerList.length && !ownerList.includes(m.owner || "")) return false;
       if (phaseList.length && !phaseList.includes(m.phase || "")) return false;
       const d = new Date(m.created_at);
@@ -510,6 +517,7 @@ app.post("/api/free-analysis", async (req, res) => {
     const phaseList = Array.isArray(phases) ? phases.filter(Boolean) : phase ? [phase] : [];
     let rows = await listMeetings({ isAdmin: true });
     rows = rows.filter((m) => {
+      if (!isSales(m)) return false;
       if (ownerList.length && !ownerList.includes(m.owner || "")) return false;
       if (phaseList.length && !phaseList.includes(m.phase || "")) return false;
       const d = new Date(m.created_at);
@@ -755,6 +763,7 @@ app.post("/api/analyze-set", async (req, res) => {
     const phaseList = Array.isArray(phases) ? phases.filter(Boolean) : phase ? [phase] : [];
     let rows = await listMeetings({ isAdmin: true });
     rows = rows.filter((m) => {
+      if (!isSales(m)) return false;
       if (ownerList.length && !ownerList.includes(m.owner || "")) return false;
       if (phaseList.length && !phaseList.includes(m.phase || "")) return false;
       const d = new Date(m.created_at);

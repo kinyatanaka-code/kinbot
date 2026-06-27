@@ -105,3 +105,22 @@ window.kbProgress = function (el, opts = {}) {
   poll();
   setInterval(poll, 15000);
 })();
+
+// ===== サイドバーに「社内・フォロー」項目を差し込む（全ページ共通） =====
+(function addOtherNav() {
+  const side = document.querySelector(".sidebar");
+  if (!side || side.querySelector('[data-nav="other"]')) return;
+  const hist = side.querySelector('.side-item[href="history.html"]') || side.querySelector('.side-item[href^="history.html"]');
+  const a = document.createElement("a");
+  a.className = "side-item";
+  a.dataset.nav = "other";
+  a.href = "history.html?cat=other";
+  a.innerHTML = '<span class="side-ico ico-hist"></span><span class="side-label">社内・フォロー</span>';
+  if (hist && hist.parentNode) hist.parentNode.insertBefore(a, hist.nextSibling);
+  else side.appendChild(a);
+  const isOther = /history\.html$/.test(location.pathname) && new URLSearchParams(location.search).get("cat") === "other";
+  if (isOther) {
+    a.classList.add("active");
+    if (hist) hist.classList.remove("active");
+  }
+})();

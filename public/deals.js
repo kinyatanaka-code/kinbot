@@ -62,6 +62,7 @@ function buildGroups() {
   const q = ($("fSearch").value || "").trim().toLowerCase();
   groups = {};
   for (const m of all) {
+    if (m.category && m.category !== "商談") continue; // 社内MTG/フォロー等は案件に含めない
     if (ownerF && (m.owner_name || m.owner) !== ownerF) continue;
     const a = acctOf(m);
     if (q && !a.toLowerCase().includes(q)) continue;

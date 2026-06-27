@@ -172,10 +172,18 @@ function closeAllMsel() {
 }
 document.addEventListener("click", closeAllMsel);
 
+const HIST_CAT_OTHER = new URLSearchParams(location.search).get("cat") === "other";
+if (HIST_CAT_OTHER) {
+  const bn = document.querySelector(".brand-name");
+  if (bn) bn.textContent = "社内・フォロー";
+  try { document.title = "社内・フォロー — kinbot"; } catch {}
+}
+function isOtherCat(m) { return !!(m.category && m.category !== "商談"); }
 function applyHistoryFilter() {
   const owner = document.getElementById("fOwner").value.trim();
   const phases = selectedPhases();
   return allMeetings.filter((m) => {
+    if (HIST_CAT_OTHER ? !isOtherCat(m) : isOtherCat(m)) return false; // ビューに合うカテゴリのみ
     if (owner && (m.owner || "").trim() !== owner) return false;
     if (phases.length && !phases.includes(m.phase || "")) return false;
     return true;
@@ -321,6 +329,12 @@ async function loadDetail(botId) {
         <label>日時 <input type="datetime-local" id="mDatetime" /></label>
         <label>何回目 <input type="number" id="mRound" min="1" max="99" placeholder="-" /></label>
         <label>フェーズ <select id="mPhase"><option value="">未設定</option></select></label>
+        <label>区分 <select id="mCategory">
+          <option value="商談">商談</option>
+          <option value="社内MTG">社内MTG</option>
+          <option value="ユーザーフォロー">ユーザーフォロー</option>
+          <option value="その他">その他</option>
+        </select></label>
         <span class="dmeta-saved" id="mSaved" hidden>保存しました</span>
       </div>
       <div class="tabs">
@@ -560,8 +574,10 @@ async function loadDetail(botId) {
     const mPhase = hdetail.querySelector("#mPhase");
     const mOwner = hdetail.querySelector("#mOwner");
     const mDatetime = hdetail.querySelector("#mDatetime");
+    const mCategory = hdetail.querySelector("#mCategory");
     const mSaved = hdetail.querySelector("#mSaved");
     if (m.created_at) mDatetime.value = isoToLocalInput(m.created_at);
+    if (mCategory) mCategory.value = m.category && m.category !== "" ? m.category : "商談";
     for (const p of PHASES) {
       const o = document.createElement("option");
       o.value = p.code;
@@ -602,6 +618,7 @@ async function loadDetail(botId) {
             phase: mPhase.value,
             owner: mOwner.value,
             createdAt,
+            category: mCategory ? mCategory.value : undefined,
           }),
         });
         mSaved.hidden = false;
@@ -613,6 +630,7 @@ async function loadDetail(botId) {
           row.round_no = mRound.value ? Number(mRound.value) : null;
           row.phase = mPhase.value || null;
           row.owner = mOwner.value || "";
+          if (mCategory) row.category = mCategory.value;
           if (createdAt) row.created_at = createdAt;
           const u = (usersCache || []).find((x) => x.email === mOwner.value);
           row.owner_name = u ? u.name || u.email : mOwner.value ? mOwner.value : null;
@@ -623,6 +641,7 @@ async function loadDetail(botId) {
     mTitle.addEventListener("change", saveMeta);
     mRound.addEventListener("change", saveMeta);
     mPhase.addEventListener("change", saveMeta);
+    if (mCategory) mCategory.addEventListener("change", saveMeta);
     mOwner.addEventListener("change", saveMeta);
     mDatetime.addEventListener("change", saveMeta);
 

@@ -114,6 +114,7 @@ function applyFilter() {
   const from = $("fFrom").value ? new Date($("fFrom").value + "T00:00:00") : null;
   const to = $("fTo").value ? new Date($("fTo").value + "T23:59:59") : null;
   return all.filter((m) => {
+    if (m.category && m.category !== "商談") return false; // 社内MTG/フォロー等は分析対象外
     if (owners.length && !owners.includes((m.owner || "").trim())) return false;
     if (phases.length && !phases.includes(m.phase || "")) return false;
     const d = new Date(m.created_at);
