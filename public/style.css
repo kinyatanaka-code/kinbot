@@ -1371,3 +1371,53 @@ a.kb-src:hover { color: var(--accent); border-color: var(--accent); }
 .lb-stop { border: none; background: #ff5a4d; color: #fff; font-weight: 700; font-size: 12.5px; padding: 7px 13px; border-radius: 999px; cursor: pointer; white-space: nowrap; }
 .lb-stop:disabled { opacity: .6; }
 @media (max-width: 760px) { .live-banner .lb-text { max-width: 40vw; } }
+
+/* ============================================================
+   SLEEK × FRIENDLY テーマ v1
+   ※イメージと違えば、この「v1」ブロックを丸ごと削除すれば元に戻ります
+   ============================================================ */
+:root {
+  --bg: #f4f6f4;
+  --panel: #ffffff;
+  --panel-2: #f2f7f4;
+  --line: #e4e9e5;
+  --accent: #11a47f;
+  --accent-soft: #dcf2ea;
+  --ink: #15211c;
+  --muted: #6b7770;
+}
+body { background: var(--bg); }
+
+/* サイドバー：フラットな濃緑＋ミントの現在地 */
+.sidebar { background: #04342C; }
+.side-item { color: #9FE1CB; border-radius: 12px; }
+.side-item:hover { background: rgba(255,255,255,.07); color: #fff; }
+.side-item.active { background: #11a47f !important; color: #fff !important; box-shadow: none !important; }
+.side-foot .who { color: #7fccb4 !important; }
+
+/* ボタン：フラットなミント（削除＝赤、ghost＝枠線はそのまま） */
+.btn:not(.ghost):not(.danger) { background: #11a47f !important; box-shadow: none !important; border-radius: 11px; font-weight: 600; }
+.btn:not(.ghost):not(.danger):hover { background: #0e8c6b !important; filter: none !important; }
+.btn.ghost { background: transparent !important; box-shadow: none !important; border: 1px solid var(--line); }
+.btn.ghost:hover { background: var(--panel-2) !important; color: var(--ink); }
+
+/* カード・パネル：角丸大きめ・やわらかい境界 */
+.panel, .card { border-radius: 16px; border-color: var(--line); }
+
+/* KPI：フラット面・角丸。刺さったトークはヒーロー濃色 */
+.kpi { background: var(--panel-2) !important; border: 1px solid var(--line) !important; border-radius: 16px; }
+.kpi-val { color: var(--ink); }
+.kpi-val.warn { color: #a8431f; }
+.kpi.buy { background: #04342C !important; border-color: #04342C !important; }
+.kpi.buy .kpi-val { color: #fff; }
+.kpi.buy .kpi-label { color: #9FE1CB; }
+.kpi.buy .kpi-more { color: #5DCAA5; }
+.kpi.risk { background: #FAEEDA !important; border-color: #f3d9ad !important; }
+.kpi.risk .kpi-val { color: #854F0B; }
+
+/* 分析タブ：アクティブをミントに統一 */
+.ana-tab.active { background: var(--accent); border-color: var(--accent); box-shadow: 0 3px 10px rgba(17,164,127,.28); }
+.ana-tab:not(.active):hover { background: var(--accent-soft); color: var(--accent); }
+
+/* ステータスバッジ等の角丸を少しやわらかく */
+.status-badge, .coach-tag, .live-badge { border-radius: 999px; }
