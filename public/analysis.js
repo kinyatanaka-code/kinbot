@@ -212,6 +212,33 @@ const avgOf = (arr) => {
   const v = arr.filter((x) => typeof x === "number" && !isNaN(x));
   return v.length ? Math.round(v.reduce((s, x) => s + x, 0) / v.length) : null;
 };
+function empBucket(n) {
+  if (n == null) return null;
+  if (n < 50) return "〜50名";
+  if (n < 100) return "50〜100名";
+  if (n < 300) return "100〜300名";
+  if (n < 1000) return "300〜1000名";
+  return "1000名以上";
+}
+function hireBucket(n) {
+  if (n == null) return null;
+  if (n < 5) return "〜5名";
+  if (n < 10) return "5〜10名";
+  if (n < 30) return "10〜30名";
+  if (n < 50) return "30〜50名";
+  return "50名以上";
+}
+// 最頻レンジ（一番多い区分）を返す {label, n}
+function modeBucket(arr, fn) {
+  const c = {};
+  for (const r of arr) {
+    const b = fn(r);
+    if (b == null) continue;
+    c[b] = (c[b] || 0) + 1;
+  }
+  const top = Object.entries(c).sort((a, b) => b[1] - a[1])[0];
+  return top ? { label: top[0], n: top[1] } : null;
+}
 function topIndustries(arr, n = 3) {
   const c = {};
   for (const r of arr) { const k = (r.industry || "不明").trim() || "不明"; c[k] = (c[k] || 0) + 1; }
@@ -260,37 +287,37 @@ async function renderProfileAnalysis() {
   html += '<div class="prof-an-grid">';
   for (const name of Object.keys(buckets)) {
     const arr = buckets[name];
-    const emp = avgOf(arr.map((r) => r.emp));
-    const hire = avgOf(arr.map((r) => r.hire));
+    const empM = modeBucket(arr, (r) => empBucket(r.emp));
+    const hireM = modeBucket(arr, (r) => hireBucket(r.hire));
     const inds = topIndustries(arr);
     html += `<div class="prof-an-card"><div class="prof-an-h">${name}<span class="prof-an-n">${arr.length}社</span></div>`;
-    html += `<div class="prof-an-row"><span>平均従業員数</span><b>${emp == null ? "—" : emp.toLocaleString() + "名"}</b></div>`;
-    html += `<div class="prof-an-row"><span>平均採用人数</span><b>${hire == null ? "—" : hire.toLocaleString() + "名"}</b></div>`;
+    html += `<div class="prof-an-row"><span>従業員数（多い）</span><b>${empM ? escapeHtml(empM.label) : "—"}</b></div>`;
+    html += `<div class="prof-an-row"><span>採用人数（多い）</span><b>${hireM ? escapeHtml(hireM.label) : "—"}</b></div>`;
     html += `<div class="prof-an-row"><span>多い業界</span><b>${inds.length ? escapeHtml(inds.map((x) => x[0]).join("・")) : "—"}</b></div>`;
     html += "</div>";
   }
   html += "</div>";
 
-  // 自動の気づき（平均比較）
+  // 自動の気づき（最頻レンジ・業界の比較）
   const obs = [];
-  const e1 = avgOf(buckets["1回で終了"].map((r) => r.emp));
-  const e3 = avgOf(buckets["3回以上継続"].map((r) => r.emp));
-  if (e1 != null && e3 != null && Math.abs(e1 - e3) > Math.max(10, e1 * 0.15)) {
-    obs.push(e3 > e1
-      ? `従業員数が多い企業ほど商談が続く傾向（1回:${e1.toLocaleString()}名 → 3回以上:${e3.toLocaleString()}名）。`
-      : `従業員数が少ない企業の方が商談が続く傾向（1回:${e1.toLocaleString()}名 → 3回以上:${e3.toLocaleString()}名）。`);
+  const e1 = modeBucket(buckets["1回で終了"], (r) => empBucket(r.emp));
+  const e3 = modeBucket(buckets["3回以上継続"], (r) => empBucket(r.emp));
+  if (e1 && e3 && e1.label !== e3.label) {
+    obs.push(`従業員数は、1回で終わる企業は「${e1.label}」、3回以上続く企業は「${e3.label}」が多い。`);
+  } else if (e3) {
+    obs.push(`続く企業は従業員数「${e3.label}」が多い。`);
   }
-  const h1 = avgOf(buckets["1回で終了"].map((r) => r.hire));
-  const h3 = avgOf(buckets["3回以上継続"].map((r) => r.hire));
-  if (h1 != null && h3 != null && Math.abs(h1 - h3) > Math.max(2, h1 * 0.15)) {
-    obs.push(h3 > h1
-      ? `採用人数が多い企業ほど継続しやすい傾向（1回:${h1}名 → 3回以上:${h3}名）。`
-      : `採用人数が少ない企業の方が継続しやすい傾向（1回:${h1}名 → 3回以上:${h3}名）。`);
+  const h1 = modeBucket(buckets["1回で終了"], (r) => hireBucket(r.hire));
+  const h3 = modeBucket(buckets["3回以上継続"], (r) => hireBucket(r.hire));
+  if (h1 && h3 && h1.label !== h3.label) {
+    obs.push(`採用人数は、1回で終わる企業は「${h1.label}」、3回以上続く企業は「${h3.label}」が多い。`);
+  } else if (h3) {
+    obs.push(`続く企業は採用人数「${h3.label}」が多い。`);
   }
   const cont = [...buckets["2回継続"], ...buckets["3回以上継続"]];
   const contTop = topIndustries(cont, 1)[0];
   const oneTop = topIndustries(buckets["1回で終了"], 1)[0];
-  if (contTop) obs.push(`継続しやすい業界の上位は「${escapeHtml(contTop[0])}」。`);
+  if (contTop) obs.push(`続きやすい業界の上位は「${escapeHtml(contTop[0])}」。`);
   if (oneTop) obs.push(`1回で終わりやすい業界の上位は「${escapeHtml(oneTop[0])}」。`);
   if (obs.length) {
     html += '<div class="prof-an-insight"><div class="prof-an-ih">気づき</div><ul>' + obs.map((o) => `<li>${o}</li>`).join("") + "</ul>" +
