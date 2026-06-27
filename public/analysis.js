@@ -159,15 +159,16 @@ let dashDirty = false;
 function render(triggered) {
   const rows = applyFilter();
   curRows = rows;
+  const safe = (fn, ...args) => { try { fn(...args); } catch (e) { console.error("[render]", fn.name, e); } };
   // ダッシュボードのグラフはタブ表示中のみ描画（非表示中はcanvasが潰れるため）
-  if (activeTab === "dash") { renderDashboard(rows); dashDirty = false; }
+  if (activeTab === "dash") { safe(renderDashboard, rows); dashDirty = false; }
   else dashDirty = true;
-  renderAgg(rows);
-  renderSetPanel(rows, !!triggered);
-  renderWinLoss(rows);
-  renderLostSignals();
-  renderFreeBox(rows);
-  renderList(rows);
+  safe(renderAgg, rows);
+  safe(renderSetPanel, rows, !!triggered);
+  safe(renderWinLoss, rows);
+  safe(renderLostSignals);
+  safe(renderFreeBox, rows);
+  safe(renderList, rows);
 }
 
 // タブ切替（PC・スマホ共通）
@@ -681,10 +682,13 @@ function renderDashboard(rows) {
   const repRank = Object.entries(repMap).sort((a, b) => b[1] - a[1]).slice(0, 8);
   const maxRep = Math.max(1, ...repRank.map(([, n]) => n));
 
-  // 挨拶ヘッダー
-  const wonCount = Object.values(dealStatusMap).filter((s) => s && s.status === "受注").length;
-  const sub = wonCount > 0 ? `これまでに受注${wonCount}件。いい流れです。` : "今日もいきましょう。";
-  let html = `<div class="dash-greet"><img class="dash-greet-ava" src="kinbot.svg" alt="" /><div><div class="dash-greet-h">おかえりなさい${greetName ? "、" + escapeHtml(greetName) + "さん" : ""}</div><div class="dash-greet-sub">${escapeHtml(sub)}</div></div></div>`;
+  // 挨拶ヘッダー（失敗しても本体は描画する）
+  let html = "";
+  try {
+    const wonCount = Object.values(dealStatusMap || {}).filter((s) => s && s.status === "受注").length;
+    const sub = wonCount > 0 ? `これまでに受注${wonCount}件。いい流れです。` : "今日もいきましょう。";
+    html += `<div class="dash-greet"><img class="dash-greet-ava" src="kinbot.svg" alt="" /><div><div class="dash-greet-h">おかえりなさい${greetName ? "、" + escapeHtml(greetName) + "さん" : ""}</div><div class="dash-greet-sub">${escapeHtml(sub)}</div></div></div>`;
+  } catch (e) { console.error("[dash greet]", e); }
 
   // KPIカード
   const kpis = [
@@ -701,7 +705,7 @@ function renderDashboard(rows) {
   html += "</div>";
 
   // いま追うべき案件（進行中・最近動いた順）
-  {
+  try {
     const groups = {};
     for (const m of rows) {
       const k = acctOfA(m);
@@ -726,7 +730,7 @@ function renderDashboard(rows) {
       html += "</div>";
     }
     html += "</div>";
-  }
+  } catch (e) { console.error("[dash follow]", e); }
 
 
   // 行1：推移(折れ線) + フェーズ分布(ドーナツ)
