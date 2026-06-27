@@ -1439,3 +1439,32 @@ body { background: var(--bg); }
 .deal-owner { display: inline-flex; align-items: center; gap: 7px; }
 .deal-owner-ava { width: 22px; height: 22px; border-radius: 50%; background: #E1F5EE; color: #0F6E56; display: inline-flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 700; }
 .deal-owner-sel { border: 1px solid var(--line); border-radius: 8px; padding: 3px 6px; font: inherit; font-size: 12px; background: var(--panel); color: var(--ink); }
+
+/* 履歴：会社別/すべて 切替＆会社カード */
+.hl-toolbar { padding: 4px 2px 10px; }
+.seg { display: inline-flex; background: var(--panel-2); border: 1px solid var(--line); border-radius: 999px; padding: 3px; gap: 2px; }
+.seg-btn { border: none; background: transparent; font: inherit; font-size: 12.5px; font-weight: 600; color: var(--muted); padding: 6px 14px; border-radius: 999px; cursor: pointer; }
+.seg-btn.active { background: var(--accent); color: #fff; }
+.hl-back { display: flex; align-items: center; gap: 10px; padding: 2px 2px 10px; }
+.hl-backbtn { border: 1px solid var(--line); background: var(--panel); border-radius: 9px; font: inherit; font-size: 12px; padding: 6px 11px; cursor: pointer; color: var(--ink); }
+.hl-acct { font-size: 13px; font-weight: 700; color: var(--ink); }
+.acard { display: block; width: 100%; text-align: left; background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 13px 15px; margin-bottom: 10px; cursor: pointer; }
+.acard:hover { border-color: var(--accent); }
+.acard-name { font-size: 14px; font-weight: 700; color: var(--ink); }
+.acard-meta { display: flex; gap: 10px; align-items: center; margin-top: 5px; }
+.acard-count { font-size: 12px; font-weight: 700; color: var(--accent); background: var(--accent-soft); border-radius: 999px; padding: 1px 9px; }
+.acard-rep { font-size: 12px; color: var(--muted); }
+.acard-sub { font-size: 11.5px; color: var(--muted); margin-top: 6px; }
+
+/* 分析ダッシュボード：挨拶＆いま追うべき案件 */
+.dash-greet { display: flex; align-items: center; gap: 11px; background: var(--accent-soft); border-radius: 14px; padding: 12px 14px; margin-bottom: 14px; }
+.dash-greet-ava { width: 38px; height: 38px; border-radius: 50%; background: #fff; padding: 3px; box-sizing: border-box; flex: 0 0 auto; }
+.dash-greet-h { font-size: 15px; font-weight: 700; color: #04342C; }
+.dash-greet-sub { font-size: 12px; color: #0F6E56; margin-top: 1px; }
+.follow-card { margin-bottom: 14px; }
+.follow-list { display: flex; flex-direction: column; }
+.follow-row { display: flex; align-items: center; gap: 10px; padding: 10px 4px; border-bottom: 1px solid var(--line); text-decoration: none; color: inherit; }
+.follow-row:last-child { border-bottom: none; }
+.follow-name { font-size: 13px; font-weight: 600; color: var(--ink); flex: 0 0 auto; max-width: 46%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.follow-sub { font-size: 11.5px; color: var(--muted); flex: 1; }
+.follow-go { color: var(--muted); font-size: 16px; }

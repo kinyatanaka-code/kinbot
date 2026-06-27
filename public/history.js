@@ -173,6 +173,21 @@ function closeAllMsel() {
 document.addEventListener("click", closeAllMsel);
 
 const HIST_CAT_OTHER = new URLSearchParams(location.search).get("cat") === "other";
+let histMode = "account"; // "account"（会社別） | "all"（すべて）
+let selectedAccount = null;
+let histAccounts = {}; // key -> {official_name,...}
+function companyFromTitleH(title) {
+  let t = String(title || "").trim();
+  if (!t) return "(無題)";
+  t = t.replace(/^[\s　・※•◆◇■□▶▷*\-–—✉⊠]+/u, "");
+  t = t.replace(/[【\[［][^】\]］]*[】\]］]/gu, " ");
+  t = t.replace(/[\s　/／|｜:：][^\s　/／|｜]{0,16}様(?:\s*[・,、][^\s　/／|｜]{0,16}様)*\s*$/u, "");
+  t = t.replace(/[^\s　/／|｜]{0,16}様\s*$/u, "");
+  t = t.replace(/\s+/g, " ").trim();
+  return t || String(title || "(無題)").trim();
+}
+const acctKey = (m) => (m.account && m.account.trim()) || companyFromTitleH(m.title) || "(無題)";
+const acctName = (key) => (histAccounts[key] && histAccounts[key].official_name) || key;
 if (HIST_CAT_OTHER) {
   const bn = document.querySelector(".brand-name");
   if (bn) bn.textContent = "社内・フォロー";
@@ -212,40 +227,98 @@ async function bulkSendNotion() {
   }
 }
 
+function meetingCardEl(r) {
+  const overview =
+    r.status === "processing"
+      ? "⏳ 文字起こし・分析を処理中…（数分後に表示されます）"
+      : r.status === "error"
+      ? "⚠️ 処理に失敗しました（ファイル形式やキー設定をご確認ください）"
+      : r.summary && r.summary.overview
+      ? r.summary.overview
+      : "（要約なし）";
+  const tags = [];
+  if (r.round_no) tags.push(`${r.round_no}回目`);
+  if (r.phase) tags.push(phaseLabel(r.phase));
+  const card = document.createElement("button");
+  card.className = "hcard";
+  card.innerHTML = `<div class="hcard-title"></div><div class="hcard-top"><span class="hcard-date"></span><span class="hcard-rep"></span></div><div class="hcard-tags"></div><div class="hcard-ov"></div>`;
+  card.querySelector(".hcard-title").textContent = r.title || "(商談名なし)";
+  card.querySelector(".hcard-date").textContent = fmtDate(r.created_at);
+  card.querySelector(".hcard-rep").textContent = r.owner_name || r.rep_name || "";
+  card.querySelector(".hcard-tags").textContent = tags.join("　");
+  card.querySelector(".hcard-ov").textContent = overview;
+  card.addEventListener("click", () => {
+    document.querySelectorAll(".hcard").forEach((c) => c.classList.remove("active"));
+    card.classList.add("active");
+    loadDetail(r.bot_id);
+  });
+  return card;
+}
+
 function renderList() {
   const rows = applyHistoryFilter();
+  hlist.innerHTML = "";
+  // ツールバー（会社別／すべて）。社内・フォロービューでもモード切替は使える。
+  const bar = document.createElement("div");
+  bar.className = "hl-toolbar";
+  bar.innerHTML =
+    `<div class="seg"><button class="seg-btn ${histMode === "account" ? "active" : ""}" data-mode="account">会社別</button>` +
+    `<button class="seg-btn ${histMode === "all" ? "active" : ""}" data-mode="all">すべて</button></div>`;
+  bar.querySelectorAll(".seg-btn").forEach((b) =>
+    b.addEventListener("click", () => { histMode = b.dataset.mode; selectedAccount = null; renderList(); })
+  );
+  hlist.appendChild(bar);
+
   if (!rows.length) {
-    hlist.innerHTML = '<div class="empty-state">該当する商談がありません。</div>';
+    const e = document.createElement("div");
+    e.className = "empty-state";
+    e.textContent = "該当する商談がありません。";
+    hlist.appendChild(e);
     return;
   }
-  hlist.innerHTML = "";
-  for (const r of rows) {
-    const overview =
-      r.status === "processing"
-        ? "⏳ 文字起こし・分析を処理中…（数分後に表示されます）"
-        : r.status === "error"
-        ? "⚠️ 処理に失敗しました（ファイル形式やキー設定をご確認ください）"
-        : r.summary && r.summary.overview
-        ? r.summary.overview
-        : "（要約なし）";
-    const tags = [];
-    if (r.round_no) tags.push(`${r.round_no}回目`);
-    if (r.phase) tags.push(phaseLabel(r.phase));
-    const card = document.createElement("button");
-    card.className = "hcard";
-    card.innerHTML = `<div class="hcard-title"></div><div class="hcard-top"><span class="hcard-date"></span><span class="hcard-rep"></span></div><div class="hcard-tags"></div><div class="hcard-ov"></div>`;
-    card.querySelector(".hcard-title").textContent = r.title || "(商談名なし)";
-    card.querySelector(".hcard-date").textContent = fmtDate(r.created_at);
-    card.querySelector(".hcard-rep").textContent = r.owner_name || r.rep_name || "";
-    card.querySelector(".hcard-tags").textContent = tags.join("　");
-    card.querySelector(".hcard-ov").textContent = overview;
-    card.addEventListener("click", () => {
-      document.querySelectorAll(".hcard").forEach((c) => c.classList.remove("active"));
-      card.classList.add("active");
-      loadDetail(r.bot_id);
-    });
-    hlist.appendChild(card);
+
+  // すべて表示：従来どおりフラット
+  if (histMode === "all") {
+    for (const r of rows) hlist.appendChild(meetingCardEl(r));
+    return;
   }
+
+  // 会社別：未選択なら会社カード、選択中ならその会社の商談
+  if (!selectedAccount) {
+    const groups = {};
+    for (const m of rows) (groups[acctKey(m)] = groups[acctKey(m)] || []).push(m);
+    const keys = Object.keys(groups).sort((a, b) => {
+      const la = groups[a][0].created_at, lb = groups[b][0].created_at;
+      return new Date(Math.max(...groups[b].map((x) => +new Date(x.created_at)))) - new Date(Math.max(...groups[a].map((x) => +new Date(x.created_at))));
+    });
+    for (const k of keys) {
+      const ms = groups[k];
+      const last = ms.reduce((a, b) => (new Date(a.created_at) > new Date(b.created_at) ? a : b));
+      const card = document.createElement("button");
+      card.className = "acard";
+      card.innerHTML =
+        `<div class="acard-name"></div>` +
+        `<div class="acard-meta"><span class="acard-count">${ms.length}件</span><span class="acard-rep"></span></div>` +
+        `<div class="acard-sub"></div>`;
+      card.querySelector(".acard-name").textContent = acctName(k);
+      card.querySelector(".acard-rep").textContent = last.owner_name || last.rep_name || "";
+      card.querySelector(".acard-sub").textContent = `${phaseLabel(last.phase) || "フェーズ未設定"} ・ 最終 ${fmtDate(last.created_at)}`;
+      card.addEventListener("click", () => { selectedAccount = k; renderList(); });
+      hlist.appendChild(card);
+    }
+    return;
+  }
+
+  // 選択中の会社の商談
+  const mine = rows.filter((m) => acctKey(m) === selectedAccount)
+    .sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+  const back = document.createElement("div");
+  back.className = "hl-back";
+  back.innerHTML = `<button class="hl-backbtn" type="button">← 会社一覧</button><span class="hl-acct"></span>`;
+  back.querySelector(".hl-acct").textContent = `${acctName(selectedAccount)}（${mine.length}件）`;
+  back.querySelector(".hl-backbtn").addEventListener("click", () => { selectedAccount = null; renderList(); });
+  hlist.appendChild(back);
+  for (const r of mine) hlist.appendChild(meetingCardEl(r));
 }
 
 async function loadList() {
@@ -278,13 +351,24 @@ async function loadList() {
       o.textContent = label;
       fOwner.appendChild(o);
     }
-    fOwner.addEventListener("change", renderList);
+    fOwner.addEventListener("change", () => { selectedAccount = null; renderList(); });
     const bulkBtn = document.getElementById("bulkNotionBtn");
     if (bulkBtn && !bulkBtn._wired) { bulkBtn._wired = true; bulkBtn.addEventListener("click", bulkSendNotion); }
+    try {
+      const accs = await (await fetch("/api/accounts")).json();
+      histAccounts = {};
+      for (const a of accs || []) histAccounts[a.key] = a;
+    } catch {}
     renderList();
-    // 案件などから ?m=商談ID で来たら自動で開く
+    // 案件などから ?m=商談ID で来たら、その会社を開いて該当商談を表示
     const wantId = new URLSearchParams(location.search).get("m");
-    if (wantId && allMeetings.some((x) => x.bot_id === wantId)) loadDetail(wantId);
+    const want = wantId && allMeetings.find((x) => x.bot_id === wantId);
+    if (want) {
+      histMode = "account";
+      selectedAccount = acctKey(want);
+      renderList();
+      loadDetail(wantId);
+    }
   } catch (e) {
     hlist.innerHTML = '<div class="empty-state">読み込みに失敗しました。</div>';
   }

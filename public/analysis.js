@@ -2,6 +2,19 @@
 const $ = (id) => document.getElementById(id);
 let all = [];
 let ownerLabels = {};
+let greetName = "";
+let dealStatusMap = {};
+function companyFromTitleA(title) {
+  let t = String(title || "").trim();
+  if (!t) return "(無題)";
+  t = t.replace(/^[\s　・※•◆◇■□▶▷*\-–—✉⊠]+/u, "");
+  t = t.replace(/[【\[［][^】\]］]*[】\]］]/gu, " ");
+  t = t.replace(/[\s　/／|｜:：][^\s　/／|｜]{0,16}様(?:\s*[・,、][^\s　/／|｜]{0,16}様)*\s*$/u, "");
+  t = t.replace(/[^\s　/／|｜]{0,16}様\s*$/u, "");
+  t = t.replace(/\s+/g, " ").trim();
+  return t || String(title || "(無題)").trim();
+}
+const acctOfA = (m) => (m.account && m.account.trim()) || companyFromTitleA(m.title) || "(無題)";
 
 const PHASES = [
   { code: "01", label: "01 初回商談" },
@@ -29,6 +42,22 @@ async function init() {
   } catch {
     all = [];
   }
+  // 挨拶用の名前＋案件ステータス（いま追うべき案件用）
+  try {
+    const me = await (await fetch("/api/me")).json();
+    let nm = me && me.username ? me.username : "";
+    try {
+      const users = await (await fetch("/api/users")).json();
+      const u = (users || []).find((x) => x.email === me.username);
+      if (u && u.name) nm = u.name;
+    } catch {}
+    if (nm && nm.includes("@")) nm = nm.split("@")[0];
+    greetName = nm || "";
+  } catch {}
+  try {
+    const ds = await (await fetch("/api/deal-status")).json();
+    dealStatusMap = ds.statuses || {};
+  } catch {}
   // 所有者（録画したアカウント）でプルダウンを構築
   const seen = new Map(); // owner -> label
   for (const m of all) {
@@ -522,6 +551,11 @@ function renderDashboard(rows) {
   const repRank = Object.entries(repMap).sort((a, b) => b[1] - a[1]).slice(0, 8);
   const maxRep = Math.max(1, ...repRank.map(([, n]) => n));
 
+  // 挨拶ヘッダー
+  const wonCount = Object.values(dealStatusMap).filter((s) => s && s.status === "受注").length;
+  const sub = wonCount > 0 ? `これまでに受注${wonCount}件。いい流れです。` : "今日もいきましょう。";
+  let html = `<div class="dash-greet"><img class="dash-greet-ava" src="kinbot.svg" alt="" /><div><div class="dash-greet-h">おかえりなさい${greetName ? "、" + escapeHtml(greetName) + "さん" : ""}</div><div class="dash-greet-sub">${escapeHtml(sub)}</div></div></div>`;
+
   // KPIカード
   const kpis = [
     { label: "対象の商談", val: total },
@@ -531,10 +565,39 @@ function renderDashboard(rows) {
     { label: "懸念", val: concernTotal, tone: "risk", click: "concern" },
     { label: "分析済み率", val: analyzedPct + "%" },
   ];
-  let html = '<div class="dash-kpis6">';
+  html += '<div class="dash-kpis6">';
   for (const k of kpis)
     html += `<div class="kpi ${k.tone || ""} ${k.click ? "kpi-click" : ""}" ${k.click ? `data-talk="${k.click}"` : ""}><div class="kpi-val ${k.warn ? "warn" : ""}">${k.val}</div><div class="kpi-label">${k.label}${k.click ? ' <span class="kpi-more">一覧 ›</span>' : ""}</div></div>`;
   html += "</div>";
+
+  // いま追うべき案件（進行中・最近動いた順）
+  {
+    const groups = {};
+    for (const m of rows) {
+      const k = acctOfA(m);
+      (groups[k] = groups[k] || []).push(m);
+    }
+    const items = [];
+    for (const k in groups) {
+      const st = (dealStatusMap[k] && dealStatusMap[k].status) || "進行中";
+      if (st !== "進行中") continue;
+      const last = groups[k].reduce((a, b) => (new Date(a.created_at) > new Date(b.created_at) ? a : b));
+      items.push({ key: k, last, n: groups[k].length });
+    }
+    items.sort((a, b) => new Date(b.last.created_at) - new Date(a.last.created_at));
+    const top = items.slice(0, 4);
+    html += '<div class="dash-card follow-card"><div class="dash-title">🔥 いま追うべき案件</div>';
+    if (!top.length) html += '<div class="empty-state">進行中の案件はありません。</div>';
+    else {
+      html += '<div class="follow-list">';
+      for (const it of top) {
+        html += `<a class="follow-row" href="history.html?m=${encodeURIComponent(it.last.bot_id)}"><span class="follow-name">${escapeHtml(it.key)}</span><span class="follow-sub">${escapeHtml(phaseLabel(it.last.phase))} ・ 最終 ${fmtDate(it.last.created_at)}</span><span class="follow-go">›</span></a>`;
+      }
+      html += "</div>";
+    }
+    html += "</div>";
+  }
+
 
   // 行1：推移(折れ線) + フェーズ分布(ドーナツ)
   html += '<div class="dash-grid2">';
