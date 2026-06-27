@@ -46,7 +46,7 @@
                 <p class="join-desc">商談名と会議URLを入れて、Botを入室させます。</p>
                 <div class="title-row">
                   <input id="meetingTitle" type="text" placeholder="商談名（例：A社 初回）" />
-                  <button type="button" id="calBtn" class="cal-btn" title="カレンダーから選ぶ">📅</button>
+                  <button type="button" id="calBtn" class="cal-btn" title="カレンダーから選ぶ" aria-label="カレンダーから選ぶ"><svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><rect x="3" y="5" width="18" height="16" rx="3" fill="#E1F5EE" stroke="#11a47f" stroke-width="1.6"/><line x1="3" y1="9" x2="21" y2="9" stroke="#11a47f" stroke-width="1.6"/><line x1="8" y1="2.5" x2="8" y2="6.5" stroke="#0F6E56" stroke-width="2" stroke-linecap="round"/><line x1="16" y1="2.5" x2="16" y2="6.5" stroke="#0F6E56" stroke-width="2" stroke-linecap="round"/><circle cx="8" cy="13.5" r="1.4" fill="#11a47f"/><circle cx="12" cy="13.5" r="1.4" fill="#11a47f"/><circle cx="16" cy="13.5" r="1.4" fill="#11a47f"/><circle cx="8" cy="17.5" r="1.4" fill="#11a47f"/><circle cx="12" cy="17.5" r="1.4" fill="#11a47f"/></svg></button>
                   <div class="cal-panel" id="calPanel" hidden></div>
                 </div>
                 <select id="linkSelect" class="link-select"><option value="">会議リンクを選ぶ…（登録リンク / 予定のリンク）</option></select>
@@ -57,7 +57,11 @@
               <div class="join-card upload-card" data-mrec="file">
                 <h2 class="join-title">ファイルから記録</h2>
                 <p class="join-desc">音声・動画をアップロードして、文字起こし・要約・分析を作成し、商談履歴に保存します。</p>
-                <input id="upTitle" type="text" placeholder="商談名（任意）" />
+                <div class="title-row">
+                  <input id="upTitle" type="text" placeholder="商談名（任意）" />
+                  <button type="button" id="upCalBtn" class="cal-btn" title="カレンダーから選ぶ" aria-label="カレンダーから選ぶ"><svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><rect x="3" y="5" width="18" height="16" rx="3" fill="#E1F5EE" stroke="#11a47f" stroke-width="1.6"/><line x1="3" y1="9" x2="21" y2="9" stroke="#11a47f" stroke-width="1.6"/><line x1="8" y1="2.5" x2="8" y2="6.5" stroke="#0F6E56" stroke-width="2" stroke-linecap="round"/><line x1="16" y1="2.5" x2="16" y2="6.5" stroke="#0F6E56" stroke-width="2" stroke-linecap="round"/><circle cx="8" cy="13.5" r="1.4" fill="#11a47f"/><circle cx="12" cy="13.5" r="1.4" fill="#11a47f"/><circle cx="16" cy="13.5" r="1.4" fill="#11a47f"/><circle cx="8" cy="17.5" r="1.4" fill="#11a47f"/><circle cx="12" cy="17.5" r="1.4" fill="#11a47f"/></svg></button>
+                  <div class="cal-panel" id="upCalPanel" hidden></div>
+                </div>
                 <input id="upFile" type="file" accept="audio/*,video/*" />
                 <button class="btn big" id="upBtn">アップロードして記録</button>
                 <p class="join-consent" id="upMsg">対応形式：mp3 / m4a / wav / mp4 など。最大2GB。処理完了後、商談履歴に表示されます。</p>

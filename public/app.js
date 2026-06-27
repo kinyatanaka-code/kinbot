@@ -103,6 +103,20 @@ if (calBtn && calPanel) {
   });
 }
 
+// ファイルから記録カードのカレンダー（商談名を埋める）
+const upCalBtn = $("upCalBtn");
+const upCalPanel = $("upCalPanel");
+if (upCalBtn && upCalPanel) {
+  document.addEventListener("click", (e) => {
+    if (!upCalPanel.hidden && !upCalPanel.contains(e.target) && e.target !== upCalBtn && !upCalBtn.contains(e.target)) upCalPanel.hidden = true;
+  });
+  upCalBtn.addEventListener("click", (e) => {
+    e.stopPropagation();
+    if (!upCalPanel.hidden) { upCalPanel.hidden = true; return; }
+    openCalPicker(upCalPanel, (ev) => { if ($("upTitle")) $("upTitle").value = ev.title; });
+  });
+}
+
 // 予定のリンクを登録リンクのプルダウンに「📅 この予定のリンク」として追加する。
 // カレンダー選択時点ではURLは載せず、プルダウンで「予定のリンク」か「登録リンク」を選んで初めてURLが入る。
 function setCalendarLinkOption(url) {

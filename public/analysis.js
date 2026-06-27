@@ -732,7 +732,7 @@ function renderDashboard(rows) {
     html += "</div>";
   } catch (e) { console.error("[dash follow]", e); }
 
-
+  try {
   // 行1：推移(折れ線) + フェーズ分布(ドーナツ)
   html += '<div class="dash-grid2">';
   html += '<div class="dash-card"><div class="dash-title">商談数の推移（月別）</div><div class="chart-box"><canvas id="chTrend"></canvas></div></div>';
@@ -783,6 +783,7 @@ function renderDashboard(rows) {
     html += "</table><p class=\"metric-note\">5点満点。色が濃い緑ほど高評価、オレンジは要改善。</p>";
   }
   html += "</div>";
+  } catch (e) { console.error("[dash body]", e); }
 
   el.innerHTML = html;
 
