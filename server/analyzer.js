@@ -223,6 +223,50 @@ export async function freeAnalyze({ question, material, filterDesc }) {
   return await callLLM(FREE_PROMPT, user, 2600, { json: false });
 }
 
+// 企業サイト＋Web検索から会社概要を取得（A+B）。分からない項目は空に。
+const COMPANY_PROMPT = `あなたは企業リサーチのアシスタントです。与えられた企業サイトの抜粋と、必要に応じたWeb検索の結果から、会社概要をできる範囲で正確にまとめます。
+重要:
+- 分からない項目は空文字 "" にする（推測やでっち上げは禁止）。
+- 値は簡潔に。日本語。
+- 次のJSONのみを出力（前置き・説明・コードフェンスは一切不要）:
+{"official_name":"正式社名","industry":"業界","employees":"従業員数(例: 約320名)","hiring":"採用予定人数(例: 15名/年)","founded":"設立(例: 1998年)","location":"本社所在地","business":"事業内容(1〜2文)","note":"補足(任意)"}`;
+
+export async function enrichCompany({ url, name, siteText }) {
+  const key = process.env.GEMINI_API_KEY;
+  if (!key) throw new Error("GEMINI_API_KEY が未設定です");
+  const model = process.env.GEMINI_WEB_MODEL || "gemini-2.5-flash";
+  const user =
+    `会社名(推定): ${name || "不明"}\nサイトURL: ${url || "不明"}\n\n` +
+    `サイト本文の抜粋:\n"""\n${(siteText || "(取得できませんでした)").slice(0, 6000)}\n"""\n\n` +
+    `上記とWeb検索から、会社概要をJSONで出力してください。`;
+  const body = {
+    system_instruction: { parts: [{ text: COMPANY_PROMPT }] },
+    contents: [{ role: "user", parts: [{ text: user }] }],
+    generationConfig: { temperature: 0.2, maxOutputTokens: 900 },
+    tools: [{ google_search: {} }],
+  };
+  const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${key}`, {
+    method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body),
+  });
+  if (!res.ok) {
+    const t = await res.text().catch(() => "");
+    throw new Error(`Gemini ${res.status}: ${t.slice(0, 160)}`);
+  }
+  const data = await res.json();
+  const text = (data.candidates?.[0]?.content?.parts || []).map((p) => p.text || "").join("");
+  const o = parseJson(text) || {};
+  return {
+    official_name: o.official_name || "",
+    industry: o.industry || "",
+    employees: o.employees || "",
+    hiring: o.hiring || "",
+    founded: o.founded || "",
+    location: o.location || "",
+    business: o.business || "",
+    note: o.note || "",
+  };
+}
+
 // 商談データを文脈にしたGeminiとのマルチターン会話
 const CHAT_SYSTEM = `あなたは「kinbot」の営業アシスタントです。ユーザー（営業）の過去の商談データ（要約・懸念・スコア・ステータス等）を文脈として渡されます。
 - そのデータに基づき、日本語で具体的に、会話形式で答えます。

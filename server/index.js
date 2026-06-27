@@ -36,6 +36,9 @@ import {
   markNotionSent,
   getAiLogsByIds,
   companyFromTitle,
+  getAccount,
+  listAccounts,
+  saveAccount,
   getSetCache,
   saveSetCache,
   listUsers,
@@ -54,7 +57,7 @@ import {
   deleteKbFolder,
 } from "./db.js";
 import { resolveConfig, statusInfo } from "./config.js";
-import { analyzerInfo, analyzeMeeting, analyzeDeep, analyzeTendency, analyzeSet, analyzeWinLoss, extractLostSignals, freeAnalyze, chatWithData, generateThanks, getCheckItems } from "./analyzer.js";
+import { analyzerInfo, analyzeMeeting, analyzeDeep, analyzeTendency, analyzeSet, analyzeWinLoss, extractLostSignals, freeAnalyze, chatWithData, enrichCompany, generateThanks, getCheckItems } from "./analyzer.js";
 import {
   googleConfigured,
   authUrl,
@@ -477,6 +480,58 @@ app.post("/api/chat", async (req, res) => {
     res.json({ reply, count: rows.length, model: model || "(標準)" });
   } catch (e) {
     console.error("[chat]", e.message);
+    res.status(502).json({ error: e.message });
+  }
+});
+
+// ===== 企業アカウント（プロフィール／会社概要） =====
+app.get("/api/accounts", async (req, res) => {
+  try { res.json(await listAccounts()); } catch { res.json([]); }
+});
+app.get("/api/accounts/:key", async (req, res) => {
+  try {
+    const a = await getAccount(decodeURIComponent(req.params.key));
+    res.json(a || {});
+  } catch (e) { res.json({}); }
+});
+
+// 手動編集（正式社名・URL・各項目）
+app.put("/api/accounts/:key", async (req, res) => {
+  try {
+    const key = decodeURIComponent(req.params.key);
+    const { siteUrl, officialName, profile } = req.body || {};
+    await saveAccount(key, { siteUrl, officialName, profile });
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// 企業サイトURLから会社概要を自動取得（A+B: サイト本文＋Web検索）
+app.post("/api/accounts/:key/enrich", async (req, res) => {
+  try {
+    const key = decodeURIComponent(req.params.key);
+    const url = (req.body?.url || "").toString().trim();
+    if (!url) return res.status(400).json({ error: "企業サイトURLを入力してください" });
+    const fullUrl = /^https?:\/\//i.test(url) ? url : "https://" + url;
+    let siteText = "";
+    try {
+      const r = await fetch(fullUrl, { headers: { "user-agent": "Mozilla/5.0 (kinbot)" }, redirect: "follow" });
+      const html = await r.text();
+      siteText = html
+        .replace(/<script[\s\S]*?<\/script>/gi, " ")
+        .replace(/<style[\s\S]*?<\/style>/gi, " ")
+        .replace(/<[^>]+>/g, " ")
+        .replace(/&nbsp;/g, " ")
+        .replace(/\s+/g, " ")
+        .trim();
+    } catch (e) {
+      console.warn("[enrich] site fetch失敗", e.message);
+    }
+    const profile = await enrichCompany({ url: fullUrl, name: key, siteText });
+    const officialName = profile.official_name || key;
+    await saveAccount(key, { siteUrl: fullUrl, officialName, profile });
+    res.json({ ok: true, siteUrl: fullUrl, officialName, profile });
+  } catch (e) {
+    console.error("[enrich]", e.message);
     res.status(502).json({ error: e.message });
   }
 });

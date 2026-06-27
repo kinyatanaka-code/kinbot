@@ -35,14 +35,40 @@ let all = [];
 let groups = {}; // account -> meetings[]
 let current = null;
 let dealStatuses = {}; // account -> {status, manual}
+let accountsMap = {}; // key -> {site_url, official_name, profile}
 const STATUS_LIST = ["進行中", "受注", "失注", "保留"];
 const statusOf = (a) => (dealStatuses[a] && dealStatuses[a].status) || "進行中";
+const displayName = (a) => (accountsMap[a] && accountsMap[a].official_name) || a;
+
+function renderProfile(account) {
+  const body = document.getElementById("profBody");
+  if (!body) return;
+  const acc = accountsMap[account];
+  const p = acc && acc.profile;
+  if (!p || !(p.industry || p.employees || p.hiring || p.founded || p.location || p.business)) {
+    body.innerHTML = '<div class="empty-state">企業サイトURLを入れて「取得」すると、業界・従業員数・採用人数などの会社概要が表示されます。</div>';
+    return;
+  }
+  const cell = (label, val) => (val ? `<div class="prof-cell"><div class="prof-k">${label}</div><div class="prof-v">${esc(val)}</div></div>` : "");
+  body.innerHTML =
+    `<div class="prof-grid">` +
+    cell("業界", p.industry) + cell("従業員数", p.employees) + cell("採用予定", p.hiring) +
+    cell("設立", p.founded) + cell("本社", p.location) +
+    `</div>` +
+    (p.business ? `<div class="prof-biz">事業内容：${esc(p.business)} <span class="prof-note">（AI自動取得・要確認）</span></div>` : "") +
+    (acc.site_url ? `<div class="prof-site"><a href="${esc(acc.site_url)}" target="_blank" rel="noopener">サイトを開く ↗</a></div>` : "");
+}
 
 async function load() {
   try {
     all = await (await fetch("/api/meetings")).json();
     const ds = await (await fetch("/api/deal-status")).json();
     dealStatuses = ds.statuses || {};
+    try {
+      const accs = await (await fetch("/api/accounts")).json();
+      accountsMap = {};
+      for (const a of accs || []) accountsMap[a.key] = a;
+    } catch {}
   } catch {
     $("dealList").innerHTML = '<div class="empty-state">読み込みに失敗しました。</div>';
     return;
@@ -91,7 +117,7 @@ function renderList() {
     const card = document.createElement("div");
     card.className = "deal-card" + (a === current ? " active" : "");
     card.innerHTML =
-      `<div class="deal-name">${esc(a)} <span class="status-badge st-${st}">${st}</span></div>` +
+      `<div class="deal-name">${esc(displayName(a))} <span class="status-badge st-${st}">${st}</span></div>` +
       `<div class="deal-meta"><span>${ms.length}件</span><span>${esc(last.owner_name || last.owner || "")}</span></div>` +
       `<div class="deal-sub">${esc(PHASE_LABEL[last.phase] || "フェーズ未設定")} ・ 最終 ${fmtDate(last.created_at)}</div>`;
     card.addEventListener("click", () => selectDeal(a));
@@ -127,7 +153,7 @@ async function selectDeal(account) {
   det.innerHTML =
     `<button class="m-back" type="button">← 一覧へ戻る</button>` +
     `<div class="deal-head">` +
-    `<div class="deal-head-top"><h2>${esc(account)}</h2>` +
+    `<div class="deal-head-top"><h2>${esc(displayName(account))}</h2>` +
     `<div class="deal-status-pick"><span class="status-badge st-${statusOf(account)}" id="dealStBadge">${statusOf(account)}</span>` +
     `<select id="dealStSel">${STATUS_LIST.map((s) => `<option value="${s}" ${statusOf(account) === s ? "selected" : ""}>${s}</option>`).join("")}<option value="__auto">AIに任せる</option></select></div></div>` +
     `<div class="deal-head-meta">${ms.length}回の商談 ・ 現在 ${esc(PHASE_LABEL[last.phase] || "フェーズ未設定")} ・ 担当 ${esc(last.owner_name || last.owner || "—")}` +
@@ -135,6 +161,9 @@ async function selectDeal(account) {
     `</div>` +
     (statusOf(account) === "失注" && lastLostReason(ms) ? `<div class="lost-reason">AI判定の失注理由: ${esc(lastLostReason(ms))}</div>` : "") +
     `</div>` +
+    `<section class="deal-sec deal-profile"><div class="deal-sec-h">🏢 会社プロフィール</div>` +
+    `<div class="prof-url"><input id="profUrl" type="text" placeholder="企業サイトURL（例: example.co.jp）" /><button class="btn" id="profGet">取得</button><span class="prof-status" id="profStatus"></span></div>` +
+    `<div id="profBody"></div></section>` +
     `<section class="deal-sec"><div class="deal-sec-h">📋 ネクストアクション</div><div id="aiBox"><div class="empty-state">読み込み中…</div></div>` +
     `<div class="ai-add"><input id="aiNew" type="text" placeholder="やることを追加（例：見積もりを送付）" /><input id="aiDue" type="date" /><button class="btn" id="aiAddBtn">追加</button></div></section>` +
     `<section class="deal-sec"><div class="deal-sec-h">⚠️ 相手の懸念（これまでの集約）</div>` +
@@ -155,6 +184,35 @@ async function selectDeal(account) {
     }
     selectDeal(account);
     renderList();
+  });
+
+  // 会社プロフィール
+  renderProfile(account);
+  const profUrl = $("profUrl"), profGet = $("profGet"), profStatus = $("profStatus");
+  if (accountsMap[account] && accountsMap[account].site_url) profUrl.value = accountsMap[account].site_url;
+  profGet.addEventListener("click", async () => {
+    const url = (profUrl.value || "").trim();
+    if (!url) { profUrl.focus(); return; }
+    profGet.disabled = true; profGet.textContent = "取得中…";
+    if (window.kbProgress) window.kbProgress(profStatus, { percent: null, label: "サイトとWebから会社概要を取得中…" });
+    try {
+      const r = await fetch(`/api/accounts/${encodeURIComponent(account)}/enrich`, {
+        method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ url }),
+      });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.error || "取得に失敗しました");
+      accountsMap[account] = { key: account, site_url: d.siteUrl, official_name: d.officialName, profile: d.profile };
+      if (window.kbProgress) window.kbProgress(profStatus, { clear: true });
+      renderProfile(account);
+      // 見出し・カード名を正式社名に反映
+      const h = document.querySelector("#dealDetail h2"); if (h) h.textContent = displayName(account);
+      renderList();
+    } catch (e) {
+      if (window.kbProgress) window.kbProgress(profStatus, { clear: true });
+      profStatus.textContent = "失敗: " + e.message;
+    } finally {
+      profGet.disabled = false; profGet.textContent = "取得";
+    }
   });
 
   // タイムライン

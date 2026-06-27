@@ -46,6 +46,15 @@ export async function initDb() {
   await pool.query(`ALTER TABLE meetings ADD COLUMN IF NOT EXISTS account TEXT;`);
   await pool.query(`ALTER TABLE meetings ADD COLUMN IF NOT EXISTS note TEXT;`);
   await pool.query(`
+    CREATE TABLE IF NOT EXISTS accounts (
+      key TEXT PRIMARY KEY,
+      site_url TEXT,
+      official_name TEXT,
+      profile JSONB,
+      updated_at TIMESTAMPTZ DEFAULT now()
+    );
+  `);
+  await pool.query(`
     CREATE TABLE IF NOT EXISTS notion_sent (
       owner TEXT NOT NULL,
       bot_id TEXT NOT NULL,
@@ -306,6 +315,39 @@ export async function updateMeetingMeta(botId, { round, phase, title, owner, cre
   } catch (e) {
     console.error("[db] updateMeetingMeta", e.message);
   }
+}
+
+// 企業アカウント情報（プロフィール）
+export async function getAccount(key) {
+  if (!pool || !key) return null;
+  try {
+    const { rows } = await pool.query(`SELECT key, site_url, official_name, profile FROM accounts WHERE key=$1`, [key]);
+    return rows[0] || null;
+  } catch (e) { console.error("[db] getAccount", e.message); return null; }
+}
+export async function listAccounts() {
+  if (!pool) return [];
+  try {
+    const { rows } = await pool.query(`SELECT key, site_url, official_name, profile FROM accounts`);
+    return rows;
+  } catch { return []; }
+}
+export async function saveAccount(key, { siteUrl, officialName, profile } = {}) {
+  if (!pool || !key) return;
+  const cols = [], vals = [key], setParts = [];
+  let i = 2;
+  if (siteUrl !== undefined) { cols.push("site_url"); setParts.push(`site_url=$${i}`); vals.push(siteUrl || null); i++; }
+  if (officialName !== undefined) { cols.push("official_name"); setParts.push(`official_name=$${i}`); vals.push(officialName || null); i++; }
+  if (profile !== undefined) { cols.push("profile"); setParts.push(`profile=$${i}`); vals.push(profile ? JSON.stringify(profile) : null); i++; }
+  if (!cols.length) return;
+  const placeholders = cols.map((_, k) => "$" + (k + 2)).join(", ");
+  try {
+    await pool.query(
+      `INSERT INTO accounts (key, ${cols.join(", ")}, updated_at) VALUES ($1, ${placeholders}, now())
+       ON CONFLICT (key) DO UPDATE SET ${setParts.join(", ")}, updated_at=now()`,
+      vals
+    );
+  } catch (e) { console.error("[db] saveAccount", e.message); }
 }
 
 // Notion送信済みの記録（ユーザー単位・重複防止用）
