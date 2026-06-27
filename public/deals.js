@@ -113,28 +113,42 @@ async function load() {
     $("dealList").innerHTML = '<div class="empty-state">読み込みに失敗しました。</div>';
     return;
   }
-  // 営業担当フィルタの選択肢
-  const owners = [...new Set(all.map((m) => m.owner_name || m.owner).filter(Boolean))];
-  const sel = $("fOwner");
-  for (const o of owners) {
-    const opt = document.createElement("option");
-    opt.value = o; opt.textContent = o; sel.appendChild(opt);
-  }
+  // 担当者カード用にユーザー名を事前ロード
+  await loadUsersD();
+  // 担当フィルタは「担当者を選ぶ」階層に置き換えるため非表示
+  const fo = $("fOwner");
+  if (fo && fo.closest("label")) fo.closest("label").style.display = "none";
+  const fs = $("fSearch");
+  if (fs && !fs._wired) { fs._wired = true; fs.addEventListener("input", () => renderList()); }
   renderList();
 }
 
 function buildGroups() {
-  const ownerF = $("fOwner").value;
   const q = ($("fSearch").value || "").trim().toLowerCase();
   groups = {};
   for (const m of all) {
     if (m.category && m.category !== "商談") continue; // 社内MTG/フォロー等は案件に含めない
-    if (ownerF && (m.owner_name || m.owner) !== ownerF) continue;
     const a = acctOf(m);
-    if (q && !a.toLowerCase().includes(q)) continue;
+    if (q && !a.toLowerCase().includes(q) && !displayName(a).toLowerCase().includes(q)) continue;
     (groups[a] = groups[a] || []).push(m);
   }
   for (const a in groups) groups[a].sort((x, y) => new Date(x.created_at) - new Date(y.created_at));
+}
+
+let selectedRep = null; // null=担当者一覧 / それ以外=その担当の案件
+function repInfo(a) {
+  const ms = groups[a];
+  const last = ms[ms.length - 1];
+  const accOwner = accountsMap[a] && accountsMap[a].owner;
+  const email = accOwner || last.owner || "";
+  let name = "";
+  if (email) {
+    const u = (usersCacheD || []).find((x) => x.email === email);
+    name = u ? (u.name || u.email) : (last.owner_name || email);
+  } else {
+    name = last.owner_name || last.rep_name || "未設定";
+  }
+  return { key: email || name || "未設定", name: name || "未設定" };
 }
 
 function renderList() {
@@ -149,8 +163,50 @@ function renderList() {
     el.innerHTML = '<div class="empty-state">該当する案件がありません。</div>';
     return;
   }
+
+  // レベル1：担当者カード
+  if (!selectedRep) {
+    const reps = {}; // key -> {name, accounts:Set, meetings, last}
+    for (const a of names) {
+      const info = repInfo(a);
+      const r = (reps[info.key] = reps[info.key] || { name: info.name, accounts: 0, meetings: 0, last: 0 });
+      r.accounts += 1;
+      r.meetings += groups[a].length;
+      const lt = +new Date(groups[a][groups[a].length - 1].created_at);
+      if (lt > r.last) r.last = lt;
+    }
+    const repKeys = Object.keys(reps).sort((x, y) => reps[y].last - reps[x].last);
+    el.innerHTML = "";
+    const head = document.createElement("div");
+    head.className = "rep-head";
+    head.textContent = "担当者を選ぶ";
+    el.appendChild(head);
+    for (const k of repKeys) {
+      const r = reps[k];
+      const card = document.createElement("div");
+      card.className = "rep-card";
+      card.innerHTML =
+        `<span class="rep-ava">${esc((r.name || "?").trim().charAt(0))}</span>` +
+        `<span class="rep-main"><span class="rep-name">${esc(r.name)}</span>` +
+        `<span class="rep-sub">${r.accounts}社 ・ ${r.meetings}商談</span></span>` +
+        `<span class="rep-go">›</span>`;
+      card.addEventListener("click", () => { selectedRep = k; current = null; renderList(); });
+      el.appendChild(card);
+    }
+    return;
+  }
+
+  // レベル2：選択中の担当者の案件カード
+  const mine = names.filter((a) => repInfo(a).key === selectedRep);
   el.innerHTML = "";
-  for (const a of names) {
+  const back = document.createElement("button");
+  back.className = "rep-back";
+  back.type = "button";
+  const repName = mine.length ? repInfo(mine[0]).name : "担当者";
+  back.innerHTML = `← 担当者一覧　<b>${esc(repName)}</b>（${mine.length}社）`;
+  back.addEventListener("click", () => { selectedRep = null; current = null; renderList(); });
+  el.appendChild(back);
+  for (const a of mine) {
     const ms = groups[a];
     const last = ms[ms.length - 1];
     const st = statusOf(a);

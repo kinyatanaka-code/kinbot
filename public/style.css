@@ -1468,3 +1468,15 @@ body { background: var(--bg); }
 .follow-name { font-size: 13px; font-weight: 600; color: var(--ink); flex: 0 0 auto; max-width: 46%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .follow-sub { font-size: 11.5px; color: var(--muted); flex: 1; }
 .follow-go { color: var(--muted); font-size: 16px; }
+
+/* 案件：担当者カード（最初の階層） */
+.rep-head { font-size: 12px; color: var(--muted); padding: 2px 4px 10px; }
+.rep-card { display: flex; align-items: center; gap: 11px; background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 12px 14px; margin-bottom: 10px; cursor: pointer; }
+.rep-card:hover { border-color: var(--accent); }
+.rep-ava { width: 34px; height: 34px; border-radius: 50%; background: var(--accent-soft); color: var(--accent); display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 14px; flex: 0 0 auto; }
+.rep-main { display: flex; flex-direction: column; flex: 1; min-width: 0; }
+.rep-name { font-size: 14px; font-weight: 700; color: var(--ink); }
+.rep-sub { font-size: 11.5px; color: var(--muted); margin-top: 1px; }
+.rep-go { color: var(--muted); font-size: 18px; }
+.rep-back { width: 100%; text-align: left; border: 1px solid var(--line); background: var(--panel); border-radius: 10px; font: inherit; font-size: 12.5px; padding: 9px 12px; margin-bottom: 10px; cursor: pointer; color: var(--ink); }
+.rep-back b { font-weight: 700; }
