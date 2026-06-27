@@ -176,6 +176,7 @@ function setAnaTab(mp) {
   document.querySelectorAll("#anaTabs .ana-tab").forEach((b) => b.classList.toggle("active", b.dataset.mp === mp));
   document.querySelectorAll("[data-mpanel]").forEach((el) => el.classList.toggle("m-active", el.dataset.mpanel === mp));
   if (mp === "dash" && dashDirty) { renderDashboard(curRows); dashDirty = false; }
+  if (mp === "prof") renderProfileAnalysis();
 }
 function initAnaTabs() {
   const tabs = document.getElementById("anaTabs");
@@ -195,8 +196,110 @@ function initAnaTabs() {
   initChat();
 }
 
-// ===== AIと会話（Gemini） =====
-let chatMsgs = [];
+// ===== 企業傾向（プロフィール × 商談回数） =====
+let accountsProfA = null;
+function parseNumJP(s) {
+  if (!s) return null;
+  let t = String(s).replace(/[,，]/g, "");
+  const man = /万/.test(t);
+  const m = t.match(/\d+(\.\d+)?/);
+  if (!m) return null;
+  let n = parseFloat(m[0]);
+  if (man) n *= 10000;
+  return Math.round(n);
+}
+const avgOf = (arr) => {
+  const v = arr.filter((x) => typeof x === "number" && !isNaN(x));
+  return v.length ? Math.round(v.reduce((s, x) => s + x, 0) / v.length) : null;
+};
+function topIndustries(arr, n = 3) {
+  const c = {};
+  for (const r of arr) { const k = (r.industry || "不明").trim() || "不明"; c[k] = (c[k] || 0) + 1; }
+  return Object.entries(c).sort((a, b) => b[1] - a[1]).slice(0, n);
+}
+async function renderProfileAnalysis() {
+  const el = $("profanalysis");
+  if (!el) return;
+  if (el._loaded) return; // 一度描画したら据え置き（タブ切替で再計算しない）
+  el.innerHTML = '<div class="empty-state">読み込み中…</div>';
+  if (!accountsProfA) {
+    try { accountsProfA = await (await fetch("/api/accounts")).json(); } catch { accountsProfA = []; }
+  }
+  const profByKey = {};
+  for (const a of accountsProfA || []) profByKey[a.key] = a;
+  // 商談回数（商談カテゴリのみ）をアカウント別に集計
+  const rounds = {};
+  for (const m of all) {
+    if (m.category && m.category !== "商談") continue;
+    const k = acctOfA(m);
+    rounds[k] = (rounds[k] || 0) + 1;
+  }
+  const recs = [];
+  for (const k in rounds) {
+    const p = profByKey[k] && profByKey[k].profile;
+    if (!p) continue;
+    const emp = parseNumJP(p.employees);
+    const hire = parseNumJP(p.hiring);
+    if (emp == null && hire == null && !(p.industry || "").trim()) continue;
+    recs.push({ key: k, rounds: rounds[k], emp, hire, industry: (p.industry || "不明").trim() || "不明" });
+  }
+  el._loaded = true;
+  if (recs.length < 2) {
+    el._loaded = false;
+    el.innerHTML =
+      '<div class="empty-state">会社プロフィールを取得した案件がまだ少ないため分析できません。<br>' +
+      '案件の各社で「企業サイトURL → 取得」をすると、ここで <b>1回で終わる企業 / 2回・3回と進む企業</b> の傾向（従業員数・業界・採用人数）を比較できます。</div>';
+    return;
+  }
+  const buckets = { "1回で終了": [], "2回継続": [], "3回以上継続": [] };
+  for (const r of recs) {
+    const b = r.rounds <= 1 ? "1回で終了" : r.rounds === 2 ? "2回継続" : "3回以上継続";
+    buckets[b].push(r);
+  }
+  let html = `<div class="prof-an-note">会社プロフィール取得済み <b>${recs.length}社</b> を、商談回数で分けて比較しています（プロフィール未取得の案件は対象外）。</div>`;
+  html += '<div class="prof-an-grid">';
+  for (const name of Object.keys(buckets)) {
+    const arr = buckets[name];
+    const emp = avgOf(arr.map((r) => r.emp));
+    const hire = avgOf(arr.map((r) => r.hire));
+    const inds = topIndustries(arr);
+    html += `<div class="prof-an-card"><div class="prof-an-h">${name}<span class="prof-an-n">${arr.length}社</span></div>`;
+    html += `<div class="prof-an-row"><span>平均従業員数</span><b>${emp == null ? "—" : emp.toLocaleString() + "名"}</b></div>`;
+    html += `<div class="prof-an-row"><span>平均採用人数</span><b>${hire == null ? "—" : hire.toLocaleString() + "名"}</b></div>`;
+    html += `<div class="prof-an-row"><span>多い業界</span><b>${inds.length ? escapeHtml(inds.map((x) => x[0]).join("・")) : "—"}</b></div>`;
+    html += "</div>";
+  }
+  html += "</div>";
+
+  // 自動の気づき（平均比較）
+  const obs = [];
+  const e1 = avgOf(buckets["1回で終了"].map((r) => r.emp));
+  const e3 = avgOf(buckets["3回以上継続"].map((r) => r.emp));
+  if (e1 != null && e3 != null && Math.abs(e1 - e3) > Math.max(10, e1 * 0.15)) {
+    obs.push(e3 > e1
+      ? `従業員数が多い企業ほど商談が続く傾向（1回:${e1.toLocaleString()}名 → 3回以上:${e3.toLocaleString()}名）。`
+      : `従業員数が少ない企業の方が商談が続く傾向（1回:${e1.toLocaleString()}名 → 3回以上:${e3.toLocaleString()}名）。`);
+  }
+  const h1 = avgOf(buckets["1回で終了"].map((r) => r.hire));
+  const h3 = avgOf(buckets["3回以上継続"].map((r) => r.hire));
+  if (h1 != null && h3 != null && Math.abs(h1 - h3) > Math.max(2, h1 * 0.15)) {
+    obs.push(h3 > h1
+      ? `採用人数が多い企業ほど継続しやすい傾向（1回:${h1}名 → 3回以上:${h3}名）。`
+      : `採用人数が少ない企業の方が継続しやすい傾向（1回:${h1}名 → 3回以上:${h3}名）。`);
+  }
+  const cont = [...buckets["2回継続"], ...buckets["3回以上継続"]];
+  const contTop = topIndustries(cont, 1)[0];
+  const oneTop = topIndustries(buckets["1回で終了"], 1)[0];
+  if (contTop) obs.push(`継続しやすい業界の上位は「${escapeHtml(contTop[0])}」。`);
+  if (oneTop) obs.push(`1回で終わりやすい業界の上位は「${escapeHtml(oneTop[0])}」。`);
+  if (obs.length) {
+    html += '<div class="prof-an-insight"><div class="prof-an-ih">気づき</div><ul>' + obs.map((o) => `<li>${o}</li>`).join("") + "</ul>" +
+      '<div class="prof-an-cap">※ サンプル数が少ないと偏ります。プロフィール取得を増やすほど精度が上がります。</div></div>';
+  }
+  el.innerHTML = html;
+}
+
+
 function initChat() {
   const send = $("chatSend");
   if (!send || send._wired) return;

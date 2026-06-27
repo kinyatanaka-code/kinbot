@@ -22,7 +22,8 @@
         <header class="topbar"><div class="brand"><img class="topbar-bot" src="kinbot.svg" alt="" /><span class="brand-name">案件</span></div></header>
         <div class="hfilters">
           <label>営業担当<select id="fOwner"><option value="">全員</option></select></label>
-          <label>検索<input id="fSearch" type="text" placeholder="取引先名で絞り込み" /></label>
+          <label>検索<input id="fSearch" type="text" placeholder="取引先名で検索" /></label>
+          <label>商談期間<span class="range"><input id="fFrom" type="date" /><span class="range-sep">〜</span><input id="fTo" type="date" /></span></label>
         </div>
         <main class="history">
           <aside class="hlist" id="dealList"><div class="empty-state">読み込み中…</div></aside>
