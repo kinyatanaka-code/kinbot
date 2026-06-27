@@ -80,14 +80,41 @@ async function init() {
     () => render(true)
   );
   initAnaTabs();
+  restoreAnaFilter();
   render();
 }
 
+// 絞り込み条件をページ間/再訪でも保持
+const ANA_FILTER_KEY = "kinbot_ana_filter_v1";
+function saveAnaFilter() {
+  try {
+    localStorage.setItem(ANA_FILTER_KEY, JSON.stringify({
+      owners: selectedOwners(),
+      phases: selectedPhases(),
+      from: $("fFrom") ? $("fFrom").value || "" : "",
+      to: $("fTo") ? $("fTo").value || "" : "",
+    }));
+  } catch {}
+}
+function restoreAnaFilter() {
+  try {
+    const raw = localStorage.getItem(ANA_FILTER_KEY);
+    if (!raw) return;
+    const d = JSON.parse(raw) || {};
+    if (Array.isArray(d.owners)) document.querySelectorAll("#fRepGroup input:not(.msel-all-cb)").forEach((c) => (c.checked = d.owners.includes(c.value)));
+    if (Array.isArray(d.phases)) document.querySelectorAll("#fPhaseGroup input:not(.msel-all-cb)").forEach((c) => (c.checked = d.phases.includes(c.value)));
+    if (d.from && $("fFrom")) $("fFrom").value = d.from;
+    if (d.to && $("fTo")) $("fTo").value = d.to;
+    $("fRepGroup")._mselUpdate && $("fRepGroup")._mselUpdate();
+    $("fPhaseGroup")._mselUpdate && $("fPhaseGroup")._mselUpdate();
+  } catch {}
+}
+
 function selectedOwners() {
-  return [...document.querySelectorAll("#fRepGroup input:checked")].map((c) => c.value);
+  return [...document.querySelectorAll("#fRepGroup input:checked:not(.msel-all-cb)")].map((c) => c.value);
 }
 function selectedPhases() {
-  return [...document.querySelectorAll("#fPhaseGroup input:checked")].map((c) => c.value);
+  return [...document.querySelectorAll("#fPhaseGroup input:checked:not(.msel-all-cb)")].map((c) => c.value);
 }
 
 // 開閉式の複数選択ドロップダウン
@@ -98,6 +125,18 @@ function initMultiDropdown(group, labelText, items, onChange) {
   const btn = group.querySelector(".msel-btn");
   const panel = group.querySelector(".msel-panel");
   const sum = group.querySelector(".msel-sum");
+  // すべて選択
+  const allLab = document.createElement("label");
+  allLab.className = "msel-opt msel-all";
+  const allCb = document.createElement("input");
+  allCb.type = "checkbox";
+  allCb.className = "msel-all-cb";
+  const allSpan = document.createElement("span");
+  allSpan.className = "msel-optlabel";
+  allSpan.textContent = "すべて選択";
+  allLab.appendChild(allCb);
+  allLab.appendChild(allSpan);
+  panel.appendChild(allLab);
   for (const it of items) {
     const lab = document.createElement("label");
     lab.className = "msel-opt";
@@ -111,14 +150,21 @@ function initMultiDropdown(group, labelText, items, onChange) {
     lab.appendChild(span);
     panel.appendChild(lab);
   }
+  const optInputs = () => [...panel.querySelectorAll("input:not(.msel-all-cb)")];
   const update = () => {
-    const checked = [...panel.querySelectorAll("input:checked")];
+    const ins = optInputs();
+    const checked = ins.filter((c) => c.checked);
     sum.textContent = checked.length
       ? items.filter((it) => checked.some((c) => c.value === it.value)).map((it) => it.label).join("・")
       : "すべて";
+    allCb.checked = ins.length > 0 && checked.length === ins.length;
+    allCb.indeterminate = checked.length > 0 && checked.length < ins.length;
   };
   group._mselUpdate = update;
-  panel.addEventListener("change", () => {
+  panel.addEventListener("change", (e) => {
+    if (e.target.classList.contains("msel-all-cb")) {
+      optInputs().forEach((c) => (c.checked = e.target.checked));
+    }
     update();
     onChange();
   });
@@ -159,6 +205,7 @@ let dashDirty = false;
 function render(triggered) {
   const rows = applyFilter();
   curRows = rows;
+  saveAnaFilter();
   const safe = (fn, ...args) => { try { fn(...args); } catch (e) { console.error("[render]", fn.name, e); } };
   // ダッシュボードのグラフはタブ表示中のみ描画（非表示中はcanvasが潰れるため）
   if (activeTab === "dash") { safe(renderDashboard, rows); dashDirty = false; }

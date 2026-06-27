@@ -196,12 +196,10 @@ if (HIST_CAT_OTHER) {
 function isOtherCat(m) { return !!(m.category && m.category !== "商談"); }
 function applyHistoryFilter() {
   const owner = document.getElementById("fOwner").value.trim();
-  const acct = (document.getElementById("fAccount") || {}).value || "";
   const phases = selectedPhases();
   return allMeetings.filter((m) => {
     if (HIST_CAT_OTHER ? !isOtherCat(m) : isOtherCat(m)) return false; // ビューに合うカテゴリのみ
     if (owner && (m.owner || "").trim() !== owner) return false;
-    if (acct && acctKey(m) !== acct) return false; // 会社で絞り込み
     if (phases.length && !phases.includes(m.phase || "")) return false;
     return true;
   });
@@ -267,13 +265,7 @@ function renderList() {
     `<div class="seg"><button class="seg-btn ${histMode === "account" ? "active" : ""}" data-mode="account">会社別</button>` +
     `<button class="seg-btn ${histMode === "all" ? "active" : ""}" data-mode="all">すべて</button></div>`;
   bar.querySelectorAll(".seg-btn").forEach((b) =>
-    b.addEventListener("click", () => {
-      histMode = b.dataset.mode;
-      selectedAccount = null;
-      const fAcc = document.getElementById("fAccount");
-      if (fAcc) fAcc.value = "";
-      renderList();
-    })
+    b.addEventListener("click", () => { histMode = b.dataset.mode; selectedAccount = null; renderList(); })
   );
   hlist.appendChild(bar);
 
@@ -367,18 +359,6 @@ async function loadList() {
       histAccounts = {};
       for (const a of accs || []) histAccounts[a.key] = a;
     } catch {}
-    // 会社で絞り込みドロップダウン（一覧の取引先から構築、名前順）
-    const fAcc = document.getElementById("fAccount");
-    if (fAcc) {
-      const keys = [...new Set(allMeetings.filter((m) => (HIST_CAT_OTHER ? isOtherCat(m) : !isOtherCat(m))).map((m) => acctKey(m)))];
-      keys.sort((a, b) => acctName(a).localeCompare(acctName(b), "ja"));
-      for (const k of keys) {
-        const o = document.createElement("option");
-        o.value = k; o.textContent = acctName(k);
-        fAcc.appendChild(o);
-      }
-      fAcc.addEventListener("change", () => { selectedAccount = null; renderList(); });
-    }
     renderList();
     // 案件などから ?m=商談ID で来たら、その会社を開いて該当商談を表示
     const wantId = new URLSearchParams(location.search).get("m");
