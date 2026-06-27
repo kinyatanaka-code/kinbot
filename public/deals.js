@@ -40,6 +40,46 @@ const STATUS_LIST = ["進行中", "受注", "失注", "保留"];
 const statusOf = (a) => (dealStatuses[a] && dealStatuses[a].status) || "進行中";
 const displayName = (a) => (accountsMap[a] && accountsMap[a].official_name) || a;
 
+let usersCacheD = null;
+async function loadUsersD() {
+  if (usersCacheD) return usersCacheD;
+  try { usersCacheD = await (await fetch("/api/users")).json(); } catch { usersCacheD = []; }
+  return usersCacheD;
+}
+async function renderOwnerPicker(account, last) {
+  const wrap = document.getElementById("dealOwnerWrap");
+  if (!wrap) return;
+  const users = await loadUsersD();
+  const acc = accountsMap[account] || {};
+  const cur = acc.owner || last.owner || "";
+  const curName = (() => {
+    const u = (users || []).find((x) => x.email === cur);
+    return u ? (u.name || u.email) : (last.owner_name || cur || "未設定");
+  })();
+  const initial = (curName || "?").trim().charAt(0);
+  const opts = ['<option value="">未設定</option>']
+    .concat((users || []).map((u) => `<option value="${esc(u.email)}" ${u.email === cur ? "selected" : ""}>${esc(u.name || u.email)}</option>`))
+    .join("");
+  wrap.innerHTML =
+    `<span class="deal-owner"><span class="deal-owner-ava">${esc(initial)}</span>` +
+    `担当 <select id="dealOwnerSel" class="deal-owner-sel">${opts}</select></span>`;
+  const sel = wrap.querySelector("#dealOwnerSel");
+  sel.addEventListener("change", async () => {
+    const owner = sel.value;
+    try {
+      await fetch(`/api/accounts/${encodeURIComponent(account)}`, {
+        method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ owner }),
+      });
+      accountsMap[account] = { ...(accountsMap[account] || { key: account }), owner };
+      // アバター文字を更新
+      const u = (users || []).find((x) => x.email === owner);
+      const nm = u ? (u.name || u.email) : (owner || "未設定");
+      const ava = wrap.querySelector(".deal-owner-ava");
+      if (ava) ava.textContent = (nm || "?").trim().charAt(0);
+    } catch {}
+  });
+}
+
 function renderProfile(account) {
   const body = document.getElementById("profBody");
   if (!body) return;
@@ -156,7 +196,7 @@ async function selectDeal(account) {
     `<div class="deal-head-top"><h2>${esc(displayName(account))}</h2>` +
     `<div class="deal-status-pick"><span class="status-badge st-${statusOf(account)}" id="dealStBadge">${statusOf(account)}</span>` +
     `<select id="dealStSel">${STATUS_LIST.map((s) => `<option value="${s}" ${statusOf(account) === s ? "selected" : ""}>${s}</option>`).join("")}<option value="__auto">AIに任せる</option></select></div></div>` +
-    `<div class="deal-head-meta">${ms.length}回の商談 ・ 現在 ${esc(PHASE_LABEL[last.phase] || "フェーズ未設定")} ・ 担当 ${esc(last.owner_name || last.owner || "—")}` +
+    `<div class="deal-head-meta"><span id="dealOwnerWrap" class="deal-owner-wrap"></span> ・ ${ms.length}回の商談 ・ 現在 ${esc(PHASE_LABEL[last.phase] || "フェーズ未設定")}` +
     (dealStatuses[account] && dealStatuses[account].manual ? ' ・ <span class="st-manual">手動設定</span>' : ' ・ <span class="st-auto">AI自動</span>') +
     `</div>` +
     (statusOf(account) === "失注" && lastLostReason(ms) ? `<div class="lost-reason">AI判定の失注理由: ${esc(lastLostReason(ms))}</div>` : "") +
@@ -188,6 +228,8 @@ async function selectDeal(account) {
 
   // 会社プロフィール
   renderProfile(account);
+  // 担当（アカウント単位で選択・保存）
+  await renderOwnerPicker(account, last);
   const profUrl = $("profUrl"), profGet = $("profGet"), profStatus = $("profStatus");
   if (accountsMap[account] && accountsMap[account].site_url) profUrl.value = accountsMap[account].site_url;
   profGet.addEventListener("click", async () => {

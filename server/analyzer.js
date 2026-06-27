@@ -223,37 +223,49 @@ export async function freeAnalyze({ question, material, filterDesc }) {
   return await callLLM(FREE_PROMPT, user, 2600, { json: false });
 }
 
-// 企業サイト＋Web検索から会社概要を取得（A+B）。分からない項目は空に。
-const COMPANY_PROMPT = `あなたは企業リサーチのアシスタントです。与えられた企業サイトの抜粋と、必要に応じたWeb検索の結果から、会社概要をできる範囲で正確にまとめます。
-重要:
-- 分からない項目は空文字 "" にする（推測やでっち上げは禁止）。
-- 値は簡潔に。日本語。
-- 次のJSONのみを出力（前置き・説明・コードフェンスは一切不要）:
-{"official_name":"正式社名","industry":"業界","employees":"従業員数(例: 約320名)","hiring":"採用予定人数(例: 15名/年)","founded":"設立(例: 1998年)","location":"本社所在地","business":"事業内容(1〜2文)","note":"補足(任意)"}`;
-
-export async function enrichCompany({ url, name, siteText }) {
+// 企業サイト＋Web検索から会社概要を取得（A+B / 2段階で確実にJSON化）
+async function geminiGrounded(question, siteText) {
   const key = process.env.GEMINI_API_KEY;
-  if (!key) throw new Error("GEMINI_API_KEY が未設定です");
+  if (!key) throw new Error("GEMINI_API_KEY 未設定");
   const model = process.env.GEMINI_WEB_MODEL || "gemini-2.5-flash";
-  const user =
-    `会社名(推定): ${name || "不明"}\nサイトURL: ${url || "不明"}\n\n` +
-    `サイト本文の抜粋:\n"""\n${(siteText || "(取得できませんでした)").slice(0, 6000)}\n"""\n\n` +
-    `上記とWeb検索から、会社概要をJSONで出力してください。`;
+  const user = `${question}\n\n企業サイト本文の抜粋:\n"""\n${(siteText || "").slice(0, 6000)}\n"""`;
   const body = {
-    system_instruction: { parts: [{ text: COMPANY_PROMPT }] },
     contents: [{ role: "user", parts: [{ text: user }] }],
-    generationConfig: { temperature: 0.2, maxOutputTokens: 900 },
+    generationConfig: { temperature: 0.2, maxOutputTokens: 1100 },
     tools: [{ google_search: {} }],
   };
   const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${key}`, {
     method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body),
   });
-  if (!res.ok) {
-    const t = await res.text().catch(() => "");
-    throw new Error(`Gemini ${res.status}: ${t.slice(0, 160)}`);
-  }
+  if (!res.ok) throw new Error(`Gemini ${res.status}: ${(await res.text().catch(() => "")).slice(0, 120)}`);
   const data = await res.json();
-  const text = (data.candidates?.[0]?.content?.parts || []).map((p) => p.text || "").join("");
+  return (data.candidates?.[0]?.content?.parts || []).map((p) => p.text || "").join("");
+}
+
+const COMPANY_EXTRACT_PROMPT = `あなたは情報抽出器です。渡されたテキスト（企業サイト抜粋・リサーチ結果）から会社概要を抽出します。
+- 分からない項目は空文字 "" にする（推測やでっち上げは禁止）。
+- 値は簡潔・日本語。
+- 次のJSONのみを返す:
+{"official_name":"正式社名","industry":"業界","employees":"従業員数(例: 約320名)","hiring":"採用予定人数(例: 15名/年)","founded":"設立(例: 1998年)","location":"本社所在地","business":"事業内容(1〜2文)","note":"補足(任意)"}`;
+
+export async function enrichCompany({ url, name, siteText }) {
+  // Step1: Web検索＋サイト本文でリサーチ（失敗してもサイト本文だけで続行）
+  let research = "";
+  try {
+    research = await geminiGrounded(
+      `「${name || ""}」（サイト: ${url || ""}）の会社概要を、サイトとWeb検索から調べてください。業界 / 従業員数 / 年間採用予定人数 / 設立年 / 本社所在地 / 事業内容 を、分かる範囲で正確に。正式な会社名も。`,
+      siteText
+    );
+  } catch (e) {
+    console.warn("[enrich] grounding失敗→サイト本文のみで抽出", e.message);
+  }
+  // Step2: JSONで構造化抽出（response_format=json で確実に）
+  const user =
+    `会社名(推定): ${name || "不明"}\nサイトURL: ${url || "不明"}\n\n` +
+    `企業サイト本文の抜粋:\n"""\n${(siteText || "(取得できず)").slice(0, 5000)}\n"""\n\n` +
+    `リサーチ結果:\n"""\n${(research || "(なし)").slice(0, 4500)}\n"""\n\n` +
+    `上記から会社概要をJSONで出力してください。`;
+  const text = await callLLM(COMPANY_EXTRACT_PROMPT, user, 800);
   const o = parseJson(text) || {};
   return {
     official_name: o.official_name || "",

@@ -1434,3 +1434,8 @@ body { background: var(--bg); }
 .prof-note { color: #a8431f; font-size: 11px; }
 .prof-site { margin-top: 8px; font-size: 12px; }
 .prof-site a { color: var(--accent); text-decoration: none; }
+
+/* 案件：担当ピッカー（個人データ風） */
+.deal-owner { display: inline-flex; align-items: center; gap: 7px; }
+.deal-owner-ava { width: 22px; height: 22px; border-radius: 50%; background: #E1F5EE; color: #0F6E56; display: inline-flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 700; }
+.deal-owner-sel { border: 1px solid var(--line); border-radius: 8px; padding: 3px 6px; font: inherit; font-size: 12px; background: var(--panel); color: var(--ink); }

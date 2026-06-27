@@ -499,8 +499,8 @@ app.get("/api/accounts/:key", async (req, res) => {
 app.put("/api/accounts/:key", async (req, res) => {
   try {
     const key = decodeURIComponent(req.params.key);
-    const { siteUrl, officialName, profile } = req.body || {};
-    await saveAccount(key, { siteUrl, officialName, profile });
+    const { siteUrl, officialName, owner, profile } = req.body || {};
+    await saveAccount(key, { siteUrl, officialName, owner, profile });
     res.json({ ok: true });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });

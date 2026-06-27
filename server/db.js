@@ -50,10 +50,12 @@ export async function initDb() {
       key TEXT PRIMARY KEY,
       site_url TEXT,
       official_name TEXT,
+      owner TEXT,
       profile JSONB,
       updated_at TIMESTAMPTZ DEFAULT now()
     );
   `);
+  await pool.query(`ALTER TABLE accounts ADD COLUMN IF NOT EXISTS owner TEXT;`);
   await pool.query(`
     CREATE TABLE IF NOT EXISTS notion_sent (
       owner TEXT NOT NULL,
@@ -321,23 +323,24 @@ export async function updateMeetingMeta(botId, { round, phase, title, owner, cre
 export async function getAccount(key) {
   if (!pool || !key) return null;
   try {
-    const { rows } = await pool.query(`SELECT key, site_url, official_name, profile FROM accounts WHERE key=$1`, [key]);
+    const { rows } = await pool.query(`SELECT key, site_url, official_name, owner, profile FROM accounts WHERE key=$1`, [key]);
     return rows[0] || null;
   } catch (e) { console.error("[db] getAccount", e.message); return null; }
 }
 export async function listAccounts() {
   if (!pool) return [];
   try {
-    const { rows } = await pool.query(`SELECT key, site_url, official_name, profile FROM accounts`);
+    const { rows } = await pool.query(`SELECT key, site_url, official_name, owner, profile FROM accounts`);
     return rows;
   } catch { return []; }
 }
-export async function saveAccount(key, { siteUrl, officialName, profile } = {}) {
+export async function saveAccount(key, { siteUrl, officialName, owner, profile } = {}) {
   if (!pool || !key) return;
   const cols = [], vals = [key], setParts = [];
   let i = 2;
   if (siteUrl !== undefined) { cols.push("site_url"); setParts.push(`site_url=$${i}`); vals.push(siteUrl || null); i++; }
   if (officialName !== undefined) { cols.push("official_name"); setParts.push(`official_name=$${i}`); vals.push(officialName || null); i++; }
+  if (owner !== undefined) { cols.push("owner"); setParts.push(`owner=$${i}`); vals.push(owner || null); i++; }
   if (profile !== undefined) { cols.push("profile"); setParts.push(`profile=$${i}`); vals.push(profile ? JSON.stringify(profile) : null); i++; }
   if (!cols.length) return;
   const placeholders = cols.map((_, k) => "$" + (k + 2)).join(", ");
