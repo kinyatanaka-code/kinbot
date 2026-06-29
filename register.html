@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="ja">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>kinbot 履歴</title>
+    <link rel="stylesheet" href="style.css" />
+  </head>
+  <body>
+    <div class="app">
+      <nav class="sidebar">
+        <div class="side-brand"><span class="brand-mark"></span><span>kinbot</span></div>
+        <a class="side-item" href="index.html"><span class="side-ico ico-rec"></span><span class="side-label">レコーディング</span></a>
+        <a class="side-item active" href="history.html"><span class="side-ico ico-hist"></span><span class="side-label">商談履歴</span></a>
+        <a class="side-item" href="deals.html"><span class="side-ico ico-deal"></span><span class="side-label">案件</span></a>
+        <a class="side-item" href="analysis.html"><span class="side-ico ico-ana"></span><span class="side-label">分析</span></a>
+        <a class="side-item" href="settings.html"><span class="side-ico ico-set"></span><span class="side-label">設定</span></a>
+        <div class="side-foot"><span id="who" class="who"></span><a href="#" id="logout" class="side-logout">ログアウト</a></div>
+      </nav>
+
+      <div class="main">
+        <header class="topbar"><div class="brand"><img class="topbar-bot" src="kinbot.svg" alt="" /><span class="brand-name">商談履歴</span></div></header>
+        <div class="hfilters">
+          <label>営業担当<select id="fOwner"><option value="">全員</option></select></label>
+          <div class="fphase-group" id="fPhaseGroup"><span class="flabel">フェーズ</span></div>
+          <div class="hfilter-actions">
+            <button class="btn" id="bulkNotionBtn">絞り込みをNotionに一括送信</button>
+            <span class="bulk-status" id="bulkNotionStatus"></span>
+          </div>
+        </div>
+        <main class="history">
+          <aside class="hlist" id="hlist"><div class="empty-state">読み込み中…</div></aside>
+          <section class="hdetail" id="hdetail">
+            <div class="empty-state empty-bot"><img src="kinbot.svg" alt="kinbot" /><div>左の一覧から商談を選ぶと、録画・文字起こし・要約・分析を表示します。</div></div>
+          </section>
+        </main>
+      </div>
+    </div>
+    <script src="https://cdn.jsdelivr.net/npm/hls.js@1"></script>
+    <script src="history.js"></script>
+      <script src="nav.js"></script>
+  </body>
+</html>

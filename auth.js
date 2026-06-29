@@ -1,0 +1,135 @@
+// server/salesforce.js
+// Salesforce 連携（ユーザーごと）。トークンは salesforce_accounts に owner 単位で保存。
+// 後日、SF側で「接続アプリ(Connected App)」を作成し、以下の環境変数を設定すると有効になります:
+//   SF_CLIENT_ID, SF_CLIENT_SECRET, SF_LOGIN_URL(任意, 既定 https://login.salesforce.com)
+import {
+  getSalesforceToken,
+  saveSalesforceToken,
+  deleteSalesforceToken,
+} from "./db.js";
+
+const CLIENT_ID = process.env.SF_CLIENT_ID || "";
+const CLIENT_SECRET = process.env.SF_CLIENT_SECRET || "";
+// 本番組織: https://login.salesforce.com / Sandbox: https://test.salesforce.com
+const LOGIN_URL = (process.env.SF_LOGIN_URL || "https://login.salesforce.com").replace(/\/+$/, "");
+const API_VERSION = process.env.SF_API_VERSION || "v60.0";
+
+export function salesforceConfigured() {
+  return !!(CLIENT_ID && CLIENT_SECRET);
+}
+
+export function authUrl(redirectUri, state) {
+  const p = new URLSearchParams({
+    response_type: "code",
+    client_id: CLIENT_ID,
+    redirect_uri: redirectUri,
+    scope: "api refresh_token",
+    state: state || "",
+  });
+  return `${LOGIN_URL}/services/oauth2/authorize?${p}`;
+}
+
+export async function exchangeCode(code, redirectUri, owner) {
+  const res = await fetch(`${LOGIN_URL}/services/oauth2/token`, {
+    method: "POST",
+    headers: { "content-type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({
+      grant_type: "authorization_code",
+      code,
+      client_id: CLIENT_ID,
+      client_secret: CLIENT_SECRET,
+      redirect_uri: redirectUri,
+    }),
+  });
+  if (!res.ok) throw new Error(`SF token ${res.status}: ${(await res.text()).slice(0, 200)}`);
+  const data = await res.json();
+  await saveSalesforceToken(owner, {
+    refreshToken: data.refresh_token || null,
+    instanceUrl: data.instance_url || null,
+    sfUser: data.id || null,
+  });
+  return data;
+}
+
+export async function isConnected(owner) {
+  const row = await getSalesforceToken(owner);
+  return !!(row && row.refresh_token);
+}
+export async function disconnect(owner) {
+  await deleteSalesforceToken(owner);
+}
+export async function connectionInfo(owner) {
+  const row = await getSalesforceToken(owner);
+  return {
+    configured: salesforceConfigured(),
+    connected: !!(row && row.refresh_token),
+    instanceUrl: row?.instance_url || null,
+    sfUser: row?.sf_user || null,
+    loginUrl: LOGIN_URL,
+  };
+}
+
+// アクセストークン取得（refresh_token で都度更新）。{ token, instanceUrl } を返す
+async function getAccess(owner) {
+  const row = await getSalesforceToken(owner);
+  if (!row || !row.refresh_token) return null;
+  const res = await fetch(`${LOGIN_URL}/services/oauth2/token`, {
+    method: "POST",
+    headers: { "content-type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({
+      grant_type: "refresh_token",
+      client_id: CLIENT_ID,
+      client_secret: CLIENT_SECRET,
+      refresh_token: row.refresh_token,
+    }),
+  });
+  if (!res.ok) throw new Error(`SF refresh ${res.status}: ${(await res.text()).slice(0, 200)}`);
+  const data = await res.json();
+  const instanceUrl = data.instance_url || row.instance_url;
+  if (data.instance_url && data.instance_url !== row.instance_url) {
+    await saveSalesforceToken(owner, { instanceUrl: data.instance_url });
+  }
+  return { token: data.access_token, instanceUrl };
+}
+
+// 商談URL/IDからレコードIDを抽出（15/18桁）
+export function extractRecordId(input) {
+  if (!input) return null;
+  const s = String(input).trim();
+  // /Opportunity/<id>/ 形式 か、URL内のID、または素のID
+  const m =
+    s.match(/\/([a-zA-Z0-9]{15,18})(?:\/|\?|$)/) ||
+    s.match(/[?&]id=([a-zA-Z0-9]{15,18})/) ||
+    s.match(/^([a-zA-Z0-9]{15,18})$/);
+  return m ? m[1] : null;
+}
+
+// 商談レコードの指定フィールドを取得
+export async function getOpportunity(owner, id, fields = []) {
+  const acc = await getAccess(owner);
+  if (!acc) throw new Error("Salesforce未連携です");
+  const q = fields.length ? `?fields=${encodeURIComponent(fields.join(","))}` : "";
+  const res = await fetch(
+    `${acc.instanceUrl}/services/data/${API_VERSION}/sobjects/Opportunity/${id}${q}`,
+    { headers: { Authorization: `Bearer ${acc.token}` } }
+  );
+  if (!res.ok) throw new Error(`SF get ${res.status}: ${(await res.text()).slice(0, 200)}`);
+  return res.json();
+}
+
+// 商談レコードを更新
+export async function updateOpportunity(owner, id, fields) {
+  const acc = await getAccess(owner);
+  if (!acc) throw new Error("Salesforce未連携です");
+  const res = await fetch(
+    `${acc.instanceUrl}/services/data/${API_VERSION}/sobjects/Opportunity/${id}`,
+    {
+      method: "PATCH",
+      headers: { Authorization: `Bearer ${acc.token}`, "content-type": "application/json" },
+      body: JSON.stringify(fields || {}),
+    }
+  );
+  if (res.status === 204) return { ok: true };
+  if (!res.ok) throw new Error(`SF update ${res.status}: ${(await res.text()).slice(0, 300)}`);
+  return { ok: true };
+}
