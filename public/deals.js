@@ -32,13 +32,15 @@ function lastLostReason(ms) {
 }
 
 let all = [];
-let groups = {}; // account -> meetings[]
+let groups = {}; // groupKey -> meetings[]
+let groupPrimary = {}; // groupKey -> 代表rawキー
 let current = null;
 let dealStatuses = {}; // account -> {status, manual}
-let accountsMap = {}; // key -> {site_url, official_name, profile}
+let accountsMap = {}; // key -> {site_url, official_name, owner, profile}
 const STATUS_LIST = ["進行中", "受注", "失注", "保留"];
-const statusOf = (a) => (dealStatuses[a] && dealStatuses[a].status) || "進行中";
-const displayName = (a) => (accountsMap[a] && accountsMap[a].official_name) || a;
+const primaryOf = (a) => groupPrimary[a] || a;
+const statusOf = (a) => (dealStatuses[primaryOf(a)] && dealStatuses[primaryOf(a)].status) || "進行中";
+const displayName = (a) => (accountsMap[primaryOf(a)] && accountsMap[primaryOf(a)].official_name) || a;
 
 let usersCacheD = null;
 async function loadUsersD() {
@@ -49,8 +51,9 @@ async function loadUsersD() {
 async function renderOwnerPicker(account, last) {
   const wrap = document.getElementById("dealOwnerWrap");
   if (!wrap) return;
+  const pk = primaryOf(account);
   const users = await loadUsersD();
-  const acc = accountsMap[account] || {};
+  const acc = accountsMap[pk] || {};
   const cur = acc.owner || last.owner || "";
   const curName = (() => {
     const u = (users || []).find((x) => x.email === cur);
@@ -67,10 +70,10 @@ async function renderOwnerPicker(account, last) {
   sel.addEventListener("change", async () => {
     const owner = sel.value;
     try {
-      await fetch(`/api/accounts/${encodeURIComponent(account)}`, {
+      await fetch(`/api/accounts/${encodeURIComponent(pk)}`, {
         method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ owner }),
       });
-      accountsMap[account] = { ...(accountsMap[account] || { key: account }), owner };
+      accountsMap[pk] = { ...(accountsMap[pk] || { key: pk }), owner };
       // アバター文字を更新
       const u = (users || []).find((x) => x.email === owner);
       const nm = u ? (u.name || u.email) : (owner || "未設定");
@@ -83,7 +86,7 @@ async function renderOwnerPicker(account, last) {
 function renderProfile(account) {
   const body = document.getElementById("profBody");
   if (!body) return;
-  const acc = accountsMap[account];
+  const acc = accountsMap[primaryOf(account)];
   const p = acc && acc.profile;
   if (!p || !(p.industry || p.employees || p.hiring || p.founded || p.location || p.business)) {
     body.innerHTML = '<div class="empty-state">企業サイトURLを入れて「取得」すると、業界・従業員数・採用人数などの会社概要が表示されます。</div>';
@@ -127,21 +130,39 @@ async function load() {
   renderList();
 }
 
+function groupKeyOf(rk) {
+  const off = accountsMap[rk] && accountsMap[rk].official_name;
+  return (off && String(off).trim()) || rk;
+}
 function buildGroups() {
   const q = ($("fSearch").value || "").trim().toLowerCase();
   const from = $("fFrom") && $("fFrom").value ? new Date($("fFrom").value + "T00:00:00") : null;
   const to = $("fTo") && $("fTo").value ? new Date($("fTo").value + "T23:59:59") : null;
   groups = {};
+  groupPrimary = {};
+  const rawSets = {};
   for (const m of all) {
     if (m.category && m.category !== "商談") continue; // 社内MTG/フォロー等は案件に含めない
     const d = new Date(m.created_at);
     if (from && d < from) continue;
     if (to && d > to) continue;
-    const a = acctOf(m);
-    if (q && !a.toLowerCase().includes(q) && !displayName(a).toLowerCase().includes(q)) continue;
-    (groups[a] = groups[a] || []).push(m);
+    const rk = acctOf(m);
+    const gk = groupKeyOf(rk); // 同じ正式社名はまとめる
+    (groups[gk] = groups[gk] || []).push(m);
+    (rawSets[gk] = rawSets[gk] || new Set()).add(rk);
   }
-  for (const a in groups) groups[a].sort((x, y) => new Date(x.created_at) - new Date(y.created_at));
+  for (const gk in groups) {
+    groups[gk].sort((x, y) => new Date(x.created_at) - new Date(y.created_at));
+    const raws = [...rawSets[gk]];
+    // プロフィール/ステータス等を持つrawキーを代表に（無ければ最初）
+    groupPrimary[gk] = raws.find((r) => accountsMap[r] && (accountsMap[r].official_name || accountsMap[r].profile || accountsMap[r].owner || accountsMap[r].site_url)) || raws[0];
+  }
+  if (q) {
+    for (const gk in groups) {
+      const name = (displayName(gk) || "").toLowerCase();
+      if (!gk.toLowerCase().includes(q) && !name.includes(q)) delete groups[gk];
+    }
+  }
 }
 
 let selectedRep = null; // null=担当者一覧 / それ以外=その担当の案件
@@ -149,7 +170,8 @@ let showAll = false; // 「すべての案件」を選んだ状態
 function repInfo(a) {
   const ms = groups[a];
   const last = ms[ms.length - 1];
-  const accOwner = accountsMap[a] && accountsMap[a].owner;
+  const pk = primaryOf(a);
+  const accOwner = accountsMap[pk] && accountsMap[pk].owner;
   const email = accOwner || last.owner || "";
   let name = "";
   if (email) {
@@ -249,6 +271,7 @@ function renderList() {
 async function selectDeal(account) {
   current = account;
   renderList();
+  const pk = primaryOf(account);
   const ms = groups[account] || [];
   const det = $("dealDetail");
   const wrap = document.querySelector(".history");
@@ -278,7 +301,7 @@ async function selectDeal(account) {
     `<div class="deal-status-pick"><span class="status-badge st-${statusOf(account)}" id="dealStBadge">${statusOf(account)}</span>` +
     `<select id="dealStSel">${STATUS_LIST.map((s) => `<option value="${s}" ${statusOf(account) === s ? "selected" : ""}>${s}</option>`).join("")}<option value="__auto">AIに任せる</option></select></div></div>` +
     `<div class="deal-head-meta"><span id="dealOwnerWrap" class="deal-owner-wrap"></span> ・ ${ms.length}回の商談 ・ 現在 ${esc(PHASE_LABEL[last.phase] || "フェーズ未設定")}` +
-    (dealStatuses[account] && dealStatuses[account].manual ? ' ・ <span class="st-manual">手動設定</span>' : ' ・ <span class="st-auto">AI自動</span>') +
+    (dealStatuses[pk] && dealStatuses[pk].manual ? ' ・ <span class="st-manual">手動設定</span>' : ' ・ <span class="st-auto">AI自動</span>') +
     `</div>` +
     (statusOf(account) === "失注" && lastLostReason(ms) ? `<div class="lost-reason">AI判定の失注理由: ${esc(lastLostReason(ms))}</div>` : "") +
     `</div>` +
@@ -295,13 +318,13 @@ async function selectDeal(account) {
   // ステータス変更
   $("dealStSel").addEventListener("change", async (e) => {
     const v = e.target.value;
-    const body = v === "__auto" ? { account, auto: true } : { account, status: v };
+    const body = v === "__auto" ? { account: pk, auto: true } : { account: pk, status: v };
     await fetch("/api/deal-status", { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
     // ローカル状態を更新
     if (v === "__auto") {
-      if (dealStatuses[account]) dealStatuses[account].manual = false;
+      if (dealStatuses[pk]) dealStatuses[pk].manual = false;
     } else {
-      dealStatuses[account] = { status: v, manual: true };
+      dealStatuses[pk] = { status: v, manual: true };
     }
     selectDeal(account);
     renderList();
@@ -312,22 +335,21 @@ async function selectDeal(account) {
   // 担当（アカウント単位で選択・保存）
   await renderOwnerPicker(account, last);
   const profUrl = $("profUrl"), profGet = $("profGet"), profStatus = $("profStatus");
-  if (accountsMap[account] && accountsMap[account].site_url) profUrl.value = accountsMap[account].site_url;
+  if (accountsMap[pk] && accountsMap[pk].site_url) profUrl.value = accountsMap[pk].site_url;
   profGet.addEventListener("click", async () => {
     const url = (profUrl.value || "").trim();
     if (!url) { profUrl.focus(); return; }
     profGet.disabled = true; profGet.textContent = "取得中…";
     if (window.kbProgress) window.kbProgress(profStatus, { percent: null, label: "サイトとWebから会社概要を取得中…" });
     try {
-      const r = await fetch(`/api/accounts/${encodeURIComponent(account)}/enrich`, {
+      const r = await fetch(`/api/accounts/${encodeURIComponent(pk)}/enrich`, {
         method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ url }),
       });
       const d = await r.json();
       if (!r.ok) throw new Error(d.error || "取得に失敗しました");
-      accountsMap[account] = { key: account, site_url: d.siteUrl, official_name: d.officialName, profile: d.profile };
+      accountsMap[pk] = { key: pk, site_url: d.siteUrl, official_name: d.officialName, owner: accountsMap[pk] && accountsMap[pk].owner, profile: d.profile };
       if (window.kbProgress) window.kbProgress(profStatus, { clear: true });
       renderProfile(account);
-      // 見出し・カード名を正式社名に反映
       const h = document.querySelector("#dealDetail h2"); if (h) h.textContent = displayName(account);
       renderList();
     } catch (e) {
