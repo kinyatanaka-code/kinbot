@@ -428,11 +428,25 @@ export async function judgePhase(transcript, opts = {}) {
   const repName = (opts && opts.repName) ? String(opts.repName).trim() : "";
   const template = await getPhasePrompt();
   const trClip = tr.slice(0, 50000);
-  // 設定で編集されたカスタムプロンプトに{TRANSCRIPT}が無い場合も壊れないよう、末尾に文字起こしを付与する
-  const user = template.includes("{TRANSCRIPT}")
-    ? template.replace("{TRANSCRIPT}", trClip)
-    : `${template}\n\n---\n\n【商談の文字起こし】\n${trClip}`;
+  // プロンプトキャッシュのため、毎回変わらない「固定部分（cachePrefix）」と、
+  // 商談ごとに変わる「可変部分（文字起こし＋担当者名の補足）」を分離する。
+  // 担当者名はsystem側に入れず、ここ（可変部分）に入れることで、systemとuserの固定部分は
+  // 全商談・全担当者で完全に同一の文字列になり、キャッシュが最大限効くようにしている。
+  const repHint = repName ? `\n\n（補足：この商談の営業担当者は主に「${repName}」です。フェーズ1・3の根拠判定の際にご留意ください）` : "";
+  let cachePrefix, dynamicSuffix;
+  if (template.includes("{TRANSCRIPT}")) {
+    const idx = template.indexOf("{TRANSCRIPT}");
+    cachePrefix = template.slice(0, idx);
+    const after = template.slice(idx + "{TRANSCRIPT}".length);
+    dynamicSuffix = trClip + after + repHint;
+  } else {
+    // 設定で編集されたカスタムプロンプトに{TRANSCRIPT}が無い場合も壊れないよう、末尾に文字起こしを付与する
+    cachePrefix = template;
+    dynamicSuffix = `\n\n---\n\n【商談の文字起こし】\n${trClip}${repHint}`;
+  }
+  const user = cachePrefix + dynamicSuffix;
   // 顧客（相手）の発言を根拠にするよう明示。営業担当の発言はフェーズ1・3の根拠にしない。
+  // ※担当者名などの可変情報は含めない（system文を完全に固定し、プロンプトキャッシュを最大限効かせるため）。
   const sys =
     "あなたは厳密なJSON出力器です。指定のJSONのみを返します。" +
     "【判定の進め方】各フェーズについて、いきなり到達/未到達を決めず、必ず先に「reasoning」へ検討過程を書いてください。" +
@@ -440,7 +454,7 @@ export async function judgePhase(transcript, opts = {}) {
     "未到達と判定する場合は、それらしい発言があれば実際に引用したうえで「なぜ非到達例に当てはまるか（一般論／確定形が弱い／期日が曖昧／顧客本人の発言でない 等）」を具体的に書いてください。該当しそうな発言が全く無い場合は「該当する発言なし」と書いてください。一般的な定義の繰り返しだけで終わらせないこと。" +
     "話題が関連しているだけ・一般論・確定形が弱い・期日が曖昧、といった非到達例に近い発言を、安易に到達と判定しないでください。逆に、明確に条件を満たす発言があるのに見落として未到達にもしないでください。" +
     "【重要な判定ルール】フェーズ1とフェーズ3は『顧客（提案を受けている側）』の発言だけを根拠にしてください。" +
-    "営業担当（サービスを提案・説明している側" + (repName ? `。多くの場合「${repName}」` : "") + "）の発言は、フェーズ1・フェーズ3の根拠（evidence）にしないでください。" +
+    "営業担当（サービスを提案・説明している側。発言量が多い側や、サービス説明・デモを行っている側であることが多い。文字起こしの末尾に担当者名の補足があれば参考にする）の発言は、フェーズ1・フェーズ3の根拠（evidence）にしないでください。" +
     "営業担当が顧客の状況を代弁・要約しただけの発言も、フェーズ1・3の根拠にはなりません（顧客本人がその場で語った発言が必要）。" +
     "フェーズ2は営業担当の発言、フェーズ4は申込書送付の記録が根拠です。" +
     "evidenceには、根拠とした話者の実際の発言をそのまま引用してください（未到達でreasoningに参考発言を挙げた場合も、evidenceは到達根拠ではないのでnullのままにしてください）。" +
@@ -448,7 +462,9 @@ export async function judgePhase(transcript, opts = {}) {
     "next_actionは現在のフェーズに応じた次の一手を必ず1〜2文で具体的に書いてください（省略不可）。riskは無ければキーごと省略せず値をnullにしてください（キー自体を省くのは不可）。";
   // kinbot既存のLLM基盤（Gemini→Groqフォールバック）＋JSONモード。schemaで必須項目（next_action/risk含む）を強制。
   // reasoningを詳しく書かせる分、出力が伸びるためmaxTokensに大きめの余裕を持たせる（途中で切れてnext_action/riskが欠落するのを防ぐ）。
-  const text = await callLLM(sys, user, 3500, { schema: PHASE_JSON_SCHEMA });
+  // cachePrefixを渡すと、Anthropic利用時はsystemとこの固定部分がプロンプトキャッシュ対象になり、
+  // 2回目以降の呼び出し（同じ担当者の別商談、まとめ判定の連続実行など）でその分のコストが約1/10になる。
+  const text = await callLLM(sys, user, 3500, { schema: PHASE_JSON_SCHEMA, cachePrefix });
   const o = parseJson(text) || {};
   const pick = (p) => (o && o[p] && typeof o[p] === "object" ? o[p] : {});
   const p1 = pick("phase1"), p2 = pick("phase2"), p3 = pick("phase3"), p4 = pick("phase4");
@@ -568,8 +584,9 @@ function fallbackProvider() {
 async function callLLM(system, user, maxTokens = 1400, opts = {}) {
   const json = opts.json !== false;
   const schema = opts.schema || null;
+  const cachePrefix = opts.cachePrefix || null;
   try {
-    return await withRetry(() => callOnce(PROVIDER, system, user, maxTokens, json, schema));
+    return await withRetry(() => callOnce(PROVIDER, system, user, maxTokens, json, schema, cachePrefix));
   } catch (e) {
     const fb = fallbackProvider();
     // JSON構造化出力が必要な呼び出し（フェーズ判定・各種分析など）は、キー未設定・課金未設定・
@@ -578,7 +595,7 @@ async function callLLM(system, user, maxTokens = 1400, opts = {}) {
     const shouldFallback = fb && (json || PROVIDER === "anthropic" || isTransient(e.message));
     if (shouldFallback) {
       console.warn(`[llm] ${PROVIDER} が失敗（${e.message}）→ ${fb} に自動フォールバック`);
-      return await withRetry(() => callOnce(fb, system, user, maxTokens, json, schema), 2);
+      return await withRetry(() => callOnce(fb, system, user, maxTokens, json, schema, cachePrefix), 2);
     }
     throw e;
   }
@@ -602,8 +619,8 @@ async function withRetry(fn, tries = 4) {
   throw last;
 }
 
-async function callOnce(provider, system, user, maxTokens, json = true, schema = null) {
-  if (provider === "anthropic") return callAnthropic(system, user, maxTokens, json, schema);
+async function callOnce(provider, system, user, maxTokens, json = true, schema = null, cachePrefix = null) {
+  if (provider === "anthropic") return callAnthropic(system, user, maxTokens, json, schema, cachePrefix);
   if (provider === "ollama") return callOllama(system, user, json);
   if (provider === "groq")
     return callOpenAICompat(system, user, maxTokens, {
@@ -704,22 +721,46 @@ async function callGemini(system, user, maxTokens, json = true, schema = null) {
   return (cand?.content?.parts || []).map((p) => p.text || "").join("");
 }
 
-async function callAnthropic(system, user, maxTokens, json = true, schema = null) {
+async function callAnthropic(system, user, maxTokens, json = true, schema = null, cachePrefix = null) {
   const key = process.env.ANTHROPIC_API_KEY;
   if (!key) throw new Error("ANTHROPIC_API_KEY が未設定です");
   const model = process.env.ANALYZER_MODEL || "claude-sonnet-4-6";
-  const body = { model, max_tokens: maxTokens, system, messages: [{ role: "user", content: user }] };
+  // プロンプトキャッシュ：system（指示文・全呼び出しで共通）と、
+  // 渡された場合はuserの「固定部分（cachePrefix）」をキャッシュ対象としてマークする。
+  // 1,024トークン未満の内容は自動的にキャッシュされないだけでエラーにはならないため、常に付けて安全。
+  // 5分以内に同じ内容で再利用されると、その部分は約1/10の価格になる（Sonnet 4.6で約90%節約）。
+  const body = {
+    model,
+    max_tokens: maxTokens,
+    system: [{ type: "text", text: system, cache_control: { type: "ephemeral" } }],
+  };
+  if (cachePrefix && typeof user === "string" && user.startsWith(cachePrefix) && cachePrefix.length > 0) {
+    const rest = user.slice(cachePrefix.length);
+    body.messages = [
+      {
+        role: "user",
+        content: [
+          { type: "text", text: cachePrefix, cache_control: { type: "ephemeral" } },
+          { type: "text", text: rest },
+        ],
+      },
+    ];
+  } else {
+    body.messages = [{ role: "user", content: user }];
+  }
   if (json) {
     // Claude系モデルにはGeminiのような「強制JSONモード」が無く、新しいモデル（Sonnet 4.6等）は
     // 応答の先頭を指定するprefill手法も使えない。最も確実なのは、JSON専用のツールを定義して
     // tool_choiceで必ずそれを呼ばせる方法（前置き文・コードフェンスが原理的に入り込まない）。
     // スキーマ未指定の緩い定義だと、Claudeが中身を埋めずに空オブジェクトで呼んでしまうことがあるため、
     // 呼び出し元が具体的なスキーマを渡せる場合は必須項目つきでそれを使う（無ければ汎用の緩いスキーマ）。
+    // ツール定義も毎回同じ内容なのでキャッシュ対象にする。
     body.tools = [
       {
         name: "emit_json",
         description: "直前の指示で求められているJSON結果を、そのままこの関数の引数として返す。前置きや説明文、コードフェンスは一切含めない。全てのプロパティを省略せず必ず埋めること。",
         input_schema: schema || { type: "object" },
+        cache_control: { type: "ephemeral" },
       },
     ];
     body.tool_choice = { type: "tool", name: "emit_json" };
@@ -734,6 +775,12 @@ async function callAnthropic(system, user, maxTokens, json = true, schema = null
     throw new Error(`Anthropic ${res.status}: ${t.slice(0, 300)}`);
   }
   const data = await res.json();
+  // キャッシュの効き具合を確認できるよう、デバッグしやすい形でログに残す（任意・コストには影響しない）
+  if (data.usage && (data.usage.cache_read_input_tokens || data.usage.cache_creation_input_tokens)) {
+    console.log(
+      `[anthropic cache] read=${data.usage.cache_read_input_tokens || 0} write=${data.usage.cache_creation_input_tokens || 0} input=${data.usage.input_tokens || 0}`
+    );
+  }
   if (json) {
     const toolBlock = (data.content || []).find((b) => b.type === "tool_use" && b.name === "emit_json");
     if (toolBlock && toolBlock.input !== undefined) {
