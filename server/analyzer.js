@@ -372,7 +372,7 @@ export async function judgePhase(transcript, opts = {}) {
     "フェーズ2は営業担当の発言、フェーズ4は申込書送付の記録が根拠です。" +
     "evidenceには、根拠とした話者の実際の発言をそのまま引用してください。";
   // kinbot既存のLLM基盤（Gemini→Groqフォールバック）＋JSONモード
-  const text = await callLLM(sys, user, 1000);
+  const text = await callLLM(sys, user, 1500);
   const o = parseJson(text) || {};
   const pick = (p) => (o && o[p] && typeof o[p] === "object" ? o[p] : {});
   const p1 = pick("phase1"), p2 = pick("phase2"), p3 = pick("phase3"), p4 = pick("phase4");
@@ -471,11 +471,12 @@ export async function chatWithData({ messages, material, model, web }) {
 function isTransient(msg) {
   return /\b503\b|\b429\b|UNAVAILABLE|overloaded|high demand|temporarily/i.test(msg || "");
 }
-// 一次プロバイダが混雑等で落ちた時の切替先（Groqキーがあれば既定でGroq）
+// 一次プロバイダが落ちた時の切替先（明示指定 → Groq → Gemini の順で使えるものを選ぶ）
 function fallbackProvider() {
   const explicit = (process.env.FALLBACK_PROVIDER || "").toLowerCase();
   if (explicit && explicit !== PROVIDER) return explicit;
   if (PROVIDER !== "groq" && process.env.GROQ_API_KEY) return "groq";
+  if (PROVIDER !== "gemini" && process.env.GEMINI_API_KEY) return "gemini";
   return "";
 }
 
@@ -485,8 +486,11 @@ async function callLLM(system, user, maxTokens = 1400, opts = {}) {
     return await withRetry(() => callOnce(PROVIDER, system, user, maxTokens, json));
   } catch (e) {
     const fb = fallbackProvider();
-    if (fb && isTransient(e.message)) {
-      console.warn(`[llm] ${PROVIDER} が混雑等で失敗（${e.message}）→ ${fb} に自動フォールバック`);
+    // Anthropicはキー未設定・課金未設定・モデル名誤りなど「一時的でない」理由でも丸ごと失敗しうるため、
+    // Anthropicのときは理由を問わず必ずフォールバックする（他プロバイダは従来どおり一時的な混雑時のみ）。
+    const shouldFallback = fb && (PROVIDER === "anthropic" || isTransient(e.message));
+    if (shouldFallback) {
+      console.warn(`[llm] ${PROVIDER} が失敗（${e.message}）→ ${fb} に自動フォールバック`);
       return await withRetry(() => callOnce(fb, system, user, maxTokens, json), 2);
     }
     throw e;
@@ -512,7 +516,7 @@ async function withRetry(fn, tries = 4) {
 }
 
 async function callOnce(provider, system, user, maxTokens, json = true) {
-  if (provider === "anthropic") return callAnthropic(system, user, maxTokens);
+  if (provider === "anthropic") return callAnthropic(system, user, maxTokens, json);
   if (provider === "ollama") return callOllama(system, user, json);
   if (provider === "groq")
     return callOpenAICompat(system, user, maxTokens, {
@@ -578,20 +582,39 @@ async function callGemini(system, user, maxTokens, json = true) {
   return (data.candidates?.[0]?.content?.parts || []).map((p) => p.text || "").join("");
 }
 
-async function callAnthropic(system, user, maxTokens) {
+async function callAnthropic(system, user, maxTokens, json = true) {
   const key = process.env.ANTHROPIC_API_KEY;
   if (!key) throw new Error("ANTHROPIC_API_KEY が未設定です");
   const model = process.env.ANALYZER_MODEL || "claude-sonnet-4-6";
+  const body = { model, max_tokens: maxTokens, system, messages: [{ role: "user", content: user }] };
+  if (json) {
+    // Claude系モデルにはGeminiのような「強制JSONモード」が無く、新しいモデル（Sonnet 4.6等）は
+    // 応答の先頭を指定するprefill手法も使えない。最も確実なのは、JSON専用のツールを定義して
+    // tool_choiceで必ずそれを呼ばせる方法（前置き文・コードフェンスが原理的に入り込まない）。
+    body.tools = [
+      {
+        name: "emit_json",
+        description: "直前の指示で求められているJSON結果を、そのままこの関数の引数として返す。前置きや説明文、コードフェンスは一切含めない。",
+        input_schema: { type: "object" },
+      },
+    ];
+    body.tool_choice = { type: "tool", name: "emit_json" };
+  }
   const res = await fetch("https://api.anthropic.com/v1/messages", {
     method: "POST",
     headers: { "content-type": "application/json", "x-api-key": key, "anthropic-version": "2023-06-01" },
-    body: JSON.stringify({ model, max_tokens: maxTokens, system, messages: [{ role: "user", content: user }] }),
+    body: JSON.stringify(body),
   });
   if (!res.ok) {
     const t = await res.text().catch(() => "");
     throw new Error(`Anthropic ${res.status}: ${t.slice(0, 300)}`);
   }
   const data = await res.json();
+  if (json) {
+    const toolBlock = (data.content || []).find((b) => b.type === "tool_use" && b.name === "emit_json");
+    if (toolBlock && toolBlock.input !== undefined) return JSON.stringify(toolBlock.input);
+    // 想定外でツール呼び出しが無かった場合は通常テキストにフォールバック（呼び出し元のparseJsonが処理）
+  }
   return (data.content || []).map((b) => (b.type === "text" ? b.text : "")).join("");
 }
 
