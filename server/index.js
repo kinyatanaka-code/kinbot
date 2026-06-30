@@ -39,6 +39,13 @@ import {
   getAccount,
   listAccounts,
   saveAccount,
+  savePhaseJudgment,
+  getPhaseJudgment,
+  phaseRows,
+  phaseTrend,
+  listRepTeams,
+  upsertRepTeam,
+  deleteRepTeam,
   getSetCache,
   saveSetCache,
   listUsers,
@@ -57,7 +64,7 @@ import {
   deleteKbFolder,
 } from "./db.js";
 import { resolveConfig, statusInfo } from "./config.js";
-import { analyzerInfo, analyzeMeeting, analyzeDeep, analyzeTendency, analyzeSet, analyzeWinLoss, extractLostSignals, freeAnalyze, chatWithData, enrichCompany, generateThanks, getCheckItems } from "./analyzer.js";
+import { analyzerInfo, analyzeMeeting, analyzeDeep, analyzeTendency, analyzeSet, analyzeWinLoss, extractLostSignals, freeAnalyze, chatWithData, enrichCompany, judgePhase, generateThanks, getCheckItems } from "./analyzer.js";
 import {
   googleConfigured,
   authUrl,
@@ -482,6 +489,113 @@ app.post("/api/chat", async (req, res) => {
     console.error("[chat]", e.message);
     res.status(502).json({ error: e.message });
   }
+});
+
+// ===== 商談フェーズ自動判定 =====
+// 1商談の文字起こしを判定してDB保存（finalize/upload/手動から呼ぶ）
+async function runPhaseJudgment(botId) {
+  const m = await getMeeting(botId);
+  if (!m) throw new Error("商談が見つかりません");
+  if (m.category && m.category !== "商談") return null; // 社内MTG/フォローは対象外
+  const tr = Array.isArray(m.transcript) ? m.transcript : [];
+  const text = tr.map((u) => `${u.speaker?.name || "話者"}: ${u.text || ""}`).join("\n");
+  if (!text.trim()) throw new Error("文字起こしがありません");
+  const j = await judgePhase(text);
+  j.rep_name = m.owner_name || m.owner || "";
+  j.rep_email = m.owner || "";
+  j.meeting_date = (m.created_at ? new Date(m.created_at) : new Date()).toISOString().slice(0, 10);
+  await savePhaseJudgment(botId, j);
+  return j;
+}
+// 自動判定を投げっぱなしで実行（メイン処理をブロックしない）
+function runPhaseJudgmentSafe(botId) {
+  Promise.resolve()
+    .then(() => runPhaseJudgment(botId))
+    .catch((e) => console.warn("[phase] 自動判定スキップ", botId, e.message));
+}
+
+// メンバー向け：1商談の判定取得（無ければ判定して返す）
+app.get("/api/meetings/:id/phase", async (req, res) => {
+  try {
+    let j = await getPhaseJudgment(req.params.id);
+    if (!j && req.query.auto === "1") j = await runPhaseJudgment(req.params.id);
+    res.json(j || null);
+  } catch (e) { res.status(200).json(null); }
+});
+// 手動で再判定
+app.post("/api/meetings/:id/phase/judge", async (req, res) => {
+  try {
+    const j = await runPhaseJudgment(req.params.id);
+    res.json(j || {});
+  } catch (e) {
+    console.error("[phase judge]", e.message);
+    res.status(502).json({ error: e.message });
+  }
+});
+// マネージャー向け：期間×階層の集計（SQL集計をJSで階層化）
+app.get("/api/phase/dashboard", async (req, res) => {
+  try {
+    const granularity = ["day", "week", "month"].includes(req.query.granularity) ? req.query.granularity : "week";
+    const from = req.query.from || null;
+    const to = req.query.to || null;
+    const rows = await phaseRows({ from, to });
+    const trendRaw = await phaseTrend({ granularity, from, to });
+    const rate = (c, t) => (t ? Math.round((c / t) * 1000) / 10 : 0);
+    const dist = (arr) => ({
+      p1: arr.filter((r) => r.current_phase === 1).length,
+      p2: arr.filter((r) => r.current_phase === 2).length,
+      p3plus: arr.filter((r) => (r.current_phase || 0) >= 3).length,
+    });
+    const summarize = (arr) => {
+      const total = arr.length;
+      const p3 = arr.filter((r) => r.phase3_reached).length;
+      return { total, phase3_count: p3, phase3_rate: rate(p3, total), dist: dist(arr) };
+    };
+    // グループ全体
+    const overall = summarize(rows);
+    // チーム→個人
+    const teamMap = {};
+    for (const r of rows) {
+      const t = r.team_name || "未分類";
+      (teamMap[t] = teamMap[t] || []).push(r);
+    }
+    const teams = Object.keys(teamMap).sort().map((t) => {
+      const arr = teamMap[t];
+      const repMap = {};
+      for (const r of arr) { const rn = r.rep_name || "(不明)"; (repMap[rn] = repMap[rn] || []).push(r); }
+      const reps = Object.keys(repMap).sort().map((rn) => {
+        const ra = repMap[rn];
+        const atRisk = ra.filter((x) => x.risk && (x.current_phase || 0) < 3).length;
+        return { rep_name: rn, ...summarize(ra), atRisk };
+      });
+      return { team_name: t, ...summarize(arr), reps };
+    });
+    const trend = trendRaw.map((t) => ({
+      period: t.period,
+      total: t.total,
+      phase3_rate: rate(t.phase3_count, t.total),
+    }));
+    res.json({ granularity, from, to, overall, teams, trend });
+  } catch (e) {
+    console.error("[phase dashboard]", e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+// 担当者→チームのマスタ（一覧・編集）
+app.get("/api/phase/teams", async (req, res) => {
+  try { res.json(await listRepTeams()); } catch { res.json([]); }
+});
+app.put("/api/phase/teams", async (req, res) => {
+  try {
+    const { repName, teamName, groupName } = req.body || {};
+    if (!repName) return res.status(400).json({ error: "担当者名が必要です" });
+    await upsertRepTeam(repName, teamName, groupName);
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+app.delete("/api/phase/teams/:rep", async (req, res) => {
+  try { await deleteRepTeam(decodeURIComponent(req.params.rep)); res.json({ ok: true }); }
+  catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 // ===== 企業アカウント（プロフィール／会社概要） =====
@@ -1409,6 +1523,8 @@ async function processUpload(id, file, repName) {
       }
     }
     await setMeetingStatus(id, "done");
+    // 商談フェーズ自動判定（機能A）
+    runPhaseJudgmentSafe(id);
 
     // 動画/音声をMuxに資産化（再生用）。設定があるときだけ。
     if (muxConfigured()) {

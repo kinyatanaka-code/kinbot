@@ -225,6 +225,7 @@ function setAnaTab(mp) {
   document.querySelectorAll("[data-mpanel]").forEach((el) => el.classList.toggle("m-active", el.dataset.mpanel === mp));
   if (mp === "dash" && dashDirty) { renderDashboard(curRows); dashDirty = false; }
   if (mp === "prof") renderProfileAnalysis();
+  if (mp === "phase") renderPhasePanel();
 }
 function initAnaTabs() {
   const tabs = document.getElementById("anaTabs");
@@ -242,6 +243,100 @@ function initAnaTabs() {
     });
   }
   initChat();
+}
+
+// ===== 商談フェーズ ダッシュボード（機能B・マネージャー向け） =====
+const PHASE_NAMES_A = { 1: "課題特定", 2: "カスタマイズデモ", 3: "顧客起点", 4: "クロージング" };
+let phaseInited = false;
+function renderPhasePanel() {
+  const el = $("phasepanel");
+  if (!el) return;
+  if (!phaseInited) {
+    phaseInited = true;
+    el.innerHTML =
+      `<div class="phase-ctrls">` +
+      `<div class="seg" id="phGran"><button class="seg-btn" data-g="day">日次</button><button class="seg-btn active" data-g="week">週次</button><button class="seg-btn" data-g="month">月次</button></div>` +
+      `<label class="phase-date">期間 <input type="date" id="phFrom"> 〜 <input type="date" id="phTo"></label>` +
+      `<button class="btn" id="phApply">更新</button>` +
+      `</div><div id="phBody"><div class="empty-state">「更新」を押すと集計します。</div></div>`;
+    el.querySelectorAll("#phGran .seg-btn").forEach((b) =>
+      b.addEventListener("click", () => {
+        el.querySelectorAll("#phGran .seg-btn").forEach((x) => x.classList.toggle("active", x === b));
+        loadPhaseDash();
+      })
+    );
+    $("phApply").addEventListener("click", loadPhaseDash);
+    loadPhaseDash();
+  }
+}
+async function loadPhaseDash() {
+  const body = $("phBody");
+  if (!body) return;
+  const g = (document.querySelector("#phGran .seg-btn.active") || {}).dataset?.g || "week";
+  const from = $("phFrom") ? $("phFrom").value : "";
+  const to = $("phTo") ? $("phTo").value : "";
+  body.innerHTML = '<div class="empty-state">集計中…</div>';
+  try {
+    const q = new URLSearchParams({ granularity: g });
+    if (from) q.set("from", from);
+    if (to) q.set("to", to);
+    const d = await (await fetch("/api/phase/dashboard?" + q.toString())).json();
+    renderPhaseDash(body, d);
+  } catch (e) {
+    body.innerHTML = '<div class="empty-state">集計に失敗しました。</div>';
+  }
+}
+function phaseDistBar(dist, total) {
+  const seg = (n, cls) => (total ? `<span class="pdist-seg ${cls}" style="width:${(n / total) * 100}%" title="${n}件"></span>` : "");
+  return `<div class="pdist">${seg(dist.p1, "p1")}${seg(dist.p2, "p2")}${seg(dist.p3plus, "p3")}</div>`;
+}
+function renderPhaseDash(body, d) {
+  if (!d || !d.overall || !d.overall.total) {
+    body.innerHTML = '<div class="empty-state">対象期間に判定済みの商談がありません。<br>商談を記録すると自動でフェーズ判定され、ここに集計されます。</div>';
+    return;
+  }
+  const o = d.overall;
+  let html = "";
+  // グループ全体
+  html += `<div class="phase-overall"><div class="po-title">グループ全体（直販）</div>` +
+    `<div class="po-kpis"><div class="po-kpi"><div class="po-v">${o.total}</div><div class="po-l">商談数</div></div>` +
+    `<div class="po-kpi hero"><div class="po-v">${o.phase3_rate}%</div><div class="po-l">フェーズ3到達率</div></div>` +
+    `<div class="po-kpi"><div class="po-v">${o.dist.p3plus}</div><div class="po-l">フェーズ3+ 到達</div></div></div>` +
+    phaseDistBar(o.dist, o.total) +
+    `<div class="pdist-legend"><span><i class="dot p1"></i>フェーズ1</span><span><i class="dot p2"></i>フェーズ2</span><span><i class="dot p3"></i>フェーズ3+</span></div></div>`;
+
+  // 推移（フェーズ3到達率）
+  if (d.trend && d.trend.length) {
+    const max = 100;
+    const bars = d.trend.map((t) => {
+      const label = fmtPeriod(t.period, d.granularity);
+      const h = Math.round((t.phase3_rate / max) * 100);
+      return `<div class="ptbar"><div class="ptbar-fill" style="height:${Math.max(2, h)}%" title="${t.phase3_rate}%（${t.total}件）"></div><div class="ptbar-x">${escapeHtml(label)}</div><div class="ptbar-v">${t.phase3_rate}%</div></div>`;
+    }).join("");
+    html += `<div class="phase-card"><div class="dash-title">フェーズ3到達率の推移（${d.granularity === "day" ? "日次" : d.granularity === "month" ? "月次" : "週次"}）</div><div class="ptchart">${bars}</div></div>`;
+  }
+
+  // チーム → 個人
+  for (const t of d.teams || []) {
+    html += `<div class="phase-team"><div class="pt-head"><b>${escapeHtml(t.team_name)}</b><span class="pt-rate">フェーズ3到達率 ${t.phase3_rate}%（${t.total}件）</span></div>`;
+    html += phaseDistBar(t.dist, t.total);
+    html += '<div class="pt-reps">';
+    for (const r of t.reps || []) {
+      const warn = r.atRisk ? `<span class="pt-risk">要注意 ${r.atRisk}件</span>` : "";
+      html += `<div class="pt-rep"><span class="pt-rep-name">${escapeHtml(r.rep_name)}</span>` +
+        `<span class="pt-rep-rate">フェーズ3 ${r.phase3_rate}%</span>` +
+        `<span class="pt-rep-total">${r.total}件</span>${warn}</div>`;
+    }
+    html += "</div></div>";
+  }
+  body.innerHTML = html;
+}
+function fmtPeriod(iso, gran) {
+  const d = new Date(iso);
+  if (isNaN(d)) return String(iso || "");
+  if (gran === "month") return d.getFullYear() + "/" + (d.getMonth() + 1);
+  if (gran === "day") return d.getMonth() + 1 + "/" + d.getDate();
+  return d.getMonth() + 1 + "/" + d.getDate(); // 週: 週初日
 }
 
 // ===== 企業傾向（プロフィール × 商談回数） =====

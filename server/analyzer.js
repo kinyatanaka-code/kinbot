@@ -279,6 +279,113 @@ export async function enrichCompany({ url, name, siteText }) {
   };
 }
 
+// ===== 商談フェーズ自動判定（仕様書のプロンプトをそのまま使用） =====
+// ※フェーズ定義は営業チーム確定の仕様。文言は変更しないこと。
+// 将来DB/設定で外出ししたい場合はこの定数を差し替え可能。
+export const PHASE_JUDGMENT_PROMPT = `以下は営業担当者と顧客の商談の文字起こしです。
+
+この商談が以下のフェーズ1〜4のそれぞれに到達しているかを判定してください。
+
+---
+
+【フェーズ1：課題特定】
+到達条件：顧客が自分の状況を具体的に描写した発言がある。数字が入っているか、「私が・うちが・今」という主語で語られた具体的な状況描写があること。
+
+到達例：
+- 「説明会への移行率が10%で困っている」
+- 「カジュアル面談を担当できる人がうちにはいない」
+- 「土日も私一人で対応している」
+- 「エントリーが今年15件しか来ていない」
+
+非到達例：
+- 「採用が難しくなっている」（業界全体の一般論）
+- 「母集団を増やしたい」（どの会社にも当てはまる）
+
+【フェーズ2：カスタマイズデモ】
+到達条件：担当者が顧客固有の課題・数字・状況をデモ中に使った発言がある。
+
+到達例：
+- 「竹内様が説明会移行率10%とおっしゃっていましたが、このサービスでここを改善できます」
+- 「カジュアル面談担当がいないとおっしゃっていたので、AIがその代わりになります」
+
+非到達例：
+- 「このサービスは24時間365日候補者の質問に答えます」（顧客の状況に紐づいていない）
+- 「他社でもエントリーが増えた実績があります」
+
+【フェーズ3：顧客起点】
+到達条件：デモ後に顧客が①期日が具体的、かつ②確定形（「します」「たい」）で次のアクションを述べた発言がある。
+
+到達例：
+- 「6月から使いたい」
+- 「上司に上申します」
+- 「見積をください」
+- 「明日14時に打ち合わせできますか」（顧客からアポ設定）
+
+非到達例：
+- 「一応見積ください」（確定形が弱い）
+- 「秋くらいから使えたら」（期日曖昧）
+- 「いいと思います」（顧客が自分から動いていない）
+
+【フェーズ4：クロージング】
+到達条件：申込書を送付した記録がある。
+
+到達例：
+- 担当者が申込書をメール送付した
+- 担当者が「申込書をお送りします」と発言した
+
+非到達例：
+- 「検討します」で終わっている
+- 見積のみ送付（申込書未送付）
+
+---
+
+【出力形式】
+以下のJSON形式で返してください。他のテキストは一切含めないこと。
+
+{
+  "phase1": { "reached": true/false, "evidence": "根拠となった顧客の発言（該当なければnull）" },
+  "phase2": { "reached": true/false, "evidence": "根拠となった担当者の発言（該当なければnull）" },
+  "phase3": { "reached": true/false, "evidence": "根拠となった顧客の発言（該当なければnull）" },
+  "phase4": { "reached": true/false, "evidence": "根拠となった記録（該当なければnull）" },
+  "current_phase": 1〜4（到達した最後のフェーズ番号）,
+  "next_action": "次に担当者がすべき具体的なアクション（1〜2文）",
+  "risk": "このままだと失注するリスクがあれば記載（なければnull）"
+}
+
+---
+
+【商談の文字起こし】
+{TRANSCRIPT}`;
+
+// 文字起こし全文を判定し、正規化したオブジェクトを返す
+export async function judgePhase(transcript) {
+  const tr = (transcript || "").toString().trim();
+  if (!tr) throw new Error("文字起こしが空です");
+  const user = PHASE_JUDGMENT_PROMPT.replace("{TRANSCRIPT}", tr.slice(0, 50000));
+  // kinbot既存のLLM基盤（Gemini→Groqフォールバック）＋JSONモード
+  const text = await callLLM("あなたは厳密なJSON出力器です。指定のJSONのみを返します。", user, 1000);
+  const o = parseJson(text) || {};
+  const pick = (p) => (o && o[p] && typeof o[p] === "object" ? o[p] : {});
+  const p1 = pick("phase1"), p2 = pick("phase2"), p3 = pick("phase3"), p4 = pick("phase4");
+  const reached = [!!p1.reached, !!p2.reached, !!p3.reached, !!p4.reached];
+  // current_phase: モデル値が無ければ到達した最後の番号から算出
+  let cur = Number(o.current_phase);
+  if (!Number.isFinite(cur) || cur < 1 || cur > 4) {
+    cur = 0;
+    for (let k = 0; k < 4; k++) if (reached[k]) cur = k + 1;
+    if (!cur) cur = 1;
+  }
+  return {
+    phase1_reached: reached[0], phase1_evidence: p1.evidence || null,
+    phase2_reached: reached[1], phase2_evidence: p2.evidence || null,
+    phase3_reached: reached[2], phase3_evidence: p3.evidence || null,
+    phase4_reached: reached[3], phase4_evidence: p4.evidence || null,
+    current_phase: cur,
+    next_action: o.next_action || null,
+    risk: o.risk && String(o.risk).trim() && o.risk !== "null" ? o.risk : null,
+  };
+}
+
 // 商談データを文脈にしたGeminiとのマルチターン会話
 const CHAT_SYSTEM = `あなたは「kinbot」の営業アシスタントです。ユーザー（営業）の過去の商談データ（要約・懸念・スコア・ステータス等）を文脈として渡されます。
 - そのデータに基づき、日本語で具体的に、会話形式で答えます。

@@ -56,6 +56,41 @@ export async function initDb() {
     );
   `);
   await pool.query(`ALTER TABLE accounts ADD COLUMN IF NOT EXISTS owner TEXT;`);
+  // 商談フェーズ自動判定の結果（1商談1行）
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS phase_judgments (
+      bot_id TEXT PRIMARY KEY,
+      rep_name TEXT,
+      rep_email TEXT,
+      meeting_date DATE,
+      phase1_reached BOOLEAN,
+      phase1_evidence TEXT,
+      phase2_reached BOOLEAN,
+      phase2_evidence TEXT,
+      phase3_reached BOOLEAN,
+      phase3_evidence TEXT,
+      phase4_reached BOOLEAN,
+      phase4_evidence TEXT,
+      current_phase INTEGER,
+      next_action TEXT,
+      risk TEXT,
+      judged_at TIMESTAMPTZ DEFAULT now()
+    );
+  `);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_pj_meeting_date ON phase_judgments(meeting_date);`);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_pj_rep ON phase_judgments(rep_name);`);
+  // 担当者→チーム→グループ のマスタ
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS rep_team_mapping (
+      rep_name TEXT PRIMARY KEY,
+      team_name TEXT NOT NULL,
+      group_name TEXT NOT NULL DEFAULT '直販'
+    );
+  `);
+  // 初期データ（既存があれば上書きしない）
+  for (const [rep, team] of [["植野", "浦林チーム"], ["江田", "浦林チーム"], ["田中", "中澤チーム"], ["森田", "中澤チーム"]]) {
+    await pool.query(`INSERT INTO rep_team_mapping (rep_name, team_name, group_name) VALUES ($1,$2,'直販') ON CONFLICT (rep_name) DO NOTHING`, [rep, team]);
+  }
   await pool.query(`
     CREATE TABLE IF NOT EXISTS notion_sent (
       owner TEXT NOT NULL,
@@ -351,6 +386,106 @@ export async function saveAccount(key, { siteUrl, officialName, owner, profile }
       vals
     );
   } catch (e) { console.error("[db] saveAccount", e.message); }
+}
+
+// ===== 商談フェーズ自動判定 =====
+export async function savePhaseJudgment(botId, j = {}) {
+  if (!pool || !botId) return;
+  try {
+    await pool.query(
+      `INSERT INTO phase_judgments
+        (bot_id, rep_name, rep_email, meeting_date,
+         phase1_reached, phase1_evidence, phase2_reached, phase2_evidence,
+         phase3_reached, phase3_evidence, phase4_reached, phase4_evidence,
+         current_phase, next_action, risk, judged_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15, now())
+       ON CONFLICT (bot_id) DO UPDATE SET
+         rep_name=$2, rep_email=$3, meeting_date=$4,
+         phase1_reached=$5, phase1_evidence=$6, phase2_reached=$7, phase2_evidence=$8,
+         phase3_reached=$9, phase3_evidence=$10, phase4_reached=$11, phase4_evidence=$12,
+         current_phase=$13, next_action=$14, risk=$15, judged_at=now()`,
+      [
+        botId, j.rep_name || null, j.rep_email || null, j.meeting_date || null,
+        !!j.phase1_reached, j.phase1_evidence || null, !!j.phase2_reached, j.phase2_evidence || null,
+        !!j.phase3_reached, j.phase3_evidence || null, !!j.phase4_reached, j.phase4_evidence || null,
+        j.current_phase || null, j.next_action || null, j.risk || null,
+      ]
+    );
+  } catch (e) { console.error("[db] savePhaseJudgment", e.message); }
+}
+export async function getPhaseJudgment(botId) {
+  if (!pool || !botId) return null;
+  try {
+    const { rows } = await pool.query(`SELECT * FROM phase_judgments WHERE bot_id=$1`, [botId]);
+    return rows[0] || null;
+  } catch { return null; }
+}
+// 期間内の判定結果（チーム/グループ名を結合）— ダッシュボードの集計用
+export async function phaseRows({ from, to } = {}) {
+  if (!pool) return [];
+  const cond = [], vals = [];
+  let i = 1;
+  if (from) { cond.push(`pj.meeting_date >= $${i++}`); vals.push(from); }
+  if (to) { cond.push(`pj.meeting_date <= $${i++}`); vals.push(to); }
+  const where = cond.length ? "WHERE " + cond.join(" AND ") : "";
+  try {
+    const { rows } = await pool.query(
+      `SELECT pj.bot_id, pj.rep_name, pj.meeting_date, pj.current_phase,
+              pj.phase1_reached, pj.phase2_reached, pj.phase3_reached, pj.phase4_reached,
+              pj.next_action, pj.risk,
+              COALESCE(rtm.team_name,'未分類') AS team_name,
+              COALESCE(rtm.group_name,'直販') AS group_name
+       FROM phase_judgments pj
+       LEFT JOIN rep_team_mapping rtm ON pj.rep_name = rtm.rep_name
+       ${where}
+       ORDER BY pj.meeting_date`,
+      vals
+    );
+    return rows;
+  } catch (e) { console.error("[db] phaseRows", e.message); return []; }
+}
+// 期間粒度ごとのフェーズ3到達率の推移（SQL集計）
+export async function phaseTrend({ granularity = "week", from, to } = {}) {
+  if (!pool) return [];
+  const gran = ["day", "week", "month"].includes(granularity) ? granularity : "week";
+  const cond = [], vals = [];
+  let i = 1;
+  if (from) { cond.push(`meeting_date >= $${i++}`); vals.push(from); }
+  if (to) { cond.push(`meeting_date <= $${i++}`); vals.push(to); }
+  const where = cond.length ? "WHERE " + cond.join(" AND ") : "";
+  try {
+    const { rows } = await pool.query(
+      `SELECT DATE_TRUNC('${gran}', meeting_date) AS period,
+              COUNT(*)::int AS total,
+              SUM(CASE WHEN phase3_reached THEN 1 ELSE 0 END)::int AS phase3_count
+       FROM phase_judgments
+       ${where}
+       GROUP BY period ORDER BY period`,
+      vals
+    );
+    return rows;
+  } catch (e) { console.error("[db] phaseTrend", e.message); return []; }
+}
+export async function listRepTeams() {
+  if (!pool) return [];
+  try {
+    const { rows } = await pool.query(`SELECT rep_name, team_name, group_name FROM rep_team_mapping ORDER BY group_name, team_name, rep_name`);
+    return rows;
+  } catch { return []; }
+}
+export async function upsertRepTeam(repName, teamName, groupName = "直販") {
+  if (!pool || !repName) return;
+  try {
+    await pool.query(
+      `INSERT INTO rep_team_mapping (rep_name, team_name, group_name) VALUES ($1,$2,$3)
+       ON CONFLICT (rep_name) DO UPDATE SET team_name=$2, group_name=$3`,
+      [repName, teamName || "未分類", groupName || "直販"]
+    );
+  } catch (e) { console.error("[db] upsertRepTeam", e.message); }
+}
+export async function deleteRepTeam(repName) {
+  if (!pool || !repName) return;
+  try { await pool.query(`DELETE FROM rep_team_mapping WHERE rep_name=$1`, [repName]); } catch {}
 }
 
 // Notion送信済みの記録（ユーザー単位・重複防止用）

@@ -255,6 +255,55 @@ function meetingCardEl(r) {
   return card;
 }
 
+const PHASE_NAMES = { 1: "課題特定", 2: "カスタマイズデモ", 3: "顧客起点", 4: "クロージング" };
+function renderPhaseBox(box, j, botId) {
+  if (!j) {
+    box.innerHTML = `<div class="phase-empty">フェーズ判定はまだありません。<button class="btn ghost phase-judge" type="button">フェーズを判定する</button></div>`;
+  } else {
+    const cur = j.current_phase || 0;
+    const steps = [1, 2, 3, 4].map((n) => {
+      const reached = j[`phase${n}_reached`];
+      const cls = reached ? "done" : "todo";
+      const isCur = n === cur;
+      return `<div class="phase-step ${cls} ${isCur ? "cur" : ""}"><span class="phase-dot">${reached ? "✓" : n}</span><span class="phase-label">${PHASE_NAMES[n]}</span></div>`;
+    }).join('<span class="phase-arrow">›</span>');
+    const next = j.next_action ? `<div class="phase-next"><b>次のアクション</b>：${escapeHtmlH(j.next_action)}</div>` : "";
+    const risk = j.risk ? `<div class="phase-risk"><b>⚠ リスク</b>：${escapeHtmlH(j.risk)}</div>` : "";
+    const ev3 = j.phase3_evidence ? `<div class="phase-ev">フェーズ3根拠：「${escapeHtmlH(j.phase3_evidence)}」</div>` : "";
+    box.innerHTML =
+      `<div class="phase-head"><span class="phase-badge p${cur}">現在フェーズ${cur}：${PHASE_NAMES[cur] || "-"}</span>` +
+      `<button class="btn ghost phase-judge" type="button">再判定</button></div>` +
+      `<div class="phase-steps">${steps}</div>${next}${risk}${ev3}`;
+  }
+  const btn = box.querySelector(".phase-judge");
+  if (btn) btn.addEventListener("click", async () => {
+    btn.disabled = true; btn.textContent = "判定中…";
+    try {
+      const r = await fetch(`/api/meetings/${encodeURIComponent(botId)}/phase/judge`, { method: "POST" });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.error || "判定に失敗");
+      renderPhaseBox(box, d, botId);
+    } catch (e) {
+      btn.disabled = false; btn.textContent = "再判定";
+      box.querySelector(".phase-empty, .phase-head")?.insertAdjacentHTML("beforeend", `<span class="phase-err">失敗: ${escapeHtmlH(e.message)}</span>`);
+    }
+  });
+}
+async function loadPhase(botId) {
+  const box = document.getElementById("phaseBox");
+  if (!box) return;
+  try {
+    const r = await fetch(`/api/meetings/${encodeURIComponent(botId)}/phase?auto=1`);
+    const j = await r.json();
+    renderPhaseBox(box, j, botId);
+  } catch {
+    renderPhaseBox(box, null, botId);
+  }
+}
+function escapeHtmlH(s) {
+  return String(s == null ? "" : s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+}
+
 function renderList() {
   const rows = applyHistoryFilter();
   hlist.innerHTML = "";
@@ -421,6 +470,7 @@ async function loadDetail(botId) {
         </select></label>
         <span class="dmeta-saved" id="mSaved" hidden>保存しました</span>
       </div>
+      <div class="phase-box" id="phaseBox"><div class="phase-loading">フェーズ判定を確認中…</div></div>
       <div class="tabs">
         <button class="tab active" data-tab="trans">文字起こし</button>
         <button class="tab" data-tab="summary">要約</button>
@@ -489,6 +539,9 @@ async function loadDetail(botId) {
         hdetail.querySelectorAll(".tabpane").forEach((p) => (p.hidden = p.dataset.pane !== name));
       });
     });
+
+    // 商談フェーズ判定（機能A・メンバー向け表示）
+    loadPhase(botId);
 
     // コピー（各タブの内容をプレーンテキストで）
     const copyText = async (text, btn) => {
