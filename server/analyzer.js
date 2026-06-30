@@ -357,6 +357,37 @@ export const PHASE_JUDGMENT_PROMPT = `以下は営業担当者と顧客の商談
 【商談の文字起こし】
 {TRANSCRIPT}`;
 
+// フェーズ判定の出力スキーマ（Claude経由のとき、ツール呼び出しを必須項目つきで強制するために使用）
+const PHASE_JSON_SCHEMA = {
+  type: "object",
+  properties: {
+    phase1: {
+      type: "object",
+      properties: { reached: { type: "boolean" }, evidence: { type: ["string", "null"] } },
+      required: ["reached", "evidence"],
+    },
+    phase2: {
+      type: "object",
+      properties: { reached: { type: "boolean" }, evidence: { type: ["string", "null"] } },
+      required: ["reached", "evidence"],
+    },
+    phase3: {
+      type: "object",
+      properties: { reached: { type: "boolean" }, evidence: { type: ["string", "null"] } },
+      required: ["reached", "evidence"],
+    },
+    phase4: {
+      type: "object",
+      properties: { reached: { type: "boolean" }, evidence: { type: ["string", "null"] } },
+      required: ["reached", "evidence"],
+    },
+    current_phase: { type: "integer", minimum: 1, maximum: 4 },
+    next_action: { type: "string" },
+    risk: { type: ["string", "null"] },
+  },
+  required: ["phase1", "phase2", "phase3", "phase4", "current_phase", "next_action", "risk"],
+};
+
 // 文字起こし全文を判定し、正規化したオブジェクトを返す
 export async function judgePhase(transcript, opts = {}) {
   const tr = (transcript || "").toString().trim();
@@ -370,9 +401,10 @@ export async function judgePhase(transcript, opts = {}) {
     "営業担当（サービスを提案・説明している側" + (repName ? `。多くの場合「${repName}」` : "") + "）の発言は、フェーズ1・フェーズ3の根拠（evidence）にしないでください。" +
     "営業担当が顧客の状況を代弁・要約しただけの発言も、フェーズ1・3の根拠にはなりません（顧客本人がその場で語った発言が必要）。" +
     "フェーズ2は営業担当の発言、フェーズ4は申込書送付の記録が根拠です。" +
-    "evidenceには、根拠とした話者の実際の発言をそのまま引用してください。";
-  // kinbot既存のLLM基盤（Gemini→Groqフォールバック）＋JSONモード
-  const text = await callLLM(sys, user, 1500);
+    "evidenceには、根拠とした話者の実際の発言をそのまま引用してください。" +
+    "phase1〜phase4は到達していなくても必ずオブジェクトを省略せず返し、到達していない場合はreached:false, evidence:nullにしてください。";
+  // kinbot既存のLLM基盤（Gemini→Groqフォールバック）＋JSONモード。Anthropic利用時はschemaで必須項目を強制。
+  const text = await callLLM(sys, user, 1500, { schema: PHASE_JSON_SCHEMA });
   const o = parseJson(text) || {};
   const pick = (p) => (o && o[p] && typeof o[p] === "object" ? o[p] : {});
   const p1 = pick("phase1"), p2 = pick("phase2"), p3 = pick("phase3"), p4 = pick("phase4");
@@ -482,16 +514,17 @@ function fallbackProvider() {
 
 async function callLLM(system, user, maxTokens = 1400, opts = {}) {
   const json = opts.json !== false;
+  const schema = opts.schema || null;
   try {
-    return await withRetry(() => callOnce(PROVIDER, system, user, maxTokens, json));
+    return await withRetry(() => callOnce(PROVIDER, system, user, maxTokens, json, schema));
   } catch (e) {
     const fb = fallbackProvider();
-    // Anthropicはキー未設定・課金未設定・モデル名誤りなど「一時的でない」理由でも丸ごと失敗しうるため、
+    // Anthropicはキー未設定・課金未設定・モデル名誤り・空応答など「一時的でない」理由でも丸ごと失敗しうるため、
     // Anthropicのときは理由を問わず必ずフォールバックする（他プロバイダは従来どおり一時的な混雑時のみ）。
     const shouldFallback = fb && (PROVIDER === "anthropic" || isTransient(e.message));
     if (shouldFallback) {
       console.warn(`[llm] ${PROVIDER} が失敗（${e.message}）→ ${fb} に自動フォールバック`);
-      return await withRetry(() => callOnce(fb, system, user, maxTokens, json), 2);
+      return await withRetry(() => callOnce(fb, system, user, maxTokens, json, schema), 2);
     }
     throw e;
   }
@@ -515,8 +548,8 @@ async function withRetry(fn, tries = 4) {
   throw last;
 }
 
-async function callOnce(provider, system, user, maxTokens, json = true) {
-  if (provider === "anthropic") return callAnthropic(system, user, maxTokens, json);
+async function callOnce(provider, system, user, maxTokens, json = true, schema = null) {
+  if (provider === "anthropic") return callAnthropic(system, user, maxTokens, json, schema);
   if (provider === "ollama") return callOllama(system, user, json);
   if (provider === "groq")
     return callOpenAICompat(system, user, maxTokens, {
@@ -582,7 +615,7 @@ async function callGemini(system, user, maxTokens, json = true) {
   return (data.candidates?.[0]?.content?.parts || []).map((p) => p.text || "").join("");
 }
 
-async function callAnthropic(system, user, maxTokens, json = true) {
+async function callAnthropic(system, user, maxTokens, json = true, schema = null) {
   const key = process.env.ANTHROPIC_API_KEY;
   if (!key) throw new Error("ANTHROPIC_API_KEY が未設定です");
   const model = process.env.ANALYZER_MODEL || "claude-sonnet-4-6";
@@ -591,11 +624,13 @@ async function callAnthropic(system, user, maxTokens, json = true) {
     // Claude系モデルにはGeminiのような「強制JSONモード」が無く、新しいモデル（Sonnet 4.6等）は
     // 応答の先頭を指定するprefill手法も使えない。最も確実なのは、JSON専用のツールを定義して
     // tool_choiceで必ずそれを呼ばせる方法（前置き文・コードフェンスが原理的に入り込まない）。
+    // スキーマ未指定の緩い定義だと、Claudeが中身を埋めずに空オブジェクトで呼んでしまうことがあるため、
+    // 呼び出し元が具体的なスキーマを渡せる場合は必須項目つきでそれを使う（無ければ汎用の緩いスキーマ）。
     body.tools = [
       {
         name: "emit_json",
-        description: "直前の指示で求められているJSON結果を、そのままこの関数の引数として返す。前置きや説明文、コードフェンスは一切含めない。",
-        input_schema: { type: "object" },
+        description: "直前の指示で求められているJSON結果を、そのままこの関数の引数として返す。前置きや説明文、コードフェンスは一切含めない。全てのプロパティを省略せず必ず埋めること。",
+        input_schema: schema || { type: "object" },
       },
     ];
     body.tool_choice = { type: "tool", name: "emit_json" };
@@ -612,7 +647,14 @@ async function callAnthropic(system, user, maxTokens, json = true) {
   const data = await res.json();
   if (json) {
     const toolBlock = (data.content || []).find((b) => b.type === "tool_use" && b.name === "emit_json");
-    if (toolBlock && toolBlock.input !== undefined) return JSON.stringify(toolBlock.input);
+    if (toolBlock && toolBlock.input !== undefined) {
+      // 中身が空（{}）のまま返ってきた場合は実質失敗。黙って空データを使わず、
+      // ここで例外にして呼び出し元（callLLM）の自動フォールバックに任せる。
+      if (!toolBlock.input || (typeof toolBlock.input === "object" && Object.keys(toolBlock.input).length === 0)) {
+        throw new Error("Anthropicから空のJSONが返されました");
+      }
+      return JSON.stringify(toolBlock.input);
+    }
     // 想定外でツール呼び出しが無かった場合は通常テキストにフォールバック（呼び出し元のparseJsonが処理）
   }
   return (data.content || []).map((b) => (b.type === "text" ? b.text : "")).join("");

@@ -1590,3 +1590,12 @@ body { background: var(--bg); }
 /* 案件フェーズ：最新商談に基づく注記 */
 .phase-src { font-size: 11px; color: var(--muted); margin: 2px 0 8px; }
 #dealPhaseBox { margin-top: 4px; }
+
+/* 案件カード：自動判定フェーズの小バッジ */
+.card-phase-badge { display: inline-flex; align-items: center; font-size: 10.5px; font-weight: 700; color: #fff; border-radius: 999px; padding: 1px 9px; margin-right: 2px; }
+.card-phase-badge.p1 { background: #8a958e; }
+.card-phase-badge.p2 { background: #2f7fd6; }
+.card-phase-badge.p3 { background: #11a47f; }
+.card-phase-badge.p4 { background: #0F6E56; }
+.card-phase-badge.unset { background: var(--panel-2); color: var(--muted); font-weight: 600; }
+.dmeta-edit .hint { font-size: 10.5px; color: var(--muted); font-weight: 400; }

@@ -478,8 +478,7 @@ async function loadDetail(botId) {
       <div class="dmeta-edit">
         <label>営業担当 <select id="mOwner"><option value="">未設定</option></select></label>
         <label>日時 <input type="datetime-local" id="mDatetime" /></label>
-        <label>何回目 <input type="number" id="mRound" min="1" max="99" placeholder="-" /></label>
-        <label>フェーズ <select id="mPhase"><option value="">未設定</option></select></label>
+        <label>何回目<span class="hint">（商談回数）</span> <input type="number" id="mRound" min="1" max="99" placeholder="-" /></label>
         <label>区分 <select id="mCategory">
           <option value="商談">商談</option>
           <option value="社内MTG">社内MTG</option>
@@ -720,23 +719,15 @@ async function loadDetail(botId) {
     const mTitle = hdetail.querySelector("#mTitle");
     mTitle.value = m.title || "";
 
-    // 何回目・フェーズ・日時
+    // 何回目（商談回数）・日時
     const mRound = hdetail.querySelector("#mRound");
-    const mPhase = hdetail.querySelector("#mPhase");
     const mOwner = hdetail.querySelector("#mOwner");
     const mDatetime = hdetail.querySelector("#mDatetime");
     const mCategory = hdetail.querySelector("#mCategory");
     const mSaved = hdetail.querySelector("#mSaved");
     if (m.created_at) mDatetime.value = isoToLocalInput(m.created_at);
     if (mCategory) mCategory.value = m.category && m.category !== "" ? m.category : "商談";
-    for (const p of PHASES) {
-      const o = document.createElement("option");
-      o.value = p.code;
-      o.textContent = p.label;
-      mPhase.appendChild(o);
-    }
     if (m.round_no) mRound.value = m.round_no;
-    if (m.phase) mPhase.value = m.phase;
 
     // 営業担当（登録ユーザーから選択して付け替え）
     const users = await loadUsers();
@@ -766,7 +757,6 @@ async function loadDetail(botId) {
           body: JSON.stringify({
             title: mTitle.value.trim(),
             round: mRound.value,
-            phase: mPhase.value,
             owner: mOwner.value,
             createdAt,
             category: mCategory ? mCategory.value : undefined,
@@ -779,7 +769,6 @@ async function loadDetail(botId) {
         if (row) {
           row.title = mTitle.value.trim();
           row.round_no = mRound.value ? Number(mRound.value) : null;
-          row.phase = mPhase.value || null;
           row.owner = mOwner.value || "";
           if (mCategory) row.category = mCategory.value;
           if (createdAt) row.created_at = createdAt;
@@ -791,7 +780,6 @@ async function loadDetail(botId) {
     };
     mTitle.addEventListener("change", saveMeta);
     mRound.addEventListener("change", saveMeta);
-    mPhase.addEventListener("change", saveMeta);
     if (mCategory) mCategory.addEventListener("change", saveMeta);
     mOwner.addEventListener("change", saveMeta);
     mDatetime.addEventListener("change", saveMeta);

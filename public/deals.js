@@ -37,6 +37,7 @@ let groupPrimary = {}; // groupKey -> 代表rawキー
 let current = null;
 let dealStatuses = {}; // account -> {status, manual}
 let accountsMap = {}; // key -> {site_url, official_name, owner, profile}
+let accountPhaseMap = {}; // primaryキー -> 案件単位のフェーズ判定（カード表示用）
 const STATUS_LIST = ["進行中", "受注", "失注", "保留"];
 const primaryOf = (a) => groupPrimary[a] || a;
 const statusOf = (a) => (dealStatuses[primaryOf(a)] && dealStatuses[primaryOf(a)].status) || "進行中";
@@ -94,6 +95,14 @@ const PHASE_NEED_D = {
 function escapeHtmlD(s) {
   return String(s == null ? "" : s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 }
+// 判定結果が更新されたら、一覧カードのフェーズ表示にも反映する
+function syncAccountPhase(key, j) {
+  if (!key) return;
+  if (j && j.current_phase) accountPhaseMap[key] = { account_key: key, current_phase: j.current_phase, based_on: j.based_on, judged_at: j.judged_at };
+  else delete accountPhaseMap[key];
+  renderList();
+}
+
 function renderDealPhaseBox(box, j, key, ms) {
   const total = ms ? ms.length : 0;
   const note = `<div class="phase-src">この案件の全商談（${total}回）の内容をまとめて判定${j && j.judged_at ? "" : ""}</div>`;
@@ -107,6 +116,7 @@ function renderDealPhaseBox(box, j, key, ms) {
       const d = await r.json();
       if (!r.ok) throw new Error(d.error || "判定に失敗");
       renderDealPhaseBox(box, d, key, ms);
+      syncAccountPhase(key, d);
     } catch (e) {
       if (btn) { btn.disabled = false; btn.textContent = "再判定"; }
       const host = box.querySelector(".phase-empty, .phase-head");
@@ -163,6 +173,7 @@ async function loadDealPhase(key, ms) {
     });
     const d = await r2.json();
     renderDealPhaseBox(box, r2.ok ? d : null, key, ms);
+    if (r2.ok) syncAccountPhase(key, d);
   } catch {
     renderDealPhaseBox(box, null, key, ms);
   }
@@ -196,6 +207,11 @@ async function load() {
       const accs = await (await fetch("/api/accounts")).json();
       accountsMap = {};
       for (const a of accs || []) accountsMap[a.key] = a;
+    } catch {}
+    try {
+      const phs = await (await fetch("/api/account-phase/all")).json();
+      accountPhaseMap = {};
+      for (const p of phs || []) accountPhaseMap[p.account_key] = p;
     } catch {}
   } catch {
     $("dealList").innerHTML = '<div class="empty-state">読み込みに失敗しました。</div>';
@@ -261,6 +277,13 @@ async function backfillAccountPhases() {
   }
   if (btn) btn.disabled = false;
   setSt(`完了：${judged}件を判定（既に最新 ${skipped}件はスキップ${failed ? "／失敗 " + failed + "件" : ""}）`);
+  // カードのフェーズ表示を最新化
+  try {
+    const phs = await (await fetch("/api/account-phase/all")).json();
+    accountPhaseMap = {};
+    for (const p of phs || []) accountPhaseMap[p.account_key] = p;
+  } catch {}
+  renderList();
   if (current) selectDeal(current); // 開いている案件があれば更新
   setTimeout(() => setSt(""), 6000);
 }
@@ -375,12 +398,16 @@ function accountCardEl(a) {
   const ms = groups[a];
   const last = ms[ms.length - 1];
   const st = statusOf(a);
+  const ph = accountPhaseMap[primaryOf(a)];
+  const phaseBadge = ph && ph.current_phase
+    ? `<span class="card-phase-badge p${ph.current_phase}">フェーズ${ph.current_phase}：${PHASE_NAMES_D[ph.current_phase] || ""}</span>`
+    : `<span class="card-phase-badge unset">フェーズ未判定</span>`;
   const card = document.createElement("div");
   card.className = "deal-card" + (a === current ? " active" : "");
   card.innerHTML =
     `<div class="deal-name">${esc(displayName(a))} <span class="status-badge st-${st}">${st}</span></div>` +
     `<div class="deal-meta"><span>${ms.length}件</span><span>${esc(last.owner_name || last.owner || "")}</span></div>` +
-    `<div class="deal-sub">${esc(PHASE_LABEL[last.phase] || "フェーズ未設定")} ・ 最終 ${fmtDate(last.created_at)}</div>`;
+    `<div class="deal-sub">${phaseBadge} ・ 最終 ${fmtDate(last.created_at)}</div>`;
   card.addEventListener("click", () => selectDeal(a));
   return card;
 }
@@ -488,7 +515,7 @@ async function selectDeal(account) {
     `<div class="deal-head-top"><h2>${esc(displayName(account))}</h2>` +
     `<div class="deal-status-pick"><span class="status-badge st-${statusOf(account)}" id="dealStBadge">${statusOf(account)}</span>` +
     `<select id="dealStSel">${STATUS_LIST.map((s) => `<option value="${s}" ${statusOf(account) === s ? "selected" : ""}>${s}</option>`).join("")}<option value="__auto">AIに任せる</option></select></div></div>` +
-    `<div class="deal-head-meta"><span id="dealOwnerWrap" class="deal-owner-wrap"></span> ・ ${ms.length}回の商談 ・ 現在 ${esc(PHASE_LABEL[last.phase] || "フェーズ未設定")}` +
+    `<div class="deal-head-meta"><span id="dealOwnerWrap" class="deal-owner-wrap"></span> ・ ${ms.length}回の商談` +
     (dealStatuses[pk] && dealStatuses[pk].manual ? ' ・ <span class="st-manual">手動設定</span>' : ' ・ <span class="st-auto">AI自動</span>') +
     `</div>` +
     (statusOf(account) === "失注" && lastLostReason(ms) ? `<div class="lost-reason">AI判定の失注理由: ${esc(lastLostReason(ms))}</div>` : "") +

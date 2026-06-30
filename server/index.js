@@ -43,6 +43,7 @@ import {
   getPhaseJudgment,
   saveAccountPhase,
   getAccountPhase,
+  listAccountPhases,
   phaseRows,
   phaseTrend,
   listRepTeams,
@@ -226,7 +227,7 @@ app.put("/api/meetings/:id/meta", async (req, res) => {
     const r = round === "" || round == null ? null : Number(round);
     await updateMeetingMeta(req.params.id, {
       round: Number.isFinite(r) ? r : null,
-      phase: phase || null,
+      phase: phase === undefined ? undefined : (phase || null),
       title: title === undefined ? undefined : title,
       owner: owner === undefined ? undefined : owner,
       createdAt: createdAt ? createdAt : undefined,
@@ -673,6 +674,10 @@ async function runAccountPhaseJudgment(key, botIds) {
   return j;
 }
 
+// 案件カード表示用：全案件ぶんのフェーズ判定を一括取得
+app.get("/api/account-phase/all", async (req, res) => {
+  try { res.json(await listAccountPhases()); } catch { res.json([]); }
+});
 // 案件フェーズ：保存済みを取得
 app.get("/api/account-phase", async (req, res) => {
   try {

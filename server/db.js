@@ -340,9 +340,14 @@ export async function deleteEmptyMeetings(minutes = 180) {
 // 商談の「何回目」「フェーズ」「商談名」「営業担当(owner)」を更新（undefinedの項目は変更しない）
 export async function updateMeetingMeta(botId, { round, phase, title, owner, createdAt, account, category }) {
   if (!pool) return;
-  const sets = ["round_no=$2", "phase=$3"];
-  const vals = [botId, round ?? null, phase || null];
-  let idx = 4;
+  const sets = ["round_no=$2"];
+  const vals = [botId, round ?? null];
+  let idx = 3;
+  if (phase !== undefined) {
+    sets.push(`phase=$${idx}`);
+    vals.push(phase || null);
+    idx++;
+  }
   if (title !== undefined) {
     sets.push(`title=$${idx}`);
     vals.push(title || "");
@@ -472,6 +477,14 @@ export async function getAccountPhase(key) {
     const { rows } = await pool.query(`SELECT * FROM account_phase_judgments WHERE account_key=$1`, [key]);
     return rows[0] || null;
   } catch { return null; }
+}
+// 案件一覧のカード表示用：全案件ぶんのフェーズ判定を一括取得
+export async function listAccountPhases() {
+  if (!pool) return [];
+  try {
+    const { rows } = await pool.query(`SELECT account_key, current_phase, based_on, judged_at FROM account_phase_judgments`);
+    return rows;
+  } catch { return []; }
 }
 // 期間内の判定結果（チーム/グループ名を結合）— ダッシュボードの集計用
 export async function phaseRows({ from, to } = {}) {
