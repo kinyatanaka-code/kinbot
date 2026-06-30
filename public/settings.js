@@ -267,7 +267,94 @@ loadThanks();
       menu.querySelectorAll(".set-menu-item").forEach((t) => t.classList.toggle("active", t === item));
       const name = item.dataset.tab;
       document.querySelectorAll(".set-pane").forEach((p) => (p.hidden = p.dataset.pane !== name));
+      if (name === "teams") loadTeams();
     });
+  });
+})();
+
+// ===== 担当者→チーム マッピング編集 =====
+let teamsCache = [];
+async function loadTeams() {
+  const tbl = document.getElementById("tmTable");
+  if (!tbl) return;
+  tbl.innerHTML = '<tr><td class="note">読み込み中…</td></tr>';
+  let reps = [], users = [];
+  try { teamsCache = await (await fetch("/api/phase/teams")).json(); } catch { teamsCache = []; }
+  try { reps = await (await fetch("/api/phase/reps")).json(); } catch { reps = []; }
+  try { users = await (await fetch("/api/users")).json(); } catch { users = []; }
+  // 候補（担当者名）：判定実績 + ユーザー名
+  const nameSet = new Set();
+  (reps || []).forEach((r) => r.rep_name && nameSet.add(r.rep_name));
+  (users || []).forEach((u) => (u.name || u.email) && nameSet.add(u.name || u.email));
+  const repList = document.getElementById("tmRepList");
+  if (repList) repList.innerHTML = [...nameSet].map((n) => `<option value="${escapeHtml(n)}">`).join("");
+  const teamList = document.getElementById("tmTeamList");
+  if (teamList) teamList.innerHTML = [...new Set(teamsCache.map((t) => t.team_name))].map((n) => `<option value="${escapeHtml(n)}">`).join("");
+  // 未マッピングの担当者（判定実績はあるがマッピングが無い）
+  const mapped = new Set(teamsCache.map((t) => t.rep_name));
+  const unmapped = (reps || []).filter((r) => !mapped.has(r.rep_name));
+  const um = document.getElementById("tmUnmapped");
+  if (um) {
+    if (unmapped.length) {
+      um.innerHTML = `<div class="tm-unmapped"><b>未割り当ての担当者</b>（フェーズ分析で「未分類」に入っています。クリックで上の入力欄に取り込み）<div class="tm-chips">` +
+        unmapped.map((r) => `<button type="button" class="tm-chip" data-rep="${escapeHtml(r.rep_name)}">${escapeHtml(r.rep_name)}（${r.n}件）</button>`).join("") +
+        `</div></div>`;
+      um.querySelectorAll(".tm-chip").forEach((b) =>
+        b.addEventListener("click", () => { document.getElementById("tmRep").value = b.dataset.rep; document.getElementById("tmTeam").focus(); })
+      );
+    } else um.innerHTML = "";
+  }
+  // 一覧テーブル
+  if (!teamsCache.length) {
+    tbl.innerHTML = '<tr><td class="note">まだ登録がありません。上の入力欄から追加してください。</td></tr>';
+    return;
+  }
+  tbl.innerHTML =
+    "<tr><th>担当者</th><th>チーム</th><th>グループ</th><th></th></tr>" +
+    teamsCache.map((t) =>
+      `<tr><td>${escapeHtml(t.rep_name)}</td><td>${escapeHtml(t.team_name)}</td><td>${escapeHtml(t.group_name)}</td>` +
+      `<td><button class="btn ghost tm-edit" data-rep="${escapeHtml(t.rep_name)}" data-team="${escapeHtml(t.team_name)}" data-group="${escapeHtml(t.group_name)}">編集</button> ` +
+      `<button class="btn danger tm-del" data-rep="${escapeHtml(t.rep_name)}">削除</button></td></tr>`
+    ).join("");
+  tbl.querySelectorAll(".tm-edit").forEach((b) =>
+    b.addEventListener("click", () => {
+      document.getElementById("tmRep").value = b.dataset.rep;
+      document.getElementById("tmTeam").value = b.dataset.team;
+      document.getElementById("tmGroup").value = b.dataset.group;
+      document.getElementById("tmRep").focus();
+    })
+  );
+  tbl.querySelectorAll(".tm-del").forEach((b) =>
+    b.addEventListener("click", async () => {
+      if (!confirm(`「${b.dataset.rep}」のマッピングを削除しますか？`)) return;
+      await fetch("/api/phase/teams/" + encodeURIComponent(b.dataset.rep), { method: "DELETE" });
+      loadTeams();
+    })
+  );
+}
+(function () {
+  const add = document.getElementById("tmAdd");
+  if (!add) return;
+  add.addEventListener("click", async () => {
+    const repName = (document.getElementById("tmRep").value || "").trim();
+    const teamName = (document.getElementById("tmTeam").value || "").trim();
+    const groupName = (document.getElementById("tmGroup").value || "").trim() || "直販";
+    const st = document.getElementById("tmStatus");
+    if (!repName || !teamName) { if (st) st.textContent = "担当者名とチーム名を入れてください"; return; }
+    if (st) st.textContent = "保存中…";
+    try {
+      const r = await fetch("/api/phase/teams", {
+        method: "PUT", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ repName, teamName, groupName }),
+      });
+      if (!r.ok) throw new Error("保存に失敗");
+      if (st) st.textContent = "保存しました";
+      document.getElementById("tmRep").value = "";
+      document.getElementById("tmTeam").value = "";
+      document.getElementById("tmGroup").value = "";
+      loadTeams();
+      setTimeout(() => { if (st) st.textContent = ""; }, 1500);
+    } catch (e) { if (st) st.textContent = "失敗: " + e.message; }
   });
 })();
 

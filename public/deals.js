@@ -127,7 +127,62 @@ async function load() {
     const elx = $(id);
     if (elx && !elx._wired) { elx._wired = true; elx.addEventListener("change", () => renderList()); }
   }
+  const mb = $("mergeDupBtn");
+  if (mb && !mb._wired) { mb._wired = true; mb.addEventListener("click", mergeDuplicates); }
   renderList();
+}
+
+// 同じ会社名の案件（別キーになっているもの）を、正式社名を揃えて1つにまとめる
+function normName(s) {
+  return String(s || "")
+    .replace(/株式会社|（株）|\(株\)|㈱|有限会社|（有）|\(有\)|合同会社|合資会社/g, "")
+    .replace(/[\s　]+/g, "")
+    .replace(/様$/u, "")
+    .toLowerCase();
+}
+async function mergeDuplicates() {
+  const status = $("mergeStatus");
+  const setSt = (t) => { if (status) status.textContent = t; };
+  const rawKeys = [...new Set(all.filter((m) => !(m.category && m.category !== "商談")).map((m) => acctOf(m)))];
+  const byNorm = {};
+  for (const rk of rawKeys) {
+    const nameForNorm = (accountsMap[rk] && accountsMap[rk].official_name) || rk;
+    const k = normName(nameForNorm);
+    if (!k) continue;
+    (byNorm[k] = byNorm[k] || []).push(rk);
+  }
+  const toMerge = Object.values(byNorm).filter((arr) => arr.length > 1);
+  if (!toMerge.length) { setSt("まとめられる重複は見つかりませんでした"); setTimeout(() => setSt(""), 2500); return; }
+  setSt("まとめています…");
+  let count = 0;
+  for (const arr of toMerge) {
+    // 正式社名：既存の official_name（最長）を優先、無ければ最長のキー名
+    let canonical = "";
+    for (const rk of arr) {
+      const off = accountsMap[rk] && accountsMap[rk].official_name;
+      if (off && off.length > canonical.length) canonical = off;
+    }
+    if (!canonical) canonical = arr.slice().sort((a, b) => b.length - a.length)[0];
+    for (const rk of arr) {
+      if (accountsMap[rk] && accountsMap[rk].official_name === canonical) continue;
+      try {
+        await fetch(`/api/accounts/${encodeURIComponent(rk)}`, {
+          method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ officialName: canonical }),
+        });
+        accountsMap[rk] = { ...(accountsMap[rk] || { key: rk }), official_name: canonical };
+      } catch {}
+    }
+    count++;
+  }
+  try {
+    const accs = await (await fetch("/api/accounts")).json();
+    accountsMap = {};
+    for (const a of accs || []) accountsMap[a.key] = a;
+  } catch {}
+  selectedRep = null; showAll = false; current = null;
+  renderList();
+  setSt(`${count}組をまとめました`);
+  setTimeout(() => setSt(""), 3000);
 }
 
 function groupKeyOf(rk) {

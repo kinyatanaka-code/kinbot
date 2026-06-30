@@ -473,6 +473,14 @@ export async function listRepTeams() {
     return rows;
   } catch { return []; }
 }
+// 判定結果に出てくる担当者名（マッピング候補）
+export async function listJudgmentReps() {
+  if (!pool) return [];
+  try {
+    const { rows } = await pool.query(`SELECT rep_name, COUNT(*)::int AS n FROM phase_judgments WHERE rep_name IS NOT NULL AND rep_name <> '' GROUP BY rep_name ORDER BY n DESC`);
+    return rows;
+  } catch { return []; }
+}
 export async function upsertRepTeam(repName, teamName, groupName = "直販") {
   if (!pool || !repName) return;
   try {

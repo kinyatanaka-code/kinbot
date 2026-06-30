@@ -256,6 +256,12 @@ function meetingCardEl(r) {
 }
 
 const PHASE_NAMES = { 1: "課題特定", 2: "カスタマイズデモ", 3: "顧客起点", 4: "クロージング" };
+const PHASE_NEED = {
+  1: "顧客が自社固有の状況（数字・「うちは/私が/今」）を具体的に話すと到達",
+  2: "担当者がデモ中に顧客固有の課題・数字を使うと到達",
+  3: "デモ後に顧客が『期日＋確定形（します/たい）』で次の動きを示すと到達（受注の分岐点）",
+  4: "申込書を送付（または送付の明言）で到達",
+};
 function renderPhaseBox(box, j, botId) {
   if (!j) {
     box.innerHTML = `<div class="phase-empty">フェーズ判定はまだありません。<button class="btn ghost phase-judge" type="button">フェーズを判定する</button></div>`;
@@ -267,13 +273,24 @@ function renderPhaseBox(box, j, botId) {
       const isCur = n === cur;
       return `<div class="phase-step ${cls} ${isCur ? "cur" : ""}"><span class="phase-dot">${reached ? "✓" : n}</span><span class="phase-label">${PHASE_NAMES[n]}</span></div>`;
     }).join('<span class="phase-arrow">›</span>');
+    // 各フェーズの判定理由（到達=根拠の発言／未到達=何が必要か）
+    const reasons = [1, 2, 3, 4].map((n) => {
+      const reached = j[`phase${n}_reached`];
+      const ev = j[`phase${n}_evidence`];
+      if (reached) {
+        return `<div class="pr-item reached"><div class="pr-h"><span class="pr-badge ok">到達</span>フェーズ${n}・${PHASE_NAMES[n]}</div>` +
+          (ev ? `<div class="pr-ev">根拠：「${escapeHtmlH(ev)}」</div>` : `<div class="pr-ev pr-muted">根拠の記載なし</div>`) + `</div>`;
+      }
+      return `<div class="pr-item notyet"><div class="pr-h"><span class="pr-badge no">未到達</span>フェーズ${n}・${PHASE_NAMES[n]}</div>` +
+        `<div class="pr-ev pr-muted">${escapeHtmlH(PHASE_NEED[n])}</div></div>`;
+    }).join("");
     const next = j.next_action ? `<div class="phase-next"><b>次のアクション</b>：${escapeHtmlH(j.next_action)}</div>` : "";
     const risk = j.risk ? `<div class="phase-risk"><b>⚠ リスク</b>：${escapeHtmlH(j.risk)}</div>` : "";
-    const ev3 = j.phase3_evidence ? `<div class="phase-ev">フェーズ3根拠：「${escapeHtmlH(j.phase3_evidence)}」</div>` : "";
     box.innerHTML =
       `<div class="phase-head"><span class="phase-badge p${cur}">現在フェーズ${cur}：${PHASE_NAMES[cur] || "-"}</span>` +
       `<button class="btn ghost phase-judge" type="button">再判定</button></div>` +
-      `<div class="phase-steps">${steps}</div>${next}${risk}${ev3}`;
+      `<div class="phase-steps">${steps}</div>${next}${risk}` +
+      `<details class="phase-reasons" open><summary>判定の理由（フェーズごと）</summary><div class="pr-list">${reasons}</div></details>`;
   }
   const btn = box.querySelector(".phase-judge");
   if (btn) btn.addEventListener("click", async () => {
@@ -285,7 +302,8 @@ function renderPhaseBox(box, j, botId) {
       renderPhaseBox(box, d, botId);
     } catch (e) {
       btn.disabled = false; btn.textContent = "再判定";
-      box.querySelector(".phase-empty, .phase-head")?.insertAdjacentHTML("beforeend", `<span class="phase-err">失敗: ${escapeHtmlH(e.message)}</span>`);
+      const host = box.querySelector(".phase-empty, .phase-head");
+      if (host) host.insertAdjacentHTML("beforeend", `<span class="phase-err">失敗: ${escapeHtmlH(e.message)}</span>`);
     }
   });
 }

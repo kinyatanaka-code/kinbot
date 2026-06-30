@@ -46,6 +46,7 @@ import {
   listRepTeams,
   upsertRepTeam,
   deleteRepTeam,
+  listJudgmentReps,
   getSetCache,
   saveSetCache,
   listUsers,
@@ -584,6 +585,10 @@ app.get("/api/phase/dashboard", async (req, res) => {
 // 担当者→チームのマスタ（一覧・編集）
 app.get("/api/phase/teams", async (req, res) => {
   try { res.json(await listRepTeams()); } catch { res.json([]); }
+});
+// マッピング候補（判定結果に出てくる担当者名）
+app.get("/api/phase/reps", async (req, res) => {
+  try { res.json(await listJudgmentReps()); } catch { res.json([]); }
 });
 app.put("/api/phase/teams", async (req, res) => {
   try {
