@@ -1586,3 +1586,7 @@ body { background: var(--bg); }
 
 /* 重複まとめ */
 .merge-status { font-size: 12px; color: var(--accent); }
+
+/* 案件フェーズ：最新商談に基づく注記 */
+.phase-src { font-size: 11px; color: var(--muted); margin: 2px 0 8px; }
+#dealPhaseBox { margin-top: 4px; }

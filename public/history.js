@@ -488,7 +488,6 @@ async function loadDetail(botId) {
         </select></label>
         <span class="dmeta-saved" id="mSaved" hidden>保存しました</span>
       </div>
-      <div class="phase-box" id="phaseBox"><div class="phase-loading">フェーズ判定を確認中…</div></div>
       <div class="tabs">
         <button class="tab active" data-tab="trans">文字起こし</button>
         <button class="tab" data-tab="summary">要約</button>
@@ -557,9 +556,6 @@ async function loadDetail(botId) {
         hdetail.querySelectorAll(".tabpane").forEach((p) => (p.hidden = p.dataset.pane !== name));
       });
     });
-
-    // 商談フェーズ判定（機能A・メンバー向け表示）
-    loadPhase(botId);
 
     // コピー（各タブの内容をプレーンテキストで）
     const copyText = async (text, btn) => {

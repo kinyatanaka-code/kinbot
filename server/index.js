@@ -533,6 +533,24 @@ app.post("/api/meetings/:id/phase/judge", async (req, res) => {
     res.status(502).json({ error: e.message });
   }
 });
+// メール→氏名の解決マップを作る
+async function buildRepNameMap() {
+  const map = {};
+  try {
+    const users = await listUsers();
+    for (const u of users || []) if (u.email) map[u.email] = u.name || u.email;
+  } catch {}
+  return map;
+}
+// rep_name / rep_email から表示名（田中欽也 など）を決める
+function resolveRepName(repName, repEmail, nameMap) {
+  if (repEmail && nameMap[repEmail]) return nameMap[repEmail];
+  if (repName && nameMap[repName]) return nameMap[repName]; // rep_nameがメールで保存されている場合
+  if (repName && !String(repName).includes("@")) return repName; // すでに氏名
+  const e = repName || repEmail || "";
+  return String(e).includes("@") ? String(e).split("@")[0] : (e || "(不明)");
+}
+
 // マネージャー向け：期間×階層の集計（SQL集計をJSで階層化）
 app.get("/api/phase/dashboard", async (req, res) => {
   try {
@@ -541,6 +559,18 @@ app.get("/api/phase/dashboard", async (req, res) => {
     const to = req.query.to || null;
     const rows = await phaseRows({ from, to });
     const trendRaw = await phaseTrend({ granularity, from, to });
+    const nameMap = await buildRepNameMap();
+    // チーム/グループのマッピング（担当者名 or メール どちらで登録されていても拾えるように両引き）
+    const teamByRep = {}, groupByRep = {};
+    try {
+      const maps = await listRepTeams();
+      for (const m of maps || []) { teamByRep[m.rep_name] = m.team_name; groupByRep[m.rep_name] = m.group_name; }
+    } catch {}
+    // 行に表示名・チームを付与
+    for (const r of rows) {
+      r.rep_disp = resolveRepName(r.rep_name, r.rep_email, nameMap);
+      r.team_name = teamByRep[r.rep_disp] || teamByRep[r.rep_name] || teamByRep[r.rep_email] || "未分類";
+    }
     const rate = (c, t) => (t ? Math.round((c / t) * 1000) / 10 : 0);
     const dist = (arr) => ({
       p1: arr.filter((r) => r.current_phase === 1).length,
@@ -552,9 +582,7 @@ app.get("/api/phase/dashboard", async (req, res) => {
       const p3 = arr.filter((r) => r.phase3_reached).length;
       return { total, phase3_count: p3, phase3_rate: rate(p3, total), dist: dist(arr) };
     };
-    // グループ全体
     const overall = summarize(rows);
-    // チーム→個人
     const teamMap = {};
     for (const r of rows) {
       const t = r.team_name || "未分類";
@@ -563,7 +591,7 @@ app.get("/api/phase/dashboard", async (req, res) => {
     const teams = Object.keys(teamMap).sort().map((t) => {
       const arr = teamMap[t];
       const repMap = {};
-      for (const r of arr) { const rn = r.rep_name || "(不明)"; (repMap[rn] = repMap[rn] || []).push(r); }
+      for (const r of arr) { const rn = r.rep_disp || "(不明)"; (repMap[rn] = repMap[rn] || []).push(r); }
       const reps = Object.keys(repMap).sort().map((rn) => {
         const ra = repMap[rn];
         const atRisk = ra.filter((x) => x.risk && (x.current_phase || 0) < 3).length;
@@ -586,9 +614,18 @@ app.get("/api/phase/dashboard", async (req, res) => {
 app.get("/api/phase/teams", async (req, res) => {
   try { res.json(await listRepTeams()); } catch { res.json([]); }
 });
-// マッピング候補（判定結果に出てくる担当者名）
+// マッピング候補（判定結果に出てくる担当者を表示名で）
 app.get("/api/phase/reps", async (req, res) => {
-  try { res.json(await listJudgmentReps()); } catch { res.json([]); }
+  try {
+    const raw = await listJudgmentReps();
+    const nameMap = await buildRepNameMap();
+    const agg = {};
+    for (const r of raw || []) {
+      const disp = resolveRepName(r.rep_name, null, nameMap);
+      agg[disp] = (agg[disp] || 0) + (r.n || 0);
+    }
+    res.json(Object.keys(agg).map((rep_name) => ({ rep_name, n: agg[rep_name] })).sort((a, b) => b.n - a.n));
+  } catch { res.json([]); }
 });
 app.put("/api/phase/teams", async (req, res) => {
   try {

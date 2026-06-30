@@ -430,7 +430,7 @@ export async function phaseRows({ from, to } = {}) {
   const where = cond.length ? "WHERE " + cond.join(" AND ") : "";
   try {
     const { rows } = await pool.query(
-      `SELECT pj.bot_id, pj.rep_name, pj.meeting_date, pj.current_phase,
+      `SELECT pj.bot_id, pj.rep_name, pj.rep_email, pj.meeting_date, pj.current_phase,
               pj.phase1_reached, pj.phase2_reached, pj.phase3_reached, pj.phase4_reached,
               pj.next_action, pj.risk,
               COALESCE(rtm.team_name,'未分類') AS team_name,
