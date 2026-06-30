@@ -139,12 +139,14 @@ function renderDealPhaseBox(box, j, key, ms) {
   const reasons = [1, 2, 3, 4].map((n) => {
     const reached = j[`phase${n}_reached`];
     const ev = j[`phase${n}_evidence`];
+    const why = j[`phase${n}_reasoning`];
     if (reached) {
       return `<div class="pr-item reached"><div class="pr-h"><span class="pr-badge ok">到達</span>フェーズ${n}・${PHASE_NAMES_D[n]}</div>` +
-        (ev ? `<div class="pr-ev">根拠：「${escapeHtmlD(ev)}」</div>` : `<div class="pr-ev pr-muted">根拠の記載なし</div>`) + `</div>`;
+        (ev ? `<div class="pr-ev">根拠：「${escapeHtmlD(ev)}」</div>` : `<div class="pr-ev pr-muted">根拠の記載なし</div>`) +
+        (why ? `<div class="pr-why">検討：${escapeHtmlD(why)}</div>` : "") + `</div>`;
     }
     return `<div class="pr-item notyet"><div class="pr-h"><span class="pr-badge no">未到達</span>フェーズ${n}・${PHASE_NAMES_D[n]}</div>` +
-      `<div class="pr-ev pr-muted">${escapeHtmlD(PHASE_NEED_D[n])}</div></div>`;
+      `<div class="pr-ev pr-muted">${why ? "検討：" + escapeHtmlD(why) : escapeHtmlD(PHASE_NEED_D[n])}</div></div>`;
   }).join("");
   const next = j.next_action ? `<div class="phase-next"><b>次のアクション</b>：${escapeHtmlD(j.next_action)}</div>` : "";
   const risk = j.risk ? `<div class="phase-risk"><b>⚠ リスク</b>：${escapeHtmlD(j.risk)}</div>` : "";

@@ -65,18 +65,25 @@ export async function initDb() {
       meeting_date DATE,
       phase1_reached BOOLEAN,
       phase1_evidence TEXT,
+      phase1_reasoning TEXT,
       phase2_reached BOOLEAN,
       phase2_evidence TEXT,
+      phase2_reasoning TEXT,
       phase3_reached BOOLEAN,
       phase3_evidence TEXT,
+      phase3_reasoning TEXT,
       phase4_reached BOOLEAN,
       phase4_evidence TEXT,
+      phase4_reasoning TEXT,
       current_phase INTEGER,
       next_action TEXT,
       risk TEXT,
       judged_at TIMESTAMPTZ DEFAULT now()
     );
   `);
+  for (const n of [1, 2, 3, 4]) {
+    await pool.query(`ALTER TABLE phase_judgments ADD COLUMN IF NOT EXISTS phase${n}_reasoning TEXT;`);
+  }
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_pj_meeting_date ON phase_judgments(meeting_date);`);
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_pj_rep ON phase_judgments(rep_name);`);
   // 案件単位のフェーズ判定（その案件の全商談をまとめて判定した結果）
@@ -88,18 +95,25 @@ export async function initDb() {
       based_on INTEGER,
       phase1_reached BOOLEAN,
       phase1_evidence TEXT,
+      phase1_reasoning TEXT,
       phase2_reached BOOLEAN,
       phase2_evidence TEXT,
+      phase2_reasoning TEXT,
       phase3_reached BOOLEAN,
       phase3_evidence TEXT,
+      phase3_reasoning TEXT,
       phase4_reached BOOLEAN,
       phase4_evidence TEXT,
+      phase4_reasoning TEXT,
       current_phase INTEGER,
       next_action TEXT,
       risk TEXT,
       judged_at TIMESTAMPTZ DEFAULT now()
     );
   `);
+  for (const n of [1, 2, 3, 4]) {
+    await pool.query(`ALTER TABLE account_phase_judgments ADD COLUMN IF NOT EXISTS phase${n}_reasoning TEXT;`);
+  }
   // 担当者→チーム→グループ のマスタ
   await pool.query(`
     CREATE TABLE IF NOT EXISTS rep_team_mapping (
@@ -421,19 +435,25 @@ export async function savePhaseJudgment(botId, j = {}) {
     await pool.query(
       `INSERT INTO phase_judgments
         (bot_id, rep_name, rep_email, meeting_date,
-         phase1_reached, phase1_evidence, phase2_reached, phase2_evidence,
-         phase3_reached, phase3_evidence, phase4_reached, phase4_evidence,
+         phase1_reached, phase1_evidence, phase1_reasoning,
+         phase2_reached, phase2_evidence, phase2_reasoning,
+         phase3_reached, phase3_evidence, phase3_reasoning,
+         phase4_reached, phase4_evidence, phase4_reasoning,
          current_phase, next_action, risk, judged_at)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15, now())
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19, now())
        ON CONFLICT (bot_id) DO UPDATE SET
          rep_name=$2, rep_email=$3, meeting_date=$4,
-         phase1_reached=$5, phase1_evidence=$6, phase2_reached=$7, phase2_evidence=$8,
-         phase3_reached=$9, phase3_evidence=$10, phase4_reached=$11, phase4_evidence=$12,
-         current_phase=$13, next_action=$14, risk=$15, judged_at=now()`,
+         phase1_reached=$5, phase1_evidence=$6, phase1_reasoning=$7,
+         phase2_reached=$8, phase2_evidence=$9, phase2_reasoning=$10,
+         phase3_reached=$11, phase3_evidence=$12, phase3_reasoning=$13,
+         phase4_reached=$14, phase4_evidence=$15, phase4_reasoning=$16,
+         current_phase=$17, next_action=$18, risk=$19, judged_at=now()`,
       [
         botId, j.rep_name || null, j.rep_email || null, j.meeting_date || null,
-        !!j.phase1_reached, j.phase1_evidence || null, !!j.phase2_reached, j.phase2_evidence || null,
-        !!j.phase3_reached, j.phase3_evidence || null, !!j.phase4_reached, j.phase4_evidence || null,
+        !!j.phase1_reached, j.phase1_evidence || null, j.phase1_reasoning || null,
+        !!j.phase2_reached, j.phase2_evidence || null, j.phase2_reasoning || null,
+        !!j.phase3_reached, j.phase3_evidence || null, j.phase3_reasoning || null,
+        !!j.phase4_reached, j.phase4_evidence || null, j.phase4_reasoning || null,
         j.current_phase || null, j.next_action || null, j.risk || null,
       ]
     );
@@ -453,19 +473,25 @@ export async function saveAccountPhase(key, j = {}) {
     await pool.query(
       `INSERT INTO account_phase_judgments
         (account_key, rep_name, meeting_date, based_on,
-         phase1_reached, phase1_evidence, phase2_reached, phase2_evidence,
-         phase3_reached, phase3_evidence, phase4_reached, phase4_evidence,
+         phase1_reached, phase1_evidence, phase1_reasoning,
+         phase2_reached, phase2_evidence, phase2_reasoning,
+         phase3_reached, phase3_evidence, phase3_reasoning,
+         phase4_reached, phase4_evidence, phase4_reasoning,
          current_phase, next_action, risk, judged_at)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15, now())
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19, now())
        ON CONFLICT (account_key) DO UPDATE SET
          rep_name=$2, meeting_date=$3, based_on=$4,
-         phase1_reached=$5, phase1_evidence=$6, phase2_reached=$7, phase2_evidence=$8,
-         phase3_reached=$9, phase3_evidence=$10, phase4_reached=$11, phase4_evidence=$12,
-         current_phase=$13, next_action=$14, risk=$15, judged_at=now()`,
+         phase1_reached=$5, phase1_evidence=$6, phase1_reasoning=$7,
+         phase2_reached=$8, phase2_evidence=$9, phase2_reasoning=$10,
+         phase3_reached=$11, phase3_evidence=$12, phase3_reasoning=$13,
+         phase4_reached=$14, phase4_evidence=$15, phase4_reasoning=$16,
+         current_phase=$17, next_action=$18, risk=$19, judged_at=now()`,
       [
         key, j.rep_name || null, j.meeting_date || null, j.based_on || null,
-        !!j.phase1_reached, j.phase1_evidence || null, !!j.phase2_reached, j.phase2_evidence || null,
-        !!j.phase3_reached, j.phase3_evidence || null, !!j.phase4_reached, j.phase4_evidence || null,
+        !!j.phase1_reached, j.phase1_evidence || null, j.phase1_reasoning || null,
+        !!j.phase2_reached, j.phase2_evidence || null, j.phase2_reasoning || null,
+        !!j.phase3_reached, j.phase3_evidence || null, j.phase3_reasoning || null,
+        !!j.phase4_reached, j.phase4_evidence || null, j.phase4_reasoning || null,
         j.current_phase || null, j.next_action || null, j.risk || null,
       ]
     );

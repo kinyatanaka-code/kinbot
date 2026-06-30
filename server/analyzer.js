@@ -358,28 +358,45 @@ export const PHASE_JUDGMENT_PROMPT = `以下は営業担当者と顧客の商談
 {TRANSCRIPT}`;
 
 // フェーズ判定の出力スキーマ（Claude経由のとき、ツール呼び出しを必須項目つきで強制するために使用）
+// reasoningをreached/evidenceより先に書かせることで、例と照らし合わせた検討を経てから結論を出させる。
 const PHASE_JSON_SCHEMA = {
   type: "object",
   properties: {
     phase1: {
       type: "object",
-      properties: { reached: { type: "boolean" }, evidence: { type: ["string", "null"] } },
-      required: ["reached", "evidence"],
+      properties: {
+        reasoning: { type: "string", description: "到達例・非到達例と文字起こしを具体的に照らし合わせた検討過程（1〜2文）" },
+        reached: { type: "boolean" },
+        evidence: { type: ["string", "null"] },
+      },
+      required: ["reasoning", "reached", "evidence"],
     },
     phase2: {
       type: "object",
-      properties: { reached: { type: "boolean" }, evidence: { type: ["string", "null"] } },
-      required: ["reached", "evidence"],
+      properties: {
+        reasoning: { type: "string", description: "到達例・非到達例と文字起こしを具体的に照らし合わせた検討過程（1〜2文）" },
+        reached: { type: "boolean" },
+        evidence: { type: ["string", "null"] },
+      },
+      required: ["reasoning", "reached", "evidence"],
     },
     phase3: {
       type: "object",
-      properties: { reached: { type: "boolean" }, evidence: { type: ["string", "null"] } },
-      required: ["reached", "evidence"],
+      properties: {
+        reasoning: { type: "string", description: "到達例・非到達例と文字起こしを具体的に照らし合わせた検討過程（1〜2文）" },
+        reached: { type: "boolean" },
+        evidence: { type: ["string", "null"] },
+      },
+      required: ["reasoning", "reached", "evidence"],
     },
     phase4: {
       type: "object",
-      properties: { reached: { type: "boolean" }, evidence: { type: ["string", "null"] } },
-      required: ["reached", "evidence"],
+      properties: {
+        reasoning: { type: "string", description: "到達例・非到達例と文字起こしを具体的に照らし合わせた検討過程（1〜2文）" },
+        reached: { type: "boolean" },
+        evidence: { type: ["string", "null"] },
+      },
+      required: ["reasoning", "reached", "evidence"],
     },
     current_phase: { type: "integer", minimum: 1, maximum: 4 },
     next_action: { type: "string" },
@@ -397,14 +414,18 @@ export async function judgePhase(transcript, opts = {}) {
   // 顧客（相手）の発言を根拠にするよう明示。営業担当の発言はフェーズ1・3の根拠にしない。
   const sys =
     "あなたは厳密なJSON出力器です。指定のJSONのみを返します。" +
+    "【判定の進め方】各フェーズについて、いきなり到達/未到達を決めず、必ず先に「reasoning」へ検討過程を書いてください。" +
+    "reasoningでは、上記プロンプトに示された到達例・非到達例を具体的に参照し、文字起こし中の該当発言がどちらに近いかを比較検討してください。" +
+    "話題が関連しているだけ・一般論・確定形が弱い・期日が曖昧、といった非到達例に近い発言を、安易に到達と判定しないでください。逆に、明確に条件を満たす発言があるのに見落として未到達にもしないでください。" +
     "【重要な判定ルール】フェーズ1とフェーズ3は『顧客（提案を受けている側）』の発言だけを根拠にしてください。" +
     "営業担当（サービスを提案・説明している側" + (repName ? `。多くの場合「${repName}」` : "") + "）の発言は、フェーズ1・フェーズ3の根拠（evidence）にしないでください。" +
     "営業担当が顧客の状況を代弁・要約しただけの発言も、フェーズ1・3の根拠にはなりません（顧客本人がその場で語った発言が必要）。" +
     "フェーズ2は営業担当の発言、フェーズ4は申込書送付の記録が根拠です。" +
-    "evidenceには、根拠とした話者の実際の発言をそのまま引用してください。" +
-    "phase1〜phase4は到達していなくても必ずオブジェクトを省略せず返し、到達していない場合はreached:false, evidence:nullにしてください。";
+    "evidenceには、根拠とした話者の実際の発言をそのまま引用してください（未到達でreasoningに参考発言を挙げた場合も、evidenceは到達根拠ではないのでnullのままにしてください）。" +
+    "phase1〜phase4は到達していなくても必ずオブジェクトを省略せず返し、到達していない場合はreached:false, evidence:nullにしてください（reasoningは到達/未到達どちらでも必ず書いてください）。";
   // kinbot既存のLLM基盤（Gemini→Groqフォールバック）＋JSONモード。Anthropic利用時はschemaで必須項目を強制。
-  const text = await callLLM(sys, user, 1500, { schema: PHASE_JSON_SCHEMA });
+  // reasoningを書かせる分、出力が伸びるためmaxTokensに余裕を持たせる。
+  const text = await callLLM(sys, user, 2600, { schema: PHASE_JSON_SCHEMA });
   const o = parseJson(text) || {};
   const pick = (p) => (o && o[p] && typeof o[p] === "object" ? o[p] : {});
   const p1 = pick("phase1"), p2 = pick("phase2"), p3 = pick("phase3"), p4 = pick("phase4");
@@ -416,11 +437,12 @@ export async function judgePhase(transcript, opts = {}) {
     for (let k = 0; k < 4; k++) if (reached[k]) cur = k + 1;
     if (!cur) cur = 1;
   }
+  const cleanReasoning = (s) => (s && String(s).trim() && String(s).trim() !== "null" ? String(s).trim() : null);
   return {
-    phase1_reached: reached[0], phase1_evidence: p1.evidence || null,
-    phase2_reached: reached[1], phase2_evidence: p2.evidence || null,
-    phase3_reached: reached[2], phase3_evidence: p3.evidence || null,
-    phase4_reached: reached[3], phase4_evidence: p4.evidence || null,
+    phase1_reached: reached[0], phase1_evidence: p1.evidence || null, phase1_reasoning: cleanReasoning(p1.reasoning),
+    phase2_reached: reached[1], phase2_evidence: p2.evidence || null, phase2_reasoning: cleanReasoning(p2.reasoning),
+    phase3_reached: reached[2], phase3_evidence: p3.evidence || null, phase3_reasoning: cleanReasoning(p3.reasoning),
+    phase4_reached: reached[3], phase4_evidence: p4.evidence || null, phase4_reasoning: cleanReasoning(p4.reasoning),
     current_phase: cur,
     next_action: o.next_action || null,
     risk: o.risk && String(o.risk).trim() && o.risk !== "null" ? o.risk : null,
