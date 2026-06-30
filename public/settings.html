@@ -30,6 +30,7 @@
             <button class="set-menu-item" data-tab="ai">AI提案設定</button>
             <button class="set-menu-item" data-tab="thanks">御礼メール例文</button>
             <button class="set-menu-item" data-tab="teams">チーム編集</button>
+            <button class="set-menu-item" data-tab="phasedef">フェーズ定義</button>
             <button class="set-menu-item" data-tab="status">状態</button>
           </nav>
           <div class="set-body">
@@ -267,6 +268,20 @@
               </div>
               <div id="tmUnmapped"></div>
               <table class="tm-table" id="tmTable"></table>
+            </div>
+          </div>
+          <div class="set-pane" data-pane="phasedef" hidden>
+            <div class="set-card">
+              <h3>商談フェーズ判定の定義</h3>
+              <p class="note">商談のフェーズ自動判定（①課題特定 ②カスタマイズデモ ③顧客起点 ④クロージング）に使うプロンプトです。営業プロセスが変わったら、コードの修正なしにここで定義を更新できます。<br>
+              文字起こしを差し込みたい位置に <code>{TRANSCRIPT}</code> と書いてください（書かなくても自動で末尾に追加されます）。出力のJSON形式（reasoning等）はシステム側で別途強制しているため、この文章は主に【フェーズ1〜4】の到達条件・到達例・非到達例の説明として編集してください。</p>
+              <textarea id="phasePromptText" rows="22" spellcheck="false"></textarea>
+              <div class="phasedef-actions">
+                <button class="btn" id="phasePromptSave">保存</button>
+                <button class="btn ghost" id="phasePromptReset">既定の文面に戻す</button>
+                <span class="tm-status" id="phasePromptStatus"></span>
+              </div>
+              <p class="note" id="phasePromptState"></p>
             </div>
           </div>
           <div class="set-pane" data-pane="status" hidden>

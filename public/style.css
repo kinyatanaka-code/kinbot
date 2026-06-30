@@ -1583,7 +1583,7 @@ body { background: var(--bg); }
 .pr-badge.no { background: #e9edeb; color: #6b7770; }
 .pr-ev { font-size: 12px; color: #15211c; margin-top: 4px; }
 .pr-ev.pr-muted { color: var(--muted); }
-.pr-why { font-size: 11.5px; color: var(--muted); margin-top: 3px; font-style: italic; }
+.pr-why { font-size: 12px; color: #4a5650; margin-top: 4px; line-height: 1.5; }
 
 /* 重複まとめ */
 .merge-status { font-size: 12px; color: var(--accent); }
@@ -1600,3 +1600,7 @@ body { background: var(--bg); }
 .card-phase-badge.p4 { background: #0F6E56; }
 .card-phase-badge.unset { background: var(--panel-2); color: var(--muted); font-weight: 600; }
 .dmeta-edit .hint { font-size: 10.5px; color: var(--muted); font-weight: 400; }
+
+/* 設定：フェーズ定義エディタ */
+#phasePromptText { width: 100%; box-sizing: border-box; font: 12.5px/1.6 ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace; padding: 12px 14px; border: 1px solid var(--line); border-radius: 10px; background: var(--panel-2); color: var(--ink); resize: vertical; margin-top: 8px; }
+.phasedef-actions { display: flex; align-items: center; gap: 10px; margin-top: 10px; }

@@ -279,9 +279,10 @@ export async function enrichCompany({ url, name, siteText }) {
   };
 }
 
-// ===== 商談フェーズ自動判定（仕様書のプロンプトをそのまま使用） =====
-// ※フェーズ定義は営業チーム確定の仕様。文言は変更しないこと。
-// 将来DB/設定で外出ししたい場合はこの定数を差し替え可能。
+// ===== 商談フェーズ自動判定 =====
+// 既定のフェーズ定義（仕様書のプロンプトをそのまま使用）。
+// 運用中にフェーズ定義が変わる可能性があるため、settings(DB)に保存されたカスタムプロンプトがあれば
+// そちらを優先し、無ければこの既定値にフォールバックする（getPhasePrompt参照）。
 export const PHASE_JUDGMENT_PROMPT = `以下は営業担当者と顧客の商談の文字起こしです。
 
 この商談が以下のフェーズ1〜4のそれぞれに到達しているかを判定してください。
@@ -357,15 +358,30 @@ export const PHASE_JUDGMENT_PROMPT = `以下は営業担当者と顧客の商談
 【商談の文字起こし】
 {TRANSCRIPT}`;
 
-// フェーズ判定の出力スキーマ（Claude経由のとき、ツール呼び出しを必須項目つきで強制するために使用）
+// settings(DB)にカスタムプロンプトがあればそれを、無ければ既定値を返す
+export async function getPhasePrompt() {
+  try {
+    const s = await getSettings();
+    const custom = s && typeof s.phaseJudgmentPrompt === "string" ? s.phaseJudgmentPrompt.trim() : "";
+    return custom || PHASE_JUDGMENT_PROMPT;
+  } catch {
+    return PHASE_JUDGMENT_PROMPT;
+  }
+}
+
+// フェーズ判定の出力スキーマ（必須項目つきで強制し、next_action/riskの省略や未到達理由の手抜きを防ぐ）
 // reasoningをreached/evidenceより先に書かせることで、例と照らし合わせた検討を経てから結論を出させる。
+const REASONING_DESC =
+  "到達例・非到達例と文字起こしを具体的に照らし合わせた検討過程（2〜3文）。" +
+  "到達の場合：どの発言がどの到達例に近いか。" +
+  "未到達の場合：それらしい発言があれば実際に引用し、それが到達例ではなく非到達例（一般論／確定形が弱い／期日が曖昧 等）に当てはまる理由を具体的に説明する。該当する発言が文字起こし中に全く無ければその旨を書く。";
 const PHASE_JSON_SCHEMA = {
   type: "object",
   properties: {
     phase1: {
       type: "object",
       properties: {
-        reasoning: { type: "string", description: "到達例・非到達例と文字起こしを具体的に照らし合わせた検討過程（1〜2文）" },
+        reasoning: { type: "string", description: REASONING_DESC },
         reached: { type: "boolean" },
         evidence: { type: ["string", "null"] },
       },
@@ -374,7 +390,7 @@ const PHASE_JSON_SCHEMA = {
     phase2: {
       type: "object",
       properties: {
-        reasoning: { type: "string", description: "到達例・非到達例と文字起こしを具体的に照らし合わせた検討過程（1〜2文）" },
+        reasoning: { type: "string", description: REASONING_DESC },
         reached: { type: "boolean" },
         evidence: { type: ["string", "null"] },
       },
@@ -383,7 +399,7 @@ const PHASE_JSON_SCHEMA = {
     phase3: {
       type: "object",
       properties: {
-        reasoning: { type: "string", description: "到達例・非到達例と文字起こしを具体的に照らし合わせた検討過程（1〜2文）" },
+        reasoning: { type: "string", description: REASONING_DESC },
         reached: { type: "boolean" },
         evidence: { type: ["string", "null"] },
       },
@@ -392,15 +408,15 @@ const PHASE_JSON_SCHEMA = {
     phase4: {
       type: "object",
       properties: {
-        reasoning: { type: "string", description: "到達例・非到達例と文字起こしを具体的に照らし合わせた検討過程（1〜2文）" },
+        reasoning: { type: "string", description: REASONING_DESC },
         reached: { type: "boolean" },
         evidence: { type: ["string", "null"] },
       },
       required: ["reasoning", "reached", "evidence"],
     },
     current_phase: { type: "integer", minimum: 1, maximum: 4 },
-    next_action: { type: "string" },
-    risk: { type: ["string", "null"] },
+    next_action: { type: "string", description: "次に担当者がすべき具体的なアクション（1〜2文）。空文字や省略は不可。" },
+    risk: { type: ["string", "null"], description: "このままだと失注するリスクがあれば具体的に記載。無ければ明示的にnull（キー自体は省略しない）。" },
   },
   required: ["phase1", "phase2", "phase3", "phase4", "current_phase", "next_action", "risk"],
 };
@@ -410,22 +426,29 @@ export async function judgePhase(transcript, opts = {}) {
   const tr = (transcript || "").toString().trim();
   if (!tr) throw new Error("文字起こしが空です");
   const repName = (opts && opts.repName) ? String(opts.repName).trim() : "";
-  const user = PHASE_JUDGMENT_PROMPT.replace("{TRANSCRIPT}", tr.slice(0, 50000));
+  const template = await getPhasePrompt();
+  const trClip = tr.slice(0, 50000);
+  // 設定で編集されたカスタムプロンプトに{TRANSCRIPT}が無い場合も壊れないよう、末尾に文字起こしを付与する
+  const user = template.includes("{TRANSCRIPT}")
+    ? template.replace("{TRANSCRIPT}", trClip)
+    : `${template}\n\n---\n\n【商談の文字起こし】\n${trClip}`;
   // 顧客（相手）の発言を根拠にするよう明示。営業担当の発言はフェーズ1・3の根拠にしない。
   const sys =
     "あなたは厳密なJSON出力器です。指定のJSONのみを返します。" +
     "【判定の進め方】各フェーズについて、いきなり到達/未到達を決めず、必ず先に「reasoning」へ検討過程を書いてください。" +
     "reasoningでは、上記プロンプトに示された到達例・非到達例を具体的に参照し、文字起こし中の該当発言がどちらに近いかを比較検討してください。" +
+    "未到達と判定する場合は、それらしい発言があれば実際に引用したうえで「なぜ非到達例に当てはまるか（一般論／確定形が弱い／期日が曖昧／顧客本人の発言でない 等）」を具体的に書いてください。該当しそうな発言が全く無い場合は「該当する発言なし」と書いてください。一般的な定義の繰り返しだけで終わらせないこと。" +
     "話題が関連しているだけ・一般論・確定形が弱い・期日が曖昧、といった非到達例に近い発言を、安易に到達と判定しないでください。逆に、明確に条件を満たす発言があるのに見落として未到達にもしないでください。" +
     "【重要な判定ルール】フェーズ1とフェーズ3は『顧客（提案を受けている側）』の発言だけを根拠にしてください。" +
     "営業担当（サービスを提案・説明している側" + (repName ? `。多くの場合「${repName}」` : "") + "）の発言は、フェーズ1・フェーズ3の根拠（evidence）にしないでください。" +
     "営業担当が顧客の状況を代弁・要約しただけの発言も、フェーズ1・3の根拠にはなりません（顧客本人がその場で語った発言が必要）。" +
     "フェーズ2は営業担当の発言、フェーズ4は申込書送付の記録が根拠です。" +
     "evidenceには、根拠とした話者の実際の発言をそのまま引用してください（未到達でreasoningに参考発言を挙げた場合も、evidenceは到達根拠ではないのでnullのままにしてください）。" +
-    "phase1〜phase4は到達していなくても必ずオブジェクトを省略せず返し、到達していない場合はreached:false, evidence:nullにしてください（reasoningは到達/未到達どちらでも必ず書いてください）。";
-  // kinbot既存のLLM基盤（Gemini→Groqフォールバック）＋JSONモード。Anthropic利用時はschemaで必須項目を強制。
-  // reasoningを書かせる分、出力が伸びるためmaxTokensに余裕を持たせる。
-  const text = await callLLM(sys, user, 2600, { schema: PHASE_JSON_SCHEMA });
+    "phase1〜phase4は到達していなくても必ずオブジェクトを省略せず返し、到達していない場合はreached:false, evidence:nullにしてください（reasoningは到達/未到達どちらでも必ず書いてください）。" +
+    "next_actionは現在のフェーズに応じた次の一手を必ず1〜2文で具体的に書いてください（省略不可）。riskは無ければキーごと省略せず値をnullにしてください（キー自体を省くのは不可）。";
+  // kinbot既存のLLM基盤（Gemini→Groqフォールバック）＋JSONモード。schemaで必須項目（next_action/risk含む）を強制。
+  // reasoningを詳しく書かせる分、出力が伸びるためmaxTokensに大きめの余裕を持たせる（途中で切れてnext_action/riskが欠落するのを防ぐ）。
+  const text = await callLLM(sys, user, 3500, { schema: PHASE_JSON_SCHEMA });
   const o = parseJson(text) || {};
   const pick = (p) => (o && o[p] && typeof o[p] === "object" ? o[p] : {});
   const p1 = pick("phase1"), p2 = pick("phase2"), p3 = pick("phase3"), p4 = pick("phase4");
@@ -438,13 +461,21 @@ export async function judgePhase(transcript, opts = {}) {
     if (!cur) cur = 1;
   }
   const cleanReasoning = (s) => (s && String(s).trim() && String(s).trim() !== "null" ? String(s).trim() : null);
+  const NEXT_FALLBACK = {
+    1: "次回の商談で、顧客自身の言葉で具体的な課題（数字や「うちは／私が／今」の状況描写）を引き出す質問をしてください。",
+    2: "ヒアリングした顧客固有の課題・数字をデモの中で具体的に取り上げ、顧客の状況に紐づけて説明してください。",
+    3: "デモ内容を踏まえ、具体的な期日と確定的な次のアクション（上申・見積依頼・導入時期など）を顧客から引き出してください。",
+    4: "申込書を送付し、契約手続きを進めてください。",
+  };
+  let nextAction = o.next_action && String(o.next_action).trim() && String(o.next_action).trim() !== "null" ? String(o.next_action).trim() : null;
+  if (!nextAction) nextAction = NEXT_FALLBACK[cur] || NEXT_FALLBACK[1];
   return {
     phase1_reached: reached[0], phase1_evidence: p1.evidence || null, phase1_reasoning: cleanReasoning(p1.reasoning),
     phase2_reached: reached[1], phase2_evidence: p2.evidence || null, phase2_reasoning: cleanReasoning(p2.reasoning),
     phase3_reached: reached[2], phase3_evidence: p3.evidence || null, phase3_reasoning: cleanReasoning(p3.reasoning),
     phase4_reached: reached[3], phase4_evidence: p4.evidence || null, phase4_reasoning: cleanReasoning(p4.reasoning),
     current_phase: cur,
-    next_action: o.next_action || null,
+    next_action: nextAction,
     risk: o.risk && String(o.risk).trim() && o.risk !== "null" ? o.risk : null,
   };
 }
@@ -541,9 +572,10 @@ async function callLLM(system, user, maxTokens = 1400, opts = {}) {
     return await withRetry(() => callOnce(PROVIDER, system, user, maxTokens, json, schema));
   } catch (e) {
     const fb = fallbackProvider();
-    // Anthropicはキー未設定・課金未設定・モデル名誤り・空応答など「一時的でない」理由でも丸ごと失敗しうるため、
-    // Anthropicのときは理由を問わず必ずフォールバックする（他プロバイダは従来どおり一時的な混雑時のみ）。
-    const shouldFallback = fb && (PROVIDER === "anthropic" || isTransient(e.message));
+    // JSON構造化出力が必要な呼び出し（フェーズ判定・各種分析など）は、キー未設定・課金未設定・
+    // モデル名誤り・出力上限での途中切れ・空応答など「一時的でない」理由でも丸ごと失敗しうるため、
+    // フォールバック先があれば理由を問わず必ず切り替える（自由記述の生成のみ、従来どおり一時的な混雑時に限定）。
+    const shouldFallback = fb && (json || PROVIDER === "anthropic" || isTransient(e.message));
     if (shouldFallback) {
       console.warn(`[llm] ${PROVIDER} が失敗（${e.message}）→ ${fb} に自動フォールバック`);
       return await withRetry(() => callOnce(fb, system, user, maxTokens, json, schema), 2);
@@ -587,7 +619,7 @@ async function callOnce(provider, system, user, maxTokens, json = true, schema =
       model: process.env.OPENAI_MODEL || "gpt-4o-mini",
       name: "OpenAI互換",
     }, json);
-  return callGemini(system, user, maxTokens, json);
+  return callGemini(system, user, maxTokens, json, schema);
 }
 
 // Groq / Cerebras / OpenRouter / OpenAI など OpenAI互換エンドポイント共通
@@ -612,21 +644,51 @@ async function callOpenAICompat(system, user, maxTokens, { base, key, model, nam
     throw new Error(`${name} ${res.status}: ${t.slice(0, 300)}`);
   }
   const data = await res.json();
-  return data.choices?.[0]?.message?.content || "";
+  const choice = data.choices?.[0];
+  if (json && choice?.finish_reason === "length") {
+    // 出力上限で打ち切られ、JSONが不完全な可能性が高い。不完全データを黙って使わず例外にする。
+    throw new Error(`${name}の応答が出力上限で途中で切れました（length）`);
+  }
+  return choice?.message?.content || "";
 }
 
-async function callGemini(system, user, maxTokens, json = true) {
+// JSON Schemaの type:[X,"null"] をGeminiの type:X + nullable:true に変換（その他はそのまま通す）
+function toGeminiSchema(node) {
+  if (Array.isArray(node)) return node.map(toGeminiSchema);
+  if (node && typeof node === "object") {
+    const out = {};
+    for (const k of Object.keys(node)) {
+      if (k === "type" && Array.isArray(node.type)) {
+        const types = node.type.filter((t) => t !== "null");
+        out.type = types[0] || "string";
+        if (node.type.includes("null")) out.nullable = true;
+        continue;
+      }
+      out[k] = toGeminiSchema(node[k]);
+    }
+    return out;
+  }
+  return node;
+}
+
+async function callGemini(system, user, maxTokens, json = true, schema = null) {
   const key = process.env.GEMINI_API_KEY;
   if (!key) throw new Error("GEMINI_API_KEY が未設定です（Google AI Studio で発行）");
   const model = process.env.GEMINI_MODEL || "gemini-2.5-flash-lite";
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${key}`;
+  const genConfig = { temperature: 0.4, maxOutputTokens: maxTokens };
+  if (json) {
+    genConfig.responseMimeType = "application/json";
+    // スキーマが渡されていれば必須項目つきで強制（next_action/riskの省略などを防ぐ）
+    if (schema) genConfig.responseSchema = toGeminiSchema(schema);
+  }
   const res = await fetch(url, {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({
       system_instruction: { parts: [{ text: system }] },
       contents: [{ role: "user", parts: [{ text: user }] }],
-      generationConfig: { temperature: 0.4, maxOutputTokens: maxTokens, ...(json ? { responseMimeType: "application/json" } : {}) },
+      generationConfig: genConfig,
     }),
   });
   if (!res.ok) {
@@ -634,7 +696,12 @@ async function callGemini(system, user, maxTokens, json = true) {
     throw new Error(`Gemini ${res.status}: ${t.slice(0, 300)}`);
   }
   const data = await res.json();
-  return (data.candidates?.[0]?.content?.parts || []).map((p) => p.text || "").join("");
+  const cand = data.candidates?.[0];
+  if (json && cand?.finishReason === "MAX_TOKENS") {
+    // 出力上限で打ち切られ、JSONが不完全な可能性が高い。不完全データを黙って使わず例外にする。
+    throw new Error("Geminiの応答が出力上限で途中で切れました（MAX_TOKENS）");
+  }
+  return (cand?.content?.parts || []).map((p) => p.text || "").join("");
 }
 
 async function callAnthropic(system, user, maxTokens, json = true, schema = null) {
@@ -670,12 +737,17 @@ async function callAnthropic(system, user, maxTokens, json = true, schema = null
   if (json) {
     const toolBlock = (data.content || []).find((b) => b.type === "tool_use" && b.name === "emit_json");
     if (toolBlock && toolBlock.input !== undefined) {
-      // 中身が空（{}）のまま返ってきた場合は実質失敗。黙って空データを使わず、
-      // ここで例外にして呼び出し元（callLLM）の自動フォールバックに任せる。
-      if (!toolBlock.input || (typeof toolBlock.input === "object" && Object.keys(toolBlock.input).length === 0)) {
-        throw new Error("Anthropicから空のJSONが返されました");
+      const inp = toolBlock.input;
+      // 中身が空（{}）、または途中で切れて必須トップレベルキーが欠けている場合は実質失敗。
+      // 黙って不完全なデータを使わず、ここで例外にして呼び出し元（callLLM）の自動フォールバックに任せる。
+      const emptyObj = !inp || (typeof inp === "object" && Object.keys(inp).length === 0);
+      const missingRequired = !emptyObj && schema && Array.isArray(schema.required)
+        ? schema.required.some((k) => inp[k] === undefined)
+        : false;
+      if (emptyObj || missingRequired) {
+        throw new Error(emptyObj ? "Anthropicから空のJSONが返されました" : "Anthropicの応答が途中で切れ、必須項目が欠けています");
       }
-      return JSON.stringify(toolBlock.input);
+      return JSON.stringify(inp);
     }
     // 想定外でツール呼び出しが無かった場合は通常テキストにフォールバック（呼び出し元のparseJsonが処理）
   }

@@ -233,13 +233,18 @@ async function load() {
   const mb = $("mergeDupBtn");
   if (mb && !mb._wired) { mb._wired = true; mb.addEventListener("click", mergeDuplicates); }
   const pb = $("phaseBackfillBtn");
-  if (pb && !pb._wired) { pb._wired = true; pb.addEventListener("click", backfillAccountPhases); }
+  if (pb && !pb._wired) { pb._wired = true; pb.addEventListener("click", () => backfillAccountPhases(false)); }
+  const pra = $("phaseRejudgeAllBtn");
+  if (pra && !pra._wired) { pra._wired = true; pra.addEventListener("click", () => backfillAccountPhases(true)); }
   renderList();
 }
 
-// 未判定（または商談数が変わった）案件をまとめてフェーズ判定する
-async function backfillAccountPhases() {
-  const btn = $("phaseBackfillBtn");
+// 案件のフェーズ判定をまとめて実行する。
+// forceAll=false：未判定・商談数が変わった案件のみ（差分判定）
+// forceAll=true ：既に判定済みの案件も含め、全件を最新の基準（最新のフェーズ定義・プロンプト）で判定し直す
+async function backfillAccountPhases(forceAll) {
+  const btn = forceAll ? $("phaseRejudgeAllBtn") : $("phaseBackfillBtn");
+  const otherBtn = forceAll ? $("phaseBackfillBtn") : $("phaseRejudgeAllBtn");
   const st = $("phaseBackfillStatus");
   const setSt = (t) => { if (st) st.textContent = t; };
   // 全案件をグルーピング（フィルタは無視して全件対象）
@@ -258,17 +263,23 @@ async function backfillAccountPhases() {
     tasks.push({ key: primary, ms: tmp[gk] });
   }
   if (!tasks.length) { setSt("対象の案件がありません"); setTimeout(() => setSt(""), 2500); return; }
-  if (!confirm(`未判定の案件をまとめてフェーズ判定します（最大${tasks.length}社）。\n商談数が多いと時間がかかることがあります。実行しますか？`)) return;
+  const confirmMsg = forceAll
+    ? `全${tasks.length}社を、判定済みかどうかに関わらず最新の基準で判定し直します。\n件数が多いと時間がかかり、AIの利用量も増えます。実行しますか？`
+    : `未判定の案件をまとめてフェーズ判定します（最大${tasks.length}社）。\n商談数が多いと時間がかかることがあります。実行しますか？`;
+  if (!confirm(confirmMsg)) return;
   if (btn) btn.disabled = true;
+  if (otherBtn) otherBtn.disabled = true;
   const total = tasks.length;
   let done = 0, judged = 0, skipped = 0, failed = 0;
   for (const t of tasks) {
     done++;
     setSt(`判定中 ${done}/${total}…（判定${judged}・スキップ${skipped}${failed ? "・失敗" + failed : ""}）`);
     try {
-      const r = await fetch("/api/account-phase?key=" + encodeURIComponent(t.key));
-      const j = await r.json();
-      if (j && Number(j.based_on || 0) === t.ms.length) { skipped++; continue; } // 既に最新で判定済み
+      if (!forceAll) {
+        const r = await fetch("/api/account-phase?key=" + encodeURIComponent(t.key));
+        const j = await r.json();
+        if (j && Number(j.based_on || 0) === t.ms.length) { skipped++; continue; } // 既に最新で判定済み
+      }
       const r2 = await fetch("/api/account-phase/judge", {
         method: "POST", headers: { "content-type": "application/json" },
         body: JSON.stringify({ key: t.key, botIds: t.ms.map((m) => m.bot_id) }),
@@ -278,7 +289,8 @@ async function backfillAccountPhases() {
     } catch { failed++; }
   }
   if (btn) btn.disabled = false;
-  setSt(`完了：${judged}件を判定（既に最新 ${skipped}件はスキップ${failed ? "／失敗 " + failed + "件" : ""}）`);
+  if (otherBtn) otherBtn.disabled = false;
+  setSt(`完了：${judged}件を判定${skipped ? `（既に最新 ${skipped}件はスキップ）` : ""}${failed ? `／失敗 ${failed}件` : ""}`);
   // カードのフェーズ表示を最新化
   try {
     const phs = await (await fetch("/api/account-phase/all")).json();

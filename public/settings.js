@@ -268,6 +268,7 @@ loadThanks();
       const name = item.dataset.tab;
       document.querySelectorAll(".set-pane").forEach((p) => (p.hidden = p.dataset.pane !== name));
       if (name === "teams") loadTeams();
+      if (name === "phasedef") loadPhasePrompt();
     });
   });
 })();
@@ -354,6 +355,59 @@ async function loadTeams() {
       document.getElementById("tmGroup").value = "";
       loadTeams();
       setTimeout(() => { if (st) st.textContent = ""; }, 1500);
+    } catch (e) { if (st) st.textContent = "失敗: " + e.message; }
+  });
+})();
+
+// ===== フェーズ判定の定義（プロンプト）編集 =====
+let phasePromptDefault = "";
+async function loadPhasePrompt() {
+  const ta = document.getElementById("phasePromptText");
+  const state = document.getElementById("phasePromptState");
+  if (!ta) return;
+  ta.value = "読み込み中…";
+  try {
+    const d = await (await fetch("/api/phase/prompt")).json();
+    phasePromptDefault = d.defaultPrompt || "";
+    ta.value = d.prompt || "";
+    if (state) state.textContent = d.isDefault ? "現在：既定の文面のまま（未編集）" : "現在：カスタム編集済み";
+  } catch {
+    ta.value = "";
+    if (state) state.textContent = "読み込みに失敗しました。";
+  }
+}
+(function () {
+  const saveBtn = document.getElementById("phasePromptSave");
+  const resetBtn = document.getElementById("phasePromptReset");
+  const ta = document.getElementById("phasePromptText");
+  const st = document.getElementById("phasePromptStatus");
+  const state = document.getElementById("phasePromptState");
+  if (!saveBtn || !ta) return;
+  saveBtn.addEventListener("click", async () => {
+    const text = ta.value;
+    if (!text.trim()) { if (st) st.textContent = "空のままでは保存できません（既定に戻す場合は右のボタンを使ってください）"; return; }
+    if (st) st.textContent = "保存中…";
+    try {
+      const r = await fetch("/api/phase/prompt", {
+        method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ prompt: text }),
+      });
+      if (!r.ok) throw new Error("保存に失敗");
+      if (st) st.textContent = "保存しました。次回の判定から反映されます。";
+      if (state) state.textContent = text.trim() === phasePromptDefault.trim() ? "現在：既定の文面のまま（未編集）" : "現在：カスタム編集済み";
+      setTimeout(() => { if (st) st.textContent = ""; }, 3000);
+    } catch (e) { if (st) st.textContent = "失敗: " + e.message; }
+  });
+  if (resetBtn) resetBtn.addEventListener("click", async () => {
+    if (!confirm("カスタム編集を破棄して、既定の文面に戻します。よろしいですか？")) return;
+    if (st) st.textContent = "戻しています…";
+    try {
+      await fetch("/api/phase/prompt", {
+        method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ prompt: "" }),
+      });
+      ta.value = phasePromptDefault;
+      if (state) state.textContent = "現在：既定の文面のまま（未編集）";
+      if (st) st.textContent = "既定の文面に戻しました";
+      setTimeout(() => { if (st) st.textContent = ""; }, 2500);
     } catch (e) { if (st) st.textContent = "失敗: " + e.message; }
   });
 })();

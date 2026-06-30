@@ -68,7 +68,7 @@ import {
   deleteKbFolder,
 } from "./db.js";
 import { resolveConfig, statusInfo } from "./config.js";
-import { analyzerInfo, analyzeMeeting, analyzeDeep, analyzeTendency, analyzeSet, analyzeWinLoss, extractLostSignals, freeAnalyze, chatWithData, enrichCompany, judgePhase, generateThanks, getCheckItems } from "./analyzer.js";
+import { analyzerInfo, analyzeMeeting, analyzeDeep, analyzeTendency, analyzeSet, analyzeWinLoss, extractLostSignals, freeAnalyze, chatWithData, enrichCompany, judgePhase, PHASE_JUDGMENT_PROMPT, getPhasePrompt, generateThanks, getCheckItems } from "./analyzer.js";
 import {
   googleConfigured,
   authUrl,
@@ -616,6 +616,26 @@ app.get("/api/phase/dashboard", async (req, res) => {
 // 担当者→チームのマスタ（一覧・編集）
 app.get("/api/phase/teams", async (req, res) => {
   try { res.json(await listRepTeams()); } catch { res.json([]); }
+});
+// フェーズ定義プロンプト（DBで上書き可能。空にすると既定値に戻る）
+app.get("/api/phase/prompt", async (req, res) => {
+  try {
+    const s = await getSettings();
+    const custom = typeof s.phaseJudgmentPrompt === "string" ? s.phaseJudgmentPrompt : "";
+    res.json({ prompt: custom || PHASE_JUDGMENT_PROMPT, isDefault: !custom.trim(), defaultPrompt: PHASE_JUDGMENT_PROMPT });
+  } catch (e) {
+    res.json({ prompt: PHASE_JUDGMENT_PROMPT, isDefault: true, defaultPrompt: PHASE_JUDGMENT_PROMPT });
+  }
+});
+app.put("/api/phase/prompt", async (req, res) => {
+  try {
+    const { prompt } = req.body || {};
+    // 空文字を送った場合は「既定値に戻す」扱い
+    await saveSettings({ phaseJudgmentPrompt: typeof prompt === "string" ? prompt : "" });
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
 });
 // マッピング候補（判定結果に出てくる担当者を表示名で）
 app.get("/api/phase/reps", async (req, res) => {

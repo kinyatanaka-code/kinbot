@@ -26,6 +26,7 @@
           <label>商談期間<span class="range"><input id="fFrom" type="date" /><span class="range-sep">〜</span><input id="fTo" type="date" /></span></label>
           <button class="btn ghost" id="mergeDupBtn" type="button" title="同じ会社名の案件を1つにまとめます">重複をまとめる</button>
           <button class="btn ghost" id="phaseBackfillBtn" type="button" title="まだフェーズ判定していない案件をまとめて判定します">未判定をまとめて判定</button>
+          <button class="btn ghost" id="phaseRejudgeAllBtn" type="button" title="既に判定済みの案件も含め、全件を最新の基準で判定し直します">全件を再判定</button>
           <span class="merge-status" id="mergeStatus"></span>
           <span class="merge-status" id="phaseBackfillStatus"></span>
         </div>
