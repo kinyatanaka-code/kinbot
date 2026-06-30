@@ -311,6 +311,8 @@ async function judgeSelectedAccounts() {
       if (!firstErr) firstErr = e.message || String(e);
       console.error("[bulk judge]", displayName(t.key), e.message || e);
     }
+    // 立て続けに送るとAI側のレート制限（特にフォールバック先）に当たりやすいため、間隔を空ける
+    if (done < total) await new Promise((r) => setTimeout(r, 600));
   }
   if (btn) btn.disabled = false;
   setSt(`完了：${judged}件を判定${failed ? `／失敗 ${failed}件${firstErr ? `（例：${firstErr}）` : ""}` : ""}`);

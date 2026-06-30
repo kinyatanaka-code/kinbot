@@ -595,7 +595,14 @@ async function callLLM(system, user, maxTokens = 1400, opts = {}) {
     const shouldFallback = fb && (json || PROVIDER === "anthropic" || isTransient(e.message));
     if (shouldFallback) {
       console.warn(`[llm] ${PROVIDER} が失敗（${e.message}）→ ${fb} に自動フォールバック`);
-      return await withRetry(() => callOnce(fb, system, user, maxTokens, json, schema, cachePrefix), 2);
+      try {
+        return await withRetry(() => callOnce(fb, system, user, maxTokens, json, schema, cachePrefix), 2);
+      } catch (e2) {
+        // フォールバックも失敗した場合、フォールバック側のエラーだけを表示すると本来の原因（最初のプロバイダの失敗理由）が
+        // 隠れてしまうため、両方のエラーをまとめて投げる。
+        console.error(`[llm] フォールバック(${fb})も失敗（${e2.message}）`);
+        throw new Error(`${PROVIDER}: ${e.message} ／ フォールバック(${fb}): ${e2.message}`);
+      }
     }
     throw e;
   }
