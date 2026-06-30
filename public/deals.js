@@ -38,6 +38,8 @@ let current = null;
 let dealStatuses = {}; // account -> {status, manual}
 let accountsMap = {}; // key -> {site_url, official_name, owner, profile}
 let accountPhaseMap = {}; // primaryキー -> 案件単位のフェーズ判定（カード表示用）
+let selectMode = false; // 案件カードの選択モード
+let selectedAccounts = new Set(); // 選択中の案件（groupsのキー基準）
 const STATUS_LIST = ["進行中", "受注", "失注", "保留"];
 const primaryOf = (a) => groupPrimary[a] || a;
 const statusOf = (a) => (dealStatuses[primaryOf(a)] && dealStatuses[primaryOf(a)].status) || "進行中";
@@ -232,22 +234,19 @@ async function load() {
   }
   const mb = $("mergeDupBtn");
   if (mb && !mb._wired) { mb._wired = true; mb.addEventListener("click", mergeDuplicates); }
-  const pb = $("phaseBackfillBtn");
-  if (pb && !pb._wired) { pb._wired = true; pb.addEventListener("click", () => backfillAccountPhases(false)); }
-  const pra = $("phaseRejudgeAllBtn");
-  if (pra && !pra._wired) { pra._wired = true; pra.addEventListener("click", () => backfillAccountPhases(true)); }
+  const smb = $("selectModeBtn");
+  if (smb && !smb._wired) { smb._wired = true; smb.addEventListener("click", toggleSelectMode); }
+  const saBtn = $("selectAllBtn");
+  if (saBtn && !saBtn._wired) { saBtn._wired = true; saBtn.addEventListener("click", selectAllVisible); }
+  const scBtn = $("selectClearBtn");
+  if (scBtn && !scBtn._wired) { scBtn._wired = true; scBtn.addEventListener("click", () => { selectedAccounts.clear(); renderList(); }); }
+  const bjBtn = $("bulkJudgeBtn");
+  if (bjBtn && !bjBtn._wired) { bjBtn._wired = true; bjBtn.addEventListener("click", judgeSelectedAccounts); }
   renderList();
 }
 
-// 案件のフェーズ判定をまとめて実行する。
-// forceAll=false：未判定・商談数が変わった案件のみ（差分判定）
-// forceAll=true ：既に判定済みの案件も含め、全件を最新の基準（最新のフェーズ定義・プロンプト）で判定し直す
-async function backfillAccountPhases(forceAll) {
-  const btn = forceAll ? $("phaseRejudgeAllBtn") : $("phaseBackfillBtn");
-  const otherBtn = forceAll ? $("phaseBackfillBtn") : $("phaseRejudgeAllBtn");
-  const st = $("phaseBackfillStatus");
-  const setSt = (t) => { if (st) st.textContent = t; };
-  // 全案件をグルーピング（フィルタは無視して全件対象）
+// 全案件をグルーピングする共通ヘルパー（フィルタは無視して全件対象。選択モード・一括判定で使用）
+function buildAllAccountTasks() {
   const tmp = {}, rawSets = {};
   for (const m of all) {
     if (m.category && m.category !== "商談") continue;
@@ -256,49 +255,68 @@ async function backfillAccountPhases(forceAll) {
     (tmp[gk] = tmp[gk] || []).push(m);
     (rawSets[gk] = rawSets[gk] || new Set()).add(rk);
   }
-  const tasks = [];
+  const tasks = {}; // groupKey -> {key(primary), ms}
   for (const gk of Object.keys(tmp)) {
     const raws = [...rawSets[gk]];
     const primary = raws.find((r) => accountsMap[r] && (accountsMap[r].official_name || accountsMap[r].profile || accountsMap[r].owner || accountsMap[r].site_url)) || raws[0];
-    tasks.push({ key: primary, ms: tmp[gk] });
+    tasks[gk] = { key: primary, ms: tmp[gk] };
   }
-  if (!tasks.length) { setSt("対象の案件がありません"); setTimeout(() => setSt(""), 2500); return; }
-  const confirmMsg = forceAll
-    ? `全${tasks.length}社を、判定済みかどうかに関わらず最新の基準で判定し直します。\n件数が多いと時間がかかり、AIの利用量も増えます。実行しますか？`
-    : `未判定の案件をまとめてフェーズ判定します（最大${tasks.length}社）。\n商談数が多いと時間がかかることがあります。実行しますか？`;
-  if (!confirm(confirmMsg)) return;
+  return tasks;
+}
+
+// 選択モードのON/OFF
+function toggleSelectMode() {
+  selectMode = !selectMode;
+  if (!selectMode) selectedAccounts.clear();
+  else { showAll = true; selectedRep = null; } // 選びやすいよう「すべての案件」表示にする
+  current = null;
+  renderList();
+}
+
+// 表示中の案件カードをすべて選択する
+function selectAllVisible() {
+  buildGroups();
+  for (const gk of Object.keys(groups)) selectedAccounts.add(gk);
+  renderList();
+}
+
+// 選択した案件をまとめてフェーズ判定する（選んだものは必ず判定し直す）
+async function judgeSelectedAccounts() {
+  const btn = $("bulkJudgeBtn");
+  const st = $("bulkJudgeStatus");
+  const setSt = (t) => { if (st) st.textContent = t; };
+  const keys = [...selectedAccounts];
+  if (!keys.length) { setSt("案件が選択されていません"); setTimeout(() => setSt(""), 2000); return; }
+  const allTasks = buildAllAccountTasks();
+  const tasks = keys.map((gk) => allTasks[gk]).filter(Boolean);
+  if (!tasks.length) { setSt("対象の案件が見つかりませんでした"); setTimeout(() => setSt(""), 2500); return; }
+  if (!confirm(`選択した${tasks.length}件をフェーズ判定します。\n実行しますか？`)) return;
   if (btn) btn.disabled = true;
-  if (otherBtn) otherBtn.disabled = true;
   const total = tasks.length;
-  let done = 0, judged = 0, skipped = 0, failed = 0;
+  let done = 0, judged = 0, failed = 0;
   for (const t of tasks) {
     done++;
-    setSt(`判定中 ${done}/${total}…（判定${judged}・スキップ${skipped}${failed ? "・失敗" + failed : ""}）`);
+    setSt(`判定中 ${done}/${total}…（判定${judged}${failed ? "・失敗" + failed : ""}）`);
     try {
-      if (!forceAll) {
-        const r = await fetch("/api/account-phase?key=" + encodeURIComponent(t.key));
-        const j = await r.json();
-        if (j && Number(j.based_on || 0) === t.ms.length) { skipped++; continue; } // 既に最新で判定済み
-      }
-      const r2 = await fetch("/api/account-phase/judge", {
+      const r = await fetch("/api/account-phase/judge", {
         method: "POST", headers: { "content-type": "application/json" },
         body: JSON.stringify({ key: t.key, botIds: t.ms.map((m) => m.bot_id) }),
       });
-      if (!r2.ok) throw new Error("judge failed");
+      if (!r.ok) throw new Error("judge failed");
       judged++;
     } catch { failed++; }
   }
   if (btn) btn.disabled = false;
-  if (otherBtn) otherBtn.disabled = false;
-  setSt(`完了：${judged}件を判定${skipped ? `（既に最新 ${skipped}件はスキップ）` : ""}${failed ? `／失敗 ${failed}件` : ""}`);
+  setSt(`完了：${judged}件を判定${failed ? `／失敗 ${failed}件` : ""}`);
   // カードのフェーズ表示を最新化
   try {
     const phs = await (await fetch("/api/account-phase/all")).json();
     accountPhaseMap = {};
     for (const p of phs || []) accountPhaseMap[p.account_key] = p;
   } catch {}
+  selectedAccounts.clear();
+  selectMode = false;
   renderList();
-  if (current) selectDeal(current); // 開いている案件があれば更新
   setTimeout(() => setSt(""), 6000);
 }
 
@@ -416,13 +434,23 @@ function accountCardEl(a) {
   const phaseBadge = ph && ph.current_phase
     ? `<span class="card-phase-badge p${ph.current_phase}">フェーズ${ph.current_phase}：${PHASE_NAMES_D[ph.current_phase] || ""}</span>`
     : `<span class="card-phase-badge unset">フェーズ未判定</span>`;
+  const isSelected = selectMode && selectedAccounts.has(a);
   const card = document.createElement("div");
-  card.className = "deal-card" + (a === current ? " active" : "");
+  card.className = "deal-card" + (a === current ? " active" : "") + (selectMode ? " selectable" : "") + (isSelected ? " selected" : "");
   card.innerHTML =
+    (selectMode ? `<span class="select-check">${isSelected ? "✓" : ""}</span>` : "") +
     `<div class="deal-name">${esc(displayName(a))} <span class="status-badge st-${st}">${st}</span></div>` +
     `<div class="deal-meta"><span>${ms.length}件</span><span>${esc(last.owner_name || last.owner || "")}</span></div>` +
     `<div class="deal-sub">${phaseBadge} ・ 最終 ${fmtDate(last.created_at)}</div>`;
-  card.addEventListener("click", () => selectDeal(a));
+  card.addEventListener("click", () => {
+    if (selectMode) {
+      if (selectedAccounts.has(a)) selectedAccounts.delete(a);
+      else selectedAccounts.add(a);
+      renderList();
+    } else {
+      selectDeal(a);
+    }
+  });
   return card;
 }
 
@@ -476,25 +504,42 @@ function renderList() {
   const repScope = selectedRep && !showAll && !searching;
   const mine = repScope ? names.filter((a) => repInfo(a).key === selectedRep) : names;
   el.innerHTML = "";
-  const back = document.createElement("button");
-  back.className = "rep-back";
-  back.type = "button";
-  if (repScope) {
-    const repName = mine.length ? repInfo(mine[0]).name : "担当者";
-    back.innerHTML = `← 担当者一覧　<b>${esc(repName)}</b>（${mine.length}社）`;
+  if (!selectMode) {
+    const back = document.createElement("button");
+    back.className = "rep-back";
+    back.type = "button";
+    if (repScope) {
+      const repName = mine.length ? repInfo(mine[0]).name : "担当者";
+      back.innerHTML = `← 担当者一覧　<b>${esc(repName)}</b>（${mine.length}社）`;
+    } else {
+      back.innerHTML = `← 担当者一覧　<b>${searching ? "検索結果" : "すべての案件"}</b>（${mine.length}社）`;
+    }
+    back.addEventListener("click", () => {
+      selectedRep = null; showAll = false; current = null;
+      if ($("fSearch")) $("fSearch").value = "";
+      if ($("fFrom")) $("fFrom").value = "";
+      if ($("fTo")) $("fTo").value = "";
+      renderList();
+    });
+    el.appendChild(back);
   } else {
-    back.innerHTML = `← 担当者一覧　<b>${searching ? "検索結果" : "すべての案件"}</b>（${mine.length}社）`;
+    const hint = document.createElement("div");
+    hint.className = "rep-head";
+    hint.textContent = `判定したい案件カードをクリックして選択してください（${mine.length}社を表示中）`;
+    el.appendChild(hint);
   }
-  back.addEventListener("click", () => {
-    selectedRep = null; showAll = false; current = null;
-    if ($("fSearch")) $("fSearch").value = "";
-    if ($("fFrom")) $("fFrom").value = "";
-    if ($("fTo")) $("fTo").value = "";
-    renderList();
-  });
-  el.appendChild(back);
-  if (!mine.length) { const e = document.createElement("div"); e.className = "empty-state"; e.textContent = "該当する案件がありません。"; el.appendChild(e); return; }
-  for (const a of mine) el.appendChild(accountCardEl(a));
+  if (!mine.length) { const e = document.createElement("div"); e.className = "empty-state"; e.textContent = "該当する案件がありません。"; el.appendChild(e); }
+  else for (const a of mine) el.appendChild(accountCardEl(a));
+
+  // 選択モードのツールバー・ボタン文言を更新
+  const smb = $("selectModeBtn");
+  if (smb) smb.textContent = selectMode ? "選択を終了" : "選択する";
+  const toolbar = $("selectToolbar");
+  if (toolbar) toolbar.hidden = !selectMode;
+  const cnt = $("selectCount");
+  if (cnt) cnt.textContent = `${selectedAccounts.size}件選択中`;
+  const bjBtn = $("bulkJudgeBtn");
+  if (bjBtn) bjBtn.disabled = selectedAccounts.size === 0;
 }
 
 async function selectDeal(account) {

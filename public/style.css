@@ -968,9 +968,15 @@ a.kb-src:hover { color: var(--accent); border-color: var(--accent); }
 .empty-bot img { width: 84px; height: 84px; opacity: 0.95; filter: drop-shadow(0 6px 16px rgba(15,110,98,.18)); }
 
 /* 案件ビュー */
-.deal-card { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; margin-bottom: 10px; cursor: pointer; transition: border-color .12s, box-shadow .12s; }
+.deal-card { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; margin-bottom: 10px; cursor: pointer; transition: border-color .12s, box-shadow .12s; position: relative; }
 .deal-card:hover { border-color: var(--accent); }
 .deal-card.active { border-color: var(--accent); box-shadow: 0 0 0 2px rgba(26,168,132,.18); }
+.deal-card.selectable { padding-left: 38px; }
+.deal-card.selected { background: var(--accent-soft); border-color: var(--accent); box-shadow: 0 0 0 2px rgba(17,164,127,.25); }
+.select-check { position: absolute; left: 12px; top: 14px; width: 20px; height: 20px; border-radius: 6px; border: 1.5px solid var(--line); background: #fff; display: flex; align-items: center; justify-content: center; font-size: 13px; font-weight: 700; color: #fff; }
+.deal-card.selected .select-check { background: var(--accent); border-color: var(--accent); }
+.select-toolbar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; background: var(--accent-soft); border-radius: 12px; padding: 10px 14px; margin: 0 0 14px; }
+.select-count { font-size: 12.5px; font-weight: 700; color: #04342C; margin-right: 4px; }
 .deal-name { font-weight: 800; font-size: 14px; color: var(--ink); }
 .deal-meta { display: flex; justify-content: space-between; font-size: 12px; color: var(--muted); margin-top: 3px; }
 .deal-sub { font-size: 11.5px; color: var(--muted); margin-top: 4px; }

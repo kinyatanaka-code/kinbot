@@ -25,10 +25,15 @@
           <label>検索<input id="fSearch" type="text" placeholder="取引先名で検索" /></label>
           <label>商談期間<span class="range"><input id="fFrom" type="date" /><span class="range-sep">〜</span><input id="fTo" type="date" /></span></label>
           <button class="btn ghost" id="mergeDupBtn" type="button" title="同じ会社名の案件を1つにまとめます">重複をまとめる</button>
-          <button class="btn ghost" id="phaseBackfillBtn" type="button" title="まだフェーズ判定していない案件をまとめて判定します">未判定をまとめて判定</button>
-          <button class="btn ghost" id="phaseRejudgeAllBtn" type="button" title="既に判定済みの案件も含め、全件を最新の基準で判定し直します">全件を再判定</button>
+          <button class="btn ghost" id="selectModeBtn" type="button" title="案件カードを選んでまとめてフェーズ判定します">選択する</button>
           <span class="merge-status" id="mergeStatus"></span>
-          <span class="merge-status" id="phaseBackfillStatus"></span>
+          <span class="merge-status" id="bulkJudgeStatus"></span>
+        </div>
+        <div class="select-toolbar" id="selectToolbar" hidden>
+          <span class="select-count" id="selectCount">0件選択中</span>
+          <button class="btn ghost" id="selectAllBtn" type="button">表示中をすべて選択</button>
+          <button class="btn ghost" id="selectClearBtn" type="button">選択解除</button>
+          <button class="btn" id="bulkJudgeBtn" type="button" disabled>選択した案件をまとめて判定</button>
         </div>
         <main class="history">
           <aside class="hlist" id="dealList"><div class="empty-state">読み込み中…</div></aside>
