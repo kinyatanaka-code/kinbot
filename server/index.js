@@ -41,6 +41,8 @@ import {
   saveAccount,
   savePhaseJudgment,
   getPhaseJudgment,
+  saveAccountPhase,
+  getAccountPhase,
   phaseRows,
   phaseTrend,
   listRepTeams,
@@ -638,6 +640,57 @@ app.put("/api/phase/teams", async (req, res) => {
 app.delete("/api/phase/teams/:rep", async (req, res) => {
   try { await deleteRepTeam(decodeURIComponent(req.params.rep)); res.json({ ok: true }); }
   catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// 案件単位：複数商談の文字起こしをまとめて1つのフェーズ判定にする
+async function runAccountPhaseJudgment(key, botIds) {
+  const ids = Array.isArray(botIds) ? botIds.filter(Boolean) : [];
+  if (!key || !ids.length) throw new Error("対象の商談がありません");
+  const parts = [];
+  let latest = null, repName = "";
+  let n = 0;
+  for (const id of ids) {
+    const m = await getMeeting(id);
+    if (!m) continue;
+    if (m.category && m.category !== "商談") continue; // 商談以外は除外
+    const tr = Array.isArray(m.transcript) ? m.transcript : [];
+    const text = tr.map((u) => `${u.speaker?.name || "話者"}: ${u.text || ""}`).join("\n").trim();
+    if (!text) continue;
+    n += 1;
+    const d = m.created_at ? new Date(m.created_at) : null;
+    const ds = d ? d.toISOString().slice(0, 10) : "";
+    parts.push(`=== ${n}回目${ds ? "（" + ds + "）" : ""} ===\n${text}`);
+    if (!latest || (d && new Date(latest.created_at) < d)) latest = m;
+  }
+  if (!parts.length) throw new Error("文字起こしがありません");
+  repName = (latest && (latest.owner_name || latest.owner)) || "";
+  const combined = parts.join("\n\n");
+  const j = await judgePhase(combined);
+  j.rep_name = repName;
+  j.based_on = n;
+  j.meeting_date = (latest && latest.created_at ? new Date(latest.created_at) : new Date()).toISOString().slice(0, 10);
+  await saveAccountPhase(key, j);
+  return j;
+}
+
+// 案件フェーズ：保存済みを取得
+app.get("/api/account-phase", async (req, res) => {
+  try {
+    const key = req.query.key || "";
+    if (!key) return res.json(null);
+    res.json(await getAccountPhase(key));
+  } catch { res.status(200).json(null); }
+});
+// 案件フェーズ：全商談まとめて判定（手動・自動共通）
+app.post("/api/account-phase/judge", async (req, res) => {
+  try {
+    const { key, botIds } = req.body || {};
+    const j = await runAccountPhaseJudgment(key, botIds);
+    res.json(j || {});
+  } catch (e) {
+    console.error("[account phase judge]", e.message);
+    res.status(502).json({ error: e.message });
+  }
 });
 
 // ===== 企業アカウント（プロフィール／会社概要） =====

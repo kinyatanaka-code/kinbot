@@ -79,6 +79,27 @@ export async function initDb() {
   `);
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_pj_meeting_date ON phase_judgments(meeting_date);`);
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_pj_rep ON phase_judgments(rep_name);`);
+  // 案件単位のフェーズ判定（その案件の全商談をまとめて判定した結果）
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS account_phase_judgments (
+      account_key TEXT PRIMARY KEY,
+      rep_name TEXT,
+      meeting_date DATE,
+      based_on INTEGER,
+      phase1_reached BOOLEAN,
+      phase1_evidence TEXT,
+      phase2_reached BOOLEAN,
+      phase2_evidence TEXT,
+      phase3_reached BOOLEAN,
+      phase3_evidence TEXT,
+      phase4_reached BOOLEAN,
+      phase4_evidence TEXT,
+      current_phase INTEGER,
+      next_action TEXT,
+      risk TEXT,
+      judged_at TIMESTAMPTZ DEFAULT now()
+    );
+  `);
   // 担当者→チーム→グループ のマスタ
   await pool.query(`
     CREATE TABLE IF NOT EXISTS rep_team_mapping (
@@ -417,6 +438,38 @@ export async function getPhaseJudgment(botId) {
   if (!pool || !botId) return null;
   try {
     const { rows } = await pool.query(`SELECT * FROM phase_judgments WHERE bot_id=$1`, [botId]);
+    return rows[0] || null;
+  } catch { return null; }
+}
+// 案件単位の判定（全商談まとめ）
+export async function saveAccountPhase(key, j = {}) {
+  if (!pool || !key) return;
+  try {
+    await pool.query(
+      `INSERT INTO account_phase_judgments
+        (account_key, rep_name, meeting_date, based_on,
+         phase1_reached, phase1_evidence, phase2_reached, phase2_evidence,
+         phase3_reached, phase3_evidence, phase4_reached, phase4_evidence,
+         current_phase, next_action, risk, judged_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15, now())
+       ON CONFLICT (account_key) DO UPDATE SET
+         rep_name=$2, meeting_date=$3, based_on=$4,
+         phase1_reached=$5, phase1_evidence=$6, phase2_reached=$7, phase2_evidence=$8,
+         phase3_reached=$9, phase3_evidence=$10, phase4_reached=$11, phase4_evidence=$12,
+         current_phase=$13, next_action=$14, risk=$15, judged_at=now()`,
+      [
+        key, j.rep_name || null, j.meeting_date || null, j.based_on || null,
+        !!j.phase1_reached, j.phase1_evidence || null, !!j.phase2_reached, j.phase2_evidence || null,
+        !!j.phase3_reached, j.phase3_evidence || null, !!j.phase4_reached, j.phase4_evidence || null,
+        j.current_phase || null, j.next_action || null, j.risk || null,
+      ]
+    );
+  } catch (e) { console.error("[db] saveAccountPhase", e.message); }
+}
+export async function getAccountPhase(key) {
+  if (!pool || !key) return null;
+  try {
+    const { rows } = await pool.query(`SELECT * FROM account_phase_judgments WHERE account_key=$1`, [key]);
     return rows[0] || null;
   } catch { return null; }
 }

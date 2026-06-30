@@ -94,63 +94,77 @@ const PHASE_NEED_D = {
 function escapeHtmlD(s) {
   return String(s == null ? "" : s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 }
-function renderDealPhaseBox(box, j, lastMeeting, total) {
-  const dateStr = lastMeeting && lastMeeting.created_at ? fmtDate(lastMeeting.created_at) : "";
-  const note = `<div class="phase-src">最新商談（${dateStr}${total ? " / 全" + total + "回" : ""}）に基づく判定</div>`;
-  const botId = lastMeeting && lastMeeting.bot_id;
-  if (!j) {
-    box.innerHTML = `${note}<div class="phase-empty">フェーズ判定はまだありません。<button class="btn ghost phase-judge" type="button">フェーズを判定する</button></div>`;
-  } else {
-    const cur = j.current_phase || 0;
-    const steps = [1, 2, 3, 4].map((n) => {
-      const reached = j[`phase${n}_reached`];
-      const cls = reached ? "done" : "todo";
-      const isCur = n === cur;
-      return `<div class="phase-step ${cls} ${isCur ? "cur" : ""}"><span class="phase-dot">${reached ? "✓" : n}</span><span class="phase-label">${PHASE_NAMES_D[n]}</span></div>`;
-    }).join('<span class="phase-arrow">›</span>');
-    const reasons = [1, 2, 3, 4].map((n) => {
-      const reached = j[`phase${n}_reached`];
-      const ev = j[`phase${n}_evidence`];
-      if (reached) {
-        return `<div class="pr-item reached"><div class="pr-h"><span class="pr-badge ok">到達</span>フェーズ${n}・${PHASE_NAMES_D[n]}</div>` +
-          (ev ? `<div class="pr-ev">根拠：「${escapeHtmlD(ev)}」</div>` : `<div class="pr-ev pr-muted">根拠の記載なし</div>`) + `</div>`;
-      }
-      return `<div class="pr-item notyet"><div class="pr-h"><span class="pr-badge no">未到達</span>フェーズ${n}・${PHASE_NAMES_D[n]}</div>` +
-        `<div class="pr-ev pr-muted">${escapeHtmlD(PHASE_NEED_D[n])}</div></div>`;
-    }).join("");
-    const next = j.next_action ? `<div class="phase-next"><b>次のアクション</b>：${escapeHtmlD(j.next_action)}</div>` : "";
-    const risk = j.risk ? `<div class="phase-risk"><b>⚠ リスク</b>：${escapeHtmlD(j.risk)}</div>` : "";
-    box.innerHTML =
-      `<div class="phase-head"><span class="phase-badge p${cur}">現在フェーズ${cur}：${PHASE_NAMES_D[cur] || "-"}</span>` +
-      `<button class="btn ghost phase-judge" type="button">再判定</button></div>` +
-      note +
-      `<div class="phase-steps">${steps}</div>${next}${risk}` +
-      `<details class="phase-reasons" open><summary>判定の理由（フェーズごと）</summary><div class="pr-list">${reasons}</div></details>`;
-  }
-  const btn = box.querySelector(".phase-judge");
-  if (btn && botId) btn.addEventListener("click", async () => {
-    btn.disabled = true; btn.textContent = "判定中…";
+function renderDealPhaseBox(box, j, key, ms) {
+  const total = ms ? ms.length : 0;
+  const note = `<div class="phase-src">この案件の全商談（${total}回）の内容をまとめて判定${j && j.judged_at ? "" : ""}</div>`;
+  const doJudge = async (btn) => {
+    if (btn) { btn.disabled = true; btn.textContent = "判定中…"; }
     try {
-      const r = await fetch(`/api/meetings/${encodeURIComponent(botId)}/phase/judge`, { method: "POST" });
+      const r = await fetch("/api/account-phase/judge", {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ key, botIds: (ms || []).map((m) => m.bot_id) }),
+      });
       const d = await r.json();
       if (!r.ok) throw new Error(d.error || "判定に失敗");
-      renderDealPhaseBox(box, d, lastMeeting, total);
+      renderDealPhaseBox(box, d, key, ms);
     } catch (e) {
-      btn.disabled = false; btn.textContent = "再判定";
+      if (btn) { btn.disabled = false; btn.textContent = "再判定"; }
       const host = box.querySelector(".phase-empty, .phase-head");
       if (host) host.insertAdjacentHTML("beforeend", `<span class="phase-err">失敗: ${escapeHtmlD(e.message)}</span>`);
     }
-  });
+  };
+  if (!j) {
+    box.innerHTML = `${note}<div class="phase-empty">フェーズ判定はまだありません。<button class="btn ghost phase-judge" type="button">フェーズを判定する</button></div>`;
+    const b = box.querySelector(".phase-judge");
+    if (b) b.addEventListener("click", () => doJudge(b));
+    return;
+  }
+  const cur = j.current_phase || 0;
+  const steps = [1, 2, 3, 4].map((n) => {
+    const reached = j[`phase${n}_reached`];
+    const cls = reached ? "done" : "todo";
+    const isCur = n === cur;
+    return `<div class="phase-step ${cls} ${isCur ? "cur" : ""}"><span class="phase-dot">${reached ? "✓" : n}</span><span class="phase-label">${PHASE_NAMES_D[n]}</span></div>`;
+  }).join('<span class="phase-arrow">›</span>');
+  const reasons = [1, 2, 3, 4].map((n) => {
+    const reached = j[`phase${n}_reached`];
+    const ev = j[`phase${n}_evidence`];
+    if (reached) {
+      return `<div class="pr-item reached"><div class="pr-h"><span class="pr-badge ok">到達</span>フェーズ${n}・${PHASE_NAMES_D[n]}</div>` +
+        (ev ? `<div class="pr-ev">根拠：「${escapeHtmlD(ev)}」</div>` : `<div class="pr-ev pr-muted">根拠の記載なし</div>`) + `</div>`;
+    }
+    return `<div class="pr-item notyet"><div class="pr-h"><span class="pr-badge no">未到達</span>フェーズ${n}・${PHASE_NAMES_D[n]}</div>` +
+      `<div class="pr-ev pr-muted">${escapeHtmlD(PHASE_NEED_D[n])}</div></div>`;
+  }).join("");
+  const next = j.next_action ? `<div class="phase-next"><b>次のアクション</b>：${escapeHtmlD(j.next_action)}</div>` : "";
+  const risk = j.risk ? `<div class="phase-risk"><b>⚠ リスク</b>：${escapeHtmlD(j.risk)}</div>` : "";
+  box.innerHTML =
+    `<div class="phase-head"><span class="phase-badge p${cur}">現在フェーズ${cur}：${PHASE_NAMES_D[cur] || "-"}</span>` +
+    `<button class="btn ghost phase-judge" type="button">再判定</button></div>` +
+    note +
+    `<div class="phase-steps">${steps}</div>${next}${risk}` +
+    `<details class="phase-reasons" open><summary>判定の理由（フェーズごと）</summary><div class="pr-list">${reasons}</div></details>`;
+  const b = box.querySelector(".phase-judge");
+  if (b) b.addEventListener("click", () => doJudge(b));
 }
-async function loadDealPhase(lastMeeting, total) {
+async function loadDealPhase(key, ms) {
   const box = document.getElementById("dealPhaseBox");
-  if (!box || !lastMeeting || !lastMeeting.bot_id) { if (box) box.innerHTML = ""; return; }
+  if (!box) return;
+  if (!key || !ms || !ms.length) { box.innerHTML = ""; return; }
   try {
-    const r = await fetch(`/api/meetings/${encodeURIComponent(lastMeeting.bot_id)}/phase?auto=1`);
+    const r = await fetch("/api/account-phase?key=" + encodeURIComponent(key));
     const j = await r.json();
-    renderDealPhaseBox(box, j, lastMeeting, total);
+    if (j && Number(j.based_on || 0) === ms.length) { renderDealPhaseBox(box, j, key, ms); return; }
+    // 未判定、または商談数が変わっている場合は（再）判定
+    box.innerHTML = '<div class="phase-loading">全商談をまとめてフェーズ判定中…</div>';
+    const r2 = await fetch("/api/account-phase/judge", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ key, botIds: ms.map((m) => m.bot_id) }),
+    });
+    const d = await r2.json();
+    renderDealPhaseBox(box, r2.ok ? d : null, key, ms);
   } catch {
-    renderDealPhaseBox(box, null, lastMeeting, total);
+    renderDealPhaseBox(box, null, key, ms);
   }
 }
 
@@ -461,8 +475,8 @@ async function selectDeal(account) {
   renderProfile(account);
   // 担当（アカウント単位で選択・保存）
   await renderOwnerPicker(account, last);
-  // 商談フェーズ判定（この案件の最新商談に基づく）
-  loadDealPhase(last, ms.length);
+  // 商談フェーズ判定（この案件の全商談をまとめて判定）
+  loadDealPhase(pk, ms);
   const profUrl = $("profUrl"), profGet = $("profGet"), profStatus = $("profStatus");
   if (accountsMap[pk] && accountsMap[pk].site_url) profUrl.value = accountsMap[pk].site_url;
   profGet.addEventListener("click", async () => {
