@@ -503,7 +503,7 @@ async function runPhaseJudgment(botId) {
   const tr = Array.isArray(m.transcript) ? m.transcript : [];
   const text = tr.map((u) => `${u.speaker?.name || "話者"}: ${u.text || ""}`).join("\n");
   if (!text.trim()) throw new Error("文字起こしがありません");
-  const j = await judgePhase(text);
+  const j = await judgePhase(text, { repName: m.owner_name || m.owner || "" });
   j.rep_name = m.owner_name || m.owner || "";
   j.rep_email = m.owner || "";
   j.meeting_date = (m.created_at ? new Date(m.created_at) : new Date()).toISOString().slice(0, 10);
@@ -665,7 +665,7 @@ async function runAccountPhaseJudgment(key, botIds) {
   if (!parts.length) throw new Error("文字起こしがありません");
   repName = (latest && (latest.owner_name || latest.owner)) || "";
   const combined = parts.join("\n\n");
-  const j = await judgePhase(combined);
+  const j = await judgePhase(combined, { repName });
   j.rep_name = repName;
   j.based_on = n;
   j.meeting_date = (latest && latest.created_at ? new Date(latest.created_at) : new Date()).toISOString().slice(0, 10);

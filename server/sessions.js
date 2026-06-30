@@ -266,7 +266,7 @@ class Session {
     try {
       const full = this.transcriptText();
       if (full.trim().length >= 20) {
-        const j = await judgePhase(full);
+        const j = await judgePhase(full, { repName: this.repName || "" });
         let email = "";
         try { const m = await getMeeting(this.botId); email = (m && m.owner) || ""; if (!j.rep_name) j.rep_name = (m && m.owner_name) || email; } catch {}
         j.rep_name = j.rep_name || this.repName || email || "";

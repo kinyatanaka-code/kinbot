@@ -358,12 +358,21 @@ export const PHASE_JUDGMENT_PROMPT = `以下は営業担当者と顧客の商談
 {TRANSCRIPT}`;
 
 // 文字起こし全文を判定し、正規化したオブジェクトを返す
-export async function judgePhase(transcript) {
+export async function judgePhase(transcript, opts = {}) {
   const tr = (transcript || "").toString().trim();
   if (!tr) throw new Error("文字起こしが空です");
+  const repName = (opts && opts.repName) ? String(opts.repName).trim() : "";
   const user = PHASE_JUDGMENT_PROMPT.replace("{TRANSCRIPT}", tr.slice(0, 50000));
+  // 顧客（相手）の発言を根拠にするよう明示。営業担当の発言はフェーズ1・3の根拠にしない。
+  const sys =
+    "あなたは厳密なJSON出力器です。指定のJSONのみを返します。" +
+    "【重要な判定ルール】フェーズ1とフェーズ3は『顧客（提案を受けている側）』の発言だけを根拠にしてください。" +
+    "営業担当（サービスを提案・説明している側" + (repName ? `。多くの場合「${repName}」` : "") + "）の発言は、フェーズ1・フェーズ3の根拠（evidence）にしないでください。" +
+    "営業担当が顧客の状況を代弁・要約しただけの発言も、フェーズ1・3の根拠にはなりません（顧客本人がその場で語った発言が必要）。" +
+    "フェーズ2は営業担当の発言、フェーズ4は申込書送付の記録が根拠です。" +
+    "evidenceには、根拠とした話者の実際の発言をそのまま引用してください。";
   // kinbot既存のLLM基盤（Gemini→Groqフォールバック）＋JSONモード
-  const text = await callLLM("あなたは厳密なJSON出力器です。指定のJSONのみを返します。", user, 1000);
+  const text = await callLLM(sys, user, 1000);
   const o = parseJson(text) || {};
   const pick = (p) => (o && o[p] && typeof o[p] === "object" ? o[p] : {});
   const p1 = pick("phase1"), p2 = pick("phase2"), p3 = pick("phase3"), p4 = pick("phase4");

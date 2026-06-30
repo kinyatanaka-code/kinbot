@@ -214,7 +214,55 @@ async function load() {
   }
   const mb = $("mergeDupBtn");
   if (mb && !mb._wired) { mb._wired = true; mb.addEventListener("click", mergeDuplicates); }
+  const pb = $("phaseBackfillBtn");
+  if (pb && !pb._wired) { pb._wired = true; pb.addEventListener("click", backfillAccountPhases); }
   renderList();
+}
+
+// 未判定（または商談数が変わった）案件をまとめてフェーズ判定する
+async function backfillAccountPhases() {
+  const btn = $("phaseBackfillBtn");
+  const st = $("phaseBackfillStatus");
+  const setSt = (t) => { if (st) st.textContent = t; };
+  // 全案件をグルーピング（フィルタは無視して全件対象）
+  const tmp = {}, rawSets = {};
+  for (const m of all) {
+    if (m.category && m.category !== "商談") continue;
+    const rk = acctOf(m);
+    const gk = groupKeyOf(rk);
+    (tmp[gk] = tmp[gk] || []).push(m);
+    (rawSets[gk] = rawSets[gk] || new Set()).add(rk);
+  }
+  const tasks = [];
+  for (const gk of Object.keys(tmp)) {
+    const raws = [...rawSets[gk]];
+    const primary = raws.find((r) => accountsMap[r] && (accountsMap[r].official_name || accountsMap[r].profile || accountsMap[r].owner || accountsMap[r].site_url)) || raws[0];
+    tasks.push({ key: primary, ms: tmp[gk] });
+  }
+  if (!tasks.length) { setSt("対象の案件がありません"); setTimeout(() => setSt(""), 2500); return; }
+  if (!confirm(`未判定の案件をまとめてフェーズ判定します（最大${tasks.length}社）。\n商談数が多いと時間がかかることがあります。実行しますか？`)) return;
+  if (btn) btn.disabled = true;
+  const total = tasks.length;
+  let done = 0, judged = 0, skipped = 0, failed = 0;
+  for (const t of tasks) {
+    done++;
+    setSt(`判定中 ${done}/${total}…（判定${judged}・スキップ${skipped}${failed ? "・失敗" + failed : ""}）`);
+    try {
+      const r = await fetch("/api/account-phase?key=" + encodeURIComponent(t.key));
+      const j = await r.json();
+      if (j && Number(j.based_on || 0) === t.ms.length) { skipped++; continue; } // 既に最新で判定済み
+      const r2 = await fetch("/api/account-phase/judge", {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ key: t.key, botIds: t.ms.map((m) => m.bot_id) }),
+      });
+      if (!r2.ok) throw new Error("judge failed");
+      judged++;
+    } catch { failed++; }
+  }
+  if (btn) btn.disabled = false;
+  setSt(`完了：${judged}件を判定（既に最新 ${skipped}件はスキップ${failed ? "／失敗 " + failed + "件" : ""}）`);
+  if (current) selectDeal(current); // 開いている案件があれば更新
+  setTimeout(() => setSt(""), 6000);
 }
 
 // 同じ会社名の案件（別キーになっているもの）を、正式社名を揃えて1つにまとめる
