@@ -115,8 +115,8 @@ function renderDealPhaseBox(box, j, key, ms) {
         method: "POST", headers: { "content-type": "application/json" },
         body: JSON.stringify({ key, botIds: (ms || []).map((m) => m.bot_id) }),
       });
-      const d = await r.json();
-      if (!r.ok) throw new Error(d.error || "判定に失敗");
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(d.error || `判定に失敗（HTTP ${r.status}）`);
       renderDealPhaseBox(box, d, key, ms);
       syncAccountPhase(key, d);
     } catch (e) {
@@ -294,6 +294,7 @@ async function judgeSelectedAccounts() {
   if (btn) btn.disabled = true;
   const total = tasks.length;
   let done = 0, judged = 0, failed = 0;
+  let firstErr = "";
   for (const t of tasks) {
     done++;
     setSt(`判定中 ${done}/${total}…（判定${judged}${failed ? "・失敗" + failed : ""}）`);
@@ -302,12 +303,17 @@ async function judgeSelectedAccounts() {
         method: "POST", headers: { "content-type": "application/json" },
         body: JSON.stringify({ key: t.key, botIds: t.ms.map((m) => m.bot_id) }),
       });
-      if (!r.ok) throw new Error("judge failed");
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(d.error || `判定に失敗（HTTP ${r.status}）`);
       judged++;
-    } catch { failed++; }
+    } catch (e) {
+      failed++;
+      if (!firstErr) firstErr = e.message || String(e);
+      console.error("[bulk judge]", displayName(t.key), e.message || e);
+    }
   }
   if (btn) btn.disabled = false;
-  setSt(`完了：${judged}件を判定${failed ? `／失敗 ${failed}件` : ""}`);
+  setSt(`完了：${judged}件を判定${failed ? `／失敗 ${failed}件${firstErr ? `（例：${firstErr}）` : ""}` : ""}`);
   // カードのフェーズ表示を最新化
   try {
     const phs = await (await fetch("/api/account-phase/all")).json();
@@ -317,7 +323,7 @@ async function judgeSelectedAccounts() {
   selectedAccounts.clear();
   selectMode = false;
   renderList();
-  setTimeout(() => setSt(""), 6000);
+  setTimeout(() => setSt(""), failed ? 15000 : 6000);
 }
 
 // 同じ会社名の案件（別キーになっているもの）を、正式社名を揃えて1つにまとめる

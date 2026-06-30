@@ -754,13 +754,14 @@ async function callAnthropic(system, user, maxTokens, json = true, schema = null
     // tool_choiceで必ずそれを呼ばせる方法（前置き文・コードフェンスが原理的に入り込まない）。
     // スキーマ未指定の緩い定義だと、Claudeが中身を埋めずに空オブジェクトで呼んでしまうことがあるため、
     // 呼び出し元が具体的なスキーマを渡せる場合は必須項目つきでそれを使う（無ければ汎用の緩いスキーマ）。
-    // ツール定義も毎回同じ内容なのでキャッシュ対象にする。
+    // ツール定義はsystemより前に評価されるため、system側のcache_controlだけで
+    // 「ツール定義＋system」がまとめてキャッシュ対象になる（公式ドキュメント仕様）。
+    // tools側に重ねて付けるのは冗長なため付けない。
     body.tools = [
       {
         name: "emit_json",
         description: "直前の指示で求められているJSON結果を、そのままこの関数の引数として返す。前置きや説明文、コードフェンスは一切含めない。全てのプロパティを省略せず必ず埋めること。",
         input_schema: schema || { type: "object" },
-        cache_control: { type: "ephemeral" },
       },
     ];
     body.tool_choice = { type: "tool", name: "emit_json" };
