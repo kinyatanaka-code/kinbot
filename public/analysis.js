@@ -282,9 +282,79 @@ async function loadPhaseDash() {
     if (to) q.set("to", to);
     const d = await (await fetch("/api/phase/dashboard?" + q.toString())).json();
     renderPhaseDash(body, d);
+    loadKindPanel(from, to);
   } catch (e) {
     body.innerHTML = '<div class="empty-state">集計に失敗しました。</div>';
   }
+}
+
+// 種別（コールド/過去失注/通常）別の集計を読み込んで、フェーズパネル末尾に描画する
+async function loadKindPanel(from, to) {
+  const host = $("phBody");
+  if (!host) return;
+  let box = document.getElementById("kindPanel");
+  if (!box) {
+    box = document.createElement("div");
+    box.id = "kindPanel";
+    host.appendChild(box);
+  }
+  box.innerHTML = '<div class="phase-card"><div class="dash-title">種別別（コールド／過去失注）</div><div class="empty-state">集計中…</div></div>';
+  try {
+    const q = new URLSearchParams();
+    if (from) q.set("from", from);
+    if (to) q.set("to", to);
+    const d = await (await fetch("/api/phase/by-kind?" + q.toString())).json();
+    renderKindPanel(box, d);
+  } catch {
+    box.innerHTML = '<div class="phase-card"><div class="dash-title">種別別（コールド／過去失注）</div><div class="empty-state">集計に失敗しました。</div></div>';
+  }
+}
+const KIND_META = {
+  "コールド": { cls: "kind-cold", label: "コールド" },
+  "過去失注": { cls: "kind-lost", label: "過去失注" },
+  "通常": { cls: "kind-normal", label: "通常" },
+};
+// 種別ごとの「件数・割合」と「フェーズ到達率(1/2/3+/4)」を表示
+function kindBlock(title, data) {
+  if (!data || !data.total) {
+    return `<div class="kind-group"><div class="kind-group-head">${escapeHtml(title)}</div><div class="empty-state" style="padding:12px">対象の案件がありません。</div></div>`;
+  }
+  const order = ["コールド", "過去失注", "通常"];
+  // 割合バー
+  const bar = order.map((k) => {
+    const v = data.kinds[k];
+    if (!v || !v.count) return "";
+    return `<span class="kdist-seg ${KIND_META[k].cls}" style="width:${v.pct}%" title="${KIND_META[k].label} ${v.count}件（${v.pct}%）"></span>`;
+  }).join("");
+  // 種別ごとのカード（件数・割合・フェーズ到達率）
+  const cards = order.map((k) => {
+    const v = data.kinds[k];
+    if (!v) return "";
+    const bars = [["1", v.phase1], ["2", v.phase2], ["3+", v.phase3], ["4", v.phase4]]
+      .map(([lab, val]) => `<div class="kph"><div class="kph-track"><div class="kph-fill ${KIND_META[k].cls}" style="width:${val}%"></div></div><div class="kph-x">P${lab}</div><div class="kph-v">${val}%</div></div>`)
+      .join("");
+    return `<div class="kind-card">` +
+      `<div class="kind-card-head"><span class="kind-badge ${KIND_META[k].cls}">${KIND_META[k].label}</span>` +
+      `<span class="kind-count">${v.count}件 <span class="kind-pct">(${v.pct}%)</span></span></div>` +
+      `<div class="kind-phases">${bars}</div></div>`;
+  }).join("");
+  return `<div class="kind-group"><div class="kind-group-head">${escapeHtml(title)}<span class="kind-total">全${data.total}件（案件）</span></div>` +
+    `<div class="kdist">${bar}</div>` +
+    `<div class="kind-cards">${cards}</div></div>`;
+}
+function renderKindPanel(box, d) {
+  if (!d || !d.overall) {
+    box.innerHTML = '<div class="phase-card"><div class="dash-title">種別別（コールド／過去失注）</div><div class="empty-state">対象の案件がありません。</div></div>';
+    return;
+  }
+  let html = `<div class="phase-card"><div class="dash-title">種別別（コールド／過去失注）— 案件単位</div>`;
+  html += `<p class="kind-note">各案件の商談の種別（保存済み／商談名から推定）で集計。フェーズ到達率は「その種別の案件のうち各フェーズに到達した割合」です。</p>`;
+  html += kindBlock("グループ全体", d.overall);
+  for (const t of d.teams || []) {
+    html += kindBlock(t.team_name, t);
+  }
+  html += `</div>`;
+  box.innerHTML = html;
 }
 function phaseDistBar(dist, total) {
   const seg = (n, cls) => (total ? `<span class="pdist-seg ${cls}" style="width:${(n / total) * 100}%" title="${n}件"></span>` : "");

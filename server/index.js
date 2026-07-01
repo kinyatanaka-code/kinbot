@@ -44,6 +44,7 @@ import {
   saveAccountPhase,
   getAccountPhase,
   listAccountPhases,
+  accountKindRows,
   phaseRows,
   phaseTrend,
   listRepTeams,
@@ -614,7 +615,49 @@ app.get("/api/phase/dashboard", async (req, res) => {
     res.status(500).json({ error: e.message });
   }
 });
-// 担当者→チームのマスタ（一覧・編集）
+
+// 種別（コールド/過去失注/通常）× 案件単位 × チームの集計
+app.get("/api/phase/by-kind", async (req, res) => {
+  try {
+    const from = req.query.from || null;
+    const to = req.query.to || null;
+    const rows = await accountKindRows({ from, to });
+    const KINDS = ["コールド", "過去失注", "通常"];
+    const rate = (c, t) => (t ? Math.round((c / t) * 1000) / 10 : 0);
+    // 1グループ分の集計（種別ごとの件数・割合・各フェーズ到達率）
+    const summarize = (arr) => {
+      const total = arr.length;
+      const byKind = {};
+      for (const k of KINDS) {
+        const a = arr.filter((r) => (r.deal_kind || "通常") === k);
+        const n = a.length;
+        byKind[k] = {
+          count: n,
+          pct: rate(n, total),
+          // フェーズ到達率（その種別の案件のうち、各フェーズに到達した割合）
+          phase1: rate(a.filter((r) => r.phase1_reached).length, n),
+          phase2: rate(a.filter((r) => r.phase2_reached).length, n),
+          phase3: rate(a.filter((r) => r.phase3_reached).length, n),
+          phase4: rate(a.filter((r) => r.phase4_reached).length, n),
+        };
+      }
+      return { total, kinds: byKind };
+    };
+    const overall = summarize(rows);
+    // チーム別
+    const teamMap = {};
+    for (const r of rows) {
+      const t = r.team_name || "未分類";
+      (teamMap[t] = teamMap[t] || []).push(r);
+    }
+    const teams = Object.keys(teamMap).sort().map((t) => ({ team_name: t, ...summarize(teamMap[t]) }));
+    res.json({ from, to, overall, teams });
+  } catch (e) {
+    console.error("[phase by-kind]", e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
 app.get("/api/phase/teams", async (req, res) => {
   try { res.json(await listRepTeams()); } catch { res.json([]); }
 });

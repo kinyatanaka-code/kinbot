@@ -518,6 +518,40 @@ export async function listAccountPhases() {
     return rows;
   } catch { return []; }
 }
+
+// 案件単位×種別（コールド/過去失注/通常）×チームの集計用の行を返す。
+// 種別は、その案件に属する商談の deal_kind（保存済み）または商談名からの推定で判定（過去失注 > コールド > 通常）。
+// クエリ時に算出するので、商談履歴で種別を変えれば常に最新の値になる。
+export async function accountKindRows({ from, to } = {}) {
+  if (!pool) return [];
+  const cond = [], vals = [];
+  let i = 1;
+  if (from) { cond.push(`apj.meeting_date >= $${i++}`); vals.push(from); }
+  if (to) { cond.push(`apj.meeting_date <= $${i++}`); vals.push(to); }
+  const where = cond.length ? "WHERE " + cond.join(" AND ") : "";
+  try {
+    const { rows } = await pool.query(
+      `SELECT apj.account_key, apj.rep_name, apj.current_phase,
+              apj.phase1_reached, apj.phase2_reached, apj.phase3_reached, apj.phase4_reached,
+              COALESCE(rtm.team_name,'未分類') AS team_name,
+              k.deal_kind
+       FROM account_phase_judgments apj
+       LEFT JOIN rep_team_mapping rtm ON apj.rep_name = rtm.rep_name
+       LEFT JOIN LATERAL (
+         SELECT CASE
+           WHEN bool_or(COALESCE(m.deal_kind,'')='過去失注' OR m.title ~ '(過去失注|既存失注|失注済|再アプローチ|掘り起こし)') THEN '過去失注'
+           WHEN bool_or(COALESCE(m.deal_kind,'')='コールド' OR m.title ~* '(コールド|cold|新規開拓|テレアポ|飛び込み)') THEN 'コールド'
+           ELSE '通常'
+         END AS deal_kind
+         FROM meetings m
+         WHERE COALESCE(NULLIF(m.account,''), m.title) = apj.account_key
+       ) k ON true
+       ${where}`,
+      vals
+    );
+    return rows;
+  } catch (e) { console.error("[db] accountKindRows", e.message); return []; }
+}
 // 期間内の判定結果（チーム/グループ名を結合）— ダッシュボードの集計用
 export async function phaseRows({ from, to } = {}) {
   if (!pool) return [];
