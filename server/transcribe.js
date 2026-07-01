@@ -1,76 +1,81 @@
-// server/ingest.js
-// 資料をテキスト化して自社ナレッジに蓄積するための取り込み処理。
-// PDF（pdf-parse）とWebサイトURL（HTML→テキスト）に対応。
+// server/transcribe.js
+// アップロードされた音声/動画ファイルを文字起こしする。
+// 優先: Deepgram（話者分離あり）。無ければ Groq Whisper（話者分離なし）。
+import fs from "node:fs";
 
-const MAX_CHARS = 200000; // 1件あたりの保存上限（暴発防止）
-
-function clip(s) {
-  const t = (s || "").replace(/\u0000/g, "").trim();
-  return t.length > MAX_CHARS ? t.slice(0, MAX_CHARS) : t;
+export function transcriberAvailable() {
+  return !!(process.env.DEEPGRAM_API_KEY || process.env.GROQ_API_KEY);
 }
 
-// PDFバッファ → テキスト
-export async function pdfToText(buffer) {
-  // pdf-parse は CommonJS。デバッグ用ハーネスを避けるため lib を直接読み込む。
-  const mod = await import("pdf-parse/lib/pdf-parse.js");
-  const pdfParse = mod.default || mod;
-  const data = await pdfParse(buffer);
-  return clip(data.text || "");
+export async function transcribeFile(filePath, mimetype) {
+  if (process.env.DEEPGRAM_API_KEY) return transcribeDeepgram(filePath, mimetype);
+  if (process.env.GROQ_API_KEY) return transcribeGroq(filePath, mimetype);
+  throw new Error("文字起こし用のAPIキー（DEEPGRAM_API_KEY か GROQ_API_KEY）が未設定です");
 }
 
-// HTML → テキスト（簡易抽出）
-function htmlToText(html) {
-  let s = String(html || "");
-  // タイトル抽出
-  const titleMatch = s.match(/<title[^>]*>([\s\S]*?)<\/title>/i);
-  const title = titleMatch ? decodeEntities(titleMatch[1]).trim() : "";
-  // スクリプト/スタイル/noscript除去
-  s = s.replace(/<script[\s\S]*?<\/script>/gi, " ");
-  s = s.replace(/<style[\s\S]*?<\/style>/gi, " ");
-  s = s.replace(/<noscript[\s\S]*?<\/noscript>/gi, " ");
-  s = s.replace(/<!--[\s\S]*?-->/g, " ");
-  // 改行になりやすいブロック要素
-  s = s.replace(/<(br|\/p|\/div|\/li|\/h[1-6]|\/tr)[^>]*>/gi, "\n");
-  // 残りのタグ除去
-  s = s.replace(/<[^>]+>/g, " ");
-  s = decodeEntities(s);
-  s = s.replace(/[ \t\u00a0]+/g, " ").replace(/\n{3,}/g, "\n\n").trim();
-  return { title, text: clip(s) };
-}
-
-function decodeEntities(s) {
-  return String(s || "")
-    .replace(/&nbsp;/g, " ")
-    .replace(/&amp;/g, "&")
-    .replace(/&lt;/g, "<")
-    .replace(/&gt;/g, ">")
-    .replace(/&quot;/g, '"')
-    .replace(/&#39;/g, "'")
-    .replace(/&#(\d+);/g, (_, n) => String.fromCharCode(Number(n)));
-}
-
-// URL → { title, text }
-export async function urlToText(url) {
+async function transcribeDeepgram(filePath, mimetype) {
+  const lang = process.env.LANGUAGE_CODE || "ja";
+  const model = process.env.DEEPGRAM_MODEL || "nova-2";
+  const url = `https://api.deepgram.com/v1/listen?model=${encodeURIComponent(
+    model
+  )}&language=${encodeURIComponent(lang)}&diarize=true&punctuate=true&smart_format=true`;
+  // 大きいファイルでもメモリに載せないようストリームで送信
+  const stat = fs.statSync(filePath);
+  const stream = fs.createReadStream(filePath);
   const res = await fetch(url, {
-    headers: { "user-agent": "Mozilla/5.0 (compatible; kinbot/1.0)" },
-    redirect: "follow",
+    method: "POST",
+    headers: {
+      Authorization: `Token ${process.env.DEEPGRAM_API_KEY}`,
+      "Content-Type": mimetype || "application/octet-stream",
+      "Content-Length": String(stat.size),
+    },
+    body: stream,
+    duplex: "half",
   });
-  if (!res.ok) throw new Error(`取得失敗 ${res.status}`);
-  const ctype = res.headers.get("content-type") || "";
-  if (ctype.includes("application/pdf")) {
-    const buf = Buffer.from(await res.arrayBuffer());
-    return { title: url, text: await pdfToText(buf) };
+  if (!res.ok) throw new Error(`Deepgram ${res.status}: ${(await res.text()).slice(0, 200)}`);
+  const data = await res.json();
+  const alt = data?.results?.channels?.[0]?.alternatives?.[0];
+  const words = alt?.words || [];
+  const utts = [];
+  let cur = null;
+  for (const w of words) {
+    const sp = w.speaker ?? 0;
+    const t = w.punctuated_word || w.word || "";
+    if (!cur || cur.spk !== sp) {
+      cur = { spk: sp, parts: [] };
+      utts.push(cur);
+    }
+    cur.parts.push(t);
   }
-  const html = await res.text();
-  const { title, text } = htmlToText(html);
-  return { title: title || url, text };
+  let utterances = utts.map((u) => ({
+    speaker: { id: u.spk, name: "話者" + (u.spk + 1) },
+    text: u.parts.join(" "),
+    ts: Date.now(),
+  }));
+  if (utterances.length === 0 && alt?.transcript) {
+    utterances = [{ speaker: { id: 0, name: "話者1" }, text: alt.transcript, ts: Date.now() }];
+  }
+  return utterances;
 }
 
-// Office（pptx/docx/xlsx 等）→ テキスト
-export async function officeToText(buffer) {
-  const op = await import("officeparser");
-  const parse = op.parseOfficeAsync || (op.default && op.default.parseOfficeAsync);
-  if (!parse) throw new Error("officeparser 未対応");
-  const text = await parse(buffer);
-  return clip(text || "");
+async function transcribeGroq(filePath, mimetype) {
+  const stat = fs.statSync(filePath);
+  // Groq(Whisper) は大きいファイル非対応。大きい場合は Deepgram を促す
+  if (stat.size > 100 * 1024 * 1024) {
+    throw new Error("このファイルは大きいため Groq では文字起こしできません。DEEPGRAM_API_KEY を設定してください（Deepgramは大容量対応）。");
+  }
+  const buf = fs.readFileSync(filePath);
+  const fd = new FormData();
+  fd.append("file", new Blob([buf], { type: mimetype || "audio/mpeg" }), "audio");
+  fd.append("model", process.env.GROQ_WHISPER_MODEL || "whisper-large-v3");
+  fd.append("language", process.env.LANGUAGE_CODE || "ja");
+  fd.append("response_format", "json");
+  const res = await fetch("https://api.groq.com/openai/v1/audio/transcriptions", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${process.env.GROQ_API_KEY}` },
+    body: fd,
+  });
+  if (!res.ok) throw new Error(`Groq文字起こし ${res.status}: ${(await res.text()).slice(0, 200)}`);
+  const data = await res.json();
+  return data.text ? [{ speaker: { id: 0, name: "話者1" }, text: data.text, ts: Date.now() }] : [];
 }

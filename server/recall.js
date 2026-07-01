@@ -1,313 +1,210 @@
-// server/google.js
-// Googleカレンダー連携（ユーザーごと）。トークンは google_accounts に owner 単位で保存。
-import { getGoogleToken, saveGoogleToken, deleteGoogleToken } from "./db.js";
+// server/recall.js
+// Recall.ai Meeting Bot API クライアント。
+// 仕様: https://docs.recall.ai/docs/bot-real-time-transcription
+// 認証ヘッダは「生のAPIキー」（"Bearer " は付けない）。
 
-const CLIENT_ID = process.env.GOOGLE_CLIENT_ID || "";
-const CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET || "";
-const SCOPE = "https://www.googleapis.com/auth/calendar.readonly https://www.googleapis.com/auth/drive.readonly";
-
-export function googleConfigured() {
-  return !!(CLIENT_ID && CLIENT_SECRET);
+// 環境変数に紛れた空白・改行・余計な接頭辞を自動で掃除（事故防止）
+function clean(v, fallback = "") {
+  return (v ?? fallback).toString().trim();
 }
+const REGION = clean(process.env.RECALL_REGION, "us-west-2")
+  .replace(/^https?:\/\//, "") // 誤って https:// を入れても除去
+  .replace(/\.recall\.ai.*$/, "") // 誤って .recall.ai... まで入れても除去
+  .replace(/\s+/g, ""); // 残った空白を除去
+const BASE = `https://${REGION}.recall.ai/api/v1`;
+const API_KEY = clean(process.env.RECALL_API_KEY);
 
-// state にユーザー識別子（署名済み）を載せて、コールバックで誰の連携かを判別
-export function authUrl(redirectUri, state) {
-  const p = new URLSearchParams({
-    client_id: CLIENT_ID,
-    redirect_uri: redirectUri,
-    response_type: "code",
-    scope: SCOPE,
-    access_type: "offline",
-    prompt: "consent",
-    state: state || "",
-  });
-  return `https://accounts.google.com/o/oauth2/v2/auth?${p}`;
-}
-
-async function fetchPrimaryEmail(accessToken) {
-  try {
-    const res = await fetch("https://www.googleapis.com/calendar/v3/calendars/primary", {
-      headers: { Authorization: `Bearer ${accessToken}` },
-    });
-    if (!res.ok) return null;
-    const data = await res.json();
-    return data.id || null;
-  } catch {
-    return null;
-  }
-}
-
-export async function exchangeCode(code, redirectUri, owner) {
-  const res = await fetch("https://oauth2.googleapis.com/token", {
-    method: "POST",
-    headers: { "content-type": "application/x-www-form-urlencoded" },
-    body: new URLSearchParams({
-      code,
-      client_id: CLIENT_ID,
-      client_secret: CLIENT_SECRET,
-      redirect_uri: redirectUri,
-      grant_type: "authorization_code",
-    }),
-  });
-  if (!res.ok) throw new Error(`Google token ${res.status}: ${await res.text()}`);
-  const data = await res.json();
-  let gmail = null;
-  if (data.access_token) gmail = await fetchPrimaryEmail(data.access_token);
-  if (data.refresh_token) {
-    await saveGoogleToken(owner, data.refresh_token, gmail);
-  }
-  return data;
-}
-
-export async function isConnected(owner) {
-  const row = await getGoogleToken(owner);
-  return !!(row && row.refresh_token);
-}
-export async function disconnect(owner) {
-  await deleteGoogleToken(owner);
-}
-
-async function accessToken(owner) {
-  const row = await getGoogleToken(owner);
-  if (!row || !row.refresh_token) return null;
-  const res = await fetch("https://oauth2.googleapis.com/token", {
-    method: "POST",
-    headers: { "content-type": "application/x-www-form-urlencoded" },
-    body: new URLSearchParams({
-      client_id: CLIENT_ID,
-      client_secret: CLIENT_SECRET,
-      refresh_token: row.refresh_token,
-      grant_type: "refresh_token",
-    }),
-  });
-  if (!res.ok) throw new Error(`Google refresh ${res.status}`);
-  const data = await res.json();
-  return data.access_token;
-}
-
-export async function getPrimaryEmail(owner) {
-  const row = await getGoogleToken(owner);
-  if (row && row.google_email) return row.google_email;
-  const token = await accessToken(owner);
-  if (!token) return null;
-  return fetchPrimaryEmail(token);
-}
-
-const ZOOM_RE = /https?:\/\/[\w.-]*zoom\.us\/[^\s"'<>)\]]+/i;
-function findZoomUrl(ev) {
-  const blobs = [
-    ev.hangoutLink,
-    ev.location,
-    ev.description,
-    ...(ev.conferenceData?.entryPoints || []).map((e) => e.uri),
-  ].filter(Boolean);
-  for (const b of blobs) {
-    const m = String(b).match(ZOOM_RE);
-    if (m) return m[0];
-  }
-  return null;
-}
-
-export async function listZoomEvents(owner, { timeMin, timeMax } = {}) {
-  const token = await accessToken(owner);
-  if (!token) return [];
-  const now = new Date();
-  const tMin = timeMin || now.toISOString();
-  const tMax = timeMax || new Date(now.getTime() + 26 * 3600 * 1000).toISOString();
-  const p = new URLSearchParams({
-    timeMin: tMin,
-    timeMax: tMax,
-    singleEvents: "true",
-    orderBy: "startTime",
-    maxResults: "50",
-  });
-  const res = await fetch(
-    `https://www.googleapis.com/calendar/v3/calendars/primary/events?${p}`,
-    { headers: { Authorization: `Bearer ${token}` } }
-  );
-  if (!res.ok) throw new Error(`Google events ${res.status}: ${(await res.text()).slice(0, 200)}`);
-  const data = await res.json();
-  const out = [];
-  for (const ev of data.items || []) {
-    if (!ev.start?.dateTime) continue;
-    const zoom = findZoomUrl(ev);
-    if (!zoom) continue;
-    out.push({ id: ev.id, title: ev.summary || "(無題)", start: ev.start.dateTime, zoomUrl: zoom });
-  }
-  return out;
-}
-
-// Zoom以外・終日予定も含めて、その範囲の全予定を返す（商談名の選択用）
-const MEET_RE = /https?:\/\/[\w.-]*(?:zoom\.us|meet\.google\.com|teams\.microsoft\.com|teams\.live\.com)\/[^\s"'<>)\]]+/i;
-function findMeetingUrl(ev) {
-  const blobs = [
-    ev.hangoutLink,
-    ev.location,
-    ev.description,
-    ...(ev.conferenceData?.entryPoints || []).map((e) => e.uri),
-  ].filter(Boolean);
-  for (const b of blobs) {
-    const m = String(b).match(MEET_RE);
-    if (m) return m[0];
-  }
-  return null;
-}
-
-export async function listDayEvents(owner, { timeMin, timeMax } = {}) {
-  const token = await accessToken(owner);
-  if (!token) return [];
-  const now = new Date();
-  const tMin = timeMin || now.toISOString();
-  const tMax = timeMax || new Date(now.getTime() + 24 * 3600 * 1000).toISOString();
-  const p = new URLSearchParams({
-    timeMin: tMin,
-    timeMax: tMax,
-    singleEvents: "true",
-    orderBy: "startTime",
-    maxResults: "50",
-  });
-  const res = await fetch(
-    `https://www.googleapis.com/calendar/v3/calendars/primary/events?${p}`,
-    { headers: { Authorization: `Bearer ${token}` } }
-  );
-  if (!res.ok) throw new Error(`Google events ${res.status}: ${(await res.text()).slice(0, 200)}`);
-  const data = await res.json();
-  const out = [];
-  for (const ev of data.items || []) {
-    if (ev.status === "cancelled") continue;
-    const start = ev.start?.dateTime || ev.start?.date || null;
-    out.push({
-      id: ev.id,
-      title: ev.summary || "(無題)",
-      start,
-      allDay: !ev.start?.dateTime,
-      url: findMeetingUrl(ev) || "",
-    });
-  }
-  return out;
-}
-
-// Picker用：ユーザーの短命アクセストークンを取得
-export async function driveAccessToken(owner) {
-  return accessToken(owner);
-}
-
-// ===== Google Drive 連携（自社ナレッジ取り込み用） =====
-// 連携状態の簡易確認（Driveへ実アクセスできるか）
-export async function driveReady(owner) {
-  const token = await accessToken(owner);
-  if (!token) return false;
-  try {
-    const res = await fetch("https://www.googleapis.com/drive/v3/about?fields=user", {
-      headers: { Authorization: `Bearer ${token}` },
-    });
-    return res.ok;
-  } catch {
-    return false;
-  }
-}
-
-// ドライブ閲覧（最近/マイドライブ/フォルダ/検索）。フォルダも返す。
-export async function driveList(owner, { mode = "recent", parent = "", q = "" } = {}) {
-  const token = await accessToken(owner);
-  if (!token) throw new Error("Google未連携です");
-  let query;
-  let orderBy = "folder,name";
-  if (q) {
-    query = `name contains '${String(q).replace(/'/g, "\\'")}' and trashed = false`;
-    orderBy = "modifiedTime desc";
-  } else if (parent) {
-    query = `'${parent}' in parents and trashed = false`;
-  } else if (mode === "mydrive") {
-    query = `'root' in parents and trashed = false`;
-  } else {
-    // 最近使用したアイテム（フォルダ除外）
-    query = `trashed = false and mimeType != 'application/vnd.google-apps.folder'`;
-    orderBy = "modifiedTime desc";
-  }
-  const p = new URLSearchParams({
-    q: query,
-    pageSize: "50",
-    fields: "files(id,name,mimeType,modifiedTime)",
-    orderBy,
-    supportsAllDrives: "true",
-    includeItemsFromAllDrives: "true",
-  });
-  const res = await fetch(`https://www.googleapis.com/drive/v3/files?${p}`, {
-    headers: { Authorization: `Bearer ${token}` },
-  });
-  if (!res.ok) throw new Error(`Drive一覧 ${res.status}: ${(await res.text()).slice(0, 200)}`);
-  const data = await res.json();
-  return data.files || [];
-}
-
-// ファイル検索（名前部分一致）。フォルダは除外しない（フォルダも返す）
-export async function driveSearch(owner, query) {
-  const token = await accessToken(owner);
-  if (!token) throw new Error("Google未連携です");
-  const q = query
-    ? `name contains '${String(query).replace(/'/g, "\\'")}' and trashed = false`
-    : "trashed = false";
-  const p = new URLSearchParams({
-    q,
-    pageSize: "25",
-    fields: "files(id,name,mimeType,modifiedTime,iconLink)",
-    orderBy: "modifiedTime desc",
-    supportsAllDrives: "true",
-    includeItemsFromAllDrives: "true",
-  });
-  const res = await fetch(`https://www.googleapis.com/drive/v3/files?${p}`, {
-    headers: { Authorization: `Bearer ${token}` },
-  });
-  if (!res.ok) throw new Error(`Drive検索 ${res.status}: ${(await res.text()).slice(0, 200)}`);
-  const data = await res.json();
-  return data.files || [];
-}
-
-// ファイル内容を取得。Googleドキュメント等はテキストにエクスポート、それ以外はバイナリ取得。
-// 返り値: { name, mimeType, text } または { name, mimeType, buffer }
-export async function driveGetContent(owner, fileId) {
-  const token = await accessToken(owner);
-  if (!token) throw new Error("Google未連携です");
-  const auth = { Authorization: `Bearer ${token}` };
-  // メタ取得
-  const metaRes = await fetch(
-    `https://www.googleapis.com/drive/v3/files/${fileId}?fields=id,name,mimeType&supportsAllDrives=true`,
-    { headers: auth }
-  );
-  if (!metaRes.ok) throw new Error(`Driveメタ ${metaRes.status}`);
-  const meta = await metaRes.json();
-  const mt = meta.mimeType || "";
-
-  const exportMap = {
-    "application/vnd.google-apps.document": "text/plain",
-    "application/vnd.google-apps.presentation": "text/plain",
-    "application/vnd.google-apps.spreadsheet": "text/csv",
+function headers() {
+  return {
+    Authorization: API_KEY, // 生キー
+    accept: "application/json",
+    "content-type": "application/json",
   };
-  if (exportMap[mt]) {
-    const res = await fetch(
-      `https://www.googleapis.com/drive/v3/files/${fileId}/export?mimeType=${encodeURIComponent(exportMap[mt])}`,
-      { headers: auth }
-    );
-    if (!res.ok) throw new Error(`Driveエクスポート ${res.status}`);
-    return { name: meta.name, mimeType: exportMap[mt], text: await res.text() };
+}
+
+/**
+ * 会議にBotを送り込み、リアルタイム文字起こしをWebhookで受け取る設定で作成。
+ * @returns {Promise<string>} botId
+ */
+// 文字起こしエンジンを選ぶ。RECALL_TRANSCRIBE_PROVIDER = recallai | deepgram | gladia
+// 日本語を低遅延にしたいなら deepgram か gladia を推奨。
+function buildProvider(provider, languageCode, deepgramModel, mode) {
+  const p = (provider || "recallai").toLowerCase();
+  if (p === "deepgram") {
+    return {
+      deepgram_streaming: {
+        language: languageCode, // 例: ja
+        model: deepgramModel || "nova-2",
+        mip_opt_out: true, // 学習に使わせない（機密配慮）
+      },
+    };
   }
-  if (mt.startsWith("application/vnd.google-apps")) {
-    // 図形描画/フォーム等：PDFでエクスポートを試みる
-    const res = await fetch(
-      `https://www.googleapis.com/drive/v3/files/${fileId}/export?mimeType=application/pdf`,
-      { headers: auth }
-    );
-    if (res.ok) return { name: meta.name, mimeType: "application/pdf", buffer: Buffer.from(await res.arrayBuffer()) };
-    throw new Error("この形式は取り込めません");
+  if (p === "gladia") {
+    return { gladia_streaming: {} };
   }
-  // 通常ファイル（PDF・画像・テキスト等）
-  const res = await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}?alt=media&supportsAllDrives=true`, {
-    headers: auth,
-  });
-  if (!res.ok) throw new Error(`Drive取得 ${res.status}`);
-  if (mt.startsWith("text/") || mt === "application/json") {
-    return { name: meta.name, mimeType: mt, text: await res.text() };
+  // 既定: Recall標準（英語以外は accuracy モード）
+  return { recallai_streaming: { mode, language_code: languageCode } };
+}
+
+export async function createBot({
+  meetingUrl,
+  webhookUrl,
+  languageCode = "ja",
+  botName = "議事録",
+  provider = "recallai",
+  deepgramModel = "nova-2",
+  joinAt = null, // ISO文字列。指定すると予約入室（例: 開始3分前）
+  rtmpUrl = null, // 指定するとミックス映像+音声をRTMPでライブ配信（Mux等）
+  videoLayout = "gallery_view_v2",
+}) {
+  // recallai_streaming 用：英語以外は accuracy（低遅延は英語のみ対応のため）
+  const mode =
+    process.env.RECALL_MODE ||
+    (String(languageCode).toLowerCase().startsWith("en")
+      ? "prioritize_low_latency"
+      : "prioritize_accuracy");
+
+  const realtimeEndpoints = [
+    {
+      type: "webhook",
+      url: webhookUrl,
+      events: ["transcript.data", "transcript.partial_data"],
+    },
+  ];
+  if (rtmpUrl) {
+    // v1.11: ミックス映像+音声のRTMP配信は video_mixed_flv を有効化し、
+    // rtmpエンドポイントで video_mixed_flv.data を購読する必要がある
+    realtimeEndpoints.push({
+      type: "rtmp",
+      url: rtmpUrl,
+      events: ["video_mixed_flv.data"],
+    });
   }
-  return { name: meta.name, mimeType: mt, buffer: Buffer.from(await res.arrayBuffer()) };
+
+  const body = {
+    meeting_url: meetingUrl,
+    bot_name: botName,
+    ...(joinAt ? { join_at: joinAt } : {}),
+    recording_config: {
+      // 後から再生できる録画（ミックスmp4）を必ず生成する
+      video_mixed_mp4: {},
+      transcript: {
+        provider: buildProvider(provider, languageCode, deepgramModel, mode),
+        // 参加者ごとに別ストリーム＝正確な話者分離（話者名が付く）
+        diarization: { use_separate_streams_when_available: true },
+      },
+      ...(rtmpUrl ? { video_mixed_flv: {}, video_mixed_layout: videoLayout } : {}),
+      realtime_endpoints: realtimeEndpoints,
+    },
+  };
+
+  // 507（容量一時不足）は数回リトライ推奨
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const res = await fetch(`${BASE}/bot/`, {
+      method: "POST",
+      headers: headers(),
+      body: JSON.stringify(body),
+    });
+    if (res.status === 507) {
+      await new Promise((r) => setTimeout(r, 3000));
+      continue;
+    }
+    if (!res.ok) {
+      const t = await res.text().catch(() => "");
+      throw new Error(`Recall create bot ${res.status}: ${t.slice(0, 300)}`);
+    }
+    const data = await res.json();
+    return data.id;
+  }
+  throw new Error("Recall create bot: 容量不足(507)が続いたため作成できませんでした");
+}
+
+/** Botを会議から退出させる */
+export async function leaveBot(botId) {
+  try {
+    await fetch(`${BASE}/bot/${botId}/leave_call/`, {
+      method: "POST",
+      headers: headers(),
+    });
+  } catch (e) {
+    console.error("[recall] leave error", e.message);
+  }
+}
+
+/** 単語配列を文字列へ。日本語は無スペース、英数字どうしの境界だけスペースを入れる */
+function joinWords(words) {
+  let out = "";
+  for (const w of words) {
+    const t = w?.text ?? "";
+    if (out && /[A-Za-z0-9]$/.test(out) && /^[A-Za-z0-9]/.test(t)) out += " ";
+    out += t;
+  }
+  return out;
+}
+
+/**
+ * Webhook ボディから文字起こしイベントを取り出す。
+ * @returns {null | {type:'final'|'partial', botId:string, speaker:{id,name}, text:string}}
+ */
+export function parseTranscriptEvent(body) {
+  const event = body?.event;
+  if (event !== "transcript.data" && event !== "transcript.partial_data") return null;
+  const d = body?.data?.data || {};
+  const words = Array.isArray(d.words) ? d.words : [];
+  const text = joinWords(words);
+  if (!text) return null;
+  const p = d.participant || {};
+  return {
+    type: event === "transcript.data" ? "final" : "partial",
+    botId: body?.data?.bot?.id,
+    speaker: { id: p.id ?? null, name: p.name ?? null },
+    text,
+  };
+}
+
+/** Botの詳細を取得（録画URLの取り出しに使う） */
+export async function getBot(botId) {
+  const res = await fetch(`${BASE}/bot/${botId}/`, { headers: headers() });
+  if (!res.ok) throw new Error(`Recall get bot ${res.status}`);
+  return res.json();
+}
+
+/** Botの応答から録画(動画)URLを最善努力で探す（スキーマ差異に強く） */
+export async function getRecordingUrl(botId) {
+  const data = await getBot(botId);
+
+  // 1) v1.11 の標準位置を明示的に探す: recordings[].media_shortcuts.video_mixed.data.download_url
+  const recs = Array.isArray(data?.recordings) ? data.recordings : [];
+  for (const r of recs) {
+    const ms = r?.media_shortcuts || {};
+    const vm = ms.video_mixed || ms.video_mixed_mp4 || null;
+    const url = vm?.data?.download_url;
+    if (typeof url === "string" && /^https?:\/\//.test(url)) return url;
+  }
+
+  // 2) 旧スキーマ等のフォールバック: オブジェクトを走査して mp4/download_url を探す
+  let found = null;
+  (function walk(o) {
+    if (found || o == null) return;
+    if (typeof o === "string") {
+      if (/^https?:\/\/.+\.mp4/i.test(o)) found = o;
+      return;
+    }
+    if (Array.isArray(o)) return o.forEach(walk);
+    if (typeof o === "object") {
+      for (const [k, v] of Object.entries(o)) {
+        if (found) break;
+        if (
+          typeof v === "string" &&
+          /^https?:\/\//.test(v) &&
+          /(download_url|\.mp4|video)/i.test(k + " " + v)
+        ) {
+          found = v;
+          break;
+        }
+        walk(v);
+      }
+    }
+  })(data);
+  return found;
 }

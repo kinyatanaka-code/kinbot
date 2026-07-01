@@ -1,183 +1,313 @@
-// server/retrieval.js
-// 自社ナレッジの「賢い検索」。チャンク分割→埋め込み(ベクトル化)→商談内容に近い箇所だけ抽出。
-// 埋め込みは Gemini(text-embedding-004) を既存の GEMINI_API_KEY で使用。
-// キーが無い/失敗時は 文字2-gram のキーワード検索に自動フォールバック。
-import {
-  replaceKnowledgeChunks,
-  deleteKnowledgeChunks,
-  listKnowledgeChunks,
-} from "./db.js";
+// server/google.js
+// Googleカレンダー連携（ユーザーごと）。トークンは google_accounts に owner 単位で保存。
+import { getGoogleToken, saveGoogleToken, deleteGoogleToken } from "./db.js";
 
-const GEMINI_KEY = process.env.GEMINI_API_KEY || "";
-const EMBED_MODEL = process.env.EMBED_MODEL || "text-embedding-004";
-const CHUNK_SIZE = 600;
-const CHUNK_OVERLAP = 120;
-const MAX_CHUNKS_PER_DOC = 400;
+const CLIENT_ID = process.env.GOOGLE_CLIENT_ID || "";
+const CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET || "";
+const SCOPE = "https://www.googleapis.com/auth/calendar.readonly https://www.googleapis.com/auth/drive.readonly";
 
-export function embeddingsAvailable() {
-  return !!GEMINI_KEY;
+export function googleConfigured() {
+  return !!(CLIENT_ID && CLIENT_SECRET);
 }
 
-// テキストをチャンクに分割（文区切り優先、無理なら文字数で）
-export function chunkText(text) {
-  const clean = String(text || "").replace(/\r/g, "").trim();
-  if (!clean) return [];
-  // 文区切りの候補で大きく割ってから、サイズに詰める
-  const sentences = clean.split(/(?<=[。．.!?！？\n])/);
-  const chunks = [];
-  let buf = "";
-  for (const s of sentences) {
-    if ((buf + s).length > CHUNK_SIZE && buf) {
-      chunks.push(buf.trim());
-      // オーバーラップ
-      buf = buf.slice(Math.max(0, buf.length - CHUNK_OVERLAP)) + s;
-    } else {
-      buf += s;
-    }
-    if (chunks.length >= MAX_CHUNKS_PER_DOC) break;
-  }
-  if (buf.trim() && chunks.length < MAX_CHUNKS_PER_DOC) chunks.push(buf.trim());
-  return chunks;
+// state にユーザー識別子（署名済み）を載せて、コールバックで誰の連携かを判別
+export function authUrl(redirectUri, state) {
+  const p = new URLSearchParams({
+    client_id: CLIENT_ID,
+    redirect_uri: redirectUri,
+    response_type: "code",
+    scope: SCOPE,
+    access_type: "offline",
+    prompt: "consent",
+    state: state || "",
+  });
+  return `https://accounts.google.com/o/oauth2/v2/auth?${p}`;
 }
 
-// Geminiバッチ埋め込み（最大100件/回）。失敗時 null。
-async function embedBatch(texts) {
-  if (!GEMINI_KEY || !texts.length) return null;
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/${EMBED_MODEL}:batchEmbedContents?key=${GEMINI_KEY}`;
-  const out = [];
-  for (let i = 0; i < texts.length; i += 100) {
-    const slice = texts.slice(i, i + 100);
-    const body = {
-      requests: slice.map((t) => ({
-        model: `models/${EMBED_MODEL}`,
-        content: { parts: [{ text: t }] },
-      })),
-    };
-    const res = await fetch(url, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify(body),
+async function fetchPrimaryEmail(accessToken) {
+  try {
+    const res = await fetch("https://www.googleapis.com/calendar/v3/calendars/primary", {
+      headers: { Authorization: `Bearer ${accessToken}` },
     });
-    if (!res.ok) throw new Error(`embed ${res.status}: ${(await res.text()).slice(0, 150)}`);
+    if (!res.ok) return null;
     const data = await res.json();
-    for (const e of data.embeddings || []) out.push(e.values || null);
+    return data.id || null;
+  } catch {
+    return null;
+  }
+}
+
+export async function exchangeCode(code, redirectUri, owner) {
+  const res = await fetch("https://oauth2.googleapis.com/token", {
+    method: "POST",
+    headers: { "content-type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({
+      code,
+      client_id: CLIENT_ID,
+      client_secret: CLIENT_SECRET,
+      redirect_uri: redirectUri,
+      grant_type: "authorization_code",
+    }),
+  });
+  if (!res.ok) throw new Error(`Google token ${res.status}: ${await res.text()}`);
+  const data = await res.json();
+  let gmail = null;
+  if (data.access_token) gmail = await fetchPrimaryEmail(data.access_token);
+  if (data.refresh_token) {
+    await saveGoogleToken(owner, data.refresh_token, gmail);
+  }
+  return data;
+}
+
+export async function isConnected(owner) {
+  const row = await getGoogleToken(owner);
+  return !!(row && row.refresh_token);
+}
+export async function disconnect(owner) {
+  await deleteGoogleToken(owner);
+}
+
+async function accessToken(owner) {
+  const row = await getGoogleToken(owner);
+  if (!row || !row.refresh_token) return null;
+  const res = await fetch("https://oauth2.googleapis.com/token", {
+    method: "POST",
+    headers: { "content-type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({
+      client_id: CLIENT_ID,
+      client_secret: CLIENT_SECRET,
+      refresh_token: row.refresh_token,
+      grant_type: "refresh_token",
+    }),
+  });
+  if (!res.ok) throw new Error(`Google refresh ${res.status}`);
+  const data = await res.json();
+  return data.access_token;
+}
+
+export async function getPrimaryEmail(owner) {
+  const row = await getGoogleToken(owner);
+  if (row && row.google_email) return row.google_email;
+  const token = await accessToken(owner);
+  if (!token) return null;
+  return fetchPrimaryEmail(token);
+}
+
+const ZOOM_RE = /https?:\/\/[\w.-]*zoom\.us\/[^\s"'<>)\]]+/i;
+function findZoomUrl(ev) {
+  const blobs = [
+    ev.hangoutLink,
+    ev.location,
+    ev.description,
+    ...(ev.conferenceData?.entryPoints || []).map((e) => e.uri),
+  ].filter(Boolean);
+  for (const b of blobs) {
+    const m = String(b).match(ZOOM_RE);
+    if (m) return m[0];
+  }
+  return null;
+}
+
+export async function listZoomEvents(owner, { timeMin, timeMax } = {}) {
+  const token = await accessToken(owner);
+  if (!token) return [];
+  const now = new Date();
+  const tMin = timeMin || now.toISOString();
+  const tMax = timeMax || new Date(now.getTime() + 26 * 3600 * 1000).toISOString();
+  const p = new URLSearchParams({
+    timeMin: tMin,
+    timeMax: tMax,
+    singleEvents: "true",
+    orderBy: "startTime",
+    maxResults: "50",
+  });
+  const res = await fetch(
+    `https://www.googleapis.com/calendar/v3/calendars/primary/events?${p}`,
+    { headers: { Authorization: `Bearer ${token}` } }
+  );
+  if (!res.ok) throw new Error(`Google events ${res.status}: ${(await res.text()).slice(0, 200)}`);
+  const data = await res.json();
+  const out = [];
+  for (const ev of data.items || []) {
+    if (!ev.start?.dateTime) continue;
+    const zoom = findZoomUrl(ev);
+    if (!zoom) continue;
+    out.push({ id: ev.id, title: ev.summary || "(無題)", start: ev.start.dateTime, zoomUrl: zoom });
   }
   return out;
 }
 
-async function embedOne(text) {
-  if (!GEMINI_KEY) return null;
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/${EMBED_MODEL}:embedContent?key=${GEMINI_KEY}`;
-  const res = await fetch(url, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({ model: `models/${EMBED_MODEL}`, content: { parts: [{ text }] } }),
+// Zoom以外・終日予定も含めて、その範囲の全予定を返す（商談名の選択用）
+const MEET_RE = /https?:\/\/[\w.-]*(?:zoom\.us|meet\.google\.com|teams\.microsoft\.com|teams\.live\.com)\/[^\s"'<>)\]]+/i;
+function findMeetingUrl(ev) {
+  const blobs = [
+    ev.hangoutLink,
+    ev.location,
+    ev.description,
+    ...(ev.conferenceData?.entryPoints || []).map((e) => e.uri),
+  ].filter(Boolean);
+  for (const b of blobs) {
+    const m = String(b).match(MEET_RE);
+    if (m) return m[0];
+  }
+  return null;
+}
+
+export async function listDayEvents(owner, { timeMin, timeMax } = {}) {
+  const token = await accessToken(owner);
+  if (!token) return [];
+  const now = new Date();
+  const tMin = timeMin || now.toISOString();
+  const tMax = timeMax || new Date(now.getTime() + 24 * 3600 * 1000).toISOString();
+  const p = new URLSearchParams({
+    timeMin: tMin,
+    timeMax: tMax,
+    singleEvents: "true",
+    orderBy: "startTime",
+    maxResults: "50",
   });
-  if (!res.ok) throw new Error(`embed ${res.status}`);
+  const res = await fetch(
+    `https://www.googleapis.com/calendar/v3/calendars/primary/events?${p}`,
+    { headers: { Authorization: `Bearer ${token}` } }
+  );
+  if (!res.ok) throw new Error(`Google events ${res.status}: ${(await res.text()).slice(0, 200)}`);
   const data = await res.json();
-  return data.embedding?.values || null;
+  const out = [];
+  for (const ev of data.items || []) {
+    if (ev.status === "cancelled") continue;
+    const start = ev.start?.dateTime || ev.start?.date || null;
+    out.push({
+      id: ev.id,
+      title: ev.summary || "(無題)",
+      start,
+      allDay: !ev.start?.dateTime,
+      url: findMeetingUrl(ev) || "",
+    });
+  }
+  return out;
 }
 
-// 1件のナレッジをインデックス化（チャンク＋埋め込み保存）
-export async function indexKnowledge(id, { title, category, body }) {
-  const chunks = chunkText(body);
-  if (!chunks.length) {
-    await deleteKnowledgeChunks(id);
-    return { chunks: 0, embedded: false };
-  }
-  let vectors = null;
+// Picker用：ユーザーの短命アクセストークンを取得
+export async function driveAccessToken(owner) {
+  return accessToken(owner);
+}
+
+// ===== Google Drive 連携（自社ナレッジ取り込み用） =====
+// 連携状態の簡易確認（Driveへ実アクセスできるか）
+export async function driveReady(owner) {
+  const token = await accessToken(owner);
+  if (!token) return false;
   try {
-    vectors = await embedBatch(chunks);
-  } catch (e) {
-    console.error("[retrieval] embed失敗（キーワード検索にフォールバック）:", e.message);
-    vectors = null;
-  }
-  const rows = chunks.map((t, i) => ({
-    title,
-    category,
-    text: t,
-    embedding: vectors && vectors[i] ? vectors[i] : null,
-  }));
-  await replaceKnowledgeChunks(id, rows);
-  return { chunks: rows.length, embedded: !!vectors };
-}
-
-export async function removeKnowledgeIndex(id) {
-  await deleteKnowledgeChunks(id);
-}
-
-function cosine(a, b) {
-  if (!a || !b || a.length !== b.length) return -1;
-  let dot = 0,
-    na = 0,
-    nb = 0;
-  for (let i = 0; i < a.length; i++) {
-    dot += a[i] * b[i];
-    na += a[i] * a[i];
-    nb += b[i] * b[i];
-  }
-  if (!na || !nb) return -1;
-  return dot / (Math.sqrt(na) * Math.sqrt(nb));
-}
-
-// 文字2-gramのJaccardスコア（フォールバック用）
-function bigrams(s) {
-  const t = String(s || "").toLowerCase().replace(/\s+/g, "");
-  const set = new Set();
-  for (let i = 0; i < t.length - 1; i++) set.add(t.slice(i, i + 2));
-  return set;
-}
-function jaccard(aSet, bStr) {
-  const b = bigrams(bStr);
-  if (!aSet.size || !b.size) return 0;
-  let inter = 0;
-  for (const g of aSet) if (b.has(g)) inter++;
-  return inter / (aSet.size + b.size - inter);
-}
-
-// クエリに近い上位チャンクを抽出し、プロンプト用テキストを返す
-export async function retrieve(queryText, { topK = 6, maxChars = 4000 } = {}) {
-  const q = String(queryText || "").slice(-4000);
-  if (!q.trim()) return "";
-  let chunks = [];
-  try {
-    chunks = await listKnowledgeChunks();
+    const res = await fetch("https://www.googleapis.com/drive/v3/about?fields=user", {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    return res.ok;
   } catch {
-    return "";
+    return false;
   }
-  if (!chunks.length) return "";
+}
 
-  let ranked = [];
-  let qvec = null;
-  if (GEMINI_KEY) {
-    try {
-      qvec = await embedOne(q);
-    } catch {
-      qvec = null;
-    }
-  }
-  const haveVectors = qvec && chunks.some((c) => Array.isArray(c.embedding));
-  if (haveVectors) {
-    ranked = chunks
-      .map((c) => ({ c, score: Array.isArray(c.embedding) ? cosine(qvec, c.embedding) : -1 }))
-      .sort((a, b) => b.score - a.score);
+// ドライブ閲覧（最近/マイドライブ/フォルダ/検索）。フォルダも返す。
+export async function driveList(owner, { mode = "recent", parent = "", q = "" } = {}) {
+  const token = await accessToken(owner);
+  if (!token) throw new Error("Google未連携です");
+  let query;
+  let orderBy = "folder,name";
+  if (q) {
+    query = `name contains '${String(q).replace(/'/g, "\\'")}' and trashed = false`;
+    orderBy = "modifiedTime desc";
+  } else if (parent) {
+    query = `'${parent}' in parents and trashed = false`;
+  } else if (mode === "mydrive") {
+    query = `'root' in parents and trashed = false`;
   } else {
-    // フォールバック：2-gramキーワード
-    const qset = bigrams(q);
-    ranked = chunks
-      .map((c) => ({ c, score: jaccard(qset, c.text) }))
-      .sort((a, b) => b.score - a.score);
+    // 最近使用したアイテム（フォルダ除外）
+    query = `trashed = false and mimeType != 'application/vnd.google-apps.folder'`;
+    orderBy = "modifiedTime desc";
   }
+  const p = new URLSearchParams({
+    q: query,
+    pageSize: "50",
+    fields: "files(id,name,mimeType,modifiedTime)",
+    orderBy,
+    supportsAllDrives: "true",
+    includeItemsFromAllDrives: "true",
+  });
+  const res = await fetch(`https://www.googleapis.com/drive/v3/files?${p}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!res.ok) throw new Error(`Drive一覧 ${res.status}: ${(await res.text()).slice(0, 200)}`);
+  const data = await res.json();
+  return data.files || [];
+}
 
-  const picked = [];
-  let used = 0;
-  for (const { c, score } of ranked) {
-    if (score <= 0) break;
-    const line = `[${c.category || "資料"}] ${c.title || ""}: ${c.text}`;
-    if (used + line.length > maxChars) continue;
-    picked.push(line);
-    used += line.length;
-    if (picked.length >= topK) break;
+// ファイル検索（名前部分一致）。フォルダは除外しない（フォルダも返す）
+export async function driveSearch(owner, query) {
+  const token = await accessToken(owner);
+  if (!token) throw new Error("Google未連携です");
+  const q = query
+    ? `name contains '${String(query).replace(/'/g, "\\'")}' and trashed = false`
+    : "trashed = false";
+  const p = new URLSearchParams({
+    q,
+    pageSize: "25",
+    fields: "files(id,name,mimeType,modifiedTime,iconLink)",
+    orderBy: "modifiedTime desc",
+    supportsAllDrives: "true",
+    includeItemsFromAllDrives: "true",
+  });
+  const res = await fetch(`https://www.googleapis.com/drive/v3/files?${p}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!res.ok) throw new Error(`Drive検索 ${res.status}: ${(await res.text()).slice(0, 200)}`);
+  const data = await res.json();
+  return data.files || [];
+}
+
+// ファイル内容を取得。Googleドキュメント等はテキストにエクスポート、それ以外はバイナリ取得。
+// 返り値: { name, mimeType, text } または { name, mimeType, buffer }
+export async function driveGetContent(owner, fileId) {
+  const token = await accessToken(owner);
+  if (!token) throw new Error("Google未連携です");
+  const auth = { Authorization: `Bearer ${token}` };
+  // メタ取得
+  const metaRes = await fetch(
+    `https://www.googleapis.com/drive/v3/files/${fileId}?fields=id,name,mimeType&supportsAllDrives=true`,
+    { headers: auth }
+  );
+  if (!metaRes.ok) throw new Error(`Driveメタ ${metaRes.status}`);
+  const meta = await metaRes.json();
+  const mt = meta.mimeType || "";
+
+  const exportMap = {
+    "application/vnd.google-apps.document": "text/plain",
+    "application/vnd.google-apps.presentation": "text/plain",
+    "application/vnd.google-apps.spreadsheet": "text/csv",
+  };
+  if (exportMap[mt]) {
+    const res = await fetch(
+      `https://www.googleapis.com/drive/v3/files/${fileId}/export?mimeType=${encodeURIComponent(exportMap[mt])}`,
+      { headers: auth }
+    );
+    if (!res.ok) throw new Error(`Driveエクスポート ${res.status}`);
+    return { name: meta.name, mimeType: exportMap[mt], text: await res.text() };
   }
-  return picked.join("\n");
+  if (mt.startsWith("application/vnd.google-apps")) {
+    // 図形描画/フォーム等：PDFでエクスポートを試みる
+    const res = await fetch(
+      `https://www.googleapis.com/drive/v3/files/${fileId}/export?mimeType=application/pdf`,
+      { headers: auth }
+    );
+    if (res.ok) return { name: meta.name, mimeType: "application/pdf", buffer: Buffer.from(await res.arrayBuffer()) };
+    throw new Error("この形式は取り込めません");
+  }
+  // 通常ファイル（PDF・画像・テキスト等）
+  const res = await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}?alt=media&supportsAllDrives=true`, {
+    headers: auth,
+  });
+  if (!res.ok) throw new Error(`Drive取得 ${res.status}`);
+  if (mt.startsWith("text/") || mt === "application/json") {
+    return { name: meta.name, mimeType: mt, text: await res.text() };
+  }
+  return { name: meta.name, mimeType: mt, buffer: Buffer.from(await res.arrayBuffer()) };
 }
