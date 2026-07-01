@@ -894,26 +894,50 @@ function renderDashboard(rows) {
   const repRank = Object.entries(repMap).sort((a, b) => b[1] - a[1]).slice(0, 8);
   const maxRep = Math.max(1, ...repRank.map(([, n]) => n));
 
-  // 挨拶ヘッダー（失敗しても本体は描画する）
+  // 挨拶ヘッダー（今週=月〜金の商談件数でメッセージを出し分け）
   let html = "";
   try {
-    const wonCount = Object.values(dealStatusMap || {}).filter((s) => s && s.status === "受注").length;
-    const sub = wonCount > 0 ? `これまでに受注${wonCount}件。いい流れです。` : "今日もいきましょう。";
-    html += `<div class="dash-greet"><img class="dash-greet-ava" src="kinbot.svg" alt="" /><div><div class="dash-greet-h">おかえりなさい${greetName ? "、" + escapeHtml(greetName) + "さん" : ""}</div><div class="dash-greet-sub">${escapeHtml(sub)}</div></div></div>`;
+    const nowD = new Date();
+    const day = nowD.getDay(); // 0=日 .. 6=土
+    const monday = new Date(nowD);
+    monday.setDate(nowD.getDate() + (day === 0 ? -6 : 1 - day)); // 今週の月曜
+    monday.setHours(0, 0, 0, 0);
+    const friday = new Date(monday);
+    friday.setDate(monday.getDate() + 4);
+    friday.setHours(23, 59, 59, 999); // 今週の金曜末
+    const weekCount = rows.filter((m) => { const d = new Date(m.created_at); return d >= monday && d <= friday; }).length;
+    let headline, sub;
+    if (weekCount === 0) {
+      headline = `今週はこれからですね`;
+      sub = `まずは1件、いってみましょう。`;
+    } else if (weekCount <= 3) {
+      headline = `今週は <b>${weekCount}件</b> 商談しましたね`;
+      sub = `お疲れ様です。この調子でいきましょう。`;
+    } else if (weekCount <= 7) {
+      headline = `今週は <b>${weekCount}件</b> 商談しましたね`;
+      sub = `いいペースです。お疲れ様です。`;
+    } else {
+      headline = `今週は <b>${weekCount}件</b> も商談しましたね`;
+      sub = `たくさんお疲れ様です。`;
+    }
+    const nm = greetName ? escapeHtml(greetName) + "さん、" : "";
+    html += `<div class="dash-hero"><div class="dash-hero-ava"><i class="ti ti-mood-smile"></i></div>` +
+      `<div class="dash-hero-txt"><div class="dash-hero-h">${nm}${headline}</div><div class="dash-hero-sub">${sub}</div></div></div>`;
   } catch (e) { console.error("[dash greet]", e); }
 
-  // KPIカード
+  // KPIカード（4枚・スタイル統一。数字の色で良し悪しを伝える）
   const kpis = [
-    { label: "対象の商談", val: total },
-    { label: "今月の商談", val: thisMonth },
-    { label: "平均トーク比率(営業)", val: avgTalk == null ? "—" : avgTalk + "%", warn: avgTalk != null && avgTalk >= 65 },
-    { label: "刺さったトーク", val: landedTotal, tone: "buy", click: "landed" },
-    { label: "懸念", val: concernTotal, tone: "risk", click: "concern" },
-    { label: "分析済み率", val: analyzedPct + "%" },
+    { label: "対象の商談", val: total, sub: `今月 ${thisMonth}件` },
+    { label: "平均トーク比率", val: avgTalk == null ? "—" : avgTalk + "%", warn: avgTalk != null && avgTalk >= 65, sub: avgTalk != null && avgTalk >= 65 ? "やや話しすぎ" : "営業の発話割合" },
+    { label: "刺さったトーク", val: landedTotal.toLocaleString(), tone: "buy", click: "landed", sub: "一覧を見る" },
+    { label: "懸念", val: concernTotal.toLocaleString(), tone: "risk", click: "concern", sub: "一覧を見る" },
   ];
-  html += '<div class="dash-kpis6">';
+  html += '<div class="dash-kpis4">';
   for (const k of kpis)
-    html += `<div class="kpi ${k.tone || ""} ${k.click ? "kpi-click" : ""}" ${k.click ? `data-talk="${k.click}"` : ""}><div class="kpi-val ${k.warn ? "warn" : ""}">${k.val}</div><div class="kpi-label">${k.label}${k.click ? ' <span class="kpi-more">一覧 ›</span>' : ""}</div></div>`;
+    html += `<div class="kpi ${k.tone || ""} ${k.click ? "kpi-click" : ""}" ${k.click ? `data-talk="${k.click}"` : ""}>` +
+      `<div class="kpi-label">${k.label}${k.click ? ' <i class="ti ti-chevron-right kpi-chev"></i>' : ""}</div>` +
+      `<div class="kpi-val ${k.warn ? "warn" : ""} ${k.tone || ""}">${k.val}</div>` +
+      `<div class="kpi-sub ${k.warn ? "warn" : ""}">${k.sub || ""}</div></div>`;
   html += "</div>";
 
   // いま追うべき案件（進行中・最近動いた順）
@@ -945,10 +969,28 @@ function renderDashboard(rows) {
   } catch (e) { console.error("[dash follow]", e); }
 
   try {
-  // 行1：推移(折れ線) + フェーズ分布(ドーナツ)
+  // 行1：推移(折れ線) + フェーズ分布(積み上げバー＋凡例)
   html += '<div class="dash-grid2">';
   html += '<div class="dash-card"><div class="dash-title">商談数の推移（月別）</div><div class="chart-box"><canvas id="chTrend"></canvas></div></div>';
-  html += '<div class="dash-card"><div class="dash-title">フェーズ分布</div><div class="chart-box"><canvas id="chPhase"></canvas></div></div>';
+  // フェーズ分布：横一本の積み上げバー＋凡例（円グラフより割合が読みやすい）
+  const distTotal = phaseCounts.reduce((s, p) => s + p.n, 0) + unset;
+  const distColors = ["#B4B2A9", "#85B7EB", "#1D9E75", "#0F6E56"];
+  let seg = "";
+  phaseCounts.forEach((p, i) => {
+    if (!p.n) return;
+    seg += `<span style="width:${(p.n / Math.max(1, distTotal)) * 100}%;background:${distColors[i] || "#1D9E75"}" title="${escapeHtml(p.label)} ${p.n}件"></span>`;
+  });
+  if (unset) seg += `<span style="width:${(unset / Math.max(1, distTotal)) * 100}%;background:#d7ded9" title="未設定 ${unset}件"></span>`;
+  let legend = "";
+  phaseCounts.forEach((p, i) => {
+    const pct = distTotal ? Math.round((p.n / distTotal) * 100) : 0;
+    legend += `<div class="pdb-row"><span class="pdb-name"><i class="pdb-dot" style="background:${distColors[i] || "#1D9E75"}"></i>${escapeHtml(p.label)}</span><span class="pdb-val">${p.n}件・${pct}%</span></div>`;
+  });
+  if (unset) {
+    const pct = distTotal ? Math.round((unset / distTotal) * 100) : 0;
+    legend += `<div class="pdb-row"><span class="pdb-name"><i class="pdb-dot" style="background:#d7ded9"></i>未設定</span><span class="pdb-val">${unset}件・${pct}%</span></div>`;
+  }
+  html += `<div class="dash-card"><div class="dash-title">フェーズ分布</div><div class="pdbar">${seg || '<span style="width:100%;background:#eef1f0"></span>'}</div><div class="pdb-legend">${legend}</div></div>`;
   html += "</div>";
 
   // 行2：コンバージョン(ファネル+SF) + 担当別件数
@@ -1008,16 +1050,6 @@ function renderDashboard(rows) {
         type: "line",
         data: { labels: months.map((m) => m.label), datasets: [{ data: months.map((m) => m.n), borderColor: "#0f6e62", backgroundColor: "rgba(57,224,180,.18)", fill: true, tension: 0.3, pointBackgroundColor: "#0f6e62" }] },
         options: { plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true, ticks: { precision: 0 } } }, maintainAspectRatio: false },
-      });
-    }
-    const ph = document.getElementById("chPhase");
-    if (ph) {
-      const data = phaseCounts.map((p) => p.n).concat(unset ? [unset] : []);
-      const labels = phaseCounts.map((p) => p.label).concat(unset ? ["未設定"] : []);
-      _charts.phase = new Chart(ph, {
-        type: "doughnut",
-        data: { labels, datasets: [{ data, backgroundColor: ["#0f6e62", "#1aa884", "#5dcaa5", "#9fe1cb", "#cbd5d0"] }] },
-        options: { plugins: { legend: { position: "bottom", labels: { font: { size: 11 }, boxWidth: 12 } } }, maintainAspectRatio: false },
       });
     }
   }
