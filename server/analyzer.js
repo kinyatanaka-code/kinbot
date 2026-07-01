@@ -574,10 +574,11 @@ function isTransient(msg) {
 }
 // 一次プロバイダが落ちた時の切替先（明示指定 → Groq → Gemini の順で使えるものを選ぶ）
 function fallbackProvider() {
+  // 明示指定（FALLBACK_PROVIDER）があれば最優先。無ければ Gemini → Groq の順で、使えるものを選ぶ。
   const explicit = (process.env.FALLBACK_PROVIDER || "").toLowerCase();
   if (explicit && explicit !== PROVIDER) return explicit;
-  if (PROVIDER !== "groq" && process.env.GROQ_API_KEY) return "groq";
   if (PROVIDER !== "gemini" && process.env.GEMINI_API_KEY) return "gemini";
+  if (PROVIDER !== "groq" && process.env.GROQ_API_KEY) return "groq";
   return "";
 }
 
