@@ -3,198 +3,44 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>kinbot</title>
+    <title>kinbot ログイン</title>
     <link rel="stylesheet" href="style.css" />
   </head>
   <body>
-    <div class="app">
-      <nav class="sidebar">
-        <div class="side-brand">
-          <span class="brand-mark"></span><span>kinbot</span>
-        </div>
-        <a class="side-item active" href="index.html"><span class="side-ico ico-rec"></span><span class="side-label">レコーディング</span></a>
-        <a class="side-item" href="history.html"><span class="side-ico ico-hist"></span><span class="side-label">商談履歴</span></a>
-        <a class="side-item" href="deals.html"><span class="side-ico ico-deal"></span><span class="side-label">案件</span></a>
-        <a class="side-item" href="analysis.html"><span class="side-ico ico-ana"></span><span class="side-label">分析</span></a>
-        <a class="side-item" href="settings.html"><span class="side-ico ico-set"></span><span class="side-label">設定</span></a>
-        <div class="side-foot"><span id="who" class="who"></span><a href="#" id="logout" class="side-logout">ログアウト</a></div>
-      </nav>
-
-      <div class="main">
-        <header class="topbar">
-          <div class="brand"><span class="brand-sub">live</span></div>
-          <div class="controls" id="liveControls" hidden>
-            <span class="timer" id="timer">00:00</span>
-            <span class="conn" id="conn" data-state="idle" title="接続状態"></span>
-            <button class="btn ghost" id="leaveBtn">退出</button>
-          </div>
-        </header>
-
-        <div class="rec-tabs" id="recTabs">
-          <button class="rec-tab active" data-rec="rec">商談記録</button>
-          <button class="rec-tab" data-rec="file">ファイルで記録</button>
-          <button class="rec-tab" data-rec="live">ライブ中</button>
-        </div>
-
-        <!-- ステップ1：商談名・URL・入室ボタン＋進行中の商談 -->
-        <div class="join-view" id="viewJoin">
-          <div class="join-inner">
-            <div class="join-cards">
-              <div class="join-card" data-mrec="rec">
-                <img class="join-mascot" src="kinbot.svg" alt="kinbot" />
-                <h1 class="join-title">商談を記録する</h1>
-                <p class="join-desc">商談名と会議URLを入れて、Botを入室させます。</p>
-                <div class="title-row">
-                  <input id="meetingTitle" type="text" placeholder="商談名（例：A社 初回）" />
-                  <button type="button" id="calBtn" class="cal-btn" title="カレンダーから選ぶ" aria-label="カレンダーから選ぶ"><svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><rect x="3" y="5" width="18" height="16" rx="3" fill="#E1F5EE" stroke="#11a47f" stroke-width="1.6"/><line x1="3" y1="9" x2="21" y2="9" stroke="#11a47f" stroke-width="1.6"/><line x1="8" y1="2.5" x2="8" y2="6.5" stroke="#0F6E56" stroke-width="2" stroke-linecap="round"/><line x1="16" y1="2.5" x2="16" y2="6.5" stroke="#0F6E56" stroke-width="2" stroke-linecap="round"/><circle cx="8" cy="13.5" r="1.4" fill="#11a47f"/><circle cx="12" cy="13.5" r="1.4" fill="#11a47f"/><circle cx="16" cy="13.5" r="1.4" fill="#11a47f"/><circle cx="8" cy="17.5" r="1.4" fill="#11a47f"/><circle cx="12" cy="17.5" r="1.4" fill="#11a47f"/></svg></button>
-                  <div class="cal-panel" id="calPanel" hidden></div>
-                </div>
-                <select id="linkSelect" class="link-select"><option value="">会議リンクを選ぶ…（登録リンク / 予定のリンク）</option></select>
-                <input id="meetingUrl" type="url" placeholder="会議のURL（Zoom / Meet / Teams）" />
-                <button class="btn big" id="joinBtn">Botを入室させる</button>
-                <p class="join-consent">Botが参加者として入室します。<strong>相手に録音・記録の同意</strong>を得てください。</p>
-              </div>
-              <div class="join-card upload-card" data-mrec="file">
-                <h2 class="join-title">ファイルから記録</h2>
-                <p class="join-desc">音声・動画をアップロードして、文字起こし・要約・分析を作成し、商談履歴に保存します。</p>
-                <div class="title-row">
-                  <input id="upTitle" type="text" placeholder="商談名（任意）" />
-                  <button type="button" id="upCalBtn" class="cal-btn" title="カレンダーから選ぶ" aria-label="カレンダーから選ぶ"><svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><rect x="3" y="5" width="18" height="16" rx="3" fill="#E1F5EE" stroke="#11a47f" stroke-width="1.6"/><line x1="3" y1="9" x2="21" y2="9" stroke="#11a47f" stroke-width="1.6"/><line x1="8" y1="2.5" x2="8" y2="6.5" stroke="#0F6E56" stroke-width="2" stroke-linecap="round"/><line x1="16" y1="2.5" x2="16" y2="6.5" stroke="#0F6E56" stroke-width="2" stroke-linecap="round"/><circle cx="8" cy="13.5" r="1.4" fill="#11a47f"/><circle cx="12" cy="13.5" r="1.4" fill="#11a47f"/><circle cx="16" cy="13.5" r="1.4" fill="#11a47f"/><circle cx="8" cy="17.5" r="1.4" fill="#11a47f"/><circle cx="12" cy="17.5" r="1.4" fill="#11a47f"/></svg></button>
-                  <div class="cal-panel" id="upCalPanel" hidden></div>
-                </div>
-                <input id="upFile" type="file" accept="audio/*,video/*" />
-                <button class="btn big" id="upBtn">アップロードして記録</button>
-                <p class="join-consent" id="upMsg">対応形式：mp3 / m4a / wav / mp4 など。最大2GB。処理完了後、商談履歴に表示されます。</p>
-              </div>
-            </div>
-            <div class="active-block" data-mrec="live">
-              <h2 class="active-title with-bot">進行中の商談（ライブ）</h2>
-              <div class="active-list" id="activeList"><div class="empty-state">いま進行中の商談はありません。</div></div>
-            </div>
-          </div>
-        </div>
-
-        <!-- ステップ2：ライブ文字起こし・要約・次の一手 -->
-        <div class="live-view" id="viewLive" data-mrec="live" hidden>
-          <div class="kinbot-bar" id="kinbotBar">
-            <svg class="kinbot-av" id="kinbotAv" viewBox="0 0 240 240" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
-              <defs>
-                <linearGradient id="kbavHead" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#9ee8d2"/><stop offset="1" stop-color="#5fc9a9"/></linearGradient>
-                <radialGradient id="kbavEye" cx="0.5" cy="0.4" r="0.7"><stop offset="0" stop-color="#d7fff3"/><stop offset="1" stop-color="#6fe8c6"/></radialGradient>
-                <linearGradient id="kbavHair" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#69c2ab"/><stop offset="1" stop-color="#43a690"/></linearGradient>
-              </defs>
-              <line x1="120" y1="40" x2="120" y2="18" stroke="#5cbfa6" stroke-width="6" stroke-linecap="round"/>
-              <circle cx="120" cy="13" r="9" fill="#b6ffe6"/>
-              <path d="M44 122 A78 78 0 0 1 196 122" fill="none" stroke="#5cbfa6" stroke-width="12" stroke-linecap="round"/>
-              <g fill="url(#kbavHair)"><circle cx="66" cy="64" r="18"/><circle cx="84" cy="50" r="19"/><circle cx="104" cy="42" r="20"/><circle cx="124" cy="39" r="21"/><circle cx="144" cy="43" r="20"/><circle cx="163" cy="52" r="18"/><circle cx="178" cy="66" r="16"/><circle cx="95" cy="62" r="15"/><circle cx="118" cy="58" r="15"/><circle cx="140" cy="60" r="15"/></g>
-              <rect x="52" y="52" width="136" height="114" rx="36" fill="url(#kbavHead)"/>
-              <ellipse cx="74" cy="126" rx="9" ry="6" fill="#ff9bb0" opacity="0.45"/>
-              <ellipse cx="166" cy="126" rx="9" ry="6" fill="#ff9bb0" opacity="0.45"/>
-              <rect x="70" y="80" width="100" height="56" rx="26" fill="#103f39"/>
-              <path d="M85 92 Q100 85 114 91" fill="none" stroke="#bff8ea" stroke-width="8" stroke-linecap="round"/>
-              <path d="M126 91 Q140 85 155 92" fill="none" stroke="#bff8ea" stroke-width="8" stroke-linecap="round"/>
-              <circle cx="100" cy="111" r="13" fill="url(#kbavEye)"/>
-              <circle cx="140" cy="111" r="13" fill="url(#kbavEye)"/>
-              <ellipse class="kb-mouth" id="kbMouth" cx="120" cy="128" rx="13" ry="3" fill="#7fecce"/>
-              <rect x="34" y="104" width="26" height="44" rx="12" fill="#5cbfa6"/><rect x="180" y="104" width="26" height="44" rx="12" fill="#5cbfa6"/>
-            </svg>
-            <div class="kinbot-say" id="kinbotSay">商談を見守っています。気づいたことをお伝えします。</div>
-          </div>
-
-          <div class="talk-ratio" id="talkRatio" hidden>
-            <span class="tr-title">トーク比率</span>
-            <div class="tr-chips" id="trChips"></div>
-            <span class="tr-warn" id="trWarn" hidden>話しすぎ注意</span>
-          </div>
-
-          <div class="live-tabs" id="liveTabs">
-            <button class="live-tab" data-pane="video" hidden>ライブ映像</button>
-            <button class="live-tab active" data-pane="transcript">文字起こし</button>
-            <button class="live-tab" data-pane="ai">AI提案</button>
-            <button class="live-tab" data-pane="check">チェック</button>
-            <button class="live-tab" data-pane="summary">要約</button>
-            <button class="live-tab" data-pane="note">メモ</button>
-          </div>
-
-          <div class="live-pane" data-pane="video" hidden>
-            <div class="live-video" id="liveVideo" hidden>
-              <video id="liveVideoEl" controls autoplay playsinline></video>
-              <span class="live-video-tag">ライブ映像</span>
-            </div>
-          </div>
-
-          <div class="live-pane" data-pane="transcript">
-            <section class="panel transcript-panel">
-              <div class="panel-head">
-                <h2>ライブ文字起こし</h2><span class="hint" id="sttHint">待機中</span>
-              </div>
-              <div class="transcript" id="transcript">
-                <div class="empty-state" id="transcriptEmpty">Botが入室すると、発言が話者ごとに流れます。</div>
-              </div>
-              <div class="partial" id="partial"></div>
-            </section>
-          </div>
-
-          <div class="live-pane live-pane-scroll coach-pane" data-pane="ai" hidden>
-            <div class="ai-feed coach-feed" id="aiFeed">
-              <div class="empty-state">商談が進むと、kinbotコーチが「切り返し」「聞いておきたい質問」「次の一手」をチャットで送ります。</div>
-            </div>
-            <div class="coach-ask">
-              <input id="coachAsk" type="text" placeholder="コーチに質問する…（例：今の反応どう？）" />
-              <button id="coachAskBtn" class="coach-send" aria-label="送信"><span>送信</span></button>
-            </div>
-          </div>
-
-          <div class="live-pane" data-pane="check" hidden>
-            <section class="panel check-panel">
-              <div class="panel-head"><h2>抜け漏れチェック</h2><span class="hint" id="checkHint">確認すべき項目</span></div>
-              <div class="check-list" id="checkList">
-                <div class="empty-state">会話が進むと、予算・決裁者・時期などの「聞けている／まだの項目」を表示します。</div>
-              </div>
-            </section>
-          </div>
-
-          <div class="live-pane" data-pane="summary" hidden>
-            <section class="panel summary-panel">
-              <div class="panel-head"><h2>要約</h2><span class="hint" id="summaryHint">—</span></div>
-              <div class="summary" id="summary">
-                <div class="empty-state">会話が進むと、状況・要点・合意・宿題・相手の懸念を自動でまとめます。</div>
-              </div>
-            </section>
-          </div>
-
-          <div class="live-pane live-pane-scroll" data-pane="note" hidden>
-            <textarea id="liveNote" class="live-note" placeholder="商談中のメモ（自動保存されます）"></textarea>
-            <div class="note-saved" id="noteSaved"></div>
-          </div>
-        </div>
-
-        <footer class="statusbar"><span id="status">待機中</span></footer>
+    <div class="login-wrap">
+      <div class="login-card">
+        <img class="auth-mascot" src="kinbot.svg" alt="kinbot" />
+        <div class="login-brand"><span class="brand-mark"></span> kinbot</div>
+        <p class="login-sub">ログイン</p>
+        <label class="field"><span>メールアドレス</span><input id="email" type="email" autocomplete="email" /></label>
+        <label class="field"><span>パスワード</span><input id="p" type="password" autocomplete="current-password" /></label>
+        <button class="btn" id="loginBtn">ログイン</button>
+        <p class="login-err" id="err" hidden></p>
+        <p class="login-alt">アカウントがない方は <a href="register.html">新規登録</a></p>
       </div>
     </div>
-    <script src="https://cdn.jsdelivr.net/npm/hls.js@1"></script>
-    <script src="app.js"></script>
     <script>
-      (function () {
-        const tabs = document.getElementById("recTabs");
-        if (!tabs) return;
-        const setRec = (name) => {
-          tabs.querySelectorAll(".rec-tab").forEach((b) => b.classList.toggle("active", b.dataset.rec === name));
-          document.querySelectorAll("[data-mrec]").forEach((el) => el.classList.toggle("mrec-on", el.dataset.mrec === name));
-        };
-        tabs.querySelectorAll(".rec-tab").forEach((b) => b.addEventListener("click", () => setRec(b.dataset.rec)));
-        setRec("rec");
-        // ライブ開始/終了に追従してタブを自動切替
-        const live = document.getElementById("viewLive");
-        if (live) {
-          new MutationObserver(() => {
-            if (window.innerWidth > 760) return;
-            if (!live.hidden) setRec("live");
-            else if (tabs.querySelector('.rec-tab[data-rec="live"]').classList.contains("active")) setRec("rec");
-          }).observe(live, { attributes: true, attributeFilter: ["hidden"] });
+      const $ = (id) => document.getElementById(id);
+      async function login() {
+        $("err").hidden = true;
+        try {
+          const res = await fetch("/api/login", {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ email: $("email").value.trim(), password: $("p").value }),
+          });
+          if (!res.ok) {
+            const d = await res.json().catch(() => ({}));
+            throw new Error(d.error || "ログインに失敗しました");
+          }
+          location.href = "/";
+        } catch (e) {
+          $("err").textContent = e.message;
+          $("err").hidden = false;
         }
-      })();
+      }
+      $("loginBtn").addEventListener("click", login);
+      $("p").addEventListener("keydown", (e) => { if (e.key === "Enter") login(); });
     </script>
-    <script src="nav.js"></script>
   </body>
 </html>

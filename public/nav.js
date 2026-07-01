@@ -1,126 +1,85 @@
-// public/nav.js — サイドバーのユーザー表示とログアウト
-(async () => {
-  try {
-    const me = await (await fetch("/api/me")).json();
-    const who = document.getElementById("who");
-    if (who) who.textContent = me.username ? me.username + (me.admin ? "（管理者）" : "") : "";
-  } catch {}
-  const lo = document.getElementById("logout");
-  if (lo)
-    lo.addEventListener("click", async (e) => {
-      e.preventDefault();
-      await fetch("/api/logout", { method: "POST" });
-      location.href = "/login.html";
-    });
-})();
+<svg viewBox="0 0 240 240" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="kinbot mascot">
+  <defs>
+    <linearGradient id="kbHead" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#9ee8d2"/>
+      <stop offset="1" stop-color="#5fc9a9"/>
+    </linearGradient>
+    <linearGradient id="kbVisor" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#1b574f"/>
+      <stop offset="1" stop-color="#103f39"/>
+    </linearGradient>
+    <radialGradient id="kbEye" cx="0.5" cy="0.4" r="0.7">
+      <stop offset="0" stop-color="#d7fff3"/>
+      <stop offset="1" stop-color="#6fe8c6"/>
+    </radialGradient>
+    <linearGradient id="kbGlow" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#b6ffe6"/>
+      <stop offset="1" stop-color="#66e6c0"/>
+    </linearGradient>
+    <linearGradient id="kbHair" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#69c2ab"/>
+      <stop offset="1" stop-color="#43a690"/>
+    </linearGradient>
+  </defs>
 
-// ===== Notion一括送信（自動分割・進捗・重複スキップはサーバー側で実施） =====
-window.kinbotBulkNotion = async function (ids, { onProgress } = {}) {
-  const CHUNK = 5; // 小さめにして進捗をこまめに更新＋1リクエストを短く（タイムアウト回避）
-  let sent = 0, failed = 0, skipped = 0;
-  const errors = [];
-  const total = ids.length;
-  let done = 0;
-  for (let i = 0; i < ids.length; i += CHUNK) {
-    const part = ids.slice(i, i + CHUNK);
-    if (onProgress) onProgress({ done, total, sent, failed, skipped, busy: part.length });
-    let d;
-    try {
-      const r = await fetch("/api/notion/bulk", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ ids: part }),
-      });
-      d = await r.json();
-      if (!r.ok) throw new Error(d.error || "送信に失敗しました");
-    } catch (e) {
-      failed += part.length;
-      if (errors.length < 5) errors.push(e.message);
-      done += part.length;
-      if (onProgress) onProgress({ done, total, sent, failed, skipped });
-      continue;
-    }
-    sent += d.sent || 0;
-    failed += d.failed || 0;
-    skipped += d.skipped || 0;
-    if (d.errors) for (const e of d.errors) if (errors.length < 5) errors.push(e);
-    done += part.length;
-    if (onProgress) onProgress({ done, total, sent, failed, skipped });
-  }
-  return { sent, failed, skipped, total, errors };
-};
+  <!-- antenna -->
+  <line x1="120" y1="40" x2="120" y2="18" stroke="#5cbfa6" stroke-width="6" stroke-linecap="round"/>
+  <circle cx="120" cy="13" r="9" fill="url(#kbGlow)">
+    <animate attributeName="opacity" values="1;0.5;1" dur="2.4s" repeatCount="indefinite"/>
+  </circle>
 
-// ===== 進捗バー（％ or 不確定アニメ）共通部品 =====
-window.kbProgress = function (el, opts = {}) {
-  if (!el) return;
-  if (opts.clear) { el.innerHTML = ""; return; }
-  let wrap = el.querySelector(".kb-progwrap");
-  const indet = opts.percent == null;
-  if (!wrap) {
-    el.innerHTML = `<div class="kb-progwrap"><div class="kb-prog"><div class="kb-prog-bar"></div></div><div class="kb-prog-label"></div></div>`;
-    wrap = el.querySelector(".kb-progwrap");
-  }
-  const prog = wrap.querySelector(".kb-prog");
-  const bar = wrap.querySelector(".kb-prog-bar");
-  const label = wrap.querySelector(".kb-prog-label");
-  prog.classList.toggle("indet", indet);
-  if (indet) bar.style.width = "";
-  else bar.style.width = Math.max(0, Math.min(100, Math.round(opts.percent))) + "%";
-  label.textContent = (opts.label || "") + (indet ? "" : "  " + Math.round(opts.percent) + "%");
-};
+  <!-- headphone band -->
+  <path d="M44 122 A78 78 0 0 1 196 122" fill="none" stroke="#5cbfa6" stroke-width="12" stroke-linecap="round"/>
 
-// ===== 進行中ライブの「botを退出」バナー（自分が立ち上げた商談・全ページ共通） =====
-(function liveBanner() {
-  if (location.pathname.endsWith("/") || /index\.html$/.test(location.pathname)) return; // 録画ページ自身は除外
-  let el = null;
-  const render = (list) => {
-    if (!list || !list.length) { if (el) { el.remove(); el = null; } return; }
-    const s = list[0];
-    if (!el) {
-      el = document.createElement("div");
-      el.className = "live-banner";
-      document.body.appendChild(el);
-    }
-    const extra = list.length > 1 ? `<span class="lb-extra">ほか${list.length - 1}件</span>` : "";
-    el.innerHTML =
-      `<span class="lb-dot"></span>` +
-      `<span class="lb-text">ライブ商談中：<b>${(s.title || "").replace(/[<>&]/g, "")}</b></span>${extra}` +
-      `<button class="lb-stop" data-id="${s.id}">botを退出させる</button>`;
-    const btn = el.querySelector(".lb-stop");
-    btn.addEventListener("click", async () => {
-      if (!confirm("このライブ商談からbotを退出させます。よろしいですか？\n（録画・要約・分析はこれまでの内容で生成されます）")) return;
-      btn.disabled = true; btn.textContent = "退出中…";
-      try {
-        await fetch(`/api/sessions/${encodeURIComponent(s.id)}/stop`, { method: "POST" });
-      } catch {}
-      poll();
-    });
-  };
-  const poll = async () => {
-    try {
-      const r = await fetch("/api/sessions/mine");
-      render(await r.json());
-    } catch { /* 失敗時は何もしない */ }
-  };
-  poll();
-  setInterval(poll, 15000);
-})();
+  <!-- 天然パーマ -->
+  <g fill="url(#kbHair)">
+    <circle cx="66" cy="64" r="18"/>
+    <circle cx="84" cy="50" r="19"/>
+    <circle cx="104" cy="42" r="20"/>
+    <circle cx="124" cy="39" r="21"/>
+    <circle cx="144" cy="43" r="20"/>
+    <circle cx="163" cy="52" r="18"/>
+    <circle cx="178" cy="66" r="16"/>
+    <circle cx="95" cy="62" r="15"/>
+    <circle cx="118" cy="58" r="15"/>
+    <circle cx="140" cy="60" r="15"/>
+  </g>
+  <g fill="#8fd9c4" opacity="0.75">
+    <circle cx="90" cy="46" r="6"/>
+    <circle cx="112" cy="39" r="6"/>
+    <circle cx="134" cy="40" r="6"/>
+    <circle cx="156" cy="49" r="5"/>
+    <circle cx="72" cy="60" r="5"/>
+  </g>
 
-// ===== サイドバーに「社内・フォロー」項目を差し込む（全ページ共通） =====
-(function addOtherNav() {
-  const side = document.querySelector(".sidebar");
-  if (!side || side.querySelector('[data-nav="other"]')) return;
-  const hist = side.querySelector('.side-item[href="history.html"]') || side.querySelector('.side-item[href^="history.html"]');
-  const a = document.createElement("a");
-  a.className = "side-item";
-  a.dataset.nav = "other";
-  a.href = "history.html?cat=other";
-  a.innerHTML = '<span class="side-ico ico-hist"></span><span class="side-label">社内・フォロー</span>';
-  if (hist && hist.parentNode) hist.parentNode.insertBefore(a, hist.nextSibling);
-  else side.appendChild(a);
-  const isOther = /history\.html$/.test(location.pathname) && new URLSearchParams(location.search).get("cat") === "other";
-  if (isOther) {
-    a.classList.add("active");
-    if (hist) hist.classList.remove("active");
-  }
-})();
+  <!-- head -->
+  <rect x="52" y="52" width="136" height="114" rx="36" fill="url(#kbHead)"/>
+
+  <!-- ほっぺ（blush） -->
+  <ellipse cx="74" cy="126" rx="9" ry="6" fill="#ff9bb0" opacity="0.45"/>
+  <ellipse cx="166" cy="126" rx="9" ry="6" fill="#ff9bb0" opacity="0.45"/>
+
+  <!-- visor -->
+  <rect x="70" y="80" width="100" height="56" rx="26" fill="url(#kbVisor)"/>
+
+  <!-- 太い眉毛 -->
+  <path d="M85 92 Q100 85 114 91" fill="none" stroke="#bff8ea" stroke-width="8" stroke-linecap="round"/>
+  <path d="M126 91 Q140 85 155 92" fill="none" stroke="#bff8ea" stroke-width="8" stroke-linecap="round"/>
+
+  <!-- eyes -->
+  <circle cx="100" cy="111" r="13" fill="url(#kbEye)">
+    <animate attributeName="r" values="13;13;2.5;13;13" dur="5s" keyTimes="0;0.92;0.95;0.98;1" repeatCount="indefinite"/>
+  </circle>
+  <circle cx="140" cy="111" r="13" fill="url(#kbEye)">
+    <animate attributeName="r" values="13;13;2.5;13;13" dur="5s" keyTimes="0;0.92;0.95;0.98;1" repeatCount="indefinite"/>
+  </circle>
+
+  <!-- smile -->
+  <path d="M103 127 Q120 139 137 127" fill="none" stroke="#7fecce" stroke-width="4" stroke-linecap="round"/>
+
+  <!-- ear cups -->
+  <rect x="34" y="104" width="26" height="44" rx="12" fill="#5cbfa6"/>
+  <rect x="180" y="104" width="26" height="44" rx="12" fill="#5cbfa6"/>
+  <rect x="40" y="112" width="14" height="28" rx="7" fill="#9ee8d2" opacity="0.85"/>
+  <rect x="186" y="112" width="14" height="28" rx="7" fill="#9ee8d2" opacity="0.85"/>
+</svg>

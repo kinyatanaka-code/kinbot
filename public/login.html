@@ -1,46 +1,1020 @@
-<!DOCTYPE html>
-<html lang="ja">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>kinbot ログイン</title>
-    <link rel="stylesheet" href="style.css" />
-  </head>
-  <body>
-    <div class="login-wrap">
-      <div class="login-card">
-        <img class="auth-mascot" src="kinbot.svg" alt="kinbot" />
-        <div class="login-brand"><span class="brand-mark"></span> kinbot</div>
-        <p class="login-sub">ログイン</p>
-        <label class="field"><span>メールアドレス</span><input id="email" type="email" autocomplete="email" /></label>
-        <label class="field"><span>パスワード</span><input id="p" type="password" autocomplete="current-password" /></label>
-        <button class="btn" id="loginBtn">ログイン</button>
-        <p class="login-err" id="err" hidden></p>
-        <p class="login-alt">アカウントがない方は <a href="register.html">新規登録</a></p>
-      </div>
-    </div>
-    <script>
-      const $ = (id) => document.getElementById(id);
-      async function login() {
-        $("err").hidden = true;
-        try {
-          const res = await fetch("/api/login", {
-            method: "POST",
-            headers: { "content-type": "application/json" },
-            body: JSON.stringify({ email: $("email").value.trim(), password: $("p").value }),
-          });
-          if (!res.ok) {
-            const d = await res.json().catch(() => ({}));
-            throw new Error(d.error || "ログインに失敗しました");
-          }
-          location.href = "/";
-        } catch (e) {
-          $("err").textContent = e.message;
-          $("err").hidden = false;
-        }
+// public/settings.js
+const $ = (id) => document.getElementById(id);
+
+async function load() {
+  try {
+    const res = await fetch("/api/settings");
+    const data = await res.json();
+    const s = data.settings || {};
+    $("botName").value = s.botName || "";
+    $("repName").value = s.repName || "";
+    $("languageCode").value = s.languageCode || "ja";
+    $("transcribeProvider").value = s.transcribeProvider || "recallai";
+    $("deepgramModel").value = s.deepgramModel || "nova-2";
+    $("analyzeIntervalSec").value = Math.round((s.analyzeIntervalMs || 20000) / 1000);
+    $("calendarFilter").value = s.calendarFilter || "";
+
+    const st = data.status || {};
+    $("statusTable").innerHTML = `
+      <tr><td>要約エンジン</td><td>${st.llmProvider || "-"}（${st.llmModel || "-"}）</td></tr>
+      <tr><td>履歴の保存(DB)</td><td>${st.dbEnabled ? "有効" : "無効（DATABASE_URL未設定）"}</td></tr>
+      <tr><td>ライブ映像配信(Mux)</td><td id="muxStatusCell">${st.muxConfigured ? "確認中…" : "未設定（MUX_TOKEN_ID/SECRET未設定）"}</td></tr>
+      <tr><td>公開URL</td><td>${st.publicUrl || "-"}</td></tr>`;
+    if (st.muxConfigured) {
+      try {
+        const mx = await (await fetch("/api/mux/status")).json();
+        const cell = document.getElementById("muxStatusCell");
+        if (cell) cell.textContent = mx.ok ? "有効（接続OK）" : "キーが無効の可能性: " + (mx.error || "認証エラー");
+      } catch {}
+    }
+  } catch {
+    $("persistNote").textContent = "設定の読み込みに失敗しました。";
+  }
+}
+
+$("saveBtn").addEventListener("click", async () => {
+  const body = {
+    botName: $("botName").value.trim(),
+    repName: $("repName").value.trim(),
+    languageCode: $("languageCode").value,
+    transcribeProvider: $("transcribeProvider").value,
+    deepgramModel: $("deepgramModel").value.trim() || "nova-2",
+    analyzeIntervalMs: (Number($("analyzeIntervalSec").value) || 20) * 1000,
+  };
+  try {
+    const res = await fetch("/api/settings", {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    const r = await res.json();
+    $("saved").hidden = false;
+    setTimeout(() => ($("saved").hidden = true), 1500);
+    $("persistNote").textContent = r.persisted
+      ? "保存しました（次回の入室から反映）。"
+      : "一時保存しました。永続化には DATABASE_URL（Postgres）の設定が必要です。再起動で消えます。";
+  } catch {
+    $("persistNote").textContent = "保存に失敗しました。";
+  }
+});
+
+async function loadCalendar() {
+  const statusEl = $("calStatus");
+  const connectBtn = $("calConnect");
+  const disconnectBtn = $("calDisconnect");
+  const eventsEl = $("calEvents");
+  const gsCal = $("gsCalendar");
+  const gsDrive = $("gsDrive");
+  try {
+    const res = await fetch("/api/calendar/status");
+    const d = await res.json();
+    if (!d.configured) {
+      statusEl.textContent = "未設定（GOOGLE_CLIENT_ID / SECRET が必要）";
+      eventsEl.innerHTML = "";
+      if (gsCal) gsCal.textContent = "—";
+      if (gsDrive) gsDrive.textContent = "—";
+      return;
+    }
+    // カレンダー/ドライブの個別状態
+    if (gsCal) gsCal.textContent = d.connected ? (d.error ? "権限エラー" : "連携済み") : "未連携";
+    if (gsDrive) {
+      gsDrive.textContent = "確認中…";
+      fetch("/api/drive/status")
+        .then((r) => r.json())
+        .then((ds) => {
+          if (gsDrive) gsDrive.textContent = !ds.googleConnected ? "未連携" : ds.driveReady ? "連携済み" : "未許可（再連携が必要）";
+        })
+        .catch(() => { if (gsDrive) gsDrive.textContent = "確認失敗"; });
+    }
+    if (d.connected) {
+      connectBtn.hidden = true;
+      disconnectBtn.hidden = false;
+      if (d.error) {
+        statusEl.textContent = "連携済み（権限エラー）";
+        statusEl.classList.remove("ok");
+        eventsEl.innerHTML = `<li><span class="ev-when">エラー: ${escapeHtml(d.error)}<br>「解除」→「連携する」でやり直し、Googleの画面で<b>カレンダー閲覧の許可にチェック</b>を入れてください。</span></li>`;
+        return;
       }
-      $("loginBtn").addEventListener("click", login);
-      $("p").addEventListener("keydown", (e) => { if (e.key === "Enter") login(); });
-    </script>
-  </body>
-</html>
+      statusEl.textContent = d.email ? `連携済み（${d.email}）` : "連携済み（アカウント取得中…再連携で表示されます）";
+      statusEl.classList.add("ok");
+      const evs = d.events || [];
+      eventsEl.innerHTML = evs.length
+        ? evs
+            .map((e) => {
+              const when = new Date(e.start).toLocaleString("ja-JP", {
+                hour: "2-digit",
+                minute: "2-digit",
+              });
+              const done = new Date(e.start).getTime() < Date.now();
+              return `<li><span>${escapeHtml(e.title)} <span class="badge">Zoom</span></span><span class="ev-when">${when}${done ? "（済）" : " 入室予定"}</span></li>`;
+            })
+            .join("")
+        : '<li><span class="ev-when">今日、Zoomリンク付きの予定はありません。</span></li>';
+    } else {
+      statusEl.textContent = "未連携";
+      statusEl.classList.remove("ok");
+      connectBtn.hidden = false;
+      disconnectBtn.hidden = true;
+      eventsEl.innerHTML = "";
+    }
+  } catch {
+    statusEl.textContent = "状態の取得に失敗しました";
+  }
+}
+function escapeHtml(s) {
+  return String(s ?? "").replace(/[&<>"']/g, (c) =>
+    ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c])
+  );
+}
+document.getElementById("calDisconnect").addEventListener("click", async () => {
+  await fetch("/api/calendar/disconnect", { method: "POST" });
+  loadCalendar();
+});
+
+load();
+loadCalendar();
+
+// ---- 登録リンク ----
+let links = [];
+async function loadLinks() {
+  try {
+    const res = await fetch("/api/links");
+    const d = await res.json();
+    links = Array.isArray(d.links) ? d.links : [];
+  } catch {
+    links = [];
+  }
+  renderLinks();
+}
+function renderLinks() {
+  const list = $("linkList");
+  if (!links.length) {
+    list.innerHTML = '<li class="empty-state">まだ登録がありません。</li>';
+    return;
+  }
+  list.innerHTML = "";
+  links.forEach((l, i) => {
+    const li = document.createElement("li");
+    li.innerHTML = `<span class="ln-name"></span><span class="ln-url"></span><button class="ln-del" data-i="${i}">削除</button>`;
+    li.querySelector(".ln-name").textContent = l.name;
+    li.querySelector(".ln-url").textContent = l.url;
+    li.querySelector(".ln-del").addEventListener("click", async () => {
+      links.splice(i, 1);
+      await saveLinks();
+    });
+    list.appendChild(li);
+  });
+}
+async function saveLinks() {
+  try {
+    const res = await fetch("/api/links", {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ links }),
+    });
+    const d = await res.json();
+    links = d.links || links;
+  } catch {}
+  renderLinks();
+}
+$("addLinkBtn").addEventListener("click", async () => {
+  const name = $("newLinkName").value.trim();
+  const url = $("newLinkUrl").value.trim();
+  if (!name || !url) return;
+  links.push({ name, url });
+  $("newLinkName").value = "";
+  $("newLinkUrl").value = "";
+  await saveLinks();
+});
+loadLinks();
+
+// ===== 御礼メールの例文（ラウンド別） =====
+const THANKS_ROUNDS = [
+  { key: "1", label: "1回目の商談" },
+  { key: "2", label: "2回目の商談" },
+  { key: "3", label: "3回目の商談" },
+];
+let thanksData = {};
+
+function renderThanksEditor() {
+  const root = document.getElementById("thanksEditor");
+  if (!root) return;
+  root.innerHTML = "";
+  for (const r of THANKS_ROUNDS) {
+    const list = Array.isArray(thanksData[r.key]) ? thanksData[r.key] : [];
+    const block = document.createElement("div");
+    block.className = "thanks-round";
+    block.innerHTML = `<div class="thanks-round-head">${r.label}（例文 ${list.length}件）</div><div class="thanks-list"></div><button type="button" class="btn ghost thanks-add">＋例を追加</button>`;
+    const listEl = block.querySelector(".thanks-list");
+    const addOne = (val) => {
+      const row = document.createElement("div");
+      row.className = "thanks-ex";
+      row.innerHTML = `<textarea rows="5" placeholder="過去に送ったお礼メールを貼り付け"></textarea><button type="button" class="btn ghost thanks-del">削除</button>`;
+      row.querySelector("textarea").value = val || "";
+      row.querySelector(".thanks-del").addEventListener("click", () => row.remove());
+      listEl.appendChild(row);
+    };
+    list.forEach((v) => addOne(v));
+    block.querySelector(".thanks-add").addEventListener("click", () => addOne(""));
+    root.appendChild(block);
+  }
+}
+async function loadThanks() {
+  try {
+    thanksData = await (await fetch("/api/thanks-examples")).json();
+    if (!thanksData || typeof thanksData !== "object") thanksData = {};
+  } catch {
+    thanksData = {};
+  }
+  renderThanksEditor();
+}
+function collectThanks() {
+  const root = document.getElementById("thanksEditor");
+  const out = {};
+  const blocks = root.querySelectorAll(".thanks-round");
+  blocks.forEach((block, i) => {
+    const key = THANKS_ROUNDS[i].key;
+    const vals = [...block.querySelectorAll("textarea")].map((t) => t.value.trim()).filter(Boolean);
+    if (vals.length) out[key] = vals;
+  });
+  return out;
+}
+const saveThanksBtn = document.getElementById("saveThanksBtn");
+if (saveThanksBtn) {
+  saveThanksBtn.addEventListener("click", async () => {
+    thanksData = collectThanks();
+    try {
+      await fetch("/api/thanks-examples", {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ examples: thanksData }),
+      });
+      const s = document.getElementById("thanksSaved");
+      s.hidden = false;
+      setTimeout(() => (s.hidden = true), 1500);
+      renderThanksEditor();
+    } catch {}
+  });
+}
+loadThanks();
+
+// ===== メニュー切替 =====
+(function () {
+  const menu = document.getElementById("setMenu");
+  if (!menu) return;
+  menu.querySelectorAll(".set-menu-item").forEach((item) => {
+    item.addEventListener("click", () => {
+      menu.querySelectorAll(".set-menu-item").forEach((t) => t.classList.toggle("active", t === item));
+      const name = item.dataset.tab;
+      document.querySelectorAll(".set-pane").forEach((p) => (p.hidden = p.dataset.pane !== name));
+      if (name === "teams") loadTeams();
+      if (name === "phasedef") loadPhasePrompt();
+      if (name === "thanks") loadThanksPrompt();
+    });
+  });
+})();
+
+// ===== 担当者→チーム マッピング編集 =====
+let teamsCache = [];
+async function loadTeams() {
+  const tbl = document.getElementById("tmTable");
+  if (!tbl) return;
+  tbl.innerHTML = '<tr><td class="note">読み込み中…</td></tr>';
+  let reps = [], users = [];
+  try { teamsCache = await (await fetch("/api/phase/teams")).json(); } catch { teamsCache = []; }
+  try { reps = await (await fetch("/api/phase/reps")).json(); } catch { reps = []; }
+  try { users = await (await fetch("/api/users")).json(); } catch { users = []; }
+  // 候補（担当者名）：判定実績 + ユーザー名
+  const nameSet = new Set();
+  (reps || []).forEach((r) => r.rep_name && nameSet.add(r.rep_name));
+  (users || []).forEach((u) => (u.name || u.email) && nameSet.add(u.name || u.email));
+  const repList = document.getElementById("tmRepList");
+  if (repList) repList.innerHTML = [...nameSet].map((n) => `<option value="${escapeHtml(n)}">`).join("");
+  const teamList = document.getElementById("tmTeamList");
+  if (teamList) teamList.innerHTML = [...new Set(teamsCache.map((t) => t.team_name))].map((n) => `<option value="${escapeHtml(n)}">`).join("");
+  // 未マッピングの担当者（判定実績はあるがマッピングが無い）
+  const mapped = new Set(teamsCache.map((t) => t.rep_name));
+  const unmapped = (reps || []).filter((r) => !mapped.has(r.rep_name));
+  const um = document.getElementById("tmUnmapped");
+  if (um) {
+    if (unmapped.length) {
+      um.innerHTML = `<div class="tm-unmapped"><b>未割り当ての担当者</b>（フェーズ分析で「未分類」に入っています。クリックで上の入力欄に取り込み）<div class="tm-chips">` +
+        unmapped.map((r) => `<button type="button" class="tm-chip" data-rep="${escapeHtml(r.rep_name)}">${escapeHtml(r.rep_name)}（${r.n}件）</button>`).join("") +
+        `</div></div>`;
+      um.querySelectorAll(".tm-chip").forEach((b) =>
+        b.addEventListener("click", () => { document.getElementById("tmRep").value = b.dataset.rep; document.getElementById("tmTeam").focus(); })
+      );
+    } else um.innerHTML = "";
+  }
+  // 一覧テーブル
+  if (!teamsCache.length) {
+    tbl.innerHTML = '<tr><td class="note">まだ登録がありません。上の入力欄から追加してください。</td></tr>';
+    return;
+  }
+  tbl.innerHTML =
+    "<tr><th>担当者</th><th>チーム</th><th>グループ</th><th></th></tr>" +
+    teamsCache.map((t) =>
+      `<tr><td>${escapeHtml(t.rep_name)}</td><td>${escapeHtml(t.team_name)}</td><td>${escapeHtml(t.group_name)}</td>` +
+      `<td><button class="btn ghost tm-edit" data-rep="${escapeHtml(t.rep_name)}" data-team="${escapeHtml(t.team_name)}" data-group="${escapeHtml(t.group_name)}">編集</button> ` +
+      `<button class="btn danger tm-del" data-rep="${escapeHtml(t.rep_name)}">削除</button></td></tr>`
+    ).join("");
+  tbl.querySelectorAll(".tm-edit").forEach((b) =>
+    b.addEventListener("click", () => {
+      document.getElementById("tmRep").value = b.dataset.rep;
+      document.getElementById("tmTeam").value = b.dataset.team;
+      document.getElementById("tmGroup").value = b.dataset.group;
+      document.getElementById("tmRep").focus();
+    })
+  );
+  tbl.querySelectorAll(".tm-del").forEach((b) =>
+    b.addEventListener("click", async () => {
+      if (!confirm(`「${b.dataset.rep}」のマッピングを削除しますか？`)) return;
+      await fetch("/api/phase/teams/" + encodeURIComponent(b.dataset.rep), { method: "DELETE" });
+      loadTeams();
+    })
+  );
+}
+(function () {
+  const add = document.getElementById("tmAdd");
+  if (!add) return;
+  add.addEventListener("click", async () => {
+    const repName = (document.getElementById("tmRep").value || "").trim();
+    const teamName = (document.getElementById("tmTeam").value || "").trim();
+    const groupName = (document.getElementById("tmGroup").value || "").trim() || "直販";
+    const st = document.getElementById("tmStatus");
+    if (!repName || !teamName) { if (st) st.textContent = "担当者名とチーム名を入れてください"; return; }
+    if (st) st.textContent = "保存中…";
+    try {
+      const r = await fetch("/api/phase/teams", {
+        method: "PUT", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ repName, teamName, groupName }),
+      });
+      if (!r.ok) throw new Error("保存に失敗");
+      if (st) st.textContent = "保存しました";
+      document.getElementById("tmRep").value = "";
+      document.getElementById("tmTeam").value = "";
+      document.getElementById("tmGroup").value = "";
+      loadTeams();
+      setTimeout(() => { if (st) st.textContent = ""; }, 1500);
+    } catch (e) { if (st) st.textContent = "失敗: " + e.message; }
+  });
+})();
+
+// ===== フェーズ判定の定義（プロンプト）編集 =====
+let phasePromptDefault = "";
+async function loadPhasePrompt() {
+  const ta = document.getElementById("phasePromptText");
+  const state = document.getElementById("phasePromptState");
+  if (!ta) return;
+  ta.value = "読み込み中…";
+  try {
+    const d = await (await fetch("/api/phase/prompt")).json();
+    phasePromptDefault = d.defaultPrompt || "";
+    ta.value = d.prompt || "";
+    if (state) state.textContent = d.isDefault ? "現在：既定の文面のまま（未編集）" : "現在：カスタム編集済み";
+  } catch {
+    ta.value = "";
+    if (state) state.textContent = "読み込みに失敗しました。";
+  }
+}
+(function () {
+  const saveBtn = document.getElementById("phasePromptSave");
+  const resetBtn = document.getElementById("phasePromptReset");
+  const ta = document.getElementById("phasePromptText");
+  const st = document.getElementById("phasePromptStatus");
+  const state = document.getElementById("phasePromptState");
+  if (!saveBtn || !ta) return;
+  saveBtn.addEventListener("click", async () => {
+    const text = ta.value;
+    if (!text.trim()) { if (st) st.textContent = "空のままでは保存できません（既定に戻す場合は右のボタンを使ってください）"; return; }
+    if (st) st.textContent = "保存中…";
+    try {
+      const r = await fetch("/api/phase/prompt", {
+        method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ prompt: text }),
+      });
+      if (!r.ok) throw new Error("保存に失敗");
+      if (st) st.textContent = "保存しました。次回の判定から反映されます。";
+      if (state) state.textContent = text.trim() === phasePromptDefault.trim() ? "現在：既定の文面のまま（未編集）" : "現在：カスタム編集済み";
+      setTimeout(() => { if (st) st.textContent = ""; }, 3000);
+    } catch (e) { if (st) st.textContent = "失敗: " + e.message; }
+  });
+  if (resetBtn) resetBtn.addEventListener("click", async () => {
+    if (!confirm("カスタム編集を破棄して、既定の文面に戻します。よろしいですか？")) return;
+    if (st) st.textContent = "戻しています…";
+    try {
+      await fetch("/api/phase/prompt", {
+        method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ prompt: "" }),
+      });
+      ta.value = phasePromptDefault;
+      if (state) state.textContent = "現在：既定の文面のまま（未編集）";
+      if (st) st.textContent = "既定の文面に戻しました";
+      setTimeout(() => { if (st) st.textContent = ""; }, 2500);
+    } catch (e) { if (st) st.textContent = "失敗: " + e.message; }
+  });
+})();
+
+// ===== 御礼メール生成プロンプト編集 =====
+let thanksPromptDefault = "";
+async function loadThanksPrompt() {
+  const ta = document.getElementById("thanksPromptText");
+  const state = document.getElementById("thanksPromptState");
+  if (!ta) return;
+  ta.value = "読み込み中…";
+  try {
+    const d = await (await fetch("/api/thanks-prompt")).json();
+    thanksPromptDefault = d.defaultPrompt || "";
+    ta.value = d.prompt || "";
+    if (state) state.textContent = d.isDefault ? "現在：既定の文面のまま（未編集）" : "現在：カスタム編集済み";
+  } catch {
+    ta.value = "";
+    if (state) state.textContent = "読み込みに失敗しました。";
+  }
+}
+(function () {
+  const saveBtn = document.getElementById("thanksPromptSave");
+  const resetBtn = document.getElementById("thanksPromptReset");
+  const ta = document.getElementById("thanksPromptText");
+  const st = document.getElementById("thanksPromptStatus");
+  const state = document.getElementById("thanksPromptState");
+  if (!saveBtn || !ta) return;
+  saveBtn.addEventListener("click", async () => {
+    const text = ta.value;
+    if (!text.trim()) { if (st) st.textContent = "空のままでは保存できません（既定に戻す場合は右のボタンを使ってください）"; return; }
+    if (st) st.textContent = "保存中…";
+    try {
+      const r = await fetch("/api/thanks-prompt", {
+        method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ prompt: text }),
+      });
+      if (!r.ok) throw new Error("保存に失敗");
+      if (st) st.textContent = "保存しました。次回の生成から反映されます。";
+      if (state) state.textContent = text.trim() === thanksPromptDefault.trim() ? "現在：既定の文面のまま（未編集）" : "現在：カスタム編集済み";
+      setTimeout(() => { if (st) st.textContent = ""; }, 3000);
+    } catch (e) { if (st) st.textContent = "失敗: " + e.message; }
+  });
+  if (resetBtn) resetBtn.addEventListener("click", async () => {
+    if (!confirm("カスタム編集を破棄して、既定の文面に戻します。よろしいですか？")) return;
+    if (st) st.textContent = "戻しています…";
+    try {
+      await fetch("/api/thanks-prompt", {
+        method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ prompt: "" }),
+      });
+      ta.value = thanksPromptDefault;
+      if (state) state.textContent = "現在：既定の文面のまま（未編集）";
+      if (st) st.textContent = "既定の文面に戻しました";
+      setTimeout(() => { if (st) st.textContent = ""; }, 2500);
+    } catch (e) { if (st) st.textContent = "失敗: " + e.message; }
+  });
+})();
+
+// ===== AI提案設定：サブタブ（自社ナレッジ / チェック項目） =====
+(function () {
+  const bar = document.getElementById("aiSubtabs");
+  if (!bar) return;
+  bar.querySelectorAll(".subtab").forEach((t) =>
+    t.addEventListener("click", () => {
+      bar.querySelectorAll(".subtab").forEach((x) => x.classList.toggle("active", x === t));
+      const sub = t.dataset.sub;
+      document.querySelectorAll('.set-pane[data-pane="ai"] .subpane').forEach((p) => (p.hidden = p.dataset.sub !== sub));
+    })
+  );
+})();
+
+// ===== カレンダーのフィルター文字を保存 =====
+const saveCalFilterBtn = document.getElementById("saveCalFilterBtn");
+if (saveCalFilterBtn) {
+  saveCalFilterBtn.addEventListener("click", async () => {
+    try {
+      await fetch("/api/settings", {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ calendarFilter: $("calendarFilter").value.trim() }),
+      });
+      const s = document.getElementById("calFilterSaved");
+      s.hidden = false;
+      setTimeout(() => (s.hidden = true), 1500);
+    } catch {}
+  });
+}
+
+// ===== Salesforce 連携 =====
+async function loadSalesforce() {
+  const statusEl = document.getElementById("sfStatus");
+  if (!statusEl) return;
+  try {
+    const d = await (await fetch("/api/salesforce/status")).json();
+    const connect = document.getElementById("sfConnect");
+    const disconnect = document.getElementById("sfDisconnect");
+    if (!d.configured) {
+      statusEl.textContent = "未設定（後日の連携作業で有効化）";
+      connect.hidden = true;
+      disconnect.hidden = true;
+    } else if (d.connected) {
+      statusEl.textContent = "連携済み" + (d.sfUser ? "" : "");
+      statusEl.classList.add("ok");
+      connect.hidden = true;
+      disconnect.hidden = false;
+    } else {
+      statusEl.textContent = "未連携";
+      connect.hidden = false;
+      disconnect.hidden = true;
+    }
+    const map = d.mapping || {};
+    if (document.getElementById("sfmap_stage")) {
+      $("sfmap_stage").value = map.stage || "";
+      $("sfmap_nextStep").value = map.nextStep || "";
+      $("sfmap_issues").value = map.issues || "";
+      $("sfmap_summary").value = map.summary || "";
+    }
+  } catch {
+    statusEl.textContent = "状態の取得に失敗しました";
+  }
+}
+const sfDisconnectBtn = document.getElementById("sfDisconnect");
+if (sfDisconnectBtn) {
+  sfDisconnectBtn.addEventListener("click", async () => {
+    await fetch("/api/salesforce/disconnect", { method: "POST" });
+    loadSalesforce();
+  });
+}
+const saveSfMapBtn = document.getElementById("saveSfMapBtn");
+if (saveSfMapBtn) {
+  saveSfMapBtn.addEventListener("click", async () => {
+    const mapping = {
+      stage: $("sfmap_stage").value.trim(),
+      nextStep: $("sfmap_nextStep").value.trim(),
+      issues: $("sfmap_issues").value.trim(),
+      summary: $("sfmap_summary").value.trim(),
+    };
+    try {
+      await fetch("/api/salesforce/mapping", {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ mapping }),
+      });
+      const s = document.getElementById("sfMapSaved");
+      s.hidden = false;
+      setTimeout(() => (s.hidden = true), 1500);
+    } catch {}
+  });
+}
+loadSalesforce();
+
+// ===== 自社ナレッジ（フォルダ＋ソース追加モーダル） =====
+function escapeHtmlKb(s) {
+  return String(s == null ? "" : s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+}
+let kbCurrentFolder = "";
+let kbAllFolders = [];
+const kbParentOf = (p) => p.split("/").slice(0, -1).join("/");
+const kbLeaf = (p) => p.split("/").slice(-1)[0];
+const kbCat = () => (document.getElementById("kbInCategory") ? document.getElementById("kbInCategory").value : "資料");
+const kbStatus = (t) => { const e = document.getElementById("kbIngestNote"); if (e) e.textContent = t || ""; };
+
+function kbRenderBreadcrumb() {
+  const bc = document.getElementById("kbBreadcrumb");
+  if (!bc) return;
+  const parts = kbCurrentFolder ? kbCurrentFolder.split("/") : [];
+  let acc = "";
+  let html = `<a href="#" class="kb-crumb" data-path="">📁 ルート</a>`;
+  for (const p of parts) {
+    acc = acc ? `${acc}/${p}` : p;
+    html += ` <span class="kb-crumb-sep">›</span> <a href="#" class="kb-crumb" data-path="${escapeHtmlKb(acc)}">${escapeHtmlKb(p)}</a>`;
+  }
+  bc.innerHTML = html;
+  bc.querySelectorAll(".kb-crumb").forEach((a) =>
+    a.addEventListener("click", (e) => { e.preventDefault(); kbCurrentFolder = e.currentTarget.dataset.path; loadKnowledge(); })
+  );
+}
+function kbFolderOptions(selected) {
+  const opts = ['<option value="">（ルート）</option>'];
+  for (const f of kbAllFolders) opts.push(`<option value="${escapeHtmlKb(f)}"${f === selected ? " selected" : ""}>${escapeHtmlKb(f)}</option>`);
+  return opts.join("");
+}
+
+async function loadKnowledge() {
+  const list = document.getElementById("kbList");
+  const folders = document.getElementById("kbFolders");
+  if (!list) return;
+  try {
+    const [items, fids] = await Promise.all([
+      (await fetch("/api/knowledge")).json(),
+      (await fetch("/api/knowledge/folders")).json(),
+    ]);
+    kbAllFolders = Array.isArray(fids) ? fids : [];
+    kbRenderBreadcrumb();
+
+    if (folders) {
+      const subs = kbAllFolders.filter((f) => kbParentOf(f) === kbCurrentFolder);
+      folders.innerHTML = "";
+      for (const f of subs) {
+        const count = items.filter((it) => (it.folder || "") === f || (it.folder || "").startsWith(f + "/")).length;
+        const li = document.createElement("li");
+        li.className = "kb-folder";
+        li.innerHTML =
+          `<button class="kb-folder-open" data-path="${escapeHtmlKb(f)}">📁 ${escapeHtmlKb(kbLeaf(f))} <span class="kb-folder-count">${count}</span></button>` +
+          `<button class="kb-folder-del" data-path="${escapeHtmlKb(f)}" title="フォルダを削除">🗑</button>`;
+        li.querySelector(".kb-folder-open").addEventListener("click", (e) => { kbCurrentFolder = e.currentTarget.dataset.path; loadKnowledge(); });
+        li.querySelector(".kb-folder-del").addEventListener("click", async (e) => {
+          const path = e.currentTarget.dataset.path;
+          if (!confirm(`フォルダ「${kbLeaf(path)}」を削除しますか？（空の場合のみ）`)) return;
+          const r = await fetch("/api/knowledge/folders", { method: "DELETE", headers: { "content-type": "application/json" }, body: JSON.stringify({ path }) });
+          if (!r.ok) { const d = await r.json().catch(() => ({})); alert(d.error || "削除できませんでした"); }
+          loadKnowledge();
+        });
+        folders.appendChild(li);
+      }
+    }
+
+    const here = items.filter((it) => (it.folder || "") === kbCurrentFolder);
+    list.innerHTML = "";
+    if (!here.length) list.innerHTML = '<li class="kb-empty">このフォルダには資料がありません。「＋ ソースを追加」から取り込めます。</li>';
+    for (const it of here) {
+      const li = document.createElement("li");
+      li.className = "kb-item";
+      const srcLabel = { pdf: "PDF", url: "URL", video: "動画", gdrive: "Drive", image: "画像", text: "手入力" }[it.source_type] || "手入力";
+      const ref = it.source_ref && it.source_type === "url"
+        ? `<a class="kb-src" href="${escapeHtmlKb(it.source_ref)}" target="_blank" rel="noopener">${escapeHtmlKb(srcLabel)}</a>`
+        : `<span class="kb-src">${srcLabel}</span>`;
+      li.innerHTML =
+        `<div class="kb-item-head"><span class="kb-cat">${escapeHtmlKb(it.category)}</span>` +
+        ref +
+        `<b>${escapeHtmlKb(it.title)}</b>` +
+        `<select class="kb-move" title="フォルダを移動">${kbFolderOptions(it.folder || "")}</select>` +
+        `<button class="kb-del" data-id="${it.id}">削除</button></div>` +
+        `<div class="kb-body">${escapeHtmlKb(it.body || "")}</div>`;
+      li.querySelector(".kb-del").addEventListener("click", async (e) => {
+        if (!confirm("このナレッジを削除しますか？")) return;
+        await fetch("/api/knowledge/" + e.currentTarget.dataset.id, { method: "DELETE" });
+        loadKnowledge();
+      });
+      li.querySelector(".kb-move").addEventListener("change", async (e) => {
+        await fetch("/api/knowledge/" + it.id, { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ folder: e.currentTarget.value }) });
+        loadKnowledge();
+      });
+      list.appendChild(li);
+    }
+  } catch {
+    list.innerHTML = '<li class="kb-empty">読み込みに失敗しました。</li>';
+  }
+}
+
+// 新規フォルダ
+(function () {
+  const btn = document.getElementById("kbNewFolderBtn");
+  if (!btn) return;
+  btn.addEventListener("click", async () => {
+    const name = (prompt("新しいフォルダ名") || "").trim();
+    if (!name) return;
+    if (/[\/"'\\]/.test(name)) return alert("/ \" ' \\ は使えません");
+    const path = kbCurrentFolder ? `${kbCurrentFolder}/${name}` : name;
+    await fetch("/api/knowledge/folders", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ path }) });
+    loadKnowledge();
+  });
+})();
+
+// 再インデックス
+(function () {
+  const btn = document.getElementById("kbReindexBtn");
+  const note = document.getElementById("kbReindexNote");
+  if (!btn) return;
+  btn.addEventListener("click", async () => {
+    btn.disabled = true; const o = btn.textContent; btn.textContent = "再構築中…";
+    if (note) { note.hidden = false; note.textContent = "ナレッジを検索用に処理しています…"; }
+    try {
+      const d = await (await fetch("/api/knowledge/reindex", { method: "POST" })).json();
+      if (note) note.textContent = `${d.count}件を再構築しました。` + (d.embeddings ? "（ベクトル検索が有効）" : "（キーワード検索で動作）");
+    } catch (e) { if (note) note.textContent = "失敗: " + e.message; }
+    finally { btn.disabled = false; btn.textContent = o; }
+  });
+})();
+
+// ===== ソース追加モーダル =====
+(function () {
+  const modal = document.getElementById("kbModal");
+  if (!modal) return;
+  const openBtn = document.getElementById("kbAddSourceBtn");
+  const closeBtn = document.getElementById("kbModalClose");
+  const folderLabel = document.getElementById("kbModalFolder");
+  const statusEl = document.getElementById("kbModalStatus");
+  const setStatus = (t) => { if (statusEl) statusEl.textContent = t || ""; };
+
+  const panels = { url: document.getElementById("kbPanelUrl"), text: document.getElementById("kbPanelText"), drive: document.getElementById("kbPanelDrive") };
+  const showPanel = (name) => { for (const k in panels) if (panels[k]) panels[k].hidden = k !== name; };
+
+  function openModal() {
+    modal.hidden = false;
+    if (folderLabel) folderLabel.textContent = "→ " + (kbCurrentFolder || "ルート");
+    showPanel(null);
+    setStatus("");
+  }
+  function closeModal() { modal.hidden = true; }
+  if (openBtn) openBtn.addEventListener("click", openModal);
+  if (closeBtn) closeBtn.addEventListener("click", closeModal);
+  modal.addEventListener("click", (e) => { if (e.target === modal) closeModal(); });
+
+  // ソース種別ボタン
+  modal.querySelectorAll(".kb-source-btn").forEach((b) =>
+    b.addEventListener("click", async () => {
+      const src = b.dataset.src;
+      if (src === "file") { document.getElementById("kbFileInput").click(); return; }
+      if (src === "drive") {
+        // 公式Google Pickerを試し、APIキー未設定なら内製ブラウザにフォールバック
+        let cfg = {};
+        try { cfg = await (await fetch("/api/drive/picker-config")).json(); } catch {}
+        if (cfg.apiKey) {
+          openGooglePicker(cfg);
+          return;
+        }
+        showPanel("drive");
+        driveLoad("recent");
+        return;
+      }
+      showPanel(src);
+    })
+  );
+
+  // ---- 公式 Google Picker ----
+  let pickerLoaded = false;
+  function loadPickerApi(cb) {
+    if (window.google && window.google.picker) return cb();
+    if (pickerLoaded) { const t = setInterval(() => { if (window.google && window.google.picker) { clearInterval(t); cb(); } }, 200); return; }
+    pickerLoaded = true;
+    const s = document.createElement("script");
+    s.src = "https://apis.google.com/js/api.js";
+    s.onload = () => window.gapi.load("picker", { callback: cb });
+    document.head.appendChild(s);
+  }
+  async function openGooglePicker(cfg) {
+    setStatus("Googleドライブを開いています…");
+    try {
+      const st = await (await fetch("/api/drive/status")).json();
+      if (!st.googleConnected || !st.driveReady) {
+        setStatus("");
+        showPanel("drive");
+        driveLoad("recent");
+        return;
+      }
+      const { token } = await (await fetch("/api/drive/token")).json();
+      if (!token) throw new Error("トークン取得に失敗");
+      loadPickerApi(() => {
+        const g = window.google;
+        const view = new g.picker.DocsView(g.picker.ViewId.DOCS).setIncludeFolders(true).setSelectFolderEnabled(false);
+        const shared = new g.picker.DocsView(g.picker.ViewId.DOCS).setEnableDrives(true).setIncludeFolders(true);
+        const builder = new g.picker.PickerBuilder()
+          .addView(view)
+          .addView(shared)
+          .setOAuthToken(token)
+          .setDeveloperKey(cfg.apiKey)
+          .setCallback((data) => pickerCallback(g, data));
+        if (cfg.appId) builder.setAppId(cfg.appId);
+        builder.build().setVisible(true);
+        setStatus("");
+      });
+    } catch (e) {
+      setStatus("Pickerを開けませんでした: " + e.message + "（内製ブラウザに切替）");
+      showPanel("drive");
+      driveLoad("recent");
+    }
+  }
+  async function pickerCallback(g, data) {
+    if (data.action !== g.picker.Action.PICKED) return;
+    const docs = data.docs || [];
+    let ok = 0;
+    for (const doc of docs) {
+      setStatus(`「${doc.name}」を読み取っています…`);
+      try {
+        const rr = await fetch("/api/knowledge/drive", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ fileId: doc.id, category: kbCat(), folder: kbCurrentFolder }),
+        });
+        const dd = await rr.json();
+        if (!rr.ok) throw new Error(dd.error || "失敗");
+        ok++;
+      } catch (e) {
+        setStatus(`「${doc.name}」失敗: ${e.message}`);
+      }
+    }
+    if (ok) setStatus(`${ok}/${docs.length} 件を取り込みました。`);
+    loadKnowledge();
+  }
+
+  // ---- ファイル（複数・ドロップ対応） ----
+  async function uploadOneFile(f) {
+    setStatus(`「${f.name}」を読み取り中…`);
+    const fd = new FormData();
+    fd.append("file", f);
+    fd.append("category", kbCat());
+    fd.append("folder", kbCurrentFolder);
+    const r = await fetch("/api/knowledge/file", { method: "POST", body: fd });
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.error || "失敗");
+    return d;
+  }
+  async function handleFiles(files) {
+    const arr = [...files];
+    let ok = 0;
+    for (const f of arr) {
+      try { await uploadOneFile(f); ok++; setStatus(`${ok}/${arr.length} 件 完了…`); }
+      catch (e) { setStatus(`「${f.name}」失敗: ${e.message}`); }
+    }
+    setStatus(`${ok}/${arr.length} 件を取り込みました。`);
+    loadKnowledge();
+  }
+  const fileInput = document.getElementById("kbFileInput");
+  if (fileInput) fileInput.addEventListener("change", () => { if (fileInput.files.length) handleFiles(fileInput.files); fileInput.value = ""; });
+
+  const dz = document.getElementById("kbDropzone");
+  if (dz) {
+    dz.addEventListener("click", () => fileInput && fileInput.click());
+    ["dragover", "dragenter"].forEach((ev) => dz.addEventListener(ev, (e) => { e.preventDefault(); dz.classList.add("over"); }));
+    ["dragleave", "drop"].forEach((ev) => dz.addEventListener(ev, (e) => { e.preventDefault(); dz.classList.remove("over"); }));
+    dz.addEventListener("drop", (e) => { if (e.dataTransfer && e.dataTransfer.files.length) handleFiles(e.dataTransfer.files); });
+  }
+
+  // ---- URL ----
+  const urlBtn = document.getElementById("kbUrlBtn");
+  if (urlBtn) urlBtn.addEventListener("click", async () => {
+    const url = document.getElementById("kbUrl").value.trim();
+    if (!url) return;
+    urlBtn.disabled = true; setStatus("URLを取り込んでいます…");
+    try {
+      const r = await fetch("/api/knowledge/url", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ url, category: kbCat(), folder: kbCurrentFolder }) });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.error || "失敗");
+      document.getElementById("kbUrl").value = "";
+      setStatus(`取り込みました（約${(d.chars || 0).toLocaleString()}文字）。`);
+      loadKnowledge();
+    } catch (e) { setStatus("取り込み失敗: " + e.message); }
+    finally { urlBtn.disabled = false; }
+  });
+
+  // ---- テキスト ----
+  const addBtn = document.getElementById("kbAddBtn");
+  if (addBtn) addBtn.addEventListener("click", async () => {
+    const title = document.getElementById("kbTitle").value.trim();
+    const body = document.getElementById("kbBody").value.trim();
+    if (!title && !body) return;
+    setStatus("追加しています…");
+    await fetch("/api/knowledge", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ category: kbCat(), title, body, folder: kbCurrentFolder }) });
+    document.getElementById("kbTitle").value = ""; document.getElementById("kbBody").value = "";
+    setStatus("追加しました。");
+    loadKnowledge();
+  });
+
+  // ---- ドライブ閲覧 ----
+  let driveMode = "recent";
+  let driveStack = []; // {id, name}
+  const results = document.getElementById("kbDriveResults");
+  const crumb = document.getElementById("kbDriveCrumb");
+  const qInput = document.getElementById("kbDriveQ");
+  const mimeLabel = (mt) => {
+    if (!mt) return "ファイル";
+    if (mt.includes("folder")) return "フォルダ";
+    if (mt.includes("google-apps.document")) return "ドキュメント";
+    if (mt.includes("google-apps.spreadsheet")) return "シート";
+    if (mt.includes("google-apps.presentation")) return "スライド";
+    if (mt === "application/pdf") return "PDF";
+    if (mt.startsWith("image/")) return "画像";
+    return "ファイル";
+  };
+  function renderCrumb() {
+    if (!crumb) return;
+    let html = `<a href="#" data-i="-1">マイドライブ</a>`;
+    driveStack.forEach((f, i) => { html += ` › <a href="#" data-i="${i}">${escapeHtmlKb(f.name)}</a>`; });
+    crumb.innerHTML = driveMode === "mydrive" || driveStack.length ? html : "";
+    crumb.querySelectorAll("a").forEach((a) => a.addEventListener("click", (e) => {
+      e.preventDefault(); const i = Number(e.currentTarget.dataset.i);
+      driveStack = i < 0 ? [] : driveStack.slice(0, i + 1);
+      const parent = driveStack.length ? driveStack[driveStack.length - 1].id : "";
+      driveLoad("mydrive", parent);
+    }));
+  }
+  async function driveLoad(mode, parent = "", q = "") {
+    driveMode = mode;
+    if (!results) return;
+    results.innerHTML = '<li class="kb-empty">読み込み中…</li>';
+    renderCrumb();
+    try {
+      const st = await (await fetch("/api/drive/status")).json();
+      if (!st.googleConnected) { results.innerHTML = '<li class="kb-empty">Google未連携です。設定→Google連携から連携してください。</li>'; return; }
+      if (!st.driveReady) { results.innerHTML = '<li class="kb-empty">ドライブ未許可です。Google連携で「解除」→「連携する」をやり直し、ドライブの許可にチェックしてください。</li>'; return; }
+      const params = new URLSearchParams(q ? { q } : parent ? { mode: "mydrive", parent } : { mode });
+      const d = await (await fetch("/api/drive/list?" + params)).json();
+      const files = d.files || [];
+      if (!files.length) { results.innerHTML = '<li class="kb-empty">ファイルがありません。</li>'; return; }
+      results.innerHTML = "";
+      for (const f of files) {
+        const isFolder = (f.mimeType || "").includes("folder");
+        const li = document.createElement("li");
+        li.className = "kb-drive-item";
+        li.innerHTML =
+          `<span class="kb-drive-ic">${isFolder ? "📁" : "📄"}</span>` +
+          `<span class="kb-drive-name">${escapeHtmlKb(f.name)}</span>` +
+          `<span class="kb-drive-type">${escapeHtmlKb(mimeLabel(f.mimeType))}</span>` +
+          (isFolder ? "" : `<button class="btn ghost kb-drive-import">取り込む</button>`);
+        if (isFolder) {
+          li.querySelector(".kb-drive-name").style.cursor = "pointer";
+          li.querySelector(".kb-drive-name").addEventListener("click", () => { driveStack.push({ id: f.id, name: f.name }); driveLoad("mydrive", f.id); });
+          li.querySelector(".kb-drive-ic").style.cursor = "pointer";
+          li.querySelector(".kb-drive-ic").addEventListener("click", () => { driveStack.push({ id: f.id, name: f.name }); driveLoad("mydrive", f.id); });
+        } else {
+          li.querySelector(".kb-drive-import").addEventListener("click", async (e) => {
+            const btn = e.currentTarget; btn.disabled = true; btn.textContent = "取り込み中…";
+            setStatus(`「${f.name}」を読み取っています…`);
+            try {
+              const rr = await fetch("/api/knowledge/drive", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ fileId: f.id, category: kbCat(), folder: kbCurrentFolder }) });
+              const dd = await rr.json();
+              if (!rr.ok) throw new Error(dd.error || "失敗");
+              setStatus(`「${f.name}」を取り込みました（約${(dd.chars || 0).toLocaleString()}文字）。`);
+              btn.textContent = "完了"; loadKnowledge();
+            } catch (err) { setStatus("取り込み失敗: " + err.message); btn.disabled = false; btn.textContent = "取り込む"; }
+          });
+        }
+        results.appendChild(li);
+      }
+    } catch (e) { results.innerHTML = `<li class="kb-empty">エラー: ${escapeHtmlKb(e.message)}</li>`; }
+  }
+  modal.querySelectorAll(".kb-drive-tab").forEach((t) => t.addEventListener("click", () => {
+    modal.querySelectorAll(".kb-drive-tab").forEach((x) => x.classList.toggle("active", x === t));
+    driveStack = []; if (qInput) qInput.value = "";
+    driveLoad(t.dataset.mode);
+  }));
+  if (qInput) qInput.addEventListener("keydown", (e) => { if (e.key === "Enter") { driveStack = []; driveLoad("search", "", qInput.value.trim()); } });
+})();
+
+loadKnowledge();
+
+// ===== 抜け漏れチェック項目（チーム共有） =====
+(function () {
+  const ta = document.getElementById("checkItems");
+  const saveBtn = document.getElementById("saveCheckBtn");
+  const resetBtn = document.getElementById("resetCheckBtn");
+  const saved = document.getElementById("checkSaved");
+  if (!ta || !saveBtn) return;
+  const DEFAULTS = ["課題・ニーズ", "予算", "決裁者・決裁プロセス", "導入時期", "現状・競合（既存の取り組み/比較対象）", "次のステップ（合意）"];
+
+  async function load() {
+    try {
+      const d = await (await fetch("/api/check-items")).json();
+      ta.value = (d.items && d.items.length ? d.items : DEFAULTS).join("\n");
+    } catch { ta.value = DEFAULTS.join("\n"); }
+  }
+  async function save(items) {
+    const r = await fetch("/api/check-items", {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ items }),
+    });
+    const d = await r.json();
+    if (r.ok && saved) { saved.hidden = false; setTimeout(() => (saved.hidden = true), 1500); }
+    if (d.items) ta.value = d.items.join("\n");
+  }
+  saveBtn.addEventListener("click", () => {
+    const items = ta.value.split("\n").map((s) => s.trim()).filter(Boolean);
+    save(items);
+  });
+  if (resetBtn) resetBtn.addEventListener("click", () => save(DEFAULTS));
+  load();
+})();
+
+// ===== Notion連携 =====
+(function () {
+  const saveBtn = document.getElementById("saveNotionBtn");
+  if (!saveBtn) return;
+  const tokenEl = document.getElementById("notionToken");
+  const dbEl = document.getElementById("notionDb");
+  const statusEl = document.getElementById("notionStatus");
+  const savedEl = document.getElementById("notionSaved");
+  async function refresh() {
+    try {
+      const d = await (await fetch("/api/notion/config")).json();
+      if (dbEl && d.db) dbEl.value = d.db;
+      if (tokenEl && d.hasToken) tokenEl.value = "••••••••••••";
+      if (statusEl) statusEl.textContent = d.configured ? "連携済み" : "未設定";
+    } catch {}
+  }
+  saveBtn.addEventListener("click", async () => {
+    saveBtn.disabled = true;
+    try {
+      const body = { db: (dbEl.value || "").trim() };
+      const tv = (tokenEl.value || "").trim();
+      if (tv && !tv.includes("•")) body.token = tv;
+      const r = await fetch("/api/notion/config", {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.error || "保存に失敗");
+      if (savedEl) { savedEl.hidden = false; setTimeout(() => (savedEl.hidden = true), 2000); }
+      if (statusEl) statusEl.textContent = d.configured ? "連携済み" : "未設定";
+      if (tokenEl && d.hasToken) tokenEl.value = "••••••••••••";
+    } catch (e) {
+      alert("保存に失敗: " + e.message);
+    } finally {
+      saveBtn.disabled = false;
+    }
+  });
+  refresh();
+})();
