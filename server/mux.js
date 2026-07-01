@@ -1,119 +1,154 @@
-// server/mux.js
-// ライブ映像配信（Mux）。MUX_TOKEN_ID / MUX_TOKEN_SECRET を設定すると有効。
-// ライブ開始時にライブ配信枠を作り、RTMP送信先URLと再生ID(playback id)を返す。
-const TOKEN_ID = process.env.MUX_TOKEN_ID || "";
-const TOKEN_SECRET = process.env.MUX_TOKEN_SECRET || "";
-// Mux RTMP ingest（標準RTMP）。RTMPSにしたい場合は rtmps://global-live.mux.com:443/app
-const RTMP_BASE = process.env.MUX_RTMP_BASE || "rtmp://global-live.mux.com:5222/app";
+// server/auth.js
+// メール＋パスワードのアカウント登録（DB保存・scryptでハッシュ化）。
+// 後方互換: 旧 USERS / APP_PASSWORD も併用可。
+// 登録制限（任意）:
+//   SIGNUP_CODE          設定すると登録に合言葉が必要
+//   ALLOWED_EMAIL_DOMAIN 設定するとそのドメインのメールのみ登録可（例: example.co.jp）
+//   ADMIN_EMAILS         全員のデータを見られる管理者メール（カンマ区切り）
+import crypto from "node:crypto";
+import { dbGetUser, dbCreateUser, dbEnabled } from "./db.js";
 
-export function muxConfigured() {
-  return !!(TOKEN_ID && TOKEN_SECRET);
-}
+const COOKIE_NAME = "kinbot_session";
+const SECRET =
+  process.env.APP_SECRET || process.env.APP_PASSWORD || "kinbot-dev-secret-change-me";
 
-function authHeader() {
-  return "Basic " + Buffer.from(`${TOKEN_ID}:${TOKEN_SECRET}`).toString("base64");
-}
-
-// ライブ配信枠を作成 → { rtmpUrl, playbackId, liveStreamId }
-export async function createLiveStream() {
-  const res = await fetch("https://api.mux.com/video/v1/live-streams", {
-    method: "POST",
-    headers: { Authorization: authHeader(), "content-type": "application/json" },
-    body: JSON.stringify({
-      playback_policy: ["public"],
-      latency_mode: process.env.MUX_LATENCY_MODE || "low", // 低遅延(4〜7秒)
-      reconnect_window: 30,
-      new_asset_settings: { playback_policy: ["public"] },
-    }),
-  });
-  if (!res.ok) throw new Error(`Mux create ${res.status}: ${(await res.text()).slice(0, 200)}`);
-  const data = (await res.json()).data;
-  const playbackId = data?.playback_ids?.[0]?.id || null;
-  return {
-    liveStreamId: data?.id || null,
-    streamKey: data?.stream_key || null,
-    playbackId,
-    rtmpUrl: data?.stream_key ? `${RTMP_BASE}/${data.stream_key}` : null,
-  };
-}
-
-// ライブ配信枠を無効化（任意。終了時に呼ぶ）
-export async function disableLiveStream(liveStreamId) {
-  if (!liveStreamId) return;
-  try {
-    await fetch(`https://api.mux.com/video/v1/live-streams/${liveStreamId}`, {
-      method: "DELETE",
-      headers: { Authorization: authHeader() },
-    });
-  } catch (e) {
-    console.error("[mux] disable", e.message);
-  }
-}
-
-export function playbackUrl(playbackId) {
-  return playbackId ? `https://stream.mux.com/${playbackId}.m3u8` : null;
-}
-
-// ===== VOD（アップロードした音声/動画を資産化して再生） =====
-import fs from "fs";
-const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-
-async function createVodUpload(passthrough) {
-  const res = await fetch("https://api.mux.com/video/v1/uploads", {
-    method: "POST",
-    headers: { Authorization: authHeader(), "content-type": "application/json" },
-    body: JSON.stringify({
-      cors_origin: "*",
-      new_asset_settings: {
-        playback_policy: ["public"],
-        passthrough: passthrough ? String(passthrough).slice(0, 255) : undefined,
-      },
-    }),
-  });
-  if (!res.ok) throw new Error(`Mux upload create ${res.status}: ${(await res.text()).slice(0, 200)}`);
-  const data = (await res.json()).data;
-  return { uploadId: data?.id, url: data?.url };
-}
-
-// Upload URL へファイルをPUTして取り込み開始。uploadId を返す。
-export async function startVodUpload(filePath, mime, passthrough) {
-  const { uploadId, url } = await createVodUpload(passthrough);
-  if (!url) throw new Error("Mux upload url が取得できませんでした");
-  const size = fs.statSync(filePath).size;
-  const res = await fetch(url, {
-    method: "PUT",
-    headers: { "content-type": mime || "application/octet-stream", "content-length": String(size) },
-    body: fs.createReadStream(filePath),
-    duplex: "half",
-  });
-  if (!res.ok) throw new Error(`Mux upload PUT ${res.status}: ${(await res.text()).slice(0, 200)}`);
-  return uploadId;
-}
-
-async function getUploadAssetId(uploadId) {
-  const res = await fetch(`https://api.mux.com/video/v1/uploads/${uploadId}`, { headers: { Authorization: authHeader() } });
-  if (!res.ok) return null;
-  return (await res.json()).data?.asset_id || null;
-}
-async function getAssetPlayback(assetId) {
-  const res = await fetch(`https://api.mux.com/video/v1/assets/${assetId}`, { headers: { Authorization: authHeader() } });
-  if (!res.ok) return { status: "error" };
-  const data = (await res.json()).data;
-  return { status: data?.status, playbackId: data?.playback_ids?.[0]?.id || null };
-}
-
-// 取り込み→エンコード完了(playback id)までポーリング（最大約15分）
-export async function waitVodPlayback(uploadId, { maxMs = 15 * 60 * 1000, intervalMs = 6000 } = {}) {
-  const deadline = Date.now() + maxMs;
-  let assetId = null;
-  while (Date.now() < deadline) {
-    if (!assetId) assetId = await getUploadAssetId(uploadId).catch(() => null);
-    if (assetId) {
-      const { status, playbackId } = await getAssetPlayback(assetId).catch(() => ({}));
-      if (status === "ready" && playbackId) return playbackId;
-      if (status === "errored") throw new Error("Muxエンコード失敗");
+// 旧 USERS（"u:p,..."）後方互換
+function parseLegacyUsers() {
+  const raw = process.env.USERS || "";
+  const map = new Map();
+  if (raw.trim()) {
+    for (const pair of raw.split(",")) {
+      const i = pair.indexOf(":");
+      if (i === -1) continue;
+      const u = pair.slice(0, i).trim();
+      const p = pair.slice(i + 1).trim();
+      if (u && p) map.set(u, p);
     }
-    await sleep(intervalMs);
+  } else if (process.env.APP_PASSWORD) {
+    map.set("admin", process.env.APP_PASSWORD);
   }
-  throw new Error("Muxエンコードがタイムアウトしました");
+  return map;
+}
+const LEGACY = parseLegacyUsers();
+const ADMINS = new Set(
+  [
+    ...(process.env.ADMIN_EMAILS || "").split(","),
+    ...(process.env.ADMIN_USERS || "").split(","),
+  ]
+    .map((s) => s.trim())
+    .filter(Boolean)
+);
+
+export function authEnabled() {
+  return dbEnabled() || LEGACY.size > 0;
+}
+export function isAdmin(id) {
+  return ADMINS.has(id);
+}
+
+// --- パスワードハッシュ（scrypt） ---
+export function hashPassword(pw) {
+  const salt = crypto.randomBytes(16).toString("hex");
+  const h = crypto.scryptSync(String(pw), salt, 64).toString("hex");
+  return `${salt}:${h}`;
+}
+export function verifyPassword(pw, stored) {
+  if (!stored || stored.indexOf(":") === -1) return false;
+  const [salt, h] = stored.split(":");
+  const calc = crypto.scryptSync(String(pw), salt, 64).toString("hex");
+  const a = Buffer.from(h);
+  const b = Buffer.from(calc);
+  return a.length === b.length && crypto.timingSafeEqual(a, b);
+}
+
+// --- 署名Cookie（中身は識別子=メール） ---
+const b64u = (s) => Buffer.from(s, "utf8").toString("base64url");
+const unb64u = (s) => Buffer.from(s, "base64url").toString("utf8");
+function sign(data) {
+  return crypto.createHmac("sha256", SECRET).update(data).digest("base64url");
+}
+export function makeToken(id) {
+  const body = b64u(id);
+  return `${body}.${sign(body)}`;
+}
+export function verifyToken(token) {
+  if (!token || token.indexOf(".") === -1) return null;
+  const [body, sig] = token.split(".");
+  const expect = sign(body);
+  if (!sig || sig.length !== expect.length) return null;
+  if (!crypto.timingSafeEqual(Buffer.from(sig), Buffer.from(expect))) return null;
+  return unb64u(body);
+}
+function readCookie(req, name) {
+  const raw = req.headers.cookie || "";
+  for (const part of raw.split(";")) {
+    const i = part.indexOf("=");
+    if (i === -1) continue;
+    if (part.slice(0, i).trim() === name) return decodeURIComponent(part.slice(i + 1).trim());
+  }
+  return null;
+}
+export function getUser(req) {
+  const id = verifyToken(readCookie(req, COOKIE_NAME));
+  if (!id) return null;
+  return { username: id, admin: isAdmin(id) };
+}
+export function setSessionCookie(res, id) {
+  const token = makeToken(id);
+  res.setHeader(
+    "Set-Cookie",
+    `${COOKIE_NAME}=${encodeURIComponent(token)}; HttpOnly; Path=/; Max-Age=${60 * 60 * 24 * 30}; SameSite=Lax; Secure`
+  );
+}
+export function clearSessionCookie(res) {
+  res.setHeader("Set-Cookie", `${COOKIE_NAME}=; HttpOnly; Path=/; Max-Age=0; SameSite=Lax; Secure`);
+}
+
+// --- 登録・ログイン ---
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+export async function registerUser({ email, password, displayName, code }) {
+  email = String(email || "").trim().toLowerCase();
+  if (!signupGateOk(code)) return { error: "登録コードが正しくありません" };
+  if (!EMAIL_RE.test(email)) return { error: "メールアドレスの形式が正しくありません" };
+  if (!password || String(password).length < 8) return { error: "パスワードは8文字以上にしてください" };
+  const domain = process.env.ALLOWED_EMAIL_DOMAIN || "";
+  if (domain && !email.endsWith("@" + domain.replace(/^@/, ""))) {
+    return { error: `登録できるのは @${domain.replace(/^@/, "")} のメールのみです` };
+  }
+  if (!dbEnabled()) return { error: "アカウント保存にはDB（DATABASE_URL）が必要です" };
+  const existing = await dbGetUser(email);
+  if (existing) return { error: "このメールアドレスは既に登録されています" };
+  await dbCreateUser(email, displayName || "", hashPassword(password));
+  return { ok: true, email, admin: isAdmin(email) };
+}
+
+export async function loginUser({ email, password }) {
+  const id = String(email || "").trim().toLowerCase();
+  // 1) DBユーザー
+  if (dbEnabled()) {
+    const u = await dbGetUser(id);
+    if (u && verifyPassword(password, u.pass_hash)) {
+      return { ok: true, id, name: u.name || "", admin: isAdmin(id) };
+    }
+  }
+  // 2) 旧 USERS / APP_PASSWORD（メール欄にユーザー名を入力）
+  const raw = String(email || "").trim();
+  const legacyPw = LEGACY.get(raw);
+  if (legacyPw && legacyPw === password) {
+    return { ok: true, id: raw, name: raw, admin: isAdmin(raw) };
+  }
+  return { error: "メールアドレスまたはパスワードが違います" };
+}
+
+export function signupGateOk(code) {
+  const need = process.env.SIGNUP_CODE || "";
+  return !need || String(code || "") === need;
+}
+export async function getDisplayName(id) {
+  if (dbEnabled()) {
+    const u = await dbGetUser(String(id).toLowerCase());
+    if (u && u.name) return u.name;
+  }
+  return id;
 }
