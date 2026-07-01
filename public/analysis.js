@@ -202,13 +202,18 @@ function applyFilter() {
 let curRows = [];
 let activeTab = "dash";
 let dashDirty = false;
+// 分析対象（商談のみ）の全件。ダッシュボードは絞り込みに関係なく全体を表示する。
+function salesAll() {
+  return all.filter((m) => !m.category || m.category === "商談");
+}
+
 function render(triggered) {
   const rows = applyFilter();
   curRows = rows;
   saveAnaFilter();
   const safe = (fn, ...args) => { try { fn(...args); } catch (e) { console.error("[render]", fn.name, e); } };
   // ダッシュボードのグラフはタブ表示中のみ描画（非表示中はcanvasが潰れるため）
-  if (activeTab === "dash") { safe(renderDashboard, rows); dashDirty = false; }
+  if (activeTab === "dash") { safe(renderDashboard, salesAll()); dashDirty = false; }
   else dashDirty = true;
   safe(renderAgg, rows);
   safe(renderSetPanel, rows, !!triggered);
@@ -223,9 +228,21 @@ function setAnaTab(mp) {
   activeTab = mp;
   document.querySelectorAll("#anaTabs .ana-tab").forEach((b) => b.classList.toggle("active", b.dataset.mp === mp));
   document.querySelectorAll("[data-mpanel]").forEach((el) => el.classList.toggle("m-active", el.dataset.mpanel === mp));
-  if (mp === "dash" && dashDirty) { renderDashboard(curRows); dashDirty = false; }
+  placeFilters(mp);
+  if (mp === "dash" && dashDirty) { renderDashboard(salesAll()); dashDirty = false; }
   if (mp === "prof") renderProfileAnalysis();
   if (mp === "phase") renderPhasePanel();
+}
+// 絞り込みバーを、そのタブの内容の直上に移動する。
+// ダッシュボード（全体の振り返り）とフェーズ（独自の期間絞り込みを持つ）では非表示。
+function placeFilters(mp) {
+  const f = document.getElementById("anaFilters");
+  if (!f) return;
+  const noFilter = (mp === "dash" || mp === "phase");
+  if (noFilter) { f.style.display = "none"; return; }
+  const panel = document.querySelector(`[data-mpanel="${mp}"]`);
+  if (panel && panel.parentNode) panel.parentNode.insertBefore(f, panel);
+  f.style.display = "";
 }
 function initAnaTabs() {
   const tabs = document.getElementById("anaTabs");

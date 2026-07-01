@@ -21,19 +21,6 @@
       <div class="main">
         <header class="topbar"><div class="brand"><img class="topbar-bot" src="kinbot.svg" alt="" /><span class="brand-name">分析（全商談の振り返り）</span></div></header>
         <main class="analysis-page">
-          <div class="filters">
-            <div class="fphase-group frep-group" id="fRepGroup"><span class="flabel">営業担当者</span></div>
-            <div class="fphase-group" id="fPhaseGroup"><span class="flabel">フェーズ</span></div>
-            <label>開始日
-              <input type="date" id="fFrom" />
-            </label>
-            <label>終了日
-              <input type="date" id="fTo" />
-            </label>
-            <button class="btn" id="fApply">絞り込み</button>
-            <button class="btn ghost" id="fClear">クリア</button>
-          </div>
-
           <div class="ana-tabs" id="anaTabs">
             <button class="ana-tab active" data-mp="dash"><span class="tico tico-dash"></span><span>ダッシュボード</span></button>
             <button class="ana-tab" data-mp="agg"><span class="tico tico-agg"></span><span>担当・スコア</span></button>
@@ -44,6 +31,19 @@
             <button class="ana-tab" data-mp="list"><span class="tico tico-list"></span><span>商談一覧</span></button>
             <button class="ana-tab" data-mp="free"><span class="tico tico-free"></span><span>なんでも分析</span></button>
             <button class="ana-tab" data-mp="chat"><span class="tico tico-chat"></span><span>AIと会話</span></button>
+          </div>
+
+          <div class="filters" id="anaFilters">
+            <div class="fphase-group frep-group" id="fRepGroup"><span class="flabel">営業担当者</span></div>
+            <div class="fphase-group" id="fPhaseGroup"><span class="flabel">フェーズ</span></div>
+            <label>開始日
+              <input type="date" id="fFrom" />
+            </label>
+            <label>終了日
+              <input type="date" id="fTo" />
+            </label>
+            <button class="btn" id="fApply">絞り込み</button>
+            <button class="btn ghost" id="fClear">クリア</button>
           </div>
 
           <div class="dashboard" id="dashboard" data-mpanel="dash"></div>
