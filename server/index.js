@@ -68,7 +68,7 @@ import {
   deleteKbFolder,
 } from "./db.js";
 import { resolveConfig, statusInfo } from "./config.js";
-import { analyzerInfo, analyzeMeeting, analyzeDeep, analyzeTendency, analyzeSet, analyzeWinLoss, extractLostSignals, freeAnalyze, chatWithData, enrichCompany, judgePhase, PHASE_JUDGMENT_PROMPT, getPhasePrompt, generateThanks, getCheckItems } from "./analyzer.js";
+import { analyzerInfo, analyzeMeeting, analyzeDeep, analyzeTendency, analyzeSet, analyzeWinLoss, extractLostSignals, freeAnalyze, chatWithData, enrichCompany, judgePhase, PHASE_JUDGMENT_PROMPT, getPhasePrompt, generateThanks, THANKS_PROMPT, getCheckItems } from "./analyzer.js";
 import {
   googleConfigured,
   authUrl,
@@ -997,6 +997,26 @@ app.put("/api/thanks-examples", async (req, res) => {
   }
 });
 
+// 御礼メール生成プロンプト（ユーザーごと。空にすると既定に戻る）
+app.get("/api/thanks-prompt", async (req, res) => {
+  try {
+    const s = await getUserSettings(req.user);
+    const custom = typeof s.thanksPrompt === "string" ? s.thanksPrompt : "";
+    res.json({ prompt: custom || THANKS_PROMPT, isDefault: !custom.trim(), defaultPrompt: THANKS_PROMPT });
+  } catch (e) {
+    res.json({ prompt: THANKS_PROMPT, isDefault: true, defaultPrompt: THANKS_PROMPT });
+  }
+});
+app.put("/api/thanks-prompt", async (req, res) => {
+  try {
+    const { prompt } = req.body || {};
+    await saveUserSettings(req.user, { thanksPrompt: typeof prompt === "string" ? prompt : "" });
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // 御礼メールを生成（商談内容＋そのラウンドの例文を手本に）
 app.post("/api/meetings/:id/thanks", async (req, res) => {
   try {
@@ -1034,6 +1054,7 @@ app.post("/api/meetings/:id/thanks", async (req, res) => {
       summaryText,
       repName: m.owner_name || m.rep_name,
       customer,
+      prompt: typeof s.thanksPrompt === "string" ? s.thanksPrompt : "",
     });
     res.json({ ...result, round, exampleCount: examples.length });
   } catch (e) {
