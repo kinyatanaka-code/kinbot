@@ -88,6 +88,25 @@ async function renderOwnerPicker(account, last) {
 
 // ===== 案件フェーズ判定（最新商談に基づく・案件単位の表示） =====
 const PHASE_NAMES_D = { 1: "課題特定", 2: "カスタマイズデモ", 3: "顧客起点", 4: "クロージング" };
+
+// 商談名から種別（コールド/過去失注）を推定（履歴側と同じ基準）
+function inferDealKindD(title) {
+  const t = String(title || "").toLowerCase();
+  if (/過去失注|既存失注|失注済|再アプローチ|掘り起こし|ほりおこし/.test(title || "")) return "過去失注";
+  if (/コールド|新規開拓|テレアポ|飛び込み|とびこみ/.test(title || "") || /\bcold\b/.test(t)) return "コールド";
+  return "";
+}
+// 案件（複数商談）の種別を決める：保存済みdeal_kind優先、無ければタイトル推定。過去失注 > コールド。
+function dealKindOf(account) {
+  const ms = groups[account] || [];
+  let cold = false, lost = false;
+  for (const m of ms) {
+    const k = m.deal_kind || inferDealKindD(m.title);
+    if (k === "過去失注") lost = true;
+    else if (k === "コールド") cold = true;
+  }
+  return lost ? "過去失注" : cold ? "コールド" : "";
+}
 const PHASE_NEED_D = {
   1: "顧客が自社固有の状況（数字・「うちは/私が/今」）を具体的に話すと到達",
   2: "担当者がデモ中に顧客固有の課題・数字を使うと到達",
@@ -443,11 +462,15 @@ function accountCardEl(a) {
     ? `<span class="card-phase-badge p${ph.current_phase}">フェーズ${ph.current_phase}：${PHASE_NAMES_D[ph.current_phase] || ""}</span>`
     : `<span class="card-phase-badge unset">フェーズ未判定</span>`;
   const isSelected = selectMode && selectedAccounts.has(a);
+  const kind = dealKindOf(a);
+  const kindBadge = kind
+    ? `<span class="kind-badge ${kind === "過去失注" ? "kind-lost" : "kind-cold"}">${kind}</span>`
+    : "";
   const card = document.createElement("div");
   card.className = "deal-card" + (a === current ? " active" : "") + (selectMode ? " selectable" : "") + (isSelected ? " selected" : "");
   card.innerHTML =
     (selectMode ? `<span class="select-check">${isSelected ? "✓" : ""}</span>` : "") +
-    `<div class="deal-name">${esc(displayName(a))} <span class="status-badge st-${st}">${st}</span></div>` +
+    `<div class="deal-name">${esc(displayName(a))} ${kindBadge}<span class="status-badge st-${st}">${st}</span></div>` +
     `<div class="deal-meta"><span>${ms.length}件</span><span>${esc(last.owner_name || last.owner || "")}</span></div>` +
     `<div class="deal-sub">${phaseBadge} ・ 最終 ${fmtDate(last.created_at)}</div>`;
   card.addEventListener("click", () => {
@@ -580,6 +603,7 @@ async function selectDeal(account) {
     `<button class="m-back" type="button">← 一覧へ戻る</button>` +
     `<div class="deal-head">` +
     `<div class="deal-head-top"><h2>${esc(displayName(account))}</h2>` +
+    (dealKindOf(account) ? `<span class="kind-badge ${dealKindOf(account) === "過去失注" ? "kind-lost" : "kind-cold"}">${dealKindOf(account)}</span>` : "") +
     `<div class="deal-status-pick"><span class="status-badge st-${statusOf(account)}" id="dealStBadge">${statusOf(account)}</span>` +
     `<select id="dealStSel">${STATUS_LIST.map((s) => `<option value="${s}" ${statusOf(account) === s ? "selected" : ""}>${s}</option>`).join("")}<option value="__auto">AIに任せる</option></select></div></div>` +
     `<div class="deal-head-meta"><span id="dealOwnerWrap" class="deal-owner-wrap"></span> ・ ${ms.length}回の商談` +

@@ -234,7 +234,7 @@ async function geminiGrounded(question, siteText) {
     generationConfig: { temperature: 0.2, maxOutputTokens: 1100 },
     tools: [{ google_search: {} }],
   };
-  const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${key}`, {
+  const res = await fetchWithTimeout(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${key}`, {
     method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body),
   });
   if (!res.ok) throw new Error(`Gemini ${res.status}: ${(await res.text().catch(() => "")).slice(0, 120)}`);
@@ -534,7 +534,7 @@ export async function chatWithData({ messages, material, model, web }) {
     };
     if (web) body.tools = [{ google_search: {} }];
     const url = `https://generativelanguage.googleapis.com/v1beta/models/${mdl}:generateContent?key=${key}`;
-    const res = await fetch(url, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+    const res = await fetchWithTimeout(url, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) }, "Gemini");
     if (!res.ok) {
       const t = await res.text().catch(() => "");
       throw new Error(`Gemini ${res.status}: ${t.slice(0, 200)}`);
@@ -575,8 +575,25 @@ export async function chatWithData({ messages, material, model, web }) {
 
 // ---- プロバイダ振り分け ----
 function isTransient(msg) {
-  return /\b503\b|\b429\b|UNAVAILABLE|overloaded|high demand|temporarily/i.test(msg || "");
+  return /\b503\b|\b429\b|UNAVAILABLE|overloaded|high demand|temporarily|timeout|timed out|aborted|network|ECONN|ETIMEDOUT/i.test(msg || "");
 }
+
+// タイムアウト付きfetch。AI APIが応答せず固まると、Railwayが待ちきれず502を返す（原因不明の失敗になる）。
+// これを防ぐため、一定時間で必ず中断し、分かりやすいエラーにする（→ 自動フォールバックにも繋がる）。
+const LLM_TIMEOUT_MS = Number(process.env.LLM_TIMEOUT_MS || 90000);
+async function fetchWithTimeout(url, options = {}, label = "LLM") {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), LLM_TIMEOUT_MS);
+  try {
+    return await fetch(url, { ...options, signal: ctrl.signal });
+  } catch (e) {
+    if (e.name === "AbortError") throw new Error(`${label}: 応答がなく${Math.round(LLM_TIMEOUT_MS / 1000)}秒でタイムアウトしました`);
+    throw new Error(`${label}: 通信エラー（${e.message}）`);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 // 一次プロバイダが落ちた時の切替先（明示指定 → Groq → Gemini の順で使えるものを選ぶ）
 function fallbackProvider(current = PROVIDER) {
   // 明示指定（FALLBACK_PROVIDER）があれば最優先。無ければ Gemini → Groq の順で、使えるものを選ぶ。
@@ -660,7 +677,7 @@ async function callOnce(provider, system, user, maxTokens, json = true, schema =
 // Groq / Cerebras / OpenRouter / OpenAI など OpenAI互換エンドポイント共通
 async function callOpenAICompat(system, user, maxTokens, { base, key, model, name }, json = true) {
   if (!key) throw new Error(`${name} のAPIキーが未設定です`);
-  const res = await fetch(`${base.replace(/\/$/, "")}/chat/completions`, {
+  const res = await fetchWithTimeout(`${base.replace(/\/$/, "")}/chat/completions`, {
     method: "POST",
     headers: { "content-type": "application/json", authorization: `Bearer ${key}` },
     body: JSON.stringify({
@@ -717,7 +734,7 @@ async function callGemini(system, user, maxTokens, json = true, schema = null, m
     // スキーマが渡されていれば必須項目つきで強制（next_action/riskの省略などを防ぐ）
     if (schema) genConfig.responseSchema = toGeminiSchema(schema);
   }
-  const res = await fetch(url, {
+  const res = await fetchWithTimeout(url, {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({
@@ -784,7 +801,7 @@ async function callAnthropic(system, user, maxTokens, json = true, schema = null
     ];
     body.tool_choice = { type: "tool", name: "emit_json" };
   }
-  const res = await fetch("https://api.anthropic.com/v1/messages", {
+  const res = await fetchWithTimeout("https://api.anthropic.com/v1/messages", {
     method: "POST",
     headers: { "content-type": "application/json", "x-api-key": key, "anthropic-version": "2023-06-01" },
     body: JSON.stringify(body),
@@ -823,7 +840,7 @@ async function callAnthropic(system, user, maxTokens, json = true, schema = null
 async function callOllama(system, user, json = true) {
   const base = (process.env.OLLAMA_URL || "http://localhost:11434").replace(/\/$/, "");
   const model = process.env.OLLAMA_MODEL || "qwen2.5";
-  const res = await fetch(`${base}/api/chat`, {
+  const res = await fetchWithTimeout(`${base}/api/chat`, {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({

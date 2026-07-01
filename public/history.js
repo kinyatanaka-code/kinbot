@@ -13,6 +13,16 @@ const phaseLabel = (c) => (PHASES.find((p) => p.code === c) || {}).label || "";
 let allMeetings = [];
 let usersCache = null;
 
+// 商談名から種別（コールド/過去失注）を自動判定する
+function inferDealKind(title) {
+  const t = String(title || "").toLowerCase();
+  // 過去失注（表記ゆれに対応）
+  if (/過去失注|既存失注|失注済|再アプローチ|掘り起こし|ほりおこし/.test(title || "")) return "過去失注";
+  // コールド（日本語・英語・カタカナ表記に対応）
+  if (/コールド|新規開拓|テレアポ|飛び込み|とびこみ/.test(title || "") || /\bcold\b/.test(t)) return "コールド";
+  return "";
+}
+
 // JSTのISO ⇄ datetime-local 文字列
 function isoToLocalInput(iso) {
   try {
@@ -479,6 +489,11 @@ async function loadDetail(botId) {
         <label>営業担当 <select id="mOwner"><option value="">未設定</option></select></label>
         <label>日時 <input type="datetime-local" id="mDatetime" /></label>
         <label>何回目<span class="hint">（商談回数）</span> <input type="number" id="mRound" min="1" max="99" placeholder="-" /></label>
+        <label>種別 <select id="mDealKind">
+          <option value="">通常</option>
+          <option value="コールド">コールド</option>
+          <option value="過去失注">過去失注</option>
+        </select></label>
         <label>区分 <select id="mCategory">
           <option value="商談">商談</option>
           <option value="社内MTG">社内MTG</option>
@@ -724,10 +739,26 @@ async function loadDetail(botId) {
     const mOwner = hdetail.querySelector("#mOwner");
     const mDatetime = hdetail.querySelector("#mDatetime");
     const mCategory = hdetail.querySelector("#mCategory");
+    const mDealKind = hdetail.querySelector("#mDealKind");
     const mSaved = hdetail.querySelector("#mSaved");
     if (m.created_at) mDatetime.value = isoToLocalInput(m.created_at);
     if (mCategory) mCategory.value = m.category && m.category !== "" ? m.category : "商談";
     if (m.round_no) mRound.value = m.round_no;
+    // 種別（コールド/過去失注）：保存済みがあればそれを、無ければ商談名から自動判定
+    if (mDealKind) {
+      const inferred = inferDealKind(m.title);
+      mDealKind.value = m.deal_kind || inferred || "";
+      // 保存が無く、タイトルから推定できた場合は自動で保存しておく（次回以降も反映）
+      if (!m.deal_kind && inferred) {
+        m.deal_kind = inferred;
+        fetch(`/api/meetings/${botId}/meta`, {
+          method: "PUT", headers: { "content-type": "application/json" },
+          body: JSON.stringify({ round: mRound.value, dealKind: inferred }),
+        }).catch(() => {});
+        const row = allMeetings.find((x) => x.bot_id === botId);
+        if (row) row.deal_kind = inferred;
+      }
+    }
 
     // 営業担当（登録ユーザーから選択して付け替え）
     const users = await loadUsers();
@@ -760,6 +791,7 @@ async function loadDetail(botId) {
             owner: mOwner.value,
             createdAt,
             category: mCategory ? mCategory.value : undefined,
+            dealKind: mDealKind ? mDealKind.value : undefined,
           }),
         });
         mSaved.hidden = false;
@@ -771,6 +803,7 @@ async function loadDetail(botId) {
           row.round_no = mRound.value ? Number(mRound.value) : null;
           row.owner = mOwner.value || "";
           if (mCategory) row.category = mCategory.value;
+          if (mDealKind) row.deal_kind = mDealKind.value || null;
           if (createdAt) row.created_at = createdAt;
           const u = (usersCache || []).find((x) => x.email === mOwner.value);
           row.owner_name = u ? u.name || u.email : mOwner.value ? mOwner.value : null;
@@ -778,9 +811,17 @@ async function loadDetail(botId) {
         renderList();
       } catch {}
     };
-    mTitle.addEventListener("change", saveMeta);
+    mTitle.addEventListener("change", () => {
+      // 商談名を変えたら、種別が未設定のときだけタイトルから自動判定して反映
+      if (mDealKind && !mDealKind.value) {
+        const inferred = inferDealKind(mTitle.value);
+        if (inferred) mDealKind.value = inferred;
+      }
+      saveMeta();
+    });
     mRound.addEventListener("change", saveMeta);
     if (mCategory) mCategory.addEventListener("change", saveMeta);
+    if (mDealKind) mDealKind.addEventListener("change", saveMeta);
     mOwner.addEventListener("change", saveMeta);
     mDatetime.addEventListener("change", saveMeta);
 

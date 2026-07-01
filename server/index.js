@@ -223,7 +223,7 @@ app.get("/api/auth-info", (req, res) => {
 // 商談の「何回目」「フェーズ」を更新
 app.put("/api/meetings/:id/meta", async (req, res) => {
   try {
-    const { round, phase, title, owner, createdAt, account, category } = req.body || {};
+    const { round, phase, title, owner, createdAt, account, category, dealKind } = req.body || {};
     const r = round === "" || round == null ? null : Number(round);
     await updateMeetingMeta(req.params.id, {
       round: Number.isFinite(r) ? r : null,
@@ -233,6 +233,7 @@ app.put("/api/meetings/:id/meta", async (req, res) => {
       createdAt: createdAt ? createdAt : undefined,
       account: account === undefined ? undefined : account,
       category: category === undefined ? undefined : category,
+      dealKind: dealKind === undefined ? undefined : dealKind,
     });
     res.json({ ok: true });
   } catch (e) {
@@ -732,8 +733,8 @@ app.post("/api/account-phase/judge", async (req, res) => {
     const j = await runAccountPhaseJudgment(key, botIds);
     res.json(j || {});
   } catch (e) {
-    console.error("[account phase judge]", e.message);
-    res.status(502).json({ error: e.message });
+    console.error("[account phase judge] 失敗:", e.message, "\n", (e.stack || "").split("\n").slice(0, 4).join("\n"));
+    res.status(502).json({ error: e.message || "判定に失敗しました" });
   }
 });
 
