@@ -1608,5 +1608,5 @@ body { background: var(--bg); }
 .dmeta-edit .hint { font-size: 10.5px; color: var(--muted); font-weight: 400; }
 
 /* 設定：フェーズ定義エディタ */
-#phasePromptText { width: 100%; box-sizing: border-box; font: 12.5px/1.6 ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace; padding: 12px 14px; border: 1px solid var(--line); border-radius: 10px; background: var(--panel-2); color: var(--ink); resize: vertical; margin-top: 8px; }
+#phasePromptText, #thanksPromptText { width: 100%; box-sizing: border-box; font: 12.5px/1.6 ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace; padding: 12px 14px; border: 1px solid var(--line); border-radius: 10px; background: var(--panel-2); color: var(--ink); resize: vertical; margin-top: 8px; }
 .phasedef-actions { display: flex; align-items: center; gap: 10px; margin-top: 10px; }

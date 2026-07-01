@@ -251,6 +251,18 @@
                 <span class="saved" id="thanksSaved" hidden>保存しました</span>
               </div>
             </div>
+            <div class="set-card">
+              <h3>御礼メールの生成指示（プロンプト）</h3>
+              <p class="note">御礼メールをAIがどう作るかの指示文です。例文に寄せず自分好みの作り方にしたい場合はここを編集してください。<br>
+              <code>{round}</code> と書くと商談回数に置き換わります。商談の要約・登録した例文・自社ナレッジは、この指示文とは別に自動で渡されます。出力形式（件名・本文のJSON）はシステム側で強制しているため、文面の作り方の指示に集中して編集してください。</p>
+              <textarea id="thanksPromptText" rows="16" spellcheck="false"></textarea>
+              <div class="phasedef-actions">
+                <button class="btn" id="thanksPromptSave">保存</button>
+                <button class="btn ghost" id="thanksPromptReset">既定の文面に戻す</button>
+                <span class="tm-status" id="thanksPromptStatus"></span>
+              </div>
+              <p class="note" id="thanksPromptState"></p>
+            </div>
           </div>
 
           <div class="set-pane" data-pane="teams" hidden>
