@@ -213,7 +213,7 @@ function render(triggered) {
   saveAnaFilter();
   const safe = (fn, ...args) => { try { fn(...args); } catch (e) { console.error("[render]", fn.name, e); } };
   // ダッシュボードのグラフはタブ表示中のみ描画（非表示中はcanvasが潰れるため）
-  if (activeTab === "dash") { safe(renderDashboard, salesAll()); dashDirty = false; }
+  if (activeTab === "dash") { safe(renderDashboard, rows); dashDirty = false; }
   else dashDirty = true;
   safe(renderAgg, rows);
   safe(renderSetPanel, rows, !!triggered);
@@ -229,17 +229,16 @@ function setAnaTab(mp) {
   document.querySelectorAll("#anaTabs .ana-tab").forEach((b) => b.classList.toggle("active", b.dataset.mp === mp));
   document.querySelectorAll("[data-mpanel]").forEach((el) => el.classList.toggle("m-active", el.dataset.mpanel === mp));
   placeFilters(mp);
-  if (mp === "dash" && dashDirty) { renderDashboard(salesAll()); dashDirty = false; }
+  if (mp === "dash" && dashDirty) { renderDashboard(curRows); dashDirty = false; }
   if (mp === "prof") renderProfileAnalysis();
   if (mp === "phase") renderPhasePanel();
 }
 // 絞り込みバーを、そのタブの内容の直上に移動する。
-// ダッシュボード（全体の振り返り）とフェーズ（独自の期間絞り込みを持つ）では非表示。
+// フェーズタブは独自の期間絞り込みを持つので非表示。それ以外（ダッシュボード含む）は表示。
 function placeFilters(mp) {
   const f = document.getElementById("anaFilters");
   if (!f) return;
-  const noFilter = (mp === "dash" || mp === "phase");
-  if (noFilter) { f.style.display = "none"; return; }
+  if (mp === "phase") { f.style.display = "none"; return; }
   const panel = document.querySelector(`[data-mpanel="${mp}"]`);
   if (panel && panel.parentNode) panel.parentNode.insertBefore(f, panel);
   f.style.display = "";
@@ -922,7 +921,7 @@ function renderDashboard(rows) {
     const friday = new Date(monday);
     friday.setDate(monday.getDate() + 4);
     friday.setHours(23, 59, 59, 999); // 今週の金曜末
-    const weekCount = rows.filter((m) => { const d = new Date(m.created_at); return d >= monday && d <= friday; }).length;
+    const weekCount = salesAll().filter((m) => { const d = new Date(m.created_at); return d >= monday && d <= friday; }).length;
     let headline, sub;
     if (weekCount === 0) {
       headline = `今週はこれからですね`;
@@ -957,8 +956,9 @@ function renderDashboard(rows) {
       `<div class="kpi-sub ${k.warn ? "warn" : ""}">${k.sub || ""}</div></div>`;
   html += "</div>";
 
-  // いま追うべき案件（進行中・最近動いた順）
+  // ===== 追うべき案件と全体傾向 =====
   try {
+    // いま追うべき案件（進行中・最近動いた順）
     const groups = {};
     for (const m of rows) {
       const k = acctOfA(m);
@@ -972,88 +972,80 @@ function renderDashboard(rows) {
       items.push({ key: k, last, n: groups[k].length });
     }
     items.sort((a, b) => new Date(b.last.created_at) - new Date(a.last.created_at));
-    const top = items.slice(0, 4);
-    html += '<div class="dash-card follow-card"><div class="dash-title">🔥 いま追うべき案件</div>';
-    if (!top.length) html += '<div class="empty-state">進行中の案件はありません。</div>';
+    const top = items.slice(0, 5);
+    let followHtml = '<div class="dash-card follow-card"><div class="dash-title"><i class="ti ti-flame" style="color:#D85A30"></i> いま追うべき案件</div>';
+    if (!top.length) followHtml += '<div class="empty-state">進行中の案件はありません。</div>';
     else {
-      html += '<div class="follow-list">';
+      followHtml += '<div class="follow-list">';
       for (const it of top) {
-        html += `<a class="follow-row" href="history.html?m=${encodeURIComponent(it.last.bot_id)}"><span class="follow-name">${escapeHtml(it.key)}</span><span class="follow-sub">${escapeHtml(phaseLabel(it.last.phase))} ・ 最終 ${fmtDate(it.last.created_at)}</span><span class="follow-go">›</span></a>`;
+        followHtml += `<a class="follow-row" href="history.html?m=${encodeURIComponent(it.last.bot_id)}"><span class="follow-name">${escapeHtml(it.key)}</span><span class="follow-sub">${escapeHtml(phaseLabel(it.last.phase))} ・ 最終 ${fmtDate(it.last.created_at)}</span><span class="follow-go">›</span></a>`;
       }
-      html += "</div>";
+      followHtml += "</div>";
+    }
+    followHtml += "</div>";
+
+    // フェーズ分布：横一本の積み上げバー＋凡例
+    const distTotal = phaseCounts.reduce((s, p) => s + p.n, 0) + unset;
+    const distColors = ["#B4B2A9", "#85B7EB", "#1D9E75", "#0F6E56"];
+    let seg = "";
+    phaseCounts.forEach((p, i) => {
+      if (!p.n) return;
+      seg += `<span style="width:${(p.n / Math.max(1, distTotal)) * 100}%;background:${distColors[i] || "#1D9E75"}" title="${escapeHtml(p.label)} ${p.n}件"></span>`;
+    });
+    if (unset) seg += `<span style="width:${(unset / Math.max(1, distTotal)) * 100}%;background:#d7ded9" title="未設定 ${unset}件"></span>`;
+    let legend = "";
+    phaseCounts.forEach((p, i) => {
+      const pct = distTotal ? Math.round((p.n / distTotal) * 100) : 0;
+      legend += `<div class="pdb-row"><span class="pdb-name"><i class="pdb-dot" style="background:${distColors[i] || "#1D9E75"}"></i>${escapeHtml(p.label)}</span><span class="pdb-val">${p.n}件・${pct}%</span></div>`;
+    });
+    if (unset) {
+      const pct = distTotal ? Math.round((unset / distTotal) * 100) : 0;
+      legend += `<div class="pdb-row"><span class="pdb-name"><i class="pdb-dot" style="background:#d7ded9"></i>未設定</span><span class="pdb-val">${unset}件・${pct}%</span></div>`;
+    }
+    const distHtml = `<div class="dash-card"><div class="dash-title">フェーズ分布</div><div class="pdbar">${seg || '<span style="width:100%;background:#eef1f0"></span>'}</div><div class="pdb-legend">${legend}</div></div>`;
+
+    html += '<div class="dash-section">追うべき案件と全体傾向</div>';
+    html += `<div class="dash-grid2">${followHtml}${distHtml}</div>`;
+    // 推移（全幅）
+    html += '<div class="dash-card"><div class="dash-title">商談数の推移（月別）</div><div class="chart-box"><canvas id="chTrend"></canvas></div></div>';
+  } catch (e) { console.error("[dash trend]", e); }
+
+  // ===== メンバー =====
+  try {
+    html += '<div class="dash-section">メンバー</div>';
+    // 営業担当別 件数
+    html += '<div class="dash-card"><div class="dash-title">営業担当別 件数</div><div class="hbars">';
+    if (!repRank.length) html += '<div class="empty-state">データがありません。</div>';
+    for (const [name, n] of repRank) {
+      const w = Math.round((n / maxRep) * 100);
+      html += `<div class="hbar"><span class="hbar-name">${escapeHtml(name)}</span><span class="hbar-track"><span class="hbar-fill green" style="width:${w}%"></span></span><span class="hbar-n">${n}</span></div>`;
+    }
+    html += "</div></div>";
+
+    // 担当別の質（ヒートマップ）
+    const repScored = {};
+    for (const m of rows) {
+      if (!(m.analysis && m.analysis.scores)) continue;
+      const name = m.owner_name || m.owner || m.rep_name || "(不明)";
+      (repScored[name] = repScored[name] || []).push(m);
+    }
+    const repNames = Object.keys(repScored);
+    html += '<div class="dash-card heatmap-card"><div class="dash-title">担当別の質（平均スコア・強み/弱み）</div>';
+    if (!repNames.length) {
+      html += '<div class="empty-state">分析済みの商談がありません。各商談で「分析を生成」すると表示されます。</div>';
+    } else {
+      html += '<table class="heat"><tr><th>営業担当</th><th>件数</th>' + DIMS.map(([, jp]) => `<th>${jp}</th>`).join("") + "<th>平均</th></tr>";
+      for (const name of repNames) {
+        const list = repScored[name];
+        const cells = DIMS.map(([k]) => avgScore(list, k));
+        const overall = cells.reduce((a, b) => a + b, 0) / cells.length;
+        html += `<tr><td class="heat-rep">${escapeHtml(name)}</td><td>${list.length}</td>` +
+          cells.map((v) => `<td class="heat-cell" style="background:${heatColor(v)}">${v.toFixed(1)}</td>`).join("") +
+          `<td class="heat-cell" style="background:${heatColor(overall)}"><b>${overall.toFixed(1)}</b></td></tr>`;
+      }
+      html += "</table><p class=\"metric-note\">5点満点。色が濃い緑ほど高評価、オレンジは要改善。</p>";
     }
     html += "</div>";
-  } catch (e) { console.error("[dash follow]", e); }
-
-  try {
-  // 行1：推移(折れ線) + フェーズ分布(積み上げバー＋凡例)
-  html += '<div class="dash-grid2">';
-  html += '<div class="dash-card"><div class="dash-title">商談数の推移（月別）</div><div class="chart-box"><canvas id="chTrend"></canvas></div></div>';
-  // フェーズ分布：横一本の積み上げバー＋凡例（円グラフより割合が読みやすい）
-  const distTotal = phaseCounts.reduce((s, p) => s + p.n, 0) + unset;
-  const distColors = ["#B4B2A9", "#85B7EB", "#1D9E75", "#0F6E56"];
-  let seg = "";
-  phaseCounts.forEach((p, i) => {
-    if (!p.n) return;
-    seg += `<span style="width:${(p.n / Math.max(1, distTotal)) * 100}%;background:${distColors[i] || "#1D9E75"}" title="${escapeHtml(p.label)} ${p.n}件"></span>`;
-  });
-  if (unset) seg += `<span style="width:${(unset / Math.max(1, distTotal)) * 100}%;background:#d7ded9" title="未設定 ${unset}件"></span>`;
-  let legend = "";
-  phaseCounts.forEach((p, i) => {
-    const pct = distTotal ? Math.round((p.n / distTotal) * 100) : 0;
-    legend += `<div class="pdb-row"><span class="pdb-name"><i class="pdb-dot" style="background:${distColors[i] || "#1D9E75"}"></i>${escapeHtml(p.label)}</span><span class="pdb-val">${p.n}件・${pct}%</span></div>`;
-  });
-  if (unset) {
-    const pct = distTotal ? Math.round((unset / distTotal) * 100) : 0;
-    legend += `<div class="pdb-row"><span class="pdb-name"><i class="pdb-dot" style="background:#d7ded9"></i>未設定</span><span class="pdb-val">${unset}件・${pct}%</span></div>`;
-  }
-  html += `<div class="dash-card"><div class="dash-title">フェーズ分布</div><div class="pdbar">${seg || '<span style="width:100%;background:#eef1f0"></span>'}</div><div class="pdb-legend">${legend}</div></div>`;
-  html += "</div>";
-
-  // 行2：コンバージョン(ファネル+SF) + 担当別件数
-  html += '<div class="dash-grid2">';
-  html += '<div class="dash-card"><div class="dash-title">コンバージョン（フェーズ到達）</div><div class="hbars">';
-  const base01 = phaseCounts[0].n || total || 1;
-  for (const p of phaseCounts) {
-    const w = Math.round((p.n / Math.max(1, base01)) * 100);
-    html += `<div class="hbar"><span class="hbar-name">${escapeHtml(p.label)}</span><span class="hbar-track"><span class="hbar-fill green" style="width:${Math.min(100, w)}%"></span></span><span class="hbar-n">${p.n}</span></div>`;
-  }
-  if (unset) html += `<div class="hbar"><span class="hbar-name">未設定</span><span class="hbar-track"><span class="hbar-fill" style="width:${Math.round((unset / Math.max(1, base01)) * 100)}%"></span></span><span class="hbar-n">${unset}</span></div>`;
-  html += `</div><div class="conv-foot">Salesforce登録済み <b>${sfLinked}</b> 件（${sfPct}%）<span class="metric-note">※受注の実数はSF側のデータ連携が必要です。ここでは登録率を表示。</span></div></div>`;
-
-  html += '<div class="dash-card"><div class="dash-title">営業担当別 件数</div><div class="hbars">';
-  if (!repRank.length) html += '<div class="empty-state">データがありません。</div>';
-  for (const [name, n] of repRank) {
-    const w = Math.round((n / maxRep) * 100);
-    html += `<div class="hbar"><span class="hbar-name">${escapeHtml(name)}</span><span class="hbar-track"><span class="hbar-fill green" style="width:${w}%"></span></span><span class="hbar-n">${n}</span></div>`;
-  }
-  html += "</div></div>";
-  html += "</div>";
-
-  // 担当別の質（ヒートマップ）
-  const repScored = {};
-  for (const m of rows) {
-    if (!(m.analysis && m.analysis.scores)) continue;
-    const name = m.owner_name || m.owner || m.rep_name || "(不明)";
-    (repScored[name] = repScored[name] || []).push(m);
-  }
-  const repNames = Object.keys(repScored);
-  html += '<div class="dash-card heatmap-card"><div class="dash-title">担当別の質（平均スコア・強み/弱み）</div>';
-  if (!repNames.length) {
-    html += '<div class="empty-state">分析済みの商談がありません。各商談で「分析を生成」すると表示されます。</div>';
-  } else {
-    html += '<table class="heat"><tr><th>営業担当</th><th>件数</th>' + DIMS.map(([, jp]) => `<th>${jp}</th>`).join("") + "<th>平均</th></tr>";
-    for (const name of repNames) {
-      const list = repScored[name];
-      const cells = DIMS.map(([k]) => avgScore(list, k));
-      const overall = cells.reduce((a, b) => a + b, 0) / cells.length;
-      html += `<tr><td class="heat-rep">${escapeHtml(name)}</td><td>${list.length}</td>` +
-        cells.map((v) => `<td class="heat-cell" style="background:${heatColor(v)}">${v.toFixed(1)}</td>`).join("") +
-        `<td class="heat-cell" style="background:${heatColor(overall)}"><b>${overall.toFixed(1)}</b></td></tr>`;
-    }
-    html += "</table><p class=\"metric-note\">5点満点。色が濃い緑ほど高評価、オレンジは要改善。</p>";
-  }
-  html += "</div>";
   } catch (e) { console.error("[dash body]", e); }
 
   el.innerHTML = html;

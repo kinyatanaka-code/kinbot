@@ -1674,3 +1674,8 @@ body { background: var(--bg); }
 .pdb-name { display: flex; align-items: center; gap: 7px; color: var(--ink); }
 .pdb-dot { width: 9px; height: 9px; border-radius: 50%; display: inline-block; }
 .pdb-val { color: var(--muted); font-weight: 600; }
+
+/* 分析ダッシュボード：セクション見出し */
+.dash-section { font-size: 12px; font-weight: 700; color: #8a938d; letter-spacing: .04em; margin: 20px 2px 10px; }
+.dash-section:first-of-type { margin-top: 14px; }
+.follow-card .dash-title .ti { vertical-align: -2px; margin-right: 2px; }
