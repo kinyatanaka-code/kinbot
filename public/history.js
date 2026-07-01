@@ -1,20 +1,6 @@
-// public/analysis.js
-const $ = (id) => document.getElementById(id);
-let all = [];
-let ownerLabels = {};
-let greetName = "";
-let dealStatusMap = {};
-function companyFromTitleA(title) {
-  let t = String(title || "").trim();
-  if (!t) return "(無題)";
-  t = t.replace(/^[\s　・※•◆◇■□▶▷*\-–—✉⊠]+/u, "");
-  t = t.replace(/[【\[［][^】\]］]*[】\]］]/gu, " ");
-  t = t.replace(/[\s　/／|｜:：][^\s　/／|｜]{0,16}様(?:\s*[・,、][^\s　/／|｜]{0,16}様)*\s*$/u, "");
-  t = t.replace(/[^\s　/／|｜]{0,16}様\s*$/u, "");
-  t = t.replace(/\s+/g, " ").trim();
-  return t || String(title || "(無題)").trim();
-}
-const acctOfA = (m) => (m.account && m.account.trim()) || companyFromTitleA(m.title) || "(無題)";
+// public/history.js
+const hlist = document.getElementById("hlist");
+const hdetail = document.getElementById("hdetail");
 
 const PHASES = [
   { code: "01", label: "01 初回商談" },
@@ -22,99 +8,121 @@ const PHASES = [
   { code: "03", label: "03 担当者合意" },
   { code: "04", label: "04 企画決定者合意" },
 ];
-const phaseLabel = (c) => (PHASES.find((p) => p.code === c) || {}).label || "未設定";
+const phaseLabel = (c) => (PHASES.find((p) => p.code === c) || {}).label || "";
+
+let allMeetings = [];
+let usersCache = null;
+
+// JSTのISO ⇄ datetime-local 文字列
+function isoToLocalInput(iso) {
+  try {
+    return new Date(new Date(iso).getTime() + 9 * 3600 * 1000).toISOString().slice(0, 16);
+  } catch {
+    return "";
+  }
+}
+function localInputToIso(v) {
+  // 入力（JSTのwall-clock）を +09:00 とみなしてISO化
+  const s = v.length <= 16 ? v + ":00+09:00" : v + "+09:00";
+  const d = new Date(s);
+  return isNaN(d.getTime()) ? "" : d.toISOString();
+}
+function jstToday() {
+  return new Date(Date.now() + 9 * 3600 * 1000).toISOString().slice(0, 10);
+}
+function shiftDate(dateStr, delta) {
+  const d = new Date(dateStr + "T00:00:00Z");
+  d.setUTCDate(d.getUTCDate() + delta);
+  return d.toISOString().slice(0, 10);
+}
+// カレンダー予定ピッカー（日付切替つき）
+function openCalPicker(panel, onPick) {
+  panel.hidden = false;
+  let date = jstToday();
+  const render = async () => {
+    panel.innerHTML = `<div class="cal-bar"><button type="button" class="cal-nav" data-d="-1">‹</button><input type="date" class="cal-date" value="${date}"><button type="button" class="cal-nav" data-d="1">›</button></div><div class="cal-list"><div class="cal-empty">読み込み中…</div></div>`;
+    const dateInput = panel.querySelector(".cal-date");
+    const list = panel.querySelector(".cal-list");
+    panel.querySelectorAll(".cal-nav").forEach((b) =>
+      b.addEventListener("click", (e) => {
+        e.stopPropagation();
+        date = shiftDate(date, Number(b.dataset.d));
+        render();
+      })
+    );
+    dateInput.addEventListener("click", (e) => e.stopPropagation());
+    dateInput.addEventListener("change", () => {
+      date = dateInput.value || date;
+      render();
+    });
+    try {
+      const d = await (await fetch("/api/calendar/events?date=" + encodeURIComponent(date))).json();
+      if (!d.connected) {
+        list.innerHTML = '<div class="cal-empty">カレンダー未連携です。「設定」から連携してください。</div>';
+        return;
+      }
+      const events = d.events || [];
+      if (!events.length) {
+        list.innerHTML = d.filtered
+          ? '<div class="cal-empty">条件に一致する予定はありません（設定のフィルター文字を確認）。</div>'
+          : '<div class="cal-empty">この日の予定はありません。</div>';
+        return;
+      }
+      list.innerHTML = "";
+      for (const ev of events) {
+        const row = document.createElement("button");
+        row.type = "button";
+        row.className = "calp-row";
+        const time = ev.allDay
+          ? "終日"
+          : new Date(ev.start).toLocaleTimeString("ja-JP", { hour: "2-digit", minute: "2-digit" });
+        row.innerHTML = `<span class="cal-time"></span><span class="cal-name"></span>${ev.url ? '<span class="cal-mark">URL</span>' : ""}`;
+        row.querySelector(".cal-time").textContent = time;
+        row.querySelector(".cal-name").textContent = ev.title;
+        row.addEventListener("click", () => {
+          onPick(ev);
+          panel.hidden = true;
+        });
+        list.appendChild(row);
+      }
+    } catch {
+      list.innerHTML = '<div class="cal-empty">読み込みに失敗しました。</div>';
+    }
+  };
+  render();
+}
+// パネル外クリックで閉じる
+document.addEventListener("click", (e) => {
+  document.querySelectorAll(".cal-panel").forEach((p) => {
+    if (!p.hidden && !p.contains(e.target) && !(e.target.id === "calBtnH")) p.hidden = true;
+  });
+});
+async function loadUsers() {
+  if (usersCache) return usersCache;
+  try {
+    usersCache = await (await fetch("/api/users")).json();
+  } catch {
+    usersCache = [];
+  }
+  return usersCache || [];
+}
 
 const fmtDate = (s) => {
   try {
-    return new Date(s).toLocaleString("ja-JP", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" });
+    return new Date(s).toLocaleString("ja-JP", {
+      month: "numeric",
+      day: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+    });
   } catch {
     return s || "";
   }
 };
-function escapeHtml(s) {
-  return String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
-}
+const labelOf = (sp) => (sp ? sp.name || "話者" + (sp.id ?? "") : "話者");
 
-async function init() {
-  try {
-    all = await (await fetch("/api/meetings")).json();
-    if (!Array.isArray(all)) all = [];
-  } catch {
-    all = [];
-  }
-  // 挨拶用の名前＋案件ステータス（いま追うべき案件用）
-  try {
-    const me = await (await fetch("/api/me")).json();
-    let nm = me && me.username ? me.username : "";
-    try {
-      const users = await (await fetch("/api/users")).json();
-      const u = (users || []).find((x) => x.email === me.username);
-      if (u && u.name) nm = u.name;
-    } catch {}
-    if (nm && nm.includes("@")) nm = nm.split("@")[0];
-    greetName = nm || "";
-  } catch {}
-  try {
-    const ds = await (await fetch("/api/deal-status")).json();
-    dealStatusMap = ds.statuses || {};
-  } catch {}
-  // 所有者（録画したアカウント）でプルダウンを構築
-  const seen = new Map(); // owner -> label
-  for (const m of all) {
-    const owner = (m.owner || "").trim();
-    if (!owner) continue;
-    if (!seen.has(owner)) seen.set(owner, (m.owner_name || "").trim() || owner);
-  }
-  // 営業担当者（開閉式ドロップダウン・複数選択）
-  const ownerItems = [];
-  for (const [owner, label] of seen) {
-    ownerLabels[owner] = label;
-    ownerItems.push({ value: owner, label });
-  }
-  initMultiDropdown($("fRepGroup"), "営業担当者", ownerItems, () => render(true));
-  // フェーズ（開閉式ドロップダウン・複数選択）
-  initMultiDropdown(
-    $("fPhaseGroup"),
-    "フェーズ",
-    PHASES.map((p) => ({ value: p.code, label: p.label })),
-    () => render(true)
-  );
-  initAnaTabs();
-  restoreAnaFilter();
-  render();
-}
-
-// 絞り込み条件をページ間/再訪でも保持
-const ANA_FILTER_KEY = "kinbot_ana_filter_v1";
-function saveAnaFilter() {
-  try {
-    localStorage.setItem(ANA_FILTER_KEY, JSON.stringify({
-      owners: selectedOwners(),
-      phases: selectedPhases(),
-      from: $("fFrom") ? $("fFrom").value || "" : "",
-      to: $("fTo") ? $("fTo").value || "" : "",
-    }));
-  } catch {}
-}
-function restoreAnaFilter() {
-  try {
-    const raw = localStorage.getItem(ANA_FILTER_KEY);
-    if (!raw) return;
-    const d = JSON.parse(raw) || {};
-    if (Array.isArray(d.owners)) document.querySelectorAll("#fRepGroup input:not(.msel-all-cb)").forEach((c) => (c.checked = d.owners.includes(c.value)));
-    if (Array.isArray(d.phases)) document.querySelectorAll("#fPhaseGroup input:not(.msel-all-cb)").forEach((c) => (c.checked = d.phases.includes(c.value)));
-    if (d.from && $("fFrom")) $("fFrom").value = d.from;
-    if (d.to && $("fTo")) $("fTo").value = d.to;
-    $("fRepGroup")._mselUpdate && $("fRepGroup")._mselUpdate();
-    $("fPhaseGroup")._mselUpdate && $("fPhaseGroup")._mselUpdate();
-  } catch {}
-}
-
-function selectedOwners() {
-  return [...document.querySelectorAll("#fRepGroup input:checked:not(.msel-all-cb)")].map((c) => c.value);
-}
 function selectedPhases() {
-  return [...document.querySelectorAll("#fPhaseGroup input:checked:not(.msel-all-cb)")].map((c) => c.value);
+  return [...document.querySelectorAll("#fPhaseGroup input:checked")].map((c) => c.value);
 }
 
 // 開閉式の複数選択ドロップダウン
@@ -125,18 +133,6 @@ function initMultiDropdown(group, labelText, items, onChange) {
   const btn = group.querySelector(".msel-btn");
   const panel = group.querySelector(".msel-panel");
   const sum = group.querySelector(".msel-sum");
-  // すべて選択
-  const allLab = document.createElement("label");
-  allLab.className = "msel-opt msel-all";
-  const allCb = document.createElement("input");
-  allCb.type = "checkbox";
-  allCb.className = "msel-all-cb";
-  const allSpan = document.createElement("span");
-  allSpan.className = "msel-optlabel";
-  allSpan.textContent = "すべて選択";
-  allLab.appendChild(allCb);
-  allLab.appendChild(allSpan);
-  panel.appendChild(allLab);
   for (const it of items) {
     const lab = document.createElement("label");
     lab.className = "msel-opt";
@@ -150,21 +146,14 @@ function initMultiDropdown(group, labelText, items, onChange) {
     lab.appendChild(span);
     panel.appendChild(lab);
   }
-  const optInputs = () => [...panel.querySelectorAll("input:not(.msel-all-cb)")];
   const update = () => {
-    const ins = optInputs();
-    const checked = ins.filter((c) => c.checked);
+    const checked = [...panel.querySelectorAll("input:checked")];
     sum.textContent = checked.length
       ? items.filter((it) => checked.some((c) => c.value === it.value)).map((it) => it.label).join("・")
       : "すべて";
-    allCb.checked = ins.length > 0 && checked.length === ins.length;
-    allCb.indeterminate = checked.length > 0 && checked.length < ins.length;
   };
   group._mselUpdate = update;
-  panel.addEventListener("change", (e) => {
-    if (e.target.classList.contains("msel-all-cb")) {
-      optInputs().forEach((c) => (c.checked = e.target.checked));
-    }
+  panel.addEventListener("change", () => {
     update();
     onChange();
   });
@@ -183,393 +172,43 @@ function closeAllMsel() {
 }
 document.addEventListener("click", closeAllMsel);
 
-function applyFilter() {
-  const owners = selectedOwners();
+const HIST_CAT_OTHER = new URLSearchParams(location.search).get("cat") === "other";
+let histMode = "all"; // 既定は「すべて」。会社で絞り込み可能
+let selectedAccount = null;
+let histAccounts = {}; // key -> {official_name,...}
+function companyFromTitleH(title) {
+  let t = String(title || "").trim();
+  if (!t) return "(無題)";
+  t = t.replace(/^[\s　・※•◆◇■□▶▷*\-–—✉⊠]+/u, "");
+  t = t.replace(/[【\[［][^】\]］]*[】\]］]/gu, " ");
+  t = t.replace(/[\s　/／|｜:：][^\s　/／|｜]{0,16}様(?:\s*[・,、][^\s　/／|｜]{0,16}様)*\s*$/u, "");
+  t = t.replace(/[^\s　/／|｜]{0,16}様\s*$/u, "");
+  t = t.replace(/\s+/g, " ").trim();
+  return t || String(title || "(無題)").trim();
+}
+const acctKey = (m) => (m.account && m.account.trim()) || companyFromTitleH(m.title) || "(無題)";
+const acctName = (key) => (histAccounts[key] && histAccounts[key].official_name) || key;
+if (HIST_CAT_OTHER) {
+  const bn = document.querySelector(".brand-name");
+  if (bn) bn.textContent = "社内・フォロー";
+  try { document.title = "社内・フォロー — kinbot"; } catch {}
+}
+function isOtherCat(m) { return !!(m.category && m.category !== "商談"); }
+function applyHistoryFilter() {
+  const owner = document.getElementById("fOwner").value.trim();
   const phases = selectedPhases();
-  const from = $("fFrom").value ? new Date($("fFrom").value + "T00:00:00") : null;
-  const to = $("fTo").value ? new Date($("fTo").value + "T23:59:59") : null;
-  return all.filter((m) => {
-    if (m.category && m.category !== "商談") return false; // 社内MTG/フォロー等は分析対象外
-    if (owners.length && !owners.includes((m.owner || "").trim())) return false;
+  return allMeetings.filter((m) => {
+    if (HIST_CAT_OTHER ? !isOtherCat(m) : isOtherCat(m)) return false; // ビューに合うカテゴリのみ
+    if (owner && (m.owner || "").trim() !== owner) return false;
     if (phases.length && !phases.includes(m.phase || "")) return false;
-    const d = new Date(m.created_at);
-    if (from && d < from) return false;
-    if (to && d > to) return false;
     return true;
   });
 }
 
-let curRows = [];
-let activeTab = "dash";
-let dashDirty = false;
-function render(triggered) {
-  const rows = applyFilter();
-  curRows = rows;
-  saveAnaFilter();
-  const safe = (fn, ...args) => { try { fn(...args); } catch (e) { console.error("[render]", fn.name, e); } };
-  // ダッシュボードのグラフはタブ表示中のみ描画（非表示中はcanvasが潰れるため）
-  if (activeTab === "dash") { safe(renderDashboard, rows); dashDirty = false; }
-  else dashDirty = true;
-  safe(renderAgg, rows);
-  safe(renderSetPanel, rows, !!triggered);
-  safe(renderWinLoss, rows);
-  safe(renderLostSignals);
-  safe(renderFreeBox, rows);
-  safe(renderList, rows);
-}
-
-// タブ切替（PC・スマホ共通）
-function setAnaTab(mp) {
-  activeTab = mp;
-  document.querySelectorAll("#anaTabs .ana-tab").forEach((b) => b.classList.toggle("active", b.dataset.mp === mp));
-  document.querySelectorAll("[data-mpanel]").forEach((el) => el.classList.toggle("m-active", el.dataset.mpanel === mp));
-  if (mp === "dash" && dashDirty) { renderDashboard(curRows); dashDirty = false; }
-  if (mp === "prof") renderProfileAnalysis();
-  if (mp === "phase") renderPhasePanel();
-}
-function initAnaTabs() {
-  const tabs = document.getElementById("anaTabs");
-  if (!tabs) return;
-  tabs.querySelectorAll(".ana-tab").forEach((b) => b.addEventListener("click", () => setAnaTab(b.dataset.mp)));
-  setAnaTab("dash");
-  const bulk = document.getElementById("anaBulkNotion");
-  if (bulk && !bulk._wired) { bulk._wired = true; bulk.addEventListener("click", anaBulkNotion); }
-  const dash = $("dashboard");
-  if (dash && !dash._talkWired) {
-    dash._talkWired = true;
-    dash.addEventListener("click", (e) => {
-      const c = e.target.closest("[data-talk]");
-      if (c) openTalkModal(c.dataset.talk);
-    });
-  }
-  initChat();
-}
-
-// ===== 商談フェーズ ダッシュボード（機能B・マネージャー向け） =====
-const PHASE_NAMES_A = { 1: "課題特定", 2: "カスタマイズデモ", 3: "顧客起点", 4: "クロージング" };
-let phaseInited = false;
-function renderPhasePanel() {
-  const el = $("phasepanel");
-  if (!el) return;
-  if (!phaseInited) {
-    phaseInited = true;
-    el.innerHTML =
-      `<div class="phase-ctrls">` +
-      `<div class="seg" id="phGran"><button class="seg-btn" data-g="day">日次</button><button class="seg-btn active" data-g="week">週次</button><button class="seg-btn" data-g="month">月次</button></div>` +
-      `<label class="phase-date">期間 <input type="date" id="phFrom"> 〜 <input type="date" id="phTo"></label>` +
-      `<button class="btn" id="phApply">更新</button>` +
-      `</div><div id="phBody"><div class="empty-state">「更新」を押すと集計します。</div></div>`;
-    el.querySelectorAll("#phGran .seg-btn").forEach((b) =>
-      b.addEventListener("click", () => {
-        el.querySelectorAll("#phGran .seg-btn").forEach((x) => x.classList.toggle("active", x === b));
-        loadPhaseDash();
-      })
-    );
-    $("phApply").addEventListener("click", loadPhaseDash);
-    loadPhaseDash();
-  }
-}
-async function loadPhaseDash() {
-  const body = $("phBody");
-  if (!body) return;
-  const g = (document.querySelector("#phGran .seg-btn.active") || {}).dataset?.g || "week";
-  const from = $("phFrom") ? $("phFrom").value : "";
-  const to = $("phTo") ? $("phTo").value : "";
-  body.innerHTML = '<div class="empty-state">集計中…</div>';
-  try {
-    const q = new URLSearchParams({ granularity: g });
-    if (from) q.set("from", from);
-    if (to) q.set("to", to);
-    const d = await (await fetch("/api/phase/dashboard?" + q.toString())).json();
-    renderPhaseDash(body, d);
-  } catch (e) {
-    body.innerHTML = '<div class="empty-state">集計に失敗しました。</div>';
-  }
-}
-function phaseDistBar(dist, total) {
-  const seg = (n, cls) => (total ? `<span class="pdist-seg ${cls}" style="width:${(n / total) * 100}%" title="${n}件"></span>` : "");
-  return `<div class="pdist">${seg(dist.p1, "p1")}${seg(dist.p2, "p2")}${seg(dist.p3plus, "p3")}</div>`;
-}
-function renderPhaseDash(body, d) {
-  if (!d || !d.overall || !d.overall.total) {
-    body.innerHTML = '<div class="empty-state">対象期間に判定済みの商談がありません。<br>商談を記録すると自動でフェーズ判定され、ここに集計されます。</div>';
-    return;
-  }
-  const o = d.overall;
-  let html = "";
-  // グループ全体
-  html += `<div class="phase-overall"><div class="po-title">グループ全体（直販）</div>` +
-    `<div class="po-kpis"><div class="po-kpi"><div class="po-v">${o.total}</div><div class="po-l">商談数</div></div>` +
-    `<div class="po-kpi hero"><div class="po-v">${o.phase3_rate}%</div><div class="po-l">フェーズ3到達率</div></div>` +
-    `<div class="po-kpi"><div class="po-v">${o.dist.p3plus}</div><div class="po-l">フェーズ3+ 到達</div></div></div>` +
-    phaseDistBar(o.dist, o.total) +
-    `<div class="pdist-legend"><span><i class="dot p1"></i>フェーズ1</span><span><i class="dot p2"></i>フェーズ2</span><span><i class="dot p3"></i>フェーズ3+</span></div></div>`;
-
-  // 推移（フェーズ3到達率）
-  if (d.trend && d.trend.length) {
-    const max = 100;
-    const bars = d.trend.map((t) => {
-      const label = fmtPeriod(t.period, d.granularity);
-      const h = Math.round((t.phase3_rate / max) * 100);
-      return `<div class="ptbar"><div class="ptbar-fill" style="height:${Math.max(2, h)}%" title="${t.phase3_rate}%（${t.total}件）"></div><div class="ptbar-x">${escapeHtml(label)}</div><div class="ptbar-v">${t.phase3_rate}%</div></div>`;
-    }).join("");
-    html += `<div class="phase-card"><div class="dash-title">フェーズ3到達率の推移（${d.granularity === "day" ? "日次" : d.granularity === "month" ? "月次" : "週次"}）</div><div class="ptchart">${bars}</div></div>`;
-  }
-
-  // チーム → 個人
-  for (const t of d.teams || []) {
-    html += `<div class="phase-team"><div class="pt-head"><b>${escapeHtml(t.team_name)}</b><span class="pt-rate">フェーズ3到達率 ${t.phase3_rate}%（${t.total}件）</span></div>`;
-    html += phaseDistBar(t.dist, t.total);
-    html += '<div class="pt-reps">';
-    for (const r of t.reps || []) {
-      const warn = r.atRisk ? `<span class="pt-risk">要注意 ${r.atRisk}件</span>` : "";
-      html += `<div class="pt-rep"><span class="pt-rep-name">${escapeHtml(r.rep_name)}</span>` +
-        `<span class="pt-rep-rate">フェーズ3 ${r.phase3_rate}%</span>` +
-        `<span class="pt-rep-total">${r.total}件</span>${warn}</div>`;
-    }
-    html += "</div></div>";
-  }
-  body.innerHTML = html;
-}
-function fmtPeriod(iso, gran) {
-  const d = new Date(iso);
-  if (isNaN(d)) return String(iso || "");
-  if (gran === "month") return d.getFullYear() + "/" + (d.getMonth() + 1);
-  if (gran === "day") return d.getMonth() + 1 + "/" + d.getDate();
-  return d.getMonth() + 1 + "/" + d.getDate(); // 週: 週初日
-}
-
-// ===== 企業傾向（プロフィール × 商談回数） =====
-let accountsProfA = null;
-function parseNumJP(s) {
-  if (!s) return null;
-  let t = String(s).replace(/[,，]/g, "");
-  const man = /万/.test(t);
-  const m = t.match(/\d+(\.\d+)?/);
-  if (!m) return null;
-  let n = parseFloat(m[0]);
-  if (man) n *= 10000;
-  return Math.round(n);
-}
-const avgOf = (arr) => {
-  const v = arr.filter((x) => typeof x === "number" && !isNaN(x));
-  return v.length ? Math.round(v.reduce((s, x) => s + x, 0) / v.length) : null;
-};
-function empBucket(n) {
-  if (n == null) return null;
-  if (n < 50) return "〜50名";
-  if (n < 100) return "50〜100名";
-  if (n < 300) return "100〜300名";
-  if (n < 1000) return "300〜1000名";
-  return "1000名以上";
-}
-function hireBucket(n) {
-  if (n == null) return null;
-  if (n < 5) return "〜5名";
-  if (n < 10) return "5〜10名";
-  if (n < 30) return "10〜30名";
-  if (n < 50) return "30〜50名";
-  return "50名以上";
-}
-// 最頻レンジ（一番多い区分）を返す {label, n}
-function modeBucket(arr, fn) {
-  const c = {};
-  for (const r of arr) {
-    const b = fn(r);
-    if (b == null) continue;
-    c[b] = (c[b] || 0) + 1;
-  }
-  const top = Object.entries(c).sort((a, b) => b[1] - a[1])[0];
-  return top ? { label: top[0], n: top[1] } : null;
-}
-function topIndustries(arr, n = 3) {
-  const c = {};
-  for (const r of arr) { const k = (r.industry || "不明").trim() || "不明"; c[k] = (c[k] || 0) + 1; }
-  return Object.entries(c).sort((a, b) => b[1] - a[1]).slice(0, n);
-}
-async function renderProfileAnalysis() {
-  const el = $("profanalysis");
-  if (!el) return;
-  if (el._loaded) return; // 一度描画したら据え置き（タブ切替で再計算しない）
-  el.innerHTML = '<div class="empty-state">読み込み中…</div>';
-  if (!accountsProfA) {
-    try { accountsProfA = await (await fetch("/api/accounts")).json(); } catch { accountsProfA = []; }
-  }
-  const profByKey = {};
-  for (const a of accountsProfA || []) profByKey[a.key] = a;
-  // 商談回数（商談カテゴリのみ）をアカウント別に集計
-  const rounds = {};
-  for (const m of all) {
-    if (m.category && m.category !== "商談") continue;
-    const k = acctOfA(m);
-    rounds[k] = (rounds[k] || 0) + 1;
-  }
-  const recs = [];
-  for (const k in rounds) {
-    const p = profByKey[k] && profByKey[k].profile;
-    if (!p) continue;
-    const emp = parseNumJP(p.employees);
-    const hire = parseNumJP(p.hiring);
-    if (emp == null && hire == null && !(p.industry || "").trim()) continue;
-    recs.push({ key: k, rounds: rounds[k], emp, hire, industry: (p.industry || "不明").trim() || "不明" });
-  }
-  el._loaded = true;
-  if (recs.length < 2) {
-    el._loaded = false;
-    el.innerHTML =
-      '<div class="empty-state">会社プロフィールを取得した案件がまだ少ないため分析できません。<br>' +
-      '案件の各社で「企業サイトURL → 取得」をすると、ここで <b>1回で終わる企業 / 2回・3回と進む企業</b> の傾向（従業員数・業界・採用人数）を比較できます。</div>';
-    return;
-  }
-  const buckets = { "1回で終了": [], "2回継続": [], "3回以上継続": [] };
-  for (const r of recs) {
-    const b = r.rounds <= 1 ? "1回で終了" : r.rounds === 2 ? "2回継続" : "3回以上継続";
-    buckets[b].push(r);
-  }
-  let html = `<div class="prof-an-note">会社プロフィール取得済み <b>${recs.length}社</b> を、商談回数で分けて比較しています（プロフィール未取得の案件は対象外）。</div>`;
-  html += '<div class="prof-an-grid">';
-  for (const name of Object.keys(buckets)) {
-    const arr = buckets[name];
-    const empM = modeBucket(arr, (r) => empBucket(r.emp));
-    const hireM = modeBucket(arr, (r) => hireBucket(r.hire));
-    const inds = topIndustries(arr);
-    html += `<div class="prof-an-card"><div class="prof-an-h">${name}<span class="prof-an-n">${arr.length}社</span></div>`;
-    html += `<div class="prof-an-row"><span>従業員数（多い）</span><b>${empM ? escapeHtml(empM.label) : "—"}</b></div>`;
-    html += `<div class="prof-an-row"><span>採用人数（多い）</span><b>${hireM ? escapeHtml(hireM.label) : "—"}</b></div>`;
-    html += `<div class="prof-an-row"><span>多い業界</span><b>${inds.length ? escapeHtml(inds.map((x) => x[0]).join("・")) : "—"}</b></div>`;
-    html += "</div>";
-  }
-  html += "</div>";
-
-  // 自動の気づき（最頻レンジ・業界の比較）
-  const obs = [];
-  const e1 = modeBucket(buckets["1回で終了"], (r) => empBucket(r.emp));
-  const e3 = modeBucket(buckets["3回以上継続"], (r) => empBucket(r.emp));
-  if (e1 && e3 && e1.label !== e3.label) {
-    obs.push(`従業員数は、1回で終わる企業は「${e1.label}」、3回以上続く企業は「${e3.label}」が多い。`);
-  } else if (e3) {
-    obs.push(`続く企業は従業員数「${e3.label}」が多い。`);
-  }
-  const h1 = modeBucket(buckets["1回で終了"], (r) => hireBucket(r.hire));
-  const h3 = modeBucket(buckets["3回以上継続"], (r) => hireBucket(r.hire));
-  if (h1 && h3 && h1.label !== h3.label) {
-    obs.push(`採用人数は、1回で終わる企業は「${h1.label}」、3回以上続く企業は「${h3.label}」が多い。`);
-  } else if (h3) {
-    obs.push(`続く企業は採用人数「${h3.label}」が多い。`);
-  }
-  const cont = [...buckets["2回継続"], ...buckets["3回以上継続"]];
-  const contTop = topIndustries(cont, 1)[0];
-  const oneTop = topIndustries(buckets["1回で終了"], 1)[0];
-  if (contTop) obs.push(`続きやすい業界の上位は「${escapeHtml(contTop[0])}」。`);
-  if (oneTop) obs.push(`1回で終わりやすい業界の上位は「${escapeHtml(oneTop[0])}」。`);
-  if (obs.length) {
-    html += '<div class="prof-an-insight"><div class="prof-an-ih">気づき</div><ul>' + obs.map((o) => `<li>${o}</li>`).join("") + "</ul>" +
-      '<div class="prof-an-cap">※ サンプル数が少ないと偏ります。プロフィール取得を増やすほど精度が上がります。</div></div>';
-  }
-  el.innerHTML = html;
-}
-
-
-function initChat() {
-  const send = $("chatSend");
-  if (!send || send._wired) return;
-  send._wired = true;
-  const ta = $("chatText");
-  send.addEventListener("click", sendChat);
-  ta.addEventListener("keydown", (e) => {
-    if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) { e.preventDefault(); sendChat(); }
-  });
-  $("chatClear").addEventListener("click", () => { chatMsgs = []; renderChat(); });
-  renderChat();
-}
-function renderChat() {
-  const log = $("chatLog");
-  if (!log) return;
-  if (!chatMsgs.length) {
-    log.innerHTML = '<div class="empty-state">商談データをもとに会話できます。質問を入力してください。</div>';
-    return;
-  }
-  log.innerHTML = chatMsgs.map((m) => {
-    if (m.role === "user") return `<div class="cmsg cmsg-u"><div class="cbub">${escapeHtml(m.content)}</div></div>`;
-    if (m.role === "assistant") return `<div class="cmsg cmsg-a"><img class="cava" src="kinbot.svg" alt="kinbot"/><div class="cbub">${mdToHtml(m.content)}</div></div>`;
-    return `<div class="cmsg cmsg-sys">${escapeHtml(m.content)}</div>`;
-  }).join("");
-  log.scrollTop = log.scrollHeight;
-}
-async function sendChat() {
-  const ta = $("chatText");
-  const text = (ta.value || "").trim();
-  if (!text) return;
-  const send = $("chatSend");
-  chatMsgs.push({ role: "user", content: text });
-  ta.value = "";
-  renderChat();
-  const log = $("chatLog");
-  const typing = document.createElement("div");
-  typing.className = "cmsg cmsg-a";
-  typing.innerHTML = '<img class="cava" src="kinbot.svg" alt="kinbot"/><div class="cbub"><span class="cdots">考え中…</span></div>';
-  log.appendChild(typing);
-  log.scrollTop = log.scrollHeight;
-  send.disabled = true;
-  try {
-    const r = await fetch("/api/chat", {
-      method: "POST", headers: { "content-type": "application/json" },
-      body: JSON.stringify({ ...curFilter(), messages: chatMsgs, pro: $("chatPro").checked, web: $("chatWeb").checked }),
-    });
-    const d = await r.json();
-    if (!r.ok) throw new Error(d.error || "応答に失敗しました");
-    chatMsgs.push({ role: "assistant", content: d.reply || "（空の応答）" });
-    renderChat();
-  } catch (e) {
-    typing.remove();
-    chatMsgs.push({ role: "system", content: "エラー: " + e.message });
-    renderChat();
-  } finally {
-    send.disabled = false;
-  }
-}
-
-// 刺さったトーク・懸念の一覧モーダル
-async function openTalkModal(type) {
-  let ov = document.getElementById("talkModal");
-  if (!ov) {
-    ov = document.createElement("div");
-    ov.id = "talkModal";
-    ov.className = "talk-ov";
-    ov.innerHTML = `<div class="talk-modal"><div class="talk-head"><span class="talk-title"></span><button class="talk-x" aria-label="閉じる">×</button></div><div class="talk-body"></div></div>`;
-    document.body.appendChild(ov);
-    ov.addEventListener("click", (e) => { if (e.target === ov || e.target.classList.contains("talk-x")) ov.classList.remove("open"); });
-  }
-  const titleEl = ov.querySelector(".talk-title");
-  const bodyEl = ov.querySelector(".talk-body");
-  titleEl.textContent = type === "landed" ? "💡 刺さったトーク一覧" : "⚠️ 懸念 → 刺さった言い返し 一覧";
-  ov.classList.add("open");
-  window.kbProgress(bodyEl, { percent: null, label: "読み込み中…" });
-  try {
-    const r = await fetch("/api/talks", {
-      method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(curFilter()),
-    });
-    const d = await r.json();
-    if (!r.ok) throw new Error(d.error || "取得に失敗しました");
-    const items = type === "landed" ? d.landed : d.concerns;
-    if (!items || !items.length) { bodyEl.innerHTML = '<div class="empty-state">該当するトークがありません（商談で「分析を生成」やライブ記録があると表示されます）。</div>'; return; }
-    const meta = (i) => `<div class="talk-meta">${escapeHtml(i.title)} ・ ${escapeHtml(i.owner)} ・ ${fmtDate(i.date)}</div>`;
-    let html = `<div class="talk-count">${items.length}件</div>`;
-    if (type === "landed") {
-      html += items.map((i) => `<div class="talk-item talk-land"><div class="talk-main">${escapeHtml(i.text)}</div>${i.why ? `<div class="talk-sub">${escapeHtml(i.why)}</div>` : ""}${meta(i)}</div>`).join("");
-    } else {
-      html += items.map((i) => `<div class="talk-item talk-obj"><div class="talk-q">「${escapeHtml(i.objection)}」</div><div class="talk-a">${escapeHtml(i.response)}</div>${i.basis ? `<div class="talk-sub">根拠: ${escapeHtml(i.basis)}</div>` : ""}${meta(i)}</div>`).join("");
-    }
-    bodyEl.innerHTML = html;
-  } catch (e) {
-    bodyEl.innerHTML = `<div class="empty-state">${escapeHtml(e.message)}</div>`;
-  }
-}
-
-async function anaBulkNotion() {
-  const btn = $("anaBulkNotion");
-  const stat = $("anaBulkStatus");
-  const rows = (curRows || []).filter((m) => m.status !== "processing" && m.status !== "error");
+async function bulkSendNotion() {
+  const btn = document.getElementById("bulkNotionBtn");
+  const stat = document.getElementById("bulkNotionStatus");
+  const rows = applyHistoryFilter().filter((m) => m.status !== "processing" && m.status !== "error");
   if (!rows.length) { if (stat) stat.textContent = "対象の商談がありません"; return; }
   const ids = rows.map((m) => m.bot_id);
   if (!confirm(`絞り込み中の ${rows.length} 件を、あなたのNotionに送信します。\n既に送信済みの商談は自動でスキップします。続けますか？`)) return;
@@ -588,551 +227,930 @@ async function anaBulkNotion() {
   }
 }
 
-// ===== なんでも分析（フリー） =====
-let freeWired = false;
-let lastFreeAnswer = "";
-function renderFreeBox(rows) {
-  const el = $("freebox");
-  if (!el) return;
-  if (el.dataset.ready) { // 件数表示だけ更新
-    const c = el.querySelector("#freeCount");
-    if (c) c.textContent = `対象 ${rows.length} 件`;
-    return;
-  }
-  el.dataset.ready = "1";
-  el.innerHTML = `
-    <div class="tend-head"><span>🧠 なんでも分析（自由に質問）</span><span class="metric-note" id="freeCount">対象 ${rows.length} 件</span></div>
-    <p class="metric-note">上の絞り込み（担当・フェーズ・期間）が対象になります。例：「失注の共通点は？」「田中の強み・弱みは？」「来月の重点アクションを3つ」「価格懸念への切り返しを定型化して」</p>
-    <textarea id="freeQ" class="free-q" placeholder="分析したいことを自由に入力…"></textarea>
-    <div class="free-actions">
-      <button class="btn" id="freeRun">分析する</button>
-      <button class="btn ghost" id="freeCopy" hidden>コピー（Markdown）</button>
-      <button class="btn ghost" id="freeNotion" hidden>Notionに送る</button>
-    </div>
-    <div class="free-answer" id="freeAns"></div>`;
-  if (!freeWired) {
-    freeWired = true;
-    el.addEventListener("click", async (e) => {
-      if (e.target.id === "freeRun") return runFree();
-      if (e.target.id === "freeCopy") {
-        try { await navigator.clipboard.writeText(lastFreeAnswer); e.target.textContent = "コピーしました"; setTimeout(() => (e.target.textContent = "コピー（Markdown）"), 1500); } catch {}
-      }
-      if (e.target.id === "freeNotion") return sendFreeToNotion(e.target);
-    });
-  }
-}
-async function runFree() {
-  const q = ($("freeQ").value || "").trim();
-  if (!q) { $("freeQ").focus(); return; }
-  const btn = $("freeRun");
-  btn.disabled = true; btn.textContent = "分析中…";
-  window.kbProgress($("freeAns"), { percent: null, label: "AIが対象の商談を読み込んで分析しています…" });
-  try {
-    const r = await fetch("/api/free-analysis", {
-      method: "POST", headers: { "content-type": "application/json" },
-      body: JSON.stringify({ ...curFilter(), question: q }),
-    });
-    const d = await r.json();
-    if (!r.ok) throw new Error(d.error || "分析に失敗しました");
-    lastFreeAnswer = d.answer || "";
-    $("freeAns").innerHTML = mdToHtml(lastFreeAnswer);
-    $("freeCopy").hidden = false;
-    $("freeNotion").hidden = false;
-  } catch (e) {
-    $("freeAns").innerHTML = `<div class="empty-state">${escapeHtml(e.message)}</div>`;
-  } finally {
-    btn.disabled = false; btn.textContent = "分析する";
-  }
-}
-async function sendFreeToNotion(btn) {
-  if (!lastFreeAnswer) return;
-  btn.disabled = true; const orig = btn.textContent; btn.textContent = "送信中…";
-  try {
-    const title = "分析: " + (($("freeQ").value || "").trim().slice(0, 40) || "なんでも分析");
-    const r = await fetch("/api/notion/report", {
-      method: "POST", headers: { "content-type": "application/json" },
-      body: JSON.stringify({ title, markdown: lastFreeAnswer }),
-    });
-    const d = await r.json();
-    if (!r.ok) throw new Error(d.error || "送信に失敗");
-    btn.textContent = "送信済み";
-    if (d.url) window.open(d.url, "_blank", "noopener");
-    setTimeout(() => { btn.textContent = orig; btn.disabled = false; }, 2000);
-  } catch (e) {
-    alert("Notion送信に失敗: " + e.message);
-    btn.textContent = orig; btn.disabled = false;
-  }
-}
-// ごく簡易なMarkdown→HTML（見出し・箇条書き・段落）
-function mdToHtml(md) {
-  const lines = String(md).replace(/\r/g, "").split("\n");
-  let html = "", inUl = false;
-  const esc = (s) => escapeHtml(s).replace(/\*\*(.+?)\*\*/g, "<b>$1</b>");
-  for (const raw of lines) {
-    const line = raw.trimEnd();
-    let m;
-    if ((m = line.match(/^#{1,3}\s+(.*)/))) { if (inUl) { html += "</ul>"; inUl = false; } html += `<h4>${esc(m[1])}</h4>`; }
-    else if ((m = line.match(/^\s*[-*・]\s+(.*)/))) { if (!inUl) { html += "<ul>"; inUl = true; } html += `<li>${esc(m[1])}</li>`; }
-    else if (!line.trim()) { if (inUl) { html += "</ul>"; inUl = false; } }
-    else { if (inUl) { html += "</ul>"; inUl = false; } html += `<p>${esc(line)}</p>`; }
-  }
-  if (inUl) html += "</ul>";
-  return html || '<div class="empty-state">（空の回答）</div>';
-}
-
-// ===== 失注サイン（学習） =====
-let lostSigLoaded = false;
-async function renderLostSignals() {
-  const el = $("lostsig");
-  if (!el) return;
-  el.innerHTML = `<div class="tend-head"><span>🚩 失注サイン（これを言われたら危険）</span><button class="btn" id="lsLearn">失注商談から学習</button></div>
-    <div class="tend-body" id="lsBody"><div class="empty-state">失注した商談から「失注の予兆フレーズ」をAIが抽出します。学習すると、以後の商談終了時の失注判定にも自動で反映されます。</div></div>`;
-  $("lsLearn").onclick = learnLostSignals;
-  if (!lostSigLoaded) {
-    lostSigLoaded = true;
-    try {
-      const d = await (await fetch("/api/lost-signals")).json();
-      if (d.signals && d.signals.length) paintLostSignals(d.signals);
-    } catch {}
-  }
-}
-function paintLostSignals(signals) {
-  const body = $("lsBody");
-  if (!body) return;
-  if (!signals || !signals.length) { body.innerHTML = '<div class="empty-state">まだ学習結果がありません。</div>'; return; }
-  body.innerHTML = `<ul class="ls-list">` +
-    signals.map((g) => `<li><b>${escapeHtml(g.phrase || "")}</b>${g.why ? `<span class="ls-why">${escapeHtml(g.why)}</span>` : ""}</li>`).join("") +
-    `</ul><p class="metric-note">この内容は商談終了時の失注判定にも反映されます。</p>`;
-}
-async function learnLostSignals() {
-  const btn = $("lsLearn");
-  if (btn) { btn.disabled = true; btn.textContent = "学習中…"; }
-  window.kbProgress($("lsBody"), { percent: null, label: "失注商談を分析して予兆を抽出しています…" });
-  try {
-    const r = await fetch("/api/lost-signals/learn", { method: "POST" });
-    const d = await r.json();
-    if (!r.ok) throw new Error(d.error || "学習に失敗");
-    paintLostSignals(d.signals);
-  } catch (e) {
-    $("lsBody").innerHTML = `<div class="empty-state">${escapeHtml(e.message)}</div>`;
-  } finally {
-    if (btn) { btn.disabled = false; btn.textContent = "再学習"; }
-  }
-}
-
-// ===== 失注 vs 進行中の傾向分析 =====
-let wlSeq = 0;
-function renderWinLoss(rows) {
-  const el = $("winloss");
-  if (!el) return;
-  if (!rows.length) { el.innerHTML = ""; return; }
-  el.innerHTML = `<div class="tend-head"><span>🏆 失注 vs 進行中・受注 の傾向分析</span><button class="btn" id="wlBtn">分析する</button></div>
-    <div class="tend-body" id="wlBody"><div class="empty-state">案件ステータス（失注／進行中／受注）をもとに、AIが「負けパターン」と「勝ちパターン」を比較してまとめます。ボタンを押すと分析します。</div></div>`;
-  const filter = curFilter();
-  $("wlBtn").onclick = () => runWinLoss(filter, ++wlSeq, true);
-}
-async function runWinLoss(filter, seq, force) {
-  const btn = $("wlBtn");
-  if (btn) { btn.disabled = true; btn.textContent = "分析中…"; }
-  window.kbProgress($("wlBody"), { percent: null, label: "失注・進行中の商談を横断分析しています…" });
-  try {
-    const r = await fetch("/api/winloss-analysis", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ ...filter, force: !!force }),
-    });
-    const d = await r.json();
-    if (seq !== wlSeq) return;
-    if (d.error) throw new Error(d.error);
-    renderWinLossResult(d);
-    if (btn) { btn.disabled = false; btn.textContent = "再分析"; }
-  } catch (e) {
-    if (seq !== wlSeq) return;
-    $("wlBody").innerHTML = `<div class="empty-state">${escapeHtml(e.message || "分析に失敗しました")}</div>`;
-    if (btn) { btn.disabled = false; btn.textContent = "もう一度試す"; }
-  }
-}
-function wlGroup(label, items, cls) {
-  if (!Array.isArray(items) || !items.length) return "";
-  return `<div class="sgroup ${cls || ""}"><div class="label">${label}</div><ul>` +
-    items.map((i) => `<li>${escapeHtml(i)}</li>`).join("") + `</ul></div>`;
-}
-function renderWinLossResult(d) {
-  let html = `<p class="metric-note">失注 ${d.lostCount || 0}件 ・ 進行中/受注 ${d.activeCount || 0}件 を比較${d.cached ? "・保存済みの結果" : "・たった今分析"}</p>`;
-  html += '<div class="wl-cols">';
-  html += `<div class="wl-col wl-lost"><div class="wl-col-h">⚠️ 失注に多い傾向</div><ul>${(d.lost_patterns || []).map((i) => `<li>${escapeHtml(i)}</li>`).join("") || "<li>—</li>"}</ul></div>`;
-  html += `<div class="wl-col wl-win"><div class="wl-col-h">✅ 進行/受注に多い傾向</div><ul>${(d.active_patterns || []).map((i) => `<li>${escapeHtml(i)}</li>`).join("") || "<li>—</li>"}</ul></div>`;
-  html += "</div>";
-  html += wlGroup("勝ち負けを分ける決定的な違い", d.key_differences, "wl-diff");
-  html += wlGroup("明日からの打ち手", d.recommendations, "wl-rec");
-  $("wlBody").innerHTML = html;
-}
-
-// ===== ダッシュボード（フィルタ連動のKPI・チャート） =====
-function ymKey(d) { return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0"); }
-let _charts = {};
-function destroyCharts() { for (const k in _charts) { try { _charts[k].destroy(); } catch {} } _charts = {}; }
-const DIMS = [["hearing", "ヒアリング"], ["proposal", "提案"], ["closing", "クロージング"], ["listening", "傾聴"]];
-function heatColor(v) {
-  if (v == null) return "var(--panel-2)";
-  if (v >= 4.2) return "#1aa884";
-  if (v >= 3.5) return "#7fccae";
-  if (v >= 2.8) return "#f2d27a";
-  if (v >= 2) return "#eab168";
-  return "#df8a6a";
-}
-
-function renderDashboard(rows) {
-  const el = $("dashboard");
-  if (!el) return;
-  const now = new Date();
-  const thisYm = ymKey(now);
-  const total = rows.length;
-  const thisMonth = rows.filter((m) => ymKey(new Date(m.created_at)) === thisYm).length;
-  const analyzed = rows.filter((m) => m.analysis && m.analysis.scores).length;
-  const analyzedPct = total ? Math.round((analyzed / total) * 100) : 0;
-
-  // 勝ち筋指標（metricsから）
-  const withTalk = rows.filter((m) => m.metrics && typeof m.metrics.repTalkPct === "number");
-  const avgTalk = withTalk.length ? Math.round(withTalk.reduce((s, m) => s + m.metrics.repTalkPct, 0) / withTalk.length) : null;
-  const landedTotal = rows.reduce((s, m) => s + ((m.metrics && m.metrics.landedCount) || 0), 0);
-  const concernTotal = rows.reduce((s, m) => s + ((m.metrics && m.metrics.concernCount) || 0), 0);
-  const sfLinked = rows.filter((m) => m.sf_url && String(m.sf_url).trim()).length;
-  const sfPct = total ? Math.round((sfLinked / total) * 100) : 0;
-
-  // 月別（直近6ヶ月）
-  const months = [];
-  for (let i = 5; i >= 0; i--) {
-    const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
-    months.push({ key: ymKey(d), label: d.getMonth() + 1 + "月", n: 0 });
-  }
-  for (const m of rows) {
-    const hit = months.find((x) => x.key === ymKey(new Date(m.created_at)));
-    if (hit) hit.n++;
-  }
-
-  // フェーズ分布
-  const phaseCounts = PHASES.map((p) => ({ code: p.code, label: p.label, n: rows.filter((m) => (m.phase || "") === p.code).length }));
-  const unset = rows.filter((m) => !m.phase).length;
-
-  // 担当別 件数
-  const repMap = {};
-  for (const m of rows) {
-    const name = m.owner_name || m.owner || m.rep_name || "(不明)";
-    repMap[name] = (repMap[name] || 0) + 1;
-  }
-  const repRank = Object.entries(repMap).sort((a, b) => b[1] - a[1]).slice(0, 8);
-  const maxRep = Math.max(1, ...repRank.map(([, n]) => n));
-
-  // 挨拶ヘッダー（失敗しても本体は描画する）
-  let html = "";
-  try {
-    const wonCount = Object.values(dealStatusMap || {}).filter((s) => s && s.status === "受注").length;
-    const sub = wonCount > 0 ? `これまでに受注${wonCount}件。いい流れです。` : "今日もいきましょう。";
-    html += `<div class="dash-greet"><img class="dash-greet-ava" src="kinbot.svg" alt="" /><div><div class="dash-greet-h">おかえりなさい${greetName ? "、" + escapeHtml(greetName) + "さん" : ""}</div><div class="dash-greet-sub">${escapeHtml(sub)}</div></div></div>`;
-  } catch (e) { console.error("[dash greet]", e); }
-
-  // KPIカード
-  const kpis = [
-    { label: "対象の商談", val: total },
-    { label: "今月の商談", val: thisMonth },
-    { label: "平均トーク比率(営業)", val: avgTalk == null ? "—" : avgTalk + "%", warn: avgTalk != null && avgTalk >= 65 },
-    { label: "刺さったトーク", val: landedTotal, tone: "buy", click: "landed" },
-    { label: "懸念", val: concernTotal, tone: "risk", click: "concern" },
-    { label: "分析済み率", val: analyzedPct + "%" },
-  ];
-  html += '<div class="dash-kpis6">';
-  for (const k of kpis)
-    html += `<div class="kpi ${k.tone || ""} ${k.click ? "kpi-click" : ""}" ${k.click ? `data-talk="${k.click}"` : ""}><div class="kpi-val ${k.warn ? "warn" : ""}">${k.val}</div><div class="kpi-label">${k.label}${k.click ? ' <span class="kpi-more">一覧 ›</span>' : ""}</div></div>`;
-  html += "</div>";
-
-  // いま追うべき案件（進行中・最近動いた順）
-  try {
-    const groups = {};
-    for (const m of rows) {
-      const k = acctOfA(m);
-      (groups[k] = groups[k] || []).push(m);
-    }
-    const items = [];
-    for (const k in groups) {
-      const st = (dealStatusMap[k] && dealStatusMap[k].status) || "進行中";
-      if (st !== "進行中") continue;
-      const last = groups[k].reduce((a, b) => (new Date(a.created_at) > new Date(b.created_at) ? a : b));
-      items.push({ key: k, last, n: groups[k].length });
-    }
-    items.sort((a, b) => new Date(b.last.created_at) - new Date(a.last.created_at));
-    const top = items.slice(0, 4);
-    html += '<div class="dash-card follow-card"><div class="dash-title">🔥 いま追うべき案件</div>';
-    if (!top.length) html += '<div class="empty-state">進行中の案件はありません。</div>';
-    else {
-      html += '<div class="follow-list">';
-      for (const it of top) {
-        html += `<a class="follow-row" href="history.html?m=${encodeURIComponent(it.last.bot_id)}"><span class="follow-name">${escapeHtml(it.key)}</span><span class="follow-sub">${escapeHtml(phaseLabel(it.last.phase))} ・ 最終 ${fmtDate(it.last.created_at)}</span><span class="follow-go">›</span></a>`;
-      }
-      html += "</div>";
-    }
-    html += "</div>";
-  } catch (e) { console.error("[dash follow]", e); }
-
-  try {
-  // 行1：推移(折れ線) + フェーズ分布(ドーナツ)
-  html += '<div class="dash-grid2">';
-  html += '<div class="dash-card"><div class="dash-title">商談数の推移（月別）</div><div class="chart-box"><canvas id="chTrend"></canvas></div></div>';
-  html += '<div class="dash-card"><div class="dash-title">フェーズ分布</div><div class="chart-box"><canvas id="chPhase"></canvas></div></div>';
-  html += "</div>";
-
-  // 行2：コンバージョン(ファネル+SF) + 担当別件数
-  html += '<div class="dash-grid2">';
-  html += '<div class="dash-card"><div class="dash-title">コンバージョン（フェーズ到達）</div><div class="hbars">';
-  const base01 = phaseCounts[0].n || total || 1;
-  for (const p of phaseCounts) {
-    const w = Math.round((p.n / Math.max(1, base01)) * 100);
-    html += `<div class="hbar"><span class="hbar-name">${escapeHtml(p.label)}</span><span class="hbar-track"><span class="hbar-fill green" style="width:${Math.min(100, w)}%"></span></span><span class="hbar-n">${p.n}</span></div>`;
-  }
-  if (unset) html += `<div class="hbar"><span class="hbar-name">未設定</span><span class="hbar-track"><span class="hbar-fill" style="width:${Math.round((unset / Math.max(1, base01)) * 100)}%"></span></span><span class="hbar-n">${unset}</span></div>`;
-  html += `</div><div class="conv-foot">Salesforce登録済み <b>${sfLinked}</b> 件（${sfPct}%）<span class="metric-note">※受注の実数はSF側のデータ連携が必要です。ここでは登録率を表示。</span></div></div>`;
-
-  html += '<div class="dash-card"><div class="dash-title">営業担当別 件数</div><div class="hbars">';
-  if (!repRank.length) html += '<div class="empty-state">データがありません。</div>';
-  for (const [name, n] of repRank) {
-    const w = Math.round((n / maxRep) * 100);
-    html += `<div class="hbar"><span class="hbar-name">${escapeHtml(name)}</span><span class="hbar-track"><span class="hbar-fill green" style="width:${w}%"></span></span><span class="hbar-n">${n}</span></div>`;
-  }
-  html += "</div></div>";
-  html += "</div>";
-
-  // 担当別の質（ヒートマップ）
-  const repScored = {};
-  for (const m of rows) {
-    if (!(m.analysis && m.analysis.scores)) continue;
-    const name = m.owner_name || m.owner || m.rep_name || "(不明)";
-    (repScored[name] = repScored[name] || []).push(m);
-  }
-  const repNames = Object.keys(repScored);
-  html += '<div class="dash-card heatmap-card"><div class="dash-title">担当別の質（平均スコア・強み/弱み）</div>';
-  if (!repNames.length) {
-    html += '<div class="empty-state">分析済みの商談がありません。各商談で「分析を生成」すると表示されます。</div>';
-  } else {
-    html += '<table class="heat"><tr><th>営業担当</th><th>件数</th>' + DIMS.map(([, jp]) => `<th>${jp}</th>`).join("") + "<th>平均</th></tr>";
-    for (const name of repNames) {
-      const list = repScored[name];
-      const cells = DIMS.map(([k]) => avgScore(list, k));
-      const overall = cells.reduce((a, b) => a + b, 0) / cells.length;
-      html += `<tr><td class="heat-rep">${escapeHtml(name)}</td><td>${list.length}</td>` +
-        cells.map((v) => `<td class="heat-cell" style="background:${heatColor(v)}">${v.toFixed(1)}</td>`).join("") +
-        `<td class="heat-cell" style="background:${heatColor(overall)}"><b>${overall.toFixed(1)}</b></td></tr>`;
-    }
-    html += "</table><p class=\"metric-note\">5点満点。色が濃い緑ほど高評価、オレンジは要改善。</p>";
-  }
-  html += "</div>";
-  } catch (e) { console.error("[dash body]", e); }
-
-  el.innerHTML = html;
-
-  // Chart.js 描画
-  destroyCharts();
-  if (window.Chart) {
-    const trend = document.getElementById("chTrend");
-    if (trend) {
-      _charts.trend = new Chart(trend, {
-        type: "line",
-        data: { labels: months.map((m) => m.label), datasets: [{ data: months.map((m) => m.n), borderColor: "#0f6e62", backgroundColor: "rgba(57,224,180,.18)", fill: true, tension: 0.3, pointBackgroundColor: "#0f6e62" }] },
-        options: { plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true, ticks: { precision: 0 } } }, maintainAspectRatio: false },
-      });
-    }
-    const ph = document.getElementById("chPhase");
-    if (ph) {
-      const data = phaseCounts.map((p) => p.n).concat(unset ? [unset] : []);
-      const labels = phaseCounts.map((p) => p.label).concat(unset ? ["未設定"] : []);
-      _charts.phase = new Chart(ph, {
-        type: "doughnut",
-        data: { labels, datasets: [{ data, backgroundColor: ["#0f6e62", "#1aa884", "#5dcaa5", "#9fe1cb", "#cbd5d0"] }] },
-        options: { plugins: { legend: { position: "bottom", labels: { font: { size: 11 }, boxWidth: 12 } } }, maintainAspectRatio: false },
-      });
-    }
-  }
-}
-
-let setReqSeq = 0;
-function curFilter() {
-  return {
-    owners: selectedOwners(),
-    phases: selectedPhases(),
-    from: $("fFrom").value || "",
-    to: $("fTo").value || "",
-  };
-}
-
-function renderSetPanel(rows, triggered) {
-  const el = $("tendency");
-  if (!el) return;
-  if (!rows.length) {
-    el.innerHTML = "";
-    return;
-  }
-  const ownersSel = selectedOwners();
-  const ownerLabel = ownersSel.length ? ownersSel.map((o) => ownerLabels[o] || o).join("・") : "全員";
-  const phs = selectedPhases();
-  const phaseLbl = phs.length ? phs.map(phaseLabel).join("・") : "すべて";
-  el.innerHTML = `<div class="tend-head"><span>絞り込んだ商談のまとめ分析（${escapeHtml(ownerLabel)} / ${escapeHtml(phaseLbl)} ・ ${rows.length}件）</span>
-    <button class="btn" id="setBtn" hidden>再分析</button></div>
-    <div class="tend-body" id="setBody"><div class="empty-state">読み込み中…</div></div>`;
-
-  const seq = ++setReqSeq;
-  const filter = curFilter();
-
-  // まずキャッシュを確認（無料・LLMを呼ばない）
-  fetchSet({ ...filter, cachedOnly: true })
-    .then((d) => {
-      if (seq !== setReqSeq) return; // 古い応答は無視
-      if (d && d.overview !== undefined && d.cached) {
-        renderSetResult(d, true);
-        wireReanalyze(filter);
-      } else if (triggered) {
-        // 絞り込み操作なら自動生成（1回だけ・以後はキャッシュ）
-        runGenerate(filter, seq);
-      } else {
-        // 初回表示はボタンだけ（勝手に課金しない）
-        $("setBody").innerHTML = '<div class="empty-state">「この条件をまとめて分析」を押すと、傾向・口癖・顧客反応・スコアの理由をまとめます（結果は保存され、次回からは自動表示）。</div>';
-        showSetButton("この条件をまとめて分析", () => runGenerate(filter, ++setReqSeq));
-      }
-    })
-    .catch(() => {
-      if (seq !== setReqSeq) return;
-      $("setBody").innerHTML = '<div class="empty-state">読み込みに失敗しました。</div>';
-    });
-}
-
-function showSetButton(label, onClick) {
-  const btn = $("setBtn");
-  if (!btn) return;
-  btn.hidden = false;
-  btn.textContent = label;
-  btn.onclick = onClick;
-}
-function wireReanalyze(filter) {
-  showSetButton("再分析", () => runGenerate(filter, ++setReqSeq, true));
-}
-
-async function runGenerate(filter, seq, force) {
-  const btn = $("setBtn");
-  if (btn) {
-    btn.disabled = true;
-    btn.hidden = false;
-    btn.textContent = "分析中…";
-  }
-  $("setBody").innerHTML = "";
-  window.kbProgress($("setBody"), { percent: null, label: "AIが商談内容を横断して傾向をまとめています…" });
-  try {
-    const d = await fetchSet({ ...filter, force: !!force });
-    if (seq !== setReqSeq) return;
-    if (d.error) throw new Error(d.error);
-    renderSetResult(d, d.cached);
-    wireReanalyze(filter);
-  } catch (e) {
-    if (seq !== setReqSeq) return;
-    $("setBody").innerHTML = `<div class="empty-state">${escapeHtml(e.message || "分析に失敗しました")}</div>`;
-    showSetButton("もう一度試す", () => runGenerate(filter, ++setReqSeq, true));
-  } finally {
-    if (btn) btn.disabled = false;
-  }
-}
-
-async function fetchSet(body) {
-  const r = await fetch("/api/analyze-set", {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify(body),
+function meetingCardEl(r) {
+  const overview =
+    r.status === "processing"
+      ? "⏳ 文字起こし・分析を処理中…（数分後に表示されます）"
+      : r.status === "error"
+      ? "⚠️ 処理に失敗しました（ファイル形式やキー設定をご確認ください）"
+      : r.summary && r.summary.overview
+      ? r.summary.overview
+      : "（要約なし）";
+  const tags = [];
+  if (r.round_no) tags.push(`${r.round_no}回目`);
+  if (r.phase) tags.push(phaseLabel(r.phase));
+  const card = document.createElement("button");
+  card.className = "hcard";
+  card.innerHTML = `<div class="hcard-title"></div><div class="hcard-top"><span class="hcard-date"></span><span class="hcard-rep"></span></div><div class="hcard-tags"></div><div class="hcard-ov"></div>`;
+  card.querySelector(".hcard-title").textContent = r.title || "(商談名なし)";
+  card.querySelector(".hcard-date").textContent = fmtDate(r.created_at);
+  card.querySelector(".hcard-rep").textContent = r.owner_name || r.rep_name || "";
+  card.querySelector(".hcard-tags").textContent = tags.join("　");
+  card.querySelector(".hcard-ov").textContent = overview;
+  card.addEventListener("click", () => {
+    document.querySelectorAll(".hcard").forEach((c) => c.classList.remove("active"));
+    card.classList.add("active");
+    loadDetail(r.bot_id);
   });
-  return r.json();
+  return card;
 }
 
-function setGroup(label, items) {
-  if (!Array.isArray(items) || items.length === 0) return "";
-  return `<div class="sgroup"><div class="label">${label}</div><ul>` +
-    items.map((i) => `<li>${escapeHtml(i)}</li>`).join("") + `</ul></div>`;
-}
-function renderSetResult(d, cached) {
-  let html = `<p class="metric-note">対象 ${d.count || 0} 件${d.used && d.used < d.count ? `（うち直近${d.used}件を分析）` : ""}${cached ? "・保存済みの結果を表示" : "・たった今分析"}</p>`;
-  if (d.overview) html += `<div class="sgroup"><div class="label">全体所感</div><p>${escapeHtml(d.overview)}</p></div>`;
-  if (d.score_rationale) html += `<div class="sgroup"><div class="label">スコアの理由</div><p>${escapeHtml(d.score_rationale)}</p></div>`;
-  html += setGroup("強み", d.strengths);
-  html += setGroup("弱み・改善余地", d.weaknesses);
-  html += setGroup("話し方の癖・口癖", d.habits);
-  html += setGroup("顧客の反応の傾向", d.customer_tendencies);
-  html += setGroup("改善アドバイス", d.advice);
-  $("setBody").innerHTML = html || '<div class="empty-state">まとめられませんでした。</div>';
-}
-
-function avgScore(list, k) {
-  const vals = list.map((m) => Number(m.analysis.scores[k]) || 0).filter((v) => v > 0);
-  return vals.length ? vals.reduce((a, b) => a + b, 0) / vals.length : 0;
-}
-
-function renderAgg(rows) {
-  const analyzed = rows.filter((m) => m.analysis && m.analysis.scores);
-  const dims = [["hearing", "ヒアリング"], ["proposal", "提案"], ["closing", "クロージング"], ["listening", "傾聴"]];
-  let html = `<div class="agg-head">対象 <b>${rows.length}</b> 件（うち分析済み <b>${analyzed.length}</b> 件）</div>`;
-  if (analyzed.length) {
-    html += '<div class="agg-scores">';
-    for (const [k, jp] of dims) {
-      const avg = avgScore(analyzed, k);
-      const pct = Math.round((avg / 5) * 100);
-      html += `<div class="agg-row"><span class="agg-name">${jp}</span><span class="bar-track"><span class="bar-fill rep" style="width:${pct}%"></span></span><span class="agg-val">${avg.toFixed(1)}/5</span></div>`;
-    }
-    html += "</div>";
-
-    // フェーズ別の平均スコア（振り返り用）
-    const byPhase = PHASES
-      .map((p) => ({ p, list: analyzed.filter((m) => (m.phase || "") === p.code) }))
-      .filter((x) => x.list.length);
-    if (byPhase.length) {
-      html += '<div class="phase-breakdown"><div class="pb-title">フェーズ別 平均スコア</div><table class="pb-table"><tr><th>フェーズ</th><th>件数</th><th>ヒアリング</th><th>提案</th><th>クロージング</th><th>傾聴</th></tr>';
-      for (const { p, list } of byPhase) {
-        html += `<tr><td>${p.label}</td><td>${list.length}</td>` +
-          dims.map(([k]) => `<td>${avgScore(list, k).toFixed(1)}</td>`).join("") +
-          "</tr>";
-      }
-      html += "</table></div>";
-    }
-    html += '<p class="metric-note">※ 平均スコアは「分析を生成」済みの商談のみで計算します。営業担当・フェーズで絞り込むと、その条件での平均になります。</p>';
+const PHASE_NAMES = { 1: "課題特定", 2: "カスタマイズデモ", 3: "顧客起点", 4: "クロージング" };
+const PHASE_NEED = {
+  1: "顧客が自社固有の状況（数字・「うちは/私が/今」）を具体的に話すと到達",
+  2: "担当者がデモ中に顧客固有の課題・数字を使うと到達",
+  3: "デモ後に顧客が『期日＋確定形（します/たい）』で次の動きを示すと到達（受注の分岐点）",
+  4: "申込書を送付（または送付の明言）で到達",
+};
+function renderPhaseBox(box, j, botId) {
+  if (!j) {
+    box.innerHTML = `<div class="phase-empty">フェーズ判定はまだありません。<button class="btn ghost phase-judge" type="button">フェーズを判定する</button></div>`;
   } else {
-    html += '<p class="metric-note">この条件で分析済みの商談がありません。各商談の詳細で「分析を生成」すると、ここに平均スコアが出ます。</p>';
+    const cur = j.current_phase || 0;
+    const steps = [1, 2, 3, 4].map((n) => {
+      const reached = j[`phase${n}_reached`];
+      const cls = reached ? "done" : "todo";
+      const isCur = n === cur;
+      return `<div class="phase-step ${cls} ${isCur ? "cur" : ""}"><span class="phase-dot">${reached ? "✓" : n}</span><span class="phase-label">${PHASE_NAMES[n]}</span></div>`;
+    }).join('<span class="phase-arrow">›</span>');
+    // 各フェーズの判定理由（到達=根拠の発言／未到達=何が必要か）
+    const reasons = [1, 2, 3, 4].map((n) => {
+      const reached = j[`phase${n}_reached`];
+      const ev = j[`phase${n}_evidence`];
+      if (reached) {
+        return `<div class="pr-item reached"><div class="pr-h"><span class="pr-badge ok">到達</span>フェーズ${n}・${PHASE_NAMES[n]}</div>` +
+          (ev ? `<div class="pr-ev">根拠：「${escapeHtmlH(ev)}」</div>` : `<div class="pr-ev pr-muted">根拠の記載なし</div>`) + `</div>`;
+      }
+      return `<div class="pr-item notyet"><div class="pr-h"><span class="pr-badge no">未到達</span>フェーズ${n}・${PHASE_NAMES[n]}</div>` +
+        `<div class="pr-ev pr-muted">${escapeHtmlH(PHASE_NEED[n])}</div></div>`;
+    }).join("");
+    const next = j.next_action ? `<div class="phase-next"><b>次のアクション</b>：${escapeHtmlH(j.next_action)}</div>` : "";
+    const risk = j.risk ? `<div class="phase-risk"><b>⚠ リスク</b>：${escapeHtmlH(j.risk)}</div>` : "";
+    box.innerHTML =
+      `<div class="phase-head"><span class="phase-badge p${cur}">現在フェーズ${cur}：${PHASE_NAMES[cur] || "-"}</span>` +
+      `<button class="btn ghost phase-judge" type="button">再判定</button></div>` +
+      `<div class="phase-steps">${steps}</div>${next}${risk}` +
+      `<details class="phase-reasons" open><summary>判定の理由（フェーズごと）</summary><div class="pr-list">${reasons}</div></details>`;
   }
-  $("agg").innerHTML = html;
+  const btn = box.querySelector(".phase-judge");
+  if (btn) btn.addEventListener("click", async () => {
+    btn.disabled = true; btn.textContent = "判定中…";
+    try {
+      const r = await fetch(`/api/meetings/${encodeURIComponent(botId)}/phase/judge`, { method: "POST" });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.error || "判定に失敗");
+      renderPhaseBox(box, d, botId);
+    } catch (e) {
+      btn.disabled = false; btn.textContent = "再判定";
+      const host = box.querySelector(".phase-empty, .phase-head");
+      if (host) host.insertAdjacentHTML("beforeend", `<span class="phase-err">失敗: ${escapeHtmlH(e.message)}</span>`);
+    }
+  });
+}
+async function loadPhase(botId) {
+  const box = document.getElementById("phaseBox");
+  if (!box) return;
+  try {
+    const r = await fetch(`/api/meetings/${encodeURIComponent(botId)}/phase?auto=1`);
+    const j = await r.json();
+    renderPhaseBox(box, j, botId);
+  } catch {
+    renderPhaseBox(box, null, botId);
+  }
+}
+function escapeHtmlH(s) {
+  return String(s == null ? "" : s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 }
 
-function renderList(rows) {
-  const el = $("alist");
+function renderList() {
+  const rows = applyHistoryFilter();
+  hlist.innerHTML = "";
+  // ツールバー（会社別／すべて）。社内・フォロービューでもモード切替は使える。
+  const bar = document.createElement("div");
+  bar.className = "hl-toolbar";
+  bar.innerHTML =
+    `<div class="seg"><button class="seg-btn ${histMode === "account" ? "active" : ""}" data-mode="account">会社別</button>` +
+    `<button class="seg-btn ${histMode === "all" ? "active" : ""}" data-mode="all">すべて</button></div>`;
+  bar.querySelectorAll(".seg-btn").forEach((b) =>
+    b.addEventListener("click", () => { histMode = b.dataset.mode; selectedAccount = null; renderList(); })
+  );
+  hlist.appendChild(bar);
+
   if (!rows.length) {
-    el.innerHTML = '<li class="empty-state">該当する商談がありません。</li>';
+    const e = document.createElement("div");
+    e.className = "empty-state";
+    e.textContent = "該当する商談がありません。";
+    hlist.appendChild(e);
     return;
   }
-  el.innerHTML = "";
-  for (const m of rows) {
-    const li = document.createElement("li");
-    li.className = "arow";
-    const ok = m.analysis && m.analysis.scores;
-    li.innerHTML = `<span class="a-title">${escapeHtml(m.title || "(商談名なし)")}</span>
-      <span class="a-rep">${escapeHtml(m.owner_name || m.owner || m.rep_name || "")}</span>
-      <span class="a-phase">${m.phase ? escapeHtml(phaseLabel(m.phase)) : ""}</span>
-      <span class="a-date">${fmtDate(m.created_at)}</span>
-      <span class="a-flag ${ok ? "ok" : ""}">${ok ? "分析済み" : "未分析"}</span>`;
-    li.addEventListener("click", () => {
-      location.href = `history.html?id=${encodeURIComponent(m.bot_id)}`;
+
+  // すべて表示：従来どおりフラット
+  if (histMode === "all") {
+    for (const r of rows) hlist.appendChild(meetingCardEl(r));
+    return;
+  }
+
+  // 会社別：未選択なら会社カード、選択中ならその会社の商談
+  if (!selectedAccount) {
+    const groups = {};
+    for (const m of rows) (groups[acctKey(m)] = groups[acctKey(m)] || []).push(m);
+    const keys = Object.keys(groups).sort((a, b) => {
+      const la = groups[a][0].created_at, lb = groups[b][0].created_at;
+      return new Date(Math.max(...groups[b].map((x) => +new Date(x.created_at)))) - new Date(Math.max(...groups[a].map((x) => +new Date(x.created_at))));
     });
-    el.appendChild(li);
+    for (const k of keys) {
+      const ms = groups[k];
+      const last = ms.reduce((a, b) => (new Date(a.created_at) > new Date(b.created_at) ? a : b));
+      const card = document.createElement("button");
+      card.className = "acard";
+      card.innerHTML =
+        `<div class="acard-name"></div>` +
+        `<div class="acard-meta"><span class="acard-count">${ms.length}件</span><span class="acard-rep"></span></div>` +
+        `<div class="acard-sub"></div>`;
+      card.querySelector(".acard-name").textContent = acctName(k);
+      card.querySelector(".acard-rep").textContent = last.owner_name || last.rep_name || "";
+      card.querySelector(".acard-sub").textContent = `${phaseLabel(last.phase) || "フェーズ未設定"} ・ 最終 ${fmtDate(last.created_at)}`;
+      card.addEventListener("click", () => { selectedAccount = k; renderList(); });
+      hlist.appendChild(card);
+    }
+    return;
+  }
+
+  // 選択中の会社の商談
+  const mine = rows.filter((m) => acctKey(m) === selectedAccount)
+    .sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+  const back = document.createElement("div");
+  back.className = "hl-back";
+  back.innerHTML = `<button class="hl-backbtn" type="button">← 会社一覧</button><span class="hl-acct"></span>`;
+  back.querySelector(".hl-acct").textContent = `${acctName(selectedAccount)}（${mine.length}件）`;
+  back.querySelector(".hl-backbtn").addEventListener("click", () => { selectedAccount = null; renderList(); });
+  hlist.appendChild(back);
+  for (const r of mine) hlist.appendChild(meetingCardEl(r));
+}
+
+async function loadList() {
+  // フェーズ（開閉式ドロップダウン・複数選択）
+  initMultiDropdown(
+    document.getElementById("fPhaseGroup"),
+    "フェーズ",
+    PHASES.map((p) => ({ value: p.code, label: p.label })),
+    renderList
+  );
+  try {
+    const res = await fetch("/api/meetings");
+    const rows = await res.json();
+    allMeetings = Array.isArray(rows) ? rows : [];
+    if (allMeetings.length === 0) {
+      hlist.innerHTML =
+        '<div class="empty-state">まだ履歴がありません。商談を1件記録すると、ここに並びます。<br><small>（履歴の保存には DATABASE_URL の設定が必要です）</small></div>';
+      return;
+    }
+    // 営業担当（所有者）選択肢
+    const fOwner = document.getElementById("fOwner");
+    const seen = new Map();
+    for (const m of allMeetings) {
+      const owner = (m.owner || "").trim();
+      if (owner && !seen.has(owner)) seen.set(owner, (m.owner_name || "").trim() || owner);
+    }
+    for (const [owner, label] of seen) {
+      const o = document.createElement("option");
+      o.value = owner;
+      o.textContent = label;
+      fOwner.appendChild(o);
+    }
+    fOwner.addEventListener("change", () => { selectedAccount = null; renderList(); });
+    const bulkBtn = document.getElementById("bulkNotionBtn");
+    if (bulkBtn && !bulkBtn._wired) { bulkBtn._wired = true; bulkBtn.addEventListener("click", bulkSendNotion); }
+    try {
+      const accs = await (await fetch("/api/accounts")).json();
+      histAccounts = {};
+      for (const a of accs || []) histAccounts[a.key] = a;
+    } catch {}
+    renderList();
+    // 案件などから ?m=商談ID で来たら、その会社を開いて該当商談を表示
+    const wantId = new URLSearchParams(location.search).get("m");
+    const want = wantId && allMeetings.find((x) => x.bot_id === wantId);
+    if (want) {
+      histMode = "account";
+      selectedAccount = acctKey(want);
+      renderList();
+      loadDetail(wantId);
+    }
+  } catch (e) {
+    hlist.innerHTML = '<div class="empty-state">読み込みに失敗しました。</div>';
   }
 }
 
-$("fApply").addEventListener("click", () => render(true));
-$("fClear").addEventListener("click", () => {
-  document.querySelectorAll("#fRepGroup input:checked, #fPhaseGroup input:checked").forEach((c) => (c.checked = false));
-  $("fRepGroup")._mselUpdate && $("fRepGroup")._mselUpdate();
-  $("fPhaseGroup")._mselUpdate && $("fPhaseGroup")._mselUpdate();
-  $("fFrom").value = "";
-  $("fTo").value = "";
-  render(true);
-});
+async function loadDetail(botId) {
+  const histWrap = document.querySelector(".history");
+  if (histWrap) histWrap.classList.add("m-detail");
+  if (!loadDetail._wired && histWrap) {
+    loadDetail._wired = true;
+    hdetail.addEventListener("click", (e) => {
+      if (e.target.closest(".m-back")) histWrap.classList.remove("m-detail");
+    });
+  }
+  hdetail.innerHTML = '<div class="empty-state">読み込み中…</div>';
+  hdetail.scrollTop = 0;
+  try {
+    const res = await fetch(`/api/meetings/${encodeURIComponent(botId)}`);
+    const m = await res.json();
+    let s = m.summary || {};
+    const sug = Array.isArray(m.suggestions) ? m.suggestions : [];
+    const tr = Array.isArray(m.transcript) ? m.transcript : [];
 
-init();
+    hdetail.innerHTML = `
+      <button class="m-back" type="button">← 一覧へ戻る</button>
+      <div class="drec" id="drec"></div>
+      <div class="dhead">
+        <div class="dtitle-wrap">
+          <input class="dtitle-input" id="mTitle" placeholder="商談名" />
+          <button type="button" id="calBtnH" class="cal-btn" title="カレンダーから選ぶ">📅</button>
+          <div class="cal-panel" id="calPanelH" hidden></div>
+        </div>
+        <div class="dactions">
+          <button class="btn" id="genBtn">要約・FB生成</button>
+          <button class="btn" id="deepBtn">分析を生成</button>
+          <button class="btn" id="notionBtn">Notionに送る</button>
+          <button class="btn danger" id="delBtn">削除</button>
+        </div>
+      </div>
+      <div class="dmeta-edit">
+        <label>営業担当 <select id="mOwner"><option value="">未設定</option></select></label>
+        <label>日時 <input type="datetime-local" id="mDatetime" /></label>
+        <label>何回目<span class="hint">（商談回数）</span> <input type="number" id="mRound" min="1" max="99" placeholder="-" /></label>
+        <label>区分 <select id="mCategory">
+          <option value="商談">商談</option>
+          <option value="社内MTG">社内MTG</option>
+          <option value="ユーザーフォロー">ユーザーフォロー</option>
+          <option value="その他">その他</option>
+        </select></label>
+        <span class="dmeta-saved" id="mSaved" hidden>保存しました</span>
+      </div>
+      <div class="tabs">
+        <button class="tab active" data-tab="trans">文字起こし</button>
+        <button class="tab" data-tab="summary">要約</button>
+        <button class="tab" data-tab="ailog">AI提案ログ</button>
+        <button class="tab" data-tab="fb">FB & 分析</button>
+        <button class="tab" data-tab="thanks">御礼メール</button>
+        <button class="tab" data-tab="sf">SF連携</button>
+      </div>
+      <div class="tabwrap">
+        <div class="tabpane" data-pane="trans">
+          <div class="pane-bar"><button class="btn ghost copy-mini" id="copyTrans">コピー</button></div>
+          <div id="dtrans" class="pane-content"></div>
+        </div>
+        <div class="tabpane" data-pane="summary" hidden>
+          <div id="dnoteWrap"></div>
+          <div class="pane-bar"><button class="btn ghost copy-mini" id="copySummary">コピー</button></div>
+          <div id="dsummary" class="pane-content"></div>
+        </div>
+        <div class="tabpane" data-pane="ailog" hidden>
+          <div class="ai-feed" id="dailog"></div>
+        </div>
+        <div class="tabpane" data-pane="fb" hidden>
+          <div class="pane-bar"><button class="btn ghost copy-mini" id="copyFb">コピー</button></div>
+          <div class="pane-content" id="dfbwrap">
+            <h3>営業フィードバック</h3>
+            <div id="dfeedback"></div>
+            <h3>客観指標（自動計算）</h3>
+            <div id="dmetrics"></div>
+            <h3>AIによる評価</h3>
+            <div id="dai"></div>
+            <h3>次の一手（記録）</h3>
+            <div id="dmoves"></div>
+          </div>
+        </div>
+        <div class="tabpane" data-pane="thanks" hidden>
+          <div class="pane-bar">
+            <button class="btn" id="thanksGen">御礼メールを生成</button>
+            <span class="thanks-note" id="thanksNote"></span>
+            <button class="btn ghost copy-mini" id="copyThanks">コピー</button>
+          </div>
+          <div class="thanks-wrap">
+            <label class="thanks-field"><span>件名</span><input id="thanksSubject" type="text" placeholder="生成すると入ります" /></label>
+            <label class="thanks-field"><span>本文</span><textarea id="thanksBody" rows="16" placeholder="「御礼メールを生成」を押すと、この商談（何回目か）に合わせて作成します。"></textarea></label>
+          </div>
+        </div>
+        <div class="tabpane" data-pane="sf" hidden>
+          <div class="thanks-wrap">
+            <label class="thanks-field"><span>Salesforce 商談リンク</span><input id="sfUrl" type="url" placeholder="https://...lightning.force.com/lightning/r/Opportunity/.../view" /></label>
+            <div class="pane-bar" style="justify-content:flex-start; gap:8px">
+              <button class="btn" id="sfFetchBtn">更新候補を取得</button>
+              <span class="thanks-note" id="sfNote"></span>
+            </div>
+            <div id="sfRows"></div>
+            <div class="pane-bar" style="justify-content:flex-start">
+              <button class="btn" id="sfPushBtn" hidden>Salesforceに更新</button>
+            </div>
+          </div>
+        </div>
+      </div>`;
+
+    // タブ切替
+    hdetail.querySelectorAll(".tab").forEach((tab) => {
+      tab.addEventListener("click", () => {
+        hdetail.querySelectorAll(".tab").forEach((t) => t.classList.toggle("active", t === tab));
+        const name = tab.dataset.tab;
+        hdetail.querySelectorAll(".tabpane").forEach((p) => (p.hidden = p.dataset.pane !== name));
+      });
+    });
+
+    // コピー（各タブの内容をプレーンテキストで）
+    const copyText = async (text, btn) => {
+      const done = () => {
+        const o = btn.textContent;
+        btn.textContent = "コピーしました";
+        setTimeout(() => (btn.textContent = o), 1500);
+      };
+      try {
+        await navigator.clipboard.writeText(text);
+        done();
+      } catch {
+        const ta = document.createElement("textarea");
+        ta.value = text;
+        document.body.appendChild(ta);
+        ta.select();
+        document.execCommand("copy");
+        ta.remove();
+        done();
+      }
+    };
+    hdetail.querySelector("#copyTrans").addEventListener("click", (e) =>
+      copyText(hdetail.querySelector("#dtrans").innerText, e.currentTarget)
+    );
+    hdetail.querySelector("#copySummary").addEventListener("click", (e) =>
+      copyText(summaryToText(s), e.currentTarget)
+    );
+    hdetail.querySelector("#copyFb").addEventListener("click", (e) =>
+      copyText(hdetail.querySelector("#dfbwrap").innerText, e.currentTarget)
+    );
+    // 御礼メール生成
+    const thanksGen = hdetail.querySelector("#thanksGen");
+    const thanksSubject = hdetail.querySelector("#thanksSubject");
+    const thanksBody = hdetail.querySelector("#thanksBody");
+    const thanksNote = hdetail.querySelector("#thanksNote");
+    thanksGen.addEventListener("click", async () => {
+      thanksGen.disabled = true;
+      const o = thanksGen.textContent;
+      thanksGen.textContent = "生成中…";
+      try {
+        const r = await fetch(`/api/meetings/${encodeURIComponent(botId)}/thanks`, { method: "POST" });
+        const d = await r.json();
+        if (!r.ok) throw new Error(d.error || "生成に失敗しました");
+        thanksSubject.value = d.subject || "";
+        thanksBody.value = d.body || "";
+        thanksNote.textContent = `${d.round || "?"}回目${d.exampleCount ? `・例文${d.exampleCount}件を参照` : "・例文なし"}`;
+      } catch (e) {
+        alert("生成に失敗しました: " + e.message);
+      } finally {
+        thanksGen.disabled = false;
+        thanksGen.textContent = o;
+      }
+    });
+    hdetail.querySelector("#copyThanks").addEventListener("click", (e) => {
+      const text = (thanksSubject.value ? "件名：" + thanksSubject.value + "\n\n" : "") + thanksBody.value;
+      copyText(text, e.currentTarget);
+    });
+
+    // Salesforce連携タブ
+    const sfUrl = hdetail.querySelector("#sfUrl");
+    const sfFetchBtn = hdetail.querySelector("#sfFetchBtn");
+    const sfRows = hdetail.querySelector("#sfRows");
+    const sfNote = hdetail.querySelector("#sfNote");
+    const sfPushBtn = hdetail.querySelector("#sfPushBtn");
+    let sfRecordId = "";
+    sfUrl.value = m.sf_url || "";
+    sfUrl.addEventListener("change", () => {
+      fetch(`/api/meetings/${encodeURIComponent(botId)}/sf-link`, {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ url: sfUrl.value.trim() }),
+      }).catch(() => {});
+    });
+    sfFetchBtn.addEventListener("click", async () => {
+      sfFetchBtn.disabled = true;
+      const o = sfFetchBtn.textContent;
+      sfFetchBtn.textContent = "取得中…";
+      sfRows.innerHTML = "";
+      sfPushBtn.hidden = true;
+      sfNote.textContent = "";
+      try {
+        const r = await fetch(`/api/meetings/${encodeURIComponent(botId)}/sf-fields`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ url: sfUrl.value.trim() }),
+        });
+        const d = await r.json();
+        if (!d.configured) {
+          sfNote.textContent = "Salesforce未設定（設定→Salesforce連携、後日の連携作業で有効になります）";
+          return;
+        }
+        if (!d.connected) {
+          sfNote.textContent = "未連携です。設定→Salesforce連携から連携してください。";
+          return;
+        }
+        if (d.needLink) {
+          sfNote.textContent = "商談リンクを入力してください。";
+          return;
+        }
+        if (d.needMapping) {
+          sfNote.textContent = "項目マッピングが未設定です。設定→Salesforce連携で指定してください。";
+          return;
+        }
+        if (d.fetchError) {
+          sfNote.textContent = "取得失敗: " + d.fetchError;
+          return;
+        }
+        sfRecordId = d.recordId || "";
+        const rows = d.rows || [];
+        if (!rows.length) {
+          sfNote.textContent = "更新対象の項目がありません。";
+          return;
+        }
+        sfRows.innerHTML = "";
+        for (const row of rows) {
+          const wrap = document.createElement("div");
+          wrap.className = "sf-row";
+          wrap.innerHTML = `<div class="sf-row-head"><b>${escapeHtml(row.label)}</b> <span class="sf-field">${escapeHtml(row.sfField)}</span></div>
+            <div class="sf-current">現在: ${escapeHtml(String(row.current || "（空）"))}</div>
+            <textarea class="sf-input" rows="2"></textarea>`;
+          wrap.querySelector(".sf-input").value = row.proposed || "";
+          wrap.dataset.sfField = row.sfField;
+          sfRows.appendChild(wrap);
+        }
+        sfPushBtn.hidden = false;
+        sfNote.textContent = "内容を確認・編集して「Salesforceに更新」を押してください。";
+      } catch (e) {
+        sfNote.textContent = "エラー: " + e.message;
+      } finally {
+        sfFetchBtn.disabled = false;
+        sfFetchBtn.textContent = o;
+      }
+    });
+    sfPushBtn.addEventListener("click", async () => {
+      const fields = {};
+      sfRows.querySelectorAll(".sf-row").forEach((w) => {
+        const f = w.dataset.sfField;
+        const v = w.querySelector(".sf-input").value;
+        if (f) fields[f] = v;
+      });
+      sfPushBtn.disabled = true;
+      const o = sfPushBtn.textContent;
+      sfPushBtn.textContent = "更新中…";
+      try {
+        const r = await fetch(`/api/meetings/${encodeURIComponent(botId)}/sf-update`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ recordId: sfRecordId, fields }),
+        });
+        const d = await r.json();
+        if (!r.ok) throw new Error(d.error || "更新に失敗しました");
+        sfNote.textContent = "Salesforceを更新しました。";
+      } catch (e) {
+        sfNote.textContent = "更新失敗: " + e.message;
+      } finally {
+        sfPushBtn.disabled = false;
+        sfPushBtn.textContent = o;
+      }
+    });
+
+    // 商談名（編集可）
+    const mTitle = hdetail.querySelector("#mTitle");
+    mTitle.value = m.title || "";
+
+    // 何回目（商談回数）・日時
+    const mRound = hdetail.querySelector("#mRound");
+    const mOwner = hdetail.querySelector("#mOwner");
+    const mDatetime = hdetail.querySelector("#mDatetime");
+    const mCategory = hdetail.querySelector("#mCategory");
+    const mSaved = hdetail.querySelector("#mSaved");
+    if (m.created_at) mDatetime.value = isoToLocalInput(m.created_at);
+    if (mCategory) mCategory.value = m.category && m.category !== "" ? m.category : "商談";
+    if (m.round_no) mRound.value = m.round_no;
+
+    // 営業担当（登録ユーザーから選択して付け替え）
+    const users = await loadUsers();
+    const present = new Set();
+    for (const u of users) {
+      const o = document.createElement("option");
+      o.value = u.email;
+      o.textContent = u.name || u.email;
+      mOwner.appendChild(o);
+      present.add(u.email);
+    }
+    // 現在の担当者が一覧に無い場合（旧データ等）も選べるように追加
+    if (m.owner && !present.has(m.owner)) {
+      const o = document.createElement("option");
+      o.value = m.owner;
+      o.textContent = m.owner_name || m.owner;
+      mOwner.appendChild(o);
+    }
+    mOwner.value = m.owner || "";
+
+    const saveMeta = async () => {
+      try {
+        const createdAt = mDatetime.value ? localInputToIso(mDatetime.value) : "";
+        await fetch(`/api/meetings/${encodeURIComponent(botId)}/meta`, {
+          method: "PUT",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            title: mTitle.value.trim(),
+            round: mRound.value,
+            owner: mOwner.value,
+            createdAt,
+            category: mCategory ? mCategory.value : undefined,
+          }),
+        });
+        mSaved.hidden = false;
+        setTimeout(() => (mSaved.hidden = true), 1500);
+        // 一覧の表示にも反映
+        const row = allMeetings.find((x) => x.bot_id === botId);
+        if (row) {
+          row.title = mTitle.value.trim();
+          row.round_no = mRound.value ? Number(mRound.value) : null;
+          row.owner = mOwner.value || "";
+          if (mCategory) row.category = mCategory.value;
+          if (createdAt) row.created_at = createdAt;
+          const u = (usersCache || []).find((x) => x.email === mOwner.value);
+          row.owner_name = u ? u.name || u.email : mOwner.value ? mOwner.value : null;
+        }
+        renderList();
+      } catch {}
+    };
+    mTitle.addEventListener("change", saveMeta);
+    mRound.addEventListener("change", saveMeta);
+    if (mCategory) mCategory.addEventListener("change", saveMeta);
+    mOwner.addEventListener("change", saveMeta);
+    mDatetime.addEventListener("change", saveMeta);
+
+    // 商談名・日時をカレンダーから選ぶ
+    const calBtnH = hdetail.querySelector("#calBtnH");
+    const calPanelH = hdetail.querySelector("#calPanelH");
+    if (calBtnH && calPanelH) {
+      calBtnH.addEventListener("click", (e) => {
+        e.stopPropagation();
+        if (!calPanelH.hidden) {
+          calPanelH.hidden = true;
+          return;
+        }
+        openCalPicker(calPanelH, (ev) => {
+          mTitle.value = ev.title;
+          if (ev.start) mDatetime.value = ev.allDay ? ev.start + "T00:00" : isoToLocalInput(ev.start);
+          saveMeta();
+        });
+      });
+    }
+
+    // Notionに送る
+    const notionBtn = hdetail.querySelector("#notionBtn");
+    if (notionBtn) notionBtn.addEventListener("click", async () => {
+      notionBtn.disabled = true;
+      const orig = notionBtn.textContent;
+      notionBtn.textContent = "送信中…";
+      try {
+        const r = await fetch(`/api/meetings/${encodeURIComponent(botId)}/notion`, { method: "POST" });
+        const d = await r.json();
+        if (!r.ok) throw new Error(d.error || "送信に失敗しました");
+        notionBtn.textContent = "Notionへ送信済み";
+        if (d.url) window.open(d.url, "_blank", "noopener");
+        setTimeout(() => { notionBtn.textContent = orig; notionBtn.disabled = false; }, 2500);
+      } catch (e) {
+        alert("Notion送信に失敗: " + e.message);
+        notionBtn.textContent = orig; notionBtn.disabled = false;
+      }
+    });
+
+    // 削除
+    const delBtn = hdetail.querySelector("#delBtn");
+    delBtn.addEventListener("click", async () => {
+      if (!confirm(`「${m.title || "(商談名なし)"}」を削除します。よろしいですか？\nこの操作は取り消せません。`)) return;
+      delBtn.disabled = true;
+      try {
+        const r = await fetch(`/api/meetings/${encodeURIComponent(botId)}`, { method: "DELETE" });
+        if (!r.ok) {
+          const d = await r.json().catch(() => ({}));
+          throw new Error(d.error || "削除に失敗しました");
+        }
+        allMeetings = allMeetings.filter((x) => x.bot_id !== botId);
+        renderList();
+        hdetail.innerHTML = '<div class="empty-state">削除しました。左の一覧から別の商談を選べます。</div>';
+      } catch (e) {
+        alert("削除に失敗しました: " + e.message);
+        delBtn.disabled = false;
+      }
+    });
+
+    renderSummaryInto(hdetail.querySelector("#dsummary"), s);
+    const noteWrap = hdetail.querySelector("#dnoteWrap");
+    if (noteWrap && m.note && m.note.trim()) {
+      noteWrap.innerHTML = `<div class="dlabel">📝 商談メモ</div><div class="dnote">${escapeHtml(m.note)}</div>`;
+    }
+    renderFeedbackInto(hdetail.querySelector("#dfeedback"), m.feedback || {});
+    renderMetricsInto(hdetail.querySelector("#dmetrics"), tr, m.rep_name);
+    renderAiInto(hdetail.querySelector("#dai"), m.analysis);
+
+    // 分析（スコア・BANT等）を生成
+    const deepBtn = hdetail.querySelector("#deepBtn");
+    if (tr.length === 0) deepBtn.disabled = true;
+    deepBtn.addEventListener("click", async () => {
+      deepBtn.disabled = true;
+      const orig = deepBtn.textContent;
+      deepBtn.textContent = "生成中…";
+      window.kbProgress(hdetail.querySelector("#dai"), { percent: null, label: "AIが商談を多角的に分析しています…" });
+      try {
+        const r = await fetch(`/api/meetings/${encodeURIComponent(botId)}/deep-analyze`, { method: "POST" });
+        const data = await r.json();
+        if (!r.ok) throw new Error(data.error || "生成に失敗しました");
+        renderAiInto(hdetail.querySelector("#dai"), data);
+      } catch (e) {
+        window.kbProgress(hdetail.querySelector("#dai"), { clear: true });
+        alert("生成に失敗しました: " + e.message);
+      } finally {
+        deepBtn.disabled = false;
+        deepBtn.textContent = orig;
+      }
+    });
+
+    // 次の一手（ライブ中の記録）
+    const dm = hdetail.querySelector("#dmoves");
+    dm.innerHTML = sug.length
+      ? sug.map((x) => `<div class="mini-card"><b>${escapeHtml(x.title || "")}</b><br>${escapeHtml(x.detail || "")}</div>`).join("")
+      : '<div class="empty-state">記録なし</div>';
+
+    // AI提案ログ（ライブ中の吹き出し全履歴）
+    renderAiLogInto(hdetail.querySelector("#dailog"), Array.isArray(m.ai_log) ? m.ai_log : []);
+
+    // 文字起こしから 要約＋営業フィードバック を生成
+    const genBtn = hdetail.querySelector("#genBtn");
+    if (tr.length === 0) genBtn.disabled = true;
+    genBtn.addEventListener("click", async () => {
+      genBtn.disabled = true;
+      const orig = genBtn.textContent;
+      genBtn.textContent = "生成中…";
+      window.kbProgress(hdetail.querySelector("#dsummary"), { percent: null, label: "文字起こしから要約・フィードバックを生成しています…" });
+      try {
+        const r = await fetch(`/api/meetings/${encodeURIComponent(botId)}/analyze`, { method: "POST" });
+        const data = await r.json();
+        if (!r.ok) throw new Error(data.error || "生成に失敗しました");
+        s = data.summary || s;
+        renderSummaryInto(hdetail.querySelector("#dsummary"), data.summary || {});
+        renderFeedbackInto(hdetail.querySelector("#dfeedback"), data.feedback || {});
+        loadList(); // 一覧の「要約なし」表示を更新
+      } catch (e) {
+        window.kbProgress(hdetail.querySelector("#dsummary"), { clear: true });
+        alert("生成に失敗しました: " + e.message);
+      } finally {
+        genBtn.disabled = false;
+        genBtn.textContent = orig;
+      }
+    });
+
+    // 文字起こし
+    const dt = hdetail.querySelector("#dtrans");
+    dt.innerHTML = tr.length
+      ? tr.map((u) => `<div class="tline"><span class="spk2">${escapeHtml(labelOf(u.speaker))}</span>${escapeHtml(u.text)}</div>`).join("")
+      : '<div class="empty-state">文字起こしなし</div>';
+
+    // 録画（あれば）アプリ内で再生
+    const drec = hdetail.querySelector("#drec");
+    drec.innerHTML = '<div class="rec-loading">録画を確認中…</div>';
+    fetch(`/api/meetings/${encodeURIComponent(botId)}/recording`)
+      .then((r) => r.json())
+      .then((d) => {
+        if (d && d.url) {
+          const isHls = d.hls || /\.m3u8(\?|$)/.test(d.url);
+          drec.innerHTML = `
+            <video class="rec-video" controls preload="metadata" playsinline></video>` +
+            (isHls ? "" : `<a class="rec-open" href="${escapeHtml(d.url)}" target="_blank" rel="noopener">別タブで開く</a>`);
+          const video = drec.querySelector("video");
+          if (isHls && window.Hls && window.Hls.isSupported() && !video.canPlayType("application/vnd.apple.mpegurl")) {
+            const hls = new Hls();
+            hls.loadSource(d.url);
+            hls.attachMedia(video);
+          } else {
+            video.src = d.url;
+          }
+        } else {
+          drec.innerHTML = '<div class="rec-none">録画はまだありません（会議終了後・アップロード動画は変換完了後に表示されます）。</div>';
+        }
+      })
+      .catch(() => {
+        drec.innerHTML = '<div class="rec-none">録画を取得できませんでした。</div>';
+      });
+  } catch (e) {
+    hdetail.innerHTML = '<div class="empty-state">読み込みに失敗しました。</div>';
+  }
+}
+
+const HTYPE_LABEL = { question: "深掘り質問", objection: "切り返し", closing: "クロージング", risk: "リスク", info: "補足" };
+function renderAiLogInto(el, log) {
+  if (!el) return;
+  if (!log || !log.length) {
+    el.innerHTML = '<div class="empty-state">この商談ではAI提案の記録がありません（旧データ、または提案が出る前に終了）。</div>';
+    return;
+  }
+  // 一覧（刺さったトーク／懸念→刺さった言い返し）
+  const lands = log.filter((e) => e.t === "land");
+  const objs = log.filter((e) => e.t === "obj");
+  let summary = "";
+  if (lands.length) {
+    summary += `<div class="ailog-sec"><div class="ailog-sec-h">💡 刺さったトーク（${lands.length}）</div><ul class="ailog-list">` +
+      lands.map((e) => `<li>${escapeHtml(e.text || "")}${e.why ? `<span class="ailog-sub">（${escapeHtml(e.why)}）</span>` : ""}</li>`).join("") +
+      `</ul></div>`;
+  }
+  if (objs.length) {
+    summary += `<div class="ailog-sec"><div class="ailog-sec-h">⚠️ 懸念 → 刺さった言い返し（${objs.length}）</div><div class="ailog-pairs">` +
+      objs.map((e) =>
+        `<div class="ailog-pair"><div class="ailog-q">「${escapeHtml(e.objection || "")}」</div>` +
+        `<div class="ailog-a">${escapeHtml(e.response || "")}</div>` +
+        (e.basis ? `<div class="ailog-basis">根拠: ${escapeHtml(e.basis)}</div>` : "") + `</div>`
+      ).join("") +
+      `</div></div>`;
+  }
+  const feedHtml = '<div class="ailog-sec-h" style="margin-top:14px;">🗨 タイムライン</div>';
+
+  el.innerHTML = summary + feedHtml + '<div class="ai-feed-inline"></div>';
+  const feed = el.querySelector(".ai-feed-inline");
+  for (const e of log) {
+    const time = e.ts ? new Date(e.ts).toLocaleTimeString("ja-JP", { hour: "2-digit", minute: "2-digit" }) : "";
+    const wrap = document.createElement("div");
+    wrap.className = "ai-msg";
+    let kind, label, title, text, sub = "";
+    if (e.t === "obj") {
+      kind = "obj"; label = "懸念 → 刺さる言い返し";
+      title = e.objection ? "「" + e.objection + "」" : "";
+      text = e.response || "";
+      sub = e.basis ? "根拠: " + e.basis : "";
+    } else if (e.t === "land") {
+      kind = "land"; label = "💡 刺さったトーク";
+      title = e.text || ""; text = e.why || "";
+    } else if (e.t === "sig") {
+      // 旧データ互換
+      const buy = e.sigType !== "risk";
+      kind = buy ? "land" : "obj";
+      label = buy ? "刺さり（旧）" : "懸念（旧）";
+      title = e.text || ""; text = e.hint || "";
+    } else {
+      kind = HTYPE_LABEL[e.sugType] ? e.sugType : "info";
+      label = HTYPE_LABEL[kind] || "補足";
+      title = e.title || ""; text = e.detail || "";
+    }
+    const lbl = label ? `<span class="ai-label ai-label-${kind}">${escapeHtml(label)}</span>` : "";
+    const ttl = title ? `<div class="ai-b-title">${escapeHtml(title)}</div>` : "";
+    const sb = sub ? `<div class="ai-b-sub">${escapeHtml(sub)}</div>` : "";
+    const tm = time ? `<div class="ai-b-time">${escapeHtml(time)}</div>` : "";
+    wrap.innerHTML =
+      `<img class="ai-ava" src="kinbot.svg" alt="kinbot" />` +
+      `<div class="ai-bubble ai-bubble-${kind}">${lbl}${ttl}<div class="ai-b-text">${escapeHtml(text)}</div>${sb}${tm}</div>`;
+    feed.appendChild(wrap);
+  }
+}
+
+function renderSummaryInto(el, s) {
+  s = s || {};
+  // 旧データで formatted のみの場合はそれを表示
+  if (s.formatted && !s.key_points && !s.agreements) {
+    el.innerHTML = `<div class="summary-fmt"></div>`;
+    el.querySelector(".summary-fmt").textContent = s.formatted;
+    return;
+  }
+  let html = "";
+  if (s.overview) html += `<p class="overview">${escapeHtml(s.overview)}</p>`;
+  html += group("要点", s.key_points);
+  html += group("合意事項", s.agreements);
+  html += group("宿題・次アクション", s.action_items);
+  html += group("相手の懸念", s.customer_concerns);
+  el.innerHTML = html || '<div class="empty-state">要約なし（「要約・FB生成」で作成）</div>';
+}
+
+// Salesforce等に貼りやすいプレーンテキストを生成
+function summaryToText(s) {
+  s = s || {};
+  if (s.formatted && !s.key_points && !s.agreements) return s.formatted;
+  const lines = [];
+  if (s.overview) {
+    lines.push(s.overview, "");
+  }
+  const sec = (label, items) => {
+    if (Array.isArray(items) && items.length) {
+      lines.push("■" + label);
+      items.forEach((i) => lines.push("・" + i));
+      lines.push("");
+    }
+  };
+  sec("要点", s.key_points);
+  sec("合意事項", s.agreements);
+  sec("宿題・次アクション", s.action_items);
+  sec("相手の懸念", s.customer_concerns);
+  return lines.join("\n").trim();
+}
+function renderFeedbackInto(el, fb) {
+  fb = fb || {};
+  let html = "";
+  if (fb.overall) html += `<p class="overview">${escapeHtml(fb.overall)}</p>`;
+  html += group("良かった点", fb.good_points);
+  html += group("改善点", fb.improvements);
+  html += group("見落とし・機会損失", fb.missed);
+  html += group("次回への宿題", fb.next_steps);
+  el.innerHTML = html || '<div class="empty-state">フィードバックなし（「要約・フィードバックを生成」で作成）</div>';
+}
+
+function group(label, items) {
+  if (!Array.isArray(items) || items.length === 0) return "";
+  return (
+    `<div class="sgroup"><div class="label">${label}</div><ul>` +
+    items.map((i) => `<li>${escapeHtml(i)}</li>`).join("") +
+    `</ul></div>`
+  );
+}
+function computeMetrics(tr, repName) {
+  const by = new Map();
+  let total = 0;
+  for (const u of tr) {
+    const name = labelOf(u.speaker);
+    const t = u.text || "";
+    if (!by.has(name)) by.set(name, { chars: 0, turns: 0, questions: 0 });
+    const o = by.get(name);
+    o.chars += t.length;
+    o.turns += 1;
+    if (/[?？]/.test(t)) o.questions += 1;
+    total += t.length;
+  }
+  const speakers = [...by.entries()]
+    .map(([name, o]) => ({
+      name, chars: o.chars, turns: o.turns, questions: o.questions,
+      ratio: total ? Math.round((o.chars / total) * 100) : 0,
+      isRep: repName && name.includes(repName),
+    }))
+    .sort((a, b) => b.chars - a.chars);
+  return { speakers };
+}
+function renderMetricsInto(el, tr, repName) {
+  if (!tr.length) {
+    el.innerHTML = '<div class="empty-state">文字起こしがありません。</div>';
+    return;
+  }
+  const m = computeMetrics(tr, repName);
+  const rep = m.speakers.find((s) => s.isRep);
+  let html = "";
+  if (rep) {
+    const judge = rep.ratio <= 50 ? "良い（相手に話させている）" : "自社が話しすぎ気味";
+    html += `<p class="metric-note">自社トーク割合：<b>${rep.ratio}%</b>（目安40〜50%。${judge}）</p>`;
+  }
+  html += '<div class="bars">';
+  for (const s of m.speakers) {
+    html += `<div class="bar-row"><span class="bar-name">${escapeHtml(s.name)}${s.isRep ? "（自社）" : ""}</span><span class="bar-track"><span class="bar-fill${s.isRep ? " rep" : ""}" style="width:${s.ratio}%"></span></span><span class="bar-val">${s.ratio}%</span></div>`;
+  }
+  html += "</div>";
+  const repQ = rep ? rep.questions : m.speakers.reduce((a, s) => a + s.questions, 0);
+  html += `<p class="metric-note">質問の回数：<b>${repQ}</b>${rep ? "（自社）" : "（全体）"}　／　発話ターン合計：<b>${m.speakers.reduce((a, s) => a + s.turns, 0)}</b></p>`;
+  el.innerHTML = html;
+}
+function renderAiInto(el, a) {
+  if (!a || (!a.scores && !a.bant && !a.needs)) {
+    el.innerHTML = '<div class="empty-state">「分析を生成」を押すと、スコア・BANT・購買シグナル等を作成します。</div>';
+    return;
+  }
+  let html = "";
+  const sc = a.scores || {};
+  const dims = [["hearing", "ヒアリング"], ["proposal", "提案"], ["closing", "クロージング"], ["listening", "傾聴"]];
+  html += '<div class="scores">';
+  const reasons = a.score_reasons || {};
+  for (const [k, jp] of dims) {
+    const v = Number(sc[k]) || 0;
+    html += `<div class="score-row"><span class="score-name">${jp}</span><span class="dots">${[1, 2, 3, 4, 5].map((n) => `<span class="dot${n <= v ? " on" : ""}"></span>`).join("")}</span><span class="score-val">${v}/5</span></div>`;
+    if (reasons[k]) html += `<div class="score-reason">${escapeHtml(reasons[k])}</div>`;
+  }
+  html += "</div>";
+  const b = a.bant || {};
+  if (b.budget || b.authority || b.need || b.timeline) {
+    html += '<div class="sgroup"><div class="label">BANT</div><table class="bant">';
+    html += `<tr><td>予算</td><td>${escapeHtml(b.budget || "未確認")}</td></tr>`;
+    html += `<tr><td>決裁者</td><td>${escapeHtml(b.authority || "未確認")}</td></tr>`;
+    html += `<tr><td>必要性</td><td>${escapeHtml(b.need || "未確認")}</td></tr>`;
+    html += `<tr><td>時期</td><td>${escapeHtml(b.timeline || "未確認")}</td></tr>`;
+    html += "</table></div>";
+  }
+  if (a.next_step) html += `<div class="sgroup"><div class="label">次アクションの明確さ</div><p>${escapeHtml(a.next_step)}</p></div>`;
+  html += group("把握した課題・ニーズ", a.needs);
+  html += group("購買シグナル", a.buying_signals);
+  html += group("懸念と対応", a.objections);
+  html += group("競合の言及", a.competitors);
+  html += group("話し方の癖・口癖", a.rep_habits);
+  html += group("顧客の反応", a.customer_reactions);
+  html += group("コーチング", a.coaching);
+  el.innerHTML = html;
+}
+
+function escapeHtml(s) {
+  return String(s ?? "").replace(/[&<>"']/g, (c) =>
+    ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c])
+  );
+}
+
+loadList().then(() => {
+  // 分析タブなどから ?id=botId で来たら、その商談を自動で開く
+  const id = new URLSearchParams(location.search).get("id");
+  if (id) loadDetail(id);
+});
