@@ -160,59 +160,61 @@ function kindBadgeEl(k) {
 function renderKind(body, d) {
   const period = d.granularity === "day" ? "日次" : d.granularity === "week" ? "週次" : "月次";
   const byKind = d.byKind || [];
-  // コールド・過去失注を中心に見せる（通常も参考表示）
   const focus = ["コールド", "過去失注"];
-  let html = `<div class="rep-card"><div class="rep-title">商談種別の内訳（${period}・${esc(d.from)}〜${esc(d.to)}）</div>`;
+
+  let html = '<div class="fn4-wrap">';
+  html += `<div class="fn4-head">
+    <div class="fn4-head-left"><span class="fn4-head-icon"><i class="ti ti-tags" aria-hidden="true"></i></span><span class="fn4-head-title">商談種別の内訳</span></div>
+    <span class="fn4-head-period">${period}・${esc(d.from)}〜${esc(d.to)}</span>
+  </div>`;
 
   if (!byKind.length) {
-    html += '<div class="empty-state">この期間の抽出データがありません。</div></div>';
+    html += '<div class="fn4-card"><div class="empty-state">この期間の抽出データがありません。</div></div></div>';
     body.innerHTML = html;
     return;
   }
 
   // 種別ごとのカード（コールド・過去失注を大きく、通常は下に）
-  html += '<div class="kind-cards">';
+  html += '<div class="fn4-kpis">';
   for (const k of ["コールド", "過去失注", "通常"]) {
     const r = byKind.find((x) => x.kind === k);
     if (!r) continue;
     const rate = r.first_meetings ? Math.round((r.re_meetings / r.first_meetings) * 1000) / 10 : 0;
-    const emphasis = focus.includes(k) ? " kind-card-focus" : "";
-    html += `<div class="kind-card${emphasis}">
-      <div class="kind-card-head">${kindBadgeEl(k)}</div>
-      <div class="kind-card-main"><span class="kind-card-kpi">${r.re_meetings}</span><span class="kind-card-kpi-label">再商談実施</span></div>
-      <div class="kind-card-sub">初回 ${r.first_meetings} ・ 転換率 ${rate}%</div>
-      <div class="kind-card-row"><span>失注</span><span>${r.lost}</span></div>
-      <div class="kind-card-row"><span>受注</span><span>${r.won}</span></div>
+    const cls = focus.includes(k) ? "fn4-kpi-card fn4-kpi-main" : "fn4-kpi-card";
+    html += `<div class="${cls}">
+      <div class="fn4-kpi-head">${kindBadgeEl(k)}</div>
+      <div class="fn4-kpi-num">${r.re_meetings}</div>
+      <div class="fn4-kpi-sub">初回${r.first_meetings}・転換率${rate}%</div>
+      <div class="fn4-kind-rows"><span>失注 ${r.lost}</span><span>受注 ${r.won}</span></div>
     </div>`;
   }
-  html += "</div></div>";
+  html += "</div>";
 
-  // 種別×担当者/チーム：チーム別の種別内訳
+  // チーム別×種別
   if ((d.byTeam || []).length) {
-    html += '<div class="rep-card"><div class="rep-title">チーム別 × 種別</div>';
+    html += '<div class="fn4-card"><div class="fn4-card-title">チーム別 × 種別</div><div class="fn4-team-list">';
     for (const t of d.byTeam) {
-      // このチームの種別内訳のうち、コールド・過去失注を優先表示
       const kinds = (t.kinds || []).slice().sort((a, b) => {
         const ord = { "過去失注": 0, "コールド": 1, "通常": 2 };
         return (ord[a.kind] ?? 9) - (ord[b.kind] ?? 9);
       });
-      html += `<div class="team-block"><div class="team-head"><span class="team-name">${esc(t.team)}</span>` +
-        `<span class="team-kpi">再商談実施 <b>${t.re_meetings}</b> ・ 初回 ${t.first_meetings}</span></div>`;
+      html += `<div class="fn4-team-block"><div class="fn4-team-head"><span class="fn4-team-name">${esc(t.team)}</span>` +
+        `<span class="fn4-team-kpi">再商談実施 <b>${t.re_meetings}</b> ・ 初回 ${t.first_meetings}</span></div>`;
       if (kinds.length) {
-        html += '<div class="rep-table-wrap"><table class="rep-table team-kind-table">';
-        html += "<tr><th>種別</th><th>初回</th><th>失注</th><th class='kpi-col'>再商談実施</th><th>受注</th></tr>";
+        html += '<div class="fn4-team-kinds">';
         for (const r of kinds) {
-          html += `<tr><td>${kindBadgeEl(r.kind)}</td><td>${r.first_meetings}</td><td>${r.lost}</td><td class="kpi-col"><b>${r.re_meetings}</b></td><td>${r.won}</td></tr>`;
+          html += `<div class="fn4-team-kind-row">${kindBadgeEl(r.kind)}<span class="fn4-team-kind-num">初回${r.first_meetings}</span><span class="fn4-team-kind-num">失注${r.lost}</span><span class="fn4-team-kind-num fn4-team-kind-re">再${r.re_meetings}</span><span class="fn4-team-kind-num">受注${r.won}</span></div>`;
         }
-        html += "</table></div>";
+        html += "</div>";
       } else {
         html += '<div class="empty-state">この期間のデータはありません。</div>';
       }
       html += "</div>";
     }
-    html += "</div>";
+    html += "</div></div>";
   }
 
+  html += "</div>";
   body.innerHTML = html;
 }
 
@@ -239,9 +241,18 @@ function kindSummary(r) {
 }
 function renderDaily(body, d) {
   const rows = d.rows || [];
-  let html = `<div class="rep-card"><div class="rep-title">${esc(d.date)} の商談（${rows.length}件）</div>`;
-  if (!rows.length) { html += '<div class="empty-state">この日の商談はありません。</div></div>'; body.innerHTML = html; return; }
-  html += '<div class="rep-table-wrap"><table class="rep-table daily-table">';
+  let html = '<div class="fn4-wrap">';
+  html += `<div class="fn4-head">
+    <div class="fn4-head-left"><span class="fn4-head-icon"><i class="ti ti-list-check" aria-hidden="true"></i></span><span class="fn4-head-title">日次データ確認</span></div>
+    <span class="fn4-head-period">${esc(d.date)}・${rows.length}件</span>
+  </div>`;
+  html += '<div class="fn4-card">';
+  if (!rows.length) {
+    html += '<div class="empty-state">この日の商談はありません。</div></div></div>';
+    body.innerHTML = html;
+    return;
+  }
+  html += '<div class="fn4-table-wrap"><table class="fn4-table daily-table">';
   html += "<tr><th>企業名</th><th>担当</th><th>抽出結果</th><th>確認</th></tr>";
   for (const r of rows) {
     const mark = r.needs_review
@@ -249,7 +260,7 @@ function renderDaily(body, d) {
       : '<span class="rev-ok">✓</span>';
     html += `<tr><td>${esc(r.company_name || "(不明)")}</td><td>${esc(r.owner || "")}</td><td>${kindSummary(r)}</td><td class="rev-cell">${mark}</td></tr>`;
   }
-  html += "</table></div></div>";
+  html += "</table></div></div></div>";
   body.innerHTML = html;
   // 要確認フラグに修正モーダルを紐付け
   body.querySelectorAll(".rev-flag").forEach((b) => {
@@ -315,32 +326,38 @@ async function loadPipeline() {
 }
 function renderPipeline(body, d, trend) {
   const mx = d.matrix || { thisMonth: { unset: 0, waiting: 0 }, nextMonth: { unset: 0, waiting: 0 } };
-  let html = `<div class="rep-card"><div class="rep-title">パイプライン（${esc(d.as_of)} 時点）</div>`;
-  html += '<table class="pipe-matrix"><tr><th></th><th>今月判断</th><th>来月判断</th></tr>';
-  html += `<tr><th class="pipe-rowh">未設定<span class="pipe-sub">再商談の日程なし</span></th>
-    <td><button class="pipe-cell pipe-unset" data-col="thisMonth">${mx.thisMonth.unset}</button></td>
-    <td><button class="pipe-cell pipe-unset" data-col="nextMonth">${mx.nextMonth.unset}</button></td></tr>`;
-  html += `<tr><th class="pipe-rowh">設定済み・実施待ち</th>
-    <td><span class="pipe-cell">${mx.thisMonth.waiting}</span></td>
-    <td><span class="pipe-cell">${mx.nextMonth.waiting}</span></td></tr>`;
+  let html = '<div class="fn4-wrap">';
+  html += `<div class="fn4-head">
+    <div class="fn4-head-left"><span class="fn4-head-icon"><i class="ti ti-git-branch" aria-hidden="true"></i></span><span class="fn4-head-title">パイプライン</span></div>
+    <span class="fn4-head-period">${esc(d.as_of)} 時点</span>
+  </div>`;
+
+  html += '<div class="fn4-card"><table class="fn4-pipe-matrix"><tr><th></th><th>今月判断</th><th>来月判断</th></tr>';
+  html += `<tr><th class="fn4-pipe-rowh">未設定<span class="fn4-pipe-sub">再商談の日程なし</span></th>
+    <td><button class="fn4-pipe-cell fn4-pipe-unset" data-col="thisMonth">${mx.thisMonth.unset}</button></td>
+    <td><button class="fn4-pipe-cell fn4-pipe-unset" data-col="nextMonth">${mx.nextMonth.unset}</button></td></tr>`;
+  html += `<tr><th class="fn4-pipe-rowh">設定済み・実施待ち</th>
+    <td><span class="fn4-pipe-cell">${mx.thisMonth.waiting}</span></td>
+    <td><span class="fn4-pipe-cell">${mx.nextMonth.waiting}</span></td></tr>`;
   html += "</table>";
-  html += '<div id="unsetList" class="unset-list"></div>';
+  html += '<div id="unsetList" class="fn4-unset-list"></div>';
   html += "</div>";
 
   // 未設定件数の週次推移（SVG折れ線）
-  html += `<div class="rep-card"><div class="rep-title">「未設定」件数の週次推移</div>${sparkline(trend.points || [])}</div>`;
+  html += `<div class="fn4-card"><div class="fn4-card-title">「未設定」件数の週次推移</div>${sparkline(trend.points || [])}</div>`;
+  html += "</div>";
   body.innerHTML = html;
 
   // 未設定セルのドリルダウン
   const lists = d.unset_list || { thisMonth: [], nextMonth: [] };
-  body.querySelectorAll(".pipe-unset").forEach((b) => {
+  body.querySelectorAll(".fn4-pipe-unset").forEach((b) => {
     b.addEventListener("click", () => {
       const col = b.dataset.col;
       const arr = lists[col] || [];
       const host = $("unsetList");
       if (!arr.length) { host.innerHTML = '<div class="empty-state">対象の案件はありません。</div>'; return; }
-      host.innerHTML = `<div class="unset-head">${col === "thisMonth" ? "今月判断" : "来月判断"}・未設定の案件（${arr.length}件）</div>` +
-        arr.map((x) => `<div class="unset-row"><span class="unset-name">${esc(x.company_name || "(不明)")}</span><span class="unset-meta">${esc(x.owner || "")} ・ 初回 ${esc(x.first_meeting_date || "")}</span></div>`).join("");
+      host.innerHTML = `<div class="fn4-unset-head">${col === "thisMonth" ? "今月判断" : "来月判断"}・未設定の案件（${arr.length}件）</div>` +
+        arr.map((x) => `<div class="fn4-unset-row"><span class="fn4-unset-name">${esc(x.company_name || "(不明)")}</span><span class="fn4-unset-meta">${esc(x.owner || "")} ・ 初回 ${esc(x.first_meeting_date || "")}</span></div>`).join("");
     });
   });
 }
