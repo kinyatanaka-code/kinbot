@@ -269,7 +269,8 @@ loadThanks();
       document.querySelectorAll(".set-pane").forEach((p) => (p.hidden = p.dataset.pane !== name));
       if (name === "teams") loadTeams();
       if (name === "thanks") loadThanksPrompt();
-      if (name === "status") { loadIntegrations(); loadRecallStatus(); fillApiBaseUrl(); }
+      if (name === "status") { loadIntegrations(); loadRecallStatus(); }
+      if (name === "claudecode") { fillApiBaseUrl(); initCcToken(); }
     });
   });
 })();
@@ -280,6 +281,46 @@ function fillApiBaseUrl() {
   const head = document.getElementById("apiBaseUrl");
   if (head) head.textContent = origin;
   document.querySelectorAll(".apidoc-base").forEach((el) => { el.textContent = origin; });
+}
+
+// APIトークンをこのブラウザに保存し、コード例に差し込む（サーバーには送らない）
+const CC_TOKEN_KEY = "kinbot_api_token";
+function applyCcToken(tok) {
+  const shown = tok && tok.trim() ? tok.trim() : "&lt;トークン&gt;";
+  document.querySelectorAll(".cc-tok").forEach((el) => {
+    if (tok && tok.trim()) el.textContent = tok.trim();
+    else el.innerHTML = "&lt;トークン&gt;";
+  });
+}
+function initCcToken() {
+  fillApiBaseUrl();
+  const input = document.getElementById("ccToken");
+  if (!input) return;
+  let saved = "";
+  try { saved = localStorage.getItem(CC_TOKEN_KEY) || ""; } catch {}
+  input.value = saved;
+  applyCcToken(saved);
+  if (input._wired) return;
+  input._wired = true;
+  const showBtn = document.getElementById("ccTokenShow");
+  if (showBtn) showBtn.addEventListener("click", () => {
+    input.type = input.type === "password" ? "text" : "password";
+    showBtn.textContent = input.type === "password" ? "表示" : "隠す";
+  });
+  const saveBtn = document.getElementById("ccTokenSave");
+  if (saveBtn) saveBtn.addEventListener("click", () => {
+    const v = (input.value || "").trim();
+    try { localStorage.setItem(CC_TOKEN_KEY, v); } catch {}
+    applyCcToken(v);
+    saveBtn.textContent = "保存しました";
+    setTimeout(() => (saveBtn.textContent = "保存"), 1200);
+  });
+  const clearBtn = document.getElementById("ccTokenClear");
+  if (clearBtn) clearBtn.addEventListener("click", () => {
+    input.value = "";
+    try { localStorage.removeItem(CC_TOKEN_KEY); } catch {}
+    applyCcToken("");
+  });
 }
 
 // ===== 接続している外部API一覧 =====

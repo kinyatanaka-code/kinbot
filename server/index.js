@@ -51,7 +51,6 @@ import {
   listRepTeams,
   upsertRepTeam,
   deleteRepTeam,
-  listJudgmentReps,
   getSetCache,
   saveSetCache,
   listUsers,
@@ -581,11 +580,17 @@ async function buildRepNameMap() {
 }
 // rep_name / rep_email から表示名（田中欽也 など）を決める
 function resolveRepName(repName, repEmail, nameMap) {
-  if (repEmail && nameMap[repEmail]) return nameMap[repEmail];
-  if (repName && nameMap[repName]) return nameMap[repName]; // rep_nameがメールで保存されている場合
-  if (repName && !String(repName).includes("@")) return repName; // すでに氏名
-  const e = repName || repEmail || "";
-  return String(e).includes("@") ? String(e).split("@")[0] : (e || "(不明)");
+  let out;
+  if (repEmail && nameMap[repEmail]) out = nameMap[repEmail];
+  else if (repName && nameMap[repName]) out = nameMap[repName]; // rep_nameがメールで保存されている場合
+  else if (repName && !String(repName).includes("@")) out = repName; // すでに氏名
+  else {
+    const e = repName || repEmail || "";
+    out = String(e).includes("@") ? String(e).split("@")[0] : (e || "(不明)");
+  }
+  // 表示名の補正（江田→江田有一郎 等）
+  const al = nameAliases();
+  return al[out] || out;
 }
 
 
@@ -757,15 +762,49 @@ app.get("/api/deal-status-by-company", async (req, res) => {
 app.get("/api/teams", async (req, res) => {
   try { res.json(await listRepTeams()); } catch { res.json([]); }
 });
+// 表示名の補正マップ（「江田」→「江田有一郎」等）。環境変数 NAME_ALIASES で追加可能。
+// 形式: NAME_ALIASES="江田=江田有一郎, たなか=田中欽也"
+function nameAliases() {
+  const map = { "江田": "江田有一郎" };
+  const raw = process.env.NAME_ALIASES || "";
+  for (const part of raw.split(",")) {
+    const [k, v] = part.split("=").map((x) => (x || "").trim());
+    if (k && v) map[k] = v;
+  }
+  return map;
+}
+// email→登録名の対応表を作る
+async function buildNameMap() {
+  const byEmail = {};
+  for (const u of (await listUsers().catch(() => []))) {
+    if (u.email) byEmail[u.email.toLowerCase()] = u.name || u.email;
+  }
+  return { byEmail, aliases: nameAliases() };
+}
+// 担当者名/メールを、登録名＋補正マップで表示名に解決する
+function resolveDisplayName(raw, nameMap) {
+  let s = String(raw || "").trim();
+  if (!s) return "";
+  // メールなら登録名に置換
+  if (s.includes("@") && nameMap && nameMap.byEmail[s.toLowerCase()]) s = nameMap.byEmail[s.toLowerCase()];
+  // 補正マップ（完全一致）
+  if (nameMap && nameMap.aliases[s]) s = nameMap.aliases[s];
+  return s;
+}
+
 app.get("/api/teams/reps", async (req, res) => {
   try {
-    // {rep_name, n} 形式で返す（判定実績が無くても商談担当者を候補に含める）
-    const judg = await listJudgmentReps().catch(() => []); // [{rep_name, n}]
+    const nameMap = await buildNameMap();
     const counts = {};
-    for (const r of judg) if (r.rep_name) counts[r.rep_name] = r.n || 0;
     for (const m of (await listMeetings({ isAdmin: true }).catch(() => []))) {
-      const nm = m.owner_name || m.owner;
-      if (nm && counts[nm] == null) counts[nm] = 0;
+      if (m.category && m.category !== "商談") continue;
+      const disp = resolveDisplayName(m.owner_name || m.owner, nameMap);
+      if (disp) counts[disp] = (counts[disp] || 0) + 1;
+    }
+    // 登録ユーザーも候補に含める（商談が無くても選べるように）
+    for (const u of (await listUsers().catch(() => []))) {
+      const disp = resolveDisplayName(u.name || u.email, nameMap);
+      if (disp && counts[disp] == null) counts[disp] = 0;
     }
     res.json(Object.keys(counts).map((rep_name) => ({ rep_name, n: counts[rep_name] })));
   } catch { res.json([]); }
@@ -920,10 +959,11 @@ app.get("/api/report/funnel", async (req, res) => {
     const team = req.query.team || null;
     const events = await listDealEvents({ from, to, owner, team });
     const overall = funnelFrom(events);
-    // 担当者別（全体/チーム選択時に内訳を出す）
+    // 担当者別（全体/チーム選択時に内訳を出す）。担当者名は登録名＋補正で表示。
+    const nameMap = await buildNameMap();
     const byOwnerMap = {};
     for (const e of events) {
-      const o = e.owner || "(不明)";
+      const o = resolveDisplayName(e.owner, nameMap) || "(不明)";
       (byOwnerMap[o] = byOwnerMap[o] || []).push(e);
     }
     const byOwner = Object.keys(byOwnerMap).sort().map((o) => ({ owner: o, ...funnelFrom(byOwnerMap[o]) }));
@@ -940,8 +980,9 @@ app.get("/api/report/daily", async (req, res) => {
     const date = req.query.date || new Date().toISOString().slice(0, 10);
     const owner = req.query.owner || null;
     const events = await listDealEvents({ from: date, to: date, owner });
+    const nameMap = await buildNameMap();
     const rows = events.map((e) => ({
-      id: e.id, bot_id: e.bot_id, company_name: e.company_name, owner: e.owner,
+      id: e.id, bot_id: e.bot_id, company_name: e.company_name, owner: resolveDisplayName(e.owner, nameMap),
       meeting_kind: e.meeting_kind, schedule_choice: e.schedule_choice, apply_timing: e.apply_timing,
       result: e.result, confidence: e.confidence, needs_review: e.needs_review,
       judgment_basis: e.judgment_basis,

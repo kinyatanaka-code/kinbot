@@ -1798,3 +1798,12 @@ button.pipe-cell { background: none; border: none; cursor: pointer; color: #0F6E
 .np-k { color: var(--muted); }
 .np-v { font-weight: 600; color: #223; text-align: right; }
 .np-basis { font-size: 11.5px; color: #8a938d; margin-top: 8px; line-height: 1.6; }
+
+/* 設定：Claude Code分析タブのトークン入力 */
+.cc-token-row { margin: 6px 0 16px; }
+.cc-token-row > label { font-size: 12px; color: var(--muted); display: block; margin-bottom: 6px; }
+.cc-token-input { display: flex; gap: 8px; flex-wrap: wrap; }
+.cc-token-input input { flex: 1; min-width: 220px; font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 12.5px; padding: 9px 11px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel-2); }
+.cc-warn { color: #a8611a; margin-top: 8px; }
+.cc-tok { color: #7fd7bd; word-break: break-all; }
+.apidoc-example .cc-tok { color: #0F6E56; background: #eef1f0; padding: 1px 5px; border-radius: 4px; }
