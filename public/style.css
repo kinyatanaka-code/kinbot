@@ -1429,9 +1429,9 @@ body { background: var(--bg); }
 .status-badge, .coach-tag, .live-badge { border-radius: 999px; }
 
 /* 会社プロフィール（案件詳細） */
-.prof-url { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-bottom: 10px; }
-.prof-url input { flex: 1; min-width: 180px; border: 1px solid var(--line); border-radius: 10px; padding: 9px 12px; font: inherit; font-size: 13px; background: #fff; color: var(--ink); }
-.prof-status { font-size: 12px; color: var(--muted); flex-basis: 100%; }
+.prof-url { display: flex; gap: 8px; align-items: flex-start; flex-wrap: wrap; margin-bottom: 6px; }
+.prof-url input, .prof-url textarea { flex: 1; min-width: 220px; border: 1px solid var(--line); border-radius: 10px; padding: 9px 12px; font: inherit; font-size: 13px; background: #fff; color: var(--ink); resize: vertical; }
+.prof-status { font-size: 12px; color: var(--muted); margin-bottom: 10px; }
 .prof-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 8px; }
 .prof-cell { background: var(--panel-2); border-radius: 10px; padding: 9px 11px; }
 .prof-k { font-size: 11px; color: var(--muted); }
@@ -1786,7 +1786,7 @@ button.pipe-cell { background: none; border: none; cursor: pointer; color: #0F6E
 .newproc-sec .deal-sec-h { color: #0F6E56; }
 .np-head { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; flex-wrap: wrap; }
 .np-status { font-size: 12px; font-weight: 700; border-radius: 999px; padding: 3px 12px; background: #e3f4ea; color: #1f7a4d; }
-.np-status.np-失注未定, .np-status.np-失注その後失注, .np-status.np-失注 { background: #f7e7e6; color: #b3453f; }
+.np-status.np-失注未定, .np-status.np-失注その後失注, .np-status.np-失注その他, .np-status.np-失注 { background: #f7e7e6; color: #b3453f; }
 .np-status.np-受注 { background: #04342C; color: #9FE1CB; }
 .np-status.np-進行中 { background: #e6f0fb; color: #2b6cb0; }
 .np-status.np-再商談実施済み { background: #fff4e5; color: #a8611a; }
@@ -1813,7 +1813,7 @@ button.pipe-cell { background: none; border: none; cursor: pointer; color: #0F6E
 .np-card-badge { font-size: 10.5px; font-weight: 700; border-radius: 999px; padding: 1px 8px; }
 .np-card-badge.np-none { background: #eef1f0; color: #8a938d; }
 .np-card-badge.np-進行中 { background: #e6f0fb; color: #2b6cb0; }
-.np-card-badge.np-失注未定, .np-card-badge.np-失注その後失注, .np-card-badge.np-失注 { background: #f7e7e6; color: #b3453f; }
+.np-card-badge.np-失注未定, .np-card-badge.np-失注その後失注, .np-card-badge.np-失注その他, .np-card-badge.np-失注 { background: #f7e7e6; color: #b3453f; }
 .np-card-badge.np-再商談実施済み { background: #fff4e5; color: #a8611a; }
 .np-card-badge.np-受注 { background: #04342C; color: #9FE1CB; }
 /* 案件詳細：この会社の商談から判定するボタン */

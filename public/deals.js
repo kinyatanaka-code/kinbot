@@ -689,7 +689,8 @@ async function selectDeal(account) {
     `</div>` +
     `<section class="deal-sec newproc-sec"><div class="deal-sec-h">📊 新プロセスの判定</div><div id="newProcBox"><div class="empty-state">読み込み中…</div></div></section>` +
     `<section class="deal-sec deal-profile"><div class="deal-sec-h">🏢 会社プロフィール</div>` +
-    `<div class="prof-url"><input id="profUrl" type="text" placeholder="企業サイトURL（例: example.co.jp）" /><button class="btn" id="profGet">取得</button><span class="prof-status" id="profStatus"></span></div>` +
+    `<div class="prof-url"><textarea id="profUrl" rows="2" placeholder="企業サイトURL（複数可・改行かカンマで区切り。空でも会社名でWeb検索します）"></textarea><button class="btn" id="profGet">取得</button></div>` +
+    `<div class="prof-status" id="profStatus"></div>` +
     `<div id="profBody"></div></section>` +
     `<section class="deal-sec"><div class="deal-sec-h">📋 ネクストアクション</div><div id="aiBox"><div class="empty-state">読み込み中…</div></div>` +
     `<div class="ai-add"><input id="aiNew" type="text" placeholder="やることを追加（例：見積もりを送付）" /><input id="aiDue" type="date" /><button class="btn" id="aiAddBtn">追加</button></div></section>` +
@@ -724,13 +725,12 @@ async function selectDeal(account) {
   const profUrl = $("profUrl"), profGet = $("profGet"), profStatus = $("profStatus");
   if (accountsMap[pk] && accountsMap[pk].site_url) profUrl.value = accountsMap[pk].site_url;
   profGet.addEventListener("click", async () => {
-    const url = (profUrl.value || "").trim();
-    if (!url) { profUrl.focus(); return; }
+    const urls = (profUrl.value || "").trim();
     profGet.disabled = true; profGet.textContent = "取得中…";
-    if (window.kbProgress) window.kbProgress(profStatus, { percent: null, label: "サイトとWebから会社概要を取得中…" });
+    if (window.kbProgress) window.kbProgress(profStatus, { percent: null, label: urls ? "サイトとWebから会社概要を取得中…" : "会社名でWeb検索中…" });
     try {
       const r = await fetch(`/api/accounts/${encodeURIComponent(pk)}/enrich`, {
-        method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ url }),
+        method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ url: urls }),
       });
       const d = await r.json();
       if (!r.ok) throw new Error(d.error || "取得に失敗しました");
@@ -742,12 +742,15 @@ async function selectDeal(account) {
       // profileが全項目空 = 会社概要を読み取れなかった場合の明示
       const pf = d.profile || {};
       const hasAny = pf.industry || pf.employees || pf.hiring || pf.founded || pf.location || pf.business;
+      const sourceNote = d.sourcesRequested
+        ? `（${d.sourcesFetched || 0}/${d.sourcesRequested}サイト取得）`
+        : "（Web検索のみ）";
       if (!hasAny) {
         profStatus.textContent = d.siteError
-          ? ("サイトを取得できませんでした（" + d.siteError + "）。URLを確認してください。")
-          : "サイトから会社概要を読み取れませんでした。URLが会社概要ページか確認してください。";
+          ? `サイトを取得できませんでした（${d.siteError}）。Web検索でも情報が見つかりませんでした。`
+          : `会社概要を読み取れませんでした${sourceNote}。`;
       } else {
-        profStatus.textContent = d.siteError ? ("一部のみ取得（" + d.siteError + "）") : "";
+        profStatus.textContent = d.siteError ? `一部のみ取得${sourceNote}（${d.siteError}）` : `取得しました${sourceNote}`;
       }
     } catch (e) {
       if (window.kbProgress) window.kbProgress(profStatus, { clear: true });

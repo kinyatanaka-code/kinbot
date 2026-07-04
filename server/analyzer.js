@@ -249,11 +249,12 @@ const COMPANY_EXTRACT_PROMPT = `あなたは情報抽出器です。渡された
 {"official_name":"正式社名","industry":"業界","employees":"従業員数(例: 約320名)","hiring":"採用予定人数(例: 15名/年)","founded":"設立(例: 1998年)","location":"本社所在地","business":"事業内容(1〜2文)","note":"補足(任意)"}`;
 
 export async function enrichCompany({ url, name, siteText }) {
-  // Step1: Web検索＋サイト本文でリサーチ（失敗してもサイト本文だけで続行）
+  // Step1: Web検索＋サイト本文でリサーチ（失敗してもサイト本文だけで続行）。
+  // サイト本文が無い/薄い場合は、Web検索の比重が自然と大きくなり、複数の検索結果ソースから補完される。
   let research = "";
   try {
     research = await geminiGrounded(
-      `「${name || ""}」（サイト: ${url || ""}）の会社概要を、サイトとWeb検索から調べてください。業界 / 従業員数 / 年間採用予定人数 / 設立年 / 本社所在地 / 事業内容 を、分かる範囲で正確に。正式な会社名も。`,
+      `「${name || ""}」（${url ? "サイト: " + url : "公式サイトは不明"}）の会社概要を、複数のWeb検索結果を照合しながら調べてください。業界 / 従業員数 / 年間採用予定人数 / 設立年 / 本社所在地 / 事業内容 を、分かる範囲で正確に。正式な会社名も。公式サイトが見つかればそのURLも。`,
       siteText
     );
   } catch (e) {
@@ -262,8 +263,8 @@ export async function enrichCompany({ url, name, siteText }) {
   // Step2: JSONで構造化抽出（response_format=json で確実に）
   const user =
     `会社名(推定): ${name || "不明"}\nサイトURL: ${url || "不明"}\n\n` +
-    `企業サイト本文の抜粋:\n"""\n${(siteText || "(取得できず)").slice(0, 5000)}\n"""\n\n` +
-    `リサーチ結果:\n"""\n${(research || "(なし)").slice(0, 4500)}\n"""\n\n` +
+    `企業サイト本文の抜粋（複数サイトを取得した場合は【URL】区切りで結合）:\n"""\n${(siteText || "(取得できず)").slice(0, 9000)}\n"""\n\n` +
+    `リサーチ結果（Web検索の複数ソースを踏まえたもの）:\n"""\n${(research || "(なし)").slice(0, 4500)}\n"""\n\n` +
     `上記から会社概要をJSONで出力してください。`;
   const text = await callLLM(COMPANY_EXTRACT_PROMPT, user, 800);
   const o = parseJson(text) || {};

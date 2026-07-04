@@ -483,16 +483,25 @@ function deriveFirstMeeting(ext, meetingMonth) {
   else if (at === "来月") { judgment_month = addMonthStr(meetingMonth, 1); judgment_month_basis = "商談で「来月に判断」と回答"; }
   if (nd) { judgment_month = nd.slice(0, 7); judgment_month_basis = `次回商談日(${nd})の月`; }
 
+  // 次回商談日が「商談日の翌月末」より先に設定されている場合は、遠すぎるため追わない（失注）
+  // 例：7月の商談で、次回商談が9月以降に設定されている → 失注
+  const deadlineMonth = addMonthStr(meetingMonth, 1); // 商談月の翌月
+  const tooFar = !!(nd && nd.slice(0, 7) > deadlineMonth);
+
   // ステータス決定（最重要ルール）：
-  // 「進行中」は "再商談（次回商談）の日程が設定されている" 場合のみ。
-  // 設定されていなければ失注扱い。
+  // 「進行中」は "再商談（次回商談）の日程が、商談日の翌月末までに設定されている" 場合のみ。
+  // 設定されていない、または翌月末より先すぎる場合は失注扱い。
   // 不明・低自信で判断材料が読み取れない場合のみ「要確認」（保留）。
-  if (hasNextMeeting) {
+  if (hasNextMeeting && !tooFar) {
     // 次につながっている＝進行中（時期が読み取れていればその判断月で計上）
     status = "進行中";
   } else if (sc === "不明" || (at === "不明" && sc === "不明") || (lowConf && !sc && !at)) {
     // 情報がほとんど読み取れない → 保留
     status = "要確認";
+  } else if (tooFar) {
+    // 次回商談が遠すぎる → 失注
+    status = "失注(その他)";
+    judgment_month_basis = `次回商談日(${nd})が翌月末より先のため失注`;
   } else {
     // 再商談が設定されていない → 失注
     status = "失注(未定)";
@@ -550,7 +559,7 @@ async function runExtraction(botId) {
       apply_timing: ext.apply_timing, judgment_month: der.judgment_month,
       next_meeting_scheduled: ext.next_meeting_scheduled, next_meeting_date: ext.next_meeting_date,
       confidence: ext.confidence, judgment_basis: ext.judgment_basis,
-      needs_review: der.needs_review, raw_extraction: { ...ext, judgment_month_basis: der.judgment_month_basis },
+      needs_review: der.needs_review, raw_extraction: { ...ext, judgment_month_basis: der.judgment_month_basis, derived_status: der.status },
     });
     // 案件のステータス・初回商談日を更新（要確認でなければ）
     if (deal) {
@@ -969,10 +978,15 @@ function funnelFrom(events) {
   const clear = decided.filter((e) => e.schedule_choice && !["未定", "不明"].includes(e.schedule_choice));
   const thisMonth = clear.filter((e) => e.apply_timing === "今月");
   const nextMonth = clear.filter((e) => e.apply_timing === "来月");
-  // 進行中：再商談（次回商談）の日程が設定されている初回商談
-  const activated = decided.filter((e) => e.next_meeting_scheduled);
-  // 失注：確定分のうち再商談が設定されていない初回商談 ＋ 再商談実施の結果=失注
-  const lost = decided.filter((e) => !e.next_meeting_scheduled).length
+  // 各初回商談が「進行中」かどうか（保存済みのderived_statusがあれば最優先。無ければ従来の簡易判定）
+  const isActivated = (e) => {
+    const raw = e.raw_extraction || {};
+    if (raw.derived_status) return raw.derived_status === "進行中";
+    return !!e.next_meeting_scheduled;
+  };
+  const activated = decided.filter(isActivated);
+  // 失注：確定分のうち進行中でない初回商談（未設定、または次回商談が翌月末より先すぎる） ＋ 再商談実施の結果=失注
+  const lost = decided.filter((e) => !isActivated(e)).length
     + re.filter((e) => e.result === "失注").length;
   const reDone = re.length; // 再商談実施（メインKPI）
   const won = re.filter((e) => e.result === "受注").length;
@@ -1195,33 +1209,44 @@ app.put("/api/accounts/:key", async (req, res) => {
 app.post("/api/accounts/:key/enrich", async (req, res) => {
   try {
     const key = decodeURIComponent(req.params.key);
-    const url = (req.body?.url || "").toString().trim();
-    if (!url) return res.status(400).json({ error: "企業サイトURLを入力してください" });
-    const fullUrl = /^https?:\/\//i.test(url) ? url : "https://" + url;
-    let siteText = "";
-    let siteError = "";
-    try {
-      const ctrl = new AbortController();
-      const timer = setTimeout(() => ctrl.abort(), 15000);
-      const r = await fetch(fullUrl, { headers: { "user-agent": "Mozilla/5.0 (kinbot)" }, redirect: "follow", signal: ctrl.signal });
-      clearTimeout(timer);
-      if (!r.ok) siteError = `サイト応答 ${r.status}`;
-      const html = await r.text();
-      siteText = html
-        .replace(/<script[\s\S]*?<\/script>/gi, " ")
-        .replace(/<style[\s\S]*?<\/style>/gi, " ")
-        .replace(/<[^>]+>/g, " ")
-        .replace(/&nbsp;/g, " ")
-        .replace(/\s+/g, " ")
-        .trim();
-    } catch (e) {
-      siteError = e.name === "AbortError" ? "サイト取得がタイムアウトしました" : ("サイト取得失敗: " + e.message);
-      console.warn("[enrich] site fetch失敗", e.message);
+    // URLは任意。複数（改行/カンマ区切り）を渡せる。未入力なら会社名だけでWeb検索から複数ソースを調べる。
+    const rawUrls = (req.body?.url || req.body?.urls || "").toString();
+    const urlList = rawUrls.split(/[\n,、]+/).map((u) => u.trim()).filter(Boolean).slice(0, 5);
+    const fullUrls = urlList.map((u) => (/^https?:\/\//i.test(u) ? u : "https://" + u));
+
+    const siteTexts = [];
+    const siteErrors = [];
+    for (const fullUrl of fullUrls) {
+      try {
+        const ctrl = new AbortController();
+        const timer = setTimeout(() => ctrl.abort(), 15000);
+        const r = await fetch(fullUrl, { headers: { "user-agent": "Mozilla/5.0 (kinbot)" }, redirect: "follow", signal: ctrl.signal });
+        clearTimeout(timer);
+        if (!r.ok) { siteErrors.push(`${fullUrl}: 応答${r.status}`); continue; }
+        const html = await r.text();
+        const text = html
+          .replace(/<script[\s\S]*?<\/script>/gi, " ")
+          .replace(/<style[\s\S]*?<\/style>/gi, " ")
+          .replace(/<[^>]+>/g, " ")
+          .replace(/&nbsp;/g, " ")
+          .replace(/\s+/g, " ")
+          .trim();
+        if (text) siteTexts.push(`【${fullUrl}】\n${text}`);
+      } catch (e) {
+        siteErrors.push(`${fullUrl}: ${e.name === "AbortError" ? "タイムアウト" : e.message}`);
+        console.warn("[enrich] site fetch失敗", fullUrl, e.message);
+      }
     }
-    const profile = await enrichCompany({ url: fullUrl, name: key, siteText });
+    // 複数サイトの本文を結合（長すぎる場合に備え、enrichCompany側で全体を制限）
+    const siteText = siteTexts.join("\n\n");
+    const siteError = siteErrors.length ? siteErrors.join(" / ") : "";
+    const primaryUrl = fullUrls[0] || "";
+
+    // URLが1件も取得できなかった場合、または未入力の場合は、会社名だけでWeb検索から複数ソースを調べる
+    const profile = await enrichCompany({ url: primaryUrl, name: key, siteText, urlCount: fullUrls.length, gotCount: siteTexts.length });
     const officialName = profile.official_name || key;
-    await saveAccount(key, { siteUrl: fullUrl, officialName, profile });
-    res.json({ ok: true, siteUrl: fullUrl, officialName, profile, siteError });
+    await saveAccount(key, { siteUrl: primaryUrl, officialName, profile });
+    res.json({ ok: true, siteUrl: primaryUrl, officialName, profile, siteError, sourcesFetched: siteTexts.length, sourcesRequested: fullUrls.length });
   } catch (e) {
     console.error("[enrich]", e.message);
     res.status(502).json({ error: e.message });
