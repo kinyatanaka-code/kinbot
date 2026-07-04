@@ -71,30 +71,49 @@ async function loadFunnel() {
   }
 }
 // ファネルの1本のバー
-function funnelBar(label, value, denom, opts = {}) {
-  const pct = denom ? Math.round((value / denom) * 1000) / 10 : 0;
-  const w = denom ? Math.max(2, (value / denom) * 100) : 2;
-  const cls = "fnbar" + (opts.kpi ? " fnbar-kpi" : "") + (opts.indent ? " fnbar-indent" : "") + (opts.lost ? " fnbar-lost" : "");
-  const badge = opts.kpi ? '<span class="fn-kpi-badge">メインKPI</span>' : "";
-  const pctText = denom && !opts.noPct ? `<span class="fn-pct">${pct}%</span>` : "";
-  return `<div class="${cls}">
-    <div class="fn-row"><span class="fn-label">${esc(label)}${badge}</span><span class="fn-val">${value}${pctText}</span></div>
-    <div class="fn-track"><div class="fn-fill" style="width:${w}%"></div></div>
-  </div>`;
-}
 function renderFunnel(body, d) {
   const o = d.overall || {};
   const base = o.first_meetings || 0;
+  const pctOf = (v, dn) => (dn ? Math.round((v / dn) * 1000) / 10 : 0);
+  const wOf = (v, dn) => (dn ? Math.max(2, Math.round((v / dn) * 100)) : 2);
+  const period = d.granularity === "day" ? "日次" : d.granularity === "week" ? "週次" : "月次";
+
+  // 絞り込みの1段（バー＋数値＋%）
+  const flowRow = (label, value, denom, opts = {}) => {
+    const pct = pctOf(value, denom);
+    const indent = opts.indent ? `padding-left:${opts.indent * 16}px;` : "";
+    const color = opts.color || "#5DCAA5";
+    const pctText = opts.noPct ? "" : `<span class="fn2-pct">${pct}%</span>`;
+    return `<div class="fn2-flow" style="${indent}">
+      <div class="fn2-flow-head"><span class="fn2-flow-label">${esc(label)}</span><span class="fn2-flow-val">${value}${pctText}</span></div>
+      <div class="fn2-track"><div class="fn2-fill" style="width:${wOf(value, denom)}%;background:${color}"></div></div>
+    </div>`;
+  };
+
   let html = '<div class="rep-card">';
-  html += `<div class="rep-title">サマリー（${d.granularity === "day" ? "日次" : d.granularity === "week" ? "週次" : "月次"}・${esc(d.from)}〜${esc(d.to)}）</div>`;
-  html += '<div class="funnel">';
-  html += funnelBar("初回商談数", o.first_meetings, base, { noPct: true });
-  html += funnelBar("明確な時期回答数", o.clear_schedule, base);
-  html += funnelBar("└ 今月申込可否数", o.this_month, o.clear_schedule, { indent: true });
-  html += funnelBar("└ 来月申込可否数", o.next_month, o.clear_schedule, { indent: true });
-  html += funnelBar("失注", o.lost, base, { lost: true });
-  html += funnelBar("再商談実施数", o.re_meetings, base, { kpi: true });
-  html += funnelBar("受注", o.won, base);
+  html += `<div class="rep-title">サマリー（${period}・${esc(d.from)}〜${esc(d.to)}）</div>`;
+  html += '<div class="fn2-grid">';
+
+  // 左：絞り込みの流れ
+  html += '<div class="fn2-flow-card"><div class="fn2-sub">商談の絞り込み</div>';
+  html += flowRow("初回商談", o.first_meetings, base, { noPct: true, color: "#1D9E75" });
+  html += flowRow("明確な時期回答", o.clear_schedule, base, { color: "#5DCAA5" });
+  html += flowRow("今月申込可否", o.this_month, o.clear_schedule || 0, { indent: 1, color: "#85B7EB" });
+  html += flowRow("来月申込可否", o.next_month, o.clear_schedule || 0, { indent: 1, color: "#85B7EB" });
+  html += "</div>";
+
+  // 右：結果（メインKPI大きく＋失注・受注）
+  html += '<div class="fn2-result">';
+  html += `<div class="fn2-kpi">
+    <span class="fn2-kpi-badge">メインKPI</span>
+    <div class="fn2-kpi-label">再商談実施数</div>
+    <div class="fn2-kpi-num">${o.re_meetings || 0}<span class="fn2-kpi-pct">${pctOf(o.re_meetings, base)}%</span></div>
+  </div>`;
+  html += '<div class="fn2-result-row">';
+  html += `<div class="fn2-lost"><div class="fn2-cell-label">失注</div><div class="fn2-cell-num">${o.lost || 0}</div><div class="fn2-cell-pct">${pctOf(o.lost, base)}%</div></div>`;
+  html += `<div class="fn2-won"><div class="fn2-cell-label">受注</div><div class="fn2-cell-num">${o.won || 0}</div><div class="fn2-cell-pct">${pctOf(o.won, base)}%</div></div>`;
+  html += "</div></div>";
+
   html += "</div></div>";
 
   // 担当者別テーブル（全体/チーム選択時）

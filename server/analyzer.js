@@ -624,7 +624,10 @@ async function callLLM(system, user, maxTokens = 1400, opts = {}) {
   try {
     return await withRetry(() => callOnce(provider, system, user, maxTokens, json, schema, cachePrefix, model));
   } catch (e) {
-    const fb = fallbackProvider(provider);
+    // opts.fallback で明示指定があればそれを最優先（例：抽出はClaude→必ずGemini）。
+    // ただし現プロバイダと同じ指定は無意味なので、その場合は通常の自動選択にフォールスルー。
+    let fb = (opts.fallback || "").toLowerCase();
+    if (!fb || fb === provider) fb = fallbackProvider(provider);
     // JSON構造化出力が必要な呼び出し（フェーズ判定・各種分析など）は、キー未設定・課金未設定・
     // モデル名誤り・出力上限での途中切れ・空応答など「一時的でない」理由でも丸ごと失敗しうるため、
     // フォールバック先があれば理由を問わず必ず切り替える（自由記述の生成のみ、従来どおり一時的な混雑時に限定）。
@@ -1006,11 +1009,13 @@ export async function generateThanks({ round, examples, summaryText, repName, cu
 
 // transcript(配列 or 文字列)を「話者: 発言」形式のテキストにする
 // 抽出（種別判定・初回・再商談）に使うLLM。既定は Anthropic Claude。
-// 環境変数で上書き可: EXTRACT_PROVIDER（既定 anthropic）, EXTRACT_MODEL
+// Claudeが失敗したら必ず Gemini にフォールバックする（EXTRACT_FALLBACK で変更可、既定 gemini）。
+// 環境変数で上書き可: EXTRACT_PROVIDER（既定 anthropic）, EXTRACT_MODEL, EXTRACT_FALLBACK（既定 gemini）
 function extractLLMOpts(extra = {}) {
   const provider = (process.env.EXTRACT_PROVIDER || "anthropic").toLowerCase();
   const model = process.env.EXTRACT_MODEL || (provider === "anthropic" ? (process.env.ANALYZER_MODEL || "claude-sonnet-4-6") : undefined);
-  return { provider, model, ...extra };
+  const fallback = (process.env.EXTRACT_FALLBACK || "gemini").toLowerCase();
+  return { provider, model, fallback, ...extra };
 }
 
 function transcriptToText(transcript) {
