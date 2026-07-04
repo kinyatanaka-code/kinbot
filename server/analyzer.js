@@ -1083,7 +1083,7 @@ export async function extractFirstMeeting(transcript, meetingDate) {
   };
   // 自信度が low の場合、最大3回まで判定をやり直す（high が出たら即採用）。
   // 2回目以降は「前回 low だった。曖昧なら該当区分を厳密に、それでも不明確なら不明のままでよい」と補足して再考させる。
-  const maxTries = 3;
+  const maxTries = Math.max(1, Math.min(8, Number(process.env.EXTRACT_MAX_TRIES || 5)));
   let best = null;
   for (let attempt = 1; attempt <= maxTries; attempt++) {
     const extraNote = attempt > 1
@@ -1133,7 +1133,7 @@ export async function extractReMeeting(transcript, meetingDate) {
     },
     required: ["result", "confidence", "judgment_basis"],
   };
-  const maxTries = 3;
+  const maxTries = Math.max(1, Math.min(8, Number(process.env.EXTRACT_MAX_TRIES || 5)));
   let best = null;
   for (let attempt = 1; attempt <= maxTries; attempt++) {
     const extraNote = attempt > 1

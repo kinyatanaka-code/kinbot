@@ -306,15 +306,29 @@ function renderProfile(account) {
 
 // 案件カードに新プロセスの判定を出すための状態マップ（正規化会社名キー → deal）
 let newProcMap = {};
+let newProcList = []; // 部分一致照合用に全dealを保持
 async function refreshNewProcMap() {
   try {
     const deals = await (await fetch("/api/deals")).json();
     newProcMap = {};
+    newProcList = deals || [];
     for (const d of deals || []) {
       const k = normName(d.company_name);
       if (k) newProcMap[k] = d;
     }
-  } catch { newProcMap = {}; }
+  } catch { newProcMap = {}; newProcList = []; }
+}
+// 会社名から新プロセスのdealを引く（完全一致→部分一致）
+function lookupNewProc(name) {
+  const k = normName(name);
+  if (!k) return null;
+  if (newProcMap[k]) return newProcMap[k];
+  // 部分一致（どちらかがもう一方を含む）
+  for (const d of newProcList) {
+    const k2 = normName(d.company_name);
+    if (k2 && (k2.includes(k) || k.includes(k2))) return d;
+  }
+  return null;
 }
 
 async function load() {  try {
@@ -532,8 +546,8 @@ function accountCardEl(a) {
   const kindBadge = kind
     ? `<span class="kind-badge ${kind === "過去失注" ? "kind-lost" : "kind-cold"}">${kind}</span>`
     : "";
-  // 新プロセスの判定（会社名で照合）
-  const np = newProcMap[normName(displayName(a))] || newProcMap[normName(a)];
+  // 新プロセスの判定（会社名で照合。完全一致→部分一致で緩く引く）
+  const np = lookupNewProc(displayName(a)) || lookupNewProc(a);
   const npBadge = np && np.status
     ? `<span class="np-card-badge np-${String(np.status).replace(/[()]/g, "")}">${esc(np.status)}</span>`
     : `<span class="np-card-badge np-none">未判定</span>`;
