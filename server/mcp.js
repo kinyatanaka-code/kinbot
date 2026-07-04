@@ -10,10 +10,51 @@ import {
   getDealWithEvents,
   listMeetings,
   getMeeting,
+  listUsers,
+  listRepTeams,
 } from "./db.js";
 
 const SERVER_INFO = { name: "kinbot", version: "1.0.0" };
 const PROTOCOL_VERSION = "2025-03-26";
+
+// 担当者名の表示補正（index.jsのnameAliasesと同じルール。要確認: 変更したら両方直す）
+function nameAliases() {
+  const map = { "江田": "江田有一郎" };
+  const raw = process.env.NAME_ALIASES || "";
+  for (const part of raw.split(",")) {
+    const [k, v] = part.split("=").map((x) => (x || "").trim());
+    if (k && v) map[k] = v;
+  }
+  return map;
+}
+async function buildNameMap() {
+  const byEmail = {};
+  for (const u of (await listUsers().catch(() => []))) {
+    if (u.email) byEmail[u.email.toLowerCase()] = u.name || u.email;
+  }
+  return { byEmail, aliases: nameAliases() };
+}
+function resolveDisplayName(raw, nameMap) {
+  let s = String(raw || "").trim();
+  if (!s) return "";
+  if (s.includes("@") && nameMap && nameMap.byEmail[s.toLowerCase()]) s = nameMap.byEmail[s.toLowerCase()];
+  if (nameMap && nameMap.aliases[s]) s = nameMap.aliases[s];
+  return s;
+}
+// 会社名から新プロセスの状態を返す（案件画面の表示用）と同じ発想で、
+// team指定があれば担当者→チームのマッピングでJS側フィルタする（deals.teamカラムに依存しない）
+async function filterByTeam(events, team) {
+  if (!team) return events;
+  const nameMap = await buildNameMap();
+  const teamMap = {};
+  for (const t of (await listRepTeams().catch(() => []))) teamMap[(t.rep_name || "").trim()] = (t.team_name || "").trim();
+  const teamOf = (rawOwner) => {
+    const disp = resolveDisplayName(rawOwner, nameMap);
+    return teamMap[(disp || "").trim()] || teamMap[(rawOwner || "").trim()] || "(未割り当て)";
+  };
+  const teamFilter = String(team).trim();
+  return events.filter((e) => teamOf(e.owner) === teamFilter);
+}
 
 // ---- ツール定義（Claude に見せるスキーマ） ----
 const TOOLS = [
@@ -33,11 +74,12 @@ const TOOLS = [
   },
   {
     name: "get_deal_events",
-    description: "kinbotの新営業プロセスの抽出イベントログを取得する（初回商談の判定結果・再商談の実施結果など）。実績集計の元データ。",
+    description: "kinbotの新営業プロセスの抽出イベントログを取得する（初回商談の判定結果・再商談の実施結果など）。実績集計の元データ。担当者ごとの比較分析（商談数、初回/再商談比率、次回商談設定率、confidence傾向、失注パターン、deal_kind別の進み方など）に使う。管理者トークンで接続している場合はownerを省略すると全担当者分が返る。",
     inputSchema: {
       type: "object",
       properties: {
-        owner: { type: "string", description: "担当者のメールアドレスで絞り込み（任意）" },
+        owner: { type: "string", description: "担当者のメールアドレスで絞り込み（任意・管理者のみ有効。省略すると全担当者分）" },
+        team: { type: "string", description: "チーム名で絞り込み（任意）" },
         from: { type: "string", description: "イベント日の開始日 YYYY-MM-DD（任意）" },
         to: { type: "string", description: "イベント日の終了日 YYYY-MM-DD（任意）" },
         kind: { type: "string", description: "商談種別で絞り込み（初回商談 / 再商談）（任意）" },
@@ -88,12 +130,13 @@ async function callTool(name, args, req) {
       return rows;
     }
     case "get_deal_events": {
-      const rows = await listDealEvents({
+      let rows = await listDealEvents({
         owner: owner || undefined,
         from: args && args.from,
         to: args && args.to,
         kind: args && args.kind,
       });
+      if (args && args.team) rows = await filterByTeam(rows, args.team);
       // raw_extraction は容量が大きいので、チャット向けには軽量化する
       return rows.map((r) => ({ ...r, raw_extraction: undefined }));
     }
