@@ -1005,6 +1005,14 @@ export async function generateThanks({ round, examples, summaryText, repName, cu
 // ===== Feature A: 新営業プロセスの抽出（種別判定＋初回/再商談 抽出） =====
 
 // transcript(配列 or 文字列)を「話者: 発言」形式のテキストにする
+// 抽出（種別判定・初回・再商談）に使うLLM。既定は Anthropic Claude。
+// 環境変数で上書き可: EXTRACT_PROVIDER（既定 anthropic）, EXTRACT_MODEL
+function extractLLMOpts(extra = {}) {
+  const provider = (process.env.EXTRACT_PROVIDER || "anthropic").toLowerCase();
+  const model = process.env.EXTRACT_MODEL || (provider === "anthropic" ? (process.env.ANALYZER_MODEL || "claude-sonnet-4-6") : undefined);
+  return { provider, model, ...extra };
+}
+
 function transcriptToText(transcript) {
   if (typeof transcript === "string") return transcript;
   if (!Array.isArray(transcript)) return "";
@@ -1029,7 +1037,7 @@ export async function classifyMeetingKind(transcript) {
     },
     required: ["meeting_kind", "confidence"],
   };
-  const out = parseJson(await callLLM(sys, user, 300, { schema })) || {};
+  const out = parseJson(await callLLM(sys, user, 300, extractLLMOpts({ schema }))) || {};
   const kind = ["初回商談", "再商談", "判定不能"].includes(out.meeting_kind) ? out.meeting_kind : "判定不能";
   return { meeting_kind: kind, confidence: out.confidence === "high" ? "high" : "low" };
 }
@@ -1066,7 +1074,7 @@ export async function extractFirstMeeting(transcript, meetingDate) {
     },
     required: ["schedule_choice", "apply_timing", "next_meeting_scheduled", "confidence", "judgment_basis"],
   };
-  const o = parseJson(await callLLM(sys, user, 700, { schema })) || {};
+  const o = parseJson(await callLLM(sys, user, 700, extractLLMOpts({ schema }))) || {};
   return {
     schedule_choice: o.schedule_choice || "不明",
     schedule_choice_detail: o.schedule_choice_detail || "",
@@ -1105,7 +1113,7 @@ export async function extractReMeeting(transcript, meetingDate) {
     },
     required: ["result", "confidence", "judgment_basis"],
   };
-  const o = parseJson(await callLLM(sys, user, 700, { schema })) || {};
+  const o = parseJson(await callLLM(sys, user, 700, extractLLMOpts({ schema }))) || {};
   return {
     reported_date: o.reported_date || null,
     apply_date: o.apply_date || null,

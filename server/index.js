@@ -615,16 +615,15 @@ app.get("/api/integrations", async (req, res) => {
   const last4 = (v) => (v && String(v).length > 4 ? String(v).trim().slice(-4) : "");
   const has = (v) => !!(v && String(v).trim());
   const mainProvider = (env.LLM_PROVIDER || "gemini").toLowerCase();
-  const phaseProvider = (env.PHASE_PROVIDER || "").toLowerCase();
+  const extractProvider = (env.EXTRACT_PROVIDER || "anthropic").toLowerCase();
   const fallback = (env.FALLBACK_PROVIDER || "").toLowerCase();
   const transProvider = (env.RECALL_TRANSCRIBE_PROVIDER || "recallai").toLowerCase();
-  // どのLLMが使われているかの判定
+  // どのLLMが何に使われているかの判定（実態ベース）
   const usedBy = (p) => {
     const roles = [];
-    if (mainProvider === p) roles.push("通常のAI処理");
-    if (phaseProvider === p) roles.push("フェーズ判定");
-    if (!phaseProvider && mainProvider === p) { /* already */ }
-    if (fallback === p || (!fallback && (p === "gemini" || p === "groq"))) roles.push("フォールバック");
+    if (mainProvider === p) roles.push("要約・分析・会話（メイン）");
+    if (extractProvider === p) roles.push("商談データの抽出（種別判定・初回・再商談）");
+    if (fallback === p || (!fallback && (p === "gemini" || p === "groq") && mainProvider !== p && extractProvider !== p)) roles.push("フォールバック（控え）");
     return roles;
   };
 
@@ -643,7 +642,7 @@ app.get("/api/integrations", async (req, res) => {
     services.push({
       key: "anthropic", name: "Anthropic Claude（AI）", billable: true,
       configured: has(env.ANTHROPIC_API_KEY), keyLast4: last4(env.ANTHROPIC_API_KEY),
-      detail: env.PHASE_MODEL && phaseProvider === "anthropic" ? env.PHASE_MODEL : (env.ANALYZER_MODEL || "claude-sonnet-4-6"),
+      detail: env.EXTRACT_MODEL || env.ANALYZER_MODEL || "claude-sonnet-4-6",
       role: roles.length ? roles.join("・") : "未使用（キーのみ）", inUse: roles.length > 0 && has(env.ANTHROPIC_API_KEY),
       dashboardUrl: "https://console.anthropic.com/settings/billing",
     });
@@ -651,12 +650,11 @@ app.get("/api/integrations", async (req, res) => {
   // Gemini
   {
     const roles = usedBy("gemini");
-    if (!roles.includes("会話・企業情報")) roles.push("会話・企業情報の取得");
     services.push({
       key: "gemini", name: "Google Gemini（AI）", billable: true,
       configured: has(env.GEMINI_API_KEY), keyLast4: last4(env.GEMINI_API_KEY),
       detail: env.GEMINI_MODEL || "gemini-2.5-flash-lite",
-      role: roles.join("・"), inUse: has(env.GEMINI_API_KEY),
+      role: roles.length ? roles.join("・") : "未使用（キーのみ）", inUse: has(env.GEMINI_API_KEY) && roles.length > 0,
       dashboardUrl: "https://aistudio.google.com/app/apikey",
     });
   }
