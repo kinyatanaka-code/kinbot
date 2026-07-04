@@ -91,6 +91,7 @@ import { notionConfigured, notionStatus, createMeetingPage, createReportPage } f
 import { pdfToText, urlToText, officeToText } from "./ingest.js";
 import { indexKnowledge, embeddingsAvailable } from "./retrieval.js";
 import { readDocument, readerAvailable } from "./ai_read.js";
+import { mountMcpServer } from "./mcp.js";
 import {
   salesforceConfigured,
   authUrl as sfAuthUrl,
@@ -232,6 +233,9 @@ app.use(
   express.json({ verify: (req, _res, buf) => (req.rawBody = buf) })
 );
 app.use(express.json());
+
+// kinbot MCPサーバー（Claude.aiのコネクタからデータを読めるようにする）
+mountMcpServer(app);
 
 // 登録・ログイン・ログアウト
 app.post("/api/register", async (req, res) => {

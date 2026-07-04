@@ -286,11 +286,16 @@ function fillApiBaseUrl() {
 // APIトークンをこのブラウザに保存し、コード例に差し込む（サーバーには送らない）
 const CC_TOKEN_KEY = "kinbot_api_token";
 function applyCcToken(tok) {
-  const shown = tok && tok.trim() ? tok.trim() : "&lt;トークン&gt;";
+  const t = tok && tok.trim() ? tok.trim() : "";
   document.querySelectorAll(".cc-tok").forEach((el) => {
-    if (tok && tok.trim()) el.textContent = tok.trim();
+    if (t) el.textContent = t;
     else el.innerHTML = "&lt;トークン&gt;";
   });
+  // Claude.aiコネクタ用のMCP URL（トークンをクエリに埋め込む。ヘッダを設定できないため）
+  const mcpEl = document.getElementById("mcpUrl");
+  if (mcpEl) {
+    mcpEl.textContent = t ? `${window.location.origin}/mcp?token=${t}` : "（上のAPIトークンを入力すると表示されます）";
+  }
 }
 function initCcToken() {
   fillApiBaseUrl();
@@ -320,6 +325,14 @@ function initCcToken() {
     input.value = "";
     try { localStorage.removeItem(CC_TOKEN_KEY); } catch {}
     applyCcToken("");
+  });
+  const mcpCopyBtn = document.getElementById("mcpUrlCopy");
+  if (mcpCopyBtn) mcpCopyBtn.addEventListener("click", async () => {
+    const mcpEl = document.getElementById("mcpUrl");
+    const text = mcpEl ? mcpEl.textContent : "";
+    if (!text || text.startsWith("（")) { mcpCopyBtn.textContent = "先にトークンを入力してください"; setTimeout(() => (mcpCopyBtn.textContent = "URLをコピー"), 1500); return; }
+    try { await navigator.clipboard.writeText(text); mcpCopyBtn.textContent = "コピーしました"; } catch { mcpCopyBtn.textContent = "コピーに失敗しました"; }
+    setTimeout(() => (mcpCopyBtn.textContent = "URLをコピー"), 1500);
   });
 }
 

@@ -1,0 +1,189 @@
+// ===== kinbot MCP サーバー =====
+// Claude.ai の「コネクタ」からkinbotのデータを直接読めるようにする。
+// プロトコル: MCP Streamable HTTP transport（単一エンドポイントへのJSON-RPC 2.0 POST）。
+// 認証: 既存のAPIトークン仕組みをそのまま使う（index.js の認証ミドルウェアで既に req.user が入っている前提）。
+// 参考: https://modelcontextprotocol.io/
+
+import {
+  listDeals,
+  listDealEvents,
+  getDealWithEvents,
+  listMeetings,
+  getMeeting,
+} from "./db.js";
+
+const SERVER_INFO = { name: "kinbot", version: "1.0.0" };
+const PROTOCOL_VERSION = "2025-03-26";
+
+// ---- ツール定義（Claude に見せるスキーマ） ----
+const TOOLS = [
+  {
+    name: "list_deals",
+    description: "kinbotの案件一覧を取得する。会社名・担当者・チーム・ステータス（進行中/失注(未定)/失注(その他)/受注 等）・初回商談日を返す。",
+    inputSchema: {
+      type: "object",
+      properties: {
+        owner: { type: "string", description: "担当者のメールアドレスで絞り込み（任意）" },
+        team: { type: "string", description: "チーム名で絞り込み（任意）" },
+        status: { type: "string", description: "ステータスで絞り込み（任意）例: 進行中, 失注(未定), 受注" },
+        from: { type: "string", description: "初回商談日の開始日 YYYY-MM-DD（任意）" },
+        to: { type: "string", description: "初回商談日の終了日 YYYY-MM-DD（任意）" },
+      },
+    },
+  },
+  {
+    name: "get_deal_events",
+    description: "kinbotの新営業プロセスの抽出イベントログを取得する（初回商談の判定結果・再商談の実施結果など）。実績集計の元データ。",
+    inputSchema: {
+      type: "object",
+      properties: {
+        owner: { type: "string", description: "担当者のメールアドレスで絞り込み（任意）" },
+        from: { type: "string", description: "イベント日の開始日 YYYY-MM-DD（任意）" },
+        to: { type: "string", description: "イベント日の終了日 YYYY-MM-DD（任意）" },
+        kind: { type: "string", description: "商談種別で絞り込み（初回商談 / 再商談）（任意）" },
+      },
+    },
+  },
+  {
+    name: "get_deal_detail",
+    description: "1つの案件（deal_id指定）について、案件情報と紐づく全イベント（初回商談・再商談）を取得する。",
+    inputSchema: {
+      type: "object",
+      properties: { deal_id: { type: "string", description: "案件ID（list_dealsやget_deal_eventsのdeal_idから取得）" } },
+      required: ["deal_id"],
+    },
+  },
+  {
+    name: "list_meetings",
+    description: "kinbotに記録された商談（Recall.aiで録音・文字起こしされた商談）の一覧を取得する。要約・分析結果を含む。文字起こし全文は含まない（長すぎるため）。",
+    inputSchema: {
+      type: "object",
+      properties: {},
+    },
+  },
+  {
+    name: "get_meeting_detail",
+    description: "1つの商談（bot_id指定）の詳細を取得する。文字起こし全文・要約・分析結果を含む。",
+    inputSchema: {
+      type: "object",
+      properties: { bot_id: { type: "string", description: "商談のbot_id（list_meetingsのbot_idから取得）" } },
+      required: ["bot_id"],
+    },
+  },
+];
+
+// ---- ツール実行 ----
+async function callTool(name, args, req) {
+  const isAdmin = !!req.isAdmin;
+  const owner = isAdmin ? (args && args.owner) || null : req.user;
+  switch (name) {
+    case "list_deals": {
+      const rows = await listDeals({
+        owner: owner || undefined,
+        team: args && args.team,
+        status: args && args.status,
+        from: args && args.from,
+        to: args && args.to,
+      });
+      return rows;
+    }
+    case "get_deal_events": {
+      const rows = await listDealEvents({
+        owner: owner || undefined,
+        from: args && args.from,
+        to: args && args.to,
+        kind: args && args.kind,
+      });
+      // raw_extraction は容量が大きいので、チャット向けには軽量化する
+      return rows.map((r) => ({ ...r, raw_extraction: undefined }));
+    }
+    case "get_deal_detail": {
+      if (!args || !args.deal_id) throw new Error("deal_id が必要です");
+      const d = await getDealWithEvents(args.deal_id);
+      if (!d) throw new Error("案件が見つかりません");
+      return d;
+    }
+    case "list_meetings": {
+      const rows = await listMeetings({ owner: isAdmin ? null : req.user, isAdmin });
+      // 文字起こし全文は除外（軽量化）。要約・分析は残す。
+      return rows.map((m) => ({ ...m, transcript: undefined }));
+    }
+    case "get_meeting_detail": {
+      if (!args || !args.bot_id) throw new Error("bot_id が必要です");
+      const m = await getMeeting(args.bot_id);
+      if (!m) throw new Error("商談が見つかりません");
+      if (!isAdmin && m.owner && m.owner !== req.user) throw new Error("この商談を見る権限がありません");
+      return m;
+    }
+    default:
+      throw new Error(`不明なツール: ${name}`);
+  }
+}
+
+// ---- JSON-RPC ハンドラ ----
+async function handleRpc(body, req) {
+  const { id, method, params } = body || {};
+  const ok = (result) => ({ jsonrpc: "2.0", id, result });
+  const err = (code, message) => ({ jsonrpc: "2.0", id, error: { code, message } });
+
+  try {
+    if (method === "initialize") {
+      return ok({
+        protocolVersion: PROTOCOL_VERSION,
+        capabilities: { tools: {} },
+        serverInfo: SERVER_INFO,
+      });
+    }
+    if (method === "notifications/initialized") {
+      return null; // 通知には応答不要
+    }
+    if (method === "tools/list") {
+      return ok({ tools: TOOLS });
+    }
+    if (method === "tools/call") {
+      const name = params && params.name;
+      const args = (params && params.arguments) || {};
+      try {
+        const data = await callTool(name, args, req);
+        return ok({ content: [{ type: "text", text: JSON.stringify(data, null, 2) }] });
+      } catch (e) {
+        // ツール実行エラーはプロトコルエラーではなく、isError付きの結果として返すのがMCP流
+        return ok({ content: [{ type: "text", text: `エラー: ${e.message}` }], isError: true });
+      }
+    }
+    if (method === "ping") {
+      return ok({});
+    }
+    return err(-32601, `メソッドが見つかりません: ${method}`);
+  } catch (e) {
+    return err(-32603, e.message || "内部エラー");
+  }
+}
+
+// Expressにマウントする関数
+export function mountMcpServer(app) {
+  app.post("/mcp", async (req, res) => {
+    const body = req.body;
+    try {
+      if (Array.isArray(body)) {
+        const results = [];
+        for (const item of body) {
+          const r = await handleRpc(item, req);
+          if (r) results.push(r);
+        }
+        if (!results.length) return res.status(202).end();
+        return res.json(results.length === 1 ? results[0] : results);
+      }
+      const result = await handleRpc(body, req);
+      if (!result) return res.status(202).end(); // 通知
+      res.json(result);
+    } catch (e) {
+      console.error("[mcp]", e.message);
+      res.status(500).json({ jsonrpc: "2.0", id: body && body.id, error: { code: -32603, message: e.message } });
+    }
+  });
+  // 一部クライアントはGETでの疎通確認やSSE接続を試みるため、404ではなく明示的に返す
+  app.get("/mcp", (req, res) => {
+    res.status(200).json({ name: SERVER_INFO.name, protocol: "mcp", transport: "streamable-http" });
+  });
+}
