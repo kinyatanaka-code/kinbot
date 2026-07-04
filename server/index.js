@@ -39,12 +39,6 @@ import {
   getAccount,
   listAccounts,
   saveAccount,
-  savePhaseJudgment,
-  getPhaseJudgment,
-  saveAccountPhase,
-  getAccountPhase,
-  listAccountPhases,
-  accountKindRows,
   resolveDeal,
   updateDealStatus,
   deleteDealEventsByBot,
@@ -54,8 +48,6 @@ import {
   listDealEvents,
   updateDealEvent,
   teamForRep,
-  phaseRows,
-  phaseTrend,
   listRepTeams,
   upsertRepTeam,
   deleteRepTeam,
@@ -78,7 +70,7 @@ import {
   deleteKbFolder,
 } from "./db.js";
 import { resolveConfig, statusInfo } from "./config.js";
-import { analyzerInfo, analyzeMeeting, analyzeDeep, analyzeTendency, analyzeSet, analyzeWinLoss, extractLostSignals, freeAnalyze, chatWithData, enrichCompany, judgePhase, PHASE_JUDGMENT_PROMPT, getPhasePrompt, generateThanks, THANKS_PROMPT, getCheckItems, classifyMeetingKind, extractFirstMeeting, extractReMeeting } from "./analyzer.js";
+import { analyzerInfo, analyzeMeeting, analyzeDeep, freeAnalyze, chatWithData, enrichCompany, generateThanks, THANKS_PROMPT, getCheckItems, classifyMeetingKind, extractFirstMeeting, extractReMeeting } from "./analyzer.js";
 import {
   googleConfigured,
   authUrl,
@@ -325,93 +317,6 @@ app.post("/api/meetings/cleanup-empty", async (req, res) => {
 // 「商談」だけを分析・案件の対象にする（社内MTG/ユーザーフォロー等は除外）
 const isSales = (m) => !m || !m.category || m.category === "商談";
 
-// 失注 vs 進行中・受注 の傾向を比較分析
-app.post("/api/winloss-analysis", async (req, res) => {
-  try {
-    const { owner, owners, phase, phases, from, to, force } = req.body || {};
-    const ownerList = Array.isArray(owners) ? owners.filter(Boolean) : owner ? [owner] : [];
-    const phaseList = Array.isArray(phases) ? phases.filter(Boolean) : phase ? [phase] : [];
-    let rows = await listMeetings({ isAdmin: true });
-    rows = rows.filter((m) => {
-      if (!isSales(m)) return false;
-      if (ownerList.length && !ownerList.includes(m.owner || "")) return false;
-      if (phaseList.length && !phaseList.includes(m.phase || "")) return false;
-      const d = new Date(m.created_at);
-      if (from && d < new Date(from + "T00:00:00")) return false;
-      if (to && d > new Date(to + "T23:59:59")) return false;
-      return true;
-    });
-
-    const statuses = await listDealStatuses();
-    const acctOf = (m) => (m.account && m.account.trim()) || companyFromTitle(m.title) || "(無題)";
-    const statusOf = (m) => {
-      const s = statuses[acctOf(m)];
-      if (s && s.status) return s.status;
-      if (m.analysis && m.analysis.deal_status) return m.analysis.deal_status;
-      return "進行中";
-    };
-    const lost = rows.filter((m) => statusOf(m) === "失注");
-    const active = rows.filter((m) => statusOf(m) === "進行中" || statusOf(m) === "受注");
-
-    if (!lost.length || !active.length) {
-      return res.status(400).json({
-        error: `比較には両方の案件が必要です（失注 ${lost.length}件 / 進行中・受注 ${active.length}件）。商談を重ねてステータスが付くと分析できます。`,
-      });
-    }
-
-    const block = (m, i) => {
-      const p = [`#${i + 1} 「${m.title || "無題"}」 ${m.round_no ? m.round_no + "回目 " : ""}フェーズ${m.phase || "-"}`];
-      const s = m.summary || {};
-      if (s.overview) p.push(`要約: ${s.overview}`);
-      if (Array.isArray(s.customer_concerns) && s.customer_concerns.length) p.push(`相手の懸念: ${s.customer_concerns.join(" / ")}`);
-      const mt = m.metrics || {};
-      if (typeof mt.repTalkPct === "number") p.push(`営業トーク比率: ${mt.repTalkPct}%`);
-      if (mt.landedCount || mt.concernCount) p.push(`刺さったトーク${mt.landedCount || 0}/懸念${mt.concernCount || 0}`);
-      const a = m.analysis;
-      if (a && a.scores) p.push(`スコア ヒア${a.scores.hearing ?? "-"}/提案${a.scores.proposal ?? "-"}/クロ${a.scores.closing ?? "-"}/傾聴${a.scores.listening ?? "-"}`);
-      if (a && a.objections?.length) p.push(`懸念対応: ${a.objections.join(" / ")}`);
-      if (a && a.rep_habits?.length) p.push(`口癖: ${a.rep_habits.join(" / ")}`);
-      return p.join("\n");
-    };
-    const cut = (arr) => {
-      let s = arr.slice(0, 12).map(block).join("\n\n");
-      return s.length > 8000 ? s.slice(0, 8000) : s;
-    };
-    const lostMaterial = cut(lost);
-    const activeMaterial = cut(active);
-
-    // キャッシュ
-    const key = `winloss|${[...ownerList].sort().join("+")}|${[...phaseList].sort().join("+")}|${from || ""}|${to || ""}`;
-    const fingerprint = crypto
-      .createHash("sha1")
-      .update(
-        rows.map((m) => `${m.bot_id}:${new Date(m.updated_at || m.created_at).getTime()}:${statusOf(m)}`).sort().join(",")
-      )
-      .digest("hex");
-    const cache = await getSetCache(key);
-    if (cache && cache.fingerprint === fingerprint && !force) {
-      return res.json({ ...cache.result, cached: true });
-    }
-
-    const ownerName = ownerList.length ? ownerList.map((o) => rows.find((m) => m.owner === o)?.owner_name || o).join("・") : "全員";
-    const phaseDesc = phaseList.length ? phaseList.map((p) => PHASE_LABELS[p] || p).join("・") : "すべて";
-    const filterDesc = `営業担当: ${ownerName} ／ フェーズ: ${phaseDesc}`;
-
-    const result = await analyzeWinLoss({
-      lostMaterial,
-      activeMaterial,
-      lostCount: lost.length,
-      activeCount: active.length,
-      filterDesc,
-    });
-    const payload = { ...result, lostCount: lost.length, activeCount: active.length };
-    await saveSetCache(key, fingerprint, payload);
-    res.json({ ...payload, cached: false });
-  } catch (e) {
-    console.error("[winloss]", e.message);
-    res.status(502).json({ error: e.message });
-  }
-});
 
 // 商談メモの保存
 app.put("/api/meetings/:id/note", async (req, res) => {
@@ -552,29 +457,6 @@ app.post("/api/chat", async (req, res) => {
   }
 });
 
-// ===== 商談フェーズ自動判定 =====
-// 1商談の文字起こしを判定してDB保存（finalize/upload/手動から呼ぶ）
-async function runPhaseJudgment(botId) {
-  const m = await getMeeting(botId);
-  if (!m) throw new Error("商談が見つかりません");
-  if (m.category && m.category !== "商談") return null; // 社内MTG/フォローは対象外
-  const tr = Array.isArray(m.transcript) ? m.transcript : [];
-  const text = tr.map((u) => `${u.speaker?.name || "話者"}: ${u.text || ""}`).join("\n");
-  if (!text.trim()) throw new Error("文字起こしがありません");
-  const j = await judgePhase(text, { repName: m.owner_name || m.owner || "" });
-  j.rep_name = m.owner_name || m.owner || "";
-  j.rep_email = m.owner || "";
-  j.meeting_date = (m.created_at ? new Date(m.created_at) : new Date()).toISOString().slice(0, 10);
-  await savePhaseJudgment(botId, j);
-  return j;
-}
-// 自動判定を投げっぱなしで実行（メイン処理をブロックしない）
-function runPhaseJudgmentSafe(botId) {
-  Promise.resolve()
-    .then(() => runPhaseJudgment(botId))
-    .catch((e) => console.warn("[phase] 自動判定スキップ", botId, e.message));
-}
-
 // ===== Feature A: 新営業プロセスの抽出＋イベントログ保存 =====
 
 // 商談月(YYYY-MM)に n ヶ月足した YYYY-MM を返す
@@ -688,24 +570,6 @@ function runExtractionSafe(botId) {
 // 録音ボット経由の商談確定後にも抽出を走らせる（sessions.js から呼ばれる）
 setOnMeetingFinalized(runExtractionSafe);
 
-// メンバー向け：1商談の判定取得（無ければ判定して返す）
-app.get("/api/meetings/:id/phase", async (req, res) => {
-  try {
-    let j = await getPhaseJudgment(req.params.id);
-    if (!j && req.query.auto === "1") j = await runPhaseJudgment(req.params.id);
-    res.json(j || null);
-  } catch (e) { res.status(200).json(null); }
-});
-// 手動で再判定
-app.post("/api/meetings/:id/phase/judge", async (req, res) => {
-  try {
-    const j = await runPhaseJudgment(req.params.id);
-    res.json(j || {});
-  } catch (e) {
-    console.error("[phase judge]", e.message);
-    res.status(502).json({ error: e.message });
-  }
-});
 // メール→氏名の解決マップを作る
 async function buildRepNameMap() {
   const map = {};
@@ -724,111 +588,8 @@ function resolveRepName(repName, repEmail, nameMap) {
   return String(e).includes("@") ? String(e).split("@")[0] : (e || "(不明)");
 }
 
-// マネージャー向け：期間×階層の集計（SQL集計をJSで階層化）
-app.get("/api/phase/dashboard", async (req, res) => {
-  try {
-    const granularity = ["day", "week", "month"].includes(req.query.granularity) ? req.query.granularity : "week";
-    const from = req.query.from || null;
-    const to = req.query.to || null;
-    const rows = await phaseRows({ from, to });
-    const trendRaw = await phaseTrend({ granularity, from, to });
-    const nameMap = await buildRepNameMap();
-    // チーム/グループのマッピング（担当者名 or メール どちらで登録されていても拾えるように両引き）
-    const teamByRep = {}, groupByRep = {};
-    try {
-      const maps = await listRepTeams();
-      for (const m of maps || []) { teamByRep[m.rep_name] = m.team_name; groupByRep[m.rep_name] = m.group_name; }
-    } catch {}
-    // 行に表示名・チームを付与
-    for (const r of rows) {
-      r.rep_disp = resolveRepName(r.rep_name, r.rep_email, nameMap);
-      r.team_name = teamByRep[r.rep_disp] || teamByRep[r.rep_name] || teamByRep[r.rep_email] || "未分類";
-    }
-    const rate = (c, t) => (t ? Math.round((c / t) * 1000) / 10 : 0);
-    const dist = (arr) => ({
-      p1: arr.filter((r) => r.current_phase === 1).length,
-      p2: arr.filter((r) => r.current_phase === 2).length,
-      p3plus: arr.filter((r) => (r.current_phase || 0) >= 3).length,
-    });
-    const summarize = (arr) => {
-      const total = arr.length;
-      const p3 = arr.filter((r) => r.phase3_reached).length;
-      return { total, phase3_count: p3, phase3_rate: rate(p3, total), dist: dist(arr) };
-    };
-    const overall = summarize(rows);
-    const teamMap = {};
-    for (const r of rows) {
-      const t = r.team_name || "未分類";
-      (teamMap[t] = teamMap[t] || []).push(r);
-    }
-    const teams = Object.keys(teamMap).sort().map((t) => {
-      const arr = teamMap[t];
-      const repMap = {};
-      for (const r of arr) { const rn = r.rep_disp || "(不明)"; (repMap[rn] = repMap[rn] || []).push(r); }
-      const reps = Object.keys(repMap).sort().map((rn) => {
-        const ra = repMap[rn];
-        const atRisk = ra.filter((x) => x.risk && (x.current_phase || 0) < 3).length;
-        return { rep_name: rn, ...summarize(ra), atRisk };
-      });
-      return { team_name: t, ...summarize(arr), reps };
-    });
-    const trend = trendRaw.map((t) => ({
-      period: t.period,
-      total: t.total,
-      phase3_rate: rate(t.phase3_count, t.total),
-    }));
-    res.json({ granularity, from, to, overall, teams, trend });
-  } catch (e) {
-    console.error("[phase dashboard]", e.message);
-    res.status(500).json({ error: e.message });
-  }
-});
 
-// 種別（コールド/過去失注/通常）× 案件単位 × チームの集計
-app.get("/api/phase/by-kind", async (req, res) => {
-  try {
-    const from = req.query.from || null;
-    const to = req.query.to || null;
-    const rows = await accountKindRows({ from, to });
-    const KINDS = ["コールド", "過去失注", "通常"];
-    const rate = (c, t) => (t ? Math.round((c / t) * 1000) / 10 : 0);
-    // 1グループ分の集計（種別ごとの件数・割合・各フェーズ到達率）
-    const summarize = (arr) => {
-      const total = arr.length;
-      const byKind = {};
-      for (const k of KINDS) {
-        const a = arr.filter((r) => (r.deal_kind || "通常") === k);
-        const n = a.length;
-        byKind[k] = {
-          count: n,
-          pct: rate(n, total),
-          // フェーズ到達率（その種別の案件のうち、各フェーズに到達した割合）
-          phase1: rate(a.filter((r) => r.phase1_reached).length, n),
-          phase2: rate(a.filter((r) => r.phase2_reached).length, n),
-          phase3: rate(a.filter((r) => r.phase3_reached).length, n),
-          phase4: rate(a.filter((r) => r.phase4_reached).length, n),
-        };
-      }
-      return { total, kinds: byKind };
-    };
-    const overall = summarize(rows);
-    // チーム別
-    const teamMap = {};
-    for (const r of rows) {
-      const t = r.team_name || "未分類";
-      (teamMap[t] = teamMap[t] || []).push(r);
-    }
-    const teams = Object.keys(teamMap).sort().map((t) => ({ team_name: t, ...summarize(teamMap[t]) }));
-    res.json({ from, to, overall, teams });
-  } catch (e) {
-    console.error("[phase by-kind]", e.message);
-    res.status(500).json({ error: e.message });
-  }
-});
 
-app.get("/api/phase/teams", async (req, res) => {
-  try { res.json(await listRepTeams()); } catch { res.json([]); }
-});
 
 // Recall接続状況（どのリージョン/キーに繋がっているか＋今月の利用時間＋直近のボット起動結果）
 // ※Recall APIは「残高（チャージ額）」を返さないため、残高は取得できない。利用時間と接続先のみ表示する。
@@ -957,6 +718,39 @@ app.get("/api/integrations", async (req, res) => {
 });
 
 // ===== Feature A: 新営業プロセスのAPI =====
+
+// チーム編集（担当者→チームのマスタ）。新プロセスのチーム集計にも使う。
+app.get("/api/teams", async (req, res) => {
+  try { res.json(await listRepTeams()); } catch { res.json([]); }
+});
+app.get("/api/teams/reps", async (req, res) => {
+  try {
+    // {rep_name, n} 形式で返す（判定実績が無くても商談担当者を候補に含める）
+    const judg = await listJudgmentReps().catch(() => []); // [{rep_name, n}]
+    const counts = {};
+    for (const r of judg) if (r.rep_name) counts[r.rep_name] = r.n || 0;
+    for (const m of (await listMeetings({ isAdmin: true }).catch(() => []))) {
+      const nm = m.owner_name || m.owner;
+      if (nm && counts[nm] == null) counts[nm] = 0;
+    }
+    res.json(Object.keys(counts).map((rep_name) => ({ rep_name, n: counts[rep_name] })));
+  } catch { res.json([]); }
+});
+app.put("/api/teams", async (req, res) => {
+  try {
+    const { rep_name, team_name, group_name } = req.body || {};
+    if (!rep_name || !team_name) return res.status(400).json({ error: "担当者名とチーム名が必要です" });
+    await upsertRepTeam(rep_name, team_name, group_name || "直販");
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+app.delete("/api/teams/:rep", async (req, res) => {
+  try {
+    await deleteRepTeam(decodeURIComponent(req.params.rep));
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 
 // 案件一覧（deals）
 app.get("/api/deals", async (req, res) => {
@@ -1215,125 +1009,6 @@ app.get("/api/report/pipeline-trend", async (req, res) => {
   }
 });
 
-// フェーズ定義プロンプト（DBで上書き可能。空にすると既定値に戻る）
-app.get("/api/phase/prompt", async (req, res) => {
-  try {
-    const s = await getSettings();
-    const custom = typeof s.phaseJudgmentPrompt === "string" ? s.phaseJudgmentPrompt : "";
-    res.json({ prompt: custom || PHASE_JUDGMENT_PROMPT, isDefault: !custom.trim(), defaultPrompt: PHASE_JUDGMENT_PROMPT });
-  } catch (e) {
-    res.json({ prompt: PHASE_JUDGMENT_PROMPT, isDefault: true, defaultPrompt: PHASE_JUDGMENT_PROMPT });
-  }
-});
-app.put("/api/phase/prompt", async (req, res) => {
-  try {
-    const { prompt } = req.body || {};
-    // 空文字を送った場合は「既定値に戻す」扱い
-    await saveSettings({ phaseJudgmentPrompt: typeof prompt === "string" ? prompt : "" });
-    res.json({ ok: true });
-  } catch (e) {
-    res.status(500).json({ error: e.message });
-  }
-});
-// マッピング候補（判定結果に出てくる担当者を表示名で）
-app.get("/api/phase/reps", async (req, res) => {
-  try {
-    const raw = await listJudgmentReps();
-    const nameMap = await buildRepNameMap();
-    const agg = {};
-    for (const r of raw || []) {
-      const disp = resolveRepName(r.rep_name, null, nameMap);
-      agg[disp] = (agg[disp] || 0) + (r.n || 0);
-    }
-    res.json(Object.keys(agg).map((rep_name) => ({ rep_name, n: agg[rep_name] })).sort((a, b) => b.n - a.n));
-  } catch { res.json([]); }
-});
-app.put("/api/phase/teams", async (req, res) => {
-  try {
-    const { repName, teamName, groupName } = req.body || {};
-    if (!repName) return res.status(400).json({ error: "担当者名が必要です" });
-    await upsertRepTeam(repName, teamName, groupName);
-    res.json({ ok: true });
-  } catch (e) { res.status(500).json({ error: e.message }); }
-});
-app.delete("/api/phase/teams/:rep", async (req, res) => {
-  try { await deleteRepTeam(decodeURIComponent(req.params.rep)); res.json({ ok: true }); }
-  catch (e) { res.status(500).json({ error: e.message }); }
-});
-
-// 案件単位：複数商談の文字起こしをまとめて1つのフェーズ判定にする
-// 商談から「要約テキスト」を組み立てる（フェーズ判定を要約ベースにする場合に使用）
-function buildMeetingSummaryText(m) {
-  const sm = m.summary || {};
-  let t = "";
-  if (sm.overview) t += sm.overview + "\n";
-  for (const [lab, keyName] of [["合意", "agreements"], ["次アクション", "action_items"], ["顧客の懸念", "customer_concerns"], ["要点", "key_points"]]) {
-    if (Array.isArray(sm[keyName]) && sm[keyName].length) t += `\n[${lab}]\n` + sm[keyName].map((x) => "・" + x).join("\n");
-  }
-  return t.trim();
-}
-
-async function runAccountPhaseJudgment(key, botIds) {
-  const ids = Array.isArray(botIds) ? botIds.filter(Boolean) : [];
-  if (!key || !ids.length) throw new Error("対象の商談がありません");
-  // PHASE_USE_SUMMARY=1 のとき、生の文字起こしではなく各商談の要約を使う（入力トークンを大幅削減＝コスト減）。
-  // 要約が無い商談は自動的に文字起こしにフォールバックする。
-  const useSummary = process.env.PHASE_USE_SUMMARY === "1" || process.env.PHASE_USE_SUMMARY === "true";
-  const parts = [];
-  let latest = null, repName = "";
-  let n = 0;
-  for (const id of ids) {
-    const m = await getMeeting(id);
-    if (!m) continue;
-    if (m.category && m.category !== "商談") continue; // 商談以外は除外
-    let text = "";
-    if (useSummary) text = buildMeetingSummaryText(m);
-    if (!text) {
-      const tr = Array.isArray(m.transcript) ? m.transcript : [];
-      text = tr.map((u) => `${u.speaker?.name || "話者"}: ${u.text || ""}`).join("\n").trim();
-    }
-    if (!text) continue;
-    n += 1;
-    const d = m.created_at ? new Date(m.created_at) : null;
-    const ds = d ? d.toISOString().slice(0, 10) : "";
-    const label = useSummary ? "回目（要約）" : "回目";
-    parts.push(`=== ${n}${label}${ds ? "（" + ds + "）" : ""} ===\n${text}`);
-    if (!latest || (d && new Date(latest.created_at) < d)) latest = m;
-  }
-  if (!parts.length) throw new Error("文字起こしがありません");
-  repName = (latest && (latest.owner_name || latest.owner)) || "";
-  const combined = parts.join("\n\n");
-  const j = await judgePhase(combined, { repName });
-  j.rep_name = repName;
-  j.based_on = n;
-  j.meeting_date = (latest && latest.created_at ? new Date(latest.created_at) : new Date()).toISOString().slice(0, 10);
-  await saveAccountPhase(key, j);
-  return j;
-}
-
-// 案件カード表示用：全案件ぶんのフェーズ判定を一括取得
-app.get("/api/account-phase/all", async (req, res) => {
-  try { res.json(await listAccountPhases()); } catch { res.json([]); }
-});
-// 案件フェーズ：保存済みを取得
-app.get("/api/account-phase", async (req, res) => {
-  try {
-    const key = req.query.key || "";
-    if (!key) return res.json(null);
-    res.json(await getAccountPhase(key));
-  } catch { res.status(200).json(null); }
-});
-// 案件フェーズ：全商談まとめて判定（手動・自動共通）
-app.post("/api/account-phase/judge", async (req, res) => {
-  try {
-    const { key, botIds } = req.body || {};
-    const j = await runAccountPhaseJudgment(key, botIds);
-    res.json(j || {});
-  } catch (e) {
-    console.error("[account phase judge] 失敗:", e.message, "\n", (e.stack || "").split("\n").slice(0, 4).join("\n"));
-    res.status(502).json({ error: e.message || "判定に失敗しました" });
-  }
-});
 
 // ===== 企業アカウント（プロフィール／会社概要） =====
 app.get("/api/accounts", async (req, res) => {
@@ -1461,57 +1136,6 @@ app.post("/api/notion/report", async (req, res) => {
   }
 });
 
-// ===== 失注サイン（学習） =====
-app.get("/api/lost-signals", async (req, res) => {
-  try {
-    const cfg = await getSettings();
-    res.json({ signals: Array.isArray(cfg.lostSignals) ? cfg.lostSignals : [] });
-  } catch (e) {
-    res.status(500).json({ error: e.message });
-  }
-});
-app.put("/api/lost-signals", async (req, res) => {
-  try {
-    const signals = Array.isArray(req.body?.signals) ? req.body.signals.slice(0, 30) : [];
-    await saveSettings({ lostSignals: signals });
-    res.json({ ok: true, signals });
-  } catch (e) {
-    res.status(500).json({ error: e.message });
-  }
-});
-app.post("/api/lost-signals/learn", async (req, res) => {
-  try {
-    const statuses = await listDealStatuses();
-    let rows = await listMeetings({ isAdmin: true });
-    const acctOf = (m) => (m.account && m.account.trim()) || companyFromTitle(m.title) || "(無題)";
-    const statusOf = (m) => {
-      const s = statuses[acctOf(m)];
-      if (s && s.status) return s.status;
-      if (m.analysis && m.analysis.deal_status) return m.analysis.deal_status;
-      return "進行中";
-    };
-    const lost = rows.filter((m) => statusOf(m) === "失注");
-    if (!lost.length) return res.status(400).json({ error: "失注の案件がまだありません。商談を重ねてステータスが付くと学習できます。" });
-    const block = (m, i) => {
-      const p = [`#${i + 1} 「${m.title || "無題"}」`];
-      const s = m.summary || {};
-      if (s.overview) p.push(`要約: ${s.overview}`);
-      if (Array.isArray(s.customer_concerns) && s.customer_concerns.length) p.push(`懸念: ${s.customer_concerns.join(" / ")}`);
-      const a = m.analysis;
-      if (a && a.deal_status_reason) p.push(`失注理由(AI): ${a.deal_status_reason}`);
-      if (a && a.objections?.length) p.push(`異議: ${a.objections.join(" / ")}`);
-      return p.join("\n");
-    };
-    let lostMaterial = lost.slice(0, 15).map(block).join("\n\n");
-    if (lostMaterial.length > 8000) lostMaterial = lostMaterial.slice(0, 8000);
-    const signals = await extractLostSignals({ lostMaterial });
-    await saveSettings({ lostSignals: signals });
-    res.json({ ok: true, signals, lostCount: lost.length });
-  } catch (e) {
-    console.error("[lost-signals]", e.message);
-    res.status(502).json({ error: e.message });
-  }
-});
 
 // ===== Notion連携 =====
 app.get("/api/notion/config", async (req, res) => {
@@ -1683,104 +1307,7 @@ app.post("/api/meetings/:id/thanks", async (req, res) => {
 // 商談を削除
 // 絞り込んだ商談全体を横断して、傾向・スコア理由を分析（結果はキャッシュ）
 const PHASE_LABELS = { "01": "初回商談", "02": "有効商談", "03": "担当者合意", "04": "企画決定者合意" };
-app.post("/api/analyze-set", async (req, res) => {
-  try {
-    const { owner, owners, phase, phases, from, to, force, cachedOnly } = req.body || {};
-    const ownerList = Array.isArray(owners) ? owners.filter(Boolean) : owner ? [owner] : [];
-    const phaseList = Array.isArray(phases) ? phases.filter(Boolean) : phase ? [phase] : [];
-    let rows = await listMeetings({ isAdmin: true });
-    rows = rows.filter((m) => {
-      if (!isSales(m)) return false;
-      if (ownerList.length && !ownerList.includes(m.owner || "")) return false;
-      if (phaseList.length && !phaseList.includes(m.phase || "")) return false;
-      const d = new Date(m.created_at);
-      if (from && d < new Date(from + "T00:00:00")) return false;
-      if (to && d > new Date(to + "T23:59:59")) return false;
-      return true;
-    });
-    const count = rows.length;
 
-    // キャッシュキーと、データ変更を検知する指紋
-    const key = `${[...ownerList].sort().join("+")}|${[...phaseList].sort().join("+")}|${from || ""}|${to || ""}`;
-    const fingerprint = crypto
-      .createHash("sha1")
-      .update(
-        rows
-          .map((m) => `${m.bot_id}:${new Date(m.updated_at || m.created_at).getTime()}`)
-          .sort()
-          .join(",")
-      )
-      .digest("hex");
-
-    const cache = await getSetCache(key);
-    const valid = cache && cache.fingerprint === fingerprint;
-    if (valid && !force) {
-      return res.json({ ...cache.result, cached: true, count });
-    }
-    if (cachedOnly) {
-      return res.json({ hasCache: false, cached: false, count });
-    }
-    if (count === 0) return res.status(400).json({ error: "対象の商談がありません" });
-
-    // 新しい順に最大15件を対象（トークン量を抑制）
-    const use = rows.slice(0, 15);
-    const blocks = use.map((m, i) => {
-      const p = [`#${i + 1} 「${m.title || "無題"}」 ${m.round_no ? m.round_no + "回目 " : ""}フェーズ${m.phase || "-"}`];
-      const s = m.summary || {};
-      if (s.overview) p.push(`要約: ${s.overview}`);
-      if (Array.isArray(s.key_points) && s.key_points.length) p.push(`要点: ${s.key_points.join(" / ")}`);
-      const a = m.analysis;
-      if (a && a.scores) {
-        p.push(`スコア ヒア${a.scores.hearing ?? "-"}/提案${a.scores.proposal ?? "-"}/クロ${a.scores.closing ?? "-"}/傾聴${a.scores.listening ?? "-"}`);
-        if (a.score_reasons) {
-          const r = a.score_reasons;
-          p.push(`理由 ヒア「${r.hearing || ""}」提案「${r.proposal || ""}」クロ「${r.closing || ""}」傾聴「${r.listening || ""}」`);
-        }
-        if (a.rep_habits?.length) p.push(`口癖: ${a.rep_habits.join(" / ")}`);
-        if (a.customer_reactions?.length) p.push(`顧客反応: ${a.customer_reactions.join(" / ")}`);
-        if (a.coaching?.length) p.push(`助言: ${a.coaching.join(" / ")}`);
-      }
-      return p.join("\n");
-    });
-    let material = blocks.join("\n\n");
-    if (material.length > 14000) material = material.slice(0, 14000);
-
-    const ownerName = ownerList.length
-      ? ownerList.map((o) => rows.find((m) => m.owner === o)?.owner_name || o).join("・")
-      : "全員";
-    const phaseDesc = phaseList.length ? phaseList.map((p) => PHASE_LABELS[p] || p).join("・") : "すべて";
-    const filterDesc = `営業担当: ${ownerName} ／ フェーズ: ${phaseDesc} ／ 件数: ${count}`;
-
-    const result = await analyzeSet({ material, filterDesc });
-    const payload = { ...result, used: use.length };
-    await saveSetCache(key, fingerprint, payload);
-    res.json({ ...payload, cached: false, count });
-  } catch (e) {
-    console.error("[analyze-set]", e.message);
-    res.status(502).json({ error: e.message });
-  }
-});
-
-// 担当者（所有者）の商談傾向を合成
-app.post("/api/tendency", async (req, res) => {
-  try {
-    const { owner } = req.body || {};
-    if (!owner) return res.status(400).json({ error: "owner が必要です" });
-    const allM = await listMeetings({ isAdmin: true });
-    const items = allM
-      .filter((m) => (m.owner || "") === owner && m.analysis && m.analysis.scores)
-      .map((m) => ({ title: m.title, phase: m.phase, analysis: m.analysis }));
-    if (items.length === 0) {
-      return res.status(400).json({ error: "この担当者の分析済み商談がありません（各商談で『分析を生成』してください）" });
-    }
-    const repName = items[0]?.analysis ? owner : owner;
-    const result = await analyzeTendency({ repName, items });
-    res.json({ ...result, count: items.length });
-  } catch (e) {
-    console.error("[tendency]", e.message);
-    res.status(502).json({ error: e.message });
-  }
-});
 
 // --- 商談セッション開始：会議にBotを送り込む ---
 app.post("/api/sessions", async (req, res) => {
@@ -2281,8 +1808,6 @@ async function processUpload(id, file, repName) {
       }
     }
     await setMeetingStatus(id, "done");
-    // 商談フェーズ自動判定（旧・撤去予定。ステップ2で削除）
-    runPhaseJudgmentSafe(id);
     // 新営業プロセスの抽出（Feature A）
     runExtractionSafe(id);
 

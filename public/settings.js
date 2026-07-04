@@ -268,7 +268,6 @@ loadThanks();
       const name = item.dataset.tab;
       document.querySelectorAll(".set-pane").forEach((p) => (p.hidden = p.dataset.pane !== name));
       if (name === "teams") loadTeams();
-      if (name === "phasedef") loadPhasePrompt();
       if (name === "thanks") loadThanksPrompt();
       if (name === "status") { loadIntegrations(); loadRecallStatus(); }
     });
@@ -378,8 +377,8 @@ async function loadTeams() {
   if (!tbl) return;
   tbl.innerHTML = '<tr><td class="note">読み込み中…</td></tr>';
   let reps = [], users = [];
-  try { teamsCache = await (await fetch("/api/phase/teams")).json(); } catch { teamsCache = []; }
-  try { reps = await (await fetch("/api/phase/reps")).json(); } catch { reps = []; }
+  try { teamsCache = await (await fetch("/api/teams")).json(); } catch { teamsCache = []; }
+  try { reps = await (await fetch("/api/teams/reps")).json(); } catch { reps = []; }
   try { users = await (await fetch("/api/users")).json(); } catch { users = []; }
   // 候補（担当者名）：判定実績 + ユーザー名
   const nameSet = new Set();
@@ -426,7 +425,7 @@ async function loadTeams() {
   tbl.querySelectorAll(".tm-del").forEach((b) =>
     b.addEventListener("click", async () => {
       if (!confirm(`「${b.dataset.rep}」のマッピングを削除しますか？`)) return;
-      await fetch("/api/phase/teams/" + encodeURIComponent(b.dataset.rep), { method: "DELETE" });
+      await fetch("/api/teams/" + encodeURIComponent(b.dataset.rep), { method: "DELETE" });
       loadTeams();
     })
   );
@@ -442,9 +441,9 @@ async function loadTeams() {
     if (!repName || !teamName) { if (st) st.textContent = "担当者名とチーム名を入れてください"; return; }
     if (st) st.textContent = "保存中…";
     try {
-      const r = await fetch("/api/phase/teams", {
+      const r = await fetch("/api/teams", {
         method: "PUT", headers: { "content-type": "application/json" },
-        body: JSON.stringify({ repName, teamName, groupName }),
+        body: JSON.stringify({ rep_name: repName, team_name: teamName, group_name: groupName }),
       });
       if (!r.ok) throw new Error("保存に失敗");
       if (st) st.textContent = "保存しました";

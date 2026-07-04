@@ -13,7 +13,6 @@
         <a class="side-item" href="index.html"><span class="side-ico ico-rec"></span><span class="side-label">レコーディング</span></a>
         <a class="side-item" href="history.html"><span class="side-ico ico-hist"></span><span class="side-label">商談履歴</span></a>
         <a class="side-item active" href="deals.html"><span class="side-ico ico-deal"></span><span class="side-label">案件</span></a>
-        <a class="side-item" href="analysis.html"><span class="side-ico ico-ana"></span><span class="side-label">分析</span></a>
         <a class="side-item" href="report.html"><span class="side-ico ico-ana"></span><span class="side-label">実績</span></a>
         <a class="side-item" href="settings.html"><span class="side-ico ico-set"></span><span class="side-label">設定</span></a>
         <div class="side-foot"><span id="who" class="who"></span><a href="#" id="logout" class="side-logout">ログアウト</a></div>
@@ -26,15 +25,7 @@
           <label>検索<input id="fSearch" type="text" placeholder="取引先名で検索" /></label>
           <label>商談期間<span class="range"><input id="fFrom" type="date" /><span class="range-sep">〜</span><input id="fTo" type="date" /></span></label>
           <button class="btn ghost" id="mergeDupBtn" type="button" title="同じ会社名の案件を1つにまとめます">重複をまとめる</button>
-          <button class="btn ghost" id="selectModeBtn" type="button" title="案件カードを選んでまとめてフェーズ判定します">選択する</button>
           <span class="merge-status" id="mergeStatus"></span>
-          <span class="merge-status" id="bulkJudgeStatus"></span>
-        </div>
-        <div class="select-toolbar" id="selectToolbar" hidden>
-          <span class="select-count" id="selectCount">0件選択中</span>
-          <button class="btn ghost" id="selectAllBtn" type="button">表示中をすべて選択</button>
-          <button class="btn ghost" id="selectClearBtn" type="button">選択解除</button>
-          <button class="btn" id="bulkJudgeBtn" type="button" disabled>選択した案件をまとめて判定</button>
         </div>
         <main class="history">
           <aside class="hlist" id="dealList"><div class="empty-state">読み込み中…</div></aside>

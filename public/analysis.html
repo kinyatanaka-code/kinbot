@@ -13,86 +13,21 @@
         <a class="side-item" href="index.html"><span class="side-ico ico-rec"></span><span class="side-label">レコーディング</span></a>
         <a class="side-item" href="history.html"><span class="side-ico ico-hist"></span><span class="side-label">商談履歴</span></a>
         <a class="side-item" href="deals.html"><span class="side-ico ico-deal"></span><span class="side-label">案件</span></a>
-        <a class="side-item active" href="analysis.html"><span class="side-ico ico-ana"></span><span class="side-label">分析</span></a>
         <a class="side-item" href="report.html"><span class="side-ico ico-ana"></span><span class="side-label">実績</span></a>
         <a class="side-item" href="settings.html"><span class="side-ico ico-set"></span><span class="side-label">設定</span></a>
         <div class="side-foot"><span id="who" class="who"></span><a href="#" id="logout" class="side-logout">ログアウト</a></div>
       </nav>
-
       <div class="main">
-        <header class="topbar"><div class="brand"><img class="topbar-bot" src="kinbot.svg" alt="" /><span class="brand-name">分析（全商談の振り返り）</span></div></header>
-        <main class="analysis-page">
-          <div class="ana-tabs" id="anaTabs">
-            <button class="ana-tab active" data-mp="dash"><span class="tico tico-dash"></span><span>ダッシュボード</span></button>
-            <button class="ana-tab" data-mp="agg"><span class="tico tico-agg"></span><span>担当・スコア</span></button>
-            <button class="ana-tab" data-mp="tend"><span class="tico tico-tend"></span><span>傾向まとめ</span></button>
-            <button class="ana-tab" data-mp="prof"><span class="tico tico-prof"></span><span>企業傾向</span></button>
-            <button class="ana-tab" data-mp="phase"><span class="tico tico-prof"></span><span>フェーズ</span></button>
-            <button class="ana-tab" data-mp="win"><span class="tico tico-win"></span><span>失注分析</span></button>
-            <button class="ana-tab" data-mp="list"><span class="tico tico-list"></span><span>商談一覧</span></button>
-            <button class="ana-tab" data-mp="free"><span class="tico tico-free"></span><span>なんでも分析</span></button>
-            <button class="ana-tab" data-mp="chat"><span class="tico tico-chat"></span><span>AIと会話</span></button>
-          </div>
-
-          <div class="filters" id="anaFilters">
-            <div class="fphase-group frep-group" id="fRepGroup"><span class="flabel">営業担当者</span></div>
-            <div class="fphase-group" id="fPhaseGroup"><span class="flabel">フェーズ</span></div>
-            <label>開始日
-              <input type="date" id="fFrom" />
-            </label>
-            <label>終了日
-              <input type="date" id="fTo" />
-            </label>
-            <button class="btn" id="fApply">絞り込み</button>
-            <button class="btn ghost" id="fClear">クリア</button>
-          </div>
-
-          <div class="dashboard" id="dashboard" data-mpanel="dash"></div>
-
-          <div class="freebox" id="freebox" data-mpanel="free"></div>
-
-          <div class="chatbox" id="chatbox" data-mpanel="chat">
-            <div class="chat-head">
-              <span>💬 AIと会話（Gemini・商談データを参照）</span>
-              <label class="chat-pro"><input type="checkbox" id="chatWeb" /> ネット検索</label>
-              <label class="chat-pro"><input type="checkbox" id="chatPro" /> 高精度(Pro)</label>
-            </div>
-            <p class="metric-note" id="chatScope">上の絞り込みの商談を参照します。例：「○○社の状況を要約して」「失注を防ぐには？」「田中の次アクションを提案して」</p>
-            <div class="chat-log" id="chatLog"></div>
-            <div class="chat-input">
-              <textarea id="chatText" rows="1" placeholder="メッセージを入力…"></textarea>
-              <button class="btn" id="chatSend">送信</button>
-              <button class="btn ghost" id="chatClear">クリア</button>
-            </div>
-          </div>
-
-          <div class="agg" id="agg" data-mpanel="agg"></div>
-
-          <div class="tendency" id="tendency" data-mpanel="tend"></div>
-
-          <div class="profanalysis" id="profanalysis" data-mpanel="prof"></div>
-
-          <div class="phasepanel" id="phasepanel" data-mpanel="phase"></div>
-
-          <div class="winloss" id="winloss" data-mpanel="win"></div>
-
-          <div class="lostsig" id="lostsig" data-mpanel="win"></div>
-
-          <div class="alist-wrap" data-mpanel="list">
-            <div class="alist-head">
-              <h3>対象の商談（クリックで詳細へ）</h3>
-              <div class="hfilter-actions">
-                <button class="btn" id="anaBulkNotion">絞り込みをNotionに一括送信</button>
-                <span class="bulk-status" id="anaBulkStatus"></span>
-              </div>
-            </div>
-            <ul class="alist" id="alist"><li class="empty-state">読み込み中…</li></ul>
+        <header class="topbar"><div class="brand"><img class="topbar-bot" src="kinbot.svg" alt="" /><span class="brand-name">分析</span></div></header>
+        <main style="padding:40px 24px;">
+          <div style="max-width:560px;background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:28px;">
+            <h2 style="margin:0 0 10px;font-size:18px;">「実績」ダッシュボードに移行しました</h2>
+            <p style="color:var(--muted);line-height:1.7;">従来の分析は、新しい営業プロセスに合わせた<b>「実績」</b>ダッシュボードに置き換わりました。サマリー（ファネル）・日次データ確認・パイプラインをご利用ください。</p>
+            <p style="margin-top:16px;"><a class="btn" href="report.html">実績ダッシュボードを開く</a></p>
           </div>
         </main>
       </div>
     </div>
-    <script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
-    <script src="analysis.js"></script>
-      <script src="nav.js"></script>
+    <script src="nav.js"></script>
   </body>
 </html>

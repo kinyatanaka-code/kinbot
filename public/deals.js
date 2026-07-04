@@ -37,9 +37,6 @@ let groupPrimary = {}; // groupKey -> 代表rawキー
 let current = null;
 let dealStatuses = {}; // account -> {status, manual}
 let accountsMap = {}; // key -> {site_url, official_name, owner, profile}
-let accountPhaseMap = {}; // primaryキー -> 案件単位のフェーズ判定（カード表示用）
-let selectMode = false; // 案件カードの選択モード
-let selectedAccounts = new Set(); // 選択中の案件（groupsのキー基準）
 const STATUS_LIST = ["進行中", "受注", "失注", "保留"];
 const primaryOf = (a) => groupPrimary[a] || a;
 const statusOf = (a) => (dealStatuses[primaryOf(a)] && dealStatuses[primaryOf(a)].status) || "進行中";
@@ -87,7 +84,6 @@ async function renderOwnerPicker(account, last) {
 }
 
 // ===== 案件フェーズ判定（最新商談に基づく・案件単位の表示） =====
-const PHASE_NAMES_D = { 1: "課題特定", 2: "カスタマイズデモ", 3: "顧客起点", 4: "クロージング" };
 
 // 商談名から種別（コールド/過去失注）を推定（履歴側と同じ基準）
 function inferDealKindD(title) {
@@ -116,91 +112,7 @@ const PHASE_NEED_D = {
 function escapeHtmlD(s) {
   return String(s == null ? "" : s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 }
-// 判定結果が更新されたら、一覧カードのフェーズ表示にも反映する
-function syncAccountPhase(key, j) {
-  if (!key) return;
-  if (j && j.current_phase) accountPhaseMap[key] = { account_key: key, current_phase: j.current_phase, based_on: j.based_on, judged_at: j.judged_at };
-  else delete accountPhaseMap[key];
-  renderList();
-}
 
-function renderDealPhaseBox(box, j, key, ms) {
-  const total = ms ? ms.length : 0;
-  const note = `<div class="phase-src">この案件の全商談（${total}回）の内容をまとめて判定${j && j.judged_at ? "" : ""}</div>`;
-  const doJudge = async (btn) => {
-    if (btn) { btn.disabled = true; btn.textContent = "判定中…"; }
-    try {
-      const r = await fetch("/api/account-phase/judge", {
-        method: "POST", headers: { "content-type": "application/json" },
-        body: JSON.stringify({ key, botIds: (ms || []).map((m) => m.bot_id) }),
-      });
-      const d = await r.json().catch(() => ({}));
-      if (!r.ok) throw new Error(d.error || `判定に失敗（HTTP ${r.status}）`);
-      renderDealPhaseBox(box, d, key, ms);
-      syncAccountPhase(key, d);
-    } catch (e) {
-      if (btn) { btn.disabled = false; btn.textContent = "再判定"; }
-      const host = box.querySelector(".phase-empty, .phase-head");
-      if (host) host.insertAdjacentHTML("beforeend", `<span class="phase-err">失敗: ${escapeHtmlD(e.message)}</span>`);
-    }
-  };
-  if (!j) {
-    box.innerHTML = `${note}<div class="phase-empty">フェーズ判定はまだありません。<button class="btn ghost phase-judge" type="button">フェーズを判定する</button></div>`;
-    const b = box.querySelector(".phase-judge");
-    if (b) b.addEventListener("click", () => doJudge(b));
-    return;
-  }
-  const cur = j.current_phase || 0;
-  const steps = [1, 2, 3, 4].map((n) => {
-    const reached = j[`phase${n}_reached`];
-    const cls = reached ? "done" : "todo";
-    const isCur = n === cur;
-    return `<div class="phase-step ${cls} ${isCur ? "cur" : ""}"><span class="phase-dot">${reached ? "✓" : n}</span><span class="phase-label">${PHASE_NAMES_D[n]}</span></div>`;
-  }).join('<span class="phase-arrow">›</span>');
-  const reasons = [1, 2, 3, 4].map((n) => {
-    const reached = j[`phase${n}_reached`];
-    const ev = j[`phase${n}_evidence`];
-    const why = j[`phase${n}_reasoning`];
-    if (reached) {
-      return `<div class="pr-item reached"><div class="pr-h"><span class="pr-badge ok">到達</span>フェーズ${n}・${PHASE_NAMES_D[n]}</div>` +
-        (ev ? `<div class="pr-ev">根拠：「${escapeHtmlD(ev)}」</div>` : `<div class="pr-ev pr-muted">根拠の記載なし</div>`) +
-        (why ? `<div class="pr-why">検討：${escapeHtmlD(why)}</div>` : "") + `</div>`;
-    }
-    return `<div class="pr-item notyet"><div class="pr-h"><span class="pr-badge no">未到達</span>フェーズ${n}・${PHASE_NAMES_D[n]}</div>` +
-      `<div class="pr-ev pr-muted">${why ? "検討：" + escapeHtmlD(why) : escapeHtmlD(PHASE_NEED_D[n])}</div></div>`;
-  }).join("");
-  const next = j.next_action ? `<div class="phase-next"><b>次のアクション</b>：${escapeHtmlD(j.next_action)}</div>` : "";
-  const risk = j.risk ? `<div class="phase-risk"><b>⚠ リスク</b>：${escapeHtmlD(j.risk)}</div>` : "";
-  box.innerHTML =
-    `<div class="phase-head"><span class="phase-badge p${cur}">現在フェーズ${cur}：${PHASE_NAMES_D[cur] || "-"}</span>` +
-    `<button class="btn ghost phase-judge" type="button">再判定</button></div>` +
-    note +
-    `<div class="phase-steps">${steps}</div>${next}${risk}` +
-    `<details class="phase-reasons" open><summary>判定の理由（フェーズごと）</summary><div class="pr-list">${reasons}</div></details>`;
-  const b = box.querySelector(".phase-judge");
-  if (b) b.addEventListener("click", () => doJudge(b));
-}
-async function loadDealPhase(key, ms) {
-  const box = document.getElementById("dealPhaseBox");
-  if (!box) return;
-  if (!key || !ms || !ms.length) { box.innerHTML = ""; return; }
-  try {
-    const r = await fetch("/api/account-phase?key=" + encodeURIComponent(key));
-    const j = await r.json();
-    if (j && Number(j.based_on || 0) === ms.length) { renderDealPhaseBox(box, j, key, ms); return; }
-    // 未判定、または商談数が変わっている場合は（再）判定
-    box.innerHTML = '<div class="phase-loading">全商談をまとめてフェーズ判定中…</div>';
-    const r2 = await fetch("/api/account-phase/judge", {
-      method: "POST", headers: { "content-type": "application/json" },
-      body: JSON.stringify({ key, botIds: ms.map((m) => m.bot_id) }),
-    });
-    const d = await r2.json();
-    renderDealPhaseBox(box, r2.ok ? d : null, key, ms);
-    if (r2.ok) syncAccountPhase(key, d);
-  } catch {
-    renderDealPhaseBox(box, null, key, ms);
-  }
-}
 
 function renderProfile(account) {
   const body = document.getElementById("profBody");
@@ -231,11 +143,6 @@ async function load() {
       accountsMap = {};
       for (const a of accs || []) accountsMap[a.key] = a;
     } catch {}
-    try {
-      const phs = await (await fetch("/api/account-phase/all")).json();
-      accountPhaseMap = {};
-      for (const p of phs || []) accountPhaseMap[p.account_key] = p;
-    } catch {}
   } catch {
     $("dealList").innerHTML = '<div class="empty-state">読み込みに失敗しました。</div>';
     return;
@@ -253,99 +160,12 @@ async function load() {
   }
   const mb = $("mergeDupBtn");
   if (mb && !mb._wired) { mb._wired = true; mb.addEventListener("click", mergeDuplicates); }
-  const smb = $("selectModeBtn");
-  if (smb && !smb._wired) { smb._wired = true; smb.addEventListener("click", toggleSelectMode); }
-  const saBtn = $("selectAllBtn");
-  if (saBtn && !saBtn._wired) { saBtn._wired = true; saBtn.addEventListener("click", selectAllVisible); }
-  const scBtn = $("selectClearBtn");
-  if (scBtn && !scBtn._wired) { scBtn._wired = true; scBtn.addEventListener("click", () => { selectedAccounts.clear(); renderList(); }); }
-  const bjBtn = $("bulkJudgeBtn");
-  if (bjBtn && !bjBtn._wired) { bjBtn._wired = true; bjBtn.addEventListener("click", judgeSelectedAccounts); }
   renderList();
 }
 
-// 全案件をグルーピングする共通ヘルパー（フィルタは無視して全件対象。選択モード・一括判定で使用）
-function buildAllAccountTasks() {
-  const tmp = {}, rawSets = {};
-  for (const m of all) {
-    if (m.category && m.category !== "商談") continue;
-    const rk = acctOf(m);
-    const gk = groupKeyOf(rk);
-    (tmp[gk] = tmp[gk] || []).push(m);
-    (rawSets[gk] = rawSets[gk] || new Set()).add(rk);
-  }
-  const tasks = {}; // groupKey -> {key(primary), ms}
-  for (const gk of Object.keys(tmp)) {
-    const raws = [...rawSets[gk]];
-    const primary = raws.find((r) => accountsMap[r] && (accountsMap[r].official_name || accountsMap[r].profile || accountsMap[r].owner || accountsMap[r].site_url)) || raws[0];
-    tasks[gk] = { key: primary, ms: tmp[gk] };
-  }
-  return tasks;
-}
 
-// 選択モードのON/OFF
-function toggleSelectMode() {
-  selectMode = !selectMode;
-  if (!selectMode) selectedAccounts.clear();
-  else { showAll = true; selectedRep = null; } // 選びやすいよう「すべての案件」表示にする
-  current = null;
-  renderList();
-}
 
-// 表示中の案件カードをすべて選択する
-function selectAllVisible() {
-  buildGroups();
-  for (const gk of Object.keys(groups)) selectedAccounts.add(gk);
-  renderList();
-}
 
-// 選択した案件をまとめてフェーズ判定する（選んだものは必ず判定し直す）
-async function judgeSelectedAccounts() {
-  const btn = $("bulkJudgeBtn");
-  const st = $("bulkJudgeStatus");
-  const setSt = (t) => { if (st) st.textContent = t; };
-  const keys = [...selectedAccounts];
-  if (!keys.length) { setSt("案件が選択されていません"); setTimeout(() => setSt(""), 2000); return; }
-  const allTasks = buildAllAccountTasks();
-  const tasks = keys.map((gk) => allTasks[gk]).filter(Boolean);
-  if (!tasks.length) { setSt("対象の案件が見つかりませんでした"); setTimeout(() => setSt(""), 2500); return; }
-  if (!confirm(`選択した${tasks.length}件をフェーズ判定します。\n実行しますか？`)) return;
-  if (btn) btn.disabled = true;
-  const total = tasks.length;
-  let done = 0, judged = 0, failed = 0;
-  let firstErr = "";
-  for (const t of tasks) {
-    done++;
-    setSt(`判定中 ${done}/${total}…（判定${judged}${failed ? "・失敗" + failed : ""}）`);
-    try {
-      const r = await fetch("/api/account-phase/judge", {
-        method: "POST", headers: { "content-type": "application/json" },
-        body: JSON.stringify({ key: t.key, botIds: t.ms.map((m) => m.bot_id) }),
-      });
-      const d = await r.json().catch(() => ({}));
-      if (!r.ok) throw new Error(d.error || `判定に失敗（HTTP ${r.status}）`);
-      judged++;
-    } catch (e) {
-      failed++;
-      if (!firstErr) firstErr = e.message || String(e);
-      console.error("[bulk judge]", displayName(t.key), e.message || e);
-    }
-    // 立て続けに送るとAI側のレート制限（特にフォールバック先）に当たりやすいため、間隔を空ける
-    if (done < total) await new Promise((r) => setTimeout(r, 600));
-  }
-  if (btn) btn.disabled = false;
-  setSt(`完了：${judged}件を判定${failed ? `／失敗 ${failed}件${firstErr ? `（例：${firstErr}）` : ""}` : ""}`);
-  // カードのフェーズ表示を最新化
-  try {
-    const phs = await (await fetch("/api/account-phase/all")).json();
-    accountPhaseMap = {};
-    for (const p of phs || []) accountPhaseMap[p.account_key] = p;
-  } catch {}
-  selectedAccounts.clear();
-  selectMode = false;
-  renderList();
-  setTimeout(() => setSt(""), failed ? 15000 : 6000);
-}
 
 // 同じ会社名の案件（別キーになっているもの）を、正式社名を揃えて1つにまとめる
 function normName(s) {
@@ -457,31 +277,17 @@ function accountCardEl(a) {
   const ms = groups[a];
   const last = ms[ms.length - 1];
   const st = statusOf(a);
-  const ph = accountPhaseMap[primaryOf(a)];
-  const phaseBadge = ph && ph.current_phase
-    ? `<span class="card-phase-badge p${ph.current_phase}">フェーズ${ph.current_phase}：${PHASE_NAMES_D[ph.current_phase] || ""}</span>`
-    : `<span class="card-phase-badge unset">フェーズ未判定</span>`;
-  const isSelected = selectMode && selectedAccounts.has(a);
   const kind = dealKindOf(a);
   const kindBadge = kind
     ? `<span class="kind-badge ${kind === "過去失注" ? "kind-lost" : "kind-cold"}">${kind}</span>`
     : "";
   const card = document.createElement("div");
-  card.className = "deal-card" + (a === current ? " active" : "") + (selectMode ? " selectable" : "") + (isSelected ? " selected" : "");
+  card.className = "deal-card" + (a === current ? " active" : "");
   card.innerHTML =
-    (selectMode ? `<span class="select-check">${isSelected ? "✓" : ""}</span>` : "") +
     `<div class="deal-name">${esc(displayName(a))} ${kindBadge}<span class="status-badge st-${st}">${st}</span></div>` +
     `<div class="deal-meta"><span>${ms.length}件</span><span>${esc(last.owner_name || last.owner || "")}</span></div>` +
-    `<div class="deal-sub">${phaseBadge} ・ 最終 ${fmtDate(last.created_at)}</div>`;
-  card.addEventListener("click", () => {
-    if (selectMode) {
-      if (selectedAccounts.has(a)) selectedAccounts.delete(a);
-      else selectedAccounts.add(a);
-      renderList();
-    } else {
-      selectDeal(a);
-    }
-  });
+    `<div class="deal-sub">最終 ${fmtDate(last.created_at)}</div>`;
+  card.addEventListener("click", () => selectDeal(a));
   return card;
 }
 
@@ -535,7 +341,7 @@ function renderList() {
   const repScope = selectedRep && !showAll && !searching;
   const mine = repScope ? names.filter((a) => repInfo(a).key === selectedRep) : names;
   el.innerHTML = "";
-  if (!selectMode) {
+  {
     const back = document.createElement("button");
     back.className = "rep-back";
     back.type = "button";
@@ -553,24 +359,9 @@ function renderList() {
       renderList();
     });
     el.appendChild(back);
-  } else {
-    const hint = document.createElement("div");
-    hint.className = "rep-head";
-    hint.textContent = `判定したい案件カードをクリックして選択してください（${mine.length}社を表示中）`;
-    el.appendChild(hint);
   }
   if (!mine.length) { const e = document.createElement("div"); e.className = "empty-state"; e.textContent = "該当する案件がありません。"; el.appendChild(e); }
   else for (const a of mine) el.appendChild(accountCardEl(a));
-
-  // 選択モードのツールバー・ボタン文言を更新
-  const smb = $("selectModeBtn");
-  if (smb) smb.textContent = selectMode ? "選択を終了" : "選択する";
-  const toolbar = $("selectToolbar");
-  if (toolbar) toolbar.hidden = !selectMode;
-  const cnt = $("selectCount");
-  if (cnt) cnt.textContent = `${selectedAccounts.size}件選択中`;
-  const bjBtn = $("bulkJudgeBtn");
-  if (bjBtn) bjBtn.disabled = selectedAccounts.size === 0;
 }
 
 async function selectDeal(account) {
@@ -611,7 +402,6 @@ async function selectDeal(account) {
     `</div>` +
     (statusOf(account) === "失注" && lastLostReason(ms) ? `<div class="lost-reason">AI判定の失注理由: ${esc(lastLostReason(ms))}</div>` : "") +
     `</div>` +
-    `<div class="phase-box" id="dealPhaseBox"><div class="phase-loading">フェーズ判定を確認中…</div></div>` +
     `<section class="deal-sec deal-profile"><div class="deal-sec-h">🏢 会社プロフィール</div>` +
     `<div class="prof-url"><input id="profUrl" type="text" placeholder="企業サイトURL（例: example.co.jp）" /><button class="btn" id="profGet">取得</button><span class="prof-status" id="profStatus"></span></div>` +
     `<div id="profBody"></div></section>` +
@@ -641,8 +431,6 @@ async function selectDeal(account) {
   renderProfile(account);
   // 担当（アカウント単位で選択・保存）
   await renderOwnerPicker(account, last);
-  // 商談フェーズ判定（この案件の全商談をまとめて判定）
-  loadDealPhase(pk, ms);
   const profUrl = $("profUrl"), profGet = $("profGet"), profStatus = $("profStatus");
   if (accountsMap[pk] && accountsMap[pk].site_url) profUrl.value = accountsMap[pk].site_url;
   profGet.addEventListener("click", async () => {

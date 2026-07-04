@@ -1,6 +1,6 @@
 // server/sessions.js
-import { analyze, analyzeMeeting, analyzeDeep, judgePhase } from "./analyzer.js";
-import { createMeeting, saveMeeting, saveAnalysis, saveDeepAnalysis, getMeeting, setDealStatusAuto, getSettings, companyFromTitle, savePhaseJudgment } from "./db.js";
+import { analyze, analyzeMeeting, analyzeDeep } from "./analyzer.js";
+import { createMeeting, saveMeeting, saveAnalysis, saveDeepAnalysis, getMeeting, setDealStatusAuto, getSettings, companyFromTitle } from "./db.js";
 import { disableLiveStream } from "./mux.js";
 
 const DEFAULT_INTERVAL_MS = Number(process.env.ANALYZE_INTERVAL_MS || 20000);
@@ -261,21 +261,6 @@ class Session {
       }
     } catch (e) {
       console.error("[auto deep]", e.message);
-    }
-    // 商談フェーズ自動判定（機能A）
-    try {
-      const full = this.transcriptText();
-      if (full.trim().length >= 20) {
-        const j = await judgePhase(full, { repName: this.repName || "" });
-        let email = "";
-        try { const m = await getMeeting(this.botId); email = (m && m.owner) || ""; if (!j.rep_name) j.rep_name = (m && m.owner_name) || email; } catch {}
-        j.rep_name = j.rep_name || this.repName || email || "";
-        j.rep_email = email;
-        j.meeting_date = new Date(this.startedAt).toISOString().slice(0, 10);
-        await savePhaseJudgment(this.botId, j);
-      }
-    } catch (e) {
-      console.error("[auto phase]", e.message);
     }
     // 新営業プロセスの抽出（Feature A）。index.js から登録されたフックを呼ぶ。
     try {
