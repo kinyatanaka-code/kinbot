@@ -115,7 +115,7 @@ function escapeHtmlD(s) {
 
 
 // 新プロセス（Feature A）の判定状態を会社名で取得して表示
-async function loadNewProcess(companyName, pk) {
+async function loadNewProcess(companyName, pk, ms) {
   const box = document.getElementById("newProcBox");
   if (!box) return;
   let d;
@@ -123,9 +123,41 @@ async function loadNewProcess(companyName, pk) {
     d = await (await fetch("/api/deal-status-by-company?company=" + encodeURIComponent(companyName))).json();
   } catch { box.innerHTML = '<div class="empty-state">取得に失敗しました。</div>'; return; }
   if (!d || !d.found) {
-    box.innerHTML = '<div class="empty-state">まだ新プロセスの抽出データがありません（この会社の商談を録音／アップロードすると自動で判定されます）。</div>';
+    // 抽出データが無い → この会社の商談（文字起こし）から判定できるボタンを出す
+    const botIds = (ms || []).map((m) => m.bot_id).filter(Boolean);
+    box.innerHTML =
+      '<div class="empty-state">まだ新プロセスの抽出データがありません。</div>' +
+      (botIds.length
+        ? `<div class="np-run"><button class="btn" id="npRunBtn" type="button">この会社の商談から判定する</button>` +
+          `<span class="np-run-status" id="npRunStatus">${botIds.length}件の商談を文字起こしから判定します</span></div>`
+        : '<div class="empty-state">文字起こしのある商談がありません。</div>');
+    const btn = document.getElementById("npRunBtn");
+    if (btn) btn.addEventListener("click", () => runNewProcess(botIds, companyName, pk, ms));
     return;
   }
+  renderNewProcess(box, d);
+}
+
+// この会社の商談を順に抽出APIにかけて判定する
+async function runNewProcess(botIds, companyName, pk, ms) {
+  const btn = document.getElementById("npRunBtn");
+  const st = document.getElementById("npRunStatus");
+  if (btn) { btn.disabled = true; btn.textContent = "判定中…"; }
+  let ok = 0, fail = 0;
+  for (let i = 0; i < botIds.length; i++) {
+    if (st) st.textContent = `判定中… (${i + 1}/${botIds.length})`;
+    try {
+      const r = await fetch("/api/meetings/" + encodeURIComponent(botIds[i]) + "/extract", { method: "POST" });
+      if (r.ok) ok++; else fail++;
+    } catch { fail++; }
+  }
+  if (st) st.textContent = `完了（成功 ${ok}件${fail ? " / 失敗 " + fail + "件" : ""}）`;
+  // 結果を再取得して表示。カード一覧の状態も更新する。
+  await loadNewProcess(companyName, pk, ms);
+  if (typeof refreshNewProcMap === "function") { await refreshNewProcMap(); renderList(); }
+}
+
+function renderNewProcess(box, d) {
   const statusBadge = `<span class="np-status np-${(d.status || "").replace(/[()]/g, "")}">${esc(d.status || "-")}</span>`;
   const review = d.needs_review ? '<span class="np-review">要確認あり</span>' : "";
   let rows = "";
@@ -146,8 +178,11 @@ async function loadNewProcess(companyName, pk) {
     rows = '<div class="empty-state">初回商談の抽出結果がありません。</div>';
   }
   box.innerHTML =
-    `<div class="np-head">${statusBadge}${review}<span class="np-count">抽出イベント ${d.event_count}件</span></div>` +
+    `<div class="np-head">${statusBadge}${review}<span class="np-count">抽出イベント ${d.event_count}件</span>` +
+    `<button class="btn ghost np-rerun" id="npReRun" type="button">再判定</button></div>` +
     `<div class="np-body">${rows}</div>`;
+  const rr = document.getElementById("npReRun");
+  if (rr && box._ctx) rr.addEventListener("click", () => runNewProcess(box._ctx.botIds, box._ctx.companyName, box._ctx.pk, box._ctx.ms));
 }
 
 function renderProfile(account) {
@@ -169,8 +204,20 @@ function renderProfile(account) {
     (acc.site_url ? `<div class="prof-site"><a href="${esc(acc.site_url)}" target="_blank" rel="noopener">サイトを開く ↗</a></div>` : "");
 }
 
-async function load() {
+// 案件カードに新プロセスの判定を出すための状態マップ（正規化会社名キー → deal）
+let newProcMap = {};
+async function refreshNewProcMap() {
   try {
+    const deals = await (await fetch("/api/deals")).json();
+    newProcMap = {};
+    for (const d of deals || []) {
+      const k = normName(d.company_name);
+      if (k) newProcMap[k] = d;
+    }
+  } catch { newProcMap = {}; }
+}
+
+async function load() {  try {
     all = await (await fetch("/api/meetings")).json();
     const ds = await (await fetch("/api/deal-status")).json();
     dealStatuses = ds.statuses || {};
@@ -179,6 +226,7 @@ async function load() {
       accountsMap = {};
       for (const a of accs || []) accountsMap[a.key] = a;
     } catch {}
+    await refreshNewProcMap();
   } catch {
     $("dealList").innerHTML = '<div class="empty-state">読み込みに失敗しました。</div>';
     return;
@@ -317,12 +365,17 @@ function accountCardEl(a) {
   const kindBadge = kind
     ? `<span class="kind-badge ${kind === "過去失注" ? "kind-lost" : "kind-cold"}">${kind}</span>`
     : "";
+  // 新プロセスの判定（会社名で照合）
+  const np = newProcMap[normName(displayName(a))] || newProcMap[normName(a)];
+  const npBadge = np && np.status
+    ? `<span class="np-card-badge np-${String(np.status).replace(/[()]/g, "")}">${esc(np.status)}</span>`
+    : `<span class="np-card-badge np-none">未判定</span>`;
   const card = document.createElement("div");
   card.className = "deal-card" + (a === current ? " active" : "");
   card.innerHTML =
     `<div class="deal-name">${esc(displayName(a))} ${kindBadge}<span class="status-badge st-${st}">${st}</span></div>` +
     `<div class="deal-meta"><span>${ms.length}件</span><span>${esc(last.owner_name || last.owner || "")}</span></div>` +
-    `<div class="deal-sub">最終 ${fmtDate(last.created_at)}</div>`;
+    `<div class="deal-sub"><span class="np-card-label">新プロセス:</span> ${npBadge} ・ 最終 ${fmtDate(last.created_at)}</div>`;
   card.addEventListener("click", () => selectDeal(a));
   return card;
 }
@@ -467,7 +520,9 @@ async function selectDeal(account) {
   // 会社プロフィール
   renderProfile(account);
   // 新プロセス（Feature A）の判定状態
-  loadNewProcess(displayName(account) || account, pk);
+  const npBox = document.getElementById("newProcBox");
+  if (npBox) npBox._ctx = { botIds: ms.map((m) => m.bot_id).filter(Boolean), companyName: displayName(account) || account, pk, ms };
+  loadNewProcess(displayName(account) || account, pk, ms);
   // 担当（アカウント単位で選択・保存）
   await renderOwnerPicker(account, last);
   const profUrl = $("profUrl"), profGet = $("profGet"), profStatus = $("profStatus");
