@@ -157,30 +157,88 @@ async function runNewProcess(botIds, companyName, pk, ms) {
   if (typeof refreshNewProcMap === "function") { await refreshNewProcMap(); renderList(); }
 }
 
+// 判定データから現在ステージ番号と失注情報を決める
+// ステージ: 1初回商談 → 2時期明確化 → 3今月/来月判断 → 4再商談実施 → 5受注
+function npStageInfo(d) {
+  const f = d.first || {};
+  const st = d.status || "";
+  let reached = 1; // 初回商談は必ず到達
+  let lostAt = null;
+  const scOk = f.schedule_choice && !["未定", "不明"].includes(f.schedule_choice);
+  const atOk = f.apply_timing === "今月" || f.apply_timing === "来月";
+  if (scOk) reached = 2;
+  if (scOk && atOk) reached = 3;
+  if (d.re) reached = 4;
+  if (d.latest_result === "受注" || st === "受注") reached = 5;
+  // 失注の位置
+  if (st.startsWith("失注")) {
+    if (d.re && d.latest_result === "失注") lostAt = 4; // 再商談後に失注
+    else if (!scOk) lostAt = 1; // 時期未定で失注
+    else if (!atOk) lostAt = 2; // 申込判断つかず失注
+    else lostAt = reached;
+  }
+  return { reached, lostAt, isWon: reached >= 5 };
+}
+
 function renderNewProcess(box, d) {
+  const stages = [
+    { n: 1, label: "初回商談" },
+    { n: 2, label: "時期明確化" },
+    { n: 3, label: "今月/来月判断" },
+    { n: 4, label: "再商談実施" },
+    { n: 5, label: "受注" },
+  ];
+  const { reached, lostAt, isWon } = npStageInfo(d);
+  const f = d.first || {};
+
+  // ステージバー（丸＋ラベル＋矢印）
+  const steps = stages.map((s) => {
+    const done = s.n <= reached;
+    const cur = s.n === reached && !isWon && lostAt == null;
+    const isLost = lostAt != null && s.n === lostAt;
+    let cls = done ? "done" : "todo";
+    if (cur) cls += " cur";
+    if (isLost) cls = "lost";
+    if (s.n === 5 && isWon) cls = "won";
+    const mark = isLost ? "×" : (done ? "✓" : s.n);
+    return `<div class="np-step ${cls}"><span class="np-dot">${mark}</span><span class="np-step-label">${s.label}</span></div>`;
+  }).join('<span class="np-arrow">›</span>');
+
+  // ステータス見出し
   const statusBadge = `<span class="np-status np-${(d.status || "").replace(/[()]/g, "")}">${esc(d.status || "-")}</span>`;
   const review = d.needs_review ? '<span class="np-review">要確認あり</span>' : "";
+
+  // 詳細行
+  const jm = f.judgment_month ? f.judgment_month.replace("-", "年") + "月" : "—";
+  const nextInfo = f.next_meeting_scheduled
+    ? `設定済み${f.next_meeting_date ? "（" + esc(f.next_meeting_date) + "）" : ""}`
+    : "未設定";
   let rows = "";
   if (d.first) {
-    const f = d.first;
-    const jm = f.judgment_month ? f.judgment_month.replace("-", "年") + "月" : "—";
-    const nextInfo = f.next_meeting_scheduled
-      ? `設定済み${f.next_meeting_date ? "（" + esc(f.next_meeting_date) + "）" : ""}`
-      : "未設定";
     rows =
       `<div class="np-row"><span class="np-k">ご利用開始スケジュール</span><span class="np-v">${esc(f.schedule_choice || "—")}</span></div>` +
       `<div class="np-row"><span class="np-k">今月中の申込可否</span><span class="np-v">${esc(f.apply_timing || "—")}判断</span></div>` +
       `<div class="np-row"><span class="np-k">判断月（KPI計上）</span><span class="np-v">${jm}</span></div>` +
       `<div class="np-row"><span class="np-k">次回商談（再商談）</span><span class="np-v">${nextInfo}</span></div>` +
-      (d.latest_result ? `<div class="np-row"><span class="np-k">再商談の結果</span><span class="np-v">${esc(d.latest_result)}</span></div>` : "") +
-      (f.judgment_basis ? `<div class="np-basis">判定根拠：${esc(f.judgment_basis)}${f.confidence === "low" ? "（自信度：低）" : ""}</div>` : "");
+      (d.latest_result ? `<div class="np-row"><span class="np-k">再商談の結果</span><span class="np-v">${esc(d.latest_result)}</span></div>` : "");
   } else {
     rows = '<div class="empty-state">初回商談の抽出結果がありません。</div>';
   }
+
+  // 判定理由（初回・再商談）
+  let reasons = "";
+  if (f.judgment_basis) reasons += `<div class="np-reason"><span class="np-reason-tag">初回商談</span>${esc(f.judgment_basis)}${f.confidence === "low" ? '<span class="np-lowconf">自信度：低</span>' : ""}</div>`;
+  if (d.re && d.re.judgment_basis) reasons += `<div class="np-reason"><span class="np-reason-tag">再商談</span>${esc(d.re.judgment_basis)}${d.re.confidence === "low" ? '<span class="np-lowconf">自信度：低</span>' : ""}</div>`;
+  const reasonsBlock = reasons
+    ? `<details class="np-reasons" open><summary>判定の理由</summary><div class="np-reason-list">${reasons}</div></details>`
+    : "";
+
   box.innerHTML =
     `<div class="np-head">${statusBadge}${review}<span class="np-count">抽出イベント ${d.event_count}件</span>` +
     `<button class="btn ghost np-rerun" id="npReRun" type="button">再判定</button></div>` +
-    `<div class="np-body">${rows}</div>`;
+    `<div class="np-stages">${steps}</div>` +
+    `<div class="np-body">${rows}</div>` +
+    reasonsBlock;
   const rr = document.getElementById("npReRun");
   if (rr && box._ctx) rr.addEventListener("click", () => runNewProcess(box._ctx.botIds, box._ctx.companyName, box._ctx.pk, box._ctx.ms));
 }

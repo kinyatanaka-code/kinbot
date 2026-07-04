@@ -749,6 +749,11 @@ app.get("/api/deal-status-by-company", async (req, res) => {
         event_date: firstEv.event_date,
       } : null,
       latest_result: reEv ? reEv.result : null,
+      re: reEv ? {
+        result: reEv.result, judgment_basis: reEv.judgment_basis, confidence: reEv.confidence,
+        reported_date: reEv.reported_date, apply_date: reEv.apply_date, usage_start_date: reEv.usage_start_date,
+        event_date: reEv.event_date,
+      } : null,
       event_count: events.length,
     });
   } catch (e) { res.status(500).json({ error: e.message }); }
