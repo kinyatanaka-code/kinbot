@@ -12,6 +12,7 @@ function todayStr() { return new Date().toISOString().slice(0, 10); }
       document.querySelectorAll("#repTabs .rep-tab").forEach((t) => t.classList.toggle("active", t === b));
       document.querySelectorAll("[data-rpanel]").forEach((p) => (p.hidden = p.dataset.rpanel !== rp));
       if (rp === "funnel") loadFunnel();
+      if (rp === "kind") loadKind();
       if (rp === "daily") loadDaily();
       if (rp === "pipeline") loadPipeline();
     });
@@ -127,33 +128,76 @@ function renderFunnel(body, d) {
     html += "</table></div></div>";
   }
 
-  // 種別別（コールド/過去失注/通常）
-  const kindBadge = (k) => {
-    const cls = k === "過去失注" ? "kind-lost" : k === "コールド" ? "kind-cold" : "kind-normal";
-    return `<span class="kind-badge ${cls}">${esc(k)}</span>`;
-  };
-  if ((d.byKind || []).length) {
-    html += '<div class="rep-card"><div class="rep-title">種別別（コールド / 過去失注 / 通常）</div><div class="rep-table-wrap"><table class="rep-table">';
-    html += "<tr><th>種別</th><th>初回</th><th>失注</th><th class='kpi-col'>再商談実施</th><th>受注</th></tr>";
-    for (const r of d.byKind) {
-      html += `<tr><td class="rep-name-cell">${kindBadge(r.kind)}</td><td>${r.first_meetings}</td><td>${r.lost}</td><td class="kpi-col"><b>${r.re_meetings}</b></td><td>${r.won}</td></tr>`;
-    }
-    html += "</table></div></div>";
+  body.innerHTML = html;
+}
+
+// ===== 商談種別（コールド / 過去失注 / 通常）=====
+async function loadKind() {
+  const body = $("kindBody");
+  if (!$("knBasis").value) $("knBasis").value = todayStr();
+  body.innerHTML = '<div class="empty-state">集計中…</div>';
+  const q = new URLSearchParams({ granularity: $("knGran").value, basis: $("knBasis").value });
+  try {
+    const d = await (await fetch("/api/report/funnel?" + q.toString())).json();
+    renderKind(body, d);
+  } catch {
+    body.innerHTML = '<div class="empty-state">集計に失敗しました。</div>';
+  }
+}
+function kindBadgeEl(k) {
+  const cls = k === "過去失注" ? "kind-lost" : k === "コールド" ? "kind-cold" : "kind-normal";
+  return `<span class="kind-badge ${cls}">${esc(k)}</span>`;
+}
+function renderKind(body, d) {
+  const period = d.granularity === "day" ? "日次" : d.granularity === "week" ? "週次" : "月次";
+  const byKind = d.byKind || [];
+  // コールド・過去失注を中心に見せる（通常も参考表示）
+  const focus = ["コールド", "過去失注"];
+  let html = `<div class="rep-card"><div class="rep-title">商談種別の内訳（${period}・${esc(d.from)}〜${esc(d.to)}）</div>`;
+
+  if (!byKind.length) {
+    html += '<div class="empty-state">この期間の抽出データがありません。</div></div>';
+    body.innerHTML = html;
+    return;
   }
 
-  // チーム別（種別内訳つき）
+  // 種別ごとのカード（コールド・過去失注を大きく、通常は下に）
+  html += '<div class="kind-cards">';
+  for (const k of ["コールド", "過去失注", "通常"]) {
+    const r = byKind.find((x) => x.kind === k);
+    if (!r) continue;
+    const rate = r.first_meetings ? Math.round((r.re_meetings / r.first_meetings) * 1000) / 10 : 0;
+    const emphasis = focus.includes(k) ? " kind-card-focus" : "";
+    html += `<div class="kind-card${emphasis}">
+      <div class="kind-card-head">${kindBadgeEl(k)}</div>
+      <div class="kind-card-main"><span class="kind-card-kpi">${r.re_meetings}</span><span class="kind-card-kpi-label">再商談実施</span></div>
+      <div class="kind-card-sub">初回 ${r.first_meetings} ・ 転換率 ${rate}%</div>
+      <div class="kind-card-row"><span>失注</span><span>${r.lost}</span></div>
+      <div class="kind-card-row"><span>受注</span><span>${r.won}</span></div>
+    </div>`;
+  }
+  html += "</div></div>";
+
+  // 種別×担当者/チーム：チーム別の種別内訳
   if ((d.byTeam || []).length) {
-    html += '<div class="rep-card"><div class="rep-title">チーム別（種別の内訳つき）</div>';
+    html += '<div class="rep-card"><div class="rep-title">チーム別 × 種別</div>';
     for (const t of d.byTeam) {
+      // このチームの種別内訳のうち、コールド・過去失注を優先表示
+      const kinds = (t.kinds || []).slice().sort((a, b) => {
+        const ord = { "過去失注": 0, "コールド": 1, "通常": 2 };
+        return (ord[a.kind] ?? 9) - (ord[b.kind] ?? 9);
+      });
       html += `<div class="team-block"><div class="team-head"><span class="team-name">${esc(t.team)}</span>` +
-        `<span class="team-kpi">再商談実施 <b>${t.re_meetings}</b> ・ 初回 ${t.first_meetings} ・ 失注 ${t.lost} ・ 受注 ${t.won}</span></div>`;
-      if ((t.kinds || []).length) {
+        `<span class="team-kpi">再商談実施 <b>${t.re_meetings}</b> ・ 初回 ${t.first_meetings}</span></div>`;
+      if (kinds.length) {
         html += '<div class="rep-table-wrap"><table class="rep-table team-kind-table">';
         html += "<tr><th>種別</th><th>初回</th><th>失注</th><th class='kpi-col'>再商談実施</th><th>受注</th></tr>";
-        for (const r of t.kinds) {
-          html += `<tr><td>${kindBadge(r.kind)}</td><td>${r.first_meetings}</td><td>${r.lost}</td><td class="kpi-col"><b>${r.re_meetings}</b></td><td>${r.won}</td></tr>`;
+        for (const r of kinds) {
+          html += `<tr><td>${kindBadgeEl(r.kind)}</td><td>${r.first_meetings}</td><td>${r.lost}</td><td class="kpi-col"><b>${r.re_meetings}</b></td><td>${r.won}</td></tr>`;
         }
         html += "</table></div>";
+      } else {
+        html += '<div class="empty-state">この期間のデータはありません。</div>';
       }
       html += "</div>";
     }
@@ -319,5 +363,7 @@ function sparkline(points) {
   $("fnApply").addEventListener("click", loadFunnel);
   $("dlApply").addEventListener("click", loadDaily);
   $("plApply").addEventListener("click", loadPipeline);
+  const knApply = $("knApply");
+  if (knApply) knApply.addEventListener("click", loadKind);
   loadFunnel();
 })();

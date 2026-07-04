@@ -23,6 +23,7 @@
         <main class="report-page">
           <div class="rep-tabs" id="repTabs">
             <button class="rep-tab active" data-rp="funnel">サマリー</button>
+            <button class="rep-tab" data-rp="kind">商談種別</button>
             <button class="rep-tab" data-rp="daily">日次データ確認</button>
             <button class="rep-tab" data-rp="pipeline">パイプライン</button>
           </div>
@@ -49,6 +50,22 @@
               <button class="btn" id="fnApply">更新</button>
             </div>
             <div id="funnelBody"><div class="empty-state">読み込み中…</div></div>
+          </section>
+
+          <!-- 商談種別（コールド / 過去失注 / 通常） -->
+          <section class="rep-panel" data-rpanel="kind" hidden>
+            <div class="rep-controls">
+              <label>期間
+                <select id="knGran">
+                  <option value="month">月次</option>
+                  <option value="week">週次</option>
+                  <option value="day">日次</option>
+                </select>
+              </label>
+              <label>基準日 <input type="date" id="knBasis" /></label>
+              <button class="btn" id="knApply">更新</button>
+            </div>
+            <div id="kindBody"><div class="empty-state">読み込み中…</div></div>
           </section>
 
           <!-- 日次データ確認 -->
