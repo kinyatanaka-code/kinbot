@@ -262,6 +262,7 @@ app.use(
   express.json({ verify: (req, _res, buf) => (req.rawBody = buf) })
 );
 app.use(express.json());
+app.use(express.urlencoded({ extended: true })); // OAuth承認画面の<form>送信（application/x-www-form-urlencoded）用
 
 // kinbot OAuthサーバー（Claude.aiのカスタムコネクタが自動で試すOAuthフローに対応）
 mountOauthServer(app);
