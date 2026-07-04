@@ -198,6 +198,7 @@ async function runNewProcess(botIds, companyName, pk, ms) {
 function npStageInfo(d) {
   const f = d.first || {};
   const st = d.status || "";
+  const isReview = st === "要確認" || (f.needs_review && !st.startsWith("失注") && st !== "受注" && !d.re);
   let reached = 1; // 初回商談は必ず到達
   let lostAt = null;
   const scOk = f.schedule_choice && !["未定", "不明"].includes(f.schedule_choice);
@@ -213,7 +214,7 @@ function npStageInfo(d) {
     else if (!atOk) lostAt = 2; // 申込判断つかず失注
     else lostAt = reached;
   }
-  return { reached, lostAt, isWon: reached >= 5 };
+  return { reached, lostAt, isWon: reached >= 5, isReview };
 }
 
 function renderNewProcess(box, d) {
@@ -224,7 +225,7 @@ function renderNewProcess(box, d) {
     { n: 4, label: "再商談実施" },
     { n: 5, label: "受注" },
   ];
-  const { reached, lostAt, isWon } = npStageInfo(d);
+  const { reached, lostAt, isWon, isReview } = npStageInfo(d);
   const f = d.first || {};
 
   // ステージバー（丸＋ラベル＋矢印）
@@ -234,15 +235,19 @@ function renderNewProcess(box, d) {
     const isLost = lostAt != null && s.n === lostAt;
     let cls = done ? "done" : "todo";
     if (cur) cls += " cur";
+    if (isReview && s.n === 1) cls = "done review";
     if (isLost) cls = "lost";
     if (s.n === 5 && isWon) cls = "won";
-    const mark = isLost ? "×" : (done ? "✓" : s.n);
+    const mark = isLost ? "×" : (isReview && s.n === 1 ? "?" : (done ? "✓" : s.n));
     return `<div class="np-step ${cls}"><span class="np-dot">${mark}</span><span class="np-step-label">${s.label}</span></div>`;
   }).join('<span class="np-arrow">›</span>');
 
   // ステータス見出し
   const statusBadge = `<span class="np-status np-${(d.status || "").replace(/[()]/g, "")}">${esc(d.status || "-")}</span>`;
   const review = d.needs_review ? '<span class="np-review">要確認あり</span>' : "";
+  const reviewNote = isReview
+    ? '<div class="np-review-note">AIが商談から「開始スケジュール」「今月申込可否」を明確に読み取れませんでした。判定は保留（集計対象外）です。文字起こしを確認のうえ、誤りがあれば実績の日次データ確認から修正できます。</div>'
+    : "";
 
   // 詳細行
   const jm = f.judgment_month ? f.judgment_month.replace("-", "年") + "月" : "—";
@@ -273,6 +278,7 @@ function renderNewProcess(box, d) {
     `<div class="np-head">${statusBadge}${review}<span class="np-count">抽出イベント ${d.event_count}件</span>` +
     `<button class="btn ghost np-rerun" id="npReRun" type="button">再判定</button></div>` +
     `<div class="np-stages">${steps}</div>` +
+    reviewNote +
     `<div class="np-body">${rows}</div>` +
     reasonsBlock;
   const rr = document.getElementById("npReRun");
@@ -714,6 +720,16 @@ async function selectDeal(account) {
       renderProfile(account);
       const h = document.querySelector("#dealDetail h2"); if (h) h.textContent = displayName(account);
       renderList();
+      // profileが全項目空 = 会社概要を読み取れなかった場合の明示
+      const pf = d.profile || {};
+      const hasAny = pf.industry || pf.employees || pf.hiring || pf.founded || pf.location || pf.business;
+      if (!hasAny) {
+        profStatus.textContent = d.siteError
+          ? ("サイトを取得できませんでした（" + d.siteError + "）。URLを確認してください。")
+          : "サイトから会社概要を読み取れませんでした。URLが会社概要ページか確認してください。";
+      } else {
+        profStatus.textContent = d.siteError ? ("一部のみ取得（" + d.siteError + "）") : "";
+      }
     } catch (e) {
       if (window.kbProgress) window.kbProgress(profStatus, { clear: true });
       profStatus.textContent = "失敗: " + e.message;

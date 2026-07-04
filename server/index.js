@@ -469,21 +469,33 @@ function addMonthStr(ymd, add) {
 function deriveFirstMeeting(ext, meetingMonth) {
   const sc = ext.schedule_choice;
   const at = ext.apply_timing;
+  const lowConf = ext.confidence === "low";
   let judgment_month = null;
   let status = "案件化中";
+
   // 判断月の絶対化
   if (at === "今月") judgment_month = meetingMonth;
   else if (at === "来月") judgment_month = addMonthStr(meetingMonth, 1);
   // それ以外/該当なし/不明 は judgment_month なし
 
-  // ステータス決定
-  if (sc === "未定") status = "失注(未定)";
-  else if (sc === "不明" || at === "不明") status = "案件化中"; // 要確認（確定まで集計対象外）
-  else if (at === "それ以外" || at === "該当なし") status = "失注(未定)";
-  else if (at === "今月" || at === "来月") status = "案件化中";
+  // ステータス決定（新プロセスの定義に沿う）
+  // ・明確な時期(未定でない) かつ 今月/来月に判断できる → 案件化中
+  // ・スケジュール未定、または 今月来月以外で判断 → 失注(未定)
+  // ・情報が読み取れない(不明) または 自信度low → 要確認（確定させず、集計対象外）
+  if (sc === "不明" || at === "不明" || lowConf) {
+    status = "要確認";
+  } else if (sc === "未定") {
+    status = "失注(未定)";
+  } else if (at === "それ以外" || at === "該当なし") {
+    status = "失注(未定)";
+  } else if (at === "今月" || at === "来月") {
+    status = "案件化中";
+  } else {
+    status = "要確認";
+  }
 
-  // 要確認フラグ
-  const needs_review = ext.confidence === "low" || sc === "不明" || at === "不明";
+  // 要確認フラグ（人の確認を促す）
+  const needs_review = lowConf || sc === "不明" || at === "不明" || status === "要確認";
   return { judgment_month, status, needs_review };
 }
 
@@ -945,11 +957,14 @@ function periodRange(basis, granularity) {
 function funnelFrom(events) {
   const first = events.filter((e) => e.event_type === "初回商談" && e.meeting_kind === "初回商談");
   const re = events.filter((e) => e.event_type === "再商談実施");
-  const clear = first.filter((e) => e.schedule_choice && !["未定", "不明"].includes(e.schedule_choice));
+  // 要確認（不明・低自信）は確定していないので、明確・失注のどちらにも数えない
+  const review = first.filter((e) => e.needs_review || e.schedule_choice === "不明" || e.apply_timing === "不明" || e.confidence === "low");
+  const decided = first.filter((e) => !review.includes(e));
+  const clear = decided.filter((e) => e.schedule_choice && !["未定", "不明"].includes(e.schedule_choice));
   const thisMonth = clear.filter((e) => e.apply_timing === "今月");
   const nextMonth = clear.filter((e) => e.apply_timing === "来月");
-  // 失注：schedule_choice=未定、または apply_timing=それ以外/該当なし、または再商談の結果=失注
-  const lost = first.filter((e) => e.schedule_choice === "未定" || ["それ以外", "該当なし"].includes(e.apply_timing)).length
+  // 失注：確定分のうち、schedule_choice=未定、または apply_timing=それ以外/該当なし、または再商談の結果=失注
+  const lost = decided.filter((e) => e.schedule_choice === "未定" || ["それ以外", "該当なし"].includes(e.apply_timing)).length
     + re.filter((e) => e.result === "失注").length;
   const reDone = re.length; // 再商談実施（メインKPI）
   const won = re.filter((e) => e.result === "受注").length;
@@ -958,6 +973,7 @@ function funnelFrom(events) {
     clear_schedule: clear.length,
     this_month: thisMonth.length,
     next_month: nextMonth.length,
+    review: review.length,
     lost,
     re_meetings: reDone, // メインKPI
     won,
@@ -1129,8 +1145,13 @@ app.post("/api/accounts/:key/enrich", async (req, res) => {
     if (!url) return res.status(400).json({ error: "企業サイトURLを入力してください" });
     const fullUrl = /^https?:\/\//i.test(url) ? url : "https://" + url;
     let siteText = "";
+    let siteError = "";
     try {
-      const r = await fetch(fullUrl, { headers: { "user-agent": "Mozilla/5.0 (kinbot)" }, redirect: "follow" });
+      const ctrl = new AbortController();
+      const timer = setTimeout(() => ctrl.abort(), 15000);
+      const r = await fetch(fullUrl, { headers: { "user-agent": "Mozilla/5.0 (kinbot)" }, redirect: "follow", signal: ctrl.signal });
+      clearTimeout(timer);
+      if (!r.ok) siteError = `サイト応答 ${r.status}`;
       const html = await r.text();
       siteText = html
         .replace(/<script[\s\S]*?<\/script>/gi, " ")
@@ -1140,12 +1161,13 @@ app.post("/api/accounts/:key/enrich", async (req, res) => {
         .replace(/\s+/g, " ")
         .trim();
     } catch (e) {
+      siteError = e.name === "AbortError" ? "サイト取得がタイムアウトしました" : ("サイト取得失敗: " + e.message);
       console.warn("[enrich] site fetch失敗", e.message);
     }
     const profile = await enrichCompany({ url: fullUrl, name: key, siteText });
     const officialName = profile.official_name || key;
     await saveAccount(key, { siteUrl: fullUrl, officialName, profile });
-    res.json({ ok: true, siteUrl: fullUrl, officialName, profile });
+    res.json({ ok: true, siteUrl: fullUrl, officialName, profile, siteError });
   } catch (e) {
     console.error("[enrich]", e.message);
     res.status(502).json({ error: e.message });
