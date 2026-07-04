@@ -1320,7 +1320,7 @@ export async function resolveDeal({ companyName, owner, team, firstMeetingDate }
   const ins = await pool.query(
     `INSERT INTO deals (deal_id, company_name, owner, team, first_meeting_date, status)
      VALUES ($1,$2,$3,$4,$5,$6) RETURNING *`,
-    [dealId, companyName || "", owner || "", team || "", firstMeetingDate || null, "案件化中"]
+    [dealId, companyName || "", owner || "", team || "", firstMeetingDate || null, "進行中"]
   );
   return ins.rows[0];
 }

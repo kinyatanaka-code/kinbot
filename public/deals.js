@@ -32,6 +32,8 @@ function lastLostReason(ms) {
 }
 
 let all = [];
+// 旧ラベル「案件化中」を新ラベル「進行中」に読み替える（既存データ互換）
+function npStatusLabel(s) { return String(s || "").replace("案件化中", "進行中"); }
 let groups = {}; // groupKey -> meetings[]
 let groupPrimary = {}; // groupKey -> 代表rawキー
 let current = null;
@@ -198,23 +200,24 @@ async function runNewProcess(botIds, companyName, pk, ms) {
 function npStageInfo(d) {
   const f = d.first || {};
   const st = d.status || "";
-  const isReview = st === "要確認" || (f.needs_review && !st.startsWith("失注") && st !== "受注" && !d.re);
+  const hasNext = !!f.next_meeting_scheduled; // 再商談の日程が設定されたか
+  const isReview = st === "要確認";
   let reached = 1; // 初回商談は必ず到達
   let lostAt = null;
   const scOk = f.schedule_choice && !["未定", "不明"].includes(f.schedule_choice);
   const atOk = f.apply_timing === "今月" || f.apply_timing === "来月";
   if (scOk) reached = 2;
   if (scOk && atOk) reached = 3;
-  if (d.re) reached = 4;
+  // 再商談の日程が設定されている、または再商談イベントがある → ステージ4到達
+  if (hasNext || d.re) reached = 4;
   if (d.latest_result === "受注" || st === "受注") reached = 5;
   // 失注の位置
   if (st.startsWith("失注")) {
     if (d.re && d.latest_result === "失注") lostAt = 4; // 再商談後に失注
-    else if (!scOk) lostAt = 1; // 時期未定で失注
-    else if (!atOk) lostAt = 2; // 申込判断つかず失注
+    else if (!hasNext) lostAt = 3; // 再商談が設定されず失注（今月/来月判断まで進んでも、次につながらなかった）
     else lostAt = reached;
   }
-  return { reached, lostAt, isWon: reached >= 5, isReview };
+  return { reached, lostAt, isWon: reached >= 5, isReview, hasNext };
 }
 
 function renderNewProcess(box, d) {
@@ -243,7 +246,7 @@ function renderNewProcess(box, d) {
   }).join('<span class="np-arrow">›</span>');
 
   // ステータス見出し
-  const statusBadge = `<span class="np-status np-${(d.status || "").replace(/[()]/g, "")}">${esc(d.status || "-")}</span>`;
+  const statusBadge = `<span class="np-status np-${npStatusLabel(d.status || "").replace(/[()]/g, "")}">${esc(npStatusLabel(d.status) || "-")}</span>`;
   const review = d.needs_review ? '<span class="np-review">要確認あり</span>' : "";
   const reviewNote = isReview
     ? '<div class="np-review-note">AIが商談から「開始スケジュール」「今月申込可否」を明確に読み取れませんでした。判定は保留（集計対象外）です。文字起こしを確認のうえ、誤りがあれば実績の日次データ確認から修正できます。</div>'
@@ -252,8 +255,10 @@ function renderNewProcess(box, d) {
   // 詳細行
   const jm = f.judgment_month ? f.judgment_month.replace("-", "年") + "月" : "—";
   const nextInfo = f.next_meeting_scheduled
-    ? `設定済み${f.next_meeting_date ? "（" + esc(f.next_meeting_date) + "）" : ""}`
-    : "未設定";
+    ? `<span class="np-next-yes">設定済み${f.next_meeting_date ? "（" + esc(f.next_meeting_date) + "）" : ""}</span>`
+    : (String(d.status || "").startsWith("失注")
+        ? `<span class="np-next-no">未設定（次につながらず失注）</span>`
+        : `<span class="np-next-no">未設定</span>`);
   let rows = "";
   if (d.first) {
     rows =
@@ -549,7 +554,7 @@ function accountCardEl(a) {
   // 新プロセスの判定（会社名で照合。完全一致→部分一致で緩く引く）
   const np = lookupNewProc(displayName(a)) || lookupNewProc(a);
   const npBadge = np && np.status
-    ? `<span class="np-card-badge np-${String(np.status).replace(/[()]/g, "")}">${esc(np.status)}</span>`
+    ? `<span class="np-card-badge np-${npStatusLabel(np.status).replace(/[()]/g, "")}">${esc(npStatusLabel(np.status))}</span>`
     : `<span class="np-card-badge np-none">未判定</span>`;
   const checked = npSelected.has(a);
   const card = document.createElement("div");

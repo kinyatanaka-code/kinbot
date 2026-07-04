@@ -470,9 +470,10 @@ function deriveFirstMeeting(ext, meetingMonth) {
   const sc = ext.schedule_choice;
   const at = ext.apply_timing;
   const lowConf = ext.confidence === "low";
+  const hasNextMeeting = !!ext.next_meeting_scheduled; // 再商談（次回商談）の日程が設定されたか
   let judgment_month = null;
-  let judgment_month_basis = ""; // 判断月をどう決めたか
-  let status = "案件化中";
+  let judgment_month_basis = "";
+  let status = "進行中";
 
   // 判断月の決定（優先順位）
   // 1) 次回商談(再商談)の具体的な日程が取れていれば、その月を判断月にする（最も正確）
@@ -480,27 +481,25 @@ function deriveFirstMeeting(ext, meetingMonth) {
   const nd = ext.next_meeting_date && /^\d{4}-\d{2}-\d{2}$/.test(ext.next_meeting_date) ? ext.next_meeting_date : null;
   if (at === "今月") { judgment_month = meetingMonth; judgment_month_basis = "商談で「今月中に判断」と回答"; }
   else if (at === "来月") { judgment_month = addMonthStr(meetingMonth, 1); judgment_month_basis = "商談で「来月に判断」と回答"; }
-  // 次回商談日が明示されていて、今月/来月判断と整合する（またはそれ以外）なら、次回商談日の月を優先
-  if (nd && (at === "今月" || at === "来月")) {
-    judgment_month = nd.slice(0, 7);
-    judgment_month_basis = `次回商談日(${nd})の月`;
-  }
+  if (nd) { judgment_month = nd.slice(0, 7); judgment_month_basis = `次回商談日(${nd})の月`; }
 
-  // ステータス決定（新プロセスの定義に沿う）
-  if (sc === "不明" || at === "不明" || lowConf) {
+  // ステータス決定（最重要ルール）：
+  // 「進行中」は "再商談（次回商談）の日程が設定されている" 場合のみ。
+  // 設定されていなければ失注扱い。
+  // 不明・低自信で判断材料が読み取れない場合のみ「要確認」（保留）。
+  if (hasNextMeeting) {
+    // 次につながっている＝進行中（時期が読み取れていればその判断月で計上）
+    status = "進行中";
+  } else if (sc === "不明" || (at === "不明" && sc === "不明") || (lowConf && !sc && !at)) {
+    // 情報がほとんど読み取れない → 保留
     status = "要確認";
-  } else if (sc === "未定") {
-    status = "失注(未定)";
-  } else if (at === "それ以外" || at === "該当なし") {
-    status = "失注(未定)";
-  } else if (at === "今月" || at === "来月") {
-    status = "案件化中";
   } else {
-    status = "要確認";
+    // 再商談が設定されていない → 失注
+    status = "失注(未定)";
   }
 
-  // 要確認フラグ（人の確認を促す）
-  const needs_review = lowConf || sc === "不明" || at === "不明" || status === "要確認";
+  // 要確認フラグ（人の確認を促す）: 低自信や不明は、失注確定でも一応チェックを促す
+  const needs_review = status === "要確認" || (lowConf && !hasNextMeeting);
   return { judgment_month, judgment_month_basis, status, needs_review };
 }
 
@@ -963,14 +962,17 @@ function periodRange(basis, granularity) {
 function funnelFrom(events) {
   const first = events.filter((e) => e.event_type === "初回商談" && e.meeting_kind === "初回商談");
   const re = events.filter((e) => e.event_type === "再商談実施");
-  // 要確認（不明・低自信）は確定していないので、明確・失注のどちらにも数えない
-  const review = first.filter((e) => e.needs_review || e.schedule_choice === "不明" || e.apply_timing === "不明" || e.confidence === "low");
+  // 要確認（判定保留）は確定していないので、案件化・失注のどちらにも数えない
+  const review = first.filter((e) => e.needs_review || (e.schedule_choice === "不明" && (e.apply_timing === "不明" || !e.apply_timing)));
   const decided = first.filter((e) => !review.includes(e));
+  // 明確な時期回答・今月/来月判断（参考指標）
   const clear = decided.filter((e) => e.schedule_choice && !["未定", "不明"].includes(e.schedule_choice));
   const thisMonth = clear.filter((e) => e.apply_timing === "今月");
   const nextMonth = clear.filter((e) => e.apply_timing === "来月");
-  // 失注：確定分のうち、schedule_choice=未定、または apply_timing=それ以外/該当なし、または再商談の結果=失注
-  const lost = decided.filter((e) => e.schedule_choice === "未定" || ["それ以外", "該当なし"].includes(e.apply_timing)).length
+  // 進行中：再商談（次回商談）の日程が設定されている初回商談
+  const activated = decided.filter((e) => e.next_meeting_scheduled);
+  // 失注：確定分のうち再商談が設定されていない初回商談 ＋ 再商談実施の結果=失注
+  const lost = decided.filter((e) => !e.next_meeting_scheduled).length
     + re.filter((e) => e.result === "失注").length;
   const reDone = re.length; // 再商談実施（メインKPI）
   const won = re.filter((e) => e.result === "受注").length;
@@ -979,6 +981,7 @@ function funnelFrom(events) {
     clear_schedule: clear.length,
     this_month: thisMonth.length,
     next_month: nextMonth.length,
+    activated: activated.length,
     review: review.length,
     lost,
     re_meetings: reDone, // メインKPI
