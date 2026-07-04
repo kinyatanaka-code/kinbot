@@ -1039,6 +1039,182 @@ app.post("/api/extract/backfill", async (req, res) => {
   })();
 });
 
+// ===== Feature B: ダッシュボード集計API =====
+
+// 期間（基準日＋粒度）から from/to(YYYY-MM-DD) を作る
+function periodRange(basis, granularity) {
+  const d = basis ? new Date(basis + "T00:00:00") : new Date();
+  const y = d.getFullYear(), m = d.getMonth(), day = d.getDate();
+  let from, to;
+  if (granularity === "day") {
+    from = new Date(y, m, day); to = new Date(y, m, day);
+  } else if (granularity === "week") {
+    const wd = d.getDay(); // 0=日
+    const monday = new Date(y, m, day + (wd === 0 ? -6 : 1 - wd));
+    from = monday; to = new Date(monday.getFullYear(), monday.getMonth(), monday.getDate() + 6);
+  } else { // month
+    from = new Date(y, m, 1); to = new Date(y, m + 1, 0);
+  }
+  const fmt = (x) => `${x.getFullYear()}-${String(x.getMonth() + 1).padStart(2, "0")}-${String(x.getDate()).padStart(2, "0")}`;
+  return { from: fmt(from), to: fmt(to), monthKey: `${from.getFullYear()}-${String(from.getMonth() + 1).padStart(2, "0")}` };
+}
+
+// ファネル集計：初回商談数→明確な時期回答→今月/来月申込可否→失注→再商談実施→受注
+function funnelFrom(events) {
+  const first = events.filter((e) => e.event_type === "初回商談" && e.meeting_kind === "初回商談");
+  const re = events.filter((e) => e.event_type === "再商談実施");
+  const clear = first.filter((e) => e.schedule_choice && !["未定", "不明"].includes(e.schedule_choice));
+  const thisMonth = clear.filter((e) => e.apply_timing === "今月");
+  const nextMonth = clear.filter((e) => e.apply_timing === "来月");
+  // 失注：schedule_choice=未定、または apply_timing=それ以外/該当なし、または再商談の結果=失注
+  const lost = first.filter((e) => e.schedule_choice === "未定" || ["それ以外", "該当なし"].includes(e.apply_timing)).length
+    + re.filter((e) => e.result === "失注").length;
+  const reDone = re.length; // 再商談実施（メインKPI）
+  const won = re.filter((e) => e.result === "受注").length;
+  return {
+    first_meetings: first.length,
+    clear_schedule: clear.length,
+    this_month: thisMonth.length,
+    next_month: nextMonth.length,
+    lost,
+    re_meetings: reDone, // メインKPI
+    won,
+  };
+}
+
+// サマリー（ファネル）：期間・対象で集計。対象=全体/チーム/担当者
+app.get("/api/report/funnel", async (req, res) => {
+  try {
+    const granularity = req.query.granularity || "month";
+    const basis = req.query.basis || null;
+    const { from, to } = periodRange(basis, granularity);
+    const owner = req.query.owner || null;
+    const team = req.query.team || null;
+    const events = await listDealEvents({ from, to, owner, team });
+    const overall = funnelFrom(events);
+    // 担当者別（全体/チーム選択時に内訳を出す）
+    const byOwnerMap = {};
+    for (const e of events) {
+      const o = e.owner || "(不明)";
+      (byOwnerMap[o] = byOwnerMap[o] || []).push(e);
+    }
+    const byOwner = Object.keys(byOwnerMap).sort().map((o) => ({ owner: o, ...funnelFrom(byOwnerMap[o]) }));
+    res.json({ granularity, from, to, owner, team, overall, byOwner });
+  } catch (e) {
+    console.error("[report funnel]", e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// 日次データ確認：指定日の商談一覧（抽出結果＋要確認フラグ）
+app.get("/api/report/daily", async (req, res) => {
+  try {
+    const date = req.query.date || new Date().toISOString().slice(0, 10);
+    const owner = req.query.owner || null;
+    const events = await listDealEvents({ from: date, to: date, owner });
+    const rows = events.map((e) => ({
+      id: e.id, bot_id: e.bot_id, company_name: e.company_name, owner: e.owner,
+      meeting_kind: e.meeting_kind, schedule_choice: e.schedule_choice, apply_timing: e.apply_timing,
+      result: e.result, confidence: e.confidence, needs_review: e.needs_review,
+      judgment_basis: e.judgment_basis,
+    }));
+    res.json({ date, rows });
+  } catch (e) {
+    console.error("[report daily]", e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// パイプライン：今月判断/来月判断 × 未設定/実施待ち のマトリクス（指定日時点のストック）
+app.get("/api/report/pipeline", async (req, res) => {
+  try {
+    const asOf = req.query.date || new Date().toISOString().slice(0, 10);
+    const owner = req.query.owner || null;
+    // asOf 以前の全イベントを取得し、案件ごとに最新状態を再構築
+    const events = await listDealEvents({ to: asOf, owner });
+    // 案件ごとに、初回商談の判断月と、再商談実施済みか（=実施待ちでない）を判定
+    const byDeal = {};
+    for (const e of events) {
+      const k = e.deal_id || e.bot_id;
+      if (!k) continue;
+      (byDeal[k] = byDeal[k] || { first: null, reDone: false, company: e.company_name, owner: e.owner }).company = e.company_name;
+      if (e.event_type === "初回商談" && e.meeting_kind === "初回商談") {
+        // 最新の初回商談で上書き（判断月・次回設定）
+        byDeal[k].first = e;
+      }
+      if (e.event_type === "再商談実施") byDeal[k].reDone = true;
+    }
+    const cells = {
+      thisMonth: { unset: [], waiting: [] },
+      nextMonth: { unset: [], waiting: [] },
+    };
+    const monthNow = asOf.slice(0, 7);
+    const nextMonthKey = (() => { const d = new Date(asOf + "T00:00:00"); const b = new Date(d.getFullYear(), d.getMonth() + 1, 1); return `${b.getFullYear()}-${String(b.getMonth() + 1).padStart(2, "0")}`; })();
+    for (const k of Object.keys(byDeal)) {
+      const d = byDeal[k];
+      const f = d.first;
+      if (!f || !f.judgment_month) continue; // 判断月なし（失注等）はストックに残さない
+      if (d.reDone) continue; // 再商談実施済みは実施待ちから外れる
+      // judgment_month が「今月」か「来月」かで振り分け（asOf基準の絶対月と比較）
+      let col = null;
+      if (f.judgment_month === monthNow) col = "thisMonth";
+      else if (f.judgment_month === nextMonthKey) col = "nextMonth";
+      else col = null; // それ以外の月は対象外（本画面は今月/来月判断のみ）
+      if (!col) continue;
+      const item = { deal_id: k, company_name: d.company, owner: d.owner, first_meeting_date: f.event_date };
+      if (f.next_meeting_scheduled) cells[col].waiting.push(item);
+      else cells[col].unset.push(item);
+    }
+    res.json({
+      as_of: asOf,
+      matrix: {
+        thisMonth: { unset: cells.thisMonth.unset.length, waiting: cells.thisMonth.waiting.length },
+        nextMonth: { unset: cells.nextMonth.unset.length, waiting: cells.nextMonth.waiting.length },
+      },
+      unset_list: { thisMonth: cells.thisMonth.unset, nextMonth: cells.nextMonth.unset },
+    });
+  } catch (e) {
+    console.error("[report pipeline]", e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// パイプライン「未設定」件数の週次推移（過去n週）
+app.get("/api/report/pipeline-trend", async (req, res) => {
+  try {
+    const weeks = Math.min(26, Math.max(1, Number(req.query.weeks || 8)));
+    const owner = req.query.owner || null;
+    const events = await listDealEvents({ owner });
+    const points = [];
+    const today = new Date();
+    for (let i = weeks - 1; i >= 0; i--) {
+      const ref = new Date(today.getFullYear(), today.getMonth(), today.getDate() - i * 7);
+      const asOf = `${ref.getFullYear()}-${String(ref.getMonth() + 1).padStart(2, "0")}-${String(ref.getDate()).padStart(2, "0")}`;
+      // asOf時点の未設定件数を計算
+      const byDeal = {};
+      for (const e of events) {
+        if (new Date(e.event_date) > ref) continue;
+        const k = e.deal_id || e.bot_id;
+        if (!k) continue;
+        (byDeal[k] = byDeal[k] || { first: null, reDone: false });
+        if (e.event_type === "初回商談" && e.meeting_kind === "初回商談") byDeal[k].first = e;
+        if (e.event_type === "再商談実施") byDeal[k].reDone = true;
+      }
+      let unset = 0;
+      for (const k of Object.keys(byDeal)) {
+        const f = byDeal[k].first;
+        if (!f || !f.judgment_month || byDeal[k].reDone) continue;
+        if (!f.next_meeting_scheduled) unset++;
+      }
+      points.push({ date: asOf, unset });
+    }
+    res.json({ points });
+  } catch (e) {
+    console.error("[report pipeline-trend]", e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // フェーズ定義プロンプト（DBで上書き可能。空にすると既定値に戻る）
 app.get("/api/phase/prompt", async (req, res) => {
   try {
