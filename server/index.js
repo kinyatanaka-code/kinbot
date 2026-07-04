@@ -471,17 +471,22 @@ function deriveFirstMeeting(ext, meetingMonth) {
   const at = ext.apply_timing;
   const lowConf = ext.confidence === "low";
   let judgment_month = null;
+  let judgment_month_basis = ""; // 判断月をどう決めたか
   let status = "案件化中";
 
-  // 判断月の絶対化
-  if (at === "今月") judgment_month = meetingMonth;
-  else if (at === "来月") judgment_month = addMonthStr(meetingMonth, 1);
-  // それ以外/該当なし/不明 は judgment_month なし
+  // 判断月の決定（優先順位）
+  // 1) 次回商談(再商談)の具体的な日程が取れていれば、その月を判断月にする（最も正確）
+  // 2) 取れていなければ「今月/来月」を商談日基準で絶対月に変換
+  const nd = ext.next_meeting_date && /^\d{4}-\d{2}-\d{2}$/.test(ext.next_meeting_date) ? ext.next_meeting_date : null;
+  if (at === "今月") { judgment_month = meetingMonth; judgment_month_basis = "商談で「今月中に判断」と回答"; }
+  else if (at === "来月") { judgment_month = addMonthStr(meetingMonth, 1); judgment_month_basis = "商談で「来月に判断」と回答"; }
+  // 次回商談日が明示されていて、今月/来月判断と整合する（またはそれ以外）なら、次回商談日の月を優先
+  if (nd && (at === "今月" || at === "来月")) {
+    judgment_month = nd.slice(0, 7);
+    judgment_month_basis = `次回商談日(${nd})の月`;
+  }
 
   // ステータス決定（新プロセスの定義に沿う）
-  // ・明確な時期(未定でない) かつ 今月/来月に判断できる → 案件化中
-  // ・スケジュール未定、または 今月来月以外で判断 → 失注(未定)
-  // ・情報が読み取れない(不明) または 自信度low → 要確認（確定させず、集計対象外）
   if (sc === "不明" || at === "不明" || lowConf) {
     status = "要確認";
   } else if (sc === "未定") {
@@ -496,7 +501,7 @@ function deriveFirstMeeting(ext, meetingMonth) {
 
   // 要確認フラグ（人の確認を促す）
   const needs_review = lowConf || sc === "不明" || at === "不明" || status === "要確認";
-  return { judgment_month, status, needs_review };
+  return { judgment_month, judgment_month_basis, status, needs_review };
 }
 
 // 1商談を抽出してイベントログに保存する（finalize / アップロード / 手動 / バックフィルから呼ぶ）
@@ -546,7 +551,7 @@ async function runExtraction(botId) {
       apply_timing: ext.apply_timing, judgment_month: der.judgment_month,
       next_meeting_scheduled: ext.next_meeting_scheduled, next_meeting_date: ext.next_meeting_date,
       confidence: ext.confidence, judgment_basis: ext.judgment_basis,
-      needs_review: der.needs_review, raw_extraction: ext,
+      needs_review: der.needs_review, raw_extraction: { ...ext, judgment_month_basis: der.judgment_month_basis },
     });
     // 案件のステータス・初回商談日を更新（要確認でなければ）
     if (deal) {
@@ -770,6 +775,7 @@ app.get("/api/deal-status-by-company", async (req, res) => {
         judgment_month: firstEv.judgment_month, next_meeting_scheduled: firstEv.next_meeting_scheduled,
         next_meeting_date: firstEv.next_meeting_date, confidence: firstEv.confidence,
         judgment_basis: firstEv.judgment_basis, needs_review: firstEv.needs_review,
+        judgment_month_basis: (firstEv.raw_extraction && firstEv.raw_extraction.judgment_month_basis) || "",
         event_date: firstEv.event_date,
       } : null,
       latest_result: reEv ? reEv.result : null,

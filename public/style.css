@@ -1910,3 +1910,6 @@ button.pipe-cell { background: none; border: none; cursor: pointer; color: #0F6E
 .np-step.review .np-dot { background: #EF9F27; color: #fff; }
 .np-step.review .np-step-label { color: #a8611a; font-weight: 700; }
 .np-review-note { font-size: 12px; color: #a8611a; background: #fff4e5; border-radius: 8px; padding: 10px 12px; line-height: 1.6; margin: 4px 0 14px; }
+
+/* 判断月の根拠（インライン） */
+.np-basis-inline { display: block; font-size: 10.5px; color: #8a938d; font-weight: 400; margin-top: 2px; }

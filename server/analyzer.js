@@ -1061,7 +1061,9 @@ export async function extractFirstMeeting(transcript, meetingDate) {
     "schedule_choiceが\"不明\"の場合はこの項目も\"不明\"。" +
     "\"今月\"（今月中に判断できる）/\"来月\"（来月なら判断できる）/\"それ以外\"（再来月以降など今月来月以外の明確な回答）/\"不明\"（質問はされたが回答が読み取れない）/\"該当なし\"（未定のため質問自体が発生していない）。\n" +
     "3. next_meeting_scheduled: 再商談（上申準備）の日程が設定されたか（true/false）。\n" +
-    "4. next_meeting_date: 設定された場合の日程（YYYY-MM-DD、不明ならnull）。\n" +
+    "4. next_meeting_date: 設定された次回商談の日程（YYYY-MM-DD）。" +
+    "「来週火曜」「7月10日」「再来週」など相対・部分的な表現でも、商談日を基準に具体的な日付へ変換して出力する。" +
+    "年が省略されていれば商談日と同じ年（年をまたぐ場合は翌年）とする。日にちまで特定できず月だけ分かる場合はその月の1日。全く不明ならnull。\n" +
     "5. confidence: 抽出全体の自信度（\"high\"/\"low\"）。顧客の発言が曖昧・脱線して結論が不明確・複数解釈可能なら\"low\"。\n" +
     "6. judgment_basis: 判定根拠の要約（30字程度、発言の逐語引用はしない）。\n" +
     "JSONのみ出力し、他の文章は一切出力しないこと。";
@@ -1079,16 +1081,29 @@ export async function extractFirstMeeting(transcript, meetingDate) {
     },
     required: ["schedule_choice", "apply_timing", "next_meeting_scheduled", "confidence", "judgment_basis"],
   };
-  const o = parseJson(await callLLM(sys, user, 700, extractLLMOpts({ schema }))) || {};
-  return {
-    schedule_choice: o.schedule_choice || "不明",
-    schedule_choice_detail: o.schedule_choice_detail || "",
-    apply_timing: o.apply_timing || "不明",
-    next_meeting_scheduled: !!o.next_meeting_scheduled,
-    next_meeting_date: o.next_meeting_date || null,
-    confidence: o.confidence === "high" ? "high" : "low",
-    judgment_basis: o.judgment_basis || "",
-  };
+  // 自信度が low の場合、最大3回まで判定をやり直す（high が出たら即採用）。
+  // 2回目以降は「前回 low だった。曖昧なら該当区分を厳密に、それでも不明確なら不明のままでよい」と補足して再考させる。
+  const maxTries = 3;
+  let best = null;
+  for (let attempt = 1; attempt <= maxTries; attempt++) {
+    const extraNote = attempt > 1
+      ? `\n\n（注意：前回の抽出は自信度lowでした。文字起こしを丁寧に読み直し、顧客の発言の該当箇所を根拠に、各区分を厳密に判定してください。明確な根拠が本当に無い項目だけを不明としてください。）`
+      : "";
+    const o = parseJson(await callLLM(sys, user + extraNote, 700, extractLLMOpts({ schema }))) || {};
+    const result = {
+      schedule_choice: o.schedule_choice || "不明",
+      schedule_choice_detail: o.schedule_choice_detail || "",
+      apply_timing: o.apply_timing || "不明",
+      next_meeting_scheduled: !!o.next_meeting_scheduled,
+      next_meeting_date: o.next_meeting_date || null,
+      confidence: o.confidence === "high" ? "high" : "low",
+      judgment_basis: o.judgment_basis || "",
+      attempts: attempt,
+    };
+    best = result;
+    if (result.confidence === "high") break; // 自信が高くなったら確定
+  }
+  return best;
 }
 
 // 再商談（上申準備）の抽出（依頼書4.3）
@@ -1118,13 +1133,24 @@ export async function extractReMeeting(transcript, meetingDate) {
     },
     required: ["result", "confidence", "judgment_basis"],
   };
-  const o = parseJson(await callLLM(sys, user, 700, extractLLMOpts({ schema }))) || {};
-  return {
-    reported_date: o.reported_date || null,
-    apply_date: o.apply_date || null,
-    usage_start_date: o.usage_start_date || null,
-    result: ["受注", "失注", "延期", "未確定"].includes(o.result) ? o.result : "未確定",
-    confidence: o.confidence === "high" ? "high" : "low",
-    judgment_basis: o.judgment_basis || "",
-  };
+  const maxTries = 3;
+  let best = null;
+  for (let attempt = 1; attempt <= maxTries; attempt++) {
+    const extraNote = attempt > 1
+      ? `\n\n（注意：前回の抽出は自信度lowでした。文字起こしを丁寧に読み直し、受注/失注/延期/未確定を発言の根拠に基づき厳密に判定してください。明確な根拠が無い場合のみ未確定としてください。）`
+      : "";
+    const o = parseJson(await callLLM(sys, user + extraNote, 700, extractLLMOpts({ schema }))) || {};
+    const result = {
+      reported_date: o.reported_date || null,
+      apply_date: o.apply_date || null,
+      usage_start_date: o.usage_start_date || null,
+      result: ["受注", "失注", "延期", "未確定"].includes(o.result) ? o.result : "未確定",
+      confidence: o.confidence === "high" ? "high" : "low",
+      judgment_basis: o.judgment_basis || "",
+      attempts: attempt,
+    };
+    best = result;
+    if (result.confidence === "high") break;
+  }
+  return best;
 }

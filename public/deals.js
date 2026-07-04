@@ -259,7 +259,7 @@ function renderNewProcess(box, d) {
     rows =
       `<div class="np-row"><span class="np-k">ご利用開始スケジュール</span><span class="np-v">${esc(f.schedule_choice || "—")}</span></div>` +
       `<div class="np-row"><span class="np-k">今月中の申込可否</span><span class="np-v">${esc(f.apply_timing || "—")}判断</span></div>` +
-      `<div class="np-row"><span class="np-k">判断月（KPI計上）</span><span class="np-v">${jm}</span></div>` +
+      `<div class="np-row"><span class="np-k">判断月（KPI計上）</span><span class="np-v">${jm}${f.judgment_month_basis ? `<span class="np-basis-inline">${esc(f.judgment_month_basis)}</span>` : ""}</span></div>` +
       `<div class="np-row"><span class="np-k">次回商談（再商談）</span><span class="np-v">${nextInfo}</span></div>` +
       (d.latest_result ? `<div class="np-row"><span class="np-k">再商談の結果</span><span class="np-v">${esc(d.latest_result)}</span></div>` : "");
   } else {
