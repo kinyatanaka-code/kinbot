@@ -997,10 +997,17 @@ app.get("/api/report/funnel", async (req, res) => {
     const { from, to } = periodRange(basis, granularity);
     const owner = req.query.owner || null;
     const team = req.query.team || null;
-    const events = await listDealEvents({ from, to, owner, team });
+    const nameMap = await buildNameMap();
+    // 担当者名→チーム名のマッピング（チーム編集の最新状態を都度反映）
+    const teamMap = {}; // rep_name(表示名) -> team_name
+    for (const t of (await listRepTeams().catch(() => []))) teamMap[t.rep_name] = t.team_name;
+    const teamOf = (rawOwner) => teamMap[resolveDisplayName(rawOwner, nameMap)] || teamMap[rawOwner] || "(未割り当て)";
+
+    let events = await listDealEvents({ from, to, owner });
+    // チーム指定があれば、担当者→チームのマッピングでJS側フィルタ（deals.teamカラムに依存しない）
+    if (team) events = events.filter((e) => teamOf(e.owner) === team);
     const overall = funnelFrom(events);
     // 担当者別（全体/チーム選択時に内訳を出す）。担当者名は登録名＋補正で表示。
-    const nameMap = await buildNameMap();
     const byOwnerMap = {};
     for (const e of events) {
       const o = resolveDisplayName(e.owner, nameMap) || "(不明)";
@@ -1018,12 +1025,9 @@ app.get("/api/report/funnel", async (req, res) => {
     const byKind = kindOrder.filter((k) => byKindMap[k]).map((k) => ({ kind: k, ...funnelFrom(byKindMap[k]) }));
 
     // チーム別（担当者→チームのマッピングで集約）。さらに各チームを種別で内訳。
-    const teamMap = {}; // team_name -> rep_name
-    for (const t of (await listRepTeams().catch(() => []))) teamMap[t.rep_name] = t.team_name;
     const byTeamMap = {}; // team -> events
     for (const e of events) {
-      const disp = resolveDisplayName(e.owner, nameMap);
-      const tm = teamMap[disp] || teamMap[e.owner] || "(未割り当て)";
+      const tm = teamOf(e.owner);
       (byTeamMap[tm] = byTeamMap[tm] || []).push(e);
     }
     const byTeam = Object.keys(byTeamMap).sort().map((tm) => {

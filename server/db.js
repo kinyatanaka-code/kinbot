@@ -1401,7 +1401,8 @@ export async function listDealEvents({ from, to, owner, team, kind } = {}) {
   if (to) { cond.push(`e.event_date <= $${i++}`); vals.push(to); }
   if (kind) { cond.push(`e.meeting_kind = $${i++}`); vals.push(kind); }
   if (owner) { cond.push(`d.owner = $${i++}`); vals.push(owner); }
-  if (team) { cond.push(`d.team = $${i++}`); vals.push(team); }
+  // team は deals.team カラムに依存しない（チーム編集後の反映漏れを防ぐため、
+  // 呼び出し側で resolveDisplayName + rep_team_mapping を使ってJS側でフィルタする）
   const where = cond.length ? "WHERE " + cond.join(" AND ") : "";
   try {
     const { rows } = await pool.query(
