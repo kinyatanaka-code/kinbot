@@ -317,16 +317,23 @@ curl -H "Authorization: Bearer <span class="cc-tok">&lt;トークン&gt;</span>"
             </div>
             <div class="set-card">
               <h3>Claude.aiのチャットで会話する（コネクタ）</h3>
-              <p class="note">Claude Codeのようなツールを使わず、<b>普段のClaude.aiのチャット画面</b>から直接kinbotのデータを読んで会話できます。「森田さんの今月の商談状況は？」のように聞くだけで、Claudeが自動でkinbotに問い合わせて答えます。</p>
+              <p class="note">Claude Codeのようなツールを使わず、<b>普段のClaude.aiのチャット画面</b>から直接kinbotのデータを読んで会話できます。「森田さんの今月の商談状況は？」のように聞くだけで、Claudeが自動でkinbotに問い合わせて答えます。接続時にkinbotへのログインを求められ、許可すると自分の権限で繋がります（管理者は全社員分、それ以外は自分の担当分）。</p>
               <div class="apidoc-h">登録手順</div>
               <ol class="cc-steps">
                 <li>Claude.aiの設定 →「コネクタ」→「カスタムコネクタを追加」を開く</li>
-                <li>下のURLをコピーして貼り付け（上のAPIトークンが入っていることを確認）</li>
+                <li>下のURLを貼り付ける（トークンは不要です）</li>
+                <li>kinbotのログイン画面が出たらログインし、「許可する」を押す</li>
                 <li>接続後、チャットで「kinbotの今月の実績を教えて」のように話しかける</li>
               </ol>
-              <pre class="apidoc-code"><code id="mcpUrl">（トークンを入力すると表示されます）</code></pre>
-              <button class="btn ghost" id="mcpUrlCopy" type="button">URLをコピー</button>
-              <p class="note cc-warn">⚠️ このURLにはトークンが含まれます。人に共有しないでください。</p>
+              <pre class="apidoc-code"><code id="mcpUrl2"></code></pre>
+              <button class="btn ghost" id="mcpUrl2Copy" type="button">URLをコピー</button>
+              <p class="note">うまく繋がらない場合は、下のトークン埋め込み方式（登録時に「OAuthをスキップ」できるツールの場合のみ）もお試しください。</p>
+              <details class="cc-alt">
+                <summary>うまく繋がらない場合：トークンを直接使う方法</summary>
+                <pre class="apidoc-code"><code id="mcpUrl">（上のAPIトークンを入力すると表示されます）</code></pre>
+                <button class="btn ghost" id="mcpUrlCopy" type="button">URLをコピー</button>
+                <p class="note cc-warn">⚠️ このURLにはトークンが含まれます。人に共有しないでください。</p>
+              </details>
             </div>
           </div>
           <div class="set-pane" data-pane="status" hidden>

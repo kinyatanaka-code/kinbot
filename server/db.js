@@ -286,6 +286,41 @@ export async function initDb() {
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_deal_events_deal ON deal_events(deal_id);`);
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_deal_events_date ON deal_events(event_date);`);
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_deal_events_bot ON deal_events(bot_id);`);
+
+  // ===== OAuth（Claude.aiのカスタムコネクタ用。RFC7591動的クライアント登録 + 認可コードフロー） =====
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS oauth_clients (
+      client_id      TEXT PRIMARY KEY,
+      client_name    TEXT,
+      redirect_uris  JSONB,
+      created_at     TIMESTAMPTZ DEFAULT now()
+    );
+  `);
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS oauth_codes (
+      code            TEXT PRIMARY KEY,
+      client_id       TEXT,
+      redirect_uri    TEXT,
+      owner           TEXT,
+      is_admin        BOOLEAN DEFAULT false,
+      code_challenge  TEXT,
+      expires_at      TIMESTAMPTZ,
+      created_at      TIMESTAMPTZ DEFAULT now()
+    );
+  `);
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS oauth_tokens (
+      access_token   TEXT PRIMARY KEY,
+      refresh_token  TEXT,
+      client_id      TEXT,
+      owner          TEXT,
+      is_admin       BOOLEAN DEFAULT false,
+      expires_at     TIMESTAMPTZ,
+      created_at     TIMESTAMPTZ DEFAULT now()
+    );
+  `);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_oauth_tokens_refresh ON oauth_tokens(refresh_token);`);
+
   console.log("[db] Postgres に接続しました（履歴を保存します）。");
 }
 
@@ -1440,4 +1475,56 @@ export async function teamForRep(repName) {
     const { rows } = await pool.query(`SELECT team_name FROM rep_team_mapping WHERE rep_name=$1`, [repName]);
     return rows[0]?.team_name || "";
   } catch { return ""; }
+}
+
+// ===== OAuth（Claude.aiカスタムコネクタ用） =====
+export async function registerOauthClient({ client_id, client_name, redirect_uris }) {
+  if (!pool) return;
+  await pool.query(
+    `INSERT INTO oauth_clients (client_id, client_name, redirect_uris) VALUES ($1,$2,$3)
+     ON CONFLICT (client_id) DO UPDATE SET client_name=$2, redirect_uris=$3`,
+    [client_id, client_name || "", JSON.stringify(redirect_uris || [])]
+  );
+}
+export async function getOauthClient(client_id) {
+  if (!pool) return null;
+  const { rows } = await pool.query(`SELECT * FROM oauth_clients WHERE client_id=$1`, [client_id]);
+  return rows[0] || null;
+}
+export async function saveOauthCode({ code, client_id, redirect_uri, owner, is_admin, code_challenge, expiresInSec = 600 }) {
+  if (!pool) return;
+  await pool.query(
+    `INSERT INTO oauth_codes (code, client_id, redirect_uri, owner, is_admin, code_challenge, expires_at)
+     VALUES ($1,$2,$3,$4,$5,$6, now() + interval '1 second' * $7)`,
+    [code, client_id, redirect_uri, owner, !!is_admin, code_challenge || null, expiresInSec]
+  );
+}
+export async function consumeOauthCode(code) {
+  if (!pool) return null;
+  const { rows } = await pool.query(`SELECT * FROM oauth_codes WHERE code=$1 AND expires_at > now()`, [code]);
+  if (!rows[0]) return null;
+  await pool.query(`DELETE FROM oauth_codes WHERE code=$1`, [code]);
+  return rows[0];
+}
+export async function saveOauthToken({ access_token, refresh_token, client_id, owner, is_admin, expiresInSec = 86400 * 90 }) {
+  if (!pool) return;
+  await pool.query(
+    `INSERT INTO oauth_tokens (access_token, refresh_token, client_id, owner, is_admin, expires_at)
+     VALUES ($1,$2,$3,$4,$5, now() + interval '1 second' * $6)`,
+    [access_token, refresh_token || null, client_id, owner, !!is_admin, expiresInSec]
+  );
+}
+export async function getOauthToken(access_token) {
+  if (!pool) return null;
+  const { rows } = await pool.query(`SELECT * FROM oauth_tokens WHERE access_token=$1 AND expires_at > now()`, [access_token]);
+  return rows[0] || null;
+}
+export async function getOauthTokenByRefresh(refresh_token) {
+  if (!pool) return null;
+  const { rows } = await pool.query(`SELECT * FROM oauth_tokens WHERE refresh_token=$1`, [refresh_token]);
+  return rows[0] || null;
+}
+export async function deleteOauthToken(access_token) {
+  if (!pool) return;
+  try { await pool.query(`DELETE FROM oauth_tokens WHERE access_token=$1`, [access_token]); } catch {}
 }

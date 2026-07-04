@@ -92,6 +92,7 @@ import { pdfToText, urlToText, officeToText } from "./ingest.js";
 import { indexKnowledge, embeddingsAvailable } from "./retrieval.js";
 import { readDocument, readerAvailable } from "./ai_read.js";
 import { mountMcpServer } from "./mcp.js";
+import { mountOauthServer, oauthTokenUser } from "./oauth.js";
 import {
   salesforceConfigured,
   authUrl as sfAuthUrl,
@@ -151,7 +152,11 @@ if (!PUBLIC_URL) {
 const app = express();
 
 // --- 個人アカウント認証（Cookieセッション） ---
-const OPEN_PATHS = new Set(["/api/recall/webhook", "/api/login", "/api/register", "/api/auth-info"]);
+const OPEN_PATHS = new Set([
+  "/api/recall/webhook", "/api/login", "/api/register", "/api/auth-info",
+  "/.well-known/oauth-authorization-server", "/.well-known/oauth-protected-resource",
+  "/oauth/register", "/oauth/authorize", "/oauth/token",
+]);
 if (!authEnabled()) {
   console.warn("[警告] アカウント未設定。誰でも操作できます。公開時は DATABASE_URL を設定し登録制にしてください。");
 }
@@ -193,7 +198,7 @@ function apiTokenUser(req) {
   return null;
 }
 
-app.use((req, res, next) => {
+app.use(async (req, res, next) => {
   if (!authEnabled()) {
     req.user = "admin";
     req.isAdmin = true;
@@ -208,6 +213,21 @@ app.use((req, res, next) => {
     req.viaToken = true;
     return next();
   }
+  // OAuthアクセストークンでの認証（Claude.aiのカスタムコネクタ用）
+  const bt = bearerToken(req);
+  if (bt && bt.startsWith("kbtat_")) {
+    const ou = await oauthTokenUser(bt).catch(() => null);
+    if (ou) {
+      req.user = ou.username;
+      req.isAdmin = ou.admin;
+      req.viaToken = true;
+      return next();
+    }
+    // OAuthトークン形式なのに無効 → MCP等のAPIパスなら401を返し、それ以外はログイン画面へ
+    if (req.path.startsWith("/api/") || req.path === "/mcp") {
+      return res.status(401).json({ error: "認証に失敗しました（トークンが無効です）" });
+    }
+  }
   if (
     req.path === "/login.html" ||
     req.path === "/register.html" ||
@@ -221,7 +241,7 @@ app.use((req, res, next) => {
     req.isAdmin = u.admin;
     return next();
   }
-  if (req.path.startsWith("/api/")) return res.status(401).json({ error: "ログインが必要です" });
+  if (req.path.startsWith("/api/") || req.path === "/mcp") return res.status(401).json({ error: "ログインが必要です" });
   return res.redirect("/login.html");
 });
 
@@ -233,6 +253,9 @@ app.use(
   express.json({ verify: (req, _res, buf) => (req.rawBody = buf) })
 );
 app.use(express.json());
+
+// kinbot OAuthサーバー（Claude.aiのカスタムコネクタが自動で試すOAuthフローに対応）
+mountOauthServer(app);
 
 // kinbot MCPサーバー（Claude.aiのコネクタからデータを読めるようにする）
 mountMcpServer(app);

@@ -299,6 +299,17 @@ function applyCcToken(tok) {
 }
 function initCcToken() {
   fillApiBaseUrl();
+  // OAuth接続用URL（トークン不要）は常に表示できる
+  const mcpEl2 = document.getElementById("mcpUrl2");
+  if (mcpEl2) mcpEl2.textContent = `${window.location.origin}/mcp`;
+  const mcpCopyBtn2 = document.getElementById("mcpUrl2Copy");
+  if (mcpCopyBtn2 && !mcpCopyBtn2._wired) {
+    mcpCopyBtn2._wired = true;
+    mcpCopyBtn2.addEventListener("click", async () => {
+      try { await navigator.clipboard.writeText(mcpEl2.textContent); mcpCopyBtn2.textContent = "コピーしました"; } catch { mcpCopyBtn2.textContent = "コピーに失敗しました"; }
+      setTimeout(() => (mcpCopyBtn2.textContent = "URLをコピー"), 1500);
+    });
+  }
   const input = document.getElementById("ccToken");
   if (!input) return;
   let saved = "";

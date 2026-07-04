@@ -33,7 +33,8 @@
             const d = await res.json().catch(() => ({}));
             throw new Error(d.error || "ログインに失敗しました");
           }
-          location.href = "/";
+          const next = new URLSearchParams(location.search).get("next");
+          location.href = next ? decodeURIComponent(next) : "/";
         } catch (e) {
           $("err").textContent = e.message;
           $("err").hidden = false;
