@@ -298,6 +298,22 @@
           </div>
           <div class="set-pane" data-pane="status" hidden>
             <div class="set-card">
+              <h3>接続している外部API一覧</h3>
+              <p class="note">kinbotがいま接続している外部サービスと、課金が発生するものの一覧です。キーはRailwayで設定され、ここでは末尾4文字のみ表示します。各サービスの正確な残高・請求額は「請求」リンクから各社の画面でご確認ください。</p>
+              <div id="integrationsList" class="integ-list"><div class="empty-state">読み込み中…</div></div>
+              <div class="set-row"><button class="btn ghost" id="integReload" type="button">再確認</button></div>
+            </div>
+            <div class="set-card">
+              <h3>Recall（録音）接続状況</h3>
+              <p class="note">kinbotが接続しているRecall.aiのアカウント（リージョン・キー）と今月の利用時間です。「開始できません（残高不足 402）」が出る場合、<b>チャージしたRecallアカウントと、ここに表示されるリージョン／キーが一致しているか</b>を確認してください。別リージョンにチャージしても反映されません。</p>
+              <div id="recallStatus" class="recall-status"><div class="empty-state">読み込み中…</div></div>
+              <div class="set-row">
+                <button class="btn ghost" id="recallStatusReload" type="button">再確認</button>
+                <a class="btn ghost" id="recallDashLink" href="#" target="_blank" rel="noopener">Recallの請求画面を開く</a>
+              </div>
+              <p class="note">※ 残高（チャージ額）はRecallのAPIでは取得できないため、正確な残高は上のボタンからRecallダッシュボードでご確認ください。ここでは「接続先」「今月の利用時間」「直近のボット起動結果」を表示しています。</p>
+            </div>
+            <div class="set-card">
               <h3>状態（読み取り専用）</h3>
               <table class="status-table" id="statusTable"></table>
               <p class="note">APIキー（Recall / Gemini / Deepgram など）は Railway の Variables で設定します。ここからは変更しません。</p>

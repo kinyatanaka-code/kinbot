@@ -22,6 +22,48 @@ function headers() {
   };
 }
 
+// 直近のボット起動（createBot）の結果を覚えておき、残高不足などを画面に表示できるようにする
+let lastCreate = null; // { at, ok, status, code, detail }
+function recordCreate(info) { lastCreate = { at: new Date().toISOString(), ...info }; }
+export function getLastRecallCreate() { return lastCreate; }
+
+// Recall接続情報（どのリージョン/キーに繋がっているか）。キーは末尾4文字だけ返す。
+export function recallConnectionInfo() {
+  const last4 = API_KEY ? API_KEY.slice(-4) : "";
+  const regionLabel = {
+    "us-west-2": "us-west-2（従量課金 / Pay-as-you-go）",
+    "us-east-1": "us-east-1（米国東部）",
+    "eu-central-1": "eu-central-1（欧州）",
+    "ap-northeast-1": "ap-northeast-1（アジア・東京）",
+  }[REGION] || REGION;
+  return {
+    region: REGION,
+    regionLabel,
+    baseUrl: BASE,
+    keyPresent: !!API_KEY,
+    keyLast4: last4,
+    dashboardUrl: `https://${REGION}.recall.ai/`,
+  };
+}
+
+// 今月の利用量（bot_total 秒）を取得する。※Recall APIは「残高」を返さないため、利用量のみ。
+export async function getRecallUsage() {
+  if (!API_KEY) throw new Error("RECALL_API_KEY が未設定です");
+  const now = new Date();
+  const start = new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
+  const end = now.toISOString();
+  const url = `${BASE}/billing/usage/?start=${encodeURIComponent(start)}&end=${encodeURIComponent(end)}`;
+  const res = await fetch(url, { headers: headers() });
+  if (!res.ok) {
+    const t = await res.text().catch(() => "");
+    const err = new Error(`Recall usage ${res.status}: ${t.slice(0, 200)}`);
+    err.status = res.status;
+    throw err;
+  }
+  const d = await res.json().catch(() => ({}));
+  return { botTotalSeconds: Number(d.bot_total || 0), periodStart: start, periodEnd: end };
+}
+
 /**
  * 会議にBotを送り込み、リアルタイム文字起こしをWebhookで受け取る設定で作成。
  * @returns {Promise<string>} botId
@@ -111,9 +153,14 @@ export async function createBot({
     }
     if (!res.ok) {
       const t = await res.text().catch(() => "");
+      // 残高不足(402)などの理由を抽出して記録（画面に「残高不足」等を出すため）
+      let code = "";
+      try { code = (JSON.parse(t) || {}).code || ""; } catch {}
+      recordCreate({ ok: false, status: res.status, code, detail: t.slice(0, 300) });
       throw new Error(`Recall create bot ${res.status}: ${t.slice(0, 300)}`);
     }
     const data = await res.json();
+    recordCreate({ ok: true, status: res.status, code: "", detail: "" });
     return data.id;
   }
   throw new Error("Recall create bot: 容量不足(507)が続いたため作成できませんでした");

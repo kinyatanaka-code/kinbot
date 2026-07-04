@@ -9,7 +9,7 @@ import multer from "multer";
 import fs from "node:fs";
 import { WebSocketServer } from "ws";
 import { transcribeFile, transcriberAvailable } from "./transcribe.js";
-import { createBot, leaveBot, parseTranscriptEvent, getRecordingUrl, getBot } from "./recall.js";
+import { createBot, leaveBot, parseTranscriptEvent, getRecordingUrl, getBot, recallConnectionInfo, getRecallUsage, getLastRecallCreate } from "./recall.js";
 import { createSession, getSession, removeSession, listActiveSessions } from "./sessions.js";
 import {
   initDb,
@@ -154,6 +154,44 @@ const OPEN_PATHS = new Set(["/api/recall/webhook", "/api/login", "/api/register"
 if (!authEnabled()) {
   console.warn("[警告] アカウント未設定。誰でも操作できます。公開時は DATABASE_URL を設定し登録制にしてください。");
 }
+
+// --- APIトークン認証（Claude Code など外部プログラムからの読み取り用） ---
+// 環境変数 API_TOKENS に "トークン:紐づけるユーザー" をカンマ区切りで設定する。
+//   例: API_TOKENS="kbt_xxx:kinya.tanaka@neo-career.co.jp, kbt_yyy:admin"
+// ユーザー省略時は admin 扱い。トークンは Authorization: Bearer <token> ヘッダで送る。
+const API_TOKENS = (() => {
+  const map = new Map();
+  const raw = process.env.API_TOKENS || "";
+  for (const part of raw.split(",")) {
+    const s = part.trim();
+    if (!s) continue;
+    const i = s.indexOf(":");
+    const token = (i === -1 ? s : s.slice(0, i)).trim();
+    const owner = (i === -1 ? "" : s.slice(i + 1).trim()) || "admin";
+    if (token) map.set(token, owner);
+  }
+  return map;
+})();
+function bearerToken(req) {
+  const h = req.headers.authorization || req.headers.Authorization || "";
+  const m = /^Bearer\s+(.+)$/i.exec(String(h).trim());
+  if (m) return m[1].trim();
+  // ヘッダを付けにくいツール向けに ?token= でも受ける
+  if (req.query && req.query.token) return String(req.query.token).trim();
+  return "";
+}
+function apiTokenUser(req) {
+  const t = bearerToken(req);
+  if (!t || !API_TOKENS.size) return null;
+  // タイミング安全比較
+  for (const [tok, owner] of API_TOKENS) {
+    if (tok.length === t.length && crypto.timingSafeEqual(Buffer.from(tok), Buffer.from(t))) {
+      return { username: owner, admin: (process.env.ADMIN_EMAILS || "").split(",").map((x) => x.trim()).includes(owner) || owner === "admin" };
+    }
+  }
+  return null;
+}
+
 app.use((req, res, next) => {
   if (!authEnabled()) {
     req.user = "admin";
@@ -161,6 +199,14 @@ app.use((req, res, next) => {
     return next();
   }
   if (OPEN_PATHS.has(req.path)) return next();
+  // APIトークンでの認証（Cookie不要。外部プログラム・Claude Code用）
+  const tk = apiTokenUser(req);
+  if (tk) {
+    req.user = tk.username;
+    req.isAdmin = tk.admin;
+    req.viaToken = true;
+    return next();
+  }
   if (
     req.path === "/login.html" ||
     req.path === "/register.html" ||
@@ -660,6 +706,132 @@ app.get("/api/phase/by-kind", async (req, res) => {
 
 app.get("/api/phase/teams", async (req, res) => {
   try { res.json(await listRepTeams()); } catch { res.json([]); }
+});
+
+// Recall接続状況（どのリージョン/キーに繋がっているか＋今月の利用時間＋直近のボット起動結果）
+// ※Recall APIは「残高（チャージ額）」を返さないため、残高は取得できない。利用時間と接続先のみ表示する。
+app.get("/api/recall/status", async (req, res) => {
+  const info = recallConnectionInfo();
+  const out = { ...info, lastCreate: getLastRecallCreate(), usage: null, usageError: null };
+  try {
+    out.usage = await getRecallUsage();
+  } catch (e) {
+    out.usageError = e.message || "利用状況の取得に失敗しました";
+  }
+  res.json(out);
+});
+
+// 接続している外部APIの一覧（課金の有無・接続先・確認先）。キーは末尾4文字のみ。
+app.get("/api/integrations", async (req, res) => {
+  const env = process.env;
+  const last4 = (v) => (v && String(v).length > 4 ? String(v).trim().slice(-4) : "");
+  const has = (v) => !!(v && String(v).trim());
+  const mainProvider = (env.LLM_PROVIDER || "gemini").toLowerCase();
+  const phaseProvider = (env.PHASE_PROVIDER || "").toLowerCase();
+  const fallback = (env.FALLBACK_PROVIDER || "").toLowerCase();
+  const transProvider = (env.RECALL_TRANSCRIBE_PROVIDER || "recallai").toLowerCase();
+  // どのLLMが使われているかの判定
+  const usedBy = (p) => {
+    const roles = [];
+    if (mainProvider === p) roles.push("通常のAI処理");
+    if (phaseProvider === p) roles.push("フェーズ判定");
+    if (!phaseProvider && mainProvider === p) { /* already */ }
+    if (fallback === p || (!fallback && (p === "gemini" || p === "groq"))) roles.push("フォールバック");
+    return roles;
+  };
+
+  const services = [];
+  // Recall
+  const rc = recallConnectionInfo();
+  services.push({
+    key: "recall", name: "Recall.ai（録音ボット）", billable: true,
+    configured: rc.keyPresent, keyLast4: rc.keyLast4,
+    detail: rc.regionLabel, role: "会議に参加して録音・文字起こし", inUse: rc.keyPresent,
+    dashboardUrl: rc.dashboardUrl,
+  });
+  // Anthropic
+  {
+    const roles = usedBy("anthropic");
+    services.push({
+      key: "anthropic", name: "Anthropic Claude（AI）", billable: true,
+      configured: has(env.ANTHROPIC_API_KEY), keyLast4: last4(env.ANTHROPIC_API_KEY),
+      detail: env.PHASE_MODEL && phaseProvider === "anthropic" ? env.PHASE_MODEL : (env.ANALYZER_MODEL || "claude-sonnet-4-6"),
+      role: roles.length ? roles.join("・") : "未使用（キーのみ）", inUse: roles.length > 0 && has(env.ANTHROPIC_API_KEY),
+      dashboardUrl: "https://console.anthropic.com/settings/billing",
+    });
+  }
+  // Gemini
+  {
+    const roles = usedBy("gemini");
+    if (!roles.includes("会話・企業情報")) roles.push("会話・企業情報の取得");
+    services.push({
+      key: "gemini", name: "Google Gemini（AI）", billable: true,
+      configured: has(env.GEMINI_API_KEY), keyLast4: last4(env.GEMINI_API_KEY),
+      detail: env.GEMINI_MODEL || "gemini-2.5-flash-lite",
+      role: roles.join("・"), inUse: has(env.GEMINI_API_KEY),
+      dashboardUrl: "https://aistudio.google.com/app/apikey",
+    });
+  }
+  // Groq
+  {
+    const roles = usedBy("groq");
+    services.push({
+      key: "groq", name: "Groq（AI・高速）", billable: true,
+      configured: has(env.GROQ_API_KEY), keyLast4: last4(env.GROQ_API_KEY),
+      detail: env.GROQ_MODEL || "llama-3.3-70b-versatile",
+      role: roles.length ? roles.join("・") : "未使用（キーのみ）", inUse: roles.length > 0 && has(env.GROQ_API_KEY),
+      dashboardUrl: "https://console.groq.com/settings/billing",
+    });
+  }
+  // OpenAI（任意）
+  if (has(env.OPENAI_API_KEY)) {
+    const roles = usedBy("openai");
+    services.push({
+      key: "openai", name: "OpenAI（AI・任意）", billable: true,
+      configured: true, keyLast4: last4(env.OPENAI_API_KEY),
+      detail: env.OPENAI_MODEL || "gpt-4o-mini",
+      role: roles.length ? roles.join("・") : "未使用（キーのみ）", inUse: roles.length > 0,
+      dashboardUrl: "https://platform.openai.com/account/billing/overview",
+    });
+  }
+  // Deepgram（文字起こし）
+  services.push({
+    key: "deepgram", name: "Deepgram（文字起こし）", billable: true,
+    configured: has(env.DEEPGRAM_API_KEY), keyLast4: last4(env.DEEPGRAM_API_KEY),
+    detail: env.DEEPGRAM_MODEL || "nova-2",
+    role: transProvider === "deepgram" ? "録音の文字起こし（メイン）" : "アップロード音声の文字起こし",
+    inUse: has(env.DEEPGRAM_API_KEY),
+    dashboardUrl: "https://console.deepgram.com/",
+  });
+  // Mux（ライブ配信）
+  services.push({
+    key: "mux", name: "Mux（ライブ配信・任意）", billable: true,
+    configured: has(env.MUX_TOKEN_ID) && has(env.MUX_TOKEN_SECRET), keyLast4: last4(env.MUX_TOKEN_ID),
+    detail: "商談のライブ映像配信", role: "ライブ配信（使う場合のみ）",
+    inUse: has(env.MUX_TOKEN_ID) && has(env.MUX_TOKEN_SECRET),
+    dashboardUrl: "https://dashboard.mux.com/",
+  });
+  // 無料連携
+  services.push({
+    key: "google", name: "Google カレンダー連携", billable: false,
+    configured: has(env.GOOGLE_CLIENT_ID) && has(env.GOOGLE_CLIENT_SECRET), keyLast4: "",
+    detail: "予定の取り込み", role: "連携（無料）", inUse: has(env.GOOGLE_CLIENT_ID),
+    dashboardUrl: "",
+  });
+  services.push({
+    key: "notion", name: "Notion 連携", billable: false,
+    configured: has(env.NOTION_TOKEN), keyLast4: "",
+    detail: "議事録の送信", role: "連携（無料）", inUse: has(env.NOTION_TOKEN),
+    dashboardUrl: "",
+  });
+  services.push({
+    key: "salesforce", name: "Salesforce 連携", billable: false,
+    configured: has(env.SF_CLIENT_ID) && has(env.SF_CLIENT_SECRET), keyLast4: "",
+    detail: "商談データ連携", role: "連携（無料）", inUse: has(env.SF_CLIENT_ID),
+    dashboardUrl: "",
+  });
+
+  res.json({ services });
 });
 // フェーズ定義プロンプト（DBで上書き可能。空にすると既定値に戻る）
 app.get("/api/phase/prompt", async (req, res) => {

@@ -270,8 +270,105 @@ loadThanks();
       if (name === "teams") loadTeams();
       if (name === "phasedef") loadPhasePrompt();
       if (name === "thanks") loadThanksPrompt();
+      if (name === "status") { loadIntegrations(); loadRecallStatus(); }
     });
   });
+})();
+
+// ===== 接続している外部API一覧 =====
+async function loadIntegrations() {
+  const host = document.getElementById("integrationsList");
+  if (!host) return;
+  host.innerHTML = '<div class="empty-state">読み込み中…</div>';
+  try {
+    const d = await (await fetch("/api/integrations")).json();
+    const svcs = d.services || [];
+    const billable = svcs.filter((s) => s.billable);
+    const free = svcs.filter((s) => !s.billable);
+    const row = (s) => {
+      const status = !s.configured
+        ? '<span class="integ-badge off">未設定</span>'
+        : s.inUse
+          ? '<span class="integ-badge on">接続中</span>'
+          : '<span class="integ-badge idle">キーあり（未使用）</span>';
+      const key = s.configured && s.keyLast4 ? `<span class="integ-key">****${escapeHtml(s.keyLast4)}</span>` : "";
+      const dash = s.dashboardUrl ? `<a class="integ-link" href="${escapeHtml(s.dashboardUrl)}" target="_blank" rel="noopener">請求 ›</a>` : "";
+      return `<div class="integ-row">` +
+        `<div class="integ-main"><div class="integ-name">${escapeHtml(s.name)} ${status}</div>` +
+        `<div class="integ-sub">${escapeHtml(s.role || "")}${s.detail ? " ・ " + escapeHtml(s.detail) : ""}</div></div>` +
+        `<div class="integ-right">${key}${dash}</div></div>`;
+    };
+    let html = "";
+    html += `<div class="integ-group-title">課金が発生するAPI</div>`;
+    html += billable.map(row).join("") || '<div class="empty-state">なし</div>';
+    if (free.length) {
+      html += `<div class="integ-group-title">無料の連携</div>`;
+      html += free.map(row).join("");
+    }
+    host.innerHTML = html;
+  } catch {
+    host.innerHTML = '<div class="empty-state">一覧の取得に失敗しました。</div>';
+  }
+}
+(function () {
+  const btn = document.getElementById("integReload");
+  if (btn && !btn._wired) { btn._wired = true; btn.addEventListener("click", loadIntegrations); }
+})();
+
+// ===== Recall接続状況 =====
+function fmtDuration(sec) {
+  sec = Math.max(0, Math.round(sec || 0));
+  const h = Math.floor(sec / 3600);
+  const m = Math.floor((sec % 3600) / 60);
+  if (h > 0) return `${h}時間${m}分`;
+  if (m > 0) return `${m}分`;
+  return `${sec}秒`;
+}
+async function loadRecallStatus() {
+  const host = document.getElementById("recallStatus");
+  if (!host) return;
+  host.innerHTML = '<div class="empty-state">読み込み中…</div>';
+  try {
+    const d = await (await fetch("/api/recall/status")).json();
+    const link = document.getElementById("recallDashLink");
+    if (link && d.dashboardUrl) link.href = d.dashboardUrl;
+
+    // 直近のボット起動結果（残高不足などをはっきり出す）
+    let alert = "";
+    const lc = d.lastCreate;
+    if (lc && !lc.ok) {
+      const is402 = lc.status === 402 || /credit/i.test(lc.code || "");
+      alert = `<div class="recall-alert ${is402 ? "bad" : "warn"}">` +
+        (is402
+          ? "直近のボット起動が<b>残高不足（402）で失敗</b>しています。下の「接続先」がチャージしたRecallアカウントと一致しているか確認してください。"
+          : `直近のボット起動が失敗しています（${escapeHtml(String(lc.status || ""))} ${escapeHtml(lc.code || "")}）。`) +
+        `<div class="recall-alert-time">${lc.at ? new Date(lc.at).toLocaleString() : ""}</div></div>`;
+    } else if (lc && lc.ok) {
+      alert = `<div class="recall-alert ok">直近のボット起動は成功しています（${lc.at ? new Date(lc.at).toLocaleString() : ""}）。</div>`;
+    }
+
+    let usageHtml;
+    if (d.usage) {
+      usageHtml = `<b>${fmtDuration(d.usage.botTotalSeconds)}</b>（今月）`;
+    } else {
+      const is402 = /402/.test(d.usageError || "");
+      const is401 = /401/.test(d.usageError || "");
+      usageHtml = `<span class="recall-err">${is402 ? "残高不足の可能性（402）" : is401 ? "APIキーが無効（401）" : "取得できませんでした"}</span>`;
+    }
+
+    host.innerHTML = alert +
+      `<table class="status-table recall-table">` +
+      `<tr><th>接続リージョン</th><td>${escapeHtml(d.regionLabel || d.region || "-")}</td></tr>` +
+      `<tr><th>APIキー</th><td>${d.keyPresent ? "設定あり（末尾 ****" + escapeHtml(d.keyLast4 || "") + "）" : '<span class="recall-err">未設定</span>'}</td></tr>` +
+      `<tr><th>今月の録音利用時間</th><td>${usageHtml}</td></tr>` +
+      `</table>`;
+  } catch (e) {
+    host.innerHTML = '<div class="empty-state">接続状況の取得に失敗しました。</div>';
+  }
+}
+(function () {
+  const btn = document.getElementById("recallStatusReload");
+  if (btn && !btn._wired) { btn._wired = true; btn.addEventListener("click", loadRecallStatus); }
 })();
 
 // ===== 担当者→チーム マッピング編集 =====
