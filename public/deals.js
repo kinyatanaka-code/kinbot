@@ -145,18 +145,47 @@ async function loadNewProcess(companyName, pk, ms) {
 
 // この会社の商談を順に抽出APIにかけて判定する
 async function runNewProcess(botIds, companyName, pk, ms) {
-  const btn = document.getElementById("npRunBtn");
-  const st = document.getElementById("npRunStatus");
-  if (btn) { btn.disabled = true; btn.textContent = "判定中…"; }
+  const box = document.getElementById("newProcBox");
+  if (!box) return;
+  const total = botIds.length;
   let ok = 0, fail = 0;
+
+  // 進捗UIを描画
+  const renderProgress = (done, label, phase) => {
+    const pct = total ? Math.round((done / total) * 100) : 0;
+    box.innerHTML =
+      `<div class="np-prog">` +
+      `<div class="np-prog-head"><span class="np-prog-spinner"></span><span class="np-prog-label">${esc(label)}</span><span class="np-prog-count">${done}/${total}</span></div>` +
+      `<div class="np-prog-track"><div class="np-prog-fill" style="width:${pct}%"></div></div>` +
+      `<div class="np-prog-steps">` +
+      ["文字起こしを読み込み", "商談の種別を判定", "AIで内容を抽出", "判定結果を保存"].map((s, i) =>
+        `<div class="np-prog-step ${phase > i ? "done" : phase === i ? "active" : ""}"><span class="np-prog-dot">${phase > i ? "✓" : i + 1}</span>${s}</div>`
+      ).join("") +
+      `</div></div>`;
+  };
+
+  renderProgress(0, "判定を開始しています…", 0);
+  await new Promise((r) => setTimeout(r, 200));
+
   for (let i = 0; i < botIds.length; i++) {
-    if (st) st.textContent = `判定中… (${i + 1}/${botIds.length})`;
-    try {
-      const r = await fetch("/api/meetings/" + encodeURIComponent(botIds[i]) + "/extract", { method: "POST" });
-      if (r.ok) ok++; else fail++;
-    } catch { fail++; }
+    // 疑似的にステップを進めて「今何をしているか」を見せる（実処理はサーバー側で一括）
+    renderProgress(i, `商談 ${i + 1}/${total} を処理中`, 0);
+    await new Promise((r) => setTimeout(r, 150));
+    renderProgress(i, `商談 ${i + 1}/${total}：種別を判定中`, 1);
+    const p = fetch("/api/meetings/" + encodeURIComponent(botIds[i]) + "/extract", { method: "POST" });
+    await new Promise((r) => setTimeout(r, 400));
+    renderProgress(i, `商談 ${i + 1}/${total}：AIで抽出中`, 2);
+    let r;
+    try { r = await p; } catch { r = null; }
+    renderProgress(i, `商談 ${i + 1}/${total}：結果を保存中`, 3);
+    await new Promise((res) => setTimeout(res, 200));
+    if (r && r.ok) ok++; else fail++;
+    renderProgress(i + 1, `商談 ${i + 1}/${total} 完了`, 4);
   }
-  if (st) st.textContent = `完了（成功 ${ok}件${fail ? " / 失敗 " + fail + "件" : ""}）`;
+
+  // 完了表示
+  box.innerHTML = `<div class="np-prog-done">判定が完了しました（成功 ${ok}件${fail ? " / 失敗 " + fail + "件" : ""}）。結果を読み込んでいます…</div>`;
+  await new Promise((r) => setTimeout(r, 500));
   // 結果を再取得して表示。カード一覧の状態も更新する。
   await loadNewProcess(companyName, pk, ms);
   if (typeof refreshNewProcMap === "function") { await refreshNewProcMap(); renderList(); }

@@ -1843,3 +1843,21 @@ button.pipe-cell { background: none; border: none; cursor: pointer; color: #0F6E
 .np-reason { font-size: 12.5px; color: #334; line-height: 1.6; background: var(--panel-2); border: 1px solid var(--line); border-radius: 8px; padding: 9px 11px; }
 .np-reason-tag { display: inline-block; font-size: 10.5px; font-weight: 700; color: #0F6E56; background: #e3f4ea; border-radius: 999px; padding: 1px 8px; margin-right: 8px; }
 .np-lowconf { display: inline-block; font-size: 10.5px; font-weight: 700; color: #a8611a; background: #fff4e5; border-radius: 999px; padding: 1px 8px; margin-left: 8px; }
+
+/* 案件詳細：新プロセス判定の進捗表示 */
+.np-prog { background: var(--panel-2); border: 1px solid var(--line); border-radius: 12px; padding: 16px 18px; }
+.np-prog-head { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
+.np-prog-label { font-size: 13.5px; font-weight: 600; color: #223; flex: 1; }
+.np-prog-count { font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.np-prog-spinner { width: 16px; height: 16px; border: 2px solid #cfe6dd; border-top-color: #0F6E56; border-radius: 50%; animation: np-spin .7s linear infinite; flex: 0 0 auto; }
+@keyframes np-spin { to { transform: rotate(360deg); } }
+.np-prog-track { height: 8px; background: #e6ece9; border-radius: 999px; overflow: hidden; margin-bottom: 14px; }
+.np-prog-fill { height: 100%; background: linear-gradient(90deg,#1D9E75,#0F6E56); border-radius: 999px; transition: width .35s ease; }
+.np-prog-steps { display: flex; flex-direction: column; gap: 7px; }
+.np-prog-step { display: flex; align-items: center; gap: 9px; font-size: 12.5px; color: #9aa5a0; }
+.np-prog-step.active { color: #0F6E56; font-weight: 700; }
+.np-prog-step.done { color: #334; }
+.np-prog-dot { width: 20px; height: 20px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 700; background: #e6ece9; color: #9aa5a0; flex: 0 0 auto; }
+.np-prog-step.active .np-prog-dot { background: #0F6E56; color: #fff; }
+.np-prog-step.done .np-prog-dot { background: #5DCAA5; color: #fff; }
+.np-prog-done { background: #e8f5ee; color: #1f7a4d; border-radius: 10px; padding: 14px 16px; font-size: 13px; font-weight: 600; }
