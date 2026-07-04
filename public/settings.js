@@ -299,6 +299,16 @@ function applyCcToken(tok) {
 }
 function initCcToken() {
   fillApiBaseUrl();
+  // みんな用の管理者コネクタURL（固定値・HTMLに直接記載）のコピー機能
+  const mcpAdminEl = document.getElementById("mcpUrlAdmin");
+  const mcpAdminCopyBtn = document.getElementById("mcpUrlAdminCopy");
+  if (mcpAdminCopyBtn && !mcpAdminCopyBtn._wired) {
+    mcpAdminCopyBtn._wired = true;
+    mcpAdminCopyBtn.addEventListener("click", async () => {
+      try { await navigator.clipboard.writeText(mcpAdminEl.textContent.trim()); mcpAdminCopyBtn.textContent = "コピーしました"; } catch { mcpAdminCopyBtn.textContent = "コピーに失敗しました"; }
+      setTimeout(() => (mcpAdminCopyBtn.textContent = "URLをコピー"), 1500);
+    });
+  }
   // OAuth接続用URL（トークン不要）は常に表示できる
   const mcpEl2 = document.getElementById("mcpUrl2");
   if (mcpEl2) mcpEl2.textContent = `${window.location.origin}/mcp`;

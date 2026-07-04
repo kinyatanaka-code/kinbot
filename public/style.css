@@ -2064,3 +2064,9 @@ button.fn4-pipe-cell { background: none; border: none; cursor: pointer; color: #
 /* 設定：代替接続方法（折り込み） */
 .cc-alt { margin-top: 12px; border-top: 1px solid var(--line); padding-top: 10px; }
 .cc-alt summary { font-size: 12.5px; color: var(--muted); cursor: pointer; }
+
+/* 設定：全員用の管理者コネクタURL（目立たせる） */
+.cc-admin-box { background: #eef7f3; border: 1.5px solid #9FE1CB; border-radius: 12px; padding: 16px 18px; margin: 14px 0 16px; }
+.cc-admin-head { margin-bottom: 10px; }
+.cc-admin-badge { display: inline-block; background: #04342C; color: #9FE1CB; font-size: 10.5px; font-weight: 700; padding: 2px 10px; border-radius: 999px; margin-bottom: 6px; }
+.cc-admin-title { display: block; font-size: 13px; font-weight: 700; color: #0F6E56; margin-top: 4px; }

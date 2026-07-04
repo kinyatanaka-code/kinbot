@@ -317,19 +317,38 @@ curl -H "Authorization: Bearer <span class="cc-tok">&lt;トークン&gt;</span>"
             </div>
             <div class="set-card">
               <h3>Claude.aiのチャットで会話する（コネクタ）</h3>
-              <p class="note">Claude Codeのようなツールを使わず、<b>普段のClaude.aiのチャット画面</b>から直接kinbotのデータを読んで会話できます。「森田さんの今月の商談状況は？」のように聞くだけで、Claudeが自動でkinbotに問い合わせて答えます。接続時にkinbotへのログインを求められ、許可すると自分の権限で繋がります（管理者は全社員分、それ以外は自分の担当分）。</p>
-              <div class="apidoc-h">登録手順</div>
-              <ol class="cc-steps">
-                <li>Claude.aiの設定 →「コネクタ」→「カスタムコネクタを追加」を開く</li>
-                <li>下のURLを貼り付ける（トークンは不要です）</li>
-                <li>kinbotのログイン画面が出たらログインし、「許可する」を押す</li>
-                <li>接続後、チャットで「kinbotの今月の実績を教えて」のように話しかける</li>
-              </ol>
-              <pre class="apidoc-code"><code id="mcpUrl2"></code></pre>
-              <button class="btn ghost" id="mcpUrl2Copy" type="button">URLをコピー</button>
-              <p class="note">うまく繋がらない場合は、下のトークン埋め込み方式（登録時に「OAuthをスキップ」できるツールの場合のみ）もお試しください。</p>
+              <p class="note">Claude Codeのようなツールを使わず、<b>普段のClaude.aiのチャット画面</b>から直接kinbotのデータを読んで会話できます。「森田さんの今月の商談状況は？」のように聞くだけで、Claudeが自動でkinbotに問い合わせて答えます。</p>
+
+              <div class="cc-admin-box">
+                <div class="cc-admin-head">
+                  <span class="cc-admin-badge">全員用・管理者権限</span>
+                  <span class="cc-admin-title">このURLでつなげば、そのまま全社員の実績を横断で見られます</span>
+                </div>
+                <div class="apidoc-h">登録手順</div>
+                <ol class="cc-steps">
+                  <li>下のURLを「コピー」する</li>
+                  <li>Claude.aiの設定 →「コネクタ」→「カスタムコネクタを追加」を開く</li>
+                  <li>コピーしたURLをそのまま貼り付けて接続する（ログイン画面は出ません）</li>
+                  <li>接続後、チャットで「kinbotの今月の実績を教えて」のように話しかける</li>
+                </ol>
+                <pre class="apidoc-code"><code id="mcpUrlAdmin">https://kinbot-production-225f.up.railway.app/mcp?token=kbt_7bcaf98705c30c3655a8b17dbbd85a0e359aba8b68e3f507</code></pre>
+                <button class="btn" id="mcpUrlAdminCopy" type="button">URLをコピー</button>
+                <p class="note cc-warn">⚠️ このURLには全社員分のデータを読める管理者トークンが含まれています。社内の関係者以外には共有しないでください。人数が増える・退職者が出るなどのタイミングで、Railwayの <code>API_TOKENS</code> からこのトークンを見直してください。</p>
+              </div>
+
               <details class="cc-alt">
-                <summary>うまく繋がらない場合：トークンを直接使う方法</summary>
+                <summary>個人の権限だけで接続したい場合（担当分のみ・ログインが必要）</summary>
+                <div class="apidoc-h">登録手順</div>
+                <ol class="cc-steps">
+                  <li>Claude.aiの設定 →「コネクタ」→「カスタムコネクタを追加」を開く</li>
+                  <li>下のURLを貼り付ける（トークンは不要です）</li>
+                  <li>kinbotのログイン画面が出たらログインし、「許可する」を押す</li>
+                </ol>
+                <pre class="apidoc-code"><code id="mcpUrl2"></code></pre>
+                <button class="btn ghost" id="mcpUrl2Copy" type="button">URLをコピー</button>
+              </details>
+              <details class="cc-alt">
+                <summary>自分専用のトークンで接続したい場合</summary>
                 <pre class="apidoc-code"><code id="mcpUrl">（上のAPIトークンを入力すると表示されます）</code></pre>
                 <button class="btn ghost" id="mcpUrlCopy" type="button">URLをコピー</button>
                 <p class="note cc-warn">⚠️ このURLにはトークンが含まれます。人に共有しないでください。</p>
