@@ -1772,3 +1772,29 @@ button.pipe-cell { background: none; border: none; cursor: pointer; color: #0F6E
 .rev-note { font-size: 11.5px; color: #8a938d; line-height: 1.6; }
 .rev-actions { display: flex; align-items: center; gap: 10px; margin-top: 8px; }
 .rev-status { font-size: 12px; color: #1f7a4d; }
+
+/* 設定：Claude Code連携（APIドキュメント） */
+.apidoc { margin-top: 6px; }
+.apidoc-h { font-size: 12.5px; font-weight: 700; color: #334; margin: 14px 0 6px; }
+.apidoc-code { background: #0f1c18; color: #d5e8e0; border-radius: 8px; padding: 10px 12px; font-size: 12px; line-height: 1.6; overflow-x: auto; white-space: pre; font-family: ui-monospace, Menlo, Consolas, monospace; }
+.apidoc-code code { color: inherit; background: none; }
+.apidoc-base { color: #7fd7bd; }
+.apidoc-example { background: var(--panel-2); border: 1px solid var(--line); border-radius: 8px; padding: 12px 14px; font-size: 12.5px; line-height: 1.7; color: #334; }
+.apidoc-example code { background: #eef1f0; padding: 1px 5px; border-radius: 4px; font-size: 11.5px; }
+
+/* 案件詳細：新プロセスの判定 */
+.newproc-sec .deal-sec-h { color: #0F6E56; }
+.np-head { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; flex-wrap: wrap; }
+.np-status { font-size: 12px; font-weight: 700; border-radius: 999px; padding: 3px 12px; background: #e3f4ea; color: #1f7a4d; }
+.np-status.np-失注未定, .np-status.np-失注その後失注, .np-status.np-失注 { background: #f7e7e6; color: #b3453f; }
+.np-status.np-受注 { background: #04342C; color: #9FE1CB; }
+.np-status.np-案件化中 { background: #e6f0fb; color: #2b6cb0; }
+.np-status.np-再商談実施済み { background: #fff4e5; color: #a8611a; }
+.np-review { font-size: 11px; font-weight: 700; color: #a8611a; background: #fff4e5; border-radius: 999px; padding: 2px 10px; }
+.np-count { font-size: 11.5px; color: var(--muted); margin-left: auto; }
+.np-body { background: var(--panel-2); border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; }
+.np-row { display: flex; justify-content: space-between; gap: 12px; padding: 6px 0; border-bottom: 1px dashed var(--line); font-size: 13px; }
+.np-row:last-of-type { border-bottom: none; }
+.np-k { color: var(--muted); }
+.np-v { font-weight: 600; color: #223; text-align: right; }
+.np-basis { font-size: 11.5px; color: #8a938d; margin-top: 8px; line-height: 1.6; }

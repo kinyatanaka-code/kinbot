@@ -269,10 +269,18 @@ loadThanks();
       document.querySelectorAll(".set-pane").forEach((p) => (p.hidden = p.dataset.pane !== name));
       if (name === "teams") loadTeams();
       if (name === "thanks") loadThanksPrompt();
-      if (name === "status") { loadIntegrations(); loadRecallStatus(); }
+      if (name === "status") { loadIntegrations(); loadRecallStatus(); fillApiBaseUrl(); }
     });
   });
 })();
+
+// Claude Code連携カードのベースURLを、このアプリの実URLで埋める
+function fillApiBaseUrl() {
+  const origin = window.location.origin;
+  const head = document.getElementById("apiBaseUrl");
+  if (head) head.textContent = origin;
+  document.querySelectorAll(".apidoc-base").forEach((el) => { el.textContent = origin; });
+}
 
 // ===== 接続している外部API一覧 =====
 async function loadIntegrations() {

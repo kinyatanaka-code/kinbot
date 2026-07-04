@@ -717,6 +717,40 @@ app.get("/api/integrations", async (req, res) => {
   res.json({ services });
 });
 
+// 会社名から新プロセス（Feature A）の状態を返す（案件画面の表示用）
+app.get("/api/deal-status-by-company", async (req, res) => {
+  try {
+    const company = req.query.company || "";
+    if (!company) return res.json({ found: false });
+    const key = normCompanyKey(company);
+    const deals = await listDeals({});
+    const deal = deals.find((d) => normCompanyKey(d.company_name) === key);
+    if (!deal) return res.json({ found: false });
+    const full = await getDealWithEvents(deal.deal_id);
+    // 最新の初回商談イベントと再商談イベントを拾う
+    const events = (full && full.events) || [];
+    const firstEv = [...events].reverse().find((e) => e.event_type === "初回商談" && e.meeting_kind === "初回商談");
+    const reEv = [...events].reverse().find((e) => e.event_type === "再商談実施");
+    const needsReview = events.some((e) => e.needs_review);
+    res.json({
+      found: true,
+      deal_id: deal.deal_id,
+      status: deal.status,
+      first_meeting_date: deal.first_meeting_date,
+      needs_review: needsReview,
+      first: firstEv ? {
+        schedule_choice: firstEv.schedule_choice, apply_timing: firstEv.apply_timing,
+        judgment_month: firstEv.judgment_month, next_meeting_scheduled: firstEv.next_meeting_scheduled,
+        next_meeting_date: firstEv.next_meeting_date, confidence: firstEv.confidence,
+        judgment_basis: firstEv.judgment_basis, needs_review: firstEv.needs_review,
+        event_date: firstEv.event_date,
+      } : null,
+      latest_result: reEv ? reEv.result : null,
+      event_count: events.length,
+    });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 // ===== Feature A: 新営業プロセスのAPI =====
 
 // チーム編集（担当者→チームのマスタ）。新プロセスのチーム集計にも使う。

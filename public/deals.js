@@ -114,6 +114,42 @@ function escapeHtmlD(s) {
 }
 
 
+// 新プロセス（Feature A）の判定状態を会社名で取得して表示
+async function loadNewProcess(companyName, pk) {
+  const box = document.getElementById("newProcBox");
+  if (!box) return;
+  let d;
+  try {
+    d = await (await fetch("/api/deal-status-by-company?company=" + encodeURIComponent(companyName))).json();
+  } catch { box.innerHTML = '<div class="empty-state">取得に失敗しました。</div>'; return; }
+  if (!d || !d.found) {
+    box.innerHTML = '<div class="empty-state">まだ新プロセスの抽出データがありません（この会社の商談を録音／アップロードすると自動で判定されます）。</div>';
+    return;
+  }
+  const statusBadge = `<span class="np-status np-${(d.status || "").replace(/[()]/g, "")}">${esc(d.status || "-")}</span>`;
+  const review = d.needs_review ? '<span class="np-review">要確認あり</span>' : "";
+  let rows = "";
+  if (d.first) {
+    const f = d.first;
+    const jm = f.judgment_month ? f.judgment_month.replace("-", "年") + "月" : "—";
+    const nextInfo = f.next_meeting_scheduled
+      ? `設定済み${f.next_meeting_date ? "（" + esc(f.next_meeting_date) + "）" : ""}`
+      : "未設定";
+    rows =
+      `<div class="np-row"><span class="np-k">ご利用開始スケジュール</span><span class="np-v">${esc(f.schedule_choice || "—")}</span></div>` +
+      `<div class="np-row"><span class="np-k">今月中の申込可否</span><span class="np-v">${esc(f.apply_timing || "—")}判断</span></div>` +
+      `<div class="np-row"><span class="np-k">判断月（KPI計上）</span><span class="np-v">${jm}</span></div>` +
+      `<div class="np-row"><span class="np-k">次回商談（再商談）</span><span class="np-v">${nextInfo}</span></div>` +
+      (d.latest_result ? `<div class="np-row"><span class="np-k">再商談の結果</span><span class="np-v">${esc(d.latest_result)}</span></div>` : "") +
+      (f.judgment_basis ? `<div class="np-basis">判定根拠：${esc(f.judgment_basis)}${f.confidence === "low" ? "（自信度：低）" : ""}</div>` : "");
+  } else {
+    rows = '<div class="empty-state">初回商談の抽出結果がありません。</div>';
+  }
+  box.innerHTML =
+    `<div class="np-head">${statusBadge}${review}<span class="np-count">抽出イベント ${d.event_count}件</span></div>` +
+    `<div class="np-body">${rows}</div>`;
+}
+
 function renderProfile(account) {
   const body = document.getElementById("profBody");
   if (!body) return;
@@ -402,6 +438,7 @@ async function selectDeal(account) {
     `</div>` +
     (statusOf(account) === "失注" && lastLostReason(ms) ? `<div class="lost-reason">AI判定の失注理由: ${esc(lastLostReason(ms))}</div>` : "") +
     `</div>` +
+    `<section class="deal-sec newproc-sec"><div class="deal-sec-h">📊 新プロセスの判定</div><div id="newProcBox"><div class="empty-state">読み込み中…</div></div></section>` +
     `<section class="deal-sec deal-profile"><div class="deal-sec-h">🏢 会社プロフィール</div>` +
     `<div class="prof-url"><input id="profUrl" type="text" placeholder="企業サイトURL（例: example.co.jp）" /><button class="btn" id="profGet">取得</button><span class="prof-status" id="profStatus"></span></div>` +
     `<div id="profBody"></div></section>` +
@@ -429,6 +466,8 @@ async function selectDeal(account) {
 
   // 会社プロフィール
   renderProfile(account);
+  // 新プロセス（Feature A）の判定状態
+  loadNewProcess(displayName(account) || account, pk);
   // 担当（アカウント単位で選択・保存）
   await renderOwnerPicker(account, last);
   const profUrl = $("profUrl"), profGet = $("profGet"), profStatus = $("profStatus");
