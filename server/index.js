@@ -1007,7 +1007,35 @@ app.get("/api/report/funnel", async (req, res) => {
       (byOwnerMap[o] = byOwnerMap[o] || []).push(e);
     }
     const byOwner = Object.keys(byOwnerMap).sort().map((o) => ({ owner: o, ...funnelFrom(byOwnerMap[o]) }));
-    res.json({ granularity, from, to, owner, team, overall, byOwner });
+
+    // 種別別（コールド/過去失注/通常）
+    const byKindMap = {};
+    for (const e of events) {
+      const k = e.deal_kind || "通常";
+      (byKindMap[k] = byKindMap[k] || []).push(e);
+    }
+    const kindOrder = ["通常", "コールド", "過去失注"];
+    const byKind = kindOrder.filter((k) => byKindMap[k]).map((k) => ({ kind: k, ...funnelFrom(byKindMap[k]) }));
+
+    // チーム別（担当者→チームのマッピングで集約）。さらに各チームを種別で内訳。
+    const teamMap = {}; // team_name -> rep_name
+    for (const t of (await listRepTeams().catch(() => []))) teamMap[t.rep_name] = t.team_name;
+    const byTeamMap = {}; // team -> events
+    for (const e of events) {
+      const disp = resolveDisplayName(e.owner, nameMap);
+      const tm = teamMap[disp] || teamMap[e.owner] || "(未割り当て)";
+      (byTeamMap[tm] = byTeamMap[tm] || []).push(e);
+    }
+    const byTeam = Object.keys(byTeamMap).sort().map((tm) => {
+      const evs = byTeamMap[tm];
+      // チーム内の種別内訳
+      const kmap = {};
+      for (const e of evs) { const k = e.deal_kind || "通常"; (kmap[k] = kmap[k] || []).push(e); }
+      const kinds = kindOrder.filter((k) => kmap[k]).map((k) => ({ kind: k, ...funnelFrom(kmap[k]) }));
+      return { team: tm, ...funnelFrom(evs), kinds };
+    });
+
+    res.json({ granularity, from, to, owner, team, overall, byOwner, byKind, byTeam });
   } catch (e) {
     console.error("[report funnel]", e.message);
     res.status(500).json({ error: e.message });

@@ -1405,8 +1405,11 @@ export async function listDealEvents({ from, to, owner, team, kind } = {}) {
   const where = cond.length ? "WHERE " + cond.join(" AND ") : "";
   try {
     const { rows } = await pool.query(
-      `SELECT e.*, d.company_name, d.owner, d.team, d.status AS deal_status
-       FROM deal_events e LEFT JOIN deals d ON d.deal_id = e.deal_id
+      `SELECT e.*, d.company_name, d.owner, d.team, d.status AS deal_status,
+              COALESCE(NULLIF(m.deal_kind,''), '通常') AS deal_kind
+       FROM deal_events e
+       LEFT JOIN deals d ON d.deal_id = e.deal_id
+       LEFT JOIN meetings m ON m.bot_id = e.bot_id
        ${where} ORDER BY e.event_date, e.id`, vals);
     return rows;
   } catch (e) { console.error("[db] listDealEvents", e.message); return []; }

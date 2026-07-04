@@ -126,6 +126,40 @@ function renderFunnel(body, d) {
     }
     html += "</table></div></div>";
   }
+
+  // 種別別（コールド/過去失注/通常）
+  const kindBadge = (k) => {
+    const cls = k === "過去失注" ? "kind-lost" : k === "コールド" ? "kind-cold" : "kind-normal";
+    return `<span class="kind-badge ${cls}">${esc(k)}</span>`;
+  };
+  if ((d.byKind || []).length) {
+    html += '<div class="rep-card"><div class="rep-title">種別別（コールド / 過去失注 / 通常）</div><div class="rep-table-wrap"><table class="rep-table">';
+    html += "<tr><th>種別</th><th>初回</th><th>失注</th><th class='kpi-col'>再商談実施</th><th>受注</th></tr>";
+    for (const r of d.byKind) {
+      html += `<tr><td class="rep-name-cell">${kindBadge(r.kind)}</td><td>${r.first_meetings}</td><td>${r.lost}</td><td class="kpi-col"><b>${r.re_meetings}</b></td><td>${r.won}</td></tr>`;
+    }
+    html += "</table></div></div>";
+  }
+
+  // チーム別（種別内訳つき）
+  if ((d.byTeam || []).length) {
+    html += '<div class="rep-card"><div class="rep-title">チーム別（種別の内訳つき）</div>';
+    for (const t of d.byTeam) {
+      html += `<div class="team-block"><div class="team-head"><span class="team-name">${esc(t.team)}</span>` +
+        `<span class="team-kpi">再商談実施 <b>${t.re_meetings}</b> ・ 初回 ${t.first_meetings} ・ 失注 ${t.lost} ・ 受注 ${t.won}</span></div>`;
+      if ((t.kinds || []).length) {
+        html += '<div class="rep-table-wrap"><table class="rep-table team-kind-table">';
+        html += "<tr><th>種別</th><th>初回</th><th>失注</th><th class='kpi-col'>再商談実施</th><th>受注</th></tr>";
+        for (const r of t.kinds) {
+          html += `<tr><td>${kindBadge(r.kind)}</td><td>${r.first_meetings}</td><td>${r.lost}</td><td class="kpi-col"><b>${r.re_meetings}</b></td><td>${r.won}</td></tr>`;
+        }
+        html += "</table></div>";
+      }
+      html += "</div>";
+    }
+    html += "</div>";
+  }
+
   body.innerHTML = html;
 }
 
