@@ -24,14 +24,10 @@
           <nav class="set-menu" id="setMenu">
             <button class="set-menu-item active" data-tab="general">動作設定</button>
             <button class="set-menu-item" data-tab="links">登録リンク</button>
-            <button class="set-menu-item" data-tab="calendar">Google連携</button>
-            <button class="set-menu-item" data-tab="salesforce">Salesforce連携</button>
-            <button class="set-menu-item" data-tab="notion">Notion連携</button>
+            <button class="set-menu-item" data-tab="integrations">連携</button>
             <button class="set-menu-item" data-tab="ai">AI提案設定</button>
             <button class="set-menu-item" data-tab="thanks">御礼メール例文</button>
             <button class="set-menu-item" data-tab="teams">チーム編集</button>
-            <button class="set-menu-item" data-tab="claudecode">Claude Code分析</button>
-            <button class="set-menu-item" data-tab="status">状態</button>
           </nav>
           <div class="set-body">
 
@@ -78,7 +74,39 @@
             </div>
           </div>
 
-          <div class="set-pane" data-pane="calendar" hidden>
+          <div class="set-pane" data-pane="integrations" hidden>
+            <div class="integ-grid" id="integGrid">
+              <button class="integ-card" data-integ="calendar">
+                <span class="integ-icon integ-icon-google"><i class="ti ti-calendar-event" aria-hidden="true"></i></span>
+                <span class="integ-name">Google連携</span>
+                <span class="integ-state" id="integState-calendar">未確認</span>
+              </button>
+              <button class="integ-card" data-integ="salesforce">
+                <span class="integ-icon integ-icon-sf"><i class="ti ti-cloud" aria-hidden="true"></i></span>
+                <span class="integ-name">Salesforce連携</span>
+                <span class="integ-state" id="integState-salesforce">未確認</span>
+              </button>
+              <button class="integ-card" data-integ="notion">
+                <span class="integ-icon integ-icon-notion"><i class="ti ti-notes" aria-hidden="true"></i></span>
+                <span class="integ-name">Notion連携</span>
+                <span class="integ-state" id="integState-notion">未確認</span>
+              </button>
+              <button class="integ-card" data-integ="claudecode">
+                <span class="integ-icon integ-icon-claude"><i class="ti ti-message-chatbot" aria-hidden="true"></i></span>
+                <span class="integ-name">Claude.aiで会話</span>
+                <span class="integ-state integ-state-ok">利用可能</span>
+              </button>
+              <button class="integ-card" data-integ="status">
+                <span class="integ-icon integ-icon-status"><i class="ti ti-plug-connected" aria-hidden="true"></i></span>
+                <span class="integ-name">接続状況・API一覧</span>
+                <span class="integ-state">確認する</span>
+              </button>
+            </div>
+
+            <div class="integ-detail" id="integDetail" hidden>
+              <button class="integ-back" id="integBack" type="button">← 連携の一覧に戻る</button>
+
+              <div class="set-pane-inner" data-integ="calendar" hidden>
             <div class="set-card">
               <h3>Google連携</h3>
               <p class="note">連携すると、Zoom等のリンクがある予定の<b>開始3分前</b>に「議事録」Botが自動入室し、Googleドライブの資料を自社ナレッジに取り込めます。</p>
@@ -106,7 +134,7 @@
             </div>
           </div>
 
-          <div class="set-pane" data-pane="salesforce" hidden>
+              <div class="set-pane-inner" data-integ="salesforce" hidden>
             <div class="set-card">
               <h3>Salesforce連携</h3>
               <p class="note">後日の連携作業（接続アプリ作成・環境変数 SF_CLIENT_ID / SF_CLIENT_SECRET の設定）の後に有効になります。</p>
@@ -128,9 +156,9 @@
                 <span class="saved" id="sfMapSaved" hidden>保存しました</span>
               </div>
             </div>
-          </div>
+              </div>
 
-          <div class="set-pane" data-pane="notion" hidden>
+              <div class="set-pane-inner" data-integ="notion" hidden>
             <div class="set-card">
               <h3>Notion連携（あなた専用）</h3>
               <p class="note">この設定は<strong>あなたのアカウント専用</strong>です。ここで登録したNotionに、あなたが送った商談だけが蓄積されます（他のメンバーには影響しません）。<br>
@@ -144,8 +172,91 @@
               </div>
               <p class="note">送信は各商談の詳細（商談履歴）にある「Notionに送る」から行います。</p>
             </div>
-          </div>
+              </div>
 
+              <div class="set-pane-inner" data-integ="claudecode" hidden>
+            <div class="set-card">
+              <h3>Claude.aiのチャットで会話する（コネクタ）</h3>
+              <p class="note">Claude Codeのようなツールを使わず、<b>普段のClaude.aiのチャット画面</b>から直接kinbotのデータを読んで会話できます。「森田さんの今月の商談状況は？」のように聞くだけで、Claudeが自動でkinbotに問い合わせて答えます。</p>
+
+              <div class="cc-admin-box">
+                <div class="cc-admin-head">
+                  <span class="cc-admin-badge">全員用・管理者権限</span>
+                  <span class="cc-admin-title">このURLでつなげば、そのまま全社員の実績を横断で見られます</span>
+                </div>
+                <div class="apidoc-h">登録手順</div>
+                <ol class="cc-steps">
+                  <li>下のURLを「コピー」する</li>
+                  <li>Claude.aiの設定 →「コネクタ」→「カスタムコネクタを追加」を開く</li>
+                  <li>コピーしたURLをそのまま貼り付けて接続する（ログイン画面は出ません）</li>
+                  <li>接続後、チャットで「kinbotの今月の実績を教えて」のように話しかける</li>
+                </ol>
+                <pre class="apidoc-code"><code id="mcpUrlAdmin">https://kinbot-production-225f.up.railway.app/mcp?token=kbt_7bcaf98705c30c3655a8b17dbbd85a0e359aba8b68e3f507</code></pre>
+                <button class="btn" id="mcpUrlAdminCopy" type="button">URLをコピー</button>
+                <p class="note cc-warn">⚠️ このURLには全社員分のデータを読める管理者トークンが含まれています。社内の関係者以外には共有しないでください。人数が増える・退職者が出るなどのタイミングで、Railwayの <code>API_TOKENS</code> からこのトークンを見直してください。</p>
+              </div>
+            </div>
+
+            <details class="set-card cc-collapsible">
+              <summary><h3 class="cc-collapsible-title">Claude Code などで分析する（APIトークン）</h3></summary>
+              <p class="note">発行済みのAPIトークンを使うと、Claude Code やターミナルから商談データを取得して分析できます。トークンは Railway の環境変数 <code>API_TOKENS</code> で発行します。よく使うトークンをここに貼っておくと、下のコード例に自動で差し込まれてコピーしやすくなります。</p>
+              <div class="cc-token-row">
+                <label>APIトークン（この端末に保存されます）</label>
+                <div class="cc-token-input">
+                  <input id="ccToken" type="password" placeholder="kbt_ から始まるトークンを貼り付け" autocomplete="off" spellcheck="false" />
+                  <button class="btn ghost" id="ccTokenShow" type="button">表示</button>
+                  <button class="btn" id="ccTokenSave" type="button">保存</button>
+                  <button class="btn ghost" id="ccTokenClear" type="button">消去</button>
+                </div>
+                <p class="note cc-warn">⚠️ トークンは全社員の商談データを読める鍵です。共有PCでは保存しないでください。保存先はこのブラウザ内のみ（サーバーには送信しません）。漏れた場合は Railway の <code>API_TOKENS</code> から削除すれば即失効します。</p>
+              </div>
+              <div class="apidoc">
+                <div class="apidoc-h">1. ベースURL</div>
+                <pre class="apidoc-code"><code id="apiBaseUrl">（このアプリのURL）</code></pre>
+                <div class="apidoc-h">2. 商談一覧を取得</div>
+                <pre class="apidoc-code"><code>curl -H "Authorization: Bearer <span class="cc-tok">&lt;トークン&gt;</span>" \
+  <span class="apidoc-base"></span>/api/meetings</code></pre>
+                <div class="apidoc-h">3. 1商談の詳細（文字起こし・要約・分析）</div>
+                <pre class="apidoc-code"><code>curl -H "Authorization: Bearer <span class="cc-tok">&lt;トークン&gt;</span>" \
+  <span class="apidoc-base"></span>/api/meetings/&lt;bot_id&gt;</code></pre>
+                <div class="apidoc-h">4. 新プロセスの抽出データ（案件・イベント）</div>
+                <pre class="apidoc-code"><code>curl -H "Authorization: Bearer <span class="cc-tok">&lt;トークン&gt;</span>" <span class="apidoc-base"></span>/api/deals
+curl -H "Authorization: Bearer <span class="cc-tok">&lt;トークン&gt;</span>" <span class="apidoc-base"></span>/api/deal-events</code></pre>
+                <div class="apidoc-h">Claude Code への指示例</div>
+                <div class="apidoc-example">
+                  「<span class="apidoc-base"></span>/api/deal-events を Bearer トークン <code class="cc-tok">&lt;トークン&gt;</code> で取得して、担当者ごとに『初回商談数・今月判断・来月判断・失注・再商談実施・受注』を集計して」
+                </div>
+                <p class="note">ヘッダを付けにくいツールでは <code>?token=<span class="cc-tok">&lt;トークン&gt;</span></code> をURL末尾に付けても認証できます。</p>
+              </div>
+            </details>
+              </div>
+
+              <div class="set-pane-inner" data-integ="status" hidden>
+            <div class="set-card">
+              <h3>接続している外部API一覧</h3>
+              <p class="note">kinbotがいま接続している外部サービスと、課金が発生するものの一覧です。キーはRailwayで設定され、ここでは末尾4文字のみ表示します。各サービスの正確な残高・請求額は「請求」リンクから各社の画面でご確認ください。</p>
+              <div id="integrationsList" class="integ-list"><div class="empty-state">読み込み中…</div></div>
+              <div class="set-row"><button class="btn ghost" id="integReload" type="button">再確認</button></div>
+            </div>
+            <div class="set-card">
+              <h3>Recall（録音）接続状況</h3>
+              <p class="note">kinbotが接続しているRecall.aiのアカウント（リージョン・キー）と今月の利用時間です。「開始できません（残高不足 402）」が出る場合、<b>チャージしたRecallアカウントと、ここに表示されるリージョン／キーが一致しているか</b>を確認してください。別リージョンにチャージしても反映されません。</p>
+              <div id="recallStatus" class="recall-status"><div class="empty-state">読み込み中…</div></div>
+              <div class="set-row">
+                <button class="btn ghost" id="recallStatusReload" type="button">再確認</button>
+                <a class="btn ghost" id="recallDashLink" href="#" target="_blank" rel="noopener">Recallの請求画面を開く</a>
+              </div>
+              <p class="note">※ 残高（チャージ額）はRecallのAPIでは取得できないため、正確な残高は上のボタンからRecallダッシュボードでご確認ください。ここでは「接続先」「今月の利用時間」「直近のボット起動結果」を表示しています。</p>
+            </div>
+            <div class="set-card">
+              <h3>状態（読み取り専用）</h3>
+              <table class="status-table" id="statusTable"></table>
+              <p class="note">APIキー（Recall / Gemini / Deepgram など）は Railway の Variables で設定します。ここからは変更しません。</p>
+            </div>
+              </div>
+
+            </div>
+          </div>
           <div class="set-pane" data-pane="ai" hidden>
             <div class="subtabs" id="aiSubtabs">
               <button class="subtab active" data-sub="kb">自社ナレッジ</button>
@@ -280,85 +391,6 @@
               </div>
               <div id="tmUnmapped"></div>
               <table class="tm-table" id="tmTable"></table>
-            </div>
-          </div>
-          <div class="set-pane" data-pane="claudecode" hidden>
-            <div class="set-card">
-              <h3>Claude.aiのチャットで会話する（コネクタ）</h3>
-              <p class="note">Claude Codeのようなツールを使わず、<b>普段のClaude.aiのチャット画面</b>から直接kinbotのデータを読んで会話できます。「森田さんの今月の商談状況は？」のように聞くだけで、Claudeが自動でkinbotに問い合わせて答えます。</p>
-
-              <div class="cc-admin-box">
-                <div class="cc-admin-head">
-                  <span class="cc-admin-badge">全員用・管理者権限</span>
-                  <span class="cc-admin-title">このURLでつなげば、そのまま全社員の実績を横断で見られます</span>
-                </div>
-                <div class="apidoc-h">登録手順</div>
-                <ol class="cc-steps">
-                  <li>下のURLを「コピー」する</li>
-                  <li>Claude.aiの設定 →「コネクタ」→「カスタムコネクタを追加」を開く</li>
-                  <li>コピーしたURLをそのまま貼り付けて接続する（ログイン画面は出ません）</li>
-                  <li>接続後、チャットで「kinbotの今月の実績を教えて」のように話しかける</li>
-                </ol>
-                <pre class="apidoc-code"><code id="mcpUrlAdmin">https://kinbot-production-225f.up.railway.app/mcp?token=kbt_7bcaf98705c30c3655a8b17dbbd85a0e359aba8b68e3f507</code></pre>
-                <button class="btn" id="mcpUrlAdminCopy" type="button">URLをコピー</button>
-                <p class="note cc-warn">⚠️ このURLには全社員分のデータを読める管理者トークンが含まれています。社内の関係者以外には共有しないでください。人数が増える・退職者が出るなどのタイミングで、Railwayの <code>API_TOKENS</code> からこのトークンを見直してください。</p>
-              </div>
-            </div>
-
-            <details class="set-card cc-collapsible">
-              <summary><h3 class="cc-collapsible-title">Claude Code などで分析する（APIトークン）</h3></summary>
-              <p class="note">発行済みのAPIトークンを使うと、Claude Code やターミナルから商談データを取得して分析できます。トークンは Railway の環境変数 <code>API_TOKENS</code> で発行します。よく使うトークンをここに貼っておくと、下のコード例に自動で差し込まれてコピーしやすくなります。</p>
-              <div class="cc-token-row">
-                <label>APIトークン（この端末に保存されます）</label>
-                <div class="cc-token-input">
-                  <input id="ccToken" type="password" placeholder="kbt_ から始まるトークンを貼り付け" autocomplete="off" spellcheck="false" />
-                  <button class="btn ghost" id="ccTokenShow" type="button">表示</button>
-                  <button class="btn" id="ccTokenSave" type="button">保存</button>
-                  <button class="btn ghost" id="ccTokenClear" type="button">消去</button>
-                </div>
-                <p class="note cc-warn">⚠️ トークンは全社員の商談データを読める鍵です。共有PCでは保存しないでください。保存先はこのブラウザ内のみ（サーバーには送信しません）。漏れた場合は Railway の <code>API_TOKENS</code> から削除すれば即失効します。</p>
-              </div>
-              <div class="apidoc">
-                <div class="apidoc-h">1. ベースURL</div>
-                <pre class="apidoc-code"><code id="apiBaseUrl">（このアプリのURL）</code></pre>
-                <div class="apidoc-h">2. 商談一覧を取得</div>
-                <pre class="apidoc-code"><code>curl -H "Authorization: Bearer <span class="cc-tok">&lt;トークン&gt;</span>" \
-  <span class="apidoc-base"></span>/api/meetings</code></pre>
-                <div class="apidoc-h">3. 1商談の詳細（文字起こし・要約・分析）</div>
-                <pre class="apidoc-code"><code>curl -H "Authorization: Bearer <span class="cc-tok">&lt;トークン&gt;</span>" \
-  <span class="apidoc-base"></span>/api/meetings/&lt;bot_id&gt;</code></pre>
-                <div class="apidoc-h">4. 新プロセスの抽出データ（案件・イベント）</div>
-                <pre class="apidoc-code"><code>curl -H "Authorization: Bearer <span class="cc-tok">&lt;トークン&gt;</span>" <span class="apidoc-base"></span>/api/deals
-curl -H "Authorization: Bearer <span class="cc-tok">&lt;トークン&gt;</span>" <span class="apidoc-base"></span>/api/deal-events</code></pre>
-                <div class="apidoc-h">Claude Code への指示例</div>
-                <div class="apidoc-example">
-                  「<span class="apidoc-base"></span>/api/deal-events を Bearer トークン <code class="cc-tok">&lt;トークン&gt;</code> で取得して、担当者ごとに『初回商談数・今月判断・来月判断・失注・再商談実施・受注』を集計して」
-                </div>
-                <p class="note">ヘッダを付けにくいツールでは <code>?token=<span class="cc-tok">&lt;トークン&gt;</span></code> をURL末尾に付けても認証できます。</p>
-              </div>
-            </details>
-          </div>
-          <div class="set-pane" data-pane="status" hidden>
-            <div class="set-card">
-              <h3>接続している外部API一覧</h3>
-              <p class="note">kinbotがいま接続している外部サービスと、課金が発生するものの一覧です。キーはRailwayで設定され、ここでは末尾4文字のみ表示します。各サービスの正確な残高・請求額は「請求」リンクから各社の画面でご確認ください。</p>
-              <div id="integrationsList" class="integ-list"><div class="empty-state">読み込み中…</div></div>
-              <div class="set-row"><button class="btn ghost" id="integReload" type="button">再確認</button></div>
-            </div>
-            <div class="set-card">
-              <h3>Recall（録音）接続状況</h3>
-              <p class="note">kinbotが接続しているRecall.aiのアカウント（リージョン・キー）と今月の利用時間です。「開始できません（残高不足 402）」が出る場合、<b>チャージしたRecallアカウントと、ここに表示されるリージョン／キーが一致しているか</b>を確認してください。別リージョンにチャージしても反映されません。</p>
-              <div id="recallStatus" class="recall-status"><div class="empty-state">読み込み中…</div></div>
-              <div class="set-row">
-                <button class="btn ghost" id="recallStatusReload" type="button">再確認</button>
-                <a class="btn ghost" id="recallDashLink" href="#" target="_blank" rel="noopener">Recallの請求画面を開く</a>
-              </div>
-              <p class="note">※ 残高（チャージ額）はRecallのAPIでは取得できないため、正確な残高は上のボタンからRecallダッシュボードでご確認ください。ここでは「接続先」「今月の利用時間」「直近のボット起動結果」を表示しています。</p>
-            </div>
-            <div class="set-card">
-              <h3>状態（読み取り専用）</h3>
-              <table class="status-table" id="statusTable"></table>
-              <p class="note">APIキー（Recall / Gemini / Deepgram など）は Railway の Variables で設定します。ここからは変更しません。</p>
             </div>
           </div>
           </div>

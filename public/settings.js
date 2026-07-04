@@ -269,11 +269,72 @@ loadThanks();
       document.querySelectorAll(".set-pane").forEach((p) => (p.hidden = p.dataset.pane !== name));
       if (name === "teams") loadTeams();
       if (name === "thanks") loadThanksPrompt();
-      if (name === "status") { loadIntegrations(); loadRecallStatus(); }
-      if (name === "claudecode") { fillApiBaseUrl(); initCcToken(); }
+      if (name === "integrations") showIntegGrid();
     });
   });
 })();
+
+// ===== 連携タブ：アイコングリッド ⇄ 各連携の詳細 =====
+function showIntegGrid() {
+  const grid = document.getElementById("integGrid");
+  const detail = document.getElementById("integDetail");
+  if (grid) grid.hidden = false;
+  if (detail) detail.hidden = true;
+  document.querySelectorAll(".set-pane-inner").forEach((p) => (p.hidden = true));
+  refreshIntegStates();
+}
+function showIntegDetail(name) {
+  const grid = document.getElementById("integGrid");
+  const detail = document.getElementById("integDetail");
+  if (grid) grid.hidden = true;
+  if (detail) detail.hidden = false;
+  document.querySelectorAll(".set-pane-inner").forEach((p) => (p.hidden = p.dataset.integ !== name));
+  if (name === "status") { loadIntegrations(); loadRecallStatus(); }
+  if (name === "claudecode") { fillApiBaseUrl(); initCcToken(); }
+}
+(function () {
+  const grid = document.getElementById("integGrid");
+  if (grid) {
+    grid.querySelectorAll(".integ-card").forEach((card) => {
+      card.addEventListener("click", () => showIntegDetail(card.dataset.integ));
+    });
+  }
+  const back = document.getElementById("integBack");
+  if (back) back.addEventListener("click", showIntegGrid);
+})();
+// 各連携カードに、接続済み/未接続の状態バッジを反映する
+async function refreshIntegStates() {
+  // Google連携
+  try {
+    const r = await fetch("/api/calendar/status");
+    if (r.ok) {
+      const d = await r.json();
+      setIntegState("calendar", d && d.connected ? "連携済み" : "未連携", d && d.connected);
+    }
+  } catch {}
+  // Salesforce連携
+  try {
+    const r = await fetch("/api/salesforce/status");
+    if (r.ok) {
+      const d = await r.json();
+      setIntegState("salesforce", d && d.connected ? "連携済み" : "未連携", d && d.connected);
+    }
+  } catch {}
+  // Notion連携（自分専用）
+  try {
+    const r = await fetch("/api/notion/config");
+    if (r.ok) {
+      const d = await r.json();
+      setIntegState("notion", d && d.configured ? "連携済み" : "未連携", d && d.configured);
+    }
+  } catch {}
+}
+function setIntegState(key, label, ok) {
+  const el = document.getElementById(`integState-${key}`);
+  if (!el) return;
+  el.textContent = label;
+  el.classList.toggle("integ-state-connected", !!ok);
+}
 
 // Claude Code連携カードのベースURLを、このアプリの実URLで埋める
 function fillApiBaseUrl() {
