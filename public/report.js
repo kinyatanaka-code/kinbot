@@ -89,54 +89,54 @@ function renderFunnel(body, d) {
   const wOf = (v, dn) => (dn ? Math.max(2, Math.round((v / dn) * 100)) : 2);
   const period = d.granularity === "day" ? "日次" : d.granularity === "week" ? "週次" : "月次";
 
-  // 絞り込みの内訳1段（バー＋数値＋%）
-  const subRow = (label, value, denom, indentLevel) => {
-    const pct = pctOf(value, denom);
-    return `<div class="fn3-sub" style="padding-left:${indentLevel * 16}px">
-      <div class="fn3-sub-head"><span class="fn3-sub-label">${esc(label)}</span><span class="fn3-sub-val">${value} <span class="fn3-sub-pct">${pct}%</span></span></div>
-      <div class="fn3-track"><div class="fn3-fill" style="width:${wOf(value, denom)}%"></div></div>
-    </div>`;
-  };
+  let html = '<div class="fn4-wrap">';
 
-  let html = '<div class="rep-card">';
-  html += `<div class="rep-title">サマリー（${period}・${esc(d.from)}〜${esc(d.to)}）</div>`;
-  html += '<div class="fn3-grid">';
-
-  // 左：初回商談を大きく最上部に、そこから内訳を縦線でつなぐ
-  html += '<div class="fn3-left">';
-  html += '<div class="fn3-sub-label" style="margin-bottom:12px;">商談の絞り込み</div>';
-  html += `<div class="fn3-hero"><span class="fn3-hero-num">${o.first_meetings || 0}</span><span class="fn3-hero-label">初回商談</span></div>`;
-  html += `<div class="fn3-hero-track"><div class="fn3-hero-fill"></div></div>`;
-  html += '<div class="fn3-branch">';
-  html += subRow("明確な時期回答", o.clear_schedule, base, 1);
-  html += subRow("今月申込可否", o.this_month, o.clear_schedule || 0, 2);
-  html += subRow("来月申込可否", o.next_month, o.clear_schedule || 0, 2);
-  html += "</div></div>";
-
-  // 右：結果（メインKPIコンパクト＋失注・受注）
-  html += '<div class="fn3-right">';
-  html += `<div class="fn3-kpi">
-    <div class="fn3-kpi-head"><span class="fn3-kpi-label">再商談実施数</span><span class="fn3-kpi-badge">メインKPI</span></div>
-    <div class="fn3-kpi-num">${o.re_meetings || 0}<span class="fn3-kpi-pct">${pctOf(o.re_meetings, base)}%</span></div>
+  // ヘッダー
+  html += `<div class="fn4-head">
+    <div class="fn4-head-left"><span class="fn4-head-icon"><i class="ti ti-chart-bar" aria-hidden="true"></i></span><span class="fn4-head-title">サマリー</span></div>
+    <span class="fn4-head-period">${period}・${esc(d.from)}〜${esc(d.to)}</span>
   </div>`;
-  html += '<div class="fn3-cells">';
-  html += `<div class="fn3-cell"><div class="fn3-cell-label fn3-cell-label-lost">失注</div><div class="fn3-cell-row"><span class="fn3-cell-num fn3-cell-num-lost">${o.lost || 0}</span><span class="fn3-cell-pct fn3-cell-pct-lost">${pctOf(o.lost, base)}%</span></div></div>`;
-  html += `<div class="fn3-cell"><div class="fn3-cell-label">受注</div><div class="fn3-cell-row"><span class="fn3-cell-num">${o.won || 0}</span><span class="fn3-cell-pct">${pctOf(o.won, base)}%</span></div></div>`;
+
+  // KPIカード4枚
+  html += '<div class="fn4-kpis">';
+  html += `<div class="fn4-kpi-card"><div class="fn4-kpi-label">初回商談</div><div class="fn4-kpi-num">${o.first_meetings || 0}</div><div class="fn4-kpi-sub">母数</div></div>`;
+  html += `<div class="fn4-kpi-card fn4-kpi-main"><div class="fn4-kpi-head"><span class="fn4-kpi-label">再商談実施</span><span class="fn4-kpi-badge">KPI</span></div><div class="fn4-kpi-num">${o.re_meetings || 0}</div><div class="fn4-kpi-sub">転換率 ${pctOf(o.re_meetings, base)}%</div></div>`;
+  html += `<div class="fn4-kpi-card"><div class="fn4-kpi-label">失注</div><div class="fn4-kpi-num fn4-kpi-num-lost">${o.lost || 0}</div><div class="fn4-kpi-sub">${pctOf(o.lost, base)}%</div></div>`;
+  html += `<div class="fn4-kpi-card"><div class="fn4-kpi-label">受注</div><div class="fn4-kpi-num">${o.won || 0}</div><div class="fn4-kpi-sub">${pctOf(o.won, base)}%</div></div>`;
+  html += "</div>";
+
+  // 商談ファネル
+  const funnelRow = (label, value, pct, w, cls) =>
+    `<div class="fn4-frow">
+      <span class="fn4-frow-label">${esc(label)}</span>
+      <div class="fn4-frow-track"><div class="fn4-frow-fill ${cls}" style="width:${w}%">${w >= 12 ? `<span class="fn4-frow-val">${value}</span>` : ""}</div>${w < 12 ? `<span class="fn4-frow-val-out">${value}</span>` : ""}</div>
+      <span class="fn4-frow-pct">${pct}%</span>
+    </div>`;
+  html += '<div class="fn4-card"><div class="fn4-card-title">商談ファネル</div><div class="fn4-funnel">';
+  html += funnelRow("初回商談", o.first_meetings || 0, 100, wOf(o.first_meetings, base), "fn4-fc-first");
+  html += funnelRow("明確な時期回答", o.clear_schedule || 0, pctOf(o.clear_schedule, base), wOf(o.clear_schedule, base), "fn4-fc-clear");
+  html += funnelRow("再商談実施", o.re_meetings || 0, pctOf(o.re_meetings, base), wOf(o.re_meetings, base), "fn4-fc-re");
+  html += funnelRow("受注", o.won || 0, pctOf(o.won, base), wOf(o.won, base), "fn4-fc-won");
   html += "</div></div>";
 
-  html += "</div></div>";
-
-  // 担当者別テーブル（全体/チーム選択時）
+  // 担当者別パフォーマンス（全体/チーム選択時）
   const scope = $("fnScope").value;
   if ((scope === "all" || scope.startsWith("team:")) && (d.byOwner || []).length) {
-    html += '<div class="rep-card"><div class="rep-title">担当者別</div><div class="rep-table-wrap"><table class="rep-table">';
-    html += "<tr><th>担当者</th><th>初回</th><th>明確</th><th>今月</th><th>来月</th><th>失注</th><th class='kpi-col'>再商談実施</th><th>受注</th></tr>";
+    const maxRe = Math.max(1, ...d.byOwner.map((r) => r.re_meetings || 0));
+    html += '<div class="fn4-card"><div class="fn4-card-head"><span class="fn4-card-title">担当者別パフォーマンス</span><span class="fn4-card-note">再商談実施数</span></div><div class="fn4-reps">';
     for (const r of d.byOwner) {
-      html += `<tr><td class="rep-name-cell">${esc(r.owner)}</td><td>${r.first_meetings}</td><td>${r.clear_schedule}</td><td>${r.this_month}</td><td>${r.next_month}</td><td>${r.lost}</td><td class="kpi-col"><b>${r.re_meetings}</b></td><td>${r.won}</td></tr>`;
+      const w = Math.max(3, Math.round(((r.re_meetings || 0) / maxRe) * 100));
+      const isTop = (r.re_meetings || 0) === maxRe && maxRe > 0;
+      html += `<div class="fn4-rep-row">
+        <span class="fn4-rep-name">${esc(r.owner)}</span>
+        <div class="fn4-rep-track"><div class="fn4-rep-fill ${isTop ? "fn4-rep-fill-top" : ""}" style="width:${w}%"></div></div>
+        <span class="fn4-rep-meta">初回${r.first_meetings} · 再${r.re_meetings}</span>
+      </div>`;
     }
-    html += "</table></div></div>";
+    html += "</div></div>";
   }
 
+  html += "</div>";
   body.innerHTML = html;
 }
 
