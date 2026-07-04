@@ -724,10 +724,22 @@ app.get("/api/integrations", async (req, res) => {
 app.get("/api/deal-status-by-company", async (req, res) => {
   try {
     const company = req.query.company || "";
-    if (!company) return res.json({ found: false });
-    const key = normCompanyKey(company);
+    const dealIdQ = req.query.deal_id || "";
     const deals = await listDeals({});
-    const deal = deals.find((d) => normCompanyKey(d.company_name) === key);
+    let deal = null;
+    if (dealIdQ) {
+      // deal_id 指定があれば会社名照合を通さず直接引く（照合ズレを完全回避）
+      deal = deals.find((d) => d.deal_id === dealIdQ) || null;
+    }
+    if (!deal && company) {
+      const key = normCompanyKey(company);
+      // 完全一致→部分一致（どちらかがもう一方を含む）で緩く照合
+      deal = deals.find((d) => normCompanyKey(d.company_name) === key)
+        || deals.find((d) => {
+          const k2 = normCompanyKey(d.company_name);
+          return k2 && key && (k2.includes(key) || key.includes(k2));
+        }) || null;
+    }
     if (!deal) return res.json({ found: false });
     const full = await getDealWithEvents(deal.deal_id);
     // 最新の初回商談イベントと再商談イベントを拾う

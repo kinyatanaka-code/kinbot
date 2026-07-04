@@ -114,13 +114,18 @@ function escapeHtmlD(s) {
 }
 
 
-// 新プロセス（Feature A）の判定状態を会社名で取得して表示
+// 新プロセス（Feature A）の判定状態を取得して表示。
+// カードで取得済みの deal_id があれば会社名照合を通さず直接引く（ズレ防止）。
 async function loadNewProcess(companyName, pk, ms) {
   const box = document.getElementById("newProcBox");
   if (!box) return;
+  const known = newProcMap[normName(companyName)] || newProcMap[normName(pk)];
+  const q = known && known.deal_id
+    ? "deal_id=" + encodeURIComponent(known.deal_id)
+    : "company=" + encodeURIComponent(companyName);
   let d;
   try {
-    d = await (await fetch("/api/deal-status-by-company?company=" + encodeURIComponent(companyName))).json();
+    d = await (await fetch("/api/deal-status-by-company?" + q)).json();
   } catch { box.innerHTML = '<div class="empty-state">取得に失敗しました。</div>'; return; }
   if (!d || !d.found) {
     // 抽出データが無い → この会社の商談（文字起こし）から判定できるボタンを出す
@@ -312,9 +317,10 @@ async function load() {  try {
 // 同じ会社名の案件（別キーになっているもの）を、正式社名を揃えて1つにまとめる
 function normName(s) {
   return String(s || "")
-    .replace(/株式会社|（株）|\(株\)|㈱|有限会社|（有）|\(有\)|合同会社|合資会社/g, "")
+    .replace(/株式会社|（株）|\(株\)|㈱|有限会社|（有）|\(有\)|合同会社|合資会社|一般社団法人|公益社団法人|社会福祉法人|学校法人/g, "")
     .replace(/[\s　]+/g, "")
     .replace(/様$/u, "")
+    .trim()
     .toLowerCase();
 }
 async function mergeDuplicates() {
