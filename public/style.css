@@ -2083,12 +2083,10 @@ button.fn4-pipe-cell { background: none; border: none; cursor: pointer; color: #
 .integ-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 14px; }
 .integ-card { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 16px; cursor: pointer; text-align: left; font-family: inherit; transition: border-color .15s, box-shadow .15s; }
 .integ-card:hover { border-color: #9FE1CB; box-shadow: 0 4px 12px rgba(15,110,86,0.08); }
-.integ-icon { width: 40px; height: 40px; border-radius: 10px; display: flex; align-items: center; justify-content: center; font-size: 20px; color: #fff; }
-.integ-icon-google { background: linear-gradient(135deg,#4285F4,#1a73e8); }
-.integ-icon-sf { background: linear-gradient(135deg,#00A1E0,#0074a3); }
-.integ-icon-notion { background: linear-gradient(135deg,#2f2f2f,#111); }
-.integ-icon-claude { background: linear-gradient(135deg,#1D9E75,#0F6E56); }
-.integ-icon-status { background: linear-gradient(135deg,#8a938d,#5f5e5a); }
+.integ-icon { width: 40px; height: 40px; border-radius: 10px; display: flex; align-items: center; justify-content: center; font-size: 20px; background: #fff; border: 1px solid var(--line); }
+.integ-icon svg { display: block; }
+.integ-icon-notion { background: #000; }
+.integ-icon-status { background: linear-gradient(135deg,#8a938d,#5f5e5a); color: #fff; }
 .integ-name { font-size: 13.5px; font-weight: 700; color: #223; }
 .integ-state { font-size: 11px; color: var(--muted); background: var(--panel-2); border-radius: 999px; padding: 2px 9px; }
 .integ-state-ok { background: #e3f4ea; color: #1f7a4d; }
