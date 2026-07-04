@@ -79,40 +79,39 @@ function renderFunnel(body, d) {
   const wOf = (v, dn) => (dn ? Math.max(2, Math.round((v / dn) * 100)) : 2);
   const period = d.granularity === "day" ? "日次" : d.granularity === "week" ? "週次" : "月次";
 
-  // 絞り込みの1段（バー＋数値＋%）
-  const flowRow = (label, value, denom, opts = {}) => {
+  // 絞り込みの内訳1段（バー＋数値＋%）
+  const subRow = (label, value, denom, indentLevel) => {
     const pct = pctOf(value, denom);
-    const indent = opts.indent ? `padding-left:${opts.indent * 16}px;` : "";
-    const color = opts.color || "#5DCAA5";
-    const pctText = opts.noPct ? "" : `<span class="fn2-pct">${pct}%</span>`;
-    return `<div class="fn2-flow" style="${indent}">
-      <div class="fn2-flow-head"><span class="fn2-flow-label">${esc(label)}</span><span class="fn2-flow-val">${value}${pctText}</span></div>
-      <div class="fn2-track"><div class="fn2-fill" style="width:${wOf(value, denom)}%;background:${color}"></div></div>
+    return `<div class="fn3-sub" style="padding-left:${indentLevel * 16}px">
+      <div class="fn3-sub-head"><span class="fn3-sub-label">${esc(label)}</span><span class="fn3-sub-val">${value} <span class="fn3-sub-pct">${pct}%</span></span></div>
+      <div class="fn3-track"><div class="fn3-fill" style="width:${wOf(value, denom)}%"></div></div>
     </div>`;
   };
 
   let html = '<div class="rep-card">';
   html += `<div class="rep-title">サマリー（${period}・${esc(d.from)}〜${esc(d.to)}）</div>`;
-  html += '<div class="fn2-grid">';
+  html += '<div class="fn3-grid">';
 
-  // 左：絞り込みの流れ
-  html += '<div class="fn2-flow-card"><div class="fn2-sub">商談の絞り込み</div>';
-  html += flowRow("初回商談", o.first_meetings, base, { noPct: true, color: "#1D9E75" });
-  html += flowRow("明確な時期回答", o.clear_schedule, base, { color: "#5DCAA5" });
-  html += flowRow("今月申込可否", o.this_month, o.clear_schedule || 0, { indent: 1, color: "#85B7EB" });
-  html += flowRow("来月申込可否", o.next_month, o.clear_schedule || 0, { indent: 1, color: "#85B7EB" });
-  html += "</div>";
+  // 左：初回商談を大きく最上部に、そこから内訳を縦線でつなぐ
+  html += '<div class="fn3-left">';
+  html += '<div class="fn3-sub-label" style="margin-bottom:12px;">商談の絞り込み</div>';
+  html += `<div class="fn3-hero"><span class="fn3-hero-num">${o.first_meetings || 0}</span><span class="fn3-hero-label">初回商談</span></div>`;
+  html += `<div class="fn3-hero-track"><div class="fn3-hero-fill"></div></div>`;
+  html += '<div class="fn3-branch">';
+  html += subRow("明確な時期回答", o.clear_schedule, base, 1);
+  html += subRow("今月申込可否", o.this_month, o.clear_schedule || 0, 2);
+  html += subRow("来月申込可否", o.next_month, o.clear_schedule || 0, 2);
+  html += "</div></div>";
 
-  // 右：結果（メインKPI大きく＋失注・受注）
-  html += '<div class="fn2-result">';
-  html += `<div class="fn2-kpi">
-    <span class="fn2-kpi-badge">メインKPI</span>
-    <div class="fn2-kpi-label">再商談実施数</div>
-    <div class="fn2-kpi-num">${o.re_meetings || 0}<span class="fn2-kpi-pct">${pctOf(o.re_meetings, base)}%</span></div>
+  // 右：結果（メインKPIコンパクト＋失注・受注）
+  html += '<div class="fn3-right">';
+  html += `<div class="fn3-kpi">
+    <div class="fn3-kpi-head"><span class="fn3-kpi-label">再商談実施数</span><span class="fn3-kpi-badge">メインKPI</span></div>
+    <div class="fn3-kpi-num">${o.re_meetings || 0}<span class="fn3-kpi-pct">${pctOf(o.re_meetings, base)}%</span></div>
   </div>`;
-  html += '<div class="fn2-result-row">';
-  html += `<div class="fn2-lost"><div class="fn2-cell-label">失注</div><div class="fn2-cell-num">${o.lost || 0}</div><div class="fn2-cell-pct">${pctOf(o.lost, base)}%</div></div>`;
-  html += `<div class="fn2-won"><div class="fn2-cell-label">受注</div><div class="fn2-cell-num">${o.won || 0}</div><div class="fn2-cell-pct">${pctOf(o.won, base)}%</div></div>`;
+  html += '<div class="fn3-cells">';
+  html += `<div class="fn3-cell"><div class="fn3-cell-label fn3-cell-label-lost">失注</div><div class="fn3-cell-row"><span class="fn3-cell-num fn3-cell-num-lost">${o.lost || 0}</span><span class="fn3-cell-pct fn3-cell-pct-lost">${pctOf(o.lost, base)}%</span></div></div>`;
+  html += `<div class="fn3-cell"><div class="fn3-cell-label">受注</div><div class="fn3-cell-row"><span class="fn3-cell-num">${o.won || 0}</span><span class="fn3-cell-pct">${pctOf(o.won, base)}%</span></div></div>`;
   html += "</div></div>";
 
   html += "</div></div>";

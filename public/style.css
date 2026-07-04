@@ -1935,3 +1935,38 @@ button.pipe-cell { background: none; border: none; cursor: pointer; color: #0F6E
 .kind-card-sub { font-size: 12px; color: var(--muted); margin-bottom: 8px; }
 .kind-card-row { display: flex; justify-content: space-between; font-size: 12.5px; color: #334; padding: 3px 0; border-top: 1px dashed var(--line); }
 .kind-card-row:first-of-type { border-top: none; padding-top: 0; }
+
+/* 実績サマリー：再デザイン（fn3系） */
+.fn3-grid { display: grid; grid-template-columns: 1.1fr 0.9fr; gap: 20px; align-items: start; }
+@media (max-width: 720px){ .fn3-grid { grid-template-columns: 1fr; } }
+.fn3-left { min-width: 0; }
+.fn3-sub-label { font-size: 12px; color: var(--muted); letter-spacing: .02em; }
+.fn3-hero { display: flex; align-items: baseline; gap: 10px; margin-bottom: 10px; }
+.fn3-hero-num { font-size: 32px; font-weight: 700; color: #223; line-height: 1; }
+.fn3-hero-label { font-size: 13px; color: #5f5e5a; }
+.fn3-hero-track { height: 6px; background: var(--panel-2); border-radius: 999px; overflow: hidden; margin-bottom: 20px; }
+.fn3-hero-fill { width: 100%; height: 100%; background: #1D9E75; }
+.fn3-branch { display: flex; flex-direction: column; gap: 14px; border-left: 2px solid var(--panel-2); margin-left: 1px; padding-left: 2px; }
+.fn3-sub { }
+.fn3-sub-head { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 4px; }
+.fn3-sub-label { font-size: 13px; color: #5f5e5a; }
+.fn3-sub-val { font-size: 13px; font-weight: 600; color: #445; }
+.fn3-sub-pct { font-size: 11px; color: #8a938d; font-weight: 400; }
+.fn3-track { height: 5px; background: var(--panel-2); border-radius: 999px; overflow: hidden; }
+.fn3-fill { height: 100%; background: #85B7EB; border-radius: 999px; min-width: 4px; }
+.fn3-right { display: flex; flex-direction: column; gap: 10px; }
+.fn3-kpi { background: #04342C; border-radius: 12px; padding: 16px 18px; }
+.fn3-kpi-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
+.fn3-kpi-label { color: #9FE1CB; font-size: 12.5px; }
+.fn3-kpi-badge { background: #9FE1CB; color: #04342C; font-size: 10.5px; font-weight: 700; padding: 2px 9px; border-radius: 999px; }
+.fn3-kpi-num { color: #fff; font-size: 34px; font-weight: 700; line-height: 1; display: flex; align-items: baseline; gap: 10px; }
+.fn3-kpi-pct { color: #9FE1CB; font-size: 13px; font-weight: 600; }
+.fn3-cells { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.fn3-cell { background: var(--panel-2); border-radius: 12px; padding: 14px 16px; }
+.fn3-cell-label { font-size: 12px; color: var(--muted); margin-bottom: 6px; }
+.fn3-cell-label-lost { color: #b3453f; }
+.fn3-cell-row { display: flex; align-items: baseline; gap: 6px; }
+.fn3-cell-num { font-size: 24px; font-weight: 700; color: #223; }
+.fn3-cell-num-lost { color: #b3453f; }
+.fn3-cell-pct { font-size: 11px; color: #8a938d; }
+.fn3-cell-pct-lost { color: #c77; }
