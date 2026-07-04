@@ -43,6 +43,16 @@ async function fillOwnerSelects() {
     const first = sel.querySelector("option");
     sel.innerHTML = (first ? first.outerHTML : "") + owners.map((o) => `<option value="${esc(o.email)}">${esc(o.name)}</option>`).join("");
   }
+  // チーム選択肢は「チーム編集」に実際に登録されているチーム名から動的に生成
+  // （固定の選択肢だとチーム名の表記がずれて0件になるため、必ずここから作る）
+  const tg = $("fnTeamGroup");
+  if (tg) {
+    try {
+      const teams = await (await fetch("/api/teams")).json();
+      const names = [...new Set((teams || []).map((t) => t.team_name).filter(Boolean))].sort();
+      tg.innerHTML = names.map((n) => `<option value="team:${esc(n)}">チーム：${esc(n)}</option>`).join("");
+    } catch { tg.innerHTML = ""; }
+  }
 }
 
 // scope値（all / team:X / owner:Y）を owner/team パラメータに変換

@@ -1000,12 +1000,25 @@ app.get("/api/report/funnel", async (req, res) => {
     const nameMap = await buildNameMap();
     // 担当者名→チーム名のマッピング（チーム編集の最新状態を都度反映）
     const teamMap = {}; // rep_name(表示名) -> team_name
-    for (const t of (await listRepTeams().catch(() => []))) teamMap[t.rep_name] = t.team_name;
-    const teamOf = (rawOwner) => teamMap[resolveDisplayName(rawOwner, nameMap)] || teamMap[rawOwner] || "(未割り当て)";
+    for (const t of (await listRepTeams().catch(() => []))) teamMap[(t.rep_name || "").trim()] = (t.team_name || "").trim();
+    const teamOf = (rawOwner) => {
+      const disp = resolveDisplayName(rawOwner, nameMap);
+      return teamMap[(disp || "").trim()] || teamMap[(rawOwner || "").trim()] || "(未割り当て)";
+    };
+    const teamFilter = team ? String(team).trim() : null;
 
     let events = await listDealEvents({ from, to, owner });
     // チーム指定があれば、担当者→チームのマッピングでJS側フィルタ（deals.teamカラムに依存しない）
-    if (team) events = events.filter((e) => teamOf(e.owner) === team);
+    if (teamFilter) {
+      const before = events.length;
+      events = events.filter((e) => teamOf(e.owner) === teamFilter);
+      if (events.length === 0 && before > 0) {
+        // 0件になった時だけ、原因調査用にどう解決されたかをログに残す
+        const sample = [...new Set(before ? (await listDealEvents({ from, to, owner })).map((e) => e.owner) : [])].slice(0, 10);
+        console.warn(`[report funnel] チーム「${teamFilter}」で0件。担当者→チーム解決:`, sample.map((o) => `${o}→${teamOf(o)}`));
+        console.warn(`[report funnel] 登録済みチーム名一覧:`, [...new Set(Object.values(teamMap))]);
+      }
+    }
     const overall = funnelFrom(events);
     // 担当者別（全体/チーム選択時に内訳を出す）。担当者名は登録名＋補正で表示。
     const byOwnerMap = {};
