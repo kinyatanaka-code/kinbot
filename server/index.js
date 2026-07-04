@@ -8,6 +8,15 @@ import express from "express";
 import multer from "multer";
 import fs from "node:fs";
 import { WebSocketServer } from "ws";
+
+// プロセス全体のクラッシュ防止（1リクエストの例外でサーバー全体が落ちないようにする）
+process.on("uncaughtException", (e) => {
+  console.error("[uncaughtException]", e && e.stack ? e.stack : e);
+});
+process.on("unhandledRejection", (e) => {
+  console.error("[unhandledRejection]", e && e.stack ? e.stack : e);
+});
+
 import { transcribeFile, transcriberAvailable } from "./transcribe.js";
 import { createBot, leaveBot, parseTranscriptEvent, getRecordingUrl, getBot, recallConnectionInfo, getRecallUsage, getLastRecallCreate } from "./recall.js";
 import { createSession, getSession, removeSession, listActiveSessions, setOnMeetingFinalized } from "./sessions.js";

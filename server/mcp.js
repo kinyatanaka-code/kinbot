@@ -184,6 +184,11 @@ export function mountMcpServer(app) {
   });
   // 一部クライアントはGETでの疎通確認やSSE接続を試みるため、404ではなく明示的に返す
   app.get("/mcp", (req, res) => {
-    res.status(200).json({ name: SERVER_INFO.name, protocol: "mcp", transport: "streamable-http" });
+    try {
+      res.status(200).json({ name: SERVER_INFO.name, protocol: "mcp", transport: "streamable-http" });
+    } catch (e) {
+      console.error("[mcp] GET failed", e && e.stack ? e.stack : e);
+      res.status(500).end();
+    }
   });
 }
