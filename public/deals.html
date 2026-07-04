@@ -25,7 +25,16 @@
           <label>検索<input id="fSearch" type="text" placeholder="取引先名で検索" /></label>
           <label>商談期間<span class="range"><input id="fFrom" type="date" /><span class="range-sep">〜</span><input id="fTo" type="date" /></span></label>
           <button class="btn ghost" id="mergeDupBtn" type="button" title="同じ会社名の案件を1つにまとめます">重複をまとめる</button>
+          <button class="btn ghost" id="npSelectBtn" type="button" title="複数の案件を選んで、まとめて新プロセス判定します">選択して判定</button>
           <span class="merge-status" id="mergeStatus"></span>
+        </div>
+        <div class="np-select-bar" id="npSelectBar" hidden>
+          <span class="np-select-count" id="npSelectCount">0件選択中</span>
+          <button class="btn ghost" id="npSelectAll" type="button">表示中をすべて選択</button>
+          <button class="btn ghost" id="npSelectClear" type="button">選択解除</button>
+          <button class="btn" id="npSelectRun" type="button" disabled>選択した案件を判定</button>
+          <button class="btn ghost" id="npSelectCancel" type="button">やめる</button>
+          <span class="np-select-status" id="npSelectStatus"></span>
         </div>
         <main class="history">
           <aside class="hlist" id="dealList"><div class="empty-state">読み込み中…</div></aside>

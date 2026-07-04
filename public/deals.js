@@ -37,6 +37,8 @@ let groupPrimary = {}; // groupKey -> 代表rawキー
 let current = null;
 let dealStatuses = {}; // account -> {status, manual}
 let accountsMap = {}; // key -> {site_url, official_name, owner, profile}
+let npSelectMode = false; // 「選択して判定」モード
+let npSelected = new Set(); // 選択中の案件（groupsのキー）
 const STATUS_LIST = ["進行中", "受注", "失注", "保留"];
 const primaryOf = (a) => groupPrimary[a] || a;
 const statusOf = (a) => (dealStatuses[primaryOf(a)] && dealStatuses[primaryOf(a)].status) || "進行中";
@@ -256,7 +258,7 @@ function renderNewProcess(box, d) {
       `<div class="np-row"><span class="np-k">次回商談（再商談）</span><span class="np-v">${nextInfo}</span></div>` +
       (d.latest_result ? `<div class="np-row"><span class="np-k">再商談の結果</span><span class="np-v">${esc(d.latest_result)}</span></div>` : "");
   } else {
-    rows = '<div class="empty-state">初回商談の抽出結果がありません。</div>';
+    rows = '<div class="np-hint">この会社の初回商談がまだ判定されていません。上の「再判定」を押すと、初回商談を含むこの会社の全商談を判定し直します。</div>';
   }
 
   // 判定理由（初回・再商談）
@@ -336,7 +338,73 @@ async function load() {  try {
   }
   const mb = $("mergeDupBtn");
   if (mb && !mb._wired) { mb._wired = true; mb.addEventListener("click", mergeDuplicates); }
+  wireNpSelect();
   renderList();
+}
+
+// 「選択して判定」モードの配線
+function wireNpSelect() {
+  const sb = $("npSelectBtn");
+  if (sb && !sb._wired) { sb._wired = true; sb.addEventListener("click", () => { npSelectMode = true; npSelected.clear(); updateNpSelectBar(); renderList(); }); }
+  const cancel = $("npSelectCancel");
+  if (cancel && !cancel._wired) { cancel._wired = true; cancel.addEventListener("click", () => { npSelectMode = false; npSelected.clear(); updateNpSelectBar(); renderList(); }); }
+  const clr = $("npSelectClear");
+  if (clr && !clr._wired) { clr._wired = true; clr.addEventListener("click", () => { npSelected.clear(); updateNpSelectBar(); renderList(); }); }
+  const all2 = $("npSelectAll");
+  if (all2 && !all2._wired) { all2._wired = true; all2.addEventListener("click", () => { selectAllVisibleNp(); }); }
+  const run = $("npSelectRun");
+  if (run && !run._wired) { run._wired = true; run.addEventListener("click", runSelectedNp); }
+}
+
+function updateNpSelectBar() {
+  const bar = $("npSelectBar");
+  if (bar) bar.hidden = !npSelectMode;
+  const cnt = $("npSelectCount");
+  if (cnt) cnt.textContent = `${npSelected.size}件選択中`;
+  const run = $("npSelectRun");
+  if (run) run.disabled = npSelected.size === 0;
+  const sb = $("npSelectBtn");
+  if (sb) sb.style.display = npSelectMode ? "none" : "";
+}
+
+// 表示中の案件をすべて選択
+function selectAllVisibleNp() {
+  const names = Object.keys(groups);
+  const q = ($("fSearch").value || "").trim().toLowerCase();
+  const searching = !!q || !!(($("fFrom") && $("fFrom").value) || ($("fTo") && $("fTo").value));
+  const visible = (selectedRep && !showAll && !searching)
+    ? names.filter((a) => repInfo(a).key === selectedRep)
+    : names;
+  for (const a of visible) npSelected.add(a);
+  updateNpSelectBar();
+  renderList();
+}
+
+// 選択した案件をまとめて判定
+async function runSelectedNp() {
+  const targets = [...npSelected];
+  if (!targets.length) return;
+  const status = $("npSelectStatus");
+  const run = $("npSelectRun");
+  if (run) run.disabled = true;
+  let doneAccounts = 0, okBots = 0, failBots = 0;
+  for (const a of targets) {
+    const ms = groups[a] || [];
+    const botIds = ms.map((m) => m.bot_id).filter(Boolean);
+    if (status) status.textContent = `判定中… 案件 ${doneAccounts + 1}/${targets.length}（${displayName(a)}）`;
+    for (const bid of botIds) {
+      try {
+        const r = await fetch("/api/meetings/" + encodeURIComponent(bid) + "/extract", { method: "POST" });
+        if (r.ok) okBots++; else failBots++;
+      } catch { failBots++; }
+    }
+    doneAccounts++;
+  }
+  if (status) status.textContent = `完了：${doneAccounts}件の案件を判定（商談 成功${okBots}${failBots ? " / 失敗" + failBots : ""}）`;
+  // 状態を更新
+  await refreshNewProcMap();
+  renderList();
+  if (run) run.disabled = false;
 }
 
 
@@ -463,13 +531,23 @@ function accountCardEl(a) {
   const npBadge = np && np.status
     ? `<span class="np-card-badge np-${String(np.status).replace(/[()]/g, "")}">${esc(np.status)}</span>`
     : `<span class="np-card-badge np-none">未判定</span>`;
+  const checked = npSelected.has(a);
   const card = document.createElement("div");
-  card.className = "deal-card" + (a === current ? " active" : "");
+  card.className = "deal-card" + (a === current ? " active" : "") + (npSelectMode ? " selectable" : "") + (checked ? " selected" : "");
   card.innerHTML =
+    (npSelectMode ? `<span class="np-check">${checked ? "✓" : ""}</span>` : "") +
     `<div class="deal-name">${esc(displayName(a))} ${kindBadge}<span class="status-badge st-${st}">${st}</span></div>` +
     `<div class="deal-meta"><span>${ms.length}件</span><span>${esc(last.owner_name || last.owner || "")}</span></div>` +
     `<div class="deal-sub"><span class="np-card-label">新プロセス:</span> ${npBadge} ・ 最終 ${fmtDate(last.created_at)}</div>`;
-  card.addEventListener("click", () => selectDeal(a));
+  card.addEventListener("click", () => {
+    if (npSelectMode) {
+      if (npSelected.has(a)) npSelected.delete(a); else npSelected.add(a);
+      updateNpSelectBar();
+      renderList();
+    } else {
+      selectDeal(a);
+    }
+  });
   return card;
 }
 
