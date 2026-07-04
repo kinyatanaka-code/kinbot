@@ -291,11 +291,6 @@ function applyCcToken(tok) {
     if (t) el.textContent = t;
     else el.innerHTML = "&lt;トークン&gt;";
   });
-  // Claude.aiコネクタ用のMCP URL（トークンをクエリに埋め込む。ヘッダを設定できないため）
-  const mcpEl = document.getElementById("mcpUrl");
-  if (mcpEl) {
-    mcpEl.textContent = t ? `${window.location.origin}/mcp?token=${t}` : "（上のAPIトークンを入力すると表示されます）";
-  }
 }
 function initCcToken() {
   fillApiBaseUrl();
@@ -307,17 +302,6 @@ function initCcToken() {
     mcpAdminCopyBtn.addEventListener("click", async () => {
       try { await navigator.clipboard.writeText(mcpAdminEl.textContent.trim()); mcpAdminCopyBtn.textContent = "コピーしました"; } catch { mcpAdminCopyBtn.textContent = "コピーに失敗しました"; }
       setTimeout(() => (mcpAdminCopyBtn.textContent = "URLをコピー"), 1500);
-    });
-  }
-  // OAuth接続用URL（トークン不要）は常に表示できる
-  const mcpEl2 = document.getElementById("mcpUrl2");
-  if (mcpEl2) mcpEl2.textContent = `${window.location.origin}/mcp`;
-  const mcpCopyBtn2 = document.getElementById("mcpUrl2Copy");
-  if (mcpCopyBtn2 && !mcpCopyBtn2._wired) {
-    mcpCopyBtn2._wired = true;
-    mcpCopyBtn2.addEventListener("click", async () => {
-      try { await navigator.clipboard.writeText(mcpEl2.textContent); mcpCopyBtn2.textContent = "コピーしました"; } catch { mcpCopyBtn2.textContent = "コピーに失敗しました"; }
-      setTimeout(() => (mcpCopyBtn2.textContent = "URLをコピー"), 1500);
     });
   }
   const input = document.getElementById("ccToken");
@@ -346,14 +330,6 @@ function initCcToken() {
     input.value = "";
     try { localStorage.removeItem(CC_TOKEN_KEY); } catch {}
     applyCcToken("");
-  });
-  const mcpCopyBtn = document.getElementById("mcpUrlCopy");
-  if (mcpCopyBtn) mcpCopyBtn.addEventListener("click", async () => {
-    const mcpEl = document.getElementById("mcpUrl");
-    const text = mcpEl ? mcpEl.textContent : "";
-    if (!text || text.startsWith("（")) { mcpCopyBtn.textContent = "先にトークンを入力してください"; setTimeout(() => (mcpCopyBtn.textContent = "URLをコピー"), 1500); return; }
-    try { await navigator.clipboard.writeText(text); mcpCopyBtn.textContent = "コピーしました"; } catch { mcpCopyBtn.textContent = "コピーに失敗しました"; }
-    setTimeout(() => (mcpCopyBtn.textContent = "URLをコピー"), 1500);
   });
 }
 
