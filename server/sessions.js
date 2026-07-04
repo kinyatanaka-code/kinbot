@@ -277,5 +277,15 @@ class Session {
     } catch (e) {
       console.error("[auto phase]", e.message);
     }
+    // 新営業プロセスの抽出（Feature A）。index.js から登録されたフックを呼ぶ。
+    try {
+      if (typeof onMeetingFinalized === "function") await onMeetingFinalized(this.botId);
+    } catch (e) {
+      console.error("[auto extract]", e.message);
+    }
   }
 }
+
+// 商談確定後に呼ぶフック（index.js が runExtraction を登録する）
+let onMeetingFinalized = null;
+export function setOnMeetingFinalized(fn) { onMeetingFinalized = fn; }

@@ -10,7 +10,7 @@ import fs from "node:fs";
 import { WebSocketServer } from "ws";
 import { transcribeFile, transcriberAvailable } from "./transcribe.js";
 import { createBot, leaveBot, parseTranscriptEvent, getRecordingUrl, getBot, recallConnectionInfo, getRecallUsage, getLastRecallCreate } from "./recall.js";
-import { createSession, getSession, removeSession, listActiveSessions } from "./sessions.js";
+import { createSession, getSession, removeSession, listActiveSessions, setOnMeetingFinalized } from "./sessions.js";
 import {
   initDb,
   listMeetings,
@@ -45,6 +45,15 @@ import {
   getAccountPhase,
   listAccountPhases,
   accountKindRows,
+  resolveDeal,
+  updateDealStatus,
+  deleteDealEventsByBot,
+  insertDealEvent,
+  listDeals,
+  getDealWithEvents,
+  listDealEvents,
+  updateDealEvent,
+  teamForRep,
   phaseRows,
   phaseTrend,
   listRepTeams,
@@ -69,7 +78,7 @@ import {
   deleteKbFolder,
 } from "./db.js";
 import { resolveConfig, statusInfo } from "./config.js";
-import { analyzerInfo, analyzeMeeting, analyzeDeep, analyzeTendency, analyzeSet, analyzeWinLoss, extractLostSignals, freeAnalyze, chatWithData, enrichCompany, judgePhase, PHASE_JUDGMENT_PROMPT, getPhasePrompt, generateThanks, THANKS_PROMPT, getCheckItems } from "./analyzer.js";
+import { analyzerInfo, analyzeMeeting, analyzeDeep, analyzeTendency, analyzeSet, analyzeWinLoss, extractLostSignals, freeAnalyze, chatWithData, enrichCompany, judgePhase, PHASE_JUDGMENT_PROMPT, getPhasePrompt, generateThanks, THANKS_PROMPT, getCheckItems, classifyMeetingKind, extractFirstMeeting, extractReMeeting } from "./analyzer.js";
 import {
   googleConfigured,
   authUrl,
@@ -566,6 +575,119 @@ function runPhaseJudgmentSafe(botId) {
     .catch((e) => console.warn("[phase] 自動判定スキップ", botId, e.message));
 }
 
+// ===== Feature A: 新営業プロセスの抽出＋イベントログ保存 =====
+
+// 商談月(YYYY-MM)に n ヶ月足した YYYY-MM を返す
+function addMonthStr(ymd, add) {
+  const d = ymd ? new Date(ymd) : new Date();
+  const base = new Date(d.getFullYear(), d.getMonth() + add, 1);
+  return `${base.getFullYear()}-${String(base.getMonth() + 1).padStart(2, "0")}`;
+}
+
+// 初回商談の抽出結果から judgment_month / status / needs_review をコード側で決める（依頼書6,7章）
+function deriveFirstMeeting(ext, meetingMonth) {
+  const sc = ext.schedule_choice;
+  const at = ext.apply_timing;
+  let judgment_month = null;
+  let status = "案件化中";
+  // 判断月の絶対化
+  if (at === "今月") judgment_month = meetingMonth;
+  else if (at === "来月") judgment_month = addMonthStr(meetingMonth, 1);
+  // それ以外/該当なし/不明 は judgment_month なし
+
+  // ステータス決定
+  if (sc === "未定") status = "失注(未定)";
+  else if (sc === "不明" || at === "不明") status = "案件化中"; // 要確認（確定まで集計対象外）
+  else if (at === "それ以外" || at === "該当なし") status = "失注(未定)";
+  else if (at === "今月" || at === "来月") status = "案件化中";
+
+  // 要確認フラグ
+  const needs_review = ext.confidence === "low" || sc === "不明" || at === "不明";
+  return { judgment_month, status, needs_review };
+}
+
+// 1商談を抽出してイベントログに保存する（finalize / アップロード / 手動 / バックフィルから呼ぶ）
+async function runExtraction(botId) {
+  const m = await getMeeting(botId);
+  if (!m) throw new Error("商談が見つかりません");
+  if (m.category && m.category !== "商談") return null; // 商談以外は対象外
+  const transcript = Array.isArray(m.transcript) ? m.transcript : [];
+  if (!transcript.length) throw new Error("文字起こしがありません");
+
+  const companyName = (m.account && m.account.trim()) || companyFromTitle(m.title) || "";
+  const owner = m.owner || m.owner_name || "";
+  const repName = m.owner_name || m.owner || "";
+  const team = (await teamForRep(repName)) || (await teamForRep(owner)) || "";
+  const meetingDate = (m.created_at ? new Date(m.created_at) : new Date());
+  const meetingDateStr = meetingDate.toISOString().slice(0, 10);
+  const meetingMonth = meetingDateStr.slice(0, 7);
+
+  // 種別判定
+  const kindRes = await classifyMeetingKind(transcript);
+  const kind = kindRes.meeting_kind;
+
+  // 既存の同一商談イベントを消してから入れ直す（再抽出の重複防止）
+  await deleteDealEventsByBot(botId);
+
+  // 会社名で案件を解決（無ければ新規作成）
+  const deal = companyName ? await resolveDeal({ companyName, owner, team, firstMeetingDate: meetingDateStr }) : null;
+
+  if (kind === "判定不能") {
+    await insertDealEvent({
+      deal_id: deal && deal.deal_id, bot_id: botId, event_date: meetingDateStr,
+      event_type: "初回商談", meeting_kind: "判定不能",
+      confidence: kindRes.confidence, needs_review: true,
+      judgment_basis: "商談種別を判定できませんでした",
+      raw_extraction: { kind: kindRes },
+    });
+    return { kind, needs_review: true };
+  }
+
+  if (kind === "初回商談") {
+    const ext = await extractFirstMeeting(transcript, meetingDateStr);
+    const der = deriveFirstMeeting(ext, meetingMonth);
+    await insertDealEvent({
+      deal_id: deal && deal.deal_id, bot_id: botId, event_date: meetingDateStr,
+      event_type: "初回商談", meeting_kind: "初回商談",
+      schedule_choice: ext.schedule_choice, schedule_choice_detail: ext.schedule_choice_detail,
+      apply_timing: ext.apply_timing, judgment_month: der.judgment_month,
+      next_meeting_scheduled: ext.next_meeting_scheduled, next_meeting_date: ext.next_meeting_date,
+      confidence: ext.confidence, judgment_basis: ext.judgment_basis,
+      needs_review: der.needs_review, raw_extraction: ext,
+    });
+    // 案件のステータス・初回商談日を更新（要確認でなければ）
+    if (deal) {
+      if (!der.needs_review) await updateDealStatus(deal.deal_id, der.status);
+    }
+    return { kind, ...der };
+  }
+
+  // 再商談
+  const ext = await extractReMeeting(transcript, meetingDateStr);
+  const needs_review = ext.confidence === "low";
+  let status = "再商談実施済み";
+  if (ext.result === "受注") status = "受注";
+  else if (ext.result === "失注") status = "失注(その後失注)";
+  await insertDealEvent({
+    deal_id: deal && deal.deal_id, bot_id: botId, event_date: meetingDateStr,
+    event_type: "再商談実施", meeting_kind: "再商談",
+    result: ext.result, reported_date: ext.reported_date, apply_date: ext.apply_date,
+    usage_start_date: ext.usage_start_date, confidence: ext.confidence,
+    judgment_basis: ext.judgment_basis, needs_review, raw_extraction: ext,
+  });
+  if (deal && !needs_review) await updateDealStatus(deal.deal_id, status);
+  return { kind, result: ext.result, needs_review };
+}
+
+// 投げっぱなし実行（finalizeをブロックしない）
+function runExtractionSafe(botId) {
+  Promise.resolve()
+    .then(() => runExtraction(botId))
+    .catch((e) => console.warn("[extract] スキップ", botId, e.message));
+}
+// 録音ボット経由の商談確定後にも抽出を走らせる（sessions.js から呼ばれる）
+setOnMeetingFinalized(runExtractionSafe);
+
 // メンバー向け：1商談の判定取得（無ければ判定して返す）
 app.get("/api/meetings/:id/phase", async (req, res) => {
   try {
@@ -833,6 +955,90 @@ app.get("/api/integrations", async (req, res) => {
 
   res.json({ services });
 });
+
+// ===== Feature A: 新営業プロセスのAPI =====
+
+// 案件一覧（deals）
+app.get("/api/deals", async (req, res) => {
+  try {
+    const { owner, team, status, from, to } = req.query;
+    res.json(await listDeals({ owner, team, status, from, to }));
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// 1案件＋その履歴
+app.get("/api/deals/:id", async (req, res) => {
+  try {
+    const d = await getDealWithEvents(req.params.id);
+    if (!d) return res.status(404).json({ error: "案件が見つかりません" });
+    res.json(d);
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// イベントログ取得（ダッシュボードの集計元）
+app.get("/api/deal-events", async (req, res) => {
+  try {
+    const { from, to, owner, team, kind } = req.query;
+    res.json(await listDealEvents({ from, to, owner, team, kind }));
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// イベントの手動修正（要確認レコードを直す→needs_review解除など）
+app.put("/api/deal-events/:id", async (req, res) => {
+  try {
+    const patch = req.body || {};
+    const row = await updateDealEvent(Number(req.params.id), patch);
+    if (!row) return res.status(400).json({ error: "更新できませんでした" });
+    res.json(row);
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// 指定商談の抽出を手動実行（再抽出）
+app.post("/api/meetings/:id/extract", async (req, res) => {
+  try {
+    const r = await runExtraction(req.params.id);
+    res.json({ ok: true, result: r });
+  } catch (e) {
+    console.error("[extract manual]", e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// バックフィル：既存の商談すべてに抽出をかける（期間指定可・順次処理）
+// GET /api/extract/backfill/status で進捗確認、POST /api/extract/backfill で開始
+let backfillState = { running: false, total: 0, done: 0, ok: 0, failed: 0, startedAt: null, from: null, to: null, lastError: "" };
+app.get("/api/extract/backfill/status", (req, res) => res.json(backfillState));
+app.post("/api/extract/backfill", async (req, res) => {
+  if (!req.isAdmin) return res.status(403).json({ error: "管理者のみ実行できます" });
+  if (backfillState.running) return res.status(409).json({ error: "すでに実行中です", state: backfillState });
+  const { from, to } = req.body || {};
+  // 対象の商談を集める（文字起こしのある商談のみ）
+  let meetings = [];
+  try { meetings = await listMeetings({ isAdmin: true }); } catch (e) { return res.status(500).json({ error: e.message }); }
+  let targets = meetings.filter((m) => (!m.category || m.category === "商談"));
+  if (from) targets = targets.filter((m) => new Date(m.created_at) >= new Date(from + "T00:00:00"));
+  if (to) targets = targets.filter((m) => new Date(m.created_at) <= new Date(to + "T23:59:59"));
+  backfillState = { running: true, total: targets.length, done: 0, ok: 0, failed: 0, startedAt: new Date().toISOString(), from: from || null, to: to || null, lastError: "" };
+  res.json({ ok: true, message: `バックフィルを開始しました（対象 ${targets.length} 件）`, state: backfillState });
+  // バックグラウンドで順次処理（レート制限回避のため間隔を空ける）
+  (async () => {
+    for (const m of targets) {
+      try {
+        await runExtraction(m.bot_id);
+        backfillState.ok++;
+      } catch (e) {
+        backfillState.failed++;
+        backfillState.lastError = `${m.bot_id}: ${e.message}`;
+        console.error("[backfill]", m.bot_id, e.message);
+      }
+      backfillState.done++;
+      await new Promise((r) => setTimeout(r, 800));
+    }
+    backfillState.running = false;
+    console.log(`[backfill] 完了 ok=${backfillState.ok} failed=${backfillState.failed}`);
+  })();
+});
+
 // フェーズ定義プロンプト（DBで上書き可能。空にすると既定値に戻る）
 app.get("/api/phase/prompt", async (req, res) => {
   try {
@@ -1899,8 +2105,10 @@ async function processUpload(id, file, repName) {
       }
     }
     await setMeetingStatus(id, "done");
-    // 商談フェーズ自動判定（機能A）
+    // 商談フェーズ自動判定（旧・撤去予定。ステップ2で削除）
     runPhaseJudgmentSafe(id);
+    // 新営業プロセスの抽出（Feature A）
+    runExtractionSafe(id);
 
     // 動画/音声をMuxに資産化（再生用）。設定があるときだけ。
     if (muxConfigured()) {

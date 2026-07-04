@@ -1001,3 +1001,117 @@ export async function generateThanks({ round, examples, summaryText, repName, cu
   const text = await callLLM(template.replace(/\{round\}/g, String(round || "")), user, 1400);
   return parseJson(text);
 }
+
+// ===== Feature A: 新営業プロセスの抽出（種別判定＋初回/再商談 抽出） =====
+
+// transcript(配列 or 文字列)を「話者: 発言」形式のテキストにする
+function transcriptToText(transcript) {
+  if (typeof transcript === "string") return transcript;
+  if (!Array.isArray(transcript)) return "";
+  return transcript.map((u) => `${(u.speaker && u.speaker.name) || u.speaker_name || "話者"}: ${u.text || ""}`).join("\n");
+}
+
+// 商談種別を判定：初回商談 / 再商談 / 判定不能
+export async function classifyMeetingKind(transcript) {
+  const text = transcriptToText(transcript).slice(0, 40000);
+  const sys =
+    "あなたは営業商談の文字起こしを読み、商談の種別を分類するアシスタントです。次の3つから1つを選びます。" +
+    "『初回商談』=概要紹介〜ヒアリング〜デモ〜利用開始スケジュールの確認など、初めての提案商談。" +
+    "『再商談』=既に提案済みで、上申日・申込日・利用開始日など導入に向けた相談をしている商談（上申準備）。" +
+    "『判定不能』=文字起こしが短すぎる/雑談のみ/どちらとも判断できない場合。" +
+    "推測が難しければ判定不能にしてください。JSONのみ出力し、他の文章は書かないこと。";
+  const user = `文字起こし:\n"""\n${text}\n"""`;
+  const schema = {
+    type: "object",
+    properties: {
+      meeting_kind: { type: "string", enum: ["初回商談", "再商談", "判定不能"] },
+      confidence: { type: "string", enum: ["high", "low"] },
+    },
+    required: ["meeting_kind", "confidence"],
+  };
+  const out = parseJson(await callLLM(sys, user, 300, { schema })) || {};
+  const kind = ["初回商談", "再商談", "判定不能"].includes(out.meeting_kind) ? out.meeting_kind : "判定不能";
+  return { meeting_kind: kind, confidence: out.confidence === "high" ? "high" : "low" };
+}
+
+// 初回商談の抽出（依頼書4.2 確定版プロンプト）
+export async function extractFirstMeeting(transcript, meetingDate) {
+  const text = transcriptToText(transcript).slice(0, 45000);
+  const sys =
+    "あなたは営業商談の文字起こしから、指定された項目のみを抽出するアシスタントです。" +
+    "記載のない情報は絶対に推測せず、該当する区分がなければ\"不明\"としてください。\n" +
+    "【抽出項目】\n" +
+    "1. schedule_choice: 顧客が回答した『ご利用開始スケジュール』。\"来月開始\"/\"再来月開始\"/\"その他明確な時期\"/\"未定\"/\"不明\"。" +
+    "その他明確な時期の場合、schedule_choice_detail に自由記述で内容を記載。\n" +
+    "2. apply_timing: 『今月中に申込可否の判断ができるか』への回答。" +
+    "schedule_choiceが\"未定\"の場合は質問自体が発生しないため\"該当なし\"。" +
+    "schedule_choiceが\"不明\"の場合はこの項目も\"不明\"。" +
+    "\"今月\"（今月中に判断できる）/\"来月\"（来月なら判断できる）/\"それ以外\"（再来月以降など今月来月以外の明確な回答）/\"不明\"（質問はされたが回答が読み取れない）/\"該当なし\"（未定のため質問自体が発生していない）。\n" +
+    "3. next_meeting_scheduled: 再商談（上申準備）の日程が設定されたか（true/false）。\n" +
+    "4. next_meeting_date: 設定された場合の日程（YYYY-MM-DD、不明ならnull）。\n" +
+    "5. confidence: 抽出全体の自信度（\"high\"/\"low\"）。顧客の発言が曖昧・脱線して結論が不明確・複数解釈可能なら\"low\"。\n" +
+    "6. judgment_basis: 判定根拠の要約（30字程度、発言の逐語引用はしない）。\n" +
+    "JSONのみ出力し、他の文章は一切出力しないこと。";
+  const user = `商談日: ${meetingDate || "不明"}\n文字起こし:\n"""\n${text}\n"""`;
+  const schema = {
+    type: "object",
+    properties: {
+      schedule_choice: { type: "string", enum: ["来月開始", "再来月開始", "その他明確な時期", "未定", "不明"] },
+      schedule_choice_detail: { type: ["string", "null"] },
+      apply_timing: { type: "string", enum: ["今月", "来月", "それ以外", "不明", "該当なし"] },
+      next_meeting_scheduled: { type: "boolean" },
+      next_meeting_date: { type: ["string", "null"] },
+      confidence: { type: "string", enum: ["high", "low"] },
+      judgment_basis: { type: "string" },
+    },
+    required: ["schedule_choice", "apply_timing", "next_meeting_scheduled", "confidence", "judgment_basis"],
+  };
+  const o = parseJson(await callLLM(sys, user, 700, { schema })) || {};
+  return {
+    schedule_choice: o.schedule_choice || "不明",
+    schedule_choice_detail: o.schedule_choice_detail || "",
+    apply_timing: o.apply_timing || "不明",
+    next_meeting_scheduled: !!o.next_meeting_scheduled,
+    next_meeting_date: o.next_meeting_date || null,
+    confidence: o.confidence === "high" ? "high" : "low",
+    judgment_basis: o.judgment_basis || "",
+  };
+}
+
+// 再商談（上申準備）の抽出（依頼書4.3）
+export async function extractReMeeting(transcript, meetingDate) {
+  const text = transcriptToText(transcript).slice(0, 45000);
+  const sys =
+    "あなたは営業商談（再商談・上申準備）の文字起こしから、指定された項目のみを抽出するアシスタントです。" +
+    "記載のない情報は絶対に推測せず、不明なら null または\"未確定\"としてください。\n" +
+    "【抽出項目】\n" +
+    "1. reported_date: 上申予定日（YYYY-MM-DD、不明ならnull）\n" +
+    "2. apply_date: 申込予定日（YYYY-MM-DD、不明ならnull）\n" +
+    "3. usage_start_date: 利用開始予定日（YYYY-MM-DD、不明ならnull）\n" +
+    "4. result: \"受注\"/\"失注\"/\"延期\"（さらに先送り）/\"未確定\"\n" +
+    "5. confidence: \"high\"/\"low\"\n" +
+    "6. judgment_basis: 判定根拠の要約（30字程度）\n" +
+    "JSONのみ出力し、他の文章は一切出力しないこと。";
+  const user = `商談日: ${meetingDate || "不明"}\n文字起こし:\n"""\n${text}\n"""`;
+  const schema = {
+    type: "object",
+    properties: {
+      reported_date: { type: ["string", "null"] },
+      apply_date: { type: ["string", "null"] },
+      usage_start_date: { type: ["string", "null"] },
+      result: { type: "string", enum: ["受注", "失注", "延期", "未確定"] },
+      confidence: { type: "string", enum: ["high", "low"] },
+      judgment_basis: { type: "string" },
+    },
+    required: ["result", "confidence", "judgment_basis"],
+  };
+  const o = parseJson(await callLLM(sys, user, 700, { schema })) || {};
+  return {
+    reported_date: o.reported_date || null,
+    apply_date: o.apply_date || null,
+    usage_start_date: o.usage_start_date || null,
+    result: ["受注", "失注", "延期", "未確定"].includes(o.result) ? o.result : "未確定",
+    confidence: o.confidence === "high" ? "high" : "low",
+    judgment_basis: o.judgment_basis || "",
+  };
+}

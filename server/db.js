@@ -245,6 +245,47 @@ export async function initDb() {
       updated_at  TIMESTAMPTZ DEFAULT now()
     );
   `);
+  // ===== Feature A: 新営業プロセス（案件＝会社名ベース、イベントログ方式） =====
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS deals (
+      deal_id            TEXT PRIMARY KEY,
+      company_name       TEXT,
+      owner              TEXT,
+      team               TEXT,
+      first_meeting_date DATE,
+      status             TEXT,
+      created_at         TIMESTAMPTZ DEFAULT now(),
+      updated_at         TIMESTAMPTZ DEFAULT now()
+    );
+  `);
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS deal_events (
+      id                     BIGSERIAL PRIMARY KEY,
+      deal_id                TEXT,
+      bot_id                 TEXT,
+      event_date             DATE,
+      event_type             TEXT,
+      meeting_kind           TEXT,
+      schedule_choice        TEXT,
+      schedule_choice_detail TEXT,
+      apply_timing           TEXT,
+      judgment_month         TEXT,
+      next_meeting_scheduled BOOLEAN,
+      next_meeting_date      DATE,
+      result                 TEXT,
+      reported_date          DATE,
+      apply_date             DATE,
+      usage_start_date       DATE,
+      confidence             TEXT,
+      judgment_basis         TEXT,
+      needs_review           BOOLEAN DEFAULT false,
+      raw_extraction         JSONB,
+      created_at             TIMESTAMPTZ DEFAULT now()
+    );
+  `);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_deal_events_deal ON deal_events(deal_id);`);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_deal_events_date ON deal_events(event_date);`);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_deal_events_bot ON deal_events(bot_id);`);
   console.log("[db] Postgres に接続しました（履歴を保存します）。");
 }
 
@@ -1252,4 +1293,147 @@ export async function countEmbeddedChunks() {
   } catch {
     return 0;
   }
+}
+
+// ===== Feature A: deals / deal_events の操作 =====
+
+// 会社名を正規化（表記ゆれ吸収）してマッチ用キーにする
+export function normCompanyKey(name) {
+  return String(name || "")
+    .replace(/株式会社|（株）|\(株\)|㈱|有限会社|（有）|\(有\)|合同会社|合資会社|一般社団法人|公益社団法人|社会福祉法人|学校法人/g, "")
+    .replace(/[\s　]+/g, "")
+    .replace(/様$/u, "")
+    .trim()
+    .toLowerCase();
+}
+
+// 会社名から既存dealを探す（正規化キー一致）。無ければ作成。
+export async function resolveDeal({ companyName, owner, team, firstMeetingDate }) {
+  if (!pool) return null;
+  const key = normCompanyKey(companyName);
+  if (!key) return null;
+  // 既存を全件から正規化一致で探す（件数は多くないため）
+  const { rows } = await pool.query(`SELECT * FROM deals`);
+  const found = rows.find((d) => normCompanyKey(d.company_name) === key);
+  if (found) return found;
+  const dealId = "deal_" + key.replace(/[^a-z0-9ぁ-んァ-ヶ一-龠]/gi, "").slice(0, 40) + "_" + Date.now().toString(36);
+  const ins = await pool.query(
+    `INSERT INTO deals (deal_id, company_name, owner, team, first_meeting_date, status)
+     VALUES ($1,$2,$3,$4,$5,$6) RETURNING *`,
+    [dealId, companyName || "", owner || "", team || "", firstMeetingDate || null, "案件化中"]
+  );
+  return ins.rows[0];
+}
+
+// dealのステータス・更新日時を更新
+export async function updateDealStatus(dealId, status) {
+  if (!pool || !dealId) return;
+  try {
+    await pool.query(`UPDATE deals SET status=$2, updated_at=now() WHERE deal_id=$1`, [dealId, status]);
+  } catch (e) { console.error("[db] updateDealStatus", e.message); }
+}
+
+// 同じ商談(bot_id)由来の既存イベントを削除（再抽出時に重複しないように）
+export async function deleteDealEventsByBot(botId) {
+  if (!pool || !botId) return;
+  try { await pool.query(`DELETE FROM deal_events WHERE bot_id=$1`, [botId]); } catch (e) { console.error("[db] deleteDealEventsByBot", e.message); }
+}
+
+// イベントを1件追記
+export async function insertDealEvent(ev) {
+  if (!pool) return null;
+  try {
+    const { rows } = await pool.query(
+      `INSERT INTO deal_events
+        (deal_id, bot_id, event_date, event_type, meeting_kind, schedule_choice, schedule_choice_detail,
+         apply_timing, judgment_month, next_meeting_scheduled, next_meeting_date, result,
+         reported_date, apply_date, usage_start_date, confidence, judgment_basis, needs_review, raw_extraction)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19)
+       RETURNING *`,
+      [
+        ev.deal_id || null, ev.bot_id || null, ev.event_date || null, ev.event_type || null,
+        ev.meeting_kind || null, ev.schedule_choice || null, ev.schedule_choice_detail || null,
+        ev.apply_timing || null, ev.judgment_month || null,
+        ev.next_meeting_scheduled == null ? null : !!ev.next_meeting_scheduled,
+        ev.next_meeting_date || null, ev.result || null,
+        ev.reported_date || null, ev.apply_date || null, ev.usage_start_date || null,
+        ev.confidence || null, ev.judgment_basis || null,
+        ev.needs_review == null ? false : !!ev.needs_review,
+        ev.raw_extraction ? JSON.stringify(ev.raw_extraction) : null,
+      ]
+    );
+    return rows[0];
+  } catch (e) { console.error("[db] insertDealEvent", e.message); return null; }
+}
+
+// 案件一覧（フィルタ: owner/team/status/期間）
+export async function listDeals({ owner, team, status, from, to } = {}) {
+  if (!pool) return [];
+  const cond = [], vals = []; let i = 1;
+  if (owner) { cond.push(`owner=$${i++}`); vals.push(owner); }
+  if (team) { cond.push(`team=$${i++}`); vals.push(team); }
+  if (status) { cond.push(`status=$${i++}`); vals.push(status); }
+  if (from) { cond.push(`first_meeting_date >= $${i++}`); vals.push(from); }
+  if (to) { cond.push(`first_meeting_date <= $${i++}`); vals.push(to); }
+  const where = cond.length ? "WHERE " + cond.join(" AND ") : "";
+  try {
+    const { rows } = await pool.query(`SELECT * FROM deals ${where} ORDER BY updated_at DESC`, vals);
+    return rows;
+  } catch (e) { console.error("[db] listDeals", e.message); return []; }
+}
+
+// 1案件＋その履歴
+export async function getDealWithEvents(dealId) {
+  if (!pool) return null;
+  try {
+    const d = await pool.query(`SELECT * FROM deals WHERE deal_id=$1`, [dealId]);
+    if (!d.rows.length) return null;
+    const ev = await pool.query(`SELECT * FROM deal_events WHERE deal_id=$1 ORDER BY event_date, id`, [dealId]);
+    return { ...d.rows[0], events: ev.rows };
+  } catch (e) { console.error("[db] getDealWithEvents", e.message); return null; }
+}
+
+// イベントログ取得（集計元。フィルタ: from/to/owner/team/kind）
+export async function listDealEvents({ from, to, owner, team, kind } = {}) {
+  if (!pool) return [];
+  const cond = [], vals = []; let i = 1;
+  if (from) { cond.push(`e.event_date >= $${i++}`); vals.push(from); }
+  if (to) { cond.push(`e.event_date <= $${i++}`); vals.push(to); }
+  if (kind) { cond.push(`e.meeting_kind = $${i++}`); vals.push(kind); }
+  if (owner) { cond.push(`d.owner = $${i++}`); vals.push(owner); }
+  if (team) { cond.push(`d.team = $${i++}`); vals.push(team); }
+  const where = cond.length ? "WHERE " + cond.join(" AND ") : "";
+  try {
+    const { rows } = await pool.query(
+      `SELECT e.*, d.company_name, d.owner, d.team, d.status AS deal_status
+       FROM deal_events e LEFT JOIN deals d ON d.deal_id = e.deal_id
+       ${where} ORDER BY e.event_date, e.id`, vals);
+    return rows;
+  } catch (e) { console.error("[db] listDealEvents", e.message); return []; }
+}
+
+// イベントの手動修正（要確認レコードの上書き→needs_review解除）
+export async function updateDealEvent(id, patch) {
+  if (!pool || !id) return null;
+  const allowed = ["schedule_choice", "schedule_choice_detail", "apply_timing", "judgment_month",
+    "next_meeting_scheduled", "next_meeting_date", "result", "reported_date", "apply_date",
+    "usage_start_date", "confidence", "judgment_basis", "needs_review", "meeting_kind"];
+  const sets = [], vals = [id]; let i = 2;
+  for (const k of allowed) {
+    if (patch[k] !== undefined) { sets.push(`${k}=$${i++}`); vals.push(patch[k] === "" ? null : patch[k]); }
+  }
+  if (!sets.length) return null;
+  try {
+    const { rows } = await pool.query(`UPDATE deal_events SET ${sets.join(", ")} WHERE id=$1 RETURNING *`, vals);
+    return rows[0];
+  } catch (e) { console.error("[db] updateDealEvent", e.message); return null; }
+}
+
+// チーム解決（rep_team_mapping から担当者名→チーム）
+export async function teamForRep(repName) {
+  if (!pool || !repName) return "";
+  try {
+    const { rows } = await pool.query(`SELECT team_name FROM rep_team_mapping WHERE rep_name=$1`, [repName]);
+    return rows[0]?.team_name || "";
+  } catch { return ""; }
 }
