@@ -270,6 +270,7 @@ loadThanks();
       if (name === "teams") loadTeams();
       if (name === "thanks") loadThanksPrompt();
       if (name === "integrations") showIntegGrid();
+      if (name === "smartlinks") initSmartLinks();
     });
   });
 })();
@@ -1234,3 +1235,100 @@ loadKnowledge();
   });
   refresh();
 })();
+
+// ===== スマートリンク（担当者切り替えに追随する共有Zoom URL） =====
+let smartLinksRepsCache = null;
+async function loadSmartLinksReps() {
+  if (smartLinksRepsCache) return smartLinksRepsCache;
+  try { smartLinksRepsCache = await (await fetch("/api/smart-links/reps")).json(); } catch { smartLinksRepsCache = []; }
+  return smartLinksRepsCache;
+}
+function escSL(s) {
+  return String(s == null ? "" : s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+}
+async function loadMyZoomLink() {
+  const input = document.getElementById("myZoomLink");
+  if (!input) return;
+  try {
+    const d = await (await fetch("/api/my-zoom-link")).json();
+    input.value = d.url || "";
+  } catch {}
+}
+async function renderSmartLinkTable() {
+  const table = document.getElementById("smartLinkTable");
+  if (!table) return;
+  table.innerHTML = "<tr><td>読み込み中…</td></tr>";
+  let links = [];
+  try { links = await (await fetch("/api/smart-links")).json(); } catch {}
+  const reps = await loadSmartLinksReps();
+  if (!links.length) { table.innerHTML = '<tr><td class="note">まだスマートリンクがありません。上で作成してください。</td></tr>'; return; }
+  let html = "<tr><th>名前</th><th>URL</th><th>担当者</th><th></th></tr>";
+  for (const l of links) {
+    const options = ['<option value="">（未定）</option>']
+      .concat(reps.map((r) => `<option value="${escSL(r.email)}" ${r.email === l.current_owner ? "selected" : ""}>${escSL(r.name)}${r.has_zoom_link ? "" : "（リンク未登録）"}</option>`));
+    html += `<tr>
+      <td>${escSL(l.label || "(名称未設定)")}</td>
+      <td><code style="font-size:11px;">${escSL(l.url)}</code> <button class="btn ghost sl-copy" data-url="${escSL(l.url)}" type="button" style="padding:2px 8px;font-size:11px;">コピー</button></td>
+      <td><select class="sl-owner" data-slug="${escSL(l.slug)}">${options.join("")}</select></td>
+      <td><button class="btn ghost sl-delete" data-slug="${escSL(l.slug)}" type="button">削除</button></td>
+    </tr>`;
+  }
+  table.innerHTML = html;
+  table.querySelectorAll(".sl-owner").forEach((sel) => {
+    sel.addEventListener("change", async () => {
+      try {
+        await fetch(`/api/smart-links/${encodeURIComponent(sel.dataset.slug)}/owner`, {
+          method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ owner: sel.value || null }),
+        });
+      } catch (e) { alert("担当者の切り替えに失敗しました: " + e.message); }
+    });
+  });
+  table.querySelectorAll(".sl-copy").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      try { await navigator.clipboard.writeText(btn.dataset.url); btn.textContent = "コピーしました"; setTimeout(() => (btn.textContent = "コピー"), 1200); } catch {}
+    });
+  });
+  table.querySelectorAll(".sl-delete").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      if (!confirm("このスマートリンクを削除しますか？（すでに送信したメール内のURLは無効になります）")) return;
+      try { await fetch(`/api/smart-links/${encodeURIComponent(btn.dataset.slug)}`, { method: "DELETE" }); renderSmartLinkTable(); } catch {}
+    });
+  });
+}
+function initSmartLinks() {
+  loadMyZoomLink();
+  renderSmartLinkTable();
+  const saveBtn = document.getElementById("saveMyZoomLinkBtn");
+  if (saveBtn && !saveBtn._wired) {
+    saveBtn._wired = true;
+    saveBtn.addEventListener("click", async () => {
+      const input = document.getElementById("myZoomLink");
+      const saved = document.getElementById("myZoomLinkSaved");
+      saveBtn.disabled = true;
+      try {
+        await fetch("/api/my-zoom-link", { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ url: input.value.trim() }) });
+        if (saved) { saved.hidden = false; setTimeout(() => (saved.hidden = true), 2000); }
+        smartLinksRepsCache = null; // 自分のリンク有無の表示を最新化
+      } catch (e) { alert("保存に失敗しました: " + e.message); }
+      finally { saveBtn.disabled = false; }
+    });
+  }
+  const createBtn = document.getElementById("createSmartLinkBtn");
+  if (createBtn && !createBtn._wired) {
+    createBtn._wired = true;
+    createBtn.addEventListener("click", async () => {
+      const labelInput = document.getElementById("newSmartLinkLabel");
+      createBtn.disabled = true;
+      try {
+        const r = await fetch("/api/smart-links", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ label: labelInput.value.trim() }) });
+        const d = await r.json();
+        if (!r.ok) throw new Error(d.error || "作成に失敗しました");
+        labelInput.value = "";
+        await renderSmartLinkTable();
+        try { await navigator.clipboard.writeText(d.url); createBtn.textContent = "作成＋コピーしました"; } catch { createBtn.textContent = "作成しました"; }
+        setTimeout(() => (createBtn.textContent = "スマートリンクを作成"), 2000);
+      } catch (e) { alert("作成に失敗しました: " + e.message); }
+      finally { createBtn.disabled = false; }
+    });
+  }
+}

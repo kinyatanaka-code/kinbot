@@ -24,6 +24,7 @@
           <nav class="set-menu" id="setMenu">
             <button class="set-menu-item active" data-tab="general">動作設定</button>
             <button class="set-menu-item" data-tab="links">登録リンク</button>
+            <button class="set-menu-item" data-tab="smartlinks">スマートリンク</button>
             <button class="set-menu-item" data-tab="integrations">連携</button>
             <button class="set-menu-item" data-tab="ai">AI提案設定</button>
             <button class="set-menu-item" data-tab="thanks">御礼メール例文</button>
@@ -71,6 +72,27 @@
                 <input id="newLinkUrl" type="url" placeholder="https://...zoom.us/j/...?pwd=..." />
                 <button class="btn" id="addLinkBtn">追加</button>
               </div>
+            </div>
+          </div>
+
+          <div class="set-pane" data-pane="smartlinks" hidden>
+            <div class="set-card">
+              <h3>自分の商談用リンク</h3>
+              <p class="note">あなたが商談で使う、いつも同じZoom（またはMeet/Teams）のURLを1つ登録してください。下の「スマートリンク」は、担当者が誰であってもこのURLへ自動で案内します。</p>
+              <div class="cal-row">
+                <input id="myZoomLink" type="url" placeholder="https://zoom.us/j/xxxxxxxxx?pwd=..." style="flex:1; min-width:260px;" />
+                <button class="btn" id="saveMyZoomLinkBtn">保存</button>
+                <span class="saved" id="myZoomLinkSaved" hidden>保存しました</span>
+              </div>
+            </div>
+            <div class="set-card">
+              <h3>スマートリンク（担当者切り替えに追随するURL）</h3>
+              <p class="note">アポが取れた直後、担当者が決まっていなくてもURLを先に発行できます。案内メールにこのURLを貼って送信し、あとで担当者を選ぶ（変更する）と、URLの行き先が自動で切り替わります。すでに送信済みのメールのURLを書き換える必要はありません。</p>
+              <div class="cal-row">
+                <input id="newSmartLinkLabel" type="text" placeholder="管理用の名前（例：◯◯社 7/10 商談）" style="flex:1; min-width:220px;" />
+                <button class="btn" id="createSmartLinkBtn">スマートリンクを作成</button>
+              </div>
+              <table class="tm-table" id="smartLinkTable" style="margin-top:14px;"></table>
             </div>
           </div>
 

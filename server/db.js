@@ -322,6 +322,18 @@ export async function initDb() {
   `);
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_oauth_tokens_refresh ON oauth_tokens(refresh_token);`);
 
+  // ===== スマートリンク（担当者切り替えに追随する共有Zoom URL） =====
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS smart_links (
+      slug           TEXT PRIMARY KEY,
+      label          TEXT,
+      current_owner  TEXT,
+      created_by     TEXT,
+      created_at     TIMESTAMPTZ DEFAULT now(),
+      updated_at     TIMESTAMPTZ DEFAULT now()
+    );
+  `);
+
   console.log("[db] Postgres に接続しました（履歴を保存します）。");
 }
 
@@ -1573,4 +1585,40 @@ export async function getOauthTokenByRefresh(refresh_token) {
 export async function deleteOauthToken(access_token) {
   if (!pool) return;
   try { await pool.query(`DELETE FROM oauth_tokens WHERE access_token=$1`, [access_token]); } catch {}
+}
+
+// ===== スマートリンク（担当者切り替えに追随する共有Zoom URL） =====
+export async function createSmartLink({ slug, label, owner, createdBy }) {
+  if (!pool) return null;
+  const { rows } = await pool.query(
+    `INSERT INTO smart_links (slug, label, current_owner, created_by) VALUES ($1,$2,$3,$4) RETURNING *`,
+    [slug, label || "", owner || null, createdBy || ""]
+  );
+  return rows[0];
+}
+export async function getSmartLink(slug) {
+  if (!pool) return null;
+  const { rows } = await pool.query(`SELECT * FROM smart_links WHERE slug=$1`, [slug]);
+  return rows[0] || null;
+}
+export async function listSmartLinks(createdBy) {
+  if (!pool) return [];
+  try {
+    const { rows } = createdBy
+      ? await pool.query(`SELECT * FROM smart_links WHERE created_by=$1 ORDER BY updated_at DESC`, [createdBy])
+      : await pool.query(`SELECT * FROM smart_links ORDER BY updated_at DESC`);
+    return rows;
+  } catch { return []; }
+}
+export async function setSmartLinkOwner(slug, owner) {
+  if (!pool) return null;
+  const { rows } = await pool.query(
+    `UPDATE smart_links SET current_owner=$2, updated_at=now() WHERE slug=$1 RETURNING *`,
+    [slug, owner || null]
+  );
+  return rows[0] || null;
+}
+export async function deleteSmartLink(slug) {
+  if (!pool) return;
+  try { await pool.query(`DELETE FROM smart_links WHERE slug=$1`, [slug]); } catch {}
 }

@@ -52,6 +52,11 @@ import {
   updateDealStatus,
   applyAutoLoseDeadlines,
   mergeDuplicateDeals,
+  createSmartLink,
+  getSmartLink,
+  listSmartLinks,
+  setSmartLinkOwner,
+  deleteSmartLink,
   deleteDealEventsByBot,
   insertDealEvent,
   listDeals,
@@ -215,7 +220,7 @@ app.use(async (req, res, next) => {
     req.isAdmin = true;
     return next();
   }
-  if (OPEN_PATHS.has(req.path)) return next();
+  if (OPEN_PATHS.has(req.path) || req.path.startsWith("/j/")) return next();
   // APIトークンでの認証（Cookie不要。外部プログラム・Claude Code用）
   const tk = apiTokenUser(req);
   if (tk) {
@@ -2463,6 +2468,90 @@ app.put("/api/links", async (req, res) => {
     res.json({ ok: true, links, ...r });
   } catch (e) {
     res.status(500).json({ error: e.message });
+  }
+});
+
+// --- スマートリンク（担当者切り替えに追随する共有Zoom URL） ---
+// 各担当者は「自分の商談用リンク」を1つだけ登録しておく（myZoomLink）。
+app.get("/api/my-zoom-link", async (req, res) => {
+  try {
+    const s = await getUserSettings(req.user);
+    res.json({ url: s.myZoomLink || "" });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+app.put("/api/my-zoom-link", async (req, res) => {
+  try {
+    const url = String(req.body?.url || "").slice(0, 500);
+    await saveUserSettings(req.user, { myZoomLink: url });
+    res.json({ ok: true, url });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+// 担当者候補一覧（名前＋商談用リンクの設定有無）。プルダウン用。
+app.get("/api/smart-links/reps", async (req, res) => {
+  try {
+    const users = await listUsers();
+    const reps = [];
+    for (const u of users) {
+      const s = await getUserSettings(u.email).catch(() => ({}));
+      reps.push({ email: u.email, name: u.name || u.email, has_zoom_link: !!s.myZoomLink });
+    }
+    res.json(reps);
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+// スマートリンクの作成（アポが取れた直後に、担当者未定でも先に作れる）
+app.post("/api/smart-links", async (req, res) => {
+  try {
+    const label = String(req.body?.label || "").slice(0, 200);
+    const owner = req.body?.owner ? String(req.body.owner) : null;
+    const slug = "s" + crypto.randomBytes(5).toString("base64url");
+    const link = await createSmartLink({ slug, label, owner, createdBy: req.user });
+    res.json({ ok: true, link, url: `${PUBLIC_URL}/j/${slug}` });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+// 自分が作ったスマートリンクの一覧（管理者は全件）
+app.get("/api/smart-links", async (req, res) => {
+  try {
+    const links = await listSmartLinks(req.isAdmin ? null : req.user);
+    res.json(links.map((l) => ({ ...l, url: `${PUBLIC_URL}/j/${l.slug}` })));
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+// 担当者の切り替え（ここを変えるだけで、既に送信済みのURLの行き先も自動的に変わる）
+app.put("/api/smart-links/:slug/owner", async (req, res) => {
+  try {
+    const existing = await getSmartLink(req.params.slug);
+    if (!existing) return res.status(404).json({ error: "リンクが見つかりません" });
+    if (!req.isAdmin && existing.created_by !== req.user) return res.status(403).json({ error: "このリンクを操作する権限がありません" });
+    const owner = req.body?.owner ? String(req.body.owner) : null;
+    const link = await setSmartLinkOwner(req.params.slug, owner);
+    res.json({ ok: true, link });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+app.delete("/api/smart-links/:slug", async (req, res) => {
+  try {
+    const existing = await getSmartLink(req.params.slug);
+    if (!existing) return res.json({ ok: true });
+    if (!req.isAdmin && existing.created_by !== req.user) return res.status(403).json({ error: "このリンクを操作する権限がありません" });
+    await deleteSmartLink(req.params.slug);
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+// 実際にクリックされたときのリダイレクト先（認証不要：お客様が開くURLのため）
+app.get("/j/:slug", async (req, res) => {
+  try {
+    const link = await getSmartLink(req.params.slug);
+    if (!link) return res.status(404).send("このリンクは見つかりませんでした。担当者にご確認ください。");
+    if (!link.current_owner) {
+      return res.send(`<!DOCTYPE html><html lang="ja"><head><meta charset="UTF-8" /><title>担当者確定中</title></head>
+        <body style="font-family:sans-serif;display:flex;align-items:center;justify-content:center;min-height:100vh;background:#f7f5ef;">
+          <div style="text-align:center;color:#334;"><p style="font-size:15px;">担当者を確定中です。まもなくこちらのURLから会議室にご案内します。<br>このままお待ちいただくか、少し時間をおいて再度お試しください。</p></div>
+        </body></html>`);
+    }
+    const s = await getUserSettings(link.current_owner).catch(() => ({}));
+    if (!s.myZoomLink) return res.status(404).send("担当者の会議室URLが設定されていません。担当者にご確認ください。");
+    res.redirect(s.myZoomLink);
+  } catch (e) {
+    console.error("[smart-link redirect]", e.message);
+    res.status(500).send("エラーが発生しました。");
   }
 });
 
