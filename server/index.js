@@ -524,16 +524,30 @@ function deriveFirstMeeting(ext, meetingMonth, meetingDateStr) {
 
   // ステータス決定（依頼書の定義。失注は次の4パターンのみ）：
   // 1. schedule_choice=未定 → 即失注
-  // 2. apply_timing=それ以外/該当なし → 即失注
+  // 2. apply_timing=それ以外 → 即失注（明確な時期に対し今月/来月以外の回答）
+  //    ※apply_timing=該当なしは「scheduleが未定のときのみ発生する値」（依頼書の定義）。
+  //      scheduleが明確なのにatが該当なしなのは抽出の矛盾なので、下のフォールバックで補正する。
   // 3. 今月/来月判断だが再商談が未設定 → 初回商談日+10日の猶予（「進行中(未設定)」）。
   //    期限を過ぎたら applyAutoLoseDeadlines() のバッチで自動的に失注(未定)へ切り替える。
   // 4. 再商談実施後、結果が失注 → funnelFrom側で対応済み（このderiveFirstMeetingは初回商談のみを見る）。
   // 不明・低自信で判断材料が読み取れない場合のみ「要確認」（保留、集計対象外）。
+  const scOk = sc && !["未定", "不明"].includes(sc);
+  // 抽出の矛盾補正：scheduleが明確なのにapply_timing=該当なし → 本来あり得ない組み合わせ。
+  // 次回商談が既に設定されているなら、それを優先して進行中とみなす。設定されていなければ要確認（保留）で人に確認してもらう。
+  const contradiction = scOk && at === "該当なし";
+
   if (sc === "不明" || (at === "不明" && sc === "不明") || (lowConf && !sc && !at)) {
     status = "要確認";
   } else if (sc === "未定") {
     status = "失注(未定)";
-  } else if (at === "それ以外" || at === "該当なし") {
+  } else if (contradiction) {
+    if (hasNextMeeting) {
+      status = "進行中";
+      judgment_month_basis = judgment_month_basis || "次回商談が設定されているため進行中と判定（申込可否の回答が不明瞭）";
+    } else {
+      status = "要確認";
+    }
+  } else if (at === "それ以外") {
     status = "失注(未定)";
   } else if (at === "今月" || at === "来月") {
     if (hasNextMeeting) {
