@@ -12,6 +12,11 @@ import {
   getMeeting,
   listUsers,
   listRepTeams,
+  listAccounts,
+  getAccount,
+  listActionItems,
+  listDealStatuses,
+  normCompanyKey,
 } from "./db.js";
 
 const SERVER_INFO = { name: "kinbot", version: "1.0.0" };
@@ -112,6 +117,17 @@ const TOOLS = [
       required: ["bot_id"],
     },
   },
+  {
+    name: "get_account_detail",
+    description: "1つの会社（案件画面の「案件」タブに相当）について、会社プロフィール（業界・従業員数・事業内容など）、ネクストアクション（やることリスト）、相手の懸念（過去の商談から集約）、手動設定されたステータス（進行中/失注/受注/保留）をまとめて取得する。会社名で指定する（部分一致でも検索する）。",
+    inputSchema: {
+      type: "object",
+      properties: {
+        company_name: { type: "string", description: "会社名（完全名でなくても、部分一致で近い会社を探す）" },
+      },
+      required: ["company_name"],
+    },
+  },
 ];
 
 // ---- ツール実行 ----
@@ -157,6 +173,55 @@ async function callTool(name, args, req) {
       if (!m) throw new Error("商談が見つかりません");
       if (!isAdmin && m.owner && m.owner !== req.user) throw new Error("この商談を見る権限がありません");
       return m;
+    }
+    case "get_account_detail": {
+      if (!args || !args.company_name) throw new Error("company_name が必要です");
+      const key = normCompanyKey(args.company_name);
+      // 自分の商談（管理者は全件）から、会社名が一致する商談を集める
+      const allMeetings = await listMeetings({ owner: isAdmin ? null : req.user, isAdmin });
+      let matched = allMeetings.filter((m) => m.account && normCompanyKey(m.account) === key);
+      if (!matched.length) {
+        // 完全一致が無ければ部分一致で探す
+        matched = allMeetings.filter((m) => {
+          const k2 = normCompanyKey(m.account || "");
+          return k2 && (k2.includes(key) || key.includes(k2));
+        });
+      }
+      if (!matched.length) throw new Error(`「${args.company_name}」に該当する会社が見つかりません`);
+      const accountName = matched[matched.length - 1].account; // 最新の表記を代表名にする
+
+      // 会社プロフィール（AIが企業サイトから自動取得した情報）
+      const accounts = await listAccounts().catch(() => []);
+      const profileRow = accounts.find((a) => normCompanyKey(a.key || a.official_name || "") === key)
+        || accounts.find((a) => normCompanyKey(a.key || a.official_name || "").includes(key));
+
+      // ネクストアクション（やることリスト）
+      const actionItems = await listActionItems(accountName).catch(() => []);
+
+      // 相手の懸念（過去の商談から集約・重複除去）
+      const concernsSeen = new Set();
+      const concerns = [];
+      for (const m of matched) {
+        const cs = (m.summary && m.summary.customer_concerns) || [];
+        for (const c of cs) {
+          const k = String(c).replace(/\s+/g, "");
+          if (k && !concernsSeen.has(k)) { concernsSeen.add(k); concerns.push(String(c)); }
+        }
+      }
+
+      // 手動設定されたステータス（進行中/失注/受注/保留）
+      const statuses = await listDealStatuses().catch(() => ({}));
+      const dealStatus = statuses[accountName] || null;
+
+      return {
+        company_name: accountName,
+        meeting_count: matched.length,
+        deal_status: dealStatus,
+        profile: profileRow ? profileRow.profile : null,
+        next_actions: actionItems.map((a) => ({ text: a.text, done: a.done, due_date: a.due_date })),
+        customer_concerns: concerns,
+        meetings: matched.map((m) => ({ bot_id: m.bot_id, title: m.title, created_at: m.created_at, owner: m.owner })),
+      };
     }
     default:
       throw new Error(`不明なツール: ${name}`);
