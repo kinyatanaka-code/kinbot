@@ -258,6 +258,7 @@ export async function initDb() {
       updated_at         TIMESTAMPTZ DEFAULT now()
     );
   `);
+  await pool.query(`ALTER TABLE deals ADD COLUMN IF NOT EXISTS auto_lose_deadline DATE;`);
   await pool.query(`
     CREATE TABLE IF NOT EXISTS deal_events (
       id                     BIGSERIAL PRIMARY KEY,
@@ -1361,11 +1362,29 @@ export async function resolveDeal({ companyName, owner, team, firstMeetingDate }
 }
 
 // dealのステータス・更新日時を更新
-export async function updateDealStatus(dealId, status) {
+export async function updateDealStatus(dealId, status, autoLoseDeadline) {
   if (!pool || !dealId) return;
   try {
-    await pool.query(`UPDATE deals SET status=$2, updated_at=now() WHERE deal_id=$1`, [dealId, status]);
+    if (autoLoseDeadline !== undefined) {
+      await pool.query(`UPDATE deals SET status=$2, auto_lose_deadline=$3, updated_at=now() WHERE deal_id=$1`, [dealId, status, autoLoseDeadline]);
+    } else {
+      await pool.query(`UPDATE deals SET status=$2, updated_at=now() WHERE deal_id=$1`, [dealId, status]);
+    }
   } catch (e) { console.error("[db] updateDealStatus", e.message); }
+}
+
+// 「進行中(未設定)」のうち、auto_lose_deadline を過ぎたものを自動で「失注(未定)」に切り替える。
+// 戻り値は切り替えた件数。
+export async function applyAutoLoseDeadlines(asOf) {
+  if (!pool) return 0;
+  try {
+    const { rowCount } = await pool.query(
+      `UPDATE deals SET status='失注(未定)', updated_at=now()
+       WHERE status='進行中(未設定)' AND auto_lose_deadline IS NOT NULL AND auto_lose_deadline < $1`,
+      [asOf || new Date().toISOString().slice(0, 10)]
+    );
+    return rowCount || 0;
+  } catch (e) { console.error("[db] applyAutoLoseDeadlines", e.message); return 0; }
 }
 
 // 同じ商談(bot_id)由来の既存イベントを削除（再抽出時に重複しないように）
@@ -1441,7 +1460,7 @@ export async function listDealEvents({ from, to, owner, team, kind } = {}) {
   const where = cond.length ? "WHERE " + cond.join(" AND ") : "";
   try {
     const { rows } = await pool.query(
-      `SELECT e.*, d.company_name, d.owner, d.team, d.status AS deal_status,
+      `SELECT e.*, d.company_name, d.owner, d.team, d.status AS deal_status, d.auto_lose_deadline,
               COALESCE(NULLIF(m.deal_kind,''), '通常') AS deal_kind
        FROM deal_events e
        LEFT JOIN deals d ON d.deal_id = e.deal_id

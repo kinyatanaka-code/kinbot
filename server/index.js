@@ -50,6 +50,7 @@ import {
   saveAccount,
   resolveDeal,
   updateDealStatus,
+  applyAutoLoseDeadlines,
   deleteDealEventsByBot,
   insertDealEvent,
   listDeals,
@@ -503,7 +504,7 @@ function addMonthStr(ymd, add) {
 }
 
 // 初回商談の抽出結果から judgment_month / status / needs_review をコード側で決める（依頼書6,7章）
-function deriveFirstMeeting(ext, meetingMonth) {
+function deriveFirstMeeting(ext, meetingMonth, meetingDateStr) {
   const sc = ext.schedule_choice;
   const at = ext.apply_timing;
   const lowConf = ext.confidence === "low";
@@ -511,6 +512,7 @@ function deriveFirstMeeting(ext, meetingMonth) {
   let judgment_month = null;
   let judgment_month_basis = "";
   let status = "進行中";
+  let auto_lose_deadline = null;
 
   // 判断月の決定（優先順位）
   // 1) 次回商談(再商談)の具体的な日程が取れていれば、その月を判断月にする（最も正確）
@@ -520,33 +522,36 @@ function deriveFirstMeeting(ext, meetingMonth) {
   else if (at === "来月") { judgment_month = addMonthStr(meetingMonth, 1); judgment_month_basis = "商談で「来月に判断」と回答"; }
   if (nd) { judgment_month = nd.slice(0, 7); judgment_month_basis = `次回商談日(${nd})の月`; }
 
-  // 次回商談日が「商談日の翌月末」より先に設定されている場合は、遠すぎるため追わない（失注）
-  // 例：7月の商談で、次回商談が9月以降に設定されている → 失注
-  const deadlineMonth = addMonthStr(meetingMonth, 1); // 商談月の翌月
-  const tooFar = !!(nd && nd.slice(0, 7) > deadlineMonth);
-
-  // ステータス決定（最重要ルール）：
-  // 「進行中」は "再商談（次回商談）の日程が、商談日の翌月末までに設定されている" 場合のみ。
-  // 設定されていない、または翌月末より先すぎる場合は失注扱い。
-  // 不明・低自信で判断材料が読み取れない場合のみ「要確認」（保留）。
-  if (hasNextMeeting && !tooFar) {
-    // 次につながっている＝進行中（時期が読み取れていればその判断月で計上）
-    status = "進行中";
-  } else if (sc === "不明" || (at === "不明" && sc === "不明") || (lowConf && !sc && !at)) {
-    // 情報がほとんど読み取れない → 保留
+  // ステータス決定（依頼書の定義。失注は次の4パターンのみ）：
+  // 1. schedule_choice=未定 → 即失注
+  // 2. apply_timing=それ以外/該当なし → 即失注
+  // 3. 今月/来月判断だが再商談が未設定 → 初回商談日+10日の猶予（「進行中(未設定)」）。
+  //    期限を過ぎたら applyAutoLoseDeadlines() のバッチで自動的に失注(未定)へ切り替える。
+  // 4. 再商談実施後、結果が失注 → funnelFrom側で対応済み（このderiveFirstMeetingは初回商談のみを見る）。
+  // 不明・低自信で判断材料が読み取れない場合のみ「要確認」（保留、集計対象外）。
+  if (sc === "不明" || (at === "不明" && sc === "不明") || (lowConf && !sc && !at)) {
     status = "要確認";
-  } else if (tooFar) {
-    // 次回商談が遠すぎる → 失注
-    status = "失注(その他)";
-    judgment_month_basis = `次回商談日(${nd})が翌月末より先のため失注`;
-  } else {
-    // 再商談が設定されていない → 失注
+  } else if (sc === "未定") {
     status = "失注(未定)";
+  } else if (at === "それ以外" || at === "該当なし") {
+    status = "失注(未定)";
+  } else if (at === "今月" || at === "来月") {
+    if (hasNextMeeting) {
+      status = "進行中";
+    } else {
+      // 再商談が未設定 → 10日間の猶予。初回商談日(meetingDateStr)から10日後が期限。
+      status = "進行中(未設定)";
+      const base = meetingDateStr ? new Date(meetingDateStr) : new Date();
+      const deadline = new Date(base.getFullYear(), base.getMonth(), base.getDate() + 10);
+      auto_lose_deadline = `${deadline.getFullYear()}-${String(deadline.getMonth() + 1).padStart(2, "0")}-${String(deadline.getDate()).padStart(2, "0")}`;
+    }
+  } else {
+    status = "要確認";
   }
 
-  // 要確認フラグ（人の確認を促す）: 低自信や不明は、失注確定でも一応チェックを促す
-  const needs_review = status === "要確認" || (lowConf && !hasNextMeeting);
-  return { judgment_month, judgment_month_basis, status, needs_review };
+  // 要確認フラグ（人の確認を促す）
+  const needs_review = status === "要確認";
+  return { judgment_month, judgment_month_basis, status, needs_review, auto_lose_deadline };
 }
 
 // 1商談を抽出してイベントログに保存する（finalize / アップロード / 手動 / バックフィルから呼ぶ）
@@ -588,7 +593,7 @@ async function runExtraction(botId) {
 
   if (kind === "初回商談") {
     const ext = await extractFirstMeeting(transcript, meetingDateStr);
-    const der = deriveFirstMeeting(ext, meetingMonth);
+    const der = deriveFirstMeeting(ext, meetingMonth, meetingDateStr);
     await insertDealEvent({
       deal_id: deal && deal.deal_id, bot_id: botId, event_date: meetingDateStr,
       event_type: "初回商談", meeting_kind: "初回商談",
@@ -598,9 +603,9 @@ async function runExtraction(botId) {
       confidence: ext.confidence, judgment_basis: ext.judgment_basis,
       needs_review: der.needs_review, raw_extraction: { ...ext, judgment_month_basis: der.judgment_month_basis, derived_status: der.status },
     });
-    // 案件のステータス・初回商談日を更新（要確認でなければ）
+    // 案件のステータス・初回商談日を更新（要確認でなければ）。「進行中(未定)」には自動失注の期限日も保存する。
     if (deal) {
-      if (!der.needs_review) await updateDealStatus(deal.deal_id, der.status);
+      if (!der.needs_review) await updateDealStatus(deal.deal_id, der.status, der.auto_lose_deadline);
     }
     return { kind, ...der };
   }
@@ -618,7 +623,7 @@ async function runExtraction(botId) {
     usage_start_date: ext.usage_start_date, confidence: ext.confidence,
     judgment_basis: ext.judgment_basis, needs_review, raw_extraction: ext,
   });
-  if (deal && !needs_review) await updateDealStatus(deal.deal_id, status);
+  if (deal && !needs_review) await updateDealStatus(deal.deal_id, status, null);
   return { kind, result: ext.result, needs_review };
 }
 
@@ -814,6 +819,7 @@ app.get("/api/deal-status-by-company", async (req, res) => {
       deal_id: deal.deal_id,
       status: deal.status,
       first_meeting_date: deal.first_meeting_date,
+      auto_lose_deadline: deal.auto_lose_deadline || null,
       needs_review: needsReview,
       first: firstEv ? {
         schedule_choice: firstEv.schedule_choice, apply_timing: firstEv.apply_timing,
@@ -1015,16 +1021,22 @@ function funnelFrom(events) {
   const clear = decided.filter((e) => e.schedule_choice && !["未定", "不明"].includes(e.schedule_choice));
   const thisMonth = clear.filter((e) => e.apply_timing === "今月");
   const nextMonth = clear.filter((e) => e.apply_timing === "来月");
-  // 各初回商談が「進行中」かどうか（保存済みのderived_statusがあれば最優先。無ければ従来の簡易判定）
-  const isActivated = (e) => {
+  // 各初回商談のステータス（保存済みのderived_statusを見る。無ければ簡易判定）
+  const statusOfEv = (e) => {
     const raw = e.raw_extraction || {};
-    if (raw.derived_status) return raw.derived_status === "進行中";
-    return !!e.next_meeting_scheduled;
+    if (raw.derived_status) return raw.derived_status;
+    return e.next_meeting_scheduled ? "進行中" : "進行中(未設定)";
   };
-  const activated = decided.filter(isActivated);
-  // 失注：確定分のうち進行中でない初回商談（未設定、または次回商談が翌月末より先すぎる） ＋ 再商談実施の結果=失注
-  const lost = decided.filter((e) => !isActivated(e)).length
-    + re.filter((e) => e.result === "失注").length;
+  const activated = decided.filter((e) => statusOfEv(e) === "進行中");
+  // 猶予期間中（初回商談その場で再商談が設定できず、10日以内の猶予中。まだ確定していないので失注に数えない）
+  const pending10day = decided.filter((e) => statusOfEv(e) === "進行中(未設定)" && e.deal_status !== "失注(未定)");
+  // 失注：明確に失注が確定した初回商談（未定/それ以外/該当なし、または猶予期限切れでdeal側が失注(未定)になったもの） ＋ 再商談実施の結果=失注
+  const lost = decided.filter((e) => {
+    const st = statusOfEv(e);
+    if (st === "失注(未定)" || st === "失注(その他)") return true;
+    if (st === "進行中(未設定)" && e.deal_status === "失注(未定)") return true; // 猶予切れで自動失注済み
+    return false;
+  }).length + re.filter((e) => e.result === "失注").length;
   const reDone = re.length; // 再商談実施（メインKPI）
   const won = re.filter((e) => e.result === "受注").length;
   return {
@@ -1033,6 +1045,7 @@ function funnelFrom(events) {
     this_month: thisMonth.length,
     next_month: nextMonth.length,
     activated: activated.length,
+    pending_10day: pending10day.length,
     review: review.length,
     lost,
     re_meetings: reDone, // メインKPI
@@ -1046,6 +1059,7 @@ app.get("/api/report/funnel", async (req, res) => {
     const granularity = req.query.granularity || "month";
     const basis = req.query.basis || null;
     const { from, to } = periodRange(basis, granularity);
+    await applyAutoLoseDeadlines().catch(() => {});
     const owner = req.query.owner || null;
     const team = req.query.team || null;
     const nameMap = await buildNameMap();
@@ -1135,6 +1149,10 @@ app.get("/api/report/pipeline", async (req, res) => {
   try {
     const asOf = req.query.date || new Date().toISOString().slice(0, 10);
     const owner = req.query.owner || null;
+    // 閲覧のタイミングでも、猶予期限切れの案件を最新化しておく（asOfが今日の場合のみ。過去日付の再現には影響させない）
+    if (asOf >= new Date().toISOString().slice(0, 10)) {
+      await applyAutoLoseDeadlines(asOf).catch(() => {});
+    }
     // asOf 以前の全イベントを取得し、案件ごとに最新状態を再構築
     const events = await listDealEvents({ to: asOf, owner });
     // 案件ごとに、初回商談の判断月と、再商談実施済みか（=実施待ちでない）を判定
@@ -1160,13 +1178,14 @@ app.get("/api/report/pipeline", async (req, res) => {
       const f = d.first;
       if (!f || !f.judgment_month) continue; // 判断月なし（失注等）はストックに残さない
       if (d.reDone) continue; // 再商談実施済みは実施待ちから外れる
+      if (f.deal_status && f.deal_status.startsWith("失注")) continue; // 猶予期限切れ等で既に失注確定した案件は除外
       // judgment_month が「今月」か「来月」かで振り分け（asOf基準の絶対月と比較）
       let col = null;
       if (f.judgment_month === monthNow) col = "thisMonth";
       else if (f.judgment_month === nextMonthKey) col = "nextMonth";
       else col = null; // それ以外の月は対象外（本画面は今月/来月判断のみ）
       if (!col) continue;
-      const item = { deal_id: k, company_name: d.company, owner: d.owner, first_meeting_date: f.event_date };
+      const item = { deal_id: k, company_name: d.company, owner: d.owner, first_meeting_date: f.event_date, auto_lose_deadline: f.auto_lose_deadline || null };
       if (f.next_meeting_scheduled) cells[col].waiting.push(item);
       else cells[col].unset.push(item);
     }
@@ -2469,6 +2488,13 @@ server.listen(PORT, async () => {
   await initDb().catch((e) => console.error("[db] init失敗", e.message));
   startScheduler({ publicUrl: PUBLIC_URL });
   startSessionMonitor();
+  // 「進行中(未設定)」のうち auto_lose_deadline を過ぎた案件を自動で失注に切り替える：起動直後＋1時間ごと
+  const autoLose = () =>
+    applyAutoLoseDeadlines()
+      .then((n) => n && console.log(`[auto-lose] ${n}件の案件を自動で失注(未定)に切り替えました`))
+      .catch((e) => console.error("[auto-lose]", e.message));
+  setTimeout(autoLose, 15000);
+  setInterval(autoLose, 60 * 60 * 1000);
   // 文字起こしの無い古い商談（3時間以上前）を定期削除：起動1分後＋6時間ごと
   const cleanup = () =>
     deleteEmptyMeetings(180)

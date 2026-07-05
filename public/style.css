@@ -2098,3 +2098,12 @@ button.fn4-pipe-cell { background: none; border: none; cursor: pointer; color: #
 .integ-back { display: inline-flex; align-items: center; gap: 6px; background: none; border: none; color: #0F6E56; font-size: 13px; font-weight: 600; cursor: pointer; padding: 0; margin-bottom: 16px; }
 .integ-back:hover { text-decoration: underline; }
 .set-pane-inner { display: flex; flex-direction: column; gap: 16px; }
+
+/* 進行中(未設定)：10日間の猶予中ステータス */
+.np-status.np-進行中未設定 { background: #fff4e5; color: #a8611a; }
+.np-card-badge.np-進行中未設定 { background: #fff4e5; color: #a8611a; }
+.np-next-pending { color: #a8611a; font-weight: 700; }
+.np-pending-note { font-size: 12px; color: #a8611a; background: #fff4e5; border-radius: 8px; padding: 10px 12px; line-height: 1.6; margin: 4px 0 14px; }
+
+/* 実績サマリー：猶予期間中(10日ルール)の補足 */
+.fn4-kpi-pending { color: #a8611a; font-weight: 600; }

@@ -202,6 +202,7 @@ function npStageInfo(d) {
   const st = d.status || "";
   const hasNext = !!f.next_meeting_scheduled; // 再商談の日程が設定されたか
   const isReview = st === "要確認";
+  const isPending10day = st === "進行中(未設定)"; // 初回商談その場で再商談未設定、10日間の猶予中
   let reached = 1; // 初回商談は必ず到達
   let lostAt = null;
   const scOk = f.schedule_choice && !["未定", "不明"].includes(f.schedule_choice);
@@ -217,7 +218,7 @@ function npStageInfo(d) {
     else if (!hasNext) lostAt = 3; // 再商談が設定されず失注（今月/来月判断まで進んでも、次につながらなかった）
     else lostAt = reached;
   }
-  return { reached, lostAt, isWon: reached >= 5, isReview, hasNext };
+  return { reached, lostAt, isWon: reached >= 5, isReview, hasNext, isPending10day };
 }
 
 function renderNewProcess(box, d) {
@@ -228,7 +229,7 @@ function renderNewProcess(box, d) {
     { n: 4, label: "再商談実施" },
     { n: 5, label: "受注" },
   ];
-  const { reached, lostAt, isWon, isReview } = npStageInfo(d);
+  const { reached, lostAt, isWon, isReview, isPending10day } = npStageInfo(d);
   const f = d.first || {};
 
   // ステージバー（丸＋ラベル＋矢印）
@@ -251,6 +252,9 @@ function renderNewProcess(box, d) {
   const reviewNote = isReview
     ? '<div class="np-review-note">AIが商談から「開始スケジュール」「今月申込可否」を明確に読み取れませんでした。判定は保留（集計対象外）です。文字起こしを確認のうえ、誤りがあれば実績の日次データ確認から修正できます。</div>'
     : "";
+  const pendingNote = isPending10day
+    ? `<div class="np-pending-note">初回商談その場で再商談が設定できませんでした。<b>${esc(d.auto_lose_deadline || "")}</b> までに再商談が設定されなければ、自動的に失注になります（残り猶予中）。</div>`
+    : "";
 
   // 詳細行
   const jm = f.judgment_month ? f.judgment_month.replace("-", "年") + "月" : "—";
@@ -258,7 +262,9 @@ function renderNewProcess(box, d) {
     ? `<span class="np-next-yes">設定済み${f.next_meeting_date ? "（" + esc(f.next_meeting_date) + "）" : ""}</span>`
     : (String(d.status || "").startsWith("失注")
         ? `<span class="np-next-no">未設定（次につながらず失注）</span>`
-        : `<span class="np-next-no">未設定</span>`);
+        : isPending10day
+          ? `<span class="np-next-pending">未設定（${esc(d.auto_lose_deadline || "")} までの猶予中）</span>`
+          : `<span class="np-next-no">未設定</span>`);
   let rows = "";
   if (d.first) {
     rows =
@@ -284,6 +290,7 @@ function renderNewProcess(box, d) {
     `<button class="btn ghost np-rerun" id="npReRun" type="button">再判定</button></div>` +
     `<div class="np-stages">${steps}</div>` +
     reviewNote +
+    pendingNote +
     `<div class="np-body">${rows}</div>` +
     reasonsBlock;
   const rr = document.getElementById("npReRun");

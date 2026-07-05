@@ -101,7 +101,7 @@ function renderFunnel(body, d) {
   html += '<div class="fn4-kpis">';
   html += `<div class="fn4-kpi-card"><div class="fn4-kpi-label">初回商談</div><div class="fn4-kpi-num">${o.first_meetings || 0}</div><div class="fn4-kpi-sub">母数</div></div>`;
   html += `<div class="fn4-kpi-card fn4-kpi-main"><div class="fn4-kpi-head"><span class="fn4-kpi-label">再商談実施</span><span class="fn4-kpi-badge">KPI</span></div><div class="fn4-kpi-num">${o.re_meetings || 0}</div><div class="fn4-kpi-sub">転換率 ${pctOf(o.re_meetings, base)}%</div></div>`;
-  html += `<div class="fn4-kpi-card"><div class="fn4-kpi-label">失注</div><div class="fn4-kpi-num fn4-kpi-num-lost">${o.lost || 0}</div><div class="fn4-kpi-sub">${pctOf(o.lost, base)}%</div></div>`;
+  html += `<div class="fn4-kpi-card"><div class="fn4-kpi-label">失注</div><div class="fn4-kpi-num fn4-kpi-num-lost">${o.lost || 0}</div><div class="fn4-kpi-sub">${pctOf(o.lost, base)}%${o.pending_10day ? `<span class="fn4-kpi-pending"> ・ 猶予中 ${o.pending_10day}件</span>` : ""}</div></div>`;
   html += `<div class="fn4-kpi-card"><div class="fn4-kpi-label">受注</div><div class="fn4-kpi-num">${o.won || 0}</div><div class="fn4-kpi-sub">${pctOf(o.won, base)}%</div></div>`;
   html += "</div>";
 
