@@ -129,7 +129,7 @@ async function loadNewProcess(companyName, pk, ms) {
     : "company=" + encodeURIComponent(companyName);
   let d;
   try {
-    d = await (await fetch("/api/deal-status-by-company?" + q)).json();
+    d = await (await fetch("/api/deal-status-by-company?" + q, { cache: "no-store" })).json();
   } catch { box.innerHTML = '<div class="empty-state">取得に失敗しました。</div>'; return; }
   if (!d || !d.found) {
     // 抽出データが無い → この会社の商談（文字起こし）から判定できるボタンを出す
@@ -321,7 +321,7 @@ let newProcMap = {};
 let newProcList = []; // 部分一致照合用に全dealを保持
 async function refreshNewProcMap() {
   try {
-    const deals = await (await fetch("/api/deals")).json();
+    const deals = await (await fetch("/api/deals", { cache: "no-store" })).json();
     newProcMap = {};
     newProcList = deals || [];
     for (const d of deals || []) {

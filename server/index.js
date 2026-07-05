@@ -804,6 +804,7 @@ app.get("/api/integrations", async (req, res) => {
 // 会社名から新プロセス（Feature A）の状態を返す（案件画面の表示用）
 app.get("/api/deal-status-by-company", async (req, res) => {
   try {
+    res.set("Cache-Control", "no-store");
     const company = req.query.company || "";
     const dealIdQ = req.query.deal_id || "";
     const deals = await listDeals({});
@@ -926,6 +927,7 @@ app.delete("/api/teams/:rep", async (req, res) => {
 // 案件一覧（deals）
 app.get("/api/deals", async (req, res) => {
   try {
+    res.set("Cache-Control", "no-store");
     const { owner, team, status, from, to } = req.query;
     res.json(await listDeals({ owner, team, status, from, to }));
   } catch (e) { res.status(500).json({ error: e.message }); }
