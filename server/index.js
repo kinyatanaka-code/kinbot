@@ -51,6 +51,7 @@ import {
   resolveDeal,
   updateDealStatus,
   applyAutoLoseDeadlines,
+  mergeDuplicateDeals,
   deleteDealEventsByBot,
   insertDealEvent,
   listDeals,
@@ -930,6 +931,15 @@ app.get("/api/deals", async (req, res) => {
     res.set("Cache-Control", "no-store");
     const { owner, team, status, from, to } = req.query;
     res.json(await listDeals({ owner, team, status, from, to }));
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// 同じ会社名で重複してできてしまった案件（deals）レコードを1つに統合する（管理者のみ）
+app.post("/api/deals/merge-duplicates", async (req, res) => {
+  if (!req.isAdmin) return res.status(403).json({ error: "管理者のみ実行できます" });
+  try {
+    const result = await mergeDuplicateDeals();
+    res.json({ ok: true, ...result });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 

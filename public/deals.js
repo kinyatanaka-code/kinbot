@@ -324,9 +324,15 @@ async function refreshNewProcMap() {
     const deals = await (await fetch("/api/deals", { cache: "no-store" })).json();
     newProcMap = {};
     newProcList = deals || [];
+    // listDealsは updated_at DESC（新しい順）で返るが、同じ会社名で複数のdealが
+    // 存在する場合に古い方で上書きしないよう、既にある場合は新しい方（更新日時が新しい方）を優先する。
     for (const d of deals || []) {
       const k = normName(d.company_name);
-      if (k) newProcMap[k] = d;
+      if (!k) continue;
+      const existing = newProcMap[k];
+      if (!existing || new Date(d.updated_at || 0) > new Date(existing.updated_at || 0)) {
+        newProcMap[k] = d;
+      }
     }
   } catch { newProcMap = {}; newProcList = []; }
 }
@@ -335,12 +341,15 @@ function lookupNewProc(name) {
   const k = normName(name);
   if (!k) return null;
   if (newProcMap[k]) return newProcMap[k];
-  // 部分一致（どちらかがもう一方を含む）
+  // 部分一致（どちらかがもう一方を含む）。複数マッチする場合は最新（updated_at）のものを優先する。
+  let best = null;
   for (const d of newProcList) {
     const k2 = normName(d.company_name);
-    if (k2 && (k2.includes(k) || k.includes(k2))) return d;
+    if (k2 && (k2.includes(k) || k.includes(k2))) {
+      if (!best || new Date(d.updated_at || 0) > new Date(best.updated_at || 0)) best = d;
+    }
   }
-  return null;
+  return best;
 }
 
 async function load() {  try {
@@ -491,9 +500,16 @@ async function mergeDuplicates() {
     accountsMap = {};
     for (const a of accs || []) accountsMap[a.key] = a;
   } catch {}
+  // 新プロセスの案件（deals）側で、同じ会社名の重複レコードができていないかも合わせて統合する
+  let mergedDeals = 0;
+  try {
+    const r = await fetch("/api/deals/merge-duplicates", { method: "POST" });
+    if (r.ok) { const d = await r.json(); mergedDeals = d.merged || 0; }
+  } catch {}
+  await refreshNewProcMap();
   selectedRep = null; showAll = false; current = null;
   renderList();
-  setSt(`${count}組をまとめました`);
+  setSt(`${count}組をまとめました${mergedDeals ? `（新プロセスの重複案件も${mergedDeals}件統合）` : ""}`);
   setTimeout(() => setSt(""), 3000);
 }
 

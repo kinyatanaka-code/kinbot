@@ -1361,6 +1361,33 @@ export async function resolveDeal({ companyName, owner, team, firstMeetingDate }
   return ins.rows[0];
 }
 
+// 同じ会社（正規化キーが同一）で複数のdealsレコードができてしまっている場合に統合する。
+// 最も新しく更新されたレコードを正として残し、他のレコードのdeal_eventsをそこへ付け替えて、重複レコードは削除する。
+export async function mergeDuplicateDeals() {
+  if (!pool) return { merged: 0 };
+  const { rows } = await pool.query(`SELECT * FROM deals ORDER BY updated_at DESC`);
+  const groups = {};
+  for (const d of rows) {
+    const key = normCompanyKey(d.company_name);
+    if (!key) continue;
+    (groups[key] = groups[key] || []).push(d);
+  }
+  let merged = 0;
+  for (const key of Object.keys(groups)) {
+    const list = groups[key];
+    if (list.length < 2) continue;
+    const primary = list[0]; // updated_at DESC なので先頭が最新
+    for (const dup of list.slice(1)) {
+      try {
+        await pool.query(`UPDATE deal_events SET deal_id=$1 WHERE deal_id=$2`, [primary.deal_id, dup.deal_id]);
+        await pool.query(`DELETE FROM deals WHERE deal_id=$1`, [dup.deal_id]);
+        merged++;
+      } catch (e) { console.error("[db] mergeDuplicateDeals", e.message); }
+    }
+  }
+  return { merged };
+}
+
 // dealのステータス・更新日時を更新
 export async function updateDealStatus(dealId, status, autoLoseDeadline) {
   if (!pool || !dealId) return;
