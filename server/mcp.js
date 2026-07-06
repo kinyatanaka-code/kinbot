@@ -131,7 +131,8 @@ const TOOLS = [
 ];
 
 // ---- ツール実行 ----
-async function callTool(name, args, req) {
+// ChatGPT Custom GPT Actions 用の REST ラッパー(gpt_actions.js)からも再利用する。
+export async function callTool(name, args, req) {
   const isAdmin = !!req.isAdmin;
   const owner = isAdmin ? (args && args.owner) || null : req.user;
   switch (name) {

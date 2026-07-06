@@ -108,6 +108,7 @@ import { pdfToText, urlToText, officeToText } from "./ingest.js";
 import { indexKnowledge, embeddingsAvailable } from "./retrieval.js";
 import { readDocument, readerAvailable } from "./ai_read.js";
 import { mountMcpServer } from "./mcp.js";
+import { mountGptActions } from "./gpt_actions.js";
 import { mountOauthServer, oauthTokenUser } from "./oauth.js";
 import {
   salesforceConfigured,
@@ -276,6 +277,9 @@ mountOauthServer(app);
 
 // kinbot MCPサーバー（Claude.aiのコネクタからデータを読めるようにする）
 mountMcpServer(app);
+
+// kinbot REST API（ChatGPTのCustom GPT Actionsからデータを読めるようにする）
+mountGptActions(app);
 
 // 登録・ログイン・ログアウト
 app.post("/api/register", async (req, res) => {
