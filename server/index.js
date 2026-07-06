@@ -1029,13 +1029,21 @@ app.post("/api/interns/match", async (req, res) => {
     });
 
     // 各インターンのカレンダー予定を取得（未共有などは individual に握りつぶす）
+    // 照合対象は「本人が主催者の予定」のみ（招待されただけの予定は除外）
     const internEvents = []; // { intern, events:[{titleNorm,date,title}], error }
     for (const it of interns) {
+      const internEmail = String(it.email || "").toLowerCase();
+      const isHost = (e) => {
+        const org = String(e.organizer || "").toLowerCase();
+        const creator = String(e.creator || "").toLowerCase();
+        return (org && org === internEmail) || (!org && creator && creator === internEmail);
+      };
       try {
         const evs = await listCalendarEvents(gcalOwner, it.email, { timeMin, timeMax });
         internEvents.push({
           intern: it,
-          events: evs.map((e) => ({ title: e.title, titleNorm: normApoTitle(e.title), date: jstDateStr(e.start) }))
+          events: evs.filter(isHost)
+                     .map((e) => ({ title: e.title, titleNorm: normApoTitle(e.title), date: jstDateStr(e.start) }))
                      .filter((e) => e.titleNorm && e.date),
           error: null,
         });
