@@ -342,6 +342,11 @@ export async function initDb() {
       updated_at     TIMESTAMPTZ DEFAULT now()
     );
   `);
+  // アポ振り分け：スマートリンクをカレンダーの1予定に紐づける（重複発行を防ぐ）
+  await pool.query(`ALTER TABLE smart_links ADD COLUMN IF NOT EXISTS event_id TEXT;`);
+  await pool.query(`ALTER TABLE smart_links ADD COLUMN IF NOT EXISTS setter TEXT;`);
+  await pool.query(`ALTER TABLE smart_links ADD COLUMN IF NOT EXISTS start_time TIMESTAMPTZ;`);
+  await pool.query(`CREATE UNIQUE INDEX IF NOT EXISTS uq_smart_links_event ON smart_links(event_id) WHERE event_id IS NOT NULL;`);
 
   console.log("[db] Postgres に接続しました（履歴を保存します）。");
 }
@@ -1656,13 +1661,19 @@ export async function deleteOauthToken(access_token) {
 }
 
 // ===== スマートリンク（担当者切り替えに追随する共有Zoom URL） =====
-export async function createSmartLink({ slug, label, owner, createdBy }) {
+export async function createSmartLink({ slug, label, owner, createdBy, eventId, setter, startTime }) {
   if (!pool) return null;
   const { rows } = await pool.query(
-    `INSERT INTO smart_links (slug, label, current_owner, created_by) VALUES ($1,$2,$3,$4) RETURNING *`,
-    [slug, label || "", owner || null, createdBy || ""]
+    `INSERT INTO smart_links (slug, label, current_owner, created_by, event_id, setter, start_time)
+     VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING *`,
+    [slug, label || "", owner || null, createdBy || "", eventId || null, setter || null, startTime || null]
   );
   return rows[0];
+}
+export async function getSmartLinkByEvent(eventId) {
+  if (!pool || !eventId) return null;
+  const { rows } = await pool.query(`SELECT * FROM smart_links WHERE event_id=$1`, [eventId]);
+  return rows[0] || null;
 }
 export async function getSmartLink(slug) {
   if (!pool) return null;

@@ -54,6 +54,7 @@ import {
   mergeDuplicateDeals,
   createSmartLink,
   getSmartLink,
+  getSmartLinkByEvent,
   listSmartLinks,
   setSmartLinkOwner,
   deleteSmartLink,
@@ -2700,6 +2701,95 @@ app.put("/api/my-zoom-link", async (req, res) => {
     res.json({ ok: true, url });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
+// ===== アポ振り分け =====
+// Zoomの会議URL風の見た目にする（/j/<10桁の数字>?pwd=<トークン>）。
+// 実際の転送は /j/:slug が行い、?pwd= は見た目だけ（サーバー側では無視される）。
+function zoomLikeSlug() {
+  const n = (crypto.randomBytes(5).readUIntBE(0, 5) % 9000000000) + 1000000000; // 10桁
+  return String(n);
+}
+function joinUrl(slug) {
+  const pwd = crypto.createHash("sha256").update("kbtpwd:" + slug).digest("base64url").slice(0, 22);
+  return `${PUBLIC_URL}/j/${slug}?pwd=${pwd}`;
+}
+// タイトルが【新/ヒ】または【初回/】を含むか（全角半角の違いはNFKCで吸収）
+function apoTitleTag(title) {
+  const t = String(title || "").normalize("NFKC");
+  return t.includes("【新/ヒ】") || t.includes("【初回/】");
+}
+// 笹原拓真＋インターン（＝インターン登録に登録した「アポを取る人」）が主催者で、
+// タイトルが対象タグの予定を取り込み、各アポにスマートリンクを自動発行して返す。
+// 担当者を割り当てると /j/<slug> がその人のZoomに切り替わる。
+// query: days（既定30。今日から何日先までの予定を取り込むか）
+app.get("/api/apo/pickup", async (req, res) => {
+  try {
+    const gcalOwner = req.user;
+    if (!gcalOwner || !(await gcalConnected(gcalOwner))) {
+      return res.status(400).json({ error: "あなたのGoogleが連携されていません。設定→連携→Google連携 を先に済ませてください。" });
+    }
+    const setters = await listInterns();
+    if (!setters.length) {
+      return res.status(400).json({ error: "アポを取る人が未登録です。設定→インターン登録 で、笹原拓真さんとインターン生の名前・メールアドレスを登録してください。" });
+    }
+    const days = Math.min(120, Math.max(1, parseInt(req.query.days, 10) || 30));
+    const now = new Date();
+    const timeMin = now.toISOString();
+    const timeMax = new Date(now.getTime() + days * 86400 * 1000).toISOString();
+
+    const items = [];
+    const errors = [];
+    for (const st of setters) {
+      const setterEmail = String(st.email || "").toLowerCase();
+      let evs = [];
+      try {
+        evs = await listCalendarEvents(gcalOwner, st.email, { timeMin, timeMax });
+      } catch (e) {
+        const msg = /40[34]/.test(e.message)
+          ? "カレンダーを読めませんでした（このメールのカレンダーが共有されているか確認してください）"
+          : e.message;
+        errors.push({ setter: st.name, email: st.email, error: msg });
+        continue;
+      }
+      for (const ev of evs) {
+        if (ev.allDay) continue;          // 終日予定はアポではない
+        if (!ev.title) continue;
+        // 本人が主催者の予定だけ（招待されただけの予定は除外）。organizer優先、無ければcreatorで判定。
+        const org = String(ev.organizer || "").toLowerCase();
+        const creator = String(ev.creator || "").toLowerCase();
+        const isHost = (org && org === setterEmail) || (!org && creator && creator === setterEmail);
+        if (!isHost) continue;
+        // タイトルが【新/ヒ】または【初回/】を含む予定だけ（全角半角問わず）
+        if (!apoTitleTag(ev.title)) continue;
+        // このカレンダー予定にスマートリンクが無ければ自動発行（あれば使い回す）
+        let link = await getSmartLinkByEvent(ev.id);
+        if (!link) {
+          let slug;
+          for (let k = 0; k < 6; k++) { slug = zoomLikeSlug(); if (!(await getSmartLink(slug))) break; }
+          link = await createSmartLink({
+            slug, label: ev.title, owner: null, createdBy: gcalOwner,
+            eventId: ev.id, setter: st.name, startTime: ev.start,
+          });
+        }
+        items.push({
+          event_id: ev.id,
+          setter_name: st.name,
+          title: ev.title,
+          start: ev.start,
+          original_url: ev.url || "",
+          slug: link.slug,
+          smart_url: joinUrl(link.slug),
+          current_owner: link.current_owner || null,
+        });
+      }
+    }
+    items.sort((a, b) => String(a.start).localeCompare(String(b.start)));
+    res.json({ days, count: items.length, appointments: items, errors });
+  } catch (e) {
+    console.error("[apo/pickup]", e);
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // 担当者候補一覧（名前＋商談用リンクの設定有無）。プルダウン用。
 app.get("/api/smart-links/reps", async (req, res) => {
   try {
@@ -2717,16 +2807,17 @@ app.post("/api/smart-links", async (req, res) => {
   try {
     const label = String(req.body?.label || "").slice(0, 200);
     const owner = req.body?.owner ? String(req.body.owner) : null;
-    const slug = "s" + crypto.randomBytes(5).toString("base64url");
+    let slug;
+    for (let k = 0; k < 6; k++) { slug = zoomLikeSlug(); if (!(await getSmartLink(slug))) break; }
     const link = await createSmartLink({ slug, label, owner, createdBy: req.user });
-    res.json({ ok: true, link, url: `${PUBLIC_URL}/j/${slug}` });
+    res.json({ ok: true, link, url: joinUrl(slug) });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 // 自分が作ったスマートリンクの一覧（管理者は全件）
 app.get("/api/smart-links", async (req, res) => {
   try {
     const links = await listSmartLinks(req.isAdmin ? null : req.user);
-    res.json(links.map((l) => ({ ...l, url: `${PUBLIC_URL}/j/${l.slug}` })));
+    res.json(links.map((l) => ({ ...l, url: joinUrl(l.slug) })));
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 // 担当者の切り替え（ここを変えるだけで、既に送信済みのURLの行き先も自動的に変わる）

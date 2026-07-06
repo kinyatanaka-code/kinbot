@@ -440,7 +440,7 @@ async function runInternMatch() {
 function renderInternDash(body, d) {
   const rows = d.interns || [];
   if (!d.registered_count && !rows.length) {
-    body.innerHTML = '<div class="empty-state">インターン生が未登録です。<a href="settings.html">設定 → インターン集計</a> で名前とメールアドレスを登録してください。</div>';
+    body.innerHTML = '<div class="empty-state">インターン生が未登録です。<a href="settings.html">設定 → インターン登録</a> で名前とメールアドレスを登録してください。</div>';
     return;
   }
   const maxCount = Math.max(1, ...rows.map((r) => r.count || 0));

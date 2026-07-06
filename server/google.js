@@ -214,7 +214,7 @@ export async function listCalendarEvents(owner, calendarId, { timeMin, timeMax }
     for (const ev of data.items || []) {
       if (ev.status === "cancelled") continue;
       const start = ev.start?.dateTime || ev.start?.date || null;
-      out.push({ id: ev.id, title: ev.summary || "", start, allDay: !ev.start?.dateTime });
+      out.push({ id: ev.id, title: ev.summary || "", start, allDay: !ev.start?.dateTime, url: findMeetingUrl(ev) || "", guests: (ev.attendees || []).length, organizer: (ev.organizer && ev.organizer.email) || "", creator: (ev.creator && ev.creator.email) || "" });
     }
     if (!data.nextPageToken) break;
     pageToken = data.nextPageToken;
