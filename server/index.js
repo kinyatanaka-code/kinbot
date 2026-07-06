@@ -946,10 +946,9 @@ app.delete("/api/teams/:rep", async (req, res) => {
 app.get("/api/interns", async (req, res) => {
   try { res.json(await listInterns()); } catch { res.json([]); }
 });
-// 追加・更新（管理者のみ）
+// 追加・更新（ログインユーザーなら可。チーム編集と同じ扱い）
 app.put("/api/interns", async (req, res) => {
   try {
-    if (!req.isAdmin) return res.status(403).json({ error: "管理者のみ" });
     const { email, name } = req.body || {};
     if (!email || !name) return res.status(400).json({ error: "名前とメールアドレスが必要です" });
     if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(String(email).trim())) return res.status(400).json({ error: "メールアドレスの形式が正しくありません" });
@@ -957,10 +956,9 @@ app.put("/api/interns", async (req, res) => {
     res.json({ ok: true });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
-// 削除（管理者のみ）
+// 削除（ログインユーザーなら可）
 app.delete("/api/interns/:email", async (req, res) => {
   try {
-    if (!req.isAdmin) return res.status(403).json({ error: "管理者のみ" });
     await deleteIntern(decodeURIComponent(req.params.email));
     res.json({ ok: true });
   } catch (e) { res.status(500).json({ error: e.message }); }
@@ -998,11 +996,11 @@ function apoTitleMatch(mNorm, eNorm) {
   return mNorm.includes(eNorm) || eNorm.includes(mNorm);
 }
 
-// インターンのカレンダーと商談名を照合して、アポ獲得者を各商談に記録する（管理者のみ）
+// インターンのカレンダーと商談名を照合して、アポ獲得者を各商談に記録する
+// （ログインユーザーなら可。読むのは各自のGoogle連携で見えるカレンダーのみ）
 // body: { from: "YYYY-MM-DD", to: "YYYY-MM-DD" }（省略時は直近90日）
 app.post("/api/interns/match", async (req, res) => {
   try {
-    if (!req.isAdmin) return res.status(403).json({ error: "管理者のみ実行できます" });
     const gcalOwner = req.user; // ブラウザでログイン中の本人のGoogle連携を使う
     if (!gcalOwner || !(await gcalConnected(gcalOwner))) {
       return res.status(400).json({ error: "あなたのGoogleが連携されていません。設定→連携→Google連携 を先に済ませてください。" });
