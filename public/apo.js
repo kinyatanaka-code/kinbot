@@ -13,6 +13,11 @@ function fmtDT(iso) {
   const p = (n) => String(n).padStart(2, "0");
   return `${d.getMonth() + 1}/${d.getDate()}(${wd}) ${p(d.getHours())}:${p(d.getMinutes())}`;
 }
+// "YYYY-MM-DD" → "M/D"
+function fmtYmd(ymd) {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(ymd || ""));
+  return m ? `${Number(m[2])}/${Number(m[3])}` : esc(ymd);
+}
 function repOptions(selected) {
   let o = `<option value="">担当未定</option>`;
   for (const r of apState.reps) {
@@ -37,9 +42,10 @@ function renderApo() {
     }
     return;
   }
-  let html = '<table class="ap-table"><thead><tr><th>日時</th><th>アポ獲得者</th><th>予定名</th><th>担当セールス</th><th>共有リンク</th><th>状態</th></tr></thead><tbody>';
+  let html = '<table class="ap-table"><thead><tr><th>取得日</th><th>商談日時</th><th>アポ獲得者</th><th>予定名</th><th>担当セールス</th><th>共有リンク</th><th>状態</th></tr></thead><tbody>';
   appts.forEach((a, i) => {
     html += `<tr>
+      <td class="ap-got">${fmtYmd(a.created_date)}</td>
       <td class="ap-when">${fmtDT(a.start)}</td>
       <td>${esc(a.setter_name)}</td>
       <td class="ap-title">${esc(a.title)}</td>
@@ -83,17 +89,25 @@ function renderApo() {
     });
   });
 }
+function todayStr() { return new Date().toISOString().slice(0, 10); }
+function apDates() {
+  const f = $("apFrom"), t = $("apTo");
+  if (f && !f.value) f.value = todayStr();
+  if (t && !t.value) t.value = todayStr();
+  return { from: f ? f.value : "", to: t ? t.value : "" };
+}
 async function loadApo() {
   const body = $("apoBody");
   const st = $("apStatus");
+  const { from, to } = apDates();
   body.innerHTML = '<div class="empty-state">カレンダーから取り込み中…（件数によっては数十秒かかります）</div>';
   try {
     const reps = await (await fetch("/api/smart-links/reps")).json();
     apState.reps = Array.isArray(reps) ? reps : [];
   } catch { apState.reps = []; }
   try {
-    const days = $("apDays").value;
-    const r = await fetch("/api/apo/pickup?days=" + encodeURIComponent(days));
+    const q = new URLSearchParams({ from, to });
+    const r = await fetch("/api/apo/pickup?" + q.toString());
     const d = await r.json();
     if (!r.ok) throw new Error(d.error || "取り込みに失敗しました");
     apState.appts = d.appointments || [];
@@ -107,5 +121,12 @@ async function loadApo() {
 }
 (function () {
   if ($("apReload")) $("apReload").addEventListener("click", loadApo);
+  if ($("apToday")) $("apToday").addEventListener("click", () => {
+    $("apFrom").value = todayStr(); $("apTo").value = todayStr(); loadApo();
+  });
+  if ($("apWeek")) $("apWeek").addEventListener("click", () => {
+    $("apFrom").value = new Date(Date.now() - 6 * 86400 * 1000).toISOString().slice(0, 10);
+    $("apTo").value = todayStr(); loadApo();
+  });
   loadApo();
 })();

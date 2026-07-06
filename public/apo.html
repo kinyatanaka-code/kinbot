@@ -24,14 +24,10 @@
         <header class="topbar"><div class="brand"><img class="topbar-bot" src="kinbot.svg" alt="" /><span class="brand-name">アポ振り分け</span></div></header>
         <main class="report-page">
           <div class="rep-controls">
-            <label>取り込み範囲
-              <select id="apDays">
-                <option value="7">今後7日</option>
-                <option value="14">今後14日</option>
-                <option value="30" selected>今後30日</option>
-                <option value="60">今後60日</option>
-              </select>
-            </label>
+            <label>取得日（アポが取れた日） <input type="date" id="apFrom" /></label>
+            <label>〜 <input type="date" id="apTo" /></label>
+            <button class="btn ghost" id="apToday">今日</button>
+            <button class="btn ghost" id="apWeek">過去7日</button>
             <button class="btn" id="apReload">アポを取り込む</button>
             <span class="rev-status" id="apStatus"></span>
           </div>

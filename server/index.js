@@ -2731,10 +2731,14 @@ app.get("/api/apo/pickup", async (req, res) => {
     if (!setters.length) {
       return res.status(400).json({ error: "アポを取る人が未登録です。設定→インターン登録 で、笹原拓真さんとインターン生の名前・メールアドレスを登録してください。" });
     }
-    const days = Math.min(120, Math.max(1, parseInt(req.query.days, 10) || 30));
-    const now = new Date();
-    const timeMin = now.toISOString();
-    const timeMax = new Date(now.getTime() + days * 86400 * 1000).toISOString();
+    // 取得日（アポが取れた＝カレンダーに登録した日）の範囲で絞る。既定は今日1日。
+    const todayJst = jstDateStr(new Date().toISOString());
+    const from = (req.query.from && String(req.query.from)) || todayJst;
+    const to = (req.query.to && String(req.query.to)) || todayJst;
+    // GoogleへのクエリはあくまでStart時刻の窓（作成日で絞るのはこちら側）。
+    // アポの商談日は「取れた日」以降なので from を下限に、予約の先読みぶん余裕を持って上限を取る。
+    const timeMin = new Date(Date.parse(from + "T00:00:00+09:00") - 2 * 86400 * 1000).toISOString();
+    const timeMax = new Date(Date.parse(to + "T00:00:00+09:00") + 90 * 86400 * 1000).toISOString();
 
     const items = [];
     const errors = [];
@@ -2760,6 +2764,9 @@ app.get("/api/apo/pickup", async (req, res) => {
         if (!isHost) continue;
         // タイトルが【新/ヒ】または【初回/】を含む予定だけ（全角半角問わず）
         if (!apoTitleTag(ev.title)) continue;
+        // 取得日（作成日）で絞る
+        const createdDate = jstDateStr(ev.created);
+        if (!createdDate || createdDate < from || createdDate > to) continue;
         // このカレンダー予定にスマートリンクが無ければ自動発行（あれば使い回す）
         let link = await getSmartLinkByEvent(ev.id);
         if (!link) {
@@ -2775,6 +2782,8 @@ app.get("/api/apo/pickup", async (req, res) => {
           setter_name: st.name,
           title: ev.title,
           start: ev.start,
+          created: ev.created || "",
+          created_date: createdDate,
           original_url: ev.url || "",
           slug: link.slug,
           smart_url: joinUrl(link.slug),
@@ -2783,7 +2792,7 @@ app.get("/api/apo/pickup", async (req, res) => {
       }
     }
     items.sort((a, b) => String(a.start).localeCompare(String(b.start)));
-    res.json({ days, count: items.length, appointments: items, errors });
+    res.json({ range: { from, to }, count: items.length, appointments: items, errors });
   } catch (e) {
     console.error("[apo/pickup]", e);
     res.status(500).json({ error: e.message });
