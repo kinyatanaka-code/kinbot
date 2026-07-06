@@ -2731,20 +2731,24 @@ app.get("/api/apo/pickup", async (req, res) => {
     if (!setters.length) {
       return res.status(400).json({ error: "アポを取る人が未登録です。設定→インターン登録 で、笹原拓真さんとインターン生の名前・メールアドレスを登録してください。" });
     }
-    // 絞り込みの基準日と範囲。既定は「取得日・今日1日」。
-    const todayJst = jstDateStr(new Date().toISOString());
-    const from = (req.query.from && String(req.query.from)) || todayJst;
-    const to = (req.query.to && String(req.query.to)) || todayJst;
-    const by = req.query.by === "start" ? "start" : "created"; // created=取得日 / start=商談日
+    // 取得日・商談日はそれぞれ任意の1日。両方空なら「今後の予定」を既定表示。
+    const dateRe = /^\d{4}-\d{2}-\d{2}$/;
+    const created = dateRe.test(String(req.query.created || "")) ? String(req.query.created) : "";
+    const start = dateRe.test(String(req.query.start || "")) ? String(req.query.start) : "";
     let timeMin, timeMax;
-    if (by === "start") {
-      // 商談日で絞る：GoogleのStart時刻の窓をそのまま使える
-      timeMin = new Date(Date.parse(from + "T00:00:00+09:00")).toISOString();
-      timeMax = new Date(Date.parse(to + "T00:00:00+09:00") + 86400 * 1000).toISOString();
+    if (start) {
+      // 商談日が指定されていれば、その日の窓（Googleの開始時刻で直接絞れる）
+      timeMin = new Date(Date.parse(start + "T00:00:00+09:00")).toISOString();
+      timeMax = new Date(Date.parse(start + "T00:00:00+09:00") + 86400 * 1000).toISOString();
+    } else if (created) {
+      // 取得日のみ指定：商談日は取得日以降なので、その日から先を余裕を持って読む
+      timeMin = new Date(Date.parse(created + "T00:00:00+09:00") - 2 * 86400 * 1000).toISOString();
+      timeMax = new Date(Date.parse(created + "T00:00:00+09:00") + 90 * 86400 * 1000).toISOString();
     } else {
-      // 取得日で絞る：商談日は取得日以降なので from を下限に、予約の先読みぶん余裕を持たせる
-      timeMin = new Date(Date.parse(from + "T00:00:00+09:00") - 2 * 86400 * 1000).toISOString();
-      timeMax = new Date(Date.parse(to + "T00:00:00+09:00") + 90 * 86400 * 1000).toISOString();
+      // 両方空：今日から60日先までの予定を既定表示
+      const now = new Date();
+      timeMin = now.toISOString();
+      timeMax = new Date(now.getTime() + 60 * 86400 * 1000).toISOString();
     }
 
     const items = [];
@@ -2771,11 +2775,11 @@ app.get("/api/apo/pickup", async (req, res) => {
         if (!isHost) continue;
         // タイトルが【新/ヒ】または【初回/】を含む予定だけ（全角半角問わず）
         if (!apoTitleTag(ev.title)) continue;
-        // 絞り込み基準日（取得日 or 商談日）で範囲チェック
+        // 取得日・商談日の指定があれば、それぞれ完全一致で絞る
         const createdDate = jstDateStr(ev.created);
         const startDate = jstDateStr(ev.start);
-        const key = by === "start" ? startDate : createdDate;
-        if (!key || key < from || key > to) continue;
+        if (created && createdDate !== created) continue;
+        if (start && startDate !== start) continue;
         // このカレンダー予定にスマートリンクが無ければ自動発行（あれば使い回す）
         let link = await getSmartLinkByEvent(ev.id);
         if (!link) {
@@ -2801,7 +2805,7 @@ app.get("/api/apo/pickup", async (req, res) => {
       }
     }
     items.sort((a, b) => String(a.start).localeCompare(String(b.start)));
-    res.json({ range: { from, to }, by, count: items.length, appointments: items, errors });
+    res.json({ filters: { created, start }, count: items.length, appointments: items, errors });
   } catch (e) {
     console.error("[apo/pickup]", e);
     res.status(500).json({ error: e.message });

@@ -36,15 +36,14 @@ function renderApo() {
   const body = $("apoBody");
   const appts = apState.appts;
   if (!appts.length) {
-    body.innerHTML = '<div class="empty-state">この期間に取り込めるアポがありませんでした。取り込み範囲を広げるか、<a href="settings.html">設定 → インターン登録</a>の登録内容・カレンダー共有をご確認ください。</div>';
+    body.innerHTML = '<div class="empty-state">該当するアポがありませんでした。取得日・商談日の指定を変えて［表示］を押すか、<a href="settings.html">設定 → インターン登録</a>の登録内容・カレンダー共有をご確認ください。</div>';
     if ((apState.errors || []).length) {
       body.innerHTML += '<p class="note cc-warn">一部のカレンダーを読めませんでした：' + apState.errors.map((e) => esc(e.setter) + "（" + esc(e.error) + "）").join("、") + '</p>';
     }
     return;
   }
-  const byCreated = apState.by !== "start";
-  const gotTh = byCreated ? '<th class="ap-active">取得日 ●</th>' : '<th>取得日</th>';
-  const startTh = byCreated ? '<th>商談日時</th>' : '<th class="ap-active">商談日時 ●</th>';
+  const gotTh = apState.fCreated ? '<th class="ap-active">取得日 ●</th>' : '<th>取得日</th>';
+  const startTh = apState.fStart ? '<th class="ap-active">商談日時 ●</th>' : '<th>商談日時</th>';
   let html = `<table class="ap-table"><thead><tr>${gotTh}${startTh}<th>アポ獲得者</th><th>予定名</th><th>担当セールス</th><th>共有リンク</th><th>状態</th></tr></thead><tbody>`;
   appts.forEach((a, i) => {
     html += `<tr>
@@ -93,32 +92,29 @@ function renderApo() {
   });
 }
 function todayStr() { return new Date().toISOString().slice(0, 10); }
-function apDates() {
-  const f = $("apFrom"), t = $("apTo");
-  if (f && !f.value) f.value = todayStr();
-  if (t && !t.value) t.value = todayStr();
-  return { from: f ? f.value : "", to: t ? t.value : "" };
-}
 async function loadApo() {
   const body = $("apoBody");
   const st = $("apStatus");
-  const { from, to } = apDates();
+  const created = ($("apCreated") && $("apCreated").value) || "";
+  const start = ($("apStart") && $("apStart").value) || "";
+  apState.fCreated = created;
+  apState.fStart = start;
   body.innerHTML = '<div class="empty-state">カレンダーから取り込み中…（件数によっては数十秒かかります）</div>';
   try {
     const reps = await (await fetch("/api/smart-links/reps")).json();
     apState.reps = Array.isArray(reps) ? reps : [];
   } catch { apState.reps = []; }
   try {
-    const by = ($("apBy") && $("apBy").value) || "created";
-    const q = new URLSearchParams({ from, to, by });
+    const q = new URLSearchParams();
+    if (created) q.set("created", created);
+    if (start) q.set("start", start);
     const r = await fetch("/api/apo/pickup?" + q.toString());
     const d = await r.json();
     if (!r.ok) throw new Error(d.error || "取り込みに失敗しました");
     apState.appts = d.appointments || [];
     apState.errors = d.errors || [];
-    apState.by = d.by || by;
     renderApo();
-    if (st) st.textContent = `取り込み ${apState.appts.length}件`;
+    if (st) st.textContent = `${apState.appts.length}件`;
     setTimeout(() => { if (st) st.textContent = ""; }, 2500);
   } catch (e) {
     body.innerHTML = `<div class="empty-state">${esc(e.message)}</div>`;
@@ -126,18 +122,5 @@ async function loadApo() {
 }
 (function () {
   if ($("apReload")) $("apReload").addEventListener("click", loadApo);
-  if ($("apBy")) $("apBy").addEventListener("change", loadApo);
-  if ($("apToday")) $("apToday").addEventListener("click", () => {
-    $("apFrom").value = todayStr(); $("apTo").value = todayStr(); loadApo();
-  });
-  if ($("apWeek")) $("apWeek").addEventListener("click", () => {
-    $("apFrom").value = new Date(Date.now() - 6 * 86400 * 1000).toISOString().slice(0, 10);
-    $("apTo").value = todayStr(); loadApo();
-  });
-  if ($("apNext")) $("apNext").addEventListener("click", () => {
-    $("apFrom").value = todayStr();
-    $("apTo").value = new Date(Date.now() + 6 * 86400 * 1000).toISOString().slice(0, 10);
-    loadApo();
-  });
   loadApo();
 })();
