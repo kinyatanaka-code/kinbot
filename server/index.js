@@ -72,6 +72,7 @@ import {
   deleteIntern,
   setMeetingApoSetter,
   clearApoSetters,
+  listApoMeetings,
   getSetCache,
   saveSetCache,
   listUsers,
@@ -1094,6 +1095,50 @@ app.post("/api/interns/match", async (req, res) => {
     });
   } catch (e) {
     console.error("[interns/match]", e);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ダッシュボード用：記録済みのアポ獲得者から、人ごとのアポ実施数を集計して返す（カレンダーには触れない・高速）
+// query: from, to（省略時は直近90日）
+app.get("/api/interns/stats", async (req, res) => {
+  try {
+    const today = new Date();
+    const defFrom = new Date(today.getTime() - 90 * 86400 * 1000);
+    const from = (req.query.from && String(req.query.from)) || defFrom.toISOString().slice(0, 10);
+    const to = (req.query.to && String(req.query.to)) || today.toISOString().slice(0, 10);
+
+    const interns = await listInterns();
+    const meetings = await listApoMeetings({ from, to });
+
+    const byName = {}; // name -> [{bot_id,title,date}]
+    const unmatched = [];
+    for (const m of meetings) {
+      const item = { bot_id: m.bot_id, title: m.title || "", date: jstDateStr(m.created_at) };
+      if (m.apo_setter) (byName[m.apo_setter] = byName[m.apo_setter] || []).push(item);
+      else unmatched.push(item);
+    }
+    // 登録済みインターン（0件も表示）＋ 記録名だが未登録の人（削除後など）も拾う
+    const names = new Set(interns.map((it) => it.name));
+    for (const n of Object.keys(byName)) names.add(n);
+    const rows = [...names].map((name) => ({
+      name,
+      count: (byName[name] || []).length,
+      registered: interns.some((it) => it.name === name),
+      meetings: byName[name] || [],
+    })).sort((a, b) => b.count - a.count || String(a.name).localeCompare(String(b.name), "ja"));
+
+    res.json({
+      range: { from, to },
+      registered_count: interns.length,
+      meetings_total: meetings.length,
+      matched: meetings.length - unmatched.length,
+      unmatched: unmatched.length,
+      interns: rows,
+      unmatched_list: unmatched,
+    });
+  } catch (e) {
+    console.error("[interns/stats]", e);
     res.status(500).json({ error: e.message });
   }
 });

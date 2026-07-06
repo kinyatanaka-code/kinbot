@@ -27,6 +27,7 @@
             <button class="rep-tab" data-rp="kind">商談種別</button>
             <button class="rep-tab" data-rp="daily">日次データ確認</button>
             <button class="rep-tab" data-rp="pipeline">パイプライン</button>
+            <button class="rep-tab" data-rp="interns">インターンアポ</button>
           </div>
 
           <!-- サマリー（ファネル） -->
@@ -90,6 +91,18 @@
               <button class="btn" id="plApply">更新</button>
             </div>
             <div id="pipelineBody"><div class="empty-state">読み込み中…</div></div>
+          </section>
+
+          <!-- インターンアポ -->
+          <section class="rep-panel" data-rpanel="interns" hidden>
+            <div class="rep-controls">
+              <label>期間 <input type="date" id="iaFrom" /></label>
+              <label>〜 <input type="date" id="iaTo" /></label>
+              <button class="btn ghost" id="iaReload">更新</button>
+              <button class="btn" id="iaMatch">カレンダーと照合</button>
+              <span class="rev-status" id="iaStatus"></span>
+            </div>
+            <div id="internBody"><div class="empty-state">読み込み中…</div></div>
           </section>
         </main>
       </div>

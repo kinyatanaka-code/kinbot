@@ -767,6 +767,23 @@ export async function clearApoSetters({ from, to } = {}) {
   const where = cond.length ? "WHERE " + cond.join(" AND ") : "";
   try { await pool.query(`UPDATE meetings SET apo_setter=NULL ${where}`, vals); } catch (e) { console.error("[db] clearApoSetters", e.message); }
 }
+// ダッシュボード用：期間内の実施済み商談（文字起こしあり・商談カテゴリ）と記録済みアポ獲得者を返す
+export async function listApoMeetings({ from, to } = {}) {
+  if (!pool) return [];
+  const cond = [
+    `(jsonb_typeof(transcript)='array' AND jsonb_array_length(transcript) > 0)`,
+    `(category IS NULL OR category = '商談')`,
+  ];
+  const vals = []; let i = 1;
+  if (from) { cond.push(`created_at >= $${i++}`); vals.push(from); }
+  if (to) { cond.push(`created_at < ($${i++}::date + interval '1 day')`); vals.push(to); }
+  const where = "WHERE " + cond.join(" AND ");
+  try {
+    const { rows } = await pool.query(
+      `SELECT bot_id, title, created_at, apo_setter FROM meetings ${where} ORDER BY created_at DESC`, vals);
+    return rows;
+  } catch (e) { console.error("[db] listApoMeetings", e.message); return []; }
+}
 
 // Notion送信済みの記録（ユーザー単位・重複防止用）
 export async function listNotionSent(owner) {

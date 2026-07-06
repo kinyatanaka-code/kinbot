@@ -15,6 +15,7 @@ function todayStr() { return new Date().toISOString().slice(0, 10); }
       if (rp === "kind") loadKind();
       if (rp === "daily") loadDaily();
       if (rp === "pipeline") loadPipeline();
+      if (rp === "interns") loadInternDash();
     });
   });
 })();
@@ -391,5 +392,113 @@ function sparkline(points) {
   $("plApply").addEventListener("click", loadPipeline);
   const knApply = $("knApply");
   if (knApply) knApply.addEventListener("click", loadKind);
+  if ($("iaReload")) $("iaReload").addEventListener("click", loadInternDash);
+  if ($("iaMatch")) $("iaMatch").addEventListener("click", runInternMatch);
   loadFunnel();
 })();
+
+// ===== インターンアポ ダッシュボード =====
+function iaDates() {
+  const f = $("iaFrom"), t = $("iaTo");
+  if (f && !f.value) { const d = new Date(Date.now() - 90 * 86400 * 1000); f.value = d.toISOString().slice(0, 10); }
+  if (t && !t.value) t.value = todayStr();
+  return { from: f ? f.value : "", to: t ? t.value : "" };
+}
+async function loadInternDash() {
+  const body = $("internBody");
+  if (!body) return;
+  const { from, to } = iaDates();
+  body.innerHTML = '<div class="empty-state">集計中…</div>';
+  try {
+    const q = new URLSearchParams({ from, to });
+    const d = await (await fetch("/api/interns/stats?" + q.toString())).json();
+    renderInternDash(body, d);
+  } catch {
+    body.innerHTML = '<div class="empty-state">集計に失敗しました。</div>';
+  }
+}
+async function runInternMatch() {
+  const st = $("iaStatus");
+  const btn = $("iaMatch");
+  const { from, to } = iaDates();
+  if (st) st.textContent = "カレンダーと照合中…（件数によっては数十秒かかります）";
+  if (btn) btn.disabled = true;
+  try {
+    const r = await fetch("/api/interns/match", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ from, to }),
+    });
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.error || "照合に失敗しました");
+    if (st) st.textContent = "照合しました";
+    await loadInternDash();
+    setTimeout(() => { if (st) st.textContent = ""; }, 2000);
+  } catch (e) {
+    if (st) st.textContent = "失敗: " + e.message;
+  } finally { if (btn) btn.disabled = false; }
+}
+function renderInternDash(body, d) {
+  const rows = d.interns || [];
+  if (!d.registered_count && !rows.length) {
+    body.innerHTML = '<div class="empty-state">インターン生が未登録です。<a href="settings.html">設定 → インターン集計</a> で名前とメールアドレスを登録してください。</div>';
+    return;
+  }
+  const maxCount = Math.max(1, ...rows.map((r) => r.count || 0));
+  let html = '<div class="fn4-wrap">';
+
+  // ヘッダー
+  html += `<div class="fn4-head">
+    <div class="fn4-head-left"><span class="fn4-head-icon"><i class="ti ti-user-check" aria-hidden="true"></i></span><span class="fn4-head-title">インターンアポ集計</span></div>
+    <span class="fn4-head-period">${esc(d.range.from)}〜${esc(d.range.to)}</span>
+  </div>`;
+
+  // KPIカード
+  html += '<div class="fn4-kpis">';
+  html += `<div class="fn4-kpi-card fn4-kpi-main"><div class="fn4-kpi-head"><span class="fn4-kpi-label">アポ実施（合計）</span><span class="fn4-kpi-badge">KPI</span></div><div class="fn4-kpi-num">${d.matched || 0}</div><div class="fn4-kpi-sub">アポ獲得者を特定できた商談</div></div>`;
+  html += `<div class="fn4-kpi-card"><div class="fn4-kpi-label">インターン人数</div><div class="fn4-kpi-num">${d.registered_count || 0}</div><div class="fn4-kpi-sub">登録済み</div></div>`;
+  html += `<div class="fn4-kpi-card"><div class="fn4-kpi-label">対象商談</div><div class="fn4-kpi-num">${d.meetings_total || 0}</div><div class="fn4-kpi-sub">期間内の実施済み商談</div></div>`;
+  html += `<div class="fn4-kpi-card"><div class="fn4-kpi-label">未特定</div><div class="fn4-kpi-num">${d.unmatched || 0}</div><div class="fn4-kpi-sub">カレンダーと一致しなかった商談</div></div>`;
+  html += "</div>";
+
+  // インターン別バー
+  html += '<div class="fn4-card"><div class="fn4-card-head"><span class="fn4-card-title">インターン別アポ実施数</span><span class="fn4-card-note">実施数</span></div><div class="fn4-reps">';
+  if (!rows.length) {
+    html += '<div class="empty-state">この期間に一致した商談がありません。「カレンダーと照合」を押してください。</div>';
+  } else {
+    for (const r of rows) {
+      const w = Math.max(3, Math.round(((r.count || 0) / maxCount) * 100));
+      const isTop = (r.count || 0) === maxCount && maxCount > 0 && r.count > 0;
+      const unreg = r.registered ? "" : '<span class="fn4-card-note">（未登録）</span>';
+      html += `<div class="fn4-rep-row">
+        <span class="fn4-rep-name">${esc(r.name)} ${unreg}</span>
+        <div class="fn4-rep-track"><div class="fn4-rep-fill ${isTop ? "fn4-rep-fill-top" : ""}" style="width:${w}%"></div></div>
+        <span class="fn4-rep-meta">${r.count}件</span>
+      </div>`;
+    }
+  }
+  html += "</div></div>";
+
+  // 人ごとの内訳（一致した商談リスト）
+  const withMeetings = rows.filter((r) => (r.meetings || []).length);
+  if (withMeetings.length) {
+    html += '<div class="fn4-card"><div class="fn4-card-title">アポ内訳（クリックで展開）</div>';
+    for (const r of withMeetings) {
+      html += `<details class="ia-details"><summary>${esc(r.name)}　<b>${r.count}件</b></summary>` +
+        `<ul class="ia-list">` +
+        r.meetings.map((m) => `<li><span class="ia-date">${esc(m.date || "")}</span>${esc(m.title || "(商談名なし)")}</li>`).join("") +
+        `</ul></details>`;
+    }
+    html += "</div>";
+  }
+
+  // 未特定の商談
+  if ((d.unmatched_list || []).length) {
+    html += '<div class="fn4-card"><details class="ia-details"><summary>どのインターンとも一致しなかった商談　<b>' + d.unmatched_list.length + '件</b></summary>' +
+      '<ul class="ia-list">' +
+      d.unmatched_list.map((m) => `<li><span class="ia-date">${esc(m.date || "")}</span>${esc(m.title || "(商談名なし)")}</li>`).join("") +
+      '</ul></details></div>';
+  }
+
+  html += "</div>";
+  body.innerHTML = html;
+}

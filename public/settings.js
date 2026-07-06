@@ -630,14 +630,7 @@ async function loadTeams() {
 })();
 
 // ===== インターン生（アポ獲得者）=====
-function ymd(d) { return d.toISOString().slice(0, 10); }
 async function loadInterns() {
-  // 期間の初期値（未入力なら直近90日）
-  const fromEl = document.getElementById("inFrom");
-  const toEl = document.getElementById("inTo");
-  if (fromEl && !fromEl.value) { const d = new Date(Date.now() - 90 * 86400 * 1000); fromEl.value = ymd(d); }
-  if (toEl && !toEl.value) toEl.value = ymd(new Date());
-
   const tbl = document.getElementById("inTable");
   if (!tbl) return;
   tbl.innerHTML = '<tr><td class="note">読み込み中…</td></tr>';
@@ -692,60 +685,7 @@ async function loadInterns() {
       setTimeout(() => { if (st) st.textContent = ""; }, 1500);
     } catch (e) { if (st) st.textContent = "失敗: " + e.message; }
   });
-
-  const matchBtn = document.getElementById("inMatch");
-  if (matchBtn) matchBtn.addEventListener("click", async () => {
-    const from = (document.getElementById("inFrom").value || "").trim();
-    const to = (document.getElementById("inTo").value || "").trim();
-    const st = document.getElementById("inMatchStatus");
-    const out = document.getElementById("inResults");
-    if (st) st.textContent = "照合中…（カレンダーの件数によっては数十秒かかります）";
-    if (out) out.innerHTML = "";
-    matchBtn.disabled = true;
-    try {
-      const r = await fetch("/api/interns/match", {
-        method: "POST", headers: { "content-type": "application/json" },
-        body: JSON.stringify({ from, to }),
-      });
-      const d = await r.json();
-      if (!r.ok) throw new Error(d.error || "照合に失敗しました");
-      if (st) st.textContent = "";
-      renderInternResults(d);
-    } catch (e) {
-      if (st) st.textContent = "";
-      if (out) out.innerHTML = `<p class="note cc-warn">失敗: ${escapeHtml(e.message)}</p>`;
-    } finally { matchBtn.disabled = false; }
-  });
 })();
-function renderInternResults(d) {
-  const out = document.getElementById("inResults");
-  if (!out) return;
-  const rows = (d.interns || []).map((p) => {
-    const err = p.error ? `<span class="cc-warn" style="font-size:11.5px;">${escapeHtml(p.error)}</span>` : "";
-    const list = (p.meetings || []).length
-      ? `<details class="cc-collapsible" style="margin-top:6px;"><summary><span class="cc-collapsible-title" style="font-size:12px;">一致した商談 ${p.meetings.length}件</span></summary>` +
-        `<ul style="margin:6px 0 0; padding-left:18px; font-size:12px; color:#445; line-height:1.7;">` +
-        p.meetings.map((m) => `<li>${escapeHtml(m.date || "")}　${escapeHtml(m.title || "(商談名なし)")}</li>`).join("") +
-        `</ul></details>`
-      : "";
-    return `<tr><td>${escapeHtml(p.name)}</td><td style="text-align:right; font-weight:700;">${p.count}</td>` +
-           `<td>${err}${list}</td></tr>`;
-  }).join("");
-  const unmatched = (d.unmatched_list || []).length
-    ? `<details class="cc-collapsible" style="margin-top:10px;"><summary><span class="cc-collapsible-title">どのインターンとも一致しなかった商談 ${d.unmatched_list.length}件</span></summary>` +
-      `<ul style="margin:6px 0 0; padding-left:18px; font-size:12px; color:#445; line-height:1.7;">` +
-      d.unmatched_list.map((m) => `<li>${escapeHtml(m.date || "")}　${escapeHtml(m.title || "(商談名なし)")}</li>`).join("") +
-      `</ul></details>`
-    : "";
-  out.innerHTML =
-    `<div class="cc-admin-box" style="margin-top:14px;">` +
-    `<div class="apidoc-h" style="margin-top:0;">照合結果（${escapeHtml(d.range.from)} 〜 ${escapeHtml(d.range.to)}）</div>` +
-    `<p class="note">対象商談 ${d.meetings_total}件 ・ アポ獲得を特定 ${d.matched}件 ・ 未特定 ${d.unmatched}件` +
-    (d.multi_hit ? ` ・ 複数インターン一致 ${d.multi_hit}件（予定日が近い方に割当）` : "") + `</p>` +
-    `<table class="tm-table"><tr><th>インターン</th><th>アポ実施数</th><th>詳細</th></tr>${rows}</table>` +
-    unmatched +
-    `</div>`;
-}
 
 // ===== フェーズ判定の定義（プロンプト）編集 =====
 let phasePromptDefault = "";
