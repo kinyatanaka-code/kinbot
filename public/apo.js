@@ -42,7 +42,10 @@ function renderApo() {
     }
     return;
   }
-  let html = '<table class="ap-table"><thead><tr><th>取得日</th><th>商談日時</th><th>アポ獲得者</th><th>予定名</th><th>担当セールス</th><th>共有リンク</th><th>状態</th></tr></thead><tbody>';
+  const byCreated = apState.by !== "start";
+  const gotTh = byCreated ? '<th class="ap-active">取得日 ●</th>' : '<th>取得日</th>';
+  const startTh = byCreated ? '<th>商談日時</th>' : '<th class="ap-active">商談日時 ●</th>';
+  let html = `<table class="ap-table"><thead><tr>${gotTh}${startTh}<th>アポ獲得者</th><th>予定名</th><th>担当セールス</th><th>共有リンク</th><th>状態</th></tr></thead><tbody>`;
   appts.forEach((a, i) => {
     html += `<tr>
       <td class="ap-got">${fmtYmd(a.created_date)}</td>
@@ -106,12 +109,14 @@ async function loadApo() {
     apState.reps = Array.isArray(reps) ? reps : [];
   } catch { apState.reps = []; }
   try {
-    const q = new URLSearchParams({ from, to });
+    const by = ($("apBy") && $("apBy").value) || "created";
+    const q = new URLSearchParams({ from, to, by });
     const r = await fetch("/api/apo/pickup?" + q.toString());
     const d = await r.json();
     if (!r.ok) throw new Error(d.error || "取り込みに失敗しました");
     apState.appts = d.appointments || [];
     apState.errors = d.errors || [];
+    apState.by = d.by || by;
     renderApo();
     if (st) st.textContent = `取り込み ${apState.appts.length}件`;
     setTimeout(() => { if (st) st.textContent = ""; }, 2500);
@@ -121,12 +126,18 @@ async function loadApo() {
 }
 (function () {
   if ($("apReload")) $("apReload").addEventListener("click", loadApo);
+  if ($("apBy")) $("apBy").addEventListener("change", loadApo);
   if ($("apToday")) $("apToday").addEventListener("click", () => {
     $("apFrom").value = todayStr(); $("apTo").value = todayStr(); loadApo();
   });
   if ($("apWeek")) $("apWeek").addEventListener("click", () => {
     $("apFrom").value = new Date(Date.now() - 6 * 86400 * 1000).toISOString().slice(0, 10);
     $("apTo").value = todayStr(); loadApo();
+  });
+  if ($("apNext")) $("apNext").addEventListener("click", () => {
+    $("apFrom").value = todayStr();
+    $("apTo").value = new Date(Date.now() + 6 * 86400 * 1000).toISOString().slice(0, 10);
+    loadApo();
   });
   loadApo();
 })();

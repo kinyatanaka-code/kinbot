@@ -2731,14 +2731,21 @@ app.get("/api/apo/pickup", async (req, res) => {
     if (!setters.length) {
       return res.status(400).json({ error: "アポを取る人が未登録です。設定→インターン登録 で、笹原拓真さんとインターン生の名前・メールアドレスを登録してください。" });
     }
-    // 取得日（アポが取れた＝カレンダーに登録した日）の範囲で絞る。既定は今日1日。
+    // 絞り込みの基準日と範囲。既定は「取得日・今日1日」。
     const todayJst = jstDateStr(new Date().toISOString());
     const from = (req.query.from && String(req.query.from)) || todayJst;
     const to = (req.query.to && String(req.query.to)) || todayJst;
-    // GoogleへのクエリはあくまでStart時刻の窓（作成日で絞るのはこちら側）。
-    // アポの商談日は「取れた日」以降なので from を下限に、予約の先読みぶん余裕を持って上限を取る。
-    const timeMin = new Date(Date.parse(from + "T00:00:00+09:00") - 2 * 86400 * 1000).toISOString();
-    const timeMax = new Date(Date.parse(to + "T00:00:00+09:00") + 90 * 86400 * 1000).toISOString();
+    const by = req.query.by === "start" ? "start" : "created"; // created=取得日 / start=商談日
+    let timeMin, timeMax;
+    if (by === "start") {
+      // 商談日で絞る：GoogleのStart時刻の窓をそのまま使える
+      timeMin = new Date(Date.parse(from + "T00:00:00+09:00")).toISOString();
+      timeMax = new Date(Date.parse(to + "T00:00:00+09:00") + 86400 * 1000).toISOString();
+    } else {
+      // 取得日で絞る：商談日は取得日以降なので from を下限に、予約の先読みぶん余裕を持たせる
+      timeMin = new Date(Date.parse(from + "T00:00:00+09:00") - 2 * 86400 * 1000).toISOString();
+      timeMax = new Date(Date.parse(to + "T00:00:00+09:00") + 90 * 86400 * 1000).toISOString();
+    }
 
     const items = [];
     const errors = [];
@@ -2764,9 +2771,11 @@ app.get("/api/apo/pickup", async (req, res) => {
         if (!isHost) continue;
         // タイトルが【新/ヒ】または【初回/】を含む予定だけ（全角半角問わず）
         if (!apoTitleTag(ev.title)) continue;
-        // 取得日（作成日）で絞る
+        // 絞り込み基準日（取得日 or 商談日）で範囲チェック
         const createdDate = jstDateStr(ev.created);
-        if (!createdDate || createdDate < from || createdDate > to) continue;
+        const startDate = jstDateStr(ev.start);
+        const key = by === "start" ? startDate : createdDate;
+        if (!key || key < from || key > to) continue;
         // このカレンダー予定にスマートリンクが無ければ自動発行（あれば使い回す）
         let link = await getSmartLinkByEvent(ev.id);
         if (!link) {
@@ -2792,7 +2801,7 @@ app.get("/api/apo/pickup", async (req, res) => {
       }
     }
     items.sort((a, b) => String(a.start).localeCompare(String(b.start)));
-    res.json({ range: { from, to }, count: items.length, appointments: items, errors });
+    res.json({ range: { from, to }, by, count: items.length, appointments: items, errors });
   } catch (e) {
     console.error("[apo/pickup]", e);
     res.status(500).json({ error: e.message });

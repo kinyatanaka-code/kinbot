@@ -24,14 +24,21 @@
         <header class="topbar"><div class="brand"><img class="topbar-bot" src="kinbot.svg" alt="" /><span class="brand-name">アポ振り分け</span></div></header>
         <main class="report-page">
           <div class="rep-controls">
-            <label>取得日（アポが取れた日） <input type="date" id="apFrom" /></label>
+            <label>絞り込み
+              <select id="apBy">
+                <option value="created">取得日で</option>
+                <option value="start">商談日で</option>
+              </select>
+            </label>
+            <label>期間 <input type="date" id="apFrom" /></label>
             <label>〜 <input type="date" id="apTo" /></label>
             <button class="btn ghost" id="apToday">今日</button>
             <button class="btn ghost" id="apWeek">過去7日</button>
+            <button class="btn ghost" id="apNext">今後7日</button>
             <button class="btn" id="apReload">アポを取り込む</button>
             <span class="rev-status" id="apStatus"></span>
           </div>
-          <p class="note ap-desc">笹原拓真さん・インターン生（<a href="settings.html">設定 → インターン登録</a>で登録）のカレンダーから、<b>本人が主催者で、タイトルに【新/ヒ】または【初回/】が付いた予定</b>だけを取り込みます（全角・半角の違いは無視）。各アポに共有用のスマートリンクを自動発行し、<b>担当セールスを選ぶと、そのリンクの行き先が担当者のZoomに切り替わります</b>（すでにお客様に送ったリンクも自動で切り替わります）。担当者のZoom URLは <a href="settings.html">設定 → 登録リンク</a> で各自が設定します。</p>
+          <p class="note ap-desc">笹原拓真さん・インターン生（<a href="settings.html">設定 → インターン登録</a>で登録）のカレンダーから、<b>本人が主催者で、タイトルに【新/ヒ】または【初回/】が付いた予定</b>だけを取り込みます（全角・半角の違いは無視）。<b>「絞り込み」で取得日（アポが取れた日）／商談日（実施日）のどちらで期間を絞るか選べます。</b>各アポに共有用のスマートリンクを自動発行し、担当セールスを選ぶと、そのリンクの行き先が担当者のZoomに切り替わります（すでにお客様に送ったリンクも自動で切り替わります）。担当者のZoom URLは <a href="settings.html">設定 → 登録リンク</a> で各自が設定します。</p>
           <div id="apoBody"><div class="empty-state">読み込み中…</div></div>
         </main>
       </div>
