@@ -122,5 +122,10 @@ async function loadApo() {
 }
 (function () {
   if ($("apReload")) $("apReload").addEventListener("click", loadApo);
+  if ($("apClear")) $("apClear").addEventListener("click", () => {
+    if ($("apCreated")) $("apCreated").value = "";
+    if ($("apStart")) $("apStart").value = "";
+    loadApo();
+  });
   loadApo();
 })();
