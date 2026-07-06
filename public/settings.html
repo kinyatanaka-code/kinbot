@@ -29,6 +29,7 @@
             <button class="set-menu-item" data-tab="ai">AI提案設定</button>
             <button class="set-menu-item" data-tab="thanks">御礼メール例文</button>
             <button class="set-menu-item" data-tab="teams">チーム編集</button>
+            <button class="set-menu-item" data-tab="interns">インターン集計</button>
           </nav>
           <div class="set-body">
 
@@ -156,6 +157,15 @@
                   </svg>
                 </span>
                 <span class="integ-name">Claude.aiで会話</span>
+                <span class="integ-state integ-state-ok">利用可能</span>
+              </button>
+              <button class="integ-card" data-integ="chatgpt">
+                <span class="integ-icon integ-icon-gpt">
+                  <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true">
+                    <path fill="#fff" d="M22.2819 9.8211a5.9847 5.9847 0 0 0-.5157-4.9108 6.0462 6.0462 0 0 0-6.5098-2.9A6.0651 6.0651 0 0 0 4.9807 4.1818a5.9847 5.9847 0 0 0-3.9977 2.9 6.0462 6.0462 0 0 0 .7427 7.0966 5.98 5.98 0 0 0 .511 4.9107 6.051 6.051 0 0 0 6.5146 2.9001A5.9847 5.9847 0 0 0 13.2599 24a6.0557 6.0557 0 0 0 5.7718-4.2058 5.9894 5.9894 0 0 0 3.9977-2.9001 6.0557 6.0557 0 0 0-.7475-7.0729zm-9.022 12.6081a4.4755 4.4755 0 0 1-2.8764-1.0408l.1419-.0804 4.7783-2.7582a.7948.7948 0 0 0 .3927-.6813v-6.7369l2.02 1.1686a.071.071 0 0 1 .038.052v5.5826a4.504 4.504 0 0 1-4.4945 4.4944zm-9.6607-4.1254a4.4708 4.4708 0 0 1-.5346-3.0137l.142.0852 4.783 2.7582a.7712.7712 0 0 0 .7806 0l5.8428-3.3685v2.3324a.0804.0804 0 0 1-.0332.0615L9.74 19.9502a4.4992 4.4992 0 0 1-6.1408-1.6464zM2.3408 7.8956a4.485 4.485 0 0 1 2.3655-1.9728V11.6a.7664.7664 0 0 0 .3879.6765l5.8144 3.3543-2.0201 1.1685a.0757.0757 0 0 1-.071 0l-4.8303-2.7865A4.504 4.504 0 0 1 2.3408 7.872zm16.5963 3.8558L13.1038 8.364 15.1192 7.2a.0757.0757 0 0 1 .071 0l4.8303 2.7913a4.4944 4.4944 0 0 1-.6765 8.1042v-5.6772a.79.79 0 0 0-.407-.667zm2.0107-3.0231l-.142-.0852-4.7735-2.7818a.7759.7759 0 0 0-.7854 0L9.409 9.2297V6.8974a.0662.0662 0 0 1 .0284-.0615l4.8303-2.7866a4.4992 4.4992 0 0 1 6.6802 4.66zM8.3065 12.863l-2.02-1.1638a.0804.0804 0 0 1-.038-.0567V6.0742a4.4992 4.4992 0 0 1 7.3757-3.4537l-.142.0805L8.704 5.459a.7948.7948 0 0 0-.3927.6813zm1.0976-2.3654l2.602-1.4998 2.6069 1.4998v2.9994l-2.5974 1.4997-2.6067-1.4997Z"/>
+                  </svg>
+                </span>
+                <span class="integ-name">ChatGPTで会話</span>
                 <span class="integ-state integ-state-ok">利用可能</span>
               </button>
               <button class="integ-card" data-integ="status">
@@ -289,6 +299,47 @@ curl -H "Authorization: Bearer <span class="cc-tok">&lt;トークン&gt;</span>"
                   「<span class="apidoc-base"></span>/api/deal-events を Bearer トークン <code class="cc-tok">&lt;トークン&gt;</code> で取得して、担当者ごとに『初回商談数・今月判断・来月判断・失注・再商談実施・受注』を集計して」
                 </div>
                 <p class="note">ヘッダを付けにくいツールでは <code>?token=<span class="cc-tok">&lt;トークン&gt;</span></code> をURL末尾に付けても認証できます。</p>
+              </div>
+            </details>
+              </div>
+
+              <div class="set-pane-inner" data-integ="chatgpt" hidden>
+            <div class="set-card">
+              <h3>ChatGPTのGPTから会話する（Custom GPT）</h3>
+              <p class="note">ChatGPTの「GPTを作成」で、kinbot専用のGPTを一度作っておけば、普段のChatGPT画面からそのGPTを開いて「森田さんの今月の商談状況は？」のように聞くだけで、GPTが自動でkinbotに問い合わせて答えます。※ GPT作成が使える <b>ChatGPT Plus / Team / Enterprise</b> のいずれかが必要です。</p>
+
+              <div class="cc-admin-box">
+                <div class="cc-admin-head">
+                  <span class="cc-admin-badge">全員用・管理者権限</span>
+                  <span class="cc-admin-title">この設定でGPTを作れば、そのまま全社員の実績を横断で見られます</span>
+                </div>
+                <div class="apidoc-h">作成手順</div>
+                <ol class="cc-steps">
+                  <li>ChatGPTで「GPTを探す」→「＋作成する」を開き、「構成（Configure）」タブを選ぶ</li>
+                  <li>下の方の「新しいアクションを作成（Create new action）」を押す</li>
+                  <li>「認証（Authentication）」で <b>APIキー</b> を選び、種類を <b>Bearer</b> にして、下の②のトークンを貼る</li>
+                  <li>「スキーマ（Schema）」の「URLからインポート（Import from URL）」に、下の①のURLを貼る（6つの操作が表示されればOK）</li>
+                  <li>左上に名前・説明を入れて「作成する」→「自分のみ」で保存。GPTに「kinbotの今月の実績を教えて」と話しかける</li>
+                </ol>
+
+                <div class="apidoc-h">① スキーマのURL（「URLからインポート」に貼る）</div>
+                <pre class="apidoc-code"><code id="gptSchemaUrl">https://kinbot-production-225f.up.railway.app/gpt-actions-openapi.yaml</code></pre>
+                <button class="btn" id="gptSchemaUrlCopy" type="button">URLをコピー</button>
+
+                <div class="apidoc-h">② APIトークン（認証の「APIキー」欄に貼る）</div>
+                <pre class="apidoc-code"><code id="gptToken">kbt_7bcaf98705c30c3655a8b17dbbd85a0e359aba8b68e3f507</code></pre>
+                <button class="btn" id="gptTokenCopy" type="button">トークンをコピー</button>
+
+                <p class="note cc-warn">⚠️ このトークンは全社員分のデータを読める管理者トークンです。作ったGPTは必ず「自分のみ」か「リンクを知っている人（社内限定）」で共有し、社外に公開しないでください。人数が増える・退職者が出るなどのタイミングで、Railwayの <code>API_TOKENS</code> からこのトークンを見直してください。</p>
+              </div>
+            </div>
+
+            <details class="set-card cc-collapsible">
+              <summary><h3 class="cc-collapsible-title">「URLからインポート」が使えないとき（スキーマを直接貼る）</h3></summary>
+              <p class="note">GPTの画面に「URLからインポート」が見当たらない、またはうまく読み込めない場合は、下のボタンでスキーマ全文をコピーして、「Schema」欄にそのまま貼り付けてください。</p>
+              <div class="set-row">
+                <button class="btn" id="gptSchemaCopy" type="button">スキーマ全文をコピー</button>
+                <span id="gptSchemaCopyNote" class="note"></span>
               </div>
             </details>
               </div>
@@ -453,6 +504,35 @@ curl -H "Authorization: Bearer <span class="cc-tok">&lt;トークン&gt;</span>"
               </div>
               <div id="tmUnmapped"></div>
               <table class="tm-table" id="tmTable"></table>
+            </div>
+          </div>
+
+          <div class="set-pane" data-pane="interns" hidden>
+            <div class="set-card">
+              <h3>インターン生（アポ獲得者）の登録</h3>
+              <p class="note">アポを獲得したインターン生の<b>名前</b>と<b>Googleカレンダーのメールアドレス</b>を登録します。ここに登録した人のカレンダーの予定名と、kinbotの商談名を突き合わせて、一致した商談に「アポ獲得者」としてその人の名前を記録します。</p>
+              <div class="teams-add">
+                <input id="inName" placeholder="名前（例：山田太郎）" />
+                <input id="inEmail" type="email" placeholder="メールアドレス（例：t.yamada@neo-career.co.jp）" />
+                <button class="btn" id="inAdd">追加・更新</button>
+                <span class="tm-status" id="inStatus"></span>
+              </div>
+              <table class="tm-table" id="inTable"></table>
+              <p class="note cc-warn">⚠️ 照合には、各インターン生のGoogleカレンダーが<b>あなた（連携済みアカウント）に共有</b>されている必要があります（共有設定で「予定の詳細をすべて表示」）。社内カレンダーが全社共有になっていれば、そのままでも読めます。</p>
+            </div>
+
+            <div class="set-card">
+              <h3>カレンダーと照合してアポ数を数える</h3>
+              <p class="note">下の期間の「実施済みの商談」を対象に、各インターン生のカレンダー予定名と商談名を照合します。一致した商談にアポ獲得者を記録し、人ごとのアポ実施数を集計します。再実行するたびに最新の内容で上書きします。</p>
+              <div class="teams-add">
+                <label style="align-self:center; font-size:12.5px; color:#445;">期間</label>
+                <input id="inFrom" type="date" />
+                <label style="align-self:center; font-size:12.5px; color:#445;">〜</label>
+                <input id="inTo" type="date" />
+                <button class="btn" id="inMatch">カレンダーと照合</button>
+                <span class="tm-status" id="inMatchStatus"></span>
+              </div>
+              <div id="inResults"></div>
             </div>
           </div>
           </div>

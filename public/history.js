@@ -249,6 +249,7 @@ function meetingCardEl(r) {
   const tags = [];
   if (r.round_no) tags.push(`${r.round_no}回目`);
   if (r.phase) tags.push(phaseLabel(r.phase));
+  if (r.apo_setter) tags.push(`アポ獲得：${r.apo_setter}`);
   const card = document.createElement("button");
   card.className = "hcard";
   card.innerHTML = `<div class="hcard-title"></div><div class="hcard-top"><span class="hcard-date"></span><span class="hcard-rep"></span></div><div class="hcard-tags"></div><div class="hcard-ov"></div>`;

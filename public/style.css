@@ -2087,6 +2087,7 @@ button.fn4-pipe-cell { background: none; border: none; cursor: pointer; color: #
 .integ-icon svg { display: block; }
 .integ-icon-notion { background: #000; }
 .integ-icon-claude { background: #D97757; border-color: #D97757; }
+.integ-icon-gpt { background: #000; border-color: #000; }
 .integ-icon-status { background: linear-gradient(135deg,#8a938d,#5f5e5a); color: #fff; }
 .integ-name { font-size: 13.5px; font-weight: 700; color: #223; }
 .integ-state { font-size: 11px; color: var(--muted); background: var(--panel-2); border-radius: 999px; padding: 2px 9px; }

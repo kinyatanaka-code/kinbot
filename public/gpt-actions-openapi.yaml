@@ -1,0 +1,238 @@
+openapi: 3.1.0
+info:
+  title: kinbot API
+  description: |
+    kinbot（B2B営業ミーティング・コパイロット）のデータを読み取るためのREST API。
+    案件・営業プロセスの抽出イベント・商談（文字起こし/要約/分析）・会社プロフィールを取得できる。
+    すべて読み取り専用（GET）。認証は Bearer トークン。
+  version: 1.0.0
+servers:
+  - url: https://kinbot-production-225f.up.railway.app
+paths:
+  /api/gpt/deals:
+    get:
+      operationId: listDeals
+      summary: 案件一覧を取得
+      description: >
+        kinbotの案件一覧を取得する。会社名・担当者・チーム・ステータス
+        （進行中 / 失注(未定) / 失注(その他) / 受注 等）・初回商談日を返す。
+        管理者トークンで接続している場合、owner を省略すると全担当者分が返る。
+      x-openai-isConsequential: false
+      parameters:
+        - name: owner
+          in: query
+          required: false
+          description: 担当者のメールアドレスで絞り込み（任意）
+          schema:
+            type: string
+        - name: team
+          in: query
+          required: false
+          description: チーム名で絞り込み（任意）
+          schema:
+            type: string
+        - name: status
+          in: query
+          required: false
+          description: "ステータスで絞り込み（任意）例: 進行中, 失注(未定), 受注"
+          schema:
+            type: string
+        - name: from
+          in: query
+          required: false
+          description: 初回商談日の開始日 YYYY-MM-DD（任意）
+          schema:
+            type: string
+            format: date
+        - name: to
+          in: query
+          required: false
+          description: 初回商談日の終了日 YYYY-MM-DD（任意）
+          schema:
+            type: string
+            format: date
+      responses:
+        "200":
+          description: 案件の配列。各要素は deal_id, company_name, owner, team, status, first_meeting_date, updated_at などを含む。
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  additionalProperties: true
+
+  /api/gpt/deals/{deal_id}:
+    get:
+      operationId: getDealDetail
+      summary: 案件詳細を取得
+      description: 1つの案件（deal_id指定）について、案件情報と紐づく全イベント（初回商談・再商談）を取得する。
+      x-openai-isConsequential: false
+      parameters:
+        - name: deal_id
+          in: path
+          required: true
+          description: 案件ID（listDeals や getDealEvents の deal_id から取得）
+          schema:
+            type: string
+      responses:
+        "200":
+          description: 案件情報 + events 配列。
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+        "404":
+          description: 案件が見つからない
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /api/gpt/deal-events:
+    get:
+      operationId: getDealEvents
+      summary: 営業プロセスの抽出イベントログを取得
+      description: >
+        新営業プロセスの抽出イベントログ（初回商談の判定結果・再商談の実施結果など）を取得する。
+        実績集計の元データ。担当者ごとの比較分析（商談数、初回/再商談比率、次回商談設定率、
+        confidence傾向、失注パターン、deal_kind別の進み方など）に使う。
+        管理者トークンで接続している場合、owner を省略すると全担当者分が返る。
+      x-openai-isConsequential: false
+      parameters:
+        - name: owner
+          in: query
+          required: false
+          description: 担当者のメールアドレスで絞り込み（任意・管理者のみ有効。省略すると全担当者分）
+          schema:
+            type: string
+        - name: team
+          in: query
+          required: false
+          description: チーム名で絞り込み（任意）
+          schema:
+            type: string
+        - name: from
+          in: query
+          required: false
+          description: イベント日の開始日 YYYY-MM-DD（任意）
+          schema:
+            type: string
+            format: date
+        - name: to
+          in: query
+          required: false
+          description: イベント日の終了日 YYYY-MM-DD（任意）
+          schema:
+            type: string
+            format: date
+        - name: kind
+          in: query
+          required: false
+          description: 商談種別で絞り込み（初回商談 / 再商談）（任意）
+          schema:
+            type: string
+      responses:
+        "200":
+          description: イベントの配列（raw_extraction は軽量化のため除外）。company_name, owner, team, deal_status, deal_kind などを含む。
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  additionalProperties: true
+
+  /api/gpt/meetings:
+    get:
+      operationId: listMeetings
+      summary: 商談一覧を取得
+      description: >
+        kinbotに記録された商談（Recall.aiで録音・文字起こしされた商談）の一覧を取得する。
+        要約・分析結果を含む。文字起こし全文は含まない（長すぎるため。詳細は getMeetingDetail を使う）。
+      x-openai-isConsequential: false
+      responses:
+        "200":
+          description: 商談の配列（transcript は除外）。bot_id, title, account, owner, created_at, summary などを含む。
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  additionalProperties: true
+
+  /api/gpt/meetings/{bot_id}:
+    get:
+      operationId: getMeetingDetail
+      summary: 商談詳細を取得
+      description: 1つの商談（bot_id指定）の詳細を取得する。文字起こし全文・要約・分析結果を含む。
+      x-openai-isConsequential: false
+      parameters:
+        - name: bot_id
+          in: path
+          required: true
+          description: 商談の bot_id（listMeetings の bot_id から取得）
+          schema:
+            type: string
+      responses:
+        "200":
+          description: 商談の詳細（transcript, summary, 分析結果を含む）。
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+        "404":
+          description: 商談が見つからない
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /api/gpt/account:
+    get:
+      operationId: getAccountDetail
+      summary: 会社詳細を取得
+      description: >
+        1つの会社（案件画面の「案件」タブに相当）について、会社プロフィール（業界・従業員数・事業内容など）、
+        ネクストアクション（やることリスト）、相手の懸念（過去の商談から集約）、
+        手動設定されたステータス（進行中/失注/受注/保留）をまとめて取得する。
+        会社名は部分一致でも検索する。
+      x-openai-isConsequential: false
+      parameters:
+        - name: company_name
+          in: query
+          required: true
+          description: 会社名（完全名でなくても、部分一致で近い会社を探す）
+          schema:
+            type: string
+      responses:
+        "200":
+          description: 会社プロフィール・next_actions・customer_concerns・deal_status・meetings をまとめたオブジェクト。
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+        "404":
+          description: 該当する会社が見つからない
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+  schemas:
+    Error:
+      type: object
+      properties:
+        error:
+          type: string
+security:
+  - bearerAuth: []

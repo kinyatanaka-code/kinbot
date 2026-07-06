@@ -67,6 +67,11 @@ import {
   listRepTeams,
   upsertRepTeam,
   deleteRepTeam,
+  listInterns,
+  upsertIntern,
+  deleteIntern,
+  setMeetingApoSetter,
+  clearApoSetters,
   getSetCache,
   saveSetCache,
   listUsers,
@@ -94,6 +99,7 @@ import {
   disconnect as gcalDisconnect,
   listZoomEvents,
   listDayEvents,
+  listCalendarEvents,
   getPrimaryEmail,
   driveReady,
   driveSearch,
@@ -173,6 +179,8 @@ const OPEN_PATHS = new Set([
   "/api/recall/webhook", "/api/login", "/api/register", "/api/auth-info",
   "/.well-known/oauth-authorization-server", "/.well-known/oauth-protected-resource",
   "/oauth/register", "/oauth/authorize", "/oauth/token",
+  // ChatGPTのCustom GPTが「URLからインポート」で取得する公開スキーマ（トークンは含まない）
+  "/gpt-actions-openapi.yaml",
 ]);
 if (!authEnabled()) {
   console.warn("[警告] アカウント未設定。誰でも操作できます。公開時は DATABASE_URL を設定し登録制にしてください。");
@@ -931,6 +939,165 @@ app.delete("/api/teams/:rep", async (req, res) => {
     await deleteRepTeam(decodeURIComponent(req.params.rep));
     res.json({ ok: true });
   } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// ===== インターン生（アポ獲得者）=====
+// 一覧
+app.get("/api/interns", async (req, res) => {
+  try { res.json(await listInterns()); } catch { res.json([]); }
+});
+// 追加・更新（管理者のみ）
+app.put("/api/interns", async (req, res) => {
+  try {
+    if (!req.isAdmin) return res.status(403).json({ error: "管理者のみ" });
+    const { email, name } = req.body || {};
+    if (!email || !name) return res.status(400).json({ error: "名前とメールアドレスが必要です" });
+    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(String(email).trim())) return res.status(400).json({ error: "メールアドレスの形式が正しくありません" });
+    await upsertIntern(email, name);
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+// 削除（管理者のみ）
+app.delete("/api/interns/:email", async (req, res) => {
+  try {
+    if (!req.isAdmin) return res.status(403).json({ error: "管理者のみ" });
+    await deleteIntern(decodeURIComponent(req.params.email));
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// --- 照合用のヘルパー ---
+// 商談名・予定名を突き合わせやすい形に正規化（全半角・記号・空白の揺れを吸収。長音符ーは残す）
+function normApoTitle(s) {
+  return String(s || "")
+    .normalize("NFKC")
+    .replace(/\s/g, "")
+    .replace(/[「」『』【】\[\]（）()〔〕・･、,。.:：;；\/／\\\-–—―~〜|｜”“"'’‘`]/g, "")
+    .toLowerCase();
+}
+// JSTでの日付文字列 YYYY-MM-DD を返す（終日予定はそのまま）
+function jstDateStr(input) {
+  if (!input) return "";
+  const s = String(input);
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+  const d = new Date(s);
+  if (isNaN(d.getTime())) return "";
+  return new Date(d.getTime() + 9 * 3600 * 1000).toISOString().slice(0, 10);
+}
+function dayDiff(a, b) {
+  if (!a || !b) return 999;
+  const da = Date.parse(a + "T00:00:00Z"), db = Date.parse(b + "T00:00:00Z");
+  if (isNaN(da) || isNaN(db)) return 999;
+  return Math.abs(Math.round((da - db) / 86400000));
+}
+function apoTitleMatch(mNorm, eNorm) {
+  if (!mNorm || !eNorm) return false;
+  if (mNorm === eNorm) return true;
+  const shorter = mNorm.length <= eNorm.length ? mNorm : eNorm;
+  if (shorter.length < 3) return false; // 短すぎる一致は誤検出になるので除外
+  return mNorm.includes(eNorm) || eNorm.includes(mNorm);
+}
+
+// インターンのカレンダーと商談名を照合して、アポ獲得者を各商談に記録する（管理者のみ）
+// body: { from: "YYYY-MM-DD", to: "YYYY-MM-DD" }（省略時は直近90日）
+app.post("/api/interns/match", async (req, res) => {
+  try {
+    if (!req.isAdmin) return res.status(403).json({ error: "管理者のみ実行できます" });
+    const gcalOwner = req.user; // ブラウザでログイン中の本人のGoogle連携を使う
+    if (!gcalOwner || !(await gcalConnected(gcalOwner))) {
+      return res.status(400).json({ error: "あなたのGoogleが連携されていません。設定→連携→Google連携 を先に済ませてください。" });
+    }
+    const interns = await listInterns();
+    if (!interns.length) return res.status(400).json({ error: "インターン生が登録されていません。先に名前とメールアドレスを追加してください。" });
+
+    // 期間（既定：直近90日）
+    const today = new Date();
+    const defFrom = new Date(today.getTime() - 90 * 86400 * 1000);
+    const from = (req.body && req.body.from) || defFrom.toISOString().slice(0, 10);
+    const to = (req.body && req.body.to) || today.toISOString().slice(0, 10);
+    const DATE_WINDOW = 2; // 商談日と予定日のズレをこの日数まで許容
+    // カレンダー取得範囲は前後1日の余裕をもたせる（JST境界対策）
+    const timeMin = new Date(Date.parse(from + "T00:00:00+09:00") - 86400 * 1000).toISOString();
+    const timeMax = new Date(Date.parse(to + "T23:59:59+09:00") + 86400 * 1000).toISOString();
+
+    // 対象商談（実施済み＝文字起こしあり。商談カテゴリのみ）を期間で絞る
+    const allMeetings = await listMeetings({ isAdmin: true });
+    const meetings = allMeetings.filter((m) => {
+      if (m.category && m.category !== "商談") return false;
+      const d = jstDateStr(m.created_at);
+      return d && d >= from && d <= to;
+    });
+
+    // 各インターンのカレンダー予定を取得（未共有などは individual に握りつぶす）
+    const internEvents = []; // { intern, events:[{titleNorm,date,title}], error }
+    for (const it of interns) {
+      try {
+        const evs = await listCalendarEvents(gcalOwner, it.email, { timeMin, timeMax });
+        internEvents.push({
+          intern: it,
+          events: evs.map((e) => ({ title: e.title, titleNorm: normApoTitle(e.title), date: jstDateStr(e.start) }))
+                     .filter((e) => e.titleNorm && e.date),
+          error: null,
+        });
+      } catch (e) {
+        const msg = /40[34]/.test(e.message)
+          ? "カレンダーを読めませんでした（このメールのカレンダーがあなたと共有されているか確認してください）"
+          : e.message;
+        internEvents.push({ intern: it, events: [], error: msg });
+      }
+    }
+
+    // 再照合なので、まず対象期間のアポ獲得者をクリア
+    await clearApoSetters({ from, to });
+
+    // 照合：商談名 × 予定名（日付ウィンドウ内）
+    const perIntern = {}; // email -> { name, email, matched:[], error }
+    for (const ie of internEvents) perIntern[ie.intern.email] = { name: ie.intern.name, email: ie.intern.email, matched: [], error: ie.error };
+    let matchedCount = 0, multiCount = 0;
+    const unmatched = [];
+
+    for (const m of meetings) {
+      const mNorm = normApoTitle(m.title);
+      const mDate = jstDateStr(m.created_at);
+      if (!mNorm) { unmatched.push({ bot_id: m.bot_id, title: m.title, date: mDate }); continue; }
+      // このミーティングに一致する（インターン, 予定日ズレ）候補を集める
+      const cands = [];
+      for (const ie of internEvents) {
+        let best = null;
+        for (const ev of ie.events) {
+          if (dayDiff(ev.date, mDate) > DATE_WINDOW) continue;
+          if (!apoTitleMatch(mNorm, ev.titleNorm)) continue;
+          const diff = dayDiff(ev.date, mDate);
+          if (!best || diff < best.diff) best = { diff, evDate: ev.date, evTitle: ev.title };
+        }
+        if (best) cands.push({ intern: ie.intern, ...best });
+      }
+      if (!cands.length) { unmatched.push({ bot_id: m.bot_id, title: m.title, date: mDate }); continue; }
+      // 複数インターンが一致したら、予定日が最も近い→登録順で1人に決める
+      cands.sort((a, b) => a.diff - b.diff);
+      if (cands.length > 1) multiCount++;
+      const winner = cands[0].intern;
+      await setMeetingApoSetter(m.bot_id, winner.name);
+      perIntern[winner.email].matched.push({ bot_id: m.bot_id, title: m.title, date: mDate });
+      matchedCount++;
+    }
+
+    res.json({
+      ok: true,
+      range: { from, to },
+      meetings_total: meetings.length,
+      matched: matchedCount,
+      unmatched: meetings.length - matchedCount,
+      multi_hit: multiCount,
+      interns: Object.values(perIntern)
+        .map((p) => ({ name: p.name, email: p.email, count: p.matched.length, error: p.error, meetings: p.matched }))
+        .sort((a, b) => b.count - a.count),
+      unmatched_list: unmatched,
+    });
+  } catch (e) {
+    console.error("[interns/match]", e);
+    res.status(500).json({ error: e.message });
+  }
 });
 
 

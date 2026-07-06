@@ -46,6 +46,7 @@ export async function initDb() {
   await pool.query(`ALTER TABLE meetings ADD COLUMN IF NOT EXISTS metrics JSONB;`);
   await pool.query(`ALTER TABLE meetings ADD COLUMN IF NOT EXISTS account TEXT;`);
   await pool.query(`ALTER TABLE meetings ADD COLUMN IF NOT EXISTS note TEXT;`);
+  await pool.query(`ALTER TABLE meetings ADD COLUMN IF NOT EXISTS apo_setter TEXT;`);
   await pool.query(`
     CREATE TABLE IF NOT EXISTS accounts (
       key TEXT PRIMARY KEY,
@@ -127,6 +128,14 @@ export async function initDb() {
   for (const [rep, team] of [["植野", "浦林チーム"], ["江田", "浦林チーム"], ["田中", "中澤チーム"], ["森田", "中澤チーム"]]) {
     await pool.query(`INSERT INTO rep_team_mapping (rep_name, team_name, group_name) VALUES ($1,$2,'直販') ON CONFLICT (rep_name) DO NOTHING`, [rep, team]);
   }
+  // インターン生（アポ獲得者）マスタ：名前＋Googleカレンダーのメールアドレス
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS interns (
+      email      TEXT PRIMARY KEY,
+      name       TEXT NOT NULL,
+      created_at TIMESTAMPTZ DEFAULT now()
+    );
+  `);
   await pool.query(`
     CREATE TABLE IF NOT EXISTS notion_sent (
       owner TEXT NOT NULL,
@@ -379,7 +388,7 @@ export async function listMeetings({ owner, isAdmin } = {}) {
   const base = `SELECT m.bot_id, m.meeting_url, m.rep_name, m.title, m.owner,
                        m.round_no, m.phase, m.status, m.created_at, m.updated_at, m.summary, m.analysis,
                        m.metrics, m.sf_url, COALESCE(m.account,'') AS account, m.category, m.deal_kind,
-                       u.name AS owner_name
+                       m.apo_setter, u.name AS owner_name
                 FROM meetings m LEFT JOIN users u ON u.email = m.owner`;
   // 文字起こしが無い（空配列/NULL）の商談は履歴に残さない
   const hasTranscript = `(jsonb_typeof(m.transcript)='array' AND jsonb_array_length(m.transcript) > 0)`;
@@ -715,6 +724,48 @@ export async function upsertRepTeam(repName, teamName, groupName = "直販") {
 export async function deleteRepTeam(repName) {
   if (!pool || !repName) return;
   try { await pool.query(`DELETE FROM rep_team_mapping WHERE rep_name=$1`, [repName]); } catch {}
+}
+
+// ===== インターン生（アポ獲得者）マスタ =====
+export async function listInterns() {
+  if (!pool) return [];
+  try {
+    const { rows } = await pool.query(`SELECT email, name FROM interns ORDER BY name`);
+    return rows;
+  } catch { return []; }
+}
+export async function upsertIntern(email, name) {
+  if (!pool || !email) return;
+  const em = String(email).trim().toLowerCase();
+  try {
+    await pool.query(
+      `INSERT INTO interns (email, name) VALUES ($1,$2)
+       ON CONFLICT (email) DO UPDATE SET name=$2`,
+      [em, String(name || "").trim() || em]
+    );
+  } catch (e) { console.error("[db] upsertIntern", e.message); }
+}
+export async function deleteIntern(email) {
+  if (!pool || !email) return;
+  try { await pool.query(`DELETE FROM interns WHERE email=$1`, [String(email).trim().toLowerCase()]); } catch {}
+}
+
+// 商談にアポ獲得者（インターン名）を記録する
+export async function setMeetingApoSetter(botId, name) {
+  if (!pool || !botId) return;
+  try {
+    await pool.query(`UPDATE meetings SET apo_setter=$2, updated_at=now() WHERE bot_id=$1`,
+      [botId, name == null || name === "" ? null : String(name)]);
+  } catch (e) { console.error("[db] setMeetingApoSetter", e.message); }
+}
+// 照合し直す前に、対象期間のアポ獲得者を一度クリアする（再照合のたびに最新化）
+export async function clearApoSetters({ from, to } = {}) {
+  if (!pool) return;
+  const cond = [], vals = []; let i = 1;
+  if (from) { cond.push(`created_at >= $${i++}`); vals.push(from); }
+  if (to) { cond.push(`created_at < ($${i++}::date + interval '1 day')`); vals.push(to); }
+  const where = cond.length ? "WHERE " + cond.join(" AND ") : "";
+  try { await pool.query(`UPDATE meetings SET apo_setter=NULL ${where}`, vals); } catch (e) { console.error("[db] clearApoSetters", e.message); }
 }
 
 // Notion送信済みの記録（ユーザー単位・重複防止用）

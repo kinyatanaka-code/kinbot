@@ -268,6 +268,7 @@ loadThanks();
       const name = item.dataset.tab;
       document.querySelectorAll(".set-pane").forEach((p) => (p.hidden = p.dataset.pane !== name));
       if (name === "teams") loadTeams();
+      if (name === "interns") loadInterns();
       if (name === "thanks") loadThanksPrompt();
       if (name === "integrations") showIntegGrid();
       if (name === "smartlinks") initSmartLinks();
@@ -292,6 +293,7 @@ function showIntegDetail(name) {
   document.querySelectorAll(".set-pane-inner").forEach((p) => (p.hidden = p.dataset.integ !== name));
   if (name === "status") { loadIntegrations(); loadRecallStatus(); }
   if (name === "claudecode") { fillApiBaseUrl(); initCcToken(); }
+  if (name === "chatgpt") { initGptConnector(); }
 }
 (function () {
   const grid = document.getElementById("integGrid");
@@ -393,6 +395,56 @@ function initCcToken() {
     try { localStorage.removeItem(CC_TOKEN_KEY); } catch {}
     applyCcToken("");
   });
+}
+
+// ===== ChatGPT（Custom GPT）連携カード =====
+// ボタンにコピー機能を割り当てる（クリック→クリップボードへコピー→一時的にラベル変更）
+function wireCopyBtn(btnId, getText, doneLabel, defaultLabel) {
+  const btn = document.getElementById(btnId);
+  if (!btn || btn._wired) return;
+  btn._wired = true;
+  btn.addEventListener("click", async () => {
+    try {
+      const text = await getText();
+      await navigator.clipboard.writeText(text);
+      btn.textContent = doneLabel;
+    } catch {
+      btn.textContent = "コピーに失敗しました";
+    }
+    setTimeout(() => (btn.textContent = defaultLabel), 1500);
+  });
+}
+function initGptConnector() {
+  // ① スキーマURL、② トークンは固定値（HTMLに直接記載）をそのままコピー
+  wireCopyBtn("gptSchemaUrlCopy",
+    () => document.getElementById("gptSchemaUrl").textContent.trim(),
+    "コピーしました", "URLをコピー");
+  wireCopyBtn("gptTokenCopy",
+    () => document.getElementById("gptToken").textContent.trim(),
+    "コピーしました", "トークンをコピー");
+  // スキーマ全文は、公開URLから取得してコピー（HTMLに全文を持たない＝単一の元ファイル）
+  const schemaBtn = document.getElementById("gptSchemaCopy");
+  const schemaNote = document.getElementById("gptSchemaCopyNote");
+  if (schemaBtn && !schemaBtn._wired) {
+    schemaBtn._wired = true;
+    schemaBtn.addEventListener("click", async () => {
+      const prev = schemaBtn.textContent;
+      schemaBtn.textContent = "取得中…";
+      try {
+        const url = document.getElementById("gptSchemaUrl").textContent.trim();
+        const res = await fetch(url);
+        if (!res.ok) throw new Error("fetch failed");
+        const text = await res.text();
+        await navigator.clipboard.writeText(text);
+        schemaBtn.textContent = "コピーしました";
+        if (schemaNote) schemaNote.textContent = "";
+      } catch {
+        schemaBtn.textContent = prev;
+        if (schemaNote) schemaNote.textContent = "取得に失敗しました。上の①のURLをブラウザで開いて全文をコピーしてください。";
+      }
+      setTimeout(() => (schemaBtn.textContent = "スキーマ全文をコピー"), 1500);
+    });
+  }
 }
 
 // ===== 接続している外部API一覧 =====
@@ -576,6 +628,124 @@ async function loadTeams() {
     } catch (e) { if (st) st.textContent = "失敗: " + e.message; }
   });
 })();
+
+// ===== インターン生（アポ獲得者）=====
+function ymd(d) { return d.toISOString().slice(0, 10); }
+async function loadInterns() {
+  // 期間の初期値（未入力なら直近90日）
+  const fromEl = document.getElementById("inFrom");
+  const toEl = document.getElementById("inTo");
+  if (fromEl && !fromEl.value) { const d = new Date(Date.now() - 90 * 86400 * 1000); fromEl.value = ymd(d); }
+  if (toEl && !toEl.value) toEl.value = ymd(new Date());
+
+  const tbl = document.getElementById("inTable");
+  if (!tbl) return;
+  tbl.innerHTML = '<tr><td class="note">読み込み中…</td></tr>';
+  let list = [];
+  try { list = await (await fetch("/api/interns")).json(); } catch { list = []; }
+  if (!list.length) {
+    tbl.innerHTML = '<tr><td class="note">まだ登録がありません。上の入力欄から追加してください。</td></tr>';
+    return;
+  }
+  tbl.innerHTML =
+    "<tr><th>名前</th><th>メールアドレス</th><th></th></tr>" +
+    list.map((it) =>
+      `<tr><td>${escapeHtml(it.name)}</td><td>${escapeHtml(it.email)}</td>` +
+      `<td><button class="btn ghost in-edit" data-name="${escapeHtml(it.name)}" data-email="${escapeHtml(it.email)}">編集</button> ` +
+      `<button class="btn danger in-del" data-email="${escapeHtml(it.email)}" data-name="${escapeHtml(it.name)}">削除</button></td></tr>`
+    ).join("");
+  tbl.querySelectorAll(".in-edit").forEach((b) =>
+    b.addEventListener("click", () => {
+      document.getElementById("inName").value = b.dataset.name;
+      document.getElementById("inEmail").value = b.dataset.email;
+      document.getElementById("inName").focus();
+    })
+  );
+  tbl.querySelectorAll(".in-del").forEach((b) =>
+    b.addEventListener("click", async () => {
+      if (!confirm(`「${b.dataset.name}」を削除しますか？`)) return;
+      await fetch("/api/interns/" + encodeURIComponent(b.dataset.email), { method: "DELETE" });
+      loadInterns();
+    })
+  );
+}
+(function () {
+  const add = document.getElementById("inAdd");
+  if (!add) return;
+  add.addEventListener("click", async () => {
+    const name = (document.getElementById("inName").value || "").trim();
+    const email = (document.getElementById("inEmail").value || "").trim();
+    const st = document.getElementById("inStatus");
+    if (!name || !email) { if (st) st.textContent = "名前とメールアドレスを入れてください"; return; }
+    if (st) st.textContent = "保存中…";
+    try {
+      const r = await fetch("/api/interns", {
+        method: "PUT", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ name, email }),
+      });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(d.error || "保存に失敗");
+      if (st) st.textContent = "保存しました";
+      document.getElementById("inName").value = "";
+      document.getElementById("inEmail").value = "";
+      loadInterns();
+      setTimeout(() => { if (st) st.textContent = ""; }, 1500);
+    } catch (e) { if (st) st.textContent = "失敗: " + e.message; }
+  });
+
+  const matchBtn = document.getElementById("inMatch");
+  if (matchBtn) matchBtn.addEventListener("click", async () => {
+    const from = (document.getElementById("inFrom").value || "").trim();
+    const to = (document.getElementById("inTo").value || "").trim();
+    const st = document.getElementById("inMatchStatus");
+    const out = document.getElementById("inResults");
+    if (st) st.textContent = "照合中…（カレンダーの件数によっては数十秒かかります）";
+    if (out) out.innerHTML = "";
+    matchBtn.disabled = true;
+    try {
+      const r = await fetch("/api/interns/match", {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ from, to }),
+      });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.error || "照合に失敗しました");
+      if (st) st.textContent = "";
+      renderInternResults(d);
+    } catch (e) {
+      if (st) st.textContent = "";
+      if (out) out.innerHTML = `<p class="note cc-warn">失敗: ${escapeHtml(e.message)}</p>`;
+    } finally { matchBtn.disabled = false; }
+  });
+})();
+function renderInternResults(d) {
+  const out = document.getElementById("inResults");
+  if (!out) return;
+  const rows = (d.interns || []).map((p) => {
+    const err = p.error ? `<span class="cc-warn" style="font-size:11.5px;">${escapeHtml(p.error)}</span>` : "";
+    const list = (p.meetings || []).length
+      ? `<details class="cc-collapsible" style="margin-top:6px;"><summary><span class="cc-collapsible-title" style="font-size:12px;">一致した商談 ${p.meetings.length}件</span></summary>` +
+        `<ul style="margin:6px 0 0; padding-left:18px; font-size:12px; color:#445; line-height:1.7;">` +
+        p.meetings.map((m) => `<li>${escapeHtml(m.date || "")}　${escapeHtml(m.title || "(商談名なし)")}</li>`).join("") +
+        `</ul></details>`
+      : "";
+    return `<tr><td>${escapeHtml(p.name)}</td><td style="text-align:right; font-weight:700;">${p.count}</td>` +
+           `<td>${err}${list}</td></tr>`;
+  }).join("");
+  const unmatched = (d.unmatched_list || []).length
+    ? `<details class="cc-collapsible" style="margin-top:10px;"><summary><span class="cc-collapsible-title">どのインターンとも一致しなかった商談 ${d.unmatched_list.length}件</span></summary>` +
+      `<ul style="margin:6px 0 0; padding-left:18px; font-size:12px; color:#445; line-height:1.7;">` +
+      d.unmatched_list.map((m) => `<li>${escapeHtml(m.date || "")}　${escapeHtml(m.title || "(商談名なし)")}</li>`).join("") +
+      `</ul></details>`
+    : "";
+  out.innerHTML =
+    `<div class="cc-admin-box" style="margin-top:14px;">` +
+    `<div class="apidoc-h" style="margin-top:0;">照合結果（${escapeHtml(d.range.from)} 〜 ${escapeHtml(d.range.to)}）</div>` +
+    `<p class="note">対象商談 ${d.meetings_total}件 ・ アポ獲得を特定 ${d.matched}件 ・ 未特定 ${d.unmatched}件` +
+    (d.multi_hit ? ` ・ 複数インターン一致 ${d.multi_hit}件（予定日が近い方に割当）` : "") + `</p>` +
+    `<table class="tm-table"><tr><th>インターン</th><th>アポ実施数</th><th>詳細</th></tr>${rows}</table>` +
+    unmatched +
+    `</div>`;
+}
 
 // ===== フェーズ判定の定義（プロンプト）編集 =====
 let phasePromptDefault = "";

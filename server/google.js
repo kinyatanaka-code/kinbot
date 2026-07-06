@@ -187,7 +187,40 @@ export async function listDayEvents(owner, { timeMin, timeMax } = {}) {
   return out;
 }
 
-// Picker用：ユーザーの短命アクセストークンを取得
+// 指定カレンダー（calendarId=メールアドレス等）の予定を範囲取得する。
+// 連携済みアカウントのトークンで、共有された他人のカレンダーも読める（要「予定の詳細を表示」共有）。
+// アクセス不可（未共有）の場合は 403/404 を投げるので、呼び出し側で個別に握りつぶす。
+export async function listCalendarEvents(owner, calendarId, { timeMin, timeMax } = {}) {
+  const token = await accessToken(owner);
+  if (!token) throw new Error("Googleが連携されていません");
+  const cal = encodeURIComponent(String(calendarId || "primary"));
+  const out = [];
+  let pageToken = "";
+  for (let guard = 0; guard < 10; guard++) {
+    const p = new URLSearchParams({
+      singleEvents: "true",
+      orderBy: "startTime",
+      maxResults: "250",
+    });
+    if (timeMin) p.set("timeMin", timeMin);
+    if (timeMax) p.set("timeMax", timeMax);
+    if (pageToken) p.set("pageToken", pageToken);
+    const res = await fetch(
+      `https://www.googleapis.com/calendar/v3/calendars/${cal}/events?${p}`,
+      { headers: { Authorization: `Bearer ${token}` } }
+    );
+    if (!res.ok) throw new Error(`Google events ${res.status}: ${(await res.text()).slice(0, 200)}`);
+    const data = await res.json();
+    for (const ev of data.items || []) {
+      if (ev.status === "cancelled") continue;
+      const start = ev.start?.dateTime || ev.start?.date || null;
+      out.push({ id: ev.id, title: ev.summary || "", start, allDay: !ev.start?.dateTime });
+    }
+    if (!data.nextPageToken) break;
+    pageToken = data.nextPageToken;
+  }
+  return out;
+}
 export async function driveAccessToken(owner) {
   return accessToken(owner);
 }
