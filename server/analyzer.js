@@ -107,12 +107,24 @@ function modelFor() {
 }
 
 // ライブ：要約＋次の一手＋チェック＋異議対応
-export async function analyze({ transcript, prevSummary, repName }) {
+export async function analyze({ transcript, prevSummary, repName, extraItems }) {
   const know = await knowledgeBlock(String(transcript || "").slice(-2000));
-  const items = await getCheckItems();
+  const teamItems = await getCheckItems();
+  // この商談の重点（事前ブリーフの「今日詰めるべき点」）を🎯付きで加える
+  const extra = (Array.isArray(extraItems) ? extraItems : [])
+    .map((x) => "🎯 " + String(x || "").trim())
+    .filter((x) => x.length > 3);
+  // チーム項目＋商談ごとの重点をマージ（重複除去・上限15）
+  const seen = new Set();
+  const items = [];
+  for (const it of [...teamItems, ...extra]) {
+    const k = String(it).replace(/[\s🎯]/g, "");
+    if (k && !seen.has(k)) { seen.add(k); items.push(String(it)); }
+    if (items.length >= 15) break;
+  }
   const user =
     `自社の営業担当（支援対象）: ${repName || "（未指定）"}\n` +
-    `チェック項目（このリストの各項目を coverage で評価。項目名はそのまま使う）: ${JSON.stringify(items)}\n` +
+    `チェック項目（このリストの各項目を coverage で評価。項目名はそのまま使う。🎯 はこの商談の重点）: ${JSON.stringify(items)}\n` +
     know +
     (prevSummary ? `\nこれまでの要約(参考):\n${JSON.stringify(prevSummary)}\n` : "") +
     `\n商談の文字起こし(古い→新しい):\n"""\n${transcript}\n"""\n\n` +
@@ -221,6 +233,59 @@ export async function freeAnalyze({ question, material, filterDesc }) {
     `対象の商談データ:\n"""\n${material || "（データなし）"}\n"""\n\n` +
     `上記データを根拠に、質問に答えてください。`;
   return await callLLM(FREE_PROMPT, user, 2600, { json: false });
+}
+
+// ===== 事前ブリーフ（商談前の準備メモ＋想定問答）=====
+const BRIEF_PROMPT =
+  "あなたはB2B営業の商談準備を支援するコーチです。ある会社との過去の商談記録をもとに、担当者が次回商談の直前に読む『事前ブリーフ』と『想定問答』を作成します。\n" +
+  "ルール:\n" +
+  "- 記録に書かれている事実だけを根拠にする。書かれていないことを推測で断定しない（自然な範囲の要約は可）。\n" +
+  "- 各項目は短く具体的に（1〜2文）。冗長な前置きは書かない。\n" +
+  "- recap / open_items / concerns / focus はそれぞれ最大5件。qa は3〜6組。\n" +
+  "- open_items は『まだ解決していない宿題・約束・保留事項』。concerns は相手が示した懸念・不安・反対の兆候。focus は次回で必ず前進させるべき論点。\n" +
+  "- qa は、この相手から出そうな質問(q)と、過去のやり取りを踏まえた良い回答の要点(a)。\n" +
+  "- 記録が乏しく書けない項目は空配列でよい。\n" +
+  "- 出力はJSONのみ。前置き・後置き・コードフェンスは不要。";
+
+const BRIEF_SCHEMA = {
+  type: "object",
+  properties: {
+    recap: { type: "array", items: { type: "string" }, description: "前回までの要点（最大5件）" },
+    open_items: { type: "array", items: { type: "string" }, description: "未解決の宿題・約束・保留（最大5件）" },
+    concerns: { type: "array", items: { type: "string" }, description: "相手の懸念・不安・反対の兆候（最大5件）" },
+    focus: { type: "array", items: { type: "string" }, description: "今日詰めるべき点（最大5件）" },
+    qa: {
+      type: "array",
+      items: { type: "object", properties: { q: { type: "string" }, a: { type: "string" } }, required: ["q", "a"] },
+      description: "想定問答（3〜6組）",
+    },
+  },
+  required: ["recap", "open_items", "concerns", "focus", "qa"],
+};
+
+export async function buildBrief({ company, meetings }) {
+  const material = (meetings || []).map((m, i) => {
+    const lines = [`# 商談${i + 1}（${m.date || "日付不明"}）${m.title || ""}`];
+    if (m.overview) lines.push(`要約: ${m.overview}`);
+    if (m.key_points && m.key_points.length) lines.push(`要点: ${m.key_points.join(" / ")}`);
+    if (m.concerns && m.concerns.length) lines.push(`相手の懸念: ${m.concerns.join(" / ")}`);
+    if (m.next_steps && m.next_steps.length) lines.push(`次回までの宿題: ${m.next_steps.join(" / ")}`);
+    if (m.next_action) lines.push(`AI提案の次アクション: ${m.next_action}`);
+    return lines.join("\n");
+  }).join("\n\n");
+  const user =
+    `会社名: ${company}\n\n` +
+    `この会社との過去の商談記録（古い順）:\n"""\n${material || "（記録なし）"}\n"""\n\n` +
+    `次回商談に臨む営業担当者向けに、事前ブリーフと想定問答をJSONで作成してください。`;
+  const text = await callLLM(BRIEF_PROMPT, user, 2200, { schema: BRIEF_SCHEMA });
+  const o = parseJson(text) || {};
+  return {
+    recap: Array.isArray(o.recap) ? o.recap : [],
+    open_items: Array.isArray(o.open_items) ? o.open_items : [],
+    concerns: Array.isArray(o.concerns) ? o.concerns : [],
+    focus: Array.isArray(o.focus) ? o.focus : [],
+    qa: Array.isArray(o.qa) ? o.qa.filter((x) => x && x.q) : [],
+  };
 }
 
 // 企業サイト＋Web検索から会社概要を取得（A+B / 2段階で確実にJSON化）
