@@ -363,11 +363,12 @@ export async function initDb() {
 
 export async function createMeeting(botId, { meetingUrl, repName, title, owner, muxPlaybackId }) {
   if (!pool) return;
+  const round = roundFromTitle(title); // 商談名から回数を自動判定（【新/ヒ】【初回/】=1、【n回目】=n）
   try {
     await pool.query(
-      `INSERT INTO meetings (bot_id, meeting_url, rep_name, title, owner, mux_playback_id)
-       VALUES ($1,$2,$3,$4,$5,$6) ON CONFLICT (bot_id) DO NOTHING`,
-      [botId, meetingUrl || "", repName || "", title || "", owner || "", muxPlaybackId || null]
+      `INSERT INTO meetings (bot_id, meeting_url, rep_name, title, owner, mux_playback_id, round_no)
+       VALUES ($1,$2,$3,$4,$5,$6,$7) ON CONFLICT (bot_id) DO NOTHING`,
+      [botId, meetingUrl || "", repName || "", title || "", owner || "", muxPlaybackId || null, round]
     );
   } catch (e) {
     console.error("[db] createMeeting", e.message);
@@ -448,6 +449,21 @@ export function companyFromTitle(title) {
   return t || String(title || "(無題)").trim();
 }
 
+// 商談名（タイトル）から「何回目」を推定する。全角半角の違いはNFKCで吸収。
+//   【新/ヒ】 または 【初回/】 → 1回目
+//   【2回目/】 など 【n回目…】 → n回目
+//   判定できなければ null
+export function roundFromTitle(title) {
+  const t = String(title || "").normalize("NFKC");
+  if (/【\s*新\s*\/\s*ヒ\s*】/.test(t) || /【\s*初回\s*\/\s*】/.test(t)) return 1;
+  const m = t.match(/【\s*(\d+)\s*回目/);
+  if (m) {
+    const n = parseInt(m[1], 10);
+    if (Number.isFinite(n) && n > 0) return n;
+  }
+  return null;
+}
+
 // 文字起こしが無い古い商談を一括削除（定期クリーンアップ用）
 export async function deleteEmptyMeetings(minutes = 180) {
   if (!pool) return 0;
@@ -468,8 +484,14 @@ export async function deleteEmptyMeetings(minutes = 180) {
 // 商談の「何回目」「フェーズ」「商談名」「営業担当(owner)」を更新（undefinedの項目は変更しない）
 export async function updateMeetingMeta(botId, { round, phase, title, owner, createdAt, account, category, dealKind }) {
   if (!pool) return;
+  // roundが未指定で、タイトルが渡された場合は商談名から回数を推定する
+  let r = round;
+  if ((r === undefined || r === null) && title !== undefined) {
+    const fromTitle = roundFromTitle(title);
+    if (fromTitle != null) r = fromTitle;
+  }
   const sets = ["round_no=$2"];
-  const vals = [botId, round ?? null];
+  const vals = [botId, r ?? null];
   let idx = 3;
   if (phase !== undefined) {
     sets.push(`phase=$${idx}`);

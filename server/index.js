@@ -45,6 +45,7 @@ import {
   markNotionSent,
   getAiLogsByIds,
   companyFromTitle,
+  roundFromTitle,
   getAccount,
   listAccounts,
   saveAccount,
@@ -95,7 +96,7 @@ import {
   deleteKbFolder,
 } from "./db.js";
 import { resolveConfig, statusInfo } from "./config.js";
-import { analyzerInfo, analyzeMeeting, analyzeDeep, freeAnalyze, chatWithData, enrichCompany, generateThanks, THANKS_PROMPT, getCheckItems, classifyMeetingKind, extractFirstMeeting, extractReMeeting, buildBrief } from "./analyzer.js";
+import { analyzerInfo, analyzeMeeting, analyzeDeep, freeAnalyze, chatWithData, enrichCompany, generateThanks, THANKS_PROMPT, getCheckItems, getSummaryPrompt, classifyMeetingKind, extractFirstMeeting, extractReMeeting, buildBrief } from "./analyzer.js";
 import {
   googleConfigured,
   authUrl,
@@ -1178,11 +1179,17 @@ app.post("/api/deals/brief", async (req, res) => {
       if (peek) return res.json({ brief: null, cached: false }); // 生成はしない
     }
 
-    // この会社の過去商談を集める（実施済み＝要約がある商談）
+    // この会社の過去商談を集める。フロントから渡された bot_id を最優先（会社名の表記ゆれに影響されない）。
+    const botIds = Array.isArray(req.body && req.body.botIds) ? req.body.botIds.filter(Boolean) : [];
     const all = await listMeetings({ isAdmin: true });
-    const ms = all
-      .filter((m) => normCompanyKey(m.account || "") === key || normCompanyKey(m.title || "") === key)
-      .sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
+    let ms;
+    if (botIds.length) {
+      const set = new Set(botIds.map(String));
+      ms = all.filter((m) => set.has(String(m.bot_id)));
+    } else {
+      ms = all.filter((m) => normCompanyKey(m.account || "") === key || normCompanyKey(m.title || "") === key);
+    }
+    ms.sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
     if (!ms.length) return res.status(404).json({ error: "この会社の商談記録が見つかりませんでした" });
 
     const meetings = ms.map((m) => {
@@ -1963,6 +1970,24 @@ app.put("/api/check-items", async (req, res) => {
   }
 });
 
+// 要約プロンプト（追加指示・チーム共有）。商談履歴の要約の書き方を設定で上書きできる。
+app.get("/api/summary-prompt", async (req, res) => {
+  try {
+    res.json({ prompt: await getSummaryPrompt() });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+app.put("/api/summary-prompt", async (req, res) => {
+  try {
+    const prompt = String((req.body && req.body.prompt) || "").slice(0, 4000);
+    const r = await saveSettings({ summaryPrompt: prompt });
+    res.json({ ok: true, prompt, ...r });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // --- 商談終了：Botを退出させる ---
 app.post("/api/sessions/:id/stop", async (req, res) => {
   await leaveBot(req.params.id);
@@ -2310,7 +2335,7 @@ app.post("/api/uploads", upload.single("file"), async (req, res) => {
     if (!req.file) return res.status(400).json({ error: "ファイルがありません" });
     const id = "upload_" + crypto.randomUUID();
     const title = (req.body.title || "").trim() || req.file.originalname || "アップロード";
-    const round = req.body.round ? Number(req.body.round) : null;
+    const round = req.body.round ? Number(req.body.round) : roundFromTitle(title);
     const phase = req.body.phase || null;
     const displayName = await getDisplayName(req.user);
     await createMeeting(id, { meetingUrl: "", repName: displayName, title, owner: req.user });

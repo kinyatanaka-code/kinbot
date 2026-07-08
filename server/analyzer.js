@@ -23,6 +23,21 @@ export async function getCheckItems() {
   }
 }
 
+// 要約の追加指示（設定でユーザーが自由に指定。空なら無し）
+export async function getSummaryPrompt() {
+  try {
+    const s = await getSettings();
+    return s && typeof s.summaryPrompt === "string" ? s.summaryPrompt.trim() : "";
+  } catch { return ""; }
+}
+function summaryInstructionBlock(instr) {
+  if (!instr) return "";
+  return (
+    `\n【要約の追加指示（設定で指定・要約作成時に最優先で反映）】\n"""\n${String(instr).slice(0, 4000)}\n"""\n` +
+    `summary の各項目は、この追加指示のトーン・観点・粒度・書式に従って書くこと。ただし出力JSONの構造とキー名は変更しない。\n`
+  );
+}
+
 // 商談内容に近い自社ナレッジだけを抽出してプロンプト用ブロックに整形（無ければ空）
 async function knowledgeBlock(queryText) {
   try {
@@ -126,6 +141,7 @@ export async function analyze({ transcript, prevSummary, repName, extraItems }) 
     `自社の営業担当（支援対象）: ${repName || "（未指定）"}\n` +
     `チェック項目（このリストの各項目を coverage で評価。項目名はそのまま使う。🎯 はこの商談の重点）: ${JSON.stringify(items)}\n` +
     know +
+    summaryInstructionBlock(await getSummaryPrompt()) +
     (prevSummary ? `\nこれまでの要約(参考):\n${JSON.stringify(prevSummary)}\n` : "") +
     `\n商談の文字起こし(古い→新しい):\n"""\n${transcript}\n"""\n\n` +
     `最新状況の要約・チェック充足・異議対応・次の一手を JSON で返してください。異議対応/提案は自社ナレッジを根拠に。`;
@@ -150,6 +166,7 @@ export async function analyzeMeeting({ transcript, repName, dateStr, speakers })
   const user =
     ctx.join("\n") +
     know +
+    summaryInstructionBlock(await getSummaryPrompt()) +
     `\n\n商談の文字起こし:\n"""\n${transcript}\n"""\n\n` +
     `この商談を、指定テンプレートの要約と営業フィードバックとして JSON で返してください。話された情報だけを使ってください。改善提案は自社ナレッジを踏まえて。`;
   const text = await callLLM(REVIEW_PROMPT, user, 2400);
