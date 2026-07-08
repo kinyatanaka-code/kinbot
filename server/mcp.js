@@ -214,13 +214,18 @@ export async function callTool(name, args, req) {
           return k2 && (k2.includes(key) || key.includes(k2));
         });
       }
-      if (!matched.length) throw new Error(`「${args.company_name}」に該当する会社が見つかりません`);
-      const accountName = matched[matched.length - 1].account; // 最新の表記を代表名にする
-
-      // 会社プロフィール（AIが企業サイトから自動取得した情報）
-      const accounts = await listAccounts().catch(() => []);
-      const profileRow = accounts.find((a) => normCompanyKey(a.key || a.official_name || "") === key)
-        || accounts.find((a) => normCompanyKey(a.key || a.official_name || "").includes(key));
+      // 会社プロフィール（従業員数など）と案件は、商談マッチに依存せず引く。
+      // ※商談の account が未設定でも、プロフィール／案件があれば返せるようにする。
+      const pmap = await buildProfileMap();
+      const profile = profileFromMap(pmap, args.company_name);
+      const allDeals = await listDeals({ owner: isAdmin ? null : req.user }).catch(() => []);
+      const deal = allDeals.find((d) => normCompanyKey(d.company_name) === key)
+        || allDeals.find((d) => { const k2 = normCompanyKey(d.company_name || ""); return k2 && (k2.includes(key) || key.includes(k2)); });
+      // 商談・案件・プロフィールのどれも無いときだけ「該当なし」
+      if (!matched.length && !deal && !profile) {
+        throw new Error(`「${args.company_name}」に該当する会社が見つかりません`);
+      }
+      const accountName = (matched.length ? matched[matched.length - 1].account : null) || (deal && deal.company_name) || args.company_name;
 
       // ネクストアクション（やることリスト）
       const actionItems = await listActionItems(accountName).catch(() => []);
@@ -238,13 +243,13 @@ export async function callTool(name, args, req) {
 
       // 手動設定されたステータス（進行中/失注/受注/保留）
       const statuses = await listDealStatuses().catch(() => ({}));
-      const dealStatus = statuses[accountName] || null;
+      const dealStatus = statuses[accountName] || (deal && deal.status) || null;
 
       return {
         company_name: accountName,
         meeting_count: matched.length,
         deal_status: dealStatus,
-        profile: profileRow ? profileRow.profile : null,
+        profile: profile || null,
         next_actions: actionItems.map((a) => ({ text: a.text, done: a.done, due_date: a.due_date })),
         customer_concerns: concerns,
         meetings: matched.map((m) => ({ bot_id: m.bot_id, title: m.title, created_at: m.created_at, owner: m.owner })),

@@ -2170,3 +2170,67 @@ button.fn4-pipe-cell { background: none; border: none; cursor: pointer; color: #
 
 /* 実績サマリー：猶予期間中(10日ルール)の補足 */
 .fn4-kpi-pending { color: #a8611a; font-weight: 600; }
+
+/* ============================================================
+   立体感（Depth polish）— 影の階層・グラデーション・浮遊感
+   ============================================================ */
+:root {
+  --elev-1: 0 1px 2px rgba(16,40,32,.05), 0 3px 10px rgba(16,40,32,.05);
+  --elev-2: 0 2px 5px rgba(16,40,32,.06), 0 12px 28px rgba(16,40,32,.08);
+  --elev-3: 0 10px 20px rgba(16,40,32,.10), 0 24px 48px rgba(16,40,32,.14);
+}
+
+/* 背景：フラット→上からの光＋縦フェードでやわらかい奥行き */
+body {
+  background:
+    radial-gradient(1100px 560px at 80% -10%, rgba(255,255,255,.9) 0%, rgba(255,255,255,0) 55%),
+    linear-gradient(180deg, #f6f8f6 0%, #eef2ee 100%);
+  min-height: 100vh;
+}
+
+/* カード全般：浮き上がる影＋上端の光沢（上から照らされたベベル感） */
+.panel, .fn4-card, .set-card {
+  box-shadow: var(--elev-2);
+  border-color: rgba(18,42,32,.08);
+  background-image: linear-gradient(180deg, rgba(255,255,255,.85), rgba(255,255,255,0) 40%);
+  transition: box-shadow .22s ease, transform .22s ease;
+}
+
+/* KPI（数字）カード：一段強い立体感＋ホバーで浮く */
+.fn4-kpi-card {
+  border-radius: 16px;
+  box-shadow: var(--elev-2);
+  transition: box-shadow .2s ease, transform .2s ease;
+}
+.fn4-kpi-card:hover { transform: translateY(-3px); box-shadow: var(--elev-3); }
+/* 強調KPIカード：グリーンのグラデーション＋発光する影 */
+.fn4-kpi-main {
+  background-image: linear-gradient(145deg, #17b992 0%, #0c7458 100%) !important;
+  box-shadow: 0 10px 24px rgba(12,116,88,.34), 0 2px 6px rgba(12,116,88,.28) !important;
+  border: none !important;
+}
+
+/* 商談種別カード（実績）：立体感＋ホバー */
+.fn4-kpis > div { box-shadow: var(--elev-2); transition: transform .18s ease, box-shadow .2s ease; }
+.fn4-kpis > div:hover { transform: translateY(-3px); box-shadow: var(--elev-3); }
+
+/* 案件カード：ホバーで少し浮き上がる */
+.deal-card { box-shadow: var(--elev-1); transition: transform .14s ease, box-shadow .18s ease, border-color .12s; }
+.deal-card:hover { transform: translateY(-2px); box-shadow: var(--elev-2); border-color: rgba(17,164,127,.45); }
+
+/* サイドバー：縦グラデーション＋右端の落ち影で本文から浮かせる */
+.sidebar {
+  background-image: linear-gradient(180deg, #0b453a 0%, #04342c 58%, #05292322 100%), linear-gradient(180deg, #0b453a, #052a24);
+  box-shadow: 8px 0 28px rgba(4,28,22,.28);
+  position: relative;
+  z-index: 3;
+}
+.side-item { transition: background .15s ease, transform .1s ease; }
+.side-item.active { box-shadow: inset 0 0 0 1px rgba(255,255,255,.07), 0 8px 18px rgba(17,164,127,.28); }
+
+/* トップバー：本文の上に薄く浮く */
+.topbar { box-shadow: 0 1px 0 rgba(18,42,32,.05), 0 8px 20px rgba(18,42,32,.05); position: relative; z-index: 2; }
+
+/* ボタン：押下フィードバックを立体的に（既存のグラデ＋影を活かす） */
+.btn:hover { transform: translateY(-1px); box-shadow: 0 6px 16px rgba(15,110,98,.34); filter: brightness(1.04); }
+.btn:active { transform: translateY(0); box-shadow: 0 1px 4px rgba(15,110,98,.3); }
