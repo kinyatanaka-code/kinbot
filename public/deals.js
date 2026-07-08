@@ -683,11 +683,13 @@ function renderList() {
 // ===== 事前ブリーフ =====
 async function loadBrief(company, botIds, regen, peek) {
   const box = document.getElementById("briefBox");
+  const qaBox = document.getElementById("briefQaBox");
   const st = document.getElementById("briefStatus");
   const btn = document.getElementById("briefGen");
   if (!box) return;
   if (!peek) {
     box.innerHTML = '<div class="empty-state">過去の商談からブリーフを作成中…（10〜20秒ほど）</div>';
+    if (qaBox) qaBox.innerHTML = '<div class="empty-state">作成中…</div>';
     if (btn) btn.disabled = true;
     if (st) st.textContent = "";
   }
@@ -699,38 +701,49 @@ async function loadBrief(company, botIds, regen, peek) {
     const d = await r.json();
     if (!r.ok) throw new Error(d.error || "作成に失敗しました");
     if (!d.brief) { if (btn) btn.disabled = false; return; } // peekでキャッシュ無し
-    renderBrief(box, d);
+    renderBrief(d);
     if (btn) { btn.disabled = false; btn.textContent = "再作成"; }
   } catch (e) {
-    if (!peek) box.innerHTML = `<div class="empty-state">${esc(e.message)}</div>`;
+    if (!peek) {
+      box.innerHTML = `<div class="empty-state">${esc(e.message)}</div>`;
+      if (qaBox) qaBox.innerHTML = '<div class="empty-state">—</div>';
+    }
     if (btn) btn.disabled = false;
   }
 }
-function renderBrief(box, d) {
+function renderBrief(d) {
   const b = d.brief || {};
-  const card = (icon, title, items, cls) =>
-    `<div class="brief-card ${cls}"><div class="brief-card-h">${icon} ${title}</div>` +
-    (items && items.length ? `<ul>${items.map((x) => `<li>${esc(x)}</li>`).join("")}</ul>` : '<div class="brief-empty">記録なし</div>') +
-    `</div>`;
-  let html = '<div class="brief-grid">';
-  html += card("📌", "前回までの要点", b.recap, "bc-recap");
-  html += card("📝", "未解決の宿題", b.open_items, "bc-open");
-  html += card("⚠️", "相手の懸念", b.concerns, "bc-concern");
-  html += card("🎯", "今日詰めるべき点", b.focus, "bc-focus");
-  html += "</div>";
-  if (b.qa && b.qa.length) {
-    html += '<div class="brief-qa"><div class="brief-qa-h">💬 想定問答</div>';
-    for (const qa of b.qa) {
-      html += `<details class="brief-qa-item"><summary>Q. ${esc(qa.q)}</summary><div class="brief-qa-a">A. ${esc(qa.a)}</div></details>`;
-    }
+  const box = document.getElementById("briefBox");
+  const qaBox = document.getElementById("briefQaBox");
+  // 商談準備カード（4枚）
+  if (box) {
+    const card = (icon, title, items, cls) =>
+      `<div class="brief-card ${cls}"><div class="brief-card-h">${icon} ${title}</div>` +
+      (items && items.length ? `<ul>${items.map((x) => `<li>${esc(x)}</li>`).join("")}</ul>` : '<div class="brief-empty">記録なし</div>') +
+      `</div>`;
+    let html = '<div class="brief-grid">';
+    html += card("📌", "前回までの要点", b.recap, "bc-recap");
+    html += card("📝", "未解決の宿題", b.open_items, "bc-open");
+    html += card("⚠️", "相手の懸念", b.concerns, "bc-concern");
+    html += card("🎯", "今日詰めるべき点", b.focus, "bc-focus");
     html += "</div>";
+    if (d.generated_at) {
+      const dt = new Date(d.generated_at);
+      const when = isNaN(dt.getTime()) ? "" : ` ・ ${dt.toLocaleString("ja-JP", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" })}時点`;
+      html += `<div class="brief-meta">${d.based_on || "?"}件の商談から作成${when}</div>`;
+    }
+    box.innerHTML = html;
   }
-  if (d.generated_at) {
-    const dt = new Date(d.generated_at);
-    const when = isNaN(dt.getTime()) ? "" : ` ・ ${dt.toLocaleString("ja-JP", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" })}時点`;
-    html += `<div class="brief-meta">${d.based_on || "?"}件の商談から作成${when}</div>`;
+  // 想定問答
+  if (qaBox) {
+    if (b.qa && b.qa.length) {
+      qaBox.innerHTML = b.qa.map((qa) =>
+        `<details class="brief-qa-item"><summary>Q. ${esc(qa.q)}</summary><div class="brief-qa-a">A. ${esc(qa.a)}</div></details>`
+      ).join("");
+    } else {
+      qaBox.innerHTML = '<div class="empty-state">想定問答はありません</div>';
+    }
   }
-  box.innerHTML = html;
 }
 
 async function selectDeal(account) {
@@ -771,18 +784,19 @@ async function selectDeal(account) {
     `</div>` +
     (statusOf(account) === "失注" && lastLostReason(ms) ? `<div class="lost-reason">AI判定の失注理由: ${esc(lastLostReason(ms))}</div>` : "") +
     `</div>` +
-    `<section class="deal-sec brief-sec"><div class="deal-sec-h">🎯 商談準備（事前ブリーフ）<button class="btn ghost brief-gen-btn" id="briefGen">再作成</button><span class="brief-status" id="briefStatus"></span></div>` +
-    `<div id="briefBox"><div class="empty-state">読み込み中…</div></div></section>` +
-    `<section class="deal-sec newproc-sec"><div class="deal-sec-h">📊 新プロセスの判定</div><div id="newProcBox"><div class="empty-state">読み込み中…</div></div></section>` +
+    // 1. 会社プロフィール
     `<section class="deal-sec deal-profile"><div class="deal-sec-h">🏢 会社プロフィール</div>` +
     `<div class="prof-url"><textarea id="profUrl" rows="2" placeholder="企業サイトURL（複数可・改行かカンマで区切り。空でも会社名でWeb検索します）"></textarea><button class="btn" id="profGet">取得</button></div>` +
     `<div class="prof-status" id="profStatus"></div>` +
     `<div id="profBody"></div></section>` +
-    `<section class="deal-sec"><div class="deal-sec-h">📋 ネクストアクション</div><div id="aiBox"><div class="empty-state">読み込み中…</div></div>` +
-    `<div class="ai-add"><input id="aiNew" type="text" placeholder="やることを追加（例：見積もりを送付）" /><input id="aiDue" type="date" /><button class="btn" id="aiAddBtn">追加</button></div></section>` +
-    `<section class="deal-sec"><div class="deal-sec-h">⚠️ 相手の懸念（これまでの集約）</div>` +
-    (concerns.length ? `<ul class="deal-concerns">${concerns.map((c) => `<li>${esc(c)}</li>`).join("")}</ul>` : '<div class="empty-state">記録なし</div>') +
-    `</section>` +
+    // 2. 判定
+    `<section class="deal-sec newproc-sec"><div class="deal-sec-h">📊 新プロセスの判定</div><div id="newProcBox"><div class="empty-state">読み込み中…</div></div></section>` +
+    // 3. 商談準備（事前ブリーフ）
+    `<section class="deal-sec brief-sec"><div class="deal-sec-h">🎯 商談準備（事前ブリーフ）<button class="btn ghost brief-gen-btn" id="briefGen">再作成</button><span class="brief-status" id="briefStatus"></span></div>` +
+    `<div id="briefBox"><div class="empty-state">読み込み中…</div></div></section>` +
+    // 4. 想定問答
+    `<section class="deal-sec brief-qa-sec"><div class="deal-sec-h">💬 想定問答</div><div id="briefQaBox"><div class="empty-state">読み込み中…</div></div></section>` +
+    // 5. 商談の流れ
     `<section class="deal-sec"><div class="deal-sec-h">🗂 商談の流れ</div><div class="deal-timeline" id="dealTimeline"></div></section>`;
 
   // ステータス変更
@@ -867,22 +881,6 @@ async function selectDeal(account) {
       `<a class="tl-link" href="history.html?m=${encodeURIComponent(m.bot_id)}">詳細を見る →</a></div>`;
     tl.appendChild(item);
   }
-
-  // 追加ボタン
-  $("aiAddBtn").addEventListener("click", async () => {
-    const text = $("aiNew").value.trim();
-    if (!text) return;
-    await fetch("/api/action-items", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ account, text, due: $("aiDue").value || null }),
-    });
-    $("aiNew").value = ""; $("aiDue").value = "";
-    loadActions(account);
-  });
-  $("aiNew").addEventListener("keydown", (e) => { if (e.key === "Enter") $("aiAddBtn").click(); });
-
-  loadActions(account);
 }
 
 async function loadActions(account) {
