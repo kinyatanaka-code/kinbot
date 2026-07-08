@@ -1116,6 +1116,30 @@ async function extractLLMOpts(extra = {}, forceProvider) {
   return { provider, model, fallback, ...extra };
 }
 
+// 判定共通のリトライ：自信度highが出るまで再試行し、最後まで低ければ上位モデル(Opus)にエスカレーション。
+// buildResult(o) は生JSONを整形して返す（必ず confidence を持たせること）。
+async function judgeWithRetry({ sys, user, schema, provider, maxTokens = 1400, retryNote, buildResult }) {
+  const maxTries = Math.max(1, Math.min(8, Number(process.env.EXTRACT_MAX_TRIES || 5)));
+  // 低自信のとき最後に使う上位モデル（未設定なら既定のOpus文字列。使えない場合は自動でGeminiにフォールバック）
+  const escalateModel = process.env.EXTRACT_ESCALATE_MODEL || "claude-opus-4-1";
+  let best = null;
+  for (let attempt = 1; attempt <= maxTries; attempt++) {
+    const lowBefore = best && best.confidence === "low";
+    const isEscalation = attempt === maxTries && lowBefore && !!escalateModel;
+    const note = attempt > 1 ? retryNote || "" : "";
+    const escNote = isEscalation
+      ? "\n\n（これは最終確認です。上位モデルとして、文字起こしを最初から丁寧に読み直し、reasoning に段階的な考察を書いてから、各項目を発言の根拠に基づいて慎重に確定してください。）"
+      : "";
+    const llm = isEscalation
+      ? { ...(await extractLLMOpts({ schema }, "anthropic")), model: escalateModel }
+      : await extractLLMOpts({ schema }, provider);
+    const o = parseJson(await callLLM(sys, user + note + escNote, maxTokens, llm)) || {};
+    best = buildResult(o, attempt, isEscalation);
+    if (best.confidence === "high") break;
+  }
+  return best;
+}
+
 function transcriptToText(transcript) {
   if (typeof transcript === "string") return transcript;
   if (!Array.isArray(transcript)) return "";
@@ -1164,11 +1188,14 @@ export async function extractFirstMeeting(transcript, meetingDate, opts = {}) {
     "年が省略されていれば商談日と同じ年（年をまたぐ場合は翌年）とする。日にちまで特定できず月だけ分かる場合はその月の1日。全く不明ならnull。\n" +
     "5. confidence: 抽出全体の自信度（\"high\"/\"low\"）。顧客の発言が曖昧・脱線して結論が不明確・複数解釈可能なら\"low\"。\n" +
     "6. judgment_basis: 判定根拠の要約（30字程度、発言の逐語引用はしない）。\n" +
+    "7. reasoning: 上記を確定する前の段階的な考察。顧客の該当発言に触れながら、各区分をどう判断したかを検討する。\n" +
+    "【重要】出力は必ず reasoning から書き始め、その考察の結論として schedule_choice などの項目を決めること。\n" +
     "JSONのみ出力し、他の文章は一切出力しないこと。";
   const user = `商談日: ${meetingDate || "不明"}\n文字起こし:\n"""\n${text}\n"""`;
   const schema = {
     type: "object",
     properties: {
+      reasoning: { type: "string" },
       schedule_choice: { type: "string", enum: ["来月開始", "再来月開始", "その他明確な時期", "未定", "不明"] },
       schedule_choice_detail: { type: ["string", "null"] },
       apply_timing: { type: "string", enum: ["今月", "来月", "それ以外", "不明", "該当なし"] },
@@ -1177,18 +1204,14 @@ export async function extractFirstMeeting(transcript, meetingDate, opts = {}) {
       confidence: { type: "string", enum: ["high", "low"] },
       judgment_basis: { type: "string" },
     },
-    required: ["schedule_choice", "apply_timing", "next_meeting_scheduled", "confidence", "judgment_basis"],
+    required: ["reasoning", "schedule_choice", "apply_timing", "next_meeting_scheduled", "confidence", "judgment_basis"],
   };
-  // 自信度が low の場合、最大3回まで判定をやり直す（high が出たら即採用）。
-  // 2回目以降は「前回 low だった。曖昧なら該当区分を厳密に、それでも不明確なら不明のままでよい」と補足して再考させる。
-  const maxTries = Math.max(1, Math.min(8, Number(process.env.EXTRACT_MAX_TRIES || 5)));
-  let best = null;
-  for (let attempt = 1; attempt <= maxTries; attempt++) {
-    const extraNote = attempt > 1
-      ? `\n\n（注意：前回の抽出は自信度lowでした。文字起こしを丁寧に読み直し、顧客の発言の該当箇所を根拠に、各区分を厳密に判定してください。明確な根拠が本当に無い項目だけを不明としてください。）`
-      : "";
-    const o = parseJson(await callLLM(sys, user + extraNote, 700, await extractLLMOpts({ schema }, opts.provider))) || {};
-    const result = {
+  // 自信度highが出るまで再試行し、最後まで低ければ上位モデル(Opus)にエスカレーション。
+  return await judgeWithRetry({
+    sys, user, schema, provider: opts.provider, maxTokens: 1400,
+    retryNote: "\n\n（注意：前回の抽出は自信度lowでした。reasoning に根拠を段階的に書いた上で、文字起こしを丁寧に読み直し、各区分を厳密に判定してください。明確な根拠が本当に無い項目だけを不明としてください。）",
+    buildResult: (o, attempt) => ({
+      reasoning: o.reasoning || "",
       schedule_choice: o.schedule_choice || "不明",
       schedule_choice_detail: o.schedule_choice_detail || "",
       apply_timing: o.apply_timing || "不明",
@@ -1197,11 +1220,8 @@ export async function extractFirstMeeting(transcript, meetingDate, opts = {}) {
       confidence: o.confidence === "high" ? "high" : "low",
       judgment_basis: o.judgment_basis || "",
       attempts: attempt,
-    };
-    best = result;
-    if (result.confidence === "high") break; // 自信が高くなったら確定
-  }
-  return best;
+    }),
+  });
 }
 
 // 再商談（上申準備）の抽出（依頼書4.3）
@@ -1217,11 +1237,14 @@ export async function extractReMeeting(transcript, meetingDate, opts = {}) {
     "4. result: \"受注\"/\"失注\"/\"延期\"（さらに先送り）/\"未確定\"\n" +
     "5. confidence: \"high\"/\"low\"\n" +
     "6. judgment_basis: 判定根拠の要約（30字程度）\n" +
+    "7. reasoning: result を確定する前の段階的な考察。顧客の該当発言に触れながら、受注/失注/延期/未確定のどれに当たるかを検討する。\n" +
+    "【重要】出力は必ず reasoning から書き始め、その考察の結論として result を決めること。口頭の同意でも稟議・持ち帰りが残る場合は安易に受注とせず、根拠を吟味すること。\n" +
     "JSONのみ出力し、他の文章は一切出力しないこと。";
   const user = `商談日: ${meetingDate || "不明"}\n文字起こし:\n"""\n${text}\n"""`;
   const schema = {
     type: "object",
     properties: {
+      reasoning: { type: "string" },
       reported_date: { type: ["string", "null"] },
       apply_date: { type: ["string", "null"] },
       usage_start_date: { type: ["string", "null"] },
@@ -1229,16 +1252,13 @@ export async function extractReMeeting(transcript, meetingDate, opts = {}) {
       confidence: { type: "string", enum: ["high", "low"] },
       judgment_basis: { type: "string" },
     },
-    required: ["result", "confidence", "judgment_basis"],
+    required: ["reasoning", "result", "confidence", "judgment_basis"],
   };
-  const maxTries = Math.max(1, Math.min(8, Number(process.env.EXTRACT_MAX_TRIES || 5)));
-  let best = null;
-  for (let attempt = 1; attempt <= maxTries; attempt++) {
-    const extraNote = attempt > 1
-      ? `\n\n（注意：前回の抽出は自信度lowでした。文字起こしを丁寧に読み直し、受注/失注/延期/未確定を発言の根拠に基づき厳密に判定してください。明確な根拠が無い場合のみ未確定としてください。）`
-      : "";
-    const o = parseJson(await callLLM(sys, user + extraNote, 700, await extractLLMOpts({ schema }, opts.provider))) || {};
-    const result = {
+  return await judgeWithRetry({
+    sys, user, schema, provider: opts.provider, maxTokens: 1400,
+    retryNote: "\n\n（注意：前回の抽出は自信度lowでした。reasoning に根拠を段階的に書いた上で、受注/失注/延期/未確定を発言の根拠に基づき厳密に判定してください。明確な根拠が無い場合のみ未確定としてください。）",
+    buildResult: (o, attempt) => ({
+      reasoning: o.reasoning || "",
       reported_date: o.reported_date || null,
       apply_date: o.apply_date || null,
       usage_start_date: o.usage_start_date || null,
@@ -1246,9 +1266,6 @@ export async function extractReMeeting(transcript, meetingDate, opts = {}) {
       confidence: o.confidence === "high" ? "high" : "low",
       judgment_basis: o.judgment_basis || "",
       attempts: attempt,
-    };
-    best = result;
-    if (result.confidence === "high") break;
-  }
-  return best;
+    }),
+  });
 }
