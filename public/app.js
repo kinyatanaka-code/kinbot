@@ -653,8 +653,9 @@ function renderCoverage(list) {
   box.innerHTML = "";
   for (const it of list) {
     const m = meta[it.status] || meta.missing;
+    const isFocus = /^🎯/.test(it.item || "");
     const row = document.createElement("div");
-    row.className = `check-item ${m.cls}`;
+    row.className = `check-item ${m.cls}${isFocus ? " focus" : ""}`;
     row.innerHTML =
       `<span class="check-ic">${m.icon}</span>` +
       `<div class="check-body"><div class="check-name"></div><div class="check-note"></div></div>` +

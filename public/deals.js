@@ -123,7 +123,7 @@ function escapeHtmlD(s) {
 async function loadNewProcess(companyName, pk, ms) {
   const box = document.getElementById("newProcBox");
   if (!box) return;
-  const known = newProcMap[normName(companyName)] || newProcMap[normName(pk)];
+  const known = lookupNewProc(companyName) || lookupNewProc(pk);
   const q = known && known.deal_id
     ? "deal_id=" + encodeURIComponent(known.deal_id)
     : "company=" + encodeURIComponent(companyName);
@@ -188,11 +188,13 @@ async function runNewProcess(botIds, companyName, pk, ms) {
   }
 
   // 完了表示
-  box.innerHTML = `<div class="np-prog-done">判定が完了しました（成功 ${ok}件${fail ? " / 失敗 " + fail + "件" : ""}）。結果を読み込んでいます…</div>`;
-  await new Promise((r) => setTimeout(r, 500));
-  // 結果を再取得して表示。カード一覧の状態も更新する。
-  await loadNewProcess(companyName, pk, ms);
-  if (typeof refreshNewProcMap === "function") { await refreshNewProcMap(); renderList(); }
+  box.innerHTML = `<div class="np-prog-done">判定が完了しました（成功 ${ok}件${fail ? " / 失敗 " + fail + "件" : ""}）。最新の状態に更新しています…</div>`;
+  await new Promise((r) => setTimeout(r, 300));
+  // 先にカード一覧を最新化する（詳細パネルの再描画が失敗しても、カードは必ず更新されるよう分離）
+  try { await refreshNewProcMap(); } catch {}
+  try { renderList(); } catch {}
+  // 詳細パネルも最新化
+  try { await loadNewProcess(companyName, pk, ms); } catch {}
 }
 
 // 判定データから現在ステージ番号と失注情報を決める
@@ -336,18 +338,24 @@ async function refreshNewProcMap() {
     }
   } catch { newProcMap = {}; newProcList = []; }
 }
-// 会社名から新プロセスのdealを引く（完全一致→部分一致）
+// 会社名から新プロセスのdealを引く。
+// 同じ会社で複数のdealレコード（表記ゆれ等）が残っていても、常に「最も新しく更新された」
+// 一致レコードを返す。これで再判定直後（updated_atが最新になる）に必ず反映される。
 function lookupNewProc(name) {
   const k = normName(name);
   if (!k) return null;
-  if (newProcMap[k]) return newProcMap[k];
-  // 部分一致（どちらかがもう一方を含む）。複数マッチする場合は最新（updated_at）のものを優先する。
   let best = null;
+  const consider = (d) => {
+    if (!best || new Date(d.updated_at || 0) > new Date(best.updated_at || 0)) best = d;
+  };
+  // まず完全一致（正規化名）。無ければ部分一致（どちらかがもう一方を含む）。
+  for (const d of newProcList) {
+    if (normName(d.company_name) === k) consider(d);
+  }
+  if (best) return best;
   for (const d of newProcList) {
     const k2 = normName(d.company_name);
-    if (k2 && (k2.includes(k) || k.includes(k2))) {
-      if (!best || new Date(d.updated_at || 0) > new Date(best.updated_at || 0)) best = d;
-    }
+    if (k2 && (k2.includes(k) || k.includes(k2))) consider(d);
   }
   return best;
 }
@@ -443,8 +451,8 @@ async function runSelectedNp() {
   }
   if (status) status.textContent = `完了：${doneAccounts}件の案件を判定（商談 成功${okBots}${failBots ? " / 失敗" + failBots : ""}）`;
   // 状態を更新
-  await refreshNewProcMap();
-  renderList();
+  try { await refreshNewProcMap(); } catch {}
+  try { renderList(); } catch {}
   if (run) run.disabled = false;
 }
 
@@ -672,6 +680,59 @@ function renderList() {
   else for (const a of mine) el.appendChild(accountCardEl(a));
 }
 
+// ===== 事前ブリーフ =====
+async function loadBrief(company, regen, peek) {
+  const box = document.getElementById("briefBox");
+  const st = document.getElementById("briefStatus");
+  const btn = document.getElementById("briefGen");
+  if (!box) return;
+  if (!peek) {
+    box.innerHTML = '<div class="empty-state">過去の商談からブリーフを作成中…（10〜20秒ほど）</div>';
+    if (btn) btn.disabled = true;
+    if (st) st.textContent = "";
+  }
+  try {
+    const r = await fetch("/api/deals/brief", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ company, regen: !!regen, peek: !!peek }),
+    });
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.error || "作成に失敗しました");
+    if (!d.brief) { if (btn) btn.disabled = false; return; } // peekでキャッシュ無し
+    renderBrief(box, d);
+    if (btn) { btn.disabled = false; btn.textContent = "再作成"; }
+  } catch (e) {
+    if (!peek) box.innerHTML = `<div class="empty-state">${esc(e.message)}</div>`;
+    if (btn) btn.disabled = false;
+  }
+}
+function renderBrief(box, d) {
+  const b = d.brief || {};
+  const card = (icon, title, items, cls) =>
+    `<div class="brief-card ${cls}"><div class="brief-card-h">${icon} ${title}</div>` +
+    (items && items.length ? `<ul>${items.map((x) => `<li>${esc(x)}</li>`).join("")}</ul>` : '<div class="brief-empty">記録なし</div>') +
+    `</div>`;
+  let html = '<div class="brief-grid">';
+  html += card("📌", "前回までの要点", b.recap, "bc-recap");
+  html += card("📝", "未解決の宿題", b.open_items, "bc-open");
+  html += card("⚠️", "相手の懸念", b.concerns, "bc-concern");
+  html += card("🎯", "今日詰めるべき点", b.focus, "bc-focus");
+  html += "</div>";
+  if (b.qa && b.qa.length) {
+    html += '<div class="brief-qa"><div class="brief-qa-h">💬 想定問答</div>';
+    for (const qa of b.qa) {
+      html += `<details class="brief-qa-item"><summary>Q. ${esc(qa.q)}</summary><div class="brief-qa-a">A. ${esc(qa.a)}</div></details>`;
+    }
+    html += "</div>";
+  }
+  if (d.generated_at) {
+    const dt = new Date(d.generated_at);
+    const when = isNaN(dt.getTime()) ? "" : ` ・ ${dt.toLocaleString("ja-JP", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" })}時点`;
+    html += `<div class="brief-meta">${d.based_on || "?"}件の商談から作成${when}</div>`;
+  }
+  box.innerHTML = html;
+}
+
 async function selectDeal(account) {
   current = account;
   renderList();
@@ -710,6 +771,8 @@ async function selectDeal(account) {
     `</div>` +
     (statusOf(account) === "失注" && lastLostReason(ms) ? `<div class="lost-reason">AI判定の失注理由: ${esc(lastLostReason(ms))}</div>` : "") +
     `</div>` +
+    `<section class="deal-sec brief-sec"><div class="deal-sec-h">🎯 商談準備（事前ブリーフ）<button class="btn ghost brief-gen-btn" id="briefGen">再作成</button><span class="brief-status" id="briefStatus"></span></div>` +
+    `<div id="briefBox"><div class="empty-state">読み込み中…</div></div></section>` +
     `<section class="deal-sec newproc-sec"><div class="deal-sec-h">📊 新プロセスの判定</div><div id="newProcBox"><div class="empty-state">読み込み中…</div></div></section>` +
     `<section class="deal-sec deal-profile"><div class="deal-sec-h">🏢 会社プロフィール</div>` +
     `<div class="prof-url"><textarea id="profUrl" rows="2" placeholder="企業サイトURL（複数可・改行かカンマで区切り。空でも会社名でWeb検索します）"></textarea><button class="btn" id="profGet">取得</button></div>` +
@@ -743,6 +806,11 @@ async function selectDeal(account) {
   const npBox = document.getElementById("newProcBox");
   if (npBox) npBox._ctx = { botIds: ms.map((m) => m.bot_id).filter(Boolean), companyName: displayName(account) || account, pk, ms };
   loadNewProcess(displayName(account) || account, pk, ms);
+  // 事前ブリーフ：開いたら自動表示（キャッシュがあれば即／無ければ自動生成）。ボタンは再作成。
+  const briefCompany = displayName(account) || account;
+  const briefGenBtn = document.getElementById("briefGen");
+  if (briefGenBtn) briefGenBtn.addEventListener("click", () => loadBrief(briefCompany, true, false));
+  loadBrief(briefCompany, false, false);
   // 担当（アカウント単位で選択・保存）
   await renderOwnerPicker(account, last);
   const profUrl = $("profUrl"), profGet = $("profGet"), profStatus = $("profStatus");
