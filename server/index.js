@@ -1355,7 +1355,9 @@ function funnelFrom(events) {
     return false;
   }).length + re.filter((e) => e.result === "失注").length;
   const reDone = re.length; // 再商談実施（メインKPI）
-  const won = re.filter((e) => e.result === "受注").length;
+  // 受注：再商談の結果が受注、かつ案件の現在ステータスも受注のものだけを数える
+  // （AIが受注と抽出しても案件が受注になっていない/変更された場合は数えない＝案件画面と一致させる）
+  const won = re.filter((e) => e.result === "受注" && e.deal_status === "受注").length;
   return {
     first_meetings: first.length,
     clear_schedule: clear.length,

@@ -53,7 +53,7 @@ paths:
             format: date
       responses:
         "200":
-          description: 案件の配列。各要素は deal_id, company_name, owner, team, status, first_meeting_date, updated_at などを含む。
+          description: 案件の配列。各要素は deal_id, company_name, owner, team, status, first_meeting_date, updated_at, および company_profile（業界・従業員数employees・事業内容など。取得済みの会社のみ）を含む。
           content:
             application/json:
               schema:
@@ -77,7 +77,7 @@ paths:
             type: string
       responses:
         "200":
-          description: 案件情報 + events 配列。
+          description: 案件情報 + events 配列 + company_profile（業界・従業員数employees・事業内容など。取得済みの会社のみ）。
           content:
             application/json:
               schema:

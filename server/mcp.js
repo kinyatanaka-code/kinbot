@@ -65,7 +65,7 @@ async function filterByTeam(events, team) {
 const TOOLS = [
   {
     name: "list_deals",
-    description: "kinbotの案件一覧を取得する。会社名・担当者・チーム・ステータス（進行中/失注(未定)/失注(その他)/受注 等）・初回商談日を返す。",
+    description: "kinbotの案件一覧を取得する。会社名・担当者・チーム・ステータス（進行中/失注(未定)/失注(その他)/受注 等）・初回商談日を返す。各案件には会社プロフィール（company_profile：業界・従業員数(employees)・事業内容など。取得済みの会社のみ）も付与する。",
     inputSchema: {
       type: "object",
       properties: {
@@ -93,7 +93,7 @@ const TOOLS = [
   },
   {
     name: "get_deal_detail",
-    description: "1つの案件（deal_id指定）について、案件情報と紐づく全イベント（初回商談・再商談）を取得する。",
+    description: "1つの案件（deal_id指定）について、案件情報と紐づく全イベント（初回商談・再商談）を取得する。会社プロフィール（company_profile：業界・従業員数(employees)・事業内容など。取得済みの会社のみ）も含む。",
     inputSchema: {
       type: "object",
       properties: { deal_id: { type: "string", description: "案件ID（list_dealsやget_deal_eventsのdeal_idから取得）" } },
@@ -130,6 +130,27 @@ const TOOLS = [
   },
 ];
 
+// 会社プロフィール（accountsテーブル）を会社名で引くためのマップ。
+// 案件（deals）側のツールからも従業員数などを返せるようにするため。
+async function buildProfileMap() {
+  const accounts = await listAccounts().catch(() => []);
+  const map = {};
+  for (const a of accounts) {
+    const k = normCompanyKey(a.key || a.official_name || "");
+    if (k && a.profile) map[k] = a.profile;
+  }
+  return map;
+}
+function profileFromMap(map, companyName) {
+  const k = normCompanyKey(companyName || "");
+  if (!k) return null;
+  if (map[k]) return map[k];
+  for (const mk of Object.keys(map)) {
+    if (mk.includes(k) || k.includes(mk)) return map[mk];
+  }
+  return null;
+}
+
 // ---- ツール実行 ----
 // ChatGPT Custom GPT Actions 用の REST ラッパー(gpt_actions.js)からも再利用する。
 export async function callTool(name, args, req) {
@@ -144,7 +165,9 @@ export async function callTool(name, args, req) {
         from: args && args.from,
         to: args && args.to,
       });
-      return rows;
+      // 会社プロフィール（業界・従業員数・事業内容など）を各案件に付与
+      const pmap = await buildProfileMap();
+      return rows.map((d) => ({ ...d, company_profile: profileFromMap(pmap, d.company_name) }));
     }
     case "get_deal_events": {
       let rows = await listDealEvents({
@@ -161,6 +184,9 @@ export async function callTool(name, args, req) {
       if (!args || !args.deal_id) throw new Error("deal_id が必要です");
       const d = await getDealWithEvents(args.deal_id);
       if (!d) throw new Error("案件が見つかりません");
+      // 案件詳細に会社プロフィール（業界・従業員数・事業内容など）を付与
+      const pmap = await buildProfileMap();
+      d.company_profile = profileFromMap(pmap, d.company_name);
       return d;
     }
     case "list_meetings": {

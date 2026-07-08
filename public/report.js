@@ -400,7 +400,7 @@ function sparkline(points) {
 // ===== インターンアポ ダッシュボード =====
 function iaDates() {
   const f = $("iaFrom"), t = $("iaTo");
-  if (f && !f.value) { const d = new Date(Date.now() - 90 * 86400 * 1000); f.value = d.toISOString().slice(0, 10); }
+  if (f && !f.value) f.value = todayStr();
   if (t && !t.value) t.value = todayStr();
   return { from: f ? f.value : "", to: t ? t.value : "" };
 }
