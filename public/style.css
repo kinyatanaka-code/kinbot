@@ -2234,3 +2234,6 @@ body {
 /* ボタン：押下フィードバックを立体的に（既存のグラデ＋影を活かす） */
 .btn:hover { transform: translateY(-1px); box-shadow: 0 6px 16px rgba(15,110,98,.34); filter: brightness(1.04); }
 .btn:active { transform: translateY(0); box-shadow: 0 1px 4px rgba(15,110,98,.3); }
+
+/* カスタム分析の出力（■/　・ 付きの整形テキストをそのまま表示） */
+.custom-out { white-space: pre-wrap; font-size: 13.5px; line-height: 1.85; color: #222; word-break: break-word; }

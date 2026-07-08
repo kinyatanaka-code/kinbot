@@ -506,6 +506,7 @@ async function loadDetail(botId) {
       <div class="tabs">
         <button class="tab active" data-tab="trans">文字起こし</button>
         <button class="tab" data-tab="summary">要約</button>
+        <button class="tab" data-tab="custom">カスタム分析</button>
         <button class="tab" data-tab="ailog">AI提案ログ</button>
         <button class="tab" data-tab="fb">FB & 分析</button>
         <button class="tab" data-tab="thanks">御礼メール</button>
@@ -520,6 +521,10 @@ async function loadDetail(botId) {
           <div id="dnoteWrap"></div>
           <div class="pane-bar"><button class="btn ghost copy-mini" id="copySummary">コピー</button></div>
           <div id="dsummary" class="pane-content"></div>
+        </div>
+        <div class="tabpane" data-pane="custom" hidden>
+          <div class="pane-bar"><button class="btn ghost" id="customRunBtn">再実行</button><button class="btn ghost copy-mini" id="copyCustom">コピー</button></div>
+          <div id="dcustom" class="pane-content"></div>
         </div>
         <div class="tabpane" data-pane="ailog" hidden>
           <div class="ai-feed" id="dailog"></div>
@@ -564,11 +569,37 @@ async function loadDetail(botId) {
       </div>`;
 
     // タブ切替
+    // カスタム分析（ユーザー定義プロンプト）：タブを開いたら実行（保存済みは即表示、無ければ自動実行）
+    const dcustom = hdetail.querySelector("#dcustom");
+    const customRunBtn = hdetail.querySelector("#customRunBtn");
+    let customLoaded = false;
+    async function loadCustom(regen) {
+      if (!dcustom) return;
+      customLoaded = true;
+      window.kbProgress(dcustom, { percent: null, label: regen ? "カスタム分析を実行しています…（数十秒かかります）" : "カスタム分析を読み込んでいます…" });
+      try {
+        const r = await fetch(`/api/meetings/${encodeURIComponent(botId)}/custom-analysis`, {
+          method: "POST", headers: { "content-type": "application/json" },
+          body: JSON.stringify({ regen: !!regen }),
+        });
+        const data = await r.json();
+        window.kbProgress(dcustom, { clear: true });
+        if (!r.ok) { dcustom.innerHTML = `<div class="empty-state">${escapeHtml(data.error || "実行に失敗しました")}</div>`; return; }
+        const t = (data.result || "").trim();
+        dcustom.innerHTML = t ? `<div class="custom-out">${escapeHtml(t)}</div>` : '<div class="empty-state">結果がありません。「再実行」を押してください。</div>';
+      } catch (e) {
+        window.kbProgress(dcustom, { clear: true });
+        dcustom.innerHTML = `<div class="empty-state">${escapeHtml(e.message)}</div>`;
+      }
+    }
+    if (customRunBtn) customRunBtn.addEventListener("click", () => loadCustom(true));
+
     hdetail.querySelectorAll(".tab").forEach((tab) => {
       tab.addEventListener("click", () => {
         hdetail.querySelectorAll(".tab").forEach((t) => t.classList.toggle("active", t === tab));
         const name = tab.dataset.tab;
         hdetail.querySelectorAll(".tabpane").forEach((p) => (p.hidden = p.dataset.pane !== name));
+        if (name === "custom" && !customLoaded) loadCustom(false);
       });
     });
 
@@ -601,6 +632,8 @@ async function loadDetail(botId) {
     hdetail.querySelector("#copyFb").addEventListener("click", (e) =>
       copyText(hdetail.querySelector("#dfbwrap").innerText, e.currentTarget)
     );
+    const copyCustomBtn = hdetail.querySelector("#copyCustom");
+    if (copyCustomBtn) copyCustomBtn.addEventListener("click", (e) => copyText(hdetail.querySelector("#dcustom").innerText, e.currentTarget));
     // 御礼メール生成
     const thanksGen = hdetail.querySelector("#thanksGen");
     const thanksSubject = hdetail.querySelector("#thanksSubject");

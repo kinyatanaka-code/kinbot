@@ -406,6 +406,7 @@ curl -H "Authorization: Bearer <span class="cc-tok">&lt;トークン&gt;</span>"
             <div class="subtabs" id="aiSubtabs">
               <button class="subtab active" data-sub="check">チェック項目</button>
               <button class="subtab" data-sub="summary">要約の指示</button>
+              <button class="subtab" data-sub="custom">カスタム分析</button>
             </div>
 
             <div class="subpane" data-sub="check">
@@ -430,6 +431,19 @@ curl -H "Authorization: Bearer <span class="cc-tok">&lt;トークン&gt;</span>"
                   <button class="btn" id="saveSummaryPromptBtn">保存</button>
                   <button class="btn ghost" id="clearSummaryPromptBtn">クリア</button>
                   <span class="saved" id="summaryPromptSaved" hidden>保存しました</span>
+                </div>
+              </div>
+            </div>
+
+            <div class="subpane" data-sub="custom" hidden>
+              <div class="set-card">
+                <h3>カスタム分析プロンプト（チーム共有）</h3>
+                <p class="note">ここに貼り付けたプロンプトを、各商談の文字起こしに対して実行できます。実行結果は商談履歴の詳細に「カスタム分析」タブとして表示されます。文字起こしを入れたい箇所には <code>{transcript}</code> と書けばそこに差し込まれます（省略した場合は末尾に自動で添付）。空欄なら機能はオフです。</p>
+                <textarea id="customPrompt" rows="14" placeholder="例：&#10;# 役割&#10;あなたは営業商談を分析するアシスタントです。以下の9項目を抽出してください。&#10;…（ルール・出力フォーマット）…&#10;&#10;# 対象の文字起こし&#10;{transcript}"></textarea>
+                <div class="modal-actions">
+                  <button class="btn" id="saveCustomPromptBtn">保存</button>
+                  <button class="btn ghost" id="clearCustomPromptBtn">クリア</button>
+                  <span class="saved" id="customPromptSaved" hidden>保存しました</span>
                 </div>
               </div>
             </div>

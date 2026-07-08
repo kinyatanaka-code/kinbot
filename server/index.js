@@ -24,6 +24,7 @@ import {
   initDb,
   listMeetings,
   getMeeting,
+  saveCustomAnalysis,
   saveSettings,
   saveAnalysis,
   getSettings,
@@ -96,7 +97,7 @@ import {
   deleteKbFolder,
 } from "./db.js";
 import { resolveConfig, statusInfo } from "./config.js";
-import { analyzerInfo, analyzeMeeting, analyzeDeep, freeAnalyze, chatWithData, enrichCompany, generateThanks, THANKS_PROMPT, getCheckItems, getSummaryPrompt, classifyMeetingKind, extractFirstMeeting, extractReMeeting, buildBrief } from "./analyzer.js";
+import { analyzerInfo, analyzeMeeting, analyzeDeep, freeAnalyze, chatWithData, enrichCompany, generateThanks, THANKS_PROMPT, getCheckItems, getSummaryPrompt, getCustomPrompt, runCustomAnalysis, classifyMeetingKind, extractFirstMeeting, extractReMeeting, buildBrief } from "./analyzer.js";
 import {
   googleConfigured,
   authUrl,
@@ -2005,6 +2006,48 @@ app.put("/api/judge-provider", async (req, res) => {
     const r = await saveSettings({ judgeProvider: p });
     res.json({ ok: true, provider: p, ...r });
   } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// カスタム分析プロンプト（チーム共有）。商談ごとにこのプロンプトを文字起こしに対して実行できる。
+app.get("/api/custom-prompt", async (req, res) => {
+  try { res.json({ prompt: await getCustomPrompt() }); }
+  catch (e) { res.status(500).json({ error: e.message }); }
+});
+app.put("/api/custom-prompt", async (req, res) => {
+  try {
+    const prompt = String((req.body && req.body.prompt) || "").slice(0, 12000);
+    const r = await saveSettings({ customPrompt: prompt });
+    res.json({ ok: true, prompt, ...r });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// ある商談にカスタム分析を実行（保存＆返却）。
+//  peek=true … 保存済みがあれば返す／無ければ実行しない
+//  regen=true … 保存済みを無視して作り直す
+app.post("/api/meetings/:id/custom-analysis", async (req, res) => {
+  try {
+    const botId = req.params.id;
+    const m = await getMeeting(botId);
+    if (!m) return res.status(404).json({ error: "商談が見つかりません" });
+    if (!req.isAdmin && m.owner && m.owner !== req.user) return res.status(403).json({ error: "この商談を見る権限がありません" });
+
+    const peek = !!(req.body && req.body.peek);
+    const regen = !!(req.body && req.body.regen);
+    if (!regen && m.custom_analysis) return res.json({ result: m.custom_analysis, cached: true });
+    if (peek) return res.json({ result: null, cached: false });
+
+    const prompt = await getCustomPrompt();
+    if (!prompt) return res.status(400).json({ error: "カスタム分析プロンプトが未設定です。設定→プロンプト設定→カスタム分析 で保存してください。" });
+    const tr = m.transcript;
+    if (!tr || (Array.isArray(tr) && !tr.length)) return res.status(400).json({ error: "この商談には文字起こしがありません。" });
+
+    const result = await runCustomAnalysis(tr, prompt);
+    await saveCustomAnalysis(botId, result);
+    res.json({ result, cached: false });
+  } catch (e) {
+    console.error("[custom-analysis]", e);
+    res.status(500).json({ error: e.message });
+  }
 });
 
 // --- 商談終了：Botを退出させる ---

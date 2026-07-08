@@ -1328,6 +1328,28 @@ loadKnowledge();
   load();
 })();
 
+// ===== カスタム分析プロンプト（チーム共有） =====
+(function () {
+  const ta = document.getElementById("customPrompt");
+  const saveBtn = document.getElementById("saveCustomPromptBtn");
+  const clearBtn = document.getElementById("clearCustomPromptBtn");
+  const saved = document.getElementById("customPromptSaved");
+  if (!ta || !saveBtn) return;
+  async function load() {
+    try { const d = await (await fetch("/api/custom-prompt")).json(); ta.value = d.prompt || ""; } catch {}
+  }
+  async function save(val) {
+    const r = await fetch("/api/custom-prompt", {
+      method: "PUT", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ prompt: val }),
+    });
+    if (r.ok && saved) { saved.hidden = false; setTimeout(() => (saved.hidden = true), 1500); }
+  }
+  saveBtn.addEventListener("click", () => save(ta.value));
+  if (clearBtn) clearBtn.addEventListener("click", () => { ta.value = ""; save(""); });
+  load();
+})();
+
 // ===== Notion連携 =====
 (function () {
   const saveBtn = document.getElementById("saveNotionBtn");

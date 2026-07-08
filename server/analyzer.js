@@ -30,6 +30,28 @@ export async function getSummaryPrompt() {
     return s && typeof s.summaryPrompt === "string" ? s.summaryPrompt.trim() : "";
   } catch { return ""; }
 }
+
+// カスタム分析プロンプト（設定でユーザーが貼り付けた任意のプロンプト。空なら機能オフ）
+export async function getCustomPrompt() {
+  try {
+    const s = await getSettings();
+    return s && typeof s.customPrompt === "string" ? s.customPrompt.trim() : "";
+  } catch { return ""; }
+}
+
+// ユーザー定義プロンプトを、その商談の文字起こしに対して実行する。
+// プロンプト内の {transcript}/{文字起こし}/{ここに…挿入} を文字起こしに置換。無ければ末尾に添付。
+export async function runCustomAnalysis(transcript, prompt) {
+  const p = String(prompt || "").trim();
+  if (!p) return "";
+  const text = transcriptToText(transcript).slice(0, 45000);
+  const ph = /\{\s*(transcript|文字起こし|ここに[^}]*挿入[^}]*)\s*\}/;
+  let user;
+  if (ph.test(p)) user = p.replace(ph, text);
+  else user = `${p}\n\n# 対象の文字起こし\n"""\n${text}\n"""`;
+  const sys = "あなたは与えられた指示に厳密に従って商談を分析するアシスタントです。指示に書かれたフォーマット・ルールをそのまま守って出力してください。指示以外の前置きや後書きは加えないでください。";
+  return await callLLM(sys, user, 2500, { json: false });
+}
 function summaryInstructionBlock(instr) {
   if (!instr) return "";
   return (

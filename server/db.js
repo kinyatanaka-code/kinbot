@@ -42,6 +42,7 @@ export async function initDb() {
   await pool.query(`ALTER TABLE meetings ADD COLUMN IF NOT EXISTS deal_kind TEXT;`);
   await pool.query(`ALTER TABLE meetings ADD COLUMN IF NOT EXISTS status TEXT;`);
   await pool.query(`ALTER TABLE meetings ADD COLUMN IF NOT EXISTS mux_playback_id TEXT;`);
+  await pool.query(`ALTER TABLE meetings ADD COLUMN IF NOT EXISTS custom_analysis TEXT;`);
   await pool.query(`ALTER TABLE meetings ADD COLUMN IF NOT EXISTS ai_log JSONB;`);
   await pool.query(`ALTER TABLE meetings ADD COLUMN IF NOT EXISTS metrics JSONB;`);
   await pool.query(`ALTER TABLE meetings ADD COLUMN IF NOT EXISTS account TEXT;`);
@@ -1010,6 +1011,14 @@ export async function listUsers() {
   } catch {
     return [];
   }
+}
+
+// カスタム分析（ユーザー定義プロンプトの実行結果）を商談に保存
+export async function saveCustomAnalysis(botId, text) {
+  if (!pool) return;
+  try {
+    await pool.query(`UPDATE meetings SET custom_analysis=$2 WHERE bot_id=$1`, [botId, text || null]);
+  } catch (e) { console.error("[db] saveCustomAnalysis", e.message); }
 }
 
 export async function getMeeting(botId) {
