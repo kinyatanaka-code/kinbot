@@ -2065,13 +2065,11 @@ button.pipe-cell { background: none; border: none; cursor: pointer; color: #0F6E
 .brief-qa-a { margin-top: 8px; font-size: 12.5px; color: #334; line-height: 1.7; }
 .brief-meta { margin-top: 10px; font-size: 11px; color: var(--muted); text-align: right; }
 .check-item.focus { box-shadow: inset 3px 0 0 #1D9E75; }
-/* 会社プロフィール：折りたたみ */
-details.deal-profile > summary { cursor: pointer; list-style: none; }
-details.deal-profile > summary::-webkit-details-marker { display: none; }
-details.deal-profile > summary.prof-summary::before { content: "▸ "; color: var(--muted); font-weight: 400; }
-details.deal-profile[open] > summary.prof-summary::before { content: "▾ "; }
-details.deal-profile > summary.prof-summary { margin-bottom: 0; }
-details.deal-profile[open] > summary.prof-summary { margin-bottom: 12px; }
+/* 案件詳細：画面ごと切り替えるタブ */
+.deal-tabs { display: flex; gap: 4px; flex-wrap: wrap; margin: 6px 0 16px; border-bottom: 1px solid var(--line); }
+.deal-tab { font-size: 13px; font-weight: 600; color: var(--muted); background: none; border: none; border-bottom: 2px solid transparent; padding: 8px 14px; cursor: pointer; margin-bottom: -1px; white-space: nowrap; }
+.deal-tab:hover { color: #223; }
+.deal-tab.active { color: #0F6E56; border-bottom-color: #0F6E56; }
 /* 判定モデルの選択 */
 .judge-model { margin-left: 8px; font-size: 12px; padding: 3px 8px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); color: #445; font-weight: 400; vertical-align: middle; }
 @media (max-width: 640px) { .brief-grid { grid-template-columns: 1fr; } }

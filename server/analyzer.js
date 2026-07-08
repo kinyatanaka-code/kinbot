@@ -1104,9 +1104,11 @@ async function getJudgeProviderSetting() {
 
 // Claudeが失敗したら必ず Gemini にフォールバックする（EXTRACT_FALLBACK で変更可、既定 gemini）。
 // 判定モデルは設定（judgeProvider＝画面で選択）を最優先。未設定なら環境変数 EXTRACT_PROVIDER（既定 anthropic）。
-async function extractLLMOpts(extra = {}) {
-  const sel = await getJudgeProviderSetting(); // "anthropic"|"gemini"|""
-  const provider = sel || (process.env.EXTRACT_PROVIDER || "anthropic").toLowerCase();
+async function extractLLMOpts(extra = {}, forceProvider) {
+  // forceProvider が指定されれば最優先（商談終わりの自動判定でClaude固定にするため）
+  const forced = forceProvider === "anthropic" || forceProvider === "gemini" ? forceProvider : "";
+  const sel = forced || (await getJudgeProviderSetting()); // "anthropic"|"gemini"|""
+  const provider = sel || (process.env.EXTRACT_PROVIDER || "gemini").toLowerCase();
   const model = sel
     ? (provider === "anthropic" ? (process.env.ANALYZER_MODEL || "claude-sonnet-4-6") : undefined)
     : (process.env.EXTRACT_MODEL || (provider === "anthropic" ? (process.env.ANALYZER_MODEL || "claude-sonnet-4-6") : undefined));
@@ -1121,7 +1123,7 @@ function transcriptToText(transcript) {
 }
 
 // 商談種別を判定：初回商談 / 再商談 / 判定不能
-export async function classifyMeetingKind(transcript) {
+export async function classifyMeetingKind(transcript, opts = {}) {
   const text = transcriptToText(transcript).slice(0, 40000);
   const sys =
     "あなたは営業商談の文字起こしを読み、商談の種別を分類するアシスタントです。次の3つから1つを選びます。" +
@@ -1138,13 +1140,13 @@ export async function classifyMeetingKind(transcript) {
     },
     required: ["meeting_kind", "confidence"],
   };
-  const out = parseJson(await callLLM(sys, user, 300, await extractLLMOpts({ schema }))) || {};
+  const out = parseJson(await callLLM(sys, user, 300, await extractLLMOpts({ schema }, opts.provider))) || {};
   const kind = ["初回商談", "再商談", "判定不能"].includes(out.meeting_kind) ? out.meeting_kind : "判定不能";
   return { meeting_kind: kind, confidence: out.confidence === "high" ? "high" : "low" };
 }
 
 // 初回商談の抽出（依頼書4.2 確定版プロンプト）
-export async function extractFirstMeeting(transcript, meetingDate) {
+export async function extractFirstMeeting(transcript, meetingDate, opts = {}) {
   const text = transcriptToText(transcript).slice(0, 45000);
   const sys =
     "あなたは営業商談の文字起こしから、指定された項目のみを抽出するアシスタントです。" +
@@ -1185,7 +1187,7 @@ export async function extractFirstMeeting(transcript, meetingDate) {
     const extraNote = attempt > 1
       ? `\n\n（注意：前回の抽出は自信度lowでした。文字起こしを丁寧に読み直し、顧客の発言の該当箇所を根拠に、各区分を厳密に判定してください。明確な根拠が本当に無い項目だけを不明としてください。）`
       : "";
-    const o = parseJson(await callLLM(sys, user + extraNote, 700, await extractLLMOpts({ schema }))) || {};
+    const o = parseJson(await callLLM(sys, user + extraNote, 700, await extractLLMOpts({ schema }, opts.provider))) || {};
     const result = {
       schedule_choice: o.schedule_choice || "不明",
       schedule_choice_detail: o.schedule_choice_detail || "",
@@ -1203,7 +1205,7 @@ export async function extractFirstMeeting(transcript, meetingDate) {
 }
 
 // 再商談（上申準備）の抽出（依頼書4.3）
-export async function extractReMeeting(transcript, meetingDate) {
+export async function extractReMeeting(transcript, meetingDate, opts = {}) {
   const text = transcriptToText(transcript).slice(0, 45000);
   const sys =
     "あなたは営業商談（再商談・上申準備）の文字起こしから、指定された項目のみを抽出するアシスタントです。" +
@@ -1235,7 +1237,7 @@ export async function extractReMeeting(transcript, meetingDate) {
     const extraNote = attempt > 1
       ? `\n\n（注意：前回の抽出は自信度lowでした。文字起こしを丁寧に読み直し、受注/失注/延期/未確定を発言の根拠に基づき厳密に判定してください。明確な根拠が無い場合のみ未確定としてください。）`
       : "";
-    const o = parseJson(await callLLM(sys, user + extraNote, 700, await extractLLMOpts({ schema }))) || {};
+    const o = parseJson(await callLLM(sys, user + extraNote, 700, await extractLLMOpts({ schema }, opts.provider))) || {};
     const result = {
       reported_date: o.reported_date || null,
       apply_date: o.apply_date || null,

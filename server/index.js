@@ -593,7 +593,7 @@ function deriveFirstMeeting(ext, meetingMonth, meetingDateStr) {
 }
 
 // 1商談を抽出してイベントログに保存する（finalize / アップロード / 手動 / バックフィルから呼ぶ）
-async function runExtraction(botId) {
+async function runExtraction(botId, forceProvider) {
   const m = await getMeeting(botId);
   if (!m) throw new Error("商談が見つかりません");
   if (m.category && m.category !== "商談") return null; // 商談以外は対象外
@@ -609,7 +609,7 @@ async function runExtraction(botId) {
   const meetingMonth = meetingDateStr.slice(0, 7);
 
   // 種別判定
-  const kindRes = await classifyMeetingKind(transcript);
+  const kindRes = await classifyMeetingKind(transcript, { provider: forceProvider });
   const kind = kindRes.meeting_kind;
 
   // 既存の同一商談イベントを消してから入れ直す（再抽出の重複防止）
@@ -630,7 +630,7 @@ async function runExtraction(botId) {
   }
 
   if (kind === "初回商談") {
-    const ext = await extractFirstMeeting(transcript, meetingDateStr);
+    const ext = await extractFirstMeeting(transcript, meetingDateStr, { provider: forceProvider });
     const der = deriveFirstMeeting(ext, meetingMonth, meetingDateStr);
     await insertDealEvent({
       deal_id: deal && deal.deal_id, bot_id: botId, event_date: meetingDateStr,
@@ -649,7 +649,7 @@ async function runExtraction(botId) {
   }
 
   // 再商談
-  const ext = await extractReMeeting(transcript, meetingDateStr);
+  const ext = await extractReMeeting(transcript, meetingDateStr, { provider: forceProvider });
   const needs_review = ext.confidence === "low";
   let status = "再商談実施済み";
   if (ext.result === "受注") status = "受注";
@@ -668,7 +668,7 @@ async function runExtraction(botId) {
 // 投げっぱなし実行（finalizeをブロックしない）
 function runExtractionSafe(botId) {
   Promise.resolve()
-    .then(() => runExtraction(botId))
+    .then(() => runExtraction(botId, "anthropic")) // 商談終わりの自動判定はClaude固定
     .catch((e) => console.warn("[extract] スキップ", botId, e.message));
 }
 // 録音ボット経由の商談確定後にも抽出を走らせる（sessions.js から呼ばれる）

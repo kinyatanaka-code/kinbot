@@ -784,20 +784,50 @@ async function selectDeal(account) {
     `</div>` +
     (statusOf(account) === "失注" && lastLostReason(ms) ? `<div class="lost-reason">AI判定の失注理由: ${esc(lastLostReason(ms))}</div>` : "") +
     `</div>` +
-    // 1. 会社プロフィール（重くなるので折りたたみ・既定は閉じる）
-    `<details class="deal-sec deal-profile"><summary class="deal-sec-h prof-summary">🏢 会社プロフィール</summary>` +
-    `<div class="prof-url"><textarea id="profUrl" rows="2" placeholder="企業サイトURL（複数可・改行かカンマで区切り。空でも会社名でWeb検索します）"></textarea><button class="btn" id="profGet">取得</button></div>` +
-    `<div class="prof-status" id="profStatus"></div>` +
-    `<div id="profBody"></div></details>` +
-    // 2. 判定（判定に使うAIモデルを選択できる）
-    `<section class="deal-sec newproc-sec"><div class="deal-sec-h">📊 新プロセスの判定 <select class="judge-model" id="judgeModel" title="判定に使うAIモデル（チーム共通の設定）"><option value="">モデル: 既定</option><option value="anthropic">モデル: Claude</option><option value="gemini">モデル: Gemini</option></select></div><div id="newProcBox"><div class="empty-state">読み込み中…</div></div></section>` +
-    // 3. 商談準備（事前ブリーフ）
+    // ▼ 画面ごと切り替えるタブ
+    `<div class="deal-tabs" id="dealTabs">` +
+    `<button class="deal-tab active" data-dtab="judge">📊 判定</button>` +
+    `<button class="deal-tab" data-dtab="brief">🎯 商談準備</button>` +
+    `<button class="deal-tab" data-dtab="qa">💬 想定問答</button>` +
+    `<button class="deal-tab" data-dtab="profile">🏢 会社プロフィール</button>` +
+    `<button class="deal-tab" data-dtab="flow">🗂 商談の流れ</button>` +
+    `</div>` +
+    // 判定（既定タブ）
+    `<div class="deal-tabpane" data-dtab="judge">` +
+    `<section class="deal-sec newproc-sec"><div class="deal-sec-h">📊 新プロセスの判定 <select class="judge-model" id="judgeModel" title="判定に使うAIモデル（チーム共通の設定）"><option value="">モデル: 既定(Gemini)</option><option value="anthropic">モデル: Claude</option><option value="gemini">モデル: Gemini</option></select></div><div id="newProcBox"><div class="empty-state">読み込み中…</div></div></section>` +
+    `</div>` +
+    // 商談準備（事前ブリーフ）
+    `<div class="deal-tabpane" data-dtab="brief" hidden>` +
     `<section class="deal-sec brief-sec"><div class="deal-sec-h">🎯 商談準備（事前ブリーフ）<button class="btn ghost brief-gen-btn" id="briefGen">再作成</button><span class="brief-status" id="briefStatus"></span></div>` +
     `<div id="briefBox"><div class="empty-state">読み込み中…</div></div></section>` +
-    // 4. 想定問答
+    `</div>` +
+    // 想定問答
+    `<div class="deal-tabpane" data-dtab="qa" hidden>` +
     `<section class="deal-sec brief-qa-sec"><div class="deal-sec-h">💬 想定問答</div><div id="briefQaBox"><div class="empty-state">読み込み中…</div></div></section>` +
-    // 5. 商談の流れ
-    `<section class="deal-sec"><div class="deal-sec-h">🗂 商談の流れ</div><div class="deal-timeline" id="dealTimeline"></div></section>`;
+    `</div>` +
+    // 会社プロフィール
+    `<div class="deal-tabpane" data-dtab="profile" hidden>` +
+    `<section class="deal-sec deal-profile"><div class="deal-sec-h">🏢 会社プロフィール</div>` +
+    `<div class="prof-url"><textarea id="profUrl" rows="2" placeholder="企業サイトURL（複数可・改行かカンマで区切り。空でも会社名でWeb検索します）"></textarea><button class="btn" id="profGet">取得</button></div>` +
+    `<div class="prof-status" id="profStatus"></div>` +
+    `<div id="profBody"></div></section>` +
+    `</div>` +
+    // 商談の流れ
+    `<div class="deal-tabpane" data-dtab="flow" hidden>` +
+    `<section class="deal-sec"><div class="deal-sec-h">🗂 商談の流れ</div><div class="deal-timeline" id="dealTimeline"></div></section>` +
+    `</div>`;
+
+  // タブ切り替え（画面ごと）
+  const dealTabs = document.getElementById("dealTabs");
+  if (dealTabs) {
+    dealTabs.querySelectorAll(".deal-tab").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const t = btn.dataset.dtab;
+        dealTabs.querySelectorAll(".deal-tab").forEach((b) => b.classList.toggle("active", b === btn));
+        document.querySelectorAll(".deal-tabpane").forEach((p) => (p.hidden = p.dataset.dtab !== t));
+      });
+    });
+  }
 
   // ステータス変更
   $("dealStSel").addEventListener("change", async (e) => {
