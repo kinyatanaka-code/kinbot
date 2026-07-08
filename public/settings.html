@@ -27,7 +27,8 @@
             <button class="set-menu-item" data-tab="links">登録リンク</button>
             <button class="set-menu-item" data-tab="smartlinks">スマートリンク</button>
             <button class="set-menu-item" data-tab="integrations">連携</button>
-            <button class="set-menu-item" data-tab="ai">AI提案設定</button>
+            <button class="set-menu-item" data-tab="knowledge">自社ナレッジ</button>
+            <button class="set-menu-item" data-tab="ai">プロンプト設定</button>
             <button class="set-menu-item" data-tab="thanks">御礼メール例文</button>
             <button class="set-menu-item" data-tab="teams">チーム編集</button>
             <button class="set-menu-item" data-tab="interns">インターン登録</button>
@@ -371,13 +372,7 @@ curl -H "Authorization: Bearer <span class="cc-tok">&lt;トークン&gt;</span>"
 
             </div>
           </div>
-          <div class="set-pane" data-pane="ai" hidden>
-            <div class="subtabs" id="aiSubtabs">
-              <button class="subtab active" data-sub="kb">自社ナレッジ</button>
-              <button class="subtab" data-sub="check">チェック項目</button>
-            </div>
-
-            <div class="subpane" data-sub="kb">
+          <div class="set-pane" data-pane="knowledge" hidden>
             <div class="set-card">
               <h3>自社ナレッジ（チーム共有）</h3>
               <p class="note">PDF・画像・Webサイト・Googleドライブの資料を取り込むと、AIが中身を読み取り・構造化して蓄積し、ライブの提案／フィードバック／御礼メールに活用します。チーム全員に反映されます。</p>
@@ -405,9 +400,15 @@ curl -H "Authorization: Bearer <span class="cc-tok">&lt;トークン&gt;</span>"
               <ul class="kb-folders" id="kbFolders"></ul>
               <ul class="kb-list" id="kbList"></ul>
             </div>
+          </div>
+
+          <div class="set-pane" data-pane="ai" hidden>
+            <div class="subtabs" id="aiSubtabs">
+              <button class="subtab active" data-sub="check">チェック項目</button>
+              <button class="subtab" data-sub="summary">要約の指示</button>
             </div>
 
-            <div class="subpane" data-sub="check" hidden>
+            <div class="subpane" data-sub="check">
               <div class="set-card">
                 <h3>抜け漏れチェック項目（チーム共有）</h3>
                 <p class="note">商談中の「チェック」タブで充足を判定する項目です。1行に1項目。商談プロセスに合わせて自由に編集できます（最大15項目）。</p>
@@ -416,6 +417,19 @@ curl -H "Authorization: Bearer <span class="cc-tok">&lt;トークン&gt;</span>"
                   <button class="btn" id="saveCheckBtn">項目を保存</button>
                   <button class="btn ghost" id="resetCheckBtn">既定に戻す</button>
                   <span class="saved" id="checkSaved" hidden>保存しました</span>
+                </div>
+              </div>
+            </div>
+
+            <div class="subpane" data-sub="summary" hidden>
+              <div class="set-card">
+                <h3>商談履歴の要約プロンプト（チーム共有）</h3>
+                <p class="note">商談履歴に出る「要約」の書き方を、ここに書いた指示どおりに寄せられます。ライブ中の要約と、商談後の要約の両方に反映されます。空欄なら標準の要約になります。※ 要約の項目（全体状況／論点／合意事項／宿題／相手の懸念）の構成自体は変わりません。文章の書き方・観点・粒度を指定してください。</p>
+                <textarea id="summaryPrompt" rows="8" placeholder="例：&#10;・全体状況は3文以内で、結論から書く&#10;・相手の温度感（前向き / 慎重 / 懸念あり）を必ず1行入れる&#10;・専門用語や社内用語は避け、誰でも分かる言葉で&#10;・合意事項と宿題は『誰が・いつまでに・何を』が分かるように"></textarea>
+                <div class="modal-actions">
+                  <button class="btn" id="saveSummaryPromptBtn">保存</button>
+                  <button class="btn ghost" id="clearSummaryPromptBtn">クリア</button>
+                  <span class="saved" id="summaryPromptSaved" hidden>保存しました</span>
                 </div>
               </div>
             </div>

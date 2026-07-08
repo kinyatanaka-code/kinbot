@@ -681,7 +681,7 @@ function renderList() {
 }
 
 // ===== 事前ブリーフ =====
-async function loadBrief(company, regen, peek) {
+async function loadBrief(company, botIds, regen, peek) {
   const box = document.getElementById("briefBox");
   const st = document.getElementById("briefStatus");
   const btn = document.getElementById("briefGen");
@@ -694,7 +694,7 @@ async function loadBrief(company, regen, peek) {
   try {
     const r = await fetch("/api/deals/brief", {
       method: "POST", headers: { "content-type": "application/json" },
-      body: JSON.stringify({ company, regen: !!regen, peek: !!peek }),
+      body: JSON.stringify({ company, botIds: Array.isArray(botIds) ? botIds : [], regen: !!regen, peek: !!peek }),
     });
     const d = await r.json();
     if (!r.ok) throw new Error(d.error || "作成に失敗しました");
@@ -808,9 +808,10 @@ async function selectDeal(account) {
   loadNewProcess(displayName(account) || account, pk, ms);
   // 事前ブリーフ：開いたら自動表示（キャッシュがあれば即／無ければ自動生成）。ボタンは再作成。
   const briefCompany = displayName(account) || account;
+  const briefBotIds = ms.map((m) => m.bot_id).filter(Boolean);
   const briefGenBtn = document.getElementById("briefGen");
-  if (briefGenBtn) briefGenBtn.addEventListener("click", () => loadBrief(briefCompany, true, false));
-  loadBrief(briefCompany, false, false);
+  if (briefGenBtn) briefGenBtn.addEventListener("click", () => loadBrief(briefCompany, briefBotIds, true, false));
+  loadBrief(briefCompany, briefBotIds, false, false);
   // 担当（アカウント単位で選択・保存）
   await renderOwnerPicker(account, last);
   const profUrl = $("profUrl"), profGet = $("profGet"), profStatus = $("profStatus");

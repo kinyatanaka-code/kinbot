@@ -268,6 +268,7 @@ loadThanks();
       const name = item.dataset.tab;
       document.querySelectorAll(".set-pane").forEach((p) => (p.hidden = p.dataset.pane !== name));
       if (name === "teams") loadTeams();
+      if (name === "knowledge") loadKnowledge();
       if (name === "interns") loadInterns();
       if (name === "thanks") loadThanksPrompt();
       if (name === "integrations") showIntegGrid();
@@ -793,7 +794,7 @@ async function loadThanksPrompt() {
   });
 })();
 
-// ===== AI提案設定：サブタブ（自社ナレッジ / チェック項目） =====
+// ===== プロンプト設定：サブタブ（自社ナレッジ / チェック項目 / 要約の指示） =====
 (function () {
   const bar = document.getElementById("aiSubtabs");
   if (!bar) return;
@@ -1302,6 +1303,28 @@ loadKnowledge();
     save(items);
   });
   if (resetBtn) resetBtn.addEventListener("click", () => save(DEFAULTS));
+  load();
+})();
+
+// ===== 商談履歴の要約プロンプト（チーム共有） =====
+(function () {
+  const ta = document.getElementById("summaryPrompt");
+  const saveBtn = document.getElementById("saveSummaryPromptBtn");
+  const clearBtn = document.getElementById("clearSummaryPromptBtn");
+  const saved = document.getElementById("summaryPromptSaved");
+  if (!ta || !saveBtn) return;
+  async function load() {
+    try { const d = await (await fetch("/api/summary-prompt")).json(); ta.value = d.prompt || ""; } catch {}
+  }
+  async function save(val) {
+    const r = await fetch("/api/summary-prompt", {
+      method: "PUT", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ prompt: val }),
+    });
+    if (r.ok && saved) { saved.hidden = false; setTimeout(() => (saved.hidden = true), 1500); }
+  }
+  saveBtn.addEventListener("click", () => save(ta.value));
+  if (clearBtn) clearBtn.addEventListener("click", () => { ta.value = ""; save(""); });
   load();
 })();
 
