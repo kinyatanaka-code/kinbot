@@ -184,8 +184,9 @@ function renderKind(body, d) {
     const cls = focus.includes(k) ? "fn4-kpi-card fn4-kpi-main" : "fn4-kpi-card";
     html += `<div class="${cls}">
       <div class="fn4-kpi-head">${kindBadgeEl(k)}</div>
-      <div class="fn4-kpi-num">${r.re_meetings}</div>
-      <div class="fn4-kpi-sub">初回${r.first_meetings}・転換率${rate}%</div>
+      <div class="fn4-kpi-num">${r.first_meetings}</div>
+      <div class="fn4-kpi-numlabel">初回商談実施</div>
+      <div class="fn4-kpi-sub">再商談実施${r.re_meetings}・転換率${rate}%</div>
       <div class="fn4-kind-rows"><span>失注 ${r.lost}</span><span>受注 ${r.won}</span></div>
     </div>`;
   }
@@ -204,7 +205,7 @@ function renderKind(body, d) {
       if (kinds.length) {
         html += '<div class="fn4-team-kinds">';
         for (const r of kinds) {
-          html += `<div class="fn4-team-kind-row">${kindBadgeEl(r.kind)}<span class="fn4-team-kind-num">初回${r.first_meetings}</span><span class="fn4-team-kind-num">失注${r.lost}</span><span class="fn4-team-kind-num fn4-team-kind-re">再${r.re_meetings}</span><span class="fn4-team-kind-num">受注${r.won}</span></div>`;
+          html += `<div class="fn4-team-kind-row">${kindBadgeEl(r.kind)}<span class="fn4-team-kind-num">初回${r.first_meetings}</span><span class="fn4-team-kind-num">失注${r.lost}</span><span class="fn4-team-kind-num fn4-team-kind-re">実施${r.re_meetings}</span><span class="fn4-team-kind-num">受注${r.won}</span></div>`;
         }
         html += "</div>";
       } else {
