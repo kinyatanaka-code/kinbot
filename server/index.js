@@ -1990,6 +1990,23 @@ app.put("/api/summary-prompt", async (req, res) => {
   }
 });
 
+// 判定モデル（Claude/Gemini）の選択（チーム共有）。空文字は「環境変数の既定に従う」。
+app.get("/api/judge-provider", async (req, res) => {
+  try {
+    const s = await getSettings();
+    const v = s && (s.judgeProvider === "anthropic" || s.judgeProvider === "gemini") ? s.judgeProvider : "";
+    res.json({ provider: v });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+app.put("/api/judge-provider", async (req, res) => {
+  try {
+    let p = String((req.body && req.body.provider) || "").toLowerCase();
+    if (p !== "anthropic" && p !== "gemini") p = "";
+    const r = await saveSettings({ judgeProvider: p });
+    res.json({ ok: true, provider: p, ...r });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 // --- 商談終了：Botを退出させる ---
 app.post("/api/sessions/:id/stop", async (req, res) => {
   await leaveBot(req.params.id);

@@ -784,13 +784,13 @@ async function selectDeal(account) {
     `</div>` +
     (statusOf(account) === "失注" && lastLostReason(ms) ? `<div class="lost-reason">AI判定の失注理由: ${esc(lastLostReason(ms))}</div>` : "") +
     `</div>` +
-    // 1. 会社プロフィール
-    `<section class="deal-sec deal-profile"><div class="deal-sec-h">🏢 会社プロフィール</div>` +
+    // 1. 会社プロフィール（重くなるので折りたたみ・既定は閉じる）
+    `<details class="deal-sec deal-profile"><summary class="deal-sec-h prof-summary">🏢 会社プロフィール</summary>` +
     `<div class="prof-url"><textarea id="profUrl" rows="2" placeholder="企業サイトURL（複数可・改行かカンマで区切り。空でも会社名でWeb検索します）"></textarea><button class="btn" id="profGet">取得</button></div>` +
     `<div class="prof-status" id="profStatus"></div>` +
-    `<div id="profBody"></div></section>` +
-    // 2. 判定
-    `<section class="deal-sec newproc-sec"><div class="deal-sec-h">📊 新プロセスの判定</div><div id="newProcBox"><div class="empty-state">読み込み中…</div></div></section>` +
+    `<div id="profBody"></div></details>` +
+    // 2. 判定（判定に使うAIモデルを選択できる）
+    `<section class="deal-sec newproc-sec"><div class="deal-sec-h">📊 新プロセスの判定 <select class="judge-model" id="judgeModel" title="判定に使うAIモデル（チーム共通の設定）"><option value="">モデル: 既定</option><option value="anthropic">モデル: Claude</option><option value="gemini">モデル: Gemini</option></select></div><div id="newProcBox"><div class="empty-state">読み込み中…</div></div></section>` +
     // 3. 商談準備（事前ブリーフ）
     `<section class="deal-sec brief-sec"><div class="deal-sec-h">🎯 商談準備（事前ブリーフ）<button class="btn ghost brief-gen-btn" id="briefGen">再作成</button><span class="brief-status" id="briefStatus"></span></div>` +
     `<div id="briefBox"><div class="empty-state">読み込み中…</div></div></section>` +
@@ -820,6 +820,19 @@ async function selectDeal(account) {
   const npBox = document.getElementById("newProcBox");
   if (npBox) npBox._ctx = { botIds: ms.map((m) => m.bot_id).filter(Boolean), companyName: displayName(account) || account, pk, ms };
   loadNewProcess(displayName(account) || account, pk, ms);
+  // 判定モデル（Claude/Gemini）: 現在の設定を反映し、変更したらチーム共通設定として保存
+  const jm = document.getElementById("judgeModel");
+  if (jm) {
+    fetch("/api/judge-provider").then((r) => r.json()).then((d) => { jm.value = d.provider || ""; }).catch(() => {});
+    jm.addEventListener("change", async () => {
+      try {
+        await fetch("/api/judge-provider", {
+          method: "PUT", headers: { "content-type": "application/json" },
+          body: JSON.stringify({ provider: jm.value }),
+        });
+      } catch {}
+    });
+  }
   // 事前ブリーフ：開いたら自動表示（キャッシュがあれば即／無ければ自動生成）。ボタンは再作成。
   const briefCompany = displayName(account) || account;
   const briefBotIds = ms.map((m) => m.bot_id).filter(Boolean);

@@ -559,8 +559,9 @@ export async function judgePhase(transcript, opts = {}) {
   // フェーズ判定だけ、他のタスクと別のプロバイダ/モデルを使えるようにする（コスト最適化）。
   // 例：普段のLLM_PROVIDERはgemini（激安）にしておき、PHASE_PROVIDER=anthropic + PHASE_MODEL=claude-haiku... で
   // 「判定だけClaude、それ以外は全部Gemini」という構成にできる。未設定なら通常のLLM_PROVIDERを使う。
-  const phaseProvider = (process.env.PHASE_PROVIDER || "").toLowerCase() || undefined;
-  const phaseModel = process.env.PHASE_MODEL || undefined;
+  const jsel = await getJudgeProviderSetting();
+  const phaseProvider = jsel || (process.env.PHASE_PROVIDER || "").toLowerCase() || undefined;
+  const phaseModel = jsel ? undefined : (process.env.PHASE_MODEL || undefined);
   const text = await callLLM(sys, user, 3500, { schema: PHASE_JSON_SCHEMA, cachePrefix, provider: phaseProvider, model: phaseModel });
   const o = parseJson(text) || {};
   const pick = (p) => (o && o[p] && typeof o[p] === "object" ? o[p] : {});
@@ -1092,11 +1093,23 @@ export async function generateThanks({ round, examples, summaryText, repName, cu
 
 // transcript(配列 or 文字列)を「話者: 発言」形式のテキストにする
 // 抽出（種別判定・初回・再商談）に使うLLM。既定は Anthropic Claude。
+// 判定に使うプロバイダを設定から取得（"anthropic"|"gemini"|""）。未設定は空＝環境変数にフォールバック。
+async function getJudgeProviderSetting() {
+  try {
+    const s = await getSettings();
+    if (s && (s.judgeProvider === "anthropic" || s.judgeProvider === "gemini")) return s.judgeProvider;
+  } catch {}
+  return "";
+}
+
 // Claudeが失敗したら必ず Gemini にフォールバックする（EXTRACT_FALLBACK で変更可、既定 gemini）。
-// 環境変数で上書き可: EXTRACT_PROVIDER（既定 anthropic）, EXTRACT_MODEL, EXTRACT_FALLBACK（既定 gemini）
-function extractLLMOpts(extra = {}) {
-  const provider = (process.env.EXTRACT_PROVIDER || "anthropic").toLowerCase();
-  const model = process.env.EXTRACT_MODEL || (provider === "anthropic" ? (process.env.ANALYZER_MODEL || "claude-sonnet-4-6") : undefined);
+// 判定モデルは設定（judgeProvider＝画面で選択）を最優先。未設定なら環境変数 EXTRACT_PROVIDER（既定 anthropic）。
+async function extractLLMOpts(extra = {}) {
+  const sel = await getJudgeProviderSetting(); // "anthropic"|"gemini"|""
+  const provider = sel || (process.env.EXTRACT_PROVIDER || "anthropic").toLowerCase();
+  const model = sel
+    ? (provider === "anthropic" ? (process.env.ANALYZER_MODEL || "claude-sonnet-4-6") : undefined)
+    : (process.env.EXTRACT_MODEL || (provider === "anthropic" ? (process.env.ANALYZER_MODEL || "claude-sonnet-4-6") : undefined));
   const fallback = (process.env.EXTRACT_FALLBACK || "gemini").toLowerCase();
   return { provider, model, fallback, ...extra };
 }
@@ -1125,7 +1138,7 @@ export async function classifyMeetingKind(transcript) {
     },
     required: ["meeting_kind", "confidence"],
   };
-  const out = parseJson(await callLLM(sys, user, 300, extractLLMOpts({ schema }))) || {};
+  const out = parseJson(await callLLM(sys, user, 300, await extractLLMOpts({ schema }))) || {};
   const kind = ["初回商談", "再商談", "判定不能"].includes(out.meeting_kind) ? out.meeting_kind : "判定不能";
   return { meeting_kind: kind, confidence: out.confidence === "high" ? "high" : "low" };
 }
@@ -1172,7 +1185,7 @@ export async function extractFirstMeeting(transcript, meetingDate) {
     const extraNote = attempt > 1
       ? `\n\n（注意：前回の抽出は自信度lowでした。文字起こしを丁寧に読み直し、顧客の発言の該当箇所を根拠に、各区分を厳密に判定してください。明確な根拠が本当に無い項目だけを不明としてください。）`
       : "";
-    const o = parseJson(await callLLM(sys, user + extraNote, 700, extractLLMOpts({ schema }))) || {};
+    const o = parseJson(await callLLM(sys, user + extraNote, 700, await extractLLMOpts({ schema }))) || {};
     const result = {
       schedule_choice: o.schedule_choice || "不明",
       schedule_choice_detail: o.schedule_choice_detail || "",
@@ -1222,7 +1235,7 @@ export async function extractReMeeting(transcript, meetingDate) {
     const extraNote = attempt > 1
       ? `\n\n（注意：前回の抽出は自信度lowでした。文字起こしを丁寧に読み直し、受注/失注/延期/未確定を発言の根拠に基づき厳密に判定してください。明確な根拠が無い場合のみ未確定としてください。）`
       : "";
-    const o = parseJson(await callLLM(sys, user + extraNote, 700, extractLLMOpts({ schema }))) || {};
+    const o = parseJson(await callLLM(sys, user + extraNote, 700, await extractLLMOpts({ schema }))) || {};
     const result = {
       reported_date: o.reported_date || null,
       apply_date: o.apply_date || null,
