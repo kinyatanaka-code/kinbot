@@ -136,6 +136,16 @@ export async function initDb() {
       created_at TIMESTAMPTZ DEFAULT now()
     );
   `);
+  // 事前ブリーフのキャッシュ（会社ごと。再作成で上書き）
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS deal_briefs (
+      company_key  TEXT PRIMARY KEY,
+      company_name TEXT,
+      brief        JSONB,
+      based_on     INT DEFAULT 0,
+      generated_at TIMESTAMPTZ DEFAULT now()
+    );
+  `);
   await pool.query(`
     CREATE TABLE IF NOT EXISTS notion_sent (
       owner TEXT NOT NULL,
@@ -731,7 +741,25 @@ export async function deleteRepTeam(repName) {
   try { await pool.query(`DELETE FROM rep_team_mapping WHERE rep_name=$1`, [repName]); } catch {}
 }
 
-// ===== インターン生（アポ獲得者）マスタ =====
+// ===== 事前ブリーフのキャッシュ =====
+export async function getDealBrief(companyKey) {
+  if (!pool || !companyKey) return null;
+  try {
+    const { rows } = await pool.query(`SELECT company_key, company_name, brief, based_on, generated_at FROM deal_briefs WHERE company_key=$1`, [companyKey]);
+    return rows[0] || null;
+  } catch { return null; }
+}
+export async function saveDealBrief(companyKey, companyName, brief, basedOn) {
+  if (!pool || !companyKey) return;
+  try {
+    await pool.query(
+      `INSERT INTO deal_briefs (company_key, company_name, brief, based_on, generated_at)
+       VALUES ($1,$2,$3::jsonb,$4,now())
+       ON CONFLICT (company_key) DO UPDATE SET company_name=$2, brief=$3::jsonb, based_on=$4, generated_at=now()`,
+      [companyKey, companyName || "", JSON.stringify(brief || {}), basedOn || 0]
+    );
+  } catch (e) { console.error("[db] saveDealBrief", e.message); }
+}
 export async function listInterns() {
   if (!pool) return [];
   try {

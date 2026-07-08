@@ -74,6 +74,9 @@ import {
   setMeetingApoSetter,
   clearApoSetters,
   listApoMeetings,
+  getDealBrief,
+  saveDealBrief,
+  normCompanyKey,
   getSetCache,
   saveSetCache,
   listUsers,
@@ -92,7 +95,7 @@ import {
   deleteKbFolder,
 } from "./db.js";
 import { resolveConfig, statusInfo } from "./config.js";
-import { analyzerInfo, analyzeMeeting, analyzeDeep, freeAnalyze, chatWithData, enrichCompany, generateThanks, THANKS_PROMPT, getCheckItems, classifyMeetingKind, extractFirstMeeting, extractReMeeting } from "./analyzer.js";
+import { analyzerInfo, analyzeMeeting, analyzeDeep, freeAnalyze, chatWithData, enrichCompany, generateThanks, THANKS_PROMPT, getCheckItems, classifyMeetingKind, extractFirstMeeting, extractReMeeting, buildBrief } from "./analyzer.js";
 import {
   googleConfigured,
   authUrl,
@@ -1148,6 +1151,59 @@ app.get("/api/interns/stats", async (req, res) => {
     });
   } catch (e) {
     console.error("[interns/stats]", e);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+
+// ===== 事前ブリーフ（商談前の準備メモ＋想定問答）=====
+// body: { company, regen?, peek? }
+//  peek=true … キャッシュがあれば返す／無ければ生成せず {brief:null}（画面を開いた瞬間に呼ぶ用）
+//  regen=true … キャッシュを無視して作り直す
+app.post("/api/deals/brief", async (req, res) => {
+  try {
+    const company = String((req.body && req.body.company) || "").trim();
+    if (!company) return res.status(400).json({ error: "会社名が必要です" });
+    const key = normCompanyKey(company);
+    if (!key) return res.status(400).json({ error: "会社名を認識できませんでした" });
+
+    const regen = !!(req.body && req.body.regen);
+    const peek = !!(req.body && req.body.peek);
+
+    if (!regen) {
+      const cached = await getDealBrief(key);
+      if (cached && cached.brief) {
+        return res.json({ brief: cached.brief, generated_at: cached.generated_at, based_on: cached.based_on, cached: true });
+      }
+      if (peek) return res.json({ brief: null, cached: false }); // 生成はしない
+    }
+
+    // この会社の過去商談を集める（実施済み＝要約がある商談）
+    const all = await listMeetings({ isAdmin: true });
+    const ms = all
+      .filter((m) => normCompanyKey(m.account || "") === key || normCompanyKey(m.title || "") === key)
+      .sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
+    if (!ms.length) return res.status(404).json({ error: "この会社の商談記録が見つかりませんでした" });
+
+    const meetings = ms.map((m) => {
+      const s = m.summary || {};
+      const a = m.analysis || {};
+      return {
+        date: jstDateStr(m.created_at),
+        title: m.title || "",
+        overview: s.overview || "",
+        key_points: Array.isArray(s.key_points) ? s.key_points : [],
+        concerns: Array.isArray(s.customer_concerns) ? s.customer_concerns : [],
+        next_steps: Array.isArray(s.next_steps) ? s.next_steps : [],
+        next_action: a.next_action || "",
+      };
+    });
+
+    const brief = await buildBrief({ company, meetings });
+    await saveDealBrief(key, company, brief, ms.length);
+    res.json({ brief, generated_at: new Date().toISOString(), based_on: ms.length, cached: false });
+  } catch (e) {
+    console.error("[deals/brief]", e);
     res.status(500).json({ error: e.message });
   }
 });
