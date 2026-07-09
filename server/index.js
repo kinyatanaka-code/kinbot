@@ -2029,7 +2029,7 @@ app.post("/api/meetings/:id/custom-analysis", async (req, res) => {
     const botId = req.params.id;
     const m = await getMeeting(botId);
     if (!m) return res.status(404).json({ error: "商談が見つかりません" });
-    if (!req.isAdmin && m.owner && m.owner !== req.user) return res.status(403).json({ error: "この商談を見る権限がありません" });
+    if (!canAccess(m, req)) return res.status(403).json({ error: "権限がありません" });
 
     const peek = !!(req.body && req.body.peek);
     const regen = !!(req.body && req.body.regen);
