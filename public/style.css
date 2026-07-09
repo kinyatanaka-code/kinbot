@@ -2367,3 +2367,13 @@ body {
 
 /* 再商談が「予定」段階であることの注記 */
 .np-scheduled-note { margin-top: 8px; padding: 9px 12px; background: #eaf2fb; border: 1px solid #cfe0f2; border-radius: 8px; font-size: 12px; color: #234a75; line-height: 1.7; }
+
+/* 初回商談が未判定のため、根拠が無いステージ（✓にしない） */
+.np-step.unknown .np-dot { background: #f4f2ec; color: #9a958b; border: 1px dashed #cfcabd; }
+.np-step.unknown .np-step-label { color: #9a958b; }
+
+/* 一括判定のモデル選択 */
+.np-bulk-model { padding: 6px 10px; font-size: 12.5px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); color: var(--ink); }
+/* 再商談予定 */
+.sm-stat-num.sm-sched { color: #234A75; }
+.sg-sched { background: #378ADD; }

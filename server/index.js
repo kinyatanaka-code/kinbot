@@ -1375,7 +1375,10 @@ app.put("/api/deal-events/:id", async (req, res) => {
 // 指定商談の抽出を手動実行（再抽出）
 app.post("/api/meetings/:id/extract", async (req, res) => {
   try {
-    const r = await runExtraction(req.params.id);
+    // モデル指定（claude/gemini）。未指定なら設定の既定に従う。
+    let p = String((req.body && req.body.provider) || "").toLowerCase();
+    if (p !== "anthropic" && p !== "gemini") p = "";
+    const r = await runExtraction(req.params.id, p || undefined);
     res.json({ ok: true, result: r });
   } catch (e) {
     console.error("[extract manual]", e.message);
@@ -1478,14 +1481,25 @@ function funnelFrom(events, cohortRe) {
     bot_id: e.bot_id || "",
     status: e.deal_status || "",
     result: e.result || "",
+    next_date: e.next_meeting_date ? String(e.next_meeting_date).slice(0, 10) : "",
   });
   const lostList = decided.filter((e) => {
     const st = statusOfEv(e);
     return st === "失注(未定)" || st === "失注(その他)" || (st === "進行中(未設定)" && e.deal_status === "失注(未定)");
   }).concat(re.filter((e) => e.result === "失注"));
+  // 再商談の予定（日程が入っているが、まだ実施していない案件）。実施済み・失注・受注は除く。
+  const reBotIds = new Set(re.map((e) => e.bot_id).filter(Boolean));
+  const reDeals = new Set(re.map((e) => e.deal_id).filter(Boolean));
+  const scheduled = first
+    .filter((e) => e.next_meeting_scheduled && e.next_meeting_date)
+    .filter((e) => !(e.deal_id && reDeals.has(e.deal_id)) && !reBotIds.has(e.bot_id)) // 既に再商談を実施した案件は除く
+    .filter((e) => !String(e.deal_status || "").startsWith("失注") && e.deal_status !== "受注")
+    .sort((a, b) => new Date(a.next_meeting_date) - new Date(b.next_meeting_date));
+
   const details = {
     first: first.map(brief),
     re: Array.isArray(cohortRe) ? cohortRe.slice() : re.map(brief),
+    scheduled: scheduled.map(brief),
     activated: activated.map(brief),
     pending_10day: pending10day.map(brief),
     lost: lostList.map(brief),
@@ -1502,6 +1516,7 @@ function funnelFrom(events, cohortRe) {
     review: review.length,
     lost,
     re_meetings: reDone, // メインKPI
+    scheduled: scheduled.length, // 再商談の予定あり（未実施）
     won,
     details,
   };

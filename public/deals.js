@@ -187,7 +187,12 @@ async function runNewProcess(botIds, companyName, pk, ms) {
     renderProgress(i, `商談 ${i + 1}/${total} を処理中`, 0);
     await new Promise((r) => setTimeout(r, 150));
     renderProgress(i, `商談 ${i + 1}/${total}：種別を判定中`, 1);
-    const p = fetch("/api/meetings/" + encodeURIComponent(botIds[i]) + "/extract", { method: "POST" });
+    const selProvider = (document.getElementById("judgeModel") && document.getElementById("judgeModel").value) || "";
+    const p = fetch("/api/meetings/" + encodeURIComponent(botIds[i]) + "/extract", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ provider: selProvider }),
+    });
     await new Promise((r) => setTimeout(r, 400));
     renderProgress(i, `商談 ${i + 1}/${total}：AIで抽出中`, 2);
     let r;
@@ -213,26 +218,35 @@ async function runNewProcess(botIds, companyName, pk, ms) {
 function npStageInfo(d) {
   const f = d.first || {};
   const st = d.status || "";
+  const hasFirst = !!d.first;                 // 初回商談の判定データがあるか
   const hasNext = !!f.next_meeting_scheduled; // 再商談の日程が設定されたか
   const isReview = st === "要確認";
   const isPending10day = st === "進行中(未設定)"; // 初回商談その場で再商談未設定、10日間の猶予中
-  let reached = 1; // 初回商談は必ず到達
+  const scOk = hasFirst && f.schedule_choice && !["未定", "不明"].includes(f.schedule_choice);
+  const atOk = hasFirst && (f.apply_timing === "今月" || f.apply_timing === "来月");
+  const isWon = d.latest_result === "受注" || st === "受注";
+  // 各ステージは「そのステージの根拠があるとき」だけ達成扱いにする。
+  // 初回商談が未判定なのに「時期明確化」「今月/来月判断」に✓が付かないようにするため、
+  // 通し番号(reached)ではなくステージ単位で判定する。
+  const done = {
+    1: hasFirst,
+    2: scOk,
+    3: scOk && atOk,
+    4: !!d.re,        // 実際に再商談を実施した（予定だけでは達成しない）
+    5: isWon,
+  };
+  // 初回商談の判定データが無い段階は「不明」（✓でも未達でもない）
+  const unknown = { 1: !hasFirst, 2: !hasFirst, 3: !hasFirst, 4: false, 5: false };
+  let reached = 0;
+  for (const n of [1, 2, 3, 4, 5]) if (done[n]) reached = n;
+  if (!reached) reached = 1;
   let lostAt = null;
-  const scOk = f.schedule_choice && !["未定", "不明"].includes(f.schedule_choice);
-  const atOk = f.apply_timing === "今月" || f.apply_timing === "来月";
-  if (scOk) reached = 2;
-  if (scOk && atOk) reached = 3;
-  // 「再商談実施」は実際に再商談を行った（再商談イベントがある）ときだけ到達。
-  // 日程が設定されただけ（hasNext）は"予定"であって実施ではない（KPIの計上対象にもならない）。
-  if (d.re) reached = 4;
-  if (d.latest_result === "受注" || st === "受注") reached = 5;
-  // 失注の位置
   if (st.startsWith("失注")) {
     if (d.re && d.latest_result === "失注") lostAt = 4; // 再商談後に失注
-    else if (!hasNext) lostAt = 3; // 再商談が設定されず失注（今月/来月判断まで進んでも、次につながらなかった）
+    else if (!hasNext) lostAt = 3; // 再商談が設定されず失注
     else lostAt = reached;
   }
-  return { reached, lostAt, isWon: reached >= 5, isReview, hasNext, isPending10day };
+  return { reached, lostAt, isWon, isReview, hasNext, isPending10day, done, unknown, hasFirst };
 }
 
 function renderNewProcess(box, d) {
@@ -243,20 +257,22 @@ function renderNewProcess(box, d) {
     { n: 4, label: "再商談実施" },
     { n: 5, label: "受注" },
   ];
-  const { reached, lostAt, isWon, isReview, isPending10day, hasNext } = npStageInfo(d);
+  const { reached, lostAt, isWon, isReview, isPending10day, hasNext, done: doneMap, unknown: unknownMap } = npStageInfo(d);
   const f = d.first || {};
 
   // ステージバー（丸＋ラベル＋矢印）
   const steps = stages.map((s) => {
-    const done = s.n <= reached;
+    const done = !!doneMap[s.n];
+    const isUnknown = !done && !!unknownMap[s.n]; // 初回商談が未判定 → 根拠が無いので✓にしない
     const cur = s.n === reached && !isWon && lostAt == null;
     const isLost = lostAt != null && s.n === lostAt;
     let cls = done ? "done" : "todo";
-    if (cur) cls += " cur";
+    if (isUnknown) cls = "todo unknown";
+    if (cur && done) cls += " cur";
     if (isReview && s.n === 1) cls = "done review";
     if (isLost) cls = "lost";
     if (s.n === 5 && isWon) cls = "won";
-    const mark = isLost ? "×" : (isReview && s.n === 1 ? "?" : (done ? "✓" : s.n));
+    const mark = isLost ? "×" : ((isReview && s.n === 1) || isUnknown ? "?" : (done ? "✓" : s.n));
     return `<div class="np-step ${cls}"><span class="np-dot">${mark}</span><span class="np-step-label">${s.label}</span></div>`;
   }).join('<span class="np-arrow">›</span>');
 
@@ -496,9 +512,14 @@ async function runSelectedNp() {
     const ms = groups[a] || [];
     const botIds = ms.map((m) => m.bot_id).filter(Boolean);
     if (status) status.textContent = `判定中… 案件 ${doneAccounts + 1}/${targets.length}（${displayName(a)}）`;
+    const bulkProvider = ($("npBulkModel") && $("npBulkModel").value) || "";
     for (const bid of botIds) {
       try {
-        const r = await fetch("/api/meetings/" + encodeURIComponent(bid) + "/extract", { method: "POST" });
+        const r = await fetch("/api/meetings/" + encodeURIComponent(bid) + "/extract", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ provider: bulkProvider }),
+        });
         if (r.ok) okBots++; else failBots++;
       } catch { failBots++; }
     }

@@ -120,9 +120,9 @@ function renderFunnel(body, d) {
     <div class="sm-hero-rail"><div class="sm-hero-fill" style="width:${Math.min(100, convPct)}%"></div></div>
   </div>`;
   html += '<div class="sm-side">';
+  html += `<div class="sm-stat"><span class="sm-stat-label">再商談予定</span><span class="sm-stat-num sm-sched">${o.scheduled || 0}</span><span class="sm-stat-pct">未実施</span></div>`;
   html += `<div class="sm-stat"><span class="sm-stat-label">失注</span><span class="sm-stat-num sm-lost">${o.lost || 0}</span><span class="sm-stat-pct">${pctOf(o.lost, base)}%</span></div>`;
   html += `<div class="sm-stat"><span class="sm-stat-label">受注</span><span class="sm-stat-num">${o.won || 0}</span><span class="sm-stat-pct">${pctOf(o.won, base)}%</span></div>`;
-  html += `<div class="sm-stat"><span class="sm-stat-label">猶予中</span><span class="sm-stat-num sm-pending">${o.pending_10day || 0}</span><span class="sm-stat-pct">10日</span></div>`;
   html += "</div></div>";
 
   // 商談の流れ（段の間に離脱数を出す）
@@ -199,6 +199,7 @@ function renderFunnel(body, d) {
   const groupDefs = [
     { key: "first", label: "初回商談", cls: "sg-first" },
     { key: "re", label: "再商談実施", cls: "sg-re" },
+    { key: "scheduled", label: "再商談予定", cls: "sg-sched", showNext: true },
     { key: "activated", label: "進行中", cls: "sg-active" },
     { key: "pending_10day", label: "猶予中", cls: "sg-pending" },
     { key: "won", label: "受注", cls: "sg-won" },
@@ -230,7 +231,10 @@ function renderFunnel(body, d) {
       if (!list.length) continue;
       h += `<details class="sm-group"><summary><span class="sm-group-dot ${g.cls}"></span>${g.label}<span class="sm-group-count">${list.length}</span></summary><ul class="sm-group-list">`;
       for (const it of list) {
-        h += `<li><span class="sm-item-co">${esc(it.company)}</span><span class="sm-item-meta">${esc(it.date)}${it.result ? " ・ " + esc(it.result) : ""}</span></li>`;
+        const meta = g.showNext
+          ? `${esc(it.next_date || "日付未取得")} に予定`
+          : `${esc(it.date)}${it.result ? " ・ " + esc(it.result) : ""}`;
+        h += `<li><span class="sm-item-co">${esc(it.company)}</span><span class="sm-item-meta">${meta}</span></li>`;
       }
       h += "</ul></details>";
     }

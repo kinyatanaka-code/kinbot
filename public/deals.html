@@ -33,6 +33,11 @@
           <span class="np-select-count" id="npSelectCount">0件選択中</span>
           <button class="btn ghost" id="npSelectAll" type="button">表示中をすべて選択</button>
           <button class="btn ghost" id="npSelectClear" type="button">選択解除</button>
+          <select id="npBulkModel" class="np-bulk-model" title="この判定に使うモデル">
+            <option value="">モデル: 既定</option>
+            <option value="anthropic">Claude</option>
+            <option value="gemini">Gemini</option>
+          </select>
           <button class="btn" id="npSelectRun" type="button" disabled>選択した案件を判定</button>
           <button class="btn ghost" id="npSelectCancel" type="button">やめる</button>
           <span class="np-select-status" id="npSelectStatus"></span>
