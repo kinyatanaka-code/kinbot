@@ -357,6 +357,8 @@ export async function initDb() {
   await pool.query(`ALTER TABLE smart_links ADD COLUMN IF NOT EXISTS event_id TEXT;`);
   await pool.query(`ALTER TABLE smart_links ADD COLUMN IF NOT EXISTS setter TEXT;`);
   await pool.query(`ALTER TABLE smart_links ADD COLUMN IF NOT EXISTS start_time TIMESTAMPTZ;`);
+  await pool.query(`ALTER TABLE smart_links ADD COLUMN IF NOT EXISTS end_time TIMESTAMPTZ;`);
+  await pool.query(`ALTER TABLE smart_links ADD COLUMN IF NOT EXISTS invite_event_id TEXT;`);
   await pool.query(`CREATE UNIQUE INDEX IF NOT EXISTS uq_smart_links_event ON smart_links(event_id) WHERE event_id IS NOT NULL;`);
 
   console.log("[db] Postgres に接続しました（履歴を保存します）。");
@@ -1177,6 +1179,14 @@ export async function getGoogleToken(owner) {
     return null;
   }
 }
+// Google連携済みのユーザー一覧（カレンダー照合の実行者を選ぶために使う）
+export async function listGoogleConnectedOwners() {
+  if (!pool) return [];
+  try {
+    const { rows } = await pool.query(`SELECT owner, google_email FROM google_accounts WHERE refresh_token IS NOT NULL ORDER BY owner`);
+    return rows;
+  } catch { return []; }
+}
 export async function deleteGoogleToken(owner) {
   if (!pool) return;
   try {
@@ -1720,14 +1730,26 @@ export async function deleteOauthToken(access_token) {
 }
 
 // ===== スマートリンク（担当者切り替えに追随する共有Zoom URL） =====
-export async function createSmartLink({ slug, label, owner, createdBy, eventId, setter, startTime }) {
+export async function createSmartLink({ slug, label, owner, createdBy, eventId, setter, startTime, endTime }) {
   if (!pool) return null;
   const { rows } = await pool.query(
-    `INSERT INTO smart_links (slug, label, current_owner, created_by, event_id, setter, start_time)
-     VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING *`,
-    [slug, label || "", owner || null, createdBy || "", eventId || null, setter || null, startTime || null]
+    `INSERT INTO smart_links (slug, label, current_owner, created_by, event_id, setter, start_time, end_time)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING *`,
+    [slug, label || "", owner || null, createdBy || "", eventId || null, setter || null, startTime || null, endTime || null]
   );
   return rows[0];
+}
+
+// 招待予定（kinbotが作成したGoogleカレンダー予定）のIDを保存
+export async function setSmartLinkInviteEvent(slug, inviteEventId) {
+  if (!pool) return null;
+  try {
+    const { rows } = await pool.query(
+      `UPDATE smart_links SET invite_event_id=$2, updated_at=now() WHERE slug=$1 RETURNING *`,
+      [slug, inviteEventId || null]
+    );
+    return rows[0] || null;
+  } catch (e) { console.error("[db] setSmartLinkInviteEvent", e.message); return null; }
 }
 export async function getSmartLinkByEvent(eventId) {
   if (!pool || !eventId) return null;

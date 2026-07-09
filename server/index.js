@@ -28,6 +28,7 @@ import {
   saveSettings,
   saveAnalysis,
   getSettings,
+  listGoogleConnectedOwners,
   saveDeepAnalysis,
   updateMeetingMeta,
   deleteMeeting,
@@ -59,6 +60,7 @@ import {
   getSmartLinkByEvent,
   listSmartLinks,
   setSmartLinkOwner,
+  setSmartLinkInviteEvent,
   deleteSmartLink,
   deleteDealEventsByBot,
   insertDealEvent,
@@ -107,6 +109,7 @@ import {
   listZoomEvents,
   listDayEvents,
   listCalendarEvents,
+  createCalendarEvent,
   getPrimaryEmail,
   driveReady,
   driveSearch,
@@ -1008,9 +1011,22 @@ function apoTitleMatch(mNorm, eNorm) {
 // body: { from: "YYYY-MM-DD", to: "YYYY-MM-DD" }（省略時は直近90日）
 app.post("/api/interns/match", async (req, res) => {
   try {
-    const gcalOwner = req.user; // ブラウザでログイン中の本人のGoogle連携を使う
-    if (!gcalOwner || !(await gcalConnected(gcalOwner))) {
-      return res.status(400).json({ error: "あなたのGoogleが連携されていません。設定→連携→Google連携 を先に済ませてください。" });
+    // カレンダー照合は「代表者（設定で指定した人）のGoogle連携」を経由して実行する。
+    // これにより、Google未連携のメンバーがボタンを押しても照合できる（＝全員がアポ状況を更新・閲覧できる）。
+    const s = await getSettings();
+    const configured = s && typeof s.apoCalendarOwner === "string" ? s.apoCalendarOwner.trim() : "";
+    let gcalOwner = "";
+    if (configured && (await gcalConnected(configured))) {
+      gcalOwner = configured; // 代表者の連携を使う
+    } else if (req.user && (await gcalConnected(req.user))) {
+      gcalOwner = req.user; // 代表者が未設定/未連携なら、押した本人の連携で実行
+    }
+    if (!gcalOwner) {
+      return res.status(400).json({
+        error: configured
+          ? `照合の代表者（${configured}）のGoogle連携が切れています。${configured} さんが 設定→連携→Google連携 を実行してください。`
+          : "Googleが連携されていません。設定→インターン登録 で照合の代表者を選ぶか、設定→連携→Google連携 を先に済ませてください。",
+      });
     }
     const interns = await listInterns();
     if (!interns.length) return res.status(400).json({ error: "インターン生が登録されていません。先に名前とメールアドレスを追加してください。" });
@@ -1025,17 +1041,18 @@ app.post("/api/interns/match", async (req, res) => {
     const timeMin = new Date(Date.parse(from + "T00:00:00+09:00") - 86400 * 1000).toISOString();
     const timeMax = new Date(Date.parse(to + "T23:59:59+09:00") + 86400 * 1000).toISOString();
 
-    // 対象商談（実施済み＝文字起こしあり。商談カテゴリのみ）を期間で絞る
+    // 対象商談：実施済み（商談カテゴリ）かつ「初回/新」の商談のみをカウント対象にする
     const allMeetings = await listMeetings({ isAdmin: true });
     const meetings = allMeetings.filter((m) => {
       if (m.category && m.category !== "商談") return false;
+      if (!isFirstMeetingTitle(m.title)) return false; // 【新/ヒ】【初回/…】のみ
       const d = jstDateStr(m.created_at);
       return d && d >= from && d <= to;
     });
 
     // 各インターンのカレンダー予定を取得（未共有などは individual に握りつぶす）
-    // 照合対象は「本人が主催者の予定」のみ（招待されただけの予定は除外）
-    const internEvents = []; // { intern, events:[{titleNorm,date,title}], error }
+    // 照合対象は「本人が主催者（作成者）の予定」のみ。招待されただけの予定は除外する。
+    const internEvents = []; // { intern, events:[...], error }
     for (const it of interns) {
       const internEmail = String(it.email || "").toLowerCase();
       const isHost = (e) => {
@@ -1045,18 +1062,20 @@ app.post("/api/interns/match", async (req, res) => {
       };
       try {
         const evs = await listCalendarEvents(gcalOwner, it.email, { timeMin, timeMax });
+        const kept = evs.filter(isHost);
         internEvents.push({
           intern: it,
-          events: evs.filter(isHost)
-                     .map((e) => ({ title: e.title, titleNorm: normApoTitle(e.title), date: jstDateStr(e.start) }))
-                     .filter((e) => e.titleNorm && e.date),
+          events: kept
+                     .map((e) => ({ title: e.title, date: jstDateStr(e.start) }))
+                     .filter((e) => e.title && e.date),
+          fetched: evs.length,
           error: null,
         });
       } catch (e) {
         const msg = /40[34]/.test(e.message)
           ? "カレンダーを読めませんでした（このメールのカレンダーがあなたと共有されているか確認してください）"
           : e.message;
-        internEvents.push({ intern: it, events: [], error: msg });
+        internEvents.push({ intern: it, events: [], fetched: 0, error: msg });
       }
     }
 
@@ -1065,21 +1084,21 @@ app.post("/api/interns/match", async (req, res) => {
 
     // 照合：商談名 × 予定名（日付ウィンドウ内）
     const perIntern = {}; // email -> { name, email, matched:[], error }
-    for (const ie of internEvents) perIntern[ie.intern.email] = { name: ie.intern.name, email: ie.intern.email, matched: [], error: ie.error };
+    for (const ie of internEvents) perIntern[ie.intern.email] = { name: ie.intern.name, email: ie.intern.email, matched: [], error: ie.error, fetched: ie.fetched };
     let matchedCount = 0, multiCount = 0;
     const unmatched = [];
 
     for (const m of meetings) {
-      const mNorm = normApoTitle(m.title);
       const mDate = jstDateStr(m.created_at);
-      if (!mNorm) { unmatched.push({ bot_id: m.bot_id, title: m.title, date: mDate }); continue; }
+      const mParts = apoNameParts(m.title);
+      if (!apoCompanyKey(mParts.company)) { unmatched.push({ bot_id: m.bot_id, title: m.title, date: mDate }); continue; }
       // このミーティングに一致する（インターン, 予定日ズレ）候補を集める
       const cands = [];
       for (const ie of internEvents) {
         let best = null;
         for (const ev of ie.events) {
           if (dayDiff(ev.date, mDate) > DATE_WINDOW) continue;
-          if (!apoTitleMatch(mNorm, ev.titleNorm)) continue;
+          if (!apoNameMatch(m.title, ev.title)) continue; // 企業名＋担当者名で照合
           const diff = dayDiff(ev.date, mDate);
           if (!best || diff < best.diff) best = { diff, evDate: ev.date, evTitle: ev.title };
         }
@@ -1103,7 +1122,7 @@ app.post("/api/interns/match", async (req, res) => {
       unmatched: meetings.length - matchedCount,
       multi_hit: multiCount,
       interns: Object.values(perIntern)
-        .map((p) => ({ name: p.name, email: p.email, count: p.matched.length, error: p.error, meetings: p.matched }))
+        .map((p) => ({ name: p.name, email: p.email, count: p.matched.length, error: p.error, calendar_events: p.fetched, meetings: p.matched }))
         .sort((a, b) => b.count - a.count),
       unmatched_list: unmatched,
     });
@@ -1111,6 +1130,63 @@ app.post("/api/interns/match", async (req, res) => {
     console.error("[interns/match]", e);
     res.status(500).json({ error: e.message });
   }
+});
+
+// カレンダー照合の代表者（この人のGoogle連携を経由して全員が照合できる）
+app.get("/api/apo-calendar-owner", async (req, res) => {
+  try {
+    const s = await getSettings();
+    const owner = s && typeof s.apoCalendarOwner === "string" ? s.apoCalendarOwner : "";
+    const candidates = await listGoogleConnectedOwners();
+    res.json({
+      owner,
+      connected: owner ? await gcalConnected(owner) : false,
+      candidates: candidates.map((c) => ({ owner: c.owner, email: c.google_email })),
+    });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+app.put("/api/apo-calendar-owner", async (req, res) => {
+  try {
+    const owner = String((req.body && req.body.owner) || "").trim();
+    if (owner && !(await gcalConnected(owner))) {
+      return res.status(400).json({ error: `${owner} さんはGoogle未連携です。先に本人が 設定→連携→Google連携 を実行してください。` });
+    }
+    const r = await saveSettings({ apoCalendarOwner: owner });
+    res.json({ ok: true, owner, ...r });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// 商談予定の自動作成（招待方式）の設定：予定を作る運用者・自動作成のON/OFF
+app.get("/api/apo-invite-config", async (req, res) => {
+  try {
+    const s = await getSettings();
+    const owner = (s && String(s.apoInviteOwner || "")) || "";
+    const candidates = await listGoogleConnectedOwners();
+    res.json({
+      owner,
+      auto: !(s && s.apoAutoInvite === false),
+      connected: owner ? await gcalConnected(owner) : false,
+      calendar_id: (s && String(s.apoInviteCalendarId || "")) || "",
+      candidates: candidates.map((c) => ({ owner: c.owner, email: c.google_email })),
+    });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+app.put("/api/apo-invite-config", async (req, res) => {
+  try {
+    const b = req.body || {};
+    const patch = {};
+    if (b.owner !== undefined) {
+      const owner = String(b.owner || "").trim();
+      if (owner && !(await gcalConnected(owner))) {
+        return res.status(400).json({ error: `${owner} さんはGoogle未連携です。先に本人が 設定→連携→Google連携 を実行してください。` });
+      }
+      patch.apoInviteOwner = owner;
+    }
+    if (b.auto !== undefined) patch.apoAutoInvite = !!b.auto;
+    if (b.calendar_id !== undefined) patch.apoInviteCalendarId = String(b.calendar_id || "").trim();
+    const r = await saveSettings(patch);
+    res.json({ ok: true, ...patch, ...r });
+  } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 // ダッシュボード用：記録済みのアポ獲得者から、人ごとのアポ実施数を集計して返す（カレンダーには触れない・高速）
@@ -2864,6 +2940,52 @@ function joinUrl(slug) {
   return `${PUBLIC_URL}/j/${slug}?pwd=${pwd}`;
 }
 // タイトルが【新/ヒ】または【初回/】を含むか（全角半角の違いはNFKCで吸収）
+// 商談名が「初回商談」を表すか（【新/ヒ】【初回/】【初回/コールド】【初回/過去失注】など）。
+// 全角・半角、スラッシュ後の区分名（コールド等）の有無を問わない。
+function isFirstMeetingTitle(title) {
+  const t = String(title || "").normalize("NFKC");
+  if (/【[^】]*新\s*\/\s*ヒ[^】]*】/.test(t)) return true; // 【新/ヒ】
+  if (/【\s*初回[^】]*】/.test(t)) return true;            // 【初回/】【初回/コールド】【初回/過去失注】
+  return false;
+}
+
+// 商談名から「会社名」と「担当者名（様付き）」を取り出す。
+//   例）【初回/コールド】株式会社杏林堂薬局 小杉様 → { company:"株式会社杏林堂薬局", person:"小杉" }
+function apoNameParts(title) {
+  let t = String(title || "").normalize("NFKC");
+  t = t.replace(/【[^】]*】/g, " ");              // 先頭の【…】タグを除去
+  t = t.replace(/[（(][^）)]*[）)]/g, " ");        // （男性）などの補足を除去
+  t = t.replace(/[\/／|｜]/g, " ");                // 区切り記号は空白に
+  t = t.replace(/\s+/g, " ").trim();
+  // 「〜様」を担当者名とみなす（最後に出てくる様を採用）
+  let person = "";
+  const pm = t.match(/([^\s　]{1,12}?)\s*様/);
+  if (pm) person = pm[1].replace(/[^\p{L}\p{N}ー]/gu, "");
+  // 会社名 = 「様」の手前までのうち、法人格を含む塊 or 先頭の塊
+  let company = t.replace(/[^\s]*様.*$/, "").trim();
+  if (!company) company = t;
+  company = company.replace(/\s+/g, "");
+  return { company, person };
+}
+// 会社名の照合キー（法人格を落として比較）
+function apoCompanyKey(s) {
+  return String(s || "")
+    .normalize("NFKC")
+    .replace(/株式会社|有限会社|合同会社|一般社団法人|社会福祉法人|医療法人|生活協同組合|協同組合|財団法人|学校法人/g, "")
+    .replace(/[\s　・･,.、。「」『』【】\[\]（）()〔〕:：;；\/／\\\-–—―~〜|｜"'’‘`]/g, "")
+    .toLowerCase();
+}
+// 企業名＋担当者名が一致するか（担当者名は取れないことがあるので、その場合は会社名のみで判定）
+function apoNameMatch(mTitle, eTitle) {
+  const a = apoNameParts(mTitle), b = apoNameParts(eTitle);
+  const ac = apoCompanyKey(a.company), bc = apoCompanyKey(b.company);
+  if (!ac || !bc || ac.length < 2 || bc.length < 2) return false;
+  const companyOk = ac === bc || ac.includes(bc) || bc.includes(ac);
+  if (!companyOk) return false;
+  if (a.person && b.person) return a.person === b.person; // 両方に担当者名があれば一致必須
+  return true; // 片方に担当者名が無ければ会社名一致で採用
+}
+
 function apoTitleTag(title) {
   const t = String(title || "").normalize("NFKC");
   return t.includes("【新/ヒ】") || t.includes("【初回/】");
@@ -2938,7 +3060,7 @@ app.get("/api/apo/pickup", async (req, res) => {
           for (let k = 0; k < 6; k++) { slug = zoomLikeSlug(); if (!(await getSmartLink(slug))) break; }
           link = await createSmartLink({
             slug, label: ev.title, owner: null, createdBy: gcalOwner,
-            eventId: ev.id, setter: st.name, startTime: ev.start,
+            eventId: ev.id, setter: st.name, startTime: ev.start, endTime: ev.end || null,
           });
         }
         items.push({
@@ -2994,6 +3116,38 @@ app.get("/api/smart-links", async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 // 担当者の切り替え（ここを変えるだけで、既に送信済みのURLの行き先も自動的に変わる）
+// ===== 商談予定の自動作成（招待方式） =====
+// 運用者（設定 apoInviteOwner）のカレンダーに予定を作り、クローザーをゲストに招待する。
+// 招待方式なので、クローザーのカレンダーへの権限は不要。
+async function createApoInvite(link, { actor } = {}) {
+  const s = await getSettings();
+  const inviteOwner = (s && String(s.apoInviteOwner || "").trim()) || "";
+  if (!inviteOwner) throw new Error("予定を作る運用者が未設定です。設定→インターン登録→「予定作成の運用者」を指定してください。");
+  if (!(await gcalConnected(inviteOwner))) {
+    throw new Error(`運用者（${inviteOwner}）のGoogle連携が切れています。本人が 設定→連携→Google連携 を実行してください。`);
+  }
+  if (!link.current_owner) throw new Error("担当者が未割り当てです。先に担当者を選んでください。");
+  if (!link.start_time) throw new Error("この商談の開始時刻が分かりません（カレンダー予定の時刻が取得できていません）。");
+
+  const start = new Date(link.start_time);
+  const end = link.end_time ? new Date(link.end_time) : new Date(start.getTime() + 60 * 60 * 1000); // 既定1時間
+  const calendarId = (s && String(s.apoInviteCalendarId || "").trim()) || "primary";
+
+  const ev = await createCalendarEvent(inviteOwner, {
+    summary: link.label || "商談",
+    description: `kinbotが自動作成した商談予定です。\n参加URL: ${joinUrl(link.slug)}\nアポ獲得: ${link.setter || "-"}\n担当: ${link.current_owner}`,
+    start, end,
+    guests: [link.current_owner],   // クローザーをゲストとして招待
+    guestsCanModify: true,          // 本人が時間を動かせるようにする
+    calendarId,
+    eventId: link.invite_event_id || null, // 既存があれば更新（担当変更で招待し直し）
+    sendUpdates: "all",
+  });
+  await setSmartLinkInviteEvent(link.slug, ev.id);
+  console.log(`[apo-invite] ${link.slug} → ${link.current_owner} (${ev.id}) by ${actor || "auto"}`);
+  return ev;
+}
+
 app.put("/api/smart-links/:slug/owner", async (req, res) => {
   try {
     const existing = await getSmartLink(req.params.slug);
@@ -3001,8 +3155,25 @@ app.put("/api/smart-links/:slug/owner", async (req, res) => {
     if (!req.isAdmin && existing.created_by !== req.user) return res.status(403).json({ error: "このリンクを操作する権限がありません" });
     const owner = req.body?.owner ? String(req.body.owner) : null;
     const link = await setSmartLinkOwner(req.params.slug, owner);
-    res.json({ ok: true, link });
+    // 担当が決まったら、商談予定を自動作成してクローザーを招待する（失敗しても割り当ては成功のまま返す）
+    let invite = null, inviteError = null;
+    const s = await getSettings().catch(() => ({}));
+    if (owner && s && s.apoAutoInvite !== false) {
+      try { invite = await createApoInvite(link, { actor: req.user }); }
+      catch (e) { inviteError = e.message; console.warn("[apo-invite] 失敗", req.params.slug, e.message); }
+    }
+    res.json({ ok: true, link, invite, invite_error: inviteError });
   } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// 手動で作り直す（自動が失敗したとき・時間を変えたときなど）
+app.post("/api/smart-links/:slug/invite", async (req, res) => {
+  try {
+    const link = await getSmartLink(req.params.slug);
+    if (!link) return res.status(404).json({ error: "リンクが見つかりません" });
+    const ev = await createApoInvite(link, { actor: req.user });
+    res.json({ ok: true, invite: ev });
+  } catch (e) { res.status(400).json({ error: e.message }); }
 });
 app.delete("/api/smart-links/:slug", async (req, res) => {
   try {

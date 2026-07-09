@@ -4,7 +4,9 @@ import { getGoogleToken, saveGoogleToken, deleteGoogleToken } from "./db.js";
 
 const CLIENT_ID = process.env.GOOGLE_CLIENT_ID || "";
 const CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET || "";
-const SCOPE = "https://www.googleapis.com/auth/calendar.readonly https://www.googleapis.com/auth/drive.readonly";
+// calendar.events は「自分のカレンダーに予定を作り、ゲストを招待する」ために必要。
+// 招待方式なので、相手（クローザー）のカレンダーへの権限は不要。
+const SCOPE = "https://www.googleapis.com/auth/calendar.readonly https://www.googleapis.com/auth/calendar.events https://www.googleapis.com/auth/drive.readonly";
 
 export function googleConfigured() {
   return !!(CLIENT_ID && CLIENT_SECRET);
@@ -214,13 +216,73 @@ export async function listCalendarEvents(owner, calendarId, { timeMin, timeMax }
     for (const ev of data.items || []) {
       if (ev.status === "cancelled") continue;
       const start = ev.start?.dateTime || ev.start?.date || null;
-      out.push({ id: ev.id, title: ev.summary || "", start, allDay: !ev.start?.dateTime, url: findMeetingUrl(ev) || "", guests: (ev.attendees || []).length, organizer: (ev.organizer && ev.organizer.email) || "", creator: (ev.creator && ev.creator.email) || "", created: ev.created || "" });
+      const end = ev.end?.dateTime || ev.end?.date || null;
+      out.push({ id: ev.id, title: ev.summary || "", start, end, allDay: !ev.start?.dateTime, url: findMeetingUrl(ev) || "", guests: (ev.attendees || []).length, organizer: (ev.organizer && ev.organizer.email) || "", creator: (ev.creator && ev.creator.email) || "", created: ev.created || "" });
     }
     if (!data.nextPageToken) break;
     pageToken = data.nextPageToken;
   }
   return out;
 }
+// 自分（owner）のカレンダーに予定を作り、ゲスト（クローザー等）を招待する。
+// 招待方式なので、ゲスト側のカレンダーへの権限は不要。既存の予定があれば上書き（patch）する。
+//   guests: ["closer@example.com", ...]
+//   calendarId: 省略時は primary（副カレンダーを使う場合はそのID）
+export async function createCalendarEvent(owner, {
+  summary, description, start, end, guests = [], calendarId = "primary",
+  guestsCanModify = true, eventId = null, sendUpdates = "all", location = "",
+}) {
+  const token = await accessToken(owner);
+  if (!token) throw new Error("Google未連携です");
+  const cal = encodeURIComponent(String(calendarId || "primary"));
+  const body = {
+    summary: summary || "商談",
+    description: description || "",
+    start: { dateTime: new Date(start).toISOString(), timeZone: "Asia/Tokyo" },
+    end: { dateTime: new Date(end).toISOString(), timeZone: "Asia/Tokyo" },
+    attendees: guests.filter(Boolean).map((email) => ({ email })),
+    guestsCanModify: !!guestsCanModify,
+  };
+  if (location) body.location = location;
+
+  const qs = `sendUpdates=${encodeURIComponent(sendUpdates)}`;
+  let res;
+  if (eventId) {
+    // 既存予定を更新（担当変更で招待し直すケース）
+    res = await fetch(
+      `https://www.googleapis.com/calendar/v3/calendars/${cal}/events/${encodeURIComponent(eventId)}?${qs}`,
+      { method: "PATCH", headers: { authorization: `Bearer ${token}`, "content-type": "application/json" }, body: JSON.stringify(body) }
+    );
+    if (res.status === 404) res = null; // 消えていたら新規作成にフォールバック
+  }
+  if (!res) {
+    res = await fetch(
+      `https://www.googleapis.com/calendar/v3/calendars/${cal}/events?${qs}`,
+      { method: "POST", headers: { authorization: `Bearer ${token}`, "content-type": "application/json" }, body: JSON.stringify(body) }
+    );
+  }
+  if (!res.ok) {
+    const t = await res.text().catch(() => "");
+    if (res.status === 403 && /insufficient|scope/i.test(t)) {
+      throw new Error("カレンダーへの書き込み権限がありません。運用者が 設定→連携→Google連携 を再実行して、権限を承認し直してください。");
+    }
+    throw new Error(`Google Calendar ${res.status} ${t.slice(0, 200)}`);
+  }
+  const d = await res.json();
+  return { id: d.id, htmlLink: d.htmlLink, status: d.status };
+}
+
+export async function deleteCalendarEvent(owner, eventId, calendarId = "primary") {
+  const token = await accessToken(owner);
+  if (!token || !eventId) return false;
+  const cal = encodeURIComponent(String(calendarId || "primary"));
+  const res = await fetch(
+    `https://www.googleapis.com/calendar/v3/calendars/${cal}/events/${encodeURIComponent(eventId)}?sendUpdates=all`,
+    { method: "DELETE", headers: { authorization: `Bearer ${token}` } }
+  );
+  return res.ok || res.status === 404 || res.status === 410;
+}
+
 export async function driveAccessToken(owner) {
   return accessToken(owner);
 }
