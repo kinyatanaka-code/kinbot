@@ -389,6 +389,44 @@ async function load() {  try {
   if (mb && !mb._wired) { mb._wired = true; mb.addEventListener("click", mergeDuplicates); }
   wireNpSelect();
   renderList();
+  // 他の画面（実績など）から ?company=... で開かれた場合、その案件を自動で開く
+  try {
+    const params = new URLSearchParams(location.search);
+    const want = params.get("company");
+    if (want) {
+      const names = Object.keys(groups);
+      const hit = names.find((n) => n === want)
+        || names.find((n) => normName(n) === normName(want))
+        || names.find((n) => { const a = normName(n), b = normName(want); return a && b && (a.includes(b) || b.includes(a)); });
+      if (hit) selectDeal(hit);
+      else {
+        const dp = $("dealDetail");
+        if (dp) dp.innerHTML = `<div class="empty-state">「${esc(want)}」に一致する案件が見つかりませんでした。左の一覧から選んでください。</div>`;
+      }
+    }
+  } catch {}
+  renderBackLink();
+}
+
+// 別の画面から遷移してきたときに「戻る」リンクを出す
+function renderBackLink() {
+  const params = new URLSearchParams(location.search);
+  const from = params.get("from");
+  if (!from) return;
+  const labels = { report: "実績", history: "商談履歴", apo: "アポ振り分け" };
+  const bar = document.querySelector(".topbar") || document.querySelector(".main");
+  if (!bar || document.getElementById("dealBackLink")) return;
+  const a = document.createElement("button");
+  a.id = "dealBackLink";
+  a.className = "deal-back";
+  a.type = "button";
+  a.innerHTML = `← ${esc(labels[from] || "前の画面")}に戻る`;
+  a.addEventListener("click", () => {
+    // 直前がkinbot内なら履歴を戻す（スクロール位置や絞り込みが保たれる）
+    if (document.referrer && document.referrer.startsWith(location.origin)) history.back();
+    else location.href = (labels[from] ? from : "report") + ".html";
+  });
+  bar.prepend(a);
 }
 
 // 「選択して判定」モードの配線

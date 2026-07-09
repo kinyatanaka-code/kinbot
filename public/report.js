@@ -98,47 +98,127 @@ function renderFunnel(body, d) {
     <span class="fn4-head-period">${period}・${esc(d.from)}〜${esc(d.to)}</span>
   </div>`;
 
-  // KPIカード4枚
-  html += '<div class="fn4-kpis">';
-  html += `<div class="fn4-kpi-card"><div class="fn4-kpi-label">初回商談</div><div class="fn4-kpi-num">${o.first_meetings || 0}</div><div class="fn4-kpi-sub">母数</div></div>`;
-  html += `<div class="fn4-kpi-card fn4-kpi-main"><div class="fn4-kpi-head"><span class="fn4-kpi-label">再商談実施</span><span class="fn4-kpi-badge">KPI</span></div><div class="fn4-kpi-num">${o.re_meetings || 0}</div><div class="fn4-kpi-sub">転換率 ${pctOf(o.re_meetings, base)}%</div></div>`;
-  html += `<div class="fn4-kpi-card"><div class="fn4-kpi-label">失注</div><div class="fn4-kpi-num fn4-kpi-num-lost">${o.lost || 0}</div><div class="fn4-kpi-sub">${pctOf(o.lost, base)}%${o.pending_10day ? `<span class="fn4-kpi-pending"> ・ 猶予中 ${o.pending_10day}件</span>` : ""}</div></div>`;
-  html += `<div class="fn4-kpi-card"><div class="fn4-kpi-label">受注</div><div class="fn4-kpi-num">${o.won || 0}</div><div class="fn4-kpi-sub">${pctOf(o.won, base)}%</div></div>`;
-  html += "</div>";
-
-  // 商談ファネル
-  const funnelRow = (label, value, pct, w, cls) =>
-    `<div class="fn4-frow">
-      <span class="fn4-frow-label">${esc(label)}</span>
-      <div class="fn4-frow-track"><div class="fn4-frow-fill ${cls}" style="width:${w}%">${w >= 12 ? `<span class="fn4-frow-val">${value}</span>` : ""}</div>${w < 12 ? `<span class="fn4-frow-val-out">${value}</span>` : ""}</div>
-      <span class="fn4-frow-pct">${pct}%</span>
-    </div>`;
-  html += '<div class="fn4-card"><div class="fn4-card-title">商談ファネル</div><div class="fn4-funnel">';
-  html += funnelRow("初回商談", o.first_meetings || 0, 100, wOf(o.first_meetings, base), "fn4-fc-first");
-  html += funnelRow("明確な時期回答", o.clear_schedule || 0, pctOf(o.clear_schedule, base), wOf(o.clear_schedule, base), "fn4-fc-clear");
-  html += funnelRow("再商談実施", o.re_meetings || 0, pctOf(o.re_meetings, base), wOf(o.re_meetings, base), "fn4-fc-re");
-  html += funnelRow("受注", o.won || 0, pctOf(o.won, base), wOf(o.won, base), "fn4-fc-won");
+  // ヒーロー：転換率（初回→再商談）＋脇に失注/受注/猶予
+  const convPct = pctOf(o.re_meetings, base);
+  html += '<div class="sm-top">';
+  html += `<div class="sm-hero">
+    <div class="sm-hero-label">初回商談 → 再商談 の転換率</div>
+    <div class="sm-hero-rate"><span class="sm-hero-num">${convPct}</span><span class="sm-hero-pct">%</span></div>
+    <div class="sm-hero-rail"><div class="sm-hero-fill" style="width:${Math.min(100, convPct)}%"></div></div>
+    <div class="sm-hero-foot"><span>初回 ${o.first_meetings || 0} 件</span><span>再商談 ${o.re_meetings || 0} 件</span></div>
+  </div>`;
+  html += '<div class="sm-side">';
+  html += `<div class="sm-stat"><span class="sm-stat-label">失注</span><span class="sm-stat-num sm-lost">${o.lost || 0}</span><span class="sm-stat-pct">${pctOf(o.lost, base)}%</span></div>`;
+  html += `<div class="sm-stat"><span class="sm-stat-label">受注</span><span class="sm-stat-num">${o.won || 0}</span><span class="sm-stat-pct">${pctOf(o.won, base)}%</span></div>`;
+  html += `<div class="sm-stat"><span class="sm-stat-label">猶予中</span><span class="sm-stat-num sm-pending">${o.pending_10day || 0}</span><span class="sm-stat-pct">10日</span></div>`;
   html += "</div></div>";
 
-  // 担当者別パフォーマンス（全体/チーム選択時）
+  // 商談の流れ（段の間に離脱数を出す）
+  const stage = (label, value, w, cls) =>
+    `<div class="sm-stage">
+      <span class="sm-stage-label">${esc(label)}</span>
+      <div class="sm-stage-track"><div class="sm-stage-fill ${cls}" style="width:${w}%"></div></div>
+      <span class="sm-stage-num">${value}</span>
+    </div>`;
+  const drop = (n, text) =>
+    n > 0
+      ? `<div class="sm-drop"><span class="sm-drop-arrow">↓</span><span class="sm-drop-num">−${n}</span><span class="sm-drop-text">${esc(text)}</span></div>`
+      : `<div class="sm-drop"><span class="sm-drop-arrow">↓</span><span class="sm-drop-text">${esc(text)}</span></div>`;
+
+  const nFirst = o.first_meetings || 0, nRe = o.re_meetings || 0, nWon = o.won || 0;
+  html += '<div class="fn4-card"><div class="fn4-card-head"><span class="fn4-card-title">商談の流れ</span><span class="fn4-card-note">段の間は離脱数</span></div><div class="sm-flow">';
+  html += stage("初回商談", nFirst, 100, "sm-fc-first");
+  html += drop(Math.max(0, nFirst - nRe), `再商談に至らず（${pctOf(Math.max(0, nFirst - nRe), base)}%が離脱）`);
+  html += stage("再商談実施", nRe, wOf(nRe, base), "sm-fc-re");
+  html += drop(Math.max(0, nRe - nWon), "受注に至らず");
+  html += stage("受注", nWon, wOf(nWon, base), "sm-fc-won");
+  html += "</div></div>";
+
+  // 担当者別（転換率の高い順）
   const scope = $("fnScope").value;
   if ((scope === "all" || scope.startsWith("team:")) && (d.byOwner || []).length) {
-    const maxRe = Math.max(1, ...d.byOwner.map((r) => r.re_meetings || 0));
-    html += '<div class="fn4-card"><div class="fn4-card-head"><span class="fn4-card-title">担当者別パフォーマンス</span><span class="fn4-card-note">再商談実施数</span></div><div class="fn4-reps">';
-    for (const r of d.byOwner) {
-      const w = Math.max(3, Math.round(((r.re_meetings || 0) / maxRe) * 100));
-      const isTop = (r.re_meetings || 0) === maxRe && maxRe > 0;
-      html += `<div class="fn4-rep-row">
-        <span class="fn4-rep-name">${esc(r.owner)}</span>
-        <div class="fn4-rep-track"><div class="fn4-rep-fill ${isTop ? "fn4-rep-fill-top" : ""}" style="width:${w}%"></div></div>
-        <span class="fn4-rep-meta">初回${r.first_meetings} · 再${r.re_meetings}</span>
-      </div>`;
+    const rows = d.byOwner
+      .map((r) => ({ ...r, conv: (r.first_meetings || 0) > 0 ? ((r.re_meetings || 0) / r.first_meetings) * 100 : 0 }))
+      .sort((a, b) => b.conv - a.conv || (b.re_meetings || 0) - (a.re_meetings || 0));
+    const topConv = rows.length ? rows[0].conv : 0;
+    html += '<div class="fn4-card"><div class="fn4-card-head"><span class="fn4-card-title">担当者別</span><span class="fn4-card-note">行をクリックで内訳</span></div><div class="sm-reps">';
+    for (const r of rows) {
+      const isTop = r.conv === topConv && r.conv > 0;
+      html += `<div class="sm-rep" data-owner="${esc(r.owner)}" role="button" tabindex="0" aria-expanded="false">
+        <span class="sm-rep-caret">▸</span>
+        <span class="sm-rep-name">${esc(r.owner)}</span>
+        <span class="sm-rep-nums">${r.first_meetings || 0} → ${r.re_meetings || 0}</span>
+        <div class="sm-rep-track"><div class="sm-rep-fill ${isTop ? "sm-rep-top" : ""}" style="width:${Math.min(100, Math.round(r.conv))}%"></div></div>
+        <span class="sm-rep-pct ${isTop ? "sm-rep-pct-top" : ""}">${r.conv.toFixed(1)}%</span>
+      </div>
+      <div class="sm-rep-detail" data-detail="${esc(r.owner)}" hidden></div>`;
     }
     html += "</div></div>";
   }
 
   html += "</div>";
   body.innerHTML = html;
+
+  // 担当者の行をクリック → 内訳（初回・再商談実施・進行中・案件）を展開
+  const detailsByOwner = {};
+  for (const r of d.byOwner || []) detailsByOwner[r.owner] = r.details || {};
+  const groupDefs = [
+    { key: "first", label: "初回商談", cls: "sg-first" },
+    { key: "re", label: "再商談実施", cls: "sg-re" },
+    { key: "activated", label: "進行中", cls: "sg-active" },
+    { key: "pending_10day", label: "猶予中", cls: "sg-pending" },
+    { key: "won", label: "受注", cls: "sg-won" },
+    { key: "lost", label: "失注", cls: "sg-lost" },
+    { key: "review", label: "要確認", cls: "sg-review" },
+  ];
+  const renderDetail = (owner) => {
+    const det = detailsByOwner[owner] || {};
+    const dealMap = {};
+    for (const key of ["first", "re"]) {
+      for (const it of det[key] || []) {
+        dealMap[it.company] = dealMap[it.company] || { company: it.company, status: it.status, first: 0, re: 0 };
+        if (key === "first") dealMap[it.company].first++; else dealMap[it.company].re++;
+        if (it.status) dealMap[it.company].status = it.status;
+      }
+    }
+    let h = '<div class="sm-detail-inner">';
+    const deals = Object.values(dealMap).sort((a, b) => (b.first + b.re) - (a.first + a.re));
+    if (deals.length) {
+      h += `<details class="sm-group" open><summary><span class="sm-group-dot sg-deal"></span>案件<span class="sm-group-count">${deals.length}</span></summary><ul class="sm-group-list">`;
+      for (const dl of deals) {
+        const href = `deals.html?company=${encodeURIComponent(dl.company)}&from=report`;
+        h += `<li><a class="sm-item-link" href="${href}"><span class="sm-item-co">${esc(dl.company)}</span><span class="sm-item-meta">初回${dl.first} ・ 再商談${dl.re}${dl.status ? " ・ " + esc(dl.status) : ""}</span><span class="sm-item-arrow">›</span></a></li>`;
+      }
+      h += "</ul></details>";
+    }
+    for (const g of groupDefs) {
+      const list = det[g.key] || [];
+      if (!list.length) continue;
+      h += `<details class="sm-group"><summary><span class="sm-group-dot ${g.cls}"></span>${g.label}<span class="sm-group-count">${list.length}</span></summary><ul class="sm-group-list">`;
+      for (const it of list) {
+        h += `<li><span class="sm-item-co">${esc(it.company)}</span><span class="sm-item-meta">${esc(it.date)}${it.result ? " ・ " + esc(it.result) : ""}</span></li>`;
+      }
+      h += "</ul></details>";
+    }
+    if (h === '<div class="sm-detail-inner">') h += '<div class="empty-state">この期間の商談はありません</div>';
+    return h + "</div>";
+  };
+  body.querySelectorAll(".sm-rep").forEach((row) => {
+    const toggle = () => {
+      const owner = row.dataset.owner;
+      const box = body.querySelector(`.sm-rep-detail[data-detail="${CSS.escape(owner)}"]`);
+      if (!box) return;
+      const open = box.hidden;
+      if (open && !box.dataset.filled) { box.innerHTML = renderDetail(owner); box.dataset.filled = "1"; }
+      box.hidden = !open;
+      row.classList.toggle("open", open);
+      row.setAttribute("aria-expanded", String(open));
+      const caret = row.querySelector(".sm-rep-caret");
+      if (caret) caret.textContent = open ? "▾" : "▸";
+    };
+    row.addEventListener("click", toggle);
+    row.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); toggle(); } });
+  });
 }
 
 // ===== 商談種別（コールド / 過去失注 / 通常）=====
@@ -431,7 +511,20 @@ async function runInternMatch() {
     });
     const d = await r.json();
     if (!r.ok) throw new Error(d.error || "照合に失敗しました");
-    if (st) st.textContent = "照合しました";
+    // 診断：カレンダーが読めているか／主催者の予定が拾えているかを表示する
+    if (st) {
+      const lines = (d.interns || []).map((p) => {
+        if (p.error) return `${p.name}: ⚠ ${p.error}`;
+        return `${p.name}: 予定${p.calendar_events ?? 0}件（本人主催${p.hosted_events ?? 0}件）→ 一致${p.count}件`;
+      });
+      st.innerHTML = `照合しました（一致 ${d.matched}／対象 ${d.meetings_total}）<br><span style="font-size:11px;color:var(--muted)">${lines.join("<br>")}</span>`;
+    }
+    // 主催者で弾かれた予定がある場合、コンソールに詳細を出す（原因特定用）
+    for (const p of d.interns || []) {
+      if (p.skipped_samples && p.skipped_samples.length) {
+        console.log(`[照合] ${p.name} は本人主催でない予定を除外:`, p.skipped_samples);
+      }
+    }
     await loadInternDash();
     setTimeout(() => { if (st) st.textContent = ""; }, 2000);
   } catch (e) {
