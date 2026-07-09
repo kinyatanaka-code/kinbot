@@ -170,6 +170,26 @@ function renderFunnel(body, d) {
   }
   html += "</div>"; // .sm-cols を閉じる（商談の流れ ＋ 担当者別 の横並び）
 
+  // 診断：期間内に実施された再商談が、計上判断月のコホートに入らなかった理由を明示する
+  const rd = d.re_debug;
+  if (rd && rd.re_events_in_period > rd.counted_deals) {
+    const parts = [];
+    if (rd.no_first_event) parts.push(`初回商談の判定データが無い ${rd.no_first_event}件`);
+    if (rd.first_jm_null) parts.push(`判断月が未設定 ${rd.first_jm_null}件`);
+    if (rd.first_jm_other) {
+      const ms = Object.entries(rd.other_months).sort().map(([m, n]) => `${m}:${n}`).join(" / ");
+      parts.push(`判断月が別の月 ${rd.first_jm_other}件（${ms}）`);
+    }
+    if (rd.no_deal_id) parts.push(`案件に紐付いていない ${rd.no_deal_id}件`);
+    if (parts.length) {
+      html += `<div class="sm-diag">
+        <div class="sm-diag-head">この期間に実施された再商談 ${rd.re_events_in_period}件 のうち、${rd.target_month} の計上判断は ${rd.counted_deals}件 です</div>
+        <ul class="sm-diag-list">${parts.map((p) => `<li>${esc(p)}</li>`).join("")}</ul>
+        <div class="sm-diag-foot">「初回商談の判定データが無い」「判断月が未設定」が多い場合は、該当商談を<b>再判定</b>すると計上されます。</div>
+      </div>`;
+    }
+  }
+
   html += "</div>";
   body.innerHTML = html;
 

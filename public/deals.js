@@ -211,8 +211,9 @@ function npStageInfo(d) {
   const atOk = f.apply_timing === "今月" || f.apply_timing === "来月";
   if (scOk) reached = 2;
   if (scOk && atOk) reached = 3;
-  // 再商談の日程が設定されている、または再商談イベントがある → ステージ4到達
-  if (hasNext || d.re) reached = 4;
+  // 「再商談実施」は実際に再商談を行った（再商談イベントがある）ときだけ到達。
+  // 日程が設定されただけ（hasNext）は"予定"であって実施ではない（KPIの計上対象にもならない）。
+  if (d.re) reached = 4;
   if (d.latest_result === "受注" || st === "受注") reached = 5;
   // 失注の位置
   if (st.startsWith("失注")) {
@@ -257,6 +258,10 @@ function renderNewProcess(box, d) {
   const pendingNote = isPending10day
     ? `<div class="np-pending-note">初回商談その場で再商談が設定できませんでした。<b>${esc(d.auto_lose_deadline || "")}</b> までに再商談が設定されなければ、自動的に失注になります（残り猶予中）。</div>`
     : "";
+  // 再商談の日程は入っているが、まだ実施していない（＝KPIの再商談実施には計上されない）
+  const scheduledNote = (hasNext && !d.re)
+    ? `<div class="np-scheduled-note">再商談は<b>${esc(f.next_meeting_date || "予定日未取得")}</b>に予定されています。<b>実施後に判定</b>すると「再商談実施」として計上されます（予定だけでは計上されません）。</div>`
+    : "";
 
   // 詳細行
   const jm = f.judgment_month ? f.judgment_month.replace("-", "年") + "月" : "—";
@@ -293,6 +298,7 @@ function renderNewProcess(box, d) {
     `<div class="np-stages">${steps}</div>` +
     reviewNote +
     pendingNote +
+    scheduledNote +
     `<div class="np-body">${rows}</div>` +
     reasonsBlock;
   const rr = document.getElementById("npReRun");
