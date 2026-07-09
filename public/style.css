@@ -2241,27 +2241,28 @@ body {
 /* ============================================================
    実績サマリー：転換率を主役にした再設計
    ============================================================ */
-.sm-top { display: grid; grid-template-columns: 1.35fr 1fr; gap: 12px; margin-bottom: 14px; }
+.sm-top { display: grid; grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr); gap: 12px; margin-bottom: 12px; }
+.sm-top > * { min-width: 0; }
 @media (max-width: 760px) { .sm-top { grid-template-columns: 1fr; } }
 
 /* ヒーロー：転換率 */
-.sm-hero { background: linear-gradient(150deg, #12735a 0%, #0b4a3b 100%); border-radius: 16px; padding: 18px 22px; color: #fff; box-shadow: 0 10px 24px rgba(12,116,88,.28); }
-.sm-hero-counts { display: flex; align-items: flex-end; gap: 18px; }
+.sm-hero { background: linear-gradient(150deg, #12735a 0%, #0b4a3b 100%); border-radius: 14px; padding: 16px 20px; color: #fff; box-shadow: 0 8px 20px rgba(12,116,88,.26); display: flex; flex-direction: column; justify-content: center; gap: 14px; min-width: 0; }
+.sm-hero-counts { display: flex; align-items: flex-end; gap: 16px; min-width: 0; flex-wrap: wrap; }
 .sm-hc { display: flex; flex-direction: column; }
 .sm-hc-label { font-size: 12px; color: #a9d9c8; letter-spacing: .03em; margin-bottom: 2px; }
-.sm-hc-num { font-size: 46px; font-weight: 700; line-height: 1; font-variant-numeric: tabular-nums; color: #d9efe6; }
+.sm-hc-num { font-size: 40px; font-weight: 700; line-height: 1; font-variant-numeric: tabular-nums; color: #d9efe6; }
 .sm-hc-num-key { color: #fff; }
 .sm-hc-arrow { font-size: 22px; color: #6fbfa2; padding-bottom: 6px; }
 .sm-hero-conv { margin-left: auto; text-align: right; padding-bottom: 2px; }
 .sm-hero-conv-num { font-size: 20px; font-weight: 700; color: #8ee3bd; line-height: 1; font-variant-numeric: tabular-nums; }
 .sm-hero-conv-pct { font-size: 13px; margin-left: 1px; }
 .sm-hero-conv-label { font-size: 11px; color: #a9d9c8; margin-top: 3px; }
-.sm-hero-rail { height: 6px; border-radius: 99px; background: rgba(255,255,255,.16); overflow: hidden; margin-top: 16px; }
+.sm-hero-rail { height: 6px; border-radius: 99px; background: rgba(255,255,255,.16); overflow: hidden; }
 .sm-hero-fill { height: 100%; background: #5dcaa5; border-radius: 99px; }
 
 /* 脇の統計 */
 .sm-side { display: grid; grid-template-rows: repeat(3, 1fr); gap: 8px; }
-.sm-stat { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 9px 14px; display: flex; align-items: center; box-shadow: var(--elev-1); }
+.sm-stat { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 8px 14px; min-width: 0; display: flex; align-items: center; box-shadow: var(--elev-1); }
 .sm-stat-label { font-size: 12.5px; color: var(--muted); }
 .sm-stat-num { margin-left: auto; font-size: 19px; font-weight: 700; color: #1b241f; font-variant-numeric: tabular-nums; }
 .sm-stat-num.sm-lost { color: #A32D2D; }
@@ -2272,27 +2273,27 @@ body {
 .sm-flow { display: flex; flex-direction: column; }
 .sm-stage { display: flex; align-items: center; gap: 12px; }
 .sm-stage-label { width: 86px; font-size: 12.5px; color: var(--muted); flex: none; }
-.sm-stage-track { flex: 1; height: 26px; background: #eef2ef; border-radius: 4px; overflow: hidden; }
+.sm-stage-track { flex: 1; min-width: 0; height: 22px; background: #eef2ef; border-radius: 4px; overflow: hidden; }
 .sm-stage-fill { height: 100%; border-radius: 4px; }
 .sm-fc-first { background: #0d5b47; }
 .sm-fc-re { background: #1d9e75; }
 .sm-fc-won { background: #5dcaa5; }
 .sm-stage-num { width: 38px; text-align: right; font-size: 15px; font-weight: 700; color: #1b241f; font-variant-numeric: tabular-nums; flex: none; }
-.sm-drop { display: flex; align-items: center; gap: 10px; padding: 5px 0 5px 98px; }
+.sm-drop { display: flex; align-items: center; gap: 8px; padding: 4px 0 4px 98px; min-width: 0; }
 .sm-drop-arrow { color: #c3c2b7; font-size: 13px; }
 .sm-drop-num { font-size: 12px; font-weight: 700; color: #A32D2D; font-variant-numeric: tabular-nums; }
 .sm-drop-text { font-size: 12px; color: var(--muted); }
 
 /* 担当者別（転換率順） */
 .sm-reps { display: flex; flex-direction: column; }
-.sm-rep { display: flex; align-items: center; gap: 10px; padding: 8px 0; border-top: 1px solid #eef0ee; }
+.sm-rep { display: flex; align-items: center; gap: 10px; padding: 6px 0; border-top: 1px solid #eef0ee; min-width: 0; }
 .sm-rep:first-child { border-top: none; }
 .sm-rep-name { width: 84px; font-size: 12.5px; color: #1b241f; flex: none; }
 .sm-rep-nums { width: 92px; font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; flex: none; display: flex; align-items: baseline; gap: 5px; }
 .sm-rep-nums b { font-size: 17px; font-weight: 700; color: #1b241f; }
 .sm-rep-nums b.sm-rep-b-top { color: #0d5b47; }
 .sm-rep-arrow { color: #b9c2bb; font-size: 11px; }
-.sm-rep-track { flex: 1; height: 8px; background: #eef2ef; border-radius: 99px; overflow: hidden; }
+.sm-rep-track { flex: 1; min-width: 0; height: 8px; background: #eef2ef; border-radius: 99px; overflow: hidden; }
 .sm-rep-fill { height: 100%; background: #888780; border-radius: 99px; }
 .sm-rep-fill.sm-rep-top { background: #1d9e75; }
 .sm-rep-pct { width: 50px; text-align: right; font-size: 11.5px; color: var(--muted); font-variant-numeric: tabular-nums; flex: none; }
@@ -2336,3 +2337,23 @@ body {
 .sm-item-link { display: flex; align-items: baseline; gap: 10px; width: 100%; text-decoration: none; color: inherit; cursor: pointer; }
 .sm-item-link:hover .sm-item-co { color: #0d5b47; text-decoration: underline; }
 .sm-item-arrow { color: var(--muted); font-size: 11px; margin-left: 6px; }
+
+/* 横スクロール防止：はみ出しの原因（min-content）を各要素で抑える。
+   .main に overflow-x を掛けると .topbar / .set-menu の position:sticky が効かなくなるため使わない。 */
+.fn4-card, .panel { min-width: 0; overflow-wrap: anywhere; }
+.sm-flow, .sm-reps, .sm-detail-inner { min-width: 0; }
+.sm-group-list li { min-width: 0; }
+.sm-item-co { overflow-wrap: anywhere; }
+.sm-item-meta { white-space: nowrap; }
+
+/* 商談の流れ ＋ 担当者別 を横並びに（1画面に収める） */
+.sm-cols { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 12px; align-items: start; }
+.sm-cols > * { min-width: 0; }
+/* 担当者別だけが単独で出るとき（個人選択時など）は全幅 */
+.sm-cols > .fn4-card:only-child { grid-column: 1 / -1; }
+/* 展開した内訳が長くなっても、カード内でスクロールさせて画面を伸ばさない */
+.sm-cols .sm-reps { max-height: 420px; overflow-y: auto; }
+@media (max-width: 1100px) { .sm-cols { grid-template-columns: 1fr; } .sm-cols .sm-reps { max-height: none; } }
+
+/* 再商談実施の算定基準バッジ */
+.sm-hc-basis { display: inline-block; margin-left: 6px; padding: 1px 6px; border-radius: 5px; background: rgba(255,255,255,.18); color: #cdeadd; font-size: 9.5px; font-weight: 700; letter-spacing: .02em; vertical-align: 1px; }

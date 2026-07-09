@@ -109,7 +109,7 @@ function renderFunnel(body, d) {
       </div>
       <div class="sm-hc-arrow">→</div>
       <div class="sm-hc">
-        <div class="sm-hc-label">再商談実施</div>
+        <div class="sm-hc-label">再商談実施${d.re_basis === "judgment_month" ? '<span class="sm-hc-basis">計上判断月</span>' : ""}</div>
         <div class="sm-hc-num sm-hc-num-key">${o.re_meetings || 0}</div>
       </div>
       <div class="sm-hero-conv">
@@ -138,7 +138,8 @@ function renderFunnel(body, d) {
       : `<div class="sm-drop"><span class="sm-drop-arrow">↓</span><span class="sm-drop-text">${esc(text)}</span></div>`;
 
   const nFirst = o.first_meetings || 0, nRe = o.re_meetings || 0, nWon = o.won || 0;
-  html += '<div class="fn4-card"><div class="fn4-card-head"><span class="fn4-card-title">商談の流れ</span><span class="fn4-card-note">段の間は離脱数</span></div><div class="sm-flow">';
+  html += '<div class="sm-cols">';
+  html += `<div class="fn4-card"><div class="fn4-card-head"><span class="fn4-card-title">商談の流れ</span><span class="fn4-card-note">${d.re_basis === "judgment_month" ? "再商談実施は計上判断月・案件単位" : "段の間は離脱数"}</span></div><div class="sm-flow">`;
   html += stage("初回商談", nFirst, 100, "sm-fc-first");
   html += drop(Math.max(0, nFirst - nRe), `再商談に至らず（${pctOf(Math.max(0, nFirst - nRe), base)}%が離脱）`);
   html += stage("再商談実施", nRe, wOf(nRe, base), "sm-fc-re");
@@ -167,6 +168,7 @@ function renderFunnel(body, d) {
     }
     html += "</div></div>";
   }
+  html += "</div>"; // .sm-cols を閉じる（商談の流れ ＋ 担当者別 の横並び）
 
   html += "</div>";
   body.innerHTML = html;
