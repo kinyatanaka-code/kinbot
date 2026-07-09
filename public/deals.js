@@ -144,7 +144,18 @@ async function loadNewProcess(companyName, pk, ms) {
     if (btn) btn.addEventListener("click", () => runNewProcess(botIds, companyName, pk, ms));
     return;
   }
-  renderNewProcess(box, d);
+  // 描画で例外が出ても「読み込み中…」のまま固まらないようにする
+  try {
+    renderNewProcess(box, d);
+  } catch (e) {
+    console.error("[新プロセス] 描画に失敗", e);
+    box.innerHTML = `<div class="empty-state">判定の表示に失敗しました（${escapeHtmlSafe(e.message)}）。ページを再読み込みしてください。</div>`;
+  }
+}
+
+// エラーメッセージ表示用の簡易エスケープ（esc が未定義でも落ちないように）
+function escapeHtmlSafe(s) {
+  return String(s == null ? "" : s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 }
 
 // この会社の商談を順に抽出APIにかけて判定する
@@ -232,7 +243,7 @@ function renderNewProcess(box, d) {
     { n: 4, label: "再商談実施" },
     { n: 5, label: "受注" },
   ];
-  const { reached, lostAt, isWon, isReview, isPending10day } = npStageInfo(d);
+  const { reached, lostAt, isWon, isReview, isPending10day, hasNext } = npStageInfo(d);
   const f = d.first || {};
 
   // ステージバー（丸＋ラベル＋矢印）
