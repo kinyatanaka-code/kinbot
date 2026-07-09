@@ -438,7 +438,7 @@ curl -H "Authorization: Bearer <span class="cc-tok">&lt;トークン&gt;</span>"
             <div class="subpane" data-sub="custom" hidden>
               <div class="set-card">
                 <h3>カスタム分析プロンプト（チーム共有）</h3>
-                <p class="note">ここに貼り付けたプロンプトを、各商談の文字起こしに対して実行できます。実行結果は商談履歴の詳細に「カスタム分析」タブとして表示されます。文字起こしを入れたい箇所には <code>{transcript}</code> と書けばそこに差し込まれます（省略した場合は末尾に自動で添付）。空欄なら機能はオフです。</p>
+                <p class="note">ここに貼り付けたプロンプトを、各商談の文字起こしに対して実行します。<b>設定すると、商談履歴の「要約」タブが、このプロンプトの出力に置き換わります</b>（標準の要約は表示されません）。文字起こしを入れたい箇所には <code>{transcript}</code> と書けばそこに差し込まれます（省略した場合は末尾に自動で添付）。空欄なら標準の要約に戻ります。</p>
                 <textarea id="customPrompt" rows="14" placeholder="例：&#10;# 役割&#10;あなたは営業商談を分析するアシスタントです。以下の9項目を抽出してください。&#10;…（ルール・出力フォーマット）…&#10;&#10;# 対象の文字起こし&#10;{transcript}"></textarea>
                 <div class="modal-actions">
                   <button class="btn" id="saveCustomPromptBtn">保存</button>

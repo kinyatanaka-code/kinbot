@@ -506,7 +506,6 @@ async function loadDetail(botId) {
       <div class="tabs">
         <button class="tab active" data-tab="trans">文字起こし</button>
         <button class="tab" data-tab="summary">要約</button>
-        <button class="tab" data-tab="custom">カスタム分析</button>
         <button class="tab" data-tab="ailog">AI提案ログ</button>
         <button class="tab" data-tab="fb">FB & 分析</button>
         <button class="tab" data-tab="thanks">御礼メール</button>
@@ -519,12 +518,9 @@ async function loadDetail(botId) {
         </div>
         <div class="tabpane" data-pane="summary" hidden>
           <div id="dnoteWrap"></div>
-          <div class="pane-bar"><button class="btn ghost copy-mini" id="copySummary">コピー</button></div>
+          <div class="pane-bar"><button class="btn ghost" id="customRunBtn" hidden>再実行</button><button class="btn ghost copy-mini" id="copySummary">コピー</button></div>
+          <div id="dcustom" class="pane-content" hidden></div>
           <div id="dsummary" class="pane-content"></div>
-        </div>
-        <div class="tabpane" data-pane="custom" hidden>
-          <div class="pane-bar"><button class="btn ghost" id="customRunBtn">再実行</button><button class="btn ghost copy-mini" id="copyCustom">コピー</button></div>
-          <div id="dcustom" class="pane-content"></div>
         </div>
         <div class="tabpane" data-pane="ailog" hidden>
           <div class="ai-feed" id="dailog"></div>
@@ -569,14 +565,18 @@ async function loadDetail(botId) {
       </div>`;
 
     // タブ切替
-    // カスタム分析（ユーザー定義プロンプト）：タブを開いたら実行（保存済みは即表示、無ければ自動実行）
+    // 要約タブ：カスタムプロンプトが設定されていれば、標準要約の代わりにその出力を表示する
     const dcustom = hdetail.querySelector("#dcustom");
+    const dsummaryEl = hdetail.querySelector("#dsummary");
     const customRunBtn = hdetail.querySelector("#customRunBtn");
     let customLoaded = false;
+    let customMode = false; // カスタムプロンプトが設定されているか
     async function loadCustom(regen) {
       if (!dcustom) return;
       customLoaded = true;
-      window.kbProgress(dcustom, { percent: null, label: regen ? "カスタム分析を実行しています…（数十秒かかります）" : "カスタム分析を読み込んでいます…" });
+      dcustom.hidden = false;
+      if (dsummaryEl) dsummaryEl.hidden = true;
+      window.kbProgress(dcustom, { percent: null, label: regen ? "設定したプロンプトで分析しています…（数十秒かかります）" : "分析結果を読み込んでいます…" });
       try {
         const r = await fetch(`/api/meetings/${encodeURIComponent(botId)}/custom-analysis`, {
           method: "POST", headers: { "content-type": "application/json" },
@@ -592,6 +592,19 @@ async function loadDetail(botId) {
         dcustom.innerHTML = `<div class="empty-state">${escapeHtml(e.message)}</div>`;
       }
     }
+    // カスタムプロンプトの有無を確認し、あれば要約タブをカスタム出力に切り替える
+    (async () => {
+      try {
+        const d = await (await fetch("/api/custom-prompt")).json();
+        customMode = !!(d.prompt && d.prompt.trim());
+      } catch {}
+      if (customMode) {
+        if (customRunBtn) customRunBtn.hidden = false;
+        // 要約タブが最初から開いている場合に備えて即読み込み
+        const summaryPane = hdetail.querySelector('.tabpane[data-pane="summary"]');
+        if (summaryPane && !summaryPane.hidden && !customLoaded) loadCustom(false);
+      }
+    })();
     if (customRunBtn) customRunBtn.addEventListener("click", () => loadCustom(true));
 
     hdetail.querySelectorAll(".tab").forEach((tab) => {
@@ -599,7 +612,7 @@ async function loadDetail(botId) {
         hdetail.querySelectorAll(".tab").forEach((t) => t.classList.toggle("active", t === tab));
         const name = tab.dataset.tab;
         hdetail.querySelectorAll(".tabpane").forEach((p) => (p.hidden = p.dataset.pane !== name));
-        if (name === "custom" && !customLoaded) loadCustom(false);
+        if (name === "summary" && customMode && !customLoaded) loadCustom(false);
       });
     });
 
@@ -627,13 +640,11 @@ async function loadDetail(botId) {
       copyText(hdetail.querySelector("#dtrans").innerText, e.currentTarget)
     );
     hdetail.querySelector("#copySummary").addEventListener("click", (e) =>
-      copyText(summaryToText(s), e.currentTarget)
+      copyText(customMode ? hdetail.querySelector("#dcustom").innerText : summaryToText(s), e.currentTarget)
     );
     hdetail.querySelector("#copyFb").addEventListener("click", (e) =>
       copyText(hdetail.querySelector("#dfbwrap").innerText, e.currentTarget)
     );
-    const copyCustomBtn = hdetail.querySelector("#copyCustom");
-    if (copyCustomBtn) copyCustomBtn.addEventListener("click", (e) => copyText(hdetail.querySelector("#dcustom").innerText, e.currentTarget));
     // 御礼メール生成
     const thanksGen = hdetail.querySelector("#thanksGen");
     const thanksSubject = hdetail.querySelector("#thanksSubject");
@@ -971,6 +982,7 @@ async function loadDetail(botId) {
         s = data.summary || s;
         renderSummaryInto(hdetail.querySelector("#dsummary"), data.summary || {});
         renderFeedbackInto(hdetail.querySelector("#dfeedback"), data.feedback || {});
+        if (customMode) await loadCustom(true); // 要約タブはカスタム出力を表示しているので作り直す
         loadList(); // 一覧の「要約なし」表示を更新
       } catch (e) {
         window.kbProgress(hdetail.querySelector("#dsummary"), { clear: true });
