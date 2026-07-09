@@ -612,9 +612,19 @@ async function runExtraction(botId, forceProvider) {
   const meetingDateStr = meetingDate.toISOString().slice(0, 10);
   const meetingMonth = meetingDateStr.slice(0, 7);
 
-  // 種別判定
-  const kindRes = await classifyMeetingKind(transcript, { provider: forceProvider });
-  const kind = kindRes.meeting_kind;
+  // 種別判定：商談名に回数が明示されていればそれを正とする（【新/ヒ】【初回/…】=初回、【2回目/】【再商談】=再商談）。
+  // 商談名から判断できないときだけAIに文字起こしを読ませて分類する。
+  const titleRound = roundFromTitle(m.title);           // 1 / n / null
+  const titleSaysRe = /【[^】]*(再商談|再提案)[^】]*】/.test(String(m.title || "").normalize("NFKC"));
+  let kind;
+  if (titleRound === 1) {
+    kind = "初回商談";
+  } else if ((titleRound && titleRound >= 2) || titleSaysRe) {
+    kind = "再商談";
+  } else {
+    const kindRes = await classifyMeetingKind(transcript, { provider: forceProvider });
+    kind = kindRes.meeting_kind;
+  }
 
   // 既存の同一商談イベントを消してから入れ直す（再抽出の重複防止）
   await deleteDealEventsByBot(botId);
@@ -1038,8 +1048,9 @@ app.post("/api/interns/match", async (req, res) => {
     const to = (req.body && req.body.to) || today.toISOString().slice(0, 10);
     const DATE_WINDOW = 2; // 商談日と予定日のズレをこの日数まで許容
     // カレンダー取得範囲は前後1日の余裕をもたせる（JST境界対策）
-    const timeMin = new Date(Date.parse(from + "T00:00:00+09:00") - 86400 * 1000).toISOString();
-    const timeMax = new Date(Date.parse(to + "T23:59:59+09:00") + 86400 * 1000).toISOString();
+    // 商談日と予定日のズレ（DATE_WINDOW日）を許容するため、カレンダー取得は前後に余裕を持たせる
+    const timeMin = new Date(Date.parse(from + "T00:00:00+09:00") - 3 * 86400 * 1000).toISOString();
+    const timeMax = new Date(Date.parse(to + "T23:59:59+09:00") + 3 * 86400 * 1000).toISOString();
 
     // 対象商談：実施済み（商談カテゴリ）かつ「初回/新」の商談のみをカウント対象にする
     const allMeetings = await listMeetings({ isAdmin: true });
@@ -1052,13 +1063,19 @@ app.post("/api/interns/match", async (req, res) => {
 
     // 各インターンのカレンダー予定を取得（未共有などは individual に握りつぶす）
     // 照合対象は「本人が主催者（作成者）の予定」のみ。招待されただけの予定は除外する。
+    // 注意：Googleは主催者を「そのカレンダーのID」で返すことがあるため、登録メールだけでなく
+    //       読み込んでいるカレンダーID自身とも突き合わせる（別名アドレス等での取りこぼしを防ぐ）。
     const internEvents = []; // { intern, events:[...], error }
     for (const it of interns) {
       const internEmail = String(it.email || "").toLowerCase();
       const isHost = (e) => {
         const org = String(e.organizer || "").toLowerCase();
         const creator = String(e.creator || "").toLowerCase();
-        return (org && org === internEmail) || (!org && creator && creator === internEmail);
+        const self = (x) => x && (x === internEmail);
+        if (self(org) || self(creator)) return true;
+        // 主催者・作成者のどちらも取得できない場合は、本人のカレンダー上の予定として扱う
+        if (!org && !creator) return true;
+        return false;
       };
       try {
         const evs = await listCalendarEvents(gcalOwner, it.email, { timeMin, timeMax });
@@ -1069,13 +1086,17 @@ app.post("/api/interns/match", async (req, res) => {
                      .map((e) => ({ title: e.title, date: jstDateStr(e.start) }))
                      .filter((e) => e.title && e.date),
           fetched: evs.length,
+          hosted: kept.length,
+          // 診断用：主催者で弾かれた予定のサンプル（誰が主催になっているか）
+          skipped_samples: evs.filter((e) => !isHost(e)).slice(0, 3)
+                              .map((e) => ({ title: e.title, organizer: e.organizer || "", creator: e.creator || "" })),
           error: null,
         });
       } catch (e) {
         const msg = /40[34]/.test(e.message)
           ? "カレンダーを読めませんでした（このメールのカレンダーがあなたと共有されているか確認してください）"
           : e.message;
-        internEvents.push({ intern: it, events: [], fetched: 0, error: msg });
+        internEvents.push({ intern: it, events: [], fetched: 0, hosted: 0, skipped_samples: [], error: msg });
       }
     }
 
@@ -1084,7 +1105,7 @@ app.post("/api/interns/match", async (req, res) => {
 
     // 照合：商談名 × 予定名（日付ウィンドウ内）
     const perIntern = {}; // email -> { name, email, matched:[], error }
-    for (const ie of internEvents) perIntern[ie.intern.email] = { name: ie.intern.name, email: ie.intern.email, matched: [], error: ie.error, fetched: ie.fetched };
+    for (const ie of internEvents) perIntern[ie.intern.email] = { name: ie.intern.name, email: ie.intern.email, matched: [], error: ie.error, fetched: ie.fetched, hosted: ie.hosted, skipped_samples: ie.skipped_samples };
     let matchedCount = 0, multiCount = 0;
     const unmatched = [];
 
@@ -1122,7 +1143,7 @@ app.post("/api/interns/match", async (req, res) => {
       unmatched: meetings.length - matchedCount,
       multi_hit: multiCount,
       interns: Object.values(perIntern)
-        .map((p) => ({ name: p.name, email: p.email, count: p.matched.length, error: p.error, calendar_events: p.fetched, meetings: p.matched }))
+        .map((p) => ({ name: p.name, email: p.email, count: p.matched.length, error: p.error, calendar_events: p.fetched, hosted_events: p.hosted, skipped_samples: p.skipped_samples, meetings: p.matched }))
         .sort((a, b) => b.count - a.count),
       unmatched_list: unmatched,
     });
@@ -1435,6 +1456,27 @@ function funnelFrom(events) {
   // 受注：再商談の結果が受注、かつ案件の現在ステータスも受注のものだけを数える
   // （AIが受注と抽出しても案件が受注になっていない/変更された場合は数えない＝案件画面と一致させる）
   const won = re.filter((e) => e.result === "受注" && e.deal_status === "受注").length;
+  // ドリルダウン用：各区分に含まれる商談（会社名・日付）を、集計と同じ絞り込みからそのまま作る
+  const brief = (e) => ({
+    company: e.company_name || "(会社名なし)",
+    date: e.event_date ? String(e.event_date).slice(0, 10) : "",
+    bot_id: e.bot_id || "",
+    status: e.deal_status || "",
+    result: e.result || "",
+  });
+  const lostList = decided.filter((e) => {
+    const st = statusOfEv(e);
+    return st === "失注(未定)" || st === "失注(その他)" || (st === "進行中(未設定)" && e.deal_status === "失注(未定)");
+  }).concat(re.filter((e) => e.result === "失注"));
+  const details = {
+    first: first.map(brief),
+    re: re.map(brief),
+    activated: activated.map(brief),
+    pending_10day: pending10day.map(brief),
+    lost: lostList.map(brief),
+    won: re.filter((e) => e.result === "受注" && e.deal_status === "受注").map(brief),
+    review: review.map(brief),
+  };
   return {
     first_meetings: first.length,
     clear_schedule: clear.length,
@@ -1446,6 +1488,7 @@ function funnelFrom(events) {
     lost,
     re_meetings: reDone, // メインKPI
     won,
+    details,
   };
 }
 
@@ -1468,23 +1511,30 @@ app.get("/api/report/funnel", async (req, res) => {
     };
     const teamFilter = team ? String(team).trim() : null;
 
-    let events = await listDealEvents({ from, to, owner });
+    // 案件担当ではなく「実施者」で絞るため、SQLではownerで絞らずJS側で判定する
+    let events = await listDealEvents({ from, to });
+    // その商談を実際に担当した人（meetings.owner）を優先。無ければ案件の担当者にフォールバック。
+    const repOf = (e) => e.meeting_owner || e.owner;
+    if (owner) {
+      const target = resolveDisplayName(owner, nameMap);
+      events = events.filter((e) => resolveDisplayName(repOf(e), nameMap) === target);
+    }
     // チーム指定があれば、担当者→チームのマッピングでJS側フィルタ（deals.teamカラムに依存しない）
     if (teamFilter) {
       const before = events.length;
-      events = events.filter((e) => teamOf(e.owner) === teamFilter);
+      events = events.filter((e) => teamOf(repOf(e)) === teamFilter);
       if (events.length === 0 && before > 0) {
         // 0件になった時だけ、原因調査用にどう解決されたかをログに残す
-        const sample = [...new Set(before ? (await listDealEvents({ from, to, owner })).map((e) => e.owner) : [])].slice(0, 10);
+        const sample = [...new Set(before ? (await listDealEvents({ from, to, owner })).map((e) => repOf(e)) : [])].slice(0, 10);
         console.warn(`[report funnel] チーム「${teamFilter}」で0件。担当者→チーム解決:`, sample.map((o) => `${o}→${teamOf(o)}`));
         console.warn(`[report funnel] 登録済みチーム名一覧:`, [...new Set(Object.values(teamMap))]);
       }
     }
     const overall = funnelFrom(events);
-    // 担当者別（全体/チーム選択時に内訳を出す）。担当者名は登録名＋補正で表示。
+    // 担当者別（全体/チーム選択時に内訳を出す）。実施した本人（meetings.owner）で集計する。
     const byOwnerMap = {};
     for (const e of events) {
-      const o = resolveDisplayName(e.owner, nameMap) || "(不明)";
+      const o = resolveDisplayName(repOf(e), nameMap) || "(不明)";
       (byOwnerMap[o] = byOwnerMap[o] || []).push(e);
     }
     const byOwner = Object.keys(byOwnerMap).sort().map((o) => ({ owner: o, ...funnelFrom(byOwnerMap[o]) }));
@@ -1501,7 +1551,7 @@ app.get("/api/report/funnel", async (req, res) => {
     // チーム別（担当者→チームのマッピングで集約）。さらに各チームを種別で内訳。
     const byTeamMap = {}; // team -> events
     for (const e of events) {
-      const tm = teamOf(e.owner);
+      const tm = teamOf(repOf(e));
       (byTeamMap[tm] = byTeamMap[tm] || []).push(e);
     }
     const byTeam = Object.keys(byTeamMap).sort().map((tm) => {
@@ -1528,7 +1578,7 @@ app.get("/api/report/daily", async (req, res) => {
     const events = await listDealEvents({ from: date, to: date, owner });
     const nameMap = await buildNameMap();
     const rows = events.map((e) => ({
-      id: e.id, bot_id: e.bot_id, company_name: e.company_name, owner: resolveDisplayName(e.owner, nameMap),
+      id: e.id, bot_id: e.bot_id, company_name: e.company_name, owner: resolveDisplayName(repOf(e), nameMap),
       meeting_kind: e.meeting_kind, schedule_choice: e.schedule_choice, apply_timing: e.apply_timing,
       result: e.result, confidence: e.confidence, needs_review: e.needs_review,
       judgment_basis: e.judgment_basis,

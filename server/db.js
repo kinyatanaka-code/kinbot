@@ -453,17 +453,20 @@ export function companyFromTitle(title) {
 }
 
 // 商談名（タイトル）から「何回目」を推定する。全角半角の違いはNFKCで吸収。
-//   【新/ヒ】 または 【初回/】 → 1回目
-//   【2回目/】 など 【n回目…】 → n回目
+//   【新/ヒ】 → 1回目（【新/ヒ/コールド】のように後ろに区分が付いてもよい）
+//   【初回…】 → 1回目（【初回/】【初回/コールド】【初回/過去失注】など）
+//   【2回目…】 など 【n回目…】 → n回目
 //   判定できなければ null
 export function roundFromTitle(title) {
   const t = String(title || "").normalize("NFKC");
-  if (/【\s*新\s*\/\s*ヒ\s*】/.test(t) || /【\s*初回\s*\/\s*】/.test(t)) return 1;
-  const m = t.match(/【\s*(\d+)\s*回目/);
+  // 【n回目…】を先に判定（「初回」より具体的な指定を優先する）
+  const m = t.match(/【[^】]*?(\d+)\s*回目/);
   if (m) {
     const n = parseInt(m[1], 10);
     if (Number.isFinite(n) && n > 0) return n;
   }
+  if (/【[^】]*初回[^】]*】/.test(t)) return 1;        // 【初回/】【初回/コールド】【初回/過去失注】
+  if (/【[^】]*新\s*\/\s*ヒ[^】]*】/.test(t)) return 1; // 【新/ヒ】
   return null;
 }
 
@@ -1642,6 +1645,7 @@ export async function listDealEvents({ from, to, owner, team, kind } = {}) {
   try {
     const { rows } = await pool.query(
       `SELECT e.*, d.company_name, d.owner, d.team, d.status AS deal_status, d.auto_lose_deadline,
+              m.owner AS meeting_owner,
               COALESCE(NULLIF(m.deal_kind,''), '通常') AS deal_kind
        FROM deal_events e
        LEFT JOIN deals d ON d.deal_id = e.deal_id
