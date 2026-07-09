@@ -658,6 +658,19 @@ async function runExtraction(botId, forceProvider) {
     // 案件のステータス・初回商談日を更新（要確認でなければ）。「進行中(未定)」には自動失注の期限日も保存する。
     if (deal) {
       if (!der.needs_review) await updateDealStatus(deal.deal_id, der.status, der.auto_lose_deadline);
+      else {
+        // 要確認のときは判定を確定させないが、過去の誤判定で残った「再商談実施済み」等が
+        // そのまま表示され続けるのは誤り。再商談イベントが1件も無い案件なら、その状態を解除する。
+        const RE_DERIVED = ["再商談実施済み", "受注", "失注(その後失注)"];
+        if (RE_DERIVED.includes(deal.status)) {
+          const full = await getDealWithEvents(deal.deal_id).catch(() => null);
+          const stillHasRe = full && (full.events || []).some((e) => e.event_type === "再商談実施");
+          if (!stillHasRe) {
+            await updateDealStatus(deal.deal_id, "要確認", null);
+            console.log(`[extract] 古い「${deal.status}」を解除（再商談イベント無し）: ${deal.deal_id}`);
+          }
+        }
+      }
     }
     return { kind, ...der };
   }
@@ -1537,6 +1550,7 @@ app.get("/api/report/funnel", async (req, res) => {
     // （再商談を実際にやった日が翌月でも、判断月が7月ならその月の実績として計上する）
     // 判断月は「月」の概念なので、月次のときだけ適用。週次/日次は従来どおり実施日ベース。
     let cohortRe = null;
+    let reDebug = null;
     if (granularity === "month") {
       const targetMonth = String(from).slice(0, 7);
       const allEvents = await listDealEvents({}); // 期間で切らず全件（再商談が翌月でも拾うため）
@@ -1549,6 +1563,22 @@ app.get("/api/report/funnel", async (req, res) => {
         else if (e.event_type === "再商談実施") byDeal[k].res.push(e);
       }
       cohortRe = [];
+      // 診断：期間内に実施された再商談イベントが、なぜコホートに入らないのかを分類する
+      reDebug = { target_month: targetMonth, re_events_in_period: 0, counted_deals: 0,
+                  no_deal_id: 0, no_first_event: 0, first_jm_null: 0, first_jm_other: 0, other_months: {} };
+      for (const e of events) {
+        if (e.event_type !== "再商談実施") continue;
+        reDebug.re_events_in_period++;
+        const k = e.deal_id || e.bot_id;
+        if (!e.deal_id) { reDebug.no_deal_id++; continue; }
+        const f = byDeal[k] && byDeal[k].first;
+        if (!f) { reDebug.no_first_event++; continue; }
+        if (!f.judgment_month) { reDebug.first_jm_null++; continue; }
+        if (f.judgment_month !== targetMonth) {
+          reDebug.first_jm_other++;
+          reDebug.other_months[f.judgment_month] = (reDebug.other_months[f.judgment_month] || 0) + 1;
+        }
+      }
       for (const k of Object.keys(byDeal)) {
         const f = byDeal[k].first;
         if (!f || f.judgment_month !== targetMonth) continue; // 判断月が対象月の案件のみ
@@ -1565,6 +1595,8 @@ app.get("/api/report/funnel", async (req, res) => {
           _kind: last.deal_kind || "通常",
         });
       }
+      reDebug.counted_deals = cohortRe.length;
+      console.log("[funnel re-cohort]", JSON.stringify(reDebug));
       // 対象（担当者/チーム）の絞り込みをコホートにも同じ基準で適用
       if (owner) {
         const target = resolveDisplayName(owner, nameMap);
@@ -1638,7 +1670,7 @@ app.get("/api/report/funnel", async (req, res) => {
       return { team: tm, ...funnelFrom(evs, tCohort ? stripRe(tCohort) : undefined), kinds };
     });
 
-    res.json({ granularity, from, to, owner, team, overall, byOwner, byKind, byTeam, re_basis: cohortRe ? "judgment_month" : "event_date" });
+    res.json({ granularity, from, to, owner, team, overall, byOwner, byKind, byTeam, re_basis: cohortRe ? "judgment_month" : "event_date", re_debug: reDebug });
   } catch (e) {
     console.error("[report funnel]", e.message);
     res.status(500).json({ error: e.message });
