@@ -1426,7 +1426,9 @@ function periodRange(basis, granularity) {
 }
 
 // ファネル集計：初回商談数→明確な時期回答→今月/来月申込可否→失注→再商談実施→受注
-function funnelFrom(events) {
+// cohortRe を渡すと「再商談実施」はそれを使う（判断月＝計上月の案件を、案件単位で1件と数える）。
+// 渡さない場合はこれまで通り、期間内に実施された再商談イベント数を数える。
+function funnelFrom(events, cohortRe) {
   const first = events.filter((e) => e.event_type === "初回商談" && e.meeting_kind === "初回商談");
   const re = events.filter((e) => e.event_type === "再商談実施");
   // 要確認（判定保留）は確定していないので、案件化・失注のどちらにも数えない
@@ -1452,7 +1454,7 @@ function funnelFrom(events) {
     if (st === "進行中(未設定)" && e.deal_status === "失注(未定)") return true; // 猶予切れで自動失注済み
     return false;
   }).length + re.filter((e) => e.result === "失注").length;
-  const reDone = re.length; // 再商談実施（メインKPI）
+  const reDone = Array.isArray(cohortRe) ? cohortRe.length : re.length; // 再商談実施（メインKPI）
   // 受注：再商談の結果が受注、かつ案件の現在ステータスも受注のものだけを数える
   // （AIが受注と抽出しても案件が受注になっていない/変更された場合は数えない＝案件画面と一致させる）
   const won = re.filter((e) => e.result === "受注" && e.deal_status === "受注").length;
@@ -1470,7 +1472,7 @@ function funnelFrom(events) {
   }).concat(re.filter((e) => e.result === "失注"));
   const details = {
     first: first.map(brief),
-    re: re.map(brief),
+    re: Array.isArray(cohortRe) ? cohortRe.slice() : re.map(brief),
     activated: activated.map(brief),
     pending_10day: pending10day.map(brief),
     lost: lostList.map(brief),
@@ -1530,14 +1532,66 @@ app.get("/api/report/funnel", async (req, res) => {
         console.warn(`[report funnel] 登録済みチーム名一覧:`, [...new Set(Object.values(teamMap))]);
       }
     }
-    const overall = funnelFrom(events);
+    // ===== 再商談実施の「計上判断月」コホート =====
+    // KPIの再商談実施は「初回商談の判断月(judgment_month)が対象月」の案件を、案件単位で1件と数える。
+    // （再商談を実際にやった日が翌月でも、判断月が7月ならその月の実績として計上する）
+    // 判断月は「月」の概念なので、月次のときだけ適用。週次/日次は従来どおり実施日ベース。
+    let cohortRe = null;
+    if (granularity === "month") {
+      const targetMonth = String(from).slice(0, 7);
+      const allEvents = await listDealEvents({}); // 期間で切らず全件（再商談が翌月でも拾うため）
+      const byDeal = {};
+      for (const e of allEvents) {
+        const k = e.deal_id || e.bot_id;
+        if (!k) continue;
+        byDeal[k] = byDeal[k] || { first: null, res: [] };
+        if (e.event_type === "初回商談" && e.meeting_kind === "初回商談") byDeal[k].first = e;
+        else if (e.event_type === "再商談実施") byDeal[k].res.push(e);
+      }
+      cohortRe = [];
+      for (const k of Object.keys(byDeal)) {
+        const f = byDeal[k].first;
+        if (!f || f.judgment_month !== targetMonth) continue; // 判断月が対象月の案件のみ
+        if (!byDeal[k].res.length) continue;                  // 再商談を実施していない案件は除外
+        // 案件単位で1件。実施者は最後に再商談を行った人（＝担当者別の集計先）
+        const last = byDeal[k].res.slice().sort((a, b) => new Date(a.event_date) - new Date(b.event_date)).pop();
+        cohortRe.push({
+          company: last.company_name || f.company_name || "(会社名なし)",
+          date: last.event_date ? String(last.event_date).slice(0, 10) : "",
+          bot_id: last.bot_id || "",
+          status: last.deal_status || "",
+          result: last.result || "",
+          _rep: repOf(last),
+          _kind: last.deal_kind || "通常",
+        });
+      }
+      // 対象（担当者/チーム）の絞り込みをコホートにも同じ基準で適用
+      if (owner) {
+        const target = resolveDisplayName(owner, nameMap);
+        cohortRe = cohortRe.filter((c) => resolveDisplayName(c._rep, nameMap) === target);
+      }
+      if (teamFilter) cohortRe = cohortRe.filter((c) => teamOf(c._rep) === teamFilter);
+    }
+    const stripRe = (arr) => (arr ? arr.map(({ _rep, _kind, ...rest }) => rest) : null);
+
+    const overall = funnelFrom(events, stripRe(cohortRe));
     // 担当者別（全体/チーム選択時に内訳を出す）。実施した本人（meetings.owner）で集計する。
     const byOwnerMap = {};
     for (const e of events) {
       const o = resolveDisplayName(repOf(e), nameMap) || "(不明)";
       (byOwnerMap[o] = byOwnerMap[o] || []).push(e);
     }
-    const byOwner = Object.keys(byOwnerMap).sort().map((o) => ({ owner: o, ...funnelFrom(byOwnerMap[o]) }));
+    // コホートも同じキーで担当者別に振り分ける（担当者別の再商談実施も計上判断月ベースに揃える）
+    const cohortByOwner = {};
+    for (const c of cohortRe || []) {
+      const o = resolveDisplayName(c._rep, nameMap) || "(不明)";
+      (cohortByOwner[o] = cohortByOwner[o] || []).push(c);
+      if (!byOwnerMap[o]) byOwnerMap[o] = []; // 期間内イベントが無くてもコホートがあれば行を出す
+    }
+    const byOwner = Object.keys(byOwnerMap).sort().map((o) => ({
+      owner: o,
+      ...funnelFrom(byOwnerMap[o], cohortRe ? stripRe(cohortByOwner[o] || []) : undefined),
+    }));
 
     // 種別別（コールド/過去失注/通常）
     const byKindMap = {};
@@ -1545,8 +1599,17 @@ app.get("/api/report/funnel", async (req, res) => {
       const k = e.deal_kind || "通常";
       (byKindMap[k] = byKindMap[k] || []).push(e);
     }
+    const cohortByKind = {};
+    for (const c of cohortRe || []) {
+      const k = c._kind || "通常";
+      (cohortByKind[k] = cohortByKind[k] || []).push(c);
+      if (!byKindMap[k]) byKindMap[k] = [];
+    }
     const kindOrder = ["通常", "コールド", "過去失注"];
-    const byKind = kindOrder.filter((k) => byKindMap[k]).map((k) => ({ kind: k, ...funnelFrom(byKindMap[k]) }));
+    const byKind = kindOrder.filter((k) => byKindMap[k]).map((k) => ({
+      kind: k,
+      ...funnelFrom(byKindMap[k], cohortRe ? stripRe(cohortByKind[k] || []) : undefined),
+    }));
 
     // チーム別（担当者→チームのマッピングで集約）。さらに各チームを種別で内訳。
     const byTeamMap = {}; // team -> events
@@ -1554,16 +1617,28 @@ app.get("/api/report/funnel", async (req, res) => {
       const tm = teamOf(repOf(e));
       (byTeamMap[tm] = byTeamMap[tm] || []).push(e);
     }
+    const cohortByTeam = {};
+    for (const c of cohortRe || []) {
+      const tm = teamOf(c._rep);
+      (cohortByTeam[tm] = cohortByTeam[tm] || []).push(c);
+      if (!byTeamMap[tm]) byTeamMap[tm] = [];
+    }
     const byTeam = Object.keys(byTeamMap).sort().map((tm) => {
       const evs = byTeamMap[tm];
+      const tCohort = cohortRe ? (cohortByTeam[tm] || []) : null;
       // チーム内の種別内訳
       const kmap = {};
       for (const e of evs) { const k = e.deal_kind || "通常"; (kmap[k] = kmap[k] || []).push(e); }
-      const kinds = kindOrder.filter((k) => kmap[k]).map((k) => ({ kind: k, ...funnelFrom(kmap[k]) }));
-      return { team: tm, ...funnelFrom(evs), kinds };
+      const tCohortByKind = {};
+      for (const c of tCohort || []) { const k = c._kind || "通常"; (tCohortByKind[k] = tCohortByKind[k] || []).push(c); if (!kmap[k]) kmap[k] = []; }
+      const kinds = kindOrder.filter((k) => kmap[k]).map((k) => ({
+        kind: k,
+        ...funnelFrom(kmap[k], tCohort ? stripRe(tCohortByKind[k] || []) : undefined),
+      }));
+      return { team: tm, ...funnelFrom(evs, tCohort ? stripRe(tCohort) : undefined), kinds };
     });
 
-    res.json({ granularity, from, to, owner, team, overall, byOwner, byKind, byTeam });
+    res.json({ granularity, from, to, owner, team, overall, byOwner, byKind, byTeam, re_basis: cohortRe ? "judgment_month" : "event_date" });
   } catch (e) {
     console.error("[report funnel]", e.message);
     res.status(500).json({ error: e.message });
