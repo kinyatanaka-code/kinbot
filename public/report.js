@@ -98,14 +98,26 @@ function renderFunnel(body, d) {
     <span class="fn4-head-period">${period}・${esc(d.from)}〜${esc(d.to)}</span>
   </div>`;
 
-  // ヒーロー：転換率（初回→再商談）＋脇に失注/受注/猶予
+  // ヒーロー：件数を主役に（初回 → 再商談）。転換率は添え字。
   const convPct = pctOf(o.re_meetings, base);
   html += '<div class="sm-top">';
   html += `<div class="sm-hero">
-    <div class="sm-hero-label">初回商談 → 再商談 の転換率</div>
-    <div class="sm-hero-rate"><span class="sm-hero-num">${convPct}</span><span class="sm-hero-pct">%</span></div>
+    <div class="sm-hero-counts">
+      <div class="sm-hc">
+        <div class="sm-hc-label">初回商談</div>
+        <div class="sm-hc-num">${o.first_meetings || 0}</div>
+      </div>
+      <div class="sm-hc-arrow">→</div>
+      <div class="sm-hc">
+        <div class="sm-hc-label">再商談実施</div>
+        <div class="sm-hc-num sm-hc-num-key">${o.re_meetings || 0}</div>
+      </div>
+      <div class="sm-hero-conv">
+        <div class="sm-hero-conv-num">${convPct}<span class="sm-hero-conv-pct">%</span></div>
+        <div class="sm-hero-conv-label">転換率</div>
+      </div>
+    </div>
     <div class="sm-hero-rail"><div class="sm-hero-fill" style="width:${Math.min(100, convPct)}%"></div></div>
-    <div class="sm-hero-foot"><span>初回 ${o.first_meetings || 0} 件</span><span>再商談 ${o.re_meetings || 0} 件</span></div>
   </div>`;
   html += '<div class="sm-side">';
   html += `<div class="sm-stat"><span class="sm-stat-label">失注</span><span class="sm-stat-num sm-lost">${o.lost || 0}</span><span class="sm-stat-pct">${pctOf(o.lost, base)}%</span></div>`;
@@ -147,9 +159,9 @@ function renderFunnel(body, d) {
       html += `<div class="sm-rep" data-owner="${esc(r.owner)}" role="button" tabindex="0" aria-expanded="false">
         <span class="sm-rep-caret">▸</span>
         <span class="sm-rep-name">${esc(r.owner)}</span>
-        <span class="sm-rep-nums">${r.first_meetings || 0} → ${r.re_meetings || 0}</span>
+        <span class="sm-rep-nums"><b>${r.first_meetings || 0}</b><span class="sm-rep-arrow">→</span><b class="${isTop ? "sm-rep-b-top" : ""}">${r.re_meetings || 0}</b></span>
         <div class="sm-rep-track"><div class="sm-rep-fill ${isTop ? "sm-rep-top" : ""}" style="width:${Math.min(100, Math.round(r.conv))}%"></div></div>
-        <span class="sm-rep-pct ${isTop ? "sm-rep-pct-top" : ""}">${r.conv.toFixed(1)}%</span>
+        <span class="sm-rep-pct">${r.conv.toFixed(1)}%</span>
       </div>
       <div class="sm-rep-detail" data-detail="${esc(r.owner)}" hidden></div>`;
     }
