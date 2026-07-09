@@ -78,6 +78,10 @@ function renderApo() {
         a.current_owner = owner;
         const cell = body.querySelector(`.ap-status[data-i="${i}"]`);
         if (cell) cell.innerHTML = statusCell(a);
+        // 商談予定の自動作成（招待）の結果を知らせる
+        if (owner && d.invite_error) {
+          alert("担当は変更しましたが、商談予定の自動作成に失敗しました:\n" + d.invite_error);
+        }
       } catch (e) {
         alert("担当者の変更に失敗しました: " + e.message);
       } finally { sel.disabled = false; }

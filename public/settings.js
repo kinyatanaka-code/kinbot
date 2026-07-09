@@ -269,7 +269,7 @@ loadThanks();
       document.querySelectorAll(".set-pane").forEach((p) => (p.hidden = p.dataset.pane !== name));
       if (name === "teams") loadTeams();
       if (name === "knowledge") loadKnowledge();
-      if (name === "interns") loadInterns();
+      if (name === "interns") { loadInterns(); loadApoOwner(); loadApoInvite(); }
       if (name === "thanks") loadThanksPrompt();
       if (name === "integrations") showIntegGrid();
       if (name === "smartlinks") initSmartLinks();
@@ -627,6 +627,85 @@ async function loadTeams() {
       loadTeams();
       setTimeout(() => { if (st) st.textContent = ""; }, 1500);
     } catch (e) { if (st) st.textContent = "失敗: " + e.message; }
+  });
+})();
+
+// ===== カレンダー照合の代表者 =====
+async function loadApoOwner() {
+  const sel = document.getElementById("apoOwnerSel");
+  if (!sel) return;
+  try {
+    const d = await (await fetch("/api/apo-calendar-owner")).json();
+    sel.innerHTML = '<option value="">（未設定：押した本人の連携を使う）</option>';
+    for (const c of d.candidates || []) {
+      const o = document.createElement("option");
+      o.value = c.owner;
+      o.textContent = c.email ? `${c.owner}（${c.email}）` : c.owner;
+      sel.appendChild(o);
+    }
+    sel.value = d.owner || "";
+    const st = document.getElementById("apoOwnerStatus");
+    if (st) st.textContent = d.owner ? (d.connected ? "連携OK" : "⚠ この人のGoogle連携が切れています") : "";
+  } catch {}
+}
+(function () {
+  const btn = document.getElementById("apoOwnerSave");
+  if (!btn) return;
+  btn.addEventListener("click", async () => {
+    const sel = document.getElementById("apoOwnerSel");
+    const st = document.getElementById("apoOwnerStatus");
+    try {
+      const r = await fetch("/api/apo-calendar-owner", {
+        method: "PUT", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ owner: sel.value }),
+      });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.error || "保存に失敗しました");
+      if (st) { st.textContent = "保存しました"; setTimeout(() => (st.textContent = ""), 1800); }
+    } catch (e) { if (st) st.textContent = e.message; }
+  });
+})();
+
+// ===== 商談予定の自動作成（招待方式）=====
+async function loadApoInvite() {
+  const sel = document.getElementById("apoInviteOwnerSel");
+  if (!sel) return;
+  try {
+    const d = await (await fetch("/api/apo-invite-config")).json();
+    sel.innerHTML = '<option value="">（未設定：自動作成しない）</option>';
+    for (const c of d.candidates || []) {
+      const o = document.createElement("option");
+      o.value = c.owner;
+      o.textContent = c.email ? `${c.owner}（${c.email}）` : c.owner;
+      sel.appendChild(o);
+    }
+    sel.value = d.owner || "";
+    const cal = document.getElementById("apoInviteCal");
+    if (cal) cal.value = d.calendar_id || "";
+    const auto = document.getElementById("apoAutoInvite");
+    if (auto) auto.checked = d.auto !== false;
+    const st = document.getElementById("apoInviteStatus");
+    if (st) st.textContent = d.owner ? (d.connected ? "連携OK" : "⚠ この人のGoogle連携が切れています") : "";
+  } catch {}
+}
+(function () {
+  const btn = document.getElementById("apoInviteSave");
+  if (!btn) return;
+  btn.addEventListener("click", async () => {
+    const st = document.getElementById("apoInviteStatus");
+    try {
+      const r = await fetch("/api/apo-invite-config", {
+        method: "PUT", headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          owner: document.getElementById("apoInviteOwnerSel").value,
+          calendar_id: document.getElementById("apoInviteCal").value,
+          auto: document.getElementById("apoAutoInvite").checked,
+        }),
+      });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.error || "保存に失敗しました");
+      if (st) { st.textContent = "保存しました"; setTimeout(() => (st.textContent = ""), 1800); }
+    } catch (e) { if (st) st.textContent = e.message; }
   });
 })();
 

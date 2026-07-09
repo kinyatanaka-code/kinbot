@@ -538,6 +538,26 @@ curl -H "Authorization: Bearer <span class="cc-tok">&lt;トークン&gt;</span>"
 
           <div class="set-pane" data-pane="interns" hidden>
             <div class="set-card">
+              <h3>カレンダー照合の代表者</h3>
+              <p class="note">インターン生のカレンダーを読むために使う<b>Google連携</b>を選びます。ここで指定した人の連携を経由して照合されるため、<b>他のメンバーはGoogle未連携でも「カレンダーと照合」を実行でき、全員がアポ状況を見られます</b>。候補には、Google連携済みの人だけが表示されます。</p>
+              <div class="teams-add">
+                <select id="apoOwnerSel"><option value="">（未設定：押した本人の連携を使う）</option></select>
+                <button class="btn" id="apoOwnerSave">保存</button>
+                <span class="tm-status" id="apoOwnerStatus"></span>
+              </div>
+            </div>
+            <div class="set-card">
+              <h3>商談予定の自動作成（招待方式）</h3>
+              <p class="note">アポ振り分けで担当を割り当てると、<b>運用者のカレンダーに商談予定を作成し、担当クローザーをゲストとして招待</b>します。招待方式なので、クローザーのカレンダーへの権限は不要です（招待された本人が時間を変更できるようにしています）。<br><b>重要：</b>この機能を使うには、運用者が 設定→連携→<b>Google連携をやり直して</b>、カレンダーへの書き込み権限を承認する必要があります（読み取りだけの連携では作成できません）。</p>
+              <div class="teams-add">
+                <select id="apoInviteOwnerSel"><option value="">（未設定：自動作成しない）</option></select>
+                <input id="apoInviteCal" placeholder="カレンダーID（空ならメインのカレンダー）" />
+                <button class="btn" id="apoInviteSave">保存</button>
+                <span class="tm-status" id="apoInviteStatus"></span>
+              </div>
+              <label class="note" style="display:block;margin-top:8px;"><input type="checkbox" id="apoAutoInvite" checked /> 担当を割り当てたときに自動で予定を作成する（オフにすると手動のみ）</label>
+            </div>
+            <div class="set-card">
               <h3>インターン生（アポ獲得者）の登録</h3>
               <p class="note">アポを獲得したインターン生の<b>名前</b>と<b>Googleカレンダーのメールアドレス</b>を登録します。ここに登録した人のカレンダーの予定名と、kinbotの商談名を突き合わせて、一致した商談に「アポ獲得者」としてその人の名前を記録します。</p>
               <div class="teams-add">
