@@ -87,12 +87,17 @@ export async function getCompanyDetail(corporateNumber) {
 }
 
 // 業種を取り出す。gBizINFOは複数の項目に業種情報が散らばることがあるため、順に拾う。
+// 業種を取り出す。gBizINFOのレスポンスでは複数のフィールドに業種情報が散らばることがあるため、順に拾う。
 function pickIndustry(h) {
   if (!h) return "";
+  // 1. business_items（配列）が最も具体的
   if (Array.isArray(h.business_items) && h.business_items.length) return h.business_items.slice(0, 3).join(" / ");
-  if (h.business_summary) return "";
+  // 2. category（配列）は日本標準産業分類の名称が入ることがある
   if (Array.isArray(h.category) && h.category.length) return h.category.join(" / ");
-  return h.industry || "";
+  // 3. business_summary が文章として業種を示すこともあるので、そのまま出す（空を返さない）
+  if (h.business_summary) return String(h.business_summary).slice(0, 60);
+  // 4. その他のフィールド
+  return h.industry || h.business_type || "";
 }
 
 function formatCapital(v) {

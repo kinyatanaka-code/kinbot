@@ -413,6 +413,14 @@ function renderNewProcess(box, d) {
         const cur = (d.manual_progress && d.manual_progress.stage) || 0;
         let nextStage = clickedStage === cur ? clickedStage - 1 : clickedStage;
         if (nextStage <= 0) nextStage = null;
+        // 「受注」に進めるときは、事故防止のため確認ダイアログを出す。
+        // （5→4に戻すときは確認不要。5をクリックして5になる＝新規で受注扱いにするときだけ確認）
+        if (nextStage === 5) {
+          const companyName = (box._ctx && box._ctx.companyName) || dealId;
+          if (!confirm(`「${companyName}」を『受注』ステータスに変更します。\n\n実績サマリー（月次の受注件数・転換率）に即座に反映されます。\n本当に受注しましたか？`)) {
+            return;
+          }
+        }
         // 二重クリック防止
         box.querySelectorAll(".np-step.clickable").forEach((x) => (x.disabled = true));
         try {
@@ -550,6 +558,16 @@ function renderProfile(account) {
     return;
   }
   const cell = (label, val) => (val ? `<div class="prof-cell"><div class="prof-k">${label}</div><div class="prof-v">${esc(val)}</div></div>` : "");
+  // 業界・設立・本社をWeb検索で補完した場合、その項目に「Web検索」バッジを付ける
+  const bs = p.basics_source;
+  const wasFilledBy = (fieldName) => bs && Array.isArray(bs.filled) && bs.filled.includes(fieldName);
+  const cellWithSrc = (label, val, fieldName) => {
+    if (!val) return "";
+    const badge = wasFilledBy(fieldName)
+      ? ` <span class="prof-empsrc">（${esc(bs.source_name || "Web検索")}）</span>`
+      : "";
+    return `<div class="prof-cell"><div class="prof-k">${label}</div><div class="prof-v">${esc(val)}${badge}</div></div>`;
+  };
   // 従業員数に出典・確信度のバッジを添える
   let empVal = p.employees || "";
   if (empVal && p.employees_source) {
@@ -563,11 +581,12 @@ function renderProfile(account) {
   body.innerHTML =
     `<div class="prof-src-line">${badge}${p.corporate_number ? `<span class="prof-corpnum">法人番号 ${esc(p.corporate_number)}</span>` : ""}</div>` +
     `<div class="prof-grid">` +
-    cell("業界", p.industry) + empCell + cell("採用予定", p.hiring) +
-    cell("設立", p.founded) + cell("資本金", p.capital) + cell("代表者", p.representative) + cell("本社", p.location) +
+    cellWithSrc("業界", p.industry, "industry") + empCell + cell("採用予定", p.hiring) +
+    cellWithSrc("設立", p.founded, "founded") + cell("資本金", p.capital) + cell("代表者", p.representative) + cellWithSrc("本社", p.location, "location") +
     `</div>` +
     (p.business ? `<div class="prof-biz">事業内容：${esc(p.business)}${p.source === "gBizINFO" ? "" : ' <span class="prof-note">（AI自動取得・要確認）</span>'}</div>` : "") +
     (p.employees_source && p.employees_source.source_url ? `<div class="prof-empurl">従業員数の出典：<a href="${esc(p.employees_source.source_url)}" target="_blank" rel="noopener">${esc(p.employees_source.source_url)} ↗</a>${p.employees_source.as_of ? "（" + esc(p.employees_source.as_of) + "）" : ""}</div>` : "") +
+    (bs && bs.source_url ? `<div class="prof-empurl">業界・設立の出典：<a href="${esc(bs.source_url)}" target="_blank" rel="noopener">${esc(bs.source_url)} ↗</a></div>` : "") +
     (acc.site_url ? `<div class="prof-site"><a href="${esc(acc.site_url)}" target="_blank" rel="noopener">サイトを開く ↗</a></div>` : "");
 }
 

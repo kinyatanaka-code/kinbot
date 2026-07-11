@@ -107,7 +107,7 @@ import {
   deleteKbFolder,
 } from "./db.js";
 import { resolveConfig, statusInfo } from "./config.js";
-import { analyzerInfo, analyzeMeeting, analyzeDeep, freeAnalyze, chatWithData, enrichCompany, lookupEmployeeCount, generateThanks, THANKS_PROMPT, getCheckItems, getSummaryPrompt, getCustomPrompt, runCustomAnalysis, analyzeWinPatterns, classifyMeetingKind, extractFirstMeeting, extractReMeeting, buildBrief } from "./analyzer.js";
+import { analyzerInfo, analyzeMeeting, analyzeDeep, freeAnalyze, chatWithData, enrichCompany, lookupEmployeeCount, lookupCompanyBasics, generateThanks, THANKS_PROMPT, getCheckItems, getSummaryPrompt, getCustomPrompt, runCustomAnalysis, analyzeWinPatterns, classifyMeetingKind, extractFirstMeeting, extractReMeeting, buildBrief } from "./analyzer.js";
 import { searchCompanies, getCompanyDetail, gbizConfigured } from "./gbizinfo.js";
 import {
   googleConfigured,
@@ -2439,6 +2439,7 @@ app.get("/api/gbiz/search", async (req, res) => {
 // gBizINFOの法人番号で詳細を確定し、従業員数をWeb検索で補完して案件に保存する（共通処理）
 async function confirmGbizForAccount(key, corporateNumber) {
   const detail = await getCompanyDetail(corporateNumber); // gBizINFOの確定情報
+  // 従業員数：gBizに無ければWeb検索で補完
   let employees = detail.employees || "";
   let employeeSource = employees ? { source_name: "gBizINFO", confidence: "high" } : null;
   if (!employees) {
@@ -2450,19 +2451,42 @@ async function confirmGbizForAccount(key, corporateNumber) {
       }
     } catch (e) { console.warn("[gbiz-confirm] 従業員数補完失敗", e.message); }
   }
+
+  // 業界・設立・本社住所：gBizに無いものだけをWeb検索で補完
+  let industry = detail.industry || "";
+  let founded = detail.founded || "";
+  let location = detail.location || "";
+  let basicsSource = null;
+  const missing = [];
+  if (!industry) missing.push("industry");
+  if (!founded) missing.push("founded");
+  if (!location) missing.push("location");
+  if (missing.length) {
+    try {
+      const b = await lookupCompanyBasics(detail.official_name || key, missing);
+      if (b.found) {
+        if (!industry && b.industry) industry = b.industry;
+        if (!founded && b.founded) founded = b.founded;
+        if (!location && b.location) location = b.location;
+        basicsSource = { source_name: b.source_name || "Web検索", source_url: b.source_url || "", confidence: b.confidence || "low", filled: missing.filter((m) => b[m]) };
+      }
+    } catch (e) { console.warn("[gbiz-confirm] 基本情報補完失敗", e.message); }
+  }
+
   const profile = {
     official_name: detail.official_name || key,
-    industry: detail.industry || "",
+    industry,
     employees: employees || "",
     employees_source: employeeSource,
     hiring: "",
-    founded: detail.founded || "",
-    location: detail.location || "",
+    founded,
+    location,
     business: detail.business || "",
     capital: detail.capital || "",
     representative: detail.representative || "",
     corporate_number: detail.corporate_number || corporateNumber,
     source: "gBizINFO",
+    basics_source: basicsSource, // industry/founded/location をWeb補完した場合の出典
     note: "gBizINFO（法人番号 " + (detail.corporate_number || corporateNumber) + "）で確定。",
   };
   const officialName = profile.official_name;

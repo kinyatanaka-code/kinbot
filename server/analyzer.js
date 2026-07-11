@@ -400,6 +400,59 @@ export async function lookupEmployeeCount(companyName, hint = "") {
   };
 }
 
+// 業界・設立日・本社所在地をまとめてWeb検索で調べる（gBizINFOに無い項目を補完するため）。
+// 従業員数と同じく「Webで確認できた場合のみ返す。無ければ found:false」の厳格版。
+// which: 求める項目名 ["industry","founded","location"] を指定。省略時は全部。
+export async function lookupCompanyBasics(companyName, which = ["industry", "founded", "location"]) {
+  const name = String(companyName || "").trim();
+  if (!name) return { found: false };
+  let research = "";
+  try {
+    const qs = which.map((w) => {
+      if (w === "industry") return "業界・業種";
+      if (w === "founded") return "設立日（○年○月○日）";
+      if (w === "location") return "本社所在地（住所）";
+      return "";
+    }).filter(Boolean).join("、");
+    research = await geminiGrounded(
+      `「${name}」の会社概要を調べてください。特に${qs}を、公式サイト・帝国データバンク・gBizINFO・Wikipedia・企業情報サイトなど複数のソースを照合して確認してください。` +
+      `確認できたソースのURLを必ず挙げてください。確認できない項目は「不明」と明記してください。憶測で情報を作らないこと。`,
+      ""
+    );
+  } catch (e) {
+    console.warn("[basics-lookup] grounding失敗", e.message);
+    return { found: false };
+  }
+  const schema = {
+    type: "object",
+    properties: {
+      industry: { type: "string", description: "業界・業種。見つからなければ空文字" },
+      founded: { type: "string", description: "設立日または設立年（例: 1998年、1998年4月1日）。見つからなければ空" },
+      location: { type: "string", description: "本社所在地。見つからなければ空" },
+      source_url: { type: "string", description: "最も信頼できたソースのURL" },
+      source_name: { type: "string", description: "例: 公式サイト会社概要 / Wikipedia / 帝国データバンク" },
+      confidence: { type: "string", enum: ["high", "medium", "low"] },
+    },
+    required: ["industry", "founded", "location", "source_url", "confidence"],
+  };
+  const sys =
+    "あなたは企業調査アシスタントです。与えられた検索リサーチ結果だけを根拠に判断します。" +
+    "リサーチ結果に記載と出典が無い項目は空文字にします。決して推測で情報を作らないこと。出力は指定JSONのみ。";
+  const user = `会社名: ${name}\n\n検索リサーチ結果:\n"""\n${(research || "(なし)").slice(0, 6000)}\n"""\n\n上記だけを根拠に、業界・設立・本社所在地をJSONで出力してください。`;
+  const o = parseJson(await callLLM(sys, user, 500, { schema, provider: "anthropic" })) || {};
+  const industry = String(o.industry || "").trim();
+  const founded = String(o.founded || "").trim();
+  const location = String(o.location || "").trim();
+  if (!industry && !founded && !location) return { found: false };
+  return {
+    found: true,
+    industry, founded, location,
+    source_url: String(o.source_url || "").trim(),
+    source_name: String(o.source_name || "").trim(),
+    confidence: ["high", "medium", "low"].includes(o.confidence) ? o.confidence : "low",
+  };
+}
+
 export async function enrichCompany({ url, name, siteText }) {
   // Step1: Web検索＋サイト本文でリサーチ（失敗してもサイト本文だけで続行）。
   // サイト本文が無い/薄い場合は、Web検索の比重が自然と大きくなり、複数の検索結果ソースから補完される。
