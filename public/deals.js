@@ -333,8 +333,10 @@ function renderNewProcess(box, d) {
           ? `<span class="np-next-pending">未設定（${esc(d.auto_lose_deadline || "")} までの猶予中）</span>`
           : `<span class="np-next-no">未設定</span>`);
   let rows = "";
-  if (d.first) {
-    // 承認アカウント（中澤・浦林 or 田中代理中）はプルダウンで編集可能。他は表示のみ。
+  // 初回商談の判定データが無い場合でも、項目行は常に出す（値は「不明」「未設定」等の既定表示）。
+  // ただし編集ができるのは、AI判定で初回商談イベントが1件でもある（f.id が存在する）ときのみ。
+  // 未判定案件を編集したい場合は、右上の「再判定」を実行してから編集する。
+  {
     const editable = clickable && f.id; // clickable = isStatusApprover()（renderNewProcess上部で定義済み）
     const SCHEDULE_OPTS = ["今月", "来月", "再来月", "それ以降", "未定", "不明"];
     const APPLY_OPTS = ["今月", "来月", "該当なし", "不明"];
@@ -345,10 +347,10 @@ function renderNewProcess(box, d) {
     };
     const scheduleCell = editable
       ? selectOf("schedule_choice", SCHEDULE_OPTS, f.schedule_choice || "")
-      : esc(f.schedule_choice || "—");
+      : esc(f.schedule_choice || "不明");
     const applyCell = editable
       ? selectOf("apply_timing", APPLY_OPTS, f.apply_timing || "")
-      : `${esc(f.apply_timing || "—")}判断`;
+      : (f.apply_timing ? `${esc(f.apply_timing)}判断` : "不明");
     // 再商談の予定日：日付入力＋「未設定に戻す」ボタン
     let nextCell;
     if (editable) {
@@ -364,14 +366,16 @@ function renderNewProcess(box, d) {
     }
     // 手動編集の印
     const editedBy = f.judgment_month_basis && String(f.judgment_month_basis).includes("手動編集") ? '<span class="np-edited">✎ 手動</span>' : "";
-    rows =
+    // AIが初回商談を判定できていない案件では、詳細行の上に注記を出す
+    const noJudgeHint = !d.first
+      ? `<div class="np-hint">この会社の初回商談がまだAI判定されていません。<b>右上の「再判定」</b>を実行すると、下の項目を編集できるようになります。</div>`
+      : "";
+    rows = noJudgeHint +
       `<div class="np-row"><span class="np-k">ご利用開始スケジュール</span><span class="np-v">${scheduleCell}</span></div>` +
       `<div class="np-row"><span class="np-k">今月中の申込可否</span><span class="np-v">${applyCell}</span></div>` +
       `<div class="np-row"><span class="np-k">判断月（KPI計上）</span><span class="np-v" id="npJmCell">${jm}${editedBy}${f.judgment_month_basis ? `<span class="np-basis-inline">${esc(f.judgment_month_basis)}</span>` : ""}</span></div>` +
       `<div class="np-row"><span class="np-k">次回商談(再商談)</span><span class="np-v">${nextCell}</span></div>` +
       (d.latest_result ? `<div class="np-row"><span class="np-k">再商談の結果</span><span class="np-v">${esc(d.latest_result)}</span></div>` : "");
-  } else {
-    rows = '<div class="np-hint">この会社の初回商談がまだ判定されていません。上の「再判定」を押すと、初回商談を含むこの会社の全商談を判定し直します。</div>';
   }
 
   // 判定理由（初回・再商談）
