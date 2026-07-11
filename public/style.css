@@ -2377,3 +2377,9 @@ body {
 /* 再商談予定 */
 .sm-stat-num.sm-sched { color: #234A75; }
 .sg-sched { background: #378ADD; }
+
+/* プロダクト切り替えタブ（全体 / DOC / MOCHICA） */
+.prod-tabs { margin-left: auto; display: inline-flex; gap: 4px; background: #eef2ef; padding: 3px; border-radius: 999px; }
+.prod-tab { padding: 5px 14px; font-size: 12.5px; font-weight: 600; border: none; border-radius: 999px; background: transparent; color: var(--muted); cursor: pointer; transition: background .12s, color .12s; }
+.prod-tab:hover { color: #0d5b47; }
+.prod-tab.active { background: var(--panel); color: #0d5b47; box-shadow: 0 1px 3px rgba(16,40,32,.14); }

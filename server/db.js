@@ -125,6 +125,8 @@ export async function initDb() {
       group_name TEXT NOT NULL DEFAULT '直販'
     );
   `);
+  // 担当者が所属するプロダクト（DOC / MOCHICA）。空は未設定＝「全体」タブでのみ表示。
+  await pool.query(`ALTER TABLE rep_team_mapping ADD COLUMN IF NOT EXISTS product TEXT;`);
   // 初期データ（既存があれば上書きしない）
   for (const [rep, team] of [["植野", "浦林チーム"], ["江田", "浦林チーム"], ["田中", "中澤チーム"], ["森田", "中澤チーム"]]) {
     await pool.query(`INSERT INTO rep_team_mapping (rep_name, team_name, group_name) VALUES ($1,$2,'直販') ON CONFLICT (rep_name) DO NOTHING`, [rep, team]);
@@ -742,9 +744,19 @@ export async function phaseTrend({ granularity = "week", from, to } = {}) {
 export async function listRepTeams() {
   if (!pool) return [];
   try {
-    const { rows } = await pool.query(`SELECT rep_name, team_name, group_name FROM rep_team_mapping ORDER BY group_name, team_name, rep_name`);
+    const { rows } = await pool.query(`SELECT rep_name, team_name, group_name, COALESCE(product,'') AS product FROM rep_team_mapping ORDER BY group_name, team_name, rep_name`);
     return rows;
   } catch { return []; }
+}
+// 担当者名 → プロダクト（DOC / MOCHICA）のマッピング
+export async function listRepProducts() {
+  if (!pool) return {};
+  try {
+    const { rows } = await pool.query(`SELECT rep_name, COALESCE(product,'') AS product FROM rep_team_mapping`);
+    const m = {};
+    for (const r of rows) if (r.product) m[(r.rep_name || '').trim()] = r.product;
+    return m;
+  } catch { return {}; }
 }
 // 判定結果に出てくる担当者名（マッピング候補）
 export async function listJudgmentReps() {
@@ -754,13 +766,13 @@ export async function listJudgmentReps() {
     return rows;
   } catch { return []; }
 }
-export async function upsertRepTeam(repName, teamName, groupName = "直販") {
+export async function upsertRepTeam(repName, teamName, groupName = "直販", product = "") {
   if (!pool || !repName) return;
   try {
     await pool.query(
-      `INSERT INTO rep_team_mapping (rep_name, team_name, group_name) VALUES ($1,$2,$3)
-       ON CONFLICT (rep_name) DO UPDATE SET team_name=$2, group_name=$3`,
-      [repName, teamName || "未分類", groupName || "直販"]
+      `INSERT INTO rep_team_mapping (rep_name, team_name, group_name, product) VALUES ($1,$2,$3,$4)
+       ON CONFLICT (rep_name) DO UPDATE SET team_name=$2, group_name=$3, product=$4`,
+      [repName, teamName || "未分類", groupName || "直販", product || null]
     );
   } catch (e) { console.error("[db] upsertRepTeam", e.message); }
 }

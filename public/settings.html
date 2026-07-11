@@ -528,6 +528,11 @@ curl -H "Authorization: Bearer <span class="cc-tok">&lt;トークン&gt;</span>"
                 <input id="tmTeam" list="tmTeamList" placeholder="チーム名（例：中澤チーム）" />
                 <datalist id="tmTeamList"></datalist>
                 <input id="tmGroup" placeholder="グループ（既定：直販）" />
+                <select id="tmProduct" title="所属プロダクト（実績の絞り込みに使われます）">
+                  <option value="">プロダクト: 未設定</option>
+                  <option value="DOC">DOC</option>
+                  <option value="MOCHICA">MOCHICA</option>
+                </select>
                 <button class="btn" id="tmAdd">追加・更新</button>
                 <span class="tm-status" id="tmStatus"></span>
               </div>

@@ -686,7 +686,14 @@ function accountCardEl(a) {
 function renderList() {
   buildGroups();
   const el = $("dealList");
-  const names = Object.keys(groups).sort((a, b) => {
+  // プロダクト（DOC/MOCHICA）タブの絞り込み。その案件を担当した人の所属で判定する。
+  const inProduct = (a) => {
+    if (!window.kbProduct) return true;
+    const ms = groups[a] || [];
+    const last = ms[ms.length - 1] || {};
+    return window.kbProduct.matches(last.owner_name || last.owner);
+  };
+  const names = Object.keys(groups).filter(inProduct).sort((a, b) => {
     const la = groups[a][groups[a].length - 1].created_at;
     const lb = groups[b][groups[b].length - 1].created_at;
     return new Date(lb) - new Date(la);
@@ -1053,3 +1060,11 @@ function renderActions(list) {
 $("fOwner").addEventListener("change", renderList);
 $("fSearch").addEventListener("input", renderList);
 load();
+
+
+// プロダクトタブ（全体 / DOC / MOCHICA）
+(async function () {
+  if (!window.kbProduct) return;
+  await window.kbProduct.loadMap();
+  window.kbProduct.mount(() => { try { renderList(); } catch {} });
+})();

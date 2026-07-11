@@ -209,6 +209,8 @@ function applyHistoryFilter() {
   const phases = selectedPhases();
   return allMeetings.filter((m) => {
     if (HIST_CAT_OTHER ? !isOtherCat(m) : isOtherCat(m)) return false; // ビューに合うカテゴリのみ
+    // プロダクト（DOC/MOCHICA）タブの絞り込み。実施者の所属で判定する。
+    if (window.kbProduct && !window.kbProduct.matches(m.owner_name || m.owner)) return false;
     if (owner && (m.owner || "").trim() !== owner) return false;
     if (phases.length && !phases.includes(m.phase || "")) return false;
     return true;
@@ -1241,3 +1243,11 @@ loadList().then(() => {
   const id = new URLSearchParams(location.search).get("id");
   if (id) loadDetail(id);
 });
+
+
+// プロダクトタブ（全体 / DOC / MOCHICA）
+(async function () {
+  if (!window.kbProduct) return;
+  await window.kbProduct.loadMap();
+  window.kbProduct.mount(() => { try { renderList(); } catch {} });
+})();

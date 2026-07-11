@@ -617,7 +617,7 @@ async function loadTeams() {
     try {
       const r = await fetch("/api/teams", {
         method: "PUT", headers: { "content-type": "application/json" },
-        body: JSON.stringify({ rep_name: repName, team_name: teamName, group_name: groupName }),
+        body: JSON.stringify({ rep_name: repName, team_name: teamName, group_name: groupName, product: (document.getElementById("tmProduct") || {}).value || "" }),
       });
       if (!r.ok) throw new Error("保存に失敗");
       if (st) st.textContent = "保存しました";

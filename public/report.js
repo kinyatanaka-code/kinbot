@@ -57,6 +57,12 @@ async function fillOwnerSelects() {
 }
 
 // scope値（all / team:X / owner:Y）を owner/team パラメータに変換
+// 現在選択中のプロダクト（DOC / MOCHICA）をクエリに足す
+function addProduct(q) {
+  const p = window.kbProduct && window.kbProduct.current();
+  if (p) q.set("product", p);
+  return q;
+}
 function scopeParams(v) {
   if (!v || v === "all") return {};
   if (v.startsWith("team:")) return { team: v.slice(5) };
@@ -75,6 +81,7 @@ async function loadFunnel() {
   const q = new URLSearchParams({ granularity: gran, basis });
   if (sp.owner) q.set("owner", sp.owner);
   if (sp.team) q.set("team", sp.team);
+  addProduct(q);
   try {
     const d = await (await fetch("/api/report/funnel?" + q.toString())).json();
     renderFunnel(body, d);
@@ -264,7 +271,7 @@ async function loadKind() {
   const body = $("kindBody");
   if (!$("knBasis").value) $("knBasis").value = todayStr();
   body.innerHTML = '<div class="empty-state">集計中…</div>';
-  const q = new URLSearchParams({ granularity: $("knGran").value, basis: $("knBasis").value });
+  const q = addProduct(new URLSearchParams({ granularity: $("knGran").value, basis: $("knBasis").value }));
   try {
     const d = await (await fetch("/api/report/funnel?" + q.toString())).json();
     renderKind(body, d);
@@ -634,3 +641,16 @@ function renderInternDash(body, d) {
   html += "</div>";
   body.innerHTML = html;
 }
+
+
+// プロダクトタブ（全体 / DOC / MOCHICA）。切り替えたら表示中のタブを再集計する。
+(async function () {
+  if (!window.kbProduct) return;
+  await window.kbProduct.loadMap();
+  window.kbProduct.mount(() => {
+    // 表示中のタブを再読み込み（存在する関数だけ呼ぶ）
+    if (typeof loadFunnel === "function") loadFunnel();
+    if (typeof loadKind === "function" && document.querySelector('[data-pane="kind"]:not([hidden])')) loadKind();
+    if (typeof loadInternDash === "function" && document.querySelector('[data-pane="interns"]:not([hidden])')) loadInternDash();
+  }, { renderOnMount: false }); // 初回のfunnel取得には既にproductが乗っているため
+})();

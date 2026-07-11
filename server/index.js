@@ -29,6 +29,7 @@ import {
   saveAnalysis,
   getSettings,
   listGoogleConnectedOwners,
+  listRepProducts,
   saveDeepAnalysis,
   updateMeetingMeta,
   deleteMeeting,
@@ -961,9 +962,10 @@ app.get("/api/teams/reps", async (req, res) => {
 });
 app.put("/api/teams", async (req, res) => {
   try {
-    const { rep_name, team_name, group_name } = req.body || {};
+    const { rep_name, team_name, group_name, product } = req.body || {};
     if (!rep_name || !team_name) return res.status(400).json({ error: "担当者名とチーム名が必要です" });
-    await upsertRepTeam(rep_name, team_name, group_name || "直販");
+    const p = ["DOC", "MOCHICA"].includes(String(product || "").trim()) ? String(product).trim() : "";
+    await upsertRepTeam(rep_name, team_name, group_name || "直販", p);
     res.json({ ok: true });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
@@ -1220,6 +1222,20 @@ app.put("/api/apo-invite-config", async (req, res) => {
     if (b.calendar_id !== undefined) patch.apoInviteCalendarId = String(b.calendar_id || "").trim();
     const r = await saveSettings(patch);
     res.json({ ok: true, ...patch, ...r });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// プロダクト（DOC / MOCHICA）の担当者マッピング。表示の切り替えに使う。
+app.get("/api/rep-products", async (req, res) => {
+  try {
+    const map = await listRepProducts();   // 表示名 -> プロダクト
+    const nameMap = await buildNameMap();  // { byEmail: {email: 表示名}, aliases }
+    const byName = { ...map };
+    for (const [email, disp] of Object.entries((nameMap && nameMap.byEmail) || {})) {
+      const prod = map[(disp || "").trim()];
+      if (prod) byName[email] = prod; // メールアドレスでも引けるようにする
+    }
+    res.json({ products: ["DOC", "MOCHICA"], map: byName });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
@@ -1540,11 +1556,22 @@ app.get("/api/report/funnel", async (req, res) => {
       return teamMap[(disp || "").trim()] || teamMap[(rawOwner || "").trim()] || "(未割り当て)";
     };
     const teamFilter = team ? String(team).trim() : null;
+    // プロダクト（DOC / MOCHICA）で絞る。実施者が所属するプロダクトで判定する。
+    const productMap = await listRepProducts().catch(() => ({}));
+    // 誰にもプロダクトが割り当てられていない間は、絞り込むと全件0になるため無効化する
+    const hasProductAssignment = Object.keys(productMap).length > 0;
+    const productFilter = (hasProductAssignment && req.query.product) ? String(req.query.product).trim() : null;
+    const productOf = (rawOwner) => {
+      const disp = resolveDisplayName(rawOwner, nameMap);
+      return productMap[(disp || "").trim()] || productMap[(rawOwner || "").trim()] || "";
+    };
 
     // 案件担当ではなく「実施者」で絞るため、SQLではownerで絞らずJS側で判定する
     let events = await listDealEvents({ from, to });
     // その商談を実際に担当した人（meetings.owner）を優先。無ければ案件の担当者にフォールバック。
     const repOf = (e) => e.meeting_owner || e.owner;
+    // プロダクト絞り込み（DOCのメンバーが実施した商談だけを分析対象にする、など）
+    if (productFilter) events = events.filter((e) => productOf(repOf(e)) === productFilter);
     if (owner) {
       const target = resolveDisplayName(owner, nameMap);
       events = events.filter((e) => resolveDisplayName(repOf(e), nameMap) === target);
@@ -1612,7 +1639,8 @@ app.get("/api/report/funnel", async (req, res) => {
       }
       reDebug.counted_deals = cohortRe.length;
       console.log("[funnel re-cohort]", JSON.stringify(reDebug));
-      // 対象（担当者/チーム）の絞り込みをコホートにも同じ基準で適用
+      // 対象（担当者/チーム/プロダクト）の絞り込みをコホートにも同じ基準で適用
+      if (productFilter) cohortRe = cohortRe.filter((c) => productOf(c._rep) === productFilter);
       if (owner) {
         const target = resolveDisplayName(owner, nameMap);
         cohortRe = cohortRe.filter((c) => resolveDisplayName(c._rep, nameMap) === target);
