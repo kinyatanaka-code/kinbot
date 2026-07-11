@@ -109,14 +109,19 @@
 
           <!-- インサイト（勝ち/負けパターン分析） -->
           <section class="rep-panel" data-rpanel="insights" hidden>
+            <div class="ins-level-tabs" id="insLevelTabs">
+              <button class="ins-level-tab active" data-level="all">全体</button>
+              <button class="ins-level-tab" data-level="team">チーム別</button>
+              <button class="ins-level-tab" data-level="owner">個人別</button>
+            </div>
             <div class="rep-controls">
-              <label>対象
-                <select id="insScope"><option value="all">全体</option></select>
+              <label id="insPickWrap" hidden>対象
+                <select id="insPick"></select>
               </label>
               <button class="btn" id="insGenerate">この対象で分析</button>
               <span class="rev-status" id="insStatus"></span>
             </div>
-            <div id="insightsBody"><div class="empty-state">対象を選んで「この対象で分析」を押すと、再商談に進んだ商談と進まなかった商談を比較します。</div></div>
+            <div id="insightsBody"><div class="empty-state">「全体」「チーム別」「個人別」から選び、分析を実行すると、再商談に進んだ商談と進まなかった商談を比較します。</div></div>
           </section>
         </main>
       </div>

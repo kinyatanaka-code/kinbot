@@ -1809,6 +1809,79 @@ app.get("/api/report/insights", async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+// 1つのスコープを分析して保存する（手動エンドポイントと自動バッチで共用）。
+// 成功時は結果を返し、文字起こし不足なら { skipped: true } を返す。
+async function runInsightForScope(scope) {
+  const scopeKeyRaw = scope.team ? "team:" + scope.team : scope.owner ? "owner:" + scope.owner : "all";
+  const key = (scope.product ? scope.product + "|" : "") + scopeKeyRaw;
+  const { won, lost, label, wonTotal, lostTotal } = await gatherInsightGroups(scope);
+  if (won.length + lost.length < 3) {
+    return { skipped: true, reason: "文字起こし不足", won: won.length, lost: lost.length, key, label };
+  }
+  const insight = await analyzeWinPatterns(won, lost, label);
+  await saveWinInsight(key, label, insight, wonTotal, lostTotal);
+  return { insight, key, label, won_count: wonTotal, lost_count: lostTotal, analyzed: { won: won.length, lost: lost.length } };
+}
+
+// 全対象（全体／各チーム／各個人 × プロダクト無し・DOC・MOCHICA）をまとめて分析する。
+// 平日18:30の自動実行と、手動トリガー(POST /api/report/insights/run-all)で共用。
+let insightBatchRunning = false;
+async function runAllInsights() {
+  if (insightBatchRunning) return { alreadyRunning: true };
+  insightBatchRunning = true;
+  const started = Date.now();
+  const result = { ok: 0, skipped: 0, failed: 0, details: [] };
+  try {
+    const nameMap = await buildNameMap();
+    const teams = [...new Set((await listRepTeams().catch(() => [])).map((t) => (t.team_name || "").trim()).filter(Boolean))];
+    const owners = await loadOwnersServer(nameMap);
+    // プロダクトが1人でも割り当てられていれば DOC/MOCHICA も回す
+    const productMap = await listRepProducts().catch(() => ({}));
+    const products = Object.keys(productMap).length ? [null, "DOC", "MOCHICA"] : [null];
+
+    // 対象スコープの一覧を組み立てる
+    const scopes = [];
+    for (const product of products) {
+      scopes.push(product ? { product } : {});                              // 全体
+      for (const t of teams) scopes.push(product ? { team: t, product } : { team: t }); // 各チーム
+      for (const o of owners) scopes.push(product ? { owner: o, product } : { owner: o }); // 各個人
+    }
+
+    console.log(`[insights-batch] 開始：${scopes.length}スコープ`);
+    for (const scope of scopes) {
+      const tag = (scope.product ? scope.product + "/" : "") + (scope.team ? "team:" + scope.team : scope.owner ? "owner:" + scope.owner : "all");
+      try {
+        const r = await runInsightForScope(scope);
+        if (r.skipped) { result.skipped++; result.details.push({ scope: tag, status: "skip", ...r }); }
+        else { result.ok++; result.details.push({ scope: tag, status: "ok", won: r.analyzed.won, lost: r.analyzed.lost }); }
+      } catch (e) {
+        result.failed++;
+        result.details.push({ scope: tag, status: "error", error: e.message });
+        console.error(`[insights-batch] ${tag} 失敗:`, e.message);
+      }
+      // LLMの負荷を抑えるため各スコープ間に少し間隔を空ける
+      await new Promise((r) => setTimeout(r, 800));
+    }
+    const sec = Math.round((Date.now() - started) / 1000);
+    console.log(`[insights-batch] 完了：成功${result.ok} / スキップ${result.skipped} / 失敗${result.failed}（${sec}秒）`);
+  } finally {
+    insightBatchRunning = false;
+  }
+  return result;
+}
+
+// サーバ側で担当者一覧（表示名）を取得。loadOwners のサーバ版。
+async function loadOwnersServer(nameMap) {
+  const nm = nameMap || (await buildNameMap());
+  const events = await listDealEvents({}).catch(() => []);
+  const set = new Set();
+  for (const e of events) {
+    const disp = resolveDisplayName(e.meeting_owner || e.owner, nm);
+    if (disp) set.add(disp);
+  }
+  return [...set];
+}
+
 app.post("/api/report/insights", async (req, res) => {
   try {
     const b = req.body || {};
@@ -1817,19 +1890,23 @@ app.post("/api/report/insights", async (req, res) => {
     if (scopeKeyRaw.startsWith("team:")) scope.team = scopeKeyRaw.slice(5);
     else if (scopeKeyRaw.startsWith("owner:")) scope.owner = scopeKeyRaw.slice(6);
     if (b.product && ["DOC", "MOCHICA"].includes(String(b.product))) scope.product = String(b.product);
-    const key = (scope.product ? scope.product + "|" : "") + scopeKeyRaw;
 
-    const { won, lost, label, wonTotal, lostTotal } = await gatherInsightGroups(scope);
-    if (won.length + lost.length < 3) {
-      return res.status(400).json({ error: `分析できる文字起こしが不足しています（進んだ${won.length}件 / 止まった${lost.length}件）。対象範囲を「全体」にするか、商談が増えてからお試しください。` });
+    const r = await runInsightForScope(scope);
+    if (r.skipped) {
+      return res.status(400).json({ error: `分析できる文字起こしが不足しています（進んだ${r.won}件 / 止まった${r.lost}件）。対象範囲を「全体」にするか、商談が増えてからお試しください。` });
     }
-    const insight = await analyzeWinPatterns(won, lost, label);
-    await saveWinInsight(key, label, insight, wonTotal, lostTotal);
-    res.json({ insight, scope_label: label, won_count: wonTotal, lost_count: lostTotal, generated_at: new Date().toISOString(), analyzed: { won: won.length, lost: lost.length } });
+    res.json({ insight: r.insight, scope_label: r.label, won_count: r.won_count, lost_count: r.lost_count, generated_at: new Date().toISOString(), analyzed: r.analyzed });
   } catch (e) {
     console.error("[insights]", e);
     res.status(500).json({ error: e.message });
   }
+});
+
+// 全対象を今すぐ分析（管理用の手動トリガー）。バックグラウンドで走らせ、すぐ応答を返す。
+app.post("/api/report/insights/run-all", async (req, res) => {
+  if (insightBatchRunning) return res.json({ started: false, message: "すでに分析が実行中です" });
+  runAllInsights().catch((e) => console.error("[insights-batch]", e.message));
+  res.json({ started: true, message: "全対象の分析をバックグラウンドで開始しました" });
 });
 
 // 日次データ確認：指定日の商談一覧（抽出結果＋要確認フラグ）
@@ -3578,6 +3655,26 @@ server.listen(PORT, async () => {
       .catch(() => {});
   setTimeout(cleanup, 60 * 1000);
   setInterval(cleanup, 6 * 60 * 60 * 1000);
+
+  // インサイト自動分析：平日（月〜金）18:30 JST に全対象をまとめて分析する。
+  // 1分ごとに現在のJST時刻をチェックし、その日にまだ実行していなければ発火する。
+  const INSIGHT_HOUR = 18, INSIGHT_MIN = 30;
+  let lastInsightRunDay = "";
+  const checkInsightSchedule = () => {
+    const nowJst = new Date(Date.now() + 9 * 3600 * 1000); // UTC→JST
+    const day = nowJst.getUTCDay(); // 0=日,6=土（JSTベース）
+    const dateStr = nowJst.toISOString().slice(0, 10);
+    const isWeekday = day >= 1 && day <= 5;
+    const h = nowJst.getUTCHours(), m = nowJst.getUTCMinutes();
+    // 18:30〜18:34の間に入ったら発火（分単位の取りこぼしを防ぐ幅を持たせる）
+    const inWindow = h === INSIGHT_HOUR && m >= INSIGHT_MIN && m < INSIGHT_MIN + 5;
+    if (isWeekday && inWindow && lastInsightRunDay !== dateStr) {
+      lastInsightRunDay = dateStr;
+      console.log(`[insights-batch] 定時実行（平日18:30 JST）を開始: ${dateStr}`);
+      runAllInsights().catch((e) => console.error("[insights-batch] 定時実行エラー:", e.message));
+    }
+  };
+  setInterval(checkInsightSchedule, 60 * 1000); // 毎分チェック
   console.log(`\n  kinbot (Bot方式) → http://localhost:${PORT}`);
   console.log(`  公開URL(Webhook受け口): ${PUBLIC_URL || "(未設定)"}`);
   console.log(`  要約エンジン: ${llm.provider} (${llm.model})`);

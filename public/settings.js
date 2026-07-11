@@ -1566,3 +1566,29 @@ function initSmartLinks() {
     });
   }
 }
+
+// インサイト自動分析：手動で「今すぐ全対象を分析」
+(function () {
+  const btn = document.getElementById("runAllInsightsBtn");
+  const msg = document.getElementById("runAllInsightsMsg");
+  if (!btn) return;
+  btn.addEventListener("click", async () => {
+    btn.disabled = true;
+    const orig = btn.textContent;
+    btn.textContent = "開始しています…";
+    try {
+      const r = await fetch("/api/report/insights/run-all", { method: "POST" });
+      const d = await r.json();
+      if (msg) {
+        msg.hidden = false;
+        msg.textContent = d.started ? "分析を開始しました（完了まで数分かかります）" : (d.message || "すでに実行中です");
+      }
+    } catch (e) {
+      if (msg) { msg.hidden = false; msg.textContent = "開始に失敗しました: " + e.message; }
+    } finally {
+      btn.textContent = orig;
+      btn.disabled = false;
+      setTimeout(() => { if (msg) msg.hidden = true; }, 6000);
+    }
+  });
+})();

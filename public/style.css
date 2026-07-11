@@ -2412,3 +2412,9 @@ body {
 .ins-tips .ins-card-title i { color: #BA7517; }
 .ins-action { border-color: #cfe0f2; background: #f5f9fd; }
 .ins-action .ins-card-title i { color: #185FA5; }
+
+/* インサイト：全体 / チーム別 / 個人別 の3タブ */
+.ins-level-tabs { display: inline-flex; gap: 4px; background: #eef2ef; padding: 3px; border-radius: 999px; margin-bottom: 12px; }
+.ins-level-tab { padding: 6px 16px; font-size: 12.5px; font-weight: 600; border: none; border-radius: 999px; background: transparent; color: var(--muted); cursor: pointer; transition: background .12s, color .12s; }
+.ins-level-tab:hover { color: #0d5b47; }
+.ins-level-tab.active { background: var(--panel); color: #0d5b47; box-shadow: 0 1px 3px rgba(16,40,32,.14); }

@@ -55,18 +55,6 @@ async function fillOwnerSelects() {
       tg.innerHTML = names.map((n) => `<option value="team:${esc(n)}">チーム：${esc(n)}</option>`).join("");
     } catch { tg.innerHTML = ""; }
   }
-  // インサイトの対象セレクタにも同じ選択肢を並べる
-  const insSel = $("insScope");
-  if (insSel) {
-    const ownerOpts = owners.map((o) => `<option value="owner:${esc(o.email)}">${esc(o.name)}</option>`).join("");
-    let teamOpts = "";
-    try {
-      const teams = await (await fetch("/api/teams")).json();
-      const names = [...new Set((teams || []).map((t) => t.team_name).filter(Boolean))].sort();
-      teamOpts = names.map((n) => `<option value="team:${esc(n)}">チーム：${esc(n)}</option>`).join("");
-    } catch {}
-    insSel.innerHTML = `<option value="all">全体</option>` + teamOpts + ownerOpts;
-  }
 }
 
 // scope値（all / team:X / owner:Y）を owner/team パラメータに変換
@@ -544,32 +532,107 @@ function iaDates() {
   return { from: f ? f.value : "", to: t ? t.value : "" };
 }
 // ===== インサイト（勝ち/負けパターン分析）=====
+// 全体 / チーム別 / 個人別 の3タブ。チーム・個人は中のプルダウンで対象を選ぶ。
+// 対象ごとに結果が保存され、保存済みがあればボタンは「再分析」になる。
 let insWired = false;
+let insLevel = "all";          // all | team | owner
+let insTeams = [];             // [{value:"team:中澤チーム", label:"中澤チーム"}]
+let insOwners = [];            // [{value:"owner:xxx@x.com", label:"田中欽也"}]
+
 function wireInsights() {
   if (insWired) return; insWired = true;
   const btn = $("insGenerate");
   if (btn) btn.addEventListener("click", generateInsights);
+  document.querySelectorAll("#insLevelTabs .ins-level-tab").forEach((b) => {
+    b.addEventListener("click", () => {
+      insLevel = b.dataset.level;
+      document.querySelectorAll("#insLevelTabs .ins-level-tab").forEach((x) => x.classList.toggle("active", x === b));
+      applyInsLevel();
+    });
+  });
+  const pick = $("insPick");
+  if (pick) pick.addEventListener("change", loadInsights);
 }
+
+// レベルに応じてプルダウンの中身を切り替え、表示/非表示を制御
+function applyInsLevel() {
+  const wrap = $("insPickWrap");
+  const pick = $("insPick");
+  if (insLevel === "all") {
+    if (wrap) wrap.hidden = true;
+    loadInsights();
+    return;
+  }
+  const opts = insLevel === "team" ? insTeams : insOwners;
+  if (pick) {
+    if (!opts.length) {
+      pick.innerHTML = `<option value="">（${insLevel === "team" ? "チーム" : "担当者"}が登録されていません）</option>`;
+    } else {
+      pick.innerHTML = opts.map((o) => `<option value="${esc(o.value)}">${esc(o.label)}</option>`).join("");
+    }
+  }
+  if (wrap) wrap.hidden = false;
+  loadInsights();
+}
+
+// 現在のタブ＋プルダウンから scope 文字列を作る
+function currentInsScope() {
+  if (insLevel === "all") return "all";
+  const pick = $("insPick");
+  return (pick && pick.value) || "";
+}
+
 async function loadInsights() {
   wireInsights();
+  // 初回だけチーム/個人の選択肢を用意
+  if (!insTeams.length && !insOwners.length) await fillInsightScopes();
   const body = $("insightsBody");
   if (!body) return;
-  const scope = ($("insScope") && $("insScope").value) || "all";
-  const q = new URLSearchParams({ scope });
+  const scope = currentInsScope();
+  if (!scope) {
+    body.innerHTML = '<div class="empty-state">対象を選んでください。</div>';
+    updateInsButton(false);
+    return;
+  }
   const p = window.kbProduct && window.kbProduct.current();
   const key = (p ? p + "|" : "") + scope;
+  body.innerHTML = '<div class="empty-state">読み込み中…</div>';
   try {
     const d = await (await fetch("/api/report/insights?scope=" + encodeURIComponent(key))).json();
-    if (d && d.insight) renderInsights(body, d);
-    else body.innerHTML = '<div class="empty-state">まだ分析されていません。「この対象で分析」を押してください。<br><span style="font-size:12px;color:var(--muted)">再商談に進んだ商談と、進まず止まった商談の文字起こしを比較します。</span></div>';
+    if (d && d.insight) { renderInsights(body, d); updateInsButton(true); }
+    else {
+      body.innerHTML = '<div class="empty-state">この対象はまだ分析されていません。「この対象で分析」を押してください。<br><span style="font-size:12px;color:var(--muted)">再商談に進んだ商談と、進まず止まった商談の文字起こしを比較します。</span></div>';
+      updateInsButton(false);
+    }
   } catch {
     body.innerHTML = '<div class="empty-state">読み込みに失敗しました。</div>';
   }
 }
+
+// 保存済みがあれば「再分析」、無ければ「この対象で分析」
+function updateInsButton(hasResult) {
+  const btn = $("insGenerate");
+  if (btn) btn.textContent = hasResult ? "再分析" : "この対象で分析";
+}
+
+// チーム/個人の選択肢を用意（実績のセレクタと同じソース）
+async function fillInsightScopes() {
+  try {
+    const owners = await loadOwners();
+    insOwners = (owners || []).map((o) => ({ value: `owner:${o.email}`, label: o.name }));
+  } catch { insOwners = []; }
+  try {
+    const teams = await (await fetch("/api/teams")).json();
+    const names = [...new Set((teams || []).map((t) => t.team_name).filter(Boolean))].sort();
+    insTeams = names.map((n) => ({ value: `team:${n}`, label: n }));
+  } catch { insTeams = []; }
+}
+
 async function generateInsights() {
   const body = $("insightsBody");
   const st = $("insStatus");
-  const scope = ($("insScope") && $("insScope").value) || "all";
+  const scope = currentInsScope();
+  if (!scope) { if (st) st.textContent = "対象を選んでください"; return; }
   const p = window.kbProduct && window.kbProduct.current();
   if (st) st.textContent = "分析中…（商談数により1分ほどかかります）";
   body.innerHTML = '<div class="empty-state">文字起こしを比較分析しています…<br><span style="font-size:12px;color:var(--muted)">再商談に進んだ商談と止まった商談を読み比べています。しばらくお待ちください。</span></div>';
@@ -582,6 +645,7 @@ async function generateInsights() {
     if (!r.ok) throw new Error(d.error || "分析に失敗しました");
     if (st) st.textContent = "分析しました";
     renderInsights(body, d);
+    updateInsButton(true);
   } catch (e) {
     if (st) st.textContent = "";
     body.innerHTML = `<div class="empty-state">${esc(e.message)}</div>`;
@@ -744,5 +808,6 @@ function renderInternDash(body, d) {
     if (typeof loadFunnel === "function") loadFunnel();
     if (typeof loadKind === "function" && document.querySelector('[data-pane="kind"]:not([hidden])')) loadKind();
     if (typeof loadInternDash === "function" && document.querySelector('[data-pane="interns"]:not([hidden])')) loadInternDash();
+    if (typeof loadInsights === "function" && document.querySelector('[data-rpanel="insights"]:not([hidden])')) loadInsights();
   }, { renderOnMount: false }); // 初回のfunnel取得には既にproductが乗っているため
 })();
