@@ -38,19 +38,25 @@ let groups = {}; // groupKey -> meetings[]
 let groupPrimary = {}; // groupKey -> 代表rawキー
 let current = null;
 let dealStatuses = {}; // account -> {status, manual}
-let currentUserName = "";
+let currentUserEmail = "";
 let isImpersonating = false;
 let impersonatorEmail = "";
 fetch("/api/me").then((r) => r.json()).then((d) => {
-  currentUserName = (d && d.name) || "";
+  currentUserEmail = String((d && d.username) || "").toLowerCase();
   isImpersonating = !!(d && d.impersonating);
-  impersonatorEmail = (d && d.impersonator_email) || "";
+  impersonatorEmail = String((d && d.impersonator_email) || "").toLowerCase();
 }).catch(() => {});
-// 元アカウント（田中さん）で代理ログイン中なら、リーダー制限を回避する
+// ステータス変更を許可するアカウント（中澤・浦林）と、代理ログイン権限を持つアカウント（田中）
+const STATUS_APPROVER_EMAILS = new Set([
+  "ryota.nakazawa@neo-career.co.jp",
+  "takaya.urabayashi@neo-career.co.jp",
+]);
 const IMPERSONATOR_EMAILS = new Set(["kinya.tanaka@neo-career.co.jp"]);
 const isStatusApprover = () => {
-  if (isImpersonating && IMPERSONATOR_EMAILS.has(String(impersonatorEmail).toLowerCase())) return true;
-  return ["浦林", "中澤"].some((a) => currentUserName.includes(a));
+  // 代理ログイン中は元アカウント（田中さん）が代理権限を持つならOK
+  if (isImpersonating && IMPERSONATOR_EMAILS.has(impersonatorEmail)) return true;
+  // それ以外は現在のログインアカウントで判定
+  return STATUS_APPROVER_EMAILS.has(currentUserEmail);
 };
 let accountsMap = {}; // key -> {site_url, official_name, owner, profile}
 let npSelectMode = false; // 「選択して判定」モード
@@ -966,15 +972,14 @@ async function selectDeal(account) {
   }
 
   // ステータス変更
-  // 新プロセス判定が「要確認」の案件は、リーダー（浦林・中澤）のみ変更できる
-  const npForLock = lookupNewProc(displayName(account)) || lookupNewProc(account);
+  // 案件のステータス変更は、中澤・浦林のみ可能。それ以外は参照のみ（プルダウンをロック）。
   const stSel = $("dealStSel");
-  if (npForLock && npForLock.status === "要確認" && !isStatusApprover()) {
+  if (!isStatusApprover()) {
     stSel.disabled = true;
-    stSel.title = "「要確認」の案件は、リーダー（浦林・中澤）のみステータスを変更できます";
+    stSel.title = "案件のステータス変更は、中澤さん・浦林さんのみ可能です";
     const lockNote = document.createElement("span");
     lockNote.className = "st-lock-note";
-    lockNote.textContent = "🔒 要確認：リーダーのみ変更可";
+    lockNote.textContent = "🔒 変更は中澤・浦林のみ";
     stSel.parentElement && stSel.parentElement.appendChild(lockNote);
   }
   stSel.addEventListener("change", async (e) => {

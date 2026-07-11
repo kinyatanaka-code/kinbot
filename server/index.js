@@ -517,31 +517,26 @@ app.get("/api/deal-status", async (req, res) => {
     res.status(500).json({ error: e.message });
   }
 });
-// 要確認案件のステータス変更を許可するリーダー（表示名にこの文字を含む人だけ変更できる）
-const STATUS_APPROVERS = ["浦林", "中澤"];
-async function isStatusApprover(email) {
-  try {
-    const u = (await listUsers()).find((x) => (x.email || "").toLowerCase() === String(email || "").toLowerCase());
-    const nm = (u && u.name) || "";
-    return STATUS_APPROVERS.some((a) => nm.includes(a));
-  } catch { return false; }
+// ステータス変更を許可するアカウント（メールアドレスで完全一致判定）。
+// これ以外のユーザーは、案件は見られるが、ステータスの変更（プルダウン）は操作できない。
+const STATUS_APPROVER_EMAILS = new Set([
+  "ryota.nakazawa@neo-career.co.jp",
+  "takaya.urabayashi@neo-career.co.jp",
+]);
+function isStatusApprover(email) {
+  return STATUS_APPROVER_EMAILS.has(String(email || "").trim().toLowerCase());
 }
 
 app.put("/api/deal-status", async (req, res) => {
   try {
     const { account, status, auto } = req.body || {};
     if (!account) return res.status(400).json({ error: "account が必要です" });
-    // 新プロセス判定が「要確認」の案件は、リーダー（浦林・中澤）だけがステータスを変更できる
-    try {
-      const key = normCompanyKey(account);
-      const deals = await listDeals({});
-      const d = (deals || []).find((x) => normCompanyKey(x.company_name) === key);
-      // 代理ログイン中は元アカウント（田中）が権限を持つならOK。それ以外は表示中ユーザーで判定。
-      const approver = await isStatusApprover(req.impersonatorFrom || req.user);
-      if (d && d.status === "要確認" && !approver && !canImpersonate(req.impersonatorFrom)) {
-        return res.status(403).json({ error: "「要確認」の案件は、リーダー（浦林・中澤）のみステータスを変更できます。判定内容を確認のうえ、リーダーに依頼してください。" });
-      }
-    } catch {}
+    // ステータス変更は、承認アカウント（中澤・浦林）だけが可能。
+    // 代理ログイン中は、元アカウント（田中さん）が代理ログイン権限を持っているので変更可。
+    const approver = isStatusApprover(req.impersonatorFrom || req.user);
+    if (!approver && !canImpersonate(req.impersonatorFrom)) {
+      return res.status(403).json({ error: "案件のステータス変更は、中澤さん・浦林さんのみ可能です。判定内容を確認のうえ、いずれかの担当に依頼してください。" });
+    }
     if (auto) {
       // AIに任せる：手動フラグを解除
       await setDealStatus(account, { manual: false });
