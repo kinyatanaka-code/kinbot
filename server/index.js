@@ -588,6 +588,50 @@ app.put("/api/deals/:deal_id/manual-progress", async (req, res) => {
   }
 });
 
+// AI判定がまだ無い案件に、空の「初回商談」イベントを1件作る。
+// 詳細行を手動で埋めたいが AI が判定していない場合の準備用（承認アカウントのみ）。
+// 既に初回商談イベントがある場合は、そのイベントIDを返して何もしない（冪等）。
+app.post("/api/deals/:deal_id/first-event", async (req, res) => {
+  try {
+    const dealId = req.params.deal_id;
+    if (!dealId) return res.status(400).json({ error: "deal_id が必要です" });
+    const approver = isStatusApprover(req.impersonatorFrom || req.user);
+    if (!approver && !canImpersonate(req.impersonatorFrom)) {
+      return res.status(403).json({ error: "この操作は、中澤さん・浦林さんのみ可能です。" });
+    }
+    // 既存の初回商談を確認（同一 deal_id に既にあれば、そのIDを返す）
+    const events = await listDealEvents({});
+    const existing = events
+      .filter((e) => e.deal_id === dealId && e.event_type === "初回商談" && e.meeting_kind === "初回商談")
+      .sort((a, b) => new Date(b.event_date || 0) - new Date(a.event_date || 0))[0];
+    if (existing) return res.json({ ok: true, event_id: existing.id, existing: true });
+
+    // 案件情報から event_date を決める（first_meeting_date が無ければ今日）
+    const deals = await listDeals({});
+    const deal = (deals || []).find((d) => d.deal_id === dealId);
+    const eventDate = (deal && deal.first_meeting_date) || new Date().toISOString().slice(0, 10);
+    const updatedBy = req.impersonatorFrom ? `${req.impersonatorFrom} (as ${req.user})` : String(req.user || "");
+    // 空のイベントを作成（手動で作ったことを raw_extraction に記録）
+    const inserted = await insertDealEvent({
+      deal_id: dealId,
+      bot_id: null, // 商談ボットに紐付かない手動作成
+      event_date: eventDate,
+      event_type: "初回商談",
+      meeting_kind: "初回商談",
+      confidence: "manual",
+      judgment_basis: "手動で作成（AI判定なし）",
+      needs_review: false,
+      raw_extraction: { manual_created: { by: updatedBy, at: new Date().toISOString() } },
+    });
+    if (!inserted) return res.status(500).json({ error: "イベントの作成に失敗しました" });
+    console.log(`[first-event] manual create by ${updatedBy}: deal=${dealId} event=${inserted.id}`);
+    res.json({ ok: true, event_id: inserted.id, existing: false });
+  } catch (e) {
+    console.error("[first-event]", e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // 判定の詳細（初回商談イベント）を手動で修正する。
 // 対象: schedule_choice / apply_timing の2項目。judgment_month はサーバー側で自動再計算する。
 // 承認アカウント（中澤・浦林）だけが変更可能。

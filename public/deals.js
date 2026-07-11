@@ -337,13 +337,16 @@ function renderNewProcess(box, d) {
   // ただし編集ができるのは、AI判定で初回商談イベントが1件でもある（f.id が存在する）ときのみ。
   // 未判定案件を編集したい場合は、右上の「再判定」を実行してから編集する。
   {
-    const editable = clickable && f.id; // clickable = isStatusApprover()（renderNewProcess上部で定義済み）
+    // AI判定が無くても、承認アカウントなら編集できる（保存時に空のイベントを自動生成する）。
+    const editable = clickable && dealId;
     const SCHEDULE_OPTS = ["今月", "来月", "再来月", "それ以降", "未定", "不明"];
     const APPLY_OPTS = ["今月", "来月", "該当なし", "不明"];
+    // data-eid は無い場合もある（AI未判定 → 保存時に生成）。空文字で埋めておく。
+    const eid = f.id || "";
     const selectOf = (name, opts, current) => {
       const options = opts.map((v) => `<option value="${esc(v)}"${v === current ? " selected" : ""}>${esc(v)}</option>`).join("");
       const empty = current && !opts.includes(current) ? `<option value="${esc(current)}" selected>${esc(current)}</option>` : "";
-      return `<select class="np-edit-sel" data-field="${name}" data-eid="${f.id}">${empty}${options}</select>`;
+      return `<select class="np-edit-sel" data-field="${name}" data-eid="${eid}">${empty}${options}</select>`;
     };
     const scheduleCell = editable
       ? selectOf("schedule_choice", SCHEDULE_OPTS, f.schedule_choice || "")
@@ -356,9 +359,9 @@ function renderNewProcess(box, d) {
     if (editable) {
       const dateVal = f.next_meeting_date ? String(f.next_meeting_date).slice(0, 10) : "";
       nextCell = `<span class="np-next-edit">` +
-        `<input type="date" class="np-edit-date" data-field="next_meeting_date" data-eid="${f.id}" value="${esc(dateVal)}" />` +
+        `<input type="date" class="np-edit-date" data-field="next_meeting_date" data-eid="${eid}" value="${esc(dateVal)}" />` +
         (f.next_meeting_scheduled
-          ? `<button type="button" class="np-next-clear" data-eid="${f.id}" title="再商談を未設定に戻す">未設定に戻す</button>`
+          ? `<button type="button" class="np-next-clear" data-eid="${eid}" title="再商談を未設定に戻す">未設定に戻す</button>`
           : `<span class="np-next-hint">日付を入れると「設定済み」になります</span>`) +
         `</span>`;
     } else {
@@ -366,9 +369,11 @@ function renderNewProcess(box, d) {
     }
     // 手動編集の印
     const editedBy = f.judgment_month_basis && String(f.judgment_month_basis).includes("手動編集") ? '<span class="np-edited">✎ 手動</span>' : "";
-    // AIが初回商談を判定できていない案件では、詳細行の上に注記を出す
+    // AIが初回商談を判定できていない案件では、詳細行の上に注記を出す（編集は可能）
     const noJudgeHint = !d.first
-      ? `<div class="np-hint">この会社の初回商談がまだAI判定されていません。<b>右上の「再判定」</b>を実行すると、下の項目を編集できるようになります。</div>`
+      ? (clickable
+          ? `<div class="np-hint">この会社の初回商談はまだAI判定されていません。下の項目を編集すると、そのまま手動で判定内容を登録できます。</div>`
+          : `<div class="np-hint">この会社の初回商談はまだAI判定されていません。<b>右上の「再判定」</b>を実行すると、下の項目に判定結果が入ります。</div>`)
       : "";
     rows = noJudgeHint +
       `<div class="np-row"><span class="np-k">ご利用開始スケジュール</span><span class="np-v">${scheduleCell}</span></div>` +
@@ -443,16 +448,28 @@ function renderNewProcess(box, d) {
     });
   }
 
-  // 判定詳細のプルダウン（スケジュール／申込可否）を変更したら、その場でサーバーへ保存し
-  // 判断月を再取得する。承認アカウントのみ。
-  if (clickable && f && f.id) {
+  // 判定詳細のプルダウン（スケジュール／申込可否／再商談日）の変更を保存する。
+  // AI判定がまだ無い（f.id が空）場合は、その場で空のイベントを作ってから編集を適用する。
+  if (clickable && dealId) {
+    // イベントIDを確実に用意する（無ければ作る）
+    const ensureEventId = async () => {
+      if (f && f.id) return f.id;
+      const r = await fetch(`/api/deals/${encodeURIComponent(dealId)}/first-event`, { method: "POST" });
+      const dd = await r.json();
+      if (!r.ok) throw new Error(dd.error || "初回商談イベントの作成に失敗しました");
+      // ローカル状態に空の first を用意（IDだけ埋める）
+      d.first = d.first || {};
+      d.first.id = dd.event_id;
+      return dd.event_id;
+    };
     // 保存＋UI全体反映の共通処理
     const saveField = async (patch) => {
       const jmCell = document.getElementById("npJmCell");
       if (jmCell) jmCell.innerHTML = '<span class="np-saving">保存中…</span>';
       box.querySelectorAll(".np-edit-sel, .np-edit-date, .np-next-clear").forEach((x) => (x.disabled = true));
       try {
-        const r = await fetch(`/api/deal-events/${encodeURIComponent(f.id)}/manual-fields`, {
+        const eventId = await ensureEventId();
+        const r = await fetch(`/api/deal-events/${encodeURIComponent(eventId)}/manual-fields`, {
           method: "PUT", headers: { "content-type": "application/json" },
           body: JSON.stringify(patch),
         });
