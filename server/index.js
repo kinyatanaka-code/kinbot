@@ -41,6 +41,7 @@ import {
   deleteActionItem,
   listDealStatuses,
   setDealStatus,
+  setDealManualProgress,
   setDealStatusAuto,
   saveMeetingNote,
   setMeetingMux,
@@ -549,7 +550,32 @@ app.put("/api/deal-status", async (req, res) => {
   }
 });
 
-// ===== ネクストアクション（案件単位） =====
+// ステッパー上のクリックで進捗を保存（AI判定とは独立した「手動進捗」フィールド）。
+// 対象案件は deal_id で指定。stage: 1〜5 または null（null で解除＝AI判定に戻す）。
+// 承認アカウント（中澤・浦林）だけが変更可能。田中さんは代理ログイン中のみ変更可（ステータスと同じ扱い）。
+app.put("/api/deals/:deal_id/manual-progress", async (req, res) => {
+  try {
+    const dealId = req.params.deal_id;
+    const stageRaw = req.body?.stage;
+    const stage = stageRaw == null ? null : Number(stageRaw);
+    if (stage !== null && (!Number.isInteger(stage) || stage < 1 || stage > 5)) {
+      return res.status(400).json({ error: "stage は 1〜5 の整数、または null（解除）にしてください" });
+    }
+    const approver = isStatusApprover(req.impersonatorFrom || req.user);
+    if (!approver && !canImpersonate(req.impersonatorFrom)) {
+      return res.status(403).json({ error: "進捗の変更は、中澤さん・浦林さんのみ可能です。" });
+    }
+    // 更新した人の記録（代理ログイン中は「元アカウント as 代理先」で残す）
+    const updatedBy = req.impersonatorFrom
+      ? `${req.impersonatorFrom} (as ${req.user})`
+      : String(req.user || "");
+    await setDealManualProgress(dealId, stage, updatedBy);
+    res.json({ ok: true, stage, updated_by: updatedBy });
+  } catch (e) {
+    console.error("[manual-progress]", e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
 app.get("/api/action-items", async (req, res) => {
   try {
     const account = String(req.query.account || "").trim();
@@ -1040,6 +1066,8 @@ app.get("/api/deal-status-by-company", async (req, res) => {
     const firstEv = [...events].reverse().find((e) => e.event_type === "初回商談" && e.meeting_kind === "初回商談");
     const reEv = [...events].reverse().find((e) => e.event_type === "再商談実施");
     const needsReview = events.some((e) => e.needs_review);
+    // 人が手動で進めた進捗（stepper上のクリックで保存される）
+    const manualProgress = deal.manual_progress || null;
     res.json({
       found: true,
       deal_id: deal.deal_id,
@@ -1062,6 +1090,7 @@ app.get("/api/deal-status-by-company", async (req, res) => {
         event_date: reEv.event_date,
       } : null,
       event_count: events.length,
+      manual_progress: manualProgress,
     });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });

@@ -291,6 +291,8 @@ export async function initDb() {
     );
   `);
   await pool.query(`ALTER TABLE deals ADD COLUMN IF NOT EXISTS auto_lose_deadline DATE;`);
+  // ステッパー上で人が手動で進める進捗（AIの判定とは独立して持つ）。JSONBで {stage:1-5, updated_by, updated_at}。
+  await pool.query(`ALTER TABLE deals ADD COLUMN IF NOT EXISTS manual_progress JSONB;`);
   await pool.query(`
     CREATE TABLE IF NOT EXISTS deal_events (
       id                     BIGSERIAL PRIMARY KEY,
@@ -1627,6 +1629,19 @@ export async function updateDealStatus(dealId, status, autoLoseDeadline) {
       await pool.query(`UPDATE deals SET status=$2, updated_at=now() WHERE deal_id=$1`, [dealId, status]);
     }
   } catch (e) { console.error("[db] updateDealStatus", e.message); }
+}
+
+// ステッパー上で人が進めた進捗を保存する。stage=null で解除（AI判定に戻る）。
+export async function setDealManualProgress(dealId, stage, updatedBy) {
+  if (!pool || !dealId) return;
+  try {
+    if (stage == null) {
+      await pool.query(`UPDATE deals SET manual_progress=NULL, updated_at=now() WHERE deal_id=$1`, [dealId]);
+    } else {
+      const payload = { stage: Number(stage), updated_by: updatedBy || "", updated_at: new Date().toISOString() };
+      await pool.query(`UPDATE deals SET manual_progress=$2, updated_at=now() WHERE deal_id=$1`, [dealId, JSON.stringify(payload)]);
+    }
+  } catch (e) { console.error("[db] setDealManualProgress", e.message); }
 }
 
 // 「進行中(未設定)」のうち、auto_lose_deadline を過ぎたものを自動で「失注(未定)」に切り替える。

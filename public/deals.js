@@ -245,18 +245,20 @@ function npStageInfo(d) {
   const scOk = hasFirst && f.schedule_choice && !["未定", "不明"].includes(f.schedule_choice);
   const atOk = hasFirst && (f.apply_timing === "今月" || f.apply_timing === "来月");
   const isWon = d.latest_result === "受注" || st === "受注";
+  // 手動進捗（人がクリックで進めた進捗）。設定されていれば、そのステージまでは達成扱い。
+  const mp = d.manual_progress && Number.isInteger(d.manual_progress.stage) ? d.manual_progress.stage : 0;
   // 各ステージは「そのステージの根拠があるとき」だけ達成扱いにする。
   // 初回商談が未判定なのに「時期明確化」「今月/来月判断」に✓が付かないようにするため、
   // 通し番号(reached)ではなくステージ単位で判定する。
   const done = {
-    1: hasFirst,
-    2: scOk,
-    3: scOk && atOk,
-    4: !!d.re,        // 実際に再商談を実施した（予定だけでは達成しない）
-    5: isWon,
+    1: hasFirst || mp >= 1,
+    2: scOk || mp >= 2,
+    3: (scOk && atOk) || mp >= 3,
+    4: !!d.re || mp >= 4,        // 実際に再商談を実施した（予定だけでは達成しない）
+    5: isWon || mp >= 5,
   };
-  // 初回商談の判定データが無い段階は「不明」（✓でも未達でもない）
-  const unknown = { 1: !hasFirst, 2: !hasFirst, 3: !hasFirst, 4: false, 5: false };
+  // 手動 or AI で1つでも根拠が有れば「不明」ではない
+  const unknown = { 1: !done[1], 2: !hasFirst && mp === 0, 3: !hasFirst && mp === 0, 4: false, 5: false };
   let reached = 0;
   for (const n of [1, 2, 3, 4, 5]) if (done[n]) reached = n;
   if (!reached) reached = 1;
@@ -266,7 +268,7 @@ function npStageInfo(d) {
     else if (!hasNext) lostAt = 3; // 再商談が設定されず失注
     else lostAt = reached;
   }
-  return { reached, lostAt, isWon, isReview, hasNext, isPending10day, done, unknown, hasFirst };
+  return { reached, lostAt, isWon, isReview, hasNext, isPending10day, done, unknown, hasFirst, manualStage: mp };
 }
 
 function renderNewProcess(box, d) {
@@ -281,9 +283,13 @@ function renderNewProcess(box, d) {
   const f = d.first || {};
 
   // ステージバー（丸＋ラベル＋矢印）
+  // クリック可否は権限で決まる（中澤・浦林、または代理ログイン中の田中さん）
+  const clickable = isStatusApprover();
+  const dealId = d.deal_id || "";
+  const manualStage = (d.manual_progress && d.manual_progress.stage) || 0;
   const steps = stages.map((s) => {
     const done = !!doneMap[s.n];
-    const isUnknown = !done && !!unknownMap[s.n]; // 初回商談が未判定 → 根拠が無いので✓にしない
+    const isUnknown = !done && !!unknownMap[s.n];
     const cur = s.n === reached && !isWon && lostAt == null;
     const isLost = lostAt != null && s.n === lostAt;
     let cls = done ? "done" : "todo";
@@ -292,7 +298,14 @@ function renderNewProcess(box, d) {
     if (isReview && s.n === 1) cls = "done review";
     if (isLost) cls = "lost";
     if (s.n === 5 && isWon) cls = "won";
+    if (clickable && dealId) cls += " clickable";
+    if (manualStage === s.n) cls += " manual";
     const mark = isLost ? "×" : ((isReview && s.n === 1) || isUnknown ? "?" : (done ? "✓" : s.n));
+    // クリッカブルなら button、そうでなければ div
+    if (clickable && dealId) {
+      const title = `「${s.label}」まで進める（クリック）／解除は同じ◯をもう一度クリック`;
+      return `<button type="button" class="np-step ${cls}" data-stage="${s.n}" title="${esc(title)}"><span class="np-dot">${mark}</span><span class="np-step-label">${s.label}</span></button>`;
+    }
     return `<div class="np-step ${cls}"><span class="np-dot">${mark}</span><span class="np-step-label">${s.label}</span></div>`;
   }).join('<span class="np-arrow">›</span>');
 
@@ -350,6 +363,36 @@ function renderNewProcess(box, d) {
     reasonsBlock;
   const rr = document.getElementById("npReRun");
   if (rr && box._ctx) rr.addEventListener("click", () => runNewProcess(box._ctx.botIds, box._ctx.companyName, box._ctx.pk, box._ctx.ms));
+
+  // ステッパーの◯クリックで進捗を進める（承認アカウントのみ・デイルIDが必要）
+  if (clickable && dealId) {
+    box.querySelectorAll(".np-step.clickable").forEach((el) => {
+      el.addEventListener("click", async () => {
+        const clickedStage = Number(el.dataset.stage);
+        // 同じ◯を再度クリック → その進捗を1つ手前に戻す（4を押した状態で4を再度押すと3へ）。
+        // 1で1を押した場合は解除（AI判定に戻す）。
+        const cur = (d.manual_progress && d.manual_progress.stage) || 0;
+        let nextStage = clickedStage === cur ? clickedStage - 1 : clickedStage;
+        if (nextStage <= 0) nextStage = null;
+        // 二重クリック防止
+        box.querySelectorAll(".np-step.clickable").forEach((x) => (x.disabled = true));
+        try {
+          const r = await fetch(`/api/deals/${encodeURIComponent(dealId)}/manual-progress`, {
+            method: "PUT", headers: { "content-type": "application/json" },
+            body: JSON.stringify({ stage: nextStage }),
+          });
+          const dd = await r.json();
+          if (!r.ok) throw new Error(dd.error || "進捗の変更に失敗しました");
+          // ローカルの d を更新して再描画
+          d.manual_progress = nextStage == null ? null : { stage: nextStage, updated_by: dd.updated_by || "" };
+          renderNewProcess(box, d);
+        } catch (e) {
+          alert(e.message);
+          box.querySelectorAll(".np-step.clickable").forEach((x) => (x.disabled = false));
+        }
+      });
+    });
+  }
 }
 
 // gBizINFOで複数候補が出て「選択が必要」な案件の印。accounts.profile.gbiz_pending に保存する。
@@ -977,10 +1020,6 @@ async function selectDeal(account) {
   if (!isStatusApprover()) {
     stSel.disabled = true;
     stSel.title = "案件のステータス変更は、中澤さん・浦林さんのみ可能です";
-    const lockNote = document.createElement("span");
-    lockNote.className = "st-lock-note";
-    lockNote.textContent = "🔒 変更は中澤・浦林のみ";
-    stSel.parentElement && stSel.parentElement.appendChild(lockNote);
   }
   stSel.addEventListener("change", async (e) => {
     const v = e.target.value;
