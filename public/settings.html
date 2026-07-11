@@ -406,7 +406,6 @@ curl -H "Authorization: Bearer <span class="cc-tok">&lt;トークン&gt;</span>"
             <div class="subtabs" id="aiSubtabs">
               <button class="subtab active" data-sub="check">チェック項目</button>
               <button class="subtab" data-sub="summary">要約の指示</button>
-              <button class="subtab" data-sub="custom">カスタム分析</button>
             </div>
 
             <div class="subpane" data-sub="check">
@@ -424,22 +423,9 @@ curl -H "Authorization: Bearer <span class="cc-tok">&lt;トークン&gt;</span>"
 
             <div class="subpane" data-sub="summary" hidden>
               <div class="set-card">
-                <h3>商談履歴の要約プロンプト（チーム共有）</h3>
-                <p class="note">商談履歴に出る「要約」の書き方を、ここに書いた指示どおりに寄せられます。ライブ中の要約と、商談後の要約の両方に反映されます。空欄なら標準の要約になります。※ 要約の項目（全体状況／論点／合意事項／宿題／相手の懸念）の構成自体は変わりません。文章の書き方・観点・粒度を指定してください。</p>
-                <textarea id="summaryPrompt" rows="8" placeholder="例：&#10;・全体状況は3文以内で、結論から書く&#10;・相手の温度感（前向き / 慎重 / 懸念あり）を必ず1行入れる&#10;・専門用語や社内用語は避け、誰でも分かる言葉で&#10;・合意事項と宿題は『誰が・いつまでに・何を』が分かるように"></textarea>
-                <div class="modal-actions">
-                  <button class="btn" id="saveSummaryPromptBtn">保存</button>
-                  <button class="btn ghost" id="clearSummaryPromptBtn">クリア</button>
-                  <span class="saved" id="summaryPromptSaved" hidden>保存しました</span>
-                </div>
-              </div>
-            </div>
-
-            <div class="subpane" data-sub="custom" hidden>
-              <div class="set-card">
-                <h3>カスタム分析プロンプト（チーム共有）</h3>
-                <p class="note">ここに貼り付けたプロンプトを、各商談の文字起こしに対して実行します。<b>設定すると、商談履歴の「要約」タブが、このプロンプトの出力に置き換わります</b>（標準の要約は表示されません）。文字起こしを入れたい箇所には <code>{transcript}</code> と書けばそこに差し込まれます（省略した場合は末尾に自動で添付）。空欄なら標準の要約に戻ります。</p>
-                <textarea id="customPrompt" rows="14" placeholder="例：&#10;# 役割&#10;あなたは営業商談を分析するアシスタントです。以下の9項目を抽出してください。&#10;…（ルール・出力フォーマット）…&#10;&#10;# 対象の文字起こし&#10;{transcript}"></textarea>
+                <h3>要約の指示（チーム共有）</h3>
+                <p class="note">ここに書いた指示が、商談履歴の「要約」タブにそのまま反映されます。<b>ここに書いた通りの形式・観点で要約が生成されます</b>（項目立てや9項目抽出なども自由）。空欄にすると、標準の要約（全体状況／論点／合意事項／宿題／相手の懸念）に戻ります。<br>文字起こしを差し込みたい箇所には <code>{transcript}</code> と書けます（省略した場合は末尾に自動で添付されます）。</p>
+                <textarea id="customPrompt" rows="14" placeholder="例：&#10;# 役割&#10;あなたは営業商談を分析するアシスタントです。以下の9項目を、指定のフォーマットで抽出してください。&#10;&#10;# 抽出する項目&#10;1. 担当者情報（性別 / 話し方の特徴 / 担当領域）&#10;2. 採用人数&#10;3. 採用手法&#10;…&#10;&#10;# 対象の文字起こし&#10;{transcript}"></textarea>
                 <div class="modal-actions">
                   <button class="btn" id="saveCustomPromptBtn">保存</button>
                   <button class="btn ghost" id="clearCustomPromptBtn">クリア</button>

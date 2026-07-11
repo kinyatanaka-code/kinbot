@@ -150,6 +150,16 @@ export async function initDb() {
     );
   `);
   await pool.query(`
+    CREATE TABLE IF NOT EXISTS win_insights (
+      scope_key    TEXT PRIMARY KEY,
+      scope_label  TEXT,
+      insight      JSONB,
+      won_count    INT DEFAULT 0,
+      lost_count   INT DEFAULT 0,
+      generated_at TIMESTAMPTZ DEFAULT now()
+    );
+  `);
+  await pool.query(`
     CREATE TABLE IF NOT EXISTS notion_sent (
       owner TEXT NOT NULL,
       bot_id TEXT NOT NULL,
@@ -1122,6 +1132,26 @@ export async function saveSettings(obj) {
     console.error("[db] saveSettings", e.message);
     return { persisted: false };
   }
+}
+
+// 勝ち/負けパターン分析（インサイト）のキャッシュ
+export async function getWinInsight(scopeKey) {
+  if (!pool) return null;
+  try {
+    const { rows } = await pool.query(`SELECT * FROM win_insights WHERE scope_key=$1`, [scopeKey]);
+    return rows[0] || null;
+  } catch { return null; }
+}
+export async function saveWinInsight(scopeKey, scopeLabel, insight, wonCount, lostCount) {
+  if (!pool) return;
+  try {
+    await pool.query(
+      `INSERT INTO win_insights (scope_key, scope_label, insight, won_count, lost_count, generated_at)
+       VALUES ($1,$2,$3,$4,$5, now())
+       ON CONFLICT (scope_key) DO UPDATE SET scope_label=$2, insight=$3, won_count=$4, lost_count=$5, generated_at=now()`,
+      [scopeKey, scopeLabel || "", JSON.stringify(insight), wonCount || 0, lostCount || 0]
+    );
+  } catch (e) { console.error("[db] saveWinInsight", e.message); }
 }
 
 // ---- カレンダー予約Botの重複防止（event_id → bot_id） ----

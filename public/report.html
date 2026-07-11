@@ -29,6 +29,7 @@
             <button class="rep-tab" data-rp="daily">日次データ確認</button>
             <button class="rep-tab" data-rp="pipeline">パイプライン</button>
             <button class="rep-tab" data-rp="interns">インターンアポ</button>
+            <button class="rep-tab" data-rp="insights">インサイト</button>
           </div>
 
           <!-- サマリー（ファネル） -->
@@ -104,6 +105,18 @@
               <span class="rev-status" id="iaStatus"></span>
             </div>
             <div id="internBody"><div class="empty-state">読み込み中…</div></div>
+          </section>
+
+          <!-- インサイト（勝ち/負けパターン分析） -->
+          <section class="rep-panel" data-rpanel="insights" hidden>
+            <div class="rep-controls">
+              <label>対象
+                <select id="insScope"><option value="all">全体</option></select>
+              </label>
+              <button class="btn" id="insGenerate">この対象で分析</button>
+              <span class="rev-status" id="insStatus"></span>
+            </div>
+            <div id="insightsBody"><div class="empty-state">対象を選んで「この対象で分析」を押すと、再商談に進んだ商談と進まなかった商談を比較します。</div></div>
           </section>
         </main>
       </div>

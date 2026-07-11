@@ -352,7 +352,14 @@ function renderList() {
   if (!rows.length) {
     const e = document.createElement("div");
     e.className = "empty-state";
-    e.textContent = "該当する商談がありません。";
+    const p = window.kbProduct && window.kbProduct.current();
+    // プロダクト絞り込みが原因（全体では商談があるのに、このタブで0件）なら、その旨を出す
+    const totalInView = allMeetings.filter((m) => (HIST_CAT_OTHER ? isOtherCat(m) : !isOtherCat(m))).length;
+    if (p && totalInView > 0) {
+      e.innerHTML = `${esc(p)} に割り当てられた担当者の商談がありません。<br><span style="font-size:12px;color:var(--muted)">設定→チーム編集で担当者に「${esc(p)}」を割り当てるか、右上で「全体」を選んでください。</span>`;
+    } else {
+      e.textContent = "該当する商談がありません。";
+    }
     hlist.appendChild(e);
     return;
   }

@@ -47,7 +47,21 @@
     if (!hasAnyAssignment()) return true; // 誰にもプロダクトが割り当てられていない → 絞り込まない
     const p = current();
     if (!p) return true;            // 「全体」は全部見せる
-    return productOf(owner) === p;
+    return productOfLoose(owner) === p;
+  }
+
+  // 部分一致も許容してプロダクトを引く（「田中」登録 ↔ 「田中欽也」表示 のズレを吸収）
+  function productOfLoose(owner) {
+    const exact = productOf(owner);
+    if (exact) return exact;
+    const o = String(owner || "").trim().toLowerCase();
+    if (!o) return "";
+    for (const k in repProductMap) {
+      const kk = String(k).trim().toLowerCase();
+      if (!kk || !repProductMap[k]) continue;
+      if (o === kk || o.includes(kk) || kk.includes(o)) return repProductMap[k];
+    }
+    return "";
   }
 
   // 1人でもプロダクトが設定されているか（未設定運用では絞り込みを無効化する）

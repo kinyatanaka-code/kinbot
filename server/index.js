@@ -68,6 +68,8 @@ import {
   listDeals,
   getDealWithEvents,
   listDealEvents,
+  getWinInsight,
+  saveWinInsight,
   updateDealEvent,
   teamForRep,
   listRepTeams,
@@ -100,7 +102,7 @@ import {
   deleteKbFolder,
 } from "./db.js";
 import { resolveConfig, statusInfo } from "./config.js";
-import { analyzerInfo, analyzeMeeting, analyzeDeep, freeAnalyze, chatWithData, enrichCompany, generateThanks, THANKS_PROMPT, getCheckItems, getSummaryPrompt, getCustomPrompt, runCustomAnalysis, classifyMeetingKind, extractFirstMeeting, extractReMeeting, buildBrief } from "./analyzer.js";
+import { analyzerInfo, analyzeMeeting, analyzeDeep, freeAnalyze, chatWithData, enrichCompany, generateThanks, THANKS_PROMPT, getCheckItems, getSummaryPrompt, getCustomPrompt, runCustomAnalysis, analyzeWinPatterns, classifyMeetingKind, extractFirstMeeting, extractReMeeting, buildBrief } from "./analyzer.js";
 import {
   googleConfigured,
   authUrl,
@@ -1563,7 +1565,16 @@ app.get("/api/report/funnel", async (req, res) => {
     const productFilter = (hasProductAssignment && req.query.product) ? String(req.query.product).trim() : null;
     const productOf = (rawOwner) => {
       const disp = resolveDisplayName(rawOwner, nameMap);
-      return productMap[(disp || "").trim()] || productMap[(rawOwner || "").trim()] || "";
+      const direct = productMap[(disp || "").trim()] || productMap[(rawOwner || "").trim()];
+      if (direct) return direct;
+      // 部分一致で吸収（「田中」登録 ↔ 「田中欽也」表示 のズレ）
+      const cand = String(disp || rawOwner || "").trim().toLowerCase();
+      if (!cand) return "";
+      for (const k of Object.keys(productMap)) {
+        const kk = String(k).trim().toLowerCase();
+        if (kk && (cand === kk || cand.includes(kk) || kk.includes(cand))) return productMap[k];
+      }
+      return "";
     };
 
     // 案件担当ではなく「実施者」で絞るため、SQLではownerで絞らずJS側で判定する
@@ -1716,6 +1727,107 @@ app.get("/api/report/funnel", async (req, res) => {
     res.json({ granularity, from, to, owner, team, overall, byOwner, byKind, byTeam, re_basis: cohortRe ? "judgment_month" : "event_date", re_debug: reDebug });
   } catch (e) {
     console.error("[report funnel]", e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// 勝ち/負けパターン分析（インサイト）。scope=all | team:<名> | owner:<名>
+//  GET  : キャッシュされた結果を返す（無ければ null）
+//  POST : 対象商談を「再商談に進んだ群」と「止まった群」に分け、文字起こしを比較分析して保存
+// 担当者名 → チーム名を解決する関数を作る（実績・インサイトで共用）
+async function buildTeamOf(nameMap) {
+  const nm = nameMap || (await buildNameMap());
+  const teamMap = {};
+  for (const t of (await listRepTeams().catch(() => []))) teamMap[(t.rep_name || "").trim()] = (t.team_name || "").trim();
+  return (rawOwner) => {
+    const disp = resolveDisplayName(rawOwner, nm);
+    return teamMap[(disp || "").trim()] || teamMap[(rawOwner || "").trim()] || "(未割り当て)";
+  };
+}
+
+async function gatherInsightGroups(scope) {
+  const nameMap = await buildNameMap();
+  const productMap = await listRepProducts().catch(() => ({}));
+  const repOf = (e) => e.meeting_owner || e.owner;
+  const teamOf = await buildTeamOf(nameMap);
+  const productOf = (raw) => {
+    const disp = resolveDisplayName(raw, nameMap);
+    const direct = productMap[(disp || "").trim()] || productMap[(raw || "").trim()];
+    if (direct) return direct;
+    const c = String(disp || raw || "").trim().toLowerCase();
+    for (const k of Object.keys(productMap)) { const kk = k.trim().toLowerCase(); if (kk && (c === kk || c.includes(kk) || kk.includes(c))) return productMap[k]; }
+    return "";
+  };
+  let events = await listDealEvents({});
+  // 初回商談イベントだけを対象（＝その商談で再商談に進んだかどうかを見る）
+  let first = events.filter((e) => e.event_type === "初回商談" && e.meeting_kind === "初回商談");
+
+  // スコープの絞り込み
+  let label = "全体";
+  const product = (scope && scope.product) || "";
+  if (product) { first = first.filter((e) => productOf(repOf(e)) === product); label = product; }
+  if (scope && scope.owner) {
+    const target = resolveDisplayName(scope.owner, nameMap);
+    first = first.filter((e) => resolveDisplayName(repOf(e), nameMap) === target);
+    label = (product ? product + " / " : "") + target;
+  } else if (scope && scope.team) {
+    first = first.filter((e) => teamOf(repOf(e)) === scope.team);
+    label = (product ? product + " / " : "") + scope.team;
+  }
+
+  // 進んだ群＝再商談の日程が設定された初回商談。止まった群＝設定されず失注/未設定になったもの。
+  const progressed = first.filter((e) => e.next_meeting_scheduled);
+  const stalled = first.filter((e) => !e.next_meeting_scheduled && String(e.deal_status || "").startsWith("失注"));
+
+  // 直近を優先し、各群から最大12件の文字起こしを集める
+  const pickRecent = (arr) => arr
+    .slice()
+    .sort((a, b) => new Date(b.event_date) - new Date(a.event_date))
+    .slice(0, 12);
+  const toSamples = async (arr) => {
+    const out = [];
+    for (const e of pickRecent(arr)) {
+      if (!e.bot_id) continue;
+      const m = await getMeeting(e.bot_id).catch(() => null);
+      if (m && m.transcript && (Array.isArray(m.transcript) ? m.transcript.length : String(m.transcript).length > 50)) {
+        out.push({ company: e.company_name, transcript: m.transcript });
+      }
+    }
+    return out;
+  };
+  const won = await toSamples(progressed);
+  const lost = await toSamples(stalled);
+  return { won, lost, label, wonTotal: progressed.length, lostTotal: stalled.length };
+}
+
+app.get("/api/report/insights", async (req, res) => {
+  try {
+    const key = String(req.query.scope || "all");
+    const row = await getWinInsight(key);
+    if (!row) return res.json({ insight: null });
+    res.json({ insight: row.insight, scope_label: row.scope_label, won_count: row.won_count, lost_count: row.lost_count, generated_at: row.generated_at });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.post("/api/report/insights", async (req, res) => {
+  try {
+    const b = req.body || {};
+    const scopeKeyRaw = String(b.scope || "all");
+    const scope = {};
+    if (scopeKeyRaw.startsWith("team:")) scope.team = scopeKeyRaw.slice(5);
+    else if (scopeKeyRaw.startsWith("owner:")) scope.owner = scopeKeyRaw.slice(6);
+    if (b.product && ["DOC", "MOCHICA"].includes(String(b.product))) scope.product = String(b.product);
+    const key = (scope.product ? scope.product + "|" : "") + scopeKeyRaw;
+
+    const { won, lost, label, wonTotal, lostTotal } = await gatherInsightGroups(scope);
+    if (won.length + lost.length < 3) {
+      return res.status(400).json({ error: `分析できる文字起こしが不足しています（進んだ${won.length}件 / 止まった${lost.length}件）。対象範囲を「全体」にするか、商談が増えてからお試しください。` });
+    }
+    const insight = await analyzeWinPatterns(won, lost, label);
+    await saveWinInsight(key, label, insight, wonTotal, lostTotal);
+    res.json({ insight, scope_label: label, won_count: wonTotal, lost_count: lostTotal, generated_at: new Date().toISOString(), analyzed: { won: won.length, lost: lost.length } });
+  } catch (e) {
+    console.error("[insights]", e);
     res.status(500).json({ error: e.message });
   }
 });

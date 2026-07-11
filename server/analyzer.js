@@ -1168,6 +1168,74 @@ function transcriptToText(transcript) {
   return transcript.map((u) => `${(u.speaker && u.speaker.name) || u.speaker_name || "話者"}: ${u.text || ""}`).join("\n");
 }
 
+// 勝ち/負けパターン分析：商談を「進んだ群（再商談に進んだ）」と「止まった群」に分け、
+// 文字起こしを比較して、企業タイプ・商談の特徴・トーク・勝ち/負けパターンを抽出する。
+// won/lost は [{ company, transcript }] の配列（transcriptは整形済みテキスト）。
+export async function analyzeWinPatterns(wonSamples, lostSamples, scopeLabel) {
+  const clip = (arr, per) => arr.slice(0, 12).map((s, i) =>
+    `【${i + 1}. ${s.company || "会社名なし"}】\n${transcriptToText(s.transcript).slice(0, per)}`
+  ).join("\n\n---\n\n");
+  // サンプル数に応じて1件あたりの長さを調整（全体を約40000字に収める）
+  const perWon = Math.max(1200, Math.floor(22000 / Math.max(1, Math.min(12, wonSamples.length))));
+  const perLost = Math.max(1200, Math.floor(22000 / Math.max(1, Math.min(12, lostSamples.length))));
+
+  const sys =
+    "あなたはBtoB採用サービス『どこでもオープンカンパニー（DOC）』の営業を分析するトップコンサルタントです。" +
+    "『再商談に進んだ商談（＝次につながった商談）』と『進まなかった商談（＝その場で止まった商談）』の文字起こしを比較し、" +
+    "営業メンバーが次の商談ですぐ実践できる示唆を出します。" +
+    "必ず文字起こしの実際の発言・進め方を根拠にし、一般論や推測で埋めないこと。根拠が薄い項目は正直に『データ不足』と書くこと。" +
+    "各配列は3〜6個、具体的で短く、現場で使える粒度にすること。出力は指定のJSONのみ。";
+
+  const schema = {
+    type: "object",
+    properties: {
+      company_types: {
+        type: "object",
+        properties: {
+          progressed: { type: "array", items: { type: "string" } }, // 進んだ商談に多い企業タイプ
+          stalled: { type: "array", items: { type: "string" } },     // 止まった商談に多い企業タイプ
+        },
+      },
+      meeting_traits: {
+        type: "object",
+        properties: {
+          progressed: { type: "array", items: { type: "string" } }, // 進んだ商談の進め方の特徴
+          stalled: { type: "array", items: { type: "string" } },
+        },
+      },
+      talk_tips: { type: "array", items: { type: "string" } },       // 効果的だったトーク/質問（具体的な言い回し）
+      win_patterns: { type: "array", items: { type: "string" } },    // 勝ちパターン
+      lose_patterns: { type: "array", items: { type: "string" } },   // 負けパターン
+      actions: { type: "array", items: { type: "string" } },         // 次の商談での具体的アクション
+    },
+    required: ["company_types", "meeting_traits", "talk_tips", "win_patterns", "lose_patterns", "actions"],
+  };
+
+  const user =
+    `分析対象: ${scopeLabel || "全体"}\n` +
+    `# 再商談に進んだ商談（${wonSamples.length}件）\n${clip(wonSamples, perWon) || "(データなし)"}\n\n` +
+    `# 進まなかった（止まった）商談（${lostSamples.length}件）\n${clip(lostSamples, perLost) || "(データなし)"}\n\n` +
+    "上記を比較し、次のJSON形式で出力してください。各項目は実際の発言・進め方を根拠にすること。\n" +
+    "company_types: 進んだ/止まった商談それぞれに多い企業タイプ（業界・規模感・温度感・体制など、会話から読み取れる範囲）\n" +
+    "meeting_traits: 進んだ/止まった商談の進め方の特徴（ヒアリング量・決裁者関与・次アクション設定など）\n" +
+    "talk_tips: 進んだ商談で効果的だった質問・言い回し（できるだけ具体的な言葉で）\n" +
+    "win_patterns / lose_patterns: 勝ちパターン / 負けパターン\n" +
+    "actions: 各メンバーが次の商談で実践すべき具体的アクション";
+
+  const out = parseJson(await callLLM(sys, user, 2200, { schema, provider: "anthropic" })) || {};
+  // 形を保証
+  const arr = (x) => (Array.isArray(x) ? x.filter((s) => typeof s === "string" && s.trim()) : []);
+  const pair = (o) => ({ progressed: arr(o && o.progressed), stalled: arr(o && o.stalled) });
+  return {
+    company_types: pair(out.company_types),
+    meeting_traits: pair(out.meeting_traits),
+    talk_tips: arr(out.talk_tips),
+    win_patterns: arr(out.win_patterns),
+    lose_patterns: arr(out.lose_patterns),
+    actions: arr(out.actions),
+  };
+}
+
 // 商談種別を判定：初回商談 / 再商談 / 判定不能
 export async function classifyMeetingKind(transcript, opts = {}) {
   const text = transcriptToText(transcript).slice(0, 40000);

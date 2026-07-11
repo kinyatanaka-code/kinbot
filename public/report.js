@@ -16,6 +16,7 @@ function todayStr() { return new Date().toISOString().slice(0, 10); }
       if (rp === "daily") loadDaily();
       if (rp === "pipeline") loadPipeline();
       if (rp === "interns") loadInternDash();
+      if (rp === "insights") loadInsights();
     });
   });
 })();
@@ -53,6 +54,18 @@ async function fillOwnerSelects() {
       const names = [...new Set((teams || []).map((t) => t.team_name).filter(Boolean))].sort();
       tg.innerHTML = names.map((n) => `<option value="team:${esc(n)}">チーム：${esc(n)}</option>`).join("");
     } catch { tg.innerHTML = ""; }
+  }
+  // インサイトの対象セレクタにも同じ選択肢を並べる
+  const insSel = $("insScope");
+  if (insSel) {
+    const ownerOpts = owners.map((o) => `<option value="owner:${esc(o.email)}">${esc(o.name)}</option>`).join("");
+    let teamOpts = "";
+    try {
+      const teams = await (await fetch("/api/teams")).json();
+      const names = [...new Set((teams || []).map((t) => t.team_name).filter(Boolean))].sort();
+      teamOpts = names.map((n) => `<option value="team:${esc(n)}">チーム：${esc(n)}</option>`).join("");
+    } catch {}
+    insSel.innerHTML = `<option value="all">全体</option>` + teamOpts + ownerOpts;
   }
 }
 
@@ -530,6 +543,85 @@ function iaDates() {
   if (t && !t.value) t.value = todayStr();
   return { from: f ? f.value : "", to: t ? t.value : "" };
 }
+// ===== インサイト（勝ち/負けパターン分析）=====
+let insWired = false;
+function wireInsights() {
+  if (insWired) return; insWired = true;
+  const btn = $("insGenerate");
+  if (btn) btn.addEventListener("click", generateInsights);
+}
+async function loadInsights() {
+  wireInsights();
+  const body = $("insightsBody");
+  if (!body) return;
+  const scope = ($("insScope") && $("insScope").value) || "all";
+  const q = new URLSearchParams({ scope });
+  const p = window.kbProduct && window.kbProduct.current();
+  const key = (p ? p + "|" : "") + scope;
+  try {
+    const d = await (await fetch("/api/report/insights?scope=" + encodeURIComponent(key))).json();
+    if (d && d.insight) renderInsights(body, d);
+    else body.innerHTML = '<div class="empty-state">まだ分析されていません。「この対象で分析」を押してください。<br><span style="font-size:12px;color:var(--muted)">再商談に進んだ商談と、進まず止まった商談の文字起こしを比較します。</span></div>';
+  } catch {
+    body.innerHTML = '<div class="empty-state">読み込みに失敗しました。</div>';
+  }
+}
+async function generateInsights() {
+  const body = $("insightsBody");
+  const st = $("insStatus");
+  const scope = ($("insScope") && $("insScope").value) || "all";
+  const p = window.kbProduct && window.kbProduct.current();
+  if (st) st.textContent = "分析中…（商談数により1分ほどかかります）";
+  body.innerHTML = '<div class="empty-state">文字起こしを比較分析しています…<br><span style="font-size:12px;color:var(--muted)">再商談に進んだ商談と止まった商談を読み比べています。しばらくお待ちください。</span></div>';
+  try {
+    const r = await fetch("/api/report/insights", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ scope, product: p || "" }),
+    });
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.error || "分析に失敗しました");
+    if (st) st.textContent = "分析しました";
+    renderInsights(body, d);
+  } catch (e) {
+    if (st) st.textContent = "";
+    body.innerHTML = `<div class="empty-state">${esc(e.message)}</div>`;
+  }
+}
+function renderInsights(body, d) {
+  const ins = d.insight || {};
+  const list = (items) => (items && items.length)
+    ? `<ul class="ins-list">${items.map((x) => `<li>${esc(x)}</li>`).join("")}</ul>`
+    : '<div class="ins-empty">データ不足</div>';
+  const twoCol = (title, pair, icon) => `
+    <div class="ins-card">
+      <div class="ins-card-title"><i class="ti ${icon}" aria-hidden="true"></i>${esc(title)}</div>
+      <div class="ins-2col">
+        <div class="ins-col ins-col-good"><div class="ins-col-h">進んだ商談</div>${list(pair && pair.progressed)}</div>
+        <div class="ins-col ins-col-bad"><div class="ins-col-h">止まった商談</div>${list(pair && pair.stalled)}</div>
+      </div>
+    </div>`;
+  const single = (title, items, icon, cls) => `
+    <div class="ins-card ${cls || ""}">
+      <div class="ins-card-title"><i class="ti ${icon}" aria-hidden="true"></i>${esc(title)}</div>
+      ${list(items)}
+    </div>`;
+
+  const gen = d.generated_at ? new Date(d.generated_at).toLocaleString("ja-JP", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" }) : "";
+  let html = `<div class="ins-head">
+    <div class="ins-head-main">${esc(d.scope_label || "全体")} の勝ち／負けパターン</div>
+    <div class="ins-head-sub">再商談に進んだ ${d.won_count || 0}件 vs 止まった ${d.lost_count || 0}件${d.analyzed ? `（文字起こし ${d.analyzed.won + d.analyzed.lost}件を分析）` : ""}${gen ? ` ・ ${gen} 更新` : ""}</div>
+  </div>`;
+  html += twoCol("企業タイプ", ins.company_types, "ti-building");
+  html += twoCol("商談の特徴", ins.meeting_traits, "ti-messages");
+  html += single("効果的なトーク", ins.talk_tips, "ti-bulb", "ins-tips");
+  html += `<div class="ins-2col-cards">`;
+  html += single("勝ちパターン", ins.win_patterns, "ti-trophy", "ins-win");
+  html += single("負けパターン", ins.lose_patterns, "ti-alert-triangle", "ins-lose");
+  html += `</div>`;
+  html += single("次の商談での具体アクション", ins.actions, "ti-checklist", "ins-action");
+  body.innerHTML = html;
+}
+
 async function loadInternDash() {
   const body = $("internBody");
   if (!body) return;
