@@ -157,6 +157,10 @@ import {
   verifyToken,
   hashPassword,
   verifyPassword,
+  canImpersonate,
+  setImpersonationCookies,
+  endImpersonation,
+  getImpersonator,
 } from "./auth.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -283,6 +287,8 @@ app.use(async (req, res, next) => {
   if (u) {
     req.user = u.username;
     req.isAdmin = u.admin;
+    // 代理ログイン中なら、元のアカウントを記録（監査ログや画面表示に使う）
+    req.impersonatorFrom = getImpersonator(req);
     return next();
   }
   if (req.path.startsWith("/api/") || req.path === "/mcp") return res.status(401).json({ error: "ログインが必要です" });
@@ -341,7 +347,24 @@ app.get("/api/me", async (req, res) => {
     const u = (await listUsers()).find((x) => (x.email || "").toLowerCase() === String(req.user || "").toLowerCase());
     name = (u && u.name) || "";
   } catch {}
-  res.json({ username: req.user || null, name, admin: !!req.isAdmin });
+  const impersonator = req.impersonatorFrom || null;
+  let impersonatorName = "";
+  if (impersonator) {
+    try {
+      const iu = (await listUsers()).find((x) => (x.email || "").toLowerCase() === String(impersonator).toLowerCase());
+      impersonatorName = (iu && iu.name) || "";
+    } catch {}
+  }
+  res.json({
+    username: req.user || null,
+    name,
+    admin: !!req.isAdmin,
+    // 代理ログイン関連
+    impersonating: !!impersonator,
+    impersonator_email: impersonator,
+    impersonator_name: impersonatorName,
+    can_impersonate: canImpersonate(impersonator || req.user),
+  });
 });
 // アカウント設定：表示名・パスワードの変更（本人のみ）
 app.put("/api/me", async (req, res) => {
@@ -376,6 +399,54 @@ app.put("/api/me", async (req, res) => {
 
 app.get("/api/auth-info", (req, res) => {
   res.json({ signupCodeRequired: !!(process.env.SIGNUP_CODE || "") });
+});
+
+// ===== 代理ログイン（なりすまし） =====
+// 権限を持つのは kinya.tanaka@neo-career.co.jp のみ。他アカウントから呼んでも 403。
+
+// 切り替え先の候補となるユーザー一覧
+app.get("/api/impersonate/users", async (req, res) => {
+  const origin = req.impersonatorFrom || req.user;
+  if (!canImpersonate(origin)) return res.status(403).json({ error: "権限がありません" });
+  try {
+    const users = (await listUsers()).map((u) => ({ email: u.email, name: u.name || u.email }));
+    res.json({ users });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// 切り替え開始
+app.post("/api/impersonate/start", async (req, res) => {
+  // すでに代理ログイン中の場合は「元アカウント」を基準に権限判定する（田中→A→Bのような多段は禁止）
+  const origin = req.impersonatorFrom || req.user;
+  if (!canImpersonate(origin)) return res.status(403).json({ error: "権限がありません" });
+  const target = String(req.body?.email || "").trim().toLowerCase();
+  if (!target) return res.status(400).json({ error: "切り替え先のメールアドレスが必要です" });
+  if (target === String(origin).toLowerCase()) return res.status(400).json({ error: "自分自身には切り替えできません" });
+  try {
+    const users = await listUsers();
+    const u = users.find((x) => (x.email || "").toLowerCase() === target);
+    if (!u) return res.status(404).json({ error: "対象ユーザーが見つかりません" });
+    setImpersonationCookies(res, origin, target);
+    console.log(`[impersonate] ${origin} → ${target} に切り替え`);
+    res.json({ ok: true, target: { email: target, name: u.name || "" } });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// 元アカウントへ戻る
+app.post("/api/impersonate/stop", (req, res) => {
+  const origin = req.impersonatorFrom;
+  if (!origin) return res.status(400).json({ error: "代理ログイン中ではありません" });
+  endImpersonation(res, origin);
+  console.log(`[impersonate] ${req.user} から ${origin} に戻る`);
+  res.json({ ok: true });
+});
+
+// すべてのAPI操作を監査ログに残す（代理ログイン中のもの＝影響大の操作だけを対象にする）
+app.use((req, res, next) => {
+  if (req.impersonatorFrom && (req.method === "POST" || req.method === "PUT" || req.method === "DELETE") && req.path.startsWith("/api/")) {
+    console.log(`[audit] IMP ${req.impersonatorFrom} as ${req.user} ${req.method} ${req.path}`);
+  }
+  next();
 });
 
 // 商談の「何回目」「フェーズ」を更新
@@ -465,7 +536,9 @@ app.put("/api/deal-status", async (req, res) => {
       const key = normCompanyKey(account);
       const deals = await listDeals({});
       const d = (deals || []).find((x) => normCompanyKey(x.company_name) === key);
-      if (d && d.status === "要確認" && !(await isStatusApprover(req.user))) {
+      // 代理ログイン中は元アカウント（田中）が権限を持つならOK。それ以外は表示中ユーザーで判定。
+      const approver = await isStatusApprover(req.impersonatorFrom || req.user);
+      if (d && d.status === "要確認" && !approver && !canImpersonate(req.impersonatorFrom)) {
         return res.status(403).json({ error: "「要確認」の案件は、リーダー（浦林・中澤）のみステータスを変更できます。判定内容を確認のうえ、リーダーに依頼してください。" });
       }
     } catch {}

@@ -104,6 +104,39 @@ export function clearSessionCookie(res) {
   res.setHeader("Set-Cookie", `${COOKIE_NAME}=; HttpOnly; Path=/; Max-Age=0; SameSite=Lax; Secure`);
 }
 
+// ===== 代理ログイン（なりすまし） =====
+// 田中欽也（このアカウントだけ）が、他のメンバーとしてログインできる特別機能。
+// セキュリティ上のリスクが大きいため、以下の制約を必ず守る。
+//  - 代理ログインできるのは kinya.tanaka@neo-career.co.jp だけ（ハードコード）
+//  - 元アカウントは kbt_imp Cookie に別途保持し、いつでも元に戻せる
+//  - すべての操作はサーバー側で監査ログに記録する
+const IMPERSONATOR_EMAILS = new Set(["kinya.tanaka@neo-career.co.jp"]);
+const IMP_COOKIE = "kbt_imp";
+export function canImpersonate(email) {
+  return IMPERSONATOR_EMAILS.has(String(email || "").trim().toLowerCase());
+}
+export function setImpersonationCookies(res, originalUser, targetUser) {
+  // メインのセッションを対象ユーザーで置き換え、元ユーザーを保持
+  const impToken = makeToken(originalUser);
+  const targetToken = makeToken(targetUser);
+  res.setHeader("Set-Cookie", [
+    `${COOKIE_NAME}=${encodeURIComponent(targetToken)}; HttpOnly; Path=/; Max-Age=${60 * 60 * 24}; SameSite=Lax; Secure`,
+    `${IMP_COOKIE}=${encodeURIComponent(impToken)}; HttpOnly; Path=/; Max-Age=${60 * 60 * 24}; SameSite=Lax; Secure`,
+  ]);
+}
+export function endImpersonation(res, originalUser) {
+  const originalToken = makeToken(originalUser);
+  res.setHeader("Set-Cookie", [
+    `${COOKIE_NAME}=${encodeURIComponent(originalToken)}; HttpOnly; Path=/; Max-Age=${60 * 60 * 24 * 30}; SameSite=Lax; Secure`,
+    `${IMP_COOKIE}=; HttpOnly; Path=/; Max-Age=0; SameSite=Lax; Secure`,
+  ]);
+}
+export function getImpersonator(req) {
+  const raw = readCookie(req, IMP_COOKIE);
+  if (!raw) return null;
+  return verifyToken(raw); // 元ユーザーのemail
+}
+
 // --- 登録・ログイン ---
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 

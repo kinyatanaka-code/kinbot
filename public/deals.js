@@ -39,8 +39,19 @@ let groupPrimary = {}; // groupKey -> 代表rawキー
 let current = null;
 let dealStatuses = {}; // account -> {status, manual}
 let currentUserName = "";
-fetch("/api/me").then((r) => r.json()).then((d) => { currentUserName = (d && d.name) || ""; }).catch(() => {});
-const isStatusApprover = () => ["浦林", "中澤"].some((a) => currentUserName.includes(a));
+let isImpersonating = false;
+let impersonatorEmail = "";
+fetch("/api/me").then((r) => r.json()).then((d) => {
+  currentUserName = (d && d.name) || "";
+  isImpersonating = !!(d && d.impersonating);
+  impersonatorEmail = (d && d.impersonator_email) || "";
+}).catch(() => {});
+// 元アカウント（田中さん）で代理ログイン中なら、リーダー制限を回避する
+const IMPERSONATOR_EMAILS = new Set(["kinya.tanaka@neo-career.co.jp"]);
+const isStatusApprover = () => {
+  if (isImpersonating && IMPERSONATOR_EMAILS.has(String(impersonatorEmail).toLowerCase())) return true;
+  return ["浦林", "中澤"].some((a) => currentUserName.includes(a));
+};
 let accountsMap = {}; // key -> {site_url, official_name, owner, profile}
 let npSelectMode = false; // 「選択して判定」モード
 let npSelected = new Set(); // 選択中の案件（groupsのキー）
