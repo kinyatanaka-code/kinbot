@@ -23,7 +23,11 @@
         <header class="topbar"><div class="brand"><img class="topbar-bot" src="kinbot.svg" alt="" /><span class="brand-name">商談履歴</span></div></header>
         <div class="hfilters">
           <label>営業担当<select id="fOwner"><option value="">全員</option></select></label>
-          <div class="fphase-group" id="fPhaseGroup"><span class="flabel">フェーズ</span></div>
+          <label class="hsearch">商談名<input type="search" id="fName" placeholder="会社名・担当者名で検索" autocomplete="off" /></label>
+          <label class="hdate">商談日<input type="date" id="fDateFrom" /></label>
+          <span class="hdate-sep">〜</span>
+          <label class="hdate"><input type="date" id="fDateTo" /></label>
+          <button class="btn ghost hsearch-clear" id="fClear" type="button">クリア</button>
           <div class="hfilter-actions">
             <button class="btn" id="bulkNotionBtn">絞り込みをNotionに一括送信</button>
             <span class="bulk-status" id="bulkNotionStatus"></span>

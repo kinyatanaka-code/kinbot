@@ -131,10 +131,6 @@ const fmtDate = (s) => {
 };
 const labelOf = (sp) => (sp ? sp.name || "話者" + (sp.id ?? "") : "話者");
 
-function selectedPhases() {
-  return [...document.querySelectorAll("#fPhaseGroup input:checked")].map((c) => c.value);
-}
-
 // 開閉式の複数選択ドロップダウン
 function initMultiDropdown(group, labelText, items, onChange) {
   if (!group) return;
@@ -206,13 +202,30 @@ if (HIST_CAT_OTHER) {
 function isOtherCat(m) { return !!(m.category && m.category !== "商談"); }
 function applyHistoryFilter() {
   const owner = document.getElementById("fOwner").value.trim();
-  const phases = selectedPhases();
+  const nameQ = (document.getElementById("fName")?.value || "").trim().toLowerCase();
+  const dFrom = document.getElementById("fDateFrom")?.value || "";
+  const dTo = document.getElementById("fDateTo")?.value || "";
+  // 商談日（created_at）を YYYY-MM-DD（ローカル）に。範囲比較用。
+  const mDate = (m) => {
+    if (!m.created_at) return "";
+    const d = new Date(m.created_at);
+    if (isNaN(d)) return "";
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  };
   return allMeetings.filter((m) => {
     if (HIST_CAT_OTHER ? !isOtherCat(m) : isOtherCat(m)) return false; // ビューに合うカテゴリのみ
     // プロダクト（DOC/MOCHICA）タブの絞り込み。実施者の所属で判定する。
     if (window.kbProduct && !window.kbProduct.matches(m.owner_name || m.owner)) return false;
     if (owner && (m.owner || "").trim() !== owner) return false;
-    if (phases.length && !phases.includes(m.phase || "")) return false;
+    // 商談名の部分一致（会社名・担当者名など、タイトルに含まれる文字で検索）
+    if (nameQ && !String(m.title || "").toLowerCase().includes(nameQ)) return false;
+    // 商談日の範囲。片方だけの指定でも動く。
+    if (dFrom || dTo) {
+      const md = mDate(m);
+      if (!md) return false;
+      if (dFrom && md < dFrom) return false;
+      if (dTo && md > dTo) return false;
+    }
     return true;
   });
 }
@@ -409,13 +422,27 @@ function renderList() {
 }
 
 async function loadList() {
-  // フェーズ（開閉式ドロップダウン・複数選択）
-  initMultiDropdown(
-    document.getElementById("fPhaseGroup"),
-    "フェーズ",
-    PHASES.map((p) => ({ value: p.code, label: p.label })),
-    renderList
-  );
+  // 商談名・商談日の検索欄を配線（入力のたびに一覧を絞り込む）
+  const fName = document.getElementById("fName");
+  if (fName && !fName._wired) {
+    fName._wired = true;
+    let t;
+    fName.addEventListener("input", () => { clearTimeout(t); t = setTimeout(() => { selectedAccount = null; renderList(); }, 200); });
+  }
+  ["fDateFrom", "fDateTo"].forEach((id) => {
+    const el = document.getElementById(id);
+    if (el && !el._wired) { el._wired = true; el.addEventListener("change", () => { selectedAccount = null; renderList(); }); }
+  });
+  const fClear = document.getElementById("fClear");
+  if (fClear && !fClear._wired) {
+    fClear._wired = true;
+    fClear.addEventListener("click", () => {
+      if (fName) fName.value = "";
+      ["fDateFrom", "fDateTo"].forEach((id) => { const el = document.getElementById(id); if (el) el.value = ""; });
+      const fo = document.getElementById("fOwner"); if (fo) fo.value = "";
+      selectedAccount = null; renderList();
+    });
+  }
   try {
     const res = await fetch("/api/meetings");
     const rows = await res.json();

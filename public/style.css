@@ -2429,3 +2429,17 @@ textarea.prompt-xl {
   line-height: 1.7;
   resize: vertical;          /* さらに下端で伸ばせる */
 }
+
+/* 商談履歴：商談名検索・商談日検索 */
+.hfilters input[type="search"], .hfilters input[type="date"] {
+  font-family: inherit; font-size: 13px; padding: 7px 10px;
+  border: 1px solid var(--line); border-radius: 8px; background: var(--panel-2); color: var(--ink);
+}
+.hfilters .hsearch input { min-width: 220px; }
+.hfilters .hdate { flex-direction: column; }
+.hfilters .hdate-sep { align-self: flex-end; padding-bottom: 8px; color: var(--muted); font-size: 12px; }
+.hfilters .hsearch-clear { align-self: flex-end; padding: 7px 12px; font-size: 12.5px; }
+@media (max-width: 900px) {
+  .hfilters .hsearch input { min-width: 0; width: 100%; }
+  .hfilters .hdate-sep { display: none; }
+}
