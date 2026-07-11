@@ -2402,6 +2402,53 @@ app.put("/api/accounts/:key", async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+// 会社プロフィールのリセット。保存済みのプロフィール（gBizINFOで取得した業界・従業員数など）と
+// サイトURLを空に戻して、まっさらな状態にする。承認アカウント（中澤・浦林、田中の代理中）のみ実行可能。
+app.post("/api/accounts/:key/profile-reset", async (req, res) => {
+  try {
+    const approver = isStatusApprover(req.impersonatorFrom || req.user);
+    if (!approver && !canImpersonate(req.impersonatorFrom)) {
+      return res.status(403).json({ error: "会社プロフィールのリセットは、中澤さん・浦林さんのみ可能です。" });
+    }
+    const key = decodeURIComponent(req.params.key);
+    // profile と site_url を明示的に null に。official_name は残す（表示名として使われるため）
+    await saveAccount(key, { siteUrl: null, profile: null });
+    const updatedBy = req.impersonatorFrom ? `${req.impersonatorFrom} (as ${req.user})` : String(req.user || "");
+    console.log(`[profile-reset] by ${updatedBy}: ${key}`);
+    res.json({ ok: true });
+  } catch (e) {
+    console.error("[profile-reset]", e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// 案件の会社名（deals.company_name）を書き換える。承認アカウントのみ。
+// 会社名は案件の識別に使われるため、変更後は関連するUI（案件カード・詳細ヘッダ等）が全部更新されるよう
+// フロント側で再取得を促す。deal_id は変えない（過去の履歴・イベントとの紐付けを保つため）。
+app.put("/api/deals/:deal_id/company-name", async (req, res) => {
+  try {
+    const dealId = req.params.deal_id;
+    const newName = String(req.body?.company_name || "").trim();
+    if (!newName) return res.status(400).json({ error: "会社名を入力してください" });
+    if (newName.length > 200) return res.status(400).json({ error: "会社名が長すぎます（200文字以内）" });
+    const approver = isStatusApprover(req.impersonatorFrom || req.user);
+    if (!approver && !canImpersonate(req.impersonatorFrom)) {
+      return res.status(403).json({ error: "会社名の変更は、中澤さん・浦林さんのみ可能です。" });
+    }
+    // 案件が存在するかチェック
+    const deals = await listDeals({});
+    const deal = (deals || []).find((d) => d.deal_id === dealId);
+    if (!deal) return res.status(404).json({ error: "案件が見つかりません" });
+    await updateDealCompanyName(dealId, newName);
+    const updatedBy = req.impersonatorFrom ? `${req.impersonatorFrom} (as ${req.user})` : String(req.user || "");
+    console.log(`[deal-rename] by ${updatedBy}: ${deal.company_name} → ${newName}`);
+    res.json({ ok: true, deal_id: dealId, company_name: newName });
+  } catch (e) {
+    console.error("[deal-rename]", e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // 企業サイトURLから会社概要を自動取得（A+B: サイト本文＋Web検索）
 app.post("/api/accounts/:key/enrich", async (req, res) => {
   try {

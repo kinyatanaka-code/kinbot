@@ -587,8 +587,11 @@ function renderProfile(account) {
   }
   const empCell = empVal ? `<div class="prof-cell"><div class="prof-k">従業員数</div><div class="prof-v">${empVal}</div></div>` : "";
   const badge = p.source === "gBizINFO" ? '<span class="prof-src-badge">gBizINFO</span>' : '<span class="prof-src-badge prof-src-ai">AI取得</span>';
+  // リセットボタン：承認アカウントだけに表示。プロフィール一切を消して未取得状態に戻す。
+  const resetBtn = isStatusApprover() ? '<button type="button" class="prof-reset-btn" id="profResetBtn" title="会社プロフィールをリセットして未取得状態に戻す">リセット</button>' : "";
+  const pk = primaryOf(account);
   body.innerHTML =
-    `<div class="prof-src-line">${badge}${p.corporate_number ? `<span class="prof-corpnum">法人番号 ${esc(p.corporate_number)}</span>` : ""}</div>` +
+    `<div class="prof-src-line">${badge}${p.corporate_number ? `<span class="prof-corpnum">法人番号 ${esc(p.corporate_number)}</span>` : ""}${resetBtn}</div>` +
     `<div class="prof-grid">` +
     cellWithSrc("業界", p.industry, "industry") + empCell + cell("採用予定", p.hiring) +
     cellWithSrc("設立", p.founded, "founded") + cell("資本金", p.capital) + cell("代表者", p.representative) + cellWithSrc("本社", p.location, "location") +
@@ -597,6 +600,26 @@ function renderProfile(account) {
     (p.employees_source && p.employees_source.source_url ? `<div class="prof-empurl">従業員数の出典：<a href="${esc(p.employees_source.source_url)}" target="_blank" rel="noopener">${esc(p.employees_source.source_url)} ↗</a>${p.employees_source.as_of ? "（" + esc(p.employees_source.as_of) + "）" : ""}</div>` : "") +
     (bs && bs.source_url ? `<div class="prof-empurl">業界・設立の出典：<a href="${esc(bs.source_url)}" target="_blank" rel="noopener">${esc(bs.source_url)} ↗</a></div>` : "") +
     (acc.site_url ? `<div class="prof-site"><a href="${esc(acc.site_url)}" target="_blank" rel="noopener">サイトを開く ↗</a></div>` : "");
+  // リセットボタンの動作
+  const rb = document.getElementById("profResetBtn");
+  if (rb) {
+    rb.addEventListener("click", async () => {
+      if (!confirm("この案件の会社プロフィール（業界・従業員数・住所など）を全て削除して未取得状態に戻します。\n\nこの操作は元に戻せません。実行しますか？")) return;
+      rb.disabled = true; rb.textContent = "リセット中…";
+      try {
+        const r = await fetch(`/api/accounts/${encodeURIComponent(pk)}/profile-reset`, { method: "POST" });
+        const dd = await r.json();
+        if (!r.ok) throw new Error(dd.error || "リセットに失敗しました");
+        // ローカル状態からプロフィールを消し、UIを更新
+        if (accountsMap[pk]) { accountsMap[pk].profile = null; accountsMap[pk].site_url = ""; }
+        renderProfile(account);
+        renderList();
+      } catch (e) {
+        alert(e.message);
+        rb.disabled = false; rb.textContent = "リセット";
+      }
+    });
+  }
 }
 
 // 案件カードに新プロセスの判定を出すための状態マップ（正規化会社名キー → deal）
@@ -1110,7 +1133,10 @@ async function selectDeal(account) {
   det.innerHTML =
     `<button class="m-back" type="button">← 一覧へ戻る</button>` +
     `<div class="deal-head">` +
-    `<div class="deal-head-top"><h2>${esc(displayName(account))}</h2>` +
+    `<div class="deal-head-top">` +
+    (isStatusApprover()
+      ? `<h2 id="dealTitleH2">${esc(displayName(account))}<button type="button" class="deal-name-edit" id="dealNameEditBtn" title="会社名を編集">✎</button></h2>`
+      : `<h2>${esc(displayName(account))}</h2>`) +
     (dealKindOf(account) ? `<span class="kind-badge ${dealKindOf(account) === "過去失注" ? "kind-lost" : "kind-cold"}">${dealKindOf(account)}</span>` : "") +
     `<div class="deal-status-pick"><span class="status-badge st-${statusOf(account)}" id="dealStBadge">${statusOf(account)}</span>` +
     `<select id="dealStSel">${STATUS_LIST.map((s) => `<option value="${s}" ${statusOf(account) === s ? "selected" : ""}>${s}</option>`).join("")}<option value="__auto">AIに任せる</option></select></div></div>` +
@@ -1173,6 +1199,42 @@ async function selectDeal(account) {
     stSel.disabled = true;
     stSel.title = "案件のステータス変更は、中澤さん・浦林さんのみ可能です";
   }
+
+  // 会社名の編集（承認アカウントのみ・鉛筆アイコンをクリック）
+  const nameEditBtn = $("dealNameEditBtn");
+  if (nameEditBtn) {
+    nameEditBtn.addEventListener("click", async () => {
+      const currentName = displayName(account);
+      const newName = prompt("この案件の会社名を編集します。\n\n※過去の商談履歴や判定結果はそのまま保持され、案件名だけが変わります。", currentName);
+      if (newName == null) return; // キャンセル
+      const trimmed = newName.trim();
+      if (!trimmed) { alert("会社名を空にはできません"); return; }
+      if (trimmed === currentName) return; // 変更なし
+      // deal_id を lookup（会社名で引く）
+      const np = lookupNewProc(displayName(account)) || lookupNewProc(account);
+      const dealId = np && np.deal_id;
+      if (!dealId) { alert("案件が見つかりません。ページを再読み込みしてください。"); return; }
+      try {
+        const r = await fetch(`/api/deals/${encodeURIComponent(dealId)}/company-name`, {
+          method: "PUT", headers: { "content-type": "application/json" },
+          body: JSON.stringify({ company_name: trimmed }),
+        });
+        const dd = await r.json();
+        if (!r.ok) throw new Error(dd.error || "変更に失敗しました");
+        // 全UIを最新化：案件カード・詳細ヘッダ・判定ブロックの照合キー等
+        await refreshNewProcMap();
+        try {
+          const st = await (await fetch("/api/deal-status", { cache: "no-store" })).json();
+          dealStatuses = st.statuses || {};
+        } catch {}
+        // 一覧を再取得。会社名が変わったので groups の再構築が必要。
+        await load();
+      } catch (e) {
+        alert(e.message);
+      }
+    });
+  }
+
   stSel.addEventListener("change", async (e) => {
     const v = e.target.value;
     const body = v === "__auto" ? { account: pk, auto: true } : { account: pk, status: v };
