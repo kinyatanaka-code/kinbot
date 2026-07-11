@@ -1664,6 +1664,27 @@ export async function deleteDealEventsByBot(botId) {
   try { await pool.query(`DELETE FROM deal_events WHERE bot_id=$1`, [botId]); } catch (e) { console.error("[db] deleteDealEventsByBot", e.message); }
 }
 
+// 初回商談イベント（deal_events）の指定フィールドを更新する。人が判定を微修正するために使う。
+// eventId で1件を対象にする。judgment_month_basis は raw_extraction 側に保存する。
+export async function updateDealEventFields(eventId, fields) {
+  if (!pool || !eventId) return;
+  const sets = [], vals = [eventId];
+  let i = 2;
+  for (const [k, v] of Object.entries(fields || {})) {
+    if (k === "raw_extraction") {
+      sets.push(`raw_extraction = COALESCE(raw_extraction, '{}'::jsonb) || $${i}::jsonb`);
+      vals.push(JSON.stringify(v));
+    } else {
+      sets.push(`${k}=$${i}`);
+      vals.push(v);
+    }
+    i++;
+  }
+  if (!sets.length) return;
+  try { await pool.query(`UPDATE deal_events SET ${sets.join(", ")} WHERE id=$1`, vals); }
+  catch (e) { console.error("[db] updateDealEventFields", e.message); }
+}
+
 // イベントを1件追記
 export async function insertDealEvent(ev) {
   if (!pool) return null;

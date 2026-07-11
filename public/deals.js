@@ -334,11 +334,28 @@ function renderNewProcess(box, d) {
           : `<span class="np-next-no">未設定</span>`);
   let rows = "";
   if (d.first) {
+    // 承認アカウント（中澤・浦林 or 田中代理中）はプルダウンで編集可能。他は表示のみ。
+    const editable = clickable && f.id; // clickable = isStatusApprover()（renderNewProcess上部で定義済み）
+    const SCHEDULE_OPTS = ["今月", "来月", "再来月", "それ以降", "未定", "不明"];
+    const APPLY_OPTS = ["今月", "来月", "該当なし", "不明"];
+    const selectOf = (name, opts, current) => {
+      const options = opts.map((v) => `<option value="${esc(v)}"${v === current ? " selected" : ""}>${esc(v)}</option>`).join("");
+      const empty = current && !opts.includes(current) ? `<option value="${esc(current)}" selected>${esc(current)}</option>` : "";
+      return `<select class="np-edit-sel" data-field="${name}" data-eid="${f.id}">${empty}${options}</select>`;
+    };
+    const scheduleCell = editable
+      ? selectOf("schedule_choice", SCHEDULE_OPTS, f.schedule_choice || "")
+      : esc(f.schedule_choice || "—");
+    const applyCell = editable
+      ? selectOf("apply_timing", APPLY_OPTS, f.apply_timing || "")
+      : `${esc(f.apply_timing || "—")}判断`;
+    // 手動編集の印
+    const editedBy = f.judgment_month_basis && String(f.judgment_month_basis).includes("手動編集") ? '<span class="np-edited">✎ 手動</span>' : "";
     rows =
-      `<div class="np-row"><span class="np-k">ご利用開始スケジュール</span><span class="np-v">${esc(f.schedule_choice || "—")}</span></div>` +
-      `<div class="np-row"><span class="np-k">今月中の申込可否</span><span class="np-v">${esc(f.apply_timing || "—")}判断</span></div>` +
-      `<div class="np-row"><span class="np-k">判断月（KPI計上）</span><span class="np-v">${jm}${f.judgment_month_basis ? `<span class="np-basis-inline">${esc(f.judgment_month_basis)}</span>` : ""}</span></div>` +
-      `<div class="np-row"><span class="np-k">次回商談（再商談）</span><span class="np-v">${nextInfo}</span></div>` +
+      `<div class="np-row"><span class="np-k">ご利用開始スケジュール</span><span class="np-v">${scheduleCell}</span></div>` +
+      `<div class="np-row"><span class="np-k">今月中の申込可否</span><span class="np-v">${applyCell}</span></div>` +
+      `<div class="np-row"><span class="np-k">判断月（KPI計上）</span><span class="np-v" id="npJmCell">${jm}${editedBy}${f.judgment_month_basis ? `<span class="np-basis-inline">${esc(f.judgment_month_basis)}</span>` : ""}</span></div>` +
+      `<div class="np-row"><span class="np-k">次回商談(再商談)</span><span class="np-v">${nextInfo}</span></div>` +
       (d.latest_result ? `<div class="np-row"><span class="np-k">再商談の結果</span><span class="np-v">${esc(d.latest_result)}</span></div>` : "");
   } else {
     rows = '<div class="np-hint">この会社の初回商談がまだ判定されていません。上の「再判定」を押すと、初回商談を含むこの会社の全商談を判定し直します。</div>';
@@ -389,6 +406,38 @@ function renderNewProcess(box, d) {
         } catch (e) {
           alert(e.message);
           box.querySelectorAll(".np-step.clickable").forEach((x) => (x.disabled = false));
+        }
+      });
+    });
+  }
+
+  // 判定詳細のプルダウン（スケジュール／申込可否）を変更したら、その場でサーバーへ保存し
+  // 判断月を再取得する。承認アカウントのみ。
+  if (clickable && f && f.id) {
+    box.querySelectorAll(".np-edit-sel").forEach((sel) => {
+      sel.addEventListener("change", async () => {
+        const field = sel.dataset.field;
+        const eventId = sel.dataset.eid;
+        const value = sel.value;
+        const jmCell = document.getElementById("npJmCell");
+        if (jmCell) jmCell.innerHTML = '<span class="np-saving">保存中…</span>';
+        box.querySelectorAll(".np-edit-sel").forEach((x) => (x.disabled = true));
+        try {
+          const r = await fetch(`/api/deal-events/${encodeURIComponent(eventId)}/manual-fields`, {
+            method: "PUT", headers: { "content-type": "application/json" },
+            body: JSON.stringify({ [field]: value }),
+          });
+          const dd = await r.json();
+          if (!r.ok) throw new Error(dd.error || "変更に失敗しました");
+          // ローカルの d.first を更新して再描画
+          d.first[field] = value;
+          d.first.judgment_month = dd.judgment_month;
+          d.first.judgment_month_basis = dd.judgment_month_basis;
+          if (dd.status && d) d.status = dd.status;
+          renderNewProcess(box, d);
+        } catch (e) {
+          alert(e.message);
+          box.querySelectorAll(".np-edit-sel").forEach((x) => (x.disabled = false));
         }
       });
     });

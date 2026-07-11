@@ -42,6 +42,7 @@ import {
   listDealStatuses,
   setDealStatus,
   setDealManualProgress,
+  updateDealEventFields,
   setDealStatusAuto,
   saveMeetingNote,
   setMeetingMux,
@@ -576,6 +577,77 @@ app.put("/api/deals/:deal_id/manual-progress", async (req, res) => {
     res.status(500).json({ error: e.message });
   }
 });
+
+// 判定の詳細（初回商談イベント）を手動で修正する。
+// 対象: schedule_choice / apply_timing の2項目。judgment_month はサーバー側で自動再計算する。
+// 承認アカウント（中澤・浦林）だけが変更可能。
+app.put("/api/deal-events/:event_id/manual-fields", async (req, res) => {
+  try {
+    const eventId = Number(req.params.event_id);
+    if (!Number.isInteger(eventId) || eventId <= 0) return res.status(400).json({ error: "event_id が不正です" });
+    const approver = isStatusApprover(req.impersonatorFrom || req.user);
+    if (!approver && !canImpersonate(req.impersonatorFrom)) {
+      return res.status(403).json({ error: "判定内容の変更は、中澤さん・浦林さんのみ可能です。" });
+    }
+    const body = req.body || {};
+    const SCHEDULE_VALUES = ["今月", "来月", "再来月", "それ以降", "未定", "不明"];
+    const APPLY_VALUES = ["今月", "来月", "該当なし", "不明"];
+    const fields = {};
+    if (body.schedule_choice !== undefined) {
+      const v = String(body.schedule_choice || "").trim();
+      if (v && !SCHEDULE_VALUES.includes(v)) return res.status(400).json({ error: "ご利用開始スケジュールの値が不正です" });
+      fields.schedule_choice = v || null;
+    }
+    if (body.apply_timing !== undefined) {
+      const v = String(body.apply_timing || "").trim();
+      if (v && !APPLY_VALUES.includes(v)) return res.status(400).json({ error: "今月中の申込可否の値が不正です" });
+      fields.apply_timing = v || null;
+    }
+    if (!Object.keys(fields).length) return res.status(400).json({ error: "更新する項目がありません" });
+
+    // 現在のイベントを取り、変更後の値で judgment_month を再計算する
+    const rows = await listDealEvents({}); // 全件からIDで拾う
+    const ev = rows.find((e) => Number(e.id) === eventId);
+    if (!ev) return res.status(404).json({ error: "対象のイベントが見つかりません" });
+    if (ev.event_type !== "初回商談" || ev.meeting_kind !== "初回商談") {
+      return res.status(400).json({ error: "この編集は初回商談イベントにのみ有効です" });
+    }
+    const meetingDateStr = ev.event_date ? String(ev.event_date).slice(0, 10) : new Date().toISOString().slice(0, 10);
+    const meetingMonth = meetingDateStr.slice(0, 7);
+    const mergedExt = {
+      schedule_choice: fields.schedule_choice !== undefined ? fields.schedule_choice : ev.schedule_choice,
+      apply_timing: fields.apply_timing !== undefined ? fields.apply_timing : ev.apply_timing,
+      next_meeting_scheduled: ev.next_meeting_scheduled,
+      next_meeting_date: ev.next_meeting_date,
+      confidence: ev.confidence,
+    };
+    const der = deriveFirstMeeting(mergedExt, meetingMonth, meetingDateStr);
+    fields.judgment_month = der.judgment_month;
+    // 手動編集の記録を raw_extraction に残す（誰が・いつ・何を）
+    const updatedBy = req.impersonatorFrom ? `${req.impersonatorFrom} (as ${req.user})` : String(req.user || "");
+    fields.raw_extraction = {
+      manual_edit: {
+        by: updatedBy,
+        at: new Date().toISOString(),
+        fields: {
+          schedule_choice: fields.schedule_choice,
+          apply_timing: fields.apply_timing,
+        },
+      },
+      judgment_month_basis: der.judgment_month_basis || "（手動編集で再計算）",
+    };
+    await updateDealEventFields(eventId, fields);
+    // 案件のステータスも派生値で更新（要確認→進行中になるケースがあるため）。
+    // ※ここでの案件ステータス更新は承認アカウントの操作なので明示的に許可する。
+    if (ev.deal_id && !ev.needs_review) {
+      await updateDealStatus(ev.deal_id, der.status, der.auto_lose_deadline);
+    }
+    res.json({ ok: true, judgment_month: der.judgment_month, judgment_month_basis: der.judgment_month_basis, status: der.status });
+  } catch (e) {
+    console.error("[manual-fields]", e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
 app.get("/api/action-items", async (req, res) => {
   try {
     const account = String(req.query.account || "").trim();
@@ -1076,6 +1148,7 @@ app.get("/api/deal-status-by-company", async (req, res) => {
       auto_lose_deadline: deal.auto_lose_deadline || null,
       needs_review: needsReview,
       first: firstEv ? {
+        id: firstEv.id,
         schedule_choice: firstEv.schedule_choice, apply_timing: firstEv.apply_timing,
         judgment_month: firstEv.judgment_month, next_meeting_scheduled: firstEv.next_meeting_scheduled,
         next_meeting_date: firstEv.next_meeting_date, confidence: firstEv.confidence,
