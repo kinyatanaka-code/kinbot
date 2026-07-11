@@ -102,7 +102,8 @@ import {
   deleteKbFolder,
 } from "./db.js";
 import { resolveConfig, statusInfo } from "./config.js";
-import { analyzerInfo, analyzeMeeting, analyzeDeep, freeAnalyze, chatWithData, enrichCompany, generateThanks, THANKS_PROMPT, getCheckItems, getSummaryPrompt, getCustomPrompt, runCustomAnalysis, analyzeWinPatterns, classifyMeetingKind, extractFirstMeeting, extractReMeeting, buildBrief } from "./analyzer.js";
+import { analyzerInfo, analyzeMeeting, analyzeDeep, freeAnalyze, chatWithData, enrichCompany, lookupEmployeeCount, generateThanks, THANKS_PROMPT, getCheckItems, getSummaryPrompt, getCustomPrompt, runCustomAnalysis, analyzeWinPatterns, classifyMeetingKind, extractFirstMeeting, extractReMeeting, buildBrief } from "./analyzer.js";
+import { searchCompanies, getCompanyDetail, gbizConfigured } from "./gbizinfo.js";
 import {
   googleConfigured,
   authUrl,
@@ -2090,6 +2091,66 @@ app.post("/api/accounts/:key/enrich", async (req, res) => {
     res.json({ ok: true, siteUrl: primaryUrl, officialName, profile, siteError, sourcesFetched: siteTexts.length, sourcesRequested: fullUrls.length });
   } catch (e) {
     console.error("[enrich]", e.message);
+    res.status(502).json({ error: e.message });
+  }
+});
+
+// gBizINFO：会社名で候補を検索（名寄せはユーザーが候補から選ぶ）
+app.get("/api/gbiz/search", async (req, res) => {
+  try {
+    if (!gbizConfigured()) return res.status(400).json({ error: "gBizINFOのトークンが未設定です（環境変数 GBIZINFO_TOKEN）" });
+    const name = String(req.query.name || "").trim();
+    if (!name) return res.status(400).json({ error: "会社名を指定してください" });
+    const candidates = await searchCompanies(name, 8);
+    res.json({ candidates });
+  } catch (e) {
+    console.error("[gbiz search]", e.message);
+    res.status(502).json({ error: e.message });
+  }
+});
+
+// gBizINFO：選ばれた法人番号で詳細を確定し、従業員数をWeb検索で補完して案件に保存
+app.post("/api/accounts/:key/gbiz-confirm", async (req, res) => {
+  try {
+    const key = decodeURIComponent(req.params.key);
+    const corporateNumber = String(req.body?.corporate_number || "").trim();
+    if (!corporateNumber) return res.status(400).json({ error: "法人番号が必要です" });
+
+    const detail = await getCompanyDetail(corporateNumber); // gBizINFOの確定情報
+    // 従業員数：gBizに無ければ「会社名 従業員数」等のWeb検索で補完（出典・確信度つき）
+    let employees = detail.employees || "";
+    let employeeSource = employees ? { source_name: "gBizINFO", confidence: "high" } : null;
+    if (!employees) {
+      try {
+        const emp = await lookupEmployeeCount(detail.official_name || key, detail.location || "");
+        if (emp.found) {
+          employees = emp.employees;
+          employeeSource = { source_name: emp.source_name || "Web検索", source_url: emp.source_url || "", as_of: emp.as_of || "", confidence: emp.confidence || "low" };
+        }
+      } catch (e) { console.warn("[gbiz-confirm] 従業員数補完失敗", e.message); }
+    }
+
+    // 既存のプロフィール形式に合わせて保存（gBizINFO由来であることを明示）
+    const profile = {
+      official_name: detail.official_name || key,
+      industry: detail.industry || "",
+      employees: employees || "",
+      employees_source: employeeSource, // 出典・確信度
+      hiring: "",
+      founded: detail.founded || "",
+      location: detail.location || "",
+      business: detail.business || "",
+      capital: detail.capital || "",
+      representative: detail.representative || "",
+      corporate_number: detail.corporate_number || corporateNumber,
+      source: "gBizINFO",
+      note: "gBizINFO（法人番号 " + (detail.corporate_number || corporateNumber) + "）で確定。従業員数は" + (employees ? (detail.employees ? "gBizINFO" : "Web検索") : "未取得") + "。",
+    };
+    const officialName = profile.official_name;
+    await saveAccount(key, { siteUrl: detail.company_url || "", officialName, profile });
+    res.json({ ok: true, officialName, profile });
+  } catch (e) {
+    console.error("[gbiz-confirm]", e.message);
     res.status(502).json({ error: e.message });
   }
 });

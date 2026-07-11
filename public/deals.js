@@ -342,12 +342,24 @@ function renderProfile(account) {
     return;
   }
   const cell = (label, val) => (val ? `<div class="prof-cell"><div class="prof-k">${label}</div><div class="prof-v">${esc(val)}</div></div>` : "");
+  // 従業員数に出典・確信度のバッジを添える
+  let empVal = p.employees || "";
+  if (empVal && p.employees_source) {
+    const src = p.employees_source;
+    const conf = src.confidence === "high" ? "" : src.confidence === "medium" ? " ⚠" : " ⚠要確認";
+    const label = src.source_name ? `${src.source_name}${conf}` : `出典あり${conf}`;
+    empVal = `${esc(p.employees)} <span class="prof-empsrc">（${esc(label)}）</span>`;
+  }
+  const empCell = empVal ? `<div class="prof-cell"><div class="prof-k">従業員数</div><div class="prof-v">${empVal}</div></div>` : "";
+  const badge = p.source === "gBizINFO" ? '<span class="prof-src-badge">gBizINFO</span>' : '<span class="prof-src-badge prof-src-ai">AI取得</span>';
   body.innerHTML =
+    `<div class="prof-src-line">${badge}${p.corporate_number ? `<span class="prof-corpnum">法人番号 ${esc(p.corporate_number)}</span>` : ""}</div>` +
     `<div class="prof-grid">` +
-    cell("業界", p.industry) + cell("従業員数", p.employees) + cell("採用予定", p.hiring) +
-    cell("設立", p.founded) + cell("本社", p.location) +
+    cell("業界", p.industry) + empCell + cell("採用予定", p.hiring) +
+    cell("設立", p.founded) + cell("資本金", p.capital) + cell("代表者", p.representative) + cell("本社", p.location) +
     `</div>` +
-    (p.business ? `<div class="prof-biz">事業内容：${esc(p.business)} <span class="prof-note">（AI自動取得・要確認）</span></div>` : "") +
+    (p.business ? `<div class="prof-biz">事業内容：${esc(p.business)}${p.source === "gBizINFO" ? "" : ' <span class="prof-note">（AI自動取得・要確認）</span>'}</div>` : "") +
+    (p.employees_source && p.employees_source.source_url ? `<div class="prof-empurl">従業員数の出典：<a href="${esc(p.employees_source.source_url)}" target="_blank" rel="noopener">${esc(p.employees_source.source_url)} ↗</a>${p.employees_source.as_of ? "（" + esc(p.employees_source.as_of) + "）" : ""}</div>` : "") +
     (acc.site_url ? `<div class="prof-site"><a href="${esc(acc.site_url)}" target="_blank" rel="noopener">サイトを開く ↗</a></div>` : "");
 }
 
@@ -891,7 +903,9 @@ async function selectDeal(account) {
     // 会社プロフィール
     `<div class="deal-tabpane" data-dtab="profile" hidden>` +
     `<section class="deal-sec deal-profile"><div class="deal-sec-h">🏢 会社プロフィール</div>` +
-    `<div class="prof-url"><textarea id="profUrl" rows="2" placeholder="企業サイトURL（複数可・改行かカンマで区切り。空でも会社名でWeb検索します）"></textarea><button class="btn" id="profGet">取得</button></div>` +
+    `<div class="gbiz-box"><div class="gbiz-row"><button class="btn" id="gbizSearch">gBizINFOで会社を検索</button><span class="gbiz-hint">会社名から公式の企業情報（業界・所在地・設立など）を取得します</span></div><div id="gbizCandidates"></div></div>` +
+    `<details class="prof-manual"><summary>サイトURLから取得（手動）</summary>` +
+    `<div class="prof-url"><textarea id="profUrl" rows="2" placeholder="企業サイトURL（複数可・改行かカンマで区切り。空でも会社名でWeb検索します）"></textarea><button class="btn" id="profGet">取得</button></div></details>` +
     `<div class="prof-status" id="profStatus"></div>` +
     `<div id="profBody"></div></section>` +
     `</div>` +
@@ -991,6 +1005,70 @@ async function selectDeal(account) {
       profGet.disabled = false; profGet.textContent = "取得";
     }
   });
+
+  // gBizINFO：会社名で候補を検索 → 候補から選ぶ → 確定
+  const gbizSearch = $("gbizSearch"), gbizCandidates = $("gbizCandidates");
+  const companyName = displayName(account) || account;
+  if (gbizSearch) {
+    gbizSearch.addEventListener("click", async () => {
+      gbizSearch.disabled = true; gbizSearch.textContent = "検索中…";
+      gbizCandidates.innerHTML = '<div class="gbiz-loading">gBizINFOを検索しています…</div>';
+      try {
+        const r = await fetch(`/api/gbiz/search?name=${encodeURIComponent(companyName)}`);
+        const d = await r.json();
+        if (!r.ok) throw new Error(d.error || "検索に失敗しました");
+        const cands = d.candidates || [];
+        if (!cands.length) {
+          gbizCandidates.innerHTML = `<div class="gbiz-empty">「${escapeHtmlSafe(companyName)}」に一致する法人が見つかりませんでした。名称を変えて再検索するか、下の「サイトURLから取得」をお使いください。</div>`;
+          return;
+        }
+        gbizCandidates.innerHTML =
+          `<div class="gbiz-cand-head">候補から正しい会社を選んでください（${cands.length}件）</div>` +
+          cands.map((c, i) => `
+            <div class="gbiz-cand" data-num="${escapeHtmlSafe(c.corporate_number)}" data-i="${i}" role="button" tabindex="0">
+              <div class="gbiz-cand-main">
+                <span class="gbiz-cand-name">${escapeHtmlSafe(c.name)}</span>
+                ${c.status === "閉鎖" ? '<span class="gbiz-cand-closed">閉鎖</span>' : ""}
+              </div>
+              <div class="gbiz-cand-sub">${escapeHtmlSafe(c.location || "所在地不明")}${c.industry ? " ・ " + escapeHtmlSafe(c.industry) : ""}${c.founded ? " ・ 設立" + escapeHtmlSafe(c.founded) : ""}</div>
+              <div class="gbiz-cand-num">法人番号: ${escapeHtmlSafe(c.corporate_number)}</div>
+            </div>`).join("");
+        // 候補クリック → 確定
+        gbizCandidates.querySelectorAll(".gbiz-cand").forEach((el) => {
+          const confirm = async () => {
+            const num = el.dataset.num;
+            gbizCandidates.querySelectorAll(".gbiz-cand").forEach((x) => x.classList.remove("selected"));
+            el.classList.add("selected");
+            profStatus.textContent = "";
+            if (window.kbProgress) window.kbProgress(profStatus, { percent: null, label: "企業情報を取得し、従業員数を検索しています…" });
+            try {
+              const rr = await fetch(`/api/accounts/${encodeURIComponent(pk)}/gbiz-confirm`, {
+                method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ corporate_number: num }),
+              });
+              const dd = await rr.json();
+              if (!rr.ok) throw new Error(dd.error || "取得に失敗しました");
+              accountsMap[pk] = { key: pk, site_url: (accountsMap[pk] && accountsMap[pk].site_url) || "", official_name: dd.officialName, owner: accountsMap[pk] && accountsMap[pk].owner, profile: dd.profile };
+              if (window.kbProgress) window.kbProgress(profStatus, { clear: true });
+              renderProfile(account);
+              const h = document.querySelector("#dealDetail h2"); if (h) h.textContent = displayName(account);
+              const emp = dd.profile && dd.profile.employees;
+              profStatus.textContent = emp ? "取得しました（従業員数も取得）" : "取得しました（従業員数はWebで確認できませんでした）";
+              gbizCandidates.innerHTML = "";
+            } catch (e) {
+              if (window.kbProgress) window.kbProgress(profStatus, { clear: true });
+              profStatus.textContent = "失敗: " + e.message;
+            }
+          };
+          el.addEventListener("click", confirm);
+          el.addEventListener("keydown", (ev) => { if (ev.key === "Enter" || ev.key === " ") { ev.preventDefault(); confirm(); } });
+        });
+      } catch (e) {
+        gbizCandidates.innerHTML = `<div class="gbiz-empty">検索に失敗しました：${escapeHtmlSafe(e.message)}</div>`;
+      } finally {
+        gbizSearch.disabled = false; gbizSearch.textContent = "gBizINFOで会社を検索";
+      }
+    });
+  }
 
   // タイムライン
   const tl = $("dealTimeline");

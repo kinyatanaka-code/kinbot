@@ -352,6 +352,54 @@ const COMPANY_EXTRACT_PROMPT = `あなたは情報抽出器です。渡された
 - 次のJSONのみを返す:
 {"official_name":"正式社名","industry":"業界","employees":"従業員数(例: 約320名)","hiring":"採用予定人数(例: 15名/年)","founded":"設立(例: 1998年)","location":"本社所在地","business":"事業内容(1〜2文)","note":"補足(任意)"}`;
 
+// 従業員数だけをWeb検索で特定する。gBizINFOに従業員数が無いときの補完用。
+// でっち上げを防ぐため「Webで確認できた場合のみ数値を返し、必ず出典URLを添える」ことを強制する。
+// 見つからなければ found:false を返す（それっぽい数字を作らない）。
+export async function lookupEmployeeCount(companyName, hint = "") {
+  const name = String(companyName || "").trim();
+  if (!name) return { found: false };
+  let research = "";
+  try {
+    research = await geminiGrounded(
+      `「${name}」${hint ? "（" + hint + "）" : ""}の従業員数を調べてください。` +
+      `「${name} 従業員数」で検索し、公式サイトの会社概要、マイナビ・リクナビ等の採用ページ、gBizINFO、四季報などの複数ソースを照合してください。` +
+      `数値が確認できたソースのURLを必ず挙げてください。確認できない場合は「不明」と明記してください。憶測で数値を作らないこと。`,
+      ""
+    );
+  } catch (e) {
+    console.warn("[employee-lookup] grounding失敗", e.message);
+    return { found: false, error: "検索に失敗しました" };
+  }
+  const schema = {
+    type: "object",
+    properties: {
+      found: { type: "boolean" },
+      employees: { type: "string" },
+      source_url: { type: "string" },
+      source_name: { type: "string" },
+      as_of: { type: "string" },
+      confidence: { type: "string", enum: ["high", "medium", "low"] },
+    },
+    required: ["found", "employees", "source_url", "confidence"],
+  };
+  const sys =
+    "あなたは企業調査アシスタントです。与えられた検索リサーチ結果だけを根拠に、従業員数を厳密に判断します。" +
+    "リサーチ結果に従業員数の記載と出典が無ければ found=false にします。決して推測で数値を作らないこと。" +
+    "複数ソースで数値が食い違う場合は最も公式に近いものを採用し、confidence を medium 以下にします。出力は指定JSONのみ。";
+  const user = `会社名: ${name}\n\n検索リサーチ結果:\n"""\n${(research || "(なし)").slice(0, 6000)}\n"""\n\n上記だけを根拠に、従業員数をJSONで出力してください。`;
+  const o = parseJson(await callLLM(sys, user, 500, { schema, provider: "anthropic" })) || {};
+  const emp = String(o.employees || "").trim();
+  if (!o.found || !emp) return { found: false };
+  return {
+    found: true,
+    employees: emp,
+    source_url: String(o.source_url || "").trim(),
+    source_name: String(o.source_name || "").trim(),
+    as_of: String(o.as_of || "").trim(),
+    confidence: ["high", "medium", "low"].includes(o.confidence) ? o.confidence : "low",
+  };
+}
+
 export async function enrichCompany({ url, name, siteText }) {
   // Step1: Web検索＋サイト本文でリサーチ（失敗してもサイト本文だけで続行）。
   // サイト本文が無い/薄い場合は、Web検索の比重が自然と大きくなり、複数の検索結果ソースから補完される。
