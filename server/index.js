@@ -42,6 +42,7 @@ import {
   listDealStatuses,
   setDealStatus,
   setDealManualProgress,
+  updateDealCompanyName,
   updateDealEventFields,
   setDealStatusAuto,
   saveMeetingNote,
@@ -584,6 +585,34 @@ app.put("/api/deals/:deal_id/manual-progress", async (req, res) => {
     res.json({ ok: true, stage, status: newStatus, updated_by: updatedBy });
   } catch (e) {
     console.error("[manual-progress]", e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// 既存の案件名を、強化された会社名抽出ロジックで一括で書き直すバックフィル。
+// 承認アカウントのみ実行可能。冪等（同じ結果を返す）。
+app.post("/api/deals/backfill-names", async (req, res) => {
+  try {
+    const approver = isStatusApprover(req.impersonatorFrom || req.user);
+    if (!approver && !canImpersonate(req.impersonatorFrom)) {
+      return res.status(403).json({ error: "この操作は、中澤さん・浦林さんのみ実行できます。" });
+    }
+    const deals = await listDeals({});
+    let updated = 0;
+    const changes = [];
+    for (const d of deals || []) {
+      const currentName = d.company_name || "";
+      const cleanedName = companyFromTitle(currentName);
+      if (cleanedName && cleanedName !== currentName && cleanedName !== "(無題)") {
+        await updateDealCompanyName(d.deal_id, cleanedName);
+        updated++;
+        if (changes.length < 20) changes.push({ deal_id: d.deal_id, before: currentName, after: cleanedName });
+      }
+    }
+    console.log(`[backfill-names] ${updated}件の案件名を書き換えました`);
+    res.json({ ok: true, total: deals.length, updated, sample: changes });
+  } catch (e) {
+    console.error("[backfill-names]", e.message);
     res.status(500).json({ error: e.message });
   }
 });

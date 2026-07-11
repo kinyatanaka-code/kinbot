@@ -16,6 +16,15 @@ function companyFromTitle(title) {
   t = t.replace(/[\s　/／|｜:：][^\s　/／|｜]{0,16}様(?:\s*[・,、][^\s　/／|｜]{0,16}様)*\s*$/u, "");
   t = t.replace(/[^\s　/／|｜]{0,16}様\s*$/u, "");
   t = t.replace(/\s+/g, " ").trim();
+  // 会社名部分だけを抽出（日本の主要な法人形態を網羅）
+  const suffix = "(?:株式会社|有限会社|合同会社|合名会社|合資会社|一般社団法人|一般財団法人|公益社団法人|公益財団法人|特定非営利活動法人|NPO法人|医療法人(?:社団|財団)?|学校法人|宗教法人|社会福祉法人|独立行政法人|生活協同組合|農業協同組合|漁業協同組合|信用金庫|信用組合)";
+  const prePattern = new RegExp("(" + suffix + "[^\\s(（/／|｜:：,、]+)");
+  const postPattern = new RegExp("([^\\s(（/／|｜:：,、]+" + suffix + ")");
+  const preMatch = t.match(prePattern);
+  const postMatch = t.match(postPattern);
+  if (preMatch && postMatch) return preMatch[0].length >= postMatch[0].length ? preMatch[0] : postMatch[0];
+  if (preMatch) return preMatch[0];
+  if (postMatch) return postMatch[0];
   return t || String(title || "(無題)").trim();
 }
 const acctOf = (m) => (m.account && m.account.trim()) || companyFromTitle(m.title) || "(無題)";

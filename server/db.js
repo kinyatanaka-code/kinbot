@@ -463,6 +463,19 @@ export function companyFromTitle(title) {
   t = t.replace(/[\s　/／|｜:：][^\s　/／|｜]{0,16}様(?:\s*[・,、][^\s　/／|｜]{0,16}様)*\s*$/u, ""); // 末尾 担当者様（複数可）
   t = t.replace(/[^\s　/／|｜]{0,16}様\s*$/u, "");                 // 区切り無しの 末尾○○様
   t = t.replace(/\s+/g, " ").trim();
+
+  // 会社名部分だけを抽出。日本の主要な法人形態を網羅し、
+  //   「〇〇株式会社」（後置）や「株式会社〇〇」（前置）を検出。
+  //   両方マッチした場合は長い方を採用（誤検知を減らす）。
+  //   どれもマッチしない場合はクリーニング後の文字列をそのまま返す（役所・県など）。
+  const suffix = "(?:株式会社|有限会社|合同会社|合名会社|合資会社|一般社団法人|一般財団法人|公益社団法人|公益財団法人|特定非営利活動法人|NPO法人|医療法人(?:社団|財団)?|学校法人|宗教法人|社会福祉法人|独立行政法人|生活協同組合|農業協同組合|漁業協同組合|信用金庫|信用組合)";
+  const prePattern = new RegExp("(" + suffix + "[^\\s(（/／|｜:：,、]+)");
+  const postPattern = new RegExp("([^\\s(（/／|｜:：,、]+" + suffix + ")");
+  const preMatch = t.match(prePattern);
+  const postMatch = t.match(postPattern);
+  if (preMatch && postMatch) return preMatch[0].length >= postMatch[0].length ? preMatch[0] : postMatch[0];
+  if (preMatch) return preMatch[0];
+  if (postMatch) return postMatch[0];
   return t || String(title || "(無題)").trim();
 }
 
@@ -1629,6 +1642,15 @@ export async function updateDealStatus(dealId, status, autoLoseDeadline) {
       await pool.query(`UPDATE deals SET status=$2, updated_at=now() WHERE deal_id=$1`, [dealId, status]);
     }
   } catch (e) { console.error("[db] updateDealStatus", e.message); }
+}
+
+// 案件名（company_name）を書き換える。会社名抽出ロジックを強化したときに、
+// 既存案件を新しい抽出結果で置き換えるバックフィル用。
+export async function updateDealCompanyName(dealId, newName) {
+  if (!pool || !dealId || !newName) return;
+  try {
+    await pool.query(`UPDATE deals SET company_name=$2, updated_at=now() WHERE deal_id=$1`, [dealId, newName]);
+  } catch (e) { console.error("[db] updateDealCompanyName", e.message); }
 }
 
 // ステッパー上で人が進めた進捗を保存する。stage=null で解除（AI判定に戻る）。

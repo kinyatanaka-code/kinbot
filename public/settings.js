@@ -1636,3 +1636,29 @@ function initSmartLinks() {
     finally { savePw.disabled = false; }
   });
 })();
+
+// 案件名バックフィル：既存の案件名から会社名だけを取り出して書き直す
+(function () {
+  const btn = document.getElementById("backfillNamesBtn");
+  const msg = document.getElementById("backfillNamesMsg");
+  if (!btn) return;
+  btn.addEventListener("click", async () => {
+    if (!confirm("既存の全案件名を、会社名部分だけに書き直します。\n\nこの操作は元に戻せません。実行しますか？")) return;
+    btn.disabled = true;
+    const orig = btn.textContent;
+    btn.textContent = "整理中…";
+    try {
+      const r = await fetch("/api/deals/backfill-names", { method: "POST" });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.error || "実行に失敗しました");
+      const sampleLines = (d.sample || []).slice(0, 5).map((s) => `・「${s.before}」→「${s.after}」`).join("\n");
+      alert(`完了：${d.total}件中 ${d.updated}件の案件名を書き直しました。\n\n例：\n${sampleLines || "（変更なし）"}`);
+      if (msg) { msg.hidden = false; msg.textContent = `${d.updated}件を書き直しました`; setTimeout(() => (msg.hidden = true), 6000); }
+    } catch (e) {
+      alert("失敗: " + e.message);
+    } finally {
+      btn.textContent = orig;
+      btn.disabled = false;
+    }
+  });
+})();

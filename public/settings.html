@@ -45,6 +45,14 @@
               </div>
             </div>
             <div class="set-card">
+              <h3>案件名の整理（バックフィル）</h3>
+              <p class="note">既存の案件名から会社名部分（〇〇株式会社／株式会社〇〇 など）だけを取り出して書き直します。担当者名や【新/ヒ】等のラベル、（女性）等の補足が案件名に混じっている場合の掃除に使えます。<b>この操作は元に戻せません</b>。実行前にサンプルで確認してから本番実行してください。</p>
+              <div class="modal-actions">
+                <button class="btn" id="backfillNamesBtn">案件名を整理する</button>
+                <span class="saved" id="backfillNamesMsg" hidden></span>
+              </div>
+            </div>
+            <div class="set-card">
               <h3>動作設定</h3>
               <label class="field"><span>Bot表示名（会議に出る名前）</span>
                 <input id="botName" type="text" placeholder="議事録" /></label>
