@@ -270,7 +270,7 @@ loadThanks();
       if (name === "teams") loadTeams();
       if (name === "knowledge") loadKnowledge();
       if (name === "interns") { loadInterns(); loadApoOwner(); loadApoInvite(); }
-      if (name === "thanks") loadThanksPrompt();
+      if (name === "ai") loadThanksPrompt();
       if (name === "integrations") showIntegGrid();
       if (name === "smartlinks") initSmartLinks();
     });

@@ -29,7 +29,6 @@
             <button class="set-menu-item" data-tab="integrations">連携</button>
             <button class="set-menu-item" data-tab="knowledge">自社ナレッジ</button>
             <button class="set-menu-item" data-tab="ai">プロンプト設定</button>
-            <button class="set-menu-item" data-tab="thanks">御礼メール例文</button>
             <button class="set-menu-item" data-tab="teams">チーム編集</button>
             <button class="set-menu-item" data-tab="interns">インターン登録</button>
           </nav>
@@ -414,13 +413,14 @@ curl -H "Authorization: Bearer <span class="cc-tok">&lt;トークン&gt;</span>"
             <div class="subtabs" id="aiSubtabs">
               <button class="subtab active" data-sub="check">チェック項目</button>
               <button class="subtab" data-sub="summary">要約の指示</button>
+              <button class="subtab" data-sub="thanks">御礼メール</button>
             </div>
 
             <div class="subpane" data-sub="check">
               <div class="set-card">
                 <h3>抜け漏れチェック項目（チーム共有）</h3>
                 <p class="note">商談中の「チェック」タブで充足を判定する項目です。1行に1項目。商談プロセスに合わせて自由に編集できます（最大15項目）。</p>
-                <textarea id="checkItems" rows="7" placeholder="課題・ニーズ&#10;予算&#10;決裁者・決裁プロセス&#10;導入時期&#10;現状・競合&#10;次のステップ"></textarea>
+                <textarea id="checkItems" rows="10" placeholder="課題・ニーズ&#10;予算&#10;決裁者・決裁プロセス&#10;導入時期&#10;現状・競合&#10;次のステップ"></textarea>
                 <div class="modal-actions">
                   <button class="btn" id="saveCheckBtn">項目を保存</button>
                   <button class="btn ghost" id="resetCheckBtn">既定に戻す</button>
@@ -433,11 +433,35 @@ curl -H "Authorization: Bearer <span class="cc-tok">&lt;トークン&gt;</span>"
               <div class="set-card">
                 <h3>要約の指示（チーム共有）</h3>
                 <p class="note">ここに書いた指示が、商談履歴の「要約」タブにそのまま反映されます。<b>ここに書いた通りの形式・観点で要約が生成されます</b>（項目立てや9項目抽出なども自由）。空欄にすると、標準の要約（全体状況／論点／合意事項／宿題／相手の懸念）に戻ります。<br>文字起こしを差し込みたい箇所には <code>{transcript}</code> と書けます（省略した場合は末尾に自動で添付されます）。</p>
-                <textarea id="customPrompt" rows="14" placeholder="例：&#10;# 役割&#10;あなたは営業商談を分析するアシスタントです。以下の9項目を、指定のフォーマットで抽出してください。&#10;&#10;# 抽出する項目&#10;1. 担当者情報（性別 / 話し方の特徴 / 担当領域）&#10;2. 採用人数&#10;3. 採用手法&#10;…&#10;&#10;# 対象の文字起こし&#10;{transcript}"></textarea>
+                <textarea id="customPrompt" class="prompt-xl" rows="30" placeholder="例：&#10;# 役割&#10;あなたは営業商談を分析するアシスタントです。以下の9項目を、指定のフォーマットで抽出してください。&#10;&#10;# 抽出する項目&#10;1. 担当者情報（性別 / 話し方の特徴 / 担当領域）&#10;2. 採用人数&#10;3. 採用手法&#10;…&#10;&#10;# 対象の文字起こし&#10;{transcript}"></textarea>
                 <div class="modal-actions">
                   <button class="btn" id="saveCustomPromptBtn">保存</button>
                   <button class="btn ghost" id="clearCustomPromptBtn">クリア</button>
                   <span class="saved" id="customPromptSaved" hidden>保存しました</span>
+                </div>
+              </div>
+            </div>
+
+            <div class="subpane" data-sub="thanks" hidden>
+              <div class="set-card">
+                <h3>御礼メールの生成指示（プロンプト）</h3>
+                <p class="note">御礼メールをAIがどう作るかの指示文です。例文に寄せず自分好みの作り方にしたい場合はここを編集してください。<br>
+                <code>{round}</code> と書くと商談回数に置き換わります。商談の要約・登録した例文・自社ナレッジは、この指示文とは別に自動で渡されます。出力形式（件名・本文のJSON）はシステム側で強制しているため、文面の作り方の指示に集中して編集してください。</p>
+                <textarea id="thanksPromptText" class="prompt-xl" rows="30" spellcheck="false"></textarea>
+                <div class="phasedef-actions">
+                  <button class="btn" id="thanksPromptSave">保存</button>
+                  <button class="btn ghost" id="thanksPromptReset">既定の文面に戻す</button>
+                  <span class="tm-status" id="thanksPromptStatus"></span>
+                </div>
+                <p class="note" id="thanksPromptState"></p>
+              </div>
+              <div class="set-card">
+                <h3>御礼メールの例文（ラウンド別）</h3>
+                <p class="note">これまで送った御礼メールを、商談の「何回目か」ごとに登録します。御礼メール生成時に、その回の文体・構成の手本になります。各回 2〜3 件あると十分です。</p>
+                <div id="thanksEditor"></div>
+                <div class="set-row">
+                  <button class="btn" id="saveThanksBtn">例文を保存</button>
+                  <span class="saved" id="thanksSaved" hidden>保存しました</span>
                 </div>
               </div>
             </div>
@@ -485,30 +509,6 @@ curl -H "Authorization: Bearer <span class="cc-tok">&lt;トークン&gt;</span>"
 
                 <div class="kb-modal-status" id="kbModalStatus"></div>
               </div>
-            </div>
-          </div>
-
-          <div class="set-pane" data-pane="thanks" hidden>
-            <div class="set-card">
-              <h3>御礼メールの例文（ラウンド別）</h3>
-              <p class="note">これまで送った御礼メールを、商談の「何回目か」ごとに登録します。御礼メール生成時に、その回の文体・構成の手本になります。各回 2〜3 件あると十分です。</p>
-              <div id="thanksEditor"></div>
-              <div class="set-row">
-                <button class="btn" id="saveThanksBtn">例文を保存</button>
-                <span class="saved" id="thanksSaved" hidden>保存しました</span>
-              </div>
-            </div>
-            <div class="set-card">
-              <h3>御礼メールの生成指示（プロンプト）</h3>
-              <p class="note">御礼メールをAIがどう作るかの指示文です。例文に寄せず自分好みの作り方にしたい場合はここを編集してください。<br>
-              <code>{round}</code> と書くと商談回数に置き換わります。商談の要約・登録した例文・自社ナレッジは、この指示文とは別に自動で渡されます。出力形式（件名・本文のJSON）はシステム側で強制しているため、文面の作り方の指示に集中して編集してください。</p>
-              <textarea id="thanksPromptText" rows="16" spellcheck="false"></textarea>
-              <div class="phasedef-actions">
-                <button class="btn" id="thanksPromptSave">保存</button>
-                <button class="btn ghost" id="thanksPromptReset">既定の文面に戻す</button>
-                <span class="tm-status" id="thanksPromptStatus"></span>
-              </div>
-              <p class="note" id="thanksPromptState"></p>
             </div>
           </div>
 
