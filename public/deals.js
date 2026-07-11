@@ -349,13 +349,26 @@ function renderNewProcess(box, d) {
     const applyCell = editable
       ? selectOf("apply_timing", APPLY_OPTS, f.apply_timing || "")
       : `${esc(f.apply_timing || "—")}判断`;
+    // 再商談の予定日：日付入力＋「未設定に戻す」ボタン
+    let nextCell;
+    if (editable) {
+      const dateVal = f.next_meeting_date ? String(f.next_meeting_date).slice(0, 10) : "";
+      nextCell = `<span class="np-next-edit">` +
+        `<input type="date" class="np-edit-date" data-field="next_meeting_date" data-eid="${f.id}" value="${esc(dateVal)}" />` +
+        (f.next_meeting_scheduled
+          ? `<button type="button" class="np-next-clear" data-eid="${f.id}" title="再商談を未設定に戻す">未設定に戻す</button>`
+          : `<span class="np-next-hint">日付を入れると「設定済み」になります</span>`) +
+        `</span>`;
+    } else {
+      nextCell = nextInfo;
+    }
     // 手動編集の印
     const editedBy = f.judgment_month_basis && String(f.judgment_month_basis).includes("手動編集") ? '<span class="np-edited">✎ 手動</span>' : "";
     rows =
       `<div class="np-row"><span class="np-k">ご利用開始スケジュール</span><span class="np-v">${scheduleCell}</span></div>` +
       `<div class="np-row"><span class="np-k">今月中の申込可否</span><span class="np-v">${applyCell}</span></div>` +
       `<div class="np-row"><span class="np-k">判断月（KPI計上）</span><span class="np-v" id="npJmCell">${jm}${editedBy}${f.judgment_month_basis ? `<span class="np-basis-inline">${esc(f.judgment_month_basis)}</span>` : ""}</span></div>` +
-      `<div class="np-row"><span class="np-k">次回商談(再商談)</span><span class="np-v">${nextInfo}</span></div>` +
+      `<div class="np-row"><span class="np-k">次回商談(再商談)</span><span class="np-v">${nextCell}</span></div>` +
       (d.latest_result ? `<div class="np-row"><span class="np-k">再商談の結果</span><span class="np-v">${esc(d.latest_result)}</span></div>` : "");
   } else {
     rows = '<div class="np-hint">この会社の初回商談がまだ判定されていません。上の「再判定」を押すと、初回商談を含むこの会社の全商談を判定し直します。</div>';
@@ -400,9 +413,24 @@ function renderNewProcess(box, d) {
           });
           const dd = await r.json();
           if (!r.ok) throw new Error(dd.error || "進捗の変更に失敗しました");
-          // ローカルの d を更新して再描画
+          // ローカルの d を更新
           d.manual_progress = nextStage == null ? null : { stage: nextStage, updated_by: dd.updated_by || "" };
+          // ステージ変更でサーバー側が案件ステータスも連動更新している場合、
+          // 判定ブロック・案件カード・右上バッジをまとめて反映する。
+          if (dd.status) d.status = dd.status;
+          try {
+            await refreshNewProcMap();
+            const st = await (await fetch("/api/deal-status", { cache: "no-store" })).json();
+            dealStatuses = st.statuses || {};
+          } catch {}
           renderNewProcess(box, d);
+          renderList();
+          const badgeEl = document.getElementById("dealStBadge");
+          if (badgeEl && box._ctx) {
+            const stNow = statusOf(box._ctx.pk);
+            badgeEl.textContent = stNow;
+            badgeEl.className = `status-badge st-${stNow}`;
+          }
         } catch (e) {
           alert(e.message);
           box.querySelectorAll(".np-step.clickable").forEach((x) => (x.disabled = false));
@@ -414,32 +442,58 @@ function renderNewProcess(box, d) {
   // 判定詳細のプルダウン（スケジュール／申込可否）を変更したら、その場でサーバーへ保存し
   // 判断月を再取得する。承認アカウントのみ。
   if (clickable && f && f.id) {
-    box.querySelectorAll(".np-edit-sel").forEach((sel) => {
-      sel.addEventListener("change", async () => {
-        const field = sel.dataset.field;
-        const eventId = sel.dataset.eid;
-        const value = sel.value;
-        const jmCell = document.getElementById("npJmCell");
-        if (jmCell) jmCell.innerHTML = '<span class="np-saving">保存中…</span>';
-        box.querySelectorAll(".np-edit-sel").forEach((x) => (x.disabled = true));
+    // 保存＋UI全体反映の共通処理
+    const saveField = async (patch) => {
+      const jmCell = document.getElementById("npJmCell");
+      if (jmCell) jmCell.innerHTML = '<span class="np-saving">保存中…</span>';
+      box.querySelectorAll(".np-edit-sel, .np-edit-date, .np-next-clear").forEach((x) => (x.disabled = true));
+      try {
+        const r = await fetch(`/api/deal-events/${encodeURIComponent(f.id)}/manual-fields`, {
+          method: "PUT", headers: { "content-type": "application/json" },
+          body: JSON.stringify(patch),
+        });
+        const dd = await r.json();
+        if (!r.ok) throw new Error(dd.error || "変更に失敗しました");
+        // ローカルの d.first を最新化
+        for (const [k, v] of Object.entries(patch)) d.first[k] = v;
+        d.first.judgment_month = dd.judgment_month;
+        d.first.judgment_month_basis = dd.judgment_month_basis;
+        if (dd.status) d.status = dd.status;
+        // 全UIに反映（判定ブロック→newProcMap→dealStatuses→案件カード→右上バッジ）
         try {
-          const r = await fetch(`/api/deal-events/${encodeURIComponent(eventId)}/manual-fields`, {
-            method: "PUT", headers: { "content-type": "application/json" },
-            body: JSON.stringify({ [field]: value }),
-          });
-          const dd = await r.json();
-          if (!r.ok) throw new Error(dd.error || "変更に失敗しました");
-          // ローカルの d.first を更新して再描画
-          d.first[field] = value;
-          d.first.judgment_month = dd.judgment_month;
-          d.first.judgment_month_basis = dd.judgment_month_basis;
-          if (dd.status && d) d.status = dd.status;
-          renderNewProcess(box, d);
-        } catch (e) {
-          alert(e.message);
-          box.querySelectorAll(".np-edit-sel").forEach((x) => (x.disabled = false));
+          await refreshNewProcMap();
+          const st = await (await fetch("/api/deal-status", { cache: "no-store" })).json();
+          dealStatuses = st.statuses || {};
+        } catch {}
+        renderNewProcess(box, d);
+        renderList();
+        const badgeEl = document.getElementById("dealStBadge");
+        if (badgeEl && box._ctx) {
+          const stNow = statusOf(box._ctx.pk);
+          badgeEl.textContent = stNow;
+          badgeEl.className = `status-badge st-${stNow}`;
         }
+      } catch (e) {
+        alert(e.message);
+        box.querySelectorAll(".np-edit-sel, .np-edit-date, .np-next-clear").forEach((x) => (x.disabled = false));
+      }
+    };
+    // プルダウン変更
+    box.querySelectorAll(".np-edit-sel").forEach((sel) => {
+      sel.addEventListener("change", () => saveField({ [sel.dataset.field]: sel.value }));
+    });
+    // 日付入力（変更後にフォーカスを外したときに保存）
+    box.querySelectorAll(".np-edit-date").forEach((dt) => {
+      dt.addEventListener("change", () => {
+        const v = dt.value;
+        // 空欄クリア＝未設定に戻す扱い
+        if (!v) saveField({ next_meeting_date: null, next_meeting_scheduled: false });
+        else saveField({ next_meeting_date: v, next_meeting_scheduled: true });
       });
+    });
+    // 「未設定に戻す」ボタン
+    box.querySelectorAll(".np-next-clear").forEach((btn) => {
+      btn.addEventListener("click", () => saveField({ next_meeting_date: null, next_meeting_scheduled: false }));
     });
   }
 }

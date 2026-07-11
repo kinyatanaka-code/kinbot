@@ -571,7 +571,17 @@ app.put("/api/deals/:deal_id/manual-progress", async (req, res) => {
       ? `${req.impersonatorFrom} (as ${req.user})`
       : String(req.user || "");
     await setDealManualProgress(dealId, stage, updatedBy);
-    res.json({ ok: true, stage, updated_by: updatedBy });
+    // ステッパーで進めたステージに応じて、案件全体のステータスも自動で連動させる。
+    //  stage=4 → 「再商談実施済み」（案件が再商談に到達したとみなす）
+    //  stage=5 → 「受注」
+    //  stage=1〜3 → 「進行中」（AI由来の失注・要確認から人が「まだ進行中」と判断した場合）
+    //  stage=null（解除）→ ステータスは何もしない（AI判定の派生に戻る）
+    let newStatus = null;
+    if (stage === 5) newStatus = "受注";
+    else if (stage === 4) newStatus = "再商談実施済み";
+    else if (stage != null && stage <= 3) newStatus = "進行中";
+    if (newStatus) await updateDealStatus(dealId, newStatus, null);
+    res.json({ ok: true, stage, status: newStatus, updated_by: updatedBy });
   } catch (e) {
     console.error("[manual-progress]", e.message);
     res.status(500).json({ error: e.message });
@@ -603,6 +613,20 @@ app.put("/api/deal-events/:event_id/manual-fields", async (req, res) => {
       if (v && !APPLY_VALUES.includes(v)) return res.status(400).json({ error: "今月中の申込可否の値が不正です" });
       fields.apply_timing = v || null;
     }
+    // 次回商談（再商談）の予定日と「設定済み」フラグの編集
+    if (body.next_meeting_date !== undefined) {
+      const v = String(body.next_meeting_date || "").trim();
+      if (v && !/^\d{4}-\d{2}-\d{2}$/.test(v)) return res.status(400).json({ error: "次回商談日は YYYY-MM-DD 形式で指定してください" });
+      fields.next_meeting_date = v || null;
+      // 日付が入ったら自動で「設定済み」にする（無い場合は明示指定がなければ触らない）
+      if (v) fields.next_meeting_scheduled = true;
+    }
+    if (body.next_meeting_scheduled !== undefined) {
+      const b = !!body.next_meeting_scheduled;
+      fields.next_meeting_scheduled = b;
+      // 未設定に戻すときは日付も消す（明示的にnext_meeting_dateが指定されていなければ）
+      if (!b && body.next_meeting_date === undefined) fields.next_meeting_date = null;
+    }
     if (!Object.keys(fields).length) return res.status(400).json({ error: "更新する項目がありません" });
 
     // 現在のイベントを取り、変更後の値で judgment_month を再計算する
@@ -617,8 +641,8 @@ app.put("/api/deal-events/:event_id/manual-fields", async (req, res) => {
     const mergedExt = {
       schedule_choice: fields.schedule_choice !== undefined ? fields.schedule_choice : ev.schedule_choice,
       apply_timing: fields.apply_timing !== undefined ? fields.apply_timing : ev.apply_timing,
-      next_meeting_scheduled: ev.next_meeting_scheduled,
-      next_meeting_date: ev.next_meeting_date,
+      next_meeting_scheduled: fields.next_meeting_scheduled !== undefined ? fields.next_meeting_scheduled : ev.next_meeting_scheduled,
+      next_meeting_date: fields.next_meeting_date !== undefined ? fields.next_meeting_date : ev.next_meeting_date,
       confidence: ev.confidence,
     };
     const der = deriveFirstMeeting(mergedExt, meetingMonth, meetingDateStr);
