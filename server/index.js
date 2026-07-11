@@ -2440,10 +2440,39 @@ app.post("/api/accounts/:key/enrich", async (req, res) => {
     const primaryUrl = fullUrls[0] || "";
 
     // URLが1件も取得できなかった場合、または未入力の場合は、会社名だけでWeb検索から複数ソースを調べる
-    const profile = await enrichCompany({ url: primaryUrl, name: key, siteText, urlCount: fullUrls.length, gotCount: siteTexts.length });
+    const fetched = await enrichCompany({ url: primaryUrl, name: key, siteText, urlCount: fullUrls.length, gotCount: siteTexts.length });
+
+    // 既存プロフィール（gBizINFOで確定済みなど）を優先して残し、
+    // 空の項目だけを今回取得した値で埋める（＝上書きせず追加）。
+    // これにより、gBizINFOの信頼できる情報を保護しつつ、AI取得で足りない部分を補える。
+    const existingAcc = await getAccount(key).catch(() => null);
+    const existingProfile = (existingAcc && existingAcc.profile) || {};
+    const filledFields = [];
+    // 対象フィールドを1つずつ検討し、既存が空のときだけ新しい値を採用する
+    const mergeField = (field) => {
+      if (!fetched[field]) return; // 新規に情報が無ければ何もしない
+      const cur = existingProfile[field];
+      const isEmpty = cur == null || cur === "" || (typeof cur === "object" && !Object.keys(cur).length);
+      if (isEmpty) filledFields.push(field);
+    };
+    for (const f of ["official_name", "industry", "employees", "hiring", "founded", "location", "business", "capital", "representative", "note"]) mergeField(f);
+
+    // 実際のマージ：既存プロフィールをベースに、空だった項目だけ上書きする
+    const profile = { ...existingProfile };
+    for (const f of filledFields) profile[f] = fetched[f];
+    // 出典タグ：もともと gBizINFO 由来の項目は残し、今回埋めた項目はAI取得と分かるようにする
+    if (filledFields.length) {
+      profile.enriched_by_ai = { at: new Date().toISOString(), fields: filledFields };
+      // gBizINFO由来の場合は source を維持しつつ、AI追記があった旨をnoteに書き足す
+      if (profile.source === "gBizINFO") {
+        profile.note = (profile.note || "") + ` / サイトURL/AI取得で${filledFields.length}項目を補完（${filledFields.join(", ")}）`;
+      } else if (!profile.source) {
+        profile.source = "AI"; // 完全新規ならAI取得ソース
+      }
+    }
     const officialName = profile.official_name || key;
-    await saveAccount(key, { siteUrl: primaryUrl, officialName, profile });
-    res.json({ ok: true, siteUrl: primaryUrl, officialName, profile, siteError, sourcesFetched: siteTexts.length, sourcesRequested: fullUrls.length });
+    await saveAccount(key, { siteUrl: primaryUrl || (existingAcc && existingAcc.site_url) || "", officialName, profile });
+    res.json({ ok: true, siteUrl: primaryUrl, officialName, profile, siteError, sourcesFetched: siteTexts.length, sourcesRequested: fullUrls.length, filledFields, mergedWith: existingProfile.source || null });
   } catch (e) {
     console.error("[enrich]", e.message);
     res.status(502).json({ error: e.message });

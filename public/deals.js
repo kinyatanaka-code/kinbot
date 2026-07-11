@@ -1248,7 +1248,17 @@ async function selectDeal(account) {
           ? `サイトを取得できませんでした（${d.siteError}）。Web検索でも情報が見つかりませんでした。`
           : `会社概要を読み取れませんでした${sourceNote}。`;
       } else {
-        profStatus.textContent = d.siteError ? `一部のみ取得${sourceNote}（${d.siteError}）` : `取得しました${sourceNote}`;
+        // マージの結果（既存を保持し、空だけ埋めた場合）を明示的に伝える
+        const filled = Array.isArray(d.filledFields) ? d.filledFields : [];
+        const fieldNamesJa = { official_name: "正式社名", industry: "業界", employees: "従業員数", hiring: "採用予定", founded: "設立", location: "本社", business: "事業内容", capital: "資本金", representative: "代表者", note: "備考" };
+        if (filled.length > 0 && d.mergedWith) {
+          const filledJa = filled.map((f) => fieldNamesJa[f] || f).join("・");
+          profStatus.textContent = `既存の${d.mergedWith}情報は保持し、空だった${filled.length}項目（${filledJa}）を追加しました${sourceNote}`;
+        } else if (filled.length === 0 && d.mergedWith) {
+          profStatus.textContent = `既存の${d.mergedWith}情報が完全で、追加する項目はありませんでした${sourceNote}`;
+        } else {
+          profStatus.textContent = d.siteError ? `一部のみ取得${sourceNote}（${d.siteError}）` : `取得しました${sourceNote}`;
+        }
       }
     } catch (e) {
       if (window.kbProgress) window.kbProgress(profStatus, { clear: true });
