@@ -553,10 +553,10 @@ async function loadDetail(botId) {
           <div id="dtrans" class="pane-content"></div>
         </div>
         <div class="tabpane" data-pane="summary" hidden>
-          <div id="dnoteWrap"></div>
           <div class="pane-bar"><button class="btn ghost" id="customRunBtn" hidden>再実行</button><button class="btn ghost copy-mini" id="copySummary">コピー</button></div>
           <div id="dcustom" class="pane-content" hidden></div>
           <div id="dsummary" class="pane-content"></div>
+          <div id="dnoteWrap"></div>
         </div>
         <div class="tabpane" data-pane="ailog" hidden>
           <div class="ai-feed" id="dailog"></div>

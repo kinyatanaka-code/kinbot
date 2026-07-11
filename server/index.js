@@ -70,6 +70,7 @@ import {
   listDealEvents,
   getWinInsight,
   saveWinInsight,
+  listUnjudgedMeetings,
   updateDealEvent,
   teamForRep,
   listRepTeams,
@@ -87,6 +88,8 @@ import {
   getSetCache,
   saveSetCache,
   listUsers,
+  dbGetUser,
+  dbUpdateUser,
   getUserSettings,
   saveUserSettings,
   saveMeeting,
@@ -152,6 +155,8 @@ import {
   getDisplayName,
   makeToken,
   verifyToken,
+  hashPassword,
+  verifyPassword,
 } from "./auth.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -330,9 +335,45 @@ app.post("/api/logout", (req, res) => {
   clearSessionCookie(res);
   res.json({ ok: true });
 });
-app.get("/api/me", (req, res) => {
-  res.json({ username: req.user || null, admin: !!req.isAdmin });
+app.get("/api/me", async (req, res) => {
+  let name = "";
+  try {
+    const u = (await listUsers()).find((x) => (x.email || "").toLowerCase() === String(req.user || "").toLowerCase());
+    name = (u && u.name) || "";
+  } catch {}
+  res.json({ username: req.user || null, name, admin: !!req.isAdmin });
 });
+// アカウント設定：表示名・パスワードの変更（本人のみ）
+app.put("/api/me", async (req, res) => {
+  try {
+    const email = String(req.user || "").trim().toLowerCase();
+    if (!email) return res.status(401).json({ error: "ログインが必要です" });
+    const { name, current_password, new_password } = req.body || {};
+    const u = await dbGetUser(email);
+    if (!u) return res.status(400).json({ error: "この環境ではアカウント情報を変更できません（旧方式のログイン）" });
+
+    const updates = {};
+    if (name !== undefined && String(name).trim() !== (u.name || "")) {
+      updates.name = String(name).trim().slice(0, 60);
+    }
+    if (new_password) {
+      if (!current_password || !verifyPassword(current_password, u.pass_hash)) {
+        return res.status(400).json({ error: "現在のパスワードが違います" });
+      }
+      if (String(new_password).length < 8) {
+        return res.status(400).json({ error: "新しいパスワードは8文字以上にしてください" });
+      }
+      updates.passHash = hashPassword(new_password);
+    }
+    if (!Object.keys(updates).length) return res.json({ ok: true, changed: [] });
+    await dbUpdateUser(email, updates);
+    res.json({ ok: true, changed: Object.keys(updates) });
+  } catch (e) {
+    console.error("[account update]", e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
 app.get("/api/auth-info", (req, res) => {
   res.json({ signupCodeRequired: !!(process.env.SIGNUP_CODE || "") });
 });
@@ -405,10 +446,29 @@ app.get("/api/deal-status", async (req, res) => {
     res.status(500).json({ error: e.message });
   }
 });
+// 要確認案件のステータス変更を許可するリーダー（表示名にこの文字を含む人だけ変更できる）
+const STATUS_APPROVERS = ["浦林", "中澤"];
+async function isStatusApprover(email) {
+  try {
+    const u = (await listUsers()).find((x) => (x.email || "").toLowerCase() === String(email || "").toLowerCase());
+    const nm = (u && u.name) || "";
+    return STATUS_APPROVERS.some((a) => nm.includes(a));
+  } catch { return false; }
+}
+
 app.put("/api/deal-status", async (req, res) => {
   try {
     const { account, status, auto } = req.body || {};
     if (!account) return res.status(400).json({ error: "account が必要です" });
+    // 新プロセス判定が「要確認」の案件は、リーダー（浦林・中澤）だけがステータスを変更できる
+    try {
+      const key = normCompanyKey(account);
+      const deals = await listDeals({});
+      const d = (deals || []).find((x) => normCompanyKey(x.company_name) === key);
+      if (d && d.status === "要確認" && !(await isStatusApprover(req.user))) {
+        return res.status(403).json({ error: "「要確認」の案件は、リーダー（浦林・中澤）のみステータスを変更できます。判定内容を確認のうえ、リーダーに依頼してください。" });
+      }
+    } catch {}
     if (auto) {
       // AIに任せる：手動フラグを解除
       await setDealStatus(account, { manual: false });
@@ -600,6 +660,30 @@ function deriveFirstMeeting(ext, meetingMonth, meetingDateStr) {
   return { judgment_month, judgment_month_basis, status, needs_review, auto_lose_deadline };
 }
 
+// 再商談で「今月中の申込＋来月・再来月の利用開始」という明確な合意が取れているかを判定する。
+// 取れていれば、確信度が低くても「再商談実施済み」として確定させる（要確認にしない）。
+function hasClearTimingAgreement(ext, meetingMonth) {
+  const monthOf = (v) => {
+    const m = String(v || "").match(/(\d{4})-(\d{2})/);
+    return m ? `${m[1]}-${m[2]}` : "";
+  };
+  const addMonths = (ym, n) => {
+    const [y, mo] = ym.split("-").map(Number);
+    if (!y || !mo) return "";
+    const d = new Date(Date.UTC(y, mo - 1 + n, 1));
+    return d.toISOString().slice(0, 7);
+  };
+  const applyM = monthOf(ext.apply_date);
+  const useM = monthOf(ext.usage_start_date);
+  const applyTxt = String(ext.apply_date || "") + " " + String(ext.judgment_basis || "");
+  const useTxt = String(ext.usage_start_date || "") + " " + String(ext.judgment_basis || "");
+  const applyThisMonth = applyM ? applyM === meetingMonth : /今月/.test(applyTxt);
+  const useNextMonths = useM
+    ? (useM === addMonths(meetingMonth, 1) || useM === addMonths(meetingMonth, 2))
+    : /来月|再来月/.test(useTxt);
+  return applyThisMonth && useNextMonths;
+}
+
 // 1商談を抽出してイベントログに保存する（finalize / アップロード / 手動 / バックフィルから呼ぶ）
 async function runExtraction(botId, forceProvider) {
   const m = await getMeeting(botId);
@@ -681,7 +765,11 @@ async function runExtraction(botId, forceProvider) {
 
   // 再商談
   const ext = await extractReMeeting(transcript, meetingDateStr, { provider: forceProvider });
-  const needs_review = ext.confidence === "low";
+  let needs_review = ext.confidence === "low";
+  // ルール：今月中の申込＋来月・再来月の利用開始について明確な合意があり、2回目商談（再商談）が
+  // 実施されている場合は、確信度に関わらず「再商談実施済み」として確定する。
+  const clearAgree = ext.result !== "失注" && hasClearTimingAgreement(ext, meetingMonth);
+  if (clearAgree) needs_review = false;
   let status = "再商談実施済み";
   if (ext.result === "受注") status = "受注";
   else if (ext.result === "失注") status = "失注(その後失注)";
@@ -690,7 +778,7 @@ async function runExtraction(botId, forceProvider) {
     event_type: "再商談実施", meeting_kind: "再商談",
     result: ext.result, reported_date: ext.reported_date, apply_date: ext.apply_date,
     usage_start_date: ext.usage_start_date, confidence: ext.confidence,
-    judgment_basis: ext.judgment_basis, needs_review, raw_extraction: ext,
+    judgment_basis: ext.judgment_basis, needs_review, raw_extraction: { ...ext, clear_timing_agreement: clearAgree },
   });
   if (deal && !needs_review) await updateDealStatus(deal.deal_id, status, null);
   return { kind, result: ext.result, needs_review };
@@ -2110,47 +2198,77 @@ app.get("/api/gbiz/search", async (req, res) => {
 });
 
 // gBizINFO：選ばれた法人番号で詳細を確定し、従業員数をWeb検索で補完して案件に保存
+// gBizINFOの法人番号で詳細を確定し、従業員数をWeb検索で補完して案件に保存する（共通処理）
+async function confirmGbizForAccount(key, corporateNumber) {
+  const detail = await getCompanyDetail(corporateNumber); // gBizINFOの確定情報
+  let employees = detail.employees || "";
+  let employeeSource = employees ? { source_name: "gBizINFO", confidence: "high" } : null;
+  if (!employees) {
+    try {
+      const emp = await lookupEmployeeCount(detail.official_name || key, detail.location || "");
+      if (emp.found) {
+        employees = emp.employees;
+        employeeSource = { source_name: emp.source_name || "Web検索", source_url: emp.source_url || "", as_of: emp.as_of || "", confidence: emp.confidence || "low" };
+      }
+    } catch (e) { console.warn("[gbiz-confirm] 従業員数補完失敗", e.message); }
+  }
+  const profile = {
+    official_name: detail.official_name || key,
+    industry: detail.industry || "",
+    employees: employees || "",
+    employees_source: employeeSource,
+    hiring: "",
+    founded: detail.founded || "",
+    location: detail.location || "",
+    business: detail.business || "",
+    capital: detail.capital || "",
+    representative: detail.representative || "",
+    corporate_number: detail.corporate_number || corporateNumber,
+    source: "gBizINFO",
+    note: "gBizINFO（法人番号 " + (detail.corporate_number || corporateNumber) + "）で確定。",
+  };
+  const officialName = profile.official_name;
+  await saveAccount(key, { siteUrl: detail.company_url || "", officialName, profile });
+  return { officialName, profile };
+}
+
 app.post("/api/accounts/:key/gbiz-confirm", async (req, res) => {
   try {
     const key = decodeURIComponent(req.params.key);
     const corporateNumber = String(req.body?.corporate_number || "").trim();
     if (!corporateNumber) return res.status(400).json({ error: "法人番号が必要です" });
-
-    const detail = await getCompanyDetail(corporateNumber); // gBizINFOの確定情報
-    // 従業員数：gBizに無ければ「会社名 従業員数」等のWeb検索で補完（出典・確信度つき）
-    let employees = detail.employees || "";
-    let employeeSource = employees ? { source_name: "gBizINFO", confidence: "high" } : null;
-    if (!employees) {
-      try {
-        const emp = await lookupEmployeeCount(detail.official_name || key, detail.location || "");
-        if (emp.found) {
-          employees = emp.employees;
-          employeeSource = { source_name: emp.source_name || "Web検索", source_url: emp.source_url || "", as_of: emp.as_of || "", confidence: emp.confidence || "low" };
-        }
-      } catch (e) { console.warn("[gbiz-confirm] 従業員数補完失敗", e.message); }
-    }
-
-    // 既存のプロフィール形式に合わせて保存（gBizINFO由来であることを明示）
-    const profile = {
-      official_name: detail.official_name || key,
-      industry: detail.industry || "",
-      employees: employees || "",
-      employees_source: employeeSource, // 出典・確信度
-      hiring: "",
-      founded: detail.founded || "",
-      location: detail.location || "",
-      business: detail.business || "",
-      capital: detail.capital || "",
-      representative: detail.representative || "",
-      corporate_number: detail.corporate_number || corporateNumber,
-      source: "gBizINFO",
-      note: "gBizINFO（法人番号 " + (detail.corporate_number || corporateNumber) + "）で確定。従業員数は" + (employees ? (detail.employees ? "gBizINFO" : "Web検索") : "未取得") + "。",
-    };
-    const officialName = profile.official_name;
-    await saveAccount(key, { siteUrl: detail.company_url || "", officialName, profile });
-    res.json({ ok: true, officialName, profile });
+    const r = await confirmGbizForAccount(key, corporateNumber);
+    res.json({ ok: true, ...r });
   } catch (e) {
     console.error("[gbiz-confirm]", e.message);
+    res.status(502).json({ error: e.message });
+  }
+});
+
+// gBizINFO自動取得：案件を開いたときに呼ばれる。
+//  候補が1社（営業中）に絞れたら → 自動で確定して保存
+//  複数候補 → 候補を profile.gbiz_pending として保存（カードに「選択が必要」を出すため）
+//  0件 → not_found
+app.post("/api/accounts/:key/gbiz-auto", async (req, res) => {
+  try {
+    if (!gbizConfigured()) return res.json({ status: "disabled" });
+    const key = decodeURIComponent(req.params.key);
+    const name = String(req.body?.name || key).trim();
+    const candidates = await searchCompanies(name, 8);
+    const open_ = candidates.filter((c) => c.status !== "閉鎖");
+    if (open_.length === 1) {
+      const r = await confirmGbizForAccount(key, open_[0].corporate_number);
+      return res.json({ status: "confirmed", ...r });
+    }
+    if (open_.length === 0 && candidates.length === 0) {
+      return res.json({ status: "not_found" });
+    }
+    // 複数候補（または営業中0件だが閉鎖のみ）→ 保留として保存
+    const pendingProfile = { gbiz_pending: true, gbiz_candidates: candidates };
+    await saveAccount(key, { profile: pendingProfile });
+    res.json({ status: "needs_pick", candidates });
+  } catch (e) {
+    console.error("[gbiz-auto]", e.message);
     res.status(502).json({ error: e.message });
   }
 });
@@ -3736,6 +3854,25 @@ server.listen(PORT, async () => {
     }
   };
   setInterval(checkInsightSchedule, 60 * 1000); // 毎分チェック
+
+  // 未判定の商談を自動で判定するスイープ：起動2分後＋30分ごとに最大5件ずつ。
+  // （アップロード由来や過去分など、商談終了時の自動判定を通らなかった商談を拾う）
+  let judgeSweepRunning = false;
+  const judgeSweep = async () => {
+    if (judgeSweepRunning) return;
+    judgeSweepRunning = true;
+    try {
+      const ids = await listUnjudgedMeetings(5);
+      if (ids.length) console.log(`[judge-sweep] 未判定の商談 ${ids.length}件を自動判定します`);
+      for (const id of ids) {
+        try { await runExtraction(id, "anthropic"); }
+        catch (e) { console.warn("[judge-sweep] 失敗", id, e.message); }
+        await new Promise((r) => setTimeout(r, 1500));
+      }
+    } finally { judgeSweepRunning = false; }
+  };
+  setTimeout(judgeSweep, 2 * 60 * 1000);
+  setInterval(judgeSweep, 30 * 60 * 1000);
   console.log(`\n  kinbot (Bot方式) → http://localhost:${PORT}`);
   console.log(`  公開URL(Webhook受け口): ${PUBLIC_URL || "(未設定)"}`);
   console.log(`  要約エンジン: ${llm.provider} (${llm.model})`);

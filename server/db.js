@@ -1134,6 +1134,25 @@ export async function saveSettings(obj) {
   }
 }
 
+// 判定（deal_events）がまだ無い商談を返す。定期スイープで自動判定するために使う。
+// 文字起こしがあり、区分が「商談」（または未設定）のものだけ。新しい順。
+export async function listUnjudgedMeetings(limit = 5) {
+  if (!pool) return [];
+  try {
+    const { rows } = await pool.query(
+      `SELECT m.bot_id FROM meetings m
+       LEFT JOIN deal_events e ON e.bot_id = m.bot_id
+       WHERE e.id IS NULL
+         AND (m.category IS NULL OR m.category = '' OR m.category = '商談')
+         AND m.transcript IS NOT NULL AND jsonb_array_length(m.transcript) > 3
+       ORDER BY m.created_at DESC
+       LIMIT $1`,
+      [limit]
+    );
+    return rows.map((r) => r.bot_id);
+  } catch (e) { console.error("[db] listUnjudgedMeetings", e.message); return []; }
+}
+
 // 勝ち/負けパターン分析（インサイト）のキャッシュ
 export async function getWinInsight(scopeKey) {
   if (!pool) return null;
@@ -1199,6 +1218,17 @@ export async function dbCreateUser(email, name, passHash) {
     `INSERT INTO users (email, name, pass_hash) VALUES ($1,$2,$3)`,
     [email, name || "", passHash]
   );
+}
+
+// アカウント設定：表示名・パスワードの更新
+export async function dbUpdateUser(email, { name, passHash } = {}) {
+  if (!pool) throw new Error("DB未設定（DATABASE_URLが必要）");
+  const sets = [], vals = [email];
+  let i = 2;
+  if (name !== undefined) { sets.push(`name=$${i}`); vals.push(name || ""); i++; }
+  if (passHash !== undefined) { sets.push(`pass_hash=$${i}`); vals.push(passHash); i++; }
+  if (!sets.length) return;
+  await pool.query(`UPDATE users SET ${sets.join(", ")} WHERE email=$1`, vals);
 }
 
 // ---- ユーザーごとのGoogleカレンダー連携 ----

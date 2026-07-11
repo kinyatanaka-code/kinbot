@@ -24,6 +24,7 @@
         <main class="settings">
           <nav class="set-menu" id="setMenu">
             <button class="set-menu-item active" data-tab="general">動作設定</button>
+            <button class="set-menu-item" data-tab="account">アカウント</button>
             <button class="set-menu-item" data-tab="links">登録リンク</button>
             <button class="set-menu-item" data-tab="smartlinks">スマートリンク</button>
             <button class="set-menu-item" data-tab="integrations">連携</button>
@@ -69,6 +70,29 @@
                 <span class="saved" id="saved" hidden>保存しました</span>
               </div>
               <p class="note" id="persistNote"></p>
+            </div>
+          </div>
+
+          <div class="set-pane" data-pane="account" hidden>
+            <div class="set-card">
+              <h3>アカウント設定</h3>
+              <p class="note">登録時の表示名とパスワードを変更できます。メールアドレスは変更できません。</p>
+              <label class="field"><span>メールアドレス</span><input id="accEmail" type="email" disabled /></label>
+              <label class="field"><span>表示名</span><input id="accName" type="text" placeholder="例：田中欽也" /></label>
+              <div class="modal-actions">
+                <button class="btn" id="accSaveName">表示名を保存</button>
+                <span class="saved" id="accNameSaved" hidden>保存しました</span>
+              </div>
+            </div>
+            <div class="set-card">
+              <h3>パスワードの変更</h3>
+              <label class="field"><span>現在のパスワード</span><input id="accPwCur" type="password" autocomplete="current-password" /></label>
+              <label class="field"><span>新しいパスワード（8文字以上）</span><input id="accPwNew" type="password" autocomplete="new-password" /></label>
+              <label class="field"><span>新しいパスワード（確認）</span><input id="accPwNew2" type="password" autocomplete="new-password" /></label>
+              <div class="modal-actions">
+                <button class="btn" id="accSavePw">パスワードを変更</button>
+                <span class="saved" id="accPwSaved" hidden></span>
+              </div>
             </div>
           </div>
 

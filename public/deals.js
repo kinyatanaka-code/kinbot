@@ -38,6 +38,9 @@ let groups = {}; // groupKey -> meetings[]
 let groupPrimary = {}; // groupKey -> 代表rawキー
 let current = null;
 let dealStatuses = {}; // account -> {status, manual}
+let currentUserName = "";
+fetch("/api/me").then((r) => r.json()).then((d) => { currentUserName = (d && d.name) || ""; }).catch(() => {});
+const isStatusApprover = () => ["浦林", "中澤"].some((a) => currentUserName.includes(a));
 let accountsMap = {}; // key -> {site_url, official_name, owner, profile}
 let npSelectMode = false; // 「選択して判定」モード
 let npSelected = new Set(); // 選択中の案件（groupsのキー）
@@ -332,13 +335,34 @@ function renderNewProcess(box, d) {
   if (rr && box._ctx) rr.addEventListener("click", () => runNewProcess(box._ctx.botIds, box._ctx.companyName, box._ctx.pk, box._ctx.ms));
 }
 
+// gBizINFOで複数候補が出て「選択が必要」な案件の印。accounts.profile.gbiz_pending に保存する。
+function markGbizNeedsPick(pk, candidates) {
+  const acc = accountsMap[pk] || { key: pk };
+  // 実プロフィールが既にあるなら上書きしない（選択待ちは未取得のときだけ）
+  if (acc.profile && !acc.profile.gbiz_pending && (acc.profile.industry || acc.profile.location || acc.profile.employees)) return;
+  acc.profile = { gbiz_pending: true, gbiz_candidates: candidates || [] };
+  accountsMap[pk] = acc;
+  // サーバーにも保存して、リロード後もカードに印が出るようにする
+  fetch(`/api/accounts/${encodeURIComponent(pk)}`, {
+    method: "PUT", headers: { "content-type": "application/json" },
+    body: JSON.stringify({ profile: acc.profile }),
+  }).catch(() => {});
+}
+function clearGbizNeedsPick(pk) {
+  const acc = accountsMap[pk];
+  if (acc && acc.profile && acc.profile.gbiz_pending) {
+    // 確定時は confirm 側で実プロフィールが入るため、ここではローカルの印だけ消す
+    delete acc.profile.gbiz_pending;
+  }
+}
+
 function renderProfile(account) {
   const body = document.getElementById("profBody");
   if (!body) return;
   const acc = accountsMap[primaryOf(account)];
   const p = acc && acc.profile;
-  if (!p || !(p.industry || p.employees || p.hiring || p.founded || p.location || p.business)) {
-    body.innerHTML = '<div class="empty-state">企業サイトURLを入れて「取得」すると、業界・従業員数・採用人数などの会社概要が表示されます。</div>';
+  if (!p || p.gbiz_pending || !(p.industry || p.employees || p.hiring || p.founded || p.location || p.business)) {
+    body.innerHTML = '<div class="empty-state">会社情報を自動で検索しています…見つからない場合は「gBizINFOで会社を検索」を押すか、サイトURLから取得してください。</div>';
     return;
   }
   const cell = (label, val) => (val ? `<div class="prof-cell"><div class="prof-k">${label}</div><div class="prof-v">${esc(val)}</div></div>` : "");
@@ -676,11 +700,15 @@ function accountCardEl(a) {
     ? `<span class="np-card-badge np-${npStatusLabel(np.status).replace(/[()]/g, "")}">${esc(npStatusLabel(np.status))}</span>`
     : `<span class="np-card-badge np-none">未判定</span>`;
   const checked = npSelected.has(a);
+  // gBizINFOで複数候補 → 会社の選択待ち
+  const accForBadge = accountsMap[primaryOf(a)];
+  const gbizPick = accForBadge && accForBadge.profile && accForBadge.profile.gbiz_pending
+    ? '<span class="gbiz-pick-badge">企業選択が必要</span>' : "";
   const card = document.createElement("div");
   card.className = "deal-card" + (a === current ? " active" : "") + (npSelectMode ? " selectable" : "") + (checked ? " selected" : "");
   card.innerHTML =
     (npSelectMode ? `<span class="np-check">${checked ? "✓" : ""}</span>` : "") +
-    `<div class="deal-name">${esc(displayName(a))} ${kindBadge}<span class="status-badge st-${st}">${st}</span></div>` +
+    `<div class="deal-name">${esc(displayName(a))} ${kindBadge}${gbizPick}<span class="status-badge st-${st}">${st}</span></div>` +
     `<div class="deal-meta"><span>${ms.length}件</span><span>${esc(last.owner_name || last.owner || "")}</span></div>` +
     `<div class="deal-sub"><span class="np-card-label">新プロセス:</span> ${npBadge} ・ 最終 ${fmtDate(last.created_at)}</div>`;
   card.addEventListener("click", () => {
@@ -927,10 +955,27 @@ async function selectDeal(account) {
   }
 
   // ステータス変更
-  $("dealStSel").addEventListener("change", async (e) => {
+  // 新プロセス判定が「要確認」の案件は、リーダー（浦林・中澤）のみ変更できる
+  const npForLock = lookupNewProc(displayName(account)) || lookupNewProc(account);
+  const stSel = $("dealStSel");
+  if (npForLock && npForLock.status === "要確認" && !isStatusApprover()) {
+    stSel.disabled = true;
+    stSel.title = "「要確認」の案件は、リーダー（浦林・中澤）のみステータスを変更できます";
+    const lockNote = document.createElement("span");
+    lockNote.className = "st-lock-note";
+    lockNote.textContent = "🔒 要確認：リーダーのみ変更可";
+    stSel.parentElement && stSel.parentElement.appendChild(lockNote);
+  }
+  stSel.addEventListener("change", async (e) => {
     const v = e.target.value;
     const body = v === "__auto" ? { account: pk, auto: true } : { account: pk, status: v };
-    await fetch("/api/deal-status", { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+    const r = await fetch("/api/deal-status", { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+    if (!r.ok) {
+      const d = await r.json().catch(() => ({}));
+      alert(d.error || "ステータスを変更できませんでした");
+      selectDeal(account); // 元の表示に戻す
+      return;
+    }
     // ローカル状態を更新
     if (v === "__auto") {
       if (dealStatuses[pk]) dealStatuses[pk].manual = false;
@@ -1009,65 +1054,104 @@ async function selectDeal(account) {
   // gBizINFO：会社名で候補を検索 → 候補から選ぶ → 確定
   const gbizSearch = $("gbizSearch"), gbizCandidates = $("gbizCandidates");
   const companyName = displayName(account) || account;
-  if (gbizSearch) {
-    gbizSearch.addEventListener("click", async () => {
-      gbizSearch.disabled = true; gbizSearch.textContent = "検索中…";
-      gbizCandidates.innerHTML = '<div class="gbiz-loading">gBizINFOを検索しています…</div>';
-      try {
-        const r = await fetch(`/api/gbiz/search?name=${encodeURIComponent(companyName)}`);
-        const d = await r.json();
-        if (!r.ok) throw new Error(d.error || "検索に失敗しました");
-        const cands = d.candidates || [];
-        if (!cands.length) {
-          gbizCandidates.innerHTML = `<div class="gbiz-empty">「${escapeHtmlSafe(companyName)}」に一致する法人が見つかりませんでした。名称を変えて再検索するか、下の「サイトURLから取得」をお使いください。</div>`;
-          return;
-        }
-        gbizCandidates.innerHTML =
-          `<div class="gbiz-cand-head">候補から正しい会社を選んでください（${cands.length}件）</div>` +
-          cands.map((c, i) => `
-            <div class="gbiz-cand" data-num="${escapeHtmlSafe(c.corporate_number)}" data-i="${i}" role="button" tabindex="0">
-              <div class="gbiz-cand-main">
-                <span class="gbiz-cand-name">${escapeHtmlSafe(c.name)}</span>
-                ${c.status === "閉鎖" ? '<span class="gbiz-cand-closed">閉鎖</span>' : ""}
-              </div>
-              <div class="gbiz-cand-sub">${escapeHtmlSafe(c.location || "所在地不明")}${c.industry ? " ・ " + escapeHtmlSafe(c.industry) : ""}${c.founded ? " ・ 設立" + escapeHtmlSafe(c.founded) : ""}</div>
-              <div class="gbiz-cand-num">法人番号: ${escapeHtmlSafe(c.corporate_number)}</div>
-            </div>`).join("");
-        // 候補クリック → 確定
-        gbizCandidates.querySelectorAll(".gbiz-cand").forEach((el) => {
-          const confirm = async () => {
-            const num = el.dataset.num;
-            gbizCandidates.querySelectorAll(".gbiz-cand").forEach((x) => x.classList.remove("selected"));
-            el.classList.add("selected");
-            profStatus.textContent = "";
-            if (window.kbProgress) window.kbProgress(profStatus, { percent: null, label: "企業情報を取得し、従業員数を検索しています…" });
-            try {
-              const rr = await fetch(`/api/accounts/${encodeURIComponent(pk)}/gbiz-confirm`, {
-                method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ corporate_number: num }),
-              });
-              const dd = await rr.json();
-              if (!rr.ok) throw new Error(dd.error || "取得に失敗しました");
-              accountsMap[pk] = { key: pk, site_url: (accountsMap[pk] && accountsMap[pk].site_url) || "", official_name: dd.officialName, owner: accountsMap[pk] && accountsMap[pk].owner, profile: dd.profile };
-              if (window.kbProgress) window.kbProgress(profStatus, { clear: true });
-              renderProfile(account);
-              const h = document.querySelector("#dealDetail h2"); if (h) h.textContent = displayName(account);
-              const emp = dd.profile && dd.profile.employees;
-              profStatus.textContent = emp ? "取得しました（従業員数も取得）" : "取得しました（従業員数はWebで確認できませんでした）";
-              gbizCandidates.innerHTML = "";
-            } catch (e) {
-              if (window.kbProgress) window.kbProgress(profStatus, { clear: true });
-              profStatus.textContent = "失敗: " + e.message;
-            }
-          };
-          el.addEventListener("click", confirm);
-          el.addEventListener("keydown", (ev) => { if (ev.key === "Enter" || ev.key === " ") { ev.preventDefault(); confirm(); } });
-        });
-      } catch (e) {
-        gbizCandidates.innerHTML = `<div class="gbiz-empty">検索に失敗しました：${escapeHtmlSafe(e.message)}</div>`;
-      } finally {
-        gbizSearch.disabled = false; gbizSearch.textContent = "gBizINFOで会社を検索";
-      }
+
+  // 候補を1件確定する共通処理
+  const confirmGbiz = async (num) => {
+    profStatus.textContent = "";
+    if (window.kbProgress) window.kbProgress(profStatus, { percent: null, label: "企業情報を取得し、従業員数を検索しています…" });
+    try {
+      const rr = await fetch(`/api/accounts/${encodeURIComponent(pk)}/gbiz-confirm`, {
+        method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ corporate_number: num }),
+      });
+      const dd = await rr.json();
+      if (!rr.ok) throw new Error(dd.error || "取得に失敗しました");
+      accountsMap[pk] = { key: pk, site_url: (accountsMap[pk] && accountsMap[pk].site_url) || "", official_name: dd.officialName, owner: accountsMap[pk] && accountsMap[pk].owner, profile: dd.profile };
+      if (window.kbProgress) window.kbProgress(profStatus, { clear: true });
+      renderProfile(account);
+      const h = document.querySelector("#dealDetail h2"); if (h) h.textContent = displayName(account);
+      const emp = dd.profile && dd.profile.employees;
+      profStatus.textContent = emp ? "取得しました（従業員数も取得）" : "取得しました（従業員数はWebで確認できませんでした）";
+      gbizCandidates.innerHTML = "";
+      // 選択が済んだので、カードの「要選択」フラグを消す
+      clearGbizNeedsPick(pk);
+      renderList();
+    } catch (e) {
+      if (window.kbProgress) window.kbProgress(profStatus, { clear: true });
+      profStatus.textContent = "失敗: " + e.message;
+    }
+  };
+
+  // 候補リストを描画してクリックで確定できるようにする
+  const renderGbizCands = (cands, head) => {
+    gbizCandidates.innerHTML =
+      `<div class="gbiz-cand-head">${escapeHtmlSafe(head || "候補から正しい会社を選んでください")}（${cands.length}件）</div>` +
+      cands.map((c, i) => `
+        <div class="gbiz-cand" data-num="${escapeHtmlSafe(c.corporate_number)}" data-i="${i}" role="button" tabindex="0">
+          <div class="gbiz-cand-main">
+            <span class="gbiz-cand-name">${escapeHtmlSafe(c.name)}</span>
+            ${c.status === "閉鎖" ? '<span class="gbiz-cand-closed">閉鎖</span>' : ""}
+          </div>
+          <div class="gbiz-cand-sub">${escapeHtmlSafe(c.location || "所在地不明")}${c.industry ? " ・ " + escapeHtmlSafe(c.industry) : ""}${c.founded ? " ・ 設立" + escapeHtmlSafe(c.founded) : ""}</div>
+          <div class="gbiz-cand-num">法人番号: ${escapeHtmlSafe(c.corporate_number)}</div>
+        </div>`).join("");
+    gbizCandidates.querySelectorAll(".gbiz-cand").forEach((el) => {
+      const pick = () => {
+        gbizCandidates.querySelectorAll(".gbiz-cand").forEach((x) => x.classList.remove("selected"));
+        el.classList.add("selected");
+        confirmGbiz(el.dataset.num);
+      };
+      el.addEventListener("click", pick);
+      el.addEventListener("keydown", (ev) => { if (ev.key === "Enter" || ev.key === " ") { ev.preventDefault(); pick(); } });
     });
+  };
+
+  // gBizINFO検索を実行。auto=true のときは自動起動（候補1件なら自動確定、複数なら候補提示＋カードに印）。
+  const runGbizSearch = async (auto) => {
+    if (gbizSearch) { gbizSearch.disabled = true; gbizSearch.textContent = "検索中…"; }
+    gbizCandidates.innerHTML = '<div class="gbiz-loading">gBizINFOを検索しています…</div>';
+    try {
+      const r = await fetch(`/api/gbiz/search?name=${encodeURIComponent(companyName)}`);
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.error || "検索に失敗しました");
+      const cands = d.candidates || [];
+      if (!cands.length) {
+        gbizCandidates.innerHTML = `<div class="gbiz-empty">「${escapeHtmlSafe(companyName)}」に一致する法人が見つかりませんでした。名称を変えて再検索するか、下の「サイトURLから取得」をお使いください。</div>`;
+        clearGbizNeedsPick(pk);
+        return;
+      }
+      // 営業中の候補が1件に絞れたら自動で確定（閉鎖のみの重複は選択に回す）
+      const openCands = cands.filter((c) => c.status !== "閉鎖");
+      if (openCands.length === 1) {
+        gbizCandidates.innerHTML = "";
+        clearGbizNeedsPick(pk);
+        await confirmGbiz(openCands[0].corporate_number);
+        return;
+      }
+      // 複数候補：選択を促す。自動起動時はカードに「要選択」の印を付ける。
+      if (auto) { markGbizNeedsPick(pk, cands); renderList(); }
+      renderGbizCands(cands, auto ? "複数の会社が見つかりました。正しい会社を選んでください" : "候補から正しい会社を選んでください");
+    } catch (e) {
+      gbizCandidates.innerHTML = `<div class="gbiz-empty">検索に失敗しました：${escapeHtmlSafe(e.message)}</div>`;
+    } finally {
+      if (gbizSearch) { gbizSearch.disabled = false; gbizSearch.textContent = "gBizINFOで会社を検索"; }
+    }
+  };
+
+  if (gbizSearch) gbizSearch.addEventListener("click", () => runGbizSearch(false));
+
+  // 案件を開いた瞬間に自動でgBiz検索する（ボタン不要）。
+  //  - 実プロフィール取得済み → 何もしない
+  //  - 選択待ち（複数候補が保存済み）→ キャッシュから候補を即表示
+  //  - 未取得 → 自動検索（1件なら自動確定・複数なら候補提示＋カードに印）
+  const accNow = accountsMap[pk];
+  const profNow = accNow && accNow.profile;
+  const hasRealProfile = profNow && !profNow.gbiz_pending && (profNow.industry || profNow.employees || profNow.location);
+  if (!hasRealProfile) {
+    if (profNow && profNow.gbiz_pending && Array.isArray(profNow.gbiz_candidates) && profNow.gbiz_candidates.length) {
+      renderGbizCands(profNow.gbiz_candidates, "複数の会社が見つかっています。正しい会社を選んでください");
+    } else {
+      runGbizSearch(true);
+    }
   }
 
   // タイムライン

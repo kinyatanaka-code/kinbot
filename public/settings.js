@@ -1592,3 +1592,47 @@ function initSmartLinks() {
     }
   });
 })();
+
+// ===== アカウント設定（表示名・パスワード変更） =====
+(function () {
+  const email = document.getElementById("accEmail");
+  const nameI = document.getElementById("accName");
+  if (!email || !nameI) return;
+  // 現在の情報を読み込み
+  fetch("/api/me").then((r) => r.json()).then((d) => {
+    email.value = d.username || "";
+    nameI.value = d.name || "";
+  }).catch(() => {});
+
+  const saveName = document.getElementById("accSaveName");
+  const nameSaved = document.getElementById("accNameSaved");
+  if (saveName) saveName.addEventListener("click", async () => {
+    saveName.disabled = true;
+    try {
+      const r = await fetch("/api/me", { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ name: nameI.value }) });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.error || "保存に失敗しました");
+      if (nameSaved) { nameSaved.hidden = false; nameSaved.textContent = "保存しました"; setTimeout(() => (nameSaved.hidden = true), 4000); }
+    } catch (e) { alert(e.message); }
+    finally { saveName.disabled = false; }
+  });
+
+  const savePw = document.getElementById("accSavePw");
+  const pwSaved = document.getElementById("accPwSaved");
+  if (savePw) savePw.addEventListener("click", async () => {
+    const cur = document.getElementById("accPwCur").value;
+    const nw = document.getElementById("accPwNew").value;
+    const nw2 = document.getElementById("accPwNew2").value;
+    if (!nw || nw.length < 8) return alert("新しいパスワードは8文字以上にしてください");
+    if (nw !== nw2) return alert("新しいパスワード（確認）が一致しません");
+    savePw.disabled = true;
+    try {
+      const r = await fetch("/api/me", { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ current_password: cur, new_password: nw }) });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.error || "変更に失敗しました");
+      document.getElementById("accPwCur").value = ""; document.getElementById("accPwNew").value = ""; document.getElementById("accPwNew2").value = "";
+      if (pwSaved) { pwSaved.hidden = false; pwSaved.textContent = "パスワードを変更しました"; setTimeout(() => (pwSaved.hidden = true), 5000); }
+    } catch (e) { alert(e.message); }
+    finally { savePw.disabled = false; }
+  });
+})();

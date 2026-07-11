@@ -2436,7 +2436,7 @@ textarea.prompt-xl {
   border: 1px solid var(--line); border-radius: 8px; background: var(--panel-2); color: var(--ink);
 }
 .hfilters .hsearch input { min-width: 220px; }
-.hfilters .hdate { flex-direction: column; }
+.hfilters .hdate { flex-direction: column; justify-content: flex-end; }
 .hfilters .hdate-sep { align-self: flex-end; padding-bottom: 8px; color: var(--muted); font-size: 12px; }
 .hfilters .hsearch-clear { align-self: flex-end; padding: 7px 12px; font-size: 12.5px; }
 @media (max-width: 900px) {
@@ -2470,3 +2470,8 @@ textarea.prompt-xl {
 .prof-empsrc { font-size: 11px; color: #8a938c; font-weight: 400; }
 .prof-empurl { font-size: 11.5px; color: var(--muted); margin-top: 8px; word-break: break-all; }
 .prof-empurl a { color: #185FA5; }
+
+/* 案件カード：gBizINFO 会社選択待ちの印 */
+.gbiz-pick-badge { font-size: 10px; font-weight: 700; color: #8a5a1a; background: #fdf3e3; border: 1px solid #f0dfc0; padding: 1px 8px; border-radius: 999px; margin-left: 4px; vertical-align: 1px; }
+.st-lock-note { font-size: 11px; color: #8a5a1a; margin-left: 8px; white-space: nowrap; }
+select:disabled { opacity: .55; cursor: not-allowed; }
