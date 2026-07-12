@@ -1662,3 +1662,29 @@ function initSmartLinks() {
     }
   });
 })();
+
+// ステータス同期修復：deal_status（手動設定）→ deals.status（集計用）の不整合を直す
+(function () {
+  const btn = document.getElementById("syncStatusBtn");
+  const msg = document.getElementById("syncStatusMsg");
+  if (!btn) return;
+  btn.addEventListener("click", async () => {
+    if (!confirm("画面のステータスに合わせて、内部の集計用データを一括更新します。実行しますか？")) return;
+    btn.disabled = true;
+    const orig = btn.textContent;
+    btn.textContent = "同期中…";
+    try {
+      const r = await fetch("/api/deals/sync-status", { method: "POST" });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.error || "実行に失敗しました");
+      const sampleLines = (d.sample || []).slice(0, 5).map((s) => `・${s.company}: 「${s.before}」→「${s.after}」`).join("\n");
+      alert(`完了：${d.total}件中 ${d.updated}件を同期しました。\n\n${sampleLines ? "例：\n" + sampleLines : "（すべて既に一致していました）"}`);
+      if (msg) { msg.hidden = false; msg.textContent = `${d.updated}件を同期しました`; setTimeout(() => (msg.hidden = true), 6000); }
+    } catch (e) {
+      alert("失敗: " + e.message);
+    } finally {
+      btn.textContent = orig;
+      btn.disabled = false;
+    }
+  });
+})();

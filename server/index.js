@@ -601,6 +601,37 @@ app.put("/api/deals/:deal_id/manual-progress", async (req, res) => {
   }
 });
 
+// 手動ステータス（deal_status テーブル）と、実績集計に使う deals.status カラムの不整合を修復する。
+// 過去に「右上プルダウンでステータス変更 → deal_status だけ更新される（deals.status は取り残し）」
+// という状態になっていた案件があるため、これを一括で同期する。承認アカウントのみ実行可能。
+app.post("/api/deals/sync-status", async (req, res) => {
+  try {
+    const approver = isStatusApprover(req.impersonatorFrom || req.user);
+    if (!approver && !canImpersonate(req.impersonatorFrom)) {
+      return res.status(403).json({ error: "この操作は、中澤さん・浦林さんのみ実行できます。" });
+    }
+    const deals = await listDeals({});
+    const dealStatusMap = await listDealStatuses(); // { account: { status, manual } }
+    let updated = 0;
+    const changes = [];
+    for (const d of deals || []) {
+      // 手動設定のステータスを持っている案件だけ対象（AI由来のステータスは触らない）
+      const ds = dealStatusMap[d.company_name];
+      if (!ds || !ds.manual || !ds.status) continue;
+      if (ds.status === d.status) continue; // 一致していれば何もしない
+      await updateDealStatus(d.deal_id, ds.status, null);
+      updated++;
+      if (changes.length < 20) changes.push({ deal_id: d.deal_id, company: d.company_name, before: d.status, after: ds.status });
+    }
+    const updatedBy = req.impersonatorFrom ? `${req.impersonatorFrom} (as ${req.user})` : String(req.user || "");
+    console.log(`[sync-status] by ${updatedBy}: ${updated}件を同期`);
+    res.json({ ok: true, total: deals.length, updated, sample: changes });
+  } catch (e) {
+    console.error("[sync-status]", e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // 既存の案件名を、強化された会社名抽出ロジックで一括で書き直すバックフィル。
 // 承認アカウントのみ実行可能。冪等（同じ結果を返す）。
 app.post("/api/deals/backfill-names", async (req, res) => {
