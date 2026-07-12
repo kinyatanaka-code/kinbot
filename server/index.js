@@ -545,6 +545,18 @@ app.put("/api/deal-status", async (req, res) => {
       await setDealStatus(account, { manual: false });
     } else {
       await setDealStatus(account, { status, manual: true });
+      // 案件の deals.status カラムにも反映する（実績集計はこちらを見るため、同期しないと不整合が起きる）。
+      // 会社名（account）→ deal_id を引いてから更新する。
+      try {
+        const key = normCompanyKey(account);
+        const deals = await listDeals({});
+        const d = (deals || []).find((x) => normCompanyKey(x.company_name) === key);
+        if (d && d.deal_id) {
+          await updateDealStatus(d.deal_id, status, null);
+        }
+      } catch (e) {
+        console.warn("[deal-status] deals.status 同期に失敗", e.message);
+      }
     }
     res.json({ ok: true });
   } catch (e) {
