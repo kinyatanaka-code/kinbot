@@ -396,7 +396,7 @@ async function loadBackfillStatus() {
       stopPolling();
     } else {
       el.innerHTML = `<b>${d.needing}件</b>が未抽出（抽出済み: ${d.existing}件）`;
-      if (btn) { btn.disabled = false; btn.textContent = "20件を抽出する"; }
+      if (btn) { btn.disabled = false; btn.textContent = "50件を抽出する"; }
       stopPolling();
     }
     populatePilotSelect();
@@ -435,7 +435,7 @@ async function runBackfill() {
   } catch (e) {
     alert("失敗: " + e.message);
     btn.disabled = false;
-    btn.textContent = "20件を抽出する";
+    btn.textContent = "50件を抽出する";
   }
 }
 
@@ -1045,14 +1045,14 @@ async function loadProfileStatus() {
 // タグリセット（全件削除して再抽出可能にする）
 // ============================================================
 async function runResetTags() {
-  if (!confirm("すべてのタグデータを削除します。削除後、「20件を抽出する」で最初からやり直せます。\n\nこの操作は元に戻せません。実行しますか？")) return;
+  if (!confirm("すべてのタグデータを削除します。削除後、「50件を抽出する」で最初からやり直せます。\n\nこの操作は元に戻せません。実行しますか？")) return;
   const btn = $("resetTagsBtn");
   btn.disabled = true; btn.textContent = "削除中…";
   try {
     const r = await fetch("/api/feature-c/reset-tags", { method: "POST" });
     const d = await r.json();
     if (!r.ok) throw new Error(d.error || "失敗");
-    alert(`${d.deleted}件のタグを削除しました。「20件を抽出する」ボタンで再抽出してください。`);
+    alert(`${d.deleted}件のタグを削除しました。「50件を抽出する」ボタンで再抽出してください。`);
     await loadBackfillStatus();
     await loadAndRender();
   } catch (e) { alert("失敗: " + e.message); }

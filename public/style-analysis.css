@@ -386,3 +386,6 @@ details[open] > .sa-notice-toggle::before { content: "▾ "; }
 /* リセットボタン（赤系） */
 .sa-data-btn-danger { color: #a32d2d; background: #fbeaea; border-color: #f0cfcf; }
 .sa-data-btn-danger:hover { background: #f5d5d5; }
+
+/* ボタン横並び */
+.sa-data-actions { display: flex; gap: 8px; flex-wrap: wrap; }

@@ -2110,24 +2110,53 @@ export async function clearAllDealFeatureTags() {
 export async function fillIndustryFromProfiles() {
   if (!pool) return { updated: 0 };
   try {
-    // dealsテーブルから会社名→deal_id、accountsテーブルからprofile.industryを取得
     const deals = await pool.query(`SELECT deal_id, company_name FROM deals`);
     const accounts = await pool.query(`SELECT key, profile FROM accounts`);
     const profMap = {};
     for (const a of accounts.rows) {
       const p = a.profile;
-      if (p && p.industry) profMap[a.key] = p.industry;
+      if (p) profMap[a.key] = p;
     }
     let updated = 0;
     for (const d of deals.rows) {
-      const industry = profMap[d.company_name];
-      if (!industry) continue;
+      const prof = profMap[d.company_name];
+      if (!prof) continue;
+      const sets = [];
+      const vals = [];
+      let i = 1;
+      // 業界：プロフィールにあれば上書き（タグ側が「不明」や空なら）
+      if (prof.industry) {
+        sets.push(`customer_industry = $${i++}`);
+        vals.push(prof.industry);
+      }
+      // 従業員規模：プロフィールの従業員数から規模区分に変換
+      if (prof.employees) {
+        const size = employeeCountToSize(prof.employees);
+        if (size) {
+          sets.push(`customer_employee_size = $${i++}`);
+          vals.push(size);
+        }
+      }
+      if (!sets.length) continue;
+      vals.push(d.deal_id);
       const r = await pool.query(
-        `UPDATE deal_feature_tags SET customer_industry = $1 WHERE deal_id = $2 AND (customer_industry IS NULL OR customer_industry = '')`,
-        [industry, d.deal_id]
+        `UPDATE deal_feature_tags SET ${sets.join(", ")} WHERE deal_id = $${i} AND (customer_industry IS NULL OR customer_industry = '' OR customer_industry = '不明' OR customer_employee_size IS NULL OR customer_employee_size = '不明')`,
+        vals
       );
       if (r.rowCount > 0) updated++;
     }
     return { updated, total: deals.rows.length };
   } catch (e) { console.error("[db] fillIndustryFromProfiles", e.message); return { updated: 0, error: e.message }; }
+}
+
+// 従業員数の文字列（"600名"、"300人"、"1,200名"等）を規模区分に変換
+function employeeCountToSize(empStr) {
+  if (!empStr) return "";
+  const num = parseInt(String(empStr).replace(/[,，]/g, "").replace(/[名人].*$/, ""), 10);
+  if (isNaN(num)) return "";
+  if (num <= 50) return "〜50人";
+  if (num <= 200) return "51〜200人";
+  if (num <= 500) return "201〜500人";
+  if (num <= 1000) return "501〜1000人";
+  return "1001人以上";
 }

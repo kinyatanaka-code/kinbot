@@ -2476,11 +2476,23 @@ app.get("/api/feature-c/tags", async (req, res) => {
     for (const r of rows) {
       const company = dealCompany[r.deal_id] || "";
       r.company_name = company;
-      // 会社プロフィールから業界を取得
       const acc = accountMap[company];
       const prof = (acc && acc.profile) || {};
-      r.customer_industry = r.customer_industry || prof.industry || null;
-      // talk_exampleも返す（参考事例ドリルダウン用）
+      // 業界：タグが「不明」か空ならプロフィールから補完
+      if (!r.customer_industry || r.customer_industry === "不明") {
+        r.customer_industry = prof.industry || null;
+      }
+      // 従業員規模：タグが「不明」ならプロフィールの従業員数から変換して補完
+      if ((!r.customer_employee_size || r.customer_employee_size === "不明") && prof.employees) {
+        const num = parseInt(String(prof.employees).replace(/[,，]/g, "").replace(/[名人].*$/, ""), 10);
+        if (!isNaN(num)) {
+          if (num <= 50) r.customer_employee_size = "〜50人";
+          else if (num <= 200) r.customer_employee_size = "51〜200人";
+          else if (num <= 500) r.customer_employee_size = "201〜500人";
+          else if (num <= 1000) r.customer_employee_size = "501〜1000人";
+          else r.customer_employee_size = "1001人以上";
+        }
+      }
     }
     res.json({ tags: rows, total: rows.length });
   } catch (e) {
@@ -2623,7 +2635,7 @@ app.post("/api/feature-c/backfill", async (req, res) => {
     if (fcBackfillState.running) {
       return res.json({ ok: true, already_running: true, ...fcBackfillState });
     }
-    const limit = 20;
+    const limit = Math.min(50, Math.max(1, Number(req.body?.limit || 50)));
     const targets = await listDealsNeedingFeatureTags({ limit });
     if (!targets.length) return res.json({ ok: true, processed: 0, failed: 0, remaining: 0, message: "対象案件がありません" });
 

@@ -142,13 +142,16 @@
 
             <!-- アクションカード（2列×2行） -->
             <div class="sa-data-grid">
-              <div class="sa-data-card">
+              <div class="sa-data-card sa-data-card-wide">
                 <div class="sa-data-card-head">
                   <span class="sa-data-icon">🏷</span>
                   <h3>タグ抽出</h3>
                 </div>
                 <div id="backfillStatus" class="sa-data-status">確認中…</div>
-                <button class="btn sa-data-btn" id="backfillBtn">実行</button>
+                <div class="sa-data-actions">
+                  <button class="btn sa-data-btn" id="backfillBtn">50件を抽出する</button>
+                  <button class="btn sa-data-btn sa-data-btn-danger" id="resetTagsBtn">全リセット</button>
+                </div>
               </div>
               <div class="sa-data-card">
                 <div class="sa-data-card-head">
@@ -157,22 +160,6 @@
                 </div>
                 <div id="syncStatusResult" class="sa-data-status">案件の判定変更をタグに反映します</div>
                 <button class="btn sa-data-btn" id="fcSyncBtn">同期する</button>
-              </div>
-              <div class="sa-data-card">
-                <div class="sa-data-card-head">
-                  <span class="sa-data-icon">🗑</span>
-                  <h3>タグをリセット</h3>
-                </div>
-                <div class="sa-data-status">全タグを削除して最初から再抽出します</div>
-                <button class="btn sa-data-btn sa-data-btn-danger" id="resetTagsBtn">リセット</button>
-              </div>
-              <div class="sa-data-card sa-data-card-wide">
-                <div class="sa-data-card-head">
-                  <span class="sa-data-icon">🏢</span>
-                  <h3>会社プロフィールから業界を反映</h3>
-                </div>
-                <div id="fillIndustryStatus" class="sa-data-status">案件の会社プロフィール（gBizINFO等）に登録済みの業界をタグに一括コピーします</div>
-                <button class="btn sa-data-btn" id="fillIndustryBtn">業界を反映する</button>
               </div>
               <div class="sa-data-card">
                 <div class="sa-data-card-head">
