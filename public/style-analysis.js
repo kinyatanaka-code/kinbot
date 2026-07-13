@@ -341,6 +341,8 @@ function renderTagCounts(title, obj) {
 }
 
 // ---- データ抽出タブ ----
+let pollTimer = null;
+
 async function loadBackfillStatus() {
   try {
     const r = await fetch("/api/feature-c/status");
@@ -349,34 +351,68 @@ async function loadBackfillStatus() {
     const el = $("backfillStatus");
     if (!el) return;
     const btn = $("backfillBtn");
-    if (d.needing === 0) {
+    const bf = d.backfill || {};
+
+    if (bf.running) {
+      // 処理中：進捗を表示してポーリング継続
+      const pct = bf.total ? Math.round(bf.processed / bf.total * 100) : 0;
+      el.innerHTML = `<b>処理中… ${bf.processed}/${bf.total}件</b>（${pct}%完了、失敗 ${bf.failed}件）`;
+      if (btn) { btn.disabled = true; btn.textContent = `処理中… ${bf.processed}/${bf.total}`; }
+      startPolling();
+    } else if (d.needing === 0) {
       el.innerHTML = `✓ すべての案件（${d.existing}件）にタグ付与済み`;
-      if (btn) btn.disabled = true;
+      if (btn) { btn.disabled = true; btn.textContent = "タグ抽出を実行（全件完了済み）"; }
+      stopPolling();
+      // 処理完了直後なら結果を表示
+      if (bf.total > 0) {
+        el.innerHTML += `<div style="margin-top:6px;font-size:12px;color:#5f6b63;">前回の結果: ${bf.processed}件成功 / ${bf.failed}件失敗</div>`;
+      }
     } else {
       el.innerHTML = `<b>${d.needing}件</b>の案件がタグ未抽出です（抽出済み: ${d.existing}件）`;
+      if (btn) { btn.disabled = false; btn.textContent = `タグ抽出を実行（${d.needing}件）`; }
+      stopPolling();
+      if (bf.total > 0 && !bf.running) {
+        el.innerHTML += `<div style="margin-top:6px;font-size:12px;color:#5f6b63;">前回の結果: ${bf.processed}件成功 / ${bf.failed}件失敗</div>`;
+      }
     }
     populatePilotSelect();
   } catch { const el = $("backfillStatus"); if (el) el.textContent = "状態の取得に失敗"; }
 }
 
+function startPolling() {
+  if (pollTimer) return;
+  pollTimer = setInterval(async () => {
+    await loadBackfillStatus();
+    // 完了したらデータも再取得
+    const r = await fetch("/api/feature-c/status").then((r) => r.json()).catch(() => null);
+    if (r && r.backfill && !r.backfill.running) {
+      stopPolling();
+      await loadAndRender();
+    }
+  }, 5000);
+}
+
+function stopPolling() {
+  if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
+}
+
 async function runBackfill() {
   const btn = $("backfillBtn");
-  if (!confirm("未抽出の案件20件にAIでタグを付けます。1〜2分かかります。実行しますか？")) return;
+  if (!confirm("全ての未抽出案件にAIでタグを付けます。バックグラウンドで処理するため、このページを開いたまま進捗を確認できます。\n\n実行しますか？")) return;
   btn.disabled = true;
-  const orig = btn.textContent;
-  btn.textContent = "処理中…（1〜2分かかります）";
+  btn.textContent = "開始しています…";
   try {
     const r = await fetch("/api/feature-c/backfill", {
       method: "POST", headers: { "content-type": "application/json" },
-      body: JSON.stringify({ limit: 20 }),
     });
     const d = await r.json();
     if (!r.ok) throw new Error(d.error || "失敗");
-    alert(`完了：${d.processed}件を抽出（失敗 ${d.failed}件）\n残り: ${d.remaining}件`);
+    if (d.already_running) {
+      alert("既に処理が実行中です。進捗は画面で確認できます。");
+    }
+    startPolling();
     await loadBackfillStatus();
-    await loadAndRender();
-  } catch (e) { alert("失敗: " + e.message); }
-  finally { btn.textContent = orig; btn.disabled = false; }
+  } catch (e) { alert("失敗: " + e.message); btn.disabled = false; btn.textContent = "タグ抽出を実行"; }
 }
 
 async function runSyncStatus() {

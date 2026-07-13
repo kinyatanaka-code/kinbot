@@ -1547,7 +1547,7 @@ export async function extractFeatureCTags(transcript, meetingDate) {
     ],
   };
 
-  const raw = parseJson(await callLLM(sys, user, 1400, extractLLMOpts({ schema }))) || {};
+  const raw = parseJson(await callLLM(sys, user, 1400, await extractLLMOpts({ schema }))) || {};
   // 空配列や欠損項目を正規化して返す
   return {
     customer_employee_size: raw.customer_employee_size || "不明",

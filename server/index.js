@@ -2601,68 +2601,84 @@ app.get("/api/feature-c/status", async (req, res) => {
   try {
     const needing = await listDealsNeedingFeatureTags({ limit: 10000 });
     const existing = await listDealFeatureTags({});
-    res.json({ needing: needing.length, existing: existing.length });
+    res.json({
+      needing: needing.length,
+      existing: existing.length,
+      backfill: fcBackfillState,
+    });
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
 });
 
-// バックフィル：deal_feature_tagsに未登録の案件を対象に、初回商談の文字起こしからタグ抽出を実行。
-// 冪等（既存レコードはUPSERTで上書き）。長時間かかるためタイムアウトを避けるチャンク処理。
+// バックフィル：全件をバックグラウンドで処理。
+// POST で開始 → 即レスポンス → サーバー内でループ処理。
+// 進捗は GET /api/feature-c/status で polling して確認。
+let fcBackfillState = { running: false, processed: 0, failed: 0, total: 0, errors: [] };
+
 app.post("/api/feature-c/backfill", async (req, res) => {
   try {
-    const limit = Math.min(50, Math.max(1, Number(req.body?.limit || 20)));
-    const targets = await listDealsNeedingFeatureTags({ limit });
+    if (fcBackfillState.running) {
+      return res.json({ ok: true, already_running: true, ...fcBackfillState });
+    }
+    const targets = await listDealsNeedingFeatureTags({ limit: 10000 });
     if (!targets.length) return res.json({ ok: true, processed: 0, remaining: 0, message: "対象案件がありません" });
 
-    let processed = 0, failed = 0;
-    const errors = [];
-    for (const t of targets) {
-      try {
-        const m = await getMeeting(t.bot_id);
-        if (!m || !Array.isArray(m.transcript) || !m.transcript.length) {
-          failed++; errors.push({ deal_id: t.deal_id, reason: "文字起こしなし" }); continue;
+    // 即レスポンスを返す
+    fcBackfillState = { running: true, processed: 0, failed: 0, total: targets.length, errors: [] };
+    res.json({ ok: true, started: true, total: targets.length, message: `${targets.length}件の処理を開始しました` });
+
+    // バックグラウンドで全件処理
+    (async () => {
+      for (const t of targets) {
+        try {
+          const m = await getMeeting(t.bot_id);
+          if (!m || !Array.isArray(m.transcript) || !m.transcript.length) {
+            fcBackfillState.failed++;
+            fcBackfillState.errors.push({ deal_id: t.deal_id, reason: "文字起こしなし" });
+            continue;
+          }
+          const tags = await extractFeatureCTags(m.transcript, String(t.first_meeting_date || "").slice(0, 10));
+          let responseStatus = tags.customer_response_status;
+          if (String(t.status || "").startsWith("失注")) responseStatus = "失注";
+          await upsertDealFeatureTags(t.deal_id, {
+            first_meeting_date: String(t.first_meeting_date || "").slice(0, 10) || null,
+            owner: t.owner || "",
+            team: t.team || "",
+            customer_employee_size: tags.customer_employee_size,
+            target_hire_count: tags.target_hire_count,
+            hiring_type_need: tags.hiring_type_need,
+            customer_hq_region: tags.customer_hq_region,
+            customer_industry: null,
+            target_job_type: null,
+            customer_response_status: responseStatus,
+            decision_maker_present: tags.decision_maker_present,
+            competitor_mentioned: tags.competitor_mentioned,
+            key_pain_points: tags.key_pain_points,
+            appeal_points_used: tags.appeal_points_used,
+            talk_patterns: tags.talk_patterns,
+            talk_example: tags.talk_example,
+            meeting_stages: tags.meeting_stages,
+            discovery_items_covered: tags.discovery_items_covered,
+            objection_handling_style: tags.objection_handling_style,
+            objections_raised: tags.objections_raised,
+            tag_confidence: tags.tag_confidence,
+            result: String(t.status || "").startsWith("失注") ? "失注" : (t.status === "受注" ? "受注" : "進行中"),
+            raw_extraction: tags.raw_llm,
+          });
+          fcBackfillState.processed++;
+        } catch (e) {
+          fcBackfillState.failed++;
+          fcBackfillState.errors.push({ deal_id: t.deal_id, reason: e.message });
         }
-        const tags = await extractFeatureCTags(m.transcript, String(t.first_meeting_date || "").slice(0, 10));
-        // 依頼書4.2の後処理：Feature Aで即失注判定なら"失注"に上書き
-        let responseStatus = tags.customer_response_status;
-        if (String(t.status || "").startsWith("失注")) responseStatus = "失注";
-        await upsertDealFeatureTags(t.deal_id, {
-          first_meeting_date: String(t.first_meeting_date || "").slice(0, 10) || null,
-          owner: t.owner || "",
-          team: t.team || "",
-          customer_employee_size: tags.customer_employee_size,
-          target_hire_count: tags.target_hire_count,
-          hiring_type_need: tags.hiring_type_need,
-          customer_hq_region: tags.customer_hq_region,
-          customer_industry: null,
-          target_job_type: null,
-          customer_response_status: responseStatus,
-          decision_maker_present: tags.decision_maker_present,
-          competitor_mentioned: tags.competitor_mentioned,
-          key_pain_points: tags.key_pain_points,
-          appeal_points_used: tags.appeal_points_used,
-          talk_patterns: tags.talk_patterns,
-          talk_example: tags.talk_example,
-          meeting_stages: tags.meeting_stages,
-          discovery_items_covered: tags.discovery_items_covered,
-          objection_handling_style: tags.objection_handling_style,
-          objections_raised: tags.objections_raised,
-          tag_confidence: tags.tag_confidence,
-          result: String(t.status || "").startsWith("失注") ? "失注" : (t.status === "受注" ? "受注" : "進行中"),
-          raw_extraction: tags.raw_llm,
-        });
-        processed++;
-      } catch (e) {
-        failed++;
-        errors.push({ deal_id: t.deal_id, reason: e.message });
+        if (fcBackfillState.errors.length > 50) fcBackfillState.errors = fcBackfillState.errors.slice(-20);
       }
-    }
-    const remaining = await listDealsNeedingFeatureTags({ limit: 10000 });
-    console.log(`[feature-c/backfill] processed=${processed} failed=${failed} remaining=${remaining.length}`);
-    res.json({ ok: true, processed, failed, remaining: remaining.length, errors: errors.slice(0, 10) });
+      console.log(`[feature-c/backfill] 完了: processed=${fcBackfillState.processed} failed=${fcBackfillState.failed} total=${fcBackfillState.total}`);
+      fcBackfillState.running = false;
+    })();
   } catch (e) {
     console.error("[feature-c/backfill]", e.message);
+    fcBackfillState.running = false;
     res.status(500).json({ error: e.message });
   }
 });
