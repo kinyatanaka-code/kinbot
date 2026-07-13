@@ -2630,6 +2630,14 @@ app.post("/api/feature-c/backfill", async (req, res) => {
 
     // バックグラウンドで全件処理
     (async () => {
+      // 日付をYYYY-MM-DD形式に正規化（DBから"Wed Jul 01"等が返ることがある）
+      const toDateStr = (d) => {
+        if (!d) return null;
+        if (typeof d === "string" && /^\d{4}-\d{2}-\d{2}/.test(d)) return d.slice(0, 10);
+        const parsed = new Date(d);
+        if (isNaN(parsed.getTime())) return null;
+        return parsed.toISOString().slice(0, 10);
+      };
       for (const t of targets) {
         try {
           const m = await getMeeting(t.bot_id);
@@ -2638,11 +2646,12 @@ app.post("/api/feature-c/backfill", async (req, res) => {
             fcBackfillState.errors.push({ deal_id: t.deal_id, reason: "文字起こしなし" });
             continue;
           }
-          const tags = await extractFeatureCTags(m.transcript, String(t.first_meeting_date || "").slice(0, 10));
+          const dateStr = toDateStr(t.first_meeting_date);
+          const tags = await extractFeatureCTags(m.transcript, dateStr || "不明");
           let responseStatus = tags.customer_response_status;
           if (String(t.status || "").startsWith("失注")) responseStatus = "失注";
           await upsertDealFeatureTags(t.deal_id, {
-            first_meeting_date: String(t.first_meeting_date || "").slice(0, 10) || null,
+            first_meeting_date: dateStr,
             owner: t.owner || "",
             team: t.team || "",
             customer_employee_size: tags.customer_employee_size,

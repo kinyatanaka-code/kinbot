@@ -1986,7 +1986,16 @@ export async function upsertDealFeatureTags(dealId, tags) {
     // 型の正規化
     if (jsonCols.has(c) && v != null) v = JSON.stringify(v);
     if (boolCols.has(c)) v = v === true ? true : v === false ? false : null;
-    if (dateCols.has(c) && (v === "" || v === "undefined" || v === "null")) v = null;
+    if (dateCols.has(c)) {
+      // "Wed Jul 01" や "" や undefined → null or YYYY-MM-DD
+      if (!v || v === "" || v === "undefined" || v === "null") { v = null; }
+      else if (typeof v === "string" && !/^\d{4}-\d{2}-\d{2}/.test(v)) {
+        const parsed = new Date(v);
+        v = isNaN(parsed.getTime()) ? null : parsed.toISOString().slice(0, 10);
+      } else if (v instanceof Date) {
+        v = v.toISOString().slice(0, 10);
+      }
+    }
     vals.push(v);
     placeholders.push(`$${idx}`);
   });
