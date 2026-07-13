@@ -1547,7 +1547,7 @@ export async function extractFeatureCTags(transcript, meetingDate) {
     ],
   };
 
-  const raw = parseJson(await callLLM(sys, user, 1400, await extractLLMOpts({ schema }))) || {};
+  const raw = parseJson(await callLLM(sys, user, 1400, { schema, provider: "gemini" })) || {};
   // 空配列や欠損項目を正規化して返す
   return {
     customer_employee_size: raw.customer_employee_size || "不明",
@@ -1635,7 +1635,7 @@ export async function enrichCompanyAttributes(companyName) {
     `【業界に関するリサーチ結果】\n"""\n${(industryResearch || "(なし)").slice(0, 5000)}\n"""\n\n` +
     `【求人・職種に関するリサーチ結果】\n"""\n${(jobResearch || "(なし)").slice(0, 5000)}\n"""\n\n` +
     `上記だけを根拠に、業界（固定区分から選択）と募集職種（固定カテゴリから複数選択可）をJSONで出力してください。`;
-  const o = parseJson(await callLLM(sys, user, 500, { schema, provider: "anthropic" })) || {};
+  const o = parseJson(await callLLM(sys, user, 500, { schema, provider: "gemini" })) || {};
 
   const industry = o.industry && o.industry !== "不明" ? o.industry : "";
   const jobTypes = Array.isArray(o.recruiting_job_types) ? o.recruiting_job_types.filter(Boolean) : [];
@@ -1689,6 +1689,6 @@ export async function generateFeatureCInsights(statsText) {
     required: ["insights"],
   };
   const user = `以下はBtoB営業チームの商談タグ×受注率の集計データです。n<5のセグメントは既に除外済みです。\n\n"""\n${String(statsText || "").slice(0, 8000)}\n"""`;
-  const o = parseJson(await callLLM(sys, user, 1200, { schema, provider: "anthropic" })) || {};
+  const o = parseJson(await callLLM(sys, user, 1200, { schema, provider: "gemini" })) || {};
   return Array.isArray(o.insights) ? o.insights : [];
 }
