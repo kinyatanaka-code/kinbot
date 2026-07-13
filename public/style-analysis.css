@@ -382,3 +382,7 @@ details[open] > .sa-notice-toggle::before { content: "▾ "; }
 .sa-profile-item:hover { background: #ddf0e3; }
 .sa-profile-name { font-weight: 600; }
 .sa-profile-owner { font-size: 10.5px; color: #6b7770; }
+
+/* リセットボタン（赤系） */
+.sa-data-btn-danger { color: #a32d2d; background: #fbeaea; border-color: #f0cfcf; }
+.sa-data-btn-danger:hover { background: #f5d5d5; }

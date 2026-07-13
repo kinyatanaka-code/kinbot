@@ -71,6 +71,8 @@ import {
   upsertDealFeatureTags,
   listDealFeatureTags,
   listDealsNeedingFeatureTags,
+  clearAllDealFeatureTags,
+  fillIndustryFromProfiles,
   upsertEnterpriseAttributes,
   getEnterpriseAttributesMap,
   listCompaniesNeedingEnrichment,
@@ -1085,7 +1087,7 @@ async function runExtraction(botId, forceProvider) {
           await upsertDealFeatureTags(deal.deal_id, {
             first_meeting_date: meetingDateStr, owner: repName || owner, team,
             ...tags, customer_response_status: responseStatus,
-            customer_industry: null, target_job_type: null,
+            customer_industry: tags.customer_industry, target_job_type: null,
             result: dealStatus.startsWith("失注") ? "失注" : (dealStatus === "受注" ? "受注" : "進行中"),
             raw_extraction: tags.raw_llm,
           });
@@ -2654,7 +2656,7 @@ app.post("/api/feature-c/backfill", async (req, res) => {
             target_hire_count: tags.target_hire_count,
             hiring_type_need: tags.hiring_type_need,
             customer_hq_region: tags.customer_hq_region,
-            customer_industry: null, target_job_type: null,
+            customer_industry: tags.customer_industry, target_job_type: null,
             customer_response_status: responseStatus,
             decision_maker_present: tags.decision_maker_present,
             competitor_mentioned: tags.competitor_mentioned,
@@ -2714,6 +2716,28 @@ app.post("/api/feature-c/sync-status", async (req, res) => {
     }
     console.log(`[feature-c/sync-status] ${updated}件を同期`);
     res.json({ ok: true, total: tags.length, updated, sample: changes });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// タグを全件リセットして再抽出可能にする
+app.post("/api/feature-c/reset-tags", async (req, res) => {
+  try {
+    const deleted = await clearAllDealFeatureTags();
+    console.log(`[feature-c/reset-tags] ${deleted}件を削除`);
+    res.json({ ok: true, deleted });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// 会社プロフィール（accounts.profile）から業界をタグテーブルに一括反映
+app.post("/api/feature-c/fill-industry", async (req, res) => {
+  try {
+    const result = await fillIndustryFromProfiles();
+    console.log(`[feature-c/fill-industry] ${result.updated}件を反映`);
+    res.json({ ok: true, ...result });
   } catch (e) {
     res.status(500).json({ error: e.message });
   }

@@ -2096,3 +2096,38 @@ export async function listCompaniesNeedingEnrichment({ limit = 20, staleDays = 1
     return rows.map((r) => r.company_name);
   } catch (e) { console.error("[db] listCompaniesNeedingEnrichment", e.message); return []; }
 }
+
+// Feature C: タグを全件削除（再抽出用）
+export async function clearAllDealFeatureTags() {
+  if (!pool) return 0;
+  try {
+    const r = await pool.query(`DELETE FROM deal_feature_tags`);
+    return r.rowCount || 0;
+  } catch (e) { console.error("[db] clearAllDealFeatureTags", e.message); return 0; }
+}
+
+// Feature C: 会社プロフィールから業界をタグテーブルに一括反映
+export async function fillIndustryFromProfiles() {
+  if (!pool) return { updated: 0 };
+  try {
+    // dealsテーブルから会社名→deal_id、accountsテーブルからprofile.industryを取得
+    const deals = await pool.query(`SELECT deal_id, company_name FROM deals`);
+    const accounts = await pool.query(`SELECT key, profile FROM accounts`);
+    const profMap = {};
+    for (const a of accounts.rows) {
+      const p = a.profile;
+      if (p && p.industry) profMap[a.key] = p.industry;
+    }
+    let updated = 0;
+    for (const d of deals.rows) {
+      const industry = profMap[d.company_name];
+      if (!industry) continue;
+      const r = await pool.query(
+        `UPDATE deal_feature_tags SET customer_industry = $1 WHERE deal_id = $2 AND (customer_industry IS NULL OR customer_industry = '')`,
+        [industry, d.deal_id]
+      );
+      if (r.rowCount > 0) updated++;
+    }
+    return { updated, total: deals.rows.length };
+  } catch (e) { console.error("[db] fillIndustryFromProfiles", e.message); return { updated: 0, error: e.message }; }
+}

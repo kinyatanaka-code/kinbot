@@ -64,6 +64,10 @@ window.addEventListener("DOMContentLoaded", async () => {
   if (bfBtn) bfBtn.addEventListener("click", runBackfill);
   const syncBtn = $("fcSyncBtn");
   if (syncBtn) syncBtn.addEventListener("click", runSyncStatus);
+  const resetBtn = $("resetTagsBtn");
+  if (resetBtn) resetBtn.addEventListener("click", runResetTags);
+  const fillBtn = $("fillIndustryBtn");
+  if (fillBtn) fillBtn.addEventListener("click", runFillIndustry);
   const pilotSel = $("pilotDealSelect");
   if (pilotSel) pilotSel.addEventListener("change", showPilotDetail);
 
@@ -1035,4 +1039,43 @@ async function loadProfileStatus() {
       }
     }
   } catch { el.textContent = ""; }
+}
+
+// ============================================================
+// タグリセット（全件削除して再抽出可能にする）
+// ============================================================
+async function runResetTags() {
+  if (!confirm("すべてのタグデータを削除します。削除後、「20件を抽出する」で最初からやり直せます。\n\nこの操作は元に戻せません。実行しますか？")) return;
+  const btn = $("resetTagsBtn");
+  btn.disabled = true; btn.textContent = "削除中…";
+  try {
+    const r = await fetch("/api/feature-c/reset-tags", { method: "POST" });
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.error || "失敗");
+    alert(`${d.deleted}件のタグを削除しました。「20件を抽出する」ボタンで再抽出してください。`);
+    await loadBackfillStatus();
+    await loadAndRender();
+  } catch (e) { alert("失敗: " + e.message); }
+  finally { btn.textContent = "リセット"; btn.disabled = false; }
+}
+
+// ============================================================
+// 会社プロフィールから業界を一括反映
+// ============================================================
+async function runFillIndustry() {
+  const btn = $("fillIndustryBtn");
+  const status = $("fillIndustryStatus");
+  btn.disabled = true; btn.textContent = "反映中…";
+  try {
+    const r = await fetch("/api/feature-c/fill-industry", { method: "POST" });
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.error || "失敗");
+    const msg = d.updated > 0
+      ? `${d.updated}件の案件に業界を反映しました`
+      : "反映対象がありませんでした（プロフィールが未取得、または既に反映済み）";
+    if (status) status.textContent = msg;
+    alert(msg);
+    await loadAndRender();
+  } catch (e) { alert("失敗: " + e.message); }
+  finally { btn.textContent = "業界を反映する"; btn.disabled = false; }
 }
