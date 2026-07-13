@@ -1,3 +1,88 @@
+
+/* ===== 折りたたみ注意書き ===== */
+.sa-notice-wrap {
+  margin-bottom: 16px; border-radius: 8px;
+  background: #fdf6e3; border: 1px solid #ecd9a0;
+}
+.sa-notice-toggle {
+  padding: 10px 16px; font-size: 12.5px; color: #8a6d1a; cursor: pointer;
+  list-style: none; user-select: none;
+}
+.sa-notice-toggle::-webkit-details-marker { display: none; }
+.sa-notice-toggle::before { content: "▸ "; font-size: 10px; }
+details[open] > .sa-notice-toggle::before { content: "▾ "; }
+.sa-notice-body {
+  padding: 0 16px 12px; font-size: 12px; color: #5a4b1a; line-height: 1.7;
+}
+
+/* ===== ツールバー（1行コンパクト） ===== */
+.sa-toolbar {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  padding: 10px 14px; margin-bottom: 14px;
+  background: #fff; border: 1px solid #e6e8e5; border-radius: 10px;
+}
+.sa-toolbar input, .sa-toolbar select {
+  padding: 5px 8px; font-size: 12.5px;
+  border: 1px solid #dfe4df; border-radius: 6px; background: #fff; color: #1b241f;
+}
+.sa-toolbar input[type="date"] { width: 130px; }
+.sa-tool-sep { font-size: 12px; color: #8a938c; }
+.sa-tool-status { margin-left: auto; font-size: 11.5px; color: #6b7770; }
+.sa-tool-status.err { color: #a32d2d; }
+
+/* ===== セクション見出し（ボタン横付け） ===== */
+.sa-section-head {
+  display: flex; align-items: center; gap: 10px; margin-bottom: 12px;
+}
+.sa-section-head h2 { margin: 0; }
+.sa-action-sm {
+  padding: 4px 14px; font-size: 12px; font-weight: 600;
+  color: #0d5b47; background: #eef7f2; border: 1px solid #bfe3cd; border-radius: 6px;
+  cursor: pointer; white-space: nowrap;
+}
+.sa-action-sm:hover { background: #ddf0e3; }
+.sa-action-sm:disabled { opacity: 0.5; cursor: wait; }
+
+/* ===== フィルタ行（コンパクト） ===== */
+.sa-filter-row {
+  display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 14px;
+}
+.sa-filter-row select {
+  padding: 5px 8px; font-size: 12px;
+  border: 1px solid #dfe4df; border-radius: 6px; background: #fff;
+}
+
+/* ===== トレンドコントロール ===== */
+.sa-trend-controls {
+  display: flex; align-items: center; gap: 10px; margin-bottom: 14px; flex-wrap: wrap;
+}
+.sa-trend-controls input, .sa-trend-controls select {
+  padding: 5px 8px; font-size: 12.5px;
+  border: 1px solid #dfe4df; border-radius: 6px; background: #fff;
+}
+
+/* ===== データ抽出タブ：3カード横並び ===== */
+.sa-data-grid {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 12px;
+  margin-bottom: 16px;
+}
+.sa-data-card {
+  display: flex; align-items: center; gap: 14px;
+  padding: 16px 18px;
+  background: #fff; border: 1px solid #e6e8e5; border-radius: 12px;
+}
+.sa-data-icon { font-size: 28px; flex-shrink: 0; }
+.sa-data-info { flex: 1; min-width: 0; }
+.sa-data-info h3 { margin: 0 0 4px; font-size: 14px; font-weight: 700; color: #1b241f; }
+.sa-data-status { font-size: 12px; color: #6b7770; line-height: 1.5; }
+.sa-data-status b { color: #1b241f; }
+.sa-data-card .btn { flex-shrink: 0; padding: 6px 16px; font-size: 12.5px; white-space: nowrap; }
+.sa-pilot-select {
+  flex-shrink: 0; width: 100%; margin-top: 6px;
+  padding: 6px 8px; font-size: 12px;
+  border: 1px solid #dfe4df; border-radius: 6px; background: #fff;
+}
+
 /* ===== Feature C: 営業スタイル分析ページ ===== */
 .sa-page { padding: 24px; }
 
@@ -269,3 +354,13 @@
 .sa-tab.active { color: #0d5b47; border-bottom-color: #0d5b47; }
 .sa-tab-pane { display: none; }
 .sa-tab-pane.active { display: block; }
+
+/* プリセットボタン */
+.sa-presets { display: flex; align-items: center; gap: 6px; margin-bottom: 10px; flex-wrap: wrap; }
+.sa-preset-label { font-size: 11.5px; color: var(--text-muted, #8a938c); }
+.sa-preset-btn {
+  padding: 4px 12px; font-size: 11.5px; font-weight: 500;
+  color: #0d5b47; background: #eef7f2; border: 1px solid #bfe3cd; border-radius: 99px;
+  cursor: pointer; white-space: nowrap;
+}
+.sa-preset-btn:hover { background: #ddf0e3; }

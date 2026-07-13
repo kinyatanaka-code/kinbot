@@ -693,6 +693,7 @@ async function load() {  try {
   if (mb && !mb._wired) { mb._wired = true; mb.addEventListener("click", mergeDuplicates); }
   wireNpSelect();
   renderList();
+  showProfileNotification();
   // 他の画面（実績など）から ?company=... で開かれた場合、その案件を自動で開く
   try {
     const params = new URLSearchParams(location.search);
@@ -1509,3 +1510,77 @@ load();
   await window.kbProduct.loadMap();
   window.kbProduct.mount(() => { try { renderList(); } catch {} });
 })();
+
+// ===== kinbot ロボからの通知（会社プロフィール未取得） =====
+// 案件ページを開いたとき、担当案件でプロフィール未取得があればkinbotロボが話しかける。
+// バナー全体をクリックすると自分の案件一覧（プロフィール未取得のものだけ）にフォーカスする。
+let profileNotifDismissed = false;
+
+function showProfileNotification() {
+  if (profileNotifDismissed) return;
+  const old = document.querySelector(".kb-notif");
+  if (old) old.remove();
+
+  // 現在のユーザーの担当案件でプロフィール未取得のものを抽出
+  const myDeals = [];
+  for (const [account, ms] of Object.entries(groups)) {
+    if (!ms || !ms.length) continue;
+    const last = ms[ms.length - 1];
+    const ownerEmail = String(last.owner || "").toLowerCase();
+    const ownerName = String(last.owner_name || last.rep_name || "");
+    const whoText = (document.getElementById("who")?.textContent || "").trim();
+    const isMyDeal = ownerEmail === currentUserEmail || ownerName === whoText;
+    if (!isMyDeal) continue;
+    const pk = primaryOf(account);
+    const acc = accountsMap[pk];
+    const prof = acc && acc.profile;
+    const hasProfile = prof && (prof.industry || prof.employees || prof.location || prof.business);
+    if (!hasProfile) myDeals.push(account);
+  }
+
+  if (!myDeals.length) return;
+
+  const count = myDeals.length;
+  const names = myDeals.slice(0, 3).map((a) => displayName(a));
+  const nameText = names.join("、") + (count > 3 ? `など${count}件` : "");
+
+  const notif = document.createElement("div");
+  notif.className = "kb-notif";
+  notif.innerHTML = `
+    <div class="kb-notif-bubble" title="クリックして未取得の案件を表示">
+      <img class="kb-notif-avatar" src="kinbot.svg" alt="kinbot" />
+      <div class="kb-notif-body">
+        <div class="kb-notif-msg">
+          ${esc(nameText)}の<b>会社プロフィール</b>がまだ空です！<br>
+          案件を開いて「gBizINFOで会社を検索」を押してもらえると、分析の精度が上がります 📈
+        </div>
+        <div class="kb-notif-action">クリックで該当案件を表示 →</div>
+      </div>
+      <button class="kb-notif-close" title="閉じる">✕</button>
+    </div>
+  `;
+
+  // クリック：自分の未取得案件の1件目を開く
+  notif.querySelector(".kb-notif-bubble").addEventListener("click", (e) => {
+    if (e.target.closest(".kb-notif-close")) return;
+    // 検索欄にフィルタをかけて未取得案件だけ表示
+    const fs = $("fSearch");
+    if (fs && myDeals.length === 1) {
+      selectDeal(myDeals[0]);
+    } else if (myDeals.length > 0) {
+      selectDeal(myDeals[0]);
+    }
+    profileNotifDismissed = true;
+    notif.remove();
+  });
+
+  // 閉じるボタン
+  notif.querySelector(".kb-notif-close").addEventListener("click", (e) => {
+    e.stopPropagation();
+    profileNotifDismissed = true;
+    notif.remove();
+  });
+
+  const listArea = document.querySelector(".history") || document.querySelector(".main");
+  if (listArea) listArea.prepend(notif);
+}

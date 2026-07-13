@@ -35,7 +35,9 @@ window.addEventListener("DOMContentLoaded", async () => {
   $("dateFrom").value = from.toISOString().slice(0, 10);
   $("dateTo").value = now.toISOString().slice(0, 10);
 
-  $("reloadBtn").addEventListener("click", loadAndRender);
+  // 期間・軸・指標の変更で自動更新
+  $("dateFrom").addEventListener("change", loadAndRender);
+  $("dateTo").addEventListener("change", loadAndRender);
   $("axisSelect").addEventListener("change", renderHeatmap);
   $("metricSelect").addEventListener("change", renderHeatmap);
   ["fltEmployeeSize", "fltHireCount", "fltHiringType", "fltRegion", "fltIndustry"].forEach((id) => {
@@ -60,8 +62,11 @@ window.addEventListener("DOMContentLoaded", async () => {
   if (syncBtn) syncBtn.addEventListener("click", runSyncStatus);
   const pilotSel = $("pilotDealSelect");
   if (pilotSel) pilotSel.addEventListener("change", showPilotDetail);
+  const enrichBtn = $("enrichBtn");
+  if (enrichBtn) enrichBtn.addEventListener("click", runEnrich);
 
   await loadBackfillStatus();
+  await loadEnrichStatus();
   await loadAndRender();
 });
 
@@ -85,6 +90,8 @@ async function loadAndRender() {
     status.textContent = `全 ${allTags.length}件の案件タグを取得（期間: ${from} 〜 ${to}）`;
     renderHeatmap();
     renderCompare();
+    // 傾向ハイライトをデータが十分あれば自動生成
+    if (allTags.length >= 10) loadInsights();
   } catch (e) {
     status.className = "sa-status err";
     status.textContent = "失敗: " + e.message;
@@ -163,8 +170,7 @@ function renderHeatmap() {
     <span><span class="lg" style="background:${rateToColor(0.25)}"></span>25%</span>
     <span><span class="lg" style="background:${rateToColor(0.5)}"></span>50%</span>
     <span><span class="lg" style="background:${rateToColor(1)}"></span>100%</span>
-    <span style="margin-left:16px;">・薄い＝n&lt;5（参考）・やや薄い＝n5〜9（注意）</span>
-    <span style="margin-left:16px;">💡 <b>セルをクリック</b>で該当商談を一覧表示</span>
+    <span style="margin-left:16px;">・薄い＝n&lt;5（参考）・やや薄い＝n5〜9（注意）・セルクリックで商談一覧</span>
   </div>`;
   wrap.innerHTML = html;
 
@@ -197,20 +203,29 @@ function renderCell(cell, isTotal, ownerKey, valKey) {
   const bg = isTotal ? "" : `style="background:${color};"`;
   const totalClass = isTotal ? " sa-cell-total" : "";
   const dataAttrs = ownerKey ? ` data-owner="${esc(ownerKey)}" data-val="${esc(valKey || "")}"` : "";
-  return `<td class="${classes}${totalClass}" ${bg}${dataAttrs}>
+  // 背景の明るさに応じてテキスト色を切り替え（赤〜黄は白文字、明るい黄は黒文字）
+  const textColor = rate < 0.35 ? "#fff" : (rate > 0.7 ? "#fff" : "#1b241f");
+  return `<td class="${classes}${totalClass}" ${bg}${dataAttrs} style="${isTotal ? "" : `background:${color};color:${textColor};`}">
     <span class="sa-cell-rate">${(rate * 100).toFixed(0)}%</span>
     <span class="sa-cell-n">${cell.won}/${cell.total}</span>
   </td>`;
 }
 
-// 受注率の値を kinbot緑のグラデーションに変換（0=白っぽい→100%=濃い緑）
+// 受注率の値を赤→黄→緑のグラデーションに変換（0%=赤、50%=黄、100%=濃緑）
+// 「ここが弱い」が直感的に分かる配色
 function rateToColor(rate) {
   const r = Math.max(0, Math.min(1, rate));
-  // 淡いグレー → kinbot緑（#0d5b47）
-  const start = [200, 208, 202];
-  const end = [13, 91, 71];
-  const c = start.map((s, i) => Math.round(s + (end[i] - s) * r));
-  return `rgb(${c[0]},${c[1]},${c[2]})`;
+  let red, green, blue;
+  if (r < 0.5) {
+    // 0〜50%: 赤→黄（暖色で「弱い」を表現）
+    const t = r / 0.5;
+    red = 220; green = Math.round(100 + 120 * t); blue = Math.round(70 * (1 - t));
+  } else {
+    // 50〜100%: 黄→緑（寒色で「強い」を表現）
+    const t = (r - 0.5) / 0.5;
+    red = Math.round(220 - 207 * t); green = Math.round(220 - 129 * t); blue = Math.round(0 + 71 * t);
+  }
+  return `rgb(${red},${green},${blue})`;
 }
 
 // 軸の値の並び順（人が読みやすい順）
@@ -260,6 +275,8 @@ function populateFilterOptions() {
   fillOptions("fltRegion", uniqValues(allTags, "customer_hq_region"));
   const industryEl = $("fltIndustry");
   if (industryEl) fillOptions("fltIndustry", uniqValues(allTags, "customer_industry"));
+  // プリセットボタンを生成（よくある比較パターン）
+  buildPresets();
 }
 
 function fillOptions(id, values) {
@@ -923,3 +940,97 @@ renderStagesTimeline = function () {
 };
 
 
+
+// ============================================================
+// 改善2: 同条件比較プリセット
+// ============================================================
+function buildPresets() {
+  const wrap = $("comparePresets");
+  if (!wrap) return;
+  // データから上位3パターンを自動生成
+  const sizeCounts = {};
+  const typeCounts = {};
+  for (const t of allTags) {
+    if (t.customer_employee_size && t.customer_employee_size !== "不明") {
+      sizeCounts[t.customer_employee_size] = (sizeCounts[t.customer_employee_size] || 0) + 1;
+    }
+    if (t.hiring_type_need) {
+      typeCounts[t.hiring_type_need] = (typeCounts[t.hiring_type_need] || 0) + 1;
+    }
+  }
+  const topSizes = Object.entries(sizeCounts).sort((a, b) => b[1] - a[1]).slice(0, 2);
+  const topTypes = Object.entries(typeCounts).sort((a, b) => b[1] - a[1]).slice(0, 1);
+
+  const presets = [];
+  for (const [size, n] of topSizes) {
+    if (n >= 5) presets.push({ label: `${size}（${n}件）`, filters: { employee_size: size } });
+  }
+  for (const [type, n] of topTypes) {
+    if (n >= 5) presets.push({ label: `${type}（${n}件）`, filters: { hiring_type: type } });
+  }
+
+  if (!presets.length) { wrap.innerHTML = ""; return; }
+  wrap.innerHTML = '<span class="sa-preset-label">よく使う条件:</span>' +
+    presets.map((p) =>
+      `<button class="sa-preset-btn" data-preset='${JSON.stringify(p.filters)}'>${esc(p.label)}</button>`
+    ).join("");
+
+  wrap.querySelectorAll(".sa-preset-btn").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const f = JSON.parse(btn.dataset.preset);
+      $("fltEmployeeSize").value = f.employee_size || "";
+      $("fltHireCount").value = f.hire_count || "";
+      $("fltHiringType").value = f.hiring_type || "";
+      $("fltRegion").value = f.region || "";
+      if ($("fltIndustry")) $("fltIndustry").value = f.industry || "";
+      filters = {
+        employee_size: f.employee_size || "",
+        hire_count: f.hire_count || "",
+        hiring_type: f.hiring_type || "",
+        region: f.region || "",
+        industry: f.industry || "",
+      };
+      renderCompare();
+    });
+  });
+}
+
+// ============================================================
+// 改善4: 企業属性の自動取得（業界）
+// ============================================================
+async function loadEnrichStatus() {
+  const el = $("enrichStatus");
+  if (!el) return;
+  try {
+    const r = await fetch("/api/feature-c/enrich-status");
+    const d = await r.json();
+    if (!r.ok) throw new Error();
+    const btn = $("enrichBtn");
+    if (d.needing === 0) {
+      el.innerHTML = `✓ 全社取得済み（${d.enriched}社）`;
+      if (btn) btn.disabled = true;
+    } else {
+      el.innerHTML = `<b>${d.needing}社</b>が未取得`;
+    }
+  } catch { const el = $("enrichStatus"); if (el) el.textContent = "取得失敗"; }
+}
+
+async function runEnrich() {
+  const btn = $("enrichBtn");
+  if (!confirm("プロフィール未取得の企業の業界をWeb検索で自動取得します。10社ずつ処理します（1〜3分）。\n\n実行しますか？")) return;
+  btn.disabled = true;
+  const orig = btn.textContent;
+  btn.textContent = "取得中…";
+  try {
+    const r = await fetch("/api/feature-c/enrich", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ limit: 10 }),
+    });
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.error || "失敗");
+    alert(`完了：${d.processed}社を取得（失敗 ${d.failed}社）\n残り: ${d.remaining}社`);
+    await loadEnrichStatus();
+    await loadAndRender();
+  } catch (e) { alert("失敗: " + e.message); }
+  finally { btn.textContent = orig; btn.disabled = false; }
+}

@@ -1974,6 +1974,8 @@ export async function upsertDealFeatureTags(dealId, tags) {
     "objections_raised","tag_confidence","result","raw_extraction","updated_at",
   ];
   const jsonCols = new Set(["target_job_type","key_pain_points","appeal_points_used","talk_patterns","meeting_stages","discovery_items_covered","objections_raised","raw_extraction"]);
+  const boolCols = new Set(["decision_maker_present","competitor_mentioned"]);
+  const dateCols = new Set(["first_meeting_date"]);
   const vals = [dealId];
   const placeholders = ["$1"];
   cols.slice(1).forEach((c, i) => {
@@ -1981,7 +1983,10 @@ export async function upsertDealFeatureTags(dealId, tags) {
     if (c === "updated_at") { placeholders.push("now()"); return; }
     let v = tags[c];
     if (v === undefined) v = null;
+    // 型の正規化
     if (jsonCols.has(c) && v != null) v = JSON.stringify(v);
+    if (boolCols.has(c)) v = v === true ? true : v === false ? false : null;
+    if (dateCols.has(c) && (v === "" || v === "undefined" || v === "null")) v = null;
     vals.push(v);
     placeholders.push(`$${idx}`);
   });
@@ -1991,8 +1996,15 @@ export async function upsertDealFeatureTags(dealId, tags) {
     VALUES (${placeholders.join(", ")})
     ON CONFLICT (deal_id) DO UPDATE SET ${updateSet}
   `;
-  try { await pool.query(sql, vals); }
-  catch (e) { console.error("[db] upsertDealFeatureTags", e.message); }
+  try {
+    await pool.query(sql, vals);
+  } catch (e) {
+    console.error("[db] upsertDealFeatureTags FAILED:", e.message);
+    console.error("[db] upsertDealFeatureTags SQL:", sql.replace(/\s+/g, " ").trim().slice(0, 300));
+    console.error("[db] upsertDealFeatureTags vals count:", vals.length, "placeholders count:", placeholders.length);
+    console.error("[db] upsertDealFeatureTags deal_id:", dealId, "sample vals:", JSON.stringify(vals.slice(0, 5)));
+    throw e;
+  }
 }
 
 // 集計用に一括取得。owner/期間で絞り込み可能。
