@@ -61,25 +61,27 @@ details[open] > .sa-notice-toggle::before { content: "▾ "; }
   border: 1px solid #dfe4df; border-radius: 6px; background: #fff;
 }
 
-/* ===== データ抽出タブ：3カード横並び ===== */
+/* ===== データ抽出タブ：2列カードグリッド ===== */
 .sa-data-grid {
-  display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 12px;
+  display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px;
   margin-bottom: 16px;
 }
+@media (max-width: 700px) { .sa-data-grid { grid-template-columns: 1fr; } }
 .sa-data-card {
-  display: flex; align-items: center; gap: 14px;
-  padding: 16px 18px;
+  padding: 18px 20px;
   background: #fff; border: 1px solid #e6e8e5; border-radius: 12px;
+  display: flex; flex-direction: column; gap: 10px;
 }
-.sa-data-icon { font-size: 28px; flex-shrink: 0; }
-.sa-data-info { flex: 1; min-width: 0; }
-.sa-data-info h3 { margin: 0 0 4px; font-size: 14px; font-weight: 700; color: #1b241f; }
-.sa-data-status { font-size: 12px; color: #6b7770; line-height: 1.5; }
+.sa-data-card-head {
+  display: flex; align-items: center; gap: 10px;
+}
+.sa-data-icon { font-size: 22px; flex-shrink: 0; }
+.sa-data-card-head h3 { margin: 0; font-size: 14px; font-weight: 700; color: #1b241f; }
+.sa-data-status { font-size: 12.5px; color: #6b7770; line-height: 1.5; }
 .sa-data-status b { color: #1b241f; }
-.sa-data-card .btn { flex-shrink: 0; padding: 6px 16px; font-size: 12.5px; white-space: nowrap; }
-.sa-pilot-select {
-  flex-shrink: 0; width: 100%; margin-top: 6px;
-  padding: 6px 8px; font-size: 12px;
+.sa-data-btn { align-self: flex-start; padding: 7px 20px; font-size: 13px; }
+.sa-data-select {
+  width: 100%; padding: 7px 10px; font-size: 12.5px;
   border: 1px solid #dfe4df; border-radius: 6px; background: #fff;
 }
 
@@ -364,3 +366,19 @@ details[open] > .sa-notice-toggle::before { content: "▾ "; }
   cursor: pointer; white-space: nowrap;
 }
 .sa-preset-btn:hover { background: #ddf0e3; }
+
+/* プロフィール未取得リスト */
+.sa-data-card-wide { grid-column: 1 / -1; }
+.sa-profile-list {
+  display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; max-height: 200px; overflow-y: auto;
+}
+.sa-profile-item {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 5px 12px;
+  font-size: 12px; color: #0d5b47; background: #eef7f2; border: 1px solid #bfe3cd; border-radius: 99px;
+  text-decoration: none; cursor: pointer; white-space: nowrap;
+  transition: background 0.15s;
+}
+.sa-profile-item:hover { background: #ddf0e3; }
+.sa-profile-name { font-weight: 600; }
+.sa-profile-owner { font-size: 10.5px; color: #6b7770; }

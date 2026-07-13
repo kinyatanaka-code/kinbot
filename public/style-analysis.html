@@ -140,39 +140,39 @@
               <div class="sa-notice-body">新規商談は判定完了時に自動でタグが付きます。既存の案件は「タグ抽出」で一括処理してください。</div>
             </details>
 
-            <!-- 3つのアクションを横並びカード -->
+            <!-- アクションカード（2列×2行） -->
             <div class="sa-data-grid">
               <div class="sa-data-card">
-                <div class="sa-data-icon">🏷</div>
-                <div class="sa-data-info">
+                <div class="sa-data-card-head">
+                  <span class="sa-data-icon">🏷</span>
                   <h3>タグ抽出</h3>
-                  <div id="backfillStatus" class="sa-data-status">確認中…</div>
                 </div>
-                <button class="btn" id="backfillBtn">実行</button>
+                <div id="backfillStatus" class="sa-data-status">確認中…</div>
+                <button class="btn sa-data-btn" id="backfillBtn">実行</button>
               </div>
               <div class="sa-data-card">
-                <div class="sa-data-icon">🔄</div>
-                <div class="sa-data-info">
+                <div class="sa-data-card-head">
+                  <span class="sa-data-icon">🔄</span>
                   <h3>ステータス同期</h3>
-                  <div id="syncStatusResult" class="sa-data-status">案件の判定変更をタグに反映</div>
                 </div>
-                <button class="btn" id="fcSyncBtn">同期</button>
+                <div id="syncStatusResult" class="sa-data-status">案件の判定変更をタグに反映します</div>
+                <button class="btn sa-data-btn" id="fcSyncBtn">同期する</button>
               </div>
               <div class="sa-data-card">
-                <div class="sa-data-icon">🔍</div>
-                <div class="sa-data-info">
+                <div class="sa-data-card-head">
+                  <span class="sa-data-icon">🔍</span>
                   <h3>パイロット検証</h3>
-                  <div class="sa-data-status">AI抽出結果を確認</div>
                 </div>
-                <select id="pilotDealSelect" class="sa-pilot-select"><option value="">案件を選択</option></select>
+                <div class="sa-data-status">AI抽出結果を目視で確認します</div>
+                <select id="pilotDealSelect" class="sa-data-select"><option value="">案件を選んでください</option></select>
               </div>
-              <div class="sa-data-card">
-                <div class="sa-data-icon">🏢</div>
-                <div class="sa-data-info">
-                  <h3>業界を自動取得</h3>
-                  <div id="enrichStatus" class="sa-data-status">確認中…</div>
+              <div class="sa-data-card sa-data-card-wide">
+                <div class="sa-data-card-head">
+                  <span class="sa-data-icon">🏢</span>
+                  <h3>会社プロフィール未取得</h3>
                 </div>
-                <button class="btn" id="enrichBtn">取得</button>
+                <div id="profileStatus" class="sa-data-status">確認中…</div>
+                <div id="profileList" class="sa-profile-list"></div>
               </div>
             </div>
 

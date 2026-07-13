@@ -62,11 +62,9 @@ window.addEventListener("DOMContentLoaded", async () => {
   if (syncBtn) syncBtn.addEventListener("click", runSyncStatus);
   const pilotSel = $("pilotDealSelect");
   if (pilotSel) pilotSel.addEventListener("change", showPilotDetail);
-  const enrichBtn = $("enrichBtn");
-  if (enrichBtn) enrichBtn.addEventListener("click", runEnrich);
 
   await loadBackfillStatus();
-  await loadEnrichStatus();
+  await loadProfileStatus();
   await loadAndRender();
 });
 
@@ -90,6 +88,7 @@ async function loadAndRender() {
     status.textContent = `全 ${allTags.length}件の案件タグを取得（期間: ${from} 〜 ${to}）`;
     renderHeatmap();
     renderCompare();
+    loadProfileStatus();
     // 傾向ハイライトをデータが十分あれば自動生成
     if (allTags.length >= 10) loadInsights();
   } catch (e) {
@@ -371,26 +370,17 @@ async function loadBackfillStatus() {
     const bf = d.backfill || {};
 
     if (bf.running) {
-      // 処理中：進捗を表示してポーリング継続
-      const pct = bf.total ? Math.round(bf.processed / bf.total * 100) : 0;
-      el.innerHTML = `<b>処理中… ${bf.processed}/${bf.total}件</b>（${pct}%完了、失敗 ${bf.failed}件）`;
+      el.innerHTML = `<b>処理中… ${bf.processed}/${bf.total}件</b>（失敗 ${bf.failed}件）`;
       if (btn) { btn.disabled = true; btn.textContent = `処理中… ${bf.processed}/${bf.total}`; }
       startPolling();
     } else if (d.needing === 0) {
       el.innerHTML = `✓ すべての案件（${d.existing}件）にタグ付与済み`;
-      if (btn) { btn.disabled = true; btn.textContent = "タグ抽出を実行（全件完了済み）"; }
+      if (btn) { btn.disabled = true; btn.textContent = "完了済み"; }
       stopPolling();
-      // 処理完了直後なら結果を表示
-      if (bf.total > 0) {
-        el.innerHTML += `<div style="margin-top:6px;font-size:12px;color:#5f6b63;">前回の結果: ${bf.processed}件成功 / ${bf.failed}件失敗</div>`;
-      }
     } else {
-      el.innerHTML = `<b>${d.needing}件</b>の案件がタグ未抽出です（抽出済み: ${d.existing}件）`;
-      if (btn) { btn.disabled = false; btn.textContent = `タグ抽出を実行（${d.needing}件）`; }
+      el.innerHTML = `<b>${d.needing}件</b>が未抽出（抽出済み: ${d.existing}件）`;
+      if (btn) { btn.disabled = false; btn.textContent = "20件を抽出する"; }
       stopPolling();
-      if (bf.total > 0 && !bf.running) {
-        el.innerHTML += `<div style="margin-top:6px;font-size:12px;color:#5f6b63;">前回の結果: ${bf.processed}件成功 / ${bf.failed}件失敗</div>`;
-      }
     }
     populatePilotSelect();
   } catch { const el = $("backfillStatus"); if (el) el.textContent = "状態の取得に失敗"; }
@@ -400,13 +390,12 @@ function startPolling() {
   if (pollTimer) return;
   pollTimer = setInterval(async () => {
     await loadBackfillStatus();
-    // 完了したらデータも再取得
     const r = await fetch("/api/feature-c/status").then((r) => r.json()).catch(() => null);
     if (r && r.backfill && !r.backfill.running) {
       stopPolling();
       await loadAndRender();
     }
-  }, 5000);
+  }, 3000);
 }
 
 function stopPolling() {
@@ -415,21 +404,22 @@ function stopPolling() {
 
 async function runBackfill() {
   const btn = $("backfillBtn");
-  if (!confirm("全ての未抽出案件にAIでタグを付けます。バックグラウンドで処理するため、このページを開いたまま進捗を確認できます。\n\n実行しますか？")) return;
   btn.disabled = true;
-  btn.textContent = "開始しています…";
+  btn.textContent = "開始中…";
   try {
-    const r = await fetch("/api/feature-c/backfill", {
-      method: "POST", headers: { "content-type": "application/json" },
-    });
+    const r = await fetch("/api/feature-c/backfill", { method: "POST" });
     const d = await r.json();
     if (!r.ok) throw new Error(d.error || "失敗");
     if (d.already_running) {
-      alert("既に処理が実行中です。進捗は画面で確認できます。");
+      // 既に実行中ならポーリングだけ開始
     }
     startPolling();
     await loadBackfillStatus();
-  } catch (e) { alert("失敗: " + e.message); btn.disabled = false; btn.textContent = "タグ抽出を実行"; }
+  } catch (e) {
+    alert("失敗: " + e.message);
+    btn.disabled = false;
+    btn.textContent = "20件を抽出する";
+  }
 }
 
 async function runSyncStatus() {
@@ -996,41 +986,40 @@ function buildPresets() {
 }
 
 // ============================================================
-// 改善4: 企業属性の自動取得（業界）
+// 会社プロフィール未取得の一覧表示
 // ============================================================
-async function loadEnrichStatus() {
-  const el = $("enrichStatus");
+async function loadProfileStatus() {
+  const el = $("profileStatus");
+  const list = $("profileList");
   if (!el) return;
   try {
-    const r = await fetch("/api/feature-c/enrich-status");
-    const d = await r.json();
-    if (!r.ok) throw new Error();
-    const btn = $("enrichBtn");
-    if (d.needing === 0) {
-      el.innerHTML = `✓ 全社取得済み（${d.enriched}社）`;
-      if (btn) btn.disabled = true;
+    const missing = allTags.filter((t) => !t.customer_industry);
+    const total = allTags.length;
+    if (total === 0) {
+      el.innerHTML = "タグ抽出後に確認できます";
+      if (list) list.innerHTML = "";
+    } else if (missing.length === 0) {
+      el.innerHTML = `✓ 全${total}件の業界情報を取得済み`;
+      if (list) list.innerHTML = "";
     } else {
-      el.innerHTML = `<b>${d.needing}社</b>が未取得`;
+      el.innerHTML = `<b>${missing.length}件</b>/${total}件が業界未取得。案件を開いて「gBizINFOで会社を検索」を押してください。`;
+      if (list) {
+        // 重複する会社名を除去してリスト化
+        const seen = new Set();
+        const unique = [];
+        for (const t of missing) {
+          const name = t.company_name || t.deal_id;
+          if (seen.has(name)) continue;
+          seen.add(name);
+          unique.push({ name, owner: t.owner || "" });
+        }
+        list.innerHTML = unique.map((u) =>
+          `<a href="deals.html?company=${encodeURIComponent(u.name)}" class="sa-profile-item">
+            <span class="sa-profile-name">${esc(u.name)}</span>
+            <span class="sa-profile-owner">${esc(u.owner)}</span>
+          </a>`
+        ).join("");
+      }
     }
-  } catch { const el = $("enrichStatus"); if (el) el.textContent = "取得失敗"; }
-}
-
-async function runEnrich() {
-  const btn = $("enrichBtn");
-  if (!confirm("プロフィール未取得の企業の業界をWeb検索で自動取得します。10社ずつ処理します（1〜3分）。\n\n実行しますか？")) return;
-  btn.disabled = true;
-  const orig = btn.textContent;
-  btn.textContent = "取得中…";
-  try {
-    const r = await fetch("/api/feature-c/enrich", {
-      method: "POST", headers: { "content-type": "application/json" },
-      body: JSON.stringify({ limit: 10 }),
-    });
-    const d = await r.json();
-    if (!r.ok) throw new Error(d.error || "失敗");
-    alert(`完了：${d.processed}社を取得（失敗 ${d.failed}社）\n残り: ${d.remaining}社`);
-    await loadEnrichStatus();
-    await loadAndRender();
-  } catch (e) { alert("失敗: " + e.message); }
-  finally { btn.textContent = orig; btn.disabled = false; }
+  } catch { el.textContent = ""; }
 }

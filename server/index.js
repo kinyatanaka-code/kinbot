@@ -2611,26 +2611,25 @@ app.get("/api/feature-c/status", async (req, res) => {
   }
 });
 
-// バックフィル：全件をバックグラウンドで処理。
-// POST で開始 → 即レスポンス → サーバー内でループ処理。
+// バックフィル：20件ずつバックグラウンド処理。
+// POST で開始 → 即レスポンス → サーバー内で20件処理。
 // 進捗は GET /api/feature-c/status で polling して確認。
-let fcBackfillState = { running: false, processed: 0, failed: 0, total: 0, errors: [] };
+let fcBackfillState = { running: false, processed: 0, failed: 0, total: 0 };
 
 app.post("/api/feature-c/backfill", async (req, res) => {
   try {
     if (fcBackfillState.running) {
       return res.json({ ok: true, already_running: true, ...fcBackfillState });
     }
-    const targets = await listDealsNeedingFeatureTags({ limit: 10000 });
-    if (!targets.length) return res.json({ ok: true, processed: 0, remaining: 0, message: "対象案件がありません" });
+    const limit = 20;
+    const targets = await listDealsNeedingFeatureTags({ limit });
+    if (!targets.length) return res.json({ ok: true, processed: 0, failed: 0, remaining: 0, message: "対象案件がありません" });
 
-    // 即レスポンスを返す
-    fcBackfillState = { running: true, processed: 0, failed: 0, total: targets.length, errors: [] };
-    res.json({ ok: true, started: true, total: targets.length, message: `${targets.length}件の処理を開始しました` });
+    fcBackfillState = { running: true, processed: 0, failed: 0, total: targets.length };
+    res.json({ ok: true, started: true, total: targets.length });
 
-    // バックグラウンドで全件処理
+    // バックグラウンドで20件処理
     (async () => {
-      // 日付をYYYY-MM-DD形式に正規化（DBから"Wed Jul 01"等が返ることがある）
       const toDateStr = (d) => {
         if (!d) return null;
         if (typeof d === "string" && /^\d{4}-\d{2}-\d{2}/.test(d)) return d.slice(0, 10);
@@ -2642,9 +2641,7 @@ app.post("/api/feature-c/backfill", async (req, res) => {
         try {
           const m = await getMeeting(t.bot_id);
           if (!m || !Array.isArray(m.transcript) || !m.transcript.length) {
-            fcBackfillState.failed++;
-            fcBackfillState.errors.push({ deal_id: t.deal_id, reason: "文字起こしなし" });
-            continue;
+            fcBackfillState.failed++; continue;
           }
           const dateStr = toDateStr(t.first_meeting_date);
           const tags = await extractFeatureCTags(m.transcript, dateStr || "不明");
@@ -2652,14 +2649,12 @@ app.post("/api/feature-c/backfill", async (req, res) => {
           if (String(t.status || "").startsWith("失注")) responseStatus = "失注";
           await upsertDealFeatureTags(t.deal_id, {
             first_meeting_date: dateStr,
-            owner: t.owner || "",
-            team: t.team || "",
+            owner: t.owner || "", team: t.team || "",
             customer_employee_size: tags.customer_employee_size,
             target_hire_count: tags.target_hire_count,
             hiring_type_need: tags.hiring_type_need,
             customer_hq_region: tags.customer_hq_region,
-            customer_industry: null,
-            target_job_type: null,
+            customer_industry: null, target_job_type: null,
             customer_response_status: responseStatus,
             decision_maker_present: tags.decision_maker_present,
             competitor_mentioned: tags.competitor_mentioned,
@@ -2678,15 +2673,13 @@ app.post("/api/feature-c/backfill", async (req, res) => {
           fcBackfillState.processed++;
         } catch (e) {
           fcBackfillState.failed++;
-          fcBackfillState.errors.push({ deal_id: t.deal_id, reason: e.message });
+          console.error(`[feature-c/backfill] ${t.deal_id}:`, e.message);
         }
-        if (fcBackfillState.errors.length > 50) fcBackfillState.errors = fcBackfillState.errors.slice(-20);
       }
-      console.log(`[feature-c/backfill] 完了: processed=${fcBackfillState.processed} failed=${fcBackfillState.failed} total=${fcBackfillState.total}`);
+      console.log(`[feature-c/backfill] 完了: processed=${fcBackfillState.processed} failed=${fcBackfillState.failed}`);
       fcBackfillState.running = false;
     })();
   } catch (e) {
-    console.error("[feature-c/backfill]", e.message);
     fcBackfillState.running = false;
     res.status(500).json({ error: e.message });
   }
