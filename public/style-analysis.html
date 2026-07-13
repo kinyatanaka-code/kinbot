@@ -63,8 +63,14 @@
                 </optgroup>
               </select>
               <select id="metricSelect" title="指標">
-                <option value="all">全体</option>
-                <option value="pitch">訴求機会あり</option>
+                <optgroup label="フェーズ到達率">
+                  <option value="response_positive">案件化率（担当者合意+案件化）</option>
+                  <option value="re_meeting">再商談実施率</option>
+                  <option value="won">受注率</option>
+                </optgroup>
+                <optgroup label="分母の絞り込み">
+                  <option value="won_pitch">受注率（訴求機会あり）</option>
+                </optgroup>
               </select>
               <span class="sa-tool-status" id="saStatus"></span>
             </div>

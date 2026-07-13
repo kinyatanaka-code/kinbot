@@ -2137,10 +2137,18 @@ export async function fillIndustryFromProfiles() {
           vals.push(size);
         }
       }
+      // 本社地域：プロフィールの住所から都道府県を抽出
+      if (prof.location) {
+        const m = String(prof.location).match(/^(北海道|東京都|大阪府|京都府|.{2,3}県)/);
+        if (m) {
+          sets.push(`customer_hq_region = $${i++}`);
+          vals.push(m[1]);
+        }
+      }
       if (!sets.length) continue;
       vals.push(d.deal_id);
       const r = await pool.query(
-        `UPDATE deal_feature_tags SET ${sets.join(", ")} WHERE deal_id = $${i} AND (customer_industry IS NULL OR customer_industry = '' OR customer_industry = '不明' OR customer_employee_size IS NULL OR customer_employee_size = '不明')`,
+        `UPDATE deal_feature_tags SET ${sets.join(", ")} WHERE deal_id = $${i} AND (customer_industry IS NULL OR customer_industry = '' OR customer_industry = '不明' OR customer_employee_size IS NULL OR customer_employee_size = '不明' OR customer_hq_region IS NULL OR customer_hq_region = '不明')`,
         vals
       );
       if (r.rowCount > 0) updated++;
@@ -2152,7 +2160,7 @@ export async function fillIndustryFromProfiles() {
 // 従業員数の文字列（"600名"、"300人"、"1,200名"等）を規模区分に変換
 function employeeCountToSize(empStr) {
   if (!empStr) return "";
-  const num = parseInt(String(empStr).replace(/[,，]/g, "").replace(/[名人].*$/, ""), 10);
+  const num = parseInt(String(empStr).replace(/^約/, "").replace(/[,，]/g, "").replace(/[名人].*$/, ""), 10);
   if (isNaN(num)) return "";
   if (num <= 50) return "〜50人";
   if (num <= 200) return "51〜200人";

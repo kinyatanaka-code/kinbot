@@ -137,7 +137,7 @@ function renderHeatmap() {
     if (!vals.length) continue;
     const denomIncluded = includedInDenominator(t, metric);
     if (!denomIncluded) continue;
-    const won = t.result === "受注" ? 1 : 0;
+    const won = isPositive(t, metric) ? 1 : 0;
     // hiring_type_needの集計除外セーフティネット
     if (axis === "hiring_type_need" && t.tag_confidence === "low") continue;
 
@@ -276,11 +276,30 @@ function getValuesForAxis(t, axis) {
 // 現状のスキーマだけでは即失注を厳密に区別できないため、フェーズ1では単純化：
 // - all（受注率全体）: 全件を分母に含める
 // - pitch（訴求機会あり）: customer_response_statusが"失注"以外を分母にする（訴求が始まった案件のみ）
+// 指標ごとの分母判定（この案件を集計に含めるか）
 function includedInDenominator(t, metric) {
-  if (metric === "all") return true;
-  // pitch: 訴求機会があった＝顧客が明確に前向きまたは検討可能を示した／不明のケースまで含める。
-  //        商談前にほぼ即決失注（"失注"にラベル済み）はここでは除外。
-  return t.customer_response_status !== "失注";
+  if (metric === "won_pitch") return t.customer_response_status !== "失注";
+  return true; // response_positive, re_meeting, won は全件が分母
+}
+
+// 指標ごとの「成功」判定（ヒートマップの分子にカウントするか）
+function isPositive(t, metric) {
+  switch (metric) {
+    case "response_positive":
+      // 案件化率：顧客が前向き反応（担当者合意 or 案件化）
+      return t.customer_response_status === "担当者合意" || t.customer_response_status === "案件化";
+    case "re_meeting":
+      // 再商談実施率：resultが「受注」or ステータスが再商談実施済みに相当
+      // deal_feature_tagsにはresultしかないので、受注 or 進行中（失注以外）で再商談に進んだことを示す
+      // 厳密にはdeal_eventsを見るべきだが、タグテーブルだけで判断するため
+      // resultが受注、または customer_response_status が担当者合意 を近似値とする
+      return t.result === "受注" || t.customer_response_status === "担当者合意";
+    case "won":
+    case "won_pitch":
+      return t.result === "受注";
+    default:
+      return t.result === "受注";
+  }
 }
 
 // ---- 同条件比較 ----

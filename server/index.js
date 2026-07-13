@@ -2484,7 +2484,7 @@ app.get("/api/feature-c/tags", async (req, res) => {
       }
       // 従業員規模：タグが「不明」ならプロフィールの従業員数から変換して補完
       if ((!r.customer_employee_size || r.customer_employee_size === "不明") && prof.employees) {
-        const num = parseInt(String(prof.employees).replace(/[,，]/g, "").replace(/[名人].*$/, ""), 10);
+        const num = parseInt(String(prof.employees).replace(/^約/, "").replace(/[,，]/g, "").replace(/[名人].*$/, ""), 10);
         if (!isNaN(num)) {
           if (num <= 50) r.customer_employee_size = "〜50人";
           else if (num <= 200) r.customer_employee_size = "51〜200人";
@@ -2492,6 +2492,11 @@ app.get("/api/feature-c/tags", async (req, res) => {
           else if (num <= 1000) r.customer_employee_size = "501〜1000人";
           else r.customer_employee_size = "1001人以上";
         }
+      }
+      // 本社地域：タグが「不明」ならプロフィールの住所から都道府県を抽出
+      if ((!r.customer_hq_region || r.customer_hq_region === "不明") && prof.location) {
+        const m = String(prof.location).match(/^(北海道|東京都|大阪府|京都府|.{2,3}県)/);
+        if (m) r.customer_hq_region = m[1];
       }
     }
     res.json({ tags: rows, total: rows.length });
