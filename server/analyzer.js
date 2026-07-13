@@ -2,6 +2,7 @@
 // 要約・提案を生成。LLM_PROVIDER で gemini / anthropic / ollama を切替。
 import { retrieve } from "./retrieval.js";
 import { getSettings } from "./db.js";
+import { INDUSTRY_NAMES, JOB_TYPE_MASTER } from "./industry_master.js";
 const PROVIDER = (process.env.LLM_PROVIDER || "gemini").toLowerCase();
 
 // 抜け漏れチェックの既定項目（設定で上書き可能）
@@ -1574,7 +1575,6 @@ export async function extractFeatureCTags(transcript, meetingDate) {
 }
 
 // ===== Feature C フェーズ3: 企業属性エンリッチメント（依頼書4.5） =====
-import { INDUSTRY_NAMES, JOB_TYPE_MASTER } from "./industry_master.js";
 
 // 企業名から「業界」「募集職種」をWeb検索で特定する。
 // 依頼書4.5の精度設計：
