@@ -14,7 +14,11 @@ const esc = (s) => String(s == null ? "" : s).replace(/[&<>"']/g, (c) => ({ "&":
 // ---- 状態 ----
 let allTags = [];    // /api/feature-c/tags のレスポンス
 let owners = [];     // ユニークな担当者名
-let filters = { employee_size: "", hire_count: "", hiring_type: "", region: "" };
+let filters = { employee_size: "", hire_count: "", hiring_type: "", region: "", industry: "" };
+let userMap = {};    // email → 表示名のマップ
+
+// メールアドレスを表示名に変換
+const ownerName = (email) => userMap[String(email || "").toLowerCase()] || email || "不明";
 
 // ---- 初期化 ----
 window.addEventListener("DOMContentLoaded", async () => {
@@ -65,6 +69,13 @@ window.addEventListener("DOMContentLoaded", async () => {
 
   await loadBackfillStatus();
   await loadProfileStatus();
+  // ユーザー一覧を取得してメール→表示名マップを作る
+  try {
+    const users = await (await fetch("/api/users")).json();
+    for (const u of users || []) {
+      if (u.email) userMap[u.email.toLowerCase()] = u.name || u.email;
+    }
+  } catch {}
   await loadAndRender();
 });
 
@@ -82,8 +93,10 @@ async function loadAndRender() {
     const d = await r.json();
     if (!r.ok) throw new Error(d.error || "取得に失敗しました");
     allTags = d.tags || [];
-    // ownerを集計、フィルタの選択肢も生成
+    // ownerを集計（メール→表示名に変換）、フィルタの選択肢も生成
     owners = [...new Set(allTags.map((t) => t.owner).filter(Boolean))].sort();
+    // タグデータにowner_nameフィールドを追加（ヒートマップ等で使う）
+    for (const t of allTags) t.owner_name = ownerName(t.owner);
     populateFilterOptions();
     status.textContent = `全 ${allTags.length}件の案件タグを取得（期間: ${from} 〜 ${to}）`;
     renderHeatmap();
@@ -150,7 +163,7 @@ function renderHeatmap() {
   for (const v of ordered) html += `<th>${esc(v)}</th>`;
   html += `<th>全体</th></tr></thead><tbody>`;
   for (const owner of ownerList) {
-    html += `<tr><td class="sa-c-owner">${esc(owner)}</td>`;
+    html += `<tr><td class="sa-c-owner">${esc(ownerName(owner))}</td>`;
     for (const v of ordered) {
       const cell = (grid[owner] || {})[v];
       html += renderCell(cell, false, owner, v);
@@ -337,7 +350,7 @@ function renderCompare() {
     const lowN = d.total < N_THRESHOLD_LOW;
     const nWarning = lowN ? `<span style="color:#a32d2d;">⚠ 件数が少なく統計的にブレます</span>` : "";
     html += `<div class="sa-owner-card">
-      <h3>${esc(owner)} <span class="sa-owner-rate">${rate}%</span></h3>
+      <h3>${esc(ownerName(owner))} <span class="sa-owner-rate">${rate}%</span></h3>
       <div class="sa-owner-n">受注 ${d.won}/${d.total}件 ${nWarning}</div>
       ${renderTagCounts("訴求内容", d.appeals)}
       ${renderTagCounts("話法の型", d.talks)}
@@ -445,7 +458,7 @@ function populatePilotSelect() {
   if (!sel) return;
   sel.innerHTML = '<option value="">案件を選んでください</option>';
   for (const t of allTags.slice(0, 200)) {
-    const label = `${t.company_name || t.deal_id} (${t.owner || "?"}) ${t.result || ""}`;
+    const label = `${t.company_name || t.deal_id} (${ownerName(t.owner)}) ${t.result || ""}`;
     sel.insertAdjacentHTML("beforeend", `<option value="${esc(t.deal_id)}">${esc(label)}</option>`);
   }
 }
@@ -464,7 +477,7 @@ function showPilotDetail() {
   wrap.innerHTML = `
     <div style="padding:14px;background:#f7faf8;border:1px solid #e6e8e5;border-radius:10px;max-width:700px;">
       <div style="font-size:14px;font-weight:700;color:#1b241f;margin-bottom:4px;">${esc(t.company_name || t.deal_id)}</div>
-      <div style="font-size:11.5px;color:#8a938c;margin-bottom:10px;">${esc(t.owner)} · ${String(t.first_meeting_date || "").slice(0, 10)} · ${esc(t.result)} · confidence: ${esc(t.tag_confidence)}</div>
+      <div style="font-size:11.5px;color:#8a938c;margin-bottom:10px;">${esc(ownerName(t.owner))} · ${String(t.first_meeting_date || "").slice(0, 10)} · ${esc(t.result)} · confidence: ${esc(t.tag_confidence)}</div>
       <table style="width:100%;border-collapse:collapse;font-size:12.5px;">
         <thead><tr><th style="text-align:left;padding:6px 10px;border-bottom:1px solid #dfe4df;">項目</th><th style="text-align:left;padding:6px 10px;border-bottom:1px solid #dfe4df;">AI抽出結果</th></tr></thead>
         <tbody>
@@ -553,7 +566,7 @@ function renderStagesTimeline() {
     `</div></div>`;
   html += rowHtml("チーム全体", teamAgg, totalDeals, true);
   for (const owner of ownersList) {
-    html += rowHtml(owner, byOwner[owner] || {}, ownerDeals[owner], false);
+    html += rowHtml(ownerName(owner), byOwner[owner] || {}, ownerDeals[owner], false);
   }
   html += `<div class="sa-cell-legend" style="margin-top:14px;">
     <span><span class="lg" style="background:${EMPHASIS_COLOR["厚め"]}"></span>厚め</span>
@@ -610,7 +623,7 @@ function renderDiscoveryChart() {
 
   let html = rowHtml("チーム全体", teamHit, totalDeals, true);
   for (const owner of ownersList) {
-    html += rowHtml(owner, byOwner[owner] || {}, ownerDeals[owner], false);
+    html += rowHtml(ownerName(owner), byOwner[owner] || {}, ownerDeals[owner], false);
   }
   html += `<div class="sa-cell-legend" style="margin-top:14px;"><span>⚠低い＝チーム平均より20pt以上低い到達率（n≥5のメンバーのみ判定）</span></div>`;
   wrap.innerHTML = html;
@@ -769,7 +782,7 @@ function showDrilldown(owner, val, axis, matching) {
   let modal = document.querySelector(".sa-drilldown-overlay");
   if (modal) modal.remove();
 
-  const label = owner === "__total" ? "全体" : owner;
+  const label = owner === "__total" ? "全体" : ownerName(owner);
   const valLabel = val === "__total" ? "全体" : val;
   const won = matching.filter((t) => t.result === "受注");
   const lost = matching.filter((t) => t.result !== "受注");

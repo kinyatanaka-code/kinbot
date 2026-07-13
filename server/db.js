@@ -2040,10 +2040,15 @@ export async function listDealsNeedingFeatureTags({ limit = 1000 } = {}) {
              (SELECT ev.bot_id FROM deal_events ev WHERE ev.deal_id=d.deal_id AND ev.event_type='初回商談' AND ev.meeting_kind='初回商談' ORDER BY ev.event_date DESC LIMIT 1) AS bot_id,
              (SELECT ev.event_date FROM deal_events ev WHERE ev.deal_id=d.deal_id AND ev.event_type='初回商談' AND ev.meeting_kind='初回商談' ORDER BY ev.event_date DESC LIMIT 1) AS first_meeting_date
       FROM deals d
-      WHERE d.deal_id NOT IN (SELECT deal_id FROM deal_feature_tags)
+      WHERE d.deal_id NOT IN (
+        SELECT deal_id FROM deal_feature_tags
+        WHERE customer_employee_size IS DISTINCT FROM '不明'
+           OR target_hire_count IS DISTINCT FROM '未定'
+           OR hiring_type_need IS NOT NULL
+      )
       LIMIT $1
     `, [limit]);
-    return rows.filter((r) => r.bot_id); // 初回商談イベントがある案件のみ
+    return rows.filter((r) => r.bot_id);
   } catch (e) { console.error("[db] listDealsNeedingFeatureTags", e.message); return []; }
 }
 
