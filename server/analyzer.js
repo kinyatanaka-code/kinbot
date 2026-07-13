@@ -23,6 +23,43 @@ export async function getCheckItems() {
   }
 }
 
+// 要約の追加指示（設定でユーザーが自由に指定。空なら無し）
+export async function getSummaryPrompt() {
+  try {
+    const s = await getSettings();
+    return s && typeof s.summaryPrompt === "string" ? s.summaryPrompt.trim() : "";
+  } catch { return ""; }
+}
+
+// カスタム分析プロンプト（設定でユーザーが貼り付けた任意のプロンプト。空なら機能オフ）
+export async function getCustomPrompt() {
+  try {
+    const s = await getSettings();
+    return s && typeof s.customPrompt === "string" ? s.customPrompt.trim() : "";
+  } catch { return ""; }
+}
+
+// ユーザー定義プロンプトを、その商談の文字起こしに対して実行する。
+// プロンプト内の {transcript}/{文字起こし}/{ここに…挿入} を文字起こしに置換。無ければ末尾に添付。
+export async function runCustomAnalysis(transcript, prompt) {
+  const p = String(prompt || "").trim();
+  if (!p) return "";
+  const text = transcriptToText(transcript).slice(0, 45000);
+  const ph = /\{\s*(transcript|文字起こし|ここに[^}]*挿入[^}]*)\s*\}/;
+  let user;
+  if (ph.test(p)) user = p.replace(ph, text);
+  else user = `${p}\n\n# 対象の文字起こし\n"""\n${text}\n"""`;
+  const sys = "あなたは与えられた指示に厳密に従って商談を分析するアシスタントです。指示に書かれたフォーマット・ルールをそのまま守って出力してください。指示以外の前置きや後書きは加えないでください。";
+  return await callLLM(sys, user, 2500, { json: false });
+}
+function summaryInstructionBlock(instr) {
+  if (!instr) return "";
+  return (
+    `\n【要約の追加指示（設定で指定・要約作成時に最優先で反映）】\n"""\n${String(instr).slice(0, 4000)}\n"""\n` +
+    `summary の各項目は、この追加指示のトーン・観点・粒度・書式に従って書くこと。ただし出力JSONの構造とキー名は変更しない。\n`
+  );
+}
+
 // 商談内容に近い自社ナレッジだけを抽出してプロンプト用ブロックに整形（無ければ空）
 async function knowledgeBlock(queryText) {
   try {
@@ -107,13 +144,26 @@ function modelFor() {
 }
 
 // ライブ：要約＋次の一手＋チェック＋異議対応
-export async function analyze({ transcript, prevSummary, repName }) {
+export async function analyze({ transcript, prevSummary, repName, extraItems }) {
   const know = await knowledgeBlock(String(transcript || "").slice(-2000));
-  const items = await getCheckItems();
+  const teamItems = await getCheckItems();
+  // この商談の重点（事前ブリーフの「今日詰めるべき点」）を🎯付きで加える
+  const extra = (Array.isArray(extraItems) ? extraItems : [])
+    .map((x) => "🎯 " + String(x || "").trim())
+    .filter((x) => x.length > 3);
+  // チーム項目＋商談ごとの重点をマージ（重複除去・上限15）
+  const seen = new Set();
+  const items = [];
+  for (const it of [...teamItems, ...extra]) {
+    const k = String(it).replace(/[\s🎯]/g, "");
+    if (k && !seen.has(k)) { seen.add(k); items.push(String(it)); }
+    if (items.length >= 15) break;
+  }
   const user =
     `自社の営業担当（支援対象）: ${repName || "（未指定）"}\n` +
-    `チェック項目（このリストの各項目を coverage で評価。項目名はそのまま使う）: ${JSON.stringify(items)}\n` +
+    `チェック項目（このリストの各項目を coverage で評価。項目名はそのまま使う。🎯 はこの商談の重点）: ${JSON.stringify(items)}\n` +
     know +
+    summaryInstructionBlock(await getSummaryPrompt()) +
     (prevSummary ? `\nこれまでの要約(参考):\n${JSON.stringify(prevSummary)}\n` : "") +
     `\n商談の文字起こし(古い→新しい):\n"""\n${transcript}\n"""\n\n` +
     `最新状況の要約・チェック充足・異議対応・次の一手を JSON で返してください。異議対応/提案は自社ナレッジを根拠に。`;
@@ -138,6 +188,7 @@ export async function analyzeMeeting({ transcript, repName, dateStr, speakers })
   const user =
     ctx.join("\n") +
     know +
+    summaryInstructionBlock(await getSummaryPrompt()) +
     `\n\n商談の文字起こし:\n"""\n${transcript}\n"""\n\n` +
     `この商談を、指定テンプレートの要約と営業フィードバックとして JSON で返してください。話された情報だけを使ってください。改善提案は自社ナレッジを踏まえて。`;
   const text = await callLLM(REVIEW_PROMPT, user, 2400);
@@ -223,6 +274,59 @@ export async function freeAnalyze({ question, material, filterDesc }) {
   return await callLLM(FREE_PROMPT, user, 2600, { json: false });
 }
 
+// ===== 事前ブリーフ（商談前の準備メモ＋想定問答）=====
+const BRIEF_PROMPT =
+  "あなたはB2B営業の商談準備を支援するコーチです。ある会社との過去の商談記録をもとに、担当者が次回商談の直前に読む『事前ブリーフ』と『想定問答』を作成します。\n" +
+  "ルール:\n" +
+  "- 記録に書かれている事実だけを根拠にする。書かれていないことを推測で断定しない（自然な範囲の要約は可）。\n" +
+  "- 各項目は短く具体的に（1〜2文）。冗長な前置きは書かない。\n" +
+  "- recap / open_items / concerns / focus はそれぞれ最大5件。qa は3〜6組。\n" +
+  "- open_items は『まだ解決していない宿題・約束・保留事項』。concerns は相手が示した懸念・不安・反対の兆候。focus は次回で必ず前進させるべき論点。\n" +
+  "- qa は、この相手から出そうな質問(q)と、過去のやり取りを踏まえた良い回答の要点(a)。\n" +
+  "- 記録が乏しく書けない項目は空配列でよい。\n" +
+  "- 出力はJSONのみ。前置き・後置き・コードフェンスは不要。";
+
+const BRIEF_SCHEMA = {
+  type: "object",
+  properties: {
+    recap: { type: "array", items: { type: "string" }, description: "前回までの要点（最大5件）" },
+    open_items: { type: "array", items: { type: "string" }, description: "未解決の宿題・約束・保留（最大5件）" },
+    concerns: { type: "array", items: { type: "string" }, description: "相手の懸念・不安・反対の兆候（最大5件）" },
+    focus: { type: "array", items: { type: "string" }, description: "今日詰めるべき点（最大5件）" },
+    qa: {
+      type: "array",
+      items: { type: "object", properties: { q: { type: "string" }, a: { type: "string" } }, required: ["q", "a"] },
+      description: "想定問答（3〜6組）",
+    },
+  },
+  required: ["recap", "open_items", "concerns", "focus", "qa"],
+};
+
+export async function buildBrief({ company, meetings }) {
+  const material = (meetings || []).map((m, i) => {
+    const lines = [`# 商談${i + 1}（${m.date || "日付不明"}）${m.title || ""}`];
+    if (m.overview) lines.push(`要約: ${m.overview}`);
+    if (m.key_points && m.key_points.length) lines.push(`要点: ${m.key_points.join(" / ")}`);
+    if (m.concerns && m.concerns.length) lines.push(`相手の懸念: ${m.concerns.join(" / ")}`);
+    if (m.next_steps && m.next_steps.length) lines.push(`次回までの宿題: ${m.next_steps.join(" / ")}`);
+    if (m.next_action) lines.push(`AI提案の次アクション: ${m.next_action}`);
+    return lines.join("\n");
+  }).join("\n\n");
+  const user =
+    `会社名: ${company}\n\n` +
+    `この会社との過去の商談記録（古い順）:\n"""\n${material || "（記録なし）"}\n"""\n\n` +
+    `次回商談に臨む営業担当者向けに、事前ブリーフと想定問答をJSONで作成してください。`;
+  const text = await callLLM(BRIEF_PROMPT, user, 2200, { schema: BRIEF_SCHEMA });
+  const o = parseJson(text) || {};
+  return {
+    recap: Array.isArray(o.recap) ? o.recap : [],
+    open_items: Array.isArray(o.open_items) ? o.open_items : [],
+    concerns: Array.isArray(o.concerns) ? o.concerns : [],
+    focus: Array.isArray(o.focus) ? o.focus : [],
+    qa: Array.isArray(o.qa) ? o.qa.filter((x) => x && x.q) : [],
+  };
+}
+
 // 企業サイト＋Web検索から会社概要を取得（A+B / 2段階で確実にJSON化）
 async function geminiGrounded(question, siteText) {
   const key = process.env.GEMINI_API_KEY;
@@ -247,6 +351,107 @@ const COMPANY_EXTRACT_PROMPT = `あなたは情報抽出器です。渡された
 - 値は簡潔・日本語。
 - 次のJSONのみを返す:
 {"official_name":"正式社名","industry":"業界","employees":"従業員数(例: 約320名)","hiring":"採用予定人数(例: 15名/年)","founded":"設立(例: 1998年)","location":"本社所在地","business":"事業内容(1〜2文)","note":"補足(任意)"}`;
+
+// 従業員数だけをWeb検索で特定する。gBizINFOに従業員数が無いときの補完用。
+// でっち上げを防ぐため「Webで確認できた場合のみ数値を返し、必ず出典URLを添える」ことを強制する。
+// 見つからなければ found:false を返す（それっぽい数字を作らない）。
+export async function lookupEmployeeCount(companyName, hint = "") {
+  const name = String(companyName || "").trim();
+  if (!name) return { found: false };
+  let research = "";
+  try {
+    research = await geminiGrounded(
+      `「${name}」${hint ? "（" + hint + "）" : ""}の従業員数を調べてください。` +
+      `「${name} 従業員数」で検索し、公式サイトの会社概要、マイナビ・リクナビ等の採用ページ、gBizINFO、四季報などの複数ソースを照合してください。` +
+      `数値が確認できたソースのURLを必ず挙げてください。確認できない場合は「不明」と明記してください。憶測で数値を作らないこと。`,
+      ""
+    );
+  } catch (e) {
+    console.warn("[employee-lookup] grounding失敗", e.message);
+    return { found: false, error: "検索に失敗しました" };
+  }
+  const schema = {
+    type: "object",
+    properties: {
+      found: { type: "boolean" },
+      employees: { type: "string" },
+      source_url: { type: "string" },
+      source_name: { type: "string" },
+      as_of: { type: "string" },
+      confidence: { type: "string", enum: ["high", "medium", "low"] },
+    },
+    required: ["found", "employees", "source_url", "confidence"],
+  };
+  const sys =
+    "あなたは企業調査アシスタントです。与えられた検索リサーチ結果だけを根拠に、従業員数を厳密に判断します。" +
+    "リサーチ結果に従業員数の記載と出典が無ければ found=false にします。決して推測で数値を作らないこと。" +
+    "複数ソースで数値が食い違う場合は最も公式に近いものを採用し、confidence を medium 以下にします。出力は指定JSONのみ。";
+  const user = `会社名: ${name}\n\n検索リサーチ結果:\n"""\n${(research || "(なし)").slice(0, 6000)}\n"""\n\n上記だけを根拠に、従業員数をJSONで出力してください。`;
+  const o = parseJson(await callLLM(sys, user, 500, { schema, provider: "anthropic" })) || {};
+  const emp = String(o.employees || "").trim();
+  if (!o.found || !emp) return { found: false };
+  return {
+    found: true,
+    employees: emp,
+    source_url: String(o.source_url || "").trim(),
+    source_name: String(o.source_name || "").trim(),
+    as_of: String(o.as_of || "").trim(),
+    confidence: ["high", "medium", "low"].includes(o.confidence) ? o.confidence : "low",
+  };
+}
+
+// 業界・設立日・本社所在地をまとめてWeb検索で調べる（gBizINFOに無い項目を補完するため）。
+// 従業員数と同じく「Webで確認できた場合のみ返す。無ければ found:false」の厳格版。
+// which: 求める項目名 ["industry","founded","location"] を指定。省略時は全部。
+export async function lookupCompanyBasics(companyName, which = ["industry", "founded", "location"]) {
+  const name = String(companyName || "").trim();
+  if (!name) return { found: false };
+  let research = "";
+  try {
+    const qs = which.map((w) => {
+      if (w === "industry") return "業界・業種";
+      if (w === "founded") return "設立日（○年○月○日）";
+      if (w === "location") return "本社所在地（住所）";
+      return "";
+    }).filter(Boolean).join("、");
+    research = await geminiGrounded(
+      `「${name}」の会社概要を調べてください。特に${qs}を、公式サイト・帝国データバンク・gBizINFO・Wikipedia・企業情報サイトなど複数のソースを照合して確認してください。` +
+      `確認できたソースのURLを必ず挙げてください。確認できない項目は「不明」と明記してください。憶測で情報を作らないこと。`,
+      ""
+    );
+  } catch (e) {
+    console.warn("[basics-lookup] grounding失敗", e.message);
+    return { found: false };
+  }
+  const schema = {
+    type: "object",
+    properties: {
+      industry: { type: "string", description: "業界・業種。見つからなければ空文字" },
+      founded: { type: "string", description: "設立日または設立年（例: 1998年、1998年4月1日）。見つからなければ空" },
+      location: { type: "string", description: "本社所在地。見つからなければ空" },
+      source_url: { type: "string", description: "最も信頼できたソースのURL" },
+      source_name: { type: "string", description: "例: 公式サイト会社概要 / Wikipedia / 帝国データバンク" },
+      confidence: { type: "string", enum: ["high", "medium", "low"] },
+    },
+    required: ["industry", "founded", "location", "source_url", "confidence"],
+  };
+  const sys =
+    "あなたは企業調査アシスタントです。与えられた検索リサーチ結果だけを根拠に判断します。" +
+    "リサーチ結果に記載と出典が無い項目は空文字にします。決して推測で情報を作らないこと。出力は指定JSONのみ。";
+  const user = `会社名: ${name}\n\n検索リサーチ結果:\n"""\n${(research || "(なし)").slice(0, 6000)}\n"""\n\n上記だけを根拠に、業界・設立・本社所在地をJSONで出力してください。`;
+  const o = parseJson(await callLLM(sys, user, 500, { schema, provider: "anthropic" })) || {};
+  const industry = String(o.industry || "").trim();
+  const founded = String(o.founded || "").trim();
+  const location = String(o.location || "").trim();
+  if (!industry && !founded && !location) return { found: false };
+  return {
+    found: true,
+    industry, founded, location,
+    source_url: String(o.source_url || "").trim(),
+    source_name: String(o.source_name || "").trim(),
+    confidence: ["high", "medium", "low"].includes(o.confidence) ? o.confidence : "low",
+  };
+}
 
 export async function enrichCompany({ url, name, siteText }) {
   // Step1: Web検索＋サイト本文でリサーチ（失敗してもサイト本文だけで続行）。
@@ -477,8 +682,9 @@ export async function judgePhase(transcript, opts = {}) {
   // フェーズ判定だけ、他のタスクと別のプロバイダ/モデルを使えるようにする（コスト最適化）。
   // 例：普段のLLM_PROVIDERはgemini（激安）にしておき、PHASE_PROVIDER=anthropic + PHASE_MODEL=claude-haiku... で
   // 「判定だけClaude、それ以外は全部Gemini」という構成にできる。未設定なら通常のLLM_PROVIDERを使う。
-  const phaseProvider = (process.env.PHASE_PROVIDER || "").toLowerCase() || undefined;
-  const phaseModel = process.env.PHASE_MODEL || undefined;
+  const jsel = await getJudgeProviderSetting();
+  const phaseProvider = jsel || (process.env.PHASE_PROVIDER || "").toLowerCase() || undefined;
+  const phaseModel = jsel ? undefined : (process.env.PHASE_MODEL || undefined);
   const text = await callLLM(sys, user, 3500, { schema: PHASE_JSON_SCHEMA, cachePrefix, provider: phaseProvider, model: phaseModel });
   const o = parseJson(text) || {};
   const pick = (p) => (o && o[p] && typeof o[p] === "object" ? o[p] : {});
@@ -1010,13 +1216,51 @@ export async function generateThanks({ round, examples, summaryText, repName, cu
 
 // transcript(配列 or 文字列)を「話者: 発言」形式のテキストにする
 // 抽出（種別判定・初回・再商談）に使うLLM。既定は Anthropic Claude。
+// 判定に使うプロバイダを設定から取得（"anthropic"|"gemini"|""）。未設定は空＝環境変数にフォールバック。
+async function getJudgeProviderSetting() {
+  try {
+    const s = await getSettings();
+    if (s && (s.judgeProvider === "anthropic" || s.judgeProvider === "gemini")) return s.judgeProvider;
+  } catch {}
+  return "";
+}
+
 // Claudeが失敗したら必ず Gemini にフォールバックする（EXTRACT_FALLBACK で変更可、既定 gemini）。
-// 環境変数で上書き可: EXTRACT_PROVIDER（既定 anthropic）, EXTRACT_MODEL, EXTRACT_FALLBACK（既定 gemini）
-function extractLLMOpts(extra = {}) {
-  const provider = (process.env.EXTRACT_PROVIDER || "anthropic").toLowerCase();
-  const model = process.env.EXTRACT_MODEL || (provider === "anthropic" ? (process.env.ANALYZER_MODEL || "claude-sonnet-4-6") : undefined);
+// 判定モデルは設定（judgeProvider＝画面で選択）を最優先。未設定なら環境変数 EXTRACT_PROVIDER（既定 anthropic）。
+async function extractLLMOpts(extra = {}, forceProvider) {
+  // forceProvider が指定されれば最優先（商談終わりの自動判定でClaude固定にするため）
+  const forced = forceProvider === "anthropic" || forceProvider === "gemini" ? forceProvider : "";
+  const sel = forced || (await getJudgeProviderSetting()); // "anthropic"|"gemini"|""
+  const provider = sel || (process.env.EXTRACT_PROVIDER || "gemini").toLowerCase();
+  const model = sel
+    ? (provider === "anthropic" ? (process.env.ANALYZER_MODEL || "claude-sonnet-4-6") : undefined)
+    : (process.env.EXTRACT_MODEL || (provider === "anthropic" ? (process.env.ANALYZER_MODEL || "claude-sonnet-4-6") : undefined));
   const fallback = (process.env.EXTRACT_FALLBACK || "gemini").toLowerCase();
   return { provider, model, fallback, ...extra };
+}
+
+// 判定共通のリトライ：自信度highが出るまで再試行し、最後まで低ければ上位モデル(Opus)にエスカレーション。
+// buildResult(o) は生JSONを整形して返す（必ず confidence を持たせること）。
+async function judgeWithRetry({ sys, user, schema, provider, maxTokens = 1400, retryNote, buildResult }) {
+  const maxTries = Math.max(1, Math.min(8, Number(process.env.EXTRACT_MAX_TRIES || 5)));
+  // 低自信のとき最後に使う上位モデル（未設定なら既定のOpus文字列。使えない場合は自動でGeminiにフォールバック）
+  const escalateModel = process.env.EXTRACT_ESCALATE_MODEL || "claude-opus-4-1";
+  let best = null;
+  for (let attempt = 1; attempt <= maxTries; attempt++) {
+    const lowBefore = best && best.confidence === "low";
+    const isEscalation = attempt === maxTries && lowBefore && !!escalateModel;
+    const note = attempt > 1 ? retryNote || "" : "";
+    const escNote = isEscalation
+      ? "\n\n（これは最終確認です。上位モデルとして、文字起こしを最初から丁寧に読み直し、reasoning に段階的な考察を書いてから、各項目を発言の根拠に基づいて慎重に確定してください。）"
+      : "";
+    const llm = isEscalation
+      ? { ...(await extractLLMOpts({ schema }, "anthropic")), model: escalateModel }
+      : await extractLLMOpts({ schema }, provider);
+    const o = parseJson(await callLLM(sys, user + note + escNote, maxTokens, llm)) || {};
+    best = buildResult(o, attempt, isEscalation);
+    if (best.confidence === "high") break;
+  }
+  return best;
 }
 
 function transcriptToText(transcript) {
@@ -1025,8 +1269,76 @@ function transcriptToText(transcript) {
   return transcript.map((u) => `${(u.speaker && u.speaker.name) || u.speaker_name || "話者"}: ${u.text || ""}`).join("\n");
 }
 
+// 勝ち/負けパターン分析：商談を「進んだ群（再商談に進んだ）」と「止まった群」に分け、
+// 文字起こしを比較して、企業タイプ・商談の特徴・トーク・勝ち/負けパターンを抽出する。
+// won/lost は [{ company, transcript }] の配列（transcriptは整形済みテキスト）。
+export async function analyzeWinPatterns(wonSamples, lostSamples, scopeLabel) {
+  const clip = (arr, per) => arr.slice(0, 12).map((s, i) =>
+    `【${i + 1}. ${s.company || "会社名なし"}】\n${transcriptToText(s.transcript).slice(0, per)}`
+  ).join("\n\n---\n\n");
+  // サンプル数に応じて1件あたりの長さを調整（全体を約40000字に収める）
+  const perWon = Math.max(1200, Math.floor(22000 / Math.max(1, Math.min(12, wonSamples.length))));
+  const perLost = Math.max(1200, Math.floor(22000 / Math.max(1, Math.min(12, lostSamples.length))));
+
+  const sys =
+    "あなたはBtoB採用サービス『どこでもオープンカンパニー（DOC）』の営業を分析するトップコンサルタントです。" +
+    "『再商談に進んだ商談（＝次につながった商談）』と『進まなかった商談（＝その場で止まった商談）』の文字起こしを比較し、" +
+    "営業メンバーが次の商談ですぐ実践できる示唆を出します。" +
+    "必ず文字起こしの実際の発言・進め方を根拠にし、一般論や推測で埋めないこと。根拠が薄い項目は正直に『データ不足』と書くこと。" +
+    "各配列は3〜6個、具体的で短く、現場で使える粒度にすること。出力は指定のJSONのみ。";
+
+  const schema = {
+    type: "object",
+    properties: {
+      company_types: {
+        type: "object",
+        properties: {
+          progressed: { type: "array", items: { type: "string" } }, // 進んだ商談に多い企業タイプ
+          stalled: { type: "array", items: { type: "string" } },     // 止まった商談に多い企業タイプ
+        },
+      },
+      meeting_traits: {
+        type: "object",
+        properties: {
+          progressed: { type: "array", items: { type: "string" } }, // 進んだ商談の進め方の特徴
+          stalled: { type: "array", items: { type: "string" } },
+        },
+      },
+      talk_tips: { type: "array", items: { type: "string" } },       // 効果的だったトーク/質問（具体的な言い回し）
+      win_patterns: { type: "array", items: { type: "string" } },    // 勝ちパターン
+      lose_patterns: { type: "array", items: { type: "string" } },   // 負けパターン
+      actions: { type: "array", items: { type: "string" } },         // 次の商談での具体的アクション
+    },
+    required: ["company_types", "meeting_traits", "talk_tips", "win_patterns", "lose_patterns", "actions"],
+  };
+
+  const user =
+    `分析対象: ${scopeLabel || "全体"}\n` +
+    `# 再商談に進んだ商談（${wonSamples.length}件）\n${clip(wonSamples, perWon) || "(データなし)"}\n\n` +
+    `# 進まなかった（止まった）商談（${lostSamples.length}件）\n${clip(lostSamples, perLost) || "(データなし)"}\n\n` +
+    "上記を比較し、次のJSON形式で出力してください。各項目は実際の発言・進め方を根拠にすること。\n" +
+    "company_types: 進んだ/止まった商談それぞれに多い企業タイプ（業界・規模感・温度感・体制など、会話から読み取れる範囲）\n" +
+    "meeting_traits: 進んだ/止まった商談の進め方の特徴（ヒアリング量・決裁者関与・次アクション設定など）\n" +
+    "talk_tips: 進んだ商談で効果的だった質問・言い回し（できるだけ具体的な言葉で）\n" +
+    "win_patterns / lose_patterns: 勝ちパターン / 負けパターン\n" +
+    "actions: 各メンバーが次の商談で実践すべき具体的アクション";
+
+  const out = parseJson(await callLLM(sys, user, 2200, { schema, provider: "anthropic" })) || {};
+  // 形を保証
+  const arr = (x) => (Array.isArray(x) ? x.filter((s) => typeof s === "string" && s.trim()) : []);
+  const pair = (o) => ({ progressed: arr(o && o.progressed), stalled: arr(o && o.stalled) });
+  return {
+    company_types: pair(out.company_types),
+    meeting_traits: pair(out.meeting_traits),
+    talk_tips: arr(out.talk_tips),
+    win_patterns: arr(out.win_patterns),
+    lose_patterns: arr(out.lose_patterns),
+    actions: arr(out.actions),
+  };
+}
+
 // 商談種別を判定：初回商談 / 再商談 / 判定不能
-export async function classifyMeetingKind(transcript) {
+export async function classifyMeetingKind(transcript, opts = {}) {
   const text = transcriptToText(transcript).slice(0, 40000);
   const sys =
     "あなたは営業商談の文字起こしを読み、商談の種別を分類するアシスタントです。次の3つから1つを選びます。" +
@@ -1043,13 +1355,13 @@ export async function classifyMeetingKind(transcript) {
     },
     required: ["meeting_kind", "confidence"],
   };
-  const out = parseJson(await callLLM(sys, user, 300, extractLLMOpts({ schema }))) || {};
+  const out = parseJson(await callLLM(sys, user, 300, await extractLLMOpts({ schema }, opts.provider))) || {};
   const kind = ["初回商談", "再商談", "判定不能"].includes(out.meeting_kind) ? out.meeting_kind : "判定不能";
   return { meeting_kind: kind, confidence: out.confidence === "high" ? "high" : "low" };
 }
 
 // 初回商談の抽出（依頼書4.2 確定版プロンプト）
-export async function extractFirstMeeting(transcript, meetingDate) {
+export async function extractFirstMeeting(transcript, meetingDate, opts = {}) {
   const text = transcriptToText(transcript).slice(0, 45000);
   const sys =
     "あなたは営業商談の文字起こしから、指定された項目のみを抽出するアシスタントです。" +
@@ -1067,11 +1379,14 @@ export async function extractFirstMeeting(transcript, meetingDate) {
     "年が省略されていれば商談日と同じ年（年をまたぐ場合は翌年）とする。日にちまで特定できず月だけ分かる場合はその月の1日。全く不明ならnull。\n" +
     "5. confidence: 抽出全体の自信度（\"high\"/\"low\"）。顧客の発言が曖昧・脱線して結論が不明確・複数解釈可能なら\"low\"。\n" +
     "6. judgment_basis: 判定根拠の要約（30字程度、発言の逐語引用はしない）。\n" +
+    "7. reasoning: 上記を確定する前の段階的な考察。顧客の該当発言に触れながら、各区分をどう判断したかを検討する。\n" +
+    "【重要】出力は必ず reasoning から書き始め、その考察の結論として schedule_choice などの項目を決めること。\n" +
     "JSONのみ出力し、他の文章は一切出力しないこと。";
   const user = `商談日: ${meetingDate || "不明"}\n文字起こし:\n"""\n${text}\n"""`;
   const schema = {
     type: "object",
     properties: {
+      reasoning: { type: "string" },
       schedule_choice: { type: "string", enum: ["来月開始", "再来月開始", "その他明確な時期", "未定", "不明"] },
       schedule_choice_detail: { type: ["string", "null"] },
       apply_timing: { type: "string", enum: ["今月", "来月", "それ以外", "不明", "該当なし"] },
@@ -1080,18 +1395,14 @@ export async function extractFirstMeeting(transcript, meetingDate) {
       confidence: { type: "string", enum: ["high", "low"] },
       judgment_basis: { type: "string" },
     },
-    required: ["schedule_choice", "apply_timing", "next_meeting_scheduled", "confidence", "judgment_basis"],
+    required: ["reasoning", "schedule_choice", "apply_timing", "next_meeting_scheduled", "confidence", "judgment_basis"],
   };
-  // 自信度が low の場合、最大3回まで判定をやり直す（high が出たら即採用）。
-  // 2回目以降は「前回 low だった。曖昧なら該当区分を厳密に、それでも不明確なら不明のままでよい」と補足して再考させる。
-  const maxTries = Math.max(1, Math.min(8, Number(process.env.EXTRACT_MAX_TRIES || 5)));
-  let best = null;
-  for (let attempt = 1; attempt <= maxTries; attempt++) {
-    const extraNote = attempt > 1
-      ? `\n\n（注意：前回の抽出は自信度lowでした。文字起こしを丁寧に読み直し、顧客の発言の該当箇所を根拠に、各区分を厳密に判定してください。明確な根拠が本当に無い項目だけを不明としてください。）`
-      : "";
-    const o = parseJson(await callLLM(sys, user + extraNote, 700, extractLLMOpts({ schema }))) || {};
-    const result = {
+  // 自信度highが出るまで再試行し、最後まで低ければ上位モデル(Opus)にエスカレーション。
+  return await judgeWithRetry({
+    sys, user, schema, provider: opts.provider, maxTokens: 1400,
+    retryNote: "\n\n（注意：前回の抽出は自信度lowでした。reasoning に根拠を段階的に書いた上で、文字起こしを丁寧に読み直し、各区分を厳密に判定してください。明確な根拠が本当に無い項目だけを不明としてください。）",
+    buildResult: (o, attempt) => ({
+      reasoning: o.reasoning || "",
       schedule_choice: o.schedule_choice || "不明",
       schedule_choice_detail: o.schedule_choice_detail || "",
       apply_timing: o.apply_timing || "不明",
@@ -1100,15 +1411,12 @@ export async function extractFirstMeeting(transcript, meetingDate) {
       confidence: o.confidence === "high" ? "high" : "low",
       judgment_basis: o.judgment_basis || "",
       attempts: attempt,
-    };
-    best = result;
-    if (result.confidence === "high") break; // 自信が高くなったら確定
-  }
-  return best;
+    }),
+  });
 }
 
 // 再商談（上申準備）の抽出（依頼書4.3）
-export async function extractReMeeting(transcript, meetingDate) {
+export async function extractReMeeting(transcript, meetingDate, opts = {}) {
   const text = transcriptToText(transcript).slice(0, 45000);
   const sys =
     "あなたは営業商談（再商談・上申準備）の文字起こしから、指定された項目のみを抽出するアシスタントです。" +
@@ -1120,11 +1428,14 @@ export async function extractReMeeting(transcript, meetingDate) {
     "4. result: \"受注\"/\"失注\"/\"延期\"（さらに先送り）/\"未確定\"\n" +
     "5. confidence: \"high\"/\"low\"\n" +
     "6. judgment_basis: 判定根拠の要約（30字程度）\n" +
+    "7. reasoning: result を確定する前の段階的な考察。顧客の該当発言に触れながら、受注/失注/延期/未確定のどれに当たるかを検討する。\n" +
+    "【重要】出力は必ず reasoning から書き始め、その考察の結論として result を決めること。口頭の同意でも稟議・持ち帰りが残る場合は安易に受注とせず、根拠を吟味すること。\n" +
     "JSONのみ出力し、他の文章は一切出力しないこと。";
   const user = `商談日: ${meetingDate || "不明"}\n文字起こし:\n"""\n${text}\n"""`;
   const schema = {
     type: "object",
     properties: {
+      reasoning: { type: "string" },
       reported_date: { type: ["string", "null"] },
       apply_date: { type: ["string", "null"] },
       usage_start_date: { type: ["string", "null"] },
@@ -1132,16 +1443,13 @@ export async function extractReMeeting(transcript, meetingDate) {
       confidence: { type: "string", enum: ["high", "low"] },
       judgment_basis: { type: "string" },
     },
-    required: ["result", "confidence", "judgment_basis"],
+    required: ["reasoning", "result", "confidence", "judgment_basis"],
   };
-  const maxTries = Math.max(1, Math.min(8, Number(process.env.EXTRACT_MAX_TRIES || 5)));
-  let best = null;
-  for (let attempt = 1; attempt <= maxTries; attempt++) {
-    const extraNote = attempt > 1
-      ? `\n\n（注意：前回の抽出は自信度lowでした。文字起こしを丁寧に読み直し、受注/失注/延期/未確定を発言の根拠に基づき厳密に判定してください。明確な根拠が無い場合のみ未確定としてください。）`
-      : "";
-    const o = parseJson(await callLLM(sys, user + extraNote, 700, extractLLMOpts({ schema }))) || {};
-    const result = {
+  return await judgeWithRetry({
+    sys, user, schema, provider: opts.provider, maxTokens: 1400,
+    retryNote: "\n\n（注意：前回の抽出は自信度lowでした。reasoning に根拠を段階的に書いた上で、受注/失注/延期/未確定を発言の根拠に基づき厳密に判定してください。明確な根拠が無い場合のみ未確定としてください。）",
+    buildResult: (o, attempt) => ({
+      reasoning: o.reasoning || "",
       reported_date: o.reported_date || null,
       apply_date: o.apply_date || null,
       usage_start_date: o.usage_start_date || null,
@@ -1149,242 +1457,6 @@ export async function extractReMeeting(transcript, meetingDate) {
       confidence: o.confidence === "high" ? "high" : "low",
       judgment_basis: o.judgment_basis || "",
       attempts: attempt,
-    };
-    best = result;
-    if (result.confidence === "high") break;
-  }
-  return best;
-}
-
-// ===== Feature C: 商談特徴タグ抽出 =====
-// 依頼書 4.2〜4.4 に対応。初回商談の文字起こしから「売り先」「売り方」「商談状況」のタグを抽出。
-// Feature A（extractFirstMeeting）とは別APIコール（依頼書4.3の実装方針）で、
-// Feature C側のスキーマ不整合がFeature Aのコア判定に影響しないよう完全に分離する。
-// customer_industry・target_job_typeはフェーズ3のエンリッチメントで別途付与するため、
-// ここのプロンプト・出力対象には含めない。
-export async function extractFeatureCTags(transcript, meetingDate) {
-  const text = transcriptToText(transcript).slice(0, 45000);
-
-  const sys = [
-    "あなたは営業商談の文字起こしから、指定された項目のみを構造化して抽出するアシスタントです。",
-    "記載のない情報は絶対に推測せず、該当する区分がなければ\"不明\"（配列項目は空配列）としてください。",
-    "",
-    "【売り先タグ（顧客属性）】",
-    "1. customer_employee_size: 顧客企業の従業員規模。「〜50人」「51〜200人」「201〜500人」「501〜1000人」「1001人以上」「不明」のいずれか。",
-    "2. target_hire_count: 今回の採用予定人数。「1〜2名」「3〜5名」「6〜10名」「11名以上」「未定」のいずれか。顧客側で人数が決まっていない場合、および文字起こしから特定できない場合の両方を「未定」に含める。",
-    "3. hiring_type_need: 新卒／中途の採用ニーズ。「新卒中心」「中途中心」「新卒・中途両方」のいずれか。\"不明\"は選択肢に含めない。文脈から判断が難しい場合も、発言の端々（\"新卒\"\"既卒\"\"キャリア採用\"\"中途\"等の単語、内定者・入社時期の言及）から最も近いものを推測して選ぶこと。ただし本当に確信が持てなければtag_confidenceを\"low\"にする。",
-    "4. customer_hq_region: 顧客企業の本社所在地（都道府県名。例：「東京都」「大阪府」「北海道」）。発言から特定できないなら「不明」。",
-    "5. customer_response_status: 商談内での顧客の反応区分。「担当者合意」（相手が導入したい・上申したい旨の発言がある）／「案件化」（検討可能の旨だが担当者合意ほど明確な前向き発言ではない）／「不明」のいずれか。",
-    "   ※「失注」は絶対に出力しないこと。失注の判定は別システムで行うため、AIが失注と判断してもここでは\"不明\"または実際に読み取れる区分を出す。",
-    "6. decision_maker_present: 商談に決裁者・決裁権に近い人物が同席していたか。true / false / null（不明）。",
-    "7. competitor_mentioned: 競合サービス（求人媒体、他社のVR/AI採用支援ツール等）への言及があったか。true / false。",
-    "8. key_pain_points: 顧客が言及した採用課題・困りごと（配列、最大5件、各20字程度の要約。逐語引用しない。例：「応募前離脱」「ミスマッチ」「遠方拠点の説明会運営負担」）。",
-    "",
-    "【売り方タグ（訴求・進め方）】",
-    "9. appeal_points_used: 営業側が使った訴求の内容（配列、複数選択可）。以下から該当するものを選ぶ：",
-    "   「応募前離脱防止訴求」「ミスマッチ防止訴求」「3D仮想体験の差別化訴求」「採用工数削減訴求」「データ蓄積・分析訴求」「価格・初期費用訴求」「導入事例訴求」「緊急性訴求」「その他」",
-    "10. talk_patterns: 営業側の話法の型（配列、複数選択可）。以下から該当するものを選ぶ：",
-    "    「具体的な数値・実績の提示型」「類似業界の事例活用型」「競合比較型」「顧客の発言を要約・言い換えして返す型」「質問で顧客に考えさせる型」「畳み掛け型」「その他」",
-    "11. talk_example: 上記の中で象徴的だった話法の要約（30〜50字。営業側の発言内容の要約であり逐語引用はしない）。",
-    "12. meeting_stages: 商談を構成する各ステップを、実施した順番に配列で記載する。各要素は {\"step\":\"ステップ名\",\"emphasis\":\"厚め|普通|簡潔\"} のオブジェクト。",
-    "    stepの固定語彙：「導入・アイスブレイク」「市況・トレンド説明」「ヒアリング」「サービス説明」「デモ・仮想体験提案」「クロージング（スケジュール確認）」",
-    "    実施しなかったステップは配列に含めない（スキップされたことをそのまま表現）。emphasisは発話量・内容の厚みの目安。",
-    "    例：[{\"step\":\"導入・アイスブレイク\",\"emphasis\":\"簡潔\"},{\"step\":\"ヒアリング\",\"emphasis\":\"厚め\"},{\"step\":\"デモ・仮想体験提案\",\"emphasis\":\"普通\"},{\"step\":\"クロージング（スケジュール確認）\",\"emphasis\":\"簡潔\"}]",
-    "13. discovery_items_covered: ヒアリングで踏み込んで確認できていた項目（配列、複数選択可）。",
-    "    「現状把握」（採用体制・人数など状況の確認）／「課題認識」（担当者が感じている課題の確認）／「危機感・影響確認」（課題を放置した影響・緊急度の確認）／「意思決定プロセス確認」（決裁者・決定フローの確認）。該当なしなら空配列。",
-    "14. objection_handling_style: 顧客の懸念・抵抗が出た際の対応の型（1つだけ選ぶ）。",
-    "    「即座に切り返す型」「一旦受け止めてから返す型」「数値・データで返す型」「類似事例で返す型」「明確な回答をせず次に進める型」「該当する懸念なし」",
-    "",
-    "【商談状況】",
-    "15. objections_raised: 顧客側から出た懸念・抵抗（配列、複数選択可、該当なければ空配列）。",
-    "    「価格」「導入負荷（採用担当の工数等）」「社内稟議・決裁プロセス」「効果への不安」「導入タイミング」「既存の採用手法との兼ね合い」「その他」",
-    "16. tag_confidence: 上記全体の抽出自信度（\"high\"/\"low\"）。発言が少ない・各軸への言及がそもそもないなら\"low\"。無理に推測しない。",
-    "",
-    "JSONのみ出力し、他の文章は一切出力しないこと。",
-  ].join("\n");
-
-  const user = `商談日: ${meetingDate || "不明"}\n文字起こし:\n"""\n${text}\n"""`;
-
-  const schema = {
-    type: "object",
-    properties: {
-      customer_employee_size: { type: "string", enum: ["〜50人", "51〜200人", "201〜500人", "501〜1000人", "1001人以上", "不明"] },
-      target_hire_count: { type: "string", enum: ["1〜2名", "3〜5名", "6〜10名", "11名以上", "未定"] },
-      hiring_type_need: { type: "string", enum: ["新卒中心", "中途中心", "新卒・中途両方"] },
-      customer_hq_region: { type: "string" },
-      customer_response_status: { type: "string", enum: ["担当者合意", "案件化", "不明"] },
-      decision_maker_present: { type: ["boolean", "null"] },
-      competitor_mentioned: { type: "boolean" },
-      key_pain_points: { type: "array", items: { type: "string" }, maxItems: 5 },
-      appeal_points_used: { type: "array", items: { type: "string" } },
-      talk_patterns: { type: "array", items: { type: "string" } },
-      talk_example: { type: "string" },
-      meeting_stages: {
-        type: "array",
-        items: {
-          type: "object",
-          properties: {
-            step: { type: "string", enum: ["導入・アイスブレイク", "市況・トレンド説明", "ヒアリング", "サービス説明", "デモ・仮想体験提案", "クロージング（スケジュール確認）"] },
-            emphasis: { type: "string", enum: ["厚め", "普通", "簡潔"] },
-          },
-          required: ["step", "emphasis"],
-        },
-      },
-      discovery_items_covered: { type: "array", items: { type: "string", enum: ["現状把握", "課題認識", "危機感・影響確認", "意思決定プロセス確認"] } },
-      objection_handling_style: { type: "string", enum: ["即座に切り返す型", "一旦受け止めてから返す型", "数値・データで返す型", "類似事例で返す型", "明確な回答をせず次に進める型", "該当する懸念なし"] },
-      objections_raised: { type: "array", items: { type: "string" } },
-      tag_confidence: { type: "string", enum: ["high", "low"] },
-    },
-    required: [
-      "customer_employee_size", "target_hire_count", "hiring_type_need",
-      "customer_response_status", "competitor_mentioned",
-      "meeting_stages", "discovery_items_covered", "objection_handling_style",
-      "objections_raised", "tag_confidence",
-    ],
-  };
-
-  const raw = parseJson(await callLLM(sys, user, 1400, extractLLMOpts({ schema }))) || {};
-  // 空配列や欠損項目を正規化して返す
-  return {
-    customer_employee_size: raw.customer_employee_size || "不明",
-    target_hire_count: raw.target_hire_count || "未定",
-    hiring_type_need: raw.hiring_type_need || "新卒・中途両方",
-    customer_hq_region: raw.customer_hq_region || "不明",
-    customer_response_status: raw.customer_response_status || "不明",
-    decision_maker_present: raw.decision_maker_present === true ? true : raw.decision_maker_present === false ? false : null,
-    competitor_mentioned: !!raw.competitor_mentioned,
-    key_pain_points: Array.isArray(raw.key_pain_points) ? raw.key_pain_points.slice(0, 5) : [],
-    appeal_points_used: Array.isArray(raw.appeal_points_used) ? raw.appeal_points_used : [],
-    talk_patterns: Array.isArray(raw.talk_patterns) ? raw.talk_patterns : [],
-    talk_example: raw.talk_example || "",
-    meeting_stages: Array.isArray(raw.meeting_stages) ? raw.meeting_stages : [],
-    discovery_items_covered: Array.isArray(raw.discovery_items_covered) ? raw.discovery_items_covered : [],
-    objection_handling_style: raw.objection_handling_style || "該当する懸念なし",
-    objections_raised: Array.isArray(raw.objections_raised) ? raw.objections_raised : [],
-    tag_confidence: raw.tag_confidence === "high" ? "high" : "low",
-    raw_llm: raw,
-  };
-}
-
-// ===== Feature C フェーズ3: 企業属性エンリッチメント（依頼書4.5） =====
-import { INDUSTRY_NAMES, JOB_TYPE_MASTER } from "./industry_master.js";
-
-// 企業名から「業界」「募集職種」をWeb検索で特定する。
-// 依頼書4.5の精度設計：
-//  - 複数クエリパターン（事業内容・会社概要・企業情報）→ geminiGroundedの1リサーチにまとめて指示
-//  - 複数ソース一致でのみ confidence="high"
-//  - 業界は固定マスタ（日本標準産業分類 大分類）から選択、自由記述禁止
-//  - 求人媒体は site: 指定でノイズを削る
-//  - 検索結果のタイトル・スニペット範囲のみ利用（本文の丸ごと保存はしない）
-export async function enrichCompanyAttributes(companyName) {
-  const name = String(companyName || "").trim();
-  if (!name) return { found: false };
-
-  // --- 業界特定 ---
-  let industryResearch = "";
-  try {
-    industryResearch = await geminiGrounded(
-      `「${name}」という日本の企業について、以下の複数の検索クエリの観点で調べてください：` +
-      `「${name} 事業内容」「${name} 会社概要」「${name} 企業情報」。` +
-      `この会社の主たる事業・業界が何かを、複数の情報ソース（公式サイト・企業情報サイト・ニュース等）を照合して特定してください。` +
-      `各ソースのURL・サイト名を必ず挙げ、ソースごとに読み取れた業界を明記してください。見つからない場合は「不明」と明記。憶測は禁止。`,
-      ""
-    );
-  } catch (e) {
-    console.warn("[feature-c/enrich] 業界リサーチ失敗:", e.message);
-  }
-
-  // --- 募集職種特定 ---
-  let jobResearch = "";
-  try {
-    jobResearch = await geminiGrounded(
-      `「${name}」という日本の企業の採用・求人情報を調べてください。` +
-      `検索クエリの例：「site:mynavi.jp ${name}」「site:rikunabi.com ${name}」「site:doda.jp ${name}」「${name} 採用 求人」。` +
-      `この会社が現在どんな職種を募集しているかを、複数の求人媒体・採用ページを照合して特定してください。` +
-      `媒体ごとに確認できた職種を明記してください。検索結果のタイトル・概要から読み取れる範囲でよい。見つからなければ「不明」。憶測は禁止。`,
-      ""
-    );
-  } catch (e) {
-    console.warn("[feature-c/enrich] 職種リサーチ失敗:", e.message);
-  }
-
-  if (!industryResearch && !jobResearch) return { found: false };
-
-  // --- 構造化抽出（固定マスタから選択） ---
-  const schema = {
-    type: "object",
-    properties: {
-      industry: { type: "string", enum: [...INDUSTRY_NAMES, "不明"] },
-      industry_source_count: { type: "integer", description: "業界を同一区分と判定できた独立ソースの数" },
-      recruiting_job_types: { type: "array", items: { type: "string", enum: JOB_TYPE_MASTER } },
-      job_type_source_count: { type: "integer", description: "職種を確認できた独立媒体の数" },
-    },
-    required: ["industry", "industry_source_count", "recruiting_job_types", "job_type_source_count"],
-  };
-  const sys =
-    "あなたは企業調査アシスタントです。与えられたWeb検索リサーチ結果だけを根拠に判断します。" +
-    "業界は指定された固定区分（日本標準産業分類 大分類）から必ず選ぶこと。複数事業がある場合は主たる事業の区分。" +
-    "リサーチ結果に根拠が無ければ「不明」。職種も指定カテゴリから選ぶ。決して推測で情報を作らないこと。" +
-    "industry_source_count / job_type_source_count は、同じ判定を支持する独立した情報ソースの数を正直に数えること。出力は指定JSONのみ。";
-  const user =
-    `会社名: ${name}\n\n` +
-    `【業界に関するリサーチ結果】\n"""\n${(industryResearch || "(なし)").slice(0, 5000)}\n"""\n\n` +
-    `【求人・職種に関するリサーチ結果】\n"""\n${(jobResearch || "(なし)").slice(0, 5000)}\n"""\n\n` +
-    `上記だけを根拠に、業界（固定区分から選択）と募集職種（固定カテゴリから複数選択可）をJSONで出力してください。`;
-  const o = parseJson(await callLLM(sys, user, 500, { schema, provider: "anthropic" })) || {};
-
-  const industry = o.industry && o.industry !== "不明" ? o.industry : "";
-  const jobTypes = Array.isArray(o.recruiting_job_types) ? o.recruiting_job_types.filter(Boolean) : [];
-  // 依頼書4.5：2つ以上のソースが一致した場合のみ high
-  const industryConfidence = industry && Number(o.industry_source_count || 0) >= 2 ? "high" : "low";
-  const jobConfidence = jobTypes.length && Number(o.job_type_source_count || 0) >= 2 ? "high" : "low";
-
-  return {
-    found: !!(industry || jobTypes.length),
-    industry,
-    industry_confidence: industryConfidence,
-    recruiting_job_types: jobTypes,
-    job_type_confidence: jobConfidence,
-  };
-}
-
-// ===== Feature C フェーズ3: 傾向ハイライト自動コメント（依頼書7.2） =====
-// 事前にサーバー側で集計した統計サマリーを受け取り、示唆コメントを生成する。
-// ルール：
-//  - 件数(n)を必ず併記
-//  - 断定を避ける文体（「傾向がある」「示唆される」）
-//  - 特定個人を名指しで評価・批判する表現は禁止
-//  - n<5 のセグメントはそもそも入力に含めない（呼び出し側で除外済み）
-export async function generateFeatureCInsights(statsText) {
-  const sys =
-    "あなたはBtoB営業チームのデータアナリストです。与えられた集計データだけを根拠に、営業チーム全体の改善に役立つ示唆を3〜6個、箇条書きで出力します。\n" +
-    "【必須ルール】\n" +
-    "1. 各示唆には必ず件数（n=◯件）を併記する。\n" +
-    "2. 断定を避け、「〜の傾向がある」「〜が示唆される」という文体に統一する。\n" +
-    "3. 特定個人を名指しで評価・批判する表現は絶対に禁止（「田中さんは下手」等はNG）。個人名は「同条件での比較で差が見られる」のような中立的な文脈でのみ言及可。\n" +
-    "4. データに無い因果関係を作らない。相関と因果を混同しない（「〜だから受注率が高い」ではなく「〜の商談は受注率が高い傾向」）。\n" +
-    "5. チームとして次に取れる具体的なアクション（例：ヒアリングで確認する項目を増やす）を1〜2個含める。\n" +
-    "出力はJSONのみ。";
-  const schema = {
-    type: "object",
-    properties: {
-      insights: {
-        type: "array",
-        items: {
-          type: "object",
-          properties: {
-            text: { type: "string", description: "示唆コメント本文（n併記・断定回避）" },
-            kind: { type: "string", enum: ["傾向", "アクション提案", "注意"] },
-          },
-          required: ["text", "kind"],
-        },
-        minItems: 3,
-        maxItems: 6,
-      },
-    },
-    required: ["insights"],
-  };
-  const user = `以下はBtoB営業チームの商談タグ×受注率の集計データです。n<5のセグメントは既に除外済みです。\n\n"""\n${String(statsText || "").slice(0, 8000)}\n"""`;
-  const o = parseJson(await callLLM(sys, user, 1200, { schema, provider: "anthropic" })) || {};
-  return Array.isArray(o.insights) ? o.insights : [];
+    }),
+  });
 }
