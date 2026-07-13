@@ -166,19 +166,7 @@ function openCalPicker(panel, onPick) {
         list.innerHTML = '<div class="cal-empty">カレンダー未連携です。「設定」から連携してください。</div>';
         return;
       }
-      let events = d.events || [];
-      // 現在時刻に近い予定から順に並べる（今日の場合）。他の日は開始時刻の早い順。
-      const now = Date.now();
-      const isToday = date === jstToday();
-      events = events.slice().sort((a, b) => {
-        const ta = a.allDay ? Infinity : new Date(a.start).getTime();
-        const tb = b.allDay ? Infinity : new Date(b.start).getTime();
-        if (isToday) {
-          if (ta === Infinity && tb === Infinity) return 0;
-          return Math.abs(ta - now) - Math.abs(tb - now);
-        }
-        return ta - tb;
-      });
+      const events = d.events || [];
       if (!events.length) {
         list.innerHTML = d.filtered
           ? '<div class="cal-empty">条件に一致する予定はありません（設定のフィルター文字を確認）。</div>'
@@ -223,42 +211,18 @@ if (upBtn) {
     upBtn.disabled = true;
     const orig = upBtn.textContent;
     upBtn.textContent = "アップロード中…";
-    const sizeMB = (file.size / 1024 / 1024).toFixed(1);
+    msg.textContent = "アップロード中です。完了まで画面を閉じないでください。";
     try {
       const fd = new FormData();
       fd.append("file", file);
       fd.append("title", ($("upTitle") && $("upTitle").value.trim()) || "");
-      // XHRで送信し、実際の転送進捗（%）をバー表示する
-      const d = await new Promise((resolve, reject) => {
-        const xhr = new XMLHttpRequest();
-        xhr.open("POST", "/api/uploads");
-        xhr.upload.onprogress = (ev) => {
-          if (ev.lengthComputable && window.kbProgress) {
-            const pct = (ev.loaded / ev.total) * 100;
-            const done = (ev.loaded / 1024 / 1024).toFixed(1);
-            window.kbProgress(msg, { percent: pct, label: `アップロード中（${done} / ${sizeMB} MB）… 画面を閉じないでください` });
-          }
-        };
-        xhr.upload.onload = () => {
-          // 転送完了 → サーバー側の受付処理待ち
-          if (window.kbProgress) window.kbProgress(msg, { percent: null, label: "サーバーで受付処理中…（文字起こしの準備）" });
-        };
-        xhr.onload = () => {
-          try {
-            const body = JSON.parse(xhr.responseText || "{}");
-            if (xhr.status >= 200 && xhr.status < 300) resolve(body);
-            else reject(new Error(body.error || `アップロードに失敗しました（${xhr.status}）`));
-          } catch { reject(new Error(`アップロードに失敗しました（${xhr.status}）`)); }
-        };
-        xhr.onerror = () => reject(new Error("ネットワークエラーでアップロードに失敗しました"));
-        xhr.send(fd);
-      });
-      if (window.kbProgress) window.kbProgress(msg, { clear: true });
-      msg.textContent = "✅ アップロード完了。文字起こし・要約・分析を作成中です。数分後に商談履歴に表示されます。";
+      const res = await fetch("/api/uploads", { method: "POST", body: fd });
+      const d = await res.json();
+      if (!res.ok) throw new Error(d.error || "アップロードに失敗しました");
+      msg.textContent = "アップロード完了。文字起こし・要約・分析を作成中です。数分後に商談履歴に表示されます。";
       fileEl.value = "";
       if ($("upTitle")) $("upTitle").value = "";
     } catch (e) {
-      if (window.kbProgress) window.kbProgress(msg, { clear: true });
       msg.textContent = "失敗しました: " + e.message;
     } finally {
       upBtn.disabled = false;
@@ -689,9 +653,8 @@ function renderCoverage(list) {
   box.innerHTML = "";
   for (const it of list) {
     const m = meta[it.status] || meta.missing;
-    const isFocus = /^🎯/.test(it.item || "");
     const row = document.createElement("div");
-    row.className = `check-item ${m.cls}${isFocus ? " focus" : ""}`;
+    row.className = `check-item ${m.cls}`;
     row.innerHTML =
       `<span class="check-ic">${m.icon}</span>` +
       `<div class="check-body"><div class="check-name"></div><div class="check-note"></div></div>` +

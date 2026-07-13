@@ -14,7 +14,7 @@
         <a class="side-item" href="history.html"><span class="side-ico ico-hist"></span><span class="side-label">商談履歴</span></a>
         <a class="side-item" href="deals.html"><span class="side-ico ico-deal"></span><span class="side-label">案件</span></a>
         <a class="side-item" href="report.html"><span class="side-ico ico-ana"></span><span class="side-label">実績</span></a>
-        <a class="side-item" href="apo.html"><span class="side-ico ico-apo"></span><span class="side-label">アポ振り分け</span></a>
+        <a class="side-item" href="style-analysis.html"><span class="side-ico ico-ana"></span><span class="side-label">営業スタイル分析</span></a>
         <a class="side-item active" href="settings.html"><span class="side-ico ico-set"></span><span class="side-label">設定</span></a>
         <div class="side-foot"><span id="who" class="who"></span><a href="#" id="logout" class="side-logout">ログアウト</a></div>
       </nav>
@@ -24,42 +24,16 @@
         <main class="settings">
           <nav class="set-menu" id="setMenu">
             <button class="set-menu-item active" data-tab="general">動作設定</button>
-            <button class="set-menu-item" data-tab="account">アカウント</button>
             <button class="set-menu-item" data-tab="links">登録リンク</button>
             <button class="set-menu-item" data-tab="smartlinks">スマートリンク</button>
             <button class="set-menu-item" data-tab="integrations">連携</button>
-            <button class="set-menu-item" data-tab="knowledge">自社ナレッジ</button>
-            <button class="set-menu-item" data-tab="ai">プロンプト設定</button>
+            <button class="set-menu-item" data-tab="ai">AI提案設定</button>
+            <button class="set-menu-item" data-tab="thanks">御礼メール例文</button>
             <button class="set-menu-item" data-tab="teams">チーム編集</button>
-            <button class="set-menu-item" data-tab="interns">インターン登録</button>
           </nav>
           <div class="set-body">
 
           <div class="set-pane" data-pane="general">
-            <div class="set-card">
-              <h3>インサイト自動分析</h3>
-              <p class="note">実績の「インサイト」（勝ち／負けパターン）は、<b>平日（月〜金）18:30 に全対象（全体・各チーム・各個人）を自動で分析</b>します。翌朝には最新の結果が見られます。今すぐ全部を分析したい場合は下のボタンを押してください（商談数により数分かかります）。</p>
-              <div class="modal-actions">
-                <button class="btn" id="runAllInsightsBtn">今すぐ全対象を分析</button>
-                <span class="saved" id="runAllInsightsMsg" hidden>開始しました</span>
-              </div>
-            </div>
-            <div class="set-card">
-              <h3>案件ステータスの同期修復</h3>
-              <p class="note">実績サマリーの受注件数などが案件画面と食い違って見えるときに使います。過去に右上プルダウンだけでステータス変更した案件で、内部の集計用データが古いままになっているものを一括で最新化します。<b>正しく変更した現在のステータスに合わせて集計データを書き直します</b>ので、実行しても新しい変更は起きません。</p>
-              <div class="modal-actions">
-                <button class="btn" id="syncStatusBtn">ステータスを同期する</button>
-                <span class="saved" id="syncStatusMsg" hidden></span>
-              </div>
-            </div>
-            <div class="set-card">
-              <h3>案件名の整理（バックフィル）</h3>
-              <p class="note">既存の案件名から会社名部分（〇〇株式会社／株式会社〇〇 など）だけを取り出して書き直します。担当者名や【新/ヒ】等のラベル、（女性）等の補足が案件名に混じっている場合の掃除に使えます。<b>この操作は元に戻せません</b>。実行前にサンプルで確認してから本番実行してください。</p>
-              <div class="modal-actions">
-                <button class="btn" id="backfillNamesBtn">案件名を整理する</button>
-                <span class="saved" id="backfillNamesMsg" hidden></span>
-              </div>
-            </div>
             <div class="set-card">
               <h3>動作設定</h3>
               <label class="field"><span>Bot表示名（会議に出る名前）</span>
@@ -86,29 +60,6 @@
                 <span class="saved" id="saved" hidden>保存しました</span>
               </div>
               <p class="note" id="persistNote"></p>
-            </div>
-          </div>
-
-          <div class="set-pane" data-pane="account" hidden>
-            <div class="set-card">
-              <h3>アカウント設定</h3>
-              <p class="note">登録時の表示名とパスワードを変更できます。メールアドレスは変更できません。</p>
-              <label class="field"><span>メールアドレス</span><input id="accEmail" type="email" disabled /></label>
-              <label class="field"><span>表示名</span><input id="accName" type="text" placeholder="例：田中欽也" /></label>
-              <div class="modal-actions">
-                <button class="btn" id="accSaveName">表示名を保存</button>
-                <span class="saved" id="accNameSaved" hidden>保存しました</span>
-              </div>
-            </div>
-            <div class="set-card">
-              <h3>パスワードの変更</h3>
-              <label class="field"><span>現在のパスワード</span><input id="accPwCur" type="password" autocomplete="current-password" /></label>
-              <label class="field"><span>新しいパスワード（8文字以上）</span><input id="accPwNew" type="password" autocomplete="new-password" /></label>
-              <label class="field"><span>新しいパスワード（確認）</span><input id="accPwNew2" type="password" autocomplete="new-password" /></label>
-              <div class="modal-actions">
-                <button class="btn" id="accSavePw">パスワードを変更</button>
-                <span class="saved" id="accPwSaved" hidden></span>
-              </div>
             </div>
           </div>
 
@@ -206,15 +157,6 @@
                   </svg>
                 </span>
                 <span class="integ-name">Claude.aiで会話</span>
-                <span class="integ-state integ-state-ok">利用可能</span>
-              </button>
-              <button class="integ-card" data-integ="chatgpt">
-                <span class="integ-icon integ-icon-gpt">
-                  <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true">
-                    <path fill="#fff" d="M22.2819 9.8211a5.9847 5.9847 0 0 0-.5157-4.9108 6.0462 6.0462 0 0 0-6.5098-2.9A6.0651 6.0651 0 0 0 4.9807 4.1818a5.9847 5.9847 0 0 0-3.9977 2.9 6.0462 6.0462 0 0 0 .7427 7.0966 5.98 5.98 0 0 0 .511 4.9107 6.051 6.051 0 0 0 6.5146 2.9001A5.9847 5.9847 0 0 0 13.2599 24a6.0557 6.0557 0 0 0 5.7718-4.2058 5.9894 5.9894 0 0 0 3.9977-2.9001 6.0557 6.0557 0 0 0-.7475-7.0729zm-9.022 12.6081a4.4755 4.4755 0 0 1-2.8764-1.0408l.1419-.0804 4.7783-2.7582a.7948.7948 0 0 0 .3927-.6813v-6.7369l2.02 1.1686a.071.071 0 0 1 .038.052v5.5826a4.504 4.504 0 0 1-4.4945 4.4944zm-9.6607-4.1254a4.4708 4.4708 0 0 1-.5346-3.0137l.142.0852 4.783 2.7582a.7712.7712 0 0 0 .7806 0l5.8428-3.3685v2.3324a.0804.0804 0 0 1-.0332.0615L9.74 19.9502a4.4992 4.4992 0 0 1-6.1408-1.6464zM2.3408 7.8956a4.485 4.485 0 0 1 2.3655-1.9728V11.6a.7664.7664 0 0 0 .3879.6765l5.8144 3.3543-2.0201 1.1685a.0757.0757 0 0 1-.071 0l-4.8303-2.7865A4.504 4.504 0 0 1 2.3408 7.872zm16.5963 3.8558L13.1038 8.364 15.1192 7.2a.0757.0757 0 0 1 .071 0l4.8303 2.7913a4.4944 4.4944 0 0 1-.6765 8.1042v-5.6772a.79.79 0 0 0-.407-.667zm2.0107-3.0231l-.142-.0852-4.7735-2.7818a.7759.7759 0 0 0-.7854 0L9.409 9.2297V6.8974a.0662.0662 0 0 1 .0284-.0615l4.8303-2.7866a4.4992 4.4992 0 0 1 6.6802 4.66zM8.3065 12.863l-2.02-1.1638a.0804.0804 0 0 1-.038-.0567V6.0742a4.4992 4.4992 0 0 1 7.3757-3.4537l-.142.0805L8.704 5.459a.7948.7948 0 0 0-.3927.6813zm1.0976-2.3654l2.602-1.4998 2.6069 1.4998v2.9994l-2.5974 1.4997-2.6067-1.4997Z"/>
-                  </svg>
-                </span>
-                <span class="integ-name">ChatGPTで会話</span>
                 <span class="integ-state integ-state-ok">利用可能</span>
               </button>
               <button class="integ-card" data-integ="status">
@@ -352,47 +294,6 @@ curl -H "Authorization: Bearer <span class="cc-tok">&lt;トークン&gt;</span>"
             </details>
               </div>
 
-              <div class="set-pane-inner" data-integ="chatgpt" hidden>
-            <div class="set-card">
-              <h3>ChatGPTのGPTから会話する（Custom GPT）</h3>
-              <p class="note">ChatGPTの「GPTを作成」で、kinbot専用のGPTを一度作っておけば、普段のChatGPT画面からそのGPTを開いて「森田さんの今月の商談状況は？」のように聞くだけで、GPTが自動でkinbotに問い合わせて答えます。※ GPT作成が使える <b>ChatGPT Plus / Team / Enterprise</b> のいずれかが必要です。</p>
-
-              <div class="cc-admin-box">
-                <div class="cc-admin-head">
-                  <span class="cc-admin-badge">全員用・管理者権限</span>
-                  <span class="cc-admin-title">この設定でGPTを作れば、そのまま全社員の実績を横断で見られます</span>
-                </div>
-                <div class="apidoc-h">作成手順</div>
-                <ol class="cc-steps">
-                  <li>ChatGPTで「GPTを探す」→「＋作成する」を開き、「構成（Configure）」タブを選ぶ</li>
-                  <li>下の方の「新しいアクションを作成（Create new action）」を押す</li>
-                  <li>「認証（Authentication）」で <b>APIキー</b> を選び、種類を <b>Bearer</b> にして、下の②のトークンを貼る</li>
-                  <li>「スキーマ（Schema）」の「URLからインポート（Import from URL）」に、下の①のURLを貼る（6つの操作が表示されればOK）</li>
-                  <li>左上に名前・説明を入れて「作成する」→「自分のみ」で保存。GPTに「kinbotの今月の実績を教えて」と話しかける</li>
-                </ol>
-
-                <div class="apidoc-h">① スキーマのURL（「URLからインポート」に貼る）</div>
-                <pre class="apidoc-code"><code id="gptSchemaUrl">https://kinbot-production-225f.up.railway.app/gpt-actions-openapi.yaml</code></pre>
-                <button class="btn" id="gptSchemaUrlCopy" type="button">URLをコピー</button>
-
-                <div class="apidoc-h">② APIトークン（認証の「APIキー」欄に貼る）</div>
-                <pre class="apidoc-code"><code id="gptToken">kbt_7bcaf98705c30c3655a8b17dbbd85a0e359aba8b68e3f507</code></pre>
-                <button class="btn" id="gptTokenCopy" type="button">トークンをコピー</button>
-
-                <p class="note cc-warn">⚠️ このトークンは全社員分のデータを読める管理者トークンです。作ったGPTは必ず「自分のみ」か「リンクを知っている人（社内限定）」で共有し、社外に公開しないでください。人数が増える・退職者が出るなどのタイミングで、Railwayの <code>API_TOKENS</code> からこのトークンを見直してください。</p>
-              </div>
-            </div>
-
-            <details class="set-card cc-collapsible">
-              <summary><h3 class="cc-collapsible-title">「URLからインポート」が使えないとき（スキーマを直接貼る）</h3></summary>
-              <p class="note">GPTの画面に「URLからインポート」が見当たらない、またはうまく読み込めない場合は、下のボタンでスキーマ全文をコピーして、「Schema」欄にそのまま貼り付けてください。</p>
-              <div class="set-row">
-                <button class="btn" id="gptSchemaCopy" type="button">スキーマ全文をコピー</button>
-                <span id="gptSchemaCopyNote" class="note"></span>
-              </div>
-            </details>
-              </div>
-
               <div class="set-pane-inner" data-integ="status" hidden>
             <div class="set-card">
               <h3>接続している外部API一覧</h3>
@@ -419,7 +320,13 @@ curl -H "Authorization: Bearer <span class="cc-tok">&lt;トークン&gt;</span>"
 
             </div>
           </div>
-          <div class="set-pane" data-pane="knowledge" hidden>
+          <div class="set-pane" data-pane="ai" hidden>
+            <div class="subtabs" id="aiSubtabs">
+              <button class="subtab active" data-sub="kb">自社ナレッジ</button>
+              <button class="subtab" data-sub="check">チェック項目</button>
+            </div>
+
+            <div class="subpane" data-sub="kb">
             <div class="set-card">
               <h3>自社ナレッジ（チーム共有）</h3>
               <p class="note">PDF・画像・Webサイト・Googleドライブの資料を取り込むと、AIが中身を読み取り・構造化して蓄積し、ライブの提案／フィードバック／御礼メールに活用します。チーム全員に反映されます。</p>
@@ -447,61 +354,17 @@ curl -H "Authorization: Bearer <span class="cc-tok">&lt;トークン&gt;</span>"
               <ul class="kb-folders" id="kbFolders"></ul>
               <ul class="kb-list" id="kbList"></ul>
             </div>
-          </div>
-
-          <div class="set-pane" data-pane="ai" hidden>
-            <div class="subtabs" id="aiSubtabs">
-              <button class="subtab active" data-sub="check">チェック項目</button>
-              <button class="subtab" data-sub="summary">要約の指示</button>
-              <button class="subtab" data-sub="thanks">御礼メール</button>
             </div>
 
-            <div class="subpane" data-sub="check">
+            <div class="subpane" data-sub="check" hidden>
               <div class="set-card">
                 <h3>抜け漏れチェック項目（チーム共有）</h3>
                 <p class="note">商談中の「チェック」タブで充足を判定する項目です。1行に1項目。商談プロセスに合わせて自由に編集できます（最大15項目）。</p>
-                <textarea id="checkItems" rows="10" placeholder="課題・ニーズ&#10;予算&#10;決裁者・決裁プロセス&#10;導入時期&#10;現状・競合&#10;次のステップ"></textarea>
+                <textarea id="checkItems" rows="7" placeholder="課題・ニーズ&#10;予算&#10;決裁者・決裁プロセス&#10;導入時期&#10;現状・競合&#10;次のステップ"></textarea>
                 <div class="modal-actions">
                   <button class="btn" id="saveCheckBtn">項目を保存</button>
                   <button class="btn ghost" id="resetCheckBtn">既定に戻す</button>
                   <span class="saved" id="checkSaved" hidden>保存しました</span>
-                </div>
-              </div>
-            </div>
-
-            <div class="subpane" data-sub="summary" hidden>
-              <div class="set-card">
-                <h3>要約の指示（チーム共有）</h3>
-                <p class="note">ここに書いた指示が、商談履歴の「要約」タブにそのまま反映されます。<b>ここに書いた通りの形式・観点で要約が生成されます</b>（項目立てや9項目抽出なども自由）。空欄にすると、標準の要約（全体状況／論点／合意事項／宿題／相手の懸念）に戻ります。<br>文字起こしを差し込みたい箇所には <code>{transcript}</code> と書けます（省略した場合は末尾に自動で添付されます）。</p>
-                <textarea id="customPrompt" class="prompt-xl" rows="30" placeholder="例：&#10;# 役割&#10;あなたは営業商談を分析するアシスタントです。以下の9項目を、指定のフォーマットで抽出してください。&#10;&#10;# 抽出する項目&#10;1. 担当者情報（性別 / 話し方の特徴 / 担当領域）&#10;2. 採用人数&#10;3. 採用手法&#10;…&#10;&#10;# 対象の文字起こし&#10;{transcript}"></textarea>
-                <div class="modal-actions">
-                  <button class="btn" id="saveCustomPromptBtn">保存</button>
-                  <button class="btn ghost" id="clearCustomPromptBtn">クリア</button>
-                  <span class="saved" id="customPromptSaved" hidden>保存しました</span>
-                </div>
-              </div>
-            </div>
-
-            <div class="subpane" data-sub="thanks" hidden>
-              <div class="set-card">
-                <h3>御礼メールの生成指示（プロンプト）</h3>
-                <p class="note">御礼メールをAIがどう作るかの指示文です。例文に寄せず自分好みの作り方にしたい場合はここを編集してください。<br>
-                <code>{round}</code> と書くと商談回数に置き換わります。商談の要約・登録した例文・自社ナレッジは、この指示文とは別に自動で渡されます。出力形式（件名・本文のJSON）はシステム側で強制しているため、文面の作り方の指示に集中して編集してください。</p>
-                <textarea id="thanksPromptText" class="prompt-xl" rows="30" spellcheck="false"></textarea>
-                <div class="phasedef-actions">
-                  <button class="btn" id="thanksPromptSave">保存</button>
-                  <button class="btn ghost" id="thanksPromptReset">既定の文面に戻す</button>
-                  <span class="tm-status" id="thanksPromptStatus"></span>
-                </div>
-                <p class="note" id="thanksPromptState"></p>
-              </div>
-              <div class="set-card">
-                <h3>御礼メールの例文（ラウンド別）</h3>
-                <p class="note">これまで送った御礼メールを、商談の「何回目か」ごとに登録します。御礼メール生成時に、その回の文体・構成の手本になります。各回 2〜3 件あると十分です。</p>
-                <div id="thanksEditor"></div>
-                <div class="set-row">
-                  <button class="btn" id="saveThanksBtn">例文を保存</button>
-                  <span class="saved" id="thanksSaved" hidden>保存しました</span>
                 </div>
               </div>
             </div>
@@ -552,6 +415,30 @@ curl -H "Authorization: Bearer <span class="cc-tok">&lt;トークン&gt;</span>"
             </div>
           </div>
 
+          <div class="set-pane" data-pane="thanks" hidden>
+            <div class="set-card">
+              <h3>御礼メールの例文（ラウンド別）</h3>
+              <p class="note">これまで送った御礼メールを、商談の「何回目か」ごとに登録します。御礼メール生成時に、その回の文体・構成の手本になります。各回 2〜3 件あると十分です。</p>
+              <div id="thanksEditor"></div>
+              <div class="set-row">
+                <button class="btn" id="saveThanksBtn">例文を保存</button>
+                <span class="saved" id="thanksSaved" hidden>保存しました</span>
+              </div>
+            </div>
+            <div class="set-card">
+              <h3>御礼メールの生成指示（プロンプト）</h3>
+              <p class="note">御礼メールをAIがどう作るかの指示文です。例文に寄せず自分好みの作り方にしたい場合はここを編集してください。<br>
+              <code>{round}</code> と書くと商談回数に置き換わります。商談の要約・登録した例文・自社ナレッジは、この指示文とは別に自動で渡されます。出力形式（件名・本文のJSON）はシステム側で強制しているため、文面の作り方の指示に集中して編集してください。</p>
+              <textarea id="thanksPromptText" rows="16" spellcheck="false"></textarea>
+              <div class="phasedef-actions">
+                <button class="btn" id="thanksPromptSave">保存</button>
+                <button class="btn ghost" id="thanksPromptReset">既定の文面に戻す</button>
+                <span class="tm-status" id="thanksPromptStatus"></span>
+              </div>
+              <p class="note" id="thanksPromptState"></p>
+            </div>
+          </div>
+
           <div class="set-pane" data-pane="teams" hidden>
             <div class="set-card">
               <h3>担当者 → チーム の割り当て</h3>
@@ -562,52 +449,11 @@ curl -H "Authorization: Bearer <span class="cc-tok">&lt;トークン&gt;</span>"
                 <input id="tmTeam" list="tmTeamList" placeholder="チーム名（例：中澤チーム）" />
                 <datalist id="tmTeamList"></datalist>
                 <input id="tmGroup" placeholder="グループ（既定：直販）" />
-                <select id="tmProduct" title="所属プロダクト（実績の絞り込みに使われます）">
-                  <option value="">プロダクト: 未設定</option>
-                  <option value="DOC">DOC</option>
-                  <option value="MOCHICA">MOCHICA</option>
-                </select>
                 <button class="btn" id="tmAdd">追加・更新</button>
                 <span class="tm-status" id="tmStatus"></span>
               </div>
               <div id="tmUnmapped"></div>
               <table class="tm-table" id="tmTable"></table>
-            </div>
-          </div>
-
-          <div class="set-pane" data-pane="interns" hidden>
-            <div class="set-card">
-              <h3>カレンダー照合の代表者</h3>
-              <p class="note">インターン生のカレンダーを読むために使う<b>Google連携</b>を選びます。ここで指定した人の連携を経由して照合されるため、<b>他のメンバーはGoogle未連携でも「カレンダーと照合」を実行でき、全員がアポ状況を見られます</b>。候補には、Google連携済みの人だけが表示されます。</p>
-              <div class="teams-add">
-                <select id="apoOwnerSel"><option value="">（未設定：押した本人の連携を使う）</option></select>
-                <button class="btn" id="apoOwnerSave">保存</button>
-                <span class="tm-status" id="apoOwnerStatus"></span>
-              </div>
-            </div>
-            <div class="set-card">
-              <h3>商談予定の自動作成（招待方式）</h3>
-              <p class="note">アポ振り分けで担当を割り当てると、<b>運用者のカレンダーに商談予定を作成し、担当クローザーをゲストとして招待</b>します。招待方式なので、クローザーのカレンダーへの権限は不要です（招待された本人が時間を変更できるようにしています）。<br><b>重要：</b>この機能を使うには、運用者が 設定→連携→<b>Google連携をやり直して</b>、カレンダーへの書き込み権限を承認する必要があります（読み取りだけの連携では作成できません）。</p>
-              <div class="teams-add">
-                <select id="apoInviteOwnerSel"><option value="">（未設定：自動作成しない）</option></select>
-                <input id="apoInviteCal" placeholder="カレンダーID（空ならメインのカレンダー）" />
-                <button class="btn" id="apoInviteSave">保存</button>
-                <span class="tm-status" id="apoInviteStatus"></span>
-              </div>
-              <label class="note" style="display:block;margin-top:8px;"><input type="checkbox" id="apoAutoInvite" checked /> 担当を割り当てたときに自動で予定を作成する（オフにすると手動のみ）</label>
-            </div>
-            <div class="set-card">
-              <h3>インターン生（アポ獲得者）の登録</h3>
-              <p class="note">アポを獲得したインターン生の<b>名前</b>と<b>Googleカレンダーのメールアドレス</b>を登録します。ここに登録した人のカレンダーの予定名と、kinbotの商談名を突き合わせて、一致した商談に「アポ獲得者」としてその人の名前を記録します。</p>
-              <div class="teams-add">
-                <input id="inName" placeholder="名前（例：山田太郎）" />
-                <input id="inEmail" type="email" placeholder="メールアドレス（例：t.yamada@neo-career.co.jp）" />
-                <button class="btn" id="inAdd">追加・更新</button>
-                <span class="tm-status" id="inStatus"></span>
-              </div>
-              <table class="tm-table" id="inTable"></table>
-              <p class="note cc-warn">⚠️ 照合には、各インターン生のGoogleカレンダーが<b>あなた（連携済みアカウント）に共有</b>されている必要があります（共有設定で「予定の詳細をすべて表示」）。社内カレンダーが全社共有になっていれば、そのままでも読めます。</p>
-              <p class="note">📊 アポ数の照合と集計（ダッシュボード）は <a href="report.html">実績 → インターンアポ</a> から行えます。</p>
             </div>
           </div>
           </div>

@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="ja">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>kinbot 営業スタイル分析</title>
+    <link rel="stylesheet" href="style.css" />
+    <link rel="stylesheet" href="style-analysis.css" />
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/tabler-icons/2.44.0/iconfont/tabler-icons.min.css" />
+  </head>
+  <body>
+    <div class="app">
+      <nav class="sidebar">
+        <div class="side-brand"><span class="brand-mark"></span><span>kinbot</span></div>
+        <a class="side-item" href="index.html"><span class="side-ico ico-rec"></span><span class="side-label">レコーディング</span></a>
+        <a class="side-item" href="history.html"><span class="side-ico ico-hist"></span><span class="side-label">商談履歴</span></a>
+        <a class="side-item" href="deals.html"><span class="side-ico ico-deal"></span><span class="side-label">案件</span></a>
+        <a class="side-item" href="report.html"><span class="side-ico ico-ana"></span><span class="side-label">実績</span></a>
+        <a class="side-item active" href="style-analysis.html"><span class="side-ico ico-ana"></span><span class="side-label">営業スタイル分析</span></a>
+        <a class="side-item" href="settings.html"><span class="side-ico ico-set"></span><span class="side-label">設定</span></a>
+        <div class="side-foot"><span id="who" class="who"></span><a href="#" id="logout" class="side-logout">ログアウト</a></div>
+      </nav>
+
+      <div class="main">
+        <header class="topbar">
+          <div class="brand"><img class="topbar-bot" src="kinbot.svg" alt="" /><span class="brand-name">営業スタイル分析</span></div>
+        </header>
+        <main class="sa-page">
+          <div class="sa-notice">
+            💡 <b>この画面の目的</b>：メンバー個人の評価ではなく、<b>チーム全体で再現可能な「売り方の勝ちパターン」を見つける</b>ためのものです。件数が少ないセグメントは統計的にブレやすいため、必ず n数（件数）を併記しています。
+          </div>
+
+          <div class="sa-toolbar">
+            <div class="sa-tool">
+              <label>期間</label>
+              <input type="date" id="dateFrom" />
+              <span>〜</span>
+              <input type="date" id="dateTo" />
+            </div>
+            <div class="sa-tool">
+              <label>集計軸</label>
+              <select id="axisSelect">
+                <optgroup label="売り先軸">
+                  <option value="customer_employee_size">従業員規模</option>
+                  <option value="target_hire_count">採用人数</option>
+                  <option value="hiring_type_need">新卒/中途ニーズ</option>
+                  <option value="customer_hq_region">本社地域</option>
+                  <option value="customer_industry">業界</option>
+                  <option value="target_job_type">職種</option>
+                </optgroup>
+                <optgroup label="売り方軸">
+                  <option value="appeal_points_used">訴求内容</option>
+                  <option value="talk_patterns">話法の型</option>
+                  <option value="objection_handling_style">懸念対応の型</option>
+                  <option value="meeting_stages">進行ステップ構成</option>
+                  <option value="discovery_items_covered">ヒアリング深度カバレッジ</option>
+                </optgroup>
+              </select>
+            </div>
+            <div class="sa-tool">
+              <label>指標</label>
+              <select id="metricSelect">
+                <option value="all">受注率（全体）</option>
+                <option value="pitch">受注率（訴求機会あり）</option>
+              </select>
+            </div>
+            <div class="sa-tool sa-tool-right">
+              <button class="btn" id="reloadBtn">更新</button>
+            </div>
+          </div>
+
+          <div class="sa-status" id="saStatus"></div>
+
+          <section class="sa-section">
+            <h2>1. ヒートマップ：メンバー × 集計軸</h2>
+            <p class="sa-hint">縦軸＝メンバー、横軸＝選択した軸の各区分。セル内は「受注率（%）／案件数」。<b>n&lt;5 は参考情報として薄く表示</b>し、自動示唆の対象外です（依頼書 6章）。軸で「進行ステップ構成」を選ぶとタイムライン、「ヒアリング深度カバレッジ」を選ぶとカバー率チャートに切り替わります。</p>
+            <div id="heatmap" class="sa-heatmap-wrap"><div class="sa-loading">読み込み中…</div></div>
+          </section>
+
+          <section class="sa-section">
+            <h2>2. 傾向ハイライト（AI自動示唆）</h2>
+            <p class="sa-hint">n≥5のセグメントだけを対象に、AIが受注率の傾向とチームで取れるアクションを提案します。断定を避けた表現・件数併記を必須とし、個人の評価は行いません。</p>
+            <div class="sa-insights-bar">
+              <button class="btn" id="insightsBtn">傾向ハイライトを生成</button>
+              <span class="sa-insights-note" id="insightsNote"></span>
+            </div>
+            <div id="insights" class="sa-insights-wrap"></div>
+          </section>
+
+          <section class="sa-section">
+            <h2>3. 同条件比較：フィルタを揃えてメンバー間比較</h2>
+            <p class="sa-hint">売り先の条件を揃えたうえで、メンバーごとの受注率と売り方の傾向を並べます。「同じ顧客層に対して、売り方がどう違うか」を見るビューです。</p>
+
+            <div class="sa-filter-row">
+              <div class="sa-filter">
+                <label>従業員規模</label>
+                <select id="fltEmployeeSize"><option value="">すべて</option></select>
+              </div>
+              <div class="sa-filter">
+                <label>採用人数</label>
+                <select id="fltHireCount"><option value="">すべて</option></select>
+              </div>
+              <div class="sa-filter">
+                <label>新卒/中途</label>
+                <select id="fltHiringType"><option value="">すべて</option></select>
+              </div>
+              <div class="sa-filter">
+                <label>本社地域</label>
+                <select id="fltRegion"><option value="">すべて</option></select>
+              </div>
+              <div class="sa-filter">
+                <label>業界</label>
+                <select id="fltIndustry"><option value="">すべて</option></select>
+              </div>
+            </div>
+
+            <div id="compare" class="sa-compare-wrap"><div class="sa-loading">条件を選ぶと表示されます</div></div>
+          </section>
+
+          <section class="sa-section">
+            <h2>4. 施策後トレンド追跡</h2>
+            <p class="sa-hint">チームで施策（例：「危機感・影響確認を必ず聞く」）を始めた基準日を設定すると、<b>基準日の前後でタグの実施率と受注率がどう変わったか</b>を比較します。施策の効果測定に使います。</p>
+            <div class="sa-trend-controls">
+              <div class="sa-filter">
+                <label>基準日</label>
+                <input type="date" id="trendBaseline" />
+              </div>
+              <div class="sa-filter">
+                <label>追跡するタグ</label>
+                <select id="trendTag">
+                  <option value="">選択してください</option>
+                  <optgroup label="ヒアリング深度">
+                    <option value="discovery:現状把握">現状把握を実施</option>
+                    <option value="discovery:課題認識">課題認識を実施</option>
+                    <option value="discovery:危機感・影響確認">危機感・影響確認を実施</option>
+                    <option value="discovery:意思決定プロセス確認">意思決定プロセス確認を実施</option>
+                  </optgroup>
+                  <optgroup label="訴求内容">
+                    <option value="appeal:応募前離脱防止訴求">応募前離脱防止訴求</option>
+                    <option value="appeal:ミスマッチ防止訴求">ミスマッチ防止訴求</option>
+                    <option value="appeal:導入事例訴求">導入事例訴求</option>
+                    <option value="appeal:緊急性訴求">緊急性訴求</option>
+                  </optgroup>
+                  <optgroup label="商談ステップ">
+                    <option value="stage:市況・トレンド説明">市況・トレンド説明を実施</option>
+                    <option value="stage:デモ・仮想体験提案">デモ・仮想体験提案を実施</option>
+                    <option value="stage:クロージング（スケジュール確認）">クロージングを実施</option>
+                  </optgroup>
+                </select>
+              </div>
+              <button class="btn" id="trendBtn">比較する</button>
+            </div>
+            <div id="trend" class="sa-trend-wrap"></div>
+          </section>
+
+          <section class="sa-section">
+            <h2>参考：データの準備状況</h2>
+            <p class="sa-hint">既存の案件へのタグ付与と、企業属性（業界・職種）のWeb検索取得の状況です。新規商談は判定完了時に自動でタグが付きます。</p>
+            <div class="sa-backfill">
+              <div>
+                <div id="backfillStatus" class="sa-backfill-status">確認中…</div>
+                <div id="enrichStatus" class="sa-backfill-status" style="margin-top:6px;">確認中…</div>
+              </div>
+              <div class="sa-backfill-actions">
+                <button class="btn" id="backfillBtn">タグ未抽出の案件を20件処理</button>
+                <button class="btn" id="enrichBtn">業界・職種を10社分取得</button>
+              </div>
+            </div>
+          </section>
+        </main>
+      </div>
+    </div>
+    <script src="nav.js" defer></script>
+    <script src="style-analysis.js" defer></script>
+  </body>
+</html>
