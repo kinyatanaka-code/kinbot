@@ -2463,22 +2463,22 @@ app.get("/api/feature-c/tags", async (req, res) => {
   try {
     const { owner, from, to } = req.query || {};
     const rows = await listDealFeatureTags({ owner, from, to });
-    // フェーズ3：企業属性マスタをJOINして customer_industry / target_job_type を埋める。
-    // タグテーブル側はNULLのまま持ち、読み出し時にマスタから解決する（依頼書5.1「マスタをJOINして参照」）。
+    // 企業属性は accounts.profile（案件→会社プロフィール）から引く。
+    // enterprise_attributesではなく、gBizINFO/AI取得済みの既存プロフィールを使う設計。
     const deals = await listDeals({});
     const dealCompany = {};
     for (const d of deals || []) dealCompany[d.deal_id] = d.company_name || "";
-    const attrs = await getEnterpriseAttributesMap();
+    const accounts = await listAccounts();
+    const accountMap = {};
+    for (const a of accounts) accountMap[a.key] = a;
     for (const r of rows) {
       const company = dealCompany[r.deal_id] || "";
-      const a = attrs[company];
-      if (a) {
-        r.customer_industry = r.customer_industry || a.industry || null;
-        r.customer_industry_confidence = a.industry_confidence || null;
-        r.target_job_type = r.target_job_type || a.recruiting_job_types || null;
-        r.target_job_type_confidence = a.job_type_confidence || null;
-      }
       r.company_name = company;
+      // 会社プロフィールから業界を取得
+      const acc = accountMap[company];
+      const prof = (acc && acc.profile) || {};
+      r.customer_industry = r.customer_industry || prof.industry || null;
+      // talk_exampleも返す（参考事例ドリルダウン用）
     }
     res.json({ tags: rows, total: rows.length });
   } catch (e) {
@@ -2663,6 +2663,40 @@ app.post("/api/feature-c/backfill", async (req, res) => {
     res.json({ ok: true, processed, failed, remaining: remaining.length, errors: errors.slice(0, 10) });
   } catch (e) {
     console.error("[feature-c/backfill]", e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// 未実装だった項目3: customer_response_status の冪等バッチ同期。
+// Feature A側で判定修正（失注→進行中、進行中→受注 等）された案件について、
+// deal_feature_tags.customer_response_status と result を deals.status に追従させる。
+app.post("/api/feature-c/sync-status", async (req, res) => {
+  try {
+    const tags = await listDealFeatureTags({});
+    const deals = await listDeals({});
+    const dealMap = {};
+    for (const d of deals || []) dealMap[d.deal_id] = d;
+    let updated = 0;
+    const changes = [];
+    for (const t of tags) {
+      const d = dealMap[t.deal_id];
+      if (!d) continue;
+      const currentStatus = d.status || "";
+      const expectedResult = currentStatus.startsWith("失注") ? "失注" : (currentStatus === "受注" ? "受注" : "進行中");
+      const expectedResponse = currentStatus.startsWith("失注") ? "失注" : t.customer_response_status;
+      if (t.result !== expectedResult || t.customer_response_status !== expectedResponse) {
+        await upsertDealFeatureTags(t.deal_id, {
+          ...t,
+          result: expectedResult,
+          customer_response_status: expectedResponse,
+        });
+        updated++;
+        if (changes.length < 10) changes.push({ deal_id: t.deal_id, company: t.company_name || d.company_name, before: t.result, after: expectedResult });
+      }
+    }
+    console.log(`[feature-c/sync-status] ${updated}件を同期`);
+    res.json({ ok: true, total: tags.length, updated, sample: changes });
+  } catch (e) {
     res.status(500).json({ error: e.message });
   }
 });

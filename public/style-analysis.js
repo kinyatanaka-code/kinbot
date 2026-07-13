@@ -27,13 +27,15 @@ window.addEventListener("DOMContentLoaded", async () => {
   $("reloadBtn").addEventListener("click", loadAndRender);
   $("axisSelect").addEventListener("change", renderHeatmap);
   $("metricSelect").addEventListener("change", renderHeatmap);
-  ["fltEmployeeSize", "fltHireCount", "fltHiringType", "fltRegion"].forEach((id) => {
-    $(id).addEventListener("change", () => {
+  ["fltEmployeeSize", "fltHireCount", "fltHiringType", "fltRegion", "fltIndustry"].forEach((id) => {
+    const el = $(id);
+    if (el) el.addEventListener("change", () => {
       filters = {
         employee_size: $("fltEmployeeSize").value,
         hire_count: $("fltHireCount").value,
         hiring_type: $("fltHiringType").value,
         region: $("fltRegion").value,
+        industry: $("fltIndustry") ? $("fltIndustry").value : "",
       };
       renderCompare();
     });
@@ -126,38 +128,57 @@ function renderHeatmap() {
     html += `<tr><td class="sa-c-owner">${esc(owner)}</td>`;
     for (const v of ordered) {
       const cell = (grid[owner] || {})[v];
-      html += renderCell(cell);
+      html += renderCell(cell, false, owner, v);
     }
-    // 全体
     const rt = rowTotals[owner] || { won: 0, total: 0 };
-    html += renderCell(rt, true);
+    html += renderCell(rt, true, owner, "__total");
     html += `</tr>`;
   }
   // 列合計行
   html += `<tr><td class="sa-c-owner">全体</td>`;
-  for (const v of ordered) html += renderCell(colTotals[v], true);
-  html += renderCell({ won: grandWon, total: grandTot }, true);
+  for (const v of ordered) html += renderCell(colTotals[v], true, "__total", v);
+  html += renderCell({ won: grandWon, total: grandTot }, true, "__total", "__total");
   html += `</tr></tbody></table>`;
   html += `<div class="sa-cell-legend">
     <span><span class="lg" style="background:${rateToColor(0)}"></span>0%</span>
     <span><span class="lg" style="background:${rateToColor(0.25)}"></span>25%</span>
     <span><span class="lg" style="background:${rateToColor(0.5)}"></span>50%</span>
-    <span><span class="lg" style="background:${rateToColor(0.75)}"></span>75%</span>
     <span><span class="lg" style="background:${rateToColor(1)}"></span>100%</span>
-    <span style="margin-left:20px;">・薄い＝n&lt;5（参考）</span>
+    <span style="margin-left:16px;">・薄い＝n&lt;5（参考）・やや薄い＝n5〜9（注意）</span>
+    <span style="margin-left:16px;">💡 <b>セルをクリック</b>で該当商談を一覧表示</span>
   </div>`;
   wrap.innerHTML = html;
+
+  // --- 参考事例ドリルダウン（依頼書7.1）---
+  // ヒートマップのセルをクリック→該当する案件の talk_example, company_name, result を表示
+  wrap.querySelectorAll("td.sa-cell[data-owner][data-val]").forEach((td) => {
+    td.style.cursor = "pointer";
+    td.addEventListener("click", () => {
+      const owner = td.dataset.owner;
+      const val = td.dataset.val;
+      const axis = $("axisSelect").value;
+      const matching = allTags.filter((t) => {
+        if (owner !== "__total" && t.owner !== owner) return false;
+        const vals = getValuesForAxis(t, axis);
+        if (val !== "__total" && !vals.includes(val)) return false;
+        return true;
+      });
+      showDrilldown(owner, val, axis, matching);
+    });
+  });
 }
 
-function renderCell(cell, isTotal) {
+function renderCell(cell, isTotal, ownerKey, valKey) {
   if (!cell || !cell.total) return `<td class="sa-cell-empty">—</td>`;
   const rate = cell.won / cell.total;
   const lowN = cell.total < N_THRESHOLD_LOW;
+  const midN = !lowN && cell.total < N_THRESHOLD_MID;
   const color = rateToColor(rate);
-  const classes = ["sa-cell", lowN ? "sa-low-n" : ""].filter(Boolean).join(" ");
+  const classes = ["sa-cell", lowN ? "sa-low-n" : "", midN ? "sa-mid-n" : ""].filter(Boolean).join(" ");
   const bg = isTotal ? "" : `style="background:${color};"`;
   const totalClass = isTotal ? " sa-cell-total" : "";
-  return `<td class="${classes}${totalClass}" ${bg}>
+  const dataAttrs = ownerKey ? ` data-owner="${esc(ownerKey)}" data-val="${esc(valKey || "")}"` : "";
+  return `<td class="${classes}${totalClass}" ${bg}${dataAttrs}>
     <span class="sa-cell-rate">${(rate * 100).toFixed(0)}%</span>
     <span class="sa-cell-n">${cell.won}/${cell.total}</span>
   </td>`;
@@ -218,6 +239,8 @@ function populateFilterOptions() {
   fillOptions("fltHireCount", uniqValues(allTags, "target_hire_count"));
   fillOptions("fltHiringType", uniqValues(allTags, "hiring_type_need"));
   fillOptions("fltRegion", uniqValues(allTags, "customer_hq_region"));
+  const industryEl = $("fltIndustry");
+  if (industryEl) fillOptions("fltIndustry", uniqValues(allTags, "customer_industry"));
 }
 
 function fillOptions(id, values) {
@@ -242,7 +265,7 @@ function uniqValues(tags, key) {
 
 function renderCompare() {
   const wrap = $("compare");
-  const any = filters.employee_size || filters.hire_count || filters.hiring_type || filters.region;
+  const any = filters.employee_size || filters.hire_count || filters.hiring_type || filters.region || filters.industry;
   if (!any) { wrap.innerHTML = '<div class="sa-empty">上のフィルタで条件を1つ以上選んでください。</div>'; return; }
 
   const filtered = allTags.filter((t) => {
@@ -250,6 +273,7 @@ function renderCompare() {
     if (filters.hire_count && t.target_hire_count !== filters.hire_count) return false;
     if (filters.hiring_type && t.hiring_type_need !== filters.hiring_type) return false;
     if (filters.region && t.customer_hq_region !== filters.region) return false;
+    if (filters.industry && t.customer_industry !== filters.industry) return false;
     return true;
   });
 
@@ -650,4 +674,276 @@ async function renderTrend() {
   } catch (e) {
     wrap.innerHTML = `<div class="sa-empty">失敗: ${esc(e.message)}</div>`;
   }
+}
+
+// ============================================================
+// 未実装項目1: 参考事例ドリルダウン（依頼書7.1）
+// ============================================================
+function showDrilldown(owner, val, axis, matching) {
+  // 既存モーダルがあれば消す
+  let modal = document.querySelector(".sa-drilldown-overlay");
+  if (modal) modal.remove();
+
+  const label = owner === "__total" ? "全体" : owner;
+  const valLabel = val === "__total" ? "全体" : val;
+  const won = matching.filter((t) => t.result === "受注");
+  const lost = matching.filter((t) => t.result !== "受注");
+
+  const cardHtml = (t) => {
+    const resultBadge = t.result === "受注"
+      ? '<span class="sa-dd-badge sa-dd-won">受注</span>'
+      : `<span class="sa-dd-badge sa-dd-other">${esc(t.result || "進行中")}</span>`;
+    const appeals = (t.appeal_points_used || []).map((a) => `<span class="sa-tag">${esc(a)}</span>`).join("");
+    const talks = (t.talk_patterns || []).map((a) => `<span class="sa-tag">${esc(a)}</span>`).join("");
+    const example = t.talk_example ? `<div class="sa-dd-example">💬 ${esc(t.talk_example)}</div>` : "";
+    const date = t.first_meeting_date ? String(t.first_meeting_date).slice(0, 10) : "";
+    return `<div class="sa-dd-card">
+      <div class="sa-dd-card-head">
+        <span class="sa-dd-company">${esc(t.company_name || t.deal_id)}</span>
+        ${resultBadge}
+        <span class="sa-dd-date">${esc(date)}</span>
+      </div>
+      ${example}
+      ${appeals ? `<div class="sa-dd-tags"><span class="sa-dd-tags-label">訴求:</span>${appeals}</div>` : ""}
+      ${talks ? `<div class="sa-dd-tags"><span class="sa-dd-tags-label">話法:</span>${talks}</div>` : ""}
+    </div>`;
+  };
+
+  modal = document.createElement("div");
+  modal.className = "sa-drilldown-overlay";
+  modal.innerHTML = `<div class="sa-drilldown-modal">
+    <div class="sa-dd-header">
+      <h3>${esc(label)} × ${esc(valLabel)} の商談一覧（${matching.length}件）</h3>
+      <button class="sa-dd-close" id="ddClose">✕</button>
+    </div>
+    <div class="sa-dd-body">
+      ${won.length ? `<h4>受注（${won.length}件）</h4>${won.map(cardHtml).join("")}` : ""}
+      ${lost.length ? `<h4>${won.length ? "その他" : "全件"}（${lost.length}件）</h4>${lost.map(cardHtml).join("")}` : ""}
+      ${!matching.length ? '<div class="sa-empty">該当する商談がありません</div>' : ""}
+    </div>
+  </div>`;
+  document.body.appendChild(modal);
+  modal.querySelector("#ddClose").addEventListener("click", () => modal.remove());
+  modal.addEventListener("click", (e) => { if (e.target === modal) modal.remove(); });
+}
+
+// ============================================================
+// 未実装項目2: 売り先×売り方 2軸掛け合わせ集計（依頼書6.1）
+// ============================================================
+// HTMLに2軸セクションを動的追加
+document.addEventListener("DOMContentLoaded", () => {
+  const compareSection = document.querySelector("#compare")?.closest(".sa-section");
+  if (!compareSection) return;
+
+  const crossSection = document.createElement("section");
+  crossSection.className = "sa-section";
+  crossSection.innerHTML = `
+    <h2>2軸掛け合わせ集計</h2>
+    <p class="sa-hint">売り先軸と売り方軸を同時に指定し、組み合わせごとの受注率を見ます。件数が少なくなりやすいので、n数に注意してください。</p>
+    <div class="sa-filter-row">
+      <div class="sa-filter">
+        <label>行軸（売り先）</label>
+        <select id="crossRowAxis">
+          <option value="customer_employee_size">従業員規模</option>
+          <option value="target_hire_count">採用人数</option>
+          <option value="hiring_type_need">新卒/中途</option>
+        </select>
+      </div>
+      <div class="sa-filter">
+        <label>列軸（売り方）</label>
+        <select id="crossColAxis">
+          <option value="appeal_points_used">訴求内容</option>
+          <option value="talk_patterns">話法の型</option>
+          <option value="objection_handling_style">懸念対応</option>
+        </select>
+      </div>
+      <button class="btn" id="crossBtn">集計する</button>
+    </div>
+    <div id="crossResult" class="sa-heatmap-wrap"></div>
+  `;
+  compareSection.parentNode.insertBefore(crossSection, compareSection);
+
+  $("crossBtn").addEventListener("click", renderCrossAxis);
+});
+
+function renderCrossAxis() {
+  const wrap = $("crossResult");
+  const rowAxis = $("crossRowAxis").value;
+  const colAxis = $("crossColAxis").value;
+  if (!allTags.length) { wrap.innerHTML = '<div class="sa-empty">データがありません</div>'; return; }
+
+  const rowVals = orderAxisValues(rowAxis, extractAxisValues(allTags, rowAxis));
+  const colVals = orderAxisValues(colAxis, extractAxisValues(allTags, colAxis));
+  if (!rowVals.length || !colVals.length) { wrap.innerHTML = '<div class="sa-empty">データがありません</div>'; return; }
+
+  const grid = {};
+  for (const t of allTags) {
+    const rows = getValuesForAxis(t, rowAxis);
+    const cols = getValuesForAxis(t, colAxis);
+    const won = t.result === "受注" ? 1 : 0;
+    for (const r of rows) for (const c of cols) {
+      const key = `${r}|||${c}`;
+      if (!grid[key]) grid[key] = { won: 0, total: 0 };
+      grid[key].won += won;
+      grid[key].total++;
+    }
+  }
+
+  let html = '<table class="sa-heatmap"><thead><tr><th></th>';
+  for (const c of colVals) html += `<th>${esc(c)}</th>`;
+  html += '</tr></thead><tbody>';
+  for (const r of rowVals) {
+    html += `<tr><td class="sa-c-owner">${esc(r)}</td>`;
+    for (const c of colVals) {
+      const cell = grid[`${r}|||${c}`];
+      html += renderCell(cell, false);
+    }
+    html += '</tr>';
+  }
+  html += '</tbody></table>';
+  html += '<div class="sa-cell-legend" style="margin-top:8px;">💡 件数が少ない組み合わせが多くなります。n≥5以上のセルだけを参考にしてください。</div>';
+  wrap.innerHTML = html;
+}
+
+// ============================================================
+// 未実装項目7: ステップemphasis別受注率クロス集計（依頼書6.1）
+// ============================================================
+// タイムラインビュー内に「emphasis別受注率」テーブルを追加
+const _savedRenderTimeline = renderStagesTimeline;
+renderStagesTimeline = function () {
+  _savedRenderTimeline();
+  const wrap = $("heatmap");
+  // emphasis × step の受注率クロス集計を追記
+  const emphGrid = {};
+  for (const t of allTags) {
+    const stages = Array.isArray(t.meeting_stages) ? t.meeting_stages : [];
+    const won = t.result === "受注" ? 1 : 0;
+    for (const s of stages) {
+      if (!s || !s.step || !s.emphasis) continue;
+      const key = `${s.step}|||${s.emphasis}`;
+      if (!emphGrid[key]) emphGrid[key] = { won: 0, total: 0 };
+      emphGrid[key].won += won;
+      emphGrid[key].total++;
+    }
+  }
+  const emphases = ["厚め", "普通", "簡潔"];
+  let html = '<div style="margin-top:20px;"><h4 style="font-size:13px;font-weight:600;color:#0d5b47;margin-bottom:8px;">ステップ × 厚み別 受注率</h4>';
+  html += '<table class="sa-heatmap"><thead><tr><th>ステップ</th>';
+  for (const e of emphases) html += `<th>${esc(e)}</th>`;
+  html += '</tr></thead><tbody>';
+  for (const step of CANONICAL_STEPS) {
+    html += `<tr><td class="sa-c-owner" style="font-size:11px;">${esc(step.replace("（スケジュール確認）", ""))}</td>`;
+    for (const e of emphases) {
+      const cell = emphGrid[`${step}|||${e}`];
+      html += renderCell(cell, false);
+    }
+    html += '</tr>';
+  }
+  html += '</tbody></table>';
+  html += '<div class="sa-cell-legend" style="margin-top:6px;">「ヒアリングを厚めにした商談は受注率が高い」等の傾向を読み取れます</div></div>';
+  wrap.insertAdjacentHTML("beforeend", html);
+};
+
+// ============================================================
+// 未実装項目6: パイロット検証支援（依頼書9章）
+// ============================================================
+document.addEventListener("DOMContentLoaded", () => {
+  const backfillSection = document.querySelector("#backfillStatus")?.closest(".sa-section");
+  if (!backfillSection) return;
+
+  const pilotSection = document.createElement("section");
+  pilotSection.className = "sa-section";
+  pilotSection.innerHTML = `
+    <h2>パイロット検証：AI抽出結果の確認</h2>
+    <p class="sa-hint">AIが抽出したタグと、人手で確認した正解タグを突き合わせて精度を確認します。案件を選ぶと、AIの抽出結果が表示されるので、目視で正解と比較してください。</p>
+    <div class="sa-filter-row">
+      <div class="sa-filter">
+        <label>案件を選択</label>
+        <select id="pilotDealSelect" style="min-width:250px;"><option value="">読み込み中…</option></select>
+      </div>
+    </div>
+    <div id="pilotResult" class="sa-compare-wrap"></div>
+    <div class="sa-backfill" style="margin-top:12px;">
+      <div style="font-size:12px;color:#5f6b63;">
+        <b>検証の目安</b>（依頼書9章）：各メンバー5件×4名＝20件を人手で確認。<br>
+        主観タグ（話法・emphasis）→ 一致率70%以上、客観タグ（従業員規模・地域）→ 90%以上が目標。
+      </div>
+      <button class="btn" id="syncStatusBtn2">ステータスを同期</button>
+    </div>
+  `;
+  backfillSection.parentNode.insertBefore(pilotSection, backfillSection.nextSibling);
+
+  // 案件リスト生成（タグがある案件だけ）
+  const sel = $("pilotDealSelect");
+  sel.addEventListener("change", showPilotDetail);
+  $("syncStatusBtn2")?.addEventListener("click", async () => {
+    const btn = $("syncStatusBtn2");
+    btn.disabled = true; btn.textContent = "同期中…";
+    try {
+      const r = await fetch("/api/feature-c/sync-status", { method: "POST" });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.error || "失敗");
+      alert(`${d.updated}件を同期しました`);
+      await loadAndRender();
+    } catch (e) { alert("失敗: " + e.message); }
+    finally { btn.disabled = false; btn.textContent = "ステータスを同期"; }
+  });
+
+  // loadAndRender後にセレクトを更新する
+  const origLoad = loadAndRender;
+  loadAndRender = async function () {
+    await origLoad();
+    populatePilotSelect();
+  };
+});
+
+function populatePilotSelect() {
+  const sel = $("pilotDealSelect");
+  if (!sel) return;
+  sel.innerHTML = '<option value="">案件を選んでください</option>';
+  for (const t of allTags.slice(0, 200)) {
+    const label = `${t.company_name || t.deal_id} (${t.owner || "?"}) ${t.result || ""}`;
+    sel.insertAdjacentHTML("beforeend", `<option value="${esc(t.deal_id)}">${esc(label)}</option>`);
+  }
+}
+
+function showPilotDetail() {
+  const wrap = $("pilotResult");
+  const dealId = $("pilotDealSelect").value;
+  if (!dealId) { wrap.innerHTML = ""; return; }
+  const t = allTags.find((x) => x.deal_id === dealId);
+  if (!t) { wrap.innerHTML = '<div class="sa-empty">見つかりません</div>'; return; }
+
+  const row = (label, value, type) => {
+    const typeLabel = type === "obj" ? '<span style="color:#0d5b47;font-size:9px;">客観</span>' : '<span style="color:#8a5a1a;font-size:9px;">主観</span>';
+    const v = Array.isArray(value) ? value.map((x) => typeof x === "object" ? JSON.stringify(x) : x).join(", ") : String(value ?? "—");
+    return `<tr><td style="font-weight:600;color:#5f6b63;padding:6px 10px;white-space:nowrap;">${typeLabel} ${esc(label)}</td><td style="padding:6px 10px;">${esc(v)}</td></tr>`;
+  };
+  wrap.innerHTML = `
+    <div class="sa-owner-card" style="max-width:700px;">
+      <h3>${esc(t.company_name || t.deal_id)}</h3>
+      <div class="sa-owner-n">${esc(t.owner)} · ${String(t.first_meeting_date || "").slice(0, 10)} · ${esc(t.result)} · confidence: ${esc(t.tag_confidence)}</div>
+      <table style="width:100%;border-collapse:collapse;font-size:12.5px;">
+        <thead><tr><th style="text-align:left;padding:6px 10px;border-bottom:1px solid #dfe4df;">項目</th><th style="text-align:left;padding:6px 10px;border-bottom:1px solid #dfe4df;">AI抽出結果</th></tr></thead>
+        <tbody>
+          ${row("従業員規模", t.customer_employee_size, "obj")}
+          ${row("採用人数", t.target_hire_count, "obj")}
+          ${row("新卒/中途ニーズ", t.hiring_type_need, "sub")}
+          ${row("本社地域", t.customer_hq_region, "obj")}
+          ${row("業界", t.customer_industry, "obj")}
+          ${row("顧客反応", t.customer_response_status, "sub")}
+          ${row("決裁者同席", t.decision_maker_present, "obj")}
+          ${row("競合言及", t.competitor_mentioned, "obj")}
+          ${row("課題・困りごと", t.key_pain_points, "sub")}
+          ${row("訴求内容", t.appeal_points_used, "sub")}
+          ${row("話法の型", t.talk_patterns, "sub")}
+          ${row("象徴的話法", t.talk_example, "sub")}
+          ${row("商談ステップ", t.meeting_stages, "sub")}
+          ${row("ヒアリング到達", t.discovery_items_covered, "sub")}
+          ${row("懸念対応", t.objection_handling_style, "sub")}
+          ${row("顧客懸念", t.objections_raised, "sub")}
+        </tbody>
+      </table>
+    </div>
+  `;
 }
