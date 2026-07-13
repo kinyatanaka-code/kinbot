@@ -322,6 +322,50 @@ export async function initDb() {
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_deal_events_date ON deal_events(event_date);`);
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_deal_events_bot ON deal_events(bot_id);`);
 
+  // ===== Feature C: 商談特徴タグ =====
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS deal_feature_tags (
+      deal_id                  TEXT PRIMARY KEY,
+      first_meeting_date       DATE,
+      owner                    TEXT,
+      team                     TEXT,
+      customer_employee_size   TEXT,
+      target_hire_count        TEXT,
+      hiring_type_need         TEXT,
+      customer_hq_region       TEXT,
+      customer_industry        TEXT,
+      target_job_type          JSONB,
+      customer_response_status TEXT,
+      decision_maker_present   BOOLEAN,
+      competitor_mentioned     BOOLEAN,
+      key_pain_points          JSONB,
+      appeal_points_used       JSONB,
+      talk_patterns            JSONB,
+      talk_example             TEXT,
+      meeting_stages           JSONB,
+      discovery_items_covered  JSONB,
+      objection_handling_style TEXT,
+      objections_raised        JSONB,
+      tag_confidence           TEXT,
+      result                   TEXT,
+      raw_extraction           JSONB,
+      updated_at               TIMESTAMPTZ DEFAULT now()
+    );
+  `);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_dft_owner ON deal_feature_tags(owner);`);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_dft_date ON deal_feature_tags(first_meeting_date);`);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_dft_result ON deal_feature_tags(result);`);
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS enterprise_attributes (
+      company_name         TEXT PRIMARY KEY,
+      industry             TEXT,
+      industry_confidence  TEXT,
+      recruiting_job_types JSONB,
+      job_type_confidence  TEXT,
+      last_enriched_at     TIMESTAMPTZ DEFAULT now()
+    );
+  `);
+
   // ===== OAuth（Claude.aiのカスタムコネクタ用。RFC7591動的クライアント登録 + 認可コードフロー） =====
   await pool.query(`
     CREATE TABLE IF NOT EXISTS oauth_clients (
@@ -1915,4 +1959,114 @@ export async function setSmartLinkOwner(slug, owner) {
 export async function deleteSmartLink(slug) {
   if (!pool) return;
   try { await pool.query(`DELETE FROM smart_links WHERE slug=$1`, [slug]); } catch {}
+}
+// ===== Feature C: 商談特徴タグ =====
+// 1案件=1レコード。判定完了時と手動バックフィルの両方から呼ばれる。
+// UPSERTなので何度呼んでも冪等。resultは呼び出し側で案件ステータスから決めて渡す想定。
+export async function upsertDealFeatureTags(dealId, tags) {
+  if (!pool || !dealId) return;
+  const cols = [
+    "deal_id","first_meeting_date","owner","team",
+    "customer_employee_size","target_hire_count","hiring_type_need","customer_hq_region",
+    "customer_industry","target_job_type",
+    "customer_response_status","decision_maker_present","competitor_mentioned","key_pain_points",
+    "appeal_points_used","talk_patterns","talk_example","meeting_stages","discovery_items_covered","objection_handling_style",
+    "objections_raised","tag_confidence","result","raw_extraction","updated_at",
+  ];
+  const jsonCols = new Set(["target_job_type","key_pain_points","appeal_points_used","talk_patterns","meeting_stages","discovery_items_covered","objections_raised","raw_extraction"]);
+  const vals = [dealId];
+  const placeholders = ["$1"];
+  cols.slice(1).forEach((c, i) => {
+    const idx = i + 2;
+    if (c === "updated_at") { placeholders.push("now()"); return; }
+    let v = tags[c];
+    if (v === undefined) v = null;
+    if (jsonCols.has(c) && v != null) v = JSON.stringify(v);
+    vals.push(v);
+    placeholders.push(`$${idx}`);
+  });
+  const updateSet = cols.slice(1).map((c) => c === "updated_at" ? `updated_at=now()` : `${c}=EXCLUDED.${c}`).join(", ");
+  const sql = `
+    INSERT INTO deal_feature_tags (${cols.join(", ")})
+    VALUES (${placeholders.join(", ")})
+    ON CONFLICT (deal_id) DO UPDATE SET ${updateSet}
+  `;
+  try { await pool.query(sql, vals); }
+  catch (e) { console.error("[db] upsertDealFeatureTags", e.message); }
+}
+
+// 集計用に一括取得。owner/期間で絞り込み可能。
+export async function listDealFeatureTags({ owner, from, to } = {}) {
+  if (!pool) return [];
+  const cond = [], vals = [];
+  let i = 1;
+  if (owner) { cond.push(`owner = $${i++}`); vals.push(owner); }
+  if (from)  { cond.push(`first_meeting_date >= $${i++}`); vals.push(from); }
+  if (to)    { cond.push(`first_meeting_date <= $${i++}`); vals.push(to); }
+  const where = cond.length ? `WHERE ${cond.join(" AND ")}` : "";
+  try {
+    const { rows } = await pool.query(`SELECT * FROM deal_feature_tags ${where}`, vals);
+    return rows;
+  } catch (e) { console.error("[db] listDealFeatureTags", e.message); return []; }
+}
+
+// バックフィル用：deal_feature_tagsテーブルに未登録の初回商談を持つ案件を列挙する
+export async function listDealsNeedingFeatureTags({ limit = 1000 } = {}) {
+  if (!pool) return [];
+  try {
+    const { rows } = await pool.query(`
+      SELECT d.deal_id, d.company_name, d.owner, d.team, d.status,
+             (SELECT ev.bot_id FROM deal_events ev WHERE ev.deal_id=d.deal_id AND ev.event_type='初回商談' AND ev.meeting_kind='初回商談' ORDER BY ev.event_date DESC LIMIT 1) AS bot_id,
+             (SELECT ev.event_date FROM deal_events ev WHERE ev.deal_id=d.deal_id AND ev.event_type='初回商談' AND ev.meeting_kind='初回商談' ORDER BY ev.event_date DESC LIMIT 1) AS first_meeting_date
+      FROM deals d
+      WHERE d.deal_id NOT IN (SELECT deal_id FROM deal_feature_tags)
+      LIMIT $1
+    `, [limit]);
+    return rows.filter((r) => r.bot_id); // 初回商談イベントがある案件のみ
+  } catch (e) { console.error("[db] listDealsNeedingFeatureTags", e.message); return []; }
+}
+
+// ===== Feature C フェーズ3: 企業属性マスタ（依頼書5.2） =====
+export async function upsertEnterpriseAttributes(companyName, attrs) {
+  if (!pool || !companyName) return;
+  try {
+    await pool.query(`
+      INSERT INTO enterprise_attributes (company_name, industry, industry_confidence, recruiting_job_types, job_type_confidence, last_enriched_at)
+      VALUES ($1, $2, $3, $4, $5, now())
+      ON CONFLICT (company_name) DO UPDATE SET
+        industry = EXCLUDED.industry,
+        industry_confidence = EXCLUDED.industry_confidence,
+        recruiting_job_types = EXCLUDED.recruiting_job_types,
+        job_type_confidence = EXCLUDED.job_type_confidence,
+        last_enriched_at = now()
+    `, [companyName, attrs.industry || null, attrs.industry_confidence || null,
+        attrs.recruiting_job_types ? JSON.stringify(attrs.recruiting_job_types) : null,
+        attrs.job_type_confidence || null]);
+  } catch (e) { console.error("[db] upsertEnterpriseAttributes", e.message); }
+}
+
+export async function getEnterpriseAttributesMap() {
+  if (!pool) return {};
+  try {
+    const { rows } = await pool.query(`SELECT * FROM enterprise_attributes`);
+    const map = {};
+    for (const r of rows) map[r.company_name] = r;
+    return map;
+  } catch { return {}; }
+}
+
+// エンリッチメント対象：dealsに登場する会社のうち、属性未取得 or 6ヶ月以上前に取得した会社
+export async function listCompaniesNeedingEnrichment({ limit = 20, staleDays = 180 } = {}) {
+  if (!pool) return [];
+  try {
+    const { rows } = await pool.query(`
+      SELECT DISTINCT d.company_name
+      FROM deals d
+      LEFT JOIN enterprise_attributes ea ON ea.company_name = d.company_name
+      WHERE d.company_name IS NOT NULL AND d.company_name <> ''
+        AND (ea.company_name IS NULL OR ea.last_enriched_at < now() - ($2 || ' days')::interval)
+      LIMIT $1
+    `, [limit, String(staleDays)]);
+    return rows.map((r) => r.company_name);
+  } catch (e) { console.error("[db] listCompaniesNeedingEnrichment", e.message); return []; }
 }

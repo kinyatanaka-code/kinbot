@@ -1460,3 +1460,235 @@ export async function extractReMeeting(transcript, meetingDate, opts = {}) {
     }),
   });
 }
+// ===== Feature C: 商談特徴タグ抽出 =====
+// 依頼書 4.2〜4.4 に対応。初回商談の文字起こしから「売り先」「売り方」「商談状況」のタグを抽出。
+// Feature A（extractFirstMeeting）とは別APIコール（依頼書4.3の実装方針）で、
+// Feature C側のスキーマ不整合がFeature Aのコア判定に影響しないよう完全に分離する。
+// customer_industry・target_job_typeはフェーズ3のエンリッチメントで別途付与するため、
+// ここのプロンプト・出力対象には含めない。
+export async function extractFeatureCTags(transcript, meetingDate) {
+  const text = transcriptToText(transcript).slice(0, 45000);
+
+  const sys = [
+    "あなたは営業商談の文字起こしから、指定された項目のみを構造化して抽出するアシスタントです。",
+    "記載のない情報は絶対に推測せず、該当する区分がなければ\"不明\"（配列項目は空配列）としてください。",
+    "",
+    "【売り先タグ（顧客属性）】",
+    "1. customer_employee_size: 顧客企業の従業員規模。「〜50人」「51〜200人」「201〜500人」「501〜1000人」「1001人以上」「不明」のいずれか。",
+    "2. target_hire_count: 今回の採用予定人数。「1〜2名」「3〜5名」「6〜10名」「11名以上」「未定」のいずれか。顧客側で人数が決まっていない場合、および文字起こしから特定できない場合の両方を「未定」に含める。",
+    "3. hiring_type_need: 新卒／中途の採用ニーズ。「新卒中心」「中途中心」「新卒・中途両方」のいずれか。\"不明\"は選択肢に含めない。文脈から判断が難しい場合も、発言の端々（\"新卒\"\"既卒\"\"キャリア採用\"\"中途\"等の単語、内定者・入社時期の言及）から最も近いものを推測して選ぶこと。ただし本当に確信が持てなければtag_confidenceを\"low\"にする。",
+    "4. customer_hq_region: 顧客企業の本社所在地（都道府県名。例：「東京都」「大阪府」「北海道」）。発言から特定できないなら「不明」。",
+    "5. customer_response_status: 商談内での顧客の反応区分。「担当者合意」（相手が導入したい・上申したい旨の発言がある）／「案件化」（検討可能の旨だが担当者合意ほど明確な前向き発言ではない）／「不明」のいずれか。",
+    "   ※「失注」は絶対に出力しないこと。失注の判定は別システムで行うため、AIが失注と判断してもここでは\"不明\"または実際に読み取れる区分を出す。",
+    "6. decision_maker_present: 商談に決裁者・決裁権に近い人物が同席していたか。true / false / null（不明）。",
+    "7. competitor_mentioned: 競合サービス（求人媒体、他社のVR/AI採用支援ツール等）への言及があったか。true / false。",
+    "8. key_pain_points: 顧客が言及した採用課題・困りごと（配列、最大5件、各20字程度の要約。逐語引用しない。例：「応募前離脱」「ミスマッチ」「遠方拠点の説明会運営負担」）。",
+    "",
+    "【売り方タグ（訴求・進め方）】",
+    "9. appeal_points_used: 営業側が使った訴求の内容（配列、複数選択可）。以下から該当するものを選ぶ：",
+    "   「応募前離脱防止訴求」「ミスマッチ防止訴求」「3D仮想体験の差別化訴求」「採用工数削減訴求」「データ蓄積・分析訴求」「価格・初期費用訴求」「導入事例訴求」「緊急性訴求」「その他」",
+    "10. talk_patterns: 営業側の話法の型（配列、複数選択可）。以下から該当するものを選ぶ：",
+    "    「具体的な数値・実績の提示型」「類似業界の事例活用型」「競合比較型」「顧客の発言を要約・言い換えして返す型」「質問で顧客に考えさせる型」「畳み掛け型」「その他」",
+    "11. talk_example: 上記の中で象徴的だった話法の要約（30〜50字。営業側の発言内容の要約であり逐語引用はしない）。",
+    "12. meeting_stages: 商談を構成する各ステップを、実施した順番に配列で記載する。各要素は {\"step\":\"ステップ名\",\"emphasis\":\"厚め|普通|簡潔\"} のオブジェクト。",
+    "    stepの固定語彙：「導入・アイスブレイク」「市況・トレンド説明」「ヒアリング」「サービス説明」「デモ・仮想体験提案」「クロージング（スケジュール確認）」",
+    "    実施しなかったステップは配列に含めない（スキップされたことをそのまま表現）。emphasisは発話量・内容の厚みの目安。",
+    "    例：[{\"step\":\"導入・アイスブレイク\",\"emphasis\":\"簡潔\"},{\"step\":\"ヒアリング\",\"emphasis\":\"厚め\"},{\"step\":\"デモ・仮想体験提案\",\"emphasis\":\"普通\"},{\"step\":\"クロージング（スケジュール確認）\",\"emphasis\":\"簡潔\"}]",
+    "13. discovery_items_covered: ヒアリングで踏み込んで確認できていた項目（配列、複数選択可）。",
+    "    「現状把握」（採用体制・人数など状況の確認）／「課題認識」（担当者が感じている課題の確認）／「危機感・影響確認」（課題を放置した影響・緊急度の確認）／「意思決定プロセス確認」（決裁者・決定フローの確認）。該当なしなら空配列。",
+    "14. objection_handling_style: 顧客の懸念・抵抗が出た際の対応の型（1つだけ選ぶ）。",
+    "    「即座に切り返す型」「一旦受け止めてから返す型」「数値・データで返す型」「類似事例で返す型」「明確な回答をせず次に進める型」「該当する懸念なし」",
+    "",
+    "【商談状況】",
+    "15. objections_raised: 顧客側から出た懸念・抵抗（配列、複数選択可、該当なければ空配列）。",
+    "    「価格」「導入負荷（採用担当の工数等）」「社内稟議・決裁プロセス」「効果への不安」「導入タイミング」「既存の採用手法との兼ね合い」「その他」",
+    "16. tag_confidence: 上記全体の抽出自信度（\"high\"/\"low\"）。発言が少ない・各軸への言及がそもそもないなら\"low\"。無理に推測しない。",
+    "",
+    "JSONのみ出力し、他の文章は一切出力しないこと。",
+  ].join("\n");
+
+  const user = `商談日: ${meetingDate || "不明"}\n文字起こし:\n"""\n${text}\n"""`;
+
+  const schema = {
+    type: "object",
+    properties: {
+      customer_employee_size: { type: "string", enum: ["〜50人", "51〜200人", "201〜500人", "501〜1000人", "1001人以上", "不明"] },
+      target_hire_count: { type: "string", enum: ["1〜2名", "3〜5名", "6〜10名", "11名以上", "未定"] },
+      hiring_type_need: { type: "string", enum: ["新卒中心", "中途中心", "新卒・中途両方"] },
+      customer_hq_region: { type: "string" },
+      customer_response_status: { type: "string", enum: ["担当者合意", "案件化", "不明"] },
+      decision_maker_present: { type: ["boolean", "null"] },
+      competitor_mentioned: { type: "boolean" },
+      key_pain_points: { type: "array", items: { type: "string" }, maxItems: 5 },
+      appeal_points_used: { type: "array", items: { type: "string" } },
+      talk_patterns: { type: "array", items: { type: "string" } },
+      talk_example: { type: "string" },
+      meeting_stages: {
+        type: "array",
+        items: {
+          type: "object",
+          properties: {
+            step: { type: "string", enum: ["導入・アイスブレイク", "市況・トレンド説明", "ヒアリング", "サービス説明", "デモ・仮想体験提案", "クロージング（スケジュール確認）"] },
+            emphasis: { type: "string", enum: ["厚め", "普通", "簡潔"] },
+          },
+          required: ["step", "emphasis"],
+        },
+      },
+      discovery_items_covered: { type: "array", items: { type: "string", enum: ["現状把握", "課題認識", "危機感・影響確認", "意思決定プロセス確認"] } },
+      objection_handling_style: { type: "string", enum: ["即座に切り返す型", "一旦受け止めてから返す型", "数値・データで返す型", "類似事例で返す型", "明確な回答をせず次に進める型", "該当する懸念なし"] },
+      objections_raised: { type: "array", items: { type: "string" } },
+      tag_confidence: { type: "string", enum: ["high", "low"] },
+    },
+    required: [
+      "customer_employee_size", "target_hire_count", "hiring_type_need",
+      "customer_response_status", "competitor_mentioned",
+      "meeting_stages", "discovery_items_covered", "objection_handling_style",
+      "objections_raised", "tag_confidence",
+    ],
+  };
+
+  const raw = parseJson(await callLLM(sys, user, 1400, extractLLMOpts({ schema }))) || {};
+  // 空配列や欠損項目を正規化して返す
+  return {
+    customer_employee_size: raw.customer_employee_size || "不明",
+    target_hire_count: raw.target_hire_count || "未定",
+    hiring_type_need: raw.hiring_type_need || "新卒・中途両方",
+    customer_hq_region: raw.customer_hq_region || "不明",
+    customer_response_status: raw.customer_response_status || "不明",
+    decision_maker_present: raw.decision_maker_present === true ? true : raw.decision_maker_present === false ? false : null,
+    competitor_mentioned: !!raw.competitor_mentioned,
+    key_pain_points: Array.isArray(raw.key_pain_points) ? raw.key_pain_points.slice(0, 5) : [],
+    appeal_points_used: Array.isArray(raw.appeal_points_used) ? raw.appeal_points_used : [],
+    talk_patterns: Array.isArray(raw.talk_patterns) ? raw.talk_patterns : [],
+    talk_example: raw.talk_example || "",
+    meeting_stages: Array.isArray(raw.meeting_stages) ? raw.meeting_stages : [],
+    discovery_items_covered: Array.isArray(raw.discovery_items_covered) ? raw.discovery_items_covered : [],
+    objection_handling_style: raw.objection_handling_style || "該当する懸念なし",
+    objections_raised: Array.isArray(raw.objections_raised) ? raw.objections_raised : [],
+    tag_confidence: raw.tag_confidence === "high" ? "high" : "low",
+    raw_llm: raw,
+  };
+}
+
+// ===== Feature C フェーズ3: 企業属性エンリッチメント（依頼書4.5） =====
+import { INDUSTRY_NAMES, JOB_TYPE_MASTER } from "./industry_master.js";
+
+// 企業名から「業界」「募集職種」をWeb検索で特定する。
+// 依頼書4.5の精度設計：
+//  - 複数クエリパターン（事業内容・会社概要・企業情報）→ geminiGroundedの1リサーチにまとめて指示
+//  - 複数ソース一致でのみ confidence="high"
+//  - 業界は固定マスタ（日本標準産業分類 大分類）から選択、自由記述禁止
+//  - 求人媒体は site: 指定でノイズを削る
+//  - 検索結果のタイトル・スニペット範囲のみ利用（本文の丸ごと保存はしない）
+export async function enrichCompanyAttributes(companyName) {
+  const name = String(companyName || "").trim();
+  if (!name) return { found: false };
+
+  // --- 業界特定 ---
+  let industryResearch = "";
+  try {
+    industryResearch = await geminiGrounded(
+      `「${name}」という日本の企業について、以下の複数の検索クエリの観点で調べてください：` +
+      `「${name} 事業内容」「${name} 会社概要」「${name} 企業情報」。` +
+      `この会社の主たる事業・業界が何かを、複数の情報ソース（公式サイト・企業情報サイト・ニュース等）を照合して特定してください。` +
+      `各ソースのURL・サイト名を必ず挙げ、ソースごとに読み取れた業界を明記してください。見つからない場合は「不明」と明記。憶測は禁止。`,
+      ""
+    );
+  } catch (e) {
+    console.warn("[feature-c/enrich] 業界リサーチ失敗:", e.message);
+  }
+
+  // --- 募集職種特定 ---
+  let jobResearch = "";
+  try {
+    jobResearch = await geminiGrounded(
+      `「${name}」という日本の企業の採用・求人情報を調べてください。` +
+      `検索クエリの例：「site:mynavi.jp ${name}」「site:rikunabi.com ${name}」「site:doda.jp ${name}」「${name} 採用 求人」。` +
+      `この会社が現在どんな職種を募集しているかを、複数の求人媒体・採用ページを照合して特定してください。` +
+      `媒体ごとに確認できた職種を明記してください。検索結果のタイトル・概要から読み取れる範囲でよい。見つからなければ「不明」。憶測は禁止。`,
+      ""
+    );
+  } catch (e) {
+    console.warn("[feature-c/enrich] 職種リサーチ失敗:", e.message);
+  }
+
+  if (!industryResearch && !jobResearch) return { found: false };
+
+  // --- 構造化抽出（固定マスタから選択） ---
+  const schema = {
+    type: "object",
+    properties: {
+      industry: { type: "string", enum: [...INDUSTRY_NAMES, "不明"] },
+      industry_source_count: { type: "integer", description: "業界を同一区分と判定できた独立ソースの数" },
+      recruiting_job_types: { type: "array", items: { type: "string", enum: JOB_TYPE_MASTER } },
+      job_type_source_count: { type: "integer", description: "職種を確認できた独立媒体の数" },
+    },
+    required: ["industry", "industry_source_count", "recruiting_job_types", "job_type_source_count"],
+  };
+  const sys =
+    "あなたは企業調査アシスタントです。与えられたWeb検索リサーチ結果だけを根拠に判断します。" +
+    "業界は指定された固定区分（日本標準産業分類 大分類）から必ず選ぶこと。複数事業がある場合は主たる事業の区分。" +
+    "リサーチ結果に根拠が無ければ「不明」。職種も指定カテゴリから選ぶ。決して推測で情報を作らないこと。" +
+    "industry_source_count / job_type_source_count は、同じ判定を支持する独立した情報ソースの数を正直に数えること。出力は指定JSONのみ。";
+  const user =
+    `会社名: ${name}\n\n` +
+    `【業界に関するリサーチ結果】\n"""\n${(industryResearch || "(なし)").slice(0, 5000)}\n"""\n\n` +
+    `【求人・職種に関するリサーチ結果】\n"""\n${(jobResearch || "(なし)").slice(0, 5000)}\n"""\n\n` +
+    `上記だけを根拠に、業界（固定区分から選択）と募集職種（固定カテゴリから複数選択可）をJSONで出力してください。`;
+  const o = parseJson(await callLLM(sys, user, 500, { schema, provider: "anthropic" })) || {};
+
+  const industry = o.industry && o.industry !== "不明" ? o.industry : "";
+  const jobTypes = Array.isArray(o.recruiting_job_types) ? o.recruiting_job_types.filter(Boolean) : [];
+  // 依頼書4.5：2つ以上のソースが一致した場合のみ high
+  const industryConfidence = industry && Number(o.industry_source_count || 0) >= 2 ? "high" : "low";
+  const jobConfidence = jobTypes.length && Number(o.job_type_source_count || 0) >= 2 ? "high" : "low";
+
+  return {
+    found: !!(industry || jobTypes.length),
+    industry,
+    industry_confidence: industryConfidence,
+    recruiting_job_types: jobTypes,
+    job_type_confidence: jobConfidence,
+  };
+}
+
+// ===== Feature C フェーズ3: 傾向ハイライト自動コメント（依頼書7.2） =====
+// 事前にサーバー側で集計した統計サマリーを受け取り、示唆コメントを生成する。
+// ルール：
+//  - 件数(n)を必ず併記
+//  - 断定を避ける文体（「傾向がある」「示唆される」）
+//  - 特定個人を名指しで評価・批判する表現は禁止
+//  - n<5 のセグメントはそもそも入力に含めない（呼び出し側で除外済み）
+export async function generateFeatureCInsights(statsText) {
+  const sys =
+    "あなたはBtoB営業チームのデータアナリストです。与えられた集計データだけを根拠に、営業チーム全体の改善に役立つ示唆を3〜6個、箇条書きで出力します。\n" +
+    "【必須ルール】\n" +
+    "1. 各示唆には必ず件数（n=◯件）を併記する。\n" +
+    "2. 断定を避け、「〜の傾向がある」「〜が示唆される」という文体に統一する。\n" +
+    "3. 特定個人を名指しで評価・批判する表現は絶対に禁止（「田中さんは下手」等はNG）。個人名は「同条件での比較で差が見られる」のような中立的な文脈でのみ言及可。\n" +
+    "4. データに無い因果関係を作らない。相関と因果を混同しない（「〜だから受注率が高い」ではなく「〜の商談は受注率が高い傾向」）。\n" +
+    "5. チームとして次に取れる具体的なアクション（例：ヒアリングで確認する項目を増やす）を1〜2個含める。\n" +
+    "出力はJSONのみ。";
+  const schema = {
+    type: "object",
+    properties: {
+      insights: {
+        type: "array",
+        items: {
+          type: "object",
+          properties: {
+            text: { type: "string", description: "示唆コメント本文（n併記・断定回避）" },
+            kind: { type: "string", enum: ["傾向", "アクション提案", "注意"] },
+          },
+          required: ["text", "kind"],
+        },
+        minItems: 3,
+        maxItems: 6,
+      },
+    },
+    required: ["insights"],
+  };
+  const user = `以下はBtoB営業チームの商談タグ×受注率の集計データです。n<5のセグメントは既に除外済みです。\n\n"""\n${String(statsText || "").slice(0, 8000)}\n"""`;
+  const o = parseJson(await callLLM(sys, user, 1200, { schema, provider: "anthropic" })) || {};
+  return Array.isArray(o.insights) ? o.insights : [];
+}

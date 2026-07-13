@@ -68,6 +68,12 @@ import {
   deleteSmartLink,
   deleteDealEventsByBot,
   insertDealEvent,
+  upsertDealFeatureTags,
+  listDealFeatureTags,
+  listDealsNeedingFeatureTags,
+  upsertEnterpriseAttributes,
+  getEnterpriseAttributesMap,
+  listCompaniesNeedingEnrichment,
   listDeals,
   getDealWithEvents,
   listDealEvents,
@@ -108,7 +114,7 @@ import {
   deleteKbFolder,
 } from "./db.js";
 import { resolveConfig, statusInfo } from "./config.js";
-import { analyzerInfo, analyzeMeeting, analyzeDeep, freeAnalyze, chatWithData, enrichCompany, lookupEmployeeCount, lookupCompanyBasics, generateThanks, THANKS_PROMPT, getCheckItems, getSummaryPrompt, getCustomPrompt, runCustomAnalysis, analyzeWinPatterns, classifyMeetingKind, extractFirstMeeting, extractReMeeting, buildBrief } from "./analyzer.js";
+import { analyzerInfo, analyzeMeeting, analyzeDeep, freeAnalyze, chatWithData, enrichCompany, lookupEmployeeCount, lookupCompanyBasics, generateThanks, THANKS_PROMPT, getCheckItems, getSummaryPrompt, getCustomPrompt, runCustomAnalysis, analyzeWinPatterns, classifyMeetingKind, extractFirstMeeting, extractReMeeting, buildBrief, extractFeatureCTags, enrichCompanyAttributes, generateFeatureCInsights } from "./analyzer.js";
 import { searchCompanies, getCompanyDetail, gbizConfigured } from "./gbizinfo.js";
 import {
   googleConfigured,
@@ -1065,6 +1071,29 @@ async function runExtraction(botId, forceProvider) {
           }
         }
       }
+    }
+
+    // Feature C: 商談特徴タグを抽出して保存する。
+    // Feature Aの完了パスを止めないため、失敗しても案件更新に影響しないよう非同期＋try-catchで隔離。
+    if (deal) {
+      (async () => {
+        try {
+          const tags = await extractFeatureCTags(transcript, meetingDateStr);
+          const dealStatus = (await listDeals({})).find((d) => d.deal_id === deal.deal_id)?.status || "";
+          let responseStatus = tags.customer_response_status;
+          if (dealStatus.startsWith("失注")) responseStatus = "失注";
+          await upsertDealFeatureTags(deal.deal_id, {
+            first_meeting_date: meetingDateStr, owner: repName || owner, team,
+            ...tags, customer_response_status: responseStatus,
+            customer_industry: null, target_job_type: null,
+            result: dealStatus.startsWith("失注") ? "失注" : (dealStatus === "受注" ? "受注" : "進行中"),
+            raw_extraction: tags.raw_llm,
+          });
+          console.log(`[feature-c] tags saved for deal ${deal.deal_id} (confidence=${tags.tag_confidence})`);
+        } catch (e) {
+          console.error(`[feature-c] tag extraction failed for deal ${deal.deal_id}:`, e.message);
+        }
+      })();
     }
     return { kind, ...der };
   }
@@ -2422,6 +2451,222 @@ app.get("/api/report/pipeline-trend", async (req, res) => {
     res.status(500).json({ error: e.message });
   }
 });
+
+
+// ===== Feature C: 営業スタイル分析（メンバー別受注率差異要因分析） =====
+// 依頼書 6章・7章に対応。フェーズ1では以下の3エンドポイントを提供：
+//   - GET  /api/feature-c/tags          … 全タグを取得（フロント側で集計）
+//   - GET  /api/feature-c/status        … バックフィル対象件数の確認
+//   - POST /api/feature-c/backfill      … 未抽出案件のタグを一括抽出（承認アカウントのみ）
+
+app.get("/api/feature-c/tags", async (req, res) => {
+  try {
+    const { owner, from, to } = req.query || {};
+    const rows = await listDealFeatureTags({ owner, from, to });
+    // フェーズ3：企業属性マスタをJOINして customer_industry / target_job_type を埋める。
+    // タグテーブル側はNULLのまま持ち、読み出し時にマスタから解決する（依頼書5.1「マスタをJOINして参照」）。
+    const deals = await listDeals({});
+    const dealCompany = {};
+    for (const d of deals || []) dealCompany[d.deal_id] = d.company_name || "";
+    const attrs = await getEnterpriseAttributesMap();
+    for (const r of rows) {
+      const company = dealCompany[r.deal_id] || "";
+      const a = attrs[company];
+      if (a) {
+        r.customer_industry = r.customer_industry || a.industry || null;
+        r.customer_industry_confidence = a.industry_confidence || null;
+        r.target_job_type = r.target_job_type || a.recruiting_job_types || null;
+        r.target_job_type_confidence = a.job_type_confidence || null;
+      }
+      r.company_name = company;
+    }
+    res.json({ tags: rows, total: rows.length });
+  } catch (e) {
+    console.error("[feature-c/tags]", e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// フェーズ3: 企業属性エンリッチメントの状態確認
+app.get("/api/feature-c/enrich-status", async (req, res) => {
+  try {
+    const needing = await listCompaniesNeedingEnrichment({ limit: 10000 });
+    const attrs = await getEnterpriseAttributesMap();
+    res.json({ needing: needing.length, enriched: Object.keys(attrs).length });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// フェーズ3: 企業属性エンリッチメントを一括実行（Web検索コストがかかるためチャンク処理）
+app.post("/api/feature-c/enrich", async (req, res) => {
+  try {
+    const limit = Math.min(20, Math.max(1, Number(req.body?.limit || 10)));
+    const targets = await listCompaniesNeedingEnrichment({ limit });
+    if (!targets.length) return res.json({ ok: true, processed: 0, remaining: 0, message: "対象企業がありません" });
+    let processed = 0, failed = 0;
+    for (const company of targets) {
+      try {
+        const r = await enrichCompanyAttributes(company);
+        // 見つからなくても「調査済み・不明」として記録し、6ヶ月間は再検索しない（依頼書4.5のキャッシュ設計）
+        await upsertEnterpriseAttributes(company, {
+          industry: r.industry || "",
+          industry_confidence: r.found ? r.industry_confidence : "low",
+          recruiting_job_types: r.recruiting_job_types || [],
+          job_type_confidence: r.found ? r.job_type_confidence : "low",
+        });
+        processed++;
+      } catch (e) {
+        failed++;
+        console.error(`[feature-c/enrich] ${company}:`, e.message);
+      }
+    }
+    const remaining = await listCompaniesNeedingEnrichment({ limit: 10000 });
+    console.log(`[feature-c/enrich] processed=${processed} failed=${failed} remaining=${remaining.length}`);
+    res.json({ ok: true, processed, failed, remaining: remaining.length });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// フェーズ3: 傾向ハイライト（自動示唆コメント）
+// サーバー側で主要軸ごとの受注率を集計し、n>=5のセグメントだけをLLMに渡してコメントを生成させる。
+let insightsCache = { key: "", at: 0, data: null };
+app.get("/api/feature-c/insights", async (req, res) => {
+  try {
+    const { from, to } = req.query || {};
+    const cacheKey = `${from || ""}|${to || ""}`;
+    // 10分キャッシュ（LLMコスト削減）
+    if (insightsCache.key === cacheKey && Date.now() - insightsCache.at < 10 * 60 * 1000 && insightsCache.data) {
+      return res.json({ insights: insightsCache.data, cached: true });
+    }
+    const rows = await listDealFeatureTags({ from, to });
+    if (rows.length < 5) return res.json({ insights: [], message: "データが5件未満のため、傾向コメントは生成しません（統計的に不安定なため）" });
+
+    // 集計：主要な軸ごとに 区分→{won,total} を作り、n>=5だけをテキスト化
+    const N_MIN = 5;
+    const lines = [];
+    const aggregate = (label, getter, opts = {}) => {
+      const m = {};
+      for (const t of rows) {
+        if (opts.excludeLowConfidence && t.tag_confidence === "low") continue;
+        const vals = getter(t);
+        for (const v of vals) {
+          if (!v) continue;
+          if (!m[v]) m[v] = { won: 0, total: 0 };
+          m[v].total++;
+          if (t.result === "受注") m[v].won++;
+        }
+      }
+      const parts = Object.entries(m)
+        .filter(([, c]) => c.total >= N_MIN)
+        .map(([k, c]) => `${k}: 受注${c.won}/${c.total}件 (${(c.won / c.total * 100).toFixed(0)}%)`);
+      if (parts.length) lines.push(`【${label}】` + parts.join(" / "));
+    };
+    const arr = (v) => Array.isArray(v) ? v : (v ? [v] : []);
+    aggregate("従業員規模別", (t) => arr(t.customer_employee_size));
+    aggregate("採用人数別", (t) => arr(t.target_hire_count));
+    aggregate("新卒中途ニーズ別", (t) => arr(t.hiring_type_need), { excludeLowConfidence: true });
+    aggregate("業界別", (t) => arr(t.customer_industry));
+    aggregate("訴求内容別", (t) => arr(t.appeal_points_used));
+    aggregate("話法の型別", (t) => arr(t.talk_patterns));
+    aggregate("懸念対応の型別", (t) => arr(t.objection_handling_style));
+    aggregate("ヒアリング到達項目別", (t) => arr(t.discovery_items_covered));
+    // ステップ厚み別（クロージングを厚めにした場合等）
+    const stageEmph = {};
+    for (const t of rows) {
+      for (const s of (Array.isArray(t.meeting_stages) ? t.meeting_stages : [])) {
+        const key = `${s.step}（${s.emphasis}）`;
+        if (!stageEmph[key]) stageEmph[key] = { won: 0, total: 0 };
+        stageEmph[key].total++;
+        if (t.result === "受注") stageEmph[key].won++;
+      }
+    }
+    const stageParts = Object.entries(stageEmph)
+      .filter(([, c]) => c.total >= N_MIN)
+      .map(([k, c]) => `${k}: 受注${c.won}/${c.total}件 (${(c.won / c.total * 100).toFixed(0)}%)`);
+    if (stageParts.length) lines.push("【商談ステップ×厚み別】" + stageParts.join(" / "));
+
+    if (!lines.length) return res.json({ insights: [], message: "n≥5のセグメントがまだ無いため、傾向コメントは生成しません" });
+
+    const statsText = `対象期間: ${from || "全期間"} 〜 ${to || "現在"}\n全案件数: ${rows.length}件（受注 ${rows.filter((r) => r.result === "受注").length}件）\n\n` + lines.join("\n");
+    const insights = await generateFeatureCInsights(statsText);
+    insightsCache = { key: cacheKey, at: Date.now(), data: insights };
+    res.json({ insights, cached: false });
+  } catch (e) {
+    console.error("[feature-c/insights]", e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.get("/api/feature-c/status", async (req, res) => {
+  try {
+    const needing = await listDealsNeedingFeatureTags({ limit: 10000 });
+    const existing = await listDealFeatureTags({});
+    res.json({ needing: needing.length, existing: existing.length });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// バックフィル：deal_feature_tagsに未登録の案件を対象に、初回商談の文字起こしからタグ抽出を実行。
+// 冪等（既存レコードはUPSERTで上書き）。長時間かかるためタイムアウトを避けるチャンク処理。
+app.post("/api/feature-c/backfill", async (req, res) => {
+  try {
+    const limit = Math.min(50, Math.max(1, Number(req.body?.limit || 20)));
+    const targets = await listDealsNeedingFeatureTags({ limit });
+    if (!targets.length) return res.json({ ok: true, processed: 0, remaining: 0, message: "対象案件がありません" });
+
+    let processed = 0, failed = 0;
+    const errors = [];
+    for (const t of targets) {
+      try {
+        const m = await getMeeting(t.bot_id);
+        if (!m || !Array.isArray(m.transcript) || !m.transcript.length) {
+          failed++; errors.push({ deal_id: t.deal_id, reason: "文字起こしなし" }); continue;
+        }
+        const tags = await extractFeatureCTags(m.transcript, String(t.first_meeting_date || "").slice(0, 10));
+        // 依頼書4.2の後処理：Feature Aで即失注判定なら"失注"に上書き
+        let responseStatus = tags.customer_response_status;
+        if (String(t.status || "").startsWith("失注")) responseStatus = "失注";
+        await upsertDealFeatureTags(t.deal_id, {
+          first_meeting_date: String(t.first_meeting_date || "").slice(0, 10) || null,
+          owner: t.owner || "",
+          team: t.team || "",
+          customer_employee_size: tags.customer_employee_size,
+          target_hire_count: tags.target_hire_count,
+          hiring_type_need: tags.hiring_type_need,
+          customer_hq_region: tags.customer_hq_region,
+          customer_industry: null,
+          target_job_type: null,
+          customer_response_status: responseStatus,
+          decision_maker_present: tags.decision_maker_present,
+          competitor_mentioned: tags.competitor_mentioned,
+          key_pain_points: tags.key_pain_points,
+          appeal_points_used: tags.appeal_points_used,
+          talk_patterns: tags.talk_patterns,
+          talk_example: tags.talk_example,
+          meeting_stages: tags.meeting_stages,
+          discovery_items_covered: tags.discovery_items_covered,
+          objection_handling_style: tags.objection_handling_style,
+          objections_raised: tags.objections_raised,
+          tag_confidence: tags.tag_confidence,
+          result: String(t.status || "").startsWith("失注") ? "失注" : (t.status === "受注" ? "受注" : "進行中"),
+          raw_extraction: tags.raw_llm,
+        });
+        processed++;
+      } catch (e) {
+        failed++;
+        errors.push({ deal_id: t.deal_id, reason: e.message });
+      }
+    }
+    const remaining = await listDealsNeedingFeatureTags({ limit: 10000 });
+    console.log(`[feature-c/backfill] processed=${processed} failed=${failed} remaining=${remaining.length}`);
+    res.json({ ok: true, processed, failed, remaining: remaining.length, errors: errors.slice(0, 10) });
+  } catch (e) {
+    console.error("[feature-c/backfill]", e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
 
 
 // ===== 企業アカウント（プロフィール／会社概要） =====
