@@ -18,6 +18,17 @@ let filters = { employee_size: "", hire_count: "", hiring_type: "", region: "" }
 
 // ---- 初期化 ----
 window.addEventListener("DOMContentLoaded", async () => {
+  // タブ切り替え
+  document.querySelectorAll(".sa-tab").forEach((tab) => {
+    tab.addEventListener("click", () => {
+      document.querySelectorAll(".sa-tab").forEach((t) => t.classList.remove("active"));
+      document.querySelectorAll(".sa-tab-pane").forEach((p) => p.classList.remove("active"));
+      tab.classList.add("active");
+      const pane = document.getElementById("tab-" + tab.dataset.tab);
+      if (pane) pane.classList.add("active");
+    });
+  });
+
   // 期間デフォルト：直近90日
   const now = new Date();
   const from = new Date(now); from.setDate(from.getDate() - 90);
@@ -41,7 +52,15 @@ window.addEventListener("DOMContentLoaded", async () => {
     });
   });
 
-  $("backfillBtn").addEventListener("click", runBackfill);
+  // バックフィル・パイロット検証は設定ページに移動済み
+  // データ抽出タブのイベント
+  const bfBtn = $("backfillBtn");
+  if (bfBtn) bfBtn.addEventListener("click", runBackfill);
+  const syncBtn = $("fcSyncBtn");
+  if (syncBtn) syncBtn.addEventListener("click", runSyncStatus);
+  const pilotSel = $("pilotDealSelect");
+  if (pilotSel) pilotSel.addEventListener("change", showPilotDetail);
+
   await loadBackfillStatus();
   await loadAndRender();
 });
@@ -321,46 +340,110 @@ function renderTagCounts(title, obj) {
   return `<h4>${esc(title)}</h4><div class="sa-tag-list">${items}</div>`;
 }
 
-// ---- バックフィル ----
+// ---- データ抽出タブ ----
 async function loadBackfillStatus() {
   try {
     const r = await fetch("/api/feature-c/status");
     const d = await r.json();
-    if (!r.ok) throw new Error(d.error || "取得失敗");
+    if (!r.ok) throw new Error();
     const el = $("backfillStatus");
+    if (!el) return;
+    const btn = $("backfillBtn");
     if (d.needing === 0) {
-      el.innerHTML = `✓ すべての案件（${d.existing}件）にタグが付いています。`;
-      $("backfillBtn").disabled = true;
+      el.innerHTML = `✓ すべての案件（${d.existing}件）にタグ付与済み`;
+      if (btn) btn.disabled = true;
     } else {
-      el.innerHTML = `<b>${d.needing}件</b>の案件がまだタグ抽出されていません（抽出済み: ${d.existing}件）`;
+      el.innerHTML = `<b>${d.needing}件</b>の案件がタグ未抽出です（抽出済み: ${d.existing}件）`;
     }
-  } catch (e) {
-    $("backfillStatus").textContent = "状態の取得に失敗しました";
-  }
+    populatePilotSelect();
+  } catch { const el = $("backfillStatus"); if (el) el.textContent = "状態の取得に失敗"; }
 }
 
 async function runBackfill() {
   const btn = $("backfillBtn");
-  const orig = btn.textContent;
+  if (!confirm("未抽出の案件20件にAIでタグを付けます。1〜2分かかります。実行しますか？")) return;
   btn.disabled = true;
+  const orig = btn.textContent;
   btn.textContent = "処理中…（1〜2分かかります）";
   try {
     const r = await fetch("/api/feature-c/backfill", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
+      method: "POST", headers: { "content-type": "application/json" },
       body: JSON.stringify({ limit: 20 }),
     });
     const d = await r.json();
-    if (!r.ok) throw new Error(d.error || "実行に失敗しました");
+    if (!r.ok) throw new Error(d.error || "失敗");
     alert(`完了：${d.processed}件を抽出（失敗 ${d.failed}件）\n残り: ${d.remaining}件`);
     await loadBackfillStatus();
     await loadAndRender();
-  } catch (e) {
-    alert("失敗: " + e.message);
-  } finally {
-    btn.textContent = orig;
-    btn.disabled = false;
+  } catch (e) { alert("失敗: " + e.message); }
+  finally { btn.textContent = orig; btn.disabled = false; }
+}
+
+async function runSyncStatus() {
+  const btn = $("fcSyncBtn");
+  const result = $("syncStatusResult");
+  btn.disabled = true; btn.textContent = "同期中…";
+  try {
+    const r = await fetch("/api/feature-c/sync-status", { method: "POST" });
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.error || "失敗");
+    const msg = d.updated > 0
+      ? `${d.updated}件を同期しました`
+      : "すべて最新です（同期の必要なし）";
+    if (result) result.textContent = msg;
+    alert(msg);
+    await loadAndRender();
+  } catch (e) { alert("失敗: " + e.message); }
+  finally { btn.textContent = "ステータスを同期する"; btn.disabled = false; }
+}
+
+function populatePilotSelect() {
+  const sel = $("pilotDealSelect");
+  if (!sel) return;
+  sel.innerHTML = '<option value="">案件を選んでください</option>';
+  for (const t of allTags.slice(0, 200)) {
+    const label = `${t.company_name || t.deal_id} (${t.owner || "?"}) ${t.result || ""}`;
+    sel.insertAdjacentHTML("beforeend", `<option value="${esc(t.deal_id)}">${esc(label)}</option>`);
   }
+}
+
+function showPilotDetail() {
+  const wrap = $("pilotResult");
+  const dealId = $("pilotDealSelect")?.value;
+  if (!dealId || !wrap) { if (wrap) wrap.innerHTML = ""; return; }
+  const t = allTags.find((x) => x.deal_id === dealId);
+  if (!t) { wrap.innerHTML = '<div class="sa-empty">見つかりません</div>'; return; }
+  const row = (label, value, type) => {
+    const badge = type === "obj" ? '<span style="color:#0d5b47;font-size:9px;">客観</span>' : '<span style="color:#8a5a1a;font-size:9px;">主観</span>';
+    const v = Array.isArray(value) ? value.map((x) => typeof x === "object" ? JSON.stringify(x) : x).join(", ") : String(value ?? "—");
+    return `<tr><td style="font-weight:600;color:#5f6b63;padding:6px 10px;white-space:nowrap;">${badge} ${esc(label)}</td><td style="padding:6px 10px;">${esc(v)}</td></tr>`;
+  };
+  wrap.innerHTML = `
+    <div style="padding:14px;background:#f7faf8;border:1px solid #e6e8e5;border-radius:10px;max-width:700px;">
+      <div style="font-size:14px;font-weight:700;color:#1b241f;margin-bottom:4px;">${esc(t.company_name || t.deal_id)}</div>
+      <div style="font-size:11.5px;color:#8a938c;margin-bottom:10px;">${esc(t.owner)} · ${String(t.first_meeting_date || "").slice(0, 10)} · ${esc(t.result)} · confidence: ${esc(t.tag_confidence)}</div>
+      <table style="width:100%;border-collapse:collapse;font-size:12.5px;">
+        <thead><tr><th style="text-align:left;padding:6px 10px;border-bottom:1px solid #dfe4df;">項目</th><th style="text-align:left;padding:6px 10px;border-bottom:1px solid #dfe4df;">AI抽出結果</th></tr></thead>
+        <tbody>
+          ${row("従業員規模", t.customer_employee_size, "obj")}
+          ${row("採用人数", t.target_hire_count, "obj")}
+          ${row("新卒/中途ニーズ", t.hiring_type_need, "sub")}
+          ${row("本社地域", t.customer_hq_region, "obj")}
+          ${row("業界", t.customer_industry, "obj")}
+          ${row("顧客反応", t.customer_response_status, "sub")}
+          ${row("決裁者同席", t.decision_maker_present, "obj")}
+          ${row("競合言及", t.competitor_mentioned, "obj")}
+          ${row("課題・困りごと", t.key_pain_points, "sub")}
+          ${row("訴求内容", t.appeal_points_used, "sub")}
+          ${row("話法の型", t.talk_patterns, "sub")}
+          ${row("象徴的話法", t.talk_example, "sub")}
+          ${row("商談ステップ", t.meeting_stages, "sub")}
+          ${row("ヒアリング到達", t.discovery_items_covered, "sub")}
+          ${row("懸念対応", t.objection_handling_style, "sub")}
+          ${row("顧客懸念", t.objections_raised, "sub")}
+        </tbody>
+      </table>
+    </div>`;
 }
 
 // ============================================================
@@ -509,9 +592,6 @@ renderHeatmap = function () {
 document.addEventListener("DOMContentLoaded", () => {
   const btn = $("insightsBtn");
   if (btn) btn.addEventListener("click", loadInsights);
-  const enrichBtn = $("enrichBtn");
-  if (enrichBtn) enrichBtn.addEventListener("click", runEnrich);
-  loadEnrichStatus();
   const trendBtn = $("trendBtn");
   if (trendBtn) trendBtn.addEventListener("click", renderTrend);
 });
@@ -553,45 +633,7 @@ async function loadInsights() {
   }
 }
 
-async function loadEnrichStatus() {
-  const el = $("enrichStatus");
-  if (!el) return;
-  try {
-    const r = await fetch("/api/feature-c/enrich-status");
-    const d = await r.json();
-    if (!r.ok) throw new Error();
-    if (d.needing === 0) {
-      el.innerHTML = `✓ すべての企業（${d.enriched}社）の業界・職種を取得済み`;
-      const b = $("enrichBtn");
-      if (b) b.disabled = true;
-    } else {
-      el.innerHTML = `業界・職種：<b>${d.needing}社</b>が未取得（取得済み: ${d.enriched}社）`;
-    }
-  } catch { el.textContent = "企業属性の状態取得に失敗"; }
-}
-
-async function runEnrich() {
-  const btn = $("enrichBtn");
-  const orig = btn.textContent;
-  btn.disabled = true;
-  btn.textContent = "取得中…（1社10〜20秒）";
-  try {
-    const r = await fetch("/api/feature-c/enrich", {
-      method: "POST", headers: { "content-type": "application/json" },
-      body: JSON.stringify({ limit: 10 }),
-    });
-    const d = await r.json();
-    if (!r.ok) throw new Error(d.error || "実行に失敗しました");
-    alert(`完了：${d.processed}社を取得（失敗 ${d.failed}社）\n残り: ${d.remaining}社`);
-    await loadEnrichStatus();
-    await loadAndRender();
-  } catch (e) {
-    alert("失敗: " + e.message);
-  } finally {
-    btn.textContent = orig;
-    btn.disabled = false;
-  }
-}
+// エンリッチメント・パイロット検証は設定ページに移動済み
 
 // ============================================================
 // フェーズ4: 施策後トレンド追跡
@@ -844,106 +886,4 @@ renderStagesTimeline = function () {
   wrap.insertAdjacentHTML("beforeend", html);
 };
 
-// ============================================================
-// 未実装項目6: パイロット検証支援（依頼書9章）
-// ============================================================
-document.addEventListener("DOMContentLoaded", () => {
-  const backfillSection = document.querySelector("#backfillStatus")?.closest(".sa-section");
-  if (!backfillSection) return;
 
-  const pilotSection = document.createElement("section");
-  pilotSection.className = "sa-section";
-  pilotSection.innerHTML = `
-    <h2>パイロット検証：AI抽出結果の確認</h2>
-    <p class="sa-hint">AIが抽出したタグと、人手で確認した正解タグを突き合わせて精度を確認します。案件を選ぶと、AIの抽出結果が表示されるので、目視で正解と比較してください。</p>
-    <div class="sa-filter-row">
-      <div class="sa-filter">
-        <label>案件を選択</label>
-        <select id="pilotDealSelect" style="min-width:250px;"><option value="">読み込み中…</option></select>
-      </div>
-    </div>
-    <div id="pilotResult" class="sa-compare-wrap"></div>
-    <div class="sa-backfill" style="margin-top:12px;">
-      <div style="font-size:12px;color:#5f6b63;">
-        <b>検証の目安</b>（依頼書9章）：各メンバー5件×4名＝20件を人手で確認。<br>
-        主観タグ（話法・emphasis）→ 一致率70%以上、客観タグ（従業員規模・地域）→ 90%以上が目標。
-      </div>
-      <button class="btn" id="syncStatusBtn2">ステータスを同期</button>
-    </div>
-  `;
-  backfillSection.parentNode.insertBefore(pilotSection, backfillSection.nextSibling);
-
-  // 案件リスト生成（タグがある案件だけ）
-  const sel = $("pilotDealSelect");
-  sel.addEventListener("change", showPilotDetail);
-  $("syncStatusBtn2")?.addEventListener("click", async () => {
-    const btn = $("syncStatusBtn2");
-    btn.disabled = true; btn.textContent = "同期中…";
-    try {
-      const r = await fetch("/api/feature-c/sync-status", { method: "POST" });
-      const d = await r.json();
-      if (!r.ok) throw new Error(d.error || "失敗");
-      alert(`${d.updated}件を同期しました`);
-      await loadAndRender();
-    } catch (e) { alert("失敗: " + e.message); }
-    finally { btn.disabled = false; btn.textContent = "ステータスを同期"; }
-  });
-
-  // loadAndRender後にセレクトを更新する
-  const origLoad = loadAndRender;
-  loadAndRender = async function () {
-    await origLoad();
-    populatePilotSelect();
-  };
-});
-
-function populatePilotSelect() {
-  const sel = $("pilotDealSelect");
-  if (!sel) return;
-  sel.innerHTML = '<option value="">案件を選んでください</option>';
-  for (const t of allTags.slice(0, 200)) {
-    const label = `${t.company_name || t.deal_id} (${t.owner || "?"}) ${t.result || ""}`;
-    sel.insertAdjacentHTML("beforeend", `<option value="${esc(t.deal_id)}">${esc(label)}</option>`);
-  }
-}
-
-function showPilotDetail() {
-  const wrap = $("pilotResult");
-  const dealId = $("pilotDealSelect").value;
-  if (!dealId) { wrap.innerHTML = ""; return; }
-  const t = allTags.find((x) => x.deal_id === dealId);
-  if (!t) { wrap.innerHTML = '<div class="sa-empty">見つかりません</div>'; return; }
-
-  const row = (label, value, type) => {
-    const typeLabel = type === "obj" ? '<span style="color:#0d5b47;font-size:9px;">客観</span>' : '<span style="color:#8a5a1a;font-size:9px;">主観</span>';
-    const v = Array.isArray(value) ? value.map((x) => typeof x === "object" ? JSON.stringify(x) : x).join(", ") : String(value ?? "—");
-    return `<tr><td style="font-weight:600;color:#5f6b63;padding:6px 10px;white-space:nowrap;">${typeLabel} ${esc(label)}</td><td style="padding:6px 10px;">${esc(v)}</td></tr>`;
-  };
-  wrap.innerHTML = `
-    <div class="sa-owner-card" style="max-width:700px;">
-      <h3>${esc(t.company_name || t.deal_id)}</h3>
-      <div class="sa-owner-n">${esc(t.owner)} · ${String(t.first_meeting_date || "").slice(0, 10)} · ${esc(t.result)} · confidence: ${esc(t.tag_confidence)}</div>
-      <table style="width:100%;border-collapse:collapse;font-size:12.5px;">
-        <thead><tr><th style="text-align:left;padding:6px 10px;border-bottom:1px solid #dfe4df;">項目</th><th style="text-align:left;padding:6px 10px;border-bottom:1px solid #dfe4df;">AI抽出結果</th></tr></thead>
-        <tbody>
-          ${row("従業員規模", t.customer_employee_size, "obj")}
-          ${row("採用人数", t.target_hire_count, "obj")}
-          ${row("新卒/中途ニーズ", t.hiring_type_need, "sub")}
-          ${row("本社地域", t.customer_hq_region, "obj")}
-          ${row("業界", t.customer_industry, "obj")}
-          ${row("顧客反応", t.customer_response_status, "sub")}
-          ${row("決裁者同席", t.decision_maker_present, "obj")}
-          ${row("競合言及", t.competitor_mentioned, "obj")}
-          ${row("課題・困りごと", t.key_pain_points, "sub")}
-          ${row("訴求内容", t.appeal_points_used, "sub")}
-          ${row("話法の型", t.talk_patterns, "sub")}
-          ${row("象徴的話法", t.talk_example, "sub")}
-          ${row("商談ステップ", t.meeting_stages, "sub")}
-          ${row("ヒアリング到達", t.discovery_items_covered, "sub")}
-          ${row("懸念対応", t.objection_handling_style, "sub")}
-          ${row("顧客懸念", t.objections_raised, "sub")}
-        </tbody>
-      </table>
-    </div>
-  `;
-}
