@@ -65,7 +65,7 @@ async function filterByTeam(events, team) {
 const TOOLS = [
   {
     name: "list_deals",
-    description: "kinbotの案件一覧を取得する。会社名・担当者・チーム・ステータス（進行中/失注(未定)/失注(その他)/受注 等）・初回商談日を返す。各案件には会社プロフィール（company_profile：業界・従業員数(employees)・事業内容など。取得済みの会社のみ）も付与する。",
+    description: "kinbotの案件一覧を取得する。会社名・担当者・チーム・ステータス（進行中/失注(未定)/失注(その他)/受注 等）・初回商談日を返す。",
     inputSchema: {
       type: "object",
       properties: {
@@ -93,7 +93,7 @@ const TOOLS = [
   },
   {
     name: "get_deal_detail",
-    description: "1つの案件（deal_id指定）について、案件情報と紐づく全イベント（初回商談・再商談）を取得する。会社プロフィール（company_profile：業界・従業員数(employees)・事業内容など。取得済みの会社のみ）も含む。",
+    description: "1つの案件（deal_id指定）について、案件情報と紐づく全イベント（初回商談・再商談）を取得する。",
     inputSchema: {
       type: "object",
       properties: { deal_id: { type: "string", description: "案件ID（list_dealsやget_deal_eventsのdeal_idから取得）" } },
@@ -130,30 +130,8 @@ const TOOLS = [
   },
 ];
 
-// 会社プロフィール（accountsテーブル）を会社名で引くためのマップ。
-// 案件（deals）側のツールからも従業員数などを返せるようにするため。
-async function buildProfileMap() {
-  const accounts = await listAccounts().catch(() => []);
-  const map = {};
-  for (const a of accounts) {
-    const k = normCompanyKey(a.key || a.official_name || "");
-    if (k && a.profile) map[k] = a.profile;
-  }
-  return map;
-}
-function profileFromMap(map, companyName) {
-  const k = normCompanyKey(companyName || "");
-  if (!k) return null;
-  if (map[k]) return map[k];
-  for (const mk of Object.keys(map)) {
-    if (mk.includes(k) || k.includes(mk)) return map[mk];
-  }
-  return null;
-}
-
 // ---- ツール実行 ----
-// ChatGPT Custom GPT Actions 用の REST ラッパー(gpt_actions.js)からも再利用する。
-export async function callTool(name, args, req) {
+async function callTool(name, args, req) {
   const isAdmin = !!req.isAdmin;
   const owner = isAdmin ? (args && args.owner) || null : req.user;
   switch (name) {
@@ -165,9 +143,7 @@ export async function callTool(name, args, req) {
         from: args && args.from,
         to: args && args.to,
       });
-      // 会社プロフィール（業界・従業員数・事業内容など）を各案件に付与
-      const pmap = await buildProfileMap();
-      return rows.map((d) => ({ ...d, company_profile: profileFromMap(pmap, d.company_name) }));
+      return rows;
     }
     case "get_deal_events": {
       let rows = await listDealEvents({
@@ -184,9 +160,6 @@ export async function callTool(name, args, req) {
       if (!args || !args.deal_id) throw new Error("deal_id が必要です");
       const d = await getDealWithEvents(args.deal_id);
       if (!d) throw new Error("案件が見つかりません");
-      // 案件詳細に会社プロフィール（業界・従業員数・事業内容など）を付与
-      const pmap = await buildProfileMap();
-      d.company_profile = profileFromMap(pmap, d.company_name);
       return d;
     }
     case "list_meetings": {
@@ -214,18 +187,13 @@ export async function callTool(name, args, req) {
           return k2 && (k2.includes(key) || key.includes(k2));
         });
       }
-      // 会社プロフィール（従業員数など）と案件は、商談マッチに依存せず引く。
-      // ※商談の account が未設定でも、プロフィール／案件があれば返せるようにする。
-      const pmap = await buildProfileMap();
-      const profile = profileFromMap(pmap, args.company_name);
-      const allDeals = await listDeals({ owner: isAdmin ? null : req.user }).catch(() => []);
-      const deal = allDeals.find((d) => normCompanyKey(d.company_name) === key)
-        || allDeals.find((d) => { const k2 = normCompanyKey(d.company_name || ""); return k2 && (k2.includes(key) || key.includes(k2)); });
-      // 商談・案件・プロフィールのどれも無いときだけ「該当なし」
-      if (!matched.length && !deal && !profile) {
-        throw new Error(`「${args.company_name}」に該当する会社が見つかりません`);
-      }
-      const accountName = (matched.length ? matched[matched.length - 1].account : null) || (deal && deal.company_name) || args.company_name;
+      if (!matched.length) throw new Error(`「${args.company_name}」に該当する会社が見つかりません`);
+      const accountName = matched[matched.length - 1].account; // 最新の表記を代表名にする
+
+      // 会社プロフィール（AIが企業サイトから自動取得した情報）
+      const accounts = await listAccounts().catch(() => []);
+      const profileRow = accounts.find((a) => normCompanyKey(a.key || a.official_name || "") === key)
+        || accounts.find((a) => normCompanyKey(a.key || a.official_name || "").includes(key));
 
       // ネクストアクション（やることリスト）
       const actionItems = await listActionItems(accountName).catch(() => []);
@@ -243,13 +211,13 @@ export async function callTool(name, args, req) {
 
       // 手動設定されたステータス（進行中/失注/受注/保留）
       const statuses = await listDealStatuses().catch(() => ({}));
-      const dealStatus = statuses[accountName] || (deal && deal.status) || null;
+      const dealStatus = statuses[accountName] || null;
 
       return {
         company_name: accountName,
         meeting_count: matched.length,
         deal_status: dealStatus,
-        profile: profile || null,
+        profile: profileRow ? profileRow.profile : null,
         next_actions: actionItems.map((a) => ({ text: a.text, done: a.done, due_date: a.due_date })),
         customer_concerns: concerns,
         meetings: matched.map((m) => ({ bot_id: m.bot_id, title: m.title, created_at: m.created_at, owner: m.owner })),

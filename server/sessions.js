@@ -1,6 +1,6 @@
 // server/sessions.js
 import { analyze, analyzeMeeting, analyzeDeep } from "./analyzer.js";
-import { createMeeting, saveMeeting, saveAnalysis, saveDeepAnalysis, getMeeting, setDealStatusAuto, getSettings, companyFromTitle, getDealBrief, normCompanyKey } from "./db.js";
+import { createMeeting, saveMeeting, saveAnalysis, saveDeepAnalysis, getMeeting, setDealStatusAuto, getSettings, companyFromTitle } from "./db.js";
 import { disableLiveStream } from "./mux.js";
 
 const DEFAULT_INTERVAL_MS = Number(process.env.ANALYZE_INTERVAL_MS || 20000);
@@ -53,29 +53,14 @@ class Session {
     this.cooldownUntil = 0; // 429などで一時停止する時刻
     this.aiLog = []; // AI提案チャットの全ログ（重複除外して蓄積）
     this.aiSeen = new Set();
-    this.focusItems = [];       // この商談の重点（事前ブリーフの「今日詰めるべき点」）
-    this.focusLoaded = false;
     this.timer = setInterval(() => this.maybeAnalyze(), intervalMs);
   }
   // 後から判明した商談名/所有者/Mux再生IDを補完（予約Bot用）
   enrich({ title, owner, repName, muxPlaybackId }) {
-    if (title && !this.title) { this.title = title; this.focusLoaded = false; }
+    if (title && !this.title) this.title = title;
     if (owner && !this.owner) this.owner = owner;
     if (repName && !this.repName) this.repName = repName;
     if (muxPlaybackId && !this.muxPlaybackId) this.muxPlaybackId = muxPlaybackId;
-  }
-
-  // この商談の会社の事前ブリーフから「今日詰めるべき点」を取り込む（1回だけ）
-  async loadFocusItems() {
-    if (this.focusLoaded) return;
-    this.focusLoaded = true;
-    try {
-      const company = companyFromTitle(this.title) || this.title || "";
-      if (!company) return;
-      const b = await getDealBrief(normCompanyKey(company));
-      const focus = b && b.brief && Array.isArray(b.brief.focus) ? b.brief.focus : [];
-      this.focusItems = focus.slice(0, 6);
-    } catch {}
   }
 
   addSocket(ws, user = "") {
@@ -161,12 +146,10 @@ class Session {
     this.analyzing = true;
     const lenAtStart = full.length;
     try {
-      await this.loadFocusItems();
       const result = await analyze({
         transcript: full.slice(-8000),
         prevSummary: this.prevSummary,
         repName: this.repName,
-        extraItems: this.focusItems,
       });
       this.prevSummary = result.summary;
       this.lastSuggestions = result.suggestions;

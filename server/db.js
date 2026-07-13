@@ -42,12 +42,10 @@ export async function initDb() {
   await pool.query(`ALTER TABLE meetings ADD COLUMN IF NOT EXISTS deal_kind TEXT;`);
   await pool.query(`ALTER TABLE meetings ADD COLUMN IF NOT EXISTS status TEXT;`);
   await pool.query(`ALTER TABLE meetings ADD COLUMN IF NOT EXISTS mux_playback_id TEXT;`);
-  await pool.query(`ALTER TABLE meetings ADD COLUMN IF NOT EXISTS custom_analysis TEXT;`);
   await pool.query(`ALTER TABLE meetings ADD COLUMN IF NOT EXISTS ai_log JSONB;`);
   await pool.query(`ALTER TABLE meetings ADD COLUMN IF NOT EXISTS metrics JSONB;`);
   await pool.query(`ALTER TABLE meetings ADD COLUMN IF NOT EXISTS account TEXT;`);
   await pool.query(`ALTER TABLE meetings ADD COLUMN IF NOT EXISTS note TEXT;`);
-  await pool.query(`ALTER TABLE meetings ADD COLUMN IF NOT EXISTS apo_setter TEXT;`);
   await pool.query(`
     CREATE TABLE IF NOT EXISTS accounts (
       key TEXT PRIMARY KEY,
@@ -125,40 +123,10 @@ export async function initDb() {
       group_name TEXT NOT NULL DEFAULT '直販'
     );
   `);
-  // 担当者が所属するプロダクト（DOC / MOCHICA）。空は未設定＝「全体」タブでのみ表示。
-  await pool.query(`ALTER TABLE rep_team_mapping ADD COLUMN IF NOT EXISTS product TEXT;`);
   // 初期データ（既存があれば上書きしない）
   for (const [rep, team] of [["植野", "浦林チーム"], ["江田", "浦林チーム"], ["田中", "中澤チーム"], ["森田", "中澤チーム"]]) {
     await pool.query(`INSERT INTO rep_team_mapping (rep_name, team_name, group_name) VALUES ($1,$2,'直販') ON CONFLICT (rep_name) DO NOTHING`, [rep, team]);
   }
-  // インターン生（アポ獲得者）マスタ：名前＋Googleカレンダーのメールアドレス
-  await pool.query(`
-    CREATE TABLE IF NOT EXISTS interns (
-      email      TEXT PRIMARY KEY,
-      name       TEXT NOT NULL,
-      created_at TIMESTAMPTZ DEFAULT now()
-    );
-  `);
-  // 事前ブリーフのキャッシュ（会社ごと。再作成で上書き）
-  await pool.query(`
-    CREATE TABLE IF NOT EXISTS deal_briefs (
-      company_key  TEXT PRIMARY KEY,
-      company_name TEXT,
-      brief        JSONB,
-      based_on     INT DEFAULT 0,
-      generated_at TIMESTAMPTZ DEFAULT now()
-    );
-  `);
-  await pool.query(`
-    CREATE TABLE IF NOT EXISTS win_insights (
-      scope_key    TEXT PRIMARY KEY,
-      scope_label  TEXT,
-      insight      JSONB,
-      won_count    INT DEFAULT 0,
-      lost_count   INT DEFAULT 0,
-      generated_at TIMESTAMPTZ DEFAULT now()
-    );
-  `);
   await pool.query(`
     CREATE TABLE IF NOT EXISTS notion_sent (
       owner TEXT NOT NULL,
@@ -291,8 +259,6 @@ export async function initDb() {
     );
   `);
   await pool.query(`ALTER TABLE deals ADD COLUMN IF NOT EXISTS auto_lose_deadline DATE;`);
-  // ステッパー上で人が手動で進める進捗（AIの判定とは独立して持つ）。JSONBで {stage:1-5, updated_by, updated_at}。
-  await pool.query(`ALTER TABLE deals ADD COLUMN IF NOT EXISTS manual_progress JSONB;`);
   await pool.query(`
     CREATE TABLE IF NOT EXISTS deal_events (
       id                     BIGSERIAL PRIMARY KEY,
@@ -321,6 +287,58 @@ export async function initDb() {
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_deal_events_deal ON deal_events(deal_id);`);
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_deal_events_date ON deal_events(event_date);`);
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_deal_events_bot ON deal_events(bot_id);`);
+
+  // ===== Feature C: 商談特徴タグ =====
+  // 依頼書 5.1（1案件=1レコード、初回商談時点のタグを保持）
+  // 業種・職種はエンリッチメント側なのでフェーズ1では空カラムで置き、フェーズ3で埋める
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS deal_feature_tags (
+      deal_id                  TEXT PRIMARY KEY,
+      first_meeting_date       DATE,
+      owner                    TEXT,
+      team                     TEXT,
+      -- 売り先6軸
+      customer_employee_size   TEXT,
+      target_hire_count        TEXT,
+      hiring_type_need         TEXT,
+      customer_hq_region       TEXT,
+      customer_industry        TEXT,        -- 4.5エンリッチメント（フェーズ3で埋める）
+      target_job_type          JSONB,       -- 4.5エンリッチメント（フェーズ3で埋める）
+      customer_response_status TEXT,
+      decision_maker_present   BOOLEAN,
+      competitor_mentioned     BOOLEAN,
+      key_pain_points          JSONB,
+      -- 売り方
+      appeal_points_used       JSONB,
+      talk_patterns            JSONB,
+      talk_example             TEXT,
+      meeting_stages           JSONB,
+      discovery_items_covered  JSONB,
+      objection_handling_style TEXT,
+      -- 商談状況
+      objections_raised        JSONB,
+      tag_confidence           TEXT,
+      -- 集計・キャッシュ用
+      result                   TEXT,        -- 案件テーブルからスナップショット（受注/失注/進行中）
+      raw_extraction           JSONB,
+      updated_at               TIMESTAMPTZ DEFAULT now()
+    );
+  `);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_deal_feature_tags_owner ON deal_feature_tags(owner);`);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_deal_feature_tags_date ON deal_feature_tags(first_meeting_date);`);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_deal_feature_tags_result ON deal_feature_tags(result);`);
+
+  // 5.2 企業属性マスタ（フェーズ3のエンリッチメントで使う。スキーマだけ用意）
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS enterprise_attributes (
+      company_name         TEXT PRIMARY KEY,
+      industry             TEXT,
+      industry_confidence  TEXT,
+      recruiting_job_types JSONB,
+      job_type_confidence  TEXT,
+      last_enriched_at     TIMESTAMPTZ DEFAULT now()
+    );
+  `);
 
   // ===== OAuth（Claude.aiのカスタムコネクタ用。RFC7591動的クライアント登録 + 認可コードフロー） =====
   await pool.query(`
@@ -367,25 +385,17 @@ export async function initDb() {
       updated_at     TIMESTAMPTZ DEFAULT now()
     );
   `);
-  // アポ振り分け：スマートリンクをカレンダーの1予定に紐づける（重複発行を防ぐ）
-  await pool.query(`ALTER TABLE smart_links ADD COLUMN IF NOT EXISTS event_id TEXT;`);
-  await pool.query(`ALTER TABLE smart_links ADD COLUMN IF NOT EXISTS setter TEXT;`);
-  await pool.query(`ALTER TABLE smart_links ADD COLUMN IF NOT EXISTS start_time TIMESTAMPTZ;`);
-  await pool.query(`ALTER TABLE smart_links ADD COLUMN IF NOT EXISTS end_time TIMESTAMPTZ;`);
-  await pool.query(`ALTER TABLE smart_links ADD COLUMN IF NOT EXISTS invite_event_id TEXT;`);
-  await pool.query(`CREATE UNIQUE INDEX IF NOT EXISTS uq_smart_links_event ON smart_links(event_id) WHERE event_id IS NOT NULL;`);
 
   console.log("[db] Postgres に接続しました（履歴を保存します）。");
 }
 
 export async function createMeeting(botId, { meetingUrl, repName, title, owner, muxPlaybackId }) {
   if (!pool) return;
-  const round = roundFromTitle(title); // 商談名から回数を自動判定（【新/ヒ】【初回/】=1、【n回目】=n）
   try {
     await pool.query(
-      `INSERT INTO meetings (bot_id, meeting_url, rep_name, title, owner, mux_playback_id, round_no)
-       VALUES ($1,$2,$3,$4,$5,$6,$7) ON CONFLICT (bot_id) DO NOTHING`,
-      [botId, meetingUrl || "", repName || "", title || "", owner || "", muxPlaybackId || null, round]
+      `INSERT INTO meetings (bot_id, meeting_url, rep_name, title, owner, mux_playback_id)
+       VALUES ($1,$2,$3,$4,$5,$6) ON CONFLICT (bot_id) DO NOTHING`,
+      [botId, meetingUrl || "", repName || "", title || "", owner || "", muxPlaybackId || null]
     );
   } catch (e) {
     console.error("[db] createMeeting", e.message);
@@ -421,7 +431,7 @@ export async function listMeetings({ owner, isAdmin } = {}) {
   const base = `SELECT m.bot_id, m.meeting_url, m.rep_name, m.title, m.owner,
                        m.round_no, m.phase, m.status, m.created_at, m.updated_at, m.summary, m.analysis,
                        m.metrics, m.sf_url, COALESCE(m.account,'') AS account, m.category, m.deal_kind,
-                       m.apo_setter, u.name AS owner_name
+                       u.name AS owner_name
                 FROM meetings m LEFT JOIN users u ON u.email = m.owner`;
   // 文字起こしが無い（空配列/NULL）の商談は履歴に残さない
   const hasTranscript = `(jsonb_typeof(m.transcript)='array' AND jsonb_array_length(m.transcript) > 0)`;
@@ -463,38 +473,7 @@ export function companyFromTitle(title) {
   t = t.replace(/[\s　/／|｜:：][^\s　/／|｜]{0,16}様(?:\s*[・,、][^\s　/／|｜]{0,16}様)*\s*$/u, ""); // 末尾 担当者様（複数可）
   t = t.replace(/[^\s　/／|｜]{0,16}様\s*$/u, "");                 // 区切り無しの 末尾○○様
   t = t.replace(/\s+/g, " ").trim();
-
-  // 会社名部分だけを抽出。日本の主要な法人形態を網羅し、
-  //   「〇〇株式会社」（後置）や「株式会社〇〇」（前置）を検出。
-  //   両方マッチした場合は長い方を採用（誤検知を減らす）。
-  //   どれもマッチしない場合はクリーニング後の文字列をそのまま返す（役所・県など）。
-  const suffix = "(?:株式会社|有限会社|合同会社|合名会社|合資会社|一般社団法人|一般財団法人|公益社団法人|公益財団法人|特定非営利活動法人|NPO法人|医療法人(?:社団|財団)?|学校法人|宗教法人|社会福祉法人|独立行政法人|生活協同組合|農業協同組合|漁業協同組合|信用金庫|信用組合)";
-  const prePattern = new RegExp("(" + suffix + "[^\\s(（/／|｜:：,、]+)");
-  const postPattern = new RegExp("([^\\s(（/／|｜:：,、]+" + suffix + ")");
-  const preMatch = t.match(prePattern);
-  const postMatch = t.match(postPattern);
-  if (preMatch && postMatch) return preMatch[0].length >= postMatch[0].length ? preMatch[0] : postMatch[0];
-  if (preMatch) return preMatch[0];
-  if (postMatch) return postMatch[0];
   return t || String(title || "(無題)").trim();
-}
-
-// 商談名（タイトル）から「何回目」を推定する。全角半角の違いはNFKCで吸収。
-//   【新/ヒ】 → 1回目（【新/ヒ/コールド】のように後ろに区分が付いてもよい）
-//   【初回…】 → 1回目（【初回/】【初回/コールド】【初回/過去失注】など）
-//   【2回目…】 など 【n回目…】 → n回目
-//   判定できなければ null
-export function roundFromTitle(title) {
-  const t = String(title || "").normalize("NFKC");
-  // 【n回目…】を先に判定（「初回」より具体的な指定を優先する）
-  const m = t.match(/【[^】]*?(\d+)\s*回目/);
-  if (m) {
-    const n = parseInt(m[1], 10);
-    if (Number.isFinite(n) && n > 0) return n;
-  }
-  if (/【[^】]*初回[^】]*】/.test(t)) return 1;        // 【初回/】【初回/コールド】【初回/過去失注】
-  if (/【[^】]*新\s*\/\s*ヒ[^】]*】/.test(t)) return 1; // 【新/ヒ】
-  return null;
 }
 
 // 文字起こしが無い古い商談を一括削除（定期クリーンアップ用）
@@ -517,14 +496,8 @@ export async function deleteEmptyMeetings(minutes = 180) {
 // 商談の「何回目」「フェーズ」「商談名」「営業担当(owner)」を更新（undefinedの項目は変更しない）
 export async function updateMeetingMeta(botId, { round, phase, title, owner, createdAt, account, category, dealKind }) {
   if (!pool) return;
-  // roundが未指定で、タイトルが渡された場合は商談名から回数を推定する
-  let r = round;
-  if ((r === undefined || r === null) && title !== undefined) {
-    const fromTitle = roundFromTitle(title);
-    if (fromTitle != null) r = fromTitle;
-  }
   const sets = ["round_no=$2"];
-  const vals = [botId, r ?? null];
+  const vals = [botId, round ?? null];
   let idx = 3;
   if (phase !== undefined) {
     sets.push(`phase=$${idx}`);
@@ -769,19 +742,9 @@ export async function phaseTrend({ granularity = "week", from, to } = {}) {
 export async function listRepTeams() {
   if (!pool) return [];
   try {
-    const { rows } = await pool.query(`SELECT rep_name, team_name, group_name, COALESCE(product,'') AS product FROM rep_team_mapping ORDER BY group_name, team_name, rep_name`);
+    const { rows } = await pool.query(`SELECT rep_name, team_name, group_name FROM rep_team_mapping ORDER BY group_name, team_name, rep_name`);
     return rows;
   } catch { return []; }
-}
-// 担当者名 → プロダクト（DOC / MOCHICA）のマッピング
-export async function listRepProducts() {
-  if (!pool) return {};
-  try {
-    const { rows } = await pool.query(`SELECT rep_name, COALESCE(product,'') AS product FROM rep_team_mapping`);
-    const m = {};
-    for (const r of rows) if (r.product) m[(r.rep_name || '').trim()] = r.product;
-    return m;
-  } catch { return {}; }
 }
 // 判定結果に出てくる担当者名（マッピング候補）
 export async function listJudgmentReps() {
@@ -791,96 +754,19 @@ export async function listJudgmentReps() {
     return rows;
   } catch { return []; }
 }
-export async function upsertRepTeam(repName, teamName, groupName = "直販", product = "") {
+export async function upsertRepTeam(repName, teamName, groupName = "直販") {
   if (!pool || !repName) return;
   try {
     await pool.query(
-      `INSERT INTO rep_team_mapping (rep_name, team_name, group_name, product) VALUES ($1,$2,$3,$4)
-       ON CONFLICT (rep_name) DO UPDATE SET team_name=$2, group_name=$3, product=$4`,
-      [repName, teamName || "未分類", groupName || "直販", product || null]
+      `INSERT INTO rep_team_mapping (rep_name, team_name, group_name) VALUES ($1,$2,$3)
+       ON CONFLICT (rep_name) DO UPDATE SET team_name=$2, group_name=$3`,
+      [repName, teamName || "未分類", groupName || "直販"]
     );
   } catch (e) { console.error("[db] upsertRepTeam", e.message); }
 }
 export async function deleteRepTeam(repName) {
   if (!pool || !repName) return;
   try { await pool.query(`DELETE FROM rep_team_mapping WHERE rep_name=$1`, [repName]); } catch {}
-}
-
-// ===== 事前ブリーフのキャッシュ =====
-export async function getDealBrief(companyKey) {
-  if (!pool || !companyKey) return null;
-  try {
-    const { rows } = await pool.query(`SELECT company_key, company_name, brief, based_on, generated_at FROM deal_briefs WHERE company_key=$1`, [companyKey]);
-    return rows[0] || null;
-  } catch { return null; }
-}
-export async function saveDealBrief(companyKey, companyName, brief, basedOn) {
-  if (!pool || !companyKey) return;
-  try {
-    await pool.query(
-      `INSERT INTO deal_briefs (company_key, company_name, brief, based_on, generated_at)
-       VALUES ($1,$2,$3::jsonb,$4,now())
-       ON CONFLICT (company_key) DO UPDATE SET company_name=$2, brief=$3::jsonb, based_on=$4, generated_at=now()`,
-      [companyKey, companyName || "", JSON.stringify(brief || {}), basedOn || 0]
-    );
-  } catch (e) { console.error("[db] saveDealBrief", e.message); }
-}
-export async function listInterns() {
-  if (!pool) return [];
-  try {
-    const { rows } = await pool.query(`SELECT email, name FROM interns ORDER BY name`);
-    return rows;
-  } catch { return []; }
-}
-export async function upsertIntern(email, name) {
-  if (!pool || !email) return;
-  const em = String(email).trim().toLowerCase();
-  try {
-    await pool.query(
-      `INSERT INTO interns (email, name) VALUES ($1,$2)
-       ON CONFLICT (email) DO UPDATE SET name=$2`,
-      [em, String(name || "").trim() || em]
-    );
-  } catch (e) { console.error("[db] upsertIntern", e.message); }
-}
-export async function deleteIntern(email) {
-  if (!pool || !email) return;
-  try { await pool.query(`DELETE FROM interns WHERE email=$1`, [String(email).trim().toLowerCase()]); } catch {}
-}
-
-// 商談にアポ獲得者（インターン名）を記録する
-export async function setMeetingApoSetter(botId, name) {
-  if (!pool || !botId) return;
-  try {
-    await pool.query(`UPDATE meetings SET apo_setter=$2, updated_at=now() WHERE bot_id=$1`,
-      [botId, name == null || name === "" ? null : String(name)]);
-  } catch (e) { console.error("[db] setMeetingApoSetter", e.message); }
-}
-// 照合し直す前に、対象期間のアポ獲得者を一度クリアする（再照合のたびに最新化）
-export async function clearApoSetters({ from, to } = {}) {
-  if (!pool) return;
-  const cond = [], vals = []; let i = 1;
-  if (from) { cond.push(`created_at >= $${i++}`); vals.push(from); }
-  if (to) { cond.push(`created_at < ($${i++}::date + interval '1 day')`); vals.push(to); }
-  const where = cond.length ? "WHERE " + cond.join(" AND ") : "";
-  try { await pool.query(`UPDATE meetings SET apo_setter=NULL ${where}`, vals); } catch (e) { console.error("[db] clearApoSetters", e.message); }
-}
-// ダッシュボード用：期間内の実施済み商談（文字起こしあり・商談カテゴリ）と記録済みアポ獲得者を返す
-export async function listApoMeetings({ from, to } = {}) {
-  if (!pool) return [];
-  const cond = [
-    `(jsonb_typeof(transcript)='array' AND jsonb_array_length(transcript) > 0)`,
-    `(category IS NULL OR category = '商談')`,
-  ];
-  const vals = []; let i = 1;
-  if (from) { cond.push(`created_at >= $${i++}`); vals.push(from); }
-  if (to) { cond.push(`created_at < ($${i++}::date + interval '1 day')`); vals.push(to); }
-  const where = "WHERE " + cond.join(" AND ");
-  try {
-    const { rows } = await pool.query(
-      `SELECT bot_id, title, created_at, apo_setter FROM meetings ${where} ORDER BY created_at DESC`, vals);
-    return rows;
-  } catch (e) { console.error("[db] listApoMeetings", e.message); return []; }
 }
 
 // Notion送信済みの記録（ユーザー単位・重複防止用）
@@ -1055,14 +941,6 @@ export async function listUsers() {
   }
 }
 
-// カスタム分析（ユーザー定義プロンプトの実行結果）を商談に保存
-export async function saveCustomAnalysis(botId, text) {
-  if (!pool) return;
-  try {
-    await pool.query(`UPDATE meetings SET custom_analysis=$2 WHERE bot_id=$1`, [botId, text || null]);
-  } catch (e) { console.error("[db] saveCustomAnalysis", e.message); }
-}
-
 export async function getMeeting(botId) {
   if (!pool) return null;
   const { rows } = await pool.query(`SELECT * FROM meetings WHERE bot_id=$1`, [botId]);
@@ -1149,45 +1027,6 @@ export async function saveSettings(obj) {
   }
 }
 
-// 判定（deal_events）がまだ無い商談を返す。定期スイープで自動判定するために使う。
-// 文字起こしがあり、区分が「商談」（または未設定）のものだけ。新しい順。
-export async function listUnjudgedMeetings(limit = 5) {
-  if (!pool) return [];
-  try {
-    const { rows } = await pool.query(
-      `SELECT m.bot_id FROM meetings m
-       LEFT JOIN deal_events e ON e.bot_id = m.bot_id
-       WHERE e.id IS NULL
-         AND (m.category IS NULL OR m.category = '' OR m.category = '商談')
-         AND m.transcript IS NOT NULL AND jsonb_array_length(m.transcript) > 3
-       ORDER BY m.created_at DESC
-       LIMIT $1`,
-      [limit]
-    );
-    return rows.map((r) => r.bot_id);
-  } catch (e) { console.error("[db] listUnjudgedMeetings", e.message); return []; }
-}
-
-// 勝ち/負けパターン分析（インサイト）のキャッシュ
-export async function getWinInsight(scopeKey) {
-  if (!pool) return null;
-  try {
-    const { rows } = await pool.query(`SELECT * FROM win_insights WHERE scope_key=$1`, [scopeKey]);
-    return rows[0] || null;
-  } catch { return null; }
-}
-export async function saveWinInsight(scopeKey, scopeLabel, insight, wonCount, lostCount) {
-  if (!pool) return;
-  try {
-    await pool.query(
-      `INSERT INTO win_insights (scope_key, scope_label, insight, won_count, lost_count, generated_at)
-       VALUES ($1,$2,$3,$4,$5, now())
-       ON CONFLICT (scope_key) DO UPDATE SET scope_label=$2, insight=$3, won_count=$4, lost_count=$5, generated_at=now()`,
-      [scopeKey, scopeLabel || "", JSON.stringify(insight), wonCount || 0, lostCount || 0]
-    );
-  } catch (e) { console.error("[db] saveWinInsight", e.message); }
-}
-
 // ---- カレンダー予約Botの重複防止（event_id → bot_id） ----
 const memScheduled = new Map();
 
@@ -1235,17 +1074,6 @@ export async function dbCreateUser(email, name, passHash) {
   );
 }
 
-// アカウント設定：表示名・パスワードの更新
-export async function dbUpdateUser(email, { name, passHash } = {}) {
-  if (!pool) throw new Error("DB未設定（DATABASE_URLが必要）");
-  const sets = [], vals = [email];
-  let i = 2;
-  if (name !== undefined) { sets.push(`name=$${i}`); vals.push(name || ""); i++; }
-  if (passHash !== undefined) { sets.push(`pass_hash=$${i}`); vals.push(passHash); i++; }
-  if (!sets.length) return;
-  await pool.query(`UPDATE users SET ${sets.join(", ")} WHERE email=$1`, vals);
-}
-
 // ---- ユーザーごとのGoogleカレンダー連携 ----
 export async function saveGoogleToken(owner, refreshToken, googleEmail) {
   if (!pool) return;
@@ -1268,14 +1096,6 @@ export async function getGoogleToken(owner) {
   } catch {
     return null;
   }
-}
-// Google連携済みのユーザー一覧（カレンダー照合の実行者を選ぶために使う）
-export async function listGoogleConnectedOwners() {
-  if (!pool) return [];
-  try {
-    const { rows } = await pool.query(`SELECT owner, google_email FROM google_accounts WHERE refresh_token IS NOT NULL ORDER BY owner`);
-    return rows;
-  } catch { return []; }
 }
 export async function deleteGoogleToken(owner) {
   if (!pool) return;
@@ -1644,28 +1464,6 @@ export async function updateDealStatus(dealId, status, autoLoseDeadline) {
   } catch (e) { console.error("[db] updateDealStatus", e.message); }
 }
 
-// 案件名（company_name）を書き換える。会社名抽出ロジックを強化したときに、
-// 既存案件を新しい抽出結果で置き換えるバックフィル用。
-export async function updateDealCompanyName(dealId, newName) {
-  if (!pool || !dealId || !newName) return;
-  try {
-    await pool.query(`UPDATE deals SET company_name=$2, updated_at=now() WHERE deal_id=$1`, [dealId, newName]);
-  } catch (e) { console.error("[db] updateDealCompanyName", e.message); }
-}
-
-// ステッパー上で人が進めた進捗を保存する。stage=null で解除（AI判定に戻る）。
-export async function setDealManualProgress(dealId, stage, updatedBy) {
-  if (!pool || !dealId) return;
-  try {
-    if (stage == null) {
-      await pool.query(`UPDATE deals SET manual_progress=NULL, updated_at=now() WHERE deal_id=$1`, [dealId]);
-    } else {
-      const payload = { stage: Number(stage), updated_by: updatedBy || "", updated_at: new Date().toISOString() };
-      await pool.query(`UPDATE deals SET manual_progress=$2, updated_at=now() WHERE deal_id=$1`, [dealId, JSON.stringify(payload)]);
-    }
-  } catch (e) { console.error("[db] setDealManualProgress", e.message); }
-}
-
 // 「進行中(未設定)」のうち、auto_lose_deadline を過ぎたものを自動で「失注(未定)」に切り替える。
 // 戻り値は切り替えた件数。
 export async function applyAutoLoseDeadlines(asOf) {
@@ -1684,27 +1482,6 @@ export async function applyAutoLoseDeadlines(asOf) {
 export async function deleteDealEventsByBot(botId) {
   if (!pool || !botId) return;
   try { await pool.query(`DELETE FROM deal_events WHERE bot_id=$1`, [botId]); } catch (e) { console.error("[db] deleteDealEventsByBot", e.message); }
-}
-
-// 初回商談イベント（deal_events）の指定フィールドを更新する。人が判定を微修正するために使う。
-// eventId で1件を対象にする。judgment_month_basis は raw_extraction 側に保存する。
-export async function updateDealEventFields(eventId, fields) {
-  if (!pool || !eventId) return;
-  const sets = [], vals = [eventId];
-  let i = 2;
-  for (const [k, v] of Object.entries(fields || {})) {
-    if (k === "raw_extraction") {
-      sets.push(`raw_extraction = COALESCE(raw_extraction, '{}'::jsonb) || $${i}::jsonb`);
-      vals.push(JSON.stringify(v));
-    } else {
-      sets.push(`${k}=$${i}`);
-      vals.push(v);
-    }
-    i++;
-  }
-  if (!sets.length) return;
-  try { await pool.query(`UPDATE deal_events SET ${sets.join(", ")} WHERE id=$1`, vals); }
-  catch (e) { console.error("[db] updateDealEventFields", e.message); }
 }
 
 // イベントを1件追記
@@ -1775,7 +1552,6 @@ export async function listDealEvents({ from, to, owner, team, kind } = {}) {
   try {
     const { rows } = await pool.query(
       `SELECT e.*, d.company_name, d.owner, d.team, d.status AS deal_status, d.auto_lose_deadline,
-              m.owner AS meeting_owner,
               COALESCE(NULLIF(m.deal_kind,''), '通常') AS deal_kind
        FROM deal_events e
        LEFT JOIN deals d ON d.deal_id = e.deal_id
@@ -1864,31 +1640,13 @@ export async function deleteOauthToken(access_token) {
 }
 
 // ===== スマートリンク（担当者切り替えに追随する共有Zoom URL） =====
-export async function createSmartLink({ slug, label, owner, createdBy, eventId, setter, startTime, endTime }) {
+export async function createSmartLink({ slug, label, owner, createdBy }) {
   if (!pool) return null;
   const { rows } = await pool.query(
-    `INSERT INTO smart_links (slug, label, current_owner, created_by, event_id, setter, start_time, end_time)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING *`,
-    [slug, label || "", owner || null, createdBy || "", eventId || null, setter || null, startTime || null, endTime || null]
+    `INSERT INTO smart_links (slug, label, current_owner, created_by) VALUES ($1,$2,$3,$4) RETURNING *`,
+    [slug, label || "", owner || null, createdBy || ""]
   );
   return rows[0];
-}
-
-// 招待予定（kinbotが作成したGoogleカレンダー予定）のIDを保存
-export async function setSmartLinkInviteEvent(slug, inviteEventId) {
-  if (!pool) return null;
-  try {
-    const { rows } = await pool.query(
-      `UPDATE smart_links SET invite_event_id=$2, updated_at=now() WHERE slug=$1 RETURNING *`,
-      [slug, inviteEventId || null]
-    );
-    return rows[0] || null;
-  } catch (e) { console.error("[db] setSmartLinkInviteEvent", e.message); return null; }
-}
-export async function getSmartLinkByEvent(eventId) {
-  if (!pool || !eventId) return null;
-  const { rows } = await pool.query(`SELECT * FROM smart_links WHERE event_id=$1`, [eventId]);
-  return rows[0] || null;
 }
 export async function getSmartLink(slug) {
   if (!pool) return null;
@@ -1915,4 +1673,115 @@ export async function setSmartLinkOwner(slug, owner) {
 export async function deleteSmartLink(slug) {
   if (!pool) return;
   try { await pool.query(`DELETE FROM smart_links WHERE slug=$1`, [slug]); } catch {}
+}
+
+// ===== Feature C: 商談特徴タグ =====
+// 1案件=1レコード。判定完了時と手動バックフィルの両方から呼ばれる。
+// UPSERTなので何度呼んでも冪等。resultは呼び出し側で案件ステータスから決めて渡す想定。
+export async function upsertDealFeatureTags(dealId, tags) {
+  if (!pool || !dealId) return;
+  const cols = [
+    "deal_id","first_meeting_date","owner","team",
+    "customer_employee_size","target_hire_count","hiring_type_need","customer_hq_region",
+    "customer_industry","target_job_type",
+    "customer_response_status","decision_maker_present","competitor_mentioned","key_pain_points",
+    "appeal_points_used","talk_patterns","talk_example","meeting_stages","discovery_items_covered","objection_handling_style",
+    "objections_raised","tag_confidence","result","raw_extraction","updated_at",
+  ];
+  const jsonCols = new Set(["target_job_type","key_pain_points","appeal_points_used","talk_patterns","meeting_stages","discovery_items_covered","objections_raised","raw_extraction"]);
+  const vals = [dealId];
+  const placeholders = ["$1"];
+  cols.slice(1).forEach((c, i) => {
+    const idx = i + 2;
+    if (c === "updated_at") { placeholders.push("now()"); return; }
+    let v = tags[c];
+    if (v === undefined) v = null;
+    if (jsonCols.has(c) && v != null) v = JSON.stringify(v);
+    vals.push(v);
+    placeholders.push(`$${idx}`);
+  });
+  const updateSet = cols.slice(1).map((c) => c === "updated_at" ? `updated_at=now()` : `${c}=EXCLUDED.${c}`).join(", ");
+  const sql = `
+    INSERT INTO deal_feature_tags (${cols.join(", ")})
+    VALUES (${placeholders.join(", ")})
+    ON CONFLICT (deal_id) DO UPDATE SET ${updateSet}
+  `;
+  try { await pool.query(sql, vals); }
+  catch (e) { console.error("[db] upsertDealFeatureTags", e.message); }
+}
+
+// 集計用に一括取得。owner/期間で絞り込み可能。
+export async function listDealFeatureTags({ owner, from, to } = {}) {
+  if (!pool) return [];
+  const cond = [], vals = [];
+  let i = 1;
+  if (owner) { cond.push(`owner = $${i++}`); vals.push(owner); }
+  if (from)  { cond.push(`first_meeting_date >= $${i++}`); vals.push(from); }
+  if (to)    { cond.push(`first_meeting_date <= $${i++}`); vals.push(to); }
+  const where = cond.length ? `WHERE ${cond.join(" AND ")}` : "";
+  try {
+    const { rows } = await pool.query(`SELECT * FROM deal_feature_tags ${where}`, vals);
+    return rows;
+  } catch (e) { console.error("[db] listDealFeatureTags", e.message); return []; }
+}
+
+// バックフィル用：deal_feature_tagsテーブルに未登録の初回商談を持つ案件を列挙する
+export async function listDealsNeedingFeatureTags({ limit = 1000 } = {}) {
+  if (!pool) return [];
+  try {
+    const { rows } = await pool.query(`
+      SELECT d.deal_id, d.company_name, d.owner, d.team, d.status,
+             (SELECT ev.bot_id FROM deal_events ev WHERE ev.deal_id=d.deal_id AND ev.event_type='初回商談' AND ev.meeting_kind='初回商談' ORDER BY ev.event_date DESC LIMIT 1) AS bot_id,
+             (SELECT ev.event_date FROM deal_events ev WHERE ev.deal_id=d.deal_id AND ev.event_type='初回商談' AND ev.meeting_kind='初回商談' ORDER BY ev.event_date DESC LIMIT 1) AS first_meeting_date
+      FROM deals d
+      WHERE d.deal_id NOT IN (SELECT deal_id FROM deal_feature_tags)
+      LIMIT $1
+    `, [limit]);
+    return rows.filter((r) => r.bot_id); // 初回商談イベントがある案件のみ
+  } catch (e) { console.error("[db] listDealsNeedingFeatureTags", e.message); return []; }
+}
+
+// ===== Feature C フェーズ3: 企業属性マスタ（依頼書5.2） =====
+export async function upsertEnterpriseAttributes(companyName, attrs) {
+  if (!pool || !companyName) return;
+  try {
+    await pool.query(`
+      INSERT INTO enterprise_attributes (company_name, industry, industry_confidence, recruiting_job_types, job_type_confidence, last_enriched_at)
+      VALUES ($1, $2, $3, $4, $5, now())
+      ON CONFLICT (company_name) DO UPDATE SET
+        industry = EXCLUDED.industry,
+        industry_confidence = EXCLUDED.industry_confidence,
+        recruiting_job_types = EXCLUDED.recruiting_job_types,
+        job_type_confidence = EXCLUDED.job_type_confidence,
+        last_enriched_at = now()
+    `, [companyName, attrs.industry || null, attrs.industry_confidence || null,
+        attrs.recruiting_job_types ? JSON.stringify(attrs.recruiting_job_types) : null,
+        attrs.job_type_confidence || null]);
+  } catch (e) { console.error("[db] upsertEnterpriseAttributes", e.message); }
+}
+
+export async function getEnterpriseAttributesMap() {
+  if (!pool) return {};
+  try {
+    const { rows } = await pool.query(`SELECT * FROM enterprise_attributes`);
+    const map = {};
+    for (const r of rows) map[r.company_name] = r;
+    return map;
+  } catch { return {}; }
+}
+
+// エンリッチメント対象：dealsに登場する会社のうち、属性未取得 or 6ヶ月以上前に取得した会社
+export async function listCompaniesNeedingEnrichment({ limit = 20, staleDays = 180 } = {}) {
+  if (!pool) return [];
+  try {
+    const { rows } = await pool.query(`
+      SELECT DISTINCT d.company_name
+      FROM deals d
+      LEFT JOIN enterprise_attributes ea ON ea.company_name = d.company_name
+      WHERE d.company_name IS NOT NULL AND d.company_name <> ''
+        AND (ea.company_name IS NULL OR ea.last_enriched_at < now() - ($2 || ' days')::interval)
+      LIMIT $1
+    `, [limit, String(staleDays)]);
+    return rows.map((r) => r.company_name);
+  } catch (e) { console.error("[db] listCompaniesNeedingEnrichment", e.message); return []; }
 }
