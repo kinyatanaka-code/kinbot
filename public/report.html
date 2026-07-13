@@ -15,7 +15,7 @@
         <a class="side-item" href="history.html"><span class="side-ico ico-hist"></span><span class="side-label">商談履歴</span></a>
         <a class="side-item" href="deals.html"><span class="side-ico ico-deal"></span><span class="side-label">案件</span></a>
         <a class="side-item active" href="report.html"><span class="side-ico ico-ana"></span><span class="side-label">実績</span></a>
-        <a class="side-item" href="style-analysis.html"><span class="side-ico ico-ana"></span><span class="side-label">営業スタイル分析</span></a>
+        <a class="side-item" href="apo.html"><span class="side-ico ico-apo"></span><span class="side-label">アポ振り分け</span></a>
         <a class="side-item" href="settings.html"><span class="side-ico ico-set"></span><span class="side-label">設定</span></a>
         <div class="side-foot"><span id="who" class="who"></span><a href="#" id="logout" class="side-logout">ログアウト</a></div>
       </nav>
@@ -28,6 +28,8 @@
             <button class="rep-tab" data-rp="kind">商談種別</button>
             <button class="rep-tab" data-rp="daily">日次データ確認</button>
             <button class="rep-tab" data-rp="pipeline">パイプライン</button>
+            <button class="rep-tab" data-rp="interns">インターンアポ</button>
+            <button class="rep-tab" data-rp="insights">インサイト</button>
           </div>
 
           <!-- サマリー（ファネル） -->
@@ -92,6 +94,35 @@
             </div>
             <div id="pipelineBody"><div class="empty-state">読み込み中…</div></div>
           </section>
+
+          <!-- インターンアポ -->
+          <section class="rep-panel" data-rpanel="interns" hidden>
+            <div class="rep-controls">
+              <label>期間 <input type="date" id="iaFrom" /></label>
+              <label>〜 <input type="date" id="iaTo" /></label>
+              <button class="btn ghost" id="iaReload">更新</button>
+              <button class="btn" id="iaMatch">カレンダーと照合</button>
+              <span class="rev-status" id="iaStatus"></span>
+            </div>
+            <div id="internBody"><div class="empty-state">読み込み中…</div></div>
+          </section>
+
+          <!-- インサイト（勝ち/負けパターン分析） -->
+          <section class="rep-panel" data-rpanel="insights" hidden>
+            <div class="ins-level-tabs" id="insLevelTabs">
+              <button class="ins-level-tab active" data-level="all">全体</button>
+              <button class="ins-level-tab" data-level="team">チーム別</button>
+              <button class="ins-level-tab" data-level="owner">個人別</button>
+            </div>
+            <div class="rep-controls">
+              <label id="insPickWrap" hidden>対象
+                <select id="insPick"></select>
+              </label>
+              <button class="btn" id="insGenerate">この対象で分析</button>
+              <span class="rev-status" id="insStatus"></span>
+            </div>
+            <div id="insightsBody"><div class="empty-state">「全体」「チーム別」「個人別」から選び、分析を実行すると、再商談に進んだ商談と進まなかった商談を比較します。</div></div>
+          </section>
         </main>
       </div>
     </div>
@@ -107,6 +138,7 @@
         </div>
       </div>
     </div>
+    <script src="product.js"></script>
     <script src="report.js"></script>
     <script src="nav.js"></script>
   </body>

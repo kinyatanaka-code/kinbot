@@ -268,7 +268,9 @@ loadThanks();
       const name = item.dataset.tab;
       document.querySelectorAll(".set-pane").forEach((p) => (p.hidden = p.dataset.pane !== name));
       if (name === "teams") loadTeams();
-      if (name === "thanks") loadThanksPrompt();
+      if (name === "knowledge") loadKnowledge();
+      if (name === "interns") { loadInterns(); loadApoOwner(); loadApoInvite(); }
+      if (name === "ai") loadThanksPrompt();
       if (name === "integrations") showIntegGrid();
       if (name === "smartlinks") initSmartLinks();
     });
@@ -292,6 +294,7 @@ function showIntegDetail(name) {
   document.querySelectorAll(".set-pane-inner").forEach((p) => (p.hidden = p.dataset.integ !== name));
   if (name === "status") { loadIntegrations(); loadRecallStatus(); }
   if (name === "claudecode") { fillApiBaseUrl(); initCcToken(); }
+  if (name === "chatgpt") { initGptConnector(); }
 }
 (function () {
   const grid = document.getElementById("integGrid");
@@ -393,6 +396,56 @@ function initCcToken() {
     try { localStorage.removeItem(CC_TOKEN_KEY); } catch {}
     applyCcToken("");
   });
+}
+
+// ===== ChatGPT（Custom GPT）連携カード =====
+// ボタンにコピー機能を割り当てる（クリック→クリップボードへコピー→一時的にラベル変更）
+function wireCopyBtn(btnId, getText, doneLabel, defaultLabel) {
+  const btn = document.getElementById(btnId);
+  if (!btn || btn._wired) return;
+  btn._wired = true;
+  btn.addEventListener("click", async () => {
+    try {
+      const text = await getText();
+      await navigator.clipboard.writeText(text);
+      btn.textContent = doneLabel;
+    } catch {
+      btn.textContent = "コピーに失敗しました";
+    }
+    setTimeout(() => (btn.textContent = defaultLabel), 1500);
+  });
+}
+function initGptConnector() {
+  // ① スキーマURL、② トークンは固定値（HTMLに直接記載）をそのままコピー
+  wireCopyBtn("gptSchemaUrlCopy",
+    () => document.getElementById("gptSchemaUrl").textContent.trim(),
+    "コピーしました", "URLをコピー");
+  wireCopyBtn("gptTokenCopy",
+    () => document.getElementById("gptToken").textContent.trim(),
+    "コピーしました", "トークンをコピー");
+  // スキーマ全文は、公開URLから取得してコピー（HTMLに全文を持たない＝単一の元ファイル）
+  const schemaBtn = document.getElementById("gptSchemaCopy");
+  const schemaNote = document.getElementById("gptSchemaCopyNote");
+  if (schemaBtn && !schemaBtn._wired) {
+    schemaBtn._wired = true;
+    schemaBtn.addEventListener("click", async () => {
+      const prev = schemaBtn.textContent;
+      schemaBtn.textContent = "取得中…";
+      try {
+        const url = document.getElementById("gptSchemaUrl").textContent.trim();
+        const res = await fetch(url);
+        if (!res.ok) throw new Error("fetch failed");
+        const text = await res.text();
+        await navigator.clipboard.writeText(text);
+        schemaBtn.textContent = "コピーしました";
+        if (schemaNote) schemaNote.textContent = "";
+      } catch {
+        schemaBtn.textContent = prev;
+        if (schemaNote) schemaNote.textContent = "取得に失敗しました。上の①のURLをブラウザで開いて全文をコピーしてください。";
+      }
+      setTimeout(() => (schemaBtn.textContent = "スキーマ全文をコピー"), 1500);
+    });
+  }
 }
 
 // ===== 接続している外部API一覧 =====
@@ -564,7 +617,7 @@ async function loadTeams() {
     try {
       const r = await fetch("/api/teams", {
         method: "PUT", headers: { "content-type": "application/json" },
-        body: JSON.stringify({ rep_name: repName, team_name: teamName, group_name: groupName }),
+        body: JSON.stringify({ rep_name: repName, team_name: teamName, group_name: groupName, product: (document.getElementById("tmProduct") || {}).value || "" }),
       });
       if (!r.ok) throw new Error("保存に失敗");
       if (st) st.textContent = "保存しました";
@@ -572,6 +625,143 @@ async function loadTeams() {
       document.getElementById("tmTeam").value = "";
       document.getElementById("tmGroup").value = "";
       loadTeams();
+      setTimeout(() => { if (st) st.textContent = ""; }, 1500);
+    } catch (e) { if (st) st.textContent = "失敗: " + e.message; }
+  });
+})();
+
+// ===== カレンダー照合の代表者 =====
+async function loadApoOwner() {
+  const sel = document.getElementById("apoOwnerSel");
+  if (!sel) return;
+  try {
+    const d = await (await fetch("/api/apo-calendar-owner")).json();
+    sel.innerHTML = '<option value="">（未設定：押した本人の連携を使う）</option>';
+    for (const c of d.candidates || []) {
+      const o = document.createElement("option");
+      o.value = c.owner;
+      o.textContent = c.email ? `${c.owner}（${c.email}）` : c.owner;
+      sel.appendChild(o);
+    }
+    sel.value = d.owner || "";
+    const st = document.getElementById("apoOwnerStatus");
+    if (st) st.textContent = d.owner ? (d.connected ? "連携OK" : "⚠ この人のGoogle連携が切れています") : "";
+  } catch {}
+}
+(function () {
+  const btn = document.getElementById("apoOwnerSave");
+  if (!btn) return;
+  btn.addEventListener("click", async () => {
+    const sel = document.getElementById("apoOwnerSel");
+    const st = document.getElementById("apoOwnerStatus");
+    try {
+      const r = await fetch("/api/apo-calendar-owner", {
+        method: "PUT", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ owner: sel.value }),
+      });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.error || "保存に失敗しました");
+      if (st) { st.textContent = "保存しました"; setTimeout(() => (st.textContent = ""), 1800); }
+    } catch (e) { if (st) st.textContent = e.message; }
+  });
+})();
+
+// ===== 商談予定の自動作成（招待方式）=====
+async function loadApoInvite() {
+  const sel = document.getElementById("apoInviteOwnerSel");
+  if (!sel) return;
+  try {
+    const d = await (await fetch("/api/apo-invite-config")).json();
+    sel.innerHTML = '<option value="">（未設定：自動作成しない）</option>';
+    for (const c of d.candidates || []) {
+      const o = document.createElement("option");
+      o.value = c.owner;
+      o.textContent = c.email ? `${c.owner}（${c.email}）` : c.owner;
+      sel.appendChild(o);
+    }
+    sel.value = d.owner || "";
+    const cal = document.getElementById("apoInviteCal");
+    if (cal) cal.value = d.calendar_id || "";
+    const auto = document.getElementById("apoAutoInvite");
+    if (auto) auto.checked = d.auto !== false;
+    const st = document.getElementById("apoInviteStatus");
+    if (st) st.textContent = d.owner ? (d.connected ? "連携OK" : "⚠ この人のGoogle連携が切れています") : "";
+  } catch {}
+}
+(function () {
+  const btn = document.getElementById("apoInviteSave");
+  if (!btn) return;
+  btn.addEventListener("click", async () => {
+    const st = document.getElementById("apoInviteStatus");
+    try {
+      const r = await fetch("/api/apo-invite-config", {
+        method: "PUT", headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          owner: document.getElementById("apoInviteOwnerSel").value,
+          calendar_id: document.getElementById("apoInviteCal").value,
+          auto: document.getElementById("apoAutoInvite").checked,
+        }),
+      });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.error || "保存に失敗しました");
+      if (st) { st.textContent = "保存しました"; setTimeout(() => (st.textContent = ""), 1800); }
+    } catch (e) { if (st) st.textContent = e.message; }
+  });
+})();
+
+// ===== インターン生（アポ獲得者）=====
+async function loadInterns() {
+  const tbl = document.getElementById("inTable");
+  if (!tbl) return;
+  tbl.innerHTML = '<tr><td class="note">読み込み中…</td></tr>';
+  let list = [];
+  try { list = await (await fetch("/api/interns")).json(); } catch { list = []; }
+  if (!list.length) {
+    tbl.innerHTML = '<tr><td class="note">まだ登録がありません。上の入力欄から追加してください。</td></tr>';
+    return;
+  }
+  tbl.innerHTML =
+    "<tr><th>名前</th><th>メールアドレス</th><th></th></tr>" +
+    list.map((it) =>
+      `<tr><td>${escapeHtml(it.name)}</td><td>${escapeHtml(it.email)}</td>` +
+      `<td><button class="btn ghost in-edit" data-name="${escapeHtml(it.name)}" data-email="${escapeHtml(it.email)}">編集</button> ` +
+      `<button class="btn danger in-del" data-email="${escapeHtml(it.email)}" data-name="${escapeHtml(it.name)}">削除</button></td></tr>`
+    ).join("");
+  tbl.querySelectorAll(".in-edit").forEach((b) =>
+    b.addEventListener("click", () => {
+      document.getElementById("inName").value = b.dataset.name;
+      document.getElementById("inEmail").value = b.dataset.email;
+      document.getElementById("inName").focus();
+    })
+  );
+  tbl.querySelectorAll(".in-del").forEach((b) =>
+    b.addEventListener("click", async () => {
+      if (!confirm(`「${b.dataset.name}」を削除しますか？`)) return;
+      await fetch("/api/interns/" + encodeURIComponent(b.dataset.email), { method: "DELETE" });
+      loadInterns();
+    })
+  );
+}
+(function () {
+  const add = document.getElementById("inAdd");
+  if (!add) return;
+  add.addEventListener("click", async () => {
+    const name = (document.getElementById("inName").value || "").trim();
+    const email = (document.getElementById("inEmail").value || "").trim();
+    const st = document.getElementById("inStatus");
+    if (!name || !email) { if (st) st.textContent = "名前とメールアドレスを入れてください"; return; }
+    if (st) st.textContent = "保存中…";
+    try {
+      const r = await fetch("/api/interns", {
+        method: "PUT", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ name, email }),
+      });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(d.error || "保存に失敗");
+      if (st) st.textContent = "保存しました";
+      document.getElementById("inName").value = "";
+      document.getElementById("inEmail").value = "";
+      loadInterns();
       setTimeout(() => { if (st) st.textContent = ""; }, 1500);
     } catch (e) { if (st) st.textContent = "失敗: " + e.message; }
   });
@@ -683,7 +873,7 @@ async function loadThanksPrompt() {
   });
 })();
 
-// ===== AI提案設定：サブタブ（自社ナレッジ / チェック項目） =====
+// ===== プロンプト設定：サブタブ（自社ナレッジ / チェック項目 / 要約の指示） =====
 (function () {
   const bar = document.getElementById("aiSubtabs");
   if (!bar) return;
@@ -1195,6 +1385,50 @@ loadKnowledge();
   load();
 })();
 
+// ===== 商談履歴の要約プロンプト（チーム共有） =====
+(function () {
+  const ta = document.getElementById("summaryPrompt");
+  const saveBtn = document.getElementById("saveSummaryPromptBtn");
+  const clearBtn = document.getElementById("clearSummaryPromptBtn");
+  const saved = document.getElementById("summaryPromptSaved");
+  if (!ta || !saveBtn) return;
+  async function load() {
+    try { const d = await (await fetch("/api/summary-prompt")).json(); ta.value = d.prompt || ""; } catch {}
+  }
+  async function save(val) {
+    const r = await fetch("/api/summary-prompt", {
+      method: "PUT", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ prompt: val }),
+    });
+    if (r.ok && saved) { saved.hidden = false; setTimeout(() => (saved.hidden = true), 1500); }
+  }
+  saveBtn.addEventListener("click", () => save(ta.value));
+  if (clearBtn) clearBtn.addEventListener("click", () => { ta.value = ""; save(""); });
+  load();
+})();
+
+// ===== カスタム分析プロンプト（チーム共有） =====
+(function () {
+  const ta = document.getElementById("customPrompt");
+  const saveBtn = document.getElementById("saveCustomPromptBtn");
+  const clearBtn = document.getElementById("clearCustomPromptBtn");
+  const saved = document.getElementById("customPromptSaved");
+  if (!ta || !saveBtn) return;
+  async function load() {
+    try { const d = await (await fetch("/api/custom-prompt")).json(); ta.value = d.prompt || ""; } catch {}
+  }
+  async function save(val) {
+    const r = await fetch("/api/custom-prompt", {
+      method: "PUT", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ prompt: val }),
+    });
+    if (r.ok && saved) { saved.hidden = false; setTimeout(() => (saved.hidden = true), 1500); }
+  }
+  saveBtn.addEventListener("click", () => save(ta.value));
+  if (clearBtn) clearBtn.addEventListener("click", () => { ta.value = ""; save(""); });
+  load();
+})();
+
 // ===== Notion連携 =====
 (function () {
   const saveBtn = document.getElementById("saveNotionBtn");
@@ -1332,3 +1566,125 @@ function initSmartLinks() {
     });
   }
 }
+
+// インサイト自動分析：手動で「今すぐ全対象を分析」
+(function () {
+  const btn = document.getElementById("runAllInsightsBtn");
+  const msg = document.getElementById("runAllInsightsMsg");
+  if (!btn) return;
+  btn.addEventListener("click", async () => {
+    btn.disabled = true;
+    const orig = btn.textContent;
+    btn.textContent = "開始しています…";
+    try {
+      const r = await fetch("/api/report/insights/run-all", { method: "POST" });
+      const d = await r.json();
+      if (msg) {
+        msg.hidden = false;
+        msg.textContent = d.started ? "分析を開始しました（完了まで数分かかります）" : (d.message || "すでに実行中です");
+      }
+    } catch (e) {
+      if (msg) { msg.hidden = false; msg.textContent = "開始に失敗しました: " + e.message; }
+    } finally {
+      btn.textContent = orig;
+      btn.disabled = false;
+      setTimeout(() => { if (msg) msg.hidden = true; }, 6000);
+    }
+  });
+})();
+
+// ===== アカウント設定（表示名・パスワード変更） =====
+(function () {
+  const email = document.getElementById("accEmail");
+  const nameI = document.getElementById("accName");
+  if (!email || !nameI) return;
+  // 現在の情報を読み込み
+  fetch("/api/me").then((r) => r.json()).then((d) => {
+    email.value = d.username || "";
+    nameI.value = d.name || "";
+  }).catch(() => {});
+
+  const saveName = document.getElementById("accSaveName");
+  const nameSaved = document.getElementById("accNameSaved");
+  if (saveName) saveName.addEventListener("click", async () => {
+    saveName.disabled = true;
+    try {
+      const r = await fetch("/api/me", { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ name: nameI.value }) });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.error || "保存に失敗しました");
+      if (nameSaved) { nameSaved.hidden = false; nameSaved.textContent = "保存しました"; setTimeout(() => (nameSaved.hidden = true), 4000); }
+    } catch (e) { alert(e.message); }
+    finally { saveName.disabled = false; }
+  });
+
+  const savePw = document.getElementById("accSavePw");
+  const pwSaved = document.getElementById("accPwSaved");
+  if (savePw) savePw.addEventListener("click", async () => {
+    const cur = document.getElementById("accPwCur").value;
+    const nw = document.getElementById("accPwNew").value;
+    const nw2 = document.getElementById("accPwNew2").value;
+    if (!nw || nw.length < 8) return alert("新しいパスワードは8文字以上にしてください");
+    if (nw !== nw2) return alert("新しいパスワード（確認）が一致しません");
+    savePw.disabled = true;
+    try {
+      const r = await fetch("/api/me", { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ current_password: cur, new_password: nw }) });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.error || "変更に失敗しました");
+      document.getElementById("accPwCur").value = ""; document.getElementById("accPwNew").value = ""; document.getElementById("accPwNew2").value = "";
+      if (pwSaved) { pwSaved.hidden = false; pwSaved.textContent = "パスワードを変更しました"; setTimeout(() => (pwSaved.hidden = true), 5000); }
+    } catch (e) { alert(e.message); }
+    finally { savePw.disabled = false; }
+  });
+})();
+
+// 案件名バックフィル：既存の案件名から会社名だけを取り出して書き直す
+(function () {
+  const btn = document.getElementById("backfillNamesBtn");
+  const msg = document.getElementById("backfillNamesMsg");
+  if (!btn) return;
+  btn.addEventListener("click", async () => {
+    if (!confirm("既存の全案件名を、会社名部分だけに書き直します。\n\nこの操作は元に戻せません。実行しますか？")) return;
+    btn.disabled = true;
+    const orig = btn.textContent;
+    btn.textContent = "整理中…";
+    try {
+      const r = await fetch("/api/deals/backfill-names", { method: "POST" });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.error || "実行に失敗しました");
+      const sampleLines = (d.sample || []).slice(0, 5).map((s) => `・「${s.before}」→「${s.after}」`).join("\n");
+      alert(`完了：${d.total}件中 ${d.updated}件の案件名を書き直しました。\n\n例：\n${sampleLines || "（変更なし）"}`);
+      if (msg) { msg.hidden = false; msg.textContent = `${d.updated}件を書き直しました`; setTimeout(() => (msg.hidden = true), 6000); }
+    } catch (e) {
+      alert("失敗: " + e.message);
+    } finally {
+      btn.textContent = orig;
+      btn.disabled = false;
+    }
+  });
+})();
+
+// ステータス同期修復：deal_status（手動設定）→ deals.status（集計用）の不整合を直す
+(function () {
+  const btn = document.getElementById("syncStatusBtn");
+  const msg = document.getElementById("syncStatusMsg");
+  if (!btn) return;
+  btn.addEventListener("click", async () => {
+    if (!confirm("画面のステータスに合わせて、内部の集計用データを一括更新します。実行しますか？")) return;
+    btn.disabled = true;
+    const orig = btn.textContent;
+    btn.textContent = "同期中…";
+    try {
+      const r = await fetch("/api/deals/sync-status", { method: "POST" });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.error || "実行に失敗しました");
+      const sampleLines = (d.sample || []).slice(0, 5).map((s) => `・${s.company}: 「${s.before}」→「${s.after}」`).join("\n");
+      alert(`完了：${d.total}件中 ${d.updated}件を同期しました。\n\n${sampleLines ? "例：\n" + sampleLines : "（すべて既に一致していました）"}`);
+      if (msg) { msg.hidden = false; msg.textContent = `${d.updated}件を同期しました`; setTimeout(() => (msg.hidden = true), 6000); }
+    } catch (e) {
+      alert("失敗: " + e.message);
+    } finally {
+      btn.textContent = orig;
+      btn.disabled = false;
+    }
+  });
+})();

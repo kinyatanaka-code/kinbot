@@ -15,6 +15,8 @@ function todayStr() { return new Date().toISOString().slice(0, 10); }
       if (rp === "kind") loadKind();
       if (rp === "daily") loadDaily();
       if (rp === "pipeline") loadPipeline();
+      if (rp === "interns") loadInternDash();
+      if (rp === "insights") loadInsights();
     });
   });
 })();
@@ -56,6 +58,12 @@ async function fillOwnerSelects() {
 }
 
 // scope値（all / team:X / owner:Y）を owner/team パラメータに変換
+// 現在選択中のプロダクト（DOC / MOCHICA）をクエリに足す
+function addProduct(q) {
+  const p = window.kbProduct && window.kbProduct.current();
+  if (p) q.set("product", p);
+  return q;
+}
 function scopeParams(v) {
   if (!v || v === "all") return {};
   if (v.startsWith("team:")) return { team: v.slice(5) };
@@ -74,6 +82,7 @@ async function loadFunnel() {
   const q = new URLSearchParams({ granularity: gran, basis });
   if (sp.owner) q.set("owner", sp.owner);
   if (sp.team) q.set("team", sp.team);
+  addProduct(q);
   try {
     const d = await (await fetch("/api/report/funnel?" + q.toString())).json();
     renderFunnel(body, d);
@@ -97,47 +106,165 @@ function renderFunnel(body, d) {
     <span class="fn4-head-period">${period}・${esc(d.from)}〜${esc(d.to)}</span>
   </div>`;
 
-  // KPIカード4枚
-  html += '<div class="fn4-kpis">';
-  html += `<div class="fn4-kpi-card"><div class="fn4-kpi-label">初回商談</div><div class="fn4-kpi-num">${o.first_meetings || 0}</div><div class="fn4-kpi-sub">母数</div></div>`;
-  html += `<div class="fn4-kpi-card fn4-kpi-main"><div class="fn4-kpi-head"><span class="fn4-kpi-label">再商談実施</span><span class="fn4-kpi-badge">KPI</span></div><div class="fn4-kpi-num">${o.re_meetings || 0}</div><div class="fn4-kpi-sub">転換率 ${pctOf(o.re_meetings, base)}%</div></div>`;
-  html += `<div class="fn4-kpi-card"><div class="fn4-kpi-label">失注</div><div class="fn4-kpi-num fn4-kpi-num-lost">${o.lost || 0}</div><div class="fn4-kpi-sub">${pctOf(o.lost, base)}%${o.pending_10day ? `<span class="fn4-kpi-pending"> ・ 猶予中 ${o.pending_10day}件</span>` : ""}</div></div>`;
-  html += `<div class="fn4-kpi-card"><div class="fn4-kpi-label">受注</div><div class="fn4-kpi-num">${o.won || 0}</div><div class="fn4-kpi-sub">${pctOf(o.won, base)}%</div></div>`;
-  html += "</div>";
-
-  // 商談ファネル
-  const funnelRow = (label, value, pct, w, cls) =>
-    `<div class="fn4-frow">
-      <span class="fn4-frow-label">${esc(label)}</span>
-      <div class="fn4-frow-track"><div class="fn4-frow-fill ${cls}" style="width:${w}%">${w >= 12 ? `<span class="fn4-frow-val">${value}</span>` : ""}</div>${w < 12 ? `<span class="fn4-frow-val-out">${value}</span>` : ""}</div>
-      <span class="fn4-frow-pct">${pct}%</span>
-    </div>`;
-  html += '<div class="fn4-card"><div class="fn4-card-title">商談ファネル</div><div class="fn4-funnel">';
-  html += funnelRow("初回商談", o.first_meetings || 0, 100, wOf(o.first_meetings, base), "fn4-fc-first");
-  html += funnelRow("明確な時期回答", o.clear_schedule || 0, pctOf(o.clear_schedule, base), wOf(o.clear_schedule, base), "fn4-fc-clear");
-  html += funnelRow("再商談実施", o.re_meetings || 0, pctOf(o.re_meetings, base), wOf(o.re_meetings, base), "fn4-fc-re");
-  html += funnelRow("受注", o.won || 0, pctOf(o.won, base), wOf(o.won, base), "fn4-fc-won");
+  // ヒーロー：件数を主役に（初回 → 再商談）。転換率は添え字。
+  const convPct = pctOf(o.re_meetings, base);
+  html += '<div class="sm-top">';
+  html += `<div class="sm-hero">
+    <div class="sm-hero-counts">
+      <div class="sm-hc">
+        <div class="sm-hc-label">初回商談</div>
+        <div class="sm-hc-num">${o.first_meetings || 0}</div>
+      </div>
+      <div class="sm-hc-arrow">→</div>
+      <div class="sm-hc">
+        <div class="sm-hc-label">再商談実施${d.re_basis === "judgment_month" ? '<span class="sm-hc-basis">計上判断月</span>' : ""}</div>
+        <div class="sm-hc-num sm-hc-num-key">${o.re_meetings || 0}</div>
+      </div>
+      <div class="sm-hero-conv">
+        <div class="sm-hero-conv-num">${convPct}<span class="sm-hero-conv-pct">%</span></div>
+        <div class="sm-hero-conv-label">転換率</div>
+      </div>
+    </div>
+    <div class="sm-hero-rail"><div class="sm-hero-fill" style="width:${Math.min(100, convPct)}%"></div></div>
+  </div>`;
+  html += '<div class="sm-side">';
+  html += `<div class="sm-stat"><span class="sm-stat-label">再商談予定</span><span class="sm-stat-num sm-sched">${o.scheduled || 0}</span><span class="sm-stat-pct">未実施</span></div>`;
+  html += `<div class="sm-stat"><span class="sm-stat-label">失注</span><span class="sm-stat-num sm-lost">${o.lost || 0}</span><span class="sm-stat-pct">${pctOf(o.lost, base)}%</span></div>`;
+  html += `<div class="sm-stat"><span class="sm-stat-label">受注</span><span class="sm-stat-num">${o.won || 0}</span><span class="sm-stat-pct">${pctOf(o.won, base)}%</span></div>`;
   html += "</div></div>";
 
-  // 担当者別パフォーマンス（全体/チーム選択時）
+  // 商談の流れ（段の間に離脱数を出す）
+  const stage = (label, value, w, cls) =>
+    `<div class="sm-stage">
+      <span class="sm-stage-label">${esc(label)}</span>
+      <div class="sm-stage-track"><div class="sm-stage-fill ${cls}" style="width:${w}%"></div></div>
+      <span class="sm-stage-num">${value}</span>
+    </div>`;
+  const drop = (n, text) =>
+    n > 0
+      ? `<div class="sm-drop"><span class="sm-drop-arrow">↓</span><span class="sm-drop-num">−${n}</span><span class="sm-drop-text">${esc(text)}</span></div>`
+      : `<div class="sm-drop"><span class="sm-drop-arrow">↓</span><span class="sm-drop-text">${esc(text)}</span></div>`;
+
+  const nFirst = o.first_meetings || 0, nRe = o.re_meetings || 0, nWon = o.won || 0;
+  html += '<div class="sm-cols">';
+  html += `<div class="fn4-card"><div class="fn4-card-head"><span class="fn4-card-title">商談の流れ</span><span class="fn4-card-note">${d.re_basis === "judgment_month" ? "再商談実施は計上判断月・案件単位" : "段の間は離脱数"}</span></div><div class="sm-flow">`;
+  html += stage("初回商談", nFirst, 100, "sm-fc-first");
+  html += drop(Math.max(0, nFirst - nRe), `再商談に至らず（${pctOf(Math.max(0, nFirst - nRe), base)}%が離脱）`);
+  html += stage("再商談実施", nRe, wOf(nRe, base), "sm-fc-re");
+  html += drop(Math.max(0, nRe - nWon), "受注に至らず");
+  html += stage("受注", nWon, wOf(nWon, base), "sm-fc-won");
+  html += "</div></div>";
+
+  // 担当者別（転換率の高い順）
   const scope = $("fnScope").value;
   if ((scope === "all" || scope.startsWith("team:")) && (d.byOwner || []).length) {
-    const maxRe = Math.max(1, ...d.byOwner.map((r) => r.re_meetings || 0));
-    html += '<div class="fn4-card"><div class="fn4-card-head"><span class="fn4-card-title">担当者別パフォーマンス</span><span class="fn4-card-note">再商談実施数</span></div><div class="fn4-reps">';
-    for (const r of d.byOwner) {
-      const w = Math.max(3, Math.round(((r.re_meetings || 0) / maxRe) * 100));
-      const isTop = (r.re_meetings || 0) === maxRe && maxRe > 0;
-      html += `<div class="fn4-rep-row">
-        <span class="fn4-rep-name">${esc(r.owner)}</span>
-        <div class="fn4-rep-track"><div class="fn4-rep-fill ${isTop ? "fn4-rep-fill-top" : ""}" style="width:${w}%"></div></div>
-        <span class="fn4-rep-meta">初回${r.first_meetings} · 再${r.re_meetings}</span>
-      </div>`;
+    const rows = d.byOwner
+      .map((r) => ({ ...r, conv: (r.first_meetings || 0) > 0 ? ((r.re_meetings || 0) / r.first_meetings) * 100 : 0 }))
+      .sort((a, b) => b.conv - a.conv || (b.re_meetings || 0) - (a.re_meetings || 0));
+    const topConv = rows.length ? rows[0].conv : 0;
+    html += '<div class="fn4-card"><div class="fn4-card-head"><span class="fn4-card-title">担当者別</span><span class="fn4-card-note">行をクリックで内訳</span></div><div class="sm-reps">';
+    for (const r of rows) {
+      const isTop = r.conv === topConv && r.conv > 0;
+      html += `<div class="sm-rep" data-owner="${esc(r.owner)}" role="button" tabindex="0" aria-expanded="false">
+        <span class="sm-rep-caret">▸</span>
+        <span class="sm-rep-name">${esc(r.owner)}</span>
+        <span class="sm-rep-nums"><b>${r.first_meetings || 0}</b><span class="sm-rep-arrow">→</span><b class="${isTop ? "sm-rep-b-top" : ""}">${r.re_meetings || 0}</b></span>
+        <div class="sm-rep-track"><div class="sm-rep-fill ${isTop ? "sm-rep-top" : ""}" style="width:${Math.min(100, Math.round(r.conv))}%"></div></div>
+        <span class="sm-rep-pct">${r.conv.toFixed(1)}%</span>
+      </div>
+      <div class="sm-rep-detail" data-detail="${esc(r.owner)}" hidden></div>`;
     }
     html += "</div></div>";
+  }
+  html += "</div>"; // .sm-cols を閉じる（商談の流れ ＋ 担当者別 の横並び）
+
+  // 診断：期間内に実施された再商談が、計上判断月のコホートに入らなかった理由を明示する
+  const rd = d.re_debug;
+  if (rd && rd.re_events_in_period > rd.counted_deals) {
+    const parts = [];
+    if (rd.no_first_event) parts.push(`初回商談の判定データが無い ${rd.no_first_event}件`);
+    if (rd.first_jm_null) parts.push(`判断月が未設定 ${rd.first_jm_null}件`);
+    if (rd.first_jm_other) {
+      const ms = Object.entries(rd.other_months).sort().map(([m, n]) => `${m}:${n}`).join(" / ");
+      parts.push(`判断月が別の月 ${rd.first_jm_other}件（${ms}）`);
+    }
+    if (rd.no_deal_id) parts.push(`案件に紐付いていない ${rd.no_deal_id}件`);
+    if (parts.length) {
+      html += `<div class="sm-diag">
+        <div class="sm-diag-head">この期間に実施された再商談 ${rd.re_events_in_period}件 のうち、${rd.target_month} の計上判断は ${rd.counted_deals}件 です</div>
+        <ul class="sm-diag-list">${parts.map((p) => `<li>${esc(p)}</li>`).join("")}</ul>
+        <div class="sm-diag-foot">「初回商談の判定データが無い」「判断月が未設定」が多い場合は、該当商談を<b>再判定</b>すると計上されます。</div>
+      </div>`;
+    }
   }
 
   html += "</div>";
   body.innerHTML = html;
+
+  // 担当者の行をクリック → 内訳（初回・再商談実施・進行中・案件）を展開
+  const detailsByOwner = {};
+  for (const r of d.byOwner || []) detailsByOwner[r.owner] = r.details || {};
+  const groupDefs = [
+    { key: "first", label: "初回商談", cls: "sg-first" },
+    { key: "re", label: "再商談実施", cls: "sg-re" },
+    { key: "scheduled", label: "再商談予定", cls: "sg-sched", showNext: true },
+    { key: "activated", label: "進行中", cls: "sg-active" },
+    { key: "pending_10day", label: "猶予中", cls: "sg-pending" },
+    { key: "won", label: "受注", cls: "sg-won" },
+    { key: "lost", label: "失注", cls: "sg-lost" },
+    { key: "review", label: "要確認", cls: "sg-review" },
+  ];
+  const renderDetail = (owner) => {
+    const det = detailsByOwner[owner] || {};
+    const dealMap = {};
+    for (const key of ["first", "re"]) {
+      for (const it of det[key] || []) {
+        dealMap[it.company] = dealMap[it.company] || { company: it.company, status: it.status, first: 0, re: 0 };
+        if (key === "first") dealMap[it.company].first++; else dealMap[it.company].re++;
+        if (it.status) dealMap[it.company].status = it.status;
+      }
+    }
+    let h = '<div class="sm-detail-inner">';
+    const deals = Object.values(dealMap).sort((a, b) => (b.first + b.re) - (a.first + a.re));
+    if (deals.length) {
+      h += `<details class="sm-group" open><summary><span class="sm-group-dot sg-deal"></span>案件<span class="sm-group-count">${deals.length}</span></summary><ul class="sm-group-list">`;
+      for (const dl of deals) {
+        const href = `deals.html?company=${encodeURIComponent(dl.company)}&from=report`;
+        h += `<li><a class="sm-item-link" href="${href}"><span class="sm-item-co">${esc(dl.company)}</span><span class="sm-item-meta">初回${dl.first} ・ 再商談${dl.re}${dl.status ? " ・ " + esc(dl.status) : ""}</span><span class="sm-item-arrow">›</span></a></li>`;
+      }
+      h += "</ul></details>";
+    }
+    for (const g of groupDefs) {
+      const list = det[g.key] || [];
+      if (!list.length) continue;
+      h += `<details class="sm-group"><summary><span class="sm-group-dot ${g.cls}"></span>${g.label}<span class="sm-group-count">${list.length}</span></summary><ul class="sm-group-list">`;
+      for (const it of list) {
+        const meta = g.showNext
+          ? `${esc(it.next_date || "日付未取得")} に予定`
+          : `${esc(it.date)}${it.result ? " ・ " + esc(it.result) : ""}`;
+        h += `<li><span class="sm-item-co">${esc(it.company)}</span><span class="sm-item-meta">${meta}</span></li>`;
+      }
+      h += "</ul></details>";
+    }
+    if (h === '<div class="sm-detail-inner">') h += '<div class="empty-state">この期間の商談はありません</div>';
+    return h + "</div>";
+  };
+  body.querySelectorAll(".sm-rep").forEach((row) => {
+    const toggle = () => {
+      const owner = row.dataset.owner;
+      const box = body.querySelector(`.sm-rep-detail[data-detail="${CSS.escape(owner)}"]`);
+      if (!box) return;
+      const open = box.hidden;
+      if (open && !box.dataset.filled) { box.innerHTML = renderDetail(owner); box.dataset.filled = "1"; }
+      box.hidden = !open;
+      row.classList.toggle("open", open);
+      row.setAttribute("aria-expanded", String(open));
+      const caret = row.querySelector(".sm-rep-caret");
+      if (caret) caret.textContent = open ? "▾" : "▸";
+    };
+    row.addEventListener("click", toggle);
+    row.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); toggle(); } });
+  });
 }
 
 // ===== 商談種別（コールド / 過去失注 / 通常）=====
@@ -145,7 +272,7 @@ async function loadKind() {
   const body = $("kindBody");
   if (!$("knBasis").value) $("knBasis").value = todayStr();
   body.innerHTML = '<div class="empty-state">集計中…</div>';
-  const q = new URLSearchParams({ granularity: $("knGran").value, basis: $("knBasis").value });
+  const q = addProduct(new URLSearchParams({ granularity: $("knGran").value, basis: $("knBasis").value }));
   try {
     const d = await (await fetch("/api/report/funnel?" + q.toString())).json();
     renderKind(body, d);
@@ -183,8 +310,9 @@ function renderKind(body, d) {
     const cls = focus.includes(k) ? "fn4-kpi-card fn4-kpi-main" : "fn4-kpi-card";
     html += `<div class="${cls}">
       <div class="fn4-kpi-head">${kindBadgeEl(k)}</div>
-      <div class="fn4-kpi-num">${r.re_meetings}</div>
-      <div class="fn4-kpi-sub">初回${r.first_meetings}・転換率${rate}%</div>
+      <div class="fn4-kpi-num">${r.first_meetings}</div>
+      <div class="fn4-kpi-numlabel">初回商談実施</div>
+      <div class="fn4-kpi-sub">再商談実施${r.re_meetings}・転換率${rate}%</div>
       <div class="fn4-kind-rows"><span>失注 ${r.lost}</span><span>受注 ${r.won}</span></div>
     </div>`;
   }
@@ -203,7 +331,7 @@ function renderKind(body, d) {
       if (kinds.length) {
         html += '<div class="fn4-team-kinds">';
         for (const r of kinds) {
-          html += `<div class="fn4-team-kind-row">${kindBadgeEl(r.kind)}<span class="fn4-team-kind-num">初回${r.first_meetings}</span><span class="fn4-team-kind-num">失注${r.lost}</span><span class="fn4-team-kind-num fn4-team-kind-re">再${r.re_meetings}</span><span class="fn4-team-kind-num">受注${r.won}</span></div>`;
+          html += `<div class="fn4-team-kind-row">${kindBadgeEl(r.kind)}<span class="fn4-team-kind-num">初回${r.first_meetings}</span><span class="fn4-team-kind-num">失注${r.lost}</span><span class="fn4-team-kind-num fn4-team-kind-re">実施${r.re_meetings}</span><span class="fn4-team-kind-num">受注${r.won}</span></div>`;
         }
         html += "</div>";
       } else {
@@ -391,5 +519,295 @@ function sparkline(points) {
   $("plApply").addEventListener("click", loadPipeline);
   const knApply = $("knApply");
   if (knApply) knApply.addEventListener("click", loadKind);
+  if ($("iaReload")) $("iaReload").addEventListener("click", loadInternDash);
+  if ($("iaMatch")) $("iaMatch").addEventListener("click", runInternMatch);
   loadFunnel();
+})();
+
+// ===== インターンアポ ダッシュボード =====
+function iaDates() {
+  const f = $("iaFrom"), t = $("iaTo");
+  if (f && !f.value) f.value = todayStr();
+  if (t && !t.value) t.value = todayStr();
+  return { from: f ? f.value : "", to: t ? t.value : "" };
+}
+// ===== インサイト（勝ち/負けパターン分析）=====
+// 全体 / チーム別 / 個人別 の3タブ。チーム・個人は中のプルダウンで対象を選ぶ。
+// 対象ごとに結果が保存され、保存済みがあればボタンは「再分析」になる。
+let insWired = false;
+let insLevel = "all";          // all | team | owner
+let insTeams = [];             // [{value:"team:中澤チーム", label:"中澤チーム"}]
+let insOwners = [];            // [{value:"owner:xxx@x.com", label:"田中欽也"}]
+
+function wireInsights() {
+  if (insWired) return; insWired = true;
+  const btn = $("insGenerate");
+  if (btn) btn.addEventListener("click", generateInsights);
+  document.querySelectorAll("#insLevelTabs .ins-level-tab").forEach((b) => {
+    b.addEventListener("click", () => {
+      insLevel = b.dataset.level;
+      document.querySelectorAll("#insLevelTabs .ins-level-tab").forEach((x) => x.classList.toggle("active", x === b));
+      applyInsLevel();
+    });
+  });
+  const pick = $("insPick");
+  if (pick) pick.addEventListener("change", loadInsights);
+}
+
+// レベルに応じてプルダウンの中身を切り替え、表示/非表示を制御
+function applyInsLevel() {
+  const wrap = $("insPickWrap");
+  const pick = $("insPick");
+  if (insLevel === "all") {
+    if (wrap) wrap.hidden = true;
+    loadInsights();
+    return;
+  }
+  const opts = insLevel === "team" ? insTeams : insOwners;
+  if (pick) {
+    if (!opts.length) {
+      pick.innerHTML = `<option value="">（${insLevel === "team" ? "チーム" : "担当者"}が登録されていません）</option>`;
+    } else {
+      pick.innerHTML = opts.map((o) => `<option value="${esc(o.value)}">${esc(o.label)}</option>`).join("");
+    }
+  }
+  if (wrap) wrap.hidden = false;
+  loadInsights();
+}
+
+// 現在のタブ＋プルダウンから scope 文字列を作る
+function currentInsScope() {
+  if (insLevel === "all") return "all";
+  const pick = $("insPick");
+  return (pick && pick.value) || "";
+}
+
+async function loadInsights() {
+  wireInsights();
+  // 初回だけチーム/個人の選択肢を用意
+  if (!insTeams.length && !insOwners.length) await fillInsightScopes();
+  const body = $("insightsBody");
+  if (!body) return;
+  const scope = currentInsScope();
+  if (!scope) {
+    body.innerHTML = '<div class="empty-state">対象を選んでください。</div>';
+    updateInsButton(false);
+    return;
+  }
+  const p = window.kbProduct && window.kbProduct.current();
+  const key = (p ? p + "|" : "") + scope;
+  body.innerHTML = '<div class="empty-state">読み込み中…</div>';
+  try {
+    const d = await (await fetch("/api/report/insights?scope=" + encodeURIComponent(key))).json();
+    if (d && d.insight) { renderInsights(body, d); updateInsButton(true); }
+    else {
+      body.innerHTML = '<div class="empty-state">この対象はまだ分析されていません。「この対象で分析」を押してください。<br><span style="font-size:12px;color:var(--muted)">再商談に進んだ商談と、進まず止まった商談の文字起こしを比較します。</span></div>';
+      updateInsButton(false);
+    }
+  } catch {
+    body.innerHTML = '<div class="empty-state">読み込みに失敗しました。</div>';
+  }
+}
+
+// 保存済みがあれば「再分析」、無ければ「この対象で分析」
+function updateInsButton(hasResult) {
+  const btn = $("insGenerate");
+  if (btn) btn.textContent = hasResult ? "再分析" : "この対象で分析";
+}
+
+// チーム/個人の選択肢を用意（実績のセレクタと同じソース）
+async function fillInsightScopes() {
+  try {
+    const owners = await loadOwners();
+    insOwners = (owners || []).map((o) => ({ value: `owner:${o.email}`, label: o.name }));
+  } catch { insOwners = []; }
+  try {
+    const teams = await (await fetch("/api/teams")).json();
+    const names = [...new Set((teams || []).map((t) => t.team_name).filter(Boolean))].sort();
+    insTeams = names.map((n) => ({ value: `team:${n}`, label: n }));
+  } catch { insTeams = []; }
+}
+
+async function generateInsights() {
+  const body = $("insightsBody");
+  const st = $("insStatus");
+  const scope = currentInsScope();
+  if (!scope) { if (st) st.textContent = "対象を選んでください"; return; }
+  const p = window.kbProduct && window.kbProduct.current();
+  if (st) st.textContent = "分析中…（商談数により1分ほどかかります）";
+  body.innerHTML = '<div class="empty-state">文字起こしを比較分析しています…<br><span style="font-size:12px;color:var(--muted)">再商談に進んだ商談と止まった商談を読み比べています。しばらくお待ちください。</span></div>';
+  try {
+    const r = await fetch("/api/report/insights", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ scope, product: p || "" }),
+    });
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.error || "分析に失敗しました");
+    if (st) st.textContent = "分析しました";
+    renderInsights(body, d);
+    updateInsButton(true);
+  } catch (e) {
+    if (st) st.textContent = "";
+    body.innerHTML = `<div class="empty-state">${esc(e.message)}</div>`;
+  }
+}
+function renderInsights(body, d) {
+  const ins = d.insight || {};
+  const list = (items) => (items && items.length)
+    ? `<ul class="ins-list">${items.map((x) => `<li>${esc(x)}</li>`).join("")}</ul>`
+    : '<div class="ins-empty">データ不足</div>';
+  const twoCol = (title, pair, icon) => `
+    <div class="ins-card">
+      <div class="ins-card-title"><i class="ti ${icon}" aria-hidden="true"></i>${esc(title)}</div>
+      <div class="ins-2col">
+        <div class="ins-col ins-col-good"><div class="ins-col-h">進んだ商談</div>${list(pair && pair.progressed)}</div>
+        <div class="ins-col ins-col-bad"><div class="ins-col-h">止まった商談</div>${list(pair && pair.stalled)}</div>
+      </div>
+    </div>`;
+  const single = (title, items, icon, cls) => `
+    <div class="ins-card ${cls || ""}">
+      <div class="ins-card-title"><i class="ti ${icon}" aria-hidden="true"></i>${esc(title)}</div>
+      ${list(items)}
+    </div>`;
+
+  const gen = d.generated_at ? new Date(d.generated_at).toLocaleString("ja-JP", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" }) : "";
+  let html = `<div class="ins-head">
+    <div class="ins-head-main">${esc(d.scope_label || "全体")} の勝ち／負けパターン</div>
+    <div class="ins-head-sub">再商談に進んだ ${d.won_count || 0}件 vs 止まった ${d.lost_count || 0}件${d.analyzed ? `（文字起こし ${d.analyzed.won + d.analyzed.lost}件を分析）` : ""}${gen ? ` ・ ${gen} 更新` : ""}</div>
+  </div>`;
+  html += twoCol("企業タイプ", ins.company_types, "ti-building");
+  html += twoCol("商談の特徴", ins.meeting_traits, "ti-messages");
+  html += single("効果的なトーク", ins.talk_tips, "ti-bulb", "ins-tips");
+  html += `<div class="ins-2col-cards">`;
+  html += single("勝ちパターン", ins.win_patterns, "ti-trophy", "ins-win");
+  html += single("負けパターン", ins.lose_patterns, "ti-alert-triangle", "ins-lose");
+  html += `</div>`;
+  html += single("次の商談での具体アクション", ins.actions, "ti-checklist", "ins-action");
+  body.innerHTML = html;
+}
+
+async function loadInternDash() {
+  const body = $("internBody");
+  if (!body) return;
+  const { from, to } = iaDates();
+  body.innerHTML = '<div class="empty-state">集計中…</div>';
+  try {
+    const q = new URLSearchParams({ from, to });
+    const d = await (await fetch("/api/interns/stats?" + q.toString())).json();
+    renderInternDash(body, d);
+  } catch {
+    body.innerHTML = '<div class="empty-state">集計に失敗しました。</div>';
+  }
+}
+async function runInternMatch() {
+  const st = $("iaStatus");
+  const btn = $("iaMatch");
+  const { from, to } = iaDates();
+  if (st) st.textContent = "カレンダーと照合中…（件数によっては数十秒かかります）";
+  if (btn) btn.disabled = true;
+  try {
+    const r = await fetch("/api/interns/match", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ from, to }),
+    });
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.error || "照合に失敗しました");
+    // 診断：カレンダーが読めているか／主催者の予定が拾えているかを表示する
+    if (st) {
+      const lines = (d.interns || []).map((p) => {
+        if (p.error) return `${p.name}: ⚠ ${p.error}`;
+        return `${p.name}: 予定${p.calendar_events ?? 0}件（本人主催${p.hosted_events ?? 0}件）→ 一致${p.count}件`;
+      });
+      st.innerHTML = `照合しました（一致 ${d.matched}／対象 ${d.meetings_total}）<br><span style="font-size:11px;color:var(--muted)">${lines.join("<br>")}</span>`;
+    }
+    // 主催者で弾かれた予定がある場合、コンソールに詳細を出す（原因特定用）
+    for (const p of d.interns || []) {
+      if (p.skipped_samples && p.skipped_samples.length) {
+        console.log(`[照合] ${p.name} は本人主催でない予定を除外:`, p.skipped_samples);
+      }
+    }
+    await loadInternDash();
+    setTimeout(() => { if (st) st.textContent = ""; }, 2000);
+  } catch (e) {
+    if (st) st.textContent = "失敗: " + e.message;
+  } finally { if (btn) btn.disabled = false; }
+}
+function renderInternDash(body, d) {
+  const rows = d.interns || [];
+  if (!d.registered_count && !rows.length) {
+    body.innerHTML = '<div class="empty-state">インターン生が未登録です。<a href="settings.html">設定 → インターン登録</a> で名前とメールアドレスを登録してください。</div>';
+    return;
+  }
+  const maxCount = Math.max(1, ...rows.map((r) => r.count || 0));
+  let html = '<div class="fn4-wrap">';
+
+  // ヘッダー
+  html += `<div class="fn4-head">
+    <div class="fn4-head-left"><span class="fn4-head-icon"><i class="ti ti-user-check" aria-hidden="true"></i></span><span class="fn4-head-title">インターンアポ集計</span></div>
+    <span class="fn4-head-period">${esc(d.range.from)}〜${esc(d.range.to)}</span>
+  </div>`;
+
+  // KPIカード
+  html += '<div class="fn4-kpis">';
+  html += `<div class="fn4-kpi-card fn4-kpi-main"><div class="fn4-kpi-head"><span class="fn4-kpi-label">アポ実施（合計）</span><span class="fn4-kpi-badge">KPI</span></div><div class="fn4-kpi-num">${d.matched || 0}</div><div class="fn4-kpi-sub">アポ獲得者を特定できた商談</div></div>`;
+  html += `<div class="fn4-kpi-card"><div class="fn4-kpi-label">インターン人数</div><div class="fn4-kpi-num">${d.registered_count || 0}</div><div class="fn4-kpi-sub">登録済み</div></div>`;
+  html += `<div class="fn4-kpi-card"><div class="fn4-kpi-label">対象商談</div><div class="fn4-kpi-num">${d.meetings_total || 0}</div><div class="fn4-kpi-sub">期間内の実施済み商談</div></div>`;
+  html += `<div class="fn4-kpi-card"><div class="fn4-kpi-label">未特定</div><div class="fn4-kpi-num">${d.unmatched || 0}</div><div class="fn4-kpi-sub">カレンダーと一致しなかった商談</div></div>`;
+  html += "</div>";
+
+  // インターン別バー
+  html += '<div class="fn4-card"><div class="fn4-card-head"><span class="fn4-card-title">インターン別アポ実施数</span><span class="fn4-card-note">実施数</span></div><div class="fn4-reps">';
+  if (!rows.length) {
+    html += '<div class="empty-state">この期間に一致した商談がありません。「カレンダーと照合」を押してください。</div>';
+  } else {
+    for (const r of rows) {
+      const w = Math.max(3, Math.round(((r.count || 0) / maxCount) * 100));
+      const isTop = (r.count || 0) === maxCount && maxCount > 0 && r.count > 0;
+      const unreg = r.registered ? "" : '<span class="fn4-card-note">（未登録）</span>';
+      html += `<div class="fn4-rep-row">
+        <span class="fn4-rep-name">${esc(r.name)} ${unreg}</span>
+        <div class="fn4-rep-track"><div class="fn4-rep-fill ${isTop ? "fn4-rep-fill-top" : ""}" style="width:${w}%"></div></div>
+        <span class="fn4-rep-meta">${r.count}件</span>
+      </div>`;
+    }
+  }
+  html += "</div></div>";
+
+  // 人ごとの内訳（一致した商談リスト）
+  const withMeetings = rows.filter((r) => (r.meetings || []).length);
+  if (withMeetings.length) {
+    html += '<div class="fn4-card"><div class="fn4-card-title">アポ内訳（クリックで展開）</div>';
+    for (const r of withMeetings) {
+      html += `<details class="ia-details"><summary>${esc(r.name)}　<b>${r.count}件</b></summary>` +
+        `<ul class="ia-list">` +
+        r.meetings.map((m) => `<li><span class="ia-date">${esc(m.date || "")}</span>${esc(m.title || "(商談名なし)")}</li>`).join("") +
+        `</ul></details>`;
+    }
+    html += "</div>";
+  }
+
+  // 未特定の商談
+  if ((d.unmatched_list || []).length) {
+    html += '<div class="fn4-card"><details class="ia-details"><summary>どのインターンとも一致しなかった商談　<b>' + d.unmatched_list.length + '件</b></summary>' +
+      '<ul class="ia-list">' +
+      d.unmatched_list.map((m) => `<li><span class="ia-date">${esc(m.date || "")}</span>${esc(m.title || "(商談名なし)")}</li>`).join("") +
+      '</ul></details></div>';
+  }
+
+  html += "</div>";
+  body.innerHTML = html;
+}
+
+
+// プロダクトタブ（全体 / DOC / MOCHICA）。切り替えたら表示中のタブを再集計する。
+(async function () {
+  if (!window.kbProduct) return;
+  await window.kbProduct.loadMap();
+  window.kbProduct.mount(() => {
+    // 表示中のタブを再読み込み（存在する関数だけ呼ぶ）
+    if (typeof loadFunnel === "function") loadFunnel();
+    if (typeof loadKind === "function" && document.querySelector('[data-pane="kind"]:not([hidden])')) loadKind();
+    if (typeof loadInternDash === "function" && document.querySelector('[data-pane="interns"]:not([hidden])')) loadInternDash();
+    if (typeof loadInsights === "function" && document.querySelector('[data-rpanel="insights"]:not([hidden])')) loadInsights();
+  }, { renderOnMount: false }); // 初回のfunnel取得には既にproductが乗っているため
 })();

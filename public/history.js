@@ -131,10 +131,6 @@ const fmtDate = (s) => {
 };
 const labelOf = (sp) => (sp ? sp.name || "話者" + (sp.id ?? "") : "話者");
 
-function selectedPhases() {
-  return [...document.querySelectorAll("#fPhaseGroup input:checked")].map((c) => c.value);
-}
-
 // 開閉式の複数選択ドロップダウン
 function initMultiDropdown(group, labelText, items, onChange) {
   if (!group) return;
@@ -194,6 +190,15 @@ function companyFromTitleH(title) {
   t = t.replace(/[\s　/／|｜:：][^\s　/／|｜]{0,16}様(?:\s*[・,、][^\s　/／|｜]{0,16}様)*\s*$/u, "");
   t = t.replace(/[^\s　/／|｜]{0,16}様\s*$/u, "");
   t = t.replace(/\s+/g, " ").trim();
+  // 会社名部分だけを抽出（日本の主要な法人形態を網羅）
+  const suffix = "(?:株式会社|有限会社|合同会社|合名会社|合資会社|一般社団法人|一般財団法人|公益社団法人|公益財団法人|特定非営利活動法人|NPO法人|医療法人(?:社団|財団)?|学校法人|宗教法人|社会福祉法人|独立行政法人|生活協同組合|農業協同組合|漁業協同組合|信用金庫|信用組合)";
+  const prePattern = new RegExp("(" + suffix + "[^\\s(（/／|｜:：,、]+)");
+  const postPattern = new RegExp("([^\\s(（/／|｜:：,、]+" + suffix + ")");
+  const preMatch = t.match(prePattern);
+  const postMatch = t.match(postPattern);
+  if (preMatch && postMatch) return preMatch[0].length >= postMatch[0].length ? preMatch[0] : postMatch[0];
+  if (preMatch) return preMatch[0];
+  if (postMatch) return postMatch[0];
   return t || String(title || "(無題)").trim();
 }
 const acctKey = (m) => (m.account && m.account.trim()) || companyFromTitleH(m.title) || "(無題)";
@@ -206,11 +211,30 @@ if (HIST_CAT_OTHER) {
 function isOtherCat(m) { return !!(m.category && m.category !== "商談"); }
 function applyHistoryFilter() {
   const owner = document.getElementById("fOwner").value.trim();
-  const phases = selectedPhases();
+  const nameQ = (document.getElementById("fName")?.value || "").trim().toLowerCase();
+  const dFrom = document.getElementById("fDateFrom")?.value || "";
+  const dTo = document.getElementById("fDateTo")?.value || "";
+  // 商談日（created_at）を YYYY-MM-DD（ローカル）に。範囲比較用。
+  const mDate = (m) => {
+    if (!m.created_at) return "";
+    const d = new Date(m.created_at);
+    if (isNaN(d)) return "";
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  };
   return allMeetings.filter((m) => {
     if (HIST_CAT_OTHER ? !isOtherCat(m) : isOtherCat(m)) return false; // ビューに合うカテゴリのみ
+    // プロダクト（DOC/MOCHICA）タブの絞り込み。実施者の所属で判定する。
+    if (window.kbProduct && !window.kbProduct.matches(m.owner_name || m.owner)) return false;
     if (owner && (m.owner || "").trim() !== owner) return false;
-    if (phases.length && !phases.includes(m.phase || "")) return false;
+    // 商談名の部分一致（会社名・担当者名など、タイトルに含まれる文字で検索）
+    if (nameQ && !String(m.title || "").toLowerCase().includes(nameQ)) return false;
+    // 商談日の範囲。片方だけの指定でも動く。
+    if (dFrom || dTo) {
+      const md = mDate(m);
+      if (!md) return false;
+      if (dFrom && md < dFrom) return false;
+      if (dTo && md > dTo) return false;
+    }
     return true;
   });
 }
@@ -249,6 +273,7 @@ function meetingCardEl(r) {
   const tags = [];
   if (r.round_no) tags.push(`${r.round_no}回目`);
   if (r.phase) tags.push(phaseLabel(r.phase));
+  if (r.apo_setter) tags.push(`アポ獲得：${r.apo_setter}`);
   const card = document.createElement("button");
   card.className = "hcard";
   card.innerHTML = `<div class="hcard-title"></div><div class="hcard-top"><span class="hcard-date"></span><span class="hcard-rep"></span></div><div class="hcard-tags"></div><div class="hcard-ov"></div>`;
@@ -349,7 +374,14 @@ function renderList() {
   if (!rows.length) {
     const e = document.createElement("div");
     e.className = "empty-state";
-    e.textContent = "該当する商談がありません。";
+    const p = window.kbProduct && window.kbProduct.current();
+    // プロダクト絞り込みが原因（全体では商談があるのに、このタブで0件）なら、その旨を出す
+    const totalInView = allMeetings.filter((m) => (HIST_CAT_OTHER ? isOtherCat(m) : !isOtherCat(m))).length;
+    if (p && totalInView > 0) {
+      e.innerHTML = `${esc(p)} に割り当てられた担当者の商談がありません。<br><span style="font-size:12px;color:var(--muted)">設定→チーム編集で担当者に「${esc(p)}」を割り当てるか、右上で「全体」を選んでください。</span>`;
+    } else {
+      e.textContent = "該当する商談がありません。";
+    }
     hlist.appendChild(e);
     return;
   }
@@ -399,13 +431,27 @@ function renderList() {
 }
 
 async function loadList() {
-  // フェーズ（開閉式ドロップダウン・複数選択）
-  initMultiDropdown(
-    document.getElementById("fPhaseGroup"),
-    "フェーズ",
-    PHASES.map((p) => ({ value: p.code, label: p.label })),
-    renderList
-  );
+  // 商談名・商談日の検索欄を配線（入力のたびに一覧を絞り込む）
+  const fName = document.getElementById("fName");
+  if (fName && !fName._wired) {
+    fName._wired = true;
+    let t;
+    fName.addEventListener("input", () => { clearTimeout(t); t = setTimeout(() => { selectedAccount = null; renderList(); }, 200); });
+  }
+  ["fDateFrom", "fDateTo"].forEach((id) => {
+    const el = document.getElementById(id);
+    if (el && !el._wired) { el._wired = true; el.addEventListener("change", () => { selectedAccount = null; renderList(); }); }
+  });
+  const fClear = document.getElementById("fClear");
+  if (fClear && !fClear._wired) {
+    fClear._wired = true;
+    fClear.addEventListener("click", () => {
+      if (fName) fName.value = "";
+      ["fDateFrom", "fDateTo"].forEach((id) => { const el = document.getElementById(id); if (el) el.value = ""; });
+      const fo = document.getElementById("fOwner"); if (fo) fo.value = "";
+      selectedAccount = null; renderList();
+    });
+  }
   try {
     const res = await fetch("/api/meetings");
     const rows = await res.json();
@@ -516,9 +562,10 @@ async function loadDetail(botId) {
           <div id="dtrans" class="pane-content"></div>
         </div>
         <div class="tabpane" data-pane="summary" hidden>
-          <div id="dnoteWrap"></div>
-          <div class="pane-bar"><button class="btn ghost copy-mini" id="copySummary">コピー</button></div>
+          <div class="pane-bar"><button class="btn ghost" id="customRunBtn" hidden>再実行</button><button class="btn ghost copy-mini" id="copySummary">コピー</button></div>
+          <div id="dcustom" class="pane-content" hidden></div>
           <div id="dsummary" class="pane-content"></div>
+          <div id="dnoteWrap"></div>
         </div>
         <div class="tabpane" data-pane="ailog" hidden>
           <div class="ai-feed" id="dailog"></div>
@@ -563,11 +610,54 @@ async function loadDetail(botId) {
       </div>`;
 
     // タブ切替
+    // 要約タブ：カスタムプロンプトが設定されていれば、標準要約の代わりにその出力を表示する
+    const dcustom = hdetail.querySelector("#dcustom");
+    const dsummaryEl = hdetail.querySelector("#dsummary");
+    const customRunBtn = hdetail.querySelector("#customRunBtn");
+    let customLoaded = false;
+    let customMode = false; // カスタムプロンプトが設定されているか
+    async function loadCustom(regen) {
+      if (!dcustom) return;
+      customLoaded = true;
+      dcustom.hidden = false;
+      if (dsummaryEl) dsummaryEl.hidden = true;
+      window.kbProgress(dcustom, { percent: null, label: regen ? "設定したプロンプトで分析しています…（数十秒かかります）" : "分析結果を読み込んでいます…" });
+      try {
+        const r = await fetch(`/api/meetings/${encodeURIComponent(botId)}/custom-analysis`, {
+          method: "POST", headers: { "content-type": "application/json" },
+          body: JSON.stringify({ regen: !!regen }),
+        });
+        const data = await r.json();
+        window.kbProgress(dcustom, { clear: true });
+        if (!r.ok) { dcustom.innerHTML = `<div class="empty-state">${escapeHtml(data.error || "実行に失敗しました")}</div>`; return; }
+        const t = (data.result || "").trim();
+        dcustom.innerHTML = t ? `<div class="custom-out">${escapeHtml(t)}</div>` : '<div class="empty-state">結果がありません。「再実行」を押してください。</div>';
+      } catch (e) {
+        window.kbProgress(dcustom, { clear: true });
+        dcustom.innerHTML = `<div class="empty-state">${escapeHtml(e.message)}</div>`;
+      }
+    }
+    // カスタムプロンプトの有無を確認し、あれば要約タブをカスタム出力に切り替える
+    (async () => {
+      try {
+        const d = await (await fetch("/api/custom-prompt")).json();
+        customMode = !!(d.prompt && d.prompt.trim());
+      } catch {}
+      if (customMode) {
+        if (customRunBtn) customRunBtn.hidden = false;
+        // 要約タブが最初から開いている場合に備えて即読み込み
+        const summaryPane = hdetail.querySelector('.tabpane[data-pane="summary"]');
+        if (summaryPane && !summaryPane.hidden && !customLoaded) loadCustom(false);
+      }
+    })();
+    if (customRunBtn) customRunBtn.addEventListener("click", () => loadCustom(true));
+
     hdetail.querySelectorAll(".tab").forEach((tab) => {
       tab.addEventListener("click", () => {
         hdetail.querySelectorAll(".tab").forEach((t) => t.classList.toggle("active", t === tab));
         const name = tab.dataset.tab;
         hdetail.querySelectorAll(".tabpane").forEach((p) => (p.hidden = p.dataset.pane !== name));
+        if (name === "summary" && customMode && !customLoaded) loadCustom(false);
       });
     });
 
@@ -595,7 +685,7 @@ async function loadDetail(botId) {
       copyText(hdetail.querySelector("#dtrans").innerText, e.currentTarget)
     );
     hdetail.querySelector("#copySummary").addEventListener("click", (e) =>
-      copyText(summaryToText(s), e.currentTarget)
+      copyText(customMode ? hdetail.querySelector("#dcustom").innerText : summaryToText(s), e.currentTarget)
     );
     hdetail.querySelector("#copyFb").addEventListener("click", (e) =>
       copyText(hdetail.querySelector("#dfbwrap").innerText, e.currentTarget)
@@ -937,6 +1027,7 @@ async function loadDetail(botId) {
         s = data.summary || s;
         renderSummaryInto(hdetail.querySelector("#dsummary"), data.summary || {});
         renderFeedbackInto(hdetail.querySelector("#dfeedback"), data.feedback || {});
+        if (customMode) await loadCustom(true); // 要約タブはカスタム出力を表示しているので作り直す
         loadList(); // 一覧の「要約なし」表示を更新
       } catch (e) {
         window.kbProgress(hdetail.querySelector("#dsummary"), { clear: true });
@@ -1195,3 +1286,11 @@ loadList().then(() => {
   const id = new URLSearchParams(location.search).get("id");
   if (id) loadDetail(id);
 });
+
+
+// プロダクトタブ（全体 / DOC / MOCHICA）
+(async function () {
+  if (!window.kbProduct) return;
+  await window.kbProduct.loadMap();
+  window.kbProduct.mount(() => { try { renderList(); } catch {} });
+})();
