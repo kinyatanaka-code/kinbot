@@ -2478,11 +2478,46 @@ app.get("/api/feature-c/tags", async (req, res) => {
       r.company_name = company;
       const acc = accountMap[company];
       const prof = (acc && acc.profile) || {};
-      // 業界：タグが「不明」か空ならプロフィールから補完
+
+      // === 業界：プロフィールの複数フィールドから読み取る ===
       if (!r.customer_industry || r.customer_industry === "不明") {
-        r.customer_industry = prof.industry || null;
+        // 1. industry フィールド（gBizINFO由来、「229（鉄鋼業）」等）
+        let industry = prof.industry || "";
+        // 括弧内の業種名を抽出（「229（鉄鋼業）」→「鉄鋼業」）
+        const m = String(industry).match(/（(.+?)）/);
+        if (m) industry = m[1];
+        // 2. industry が空なら business（事業内容）から推測
+        if (!industry && prof.business) {
+          const biz = String(prof.business);
+          // 事業内容のキーワードから業界を簡易マッピング
+          const bizMap = [
+            [/介護|福祉|高齢者|デイサービス|老人/, "介護・福祉"],
+            [/医療|病院|クリニック|薬局/, "医療"],
+            [/IT|ソフト|システム開発|SaaS|アプリ/, "IT・ソフトウェア"],
+            [/人材|派遣|紹介|採用支援|求人/, "人材サービス"],
+            [/建設|建築|土木|施工|工事/, "建設"],
+            [/製造|工場|メーカー|生産/, "製造業"],
+            [/不動産|賃貸|マンション|住宅/, "不動産"],
+            [/飲食|レストラン|フード|外食/, "飲食"],
+            [/小売|販売|店舗|EC|通販/, "小売"],
+            [/物流|運送|配送|倉庫|ロジ/, "物流"],
+            [/教育|学校|塾|スクール|研修/, "教育"],
+            [/金融|銀行|保険|証券|投資/, "金融"],
+            [/コンサル|コンサルティング|アドバイザリー/, "コンサルティング"],
+            [/広告|マーケティング|PR|プロモーション|メディア/, "広告・メディア"],
+            [/農業|農産|畜産|林業|水産/, "農林水産"],
+            [/ホテル|旅館|宿泊|観光|旅行/, "観光・宿泊"],
+            [/美容|エステ|サロン|理容/, "美容"],
+            [/清掃|クリーニング|ビルメン|オフィスサービス|コーヒー/, "ビルサービス"],
+          ];
+          for (const [re, name] of bizMap) {
+            if (re.test(biz)) { industry = name; break; }
+          }
+        }
+        if (industry) r.customer_industry = industry;
       }
-      // 従業員規模：タグが「不明」ならプロフィールの従業員数から変換して補完
+
+      // === 従業員規模：プロフィールの従業員数から変換 ===
       if ((!r.customer_employee_size || r.customer_employee_size === "不明") && prof.employees) {
         const num = parseInt(String(prof.employees).replace(/^約/, "").replace(/[,，]/g, "").replace(/[名人].*$/, ""), 10);
         if (!isNaN(num)) {
@@ -2493,10 +2528,23 @@ app.get("/api/feature-c/tags", async (req, res) => {
           else r.customer_employee_size = "1001人以上";
         }
       }
-      // 本社地域：タグが「不明」ならプロフィールの住所から都道府県を抽出
+
+      // === 本社地域：プロフィールの住所から都道府県を抽出 ===
       if ((!r.customer_hq_region || r.customer_hq_region === "不明") && prof.location) {
         const m = String(prof.location).match(/^(北海道|東京都|大阪府|京都府|.{2,3}県)/);
         if (m) r.customer_hq_region = m[1];
+      }
+
+      // === 採用予定：プロフィールの採用予定から補完 ===
+      if ((!r.target_hire_count || r.target_hire_count === "未定") && prof.hiring) {
+        const h = String(prof.hiring);
+        const num = parseInt(h.replace(/[^0-9]/g, ""), 10);
+        if (!isNaN(num)) {
+          if (num <= 2) r.target_hire_count = "1〜2名";
+          else if (num <= 5) r.target_hire_count = "3〜5名";
+          else if (num <= 10) r.target_hire_count = "6〜10名";
+          else r.target_hire_count = "11名以上";
+        }
       }
     }
     res.json({ tags: rows, total: rows.length });

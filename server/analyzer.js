@@ -2,7 +2,6 @@
 // 要約・提案を生成。LLM_PROVIDER で gemini / anthropic / ollama を切替。
 import { retrieve } from "./retrieval.js";
 import { getSettings } from "./db.js";
-import { INDUSTRY_NAMES, JOB_TYPE_MASTER } from "./industry_master.js";
 const PROVIDER = (process.env.LLM_PROVIDER || "gemini").toLowerCase();
 
 // 抜け漏れチェックの既定項目（設定で上書き可能）
@@ -1621,9 +1620,9 @@ export async function enrichCompanyAttributes(companyName) {
   const schema = {
     type: "object",
     properties: {
-      industry: { type: "string", enum: [...INDUSTRY_NAMES, "不明"] },
+      industry: { type: "string", enum: ["農業，林業","漁業","鉱業，採石業，砂利採取業","建設業","製造業","電気・ガス・熱供給・水道業","情報通信業","運輸業，郵便業","卸売業，小売業","金融業，保険業","不動産業，物品賃貸業","学術研究，専門・技術サービス業","宿泊業，飲食サービス業","生活関連サービス業，娯楽業","教育，学習支援業","医療，福祉","複合サービス事業","サービス業（他に分類されないもの）","公務（他に分類されるものを除く）","分類不能の産業","不明"] },
       industry_source_count: { type: "integer", description: "業界を同一区分と判定できた独立ソースの数" },
-      recruiting_job_types: { type: "array", items: { type: "string", enum: JOB_TYPE_MASTER } },
+      recruiting_job_types: { type: "array", items: { type: "string", enum: ["エンジニア","営業","事務・管理部門","マーケティング","企画","販売・サービス","医療・介護・福祉","製造・技能工","物流・ドライバー","建築・土木","教育","クリエイティブ","専門職（士業等）","その他"] } },
       job_type_source_count: { type: "integer", description: "職種を確認できた独立媒体の数" },
     },
     required: ["industry", "industry_source_count", "recruiting_job_types", "job_type_source_count"],
