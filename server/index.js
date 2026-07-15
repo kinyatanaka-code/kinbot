@@ -4623,42 +4623,68 @@ function extractSlideId(url) {
   return m ? m[1] : null;
 }
 
-// Google Slides APIでテキストを取得（公開リンクの場合、API Keyで取得可能）
-async function fetchSlideText(slideId) {
-  const apiKey = process.env.GOOGLE_API_KEY;
-  if (!apiKey) throw new Error("GOOGLE_API_KEY が未設定です");
-  const url = `https://slides.googleapis.com/v1/presentations/${slideId}?key=${apiKey}`;
-  const res = await fetch(url);
-  if (!res.ok) {
-    const body = await res.text();
-    throw new Error(`Google Slides API ${res.status}: ${body.slice(0, 200)}`);
-  }
-  const data = await res.json();
-  const texts = [];
-  const title = data.title || "";
-  if (title) texts.push(title);
-  for (const slide of data.slides || []) {
-    for (const el of slide.pageElements || []) {
-      if (el.shape && el.shape.text) {
-        for (const te of el.shape.text.textElements || []) {
-          if (te.textRun && te.textRun.content) texts.push(te.textRun.content.trim());
-        }
-      }
-      // テーブル
-      if (el.table) {
-        for (const row of el.table.tableRows || []) {
-          for (const cell of row.tableCells || []) {
-            if (cell.text) {
-              for (const te of cell.text.textElements || []) {
+// Google Slides APIでテキストを取得（OAuth2トークンを使用）
+async function fetchSlideText(slideId, owner) {
+  // OAuth2トークンでSlides APIにアクセス
+  const { driveAccessToken } = await import("./google.js");
+  const token = await driveAccessToken(owner);
+
+  if (token) {
+    try {
+      const res = await fetch(
+        `https://slides.googleapis.com/v1/presentations/${slideId}`,
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+      if (res.ok) {
+        const data = await res.json();
+        const texts = [];
+        const title = data.title || "";
+        if (title) texts.push(title);
+        for (const slide of data.slides || []) {
+          for (const el of slide.pageElements || []) {
+            if (el.shape && el.shape.text) {
+              for (const te of el.shape.text.textElements || []) {
                 if (te.textRun && te.textRun.content) texts.push(te.textRun.content.trim());
+              }
+            }
+            if (el.table) {
+              for (const row of el.table.tableRows || []) {
+                for (const cell of row.tableCells || []) {
+                  if (cell.text) {
+                    for (const te of cell.text.textElements || []) {
+                      if (te.textRun && te.textRun.content) texts.push(te.textRun.content.trim());
+                    }
+                  }
+                }
               }
             }
           }
         }
+        return { title, text: texts.filter(Boolean).join("\n") };
       }
+      console.warn(`[proposal] Slides API failed (${res.status}), falling back to export`);
+    } catch (e) {
+      console.warn("[proposal] Slides API error:", e.message);
     }
   }
-  return { title, text: texts.filter(Boolean).join("\n") };
+
+  // フォールバック: エクスポートURL（公開スライドの場合）
+  let text = "", title = "";
+  try {
+    const exportUrl = `https://docs.google.com/presentation/d/${slideId}/export/txt`;
+    const res = await fetch(exportUrl, { redirect: "follow" });
+    if (res.ok) {
+      text = await res.text();
+      const lines = text.split("\n").filter(l => l.trim());
+      title = lines[0] || "提案資料";
+    }
+  } catch {}
+
+  if (!text) {
+    title = "提案資料";
+    text = "（テキスト抽出に失敗しました。Googleカレンダー連携を行うか、スライドの共有設定を「リンクを知っている全員」にしてください）";
+  }
+  return { title, text };
 }
 
 // Geminiで要約＋タグ付け
@@ -4690,8 +4716,8 @@ app.post("/api/proposals", async (req, res) => {
     const slideId = extractSlideId(slide_url);
     if (!slideId) return res.status(400).json({ error: "GoogleスライドのURLが正しくありません" });
 
-    // スライドのテキスト取得
-    const { title, text } = await fetchSlideText(slideId);
+    // スライドのテキスト取得（OAuth2 → エクスポートフォールバック）
+    const { title, text } = await fetchSlideText(slideId, req.user || "");
 
     // 案件情報はクライアントから受け取る
     const companyName = req.body.company_name || "";
