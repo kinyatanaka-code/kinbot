@@ -33,12 +33,20 @@
 .db-widget {
   background: #fff; border: 1px solid #e6e8e5; border-radius: 12px;
   padding: 16px 18px; position: relative;
-  transition: box-shadow 0.15s;
+  transition: box-shadow 0.15s, transform 0.15s, border-color 0.15s;
   cursor: grab;
 }
+.db-widget:active { cursor: grabbing; }
 .db-widget:hover { box-shadow: 0 2px 12px rgba(0,0,0,0.06); }
-.db-widget.dragging { opacity: 0.5; }
-.db-widget.drag-over { border-color: #1d9e75; box-shadow: 0 0 0 2px rgba(29,158,117,0.2); }
+.db-widget.dragging {
+  opacity: 0.4; transform: scale(0.97);
+  box-shadow: 0 8px 24px rgba(0,0,0,0.15);
+}
+.db-widget.drag-over {
+  border-color: #1d9e75; border-width: 2px;
+  box-shadow: 0 0 0 3px rgba(29,158,117,0.15);
+  transform: scale(1.01);
+}
 .db-widget-head {
   display: flex; align-items: center; justify-content: space-between;
   margin-bottom: 12px;
@@ -118,3 +126,56 @@
 .db-catalog-icon { font-size: 28px; margin-bottom: 6px; }
 .db-catalog-name { font-size: 12.5px; font-weight: 600; color: #1b241f; }
 .db-catalog-desc { font-size: 10.5px; color: #8a938c; margin-top: 3px; }
+
+/* ===== ウィジェット作成モーダル（Salesforce風） ===== */
+.db-creator { display: flex; flex-direction: column; gap: 18px; }
+.db-creator-section {}
+.db-creator-label { display: block; font-size: 12px; font-weight: 600; color: #5f6b63; margin-bottom: 8px; }
+.db-creator-input {
+  width: 100%; padding: 8px 12px; font-size: 13px;
+  border: 1px solid #dfe4df; border-radius: 8px; background: #fff;
+  box-sizing: border-box;
+}
+.db-creator-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.db-chip {
+  padding: 6px 14px; font-size: 12px; font-weight: 500;
+  color: #5f6b63; background: #f7faf8; border: 1px solid #dfe4df; border-radius: 99px;
+  cursor: pointer; white-space: nowrap; transition: all 0.15s;
+}
+.db-chip:hover { border-color: #1d9e75; color: #0d5b47; }
+.db-chip.active {
+  background: #0d5b47; color: #fff; border-color: #0d5b47;
+}
+
+.db-creator-preview {
+  padding: 14px; background: #f7faf8; border-radius: 10px; border: 1px solid #e6e8e5;
+}
+
+.db-creator-actions { display: flex; justify-content: flex-end; gap: 10px; padding-top: 4px; }
+.db-creator-cancel {
+  padding: 8px 20px; font-size: 13px; font-weight: 500;
+  color: #5f6b63; background: #fff; border: 1px solid #dfe4df; border-radius: 8px; cursor: pointer;
+}
+.db-creator-save {
+  padding: 8px 24px; font-size: 13px; font-weight: 600;
+  color: #fff; background: #0d5b47; border: none; border-radius: 8px; cursor: pointer;
+}
+.db-creator-save:hover { background: #1d9e75; }
+
+/* 空状態 */
+.db-empty { color: #8a938c; font-size: 12px; text-align: center; padding: 20px; }
+.db-grid-empty { grid-column: 1 / -1; padding: 80px 20px; text-align: center; color: #8a938c; font-size: 14px; line-height: 2; }
+
+/* KPIカード */
+
+/* モーダル幅をクリエイター用に広げる */
+.db-modal { max-width: 680px; }
+.db-modal-body { display: block; padding: 20px 24px; }
+
+/* ドラッグハンドル */
+.db-widget-drag {
+  cursor: grab; font-size: 14px; color: #ccc; margin-right: 6px;
+  user-select: none; letter-spacing: -2px;
+}
+.db-widget-drag:active { cursor: grabbing; }
+.db-widget:hover .db-widget-drag { color: #8a938c; }

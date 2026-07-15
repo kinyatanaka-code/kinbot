@@ -1,52 +1,57 @@
-// ===== ダッシュボードビルダー =====
-// プリセットウィジェットを選んでグリッドに配置。レイアウトはlocalStorageに保存。
-// データは /api/feature-c/tags から取得（Feature Cのタグデータ）。
+// ===== ダッシュボードビルダー（Salesforce風） =====
+// ユーザーが軸・指標・グラフ種類を自由に選んでウィジェットを作成できる。
 
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s == null ? "" : s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
-const PIE_COLORS = ["#0d5b47", "#1d9e75", "#5DCAA5", "#9FE1CB", "#E1F5EE", "#BA7517", "#378ADD", "#D85A30", "#534AB7", "#D4537E"];
+const PIE_COLORS = ["#0d5b47","#1d9e75","#5DCAA5","#9FE1CB","#BA7517","#378ADD","#D85A30","#534AB7","#D4537E","#E1F5EE"];
 
 let allTags = [];
 let userMap = {};
-const ownerName = (email) => userMap[String(email || "").toLowerCase()] || email || "不明";
+const ownerName = (email) => userMap[String(email||"").toLowerCase()] || email || "不明";
 
-// ===== ウィジェットカタログ =====
-const WIDGET_CATALOG = [
-  { type: "kpi_total",       icon: "📊", name: "案件数",           desc: "全案件数を表示" },
-  { type: "kpi_response",    icon: "📈", name: "案件化率",         desc: "担当者合意+案件化の割合" },
-  { type: "kpi_won",         icon: "🏆", name: "受注率",           desc: "受注/全体" },
-  { type: "pie_employee",    icon: "🍩", name: "従業員規模の分布",  desc: "円グラフ" },
-  { type: "pie_industry",    icon: "🍩", name: "業界の分布",       desc: "円グラフ" },
-  { type: "pie_region",      icon: "🍩", name: "地域の分布",       desc: "円グラフ" },
-  { type: "bar_member_rate", icon: "📊", name: "メンバー別案件化率", desc: "横棒グラフ" },
-  { type: "bar_appeal",      icon: "📊", name: "訴求内容の利用回数", desc: "横棒グラフ" },
-  { type: "rank_talk",       icon: "🏅", name: "話法ランキング",    desc: "よく使われるTop5" },
-  { type: "rank_pain",       icon: "🏅", name: "課題ランキング",    desc: "顧客の課題Top5" },
-  { type: "step_rate",       icon: "📋", name: "ステップ実施率",    desc: "6ステップの実施率" },
-  { type: "heatmap_mini",    icon: "🗺", name: "ミニヒートマップ",  desc: "メンバー×規模の受注率" },
+// ===== 軸・指標の定義 =====
+const AXIS_OPTIONS = [
+  { value: "owner",                   label: "担当者" },
+  { value: "customer_employee_size",   label: "従業員規模" },
+  { value: "customer_industry",        label: "業界" },
+  { value: "customer_hq_region",       label: "地域" },
+  { value: "hiring_type_need",         label: "新卒/中途" },
+  { value: "target_hire_count",        label: "採用人数" },
+  { value: "appeal_points_used",       label: "訴求内容" },
+  { value: "talk_patterns",            label: "話法の型" },
+  { value: "objection_handling_style", label: "懸念対応" },
+  { value: "discovery_items_covered",  label: "ヒアリング深度" },
+  { value: "customer_response_status", label: "顧客反応" },
+  { value: "result",                   label: "受注結果" },
 ];
+const METRIC_OPTIONS = [
+  { value: "count",         label: "件数" },
+  { value: "response_rate", label: "案件化率" },
+  { value: "won_rate",      label: "受注率" },
+  { value: "pct",           label: "構成比（%）" },
+];
+const CHART_TYPES = [
+  { value: "bar",   label: "棒グラフ",   icon: "📊" },
+  { value: "pie",   label: "円グラフ",   icon: "🍩" },
+  { value: "kpi",   label: "KPIカード", icon: "🔢" },
+  { value: "table", label: "テーブル",   icon: "📋" },
+];
+const ARRAY_FIELDS = new Set(["appeal_points_used","talk_patterns","discovery_items_covered","key_pain_points","objections_raised","meeting_stages"]);
 
 // ===== 状態管理 =====
-let widgets = []; // [{id, type}, ...]
-const STORAGE_KEY = "kinbot_dashboard_layout";
+let widgets = []; // [{id, chart, axis, metric, title}, ...]
+const STORAGE_KEY = "kinbot_dashboard_v2";
+let widgetIdCounter = Date.now();
 
 function saveLayout() {
-  try { localStorage.setItem(STORAGE_KEY, JSON.stringify(widgets.map((w) => w.type))); } catch {}
+  try { localStorage.setItem(STORAGE_KEY, JSON.stringify(widgets)); } catch {}
 }
 function loadLayout() {
   try {
     const saved = JSON.parse(localStorage.getItem(STORAGE_KEY) || "null");
-    if (Array.isArray(saved) && saved.length) return saved.map((type, i) => ({ id: "w" + i, type }));
+    if (Array.isArray(saved) && saved.length) return saved;
   } catch {}
-  // デフォルトレイアウト
-  return [
-    { id: "w0", type: "kpi_total" },
-    { id: "w1", type: "kpi_response" },
-    { id: "w2", type: "kpi_won" },
-    { id: "w3", type: "pie_employee" },
-    { id: "w4", type: "bar_member_rate" },
-    { id: "w5", type: "rank_talk" },
-  ];
+  return [];
 }
 
 // ===== 初期化 =====
@@ -55,26 +60,22 @@ window.addEventListener("DOMContentLoaded", async () => {
   const from = new Date(now); from.setDate(from.getDate() - 90);
   $("dbFrom").value = from.toISOString().slice(0, 10);
   $("dbTo").value = now.toISOString().slice(0, 10);
-
-  $("dbFrom").addEventListener("change", reload);
-  $("dbTo").addEventListener("change", reload);
-  $("dbOwner").addEventListener("change", reload);
-
-  $("addWidgetBtn").addEventListener("click", openCatalog);
+  $("dbFrom").addEventListener("change", reloadData);
+  $("dbTo").addEventListener("change", reloadData);
+  $("dbOwner").addEventListener("change", reloadData);
+  $("addWidgetBtn").addEventListener("click", openCreator);
   $("closeModal").addEventListener("click", () => $("addModal").hidden = true);
   $("addModal").addEventListener("click", (e) => { if (e.target === $("addModal")) $("addModal").hidden = true; });
 
-  // ユーザー名マップ
   try {
     const users = await (await fetch("/api/users")).json();
     for (const u of users || []) if (u.email) userMap[u.email.toLowerCase()] = u.name || u.email;
   } catch {}
-
   widgets = loadLayout();
-  await reload();
+  await reloadData();
 });
 
-async function reload() {
+async function reloadData() {
   const from = $("dbFrom").value;
   const to = $("dbTo").value;
   const owner = $("dbOwner").value;
@@ -84,10 +85,8 @@ async function reload() {
   if (owner) qs.set("owner", owner);
   try {
     const r = await fetch("/api/feature-c/tags?" + qs.toString());
-    const d = await r.json();
-    allTags = d.tags || [];
+    allTags = (await r.json()).tags || [];
   } catch { allTags = []; }
-  // 担当者セレクト更新
   const ownerSel = $("dbOwner");
   const curVal = ownerSel.value;
   const owners = [...new Set(allTags.map((t) => t.owner).filter(Boolean))].sort();
@@ -96,249 +95,311 @@ async function reload() {
   renderGrid();
 }
 
+// ===== データ集計ヘルパー =====
+function getValues(tags, axis) {
+  const counts = {};
+  for (const t of tags) {
+    if (ARRAY_FIELDS.has(axis)) {
+      const arr = Array.isArray(t[axis]) ? t[axis] : [];
+      if (axis === "meeting_stages") {
+        for (const s of arr) if (s && s.step) counts[s.step] = (counts[s.step] || 0) + 1;
+      } else {
+        for (const v of arr) if (v) counts[v] = (counts[v] || 0) + 1;
+      }
+    } else {
+      let v = t[axis];
+      if (axis === "owner") v = ownerName(v);
+      counts[v || "不明"] = (counts[v || "不明"] || 0) + 1;
+    }
+  }
+  return Object.entries(counts).sort((a, b) => b[1] - a[1]);
+}
+
+function calcMetric(tags, axis, metric) {
+  if (metric === "count" || metric === "pct") {
+    const vals = getValues(tags, axis);
+    const total = vals.reduce((s, [, n]) => s + n, 0) || 1;
+    if (metric === "pct") return vals.map(([k, n]) => [k, Math.round(n / total * 100)]);
+    return vals;
+  }
+  // 案件化率 or 受注率：軸の各値ごとに率を計算
+  const groups = {};
+  for (const t of tags) {
+    let keys;
+    if (ARRAY_FIELDS.has(axis)) {
+      const arr = Array.isArray(t[axis]) ? t[axis] : [];
+      keys = axis === "meeting_stages" ? arr.filter(s => s && s.step).map(s => s.step) : arr.filter(Boolean);
+    } else {
+      let v = t[axis];
+      if (axis === "owner") v = ownerName(v);
+      keys = [v || "不明"];
+    }
+    for (const k of keys) {
+      if (!groups[k]) groups[k] = { total: 0, hit: 0 };
+      groups[k].total++;
+      if (metric === "response_rate") {
+        if (t.customer_response_status === "担当者合意" || t.customer_response_status === "案件化") groups[k].hit++;
+      } else if (metric === "won_rate") {
+        if (t.result === "受注") groups[k].hit++;
+      }
+    }
+  }
+  return Object.entries(groups)
+    .map(([k, v]) => [k, v.total ? Math.round(v.hit / v.total * 100) : 0, v.hit, v.total])
+    .sort((a, b) => b[1] - a[1]);
+}
+
+function getKpiValue(tags, metric) {
+  const total = tags.length;
+  if (!total) return { value: "0", sub: "データなし" };
+  if (metric === "count") return { value: String(total), sub: "対象期間の全案件" };
+  if (metric === "response_rate") {
+    const hit = tags.filter(t => t.customer_response_status === "担当者合意" || t.customer_response_status === "案件化").length;
+    return { value: Math.round(hit / total * 100) + "%", sub: `${hit}/${total}件` };
+  }
+  if (metric === "won_rate") {
+    const hit = tags.filter(t => t.result === "受注").length;
+    return { value: Math.round(hit / total * 100) + "%", sub: `${hit}/${total}件` };
+  }
+  return { value: String(total), sub: "" };
+}
+
 // ===== グリッド描画 =====
 function renderGrid() {
   const grid = $("dbGrid");
   if (!widgets.length) {
-    grid.innerHTML = '<div class="db-grid-empty">「＋ ウィジェットを追加」ボタンでウィジェットを配置してください</div>';
+    grid.innerHTML = '<div class="db-grid-empty"><div style="font-size:40px;margin-bottom:12px;">📊</div>ダッシュボードにウィジェットがありません<br><br>「＋ ウィジェットを追加」ボタンで<br>グラフやKPIカードを自由に作成できます</div>';
     return;
   }
   grid.innerHTML = "";
   for (const w of widgets) {
     const el = document.createElement("div");
-    el.className = "db-widget";
+    el.className = "db-widget" + (w.chart === "kpi" ? " db-widget-kpi" : "");
     el.dataset.id = w.id;
     el.draggable = true;
-    const cat = WIDGET_CATALOG.find((c) => c.type === w.type);
     el.innerHTML = `
       <div class="db-widget-head">
-        <span class="db-widget-title">${esc(cat?.name || w.type)}</span>
+        <div class="db-widget-drag" title="ドラッグで移動">⠿</div>
+        <span class="db-widget-title">${esc(w.title || "")}</span>
         <div class="db-widget-actions">
+          <button class="db-widget-btn" data-action="edit" title="編集">✎</button>
           <button class="db-widget-btn" data-action="remove" title="削除">✕</button>
         </div>
       </div>
       <div class="db-widget-body" id="body_${w.id}"></div>
     `;
-    // 削除ボタン
     el.querySelector('[data-action="remove"]').addEventListener("click", () => {
-      widgets = widgets.filter((x) => x.id !== w.id);
-      saveLayout();
-      renderGrid();
+      widgets = widgets.filter(x => x.id !== w.id);
+      saveLayout(); renderGrid();
     });
-    // ドラッグ＆ドロップ
+    el.querySelector('[data-action="edit"]').addEventListener("click", () => openCreator(w));
+    // ドラッグ&ドロップ
     el.addEventListener("dragstart", (e) => { e.dataTransfer.setData("text/plain", w.id); el.classList.add("dragging"); });
     el.addEventListener("dragend", () => el.classList.remove("dragging"));
     el.addEventListener("dragover", (e) => { e.preventDefault(); el.classList.add("drag-over"); });
     el.addEventListener("dragleave", () => el.classList.remove("drag-over"));
     el.addEventListener("drop", (e) => {
-      e.preventDefault();
-      el.classList.remove("drag-over");
+      e.preventDefault(); el.classList.remove("drag-over");
       const draggedId = e.dataTransfer.getData("text/plain");
       if (draggedId === w.id) return;
-      const fromIdx = widgets.findIndex((x) => x.id === draggedId);
-      const toIdx = widgets.findIndex((x) => x.id === w.id);
-      if (fromIdx < 0 || toIdx < 0) return;
-      const [moved] = widgets.splice(fromIdx, 1);
-      widgets.splice(toIdx, 0, moved);
-      saveLayout();
-      renderGrid();
+      const fi = widgets.findIndex(x => x.id === draggedId);
+      const ti = widgets.findIndex(x => x.id === w.id);
+      if (fi < 0 || ti < 0) return;
+      const [moved] = widgets.splice(fi, 1);
+      widgets.splice(ti, 0, moved);
+      saveLayout(); renderGrid();
     });
     grid.appendChild(el);
-    renderWidget(w, $("body_" + w.id));
+    drawWidget(w, $("body_" + w.id));
   }
 }
 
 // ===== ウィジェット描画 =====
-function renderWidget(w, container) {
-  if (!container) return;
+function drawWidget(w, el) {
+  if (!el) return;
   const tags = allTags;
-  switch (w.type) {
-    case "kpi_total": return renderKPI(container, tags.length, "案件数", "対象期間の全案件");
-    case "kpi_response": {
-      const pos = tags.filter((t) => t.customer_response_status === "担当者合意" || t.customer_response_status === "案件化").length;
-      const rate = tags.length ? Math.round(pos / tags.length * 100) : 0;
-      return renderKPI(container, rate + "%", "案件化率", `${pos}/${tags.length}件`);
-    }
-    case "kpi_won": {
-      const won = tags.filter((t) => t.result === "受注").length;
-      const rate = tags.length ? Math.round(won / tags.length * 100) : 0;
-      return renderKPI(container, rate + "%", "受注率", `${won}/${tags.length}件`);
-    }
-    case "pie_employee": return renderPie(container, tags, "customer_employee_size");
-    case "pie_industry": return renderPie(container, tags, "customer_industry");
-    case "pie_region": return renderPie(container, tags, "customer_hq_region");
-    case "bar_member_rate": return renderBarMembers(container, tags);
-    case "bar_appeal": return renderBarArray(container, tags, "appeal_points_used");
-    case "rank_talk": return renderRanking(container, tags, "talk_patterns", "話法");
-    case "rank_pain": return renderRanking(container, tags, "key_pain_points", "課題");
-    case "step_rate": return renderStepRate(container, tags);
-    case "heatmap_mini": return renderMiniHeatmap(container, tags);
-    default: container.innerHTML = '<div style="color:#8a938c;font-size:12px;">不明なウィジェット</div>';
+  switch (w.chart) {
+    case "kpi": return drawKpi(el, tags, w);
+    case "bar": return drawBar(el, tags, w);
+    case "pie": return drawPie(el, tags, w);
+    case "table": return drawTable(el, tags, w);
   }
 }
 
-// --- KPI ---
-function renderKPI(el, value, label, sub) {
-  el.innerHTML = `<div class="db-kpi"><div class="db-kpi-value">${esc(String(value))}</div><div class="db-kpi-label">${esc(label)}</div><div class="db-kpi-sub">${esc(sub)}</div></div>`;
+function drawKpi(el, tags, w) {
+  const d = getKpiValue(tags, w.metric);
+  el.innerHTML = `<div class="db-kpi"><div class="db-kpi-value">${esc(d.value)}</div><div class="db-kpi-sub">${esc(d.sub)}</div></div>`;
 }
 
-// --- 円グラフ ---
-function renderPie(el, tags, key) {
-  const counts = {};
-  for (const t of tags) {
-    const v = t[key] || "不明";
-    counts[v] = (counts[v] || 0) + 1;
-  }
-  const sorted = Object.entries(counts).sort((a, b) => b[1] - a[1]).slice(0, 8);
-  const total = sorted.reduce((s, [, n]) => s + n, 0) || 1;
-  // SVG円グラフ
-  let cumPct = 0;
-  const segments = sorted.map(([, n], i) => {
-    const pct = n / total;
-    const startAngle = cumPct * 360;
-    cumPct += pct;
-    const endAngle = cumPct * 360;
-    return { startAngle, endAngle, color: PIE_COLORS[i % PIE_COLORS.length] };
-  });
-  const toXY = (angle, r) => [60 + r * Math.cos((angle - 90) * Math.PI / 180), 60 + r * Math.sin((angle - 90) * Math.PI / 180)];
+function drawBar(el, tags, w) {
+  const data = calcMetric(tags, w.axis, w.metric);
+  if (!data.length) { el.innerHTML = '<div class="db-empty">データなし</div>'; return; }
+  const isRate = w.metric === "response_rate" || w.metric === "won_rate" || w.metric === "pct";
+  const maxVal = Math.max(...data.map(d => isRate ? d[1] : d[1])) || 1;
+  el.innerHTML = data.slice(0, 12).map(d => {
+    const label = d[0];
+    const val = d[1];
+    const pct = Math.round(val / maxVal * 100);
+    const suffix = isRate ? "%" : "件";
+    const detail = d.length >= 4 ? `(${d[2]}/${d[3]})` : "";
+    return `<div class="db-bar-row">
+      <div class="db-bar-label" title="${esc(label)}">${esc(label)}</div>
+      <div class="db-bar-track"><div class="db-bar-fill" style="width:${pct}%;background:#1d9e75;">${pct > 15 ? val + suffix : ""}</div></div>
+      <div class="db-bar-val">${val}${suffix} <span style="color:#8a938c;font-size:10px;">${detail}</span></div>
+    </div>`;
+  }).join("");
+}
+
+function drawPie(el, tags, w) {
+  const data = calcMetric(tags, w.axis, w.metric === "count" || w.metric === "pct" ? "count" : w.metric);
+  if (!data.length) { el.innerHTML = '<div class="db-empty">データなし</div>'; return; }
+  const slices = data.slice(0, 8);
+  const total = slices.reduce((s, d) => s + d[1], 0) || 1;
+  let cum = 0;
+  const toXY = (a, r) => [60 + r * Math.cos((a - 90) * Math.PI / 180), 60 + r * Math.sin((a - 90) * Math.PI / 180)];
   let svg = '<svg viewBox="0 0 120 120" class="db-pie-svg">';
+  const segments = slices.map((d, i) => {
+    const pct = d[1] / total;
+    const start = cum * 360; cum += pct;
+    const end = cum * 360;
+    return { start, end, color: PIE_COLORS[i % PIE_COLORS.length], label: d[0], count: d[1] };
+  });
   for (const seg of segments) {
-    if (seg.endAngle - seg.startAngle >= 359.9) {
+    if (seg.end - seg.start >= 359.9) {
       svg += `<circle cx="60" cy="60" r="50" fill="${seg.color}" />`;
     } else {
-      const [x1, y1] = toXY(seg.startAngle, 50);
-      const [x2, y2] = toXY(seg.endAngle, 50);
-      const large = seg.endAngle - seg.startAngle > 180 ? 1 : 0;
+      const [x1, y1] = toXY(seg.start, 50);
+      const [x2, y2] = toXY(seg.end, 50);
+      const large = seg.end - seg.start > 180 ? 1 : 0;
       svg += `<path d="M60,60 L${x1},${y1} A50,50 0 ${large},1 ${x2},${y2} Z" fill="${seg.color}" />`;
     }
   }
   svg += '</svg>';
-  const legend = sorted.map(([name, n], i) =>
-    `<div class="db-pie-leg-item"><div class="db-pie-leg-dot" style="background:${PIE_COLORS[i % PIE_COLORS.length]}"></div>${esc(name)} (${n})</div>`
+  const legend = segments.map(s =>
+    `<div class="db-pie-leg-item"><div class="db-pie-leg-dot" style="background:${s.color}"></div>${esc(s.label)} (${s.count})</div>`
   ).join("");
   el.innerHTML = `<div class="db-pie-wrap">${svg}<div class="db-pie-legend">${legend}</div></div>`;
 }
 
-// --- 棒グラフ（メンバー別案件化率） ---
-function renderBarMembers(el, tags) {
-  const byOwner = {};
-  for (const t of tags) {
-    if (!t.owner) continue;
-    if (!byOwner[t.owner]) byOwner[t.owner] = { total: 0, pos: 0 };
-    byOwner[t.owner].total++;
-    if (t.customer_response_status === "担当者合意" || t.customer_response_status === "案件化") byOwner[t.owner].pos++;
+function drawTable(el, tags, w) {
+  const data = calcMetric(tags, w.axis, w.metric);
+  if (!data.length) { el.innerHTML = '<div class="db-empty">データなし</div>'; return; }
+  const isRate = w.metric === "response_rate" || w.metric === "won_rate" || w.metric === "pct";
+  const axisLabel = AXIS_OPTIONS.find(a => a.value === w.axis)?.label || w.axis;
+  const metricLabel = METRIC_OPTIONS.find(m => m.value === w.metric)?.label || w.metric;
+  let html = `<table class="db-table"><thead><tr><th>${esc(axisLabel)}</th><th style="text-align:right;">${esc(metricLabel)}</th>`;
+  if (data[0]?.length >= 4) html += `<th style="text-align:right;">内訳</th>`;
+  html += `</tr></thead><tbody>`;
+  for (const d of data.slice(0, 20)) {
+    const suffix = isRate ? "%" : (w.metric === "pct" ? "%" : "件");
+    html += `<tr><td>${esc(d[0])}</td><td style="text-align:right;font-weight:600;">${d[1]}${suffix}</td>`;
+    if (d.length >= 4) html += `<td style="text-align:right;color:#8a938c;">${d[2]}/${d[3]}</td>`;
+    html += `</tr>`;
   }
-  const entries = Object.entries(byOwner).sort((a, b) => {
-    const ra = a[1].total ? a[1].pos / a[1].total : 0;
-    const rb = b[1].total ? b[1].pos / b[1].total : 0;
-    return rb - ra;
-  });
-  if (!entries.length) { el.innerHTML = '<div style="color:#8a938c;font-size:12px;">データなし</div>'; return; }
-  el.innerHTML = entries.map(([owner, d]) => {
-    const rate = d.total ? Math.round(d.pos / d.total * 100) : 0;
-    return `<div class="db-bar-row">
-      <div class="db-bar-label">${esc(ownerName(owner))}</div>
-      <div class="db-bar-track"><div class="db-bar-fill" style="width:${rate}%;background:#1d9e75;">${rate > 10 ? rate + "%" : ""}</div></div>
-      <div class="db-bar-val">${rate}% <span style="color:#8a938c;font-size:10px;">(${d.pos}/${d.total})</span></div>
-    </div>`;
-  }).join("");
-}
-
-// --- 棒グラフ（配列タグの出現回数） ---
-function renderBarArray(el, tags, key) {
-  const counts = {};
-  for (const t of tags) for (const v of (Array.isArray(t[key]) ? t[key] : [])) if (v) counts[v] = (counts[v] || 0) + 1;
-  const sorted = Object.entries(counts).sort((a, b) => b[1] - a[1]).slice(0, 8);
-  const max = sorted.length ? sorted[0][1] : 1;
-  if (!sorted.length) { el.innerHTML = '<div style="color:#8a938c;font-size:12px;">データなし</div>'; return; }
-  el.innerHTML = sorted.map(([name, n]) => {
-    const pct = Math.round(n / max * 100);
-    return `<div class="db-bar-row">
-      <div class="db-bar-label">${esc(name)}</div>
-      <div class="db-bar-track"><div class="db-bar-fill" style="width:${pct}%;background:#0d5b47;">${n}</div></div>
-      <div class="db-bar-val">${n}回</div>
-    </div>`;
-  }).join("");
-}
-
-// --- ランキング ---
-function renderRanking(el, tags, key, label) {
-  const counts = {};
-  for (const t of tags) for (const v of (Array.isArray(t[key]) ? t[key] : [])) if (v) counts[v] = (counts[v] || 0) + 1;
-  const sorted = Object.entries(counts).sort((a, b) => b[1] - a[1]).slice(0, 5);
-  if (!sorted.length) { el.innerHTML = '<div style="color:#8a938c;font-size:12px;">データなし</div>'; return; }
-  el.innerHTML = sorted.map(([name, n], i) =>
-    `<div class="db-rank-item"><div class="db-rank-num">${i + 1}</div><div class="db-rank-name">${esc(name)}</div><div class="db-rank-count">${n}回</div></div>`
-  ).join("");
-}
-
-// --- ステップ実施率 ---
-function renderStepRate(el, tags) {
-  const steps = ["導入・アイスブレイク", "市況・トレンド説明", "ヒアリング", "サービス説明", "デモ・仮想体験提案", "クロージング（スケジュール確認）"];
-  const shortNames = ["導入", "市況説明", "ヒアリング", "サービス説明", "デモ提案", "クロージング"];
-  const total = tags.length || 1;
-  const stepCounts = {};
-  for (const t of tags) for (const s of (Array.isArray(t.meeting_stages) ? t.meeting_stages : [])) if (s && s.step) stepCounts[s.step] = (stepCounts[s.step] || 0) + 1;
-  el.innerHTML = steps.map((step, i) => {
-    const n = stepCounts[step] || 0;
-    const rate = Math.round(n / total * 100);
-    return `<div class="db-bar-row">
-      <div class="db-bar-label">${esc(shortNames[i])}</div>
-      <div class="db-bar-track"><div class="db-bar-fill" style="width:${rate}%;background:${rate > 70 ? '#1d9e75' : rate > 40 ? '#BA7517' : '#D85A30'};">${rate}%</div></div>
-      <div class="db-bar-val">${n}/${total}</div>
-    </div>`;
-  }).join("");
-}
-
-// --- ミニヒートマップ ---
-function renderMiniHeatmap(el, tags) {
-  const sizes = ["〜50人", "51〜200人", "201〜500人", "501〜1000人", "1001人以上"];
-  const owners = [...new Set(tags.map((t) => t.owner).filter(Boolean))].sort();
-  const grid = {};
-  for (const t of tags) {
-    if (!t.owner || !t.customer_employee_size) continue;
-    const key = t.owner + "|||" + t.customer_employee_size;
-    if (!grid[key]) grid[key] = { won: 0, total: 0 };
-    grid[key].total++;
-    if (t.customer_response_status === "担当者合意" || t.customer_response_status === "案件化") grid[key].won++;
-  }
-  let html = '<table class="db-table"><thead><tr><th></th>';
-  for (const s of sizes) html += `<th style="font-size:10px;text-align:center;">${esc(s)}</th>`;
-  html += '</tr></thead><tbody>';
-  for (const owner of owners) {
-    html += `<tr><td style="font-weight:500;">${esc(ownerName(owner))}</td>`;
-    for (const s of sizes) {
-      const cell = grid[owner + "|||" + s];
-      if (!cell || !cell.total) { html += '<td style="text-align:center;color:#ccc;">—</td>'; continue; }
-      const rate = Math.round(cell.won / cell.total * 100);
-      const bg = rate > 50 ? '#1d9e75' : rate > 25 ? '#BA7517' : '#D85A30';
-      html += `<td style="text-align:center;color:#fff;background:${bg};border-radius:4px;font-weight:600;font-size:11px;">${rate}%<div style="font-size:9px;opacity:0.8;">${cell.won}/${cell.total}</div></td>`;
-    }
-    html += '</tr>';
-  }
-  html += '</tbody></table>';
+  html += `</tbody></table>`;
   el.innerHTML = html;
 }
 
-// ===== ウィジェット追加モーダル =====
-function openCatalog() {
-  const cat = $("widgetCatalog");
-  cat.innerHTML = WIDGET_CATALOG.map((c) =>
-    `<div class="db-catalog-item" data-type="${c.type}">
-      <div class="db-catalog-icon">${c.icon}</div>
-      <div class="db-catalog-name">${esc(c.name)}</div>
-      <div class="db-catalog-desc">${esc(c.desc)}</div>
-    </div>`
-  ).join("");
-  cat.querySelectorAll(".db-catalog-item").forEach((item) => {
-    item.addEventListener("click", () => {
-      const type = item.dataset.type;
-      const id = "w" + Date.now();
-      widgets.push({ id, type });
-      saveLayout();
-      $("addModal").hidden = true;
-      renderGrid();
+// ===== ウィジェット作成/編集モーダル =====
+function openCreator(editWidget) {
+  const isEdit = !!editWidget;
+  const modal = $("addModal");
+  const body = $("widgetCatalog");
+
+  const defaults = editWidget || { chart: "bar", axis: "owner", metric: "response_rate", title: "" };
+
+  body.innerHTML = `
+    <div class="db-creator">
+      <div class="db-creator-section">
+        <label class="db-creator-label">タイトル</label>
+        <input type="text" id="wcTitle" class="db-creator-input" value="${esc(defaults.title)}" placeholder="（自動生成）" />
+      </div>
+
+      <div class="db-creator-section">
+        <label class="db-creator-label">グラフの種類</label>
+        <div class="db-creator-chips" id="wcChart">
+          ${CHART_TYPES.map(c => `<button class="db-chip${c.value === defaults.chart ? " active" : ""}" data-value="${c.value}">${c.icon} ${c.label}</button>`).join("")}
+        </div>
+      </div>
+
+      <div class="db-creator-section" id="wcAxisSection">
+        <label class="db-creator-label">集計軸（横軸）</label>
+        <div class="db-creator-chips" id="wcAxis">
+          ${AXIS_OPTIONS.map(a => `<button class="db-chip${a.value === defaults.axis ? " active" : ""}" data-value="${a.value}">${a.label}</button>`).join("")}
+        </div>
+      </div>
+
+      <div class="db-creator-section">
+        <label class="db-creator-label">指標</label>
+        <div class="db-creator-chips" id="wcMetric">
+          ${METRIC_OPTIONS.map(m => `<button class="db-chip${m.value === defaults.metric ? " active" : ""}" data-value="${m.value}">${m.label}</button>`).join("")}
+        </div>
+      </div>
+
+      <div class="db-creator-preview">
+        <label class="db-creator-label">プレビュー</label>
+        <div class="db-widget" style="cursor:default;">
+          <div class="db-widget-head"><span class="db-widget-title" id="wcPreviewTitle">...</span></div>
+          <div class="db-widget-body" id="wcPreviewBody"></div>
+        </div>
+      </div>
+
+      <div class="db-creator-actions">
+        <button class="db-creator-cancel" id="wcCancel">キャンセル</button>
+        <button class="db-creator-save" id="wcSave">${isEdit ? "更新" : "追加"}</button>
+      </div>
+    </div>
+  `;
+
+  let state = { chart: defaults.chart, axis: defaults.axis, metric: defaults.metric };
+
+  function updatePreview() {
+    const title = $("wcTitle").value || autoTitle(state);
+    $("wcPreviewTitle").textContent = title;
+    // KPIの場合は軸セクション非表示
+    const axisSec = $("wcAxisSection");
+    if (axisSec) axisSec.style.display = state.chart === "kpi" ? "none" : "";
+    drawWidget({ ...state, title }, $("wcPreviewBody"));
+  }
+
+  function bindChips(containerId, key) {
+    const container = $(containerId);
+    if (!container) return;
+    container.querySelectorAll(".db-chip").forEach(btn => {
+      btn.addEventListener("click", () => {
+        container.querySelectorAll(".db-chip").forEach(b => b.classList.remove("active"));
+        btn.classList.add("active");
+        state[key] = btn.dataset.value;
+        updatePreview();
+      });
     });
+  }
+
+  bindChips("wcChart", "chart");
+  bindChips("wcAxis", "axis");
+  bindChips("wcMetric", "metric");
+  $("wcTitle").addEventListener("input", updatePreview);
+
+  $("wcCancel").addEventListener("click", () => modal.hidden = true);
+  $("wcSave").addEventListener("click", () => {
+    const title = $("wcTitle").value || autoTitle(state);
+    if (isEdit) {
+      const w = widgets.find(x => x.id === editWidget.id);
+      if (w) { w.chart = state.chart; w.axis = state.axis; w.metric = state.metric; w.title = title; }
+    } else {
+      widgets.push({ id: "w" + (++widgetIdCounter), chart: state.chart, axis: state.axis, metric: state.metric, title });
+    }
+    saveLayout(); modal.hidden = true; renderGrid();
   });
-  $("addModal").hidden = false;
+
+  updatePreview();
+  modal.hidden = false;
+}
+
+function autoTitle(state) {
+  const axisLabel = AXIS_OPTIONS.find(a => a.value === state.axis)?.label || state.axis;
+  const metricLabel = METRIC_OPTIONS.find(m => m.value === state.metric)?.label || state.metric;
+  const chartLabel = CHART_TYPES.find(c => c.value === state.chart)?.label || "";
+  if (state.chart === "kpi") return metricLabel;
+  return `${axisLabel}別 ${metricLabel}`;
 }
