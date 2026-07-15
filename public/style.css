@@ -2627,3 +2627,13 @@ button.np-step:disabled { opacity: 0.6; cursor: wait; }
 .deal-view-tab.active { color: #0d5b47; border-bottom-color: #0d5b47; }
 .kind-badge.kind-follow { background: #fdf6e3; color: #8a6d1a; border: 1px solid #ecd9a0; }
 .kind-badge.kind-internal { background: #e8e6f5; color: #534AB7; border: 1px solid #c5c0e5; }
+
+/* 商談履歴カテゴリタブ */
+.hist-cat-tabs { display: flex; gap: 4px; padding: 8px 16px 0; }
+.hist-cat-tab {
+  padding: 6px 16px; font-size: 13px; font-weight: 500;
+  color: #5f6b63; background: transparent; border: none; border-bottom: 2px solid transparent;
+  cursor: pointer;
+}
+.hist-cat-tab:hover { color: #0d5b47; }
+.hist-cat-tab.active { color: #0d5b47; border-bottom-color: #0d5b47; }

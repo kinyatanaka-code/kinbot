@@ -179,6 +179,36 @@ function closeAllMsel() {
 document.addEventListener("click", closeAllMsel);
 
 const HIST_CAT_OTHER = new URLSearchParams(location.search).get("cat") === "other";
+
+// 商談カテゴリ判定（商談名のタグで自動判別）
+let histCatFilter = "sales"; // "sales" | "follow" | "internal"
+function meetingCategory(m) {
+  const t = String(m.title || "");
+  if (/【ユ[/／]フォ】|ユーザーフォロー/.test(t)) return "follow";
+  if (/【社内MTG】|社内ミーティング|社内打ち合わせ/.test(t)) return "internal";
+  // 既存のcategoryフィールドも確認
+  if (m.category && m.category !== "商談") {
+    if (/フォロー/.test(m.category)) return "follow";
+    if (/社内/.test(m.category)) return "internal";
+  }
+  return "sales";
+}
+
+// タブ配線
+document.addEventListener("DOMContentLoaded", () => {
+  const tabs = document.getElementById("histCatTabs");
+  if (tabs) {
+    tabs.querySelectorAll(".hist-cat-tab").forEach(btn => {
+      btn.addEventListener("click", () => {
+        tabs.querySelectorAll(".hist-cat-tab").forEach(b => b.classList.remove("active"));
+        btn.classList.add("active");
+        histCatFilter = btn.dataset.cat;
+        selectedAccount = null;
+        renderList();
+      });
+    });
+  }
+});
 let histMode = "all"; // 既定は「すべて」。会社で絞り込み可能
 let selectedAccount = null;
 let histAccounts = {}; // key -> {official_name,...}
@@ -208,7 +238,7 @@ if (HIST_CAT_OTHER) {
   if (bn) bn.textContent = "社内・フォロー";
   try { document.title = "社内・フォロー — kinbot"; } catch {}
 }
-function isOtherCat(m) { return !!(m.category && m.category !== "商談"); }
+function isOtherCat(m) { return meetingCategory(m) !== "sales"; }
 function applyHistoryFilter() {
   const owner = document.getElementById("fOwner").value.trim();
   const nameQ = (document.getElementById("fName")?.value || "").trim().toLowerCase();
@@ -222,7 +252,8 @@ function applyHistoryFilter() {
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
   };
   return allMeetings.filter((m) => {
-    if (HIST_CAT_OTHER ? !isOtherCat(m) : isOtherCat(m)) return false; // ビューに合うカテゴリのみ
+    // カテゴリタブによるフィルタ
+    if (meetingCategory(m) !== histCatFilter) return false;
     // プロダクト（DOC/MOCHICA）タブの絞り込み。実施者の所属で判定する。
     if (window.kbProduct && !window.kbProduct.matches(m.owner_name || m.owner)) return false;
     if (owner && (m.owner || "").trim() !== owner) return false;

@@ -24,6 +24,11 @@
 
       <div class="main">
         <header class="topbar"><div class="brand"><img class="topbar-bot" src="kinbot.svg" alt="" /><span class="brand-name">商談履歴</span></div></header>
+        <div class="hist-cat-tabs" id="histCatTabs">
+          <button class="hist-cat-tab active" data-cat="sales">📊 商談</button>
+          <button class="hist-cat-tab" data-cat="follow">👤 ユーザーフォロー</button>
+          <button class="hist-cat-tab" data-cat="internal">🏢 社内MTG</button>
+        </div>
         <div class="hfilters">
           <label>営業担当<select id="fOwner"><option value="">全員</option></select></label>
           <label class="hsearch">商談名<input type="search" id="fName" placeholder="会社名・担当者名で検索" autocomplete="off" /></label>

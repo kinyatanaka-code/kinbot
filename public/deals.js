@@ -980,16 +980,7 @@ function renderList() {
     const last = ms[ms.length - 1] || {};
     return window.kbProduct.matches(last.owner_name || last.owner);
   };
-  // 商談種別フィルタ（営業案件 / ユーザーフォロー / 社内MTG）
-  const viewFilter = window._dealViewFilter || "sales";
-  const inView = (a) => {
-    const kind = dealKindOf(a);
-    if (viewFilter === "sales") return kind !== "ユーザーフォロー" && kind !== "社内MTG";
-    if (viewFilter === "user_follow") return kind === "ユーザーフォロー";
-    if (viewFilter === "internal") return kind === "社内MTG";
-    return true; // "all"
-  };
-  const names = Object.keys(groups).filter(a => inProduct(a) && inView(a)).sort((a, b) => {
+  const names = Object.keys(groups).filter(a => inProduct(a)).sort((a, b) => {
     const la = groups[a][groups[a].length - 1].created_at;
     const lb = groups[b][groups[b].length - 1].created_at;
     return new Date(lb) - new Date(la);
@@ -1686,18 +1677,3 @@ async function deleteProposal(id, dealId) {
   } catch {}
 }
 
-// ===== 商談種別タブ（営業案件 / ユーザーフォロー / 社内MTG） =====
-window._dealViewFilter = "sales";
-document.addEventListener("DOMContentLoaded", () => {
-  const tabs = document.getElementById("dealViewTabs");
-  if (!tabs) return;
-  tabs.querySelectorAll(".deal-view-tab").forEach(btn => {
-    btn.addEventListener("click", () => {
-      tabs.querySelectorAll(".deal-view-tab").forEach(b => b.classList.remove("active"));
-      btn.classList.add("active");
-      window._dealViewFilter = btn.dataset.view;
-      selectedRep = null; showAll = false; current = null;
-      try { renderList(); } catch {}
-    });
-  });
-});
