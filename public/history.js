@@ -233,10 +233,17 @@ function companyFromTitleH(title) {
 }
 const acctKey = (m) => (m.account && m.account.trim()) || companyFromTitleH(m.title) || "(無題)";
 const acctName = (key) => (histAccounts[key] && histAccounts[key].official_name) || key;
+// cat=otherのURLパラメータは後方互換で残す（商談タブで吸収）
 if (HIST_CAT_OTHER) {
-  const bn = document.querySelector(".brand-name");
-  if (bn) bn.textContent = "社内・フォロー";
-  try { document.title = "社内・フォロー — kinbot"; } catch {}
+  histCatFilter = "follow"; // 旧URLから来た場合はフォロータブを開く
+  document.addEventListener("DOMContentLoaded", () => {
+    const tabs = document.getElementById("histCatTabs");
+    if (tabs) {
+      tabs.querySelectorAll(".hist-cat-tab").forEach(b => {
+        b.classList.toggle("active", b.dataset.cat === "follow");
+      });
+    }
+  });
 }
 function isOtherCat(m) { return meetingCategory(m) !== "sales"; }
 function applyHistoryFilter() {
