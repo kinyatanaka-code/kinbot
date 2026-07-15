@@ -1152,6 +1152,7 @@ async function selectDeal(account) {
     `<button class="deal-tab" data-dtab="brief">🎯 商談準備</button>` +
     `<button class="deal-tab" data-dtab="qa">💬 想定問答</button>` +
     `<button class="deal-tab" data-dtab="profile">🏢 会社プロフィール</button>` +
+    `<button class="deal-tab" data-dtab="proposals">📎 提案資料</button>` +
     `<button class="deal-tab" data-dtab="flow">🗂 商談の流れ</button>` +
     `</div>` +
     // 判定（既定タブ）
@@ -1176,6 +1177,12 @@ async function selectDeal(account) {
     `<div class="prof-status" id="profStatus"></div>` +
     `<div id="profBody"></div></section>` +
     `</div>` +
+    // 提案資料
+    `<div class="deal-tabpane" data-dtab="proposals" hidden>` +
+    `<section class="deal-sec"><div class="deal-sec-h">📎 提案資料</div>` +
+    `<div class="proposal-add"><input type="text" id="proposalUrl" class="proposal-url-input" placeholder="GoogleスライドのURLを貼り付け" /><button class="btn" id="proposalAddBtn">登録</button></div>` +
+    `<div id="proposalList"><div class="empty-state">読み込み中…</div></div></section>` +
+    `</div>` +
     // 商談の流れ
     `<div class="deal-tabpane" data-dtab="flow" hidden>` +
     `<section class="deal-sec"><div class="deal-sec-h">🗂 商談の流れ</div><div class="deal-timeline" id="dealTimeline"></div></section>` +
@@ -1195,6 +1202,46 @@ async function selectDeal(account) {
 
   // ステータス変更
   // 案件のステータス変更は、中澤・浦林のみ可能。それ以外は参照のみ（プルダウンをロック）。
+
+  // 提案資料タブの処理
+  const proposalAddBtn = $("proposalAddBtn");
+  if (proposalAddBtn) {
+    proposalAddBtn.addEventListener("click", async () => {
+      const url = $("proposalUrl").value.trim();
+      if (!url) return alert("GoogleスライドのURLを入力してください");
+      if (!url.includes("docs.google.com/presentation")) return alert("GoogleスライドのURLを入力してください\n例: https://docs.google.com/presentation/d/xxxxx/edit");
+      proposalAddBtn.disabled = true;
+      proposalAddBtn.textContent = "登録中…";
+      try {
+        const np = lookupNewProc(displayName(account)) || lookupNewProc(account);
+        const dealId = np?.deal_id || "";
+        const acc2 = accountsMap[primaryOf(account)] || {};
+        const prof = acc2.profile || {};
+        const r = await fetch("/api/proposals", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            slide_url: url,
+            deal_id: dealId,
+            company_name: displayName(account),
+            industry: prof.industry || "",
+            employee_size: prof.employees || "",
+            region: prof.location || "",
+            result: statusOf(account),
+          }),
+        });
+        const d = await r.json();
+        if (!r.ok) throw new Error(d.error || "登録失敗");
+        $("proposalUrl").value = "";
+        loadProposals(dealId);
+      } catch (e) { alert("登録失敗: " + e.message); }
+      finally { proposalAddBtn.disabled = false; proposalAddBtn.textContent = "登録"; }
+    });
+    // 提案資料の読み込み
+    const np = lookupNewProc(displayName(account)) || lookupNewProc(account);
+    loadProposals(np?.deal_id || "");
+  }
+
   const stSel = $("dealStSel");
   if (!isStatusApprover()) {
     stSel.disabled = true;
@@ -1569,4 +1616,34 @@ function showProfileNotification() {
   });
 
   emptyState.after(notif);
+}
+
+// ===== 提案資料の読み込み・表示 =====
+async function loadProposals(dealId) {
+  const el = $("proposalList");
+  if (!el) return;
+  if (!dealId) { el.innerHTML = '<div class="empty-state">この案件に紐づく提案資料はありません</div>'; return; }
+  try {
+    const r = await fetch("/api/proposals?deal_id=" + encodeURIComponent(dealId));
+    const d = await r.json();
+    const proposals = d.proposals || [];
+    if (!proposals.length) {
+      el.innerHTML = '<div class="empty-state" style="font-size:13px;color:#8a938c;padding:20px;">提案資料がまだ登録されていません。<br>上のフォームにGoogleスライドのURLを貼って登録してください。</div>';
+      return;
+    }
+    el.innerHTML = proposals.map(p => {
+      const tags = [];
+      if (p.industry) tags.push(p.industry);
+      if (p.employee_size) tags.push(p.employee_size);
+      if (p.tags?.keywords) for (const k of p.tags.keywords) tags.push(k);
+      return `<div class="proposal-item" onclick="window.open('${esc(p.slide_url)}','_blank')">
+        <div class="proposal-item-head">
+          <span class="proposal-item-title">📊 ${esc(p.filename)}</span>
+          <span class="proposal-item-date">${p.uploaded_at ? new Date(p.uploaded_at).toLocaleDateString("ja") : ""}</span>
+        </div>
+        <div class="proposal-item-summary">${esc(p.summary || "")}</div>
+        ${tags.length ? '<div class="proposal-item-tags">' + tags.map(t => `<span class="proposal-tag">${esc(t)}</span>`).join("") + '</div>' : ""}
+      </div>`;
+    }).join("");
+  } catch { el.innerHTML = '<div class="empty-state">読み込み失敗</div>'; }
 }

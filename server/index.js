@@ -114,6 +114,9 @@ import {
   listKbFolders,
   addKbFolder,
   deleteKbFolder,
+  insertProposalFile,
+  listProposalFiles,
+  deleteProposalFile,
 } from "./db.js";
 import { resolveConfig, statusInfo } from "./config.js";
 import { analyzerInfo, analyzeMeeting, analyzeDeep, freeAnalyze, chatWithData, enrichCompany, lookupEmployeeCount, lookupCompanyBasics, generateThanks, THANKS_PROMPT, getCheckItems, getSummaryPrompt, getCustomPrompt, runCustomAnalysis, analyzeWinPatterns, classifyMeetingKind, extractFirstMeeting, extractReMeeting, buildBrief, extractFeatureCTags, enrichCompanyAttributes, generateFeatureCInsights } from "./analyzer.js";
@@ -4610,6 +4613,175 @@ wss.on("connection", (ws, req) => {
   s.addSocket(ws, getUser(req) || "");
   ws.on("close", () => s.removeSocket(ws));
   ws.on("error", () => s.removeSocket(ws));
+});
+
+// ===== 提案資料（Googleスライド蓄積＋AI検索） =====
+
+// Google SlidesからIDを抽出
+function extractSlideId(url) {
+  const m = String(url).match(/\/presentation\/d\/([a-zA-Z0-9_-]+)/);
+  return m ? m[1] : null;
+}
+
+// Google Slides APIでテキストを取得（公開リンクの場合、API Keyで取得可能）
+async function fetchSlideText(slideId) {
+  const apiKey = process.env.GOOGLE_API_KEY;
+  if (!apiKey) throw new Error("GOOGLE_API_KEY が未設定です");
+  const url = `https://slides.googleapis.com/v1/presentations/${slideId}?key=${apiKey}`;
+  const res = await fetch(url);
+  if (!res.ok) {
+    const body = await res.text();
+    throw new Error(`Google Slides API ${res.status}: ${body.slice(0, 200)}`);
+  }
+  const data = await res.json();
+  const texts = [];
+  const title = data.title || "";
+  if (title) texts.push(title);
+  for (const slide of data.slides || []) {
+    for (const el of slide.pageElements || []) {
+      if (el.shape && el.shape.text) {
+        for (const te of el.shape.text.textElements || []) {
+          if (te.textRun && te.textRun.content) texts.push(te.textRun.content.trim());
+        }
+      }
+      // テーブル
+      if (el.table) {
+        for (const row of el.table.tableRows || []) {
+          for (const cell of row.tableCells || []) {
+            if (cell.text) {
+              for (const te of cell.text.textElements || []) {
+                if (te.textRun && te.textRun.content) texts.push(te.textRun.content.trim());
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+  return { title, text: texts.filter(Boolean).join("\n") };
+}
+
+// Geminiで要約＋タグ付け
+async function summarizeProposal(text, companyName) {
+  const { freeAnalyze } = await import("./analyzer.js");
+  const prompt = `以下は「${companyName || "不明"}」への提案資料のテキストです。
+
+1. 200字以内で要約してください（何を提案しているか、主要なポイント）
+2. この資料のキーワードを5つ以内で抽出してください
+
+JSON形式で回答:
+{"summary": "...", "keywords": ["...", "..."]}
+
+テキスト:
+${text.slice(0, 30000)}`;
+  try {
+    const raw = await freeAnalyze(prompt, { provider: "gemini", maxTokens: 500 });
+    const m = raw.match(/\{[\s\S]*\}/);
+    if (m) return JSON.parse(m[0]);
+  } catch (e) { console.error("[proposal] summarize error:", e.message); }
+  return { summary: text.slice(0, 200), keywords: [] };
+}
+
+// 登録API
+app.post("/api/proposals", async (req, res) => {
+  try {
+    const { slide_url, deal_id } = req.body || {};
+    if (!slide_url) return res.status(400).json({ error: "URLが必要です" });
+    const slideId = extractSlideId(slide_url);
+    if (!slideId) return res.status(400).json({ error: "GoogleスライドのURLが正しくありません" });
+
+    // スライドのテキスト取得
+    const { title, text } = await fetchSlideText(slideId);
+
+    // 案件情報はクライアントから受け取る
+    const companyName = req.body.company_name || "";
+    const industry = req.body.industry || "";
+    const employeeSize = req.body.employee_size || "";
+    const region = req.body.region || "";
+    const dealResult = req.body.result || "";
+
+    // AI要約
+    const ai = await summarizeProposal(text, companyName);
+
+    const row = await insertProposalFile({
+      deal_id: deal_id || null,
+      slide_url,
+      slide_id: slideId,
+      filename: title || "無題のプレゼンテーション",
+      uploaded_by: req.user || "",
+      summary: ai.summary,
+      extracted_text: text,
+      tags: { keywords: ai.keywords },
+      company_name: companyName,
+      industry,
+      employee_size: employeeSize,
+      region,
+      result: dealResult,
+    });
+    console.log(`[proposal] registered: ${title} (${companyName})`);
+    res.json({ ok: true, proposal: row });
+  } catch (e) {
+    console.error("[proposal]", e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// 検索API（自然言語 → Geminiがフィルタに変換 → DB検索）
+app.get("/api/proposals/search", async (req, res) => {
+  try {
+    const q = req.query.q || "";
+    const filters = {};
+
+    if (q) {
+      // まず単純なテキスト検索
+      filters.search = q;
+      // AIでクエリ解析（業界・規模・受注結果を抽出）
+      try {
+        const { freeAnalyze } = await import("./analyzer.js");
+        const parsed = await freeAnalyze(
+          `ユーザーの検索クエリから、以下のフィルタを抽出してください。該当しないものは空文字にしてください。
+クエリ: "${q}"
+JSON形式で回答（他の文章は出力しない）:
+{"industry":"業界名","employee_size":"〜50人/51〜200人/201〜500人/501〜1000人/1001人以上のいずれか","region":"都道府県名","result":"受注/失注/進行中のいずれか","text_search":"業界等を除いた検索キーワード"}`,
+          { provider: "gemini", maxTokens: 200 }
+        );
+        const m = parsed.match(/\{[\s\S]*\}/);
+        if (m) {
+          const f = JSON.parse(m[0]);
+          if (f.industry) filters.industry = f.industry;
+          if (f.employee_size) filters.employee_size = f.employee_size;
+          if (f.region) filters.region = f.region;
+          if (f.result) filters.result = f.result;
+          if (f.text_search) filters.search = f.text_search;
+        }
+      } catch {}
+    }
+
+    const rows = await listProposalFiles(filters);
+    res.json({ proposals: rows, total: rows.length, query: q, filters });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// 一覧API
+app.get("/api/proposals", async (req, res) => {
+  try {
+    const rows = await listProposalFiles({ deal_id: req.query.deal_id });
+    res.json({ proposals: rows });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// 削除API
+app.delete("/api/proposals/:id", async (req, res) => {
+  try {
+    await deleteProposalFile(req.params.id);
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
 });
 
 server.listen(PORT, async () => {

@@ -100,12 +100,9 @@ function renderGrid(){
   grid.innerHTML="";
   widgets.forEach(w=>{
     const el=document.createElement("div");
-    el.className="db-widget";
+    el.className="db-widget db-w-" + (w.cols || "6");
     el.dataset.id=w.id;
     el.draggable=true;
-    // 保存されたサイズを復元
-    if (w.width) el.style.width = w.width;
-    if (w.height) el.style.height = w.height;
 
     // フィルタプルダウンHTML
     let filterHtml = "";
@@ -125,6 +122,8 @@ function renderGrid(){
       <div class="db-widget-drag" title="ドラッグで移動">⠿</div>
       <span class="db-widget-title">${esc(w.title)}</span>
       <div class="db-widget-actions">
+        <button class="db-widget-btn db-size-btn" data-a="smaller" title="縮小">◀</button>
+        <button class="db-widget-btn db-size-btn" data-a="larger" title="拡大">▶</button>
         <button class="db-widget-btn" data-a="edit" title="編集">✎</button>
         <button class="db-widget-btn" data-a="del" title="削除">✕</button>
       </div>
@@ -132,6 +131,15 @@ function renderGrid(){
 
     el.querySelector('[data-a="del"]').onclick=()=>{widgets=widgets.filter(x=>x.id!==w.id);save();renderGrid()};
     el.querySelector('[data-a="edit"]').onclick=()=>openCreator(w);
+    const SIZES = [3,4,6,8,12];
+    el.querySelector('[data-a="smaller"]').onclick=()=>{
+      const cur = w.cols||6, idx = SIZES.indexOf(cur);
+      if (idx > 0) { w.cols = SIZES[idx-1]; save(); renderGrid(); }
+    };
+    el.querySelector('[data-a="larger"]').onclick=()=>{
+      const cur = w.cols||6, idx = SIZES.indexOf(cur);
+      if (idx < SIZES.length-1) { w.cols = SIZES[idx+1]; save(); renderGrid(); }
+    };
 
     // フィルタプルダウン変更時にウィジェット再描画
     el.querySelectorAll(".db-wf-select").forEach(sel => {
@@ -150,15 +158,6 @@ function renderGrid(){
       if(fi<0||ti<0)return;const[mv]=widgets.splice(fi,1);widgets.splice(ti,0,mv);save();renderGrid();
     });
     grid.appendChild(el);
-    // リサイズ監視：ユーザーがドラッグでサイズ変更したら保存
-    const ro = new ResizeObserver(() => {
-      const cs = getComputedStyle(el);
-      const newW = el.style.width;
-      const newH = el.style.height;
-      if (newW && newW !== w.width) { w.width = newW; save(); }
-      if (newH && newH !== w.height) { w.height = newH; save(); }
-    });
-    ro.observe(el);
     drawWidget(w,$("wb_"+w.id));
   });
 }

@@ -419,6 +419,27 @@ export async function initDb() {
   await pool.query(`ALTER TABLE smart_links ADD COLUMN IF NOT EXISTS invite_event_id TEXT;`);
   await pool.query(`CREATE UNIQUE INDEX IF NOT EXISTS uq_smart_links_event ON smart_links(event_id) WHERE event_id IS NOT NULL;`);
 
+  // 提案資料テーブル
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS proposal_files (
+      id SERIAL PRIMARY KEY,
+      deal_id TEXT,
+      slide_url TEXT NOT NULL,
+      slide_id TEXT,
+      filename TEXT,
+      uploaded_by TEXT,
+      uploaded_at TIMESTAMPTZ DEFAULT NOW(),
+      summary TEXT,
+      extracted_text TEXT,
+      tags JSONB DEFAULT '{}',
+      company_name TEXT,
+      industry TEXT,
+      employee_size TEXT,
+      region TEXT,
+      result TEXT
+    )
+  `);
+
   console.log("[db] Postgres に接続しました（履歴を保存します）。");
 }
 
@@ -2167,4 +2188,37 @@ function employeeCountToSize(empStr) {
   if (num <= 500) return "201〜500人";
   if (num <= 1000) return "501〜1000人";
   return "1001人以上";
+}
+
+// ===== 提案資料 =====
+export async function insertProposalFile(data) {
+  if (!pool) return null;
+  const { rows } = await pool.query(
+    `INSERT INTO proposal_files (deal_id, slide_url, slide_id, filename, uploaded_by, summary, extracted_text, tags, company_name, industry, employee_size, region, result)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) RETURNING *`,
+    [data.deal_id, data.slide_url, data.slide_id, data.filename, data.uploaded_by,
+     data.summary, data.extracted_text, JSON.stringify(data.tags || {}),
+     data.company_name, data.industry, data.employee_size, data.region, data.result]
+  );
+  return rows[0];
+}
+
+export async function listProposalFiles({ deal_id, search, industry, employee_size, region, result } = {}) {
+  if (!pool) return [];
+  let sql = `SELECT * FROM proposal_files WHERE 1=1`;
+  const vals = [];
+  if (deal_id) { vals.push(deal_id); sql += ` AND deal_id = $${vals.length}`; }
+  if (industry) { vals.push(industry); sql += ` AND industry = $${vals.length}`; }
+  if (employee_size) { vals.push(employee_size); sql += ` AND employee_size = $${vals.length}`; }
+  if (region) { vals.push(region); sql += ` AND region = $${vals.length}`; }
+  if (result) { vals.push(result); sql += ` AND result = $${vals.length}`; }
+  if (search) { vals.push(`%${search}%`); sql += ` AND (extracted_text ILIKE $${vals.length} OR summary ILIKE $${vals.length} OR company_name ILIKE $${vals.length} OR filename ILIKE $${vals.length})`; }
+  sql += ` ORDER BY uploaded_at DESC LIMIT 100`;
+  const { rows } = await pool.query(sql, vals);
+  return rows;
+}
+
+export async function deleteProposalFile(id) {
+  if (!pool) return;
+  await pool.query(`DELETE FROM proposal_files WHERE id = $1`, [id]);
 }

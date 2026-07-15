@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html lang="ja">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>kinbot 提案資料</title>
+    <link rel="stylesheet" href="style.css" />
+    <style>
+      .pp-page { padding: 20px; max-width: 900px; }
+      .pp-search-bar {
+        display: flex; gap: 10px; padding: 14px 16px; margin-bottom: 16px;
+        background: #fff; border: 1px solid #e6e8e5; border-radius: 12px;
+      }
+      .pp-search-input {
+        flex: 1; padding: 10px 14px; font-size: 14px;
+        border: 1px solid #dfe4df; border-radius: 8px;
+      }
+      .pp-search-btn {
+        padding: 10px 24px; font-size: 14px; font-weight: 600;
+        color: #fff; background: #0d5b47; border: none; border-radius: 8px; cursor: pointer;
+      }
+      .pp-search-btn:hover { background: #1d9e75; }
+      .pp-hint { font-size: 12px; color: #8a938c; margin-bottom: 16px; }
+      .pp-results { display: flex; flex-direction: column; gap: 10px; }
+      .pp-card {
+        padding: 16px 20px; background: #fff; border: 1px solid #e6e8e5; border-radius: 12px;
+        cursor: pointer; transition: box-shadow 0.15s;
+      }
+      .pp-card:hover { box-shadow: 0 2px 12px rgba(0,0,0,0.06); }
+      .pp-card-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
+      .pp-card-title { font-size: 14px; font-weight: 600; color: #0d5b47; }
+      .pp-card-company { font-size: 12px; color: #6b7770; }
+      .pp-card-summary { font-size: 13px; color: #1b241f; line-height: 1.6; margin-bottom: 8px; }
+      .pp-card-tags { display: flex; flex-wrap: wrap; gap: 4px; }
+      .pp-tag {
+        padding: 2px 10px; font-size: 11px; color: #0d5b47; background: #eef7f2;
+        border: 1px solid #bfe3cd; border-radius: 99px;
+      }
+      .pp-empty { text-align: center; padding: 60px 20px; color: #8a938c; font-size: 14px; }
+      .pp-filters { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 12px; }
+      .pp-filter-tag { padding: 3px 10px; font-size: 11px; background: #E1F5EE; color: #085041; border-radius: 99px; }
+      .pp-del-btn {
+        padding: 2px 8px; font-size: 11px; color: #a32d2d; background: none; border: 1px solid #e6c4c4;
+        border-radius: 4px; cursor: pointer; margin-left: auto;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="app">
+      <nav class="sidebar">
+        <div class="side-brand"><span class="brand-mark"></span><span>kinbot</span></div>
+        <a class="side-item" href="index.html"><span class="side-ico ico-rec"></span><span class="side-label">レコーディング</span></a>
+        <a class="side-item" href="history.html"><span class="side-ico ico-hist"></span><span class="side-label">商談履歴</span></a>
+        <a class="side-item" href="deals.html"><span class="side-ico ico-deal"></span><span class="side-label">案件</span></a>
+        <a class="side-item" href="report.html"><span class="side-ico ico-ana"></span><span class="side-label">実績</span></a>
+        <a class="side-item" href="style-analysis.html"><span class="side-ico ico-ana"></span><span class="side-label">営業スタイル分析</span></a>
+        <a class="side-item" href="dashboard.html"><span class="side-ico ico-ana"></span><span class="side-label">ダッシュボード</span></a>
+        <a class="side-item active" href="proposals.html"><span class="side-ico ico-deal"></span><span class="side-label">提案資料</span></a>
+        <a class="side-item" href="settings.html"><span class="side-ico ico-set"></span><span class="side-label">設定</span></a>
+        <div class="side-foot"><span id="who" class="who"></span><a href="#" id="logout" class="side-logout">ログアウト</a></div>
+      </nav>
+      <div class="main">
+        <header class="topbar">
+          <div class="brand"><img class="topbar-bot" src="kinbot.svg" alt="" /><span class="brand-name">提案資料</span></div>
+        </header>
+        <main class="pp-page">
+          <div class="pp-search-bar">
+            <input type="text" id="ppQuery" class="pp-search-input" placeholder="例：介護業界の提案資料、受注した企業の資料、100人以上の会社..." />
+            <button class="pp-search-btn" id="ppSearchBtn">🔍 AI検索</button>
+          </div>
+          <div class="pp-hint">自然言語で検索できます。業界・従業員規模・受注結果などをAIが自動で判別してフィルタリングします。</div>
+          <div id="ppFilters" class="pp-filters"></div>
+          <div id="ppResults" class="pp-results">
+            <div class="pp-empty">検索するか、下にスクロールして全資料を表示</div>
+          </div>
+        </main>
+      </div>
+    </div>
+    <script src="nav.js" defer></script>
+    <script>
+const $ = id => document.getElementById(id);
+const esc = s => String(s==null?"":s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+
+window.addEventListener("DOMContentLoaded", async () => {
+  $("ppSearchBtn").onclick = search;
+  $("ppQuery").addEventListener("keydown", e => { if (e.key === "Enter") search(); });
+  // 初期表示：全件
+  await loadAll();
+});
+
+async function loadAll() {
+  try {
+    const r = await fetch("/api/proposals");
+    const d = await r.json();
+    renderResults(d.proposals || [], {});
+  } catch { renderResults([], {}); }
+}
+
+async function search() {
+  const q = $("ppQuery").value.trim();
+  if (!q) return loadAll();
+  $("ppResults").innerHTML = '<div class="pp-empty">🔍 AI検索中...</div>';
+  try {
+    const r = await fetch("/api/proposals/search?q=" + encodeURIComponent(q));
+    const d = await r.json();
+    // AIが解析したフィルタを表示
+    const filters = d.filters || {};
+    let fhtml = "";
+    if (filters.industry) fhtml += `<span class="pp-filter-tag">業界: ${esc(filters.industry)}</span>`;
+    if (filters.employee_size) fhtml += `<span class="pp-filter-tag">規模: ${esc(filters.employee_size)}</span>`;
+    if (filters.region) fhtml += `<span class="pp-filter-tag">地域: ${esc(filters.region)}</span>`;
+    if (filters.result) fhtml += `<span class="pp-filter-tag">結果: ${esc(filters.result)}</span>`;
+    $("ppFilters").innerHTML = fhtml;
+    renderResults(d.proposals || [], filters);
+  } catch (e) {
+    $("ppResults").innerHTML = `<div class="pp-empty">検索に失敗しました: ${esc(e.message)}</div>`;
+  }
+}
+
+function renderResults(proposals, filters) {
+  if (!proposals.length) {
+    $("ppResults").innerHTML = '<div class="pp-empty">該当する資料がありません</div>';
+    return;
+  }
+  $("ppResults").innerHTML = proposals.map(p => {
+    const tags = [];
+    if (p.industry) tags.push(p.industry);
+    if (p.employee_size) tags.push(p.employee_size);
+    if (p.region) tags.push(p.region);
+    if (p.result) tags.push(p.result === "受注" ? "✅ 受注" : p.result === "失注" ? "❌ 失注" : "⏳ 進行中");
+    if (p.tags?.keywords) for (const k of p.tags.keywords) tags.push(k);
+    return `<div class="pp-card" onclick="window.open('${esc(p.slide_url)}','_blank')">
+      <div class="pp-card-head">
+        <div>
+          <div class="pp-card-title">📊 ${esc(p.filename)}</div>
+          <div class="pp-card-company">${esc(p.company_name)}${p.uploaded_at ? " · " + new Date(p.uploaded_at).toLocaleDateString("ja") : ""}</div>
+        </div>
+        <button class="pp-del-btn" onclick="event.stopPropagation();delProposal(${p.id})">削除</button>
+      </div>
+      <div class="pp-card-summary">${esc(p.summary || "")}</div>
+      <div class="pp-card-tags">${tags.map(t => `<span class="pp-tag">${esc(t)}</span>`).join("")}</div>
+    </div>`;
+  }).join("");
+}
+
+async function delProposal(id) {
+  if (!confirm("この資料を削除しますか？")) return;
+  await fetch("/api/proposals/" + id, { method: "DELETE" });
+  search();
+}
+    </script>
+  </body>
+</html>

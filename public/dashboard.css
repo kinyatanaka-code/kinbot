@@ -21,8 +21,11 @@
 
 /* ウィジェットグリッド（flexbox: リサイズしたウィジェットが自由に並ぶ） */
 .db-grid {
-  display: flex; flex-wrap: wrap; gap: 14px; align-items: flex-start;
+  display: grid;
+  grid-template-columns: repeat(12, 1fr);
+  gap: 14px;
   min-height: 200px;
+  align-items: start;
 }
 .db-grid-empty {
   grid-column: 1 / -1; padding: 60px 20px; text-align: center;
@@ -34,22 +37,19 @@
   background: #fff; border: 1px solid #e6e8e5; border-radius: 12px;
   padding: 16px 18px; position: relative;
   transition: box-shadow 0.15s, border-color 0.15s;
-  cursor: default;
-  /* リサイズ：角と側面をドラッグで伸縮 */
-  resize: both;
-  overflow: auto;
-  min-width: 250px;
-  min-height: 150px;
+  overflow: hidden;
+  min-height: 120px;
+  grid-column: span 6;
 }
 .db-widget:hover { box-shadow: 0 2px 12px rgba(0,0,0,0.06); }
-.db-widget.dragging {
-  opacity: 0.4; transform: scale(0.97);
-  box-shadow: 0 8px 24px rgba(0,0,0,0.15);
-}
-.db-widget.drag-over {
-  border-color: #1d9e75; border-width: 2px;
-  box-shadow: 0 0 0 3px rgba(29,158,117,0.15);
-}
+.db-widget.dragging { opacity: 0.4; box-shadow: 0 8px 24px rgba(0,0,0,0.15); }
+.db-widget.drag-over { border-color: #1d9e75; border-width: 2px; box-shadow: 0 0 0 3px rgba(29,158,117,0.15); }
+.db-w-3 { grid-column: span 3 !important; }
+.db-w-4 { grid-column: span 4 !important; }
+.db-w-6 { grid-column: span 6 !important; }
+.db-w-8 { grid-column: span 8 !important; }
+.db-w-12 { grid-column: span 12 !important; }
+@media (max-width: 900px) { .db-widget { grid-column: span 12 !important; } }
 .db-widget-head {
   display: flex; align-items: center; justify-content: space-between;
   margin-bottom: 12px;
@@ -194,8 +194,9 @@
   display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 10px;
 }
 .db-wf-select {
-  padding: 4px 8px; font-size: 11.5px;
+  padding: 4px 8px; font-size: 11px;
   border: 1px solid #dfe4df; border-radius: 6px; background: #fff; color: #1b241f;
+  max-width: 100%; min-width: 0; flex: 0 1 auto;
 }
 
 /* フィルタ選択チェックボックス（作成モーダル内） */
