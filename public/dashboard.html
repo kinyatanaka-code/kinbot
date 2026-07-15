@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>kinbot ダッシュボード</title>
     <link rel="stylesheet" href="style.css" />
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/gridstack.js/10.3.1/gridstack.min.css" />
     <link rel="stylesheet" href="dashboard.css" />
   </head>
   <body>
@@ -18,7 +19,6 @@
         <a class="side-item" href="style-analysis.html"><span class="side-ico ico-ana"></span><span class="side-label">営業スタイル分析</span></a>
         <a class="side-item active" href="dashboard.html"><span class="side-ico ico-ana"></span><span class="side-label">ダッシュボード</span></a>
         <a class="side-item" href="proposals.html"><span class="side-ico ico-deal"></span><span class="side-label">提案資料</span></a>
-        <a class="side-item" href="apo.html"><span class="side-ico ico-apo"></span><span class="side-label">アポ振り分け</span></a>
         <a class="side-item" href="settings.html"><span class="side-ico ico-set"></span><span class="side-label">設定</span></a>
         <div class="side-foot"><span id="who" class="who"></span><a href="#" id="logout" class="side-logout">ログアウト</a></div>
       </nav>
@@ -27,19 +27,14 @@
           <div class="brand"><img class="topbar-bot" src="kinbot.svg" alt="" /><span class="brand-name">ダッシュボード</span></div>
         </header>
         <main class="db-page">
-          <!-- グローバルフィルタ -->
           <div class="db-toolbar">
-            <input type="date" id="dbFrom" title="開始日" />
+            <input type="date" id="dbFrom" />
             <span class="db-sep">〜</span>
-            <input type="date" id="dbTo" title="終了日" />
-            <select id="dbOwner" title="担当者"><option value="">全員</option></select>
+            <input type="date" id="dbTo" />
+            <select id="dbOwner"><option value="">全員</option></select>
             <button class="db-add-btn" id="addWidgetBtn">＋ ウィジェットを追加</button>
           </div>
-
-          <!-- ウィジェットグリッド -->
-          <div class="db-grid" id="dbGrid"></div>
-
-          <!-- ウィジェット追加モーダル -->
+          <div class="grid-stack" id="dbGrid"></div>
           <div class="db-modal-overlay" id="addModal" hidden>
             <div class="db-modal">
               <div class="db-modal-head"><h3>ウィジェットを追加</h3><button class="db-modal-close" id="closeModal">✕</button></div>
@@ -50,6 +45,7 @@
       </div>
     </div>
     <script src="nav.js" defer></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/gridstack.js/10.3.1/gridstack-all.min.js"></script>
     <script src="dashboard.js" defer></script>
   </body>
 </html>
