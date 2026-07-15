@@ -11,30 +11,35 @@ const ownerName = (email) => userMap[String(email||"").toLowerCase()] || email |
 
 // ===== 軸・指標の定義 =====
 const AXIS_OPTIONS = [
-  { value: "owner",                   label: "担当者" },
-  { value: "customer_employee_size",   label: "従業員規模" },
-  { value: "customer_industry",        label: "業界" },
-  { value: "customer_hq_region",       label: "地域" },
-  { value: "hiring_type_need",         label: "新卒/中途" },
-  { value: "target_hire_count",        label: "採用人数" },
-  { value: "appeal_points_used",       label: "訴求内容" },
-  { value: "talk_patterns",            label: "話法の型" },
-  { value: "objection_handling_style", label: "懸念対応" },
-  { value: "discovery_items_covered",  label: "ヒアリング深度" },
-  { value: "customer_response_status", label: "顧客反応" },
-  { value: "result",                   label: "受注結果" },
+  { value: "owner",                   label: "担当者",       group: "基本" },
+  { value: "customer_employee_size",   label: "従業員規模",   group: "売り先" },
+  { value: "customer_industry",        label: "業界",         group: "売り先" },
+  { value: "customer_hq_region",       label: "地域",         group: "売り先" },
+  { value: "hiring_type_need",         label: "新卒/中途",    group: "売り先" },
+  { value: "target_hire_count",        label: "採用人数",     group: "売り先" },
+  { value: "target_job_type",          label: "職種",         group: "売り先" },
+  { value: "appeal_points_used",       label: "訴求内容",     group: "売り方" },
+  { value: "talk_patterns",            label: "話法の型",     group: "売り方" },
+  { value: "objection_handling_style", label: "懸念対応",     group: "売り方" },
+  { value: "discovery_items_covered",  label: "ヒアリング深度", group: "売り方" },
+  { value: "meeting_stages",           label: "ステップ構成", group: "売り方" },
+  { value: "customer_response_status", label: "顧客反応",     group: "商談状況" },
+  { value: "result",                   label: "受注結果",     group: "商談状況" },
 ];
 const METRIC_OPTIONS = [
-  { value: "count",         label: "件数" },
-  { value: "response_rate", label: "案件化率" },
-  { value: "won_rate",      label: "受注率" },
-  { value: "pct",           label: "構成比（%）" },
+  { value: "count",          label: "件数" },
+  { value: "response_rate",  label: "案件化率" },
+  { value: "re_meeting_rate", label: "再商談実施率" },
+  { value: "won_rate",       label: "受注率" },
+  { value: "pct",            label: "構成比（%）" },
 ];
 const CHART_TYPES = [
-  { value: "bar",   label: "棒グラフ",   icon: "📊" },
-  { value: "pie",   label: "円グラフ",   icon: "🍩" },
-  { value: "kpi",   label: "KPIカード", icon: "🔢" },
-  { value: "table", label: "テーブル",   icon: "📋" },
+  { value: "bar",     label: "棒グラフ",     icon: "📊" },
+  { value: "hbar",    label: "横棒ランキング", icon: "🏅" },
+  { value: "pie",     label: "円グラフ",     icon: "🍩" },
+  { value: "kpi",     label: "KPIカード",   icon: "🔢" },
+  { value: "table",   label: "テーブル",     icon: "📋" },
+  { value: "crosstab", label: "クロス集計",  icon: "🗺" },
 ];
 const ARRAY_FIELDS = new Set(["appeal_points_used","talk_patterns","discovery_items_covered","key_pain_points","objections_raised","meeting_stages"]);
 
@@ -141,6 +146,8 @@ function calcMetric(tags, axis, metric) {
         if (t.customer_response_status === "担当者合意" || t.customer_response_status === "案件化") groups[k].hit++;
       } else if (metric === "won_rate") {
         if (t.result === "受注") groups[k].hit++;
+      } else if (metric === "re_meeting_rate") {
+        if (t.result === "受注" || t.customer_response_status === "担当者合意") groups[k].hit++;
       }
     }
   }
@@ -159,6 +166,10 @@ function getKpiValue(tags, metric) {
   }
   if (metric === "won_rate") {
     const hit = tags.filter(t => t.result === "受注").length;
+    return { value: Math.round(hit / total * 100) + "%", sub: `${hit}/${total}件` };
+  }
+  if (metric === "re_meeting_rate") {
+    const hit = tags.filter(t => t.result === "受注" || t.customer_response_status === "担当者合意").length;
     return { value: Math.round(hit / total * 100) + "%", sub: `${hit}/${total}件` };
   }
   return { value: String(total), sub: "" };
@@ -221,8 +232,10 @@ function drawWidget(w, el) {
   switch (w.chart) {
     case "kpi": return drawKpi(el, tags, w);
     case "bar": return drawBar(el, tags, w);
+    case "hbar": return drawHbar(el, tags, w);
     case "pie": return drawPie(el, tags, w);
     case "table": return drawTable(el, tags, w);
+    case "crosstab": return drawCrosstab(el, tags, w);
   }
 }
 
@@ -300,13 +313,105 @@ function drawTable(el, tags, w) {
   el.innerHTML = html;
 }
 
+// --- 横棒ランキング（Top N、件数のみ） ---
+function drawHbar(el, tags, w) {
+  const data = getValues(tags, w.axis).slice(0, 10);
+  if (!data.length) { el.innerHTML = '<div class="db-empty">データなし</div>'; return; }
+  const max = data[0][1] || 1;
+  el.innerHTML = data.map(([name, n], i) => {
+    const pct = Math.round(n / max * 100);
+    return `<div class="db-bar-row">
+      <div class="db-bar-label" style="width:24px;text-align:center;font-weight:700;color:#0d5b47;">${i + 1}</div>
+      <div class="db-bar-label" title="${esc(name)}">${esc(name)}</div>
+      <div class="db-bar-track"><div class="db-bar-fill" style="width:${pct}%;background:#1d9e75;">${pct > 15 ? n + "件" : ""}</div></div>
+      <div class="db-bar-val">${n}件</div>
+    </div>`;
+  }).join("");
+}
+
+// --- クロス集計（行軸×列軸のヒートマップ） ---
+function drawCrosstab(el, tags, w) {
+  const rowAxis = w.axis;
+  const colAxis = w.axis2 || "owner";
+  const metric = w.metric;
+  const isRate = metric === "response_rate" || metric === "won_rate" || metric === "re_meeting_rate";
+
+  // 行と列の値を収集
+  const rowVals = new Set();
+  const colVals = new Set();
+  const cells = {};
+  for (const t of tags) {
+    let rows, cols;
+    if (ARRAY_FIELDS.has(rowAxis)) {
+      const arr = Array.isArray(t[rowAxis]) ? t[rowAxis] : [];
+      rows = rowAxis === "meeting_stages" ? arr.filter(s => s?.step).map(s => s.step) : arr.filter(Boolean);
+    } else {
+      let v = t[rowAxis]; if (rowAxis === "owner") v = ownerName(v);
+      rows = [v || "不明"];
+    }
+    if (ARRAY_FIELDS.has(colAxis)) {
+      const arr = Array.isArray(t[colAxis]) ? t[colAxis] : [];
+      cols = colAxis === "meeting_stages" ? arr.filter(s => s?.step).map(s => s.step) : arr.filter(Boolean);
+    } else {
+      let v = t[colAxis]; if (colAxis === "owner") v = ownerName(v);
+      cols = [v || "不明"];
+    }
+    const isHit = (metric === "response_rate" && (t.customer_response_status === "担当者合意" || t.customer_response_status === "案件化"))
+      || (metric === "won_rate" && t.result === "受注")
+      || (metric === "re_meeting_rate" && (t.result === "受注" || t.customer_response_status === "担当者合意"));
+    for (const r of rows) { rowVals.add(r); for (const c of cols) { colVals.add(c);
+      const k = r + "|||" + c;
+      if (!cells[k]) cells[k] = { total: 0, hit: 0 };
+      cells[k].total++; if (isHit) cells[k].hit++;
+    }}
+  }
+  const rowList = [...rowVals].sort(); const colList = [...colVals].sort();
+  if (!rowList.length || !colList.length) { el.innerHTML = '<div class="db-empty">データなし</div>'; return; }
+  const colLabel = AXIS_OPTIONS.find(a => a.value === colAxis)?.label || colAxis;
+
+  let html = `<div style="overflow-x:auto;"><table class="db-table"><thead><tr><th></th>`;
+  for (const c of colList) html += `<th style="text-align:center;font-size:10.5px;">${esc(c)}</th>`;
+  html += `</tr></thead><tbody>`;
+  for (const r of rowList) {
+    html += `<tr><td style="font-weight:500;white-space:nowrap;">${esc(r)}</td>`;
+    for (const c of colList) {
+      const cell = cells[r + "|||" + c];
+      if (!cell || !cell.total) { html += `<td style="text-align:center;color:#ccc;">—</td>`; continue; }
+      const val = isRate ? Math.round(cell.hit / cell.total * 100) : cell.total;
+      const suffix = isRate ? "%" : "";
+      const rate = isRate ? cell.hit / cell.total : cell.total / (tags.length || 1);
+      const bg = rate > 0.5 ? "#1d9e75" : rate > 0.25 ? "#BA7517" : rate > 0 ? "#D85A30" : "#f2f0eb";
+      const color = rate > 0 ? "#fff" : "#ccc";
+      html += `<td style="text-align:center;background:${bg};color:${color};border-radius:4px;font-weight:600;font-size:11px;padding:6px 4px;">${val}${suffix}<div style="font-size:9px;opacity:0.8;">${cell.hit}/${cell.total}</div></td>`;
+    }
+    html += `</tr>`;
+  }
+  html += `</tbody></table></div>`;
+  el.innerHTML = html;
+}
+
 // ===== ウィジェット作成/編集モーダル =====
 function openCreator(editWidget) {
   const isEdit = !!editWidget;
   const modal = $("addModal");
   const body = $("widgetCatalog");
 
-  const defaults = editWidget || { chart: "bar", axis: "owner", metric: "response_rate", title: "" };
+  const defaults = editWidget || { chart: "bar", axis: "owner", axis2: "customer_employee_size", metric: "response_rate", title: "" };
+
+  // 軸をグループ別に並べる
+  const axisChips = (id, selected) => {
+    let html = "";
+    let lastGroup = "";
+    for (const a of AXIS_OPTIONS) {
+      if (a.group !== lastGroup) {
+        if (lastGroup) html += '<span style="width:100%;height:0;"></span>';
+        html += `<span style="font-size:10px;color:#8a938c;padding:2px 4px;">${a.group}:</span>`;
+        lastGroup = a.group;
+      }
+      html += `<button class="db-chip${a.value === selected ? " active" : ""}" data-value="${a.value}">${a.label}</button>`;
+    }
+    return html;
+  };
 
   body.innerHTML = `
     <div class="db-creator">
@@ -323,13 +428,16 @@ function openCreator(editWidget) {
       </div>
 
       <div class="db-creator-section" id="wcAxisSection">
-        <label class="db-creator-label">集計軸（横軸）</label>
-        <div class="db-creator-chips" id="wcAxis">
-          ${AXIS_OPTIONS.map(a => `<button class="db-chip${a.value === defaults.axis ? " active" : ""}" data-value="${a.value}">${a.label}</button>`).join("")}
-        </div>
+        <label class="db-creator-label">集計軸（行軸）</label>
+        <div class="db-creator-chips" id="wcAxis">${axisChips("wcAxis", defaults.axis)}</div>
       </div>
 
-      <div class="db-creator-section">
+      <div class="db-creator-section" id="wcAxis2Section" style="display:none;">
+        <label class="db-creator-label">列軸（クロス集計の2つ目の軸）</label>
+        <div class="db-creator-chips" id="wcAxis2">${axisChips("wcAxis2", defaults.axis2)}</div>
+      </div>
+
+      <div class="db-creator-section" id="wcMetricSection">
         <label class="db-creator-label">指標</label>
         <div class="db-creator-chips" id="wcMetric">
           ${METRIC_OPTIONS.map(m => `<button class="db-chip${m.value === defaults.metric ? " active" : ""}" data-value="${m.value}">${m.label}</button>`).join("")}
@@ -351,14 +459,17 @@ function openCreator(editWidget) {
     </div>
   `;
 
-  let state = { chart: defaults.chart, axis: defaults.axis, metric: defaults.metric };
+  let state = { chart: defaults.chart, axis: defaults.axis, axis2: defaults.axis2, metric: defaults.metric };
 
   function updatePreview() {
     const title = $("wcTitle").value || autoTitle(state);
     $("wcPreviewTitle").textContent = title;
-    // KPIの場合は軸セクション非表示
     const axisSec = $("wcAxisSection");
+    const axis2Sec = $("wcAxis2Section");
+    const metricSec = $("wcMetricSection");
     if (axisSec) axisSec.style.display = state.chart === "kpi" ? "none" : "";
+    if (axis2Sec) axis2Sec.style.display = state.chart === "crosstab" ? "" : "none";
+    if (metricSec) metricSec.style.display = state.chart === "hbar" ? "none" : "";
     drawWidget({ ...state, title }, $("wcPreviewBody"));
   }
 
@@ -377,6 +488,7 @@ function openCreator(editWidget) {
 
   bindChips("wcChart", "chart");
   bindChips("wcAxis", "axis");
+  bindChips("wcAxis2", "axis2");
   bindChips("wcMetric", "metric");
   $("wcTitle").addEventListener("input", updatePreview);
 
@@ -385,9 +497,9 @@ function openCreator(editWidget) {
     const title = $("wcTitle").value || autoTitle(state);
     if (isEdit) {
       const w = widgets.find(x => x.id === editWidget.id);
-      if (w) { w.chart = state.chart; w.axis = state.axis; w.metric = state.metric; w.title = title; }
+      if (w) { w.chart = state.chart; w.axis = state.axis; w.axis2 = state.axis2; w.metric = state.metric; w.title = title; }
     } else {
-      widgets.push({ id: "w" + (++widgetIdCounter), chart: state.chart, axis: state.axis, metric: state.metric, title });
+      widgets.push({ id: "w" + (++widgetIdCounter), chart: state.chart, axis: state.axis, axis2: state.axis2, metric: state.metric, title });
     }
     saveLayout(); modal.hidden = true; renderGrid();
   });
@@ -399,7 +511,11 @@ function openCreator(editWidget) {
 function autoTitle(state) {
   const axisLabel = AXIS_OPTIONS.find(a => a.value === state.axis)?.label || state.axis;
   const metricLabel = METRIC_OPTIONS.find(m => m.value === state.metric)?.label || state.metric;
-  const chartLabel = CHART_TYPES.find(c => c.value === state.chart)?.label || "";
   if (state.chart === "kpi") return metricLabel;
+  if (state.chart === "hbar") return `${axisLabel} ランキング`;
+  if (state.chart === "crosstab") {
+    const axis2Label = AXIS_OPTIONS.find(a => a.value === state.axis2)?.label || state.axis2;
+    return `${axisLabel} × ${axis2Label} ${metricLabel}`;
+  }
   return `${axisLabel}別 ${metricLabel}`;
 }
