@@ -2524,11 +2524,42 @@ app.get("/api/feature-c/tags", async (req, res) => {
     // enterprise_attributesではなく、gBizINFO/AI取得済みの既存プロフィールを使う設計。
     const deals = await listDeals({});
     const dealCompany = {};
+    const dealExcluded = new Set(); // ユーザーフォロー・社内MTGを除外
+    for (const d of deals || []) {
+      dealCompany[d.deal_id] = d.company_name || "";
+      // 商談タイトルに【ユ/フォ】【社内MTG】が含まれる案件を除外
+      const title = d.company_name || "";
+      if (/【ユ[/／]フォ】|ユーザーフォロー|【社内MTG】|社内ミーティング/.test(title)) {
+        dealExcluded.add(d.deal_id);
+      }
+    }
+    // meetingsのタイトルに【ユ/フォ】【社内MTG】が含まれる案件を除外
+    try {
+      const meetings = await listMeetings({ isAdmin: true });
+      for (const m of meetings || []) {
+        const t = m.title || "";
+        if (/【ユ[/／]フォ】|ユーザーフォロー|【社内MTG】|社内ミーティング/.test(t)) {
+          // この商談が属する案件を見つけて除外
+          for (const [did, cn] of Object.entries(dealCompany)) {
+            // ownerベースで紐付け（同じowner+company_nameの案件を除外）
+            if (m.owner && cn) {
+              // company_nameが一致する案件を除外
+              const dealMatch = deals.find(d => d.deal_id === did);
+              if (dealMatch && (dealMatch.company_name === cn || t.includes(cn))) {
+                dealExcluded.add(did);
+              }
+            }
+          }
+        }
+      }
+    } catch {}
+    // 除外
+    const filteredRows = rows.filter(r => !dealExcluded.has(r.deal_id));
     for (const d of deals || []) dealCompany[d.deal_id] = d.company_name || "";
     const accounts = await listAccounts();
     const accountMap = {};
     for (const a of accounts) accountMap[a.key] = a;
-    for (const r of rows) {
+    for (const r of filteredRows) {
       const company = dealCompany[r.deal_id] || "";
       r.company_name = company;
       const acc = accountMap[company];
@@ -2574,7 +2605,7 @@ app.get("/api/feature-c/tags", async (req, res) => {
         }
       }
     }
-    res.json({ tags: rows, total: rows.length });
+    res.json({ tags: filteredRows, total: filteredRows.length });
   } catch (e) {
     console.error("[feature-c/tags]", e.message);
     res.status(500).json({ error: e.message });

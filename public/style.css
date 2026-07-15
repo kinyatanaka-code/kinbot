@@ -2615,3 +2615,15 @@ button.np-step:disabled { opacity: 0.6; cursor: wait; }
   font-size: 14px; color: #ccc; cursor: pointer; border-radius: 4px;
 }
 .proposal-del-btn:hover { background: #fde8e8; color: #a32d2d; }
+
+/* 商談種別タブ */
+.deal-view-tabs { display: flex; gap: 4px; padding: 12px 16px 0; }
+.deal-view-tab {
+  padding: 6px 16px; font-size: 13px; font-weight: 500;
+  color: #5f6b63; background: transparent; border: none; border-bottom: 2px solid transparent;
+  cursor: pointer; transition: all 0.15s;
+}
+.deal-view-tab:hover { color: #0d5b47; }
+.deal-view-tab.active { color: #0d5b47; border-bottom-color: #0d5b47; }
+.kind-badge.kind-follow { background: #fdf6e3; color: #8a6d1a; border: 1px solid #ecd9a0; }
+.kind-badge.kind-internal { background: #e8e6f5; color: #534AB7; border: 1px solid #c5c0e5; }

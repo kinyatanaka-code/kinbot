@@ -120,20 +120,31 @@ async function renderOwnerPicker(account, last) {
 
 // 商談名から種別（コールド/過去失注）を推定（履歴側と同じ基準）
 function inferDealKindD(title) {
-  const t = String(title || "").toLowerCase();
-  if (/過去失注|既存失注|失注済|再アプローチ|掘り起こし|ほりおこし/.test(title || "")) return "過去失注";
-  if (/コールド|新規開拓|テレアポ|飛び込み|とびこみ/.test(title || "") || /\bcold\b/.test(t)) return "コールド";
+  const t = String(title || "");
+  if (/【ユ[/／]フォ】|ユーザーフォロー/.test(t)) return "ユーザーフォロー";
+  if (/【社内MTG】|社内ミーティング|社内打ち合わせ/.test(t)) return "社内MTG";
+  if (/過去失注|既存失注|失注済|再アプローチ|掘り起こし|ほりおこし/.test(t)) return "過去失注";
+  if (/コールド|新規開拓|テレアポ|飛び込み|とびこみ/.test(t) || /\bcold\b/i.test(t)) return "コールド";
   return "";
+}
+// 営業案件かどうか（ユーザーフォロー・社内MTGでない）
+function isSalesDeal(account) {
+  const kind = dealKindOf(account);
+  return kind !== "ユーザーフォロー" && kind !== "社内MTG";
 }
 // 案件（複数商談）の種別を決める：保存済みdeal_kind優先、無ければタイトル推定。過去失注 > コールド。
 function dealKindOf(account) {
   const ms = groups[account] || [];
-  let cold = false, lost = false;
+  let cold = false, lost = false, userFollow = false, internalMtg = false;
   for (const m of ms) {
     const k = m.deal_kind || inferDealKindD(m.title);
-    if (k === "過去失注") lost = true;
+    if (k === "ユーザーフォロー") userFollow = true;
+    else if (k === "社内MTG") internalMtg = true;
+    else if (k === "過去失注") lost = true;
     else if (k === "コールド") cold = true;
   }
+  if (userFollow) return "ユーザーフォロー";
+  if (internalMtg) return "社内MTG";
   return lost ? "過去失注" : cold ? "コールド" : "";
 }
 const PHASE_NEED_D = {
@@ -962,14 +973,23 @@ function accountCardEl(a) {
 function renderList() {
   buildGroups();
   const el = $("dealList");
-  // プロダクト（DOC/MOCHICA）タブの絞り込み。その案件を担当した人の所属で判定する。
+  // プロダクト（DOC/MOCHICA）タブの絞り込み
   const inProduct = (a) => {
     if (!window.kbProduct) return true;
     const ms = groups[a] || [];
     const last = ms[ms.length - 1] || {};
     return window.kbProduct.matches(last.owner_name || last.owner);
   };
-  const names = Object.keys(groups).filter(inProduct).sort((a, b) => {
+  // 商談種別フィルタ（営業案件 / ユーザーフォロー / 社内MTG）
+  const viewFilter = window._dealViewFilter || "sales";
+  const inView = (a) => {
+    const kind = dealKindOf(a);
+    if (viewFilter === "sales") return kind !== "ユーザーフォロー" && kind !== "社内MTG";
+    if (viewFilter === "user_follow") return kind === "ユーザーフォロー";
+    if (viewFilter === "internal") return kind === "社内MTG";
+    return true; // "all"
+  };
+  const names = Object.keys(groups).filter(a => inProduct(a) && inView(a)).sort((a, b) => {
     const la = groups[a][groups[a].length - 1].created_at;
     const lb = groups[b][groups[b].length - 1].created_at;
     return new Date(lb) - new Date(la);
@@ -1138,7 +1158,7 @@ async function selectDeal(account) {
     (isStatusApprover()
       ? `<h2 id="dealTitleH2">${esc(displayName(account))}<button type="button" class="deal-name-edit" id="dealNameEditBtn" title="会社名を編集">✎</button></h2>`
       : `<h2>${esc(displayName(account))}</h2>`) +
-    (dealKindOf(account) ? `<span class="kind-badge ${dealKindOf(account) === "過去失注" ? "kind-lost" : "kind-cold"}">${dealKindOf(account)}</span>` : "") +
+    (dealKindOf(account) ? `<span class="kind-badge ${{"過去失注":"kind-lost","コールド":"kind-cold","ユーザーフォロー":"kind-follow","社内MTG":"kind-internal"}[dealKindOf(account)] || "kind-normal"}">${dealKindOf(account)}</span>` : "") +
     `<div class="deal-status-pick"><span class="status-badge st-${statusOf(account)}" id="dealStBadge">${statusOf(account)}</span>` +
     `<select id="dealStSel">${STATUS_LIST.map((s) => `<option value="${s}" ${statusOf(account) === s ? "selected" : ""}>${s}</option>`).join("")}<option value="__auto">AIに任せる</option></select></div></div>` +
     `<div class="deal-head-meta"><span id="dealOwnerWrap" class="deal-owner-wrap"></span> ・ ${ms.length}回の商談` +
@@ -1665,3 +1685,19 @@ async function deleteProposal(id, dealId) {
     loadProposals(dealId);
   } catch {}
 }
+
+// ===== 商談種別タブ（営業案件 / ユーザーフォロー / 社内MTG） =====
+window._dealViewFilter = "sales";
+document.addEventListener("DOMContentLoaded", () => {
+  const tabs = document.getElementById("dealViewTabs");
+  if (!tabs) return;
+  tabs.querySelectorAll(".deal-view-tab").forEach(btn => {
+    btn.addEventListener("click", () => {
+      tabs.querySelectorAll(".deal-view-tab").forEach(b => b.classList.remove("active"));
+      btn.classList.add("active");
+      window._dealViewFilter = btn.dataset.view;
+      selectedRep = null; showAll = false; current = null;
+      try { renderList(); } catch {}
+    });
+  });
+});
