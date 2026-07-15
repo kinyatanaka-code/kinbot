@@ -1217,12 +1217,18 @@ async function selectDeal(account) {
         const dealId = np?.deal_id || "";
         const acc2 = accountsMap[primaryOf(account)] || {};
         const prof = acc2.profile || {};
+
+        // スライドのタイトルをURLから推測（ブラウザからはAPIアクセスが制限される）
+        const slideTitle = displayName(account) + " 提案資料";
+
         const r = await fetch("/api/proposals", {
           method: "POST",
           headers: { "content-type": "application/json" },
           body: JSON.stringify({
             slide_url: url,
             deal_id: dealId,
+            title: slideTitle,
+            text: "", // テキストはサーバー側で取得不可のため空。検索はメタデータで行う
             company_name: displayName(account),
             industry: prof.industry || "",
             employee_size: prof.employees || "",

@@ -4623,128 +4623,48 @@ function extractSlideId(url) {
   return m ? m[1] : null;
 }
 
-// Google Slides APIでテキストを取得（OAuth2トークンを使用）
-async function fetchSlideText(slideId, owner) {
-  // OAuth2トークンでSlides APIにアクセス
-  const { driveAccessToken } = await import("./google.js");
-  const token = await driveAccessToken(owner);
-
-  if (token) {
-    try {
-      const res = await fetch(
-        `https://slides.googleapis.com/v1/presentations/${slideId}`,
-        { headers: { Authorization: `Bearer ${token}` } }
-      );
-      if (res.ok) {
-        const data = await res.json();
-        const texts = [];
-        const title = data.title || "";
-        if (title) texts.push(title);
-        for (const slide of data.slides || []) {
-          for (const el of slide.pageElements || []) {
-            if (el.shape && el.shape.text) {
-              for (const te of el.shape.text.textElements || []) {
-                if (te.textRun && te.textRun.content) texts.push(te.textRun.content.trim());
-              }
-            }
-            if (el.table) {
-              for (const row of el.table.tableRows || []) {
-                for (const cell of row.tableCells || []) {
-                  if (cell.text) {
-                    for (const te of cell.text.textElements || []) {
-                      if (te.textRun && te.textRun.content) texts.push(te.textRun.content.trim());
-                    }
-                  }
-                }
-              }
-            }
-          }
-        }
-        return { title, text: texts.filter(Boolean).join("\n") };
-      }
-      console.warn(`[proposal] Slides API failed (${res.status}), falling back to export`);
-    } catch (e) {
-      console.warn("[proposal] Slides API error:", e.message);
-    }
-  }
-
-  // フォールバック: エクスポートURL（公開スライドの場合）
-  let text = "", title = "";
-  try {
-    const exportUrl = `https://docs.google.com/presentation/d/${slideId}/export/txt`;
-    const res = await fetch(exportUrl, { redirect: "follow" });
-    if (res.ok) {
-      text = await res.text();
-      const lines = text.split("\n").filter(l => l.trim());
-      title = lines[0] || "提案資料";
-    }
-  } catch {}
-
-  if (!text) {
-    title = "提案資料";
-    text = "（テキスト抽出に失敗しました。Googleカレンダー連携を行うか、スライドの共有設定を「リンクを知っている全員」にしてください）";
-  }
-  return { title, text };
-}
-
-// Geminiで要約＋タグ付け
-async function summarizeProposal(text, companyName) {
-  const { freeAnalyze } = await import("./analyzer.js");
-  const prompt = `以下は「${companyName || "不明"}」への提案資料のテキストです。
-
-1. 200字以内で要約してください（何を提案しているか、主要なポイント）
-2. この資料のキーワードを5つ以内で抽出してください
-
-JSON形式で回答:
-{"summary": "...", "keywords": ["...", "..."]}
-
-テキスト:
-${text.slice(0, 30000)}`;
-  try {
-    const raw = await freeAnalyze(prompt, { provider: "gemini", maxTokens: 500 });
-    const m = raw.match(/\{[\s\S]*\}/);
-    if (m) return JSON.parse(m[0]);
-  } catch (e) { console.error("[proposal] summarize error:", e.message); }
-  return { summary: text.slice(0, 200), keywords: [] };
-}
-
-// 登録API
+// 登録API（URLとメタデータを保存。テキストはクライアントから受け取る）
 app.post("/api/proposals", async (req, res) => {
   try {
-    const { slide_url, deal_id } = req.body || {};
+    const { slide_url, deal_id, text, title } = req.body || {};
     if (!slide_url) return res.status(400).json({ error: "URLが必要です" });
     const slideId = extractSlideId(slide_url);
     if (!slideId) return res.status(400).json({ error: "GoogleスライドのURLが正しくありません" });
 
-    // スライドのテキスト取得（OAuth2 → エクスポートフォールバック）
-    const { title, text } = await fetchSlideText(slideId, req.user || "");
-
-    // 案件情報はクライアントから受け取る
     const companyName = req.body.company_name || "";
     const industry = req.body.industry || "";
     const employeeSize = req.body.employee_size || "";
     const region = req.body.region || "";
     const dealResult = req.body.result || "";
+    const slideTitle = title || "提案資料";
+    const slideText = text || "";
 
-    // AI要約
-    const ai = await summarizeProposal(text, companyName);
+    // テキストがあればAI要約
+    let summary = "", keywords = [];
+    if (slideText && slideText.length > 20) {
+      try {
+        const { freeAnalyze } = await import("./analyzer.js");
+        const prompt = `以下は「${companyName || "不明"}」への提案資料のテキストです。
+1. 200字以内で要約（何を提案しているか）
+2. キーワード5つ以内
+JSON形式で: {"summary":"...","keywords":["..."]}
+テキスト:
+${slideText.slice(0, 30000)}`;
+        const raw = await freeAnalyze(prompt, { provider: "gemini", maxTokens: 500 });
+        const m = raw.match(/\{[\s\S]*\}/);
+        if (m) { const p = JSON.parse(m[0]); summary = p.summary || ""; keywords = p.keywords || []; }
+      } catch (e) { console.error("[proposal] summarize:", e.message); }
+    }
+    if (!summary) summary = slideText ? slideText.slice(0, 200) : `${companyName}への提案資料`;
 
     const row = await insertProposalFile({
-      deal_id: deal_id || null,
-      slide_url,
-      slide_id: slideId,
-      filename: title || "無題のプレゼンテーション",
-      uploaded_by: req.user || "",
-      summary: ai.summary,
-      extracted_text: text,
-      tags: { keywords: ai.keywords },
-      company_name: companyName,
-      industry,
-      employee_size: employeeSize,
-      region,
-      result: dealResult,
+      deal_id: deal_id || null, slide_url, slide_id: slideId,
+      filename: slideTitle, uploaded_by: req.user || "",
+      summary, extracted_text: slideText,
+      tags: { keywords },
+      company_name: companyName, industry, employee_size: employeeSize, region, result: dealResult,
     });
-    console.log(`[proposal] registered: ${title} (${companyName})`);
+    console.log(`[proposal] registered: ${slideTitle} (${companyName})`);
     res.json({ ok: true, proposal: row });
   } catch (e) {
     console.error("[proposal]", e.message);
