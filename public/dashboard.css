@@ -19,9 +19,9 @@
 }
 .db-add-btn:hover { background: #1d9e75; }
 
-/* ウィジェットグリッド */
+/* ウィジェットグリッド（flexbox: リサイズしたウィジェットが自由に並ぶ） */
 .db-grid {
-  display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 14px;
+  display: flex; flex-wrap: wrap; gap: 14px; align-items: flex-start;
   min-height: 200px;
 }
 .db-grid-empty {
@@ -33,10 +33,14 @@
 .db-widget {
   background: #fff; border: 1px solid #e6e8e5; border-radius: 12px;
   padding: 16px 18px; position: relative;
-  transition: box-shadow 0.15s, transform 0.15s, border-color 0.15s;
-  cursor: grab;
+  transition: box-shadow 0.15s, border-color 0.15s;
+  cursor: default;
+  /* リサイズ：角と側面をドラッグで伸縮 */
+  resize: both;
+  overflow: auto;
+  min-width: 250px;
+  min-height: 150px;
 }
-.db-widget:active { cursor: grabbing; }
 .db-widget:hover { box-shadow: 0 2px 12px rgba(0,0,0,0.06); }
 .db-widget.dragging {
   opacity: 0.4; transform: scale(0.97);
@@ -45,7 +49,6 @@
 .db-widget.drag-over {
   border-color: #1d9e75; border-width: 2px;
   box-shadow: 0 0 0 3px rgba(29,158,117,0.15);
-  transform: scale(1.01);
 }
 .db-widget-head {
   display: flex; align-items: center; justify-content: space-between;

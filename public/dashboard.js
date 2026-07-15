@@ -103,10 +103,9 @@ function renderGrid(){
     el.className="db-widget";
     el.dataset.id=w.id;
     el.draggable=true;
-    // サイズ
-    const span = w.size || "1";
-    if(span==="2") el.style.gridColumn="span 2";
-    if(span==="full") el.style.gridColumn="1 / -1";
+    // 保存されたサイズを復元
+    if (w.width) el.style.width = w.width;
+    if (w.height) el.style.height = w.height;
 
     // フィルタプルダウンHTML
     let filterHtml = "";
@@ -126,7 +125,6 @@ function renderGrid(){
       <div class="db-widget-drag" title="ドラッグで移動">⠿</div>
       <span class="db-widget-title">${esc(w.title)}</span>
       <div class="db-widget-actions">
-        <button class="db-widget-btn db-size-btn" data-a="size" title="サイズ変更">⇔</button>
         <button class="db-widget-btn" data-a="edit" title="編集">✎</button>
         <button class="db-widget-btn" data-a="del" title="削除">✕</button>
       </div>
@@ -134,12 +132,6 @@ function renderGrid(){
 
     el.querySelector('[data-a="del"]').onclick=()=>{widgets=widgets.filter(x=>x.id!==w.id);save();renderGrid()};
     el.querySelector('[data-a="edit"]').onclick=()=>openCreator(w);
-    el.querySelector('[data-a="size"]').onclick=()=>{
-      const sizes = ["1","2","full"];
-      const cur = w.size || "1";
-      w.size = sizes[(sizes.indexOf(cur)+1)%sizes.length];
-      save(); renderGrid();
-    };
 
     // フィルタプルダウン変更時にウィジェット再描画
     el.querySelectorAll(".db-wf-select").forEach(sel => {
@@ -158,6 +150,15 @@ function renderGrid(){
       if(fi<0||ti<0)return;const[mv]=widgets.splice(fi,1);widgets.splice(ti,0,mv);save();renderGrid();
     });
     grid.appendChild(el);
+    // リサイズ監視：ユーザーがドラッグでサイズ変更したら保存
+    const ro = new ResizeObserver(() => {
+      const cs = getComputedStyle(el);
+      const newW = el.style.width;
+      const newH = el.style.height;
+      if (newW && newW !== w.width) { w.width = newW; save(); }
+      if (newH && newH !== w.height) { w.height = newH; save(); }
+    });
+    ro.observe(el);
     drawWidget(w,$("wb_"+w.id));
   });
 }
@@ -243,16 +244,11 @@ function openCreator(edit){
     <div class="db-creator-section" id="wcAxisSec"><label class="db-creator-label">集計軸</label><div class="db-creator-chips" id="wcAxis">${axChips(d.axis)}</div></div>
     <div class="db-creator-section" id="wcAxis2Sec" style="display:none"><label class="db-creator-label">列軸</label><div class="db-creator-chips" id="wcAxis2">${axChips(d.axis2)}</div></div>
     <div class="db-creator-section" id="wcMetricSec"><label class="db-creator-label">指標</label><div class="db-creator-chips" id="wcMetric">${METRICS.map(m=>`<button class="db-chip${m.v===d.metric?" active":""}" data-value="${m.v}">${m.l}</button>`).join("")}</div></div>
-    <div class="db-creator-section"><label class="db-creator-label">サイズ</label><div class="db-creator-chips" id="wcSize">
-      <button class="db-chip${(d.size||"1")==="1"?" active":""}" data-value="1">小（1列）</button>
-      <button class="db-chip${d.size==="2"?" active":""}" data-value="2">中（2列）</button>
-      <button class="db-chip${d.size==="full"?" active":""}" data-value="full">大（全幅）</button>
-    </div></div>
     <div class="db-creator-section"><label class="db-creator-label">プルダウンフィルタを追加</label><div class="db-filter-checks" id="wcFilters">${filterChecks}</div></div>
     <div class="db-creator-preview"><label class="db-creator-label">プレビュー</label><div class="db-widget" style="cursor:default"><div class="db-widget-head"><span class="db-widget-title" id="wcPT">...</span></div><div class="db-widget-body" id="wcPB"></div></div></div>
     <div class="db-creator-actions"><button class="db-creator-cancel" id="wcCancel">キャンセル</button><button class="db-creator-save" id="wcSave">${isE?"更新":"追加"}</button></div>
   </div>`;
-  let st={chart:d.chart,axis:d.axis,axis2:d.axis2||"customer_employee_size",metric:d.metric,size:d.size||"1"};
+  let st={chart:d.chart,axis:d.axis,axis2:d.axis2||"customer_employee_size",metric:d.metric};
   function upd(){
     const t=$("wcTitle").value||autoTitle(st);$("wcPT").textContent=t;
     $("wcAxisSec").style.display=st.chart==="kpi"?"none":"";
@@ -261,7 +257,7 @@ function openCreator(edit){
     drawWidget({...st,title:t,filters:[]},$(  "wcPB"));
   }
   function bind(id,key){const c=$(id);if(!c)return;c.querySelectorAll(".db-chip").forEach(b=>b.addEventListener("click",()=>{c.querySelectorAll(".db-chip").forEach(x=>x.classList.remove("active"));b.classList.add("active");st[key]=b.dataset.value;upd()}))}
-  bind("wcChart","chart");bind("wcAxis","axis");bind("wcAxis2","axis2");bind("wcMetric","metric");bind("wcSize","size");
+  bind("wcChart","chart");bind("wcAxis","axis");bind("wcAxis2","axis2");bind("wcMetric","metric");
   $("wcTitle").addEventListener("input",upd);
   $("wcCancel").onclick=()=>modal.hidden=true;
   $("wcSave").onclick=()=>{
