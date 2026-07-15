@@ -167,8 +167,9 @@ function drawWidget(w,el){
   if(!el)return;
   try{
     const tags = applyWidgetFilters(allTags, w);
-    ({kpi:drawKpi,bar:drawBar,hbar:drawHbar,pie:drawPie,table:drawTable,crosstab:drawCross})[w.chart]?.(el,tags,w)
-    || (el.innerHTML='<div class="db-empty">未対応</div>');
+    const fn = {kpi:drawKpi,bar:drawBar,hbar:drawHbar,pie:drawPie,table:drawTable,crosstab:drawCross}[w.chart];
+    if (fn) fn(el,tags,w);
+    else el.innerHTML='<div class="db-empty">未対応のグラフ種類です</div>';
   }catch(e){el.innerHTML=`<div class="db-empty">エラー: ${esc(e.message)}</div>`}
 }
 
