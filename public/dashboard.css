@@ -179,3 +179,6 @@
 }
 .db-widget-drag:active { cursor: grabbing; }
 .db-widget:hover .db-widget-drag { color: #8a938c; }
+
+/* 軸グループラベル */
+.db-chip-group { font-size: 10px; color: #8a938c; padding: 4px 6px; align-self: center; }
