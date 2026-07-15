@@ -2609,3 +2609,9 @@ button.np-step:disabled { opacity: 0.6; cursor: wait; }
 .proposal-item-summary { font-size: 12.5px; color: #1b241f; line-height: 1.6; margin-bottom: 6px; }
 .proposal-item-tags { display: flex; flex-wrap: wrap; gap: 4px; }
 .proposal-tag { padding: 2px 8px; font-size: 10.5px; color: #0d5b47; background: #eef7f2; border: 1px solid #bfe3cd; border-radius: 99px; }
+
+.proposal-del-btn {
+  width: 24px; height: 24px; border: none; background: transparent;
+  font-size: 14px; color: #ccc; cursor: pointer; border-radius: 4px;
+}
+.proposal-del-btn:hover { background: #fde8e8; color: #a32d2d; }

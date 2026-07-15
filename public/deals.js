@@ -1642,14 +1642,26 @@ async function loadProposals(dealId) {
       if (p.industry) tags.push(p.industry);
       if (p.employee_size) tags.push(p.employee_size);
       if (p.tags?.keywords) for (const k of p.tags.keywords) tags.push(k);
-      return `<div class="proposal-item" onclick="window.open('${esc(p.slide_url)}','_blank')">
+      return `<div class="proposal-item">
         <div class="proposal-item-head">
-          <span class="proposal-item-title">📊 ${esc(p.filename)}</span>
-          <span class="proposal-item-date">${p.uploaded_at ? new Date(p.uploaded_at).toLocaleDateString("ja") : ""}</span>
+          <span class="proposal-item-title" onclick="window.open('${esc(p.slide_url)}','_blank')" style="cursor:pointer;">📊 ${esc(p.filename)}</span>
+          <div style="display:flex;align-items:center;gap:8px;">
+            <span class="proposal-item-date">${p.uploaded_at ? new Date(p.uploaded_at).toLocaleDateString("ja") : ""}</span>
+            <button class="proposal-del-btn" onclick="deleteProposal(${p.id},'${esc(dealId)}')" title="削除">✕</button>
+          </div>
         </div>
-        <div class="proposal-item-summary">${esc(p.summary || "")}</div>
+        <div class="proposal-item-summary" onclick="window.open('${esc(p.slide_url)}','_blank')" style="cursor:pointer;">${esc(p.summary || "")}</div>
         ${tags.length ? '<div class="proposal-item-tags">' + tags.map(t => `<span class="proposal-tag">${esc(t)}</span>`).join("") + '</div>' : ""}
       </div>`;
     }).join("");
   } catch { el.innerHTML = '<div class="empty-state">読み込み失敗</div>'; }
+}
+
+// 提案資料の削除
+async function deleteProposal(id, dealId) {
+  if (!confirm("この提案資料を削除しますか？")) return;
+  try {
+    await fetch("/api/proposals/" + id, { method: "DELETE" });
+    loadProposals(dealId);
+  } catch {}
 }
