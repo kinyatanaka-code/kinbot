@@ -192,3 +192,31 @@ export async function postChatter(owner, opportunityId, text) {
   if (!res.ok) throw new Error(`SF chatter ${res.status}: ${(await res.text()).slice(0, 200)}`);
   return res.json();
 }
+
+// Opportunityの全フィールド情報を取得（API名の確認用）
+export async function describeOpportunity(owner) {
+  const acc = await getAccess(owner);
+  if (!acc) throw new Error("Salesforce未連携です");
+  const res = await fetch(
+    `${acc.instanceUrl}/services/data/${API_VERSION}/sobjects/Opportunity/describe`,
+    { headers: { Authorization: `Bearer ${acc.token}` } }
+  );
+  if (!res.ok) throw new Error(`SF describe ${res.status}`);
+  return res.json();
+}
+
+// Task（活動）を作成
+export async function createTask(owner, data) {
+  const acc = await getAccess(owner);
+  if (!acc) throw new Error("Salesforce未連携です");
+  const res = await fetch(
+    `${acc.instanceUrl}/services/data/${API_VERSION}/sobjects/Task`,
+    {
+      method: "POST",
+      headers: { Authorization: `Bearer ${acc.token}`, "content-type": "application/json" },
+      body: JSON.stringify(data),
+    }
+  );
+  if (!res.ok) throw new Error(`SF task ${res.status}: ${(await res.text()).slice(0, 300)}`);
+  return res.json();
+}

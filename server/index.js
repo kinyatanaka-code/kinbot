@@ -160,6 +160,8 @@ import {
   searchOpportunities,
   getStageValues,
   postChatter,
+  describeOpportunity,
+  createTask,
 } from "./salesforce.js";
 import {
   authEnabled,
@@ -4248,6 +4250,41 @@ app.post("/api/salesforce/opportunity/:id/log", async (req, res) => {
     if (!text) return res.status(400).json({ error: "テキストが必要です" });
     await postChatter(req.user, req.params.id, `[kinbot] ${text}`);
     res.json({ ok: true });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// SF Opportunityのフィールド定義を取得
+app.get("/api/salesforce/describe", async (req, res) => {
+  try {
+    const desc = await describeOpportunity(req.user);
+    // フィールド情報を簡略化して返す
+    const fields = (desc.fields || []).map(f => ({
+      name: f.name, label: f.label, type: f.type,
+      updateable: f.updateable,
+      picklistValues: f.picklistValues?.filter(v => v.active).map(v => ({ value: v.value, label: v.label })),
+    }));
+    res.json({ fields });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// SF活動（Task）を作成
+app.post("/api/salesforce/task", async (req, res) => {
+  try {
+    const { opportunityId, subject, type, description, status, activityDate } = req.body || {};
+    if (!opportunityId) return res.status(400).json({ error: "商談IDが必要です" });
+    const task = await createTask(req.user, {
+      WhatId: opportunityId,
+      Subject: subject || "[kinbot] 活動記録",
+      Type: type || null,
+      Description: description || "",
+      Status: status || "完了",
+      ActivityDate: activityDate || new Date().toISOString().slice(0, 10),
+    });
+    res.json({ ok: true, task });
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
