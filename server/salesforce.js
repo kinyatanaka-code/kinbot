@@ -133,3 +133,62 @@ export async function updateOpportunity(owner, id, fields) {
   if (!res.ok) throw new Error(`SF update ${res.status}: ${(await res.text()).slice(0, 300)}`);
   return { ok: true };
 }
+
+// SOQL クエリ実行
+export async function sfQuery(owner, soql) {
+  const acc = await getAccess(owner);
+  if (!acc) throw new Error("Salesforce未連携です");
+  const res = await fetch(
+    `${acc.instanceUrl}/services/data/${API_VERSION}/query?q=${encodeURIComponent(soql)}`,
+    { headers: { Authorization: `Bearer ${acc.token}` } }
+  );
+  if (!res.ok) throw new Error(`SF query ${res.status}: ${(await res.text()).slice(0, 300)}`);
+  return res.json();
+}
+
+// 会社名で商談を検索
+export async function searchOpportunities(owner, companyName) {
+  const escaped = String(companyName || "").replace(/'/g, "\\'");
+  const soql = `SELECT Id, Name, StageName, Amount, CloseDate, NextStep, Description, AccountId, Account.Name
+    FROM Opportunity
+    WHERE Account.Name LIKE '%${escaped}%'
+    ORDER BY LastModifiedDate DESC
+    LIMIT 20`;
+  const result = await sfQuery(owner, soql);
+  return result.records || [];
+}
+
+// Stageの選択肢を取得
+export async function getStageValues(owner) {
+  const acc = await getAccess(owner);
+  if (!acc) throw new Error("Salesforce未連携です");
+  const res = await fetch(
+    `${acc.instanceUrl}/services/data/${API_VERSION}/sobjects/Opportunity/describe`,
+    { headers: { Authorization: `Bearer ${acc.token}` } }
+  );
+  if (!res.ok) throw new Error(`SF describe ${res.status}`);
+  const data = await res.json();
+  const stageField = (data.fields || []).find(f => f.name === "StageName");
+  if (!stageField) return [];
+  return (stageField.picklistValues || []).filter(v => v.active).map(v => ({ value: v.value, label: v.label }));
+}
+
+// 商談にChatter投稿（ログ/ネクストアクション）
+export async function postChatter(owner, opportunityId, text) {
+  const acc = await getAccess(owner);
+  if (!acc) throw new Error("Salesforce未連携です");
+  const res = await fetch(
+    `${acc.instanceUrl}/services/data/${API_VERSION}/chatter/feed-elements`,
+    {
+      method: "POST",
+      headers: { Authorization: `Bearer ${acc.token}`, "content-type": "application/json" },
+      body: JSON.stringify({
+        feedElementType: "FeedItem",
+        subjectId: opportunityId,
+        body: { messageSegments: [{ type: "Text", text }] },
+      }),
+    }
+  );
+  if (!res.ok) throw new Error(`SF chatter ${res.status}: ${(await res.text()).slice(0, 200)}`);
+  return res.json();
+}

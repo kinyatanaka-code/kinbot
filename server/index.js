@@ -157,6 +157,9 @@ import {
   extractRecordId,
   getOpportunity,
   updateOpportunity,
+  searchOpportunities,
+  getStageValues,
+  postChatter,
 } from "./salesforce.js";
 import {
   authEnabled,
@@ -4189,6 +4192,61 @@ app.put("/api/salesforce/mapping", async (req, res) => {
   try {
     const mapping = (req.body && req.body.mapping) || {};
     await saveUserSettings(req.user, { sfMapping: mapping });
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// SF商談を会社名で検索
+app.get("/api/salesforce/search", async (req, res) => {
+  try {
+    const q = req.query.q || "";
+    if (!q) return res.json({ records: [] });
+    const records = await searchOpportunities(req.user, q);
+    res.json({ records });
+  } catch (e) {
+    console.error("[sf/search]", e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// SF Stage選択肢を取得
+app.get("/api/salesforce/stages", async (req, res) => {
+  try {
+    const stages = await getStageValues(req.user);
+    res.json({ stages });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// SF商談を更新（Stage変更、NextStep等）
+app.patch("/api/salesforce/opportunity/:id", async (req, res) => {
+  try {
+    const fields = req.body || {};
+    await updateOpportunity(req.user, req.params.id, fields);
+    // 更新内容をログとしてChatterに投稿
+    const parts = [];
+    if (fields.StageName) parts.push(`Stage → ${fields.StageName}`);
+    if (fields.NextStep) parts.push(`Next Step: ${fields.NextStep}`);
+    if (fields.Description) parts.push(`メモ: ${fields.Description}`);
+    if (parts.length) {
+      try { await postChatter(req.user, req.params.id, `[kinbot] ${parts.join(" / ")}`); } catch {}
+    }
+    res.json({ ok: true });
+  } catch (e) {
+    console.error("[sf/update]", e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// SF商談にログを投稿
+app.post("/api/salesforce/opportunity/:id/log", async (req, res) => {
+  try {
+    const text = req.body?.text || "";
+    if (!text) return res.status(400).json({ error: "テキストが必要です" });
+    await postChatter(req.user, req.params.id, `[kinbot] ${text}`);
     res.json({ ok: true });
   } catch (e) {
     res.status(500).json({ error: e.message });
