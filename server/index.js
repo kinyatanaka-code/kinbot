@@ -4223,6 +4223,16 @@ app.get("/api/salesforce/stages", async (req, res) => {
   }
 });
 
+// SF商談の詳細を取得（全フィールド）
+app.get("/api/salesforce/opportunity/:id", async (req, res) => {
+  try {
+    const opp = await getOpportunity(req.user, req.params.id);
+    res.json(opp);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // SF商談を更新（Stage変更、NextStep等）
 app.patch("/api/salesforce/opportunity/:id", async (req, res) => {
   try {
