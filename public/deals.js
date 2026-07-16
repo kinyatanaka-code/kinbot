@@ -1956,36 +1956,45 @@ async function linkOpportunity(oppId, cached) {
   if (!sfStageOptions.length) {
     try {
       const r = await fetch("/api/salesforce/stages");
-      sfStageOptions = (await r.json()).stages || [];
-    } catch {}
+      const d = await r.json();
+      sfStageOptions = d.stages || [];
+    } catch (e) { console.error("stages error:", e); }
   }
 
-  // 商談の全フィールドを取得
+  // 商談の全フィールドを取得（個別GET）
   try {
-    const r = await fetch("/api/salesforce/search?q=" + encodeURIComponent(sfLinkedOpp?.Account?.Name || ""));
-    const d = await r.json();
-    const full = (d.records || []).find(x => x.Id === oppId);
-    if (full) sfLinkedOpp = full;
-  } catch {}
+    const r = await fetch("/api/salesforce/opportunity/" + oppId);
+    if (r.ok) {
+      const full = await r.json();
+      sfLinkedOpp = full;
+    }
+  } catch (e) { console.error("opp fetch error:", e); }
 
-  if (!sfLinkedOpp) return;
+  if (!sfLinkedOpp) { alert("商談の取得に失敗しました"); return; }
   matchesEl.innerHTML = "";
   linkedEl.style.display = "";
 
+  const stageName = sfLinkedOpp.StageName || "";
+  const accountName = sfLinkedOpp.Account?.Name || sfLinkedOpp.AccountName__c || "";
+
   infoEl.innerHTML = `<div class="sf-linked-card">
     <div class="sf-linked-name">${esc(sfLinkedOpp.Name)}</div>
-    <div class="sf-linked-meta">${esc(sfLinkedOpp.Account?.Name || "")} · Stage: ${esc(sfLinkedOpp.StageName || "")} · Close: ${sfLinkedOpp.CloseDate || "未定"}</div>
+    <div class="sf-linked-meta">${esc(accountName)} · Stage: ${esc(stageName)} · Close: ${sfLinkedOpp.CloseDate || "未定"}</div>
+    ${sfLinkedOpp.NextStep ? `<div class="sf-linked-next">Next Step: ${esc(sfLinkedOpp.NextStep)}</div>` : ""}
     <button class="sf-unlink-btn" onclick="sfLinkedOpp=null;$('sfLinked').style.display='none';$('sfMatches').innerHTML='';">解除</button>
   </div>`;
 
   // Stage選択肢を設定
   const stageSel = $("sfStage");
-  if (stageSel) {
+  if (stageSel && sfStageOptions.length) {
     stageSel.innerHTML = sfStageOptions.map(s =>
-      `<option value="${esc(s.value)}" ${s.value === sfLinkedOpp.StageName ? "selected" : ""}>${esc(s.label)}</option>`
+      `<option value="${esc(s.value)}" ${s.value === stageName ? "selected" : ""}>${esc(s.label || s.value)}</option>`
     ).join("");
+  } else if (stageSel) {
+    // フォールバック: 現在のStageだけ表示
+    stageSel.innerHTML = `<option value="${esc(stageName)}" selected>${esc(stageName)}</option>`;
   }
 
-  // SS固有フィールドを表示
-  renderSSFields(sfLinkedOpp.StageName);
+  // SS固有フィールドを表示（既存データ込み）
+  renderSSFields(stageName);
 }
