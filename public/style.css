@@ -2655,3 +2655,11 @@ button.np-step:disabled { opacity: 0.6; cursor: wait; }
 .sf-field label { display: block; font-size: 12px; font-weight: 600; color: #5f6b63; margin-bottom: 4px; }
 .sf-select, .sf-input, .sf-textarea { width: 100%; padding: 8px 10px; font-size: 13px; border: 1px solid #dfe4df; border-radius: 6px; box-sizing: border-box; }
 .sf-textarea { resize: vertical; }
+
+/* SF SS固有フィールドセクション */
+.sf-ss-section { padding: 12px; background: #f7faf8; border: 1px solid #e6e8e5; border-radius: 8px; margin: 10px 0; }
+.sf-ss-title { font-size: 12px; font-weight: 600; color: #0d5b47; margin-bottom: 10px; }
+.sf-divider { height: 1px; background: #e6e8e5; margin: 16px 0; }
+.sf-actions { display: flex; gap: 8px; margin-top: 4px; }
+.sf-btn-secondary { background: #fff; color: #0d5b47; border: 1px solid #0d5b47; }
+.sf-btn-secondary:hover { background: #eef7f2; }

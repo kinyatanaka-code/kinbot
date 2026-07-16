@@ -1203,10 +1203,13 @@ async function selectDeal(account) {
     `<div id="sfLinked" style="display:none">` +
     `<div id="sfLinkedInfo" class="sf-linked-info"></div>` +
     `<div class="sf-update-form">` +
-    `<div class="sf-field"><label>Stage</label><select id="sfStage" class="sf-select"></select></div>` +
-    `<div class="sf-field"><label>Next Step</label><input type="text" id="sfNextStep" class="sf-input" placeholder="次のアクション" /></div>` +
-    `<div class="sf-field"><label>ログ / メモ</label><textarea id="sfLog" class="sf-textarea" rows="3" placeholder="商談メモを入力"></textarea></div>` +
-    `<button class="btn" id="sfUpdateBtn">Salesforceを更新</button>` +
+    `<div class="sf-field"><label>セールスステージ</label><select id="sfStage" class="sf-select"></select></div>` +
+    `<div id="sfStageFields"></div>` +
+    `<div class="sf-divider"></div>` +
+    `<div class="sf-field"><label>活動を記録</label></div>` +
+    `<div class="sf-field"><label>活動種別</label><select id="sfTaskType" class="sf-select"><option value="">--なし--</option><option value="電話">電話</option><option value="メール">メール</option><option value="商談">商談</option><option value="その他">その他</option><option value="再商談">再商談</option><option value="ネクストアクション">ネクストアクション</option></select></div>` +
+    `<div class="sf-field"><label>コメント</label><textarea id="sfTaskComment" class="sf-textarea" rows="3" placeholder="活動メモ"></textarea></div>` +
+    `<div class="sf-actions"><button class="btn" id="sfUpdateBtn">Salesforceを更新</button><button class="btn sf-btn-secondary" id="sfTaskBtn">活動を記録</button></div>` +
     `</div></div></section>` +
     `</div>` +
     // 商談の流れ
@@ -1696,9 +1699,68 @@ async function deleteProposal(id, dealId) {
 }
 
 
-// ===== Salesforce連携タブ =====
-let sfLinkedOpp = null; // 紐付け済みの商談
-let sfStageOptions = []; // Stage選択肢キャッシュ
+
+// ===== Salesforce連携タブ（SS01〜SS06固有フィールド対応） =====
+let sfLinkedOpp = null;
+let sfStageOptions = [];
+let sfFieldDefs = null; // Opportunityのフィールド定義キャッシュ
+
+// SS固有フィールドの定義（スクショから読み取った項目）
+const SS_FIELDS = {
+  "01 : アポ獲得": [
+    { api: "SS01__c", label: "SS01昇格日", type: "date" },
+    { api: "AppointmentDate__c", label: "アポ獲得日", type: "date" },
+    { api: "FirstAppointmentDate__c", label: "初回アポ設定日", type: "date" },
+    { api: "CustomerCurrentStatus__c", label: "顧客の現状", type: "textarea" },
+  ],
+  "02 : 有効商談（3ヵ月以内検討）": [
+    { api: "SS02__c", label: "SS02昇格日", type: "date" },
+    { api: "FirstProposalPlan__c", label: "初回提案プラン", type: "text" },
+    { api: "UsagePurpose__c", label: "利用目的", type: "text" },
+    { api: "CustomerChallenge__c", label: "担当者が解決したい課題", type: "textarea" },
+    { api: "CustomerChallengeOther__c", label: "担当者の解決したい課題（その他）", type: "textarea" },
+    { api: "NextMeetingDateTime__c", label: "次回お打合せ日時", type: "datetime" },
+    { api: "ClosingMemo__c", label: "商談メモ", type: "textarea" },
+  ],
+  "03 : 担当者合意": [
+    { api: "SS03__c", label: "SS03昇格日", type: "date" },
+    { api: "WhyNow__c", label: "今やるべき理由", type: "textarea" },
+    { api: "WhyDOC__c", label: "DOCでないといけない理由", type: "textarea" },
+    { api: "CompetitorAlternative__c", label: "比較されてる代替手段", type: "text" },
+    { api: "EscalationTarget__c", label: "上申先", type: "text" },
+    { api: "JointMeeting__c", label: "同席打診", type: "text" },
+    { api: "EscalationDate__c", label: "上申日", type: "date" },
+  ],
+  "04：企画決定者合意": [
+    { api: "SS04__c", label: "SS04昇格日", type: "date" },
+    { api: "DecisionFlow__c", label: "決裁フロー", type: "textarea" },
+    { api: "DesiredStartDate__c", label: "利用開始希望時期", type: "text" },
+    { api: "BoardDocuments__c", label: "役員等への書類等に必要な書類", type: "text" },
+    { api: "LegalSecurityCheck__c", label: "リーガル・セキュリティチェック", type: "text" },
+    { api: "ApplicationFormDate__c", label: "申込書回収想定日", type: "date" },
+  ],
+  "05 : 決裁者合意": [
+    { api: "SS05__c", label: "目標用_SS05昇格日", type: "date" },
+    { api: "FinalDecisionPoint__c", label: "最終的な決裁の決め手", type: "textarea" },
+  ],
+  "06 : 申込書回収完了": [
+    { api: "SS06__c", label: "SS06昇格日", type: "date" },
+    { api: "KillerContent__c", label: "キラーコンテンツ", type: "text" },
+    { api: "WinDate__c", label: "受注日", type: "date" },
+  ],
+};
+
+// ステージ名の部分一致でSSフィールドを取得
+function getSSFields(stageName) {
+  const s = String(stageName || "");
+  for (const [key, fields] of Object.entries(SS_FIELDS)) {
+    // "01" で始まるか、キー全体が含まれるか
+    const num = key.match(/^(\d+)/)?.[1];
+    if (num && s.includes(num)) return fields;
+    if (s.includes(key)) return fields;
+  }
+  return [];
+}
 
 async function initSfTab(account) {
   const searchBtn = $("sfSearchBtn");
@@ -1710,6 +1772,61 @@ async function initSfTab(account) {
   matchesEl.innerHTML = "";
   linkedEl.style.display = "none";
 
+  // この案件の商談データを取得
+  const ms = groups[account] || [];
+  const latestMeeting = ms.length ? ms[ms.length - 1] : null;
+
+  // 活動種別変更時に自動入力
+  const taskTypeSel = $("sfTaskType");
+  const taskComment = $("sfTaskComment");
+  if (taskTypeSel && taskComment) {
+    taskTypeSel.addEventListener("change", () => {
+      const type = taskTypeSel.value;
+      if (type === "商談" || type === "再商談") {
+        // 最新の商談の要約を自動入力
+        if (latestMeeting) {
+          const ov = (latestMeeting.summary && latestMeeting.summary.overview) || "";
+          const concerns = ((latestMeeting.summary && latestMeeting.summary.customer_concerns) || []).join("、");
+          let auto = "";
+          if (ov) auto += ov;
+          if (concerns) auto += "\n\n【顧客の懸念】" + concerns;
+          // suggestionsがあればネクストアクションも追加
+          if (latestMeeting.suggestions) {
+            try {
+              const sug = typeof latestMeeting.suggestions === "string" ? JSON.parse(latestMeeting.suggestions) : latestMeeting.suggestions;
+              if (Array.isArray(sug) && sug.length) {
+                auto += "\n\n【次のアクション】" + sug.map(s => typeof s === "string" ? s : s.text || s.action || "").filter(Boolean).join("、");
+              }
+            } catch {}
+          }
+          taskComment.value = auto.trim();
+        }
+      } else if (type === "ネクストアクション") {
+        // deal_eventsから次回日程を取得してコメントに設定
+        const np = lookupNewProc(displayName(account)) || lookupNewProc(account);
+        let auto = "";
+        if (np) {
+          if (np.next_meeting_date) auto += "次回商談予定日: " + String(np.next_meeting_date).slice(0, 10);
+          if (np.next_meeting_scheduled) auto += auto ? "\n（再商談設定済み）" : "再商談設定済み";
+        }
+        // suggestionsからもネクストアクションを抽出
+        if (latestMeeting && latestMeeting.suggestions) {
+          try {
+            const sug = typeof latestMeeting.suggestions === "string" ? JSON.parse(latestMeeting.suggestions) : latestMeeting.suggestions;
+            if (Array.isArray(sug) && sug.length) {
+              const actions = sug.map(s => typeof s === "string" ? s : s.text || s.action || "").filter(Boolean);
+              if (actions.length) auto += (auto ? "\n\n" : "") + actions.join("\n");
+            }
+          } catch {}
+        }
+        taskComment.value = auto.trim();
+      } else if (type === "電話" || type === "メール") {
+        taskComment.value = ""; // 電話・メールはテンプレなし
+      }
+    });
+  }
+
+  // 商談検索
   searchBtn.onclick = async () => {
     searchBtn.disabled = true;
     searchBtn.textContent = "検索中…";
@@ -1736,7 +1853,7 @@ async function initSfTab(account) {
     finally { searchBtn.disabled = false; searchBtn.textContent = "商談を検索"; }
   };
 
-  // 更新ボタン
+  // SF更新ボタン
   const updateBtn = $("sfUpdateBtn");
   if (updateBtn) {
     updateBtn.onclick = async () => {
@@ -1745,11 +1862,14 @@ async function initSfTab(account) {
       updateBtn.textContent = "更新中…";
       try {
         const fields = {};
-        const stage = $("sfStage").value;
-        const nextStep = $("sfNextStep").value.trim();
-        const log = $("sfLog").value.trim();
+        const stage = $("sfStage")?.value;
         if (stage && stage !== sfLinkedOpp.StageName) fields.StageName = stage;
-        if (nextStep) fields.NextStep = nextStep;
+        // SS固有フィールドの値を収集
+        document.querySelectorAll("[data-sf-field]").forEach(el => {
+          const api = el.dataset.sfField;
+          const val = el.value?.trim();
+          if (val !== undefined && val !== "") fields[api] = val;
+        });
         if (Object.keys(fields).length) {
           const r = await fetch("/api/salesforce/opportunity/" + sfLinkedOpp.Id, {
             method: "PATCH", headers: {"content-type":"application/json"},
@@ -1757,21 +1877,73 @@ async function initSfTab(account) {
           });
           if (!r.ok) throw new Error((await r.json()).error || "更新失敗");
         }
-        if (log) {
-          const r = await fetch("/api/salesforce/opportunity/" + sfLinkedOpp.Id + "/log", {
-            method: "POST", headers: {"content-type":"application/json"},
-            body: JSON.stringify({ text: log }),
-          });
-          if (!r.ok) throw new Error((await r.json()).error || "ログ投稿失敗");
-        }
         alert("Salesforceを更新しました");
-        $("sfLog").value = "";
-        // 最新情報を再取得
         linkOpportunity(sfLinkedOpp.Id);
       } catch (e) { alert("更新失敗: " + e.message); }
       finally { updateBtn.disabled = false; updateBtn.textContent = "Salesforceを更新"; }
     };
   }
+
+  // 活動記録ボタン
+  const taskBtn = $("sfTaskBtn");
+  if (taskBtn) {
+    taskBtn.onclick = async () => {
+      if (!sfLinkedOpp) return;
+      const type = $("sfTaskType")?.value || "";
+      const comment = $("sfTaskComment")?.value?.trim() || "";
+      if (!type && !comment) { alert("活動種別またはコメントを入力してください"); return; }
+      taskBtn.disabled = true;
+      taskBtn.textContent = "記録中…";
+      try {
+        const taskData = {
+          opportunityId: sfLinkedOpp.Id,
+          subject: type ? `[kinbot] ${type}` : "[kinbot] 活動記録",
+          type: type || null,
+          description: comment,
+        };
+        // ネクストアクションの場合、次回日程をActivityDateに設定
+        if (type === "ネクストアクション") {
+          const np = lookupNewProc(displayName(account)) || lookupNewProc(account);
+          if (np && np.next_meeting_date) {
+            taskData.activityDate = String(np.next_meeting_date).slice(0, 10);
+          }
+          taskData.status = "未着手";
+        }
+        const r = await fetch("/api/salesforce/task", {
+          method: "POST", headers: {"content-type":"application/json"},
+          body: JSON.stringify(taskData),
+        });
+        if (!r.ok) throw new Error((await r.json()).error || "記録失敗");
+        alert("活動を記録しました");
+        $("sfTaskComment").value = "";
+      } catch (e) { alert("記録失敗: " + e.message); }
+      finally { taskBtn.disabled = false; taskBtn.textContent = "活動を記録"; }
+    };
+  }
+
+  // Stage変更時にSS固有フィールドを切り替え
+  const stageSel = $("sfStage");
+  if (stageSel) {
+    stageSel.addEventListener("change", () => renderSSFields(stageSel.value));
+  }
+}
+
+function renderSSFields(stageName) {
+  const container = $("sfStageFields");
+  if (!container) return;
+  const fields = getSSFields(stageName);
+  if (!fields.length) { container.innerHTML = ""; return; }
+  container.innerHTML = '<div class="sf-ss-section"><div class="sf-ss-title">' + esc(stageName) + ' の項目</div>' +
+    fields.map(f => {
+      const currentVal = sfLinkedOpp?.[f.api] || "";
+      if (f.type === "textarea") {
+        return `<div class="sf-field"><label>${esc(f.label)}</label><textarea class="sf-textarea" data-sf-field="${f.api}" rows="2">${esc(currentVal)}</textarea></div>`;
+      } else if (f.type === "date" || f.type === "datetime") {
+        return `<div class="sf-field"><label>${esc(f.label)}</label><input type="date" class="sf-input" data-sf-field="${f.api}" value="${esc(String(currentVal).slice(0,10))}" /></div>`;
+      } else {
+        return `<div class="sf-field"><label>${esc(f.label)}</label><input type="text" class="sf-input" data-sf-field="${f.api}" value="${esc(currentVal)}" /></div>`;
+      }
+    }).join("") + '</div>';
 }
 
 async function linkOpportunity(oppId, cached) {
@@ -1784,26 +1956,25 @@ async function linkOpportunity(oppId, cached) {
   if (!sfStageOptions.length) {
     try {
       const r = await fetch("/api/salesforce/stages");
-      const d = await r.json();
-      sfStageOptions = d.stages || [];
+      sfStageOptions = (await r.json()).stages || [];
     } catch {}
   }
 
-  // 商談の最新情報を取得
-  if (!sfLinkedOpp) {
-    try {
-      const r = await fetch("/api/salesforce/opportunity/" + oppId + "?fields=Id,Name,StageName,Amount,CloseDate,NextStep,Account.Name");
-      sfLinkedOpp = await r.json();
-    } catch {}
-  }
+  // 商談の全フィールドを取得
+  try {
+    const r = await fetch("/api/salesforce/search?q=" + encodeURIComponent(sfLinkedOpp?.Account?.Name || ""));
+    const d = await r.json();
+    const full = (d.records || []).find(x => x.Id === oppId);
+    if (full) sfLinkedOpp = full;
+  } catch {}
+
   if (!sfLinkedOpp) return;
-
   matchesEl.innerHTML = "";
   linkedEl.style.display = "";
+
   infoEl.innerHTML = `<div class="sf-linked-card">
     <div class="sf-linked-name">${esc(sfLinkedOpp.Name)}</div>
     <div class="sf-linked-meta">${esc(sfLinkedOpp.Account?.Name || "")} · Stage: ${esc(sfLinkedOpp.StageName || "")} · Close: ${sfLinkedOpp.CloseDate || "未定"}</div>
-    ${sfLinkedOpp.NextStep ? `<div class="sf-linked-next">Next Step: ${esc(sfLinkedOpp.NextStep)}</div>` : ""}
     <button class="sf-unlink-btn" onclick="sfLinkedOpp=null;$('sfLinked').style.display='none';$('sfMatches').innerHTML='';">解除</button>
   </div>`;
 
@@ -1814,6 +1985,7 @@ async function linkOpportunity(oppId, cached) {
       `<option value="${esc(s.value)}" ${s.value === sfLinkedOpp.StageName ? "selected" : ""}>${esc(s.label)}</option>`
     ).join("");
   }
-  const nextStep = $("sfNextStep");
-  if (nextStep) nextStep.value = sfLinkedOpp.NextStep || "";
+
+  // SS固有フィールドを表示
+  renderSSFields(sfLinkedOpp.StageName);
 }
