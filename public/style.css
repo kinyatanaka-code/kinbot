@@ -2637,3 +2637,21 @@ button.np-step:disabled { opacity: 0.6; cursor: wait; }
 }
 .hist-cat-tab:hover { color: #0d5b47; }
 .hist-cat-tab.active { color: #0d5b47; border-bottom-color: #0d5b47; }
+
+/* Salesforce連携タブ */
+.sf-search { margin-bottom: 12px; }
+.sf-search-btn { font-size: 13px; }
+.sf-match-list { display: flex; flex-direction: column; gap: 6px; margin-bottom: 12px; }
+.sf-match-item { padding: 10px 14px; background: #f7faf8; border: 1px solid #e6e8e5; border-radius: 8px; cursor: pointer; transition: border-color 0.15s; }
+.sf-match-item:hover { border-color: #1d9e75; }
+.sf-match-name { font-size: 13px; font-weight: 600; color: #1b241f; }
+.sf-match-detail { font-size: 11px; color: #8a938c; margin-top: 3px; }
+.sf-linked-card { padding: 12px 14px; background: #eef7f2; border: 1px solid #bfe3cd; border-radius: 8px; margin-bottom: 14px; position: relative; }
+.sf-linked-name { font-size: 14px; font-weight: 600; color: #0d5b47; }
+.sf-linked-meta { font-size: 12px; color: #6b7770; margin-top: 4px; }
+.sf-linked-next { font-size: 12px; color: #1b241f; margin-top: 6px; font-style: italic; }
+.sf-unlink-btn { position: absolute; top: 8px; right: 8px; font-size: 11px; color: #8a938c; background: none; border: 1px solid #dfe4df; padding: 2px 8px; border-radius: 4px; cursor: pointer; }
+.sf-update-form { display: flex; flex-direction: column; gap: 12px; }
+.sf-field label { display: block; font-size: 12px; font-weight: 600; color: #5f6b63; margin-bottom: 4px; }
+.sf-select, .sf-input, .sf-textarea { width: 100%; padding: 8px 10px; font-size: 13px; border: 1px solid #dfe4df; border-radius: 6px; box-sizing: border-box; }
+.sf-textarea { resize: vertical; }

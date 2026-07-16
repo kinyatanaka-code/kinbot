@@ -1163,8 +1163,9 @@ async function selectDeal(account) {
     `<button class="deal-tab" data-dtab="brief">🎯 商談準備</button>` +
     `<button class="deal-tab" data-dtab="qa">💬 想定問答</button>` +
     `<button class="deal-tab" data-dtab="profile">🏢 会社プロフィール</button>` +
-    `<button class="deal-tab" data-dtab="proposals">📎 提案資料</button>` +
-    `<button class="deal-tab" data-dtab="flow">🗂 商談の流れ</button>` +
+    `<button class="deal-tab" data-dtab="proposals"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" style="vertical-align:-2px;margin-right:3px"><path d="M3 2h7l4 4v8a1 1 0 01-1 1H3a1 1 0 01-1-1V3a1 1 0 011-1z" fill="#1d9e75"/><path d="M10 2v4h4" fill="#5DCAA5"/></svg>提案資料</button>` +
+    `<button class="deal-tab" data-dtab="salesforce"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" style="vertical-align:-2px;margin-right:3px"><path d="M8 1a7 7 0 110 14A7 7 0 018 1z" fill="#0d5b47"/><path d="M5.5 8.5l2 2 3.5-4" stroke="#fff" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>Salesforce</button>` +
+    `<button class="deal-tab" data-dtab="flow"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" style="vertical-align:-2px;margin-right:3px"><rect x="1" y="1" width="14" height="14" rx="2" fill="#0d5b47"/><rect x="3" y="4" width="10" height="1.5" rx=".5" fill="#5DCAA5"/><rect x="3" y="7" width="7" height="1.5" rx=".5" fill="#5DCAA5"/><rect x="3" y="10" width="9" height="1.5" rx=".5" fill="#5DCAA5"/></svg>商談の流れ</button>` +
     `</div>` +
     // 判定（既定タブ）
     `<div class="deal-tabpane" data-dtab="judge">` +
@@ -1193,6 +1194,20 @@ async function selectDeal(account) {
     `<section class="deal-sec"><div class="deal-sec-h">📎 提案資料</div>` +
     `<div class="proposal-add"><input type="text" id="proposalUrl" class="proposal-url-input" placeholder="GoogleスライドのURLを貼り付け" /><button class="btn" id="proposalAddBtn">登録</button></div>` +
     `<div id="proposalList"><div class="empty-state">読み込み中…</div></div></section>` +
+    `</div>` +
+    // Salesforce連携
+    `<div class="deal-tabpane" data-dtab="salesforce" hidden>` +
+    `<section class="deal-sec"><div class="deal-sec-h"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" style="vertical-align:-2px;margin-right:4px"><path d="M8 1a7 7 0 110 14A7 7 0 018 1z" fill="#0d5b47"/><path d="M5.5 8.5l2 2 3.5-4" stroke="#fff" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>Salesforce 商談</div>` +
+    `<div id="sfSearch" class="sf-search"><button class="btn sf-search-btn" id="sfSearchBtn">商談を検索</button></div>` +
+    `<div id="sfMatches"></div>` +
+    `<div id="sfLinked" style="display:none">` +
+    `<div id="sfLinkedInfo" class="sf-linked-info"></div>` +
+    `<div class="sf-update-form">` +
+    `<div class="sf-field"><label>Stage</label><select id="sfStage" class="sf-select"></select></div>` +
+    `<div class="sf-field"><label>Next Step</label><input type="text" id="sfNextStep" class="sf-input" placeholder="次のアクション" /></div>` +
+    `<div class="sf-field"><label>ログ / メモ</label><textarea id="sfLog" class="sf-textarea" rows="3" placeholder="商談メモを入力"></textarea></div>` +
+    `<button class="btn" id="sfUpdateBtn">Salesforceを更新</button>` +
+    `</div></div></section>` +
     `</div>` +
     // 商談の流れ
     `<div class="deal-tabpane" data-dtab="flow" hidden>` +
@@ -1258,6 +1273,9 @@ async function selectDeal(account) {
     const np = lookupNewProc(displayName(account)) || lookupNewProc(account);
     loadProposals(np?.deal_id || "");
   }
+
+  // Salesforceタブの初期化
+  initSfTab(account);
 
   const stSel = $("dealStSel");
   if (!isStatusApprover()) {
@@ -1677,3 +1695,125 @@ async function deleteProposal(id, dealId) {
   } catch {}
 }
 
+
+// ===== Salesforce連携タブ =====
+let sfLinkedOpp = null; // 紐付け済みの商談
+let sfStageOptions = []; // Stage選択肢キャッシュ
+
+async function initSfTab(account) {
+  const searchBtn = $("sfSearchBtn");
+  const matchesEl = $("sfMatches");
+  const linkedEl = $("sfLinked");
+  if (!searchBtn) return;
+
+  sfLinkedOpp = null;
+  matchesEl.innerHTML = "";
+  linkedEl.style.display = "none";
+
+  searchBtn.onclick = async () => {
+    searchBtn.disabled = true;
+    searchBtn.textContent = "検索中…";
+    try {
+      const companyName = displayName(account);
+      const r = await fetch("/api/salesforce/search?q=" + encodeURIComponent(companyName));
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.error || "検索失敗");
+      const records = d.records || [];
+      if (!records.length) {
+        matchesEl.innerHTML = '<div style="padding:12px;color:#8a938c;font-size:13px;">Salesforceに一致する商談が見つかりませんでした</div>';
+        return;
+      }
+      matchesEl.innerHTML = '<div class="sf-match-list">' + records.map(r =>
+        `<div class="sf-match-item" data-id="${esc(r.Id)}">
+          <div class="sf-match-name">${esc(r.Name)}</div>
+          <div class="sf-match-detail">${esc(r.StageName || "")} · ${esc(r.Account?.Name || "")} · ${r.CloseDate || ""}</div>
+        </div>`
+      ).join("") + '</div>';
+      matchesEl.querySelectorAll(".sf-match-item").forEach(item => {
+        item.onclick = () => linkOpportunity(item.dataset.id, records.find(r => r.Id === item.dataset.id));
+      });
+    } catch (e) { matchesEl.innerHTML = `<div style="padding:12px;color:#a32d2d;font-size:13px;">エラー: ${esc(e.message)}</div>`; }
+    finally { searchBtn.disabled = false; searchBtn.textContent = "商談を検索"; }
+  };
+
+  // 更新ボタン
+  const updateBtn = $("sfUpdateBtn");
+  if (updateBtn) {
+    updateBtn.onclick = async () => {
+      if (!sfLinkedOpp) return;
+      updateBtn.disabled = true;
+      updateBtn.textContent = "更新中…";
+      try {
+        const fields = {};
+        const stage = $("sfStage").value;
+        const nextStep = $("sfNextStep").value.trim();
+        const log = $("sfLog").value.trim();
+        if (stage && stage !== sfLinkedOpp.StageName) fields.StageName = stage;
+        if (nextStep) fields.NextStep = nextStep;
+        if (Object.keys(fields).length) {
+          const r = await fetch("/api/salesforce/opportunity/" + sfLinkedOpp.Id, {
+            method: "PATCH", headers: {"content-type":"application/json"},
+            body: JSON.stringify(fields),
+          });
+          if (!r.ok) throw new Error((await r.json()).error || "更新失敗");
+        }
+        if (log) {
+          const r = await fetch("/api/salesforce/opportunity/" + sfLinkedOpp.Id + "/log", {
+            method: "POST", headers: {"content-type":"application/json"},
+            body: JSON.stringify({ text: log }),
+          });
+          if (!r.ok) throw new Error((await r.json()).error || "ログ投稿失敗");
+        }
+        alert("Salesforceを更新しました");
+        $("sfLog").value = "";
+        // 最新情報を再取得
+        linkOpportunity(sfLinkedOpp.Id);
+      } catch (e) { alert("更新失敗: " + e.message); }
+      finally { updateBtn.disabled = false; updateBtn.textContent = "Salesforceを更新"; }
+    };
+  }
+}
+
+async function linkOpportunity(oppId, cached) {
+  sfLinkedOpp = cached || null;
+  const linkedEl = $("sfLinked");
+  const matchesEl = $("sfMatches");
+  const infoEl = $("sfLinkedInfo");
+
+  // Stage選択肢を取得
+  if (!sfStageOptions.length) {
+    try {
+      const r = await fetch("/api/salesforce/stages");
+      const d = await r.json();
+      sfStageOptions = d.stages || [];
+    } catch {}
+  }
+
+  // 商談の最新情報を取得
+  if (!sfLinkedOpp) {
+    try {
+      const r = await fetch("/api/salesforce/opportunity/" + oppId + "?fields=Id,Name,StageName,Amount,CloseDate,NextStep,Account.Name");
+      sfLinkedOpp = await r.json();
+    } catch {}
+  }
+  if (!sfLinkedOpp) return;
+
+  matchesEl.innerHTML = "";
+  linkedEl.style.display = "";
+  infoEl.innerHTML = `<div class="sf-linked-card">
+    <div class="sf-linked-name">${esc(sfLinkedOpp.Name)}</div>
+    <div class="sf-linked-meta">${esc(sfLinkedOpp.Account?.Name || "")} · Stage: ${esc(sfLinkedOpp.StageName || "")} · Close: ${sfLinkedOpp.CloseDate || "未定"}</div>
+    ${sfLinkedOpp.NextStep ? `<div class="sf-linked-next">Next Step: ${esc(sfLinkedOpp.NextStep)}</div>` : ""}
+    <button class="sf-unlink-btn" onclick="sfLinkedOpp=null;$('sfLinked').style.display='none';$('sfMatches').innerHTML='';">解除</button>
+  </div>`;
+
+  // Stage選択肢を設定
+  const stageSel = $("sfStage");
+  if (stageSel) {
+    stageSel.innerHTML = sfStageOptions.map(s =>
+      `<option value="${esc(s.value)}" ${s.value === sfLinkedOpp.StageName ? "selected" : ""}>${esc(s.label)}</option>`
+    ).join("");
+  }
+  const nextStep = $("sfNextStep");
+  if (nextStep) nextStep.value = sfLinkedOpp.NextStep || "";
+}
