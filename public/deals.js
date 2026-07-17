@@ -831,7 +831,12 @@ function normName(s) {
 async function mergeDuplicates() {
   const status = $("mergeStatus");
   const setSt = (t) => { if (status) status.textContent = t; };
-  const rawKeys = [...new Set(all.filter((m) => !(m.category && m.category !== "商談")).map((m) => acctOf(m)))];
+  const rawKeys = [...new Set(all.filter((m) => {
+    if (m.category && m.category !== "商談") return false;
+    const t = String(m.title || "");
+    if (/【ユ[/／]フォ】|ユーザーフォロー|【社内MTG】|社内ミーティング/.test(t)) return false;
+    return true;
+  }).map((m) => acctOf(m)))];
   const byNorm = {};
   for (const rk of rawKeys) {
     const nameForNorm = (accountsMap[rk] && accountsMap[rk].official_name) || rk;
@@ -893,6 +898,8 @@ function buildGroups() {
   const rawSets = {};
   for (const m of all) {
     if (m.category && m.category !== "商談") continue; // 社内MTG/フォロー等は案件に含めない
+    const mt = String(m.title || "");
+    if (/【ユ[/／]フォ】|ユーザーフォロー|【社内MTG】|社内ミーティング/.test(mt)) continue;
     const d = new Date(m.created_at);
     if (from && d < from) continue;
     if (to && d > to) continue;
@@ -1713,18 +1720,31 @@ function showSfReauth(container, msg) {
 function openSfReauth(btn) {
   btn.textContent = "認証画面を開いています…";
   btn.disabled = true;
+  // 現在選択中の案件を記憶
+  const currentAccount = window._sfCurrentAccount;
   const popup = window.open(
     "/auth/salesforce?return=/auth/salesforce/done",
     "sf_reauth",
     "width=600,height=700,menubar=no,toolbar=no,location=yes"
   );
-  // ポップアップが閉じたら自動でリロード
   const check = setInterval(() => {
     if (!popup || popup.closed) {
       clearInterval(check);
-      btn.textContent = "再接続完了！再読み込み中…";
-      // SFタブを再初期化（ページ遷移なし）
-      location.reload();
+      btn.textContent = "再接続完了！";
+      btn.disabled = false;
+      // ページリロードせず、SFタブだけ再初期化
+      sfLinkedOpp = null;
+      sfStageOptions = [];
+      if (currentAccount) {
+        // 再認証ボックスをクリアして商談検索ボタンに戻す
+        const matchesEl = $("sfMatches");
+        const linkedEl = $("sfLinked");
+        const infoEl = $("sfLinkedInfo");
+        if (matchesEl) matchesEl.innerHTML = '<div style="padding:12px;color:#0d5b47;font-size:13px;">再接続しました。「商談を検索」を押してください。</div>';
+        if (linkedEl) linkedEl.style.display = "none";
+        const stageFields = $("sfStageFields");
+        if (stageFields) stageFields.innerHTML = "";
+      }
     }
   }, 500);
 }
@@ -1806,6 +1826,9 @@ async function initSfTab(account) {
   const matchesEl = $("sfMatches");
   const linkedEl = $("sfLinked");
   if (!searchBtn) return;
+
+  // 再接続後の復帰用に現在の案件を記憶
+  window._sfCurrentAccount = account;
 
   sfLinkedOpp = null;
   matchesEl.innerHTML = "";
