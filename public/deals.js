@@ -2046,30 +2046,31 @@ async function linkOpportunity(oppId, cached) {
   const matchesEl = $("sfMatches");
   const infoEl = $("sfLinkedInfo");
 
-  // Stage選択肢を取得
+  // Stage選択肢を取得（失敗してもcachedデータで進む）
   if (!sfStageOptions.length) {
     try {
       const r = await sfFetch("/api/salesforce/stages");
-      const d = await r.json();
-      sfStageOptions = d.stages || [];
-    } catch (e) {
-      if (e.sfReauth) { showSfReauth(infoEl); linkedEl.style.display = ""; return; }
-    }
+      if (r.ok) {
+        const d = await r.json();
+        sfStageOptions = d.stages || [];
+      }
+    } catch {}
   }
 
-  // 商談の全フィールドを取得（個別GET）
-  try {
-    const r = await sfFetch("/api/salesforce/opportunity/" + oppId);
-    if (r.ok) {
-      const full = await r.json();
-      sfLinkedOpp = full;
-    } else {
-      const err = await r.json().catch(() => ({}));
-      throw new Error(err.error || "取得失敗");
-    }
-  } catch (e) {
-    if (e.sfReauth) { showSfReauth(infoEl); linkedEl.style.display = ""; return; }
-    matchesEl.innerHTML = `<div style="padding:12px;color:#a32d2d;font-size:13px;">商談取得エラー: ${esc(e.message)}</div>`;
+  // cachedに全フィールドが入っているはず（searchで取得済み）
+  // 追加取得は試みるが、失敗してもcachedで進む
+  if (sfLinkedOpp) {
+    try {
+      const r = await sfFetch("/api/salesforce/opportunity/" + oppId);
+      if (r.ok) {
+        const full = await r.json();
+        sfLinkedOpp = full; // 成功したらより完全なデータに更新
+      }
+    } catch {} // 失敗してもcachedで進む
+  }
+
+  if (!sfLinkedOpp) {
+    matchesEl.innerHTML = '<div style="padding:12px;color:#a32d2d;font-size:13px;">商談データがありません</div>';
     return;
   }
   matchesEl.innerHTML = "";

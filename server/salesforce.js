@@ -151,10 +151,25 @@ export async function sfQuery(owner, soql) {
   return res.json();
 }
 
-// 会社名で商談を検索
+// 会社名で商談を検索（SS固有フィールドも含めて取得）
 export async function searchOpportunities(owner, companyName) {
   const escaped = String(companyName || "").replace(/'/g, "\\'");
-  const soql = `SELECT Id, Name, StageName, Amount, CloseDate, NextStep, Description, AccountId, Account.Name
+
+  // まずdescribeでカスタムフィールド名を取得
+  let customFieldNames = [];
+  try {
+    const desc = await describeOpportunity(owner);
+    customFieldNames = (desc.fields || [])
+      .filter(f => f.name.endsWith("__c"))
+      .map(f => f.name);
+  } catch {}
+
+  const baseFields = "Id, Name, StageName, Amount, CloseDate, NextStep, Description, AccountId, Account.Name";
+  const allFields = customFieldNames.length
+    ? baseFields + ", " + customFieldNames.join(", ")
+    : baseFields;
+
+  const soql = `SELECT ${allFields}
     FROM Opportunity
     WHERE Account.Name LIKE '%${escaped}%'
     ORDER BY LastModifiedDate DESC
