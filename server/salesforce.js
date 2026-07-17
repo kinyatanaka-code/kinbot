@@ -83,7 +83,12 @@ async function getAccess(owner) {
       refresh_token: row.refresh_token,
     }),
   });
-  if (!res.ok) throw new Error(`SF refresh ${res.status}: ${(await res.text()).slice(0, 200)}`);
+  if (!res.ok) {
+    const errText = (await res.text()).slice(0, 200);
+    const err = new Error(`SF refresh ${res.status}: ${errText}`);
+    err.sfReauth = true; // フロントで再認証UIを出すためのフラグ
+    throw err;
+  }
   const data = await res.json();
   const instanceUrl = data.instance_url || row.instance_url;
   if (data.instance_url && data.instance_url !== row.instance_url) {

@@ -162,6 +162,7 @@ import {
   postChatter,
   describeOpportunity,
   createTask,
+  sfQuery,
 } from "./salesforce.js";
 import {
   authEnabled,
@@ -342,7 +343,7 @@ app.post("/api/register", async (req, res) => {
     setSessionCookie(res, r.email);
     res.json({ ok: true, username: r.email, admin: r.admin });
   } catch (e) {
-    res.status(500).json({ error: e.message });
+    sfErrorResponse(res, e);
   }
 });
 app.post("/api/login", async (req, res) => {
@@ -353,7 +354,7 @@ app.post("/api/login", async (req, res) => {
     setSessionCookie(res, r.id);
     res.json({ ok: true, username: r.id, admin: r.admin });
   } catch (e) {
-    res.status(500).json({ error: e.message });
+    sfErrorResponse(res, e);
   }
 });
 app.post("/api/logout", (req, res) => {
@@ -485,7 +486,7 @@ app.put("/api/meetings/:id/meta", async (req, res) => {
     });
     res.json({ ok: true });
   } catch (e) {
-    res.status(500).json({ error: e.message });
+    sfErrorResponse(res, e);
   }
 });
 
@@ -499,7 +500,7 @@ app.delete("/api/meetings/:id", async (req, res) => {
     await deleteMeeting(req.params.id);
     res.json({ ok: true });
   } catch (e) {
-    res.status(500).json({ error: e.message });
+    sfErrorResponse(res, e);
   }
 });
 // 文字起こしの無い古い商談を一括削除（管理者のみ）
@@ -510,7 +511,7 @@ app.post("/api/meetings/cleanup-empty", async (req, res) => {
     const n = await deleteEmptyMeetings(Number.isFinite(minutes) ? minutes : 180);
     res.json({ ok: true, removed: n });
   } catch (e) {
-    res.status(500).json({ error: e.message });
+    sfErrorResponse(res, e);
   }
 });
 
@@ -524,7 +525,7 @@ app.put("/api/meetings/:id/note", async (req, res) => {
     await saveMeetingNote(req.params.id, (req.body && req.body.note) || "");
     res.json({ ok: true });
   } catch (e) {
-    res.status(500).json({ error: e.message });
+    sfErrorResponse(res, e);
   }
 });
 
@@ -533,7 +534,7 @@ app.get("/api/deal-status", async (req, res) => {
   try {
     res.json({ statuses: await listDealStatuses() });
   } catch (e) {
-    res.status(500).json({ error: e.message });
+    sfErrorResponse(res, e);
   }
 });
 // ステータス変更を許可するアカウント（メールアドレスで完全一致判定）。
@@ -576,7 +577,7 @@ app.put("/api/deal-status", async (req, res) => {
     }
     res.json({ ok: true });
   } catch (e) {
-    res.status(500).json({ error: e.message });
+    sfErrorResponse(res, e);
   }
 });
 
@@ -811,7 +812,7 @@ app.get("/api/action-items", async (req, res) => {
     await syncAccountActionItems(account); // AI抽出の宿題を取り込み（冪等）
     res.json({ items: await listActionItems(account) });
   } catch (e) {
-    res.status(500).json({ error: e.message });
+    sfErrorResponse(res, e);
   }
 });
 app.post("/api/action-items", async (req, res) => {
@@ -821,7 +822,7 @@ app.post("/api/action-items", async (req, res) => {
     const id = await addActionItem({ account, text, due, botId, owner: req.user || "", source: "manual" });
     res.json({ ok: true, id });
   } catch (e) {
-    res.status(500).json({ error: e.message });
+    sfErrorResponse(res, e);
   }
 });
 app.put("/api/action-items/:id", async (req, res) => {
@@ -830,7 +831,7 @@ app.put("/api/action-items/:id", async (req, res) => {
     await updateActionItem(Number(req.params.id), { done, text, due });
     res.json({ ok: true });
   } catch (e) {
-    res.status(500).json({ error: e.message });
+    sfErrorResponse(res, e);
   }
 });
 app.delete("/api/action-items/:id", async (req, res) => {
@@ -838,7 +839,7 @@ app.delete("/api/action-items/:id", async (req, res) => {
     await deleteActionItem(Number(req.params.id));
     res.json({ ok: true });
   } catch (e) {
-    res.status(500).json({ error: e.message });
+    sfErrorResponse(res, e);
   }
 });
 
@@ -2653,7 +2654,7 @@ app.post("/api/feature-c/enrich", async (req, res) => {
     console.log(`[feature-c/enrich] processed=${processed} failed=${failed} remaining=${remaining.length}`);
     res.json({ ok: true, processed, failed, remaining: remaining.length });
   } catch (e) {
-    res.status(500).json({ error: e.message });
+    sfErrorResponse(res, e);
   }
 });
 
@@ -2737,7 +2738,7 @@ app.get("/api/feature-c/status", async (req, res) => {
       backfill: fcBackfillState,
     });
   } catch (e) {
-    res.status(500).json({ error: e.message });
+    sfErrorResponse(res, e);
   }
 });
 
@@ -2845,7 +2846,7 @@ app.post("/api/feature-c/sync-status", async (req, res) => {
     console.log(`[feature-c/sync-status] ${updated}件を同期`);
     res.json({ ok: true, total: tags.length, updated, sample: changes });
   } catch (e) {
-    res.status(500).json({ error: e.message });
+    sfErrorResponse(res, e);
   }
 });
 
@@ -2856,7 +2857,7 @@ app.post("/api/feature-c/reset-tags", async (req, res) => {
     console.log(`[feature-c/reset-tags] ${deleted}件を削除`);
     res.json({ ok: true, deleted });
   } catch (e) {
-    res.status(500).json({ error: e.message });
+    sfErrorResponse(res, e);
   }
 });
 
@@ -2867,7 +2868,7 @@ app.post("/api/feature-c/fill-industry", async (req, res) => {
     console.log(`[feature-c/fill-industry] ${result.updated}件を反映`);
     res.json({ ok: true, ...result });
   } catch (e) {
-    res.status(500).json({ error: e.message });
+    sfErrorResponse(res, e);
   }
 });
 
@@ -3213,7 +3214,7 @@ app.get("/api/notion/config", async (req, res) => {
     const cfg = await getUserSettings(req.user);
     res.json(notionStatus(cfg));
   } catch (e) {
-    res.status(500).json({ error: e.message });
+    sfErrorResponse(res, e);
   }
 });
 app.put("/api/notion/config", async (req, res) => {
@@ -3225,7 +3226,7 @@ app.put("/api/notion/config", async (req, res) => {
     await saveUserSettings(req.user, patch);
     res.json({ ok: true, ...notionStatus(await getUserSettings(req.user)) });
   } catch (e) {
-    res.status(500).json({ error: e.message });
+    sfErrorResponse(res, e);
   }
 });
 app.post("/api/meetings/:id/notion", async (req, res) => {
@@ -3285,7 +3286,7 @@ app.get("/api/users", async (req, res) => {
   try {
     res.json(await listUsers());
   } catch (e) {
-    res.status(500).json({ error: e.message });
+    sfErrorResponse(res, e);
   }
 });
 
@@ -3295,7 +3296,7 @@ app.get("/api/thanks-examples", async (req, res) => {
     const s = await getUserSettings(req.user);
     res.json(s.thanksExamples || {});
   } catch (e) {
-    res.status(500).json({ error: e.message });
+    sfErrorResponse(res, e);
   }
 });
 app.put("/api/thanks-examples", async (req, res) => {
@@ -3304,7 +3305,7 @@ app.put("/api/thanks-examples", async (req, res) => {
     await saveUserSettings(req.user, { thanksExamples: examples });
     res.json({ ok: true });
   } catch (e) {
-    res.status(500).json({ error: e.message });
+    sfErrorResponse(res, e);
   }
 });
 
@@ -3324,7 +3325,7 @@ app.put("/api/thanks-prompt", async (req, res) => {
     await saveUserSettings(req.user, { thanksPrompt: typeof prompt === "string" ? prompt : "" });
     res.json({ ok: true });
   } catch (e) {
-    res.status(500).json({ error: e.message });
+    sfErrorResponse(res, e);
   }
 });
 
@@ -3431,7 +3432,7 @@ app.get("/api/settings", async (req, res) => {
     const cfg = await resolveConfig(req.user);
     res.json({ settings: cfg, status: statusInfo(PUBLIC_URL) });
   } catch (e) {
-    res.status(500).json({ error: e.message });
+    sfErrorResponse(res, e);
   }
 });
 app.put("/api/settings", async (req, res) => {
@@ -3451,7 +3452,7 @@ app.put("/api/settings", async (req, res) => {
     const r = await saveUserSettings(req.user, patch);
     res.json({ ok: true, ...r });
   } catch (e) {
-    res.status(500).json({ error: e.message });
+    sfErrorResponse(res, e);
   }
 });
 
@@ -3461,7 +3462,7 @@ app.get("/api/check-items", async (req, res) => {
     const items = await getCheckItems();
     res.json({ items });
   } catch (e) {
-    res.status(500).json({ error: e.message });
+    sfErrorResponse(res, e);
   }
 });
 app.put("/api/check-items", async (req, res) => {
@@ -3472,7 +3473,7 @@ app.put("/api/check-items", async (req, res) => {
     const r = await saveSettings({ checkItems: items });
     res.json({ ok: true, items, ...r });
   } catch (e) {
-    res.status(500).json({ error: e.message });
+    sfErrorResponse(res, e);
   }
 });
 
@@ -3481,7 +3482,7 @@ app.get("/api/summary-prompt", async (req, res) => {
   try {
     res.json({ prompt: await getSummaryPrompt() });
   } catch (e) {
-    res.status(500).json({ error: e.message });
+    sfErrorResponse(res, e);
   }
 });
 app.put("/api/summary-prompt", async (req, res) => {
@@ -3490,7 +3491,7 @@ app.put("/api/summary-prompt", async (req, res) => {
     const r = await saveSettings({ summaryPrompt: prompt });
     res.json({ ok: true, prompt, ...r });
   } catch (e) {
-    res.status(500).json({ error: e.message });
+    sfErrorResponse(res, e);
   }
 });
 
@@ -3778,7 +3779,7 @@ app.post("/api/knowledge/reindex", async (req, res) => {
     }
     res.json({ ok: true, count: n, embeddings: embeddingsAvailable() });
   } catch (e) {
-    res.status(500).json({ error: e.message });
+    sfErrorResponse(res, e);
   }
 });
 
@@ -4043,7 +4044,7 @@ app.get("/api/meetings", async (req, res) => {
     // 全員が全商談を閲覧できる
     res.json(await listMeetings({ isAdmin: true }));
   } catch (e) {
-    res.status(500).json({ error: e.message });
+    sfErrorResponse(res, e);
   }
 });
 app.get("/api/meetings/:id", async (req, res) => {
@@ -4053,7 +4054,7 @@ app.get("/api/meetings/:id", async (req, res) => {
     if (!canAccess(m, req)) return res.status(403).json({ error: "権限がありません" });
     res.json(m);
   } catch (e) {
-    res.status(500).json({ error: e.message });
+    sfErrorResponse(res, e);
   }
 });
 app.get("/api/meetings/:id/recording", async (req, res) => {
@@ -4182,7 +4183,7 @@ app.get("/api/salesforce/status", async (req, res) => {
     const us = await getUserSettings(req.user);
     res.json({ ...info, mapping: us.sfMapping || {} });
   } catch (e) {
-    res.status(500).json({ error: e.message });
+    sfErrorResponse(res, e);
   }
 });
 app.post("/api/salesforce/disconnect", async (req, res) => {
@@ -4196,9 +4197,20 @@ app.put("/api/salesforce/mapping", async (req, res) => {
     await saveUserSettings(req.user, { sfMapping: mapping });
     res.json({ ok: true });
   } catch (e) {
-    res.status(500).json({ error: e.message });
+    sfErrorResponse(res, e);
   }
 });
+
+// SF APIエラーハンドリング共通ヘルパー
+function sfErrorResponse(res, e) {
+  const isReauth = e.sfReauth || /expired|invalid_grant/.test(e.message || "");
+  const status = isReauth ? 401 : 500;
+  res.status(status).json({
+    error: e.message,
+    sfReauth: isReauth,
+    reauthUrl: isReauth ? "/auth/salesforce" : undefined,
+  });
+}
 
 // SF商談を会社名で検索
 app.get("/api/salesforce/search", async (req, res) => {
@@ -4208,8 +4220,7 @@ app.get("/api/salesforce/search", async (req, res) => {
     const records = await searchOpportunities(req.user, q);
     res.json({ records });
   } catch (e) {
-    console.error("[sf/search]", e.message);
-    res.status(500).json({ error: e.message });
+    sfErrorResponse(res, e);
   }
 });
 
@@ -4219,17 +4230,41 @@ app.get("/api/salesforce/stages", async (req, res) => {
     const stages = await getStageValues(req.user);
     res.json({ stages });
   } catch (e) {
-    res.status(500).json({ error: e.message });
+    sfErrorResponse(res, e);
   }
 });
 
-// SF商談の詳細を取得（全フィールド）
+// SF商談の詳細を取得（SS固有フィールドを含む）
 app.get("/api/salesforce/opportunity/:id", async (req, res) => {
   try {
+    // まずdescribeでカスタムフィールドのAPI名を取得
+    let customFields = [];
+    try {
+      const desc = await describeOpportunity(req.user);
+      customFields = (desc.fields || [])
+        .filter(f => f.name.endsWith("__c") || [
+          "Id","Name","StageName","Amount","CloseDate","NextStep",
+          "Description","AccountId","OwnerId","CreatedDate","LastModifiedDate"
+        ].includes(f.name))
+        .map(f => f.name);
+    } catch {}
+
+    if (customFields.length) {
+      // SOQLで全フィールドを取得
+      const fieldList = customFields.join(",");
+      const result = await sfQuery(req.user,
+        `SELECT ${fieldList}, Account.Name FROM Opportunity WHERE Id = '${req.params.id}' LIMIT 1`
+      );
+      if (result.records && result.records.length) {
+        return res.json(result.records[0]);
+      }
+    }
+
+    // フォールバック: 基本GETで取得
     const opp = await getOpportunity(req.user, req.params.id);
     res.json(opp);
   } catch (e) {
-    res.status(500).json({ error: e.message });
+    sfErrorResponse(res, e);
   }
 });
 
@@ -4248,8 +4283,7 @@ app.patch("/api/salesforce/opportunity/:id", async (req, res) => {
     }
     res.json({ ok: true });
   } catch (e) {
-    console.error("[sf/update]", e.message);
-    res.status(500).json({ error: e.message });
+    sfErrorResponse(res, e);
   }
 });
 
@@ -4261,7 +4295,7 @@ app.post("/api/salesforce/opportunity/:id/log", async (req, res) => {
     await postChatter(req.user, req.params.id, `[kinbot] ${text}`);
     res.json({ ok: true });
   } catch (e) {
-    res.status(500).json({ error: e.message });
+    sfErrorResponse(res, e);
   }
 });
 
@@ -4269,15 +4303,14 @@ app.post("/api/salesforce/opportunity/:id/log", async (req, res) => {
 app.get("/api/salesforce/describe", async (req, res) => {
   try {
     const desc = await describeOpportunity(req.user);
-    // フィールド情報を簡略化して返す
     const fields = (desc.fields || []).map(f => ({
       name: f.name, label: f.label, type: f.type,
-      updateable: f.updateable,
+      updateable: f.updateable, custom: f.custom,
       picklistValues: f.picklistValues?.filter(v => v.active).map(v => ({ value: v.value, label: v.label })),
     }));
-    res.json({ fields });
+    res.json({ fields, totalFields: fields.length, customFields: fields.filter(f => f.custom).length });
   } catch (e) {
-    res.status(500).json({ error: e.message });
+    sfErrorResponse(res, e);
   }
 });
 
@@ -4296,7 +4329,7 @@ app.post("/api/salesforce/task", async (req, res) => {
     });
     res.json({ ok: true, task });
   } catch (e) {
-    res.status(500).json({ error: e.message });
+    sfErrorResponse(res, e);
   }
 });
 
@@ -4306,7 +4339,7 @@ app.put("/api/meetings/:id/sf-link", async (req, res) => {
     await setMeetingSfUrl(req.params.id, (req.body && req.body.url) || "");
     res.json({ ok: true });
   } catch (e) {
-    res.status(500).json({ error: e.message });
+    sfErrorResponse(res, e);
   }
 });
 
@@ -4422,7 +4455,7 @@ app.get("/api/links", async (req, res) => {
     const s = await getUserSettings(req.user);
     res.json({ links: Array.isArray(s.savedLinks) ? s.savedLinks : [] });
   } catch (e) {
-    res.status(500).json({ error: e.message });
+    sfErrorResponse(res, e);
   }
 });
 app.put("/api/links", async (req, res) => {
@@ -4436,7 +4469,7 @@ app.put("/api/links", async (req, res) => {
     const r = await saveUserSettings(req.user, { savedLinks: links });
     res.json({ ok: true, links, ...r });
   } catch (e) {
-    res.status(500).json({ error: e.message });
+    sfErrorResponse(res, e);
   }
 });
 
@@ -4866,7 +4899,7 @@ JSON形式で回答（他の文章は出力しない）:
     const rows = await listProposalFiles(filters);
     res.json({ proposals: rows, total: rows.length, query: q, filters });
   } catch (e) {
-    res.status(500).json({ error: e.message });
+    sfErrorResponse(res, e);
   }
 });
 
@@ -4876,7 +4909,7 @@ app.get("/api/proposals", async (req, res) => {
     const rows = await listProposalFiles({ deal_id: req.query.deal_id });
     res.json({ proposals: rows });
   } catch (e) {
-    res.status(500).json({ error: e.message });
+    sfErrorResponse(res, e);
   }
 });
 
@@ -4886,7 +4919,7 @@ app.delete("/api/proposals/:id", async (req, res) => {
     await deleteProposalFile(req.params.id);
     res.json({ ok: true });
   } catch (e) {
-    res.status(500).json({ error: e.message });
+    sfErrorResponse(res, e);
   }
 });
 
