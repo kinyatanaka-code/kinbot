@@ -2663,3 +2663,16 @@ button.np-step:disabled { opacity: 0.6; cursor: wait; }
 .sf-actions { display: flex; gap: 8px; margin-top: 4px; }
 .sf-btn-secondary { background: #fff; color: #0d5b47; border: 1px solid #0d5b47; }
 .sf-btn-secondary:hover { background: #eef7f2; }
+
+/* SF再認証ボックス */
+.sf-reauth-box {
+  padding: 20px; margin: 12px 0; text-align: center;
+  background: #fef8e8; border: 1px solid #ecd9a0; border-radius: 10px;
+}
+.sf-reauth-msg { font-size: 13px; color: #8a6d1a; margin-bottom: 12px; }
+.sf-reauth-btn {
+  display: inline-block; padding: 10px 24px;
+  font-size: 14px; font-weight: 600; color: #fff; background: #0d5b47;
+  border: none; border-radius: 8px; text-decoration: none;
+}
+.sf-reauth-btn:hover { background: #1d9e75; }

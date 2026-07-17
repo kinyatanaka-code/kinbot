@@ -1701,6 +1701,26 @@ async function deleteProposal(id, dealId) {
 
 
 // ===== Salesforce連携タブ（SS01〜SS06固有フィールド対応） =====
+
+// SF再認証ボタンを表示するヘルパー
+function showSfReauth(container, msg) {
+  container.innerHTML = `<div class="sf-reauth-box">
+    <div class="sf-reauth-msg">${esc(msg || "Salesforceのセッションが切れました")}</div>
+    <a href="/auth/salesforce" class="btn sf-reauth-btn">Salesforceに再接続</a>
+  </div>`;
+}
+
+// SF API呼び出しのラッパー（再認証エラーを自動検知）
+async function sfFetch(url, options) {
+  const r = await fetch(url, options);
+  if (!r.ok) {
+    const d = await r.clone().json().catch(() => ({}));
+    if (d.sfReauth || /expired|invalid_grant/.test(d.error || "")) {
+      throw { sfReauth: true, message: d.error || "セッション切れ" };
+    }
+  }
+  return r;
+}
 let sfLinkedOpp = null;
 let sfStageOptions = [];
 let sfFieldDefs = null; // Opportunityのフィールド定義キャッシュ
@@ -1832,7 +1852,7 @@ async function initSfTab(account) {
     searchBtn.textContent = "検索中…";
     try {
       const companyName = displayName(account);
-      const r = await fetch("/api/salesforce/search?q=" + encodeURIComponent(companyName));
+      const r = await sfFetch("/api/salesforce/search?q=" + encodeURIComponent(companyName));
       const d = await r.json();
       if (!r.ok) throw new Error(d.error || "検索失敗");
       const records = d.records || [];
@@ -1849,7 +1869,13 @@ async function initSfTab(account) {
       matchesEl.querySelectorAll(".sf-match-item").forEach(item => {
         item.onclick = () => linkOpportunity(item.dataset.id, records.find(r => r.Id === item.dataset.id));
       });
-    } catch (e) { matchesEl.innerHTML = `<div style="padding:12px;color:#a32d2d;font-size:13px;">エラー: ${esc(e.message)}</div>`; }
+    } catch (e) {
+      if (e.sfReauth) {
+        showSfReauth(matchesEl);
+      } else {
+        matchesEl.innerHTML = `<div style="padding:12px;color:#a32d2d;font-size:13px;">エラー: ${esc(e.message)}</div>`;
+      }
+    }
     finally { searchBtn.disabled = false; searchBtn.textContent = "商談を検索"; }
   };
 
@@ -1871,15 +1897,25 @@ async function initSfTab(account) {
           if (val !== undefined && val !== "") fields[api] = val;
         });
         if (Object.keys(fields).length) {
-          const r = await fetch("/api/salesforce/opportunity/" + sfLinkedOpp.Id, {
+          const r = await sfFetch("/api/salesforce/opportunity/" + sfLinkedOpp.Id, {
             method: "PATCH", headers: {"content-type":"application/json"},
             body: JSON.stringify(fields),
           });
-          if (!r.ok) throw new Error((await r.json()).error || "更新失敗");
+          if (!r.ok) {
+            const d = await r.json().catch(() => ({}));
+            if (d.sfReauth) { showSfReauth($("sfStageFields")); return; }
+            throw new Error(d.error || "更新失敗");
+          }
         }
         alert("Salesforceを更新しました");
         linkOpportunity(sfLinkedOpp.Id);
-      } catch (e) { alert("更新失敗: " + e.message); }
+      } catch (e) {
+        if (e.sfReauth || /expired|invalid_grant/.test(e.message || "")) {
+          showSfReauth($("sfStageFields"));
+        } else {
+          alert("更新失敗: " + e.message);
+        }
+      }
       finally { updateBtn.disabled = false; updateBtn.textContent = "Salesforceを更新"; }
     };
   }
@@ -1909,14 +1945,24 @@ async function initSfTab(account) {
           }
           taskData.status = "未着手";
         }
-        const r = await fetch("/api/salesforce/task", {
+        const r = await sfFetch("/api/salesforce/task", {
           method: "POST", headers: {"content-type":"application/json"},
           body: JSON.stringify(taskData),
         });
-        if (!r.ok) throw new Error((await r.json()).error || "記録失敗");
+        if (!r.ok) {
+          const d = await r.json().catch(() => ({}));
+          if (d.sfReauth) { showSfReauth($("sfStageFields")); return; }
+          throw new Error(d.error || "記録失敗");
+        }
         alert("活動を記録しました");
         $("sfTaskComment").value = "";
-      } catch (e) { alert("記録失敗: " + e.message); }
+      } catch (e) {
+        if (e.sfReauth || /expired|invalid_grant/.test(e.message || "")) {
+          showSfReauth($("sfStageFields"));
+        } else {
+          alert("記録失敗: " + e.message);
+        }
+      }
       finally { taskBtn.disabled = false; taskBtn.textContent = "活動を記録"; }
     };
   }
@@ -1933,6 +1979,12 @@ function renderSSFields(stageName) {
   if (!container) return;
   const fields = getSSFields(stageName);
   if (!fields.length) { container.innerHTML = ""; return; }
+  // デバッグ: sfLinkedOppのカスタムフィールドを確認
+  if (sfLinkedOpp) {
+    const customKeys = Object.keys(sfLinkedOpp).filter(k => k.endsWith("__c"));
+    console.log("[SF] カスタムフィールド:", customKeys.join(", "));
+    fields.forEach(f => console.log(`[SF] ${f.api} = ${sfLinkedOpp[f.api] ?? "(未取得)"}`));
+  }
   container.innerHTML = '<div class="sf-ss-section"><div class="sf-ss-title">' + esc(stageName) + ' の項目</div>' +
     fields.map(f => {
       const currentVal = sfLinkedOpp?.[f.api] || "";
@@ -1955,22 +2007,29 @@ async function linkOpportunity(oppId, cached) {
   // Stage選択肢を取得
   if (!sfStageOptions.length) {
     try {
-      const r = await fetch("/api/salesforce/stages");
+      const r = await sfFetch("/api/salesforce/stages");
       const d = await r.json();
       sfStageOptions = d.stages || [];
-    } catch (e) { console.error("stages error:", e); }
+    } catch (e) {
+      if (e.sfReauth) { showSfReauth(infoEl); linkedEl.style.display = ""; return; }
+    }
   }
 
   // 商談の全フィールドを取得（個別GET）
   try {
-    const r = await fetch("/api/salesforce/opportunity/" + oppId);
+    const r = await sfFetch("/api/salesforce/opportunity/" + oppId);
     if (r.ok) {
       const full = await r.json();
       sfLinkedOpp = full;
+    } else {
+      const err = await r.json().catch(() => ({}));
+      throw new Error(err.error || "取得失敗");
     }
-  } catch (e) { console.error("opp fetch error:", e); }
-
-  if (!sfLinkedOpp) { alert("商談の取得に失敗しました"); return; }
+  } catch (e) {
+    if (e.sfReauth) { showSfReauth(infoEl); linkedEl.style.display = ""; return; }
+    matchesEl.innerHTML = `<div style="padding:12px;color:#a32d2d;font-size:13px;">商談取得エラー: ${esc(e.message)}</div>`;
+    return;
+  }
   matchesEl.innerHTML = "";
   linkedEl.style.display = "";
 
