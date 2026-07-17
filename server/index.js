@@ -4249,33 +4249,9 @@ app.get("/api/salesforce/stages", async (req, res) => {
   }
 });
 
-// SF商談の詳細を取得（SS固有フィールドを含む）
+// SF商談の詳細を取得
 app.get("/api/salesforce/opportunity/:id", async (req, res) => {
   try {
-    // まずdescribeでカスタムフィールドのAPI名を取得
-    let customFields = [];
-    try {
-      const desc = await describeOpportunity(req.user);
-      customFields = (desc.fields || [])
-        .filter(f => f.name.endsWith("__c") || [
-          "Id","Name","StageName","Amount","CloseDate","NextStep",
-          "Description","AccountId","OwnerId","CreatedDate","LastModifiedDate"
-        ].includes(f.name))
-        .map(f => f.name);
-    } catch {}
-
-    if (customFields.length) {
-      // SOQLで全フィールドを取得
-      const fieldList = customFields.join(",");
-      const result = await sfQuery(req.user,
-        `SELECT ${fieldList}, Account.Name FROM Opportunity WHERE Id = '${req.params.id}' LIMIT 1`
-      );
-      if (result.records && result.records.length) {
-        return res.json(result.records[0]);
-      }
-    }
-
-    // フォールバック: 基本GETで取得
     const opp = await getOpportunity(req.user, req.params.id);
     res.json(opp);
   } catch (e) {
