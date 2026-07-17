@@ -4163,15 +4163,31 @@ function sfRedirectUri() {
 app.get("/auth/salesforce", (req, res) => {
   if (!salesforceConfigured()) return res.status(500).send("SF_CLIENT_ID/SECRET が未設定です（後日の連携作業で設定します）");
   if (!PUBLIC_URL) return res.status(500).send("PUBLIC_URL が未設定です");
-  const state = makeToken(req.user || "");
+  // returnクエリパラメータで認証後の戻り先を指定可能
+  const returnUrl = req.query.return || "/settings.html";
+  const state = makeToken(JSON.stringify({ owner: req.user || "", returnUrl }));
   res.redirect(sfAuthUrl(sfRedirectUri(), state));
 });
 app.get("/auth/salesforce/callback", async (req, res) => {
   try {
-    const owner = verifyToken(req.query.state || "");
-    if (!owner) return res.status(400).send("セッションが無効です。ログインし直してください。");
+    const raw = verifyToken(req.query.state || "");
+    if (!raw) return res.status(400).send("セッションが無効です。ログインし直してください。");
+    let owner = raw, returnUrl = "/settings.html";
+    try {
+      const parsed = JSON.parse(raw);
+      owner = parsed.owner || raw;
+      returnUrl = parsed.returnUrl || "/settings.html";
+    } catch {}
     await sfExchangeCode(req.query.code, sfRedirectUri(), owner);
-    res.redirect("/settings.html");
+    // ポップアップ完了ページの場合は自動で閉じるHTMLを返す
+    if (returnUrl === "/auth/salesforce/done") {
+      return res.send(`<!DOCTYPE html><html><head><title>接続完了</title></head><body style="font-family:sans-serif;text-align:center;padding:60px 20px;">
+        <h2 style="color:#0d5b47;">✓ Salesforce接続完了</h2>
+        <p style="color:#6b7770;">このウィンドウは自動で閉じます</p>
+        <script>setTimeout(()=>window.close(),1000)</script>
+      </body></html>`);
+    }
+    res.redirect(returnUrl);
   } catch (e) {
     console.error("[salesforce]", e.message);
     res.status(500).send("連携に失敗しました: " + e.message);
@@ -4208,7 +4224,6 @@ function sfErrorResponse(res, e) {
   res.status(status).json({
     error: e.message,
     sfReauth: isReauth,
-    reauthUrl: isReauth ? "/auth/salesforce" : undefined,
   });
 }
 
