@@ -2676,3 +2676,10 @@ button.np-step:disabled { opacity: 0.6; cursor: wait; }
   border: none; border-radius: 8px; text-decoration: none;
 }
 .sf-reauth-btn:hover { background: #1d9e75; }
+
+/* SS セクション: 現在のステージを強調 */
+.sf-ss-current { background: #eef7f2; border-color: #1d9e75; }
+.sf-ss-current .sf-ss-title { color: #0d5b47; font-weight: 700; }
+.sf-ss-other { background: #fafafa; border-color: #e6e8e5; opacity: 0.85; }
+.sf-ss-other .sf-ss-title { color: #8a938c; }
+.sf-ss-section { margin-bottom: 10px; }

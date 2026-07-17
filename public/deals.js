@@ -2019,16 +2019,21 @@ async function initSfTab(account) {
 function renderSSFields(stageName) {
   const container = $("sfStageFields");
   if (!container) return;
-  const fields = getSSFields(stageName);
-  if (!fields.length) { container.innerHTML = ""; return; }
+
   // デバッグ: sfLinkedOppのカスタムフィールドを確認
   if (sfLinkedOpp) {
     const customKeys = Object.keys(sfLinkedOpp).filter(k => k.endsWith("__c"));
     console.log("[SF] カスタムフィールド:", customKeys.join(", "));
-    fields.forEach(f => console.log(`[SF] ${f.api} = ${sfLinkedOpp[f.api] ?? "(未取得)"}`));
   }
-  container.innerHTML = '<div class="sf-ss-section"><div class="sf-ss-title">' + esc(stageName) + ' の項目</div>' +
-    fields.map(f => {
+
+  // 全SSのフィールドを表示（現在のステージを強調）
+  let html = "";
+  for (const [ssLabel, fields] of Object.entries(SS_FIELDS)) {
+    const ssNum = ssLabel.match(/^(\d+)/)?.[1] || "";
+    const isCurrent = stageName && stageName.includes(ssNum);
+    html += `<div class="sf-ss-section ${isCurrent ? "sf-ss-current" : "sf-ss-other"}">`;
+    html += `<div class="sf-ss-title">${isCurrent ? "● " : ""}${esc(ssLabel)} の項目</div>`;
+    html += fields.map(f => {
       const currentVal = sfLinkedOpp?.[f.api] || "";
       if (f.type === "textarea") {
         return `<div class="sf-field"><label>${esc(f.label)}</label><textarea class="sf-textarea" data-sf-field="${f.api}" rows="2">${esc(currentVal)}</textarea></div>`;
@@ -2037,7 +2042,10 @@ function renderSSFields(stageName) {
       } else {
         return `<div class="sf-field"><label>${esc(f.label)}</label><input type="text" class="sf-input" data-sf-field="${f.api}" value="${esc(currentVal)}" /></div>`;
       }
-    }).join("") + '</div>';
+    }).join("");
+    html += `</div>`;
+  }
+  container.innerHTML = html;
 }
 
 async function linkOpportunity(oppId, cached) {
@@ -2057,17 +2065,15 @@ async function linkOpportunity(oppId, cached) {
     } catch {}
   }
 
-  // cachedに全フィールドが入っているはず（searchで取得済み）
-  // 追加取得は試みるが、失敗してもcachedで進む
-  if (sfLinkedOpp) {
-    try {
-      const r = await sfFetch("/api/salesforce/opportunity/" + oppId);
-      if (r.ok) {
-        const full = await r.json();
-        sfLinkedOpp = full; // 成功したらより完全なデータに更新
-      }
-    } catch {} // 失敗してもcachedで進む
-  }
+  // 追加取得は試みるが、失敗してもcachedで進む（cachedを上書きしない）
+  try {
+    const r = await sfFetch("/api/salesforce/opportunity/" + oppId);
+    if (r.ok) {
+      const full = await r.json();
+      // cachedにないフィールドだけマージ
+      sfLinkedOpp = { ...sfLinkedOpp, ...full };
+    }
+  } catch {}
 
   if (!sfLinkedOpp) {
     matchesEl.innerHTML = '<div style="padding:12px;color:#a32d2d;font-size:13px;">商談データがありません</div>';
