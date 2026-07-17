@@ -2683,3 +2683,14 @@ button.np-step:disabled { opacity: 0.6; cursor: wait; }
 .sf-ss-other { background: #fafafa; border-color: #e6e8e5; opacity: 0.85; }
 .sf-ss-other .sf-ss-title { color: #8a938c; }
 .sf-ss-section { margin-bottom: 10px; }
+
+/* SF セクションボックス */
+.sf-section-box {
+  padding: 16px; margin: 14px 0;
+  background: #fff; border: 1px solid #e6e8e5; border-radius: 10px;
+}
+.sf-section-title {
+  font-size: 13px; font-weight: 600; color: #0d5b47;
+  margin-bottom: 12px; padding-bottom: 8px;
+  border-bottom: 1px solid #e6e8e5;
+}

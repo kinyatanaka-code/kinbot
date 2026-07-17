@@ -151,19 +151,31 @@ export async function sfQuery(owner, soql) {
   return res.json();
 }
 
-// 会社名で商談を検索（SS固有フィールドも含めて取得）
+// 会社名で商談を検索（FIELDS(CUSTOM)で全カスタムフィールドも取得）
 export async function searchOpportunities(owner, companyName) {
   const escaped = String(companyName || "").replace(/'/g, "\\'");
 
-  // 基本フィールド＋よくあるカスタムフィールドを固定で指定
-  // describeは呼ばない（トークン消費を減らす）
-  const soql = `SELECT Id, Name, StageName, Amount, CloseDate, NextStep, Description, AccountId, Account.Name
-    FROM Opportunity
-    WHERE Account.Name LIKE '%${escaped}%'
-    ORDER BY LastModifiedDate DESC
-    LIMIT 20`;
-  const result = await sfQuery(owner, soql);
-  return result.records || [];
+  // FIELDS(CUSTOM) はSalesforce API v51+で使用可能
+  // 標準フィールド＋全カスタムフィールドを1クエリで取得
+  try {
+    const soql = `SELECT FIELDS(CUSTOM), Id, Name, StageName, Amount, CloseDate, NextStep, Description, AccountId, Account.Name
+      FROM Opportunity
+      WHERE Account.Name LIKE '%${escaped}%'
+      ORDER BY LastModifiedDate DESC
+      LIMIT 20`;
+    const result = await sfQuery(owner, soql);
+    return result.records || [];
+  } catch (e) {
+    // FIELDS(CUSTOM)がサポートされない場合はフォールバック
+    console.warn("[sf] FIELDS(CUSTOM) failed, falling back:", e.message);
+    const soql = `SELECT Id, Name, StageName, Amount, CloseDate, NextStep, Description, AccountId, Account.Name
+      FROM Opportunity
+      WHERE Account.Name LIKE '%${escaped}%'
+      ORDER BY LastModifiedDate DESC
+      LIMIT 20`;
+    const result = await sfQuery(owner, soql);
+    return result.records || [];
+  }
 }
 
 // Stageの選択肢を取得

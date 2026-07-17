@@ -1209,15 +1209,23 @@ async function selectDeal(account) {
     `<div id="sfMatches"></div>` +
     `<div id="sfLinked" style="display:none">` +
     `<div id="sfLinkedInfo" class="sf-linked-info"></div>` +
-    `<div class="sf-update-form">` +
+    // ─── ステージ更新セクション ───
+    `<div class="sf-section-box">` +
+    `<div class="sf-section-title"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" style="vertical-align:-2px;margin-right:4px"><rect x="1" y="6" width="4" height="9" rx="1" fill="#0d5b47"/><rect x="6" y="3" width="4" height="12" rx="1" fill="#1d9e75"/><rect x="11" y="1" width="4" height="14" rx="1" fill="#5DCAA5"/></svg>ステージ・項目の更新</div>` +
     `<div class="sf-field"><label>セールスステージ</label><select id="sfStage" class="sf-select"></select></div>` +
     `<div id="sfStageFields"></div>` +
-    `<div class="sf-divider"></div>` +
-    `<div class="sf-field"><label>活動を記録</label></div>` +
+    `<div class="sf-field" style="margin-top:8px"><button class="btn" id="sfUpdateBtn">ステージ・項目を更新</button></div>` +
+    `<div id="sfUpdateMsg"></div>` +
+    `</div>` +
+    // ─── 活動記録セクション ───
+    `<div class="sf-section-box">` +
+    `<div class="sf-section-title"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" style="vertical-align:-2px;margin-right:4px"><circle cx="8" cy="8" r="7" fill="#0d5b47"/><path d="M8 4v4l3 2" stroke="#fff" stroke-width="1.5" stroke-linecap="round"/></svg>活動を記録</div>` +
     `<div class="sf-field"><label>活動種別</label><select id="sfTaskType" class="sf-select"><option value="">--なし--</option><option value="電話">電話</option><option value="メール">メール</option><option value="商談">商談</option><option value="その他">その他</option><option value="再商談">再商談</option><option value="ネクストアクション">ネクストアクション</option></select></div>` +
     `<div class="sf-field"><label>コメント</label><textarea id="sfTaskComment" class="sf-textarea" rows="3" placeholder="活動メモ"></textarea></div>` +
-    `<div class="sf-actions"><button class="btn" id="sfUpdateBtn">Salesforceを更新</button><button class="btn sf-btn-secondary" id="sfTaskBtn">活動を記録</button></div>` +
-    `</div></div></section>` +
+    `<div class="sf-field" style="margin-top:8px"><button class="btn sf-btn-secondary" id="sfTaskBtn">活動を記録</button></div>` +
+    `<div id="sfTaskMsg"></div>` +
+    `</div>` +
+    `</div></section>` +
     `</div>` +
     // 商談の流れ
     `<div class="deal-tabpane" data-dtab="flow" hidden>` +
@@ -1898,6 +1906,17 @@ async function initSfTab(account) {
       const d = await r.json();
       if (!r.ok) throw new Error(d.error || "検索失敗");
       const records = d.records || [];
+      if (records.length) {
+        // デバッグ: 最初のレコードの全フィールドをログ出力
+        const firstRec = records[0];
+        const allKeys = Object.keys(firstRec).filter(k => k !== "attributes");
+        const customKeys = allKeys.filter(k => k.endsWith("__c"));
+        console.log("[SF] 取得フィールド数:", allKeys.length, "うちカスタム:", customKeys.length);
+        console.log("[SF] カスタムフィールド一覧:", customKeys.sort().join(", "));
+        // SS関連のフィールドを抽出
+        const ssKeys = customKeys.filter(k => /ss|SS|apo|Apo|stage|Stage|昇格|appointment/i.test(k));
+        if (ssKeys.length) console.log("[SF] SS関連フィールド:", ssKeys.join(", "));
+      }
       if (!records.length) {
         matchesEl.innerHTML = '<div style="padding:12px;color:#8a938c;font-size:13px;">Salesforceに一致する商談が見つかりませんでした</div>';
         return;
@@ -1953,12 +1972,12 @@ async function initSfTab(account) {
         linkOpportunity(sfLinkedOpp.Id);
       } catch (e) {
         if (e.sfReauth || /expired|invalid_grant/.test(e.message || "")) {
-          showSfReauth($("sfStageFields"));
+          showSfReauth($("sfUpdateMsg"));
         } else {
           alert("更新失敗: " + e.message);
         }
       }
-      finally { updateBtn.disabled = false; updateBtn.textContent = "Salesforceを更新"; }
+      finally { updateBtn.disabled = false; updateBtn.textContent = "ステージ・項目を更新"; }
     };
   }
 
@@ -2000,7 +2019,7 @@ async function initSfTab(account) {
         $("sfTaskComment").value = "";
       } catch (e) {
         if (e.sfReauth || /expired|invalid_grant/.test(e.message || "")) {
-          showSfReauth($("sfStageFields"));
+          showSfReauth($("sfTaskMsg"));
         } else {
           alert("記録失敗: " + e.message);
         }
