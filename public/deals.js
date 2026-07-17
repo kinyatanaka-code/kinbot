@@ -1702,12 +1702,31 @@ async function deleteProposal(id, dealId) {
 
 // ===== Salesforce連携タブ（SS01〜SS06固有フィールド対応） =====
 
-// SF再認証ボタンを表示するヘルパー
+// SF再認証ボタンを表示するヘルパー（ポップアップで認証、ページ遷移なし）
 function showSfReauth(container, msg) {
   container.innerHTML = `<div class="sf-reauth-box">
     <div class="sf-reauth-msg">${esc(msg || "Salesforceのセッションが切れました")}</div>
-    <a href="/auth/salesforce" class="btn sf-reauth-btn">Salesforceに再接続</a>
+    <button class="btn sf-reauth-btn" onclick="openSfReauth(this)">Salesforceに再接続</button>
   </div>`;
+}
+
+function openSfReauth(btn) {
+  btn.textContent = "認証画面を開いています…";
+  btn.disabled = true;
+  const popup = window.open(
+    "/auth/salesforce?return=/auth/salesforce/done",
+    "sf_reauth",
+    "width=600,height=700,menubar=no,toolbar=no,location=yes"
+  );
+  // ポップアップが閉じたら自動でリロード
+  const check = setInterval(() => {
+    if (!popup || popup.closed) {
+      clearInterval(check);
+      btn.textContent = "再接続完了！再読み込み中…";
+      // SFタブを再初期化（ページ遷移なし）
+      location.reload();
+    }
+  }, 500);
 }
 
 // SF API呼び出しのラッパー（再認証エラーを自動検知）
