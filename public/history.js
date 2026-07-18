@@ -653,7 +653,7 @@ async function loadDetail(botId) {
             <div id="gmThreads"></div>
             <div class="gmail-to" id="gmToWrap" hidden>
               <label class="thanks-field"><span>宛先</span><input id="gmTo" type="email" placeholder="送信先メールアドレス" /></label>
-              <button class="btn" id="gmSendBtn">Gmailで送信</button>
+              <button class="btn" id="gmDraftBtn">Gmailに下書きを保存</button>
               <span class="thanks-note" id="gmSendNote"></span>
             </div>
           </div>
@@ -840,7 +840,7 @@ async function loadDetail(botId) {
     const gmThreads = hdetail.querySelector("#gmThreads");
     const gmToWrap = hdetail.querySelector("#gmToWrap");
     const gmTo = hdetail.querySelector("#gmTo");
-    const gmSendBtn = hdetail.querySelector("#gmSendBtn");
+    const gmSendBtn = hdetail.querySelector("#gmDraftBtn");
     const gmSendNote = hdetail.querySelector("#gmSendNote");
     let gmReply = null; // {threadId, inReplyTo, references}
 
@@ -932,7 +932,7 @@ async function loadDetail(botId) {
               gmTo.value = dd.to || "";
               gmReply = { threadId: dd.threadId, inReplyTo: dd.inReplyTo, references: dd.references };
               gmToWrap.hidden = false;
-              gmNote.textContent = "返信の下書きを下に入れました。内容を確認・編集して送信できます。";
+              gmNote.textContent = "返信の下書きを下に入れました。内容を確認・編集して、Gmailの下書きに保存できます。";
               thanksBody.scrollIntoView({ block: "nearest" });
             } catch (e2) {
               gmNote.textContent = "作成失敗: " + e2.message;
@@ -956,13 +956,12 @@ async function loadDetail(botId) {
       const to = (gmTo.value || "").trim();
       if (!to) { gmSendNote.textContent = "宛先を入力してください。"; return; }
       if (!thanksBody.value.trim()) { gmSendNote.textContent = "本文が空です。"; return; }
-      if (!confirm(`${to} にこの内容で送信します。よろしいですか？`)) return;
       gmSendBtn.disabled = true;
       const o = gmSendBtn.textContent;
-      gmSendBtn.textContent = "送信中…";
+      gmSendBtn.textContent = "保存中…";
       gmSendNote.textContent = "";
       try {
-        const r = await fetch("/api/gmail/send", {
+        const r = await fetch("/api/gmail/draft", {
           method: "POST", headers: { "content-type": "application/json" },
           body: JSON.stringify({
             to,
@@ -974,10 +973,10 @@ async function loadDetail(botId) {
           }),
         });
         const d = await r.json();
-        if (!r.ok) throw new Error(d.error || "送信に失敗しました");
-        gmSendNote.textContent = "送信しました。";
+        if (!r.ok) throw new Error(d.error || "下書きの保存に失敗しました");
+        gmSendNote.textContent = "Gmailに下書きを保存しました。Gmailで内容を確認して送信してください。";
       } catch (e) {
-        gmSendNote.textContent = "送信失敗: " + e.message;
+        gmSendNote.textContent = "保存失敗: " + e.message;
       } finally {
         gmSendBtn.disabled = false;
         gmSendBtn.textContent = o;

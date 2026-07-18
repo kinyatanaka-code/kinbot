@@ -6,7 +6,7 @@ const CLIENT_ID = process.env.GOOGLE_CLIENT_ID || "";
 const CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET || "";
 // calendar.events は「自分のカレンダーに予定を作り、ゲストを招待する」ために必要。
 // 招待方式なので、相手（クローザー）のカレンダーへの権限は不要。
-const SCOPE = "https://www.googleapis.com/auth/calendar.readonly https://www.googleapis.com/auth/calendar.events https://www.googleapis.com/auth/drive.readonly https://www.googleapis.com/auth/gmail.readonly https://www.googleapis.com/auth/gmail.send";
+const SCOPE = "https://www.googleapis.com/auth/calendar.readonly https://www.googleapis.com/auth/calendar.events https://www.googleapis.com/auth/drive.readonly https://www.googleapis.com/auth/gmail.readonly https://www.googleapis.com/auth/gmail.compose";
 
 export function googleConfigured() {
   return !!(CLIENT_ID && CLIENT_SECRET);
@@ -559,24 +559,7 @@ export function parseEmailAddr(s) {
 export async function gmailSend(owner, { to, subject, bodyText, threadId, inReplyTo, references }) {
   const token = await accessToken(owner);
   if (!token) throw new Error("Google未連携です");
-  const from = await getPrimaryEmail(owner);
-  const enc = (s) => `=?UTF-8?B?${Buffer.from(String(s || "")).toString("base64")}?=`;
-  const headers = [
-    from ? `From: ${from}` : "",
-    `To: ${to}`,
-    `Subject: ${enc(subject)}`,
-    "MIME-Version: 1.0",
-    'Content-Type: text/plain; charset="UTF-8"',
-    "Content-Transfer-Encoding: base64",
-    inReplyTo ? `In-Reply-To: ${inReplyTo}` : "",
-    references ? `References: ${references}` : "",
-  ].filter(Boolean);
-  const bodyB64 = Buffer.from(String(bodyText || ""), "utf-8").toString("base64");
-  const raw = Buffer.from(headers.join("\r\n") + "\r\n\r\n" + bodyB64, "utf-8")
-    .toString("base64")
-    .replace(/\+/g, "-")
-    .replace(/\//g, "_")
-    .replace(/=+$/, "");
+  const raw = await buildRawMessage(owner, { to, subject, bodyText, inReplyTo, references });
   const payload = threadId ? { raw, threadId } : { raw };
   const res = await fetch("https://gmail.googleapis.com/gmail/v1/users/me/messages/send", {
     method: "POST",
@@ -590,4 +573,46 @@ export async function gmailSend(owner, { to, subject, bodyText, threadId, inRepl
     throw err;
   }
   return res.json();
+}
+
+// 返信を「下書き」としてGmailに保存する（送信はしない）。threadIdで同じスレッドにぶら下がる。
+export async function gmailCreateDraft(owner, { to, subject, bodyText, threadId, inReplyTo, references }) {
+  const token = await accessToken(owner);
+  if (!token) throw new Error("Google未連携です");
+  const raw = await buildRawMessage(owner, { to, subject, bodyText, inReplyTo, references });
+  const message = threadId ? { raw, threadId } : { raw };
+  const res = await fetch("https://gmail.googleapis.com/gmail/v1/users/me/drafts", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}`, "content-type": "application/json" },
+    body: JSON.stringify({ message }),
+  });
+  if (!res.ok) {
+    const t = await res.text();
+    const err = new Error(`Gmail下書き ${res.status}: ${t.slice(0, 200)}`);
+    if (res.status === 403 && /insufficient|scope/i.test(t)) err.needScope = true;
+    throw err;
+  }
+  return res.json();
+}
+
+// RFC822形式のメッセージを組み立ててbase64url化（送信・下書きで共通）
+async function buildRawMessage(owner, { to, subject, bodyText, inReplyTo, references }) {
+  const from = await getPrimaryEmail(owner);
+  const enc = (s) => `=?UTF-8?B?${Buffer.from(String(s || "")).toString("base64")}?=`;
+  const headers = [
+    from ? `From: ${from}` : "",
+    `To: ${to}`,
+    `Subject: ${enc(subject)}`,
+    "MIME-Version: 1.0",
+    'Content-Type: text/plain; charset="UTF-8"',
+    "Content-Transfer-Encoding: base64",
+    inReplyTo ? `In-Reply-To: ${inReplyTo}` : "",
+    references ? `References: ${references}` : "",
+  ].filter(Boolean);
+  const bodyB64 = Buffer.from(String(bodyText || ""), "utf-8").toString("base64");
+  return Buffer.from(headers.join("\r\n") + "\r\n\r\n" + bodyB64, "utf-8")
+    .toString("base64")
+    .replace(/\+/g, "-")
+    .replace(/\//g, "_")
+    .replace(/=+$/, "");
 }

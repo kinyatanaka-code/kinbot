@@ -141,6 +141,7 @@ import {
   gmailSearchThreads,
   gmailGetThread,
   gmailSend,
+  gmailCreateDraft,
   parseEmailAddr,
 } from "./google.js";
 import { startScheduler } from "./scheduler.js";
@@ -3502,6 +3503,27 @@ app.post("/api/meetings/:id/gmail-reply-draft", async (req, res) => {
   } catch (e) {
     if (e.needScope) return res.json({ ok: false, needScope: true });
     console.error("[gmail-reply-draft]", e.message);
+    res.status(502).json({ error: e.message });
+  }
+});
+
+// kinbotからGmailの「下書き」に保存する（送信はしない・営業がGmailで確認して送る）
+app.post("/api/gmail/draft", async (req, res) => {
+  try {
+    const { to, subject, body, threadId, inReplyTo, references } = req.body || {};
+    if (!to || !body) return res.status(400).json({ error: "宛先と本文が必要です" });
+    const result = await gmailCreateDraft(req.user, {
+      to,
+      subject: subject || "",
+      bodyText: body,
+      threadId: threadId || null,
+      inReplyTo: inReplyTo || null,
+      references: references || null,
+    });
+    res.json({ ok: true, id: result.id });
+  } catch (e) {
+    if (e.needScope) return res.status(403).json({ error: "Gmailの下書き作成権限が不足しています。Googleを再連携してください。", needScope: true });
+    console.error("[gmail-draft]", e.message);
     res.status(502).json({ error: e.message });
   }
 });
