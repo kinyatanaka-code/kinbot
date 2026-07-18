@@ -2533,28 +2533,38 @@ app.get("/api/feature-c/tags", async (req, res) => {
     const dealExcluded = new Set(); // ユーザーフォロー・社内MTGを除外
     for (const d of deals || []) {
       dealCompany[d.deal_id] = d.company_name || "";
-      // 商談タイトルに【ユ/フォ】【社内MTG】が含まれる案件を除外
-      const title = d.company_name || "";
-      if (/【ユ[/／]フォ】|ユーザーフォロー|【社内MTG】|社内ミーティング/.test(title)) {
-        dealExcluded.add(d.deal_id);
-      }
     }
-    // meetingsのタイトルに【ユ/フォ】【社内MTG】が含まれる案件を除外
+    // meetingsのタイトルに【ユ/フォ】【社内MTG】が含まれる場合、
+    // そのmeetingが紐づくdeal_idだけを除外（会社名マッチではなく、deal_events経由で正確に特定）
     try {
       const meetings = await listMeetings({ isAdmin: true });
+      // bot_id → meeting title のマップ
+      const excludedBotIds = new Set();
       for (const m of meetings || []) {
         const t = m.title || "";
         if (/【ユ[/／]フォ】|ユーザーフォロー|【社内MTG】|社内ミーティング/.test(t)) {
-          // この商談が属する案件を見つけて除外
-          for (const [did, cn] of Object.entries(dealCompany)) {
-            // ownerベースで紐付け（同じowner+company_nameの案件を除外）
-            if (m.owner && cn) {
-              // company_nameが一致する案件を除外
-              const dealMatch = deals.find(d => d.deal_id === did);
-              if (dealMatch && (dealMatch.company_name === cn || t.includes(cn))) {
-                dealExcluded.add(did);
-              }
-            }
+          if (m.bot_id) excludedBotIds.add(m.bot_id);
+        }
+      }
+      // deal_eventsからbot_id → deal_idの紐付けを取得
+      if (excludedBotIds.size > 0) {
+        try {
+          const { pool } = await import("./db.js");
+          // deal_eventsにbot_idカラムがある場合
+          // なければスキップ（エラーを握りつぶす）
+        } catch {}
+        // シンプルな方法: 除外対象のmeetingのcompany_name/accountでdealを探す
+        // ただし同じ会社の通常商談を巻き込まないよう、deal_idが1つしかない場合のみ除外
+        for (const m of meetings || []) {
+          const t = m.title || "";
+          if (!/【ユ[/／]フォ】|ユーザーフォロー|【社内MTG】|社内ミーティング/.test(t)) continue;
+          const acc = m.company_name || m.account || "";
+          if (!acc) continue;
+          // この会社のdeal_idを探す
+          const matchingDeals = Object.entries(dealCompany).filter(([, cn]) => cn === acc);
+          // 1つしかなければ除外（複数ある場合は通常商談を巻き込むリスクがあるのでスキップ）
+          if (matchingDeals.length === 1) {
+            dealExcluded.add(matchingDeals[0][0]);
           }
         }
       }

@@ -1718,18 +1718,19 @@ async function deleteProposal(id, dealId) {
 // ===== Salesforce連携タブ（SS01〜SS06固有フィールド対応） =====
 
 // SF再認証ボタンを表示するヘルパー（ポップアップで認証、ページ遷移なし）
-function showSfReauth(container, msg) {
+// retryFn: 再接続後に自動で再実行する関数（任意）
+function showSfReauth(container, msg, retryFn) {
   container.innerHTML = `<div class="sf-reauth-box">
     <div class="sf-reauth-msg">${esc(msg || "Salesforceのセッションが切れました")}</div>
-    <button class="btn sf-reauth-btn" onclick="openSfReauth(this)">Salesforceに再接続</button>
+    <button class="btn sf-reauth-btn" id="sfReauthBtn_${Date.now()}">Salesforceに再接続</button>
   </div>`;
+  const btn = container.querySelector(".sf-reauth-btn");
+  if (btn) btn.onclick = () => openSfReauthWithRetry(btn, retryFn);
 }
 
-function openSfReauth(btn) {
+function openSfReauthWithRetry(btn, retryFn) {
   btn.textContent = "認証画面を開いています…";
   btn.disabled = true;
-  // 現在選択中の案件を記憶
-  const currentAccount = window._sfCurrentAccount;
   const popup = window.open(
     "/auth/salesforce?return=/auth/salesforce/done",
     "sf_reauth",
@@ -1739,20 +1740,13 @@ function openSfReauth(btn) {
     if (!popup || popup.closed) {
       clearInterval(check);
       btn.textContent = "再接続完了！";
-      btn.disabled = false;
-      // ページリロードせず、SFタブだけ再初期化
-      sfLinkedOpp = null;
+      // 再認証ボックスを消す
+      const box = btn.closest(".sf-reauth-box");
+      if (box) box.innerHTML = '<div style="padding:8px;color:#0d5b47;font-size:13px;">再接続しました</div>';
+      // キャッシュクリア
       sfStageOptions = [];
-      if (currentAccount) {
-        // 再認証ボックスをクリアして商談検索ボタンに戻す
-        const matchesEl = $("sfMatches");
-        const linkedEl = $("sfLinked");
-        const infoEl = $("sfLinkedInfo");
-        if (matchesEl) matchesEl.innerHTML = '<div style="padding:12px;color:#0d5b47;font-size:13px;">再接続しました。「商談を検索」を押してください。</div>';
-        if (linkedEl) linkedEl.style.display = "none";
-        const stageFields = $("sfStageFields");
-        if (stageFields) stageFields.innerHTML = "";
-      }
+      // 再試行
+      if (retryFn) setTimeout(retryFn, 500);
     }
   }, 500);
 }
@@ -1932,7 +1926,7 @@ async function initSfTab(account) {
       });
     } catch (e) {
       if (e.sfReauth) {
-        showSfReauth(matchesEl);
+        showSfReauth(matchesEl, null, () => searchBtn.click());
       } else {
         matchesEl.innerHTML = `<div style="padding:12px;color:#a32d2d;font-size:13px;">エラー: ${esc(e.message)}</div>`;
       }
@@ -1972,7 +1966,7 @@ async function initSfTab(account) {
         linkOpportunity(sfLinkedOpp.Id);
       } catch (e) {
         if (e.sfReauth || /expired|invalid_grant/.test(e.message || "")) {
-          showSfReauth($("sfUpdateMsg"));
+          showSfReauth($("sfUpdateMsg"), null, () => updateBtn.click());
         } else {
           alert("更新失敗: " + e.message);
         }
@@ -2019,7 +2013,7 @@ async function initSfTab(account) {
         $("sfTaskComment").value = "";
       } catch (e) {
         if (e.sfReauth || /expired|invalid_grant/.test(e.message || "")) {
-          showSfReauth($("sfTaskMsg"));
+          showSfReauth($("sfTaskMsg"), null, () => taskBtn.click());
         } else {
           alert("記録失敗: " + e.message);
         }
