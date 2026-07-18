@@ -3429,7 +3429,7 @@ app.get("/api/meetings/:id/gmail-threads", async (req, res) => {
     out.connected = await gcalConnected(req.user);
     if (!out.connected) return res.json({ ...out, reason: "未連携" });
     const ready = await gmailReady(req.user);
-    if (!ready) return res.json({ ...out, needScope: true });
+    if (!ready.ok) return res.json({ ...out, needScope: true, gmailReason: ready.reason, gmailDetail: ready.detail || "", projectHint: ready.projectHint || "" });
     const m = await getMeeting(req.params.id);
     if (!m) return res.status(404).json({ error: "見つかりません" });
     const q = (req.query.q || m.account || "").trim();

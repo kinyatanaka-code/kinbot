@@ -413,17 +413,29 @@ export async function driveGetContent(owner, fileId) {
 // 追加スコープのため、既存ユーザーはGoogleを再連携（再同意）する必要がある。
 // ───────────────────────────────────────────────────────────
 
-// Gmailのスコープが有効か（＝Gmail APIが叩けるか）を軽く確認
+// Gmailが使えるかを確認し、ダメな理由も返す。
+// 戻り値: { ok, reason: 'ok'|'no_token'|'api_disabled'|'no_scope'|'error', detail, projectHint }
 export async function gmailReady(owner) {
   try {
     const token = await accessToken(owner);
-    if (!token) return false;
+    if (!token) return { ok: false, reason: "no_token" };
     const res = await fetch("https://gmail.googleapis.com/gmail/v1/users/me/profile", {
       headers: { Authorization: `Bearer ${token}` },
     });
-    return res.ok;
-  } catch {
-    return false;
+    if (res.ok) return { ok: true, reason: "ok" };
+    const body = await res.text();
+    // Gmail API 自体が未有効化
+    if (/SERVICE_DISABLED|has not been used in project|is disabled/i.test(body)) {
+      const proj = (body.match(/project[\s\S]*?(\d{6,})/) || [])[1] || "";
+      return { ok: false, reason: "api_disabled", detail: body.slice(0, 300), projectHint: proj };
+    }
+    // スコープ不足（再連携が必要）
+    if (/ACCESS_TOKEN_SCOPE_INSUFFICIENT|insufficient authentication scopes|insufficient permission/i.test(body)) {
+      return { ok: false, reason: "no_scope", detail: body.slice(0, 300) };
+    }
+    return { ok: false, reason: "error", detail: body.slice(0, 300) };
+  } catch (e) {
+    return { ok: false, reason: "error", detail: e.message };
   }
 }
 

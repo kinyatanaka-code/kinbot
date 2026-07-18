@@ -850,7 +850,18 @@ async function loadDetail(botId) {
         const r = await fetch(`/api/meetings/${encodeURIComponent(botId)}/gmail-threads`);
         const d = await r.json();
         if (d.reason === "未連携") { gmNote.textContent = "Google未連携です。設定→外部連携から連携してください。"; return; }
-        if (d.needScope) { gmNote.textContent = "Gmailの読み取り権限がありません。設定→外部連携でGoogleを再連携してください。"; return; }
+        if (d.needScope) {
+          if (d.gmailReason === "api_disabled") {
+            gmNote.innerHTML = "Google Cloud で「Gmail API」が有効化されていません。<br>管理者がGoogle Cloud Console → APIとサービス → ライブラリ →「Gmail API」を有効化してください。有効化後、数分待ってから再度お試しください。";
+          } else if (d.gmailReason === "no_scope") {
+            gmNote.textContent = "Gmailの権限が付与されていません。設定→外部連携でGoogleを一度「連携解除」してから、再連携してください（同意画面でGmailの項目にチェックが必要です）。";
+          } else if (d.gmailReason === "no_token") {
+            gmNote.textContent = "Google未連携です。設定→外部連携から連携してください。";
+          } else {
+            gmNote.textContent = "Gmailに接続できませんでした。設定→外部連携でGoogleを再連携してください。" + (d.gmailDetail ? "（詳細: " + d.gmailDetail.slice(0, 120) + "）" : "");
+          }
+          return;
+        }
         if (!r.ok) throw new Error(d.error || "取得に失敗しました");
         const th = d.threads || [];
         if (!th.length) { gmNote.textContent = `「${d.query || acctKey(m)}」に関する過去のメールが見つかりませんでした。`; return; }
