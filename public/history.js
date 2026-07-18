@@ -206,16 +206,6 @@ function meetingCategory(m) {
 // タブ配線
 document.addEventListener("DOMContentLoaded", () => {
   const tabs = document.getElementById("histCatTabs");
-  const ft = document.getElementById("filterToggle");
-  const hf = document.getElementById("hfilters");
-  if (ft && hf) {
-    ft.addEventListener("click", () => {
-      const show = hf.hasAttribute("hidden");
-      if (show) hf.removeAttribute("hidden"); else hf.setAttribute("hidden", "");
-      ft.textContent = show ? "絞り込み ▴" : "絞り込み ▾";
-      ft.classList.toggle("active", show);
-    });
-  }
   if (tabs) {
     tabs.querySelectorAll(".hist-cat-tab").forEach(btn => {
       btn.addEventListener("click", () => {
@@ -454,10 +444,25 @@ function renderList() {
     bar.className = "hl-toolbar";
     bar.innerHTML =
       `<div class="seg"><button class="seg-btn ${histMode === "account" ? "active" : ""}" data-mode="account">会社別</button>` +
-      `<button class="seg-btn ${histMode === "all" ? "active" : ""}" data-mode="all">すべて</button></div>`;
+      `<button class="seg-btn ${histMode === "all" ? "active" : ""}" data-mode="all">すべて</button></div>` +
+      `<button class="btn ghost hfilter-toggle" id="filterToggle" type="button">絞り込み ▾</button>`;
     bar.querySelectorAll(".seg-btn").forEach((b) =>
       b.addEventListener("click", () => { histMode = b.dataset.mode; selectedAccount = null; renderList(); })
     );
+    // 絞り込みトグル（会社別/すべての並びに配置）
+    const ft = bar.querySelector("#filterToggle");
+    const hf = document.getElementById("hfilters");
+    if (ft && hf) {
+      const isOpen = !hf.hasAttribute("hidden");
+      ft.textContent = isOpen ? "絞り込み ▴" : "絞り込み ▾";
+      ft.classList.toggle("active", isOpen);
+      ft.addEventListener("click", () => {
+        const show = hf.hasAttribute("hidden");
+        if (show) hf.removeAttribute("hidden"); else hf.setAttribute("hidden", "");
+        ft.textContent = show ? "絞り込み ▴" : "絞り込み ▾";
+        ft.classList.toggle("active", show);
+      });
+    }
     hlist.appendChild(bar);
   }
 

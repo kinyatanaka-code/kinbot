@@ -1259,7 +1259,7 @@ async function selectDeal(account) {
     `<div class="dc-page" data-page="profile" hidden>` +
     `<button class="dc-back" type="button"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" style="vertical-align:-2px;margin-right:4px"><path d="M10 4L6 8l4 4" stroke="#0d5b47" stroke-width="1.5" stroke-linecap="round"/></svg>${esc(displayName(account))}</button>` +
     `<section class="deal-sec deal-profile"><div class="deal-sec-h"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" style="vertical-align:-2px;margin-right:4px"><rect x="2" y="4" width="12" height="11" rx="1.5" fill="#0d5b47"/><rect x="5" y="1" width="6" height="4" rx="1" fill="#1d9e75"/></svg>会社プロフィール</div>` +
-    `<div class="gbiz-box"><div class="gbiz-row"><button class="btn" id="gbizSearch">gBizINFOで会社を検索</button><span class="gbiz-hint">会社名から公式の企業情報を取得します</span></div><div id="gbizCandidates"></div></div>` +
+    `<div class="gbiz-box"><div class="gbiz-row"><button class="btn" id="gbizSearch">gBizINFOで会社を検索</button><span class="gbiz-hint">会社名から公式の企業情報を取得します</span></div><div class="gbiz-manual-row"><input id="gbizQuery" type="text" placeholder="別の会社名、または法人番号（13桁）で検索" /><button class="btn btn-ghost" id="gbizQueryBtn" type="button">検索</button></div><div id="gbizCandidates"></div></div>` +
     `<details class="prof-manual"><summary>サイトURLから取得（手動）</summary><div class="prof-url"><textarea id="profUrl" rows="2" placeholder="企業サイトURL"></textarea><button class="btn" id="profGet">取得</button></div></details>` +
     `<div class="prof-status" id="profStatus"></div><div id="profBody"></div></section>` +
     `</div>` +
@@ -1550,17 +1550,24 @@ async function selectDeal(account) {
     });
   };
 
-  // gBizINFO検索を実行。auto=true のときは自動起動（候補1件なら自動確定、複数なら候補提示＋カードに印）。
-  const runGbizSearch = async (auto) => {
+  // gBizINFO検索を実行。auto=true のときは自動起動。queryOverride があれば会社名/法人番号で検索。
+  const runGbizSearch = async (auto, queryOverride) => {
+    const raw = (queryOverride != null ? queryOverride : companyName) || "";
+    const q = String(raw).trim();
+    const digits = q.replace(/\D/g, "");
+    const byNumber = digits.length === 13 && /^[0-9\-\s]+$/.test(q);
     if (gbizSearch) { gbizSearch.disabled = true; gbizSearch.textContent = "検索中…"; }
     gbizCandidates.innerHTML = '<div class="gbiz-loading">gBizINFOを検索しています…</div>';
     try {
-      const r = await fetch(`/api/gbiz/search?name=${encodeURIComponent(companyName)}`);
+      const url = byNumber
+        ? `/api/gbiz/search?number=${encodeURIComponent(digits)}`
+        : `/api/gbiz/search?name=${encodeURIComponent(q)}`;
+      const r = await fetch(url);
       const d = await r.json();
       if (!r.ok) throw new Error(d.error || "検索に失敗しました");
       const cands = d.candidates || [];
       if (!cands.length) {
-        gbizCandidates.innerHTML = `<div class="gbiz-empty">「${escapeHtmlSafe(companyName)}」に一致する法人が見つかりませんでした。名称を変えて再検索するか、下の「サイトURLから取得」をお使いください。</div>`;
+        gbizCandidates.innerHTML = `<div class="gbiz-empty">「${escapeHtmlSafe(q)}」に一致する法人が見つかりませんでした。名称や法人番号を変えて再検索するか、下の「サイトURLから取得」をお使いください。</div>`;
         clearGbizNeedsPick(pk);
         return;
       }
@@ -1583,6 +1590,17 @@ async function selectDeal(account) {
   };
 
   if (gbizSearch) gbizSearch.addEventListener("click", () => runGbizSearch(false));
+
+  // 会社名/法人番号での任意検索
+  const gbizQuery = $("gbizQuery"), gbizQueryBtn = $("gbizQueryBtn");
+  if (gbizQueryBtn) gbizQueryBtn.addEventListener("click", () => {
+    const v = (gbizQuery && gbizQuery.value || "").trim();
+    if (!v) return;
+    runGbizSearch(false, v);
+  });
+  if (gbizQuery) gbizQuery.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") { e.preventDefault(); if (gbizQueryBtn) gbizQueryBtn.click(); }
+  });
 
   // 案件を開いた瞬間に自動でgBiz検索する（ボタン不要）。
   //  - 実プロフィール取得済み → 何もしない

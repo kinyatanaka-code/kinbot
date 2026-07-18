@@ -1623,7 +1623,8 @@ body { background: var(--bg); }
 .deal-owner-sel { border: 1px solid var(--line); border-radius: 8px; padding: 3px 6px; font: inherit; font-size: 12px; background: var(--panel); color: var(--ink); }
 
 /* 履歴：会社別/すべて 切替＆会社カード */
-.hl-toolbar { padding: 4px 2px 10px; }
+.hl-toolbar { padding: 4px 2px 10px; display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
+.hl-toolbar .hfilter-toggle { flex: 0 0 auto; }
 .seg { display: inline-flex; background: var(--panel-2); border: 1px solid var(--line); border-radius: 999px; padding: 3px; gap: 2px; }
 .seg-btn { border: none; background: transparent; font: inherit; font-size: 12.5px; font-weight: 600; color: var(--muted); padding: 6px 14px; border-radius: 999px; cursor: pointer; }
 .seg-btn.active { background: var(--accent); color: #fff; }
@@ -2622,6 +2623,10 @@ textarea.prompt-xl {
 /* gBizINFO 会社検索 */
 .gbiz-box { margin-bottom: 12px; }
 .gbiz-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.gbiz-manual-row { display: flex; gap: 8px; margin-top: 8px; flex-wrap: wrap; }
+.gbiz-manual-row input { flex: 1 1 240px; min-width: 200px; padding: 8px 12px; border: 1px solid var(--line); border-radius: 9px; font: inherit; }
+.gbiz-manual-row input:focus { outline: none; border-color: var(--accent); }
+.gbiz-manual-row .btn { flex: 0 0 auto; }
 .gbiz-hint { font-size: 11.5px; color: var(--muted); }
 .gbiz-loading, .gbiz-empty { font-size: 12.5px; color: var(--muted); padding: 10px 0; }
 .gbiz-cand-head { font-size: 12px; font-weight: 700; color: #1b241f; margin: 12px 0 6px; }

@@ -3077,13 +3077,32 @@ app.post("/api/accounts/:key/enrich", async (req, res) => {
   }
 });
 
-// gBizINFO：会社名で候補を検索（名寄せはユーザーが候補から選ぶ）
+// gBizINFO：会社名または法人番号で候補を検索（名寄せはユーザーが候補から選ぶ）
 app.get("/api/gbiz/search", async (req, res) => {
   try {
     if (!gbizConfigured()) return res.status(400).json({ error: "gBizINFOのトークンが未設定です（環境変数 GBIZINFO_TOKEN）" });
+    // 法人番号（13桁）が指定されていれば、その1社を直接引く
+    const number = String(req.query.number || "").replace(/\D/g, "");
+    if (number) {
+      if (number.length !== 13) return res.status(400).json({ error: "法人番号は13桁で入力してください" });
+      try {
+        const d = await getCompanyDetail(number);
+        return res.json({ candidates: [{
+          corporate_number: d.corporate_number,
+          name: d.official_name,
+          location: d.location || "",
+          status: "営業中",
+          industry: d.industry || "",
+          founded: d.founded || "",
+        }] });
+      } catch (e) {
+        return res.json({ candidates: [] });
+      }
+    }
     const name = String(req.query.name || "").trim();
-    if (!name) return res.status(400).json({ error: "会社名を指定してください" });
-    const candidates = await searchCompanies(name, 8);
+    if (!name) return res.status(400).json({ error: "会社名または法人番号を指定してください" });
+    // 同名企業を取りこぼさないよう、多めに取得（最大50件）
+    const candidates = await searchCompanies(name, 50);
     res.json({ candidates });
   } catch (e) {
     console.error("[gbiz search]", e.message);

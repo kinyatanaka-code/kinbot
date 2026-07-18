@@ -48,7 +48,7 @@ export async function searchCompanies(name, limit = 8) {
   const q = String(name || "").trim();
   if (!q) return [];
   // gBizINFOは name パラメータで法人名の部分一致検索ができる。
-  const data = await gbizFetch("", { name: q, limit: Math.min(20, limit), page: 1 });
+  const data = await gbizFetch("", { name: q, limit: Math.min(100, limit), page: 1 });
   const list = (data && (data["hojin-infos"] || data.hojinInfos || [])) || [];
   return list.slice(0, limit).map((h) => ({
     corporate_number: h.corporate_number || h.corporateNumber || "",
