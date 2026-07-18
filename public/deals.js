@@ -5,6 +5,7 @@ try {
   const q = new URLSearchParams(location.search);
   if (q.get("embed") === "1") document.body.classList.add("kb-embed");
   if (q.get("view") === "profile") document.body.classList.add("kb-only-profile");
+  if (q.get("view") === "judge") document.body.classList.add("kb-only-judge");
 } catch {}
 const PHASE_LABEL = { "01": "01 初回商談", "02": "02 有効商談", "03": "03 担当者合意", "04": "04 企画決定者合意" };
 function esc(s) {

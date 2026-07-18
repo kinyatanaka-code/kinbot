@@ -514,6 +514,18 @@ function renderList() {
   head.querySelector(".hub-acct").textContent = `${acctName(selectedAccount)}（商談${mine.length}件）`;
   head.querySelector(".hl-backbtn").addEventListener("click", () => { selectedAccount = null; resetDetail(); renderList(); });
   hlist.appendChild(head);
+
+  // 会社概要カード（常設）：商談を開いた後でもここから会社概要に戻れる
+  const ovCard = document.createElement("button");
+  ovCard.type = "button";
+  ovCard.className = "ov-nav-card";
+  ovCard.innerHTML =
+    `<span class="ov-nav-ico"><svg width="18" height="18" viewBox="0 0 20 20" fill="none"><rect x="2.5" y="5" width="15" height="12" rx="1.5" fill="#0d5b47"/><rect x="6.5" y="2" width="7" height="4" rx="1" fill="#1d9e75"/><rect x="5.5" y="9" width="9" height="1.4" rx=".7" fill="#fff"/><rect x="5.5" y="12" width="6" height="1.4" rx=".7" fill="#fff"/></svg></span>` +
+    `<span class="ov-nav-tx"><span class="ov-nav-t"></span><span class="ov-nav-s">プロフィール・判定・提案資料など</span></span>`;
+  ovCard.querySelector(".ov-nav-t").textContent = acctName(selectedAccount);
+  ovCard.addEventListener("click", () => renderCompanyOverview());
+  hlist.appendChild(ovCard);
+
   for (const r of mine) hlist.appendChild(meetingCardEl(r));
 }
 
@@ -533,6 +545,16 @@ function renderCompanyOverview() {
   const latest = mine[0];
   const name = acctName(selectedAccount);
   const enc = encodeURIComponent(name);
+
+  // 相手の懸念：各商談の要約から集約
+  const concerns = [];
+  for (const m of mine) {
+    const c = m.summary && m.summary.customer_concerns;
+    if (Array.isArray(c)) for (const x of c) if (x && !concerns.includes(x)) concerns.push(x);
+  }
+  const concernInner = concerns.length
+    ? `<ul class="ov-list">${concerns.slice(0, 6).map((c) => `<li>${escapeHtml(c)}</li>`).join("")}</ul>`
+    : `<div class="ov-muted">記録された懸念はありません。</div>`;
 
   const qcard = (act, title, sub, svg, wide) =>
     `<button type="button" class="ov-qcard${wide ? " ov-qcard-wide" : ""}" data-act="${act}">
@@ -555,19 +577,54 @@ function renderCompanyOverview() {
          ${qcard("sf", "SF更新", "直近をSFに反映", icoSf)}
        </div>
        ${qcard("proposals", "提案資料", "登録・確認", icoProp, true)}
+       <div class="ov-grid" style="margin-top:12px;">
+         <div class="ov-c" id="ovTodo"><div class="ov-c-h">ネクストアクション（やること）</div><div class="ov-muted">読み込み中…</div></div>
+         <div class="ov-c"><div class="ov-c-h">相手の懸念</div>${concernInner}</div>
+       </div>
      </div>`;
 
   hdetail.querySelectorAll(".ov-qcard").forEach((b) =>
     b.addEventListener("click", () => {
       const act = b.dataset.act;
-      if (act === "judge" || act === "proposals") {
-        location.href = `deals.html?company=${enc}&from=history`;
-        return;
-      }
+      if (act === "judge") { showSubEmbed("judge", "進捗・判定"); return; }
+      if (act === "proposals") { location.href = `deals.html?company=${enc}&from=history`; return; }
       if (!latest) { alert("この企業の商談がまだありません。"); return; }
-      loadDetail(latest.bot_id, act === "mail" ? "thanks" : "sf");
+      loadDetail(latest.bot_id, act === "mail" ? "thanks" : "sf", { focus: true });
     })
   );
+
+  // ネクストアクション（やること）を案件APIから非同期で埋める
+  loadOvTodos(name);
+}
+
+// 会社ページ内に、案件の1機能だけをiframeで表示する（判定など）
+function showSubEmbed(view, label) {
+  const enc = encodeURIComponent(acctName(selectedAccount));
+  hdetail.innerHTML =
+    `<div class="ov-subpage">
+       <button type="button" class="ov-subback">← 会社概要へ戻る</button>
+       <div class="ov-subtitle">${escapeHtml(label || "")}</div>
+       <iframe class="prof-embed" src="deals.html?company=${enc}&embed=1&view=${encodeURIComponent(view)}" title="${escapeHtml(label || "")}"></iframe>
+     </div>`;
+  hdetail.querySelector(".ov-subback").addEventListener("click", () => renderCompanyOverview());
+}
+
+// やることカード：AI抽出＋手動の宿題
+async function loadOvTodos(company) {
+  const el = document.getElementById("ovTodo");
+  if (!el) return;
+  try {
+    const d = await (await fetch("/api/action-items?account=" + encodeURIComponent(company))).json();
+    const items = (d && d.items) || [];
+    const open = items.filter((it) => !it.done);
+    el.innerHTML =
+      `<div class="ov-c-h">ネクストアクション（やること）</div>` +
+      (open.length
+        ? `<ul class="ov-list">${open.slice(0, 6).map((it) => `<li>${escapeHtml(it.text)}${it.due ? `<span class="ov-due"> 〜${escapeHtml(String(it.due).slice(0, 10))}</span>` : ""}</li>`).join("")}</ul>`
+        : `<div class="ov-muted">未完了のやることはありません。</div>`);
+  } catch {
+    el.innerHTML = `<div class="ov-c-h">ネクストアクション（やること）</div><div class="ov-muted">取得できませんでした。</div>`;
+  }
 }
 
 // 詳細ペインを初期状態に戻す
@@ -643,7 +700,7 @@ async function loadList() {
   }
 }
 
-async function loadDetail(botId, openTab) {
+async function loadDetail(botId, openTab, opts = {}) {
   const histWrap = document.querySelector(".history");
   if (histWrap) histWrap.classList.add("m-detail");
   if (!loadDetail._wired && histWrap) {
@@ -846,6 +903,20 @@ async function loadDetail(botId, openTab) {
     if (openTab) {
       const tb = hdetail.querySelector(`.tab[data-tab="${openTab}"]`);
       if (tb) tb.click();
+    }
+    // フォーカス表示：その機能だけを見せる（タブバーを隠し、会社概要へ戻るボタンを付ける）
+    if (opts.focus) {
+      const tabsBar = hdetail.querySelector(".tabs");
+      if (tabsBar) tabsBar.style.display = "none";
+      const wrap = hdetail.firstElementChild;
+      if (wrap) {
+        const back = document.createElement("button");
+        back.type = "button";
+        back.className = "ov-subback";
+        back.textContent = "← 会社概要へ戻る";
+        back.addEventListener("click", () => renderCompanyOverview());
+        wrap.insertBefore(back, wrap.firstChild);
+      }
     }
 
     // コピー（各タブの内容をプレーンテキストで）
