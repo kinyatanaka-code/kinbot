@@ -305,7 +305,11 @@ async function joinMeeting() {
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || "作成に失敗しました");
     openLive(data.sessionId, { viewer: false });
-    setStatus("Botが入室処理中です。会議で参加を許可してください。");
+    if (data.autoTitle) {
+      setStatus(`Botが入室処理中です。会議で参加を許可してください。（商談名をカレンダーから自動設定：「${data.autoTitle}」）`);
+    } else {
+      setStatus("Botが入室処理中です。会議で参加を許可してください。");
+    }
   } catch (e) {
     setStatus("開始できませんでした: " + e.message);
     els.joinBtn.disabled = false;

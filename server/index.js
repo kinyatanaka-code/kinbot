@@ -3555,12 +3555,56 @@ const PHASE_LABELS = { "01": "初回商談", "02": "有効商談", "03": "担当
 
 
 // --- 商談セッション開始：会議にBotを送り込む ---
+// Zoom URLからミーティングIDを取り出す（カレンダー予定との突合用）
+function zoomMeetingId(url) {
+  const s = String(url || "");
+  const m = s.match(/\/j\/(\d+)/) || s.match(/[?&](?:confno|meetingId)=(\d+)/) || s.match(/zoom\.us\/(?:my\/)?(\d{9,})/);
+  return m ? m[1] : "";
+}
+
+// 録画開始時刻に近いカレンダー予定から商談名を推測する。
+// 1) Zoom URL（ミーティングID）が一致する予定を最優先、2) 開始時刻が最も近い予定（前後45分以内）。
+async function guessTitleFromCalendar(owner, meetingUrl, at = new Date()) {
+  try {
+    const atMs = at.getTime();
+    const timeMin = new Date(atMs - 3 * 60 * 60 * 1000).toISOString();
+    const timeMax = new Date(atMs + 3 * 60 * 60 * 1000).toISOString();
+    const evs = await listCalendarEvents(owner, "primary", { timeMin, timeMax });
+    const timed = (evs || []).filter((e) => !e.allDay && e.start && (e.title || "").trim());
+    if (!timed.length) return "";
+    const zid = zoomMeetingId(meetingUrl);
+    if (zid) {
+      const byUrl = timed.find((e) => zoomMeetingId(e.url) === zid);
+      if (byUrl) return byUrl.title.trim();
+    }
+    let best = null, bestDist = Infinity;
+    for (const e of timed) {
+      const s = new Date(e.start).getTime();
+      const en = e.end ? new Date(e.end).getTime() : s + 60 * 60 * 1000;
+      const dist = atMs >= s && atMs <= en ? 0 : Math.min(Math.abs(s - atMs), Math.abs(en - atMs));
+      if (dist < bestDist) { bestDist = dist; best = e; }
+    }
+    if (best && bestDist <= 45 * 60 * 1000) return best.title.trim();
+    return "";
+  } catch (e) {
+    console.error("[cal-title]", e.message);
+    return "";
+  }
+}
+
 app.post("/api/sessions", async (req, res) => {
   const { meetingUrl, repName, languageCode, title } = req.body || {};
   if (!meetingUrl) return res.status(400).json({ error: "meetingUrl が必要です" });
   if (!PUBLIC_URL) return res.status(500).json({ error: "PUBLIC_URL が未設定です" });
   try {
     const cfg = await resolveConfig(req.user);
+    // 商談名が未入力なら、カレンダーの近い予定から自動で推測する
+    let sessionTitle = (title || "").trim();
+    let autoTitled = false;
+    if (!sessionTitle) {
+      sessionTitle = await guessTitleFromCalendar(req.user, meetingUrl, new Date());
+      autoTitled = !!sessionTitle;
+    }
     // ライブ映像配信（Mux）。設定済みなら配信枠を作成してRTMP送信を仕込む
     let mux = null;
     let muxError = "";
@@ -3586,14 +3630,14 @@ app.post("/api/sessions", async (req, res) => {
     createSession(botId, {
       repName: repName || cfg.repName || displayName || req.user || "",
       meetingUrl,
-      title: title || "",
+      title: sessionTitle || "",
       owner: req.user || "",
       analyzeIntervalMs: cfg.analyzeIntervalMs,
       muxPlaybackId: mux?.playbackId || "",
       muxLiveStreamId: mux?.liveStreamId || "",
       muxError,
     });
-    res.json({ sessionId: botId, muxReady: !!mux?.playbackId, muxError });
+    res.json({ sessionId: botId, muxReady: !!mux?.playbackId, muxError, autoTitle: autoTitled ? sessionTitle : "" });
   } catch (e) {
     console.error("[sessions]", e.message);
     res.status(502).json({ error: e.message });

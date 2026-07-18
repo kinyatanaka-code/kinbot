@@ -523,7 +523,7 @@ function openCompanyOverview() {
   renderCompanyOverview();
 }
 
-// 会社概要（SF風）：会社プロフィール＋進捗・やること・懸念などの案件情報カード＋クイック操作
+// 会社概要：企業名＋クイック操作（商談履歴・御礼メール・SF更新）＋案件プロフィールの埋め込み
 function renderCompanyOverview() {
   const norm = normKey(selectedAccount);
   const mine = allMeetings
@@ -532,40 +532,6 @@ function renderCompanyOverview() {
     .sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
   const latest = mine[0];
   const name = acctName(selectedAccount);
-  const prof = acctProfile(selectedAccount) || {};
-  const industry = prof.industry || prof.industry_name || "";
-  const employees = prof.employees != null ? String(prof.employees) : (prof.employee_range || prof.employees_label || "");
-  const region = prof.region || prof.prefecture || prof.area || "";
-  const hasProfile = industry || employees || region;
-
-  // 相手の懸念：各商談の要約から集約
-  const concerns = [];
-  for (const m of mine) {
-    const c = m.summary && m.summary.customer_concerns;
-    if (Array.isArray(c)) for (const x of c) if (x && !concerns.includes(x)) concerns.push(x);
-  }
-
-  const dealLink = `deals.html?company=${encodeURIComponent(name)}&from=history`;
-  const getRow =
-    `<div class="ov-prof-get">
-       <input id="ovProfUrl" type="url" placeholder="会社サイトURL（任意）" />
-       <button id="ovProfGet" class="btn btn-ghost" type="button">${hasProfile ? "プロフィールを更新" : "プロフィールを取得"}</button>
-     </div>
-     <span class="ov-prof-status" id="ovProfStatus"></span>`;
-  const profileInner = hasProfile
-    ? `<div class="ov-prof-grid">
-         <div class="ov-prof-item"><div class="ov-prof-k">業界</div><div class="ov-prof-v">${escapeHtml(industry || "—")}</div></div>
-         <div class="ov-prof-item"><div class="ov-prof-k">従業員規模</div><div class="ov-prof-v">${escapeHtml(employees || "—")}</div></div>
-         <div class="ov-prof-item"><div class="ov-prof-k">地域</div><div class="ov-prof-v">${escapeHtml(region || "—")}</div></div>
-       </div>${getRow}<a href="${dealLink}" class="ov-link">案件の詳細を開く →</a>`
-    : `<div class="ov-prof-empty">プロフィール未取得です。この画面から取得できます。</div>${getRow}`;
-
-  const concernInner = concerns.length
-    ? `<ul class="ov-list">${concerns.slice(0, 6).map((c) => `<li>${escapeHtml(c)}</li>`).join("")}</ul>`
-    : `<div class="ov-muted">記録された懸念はありません。</div>`;
-
-  const card = (id, title, body) =>
-    `<div class="ov-c" id="${id}"><div class="ov-c-h">${escapeHtml(title)}</div>${body}</div>`;
 
   const qcard = (act, title, sub, svg) =>
     `<button type="button" class="ov-qcard" data-act="${act}">
@@ -584,12 +550,7 @@ function renderCompanyOverview() {
          ${qcard("mail", "御礼メール", "直近から返信を作る", icoMail)}
          ${qcard("sf", "SF更新", "直近をSFに反映", icoSf)}
        </div>
-       <div class="ov-grid">
-         ${card("ovProfile", "会社プロフィール", profileInner)}
-         ${card("ovProgress", "進捗", `<div class="ov-muted">読み込み中…</div>`)}
-         ${card("ovTodo", "やること（ネクストアクション）", `<div class="ov-muted">読み込み中…</div>`)}
-         ${card("ovConcern", "相手の懸念", concernInner)}
-       </div>
+       <iframe class="deal-embed" src="deals.html?company=${encodeURIComponent(name)}&embed=1" title="案件"></iframe>
      </div>`;
 
   hdetail.querySelectorAll(".ov-qcard").forEach((b) =>
@@ -600,87 +561,6 @@ function renderCompanyOverview() {
       loadDetail(latest.bot_id, act === "mail" ? "thanks" : "sf");
     })
   );
-
-  // 会社プロフィールを、この画面から取得する
-  const profGet = document.getElementById("ovProfGet");
-  if (profGet) profGet.addEventListener("click", async () => {
-    const acct = histAccountsByNorm[normKey(selectedAccount)] || histAccounts[selectedAccount];
-    const pk = (acct && acct.key) || selectedAccount;
-    const url = (document.getElementById("ovProfUrl")?.value || "").trim();
-    const st = document.getElementById("ovProfStatus");
-    profGet.disabled = true;
-    const o = profGet.textContent;
-    profGet.textContent = "取得中…";
-    if (st) st.textContent = url ? "サイトとWebから会社概要を取得中…" : "会社名でWeb検索中…（数十秒かかることがあります）";
-    try {
-      const r = await fetch(`/api/accounts/${encodeURIComponent(pk)}/enrich`, {
-        method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ url }),
-      });
-      const d = await r.json();
-      if (!r.ok) throw new Error(d.error || "取得に失敗しました");
-      const pf = d.profile || {};
-      const hasAny = pf.industry || pf.employees || pf.business || pf.location || pf.founded || pf.hiring;
-      if (hasAny) {
-        histAccounts[pk] = { key: pk, site_url: d.siteUrl, official_name: d.officialName || (acct && acct.official_name), owner: acct && acct.owner, profile: d.profile };
-        rebuildAccountNormMap();
-        renderList();
-        renderCompanyOverview(); // プロフィールを反映して再描画
-      } else {
-        if (st) st.textContent = d.siteError
-          ? `サイトを取得できませんでした（${d.siteError}）。会社サイトURLを入れて再度お試しください。`
-          : "会社概要を読み取れませんでした。会社サイトURLを入れて再度お試しください。";
-        profGet.disabled = false;
-        profGet.textContent = o;
-      }
-    } catch (e) {
-      if (st) st.textContent = "失敗: " + e.message;
-      profGet.disabled = false;
-      profGet.textContent = o;
-    }
-  });
-
-  // 進捗・やること は案件APIから非同期で埋める
-  loadOvProgress(name);
-  loadOvTodos(name);
-}
-
-// 進捗カード：ステータス・フェーズ・次回商談予定
-async function loadOvProgress(company) {
-  const el = document.getElementById("ovProgress");
-  if (!el) return;
-  try {
-    const d = await (await fetch("/api/deal-status-by-company?company=" + encodeURIComponent(company), { cache: "no-store" })).json();
-    if (el.dataset.company && el.dataset.company !== company) return;
-    if (!d || !d.found) { el.innerHTML = `<div class="ov-c-h">進捗</div><div class="ov-muted">案件データがありません。</div>`; return; }
-    const status = d.status || "進行中";
-    const stCls = /受注/.test(status) ? "ok" : /失注/.test(status) ? "ng" : "run";
-    const first = d.first || {};
-    const nextDate = first.next_meeting_scheduled && first.next_meeting_date ? String(first.next_meeting_date).slice(0, 10) : "";
-    el.innerHTML =
-      `<div class="ov-c-h">進捗</div>
-       <div class="ov-badge ov-badge-${stCls}">${escapeHtml(status)}</div>
-       <div class="ov-kv">${nextDate ? `次回商談予定：${escapeHtml(nextDate)}` : "次回商談：未設定"}</div>`;
-  } catch {
-    el.innerHTML = `<div class="ov-c-h">進捗</div><div class="ov-muted">取得できませんでした。</div>`;
-  }
-}
-
-// やることカード：AI抽出＋手動の宿題
-async function loadOvTodos(company) {
-  const el = document.getElementById("ovTodo");
-  if (!el) return;
-  try {
-    const d = await (await fetch("/api/action-items?account=" + encodeURIComponent(company))).json();
-    const items = (d && d.items) || [];
-    const open = items.filter((it) => !it.done);
-    el.innerHTML =
-      `<div class="ov-c-h">やること（ネクストアクション）</div>` +
-      (open.length
-        ? `<ul class="ov-list">${open.slice(0, 6).map((it) => `<li>${escapeHtml(it.text)}${it.due ? `<span class="ov-due"> 〜${escapeHtml(String(it.due).slice(0, 10))}</span>` : ""}</li>`).join("")}</ul>`
-        : `<div class="ov-muted">未完了のやることはありません。</div>`);
-  } catch {
-    el.innerHTML = `<div class="ov-c-h">やること（ネクストアクション）</div><div class="ov-muted">取得できませんでした。</div>`;
-  }
 }
 
 // 詳細ペインを初期状態に戻す
