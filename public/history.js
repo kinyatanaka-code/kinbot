@@ -2,6 +2,15 @@
 const hlist = document.getElementById("hlist");
 const hdetail = document.getElementById("hdetail");
 
+// 埋め込み案件iframe（プロフィール・判定）の高さを中身に合わせる（内部スクロールを無くす）
+window.addEventListener("message", (e) => {
+  const d = e.data;
+  if (d && d.type === "kb-embed-height" && d.height) {
+    const f = hdetail.querySelector(".prof-embed");
+    if (f) f.style.height = Math.max(200, d.height + 8) + "px";
+  }
+});
+
 const PHASES = [
   { code: "01", label: "01 初回商談" },
   { code: "02", label: "02 有効商談" },
@@ -904,19 +913,18 @@ async function loadDetail(botId, openTab, opts = {}) {
       const tb = hdetail.querySelector(`.tab[data-tab="${openTab}"]`);
       if (tb) tb.click();
     }
-    // フォーカス表示：その機能だけを見せる（タブバーを隠し、会社概要へ戻るボタンを付ける）
+    // フォーカス表示：その機能だけを見せる（録画・ヘッダー・メタ・タブを隠し、会社概要へ戻る）
     if (opts.focus) {
-      const tabsBar = hdetail.querySelector(".tabs");
-      if (tabsBar) tabsBar.style.display = "none";
-      const wrap = hdetail.firstElementChild;
-      if (wrap) {
-        const back = document.createElement("button");
-        back.type = "button";
-        back.className = "ov-subback";
-        back.textContent = "← 会社概要へ戻る";
-        back.addEventListener("click", () => renderCompanyOverview());
-        wrap.insertBefore(back, wrap.firstChild);
-      }
+      ["#drec", ".dhead", ".dmeta-edit", ".tabs", ".m-back"].forEach((sel) => {
+        const el = hdetail.querySelector(sel);
+        if (el) el.style.display = "none";
+      });
+      const back = document.createElement("button");
+      back.type = "button";
+      back.className = "ov-subback";
+      back.textContent = "← 会社概要へ戻る";
+      back.addEventListener("click", () => renderCompanyOverview());
+      hdetail.insertBefore(back, hdetail.firstChild);
     }
 
     // コピー（各タブの内容をプレーンテキストで）

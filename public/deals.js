@@ -6,6 +6,14 @@ try {
   if (q.get("embed") === "1") document.body.classList.add("kb-embed");
   if (q.get("view") === "profile") document.body.classList.add("kb-only-profile");
   if (q.get("view") === "judge") document.body.classList.add("kb-only-judge");
+  // 埋め込み時は、中身の高さを親に伝えてiframeの高さを合わせる（内部スクロールを無くす）
+  if (q.get("embed") === "1") {
+    const postH = () => { try { parent.postMessage({ type: "kb-embed-height", height: document.body.scrollHeight }, "*"); } catch {} };
+    window.addEventListener("load", postH);
+    setTimeout(postH, 400);
+    setTimeout(postH, 1200);
+    if (window.ResizeObserver) { try { new ResizeObserver(postH).observe(document.documentElement); } catch {} }
+  }
 } catch {}
 const PHASE_LABEL = { "01": "01 初回商談", "02": "02 有効商談", "03": "03 担当者合意", "04": "04 企画決定者合意" };
 function esc(s) {
