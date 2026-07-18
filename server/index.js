@@ -137,6 +137,11 @@ import {
   driveList,
   driveAccessToken,
   driveGetContent,
+  gmailReady,
+  gmailSearchThreads,
+  gmailGetThread,
+  gmailSend,
+  parseEmailAddr,
 } from "./google.js";
 import { startScheduler } from "./scheduler.js";
 import { muxConfigured, createLiveStream, startVodUpload, waitVodPlayback } from "./mux.js";
@@ -3413,6 +3418,111 @@ app.post("/api/meetings/:id/thanks", async (req, res) => {
     res.json({ ...result, round, exampleCount: examples.length });
   } catch (e) {
     console.error("[thanks]", e.message);
+    res.status(502).json({ error: e.message });
+  }
+});
+
+// 商談の会社名などから、Gmailの過去のやり取りを検索して一覧を返す
+app.get("/api/meetings/:id/gmail-threads", async (req, res) => {
+  try {
+    const out = { connected: false, threads: [] };
+    out.connected = await gcalConnected(req.user);
+    if (!out.connected) return res.json({ ...out, reason: "未連携" });
+    const ready = await gmailReady(req.user);
+    if (!ready) return res.json({ ...out, needScope: true });
+    const m = await getMeeting(req.params.id);
+    if (!m) return res.status(404).json({ error: "見つかりません" });
+    const q = (req.query.q || m.account || "").trim();
+    if (!q) return res.json({ ...out, needQuery: true });
+    const threads = await gmailSearchThreads(req.user, q, 6);
+    res.json({ ...out, query: q, threads });
+  } catch (e) {
+    if (e.needScope) return res.json({ connected: true, threads: [], needScope: true });
+    console.error("[gmail-threads]", e.message);
+    res.status(502).json({ error: e.message });
+  }
+});
+
+// 選んだスレッドの内容＋商談要約から、返信の下書きを作る
+app.post("/api/meetings/:id/gmail-reply-draft", async (req, res) => {
+  try {
+    const threadId = (req.body && req.body.threadId) || "";
+    if (!threadId) return res.status(400).json({ error: "threadId が必要です" });
+    const m = await getMeeting(req.params.id);
+    if (!m) return res.status(404).json({ error: "見つかりません" });
+
+    const thread = await gmailGetThread(req.user, threadId);
+    const msgs = thread.messages || [];
+    const last = msgs[msgs.length - 1] || {};
+
+    const myEmail = (await getPrimaryEmail(req.user)) || "";
+    const fromAddr = parseEmailAddr(last.from);
+    const toAddr = fromAddr && fromAddr !== myEmail ? fromAddr : parseEmailAddr(last.to);
+
+    const threadText = msgs
+      .map((x) => `--- ${x.date} / ${x.from}\n${(x.body || "").slice(0, 2500)}`)
+      .join("\n\n")
+      .slice(-9000);
+
+    const sm = m.summary || {};
+    let summaryText = sm.overview ? sm.overview + "\n" : "";
+    for (const [lab, key] of [["合意", "agreements"], ["次アクション", "action_items"], ["懸念", "customer_concerns"]]) {
+      if (Array.isArray(sm[key]) && sm[key].length) summaryText += `\n[${lab}]\n` + sm[key].map((x) => "・" + x).join("\n");
+    }
+
+    const s = await getUserSettings(m.owner);
+    const round = m.round_no || (req.body && req.body.round) || "";
+    const replyPrompt =
+      (typeof s.thanksPrompt === "string" ? s.thanksPrompt + "\n\n" : "") +
+      "以下は、この商談相手との過去のメールのやり取りです。最後のメールに対する、自然で丁寧な日本語の返信を作成してください。" +
+      "商談の要約もふまえ、次のアクションや相手の懸念に触れつつ、簡潔にまとめてください。\n\n" +
+      "【過去のメールのやり取り】\n" + threadText;
+
+    const result = await generateThanks({
+      round,
+      examples: [],
+      summaryText: summaryText || "（要約なし）",
+      repName: m.owner_name || m.rep_name,
+      customer: "",
+      prompt: replyPrompt,
+    });
+
+    let subject = last.subject || result.subject || "";
+    if (subject && !/^re:/i.test(subject)) subject = "Re: " + subject;
+
+    res.json({
+      ok: true,
+      to: toAddr,
+      subject,
+      body: result.body || "",
+      threadId,
+      inReplyTo: last.messageIdHeader || "",
+      references: [last.references, last.messageIdHeader].filter(Boolean).join(" ").trim(),
+    });
+  } catch (e) {
+    if (e.needScope) return res.json({ ok: false, needScope: true });
+    console.error("[gmail-reply-draft]", e.message);
+    res.status(502).json({ error: e.message });
+  }
+});
+
+// kinbotからGmailで送信する
+app.post("/api/gmail/send", async (req, res) => {
+  try {
+    const { to, subject, body, threadId, inReplyTo, references } = req.body || {};
+    if (!to || !body) return res.status(400).json({ error: "宛先と本文が必要です" });
+    const result = await gmailSend(req.user, {
+      to,
+      subject: subject || "",
+      bodyText: body,
+      threadId: threadId || null,
+      inReplyTo: inReplyTo || null,
+      references: references || null,
+    });
+    res.json({ ok: true, id: result.id, threadId: result.threadId });
+  } catch (e) {
+    if (e.needScope) return res.status(403).json({ error: "Gmailの権限が不足しています。Googleを再連携してください。", needScope: true });
+    console.error("[gmail-send]", e.message);
     res.status(502).json({ error: e.message });
   }
 });

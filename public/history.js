@@ -642,6 +642,19 @@ async function loadDetail(botId) {
           </div>
         </div>
         <div class="tabpane" data-pane="thanks" hidden>
+          <div class="gmail-box">
+            <div class="gmail-head">
+              <span class="gmail-title">Gmailの過去のやり取りから返信を作る</span>
+              <button class="btn btn-ghost" id="gmFetchBtn">過去のメールを取得</button>
+            </div>
+            <span class="thanks-note" id="gmNote"></span>
+            <div id="gmThreads"></div>
+            <div class="gmail-to" id="gmToWrap" hidden>
+              <label class="thanks-field"><span>宛先</span><input id="gmTo" type="email" placeholder="送信先メールアドレス" /></label>
+              <button class="btn" id="gmSendBtn">Gmailで送信</button>
+              <span class="thanks-note" id="gmSendNote"></span>
+            </div>
+          </div>
           <div class="pane-bar">
             <button class="btn" id="thanksGen">御礼メールを生成</button>
             <span class="thanks-note" id="thanksNote"></span>
@@ -815,6 +828,105 @@ async function loadDetail(botId) {
     hdetail.querySelector("#copyThanks").addEventListener("click", (e) => {
       const text = (thanksSubject.value ? "件名：" + thanksSubject.value + "\n\n" : "") + thanksBody.value;
       copyText(text, e.currentTarget);
+    });
+
+    // Gmail連携：過去のやり取り取得 → 返信作成 → 送信
+    const gmFetchBtn = hdetail.querySelector("#gmFetchBtn");
+    const gmNote = hdetail.querySelector("#gmNote");
+    const gmThreads = hdetail.querySelector("#gmThreads");
+    const gmToWrap = hdetail.querySelector("#gmToWrap");
+    const gmTo = hdetail.querySelector("#gmTo");
+    const gmSendBtn = hdetail.querySelector("#gmSendBtn");
+    const gmSendNote = hdetail.querySelector("#gmSendNote");
+    let gmReply = null; // {threadId, inReplyTo, references}
+
+    gmFetchBtn.addEventListener("click", async () => {
+      gmFetchBtn.disabled = true;
+      const o = gmFetchBtn.textContent;
+      gmFetchBtn.textContent = "取得中…";
+      gmThreads.innerHTML = "";
+      gmNote.textContent = "";
+      try {
+        const r = await fetch(`/api/meetings/${encodeURIComponent(botId)}/gmail-threads`);
+        const d = await r.json();
+        if (d.reason === "未連携") { gmNote.textContent = "Google未連携です。設定→外部連携から連携してください。"; return; }
+        if (d.needScope) { gmNote.textContent = "Gmailの読み取り権限がありません。設定→外部連携でGoogleを再連携してください。"; return; }
+        if (!r.ok) throw new Error(d.error || "取得に失敗しました");
+        const th = d.threads || [];
+        if (!th.length) { gmNote.textContent = `「${d.query || acctKey(m)}」に関する過去のメールが見つかりませんでした。`; return; }
+        gmNote.textContent = `${th.length}件のやり取りが見つかりました。返信したいものを選んでください。`;
+        th.forEach((t) => {
+          const el = document.createElement("div");
+          el.className = "gm-thread";
+          el.innerHTML =
+            `<div class="gm-thread-top"><span class="gm-from">${escapeHtml(t.from || "")}</span><span class="gm-date">${escapeHtml((t.date || "").slice(0, 25))}</span></div>` +
+            `<div class="gm-subj">${escapeHtml(t.subject || "(件名なし)")}</div>` +
+            `<div class="gm-snip">${escapeHtml(t.snippet || "")}</div>` +
+            `<div class="gm-act"><button type="button" class="btn btn-ghost gm-reply-btn">この相手への返信を作成</button></div>`;
+          el.querySelector(".gm-reply-btn").addEventListener("click", async (ev) => {
+            const b = ev.currentTarget;
+            b.disabled = true; const bo = b.textContent; b.textContent = "作成中…";
+            try {
+              const rr = await fetch(`/api/meetings/${encodeURIComponent(botId)}/gmail-reply-draft`, {
+                method: "POST", headers: { "content-type": "application/json" },
+                body: JSON.stringify({ threadId: t.threadId }),
+              });
+              const dd = await rr.json();
+              if (dd.needScope) { gmNote.textContent = "Gmailの権限が不足しています。Googleを再連携してください。"; return; }
+              if (!rr.ok || !dd.ok) throw new Error(dd.error || "返信の作成に失敗しました");
+              thanksSubject.value = dd.subject || "";
+              thanksBody.value = dd.body || "";
+              gmTo.value = dd.to || "";
+              gmReply = { threadId: dd.threadId, inReplyTo: dd.inReplyTo, references: dd.references };
+              gmToWrap.hidden = false;
+              gmNote.textContent = "返信の下書きを下に入れました。内容を確認・編集して送信できます。";
+              thanksBody.scrollIntoView({ block: "nearest" });
+            } catch (e2) {
+              gmNote.textContent = "作成失敗: " + e2.message;
+            } finally {
+              b.disabled = false; b.textContent = bo;
+            }
+          });
+          gmThreads.appendChild(el);
+        });
+      } catch (e) {
+        gmNote.textContent = "取得失敗: " + e.message;
+      } finally {
+        gmFetchBtn.disabled = false;
+        gmFetchBtn.textContent = o;
+      }
+    });
+
+    gmSendBtn.addEventListener("click", async () => {
+      const to = (gmTo.value || "").trim();
+      if (!to) { gmSendNote.textContent = "宛先を入力してください。"; return; }
+      if (!thanksBody.value.trim()) { gmSendNote.textContent = "本文が空です。"; return; }
+      if (!confirm(`${to} にこの内容で送信します。よろしいですか？`)) return;
+      gmSendBtn.disabled = true;
+      const o = gmSendBtn.textContent;
+      gmSendBtn.textContent = "送信中…";
+      gmSendNote.textContent = "";
+      try {
+        const r = await fetch("/api/gmail/send", {
+          method: "POST", headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            to,
+            subject: thanksSubject.value || "",
+            body: thanksBody.value,
+            threadId: gmReply && gmReply.threadId,
+            inReplyTo: gmReply && gmReply.inReplyTo,
+            references: gmReply && gmReply.references,
+          }),
+        });
+        const d = await r.json();
+        if (!r.ok) throw new Error(d.error || "送信に失敗しました");
+        gmSendNote.textContent = "送信しました。";
+      } catch (e) {
+        gmSendNote.textContent = "送信失敗: " + e.message;
+      } finally {
+        gmSendBtn.disabled = false;
+        gmSendBtn.textContent = o;
+      }
     });
 
     // Salesforce連携タブ
