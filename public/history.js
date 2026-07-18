@@ -220,6 +220,8 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 });
 let histMode = "account"; // 既定は会社別（企業一覧が入り口）。「すべて」で全商談フラット表示も可能
+let histSelectMode = false;        // 「選択して再判定」モード
+const histSelected = new Set();    // 選択中の会社（normKey）
 let selectedAccount = null;
 let histAccounts = {}; // key -> {official_name,...}
 function companyFromTitleH(title) {
@@ -277,6 +279,41 @@ function acctProfile(key) {
 // 会社の案件ステータス（フェーズ表記に使用）。正規化名・正式名の両方で照合する。
 function companyStatus(key) {
   return dealStatusByNorm[normKey(key)] || dealStatusByNorm[normKey(acctName(key))] || "";
+}
+
+// 選択した会社の商談をまとめて再判定する
+async function runHistBulkJudge(groups) {
+  const targets = [...histSelected];
+  if (!targets.length) return;
+  const status = document.getElementById("histSelStatus");
+  const runBtn = document.getElementById("histSelRun");
+  if (runBtn) runBtn.disabled = true;
+  let doneCos = 0, okBots = 0, failBots = 0;
+  for (const nk of targets) {
+    const ms = (groups && groups[nk]) || [];
+    const botIds = ms.map((m) => m.bot_id).filter(Boolean);
+    if (status) status.textContent = `再判定中… ${doneCos + 1}/${targets.length}社`;
+    for (const bid of botIds) {
+      try {
+        const r = await fetch("/api/meetings/" + encodeURIComponent(bid) + "/extract", {
+          method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({}),
+        });
+        if (r.ok) okBots++; else failBots++;
+      } catch { failBots++; }
+    }
+    doneCos++;
+  }
+  if (status) status.textContent = `完了：${doneCos}社を再判定（商談 成功${okBots}${failBots ? " / 失敗" + failBots : ""}）`;
+  // フェーズ（案件ステータス）を取り直して反映
+  try {
+    const ds = await (await fetch("/api/deal-status")).json();
+    const statuses = (ds && ds.statuses) || {};
+    dealStatusByNorm = {};
+    for (const acc in statuses) dealStatusByNorm[normKey(acc)] = statuses[acc].status;
+  } catch {}
+  histSelectMode = false;
+  histSelected.clear();
+  setTimeout(() => renderList(), 800);
 }
 // cat=otherのURLパラメータは後方互換で残す（商談タブで吸収）
 if (HIST_CAT_OTHER) {
@@ -502,6 +539,28 @@ function renderList() {
     const keys = Object.keys(groups).sort((a, b) =>
       Math.max(...groups[b].map((x) => +new Date(x.created_at))) - Math.max(...groups[a].map((x) => +new Date(x.created_at)))
     );
+    // 選択して再判定バー
+    const selbar = document.createElement("div");
+    selbar.className = "hist-selbar";
+    if (!histSelectMode) {
+      selbar.innerHTML = `<button class="btn btn-ghost" id="histSelectBtn" type="button">選択して再判定</button>`;
+    } else {
+      selbar.innerHTML =
+        `<span class="hist-sel-count">${histSelected.size}件選択中</span>` +
+        `<button class="btn btn-ghost" id="histSelAll" type="button">表示中を全選択</button>` +
+        `<button class="btn btn-ghost" id="histSelClear" type="button">解除</button>` +
+        `<button class="btn" id="histSelRun" type="button" ${histSelected.size ? "" : "disabled"}>まとめて再判定</button>` +
+        `<button class="btn btn-ghost" id="histSelCancel" type="button">キャンセル</button>` +
+        `<div class="hist-sel-status" id="histSelStatus"></div>`;
+    }
+    hlist.appendChild(selbar);
+    const wire = (id, fn) => { const el = selbar.querySelector("#" + id); if (el) el.addEventListener("click", fn); };
+    wire("histSelectBtn", () => { histSelectMode = true; histSelected.clear(); renderList(); });
+    wire("histSelCancel", () => { histSelectMode = false; histSelected.clear(); renderList(); });
+    wire("histSelAll", () => { keys.forEach((k) => histSelected.add(k)); renderList(); });
+    wire("histSelClear", () => { histSelected.clear(); renderList(); });
+    wire("histSelRun", () => runHistBulkJudge(groups));
+
     for (const nk of keys) {
       const ms = groups[nk];
       const last = ms.reduce((a, b) => (new Date(a.created_at) > new Date(b.created_at) ? a : b));
@@ -521,7 +580,23 @@ function renderList() {
       sub.innerHTML = `<span class="acard-phase ph-${stCls}"></span><span class="acard-last"></span>`;
       sub.querySelector(".acard-phase").textContent = stLabel;
       sub.querySelector(".acard-last").textContent = ` ・ 最終 ${fmtDate(last.created_at)}`;
-      card.addEventListener("click", () => { selectedAccount = repKey; openCompanyOverview(); });
+      if (histSelectMode) {
+        const checked = histSelected.has(nk);
+        card.classList.add("selectable");
+        if (checked) card.classList.add("selected");
+        const chk = document.createElement("span");
+        chk.className = "acard-check";
+        chk.textContent = checked ? "✓" : "";
+        card.insertBefore(chk, card.firstChild);
+      }
+      card.addEventListener("click", () => {
+        if (histSelectMode) {
+          if (histSelected.has(nk)) histSelected.delete(nk); else histSelected.add(nk);
+          renderList();
+          return;
+        }
+        selectedAccount = repKey; openCompanyOverview();
+      });
       hlist.appendChild(card);
     }
     return;
