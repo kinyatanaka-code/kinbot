@@ -234,8 +234,8 @@ body.kb-embed .topbar,
 body.kb-embed .hfilters,
 body.kb-embed .np-select-bar { display: none !important; }
 body.kb-embed #dealList { display: none !important; }
-body.kb-embed .app { display: block; }
-body.kb-embed .main { width: 100%; }
+body.kb-embed .app { display: block; height: auto; min-height: 0; }
+body.kb-embed .main { width: 100%; height: auto; min-height: 0; }
 body.kb-embed .history { display: block; padding: 0; height: auto; min-height: 0; }
 body.kb-embed #dealDetail { max-width: none; width: 100%; border: 0; box-shadow: none; border-radius: 0; }
 
