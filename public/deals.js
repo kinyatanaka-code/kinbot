@@ -1,7 +1,11 @@
 // deals.js — 案件単位ビュー＋ネクストアクション管理
 const $ = (id) => document.getElementById(id);
-// 商談履歴の「案件」タブからiframeで埋め込まれたときは、サイドバー等を隠す
-try { if (new URLSearchParams(location.search).get("embed") === "1") document.body.classList.add("kb-embed"); } catch {}
+// 商談履歴の会社ページからiframeで埋め込まれたときの表示制御
+try {
+  const q = new URLSearchParams(location.search);
+  if (q.get("embed") === "1") document.body.classList.add("kb-embed");
+  if (q.get("view") === "profile") document.body.classList.add("kb-only-profile");
+} catch {}
 const PHASE_LABEL = { "01": "01 初回商談", "02": "02 有効商談", "03": "03 担当者合意", "04": "04 企画決定者合意" };
 function esc(s) {
   return String(s == null ? "" : s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));

@@ -233,6 +233,15 @@ body.kb-embed .main { width: 100%; }
 body.kb-embed .history { display: block; padding: 0; height: auto; min-height: 0; }
 body.kb-embed #dealDetail { max-width: none; width: 100%; border: 0; box-shadow: none; border-radius: 0; }
 
+/* 会社プロフィールだけを表示する埋め込みモード（商談履歴の会社ページ用） */
+body.kb-only-profile .deal-head,
+body.kb-only-profile .dc-home,
+body.kb-only-profile .dc-page[data-page="profile"] .dc-back,
+body.kb-only-profile .dc-page:not([data-page="profile"]) { display: none !important; }
+body.kb-only-profile .dc-page[data-page="profile"] { display: block !important; }
+body.kb-only-profile .dc-page[data-page="profile"] .deal-sec { border: 0; padding: 0; }
+.prof-embed { width: 100%; min-height: 300px; border: 0; display: block; background: var(--panel-2); border-radius: 12px; }
+
 /* ヘッダーにカテゴリタブと絞り込みトグルを載せる */
 .topbar-hist .hist-cat-tabs { padding: 0; margin: 0; }
 .topbar-hist .hfilter-toggle { margin-left: auto; }
@@ -249,6 +258,10 @@ body.kb-embed #dealDetail { max-width: none; width: 100%; border: 0; box-shadow:
 .ov-q-tx { display: flex; flex-direction: column; min-width: 0; }
 .ov-q-t { font-size: 13px; font-weight: 700; color: var(--ink); }
 .ov-q-s { font-size: 11px; color: var(--muted); margin-top: 1px; }
+.ov-q-arrow { margin-left: auto; color: var(--muted); font-size: 15px; padding-left: 8px; }
+.ov-qcard:hover .ov-q-arrow { color: var(--accent); }
+.ov-qcard-wide { width: 100%; margin-top: 12px; }
+.prof-embed { margin-bottom: 16px; }
 .ov-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 12px; }
 .ov-c { border: 1px solid var(--line); border-radius: 12px; padding: 14px 16px; background: var(--panel-2); }
 .ov-c-h { font-size: 12px; font-weight: 700; color: var(--accent); margin-bottom: 10px; }

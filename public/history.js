@@ -523,7 +523,7 @@ function openCompanyOverview() {
   renderCompanyOverview();
 }
 
-// 会社概要：企業名＋クイック操作（商談履歴・御礼メール・SF更新）＋案件プロフィールの埋め込み
+// 会社概要：企業名 → 会社プロフィール（gBiz＋URL取得）→ 判定・御礼メール・SF更新 → 提案資料
 function renderCompanyOverview() {
   const norm = normKey(selectedAccount);
   const mine = allMeetings
@@ -532,31 +532,38 @@ function renderCompanyOverview() {
     .sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
   const latest = mine[0];
   const name = acctName(selectedAccount);
+  const enc = encodeURIComponent(name);
 
-  const qcard = (act, title, sub, svg) =>
-    `<button type="button" class="ov-qcard" data-act="${act}">
+  const qcard = (act, title, sub, svg, wide) =>
+    `<button type="button" class="ov-qcard${wide ? " ov-qcard-wide" : ""}" data-act="${act}">
        <span class="ov-q-ico">${svg}</span>
        <span class="ov-q-tx"><span class="ov-q-t">${escapeHtml(title)}</span><span class="ov-q-s">${escapeHtml(sub)}</span></span>
+       <span class="ov-q-arrow">→</span>
      </button>`;
-  const icoHist = `<svg width="18" height="18" viewBox="0 0 20 20" fill="none"><rect x="2" y="8" width="4" height="9" rx="1" fill="#0d5b47"/><rect x="8" y="4" width="4" height="13" rx="1" fill="#1d9e75"/><rect x="14" y="1" width="4" height="16" rx="1" fill="#5DCAA5"/></svg>`;
+  const icoJudge = `<svg width="18" height="18" viewBox="0 0 20 20" fill="none"><rect x="2" y="8" width="4" height="9" rx="1" fill="#0d5b47"/><rect x="8" y="4" width="4" height="13" rx="1" fill="#1d9e75"/><rect x="14" y="1" width="4" height="16" rx="1" fill="#5DCAA5"/></svg>`;
   const icoMail = `<svg width="18" height="18" viewBox="0 0 20 20" fill="none"><rect x="2.5" y="4.5" width="15" height="11" rx="2" stroke="#0d5b47" stroke-width="1.4"/><path d="M3.5 6l6.5 4.5L16.5 6" stroke="#1d9e75" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
   const icoSf = `<svg width="18" height="18" viewBox="0 0 20 20" fill="none"><path d="M4 8a6 6 0 0 1 10-2.5M16 12a6 6 0 0 1-10 2.5" stroke="#0d5b47" stroke-width="1.4" stroke-linecap="round"/><path d="M14 3v2.8h-2.8M6 17v-2.8h2.8" stroke="#1d9e75" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+  const icoProp = `<svg width="18" height="18" viewBox="0 0 20 20" fill="none"><path d="M4 2h8l4 4v10a1 1 0 01-1 1H4a1 1 0 01-1-1V3a1 1 0 011-1z" fill="#1d9e75"/><path d="M12 2v4h4" fill="#5DCAA5"/></svg>`;
 
   hdetail.innerHTML =
     `<div class="ov-wrap">
        <div class="ov-name">${escapeHtml(name)}</div>
+       <iframe class="prof-embed" src="deals.html?company=${enc}&embed=1&view=profile" title="会社プロフィール"></iframe>
        <div class="ov-actions">
-         ${qcard("hist", "商談履歴", `${mine.length}件の商談`, icoHist)}
+         ${qcard("judge", "判定", "進捗・ステージ判定", icoJudge)}
          ${qcard("mail", "御礼メール", "直近から返信を作る", icoMail)}
          ${qcard("sf", "SF更新", "直近をSFに反映", icoSf)}
        </div>
-       <iframe class="deal-embed" src="deals.html?company=${encodeURIComponent(name)}&embed=1" title="案件"></iframe>
+       ${qcard("proposals", "提案資料", "登録・確認", icoProp, true)}
      </div>`;
 
   hdetail.querySelectorAll(".ov-qcard").forEach((b) =>
     b.addEventListener("click", () => {
       const act = b.dataset.act;
-      if (act === "hist") { hlist.scrollTo({ top: 0, behavior: "smooth" }); return; }
+      if (act === "judge" || act === "proposals") {
+        location.href = `deals.html?company=${enc}&from=history`;
+        return;
+      }
       if (!latest) { alert("この企業の商談がまだありません。"); return; }
       loadDetail(latest.bot_id, act === "mail" ? "thanks" : "sf");
     })
