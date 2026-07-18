@@ -389,3 +389,27 @@ details[open] > .sa-notice-toggle::before { content: "▾ "; }
 
 /* ボタン横並び */
 .sa-data-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+
+/* カスタム分析 */
+.sa-desc { font-size: 12.5px; color: #8a938c; margin: 0 0 14px; }
+.sa-custom-charts { display: flex; flex-direction: column; gap: 14px; }
+.sa-custom-item { background: #fff; border: 1px solid #e6e8e5; border-radius: 10px; overflow: hidden; }
+.sa-custom-head { display: flex; align-items: center; justify-content: space-between; padding: 10px 14px; background: #f7faf8; border-bottom: 1px solid #f0f2f0; }
+.sa-custom-title { font-size: 13px; font-weight: 600; color: #1b241f; }
+.sa-custom-del { font-size: 14px; color: #ccc; background: none; border: none; cursor: pointer; padding: 2px 6px; }
+.sa-custom-del:hover { color: #a32d2d; }
+.sa-custom-body { padding: 14px; }
+.sa-custom-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+.sa-custom-table th { text-align: left; padding: 5px 8px; color: #5f6b63; font-weight: 500; border-bottom: 1px solid #e6e8e5; font-size: 11px; }
+.sa-custom-table td { padding: 5px 8px; border-bottom: 1px solid #f2f0eb; }
+
+/* カスタム分析 追加モーダル */
+.sa-modal-overlay { position: fixed; inset: 0; z-index: 9999; background: rgba(0,0,0,0.4); display: flex; align-items: center; justify-content: center; }
+.sa-modal { background: #fff; border-radius: 14px; width: 90%; max-width: 480px; box-shadow: 0 12px 40px rgba(0,0,0,0.18); }
+.sa-modal-head { display: flex; align-items: center; justify-content: space-between; padding: 14px 20px; border-bottom: 1px solid #e6e8e5; }
+.sa-modal-head h3 { margin: 0; font-size: 15px; }
+.sa-modal-close { width: 30px; height: 30px; border: none; background: #f2f0eb; border-radius: 8px; font-size: 16px; cursor: pointer; }
+.sa-modal-body { padding: 20px; display: flex; flex-direction: column; gap: 14px; }
+.sa-modal-field label { display: block; font-size: 12px; font-weight: 600; color: #5f6b63; margin-bottom: 4px; }
+.sa-modal-field select, .sa-modal-field input { width: 100%; padding: 8px 10px; font-size: 13px; border: 1px solid #dfe4df; border-radius: 6px; box-sizing: border-box; }
+.sa-modal-actions { display: flex; justify-content: flex-end; }

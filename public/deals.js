@@ -1164,85 +1164,118 @@ async function selectDeal(account) {
     `</div>` +
     (statusOf(account) === "失注" && lastLostReason(ms) ? `<div class="lost-reason">AI判定の失注理由: ${esc(lastLostReason(ms))}</div>` : "") +
     `</div>` +
-    // ▼ 画面ごと切り替えるタブ
-    `<div class="deal-tabs" id="dealTabs">` +
-    `<button class="deal-tab active" data-dtab="judge">📊 判定</button>` +
-    `<button class="deal-tab" data-dtab="brief">🎯 商談準備</button>` +
-    `<button class="deal-tab" data-dtab="qa">💬 想定問答</button>` +
-    `<button class="deal-tab" data-dtab="profile">🏢 会社プロフィール</button>` +
-    `<button class="deal-tab" data-dtab="proposals"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" style="vertical-align:-2px;margin-right:3px"><path d="M3 2h7l4 4v8a1 1 0 01-1 1H3a1 1 0 01-1-1V3a1 1 0 011-1z" fill="#1d9e75"/><path d="M10 2v4h4" fill="#5DCAA5"/></svg>提案資料</button>` +
-    `<button class="deal-tab" data-dtab="salesforce"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" style="vertical-align:-2px;margin-right:3px"><path d="M8 1a7 7 0 110 14A7 7 0 018 1z" fill="#0d5b47"/><path d="M5.5 8.5l2 2 3.5-4" stroke="#fff" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>Salesforce</button>` +
-    `<button class="deal-tab" data-dtab="flow"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" style="vertical-align:-2px;margin-right:3px"><rect x="1" y="1" width="14" height="14" rx="2" fill="#0d5b47"/><rect x="3" y="4" width="10" height="1.5" rx=".5" fill="#5DCAA5"/><rect x="3" y="7" width="7" height="1.5" rx=".5" fill="#5DCAA5"/><rect x="3" y="10" width="9" height="1.5" rx=".5" fill="#5DCAA5"/></svg>商談の流れ</button>` +
+    // ▼ カード一覧（ホーム画面）
+    `<div class="dc-home" id="dcHome">` +
+    `<div class="dc-grid">` +
+    // 進捗・判定カード（全幅）
+    `<div class="dc-card dc-card-full" data-page="judge"><div class="dc-card-inner">` +
+    `<div class="dc-card-top"><span class="dc-card-title"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" style="vertical-align:-2px;margin-right:4px"><rect x="1" y="6" width="4" height="9" rx="1" fill="#0d5b47"/><rect x="6" y="3" width="4" height="12" rx="1" fill="#1d9e75"/><rect x="11" y="1" width="4" height="14" rx="1" fill="#5DCAA5"/></svg>進捗・判定</span><span class="dc-card-arrow"><svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M6 4l4 4-4 4" stroke="#8a938c" stroke-width="1.5" stroke-linecap="round"/></svg></span></div>` +
+    `<div class="dc-card-preview" id="dcPreviewJudge">読み込み中...</div>` +
+    `</div></div>` +
+    // 会社カード
+    `<div class="dc-card" data-page="profile"><div class="dc-card-inner">` +
+    `<div class="dc-card-top"><span class="dc-card-title"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" style="vertical-align:-2px;margin-right:4px"><rect x="2" y="4" width="12" height="11" rx="1.5" fill="#0d5b47"/><rect x="5" y="1" width="6" height="4" rx="1" fill="#1d9e75"/></svg>会社</span><span class="dc-card-arrow"><svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M6 4l4 4-4 4" stroke="#8a938c" stroke-width="1.5" stroke-linecap="round"/></svg></span></div>` +
+    `<div class="dc-card-preview" id="dcPreviewProfile">--</div>` +
+    `</div></div>` +
+    // 懸念・課題カード
+    `<div class="dc-card" data-page="concerns"><div class="dc-card-inner">` +
+    `<div class="dc-card-top"><span class="dc-card-title"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" style="vertical-align:-2px;margin-right:4px"><circle cx="8" cy="8" r="7" fill="#D85A30"/><path d="M8 5v4M8 11h.01" stroke="#fff" stroke-width="1.5" stroke-linecap="round"/></svg>懸念・課題</span><span class="dc-card-arrow"><svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M6 4l4 4-4 4" stroke="#8a938c" stroke-width="1.5" stroke-linecap="round"/></svg></span></div>` +
+    `<div class="dc-card-preview">${concerns.length ? concerns.slice(0,2).map(c=>esc(c)).join("、") + (concerns.length>2?"...":"") : "なし"}</div>` +
+    `</div></div>` +
+    // 商談準備カード
+    `<div class="dc-card" data-page="brief"><div class="dc-card-inner">` +
+    `<div class="dc-card-top"><span class="dc-card-title"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" style="vertical-align:-2px;margin-right:4px"><circle cx="8" cy="8" r="7" fill="#0d5b47"/><path d="M8 4v4l3 2" stroke="#fff" stroke-width="1.5" stroke-linecap="round"/></svg>商談準備</span><span class="dc-card-arrow"><svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M6 4l4 4-4 4" stroke="#8a938c" stroke-width="1.5" stroke-linecap="round"/></svg></span></div>` +
+    `<div class="dc-card-preview">事前ブリーフ・チェックリスト</div>` +
+    `</div></div>` +
+    // 想定問答カード
+    `<div class="dc-card" data-page="qa"><div class="dc-card-inner">` +
+    `<div class="dc-card-top"><span class="dc-card-title"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" style="vertical-align:-2px;margin-right:4px"><path d="M2 3h12a1 1 0 011 1v7a1 1 0 01-1 1H5l-3 3V4a1 1 0 011-1z" fill="#534AB7"/></svg>想定問答</span><span class="dc-card-arrow"><svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M6 4l4 4-4 4" stroke="#8a938c" stroke-width="1.5" stroke-linecap="round"/></svg></span></div>` +
+    `<div class="dc-card-preview">よくある質問と回答</div>` +
+    `</div></div>` +
+    // 提案資料カード
+    `<div class="dc-card" data-page="proposals"><div class="dc-card-inner">` +
+    `<div class="dc-card-top"><span class="dc-card-title"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" style="vertical-align:-2px;margin-right:4px"><path d="M3 2h7l4 4v8a1 1 0 01-1 1H3a1 1 0 01-1-1V3a1 1 0 011-1z" fill="#1d9e75"/><path d="M10 2v4h4" fill="#5DCAA5"/></svg>提案資料</span><span class="dc-card-arrow"><svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M6 4l4 4-4 4" stroke="#8a938c" stroke-width="1.5" stroke-linecap="round"/></svg></span></div>` +
+    `<div class="dc-card-preview" id="dcPreviewProposals">--</div>` +
+    `</div></div>` +
+    // Salesforceカード
+    `<div class="dc-card" data-page="salesforce"><div class="dc-card-inner">` +
+    `<div class="dc-card-top"><span class="dc-card-title"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" style="vertical-align:-2px;margin-right:4px"><path d="M8 1a7 7 0 110 14A7 7 0 018 1z" fill="#185FA5"/><path d="M5.5 8.5l2 2 3.5-4" stroke="#fff" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>Salesforce</span><span class="dc-card-arrow"><svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M6 4l4 4-4 4" stroke="#8a938c" stroke-width="1.5" stroke-linecap="round"/></svg></span></div>` +
+    `<div class="dc-card-preview" id="dcPreviewSf">Stage更新・活動記録</div>` +
+    `</div></div>` +
+    // 商談履歴カード（全幅）
+    `<div class="dc-card dc-card-full" data-page="flow"><div class="dc-card-inner">` +
+    `<div class="dc-card-top"><span class="dc-card-title"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" style="vertical-align:-2px;margin-right:4px"><rect x="1" y="1" width="14" height="14" rx="2" fill="#0d5b47"/><rect x="3" y="4" width="10" height="1.5" rx=".5" fill="#5DCAA5"/><rect x="3" y="7" width="7" height="1.5" rx=".5" fill="#5DCAA5"/><rect x="3" y="10" width="9" height="1.5" rx=".5" fill="#5DCAA5"/></svg>商談の流れ</span><span class="dc-card-arrow"><svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M6 4l4 4-4 4" stroke="#8a938c" stroke-width="1.5" stroke-linecap="round"/></svg></span></div>` +
+    `<div class="dc-card-preview">${ms.length}回の商談</div>` +
+    `</div></div>` +
+    `</div></div>` +
+    // ▼ 各ページ（非表示）
+    `<div class="dc-page" data-page="judge" hidden>` +
+    `<button class="dc-back" type="button"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" style="vertical-align:-2px;margin-right:4px"><path d="M10 4L6 8l4 4" stroke="#0d5b47" stroke-width="1.5" stroke-linecap="round"/></svg>${esc(displayName(account))}</button>` +
+    `<section class="deal-sec newproc-sec"><div class="deal-sec-h"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" style="vertical-align:-2px;margin-right:4px"><rect x="1" y="6" width="4" height="9" rx="1" fill="#0d5b47"/><rect x="6" y="3" width="4" height="12" rx="1" fill="#1d9e75"/><rect x="11" y="1" width="4" height="14" rx="1" fill="#5DCAA5"/></svg>進捗・判定 <select class="judge-model" id="judgeModel" title="判定に使うAIモデル（チーム共通の設定）"><option value="">モデル: 既定(Gemini)</option><option value="anthropic">モデル: Claude</option><option value="gemini">モデル: Gemini</option></select></div><div id="newProcBox"><div class="empty-state">読み込み中…</div></div></section>` +
     `</div>` +
-    // 判定（既定タブ）
-    `<div class="deal-tabpane" data-dtab="judge">` +
-    `<section class="deal-sec newproc-sec"><div class="deal-sec-h">📊 新プロセスの判定 <select class="judge-model" id="judgeModel" title="判定に使うAIモデル（チーム共通の設定）"><option value="">モデル: 既定(Gemini)</option><option value="anthropic">モデル: Claude</option><option value="gemini">モデル: Gemini</option></select></div><div id="newProcBox"><div class="empty-state">読み込み中…</div></div></section>` +
+    `<div class="dc-page" data-page="brief" hidden>` +
+    `<button class="dc-back" type="button"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" style="vertical-align:-2px;margin-right:4px"><path d="M10 4L6 8l4 4" stroke="#0d5b47" stroke-width="1.5" stroke-linecap="round"/></svg>${esc(displayName(account))}</button>` +
+    `<section class="deal-sec brief-sec"><div class="deal-sec-h"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" style="vertical-align:-2px;margin-right:4px"><circle cx="8" cy="8" r="7" fill="#0d5b47"/><path d="M8 4v4l3 2" stroke="#fff" stroke-width="1.5" stroke-linecap="round"/></svg>商談準備<button class="btn ghost brief-gen-btn" id="briefGen">再作成</button><span class="brief-status" id="briefStatus"></span></div><div id="briefBox"><div class="empty-state">読み込み中…</div></div></section>` +
     `</div>` +
-    // 商談準備（事前ブリーフ）
-    `<div class="deal-tabpane" data-dtab="brief" hidden>` +
-    `<section class="deal-sec brief-sec"><div class="deal-sec-h">🎯 商談準備（事前ブリーフ）<button class="btn ghost brief-gen-btn" id="briefGen">再作成</button><span class="brief-status" id="briefStatus"></span></div>` +
-    `<div id="briefBox"><div class="empty-state">読み込み中…</div></div></section>` +
+    `<div class="dc-page" data-page="qa" hidden>` +
+    `<button class="dc-back" type="button"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" style="vertical-align:-2px;margin-right:4px"><path d="M10 4L6 8l4 4" stroke="#0d5b47" stroke-width="1.5" stroke-linecap="round"/></svg>${esc(displayName(account))}</button>` +
+    `<section class="deal-sec brief-qa-sec"><div class="deal-sec-h"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" style="vertical-align:-2px;margin-right:4px"><path d="M2 3h12a1 1 0 011 1v7a1 1 0 01-1 1H5l-3 3V4a1 1 0 011-1z" fill="#534AB7"/></svg>想定問答</div><div id="briefQaBox"><div class="empty-state">読み込み中…</div></div></section>` +
     `</div>` +
-    // 想定問答
-    `<div class="deal-tabpane" data-dtab="qa" hidden>` +
-    `<section class="deal-sec brief-qa-sec"><div class="deal-sec-h">💬 想定問答</div><div id="briefQaBox"><div class="empty-state">読み込み中…</div></div></section>` +
+    `<div class="dc-page" data-page="concerns" hidden>` +
+    `<button class="dc-back" type="button"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" style="vertical-align:-2px;margin-right:4px"><path d="M10 4L6 8l4 4" stroke="#0d5b47" stroke-width="1.5" stroke-linecap="round"/></svg>${esc(displayName(account))}</button>` +
+    `<section class="deal-sec"><div class="deal-sec-h"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" style="vertical-align:-2px;margin-right:4px"><circle cx="8" cy="8" r="7" fill="#D85A30"/><path d="M8 5v4M8 11h.01" stroke="#fff" stroke-width="1.5" stroke-linecap="round"/></svg>懸念・課題</div>` +
+    `<div id="concernsBody">${concerns.length ? concerns.map(c=>`<div class="concern-item">${esc(c)}</div>`).join("") : '<div class="empty-state">懸念・課題は検出されていません</div>'}</div></section>` +
     `</div>` +
-    // 会社プロフィール
-    `<div class="deal-tabpane" data-dtab="profile" hidden>` +
-    `<section class="deal-sec deal-profile"><div class="deal-sec-h">🏢 会社プロフィール</div>` +
-    `<div class="gbiz-box"><div class="gbiz-row"><button class="btn" id="gbizSearch">gBizINFOで会社を検索</button><span class="gbiz-hint">会社名から公式の企業情報（業界・所在地・設立など）を取得します</span></div><div id="gbizCandidates"></div></div>` +
-    `<details class="prof-manual"><summary>サイトURLから取得（手動）</summary>` +
-    `<div class="prof-url"><textarea id="profUrl" rows="2" placeholder="企業サイトURL（複数可・改行かカンマで区切り。空でも会社名でWeb検索します）"></textarea><button class="btn" id="profGet">取得</button></div></details>` +
-    `<div class="prof-status" id="profStatus"></div>` +
-    `<div id="profBody"></div></section>` +
+    `<div class="dc-page" data-page="profile" hidden>` +
+    `<button class="dc-back" type="button"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" style="vertical-align:-2px;margin-right:4px"><path d="M10 4L6 8l4 4" stroke="#0d5b47" stroke-width="1.5" stroke-linecap="round"/></svg>${esc(displayName(account))}</button>` +
+    `<section class="deal-sec deal-profile"><div class="deal-sec-h"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" style="vertical-align:-2px;margin-right:4px"><rect x="2" y="4" width="12" height="11" rx="1.5" fill="#0d5b47"/><rect x="5" y="1" width="6" height="4" rx="1" fill="#1d9e75"/></svg>会社プロフィール</div>` +
+    `<div class="gbiz-box"><div class="gbiz-row"><button class="btn" id="gbizSearch">gBizINFOで会社を検索</button><span class="gbiz-hint">会社名から公式の企業情報を取得します</span></div><div id="gbizCandidates"></div></div>` +
+    `<details class="prof-manual"><summary>サイトURLから取得（手動）</summary><div class="prof-url"><textarea id="profUrl" rows="2" placeholder="企業サイトURL"></textarea><button class="btn" id="profGet">取得</button></div></details>` +
+    `<div class="prof-status" id="profStatus"></div><div id="profBody"></div></section>` +
     `</div>` +
-    // 提案資料
-    `<div class="deal-tabpane" data-dtab="proposals" hidden>` +
-    `<section class="deal-sec"><div class="deal-sec-h">📎 提案資料</div>` +
+    `<div class="dc-page" data-page="proposals" hidden>` +
+    `<button class="dc-back" type="button"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" style="vertical-align:-2px;margin-right:4px"><path d="M10 4L6 8l4 4" stroke="#0d5b47" stroke-width="1.5" stroke-linecap="round"/></svg>${esc(displayName(account))}</button>` +
+    `<section class="deal-sec"><div class="deal-sec-h"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" style="vertical-align:-2px;margin-right:4px"><path d="M3 2h7l4 4v8a1 1 0 01-1 1H3a1 1 0 01-1-1V3a1 1 0 011-1z" fill="#1d9e75"/><path d="M10 2v4h4" fill="#5DCAA5"/></svg>提案資料</div>` +
     `<div class="proposal-add"><input type="text" id="proposalUrl" class="proposal-url-input" placeholder="GoogleスライドのURLを貼り付け" /><button class="btn" id="proposalAddBtn">登録</button></div>` +
     `<div id="proposalList"><div class="empty-state">読み込み中…</div></div></section>` +
     `</div>` +
-    // Salesforce連携
-    `<div class="deal-tabpane" data-dtab="salesforce" hidden>` +
-    `<section class="deal-sec"><div class="deal-sec-h"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" style="vertical-align:-2px;margin-right:4px"><path d="M8 1a7 7 0 110 14A7 7 0 018 1z" fill="#0d5b47"/><path d="M5.5 8.5l2 2 3.5-4" stroke="#fff" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>Salesforce 商談</div>` +
+    `<div class="dc-page" data-page="salesforce" hidden>` +
+    `<button class="dc-back" type="button"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" style="vertical-align:-2px;margin-right:4px"><path d="M10 4L6 8l4 4" stroke="#0d5b47" stroke-width="1.5" stroke-linecap="round"/></svg>${esc(displayName(account))}</button>` +
+    `<section class="deal-sec"><div class="deal-sec-h"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" style="vertical-align:-2px;margin-right:4px"><path d="M8 1a7 7 0 110 14A7 7 0 018 1z" fill="#185FA5"/><path d="M5.5 8.5l2 2 3.5-4" stroke="#fff" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>Salesforce</div>` +
     `<div id="sfSearch" class="sf-search"><button class="btn sf-search-btn" id="sfSearchBtn">商談を検索</button></div>` +
     `<div id="sfMatches"></div>` +
-    `<div id="sfLinked" style="display:none">` +
-    `<div id="sfLinkedInfo" class="sf-linked-info"></div>` +
-    // ─── ステージ更新セクション ───
-    `<div class="sf-section-box">` +
-    `<div class="sf-section-title"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" style="vertical-align:-2px;margin-right:4px"><rect x="1" y="6" width="4" height="9" rx="1" fill="#0d5b47"/><rect x="6" y="3" width="4" height="12" rx="1" fill="#1d9e75"/><rect x="11" y="1" width="4" height="14" rx="1" fill="#5DCAA5"/></svg>ステージ・項目の更新</div>` +
-    `<div class="sf-field"><label>セールスステージ</label><select id="sfStage" class="sf-select"></select></div>` +
-    `<div id="sfStageFields"></div>` +
-    `<div class="sf-field" style="margin-top:8px"><button class="btn" id="sfUpdateBtn">ステージ・項目を更新</button></div>` +
-    `<div id="sfUpdateMsg"></div>` +
-    `</div>` +
-    // ─── 活動記録セクション ───
-    `<div class="sf-section-box">` +
-    `<div class="sf-section-title"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" style="vertical-align:-2px;margin-right:4px"><circle cx="8" cy="8" r="7" fill="#0d5b47"/><path d="M8 4v4l3 2" stroke="#fff" stroke-width="1.5" stroke-linecap="round"/></svg>活動を記録</div>` +
+    `<div id="sfLinked" style="display:none"><div id="sfLinkedInfo" class="sf-linked-info"></div>` +
+    `<div class="sf-section-box"><div class="sf-section-title"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" style="vertical-align:-2px;margin-right:4px"><rect x="1" y="6" width="4" height="9" rx="1" fill="#0d5b47"/><rect x="6" y="3" width="4" height="12" rx="1" fill="#1d9e75"/><rect x="11" y="1" width="4" height="14" rx="1" fill="#5DCAA5"/></svg>ステージ・項目の更新</div>` +
+    `<div class="sf-field"><label>セールスステージ</label><select id="sfStage" class="sf-select"></select></div><div id="sfStageFields"></div>` +
+    `<div class="sf-field" style="margin-top:8px"><button class="btn" id="sfUpdateBtn">ステージ・項目を更新</button></div><div id="sfUpdateMsg"></div></div>` +
+    `<div class="sf-section-box"><div class="sf-section-title"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" style="vertical-align:-2px;margin-right:4px"><circle cx="8" cy="8" r="7" fill="#0d5b47"/><path d="M8 4v4l3 2" stroke="#fff" stroke-width="1.5" stroke-linecap="round"/></svg>活動を記録</div>` +
     `<div class="sf-field"><label>活動種別</label><select id="sfTaskType" class="sf-select"><option value="">--なし--</option><option value="電話">電話</option><option value="メール">メール</option><option value="商談">商談</option><option value="その他">その他</option><option value="再商談">再商談</option><option value="ネクストアクション">ネクストアクション</option></select></div>` +
     `<div class="sf-field"><label>コメント</label><textarea id="sfTaskComment" class="sf-textarea" rows="3" placeholder="活動メモ"></textarea></div>` +
-    `<div class="sf-field" style="margin-top:8px"><button class="btn sf-btn-secondary" id="sfTaskBtn">活動を記録</button></div>` +
-    `<div id="sfTaskMsg"></div>` +
-    `</div>` +
+    `<div class="sf-field" style="margin-top:8px"><button class="btn sf-btn-secondary" id="sfTaskBtn">活動を記録</button></div><div id="sfTaskMsg"></div></div>` +
     `</div></section>` +
     `</div>` +
-    // 商談の流れ
-    `<div class="deal-tabpane" data-dtab="flow" hidden>` +
-    `<section class="deal-sec"><div class="deal-sec-h">🗂 商談の流れ</div><div class="deal-timeline" id="dealTimeline"></div></section>` +
+    `<div class="dc-page" data-page="flow" hidden>` +
+    `<button class="dc-back" type="button"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" style="vertical-align:-2px;margin-right:4px"><path d="M10 4L6 8l4 4" stroke="#0d5b47" stroke-width="1.5" stroke-linecap="round"/></svg>${esc(displayName(account))}</button>` +
+    `<section class="deal-sec"><div class="deal-sec-h"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" style="vertical-align:-2px;margin-right:4px"><rect x="1" y="1" width="14" height="14" rx="2" fill="#0d5b47"/><rect x="3" y="4" width="10" height="1.5" rx=".5" fill="#5DCAA5"/><rect x="3" y="7" width="7" height="1.5" rx=".5" fill="#5DCAA5"/><rect x="3" y="10" width="9" height="1.5" rx=".5" fill="#5DCAA5"/></svg>商談の流れ</div><div class="deal-timeline" id="dealTimeline"></div></section>` +
     `</div>`;
 
-  // タブ切り替え（画面ごと）
-  const dealTabs = document.getElementById("dealTabs");
-  if (dealTabs) {
-    dealTabs.querySelectorAll(".deal-tab").forEach((btn) => {
-      btn.addEventListener("click", () => {
-        const t = btn.dataset.dtab;
-        dealTabs.querySelectorAll(".deal-tab").forEach((b) => b.classList.toggle("active", b === btn));
-        document.querySelectorAll(".deal-tabpane").forEach((p) => (p.hidden = p.dataset.dtab !== t));
-      });
+  // カード→ページ遷移のイベント
+  det.querySelectorAll(".dc-card").forEach(card => {
+    card.addEventListener("click", () => {
+      const page = card.dataset.page;
+      $("dcHome").hidden = true;
+      det.querySelectorAll(".dc-page").forEach(p => p.hidden = p.dataset.page !== page);
+      det.scrollTop = 0;
     });
-  }
+  });
+  // 戻るボタン
+  det.querySelectorAll(".dc-back").forEach(btn => {
+    btn.addEventListener("click", () => {
+      det.querySelectorAll(".dc-page").forEach(p => p.hidden = true);
+      $("dcHome").hidden = false;
+      det.scrollTop = 0;
+    });
+  });
 
   // ステータス変更
   // 案件のステータス変更は、中澤・浦林のみ可能。それ以外は参照のみ（プルダウンをロック）。

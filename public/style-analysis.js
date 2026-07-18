@@ -103,6 +103,8 @@ async function loadAndRender() {
     for (const t of allTags) t.owner_name = ownerName(t.owner);
     populateFilterOptions();
     status.textContent = `全 ${allTags.length}件の案件タグを取得（期間: ${from} 〜 ${to}）`;
+    window._saTags = allTags; // カスタム分析用
+    renderCustomCharts();
     renderHeatmap();
     renderCompare();
     loadProfileStatus();
@@ -1098,3 +1100,155 @@ async function runFillIndustry() {
   } catch (e) { alert("失敗: " + e.message); }
   finally { btn.textContent = "業界を反映する"; btn.disabled = false; }
 }
+
+// ===== カスタム分析（軸×指標×グラフ種類を自由に選択） =====
+const SA_AXES = [
+  {v:"owner",l:"担当者",g:"基本"},
+  {v:"customer_employee_size",l:"従業員規模",g:"売り先"},{v:"customer_industry",l:"業界",g:"売り先"},
+  {v:"customer_hq_region",l:"地域",g:"売り先"},{v:"hiring_type_need",l:"新卒/中途",g:"売り先"},
+  {v:"target_hire_count",l:"採用人数",g:"売り先"},{v:"target_job_type",l:"職種",g:"売り先"},
+  {v:"appeal_points_used",l:"訴求内容",g:"売り方"},{v:"talk_patterns",l:"話法の型",g:"売り方"},
+  {v:"objection_handling_style",l:"懸念対応",g:"売り方"},{v:"discovery_items_covered",l:"ヒアリング深度",g:"売り方"},
+  {v:"meeting_stages",l:"ステップ構成",g:"売り方"},{v:"key_pain_points",l:"顧客の課題",g:"商談状況"},
+  {v:"customer_response_status",l:"顧客反応",g:"商談状況"},{v:"result",l:"受注結果",g:"商談状況"},
+];
+const SA_METRICS = [{v:"count",l:"件数"},{v:"pct",l:"構成比"},{v:"response_rate",l:"案件化率"},{v:"re_meeting_rate",l:"再商談実施率"},{v:"won_rate",l:"受注率"}];
+const SA_CHARTS = [{v:"bar",l:"棒グラフ"},{v:"pie",l:"円グラフ"},{v:"table",l:"テーブル"},{v:"crosstab",l:"クロス集計"}];
+const SA_ARR = new Set(["appeal_points_used","talk_patterns","discovery_items_covered","key_pain_points","objections_raised","meeting_stages","target_job_type"]);
+const SA_PIE_COLORS = ["#0d5b47","#1d9e75","#5DCAA5","#9FE1CB","#BA7517","#378ADD","#D85A30","#534AB7","#D4537E","#E1F5EE"];
+let saCustomCharts = [];
+try { saCustomCharts = JSON.parse(localStorage.getItem("sa_custom_charts") || "[]"); } catch {}
+
+function saGetAxisVals(t, a) {
+  if (SA_ARR.has(a)) { const arr = Array.isArray(t[a]) ? t[a] : []; return a === "meeting_stages" ? arr.filter(s => s?.step).map(s => s.step) : arr.filter(Boolean); }
+  let v = t[a]; if (a === "owner") v = ownerName(v); return [v || "不明"];
+}
+function saIsHit(t, m) {
+  if (m === "response_rate") return t.customer_response_status === "担当者合意" || t.customer_response_status === "案件化";
+  if (m === "won_rate") return t.result === "受注";
+  if (m === "re_meeting_rate") return t.result === "受注" || t.customer_response_status === "担当者合意";
+  return false;
+}
+function saAgg(tags, axis, metric) {
+  const g = {};
+  tags.forEach(t => { saGetAxisVals(t, axis).forEach(k => { if (!g[k]) g[k] = {n:0, h:0}; g[k].n++; if (saIsHit(t, metric)) g[k].h++; }); });
+  const e = Object.entries(g);
+  if (metric === "count") return e.map(([k, v]) => ({k, val:v.n})).sort((a, b) => b.val - a.val);
+  if (metric === "pct") { const tot = tags.length || 1; return e.map(([k, v]) => ({k, val:Math.round(v.n/tot*100), n:v.n, d:tot})).sort((a, b) => b.val - a.val); }
+  return e.map(([k, v]) => ({k, val:v.n ? Math.round(v.h/v.n*100) : 0, n:v.h, d:v.n})).sort((a, b) => b.val - a.val);
+}
+
+function renderCustomCharts() {
+  const container = document.getElementById("customCharts");
+  if (!container) return;
+  if (!saCustomCharts.length) { container.innerHTML = '<div style="padding:20px;color:#8a938c;font-size:13px;text-align:center;">「＋ グラフを追加」でカスタム分析を作成できます</div>'; return; }
+  container.innerHTML = saCustomCharts.map((c, i) => `<div class="sa-custom-item" id="sacc_${i}">
+    <div class="sa-custom-head"><span class="sa-custom-title">${esc(c.title || autoSaTitle(c))}</span><div><button class="sa-action-sm sa-custom-del" data-i="${i}">✕</button></div></div>
+    <div class="sa-custom-body" id="sacb_${i}"></div>
+  </div>`).join("");
+  // 削除ボタン
+  container.querySelectorAll(".sa-custom-del").forEach(b => b.addEventListener("click", () => {
+    saCustomCharts.splice(parseInt(b.dataset.i), 1);
+    localStorage.setItem("sa_custom_charts", JSON.stringify(saCustomCharts));
+    renderCustomCharts();
+  }));
+  // 描画
+  saCustomCharts.forEach((c, i) => drawSaChart(c, document.getElementById("sacb_" + i)));
+}
+
+function drawSaChart(c, el) {
+  if (!el || !window._saTags) return;
+  const tags = window._saTags;
+  if (c.chart === "bar") {
+    const d = saAgg(tags, c.axis, c.metric).slice(0, 15);
+    if (!d.length) { el.innerHTML = '<div style="color:#8a938c">データなし</div>'; return; }
+    const mx = Math.max(...d.map(x => x.val)) || 1, isR = c.metric !== "count";
+    el.innerHTML = d.map(r => { const p = Math.round(r.val / mx * 100), s = isR ? "%" : "件", dt = r.d != null ? ` <span style="color:#8a938c;font-size:10px">(${r.n}/${r.d})</span>` : "";
+      return `<div style="display:flex;align-items:center;gap:6px;margin-bottom:4px"><div style="width:80px;font-size:11px;color:#5f6b63;text-align:right;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(r.k)}</div><div style="flex:1;height:20px;background:#f2f0eb;border-radius:4px;overflow:hidden"><div style="width:${p}%;height:100%;background:#1d9e75;border-radius:4px;display:flex;align-items:center;padding-left:6px;font-size:10px;color:#fff;font-weight:600">${p > 12 ? r.val + s : ""}</div></div><div style="width:60px;font-size:11px;text-align:right">${r.val}${s}${dt}</div></div>`; }).join("");
+  } else if (c.chart === "pie") {
+    const d = saAgg(tags, c.axis, "count").slice(0, 8);
+    if (!d.length) { el.innerHTML = '<div style="color:#8a938c">データなし</div>'; return; }
+    const tot = d.reduce((s, r) => s + r.val, 0) || 1; let cum = 0;
+    const xy = (a, r) => [60 + r * Math.cos((a-90)*Math.PI/180), 60 + r * Math.sin((a-90)*Math.PI/180)];
+    let svg = '<svg viewBox="0 0 120 120" width="120" height="120">';
+    const segs = d.map((r, i) => { const p = r.val/tot, s = cum*360; cum += p; return {s, e:cum*360, c:SA_PIE_COLORS[i%SA_PIE_COLORS.length], k:r.k, n:r.val}; });
+    segs.forEach(seg => { if (seg.e-seg.s >= 359.9) { svg += `<circle cx="60" cy="60" r="50" fill="${seg.c}"/>`; return; } const [x1,y1]=xy(seg.s,50),[x2,y2]=xy(seg.e,50),l=seg.e-seg.s>180?1:0; svg += `<path d="M60,60 L${x1},${y1} A50,50 0 ${l},1 ${x2},${y2} Z" fill="${seg.c}"/>`; });
+    svg += '</svg>';
+    el.innerHTML = `<div style="display:flex;align-items:center;gap:16px">${svg}<div>${segs.map(s => `<div style="display:flex;align-items:center;gap:5px;font-size:11px;color:#5f6b63;margin:2px 0"><div style="width:10px;height:10px;border-radius:50%;background:${s.c}"></div>${esc(s.k)} (${s.n})</div>`).join("")}</div></div>`;
+  } else if (c.chart === "table") {
+    const d = saAgg(tags, c.axis, c.metric).slice(0, 20);
+    if (!d.length) { el.innerHTML = '<div style="color:#8a938c">データなし</div>'; return; }
+    const al = SA_AXES.find(a => a.v === c.axis)?.l || c.axis, ml = SA_METRICS.find(m => m.v === c.metric)?.l || c.metric, isR = c.metric !== "count", s = isR ? "%" : "件";
+    let h = `<table class="sa-custom-table"><thead><tr><th>${esc(al)}</th><th style="text-align:right">${esc(ml)}</th>${d[0].d != null ? '<th style="text-align:right">内訳</th>' : ''}</tr></thead><tbody>`;
+    d.forEach(r => { h += `<tr><td>${esc(r.k)}</td><td style="text-align:right;font-weight:600">${r.val}${s}</td>${r.d != null ? `<td style="text-align:right;color:#8a938c">${r.n}/${r.d}</td>` : ''}</tr>`; });
+    el.innerHTML = h + '</tbody></table>';
+  } else if (c.chart === "crosstab") {
+    const ra = c.axis, ca = c.axis2 || "owner", isR = c.metric !== "count" && c.metric !== "pct";
+    const rS = new Set(), cS = new Set(), cells = {};
+    tags.forEach(t => { saGetAxisVals(t, ra).forEach(r => { rS.add(r); saGetAxisVals(t, ca).forEach(cc => { cS.add(cc); const k = r+"|||"+cc; if (!cells[k]) cells[k] = {n:0,h:0}; cells[k].n++; if (saIsHit(t, c.metric)) cells[k].h++; }); }); });
+    const rows = [...rS].sort(), cols = [...cS].sort();
+    if (!rows.length || !cols.length) { el.innerHTML = '<div style="color:#8a938c">データなし</div>'; return; }
+    let h = '<div style="overflow-x:auto"><table class="sa-custom-table"><thead><tr><th></th>';
+    cols.forEach(cc => h += `<th style="text-align:center;font-size:10px">${esc(cc)}</th>`);
+    h += '</tr></thead><tbody>';
+    rows.forEach(r => { h += `<tr><td style="font-weight:500;white-space:nowrap">${esc(r)}</td>`;
+      cols.forEach(cc => { const cell = cells[r+"|||"+cc]; if (!cell || !cell.n) { h += '<td style="text-align:center;color:#ccc">—</td>'; return; }
+        const val = isR ? Math.round(cell.h/cell.n*100) : cell.n, rate = isR ? cell.h/cell.n : cell.n/(tags.length||1);
+        const bg = rate > 0.5 ? "#1d9e75" : rate > 0.25 ? "#BA7517" : rate > 0 ? "#D85A30" : "#f2f0eb", fc = rate > 0 ? "#fff" : "#ccc";
+        h += `<td style="text-align:center;background:${bg};color:${fc};border-radius:4px;font-weight:600;font-size:11px;padding:5px 3px">${val}${isR?"%":""}<div style="font-size:9px;opacity:0.7">${cell.h}/${cell.n}</div></td>`; });
+      h += '</tr>'; });
+    el.innerHTML = h + '</tbody></table></div>';
+  }
+}
+
+function autoSaTitle(c) {
+  const al = SA_AXES.find(a => a.v === c.axis)?.l || c.axis;
+  const ml = SA_METRICS.find(m => m.v === c.metric)?.l || c.metric;
+  if (c.chart === "crosstab") { const cl = SA_AXES.find(a => a.v === c.axis2)?.l || c.axis2; return `${al} × ${cl} ${ml}`; }
+  return `${al}別 ${ml}`;
+}
+
+// 追加モーダル
+document.addEventListener("DOMContentLoaded", () => {
+  const addBtn = document.getElementById("addCustomChart");
+  if (!addBtn) return;
+  addBtn.addEventListener("click", () => {
+    const axOpts = SA_AXES.map(a => `<option value="${a.v}">${a.g}: ${a.l}</option>`).join("");
+    const mOpts = SA_METRICS.map(m => `<option value="${m.v}">${m.l}</option>`).join("");
+    const cOpts = SA_CHARTS.map(c => `<option value="${c.v}">${c.l}</option>`).join("");
+    const modal = document.createElement("div");
+    modal.className = "sa-modal-overlay";
+    modal.innerHTML = `<div class="sa-modal">
+      <div class="sa-modal-head"><h3>グラフを追加</h3><button class="sa-modal-close" id="saModalClose">✕</button></div>
+      <div class="sa-modal-body">
+        <div class="sa-modal-field"><label>グラフの種類</label><select id="saNewChart">${cOpts}</select></div>
+        <div class="sa-modal-field"><label>集計軸</label><select id="saNewAxis">${axOpts}</select></div>
+        <div class="sa-modal-field" id="saNewAxis2Wrap" style="display:none"><label>列軸（クロス集計用）</label><select id="saNewAxis2">${axOpts}</select></div>
+        <div class="sa-modal-field"><label>指標</label><select id="saNewMetric">${mOpts}</select></div>
+        <div class="sa-modal-field"><label>タイトル（任意）</label><input type="text" id="saNewTitle" placeholder="（自動生成）" /></div>
+        <div class="sa-modal-actions"><button class="btn" id="saNewAdd">追加</button></div>
+      </div>
+    </div>`;
+    document.body.appendChild(modal);
+    modal.querySelector("#saModalClose").onclick = () => modal.remove();
+    modal.onclick = e => { if (e.target === modal) modal.remove(); };
+    modal.querySelector("#saNewChart").addEventListener("change", e => {
+      modal.querySelector("#saNewAxis2Wrap").style.display = e.target.value === "crosstab" ? "" : "none";
+    });
+    modal.querySelector("#saNewAdd").onclick = () => {
+      const c = {
+        chart: modal.querySelector("#saNewChart").value,
+        axis: modal.querySelector("#saNewAxis").value,
+        axis2: modal.querySelector("#saNewAxis2").value,
+        metric: modal.querySelector("#saNewMetric").value,
+        title: modal.querySelector("#saNewTitle").value,
+      };
+      saCustomCharts.push(c);
+      localStorage.setItem("sa_custom_charts", JSON.stringify(saCustomCharts));
+      modal.remove();
+      renderCustomCharts();
+    };
+  });
+  // 初期描画
+  renderCustomCharts();
+});
