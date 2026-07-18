@@ -1226,15 +1226,15 @@ async function getJudgeProviderSetting() {
 }
 
 // Claudeが失敗したら必ず Gemini にフォールバックする（EXTRACT_FALLBACK で変更可、既定 gemini）。
-// 判定モデルは設定（judgeProvider＝画面で選択）を最優先。未設定なら環境変数 EXTRACT_PROVIDER（既定 anthropic）。
+// 既定はGemini。Claudeを使いたい場合は判定画面のモデル選択（judgeProvider）でClaudeを選ぶ。
 async function extractLLMOpts(extra = {}, forceProvider) {
-  // forceProvider が指定されれば最優先（商談終わりの自動判定でClaude固定にするため）
+  // forceProvider が指定されれば最優先
   const forced = forceProvider === "anthropic" || forceProvider === "gemini" ? forceProvider : "";
   const sel = forced || (await getJudgeProviderSetting()); // "anthropic"|"gemini"|""
-  const provider = sel || (process.env.EXTRACT_PROVIDER || "gemini").toLowerCase();
-  const model = sel
-    ? (provider === "anthropic" ? (process.env.ANALYZER_MODEL || "claude-sonnet-4-6") : undefined)
-    : (process.env.EXTRACT_MODEL || (provider === "anthropic" ? (process.env.ANALYZER_MODEL || "claude-sonnet-4-6") : undefined));
+  const provider = sel || "gemini"; // 既定はGemini（Anthropicのクレジット不足でも動くように）
+  const model = provider === "anthropic"
+    ? (process.env.ANALYZER_MODEL || "claude-sonnet-4-6")
+    : undefined; // Geminiは既定モデルを使う
   const fallback = (process.env.EXTRACT_FALLBACK || "gemini").toLowerCase();
   return { provider, model, fallback, ...extra };
 }
@@ -1253,9 +1253,9 @@ async function judgeWithRetry({ sys, user, schema, provider, maxTokens = 1400, r
     const escNote = isEscalation
       ? "\n\n（これは最終確認です。上位モデルとして、文字起こしを最初から丁寧に読み直し、reasoning に段階的な考察を書いてから、各項目を発言の根拠に基づいて慎重に確定してください。）"
       : "";
-    const llm = isEscalation
-      ? { ...(await extractLLMOpts({ schema }, "anthropic")), model: escalateModel }
-      : await extractLLMOpts({ schema }, provider);
+    const llm = ((base) => (isEscalation && base.provider === "anthropic")
+      ? { ...base, model: escalateModel }
+      : base)(await extractLLMOpts({ schema }, provider));
     const o = parseJson(await callLLM(sys, user + note + escNote, maxTokens, llm)) || {};
     best = buildResult(o, attempt, isEscalation);
     if (best.confidence === "high") break;

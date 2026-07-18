@@ -1151,7 +1151,7 @@ async function runExtraction(botId, forceProvider) {
 // 投げっぱなし実行（finalizeをブロックしない）
 function runExtractionSafe(botId) {
   Promise.resolve()
-    .then(() => runExtraction(botId, "anthropic")) // 商談終わりの自動判定はClaude固定
+    .then(() => runExtraction(botId)) // 判定は既定プロバイダ（Gemini）を使う。Claudeを使う場合は判定画面のモデル選択で切り替え
     .catch((e) => console.warn("[extract] スキップ", botId, e.message));
 }
 // 録音ボット経由の商談確定後にも抽出を走らせる（sessions.js から呼ばれる）
