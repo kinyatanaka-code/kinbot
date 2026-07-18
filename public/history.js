@@ -596,7 +596,7 @@ function renderCompanyOverview() {
     b.addEventListener("click", () => {
       const act = b.dataset.act;
       if (act === "judge") { showSubEmbed("judge", "進捗・判定"); return; }
-      if (act === "proposals") { location.href = `deals.html?company=${enc}&from=history`; return; }
+      if (act === "proposals") { showSubEmbed("proposals", "提案資料"); return; }
       if (!latest) { alert("この企業の商談がまだありません。"); return; }
       loadDetail(latest.bot_id, act === "mail" ? "thanks" : "sf", { focus: true });
     })
@@ -1084,6 +1084,7 @@ async function loadDetail(botId, openTab, opts = {}) {
               gmTo.value = dd.to || "";
               gmReply = { threadId: dd.threadId, inReplyTo: dd.inReplyTo, references: dd.references };
               gmToWrap.hidden = false;
+              gmThreads.innerHTML = ""; // 返信を作成したら候補一覧を消す
               gmNote.textContent = "返信の下書きを下に入れました。内容を確認・編集して、Gmailの下書きに保存できます。";
               thanksBody.scrollIntoView({ block: "nearest" });
             } catch (e2) {
