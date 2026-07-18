@@ -188,6 +188,75 @@ $("addLinkBtn").addEventListener("click", async () => {
 });
 loadLinks();
 
+// ===== Zoom自動入室：登録URLの読み込み・追加・削除 =====
+async function loadAutoJoin() {
+  const list = $("autoJoinList");
+  const status = $("autoJoinStatus");
+  const wh = $("autoJoinWebhookUrl");
+  if (!list) return;
+  try {
+    const d = await (await fetch("/api/auto-join")).json();
+    const items = (d && d.items) || [];
+    if (wh && d.webhookUrl) wh.textContent = d.webhookUrl;
+    if (status) {
+      status.className = "autojoin-status " + (d.zoomConfigured ? "ok" : "warn");
+      status.textContent = d.zoomConfigured
+        ? "Zoom連携：設定済み。登録したURLで会議が始まると自動入室します。"
+        : "Zoom連携：未設定です。下の「Zoom連携の設定手順」を行うと自動入室が有効になります（URLの登録だけでも保存できます）。";
+    }
+    if (!items.length) {
+      list.innerHTML = '<li class="empty-state">まだ登録がありません。</li>';
+      return;
+    }
+    list.innerHTML = "";
+    items.forEach((it) => {
+      const li = document.createElement("li");
+      li.innerHTML =
+        `<span class="ln-name"></span><span class="ln-url"></span>` +
+        `<label class="aj-toggle"><input type="checkbox" ${it.enabled ? "checked" : ""} /> 有効</label>` +
+        `<button class="ln-del">削除</button>`;
+      li.querySelector(".ln-name").textContent = it.label || "(名前なし)";
+      li.querySelector(".ln-url").textContent = it.url;
+      li.querySelector("input").addEventListener("change", async (e) => {
+        await fetch(`/api/auto-join/${it.id}`, {
+          method: "PUT", headers: { "content-type": "application/json" },
+          body: JSON.stringify({ enabled: e.target.checked }),
+        });
+      });
+      li.querySelector(".ln-del").addEventListener("click", async () => {
+        await fetch(`/api/auto-join/${it.id}`, { method: "DELETE" });
+        loadAutoJoin();
+      });
+      list.appendChild(li);
+    });
+  } catch {
+    list.innerHTML = '<li class="empty-state">読み込みに失敗しました。</li>';
+  }
+}
+if ($("addAutoJoinBtn")) {
+  $("addAutoJoinBtn").addEventListener("click", async () => {
+    const label = $("newAutoJoinLabel").value.trim();
+    const url = $("newAutoJoinUrl").value.trim();
+    const msg = $("autoJoinMsg");
+    if (!url) return;
+    try {
+      const r = await fetch("/api/auto-join", {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ url, label }),
+      });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.error || "登録に失敗しました");
+      $("newAutoJoinLabel").value = "";
+      $("newAutoJoinUrl").value = "";
+      if (msg) { msg.hidden = false; msg.textContent = "登録しました。"; setTimeout(() => (msg.hidden = true), 2500); }
+      loadAutoJoin();
+    } catch (e) {
+      if (msg) { msg.hidden = false; msg.textContent = "エラー: " + e.message; }
+    }
+  });
+}
+loadAutoJoin();
+
 // ===== 御礼メールの例文（ラウンド別） =====
 const THANKS_ROUNDS = [
   { key: "1", label: "1回目の商談" },

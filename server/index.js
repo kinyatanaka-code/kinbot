@@ -104,6 +104,12 @@ import {
   getUserSettings,
   saveUserSettings,
   saveMeeting,
+  listAutoJoin,
+  findAutoJoinByMeetingId,
+  addAutoJoin,
+  removeAutoJoin,
+  setAutoJoinEnabled,
+  touchAutoJoin,
   setMeetingStatus,
   createMeeting,
   setMeetingSfUrl,
@@ -227,7 +233,7 @@ const app = express();
 
 // --- 個人アカウント認証（Cookieセッション） ---
 const OPEN_PATHS = new Set([
-  "/api/recall/webhook", "/api/login", "/api/register", "/api/auth-info",
+  "/api/recall/webhook", "/api/zoom/webhook", "/api/login", "/api/register", "/api/auth-info",
   "/.well-known/oauth-authorization-server", "/.well-known/oauth-protected-resource",
   "/oauth/register", "/oauth/authorize", "/oauth/token",
   // ChatGPTのCustom GPTが「URLからインポート」で取得する公開スキーマ（トークンは含まない）
@@ -328,6 +334,10 @@ app.use(express.static(path.join(__dirname, "..", "public")));
 // Webhook だけ raw body も保持（将来の署名検証用）
 app.use(
   "/api/recall/webhook",
+  express.json({ verify: (req, _res, buf) => (req.rawBody = buf) })
+);
+app.use(
+  "/api/zoom/webhook",
   express.json({ verify: (req, _res, buf) => (req.rawBody = buf) })
 );
 app.use(express.json());
@@ -3592,56 +3602,145 @@ async function guessTitleFromCalendar(owner, meetingUrl, at = new Date()) {
   }
 }
 
+// ボットを会議へ送り、セッションを開始する共通処理（手動開始・Zoom自動入室で共用）
+async function startBotSession(owner, meetingUrl, { title = "", repName = "", languageCode = "" } = {}) {
+  const cfg = await resolveConfig(owner);
+  let sessionTitle = (title || "").trim();
+  let autoTitled = false;
+  if (!sessionTitle) {
+    sessionTitle = await guessTitleFromCalendar(owner, meetingUrl, new Date());
+    autoTitled = !!sessionTitle;
+  }
+  let mux = null;
+  let muxError = "";
+  if (muxConfigured()) {
+    try {
+      mux = await createLiveStream();
+      if (!mux?.playbackId) muxError = "Muxから再生IDが取得できませんでした";
+    } catch (e) {
+      muxError = e.message;
+      console.error("[mux] createLiveStream", e.message);
+    }
+  }
+  const botId = await createBot({
+    meetingUrl,
+    webhookUrl: `${PUBLIC_URL}/api/recall/webhook`,
+    languageCode: languageCode || cfg.languageCode,
+    botName: cfg.botName,
+    provider: cfg.transcribeProvider,
+    deepgramModel: cfg.deepgramModel,
+    rtmpUrl: mux?.rtmpUrl || null,
+  });
+  const displayName = await getDisplayName(owner);
+  createSession(botId, {
+    repName: repName || cfg.repName || displayName || owner || "",
+    meetingUrl,
+    title: sessionTitle || "",
+    owner: owner || "",
+    analyzeIntervalMs: cfg.analyzeIntervalMs,
+    muxPlaybackId: mux?.playbackId || "",
+    muxLiveStreamId: mux?.liveStreamId || "",
+    muxError,
+  });
+  return { sessionId: botId, muxReady: !!mux?.playbackId, muxError, autoTitle: autoTitled ? sessionTitle : "" };
+}
+
 app.post("/api/sessions", async (req, res) => {
   const { meetingUrl, repName, languageCode, title } = req.body || {};
   if (!meetingUrl) return res.status(400).json({ error: "meetingUrl が必要です" });
   if (!PUBLIC_URL) return res.status(500).json({ error: "PUBLIC_URL が未設定です" });
   try {
-    const cfg = await resolveConfig(req.user);
-    // 商談名が未入力なら、カレンダーの近い予定から自動で推測する
-    let sessionTitle = (title || "").trim();
-    let autoTitled = false;
-    if (!sessionTitle) {
-      sessionTitle = await guessTitleFromCalendar(req.user, meetingUrl, new Date());
-      autoTitled = !!sessionTitle;
-    }
-    // ライブ映像配信（Mux）。設定済みなら配信枠を作成してRTMP送信を仕込む
-    let mux = null;
-    let muxError = "";
-    if (muxConfigured()) {
-      try {
-        mux = await createLiveStream();
-        if (!mux?.playbackId) muxError = "Muxから再生IDが取得できませんでした";
-      } catch (e) {
-        muxError = e.message;
-        console.error("[mux] createLiveStream", e.message);
-      }
-    }
-    const botId = await createBot({
-      meetingUrl,
-      webhookUrl: `${PUBLIC_URL}/api/recall/webhook`,
-      languageCode: languageCode || cfg.languageCode,
-      botName: cfg.botName,
-      provider: cfg.transcribeProvider,
-      deepgramModel: cfg.deepgramModel,
-      rtmpUrl: mux?.rtmpUrl || null,
-    });
-    const displayName = await getDisplayName(req.user);
-    createSession(botId, {
-      repName: repName || cfg.repName || displayName || req.user || "",
-      meetingUrl,
-      title: sessionTitle || "",
-      owner: req.user || "",
-      analyzeIntervalMs: cfg.analyzeIntervalMs,
-      muxPlaybackId: mux?.playbackId || "",
-      muxLiveStreamId: mux?.liveStreamId || "",
-      muxError,
-    });
-    res.json({ sessionId: botId, muxReady: !!mux?.playbackId, muxError, autoTitle: autoTitled ? sessionTitle : "" });
+    const out = await startBotSession(req.user, meetingUrl, { title, repName, languageCode });
+    res.json(out);
   } catch (e) {
     console.error("[sessions]", e.message);
     res.status(502).json({ error: e.message });
   }
+});
+
+// ===== Zoom：登録URLの会議が始まったら自動入室 =====
+const ZOOM_WEBHOOK_SECRET = process.env.ZOOM_WEBHOOK_SECRET_TOKEN || "";
+function zoomConfigured() { return !!ZOOM_WEBHOOK_SECRET; }
+
+// ZoomからのWebhook（会議開始通知）を受ける
+app.post("/api/zoom/webhook", async (req, res) => {
+  const body = req.body || {};
+  // 1) エンドポイント検証（Zoomが登録時に送るチャレンジに応答する）
+  if (body.event === "endpoint.url_validation") {
+    if (!ZOOM_WEBHOOK_SECRET) return res.status(500).json({ error: "ZOOM_WEBHOOK_SECRET_TOKEN 未設定" });
+    const plainToken = (body.payload && body.payload.plainToken) || "";
+    const encryptedToken = crypto.createHmac("sha256", ZOOM_WEBHOOK_SECRET).update(String(plainToken)).digest("hex");
+    return res.json({ plainToken, encryptedToken });
+  }
+  // 2) 署名検証（設定があれば）
+  if (ZOOM_WEBHOOK_SECRET) {
+    try {
+      const ts = req.headers["x-zm-request-timestamp"];
+      const raw = req.rawBody ? req.rawBody.toString("utf8") : JSON.stringify(body);
+      const hash = crypto.createHmac("sha256", ZOOM_WEBHOOK_SECRET).update(`v0:${ts}:${raw}`).digest("hex");
+      if (`v0=${hash}` !== (req.headers["x-zm-signature"] || "")) {
+        console.warn("[zoom] 署名不一致");
+        return res.status(401).end();
+      }
+    } catch (e) {
+      console.error("[zoom] 署名検証", e.message);
+      return res.status(401).end();
+    }
+  }
+  // Zoomは3秒以内の200応答を期待するので、先に返してから処理する
+  res.status(200).json({ ok: true });
+  if (body.event !== "meeting.started") return;
+  try {
+    const obj = (body.payload && body.payload.object) || {};
+    const meetingId = String(obj.id || "").replace(/\s/g, "");
+    if (!meetingId || !PUBLIC_URL) return;
+    const rows = await findAutoJoinByMeetingId(meetingId);
+    for (const row of rows) {
+      try {
+        // 直近5分以内に入室済みなら二重入室を防ぐ
+        if (row.last_joined_at && Date.now() - new Date(row.last_joined_at).getTime() < 5 * 60 * 1000) continue;
+        await startBotSession(row.owner, row.url, { title: row.label || obj.topic || "" });
+        await touchAutoJoin(row.id);
+        console.log(`[zoom] 自動入室: meeting ${meetingId} → ${row.owner}`);
+      } catch (e) {
+        console.error("[zoom] 自動入室失敗", e.message);
+      }
+    }
+  } catch (e) {
+    console.error("[zoom] webhook処理", e.message);
+  }
+});
+
+// 自動入室するZoom URLの登録一覧
+app.get("/api/auto-join", async (req, res) => {
+  try {
+    res.json({
+      items: await listAutoJoin(req.user),
+      zoomConfigured: zoomConfigured(),
+      webhookUrl: PUBLIC_URL ? `${PUBLIC_URL}/api/zoom/webhook` : "",
+    });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+// URLを登録
+app.post("/api/auto-join", async (req, res) => {
+  try {
+    const u = String((req.body && req.body.url) || "").trim();
+    if (!u) return res.status(400).json({ error: "Zoom URLを入力してください" });
+    const meetingId = zoomMeetingId(u);
+    if (!meetingId) return res.status(400).json({ error: "URLからZoomのミーティングIDを読み取れませんでした。招待URL（https://～/j/1234567890...）を貼ってください。" });
+    const id = await addAutoJoin(req.user, { meetingId, url: u, label: String((req.body && req.body.label) || "").trim() });
+    res.json({ ok: true, id, meetingId });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+// 登録を削除
+app.delete("/api/auto-join/:id", async (req, res) => {
+  try { await removeAutoJoin(req.user, req.params.id); res.json({ ok: true }); }
+  catch (e) { res.status(500).json({ error: e.message }); }
+});
+// 有効／無効の切り替え
+app.put("/api/auto-join/:id", async (req, res) => {
+  try { await setAutoJoinEnabled(req.user, req.params.id, !!(req.body && req.body.enabled)); res.json({ ok: true }); }
+  catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 // --- 設定の取得・保存 ---

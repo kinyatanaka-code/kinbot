@@ -237,6 +237,19 @@ export async function initDb() {
     );
   `);
   await pool.query(`
+    CREATE TABLE IF NOT EXISTS auto_join_meetings (
+      id         SERIAL PRIMARY KEY,
+      owner      TEXT NOT NULL,
+      meeting_id TEXT NOT NULL,
+      url        TEXT NOT NULL,
+      label      TEXT DEFAULT '',
+      enabled    BOOLEAN DEFAULT TRUE,
+      last_joined_at TIMESTAMPTZ,
+      created_at TIMESTAMPTZ DEFAULT now()
+    );
+  `);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_auto_join_meeting ON auto_join_meetings(meeting_id);`);
+  await pool.query(`
     CREATE TABLE IF NOT EXISTS users (
       email      TEXT PRIMARY KEY,
       name       TEXT,
@@ -1278,6 +1291,55 @@ export async function markScheduled(eventId, botId, startTime) {
   } catch (e) {
     console.error("[db] markScheduled", e.message);
   }
+}
+
+// ---- 自動入室するZoom URLの登録（会議開始Webサイトで検知して入室） ----
+export async function listAutoJoin(owner) {
+  if (!pool) return [];
+  try {
+    const { rows } = await pool.query(
+      `SELECT id, owner, meeting_id, url, label, enabled, last_joined_at FROM auto_join_meetings WHERE owner=$1 ORDER BY created_at DESC`,
+      [owner]
+    );
+    return rows;
+  } catch { return []; }
+}
+// 会議IDから、登録している全ユーザーの行を引く（Webhook処理用）
+export async function findAutoJoinByMeetingId(meetingId) {
+  if (!pool || !meetingId) return [];
+  try {
+    const { rows } = await pool.query(
+      `SELECT id, owner, meeting_id, url, label, enabled, last_joined_at FROM auto_join_meetings WHERE meeting_id=$1 AND enabled=TRUE`,
+      [String(meetingId)]
+    );
+    return rows;
+  } catch { return []; }
+}
+export async function addAutoJoin(owner, { meetingId, url, label }) {
+  if (!pool) return null;
+  try {
+    const { rows } = await pool.query(
+      `INSERT INTO auto_join_meetings (owner, meeting_id, url, label) VALUES ($1,$2,$3,$4) RETURNING id`,
+      [owner, String(meetingId), url, label || ""]
+    );
+    return rows[0] && rows[0].id;
+  } catch (e) { console.error("[db] addAutoJoin", e.message); return null; }
+}
+export async function removeAutoJoin(owner, id) {
+  if (!pool) return;
+  try {
+    await pool.query(`DELETE FROM auto_join_meetings WHERE id=$1 AND owner=$2`, [Number(id), owner]);
+  } catch (e) { console.error("[db] removeAutoJoin", e.message); }
+}
+export async function setAutoJoinEnabled(owner, id, enabled) {
+  if (!pool) return;
+  try {
+    await pool.query(`UPDATE auto_join_meetings SET enabled=$3 WHERE id=$1 AND owner=$2`, [Number(id), owner, !!enabled]);
+  } catch (e) { console.error("[db] setAutoJoinEnabled", e.message); }
+}
+export async function touchAutoJoin(id) {
+  if (!pool) return;
+  try { await pool.query(`UPDATE auto_join_meetings SET last_joined_at=now() WHERE id=$1`, [Number(id)]); } catch {}
 }
 
 // ---- ユーザー（メール＋パスワード登録） ----

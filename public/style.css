@@ -2858,3 +2858,14 @@ button.np-step:disabled { opacity: 0.6; cursor: wait; }
 
 /* 実績ページ セクションタイトル */
 .rep-section-title { font-size: 15px; font-weight: 500; color: #0d5b47; padding-bottom: 8px; border-bottom: 1px solid #e6e8e5; margin-bottom: 12px; }
+
+/* Zoom自動入室（設定→登録リンク） */
+.autojoin-status { font-size: 12px; padding: 8px 10px; border-radius: 8px; margin: 6px 0 10px; }
+.autojoin-status.ok { background: var(--accent-soft); color: var(--accent); }
+.autojoin-status.warn { background: #fff6e6; color: #8a5a00; }
+.autojoin-setup { margin-top: 10px; }
+.autojoin-setup summary { cursor: pointer; font-size: 12px; color: var(--accent); font-weight: 700; }
+.autojoin-steps { margin: 8px 0 0; padding-left: 18px; }
+.autojoin-steps li { margin: 4px 0; font-size: 12px; }
+.autojoin-steps code { background: var(--panel-2); padding: 1px 6px; border-radius: 5px; font-size: 11px; word-break: break-all; }
+.aj-toggle { font-size: 12px; color: var(--muted); display: inline-flex; align-items: center; gap: 4px; margin-right: 8px; }

@@ -127,6 +127,29 @@
                 <button class="btn" id="addLinkBtn">追加</button>
               </div>
             </div>
+
+            <div class="set-card">
+              <h3>Zoom自動入室</h3>
+              <p class="note">登録したZoomのURLで会議が始まると、kinbotが自動で入室して録画を開始します。利用にはZoom側でのWebhook連携（下の手順）が必要です。</p>
+              <div class="autojoin-status" id="autoJoinStatus"></div>
+              <ul class="link-list" id="autoJoinList"></ul>
+              <div class="link-add">
+                <input id="newAutoJoinLabel" type="text" placeholder="名前（例：A社 定例）" />
+                <input id="newAutoJoinUrl" type="url" placeholder="https://...zoom.us/j/...?pwd=..." />
+                <button class="btn" id="addAutoJoinBtn">追加</button>
+              </div>
+              <span class="saved" id="autoJoinMsg" hidden></span>
+              <details class="autojoin-setup">
+                <summary>Zoom連携の設定手順</summary>
+                <ol class="note autojoin-steps">
+                  <li>Zoom Marketplace で「Develop」→「Build App」→「General App」（または Webhook 専用アプリ）を作成</li>
+                  <li>Event Subscription を有効化し、通知先URL（Endpoint URL）に次を設定：<code id="autoJoinWebhookUrl">（PUBLIC_URL未設定）</code></li>
+                  <li>イベントに「Meeting → Start Meeting（meeting.started）」を追加</li>
+                  <li>アプリの「Secret Token」を、Railwayの環境変数 <code>ZOOM_WEBHOOK_SECRET_TOKEN</code> に設定して再デプロイ</li>
+                  <li>Zoom側で「Validate」を押し、緑チェックになれば完了</li>
+                </ol>
+              </details>
+            </div>
           </div>
 
           <div class="set-pane" data-pane="smartlinks" hidden>
