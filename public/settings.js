@@ -199,10 +199,10 @@ async function loadAutoJoin() {
     const items = (d && d.items) || [];
     if (wh && d.webhookUrl) wh.textContent = d.webhookUrl;
     if (status) {
-      status.className = "autojoin-status " + (d.zoomConfigured ? "ok" : "warn");
+      status.className = "autojoin-status " + (d.zoomConfigured ? "ok" : "ok");
       status.textContent = d.zoomConfigured
-        ? "Zoom連携：設定済み。登録したURLで会議が始まると自動入室します。"
-        : "Zoom連携：未設定です。下の「Zoom連携の設定手順」を行うと自動入室が有効になります（URLの登録だけでも保存できます）。";
+        ? "カレンダー方式が有効です（予定の開始時刻に自動入室）。さらにZoom Webhook連携も設定済みで、会議開始を即時検知します。"
+        : "カレンダー方式が有効です。Googleカレンダーにその会議の予定が入っていれば、開始時刻に自動入室します（Zoomアプリ不要）。即時検知したい場合は下のZoom連携を設定してください。";
     }
     if (!items.length) {
       list.innerHTML = '<li class="empty-state">まだ登録がありません。</li>';

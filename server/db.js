@@ -1341,6 +1341,16 @@ export async function touchAutoJoin(id) {
   if (!pool) return;
   try { await pool.query(`UPDATE auto_join_meetings SET last_joined_at=now() WHERE id=$1`, [Number(id)]); } catch {}
 }
+// カレンダー監視用：全ユーザーの有効な登録を取得
+export async function listAllAutoJoinEnabled() {
+  if (!pool) return [];
+  try {
+    const { rows } = await pool.query(
+      `SELECT id, owner, meeting_id, url, label, last_joined_at FROM auto_join_meetings WHERE enabled=TRUE`
+    );
+    return rows;
+  } catch { return []; }
+}
 
 // ---- ユーザー（メール＋パスワード登録） ----
 export async function dbGetUser(email) {

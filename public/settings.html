@@ -130,7 +130,7 @@
 
             <div class="set-card">
               <h3>Zoom自動入室</h3>
-              <p class="note">登録したZoomのURLで会議が始まると、kinbotが自動で入室して録画を開始します。利用にはZoom側でのWebhook連携（下の手順）が必要です。</p>
+              <p class="note">登録したZoomのURLの会議が始まると、kinbotが自動で入室して録画を開始します。方法は2つあります。<br>（1）<b>カレンダー方式（おすすめ・Zoomアプリ不要）</b>：Googleカレンダーにその会議の予定が入っていれば、開始時刻に自動入室します。追加設定は不要です。<br>（2）Zoom Webhook方式：会議開始を即時検知して入室します（下の手順でZoom連携が必要・上級者向け）。</p>
               <div class="autojoin-status" id="autoJoinStatus"></div>
               <ul class="link-list" id="autoJoinList"></ul>
               <div class="link-add">

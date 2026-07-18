@@ -110,6 +110,7 @@ import {
   removeAutoJoin,
   setAutoJoinEnabled,
   touchAutoJoin,
+  listAllAutoJoinEnabled,
   setMeetingStatus,
   createMeeting,
   setMeetingSfUrl,
@@ -5441,6 +5442,7 @@ server.listen(PORT, async () => {
   await initDb().catch((e) => console.error("[db] init失敗", e.message));
   startScheduler({ publicUrl: PUBLIC_URL });
   startSessionMonitor();
+  startAutoJoinCalendarMonitor();
   // 「進行中(未設定)」のうち auto_lose_deadline を過ぎた案件を自動で失注に切り替える：起動直後＋1時間ごと
   const autoLose = () =>
     applyAutoLoseDeadlines()
@@ -5532,4 +5534,54 @@ function startSessionMonitor() {
       }
     }
   }, 30000);
+}
+
+// 登録したZoom URLの予定がカレンダーにあり、開始時刻になったら自動入室する（Zoomアプリ不要）。
+// 60秒ごとに、有効な登録URLの持ち主のカレンダーを見て、開始が直近の予定に一致したらボットを送る。
+function startAutoJoinCalendarMonitor() {
+  const WINDOW_BEFORE = 2 * 60 * 1000; // 予定開始の2分前から
+  const WINDOW_AFTER = 4 * 60 * 1000;  // 4分後まで
+  const DEDUP_MS = 30 * 60 * 1000;     // 同じ予定への二重入室は30分以内は抑止
+  const tick = async () => {
+    if (!PUBLIC_URL) return;
+    let rows = [];
+    try { rows = await listAllAutoJoinEnabled(); } catch { return; }
+    if (!rows.length) return;
+    // 直近に入室済みのものは除外
+    const now = Date.now();
+    const active = rows.filter((r) => !r.last_joined_at || now - new Date(r.last_joined_at).getTime() > DEDUP_MS);
+    if (!active.length) return;
+    // 持ち主ごとにまとめて、その人のカレンダーを1回だけ取得
+    const byOwner = new Map();
+    for (const r of active) {
+      if (!byOwner.has(r.owner)) byOwner.set(r.owner, []);
+      byOwner.get(r.owner).push(r);
+    }
+    for (const [owner, ownerRows] of byOwner) {
+      let evs = [];
+      try {
+        const timeMin = new Date(now - 30 * 60 * 1000).toISOString();
+        const timeMax = new Date(now + 30 * 60 * 1000).toISOString();
+        evs = await listCalendarEvents(owner, "primary", { timeMin, timeMax });
+      } catch { continue; } // カレンダー未連携などはスキップ
+      const timed = (evs || []).filter((e) => !e.allDay && e.start && e.url);
+      for (const r of ownerRows) {
+        // 予定のZoom URLが登録URLと同じミーティングIDで、開始が今の時間帯に入っているか
+        const match = timed.find((e) => {
+          if (zoomMeetingId(e.url) !== r.meeting_id) return false;
+          const s = new Date(e.start).getTime();
+          return now >= s - WINDOW_BEFORE && now <= s + WINDOW_AFTER;
+        });
+        if (!match) continue;
+        try {
+          await startBotSession(owner, r.url, { title: r.label || match.title || "" });
+          await touchAutoJoin(r.id);
+          console.log(`[auto-join(cal)] 予定開始で自動入室: ${r.meeting_id} → ${owner}`);
+        } catch (e) {
+          console.error("[auto-join(cal)] 入室失敗", e.message);
+        }
+      }
+    }
+  };
+  setInterval(() => { tick().catch((e) => console.error("[auto-join(cal)]", e.message)); }, 60 * 1000);
 }
