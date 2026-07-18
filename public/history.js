@@ -643,10 +643,12 @@ async function loadDetail(botId) {
         </div>
         <div class="tabpane" data-pane="thanks" hidden>
           <div class="gmail-box">
-            <div class="gmail-head">
-              <span class="gmail-title">Gmailの過去のやり取りから返信を作る</span>
-              <button class="btn btn-ghost" id="gmFetchBtn">過去のメールを取得</button>
+            <div class="gmail-title">Gmailの過去のやり取りから返信を作る</div>
+            <div class="gm-searchrow">
+              <input id="gmQuery" type="text" placeholder="会社名・担当者名・メールアドレスで検索" />
+              <button class="btn btn-ghost" id="gmFetchBtn">取得</button>
             </div>
+            <div id="gmChips" class="gm-chips"></div>
             <span class="thanks-note" id="gmNote"></span>
             <div id="gmThreads"></div>
             <div class="gmail-to" id="gmToWrap" hidden>
@@ -832,6 +834,8 @@ async function loadDetail(botId) {
 
     // Gmail連携：過去のやり取り取得 → 返信作成 → 送信
     const gmFetchBtn = hdetail.querySelector("#gmFetchBtn");
+    const gmQuery = hdetail.querySelector("#gmQuery");
+    const gmChips = hdetail.querySelector("#gmChips");
     const gmNote = hdetail.querySelector("#gmNote");
     const gmThreads = hdetail.querySelector("#gmThreads");
     const gmToWrap = hdetail.querySelector("#gmToWrap");
@@ -840,14 +844,47 @@ async function loadDetail(botId) {
     const gmSendNote = hdetail.querySelector("#gmSendNote");
     let gmReply = null; // {threadId, inReplyTo, references}
 
-    gmFetchBtn.addEventListener("click", async () => {
+    // 検索候補（会社名・担当者名）を組み立てる
+    const gmCandidates = (() => {
+      const out = [];
+      const push = (v) => { const s = (v || "").trim(); if (s && !out.includes(s)) out.push(s); };
+      push(acctKey(m)); // 会社名
+      // タイトル内の「〜様」を担当者名として拾う（例：コープみえ/奥中様 → 奥中）
+      const title = String(m.title || "");
+      const re = /([^\s　/／|｜:：,、【】\[\]]{1,12}?)\s*様/gu;
+      let mm;
+      while ((mm = re.exec(title))) push(mm[1]);
+      // 文字起こしの話者名（自分以外）も候補に
+      const rep = m.owner_name || m.rep_name || "";
+      if (Array.isArray(m.transcript)) {
+        [...new Set(m.transcript.map((u) => u.speaker && u.speaker.name).filter(Boolean))]
+          .filter((n) => n && n !== rep)
+          .forEach(push);
+      }
+      return out.slice(0, 6);
+    })();
+    gmQuery.value = gmCandidates[0] || "";
+    // 候補チップを描画
+    gmChips.innerHTML = "";
+    gmCandidates.forEach((c) => {
+      const chip = document.createElement("button");
+      chip.type = "button";
+      chip.className = "gm-chip";
+      chip.textContent = c;
+      chip.addEventListener("click", () => { gmQuery.value = c; runGmFetch(); });
+      gmChips.appendChild(chip);
+    });
+
+    async function runGmFetch() {
+      const q = (gmQuery.value || "").trim();
+      if (!q) { gmNote.textContent = "検索する会社名や担当者名を入力してください。"; return; }
       gmFetchBtn.disabled = true;
       const o = gmFetchBtn.textContent;
       gmFetchBtn.textContent = "取得中…";
       gmThreads.innerHTML = "";
       gmNote.textContent = "";
       try {
-        const r = await fetch(`/api/meetings/${encodeURIComponent(botId)}/gmail-threads`);
+        const r = await fetch(`/api/meetings/${encodeURIComponent(botId)}/gmail-threads?q=${encodeURIComponent(q)}`);
         const d = await r.json();
         if (d.reason === "未連携") { gmNote.textContent = "Google未連携です。設定→外部連携から連携してください。"; return; }
         if (d.needScope) {
@@ -864,7 +901,12 @@ async function loadDetail(botId) {
         }
         if (!r.ok) throw new Error(d.error || "取得に失敗しました");
         const th = d.threads || [];
-        if (!th.length) { gmNote.textContent = `「${d.query || acctKey(m)}」に関する過去のメールが見つかりませんでした。`; return; }
+        if (!th.length) {
+          const others = gmCandidates.filter((c) => c !== q);
+          gmNote.textContent = `「${q}」では過去のメールが見つかりませんでした。` +
+            (others.length ? ` 担当者名（${others.join("・")}）やメールアドレスでも試してみてください。` : " 別のキーワードで試してみてください。");
+          return;
+        }
         gmNote.textContent = `${th.length}件のやり取りが見つかりました。返信したいものを選んでください。`;
         th.forEach((t) => {
           const el = document.createElement("div");
@@ -906,7 +948,9 @@ async function loadDetail(botId) {
         gmFetchBtn.disabled = false;
         gmFetchBtn.textContent = o;
       }
-    });
+    }
+    gmFetchBtn.addEventListener("click", runGmFetch);
+    gmQuery.addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); runGmFetch(); } });
 
     gmSendBtn.addEventListener("click", async () => {
       const to = (gmTo.value || "").trim();
