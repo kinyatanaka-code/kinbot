@@ -635,14 +635,22 @@ async function loadDetail(botId) {
         <div class="tabpane" data-pane="sf" hidden>
           <div class="thanks-wrap">
             <label class="thanks-field"><span>Salesforce 商談リンク</span><input id="sfUrl" type="url" placeholder="https://...lightning.force.com/lightning/r/Opportunity/.../view" /></label>
-            <div class="pane-bar" style="justify-content:flex-start; gap:8px">
-              <button class="btn" id="sfFetchBtn">更新候補を取得</button>
-              <span class="thanks-note" id="sfNote"></span>
+            <div class="pane-bar" style="justify-content:flex-start; gap:8px; align-items:center">
+              <button class="btn" id="sfAutoBtn">Salesforceに反映</button>
+              <span class="thanks-note" id="sfAutoNote">空いている項目だけを埋め、活動履歴を1件残します（入力済みの欄は変更しません）。</span>
             </div>
-            <div id="sfRows"></div>
-            <div class="pane-bar" style="justify-content:flex-start">
-              <button class="btn" id="sfPushBtn" hidden>Salesforceに更新</button>
-            </div>
+            <div id="sfAutoResult"></div>
+            <details class="sf-manual">
+              <summary>項目を1つずつ確認して更新する</summary>
+              <div class="pane-bar" style="justify-content:flex-start; gap:8px">
+                <button class="btn" id="sfFetchBtn">更新候補を取得</button>
+                <span class="thanks-note" id="sfNote"></span>
+              </div>
+              <div id="sfRows"></div>
+              <div class="pane-bar" style="justify-content:flex-start">
+                <button class="btn" id="sfPushBtn" hidden>Salesforceに更新</button>
+              </div>
+            </details>
           </div>
         </div>
       </div>`;
@@ -762,6 +770,9 @@ async function loadDetail(botId) {
     const sfRows = hdetail.querySelector("#sfRows");
     const sfNote = hdetail.querySelector("#sfNote");
     const sfPushBtn = hdetail.querySelector("#sfPushBtn");
+    const sfAutoBtn = hdetail.querySelector("#sfAutoBtn");
+    const sfAutoNote = hdetail.querySelector("#sfAutoNote");
+    const sfAutoResult = hdetail.querySelector("#sfAutoResult");
     let sfRecordId = "";
     sfUrl.value = m.sf_url || "";
     sfUrl.addEventListener("change", () => {
@@ -770,6 +781,51 @@ async function loadDetail(botId) {
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ url: sfUrl.value.trim() }),
       }).catch(() => {});
+    });
+    // ワンクリック自動反映（空欄補完＋活動履歴）
+    sfAutoBtn.addEventListener("click", async () => {
+      sfAutoBtn.disabled = true;
+      const orig = sfAutoBtn.textContent;
+      sfAutoBtn.textContent = "反映中…";
+      sfAutoResult.innerHTML = "";
+      sfAutoNote.textContent = "";
+      try {
+        const r = await fetch(`/api/meetings/${encodeURIComponent(botId)}/sf-autofill`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ url: sfUrl.value.trim() }),
+        });
+        const d = await r.json();
+        if (d.reason === "未設定") { sfAutoNote.textContent = "Salesforce未設定（設定→外部連携で有効になります）"; return; }
+        if (d.reason === "未連携") { sfAutoNote.textContent = "未連携です。設定→外部連携から連携してください。"; return; }
+        if (d.needLink) { sfAutoNote.textContent = "先に上のSalesforce商談リンクを入力してください。"; return; }
+        if (!r.ok || !d.ok) throw new Error(d.error || "反映に失敗しました");
+
+        const filled = Object.keys((d.opportunity && d.opportunity.filled) || {}).length
+          + Object.keys((d.account && d.account.filled) || {}).length;
+        const skipped = Object.keys((d.opportunity && d.opportunity.skipped) || {}).length
+          + Object.keys((d.account && d.account.skipped) || {}).length;
+        const act = d.activity || {};
+        const actLine = act.existing
+          ? "活動履歴: すでに登録済み（重複作成なし）"
+          : (act.created ? "活動履歴: 1件作成しました" : "活動履歴: 作成なし");
+        const keyWarn = act.keyMissing
+          ? '<div class="sf-auto-warn">※ 重複防止用のカスタム項目が未作成のため、次回以降の二重登録を防げません。SF側で kinbot_bot_id__c の作成をおすすめします。</div>'
+          : "";
+        sfAutoResult.innerHTML =
+          `<div class="sf-auto-card">
+             <div class="sf-auto-line sf-auto-ok">空欄に反映: ${filled}件</div>
+             <div class="sf-auto-line sf-auto-mut">入力済みで変更しなかった項目: ${skipped}件</div>
+             <div class="sf-auto-line">${escapeHtml(actLine)}</div>
+             ${keyWarn}
+           </div>`;
+        sfAutoNote.textContent = "反映しました。";
+      } catch (e) {
+        sfAutoNote.textContent = "反映失敗: " + e.message;
+      } finally {
+        sfAutoBtn.disabled = false;
+        sfAutoBtn.textContent = orig;
+      }
     });
     sfFetchBtn.addEventListener("click", async () => {
       sfFetchBtn.disabled = true;

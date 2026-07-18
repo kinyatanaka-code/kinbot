@@ -302,13 +302,25 @@ body {
   flex: 1 1 auto; overflow-y: auto; padding: 18px;
   display: flex; gap: 20px; align-items: flex-start;
 }
-.set-menu { flex: 0 0 200px; display: flex; flex-direction: column; gap: 4px; position: sticky; top: 0; }
-.set-menu-item {
-  text-align: left; font: inherit; font-size: 14px; padding: 11px 14px; border: 1px solid transparent;
-  border-radius: 10px; background: transparent; cursor: pointer; color: var(--ink);
+.set-menu {
+  flex: 0 0 208px; display: flex; flex-direction: column; gap: 2px;
+  position: sticky; top: 0;
+  background: var(--panel); border: 1px solid var(--line);
+  border-radius: 14px; padding: 8px; box-shadow: var(--shadow);
 }
-.set-menu-item:hover { background: var(--panel-2); }
-.set-menu-item.active { background: var(--panel); border-color: var(--line); font-weight: 700; color: var(--accent); box-shadow: var(--shadow); }
+.set-menu-item {
+  position: relative;
+  text-align: left; font: inherit; font-size: 14px;
+  padding: 10px 12px 10px 16px; border: 0;
+  border-radius: 9px; background: transparent; cursor: pointer; color: var(--ink);
+  transition: background .12s ease, color .12s ease;
+}
+.set-menu-item:hover { background: var(--panel-2); color: var(--accent); }
+.set-menu-item.active { background: var(--accent-soft); font-weight: 700; color: var(--accent); }
+.set-menu-item.active::before {
+  content: ""; position: absolute; left: 5px; top: 50%; transform: translateY(-50%);
+  width: 3px; height: 18px; border-radius: 2px; background: var(--accent);
+}
 .set-body { flex: 1 1 auto; min-width: 0; max-width: 700px; display: flex; flex-direction: column; gap: 16px; }
 .set-card {
   background: var(--panel); border: 1px solid var(--line); border-radius: 14px;
@@ -328,7 +340,9 @@ body {
 
 @media (max-width: 760px) {
   .settings { flex-direction: column; }
-  .set-menu { flex-direction: row; flex-wrap: wrap; flex: 0 0 auto; position: static; }
+  .set-menu { flex-direction: row; flex-wrap: wrap; flex: 0 0 auto; position: static; align-items: center; }
+  .set-group-label { flex-basis: 100%; margin-top: 2px; padding-top: 8px; }
+  .set-group-label:first-child { padding-top: 2px; }
   .set-body { max-width: none; width: 100%; }
 }
 
@@ -678,6 +692,14 @@ table.bant td:first-child { color: var(--muted); width: 80px; }
 .sf-row-head .sf-field { color: var(--muted); font-size: 11px; margin-left: 6px; }
 .sf-current { font-size: 12px; color: var(--muted); margin-bottom: 6px; }
 .sf-input { width: 100%; box-sizing: border-box; font-family: inherit; font-size: 13px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); resize: vertical; line-height: 1.6; }
+.sf-auto-card { border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; margin: 10px 0 4px; background: var(--panel-2); }
+.sf-auto-line { font-size: 13px; line-height: 1.9; }
+.sf-auto-ok { color: var(--accent); font-weight: 700; }
+.sf-auto-mut { color: var(--muted); }
+.sf-auto-warn { font-size: 12px; color: var(--warn); margin-top: 6px; padding-top: 6px; border-top: 1px solid var(--line); }
+.sf-manual { margin-top: 14px; }
+.sf-manual > summary { font-size: 12px; color: var(--muted); cursor: pointer; padding: 6px 0; list-style: revert; }
+.sf-manual > summary:hover { color: var(--accent); }
 
 /* ---------- ライブ映像（Mux） ---------- */
 .live-video { position: relative; margin: 0 0 14px; background: #000; border-radius: 12px; overflow: hidden; max-height: 72vh; }
@@ -2719,8 +2741,11 @@ button.np-step:disabled { opacity: 0.6; cursor: wait; }
 .ana-top-tab.active { color: #0d5b47; border-bottom-color: #0d5b47; }
 
 /* 設定ページ グループラベル */
-.set-group-label { font-size: 10px; font-weight: 600; color: #8a938c; letter-spacing: 0.5px; padding: 12px 12px 4px; text-transform: uppercase; }
-.set-group-label:first-child { padding-top: 4px; }
+.set-group-label {
+  font-size: 11px; font-weight: 700; color: var(--muted); letter-spacing: 0.6px;
+  padding: 14px 12px 5px; margin-top: 6px; border-top: 1px solid var(--line);
+}
+.set-group-label:first-child { padding-top: 4px; margin-top: 0; border-top: 0; }
 
 /* 実績ページ セクションタイトル */
 .rep-section-title { font-size: 15px; font-weight: 500; color: #0d5b47; padding-bottom: 8px; border-bottom: 1px solid #e6e8e5; margin-bottom: 12px; }

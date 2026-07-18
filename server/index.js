@@ -163,6 +163,8 @@ import {
   describeOpportunity,
   createTask,
   sfQuery,
+  fillEmptyFields,
+  createTaskIdempotent,
 } from "./salesforce.js";
 import {
   authEnabled,
@@ -4407,6 +4409,104 @@ app.post("/api/meetings/:id/sf-update", async (req, res) => {
   } catch (e) {
     console.error("[sf-update]", e.message);
     res.status(502).json({ error: e.message });
+  }
+});
+
+// 会社プロフィール(kinbot) → SF Account の空欄補完に使うマッピング。
+// sfMappingAccount = { industry: "Industry", employees: "NumberOfEmployees", region: "BillingState", ... }
+const SF_ACCOUNT_SOURCES = [
+  { key: "industry", label: "業界" },
+  { key: "employees", label: "従業員規模" },
+  { key: "region", label: "地域" },
+];
+function buildAccountProposed(profile) {
+  const p = profile || {};
+  return {
+    industry: p.industry || p.industry_name || "",
+    employees: p.employees != null ? String(p.employees) : (p.employee_range || ""),
+    region: p.region || p.prefecture || p.area || "",
+  };
+}
+
+// 空欄補完 + 活動履歴を「1商談ぶん」まとめて自動反映する。
+// 上書きは一切しない（空の項目だけ埋める）。活動履歴はbotId(=meeting id)で冪等。
+app.post("/api/meetings/:id/sf-autofill", async (req, res) => {
+  try {
+    const out = { ok: false, configured: salesforceConfigured(), connected: false };
+    if (!out.configured) return res.json({ ...out, reason: "未設定" });
+    out.connected = await sfConnected(req.user);
+    if (!out.connected) return res.json({ ...out, reason: "未連携" });
+
+    const m = await getMeeting(req.params.id);
+    if (!m) return res.status(404).json({ error: "見つかりません" });
+
+    const url = (req.body && req.body.url) || m.sf_url || "";
+    const recordId = extractRecordId(url);
+    if (!recordId) return res.json({ ...out, needLink: true });
+
+    const settings = await getUserSettings(req.user);
+    const mapping = settings.sfMapping || {};
+    const accountMapping = settings.sfMappingAccount || {};
+
+    // 1) Opportunity 側の空欄補完（mappingで指定された項目のみ）
+    const oppProposedRaw = buildProposed(m);
+    const oppProposed = {};
+    for (const s of SF_SOURCES) {
+      const sfField = mapping[s.key];
+      if (sfField && oppProposedRaw[s.key]) oppProposed[sfField] = oppProposedRaw[s.key];
+    }
+    let oppResult = { filled: {}, skipped: {} };
+    if (Object.keys(oppProposed).length > 0) {
+      oppResult = await fillEmptyFields(req.user, "Opportunity", recordId, oppProposed);
+    }
+
+    // 2) Account 側の空欄補完（AccountId は Opportunity から取得、profileは会社プロフィールから）
+    let accResult = { filled: {}, skipped: {} };
+    let accountId = null;
+    if (Object.keys(accountMapping).length > 0) {
+      const opp = await getOpportunity(req.user, recordId, ["AccountId"]);
+      accountId = opp && opp.AccountId;
+      if (accountId) {
+        const profile = m.company_profile || m.account_profile || {};
+        const accProposedRaw = buildAccountProposed(profile);
+        const accProposed = {};
+        for (const s of SF_ACCOUNT_SOURCES) {
+          const sfField = accountMapping[s.key];
+          if (sfField && accProposedRaw[s.key]) accProposed[sfField] = accProposedRaw[s.key];
+        }
+        if (Object.keys(accProposed).length > 0) {
+          accResult = await fillEmptyFields(req.user, "Account", accountId, accProposed);
+        }
+      }
+    }
+
+    // 3) 活動履歴（Task）を冪等作成
+    const s = m.summary || {};
+    const desc =
+      (s.overview || "") +
+      (Array.isArray(s.action_items) && s.action_items.length
+        ? "\n\n【次のアクション】\n・" + s.action_items.join("\n・")
+        : "");
+    const task = await createTaskIdempotent(req.user, String(m.id), {
+      WhatId: recordId,
+      Subject: `[kinbot] ${m.title || "商談"}（第${m.round || 1}回）`,
+      Type: "Meeting",
+      Description: desc.slice(0, 30000),
+      Status: "完了",
+      ActivityDate: (m.meeting_date || new Date().toISOString()).slice(0, 10),
+    });
+
+    res.json({
+      ok: true,
+      recordId,
+      accountId,
+      opportunity: oppResult,
+      account: accResult,
+      activity: task,
+    });
+  } catch (e) {
+    console.error("[sf-autofill]", e.message);
+    sfErrorResponse(res, e);
   }
 });
 

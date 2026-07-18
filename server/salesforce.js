@@ -240,3 +240,127 @@ export async function createTask(owner, data) {
   if (!res.ok) throw new Error(`SF task ${res.status}: ${(await res.text()).slice(0, 300)}`);
   return res.json();
 }
+
+// ───────────────────────────────────────────────────────────
+// 自動連携（空欄補完 + 活動履歴）用のヘルパー
+// ───────────────────────────────────────────────────────────
+
+// Account（取引先）の指定フィールドを取得
+export async function getAccount(owner, id, fields = []) {
+  const acc = await getAccess(owner);
+  if (!acc) throw new Error("Salesforce未連携です");
+  const q = fields.length ? `?fields=${encodeURIComponent(fields.join(","))}` : "";
+  const res = await fetch(
+    `${acc.instanceUrl}/services/data/${API_VERSION}/sobjects/Account/${id}${q}`,
+    { headers: { Authorization: `Bearer ${acc.token}` } }
+  );
+  if (!res.ok) throw new Error(`SF get account ${res.status}: ${(await res.text()).slice(0, 200)}`);
+  return res.json();
+}
+
+// Account を更新
+export async function updateAccount(owner, id, fields) {
+  const acc = await getAccess(owner);
+  if (!acc) throw new Error("Salesforce未連携です");
+  const res = await fetch(
+    `${acc.instanceUrl}/services/data/${API_VERSION}/sobjects/Account/${id}`,
+    {
+      method: "PATCH",
+      headers: { Authorization: `Bearer ${acc.token}`, "content-type": "application/json" },
+      body: JSON.stringify(fields || {}),
+    }
+  );
+  if (res.status === 204) return { ok: true };
+  if (!res.ok) throw new Error(`SF update account ${res.status}: ${(await res.text()).slice(0, 300)}`);
+  return { ok: true };
+}
+
+// SFの「空」を型ごとに正しく判定する。
+// null / undefined / "" / 空白のみ を空とみなす。0・false・日付0値は「入力あり」として絶対に上書きしない。
+export function isSfFieldEmpty(v) {
+  if (v === null || v === undefined) return true;
+  if (typeof v === "string") return v.trim() === "";
+  if (Array.isArray(v)) return v.length === 0;
+  // 数値0 / boolean false / オブジェクト(参照) は「値あり」扱い（=補完対象外）
+  return false;
+}
+
+// 「空欄だけ埋める」共通処理。
+//   sobject: "Opportunity" | "Account"
+//   id:      レコードID
+//   proposed: { <SF API名>: <埋めたい値> } の候補
+// 現在値を読み → 空の項目だけ → 空でない候補値がある場合のみ PATCH。
+// 戻り値: { filled: {…実際に書いた項目}, skipped: {…既に値があり触らなかった項目} }
+export async function fillEmptyFields(owner, sobject, id, proposed) {
+  const cands = proposed || {};
+  const fieldNames = Object.keys(cands).filter((k) => k);
+  if (fieldNames.length === 0) return { filled: {}, skipped: {} };
+
+  const current =
+    sobject === "Account"
+      ? await getAccount(owner, id, fieldNames)
+      : await getOpportunity(owner, id, fieldNames);
+
+  const toWrite = {};
+  const filled = {};
+  const skipped = {};
+  for (const name of fieldNames) {
+    const proposedVal = cands[name];
+    // 埋める値自体が空なら何もしない
+    if (isSfFieldEmpty(proposedVal)) continue;
+    if (isSfFieldEmpty(current[name])) {
+      toWrite[name] = proposedVal;
+      filled[name] = proposedVal;
+    } else {
+      skipped[name] = current[name];
+    }
+  }
+
+  if (Object.keys(toWrite).length > 0) {
+    if (sobject === "Account") await updateAccount(owner, id, toWrite);
+    else await updateOpportunity(owner, id, toWrite);
+  }
+  return { filled, skipped };
+}
+
+// kinbotの商談ID(botId)で既存Taskを検索（重複登録の防止キー）。
+// SF側に用意したカスタム項目 kinbot_bot_id__c を使う。
+const KINBOT_TASK_KEY = process.env.SF_TASK_KEY_FIELD || "kinbot_bot_id__c";
+
+export async function findTaskByBotId(owner, botId) {
+  if (!botId) return null;
+  const escaped = String(botId).replace(/'/g, "\\'");
+  try {
+    const soql = `SELECT Id, Subject FROM Task WHERE ${KINBOT_TASK_KEY} = '${escaped}' LIMIT 1`;
+    const r = await sfQuery(owner, soql);
+    return (r.records && r.records[0]) || null;
+  } catch (e) {
+    // カスタム項目が未作成の組織では検索が失敗する → 重複防止は諦めるが処理は続行
+    console.warn("[sf] findTaskByBotId failed (項目未作成の可能性):", e.message);
+    return null;
+  }
+}
+
+// 活動履歴を「冪等に」1件作成する。同じbotIdのTaskが既にあれば作らない。
+//   data: { WhatId(必須:商談ID), WhoId?, Subject, Type?, Description, Status, ActivityDate }
+// 戻り値: { created:boolean, taskId, existing:boolean }
+export async function createTaskIdempotent(owner, botId, data) {
+  const existing = await findTaskByBotId(owner, botId);
+  if (existing) return { created: false, existing: true, taskId: existing.Id };
+
+  const payload = { ...data };
+  // 重複防止キーを埋め込む（項目が無い組織では createTask が 400 になるため、その場合はキー無しで再試行）
+  if (botId) payload[KINBOT_TASK_KEY] = String(botId);
+  try {
+    const task = await createTask(owner, payload);
+    return { created: true, existing: false, taskId: task.id || task.Id };
+  } catch (e) {
+    if (botId && /kinbot_bot_id|No such column|INVALID_FIELD/i.test(e.message)) {
+      // カスタム項目が未作成 → キー無しで作成（重複防止は効かない旨は呼び出し側で警告）
+      const { [KINBOT_TASK_KEY]: _drop, ...noKey } = payload;
+      const task = await createTask(owner, noKey);
+      return { created: true, existing: false, taskId: task.id || task.Id, keyMissing: true };
+    }
+    throw e;
+  }
+}
