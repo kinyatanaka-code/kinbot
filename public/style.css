@@ -2711,3 +2711,16 @@ button.np-step:disabled { opacity: 0.6; cursor: wait; }
 .dc-back:hover { text-decoration: underline; }
 .concern-item { font-size: 13px; color: #5f6b63; padding: 8px 0; border-bottom: 1px solid #f2f0eb; }
 .concern-item:last-child { border: none; }
+
+/* 分析統合タブ */
+.ana-top-tabs { display: flex; gap: 0; border-bottom: 1px solid #e6e8e5; margin-bottom: 16px; padding: 0 16px; }
+.ana-top-tab { padding: 10px 20px; font-size: 14px; font-weight: 500; color: #8a938c; text-decoration: none; border-bottom: 2px solid transparent; transition: all 0.15s; }
+.ana-top-tab:hover { color: #0d5b47; }
+.ana-top-tab.active { color: #0d5b47; border-bottom-color: #0d5b47; }
+
+/* 設定ページ グループラベル */
+.set-group-label { font-size: 10px; font-weight: 600; color: #8a938c; letter-spacing: 0.5px; padding: 12px 12px 4px; text-transform: uppercase; }
+.set-group-label:first-child { padding-top: 4px; }
+
+/* 実績ページ セクションタイトル */
+.rep-section-title { font-size: 15px; font-weight: 500; color: #0d5b47; padding-bottom: 8px; border-bottom: 1px solid #e6e8e5; margin-bottom: 12px; }

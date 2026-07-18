@@ -11,27 +11,27 @@
     <div class="app">
       <nav class="sidebar">
         <div class="side-brand"><span class="brand-mark"></span><span>kinbot</span></div>
-        <a class="side-item" href="index.html"><span class="side-ico ico-rec"></span><span class="side-label">レコーディング</span></a>
+                <a class="side-item" href="index.html"><span class="side-ico ico-rec"></span><span class="side-label">レコーディング</span></a>
         <a class="side-item" href="history.html"><span class="side-ico ico-hist"></span><span class="side-label">商談履歴</span></a>
         <a class="side-item" href="deals.html"><span class="side-ico ico-deal"></span><span class="side-label">案件</span></a>
-        <a class="side-item active" href="report.html"><span class="side-ico ico-ana"></span><span class="side-label">実績</span></a>
-        <a class="side-item" href="style-analysis.html"><span class="side-ico ico-ana"></span><span class="side-label">営業スタイル分析</span></a>
-        <a class="side-item" href="dashboard.html"><span class="side-ico ico-ana"></span><span class="side-label">ダッシュボード</span></a>
-        <a class="side-item" href="proposals.html"><span class="side-ico ico-deal"></span><span class="side-label">提案資料</span></a>
+        <a class="side-item" href="report.html"><span class="side-ico ico-ana"></span><span class="side-label">分析</span></a>
         <a class="side-item" href="apo.html"><span class="side-ico ico-apo"></span><span class="side-label">アポ振り分け</span></a>
         <a class="side-item" href="settings.html"><span class="side-ico ico-set"></span><span class="side-label">設定</span></a>
         <div class="side-foot"><span id="who" class="who"></span><a href="#" id="logout" class="side-logout">ログアウト</a></div>
       </nav>
 
       <div class="main">
-        <header class="topbar"><div class="brand"><img class="topbar-bot" src="kinbot.svg" alt="" /><span class="brand-name">実績ダッシュボード</span></div></header>
+        <header class="topbar"><div class="brand"><img class="topbar-bot" src="kinbot.svg" alt="" /><span class="brand-name">分析</span></div></header>
         <main class="report-page">
+          <!-- 分析統合タブ（実績/営業スタイル分析/ダッシュボード） -->
+          <div class="ana-top-tabs" id="anaTopTabs">
+            <a class="ana-top-tab active" href="report.html">実績</a>
+            <a class="ana-top-tab" href="style-analysis.html">営業スタイル分析</a>
+            <a class="ana-top-tab" href="dashboard.html">ダッシュボード</a>
+          </div>
           <div class="rep-tabs" id="repTabs">
             <button class="rep-tab active" data-rp="funnel">サマリー</button>
-            <button class="rep-tab" data-rp="kind">商談種別</button>
-            <button class="rep-tab" data-rp="daily">日次データ確認</button>
-            <button class="rep-tab" data-rp="pipeline">パイプライン</button>
-            <button class="rep-tab" data-rp="interns">インターンアポ</button>
+            <button class="rep-tab" data-rp="detail">詳細</button>
             <button class="rep-tab" data-rp="insights">インサイト</button>
           </div>
 
@@ -59,7 +59,8 @@
           </section>
 
           <!-- 商談種別（コールド / 過去失注 / 通常） -->
-          <section class="rep-panel" data-rpanel="kind" hidden>
+          <section class="rep-panel" data-rpanel="detail" hidden>
+            <h3 class="rep-section-title">商談種別</h3>
             <div class="rep-controls">
               <label>期間
                 <select id="knGran">
@@ -72,10 +73,8 @@
               <button class="btn" id="knApply">更新</button>
             </div>
             <div id="kindBody"><div class="empty-state">読み込み中…</div></div>
-          </section>
 
-          <!-- 日次データ確認 -->
-          <section class="rep-panel" data-rpanel="daily" hidden>
+            <h3 class="rep-section-title" style="margin-top:32px">日次データ確認</h3>
             <div class="rep-controls">
               <label>日付 <input type="date" id="dlDate" /></label>
               <label>担当
@@ -84,10 +83,8 @@
               <button class="btn" id="dlApply">更新</button>
             </div>
             <div id="dailyBody"><div class="empty-state">読み込み中…</div></div>
-          </section>
 
-          <!-- パイプライン -->
-          <section class="rep-panel" data-rpanel="pipeline" hidden>
+            <h3 class="rep-section-title" style="margin-top:32px">パイプライン</h3>
             <div class="rep-controls">
               <label>基準日 <input type="date" id="plDate" /></label>
               <label>対象
@@ -96,10 +93,8 @@
               <button class="btn" id="plApply">更新</button>
             </div>
             <div id="pipelineBody"><div class="empty-state">読み込み中…</div></div>
-          </section>
 
-          <!-- インターンアポ -->
-          <section class="rep-panel" data-rpanel="interns" hidden>
+            <h3 class="rep-section-title" style="margin-top:32px">インターンアポ</h3>
             <div class="rep-controls">
               <label>期間 <input type="date" id="iaFrom" /></label>
               <label>〜 <input type="date" id="iaTo" /></label>

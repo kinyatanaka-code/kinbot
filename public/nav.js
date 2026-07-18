@@ -208,3 +208,13 @@ window.kbProgress = function (el, opts = {}) {
 
   function escapeH(s) { return String(s || "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c])); }
 })();
+
+// 分析ページ群のサイドバーactive処理
+(function() {
+  const path = location.pathname;
+  if (/style-analysis|dashboard|report/.test(path)) {
+    document.querySelectorAll('.side-item').forEach(a => {
+      a.classList.toggle('active', a.href && a.href.includes('report.html'));
+    });
+  }
+})();

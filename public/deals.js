@@ -611,6 +611,8 @@ function renderProfile(account) {
     (p.employees_source && p.employees_source.source_url ? `<div class="prof-empurl">従業員数の出典：<a href="${esc(p.employees_source.source_url)}" target="_blank" rel="noopener">${esc(p.employees_source.source_url)} ↗</a>${p.employees_source.as_of ? "（" + esc(p.employees_source.as_of) + "）" : ""}</div>` : "") +
     (bs && bs.source_url ? `<div class="prof-empurl">業界・設立の出典：<a href="${esc(bs.source_url)}" target="_blank" rel="noopener">${esc(bs.source_url)} ↗</a></div>` : "") +
     (acc.site_url ? `<div class="prof-site"><a href="${esc(acc.site_url)}" target="_blank" rel="noopener">サイトを開く ↗</a></div>` : "");
+  // プレビューカードも更新
+  if (current) updateCardPreviews(current, groups[current] || []);
   // リセットボタンの動作
   const rb = document.getElementById("profResetBtn");
   if (rb) {
@@ -1394,7 +1396,9 @@ async function selectDeal(account) {
   // 新プロセス（Feature A）の判定状態
   const npBox = document.getElementById("newProcBox");
   if (npBox) npBox._ctx = { botIds: ms.map((m) => m.bot_id).filter(Boolean), companyName: displayName(account) || account, pk, ms };
-  loadNewProcess(displayName(account) || account, pk, ms);
+  loadNewProcess(displayName(account) || account, pk, ms).then(() => updateCardPreviews(account, ms));
+  // プロフィールのプレビューも更新
+  updateCardPreviews(account, ms);
   // 判定モデル（Claude/Gemini）: 現在の設定を反映し、変更したらチーム共通設定として保存
   const jm = document.getElementById("judgeModel");
   if (jm) {
@@ -2151,4 +2155,45 @@ async function linkOpportunity(oppId, cached) {
 
   // SS固有フィールドを表示（既存データ込み）
   renderSSFields(stageName);
+}
+
+// ===== カードプレビューの更新 =====
+function updateCardPreviews(account, ms) {
+  const pk = primaryOf(account);
+  const np = lookupNewProc(displayName(account)) || lookupNewProc(account);
+
+  // 進捗・判定プレビュー
+  const judgePreview = document.getElementById("dcPreviewJudge");
+  if (judgePreview && np) {
+    const phase = np.phase != null ? `Phase ${np.phase}` : "";
+    const status = statusOf(account) || "";
+    const nextDate = np.next_meeting_date ? String(np.next_meeting_date).slice(5, 10).replace("-", "/") : "";
+    const parts = [status, phase, nextDate ? `次回 ${nextDate}` : ""].filter(Boolean);
+    judgePreview.textContent = parts.join(" / ") || `${ms.length}回の商談`;
+  } else if (judgePreview) {
+    judgePreview.textContent = `${ms.length}回の商談`;
+  }
+
+  // 会社プレビュー
+  const profPreview = document.getElementById("dcPreviewProfile");
+  if (profPreview) {
+    const acc = accountsMap[pk];
+    if (acc && acc.profile) {
+      const p = acc.profile;
+      const parts = [p.industry, p.employee_count ? p.employee_count + "人" : "", p.hq_region].filter(Boolean);
+      profPreview.textContent = parts.join(" / ") || "プロフィール取得済み";
+    } else {
+      profPreview.textContent = "未取得（クリックで検索）";
+    }
+  }
+
+  // 提案資料プレビュー
+  const propPreview = document.getElementById("dcPreviewProposals");
+  if (propPreview) {
+    const propList = document.getElementById("proposalList");
+    if (propList) {
+      const cards = propList.querySelectorAll(".proposal-card");
+      propPreview.textContent = cards.length ? `${cards.length}件の資料` : "未登録";
+    }
+  }
 }
