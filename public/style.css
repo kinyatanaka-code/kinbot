@@ -212,6 +212,26 @@ body {
   font-size: 12.5px; color: #43403a; margin-top: 6px; line-height: 1.5;
   display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
 }
+.hub-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 2px 0 6px; }
+.hub-head .hl-backbtn { font: inherit; font-size: 12px; font-weight: 700; color: var(--accent); background: transparent; border: 0; cursor: pointer; padding: 4px 2px; }
+.hub-acct { flex-basis: 100%; font-size: 14px; font-weight: 800; color: var(--ink); }
+.hub-seg { display: inline-flex; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; background: var(--panel-2); }
+.hub-seg-btn { font: inherit; font-size: 13px; font-weight: 700; padding: 7px 18px; border: 0; background: transparent; color: var(--muted); cursor: pointer; }
+.hub-seg-btn.active { background: var(--panel); color: var(--accent); box-shadow: 0 1px 2px rgba(40,33,20,.06); }
+.hub-deal-note { font-size: 12px; color: var(--muted); padding: 6px 2px; }
+.deal-embed { width: 100%; height: 100%; min-height: 72vh; border: 0; display: block; background: var(--panel); border-radius: 12px; }
+.hdetail:has(.deal-embed) { padding: 6px; }
+
+/* 商談履歴の「案件」タブからiframe埋め込み時：案件画面のchromeを隠す */
+body.kb-embed .sidebar,
+body.kb-embed .topbar,
+body.kb-embed .hfilters,
+body.kb-embed .np-select-bar { display: none !important; }
+body.kb-embed #dealList { display: none !important; }
+body.kb-embed .app { display: block; }
+body.kb-embed .main { width: 100%; }
+body.kb-embed .history { display: block; padding: 0; height: auto; min-height: 0; }
+body.kb-embed #dealDetail { max-width: none; width: 100%; border: 0; box-shadow: none; border-radius: 0; }
 
 .hdetail {
   overflow-y: auto;
