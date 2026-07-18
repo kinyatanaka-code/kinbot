@@ -238,27 +238,39 @@ body.kb-embed #dealDetail { max-width: none; width: 100%; border: 0; box-shadow:
 .topbar-hist .hfilter-toggle { margin-left: auto; }
 .hfilter-toggle.active { color: var(--accent); border-color: var(--accent); }
 
-/* 会社概要（SF風）：プロフィール＋3カード */
+/* 会社概要（SF風ダッシュボード）：プロフィール＋進捗・やること・懸念カード */
 .ov-wrap { padding: 2px; }
 .ov-name { font-size: 20px; font-weight: 800; color: var(--ink); margin-bottom: 14px; }
-.ov-prof { border: 1px solid var(--line); border-radius: 12px; padding: 14px 16px; margin-bottom: 16px; background: var(--panel-2); }
-.ov-prof-h { font-size: 12px; font-weight: 700; color: var(--accent); margin-bottom: 10px; }
-.ov-prof-grid { display: flex; gap: 28px; flex-wrap: wrap; }
+.ov-actions { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 10px; margin-bottom: 16px; }
+.ov-qcard { display: flex; align-items: center; gap: 10px; text-align: left; padding: 11px 13px; border: 1px solid var(--line); border-radius: 12px; background: var(--panel); cursor: pointer; font: inherit; transition: border-color .12s ease, background .12s ease; }
+.ov-qcard:hover { border-color: var(--accent); background: var(--accent-soft); }
+.ov-q-ico { width: 32px; height: 32px; border-radius: 8px; background: var(--panel-2); display: flex; align-items: center; justify-content: center; flex: 0 0 auto; }
+.ov-qcard:hover .ov-q-ico { background: var(--panel); }
+.ov-q-tx { display: flex; flex-direction: column; min-width: 0; }
+.ov-q-t { font-size: 13px; font-weight: 700; color: var(--ink); }
+.ov-q-s { font-size: 11px; color: var(--muted); margin-top: 1px; }
+.ov-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 12px; }
+.ov-c { border: 1px solid var(--line); border-radius: 12px; padding: 14px 16px; background: var(--panel-2); }
+.ov-c-h { font-size: 12px; font-weight: 700; color: var(--accent); margin-bottom: 10px; }
+.ov-prof-grid { display: flex; gap: 24px; flex-wrap: wrap; }
 .ov-prof-k { font-size: 11px; color: var(--muted); }
 .ov-prof-v { font-size: 14px; font-weight: 700; color: var(--ink); }
 .ov-prof-empty { font-size: 13px; color: var(--muted); }
+.ov-prof-get { display: flex; gap: 8px; align-items: center; margin-top: 12px; flex-wrap: wrap; }
+.ov-prof-get input { flex: 1 1 180px; min-width: 0; font: inherit; font-size: 13px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); }
+.ov-prof-get input:focus { outline: none; border-color: var(--accent); }
+.ov-prof-status { display: block; font-size: 12px; color: var(--muted); margin-top: 8px; }
 .ov-link { display: inline-block; margin-top: 10px; font-size: 12px; font-weight: 700; color: var(--accent); text-decoration: none; }
 .ov-link:hover { text-decoration: underline; }
-.ov-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; }
-.ov-card { display: flex; align-items: center; gap: 12px; text-align: left; padding: 14px; border: 1px solid var(--line); border-radius: 12px; background: var(--panel); cursor: pointer; font: inherit; transition: border-color .12s ease, background .12s ease; }
-.ov-card:hover { border-color: var(--accent); background: var(--accent-soft); }
-.ov-card-ico { width: 36px; height: 36px; border-radius: 9px; background: var(--panel-2); display: flex; align-items: center; justify-content: center; flex: 0 0 auto; }
-.ov-card:hover .ov-card-ico { background: var(--panel); }
-.ov-card-tx { display: flex; flex-direction: column; flex: 1 1 auto; min-width: 0; }
-.ov-card-t { font-size: 14px; font-weight: 700; color: var(--ink); }
-.ov-card-s { font-size: 11px; color: var(--muted); margin-top: 2px; }
-.ov-card-arrow { color: var(--muted); font-size: 15px; }
-.ov-card:hover .ov-card-arrow { color: var(--accent); }
+.ov-list { margin: 0; padding-left: 18px; }
+.ov-list li { font-size: 13px; line-height: 1.7; color: var(--ink); }
+.ov-due { font-size: 11px; color: var(--muted); }
+.ov-muted { font-size: 13px; color: var(--muted); }
+.ov-kv { font-size: 13px; color: var(--ink); margin-top: 8px; }
+.ov-badge { display: inline-block; font-size: 12px; font-weight: 700; padding: 3px 11px; border-radius: 999px; }
+.ov-badge-run { background: var(--accent-soft); color: var(--accent); }
+.ov-badge-ok { background: #eaf3de; color: #3B6D11; }
+.ov-badge-ng { background: #fcebeb; color: #A32D2D; }
 
 .hdetail {
   overflow-y: auto;
