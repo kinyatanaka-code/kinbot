@@ -8,11 +8,23 @@ try {
   if (q.get("view") === "judge") document.body.classList.add("kb-only-judge");
   // 埋め込み時は、中身の高さを親に伝えてiframeの高さを合わせる（内部スクロールを無くす）
   if (q.get("embed") === "1") {
-    const postH = () => { try { parent.postMessage({ type: "kb-embed-height", height: document.body.scrollHeight }, "*"); } catch {} };
+    const postH = () => {
+      try {
+        const t = document.getElementById("dealDetail");
+        const h = t ? Math.ceil(t.getBoundingClientRect().height) : document.body.scrollHeight;
+        parent.postMessage({ type: "kb-embed-height", height: h }, "*");
+      } catch {}
+    };
     window.addEventListener("load", postH);
     setTimeout(postH, 400);
     setTimeout(postH, 1200);
-    if (window.ResizeObserver) { try { new ResizeObserver(postH).observe(document.documentElement); } catch {} }
+    setTimeout(postH, 2500);
+    if (window.ResizeObserver) {
+      try {
+        const t = document.getElementById("dealDetail");
+        new ResizeObserver(postH).observe(t || document.documentElement);
+      } catch {}
+    }
   }
 } catch {}
 const PHASE_LABEL = { "01": "01 初回商談", "02": "02 有効商談", "03": "03 担当者合意", "04": "04 企画決定者合意" };

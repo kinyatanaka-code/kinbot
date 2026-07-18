@@ -234,6 +234,8 @@ body.kb-embed .topbar,
 body.kb-embed .hfilters,
 body.kb-embed .np-select-bar { display: none !important; }
 body.kb-embed #dealList { display: none !important; }
+html:has(body.kb-embed) { height: auto; }
+body.kb-embed { height: auto; min-height: 0; }
 body.kb-embed .app { display: block; height: auto; min-height: 0; }
 body.kb-embed .main { width: 100%; height: auto; min-height: 0; }
 body.kb-embed .history { display: block; padding: 0; height: auto; min-height: 0; }
@@ -254,7 +256,7 @@ body.kb-only-judge .dc-page[data-page="judge"] .dc-back,
 body.kb-only-judge .dc-page:not([data-page="judge"]) { display: none !important; }
 body.kb-only-judge .dc-page[data-page="judge"] { display: block !important; }
 body.kb-only-judge .dc-page[data-page="judge"] .deal-sec { border: 0; padding: 0; }
-.prof-embed { width: 100%; min-height: 300px; border: 0; display: block; background: var(--panel-2); border-radius: 12px; }
+.prof-embed { width: 100%; min-height: 120px; border: 0; display: block; background: var(--panel-2); border-radius: 12px; }
 
 /* ヘッダーにカテゴリタブと絞り込みトグルを載せる */
 .topbar-hist .hist-cat-tabs { padding: 0; margin: 0; }
