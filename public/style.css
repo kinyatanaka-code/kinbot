@@ -579,6 +579,21 @@ table.bant td:first-child { color: var(--muted); width: 80px; }
 .dmeta-sub { font-size: 12.5px; color: var(--muted); }
 
 .tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--line); margin: 14px 0 0; }
+.next-actions { margin: 16px 0 4px; padding: 14px; border: 1px solid var(--line); border-radius: 12px; background: var(--panel-2); }
+.na-title { font-size: 12px; font-weight: 700; color: var(--accent); margin-bottom: 10px; }
+.na-cards { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+.na-card { display: flex; align-items: center; gap: 10px; text-align: left; padding: 11px 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--panel); cursor: pointer; font: inherit; transition: border-color .12s ease, background .12s ease, transform .06s ease; }
+.na-card:hover { border-color: var(--accent); background: var(--accent-soft); }
+.na-card:active { transform: scale(0.99); }
+.na-ico { flex: 0 0 auto; width: 32px; height: 32px; border-radius: 8px; background: var(--panel-2); display: flex; align-items: center; justify-content: center; }
+.na-card:hover .na-ico { background: var(--panel); }
+.na-text { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; }
+.na-lbl { font-size: 13px; font-weight: 700; color: var(--ink); }
+.na-sub { font-size: 11px; color: var(--muted); margin-top: 1px; }
+.na-arrow { flex: 0 0 auto; color: var(--muted); font-size: 15px; }
+.na-card:hover .na-arrow { color: var(--accent); }
+@media (max-width: 760px) { .na-cards { grid-template-columns: 1fr; } }
+
 .tab {
   font: inherit; font-size: 13.5px; font-weight: 700; color: var(--muted); cursor: pointer;
   background: transparent; border: none; padding: 10px 16px; border-bottom: 2px solid transparent; margin-bottom: -1px;
@@ -700,6 +715,23 @@ table.bant td:first-child { color: var(--muted); width: 80px; }
 .sf-manual { margin-top: 14px; }
 .sf-manual > summary { font-size: 12px; color: var(--muted); cursor: pointer; padding: 6px 0; list-style: revert; }
 .sf-manual > summary:hover { color: var(--accent); }
+.sf-cand-head { font-size: 12px; color: var(--muted); margin: 8px 0 6px; }
+.sf-cand { border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; margin-bottom: 8px; background: var(--panel); }
+.sf-cand-click { cursor: pointer; transition: border-color .12s ease, background .12s ease; }
+.sf-cand-click:hover { border-color: var(--accent); background: var(--panel-2); }
+.sf-cand-sel { border-color: var(--accent); background: var(--accent-soft); }
+.sf-cand-name { font-size: 13px; font-weight: 700; color: var(--ink); }
+.sf-cand-meta { font-size: 12px; color: var(--muted); margin-top: 3px; }
+.btn-ghost { background: var(--panel) !important; color: var(--accent) !important; border: 1px solid var(--accent) !important; box-shadow: none !important; }
+.btn-ghost:hover { background: var(--accent-soft) !important; }
+.sf-stats { border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; margin-bottom: 12px; background: linear-gradient(135deg, var(--accent-soft), var(--panel-2)); }
+.sf-stats-title { font-size: 12px; font-weight: 700; color: var(--accent); margin-bottom: 8px; }
+.sf-stats-row { display: flex; gap: 18px; flex-wrap: wrap; }
+.sf-stat { min-width: 90px; }
+.sf-stat-num { font-size: 22px; font-weight: 800; color: var(--ink); line-height: 1.1; }
+.sf-stat-lbl { font-size: 11px; color: var(--muted); margin-top: 2px; }
+.sf-auto-toggle { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--ink); margin-bottom: 12px; cursor: pointer; user-select: none; }
+.sf-auto-toggle input { width: 16px; height: 16px; accent-color: var(--accent); cursor: pointer; }
 
 /* ---------- ライブ映像（Mux） ---------- */
 .live-video { position: relative; margin: 0 0 14px; background: #000; border-radius: 12px; overflow: hidden; max-height: 72vh; }

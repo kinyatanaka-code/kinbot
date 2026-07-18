@@ -1838,6 +1838,36 @@ app.post("/api/meetings/:id/extract", async (req, res) => {
     let p = String((req.body && req.body.provider) || "").toLowerCase();
     if (p !== "anthropic" && p !== "gemini") p = "";
     const r = await runExtraction(req.params.id, p || undefined);
+    // 自動反映：設定がONで、SF連携済みのときだけ。応答はブロックせず裏で実行。
+    try {
+      const settings = await getUserSettings(req.user);
+      if (settings.sfAutoReflect && salesforceConfigured() && (await sfConnected(req.user))) {
+        const meetingId = req.params.id;
+        const user = req.user;
+        (async () => {
+          try {
+            const m = await getMeeting(meetingId);
+            if (!m) return;
+            let url = m.sf_url || "";
+            // リンク未設定なら会社名で検索し、一意に決まるときだけ自動採用（複数・ゼロは触らない）
+            if (!extractRecordId(url) && m.account) {
+              const recs = await searchOpportunities(user, m.account);
+              if (recs && recs.length === 1) url = recs[0].Id;
+            }
+            if (!extractRecordId(url)) return;
+            const rr = await autofillMeetingToSf(user, m, url);
+            console.log("[sf-auto] reflected", meetingId,
+              "filled=" + (Object.keys((rr.opportunity && rr.opportunity.filled) || {}).length
+                + Object.keys((rr.account && rr.account.filled) || {}).length),
+              "activity=" + !!(rr.activity && rr.activity.created));
+          } catch (e) {
+            console.warn("[sf-auto]", meetingId, e.message);
+          }
+        })();
+      }
+    } catch (e) {
+      console.warn("[sf-auto pre]", e.message);
+    }
     res.json({ ok: true, result: r });
   } catch (e) {
     console.error("[extract manual]", e.message);
@@ -4428,8 +4458,130 @@ function buildAccountProposed(profile) {
   };
 }
 
+// 会社名から SF商談の候補を検索して返す（リンク未入力でも自動で見つける）
+app.post("/api/meetings/:id/sf-candidates", async (req, res) => {
+  try {
+    const out = { configured: salesforceConfigured(), connected: false, records: [] };
+    if (!out.configured) return res.json({ ...out, reason: "未設定" });
+    out.connected = await sfConnected(req.user);
+    if (!out.connected) return res.json({ ...out, reason: "未連携" });
+
+    const m = await getMeeting(req.params.id);
+    if (!m) return res.status(404).json({ error: "見つかりません" });
+
+    const q = ((req.body && req.body.q) || m.account || "").trim();
+    if (!q) return res.json({ ...out, needQuery: true });
+
+    const info = await sfInfo(req.user);
+    const base = (info.instanceUrl || "").replace(/\/+$/, "");
+    const records = await searchOpportunities(req.user, q);
+    out.records = (records || []).map((r) => ({
+      id: r.Id,
+      name: r.Name,
+      account: (r.Account && r.Account.Name) || "",
+      stage: r.StageName || "",
+      amount: r.Amount != null ? r.Amount : null,
+      closeDate: r.CloseDate || "",
+      url: base ? `${base}/lightning/r/Opportunity/${r.Id}/view` : r.Id,
+    }));
+    res.json({ ...out, query: q });
+  } catch (e) {
+    sfErrorResponse(res, e);
+  }
+});
+
 // 空欄補完 + 活動履歴を「1商談ぶん」まとめて自動反映する。
 // 上書きは一切しない（空の項目だけ埋める）。活動履歴はbotId(=meeting id)で冪等。
+// endpoint と 自動反映(extract後) の両方から呼ぶ共通ヘルパー。
+async function autofillMeetingToSf(user, meeting, url) {
+  const m = meeting;
+  const recordId = extractRecordId(url || m.sf_url || "");
+  if (!recordId) return { ok: false, needLink: true };
+
+  const settings = await getUserSettings(user);
+  const mapping = settings.sfMapping || {};
+  const accountMapping = settings.sfMappingAccount || {};
+
+  // 1) Opportunity 側の空欄補完（mappingで指定された項目のみ）
+  const oppProposedRaw = buildProposed(m);
+  const oppProposed = {};
+  for (const s of SF_SOURCES) {
+    const sfField = mapping[s.key];
+    if (sfField && oppProposedRaw[s.key]) oppProposed[sfField] = oppProposedRaw[s.key];
+  }
+  let oppResult = { filled: {}, skipped: {} };
+  if (Object.keys(oppProposed).length > 0) {
+    oppResult = await fillEmptyFields(user, "Opportunity", recordId, oppProposed);
+  }
+
+  // 2) Account 側の空欄補完
+  let accResult = { filled: {}, skipped: {} };
+  let accountId = null;
+  if (Object.keys(accountMapping).length > 0) {
+    const opp = await getOpportunity(user, recordId, ["AccountId"]);
+    accountId = opp && opp.AccountId;
+    if (accountId) {
+      const profile = m.company_profile || m.account_profile || {};
+      const accProposedRaw = buildAccountProposed(profile);
+      const accProposed = {};
+      for (const s of SF_ACCOUNT_SOURCES) {
+        const sfField = accountMapping[s.key];
+        if (sfField && accProposedRaw[s.key]) accProposed[sfField] = accProposedRaw[s.key];
+      }
+      if (Object.keys(accProposed).length > 0) {
+        accResult = await fillEmptyFields(user, "Account", accountId, accProposed);
+      }
+    }
+  }
+
+  // 3) 活動履歴（Task）を冪等作成
+  const s = m.summary || {};
+  const desc =
+    (s.overview || "") +
+    (Array.isArray(s.action_items) && s.action_items.length
+      ? "\n\n【次のアクション】\n・" + s.action_items.join("\n・")
+      : "");
+  const task = await createTaskIdempotent(user, String(m.id), {
+    WhatId: recordId,
+    Subject: `[kinbot] ${m.title || "商談"}（第${m.round || 1}回）`,
+    Type: "Meeting",
+    Description: desc.slice(0, 30000),
+    Status: "完了",
+    ActivityDate: (m.meeting_date || new Date().toISOString()).slice(0, 10),
+  });
+
+  const filledCount =
+    Object.keys(oppResult.filled || {}).length + Object.keys(accResult.filled || {}).length;
+  const activityCreated = !!(task && task.created);
+  // 「得」の記録：実際に何かした反映のみカウント
+  await recordSfStats(user, { filled: filledCount, activityCreated });
+
+  return { ok: true, recordId, accountId, opportunity: oppResult, account: accResult, activity: task };
+}
+
+// 「得を見える化」する統計を積み上げる。user_settings.sfStats に保存。
+async function recordSfStats(user, { filled, activityCreated }) {
+  try {
+    if (!filled && !activityCreated) return; // 何も起きていない反映は数えない
+    const settings = await getUserSettings(user);
+    const st = settings.sfStats || { runs: 0, fieldsFilled: 0, activities: 0, monthly: {} };
+    const mk = new Date().toISOString().slice(0, 7); // YYYY-MM
+    st.runs = (st.runs || 0) + 1;
+    st.fieldsFilled = (st.fieldsFilled || 0) + (filled || 0);
+    st.activities = (st.activities || 0) + (activityCreated ? 1 : 0);
+    st.lastAt = new Date().toISOString();
+    st.monthly = st.monthly || {};
+    const mm = st.monthly[mk] || { runs: 0, fieldsFilled: 0, activities: 0 };
+    mm.runs += 1;
+    mm.fieldsFilled += filled || 0;
+    mm.activities += activityCreated ? 1 : 0;
+    st.monthly[mk] = mm;
+    await saveUserSettings(user, { sfStats: st });
+  } catch (e) {
+    console.warn("[sf-stats]", e.message);
+  }
+}
+
 app.post("/api/meetings/:id/sf-autofill", async (req, res) => {
   try {
     const out = { ok: false, configured: salesforceConfigured(), connected: false };
@@ -4440,72 +4592,39 @@ app.post("/api/meetings/:id/sf-autofill", async (req, res) => {
     const m = await getMeeting(req.params.id);
     if (!m) return res.status(404).json({ error: "見つかりません" });
 
-    const url = (req.body && req.body.url) || m.sf_url || "";
-    const recordId = extractRecordId(url);
-    if (!recordId) return res.json({ ...out, needLink: true });
-
-    const settings = await getUserSettings(req.user);
-    const mapping = settings.sfMapping || {};
-    const accountMapping = settings.sfMappingAccount || {};
-
-    // 1) Opportunity 側の空欄補完（mappingで指定された項目のみ）
-    const oppProposedRaw = buildProposed(m);
-    const oppProposed = {};
-    for (const s of SF_SOURCES) {
-      const sfField = mapping[s.key];
-      if (sfField && oppProposedRaw[s.key]) oppProposed[sfField] = oppProposedRaw[s.key];
-    }
-    let oppResult = { filled: {}, skipped: {} };
-    if (Object.keys(oppProposed).length > 0) {
-      oppResult = await fillEmptyFields(req.user, "Opportunity", recordId, oppProposed);
-    }
-
-    // 2) Account 側の空欄補完（AccountId は Opportunity から取得、profileは会社プロフィールから）
-    let accResult = { filled: {}, skipped: {} };
-    let accountId = null;
-    if (Object.keys(accountMapping).length > 0) {
-      const opp = await getOpportunity(req.user, recordId, ["AccountId"]);
-      accountId = opp && opp.AccountId;
-      if (accountId) {
-        const profile = m.company_profile || m.account_profile || {};
-        const accProposedRaw = buildAccountProposed(profile);
-        const accProposed = {};
-        for (const s of SF_ACCOUNT_SOURCES) {
-          const sfField = accountMapping[s.key];
-          if (sfField && accProposedRaw[s.key]) accProposed[sfField] = accProposedRaw[s.key];
-        }
-        if (Object.keys(accProposed).length > 0) {
-          accResult = await fillEmptyFields(req.user, "Account", accountId, accProposed);
-        }
-      }
-    }
-
-    // 3) 活動履歴（Task）を冪等作成
-    const s = m.summary || {};
-    const desc =
-      (s.overview || "") +
-      (Array.isArray(s.action_items) && s.action_items.length
-        ? "\n\n【次のアクション】\n・" + s.action_items.join("\n・")
-        : "");
-    const task = await createTaskIdempotent(req.user, String(m.id), {
-      WhatId: recordId,
-      Subject: `[kinbot] ${m.title || "商談"}（第${m.round || 1}回）`,
-      Type: "Meeting",
-      Description: desc.slice(0, 30000),
-      Status: "完了",
-      ActivityDate: (m.meeting_date || new Date().toISOString()).slice(0, 10),
-    });
-
-    res.json({
-      ok: true,
-      recordId,
-      accountId,
-      opportunity: oppResult,
-      account: accResult,
-      activity: task,
-    });
+    const r = await autofillMeetingToSf(req.user, m, (req.body && req.body.url) || "");
+    if (r.needLink) return res.json({ ...out, needLink: true });
+    res.json({ ...out, ...r });
   } catch (e) {
     console.error("[sf-autofill]", e.message);
+    sfErrorResponse(res, e);
+  }
+});
+
+// 自動反映のON/OFF設定を保存
+app.put("/api/salesforce/auto-reflect", async (req, res) => {
+  try {
+    const enabled = !!(req.body && req.body.enabled);
+    await saveUserSettings(req.user, { sfAutoReflect: enabled });
+    res.json({ ok: true, enabled });
+  } catch (e) {
+    sfErrorResponse(res, e);
+  }
+});
+
+// 「得を見える化」統計 + 自動反映設定を返す
+app.get("/api/salesforce/stats", async (req, res) => {
+  try {
+    const settings = await getUserSettings(req.user);
+    const st = settings.sfStats || { runs: 0, fieldsFilled: 0, activities: 0, monthly: {} };
+    const mk = new Date().toISOString().slice(0, 7);
+    const month = (st.monthly && st.monthly[mk]) || { runs: 0, fieldsFilled: 0, activities: 0 };
+    res.json({
+      autoReflect: !!settings.sfAutoReflect,
+      total: { runs: st.runs || 0, fieldsFilled: st.fieldsFilled || 0, activities: st.activities || 0 },
+      month: { key: mk, runs: month.runs || 0, fieldsFilled: month.fieldsFilled || 0, activities: month.activities || 0 },
+    });
+  } catch (e) {
     sfErrorResponse(res, e);
   }
 });

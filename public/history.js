@@ -586,6 +586,26 @@ async function loadDetail(botId) {
         </select></label>
         <span class="dmeta-saved" id="mSaved" hidden>保存しました</span>
       </div>
+      <div class="next-actions" id="nextActions">
+        <div class="na-title">この商談の続きにやること</div>
+        <div class="na-cards">
+          <button type="button" class="na-card" id="naMail">
+            <span class="na-ico"><svg width="20" height="20" viewBox="0 0 20 20" fill="none"><rect x="2.5" y="4.5" width="15" height="11" rx="2" stroke="#0d5b47" stroke-width="1.4"/><path d="M3.5 6l6.5 4.5L16.5 6" stroke="#1d9e75" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+            <span class="na-text"><span class="na-lbl">御礼メールを作る</span><span class="na-sub">この商談に合わせて自動作成</span></span>
+            <span class="na-arrow">→</span>
+          </button>
+          <button type="button" class="na-card" id="naProfile">
+            <span class="na-ico"><svg width="20" height="20" viewBox="0 0 20 20" fill="none"><rect x="3" y="5" width="14" height="12" rx="1.5" stroke="#0d5b47" stroke-width="1.4"/><rect x="7" y="2.5" width="6" height="3.5" rx="1" fill="#1d9e75"/><path d="M6.5 9.5h7M6.5 12.5h4.5" stroke="#5DCAA5" stroke-width="1.4" stroke-linecap="round"/></svg></span>
+            <span class="na-text"><span class="na-lbl">会社プロフィールを見る</span><span class="na-sub">業界・規模・懸念などを確認</span></span>
+            <span class="na-arrow">→</span>
+          </button>
+          <button type="button" class="na-card" id="naSf">
+            <span class="na-ico"><svg width="20" height="20" viewBox="0 0 20 20" fill="none"><path d="M4 8a6 6 0 0 1 10-2.5M16 12a6 6 0 0 1-10 2.5" stroke="#0d5b47" stroke-width="1.4" stroke-linecap="round"/><path d="M14 3v2.8h-2.8M6 17v-2.8h2.8" stroke="#1d9e75" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+            <span class="na-text"><span class="na-lbl">Salesforceに反映</span><span class="na-sub">空欄を埋めて活動履歴を残す</span></span>
+            <span class="na-arrow">→</span>
+          </button>
+        </div>
+      </div>
       <div class="tabs">
         <button class="tab active" data-tab="trans">文字起こし</button>
         <button class="tab" data-tab="summary">要約</button>
@@ -634,7 +654,14 @@ async function loadDetail(botId) {
         </div>
         <div class="tabpane" data-pane="sf" hidden>
           <div class="thanks-wrap">
-            <label class="thanks-field"><span>Salesforce 商談リンク</span><input id="sfUrl" type="url" placeholder="https://...lightning.force.com/lightning/r/Opportunity/.../view" /></label>
+            <div id="sfStats" class="sf-stats" hidden></div>
+            <label class="sf-auto-toggle"><input type="checkbox" id="sfAutoReflect" /><span>商談の確定時に、自動でSalesforceへ反映する</span></label>
+            <div class="pane-bar" style="justify-content:flex-start; gap:8px; align-items:center">
+              <button class="btn btn-ghost" id="sfSearchBtn">Salesforceの商談を探す</button>
+              <span class="thanks-note" id="sfSearchNote"></span>
+            </div>
+            <div id="sfCandidates"></div>
+            <label class="thanks-field" style="margin-top:6px"><span>Salesforce 商談リンク（自動で入ります。手入力も可）</span><input id="sfUrl" type="url" placeholder="https://...lightning.force.com/lightning/r/Opportunity/.../view" /></label>
             <div class="pane-bar" style="justify-content:flex-start; gap:8px; align-items:center">
               <button class="btn" id="sfAutoBtn">Salesforceに反映</button>
               <span class="thanks-note" id="sfAutoNote">空いている項目だけを埋め、活動履歴を1件残します（入力済みの欄は変更しません）。</span>
@@ -704,7 +731,33 @@ async function loadDetail(botId) {
         const name = tab.dataset.tab;
         hdetail.querySelectorAll(".tabpane").forEach((p) => (p.hidden = p.dataset.pane !== name));
         if (name === "summary" && customMode && !customLoaded) loadCustom(false);
+        // SF連携タブ：統計を読み込み、リンク未入力なら会社名から自動で商談を探す
+        if (name === "sf") {
+          loadSfStats();
+          if (!sfSearched && !(sfUrl.value || "").trim()) runSfSearch();
+        }
       });
+    });
+
+    // 「次のアクション」誘導：各機能タブ／画面へ移動させる
+    const goTab = (name) => {
+      const btn = hdetail.querySelector(`.tab[data-tab="${name}"]`);
+      if (btn) { btn.click(); btn.scrollIntoView({ block: "nearest" }); }
+    };
+    const naMail = hdetail.querySelector("#naMail");
+    if (naMail) naMail.addEventListener("click", () => {
+      goTab("thanks");
+      // 本文が空なら自動で御礼メールを生成
+      const tb = hdetail.querySelector("#thanksBody");
+      const gen = hdetail.querySelector("#thanksGen");
+      if (tb && !tb.value.trim() && gen) gen.click();
+    });
+    const naSf = hdetail.querySelector("#naSf");
+    if (naSf) naSf.addEventListener("click", () => goTab("sf"));
+    const naProfile = hdetail.querySelector("#naProfile");
+    if (naProfile) naProfile.addEventListener("click", () => {
+      const company = acctKey(m);
+      location.href = `deals.html?company=${encodeURIComponent(company)}&from=history`;
     });
 
     // コピー（各タブの内容をプレーンテキストで）
@@ -773,7 +826,45 @@ async function loadDetail(botId) {
     const sfAutoBtn = hdetail.querySelector("#sfAutoBtn");
     const sfAutoNote = hdetail.querySelector("#sfAutoNote");
     const sfAutoResult = hdetail.querySelector("#sfAutoResult");
+    const sfSearchBtn = hdetail.querySelector("#sfSearchBtn");
+    const sfSearchNote = hdetail.querySelector("#sfSearchNote");
+    const sfCandidates = hdetail.querySelector("#sfCandidates");
+    const sfStats = hdetail.querySelector("#sfStats");
+    const sfAutoReflect = hdetail.querySelector("#sfAutoReflect");
     let sfRecordId = "";
+    let sfSearched = false;
+    let sfStatsLoaded = false;
+
+    // 「得を見える化」統計＋自動反映設定を読み込む
+    const loadSfStats = async () => {
+      if (sfStatsLoaded) return;
+      sfStatsLoaded = true;
+      try {
+        const d = await (await fetch("/api/salesforce/stats")).json();
+        if (sfAutoReflect) sfAutoReflect.checked = !!d.autoReflect;
+        const mo = d.month || {};
+        const skipped = mo.runs || 0;
+        if (skipped > 0 || (mo.fieldsFilled || 0) > 0) {
+          sfStats.innerHTML =
+            `<div class="sf-stats-title">今月のあなたの自動化</div>
+             <div class="sf-stats-row">
+               <div class="sf-stat"><div class="sf-stat-num">${skipped}</div><div class="sf-stat-lbl">回ぶんの手入力をスキップ</div></div>
+               <div class="sf-stat"><div class="sf-stat-num">${mo.fieldsFilled || 0}</div><div class="sf-stat-lbl">項目を自動入力</div></div>
+               <div class="sf-stat"><div class="sf-stat-num">${mo.activities || 0}</div><div class="sf-stat-lbl">件の活動履歴を記録</div></div>
+             </div>`;
+          sfStats.hidden = false;
+        }
+      } catch {}
+    };
+    if (sfAutoReflect) {
+      sfAutoReflect.addEventListener("change", () => {
+        fetch("/api/salesforce/auto-reflect", {
+          method: "PUT",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ enabled: sfAutoReflect.checked }),
+        }).catch(() => {});
+      });
+    }
     sfUrl.value = m.sf_url || "";
     sfUrl.addEventListener("change", () => {
       fetch(`/api/meetings/${encodeURIComponent(botId)}/sf-link`, {
@@ -782,6 +873,79 @@ async function loadDetail(botId) {
         body: JSON.stringify({ url: sfUrl.value.trim() }),
       }).catch(() => {});
     });
+
+    // 商談リンクを保存（選択・自動入力時に共通で使う）
+    const saveSfLink = (url) => {
+      sfUrl.value = url;
+      fetch(`/api/meetings/${encodeURIComponent(botId)}/sf-link`, {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ url }),
+      }).catch(() => {});
+    };
+
+    // 候補1件のカードを描画
+    const renderCandidate = (rec, selectable) => {
+      const el = document.createElement("div");
+      el.className = "sf-cand" + (selectable ? " sf-cand-click" : "");
+      const meta = [rec.account, rec.stage, rec.closeDate].filter(Boolean).join(" ・ ");
+      el.innerHTML =
+        `<div class="sf-cand-name">${escapeHtml(rec.name || "(名称なし)")}</div>` +
+        (meta ? `<div class="sf-cand-meta">${escapeHtml(meta)}</div>` : "");
+      if (selectable) {
+        el.addEventListener("click", () => {
+          sfCandidates.querySelectorAll(".sf-cand").forEach((c) => c.classList.remove("sf-cand-sel"));
+          el.classList.add("sf-cand-sel");
+          saveSfLink(rec.url);
+          sfSearchNote.textContent = `「${rec.name || "商談"}」を選びました。反映できます。`;
+        });
+      }
+      return el;
+    };
+
+    // 会社名からSF商談を自動検索
+    const runSfSearch = async () => {
+      sfSearched = true;
+      sfSearchBtn.disabled = true;
+      const orig = sfSearchBtn.textContent;
+      sfSearchBtn.textContent = "検索中…";
+      sfCandidates.innerHTML = "";
+      sfSearchNote.textContent = "";
+      const q = acctKey(m);
+      try {
+        const r = await fetch(`/api/meetings/${encodeURIComponent(botId)}/sf-candidates`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ q }),
+        });
+        const d = await r.json();
+        if (d.reason === "未設定") { sfSearchNote.textContent = "Salesforce未設定（設定→外部連携で有効になります）"; return; }
+        if (d.reason === "未連携") { sfSearchNote.textContent = "未連携です。設定→外部連携から連携してください。"; return; }
+        if (!r.ok) throw new Error(d.error || "検索に失敗しました");
+        const recs = d.records || [];
+        if (recs.length === 0) {
+          sfSearchNote.textContent = `「${q}」に一致する商談が見つかりませんでした。下にリンクを手入力してください。`;
+          return;
+        }
+        if (recs.length === 1) {
+          saveSfLink(recs[0].url);
+          sfCandidates.appendChild(renderCandidate(recs[0], false));
+          sfSearchNote.textContent = `1件見つかりました（「${recs[0].name || "商談"}」）。そのまま反映できます。`;
+          return;
+        }
+        const head = document.createElement("div");
+        head.className = "sf-cand-head";
+        head.textContent = `${recs.length}件見つかりました。どの商談に反映するか選んでください。`;
+        sfCandidates.appendChild(head);
+        recs.forEach((rec) => sfCandidates.appendChild(renderCandidate(rec, true)));
+      } catch (e) {
+        sfSearchNote.textContent = "検索失敗: " + e.message;
+      } finally {
+        sfSearchBtn.disabled = false;
+        sfSearchBtn.textContent = orig;
+      }
+    };
+    sfSearchBtn.addEventListener("click", runSfSearch);
     // ワンクリック自動反映（空欄補完＋活動履歴）
     sfAutoBtn.addEventListener("click", async () => {
       sfAutoBtn.disabled = true;
@@ -820,6 +984,8 @@ async function loadDetail(botId) {
              ${keyWarn}
            </div>`;
         sfAutoNote.textContent = "反映しました。";
+        sfStatsLoaded = false;
+        loadSfStats();
       } catch (e) {
         sfAutoNote.textContent = "反映失敗: " + e.message;
       } finally {
