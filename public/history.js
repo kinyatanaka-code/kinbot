@@ -20,6 +20,7 @@ const PHASES = [
 const phaseLabel = (c) => (PHASES.find((p) => p.code === c) || {}).label || "";
 
 let allMeetings = [];
+let dealStatusByNorm = {}; // 会社（正規化名）→ 案件ステータス（フェーズ表記に使用）
 let usersCache = null;
 
 // 商談名から種別（コールド/過去失注）を自動判定する
@@ -273,6 +274,10 @@ function acctProfile(key) {
   const a = histAccounts[key] || histAccountsByNorm[normKey(key)];
   return (a && a.profile) || null;
 }
+// 会社の案件ステータス（フェーズ表記に使用）。正規化名・正式名の両方で照合する。
+function companyStatus(key) {
+  return dealStatusByNorm[normKey(key)] || dealStatusByNorm[normKey(acctName(key))] || "";
+}
 // cat=otherのURLパラメータは後方互換で残す（商談タブで吸収）
 if (HIST_CAT_OTHER) {
   histCatFilter = "follow"; // 旧URLから来た場合はフォロータブを開く
@@ -509,7 +514,13 @@ function renderList() {
         `<div class="acard-sub"></div>`;
       card.querySelector(".acard-name").textContent = acctName(repKey);
       card.querySelector(".acard-rep").textContent = last.owner_name || last.rep_name || "";
-      card.querySelector(".acard-sub").textContent = `${phaseLabel(last.phase) || "フェーズ未設定"} ・ 最終 ${fmtDate(last.created_at)}`;
+      const st = companyStatus(repKey);
+      const stCls = /受注/.test(st) ? "ok" : /失注/.test(st) ? "ng" : st ? "run" : "none";
+      const stLabel = st || phaseLabel(last.phase) || "未判定";
+      const sub = card.querySelector(".acard-sub");
+      sub.innerHTML = `<span class="acard-phase ph-${stCls}"></span><span class="acard-last"></span>`;
+      sub.querySelector(".acard-phase").textContent = stLabel;
+      sub.querySelector(".acard-last").textContent = ` ・ 最終 ${fmtDate(last.created_at)}`;
       card.addEventListener("click", () => { selectedAccount = repKey; openCompanyOverview(); });
       hlist.appendChild(card);
     }
@@ -698,6 +709,12 @@ async function loadList() {
       histAccounts = {};
       for (const a of accs || []) histAccounts[a.key] = a;
       rebuildAccountNormMap();
+    } catch {}
+    try {
+      const ds = await (await fetch("/api/deal-status")).json();
+      const statuses = (ds && ds.statuses) || {};
+      dealStatusByNorm = {};
+      for (const acc in statuses) dealStatusByNorm[normKey(acc)] = statuses[acc].status;
     } catch {}
     renderList();
     // 案件などから ?m=商談ID で来たら、その会社を開いて該当商談を表示

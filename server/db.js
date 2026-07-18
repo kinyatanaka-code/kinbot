@@ -249,6 +249,7 @@ export async function initDb() {
     );
   `);
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_auto_join_meeting ON auto_join_meetings(meeting_id);`);
+  await pool.query(`ALTER TABLE auto_join_meetings ADD COLUMN IF NOT EXISTS calendar_any BOOLEAN DEFAULT FALSE;`);
   await pool.query(`
     CREATE TABLE IF NOT EXISTS users (
       email      TEXT PRIMARY KEY,
@@ -1298,7 +1299,7 @@ export async function listAutoJoin(owner) {
   if (!pool) return [];
   try {
     const { rows } = await pool.query(
-      `SELECT id, owner, meeting_id, url, label, enabled, last_joined_at FROM auto_join_meetings WHERE owner=$1 ORDER BY created_at DESC`,
+      `SELECT id, owner, meeting_id, url, label, enabled, calendar_any, last_joined_at FROM auto_join_meetings WHERE owner=$1 ORDER BY created_at DESC`,
       [owner]
     );
     return rows;
@@ -1309,7 +1310,7 @@ export async function findAutoJoinByMeetingId(meetingId) {
   if (!pool || !meetingId) return [];
   try {
     const { rows } = await pool.query(
-      `SELECT id, owner, meeting_id, url, label, enabled, last_joined_at FROM auto_join_meetings WHERE meeting_id=$1 AND enabled=TRUE`,
+      `SELECT id, owner, meeting_id, url, label, enabled, calendar_any, last_joined_at FROM auto_join_meetings WHERE meeting_id=$1 AND enabled=TRUE`,
       [String(meetingId)]
     );
     return rows;
@@ -1337,6 +1338,12 @@ export async function setAutoJoinEnabled(owner, id, enabled) {
     await pool.query(`UPDATE auto_join_meetings SET enabled=$3 WHERE id=$1 AND owner=$2`, [Number(id), owner, !!enabled]);
   } catch (e) { console.error("[db] setAutoJoinEnabled", e.message); }
 }
+export async function setAutoJoinCalendarAny(owner, id, val) {
+  if (!pool) return;
+  try {
+    await pool.query(`UPDATE auto_join_meetings SET calendar_any=$3 WHERE id=$1 AND owner=$2`, [Number(id), owner, !!val]);
+  } catch (e) { console.error("[db] setAutoJoinCalendarAny", e.message); }
+}
 export async function touchAutoJoin(id) {
   if (!pool) return;
   try { await pool.query(`UPDATE auto_join_meetings SET last_joined_at=now() WHERE id=$1`, [Number(id)]); } catch {}
@@ -1346,7 +1353,7 @@ export async function listAllAutoJoinEnabled() {
   if (!pool) return [];
   try {
     const { rows } = await pool.query(
-      `SELECT id, owner, meeting_id, url, label, last_joined_at FROM auto_join_meetings WHERE enabled=TRUE`
+      `SELECT id, owner, meeting_id, url, label, calendar_any, last_joined_at FROM auto_join_meetings WHERE enabled=TRUE`
     );
     return rows;
   } catch { return []; }

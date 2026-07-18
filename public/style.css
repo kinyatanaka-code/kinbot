@@ -1638,6 +1638,11 @@ body { background: var(--bg); }
 .acard-count { font-size: 12px; font-weight: 700; color: var(--accent); background: var(--accent-soft); border-radius: 999px; padding: 1px 9px; }
 .acard-rep { font-size: 12px; color: var(--muted); }
 .acard-sub { font-size: 11.5px; color: var(--muted); margin-top: 6px; }
+.acard-phase { display: inline-block; font-size: 11px; font-weight: 700; padding: 1px 8px; border-radius: 999px; }
+.acard-phase.ph-ok { background: #e1f5ee; color: #0f6e56; }
+.acard-phase.ph-ng { background: #fdecec; color: #b23b3b; }
+.acard-phase.ph-run { background: #d7efe9; color: #0f6e62; }
+.acard-phase.ph-none { background: #f1efe8; color: #888780; }
 
 /* 分析ダッシュボード：挨拶＆いま追うべき案件 */
 .dash-greet { display: flex; align-items: center; gap: 11px; background: var(--accent-soft); border-radius: 14px; padding: 12px 14px; margin-bottom: 14px; }
@@ -2918,3 +2923,9 @@ button.np-step:disabled { opacity: 0.6; cursor: wait; }
 .autojoin-steps li { margin: 4px 0; font-size: 12px; }
 .autojoin-steps code { background: var(--panel-2); padding: 1px 6px; border-radius: 5px; font-size: 11px; word-break: break-all; }
 .aj-toggle { font-size: 12px; color: var(--muted); display: inline-flex; align-items: center; gap: 4px; margin-right: 8px; }
+.autojoin-diag { margin-top: 8px; display: flex; flex-direction: column; gap: 6px; }
+.autojoin-diag .diag-ok { font-size: 12px; color: #0f6e62; }
+.autojoin-diag .diag-ng { font-size: 12px; color: #8a5a00; background: #fff6e6; padding: 8px 10px; border-radius: 8px; }
+.autojoin-diag .diag-row { line-height: 1.5; }
+.autojoin-diag .diag-muted { font-size: 12px; color: var(--muted); }
+.autojoin-diag .diag-hint { color: var(--muted); }

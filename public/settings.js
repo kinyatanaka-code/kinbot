@@ -213,14 +213,21 @@ async function loadAutoJoin() {
       const li = document.createElement("li");
       li.innerHTML =
         `<span class="ln-name"></span><span class="ln-url"></span>` +
-        `<label class="aj-toggle"><input type="checkbox" ${it.enabled ? "checked" : ""} /> 有効</label>` +
+        `<label class="aj-toggle"><input type="checkbox" class="aj-enabled" ${it.enabled ? "checked" : ""} /> 有効</label>` +
+        `<label class="aj-toggle"><input type="checkbox" class="aj-calany" ${it.calendar_any ? "checked" : ""} /> 予定の時間に入室（URL照合なし）</label>` +
         `<button class="ln-del">削除</button>`;
       li.querySelector(".ln-name").textContent = it.label || "(名前なし)";
       li.querySelector(".ln-url").textContent = it.url;
-      li.querySelector("input").addEventListener("change", async (e) => {
+      li.querySelector(".aj-enabled").addEventListener("change", async (e) => {
         await fetch(`/api/auto-join/${it.id}`, {
           method: "PUT", headers: { "content-type": "application/json" },
           body: JSON.stringify({ enabled: e.target.checked }),
+        });
+      });
+      li.querySelector(".aj-calany").addEventListener("change", async (e) => {
+        await fetch(`/api/auto-join/${it.id}`, {
+          method: "PUT", headers: { "content-type": "application/json" },
+          body: JSON.stringify({ calendar_any: e.target.checked }),
         });
       });
       li.querySelector(".ln-del").addEventListener("click", async () => {
@@ -256,6 +263,42 @@ if ($("addAutoJoinBtn")) {
   });
 }
 loadAutoJoin();
+
+// 自動入室の診断：今のカレンダーと登録URLの突合状況を表示
+if ($("autoJoinTestBtn")) {
+  $("autoJoinTestBtn").addEventListener("click", async () => {
+    const box = $("autoJoinDiag");
+    const btn = $("autoJoinTestBtn");
+    btn.disabled = true; const o = btn.textContent; btn.textContent = "確認中…";
+    box.innerHTML = "";
+    try {
+      const d = await (await fetch("/api/auto-join/diagnose")).json();
+      const lines = [];
+      lines.push(d.calendarConnected
+        ? '<div class="diag-ok">✓ Googleカレンダー：連携済み</div>'
+        : '<div class="diag-ng">× Googleカレンダーが読み取れません。設定→外部連携でGoogleを連携してください。</div>');
+      if (!d.publicUrl) lines.push('<div class="diag-ng">× 公開URL(PUBLIC_URL)が未設定です。</div>');
+      if (!d.count) lines.push('<div class="diag-ng">× 自動入室のURLが未登録です。上で登録してください。</div>');
+      (d.items || []).forEach((it) => {
+        const name = it.label || it.url;
+        if (!it.enabled) { lines.push(`<div class="diag-row diag-muted">・${escapeHtml(name)}：無効（有効のチェックを入れてください）</div>`); return; }
+        if (it.matchedEvent) {
+          const when = new Date(it.matchedEvent.start).toLocaleString("ja-JP", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" });
+          lines.push(`<div class="diag-row diag-ok">✓ ${escapeHtml(name)}：予定「${escapeHtml(it.matchedEvent.title || "")}」（${when}開始）${it.calendar_any ? "の時間にこの部屋へ入室します" : "とURLが一致しました"}。${it.wouldJoinNow ? "＝今が入室タイミングです" : "＝開始時刻の直前に自動入室します"}</div>`);
+        } else if (it.calendar_any) {
+          lines.push(`<div class="diag-row diag-ng">× ${escapeHtml(name)}：これからの3時間に、相手のいる予定がカレンダーに見つかりません。<br><span class="diag-hint">→ 予定（相手を招待した会議）がカレンダーにあれば、その開始時刻に自動入室します。</span></div>`);
+        } else {
+          lines.push(`<div class="diag-row diag-ng">× ${escapeHtml(name)}：このURL（会議ID ${escapeHtml(it.meeting_id)}）と一致する予定が、これからの3時間のカレンダーに見つかりません。<br><span class="diag-hint">→ URLを貼らずに入室したい場合は、この行の「予定の時間に入室（URL照合なし）」にチェックを入れてください。</span></div>`);
+        }
+      });
+      box.innerHTML = lines.join("");
+    } catch (e) {
+      box.innerHTML = `<div class="diag-ng">確認に失敗しました：${escapeHtml(e.message)}</div>`;
+    } finally {
+      btn.disabled = false; btn.textContent = o;
+    }
+  });
+}
 
 // ===== 御礼メールの例文（ラウンド別） =====
 const THANKS_ROUNDS = [

@@ -130,7 +130,7 @@
 
             <div class="set-card">
               <h3>Zoom自動入室</h3>
-              <p class="note">登録したZoomのURLの会議が始まると、kinbotが自動で入室して録画を開始します。方法は2つあります。<br>（1）<b>カレンダー方式（おすすめ・Zoomアプリ不要）</b>：Googleカレンダーにその会議の予定が入っていれば、開始時刻に自動入室します。追加設定は不要です。<br>（2）Zoom Webhook方式：会議開始を即時検知して入室します（下の手順でZoom連携が必要・上級者向け）。</p>
+              <p class="note">登録したZoomのURLの会議が始まると、kinbotが自動で入室して録画を開始します。方法は2つあります。<br>（1）<b>カレンダー方式（おすすめ・Zoomアプリ不要）</b>：Googleカレンダーにその会議の予定が入っていれば、開始時刻に自動入室します。各URLの「予定の時間に入室（URL照合なし）」にチェックを入れると、予定にURLを貼っていなくても、相手を招待した予定の開始時刻にその部屋へ入室します。<br>（2）Zoom Webhook方式：会議開始を即時検知して入室します（下の手順でZoom連携が必要・上級者向け）。</p>
               <div class="autojoin-status" id="autoJoinStatus"></div>
               <ul class="link-list" id="autoJoinList"></ul>
               <div class="link-add">
@@ -139,6 +139,10 @@
                 <button class="btn" id="addAutoJoinBtn">追加</button>
               </div>
               <span class="saved" id="autoJoinMsg" hidden></span>
+              <div class="link-add" style="margin-top:4px">
+                <button class="btn btn-ghost" id="autoJoinTestBtn" type="button">自動入室をテスト（今の状況を確認）</button>
+              </div>
+              <div id="autoJoinDiag" class="autojoin-diag"></div>
               <details class="autojoin-setup">
                 <summary>Zoom連携の設定手順</summary>
                 <ol class="note autojoin-steps">
