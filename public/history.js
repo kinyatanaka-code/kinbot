@@ -197,6 +197,16 @@ function meetingCategory(m) {
 // タブ配線
 document.addEventListener("DOMContentLoaded", () => {
   const tabs = document.getElementById("histCatTabs");
+  const ft = document.getElementById("filterToggle");
+  const hf = document.getElementById("hfilters");
+  if (ft && hf) {
+    ft.addEventListener("click", () => {
+      const show = hf.hasAttribute("hidden");
+      if (show) hf.removeAttribute("hidden"); else hf.setAttribute("hidden", "");
+      ft.textContent = show ? "絞り込み ▴" : "絞り込み ▾";
+      ft.classList.toggle("active", show);
+    });
+  }
   if (tabs) {
     tabs.querySelectorAll(".hist-cat-tab").forEach(btn => {
       btn.addEventListener("click", () => {
@@ -211,7 +221,6 @@ document.addEventListener("DOMContentLoaded", () => {
 });
 let histMode = "account"; // 既定は会社別（企業一覧が入り口）。「すべて」で全商談フラット表示も可能
 let selectedAccount = null;
-let companyView = "hist"; // 企業選択後のビュー: "hist"=商談履歴 / "deal"=案件
 let histAccounts = {}; // key -> {official_name,...}
 function companyFromTitleH(title) {
   let t = String(title || "").trim();
@@ -233,7 +242,38 @@ function companyFromTitleH(title) {
   return t || String(title || "(無題)").trim();
 }
 const acctKey = (m) => (m.account && m.account.trim()) || companyFromTitleH(m.title) || "(無題)";
-const acctName = (key) => (histAccounts[key] && histAccounts[key].official_name) || key;
+// 会社名の正規化（法人格・空白・様を除去）。「生活協同組合コープみえ」と「コープみえ」を同一視するため。
+function normKey(s) {
+  return String(s || "")
+    .replace(/株式会社|（株）|\(株\)|㈱|有限会社|（有）|\(有\)|合同会社|合資会社|一般社団法人|公益社団法人|一般財団法人|公益財団法人|社会福祉法人|学校法人|医療法人|生活協同組合|農業協同組合|漁業協同組合/g, "")
+    .replace(/[\s　]+/g, "")
+    .replace(/様$/u, "")
+    .trim()
+    .toLowerCase();
+}
+// 正規化キー→アカウント情報（official_name・profile）のマップ
+let histAccountsByNorm = {};
+function rebuildAccountNormMap() {
+  histAccountsByNorm = {};
+  for (const k of Object.keys(histAccounts)) {
+    const a = histAccounts[k];
+    const n = normKey(a.official_name || k);
+    if (n) histAccountsByNorm[n] = a;
+  }
+}
+// 表示名：名寄せして、その企業の最も正式（長い）名称を返す
+function acctName(key) {
+  const a = histAccounts[key];
+  if (a && a.official_name) return a.official_name;
+  const byNorm = histAccountsByNorm[normKey(key)];
+  if (byNorm && byNorm.official_name) return byNorm.official_name;
+  return key;
+}
+// その企業の会社プロフィール（業界・従業員規模・地域）を返す
+function acctProfile(key) {
+  const a = histAccounts[key] || histAccountsByNorm[normKey(key)];
+  return (a && a.profile) || null;
+}
 // cat=otherのURLパラメータは後方互換で残す（商談タブで吸収）
 if (HIST_CAT_OTHER) {
   histCatFilter = "follow"; // 旧URLから来た場合はフォロータブを開く
@@ -419,7 +459,7 @@ function renderList() {
     // プロダクト絞り込みが原因（全体では商談があるのに、このタブで0件）なら、その旨を出す
     const totalInView = allMeetings.filter((m) => (HIST_CAT_OTHER ? isOtherCat(m) : !isOtherCat(m))).length;
     if (p && totalInView > 0) {
-      e.innerHTML = `${esc(p)} に割り当てられた担当者の商談がありません。<br><span style="font-size:12px;color:var(--muted)">設定→チーム編集で担当者に「${esc(p)}」を割り当てるか、右上で「全体」を選んでください。</span>`;
+      e.innerHTML = `${escapeHtml(p)} に割り当てられた担当者の商談がありません。<br><span style="font-size:12px;color:var(--muted)">設定→チーム編集で担当者に「${escapeHtml(p)}」を割り当てるか、右上で「全体」を選んでください。</span>`;
     } else {
       e.textContent = "該当する商談がありません。";
     }
@@ -433,78 +473,113 @@ function renderList() {
     return;
   }
 
-  // 会社別：未選択なら会社カード、選択中ならその会社のハブ（商談履歴／案件）
+  // 会社別：未選択なら会社カード（名寄せして1社にまとめる）
   if (!selectedAccount) {
     const groups = {};
-    for (const m of rows) (groups[acctKey(m)] = groups[acctKey(m)] || []).push(m);
-    const keys = Object.keys(groups).sort((a, b) => {
-      const la = groups[a][0].created_at, lb = groups[b][0].created_at;
-      return new Date(Math.max(...groups[b].map((x) => +new Date(x.created_at)))) - new Date(Math.max(...groups[a].map((x) => +new Date(x.created_at))));
-    });
-    for (const k of keys) {
-      const ms = groups[k];
+    for (const m of rows) {
+      const nk = normKey(acctKey(m));
+      (groups[nk] = groups[nk] || []).push(m);
+    }
+    const keys = Object.keys(groups).sort((a, b) =>
+      Math.max(...groups[b].map((x) => +new Date(x.created_at))) - Math.max(...groups[a].map((x) => +new Date(x.created_at)))
+    );
+    for (const nk of keys) {
+      const ms = groups[nk];
       const last = ms.reduce((a, b) => (new Date(a.created_at) > new Date(b.created_at) ? a : b));
+      const repKey = acctKey(last); // 表示・選択に使う代表キー
       const card = document.createElement("button");
       card.className = "acard";
       card.innerHTML =
         `<div class="acard-name"></div>` +
         `<div class="acard-meta"><span class="acard-count">${ms.length}件</span><span class="acard-rep"></span></div>` +
         `<div class="acard-sub"></div>`;
-      card.querySelector(".acard-name").textContent = acctName(k);
+      card.querySelector(".acard-name").textContent = acctName(repKey);
       card.querySelector(".acard-rep").textContent = last.owner_name || last.rep_name || "";
       card.querySelector(".acard-sub").textContent = `${phaseLabel(last.phase) || "フェーズ未設定"} ・ 最終 ${fmtDate(last.created_at)}`;
-      card.addEventListener("click", () => { selectedAccount = k; companyView = "hist"; resetDetail(); renderList(); });
+      card.addEventListener("click", () => { selectedAccount = repKey; openCompanyOverview(); });
       hlist.appendChild(card);
     }
     return;
   }
 
-  // 選択中の会社：商談履歴／案件 の切り替えハブ
-  const mine = rows.filter((m) => acctKey(m) === selectedAccount)
+  // 選択中の会社：左に商談一覧（名寄せして全件）
+  const norm = normKey(selectedAccount);
+  const mine = rows.filter((m) => normKey(acctKey(m)) === norm)
     .sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
-  const hub = document.createElement("div");
-  hub.className = "hub-head";
-  hub.innerHTML =
+  const head = document.createElement("div");
+  head.className = "hub-head";
+  head.innerHTML =
     `<button class="hl-backbtn" type="button">← 企業一覧</button>` +
-    `<div class="hub-acct"></div>` +
-    `<div class="hub-seg">` +
-    `<button class="hub-seg-btn ${companyView === "hist" ? "active" : ""}" data-v="hist">商談履歴</button>` +
-    `<button class="hub-seg-btn ${companyView === "deal" ? "active" : ""}" data-v="deal">案件</button>` +
-    `</div>`;
-  hub.querySelector(".hub-acct").textContent = `${acctName(selectedAccount)}（商談${mine.length}件）`;
-  hub.querySelector(".hl-backbtn").addEventListener("click", () => { selectedAccount = null; companyView = "hist"; resetDetail(); renderList(); });
-  hub.querySelectorAll(".hub-seg-btn").forEach((b) =>
+    `<div class="hub-acct"></div>`;
+  head.querySelector(".hub-acct").textContent = `${acctName(selectedAccount)}（商談${mine.length}件）`;
+  head.querySelector(".hl-backbtn").addEventListener("click", () => { selectedAccount = null; resetDetail(); renderList(); });
+  hlist.appendChild(head);
+  for (const r of mine) hlist.appendChild(meetingCardEl(r));
+}
+
+// 企業を選んだときの入口：一覧を描き、右に会社概要（プロフィール＋3カード）を出す
+function openCompanyOverview() {
+  renderList();
+  renderCompanyOverview();
+}
+
+// 会社概要（SF風）：会社プロフィール＋「商談履歴・御礼メール・SF更新」の3カード
+function renderCompanyOverview() {
+  const norm = normKey(selectedAccount);
+  const mine = allMeetings
+    .filter((m) => (HIST_CAT_OTHER ? isOtherCat(m) : !isOtherCat(m)))
+    .filter((m) => normKey(acctKey(m)) === norm)
+    .sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+  const latest = mine[0];
+  const prof = acctProfile(selectedAccount) || {};
+  const profRow = (label, val) =>
+    `<div class="ov-prof-item"><div class="ov-prof-k">${escapeHtml(label)}</div><div class="ov-prof-v">${escapeHtml(val || "—")}</div></div>`;
+  const industry = prof.industry || prof.industry_name || "";
+  const employees = prof.employees != null ? String(prof.employees) : (prof.employee_range || prof.employees_label || "");
+  const region = prof.region || prof.prefecture || prof.area || "";
+  const hasProfile = industry || employees || region;
+
+  const card = (id, title, sub, svg) =>
+    `<button type="button" class="ov-card" data-act="${id}">
+       <span class="ov-card-ico">${svg}</span>
+       <span class="ov-card-tx"><span class="ov-card-t">${escapeHtml(title)}</span><span class="ov-card-s">${escapeHtml(sub)}</span></span>
+       <span class="ov-card-arrow">→</span>
+     </button>`;
+  const icoHist = `<svg width="20" height="20" viewBox="0 0 20 20" fill="none"><rect x="2" y="8" width="4" height="9" rx="1" fill="#0d5b47"/><rect x="8" y="4" width="4" height="13" rx="1" fill="#1d9e75"/><rect x="14" y="1" width="4" height="16" rx="1" fill="#5DCAA5"/></svg>`;
+  const icoMail = `<svg width="20" height="20" viewBox="0 0 20 20" fill="none"><rect x="2.5" y="4.5" width="15" height="11" rx="2" stroke="#0d5b47" stroke-width="1.4"/><path d="M3.5 6l6.5 4.5L16.5 6" stroke="#1d9e75" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+  const icoSf = `<svg width="20" height="20" viewBox="0 0 20 20" fill="none"><path d="M4 8a6 6 0 0 1 10-2.5M16 12a6 6 0 0 1-10 2.5" stroke="#0d5b47" stroke-width="1.4" stroke-linecap="round"/><path d="M14 3v2.8h-2.8M6 17v-2.8h2.8" stroke="#1d9e75" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+
+  hdetail.innerHTML =
+    `<div class="ov-wrap">
+       <div class="ov-name">${escapeHtml(acctName(selectedAccount))}</div>
+       <div class="ov-prof">
+         <div class="ov-prof-h">会社プロフィール</div>
+         ${hasProfile
+           ? `<div class="ov-prof-grid">${profRow("業界", industry)}${profRow("従業員規模", employees)}${profRow("地域", region)}</div>`
+           : `<div class="ov-prof-empty">プロフィール未取得です。案件画面で会社情報を取得できます。<a href="deals.html?company=${encodeURIComponent(acctName(selectedAccount))}&from=history" class="ov-link">案件で取得する →</a></div>`}
+         ${hasProfile ? `<a href="deals.html?company=${encodeURIComponent(acctName(selectedAccount))}&from=history" class="ov-link">案件の進捗・懸念を詳しく見る →</a>` : ""}
+       </div>
+       <div class="ov-cards">
+         ${card("hist", "商談履歴", `${mine.length}件の商談を見る`, icoHist)}
+         ${card("mail", "御礼メール", "直近の商談から返信を作る", icoMail)}
+         ${card("sf", "SF更新", "直近の商談をSalesforceに反映", icoSf)}
+       </div>
+     </div>`;
+
+  hdetail.querySelectorAll(".ov-card").forEach((b) =>
     b.addEventListener("click", () => {
-      companyView = b.dataset.v;
-      if (companyView === "hist") resetDetail();
-      renderList();
+      const act = b.dataset.act;
+      if (act === "hist") { hlist.scrollTo({ top: 0, behavior: "smooth" }); return; }
+      if (!latest) { alert("この企業の商談がまだありません。"); return; }
+      // 御礼メール／SF更新は直近の商談を開いて、そのタブへ
+      loadDetail(latest.bot_id, act === "mail" ? "thanks" : "sf");
     })
   );
-  hlist.appendChild(hub);
-
-  if (companyView === "deal") {
-    // 案件ビュー：既存の案件画面をそのままiframeで埋め込む（案件ロジックを再利用）
-    const note = document.createElement("div");
-    note.className = "hub-deal-note";
-    note.textContent = "この企業の案件情報（プロフィール・進捗・懸念）を表示しています。";
-    hlist.appendChild(note);
-    showDealEmbed(selectedAccount);
-    return;
-  }
-
-  // 商談履歴ビュー：その会社の商談一覧
-  for (const r of mine) hlist.appendChild(meetingCardEl(r));
 }
 
 // 詳細ペインを初期状態に戻す
 function resetDetail() {
   hdetail.innerHTML = `<div class="empty-state empty-bot"><img src="kinbot.svg" alt="kinbot" /><div>左の一覧から商談を選ぶと、録画・文字起こし・要約・分析を表示します。</div></div>`;
-}
-
-// 案件画面を詳細ペインにiframeで埋め込む
-function showDealEmbed(accountKey) {
-  const name = acctName(accountKey);
-  hdetail.innerHTML = `<iframe class="deal-embed" src="deals.html?company=${encodeURIComponent(name)}&embed=1" title="案件"></iframe>`;
 }
 
 async function loadList() {
@@ -558,6 +633,7 @@ async function loadList() {
       const accs = await (await fetch("/api/accounts")).json();
       histAccounts = {};
       for (const a of accs || []) histAccounts[a.key] = a;
+      rebuildAccountNormMap();
     } catch {}
     renderList();
     // 案件などから ?m=商談ID で来たら、その会社を開いて該当商談を表示
@@ -574,7 +650,7 @@ async function loadList() {
   }
 }
 
-async function loadDetail(botId) {
+async function loadDetail(botId, openTab) {
   const histWrap = document.querySelector(".history");
   if (histWrap) histWrap.classList.add("m-detail");
   if (!loadDetail._wired && histWrap) {
@@ -792,6 +868,12 @@ async function loadDetail(botId) {
         }
       });
     });
+
+    // 会社概要の「御礼メール」「SF更新」カードから来たときは、そのタブを開く
+    if (openTab) {
+      const tb = hdetail.querySelector(`.tab[data-tab="${openTab}"]`);
+      if (tb) tb.click();
+    }
 
     // 「次のアクション」誘導：各機能タブ／画面へ移動させる
     const goTab = (name) => {

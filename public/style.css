@@ -233,6 +233,33 @@ body.kb-embed .main { width: 100%; }
 body.kb-embed .history { display: block; padding: 0; height: auto; min-height: 0; }
 body.kb-embed #dealDetail { max-width: none; width: 100%; border: 0; box-shadow: none; border-radius: 0; }
 
+/* ヘッダーにカテゴリタブと絞り込みトグルを載せる */
+.topbar-hist .hist-cat-tabs { padding: 0; margin: 0; }
+.topbar-hist .hfilter-toggle { margin-left: auto; }
+.hfilter-toggle.active { color: var(--accent); border-color: var(--accent); }
+
+/* 会社概要（SF風）：プロフィール＋3カード */
+.ov-wrap { padding: 2px; }
+.ov-name { font-size: 20px; font-weight: 800; color: var(--ink); margin-bottom: 14px; }
+.ov-prof { border: 1px solid var(--line); border-radius: 12px; padding: 14px 16px; margin-bottom: 16px; background: var(--panel-2); }
+.ov-prof-h { font-size: 12px; font-weight: 700; color: var(--accent); margin-bottom: 10px; }
+.ov-prof-grid { display: flex; gap: 28px; flex-wrap: wrap; }
+.ov-prof-k { font-size: 11px; color: var(--muted); }
+.ov-prof-v { font-size: 14px; font-weight: 700; color: var(--ink); }
+.ov-prof-empty { font-size: 13px; color: var(--muted); }
+.ov-link { display: inline-block; margin-top: 10px; font-size: 12px; font-weight: 700; color: var(--accent); text-decoration: none; }
+.ov-link:hover { text-decoration: underline; }
+.ov-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; }
+.ov-card { display: flex; align-items: center; gap: 12px; text-align: left; padding: 14px; border: 1px solid var(--line); border-radius: 12px; background: var(--panel); cursor: pointer; font: inherit; transition: border-color .12s ease, background .12s ease; }
+.ov-card:hover { border-color: var(--accent); background: var(--accent-soft); }
+.ov-card-ico { width: 36px; height: 36px; border-radius: 9px; background: var(--panel-2); display: flex; align-items: center; justify-content: center; flex: 0 0 auto; }
+.ov-card:hover .ov-card-ico { background: var(--panel); }
+.ov-card-tx { display: flex; flex-direction: column; flex: 1 1 auto; min-width: 0; }
+.ov-card-t { font-size: 14px; font-weight: 700; color: var(--ink); }
+.ov-card-s { font-size: 11px; color: var(--muted); margin-top: 2px; }
+.ov-card-arrow { color: var(--muted); font-size: 15px; }
+.ov-card:hover .ov-card-arrow { color: var(--accent); }
+
 .hdetail {
   overflow-y: auto;
   background: var(--panel);
