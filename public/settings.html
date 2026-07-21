@@ -295,6 +295,11 @@
                 <a class="btn" id="sfConnect" href="/auth/salesforce" hidden>連携する</a>
                 <button class="btn ghost" id="sfDisconnect" hidden>解除</button>
               </div>
+              <div class="cal-row" style="margin-top:8px">
+                <button class="btn btn-ghost" id="sfDiagIpBtn" type="button">送信元IPを確認</button>
+                <span class="note" style="margin:0">「ip restricted」が出るときに、実際の送信元IPが登録済みか確認できます。</span>
+              </div>
+              <div id="sfDiagIp" class="autojoin-diag"></div>
             </div>
             <div class="set-card">
               <h3>項目マッピング（kinbot → Salesforce）</h3>

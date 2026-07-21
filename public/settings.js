@@ -264,6 +264,38 @@ if ($("addAutoJoinBtn")) {
 }
 loadAutoJoin();
 
+// Salesforce：送信元IPの確認（ip restrictedの切り分け）
+if ($("sfDiagIpBtn")) {
+  $("sfDiagIpBtn").addEventListener("click", async () => {
+    const box = $("sfDiagIp");
+    const btn = $("sfDiagIpBtn");
+    btn.disabled = true; const o = btn.textContent; btn.textContent = "確認中…";
+    box.innerHTML = "";
+    try {
+      const d = await (await fetch("/api/salesforce/diag-ip")).json();
+      const ips = d.outboundIps || [];
+      const lines = [];
+      if (!ips.length) {
+        lines.push('<div class="diag-ng">送信元IPを取得できませんでした。時間をおいて再度お試しください。</div>');
+      } else {
+        lines.push(`<div class="diag-row"><b>実際の送信元IP：</b>${ips.map(escapeHtml).join(" ／ ")}</div>`);
+        lines.push(`<div class="diag-row diag-muted">登録済み（想定）：${(d.expected || []).join(" ／ ")}</div>`);
+        const notReg = ips.filter((ip) => !(d.expected || []).includes(ip));
+        if (notReg.length) {
+          lines.push(`<div class="diag-ng">× 未登録のIPがあります：<b>${notReg.map(escapeHtml).join(" ／ ")}</b><br><span class="diag-hint">→ このIPをSalesforceの「ログインIPの範囲」と「信頼済みIP範囲」に追加してください。または接続アプリのIP緩和を「Relax」にすると回避できます。</span></div>`);
+        } else {
+          lines.push('<div class="diag-ok">✓ 送信元IPはすべて登録済みの想定IPに含まれています。まだ「ip restricted」が出る場合は、接続アプリ側のIP緩和設定（Relax IP restrictions）を確認してください。</div>');
+        }
+      }
+      box.innerHTML = lines.join("");
+    } catch (e) {
+      box.innerHTML = `<div class="diag-ng">確認に失敗しました：${escapeHtml(e.message)}</div>`;
+    } finally {
+      btn.disabled = false; btn.textContent = o;
+    }
+  });
+}
+
 // 自動入室の診断：今のカレンダーと登録URLの突合状況を表示
 if ($("autoJoinTestBtn")) {
   $("autoJoinTestBtn").addEventListener("click", async () => {
