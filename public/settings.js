@@ -275,16 +275,25 @@ if ($("sfDiagIpBtn")) {
       const d = await (await fetch("/api/salesforce/diag-ip")).json();
       const ips = d.outboundIps || [];
       const lines = [];
+      // 接続先（本番/サンドボックス）と接続アプリ
+      lines.push(`<div class="diag-row"><b>接続先：</b>${escapeHtml(d.loginUrl || "")}（${d.isSandbox ? "サンドボックス" : "本番"}）</div>`);
+      lines.push(`<div class="diag-row diag-muted">接続アプリ Client ID：${escapeHtml(d.clientIdPrefix || "")}</div>`);
+      if (!d.isSandbox) {
+        lines.push('<div class="diag-ng">△ 接続先が「本番（login.salesforce.com）」になっています。連携先がサンドボックス（neoDV）なら、環境変数 SF_LOGIN_URL を https://test.salesforce.com に設定してください。組織がズレていると、SDGがサンドボックスで直しても効きません。</div>');
+      }
+      // 送信元IP
       if (!ips.length) {
         lines.push('<div class="diag-ng">送信元IPを取得できませんでした。時間をおいて再度お試しください。</div>');
       } else {
-        lines.push(`<div class="diag-row"><b>実際の送信元IP：</b>${ips.map(escapeHtml).join(" ／ ")}</div>`);
+        lines.push(`<div class="diag-row"><b>実際の送信元IP：</b>${ips.map(escapeHtml).join(" ／ ")}${ips.length > 1 ? "（複数のIPから出ています）" : ""}</div>`);
         lines.push(`<div class="diag-row diag-muted">登録済み（想定）：${(d.expected || []).join(" ／ ")}</div>`);
-        const notReg = ips.filter((ip) => !(d.expected || []).includes(ip));
+        const notReg = d.notRegistered || ips.filter((ip) => !(d.expected || []).includes(ip));
         if (notReg.length) {
-          lines.push(`<div class="diag-ng">× 未登録のIPがあります：<b>${notReg.map(escapeHtml).join(" ／ ")}</b><br><span class="diag-hint">→ このIPをSalesforceの「ログインIPの範囲」と「信頼済みIP範囲」に追加してください。または接続アプリのIP緩和を「Relax」にすると回避できます。</span></div>`);
+          lines.push(`<div class="diag-ng">× 未登録のIPがあります：<b>${notReg.map(escapeHtml).join(" ／ ")}</b><br><span class="diag-hint">→ このIPをSalesforceに追加してください。</span></div>`);
         } else {
-          lines.push('<div class="diag-ok">✓ 送信元IPはすべて登録済みの想定IPに含まれています。まだ「ip restricted」が出る場合は、接続アプリ側のIP緩和設定（Relax IP restrictions）を確認してください。</div>');
+          lines.push('<div class="diag-ok">✓ 送信元IPはすべて登録済みの想定IPに含まれています。');
+          if (ips.length > 1) lines[lines.length - 1] += '（複数IPが確認できたので、3つすべてがSalesforce側に登録されているか確認してください）';
+          lines[lines.length - 1] += '</div>';
         }
       }
       box.innerHTML = lines.join("");

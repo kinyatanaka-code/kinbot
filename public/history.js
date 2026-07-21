@@ -222,6 +222,7 @@ document.addEventListener("DOMContentLoaded", () => {
 let histMode = "account"; // 既定は会社別（企業一覧が入り口）。「すべて」で全商談フラット表示も可能
 let histSelectMode = false;        // 「選択して再判定」モード
 const histSelected = new Set();    // 選択中の会社（normKey）
+let selectedOwner = null;          // 会社別の最初に表示する「営業担当」の選択
 let selectedAccount = null;
 let histAccounts = {}; // key -> {official_name,...}
 function companyFromTitleH(title) {
@@ -280,6 +281,8 @@ function acctProfile(key) {
 function companyStatus(key) {
   return dealStatusByNorm[normKey(key)] || dealStatusByNorm[normKey(acctName(key))] || "";
 }
+// 商談の営業担当名
+function ownerNameOf(m) { return (m && (m.owner_name || m.rep_name || m.owner)) || "未設定"; }
 
 // 選択した会社の商談をまとめて再判定する
 async function runHistBulkJudge(groups) {
@@ -489,7 +492,7 @@ function renderList() {
       `<button class="seg-btn ${histMode === "all" ? "active" : ""}" data-mode="all">すべて</button></div>` +
       `<button class="btn ghost hfilter-toggle" id="filterToggle" type="button">絞り込み ▾</button>`;
     bar.querySelectorAll(".seg-btn").forEach((b) =>
-      b.addEventListener("click", () => { histMode = b.dataset.mode; selectedAccount = null; renderList(); })
+      b.addEventListener("click", () => { histMode = b.dataset.mode; selectedAccount = null; selectedOwner = null; renderList(); })
     );
     // 絞り込みトグル（会社別/すべての並びに配置）
     const ft = bar.querySelector("#filterToggle");
@@ -536,9 +539,46 @@ function renderList() {
       const nk = normKey(acctKey(m));
       (groups[nk] = groups[nk] || []).push(m);
     }
-    const keys = Object.keys(groups).sort((a, b) =>
+    let keys = Object.keys(groups).sort((a, b) =>
       Math.max(...groups[b].map((x) => +new Date(x.created_at))) - Math.max(...groups[a].map((x) => +new Date(x.created_at)))
     );
+    // 会社ごとの担当（最新商談の担当）
+    const companyOwner = {};
+    for (const nk of keys) {
+      const ms = groups[nk].slice().sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+      companyOwner[nk] = ownerNameOf(ms[0]);
+    }
+    // まず営業担当ごとのカードを表示（担当未選択のとき）
+    if (!selectedOwner) {
+      const ownerMap = {};
+      for (const nk of keys) {
+        const o = companyOwner[nk];
+        (ownerMap[o] = ownerMap[o] || { cos: 0, meetings: 0 });
+        ownerMap[o].cos++;
+        ownerMap[o].meetings += groups[nk].length;
+      }
+      const owners = Object.keys(ownerMap).sort((a, b) => ownerMap[b].meetings - ownerMap[a].meetings);
+      for (const o of owners) {
+        const card = document.createElement("button");
+        card.type = "button";
+        card.className = "owner-card";
+        card.innerHTML = `<span class="owner-ava"></span><span class="owner-tx"><span class="owner-name"></span><span class="owner-sub"></span></span><span class="owner-arrow">›</span>`;
+        card.querySelector(".owner-ava").textContent = (o || "?").trim().charAt(0);
+        card.querySelector(".owner-name").textContent = o;
+        card.querySelector(".owner-sub").textContent = `${ownerMap[o].cos}社 ・ ${ownerMap[o].meetings}商談`;
+        card.addEventListener("click", () => { selectedOwner = o; renderList(); });
+        hlist.appendChild(card);
+      }
+      return;
+    }
+    // 担当選択済み：戻るヘッダー＋その担当の会社だけに絞る
+    const ownerHead = document.createElement("div");
+    ownerHead.className = "hub-head";
+    ownerHead.innerHTML = `<button class="hl-backbtn" type="button">← 担当者一覧</button><div class="hub-acct"></div>`;
+    keys = keys.filter((nk) => companyOwner[nk] === selectedOwner);
+    ownerHead.querySelector(".hub-acct").textContent = `${selectedOwner}（${keys.length}社）`;
+    ownerHead.querySelector(".hl-backbtn").addEventListener("click", () => { selectedOwner = null; renderList(); });
+    hlist.appendChild(ownerHead);
     // 選択して再判定バー
     const selbar = document.createElement("div");
     selbar.className = "hist-selbar";

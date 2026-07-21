@@ -601,8 +601,12 @@ function renderProfile(account) {
   if (!body) return;
   const acc = accountsMap[primaryOf(account)];
   const p = acc && acc.profile;
-  if (!p || p.gbiz_pending || !(p.industry || p.employees || p.hiring || p.founded || p.location || p.business)) {
-    body.innerHTML = '<div class="empty-state">会社情報を自動で検索しています…見つからない場合は「gBizINFOで会社を検索」を押すか、サイトURLから取得してください。</div>';
+  const hasProfile = p && !p.gbiz_pending && (p.industry || p.employees || p.hiring || p.founded || p.location || p.business);
+  // 取得済みなら「取得・更新」パネルは閉じて、情報を見やすくする。未取得なら開いて検索を促す。
+  const fetchDet = document.querySelector('.dc-page[data-page="profile"] .prof-fetch');
+  if (fetchDet) fetchDet.open = !hasProfile;
+  if (!hasProfile) {
+    body.innerHTML = '<div class="empty-state">会社情報を自動で検索しています…見つからない場合は下の「会社情報を取得・更新」を開いて、「gBizINFOで会社を検索」またはサイトURLから取得してください。</div>';
     return;
   }
   const cell = (label, val) => (val ? `<div class="prof-cell"><div class="prof-k">${label}</div><div class="prof-v">${esc(val)}</div></div>` : "");
@@ -1259,9 +1263,11 @@ async function selectDeal(account) {
     `<div class="dc-page" data-page="profile" hidden>` +
     `<button class="dc-back" type="button"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" style="vertical-align:-2px;margin-right:4px"><path d="M10 4L6 8l4 4" stroke="#0d5b47" stroke-width="1.5" stroke-linecap="round"/></svg>${esc(displayName(account))}</button>` +
     `<section class="deal-sec deal-profile"><div class="deal-sec-h"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" style="vertical-align:-2px;margin-right:4px"><rect x="2" y="4" width="12" height="11" rx="1.5" fill="#0d5b47"/><rect x="5" y="1" width="6" height="4" rx="1" fill="#1d9e75"/></svg>会社プロフィール</div>` +
+    `<div class="prof-status" id="profStatus"></div><div id="profBody"></div>` +
+    `<details class="prof-fetch"><summary>会社情報を取得・更新（gBizINFO／サイトURL）</summary>` +
     `<div class="gbiz-box"><div class="gbiz-row"><button class="btn" id="gbizSearch">gBizINFOで会社を検索</button><span class="gbiz-hint">会社名から公式の企業情報を取得します</span></div><div class="gbiz-manual-row"><input id="gbizQuery" type="text" placeholder="別の会社名、または法人番号（13桁）で検索" /><button class="btn btn-ghost" id="gbizQueryBtn" type="button">検索</button></div><div id="gbizCandidates"></div></div>` +
-    `<details class="prof-manual"><summary>サイトURLから取得（手動）</summary><div class="prof-url"><textarea id="profUrl" rows="2" placeholder="企業サイトURL"></textarea><button class="btn" id="profGet">取得</button></div></details>` +
-    `<div class="prof-status" id="profStatus"></div><div id="profBody"></div></section>` +
+    `<div class="prof-url"><textarea id="profUrl" rows="2" placeholder="企業サイトURL"></textarea><button class="btn" id="profGet">サイトURLから取得</button></div>` +
+    `</details></section>` +
     `</div>` +
     `<div class="dc-page" data-page="proposals" hidden>` +
     `<button class="dc-back" type="button"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" style="vertical-align:-2px;margin-right:4px"><path d="M10 4L6 8l4 4" stroke="#0d5b47" stroke-width="1.5" stroke-linecap="round"/></svg>${esc(displayName(account))}</button>` +

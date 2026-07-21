@@ -4578,30 +4578,45 @@ app.get("/api/salesforce/status", async (req, res) => {
     sfErrorResponse(res, e);
   }
 });
-// kinbotが外部（Salesforce等）へ接続するときの送信元IPを確認する診断。
-// Salesforceに登録した固定IPと、実際の送信元が一致しているかの切り分けに使う。
+// kinbotが外部（Salesforce等）へ接続するときの送信元IP・接続先を確認する診断。
+// ip restricted の切り分け（IPのズレ／接続先組織の取り違え）に使う。
 app.get("/api/salesforce/diag-ip", async (req, res) => {
   const expected = ["162.220.232.251", "152.55.176.240", "152.55.177.181"];
-  const services = [
-    "https://api.ipify.org?format=json",
-    "https://ifconfig.co/json",
-    "https://ipinfo.io/json",
-  ];
+  // 送信元IPを複数回サンプルして、出口IPが揺れていないか確認する
   const seen = new Set();
   const errors = [];
-  for (const url of services) {
+  for (let i = 0; i < 8; i++) {
     try {
-      const r = await fetch(url, { headers: { accept: "application/json" } });
+      const r = await fetch("https://api.ipify.org?format=json", { headers: { accept: "application/json" } });
       const d = await r.json();
+      if (d.ip) seen.add(String(d.ip).trim());
+    } catch (e) {
+      if (errors.length < 2) errors.push(e.message);
+    }
+  }
+  // 予備の別サービスでも1回確認（ipifyが偏る場合の保険）
+  for (const url of ["https://ifconfig.co/json", "https://ipinfo.io/json"]) {
+    try {
+      const d = await (await fetch(url, { headers: { accept: "application/json" } })).json();
       const ip = d.ip || d.query || "";
       if (ip) seen.add(String(ip).trim());
-    } catch (e) {
-      errors.push(`${url}: ${e.message}`);
-    }
+    } catch {}
   }
   const ips = [...seen];
   const allExpected = ips.length > 0 && ips.every((ip) => expected.includes(ip));
-  res.json({ outboundIps: ips, expected, allRegistered: allExpected, errors });
+  const notRegistered = ips.filter((ip) => !expected.includes(ip));
+  const loginUrl = (process.env.SF_LOGIN_URL || "https://login.salesforce.com").replace(/\/+$/, "");
+  const isSandbox = /test\.salesforce\.com/.test(loginUrl);
+  const cid = process.env.SF_CLIENT_ID || "";
+  res.json({
+    outboundIps: ips,
+    expected,
+    allRegistered: allExpected,
+    notRegistered,
+    loginUrl,
+    isSandbox,
+    clientIdPrefix: cid ? cid.slice(0, 14) + "…" : "(未設定)",
+  });
 });
 
 app.post("/api/salesforce/disconnect", async (req, res) => {

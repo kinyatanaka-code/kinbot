@@ -18,6 +18,18 @@ export function salesforceConfigured() {
   return !!(CLIENT_ID && CLIENT_SECRET);
 }
 
+// トークン失敗時に、接続先（本番/サンドボックス）と実際の送信元IPをログに出す。
+// ip restricted の原因（組織のズレ／IPのズレ）をログだけで切り分けるため。
+async function logSfDiag(where, body) {
+  let ip = "?";
+  try { ip = (await (await fetch("https://api.ipify.org")).text()).trim(); } catch {}
+  const sandbox = /test\.salesforce\.com/.test(LOGIN_URL);
+  console.error(
+    `[salesforce/diag] ${where} 失敗 | 接続先=${LOGIN_URL}（${sandbox ? "サンドボックス" : "本番"}）` +
+    ` | 送信元IP=${ip} | client_id先頭=${(CLIENT_ID || "").slice(0, 14)} | 応答=${body}`
+  );
+}
+
 export function authUrl(redirectUri, state) {
   const p = new URLSearchParams({
     response_type: "code",
@@ -41,7 +53,11 @@ export async function exchangeCode(code, redirectUri, owner) {
       redirect_uri: redirectUri,
     }),
   });
-  if (!res.ok) throw new Error(`SF token ${res.status}: ${(await res.text()).slice(0, 200)}`);
+  if (!res.ok) {
+    const body = (await res.text()).slice(0, 200);
+    await logSfDiag("exchangeCode(初回連携)", body);
+    throw new Error(`SF token ${res.status}: ${body}`);
+  }
   const data = await res.json();
   await saveSalesforceToken(owner, {
     refreshToken: data.refresh_token || null,
@@ -85,6 +101,7 @@ async function getAccess(owner) {
   });
   if (!res.ok) {
     const errText = (await res.text()).slice(0, 200);
+    await logSfDiag("refresh(トークン更新)", errText);
     const err = new Error(`SF refresh ${res.status}: ${errText}`);
     err.sfReauth = true; // フロントで再認証UIを出すためのフラグ
     throw err;
