@@ -4578,6 +4578,32 @@ app.get("/api/salesforce/status", async (req, res) => {
     sfErrorResponse(res, e);
   }
 });
+// kinbotが外部（Salesforce等）へ接続するときの送信元IPを確認する診断。
+// Salesforceに登録した固定IPと、実際の送信元が一致しているかの切り分けに使う。
+app.get("/api/salesforce/diag-ip", async (req, res) => {
+  const expected = ["162.220.232.251", "152.55.176.240", "152.55.177.181"];
+  const services = [
+    "https://api.ipify.org?format=json",
+    "https://ifconfig.co/json",
+    "https://ipinfo.io/json",
+  ];
+  const seen = new Set();
+  const errors = [];
+  for (const url of services) {
+    try {
+      const r = await fetch(url, { headers: { accept: "application/json" } });
+      const d = await r.json();
+      const ip = d.ip || d.query || "";
+      if (ip) seen.add(String(ip).trim());
+    } catch (e) {
+      errors.push(`${url}: ${e.message}`);
+    }
+  }
+  const ips = [...seen];
+  const allExpected = ips.length > 0 && ips.every((ip) => expected.includes(ip));
+  res.json({ outboundIps: ips, expected, allRegistered: allExpected, errors });
+});
+
 app.post("/api/salesforce/disconnect", async (req, res) => {
   await sfDisconnect(req.user);
   res.json({ ok: true });
