@@ -7,6 +7,7 @@ try {
   if (q.get("view") === "profile") document.body.classList.add("kb-only-profile");
   if (q.get("view") === "judge") document.body.classList.add("kb-only-judge");
   if (q.get("view") === "proposals") document.body.classList.add("kb-only-proposals");
+  if (q.get("view") === "salesforce") document.body.classList.add("kb-only-salesforce");
   // 埋め込み時は、中身の高さを親に伝えてiframeの高さを合わせる（内部スクロールを無くす）
   if (q.get("embed") === "1") {
     const postH = () => {

@@ -762,8 +762,9 @@ function renderCompanyOverview() {
       const act = b.dataset.act;
       if (act === "judge") { showSubEmbed("judge", "進捗・判定"); return; }
       if (act === "proposals") { showSubEmbed("proposals", "提案資料"); return; }
+      if (act === "sf") { showSubEmbed("salesforce", "SF更新"); return; }
       if (!latest) { alert("この企業の商談がまだありません。"); return; }
-      loadDetail(latest.bot_id, act === "mail" ? "thanks" : "sf", { focus: true });
+      loadDetail(latest.bot_id, "thanks", { focus: true });
     })
   );
 

@@ -266,6 +266,14 @@ body.kb-only-proposals .dc-page[data-page="proposals"] .dc-back,
 body.kb-only-proposals .dc-page:not([data-page="proposals"]) { display: none !important; }
 body.kb-only-proposals .dc-page[data-page="proposals"] { display: block !important; }
 body.kb-only-proposals .dc-page[data-page="proposals"] .deal-sec { border: 0; padding: 0; }
+
+/* Salesforce（ステージ更新・活動記録）だけを表示する埋め込みモード */
+body.kb-only-salesforce .deal-head,
+body.kb-only-salesforce .dc-home,
+body.kb-only-salesforce .dc-page[data-page="salesforce"] .dc-back,
+body.kb-only-salesforce .dc-page:not([data-page="salesforce"]) { display: none !important; }
+body.kb-only-salesforce .dc-page[data-page="salesforce"] { display: block !important; }
+body.kb-only-salesforce .dc-page[data-page="salesforce"] .deal-sec { border: 0; padding: 0; }
 .prof-embed { width: 100%; min-height: 120px; border: 0; display: block; background: var(--panel-2); border-radius: 12px; }
 
 /* ヘッダーにカテゴリタブと絞り込みトグルを載せる */
