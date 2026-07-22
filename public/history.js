@@ -355,7 +355,9 @@ function applyHistoryFilter() {
     // カテゴリタブによるフィルタ
     if (meetingCategory(m) !== histCatFilter) return false;
     // プロダクト（DOC/MOCHICA）タブの絞り込み。実施者の所属で判定する。
-    if (window.kbProduct && !window.kbProduct.matches(m.owner_name || m.owner)) return false;
+    // ただし担当者が未設定の商談は振り分けようがないので、どのプロダクトでも表示する。
+    const ownerForProduct = (m.owner_name || m.owner || "").trim();
+    if (ownerForProduct && window.kbProduct && !window.kbProduct.matches(ownerForProduct)) return false;
     if (owner && (m.owner || "").trim() !== owner) return false;
     // 商談名の部分一致（会社名・担当者名など、タイトルに含まれる文字で検索）
     if (nameQ && !String(m.title || "").toLowerCase().includes(nameQ)) return false;
