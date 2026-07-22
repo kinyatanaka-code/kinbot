@@ -246,16 +246,27 @@ export async function describeOpportunity(owner) {
 export async function createTask(owner, data) {
   const acc = await getAccess(owner);
   if (!acc) throw new Error("Salesforce未連携です");
-  const res = await fetch(
-    `${acc.instanceUrl}/services/data/${API_VERSION}/sobjects/Task`,
-    {
-      method: "POST",
-      headers: { Authorization: `Bearer ${acc.token}`, "content-type": "application/json" },
-      body: JSON.stringify(data),
+  const payload = { ...data };
+  // この組織に無い項目（例: Task.Type が無効）は自動で外して再送する
+  for (let attempt = 0; attempt < 5; attempt++) {
+    const res = await fetch(
+      `${acc.instanceUrl}/services/data/${API_VERSION}/sobjects/Task`,
+      {
+        method: "POST",
+        headers: { Authorization: `Bearer ${acc.token}`, "content-type": "application/json" },
+        body: JSON.stringify(payload),
+      }
+    );
+    if (res.ok) return res.json();
+    const text = (await res.text()).slice(0, 400);
+    const m = text.match(/No such column '([^']+)' on sobject/i);
+    if (res.status === 400 && m && Object.prototype.hasOwnProperty.call(payload, m[1])) {
+      delete payload[m[1]]; // 存在しない項目を除いて再送
+      continue;
     }
-  );
-  if (!res.ok) throw new Error(`SF task ${res.status}: ${(await res.text()).slice(0, 300)}`);
-  return res.json();
+    throw new Error(`SF task ${res.status}: ${text}`);
+  }
+  throw new Error("SF task: 項目を調整しても作成できませんでした");
 }
 
 // ───────────────────────────────────────────────────────────
