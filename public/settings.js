@@ -264,7 +264,57 @@ if ($("addAutoJoinBtn")) {
 }
 loadAutoJoin();
 
-// Salesforce：送信元IPの確認（ip restrictedの切り分け）
+// Salesforce：商談の項目一覧（ラベル ↔ API名）
+let sfFieldsCache = null;
+function renderSfFieldsList(fields, q) {
+  const box = $("sfFieldsResult");
+  const query = (q || "").trim().toLowerCase();
+  const list = query
+    ? fields.filter((f) => (f.label || "").toLowerCase().includes(query) || (f.name || "").toLowerCase().includes(query))
+    : fields;
+  if (!list.length) { box.innerHTML = '<div class="note">該当する項目がありません。</div>'; return; }
+  box.innerHTML =
+    `<div class="note">${list.length}件（行をクリックでAPI名をコピー）</div>` +
+    '<div class="sf-fields-table">' +
+    list.map((f) => `<div class="sf-fields-row" data-api="${escapeHtml(f.name)}">` +
+      `<span class="sf-fld-label">${escapeHtml(f.label || "")}</span>` +
+      `<span class="sf-fld-api">${escapeHtml(f.name)}</span>` +
+      `<span class="sf-fld-type">${escapeHtml(f.type || "")}${f.custom ? " ・カスタム" : ""}${f.updateable ? "" : " ・読取専用"}</span>` +
+      `</div>`).join("") +
+    '</div>';
+  box.querySelectorAll(".sf-fields-row").forEach((row) => {
+    row.addEventListener("click", () => {
+      const api = row.dataset.api;
+      if (navigator.clipboard) {
+        navigator.clipboard.writeText(api).then(() => {
+          row.classList.add("copied");
+          setTimeout(() => row.classList.remove("copied"), 1000);
+        }).catch(() => {});
+      }
+    });
+  });
+}
+if ($("sfFieldsBtn")) {
+  $("sfFieldsBtn").addEventListener("click", async () => {
+    const box = $("sfFieldsResult");
+    const btn = $("sfFieldsBtn");
+    btn.disabled = true; const o = btn.textContent; btn.textContent = "取得中…";
+    box.innerHTML = "";
+    try {
+      const d = await (await fetch("/api/salesforce/describe")).json();
+      if (d.error) throw new Error(d.error);
+      sfFieldsCache = d.fields || [];
+      renderSfFieldsList(sfFieldsCache, $("sfFieldsQuery") ? $("sfFieldsQuery").value : "");
+    } catch (e) {
+      box.innerHTML = `<div class="diag-ng">取得に失敗しました：${escapeHtml(e.message)}<br>Salesforce未連携・セッション切れの場合は、上で連携／再接続してからお試しください。</div>`;
+    } finally { btn.disabled = false; btn.textContent = o; }
+  });
+}
+if ($("sfFieldsQuery")) {
+  $("sfFieldsQuery").addEventListener("input", () => {
+    if (sfFieldsCache) renderSfFieldsList(sfFieldsCache, $("sfFieldsQuery").value);
+  });
+}
 if ($("sfDiagIpBtn")) {
   $("sfDiagIpBtn").addEventListener("click", async () => {
     const box = $("sfDiagIp");

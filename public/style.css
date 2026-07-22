@@ -2878,6 +2878,16 @@ button.np-step:disabled { opacity: 0.6; cursor: wait; }
 .sf-empty-inner { margin-top: 8px; padding: 4px 2px; }
 .sf-field-chk label { display: inline-flex; align-items: center; gap: 8px; font-size: 13px; cursor: pointer; }
 .sf-field-chk input { width: auto; }
+.sf-fields-search { flex: 1; min-width: 180px; padding: 8px 12px; border: 1px solid var(--line); border-radius: 9px; font: inherit; }
+.sf-fields-result { margin-top: 10px; }
+.sf-fields-table { max-height: 360px; overflow: auto; border: 1px solid var(--line); border-radius: 10px; margin-top: 6px; }
+.sf-fields-row { display: grid; grid-template-columns: 1fr 1fr auto; gap: 10px; padding: 8px 12px; border-bottom: 1px solid var(--line); cursor: pointer; font-size: 12.5px; align-items: center; }
+.sf-fields-row:last-child { border-bottom: 0; }
+.sf-fields-row:hover { background: var(--panel-2); }
+.sf-fields-row.copied { background: var(--accent-soft, #d7efe9); }
+.sf-fld-label { font-weight: 700; color: var(--ink); }
+.sf-fld-api { font-family: ui-monospace, Menlo, Consolas, monospace; color: var(--accent); word-break: break-all; }
+.sf-fld-type { color: var(--muted); font-size: 11px; white-space: nowrap; }
 .sf-ss-title { font-size: 12px; font-weight: 600; color: #0d5b47; margin-bottom: 10px; }
 .sf-divider { height: 1px; background: #e6e8e5; margin: 16px 0; }
 .sf-actions { display: flex; gap: 8px; margin-top: 4px; }

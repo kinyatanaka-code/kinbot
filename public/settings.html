@@ -302,6 +302,15 @@
               <div id="sfDiagIp" class="autojoin-diag"></div>
             </div>
             <div class="set-card">
+              <h3>商談の項目一覧（ラベル ↔ API名）</h3>
+              <p class="note">Salesforceの商談（Opportunity）の項目を、表示ラベルとAPI名で一覧表示します。下の項目マッピングに使うAPI名の確認に使えます（行をクリックするとAPI名をコピーできます）。</p>
+              <div class="cal-row">
+                <button class="btn btn-ghost" id="sfFieldsBtn" type="button">項目一覧を表示</button>
+                <input id="sfFieldsQuery" type="text" placeholder="ラベル・API名で絞り込み" class="sf-fields-search" />
+              </div>
+              <div id="sfFieldsResult" class="sf-fields-result"></div>
+            </div>
+            <div class="set-card">
               <h3>項目マッピング（kinbot → Salesforce）</h3>
               <p class="note">kinbotの情報を、Salesforceのどの項目（API参照名）へ入れるかを指定します。空欄の項目は更新対象外です。例：フェーズ→StageName、次のステップ→NextStep、カスタム項目→Xxx__c。</p>
               <label class="field"><span>フェーズ → SF項目</span><input id="sfmap_stage" type="text" placeholder="StageName" /></label>
