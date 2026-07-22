@@ -20,7 +20,16 @@ const PHASES = [
 const phaseLabel = (c) => (PHASES.find((p) => p.code === c) || {}).label || "";
 
 let allMeetings = [];
-let dealStatusByNorm = {}; // 会社（正規化名）→ 案件ステータス（フェーズ表記に使用）
+let dealStatusByDealKey = {}; // 会社（案件と同じ正規化キー）→ 案件ステータス（実際の判定と一致させる）
+// サーバーの normCompanyKey と同一の正規化（案件テーブルと突合するため）
+function normDealKey(s) {
+  return String(s || "")
+    .replace(/株式会社|（株）|\(株\)|㈱|有限会社|（有）|\(有\)|合同会社|合資会社|一般社団法人|公益社団法人|社会福祉法人|学校法人/g, "")
+    .replace(/[\s　]+/g, "")
+    .replace(/様$/u, "")
+    .trim()
+    .toLowerCase();
+}
 let usersCache = null;
 
 // 商談名から種別（コールド/過去失注）を自動判定する
@@ -279,7 +288,7 @@ function acctProfile(key) {
 }
 // 会社の案件ステータス（フェーズ表記に使用）。正規化名・正式名の両方で照合する。
 function companyStatus(key) {
-  return dealStatusByNorm[normKey(key)] || dealStatusByNorm[normKey(acctName(key))] || "";
+  return dealStatusByDealKey[normDealKey(key)] || dealStatusByDealKey[normDealKey(acctName(key))] || "";
 }
 // 商談の営業担当名
 function ownerNameOf(m) { return (m && (m.owner_name || m.rep_name || m.owner)) || "未設定"; }
@@ -309,10 +318,9 @@ async function runHistBulkJudge(groups) {
   if (status) status.textContent = `完了：${doneCos}社を再判定（商談 成功${okBots}${failBots ? " / 失敗" + failBots : ""}）`;
   // フェーズ（案件ステータス）を取り直して反映
   try {
-    const ds = await (await fetch("/api/deal-status")).json();
-    const statuses = (ds && ds.statuses) || {};
-    dealStatusByNorm = {};
-    for (const acc in statuses) dealStatusByNorm[normKey(acc)] = statuses[acc].status;
+    const deals = await (await fetch("/api/deals")).json();
+    dealStatusByDealKey = {};
+    for (const d of deals || []) dealStatusByDealKey[normDealKey(d.company_name)] = d.status;
   } catch {}
   histSelectMode = false;
   histSelected.clear();
@@ -478,6 +486,32 @@ async function loadPhase(botId) {
 }
 function escapeHtmlH(s) {
   return String(s == null ? "" : s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+}
+
+// SFのセッション切れ（リフレッシュトークン期限切れ等）を検知する
+function isSfReauthError(msg) {
+  return /expired|invalid_grant|refresh token|再認証|sfReauth/i.test(String(msg || ""));
+}
+// 「Salesforceに再接続」ボックスを表示（案件側と同じ、ポップアップ認証・ページ遷移なし）
+function showSfReauthH(container, msg, retryFn) {
+  if (!container) return;
+  container.innerHTML =
+    `<div class="sf-reauth-box"><div class="sf-reauth-msg">${escapeHtmlH(msg || "Salesforceのセッションが切れました")}</div>` +
+    `<button class="btn sf-reauth-btn" type="button">Salesforceに再接続</button></div>`;
+  const btn = container.querySelector(".sf-reauth-btn");
+  if (btn) btn.addEventListener("click", () => {
+    btn.textContent = "認証画面を開いています…";
+    btn.disabled = true;
+    const popup = window.open("/auth/salesforce?return=/auth/salesforce/done", "sf_reauth", "width=600,height=700,menubar=no,toolbar=no,location=yes");
+    const check = setInterval(() => {
+      if (!popup || popup.closed) {
+        clearInterval(check);
+        const box = btn.closest(".sf-reauth-box");
+        if (box) box.innerHTML = '<div style="padding:8px;color:#0d5b47;font-size:13px;">再接続しました。もう一度お試しください。</div>';
+        if (retryFn) setTimeout(retryFn, 500);
+      }
+    }, 500);
+  });
 }
 
 function renderList() {
@@ -826,10 +860,9 @@ async function loadList() {
       rebuildAccountNormMap();
     } catch {}
     try {
-      const ds = await (await fetch("/api/deal-status")).json();
-      const statuses = (ds && ds.statuses) || {};
-      dealStatusByNorm = {};
-      for (const acc in statuses) dealStatusByNorm[normKey(acc)] = statuses[acc].status;
+      const deals = await (await fetch("/api/deals")).json();
+      dealStatusByDealKey = {};
+      for (const d of deals || []) dealStatusByDealKey[normDealKey(d.company_name)] = d.status;
     } catch {}
     renderList();
     // 案件などから ?m=商談ID で来たら、その会社を開いて該当商談を表示
@@ -1395,7 +1428,12 @@ async function loadDetail(botId, openTab, opts = {}) {
         sfCandidates.appendChild(head);
         recs.forEach((rec) => sfCandidates.appendChild(renderCandidate(rec, true)));
       } catch (e) {
-        sfSearchNote.textContent = "検索失敗: " + e.message;
+        if (isSfReauthError(e.message)) {
+          sfSearchNote.textContent = "";
+          showSfReauthH(sfCandidates, "Salesforceのセッションが切れました（トークン期限切れ）。再接続してください。", runSfSearch);
+        } else {
+          sfSearchNote.textContent = "検索失敗: " + e.message;
+        }
       } finally {
         sfSearchBtn.disabled = false;
         sfSearchBtn.textContent = orig;
@@ -1443,7 +1481,12 @@ async function loadDetail(botId, openTab, opts = {}) {
         sfStatsLoaded = false;
         loadSfStats();
       } catch (e) {
-        sfAutoNote.textContent = "反映失敗: " + e.message;
+        if (isSfReauthError(e.message)) {
+          sfAutoNote.textContent = "";
+          showSfReauthH(sfAutoResult, "Salesforceのセッションが切れました（トークン期限切れ）。再接続してください。", () => sfAutoBtn.click());
+        } else {
+          sfAutoNote.textContent = "反映失敗: " + e.message;
+        }
       } finally {
         sfAutoBtn.disabled = false;
         sfAutoBtn.textContent = orig;
@@ -1480,7 +1523,11 @@ async function loadDetail(botId, openTab, opts = {}) {
           return;
         }
         if (d.fetchError) {
-          sfNote.textContent = "取得失敗: " + d.fetchError;
+          if (isSfReauthError(d.fetchError)) {
+            showSfReauthH(sfRows, "Salesforceのセッションが切れました（トークン期限切れ）。再接続してください。", () => sfFetchBtn.click());
+          } else {
+            sfNote.textContent = "取得失敗: " + d.fetchError;
+          }
           return;
         }
         sfRecordId = d.recordId || "";
@@ -1503,7 +1550,12 @@ async function loadDetail(botId, openTab, opts = {}) {
         sfPushBtn.hidden = false;
         sfNote.textContent = "内容を確認・編集して「Salesforceに更新」を押してください。";
       } catch (e) {
-        sfNote.textContent = "エラー: " + e.message;
+        if (isSfReauthError(e.message)) {
+          sfNote.textContent = "";
+          showSfReauthH(sfRows, "Salesforceのセッションが切れました（トークン期限切れ）。再接続してください。", () => sfFetchBtn.click());
+        } else {
+          sfNote.textContent = "エラー: " + e.message;
+        }
       } finally {
         sfFetchBtn.disabled = false;
         sfFetchBtn.textContent = o;
