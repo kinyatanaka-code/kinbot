@@ -101,6 +101,32 @@ if (calBtn && calPanel) {
       if (ev.url) setCalendarLinkOption(ev.url);
     });
   });
+  // 表示時に、現在時刻に一番近い予定で商談名を自動セット（空欄のときだけ）
+  autoPickNearestMeeting();
+}
+
+// 現在時刻に最も近いカレンダー予定を、商談名に自動セットする（前後2時間以内）
+async function autoPickNearestMeeting() {
+  const titleEl = $("meetingTitle");
+  if (!titleEl || titleEl.value.trim()) return;
+  try {
+    const d = await (await fetch("/api/calendar/events?date=" + encodeURIComponent(jstToday()))).json();
+    if (!d || !d.connected) return;
+    const now = Date.now();
+    const timed = (d.events || []).filter((e) => !e.allDay && e.start && e.title);
+    if (!timed.length) return;
+    let best = null, bestDist = Infinity;
+    for (const e of timed) {
+      const s = new Date(e.start).getTime();
+      const en = e.end ? new Date(e.end).getTime() : s + 60 * 60 * 1000;
+      const dist = now >= s && now <= en ? 0 : Math.min(Math.abs(s - now), Math.abs(en - now));
+      if (dist < bestDist) { bestDist = dist; best = e; }
+    }
+    if (best && bestDist <= 2 * 60 * 60 * 1000 && !titleEl.value.trim()) {
+      titleEl.value = best.title;
+      if (best.url) setCalendarLinkOption(best.url);
+    }
+  } catch {}
 }
 
 // ファイルから記録カードのカレンダー（商談名を埋める）
