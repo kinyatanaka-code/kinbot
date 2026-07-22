@@ -290,8 +290,27 @@ function acctProfile(key) {
 function companyStatus(key) {
   return dealStatusByDealKey[normDealKey(key)] || dealStatusByDealKey[normDealKey(acctName(key))] || "";
 }
-// 商談の営業担当名
-function ownerNameOf(m) { return (m && (m.owner_name || m.rep_name || m.owner)) || "未設定"; }
+// owner(メール/ID) → 表示名 の対応表。owner_nameが空の商談でも、同じ担当の他商談から名前を引く。
+let ownerDisplayMap = {};
+function rebuildOwnerDisplayMap() {
+  ownerDisplayMap = {};
+  for (const m of allMeetings) {
+    const o = (m.owner || "").trim();
+    const n = (m.owner_name || m.rep_name || "").trim();
+    if (o && n && !ownerDisplayMap[o]) ownerDisplayMap[o] = n;
+  }
+}
+// 商談の営業担当名を解決（owner_name→rep_name→owner対応表→owner本体）
+function repNameOf(m) {
+  if (!m) return "";
+  const direct = (m.owner_name || m.rep_name || "").trim();
+  if (direct) return direct;
+  const o = (m.owner || "").trim();
+  if (o) return ownerDisplayMap[o] || o;
+  return "";
+}
+// 商談の営業担当名（グルーピング用。未設定なら「未設定」）
+function ownerNameOf(m) { return repNameOf(m) || "未設定"; }
 
 // 選択した会社の商談をまとめて再判定する
 async function runHistBulkJudge(groups) {
@@ -412,7 +431,7 @@ function meetingCardEl(r) {
   card.innerHTML = `<div class="hcard-title"></div><div class="hcard-top"><span class="hcard-date"></span><span class="hcard-rep"></span></div><div class="hcard-tags"></div><div class="hcard-ov"></div>`;
   card.querySelector(".hcard-title").textContent = r.title || "(商談名なし)";
   card.querySelector(".hcard-date").textContent = fmtDate(r.created_at);
-  card.querySelector(".hcard-rep").textContent = r.owner_name || r.rep_name || "";
+  card.querySelector(".hcard-rep").textContent = repNameOf(r);
   card.querySelector(".hcard-tags").textContent = tags.join("　");
   card.querySelector(".hcard-ov").textContent = overview;
   card.addEventListener("click", () => {
@@ -648,7 +667,7 @@ function renderList() {
         `<div class="acard-meta"><span class="acard-count">${ms.length}件</span><span class="acard-rep"></span></div>` +
         `<div class="acard-sub"></div>`;
       card.querySelector(".acard-name").textContent = acctName(repKey);
-      card.querySelector(".acard-rep").textContent = last.owner_name || last.rep_name || "";
+      card.querySelector(".acard-rep").textContent = repNameOf(last);
       const st = companyStatus(repKey);
       const stCls = /受注/.test(st) ? "ok" : /失注/.test(st) ? "ng" : st ? "run" : "none";
       const stLabel = st || phaseLabel(last.phase) || "未判定";
@@ -835,6 +854,7 @@ async function loadList() {
     const res = await fetch("/api/meetings");
     const rows = await res.json();
     allMeetings = Array.isArray(rows) ? rows : [];
+    rebuildOwnerDisplayMap();
     if (allMeetings.length === 0) {
       hlist.innerHTML =
         '<div class="empty-state">まだ履歴がありません。商談を1件記録すると、ここに並びます。<br><small>（履歴の保存には DATABASE_URL の設定が必要です）</small></div>';
