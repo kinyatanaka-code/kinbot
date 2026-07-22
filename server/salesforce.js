@@ -85,8 +85,19 @@ export async function connectionInfo(owner) {
   };
 }
 
-// アクセストークン取得（refresh_token で都度更新）。{ token, instanceUrl } を返す
-async function getAccess(owner) {
+// アクセストークンのキャッシュ（owner別・メモリ）。毎回リフレッシュせず、有効な間は使い回す。
+const _sfTokenCache = new Map(); // owner -> { token, instanceUrl, exp }
+export function clearSfTokenCache(owner) {
+  if (owner) _sfTokenCache.delete(owner);
+  else _sfTokenCache.clear();
+}
+
+// アクセストークン取得（有効な間はキャッシュ、失効時のみ refresh_token で更新）。{ token, instanceUrl } を返す
+async function getAccess(owner, force = false) {
+  if (!force) {
+    const c = _sfTokenCache.get(owner);
+    if (c && c.exp > Date.now()) return { token: c.token, instanceUrl: c.instanceUrl };
+  }
   const row = await getSalesforceToken(owner);
   if (!row || !row.refresh_token) return null;
   const res = await fetch(`${LOGIN_URL}/services/oauth2/token`, {
@@ -100,6 +111,7 @@ async function getAccess(owner) {
     }),
   });
   if (!res.ok) {
+    _sfTokenCache.delete(owner);
     const errText = (await res.text()).slice(0, 200);
     await logSfDiag("refresh(トークン更新)", errText);
     const err = new Error(`SF refresh ${res.status}: ${errText}`);
@@ -111,6 +123,10 @@ async function getAccess(owner) {
   if (data.instance_url && data.instance_url !== row.instance_url) {
     await saveSalesforceToken(owner, { instanceUrl: data.instance_url });
   }
+  // expires_in があれば利用、無ければ15分。上限1時間、1分の余裕を引く。
+  const ttlSec = Number(data.expires_in) > 0 ? Number(data.expires_in) : 900;
+  const exp = Date.now() + Math.min(ttlSec, 3600) * 1000 - 60 * 1000;
+  _sfTokenCache.set(owner, { token: data.access_token, instanceUrl, exp });
   return { token: data.access_token, instanceUrl };
 }
 
@@ -242,6 +258,17 @@ export async function describeOpportunity(owner) {
   return res.json();
 }
 
+export async function describeTask(owner) {
+  const acc = await getAccess(owner);
+  if (!acc) throw new Error("Salesforce未連携です");
+  const res = await fetch(
+    `${acc.instanceUrl}/services/data/${API_VERSION}/sobjects/Task/describe`,
+    { headers: { Authorization: `Bearer ${acc.token}` } }
+  );
+  if (!res.ok) throw new Error(`SF describe task ${res.status}`);
+  return res.json();
+}
+
 // Task（活動）を作成
 export async function createTask(owner, data) {
   const acc = await getAccess(owner);
@@ -267,6 +294,37 @@ export async function createTask(owner, data) {
     throw new Error(`SF task ${res.status}: ${text}`);
   }
   throw new Error("SF task: 項目を調整しても作成できませんでした");
+}
+
+// Task（活動）を更新（存在しない・更新不可の項目は自動で外して再送）
+export async function updateTask(owner, id, data) {
+  const acc = await getAccess(owner);
+  if (!acc) throw new Error("Salesforce未連携です");
+  const payload = { ...data };
+  delete payload.WhatId; delete payload.Id;
+  if (!Object.keys(payload).length) return true;
+  for (let attempt = 0; attempt < 6; attempt++) {
+    const res = await fetch(
+      `${acc.instanceUrl}/services/data/${API_VERSION}/sobjects/Task/${id}`,
+      {
+        method: "PATCH",
+        headers: { Authorization: `Bearer ${acc.token}`, "content-type": "application/json" },
+        body: JSON.stringify(payload),
+      }
+    );
+    if (res.ok) return true;
+    const text = (await res.text()).slice(0, 400);
+    const m = text.match(/No such column '([^']+)' on sobject/i) || text.match(/Unable to create\/update fields: ([^.]+)/i);
+    if (res.status === 400 && m) {
+      const bad = m[1].split(/[,\s]+/).filter(Boolean);
+      let removed = false;
+      for (const b of bad) { if (Object.prototype.hasOwnProperty.call(payload, b)) { delete payload[b]; removed = true; } }
+      if (removed && Object.keys(payload).length) continue;
+      return true; // 送れる項目が無くなった場合は完了扱い
+    }
+    throw new Error(`SF task update ${res.status}: ${text}`);
+  }
+  return true;
 }
 
 // ───────────────────────────────────────────────────────────

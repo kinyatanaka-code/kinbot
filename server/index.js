@@ -175,7 +175,10 @@ import {
   getStageValues,
   postChatter,
   describeOpportunity,
+  describeTask,
   createTask,
+  updateTask,
+  clearSfTokenCache,
   sfQuery,
   fillEmptyFields,
   createTaskIdempotent,
@@ -4555,6 +4558,7 @@ app.get("/auth/salesforce/callback", async (req, res) => {
       returnUrl = parsed.returnUrl || "/settings.html";
     } catch {}
     await sfExchangeCode(req.query.code, sfRedirectUri(), owner);
+    clearSfTokenCache(owner);
     // ポップアップ完了ページの場合は自動で閉じるHTMLを返す
     if (returnUrl === "/auth/salesforce/done") {
       return res.send(`<!DOCTYPE html><html><head><title>接続完了</title></head><body style="font-family:sans-serif;text-align:center;padding:60px 20px;">
@@ -4621,6 +4625,7 @@ app.get("/api/salesforce/diag-ip", async (req, res) => {
 
 app.post("/api/salesforce/disconnect", async (req, res) => {
   await sfDisconnect(req.user);
+  clearSfTokenCache(req.user);
   res.json({ ok: true });
 });
 // 項目マッピング（kinbotの情報 → SFの項目API参照名）を保存
@@ -4636,7 +4641,10 @@ app.put("/api/salesforce/mapping", async (req, res) => {
 
 // SF APIエラーハンドリング共通ヘルパー
 function sfErrorResponse(res, e) {
-  const isReauth = e.sfReauth || /expired|invalid_grant/.test(e.message || "");
+  const msg = e.message || "";
+  const sessionErr = /INVALID_SESSION_ID|Session expired|invalid session/i.test(msg);
+  const isReauth = e.sfReauth || /expired|invalid_grant/.test(msg);
+  if (sessionErr || isReauth) clearSfTokenCache(); // 次回は取り直す
   const status = isReauth ? 401 : 500;
   res.status(status).json({
     error: e.message,
@@ -4723,18 +4731,44 @@ app.get("/api/salesforce/describe", async (req, res) => {
 });
 
 // SF活動（Task）を作成
+// Task（活動）の項目定義を返す（活動記録フォームを実項目ベースで作るため）
+app.get("/api/salesforce/task-describe", async (req, res) => {
+  try {
+    const desc = await describeTask(req.user);
+    const fields = (desc.fields || []).map(f => ({
+      name: f.name, label: f.label, type: f.type,
+      updateable: f.updateable, createable: f.createable, custom: f.custom,
+      picklistValues: f.picklistValues?.filter(v => v.active).map(v => ({ value: v.value, label: v.label })),
+    }));
+    res.json({ fields });
+  } catch (e) {
+    sfErrorResponse(res, e);
+  }
+});
+
 app.post("/api/salesforce/task", async (req, res) => {
   try {
-    const { opportunityId, subject, type, description, status, activityDate } = req.body || {};
+    const { opportunityId, fields, subject, type, description, status, activityDate } = req.body || {};
     if (!opportunityId) return res.status(400).json({ error: "商談IDが必要です" });
-    const task = await createTask(req.user, {
-      WhatId: opportunityId,
-      Subject: subject || "[kinbot] 活動記録",
-      Type: type || null,
-      Description: description || "",
-      Status: status || "完了",
-      ActivityDate: activityDate || new Date().toISOString().slice(0, 10),
-    });
+    const data = { WhatId: opportunityId };
+    if (fields && typeof fields === "object") Object.assign(data, fields); // 実項目ベースの入力
+    // 後方互換（旧フォーム）
+    if (subject && data.Subject === undefined) data.Subject = subject;
+    if (type && data.Type === undefined) data.Type = type;
+    if (description !== undefined && data.Description === undefined) data.Description = description;
+    if (status && data.Status === undefined) data.Status = status;
+    if (activityDate && data.ActivityDate === undefined) data.ActivityDate = activityDate;
+    // 既定値
+    if (!data.Subject) data.Subject = "[kinbot] 活動記録";
+    if (!data.Status) data.Status = "完了";
+    if (!data.ActivityDate) data.ActivityDate = new Date().toISOString().slice(0, 10);
+    const task = await createTask(req.user, data); // 存在しない項目は自動で外して再送
+    // 作成時に入らなかった項目（活動種別などのカスタム項目）を、後追いのupdateで確実に反映する
+    const taskId = task && (task.id || task.Id);
+    if (taskId) {
+      try { await updateTask(req.user, taskId, data); }
+      catch (e) { console.warn("[sf task] 後追いupdate失敗", e.message); }
+    }
     res.json({ ok: true, task });
   } catch (e) {
     sfErrorResponse(res, e);
