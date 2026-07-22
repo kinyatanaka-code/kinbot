@@ -274,15 +274,54 @@ if (els.linkSelect) {
   });
   loadLinks();
 }
+
+// 記録ページのタブ切替（商談を記録する / ファイルから記録）
+(function setupRecTabs() {
+  const tabs = document.getElementById("recTabs");
+  if (!tabs) return;
+  tabs.querySelectorAll(".rec-tab").forEach((b) => {
+    b.addEventListener("click", () => {
+      const target = b.dataset.rectab;
+      tabs.querySelectorAll(".rec-tab").forEach((x) => x.classList.toggle("active", x === b));
+      document.querySelectorAll(".join-card[data-recpanel]").forEach((c) => {
+        c.hidden = c.dataset.recpanel !== target;
+      });
+    });
+  });
+})();
+
 async function loadLinks() {
   try {
     const res = await fetch("/api/links");
     const { links } = await res.json();
-    for (const l of links || []) {
+    const list = links || [];
+    const quick = document.getElementById("quickLinks");
+    const quickWrap = document.getElementById("quickLinksWrap");
+    for (const l of list) {
       const opt = document.createElement("option");
       opt.value = l.url;
       opt.textContent = l.name;
       els.linkSelect.appendChild(opt);
+    }
+    // よく使うリンクをボタンで常時表示（押すとURLがセットされる）
+    if (quick && quickWrap && list.length) {
+      quickWrap.hidden = false;
+      quick.innerHTML = "";
+      for (const l of list) {
+        const btn = document.createElement("button");
+        btn.type = "button";
+        btn.className = "quick-link-btn";
+        btn.textContent = l.name || l.url;
+        btn.title = l.url;
+        btn.addEventListener("click", () => {
+          els.meetingUrl.value = l.url;
+          if (els.linkSelect) els.linkSelect.value = l.url;
+          if (els.meetingTitle && !els.meetingTitle.value.trim() && l.name) els.meetingTitle.value = l.name;
+          quick.querySelectorAll(".quick-link-btn").forEach((x) => x.classList.toggle("active", x === btn));
+          els.meetingUrl.focus();
+        });
+        quick.appendChild(btn);
+      }
     }
   } catch {}
 }

@@ -39,8 +39,12 @@
         <!-- ステップ1：商談名・URL・入室ボタン＋進行中の商談 -->
         <div class="join-view" id="viewJoin">
           <div class="join-inner">
+            <div class="rec-tabs" id="recTabs">
+              <button type="button" class="rec-tab active" data-rectab="rec">商談を記録する</button>
+              <button type="button" class="rec-tab" data-rectab="file">ファイルから記録</button>
+            </div>
             <div class="join-cards">
-              <div class="join-card" data-mrec="rec">
+              <div class="join-card" data-mrec="rec" data-recpanel="rec">
                 <img class="join-mascot" src="kinbot.svg" alt="kinbot" />
                 <h1 class="join-title">商談を記録する</h1>
                 <p class="join-desc">商談名と会議URLを入れて、Botを入室させます。</p>
@@ -49,12 +53,16 @@
                   <button type="button" id="calBtn" class="cal-btn" title="カレンダーから選ぶ" aria-label="カレンダーから選ぶ"><svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><rect x="3" y="5" width="18" height="16" rx="3" fill="#E1F5EE" stroke="#11a47f" stroke-width="1.6"/><line x1="3" y1="9" x2="21" y2="9" stroke="#11a47f" stroke-width="1.6"/><line x1="8" y1="2.5" x2="8" y2="6.5" stroke="#0F6E56" stroke-width="2" stroke-linecap="round"/><line x1="16" y1="2.5" x2="16" y2="6.5" stroke="#0F6E56" stroke-width="2" stroke-linecap="round"/><circle cx="8" cy="13.5" r="1.4" fill="#11a47f"/><circle cx="12" cy="13.5" r="1.4" fill="#11a47f"/><circle cx="16" cy="13.5" r="1.4" fill="#11a47f"/><circle cx="8" cy="17.5" r="1.4" fill="#11a47f"/><circle cx="12" cy="17.5" r="1.4" fill="#11a47f"/></svg></button>
                   <div class="cal-panel" id="calPanel" hidden></div>
                 </div>
+                <div class="quick-links-wrap" id="quickLinksWrap" hidden>
+                  <div class="quick-links-label">よく使うリンク（押すとセットされます）</div>
+                  <div class="quick-links" id="quickLinks"></div>
+                </div>
                 <select id="linkSelect" class="link-select"><option value="">会議リンクを選ぶ…（登録リンク / 予定のリンク）</option></select>
                 <input id="meetingUrl" type="url" placeholder="会議のURL（Zoom / Meet / Teams）" />
                 <button class="btn big" id="joinBtn">Botを入室させる</button>
                 <p class="join-consent">Botが参加者として入室します。<strong>相手に録音・記録の同意</strong>を得てください。</p>
               </div>
-              <div class="join-card upload-card" data-mrec="file">
+              <div class="join-card upload-card" data-mrec="file" data-recpanel="file" hidden>
                 <h2 class="join-title">ファイルから記録</h2>
                 <p class="join-desc">音声・動画をアップロードして、文字起こし・要約・分析を作成し、商談履歴に保存します。</p>
                 <div class="title-row">
