@@ -1855,6 +1855,24 @@ async function sfFetch(url, options) {
 let sfLinkedOpp = null;
 let sfStageOptions = [];
 let sfFieldDefs = null; // Opportunityのフィールド定義キャッシュ
+let sfFieldTypes = null; // { apiName: { type, updateable } } 型チェック用
+let sfFieldList = null;  // describeの全項目（名前・ラベル・型・選択肢）
+async function loadSfFields() {
+  if (sfFieldList) return sfFieldList;
+  try {
+    const r = await sfFetch("/api/salesforce/describe");
+    const d = await r.json();
+    sfFieldList = d.fields || [];
+    sfFieldTypes = {};
+    for (const f of sfFieldList) sfFieldTypes[f.name] = { type: f.type, updateable: f.updateable };
+  } catch { sfFieldList = []; sfFieldTypes = sfFieldTypes || {}; }
+  return sfFieldList;
+}
+async function loadSfFieldTypes() {
+  if (sfFieldTypes) return sfFieldTypes;
+  await loadSfFields();
+  return sfFieldTypes || {};
+}
 
 // SS固有フィールドの定義（スクショから読み取った項目）
 const SS_FIELDS = {
@@ -2035,11 +2053,35 @@ async function initSfTab(account) {
         const fields = {};
         const stage = $("sfStage")?.value;
         if (stage && stage !== sfLinkedOpp.StageName) fields.StageName = stage;
-        // SS固有フィールドの値を収集
+        // 実際のフィールド型を取得し、変更のあった項目だけ型に合わせて送る
+        const types = await loadSfFieldTypes();
         document.querySelectorAll("[data-sf-field]").forEach(el => {
           const api = el.dataset.sfField;
-          const val = el.value?.trim();
-          if (val !== undefined && val !== "") fields[api] = val;
+          const orig = el.dataset.sfOrig;
+          // チェックボックス（boolean）
+          if (el.type === "checkbox") {
+            const cur = el.checked;
+            if (orig !== undefined && (orig === "true") === cur) return; // 変更なし
+            fields[api] = cur;
+            return;
+          }
+          const val = (el.value ?? "").trim();
+          if (orig !== undefined && val === orig) return; // 変更なしは送らない（既存値の再送防止）
+          if (val === "") { if (orig) fields[api] = null; return; } // 値を消した場合のみ空で更新
+          const meta = types[api];
+          if (meta && meta.updateable === false) return;
+          const t = meta ? meta.type : "";
+          if (t === "boolean") {
+            if (/^(true|1|yes|はい|on|有)$/i.test(val)) fields[api] = true;
+            else if (/^(false|0|no|いいえ|off|無)$/i.test(val)) fields[api] = false;
+            return;
+          }
+          if (t === "double" || t === "currency" || t === "int" || t === "percent") {
+            const n = Number(val.replace(/[,¥￥\s]/g, ""));
+            if (!isNaN(n)) fields[api] = n;
+            return;
+          }
+          fields[api] = val;
         });
         if (Object.keys(fields).length) {
           const r = await sfFetch("/api/salesforce/opportunity/" + sfLinkedOpp.Id, {
@@ -2112,39 +2154,82 @@ async function initSfTab(account) {
     };
   }
 
-  // Stage変更時にSS固有フィールドを切り替え
-  const stageSel = $("sfStage");
-  if (stageSel) {
-    stageSel.addEventListener("change", () => renderSSFields(stageSel.value));
-  }
+  // ステージのプルダウンは値だけ変える（項目フォームは実項目ベースなので再描画しない＝編集を保持）
 }
 
-function renderSSFields(stageName) {
+async function renderSSFields(stageName) {
   const container = $("sfStageFields");
   if (!container) return;
+  container.innerHTML = '<div class="empty-state">項目を読み込み中…</div>';
+  let fields = [];
+  try { fields = await loadSfFields(); } catch {}
+  if (!fields || !fields.length) { renderSSFieldsStatic(stageName); return; }
 
-  // デバッグ: sfLinkedOppのカスタムフィールドを確認
-  if (sfLinkedOpp) {
-    const customKeys = Object.keys(sfLinkedOpp).filter(k => k.endsWith("__c"));
-    console.log("[SF] カスタムフィールド:", customKeys.join(", "));
+  const STD = new Set(["NextStep", "Amount", "CloseDate", "Description", "Probability"]);
+  const skip = /^(Id|IsDeleted|IsClosed|IsWon|SystemModstamp|CreatedById|CreatedDate|LastModifiedById|LastModifiedDate|StageName)$/;
+  const editable = fields.filter((f) =>
+    f.updateable && (f.custom || STD.has(f.name)) && !skip.test(f.name) &&
+    f.type !== "reference" && f.type !== "address" && f.type !== "location"
+  );
+  const valStr = (f) => {
+    const v = sfLinkedOpp ? sfLinkedOpp[f.name] : undefined;
+    if (v === null || v === undefined) return "";
+    if (f.type === "date") return String(v).slice(0, 10);
+    if (f.type === "datetime") return String(v).slice(0, 16).replace("T", " ");
+    return String(v);
+  };
+  const hasVal = (f) => { const v = sfLinkedOpp ? sfLinkedOpp[f.name] : undefined; return v !== null && v !== undefined && v !== ""; };
+  const withVal = editable.filter(hasVal);
+  const empty = editable.filter((f) => !hasVal(f));
+
+  const render1 = (f) => {
+    const label = esc(f.label || f.name);
+    if (f.type === "boolean") {
+      const checked = sfLinkedOpp && sfLinkedOpp[f.name] === true;
+      return `<div class="sf-field sf-field-chk"><label><input type="checkbox" data-sf-field="${f.name}" data-sf-type="boolean" data-sf-orig="${checked ? "true" : "false"}" ${checked ? "checked" : ""}/> ${label}</label></div>`;
+    }
+    const cur = valStr(f);
+    const orig = ` data-sf-orig="${esc(cur)}"`;
+    if (f.type === "picklist" && f.picklistValues && f.picklistValues.length) {
+      const opts = ['<option value=""></option>'].concat(
+        f.picklistValues.map((o) => `<option value="${esc(o.value)}" ${o.value === cur ? "selected" : ""}>${esc(o.label || o.value)}</option>`)
+      ).join("");
+      return `<div class="sf-field"><label>${label}</label><select class="sf-select" data-sf-field="${f.name}"${orig}>${opts}</select></div>`;
+    }
+    if (f.type === "textarea") {
+      return `<div class="sf-field"><label>${label}</label><textarea class="sf-textarea" data-sf-field="${f.name}"${orig} rows="2">${esc(cur)}</textarea></div>`;
+    }
+    if (f.type === "date") {
+      return `<div class="sf-field"><label>${label}</label><input type="date" class="sf-input" data-sf-field="${f.name}"${orig} value="${esc(cur)}"/></div>`;
+    }
+    return `<div class="sf-field"><label>${label}</label><input type="text" class="sf-input" data-sf-field="${f.name}"${orig} value="${esc(cur)}"/></div>`;
+  };
+
+  let html = "";
+  if (withVal.length) {
+    html += `<div class="sf-ss-section sf-ss-current"><div class="sf-ss-title">● 現在SFに記載されている項目（そのまま編集できます）</div>${withVal.map(render1).join("")}</div>`;
+  } else {
+    html += `<div class="sf-ss-note">この商談にはまだ記載済みの項目がありません。下から項目を開いて入力できます。</div>`;
   }
+  html += `<details class="sf-empty-fields"><summary>その他の項目（${empty.length}）を表示</summary><div class="sf-empty-inner">${empty.map(render1).join("")}</div></details>`;
+  container.innerHTML = html;
+}
 
-  // 全SSのフィールドを表示（現在のステージを強調）
+// describe取得に失敗した場合のフォールバック（推測のSS_FIELDS）
+function renderSSFieldsStatic(stageName) {
+  const container = $("sfStageFields");
+  if (!container) return;
   let html = "";
   for (const [ssLabel, fields] of Object.entries(SS_FIELDS)) {
     const ssNum = ssLabel.match(/^(\d+)/)?.[1] || "";
     const isCurrent = stageName && stageName.includes(ssNum);
     html += `<div class="sf-ss-section ${isCurrent ? "sf-ss-current" : "sf-ss-other"}">`;
     html += `<div class="sf-ss-title">${isCurrent ? "● " : ""}${esc(ssLabel)} の項目</div>`;
-    html += fields.map(f => {
+    html += fields.map((f) => {
       const currentVal = sfLinkedOpp?.[f.api] || "";
-      if (f.type === "textarea") {
-        return `<div class="sf-field"><label>${esc(f.label)}</label><textarea class="sf-textarea" data-sf-field="${f.api}" rows="2">${esc(currentVal)}</textarea></div>`;
-      } else if (f.type === "date" || f.type === "datetime") {
-        return `<div class="sf-field"><label>${esc(f.label)}</label><input type="date" class="sf-input" data-sf-field="${f.api}" value="${esc(String(currentVal).slice(0,10))}" /></div>`;
-      } else {
-        return `<div class="sf-field"><label>${esc(f.label)}</label><input type="text" class="sf-input" data-sf-field="${f.api}" value="${esc(currentVal)}" /></div>`;
-      }
+      if (f.type === "textarea") return `<div class="sf-field"><label>${esc(f.label)}</label><textarea class="sf-textarea" data-sf-field="${f.api}" rows="2">${esc(currentVal)}</textarea></div>`;
+      if (f.type === "date" || f.type === "datetime") return `<div class="sf-field"><label>${esc(f.label)}</label><input type="date" class="sf-input" data-sf-field="${f.api}" value="${esc(String(currentVal).slice(0, 10))}" /></div>`;
+      return `<div class="sf-field"><label>${esc(f.label)}</label><input type="text" class="sf-input" data-sf-field="${f.api}" value="${esc(currentVal)}" /></div>`;
     }).join("");
     html += `</div>`;
   }

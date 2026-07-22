@@ -2872,6 +2872,12 @@ button.np-step:disabled { opacity: 0.6; cursor: wait; }
 
 /* SF SS固有フィールドセクション */
 .sf-ss-section { padding: 12px; background: #f7faf8; border: 1px solid #e6e8e5; border-radius: 8px; margin: 10px 0; }
+.sf-ss-note { font-size: 12px; color: var(--muted); padding: 6px 2px; }
+.sf-empty-fields { margin-top: 10px; }
+.sf-empty-fields > summary { cursor: pointer; font-size: 12px; font-weight: 700; color: var(--accent); }
+.sf-empty-inner { margin-top: 8px; padding: 4px 2px; }
+.sf-field-chk label { display: inline-flex; align-items: center; gap: 8px; font-size: 13px; cursor: pointer; }
+.sf-field-chk input { width: auto; }
 .sf-ss-title { font-size: 12px; font-weight: 600; color: #0d5b47; margin-bottom: 10px; }
 .sf-divider { height: 1px; background: #e6e8e5; margin: 16px 0; }
 .sf-actions { display: flex; gap: 8px; margin-top: 4px; }
