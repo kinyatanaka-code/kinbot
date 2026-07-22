@@ -122,7 +122,7 @@ async function autoPickNearestMeeting() {
       const dist = now >= s && now <= en ? 0 : Math.min(Math.abs(s - now), Math.abs(en - now));
       if (dist < bestDist) { bestDist = dist; best = e; }
     }
-    if (best && bestDist <= 2 * 60 * 60 * 1000 && !titleEl.value.trim()) {
+    if (best && !titleEl.value.trim()) {
       titleEl.value = best.title;
       if (best.url) setCalendarLinkOption(best.url);
     }

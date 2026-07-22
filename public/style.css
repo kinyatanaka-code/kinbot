@@ -1319,17 +1319,12 @@ a.kb-src:hover { color: var(--accent); border-color: var(--accent); }
   .history.m-detail .hdetail { display: block; }
 }
 
-/* スマホ：レコーディング3タブ */
-.rec-tabs { display: none; }
+/* レコーディングのタブ（PC・スマホ共通。JSでrec/fileを切替） */
 @media (max-width: 760px) {
-  .rec-tabs { display: flex; gap: 6px; padding: 10px 12px 0; }
-  .rec-tab { flex: 1 1 0; font: inherit; font-size: 12.5px; font-weight: 700; padding: 10px 4px; border: 1px solid var(--line); border-radius: 10px 10px 0 0; background: var(--panel-2); color: var(--muted); cursor: pointer; }
-  .rec-tab.active { background: var(--panel); color: var(--accent); border-bottom-color: var(--panel); }
-  #viewJoin[hidden] { display: block; } /* スマホはタブ表示制御するので常にレイアウト */
+  .rec-tab { font-size: 12.5px; padding: 8px 4px; }
+  #viewJoin[hidden] { display: none; }
   .join-inner, .join-cards { display: block; }
   .join-card { margin-bottom: 12px; }
-  [data-mrec] { display: none; }
-  [data-mrec].mrec-on:not([hidden]) { display: block; }
   .live-view { padding: 0 12px 12px; }
 }
 
