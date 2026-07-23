@@ -1950,7 +1950,14 @@ function renderTaskField(f, def) {
     return `<div class="sf-field sf-field-chk"><label><input type="checkbox" data-sf-task-field="${f.name}"/> ${label}</label></div>`;
   }
   if (f.type === "picklist" && f.picklistValues && f.picklistValues.length) {
-    const opts = ['<option value=""></option>'].concat(f.picklistValues.map(o => `<option value="${esc(o.value)}" ${o.value === val ? "selected" : ""}>${esc(o.label || o.value)}</option>`)).join("");
+    let pv = f.picklistValues;
+    // 活動種別は指定の5つ（電話/メール/商談/再商談/ネクストアクション）だけに絞る
+    if (/活動種別/.test(f.label || "")) {
+      const allow = ["電話", "メール", "商談", "再商談", "ネクストアクション"];
+      const ord = (o) => { const i = allow.indexOf(o.label || o.value); return i === -1 ? allow.indexOf(o.value) : i; };
+      pv = pv.filter((o) => ord(o) !== -1).sort((a, b) => ord(a) - ord(b));
+    }
+    const opts = ['<option value=""></option>'].concat(pv.map(o => `<option value="${esc(o.value)}" ${o.value === val ? "selected" : ""}>${esc(o.label || o.value)}</option>`)).join("");
     return `<div class="sf-field"><label>${label}</label><select class="sf-select" data-sf-task-field="${f.name}">${opts}</select></div>`;
   }
   if (f.type === "textarea") {
@@ -2298,7 +2305,8 @@ async function renderSSFields(stageName) {
     { key: "03：担当者合意", labels: ["SS03昇格日", "今やるべき理由", "比較されてる代替手段", "DOCでないといけない理由", "上申先", "同席打診", "上申日", "上申に必要な書類"] },
     { key: "04：企画決定者合意", labels: ["SS04昇格日", "役員等への業績等に必要な書類", "決裁フロー", "利用開始希望時期", "リーガル・セキュリティチェック", "申込書回収想定日"] },
     { key: "05：決裁者合意", labels: ["目標用_SS05昇格日", "最終的な決裁の決め手"] },
-    { key: "06：申込書回収完了 / SS99：失注", labels: ["SS06昇格日", "キラーコンテンツ", "☆受失注日", "受失注理由(大項目)", "失注後次回アクション日", "受失注理由（中項目）", "サーカスNO(メディア用)", "受失注理由(小項目)", "受失注理由詳細", "納品への引き継ぎ内容"] },
+    { key: "06：申込書回収完了", labels: ["SS06昇格日", "キラーコンテンツ", "サーカスNO(メディア用)", "☆受失注日", "納品への引き継ぎ内容"] },
+    { key: "99：失注", labels: ["☆受失注日", "受失注理由(大項目)", "受失注理由（中項目）", "受失注理由(小項目)", "受失注理由詳細", "失注後次回アクション日"] },
   ];
   const normLbl = (s) => String(s || "").replace(/[\s　()（）:：★☆・_]/g, "").toLowerCase();
   const labelToApi = {};
