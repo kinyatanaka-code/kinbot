@@ -1282,12 +1282,18 @@ async function selectDeal(account) {
     `<div id="sfSearch" class="sf-search"><button class="btn sf-search-btn" id="sfSearchBtn">商談を検索</button></div>` +
     `<div id="sfMatches"></div>` +
     `<div id="sfLinked" style="display:none"><div id="sfLinkedInfo" class="sf-linked-info"></div>` +
-    `<div class="sf-section-box"><div class="sf-section-title"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" style="vertical-align:-2px;margin-right:4px"><rect x="1" y="6" width="4" height="9" rx="1" fill="#0d5b47"/><rect x="6" y="3" width="4" height="12" rx="1" fill="#1d9e75"/><rect x="11" y="1" width="4" height="14" rx="1" fill="#5DCAA5"/></svg>ステージ・項目の更新</div>` +
-    `<div class="sf-field"><label>セールスステージ</label><select id="sfStage" class="sf-select"></select></div><div id="sfStageFields"></div>` +
-    `<div class="sf-field" style="margin-top:8px"><button class="btn" id="sfUpdateBtn">ステージ・項目を更新</button></div><div id="sfUpdateMsg"></div></div>` +
+    `<div class="sf-subtabs" id="sfSubtabs"><button type="button" class="sf-subtab active" data-sftab="task">活動記録</button><button type="button" class="sf-subtab" data-sftab="stage">ステージ・項目更新</button></div>` +
+    `<div class="sf-subpanel" data-sfpanel="task">` +
     `<div class="sf-section-box"><div class="sf-section-title"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" style="vertical-align:-2px;margin-right:4px"><circle cx="8" cy="8" r="7" fill="#0d5b47"/><path d="M8 4v4l3 2" stroke="#fff" stroke-width="1.5" stroke-linecap="round"/></svg>活動を記録</div>` +
     `<div id="sfTaskFields"><div class="empty-state">項目を読み込み中…</div></div>` +
     `<div class="sf-field" style="margin-top:8px"><button class="btn sf-btn-secondary" id="sfTaskBtn">活動を記録</button></div><div id="sfTaskMsg"></div></div>` +
+    `<div class="sf-section-box"><div class="sf-section-title"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" style="vertical-align:-2px;margin-right:4px"><rect x="2" y="3" width="12" height="11" rx="1.5" fill="#0d5b47"/><rect x="4" y="6" width="8" height="1.3" rx=".5" fill="#5DCAA5"/><rect x="4" y="9" width="6" height="1.3" rx=".5" fill="#5DCAA5"/></svg>過去の活動</div><div id="sfTaskHistory"><div class="sf-ss-note">商談をリンクすると表示されます。</div></div></div>` +
+    `</div>` +
+    `<div class="sf-subpanel" data-sfpanel="stage" hidden>` +
+    `<div class="sf-section-box"><div class="sf-section-title"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" style="vertical-align:-2px;margin-right:4px"><rect x="1" y="6" width="4" height="9" rx="1" fill="#0d5b47"/><rect x="6" y="3" width="4" height="12" rx="1" fill="#1d9e75"/><rect x="11" y="1" width="4" height="14" rx="1" fill="#5DCAA5"/></svg>ステージ・項目の更新</div>` +
+    `<div id="sfStageFields"></div>` +
+    `<div class="sf-field" style="margin-top:8px"><button class="btn" id="sfUpdateBtn">ステージ・項目を更新</button></div><div id="sfUpdateMsg"></div></div>` +
+    `</div>` +
     `</div></section>` +
     `</div>` +
     `<div class="dc-page" data-page="flow" hidden>` +
@@ -1919,37 +1925,23 @@ async function renderTaskFields(account, latestMeeting) {
   container.innerHTML = '<div class="empty-state">項目を読み込み中…</div>';
   let fields = [];
   try { fields = await loadSfTaskFields(); } catch {}
-  const SKIP = /^(Id|WhatId|WhoId|OwnerId|AccountId|IsDeleted|IsClosed|IsArchived|IsRecurrence|Recurrence|IsHighPriority|CreatedBy|CreatedDate|LastModified|SystemModstamp|Call|Reminder|CompletedDateTime|IsReminderSet|TaskSubtype|IsVisibleInSelfService|Group)/i;
-  const STD = new Set(["Subject", "ActivityDate", "Status", "Priority", "Description"]);
-  let useable = (fields || []).filter(f =>
-    (f.createable || f.updateable) && !SKIP.test(f.name) &&
-    !["reference", "address", "location"].includes(f.type) &&
-    (f.custom || STD.has(f.name) || f.required)
-  );
-  if (!useable.length) { renderTaskFieldsStatic(); return; }
-  // 並び：必須を上に（活動種別・状況・期日など）→ 件名 → その他 → コメントは最後
-  const rank = (f) => {
-    if (f.name === "Description") return 100;
-    if (f.required) return 0;
-    if (f.name === "Subject") return 10;
-    if (["Status", "ActivityDate", "Priority"].includes(f.name)) return 5;
-    return 20;
-  };
-  useable.sort((a, b) => rank(a) - rank(b) || String(a.label || "").localeCompare(String(b.label || "")));
-  // 状況の既定は「完了」（あれば）
-  let statusDefault = "";
-  const stField = useable.find((f) => f.name === "Status");
-  if (stField && stField.picklistValues) {
-    const done = stField.picklistValues.find((o) => /完了|完/.test(o.label || o.value));
-    statusDefault = done ? done.value : "";
+  if (!fields.length) { renderTaskFieldsStatic(); return; }
+  // 表示する項目（ラベルで指定）：活動種別・次回アクション種別・次回アクション日・説明
+  const WANT = ["活動種別", "次回アクション種別", "次回アクション日", "説明", "コメント"];
+  const normL = (s) => String(s || "").replace(/[\s　()（）_]/g, "").toLowerCase();
+  const byLabel = {};
+  for (const f of fields) if (f.label) byLabel[normL(f.label)] = f;
+  const picked = [];
+  const seen = new Set();
+  for (const w of WANT) {
+    const f = byLabel[normL(w)];
+    if (f && !seen.has(f.name)) { picked.push(f); seen.add(f.name); }
   }
-  const defaults = {
-    Subject: "[kinbot] " + (displayName(account) || "活動記録"),
-    ActivityDate: new Date().toISOString().slice(0, 10),
-    Status: statusDefault,
-    Description: buildActivityComment(latestMeeting),
-  };
-  container.innerHTML = useable.map(f => renderTaskField(f, defaults[f.name])).join("");
+  if (!picked.length) { renderTaskFieldsStatic(); return; }
+  const defaults = {};
+  const descF = picked.find((f) => /説明|コメント|description/i.test(f.label || f.name));
+  if (descF) defaults[descF.name] = buildActivityComment(latestMeeting);
+  container.innerHTML = picked.map((f) => renderTaskField(f, defaults[f.name])).join("");
 }
 function renderTaskField(f, def) {
   const label = esc(f.label || f.name) + (f.required ? ' <span class="sf-req">＊必須</span>' : "");
@@ -2047,6 +2039,18 @@ async function initSfTab(account) {
   sfLinkedOpp = null;
   matchesEl.innerHTML = "";
   linkedEl.style.display = "none";
+
+  // サブタブ（活動記録／ステージ更新）の切替。活動記録を既定表示。
+  const subtabs = $("sfSubtabs");
+  if (subtabs) {
+    subtabs.querySelectorAll(".sf-subtab").forEach((b) => {
+      b.addEventListener("click", () => {
+        const target = b.dataset.sftab;
+        subtabs.querySelectorAll(".sf-subtab").forEach((x) => x.classList.toggle("active", x === b));
+        document.querySelectorAll(".sf-subpanel[data-sfpanel]").forEach((p) => { p.hidden = p.dataset.sfpanel !== target; });
+      });
+    });
+  }
 
   // この案件の商談データを取得
   const ms = groups[account] || [];
@@ -2205,6 +2209,7 @@ async function initSfTab(account) {
           throw new Error(d.error || "記録失敗");
         }
         $("sfTaskMsg").innerHTML = '<div style="color:#0d5b47;font-size:13px;padding:6px 2px;">活動を記録しました</div>';
+        if (sfLinkedOpp) loadSfTaskHistory(sfLinkedOpp.Id);
       } catch (e) {
         if (e.sfReauth || /expired|invalid_grant/.test(e.message || "")) {
           showSfReauth($("sfTaskMsg"), null, () => taskBtn.click());
@@ -2304,12 +2309,25 @@ async function renderSSFields(stageName) {
   })).filter((s) => s.fields.length);
 
   if (ssSections.length) {
+    // 各SS段階に対応するSalesforceのステージ値をマッピング（番号＋名前で最も近いものを選ぶ）
+    const matchStage = (heading) => {
+      const num = (heading.match(/^0?(\d)/) || [])[1] || "";
+      const nm = normLbl(heading.replace(/^[0-9]+\s*[:：]\s*/, "").replace(/[／/].*$/, ""));
+      const opts = sfStageOptions || [];
+      if (!opts.length) return "";
+      const byNum = opts.filter((o) => new RegExp("^0?" + num + "\\s*[:：]").test(String(o.value || o.label)));
+      const exact = byNum.find((o) => normLbl(o.value || o.label).includes(nm));
+      return (exact || byNum[0] || {}).value || "";
+    };
     const stageNum = ((stageName || "").match(/0?(\d)/) || [])[1] || "";
     let defaultIdx = 0;
     ssSections.forEach((s, i) => { if (stageNum && new RegExp("^0?" + stageNum + "[:：]").test(s.heading)) defaultIdx = i; });
-    const optHtml = ssSections.map((s, i) => `<option value="${i}" ${i === defaultIdx ? "selected" : ""}>${esc(s.heading)}</option>`).join("");
+    const optHtml = ssSections.map((s, i) => {
+      const sv = matchStage(s.heading);
+      return `<option value="${esc(sv)}" data-secidx="${i}" ${i === defaultIdx ? "selected" : ""}>${esc(s.heading)}</option>`;
+    }).join("");
     container.innerHTML =
-      `<div class="sf-field"><label>入力する段階（SS）を選ぶ</label><select id="ssSectionSel" class="sf-select">${optHtml}</select></div>` +
+      `<div class="sf-field"><label>ステージ（段階）を選ぶ</label><select id="sfStage" class="sf-select">${optHtml}</select></div>` +
       `<div id="ssSectionFields" class="sf-ss-section"></div>`;
     // 段階の項目を商談から自動入力する
     const autofillSection = async (sec) => {
@@ -2364,8 +2382,11 @@ async function renderSSFields(stageName) {
       if (abtn) abtn.addEventListener("click", () => autofillSection(sec));
       if (auto && sec.fields.length) autofillSection(sec); // 段階を選んだら自動で読み取り
     };
-    const sel = document.getElementById("ssSectionSel");
-    if (sel) sel.addEventListener("change", () => renderSection(Number(sel.value), true));
+    const sel = document.getElementById("sfStage");
+    if (sel) sel.addEventListener("change", () => {
+      const idx = Number((sel.selectedOptions[0] && sel.selectedOptions[0].dataset.secidx) || 0);
+      renderSection(idx, true);
+    });
     renderSection(defaultIdx, false);
     return;
   }
@@ -2462,19 +2483,31 @@ async function linkOpportunity(oppId, cached) {
     <button class="sf-unlink-btn" onclick="sfLinkedOpp=null;$('sfLinked').style.display='none';$('sfMatches').innerHTML='';">解除</button>
   </div>`;
 
-  // Stage選択肢を設定
-  const stageSel = $("sfStage");
-  if (stageSel && sfStageOptions.length) {
-    stageSel.innerHTML = sfStageOptions.map(s =>
-      `<option value="${esc(s.value)}" ${s.value === stageName ? "selected" : ""}>${esc(s.label || s.value)}</option>`
-    ).join("");
-  } else if (stageSel) {
-    // フォールバック: 現在のStageだけ表示
-    stageSel.innerHTML = `<option value="${esc(stageName)}" selected>${esc(stageName)}</option>`;
-  }
-
-  // SS固有フィールドを表示（既存データ込み）
+  // SS段階のプルダウン＋項目を表示（#sfStageはrenderSSFields内で生成）
   renderSSFields(stageName);
+  loadSfTaskHistory(sfLinkedOpp.Id);
+}
+
+// 商談に紐づく過去の活動（Task）を表示
+async function loadSfTaskHistory(oppId) {
+  const box = $("sfTaskHistory");
+  if (!box || !oppId) return;
+  box.innerHTML = '<div class="sf-ss-note">読み込み中…</div>';
+  try {
+    const r = await sfFetch("/api/salesforce/tasks?opportunityId=" + encodeURIComponent(oppId));
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.error || "取得失敗");
+    const tasks = d.tasks || [];
+    if (!tasks.length) { box.innerHTML = '<div class="sf-ss-note">まだ活動の記録がありません。</div>'; return; }
+    box.innerHTML = tasks.map((t) => {
+      const date = (t.activityDate || (t.createdDate || "").slice(0, 10) || "");
+      const desc = (t.description || "").trim();
+      const short = desc.length > 140 ? desc.slice(0, 140) + "…" : desc;
+      return `<div class="sf-task-item"><div class="sf-task-head"><span class="sf-task-subj">${esc(t.subject || "(件名なし)")}</span><span class="sf-task-meta">${esc(date)}${t.owner ? " ・ " + esc(t.owner) : ""}${t.status ? " ・ " + esc(t.status) : ""}</span></div>${short ? `<div class="sf-task-desc">${esc(short)}</div>` : ""}</div>`;
+    }).join("");
+  } catch (e) {
+    box.innerHTML = `<div class="sf-ss-note">履歴の取得に失敗しました：${esc(e.message)}</div>`;
+  }
 }
 
 // ===== カードプレビューの更新 =====

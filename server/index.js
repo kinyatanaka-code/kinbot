@@ -5046,6 +5046,23 @@ async function recordSfStats(user, { filled, activityCreated }) {
   }
 }
 
+// 商談に紐づく過去の活動（Task）の履歴を取得
+app.get("/api/salesforce/tasks", async (req, res) => {
+  try {
+    const oppId = String(req.query.opportunityId || "").replace(/[^a-zA-Z0-9]/g, "");
+    if (!oppId) return res.status(400).json({ error: "opportunityIdが必要です" });
+    const soql = `SELECT Id, Subject, Status, ActivityDate, Description, CreatedDate, Owner.Name FROM Task WHERE WhatId = '${oppId}' ORDER BY CreatedDate DESC LIMIT 30`;
+    const data = await sfQuery(req.user, soql);
+    const tasks = (data.records || []).map((t) => ({
+      id: t.Id, subject: t.Subject, status: t.Status, activityDate: t.ActivityDate,
+      description: t.Description, createdDate: t.CreatedDate, owner: (t.Owner && t.Owner.Name) || "",
+    }));
+    res.json({ tasks });
+  } catch (e) {
+    sfErrorResponse(res, e);
+  }
+});
+
 // 段階の各項目を、商談の内容から読み取って提案する（フォームに入れて確認・編集してから更新）
 app.post("/api/salesforce/field-suggest", async (req, res) => {
   try {

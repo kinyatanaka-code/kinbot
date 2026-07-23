@@ -2885,6 +2885,14 @@ button.np-step:disabled { opacity: 0.6; cursor: wait; }
 .sf-req { color: #b23b3b; font-size: 10.5px; font-weight: 700; margin-left: 4px; }
 .sf-autofill-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin: 4px 0 12px; }
 .sf-autofill-note { font-size: 11.5px; color: var(--muted); }
+.sf-subtabs { display: flex; gap: 6px; background: var(--panel-2, #eef3f0); padding: 4px; border-radius: 12px; margin: 10px 0 14px; }
+.sf-subtab { flex: 1; padding: 9px 12px; border: none; background: transparent; border-radius: 9px; font: inherit; font-weight: 700; font-size: 13px; color: var(--muted); cursor: pointer; }
+.sf-subtab.active { background: #fff; color: var(--accent); box-shadow: 0 1px 4px rgba(15,110,98,.12); }
+.sf-task-item { border: 1px solid var(--line); border-radius: 9px; padding: 9px 11px; margin-bottom: 8px; background: #fff; }
+.sf-task-head { display: flex; justify-content: space-between; gap: 10px; flex-wrap: wrap; align-items: baseline; }
+.sf-task-subj { font-weight: 700; font-size: 13px; color: var(--ink); }
+.sf-task-meta { font-size: 11px; color: var(--muted); white-space: nowrap; }
+.sf-task-desc { font-size: 12px; color: #555; margin-top: 5px; line-height: 1.5; white-space: pre-wrap; }
 .sf-fields-search { flex: 1; min-width: 180px; padding: 8px 12px; border: 1px solid var(--line); border-radius: 9px; font: inherit; }
 .sf-fields-result { margin-top: 10px; }
 .sf-fields-table { max-height: 360px; overflow: auto; border: 1px solid var(--line); border-radius: 10px; margin-top: 6px; }
