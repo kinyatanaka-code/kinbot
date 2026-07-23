@@ -1857,18 +1857,20 @@ let sfFieldDefs = null; // Opportunityのフィールド定義キャッシュ
 let sfFieldTypes = null; // { apiName: { type, updateable } } 型チェック用
 let sfFieldList = null;  // describeの全項目（名前・ラベル・型・選択肢）
 async function loadSfFields() {
-  if (sfFieldList) return sfFieldList;
+  if (sfFieldList && sfFieldList.length) return sfFieldList;
   try {
     const r = await sfFetch("/api/salesforce/describe");
     const d = await r.json();
-    sfFieldList = d.fields || [];
+    const list = d.fields || [];
+    if (!list.length) { sfFieldList = null; return []; } // 空はキャッシュしない（次回再取得）
+    sfFieldList = list;
     sfFieldTypes = {};
     for (const f of sfFieldList) sfFieldTypes[f.name] = { type: f.type, updateable: f.updateable };
-  } catch { sfFieldList = []; sfFieldTypes = sfFieldTypes || {}; }
+  } catch { sfFieldList = null; return []; }
   return sfFieldList;
 }
 async function loadSfFieldTypes() {
-  if (sfFieldTypes) return sfFieldTypes;
+  if (sfFieldTypes && Object.keys(sfFieldTypes).length) return sfFieldTypes;
   await loadSfFields();
   return sfFieldTypes || {};
 }
@@ -1877,18 +1879,20 @@ async function loadSfFieldTypes() {
 let sfTaskFieldList = null;
 let sfTaskFieldTypes = null;
 async function loadSfTaskFields() {
-  if (sfTaskFieldList) return sfTaskFieldList;
+  if (sfTaskFieldList && sfTaskFieldList.length) return sfTaskFieldList;
   try {
     const r = await sfFetch("/api/salesforce/task-describe");
     const d = await r.json();
-    sfTaskFieldList = d.fields || [];
+    const list = d.fields || [];
+    if (!list.length) { sfTaskFieldList = null; return []; } // 空はキャッシュしない
+    sfTaskFieldList = list;
     sfTaskFieldTypes = {};
     for (const f of sfTaskFieldList) sfTaskFieldTypes[f.name] = { type: f.type };
-  } catch { sfTaskFieldList = []; sfTaskFieldTypes = sfTaskFieldTypes || {}; }
+  } catch { sfTaskFieldList = null; return []; }
   return sfTaskFieldList;
 }
 async function loadSfTaskTypes() {
-  if (sfTaskFieldTypes) return sfTaskFieldTypes;
+  if (sfTaskFieldTypes && Object.keys(sfTaskFieldTypes).length) return sfTaskFieldTypes;
   await loadSfTaskFields();
   return sfTaskFieldTypes || {};
 }
@@ -2204,6 +2208,20 @@ async function initSfTab(account) {
   // ステージのプルダウンは値だけ変える（項目フォームは実項目ベースなので再描画しない＝編集を保持）
 }
 
+// Opportunityのページレイアウト（SSセクション）キャッシュ
+let sfLayoutSections = null;
+async function loadSfLayout() {
+  if (sfLayoutSections && sfLayoutSections.length) return sfLayoutSections;
+  try {
+    const r = await sfFetch("/api/salesforce/opportunity-layout");
+    const d = await r.json();
+    const secs = d.sections || [];
+    if (!secs.length) { sfLayoutSections = null; return []; }
+    sfLayoutSections = secs;
+  } catch { sfLayoutSections = null; return []; }
+  return sfLayoutSections;
+}
+
 async function renderSSFields(stageName) {
   const container = $("sfStageFields");
   if (!container) return;
@@ -2218,22 +2236,6 @@ async function renderSSFields(stageName) {
 
   const SKIP = /^(attributes|Id|IsDeleted|IsClosed|IsWon|SystemModstamp|CreatedById|CreatedDate|LastModifiedById|LastModifiedDate|LastActivityDate|LastViewedDate|LastReferencedDate|StageName|Name|Account|Owner|Amount|Probability|CloseDate|OwnerId|AccountId|RecordTypeId|Fiscal|Forecast)$/i;
   const STD = new Set(["NextStep", "Description"]);
-  const apiSet = new Set();
-  // 1) describeの更新可能なカスタム項目＋主要標準
-  for (const f of Object.values(meta)) {
-    if (!f.updateable) continue;
-    if (SKIP.test(f.name)) continue;
-    if (["reference", "address", "location"].includes(f.type)) continue;
-    if (f.custom || STD.has(f.name)) apiSet.add(f.name);
-  }
-  // 2) 実際に値が入っているカスタム項目（describeが取れなくてもここで拾える）
-  for (const k of Object.keys(opp)) {
-    if (SKIP.test(k)) continue;
-    const v = opp[k];
-    if (k.endsWith("__c") && v !== null && v !== undefined && v !== "") apiSet.add(k);
-  }
-  const apis = [...apiSet];
-  if (!apis.length) { renderSSFieldsStatic(stageName); return; }
 
   const typeOf = (api) => {
     if (meta[api]) return meta[api].type;
@@ -2252,9 +2254,6 @@ async function renderSSFields(stageName) {
     if (t === "datetime") return String(v).slice(0, 16).replace("T", " ");
     return String(v);
   };
-  const withVal = apis.filter(hasVal);
-  const empty = apis.filter((a) => !hasVal(a));
-
   const render1 = (api) => {
     const t = typeOf(api);
     const label = esc(labelOf(api));
@@ -2276,6 +2275,48 @@ async function renderSSFields(stageName) {
     return `<div class="sf-field"><label>${label}</label><input type="text" class="sf-input" data-sf-field="${api}"${orig} value="${esc(cur)}"/></div>`;
   };
 
+  // SSセクション（段階ごと）があれば、段階プルダウン＋その段階の項目を表示
+  let sections = [];
+  try { sections = await loadSfLayout(); } catch {}
+  const ssSections = sections.filter((s) => /SS\s*0?\d|アポ獲得|有効商談|担当者合意|企画決定|決裁|申込|受注|失注/.test(s.heading));
+  if (ssSections.length) {
+    const stageNum = (stageName || "").match(/0?(\d)/) ? (stageName || "").match(/0?(\d)/)[1] : "";
+    let defaultIdx = 0;
+    ssSections.forEach((s, i) => { if (stageNum && new RegExp("SS\\s*0?" + stageNum + "|^\\s*0?" + stageNum + "\\s*[:：]").test(s.heading)) defaultIdx = i; });
+    const optHtml = ssSections.map((s, i) => `<option value="${i}" ${i === defaultIdx ? "selected" : ""}>${esc(s.heading)}</option>`).join("");
+    container.innerHTML =
+      `<div class="sf-field"><label>入力する段階（SS）を選ぶ</label><select id="ssSectionSel" class="sf-select">${optHtml}</select></div>` +
+      `<div id="ssSectionFields" class="sf-ss-section"></div>`;
+    const renderSection = (idx) => {
+      const sec = ssSections[idx];
+      const fApis = (sec.fields || []).filter((a) => !SKIP.test(a));
+      const box = document.getElementById("ssSectionFields");
+      box.innerHTML = `<div class="sf-ss-title">${esc(sec.heading)} の項目</div>` +
+        (fApis.length ? fApis.map(render1).join("") : '<div class="sf-ss-note">この段階に編集できる項目がありません。</div>');
+    };
+    const sel = document.getElementById("ssSectionSel");
+    if (sel) sel.addEventListener("change", () => renderSection(Number(sel.value)));
+    renderSection(defaultIdx);
+    return;
+  }
+
+  // フォールバック：レイアウトが取れない場合は「現在SFに記載されている項目 / その他」
+  const apiSet = new Set();
+  for (const f of Object.values(meta)) {
+    if (!f.updateable) continue;
+    if (SKIP.test(f.name)) continue;
+    if (["reference", "address", "location"].includes(f.type)) continue;
+    if (f.custom || STD.has(f.name)) apiSet.add(f.name);
+  }
+  for (const k of Object.keys(opp)) {
+    if (SKIP.test(k)) continue;
+    const v = opp[k];
+    if (k.endsWith("__c") && v !== null && v !== undefined && v !== "") apiSet.add(k);
+  }
+  const apis = [...apiSet];
+  if (!apis.length) { renderSSFieldsStatic(stageName); return; }
+  const withVal = apis.filter(hasVal);
+  const empty = apis.filter((a) => !hasVal(a));
   let html = "";
   if (withVal.length) {
     html += `<div class="sf-ss-section sf-ss-current"><div class="sf-ss-title">● 現在SFに記載されている項目（そのまま編集できます）</div>${withVal.map(render1).join("")}</div>`;
