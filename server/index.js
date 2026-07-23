@@ -175,6 +175,7 @@ import {
   getStageValues,
   postChatter,
   describeOpportunity,
+  describeOpportunityLayout,
   describeTask,
   createTask,
   updateTask,
@@ -4731,6 +4732,39 @@ app.get("/api/salesforce/describe", async (req, res) => {
 });
 
 // SF活動（Task）を作成
+// Opportunityのページレイアウトから、セクション（SS01〜SS06など）と項目を返す
+app.get("/api/salesforce/opportunity-layout", async (req, res) => {
+  try {
+    const data = await describeOpportunityLayout(req.user);
+    const sections = [];
+    const seen = new Set();
+    for (const layout of data.layouts || []) {
+      const secs = layout.editLayoutSections || layout.detailLayoutSections || [];
+      for (const sec of secs) {
+        const heading = (sec.heading || "").trim();
+        const fields = [];
+        for (const row of sec.layoutRows || []) {
+          for (const item of row.layoutItems || []) {
+            for (const comp of item.layoutComponents || []) {
+              if (comp.type === "Field" && comp.details && comp.details.name && comp.details.updateable) {
+                fields.push(comp.details.name);
+              }
+            }
+          }
+        }
+        const key = heading + "|" + fields.join(",");
+        if (heading && fields.length && !seen.has(key)) {
+          seen.add(key);
+          sections.push({ heading, fields });
+        }
+      }
+    }
+    res.json({ sections });
+  } catch (e) {
+    sfErrorResponse(res, e);
+  }
+});
+
 // Task（活動）の項目定義を返す（活動記録フォームを実項目ベースで作るため）
 app.get("/api/salesforce/task-describe", async (req, res) => {
   try {

@@ -269,6 +269,18 @@ export async function describeTask(owner) {
   return res.json();
 }
 
+// Opportunityのページレイアウト（SS01〜SS06などのセクションと項目）を取得
+export async function describeOpportunityLayout(owner) {
+  const acc = await getAccess(owner);
+  if (!acc) throw new Error("Salesforce未連携です");
+  const res = await fetch(
+    `${acc.instanceUrl}/services/data/${API_VERSION}/sobjects/Opportunity/describe/layouts/`,
+    { headers: { Authorization: `Bearer ${acc.token}` } }
+  );
+  if (!res.ok) throw new Error(`SF layout ${res.status}`);
+  return res.json();
+}
+
 // Task（活動）を作成
 export async function createTask(owner, data) {
   const acc = await getAccess(owner);
