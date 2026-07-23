@@ -2275,10 +2275,13 @@ async function renderSSFields(stageName) {
     return `<div class="sf-field"><label>${label}</label><input type="text" class="sf-input" data-sf-field="${api}"${orig} value="${esc(cur)}"/></div>`;
   };
 
-  // SSセクション（段階ごと）があれば、段階プルダウン＋その段階の項目を表示
+  // SSセクション（段階ごと）があれば、段階プルダウン＋その段階の項目を表示（SS01〜SS06まで）
   let sections = [];
   try { sections = await loadSfLayout(); } catch {}
-  const ssSections = sections.filter((s) => /SS\s*0?\d|アポ獲得|有効商談|担当者合意|企画決定|決裁|申込|受注|失注/.test(s.heading));
+  const ssSections = sections.filter((s) =>
+    /SS\s*0?[1-6]\b|^\s*0?[1-6]\s*[:：]|アポ獲得|有効商談|担当者合意|企画決定|決裁者|申込書回収/.test(s.heading) &&
+    !/SS\s*0?[789]|SS\s*99|受注処理|失注/.test(s.heading)
+  );
   if (ssSections.length) {
     const stageNum = (stageName || "").match(/0?(\d)/) ? (stageName || "").match(/0?(\d)/)[1] : "";
     let defaultIdx = 0;
