@@ -4746,8 +4746,8 @@ app.get("/api/salesforce/opportunity-layout", async (req, res) => {
         for (const row of sec.layoutRows || []) {
           for (const item of row.layoutItems || []) {
             for (const comp of item.layoutComponents || []) {
-              if (comp.type === "Field" && comp.details && comp.details.name && comp.details.updateable) {
-                fields.push(comp.details.name);
+              if (comp.type === "Field" && comp.details && comp.details.name) {
+                fields.push(comp.details.name); // updateableはクライアント側でdescribeを見て判定
               }
             }
           }
@@ -4759,8 +4759,10 @@ app.get("/api/salesforce/opportunity-layout", async (req, res) => {
         }
       }
     }
+    console.log(`[sf layout] セクション数=${sections.length}` + (sections.length ? "（" + sections.map((s) => s.heading).join(" / ") + "）" : ""));
     res.json({ sections });
   } catch (e) {
+    console.warn("[sf layout] 取得失敗:", e.message);
     sfErrorResponse(res, e);
   }
 });
@@ -4774,8 +4776,11 @@ app.get("/api/salesforce/task-describe", async (req, res) => {
       updateable: f.updateable, createable: f.createable, custom: f.custom,
       picklistValues: f.picklistValues?.filter(v => v.active).map(v => ({ value: v.value, label: v.label })),
     }));
+    const picks = fields.filter((f) => f.type === "picklist" && f.custom).map((f) => f.label);
+    console.log(`[sf task-describe] 項目数=${fields.length} / カスタム選択肢項目=${picks.join("、") || "なし"}`);
     res.json({ fields });
   } catch (e) {
+    console.warn("[sf task-describe] 取得失敗:", e.message);
     sfErrorResponse(res, e);
   }
 });

@@ -120,9 +120,12 @@ async function getAccess(owner, force = false) {
   }
   const data = await res.json();
   const instanceUrl = data.instance_url || row.instance_url;
-  if (data.instance_url && data.instance_url !== row.instance_url) {
-    await saveSalesforceToken(owner, { instanceUrl: data.instance_url });
-  }
+  // リフレッシュトークンのローテーション対応：更新時に新しい refresh_token が返ってきたら保存する。
+  // これをしないと、ローテーション設定の組織では古いトークンが無効化され、次回更新で失敗して再ログインになる。
+  const patch = {};
+  if (data.refresh_token && data.refresh_token !== row.refresh_token) patch.refreshToken = data.refresh_token;
+  if (data.instance_url && data.instance_url !== row.instance_url) patch.instanceUrl = data.instance_url;
+  if (Object.keys(patch).length) await saveSalesforceToken(owner, patch);
   // expires_in があれば利用、無ければ15分。上限1時間、1分の余裕を引く。
   const ttlSec = Number(data.expires_in) > 0 ? Number(data.expires_in) : 900;
   const exp = Date.now() + Math.min(ttlSec, 3600) * 1000 - 60 * 1000;
