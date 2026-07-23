@@ -2051,6 +2051,7 @@ async function initSfTab(account) {
   // この案件の商談データを取得
   const ms = groups[account] || [];
   const latestMeeting = ms.length ? ms[ms.length - 1] : null;
+  window._sfCurrentBotId = latestMeeting && latestMeeting.bot_id; // 自動入力（商談から読み取り）の対象
 
   // 活動記録フォームをTaskの実項目から自動生成
   renderTaskFields(account, latestMeeting);
@@ -2310,15 +2311,62 @@ async function renderSSFields(stageName) {
     container.innerHTML =
       `<div class="sf-field"><label>入力する段階（SS）を選ぶ</label><select id="ssSectionSel" class="sf-select">${optHtml}</select></div>` +
       `<div id="ssSectionFields" class="sf-ss-section"></div>`;
-    const renderSection = (idx) => {
+    // 段階の項目を商談から自動入力する
+    const autofillSection = async (sec) => {
+      const btn = document.getElementById("ssAutofillBtn");
+      const note = document.getElementById("ssAutofillNote");
+      const botId = window._sfCurrentBotId;
+      if (!botId) { if (note) note.textContent = "対象の商談が見つかりません"; return; }
+      const fList = sec.fields.map((api) => {
+        const mm = meta[api] || {};
+        const options = (mm.picklistValues || []).map((o) => o.label || o.value);
+        return { api, label: mm.label || api, type: mm.type || "string", options };
+      });
+      if (btn) { btn.disabled = true; btn.textContent = "商談から読み取り中…"; }
+      if (note) note.textContent = "商談の内容を読み取っています…";
+      try {
+        const r = await sfFetch("/api/salesforce/field-suggest", {
+          method: "POST", headers: { "content-type": "application/json" },
+          body: JSON.stringify({ botId, fields: fList }),
+        });
+        const d = await r.json();
+        if (!r.ok) throw new Error(d.error || "取得失敗");
+        const values = d.values || {};
+        let filled = 0;
+        const inputs = [...document.querySelectorAll("#ssSectionFields [data-sf-field]")];
+        for (const el of inputs) {
+          const api = el.dataset.sfField;
+          const v = values[api];
+          if (v == null || v === "") continue;
+          if (el.tagName === "SELECT") {
+            const opt = [...el.options].find((o) => o.value === v || o.textContent === v);
+            if (opt && !el.value) { el.value = opt.value; filled++; }
+          } else if (el.type === "checkbox") {
+            // boolはスキップ
+          } else if (!el.value) {
+            el.value = v; filled++;
+          }
+        }
+        if (note) note.textContent = filled ? `${filled}項目を自動入力しました。内容を確認・編集してから更新してください。` : "商談から埋められる項目はありませんでした。";
+      } catch (e) {
+        if (note) note.textContent = "自動入力に失敗しました：" + e.message;
+      } finally {
+        if (btn) { btn.disabled = false; btn.textContent = "商談から自動入力"; }
+      }
+    };
+    const renderSection = (idx, auto) => {
       const sec = ssSections[idx];
       const box = document.getElementById("ssSectionFields");
       box.innerHTML = `<div class="sf-ss-title">${esc(sec.heading)} の項目</div>` +
+        `<div class="sf-autofill-row"><button type="button" class="btn btn-ghost" id="ssAutofillBtn">商談から自動入力</button><span class="sf-autofill-note" id="ssAutofillNote">空欄を商談の内容から埋めます</span></div>` +
         (sec.fields.length ? sec.fields.map(render1).join("") : '<div class="sf-ss-note">この段階に編集できる項目がありません。</div>');
+      const abtn = document.getElementById("ssAutofillBtn");
+      if (abtn) abtn.addEventListener("click", () => autofillSection(sec));
+      if (auto && sec.fields.length) autofillSection(sec); // 段階を選んだら自動で読み取り
     };
     const sel = document.getElementById("ssSectionSel");
-    if (sel) sel.addEventListener("change", () => renderSection(Number(sel.value)));
-    renderSection(defaultIdx);
+    if (sel) sel.addEventListener("change", () => renderSection(Number(sel.value), true));
+    renderSection(defaultIdx, false);
     return;
   }
 

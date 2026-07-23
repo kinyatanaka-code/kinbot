@@ -5046,6 +5046,52 @@ async function recordSfStats(user, { filled, activityCreated }) {
   }
 }
 
+// 段階の各項目を、商談の内容から読み取って提案する（フォームに入れて確認・編集してから更新）
+app.post("/api/salesforce/field-suggest", async (req, res) => {
+  try {
+    const { botId, fields } = req.body || {};
+    if (!botId || !Array.isArray(fields) || !fields.length) return res.status(400).json({ error: "botIdとfieldsが必要です" });
+    const m = await getMeeting(botId);
+    if (!m) return res.status(404).json({ error: "商談が見つかりません" });
+    let summary = "";
+    if (m.summary) summary = typeof m.summary === "string" ? m.summary : JSON.stringify(m.summary);
+    const content = (summary ? "【要約】\n" + summary + "\n\n" : "") + "【文字起こし】\n" + (m.transcript || "");
+    if (!content.trim()) return res.json({ values: {} });
+    const fieldLines = fields.map((f) => {
+      let line = `- ${f.label}（キー:${f.api}`;
+      if (f.type === "date" || f.type === "datetime") line += "・日付 YYYY-MM-DD";
+      if (Array.isArray(f.options) && f.options.length) line += "・選択肢:[" + f.options.join(" / ") + "] から選ぶ";
+      line += "）";
+      return line;
+    }).join("\n");
+    const prompt =
+      "あなたはSalesforceの商談項目を、商談の内容から埋めるアシスタントです。\n" +
+      "以下の各項目について、商談の内容から読み取れる値を日本語で簡潔に記入してください。\n" +
+      "・読み取れない項目は空文字にする（推測で埋めない）。\n" +
+      "・日付は YYYY-MM-DD 形式。\n" +
+      "・選択肢がある項目は、必ず選択肢の中から最も近いものを選ぶ。\n" +
+      "・出力はJSONオブジェクトのみ。キーは各項目の「キー」、値は記入する文字列。説明やコードブロックは不要。\n\n" +
+      "【項目】\n" + fieldLines;
+    const out = await runCustomAnalysis(String(content).slice(0, 40000), prompt);
+    let values = {};
+    try {
+      const txt = String(out || "").replace(/```json|```/g, "").trim();
+      const mm = txt.match(/\{[\s\S]*\}/);
+      values = mm ? JSON.parse(mm[0]) : {};
+    } catch { values = {}; }
+    // 空・null は除外
+    const clean = {};
+    for (const k of Object.keys(values)) {
+      const v = values[k];
+      if (v != null && String(v).trim() !== "") clean[k] = String(v).trim();
+    }
+    res.json({ values: clean });
+  } catch (e) {
+    console.error("[field-suggest]", e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
 app.post("/api/meetings/:id/sf-autofill", async (req, res) => {
   try {
     const out = { ok: false, configured: salesforceConfigured(), connected: false };
