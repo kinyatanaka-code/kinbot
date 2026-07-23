@@ -2882,6 +2882,7 @@ button.np-step:disabled { opacity: 0.6; cursor: wait; }
 .sf-empty-inner { margin-top: 8px; padding: 4px 2px; }
 .sf-field-chk label { display: inline-flex; align-items: center; gap: 8px; font-size: 13px; cursor: pointer; }
 .sf-field-chk input { width: auto; }
+.sf-req { color: #b23b3b; font-size: 10.5px; font-weight: 700; margin-left: 4px; }
 .sf-fields-search { flex: 1; min-width: 180px; padding: 8px 12px; border: 1px solid var(--line); border-radius: 9px; font: inherit; }
 .sf-fields-result { margin-top: 10px; }
 .sf-fields-table { max-height: 360px; overflow: auto; border: 1px solid var(--line); border-radius: 10px; margin-top: 6px; }

@@ -1924,25 +1924,35 @@ async function renderTaskFields(account, latestMeeting) {
   let useable = (fields || []).filter(f =>
     (f.createable || f.updateable) && !SKIP.test(f.name) &&
     !["reference", "address", "location"].includes(f.type) &&
-    (f.custom || STD.has(f.name))
+    (f.custom || STD.has(f.name) || f.required)
   );
   if (!useable.length) { renderTaskFieldsStatic(); return; }
-  const order = ["Subject", "ActivityDate", "Status", "Priority"];
-  useable.sort((a, b) => {
-    if (a.name === "Description") return 1;
-    if (b.name === "Description") return -1;
-    const ia = order.indexOf(a.name), ib = order.indexOf(b.name);
-    return (ia === -1 ? 50 : ia) - (ib === -1 ? 50 : ib);
-  });
+  // 並び：必須を上に（活動種別・状況・期日など）→ 件名 → その他 → コメントは最後
+  const rank = (f) => {
+    if (f.name === "Description") return 100;
+    if (f.required) return 0;
+    if (f.name === "Subject") return 10;
+    if (["Status", "ActivityDate", "Priority"].includes(f.name)) return 5;
+    return 20;
+  };
+  useable.sort((a, b) => rank(a) - rank(b) || String(a.label || "").localeCompare(String(b.label || "")));
+  // 状況の既定は「完了」（あれば）
+  let statusDefault = "";
+  const stField = useable.find((f) => f.name === "Status");
+  if (stField && stField.picklistValues) {
+    const done = stField.picklistValues.find((o) => /完了|完/.test(o.label || o.value));
+    statusDefault = done ? done.value : "";
+  }
   const defaults = {
     Subject: "[kinbot] " + (displayName(account) || "活動記録"),
     ActivityDate: new Date().toISOString().slice(0, 10),
+    Status: statusDefault,
     Description: buildActivityComment(latestMeeting),
   };
   container.innerHTML = useable.map(f => renderTaskField(f, defaults[f.name])).join("");
 }
 function renderTaskField(f, def) {
-  const label = esc(f.label || f.name);
+  const label = esc(f.label || f.name) + (f.required ? ' <span class="sf-req">＊必須</span>' : "");
   const val = def == null ? "" : def;
   if (f.type === "boolean") {
     return `<div class="sf-field sf-field-chk"><label><input type="checkbox" data-sf-task-field="${f.name}"/> ${label}</label></div>`;
@@ -2275,27 +2285,36 @@ async function renderSSFields(stageName) {
     return `<div class="sf-field"><label>${label}</label><input type="text" class="sf-input" data-sf-field="${api}"${orig} value="${esc(cur)}"/></div>`;
   };
 
-  // SSセクション（段階ごと）があれば、段階プルダウン＋その段階の項目を表示（SS01〜SS06まで）
-  let sections = [];
-  try { sections = await loadSfLayout(); } catch {}
-  const ssSections = sections.filter((s) =>
-    /SS\s*0?[1-6]\b|^\s*0?[1-6]\s*[:：]|アポ獲得|有効商談|担当者合意|企画決定|決裁者|申込書回収/.test(s.heading) &&
-    !/SS\s*0?[789]|SS\s*99|受注処理|失注/.test(s.heading)
-  );
+  // 段階（SS01〜SS06）ごとの項目。画像の項目リストを基準に、describeのラベル→API名で解決する。
+  const SS_STAGE_LABELS = [
+    { key: "01：アポ獲得", labels: ["SS01昇格日", "担当領域", "アポ獲得日", "初回アポ設定日", "顧客の現状"] },
+    { key: "02：有効商談(3ヶ月以内検討)", labels: ["SS02昇格日", "初回提案プラン", "利用目的", "担当者が解決したい課題", "商談メモ", "担当者の解決したい課題（その他）", "次回お打合せ日時"] },
+    { key: "03：担当者合意", labels: ["SS03昇格日", "今やるべき理由", "比較されてる代替手段", "DOCでないといけない理由", "上申先", "同席打診", "上申日", "上申に必要な書類"] },
+    { key: "04：企画決定者合意", labels: ["SS04昇格日", "役員等への業績等に必要な書類", "決裁フロー", "利用開始希望時期", "リーガル・セキュリティチェック", "申込書回収想定日"] },
+    { key: "05：決裁者合意", labels: ["目標用_SS05昇格日", "最終的な決裁の決め手"] },
+    { key: "06：申込書回収完了 / SS99：失注", labels: ["SS06昇格日", "キラーコンテンツ", "☆受失注日", "受失注理由(大項目)", "失注後次回アクション日", "受失注理由（中項目）", "サーカスNO(メディア用)", "受失注理由(小項目)", "受失注理由詳細", "納品への引き継ぎ内容"] },
+  ];
+  const normLbl = (s) => String(s || "").replace(/[\s　()（）:：★☆・_]/g, "").toLowerCase();
+  const labelToApi = {};
+  for (const f of Object.values(meta)) if (f.label) labelToApi[normLbl(f.label)] = f.name;
+  const ssSections = SS_STAGE_LABELS.map((s) => ({
+    heading: s.key,
+    fields: s.labels.map((lb) => labelToApi[normLbl(lb)]).filter(Boolean),
+  })).filter((s) => s.fields.length);
+
   if (ssSections.length) {
-    const stageNum = (stageName || "").match(/0?(\d)/) ? (stageName || "").match(/0?(\d)/)[1] : "";
+    const stageNum = ((stageName || "").match(/0?(\d)/) || [])[1] || "";
     let defaultIdx = 0;
-    ssSections.forEach((s, i) => { if (stageNum && new RegExp("SS\\s*0?" + stageNum + "|^\\s*0?" + stageNum + "\\s*[:：]").test(s.heading)) defaultIdx = i; });
+    ssSections.forEach((s, i) => { if (stageNum && new RegExp("^0?" + stageNum + "[:：]").test(s.heading)) defaultIdx = i; });
     const optHtml = ssSections.map((s, i) => `<option value="${i}" ${i === defaultIdx ? "selected" : ""}>${esc(s.heading)}</option>`).join("");
     container.innerHTML =
       `<div class="sf-field"><label>入力する段階（SS）を選ぶ</label><select id="ssSectionSel" class="sf-select">${optHtml}</select></div>` +
       `<div id="ssSectionFields" class="sf-ss-section"></div>`;
     const renderSection = (idx) => {
       const sec = ssSections[idx];
-      const fApis = (sec.fields || []).filter((a) => !SKIP.test(a));
       const box = document.getElementById("ssSectionFields");
       box.innerHTML = `<div class="sf-ss-title">${esc(sec.heading)} の項目</div>` +
-        (fApis.length ? fApis.map(render1).join("") : '<div class="sf-ss-note">この段階に編集できる項目がありません。</div>');
+        (sec.fields.length ? sec.fields.map(render1).join("") : '<div class="sf-ss-note">この段階に編集できる項目がありません。</div>');
     };
     const sel = document.getElementById("ssSectionSel");
     if (sel) sel.addEventListener("change", () => renderSection(Number(sel.value)));

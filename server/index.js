@@ -3670,6 +3670,20 @@ async function startBotSession(owner, meetingUrl, { title = "", repName = "", la
   return { sessionId: botId, muxReady: !!mux?.playbackId, muxError, autoTitle: autoTitled ? sessionTitle : "" };
 }
 
+// 自動入室（カレンダー/Webhook）の商談名・営業担当を決める。空にならないようにする。
+async function autoJoinMeta(owner, ev, r) {
+  const now = new Date();
+  const dateStr = `${now.getMonth() + 1}/${now.getDate()} ${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`;
+  const evTitle = ((ev && ev.title) || "").trim();
+  const label = ((r && r.label) || "").trim();
+  const title = evTitle || label || `自動記録 ${dateStr}`;
+  let repName = "";
+  const own = (owner || "").trim();
+  if (own) repName = await getDisplayName(own); // 見つからなければ own（メール等）を返す
+  if (!repName) repName = label; // ownerが空なら登録リンク名を担当名に使う
+  return { title, repName };
+}
+
 app.post("/api/sessions", async (req, res) => {
   const { meetingUrl, repName, languageCode, title } = req.body || {};
   if (!meetingUrl) return res.status(400).json({ error: "meetingUrl が必要です" });
@@ -3724,9 +3738,10 @@ app.post("/api/zoom/webhook", async (req, res) => {
       try {
         // 直近5分以内に入室済みなら二重入室を防ぐ
         if (row.last_joined_at && Date.now() - new Date(row.last_joined_at).getTime() < 5 * 60 * 1000) continue;
-        await startBotSession(row.owner, row.url, { title: row.label || obj.topic || "" });
+        const meta = await autoJoinMeta(row.owner, { title: obj.topic || "" }, row);
+        await startBotSession(row.owner, row.url, { title: meta.title, repName: meta.repName });
         await touchAutoJoin(row.id);
-        console.log(`[zoom] 自動入室: meeting ${meetingId} → ${row.owner}`);
+        console.log(`[zoom] 自動入室: meeting ${meetingId} → ${row.owner} / 担当:${meta.repName}`);
       } catch (e) {
         console.error("[zoom] 自動入室失敗", e.message);
       }
@@ -4774,6 +4789,7 @@ app.get("/api/salesforce/task-describe", async (req, res) => {
     const fields = (desc.fields || []).map(f => ({
       name: f.name, label: f.label, type: f.type,
       updateable: f.updateable, createable: f.createable, custom: f.custom,
+      required: !!(f.createable && f.nillable === false && !f.defaultedOnCreate), // 入力必須
       picklistValues: f.picklistValues?.filter(v => v.active).map(v => ({ value: v.value, label: v.label })),
     }));
     const picks = fields.filter((f) => f.type === "picklist" && f.custom).map((f) => f.label);
@@ -5733,8 +5749,9 @@ function startAutoJoinCalendarMonitor() {
             if (joinedEventKeys.has(key)) continue;
             joinedEventKeys.add(key);
             try {
-              await startBotSession(owner, r.url, { title: r.label || e.title || "" });
-              console.log(`[auto-join(cal)] 予定「${e.title || ""}」の時間に自動入室（URL照合なし）→ ${owner}`);
+              const meta = await autoJoinMeta(owner, e, r);
+              await startBotSession(owner, r.url, { title: meta.title, repName: meta.repName });
+              console.log(`[auto-join(cal)] 予定「${e.title || ""}」の時間に自動入室（URL照合なし）→ ${owner} / 担当:${meta.repName}`);
             } catch (err) {
               console.error("[auto-join(cal)] 入室失敗", err.message);
             }
@@ -5745,9 +5762,10 @@ function startAutoJoinCalendarMonitor() {
           const match = timed.find((e) => e.url && zoomMeetingId(e.url) === r.meeting_id && inWindow(new Date(e.start).getTime(), now));
           if (!match) continue;
           try {
-            await startBotSession(owner, r.url, { title: r.label || match.title || "" });
+            const meta = await autoJoinMeta(owner, match, r);
+            await startBotSession(owner, r.url, { title: meta.title, repName: meta.repName });
             await touchAutoJoin(r.id);
-            console.log(`[auto-join(cal)] 予定開始で自動入室: ${r.meeting_id} → ${owner}`);
+            console.log(`[auto-join(cal)] 予定開始で自動入室: ${r.meeting_id} → ${owner} / 担当:${meta.repName}`);
           } catch (err) {
             console.error("[auto-join(cal)] 入室失敗", err.message);
           }
