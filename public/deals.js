@@ -2066,6 +2066,14 @@ async function initSfTab(account) {
   const latestMeeting = ms.length ? ms[ms.length - 1] : null;
   window._sfCurrentBotId = latestMeeting && latestMeeting.bot_id; // 自動入力（商談から読み取り）の対象
   window._sfReadBotId = window._sfCurrentBotId;
+  const meetingById = (id) => ms.find((m) => m.bot_id === id);
+  // 選んだ商談の要約を、活動記録の「説明」欄に入れる
+  const fillDescFromMeeting = (m) => {
+    if (!m) return;
+    const inputs = [...document.querySelectorAll("#sfTaskFields [data-sf-task-field]")];
+    const descEl = inputs.find((el) => /説明|コメント/.test((el.closest(".sf-field") && el.closest(".sf-field").querySelector("label") && el.closest(".sf-field").querySelector("label").textContent) || ""));
+    if (descEl) descEl.value = buildActivityComment(m);
+  };
   // 「読み取る商談」セレクタを構築（新しい順）
   const readSel = $("sfReadMeeting");
   const readWrap = $("sfReadMeetingWrap");
@@ -2078,7 +2086,10 @@ async function initSfTab(account) {
     }).join("");
     window._sfReadBotId = sorted[0].bot_id;
     if (readWrap) readWrap.style.display = "";
-    readSel.onchange = () => { window._sfReadBotId = readSel.value; };
+    readSel.onchange = () => {
+      window._sfReadBotId = readSel.value;
+      fillDescFromMeeting(meetingById(readSel.value)); // 説明に選んだ商談の要約を入れる
+    };
   }
   // 活動記録の「商談から読み取る」
   const taskReadBtn = $("sfTaskReadBtn");
@@ -2088,7 +2099,8 @@ async function initSfTab(account) {
       const botId = window._sfReadBotId || window._sfCurrentBotId;
       if (!botId) { if (note) note.textContent = "対象の商談がありません"; return; }
       const inputs = [...document.querySelectorAll("#sfTaskFields [data-sf-task-field]")];
-      const fList = inputs.map((el) => {
+      const isDesc = (el) => /説明|コメント/.test((el.closest(".sf-field") && el.closest(".sf-field").querySelector("label") && el.closest(".sf-field").querySelector("label").textContent) || "");
+      const fList = inputs.filter((el) => !isDesc(el)).map((el) => {
         const api = el.dataset.sfTaskField;
         const t = el.type === "checkbox" ? "boolean" : (el.tagName === "SELECT" ? "picklist" : (el.type === "date" ? "date" : "string"));
         const options = el.tagName === "SELECT" ? [...el.options].map((o) => o.textContent).filter((x) => x && x !== "") : [];
@@ -2098,6 +2110,8 @@ async function initSfTab(account) {
       taskReadBtn.disabled = true; taskReadBtn.textContent = "読み取り中…";
       if (note) note.textContent = "商談の内容を読み取っています…";
       try {
+        // 説明は選んだ商談の要約をそのまま入れる
+        fillDescFromMeeting(meetingById(botId));
         const r = await sfFetch("/api/salesforce/field-suggest", {
           method: "POST", headers: { "content-type": "application/json" },
           body: JSON.stringify({ botId, fields: fList }),
@@ -2107,12 +2121,13 @@ async function initSfTab(account) {
         const values = d.values || {};
         let filled = 0;
         for (const el of inputs) {
+          if (isDesc(el)) continue;
           const v = values[el.dataset.sfTaskField];
           if (v == null || v === "") continue;
           if (el.tagName === "SELECT") { const opt = [...el.options].find((o) => o.value === v || o.textContent === v); if (opt) { el.value = opt.value; filled++; } }
           else if (el.type !== "checkbox") { el.value = v; filled++; }
         }
-        if (note) note.textContent = filled ? `${filled}項目を読み取りました。確認・編集して記録してください。` : "読み取れる項目はありませんでした。";
+        if (note) note.textContent = `説明に要約を入れ、${filled}項目を読み取りました。確認・編集して記録してください。`;
       } catch (e) {
         if (note) note.textContent = "読み取りに失敗しました：" + e.message;
       } finally {
@@ -2368,9 +2383,15 @@ async function renderSSFields(stageName) {
     const m = meta[api];
     if (t === "picklist" && m && m.picklistValues && m.picklistValues.length) {
       if (m.dependentPicklist && m.controllerName) {
-        // 従属ピックリスト：現在の制御値に対して有効な選択肢だけ出す（連動は後で配線）
+        // 従属ピックリスト：制御値で選択肢を絞る。制御がステージ(StageName)の場合は、
+        // 今の商談ステージではなく「選択中の段階」の値で絞る（99失注を選んだら失注用の選択肢）。
         const ctrl = meta[m.controllerName];
-        const valid = depValidOptions(m, ctrl, opp[m.controllerName]);
+        let ctrlVal = opp[m.controllerName];
+        if (m.controllerName === "StageName") {
+          const stageSel = document.getElementById("sfStage");
+          if (stageSel && stageSel.value) ctrlVal = stageSel.value;
+        }
+        const valid = depValidOptions(m, ctrl, ctrlVal);
         const opts = depOptionsHtml(valid, cur);
         return `<div class="sf-field"><label>${label}</label><select class="sf-select" data-sf-field="${api}" data-dependent-on="${esc(m.controllerName)}"${orig}>${opts}</select></div>`;
       }
