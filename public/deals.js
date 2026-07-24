@@ -2425,19 +2425,20 @@ async function renderSSFields(stageName) {
   })).filter((s) => s.fields.length);
 
   if (ssSections.length) {
-    // 各SS段階に対応するSalesforceのステージ値をマッピング（番号＋名前で最も近いものを選ぶ）
+    // 各SS段階に対応するSalesforceのステージ値をマッピング（先頭番号で対応。99などの多桁にも対応）
+    const numOf = (s) => { const mm = String(s || "").match(/^\s*0*(\d+)\s*[:：]/); return mm ? mm[1] : null; };
     const matchStage = (heading) => {
-      const num = (heading.match(/^0?(\d)/) || [])[1] || "";
+      const hNum = numOf(heading);
       const nm = normLbl(heading.replace(/^[0-9]+\s*[:：]\s*/, "").replace(/[／/].*$/, ""));
       const opts = sfStageOptions || [];
-      if (!opts.length) return "";
-      const byNum = opts.filter((o) => new RegExp("^0?" + num + "\\s*[:：]").test(String(o.value || o.label)));
+      if (!opts.length || !hNum) return "";
+      const byNum = opts.filter((o) => numOf(o.value || o.label) === hNum);
       const exact = byNum.find((o) => normLbl(o.value || o.label).includes(nm));
       return (exact || byNum[0] || {}).value || "";
     };
-    const stageNum = ((stageName || "").match(/0?(\d)/) || [])[1] || "";
+    const stageNum = numOf(stageName);
     let defaultIdx = 0;
-    ssSections.forEach((s, i) => { if (stageNum && new RegExp("^0?" + stageNum + "[:：]").test(s.heading)) defaultIdx = i; });
+    ssSections.forEach((s, i) => { if (stageNum && numOf(s.heading) === stageNum) defaultIdx = i; });
     const optHtml = ssSections.map((s, i) => {
       const sv = matchStage(s.heading);
       return `<option value="${esc(sv)}" data-secidx="${i}" ${i === defaultIdx ? "selected" : ""}>${esc(s.heading)}</option>`;
