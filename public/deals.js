@@ -1282,10 +1282,12 @@ async function selectDeal(account) {
     `<div id="sfSearch" class="sf-search"><button class="btn sf-search-btn" id="sfSearchBtn">商談を検索</button></div>` +
     `<div id="sfMatches"></div>` +
     `<div id="sfLinked" style="display:none"><div id="sfLinkedInfo" class="sf-linked-info"></div>` +
+    `<div class="sf-field" id="sfReadMeetingWrap" style="display:none;margin:8px 0 4px"><label>読み取る商談（自動入力の元）</label><select id="sfReadMeeting" class="sf-select"></select></div>` +
     `<div class="sf-subtabs" id="sfSubtabs"><button type="button" class="sf-subtab active" data-sftab="task">活動記録</button><button type="button" class="sf-subtab" data-sftab="stage">ステージ・項目更新</button></div>` +
     `<div class="sf-subpanel" data-sfpanel="task">` +
     `<div class="sf-section-box"><div class="sf-section-title"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" style="vertical-align:-2px;margin-right:4px"><circle cx="8" cy="8" r="7" fill="#0d5b47"/><path d="M8 4v4l3 2" stroke="#fff" stroke-width="1.5" stroke-linecap="round"/></svg>活動を記録</div>` +
     `<div id="sfTaskFields"><div class="empty-state">項目を読み込み中…</div></div>` +
+    `<div class="sf-autofill-row"><button type="button" class="btn btn-ghost" id="sfTaskReadBtn">商談から読み取る</button><span class="sf-autofill-note" id="sfTaskReadNote">選んだ商談から活動種別・次回アクション・説明を埋めます</span></div>` +
     `<div class="sf-field" style="margin-top:8px"><button class="btn sf-btn-secondary" id="sfTaskBtn">活動を記録</button></div><div id="sfTaskMsg"></div></div>` +
     `<div class="sf-section-box"><div class="sf-section-title"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" style="vertical-align:-2px;margin-right:4px"><rect x="2" y="3" width="12" height="11" rx="1.5" fill="#0d5b47"/><rect x="4" y="6" width="8" height="1.3" rx=".5" fill="#5DCAA5"/><rect x="4" y="9" width="6" height="1.3" rx=".5" fill="#5DCAA5"/></svg>過去の活動</div><div id="sfTaskHistory"><div class="sf-ss-note">商談をリンクすると表示されます。</div></div></div>` +
     `</div>` +
@@ -2063,6 +2065,61 @@ async function initSfTab(account) {
   const ms = groups[account] || [];
   const latestMeeting = ms.length ? ms[ms.length - 1] : null;
   window._sfCurrentBotId = latestMeeting && latestMeeting.bot_id; // 自動入力（商談から読み取り）の対象
+  window._sfReadBotId = window._sfCurrentBotId;
+  // 「読み取る商談」セレクタを構築（新しい順）
+  const readSel = $("sfReadMeeting");
+  const readWrap = $("sfReadMeetingWrap");
+  if (readSel && ms.length) {
+    const sorted = ms.slice().sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+    readSel.innerHTML = sorted.map((m) => {
+      const d = new Date(m.created_at).toLocaleDateString("ja-JP", { month: "numeric", day: "numeric" });
+      const t = (m.title || "(商談名なし)").slice(0, 40);
+      return `<option value="${esc(m.bot_id)}">${esc(d)}　${esc(t)}</option>`;
+    }).join("");
+    window._sfReadBotId = sorted[0].bot_id;
+    if (readWrap) readWrap.style.display = "";
+    readSel.onchange = () => { window._sfReadBotId = readSel.value; };
+  }
+  // 活動記録の「商談から読み取る」
+  const taskReadBtn = $("sfTaskReadBtn");
+  if (taskReadBtn) {
+    taskReadBtn.onclick = async () => {
+      const note = $("sfTaskReadNote");
+      const botId = window._sfReadBotId || window._sfCurrentBotId;
+      if (!botId) { if (note) note.textContent = "対象の商談がありません"; return; }
+      const inputs = [...document.querySelectorAll("#sfTaskFields [data-sf-task-field]")];
+      const fList = inputs.map((el) => {
+        const api = el.dataset.sfTaskField;
+        const t = el.type === "checkbox" ? "boolean" : (el.tagName === "SELECT" ? "picklist" : (el.type === "date" ? "date" : "string"));
+        const options = el.tagName === "SELECT" ? [...el.options].map((o) => o.textContent).filter((x) => x && x !== "") : [];
+        const label = (el.closest(".sf-field")?.querySelector("label")?.textContent || api).trim();
+        return { api, label, type: t, options };
+      });
+      taskReadBtn.disabled = true; taskReadBtn.textContent = "読み取り中…";
+      if (note) note.textContent = "商談の内容を読み取っています…";
+      try {
+        const r = await sfFetch("/api/salesforce/field-suggest", {
+          method: "POST", headers: { "content-type": "application/json" },
+          body: JSON.stringify({ botId, fields: fList }),
+        });
+        const d = await r.json();
+        if (!r.ok) throw new Error(d.error || "取得失敗");
+        const values = d.values || {};
+        let filled = 0;
+        for (const el of inputs) {
+          const v = values[el.dataset.sfTaskField];
+          if (v == null || v === "") continue;
+          if (el.tagName === "SELECT") { const opt = [...el.options].find((o) => o.value === v || o.textContent === v); if (opt) { el.value = opt.value; filled++; } }
+          else if (el.type !== "checkbox") { el.value = v; filled++; }
+        }
+        if (note) note.textContent = filled ? `${filled}項目を読み取りました。確認・編集して記録してください。` : "読み取れる項目はありませんでした。";
+      } catch (e) {
+        if (note) note.textContent = "読み取りに失敗しました：" + e.message;
+      } finally {
+        taskReadBtn.disabled = false; taskReadBtn.textContent = "商談から読み取る";
+      }
+    };
+  }
 
   // 活動記録フォームをTaskの実項目から自動生成
   renderTaskFields(account, latestMeeting);
@@ -2245,6 +2302,28 @@ async function loadSfLayout() {
   return sfLayoutSections;
 }
 
+// 従属ピックリスト（依存関係）用：validFor（base64ビットマップ）を判定関数に変換
+function decodeValidFor(b64) {
+  if (!b64) return () => false;
+  let bytes;
+  try { const bin = atob(b64); bytes = []; for (let i = 0; i < bin.length; i++) bytes.push(bin.charCodeAt(i)); }
+  catch { return () => false; }
+  return (i) => { const byte = bytes[Math.floor(i / 8)]; if (byte == null) return false; return (byte & (0x80 >> (i % 8))) !== 0; };
+}
+// 制御値に対して有効な従属選択肢を返す
+function depValidOptions(field, controllerField, controllerValue) {
+  if (!field || !field.picklistValues) return [];
+  const opts = (controllerField && controllerField.picklistValues) || [];
+  const idx = opts.findIndex((o) => o.value === controllerValue);
+  if (idx < 0) return []; // 制御値が未選択・不一致なら空
+  return field.picklistValues.filter((o) => decodeValidFor(o.validFor)(idx));
+}
+function depOptionsHtml(options, selectedVal) {
+  return ['<option value=""></option>'].concat(
+    (options || []).map((o) => `<option value="${esc(o.value)}" ${o.value === selectedVal ? "selected" : ""}>${esc(o.label || o.value)}</option>`)
+  ).join("");
+}
+
 async function renderSSFields(stageName) {
   const container = $("sfStageFields");
   if (!container) return;
@@ -2288,6 +2367,13 @@ async function renderSSFields(stageName) {
     const orig = ` data-sf-orig="${esc(cur)}"`;
     const m = meta[api];
     if (t === "picklist" && m && m.picklistValues && m.picklistValues.length) {
+      if (m.dependentPicklist && m.controllerName) {
+        // 従属ピックリスト：現在の制御値に対して有効な選択肢だけ出す（連動は後で配線）
+        const ctrl = meta[m.controllerName];
+        const valid = depValidOptions(m, ctrl, opp[m.controllerName]);
+        const opts = depOptionsHtml(valid, cur);
+        return `<div class="sf-field"><label>${label}</label><select class="sf-select" data-sf-field="${api}" data-dependent-on="${esc(m.controllerName)}"${orig}>${opts}</select></div>`;
+      }
       const opts = ['<option value=""></option>'].concat(
         m.picklistValues.map((o) => `<option value="${esc(o.value)}" ${o.value === cur ? "selected" : ""}>${esc(o.label || o.value)}</option>`)
       ).join("");
@@ -2341,7 +2427,7 @@ async function renderSSFields(stageName) {
     const autofillSection = async (sec) => {
       const btn = document.getElementById("ssAutofillBtn");
       const note = document.getElementById("ssAutofillNote");
-      const botId = window._sfCurrentBotId;
+      const botId = window._sfReadBotId || window._sfCurrentBotId;
       if (!botId) { if (note) note.textContent = "対象の商談が見つかりません"; return; }
       const fList = sec.fields.map((api) => {
         const mm = meta[api] || {};
@@ -2386,6 +2472,19 @@ async function renderSSFields(stageName) {
       box.innerHTML = `<div class="sf-ss-title">${esc(sec.heading)} の項目</div>` +
         `<div class="sf-autofill-row"><button type="button" class="btn btn-ghost" id="ssAutofillBtn">商談から自動入力</button><span class="sf-autofill-note" id="ssAutofillNote">空欄を商談の内容から埋めます</span></div>` +
         (sec.fields.length ? sec.fields.map(render1).join("") : '<div class="sf-ss-note">この段階に編集できる項目がありません。</div>');
+      // 従属ピックリスト（大→中→小）の連動を配線
+      box.querySelectorAll("select[data-dependent-on]").forEach((depSel) => {
+        const depApi = depSel.dataset.sfField;
+        const ctrlApi = depSel.dataset.dependentOn;
+        const ctrlSel = [...box.querySelectorAll("select[data-sf-field]")].find((s) => s.dataset.sfField === ctrlApi);
+        if (!ctrlSel) return;
+        ctrlSel.addEventListener("change", () => {
+          const valid = depValidOptions(meta[depApi], meta[ctrlApi], ctrlSel.value);
+          const prev = depSel.value;
+          depSel.innerHTML = depOptionsHtml(valid, valid.some((o) => o.value === prev) ? prev : "");
+          depSel.dispatchEvent(new Event("change")); // さらに下位（小項目）へ連鎖
+        });
+      });
       const abtn = document.getElementById("ssAutofillBtn");
       if (abtn) abtn.addEventListener("click", () => autofillSection(sec));
       if (auto && sec.fields.length) autofillSection(sec); // 段階を選んだら自動で読み取り
