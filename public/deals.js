@@ -2060,36 +2060,78 @@ async function showContactRolePrompt(container, errMsg, retry) {
     if (!r.ok) throw new Error(d.error || "取得失敗");
     const contacts = d.contacts || [];
     const roles = d.roles || [];
-    if (!contacts.length) {
-      box.innerHTML = '<div class="sf-cr-title">この取引先には取引先責任者（Contact）が登録されていません。</div><div class="sf-ss-note">Salesforceでこの取引先に取引先責任者を追加してから、もう一度失注更新してください。</div>';
-      return;
-    }
-    box.innerHTML =
-      `<div class="sf-cr-title">主担当（取引先責任者の役割）を設定して再更新します</div>` +
-      `<div class="sf-field"><label>取引先責任者（主担当にする人）</label><select class="sf-select" id="crContact">${contacts.map((c) => `<option value="${esc(c.id)}">${esc(c.name)}${c.title ? "（" + esc(c.title) + "）" : ""}</option>`).join("")}</select></div>` +
-      (roles.length ? `<div class="sf-field"><label>役割</label><select class="sf-select" id="crRole"><option value="">（役割なし）</option>${roles.map((rr) => `<option value="${esc(rr)}">${esc(rr)}</option>`).join("")}</select></div>` : "") +
-      `<div class="sf-field" style="margin-top:6px"><button class="btn" id="crSetBtn">主担当として設定して再更新</button></div><div id="crMsg" class="sf-ss-note"></div>`;
-    box.querySelector("#crSetBtn").addEventListener("click", async () => {
-      const btn = box.querySelector("#crSetBtn");
+    const roleSelHtml = roles.length
+      ? `<div class="sf-field"><label>役割</label><select class="sf-select" id="crRole"><option value="">（役割なし）</option>${roles.map((rr) => `<option value="${esc(rr)}">${esc(rr)}</option>`).join("")}</select></div>`
+      : "";
+    // 既存の取引先責任者から選ぶ（いれば）＋ 新規作成
+    const existingHtml = contacts.length
+      ? `<div class="sf-cr-title">既存の取引先責任者から主担当を設定</div>` +
+        `<div class="sf-field"><label>取引先責任者</label><select class="sf-select" id="crContact">${contacts.map((c) => `<option value="${esc(c.id)}">${esc(c.name)}${c.title ? "（" + esc(c.title) + "）" : ""}</option>`).join("")}</select></div>` +
+        roleSelHtml +
+        `<div class="sf-field" style="margin-top:6px"><button class="btn" id="crSetBtn">主担当として設定して再更新</button></div>`
+      : `<div class="sf-cr-title">この取引先には取引先責任者がまだありません。新しく作成します。</div>`;
+    const createHtml =
+      `<div class="sf-cr-title" style="margin-top:14px">新しい取引先責任者を作成して主担当に設定</div>` +
+      `<div class="sf-field"><label>氏名（姓）※必須</label><input type="text" class="sf-input" id="crNewLast" placeholder="例：松下" /></div>` +
+      `<div class="sf-field"><label>名（任意）</label><input type="text" class="sf-input" id="crNewFirst" placeholder="例：太郎" /></div>` +
+      `<div class="sf-field"><label>役職（任意）</label><input type="text" class="sf-input" id="crNewTitle" placeholder="例：人事部長" /></div>` +
+      `<div class="sf-field"><label>メール（任意）</label><input type="text" class="sf-input" id="crNewEmail" placeholder="例：matsushita@example.com" /></div>` +
+      (roles.length ? `<div class="sf-field"><label>役割</label><select class="sf-select" id="crNewRole"><option value="">（役割なし）</option>${roles.map((rr) => `<option value="${esc(rr)}">${esc(rr)}</option>`).join("")}</select></div>` : "") +
+      `<div class="sf-field" style="margin-top:6px"><button class="btn sf-btn-secondary" id="crCreateBtn">作成して主担当に設定して再更新</button></div>`;
+    box.innerHTML = existingHtml + createHtml + `<div id="crMsg" class="sf-ss-note"></div>`;
+    const crMsg = () => box.querySelector("#crMsg");
+    // 既存から設定
+    const setBtn = box.querySelector("#crSetBtn");
+    if (setBtn) setBtn.addEventListener("click", async () => {
       const contactId = box.querySelector("#crContact").value;
       const roleSel = box.querySelector("#crRole");
-      const role = roleSel ? roleSel.value : "";
-      btn.disabled = true; btn.textContent = "設定中…";
-      const crMsg = box.querySelector("#crMsg");
+      setBtn.disabled = true; setBtn.textContent = "設定中…";
       try {
         const rr = await sfFetch("/api/salesforce/contact-role", {
           method: "POST", headers: { "content-type": "application/json" },
-          body: JSON.stringify({ opportunityId: sfLinkedOpp.Id, contactId, role, isPrimary: true }),
+          body: JSON.stringify({ opportunityId: sfLinkedOpp.Id, contactId, role: roleSel ? roleSel.value : "", isPrimary: true }),
         });
         const dd = await rr.json();
         if (!rr.ok) throw new Error(dd.error || "設定失敗");
-        if (crMsg) crMsg.textContent = "主担当を設定しました。再更新します…";
+        if (crMsg()) crMsg().textContent = "主担当を設定しました。再更新します…";
         setTimeout(retry, 500);
       } catch (e) {
-        if (crMsg) crMsg.textContent = "設定に失敗しました：" + cleanSfError(e.message);
-        btn.disabled = false; btn.textContent = "主担当として設定して再更新";
+        if (crMsg()) crMsg().textContent = "設定に失敗しました：" + cleanSfError(e.message);
+        setBtn.disabled = false; setBtn.textContent = "主担当として設定して再更新";
       }
     });
+    // 新規作成して設定
+    const createBtn = box.querySelector("#crCreateBtn");
+    if (createBtn) createBtn.addEventListener("click", async () => {
+      const lastName = box.querySelector("#crNewLast").value.trim();
+      if (!lastName) { if (crMsg()) crMsg().textContent = "氏名（姓）を入力してください。"; return; }
+      const firstName = box.querySelector("#crNewFirst").value.trim();
+      const title = box.querySelector("#crNewTitle").value.trim();
+      const email = box.querySelector("#crNewEmail").value.trim();
+      const roleSel = box.querySelector("#crNewRole");
+      createBtn.disabled = true; createBtn.textContent = "作成中…";
+      try {
+        const cr = await sfFetch("/api/salesforce/contact", {
+          method: "POST", headers: { "content-type": "application/json" },
+          body: JSON.stringify({ accountId: (sfLinkedOpp && sfLinkedOpp.AccountId) || "", lastName, firstName, title, email }),
+        });
+        const cd = await cr.json();
+        if (!cr.ok || !cd.id) throw new Error(cd.error || "作成失敗");
+        if (crMsg()) crMsg().textContent = "取引先責任者を作成しました。主担当に設定中…";
+        const rr = await sfFetch("/api/salesforce/contact-role", {
+          method: "POST", headers: { "content-type": "application/json" },
+          body: JSON.stringify({ opportunityId: sfLinkedOpp.Id, contactId: cd.id, role: roleSel ? roleSel.value : "", isPrimary: true }),
+        });
+        const dd = await rr.json();
+        if (!rr.ok) throw new Error(dd.error || "主担当設定失敗");
+        if (crMsg()) crMsg().textContent = "作成・主担当設定が完了しました。再更新します…";
+        setTimeout(retry, 500);
+      } catch (e) {
+        if (crMsg()) crMsg().textContent = "失敗しました：" + cleanSfError(e.message);
+        createBtn.disabled = false; createBtn.textContent = "作成して主担当に設定して再更新";
+      }
+    });
+    return;
   } catch (e) {
     if (box) box.innerHTML = '<div class="sf-ss-note">取引先責任者の取得に失敗しました：' + esc(cleanSfError(e.message)) + "</div>";
   }

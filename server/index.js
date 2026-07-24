@@ -183,6 +183,7 @@ import {
   clearSfTokenCache,
   sfQuery,
   listAccountContacts,
+  createContact,
   createContactRole,
   describeContactRolePicklist,
   fillEmptyFields,
@@ -5156,6 +5157,18 @@ app.get("/api/salesforce/contacts", async (req, res) => {
       describeContactRolePicklist(req.user).catch(() => []),
     ]);
     res.json({ contacts, roles });
+  } catch (e) {
+    sfErrorResponse(res, e);
+  }
+});
+
+// 取引先責任者（Contact）を新規作成
+app.post("/api/salesforce/contact", async (req, res) => {
+  try {
+    const { accountId, lastName, firstName, title, email } = req.body || {};
+    if (!lastName) return res.status(400).json({ error: "氏名（姓）が必要です" });
+    const out = await createContact(req.user, { accountId, lastName, firstName, title, email });
+    res.json({ ok: true, id: out.id });
   } catch (e) {
     sfErrorResponse(res, e);
   }

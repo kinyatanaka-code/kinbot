@@ -187,6 +187,27 @@ export async function sfQuery(owner, soql) {
   return res.json();
 }
 
+// 取引先責任者（Contact）を作成
+export async function createContact(owner, { accountId, lastName, firstName, title, email } = {}) {
+  const acc = await getAccess(owner);
+  if (!acc) throw new Error("Salesforce未連携です");
+  const body = { LastName: lastName || "（担当者）" };
+  if (accountId) body.AccountId = accountId;
+  if (firstName) body.FirstName = firstName;
+  if (title) body.Title = title;
+  if (email) body.Email = email;
+  const res = await fetch(
+    `${acc.instanceUrl}/services/data/${API_VERSION}/sobjects/Contact`,
+    {
+      method: "POST",
+      headers: { Authorization: `Bearer ${acc.token}`, "content-type": "application/json" },
+      body: JSON.stringify(body),
+    }
+  );
+  if (!res.ok) throw new Error(`SF contact ${res.status}: ${(await res.text()).slice(0, 300)}`);
+  return res.json();
+}
+
 // 取引先（Account）に紐づく取引先責任者（Contact）一覧
 export async function listAccountContacts(owner, accountId) {
   if (!accountId) return [];
