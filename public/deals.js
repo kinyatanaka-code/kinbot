@@ -2392,14 +2392,15 @@ async function renderSSFields(stageName) {
     { key: "04：企画決定者合意", labels: ["SS04昇格日", "役員等への業績等に必要な書類", "決裁フロー", "利用開始希望時期", "リーガル・セキュリティチェック", "申込書回収想定日"] },
     { key: "05：決裁者合意", labels: ["目標用_SS05昇格日", "最終的な決裁の決め手"] },
     { key: "06：申込書回収完了", labels: ["SS06昇格日", "キラーコンテンツ", "サーカスNO(メディア用)", "☆受失注日", "納品への引き継ぎ内容"] },
-    { key: "99：失注", labels: ["☆受失注日", "受失注理由(大項目)", "受失注理由（中項目）", "受失注理由(小項目)", "受失注理由詳細", "失注後次回アクション日"] },
+    { key: "99：失注", labels: ["order_date__c", "Loss_Reason__c", "Loss_Reason1__c", "Loss_Reason2__c", "order_reason_detail__c", "失注後次回アクション日"] },
   ];
   const normLbl = (s) => String(s || "").replace(/[\s　()（）:：★☆・_]/g, "").toLowerCase();
   const labelToApi = {};
   for (const f of Object.values(meta)) if (f.label) labelToApi[normLbl(f.label)] = f.name;
   const ssSections = SS_STAGE_LABELS.map((s) => ({
     heading: s.key,
-    fields: s.labels.map((lb) => labelToApi[normLbl(lb)]).filter(Boolean),
+    // ラベル、またはAPI名（末尾__cなど、metaに存在するもの）で解決する
+    fields: s.labels.map((lb) => (meta[lb] ? lb : labelToApi[normLbl(lb)])).filter(Boolean),
   })).filter((s) => s.fields.length);
 
   if (ssSections.length) {
