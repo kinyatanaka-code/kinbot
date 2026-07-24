@@ -23,6 +23,7 @@ import { createSession, getSession, removeSession, listActiveSessions, setOnMeet
 import {
   initDb,
   listMeetings,
+  setMeetingOwner,
   getMeeting,
   saveCustomAnalysis,
   saveSettings,
@@ -1830,6 +1831,44 @@ app.get("/api/deals", async (req, res) => {
     const { owner, team, status, from, to } = req.query;
     res.json(await listDeals({ owner, team, status, from, to }));
   } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// 営業担当が未設定の商談を、文字起こしの発言者名から担当を特定して設定する（商談名は変更しない）
+app.post("/api/meetings/backfill-owner", async (req, res) => {
+  try {
+    const users = await listUsers();
+    const norm = (s) => String(s || "").replace(/[\s　]/g, "").toLowerCase();
+    const userList = (users || []).filter((u) => u.name).map((u) => ({ email: u.email, name: u.name, nname: norm(u.name) }));
+    if (!userList.length) return res.json({ ok: true, updated: 0, checked: 0, reason: "ユーザーが登録されていません" });
+    const all = await listMeetings({ isAdmin: true });
+    const targets = all.filter((m) => !((m.owner_name || "").trim() || (m.rep_name || "").trim() || (m.owner || "").trim()));
+    let updated = 0;
+    for (const m of targets) {
+      let full;
+      try { full = await getMeeting(m.bot_id); } catch { continue; }
+      const tr = Array.isArray(full && full.transcript) ? full.transcript : [];
+      if (!tr.length) continue;
+      const speakerCount = {};
+      for (const u of tr) {
+        const sn = (u.speaker && u.speaker.name) || "";
+        if (sn) speakerCount[sn] = (speakerCount[sn] || 0) + 1;
+      }
+      // ユーザー名を含む発言者を、発言数が多い順で最有力として担当に採用
+      let best = null, bestCount = -1;
+      for (const sn of Object.keys(speakerCount)) {
+        const nsn = norm(sn);
+        const u = userList.find((x) => x.nname && nsn.includes(x.nname));
+        if (u && speakerCount[sn] > bestCount) { best = u; bestCount = speakerCount[sn]; }
+      }
+      if (best) {
+        try { await setMeetingOwner(m.bot_id, { owner: best.email, repName: best.name }); updated++; } catch {}
+      }
+    }
+    res.json({ ok: true, updated, checked: targets.length });
+  } catch (e) {
+    console.error("[backfill-owner]", e.message);
+    res.status(500).json({ error: e.message });
+  }
 });
 
 // 同じ会社名で重複してできてしまった案件（deals）レコードを1つに統合する（管理者のみ）
@@ -3694,11 +3733,21 @@ async function autoJoinMeta(owner, ev, r) {
   const dateStr = `${now.getMonth() + 1}/${now.getDate()} ${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`;
   const evTitle = ((ev && ev.title) || "").trim();
   const label = ((r && r.label) || "").trim();
+  // 商談名：Googleカレンダーの予定タイトルを最優先
   const title = evTitle || label || `自動記録 ${dateStr}`;
+  // 営業担当：カレンダーを連携しているユーザー（owner）→ 予定の主催者 → 登録リンク名
   let repName = "";
   const own = (owner || "").trim();
-  if (own) repName = await getDisplayName(own); // 見つからなければ own（メール等）を返す
-  if (!repName) repName = label; // ownerが空なら登録リンク名を担当名に使う
+  if (own) repName = await getDisplayName(own).catch(() => "");
+  if (!repName || repName === own) {
+    const org = (ev && (ev.organizer || ev.creator)) || "";
+    if (org) {
+      const byOrg = await getDisplayName(org).catch(() => "");
+      if (byOrg && byOrg !== org) repName = byOrg;
+      else if (!repName) repName = own || org;
+    }
+  }
+  if (!repName) repName = label;
   return { title, repName };
 }
 
@@ -4400,10 +4449,21 @@ app.post("/api/recall/webhook", (req, res) => {
         let s = getSession(ev.botId);
         if (!s) {
           s = createSession(ev.botId, {}); // 予約Bot等：受信時に遅延作成
-          // DBの商談行（予約時に作成済み）から商談名・所有者を補完
+          // DBの商談行（予約時に作成済み）から商談名・所有者を補完。空ならカレンダー等から補う。
           try {
             const m = await getMeeting(ev.botId);
-            if (m) s.enrich({ title: m.title, owner: m.owner, repName: m.rep_name, muxPlaybackId: m.mux_playback_id });
+            if (m) {
+              let title = m.title || "";
+              let repName = m.rep_name || "";
+              const owner = m.owner || "";
+              if (!title && owner && m.meeting_url) {
+                title = (await guessTitleFromCalendar(owner, m.meeting_url).catch(() => "")) || title;
+              }
+              if (!repName && owner) {
+                repName = (await getDisplayName(owner).catch(() => "")) || repName;
+              }
+              s.enrich({ title, owner, repName, muxPlaybackId: m.mux_playback_id });
+            }
           } catch {}
         }
         if (ev.type === "final") s.onFinal(ev.speaker, ev.text);
@@ -5824,17 +5884,19 @@ function startAutoJoinCalendarMonitor() {
       const timed = (evs || []).filter((e) => !e.allDay && e.start);
       for (const r of ownerRows) {
         if (r.calendar_any) {
-          // URL照合なし：ゲストのいる予定の開始時刻に、その部屋へ入室（予定ごとに1回）
+          // 連携カレンダーの予定にZoom等のURLが入っていれば、そのURLへ入室（予定ごとに1回）
           for (const e of timed) {
             if ((e.guests || 0) < 1) continue; // 相手のいる予定だけ（個人の予定は除外）
             if (!inWindow(new Date(e.start).getTime(), now)) continue;
+            const joinUrl = (e.url && /zoom|meet\.google|teams\.microsoft/.test(e.url)) ? e.url : r.url; // 予定内のURL優先
+            if (!joinUrl) continue;
             const key = `${r.id}|${e.id}`;
             if (joinedEventKeys.has(key)) continue;
             joinedEventKeys.add(key);
             try {
-              const meta = await autoJoinMeta(owner, e, r);
-              await startBotSession(owner, r.url, { title: meta.title, repName: meta.repName });
-              console.log(`[auto-join(cal)] 予定「${e.title || ""}」の時間に自動入室（URL照合なし）→ ${owner} / 担当:${meta.repName}`);
+              const meta = await autoJoinMeta(owner, e, r); // 商談名=予定タイトル、担当=カレンダー主
+              await startBotSession(owner, joinUrl, { title: meta.title, repName: meta.repName });
+              console.log(`[auto-join(cal)] 予定「${e.title || ""}」の時間に自動入室 → ${owner} / 担当:${meta.repName} / URL:${joinUrl.slice(0, 40)}`);
             } catch (err) {
               console.error("[auto-join(cal)] 入室失敗", err.message);
             }

@@ -613,6 +613,32 @@ function renderList() {
         ownerMap[o].meetings += groups[nk].length;
       }
       const owners = Object.keys(ownerMap).sort((a, b) => ownerMap[b].meetings - ownerMap[a].meetings);
+      // 「未設定」がある場合、文字起こしの発言者名から営業担当を設定するボタン
+      if (ownerMap["未設定"]) {
+        const bf = document.createElement("button");
+        bf.type = "button";
+        bf.className = "btn btn-ghost hist-backfill-btn";
+        bf.style.cssText = "margin-bottom:12px;width:100%;";
+        bf.textContent = "発言者から営業担当を設定（未設定を振り分け）";
+        bf.addEventListener("click", async () => {
+          if (!confirm("営業担当が未設定の商談について、文字起こしの発言者名から担当を特定して設定します。商談名は変更しません。よろしいですか？")) return;
+          bf.disabled = true;
+          const orig = bf.textContent;
+          bf.textContent = "文字起こしから担当を判定中…";
+          try {
+            const r = await fetch("/api/meetings/backfill-owner", { method: "POST" });
+            const d = await r.json();
+            if (!r.ok) throw new Error(d.error || "失敗");
+            alert(d.updated ? `${d.updated}件に営業担当を設定しました。各担当の商談履歴に移動します。` : "発言者から担当を特定できる商談はありませんでした（発言者名に登録ユーザー名が含まれていない可能性があります）。");
+            await loadList();
+          } catch (e) {
+            alert("失敗しました: " + e.message);
+            bf.disabled = false;
+            bf.textContent = orig;
+          }
+        });
+        hlist.appendChild(bf);
+      }
       for (const o of owners) {
         const card = document.createElement("button");
         card.type = "button";

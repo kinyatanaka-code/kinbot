@@ -457,6 +457,18 @@ export async function initDb() {
   console.log("[db] Postgres に接続しました（履歴を保存します）。");
 }
 
+// 商談のowner/rep_nameだけを更新する（営業担当の後付け設定に使う）
+export async function setMeetingOwner(botId, { owner, repName } = {}) {
+  if (!pool || !botId) return;
+  const sets = [], vals = [botId];
+  let i = 2;
+  if (owner !== undefined) { sets.push(`owner=$${i}`); vals.push(owner || ""); i++; }
+  if (repName !== undefined) { sets.push(`rep_name=$${i}`); vals.push(repName || ""); i++; }
+  if (!sets.length) return;
+  try { await pool.query(`UPDATE meetings SET ${sets.join(", ")}, updated_at=now() WHERE bot_id=$1`, vals); }
+  catch (e) { console.error("[db] setMeetingOwner", e.message); }
+}
+
 export async function createMeeting(botId, { meetingUrl, repName, title, owner, muxPlaybackId }) {
   if (!pool) return;
   const round = roundFromTitle(title); // 商談名から回数を自動判定（【新/ヒ】【初回/】=1、【n回目】=n）
