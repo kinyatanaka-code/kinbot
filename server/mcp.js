@@ -159,7 +159,7 @@ export async function callTool(name, args, req) {
   switch (name) {
     case "list_deals": {
       const rows = await listDeals({
-        owner: owner || undefined,
+        owner: (args && args.owner) || undefined,
         team: args && args.team,
         status: args && args.status,
         from: args && args.from,
@@ -190,7 +190,8 @@ export async function callTool(name, args, req) {
       return d;
     }
     case "list_meetings": {
-      const rows = await listMeetings({ owner: isAdmin ? null : req.user, isAdmin });
+      // UIの商談履歴と同じく全件を対象にする（画面で見える商談はMCPでも見える）
+      const rows = await listMeetings({ isAdmin: true });
       // 文字起こし全文は除外（軽量化）。要約・分析は残す。
       return rows.map((m) => ({ ...m, transcript: undefined }));
     }
@@ -198,14 +199,13 @@ export async function callTool(name, args, req) {
       if (!args || !args.bot_id) throw new Error("bot_id が必要です");
       const m = await getMeeting(args.bot_id);
       if (!m) throw new Error("商談が見つかりません");
-      if (!isAdmin && m.owner && m.owner !== req.user) throw new Error("この商談を見る権限がありません");
       return m;
     }
     case "get_account_detail": {
       if (!args || !args.company_name) throw new Error("company_name が必要です");
       const key = normCompanyKey(args.company_name);
       // 自分の商談（管理者は全件）から、会社名が一致する商談を集める
-      const allMeetings = await listMeetings({ owner: isAdmin ? null : req.user, isAdmin });
+      const allMeetings = await listMeetings({ isAdmin: true });
       let matched = allMeetings.filter((m) => m.account && normCompanyKey(m.account) === key);
       if (!matched.length) {
         // 完全一致が無ければ部分一致で探す
@@ -218,7 +218,7 @@ export async function callTool(name, args, req) {
       // ※商談の account が未設定でも、プロフィール／案件があれば返せるようにする。
       const pmap = await buildProfileMap();
       const profile = profileFromMap(pmap, args.company_name);
-      const allDeals = await listDeals({ owner: isAdmin ? null : req.user }).catch(() => []);
+      const allDeals = await listDeals({}).catch(() => []);
       const deal = allDeals.find((d) => normCompanyKey(d.company_name) === key)
         || allDeals.find((d) => { const k2 = normCompanyKey(d.company_name || ""); return k2 && (k2.includes(key) || key.includes(k2)); });
       // 商談・案件・プロフィールのどれも無いときだけ「該当なし」

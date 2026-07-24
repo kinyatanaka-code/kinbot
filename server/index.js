@@ -921,6 +921,21 @@ app.post("/api/chat", async (req, res) => {
       return true;
     });
     const statuses = await listDealStatuses();
+    // 要約が無い商談は、文字起こしを取り寄せてチャットで読めるようにする（最大8件）
+    let fetched = 0;
+    for (const m of rows.slice(0, 25)) {
+      const s = m.summary || {};
+      const hasSum = s.overview || (s.key_points || []).length || (s.action_items || []).length || (s.customer_concerns || []).length;
+      if (!hasSum && fetched < 8) {
+        try {
+          const full = await getMeeting(m.bot_id);
+          const tr = Array.isArray(full && full.transcript)
+            ? full.transcript.map((u) => `${(u.speaker && u.speaker.name) || "話者"}: ${u.text || ""}`).join("\n")
+            : (typeof (full && full.transcript) === "string" ? full.transcript : "");
+          if (tr && tr.trim()) { m.transcriptText = tr; fetched++; }
+        } catch {}
+      }
+    }
     const material = buildMeetingMaterial(rows, statuses, { limit: 25, max: 16000 });
     // 直近の往復だけ送る（コンテキスト節約）
     const trimmed = messages.slice(-12).map((m) => ({ role: m.role === "assistant" ? "assistant" : "user", content: m.content }));
@@ -3228,16 +3243,19 @@ function buildMeetingMaterial(rows, statuses, { limit = 20, max = 12000 } = {}) 
   const block = (m, i) => {
     const p = [`#${i + 1} 「${m.title || "無題"}」 ${new Date(m.created_at).toLocaleDateString("ja-JP")} 担当:${m.owner_name || m.owner || "-"} フェーズ:${m.phase || "-"} ステータス:${statusOf(m)}`];
     const s = m.summary || {};
-    if (s.overview) p.push(`要約: ${s.overview}`);
-    if (s.key_points?.length) p.push(`論点: ${s.key_points.join(" / ")}`);
-    if (s.agreements?.length) p.push(`合意: ${s.agreements.join(" / ")}`);
-    if (s.action_items?.length) p.push(`次アクション: ${s.action_items.join(" / ")}`);
-    if (s.customer_concerns?.length) p.push(`懸念: ${s.customer_concerns.join(" / ")}`);
+    let hasSummary = false;
+    if (s.overview) { p.push(`要約: ${s.overview}`); hasSummary = true; }
+    if (s.key_points?.length) { p.push(`論点: ${s.key_points.join(" / ")}`); hasSummary = true; }
+    if (s.agreements?.length) { p.push(`合意: ${s.agreements.join(" / ")}`); hasSummary = true; }
+    if (s.action_items?.length) { p.push(`次アクション: ${s.action_items.join(" / ")}`); hasSummary = true; }
+    if (s.customer_concerns?.length) { p.push(`懸念: ${s.customer_concerns.join(" / ")}`); hasSummary = true; }
     const mt = m.metrics || {};
     if (typeof mt.repTalkPct === "number") p.push(`営業トーク比率: ${mt.repTalkPct}%`);
     const a = m.analysis;
     if (a && a.scores) p.push(`スコア ヒア${a.scores.hearing ?? "-"}/提案${a.scores.proposal ?? "-"}/クロ${a.scores.closing ?? "-"}/傾聴${a.scores.listening ?? "-"}`);
     if (a && a.deal_status_reason) p.push(`判定理由: ${a.deal_status_reason}`);
+    // 要約が無い商談は、文字起こしの抜粋を入れて読めるようにする
+    if (!hasSummary && m.transcriptText) p.push(`文字起こし(抜粋): ${String(m.transcriptText).slice(-2000)}`);
     return p.join("\n");
   };
   let s = rows.slice(0, limit).map(block).join("\n\n");
@@ -4738,7 +4756,9 @@ app.get("/api/salesforce/describe", async (req, res) => {
     const fields = (desc.fields || []).map(f => ({
       name: f.name, label: f.label, type: f.type,
       updateable: f.updateable, custom: f.custom,
-      picklistValues: f.picklistValues?.filter(v => v.active).map(v => ({ value: v.value, label: v.label })),
+      dependentPicklist: !!f.dependentPicklist, // 従属ピックリストか
+      controllerName: f.controllerName || null,  // 上位（制御）項目のAPI名
+      picklistValues: f.picklistValues?.filter(v => v.active).map(v => ({ value: v.value, label: v.label, validFor: v.validFor || null })),
     }));
     res.json({ fields, totalFields: fields.length, customFields: fields.filter(f => f.custom).length });
   } catch (e) {
