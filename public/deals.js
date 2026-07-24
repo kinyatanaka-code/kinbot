@@ -2339,6 +2339,19 @@ function depOptionsHtml(options, selectedVal) {
   ).join("");
 }
 
+// 失注理由の連動（大→中→小）。SFの従属設定が取得できない環境向けに、画像の対応をそのまま使う。
+const LOSS_REASON_CASCADE = {
+  "予算・タイミング不一致": { "予算が確保できない（来期以降も不可）": [], "予算検討のタイミングでない": [] },
+  "採用計画上の理由（規模・状況）": { "採用自体をストップ／縮小している": [], "年間採用人数が少ない（5名以下）": [], "採用が順調で追加施策の必要がない": [] },
+  "社内事情・決裁関連": { "親会社やグループ方針による制約": [], "拠点移転や組織変更の影響": [], "担当者の変更で進められなくなった": [], "導入実績の壁がある": [] },
+  "他施策負け": { "競合サービスに負けた": ["母集団形成施策", "人材紹介", "HP/LP", "動画", "その他"], "すでに同業サービスを利用している": [], "対面施策を重視している": [] },
+  "サービス機能・品質への懸念": { "セキュリティ面への不安": [], "オフィス環境の再現が難しい／公開できない": [], "機能が未実装": [] },
+  "バーチャル／オンラインへの抵抗": { "バーチャルそのものに抵抗がある": [] },
+  "ニーズ・優先度不足": { "次回接点が取れなかった／途切れた": [], "初回商談リスケ": [], "コンサル（外部）の判断でNG": [] },
+  "受注修正のため不要": {},
+};
+const LOSS_FIELD = { dai: "Loss_Reason__c", chu: "Loss_Reason1__c", sho: "Loss_Reason2__c" };
+
 async function renderSSFields(stageName) {
   const container = $("sfStageFields");
   if (!container) return;
@@ -2363,6 +2376,20 @@ async function renderSSFields(stageName) {
     return "string";
   };
   const labelOf = (api) => (meta[api] && meta[api].label) || api;
+  // 失注理由の連動用：ラベル↔SF値の変換（更新時は正しいSF値を送る）
+  const lossVal = (api, label) => {
+    const m = meta[api];
+    if (m && m.picklistValues) { const o = m.picklistValues.find((p) => (p.label || p.value) === label); if (o) return o.value; }
+    return label;
+  };
+  const lossLabelOf = (api, val) => {
+    const m = meta[api];
+    if (m && m.picklistValues) { const o = m.picklistValues.find((p) => p.value === val); if (o) return o.label || o.value; }
+    return val || "";
+  };
+  const lossOptsHtml = (api, labels, selVal) => ['<option value=""></option>'].concat(
+    (labels || []).map((lb) => { const v = lossVal(api, lb); return `<option value="${esc(v)}" ${v === selVal ? "selected" : ""}>${esc(lb)}</option>`; })
+  ).join("");
   const hasVal = (api) => { const v = opp[api]; return v !== null && v !== undefined && v !== ""; };
   const valStr = (api) => {
     const v = opp[api]; if (v === null || v === undefined || v === "") return "";
@@ -2374,6 +2401,24 @@ async function renderSSFields(stageName) {
   const render1 = (api) => {
     const t = typeOf(api);
     const label = esc(labelOf(api));
+    // 失注理由の連動（大→中→小）は対応表で描画
+    if (api === LOSS_FIELD.dai || api === LOSS_FIELD.chu || api === LOSS_FIELD.sho) {
+      const curV = valStr(api);
+      const orig = ` data-sf-orig="${esc(curV)}"`;
+      let labels = [];
+      if (api === LOSS_FIELD.dai) {
+        labels = Object.keys(LOSS_REASON_CASCADE);
+      } else if (api === LOSS_FIELD.chu) {
+        const daiL = lossLabelOf(LOSS_FIELD.dai, opp[LOSS_FIELD.dai]);
+        labels = LOSS_REASON_CASCADE[daiL] ? Object.keys(LOSS_REASON_CASCADE[daiL]) : [];
+      } else {
+        const daiL = lossLabelOf(LOSS_FIELD.dai, opp[LOSS_FIELD.dai]);
+        const chuL = lossLabelOf(LOSS_FIELD.chu, opp[LOSS_FIELD.chu]);
+        labels = (LOSS_REASON_CASCADE[daiL] && LOSS_REASON_CASCADE[daiL][chuL]) || [];
+      }
+      const role = api === LOSS_FIELD.dai ? "dai" : (api === LOSS_FIELD.chu ? "chu" : "sho");
+      return `<div class="sf-field"><label>${label}</label><select class="sf-select" data-sf-field="${api}" data-loss="${role}"${orig}>${lossOptsHtml(api, labels, curV)}</select></div>`;
+    }
     if (t === "boolean") {
       const checked = opp[api] === true;
       return `<div class="sf-field sf-field-chk"><label><input type="checkbox" data-sf-field="${api}" data-sf-orig="${checked ? "true" : "false"}" ${checked ? "checked" : ""}/> ${label}</label></div>`;
@@ -2508,6 +2553,26 @@ async function renderSSFields(stageName) {
           depSel.dispatchEvent(new Event("change")); // さらに下位（小項目）へ連鎖
         });
       });
+      // 失注理由の連動（大→中→小）を対応表で配線
+      const daiSel = box.querySelector('select[data-loss="dai"]');
+      const chuSel = box.querySelector('select[data-loss="chu"]');
+      const shoSel = box.querySelector('select[data-loss="sho"]');
+      const fillSho = () => {
+        if (!shoSel) return;
+        const daiL = lossLabelOf(LOSS_FIELD.dai, daiSel ? daiSel.value : "");
+        const chuL = lossLabelOf(LOSS_FIELD.chu, chuSel ? chuSel.value : "");
+        const labels = (LOSS_REASON_CASCADE[daiL] && LOSS_REASON_CASCADE[daiL][chuL]) || [];
+        shoSel.innerHTML = lossOptsHtml(LOSS_FIELD.sho, labels, shoSel.value);
+      };
+      const fillChu = () => {
+        if (!chuSel) return;
+        const daiL = lossLabelOf(LOSS_FIELD.dai, daiSel ? daiSel.value : "");
+        const labels = LOSS_REASON_CASCADE[daiL] ? Object.keys(LOSS_REASON_CASCADE[daiL]) : [];
+        chuSel.innerHTML = lossOptsHtml(LOSS_FIELD.chu, labels, chuSel.value);
+        fillSho();
+      };
+      if (daiSel) daiSel.addEventListener("change", fillChu);
+      if (chuSel) chuSel.addEventListener("change", fillSho);
       const abtn = document.getElementById("ssAutofillBtn");
       if (abtn) abtn.addEventListener("click", () => autofillSection(sec));
       if (auto && sec.fields.length) autofillSection(sec); // 段階を選んだら自動で読み取り
