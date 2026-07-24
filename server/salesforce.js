@@ -187,6 +187,47 @@ export async function sfQuery(owner, soql) {
   return res.json();
 }
 
+// 取引先（Account）に紐づく取引先責任者（Contact）一覧
+export async function listAccountContacts(owner, accountId) {
+  if (!accountId) return [];
+  const soql = `SELECT Id, Name, Title, Email FROM Contact WHERE AccountId = '${String(accountId).replace(/[^a-zA-Z0-9]/g, "")}' ORDER BY LastModifiedDate DESC LIMIT 50`;
+  const data = await sfQuery(owner, soql);
+  return (data.records || []).map((c) => ({ id: c.Id, name: c.Name, title: c.Title || "", email: c.Email || "" }));
+}
+
+// 取引先責任者の役割（OpportunityContactRole）を作成／主担当設定
+export async function createContactRole(owner, { opportunityId, contactId, role, isPrimary }) {
+  const acc = await getAccess(owner);
+  if (!acc) throw new Error("Salesforce未連携です");
+  const body = { OpportunityId: opportunityId, ContactId: contactId };
+  if (role) body.Role = role;
+  if (isPrimary) body.IsPrimary = true;
+  const res = await fetch(
+    `${acc.instanceUrl}/services/data/${API_VERSION}/sobjects/OpportunityContactRole`,
+    {
+      method: "POST",
+      headers: { Authorization: `Bearer ${acc.token}`, "content-type": "application/json" },
+      body: JSON.stringify(body),
+    }
+  );
+  if (!res.ok) throw new Error(`SF contact-role ${res.status}: ${(await res.text()).slice(0, 300)}`);
+  return res.json();
+}
+
+// OpportunityContactRoleの役割(Role)の選択肢
+export async function describeContactRolePicklist(owner) {
+  const acc = await getAccess(owner);
+  if (!acc) throw new Error("Salesforce未連携です");
+  const res = await fetch(
+    `${acc.instanceUrl}/services/data/${API_VERSION}/sobjects/OpportunityContactRole/describe`,
+    { headers: { Authorization: `Bearer ${acc.token}` } }
+  );
+  if (!res.ok) return [];
+  const d = await res.json();
+  const f = (d.fields || []).find((x) => x.name === "Role");
+  return ((f && f.picklistValues) || []).filter((v) => v.active).map((v) => v.value);
+}
+
 // 会社名で商談を検索（FIELDS(CUSTOM)で全カスタムフィールドも取得）
 export async function searchOpportunities(owner, companyName) {
   const escaped = String(companyName || "").replace(/'/g, "\\'");

@@ -182,6 +182,9 @@ import {
   updateTask,
   clearSfTokenCache,
   sfQuery,
+  listAccountContacts,
+  createContactRole,
+  describeContactRolePicklist,
   fillEmptyFields,
   createTaskIdempotent,
 } from "./salesforce.js";
@@ -5144,6 +5147,32 @@ app.get("/api/salesforce/tasks", async (req, res) => {
 });
 
 // 段階の各項目を、商談の内容から読み取って提案する（フォームに入れて確認・編集してから更新）
+// 取引先責任者（Contact）一覧＋役割の選択肢
+app.get("/api/salesforce/contacts", async (req, res) => {
+  try {
+    const accountId = String(req.query.accountId || "");
+    const [contacts, roles] = await Promise.all([
+      listAccountContacts(req.user, accountId).catch(() => []),
+      describeContactRolePicklist(req.user).catch(() => []),
+    ]);
+    res.json({ contacts, roles });
+  } catch (e) {
+    sfErrorResponse(res, e);
+  }
+});
+
+// 取引先責任者の役割（主担当）を設定
+app.post("/api/salesforce/contact-role", async (req, res) => {
+  try {
+    const { opportunityId, contactId, role, isPrimary } = req.body || {};
+    if (!opportunityId || !contactId) return res.status(400).json({ error: "商談IDと取引先責任者が必要です" });
+    const out = await createContactRole(req.user, { opportunityId, contactId, role, isPrimary: !!isPrimary });
+    res.json({ ok: true, result: out });
+  } catch (e) {
+    sfErrorResponse(res, e);
+  }
+});
+
 app.post("/api/salesforce/field-suggest", async (req, res) => {
   try {
     const { botId, fields } = req.body || {};

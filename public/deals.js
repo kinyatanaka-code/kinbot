@@ -2036,6 +2036,65 @@ function getSSFields(stageName) {
   return [];
 }
 
+// SFのエラー文（[{message,errorCode}] 形式）から読みやすいメッセージを取り出す
+function cleanSfError(msg) {
+  const s = String(msg || "");
+  try {
+    const m = s.match(/\[[\s\S]*\]/);
+    if (m) {
+      const arr = JSON.parse(m[0]);
+      if (Array.isArray(arr) && arr.length && arr[0] && arr[0].message) return arr.map((x) => x.message).join(" / ");
+    }
+  } catch {}
+  return s;
+}
+
+// 「取引先責任者の役割（主担当）」が必須のエラー時に、設定して再更新するUI
+async function showContactRolePrompt(container, errMsg, retry) {
+  if (!container) return;
+  container.innerHTML = `<div class="sf-err-box">${esc(errMsg)}</div><div class="sf-cr-box"><div class="sf-cr-title">主担当（取引先責任者の役割）を設定して再更新します</div><div class="sf-ss-note">取引先責任者を読み込み中…</div></div>`;
+  const box = container.querySelector(".sf-cr-box");
+  try {
+    const r = await sfFetch("/api/salesforce/contacts?accountId=" + encodeURIComponent((sfLinkedOpp && sfLinkedOpp.AccountId) || ""));
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.error || "取得失敗");
+    const contacts = d.contacts || [];
+    const roles = d.roles || [];
+    if (!contacts.length) {
+      box.innerHTML = '<div class="sf-cr-title">この取引先には取引先責任者（Contact）が登録されていません。</div><div class="sf-ss-note">Salesforceでこの取引先に取引先責任者を追加してから、もう一度失注更新してください。</div>';
+      return;
+    }
+    box.innerHTML =
+      `<div class="sf-cr-title">主担当（取引先責任者の役割）を設定して再更新します</div>` +
+      `<div class="sf-field"><label>取引先責任者（主担当にする人）</label><select class="sf-select" id="crContact">${contacts.map((c) => `<option value="${esc(c.id)}">${esc(c.name)}${c.title ? "（" + esc(c.title) + "）" : ""}</option>`).join("")}</select></div>` +
+      (roles.length ? `<div class="sf-field"><label>役割</label><select class="sf-select" id="crRole"><option value="">（役割なし）</option>${roles.map((rr) => `<option value="${esc(rr)}">${esc(rr)}</option>`).join("")}</select></div>` : "") +
+      `<div class="sf-field" style="margin-top:6px"><button class="btn" id="crSetBtn">主担当として設定して再更新</button></div><div id="crMsg" class="sf-ss-note"></div>`;
+    box.querySelector("#crSetBtn").addEventListener("click", async () => {
+      const btn = box.querySelector("#crSetBtn");
+      const contactId = box.querySelector("#crContact").value;
+      const roleSel = box.querySelector("#crRole");
+      const role = roleSel ? roleSel.value : "";
+      btn.disabled = true; btn.textContent = "設定中…";
+      const crMsg = box.querySelector("#crMsg");
+      try {
+        const rr = await sfFetch("/api/salesforce/contact-role", {
+          method: "POST", headers: { "content-type": "application/json" },
+          body: JSON.stringify({ opportunityId: sfLinkedOpp.Id, contactId, role, isPrimary: true }),
+        });
+        const dd = await rr.json();
+        if (!rr.ok) throw new Error(dd.error || "設定失敗");
+        if (crMsg) crMsg.textContent = "主担当を設定しました。再更新します…";
+        setTimeout(retry, 500);
+      } catch (e) {
+        if (crMsg) crMsg.textContent = "設定に失敗しました：" + cleanSfError(e.message);
+        btn.disabled = false; btn.textContent = "主担当として設定して再更新";
+      }
+    });
+  } catch (e) {
+    if (box) box.innerHTML = '<div class="sf-ss-note">取引先責任者の取得に失敗しました：' + esc(cleanSfError(e.message)) + "</div>";
+  }
+}
+
 async function initSfTab(account) {
   const searchBtn = $("sfSearchBtn");
   const matchesEl = $("sfMatches");
@@ -2239,10 +2298,13 @@ async function initSfTab(account) {
         alert("Salesforceを更新しました");
         linkOpportunity(sfLinkedOpp.Id);
       } catch (e) {
-        if (e.sfReauth || /expired|invalid_grant/.test(e.message || "")) {
+        const msg = String(e.message || "");
+        if (e.sfReauth || /expired|invalid_grant/.test(msg)) {
           showSfReauth($("sfUpdateMsg"), null, () => updateBtn.click());
+        } else if (/取引先責任者の役割|ContactRole|プライマリ|主担当|primary contact/i.test(msg)) {
+          showContactRolePrompt($("sfUpdateMsg"), cleanSfError(msg), () => updateBtn.click());
         } else {
-          alert("更新失敗: " + e.message);
+          $("sfUpdateMsg").innerHTML = `<div class="sf-err-box">更新できませんでした：<br>${esc(cleanSfError(msg))}</div>`;
         }
       }
       finally { updateBtn.disabled = false; updateBtn.textContent = "ステージ・項目を更新"; }
