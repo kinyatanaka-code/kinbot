@@ -1295,6 +1295,7 @@ async function selectDeal(account) {
     `<div class="sf-section-box"><div class="sf-section-title"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" style="vertical-align:-2px;margin-right:4px"><rect x="1" y="6" width="4" height="9" rx="1" fill="#0d5b47"/><rect x="6" y="3" width="4" height="12" rx="1" fill="#1d9e75"/><rect x="11" y="1" width="4" height="14" rx="1" fill="#5DCAA5"/></svg>ステージ・項目の更新</div>` +
     `<div id="sfStageFields"></div>` +
     `<div class="sf-field" style="margin-top:8px"><button class="btn" id="sfUpdateBtn">ステージ・項目を更新</button></div><div id="sfUpdateMsg"></div></div>` +
+    `<div class="sf-section-box"><div class="sf-section-title"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" style="vertical-align:-2px;margin-right:4px"><rect x="2" y="3" width="12" height="11" rx="1.5" fill="#0d5b47"/><rect x="4" y="6" width="8" height="1.3" rx=".5" fill="#5DCAA5"/><rect x="4" y="9" width="6" height="1.3" rx=".5" fill="#5DCAA5"/></svg>商品</div><div id="sfProducts"><div class="sf-ss-note">商談をリンクすると表示されます。</div></div><div class="sf-field" style="margin-top:8px"><button class="btn sf-btn-secondary" id="sfAddProductBtn">商品を追加</button></div><div id="sfProductMsg"></div></div>` +
     `</div>` +
     `</div></section>` +
     `</div>` +
@@ -2138,9 +2139,80 @@ async function showContactRolePrompt(container, errMsg, retry) {
 }
 
 // 「商品の登録が必要」エラー時に、商品を登録して再更新するUI
+// 「〜の入力が必要」エラー時に、不足項目を入力して再更新するUI
+async function showRequiredFieldsPrompt(container, errMsg, retry) {
+  if (!container) return;
+  container.innerHTML = `<div class="sf-err-box">${esc(errMsg)}</div><div class="sf-cr-box"><div class="sf-cr-title">不足している項目を入力して再更新します</div><div class="sf-ss-note">項目を読み込み中…</div></div>`;
+  const box = container.querySelector(".sf-cr-box");
+  // エラーから必要な項目ラベルを抽出
+  const labels = [];
+  const re = /(?:には|に|は|、|^)([^、。／\/]+?)の(?:入力|確認|選択|登録|設定)が(?:必要|必須)/g;
+  let m;
+  while ((m = re.exec(errMsg)) !== null) { const l = (m[1] || "").replace(/^.*(?:には|に|は)/, "").trim(); if (l && !labels.includes(l)) labels.push(l); }
+  let fields = [];
+  try { fields = await loadSfFields(); } catch {}
+  const opp = sfLinkedOpp || {};
+  const normL = (s) => String(s || "").replace(/[\s　・（）()【】\[\]:：有無の]/g, "").toLowerCase();
+  const matched = [];
+  for (const lb of labels) {
+    const nlb = normL(lb);
+    if (!nlb) continue;
+    let f = fields.find((x) => x.updateable && normL(x.label) === nlb);
+    if (!f) f = fields.find((x) => x.updateable && normL(x.label).length > 2 && (normL(x.label).includes(nlb) || nlb.includes(normL(x.label))));
+    if (f && !matched.find((y) => y.name === f.name)) matched.push(f);
+  }
+  if (!matched.length) {
+    box.innerHTML = `<div class="sf-cr-title">更新できませんでした</div><div class="sf-ss-note">${esc(errMsg)}<br>この項目はkinbot上で特定できませんでした。該当のステージ（段階）を選んで項目を入力してから、もう一度更新してください。</div>`;
+    return;
+  }
+  const inputHtml = (f) => {
+    const cur = opp[f.name] != null ? String(opp[f.name]) : "";
+    const label = esc(f.label || f.name);
+    if (f.type === "boolean") return `<div class="sf-field sf-field-chk"><label><input type="checkbox" data-req-field="${f.name}" data-req-type="boolean" ${opp[f.name] === true ? "checked" : ""}/> ${label}</label></div>`;
+    if (f.type === "picklist" && f.picklistValues && f.picklistValues.length) {
+      const opts = ['<option value=""></option>'].concat(f.picklistValues.map((o) => `<option value="${esc(o.value)}" ${o.value === cur ? "selected" : ""}>${esc(o.label || o.value)}</option>`)).join("");
+      return `<div class="sf-field"><label>${label} <span class="sf-req">＊必須</span></label><select class="sf-select" data-req-field="${f.name}">${opts}</select></div>`;
+    }
+    if (f.type === "textarea") return `<div class="sf-field"><label>${label} <span class="sf-req">＊必須</span></label><textarea class="sf-textarea" data-req-field="${f.name}" rows="2">${esc(cur)}</textarea></div>`;
+    if (f.type === "date") return `<div class="sf-field"><label>${label} <span class="sf-req">＊必須</span></label><input type="date" class="sf-input" data-req-field="${f.name}" value="${esc(cur.slice(0, 10))}"/></div>`;
+    if (["double", "currency", "int", "percent"].includes(f.type)) return `<div class="sf-field"><label>${label} <span class="sf-req">＊必須</span></label><input type="text" class="sf-input" data-req-field="${f.name}" data-req-type="num" value="${esc(cur)}"/></div>`;
+    return `<div class="sf-field"><label>${label} <span class="sf-req">＊必須</span></label><input type="text" class="sf-input" data-req-field="${f.name}" value="${esc(cur)}"/></div>`;
+  };
+  box.innerHTML = `<div class="sf-cr-title">不足している項目を入力して再更新します</div>` + matched.map(inputHtml).join("") + `<div class="sf-field" style="margin-top:6px"><button class="btn" id="reqBtn">入力して再更新</button></div><div id="reqMsg" class="sf-ss-note"></div>`;
+  box.querySelector("#reqBtn").addEventListener("click", async () => {
+    const btn = box.querySelector("#reqBtn");
+    const patch = {};
+    box.querySelectorAll("[data-req-field]").forEach((el) => {
+      const api = el.dataset.reqField;
+      if (el.type === "checkbox") { patch[api] = el.checked; return; }
+      const v = (el.value ?? "").trim();
+      if (v === "") return;
+      if (el.dataset.reqType === "num") { const n = Number(v.replace(/[,¥￥\s]/g, "")); if (!isNaN(n)) patch[api] = n; }
+      else patch[api] = v;
+    });
+    const reqMsg = box.querySelector("#reqMsg");
+    if (!Object.keys(patch).length) { if (reqMsg) reqMsg.textContent = "項目を入力してください。"; return; }
+    btn.disabled = true; btn.textContent = "更新中…";
+    try {
+      const rr = await sfFetch("/api/salesforce/opportunity/" + encodeURIComponent(sfLinkedOpp.Id), {
+        method: "PATCH", headers: { "content-type": "application/json" },
+        body: JSON.stringify(patch),
+      });
+      const dd = await rr.json().catch(() => ({}));
+      if (!rr.ok) throw new Error(dd.error || "更新失敗");
+      if (reqMsg) reqMsg.textContent = "項目を入力しました。再更新します…";
+      setTimeout(retry, 500);
+    } catch (e) {
+      if (reqMsg) reqMsg.textContent = "入力に失敗しました：" + cleanSfError(e.message);
+      btn.disabled = false; btn.textContent = "入力して再更新";
+    }
+  });
+}
+
 async function showProductPrompt(container, errMsg, retry) {
   if (!container) return;
-  container.innerHTML = `<div class="sf-err-box">${esc(errMsg)}</div><div class="sf-cr-box"><div class="sf-cr-title">商品を登録して再更新します</div><div class="sf-ss-note">商品を読み込み中…</div></div>`;
+  const errBox = errMsg ? `<div class="sf-err-box">${esc(errMsg)}</div>` : "";
+  container.innerHTML = errBox + `<div class="sf-cr-box"><div class="sf-cr-title">商品を登録して再更新します</div><div class="sf-ss-note">商品を読み込み中…</div></div>`;
   const box = container.querySelector(".sf-cr-box");
   try {
     const r = await sfFetch("/api/salesforce/products?opportunityId=" + encodeURIComponent(sfLinkedOpp.Id));
@@ -2286,6 +2358,14 @@ async function initSfTab(account) {
     readSel.onchange = () => {
       window._sfReadBotId = readSel.value;
       fillDescFromMeeting(meetingById(readSel.value)); // 説明に選んだ商談の要約を入れる
+    };
+  }
+  // 商品を追加
+  const addProdBtn = $("sfAddProductBtn");
+  if (addProdBtn) {
+    addProdBtn.onclick = () => {
+      if (!sfLinkedOpp) return;
+      showProductPrompt($("sfProductMsg"), "", loadProducts);
     };
   }
   // 活動記録の「商談から読み取る」
@@ -2443,6 +2523,8 @@ async function initSfTab(account) {
           showContactRolePrompt($("sfUpdateMsg"), cleanSfError(msg), () => updateBtn.click());
         } else if (/商品|product|OpportunityLineItem|価格表|Pricebook/i.test(msg)) {
           showProductPrompt($("sfUpdateMsg"), cleanSfError(msg), () => updateBtn.click());
+        } else if (/の入力が必要|の確認が必要|の選択が必要|の登録が必要|の設定が必要|が必須|required/i.test(msg)) {
+          showRequiredFieldsPrompt($("sfUpdateMsg"), cleanSfError(msg), () => updateBtn.click());
         } else {
           $("sfUpdateMsg").innerHTML = `<div class="sf-err-box">更新できませんでした：<br>${esc(cleanSfError(msg))}</div>`;
         }
@@ -2883,6 +2965,62 @@ async function linkOpportunity(oppId, cached) {
   // SS段階のプルダウン＋項目を表示（#sfStageはrenderSSFields内で生成）
   renderSSFields(stageName);
   loadSfTaskHistory(sfLinkedOpp.Id);
+  loadProducts();
+}
+
+// 登録済み商品の一覧・編集・削除
+async function loadProducts() {
+  const box = $("sfProducts");
+  if (!box || !sfLinkedOpp) return;
+  box.innerHTML = '<div class="sf-ss-note">読み込み中…</div>';
+  try {
+    const r = await sfFetch("/api/salesforce/line-items?opportunityId=" + encodeURIComponent(sfLinkedOpp.Id));
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.error || "取得失敗");
+    const items = d.items || [];
+    if (!items.length) { box.innerHTML = '<div class="sf-ss-note">まだ商品が登録されていません。</div>'; return; }
+    box.innerHTML = items.map((it) => `
+      <div class="sf-prod-item" data-id="${esc(it.id)}">
+        <div class="sf-prod-name">${esc(it.name)}</div>
+        <div class="sf-prod-row">
+          <label>数量<input type="text" class="sf-input" data-pf="Quantity" value="${it.quantity != null ? esc(String(it.quantity)) : ""}"/></label>
+          <label>単価<input type="text" class="sf-input" data-pf="UnitPrice" value="${it.unitPrice != null ? esc(String(it.unitPrice)) : ""}"/></label>
+          <label>提供日<input type="date" class="sf-input" data-pf="ServiceDate" value="${esc((it.serviceDate || "").slice(0, 10))}"/></label>
+        </div>
+        <div class="sf-prod-actions"><button class="btn btn-ghost sf-prod-save" type="button">保存</button><button class="btn btn-ghost sf-prod-del" type="button">削除</button></div>
+      </div>`).join("");
+    box.querySelectorAll(".sf-prod-item").forEach((el) => {
+      const id = el.dataset.id;
+      el.querySelector(".sf-prod-save").addEventListener("click", async () => {
+        const fields = {};
+        el.querySelectorAll("[data-pf]").forEach((inp) => {
+          const v = (inp.value || "").trim(); const k = inp.dataset.pf;
+          if (v === "") return;
+          if (k === "Quantity" || k === "UnitPrice") { const n = Number(v.replace(/[,¥￥\s]/g, "")); if (!isNaN(n)) fields[k] = n; }
+          else fields[k] = v;
+        });
+        const btn = el.querySelector(".sf-prod-save"); btn.disabled = true; btn.textContent = "保存中…";
+        try {
+          const rr = await sfFetch("/api/salesforce/line-item/" + encodeURIComponent(id), { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify(fields) });
+          const dd = await rr.json().catch(() => ({}));
+          if (!rr.ok) throw new Error(dd.error || "保存失敗");
+          $("sfProductMsg").innerHTML = '<div style="color:#0d5b47;font-size:12px;padding:4px 2px;">商品を更新しました</div>';
+          loadProducts();
+        } catch (e) { $("sfProductMsg").innerHTML = `<div class="sf-ss-note">保存に失敗：${esc(cleanSfError(e.message))}</div>`; btn.disabled = false; btn.textContent = "保存"; }
+      });
+      el.querySelector(".sf-prod-del").addEventListener("click", async () => {
+        if (!confirm("この商品を削除しますか？")) return;
+        try {
+          const rr = await sfFetch("/api/salesforce/line-item/" + encodeURIComponent(id), { method: "DELETE" });
+          const dd = await rr.json().catch(() => ({}));
+          if (!rr.ok) throw new Error(dd.error || "削除失敗");
+          loadProducts();
+        } catch (e) { $("sfProductMsg").innerHTML = `<div class="sf-ss-note">削除に失敗：${esc(cleanSfError(e.message))}</div>`; }
+      });
+    });
+  } catch (e) {
+    box.innerHTML = `<div class="sf-ss-note">商品の取得に失敗しました：${esc(cleanSfError(e.message))}</div>`;
+  }
 }
 
 // 商談に紐づく過去の活動（Task）を表示

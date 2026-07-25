@@ -210,6 +210,42 @@ export async function getOpportunityProducts(owner, opportunityId) {
   return { currentPricebookId: currentPbId, entries };
 }
 
+// 商談に登録済みの商品（OpportunityLineItem）一覧
+export async function listOpportunityLineItems(owner, opportunityId) {
+  if (!opportunityId) return [];
+  const soql = `SELECT Id, Quantity, UnitPrice, TotalPrice, ServiceDate, PricebookEntry.Name, Product2.Name FROM OpportunityLineItem WHERE OpportunityId = '${String(opportunityId).replace(/[^a-zA-Z0-9]/g, "")}' ORDER BY CreatedDate DESC`;
+  const d = await sfQuery(owner, soql);
+  return (d.records || []).map((e) => ({
+    id: e.Id,
+    name: (e.Product2 && e.Product2.Name) || (e.PricebookEntry && e.PricebookEntry.Name) || "商品",
+    quantity: e.Quantity, unitPrice: e.UnitPrice, totalPrice: e.TotalPrice, serviceDate: e.ServiceDate || "",
+  }));
+}
+
+// 商品（OpportunityLineItem）を更新
+export async function updateOpportunityLineItem(owner, id, fields) {
+  const acc = await getAccess(owner);
+  if (!acc) throw new Error("Salesforce未連携です");
+  const res = await fetch(
+    `${acc.instanceUrl}/services/data/${API_VERSION}/sobjects/OpportunityLineItem/${id}`,
+    { method: "PATCH", headers: { Authorization: `Bearer ${acc.token}`, "content-type": "application/json" }, body: JSON.stringify(fields || {}) }
+  );
+  if (!res.ok) throw new Error(`SF product update ${res.status}: ${(await res.text()).slice(0, 300)}`);
+  return { ok: true };
+}
+
+// 商品（OpportunityLineItem）を削除
+export async function deleteOpportunityLineItem(owner, id) {
+  const acc = await getAccess(owner);
+  if (!acc) throw new Error("Salesforce未連携です");
+  const res = await fetch(
+    `${acc.instanceUrl}/services/data/${API_VERSION}/sobjects/OpportunityLineItem/${id}`,
+    { method: "DELETE", headers: { Authorization: `Bearer ${acc.token}` } }
+  );
+  if (!res.ok && res.status !== 204) throw new Error(`SF product delete ${res.status}: ${(await res.text()).slice(0, 300)}`);
+  return { ok: true };
+}
+
 // 商談商品（OpportunityLineItem）の項目定義（売上・原価・提供日など）を取得
 export async function describeLineItem(owner) {
   const acc = await getAccess(owner);

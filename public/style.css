@@ -2886,6 +2886,11 @@ button.np-step:disabled { opacity: 0.6; cursor: wait; }
 .sf-err-box { background: #fdecec; border: 1px solid #f2c2c2; color: #a13a3a; border-radius: 9px; padding: 10px 12px; font-size: 12.5px; line-height: 1.6; margin-bottom: 10px; }
 .sf-cr-box { border: 1px solid var(--line); border-radius: 10px; padding: 12px; background: #f7faf8; }
 .sf-cr-title { font-weight: 700; font-size: 13px; color: var(--accent); margin-bottom: 8px; }
+.sf-prod-item { border: 1px solid var(--line); border-radius: 9px; padding: 10px 11px; margin-bottom: 8px; background: #fff; }
+.sf-prod-name { font-weight: 700; font-size: 13px; color: var(--ink); margin-bottom: 6px; }
+.sf-prod-row { display: flex; gap: 8px; flex-wrap: wrap; }
+.sf-prod-row label { font-size: 11px; color: var(--muted); display: flex; flex-direction: column; gap: 2px; flex: 1; min-width: 90px; }
+.sf-prod-actions { display: flex; gap: 8px; margin-top: 8px; }
 .sf-autofill-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin: 4px 0 12px; }
 .sf-autofill-note { font-size: 11.5px; color: var(--muted); }
 .sf-subtabs { display: flex; gap: 6px; background: var(--panel-2, #eef3f0); padding: 4px; border-radius: 12px; margin: 10px 0 14px; }

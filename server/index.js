@@ -184,6 +184,9 @@ import {
   sfQuery,
   listAccountContacts,
   getOpportunityProducts,
+  listOpportunityLineItems,
+  updateOpportunityLineItem,
+  deleteOpportunityLineItem,
   describeLineItem,
   addOpportunityLineItem,
   createContact,
@@ -5163,6 +5166,32 @@ app.get("/api/salesforce/contacts", async (req, res) => {
   } catch (e) {
     sfErrorResponse(res, e);
   }
+});
+
+// 登録済み商品の一覧
+app.get("/api/salesforce/line-items", async (req, res) => {
+  try {
+    const opportunityId = String(req.query.opportunityId || "");
+    if (!opportunityId) return res.status(400).json({ error: "商談IDが必要です" });
+    const items = await listOpportunityLineItems(req.user, opportunityId);
+    res.json({ items });
+  } catch (e) { sfErrorResponse(res, e); }
+});
+
+// 商品を更新
+app.patch("/api/salesforce/line-item/:id", async (req, res) => {
+  try {
+    await updateOpportunityLineItem(req.user, req.params.id, req.body || {});
+    res.json({ ok: true });
+  } catch (e) { sfErrorResponse(res, e); }
+});
+
+// 商品を削除
+app.delete("/api/salesforce/line-item/:id", async (req, res) => {
+  try {
+    await deleteOpportunityLineItem(req.user, req.params.id);
+    res.json({ ok: true });
+  } catch (e) { sfErrorResponse(res, e); }
 });
 
 // 商談に登録できる商品（PricebookEntry）一覧＋登録項目（売上・原価・提供日など）
