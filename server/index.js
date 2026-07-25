@@ -180,6 +180,7 @@ import {
   describeTask,
   createTask,
   updateTask,
+  deleteTask,
   clearSfTokenCache,
   sfQuery,
   listAccountContacts,
@@ -5137,6 +5138,22 @@ async function recordSfStats(user, { filled, activityCreated }) {
 }
 
 // 商談に紐づく過去の活動（Task）の履歴を取得
+// 活動（Task）を更新
+app.patch("/api/salesforce/task/:id", async (req, res) => {
+  try {
+    await updateTask(req.user, req.params.id, req.body || {});
+    res.json({ ok: true });
+  } catch (e) { sfErrorResponse(res, e); }
+});
+
+// 活動（Task）を削除
+app.delete("/api/salesforce/task/:id", async (req, res) => {
+  try {
+    await deleteTask(req.user, req.params.id);
+    res.json({ ok: true });
+  } catch (e) { sfErrorResponse(res, e); }
+});
+
 app.get("/api/salesforce/tasks", async (req, res) => {
   try {
     const oppId = String(req.query.opportunityId || "").replace(/[^a-zA-Z0-9]/g, "");

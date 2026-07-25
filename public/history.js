@@ -822,13 +822,14 @@ function renderCompanyOverview() {
 // 会社ページ内に、案件の1機能だけをiframeで表示する（判定など）
 function showSubEmbed(view, label) {
   const enc = encodeURIComponent(acctName(selectedAccount));
+  const loseParam = (view === "salesforce" && window._kbSfLose) ? "&sf=lose" : "";
   hdetail.innerHTML =
     `<div class="ov-subpage">
        <button type="button" class="ov-subback">← 会社概要へ戻る</button>
        <div class="ov-subtitle">${escapeHtml(label || "")}</div>
-       <iframe class="prof-embed" src="deals.html?company=${enc}&embed=1&view=${encodeURIComponent(view)}" title="${escapeHtml(label || "")}"></iframe>
+       <iframe class="prof-embed" src="deals.html?company=${enc}&embed=1&view=${encodeURIComponent(view)}${loseParam}" title="${escapeHtml(label || "")}"></iframe>
      </div>`;
-  hdetail.querySelector(".ov-subback").addEventListener("click", () => renderCompanyOverview());
+  hdetail.querySelector(".ov-subback").addEventListener("click", () => { window._kbSfLose = false; renderCompanyOverview(); });
 }
 
 // やることカード：AI抽出＋手動の宿題
@@ -915,13 +916,30 @@ async function loadList() {
     } catch {}
     renderList();
     // 案件などから ?m=商談ID で来たら、その会社を開いて該当商談を表示
-    const wantId = new URLSearchParams(location.search).get("m");
+    const params = new URLSearchParams(location.search);
+    const wantId = params.get("m");
     const want = wantId && allMeetings.find((x) => x.bot_id === wantId);
     if (want) {
       histMode = "account";
       selectedAccount = acctKey(want);
       renderList();
       loadDetail(wantId);
+    }
+    // ホームから ?company=会社名（&sf=lose）で来たら、その会社の概要を開く
+    const wantCompany = params.get("company");
+    if (wantCompany) {
+      histMode = "account";
+      const nk = normKey(wantCompany);
+      // allMeetingsから一致する会社キーを探す
+      let key = null;
+      for (const m of allMeetings) { if (normKey(acctKey(m)) === nk) { key = acctKey(m); break; } }
+      selectedAccount = key || wantCompany;
+      renderList();
+      renderCompanyOverview();
+      if (params.get("sf") === "lose") {
+        window._kbSfLose = true;
+        showSubEmbed("salesforce", "SF更新");
+      }
     }
   } catch (e) {
     hlist.innerHTML = '<div class="empty-state">読み込みに失敗しました。</div>';

@@ -508,6 +508,18 @@ export async function updateTask(owner, id, data) {
   return true;
 }
 
+// Task（活動）を削除
+export async function deleteTask(owner, id) {
+  const acc = await getAccess(owner);
+  if (!acc) throw new Error("Salesforce未連携です");
+  const res = await fetch(
+    `${acc.instanceUrl}/services/data/${API_VERSION}/sobjects/Task/${id}`,
+    { method: "DELETE", headers: { Authorization: `Bearer ${acc.token}` } }
+  );
+  if (!res.ok && res.status !== 204) throw new Error(`SF task delete ${res.status}: ${(await res.text()).slice(0, 200)}`);
+  return true;
+}
+
 // ───────────────────────────────────────────────────────────
 // 自動連携（空欄補完 + 活動履歴）用のヘルパー
 // ───────────────────────────────────────────────────────────

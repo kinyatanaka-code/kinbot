@@ -1,5 +1,7 @@
 // deals.js — 案件単位ビュー＋ネクストアクション管理
 const $ = (id) => document.getElementById(id);
+// ホームの「失注にする」から来たときのフラグ（自動で99失注を選ぶ）
+window._kbAutoLose = new URLSearchParams(location.search).get("sf") === "lose";
 // 商談履歴の会社ページからiframeで埋め込まれたときの表示制御
 try {
   const q = new URLSearchParams(location.search);
@@ -2920,6 +2922,17 @@ async function renderSSFields(stageName) {
       renderSection(idx, true);
     });
     renderSection(defaultIdx, false);
+    // ホームの「失注にする」から来たときは、自動で99失注を選んでステージタブを開く
+    if (window._kbAutoLose && sel) {
+      window._kbAutoLose = false;
+      const loseIdx = ssSections.findIndex((s) => /^0*99[:：]|失注/.test(s.heading));
+      if (loseIdx >= 0) {
+        const opt = [...sel.options].find((o) => Number(o.dataset.secidx) === loseIdx);
+        if (opt) { sel.value = opt.value; renderSection(loseIdx, true); }
+      }
+      const stageTab = document.querySelector('.sf-subtab[data-sftab="stage"]');
+      if (stageTab) stageTab.click();
+    }
     return;
   }
 
@@ -3091,11 +3104,54 @@ async function loadSfTaskHistory(oppId) {
       const date = (t.activityDate || (t.createdDate || "").slice(0, 10) || "");
       const desc = (t.description || "").trim();
       const short = desc.length > 140 ? desc.slice(0, 140) + "…" : desc;
-      return `<div class="sf-task-item"><div class="sf-task-head"><span class="sf-task-subj">${esc(t.subject || "(件名なし)")}</span><span class="sf-task-meta">${esc(date)}${t.owner ? " ・ " + esc(t.owner) : ""}${t.status ? " ・ " + esc(t.status) : ""}</span></div>${short ? `<div class="sf-task-desc">${esc(short)}</div>` : ""}</div>`;
+      return `<div class="sf-task-item" data-tid="${esc(t.id)}" data-subject="${esc(t.subject || "")}" data-status="${esc(t.status || "")}" data-date="${esc(t.activityDate || "")}" data-desc="${esc(t.description || "")}">
+        <div class="sf-task-head"><span class="sf-task-subj">${esc(t.subject || "(件名なし)")}</span><span class="sf-task-meta">${esc(date)}${t.owner ? " ・ " + esc(t.owner) : ""}${t.status ? " ・ " + esc(t.status) : ""}</span></div>
+        ${short ? `<div class="sf-task-desc">${esc(short)}</div>` : ""}
+        <div class="sf-task-actions"><button type="button" class="btn btn-ghost sf-task-edit">編集</button><button type="button" class="btn btn-ghost sf-task-del">削除</button></div>
+      </div>`;
     }).join("");
+    box.querySelectorAll(".sf-task-item").forEach((el) => wireTaskItem(el, oppId));
   } catch (e) {
     box.innerHTML = `<div class="sf-ss-note">履歴の取得に失敗しました：${esc(e.message)}</div>`;
   }
+}
+
+function wireTaskItem(el, oppId) {
+  const tid = el.dataset.tid;
+  el.querySelector(".sf-task-edit").addEventListener("click", () => {
+    if (el.querySelector(".sf-task-editbox")) return; // 既に編集中
+    const subject = el.dataset.subject, status = el.dataset.status, date = (el.dataset.date || "").slice(0, 10), desc = el.dataset.desc;
+    const box = document.createElement("div");
+    box.className = "sf-task-editbox";
+    box.innerHTML =
+      `<div class="sf-field"><label>件名</label><input type="text" class="sf-input" data-tf="Subject" value="${esc(subject)}"/></div>` +
+      `<div class="sf-field"><label>期日</label><input type="date" class="sf-input" data-tf="ActivityDate" value="${esc(date)}"/></div>` +
+      `<div class="sf-field"><label>状況</label><input type="text" class="sf-input" data-tf="Status" value="${esc(status)}"/></div>` +
+      `<div class="sf-field"><label>説明</label><textarea class="sf-textarea" data-tf="Description" rows="3">${esc(desc)}</textarea></div>` +
+      `<div class="sf-task-actions"><button type="button" class="btn sf-task-save">保存</button><button type="button" class="btn btn-ghost sf-task-cancel">キャンセル</button></div><div class="sf-ss-note sf-task-msg"></div>`;
+    el.appendChild(box);
+    box.querySelector(".sf-task-cancel").addEventListener("click", () => box.remove());
+    box.querySelector(".sf-task-save").addEventListener("click", async () => {
+      const fields = {};
+      box.querySelectorAll("[data-tf]").forEach((inp) => { const v = (inp.value || "").trim(); if (v !== "") fields[inp.dataset.tf] = v; });
+      const btn = box.querySelector(".sf-task-save"); btn.disabled = true; btn.textContent = "保存中…";
+      try {
+        const rr = await sfFetch("/api/salesforce/task/" + encodeURIComponent(tid), { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify(fields) });
+        const dd = await rr.json().catch(() => ({}));
+        if (!rr.ok) throw new Error(dd.error || "保存失敗");
+        loadSfTaskHistory(oppId);
+      } catch (e) { box.querySelector(".sf-task-msg").textContent = "保存に失敗：" + cleanSfError(e.message); btn.disabled = false; btn.textContent = "保存"; }
+    });
+  });
+  el.querySelector(".sf-task-del").addEventListener("click", async () => {
+    if (!confirm("この活動を削除しますか？")) return;
+    try {
+      const rr = await sfFetch("/api/salesforce/task/" + encodeURIComponent(tid), { method: "DELETE" });
+      const dd = await rr.json().catch(() => ({}));
+      if (!rr.ok) throw new Error(dd.error || "削除失敗");
+      loadSfTaskHistory(oppId);
+    } catch (e) { alert("削除に失敗：" + cleanSfError(e.message)); }
+  });
 }
 
 // ===== カードプレビューの更新 =====
