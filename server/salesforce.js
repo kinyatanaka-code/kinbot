@@ -197,13 +197,14 @@ export async function getOpportunityProducts(owner, opportunityId) {
   } catch {}
   let entries = [];
   try {
-    const d = await sfQuery(owner, `SELECT Id, UnitPrice, Name, Product2.Name, Pricebook2Id, Pricebook2.Name FROM PricebookEntry WHERE IsActive = true ORDER BY Pricebook2.Name, Name LIMIT 1000`);
+    const d = await sfQuery(owner, `SELECT Id, UnitPrice, Name, Product2.Name, Pricebook2Id, Pricebook2.Name, IsActive FROM PricebookEntry ORDER BY Pricebook2.Name, Name LIMIT 2000`);
     entries = (d.records || []).map((e) => ({
       id: e.Id,
       name: (e.Product2 && e.Product2.Name) || e.Name,
       unitPrice: e.UnitPrice,
       pricebookId: e.Pricebook2Id,
       pricebookName: (e.Pricebook2 && e.Pricebook2.Name) || "",
+      active: e.IsActive !== false,
     }));
   } catch {}
   return { currentPricebookId: currentPbId, entries };

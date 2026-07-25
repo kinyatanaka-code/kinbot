@@ -2182,8 +2182,12 @@ async function showProductPrompt(container, errMsg, retry) {
     const renderEntries = () => {
       const ql = (searchEl.value || "").toLowerCase();
       const pbf = pbEl.value;
-      const list = entries.filter((e) => (!pbf || e.pricebookName === pbf) && (!ql || (e.name || "").toLowerCase().includes(ql))).slice(0, 500);
-      sel.innerHTML = list.map((e) => `<option value="${esc(e.id)}" data-price="${e.unitPrice != null ? e.unitPrice : ""}" data-pb="${esc(e.pricebookId || "")}">${esc(e.name)}${e.unitPrice != null ? "（¥" + Number(e.unitPrice).toLocaleString() + "）" : ""}</option>`).join("");
+      // 検索語があるときは価格表フィルタを無視して全価格表から探す
+      const list = entries.filter((e) => {
+        const matchName = !ql || (e.name || "").toLowerCase().includes(ql) || (e.pricebookName || "").toLowerCase().includes(ql);
+        return ql ? matchName : (!pbf || e.pricebookName === pbf);
+      }).slice(0, 800);
+      sel.innerHTML = list.map((e) => `<option value="${esc(e.id)}" data-price="${e.unitPrice != null ? e.unitPrice : ""}" data-pb="${esc(e.pricebookId || "")}">${e.pricebookName ? "［" + esc(e.pricebookName) + "］" : ""}${esc(e.name)}${e.unitPrice != null ? "（¥" + Number(e.unitPrice).toLocaleString() + "）" : ""}${e.active === false ? " ※無効" : ""}</option>`).join("");
       if (sel.options.length) sel.options[0].selected = true;
       syncPrice();
     };
