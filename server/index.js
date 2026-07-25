@@ -3881,9 +3881,25 @@ app.get("/api/auto-join/diagnose", async (req, res) => {
     }
     const now = Date.now();
     const timed = (events || []).filter((e) => !e.allDay && e.start);
+    const calendarAnyEnabled = rows.some((r) => r.enabled && r.calendar_any);
+    // 直近の予定を、URL検出・入室可否付きで返す
+    const upcoming = timed
+      .map((e) => {
+        const startMs = new Date(e.start).getTime();
+        const evUrl = (e.url && /zoom|meet\.google|teams\.microsoft/.test(e.url)) ? e.url : "";
+        const inWin = now >= startMs - 2 * 60 * 1000 && now <= startMs + 4 * 60 * 1000;
+        return {
+          title: e.title || "(無題)", start: e.start, guests: e.guests || 0,
+          hasMeetingUrl: !!evUrl, urlPreview: evUrl ? evUrl.slice(0, 45) : "",
+          inWindowNow: inWin,
+          wouldJoin: calendarAnyEnabled && !!evUrl && inWin,
+        };
+      })
+      .sort((a, b) => new Date(a.start) - new Date(b.start))
+      .slice(0, 15);
     const items = rows.map((r) => {
       const matches = r.calendar_any
-        ? timed.filter((e) => (e.guests || 0) >= 1)
+        ? timed.filter((e) => (e.guests || 0) >= 1 || (e.url && /zoom|meet|teams/.test(e.url)))
         : timed.filter((e) => e.url && zoomMeetingId(e.url) === r.meeting_id);
       const next = matches
         .map((e) => ({ title: e.title, start: e.start, startMs: new Date(e.start).getTime() }))
@@ -3895,7 +3911,7 @@ app.get("/api/auto-join/diagnose", async (req, res) => {
         wouldJoinNow,
       };
     });
-    res.json({ calendarConnected, publicUrl: !!PUBLIC_URL, count: rows.length, items });
+    res.json({ calendarConnected, publicUrl: !!PUBLIC_URL, calendarAnyEnabled, count: rows.length, eventCount: timed.length, upcoming, items });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
@@ -6032,9 +6048,11 @@ function startAutoJoinCalendarMonitor() {
         if (r.calendar_any) {
           // 連携カレンダーの予定にZoom等のURLが入っていれば、そのURLへ入室（予定ごとに1回）
           for (const e of timed) {
-            if ((e.guests || 0) < 1) continue; // 相手のいる予定だけ（個人の予定は除外）
             if (!inWindow(new Date(e.start).getTime(), now)) continue;
-            const joinUrl = (e.url && /zoom|meet\.google|teams\.microsoft/.test(e.url)) ? e.url : r.url; // 予定内のURL優先
+            const evUrl = (e.url && /zoom|meet\.google|teams\.microsoft/.test(e.url)) ? e.url : "";
+            // 予定内にURLがあればゲスト有無に関わらず入室。URLが無い予定は、ゲストがいる時だけ登録部屋へ。
+            if (!evUrl && (e.guests || 0) < 1) continue;
+            const joinUrl = evUrl || r.url;
             if (!joinUrl) continue;
             const key = `${r.id}|${e.id}`;
             if (joinedEventKeys.has(key)) continue;
