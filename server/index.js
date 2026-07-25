@@ -4866,6 +4866,46 @@ app.post("/api/salesforce/opportunity/:id/log", async (req, res) => {
   }
 });
 
+// SF商談を「失注」にする（ホームのワンクリック用。既定はリスケ理由）
+app.post("/api/salesforce/opportunity/:id/lose", async (req, res) => {
+  try {
+    const b = req.body || {};
+    const reasonDai = b.reasonDai === undefined ? "ニーズ・優先度不足" : b.reasonDai;
+    const reasonChu = b.reasonChu === undefined ? "初回商談リスケ" : b.reasonChu;
+    const note = b.note || "リスケのため失注";
+    let desc = null;
+    try { desc = await describeOpportunity(req.user); } catch {}
+    const fieldOf = (api) => (desc && (desc.fields || []).find((f) => f.name === api)) || null;
+    // ステージ：「失注」の選択肢を探す
+    const sf = fieldOf("StageName");
+    const picks = ((sf && sf.picklistValues) || []).filter((v) => v.active);
+    const hit = picks.find((v) => /失注/.test(v.label || v.value)) ||
+                picks.find((v) => /closed\s*lost/i.test(v.label || v.value));
+    if (!hit) return res.status(400).json({ error: "Salesforceのステージに「失注」が見つかりませんでした" });
+    const fields = { StageName: hit.value };
+    // 失注理由（ラベル→SFの値に変換。項目や選択肢が無ければスキップ）
+    const setReason = (api, label) => {
+      if (!label) return;
+      const f = fieldOf(api);
+      if (!f || !f.updateable) return;
+      const opts = (f.picklistValues || []).filter((v) => v.active);
+      if (opts.length) {
+        const o = opts.find((p) => (p.label || p.value) === label) || opts.find((p) => p.value === label);
+        if (o) fields[api] = o.value;
+      } else {
+        fields[api] = label;
+      }
+    };
+    setReason("Loss_Reason__c", reasonDai);
+    setReason("Loss_Reason1__c", reasonChu);
+    await updateOpportunity(req.user, req.params.id, fields);
+    try { await postChatter(req.user, req.params.id, `[kinbot] ${note}`); } catch {}
+    res.json({ ok: true, stage: hit.label || hit.value, fields });
+  } catch (e) {
+    sfErrorResponse(res, e);
+  }
+});
+
 // SF Opportunityのフィールド定義を取得
 app.get("/api/salesforce/describe", async (req, res) => {
   try {
