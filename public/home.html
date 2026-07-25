@@ -26,9 +26,24 @@
         <div class="home-wrap">
           <div class="home-head">
             <div class="home-title" id="homeDate">今日の商談</div>
-            <div class="home-toggle" id="homeToggle">
-              <button class="home-tg active" data-scope="mine" type="button">自分</button>
-              <button class="home-tg" data-scope="all" type="button">全員</button>
+            <div class="home-head-right">
+              <div class="home-datenav">
+                <button class="home-dbtn" id="datePrev" type="button" title="前の日">
+                  <svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true"><path d="M15 5.5 8.5 12l6.5 6.5" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                </button>
+                <label class="home-dinput">
+                  <svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true"><rect x="3.5" y="5" width="17" height="15" rx="3" fill="none" stroke="currentColor" stroke-width="1.9"/><path d="M3.5 9.5h17M8 3.5v3M16 3.5v3" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"/></svg>
+                  <input type="date" id="datePick" />
+                </label>
+                <button class="home-dbtn" id="dateNext" type="button" title="次の日">
+                  <svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true"><path d="M9 5.5 15.5 12 9 18.5" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                </button>
+                <button class="home-dtoday" id="dateToday" type="button">今日</button>
+              </div>
+              <div class="home-toggle" id="homeToggle">
+                <button class="home-tg active" data-scope="mine" type="button">自分</button>
+                <button class="home-tg" data-scope="all" type="button">全員</button>
+              </div>
             </div>
           </div>
           <div id="homeList"><div class="home-empty">読み込み中…</div></div>

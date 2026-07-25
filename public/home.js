@@ -1,21 +1,34 @@
-// home.js — 今日の商談一覧（自分/全員）＋商談を開く/失注にする
+// home.js — 日付ごとの商談一覧（自分/全員）＋商談を開く/失注にする
+// ・カレンダーの予定は【】付き（商談）のみ表示
+// ・日付を切り替えて他の日の商談も見られる
 const $h = (id) => document.getElementById(id);
 const escH = (s) => String(s == null ? "" : s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 
 let homeScope = "mine";
 let meEmail = "";
 let allMeetings = [];
-let todayEvents = [];
+let dayEvents = [];
+let calLoading = false;
+const calCache = {};
 
-function isToday(d) {
+function ymd(d) {
+  const x = new Date(d);
+  const p = (n) => String(n).padStart(2, "0");
+  return x.getFullYear() + "-" + p(x.getMonth() + 1) + "-" + p(x.getDate());
+}
+const todayStr = ymd(new Date());
+let selDate = todayStr;
+
+function isOnSelectedDay(d) {
   if (!d) return false;
-  const x = new Date(d), n = new Date();
-  return x.getFullYear() === n.getFullYear() && x.getMonth() === n.getMonth() && x.getDate() === n.getDate();
+  return ymd(d) === selDate;
 }
 function isOtherCat(m) {
   const t = (m.title || "");
   return /【ユ\/フォ】|【社内MTG】/.test(t);
 }
+// 商談の予定は【】付きのタイトル。それ以外（BBQ・お昼など）はホームに出さない。
+function hasBracket(t) { return /【[^】]*】/.test(String(t || "")); }
 function repOf(m) { return m.owner_name || m.rep_name || m.owner || "-"; }
 
 function isMine(m) {
@@ -31,23 +44,47 @@ function companyFromTitle(t) {
   return String(t).replace(/^【[^】]*】\s*/, "").replace(/[、,].*$/, "").split("/")[0].trim();
 }
 
+function dateLabel(s) {
+  const [y, m, d] = s.split("-").map(Number);
+  return new Date(y, m - 1, d).toLocaleDateString("ja-JP", { month: "long", day: "numeric", weekday: "short" });
+}
+
+function updateHead() {
+  const isToday = selDate === todayStr;
+  $h("homeDate").textContent = (isToday ? "今日の商談（" : "商談（") + dateLabel(selDate) + "）";
+  const pick = $h("datePick");
+  if (pick && pick.value !== selDate) pick.value = selDate;
+  const tb = $h("dateToday");
+  if (tb) tb.style.visibility = isToday ? "hidden" : "visible";
+}
+
 function render() {
   const box = $h("homeList");
-  let list = allMeetings.filter((m) => isToday(m.created_at) && !isOtherCat(m));
+  const isToday = selDate === todayStr;
+  const dayWord = isToday ? "今日" : "この日";
+
+  let list = allMeetings.filter((m) => isOnSelectedDay(m.created_at) && !isOtherCat(m));
   if (homeScope === "mine") list = list.filter(isMine);
   list.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
 
   // 録音済み商談のタイトルを控えて、カレンダー予定の重複を避ける
   const recordedTitles = new Set(list.map((m) => (m.title || "").replace(/^【[^】]*】\s*/, "").trim()));
   const now = Date.now();
-  const upcoming = (todayEvents || [])
+  const upcoming = (dayEvents || [])
+    .filter((e) => hasBracket(e.title))
     .filter((e) => !recordedTitles.has((e.title || "").replace(/^【[^】]*】\s*/, "").trim()))
     .sort((a, b) => new Date(a.start) - new Date(b.start));
 
   let html = "";
-  // これからの予定（カレンダー）
-  if (upcoming.length) {
-    html += `<div class="home-sec-title">今日の予定（カレンダー）</div>`;
+  // 予定（カレンダー）
+  html += `<div class="home-sec-title">${dayWord}の予定（カレンダー）</div>`;
+  if (calLoading) {
+    html += '<div class="home-empty">読み込み中…</div>';
+  } else if (window._calConnected === false) {
+    html += `<div class="home-empty">Googleカレンダーが連携されていません。設定で連携すると、予定がここに表示され、開始時刻にボットが自動入室します。</div>`;
+  } else if (!upcoming.length) {
+    html += `<div class="home-empty">${dayWord}の商談の予定（【】付き）はありません。</div>`;
+  } else {
     html += upcoming.map((e) => {
       const time = new Date(e.start).toLocaleTimeString("ja-JP", { hour: "2-digit", minute: "2-digit" });
       const past = new Date(e.start).getTime() < now;
@@ -66,13 +103,11 @@ function render() {
         </div>
       </div>`;
     }).join("");
-  } else if (window._calConnected === false) {
-    html += `<div class="home-sec-title">今日の予定（カレンダー）</div><div class="home-empty">Googleカレンダーが連携されていません。設定で連携すると、今日の予定がここに表示され、開始時刻にボットが自動入室します。</div>`;
   }
   // 録音済みの商談
-  html += `<div class="home-sec-title">今日の録音済み商談</div>`;
+  html += `<div class="home-sec-title">${dayWord}の録音済み商談</div>`;
   if (!list.length) {
-    html += '<div class="home-empty">今日の録音済み商談はまだありません。</div>';
+    html += `<div class="home-empty">${dayWord}の録音済み商談はありません。</div>`;
   } else {
     html += list.map((m) => {
       const time = new Date(m.created_at).toLocaleTimeString("ja-JP", { hour: "2-digit", minute: "2-digit" });
@@ -98,6 +133,49 @@ function render() {
   box.innerHTML = html;
 }
 
+async function loadCalendar() {
+  if (calCache[selDate]) {
+    dayEvents = calCache[selDate].events;
+    window._calConnected = calCache[selDate].connected;
+    return;
+  }
+  const target = selDate;
+  calLoading = true;
+  updateHead();
+  render();
+  try {
+    const cr = await fetch("/api/calendar/today?date=" + encodeURIComponent(target));
+    const cd = await cr.json();
+    const events = (cd && cd.events) || [];
+    const connected = !!(cd && cd.connected !== false);
+    calCache[target] = { events, connected };
+    if (target !== selDate) return; // 連打で日付が変わっていたら破棄
+    dayEvents = events;
+    window._calConnected = connected;
+  } catch {
+    if (target !== selDate) return;
+    dayEvents = [];
+    window._calConnected = false;
+  } finally {
+    if (target === selDate) calLoading = false;
+  }
+}
+
+async function changeDate(next) {
+  selDate = next;
+  updateHead();
+  await loadCalendar();
+  updateHead();
+  render();
+}
+
+function shiftDate(days) {
+  const [y, m, d] = selDate.split("-").map(Number);
+  const x = new Date(y, m - 1, d);
+  x.setDate(x.getDate() + days);
+  changeDate(ymd(x));
+}
+
 async function load() {
   try {
     const me = await (await fetch("/api/me")).json().catch(() => ({}));
@@ -108,13 +186,8 @@ async function load() {
     const d = await r.json();
     allMeetings = Array.isArray(d) ? d : (d.meetings || []);
   } catch { allMeetings = []; }
-  try {
-    const cr = await fetch("/api/calendar/today");
-    const cd = await cr.json();
-    todayEvents = (cd && cd.events) || [];
-    window._calConnected = cd && cd.connected !== false;
-  } catch { todayEvents = []; window._calConnected = false; }
-  $h("homeDate").textContent = "今日の商談（" + new Date().toLocaleDateString("ja-JP", { month: "long", day: "numeric", weekday: "short" }) + "）";
+  await loadCalendar();
+  updateHead();
   render();
 }
 
@@ -126,5 +199,14 @@ document.addEventListener("DOMContentLoaded", () => {
       render();
     });
   });
+  $h("datePick").value = selDate;
+  $h("datePick").addEventListener("change", (e) => {
+    const v = e.target.value;
+    if (/^\d{4}-\d{2}-\d{2}$/.test(v)) changeDate(v);
+  });
+  $h("datePrev").addEventListener("click", () => shiftDate(-1));
+  $h("dateNext").addEventListener("click", () => shiftDate(1));
+  $h("dateToday").addEventListener("click", () => changeDate(todayStr));
+  updateHead();
   load();
 });

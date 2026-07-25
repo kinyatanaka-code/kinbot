@@ -3868,20 +3868,28 @@ app.put("/api/auto-join/:id", async (req, res) => {
 // ホーム用：今日のカレンダー予定（これからの商談）を返す
 app.get("/api/calendar/today", async (req, res) => {
   try {
-    const now = new Date();
-    const start = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0);
-    const end = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59);
+    // 日付指定（?date=YYYY-MM-DD）。未指定なら日本時間の今日。
+    const jstToday = new Date(Date.now() + 9 * 60 * 60 * 1000).toISOString().slice(0, 10);
+    const q = String((req.query && req.query.date) || "").trim();
+    const dateStr = /^\d{4}-\d{2}-\d{2}$/.test(q) ? q : jstToday;
+    // 日本時間の 00:00〜23:59 を境界にする（サーバーのタイムゾーンに依存しない）
+    const start = new Date(`${dateStr}T00:00:00+09:00`);
+    const end = new Date(`${dateStr}T23:59:59.999+09:00`);
     let events = [];
     try {
       events = await listCalendarEvents(req.user, "primary", { timeMin: start.toISOString(), timeMax: end.toISOString() });
     } catch (e) {
-      return res.json({ connected: false, events: [] });
+      return res.json({ connected: false, date: dateStr, events: [] });
     }
     const timed = (events || []).filter((e) => !e.allDay && e.start).map((e) => ({
       id: e.id, title: e.title || "(無題)", start: e.start,
       url: e.url || "", hasUrl: !!(e.url && /zoom|meet|teams/.test(e.url)), guests: e.guests || 0,
-    }));
-    res.json({ connected: true, events: timed });
+    })).filter((e) => {
+      // Googleが返す範囲外の予定（前日・翌日）が混ざることがあるので日本時間で再確認
+      const ms = new Date(e.start).getTime();
+      return ms >= start.getTime() && ms <= end.getTime();
+    });
+    res.json({ connected: true, date: dateStr, events: timed });
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
