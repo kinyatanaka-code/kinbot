@@ -5168,6 +5168,28 @@ app.get("/api/salesforce/contacts", async (req, res) => {
   }
 });
 
+// 商品の横断診断：Product2・PricebookEntry・全Pricebookを調べて、商品がどこにあるか特定する
+app.get("/api/salesforce/product-diagnose", async (req, res) => {
+  try {
+    const q = String(req.query.q || "エントリー").replace(/['\\%_]/g, "");
+    const like = `%${q}%`;
+    const [prod, pbe, pbs] = await Promise.all([
+      sfQuery(req.user, `SELECT Id, Name, IsActive, Family, ProductCode FROM Product2 WHERE Name LIKE '${like}' ORDER BY Name LIMIT 100`).catch((e) => ({ error: e.message })),
+      sfQuery(req.user, `SELECT Id, Name, Product2.Name, Pricebook2.Name, IsActive, UnitPrice FROM PricebookEntry WHERE Product2.Name LIKE '${like}' OR Name LIKE '${like}' ORDER BY Pricebook2.Name LIMIT 300`).catch((e) => ({ error: e.message })),
+      sfQuery(req.user, `SELECT Id, Name, IsActive, IsStandard FROM Pricebook2 ORDER BY Name LIMIT 100`).catch((e) => ({ error: e.message })),
+    ]);
+    res.json({
+      query: q,
+      products: (prod.records || []).map((p) => ({ id: p.Id, name: p.Name, active: p.IsActive, family: p.Family || "", code: p.ProductCode || "" })),
+      entries: (pbe.records || []).map((e) => ({ id: e.Id, product: (e.Product2 && e.Product2.Name) || e.Name, pricebook: (e.Pricebook2 && e.Pricebook2.Name) || "", active: e.IsActive, price: e.UnitPrice })),
+      pricebooks: (pbs.records || []).map((p) => ({ name: p.Name, active: p.IsActive, standard: p.IsStandard })),
+      errors: { products: prod.error || null, entries: pbe.error || null, pricebooks: pbs.error || null },
+    });
+  } catch (e) {
+    sfErrorResponse(res, e);
+  }
+});
+
 // 登録済み商品の一覧
 app.get("/api/salesforce/line-items", async (req, res) => {
   try {

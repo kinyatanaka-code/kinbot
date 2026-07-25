@@ -1295,7 +1295,7 @@ async function selectDeal(account) {
     `<div class="sf-section-box"><div class="sf-section-title"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" style="vertical-align:-2px;margin-right:4px"><rect x="1" y="6" width="4" height="9" rx="1" fill="#0d5b47"/><rect x="6" y="3" width="4" height="12" rx="1" fill="#1d9e75"/><rect x="11" y="1" width="4" height="14" rx="1" fill="#5DCAA5"/></svg>ステージ・項目の更新</div>` +
     `<div id="sfStageFields"></div>` +
     `<div class="sf-field" style="margin-top:8px"><button class="btn" id="sfUpdateBtn">ステージ・項目を更新</button></div><div id="sfUpdateMsg"></div></div>` +
-    `<div class="sf-section-box"><div class="sf-section-title"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" style="vertical-align:-2px;margin-right:4px"><rect x="2" y="3" width="12" height="11" rx="1.5" fill="#0d5b47"/><rect x="4" y="6" width="8" height="1.3" rx=".5" fill="#5DCAA5"/><rect x="4" y="9" width="6" height="1.3" rx=".5" fill="#5DCAA5"/></svg>商品</div><div id="sfProducts"><div class="sf-ss-note">商談をリンクすると表示されます。</div></div><div class="sf-field" style="margin-top:8px"><button class="btn sf-btn-secondary" id="sfAddProductBtn">商品を追加</button></div><div id="sfProductMsg"></div></div>` +
+    `<div class="sf-section-box"><div class="sf-section-title"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" style="vertical-align:-2px;margin-right:4px"><rect x="2" y="3" width="12" height="11" rx="1.5" fill="#0d5b47"/><rect x="4" y="6" width="8" height="1.3" rx=".5" fill="#5DCAA5"/><rect x="4" y="9" width="6" height="1.3" rx=".5" fill="#5DCAA5"/></svg>商品</div><div id="sfProducts"><div class="sf-ss-note">商談をリンクすると表示されます。</div></div><div class="sf-field" style="margin-top:8px"><button class="btn sf-btn-secondary" id="sfAddProductBtn">商品を追加</button> <button class="btn btn-ghost" id="sfDiagProductBtn">SFから商品を探す（診断）</button></div><div id="sfProductMsg"></div></div>` +
     `</div>` +
     `</div></section>` +
     `</div>` +
@@ -2305,6 +2305,40 @@ async function showProductPrompt(container, errMsg, retry) {
   }
 }
 
+// Salesforce全体から商品を探して結果を表示（診断）
+async function showProductDiagnose(container, q) {
+  if (!container) return;
+  container.innerHTML = `<div class="sf-cr-box"><div class="sf-cr-title">「${esc(q)}」をSalesforce全体から検索中…</div></div>`;
+  const box = container.querySelector(".sf-cr-box");
+  try {
+    const r = await sfFetch("/api/salesforce/product-diagnose?q=" + encodeURIComponent(q));
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.error || "取得失敗");
+    const prod = d.products || [];
+    const entries = d.entries || [];
+    const pbs = d.pricebooks || [];
+    let html = `<div class="sf-cr-title">「${esc(q)}」の検索結果</div>`;
+    // 商品（Product2）
+    html += `<div class="sf-diag-sec"><b>商品（Product2）：${prod.length}件</b>`;
+    html += prod.length ? prod.map((p) => `<div class="sf-diag-line">${esc(p.name)}${p.active === false ? " <span class='sf-req'>※無効</span>" : ""}${p.family ? "（" + esc(p.family) + "）" : ""}</div>`).join("") : `<div class="sf-ss-note">この名前の商品はSalesforceに存在しません。</div>`;
+    html += `</div>`;
+    // 価格表への登録（PricebookEntry）
+    html += `<div class="sf-diag-sec"><b>価格表への登録（PricebookEntry）：${entries.length}件</b>`;
+    html += entries.length ? entries.map((e) => `<div class="sf-diag-line">［${esc(e.pricebook || "?")}］${esc(e.product || "?")}　${e.price != null ? "¥" + Number(e.price).toLocaleString() : ""}${e.active === false ? " <span class='sf-req'>※無効</span>" : ""}</div>`).join("") : `<div class="sf-ss-note">この商品は、どの価格表にも登録されていません（＝商談に追加できません）。</div>`;
+    html += `</div>`;
+    // 全価格表
+    html += `<div class="sf-diag-sec"><b>存在する価格表（Pricebook）：${pbs.length}件</b>`;
+    html += pbs.map((p) => `<div class="sf-diag-line">${esc(p.name)}${p.standard ? "（標準）" : ""}${p.active === false ? " <span class='sf-req'>※無効</span>" : ""}</div>`).join("");
+    html += `</div>`;
+    if (d.errors && (d.errors.products || d.errors.entries || d.errors.pricebooks)) {
+      html += `<div class="sf-ss-note">一部の検索でエラー：${esc(d.errors.products || d.errors.entries || d.errors.pricebooks)}</div>`;
+    }
+    box.innerHTML = html;
+  } catch (e) {
+    box.innerHTML = `<div class="sf-ss-note">診断に失敗しました：${esc(cleanSfError(e.message))}</div>`;
+  }
+}
+
 async function initSfTab(account) {
   const searchBtn = $("sfSearchBtn");
   const matchesEl = $("sfMatches");
@@ -2369,6 +2403,14 @@ async function initSfTab(account) {
     addProdBtn.onclick = () => {
       if (!sfLinkedOpp) return;
       showProductPrompt($("sfProductMsg"), "", loadProducts);
+    };
+  }
+  const diagBtn = $("sfDiagProductBtn");
+  if (diagBtn) {
+    diagBtn.onclick = () => {
+      const q = prompt("Salesforce全体から探す商品名キーワード（例：エントリー、スタンダード、ライト、DOC）", "エントリー");
+      if (q == null) return;
+      showProductDiagnose($("sfProductMsg"), q.trim() || "エントリー");
     };
   }
   // 活動記録の「商談から読み取る」
