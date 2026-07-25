@@ -5189,9 +5189,9 @@ app.get("/api/salesforce/products", async (req, res) => {
 // 商談に商品を登録
 app.post("/api/salesforce/product", async (req, res) => {
   try {
-    const { opportunityId, pricebookEntryId, quantity, unitPrice, fields } = req.body || {};
+    const { opportunityId, pricebookEntryId, pricebookId, quantity, unitPrice, fields } = req.body || {};
     if (!opportunityId || !pricebookEntryId) return res.status(400).json({ error: "商談IDと商品が必要です" });
-    const out = await addOpportunityLineItem(req.user, { opportunityId, pricebookEntryId, quantity, unitPrice, fields });
+    const out = await addOpportunityLineItem(req.user, { opportunityId, pricebookEntryId, pricebookId, quantity, unitPrice, fields });
     res.json({ ok: true, result: out });
   } catch (e) {
     sfErrorResponse(res, e);

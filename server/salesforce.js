@@ -190,26 +190,23 @@ export async function sfQuery(owner, soql) {
 // 商談の価格表（Pricebook）を確保し、選べる商品（PricebookEntry）を返す
 export async function getOpportunityProducts(owner, opportunityId) {
   const clean = (s) => String(s || "").replace(/[^a-zA-Z0-9]/g, "");
-  let pbId = null;
+  let currentPbId = null;
   try {
     const od = await sfQuery(owner, `SELECT Pricebook2Id FROM Opportunity WHERE Id = '${clean(opportunityId)}'`);
-    pbId = od.records && od.records[0] && od.records[0].Pricebook2Id;
+    currentPbId = (od.records && od.records[0] && od.records[0].Pricebook2Id) || null;
   } catch {}
-  if (!pbId) {
-    try {
-      const std = await sfQuery(owner, `SELECT Id FROM Pricebook2 WHERE IsStandard = true LIMIT 1`);
-      pbId = std.records && std.records[0] && std.records[0].Id;
-      if (pbId) await updateOpportunity(owner, opportunityId, { Pricebook2Id: pbId });
-    } catch {}
-  }
   let entries = [];
-  if (pbId) {
-    try {
-      const d = await sfQuery(owner, `SELECT Id, UnitPrice, Name, Product2.Name FROM PricebookEntry WHERE Pricebook2Id = '${clean(pbId)}' AND IsActive = true ORDER BY Name LIMIT 200`);
-      entries = (d.records || []).map((e) => ({ id: e.Id, name: (e.Product2 && e.Product2.Name) || e.Name, unitPrice: e.UnitPrice }));
-    } catch {}
-  }
-  return { pricebookId: pbId, entries };
+  try {
+    const d = await sfQuery(owner, `SELECT Id, UnitPrice, Name, Product2.Name, Pricebook2Id, Pricebook2.Name FROM PricebookEntry WHERE IsActive = true ORDER BY Pricebook2.Name, Name LIMIT 1000`);
+    entries = (d.records || []).map((e) => ({
+      id: e.Id,
+      name: (e.Product2 && e.Product2.Name) || e.Name,
+      unitPrice: e.UnitPrice,
+      pricebookId: e.Pricebook2Id,
+      pricebookName: (e.Pricebook2 && e.Pricebook2.Name) || "",
+    }));
+  } catch {}
+  return { currentPricebookId: currentPbId, entries };
 }
 
 // 商談商品（OpportunityLineItem）の項目定義（売上・原価・提供日など）を取得
@@ -231,9 +228,17 @@ export async function describeLineItem(owner) {
 }
 
 // 商談に商品（OpportunityLineItem）を追加
-export async function addOpportunityLineItem(owner, { opportunityId, pricebookEntryId, quantity, unitPrice, fields }) {
+export async function addOpportunityLineItem(owner, { opportunityId, pricebookEntryId, pricebookId, quantity, unitPrice, fields }) {
   const acc = await getAccess(owner);
   if (!acc) throw new Error("Salesforce未連携です");
+  // 商談の価格表を、選んだ商品の価格表に合わせる（未設定または別価格表のとき）
+  if (pricebookId) {
+    try {
+      const od = await sfQuery(owner, `SELECT Pricebook2Id FROM Opportunity WHERE Id = '${String(opportunityId).replace(/[^a-zA-Z0-9]/g, "")}'`);
+      const cur = od.records && od.records[0] && od.records[0].Pricebook2Id;
+      if (cur !== pricebookId) await updateOpportunity(owner, opportunityId, { Pricebook2Id: pricebookId });
+    } catch {}
+  }
   const body = { OpportunityId: opportunityId, PricebookEntryId: pricebookEntryId, Quantity: Number(quantity) || 1 };
   if (unitPrice !== undefined && unitPrice !== null && unitPrice !== "") body.UnitPrice = Number(unitPrice);
   if (fields && typeof fields === "object") Object.assign(body, fields); // 売上・原価・提供日など

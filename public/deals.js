@@ -2163,7 +2163,8 @@ async function showProductPrompt(container, errMsg, retry) {
     };
     box.innerHTML =
       `<div class="sf-cr-title">商品を登録して再更新します</div>` +
-      `<div class="sf-field"><label>商品を検索</label><input type="text" class="sf-input" id="prodSearch" placeholder="商品名で絞り込み" /></div>` +
+      `<div class="sf-field"><label>価格表で絞り込み</label><select class="sf-select" id="prodPb"></select></div>` +
+      `<div class="sf-field"><label>商品を検索</label><input type="text" class="sf-input" id="prodSearch" placeholder="商品名で絞り込み（例：エントリー、スタンダード、ライト）" /></div>` +
       `<div class="sf-field"><label>商品</label><select class="sf-select" id="prodEntry" size="6" style="height:auto"></select></div>` +
       `<div class="sf-field"><label>数量</label><input type="text" class="sf-input" id="prodQty" value="1" /></div>` +
       `<div class="sf-field"><label>単価（任意・空欄なら価格表の価格）</label><input type="text" class="sf-input" id="prodPrice" value="" /></div>` +
@@ -2171,25 +2172,33 @@ async function showProductPrompt(container, errMsg, retry) {
       `<div class="sf-field" style="margin-top:6px"><button class="btn" id="prodBtn">商品を登録して再更新</button></div><div id="prodMsg" class="sf-ss-note"></div>`;
     const sel = box.querySelector("#prodEntry");
     const searchEl = box.querySelector("#prodSearch");
+    const pbEl = box.querySelector("#prodPb");
     const priceInput = box.querySelector("#prodPrice");
+    // 価格表の絞り込み肢（DOC等）。DOCらしい価格表があれば既定に。
+    const pbNames = [...new Set(entries.map((e) => e.pricebookName).filter(Boolean))];
+    const docPb = pbNames.find((n) => /doc/i.test(n));
+    pbEl.innerHTML = `<option value="">すべての価格表</option>` + pbNames.map((n) => `<option value="${esc(n)}" ${n === docPb ? "selected" : ""}>${esc(n)}</option>`).join("");
     const syncPrice = () => { const p = sel.selectedOptions[0] && sel.selectedOptions[0].dataset.price; if (priceInput) priceInput.placeholder = p ? "価格表: " + p : ""; };
-    const renderEntries = (q) => {
-      const ql = (q || "").toLowerCase();
-      const list = (ql ? entries.filter((e) => (e.name || "").toLowerCase().includes(ql)) : entries).slice(0, 300);
-      sel.innerHTML = list.map((e) => `<option value="${esc(e.id)}" data-price="${e.unitPrice != null ? e.unitPrice : ""}">${esc(e.name)}${e.unitPrice != null ? "（¥" + Number(e.unitPrice).toLocaleString() + "）" : ""}</option>`).join("");
+    const renderEntries = () => {
+      const ql = (searchEl.value || "").toLowerCase();
+      const pbf = pbEl.value;
+      const list = entries.filter((e) => (!pbf || e.pricebookName === pbf) && (!ql || (e.name || "").toLowerCase().includes(ql))).slice(0, 500);
+      sel.innerHTML = list.map((e) => `<option value="${esc(e.id)}" data-price="${e.unitPrice != null ? e.unitPrice : ""}" data-pb="${esc(e.pricebookId || "")}">${esc(e.name)}${e.unitPrice != null ? "（¥" + Number(e.unitPrice).toLocaleString() + "）" : ""}</option>`).join("");
       if (sel.options.length) sel.options[0].selected = true;
       syncPrice();
     };
-    renderEntries("");
-    searchEl.addEventListener("input", () => renderEntries(searchEl.value));
+    renderEntries();
+    searchEl.addEventListener("input", renderEntries);
+    pbEl.addEventListener("change", renderEntries);
     sel.addEventListener("change", syncPrice);
     box.querySelector("#prodBtn").addEventListener("click", async () => {
       const btn = box.querySelector("#prodBtn");
+      const opt = sel.selectedOptions[0];
       const pricebookEntryId = sel.value;
+      const pricebookId = opt ? opt.dataset.pb : "";
       if (!pricebookEntryId) { const pm = box.querySelector("#prodMsg"); if (pm) pm.textContent = "商品を選んでください。"; return; }
       const quantity = box.querySelector("#prodQty").value.trim() || "1";
       const unitPrice = priceInput.value.trim();
-      // 登録項目（売上・原価・提供日など）を集める
       const fields = {};
       box.querySelectorAll("[data-oli-field]").forEach((el) => {
         const v = (el.value ?? "").trim();
@@ -2202,7 +2211,7 @@ async function showProductPrompt(container, errMsg, retry) {
       try {
         const rr = await sfFetch("/api/salesforce/product", {
           method: "POST", headers: { "content-type": "application/json" },
-          body: JSON.stringify({ opportunityId: sfLinkedOpp.Id, pricebookEntryId, quantity, unitPrice, fields }),
+          body: JSON.stringify({ opportunityId: sfLinkedOpp.Id, pricebookEntryId, pricebookId, quantity, unitPrice, fields }),
         });
         const dd = await rr.json();
         if (!rr.ok) throw new Error(dd.error || "登録失敗");
@@ -2213,6 +2222,7 @@ async function showProductPrompt(container, errMsg, retry) {
         btn.disabled = false; btn.textContent = "商品を登録して再更新";
       }
     });
+    return;
     return;
   } catch (e) {
     if (box) box.innerHTML = '<div class="sf-ss-note">商品の取得に失敗しました：' + esc(cleanSfError(e.message)) + "</div>";
