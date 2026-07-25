@@ -218,3 +218,41 @@ window.kbProgress = function (el, opts = {}) {
     });
   }
 })();
+
+// ===== スマホ用：下部タブバー中央の録音ボタン＆ボトムシート =====
+window.kbIsMobile = function () {
+  return window.matchMedia("(max-width: 760px)").matches;
+};
+
+// 画面下から出てくるシート。html は中身のHTML文字列。
+// 閉じるボタンには data-sheet-close を付ける。
+window.kbSheet = function (html) {
+  const back = document.createElement("div");
+  back.className = "kb-sheet-back";
+  back.innerHTML = `<div class="kb-sheet"><div class="kb-sheet-grip"></div>${html}</div>`;
+  const close = () => {
+    back.remove();
+    document.removeEventListener("keydown", onKey);
+  };
+  const onKey = (e) => { if (e.key === "Escape") close(); };
+  back.addEventListener("click", (e) => {
+    if (e.target === back || e.target.closest("[data-sheet-close]")) close();
+  });
+  document.addEventListener("keydown", onKey);
+  document.body.appendChild(back);
+  return { el: back, close };
+};
+
+// 下部タブの中央に録音ボタンを差し込む（スマホ幅のときだけ見えます）
+(function () {
+  const bar = document.querySelector(".sidebar");
+  if (!bar || bar.querySelector(".side-fab")) return;
+  const a = document.createElement("a");
+  a.className = "side-fab";
+  a.href = "index.html";
+  a.setAttribute("aria-label", "レコーディング");
+  a.innerHTML = '<span class="side-ico ico-rec"></span>';
+  const here = (location.pathname.split("/").pop() || "home.html");
+  if (here === "index.html" || here === "") a.classList.add("active");
+  bar.appendChild(a);
+})();

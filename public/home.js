@@ -3,6 +3,7 @@
 // ・日付を切り替えて他の日の商談も見られる（選んだ日付はページを移動しても保持）
 // ・予定カードからSalesforceの商談を選び、リスケならボタン一つで失注にできる
 const $h = (id) => document.getElementById(id);
+const cssEsc = (s) => (window.CSS && window.CSS.escape) ? window.CSS.escape(s) : String(s).replace(/["\\]/g, "\\$&");
 const escH = (s) => String(s == null ? "" : s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 
 let homeScope = "mine";
@@ -12,6 +13,7 @@ let dayEvents = [];
 let calLoading = false;
 const calCache = {};
 const sfState = {}; // 予定ごとのSalesforceパネルの状態
+const homeItems = {}; // カードの中身（スマホのシート表示用）
 
 function ymd(d) {
   const x = new Date(d);
@@ -82,6 +84,42 @@ function updateHead() {
   if (pick && pick.value !== selDate) pick.value = selDate;
   const tb = $h("dateToday");
   if (tb) tb.style.visibility = isToday ? "hidden" : "visible";
+  renderWeek();
+}
+
+// スマホ用の週バー（月曜はじまり）。選んだ日を含む週を出す。
+let weekBase = null; // 表示中の週の月曜（YYYY-MM-DD）
+function mondayOf(dateStr) {
+  const [y, m, d] = dateStr.split("-").map(Number);
+  const x = new Date(y, m - 1, d);
+  x.setDate(x.getDate() - ((x.getDay() + 6) % 7));
+  return ymd(x);
+}
+function addDays(dateStr, n) {
+  const [y, m, d] = dateStr.split("-").map(Number);
+  const x = new Date(y, m - 1, d);
+  x.setDate(x.getDate() + n);
+  return ymd(x);
+}
+function renderWeek() {
+  const box = $h("homeWeek");
+  if (!box) return;
+  const mon = weekBase || mondayOf(selDate);
+  weekBase = mon;
+  const w = ["月", "火", "水", "木", "金", "土", "日"];
+  // 録音済み商談がある日に印を付ける
+  const marks = new Set(allMeetings.filter((m) => !isOtherCat(m)).map((m) => ymd(m.created_at)));
+  let html = "";
+  for (let i = 0; i < 7; i++) {
+    const ds = addDays(mon, i);
+    const cls = ["home-week-day"];
+    if (ds === selDate) cls.push("is-sel");
+    if (ds === todayStr) cls.push("is-today");
+    if (i >= 5) cls.push("is-off");
+    if (marks.has(ds)) cls.push("has-item");
+    html += `<button type="button" class="${cls.join(" ")}" data-day="${ds}"><span class="wd-w">${w[i]}</span><span class="wd-d">${Number(ds.slice(8))}</span></button>`;
+  }
+  box.innerHTML = html;
 }
 
 // ── Salesforceパネル ───────────────────────────────
@@ -127,7 +165,7 @@ function sfPanelHtml(key, ev) {
         <button class="btn sf-btn-secondary home-sf-mini" data-sf-search="${escH(key)}" type="button">検索</button>
       </div>${listHtml}`;
   }
-  return `<div class="home-sf">${inner}</div>`;
+  return `<div class="home-sf">${inner}<button type="button" class="home-sf-hide" data-sf-close="${escH(key)}">閉じる</button></div>`;
 }
 
 // 予定と録音済み商談を突き合わせるためのタイトル正規化
@@ -218,7 +256,8 @@ function render() {
     else if (e) meta = e.hasUrl ? "開始時刻にボットが自動入室します" : "予定にZoom等のURLがありません（自動入室されません）";
     const summary = (m && m.summary && m.summary.overview) ? String(m.summary.overview).slice(0, 90) + "…" : "";
     const openLabel = m ? "商談を開く" : "会社を開く";
-    return `<div class="home-card home-card-v${m ? "" : " home-card-plan"}">
+    homeItems[key] = { title, time, company, done: !!m, link: "history.html?company=" + enc, openLabel };
+    return `<div class="home-card home-card-v${m ? " is-done" : " home-card-plan"}" data-card="${escH(key)}">
       <div class="home-card-row">
         <div class="home-card-main">
           <div class="home-card-top"><span class="home-time">${escH(time)}</span>${badges}</div>
@@ -309,7 +348,7 @@ function wireList() {
     const searchBtn = ev.target.closest("[data-sf-search]");
     if (searchBtn) {
       const key = searchBtn.dataset.sfSearch;
-      const input = box.querySelector(`[data-sf-q="${CSS.escape(key)}"]`);
+      const input = box.querySelector(`[data-sf-q="${cssEsc(key)}"]`);
       sfOf(key).q = input ? input.value.trim() : "";
       sfSearch(key);
       return;
@@ -333,6 +372,14 @@ function wireList() {
     }
     const lose = ev.target.closest("[data-sf-lose]");
     if (lose) { sfLose(lose.dataset.sfLose); return; }
+    const closeBtn = ev.target.closest("[data-sf-close]");
+    if (closeBtn) { sfOf(closeBtn.dataset.sfClose).open = false; render(); return; }
+    // スマホ：カードをタップしたら操作シートを出す
+    if (window.kbIsMobile && window.kbIsMobile() && window.kbSheet) {
+      if (ev.target.closest("a, button, input, select, textarea, .home-sf")) return;
+      const card = ev.target.closest("[data-card]");
+      if (card) openCardSheet(card.dataset.card);
+    }
   });
   // 検索ボックスでEnter＝検索、入力内容は状態に控える
   box.addEventListener("input", (ev) => {
@@ -342,6 +389,43 @@ function wireList() {
   box.addEventListener("keydown", (ev) => {
     const inp = ev.target.closest("[data-sf-q]");
     if (inp && ev.key === "Enter") { ev.preventDefault(); sfOf(inp.dataset.sfQ).q = inp.value.trim(); sfSearch(inp.dataset.sfQ); }
+  });
+}
+
+const ICO = {
+  building: '<svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><rect x="4" y="3.5" width="12" height="17" rx="2" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M16 9h4v11.5M7.5 7.5h5M7.5 11h5M7.5 14.5h5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>',
+  cloud: '<svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path d="M7 18.5a4 4 0 0 1-.3-8 5.5 5.5 0 0 1 10.6 1.2A3.6 3.6 0 0 1 17 18.5z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></svg>',
+  mic: '<svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><rect x="9.5" y="3" width="5" height="10" rx="2.5" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M6.5 11a5.5 5.5 0 0 0 11 0M12 16.5V21" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>',
+  arrow: '<svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path d="M9 5.5 15.5 12 9 18.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+};
+
+function openCardSheet(key) {
+  const it = homeItems[key];
+  if (!it) return;
+  const sub = `${dateLabel(selDate)} ${it.time} ・ ${it.done ? "商談済み" : "予定"}`;
+  const html =
+    `<div class="kb-sheet-title">${escH(it.title)}</div>
+     <div class="kb-sheet-sub">${escH(sub)}</div>
+     <a class="kb-sheet-act" href="${it.link}"><span class="kb-sheet-ico">${ICO.building}</span>${escH(it.openLabel)}<span class="kb-sheet-arrow">${ICO.arrow}</span></a>
+     <button type="button" class="kb-sheet-act" data-sheet-sf><span class="kb-sheet-ico">${ICO.cloud}</span>SF商談を選ぶ・リスケ失注<span class="kb-sheet-arrow">${ICO.arrow}</span></button>
+     <button type="button" class="kb-sheet-close" data-sheet-close>閉じる</button>`;
+  const sheet = window.kbSheet(html);
+  sheet.el.addEventListener("click", (ev) => {
+    if (!ev.target.closest("[data-sheet-sf]")) return;
+    sheet.close();
+    const s = sfOf(key);
+    s.open = true;
+    if (s.records === null && !s.picked && !s.done) {
+      s.q = searchNameFromTitle(homeItems[key].title);
+      render();
+      sfSearch(key);
+    } else {
+      render();
+    }
+    setTimeout(() => {
+      const card = document.querySelector(`[data-card="${cssEsc(key)}"]`);
+      if (card && card.scrollIntoView) card.scrollIntoView({ behavior: "smooth", block: "center" });
+    }, 60);
   });
 }
 
@@ -375,6 +459,7 @@ async function loadCalendar() {
 
 async function changeDate(next) {
   selDate = next;
+  weekBase = mondayOf(next);
   savePref();
   updateHead();
   await loadCalendar();
@@ -419,6 +504,14 @@ document.addEventListener("DOMContentLoaded", () => {
   $h("datePick").addEventListener("change", (e) => {
     const v = e.target.value;
     if (/^\d{4}-\d{2}-\d{2}$/.test(v)) changeDate(v);
+  });
+  const wp = $h("weekPrev"), wn = $h("weekNext");
+  if (wp) wp.addEventListener("click", () => { weekBase = addDays(weekBase || mondayOf(selDate), -7); renderWeek(); });
+  if (wn) wn.addEventListener("click", () => { weekBase = addDays(weekBase || mondayOf(selDate), 7); renderWeek(); });
+  const wk = $h("homeWeek");
+  if (wk) wk.addEventListener("click", (e) => {
+    const b = e.target.closest("[data-day]");
+    if (b) changeDate(b.dataset.day);
   });
   $h("datePrev").addEventListener("click", () => shiftDate(-1));
   $h("dateNext").addEventListener("click", () => shiftDate(1));
