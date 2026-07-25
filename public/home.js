@@ -62,9 +62,12 @@ function render() {
         </div>
         <div class="home-card-actions">
           <a class="btn" href="history.html?company=${enc}">会社を開く</a>
+          <a class="btn sf-btn-secondary" href="history.html?company=${enc}&sf=lose">失注にする</a>
         </div>
       </div>`;
     }).join("");
+  } else if (window._calConnected === false) {
+    html += `<div class="home-sec-title">今日の予定（カレンダー）</div><div class="home-empty">Googleカレンダーが連携されていません。設定で連携すると、今日の予定がここに表示され、開始時刻にボットが自動入室します。</div>`;
   }
   // 録音済みの商談
   html += `<div class="home-sec-title">今日の録音済み商談</div>`;
@@ -109,7 +112,8 @@ async function load() {
     const cr = await fetch("/api/calendar/today");
     const cd = await cr.json();
     todayEvents = (cd && cd.events) || [];
-  } catch { todayEvents = []; }
+    window._calConnected = cd && cd.connected !== false;
+  } catch { todayEvents = []; window._calConnected = false; }
   $h("homeDate").textContent = "今日の商談（" + new Date().toLocaleDateString("ja-JP", { month: "long", day: "numeric", weekday: "short" }) + "）";
   render();
 }
