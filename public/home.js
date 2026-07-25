@@ -10,6 +10,7 @@ let homeScope = "mine";
 let meEmail = "";
 let allMeetings = [];
 let dayEvents = [];
+let allDeals = [];
 let calLoading = false;
 const calCache = {};
 const sfState = {}; // 予定ごとのSalesforceパネルの状態
@@ -215,6 +216,8 @@ function render() {
     items.push({ key: "m:" + (m.bot_id || m.title || i), when: new Date(m.created_at).getTime(), ev: null, rec: m });
   });
   items.sort((a, b) => a.when - b.when);
+  renderMini();
+  renderTodo(items);
 
   let html = "";
   if (window._calConnected === false) {
@@ -257,7 +260,7 @@ function render() {
     const summary = (m && m.summary && m.summary.overview) ? String(m.summary.overview).slice(0, 90) + "…" : "";
     const openLabel = m ? "商談を開く" : "会社を開く";
     homeItems[key] = { title, time, company, done: !!m, link: "history.html?company=" + enc, openLabel };
-    return `<div class="home-card home-card-v${m ? " is-done" : " home-card-plan"}" data-card="${escH(key)}">
+    return `<div class="home-row"><div class="home-rail">${escH(time)}</div><div class="home-card home-card-v${m ? " is-done" : " home-card-plan"}" data-card="${escH(key)}">
       <div class="home-card-row">
         <div class="home-card-main">
           <div class="home-card-top"><span class="home-time">${escH(time)}</span>${badges}</div>
@@ -271,10 +274,61 @@ function render() {
         </div>
       </div>
       ${sfPanelHtml(key, { title })}
-    </div>`;
+    </div></div>`;
   }).join("");
 
   box.innerHTML = html;
+}
+
+// ---- 右パネル：ミニカレンダー ----
+let miniBase = null; // 表示中の月の1日（YYYY-MM-01）
+function renderMini() {
+  const box = $h("homeMini");
+  if (!box) return;
+  const base = miniBase || (selDate.slice(0, 7) + "-01");
+  miniBase = base;
+  const [y, mo] = base.split("-").map(Number);
+  const lab = $h("miniLabel");
+  if (lab) lab.textContent = y + "年" + mo + "月";
+  const first = new Date(y, mo - 1, 1);
+  const lead = (first.getDay() + 6) % 7; // 月曜はじまり
+  const days = new Date(y, mo, 0).getDate();
+  const marks = new Set(allMeetings.filter((m) => !isOtherCat(m)).map((m) => ymd(m.created_at)));
+  let html = '<div class="home-mini-w">' + ["月","火","水","木","金","土","日"].map((w) => `<span>${w}</span>`).join("") + "</div>";
+  html += '<div class="home-mini-g">';
+  for (let i = 0; i < lead; i++) html += "<span></span>";
+  for (let d = 1; d <= days; d++) {
+    const ds = `${y}-${String(mo).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
+    const cls = ["home-mini-d"];
+    if (ds === selDate) cls.push("is-sel");
+    if (ds === todayStr) cls.push("is-today");
+    if (marks.has(ds)) cls.push("has-item");
+    html += `<button type="button" class="${cls.join(" ")}" data-day="${ds}">${d}</button>`;
+  }
+  html += "</div>";
+  box.innerHTML = html;
+}
+
+// ---- 右パネル：要対応 ----
+function renderTodo(items) {
+  const box = $h("homeTodo");
+  if (!box) return;
+  const rows = [];
+  // 再商談が未設定のまま猶予中の案件
+  let pend = allDeals.filter((d) => String(d.status || "").includes("進行中(未設定)") && d.auto_lose_deadline);
+  if (homeScope === "mine" && meEmail) pend = pend.filter((d) => String(d.owner || "").toLowerCase() === meEmail);
+  if (pend.length) {
+    const near = pend.map((d) => String(d.auto_lose_deadline).slice(0, 10)).sort()[0];
+    rows.push({ label: "再商談が未設定", sub: `${pend.length}件 ・ 最短 ${near} まで`, href: "history.html", warn: true });
+  }
+  // この日の予定でZoom等のURLが無いもの
+  const noUrl = (items || []).filter((it) => it.ev && !it.ev.hasUrl && !it.rec).length;
+  if (noUrl) rows.push({ label: "自動入室されない予定", sub: `${noUrl}件 ・ URLが未設定`, href: "", warn: false });
+  box.innerHTML = rows.length
+    ? rows.map((r) => (r.href
+        ? `<a class="home-todo" href="${r.href}"><span class="home-todo-dot${r.warn ? " is-warn" : ""}"></span><span class="home-todo-t"><b>${escH(r.label)}</b><em>${escH(r.sub)}</em></span></a>`
+        : `<div class="home-todo"><span class="home-todo-dot${r.warn ? " is-warn" : ""}"></span><span class="home-todo-t"><b>${escH(r.label)}</b><em>${escH(r.sub)}</em></span></div>`)).join("")
+    : '<div class="home-panel-empty">いまのところ対応が必要なものはありません。</div>';
 }
 
 async function sfSearch(key) {
@@ -460,6 +514,7 @@ async function loadCalendar() {
 async function changeDate(next) {
   selDate = next;
   weekBase = mondayOf(next);
+  miniBase = next.slice(0, 7) + "-01";
   savePref();
   updateHead();
   await loadCalendar();
@@ -484,6 +539,11 @@ async function load() {
     const d = await r.json();
     allMeetings = Array.isArray(d) ? d : (d.meetings || []);
   } catch { allMeetings = []; }
+  try {
+    const rd = await fetch("/api/deals");
+    const dd = await rd.json();
+    allDeals = Array.isArray(dd) ? dd : (dd.deals || []);
+  } catch { allDeals = []; }
   await loadCalendar();
   updateHead();
   render();
@@ -504,6 +564,20 @@ document.addEventListener("DOMContentLoaded", () => {
   $h("datePick").addEventListener("change", (e) => {
     const v = e.target.value;
     if (/^\d{4}-\d{2}-\d{2}$/.test(v)) changeDate(v);
+  });
+  const mp = $h("miniPrev"), mn = $h("miniNext");
+  const shiftMonth = (n) => {
+    const [y, mo] = (miniBase || (selDate.slice(0, 7) + "-01")).split("-").map(Number);
+    const x = new Date(y, mo - 1 + n, 1);
+    miniBase = `${x.getFullYear()}-${String(x.getMonth() + 1).padStart(2, "0")}-01`;
+    renderMini();
+  };
+  if (mp) mp.addEventListener("click", () => shiftMonth(-1));
+  if (mn) mn.addEventListener("click", () => shiftMonth(1));
+  const mini = $h("homeMini");
+  if (mini) mini.addEventListener("click", (e) => {
+    const b = e.target.closest("[data-day]");
+    if (b) changeDate(b.dataset.day);
   });
   const wp = $h("weekPrev"), wn = $h("weekNext");
   if (wp) wp.addEventListener("click", () => { weekBase = addDays(weekBase || mondayOf(selDate), -7); renderWeek(); });

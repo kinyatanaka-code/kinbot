@@ -3210,10 +3210,107 @@ button.np-step:disabled { opacity: 0.6; cursor: wait; }
   }
 
   /* ---- 一覧・フィルタまわり ---- */
-  .hlist .hitem, .alist .aitem { padding: 12px 14px; border-radius: 13px; }
+  .hcard { padding: 12px 14px; border-radius: 13px; }
   .home-empty { padding: 28px 0; font-size: 13px; }
   .home-note { font-size: 12.5px; }
 }
 
 .home-sf-hide { display: block; width: 100%; border: 0; background: transparent; font: inherit; font-size: 12px; color: var(--muted); padding: 10px 0 0; cursor: pointer; }
 .home-sf-hide:hover { color: #0d5b47; }
+
+/* ============================================================
+   パソコン向けUI（幅 761px 以上）— フラットに整理して横幅を使い切る
+   ============================================================ */
+.home-body { display: block; }
+.home-row { display: block; }
+.home-rail { display: none; }
+.home-panel { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 13px 14px; margin-bottom: 12px; }
+.home-panel-h { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 12.5px; font-weight: 700; color: var(--muted); margin-bottom: 10px; }
+.home-panel-empty { font-size: 12px; color: var(--muted); line-height: 1.6; }
+.home-mini-arrow { width: 24px; height: 24px; border: 0; background: transparent; color: #0d5b47; border-radius: 7px; display: flex; align-items: center; justify-content: center; cursor: pointer; }
+.home-mini-arrow:hover { background: var(--panel-2); }
+.home-mini-w { display: grid; grid-template-columns: repeat(7, 1fr); gap: 2px; font-size: 10px; color: var(--muted); text-align: center; margin-bottom: 4px; }
+.home-mini-g { display: grid; grid-template-columns: repeat(7, 1fr); gap: 2px; }
+.home-mini-d { border: 0; background: transparent; font: inherit; font-size: 11.5px; color: var(--ink); padding: 5px 0 6px; border-radius: 8px; cursor: pointer; position: relative; }
+.home-mini-d:hover { background: var(--panel-2); }
+.home-mini-d.is-today { color: #1d9e75; font-weight: 700; }
+.home-mini-d.is-sel { background: #1d9e75; color: #fff; font-weight: 700; }
+.home-mini-d.has-item::after { content: ""; position: absolute; left: 50%; bottom: 2px; transform: translateX(-50%); width: 3px; height: 3px; border-radius: 50%; background: #5DCAA5; }
+.home-mini-d.is-sel.has-item::after { background: #fff; }
+.home-todo { display: flex; gap: 9px; align-items: flex-start; padding: 9px 0; border-bottom: 1px solid var(--line); text-decoration: none; }
+.home-todo:last-child { border-bottom: 0; padding-bottom: 0; }
+.home-todo-dot { flex: 0 0 7px; width: 7px; height: 7px; border-radius: 50%; background: #5DCAA5; margin-top: 5px; }
+.home-todo-dot.is-warn { background: #d99114; }
+.home-todo-t b { display: block; font-size: 12.5px; font-weight: 700; color: var(--ink); }
+.home-todo-t em { display: block; font-style: normal; font-size: 11.5px; color: var(--muted); margin-top: 2px; }
+a.home-todo:hover .home-todo-t b { color: #0d5b47; text-decoration: underline; }
+
+@media (min-width: 761px) {
+  /* ---- 面をフラットに、線で仕切る ---- */
+  .sidebar { background: #0d5b47; background-image: none; box-shadow: none; border-right: 1px solid rgba(255,255,255,.07); }
+  .side-item { border-radius: 10px; transition: background .12s ease; }
+  .side-item:hover { background: rgba(255,255,255,.09); transform: none; }
+  .side-item.active { background: #11a47f !important; box-shadow: none !important; }
+  .topbar { box-shadow: none; border-bottom: 1px solid var(--line); background: var(--panel); }
+  .btn:hover { transform: none; box-shadow: none; filter: brightness(1.05); }
+  .btn:active { transform: scale(.99); }
+  .home-card, .set-card { box-shadow: none; }
+
+  /* ---- サイドバー下のアカウント ---- */
+  .side-foot { display: flex; align-items: center; gap: 9px; flex-wrap: wrap; }
+  .side-avatar {
+    flex: 0 0 26px; width: 26px; height: 26px; border-radius: 50%; background: #1d9e75; color: #fff;
+    display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 700;
+  }
+  .side-foot .who { flex: 1; min-width: 0; font-size: 11px; line-height: 1.3; overflow: hidden; text-overflow: ellipsis; }
+  .side-foot .side-logout { flex-basis: 100%; font-size: 11px; }
+
+  /* ---- ホーム：横幅を使い切る2カラム ---- */
+  .home-wrap { max-width: 1320px; padding: 22px 30px 32px; }
+  .home-body { display: grid; grid-template-columns: minmax(0, 1fr) 264px; gap: 20px; align-items: start; }
+  .home-main { min-width: 0; }
+  .home-side { position: sticky; top: 14px; }
+
+  /* ---- ホーム：時刻レール付きタイムライン ---- */
+  .home-row { display: flex; gap: 14px; align-items: flex-start; }
+  .home-rail {
+    display: block; flex: 0 0 52px; text-align: right; padding-top: 15px;
+    font-size: 12.5px; font-weight: 700; color: var(--muted); letter-spacing: .02em;
+  }
+  .home-row .home-card { flex: 1; min-width: 0; border-left: 3px solid #9FE1CB; }
+  .home-row .home-card.is-done { border-left-color: #1d9e75; }
+  .home-row .home-time { display: none; }
+  .home-card { border-radius: 14px; transition: border-color .12s ease, background .12s ease; }
+  .home-card:hover { border-color: #b9ded0; }
+  .home-sec-title { font-size: 12.5px; letter-spacing: .04em; }
+
+  /* ---- 他のページも横幅を使う ---- */
+  .report-page { max-width: 1320px; padding: 22px 30px 32px; }
+  .set-body { max-width: 860px; }
+  .settings { padding: 22px 26px; }
+  .ap-desc { max-width: 1100px; }
+
+  /* ---- 一覧・カードの角丸と線を統一 ---- */
+  .set-card, .na-card, .prof-card, .ov-c, .hcard { border-radius: 14px; }
+  .set-card, .hcard { box-shadow: none; }
+  .set-menu { box-shadow: none; border-radius: 14px; }
+
+  /* ---- 選択中の商談カードは左に緑のバー ---- */
+  .hcard { position: relative; transition: border-color .12s ease; }
+  .hcard.active { background: var(--panel); border-color: #b9ded0; }
+  .hcard.active::before {
+    content: ""; position: absolute; left: 0; top: 10px; bottom: 10px; width: 3px;
+    border-radius: 0 3px 3px 0; background: #1d9e75;
+  }
+
+  /* ---- フォーカスは緑のリングで統一 ---- */
+  .btn:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible,
+  .side-item:focus-visible, .hcard:focus-visible {
+    outline: 2px solid #5DCAA5; outline-offset: 2px;
+  }
+}
+
+@media (max-width: 760px) {
+  .home-panel-mini { display: none; }
+  .home-side { margin-top: 14px; }
+}

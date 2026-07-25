@@ -3,7 +3,20 @@
   try {
     const me = await (await fetch("/api/me")).json();
     const who = document.getElementById("who");
-    if (who) who.textContent = me.username ? me.username + (me.admin ? "（管理者）" : "") : "";
+    if (who) {
+      const name = me.name || me.username || "";
+      who.textContent = name ? name + (me.admin ? "（管理者）" : "") : "";
+      who.title = me.username || "";
+      // 頭文字の丸アイコンを添える（パソコン表示のサイドバー下）
+      const foot = who.parentElement;
+      if (foot && !foot.querySelector(".side-avatar") && name) {
+        const av = document.createElement("span");
+        av.className = "side-avatar";
+        av.setAttribute("aria-hidden", "true");
+        av.textContent = String(name).trim().charAt(0).toUpperCase();
+        foot.insertBefore(av, who);
+      }
+    }
   } catch {}
   const lo = document.getElementById("logout");
   if (lo)
