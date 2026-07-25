@@ -2940,6 +2940,12 @@ button.np-step:disabled { opacity: 0.6; cursor: wait; }
 .sf-err-box { background: #fdecec; border: 1px solid #f2c2c2; color: #a13a3a; border-radius: 9px; padding: 10px 12px; font-size: 12.5px; line-height: 1.6; margin-bottom: 10px; }
 .sf-cr-box { border: 1px solid var(--line); border-radius: 10px; padding: 12px; background: #f7faf8; }
 .sf-cr-title { font-weight: 700; font-size: 13px; color: var(--accent); margin-bottom: 8px; }
+.sf-req-add { margin-top: 10px; padding-top: 10px; border-top: 1px dashed var(--line); }
+.sf-req-list { display: flex; flex-direction: column; gap: 4px; margin-top: 6px; max-height: 220px; overflow: auto; }
+.sf-req-item { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; width: 100%; text-align: left; border: 1px solid var(--line); background: #fff; border-radius: 8px; padding: 7px 10px; cursor: pointer; font: inherit; }
+.sf-req-item:hover { border-color: #5DCAA5; background: #f4fbf8; }
+.sf-req-item-label { font-size: 12.5px; font-weight: 700; color: var(--ink); }
+.sf-req-item-api { font-size: 10.5px; color: var(--muted); white-space: nowrap; }
 .sf-prod-item { border: 1px solid var(--line); border-radius: 9px; padding: 10px 11px; margin-bottom: 8px; background: #fff; }
 .sf-prod-name { font-weight: 700; font-size: 13px; color: var(--ink); margin-bottom: 6px; }
 .sf-prod-row { display: flex; gap: 8px; flex-wrap: wrap; }

@@ -2140,47 +2140,131 @@ async function showContactRolePrompt(container, errMsg, retry) {
   }
 }
 
-// 「商品の登録が必要」エラー時に、商品を登録して再更新するUI
 // 「〜の入力が必要」エラー時に、不足項目を入力して再更新するUI
+
+// 項目名の比較用に、記号・長音・助詞の「の」をそろえる
+function normFieldLabel(s) {
+  return String(s || "")
+    .replace(/[\s　・（）()【】\[\]「」『』:：;；,，、。.\-‐―ー_＿"'`]/g, "")
+    .replace(/の/g, "")
+    .toLowerCase();
+}
+
+// エラー文から「入力が必要な項目」の手がかり語を取り出す
+// 例：「セキュリティーチェックが不要な場合、その理由の入力が必要です」→ ["セキュリティーチェック", "理由"]
+function requiredHints(errMsg) {
+  const clauses = String(errMsg || "").split(/[。\n]+|\s*[\/／]\s*/).map((c) => c.trim()).filter(Boolean);
+  const hints = [];
+  for (const c of clauses) {
+    const toks = [];
+    let m = c.match(/([^、。：:！!]{2,}?)が(?:不要|必要|未入力|未選択|空|ない|無い)/);
+    if (m) toks.push(m[1]);
+    m = c.match(/([^、。：:！!]{1,24}?)の(?:入力|選択|登録|設定|記入|確認)が(?:必要|必須)/);
+    if (m) toks.push(String(m[1]).replace(/^(その|この|上記|該当)/, ""));
+    m = c.match(/([^、。：:！!]{2,}?)(?:は|が)(?:必須|未入力)/);
+    if (m) toks.push(m[1]);
+    const clean = [];
+    for (let t of toks) {
+      t = String(t).replace(/^[、\s　]+|[、\s　]+$/g, "");
+      if (t && t.length >= 2 && !clean.includes(t)) clean.push(t);
+    }
+    if (clean.length) hints.push(clean);
+  }
+  return hints;
+}
+
+// 手がかり語に当てはまるSF項目を探す
+function fieldsForHint(fields, toks) {
+  const nt = toks.map(normFieldLabel).filter(Boolean);
+  if (!nt.length) return [];
+  const cand = fields.filter((f) => f.updateable && f.name !== "StageName");
+  const byLen = (a, b) => String(a.label || "").length - String(b.label || "").length;
+  // すべての手がかり語をラベルに含む項目
+  let hit = cand.filter((f) => nt.every((t) => normFieldLabel(f.label).includes(t)));
+  // 見つからなければ、先頭の語＋「理由・備考」系
+  if (!hit.length && nt.length > 1) {
+    hit = cand.filter((f) => normFieldLabel(f.label).includes(nt[0]) && /理由|備考|コメント|内容|詳細/.test(f.label || ""));
+  }
+  // それでも無ければ、先頭の語を含む項目
+  if (!hit.length) hit = cand.filter((f) => normFieldLabel(f.label).includes(nt[0]) && normFieldLabel(f.label).length <= nt[0].length + 8);
+  hit.sort(byLen);
+  return hit.slice(0, 2);
+}
+
 async function showRequiredFieldsPrompt(container, errMsg, retry) {
   if (!container) return;
   container.innerHTML = `<div class="sf-err-box">${esc(errMsg)}</div><div class="sf-cr-box"><div class="sf-cr-title">不足している項目を入力して再更新します</div><div class="sf-ss-note">項目を読み込み中…</div></div>`;
   const box = container.querySelector(".sf-cr-box");
-  // エラーから必要な項目ラベルを抽出
-  const labels = [];
-  const re = /(?:には|に|は|、|^)([^、。／\/]+?)の(?:入力|確認|選択|登録|設定)が(?:必要|必須)/g;
-  let m;
-  while ((m = re.exec(errMsg)) !== null) { const l = (m[1] || "").replace(/^.*(?:には|に|は)/, "").trim(); if (l && !labels.includes(l)) labels.push(l); }
   let fields = [];
   try { fields = await loadSfFields(); } catch {}
   const opp = sfLinkedOpp || {};
-  const normL = (s) => String(s || "").replace(/[\s　・（）()【】\[\]:：有無の]/g, "").toLowerCase();
+
+  // エラー文から必要な項目を推測する
   const matched = [];
-  for (const lb of labels) {
-    const nlb = normL(lb);
-    if (!nlb) continue;
-    let f = fields.find((x) => x.updateable && normL(x.label) === nlb);
-    if (!f) f = fields.find((x) => x.updateable && normL(x.label).length > 2 && (normL(x.label).includes(nlb) || nlb.includes(normL(x.label))));
-    if (f && !matched.find((y) => y.name === f.name)) matched.push(f);
+  for (const toks of requiredHints(errMsg)) {
+    for (const f of fieldsForHint(fields, toks)) {
+      if (!matched.find((y) => y.name === f.name)) matched.push(f);
+    }
   }
-  if (!matched.length) {
-    box.innerHTML = `<div class="sf-cr-title">更新できませんでした</div><div class="sf-ss-note">${esc(errMsg)}<br>この項目はkinbot上で特定できませんでした。該当のステージ（段階）を選んで項目を入力してから、もう一度更新してください。</div>`;
-    return;
-  }
-  const inputHtml = (f) => {
+
+  const inputHtml = (f, required) => {
     const cur = opp[f.name] != null ? String(opp[f.name]) : "";
     const label = esc(f.label || f.name);
-    if (f.type === "boolean") return `<div class="sf-field sf-field-chk"><label><input type="checkbox" data-req-field="${f.name}" data-req-type="boolean" ${opp[f.name] === true ? "checked" : ""}/> ${label}</label></div>`;
+    const req = required ? ' <span class="sf-req">＊必須</span>' : "";
+    if (f.type === "boolean") return `<div class="sf-field sf-field-chk" data-req-row="${f.name}"><label><input type="checkbox" data-req-field="${f.name}" data-req-type="boolean" ${opp[f.name] === true ? "checked" : ""}/> ${label}</label></div>`;
     if (f.type === "picklist" && f.picklistValues && f.picklistValues.length) {
       const opts = ['<option value=""></option>'].concat(f.picklistValues.map((o) => `<option value="${esc(o.value)}" ${o.value === cur ? "selected" : ""}>${esc(o.label || o.value)}</option>`)).join("");
-      return `<div class="sf-field"><label>${label} <span class="sf-req">＊必須</span></label><select class="sf-select" data-req-field="${f.name}">${opts}</select></div>`;
+      return `<div class="sf-field" data-req-row="${f.name}"><label>${label}${req}</label><select class="sf-select" data-req-field="${f.name}">${opts}</select></div>`;
     }
-    if (f.type === "textarea") return `<div class="sf-field"><label>${label} <span class="sf-req">＊必須</span></label><textarea class="sf-textarea" data-req-field="${f.name}" rows="2">${esc(cur)}</textarea></div>`;
-    if (f.type === "date") return `<div class="sf-field"><label>${label} <span class="sf-req">＊必須</span></label><input type="date" class="sf-input" data-req-field="${f.name}" value="${esc(cur.slice(0, 10))}"/></div>`;
-    if (["double", "currency", "int", "percent"].includes(f.type)) return `<div class="sf-field"><label>${label} <span class="sf-req">＊必須</span></label><input type="text" class="sf-input" data-req-field="${f.name}" data-req-type="num" value="${esc(cur)}"/></div>`;
-    return `<div class="sf-field"><label>${label} <span class="sf-req">＊必須</span></label><input type="text" class="sf-input" data-req-field="${f.name}" value="${esc(cur)}"/></div>`;
+    if (f.type === "multipicklist" && f.picklistValues && f.picklistValues.length) {
+      const opts = ['<option value=""></option>'].concat(f.picklistValues.map((o) => `<option value="${esc(o.value)}" ${o.value === cur ? "selected" : ""}>${esc(o.label || o.value)}</option>`)).join("");
+      return `<div class="sf-field" data-req-row="${f.name}"><label>${label}${req}</label><select class="sf-select" data-req-field="${f.name}">${opts}</select></div>`;
+    }
+    if (f.type === "textarea") return `<div class="sf-field" data-req-row="${f.name}"><label>${label}${req}</label><textarea class="sf-textarea" data-req-field="${f.name}" rows="2">${esc(cur)}</textarea></div>`;
+    if (f.type === "date") return `<div class="sf-field" data-req-row="${f.name}"><label>${label}${req}</label><input type="date" class="sf-input" data-req-field="${f.name}" value="${esc(cur.slice(0, 10))}"/></div>`;
+    if (["double", "currency", "int", "percent"].includes(f.type)) return `<div class="sf-field" data-req-row="${f.name}"><label>${label}${req}</label><input type="text" class="sf-input" data-req-field="${f.name}" data-req-type="num" value="${esc(cur)}"/></div>`;
+    return `<div class="sf-field" data-req-row="${f.name}"><label>${label}${req}</label><input type="text" class="sf-input" data-req-field="${f.name}" value="${esc(cur)}"/></div>`;
   };
-  box.innerHTML = `<div class="sf-cr-title">不足している項目を入力して再更新します</div>` + matched.map(inputHtml).join("") + `<div class="sf-field" style="margin-top:6px"><button class="btn" id="reqBtn">入力して再更新</button></div><div id="reqMsg" class="sf-ss-note"></div>`;
+
+  const head = matched.length
+    ? `<div class="sf-cr-title">不足している項目を入力して再更新します</div>`
+    : `<div class="sf-cr-title">不足している項目を選んで入力してください</div><div class="sf-ss-note">エラー文からは項目を特定できませんでした。下の検索から項目を追加して入力すると、そのまま再更新できます。</div>`;
+
+  box.innerHTML = head +
+    `<div id="reqFields">${matched.map((f) => inputHtml(f, true)).join("")}</div>` +
+    `<div class="sf-req-add">
+       <input type="text" class="sf-input" id="reqSearch" placeholder="項目名で検索して追加（例：セキュリティ、理由）" autocomplete="off" />
+       <div id="reqSearchList" class="sf-req-list"></div>
+     </div>` +
+    `<div class="sf-field" style="margin-top:6px"><button class="btn" id="reqBtn">入力して再更新</button></div><div id="reqMsg" class="sf-ss-note"></div>`;
+
+  // 項目検索：クリックで入力欄を追加
+  const search = box.querySelector("#reqSearch");
+  const searchList = box.querySelector("#reqSearchList");
+  const fieldsBox = box.querySelector("#reqFields");
+  const renderSearch = () => {
+    const q = normFieldLabel(search.value);
+    if (!q) { searchList.innerHTML = ""; return; }
+    const hits = fields
+      .filter((f) => f.updateable && f.name !== "StageName")
+      .filter((f) => normFieldLabel(f.label).includes(q) || String(f.name).toLowerCase().includes(search.value.trim().toLowerCase()))
+      .filter((f) => !fieldsBox.querySelector(`[data-req-row="${f.name}"]`))
+      .slice(0, 12);
+    searchList.innerHTML = hits.length
+      ? hits.map((f) => `<button type="button" class="sf-req-item" data-add-field="${esc(f.name)}"><span class="sf-req-item-label">${esc(f.label || f.name)}</span><span class="sf-req-item-api">${esc(f.name)}</span></button>`).join("")
+      : `<div class="sf-ss-note">一致する項目がありません。</div>`;
+  };
+  if (search) search.addEventListener("input", renderSearch);
+  if (searchList) searchList.addEventListener("click", (ev) => {
+    const b = ev.target.closest("[data-add-field]");
+    if (!b) return;
+    const f = fields.find((x) => x.name === b.dataset.addField);
+    if (!f) return;
+    fieldsBox.insertAdjacentHTML("beforeend", inputHtml(f, false));
+    search.value = "";
+    searchList.innerHTML = "";
+  });
+
   box.querySelector("#reqBtn").addEventListener("click", async () => {
     const btn = box.querySelector("#reqBtn");
     const patch = {};
@@ -2195,19 +2279,13 @@ async function showRequiredFieldsPrompt(container, errMsg, retry) {
     const reqMsg = box.querySelector("#reqMsg");
     if (!Object.keys(patch).length) { if (reqMsg) reqMsg.textContent = "項目を入力してください。"; return; }
     btn.disabled = true; btn.textContent = "更新中…";
-    try {
-      const rr = await sfFetch("/api/salesforce/opportunity/" + encodeURIComponent(sfLinkedOpp.Id), {
-        method: "PATCH", headers: { "content-type": "application/json" },
-        body: JSON.stringify(patch),
-      });
-      const dd = await rr.json().catch(() => ({}));
-      if (!rr.ok) throw new Error(dd.error || "更新失敗");
-      if (reqMsg) reqMsg.textContent = "項目を入力しました。再更新します…";
-      setTimeout(retry, 500);
-    } catch (e) {
-      if (reqMsg) reqMsg.textContent = "入力に失敗しました：" + cleanSfError(e.message);
+    // ステージ変更と同時に送らないと、同じバリデーションでまた弾かれるので、本更新にまとめて渡す
+    window._sfExtraFields = Object.assign({}, window._sfExtraFields || {}, patch);
+    if (reqMsg) reqMsg.textContent = "入力した項目を含めて再更新します…";
+    setTimeout(() => {
       btn.disabled = false; btn.textContent = "入力して再更新";
-    }
+      retry();
+    }, 300);
   });
 }
 
@@ -2555,6 +2633,8 @@ async function initSfTab(account) {
           }
           fields[api] = val;
         });
+        // 「不足項目を入力して再更新」で入れた項目も一緒に送る（別々に送るとバリデーションで弾かれるため）
+        if (window._sfExtraFields) Object.assign(fields, window._sfExtraFields);
         if (Object.keys(fields).length) {
           const r = await sfFetch("/api/salesforce/opportunity/" + sfLinkedOpp.Id, {
             method: "PATCH", headers: {"content-type":"application/json"},
@@ -2566,6 +2646,7 @@ async function initSfTab(account) {
             throw new Error(d.error || "更新失敗");
           }
         }
+        window._sfExtraFields = null;
         alert("Salesforceを更新しました");
         linkOpportunity(sfLinkedOpp.Id);
       } catch (e) {
@@ -2985,6 +3066,7 @@ function renderSSFieldsStatic(stageName) {
 }
 
 async function linkOpportunity(oppId, cached) {
+  window._sfExtraFields = null; // 前の商談で入力した不足項目を持ち越さない
   sfLinkedOpp = cached || null;
   const linkedEl = $("sfLinked");
   const matchesEl = $("sfMatches");
