@@ -5,6 +5,7 @@ const escH = (s) => String(s == null ? "" : s).replace(/[&<>"']/g, (c) => ({ "&"
 let homeScope = "mine";
 let meEmail = "";
 let allMeetings = [];
+let todayEvents = [];
 
 function isToday(d) {
   if (!d) return false;
@@ -25,32 +26,73 @@ function isMine(m) {
   return o === meEmail || rn.includes(meEmail.split("@")[0]) || on.includes(meEmail.split("@")[0]) || o === "";
 }
 
+function companyFromTitle(t) {
+  if (!t) return "";
+  return String(t).replace(/^【[^】]*】\s*/, "").replace(/[、,].*$/, "").split("/")[0].trim();
+}
+
 function render() {
   const box = $h("homeList");
   let list = allMeetings.filter((m) => isToday(m.created_at) && !isOtherCat(m));
   if (homeScope === "mine") list = list.filter(isMine);
   list.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
-  if (!list.length) { box.innerHTML = '<div class="home-empty">今日の商談はまだありません。</div>'; return; }
-  box.innerHTML = list.map((m) => {
-    const time = new Date(m.created_at).toLocaleTimeString("ja-JP", { hour: "2-digit", minute: "2-digit" });
-    const company = m.title ? String(m.title).replace(/^【[^】]*】\s*/, "").split("/")[0].trim() : (m.company_name || "");
-    const enc = encodeURIComponent(company || m.title || "");
-    const phase = m.phase ? `<span class="home-badge">${escH(m.phase)}</span>` : "";
-    const status = m.status ? `<span class="home-badge home-badge-st">${escH(m.status)}</span>` : "";
-    const summary = (m.summary && m.summary.overview) ? String(m.summary.overview).slice(0, 90) + "…" : "";
-    return `<div class="home-card">
-      <div class="home-card-main">
-        <div class="home-card-top"><span class="home-time">${escH(time)}</span>${phase}${status}</div>
-        <div class="home-card-title">${escH(m.title || "(商談名なし)")}</div>
-        <div class="home-card-meta">担当：${escH(repOf(m))}</div>
-        ${summary ? `<div class="home-card-sum">${escH(summary)}</div>` : ""}
-      </div>
-      <div class="home-card-actions">
-        <a class="btn" href="history.html?company=${enc}">商談を開く</a>
-        <a class="btn sf-btn-secondary" href="history.html?company=${enc}&sf=lose">失注にする</a>
-      </div>
-    </div>`;
-  }).join("");
+
+  // 録音済み商談のタイトルを控えて、カレンダー予定の重複を避ける
+  const recordedTitles = new Set(list.map((m) => (m.title || "").replace(/^【[^】]*】\s*/, "").trim()));
+  const now = Date.now();
+  const upcoming = (todayEvents || [])
+    .filter((e) => !recordedTitles.has((e.title || "").replace(/^【[^】]*】\s*/, "").trim()))
+    .sort((a, b) => new Date(a.start) - new Date(b.start));
+
+  let html = "";
+  // これからの予定（カレンダー）
+  if (upcoming.length) {
+    html += `<div class="home-sec-title">今日の予定（カレンダー）</div>`;
+    html += upcoming.map((e) => {
+      const time = new Date(e.start).toLocaleTimeString("ja-JP", { hour: "2-digit", minute: "2-digit" });
+      const past = new Date(e.start).getTime() < now;
+      const company = companyFromTitle(e.title);
+      const enc = encodeURIComponent(company || e.title || "");
+      const urlBadge = e.hasUrl ? '<span class="home-badge">自動入室対象</span>' : '<span class="home-badge home-badge-st">URLなし</span>';
+      return `<div class="home-card home-card-plan">
+        <div class="home-card-main">
+          <div class="home-card-top"><span class="home-time">${escH(time)}</span><span class="home-badge home-badge-plan">${past ? "実施済み予定" : "予定"}</span>${urlBadge}</div>
+          <div class="home-card-title">${escH(e.title || "(無題)")}</div>
+          <div class="home-card-meta">${e.hasUrl ? "開始時刻にボットが自動入室します" : "予定にZoom等のURLがありません（自動入室されません）"}</div>
+        </div>
+        <div class="home-card-actions">
+          <a class="btn" href="history.html?company=${enc}">会社を開く</a>
+        </div>
+      </div>`;
+    }).join("");
+  }
+  // 録音済みの商談
+  html += `<div class="home-sec-title">今日の録音済み商談</div>`;
+  if (!list.length) {
+    html += '<div class="home-empty">今日の録音済み商談はまだありません。</div>';
+  } else {
+    html += list.map((m) => {
+      const time = new Date(m.created_at).toLocaleTimeString("ja-JP", { hour: "2-digit", minute: "2-digit" });
+      const company = companyFromTitle(m.title) || (m.company_name || "");
+      const enc = encodeURIComponent(company || m.title || "");
+      const phase = m.phase ? `<span class="home-badge">${escH(m.phase)}</span>` : "";
+      const status = m.status ? `<span class="home-badge home-badge-st">${escH(m.status)}</span>` : "";
+      const summary = (m.summary && m.summary.overview) ? String(m.summary.overview).slice(0, 90) + "…" : "";
+      return `<div class="home-card">
+        <div class="home-card-main">
+          <div class="home-card-top"><span class="home-time">${escH(time)}</span>${phase}${status}</div>
+          <div class="home-card-title">${escH(m.title || "(商談名なし)")}</div>
+          <div class="home-card-meta">担当：${escH(repOf(m))}</div>
+          ${summary ? `<div class="home-card-sum">${escH(summary)}</div>` : ""}
+        </div>
+        <div class="home-card-actions">
+          <a class="btn" href="history.html?company=${enc}">商談を開く</a>
+          <a class="btn sf-btn-secondary" href="history.html?company=${enc}&sf=lose">失注にする</a>
+        </div>
+      </div>`;
+    }).join("");
+  }
+  box.innerHTML = html;
 }
 
 async function load() {
@@ -63,6 +105,11 @@ async function load() {
     const d = await r.json();
     allMeetings = Array.isArray(d) ? d : (d.meetings || []);
   } catch { allMeetings = []; }
+  try {
+    const cr = await fetch("/api/calendar/today");
+    const cd = await cr.json();
+    todayEvents = (cd && cd.events) || [];
+  } catch { todayEvents = []; }
   $h("homeDate").textContent = "今日の商談（" + new Date().toLocaleDateString("ja-JP", { month: "long", day: "numeric", weekday: "short" }) + "）";
   render();
 }

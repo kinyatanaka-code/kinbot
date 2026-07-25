@@ -3865,6 +3865,28 @@ app.put("/api/auto-join/:id", async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 // 自動入室の診断：登録URLごとに、カレンダー連携の有無・一致する直近の予定・今入室対象かを返す
+// ホーム用：今日のカレンダー予定（これからの商談）を返す
+app.get("/api/calendar/today", async (req, res) => {
+  try {
+    const now = new Date();
+    const start = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0);
+    const end = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59);
+    let events = [];
+    try {
+      events = await listCalendarEvents(req.user, "primary", { timeMin: start.toISOString(), timeMax: end.toISOString() });
+    } catch (e) {
+      return res.json({ connected: false, events: [] });
+    }
+    const timed = (events || []).filter((e) => !e.allDay && e.start).map((e) => ({
+      id: e.id, title: e.title || "(無題)", start: e.start,
+      url: e.url || "", hasUrl: !!(e.url && /zoom|meet|teams/.test(e.url)), guests: e.guests || 0,
+    }));
+    res.json({ connected: true, events: timed });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 app.get("/api/auto-join/diagnose", async (req, res) => {
   try {
     const rows = await listAutoJoin(req.user);
