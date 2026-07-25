@@ -1335,6 +1335,8 @@ a.kb-src:hover { color: var(--accent); border-color: var(--accent); }
 .home-dtoday { border: none; background: transparent; padding: 6px 12px; border-radius: 8px; font: inherit; font-weight: 700; font-size: 13px; color: var(--muted); cursor: pointer; }
 .home-dtoday:hover { background: #fff; color: #0d5b47; }
 .home-card-v { display: block; }
+.home-badge-done { color: #fff; background: #1d9e75; }
+.home-note { font-size: 12.5px; color: var(--muted); background: #f4f7f5; border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; margin-bottom: 12px; }
 .home-card-row { display: flex; gap: 14px; justify-content: space-between; align-items: stretch; }
 .home-sf { margin-top: 12px; padding-top: 12px; border-top: 1px dashed var(--line); }
 .home-sf-search { display: flex; gap: 8px; align-items: center; margin-bottom: 8px; }

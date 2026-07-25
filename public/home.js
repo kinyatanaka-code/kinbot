@@ -130,83 +130,111 @@ function sfPanelHtml(key, ev) {
   return `<div class="home-sf">${inner}</div>`;
 }
 
+// 予定と録音済み商談を突き合わせるためのタイトル正規化
+function normTitle(t) {
+  return String(t || "")
+    .replace(/【[^】]*】/g, " ")
+    .replace(/(様|さま|さん|御中)/g, "")
+    .replace(/[\s　、,.。・:：\/／|｜()（）\-‐―ー]/g, "")
+    .toLowerCase();
+}
+// 同じ商談かどうか（同じ日の予定と録音を突き合わせる）
+function sameDeal(a, b) {
+  const x = normTitle(a), y = normTitle(b);
+  if (!x || !y) return false;
+  if (x === y) return true;
+  if (x.length >= 3 && y.length >= 3 && (x.includes(y) || y.includes(x))) return true;
+  const ca = normTitle(searchNameFromTitle(a)), cb = normTitle(searchNameFromTitle(b));
+  return !!ca && ca.length >= 2 && ca === cb;
+}
+
 function render() {
   const box = $h("homeList");
   const isToday = selDate === todayStr;
   const dayWord = isToday ? "今日" : "この日";
-
-  let list = allMeetings.filter((m) => isOnSelectedDay(m.created_at) && !isOtherCat(m));
-  if (homeScope === "mine") list = list.filter(isMine);
-  list.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
-
-  // 録音済み商談のタイトルを控えて、カレンダー予定の重複を避ける
-  const recordedTitles = new Set(list.map((m) => (m.title || "").replace(/^【[^】]*】\s*/, "").trim()));
   const now = Date.now();
-  const upcoming = (dayEvents || [])
-    .filter((e) => hasBracket(e.title))
-    .filter((e) => !recordedTitles.has((e.title || "").replace(/^【[^】]*】\s*/, "").trim()))
-    .sort((a, b) => new Date(a.start) - new Date(b.start));
+
+  // 録音済み商談（この日・表示範囲でしぼる）
+  let recs = allMeetings.filter((m) => isOnSelectedDay(m.created_at) && !isOtherCat(m));
+  if (homeScope === "mine") recs = recs.filter(isMine);
+
+  // カレンダーの予定（【】付きのみ）
+  const events = (dayEvents || []).filter((e) => hasBracket(e.title) && !isOtherCat(e));
+
+  // 予定に録音済み商談をひも付けて、1件1カードにまとめる
+  const used = new Set();
+  const items = events.map((e) => {
+    let rec = null;
+    for (let i = 0; i < recs.length; i++) {
+      if (used.has(i)) continue;
+      if (sameDeal(e.title, recs[i].title)) { rec = recs[i]; used.add(i); break; }
+    }
+    return { key: e.id || (e.title + "@" + e.start), when: new Date(e.start).getTime(), ev: e, rec };
+  });
+  // 予定に無い録音済み商談も同じ並びに混ぜる
+  recs.forEach((m, i) => {
+    if (used.has(i)) return;
+    items.push({ key: "m:" + (m.bot_id || m.title || i), when: new Date(m.created_at).getTime(), ev: null, rec: m });
+  });
+  items.sort((a, b) => a.when - b.when);
 
   let html = "";
-  // 予定（カレンダー）
-  html += `<div class="home-sec-title">${dayWord}の予定（カレンダー）</div>`;
+  if (window._calConnected === false) {
+    html += `<div class="home-note">Googleカレンダーが連携されていません。設定で連携すると、予定がここに表示され、開始時刻にボットが自動入室します。</div>`;
+  }
   if (calLoading) {
     html += '<div class="home-empty">読み込み中…</div>';
-  } else if (window._calConnected === false) {
-    html += `<div class="home-empty">Googleカレンダーが連携されていません。設定で連携すると、予定がここに表示され、開始時刻にボットが自動入室します。</div>`;
-  } else if (!upcoming.length) {
-    html += `<div class="home-empty">${dayWord}の商談の予定（【】付き）はありません。</div>`;
-  } else {
-    html += upcoming.map((e) => {
-      const key = e.id || (e.title + "@" + e.start);
-      const time = new Date(e.start).toLocaleTimeString("ja-JP", { hour: "2-digit", minute: "2-digit" });
-      const past = new Date(e.start).getTime() < now;
-      const company = companyFromTitle(e.title);
-      const enc = encodeURIComponent(company || e.title || "");
-      const urlBadge = e.hasUrl ? '<span class="home-badge">自動入室対象</span>' : '<span class="home-badge home-badge-st">URLなし</span>';
-      const s = sfOf(key);
-      return `<div class="home-card home-card-plan home-card-v">
-        <div class="home-card-row">
-          <div class="home-card-main">
-            <div class="home-card-top"><span class="home-time">${escH(time)}</span><span class="home-badge home-badge-plan">${past ? "実施済み予定" : "予定"}</span>${urlBadge}</div>
-            <div class="home-card-title">${escH(e.title || "(無題)")}</div>
-            <div class="home-card-meta">${e.hasUrl ? "開始時刻にボットが自動入室します" : "予定にZoom等のURLがありません（自動入室されません）"}</div>
-          </div>
-          <div class="home-card-actions">
-            <a class="btn" href="history.html?company=${enc}">会社を開く</a>
-            <button class="btn sf-btn-secondary" data-sf-open="${escH(key)}" type="button">${s.open ? "SF商談を閉じる" : "SF商談を選ぶ"}</button>
-          </div>
-        </div>
-        ${sfPanelHtml(key, e)}
-      </div>`;
-    }).join("");
+    box.innerHTML = html;
+    return;
   }
-  // 録音済みの商談
-  html += `<div class="home-sec-title">${dayWord}の録音済み商談</div>`;
-  if (!list.length) {
-    html += `<div class="home-empty">${dayWord}の録音済み商談はありません。</div>`;
-  } else {
-    html += list.map((m) => {
-      const time = new Date(m.created_at).toLocaleTimeString("ja-JP", { hour: "2-digit", minute: "2-digit" });
-      const company = companyFromTitle(m.title) || (m.company_name || "");
-      const enc = encodeURIComponent(company || m.title || "");
-      const phase = m.phase ? `<span class="home-badge">${escH(m.phase)}</span>` : "";
-      const status = m.status ? `<span class="home-badge home-badge-st">${escH(m.status)}</span>` : "";
-      const summary = (m.summary && m.summary.overview) ? String(m.summary.overview).slice(0, 90) + "…" : "";
-      return `<div class="home-card">
+  if (!items.length) {
+    html += `<div class="home-empty">${dayWord}の商談はありません。</div>`;
+    box.innerHTML = html;
+    return;
+  }
+
+  html += items.map((it) => {
+    const e = it.ev, m = it.rec;
+    const key = it.key;
+    const s = sfOf(key);
+    const title = (e && e.title) || (m && m.title) || "(無題)";
+    const time = new Date(it.when).toLocaleTimeString("ja-JP", { hour: "2-digit", minute: "2-digit" });
+    const company = companyFromTitle(title) || (m && m.company_name) || "";
+    const enc = encodeURIComponent(company || title);
+    // バッジ：商談済み／予定
+    let badges = "";
+    if (m) {
+      badges += '<span class="home-badge home-badge-done">商談済み</span>';
+      if (m.phase) badges += `<span class="home-badge">${escH(m.phase)}</span>`;
+      if (m.status) badges += `<span class="home-badge home-badge-st">${escH(m.status)}</span>`;
+    } else if (e) {
+      const past = new Date(e.start).getTime() < now;
+      badges += `<span class="home-badge home-badge-plan">${past ? "実施済み予定" : "予定"}</span>`;
+      badges += e.hasUrl ? '<span class="home-badge">自動入室対象</span>' : '<span class="home-badge home-badge-st">URLなし</span>';
+    }
+    // 補足行
+    let meta = "";
+    if (m) meta = `担当：${escH(repOf(m))}`;
+    else if (e) meta = e.hasUrl ? "開始時刻にボットが自動入室します" : "予定にZoom等のURLがありません（自動入室されません）";
+    const summary = (m && m.summary && m.summary.overview) ? String(m.summary.overview).slice(0, 90) + "…" : "";
+    const openLabel = m ? "商談を開く" : "会社を開く";
+    return `<div class="home-card home-card-v${m ? "" : " home-card-plan"}">
+      <div class="home-card-row">
         <div class="home-card-main">
-          <div class="home-card-top"><span class="home-time">${escH(time)}</span>${phase}${status}</div>
-          <div class="home-card-title">${escH(m.title || "(商談名なし)")}</div>
-          <div class="home-card-meta">担当：${escH(repOf(m))}</div>
+          <div class="home-card-top"><span class="home-time">${escH(time)}</span>${badges}</div>
+          <div class="home-card-title">${escH(title)}</div>
+          ${meta ? `<div class="home-card-meta">${meta}</div>` : ""}
           ${summary ? `<div class="home-card-sum">${escH(summary)}</div>` : ""}
         </div>
         <div class="home-card-actions">
-          <a class="btn" href="history.html?company=${enc}">商談を開く</a>
-          <a class="btn sf-btn-secondary" href="history.html?company=${enc}&sf=lose">失注にする</a>
+          <a class="btn" href="history.html?company=${enc}">${openLabel}</a>
+          <button class="btn sf-btn-secondary" data-sf-open="${escH(key)}" type="button">${s.open ? "SF商談を閉じる" : "SF商談を選ぶ"}</button>
         </div>
-      </div>`;
-    }).join("");
-  }
+      </div>
+      ${sfPanelHtml(key, { title })}
+    </div>`;
+  }).join("");
+
   box.innerHTML = html;
 }
 
