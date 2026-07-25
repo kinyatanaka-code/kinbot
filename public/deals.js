@@ -1287,7 +1287,7 @@ async function selectDeal(account) {
     `<div class="sf-subpanel" data-sfpanel="task">` +
     `<div class="sf-section-box"><div class="sf-section-title"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" style="vertical-align:-2px;margin-right:4px"><circle cx="8" cy="8" r="7" fill="#0d5b47"/><path d="M8 4v4l3 2" stroke="#fff" stroke-width="1.5" stroke-linecap="round"/></svg>活動を記録</div>` +
     `<div id="sfTaskFields"><div class="empty-state">項目を読み込み中…</div></div>` +
-    `<div class="sf-autofill-row"><button type="button" class="btn btn-ghost" id="sfTaskReadBtn">商談から読み取る</button><span class="sf-autofill-note" id="sfTaskReadNote">選んだ商談から活動種別・次回アクション・説明を埋めます</span></div>` +
+    `<div class="sf-autofill-row"><button type="button" class="btn btn-ghost" id="sfTaskReadBtn">商談から読み取る</button><span id="sfTaskReadSelWrap"></span><span class="sf-autofill-note" id="sfTaskReadNote">選んだ商談から活動種別・次回アクション・説明を埋めます</span></div>` +
     `<div class="sf-field" style="margin-top:8px"><button class="btn sf-btn-secondary" id="sfTaskBtn">活動を記録</button></div><div id="sfTaskMsg"></div></div>` +
     `<div class="sf-section-box"><div class="sf-section-title"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" style="vertical-align:-2px;margin-right:4px"><rect x="2" y="3" width="12" height="11" rx="1.5" fill="#0d5b47"/><rect x="4" y="6" width="8" height="1.3" rx=".5" fill="#5DCAA5"/><rect x="4" y="9" width="6" height="1.3" rx=".5" fill="#5DCAA5"/></svg>過去の活動</div><div id="sfTaskHistory"><div class="sf-ss-note">商談をリンクすると表示されます。</div></div></div>` +
     `</div>` +
@@ -2343,23 +2343,26 @@ async function initSfTab(account) {
     const descEl = inputs.find((el) => /説明|コメント/.test((el.closest(".sf-field") && el.closest(".sf-field").querySelector("label") && el.closest(".sf-field").querySelector("label").textContent) || ""));
     if (descEl) descEl.value = buildActivityComment(m);
   };
-  // 「読み取る商談」セレクタを構築（新しい順）
-  const readSel = $("sfReadMeeting");
+  // 「読み取る商談」セレクタは各ボタンの隣に置く。リストを保持し、上部の枠は隠す。
   const readWrap = $("sfReadMeetingWrap");
-  if (readSel && ms.length) {
+  if (readWrap) readWrap.style.display = "none";
+  if (ms.length) {
     const sorted = ms.slice().sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
-    readSel.innerHTML = sorted.map((m) => {
-      const d = new Date(m.created_at).toLocaleDateString("ja-JP", { month: "numeric", day: "numeric" });
-      const t = (m.title || "(商談名なし)").slice(0, 40);
-      return `<option value="${esc(m.bot_id)}">${esc(d)}　${esc(t)}</option>`;
-    }).join("");
+    window._sfReadMeetings = sorted;
     window._sfReadBotId = sorted[0].bot_id;
-    if (readWrap) readWrap.style.display = "";
-    readSel.onchange = () => {
-      window._sfReadBotId = readSel.value;
-      fillDescFromMeeting(meetingById(readSel.value)); // 説明に選んだ商談の要約を入れる
-    };
+  } else {
+    window._sfReadMeetings = [];
   }
+  // 読み取る商談セレクタのHTML（ボタンの隣に置く用）
+  window._sfReadMeetingSelectHtml = () => {
+    const list = window._sfReadMeetings || [];
+    if (!list.length) return "";
+    return `<select class="sf-select sf-read-inline" data-read-meeting="1">` + list.map((m) => {
+      const dd = new Date(m.created_at).toLocaleDateString("ja-JP", { month: "numeric", day: "numeric" });
+      const t = (m.title || "(商談名なし)").slice(0, 34);
+      return `<option value="${esc(m.bot_id)}" ${m.bot_id === window._sfReadBotId ? "selected" : ""}>${esc(dd)}　${esc(t)}</option>`;
+    }).join("") + `</select>`;
+  };
   // 商品を追加
   const addProdBtn = $("sfAddProductBtn");
   if (addProdBtn) {
@@ -2369,6 +2372,12 @@ async function initSfTab(account) {
     };
   }
   // 活動記録の「商談から読み取る」
+  const taskReadSelWrap = $("sfTaskReadSelWrap");
+  if (taskReadSelWrap && window._sfReadMeetingSelectHtml) {
+    taskReadSelWrap.innerHTML = window._sfReadMeetingSelectHtml();
+    const s = taskReadSelWrap.querySelector("[data-read-meeting]");
+    if (s) s.addEventListener("change", () => { window._sfReadBotId = s.value; fillDescFromMeeting(meetingById(s.value)); });
+  }
   const taskReadBtn = $("sfTaskReadBtn");
   if (taskReadBtn) {
     taskReadBtn.onclick = async () => {
@@ -2822,8 +2831,10 @@ async function renderSSFields(stageName) {
       const sec = ssSections[idx];
       const box = document.getElementById("ssSectionFields");
       box.innerHTML = `<div class="sf-ss-title">${esc(sec.heading)} の項目</div>` +
-        `<div class="sf-autofill-row"><button type="button" class="btn btn-ghost" id="ssAutofillBtn">商談から自動入力</button><span class="sf-autofill-note" id="ssAutofillNote">空欄を商談の内容から埋めます</span></div>` +
+        `<div class="sf-autofill-row"><button type="button" class="btn btn-ghost" id="ssAutofillBtn">商談から自動入力</button>${window._sfReadMeetingSelectHtml ? window._sfReadMeetingSelectHtml() : ""}<span class="sf-autofill-note" id="ssAutofillNote">選んだ商談の内容で空欄を埋めます</span></div>` +
         (sec.fields.length ? sec.fields.map(render1).join("") : '<div class="sf-ss-note">この段階に編集できる項目がありません。</div>');
+      // 読み取る商談セレクタの変更を反映
+      box.querySelectorAll("[data-read-meeting]").forEach((s) => s.addEventListener("change", () => { window._sfReadBotId = s.value; }));
       // 従属ピックリスト（大→中→小）の連動を配線
       box.querySelectorAll("select[data-dependent-on]").forEach((depSel) => {
         const depApi = depSel.dataset.sfField;
