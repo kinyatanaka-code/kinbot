@@ -790,6 +790,7 @@ function renderCompanyOverview() {
 
   hdetail.innerHTML =
     `<div class="ov-wrap">
+       <button class="m-back" type="button">← 商談一覧へ戻る</button>
        <div class="ov-name">${escapeHtml(name)}</div>
        <iframe class="prof-embed" src="deals.html?company=${enc}&embed=1&view=profile" title="会社プロフィール"></iframe>
        <div class="ov-actions">
@@ -815,8 +816,26 @@ function renderCompanyOverview() {
     })
   );
 
+  // スマホでは一覧と詳細を切り替えて表示するので、詳細側に切り替える
+  showDetailPane();
+
   // ネクストアクション（やること）を案件APIから非同期で埋める
   loadOvTodos(name);
+}
+
+// スマホ：詳細ペイン（会社概要・商談詳細）を表示する。「戻る」で一覧に戻す。
+function showDetailPane() {
+  const histWrap = document.querySelector(".history");
+  if (!histWrap) return;
+  histWrap.classList.add("m-detail");
+  if (!showDetailPane._wired) {
+    showDetailPane._wired = true;
+    hdetail.addEventListener("click", (e) => {
+      if (e.target.closest(".m-back")) histWrap.classList.remove("m-detail");
+    });
+  }
+  hdetail.scrollTop = 0;
+  if (window.kbIsMobile && window.kbIsMobile() && window.scrollTo) window.scrollTo({ top: 0, behavior: "smooth" });
 }
 
 // 会社ページ内に、案件の1機能だけをiframeで表示する（判定など）
@@ -826,10 +845,12 @@ function showSubEmbed(view, label) {
   hdetail.innerHTML =
     `<div class="ov-subpage">
        <button type="button" class="ov-subback">← 会社概要へ戻る</button>
+       <button class="m-back" type="button">← 商談一覧へ戻る</button>
        <div class="ov-subtitle">${escapeHtml(label || "")}</div>
        <iframe class="prof-embed" src="deals.html?company=${enc}&embed=1&view=${encodeURIComponent(view)}${loseParam}" title="${escapeHtml(label || "")}"></iframe>
      </div>`;
   hdetail.querySelector(".ov-subback").addEventListener("click", () => { window._kbSfLose = false; renderCompanyOverview(); });
+  showDetailPane();
 }
 
 // やることカード：AI抽出＋手動の宿題
@@ -947,14 +968,7 @@ async function loadList() {
 }
 
 async function loadDetail(botId, openTab, opts = {}) {
-  const histWrap = document.querySelector(".history");
-  if (histWrap) histWrap.classList.add("m-detail");
-  if (!loadDetail._wired && histWrap) {
-    loadDetail._wired = true;
-    hdetail.addEventListener("click", (e) => {
-      if (e.target.closest(".m-back")) histWrap.classList.remove("m-detail");
-    });
-  }
+  showDetailPane();
   hdetail.innerHTML = '<div class="empty-state">読み込み中…</div>';
   hdetail.scrollTop = 0;
   try {

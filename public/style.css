@@ -3314,3 +3314,12 @@ a.home-todo:hover .home-todo-t b { color: #0d5b47; text-decoration: underline; }
   .home-panel-mini { display: none; }
   .home-side { margin-top: 14px; }
 }
+
+@media (max-width: 760px) {
+  /* 会社ページの埋め込み（プロフィール・判定・SF更新・提案資料）が潰れないように */
+  .ov-wrap > .prof-embed { min-height: 260px; }
+  .ov-subpage .prof-embed { min-height: 70vh; }
+  .ov-subpage { padding-bottom: 8px; }
+  .ov-wrap .m-back { margin-bottom: 10px; }
+  .ov-actions { grid-template-columns: 1fr; }
+}
