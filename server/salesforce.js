@@ -187,6 +187,49 @@ export async function sfQuery(owner, soql) {
   return res.json();
 }
 
+// 商談の価格表（Pricebook）を確保し、選べる商品（PricebookEntry）を返す
+export async function getOpportunityProducts(owner, opportunityId) {
+  const clean = (s) => String(s || "").replace(/[^a-zA-Z0-9]/g, "");
+  let pbId = null;
+  try {
+    const od = await sfQuery(owner, `SELECT Pricebook2Id FROM Opportunity WHERE Id = '${clean(opportunityId)}'`);
+    pbId = od.records && od.records[0] && od.records[0].Pricebook2Id;
+  } catch {}
+  if (!pbId) {
+    try {
+      const std = await sfQuery(owner, `SELECT Id FROM Pricebook2 WHERE IsStandard = true LIMIT 1`);
+      pbId = std.records && std.records[0] && std.records[0].Id;
+      if (pbId) await updateOpportunity(owner, opportunityId, { Pricebook2Id: pbId });
+    } catch {}
+  }
+  let entries = [];
+  if (pbId) {
+    try {
+      const d = await sfQuery(owner, `SELECT Id, UnitPrice, Name, Product2.Name FROM PricebookEntry WHERE Pricebook2Id = '${clean(pbId)}' AND IsActive = true ORDER BY Name LIMIT 200`);
+      entries = (d.records || []).map((e) => ({ id: e.Id, name: (e.Product2 && e.Product2.Name) || e.Name, unitPrice: e.UnitPrice }));
+    } catch {}
+  }
+  return { pricebookId: pbId, entries };
+}
+
+// 商談に商品（OpportunityLineItem）を追加
+export async function addOpportunityLineItem(owner, { opportunityId, pricebookEntryId, quantity, unitPrice }) {
+  const acc = await getAccess(owner);
+  if (!acc) throw new Error("Salesforce未連携です");
+  const body = { OpportunityId: opportunityId, PricebookEntryId: pricebookEntryId, Quantity: Number(quantity) || 1 };
+  if (unitPrice !== undefined && unitPrice !== null && unitPrice !== "") body.UnitPrice = Number(unitPrice);
+  const res = await fetch(
+    `${acc.instanceUrl}/services/data/${API_VERSION}/sobjects/OpportunityLineItem`,
+    {
+      method: "POST",
+      headers: { Authorization: `Bearer ${acc.token}`, "content-type": "application/json" },
+      body: JSON.stringify(body),
+    }
+  );
+  if (!res.ok) throw new Error(`SF product ${res.status}: ${(await res.text()).slice(0, 300)}`);
+  return res.json();
+}
+
 // 取引先責任者（Contact）を作成
 export async function createContact(owner, { accountId, lastName, firstName, title, email } = {}) {
   const acc = await getAccess(owner);

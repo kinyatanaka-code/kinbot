@@ -2137,6 +2137,56 @@ async function showContactRolePrompt(container, errMsg, retry) {
   }
 }
 
+// 「商品の登録が必要」エラー時に、商品を登録して再更新するUI
+async function showProductPrompt(container, errMsg, retry) {
+  if (!container) return;
+  container.innerHTML = `<div class="sf-err-box">${esc(errMsg)}</div><div class="sf-cr-box"><div class="sf-cr-title">商品を登録して再更新します</div><div class="sf-ss-note">商品を読み込み中…</div></div>`;
+  const box = container.querySelector(".sf-cr-box");
+  try {
+    const r = await sfFetch("/api/salesforce/products?opportunityId=" + encodeURIComponent(sfLinkedOpp.Id));
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.error || "取得失敗");
+    const entries = d.entries || [];
+    if (!entries.length) {
+      box.innerHTML = '<div class="sf-cr-title">登録できる商品が見つかりませんでした。</div><div class="sf-ss-note">Salesforceの価格表（Pricebook）に有効な商品が登録されているか確認してください。</div>';
+      return;
+    }
+    box.innerHTML =
+      `<div class="sf-cr-title">商品を登録して再更新します</div>` +
+      `<div class="sf-field"><label>商品</label><select class="sf-select" id="prodEntry">${entries.map((e) => `<option value="${esc(e.id)}" data-price="${e.unitPrice != null ? e.unitPrice : ""}">${esc(e.name)}${e.unitPrice != null ? "（¥" + Number(e.unitPrice).toLocaleString() + "）" : ""}</option>`).join("")}</select></div>` +
+      `<div class="sf-field"><label>数量</label><input type="text" class="sf-input" id="prodQty" value="1" /></div>` +
+      `<div class="sf-field"><label>単価（任意・空欄なら価格表の価格）</label><input type="text" class="sf-input" id="prodPrice" value="" /></div>` +
+      `<div class="sf-field" style="margin-top:6px"><button class="btn" id="prodBtn">商品を登録して再更新</button></div><div id="prodMsg" class="sf-ss-note"></div>`;
+    const sel = box.querySelector("#prodEntry");
+    const priceInput = box.querySelector("#prodPrice");
+    const syncPrice = () => { const p = sel.selectedOptions[0] && sel.selectedOptions[0].dataset.price; if (priceInput) priceInput.placeholder = p ? "価格表: " + p : ""; };
+    syncPrice(); sel.addEventListener("change", syncPrice);
+    box.querySelector("#prodBtn").addEventListener("click", async () => {
+      const btn = box.querySelector("#prodBtn");
+      const pricebookEntryId = sel.value;
+      const quantity = box.querySelector("#prodQty").value.trim() || "1";
+      const unitPrice = priceInput.value.trim();
+      const pMsg = box.querySelector("#prodMsg");
+      btn.disabled = true; btn.textContent = "登録中…";
+      try {
+        const rr = await sfFetch("/api/salesforce/product", {
+          method: "POST", headers: { "content-type": "application/json" },
+          body: JSON.stringify({ opportunityId: sfLinkedOpp.Id, pricebookEntryId, quantity, unitPrice }),
+        });
+        const dd = await rr.json();
+        if (!rr.ok) throw new Error(dd.error || "登録失敗");
+        if (pMsg) pMsg.textContent = "商品を登録しました。再更新します…";
+        setTimeout(retry, 500);
+      } catch (e) {
+        if (pMsg) pMsg.textContent = "登録に失敗しました：" + cleanSfError(e.message);
+        btn.disabled = false; btn.textContent = "商品を登録して再更新";
+      }
+    });
+  } catch (e) {
+    if (box) box.innerHTML = '<div class="sf-ss-note">商品の取得に失敗しました：' + esc(cleanSfError(e.message)) + "</div>";
+  }
+}
+
 async function initSfTab(account) {
   const searchBtn = $("sfSearchBtn");
   const matchesEl = $("sfMatches");
@@ -2345,6 +2395,8 @@ async function initSfTab(account) {
           showSfReauth($("sfUpdateMsg"), null, () => updateBtn.click());
         } else if (/取引先責任者の役割|ContactRole|プライマリ|主担当|primary contact/i.test(msg)) {
           showContactRolePrompt($("sfUpdateMsg"), cleanSfError(msg), () => updateBtn.click());
+        } else if (/商品|product|OpportunityLineItem|価格表|Pricebook/i.test(msg)) {
+          showProductPrompt($("sfUpdateMsg"), cleanSfError(msg), () => updateBtn.click());
         } else {
           $("sfUpdateMsg").innerHTML = `<div class="sf-err-box">更新できませんでした：<br>${esc(cleanSfError(msg))}</div>`;
         }

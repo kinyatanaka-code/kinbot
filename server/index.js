@@ -183,6 +183,8 @@ import {
   clearSfTokenCache,
   sfQuery,
   listAccountContacts,
+  getOpportunityProducts,
+  addOpportunityLineItem,
   createContact,
   createContactRole,
   describeContactRolePicklist,
@@ -5157,6 +5159,30 @@ app.get("/api/salesforce/contacts", async (req, res) => {
       describeContactRolePicklist(req.user).catch(() => []),
     ]);
     res.json({ contacts, roles });
+  } catch (e) {
+    sfErrorResponse(res, e);
+  }
+});
+
+// 商談に登録できる商品（PricebookEntry）一覧
+app.get("/api/salesforce/products", async (req, res) => {
+  try {
+    const opportunityId = String(req.query.opportunityId || "");
+    if (!opportunityId) return res.status(400).json({ error: "商談IDが必要です" });
+    const out = await getOpportunityProducts(req.user, opportunityId);
+    res.json(out);
+  } catch (e) {
+    sfErrorResponse(res, e);
+  }
+});
+
+// 商談に商品を登録
+app.post("/api/salesforce/product", async (req, res) => {
+  try {
+    const { opportunityId, pricebookEntryId, quantity, unitPrice } = req.body || {};
+    if (!opportunityId || !pricebookEntryId) return res.status(400).json({ error: "商談IDと商品が必要です" });
+    const out = await addOpportunityLineItem(req.user, { opportunityId, pricebookEntryId, quantity, unitPrice });
+    res.json({ ok: true, result: out });
   } catch (e) {
     sfErrorResponse(res, e);
   }
