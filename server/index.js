@@ -184,6 +184,7 @@ import {
   sfQuery,
   listAccountContacts,
   getOpportunityProducts,
+  describeLineItem,
   addOpportunityLineItem,
   createContact,
   createContactRole,
@@ -5164,13 +5165,22 @@ app.get("/api/salesforce/contacts", async (req, res) => {
   }
 });
 
-// 商談に登録できる商品（PricebookEntry）一覧
+// 商談に登録できる商品（PricebookEntry）一覧＋登録項目（売上・原価・提供日など）
 app.get("/api/salesforce/products", async (req, res) => {
   try {
     const opportunityId = String(req.query.opportunityId || "");
     if (!opportunityId) return res.status(400).json({ error: "商談IDが必要です" });
-    const out = await getOpportunityProducts(req.user, opportunityId);
-    res.json(out);
+    const [out, allFields] = await Promise.all([
+      getOpportunityProducts(req.user, opportunityId),
+      describeLineItem(req.user).catch(() => []),
+    ]);
+    // 入力に出す項目：必須のもの＋売上/原価/提供日っぽいもの（標準の数量・単価・小計・PricebookEntryは除く）
+    const skip = /^(Id|OpportunityId|PricebookEntryId|Product2Id|Quantity|UnitPrice|TotalPrice|ListPrice|IsDeleted|Created|LastModified|SystemModstamp|SortOrder|Subtotal|Discount)$/i;
+    const fields = (allFields || []).filter((f) =>
+      f.createable && !skip.test(f.name) && !["reference", "address", "location"].includes(f.type) &&
+      (f.required || f.custom || f.name === "ServiceDate" || /売上|原価|提供|金額|コスト|cost/i.test(f.label || ""))
+    );
+    res.json({ ...out, fields });
   } catch (e) {
     sfErrorResponse(res, e);
   }
@@ -5179,9 +5189,9 @@ app.get("/api/salesforce/products", async (req, res) => {
 // 商談に商品を登録
 app.post("/api/salesforce/product", async (req, res) => {
   try {
-    const { opportunityId, pricebookEntryId, quantity, unitPrice } = req.body || {};
+    const { opportunityId, pricebookEntryId, quantity, unitPrice, fields } = req.body || {};
     if (!opportunityId || !pricebookEntryId) return res.status(400).json({ error: "商談IDと商品が必要です" });
-    const out = await addOpportunityLineItem(req.user, { opportunityId, pricebookEntryId, quantity, unitPrice });
+    const out = await addOpportunityLineItem(req.user, { opportunityId, pricebookEntryId, quantity, unitPrice, fields });
     res.json({ ok: true, result: out });
   } catch (e) {
     sfErrorResponse(res, e);

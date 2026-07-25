@@ -212,12 +212,31 @@ export async function getOpportunityProducts(owner, opportunityId) {
   return { pricebookId: pbId, entries };
 }
 
+// 商談商品（OpportunityLineItem）の項目定義（売上・原価・提供日など）を取得
+export async function describeLineItem(owner) {
+  const acc = await getAccess(owner);
+  if (!acc) throw new Error("Salesforce未連携です");
+  const res = await fetch(
+    `${acc.instanceUrl}/services/data/${API_VERSION}/sobjects/OpportunityLineItem/describe`,
+    { headers: { Authorization: `Bearer ${acc.token}` } }
+  );
+  if (!res.ok) return [];
+  const d = await res.json();
+  return (d.fields || []).map((f) => ({
+    name: f.name, label: f.label, type: f.type,
+    createable: f.createable, updateable: f.updateable, custom: f.custom,
+    required: !!(f.createable && f.nillable === false && !f.defaultedOnCreate),
+    picklistValues: (f.picklistValues || []).filter((v) => v.active).map((v) => ({ value: v.value, label: v.label })),
+  }));
+}
+
 // 商談に商品（OpportunityLineItem）を追加
-export async function addOpportunityLineItem(owner, { opportunityId, pricebookEntryId, quantity, unitPrice }) {
+export async function addOpportunityLineItem(owner, { opportunityId, pricebookEntryId, quantity, unitPrice, fields }) {
   const acc = await getAccess(owner);
   if (!acc) throw new Error("Salesforce未連携です");
   const body = { OpportunityId: opportunityId, PricebookEntryId: pricebookEntryId, Quantity: Number(quantity) || 1 };
   if (unitPrice !== undefined && unitPrice !== null && unitPrice !== "") body.UnitPrice = Number(unitPrice);
+  if (fields && typeof fields === "object") Object.assign(body, fields); // 売上・原価・提供日など
   const res = await fetch(
     `${acc.instanceUrl}/services/data/${API_VERSION}/sobjects/OpportunityLineItem`,
     {
