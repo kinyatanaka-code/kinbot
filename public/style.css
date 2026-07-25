@@ -3078,10 +3078,22 @@ button.np-step:disabled { opacity: 0.6; cursor: wait; }
   .btn:active, .home-card:active, .home-week-day:active { transform: scale(.985); }
 
   /* ---- 下部タブバー（中央に録音ボタン） ---- */
+  /* 後ろの .sidebar { position: relative } に負けて上に出てしまうので、ここで固定し直す */
   .sidebar {
-    padding: 6px 4px calc(6px + env(safe-area-inset-bottom));
-    align-items: flex-end; background: #0d5b47;
+    position: fixed; left: 0; right: 0; bottom: 0; top: auto; z-index: 100;
+    padding: 5px 4px calc(5px + env(safe-area-inset-bottom));
+    align-items: center; justify-content: space-around;
+    background: #0d5b47; box-shadow: 0 -6px 20px rgba(0,0,0,.18);
   }
+  /* 「他メンバーとして操作」はタブバーから出して、画面右上に小さく置く */
+  .sidebar-imp-btn {
+    position: fixed; top: calc(env(safe-area-inset-top) + 9px); right: 10px; z-index: 60;
+    margin: 0; padding: 6px 11px; font-size: 11.5px; line-height: 1.2;
+    color: #0d5b47; background: #e5f3ee; border: 1px solid #b9ded0; border-radius: 20px;
+  }
+  .sidebar-imp-btn span[aria-hidden] { display: none; }
+  .sidebar-imp-btn { white-space: nowrap; }
+  body.imp-active .sidebar-imp-btn { top: calc(env(safe-area-inset-top) + 56px); }
   .sidebar .side-item { order: 7; }
   .sidebar .side-item[href="index.html"] { display: none; }
   .sidebar .side-item[href="home.html"]    { order: 1; }
@@ -3090,17 +3102,18 @@ button.np-step:disabled { opacity: 0.6; cursor: wait; }
   .sidebar .side-item[href="report.html"]  { order: 4; }
   .sidebar .side-item[href="apo.html"]     { order: 5; }
   .sidebar .side-item[href="settings.html"]{ order: 6; }
-  .side-item { padding: 8px 2px 6px; min-height: 48px; }
-  .side-label { font-size: 10px; }
+  .side-item { padding: 7px 1px 5px; min-height: 46px; gap: 3px; }
+  .side-ico { width: 21px; height: 21px; }
+  .side-label { font-size: 10px; letter-spacing: 0; }
+  .side-fab .side-ico { width: 23px; height: 23px; }
   .side-fab {
-    display: flex; order: 3; flex: 0 0 auto; width: 56px; height: 56px;
-    margin: 0 8px -4px; border-radius: 50%; background: #1d9e75; color: #fff;
+    display: flex; order: 3; flex: 0 0 auto; width: 46px; height: 46px;
+    margin: 0 6px; border-radius: 50%; background: #1d9e75; color: #fff;
     align-items: center; justify-content: center; text-decoration: none;
-    border: 3px solid #0d5b47; box-shadow: 0 6px 16px rgba(0,0,0,.3);
+    border: 0; align-self: center;
   }
   .side-fab:active { background: #17855f; }
   .side-fab.active { background: #5DCAA5; color: #04342c; }
-  .side-fab .side-ico { width: 25px; height: 25px; }
   .main { padding-bottom: calc(74px + env(safe-area-inset-bottom)); }
 
   /* ---- 上部バー ---- */

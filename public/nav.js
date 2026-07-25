@@ -221,7 +221,8 @@ window.kbProgress = function (el, opts = {}) {
 
 // ===== スマホ用：下部タブバー中央の録音ボタン＆ボトムシート =====
 window.kbIsMobile = function () {
-  return window.matchMedia("(max-width: 760px)").matches;
+  if (window.matchMedia) return window.matchMedia("(max-width: 760px)").matches;
+  return (window.innerWidth || 1024) <= 760;
 };
 
 // 画面下から出てくるシート。html は中身のHTML文字列。
@@ -244,9 +245,18 @@ window.kbSheet = function (html) {
 };
 
 // 下部タブの中央に録音ボタンを差し込む（スマホ幅のときだけ見えます）
+// あわせて、スマホでは横幅が足りないのでタブ名を短くする
 (function () {
   const bar = document.querySelector(".sidebar");
   if (!bar || bar.querySelector(".side-fab")) return;
+  if (window.kbIsMobile()) {
+    const SHORT = { "history.html": "履歴", "report.html": "分析", "apo.html": "アポ", "settings.html": "設定" };
+    bar.querySelectorAll(".side-item").forEach((a) => {
+      const key = (a.getAttribute("href") || "").split("/").pop();
+      const lb = a.querySelector(".side-label");
+      if (lb && SHORT[key]) lb.textContent = SHORT[key];
+    });
+  }
   const a = document.createElement("a");
   a.className = "side-fab";
   a.href = "index.html";
