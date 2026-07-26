@@ -3392,3 +3392,7 @@ a.home-todo:hover .home-todo-t b { color: #0d5b47; text-decoration: underline; }
 .temp-move-n span { display: block; font-size: 11px; color: var(--muted); margin-top: 2px; }
 .temp-move-n em { display: block; font-style: normal; font-size: 10px; color: #b4b2a9; }
 .temp-move-note { font-size: 11.5px; color: var(--muted); margin-top: 8px; line-height: 1.6; }
+.home-rank-rounds { display: flex; gap: 3px; margin: 0 0 8px; }
+.home-rank-round { flex: 1 1 0; min-width: 0; border: 1px solid var(--line); background: var(--panel); font: inherit; font-size: 10.5px; color: var(--muted); padding: 5px 2px; border-radius: 8px; cursor: pointer; white-space: nowrap; }
+.home-rank-round:hover { border-color: #b9ded0; color: #0d5b47; }
+.home-rank-round.active { background: #e5f3ee; border-color: #5DCAA5; color: #0d5b47; font-weight: 700; }

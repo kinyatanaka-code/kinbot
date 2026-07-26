@@ -12,6 +12,7 @@ let allMeetings = [];
 let dayEvents = [];
 let allDeals = [];
 let rankSort = "score";
+let rankRound = "";
 let rankCache = {};
 let calLoading = false;
 const calCache = {};
@@ -315,11 +316,11 @@ function renderMini() {
 async function loadRank() {
   const box = $h("homeRank");
   if (!box) return;
-  const key = homeScope + ":" + rankSort;
+  const key = homeScope + ":" + rankSort + ":" + rankRound;
   if (rankCache[key]) { renderRank(rankCache[key]); return; }
   box.innerHTML = '<div class="home-panel-empty">読み込み中…</div>';
   try {
-    const r = await fetch(`/api/temperature-ranking?limit=5&scope=${homeScope === "mine" ? "mine" : "all"}&sort=${rankSort}`);
+    const r = await fetch(`/api/temperature-ranking?limit=5&scope=${homeScope === "mine" ? "mine" : "all"}&sort=${rankSort}&round=${rankRound}`);
     const d = await r.json();
     rankCache[key] = (d && d.items) || [];
   } catch { rankCache[key] = []; }
@@ -329,7 +330,7 @@ function renderRank(items) {
   const box = $h("homeRank");
   if (!box) return;
   if (!items.length) {
-    box.innerHTML = '<div class="home-panel-empty">対象の商談がまだありません。</div>';
+    box.innerHTML = `<div class="home-panel-empty">${rankRound ? "この回数の商談がまだありません。" : "対象の商談がまだありません。"}</div>`;
     return;
   }
   box.innerHTML = items.map((it, i) => {
@@ -338,10 +339,11 @@ function renderRank(items) {
     const tone = rankSort === "swing" ? (it.swing >= 40 ? "hot" : it.swing >= 20 ? "warm" : "cool")
                                       : (it.score >= 70 ? "hot" : it.score >= 45 ? "warm" : "cool");
     const d = it.created_at ? new Date(it.created_at).toLocaleDateString("ja-JP", { month: "numeric", day: "numeric" }) : "";
+    const rn = it.round_no ? `${it.round_no}回目` : "";
     const sub = rankSort === "swing" ? `スコア ${it.score}` : (it.swing ? `振れ幅 ${it.swing}` : "");
     return `<a class="home-rank" href="history.html?m=${encodeURIComponent(it.bot_id)}">
       <span class="home-rank-no">${i + 1}</span>
-      <span class="home-rank-t"><b>${escH(name)}</b><em>${escH(d)}${it.owner_name ? " ・ " + escH(it.owner_name) : ""}${sub ? " ・ " + escH(sub) : ""}</em></span>
+      <span class="home-rank-t"><b>${escH(name)}</b><em>${escH(d)}${rn ? " ・ " + escH(rn) : ""}${it.owner_name ? " ・ " + escH(it.owner_name) : ""}${sub ? " ・ " + escH(sub) : ""}</em></span>
       <span class="home-rank-v is-${tone}">${val}</span>
     </a>`;
   }).join("");
@@ -634,6 +636,13 @@ document.addEventListener("DOMContentLoaded", () => {
     b.addEventListener("click", () => {
       rankSort = b.dataset.rank;
       document.querySelectorAll(".home-rank-tab").forEach((x) => x.classList.toggle("active", x === b));
+      loadRank();
+    });
+  });
+  document.querySelectorAll(".home-rank-round").forEach((b) => {
+    b.addEventListener("click", () => {
+      rankRound = b.dataset.round;
+      document.querySelectorAll(".home-rank-round").forEach((x) => x.classList.toggle("active", x === b));
       loadRank();
     });
   });

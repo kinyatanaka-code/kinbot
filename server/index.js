@@ -4589,6 +4589,27 @@ app.get("/api/temperature-ranking", async (req, res) => {
     heads = heads.filter((h) => !/【ユ\/フォ】|【社内MTG】/.test(h.title || ""));
     if (scope === "mine" && me) heads = heads.filter((h) => String(h.owner || "").toLowerCase() === me);
 
+    // 商談回数でしぼる（1 / 2 / 3以上）。未設定のものはタイトルの【2回目】などからも読み取る。
+    const roundQ = String(req.query.round || "").trim();
+    if (roundQ) {
+      const roundOf = (h) => {
+        const n = Number(h.round_no);
+        if (n > 0) return n;
+        const t = String(h.title || "") + " " + String(h.phase || "");
+        const m1 = t.match(/([0-9０-９]+)\s*回目/);
+        if (m1) return Number(m1[1].replace(/[０-９]/g, (c) => String.fromCharCode(c.charCodeAt(0) - 0xfee0)));
+        if (/初回|新規|【新/.test(t)) return 1;
+        if (/再商談/.test(t)) return 2;
+        return 0;
+      };
+      heads = heads.filter((h) => {
+        const n = roundOf(h);
+        if (!n) return false;
+        if (roundQ === "3plus") return n >= 3;
+        return n === Number(roundQ);
+      });
+    }
+
     const need = heads.filter((h) => {
       const c = tempCache.get(h.bot_id);
       return !c || c.key !== String(h.updated_at);
@@ -4618,6 +4639,7 @@ app.get("/api/temperature-ranking", async (req, res) => {
       return {
         bot_id: h.bot_id,
         title: h.title || "",
+        round_no: h.round_no || null,
         company: h.account || "",
         owner_name: h.owner_name || h.rep_name || "",
         created_at: h.created_at,

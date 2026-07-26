@@ -2320,7 +2320,7 @@ export async function deleteProposalFile(id) {
 export async function listRecentMeetingHeads({ days = 0, limit = 400 } = {}) {
   if (!pool) return [];
   const cols = `m.bot_id, m.title, m.rep_name, m.owner, m.created_at, m.updated_at,
-                COALESCE(m.account,'') AS account, u.name AS owner_name`;
+                m.round_no, m.phase, COALESCE(m.account,'') AS account, u.name AS owner_name`;
   const from = `FROM meetings m LEFT JOIN users u ON u.email = m.owner`;
   const hasTr = `jsonb_typeof(m.transcript)='array' AND jsonb_array_length(m.transcript) > 0`;
   if (days > 0) {
