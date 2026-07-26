@@ -1958,7 +1958,7 @@ function isPipOn(v) {
   if (v.webkitPresentationMode) return v.webkitPresentationMode === "picture-in-picture";
   return document.pictureInPictureElement === v;
 }
-async function togglePip(v) {
+async function togglePip(v, silent) {
   try {
     if (typeof v.webkitSetPresentationMode === "function") {
       v.webkitSetPresentationMode(isPipOn(v) ? "inline" : "picture-in-picture");
@@ -1967,8 +1967,13 @@ async function togglePip(v) {
     if (document.pictureInPictureElement === v) await document.exitPictureInPicture();
     else await v.requestPictureInPicture();
   } catch (e) {
-    alert("小窓表示に切り替えられませんでした。動画を一度再生してから、もう一度お試しください。");
+    if (!silent) alert("小窓表示に切り替えられませんでした。動画を一度再生してから、もう一度お試しください。");
   }
+}
+
+// 「自動で小窓」の設定
+function autoPipPref() {
+  try { return localStorage.getItem("kinbot_auto_pip") === "1"; } catch { return false; }
 }
 
 function setupRecordingPlayer(drec, d, meeting) {
@@ -1999,9 +2004,10 @@ function setupRecordingPlayer(drec, d, meeting) {
              <div class="rec-audio-s">画面を消したり、他のアプリに切り替えても再生が続きます。ロック画面やコントロールセンターから操作できます。</div>
            </div>`
         : `<video class="rec-video" controls preload="metadata" playsinline></video>
-           <div class="rec-hint">他のアプリを見ながら観るときは「小窓で再生」、画面を消して聞くときは「音声のみ」を使ってください。</div>`) +
+           <div class="rec-hint">他のアプリを見ながら観るときは「小窓で再生」、画面を消して聞くときは「音声のみ」を使ってください。<br>「ホームに戻ったら自動で小窓」を使うには、iPhoneの 設定 → 一般 → ピクチャインピクチャ →「自動的に開始」をオンにしてください。</div>`) +
       `<div class="rec-bar">
          ${audioOnly ? "" : `<button type="button" class="rec-mode" data-role="pip" hidden>小窓で再生（他の画面を見ながら）</button>`}
+         ${audioOnly ? "" : `<label class="rec-auto" data-role="autowrap" hidden><input type="checkbox" data-role="auto"${autoPipPref() ? " checked" : ""}/>ホームに戻ったら自動で小窓</label>`}
          <button type="button" class="rec-mode${audioOnly ? " is-on" : ""}" data-role="mode">${audioOnly ? "動画に戻す" : "音声のみで再生（画面を消しても続く）"}</button>
          ${isHls ? "" : `<a class="rec-open" href="${escapeHtml(url)}" target="_blank" rel="noopener">別タブで開く</a>`}
        </div>`;
@@ -2036,6 +2042,44 @@ function setupRecordingPlayer(drec, d, meeting) {
         await togglePip(el);
         setTimeout(syncPip, 200);
       });
+
+      // ---- ボタンを押さなくても、ホーム画面に戻ったら小窓にする ----
+      const autoWrap = drec.querySelector('[data-role="autowrap"]');
+      const autoBox = drec.querySelector('[data-role="auto"]');
+      const showAuto = () => { if (autoWrap) autoWrap.hidden = !canPip(el); };
+      showAuto();
+      el.addEventListener("loadedmetadata", showAuto);
+      const applyAuto = () => {
+        const on = autoBox && autoBox.checked;
+        // 対応ブラウザでは属性だけで自動的に小窓になる
+        try { el.autoPictureInPicture = !!on; } catch {}
+        if (on) el.setAttribute("autopictureinpicture", ""); else el.removeAttribute("autopictureinpicture");
+      };
+      applyAuto();
+      if (autoBox) autoBox.addEventListener("change", () => {
+        try { localStorage.setItem("kinbot_auto_pip", autoBox.checked ? "1" : "0"); } catch {}
+        applyAuto();
+        // iPhoneは全画面で再生していないと自動で小窓にならないため、その場で全画面にする
+        if (autoBox.checked && !el.paused && typeof el.webkitEnterFullscreen === "function" && !isPipOn(el)) {
+          try { el.webkitEnterFullscreen(); } catch {}
+        }
+      });
+      // 再生を始めたら、自動小窓ONのときは全画面にしておく（iPhone向け）
+      el.addEventListener("play", () => {
+        if (!autoBox || !autoBox.checked) return;
+        if (isPipOn(el)) return;
+        if (el.webkitDisplayingFullscreen) return;
+        if (typeof el.webkitEnterFullscreen === "function") { try { el.webkitEnterFullscreen(); } catch {} }
+      });
+      // 画面を離れたタイミングでも小窓を試す（対応している端末向け）
+      if (setupRecordingPlayer._vis) document.removeEventListener("visibilitychange", setupRecordingPlayer._vis);
+      setupRecordingPlayer._vis = () => {
+        if (!document.hidden) return;
+        if (!autoBox || !autoBox.checked) return;
+        if (!el.isConnected || el.paused || isPipOn(el)) return;
+        togglePip(el, true);
+      };
+      document.addEventListener("visibilitychange", setupRecordingPlayer._vis);
     }
 
     drec.querySelector('[data-role="mode"]').addEventListener("click", () => {

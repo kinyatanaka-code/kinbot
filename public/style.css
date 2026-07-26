@@ -3344,3 +3344,6 @@ a.home-todo:hover .home-todo-t b { color: #0d5b47; text-decoration: underline; }
   .rec-open { width: 100%; text-align: center; }
 }
 .rec-hint { font-size: 11.5px; color: var(--muted); line-height: 1.6; margin-top: 8px; }
+.rec-auto { display: inline-flex; align-items: center; gap: 7px; font-size: 12.5px; color: var(--ink); cursor: pointer; }
+.rec-auto input { width: 17px; height: 17px; min-height: 0; accent-color: #1d9e75; margin: 0; }
+@media (max-width: 760px) { .rec-auto { width: 100%; min-height: 44px; padding: 0 4px; } }
