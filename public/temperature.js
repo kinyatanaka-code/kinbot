@@ -19,7 +19,19 @@
   const QUESTION = /[?？]|ですか|ますか|でしょうか/;
 
   // つなぎ言葉（フィラー）。少ないほど聞き取りやすい商談。
-  const FILLER = /(えーと|えっと|えーっと|ええと|あのー|あのう|そのー|そのう|えー[、。 ]|あー[、。 ]|うーん|なんか|まあ|ま、)/g;
+  // 文字起こしに句読点が無いことがあるので、句読点に頼らない書き方にしている。
+  const FILLER_PATTERNS = [
+    { w: "えーと",   re: /え[ーえ〜]*っ?と/g },
+    { w: "あのー",   re: /あの[ーぅう〜]/g },
+    { w: "そのー",   re: /その[ーぅう〜]/g },
+    { w: "うーん",   re: /[うふ][ーん〜]ん|うーん/g },
+    { w: "えー",     re: /(^|[^かでさすねよいうくつるをんー])え[ー〜]+/g },
+    { w: "あー",     re: /(^|[^ゃゅょっーな])あ[ー〜]+/g },
+    { w: "なんか",   re: /なんか/g },
+    { w: "まあ",     re: /ま[あぁ][ー〜]?/g },
+    { w: "ちょっと", re: /ちょっと/g },
+    { w: "やっぱり", re: /やっぱ[りし]?/g },
+  ];
   // 次回の打ち合わせを決める話
   const NEXT_TALK = /次回|次の打ち合わせ|次のお時間|日程|候補日|ご都合|空いて|カレンダー|来週|再来週|来月|お時間いただ|アポ|お打ち合わせ|次は/;
   const NEXT_DATE = /[0-9０-９]{1,2}\s*月\s*[0-9０-９]{1,2}\s*日|[0-9０-９]{1,2}\/[0-9０-９]{1,2}|[月火水木金土日]曜|来週の[月火水木金土日]|午前|午後|[0-9０-９]{1,2}時/;
@@ -139,22 +151,34 @@
     return out;
   }
 
-  // フィラー（つなぎ言葉）の回数
+  // フィラー（つなぎ言葉）の回数。どの言葉が何回出たかも返す。
   function countFiller(repTexts, repChars) {
+    const tally = {};
+    const examples = [];
     let count = 0;
-    for (const t of repTexts) {
-      const m = t.match(FILLER);
-      if (m) count += m.length;
+    for (const src of repTexts) {
+      let rest = src;
+      let hitHere = 0;
+      // 前のパターンで数えた部分は消してから次を見る（「えーと」を「えー」で二重に数えないため）
+      for (const pat of FILLER_PATTERNS) {
+        pat.re.lastIndex = 0;
+        rest = rest.replace(pat.re, (mm, pre) => {
+          tally[pat.w] = (tally[pat.w] || 0) + 1;
+          count++; hitHere++;
+          return (pre || "") + "\u0000";
+        });
+      }
+      if (hitHere && examples.length < 3) examples.push(src.length > 70 ? src.slice(0, 70) + "…" : src);
     }
+    const breakdown = Object.keys(tally).map((w) => ({ w, n: tally[w] })).sort((a, b) => b.n - a.n);
     const per100 = repChars ? Math.round((count / repChars) * 100 * 10) / 10 : 0;
-    const detected = count > 0 || repChars < 300;
     const rating = !repChars ? "—"
-      : count === 0 ? "検出なし"
+      : count === 0 ? "文字起こしに見当たりません"
       : per100 <= 0.5 ? "少ない（聞き取りやすい）"
       : per100 <= 1.0 ? "ふつう"
       : per100 <= 2.0 ? "やや多い"
       : "多い";
-    return { count, per100, rating, detected, repChars };
+    return { count, per100, rating, detected: count > 0, breakdown, examples, repChars };
   }
 
   // 次回商談の設定がスムーズだったか

@@ -2204,7 +2204,7 @@ function tempTile(label, value, sub, tone) {
   return `<div class="temp-tile${tone ? " is-" + tone : ""}">
     <div class="temp-tile-v${small}">${value}</div>
     <div class="temp-tile-l">${escapeHtml(label)}</div>
-    ${sub ? `<div class="temp-tile-s">${escapeHtml(sub)}</div>` : ""}
+    ${sub ? `<div class="temp-tile-s">${sub}</div>` : ""}
   </div>`;
 }
 
@@ -2289,16 +2289,28 @@ function renderMetricsInto(el, tr, repName) {
       <div class="temp-gauge"><span style="width:${t.skill}%"></span></div>
       <div class="temp-tiles">
         ${tempTile("次回商談の設定", escapeHtml(nx.level || "—"), "", nextTone)}
-        ${tempTile("つなぎ言葉", fillTxt, fl.repChars ? `100文字あたり ${fl.per100}回 ・ ${fl.rating}` : "", fillTone)}
+        ${tempTile("つなぎ言葉", fl.repChars ? `${fl.count}回` : "—", fl.repChars ? `100文字あたり ${fl.per100}回<br>${escapeHtml(fl.rating)}` : "", fillTone)}
         ${tempTile("自社トーク割合", (rep0 ? rep0.ratio : 100 - (t.custRatio || 0)) + "%", "目安 40〜55%", "")}
         ${tempTile("自社からの質問", t.repQuestions || 0, "深掘りの回数", "q")}
       </div>`;
+    // つなぎ言葉の内訳
+    html += `<div class="temp-qhead">つなぎ言葉の内訳（自社の発話 ${fl.repChars || 0}文字が対象）</div>`;
+    if (fl.breakdown && fl.breakdown.length) {
+      html += `<div class="temp-chips">` +
+        fl.breakdown.map((b) => `<span class="temp-chip">${escapeHtml(b.w)}<b>${b.n}</b></span>`).join("") +
+        `</div>`;
+      if (fl.examples && fl.examples.length) {
+        html += `<div class="temp-quotes" style="margin-top:8px">` +
+          fl.examples.map((e) => `<div class="temp-q is-neg">${escapeHtml(e)}</div>`).join("") + `</div>`;
+      }
+    } else if (fl.repChars) {
+      html += `<div class="temp-warn">つなぎ言葉は1つも見つかりませんでした。実際に少なかった可能性と、文字起こしが「えーと」などを省いている可能性があります。この商談ではフィラーの評価はあてになりません。</div>`;
+    } else {
+      html += `<div class="temp-warn">自社の発話が特定できませんでした。上の「営業担当」を設定すると計算できます。</div>`;
+    }
     if (nx.quote) {
       html += `<div class="temp-qhead">次回商談を決めたところ</div>
         <div class="temp-quotes"><div class="temp-q">${escapeHtml(nx.quote)}</div></div>`;
-    }
-    if (fl.repChars && fl.count === 0) {
-      html += `<div class="temp-warn">つなぎ言葉が1つも見つかりませんでした。実際に少なかった可能性と、文字起こしが「えーと」などを省いている可能性があります。</div>`;
     }
     html += `</div>`;
   }
