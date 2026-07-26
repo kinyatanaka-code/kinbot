@@ -2200,8 +2200,9 @@ function tempCurveSvg(curve) {
 }
 
 function tempTile(label, value, sub, tone) {
+  const small = String(value).length > 4 ? " is-text" : "";
   return `<div class="temp-tile${tone ? " is-" + tone : ""}">
-    <div class="temp-tile-v">${value}</div>
+    <div class="temp-tile-v${small}">${value}</div>
     <div class="temp-tile-l">${escapeHtml(label)}</div>
     ${sub ? `<div class="temp-tile-s">${escapeHtml(sub)}</div>` : ""}
   </div>`;
@@ -2262,6 +2263,42 @@ function renderMetricsInto(el, tr, repName) {
     }
     if (!t.known) {
       html += `<div class="temp-warn">営業担当が特定できないため、全員の発言をお客様として計算しています。上の「営業担当」を設定すると精度が上がります。</div>`;
+    }
+    html += `</div>`;
+  }
+
+  // ---- 営業の進め方 ----
+  const rep0 = m.speakers.find((s) => s.isRep);
+  if (t.next || t.filler) {
+    const nx = t.next || {};
+    const fl = t.filler || {};
+    const stone = t.skill >= 70 ? "hot" : t.skill >= 45 ? "warm" : "cool";
+    const nextTone = nx.level === "スムーズに設定" ? "pos"
+      : nx.level === "設定できた（やり取り多め）" ? "sig"
+      : nx.talked ? "" : "neg";
+    const fillTxt = !fl.repChars ? "—" : fl.count === 0 ? "0" : String(fl.count);
+    const fillTone = !fl.repChars ? "" : fl.count === 0 ? "pos" : fl.per100 <= 1.0 ? "pos" : fl.per100 <= 2.0 ? "" : "neg";
+    html += `<div class="temp-box is-${stone}">
+      <div class="temp-head">
+        <div class="temp-score"><b>${t.skill}</b><span>/100</span></div>
+        <div class="temp-meta">
+          <div class="temp-label">営業の進め方</div>
+          <div class="temp-note">次回設定・つなぎ言葉・話す割合・質問数からの目安です</div>
+        </div>
+      </div>
+      <div class="temp-gauge"><span style="width:${t.skill}%"></span></div>
+      <div class="temp-tiles">
+        ${tempTile("次回商談の設定", escapeHtml(nx.level || "—"), "", nextTone)}
+        ${tempTile("つなぎ言葉", fillTxt, fl.repChars ? `100文字あたり ${fl.per100}回 ・ ${fl.rating}` : "", fillTone)}
+        ${tempTile("自社トーク割合", (rep0 ? rep0.ratio : 100 - (t.custRatio || 0)) + "%", "目安 40〜55%", "")}
+        ${tempTile("自社からの質問", t.repQuestions || 0, "深掘りの回数", "q")}
+      </div>`;
+    if (nx.quote) {
+      html += `<div class="temp-qhead">次回商談を決めたところ</div>
+        <div class="temp-quotes"><div class="temp-q">${escapeHtml(nx.quote)}</div></div>`;
+    }
+    if (fl.repChars && fl.count === 0) {
+      html += `<div class="temp-warn">つなぎ言葉が1つも見つかりませんでした。実際に少なかった可能性と、文字起こしが「えーと」などを省いている可能性があります。</div>`;
     }
     html += `</div>`;
   }

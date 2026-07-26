@@ -4647,10 +4647,41 @@ app.get("/api/temperature-ranking", async (req, res) => {
         level: r.level || "",
         rise: r.rise || 0,
         swing: r.swing || 0,
+        skill: r.skill || 0,
+        filler: (r.filler && r.filler.per100) || 0,
+        nextLevel: (r.next && r.next.level) || "",
+        nextOk: !!(r.next && r.next.dated && r.next.agreed),
       };
-    }).filter((x) => x.score > 0);
+    }).filter((x) => x.score > 0 || x.skill > 0);
 
-    const sortBy = req.query.sort === "swing" ? "swing" : "score";
+    const SORTS = { swing: "swing", skill: "skill", score: "score" };
+    const sortBy = SORTS[req.query.sort] || "score";
+
+    // メンバー別：担当者ごとの平均でランキングする
+    if (req.query.by === "member") {
+      const map = new Map();
+      for (const it of items) {
+        const name = it.owner_name || "(担当者未設定)";
+        if (!map.has(name)) map.set(name, { name, count: 0, score: 0, swing: 0, skill: 0, filler: 0, nextOk: 0, best: 0 });
+        const g = map.get(name);
+        g.count++; g.score += it.score; g.swing += it.swing; g.skill += it.skill; g.filler += it.filler;
+        if (it.nextOk) g.nextOk++;
+        if (it.score > g.best) g.best = it.score;
+      }
+      const members = [...map.values()]
+        .filter((g) => g.count >= 2) // 1件だけの人は平均がぶれるので除く
+        .map((g) => ({
+          name: g.name, count: g.count, best: g.best,
+          score: Math.round(g.score / g.count),
+          swing: Math.round(g.swing / g.count),
+          skill: Math.round(g.skill / g.count),
+          filler: Math.round((g.filler / g.count) * 10) / 10,
+          nextRate: Math.round((g.nextOk / g.count) * 100),
+        }));
+      members.sort((a, b) => (b[sortBy] - a[sortBy]) || (b.score - a.score));
+      return res.json({ members: members.slice(0, limit), total: members.length });
+    }
+
     items.sort((a, b) => (b[sortBy] - a[sortBy]) || (b.score - a.score));
     res.json({ items: items.slice(0, limit), total: items.length });
   } catch (e) {

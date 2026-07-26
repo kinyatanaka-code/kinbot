@@ -3396,3 +3396,4 @@ a.home-todo:hover .home-todo-t b { color: #0d5b47; text-decoration: underline; }
 .home-rank-round { flex: 1 1 0; min-width: 0; border: 1px solid var(--line); background: var(--panel); font: inherit; font-size: 10.5px; color: var(--muted); padding: 5px 2px; border-radius: 8px; cursor: pointer; white-space: nowrap; }
 .home-rank-round:hover { border-color: #b9ded0; color: #0d5b47; }
 .home-rank-round.active { background: #e5f3ee; border-color: #5DCAA5; color: #0d5b47; font-weight: 700; }
+.temp-tile-v.is-text { font-size: 12.5px; line-height: 1.45; padding: 3px 0; }

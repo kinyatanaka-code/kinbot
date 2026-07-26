@@ -18,6 +18,13 @@
 
   const QUESTION = /[?？]|ですか|ますか|でしょうか/;
 
+  // つなぎ言葉（フィラー）。少ないほど聞き取りやすい商談。
+  const FILLER = /(えーと|えっと|えーっと|ええと|あのー|あのう|そのー|そのう|えー[、。 ]|あー[、。 ]|うーん|なんか|まあ|ま、)/g;
+  // 次回の打ち合わせを決める話
+  const NEXT_TALK = /次回|次の打ち合わせ|次のお時間|日程|候補日|ご都合|空いて|カレンダー|来週|再来週|来月|お時間いただ|アポ|お打ち合わせ|次は/;
+  const NEXT_DATE = /[0-9０-９]{1,2}\s*月\s*[0-9０-９]{1,2}\s*日|[0-9０-９]{1,2}\/[0-9０-９]{1,2}|[月火水木金土日]曜|来週の[月火水木金土日]|午前|午後|[0-9０-９]{1,2}時/;
+  const NEXT_OK = /大丈夫|空いて|お願いします|承知|了解|問題ない|いいですよ|そうしましょう|お待ちして|ありがとうございます/;
+
   function labelOf(sp) {
     return sp ? (sp.name || "話者" + (sp.id != null ? sp.id : "")) : "話者";
   }
@@ -52,12 +59,15 @@
     const isRep = (u) => !!(rep && labelOf(u.speaker).replace(/\s+/g, "").indexOf(rep) >= 0);
 
     const cust = [];
-    let custChars = 0, allChars = 0, repQuestions = 0, repLines = 0;
+    const repTexts = [];
+    let custChars = 0, allChars = 0, repChars = 0, repQuestions = 0, repLines = 0;
     for (const u of tr) {
       const text = String(u.text || "");
       allChars += text.length;
       if (isRep(u)) {
         repLines++;
+        repChars += text.length;
+        repTexts.push(text);
         if (QUESTION.test(text)) repQuestions++;
       } else if (text.trim()) {
         cust.push({ who: labelOf(u.speaker), text, t: tally(text) });
@@ -67,12 +77,16 @@
 
     const out = {
       known: !!(rep && repLines > 0),
+      repChars: 0, filler: null, next: null, skill: 0,
       custTurns: cust.length, repQuestions,
       strong: 0, mild: 0, signal: 0, negative: 0, custQuestions: 0,
       custRatio: allChars ? Math.round((custChars / allChars) * 100) : 0,
       quotesPos: [], quotesNeg: [], curve: [], rise: 0, swing: 0, score: 0, level: "—", levelNote: "",
     };
-    if (!cust.length) return out;
+    out.repChars = repChars;
+    out.filler = countFiller(repTexts, repChars);
+    out.next = findNextMeeting(tr, isRep);
+    if (!cust.length) { out.skill = skillScore(out, 0); return out; }
 
     for (const c of cust) {
       out.strong += c.t.strong.length;
@@ -121,7 +135,74 @@
         out.swing = Math.max.apply(null, out.curve) - Math.min.apply(null, out.curve);
       }
     }
+    out.skill = skillScore(out, out.custRatio);
     return out;
+  }
+
+  // フィラー（つなぎ言葉）の回数
+  function countFiller(repTexts, repChars) {
+    let count = 0;
+    for (const t of repTexts) {
+      const m = t.match(FILLER);
+      if (m) count += m.length;
+    }
+    const per100 = repChars ? Math.round((count / repChars) * 100 * 10) / 10 : 0;
+    const detected = count > 0 || repChars < 300;
+    const rating = !repChars ? "—"
+      : count === 0 ? "検出なし"
+      : per100 <= 0.5 ? "少ない（聞き取りやすい）"
+      : per100 <= 1.0 ? "ふつう"
+      : per100 <= 2.0 ? "やや多い"
+      : "多い";
+    return { count, per100, rating, detected, repChars };
+  }
+
+  // 次回商談の設定がスムーズだったか
+  function findNextMeeting(tr, isRep) {
+    let talked = false, dated = false, agreed = false, turns = 0, quote = "", startIdx = -1;
+    for (let i = 0; i < tr.length; i++) {
+      const text = String(tr[i].text || "");
+      if (!text.trim()) continue;
+      if (NEXT_TALK.test(text)) {
+        if (!talked) { talked = true; startIdx = i; }
+        turns++;
+        if (NEXT_DATE.test(text)) { dated = true; if (!quote) quote = text; }
+      }
+      // 日程の話が出たあとの、お客様の同意
+      if (talked && !isRep(tr[i]) && i >= startIdx && NEXT_OK.test(text) && (dated || NEXT_TALK.test(text))) {
+        agreed = true;
+        if (!quote) quote = text;
+      }
+    }
+    const level = !talked ? "話が出ていない"
+      : dated && agreed && turns <= 6 ? "スムーズに設定"
+      : dated && agreed ? "設定できた（やり取り多め）"
+      : dated ? "日程は出たが同意まで至らず"
+      : "打診のみ";
+    return { talked, dated, agreed, turns, level, quote: quote.length > 90 ? quote.slice(0, 90) + "…" : quote };
+  }
+
+  // 営業の進め方スコア（0〜100）
+  function skillScore(o, custRatio) {
+    const n = o.next || {};
+    const pNext = n.level === "スムーズに設定" ? 40
+      : n.level === "設定できた（やり取り多め）" ? 32
+      : n.level === "日程は出たが同意まで至らず" ? 20
+      : n.talked ? 14 : 0;
+    const f = o.filler || {};
+    const pFill = !f.repChars ? 12
+      : f.count === 0 ? 22
+      : f.per100 <= 0.5 ? 25
+      : f.per100 <= 1.0 ? 18
+      : f.per100 <= 2.0 ? 10
+      : 3;
+    const repRatio = 100 - custRatio;
+    const pRatio = !custRatio ? 8
+      : (repRatio >= 40 && repRatio <= 55) ? 20
+      : (repRatio >= 30 && repRatio <= 65) ? 12
+      : 5;
+    const pQ = Math.min(15, Math.round((o.repQuestions || 0) * 1.5));
+    return Math.max(0, Math.min(100, pNext + pFill + pRatio + pQ));
   }
 
   return { score, labelOf, WORDS };

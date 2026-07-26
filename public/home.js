@@ -13,6 +13,7 @@ let dayEvents = [];
 let allDeals = [];
 let rankSort = "score";
 let rankRound = "";
+let rankBy = "deal";
 let rankCache = {};
 let calLoading = false;
 const calCache = {};
@@ -316,31 +317,58 @@ function renderMini() {
 async function loadRank() {
   const box = $h("homeRank");
   if (!box) return;
-  const key = homeScope + ":" + rankSort + ":" + rankRound;
+  const key = rankBy + ":" + (rankBy === "member" ? "all" : homeScope) + ":" + rankSort + ":" + rankRound;
   if (rankCache[key]) { renderRank(rankCache[key]); return; }
   box.innerHTML = '<div class="home-panel-empty">読み込み中…</div>';
   try {
-    const r = await fetch(`/api/temperature-ranking?limit=5&scope=${homeScope === "mine" ? "mine" : "all"}&sort=${rankSort}&round=${rankRound}`);
+    // メンバー別は全員で比較する
+    const scope = rankBy === "member" ? "all" : (homeScope === "mine" ? "mine" : "all");
+    const lim = rankBy === "member" ? 8 : 5;
+    const r = await fetch(`/api/temperature-ranking?limit=${lim}&scope=${scope}&sort=${rankSort}&round=${rankRound}&by=${rankBy === "member" ? "member" : "deal"}`);
     const d = await r.json();
-    rankCache[key] = (d && d.items) || [];
+    rankCache[key] = rankBy === "member" ? ((d && d.members) || []) : ((d && d.items) || []);
   } catch { rankCache[key] = []; }
   renderRank(rankCache[key]);
 }
 function renderRank(items) {
   const box = $h("homeRank");
   if (!box) return;
+  if (rankBy === "member") {
+    box.innerHTML = items.length
+      ? items.map((m, i) => {
+          const val = rankSort === "swing" ? m.swing : rankSort === "skill" ? m.skill : m.score;
+          const tone = rankSort === "swing" ? (m.swing >= 40 ? "hot" : m.swing >= 20 ? "warm" : "cool")
+                     : rankSort === "skill" ? (m.skill >= 70 ? "hot" : m.skill >= 45 ? "warm" : "cool")
+                     : (m.score >= 70 ? "hot" : m.score >= 45 ? "warm" : "cool");
+          const sub = rankSort === "skill"
+            ? `${m.count}件 ・ 次回設定 ${m.nextRate}% ・ フィラー ${m.filler}`
+            : rankSort === "swing"
+              ? `${m.count}件 ・ 最高 ${m.best} ・ 平均温度感 ${m.score}`
+              : `${m.count}件 ・ 最高 ${m.best} ・ 平均振れ幅 ${m.swing}`;
+          return `<div class="home-rank">
+            <span class="home-rank-no">${i + 1}</span>
+            <span class="home-rank-t"><b>${escH(m.name)}</b><em>${escH(sub)}</em></span>
+            <span class="home-rank-v is-${tone}">${val}</span>
+          </div>`;
+        }).join("")
+      : '<div class="home-panel-empty">2件以上の商談があるメンバーがまだいません。</div>';
+    return;
+  }
   if (!items.length) {
     box.innerHTML = `<div class="home-panel-empty">${rankRound ? "この回数の商談がまだありません。" : "対象の商談がまだありません。"}</div>`;
     return;
   }
   box.innerHTML = items.map((it, i) => {
     const name = it.company || companyFromTitle(it.title) || it.title || "(無題)";
-    const val = rankSort === "swing" ? it.swing : it.score;
+    const val = rankSort === "swing" ? it.swing : rankSort === "skill" ? it.skill : it.score;
     const tone = rankSort === "swing" ? (it.swing >= 40 ? "hot" : it.swing >= 20 ? "warm" : "cool")
-                                      : (it.score >= 70 ? "hot" : it.score >= 45 ? "warm" : "cool");
+               : rankSort === "skill" ? (it.skill >= 70 ? "hot" : it.skill >= 45 ? "warm" : "cool")
+               : (it.score >= 70 ? "hot" : it.score >= 45 ? "warm" : "cool");
     const d = it.created_at ? new Date(it.created_at).toLocaleDateString("ja-JP", { month: "numeric", day: "numeric" }) : "";
     const rn = it.round_no ? `${it.round_no}回目` : "";
-    const sub = rankSort === "swing" ? `スコア ${it.score}` : (it.swing ? `振れ幅 ${it.swing}` : "");
+    const sub = rankSort === "swing" ? `温度感 ${it.score}`
+              : rankSort === "skill" ? (it.nextLevel || `温度感 ${it.score}`)
+              : (it.swing ? `振れ幅 ${it.swing}` : "");
     return `<a class="home-rank" href="history.html?m=${encodeURIComponent(it.bot_id)}">
       <span class="home-rank-no">${i + 1}</span>
       <span class="home-rank-t"><b>${escH(name)}</b><em>${escH(d)}${rn ? " ・ " + escH(rn) : ""}${it.owner_name ? " ・ " + escH(it.owner_name) : ""}${sub ? " ・ " + escH(sub) : ""}</em></span>
@@ -634,15 +662,17 @@ document.addEventListener("DOMContentLoaded", () => {
   wireList();
   document.querySelectorAll(".home-rank-tab").forEach((b) => {
     b.addEventListener("click", () => {
-      rankSort = b.dataset.rank;
+      rankBy = b.dataset.by;
       document.querySelectorAll(".home-rank-tab").forEach((x) => x.classList.toggle("active", x === b));
       loadRank();
     });
   });
   document.querySelectorAll(".home-rank-round").forEach((b) => {
     b.addEventListener("click", () => {
-      rankRound = b.dataset.round;
-      document.querySelectorAll(".home-rank-round").forEach((x) => x.classList.toggle("active", x === b));
+      const row = b.parentElement;
+      if (b.dataset.rank) rankSort = b.dataset.rank;
+      else rankRound = b.dataset.round || "";
+      row.querySelectorAll(".home-rank-round").forEach((x) => x.classList.toggle("active", x === b));
       loadRank();
     });
   });
