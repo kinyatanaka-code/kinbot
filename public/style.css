@@ -3323,3 +3323,24 @@ a.home-todo:hover .home-todo-t b { color: #0d5b47; text-decoration: underline; }
   .ov-wrap .m-back { margin-bottom: 10px; }
   .ov-actions { grid-template-columns: 1fr; }
 }
+
+/* ---- 録画プレイヤー：音声のみ（バックグラウンド再生）---- */
+.rec-bar { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-top: 8px; }
+.rec-mode {
+  font: inherit; font-size: 12.5px; font-weight: 700; color: #0d5b47;
+  background: var(--panel-2); border: 1px solid var(--line); border-radius: 20px;
+  padding: 8px 14px; cursor: pointer;
+}
+.rec-mode:hover { background: #e5f3ee; border-color: #b9ded0; }
+.rec-mode.is-on { background: #1d9e75; border-color: #1d9e75; color: #fff; }
+.rec-audio-box { background: var(--panel-2); border: 1px solid var(--line); border-radius: 12px; padding: 13px 14px; }
+.rec-audio-t { font-size: 12.5px; font-weight: 700; color: #0d5b47; margin-bottom: 9px; }
+.rec-audio { width: 100%; display: block; }
+.rec-audio-s { font-size: 11.5px; color: var(--muted); line-height: 1.6; margin-top: 9px; }
+
+@media (max-width: 760px) {
+  .rec-mode { width: 100%; text-align: center; min-height: 44px; }
+  .rec-bar { gap: 8px; }
+  .rec-open { width: 100%; text-align: center; }
+}
+.rec-hint { font-size: 11.5px; color: var(--muted); line-height: 1.6; margin-top: 8px; }

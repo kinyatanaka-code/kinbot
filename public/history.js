@@ -1900,18 +1900,7 @@ async function loadDetail(botId, openTab, opts = {}) {
       .then((r) => r.json())
       .then((d) => {
         if (d && d.url) {
-          const isHls = d.hls || /\.m3u8(\?|$)/.test(d.url);
-          drec.innerHTML = `
-            <video class="rec-video" controls preload="metadata" playsinline></video>` +
-            (isHls ? "" : `<a class="rec-open" href="${escapeHtml(d.url)}" target="_blank" rel="noopener">別タブで開く</a>`);
-          const video = drec.querySelector("video");
-          if (isHls && window.Hls && window.Hls.isSupported() && !video.canPlayType("application/vnd.apple.mpegurl")) {
-            const hls = new Hls();
-            hls.loadSource(d.url);
-            hls.attachMedia(video);
-          } else {
-            video.src = d.url;
-          }
+          setupRecordingPlayer(drec, d, m);
         } else {
           drec.innerHTML = '<div class="rec-none">録画はまだありません（会議終了後・アップロード動画は変換完了後に表示されます）。</div>';
         }
@@ -1922,6 +1911,145 @@ async function loadDetail(botId, openTab, opts = {}) {
   } catch (e) {
     hdetail.innerHTML = '<div class="empty-state">読み込みに失敗しました。</div>';
   }
+}
+
+// ===== 録画プレイヤー =====
+// iPhoneは動画のままだと画面を消した時点で止まる仕様なので、
+// 「音声のみ」に切り替えられるようにする（audio要素はバックグラウンドでも再生が続く）。
+function audioOnlyPref() {
+  try { return localStorage.getItem("kinbot_audio_only") === "1"; } catch { return false; }
+}
+
+function setMediaSession(el, meeting) {
+  if (!("mediaSession" in navigator)) return;
+  try {
+    if (window.MediaMetadata) {
+      navigator.mediaSession.metadata = new MediaMetadata({
+        title: meeting.title || "商談",
+        artist: meeting.company_name || "kinbot",
+        album: meeting.created_at ? new Date(meeting.created_at).toLocaleDateString("ja-JP") : "",
+      });
+    }
+    navigator.mediaSession.setActionHandler("play", () => { el.play().catch(() => {}); });
+    navigator.mediaSession.setActionHandler("pause", () => el.pause());
+    navigator.mediaSession.setActionHandler("seekbackward", (e) => {
+      el.currentTime = Math.max(0, el.currentTime - ((e && e.seekOffset) || 15));
+    });
+    navigator.mediaSession.setActionHandler("seekforward", (e) => {
+      el.currentTime = Math.min(el.duration || 1e9, el.currentTime + ((e && e.seekOffset) || 15));
+    });
+    navigator.mediaSession.setActionHandler("seekto", (e) => {
+      if (!e) return;
+      if (e.fastSeek && el.fastSeek) el.fastSeek(e.seekTime); else el.currentTime = e.seekTime;
+    });
+  } catch {}
+}
+
+// ピクチャインピクチャ（小窓）が使えるか
+function canPip(v) {
+  if (!v) return false;
+  if (typeof v.webkitSupportsPresentationMode === "function") {
+    try { return !!v.webkitSupportsPresentationMode("picture-in-picture"); } catch { return false; }
+  }
+  return !!(document.pictureInPictureEnabled && !v.disablePictureInPicture);
+}
+function isPipOn(v) {
+  if (!v) return false;
+  if (v.webkitPresentationMode) return v.webkitPresentationMode === "picture-in-picture";
+  return document.pictureInPictureElement === v;
+}
+async function togglePip(v) {
+  try {
+    if (typeof v.webkitSetPresentationMode === "function") {
+      v.webkitSetPresentationMode(isPipOn(v) ? "inline" : "picture-in-picture");
+      return;
+    }
+    if (document.pictureInPictureElement === v) await document.exitPictureInPicture();
+    else await v.requestPictureInPicture();
+  } catch (e) {
+    alert("小窓表示に切り替えられませんでした。動画を一度再生してから、もう一度お試しください。");
+  }
+}
+
+function setupRecordingPlayer(drec, d, meeting) {
+  const url = d.url;
+  const isHls = !!(d.hls || /\.m3u8(\?|$)/.test(url));
+  let hlsInst = null;
+  let audioOnly = audioOnlyPref();
+  let pos = 0, rate = 1;
+
+  const destroyHls = () => { if (hlsInst) { try { hlsInst.destroy(); } catch {} hlsInst = null; } };
+  const attach = (el) => {
+    if (isHls && window.Hls && window.Hls.isSupported() && !el.canPlayType("application/vnd.apple.mpegurl")) {
+      hlsInst = new Hls();
+      hlsInst.loadSource(url);
+      hlsInst.attachMedia(el);
+    } else {
+      el.src = url;
+    }
+  };
+
+  function render(autoplay) {
+    destroyHls();
+    drec.innerHTML =
+      (audioOnly
+        ? `<div class="rec-audio-box">
+             <div class="rec-audio-t">音声のみで再生</div>
+             <audio class="rec-audio" controls preload="metadata"></audio>
+             <div class="rec-audio-s">画面を消したり、他のアプリに切り替えても再生が続きます。ロック画面やコントロールセンターから操作できます。</div>
+           </div>`
+        : `<video class="rec-video" controls preload="metadata" playsinline></video>
+           <div class="rec-hint">他のアプリを見ながら観るときは「小窓で再生」、画面を消して聞くときは「音声のみ」を使ってください。</div>`) +
+      `<div class="rec-bar">
+         ${audioOnly ? "" : `<button type="button" class="rec-mode" data-role="pip" hidden>小窓で再生（他の画面を見ながら）</button>`}
+         <button type="button" class="rec-mode${audioOnly ? " is-on" : ""}" data-role="mode">${audioOnly ? "動画に戻す" : "音声のみで再生（画面を消しても続く）"}</button>
+         ${isHls ? "" : `<a class="rec-open" href="${escapeHtml(url)}" target="_blank" rel="noopener">別タブで開く</a>`}
+       </div>`;
+
+    const el = drec.querySelector(audioOnly ? "audio" : "video");
+    attach(el);
+    try { el.playbackRate = rate; } catch {}
+    el.addEventListener("loadedmetadata", () => {
+      if (pos > 0) { try { el.currentTime = pos; } catch {} }
+      try { el.playbackRate = rate; } catch {}
+    }, { once: true });
+    el.addEventListener("timeupdate", () => { if (el.currentTime) pos = el.currentTime; });
+    el.addEventListener("ratechange", () => { rate = el.playbackRate || 1; });
+    if (autoplay) { const p = el.play(); if (p && p.catch) p.catch(() => {}); }
+    setMediaSession(el, meeting);
+
+    // 小窓（ピクチャインピクチャ）— 他のアプリを見ながら動画を再生できる
+    const pipBtn = drec.querySelector('[data-role="pip"]');
+    if (pipBtn) {
+      const syncPip = () => {
+        pipBtn.textContent = isPipOn(el) ? "小窓を閉じる" : "小窓で再生（他の画面を見ながら）";
+        pipBtn.classList.toggle("is-on", isPipOn(el));
+      };
+      const showBtn = () => { pipBtn.hidden = !canPip(el); };
+      showBtn();
+      el.addEventListener("loadedmetadata", showBtn);
+      el.addEventListener("webkitpresentationmodechanged", syncPip);
+      el.addEventListener("enterpictureinpicture", syncPip);
+      el.addEventListener("leavepictureinpicture", syncPip);
+      pipBtn.addEventListener("click", async () => {
+        if (el.paused) { const p = el.play(); if (p && p.catch) p.catch(() => {}); }
+        await togglePip(el);
+        setTimeout(syncPip, 200);
+      });
+    }
+
+    drec.querySelector('[data-role="mode"]').addEventListener("click", () => {
+      pos = el.currentTime || pos;
+      const wasPlaying = !el.paused;
+      el.pause();
+      audioOnly = !audioOnly;
+      try { localStorage.setItem("kinbot_audio_only", audioOnly ? "1" : "0"); } catch {}
+      // 切り替えと同時に再生を始める（タップ直後でないとiPhoneが再生を許可しないため）
+      render(audioOnly ? true : wasPlaying);
+    });
+  }
+
+  render(false);
 }
 
 const HTYPE_LABEL = { question: "深掘り質問", objection: "切り返し", closing: "クロージング", risk: "リスク", info: "補足" };
