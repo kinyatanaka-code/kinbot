@@ -1914,11 +1914,9 @@ async function loadDetail(botId, openTab, opts = {}) {
 }
 
 // ===== 録画プレイヤー =====
-// iPhoneは動画のままだと画面を消した時点で止まる仕様なので、
-// 「音声のみ」に切り替えられるようにする（audio要素はバックグラウンドでも再生が続く）。
-function audioOnlyPref() {
-  try { return localStorage.getItem("kinbot_audio_only") === "1"; } catch { return false; }
-}
+// iPhoneは動画のままだと、ホーム画面に戻ったり他のアプリを開いた時点で止まる仕様。
+// そこで裏に回った瞬間に、同じファイルの音声へ自動で引き継いで再生を続ける。
+// kinbotに戻ってきたら、その位置から動画の再生を再開する。
 
 function setMediaSession(el, meeting) {
   if (!("mediaSession" in navigator)) return;
@@ -1945,155 +1943,95 @@ function setMediaSession(el, meeting) {
   } catch {}
 }
 
-// ピクチャインピクチャ（小窓）が使えるか
-function canPip(v) {
-  if (!v) return false;
-  if (typeof v.webkitSupportsPresentationMode === "function") {
-    try { return !!v.webkitSupportsPresentationMode("picture-in-picture"); } catch { return false; }
-  }
-  return !!(document.pictureInPictureEnabled && !v.disablePictureInPicture);
-}
-function isPipOn(v) {
-  if (!v) return false;
-  if (v.webkitPresentationMode) return v.webkitPresentationMode === "picture-in-picture";
-  return document.pictureInPictureElement === v;
-}
-async function togglePip(v, silent) {
-  try {
-    if (typeof v.webkitSetPresentationMode === "function") {
-      v.webkitSetPresentationMode(isPipOn(v) ? "inline" : "picture-in-picture");
-      return;
-    }
-    if (document.pictureInPictureElement === v) await document.exitPictureInPicture();
-    else await v.requestPictureInPicture();
-  } catch (e) {
-    if (!silent) alert("小窓表示に切り替えられませんでした。動画を一度再生してから、もう一度お試しください。");
-  }
-}
-
-// 「自動で小窓」の設定
-function autoPipPref() {
-  try { return localStorage.getItem("kinbot_auto_pip") === "1"; } catch { return false; }
+// iPhoneかどうか（iPhoneだけ、裏に回ったときに音声へ引き継ぐ）
+function isIOS() {
+  return /iP(hone|ad|od)/.test(navigator.userAgent) ||
+    (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
 }
 
 function setupRecordingPlayer(drec, d, meeting) {
   const url = d.url;
   const isHls = !!(d.hls || /\.m3u8(\?|$)/.test(url));
   let hlsInst = null;
-  let audioOnly = audioOnlyPref();
-  let pos = 0, rate = 1;
+  let bgAudio = null, primed = false, bgActive = false;
 
-  const destroyHls = () => { if (hlsInst) { try { hlsInst.destroy(); } catch {} hlsInst = null; } };
-  const attach = (el) => {
-    if (isHls && window.Hls && window.Hls.isSupported() && !el.canPlayType("application/vnd.apple.mpegurl")) {
-      hlsInst = new Hls();
-      hlsInst.loadSource(url);
-      hlsInst.attachMedia(el);
-    } else {
-      el.src = url;
-    }
-  };
-
-  function render(autoplay) {
-    destroyHls();
-    drec.innerHTML =
-      (audioOnly
-        ? `<div class="rec-audio-box">
-             <div class="rec-audio-t">音声のみで再生</div>
-             <audio class="rec-audio" controls preload="metadata"></audio>
-             <div class="rec-audio-s">画面を消したり、他のアプリに切り替えても再生が続きます。ロック画面やコントロールセンターから操作できます。</div>
-           </div>`
-        : `<video class="rec-video" controls preload="metadata" playsinline></video>
-           <div class="rec-hint">他のアプリを見ながら観るときは「小窓で再生」、画面を消して聞くときは「音声のみ」を使ってください。<br>「ホームに戻ったら自動で小窓」を使うには、iPhoneの 設定 → 一般 → ピクチャインピクチャ →「自動的に開始」をオンにしてください。</div>`) +
-      `<div class="rec-bar">
-         ${audioOnly ? "" : `<button type="button" class="rec-mode" data-role="pip" hidden>小窓で再生（他の画面を見ながら）</button>`}
-         ${audioOnly ? "" : `<label class="rec-auto" data-role="autowrap" hidden><input type="checkbox" data-role="auto"${autoPipPref() ? " checked" : ""}/>ホームに戻ったら自動で小窓</label>`}
-         <button type="button" class="rec-mode${audioOnly ? " is-on" : ""}" data-role="mode">${audioOnly ? "動画に戻す" : "音声のみで再生（画面を消しても続く）"}</button>
-         ${isHls ? "" : `<a class="rec-open" href="${escapeHtml(url)}" target="_blank" rel="noopener">別タブで開く</a>`}
-       </div>`;
-
-    const el = drec.querySelector(audioOnly ? "audio" : "video");
-    attach(el);
-    try { el.playbackRate = rate; } catch {}
-    el.addEventListener("loadedmetadata", () => {
-      if (pos > 0) { try { el.currentTime = pos; } catch {} }
-      try { el.playbackRate = rate; } catch {}
-    }, { once: true });
-    el.addEventListener("timeupdate", () => { if (el.currentTime) pos = el.currentTime; });
-    el.addEventListener("ratechange", () => { rate = el.playbackRate || 1; });
-    if (autoplay) { const p = el.play(); if (p && p.catch) p.catch(() => {}); }
-    setMediaSession(el, meeting);
-
-    // 小窓（ピクチャインピクチャ）— 他のアプリを見ながら動画を再生できる
-    const pipBtn = drec.querySelector('[data-role="pip"]');
-    if (pipBtn) {
-      const syncPip = () => {
-        pipBtn.textContent = isPipOn(el) ? "小窓を閉じる" : "小窓で再生（他の画面を見ながら）";
-        pipBtn.classList.toggle("is-on", isPipOn(el));
-      };
-      const showBtn = () => { pipBtn.hidden = !canPip(el); };
-      showBtn();
-      el.addEventListener("loadedmetadata", showBtn);
-      el.addEventListener("webkitpresentationmodechanged", syncPip);
-      el.addEventListener("enterpictureinpicture", syncPip);
-      el.addEventListener("leavepictureinpicture", syncPip);
-      pipBtn.addEventListener("click", async () => {
-        if (el.paused) { const p = el.play(); if (p && p.catch) p.catch(() => {}); }
-        await togglePip(el);
-        setTimeout(syncPip, 200);
-      });
-
-      // ---- ボタンを押さなくても、ホーム画面に戻ったら小窓にする ----
-      const autoWrap = drec.querySelector('[data-role="autowrap"]');
-      const autoBox = drec.querySelector('[data-role="auto"]');
-      const showAuto = () => { if (autoWrap) autoWrap.hidden = !canPip(el); };
-      showAuto();
-      el.addEventListener("loadedmetadata", showAuto);
-      const applyAuto = () => {
-        const on = autoBox && autoBox.checked;
-        // 対応ブラウザでは属性だけで自動的に小窓になる
-        try { el.autoPictureInPicture = !!on; } catch {}
-        if (on) el.setAttribute("autopictureinpicture", ""); else el.removeAttribute("autopictureinpicture");
-      };
-      applyAuto();
-      if (autoBox) autoBox.addEventListener("change", () => {
-        try { localStorage.setItem("kinbot_auto_pip", autoBox.checked ? "1" : "0"); } catch {}
-        applyAuto();
-        // iPhoneは全画面で再生していないと自動で小窓にならないため、その場で全画面にする
-        if (autoBox.checked && !el.paused && typeof el.webkitEnterFullscreen === "function" && !isPipOn(el)) {
-          try { el.webkitEnterFullscreen(); } catch {}
-        }
-      });
-      // 再生を始めたら、自動小窓ONのときは全画面にしておく（iPhone向け）
-      el.addEventListener("play", () => {
-        if (!autoBox || !autoBox.checked) return;
-        if (isPipOn(el)) return;
-        if (el.webkitDisplayingFullscreen) return;
-        if (typeof el.webkitEnterFullscreen === "function") { try { el.webkitEnterFullscreen(); } catch {} }
-      });
-      // 画面を離れたタイミングでも小窓を試す（対応している端末向け）
-      if (setupRecordingPlayer._vis) document.removeEventListener("visibilitychange", setupRecordingPlayer._vis);
-      setupRecordingPlayer._vis = () => {
-        if (!document.hidden) return;
-        if (!autoBox || !autoBox.checked) return;
-        if (!el.isConnected || el.paused || isPipOn(el)) return;
-        togglePip(el, true);
-      };
-      document.addEventListener("visibilitychange", setupRecordingPlayer._vis);
-    }
-
-    drec.querySelector('[data-role="mode"]').addEventListener("click", () => {
-      pos = el.currentTime || pos;
-      const wasPlaying = !el.paused;
-      el.pause();
-      audioOnly = !audioOnly;
-      try { localStorage.setItem("kinbot_audio_only", audioOnly ? "1" : "0"); } catch {}
-      // 切り替えと同時に再生を始める（タップ直後でないとiPhoneが再生を許可しないため）
-      render(audioOnly ? true : wasPlaying);
-    });
+  // 前のプレイヤーの後始末
+  if (setupRecordingPlayer._vis) {
+    document.removeEventListener("visibilitychange", setupRecordingPlayer._vis);
+    setupRecordingPlayer._vis = null;
   }
 
-  render(false);
+  drec.innerHTML =
+    `<video class="rec-video" controls preload="metadata" playsinline autopictureinpicture></video>
+     <div class="rec-bar">
+       <span class="rec-hint">ホーム画面に戻ったり、他のアプリを開いても音声は再生され続けます。</span>
+       ${isHls ? "" : `<a class="rec-open" href="${escapeHtml(url)}" target="_blank" rel="noopener">別タブで開く</a>`}
+     </div>`;
+
+  const video = drec.querySelector("video");
+  if (isHls && window.Hls && window.Hls.isSupported() && !video.canPlayType("application/vnd.apple.mpegurl")) {
+    hlsInst = new Hls();
+    hlsInst.loadSource(url);
+    hlsInst.attachMedia(video);
+  } else {
+    video.src = url;
+  }
+  setMediaSession(video, meeting);
+
+  // ---- 裏に回ったときに音声へ引き継ぐ（iPhoneのみ） ----
+  const nativeOk = !isHls || !!video.canPlayType("application/vnd.apple.mpegurl");
+  if (!isIOS() || !nativeOk) return;
+
+  bgAudio = document.createElement("audio");
+  bgAudio.preload = "none";
+  bgAudio.src = url;
+  bgAudio.style.display = "none";
+  drec.appendChild(bgAudio);
+
+  // タップした瞬間に一度だけ空再生しておく（iPhoneは事前に許可を取らないと裏で鳴らせないため）
+  const prime = () => {
+    if (primed || !bgAudio) return;
+    primed = true;
+    try {
+      bgAudio.muted = true;
+      const p = bgAudio.play();
+      const done = () => { try { bgAudio.pause(); bgAudio.muted = false; } catch {} };
+      if (p && p.then) p.then(done).catch(() => { primed = false; try { bgAudio.muted = false; } catch {} });
+      else done();
+    } catch { primed = false; }
+  };
+  video.addEventListener("play", prime);
+  drec.addEventListener("pointerdown", prime, { once: true });
+
+  setupRecordingPlayer._vis = () => {
+    if (!bgAudio || !video.isConnected) return;
+    if (document.hidden) {
+      if (video.paused || bgActive) return;
+      try {
+        bgAudio.currentTime = video.currentTime || 0;
+        bgAudio.playbackRate = video.playbackRate || 1;
+        const p = bgAudio.play();
+        if (p && p.catch) p.catch(() => {});
+        bgActive = true;
+        setMediaSession(bgAudio, meeting);
+      } catch {}
+      // 小窓などで動画がそのまま再生され続けている場合は、音が二重にならないよう止める
+      setTimeout(() => {
+        if (bgActive && !video.paused) { try { bgAudio.pause(); } catch {} bgActive = false; }
+      }, 500);
+    } else if (bgActive) {
+      bgActive = false;
+      try {
+        const t = bgAudio.currentTime;
+        bgAudio.pause();
+        if (t) video.currentTime = t;
+        const p = video.play();
+        if (p && p.catch) p.catch(() => {});
+        setMediaSession(video, meeting);
+      } catch {}
+    }
+  };
+  document.addEventListener("visibilitychange", setupRecordingPlayer._vis);
 }
 
 const HTYPE_LABEL = { question: "深掘り質問", objection: "切り返し", closing: "クロージング", risk: "リスク", info: "補足" };
@@ -2227,26 +2165,109 @@ function computeMetrics(tr, repName) {
     const o = by.get(name);
     o.chars += t.length;
     o.turns += 1;
-    if (/[?？]/.test(t)) o.questions += 1;
+    if (/[?？]|ですか|ますか|でしょうか/.test(t)) o.questions += 1;
     total += t.length;
   }
   const speakers = [...by.entries()]
     .map(([name, o]) => ({
       name, chars: o.chars, turns: o.turns, questions: o.questions,
       ratio: total ? Math.round((o.chars / total) * 100) : 0,
-      isRep: repName && name.includes(repName),
+      isRep: !!(repName && name.includes(repName)),
     }))
     .sort((a, b) => b.chars - a.chars);
-  return { speakers };
+  return { speakers, total };
 }
+
+// 顧客の温度感（計算式は temperature.js に集約）
+function computeTemperature(tr, repName) {
+  if (window.KBTemp) return window.KBTemp.score(tr, repName);
+  return { custTurns: 0, score: 0, curve: [] };
+}
+
+// 温度の推移を小さな折れ線で描く
+function tempCurveSvg(curve) {
+  if (!curve || curve.length < 2) return "";
+  const w = 260, h = 54, pad = 6;
+  const step = (w - pad * 2) / (curve.length - 1);
+  const y = (v) => pad + (h - pad * 2) * (1 - v / 100);
+  const pts = curve.map((v, i) => `${(pad + i * step).toFixed(1)},${y(v).toFixed(1)}`);
+  const dots = curve.map((v, i) => `<circle cx="${(pad + i * step).toFixed(1)}" cy="${y(v).toFixed(1)}" r="3" fill="#1d9e75"/>`).join("");
+  return `<svg class="temp-curve" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none" role="img" aria-label="商談中の温度の変化">
+    <line x1="0" y1="${y(50)}" x2="${w}" y2="${y(50)}" stroke="#d8d5c9" stroke-width="1" stroke-dasharray="3 3"/>
+    <polyline points="${pts.join(" ")}" fill="none" stroke="#1d9e75" stroke-width="2.2" stroke-linejoin="round" stroke-linecap="round"/>
+    ${dots}
+  </svg>`;
+}
+
+function tempTile(label, value, sub, tone) {
+  return `<div class="temp-tile${tone ? " is-" + tone : ""}">
+    <div class="temp-tile-v">${value}</div>
+    <div class="temp-tile-l">${escapeHtml(label)}</div>
+    ${sub ? `<div class="temp-tile-s">${escapeHtml(sub)}</div>` : ""}
+  </div>`;
+}
+
 function renderMetricsInto(el, tr, repName) {
   if (!tr.length) {
     el.innerHTML = '<div class="empty-state">文字起こしがありません。</div>';
     return;
   }
   const m = computeMetrics(tr, repName);
-  const rep = m.speakers.find((s) => s.isRep);
+  const t = computeTemperature(tr, repName);
   let html = "";
+
+  // ---- 顧客の温度感 ----
+  if (t.custTurns) {
+    const tone = t.score >= 70 ? "hot" : t.score >= 45 ? "warm" : "cool";
+    html += `<div class="temp-box is-${tone}">
+      <div class="temp-head">
+        <div class="temp-score"><b>${t.score}</b><span>/100</span></div>
+        <div class="temp-meta">
+          <div class="temp-label">顧客の温度感：${escapeHtml(t.level)}</div>
+          <div class="temp-note">${escapeHtml(t.levelNote)}</div>
+        </div>
+      </div>
+      <div class="temp-gauge"><span style="width:${t.score}%"></span></div>
+      <div class="temp-tiles">
+        ${tempTile("前向きなことば", t.strong + t.mild, t.strong ? `うち強い前向き ${t.strong}` : "", "pos")}
+        ${tempTile("購買サイン", t.signal, "料金・時期・稟議など", "sig")}
+        ${tempTile("顧客からの質問", t.custQuestions, "多いほど関心が高い", "q")}
+        ${tempTile("懸念のことば", t.negative, "", t.negative ? "neg" : "")}
+      </div>`;
+    // 商談中に温度をどれだけ動かせたか
+    if (t.curve && t.curve.length >= 2) {
+      const riseTxt = (t.rise > 0 ? "+" : "") + t.rise;
+      const swingNote = t.swing >= 40 ? "会話の中で相手の反応を大きく動かせています"
+        : t.swing >= 20 ? "ある程度、相手の反応を動かせています"
+        : "終始おだやかで、反応の変化は小さめです";
+      html += `<div class="temp-qhead">商談中の温度の動き</div>
+        <div class="temp-move">
+          ${tempCurveSvg(t.curve)}
+          <div class="temp-move-nums">
+            <div class="temp-move-n"><b class="${t.rise > 0 ? "is-up" : t.rise < 0 ? "is-down" : ""}">${escapeHtml(riseTxt)}</b><span>引き上げ幅<em>開始→終了</em></span></div>
+            <div class="temp-move-n"><b>${t.swing}</b><span>振れ幅<em>最高−最低</em></span></div>
+          </div>
+        </div>
+        <div class="temp-move-note">${escapeHtml(swingNote)}</div>`;
+    }
+    if (t.quotesPos.length) {
+      html += `<div class="temp-qhead">引き出せた前向きな発言</div><div class="temp-quotes">` +
+        t.quotesPos.map((q) => `<div class="temp-q"><span class="temp-q-who">${escapeHtml(q.who)}</span>${escapeHtml(q.text.length > 90 ? q.text.slice(0, 90) + "…" : q.text)}${q.words.length ? `<span class="temp-q-w">${q.words.map((w) => escapeHtml(w)).join(" / ")}</span>` : ""}</div>`).join("") +
+        `</div>`;
+    }
+    if (t.quotesNeg.length) {
+      html += `<div class="temp-qhead">気になる発言</div><div class="temp-quotes">` +
+        t.quotesNeg.map((q) => `<div class="temp-q is-neg"><span class="temp-q-who">${escapeHtml(q.who)}</span>${escapeHtml(q.text.length > 90 ? q.text.slice(0, 90) + "…" : q.text)}${q.words.length ? `<span class="temp-q-w">${q.words.map((w) => escapeHtml(w)).join(" / ")}</span>` : ""}</div>`).join("") +
+        `</div>`;
+    }
+    if (!t.known) {
+      html += `<div class="temp-warn">営業担当が特定できないため、全員の発言をお客様として計算しています。上の「営業担当」を設定すると精度が上がります。</div>`;
+    }
+    html += `</div>`;
+  }
+
+  // ---- 話した割合・質問数 ----
+  const rep = m.speakers.find((s) => s.isRep);
   if (rep) {
     const judge = rep.ratio <= 50 ? "良い（相手に話させている）" : "自社が話しすぎ気味";
     html += `<p class="metric-note">自社トーク割合：<b>${rep.ratio}%</b>（目安40〜50%。${judge}）</p>`;
@@ -2257,9 +2278,10 @@ function renderMetricsInto(el, tr, repName) {
   }
   html += "</div>";
   const repQ = rep ? rep.questions : m.speakers.reduce((a, s) => a + s.questions, 0);
-  html += `<p class="metric-note">質問の回数：<b>${repQ}</b>${rep ? "（自社）" : "（全体）"}　／　発話ターン合計：<b>${m.speakers.reduce((a, s) => a + s.turns, 0)}</b></p>`;
+  html += `<p class="metric-note">自社からの質問：<b>${repQ}</b>回　／　お客様からの質問：<b>${t.custQuestions}</b>回　／　発話ターン合計：<b>${m.speakers.reduce((a, s) => a + s.turns, 0)}</b></p>`;
   el.innerHTML = html;
 }
+
 function renderAiInto(el, a) {
   if (!a || (!a.scores && !a.bant && !a.needs)) {
     el.innerHTML = '<div class="empty-state">「分析を生成」を押すと、スコア・BANT・購買シグナル等を作成します。</div>';

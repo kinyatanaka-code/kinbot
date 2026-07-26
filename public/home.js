@@ -11,6 +11,8 @@ let meEmail = "";
 let allMeetings = [];
 let dayEvents = [];
 let allDeals = [];
+let rankSort = "score";
+let rankCache = {};
 let calLoading = false;
 const calCache = {};
 const sfState = {}; // 予定ごとのSalesforceパネルの状態
@@ -309,6 +311,42 @@ function renderMini() {
   box.innerHTML = html;
 }
 
+// ---- 右パネル：温度感ランキング ----
+async function loadRank() {
+  const box = $h("homeRank");
+  if (!box) return;
+  const key = homeScope + ":" + rankSort;
+  if (rankCache[key]) { renderRank(rankCache[key]); return; }
+  box.innerHTML = '<div class="home-panel-empty">読み込み中…</div>';
+  try {
+    const r = await fetch(`/api/temperature-ranking?limit=5&scope=${homeScope === "mine" ? "mine" : "all"}&sort=${rankSort}`);
+    const d = await r.json();
+    rankCache[key] = (d && d.items) || [];
+  } catch { rankCache[key] = []; }
+  renderRank(rankCache[key]);
+}
+function renderRank(items) {
+  const box = $h("homeRank");
+  if (!box) return;
+  if (!items.length) {
+    box.innerHTML = '<div class="home-panel-empty">対象の商談がまだありません。</div>';
+    return;
+  }
+  box.innerHTML = items.map((it, i) => {
+    const name = it.company || companyFromTitle(it.title) || it.title || "(無題)";
+    const val = rankSort === "swing" ? it.swing : it.score;
+    const tone = rankSort === "swing" ? (it.swing >= 40 ? "hot" : it.swing >= 20 ? "warm" : "cool")
+                                      : (it.score >= 70 ? "hot" : it.score >= 45 ? "warm" : "cool");
+    const d = it.created_at ? new Date(it.created_at).toLocaleDateString("ja-JP", { month: "numeric", day: "numeric" }) : "";
+    const sub = rankSort === "swing" ? `スコア ${it.score}` : (it.swing ? `振れ幅 ${it.swing}` : "");
+    return `<a class="home-rank" href="history.html?m=${encodeURIComponent(it.bot_id)}">
+      <span class="home-rank-no">${i + 1}</span>
+      <span class="home-rank-t"><b>${escH(name)}</b><em>${escH(d)}${it.owner_name ? " ・ " + escH(it.owner_name) : ""}${sub ? " ・ " + escH(sub) : ""}</em></span>
+      <span class="home-rank-v is-${tone}">${val}</span>
+    </a>`;
+  }).join("");
+}
+
 // ---- 右パネル：要対応 ----
 function renderTodo(items) {
   const box = $h("homeTodo");
@@ -556,6 +594,7 @@ document.addEventListener("DOMContentLoaded", () => {
     b.addEventListener("click", () => {
       homeScope = b.dataset.scope;
       savePref();
+      loadRank();
       $h("homeToggle").querySelectorAll(".home-tg").forEach((x) => x.classList.toggle("active", x === b));
       render();
     });
@@ -591,6 +630,14 @@ document.addEventListener("DOMContentLoaded", () => {
   $h("dateNext").addEventListener("click", () => shiftDate(1));
   $h("dateToday").addEventListener("click", () => changeDate(todayStr));
   wireList();
+  document.querySelectorAll(".home-rank-tab").forEach((b) => {
+    b.addEventListener("click", () => {
+      rankSort = b.dataset.rank;
+      document.querySelectorAll(".home-rank-tab").forEach((x) => x.classList.toggle("active", x === b));
+      loadRank();
+    });
+  });
   updateHead();
   load();
+  loadRank();
 });

@@ -3325,25 +3325,70 @@ a.home-todo:hover .home-todo-t b { color: #0d5b47; text-decoration: underline; }
 }
 
 /* ---- 録画プレイヤー：音声のみ（バックグラウンド再生）---- */
-.rec-bar { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-top: 8px; }
-.rec-mode {
-  font: inherit; font-size: 12.5px; font-weight: 700; color: #0d5b47;
-  background: var(--panel-2); border: 1px solid var(--line); border-radius: 20px;
-  padding: 8px 14px; cursor: pointer;
-}
-.rec-mode:hover { background: #e5f3ee; border-color: #b9ded0; }
-.rec-mode.is-on { background: #1d9e75; border-color: #1d9e75; color: #fff; }
-.rec-audio-box { background: var(--panel-2); border: 1px solid var(--line); border-radius: 12px; padding: 13px 14px; }
-.rec-audio-t { font-size: 12.5px; font-weight: 700; color: #0d5b47; margin-bottom: 9px; }
-.rec-audio { width: 100%; display: block; }
-.rec-audio-s { font-size: 11.5px; color: var(--muted); line-height: 1.6; margin-top: 9px; }
-
+.rec-bar { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-top: 10px; }
+.rec-bar .rec-hint { flex: 1 1 240px; min-width: 0; }
 @media (max-width: 760px) {
-  .rec-mode { width: 100%; text-align: center; min-height: 44px; }
   .rec-bar { gap: 8px; }
-  .rec-open { width: 100%; text-align: center; }
 }
-.rec-hint { font-size: 11.5px; color: var(--muted); line-height: 1.6; margin-top: 8px; }
-.rec-auto { display: inline-flex; align-items: center; gap: 7px; font-size: 12.5px; color: var(--ink); cursor: pointer; }
-.rec-auto input { width: 17px; height: 17px; min-height: 0; accent-color: #1d9e75; margin: 0; }
-@media (max-width: 760px) { .rec-auto { width: 100%; min-height: 44px; padding: 0 4px; } }
+.rec-hint { font-size: 11.5px; color: var(--muted); line-height: 1.6; }
+
+/* ---- 顧客の温度感 ---- */
+.temp-box { border: 1px solid var(--line); border-radius: 14px; padding: 14px 15px; margin-bottom: 16px; background: var(--panel); }
+.temp-box.is-hot { border-color: #9FE1CB; background: #f2fbf7; }
+.temp-box.is-warm { border-color: #e3dfd0; background: #fbfaf5; }
+.temp-box.is-cool { border-color: var(--line); background: var(--panel-2); }
+.temp-head { display: flex; align-items: center; gap: 14px; }
+.temp-score { display: flex; align-items: baseline; gap: 2px; }
+.temp-score b { font-size: 30px; font-weight: 700; line-height: 1; color: #0d5b47; }
+.temp-score span { font-size: 12px; color: var(--muted); }
+.temp-label { font-size: 14px; font-weight: 700; color: var(--ink); }
+.temp-note { font-size: 12px; color: var(--muted); margin-top: 3px; line-height: 1.5; }
+.temp-gauge { height: 7px; border-radius: 20px; background: #e6e3d8; overflow: hidden; margin: 12px 0 14px; }
+.temp-gauge span { display: block; height: 100%; border-radius: 20px; background: #1d9e75; }
+.is-warm .temp-gauge span { background: #d99114; }
+.is-cool .temp-gauge span { background: #a9a79d; }
+.temp-tiles { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
+.temp-tile { background: var(--panel); border: 1px solid var(--line); border-radius: 11px; padding: 9px 10px; text-align: center; }
+.temp-tile-v { font-size: 19px; font-weight: 700; color: var(--ink); line-height: 1.2; }
+.temp-tile-l { font-size: 11px; color: var(--muted); margin-top: 2px; }
+.temp-tile-s { font-size: 10px; color: #b4b2a9; margin-top: 2px; line-height: 1.4; }
+.temp-tile.is-pos .temp-tile-v, .temp-tile.is-sig .temp-tile-v { color: #0d5b47; }
+.temp-tile.is-q .temp-tile-v { color: #1d9e75; }
+.temp-tile.is-neg .temp-tile-v { color: #b8791a; }
+.temp-qhead { font-size: 12px; font-weight: 700; color: var(--muted); margin: 14px 0 7px; }
+.temp-quotes { display: flex; flex-direction: column; gap: 6px; }
+.temp-q { font-size: 12.5px; line-height: 1.6; color: var(--ink); background: var(--panel); border: 1px solid var(--line); border-left: 3px solid #5DCAA5; border-radius: 9px; padding: 8px 11px; }
+.temp-q.is-neg { border-left-color: #e0b25e; }
+.temp-q-who { display: inline-block; font-size: 11px; font-weight: 700; color: #0d5b47; margin-right: 8px; }
+.temp-q-w { display: inline-block; font-size: 10.5px; color: var(--muted); margin-left: 8px; }
+.temp-warn { font-size: 11.5px; color: #8a6d1f; background: #fbf3e0; border-radius: 9px; padding: 8px 11px; margin-top: 12px; line-height: 1.6; }
+@media (max-width: 760px) {
+  .temp-tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .temp-score b { font-size: 26px; }
+}
+
+/* ---- ホーム：温度感ランキング ---- */
+.home-rank-tabs { display: flex; gap: 2px; background: var(--panel-2); border-radius: 20px; padding: 2px; }
+.home-rank-tab { border: 0; background: transparent; font: inherit; font-size: 10.5px; font-weight: 700; color: var(--muted); padding: 4px 9px; border-radius: 18px; cursor: pointer; }
+.home-rank-tab.active { background: var(--panel); color: #0d5b47; }
+.home-rank { display: flex; align-items: center; gap: 9px; padding: 8px 0; border-bottom: 1px solid var(--line); text-decoration: none; }
+.home-rank:last-child { border-bottom: 0; padding-bottom: 0; }
+.home-rank-no { flex: 0 0 18px; width: 18px; height: 18px; border-radius: 50%; background: var(--panel-2); color: var(--muted); font-size: 10.5px; font-weight: 700; display: flex; align-items: center; justify-content: center; }
+.home-rank:first-child .home-rank-no { background: #1d9e75; color: #fff; }
+.home-rank-t { flex: 1; min-width: 0; }
+.home-rank-t b { display: block; font-size: 12.5px; font-weight: 700; color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.home-rank-t em { display: block; font-style: normal; font-size: 10.5px; color: var(--muted); margin-top: 2px; }
+.home-rank-v { flex: 0 0 auto; font-size: 15px; font-weight: 700; color: var(--muted); }
+.home-rank-v.is-hot { color: #1d9e75; }
+.home-rank-v.is-warm { color: #b8791a; }
+.home-rank:hover .home-rank-t b { color: #0d5b47; text-decoration: underline; }
+.temp-move { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; }
+.temp-curve { width: 260px; max-width: 100%; height: 54px; }
+.temp-move-nums { display: flex; gap: 18px; }
+.temp-move-n { text-align: center; }
+.temp-move-n b { display: block; font-size: 20px; font-weight: 700; color: var(--ink); line-height: 1.2; }
+.temp-move-n b.is-up { color: #1d9e75; }
+.temp-move-n b.is-down { color: #b8791a; }
+.temp-move-n span { display: block; font-size: 11px; color: var(--muted); margin-top: 2px; }
+.temp-move-n em { display: block; font-style: normal; font-size: 10px; color: #b4b2a9; }
+.temp-move-note { font-size: 11.5px; color: var(--muted); margin-top: 8px; line-height: 1.6; }

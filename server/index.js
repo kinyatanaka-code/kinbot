@@ -20,8 +20,11 @@ process.on("unhandledRejection", (e) => {
 import { transcribeFile, transcriberAvailable } from "./transcribe.js";
 import { createBot, leaveBot, parseTranscriptEvent, getRecordingUrl, getBot, recallConnectionInfo, getRecallUsage, getLastRecallCreate } from "./recall.js";
 import { createSession, getSession, removeSession, listActiveSessions, setOnMeetingFinalized } from "./sessions.js";
+import { scoreTranscript } from "./temperature.js";
 import {
   initDb,
+  listRecentMeetingHeads,
+  getTranscriptsByIds,
   listMeetings,
   setMeetingOwner,
   getMeeting,
@@ -4568,6 +4571,70 @@ function verifyRecallRequest(req) {
 function canAccess(_m, _req) {
   return true;
 }
+
+// ===== 顧客の温度感ランキング =====
+// 文字起こしから計算する。結果は updated_at をキーにメモリへ控えて、毎回計算しないようにする。
+const tempCache = new Map();
+app.get("/api/temperature-ranking", async (req, res) => {
+  try {
+    res.set("Cache-Control", "no-store");
+    const limit = Math.max(1, Math.min(50, Number(req.query.limit) || 5));
+    // days を指定しなければ全期間が対象
+    const days = Math.max(0, Math.min(3650, Number(req.query.days) || 0));
+    const scope = req.query.scope === "all" ? "all" : "mine";
+    const me = String((req.user || "")).toLowerCase();
+
+    let heads = await listRecentMeetingHeads({ days, limit: 500 });
+    // ユーザーフォロー・社内MTGは対象外
+    heads = heads.filter((h) => !/【ユ\/フォ】|【社内MTG】/.test(h.title || ""));
+    if (scope === "mine" && me) heads = heads.filter((h) => String(h.owner || "").toLowerCase() === me);
+
+    const need = heads.filter((h) => {
+      const c = tempCache.get(h.bot_id);
+      return !c || c.key !== String(h.updated_at);
+    });
+    // 文字起こしは重いので50件ずつ取って計算する。
+    // 初回は件数が多いので、15秒を超えたらそこで打ち切り、残りは次回に回す。
+    const deadline = Date.now() + 15000;
+    for (let i = 0; i < need.length; i += 50) {
+      if (Date.now() > deadline) break;
+      const part = need.slice(i, i + 50);
+      const rows = await getTranscriptsByIds(part.map((h) => h.bot_id));
+      const byId = new Map(rows.map((r) => [r.bot_id, r.transcript]));
+      for (const h of part) {
+        let r = { score: 0 };
+        try { r = scoreTranscript(byId.get(h.bot_id) || [], h.rep_name || h.owner_name || ""); } catch {}
+        tempCache.set(h.bot_id, { key: String(h.updated_at), r });
+      }
+    }
+    // 増えすぎたら古いものから捨てる
+    if (tempCache.size > 1200) {
+      const keys = [...tempCache.keys()].slice(0, tempCache.size - 1200);
+      for (const k of keys) tempCache.delete(k);
+    }
+
+    const items = heads.map((h) => {
+      const r = (tempCache.get(h.bot_id) || {}).r || {};
+      return {
+        bot_id: h.bot_id,
+        title: h.title || "",
+        company: h.account || "",
+        owner_name: h.owner_name || h.rep_name || "",
+        created_at: h.created_at,
+        score: r.score || 0,
+        level: r.level || "",
+        rise: r.rise || 0,
+        swing: r.swing || 0,
+      };
+    }).filter((x) => x.score > 0);
+
+    const sortBy = req.query.sort === "swing" ? "swing" : "score";
+    items.sort((a, b) => (b[sortBy] - a[sortBy]) || (b.score - a.score));
+    res.json({ items: items.slice(0, limit), total: items.length });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
 
 app.get("/api/meetings", async (req, res) => {
   try {

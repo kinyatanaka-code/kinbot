@@ -2313,3 +2313,33 @@ export async function deleteProposalFile(id) {
   if (!pool) return;
   await pool.query(`DELETE FROM proposal_files WHERE id = $1`, [id]);
 }
+
+// ===== 顧客の温度感ランキング用 =====
+// 見出しだけを取る（文字起こしは重いので含めない）
+// days に 0 以下を渡すと期間でしぼらず全件が対象になる
+export async function listRecentMeetingHeads({ days = 0, limit = 400 } = {}) {
+  if (!pool) return [];
+  const cols = `m.bot_id, m.title, m.rep_name, m.owner, m.created_at, m.updated_at,
+                COALESCE(m.account,'') AS account, u.name AS owner_name`;
+  const from = `FROM meetings m LEFT JOIN users u ON u.email = m.owner`;
+  const hasTr = `jsonb_typeof(m.transcript)='array' AND jsonb_array_length(m.transcript) > 0`;
+  if (days > 0) {
+    const { rows } = await pool.query(
+      `SELECT ${cols} ${from} WHERE ${hasTr} AND m.created_at >= now() - make_interval(days => $1)
+       ORDER BY m.created_at DESC LIMIT $2`, [days, limit]);
+    return rows;
+  }
+  const { rows } = await pool.query(
+    `SELECT ${cols} ${from} WHERE ${hasTr} ORDER BY m.created_at DESC LIMIT $1`, [limit]);
+  return rows;
+}
+
+// 指定した商談の文字起こしだけを取る
+export async function getTranscriptsByIds(ids) {
+  if (!pool || !ids || !ids.length) return [];
+  const { rows } = await pool.query(
+    `SELECT bot_id, transcript FROM meetings WHERE bot_id = ANY($1::text[])`,
+    [ids]
+  );
+  return rows;
+}
