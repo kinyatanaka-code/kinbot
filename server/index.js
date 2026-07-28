@@ -36,6 +36,8 @@ import {
   listRepProducts,
   saveDeepAnalysis,
   updateMeetingMeta,
+  setMeetingTitle,
+  listMeetingsWithoutTranscript,
   deleteMeeting,
   deleteEmptyMeetings,
   syncAccountActionItems,
@@ -3761,7 +3763,7 @@ async function repairMeetingMeta(botId) {
       const d = at;
       title = `${repName || owner}の商談 ${d.getMonth() + 1}/${d.getDate()} ${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
     }
-    if (title !== m.title) await updateMeetingMeta(botId, { title });
+    if (title !== m.title) await setMeetingTitle(botId, title);
     const ownerToSet = newOwner || (!m.owner && owner ? owner : "");
     if (repName !== m.rep_name || ownerToSet) {
       await setMeetingOwner(botId, { repName, ...(ownerToSet ? { owner: ownerToSet } : {}) });
@@ -4783,6 +4785,17 @@ app.get("/api/temperature-ranking", async (req, res) => {
 
     items.sort((a, b) => (b[sortBy] - a[sortBy]) || (b.score - a.score));
     res.json({ items: items.slice(0, limit), total: items.length });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// 履歴一覧に出てこない商談（文字起こしが無い）を確認するための一覧
+app.get("/api/meetings/no-transcript", async (req, res) => {
+  try {
+    res.set("Cache-Control", "no-store");
+    const days = Math.max(1, Math.min(180, Number(req.query.days) || 30));
+    res.json({ items: await listMeetingsWithoutTranscript({ days, limit: 100 }) });
   } catch (e) {
     res.status(500).json({ error: e.message });
   }

@@ -457,6 +457,22 @@ export async function initDb() {
   console.log("[db] Postgres に接続しました（履歴を保存します）。");
 }
 
+// 商談名だけを更新する。回数（round_no）は、商談名から読み取れたときだけ入れる。
+// updateMeetingMeta は round_no を必ず書き換えてしまうので、補完用にはこちらを使う。
+export async function setMeetingTitle(botId, title) {
+  if (!pool || !botId) return;
+  const r = roundFromTitle(title);
+  try {
+    if (r != null) {
+      await pool.query(`UPDATE meetings SET title=$2, round_no=$3, updated_at=now() WHERE bot_id=$1`, [botId, title || "", r]);
+    } else {
+      await pool.query(`UPDATE meetings SET title=$2, updated_at=now() WHERE bot_id=$1`, [botId, title || ""]);
+    }
+  } catch (e) {
+    console.error("[db] setMeetingTitle", e.message);
+  }
+}
+
 // 商談のowner/rep_nameだけを更新する（営業担当の後付け設定に使う）
 export async function setMeetingOwner(botId, { owner, repName } = {}) {
   if (!pool || !botId) return;
@@ -2342,4 +2358,24 @@ export async function getTranscriptsByIds(ids) {
     [ids]
   );
   return rows;
+}
+
+// 文字起こしが無い（＝履歴一覧に出ない）商談を調べる用
+export async function listMeetingsWithoutTranscript({ days = 30, limit = 50 } = {}) {
+  if (!pool) return [];
+  try {
+    const { rows } = await pool.query(
+      `SELECT m.bot_id, m.title, m.owner, m.rep_name, m.meeting_url, m.created_at,
+              (m.transcript IS NULL) AS no_transcript_col
+         FROM meetings m
+        WHERE m.created_at >= now() - make_interval(days => $1)
+          AND NOT (jsonb_typeof(m.transcript)='array' AND jsonb_array_length(m.transcript) > 0)
+        ORDER BY m.created_at DESC LIMIT $2`,
+      [days, limit]
+    );
+    return rows;
+  } catch (e) {
+    console.error("[db] listMeetingsWithoutTranscript", e.message);
+    return [];
+  }
 }

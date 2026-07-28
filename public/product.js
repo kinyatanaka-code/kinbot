@@ -47,7 +47,9 @@
     if (!hasAnyAssignment()) return true; // 誰にもプロダクトが割り当てられていない → 絞り込まない
     const p = current();
     if (!p) return true;            // 「全体」は全部見せる
-    return productOfLoose(owner) === p;
+    const po = productOfLoose(owner);
+    if (!po) return true;           // この担当者にプロダクトが未設定 → どのタブでも表示する（消えないように）
+    return po === p;
   }
 
   // 部分一致も許容してプロダクトを引く（「田中」登録 ↔ 「田中欽也」表示 のズレを吸収）
