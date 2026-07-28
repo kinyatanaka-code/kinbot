@@ -59,7 +59,9 @@ class Session {
   }
   // 後から判明した商談名/所有者/Mux再生IDを補完（予約Bot用）
   enrich({ title, owner, repName, muxPlaybackId }) {
-    if (title && !this.title) { this.title = title; this.focusLoaded = false; }
+    // 「無題」のときも入れ替える
+    const bad = (t) => !String(t || "").trim() || /^[（(]?無題[）)]?$/.test(String(t).trim());
+    if (title && bad(this.title)) { this.title = title; this.focusLoaded = false; }
     if (owner && !this.owner) this.owner = owner;
     if (repName && !this.repName) this.repName = repName;
     if (muxPlaybackId && !this.muxPlaybackId) this.muxPlaybackId = muxPlaybackId;

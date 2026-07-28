@@ -4,7 +4,8 @@
 import { listZoomEvents } from "./google.js";
 import { createBot } from "./recall.js";
 import { resolveConfig } from "./config.js";
-import { isScheduled, markScheduled, createMeeting, listGoogleAccounts } from "./db.js";
+import { isScheduled, markScheduled, createMeeting, listGoogleAccounts, dbGetUser } from "./db.js";
+
 import { muxConfigured, createLiveStream } from "./mux.js";
 import { getDisplayName } from "./auth.js";
 
@@ -37,12 +38,14 @@ async function tick() {
       console.error(`[scheduler] ${owner} の予定取得失敗:`, e.message);
       continue;
     }
-    const repName = await getDisplayName(owner);
+    const ownerName = await getDisplayName(owner);
 
     for (const ev of events) {
       const key = `${owner}::${ev.id}`;
       if (await isScheduled(key)) continue;
       const startMs = new Date(ev.start).getTime();
+      // 商談名＝カレンダーの予定タイトル、営業担当＝カレンダーの主催者
+      const meta = await meetingMeta(owner, ownerName, ev);
       const joinAt = new Date(Math.max(startMs - 3 * 60 * 1000, now + 5000)).toISOString();
       try {
         let mux = null;
@@ -65,16 +68,46 @@ async function tick() {
         });
         await createMeeting(botId, {
           meetingUrl: ev.zoomUrl,
-          repName,
-          title: ev.title,
-          owner,
+          repName: meta.repName,
+          title: meta.title,
+          owner: meta.owner,
           muxPlaybackId: mux?.playbackId || null,
         });
         await markScheduled(key, botId, ev.start);
-        console.log(`[scheduler] 予約: ${owner}「${ev.title}」→ bot ${botId}（入室 ${joinAt}）`);
+        console.log(`[scheduler] 予約: ${owner}「${meta.title}」担当:${meta.repName} → bot ${botId}（入室 ${joinAt}）`);
       } catch (e) {
         console.error(`[scheduler] 予約失敗「${ev.title}」:`, e.message);
       }
     }
   }
+}
+
+// 商談名と営業担当を決める。
+// 商談名：カレンダーの予定タイトル。無ければ主催者名＋日時で埋める（「(無題)」にしない）。
+// 営業担当：予定の主催者。kinbotの登録ユーザーなら、その人の商談として記録する。
+async function meetingMeta(owner, ownerName, ev) {
+  const title = String(ev.title || "").trim();
+  const orgEmail = String(ev.organizer || ev.creator || "").trim().toLowerCase();
+
+  let repName = "";
+  let recOwner = owner;
+  if (orgEmail) {
+    let u = null;
+    try { u = await dbGetUser(orgEmail); } catch {}
+    if (u) {
+      repName = u.name || u.email || orgEmail;
+      recOwner = u.email || owner;
+    } else {
+      repName = ev.organizerName || orgEmail;
+    }
+  }
+  if (!repName) repName = ownerName || owner;
+
+  let name = title;
+  if (!name) {
+    const d = new Date(ev.start);
+    const when = `${d.getMonth() + 1}/${d.getDate()} ${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+    name = `${repName}の商談 ${when}`;
+  }
+  return { title: name, repName, owner: recOwner };
 }

@@ -104,6 +104,7 @@ import {
   saveSetCache,
   listUsers,
   dbGetUser,
+  listGoogleAccounts,
   dbUpdateUser,
   getUserSettings,
   saveUserSettings,
@@ -3670,18 +3671,19 @@ function zoomMeetingId(url) {
 
 // 録画開始時刻に近いカレンダー予定から商談名を推測する。
 // 1) Zoom URL（ミーティングID）が一致する予定を最優先、2) 開始時刻が最も近い予定（前後45分以内）。
-async function guessTitleFromCalendar(owner, meetingUrl, at = new Date()) {
+// カレンダーから該当の予定を探す（ZoomのミーティングID一致 → 時刻がいちばん近いもの）
+async function findCalendarEventFor(owner, meetingUrl, at = new Date()) {
   try {
     const atMs = at.getTime();
     const timeMin = new Date(atMs - 3 * 60 * 60 * 1000).toISOString();
     const timeMax = new Date(atMs + 3 * 60 * 60 * 1000).toISOString();
     const evs = await listCalendarEvents(owner, "primary", { timeMin, timeMax });
-    const timed = (evs || []).filter((e) => !e.allDay && e.start && (e.title || "").trim());
-    if (!timed.length) return "";
+    const timed = (evs || []).filter((e) => !e.allDay && e.start);
+    if (!timed.length) return null;
     const zid = zoomMeetingId(meetingUrl);
     if (zid) {
       const byUrl = timed.find((e) => zoomMeetingId(e.url) === zid);
-      if (byUrl) return byUrl.title.trim();
+      if (byUrl) return byUrl;
     }
     let best = null, bestDist = Infinity;
     for (const e of timed) {
@@ -3690,12 +3692,104 @@ async function guessTitleFromCalendar(owner, meetingUrl, at = new Date()) {
       const dist = atMs >= s && atMs <= en ? 0 : Math.min(Math.abs(s - atMs), Math.abs(en - atMs));
       if (dist < bestDist) { bestDist = dist; best = e; }
     }
-    if (best && bestDist <= 45 * 60 * 1000) return best.title.trim();
-    return "";
+    return best && bestDist <= 45 * 60 * 1000 ? best : null;
   } catch (e) {
     console.error("[cal-title]", e.message);
-    return "";
+    return null;
   }
+}
+
+// 商談名・営業担当が空（または「無題」）のとき、カレンダーの予定タイトルと主催者で埋める
+const BAD_TITLE = (t) => !String(t || "").trim() || /^[（(]?無題[）)]?$/.test(String(t).trim());
+// 誰のカレンダーか分からないときは、Google連携している全員のカレンダーから探す
+async function findCalendarEventAnyAccount(meetingUrl, at) {
+  let accounts = [];
+  try { accounts = await listGoogleAccounts(); } catch { return null; }
+  for (const a of (accounts || []).slice(0, 20)) {
+    const own = a.owner || a.email || "";
+    if (!own) continue;
+    const ev = await findCalendarEventFor(own, meetingUrl, at);
+    if (ev) return { ev, owner: own };
+  }
+  return null;
+}
+
+async function repairMeetingMeta(botId) {
+  try {
+    const m = await getMeeting(botId);
+    if (!m) return;
+    const needTitle = BAD_TITLE(m.title);
+    const needRep = !String(m.rep_name || "").trim();
+    if (!needTitle && !needRep) return;
+    let owner = m.owner || "";
+    const at = m.created_at ? new Date(m.created_at) : new Date();
+
+    // 会議URLが記録されていなければRecallから取り直す
+    let url = m.meeting_url || "";
+    if (!url) {
+      try {
+        const bot = await getBot(botId);
+        url = (bot && (bot.meeting_url?.meeting_id ? bot.meeting_url.platform_url || "" : bot.meeting_url)) || "";
+        if (typeof url === "object") url = url.platform_url || url.url || "";
+      } catch {}
+    }
+
+    let ev = null;
+    if (owner) ev = await findCalendarEventFor(owner, url, at);
+    if (!ev) {
+      const hit = await findCalendarEventAnyAccount(url, at);
+      if (hit) { ev = hit.ev; if (!owner) owner = hit.owner; }
+    }
+    if (!owner && !ev) return;
+
+    let title = m.title || "";
+    let repName = m.rep_name || "";
+    let newOwner = "";
+    if (needTitle && ev && String(ev.title || "").trim()) title = String(ev.title).trim();
+    if (needRep) {
+      const org = String((ev && (ev.organizer || ev.creator)) || "").toLowerCase();
+      if (org) {
+        let u = null;
+        try { u = await dbGetUser(org); } catch {}
+        if (u) { repName = u.name || u.email || org; newOwner = u.email || ""; }
+        else repName = org;
+      }
+      if (!repName && owner) repName = await getDisplayName(owner).catch(() => "") || "";
+    }
+    // それでも商談名が決まらなければ、担当者名と日時で埋める（「無題」で残さない）
+    if (BAD_TITLE(title)) {
+      const d = at;
+      title = `${repName || owner}の商談 ${d.getMonth() + 1}/${d.getDate()} ${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+    }
+    if (title !== m.title) await updateMeetingMeta(botId, { title });
+    const ownerToSet = newOwner || (!m.owner && owner ? owner : "");
+    if (repName !== m.rep_name || ownerToSet) {
+      await setMeetingOwner(botId, { repName, ...(ownerToSet ? { owner: ownerToSet } : {}) });
+    }
+    const s = getSession(botId);
+    if (s && s.enrich) s.enrich({ title, repName });
+    console.log(`[meta補完] ${botId} 商談名「${title}」担当:${repName}`);
+  } catch (e) {
+    console.error("[meta補完]", e.message);
+  }
+}
+
+// 「無題」「担当なし」のまま残っている最近の商談を、まとめてカレンダーから補完する
+async function repairRecentMeetings(limit = 20) {
+  let rows = [];
+  try { rows = await listRecentMeetingHeads({ days: 45, limit: 200 }); } catch { return; }
+  const targets = rows.filter((r) => BAD_TITLE(r.title) || !String(r.rep_name || "").trim()).slice(0, limit);
+  if (!targets.length) return;
+  console.log(`[meta補完] ${targets.length}件の商談をカレンダーから補完します`);
+  for (const r of targets) {
+    await repairMeetingMeta(r.bot_id);
+    await new Promise((ok) => setTimeout(ok, 400)); // Google APIへの負荷をさげる
+  }
+}
+
+async function guessTitleFromCalendar(owner, meetingUrl, at = new Date()) {
+  const e = await findCalendarEventFor(owner, meetingUrl, at);
+  return e && String(e.title || "").trim() ? String(e.title).trim() : "";
 }
 
 // ボットを会議へ送り、セッションを開始する共通処理（手動開始・Zoom自動入室で共用）
@@ -4509,20 +4603,21 @@ app.post("/api/recall/webhook", (req, res) => {
         let s = getSession(ev.botId);
         if (!s) {
           s = createSession(ev.botId, {}); // 予約Bot等：受信時に遅延作成
-          // DBの商談行（予約時に作成済み）から商談名・所有者を補完。空ならカレンダー等から補う。
+          // DBの商談行（予約時に作成済み）から商談名・所有者を補完。
+          // 空ならカレンダーの予定タイトルと主催者から補う。
           try {
-            const m = await getMeeting(ev.botId);
+            let m = await getMeeting(ev.botId);
+            if (!m || BAD_TITLE(m.title) || !String(m.rep_name || "").trim()) {
+              await repairMeetingMeta(ev.botId);
+              m = await getMeeting(ev.botId);
+            }
             if (m) {
-              let title = m.title || "";
-              let repName = m.rep_name || "";
-              const owner = m.owner || "";
-              if (!title && owner && m.meeting_url) {
-                title = (await guessTitleFromCalendar(owner, m.meeting_url).catch(() => "")) || title;
-              }
-              if (!repName && owner) {
-                repName = (await getDisplayName(owner).catch(() => "")) || repName;
-              }
-              s.enrich({ title, owner, repName, muxPlaybackId: m.mux_playback_id });
+              s.enrich({
+                title: m.title || "",
+                owner: m.owner || "",
+                repName: m.rep_name || "",
+                muxPlaybackId: m.mux_playback_id,
+              });
             }
           } catch {}
         }
@@ -4534,7 +4629,11 @@ app.post("/api/recall/webhook", (req, res) => {
       const name = String(req.body?.event || req.body?.type || "").toLowerCase();
       if (/done|ended|finished|fatal|complete|left|leave/.test(name)) {
         const botId = findBotId(req.body);
-        if (botId && getSession(botId)) removeSession(botId); // dispose→自動で要約/FB/分析
+        if (botId) {
+          // 商談名・担当が空のままなら、カレンダーの予定タイトルと主催者で埋めてから締める
+          await repairMeetingMeta(botId);
+          if (getSession(botId)) removeSession(botId); // dispose→自動で要約/FB/分析
+        }
       }
     } catch (e) {
       console.error("[webhook]", e.message);
@@ -6107,6 +6206,8 @@ server.listen(PORT, async () => {
   startScheduler({ publicUrl: PUBLIC_URL });
   startSessionMonitor();
   startAutoJoinCalendarMonitor();
+  // 起動から1分後、「無題」や担当なしのまま残っている最近の商談をカレンダーから補完する
+  setTimeout(() => { repairRecentMeetings().catch((e) => console.error("[meta補完]", e.message)); }, 60 * 1000);
   // 「進行中(未設定)」のうち auto_lose_deadline を過ぎた案件を自動で失注に切り替える：起動直後＋1時間ごと
   const autoLose = () =>
     applyAutoLoseDeadlines()

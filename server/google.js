@@ -134,7 +134,16 @@ export async function listZoomEvents(owner, { timeMin, timeMax } = {}) {
     if (!ev.start?.dateTime) continue;
     const zoom = findZoomUrl(ev);
     if (!zoom) continue;
-    out.push({ id: ev.id, title: ev.summary || "(無題)", start: ev.start.dateTime, zoomUrl: zoom });
+    out.push({
+      id: ev.id,
+      title: ev.summary || "", // 空のまま返す（呼び出し側で埋める）
+      start: ev.start.dateTime,
+      zoomUrl: zoom,
+      organizer: (ev.organizer && ev.organizer.email) || "",
+      organizerName: (ev.organizer && ev.organizer.displayName) || "",
+      creator: (ev.creator && ev.creator.email) || "",
+      guests: (ev.attendees || []).length,
+    });
   }
   return out;
 }
