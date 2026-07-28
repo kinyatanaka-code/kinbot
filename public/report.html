@@ -15,7 +15,7 @@
                 <a class="side-item" href="index.html"><span class="side-ico ico-rec"></span><span class="side-label">レコーディング</span></a>
         <a class="side-item" href="history.html"><span class="side-ico ico-hist"></span><span class="side-label">商談履歴</span></a>
         <a class="side-item" href="report.html"><span class="side-ico ico-ana"></span><span class="side-label">分析</span></a>
-        <a class="side-item" href="apo.html"><span class="side-ico ico-apo"></span><span class="side-label">アポ振り分け</span></a>
+        <a class="side-item" href="report.html?panel=interns"><span class="side-ico ico-apo"></span><span class="side-label">インターンアポ</span></a>
         <a class="side-item" href="settings.html"><span class="side-ico ico-set"></span><span class="side-label">設定</span></a>
         <div class="side-foot"><span id="who" class="who"></span><a href="#" id="logout" class="side-logout">ログアウト</a></div>
       </nav>
@@ -33,6 +33,7 @@
             <button class="rep-tab active" data-rp="funnel">サマリー</button>
             <button class="rep-tab" data-rp="detail">詳細</button>
             <button class="rep-tab" data-rp="insights">インサイト</button>
+            <button class="rep-tab" data-rp="interns">インターンアポ</button>
           </div>
 
           <!-- サマリー（ファネル） -->
@@ -94,7 +95,11 @@
             </div>
             <div id="pipelineBody"><div class="empty-state">読み込み中…</div></div>
 
-            <h3 class="rep-section-title" style="margin-top:32px">インターンアポ</h3>
+          </section>
+
+          <!-- インターンアポ（メニューバーから直接開ける） -->
+          <section class="rep-panel" data-rpanel="interns" hidden>
+            <h3 class="rep-section-title">インターンアポ</h3>
             <div class="rep-controls">
               <label>期間 <input type="date" id="iaFrom" /></label>
               <label>〜 <input type="date" id="iaTo" /></label>

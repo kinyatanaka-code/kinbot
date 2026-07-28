@@ -223,13 +223,17 @@ window.kbProgress = function (el, opts = {}) {
 })();
 
 // 分析ページ群のサイドバーactive処理
+// report.html?panel=interns（インターンアポ）は別メニュー扱いにする
 (function() {
   const path = location.pathname;
-  if (/style-analysis|dashboard|report/.test(path)) {
-    document.querySelectorAll('.side-item').forEach(a => {
-      a.classList.toggle('active', a.href && a.href.includes('report.html'));
-    });
-  }
+  if (!/style-analysis|dashboard|report/.test(path)) return;
+  const isInterns = new URLSearchParams(location.search).get("panel") === "interns";
+  document.querySelectorAll('.side-item').forEach(a => {
+    const href = a.getAttribute("href") || "";
+    const forInterns = href.indexOf("panel=interns") >= 0;
+    const forReport = href.indexOf("report.html") >= 0 && !forInterns;
+    a.classList.toggle('active', isInterns ? forInterns : forReport);
+  });
 })();
 
 // ===== スマホ用：下部タブバー中央の録音ボタン＆ボトムシート =====
@@ -263,7 +267,7 @@ window.kbSheet = function (html) {
   const bar = document.querySelector(".sidebar");
   if (!bar || bar.querySelector(".side-fab")) return;
   if (window.kbIsMobile()) {
-    const SHORT = { "history.html": "履歴", "report.html": "分析", "apo.html": "アポ", "settings.html": "設定" };
+    const SHORT = { "history.html": "履歴", "report.html": "分析", "report.html?panel=interns": "アポ", "settings.html": "設定" };
     bar.querySelectorAll(".side-item").forEach((a) => {
       const key = (a.getAttribute("href") || "").split("/").pop();
       const lb = a.querySelector(".side-label");

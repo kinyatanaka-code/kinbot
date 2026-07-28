@@ -5,20 +5,28 @@ function esc(s) {
 function todayStr() { return new Date().toISOString().slice(0, 10); }
 
 // ===== タブ切替 =====
+function repShowPanel(rp) {
+  document.querySelectorAll("#repTabs .rep-tab").forEach((t) => t.classList.toggle("active", t.dataset.rp === rp));
+  document.querySelectorAll("[data-rpanel]").forEach((p) => (p.hidden = p.dataset.rpanel !== rp));
+  if (rp === "funnel") loadFunnel();
+  if (rp === "kind") loadKind();
+  if (rp === "daily") loadDaily();
+  if (rp === "pipeline") loadPipeline();
+  if (rp === "interns") loadInternDash();
+  if (rp === "insights") loadInsights();
+}
 (function () {
   document.querySelectorAll("#repTabs .rep-tab").forEach((b) => {
-    b.addEventListener("click", () => {
-      const rp = b.dataset.rp;
-      document.querySelectorAll("#repTabs .rep-tab").forEach((t) => t.classList.toggle("active", t === b));
-      document.querySelectorAll("[data-rpanel]").forEach((p) => (p.hidden = p.dataset.rpanel !== rp));
-      if (rp === "funnel") loadFunnel();
-      if (rp === "kind") loadKind();
-      if (rp === "daily") loadDaily();
-      if (rp === "pipeline") loadPipeline();
-      if (rp === "interns") loadInternDash();
-      if (rp === "insights") loadInsights();
-    });
+    b.addEventListener("click", () => repShowPanel(b.dataset.rp));
   });
+  // メニューバーから report.html?panel=interns で来たら、そのタブを開く
+  const want = new URLSearchParams(location.search).get("panel");
+  if (want) {
+    const apply = () => { if (document.querySelector(`[data-rpanel="${want}"]`)) repShowPanel(want); };
+    if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", apply);
+    else apply();
+    setTimeout(apply, 0);
+  }
 })();
 
 // ===== 担当者リストの取得（プルダウン用） =====
@@ -806,8 +814,8 @@ function renderInternDash(body, d) {
   window.kbProduct.mount(() => {
     // 表示中のタブを再読み込み（存在する関数だけ呼ぶ）
     if (typeof loadFunnel === "function") loadFunnel();
-    if (typeof loadKind === "function" && document.querySelector('[data-pane="kind"]:not([hidden])')) loadKind();
-    if (typeof loadInternDash === "function" && document.querySelector('[data-pane="interns"]:not([hidden])')) loadInternDash();
+    if (typeof loadKind === "function" && document.querySelector('[data-rpanel="detail"]:not([hidden])')) loadKind();
+    if (typeof loadInternDash === "function" && document.querySelector('[data-rpanel="interns"]:not([hidden])')) loadInternDash();
     if (typeof loadInsights === "function" && document.querySelector('[data-rpanel="insights"]:not([hidden])')) loadInsights();
   }, { renderOnMount: false }); // 初回のfunnel取得には既にproductが乗っているため
 })();

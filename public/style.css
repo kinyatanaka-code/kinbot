@@ -3100,7 +3100,7 @@ button.np-step:disabled { opacity: 0.6; cursor: wait; }
   .sidebar .side-item[href="history.html"] { order: 2; }
   .sidebar .side-fab                        { order: 3; }
   .sidebar .side-item[href="report.html"]  { order: 4; }
-  .sidebar .side-item[href="apo.html"]     { order: 5; }
+  .sidebar .side-item[href^="report.html?"] { order: 5; }
   .sidebar .side-item[href="settings.html"]{ order: 6; }
   .side-item { padding: 7px 1px 5px; min-height: 46px; gap: 3px; }
   .side-ico { width: 21px; height: 21px; }
