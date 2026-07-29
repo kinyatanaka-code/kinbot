@@ -5306,8 +5306,12 @@ const LEAD_WANT = [
   { key: "visitDate", label: "初回訪問日",           re: /初回(訪問|商談|面談|アポ).*日|初回.*日/, apis: ["First_Visit_Date__c", "firstvisit_date__c"] },
   { key: "apoDate",   label: "アポ獲得日",           re: /アポ.*獲得.*日|獲得日/,      apis: ["Apo_Date__c", "apo_date__c"] },
   { key: "fsNote",    label: "FSへの連携事項",       re: /(FS|ＦＳ|フィールドセールス)/i, apis: ["FS_Note__c", "to_fs__c"] },
-  { key: "website",   label: "会社URL",              re: /会社.*(URL|ホームページ|サイト)|Website/i, apis: ["Website"] },
-  { key: "address",   label: "会社住所",             re: /住所|Street/i,              apis: ["Street"] },
+  { key: "phone",     label: "電話",                re: /電話|Phone/i,               apis: ["Phone"], req: true },
+  { key: "website",   label: "会社URL",              re: /会社.*(URL|ホームページ|サイト)|Website/i, apis: ["Website"], req: true },
+  { key: "state",     label: "住所の都道府県",       re: /都道府県|State/i,           apis: ["State"], req: true },
+  { key: "city",      label: "市区郡",               re: /市区郡|市区町村|City/i,     apis: ["City"] },
+  { key: "address",   label: "町名・番地",           re: /住所|Street/i,              apis: ["Street"] },
+  { key: "postal",    label: "郵便番号",             re: /郵便番号|PostalCode/i,      apis: ["PostalCode"] },
   { key: "employees", label: "会社従業員数",         re: /従業員/,                    apis: ["NumberOfEmployees"] },
 ];
 
@@ -5486,6 +5490,56 @@ app.get("/api/gbiz/company", async (req, res) => {
   } catch (e) {
     console.error("[gbiz company]", e.message);
     res.status(502).json({ error: e.message });
+  }
+});
+
+// 会社名やメールから、電話番号・Webサイトを探す
+// （1）Salesforceの既存の取引先・リード （2）メールのドメイン の順で拾う
+const FREE_MAIL = /^(gmail|yahoo|outlook|hotmail|icloud|docomo|ezweb|softbank|au|me|live|msn|nifty|so-net|biglobe|ocn)\./i;
+app.get("/api/salesforce/company-info", async (req, res) => {
+  try {
+    res.set("Cache-Control", "no-store");
+    const name = String(req.query.name || "").trim();
+    const email = String(req.query.email || "").trim();
+    const out = { phone: "", website: "", source: "" };
+
+    const core = String(name)
+      .replace(/(株式会社|有限会社|合同会社|合資会社|一般社団法人|一般財団法人|医療法人|学校法人|社会福祉法人|㈱|\(株\)|（株）)/g, "")
+      .replace(/['"\\%_\s　]/g, "").trim();
+
+    if (core.length >= 2) {
+      // 既存の取引先
+      try {
+        const d = await sfQuery(req.user, `SELECT Id, Name, Phone, Website FROM Account WHERE Name LIKE '%${core}%' ORDER BY LastModifiedDate DESC LIMIT 5`);
+        for (const r of d.records || []) {
+          if (!out.phone && r.Phone) { out.phone = r.Phone; out.source = "取引先"; }
+          if (!out.website && r.Website) { out.website = r.Website; out.source = out.source || "取引先"; }
+        }
+      } catch {}
+      // 同じ会社の別リード
+      if (!out.phone || !out.website) {
+        try {
+          const d = await sfQuery(req.user, `SELECT Id, Company, Phone, Website FROM Lead WHERE Company LIKE '%${core}%' ORDER BY CreatedDate DESC LIMIT 10`);
+          for (const r of d.records || []) {
+            if (!out.phone && r.Phone) { out.phone = r.Phone; out.source = out.source || "他のリード"; }
+            if (!out.website && r.Website) { out.website = r.Website; out.source = out.source || "他のリード"; }
+          }
+        } catch {}
+      }
+    }
+
+    // メールアドレスのドメインからWebサイトを推測する（フリーメールは除く）
+    if (!out.website && /@/.test(email)) {
+      const dom = email.split("@")[1] || "";
+      if (dom && !FREE_MAIL.test(dom)) {
+        out.website = "https://" + dom.replace(/^www\./i, "");
+        out.source = out.source || "メールのドメイン";
+        out.guessed = true;
+      }
+    }
+    res.json(out);
+  } catch (e) {
+    sfErrorResponse(res, e);
   }
 });
 

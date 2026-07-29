@@ -110,7 +110,15 @@ function formHtml(key, ev) {
     if (k === "visitDate") return s.evDate || selDateL;  // 商談の開催日
     if (k === "apoDate") return selDateL;                // 予定を登録した日＝アポ獲得日
     if (k === "website") return lead.Website || "";
-    if (k === "address") return dedupeAddr(lead.Street || [lead.State, lead.City].filter(Boolean).join("") || "");
+    if (k === "phone") return lead.Phone || "";
+    if (k === "postal") return lead.PostalCode || "";
+    // 住所は、都道府県・市区郡・町名番地に分けて表示する（1欄にまとまっている場合は分解する）
+    if (k === "state" || k === "city" || k === "address") {
+      const parts = splitAddr(dedupeAddr(lead.Street || ""));
+      if (k === "state") return lead.State || parts.state;
+      if (k === "city") return lead.City || parts.city;
+      return (lead.State || lead.City) ? dedupeAddr(lead.Street || "") : (parts.street || dedupeAddr(lead.Street || ""));
+    }
     if (k === "employees") return lead.NumberOfEmployees != null ? String(lead.NumberOfEmployees) : "";
     // この組織で必須の項目は、リードにすでに入っている値を出す
     if (String(k).startsWith("req_")) {
@@ -128,6 +136,10 @@ function formHtml(key, ev) {
     <div class="ln-lead">
       <div class="home-sf-name">${escL(lead.Name || "")}（${escL(lead.Company || "")}）</div>
       <div class="home-sf-meta">${escL(lead.Status || "")}${lead.Owner && lead.Owner.Name ? " ・ " + escL(lead.Owner.Name) : ""}${lead.Email ? " ・ " + escL(lead.Email) : ""}</div>
+    </div>
+    <div class="ln-gbiz">
+      <button type="button" class="btn sf-btn-secondary home-sf-mini" data-ln-gbiz="${escL(key)}">会社情報を取り込む（gBizINFO・既存データ）</button>
+      <div class="ln-gbiz-note"></div>
     </div>
     ${fields}
     ${s.error ? `<div class="home-sf-err">${escL(s.error)}</div>` : ""}
@@ -438,6 +450,18 @@ async function checkLaunched(events) {
   } catch {}
 }
 
+// 住所を「都道府県 / 市区郡 / 町名・番地」に分ける
+function splitAddr(loc) {
+  const t = String(loc || "");
+  const mP = t.match(/^(北海道|東京都|大阪府|京都府|.{2,3}県)/);
+  const state = mP ? mP[1] : "";
+  const rest = state ? t.slice(state.length) : t;
+  const mC = rest.match(/^(.+?[市区町村])/);
+  const city = mC ? mC[1] : "";
+  const street = city ? rest.slice(city.length) : rest;
+  return { state, city, street };
+}
+
 // 住所が「愛媛県西条市愛媛県西条市…」のように二重になっているときに直す
 function dedupeAddr(v) {
   const t = String(v || "");
@@ -501,6 +525,9 @@ async function fillFromGbiz(key, companyName, number) {
       setIfEmpty("Street", b.location);
     }
 
+    // 電話・Webサイトが空なら、Salesforceの既存データやメールのドメインから補う
+    await fillContactInfo(card, note);
+
     if (note) {
       const opts = (d.candidates || []).map((c) =>
         `<option value="${escL(c.corporate_number)}" ${c.corporate_number === b.corporateNumber ? "selected" : ""}>${escL(c.name)}</option>`).join("");
@@ -523,6 +550,31 @@ async function fillFromGbizReplace(key, number) {
     if (el) el.value = "";
   });
   await fillFromGbiz(key, "", number);
+}
+
+// 電話・Webサイトを、Salesforceの既存データやメールのドメインから補う
+async function fillContactInfo(card, note) {
+  if (!card) return;
+  const get = (api) => card.querySelector(`[data-newapi="${api}"]`) || card.querySelector(`[data-api="${api}"]`);
+  const phoneEl = get("Phone"), siteEl = get("Website");
+  if ((!phoneEl || phoneEl.value) && (!siteEl || siteEl.value)) return;
+  const nameEl = get("Company");
+  const mailEl = get("Email");
+  const name = (nameEl && nameEl.value) || "";
+  const email = (mailEl && mailEl.value) || "";
+  if (!name && !email) return;
+  try {
+    const r = await fetch(`/api/salesforce/company-info?name=${encodeURIComponent(name)}&email=${encodeURIComponent(email)}`);
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok) return;
+    let filled = [];
+    if (phoneEl && !phoneEl.value && d.phone) { phoneEl.value = d.phone; filled.push("電話"); }
+    if (siteEl && !siteEl.value && d.website) { siteEl.value = d.website; filled.push("Webサイト"); }
+    if (filled.length && note) {
+      const extra = `<br>${escL(filled.join("・"))}を${escL(d.source || "既存データ")}から補いました${d.guessed ? "（推測なので確認してください）" : ""}`;
+      note.insertAdjacentHTML("beforeend", extra);
+    }
+  } catch {}
 }
 
 async function runLookup(wrap) {
@@ -664,7 +716,12 @@ document.addEventListener("DOMContentLoaded", async () => {
       s.picked = (s.leads || []).find((r) => r.Id === pk.dataset.id) || null;
       s.error = "";
       render();
-      presetLookups(document.querySelector(`[data-ev="${cssEscL(key)}"]`));
+      {
+        const card = document.querySelector(`[data-ev="${cssEscL(key)}"]`);
+        presetLookups(card);
+        // 会社情報（住所・従業員数など）と、電話・Webサイトを自動で補う
+        fillFromGbiz(key, companyOf((dayEventsL.find((x) => (x.id || (x.title + "@" + x.start)) === key) || {}).title || ""), "");
+      }
       return;
     }
     const back = ev.target.closest("[data-ln-back]");
