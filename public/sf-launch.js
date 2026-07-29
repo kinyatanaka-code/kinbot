@@ -50,6 +50,17 @@ function isTarget(title) {
   return /【[^】]*初回/.test(t) || /【[^】]*新\/ヒ/.test(t) || /【[^】]*新規/.test(t);
 }
 
+// 予定を登録した人のメールアドレス
+function creatorEmailOf(e) {
+  return String(e.creator || e.organizer || e.calendarOwner || "").toLowerCase();
+}
+// 表示名（インターン一覧・メンバー一覧にあれば名前、無ければメールの@より前）
+function creatorNameOf(e) {
+  const em = creatorEmailOf(e);
+  if (nameByEmail[em]) return nameByEmail[em];
+  return e.creatorName || e.organizerName || (em ? em.split("@")[0] : "");
+}
+
 function stOf(key) {
   if (!state[key]) state[key] = { open: false, loading: false, error: "", leads: null, picked: null, done: null, q: "", qp: "" };
   return state[key];
@@ -150,6 +161,8 @@ function panelHtml(key, ev) {
 
 let dayEventsL = [];
 let memberCount = 0;
+let nameByEmail = {};   // メール → 表示名
+let ownerFilter = null; // 表示する登録者（null＝全員）
 function render() {
   const box = $l("lnList");
   $l("lnTitle").textContent = (selDateL === todayL ? "今日" : dateLabelL(selDateL)) + "に登録された【初回】【新/ヒ】の予定" + (memberCount ? `（${memberCount}名分）` : "");
@@ -158,9 +171,11 @@ function render() {
   const tb = $l("lnToday");
   if (tb) tb.style.visibility = selDateL === todayL ? "hidden" : "visible";
 
-  const list = (dayEventsL || []).filter((e) => isTarget(e.title));
+  const all = (dayEventsL || []).filter((e) => isTarget(e.title));
+  renderOwnerFilter(all);
+  const list = ownerFilter ? all.filter((e) => ownerFilter.has(creatorEmailOf(e))) : all;
   if (!list.length) {
-    box.innerHTML = '<div class="home-empty">この日に登録された【初回】【新/ヒ】の予定はありません。</div>';
+    box.innerHTML = `<div class="home-empty">${all.length ? "選んだ登録者の予定はありません。" : "この日に登録された【初回】【新/ヒ】の予定はありません。"}</div>`;
     return;
   }
   box.innerHTML = list.map((e) => {
@@ -170,7 +185,7 @@ function render() {
       ? new Date(e.start).toLocaleString("ja-JP", { month: "numeric", day: "numeric", weekday: "short", hour: "2-digit", minute: "2-digit" })
       : "日時未定";
     const madeAt = e.created ? new Date(e.created).toLocaleTimeString("ja-JP", { hour: "2-digit", minute: "2-digit" }) : "";
-    const who = e.creatorName || e.creator || e.organizerName || e.organizer || e.calendarOwner || "";
+    const who = creatorNameOf(e);
     return `<div class="home-card home-card-v" data-ev="${escL(key)}">
       <div class="home-card-row">
         <div class="home-card-main">
@@ -185,6 +200,42 @@ function render() {
       ${panelHtml(key, e)}
     </div>`;
   }).join("");
+}
+
+// 登録者のチェックボックス絞り込み
+function renderOwnerFilter(events) {
+  const wrap = $l("lnOwners");
+  if (!wrap) return;
+  const map = new Map();
+  for (const e of events) {
+    const em = creatorEmailOf(e);
+    if (!em) continue;
+    if (!map.has(em)) map.set(em, { email: em, name: creatorNameOf(e), n: 0 });
+    map.get(em).n++;
+  }
+  const people = [...map.values()].sort((a, b) => b.n - a.n || a.name.localeCompare(b.name, "ja"));
+  if (!people.length) { wrap.innerHTML = ""; return; }
+  if (!ownerFilter) ownerFilter = new Set(people.map((p) => p.email)); // 初期は全員
+  // その日にいない人は外す
+  for (const em of [...ownerFilter]) if (!map.has(em)) ownerFilter.delete(em);
+
+  const on = people.filter((p) => ownerFilter.has(p.email)).length;
+  const label = on === people.length ? "登録者：全員" : `登録者：${on}人を表示中`;
+  const open = wrap.dataset.open === "1";
+  wrap.innerHTML =
+    `<button type="button" class="ln-owner-btn" id="lnOwnerBtn">${escL(label)}
+       <svg viewBox="0 0 24 24" width="13" height="13" aria-hidden="true"><path d="M6 9.5 12 15.5 18 9.5" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+     </button>` +
+    (open ? `<div class="ln-owner-menu">
+       <div class="ln-owner-actions">
+         <button type="button" class="ln-owner-mini" data-owner-all="1">全員</button>
+         <button type="button" class="ln-owner-mini" data-owner-none="1">全解除</button>
+       </div>
+       ${people.map((p) => `<label class="ln-owner-item">
+          <input type="checkbox" data-owner="${escL(p.email)}" ${ownerFilter.has(p.email) ? "checked" : ""}/>
+          <span class="ln-owner-name">${escL(p.name)}</span><span class="ln-owner-n">${p.n}</span>
+        </label>`).join("")}
+     </div>` : "");
 }
 
 async function searchLeads(key) {
@@ -235,6 +286,20 @@ async function convert(key) {
     s.loading = false;
     render();
   }
+}
+
+async function loadNames() {
+  try {
+    const r = await fetch("/api/interns");
+    const d = await r.json();
+    (Array.isArray(d) ? d : []).forEach((x) => { if (x.email) nameByEmail[String(x.email).toLowerCase()] = x.name || x.email; });
+  } catch {}
+  try {
+    const r = await fetch("/api/users");
+    const d = await r.json();
+    const arr = Array.isArray(d) ? d : (d.users || []);
+    arr.forEach((u) => { const em = String(u.email || u.username || "").toLowerCase(); if (em && !nameByEmail[em]) nameByEmail[em] = u.name || em; });
+  } catch {}
 }
 
 async function loadFields() {
@@ -338,6 +403,39 @@ document.addEventListener("DOMContentLoaded", async () => {
     if (p) stOf(p.dataset.lnQp).qp = p.value;
   });
 
+  // 絞り込みの操作
+  const ownersWrap = $l("lnOwners");
+  if (ownersWrap) {
+    ownersWrap.addEventListener("click", (ev) => {
+      ev._lnInside = true; // 下の「外側クリックで閉じる」を通さない
+      if (ev.target.closest("#lnOwnerBtn")) {
+        ownersWrap.dataset.open = ownersWrap.dataset.open === "1" ? "0" : "1";
+        render();
+        return;
+      }
+      if (ev.target.closest("[data-owner-all]")) {
+        document.querySelectorAll("[data-owner]").forEach((c) => ownerFilter.add(c.dataset.owner));
+        render(); return;
+      }
+      if (ev.target.closest("[data-owner-none]")) {
+        ownerFilter.clear();
+        render(); return;
+      }
+    });
+    ownersWrap.addEventListener("change", (ev) => {
+      const c = ev.target.closest("[data-owner]");
+      if (!c) return;
+      if (c.checked) ownerFilter.add(c.dataset.owner); else ownerFilter.delete(c.dataset.owner);
+      render();
+    });
+  }
+  document.addEventListener("click", (ev) => {
+    if (ev._lnInside) return;
+    const w = $l("lnOwners");
+    if (w && w.dataset.open === "1" && !(ev.target.closest && ev.target.closest("#lnOwners"))) { w.dataset.open = "0"; render(); }
+  });
+
+  await loadNames();
   await loadFields();
   loadDay();
 });
