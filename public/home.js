@@ -152,7 +152,7 @@ function sfPanelHtml(key, ev) {
         <button class="btn sf-btn-secondary home-sf-mini" data-sf-reset="${escH(key)}" type="button">別の商談を選ぶ</button>
         <a class="home-sf-link" href="history.html?company=${encodeURIComponent(companyFromTitle(ev.title) || ev.title || "")}">SF更新画面で細かく編集する</a>
       </div>
-      <div class="home-sf-note">ステージを「失注」、失注理由を「ニーズ・優先度不足 ／ 初回商談リスケ」、理由詳細を「リスケ」、失注日と失注後次回アクション日を今日の日付で登録します。</div>`;
+      <div class="home-sf-note">ステージを「失注」、失注理由を「ニーズ・優先度不足 ／ 初回商談リスケ」、理由詳細を「リスケ」、失注日と失注後次回アクション日を今日の日付で登録し、商談所有者を自分に変更します。</div>`;
   } else {
     const rows = s.records;
     let listHtml = "";
@@ -449,7 +449,7 @@ async function sfLose(key) {
     if (!r.ok) {
       s.error = ((d.sfReauth || /未連携/.test(d.error || "")) ? "Salesforceの再連携が必要です。設定から連携し直してください。" : (d.error || "更新に失敗しました"));
     } else {
-      s.done = `失注にしました（ステージ：${d.stage || "失注"} ／ 理由：初回商談リスケ）`;
+      s.done = `失注にしました（ステージ：${d.stage || "失注"} ／ 理由：初回商談リスケ${d.ownerChanged ? " ／ 所有者を自分に変更" : ""}）`;
     }
   } catch (e) {
     s.error = "更新に失敗しました（通信エラー）";

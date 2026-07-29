@@ -1914,8 +1914,8 @@ function buildActivityComment(latestMeeting) {
   const s = m.summary || {};
   const parts = [];
 
-  // 1) まとめ済みの本文（■つきの商談メモ形式）があれば、それをそのまま使う
-  if (s.formatted && String(s.formatted).trim()) {
+  // 1) 旧データで formatted しか無い場合は、それをそのまま使う（画面の表示と同じ）
+  if (s.formatted && !s.key_points && !s.agreements && String(s.formatted).trim()) {
     parts.push(String(s.formatted).trim());
   } else {
     // 2) 無ければ、要約の各項目を組み立てる
@@ -2173,6 +2173,13 @@ function requiredHints(errMsg) {
   const hints = [];
   for (const c of clauses) {
     const toks = [];
+    // 「〜にはA・B・Cを入力してください」形式（項目が中黒で並ぶ）
+    const multi = c.match(/([^。]+?)を(?:入力|選択|登録|設定|記入)して/);
+    if (multi) {
+      let seg = String(multi[1]).replace(/^.*?(?:のためには|ためには|には|は)\s*/, "");
+      const items = seg.split(/[・､、,／\/]/).map((x) => x.trim()).filter((x) => x.length >= 2 && x.length <= 30);
+      if (items.length > 1) { items.forEach((x) => hints.push([x])); continue; }
+    }
     let m = c.match(/([^、。：:！!]{2,}?)が(?:不要|必要|未入力|未選択|空|ない|無い)/);
     if (m) toks.push(m[1]);
     m = c.match(/([^、。：:！!]{1,24}?)の(?:入力|選択|登録|設定|記入|確認)が(?:必要|必須)/);
@@ -2651,19 +2658,21 @@ async function initSfTab(account) {
         });
         // 「不足項目を入力して再更新」で入れた項目も一緒に送る（別々に送るとバリデーションで弾かれるため）
         if (window._sfExtraFields) Object.assign(fields, window._sfExtraFields);
+        let ownerChanged = false;
         if (Object.keys(fields).length) {
           const r = await sfFetch("/api/salesforce/opportunity/" + sfLinkedOpp.Id, {
             method: "PATCH", headers: {"content-type":"application/json"},
             body: JSON.stringify(fields),
           });
+          const d = await r.json().catch(() => ({}));
           if (!r.ok) {
-            const d = await r.json().catch(() => ({}));
             if (d.sfReauth) { showSfReauth($("sfStageFields")); return; }
             throw new Error(d.error || "更新失敗");
           }
+          ownerChanged = !!d.ownerChanged;
         }
         window._sfExtraFields = null;
-        alert("Salesforceを更新しました");
+        alert("Salesforceを更新しました" + (ownerChanged ? "（商談所有者を自分に変更しました）" : ""));
         linkOpportunity(sfLinkedOpp.Id);
       } catch (e) {
         const msg = String(e.message || "");
@@ -2897,10 +2906,21 @@ async function renderSSFields(stageName) {
   const normLbl = (s) => String(s || "").replace(/[\s　()（）:：★☆・_]/g, "").toLowerCase();
   const labelToApi = {};
   for (const f of Object.values(meta)) if (f.label) labelToApi[normLbl(f.label)] = f.name;
+  // ラベル、またはAPI名（末尾__cなど、metaに存在するもの）で解決する。
+  // 組織によって項目名が少し違う（例：同席打診 ↔ 同席打診有無）ので、部分一致でも探す。
+  const labelKeys = Object.keys(labelToApi);
+  const resolveLabel = (lb) => {
+    if (meta[lb]) return lb;
+    const n = normLbl(lb);
+    if (labelToApi[n]) return labelToApi[n];
+    if (n.length < 3) return null;
+    const hit = labelKeys.find((k) => k.includes(n)) ||
+                labelKeys.find((k) => k.length >= 3 && n.includes(k));
+    return hit ? labelToApi[hit] : null;
+  };
   const ssSections = SS_STAGE_LABELS.map((s) => ({
     heading: s.key,
-    // ラベル、またはAPI名（末尾__cなど、metaに存在するもの）で解決する
-    fields: s.labels.map((lb) => (meta[lb] ? lb : labelToApi[normLbl(lb)])).filter(Boolean),
+    fields: s.labels.map(resolveLabel).filter(Boolean),
   })).filter((s) => s.fields.length);
 
   if (ssSections.length) {
