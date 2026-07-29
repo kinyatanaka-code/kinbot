@@ -185,6 +185,27 @@ export function extractRecordId(input) {
 }
 
 // 商談レコードの指定フィールドを取得
+// 連携している本人のSalesforceユーザーIDを取る（商談所有者の付け替えに使う）
+const _sfUserIdCache = new Map(); // owner -> { id, exp }
+export async function getSfUserId(owner) {
+  const c = _sfUserIdCache.get(owner);
+  if (c && c.exp > Date.now()) return c.id;
+  const acc = await getAccess(owner);
+  if (!acc) return "";
+  let id = "";
+  try {
+    const res = await fetch(`${acc.instanceUrl}/services/oauth2/userinfo`, {
+      headers: { Authorization: `Bearer ${acc.token}` },
+    });
+    if (res.ok) {
+      const d = await res.json();
+      id = d.user_id || "";
+    }
+  } catch {}
+  if (id) _sfUserIdCache.set(owner, { id, exp: Date.now() + 60 * 60 * 1000 });
+  return id;
+}
+
 export async function getOpportunity(owner, id, fields = []) {
   const acc = await getAccess(owner);
   if (!acc) throw new Error("Salesforce未連携です");

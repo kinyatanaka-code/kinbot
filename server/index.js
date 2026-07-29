@@ -170,6 +170,7 @@ import { mountGptActions } from "./gpt_actions.js";
 import { mountOauthServer, oauthTokenUser } from "./oauth.js";
 import {
   salesforceConfigured,
+  getSfUserId,
   authUrl as sfAuthUrl,
   createPkce as sfCreatePkce,
   exchangeCode as sfExchangeCode,
@@ -5117,7 +5118,26 @@ app.get("/api/salesforce/opportunity/:id", async (req, res) => {
 app.patch("/api/salesforce/opportunity/:id", async (req, res) => {
   try {
     const fields = req.body || {};
-    await updateOpportunity(req.user, req.params.id, fields);
+    // 商談所有者を、更新した本人に付け替える（OwnerIdが指定されている場合はそちらを優先）
+    let ownerChanged = false;
+    if (fields.OwnerId === undefined) {
+      try {
+        const uid = await getSfUserId(req.user);
+        if (uid) { fields.OwnerId = uid; ownerChanged = true; }
+      } catch {}
+    }
+    try {
+      await updateOpportunity(req.user, req.params.id, fields);
+    } catch (e) {
+      // 所有者の変更が権限などで弾かれたときは、所有者だけ外してもう一度試す
+      if (ownerChanged && /OwnerId|所有者|INSUFFICIENT_ACCESS|FIELD_INTEGRITY/i.test(e.message || "")) {
+        delete fields.OwnerId;
+        ownerChanged = false;
+        await updateOpportunity(req.user, req.params.id, fields);
+      } else {
+        throw e;
+      }
+    }
     // 更新内容をログとしてChatterに投稿
     const parts = [];
     if (fields.StageName) parts.push(`Stage → ${fields.StageName}`);
@@ -5126,7 +5146,7 @@ app.patch("/api/salesforce/opportunity/:id", async (req, res) => {
     if (parts.length) {
       try { await postChatter(req.user, req.params.id, `[kinbot] ${parts.join(" / ")}`); } catch {}
     }
-    res.json({ ok: true });
+    res.json({ ok: true, ownerChanged });
   } catch (e) {
     sfErrorResponse(res, e);
   }
@@ -5205,9 +5225,27 @@ app.post("/api/salesforce/opportunity/:id/lose", async (req, res) => {
     // 受失注理由詳細
     putByLabel(["Loss_Reason_Detail__c", "LostOpp_reason_detail__c"], /理由詳細/, detail, ["string", "textarea"]);
 
-    await updateOpportunity(req.user, req.params.id, fields);
+    // 商談所有者を、更新した本人に付け替える
+    let ownerChanged = false;
+    try {
+      const uid = await getSfUserId(req.user);
+      if (uid) { fields.OwnerId = uid; ownerChanged = true; }
+    } catch {}
+
+    try {
+      await updateOpportunity(req.user, req.params.id, fields);
+    } catch (e) {
+      // 所有者の変更が権限などで弾かれたときは、所有者だけ外してもう一度試す
+      if (ownerChanged && /OwnerId|所有者|INSUFFICIENT_ACCESS|FIELD_INTEGRITY/i.test(e.message || "")) {
+        delete fields.OwnerId;
+        ownerChanged = false;
+        await updateOpportunity(req.user, req.params.id, fields);
+      } else {
+        throw e;
+      }
+    }
     try { await postChatter(req.user, req.params.id, `[kinbot] ${note}`); } catch {}
-    res.json({ ok: true, stage: hit.label || hit.value, fields });
+    res.json({ ok: true, stage: hit.label || hit.value, ownerChanged, fields });
   } catch (e) {
     sfErrorResponse(res, e);
   }
