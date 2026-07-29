@@ -842,12 +842,14 @@ function showDetailPane() {
 function showSubEmbed(view, label) {
   const enc = encodeURIComponent(acctName(selectedAccount));
   const loseParam = (view === "salesforce" && window._kbSfLose) ? "&sf=lose" : "";
+  // ホームで選んだSF商談があれば、そのまま紐づけて開く
+  const oppParam = (view === "salesforce" && window._kbSfOppId) ? "&opp=" + encodeURIComponent(window._kbSfOppId) : "";
   hdetail.innerHTML =
     `<div class="ov-subpage">
        <button type="button" class="ov-subback">← 会社概要へ戻る</button>
        <button class="m-back" type="button">← 商談一覧へ戻る</button>
        <div class="ov-subtitle">${escapeHtml(label || "")}</div>
-       <iframe class="prof-embed" src="deals.html?company=${enc}&embed=1&view=${encodeURIComponent(view)}${loseParam}" title="${escapeHtml(label || "")}"></iframe>
+       <iframe class="prof-embed" src="deals.html?company=${enc}&embed=1&view=${encodeURIComponent(view)}${loseParam}${oppParam}" title="${escapeHtml(label || "")}"></iframe>
      </div>`;
   hdetail.querySelector(".ov-subback").addEventListener("click", () => { window._kbSfLose = false; renderCompanyOverview(); });
   showDetailPane();
@@ -957,8 +959,10 @@ async function loadList() {
       selectedAccount = key || wantCompany;
       renderList();
       renderCompanyOverview();
-      if (params.get("sf") === "lose") {
-        window._kbSfLose = true;
+      const sfParam = params.get("sf");
+      if (sfParam === "lose" || sfParam === "update") {
+        window._kbSfLose = sfParam === "lose";
+        window._kbSfOppId = params.get("opp") || "";
         showSubEmbed("salesforce", "SF更新");
       }
     }

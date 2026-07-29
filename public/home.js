@@ -148,9 +148,9 @@ function sfPanelHtml(key, ev) {
       </div>
       ${s.error ? `<div class="home-sf-err">${escH(s.error)}</div>` : ""}
       <div class="home-sf-row">
-        <button class="btn home-sf-lose" data-sf-lose="${escH(key)}" type="button"${s.loading ? " disabled" : ""}>${s.loading ? "更新中…" : "リスケで失注にする"}</button>
-        <button class="btn sf-btn-secondary home-sf-mini" data-sf-reset="${escH(key)}" type="button">別の商談を選ぶ</button>
-        <a class="home-sf-link" href="history.html?company=${encodeURIComponent(companyFromTitle(ev.title) || ev.title || "")}">SF更新画面で細かく編集する</a>
+        <button class="btn home-sf-lose" data-sf-lose="${escH(key)}" type="button"${s.loading ? " disabled" : ""}>${s.loading ? "更新中…" : "リスケ失注"}</button>
+        <a class="btn sf-btn-secondary home-sf-mini" href="history.html?company=${encodeURIComponent(companyFromTitle(ev.title) || ev.title || "")}&sf=update&opp=${encodeURIComponent(p.Id || "")}">SF更新</a>
+        <button class="btn sf-btn-secondary home-sf-mini" data-sf-reset="${escH(key)}" type="button">別商談を選ぶ</button>
       </div>
       <div class="home-sf-note">ステージを「失注」、失注理由を「ニーズ・優先度不足 ／ 初回商談リスケ」、理由詳細を「リスケ」、失注日と失注後次回アクション日を今日の日付で登録し、商談所有者を自分に変更します。</div>`;
   } else {

@@ -2,6 +2,8 @@
 const $ = (id) => document.getElementById(id);
 // ホームの「失注にする」から来たときのフラグ（自動で99失注を選ぶ）
 window._kbAutoLose = new URLSearchParams(location.search).get("sf") === "lose";
+// ホームで選んだSF商談のID（あればそのまま紐づける）
+window._kbOppId = new URLSearchParams(location.search).get("opp") || "";
 // 商談履歴の会社ページからiframeで埋め込まれたときの表示制御
 try {
   const q = new URLSearchParams(location.search);
@@ -2558,6 +2560,14 @@ async function initSfTab(account) {
           if (el.tagName === "SELECT") { const opt = [...el.options].find((o) => o.value === v || o.textContent === v); if (opt) { el.value = opt.value; filled++; } }
           else if (el.type !== "checkbox") { el.value = v; filled++; }
         }
+        // 次回アクション日が読み取れなかったときは、商談日の1週間後を仮で入れる
+        const dEl = inputs.find((el) => el.type === "date" && /次回アクション日/.test((el.closest(".sf-field")?.querySelector("label")?.textContent) || ""));
+        if (dEl && !dEl.value) {
+          const base = new Date();
+          base.setDate(base.getDate() + 7);
+          dEl.value = `${base.getFullYear()}-${String(base.getMonth() + 1).padStart(2, "0")}-${String(base.getDate()).padStart(2, "0")}`;
+          filled++;
+        }
         if (note) note.textContent = `説明に要約を入れ、${filled}項目を読み取りました。確認・編集して記録してください。`;
       } catch (e) {
         if (note) note.textContent = "読み取りに失敗しました：" + e.message;
@@ -2570,6 +2580,13 @@ async function initSfTab(account) {
   // 活動記録フォームをTaskの実項目から自動生成
   renderTaskFields(account, latestMeeting);
 
+
+  // ホームから商談IDを渡されたら、検索せずにそのまま紐づける
+  if (window._kbOppId) {
+    const oppId = window._kbOppId;
+    window._kbOppId = "";
+    linkOpportunity(oppId);
+  }
 
   // 商談検索
   searchBtn.onclick = async () => {
@@ -2946,6 +2963,19 @@ async function renderSSFields(stageName) {
       `<div class="sf-field"><label>ステージ（段階）を選ぶ</label><select id="sfStage" class="sf-select">${optHtml}</select></div>` +
       `<div id="ssSectionFields" class="sf-ss-section"></div>`;
     // 段階の項目を商談から自動入力する
+    // 昇格日・受失注日などは「更新しようとしている日（今日）」を既定で入れる
+    const fillDefaultDates = () => {
+      const today = new Date();
+      const ymd = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
+      let n = 0;
+      document.querySelectorAll('#ssSectionFields input[type="date"][data-sf-field]').forEach((el) => {
+        if (el.value) return;
+        const lb = (el.closest(".sf-field") && el.closest(".sf-field").querySelector("label") && el.closest(".sf-field").querySelector("label").textContent) || "";
+        if (/昇格日|受失注日|失注日|失注後次回アクション日/.test(lb)) { el.value = ymd; n++; }
+      });
+      return n;
+    };
+
     const autofillSection = async (sec) => {
       const btn = document.getElementById("ssAutofillBtn");
       const note = document.getElementById("ssAutofillNote");
@@ -2968,19 +2998,31 @@ async function renderSSFields(stageName) {
         const values = d.values || {};
         let filled = 0;
         const inputs = [...document.querySelectorAll("#ssSectionFields [data-sf-field]")];
-        for (const el of inputs) {
-          const api = el.dataset.sfField;
-          const v = values[api];
-          if (v == null || v === "") continue;
-          if (el.tagName === "SELECT") {
-            const opt = [...el.options].find((o) => o.value === v || o.textContent === v);
-            if (opt && !el.value) { el.value = opt.value; filled++; }
-          } else if (el.type === "checkbox") {
-            // boolはスキップ
-          } else if (!el.value) {
-            el.value = v; filled++;
+        // 選択肢は「大→中→小」の順に入れる（中は大を選ぶまで選択肢が出ないため）
+        const selects = inputs.filter((el) => el.tagName === "SELECT");
+        const others = inputs.filter((el) => el.tagName !== "SELECT");
+        const setSelect = (el, v) => {
+          const opt = [...el.options].find((o) => o.value === v || o.textContent === v) ||
+                      [...el.options].find((o) => o.textContent && v && o.textContent.includes(v));
+          if (opt && !el.value) {
+            el.value = opt.value;
+            el.dispatchEvent(new Event("change", { bubbles: true })); // 従属の選択肢を作り直す
+            return true;
           }
+          return false;
+        };
+        // 親（従属でないもの）→ 子（従属）の順
+        const parents = selects.filter((el) => !el.dataset.dependentOn);
+        const children = selects.filter((el) => el.dataset.dependentOn);
+        for (const el of parents) { const v = values[el.dataset.sfField]; if (v) filled += setSelect(el, v) ? 1 : 0; }
+        await new Promise((ok) => setTimeout(ok, 30));
+        for (const el of children) { const v = values[el.dataset.sfField]; if (v) filled += setSelect(el, v) ? 1 : 0; }
+        for (const el of others) {
+          const v = values[el.dataset.sfField];
+          if (v == null || v === "" || el.type === "checkbox") continue;
+          if (!el.value) { el.value = v; filled++; }
         }
+        filled += fillDefaultDates();
         if (note) note.textContent = filled ? `${filled}項目を自動入力しました。内容を確認・編集してから更新してください。` : "商談から埋められる項目はありませんでした。";
       } catch (e) {
         if (note) note.textContent = "自動入力に失敗しました：" + e.message;
@@ -3031,6 +3073,7 @@ async function renderSSFields(stageName) {
       if (chuSel) chuSel.addEventListener("change", fillSho);
       const abtn = document.getElementById("ssAutofillBtn");
       if (abtn) abtn.addEventListener("click", () => autofillSection(sec));
+      fillDefaultDates(); // 昇格日などに今日の日付を入れておく
       if (auto && sec.fields.length) autofillSection(sec); // 段階を選んだら自動で読み取り
     };
     const sel = document.getElementById("sfStage");
