@@ -5416,6 +5416,97 @@ app.post("/api/salesforce/leads", async (req, res) => {
   }
 });
 
+// 会社名からgBizINFOの企業情報を引いて、住所・従業員数・URLなどを返す
+app.get("/api/gbiz/company", async (req, res) => {
+  try {
+    res.set("Cache-Control", "no-store");
+    if (!gbizConfigured()) return res.json({ configured: false, best: null, candidates: [] });
+    const name = String(req.query.name || "").trim();
+    const number = String(req.query.number || "").replace(/\D/g, "");
+    let detail = null, candidates = [];
+
+    if (number.length === 13) {
+      detail = await getCompanyDetail(number).catch(() => null);
+    } else {
+      if (!name) return res.status(400).json({ error: "会社名を指定してください" });
+      candidates = await searchCompanies(name, 10).catch(() => []);
+      // 表記ゆれをならして、いちばん近いものを選ぶ
+      const norm = (v) => String(v || "").replace(/[\s　（）()株式会社有限会社合同会社]/g, "");
+      const key = norm(name);
+      const exact = candidates.find((c) => norm(c.name) === key) ||
+                    candidates.find((c) => norm(c.name).includes(key)) ||
+                    candidates.find((c) => key.includes(norm(c.name)));
+      const target = exact || candidates[0];
+      if (target) detail = await getCompanyDetail(target.corporate_number).catch(() => null);
+    }
+    if (!detail) return res.json({ configured: true, best: null, candidates });
+
+    // 住所を「都道府県 / 市区町村 / それ以降」に分ける
+    const loc = String(detail.location || "");
+    const mPref = loc.match(/^(北海道|東京都|大阪府|京都府|.{2,3}県)/);
+    const pref = mPref ? mPref[1] : "";
+    const rest = pref ? loc.slice(pref.length) : loc;
+    const mCity = rest.match(/^(.+?[市区町村])/);
+    const city = mCity ? mCity[1] : "";
+    const street = city ? rest.slice(city.length) : rest;
+    const emp = String(detail.employees || "").replace(/[^\d]/g, "");
+
+    res.json({
+      configured: true,
+      candidates,
+      best: {
+        corporateNumber: detail.corporate_number,
+        name: detail.official_name,
+        location: loc,
+        state: pref,
+        city,
+        street,
+        postalCode: String(detail.postal_code || "").replace(/[^\d-]/g, ""),
+        employees: emp ? Number(emp) : null,
+        website: detail.company_url || "",
+        industry: detail.industry || "",
+        founded: detail.founded || "",
+        capital: detail.capital || "",
+        business: detail.business || "",
+      },
+    });
+  } catch (e) {
+    console.error("[gbiz company]", e.message);
+    res.status(502).json({ error: e.message });
+  }
+});
+
+// 参照項目（ルックアップ）の候補を、参照先のオブジェクトから検索する
+const _lookupNameField = new Map(); // sobject -> 表示に使う項目名
+app.get("/api/salesforce/lookup", async (req, res) => {
+  try {
+    res.set("Cache-Control", "no-store");
+    const sobject = String(req.query.sobject || "").replace(/[^A-Za-z0-9_]/g, "");
+    if (!sobject) return res.status(400).json({ error: "sobjectが必要です" });
+    const q = String(req.query.q || "").replace(/['"\\%_]/g, "").trim();
+
+    // 表示に使う項目（Name が無いオブジェクトにも対応）
+    let nameField = _lookupNameField.get(sobject);
+    if (!nameField) {
+      try {
+        const desc = await describeObject(req.user, sobject);
+        const f = (desc.fields || []).find((x) => x.nameField) ||
+                  (desc.fields || []).find((x) => x.name === "Name");
+        nameField = (f && f.name) || "Name";
+      } catch { nameField = "Name"; }
+      _lookupNameField.set(sobject, nameField);
+    }
+
+    const where = q ? ` WHERE ${nameField} LIKE '%${q}%'` : "";
+    const soql = `SELECT Id, ${nameField} FROM ${sobject}${where} ORDER BY ${nameField} LIMIT 50`;
+    const d = await sfQuery(req.user, soql);
+    const records = (d.records || []).map((r) => ({ id: r.Id, name: r[nameField] || r.Id }));
+    res.json({ records, nameField, sobject });
+  } catch (e) {
+    sfErrorResponse(res, e);
+  }
+});
+
 // キャンペーン一覧（主キャンペーンソースの選択用）
 app.get("/api/salesforce/campaigns", async (req, res) => {
   try {

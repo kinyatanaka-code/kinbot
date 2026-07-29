@@ -78,9 +78,8 @@ function fieldInput(f, key, value) {
     return `<div class="sf-field"><label>${escL(f.label)}</label><div class="home-panel-empty">この項目がSalesforceに見つかりませんでした（入力せずに進みます）</div></div>`;
   }
   const id = `f_${key}_${f.key}`;
-  if (isCampaignRef(f)) {
-    const sel = /^[a-zA-Z0-9]{15,18}$/.test(String(value || "")) ? value : "";
-    return `<div class="sf-field"><label>${escL(f.label)}</label>${campaignSelectHtml(id, f.name, sel).replace("data-newapi=", "data-api=")}</div>`;
+  if (isRef(f)) {
+    return `<div class="sf-field"><label>${escL(f.label)}</label>${lookupHtml(f, "data-api", "", "")}</div>`;
   }
   if (f.options && f.options.length) {
     const opts = ['<option value=""></option>'].concat(
@@ -104,7 +103,7 @@ function formHtml(key, ev) {
   const s = stOf(key);
   const lead = s.picked;
   const def = (k) => {
-    if (k === "campaign") return "3Dメタバース";
+    if (k === "campaign") return "";  // 参照項目なので、検索で選ぶ（初期値は自動で3Dメタバース）
     if (k === "visitDate") return s.evDate || selDateL;  // 商談の開催日
     if (k === "apoDate") return selDateL;                // 予定を登録した日＝アポ獲得日
     if (k === "website") return lead.Website || "";
@@ -153,8 +152,8 @@ function createFormHtml(key, ev) {
       const id = `nf_${key}_${f.name}`;
       const req = f.required || f.name === "LastName" || f.name === "Company" ? ' <span class="sf-req">＊必須</span>' : "";
       const v = def(f);
-      if (isCampaignRef(f)) {
-        return `<div class="sf-field"><label>${escL(f.label)}${req}</label>${campaignSelectHtml(id, f.name, "")}</div>`;
+      if (isRef(f)) {
+        return `<div class="sf-field"><label>${escL(f.label)}${req}</label>${lookupHtml(f, "data-newapi", "", "")}</div>`;
       }
       if (f.options && f.options.length) {
         const opts = ['<option value=""></option>'].concat(
@@ -170,6 +169,10 @@ function createFormHtml(key, ev) {
   }
   return `<div class="ln-form">
     <div class="ln-group">新しいリードを作る</div>
+    <div class="ln-gbiz">
+      <button type="button" class="btn sf-btn-secondary home-sf-mini" data-ln-gbiz="${escL(key)}">gBizINFOから会社情報を取り込む</button>
+      <div class="ln-gbiz-note"></div>
+    </div>
     ${createFields ? html : '<div class="home-sf-msg">項目を読み込み中…</div>'}
     ${s.error ? `<div class="home-sf-err">${escL(s.error)}</div>` : ""}
     <div class="home-sf-row">
@@ -227,7 +230,6 @@ let ownerFilter = null; // 表示する登録者（null＝全員）
 let launched = {};      // 会社名 → すでにある商談
 let sfInstanceUrl = "";
 let createFields = null; // 新規リード作成の入力項目
-let campaigns = null;    // キャンペーン一覧（主キャンペーンソース用）
 function render() {
   const box = $l("lnList");
   $l("lnTitle").textContent = (selDateL === todayL ? "今日" : dateLabelL(selDateL)) + "に登録された【初回】【新/ヒ】の予定" + (memberCount ? `（${memberCount}名分）` : "");
@@ -324,7 +326,7 @@ async function searchLeads(key) {
 }
 
 async function loadCreateFields() {
-  if (createFields) return;
+  if (createFields) { render(); return; }
   try {
     const r = await fetch("/api/salesforce/lead-create-fields");
     const d = await r.json().catch(() => ({}));
@@ -419,33 +421,123 @@ async function checkLaunched(events) {
   } catch {}
 }
 
-// キャンペーン一覧（主キャンペーンソースはキャンペーンへの参照項目なので、名前ではなくIDを入れる必要がある）
-async function loadCampaigns() {
-  if (campaigns) return;
+// 参照項目（ルックアップ）は、参照先のオブジェクトを検索してIDを入れる
+function isRef(f) {
+  return f.type === "reference" && (f.referenceTo || []).length > 0;
+}
+function refObjectOf(f) {
+  return (f.referenceTo || [])[0] || "";
+}
+// 検索できるルックアップ欄。表示はテキスト、実際に送るのは hidden のID。
+function lookupHtml(f, attr, initText, initId) {
+  const obj = refObjectOf(f);
+  return `<div class="ln-lookup" data-obj="${escL(obj)}">
+    <input type="text" class="sf-input ln-lookup-q" placeholder="名前で検索（例：3Dメタバース）" value="${escL(initText || "")}" autocomplete="off" />
+    <input type="hidden" ${attr}="${escL(f.name)}" value="${escL(initId || "")}" />
+    <div class="ln-lookup-menu" hidden></div>
+    <div class="ln-lookup-note">${escL(obj)} から検索します</div>
+  </div>`;
+}
+
+// gBizINFOから会社情報を取り込んで、空欄を埋める
+async function fillFromGbiz(key, companyName, number) {
+  const card = document.querySelector(`[data-ev="${cssEscL(key)}"]`);
+  if (!card) return;
+  const note = card.querySelector(".ln-gbiz-note");
+  if (note) note.textContent = "gBizINFOを検索中…";
   try {
-    const r = await fetch("/api/salesforce/campaigns");
+    const url = number
+      ? `/api/gbiz/company?number=${encodeURIComponent(number)}`
+      : `/api/gbiz/company?name=${encodeURIComponent(companyName || "")}`;
+    const r = await fetch(url);
     const d = await r.json().catch(() => ({}));
-    campaigns = r.ok ? (d.records || []) : [];
-  } catch { campaigns = []; }
+    if (!r.ok) throw new Error(d.error || "取得に失敗しました");
+    if (d.configured === false) { if (note) note.textContent = "gBizINFOのトークンが未設定です（設定で登録できます）"; return; }
+    const b = d.best;
+    if (!b) { if (note) note.textContent = "gBizINFOで会社が見つかりませんでした"; return; }
+
+    const setIfEmpty = (api, v) => {
+      if (v == null || v === "") return;
+      const el = card.querySelector(`[data-newapi="${api}"]`);
+      if (el && !el.value) el.value = v;
+    };
+    setIfEmpty("Website", b.website);
+    setIfEmpty("State", b.state);
+    setIfEmpty("City", b.city);
+    setIfEmpty("Street", b.street);
+    setIfEmpty("PostalCode", b.postalCode);
+    setIfEmpty("NumberOfEmployees", b.employees != null ? String(b.employees) : "");
+
+    // 住所が1項目にまとまっている組織向け（会社住所ラベルの項目）
+    const addrEl = [...card.querySelectorAll("[data-newapi]")].find((el) => {
+      const lb = el.closest(".sf-field")?.querySelector("label")?.textContent || "";
+      return /住所/.test(lb) && !/郵便/.test(lb) && el.dataset.newapi !== "Street";
+    });
+    if (addrEl && !addrEl.value) addrEl.value = b.location || "";
+
+    if (note) {
+      const opts = (d.candidates || []).map((c) =>
+        `<option value="${escL(c.corporate_number)}" ${c.corporate_number === b.corporateNumber ? "selected" : ""}>${escL(c.name)}</option>`).join("");
+      note.innerHTML =
+        `gBizINFOから取り込みました：<b>${escL(b.name)}</b>` +
+        (b.employees ? `（従業員 ${b.employees}名）` : "") +
+        (opts ? `<br><span class="ln-gbiz-pick">別の会社：<select class="sf-select ln-gbiz-sel" data-key="${escL(key)}">${opts}</select></span>` : "");
+    }
+  } catch (e) {
+    if (note) note.textContent = "gBizINFOの取り込みに失敗しました：" + e.message;
+  }
 }
-function defaultCampaignId() {
-  const list = campaigns || [];
-  const hit = list.find((c) => /3\s*d\s*メタバース/i.test(String(c.name || "").replace(/[\s　]/g, ""))) ||
-              list.find((c) => /メタバース/.test(String(c.name || "")));
-  return hit ? hit.id : "";
+
+// 別の会社を選び直したときは、gBizINFO由来の項目を入れ替える
+async function fillFromGbizReplace(key, number) {
+  const card = document.querySelector(`[data-ev="${cssEscL(key)}"]`);
+  if (!card) return;
+  ["Website", "State", "City", "Street", "PostalCode", "NumberOfEmployees"].forEach((api) => {
+    const el = card.querySelector(`[data-newapi="${api}"]`);
+    if (el) el.value = "";
+  });
+  await fillFromGbiz(key, "", number);
 }
-// キャンペーン参照かどうか
-function isCampaignRef(f) {
-  const refs = f.referenceTo || [];
-  return f.type === "reference" && refs.some((x) => String(x).toLowerCase() === "campaign");
+
+async function runLookup(wrap) {
+  if (!wrap) return;
+  const obj = wrap.dataset.obj || "";
+  const q = (wrap.querySelector(".ln-lookup-q").value || "").trim();
+  const menu = wrap.querySelector(".ln-lookup-menu");
+  if (!obj) { menu.hidden = true; return; }
+  menu.hidden = false;
+  menu.innerHTML = '<div class="ln-lookup-msg">検索中…</div>';
+  try {
+    const r = await fetch(`/api/salesforce/lookup?sobject=${encodeURIComponent(obj)}&q=${encodeURIComponent(q)}`);
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(d.error || "検索に失敗しました");
+    const recs = d.records || [];
+    menu.innerHTML = recs.length
+      ? recs.map((x) => `<button type="button" class="ln-lookup-item" data-id="${escL(x.id)}" data-name="${escL(x.name)}">${escL(x.name)}</button>`).join("")
+      : '<div class="ln-lookup-msg">見つかりませんでした</div>';
+  } catch (e) {
+    menu.innerHTML = `<div class="ln-lookup-msg">${escL(e.message)}</div>`;
+  }
 }
-function campaignSelectHtml(id, api, selected) {
-  const list = campaigns || [];
-  const sel = selected || defaultCampaignId();
-  const opts = ['<option value="">（選択なし）</option>'].concat(
-    list.map((c) => `<option value="${escL(c.id)}" ${c.id === sel ? "selected" : ""}>${escL(c.name)}${c.active ? "" : "（無効）"}</option>`)
-  ).join("");
-  return `<select class="sf-select" id="${escL(id)}" data-newapi="${escL(api)}">${opts}</select>`;
+
+// フォームを出したときに「3Dメタバース」を初期選択にする
+async function presetLookups(scope) {
+  const wraps = [...(scope || document).querySelectorAll(".ln-lookup")];
+  for (const w of wraps) {
+    const hidden = w.querySelector("input[type=hidden]");
+    if (hidden.value) continue;
+    const obj = w.dataset.obj;
+    if (!obj) continue;
+    try {
+      const r = await fetch(`/api/salesforce/lookup?sobject=${encodeURIComponent(obj)}&q=${encodeURIComponent("3Dメタバース")}`);
+      const d = await r.json().catch(() => ({}));
+      const rec = (d.records || [])[0];
+      if (rec) {
+        hidden.value = rec.id;
+        w.querySelector(".ln-lookup-q").value = rec.name;
+      }
+    } catch {}
+  }
 }
 
 async function loadNames() {
@@ -546,6 +638,7 @@ document.addEventListener("DOMContentLoaded", async () => {
       s.picked = (s.leads || []).find((r) => r.Id === pk.dataset.id) || null;
       s.error = "";
       render();
+      presetLookups(document.querySelector(`[data-ev="${cssEscL(key)}"]`));
       return;
     }
     const back = ev.target.closest("[data-ln-back]");
@@ -565,13 +658,29 @@ document.addEventListener("DOMContentLoaded", async () => {
       s.evDate = e2 && e2.start ? ymdL(new Date(e2.start)) : selDateL;
       s.mode = "create"; s.error = "";
       render();
-      loadCampaigns().then(() => { loadCreateFields(); });
+      loadCreateFields().then(() => {
+        const card = document.querySelector(`[data-ev="${cssEscL(key)}"]`);
+        presetLookups(card);
+        fillFromGbiz(key, companyOf(e2 ? e2.title : ""), ""); // 会社名から自動で取り込む
+      });
       return;
     }
     const cc = ev.target.closest("[data-ln-cancel]");
     if (cc) { const s = stOf(cc.dataset.lnCancel); s.mode = "search"; s.error = ""; render(); return; }
     const cr = ev.target.closest("[data-ln-create]");
     if (cr) { createLeadNow(cr.dataset.lnCreate); return; }
+    const gb = ev.target.closest("[data-ln-gbiz]");
+    if (gb) {
+      const key = gb.dataset.lnGbiz;
+      const card = document.querySelector(`[data-ev="${cssEscL(key)}"]`);
+      const nameEl = card && card.querySelector('[data-newapi="Company"]');
+      fillFromGbiz(key, nameEl ? nameEl.value : "", "");
+      return;
+    }
+  });
+  box.addEventListener("change", (ev) => {
+    const sel = ev.target.closest(".ln-gbiz-sel");
+    if (sel) fillFromGbizReplace(sel.dataset.key, sel.value);
   });
   box.addEventListener("input", (ev) => {
     const c = ev.target.closest("[data-ln-q]");
@@ -612,8 +721,33 @@ document.addEventListener("DOMContentLoaded", async () => {
     if (w && w.dataset.open === "1" && !(ev.target.closest && ev.target.closest("#lnOwners"))) { w.dataset.open = "0"; render(); }
   });
 
+  // ルックアップ（参照項目）の検索
+  let lookupTimer = null;
+  box.addEventListener("input", (ev) => {
+    const q = ev.target.closest(".ln-lookup-q");
+    if (!q) return;
+    const wrap = q.closest(".ln-lookup");
+    const hidden = wrap.querySelector("input[type=hidden]");
+    hidden.value = ""; // 打ち直したら選択を解除
+    clearTimeout(lookupTimer);
+    lookupTimer = setTimeout(() => runLookup(wrap), 250);
+  });
+  box.addEventListener("focusin", (ev) => {
+    const q = ev.target.closest(".ln-lookup-q");
+    if (q) runLookup(q.closest(".ln-lookup"));
+  });
+  box.addEventListener("click", (ev) => {
+    const item = ev.target.closest(".ln-lookup-item");
+    if (!item) return;
+    ev.stopPropagation();
+    const wrap = item.closest(".ln-lookup");
+    wrap.querySelector(".ln-lookup-q").value = item.dataset.name || "";
+    wrap.querySelector("input[type=hidden]").value = item.dataset.id || "";
+    const menu = wrap.querySelector(".ln-lookup-menu");
+    menu.hidden = true; menu.innerHTML = "";
+  });
+
   await loadNames();
   await loadFields();
-  await loadCampaigns();
   loadDay();
 });
