@@ -105,11 +105,12 @@ function formHtml(key, ev) {
   const s = stOf(key);
   const lead = s.picked;
   const def = (k) => {
+    if (k === "leadSource") return lead.LeadSource || "";  // 空ならプルダウンから選ぶ
     if (k === "campaign") return "";  // 参照項目なので、検索で選ぶ（初期値は自動で3Dメタバース）
     if (k === "visitDate") return s.evDate || selDateL;  // 商談の開催日
     if (k === "apoDate") return selDateL;                // 予定を登録した日＝アポ獲得日
     if (k === "website") return lead.Website || "";
-    if (k === "address") return lead.Street || [lead.State, lead.City].filter(Boolean).join("") || "";
+    if (k === "address") return dedupeAddr(lead.Street || [lead.State, lead.City].filter(Boolean).join("") || "");
     if (k === "employees") return lead.NumberOfEmployees != null ? String(lead.NumberOfEmployees) : "";
     // この組織で必須の項目は、リードにすでに入っている値を出す
     if (String(k).startsWith("req_")) {
@@ -435,6 +436,15 @@ async function checkLaunched(events) {
     const d = await r.json().catch(() => ({}));
     if (r.ok) { launched = d.found || {}; sfInstanceUrl = d.instanceUrl || ""; render(); }
   } catch {}
+}
+
+// 住所が「愛媛県西条市愛媛県西条市…」のように二重になっているときに直す
+function dedupeAddr(v) {
+  const t = String(v || "");
+  for (let n = Math.floor(t.length / 2); n >= 3; n--) {
+    if (t.slice(0, n) === t.slice(n, n * 2)) return t.slice(n);
+  }
+  return t;
 }
 
 // 参照項目（ルックアップ）は、参照先のオブジェクトを検索してIDを入れる

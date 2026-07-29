@@ -5301,6 +5301,7 @@ app.get("/api/calendar/created", async (req, res) => {
 
 // 立ち上げに使うリードの入力項目を、ラベルからAPI名に解決して返す
 const LEAD_WANT = [
+  { key: "leadSource", label: "リードソース",        re: /リードソース|Lead\s*Source/i, apis: ["LeadSource"], req: true },
   { key: "campaign",  label: "主キャンペーンソース", re: /主?キャンペーン(ソース|元)/, apis: ["Primary_Campaign_Source__c", "CampaignSource__c"] },
   { key: "visitDate", label: "初回訪問日",           re: /初回(訪問|商談|面談|アポ).*日|初回.*日/, apis: ["First_Visit_Date__c", "firstvisit_date__c"] },
   { key: "apoDate",   label: "アポ獲得日",           re: /アポ.*獲得.*日|獲得日/,      apis: ["Apo_Date__c", "apo_date__c"] },
@@ -5324,6 +5325,7 @@ app.get("/api/salesforce/lead-fields", async (req, res) => {
       out.push({
         key: w.key, label: f.label || w.label, name: f.name, found: true,
         type: f.type,
+        required: !!w.req || (!f.nillable && !f.defaultedOnCreate),
         referenceTo: f.referenceTo || [],
         options: (f.picklistValues || []).filter((o) => o.active).map((o) => ({ value: o.value, label: o.label || o.value })),
       });
