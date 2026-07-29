@@ -67,8 +67,19 @@ export async function exchangeCode(code, redirectUri, owner) {
   return data;
 }
 
+// 接続先（本番／サンドボックス）が環境変数の設定と食い違っているトークンは無効扱いにする。
+// 本番切替のときに、サンドボックスの古い連携が残って誤送信されるのを防ぐため。
+const IS_SANDBOX_LOGIN = /test\.salesforce\.com/.test(LOGIN_URL);
+export function tokenOrgMismatch(row) {
+  const url = String((row && row.instance_url) || "");
+  if (!url) return false;
+  const tokenIsSandbox = /\.sandbox\.|--.*\.my\.salesforce\.com|\.cs[0-9]+\.my\.salesforce\.com/.test(url);
+  return tokenIsSandbox !== IS_SANDBOX_LOGIN;
+}
+
 export async function isConnected(owner) {
   const row = await getSalesforceToken(owner);
+  if (row && tokenOrgMismatch(row)) return false;
   return !!(row && row.refresh_token);
 }
 export async function disconnect(owner) {
@@ -76,12 +87,15 @@ export async function disconnect(owner) {
 }
 export async function connectionInfo(owner) {
   const row = await getSalesforceToken(owner);
+  const mismatch = row ? tokenOrgMismatch(row) : false;
   return {
     configured: salesforceConfigured(),
-    connected: !!(row && row.refresh_token),
+    connected: !!(row && row.refresh_token) && !mismatch,
     instanceUrl: row?.instance_url || null,
     sfUser: row?.sf_user || null,
     loginUrl: LOGIN_URL,
+    sandbox: IS_SANDBOX_LOGIN,
+    orgMismatch: mismatch,
   };
 }
 
@@ -100,6 +114,15 @@ async function getAccess(owner, force = false) {
   }
   const row = await getSalesforceToken(owner);
   if (!row || !row.refresh_token) return null;
+  // 接続先が変わった（サンドボックス↔本番）場合は、古い連携を消して再連携させる
+  if (tokenOrgMismatch(row)) {
+    _sfTokenCache.delete(owner);
+    await deleteSalesforceToken(owner).catch(() => {});
+    console.warn(`[salesforce] 接続先が変わったため ${owner} の古い連携を解除しました（再連携が必要です）`);
+    const e = new Error("SF_REAUTH: Salesforceの接続先が変わりました。設定から再連携してください。");
+    e.sfReauth = true;
+    throw e;
+  }
   const res = await fetch(`${LOGIN_URL}/services/oauth2/token`, {
     method: "POST",
     headers: { "content-type": "application/x-www-form-urlencoded" },
