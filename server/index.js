@@ -4978,6 +4978,27 @@ app.get("/auth/salesforce/callback", async (req, res) => {
     res.redirect(returnUrl);
   } catch (e) {
     console.error("[salesforce]", e.message);
+    // IP制限で弾かれた場合は、いま実際に使っている送信元IPを画面に出す（登録依頼にそのまま使えるように）
+    if (/ip restricted/i.test(e.message || "")) {
+      let ip = "取得できませんでした";
+      try { ip = (await (await fetch("https://api.ipify.org")).text()).trim(); } catch {}
+      const loginUrl = (process.env.SF_LOGIN_URL || "https://login.salesforce.com").replace(/\/+$/, "");
+      return res.status(500).send(`<!DOCTYPE html><html lang="ja"><head><meta charset="utf-8"><title>連携に失敗しました</title></head>
+        <body style="font-family:sans-serif;max-width:640px;margin:40px auto;padding:0 20px;line-height:1.8;color:#2c2c2a">
+          <h2 style="color:#a13a3a">Salesforceの連携に失敗しました（IP制限）</h2>
+          <p>Salesforce側で、kinbotのサーバーからの接続が許可されていません。</p>
+          <p style="background:#f4f7f5;border:1px solid #e4e9e5;border-radius:10px;padding:14px">
+            いまの送信元IP：<b style="font-size:18px">${ip}</b><br>
+            接続先：${loginUrl}
+          </p>
+          <p>Salesforceの管理者に、次のどちらかを依頼してください。</p>
+          <ol>
+            <li>接続アプリのOAuthポリシーで「<b>IP制限の緩和</b>」を選ぶ（おすすめ）</li>
+            <li>上のIPを、組織の信頼済みIP範囲とプロファイルのログインIP範囲に登録する</li>
+          </ol>
+          <p><a href="/settings.html">設定に戻る</a></p>
+        </body></html>`);
+    }
     res.status(500).send("連携に失敗しました: " + e.message);
   }
 });
