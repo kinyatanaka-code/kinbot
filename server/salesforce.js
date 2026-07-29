@@ -753,14 +753,34 @@ export async function updateLead(owner, id, fields) {
   throw new Error(`SF lead update ${res.status}: ${t}`);
 }
 
-// コンバート済みを表すリードステータスを取る
-export async function convertedLeadStatus(owner) {
+// コンバート済みを表すリードステータスの一覧を取る。
+// LeadStatus のラベルと Lead.Status の選択肢を突き合わせて、APIに渡せる値を返す。
+export async function convertedLeadStatuses(owner) {
+  let labels = [];
   try {
-    const d = await sfQuery(owner, `SELECT MasterLabel FROM LeadStatus WHERE IsConverted = true ORDER BY SortOrder LIMIT 1`);
-    return (d.records && d.records[0] && d.records[0].MasterLabel) || "";
-  } catch {
-    return "";
+    const d = await sfQuery(owner, `SELECT MasterLabel FROM LeadStatus WHERE IsConverted = true ORDER BY SortOrder`);
+    labels = (d.records || []).map((r) => r.MasterLabel).filter(Boolean);
+  } catch {}
+  let values = [];
+  try {
+    const desc = await describeObject(owner, "Lead");
+    const f = (desc.fields || []).find((x) => x.name === "Status");
+    values = ((f && f.picklistValues) || []).filter((v) => v.active).map((v) => ({ value: v.value, label: v.label || v.value }));
+  } catch {}
+  const norm = (v) => String(v || "").replace(/[\s　：:]/g, "");
+  const out = [];
+  for (const lb of labels) {
+    const hit = values.find((v) => v.label === lb) ||
+                values.find((v) => v.value === lb) ||
+                values.find((v) => norm(v.label) === norm(lb) || norm(v.value) === norm(lb));
+    out.push({ value: hit ? hit.value : lb, label: lb });
   }
+  return out;
+}
+
+export async function convertedLeadStatus(owner) {
+  const list = await convertedLeadStatuses(owner);
+  return (list[0] && list[0].value) || "";
 }
 
 // リードをコンバートする（標準の convertLead アクションを使う）

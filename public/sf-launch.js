@@ -14,6 +14,7 @@ const todayL = ymdL(new Date());
 let selDateL = todayL;
 let leadFields = null;     // 入力項目の定義（Salesforceのdescribeから）
 let convertedStatus = "";
+let convertedStatuses = [];
 const state = {};          // 予定ごとの状態
 
 // かっこ類を【】にそろえてから中身を落とす
@@ -108,14 +109,20 @@ function formHtml(key, ev) {
     if (k === "visitDate") return s.evDate || selDateL;  // 商談の開催日
     if (k === "apoDate") return selDateL;                // 予定を登録した日＝アポ獲得日
     if (k === "website") return lead.Website || "";
-    if (k === "address") return [lead.State, lead.City, lead.Street].filter(Boolean).join("") || "";
+    if (k === "address") return lead.Street || [lead.State, lead.City].filter(Boolean).join("") || "";
     if (k === "employees") return lead.NumberOfEmployees != null ? String(lead.NumberOfEmployees) : "";
+    // この組織で必須の項目は、リードにすでに入っている値を出す
+    if (String(k).startsWith("req_")) {
+      const api = String(k).slice(4);
+      const v = lead[api];
+      return v == null ? "" : String(v);
+    }
     return "";
   };
   const main = (leadFields || []).filter((f) => !String(f.key).startsWith("req_"));
   const reqs = (leadFields || []).filter((f) => String(f.key).startsWith("req_"));
   const fields = main.map((f) => fieldInput(f, key, def(f.key))).join("") +
-    (reqs.length ? `<div class="ln-group">この組織で必須の項目</div>` + reqs.map((f) => fieldInput(f, key, "")).join("") : "");
+    (reqs.length ? `<div class="ln-group">この組織で必須の項目</div>` + reqs.map((f) => fieldInput(f, key, def(f.key))).join("") : "");
   return `<div class="ln-form">
     <div class="ln-lead">
       <div class="home-sf-name">${escL(lead.Name || "")}（${escL(lead.Company || "")}）</div>
@@ -123,6 +130,7 @@ function formHtml(key, ev) {
     </div>
     ${fields}
     ${s.error ? `<div class="home-sf-err">${escL(s.error)}</div>` : ""}
+    ${convertedStatuses.length > 1 ? `<div class="sf-field"><label>コンバート後のリード状況</label><select class="sf-select" id="cs_${escL(key)}" data-convstatus="1">${convertedStatuses.map((c) => `<option value="${escL(c.value)}" ${c.value === convertedStatus ? "selected" : ""}>${escL(c.label)}</option>`).join("")}</select></div>` : ""}
     <div class="home-sf-row">
       <button class="btn" data-ln-go="${escL(key)}" type="button"${s.loading ? " disabled" : ""}>${s.loading ? "立ち上げ中…" : "この内容で立ち上げる"}</button>
       <button class="btn sf-btn-secondary home-sf-mini" data-ln-back="${escL(key)}" type="button">別のリードを選ぶ</button>
@@ -398,7 +406,11 @@ async function convert(key) {
     const r = await fetch(`/api/salesforce/leads/${encodeURIComponent(s.picked.Id)}/convert`, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ fields, convertedStatus, opportunityName: s.picked.Company || s.picked.Name }),
+      body: JSON.stringify({
+        fields,
+        convertedStatus: (card && card.querySelector("[data-convstatus]") && card.querySelector("[data-convstatus]").value) || convertedStatus,
+        opportunityName: s.picked.Company || s.picked.Name,
+      }),
     });
     const d = await r.json().catch(() => ({}));
     if (!r.ok) throw new Error(d.error || "立ち上げに失敗しました");
@@ -462,22 +474,22 @@ async function fillFromGbiz(key, companyName, number) {
 
     const setIfEmpty = (api, v) => {
       if (v == null || v === "") return;
-      const el = card.querySelector(`[data-newapi="${api}"]`);
+      const el = card.querySelector(`[data-newapi="${api}"]`) || card.querySelector(`[data-api="${api}"]`);
       if (el && !el.value) el.value = v;
     };
+    const hasState = !!card.querySelector('[data-newapi="State"], [data-api="State"]');
+    const hasCity = !!card.querySelector('[data-newapi="City"], [data-api="City"]');
     setIfEmpty("Website", b.website);
-    setIfEmpty("State", b.state);
-    setIfEmpty("City", b.city);
-    setIfEmpty("Street", b.street);
     setIfEmpty("PostalCode", b.postalCode);
     setIfEmpty("NumberOfEmployees", b.employees != null ? String(b.employees) : "");
-
-    // 住所が1項目にまとまっている組織向け（会社住所ラベルの項目）
-    const addrEl = [...card.querySelectorAll("[data-newapi]")].find((el) => {
-      const lb = el.closest(".sf-field")?.querySelector("label")?.textContent || "";
-      return /住所/.test(lb) && !/郵便/.test(lb) && el.dataset.newapi !== "Street";
-    });
-    if (addrEl && !addrEl.value) addrEl.value = b.location || "";
+    if (hasState || hasCity) {
+      setIfEmpty("State", b.state);
+      setIfEmpty("City", b.city);
+      setIfEmpty("Street", b.street);
+    } else {
+      // 都道府県・市区郡の欄が無い組織では、住所を1つにまとめて入れる
+      setIfEmpty("Street", b.location);
+    }
 
     if (note) {
       const opts = (d.candidates || []).map((c) =>
@@ -562,7 +574,7 @@ async function loadFields() {
   try {
     const r = await fetch("/api/salesforce/lead-fields");
     const d = await r.json().catch(() => ({}));
-    if (r.ok) { leadFields = d.fields || []; convertedStatus = d.convertedStatus || ""; }
+    if (r.ok) { leadFields = d.fields || []; convertedStatus = d.convertedStatus || ""; convertedStatuses = d.convertedStatuses || []; }
   } catch {}
 }
 

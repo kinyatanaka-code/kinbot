@@ -178,6 +178,7 @@ import {
   convertLead,
   createLead,
   convertedLeadStatus,
+  convertedLeadStatuses,
   authUrl as sfAuthUrl,
   createPkce as sfCreatePkce,
   exchangeCode as sfExchangeCode,
@@ -5336,7 +5337,8 @@ app.get("/api/salesforce/lead-fields", async (req, res) => {
         type: f.type, referenceTo: f.referenceTo || [],
         options: (f.picklistValues || []).filter((o) => o.active).map((o) => ({ value: o.value, label: o.label || o.value })),
       }));
-    res.json({ fields: out.concat(required), convertedStatus: await convertedLeadStatus(req.user) });
+    const statuses = await convertedLeadStatuses(req.user);
+    res.json({ fields: out.concat(required), convertedStatus: (statuses[0] || {}).value || "", convertedStatuses: statuses });
   } catch (e) {
     sfErrorResponse(res, e);
   }
