@@ -176,6 +176,7 @@ import {
   searchLeads,
   updateLead,
   convertLead,
+  createLead,
   convertedLeadStatus,
   authUrl as sfAuthUrl,
   createPkce as sfCreatePkce,
@@ -5359,6 +5360,55 @@ app.post("/api/salesforce/launched-check", async (req, res) => {
     }
     const info = await sfInfo(req.user).catch(() => null);
     res.json({ found, instanceUrl: (info && info.instanceUrl) || "" });
+  } catch (e) {
+    sfErrorResponse(res, e);
+  }
+});
+
+// リードを新規作成するときの入力項目（必須項目＋立ち上げに使う項目）
+app.get("/api/salesforce/lead-create-fields", async (req, res) => {
+  try {
+    res.set("Cache-Control", "no-store");
+    const desc = await describeObject(req.user, "Lead");
+    const all = (desc.fields || []).filter((f) => f.createable);
+    const pick = (f, group) => ({
+      name: f.name,
+      label: f.label || f.name,
+      type: f.type,
+      required: !f.nillable && !f.defaultedOnCreate,
+      group,
+      options: (f.picklistValues || []).filter((o) => o.active).map((o) => ({ value: o.value, label: o.label || o.value })),
+    });
+    const out = [];
+    const seen = new Set();
+    const add = (f, group) => { if (f && !seen.has(f.name)) { seen.add(f.name); out.push(pick(f, group)); } };
+
+    // 基本項目
+    ["LastName", "FirstName", "Company", "Title", "Email", "Phone", "Website", "Street", "City", "State", "PostalCode", "NumberOfEmployees", "Industry", "LeadSource"]
+      .forEach((n) => add(all.find((f) => f.name === n), "基本"));
+    // 立ち上げに使う項目（ラベルから探す）
+    for (const w of LEAD_WANT) {
+      let f = null;
+      for (const api of w.apis) { f = all.find((x) => x.name === api); if (f) break; }
+      if (!f) f = all.find((x) => w.re.test(String(x.label || "")));
+      add(f, "立ち上げ");
+    }
+    // この組織で必須になっている項目（入れないと作成できないもの）
+    all.filter((f) => !f.nillable && !f.defaultedOnCreate).forEach((f) => add(f, "必須"));
+
+    res.json({ fields: out });
+  } catch (e) {
+    sfErrorResponse(res, e);
+  }
+});
+
+// リードを新規作成する
+app.post("/api/salesforce/leads", async (req, res) => {
+  try {
+    const fields = (req.body && req.body.fields) || {};
+    if (!fields.LastName || !fields.Company) return res.status(400).json({ error: "姓と会社名は必須です" });
+    const r = await createLead(req.user, fields);
+    res.json(r);
   } catch (e) {
     sfErrorResponse(res, e);
   }

@@ -2,6 +2,7 @@
 const $l = (id) => document.getElementById(id);
 const escL = (s) => String(s == null ? "" : s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 
+const cssEscL = (v) => (window.CSS && window.CSS.escape) ? window.CSS.escape(v) : String(v).replace(/["\\]/g, "\\$&");
 const CO_HINT_L = /(株式会社|有限会社|合同会社|合資会社|一般社団法人|一般財団法人|公益社団法人|公益財団法人|医療法人|学校法人|社会福祉法人|㈱|\(株\)|（株）|Inc|Corp|LLC|Ltd)/i;
 
 function ymdL(d) {
@@ -62,7 +63,7 @@ function creatorNameOf(e) {
 }
 
 function stOf(key) {
-  if (!state[key]) state[key] = { open: false, loading: false, error: "", leads: null, picked: null, done: null, q: "", qp: "" };
+  if (!state[key]) state[key] = { open: false, mode: "search", loading: false, error: "", leads: null, picked: null, done: null, q: "", qp: "" };
   return state[key];
 }
 
@@ -123,9 +124,59 @@ function formHtml(key, ev) {
   </div>`;
 }
 
+// 新規リード作成フォーム
+function createFormHtml(key, ev) {
+  const s = stOf(key);
+  const title = ev ? ev.title : "";
+  const def = (f) => {
+    if (f.name === "Company") return companyOf(title);
+    if (f.name === "LastName") return personOf(title);
+    if (/主?キャンペーン/.test(f.label)) return "3Dメタバース";
+    if (/初回(訪問|商談)日/.test(f.label)) return s.evDate || selDateL;
+    if (/アポ獲得日/.test(f.label)) return selDateL;
+    return "";
+  };
+  const groups = [
+    { key: "基本", title: "基本情報" },
+    { key: "立ち上げ", title: "立ち上げに使う項目" },
+    { key: "必須", title: "この組織で必須の項目" },
+  ];
+  let html = "";
+  for (const g of groups) {
+    const fs = (createFields || []).filter((f) => f.group === g.key);
+    if (!fs.length) continue;
+    html += `<div class="ln-group">${escL(g.title)}</div>` + fs.map((f) => {
+      const id = `nf_${key}_${f.name}`;
+      const req = f.required || f.name === "LastName" || f.name === "Company" ? ' <span class="sf-req">＊必須</span>' : "";
+      const v = def(f);
+      if (f.options && f.options.length) {
+        const opts = ['<option value=""></option>'].concat(
+          f.options.map((o) => `<option value="${escL(o.value)}" ${o.value === v || o.label === v ? "selected" : ""}>${escL(o.label)}</option>`)
+        ).join("");
+        return `<div class="sf-field"><label>${escL(f.label)}${req}</label><select class="sf-select" id="${id}" data-newapi="${escL(f.name)}">${opts}</select></div>`;
+      }
+      if (f.type === "date") return `<div class="sf-field"><label>${escL(f.label)}${req}</label><input type="date" class="sf-input" id="${id}" data-newapi="${escL(f.name)}" value="${escL(v)}"/></div>`;
+      if (f.type === "int" || f.type === "double") return `<div class="sf-field"><label>${escL(f.label)}${req}</label><input type="number" class="sf-input" id="${id}" data-newapi="${escL(f.name)}" data-num="1" value="${escL(v)}"/></div>`;
+      if (f.type === "textarea") return `<div class="sf-field"><label>${escL(f.label)}${req}</label><textarea class="sf-textarea" id="${id}" data-newapi="${escL(f.name)}" rows="2">${escL(v)}</textarea></div>`;
+      return `<div class="sf-field"><label>${escL(f.label)}${req}</label><input type="text" class="sf-input" id="${id}" data-newapi="${escL(f.name)}" value="${escL(v)}"/></div>`;
+    }).join("");
+  }
+  return `<div class="ln-form">
+    <div class="ln-group">新しいリードを作る</div>
+    ${createFields ? html : '<div class="home-sf-msg">項目を読み込み中…</div>'}
+    ${s.error ? `<div class="home-sf-err">${escL(s.error)}</div>` : ""}
+    <div class="home-sf-row">
+      <button class="btn" data-ln-create="${escL(key)}" type="button"${s.loading ? " disabled" : ""}>${s.loading ? "作成中…" : "リードを作成する"}</button>
+      <button class="btn sf-btn-secondary home-sf-mini" data-ln-cancel="${escL(key)}" type="button">やめる</button>
+    </div>
+    <div class="home-sf-note">作成したあと、続けて「この内容で立ち上げる」でコンバートできます。</div>
+  </div>`;
+}
+
 function panelHtml(key, ev) {
   const s = stOf(key);
   if (!s.open) return "";
+  if (s.mode === "create") return `<div class="home-sf">${createFormHtml(key, ev)}</div>`;
   if (s.done) {
     const u = s.done;
     return `<div class="home-sf">
@@ -156,6 +207,9 @@ function panelHtml(key, ev) {
       <button class="btn sf-btn-secondary home-sf-mini" data-ln-search="${escL(key)}" type="button">検索</button>
     </div>
     ${inner}
+    <div class="home-sf-row" style="margin-top:10px">
+      <button class="btn sf-btn-secondary home-sf-mini" data-ln-new="${escL(key)}" type="button">リードが無いので新規作成する</button>
+    </div>
   </div>`;
 }
 
@@ -165,6 +219,7 @@ let nameByEmail = {};   // メール → 表示名
 let ownerFilter = null; // 表示する登録者（null＝全員）
 let launched = {};      // 会社名 → すでにある商談
 let sfInstanceUrl = "";
+let createFields = null; // 新規リード作成の入力項目
 function render() {
   const box = $l("lnList");
   $l("lnTitle").textContent = (selDateL === todayL ? "今日" : dateLabelL(selDateL)) + "に登録された【初回】【新/ヒ】の予定" + (memberCount ? `（${memberCount}名分）` : "");
@@ -260,10 +315,59 @@ async function searchLeads(key) {
   }
 }
 
+async function loadCreateFields() {
+  if (createFields) return;
+  try {
+    const r = await fetch("/api/salesforce/lead-create-fields");
+    const d = await r.json().catch(() => ({}));
+    if (r.ok) createFields = d.fields || [];
+  } catch {}
+  render();
+}
+
+async function createLeadNow(key) {
+  const s = stOf(key);
+  const card = document.querySelector(`[data-ev="${cssEscL(key)}"]`);
+  const fields = {};
+  if (card) {
+    card.querySelectorAll("[data-newapi]").forEach((el) => {
+      const api = el.dataset.newapi;
+      const v = (el.value || "").trim();
+      if (!api || v === "") return;
+      fields[api] = el.dataset.num ? Number(v.replace(/[^\d.-]/g, "")) : v;
+    });
+  }
+  if (!fields.LastName || !fields.Company) { s.error = "姓と会社名は必須です。"; render(); return; }
+  s.loading = true; s.error = "";
+  render();
+  try {
+    const r = await fetch("/api/salesforce/leads", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ fields }),
+    });
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(d.error || "作成に失敗しました");
+    // 作ったリードをそのまま選択状態にして、コンバートへ進めるようにする
+    s.mode = "search";
+    s.picked = {
+      Id: d.id, Name: `${fields.LastName || ""} ${fields.FirstName || ""}`.trim(),
+      Company: fields.Company || "", Status: "作成しました",
+      Website: fields.Website || "", Street: fields.Street || "", City: fields.City || "", State: fields.State || "",
+      NumberOfEmployees: fields.NumberOfEmployees || null,
+    };
+    if (d.instanceUrl) sfInstanceUrl = d.instanceUrl;
+  } catch (e) {
+    s.error = e.message;
+  } finally {
+    s.loading = false;
+    render();
+  }
+}
+
 async function convert(key) {
   const s = stOf(key);
   if (!s.picked) return;
-  const card = document.querySelector(`[data-ev="${CSS.escape(key)}"]`);
+  const card = document.querySelector(`[data-ev="${cssEscL(key)}"]`);
   const fields = {};
   if (card) {
     card.querySelectorAll("[data-api]").forEach((el) => {
@@ -390,8 +494,8 @@ document.addEventListener("DOMContentLoaded", async () => {
     const sb = ev.target.closest("[data-ln-search]");
     if (sb) {
       const key = sb.dataset.lnSearch;
-      const c = box.querySelector(`[data-ln-q="${CSS.escape(key)}"]`);
-      const p = box.querySelector(`[data-ln-qp="${CSS.escape(key)}"]`);
+      const c = box.querySelector(`[data-ln-q="${cssEscL(key)}"]`);
+      const p = box.querySelector(`[data-ln-qp="${cssEscL(key)}"]`);
       const s = stOf(key);
       s.q = c ? c.value.trim() : "";
       s.qp = p ? p.value.trim() : "";
@@ -416,6 +520,21 @@ document.addEventListener("DOMContentLoaded", async () => {
     }
     const go = ev.target.closest("[data-ln-go]");
     if (go) { convert(go.dataset.lnGo); return; }
+    const nw = ev.target.closest("[data-ln-new]");
+    if (nw) {
+      const key = nw.dataset.lnNew;
+      const s = stOf(key);
+      const e2 = (dayEventsL || []).find((x) => (x.id || (x.title + "@" + x.start)) === key);
+      s.evDate = e2 && e2.start ? ymdL(new Date(e2.start)) : selDateL;
+      s.mode = "create"; s.error = "";
+      render();
+      loadCreateFields();
+      return;
+    }
+    const cc = ev.target.closest("[data-ln-cancel]");
+    if (cc) { const s = stOf(cc.dataset.lnCancel); s.mode = "search"; s.error = ""; render(); return; }
+    const cr = ev.target.closest("[data-ln-create]");
+    if (cr) { createLeadNow(cr.dataset.lnCreate); return; }
   });
   box.addEventListener("input", (ev) => {
     const c = ev.target.closest("[data-ln-q]");

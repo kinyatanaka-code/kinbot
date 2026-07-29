@@ -800,3 +800,23 @@ export async function convertLead(owner, { leadId, convertedStatus, opportunityN
     instanceUrl: acc.instanceUrl,
   };
 }
+
+// リードを新規作成する
+export async function createLead(owner, fields) {
+  const acc = await getAccess(owner);
+  if (!acc) throw new Error("Salesforce未連携です");
+  const res = await fetch(
+    `${acc.instanceUrl}/services/data/${API_VERSION}/sobjects/Lead`,
+    {
+      method: "POST",
+      headers: { Authorization: `Bearer ${acc.token}`, "content-type": "application/json" },
+      body: JSON.stringify(fields),
+    }
+  );
+  const d = await res.json().catch(() => null);
+  if (!res.ok || !d || d.success === false) {
+    const msg = Array.isArray(d) ? d.map((x) => x.message).join(" / ") : (d && d.message) || `SF lead create ${res.status}`;
+    throw new Error(`SF lead create: ${msg}`);
+  }
+  return { id: d.id, instanceUrl: acc.instanceUrl };
+}
