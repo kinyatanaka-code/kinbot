@@ -526,7 +526,7 @@ export async function saveMeeting(botId, { transcript, summary, suggestions, aiL
 export async function listMeetings({ owner, isAdmin } = {}) {
   if (!pool) return [];
   const base = `SELECT m.bot_id, m.meeting_url, m.rep_name, m.title, m.owner,
-                       m.round_no, m.phase, m.status, m.created_at, m.updated_at, m.summary, m.analysis,
+                       m.round_no, m.phase, m.status, m.created_at, m.updated_at, m.summary, m.analysis, m.note,
                        m.metrics, m.sf_url, COALESCE(m.account,'') AS account, m.category, m.deal_kind,
                        m.apo_setter, u.name AS owner_name
                 FROM meetings m LEFT JOIN users u ON u.email = m.owner`;

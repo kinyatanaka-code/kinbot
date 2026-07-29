@@ -5176,6 +5176,35 @@ app.post("/api/salesforce/opportunity/:id/lose", async (req, res) => {
     };
     setReason("Loss_Reason__c", reasonDai);
     setReason("Loss_Reason1__c", reasonChu);
+
+    // 失注時に必須になる項目を埋める（ボタンを押した日／理由詳細）
+    const today = new Date(Date.now() + 9 * 60 * 60 * 1000).toISOString().slice(0, 10); // 日本時間の今日
+    const detail = b.detail === undefined ? "リスケ" : b.detail;
+    const allFields = (desc && desc.fields) || [];
+    // API名で見つからないときはラベルで探す（組織ごとの項目名の違いに対応）
+    const putByLabel = (apis, labelRe, value, types) => {
+      let f = null;
+      for (const api of apis) { f = fieldOf(api); if (f) break; }
+      if (!f) {
+        f = allFields.find((x) => x.updateable && labelRe.test(String(x.label || "")) &&
+                                  (!types || types.includes(x.type)));
+      }
+      if (!f || !f.updateable || fields[f.name] !== undefined) return;
+      if (f.type === "picklist") {
+        const opts = (f.picklistValues || []).filter((v) => v.active);
+        const o = opts.find((p) => (p.label || p.value) === value);
+        if (o) fields[f.name] = o.value;
+        return;
+      }
+      fields[f.name] = value;
+    };
+    // 失注日
+    putByLabel(["order_date__c"], /失注日/, today, ["date", "datetime"]);
+    // 失注後の次回アクション日
+    putByLabel(["LostOpp_nextactiondate__c"], /失注.*次回アクション日/, today, ["date", "datetime"]);
+    // 受失注理由詳細
+    putByLabel(["Loss_Reason_Detail__c", "LostOpp_reason_detail__c"], /理由詳細/, detail, ["string", "textarea"]);
+
     await updateOpportunity(req.user, req.params.id, fields);
     try { await postChatter(req.user, req.params.id, `[kinbot] ${note}`); } catch {}
     res.json({ ok: true, stage: hit.label || hit.value, fields });
