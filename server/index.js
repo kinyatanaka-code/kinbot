@@ -145,6 +145,7 @@ import {
   listZoomEvents,
   listDayEvents,
   listCalendarEvents,
+  listEventsCreatedOn,
   createCalendarEvent,
   getPrimaryEmail,
   driveReady,
@@ -5253,6 +5254,44 @@ app.post("/api/salesforce/opportunity/:id/lose", async (req, res) => {
     res.json({ ok: true, stage: hit.label || hit.value, ownerChanged, fields });
   } catch (e) {
     sfErrorResponse(res, e);
+  }
+});
+
+// その日にカレンダーへ登録された予定を、Google連携している全員分まとめて返す
+app.get("/api/calendar/created", async (req, res) => {
+  try {
+    res.set("Cache-Control", "no-store");
+    const jstToday = new Date(Date.now() + 9 * 60 * 60 * 1000).toISOString().slice(0, 10);
+    const q = String((req.query && req.query.date) || "").trim();
+    const dateStr = /^\d{4}-\d{2}-\d{2}$/.test(q) ? q : jstToday;
+
+    let accounts = [];
+    try { accounts = await listGoogleAccounts(); } catch {}
+    if (!accounts.length) return res.json({ connected: false, date: dateStr, events: [] });
+
+    const byUid = new Map();
+    const errors = [];
+    for (const a of accounts.slice(0, 30)) {
+      const own = a.owner || a.google_email || "";
+      if (!own) continue;
+      try {
+        const evs = await listEventsCreatedOn(own, dateStr);
+        for (const e of evs) {
+          const key = e.uid || (e.title + "@" + e.start);
+          const prev = byUid.get(key);
+          // 同じ予定が複数人のカレンダーにある場合は、主催者側を優先して残す
+          if (!prev || (e.organizer && own && e.organizer.toLowerCase() === String(own).toLowerCase())) {
+            byUid.set(key, { ...e, calendarOwner: own });
+          }
+        }
+      } catch (err) {
+        errors.push(`${own}: ${err.message}`);
+      }
+    }
+    const events = [...byUid.values()].sort((x, y) => new Date(x.created) - new Date(y.created));
+    res.json({ connected: true, date: dateStr, count: accounts.length, events, errors });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
   }
 });
 

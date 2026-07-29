@@ -15,9 +15,17 @@ let leadFields = null;     // 入力項目の定義（Salesforceのdescribeか�
 let convertedStatus = "";
 const state = {};          // 予定ごとの状態
 
+// かっこ類を【】にそろえてから中身を落とす
+function stripTags(title) {
+  return String(title || "")
+    .replace(/[［\[〔（(]/g, "【")
+    .replace(/[］\]〕）)]/g, "】")
+    .replace(/【[^】]*】/g, " ");
+}
+
 // 予定タイトルから会社名を取り出す
 function companyOf(title) {
-  let s = String(title || "").replace(/【[^】]*】/g, " ");
+  let s = stripTags(title);
   s = s.split(/[\/／|｜]/)[0];
   const toks = s.split(/[\s　、,]+/).filter(Boolean);
   let pick = toks.find((x) => CO_HINT_L.test(x)) || toks[0] || "";
@@ -25,15 +33,21 @@ function companyOf(title) {
 }
 // 予定タイトルから「〇〇様」の担当者名を取り出す
 function personOf(title) {
-  const t = String(title || "").replace(/【[^】]*】/g, " ");
+  const t = stripTags(title);
   const m = t.match(/([一-龥ぁ-んァ-ヶa-zA-Z]{1,10})\s*(様|さま|さん)/);
   if (m) return m[1];
   const parts = t.split(/[\/／|｜]/);
   if (parts.length > 1) return parts[1].replace(/(様|さま|さん|御中)/g, "").trim();
   return "";
 }
+// 【初回】【新/ヒ】の判定。かっこ・スラッシュ・スペースは半角全角どちらでもOK。
 function isTarget(title) {
-  return /【\s*初回|【\s*新\s*\/\s*ヒ|【新\/ヒ】/.test(String(title || ""));
+  const t = String(title || "")
+    .replace(/[［\[〔（(]/g, "【")
+    .replace(/[］\]〕）)]/g, "】")
+    .replace(/[／]/g, "/")
+    .replace(/[\s　]/g, "");
+  return /【[^】]*初回/.test(t) || /【[^】]*新\/ヒ/.test(t) || /【[^】]*新規/.test(t);
 }
 
 function stOf(key) {
@@ -75,8 +89,8 @@ function formHtml(key, ev) {
   const lead = s.picked;
   const def = (k) => {
     if (k === "campaign") return "3Dメタバース";
-    if (k === "visitDate") return selDateL;
-    if (k === "apoDate") return todayL;
+    if (k === "visitDate") return s.evDate || selDateL;  // 商談の開催日
+    if (k === "apoDate") return selDateL;                // 予定を登録した日＝アポ獲得日
     if (k === "website") return lead.Website || "";
     if (k === "address") return [lead.State, lead.City, lead.Street].filter(Boolean).join("") || "";
     if (k === "employees") return lead.NumberOfEmployees != null ? String(lead.NumberOfEmployees) : "";
@@ -135,9 +149,10 @@ function panelHtml(key, ev) {
 }
 
 let dayEventsL = [];
+let memberCount = 0;
 function render() {
   const box = $l("lnList");
-  $l("lnTitle").textContent = (selDateL === todayL ? "今日" : dateLabelL(selDateL)) + "の【初回】【新/ヒ】の予定";
+  $l("lnTitle").textContent = (selDateL === todayL ? "今日" : dateLabelL(selDateL)) + "に登録された【初回】【新/ヒ】の予定" + (memberCount ? `（${memberCount}名分）` : "");
   const pick = $l("lnDate");
   if (pick && pick.value !== selDateL) pick.value = selDateL;
   const tb = $l("lnToday");
@@ -145,19 +160,23 @@ function render() {
 
   const list = (dayEventsL || []).filter((e) => isTarget(e.title));
   if (!list.length) {
-    box.innerHTML = '<div class="home-empty">この日に【初回】【新/ヒ】の予定はありません。</div>';
+    box.innerHTML = '<div class="home-empty">この日に登録された【初回】【新/ヒ】の予定はありません。</div>';
     return;
   }
   box.innerHTML = list.map((e) => {
     const key = e.id || (e.title + "@" + e.start);
     const s = stOf(key);
-    const time = new Date(e.start).toLocaleTimeString("ja-JP", { hour: "2-digit", minute: "2-digit" });
+    const when = e.start
+      ? new Date(e.start).toLocaleString("ja-JP", { month: "numeric", day: "numeric", weekday: "short", hour: "2-digit", minute: "2-digit" })
+      : "日時未定";
+    const madeAt = e.created ? new Date(e.created).toLocaleTimeString("ja-JP", { hour: "2-digit", minute: "2-digit" }) : "";
+    const who = e.creatorName || e.creator || e.organizerName || e.organizer || e.calendarOwner || "";
     return `<div class="home-card home-card-v" data-ev="${escL(key)}">
       <div class="home-card-row">
         <div class="home-card-main">
-          <div class="home-card-top"><span class="home-time">${escL(time)}</span><span class="home-badge home-badge-plan">予定</span></div>
+          <div class="home-card-top"><span class="home-time">${escL(when)}</span><span class="home-badge home-badge-plan">商談予定</span>${madeAt ? `<span class="home-badge home-badge-st">${escL(madeAt)}に登録</span>` : ""}</div>
           <div class="home-card-title">${escL(e.title || "")}</div>
-          <div class="home-card-meta">会社名：${escL(companyOf(e.title) || "—")}　／　担当者：${escL(personOf(e.title) || "—")}</div>
+          <div class="home-card-meta">会社名：${escL(companyOf(e.title) || "—")}　／　担当者：${escL(personOf(e.title) || "—")}${who ? "　／　登録者：" + escL(who) : ""}</div>
         </div>
         <div class="home-card-actions">
           <button class="btn" data-ln-open="${escL(key)}" type="button">${s.open ? "閉じる" : "リードを探す"}</button>
@@ -228,13 +247,15 @@ async function loadFields() {
 
 async function loadDay() {
   const box = $l("lnList");
-  box.innerHTML = '<div class="home-empty">読み込み中…</div>';
+  box.innerHTML = '<div class="home-empty">読み込み中…（全員のカレンダーを見ています）</div>';
   try {
-    const r = await fetch("/api/calendar/today?date=" + encodeURIComponent(selDateL));
+    // その日にカレンダーへ登録された予定を、Google連携している全員分まとめて取る
+    const r = await fetch("/api/calendar/created?date=" + encodeURIComponent(selDateL));
     const d = await r.json();
     dayEventsL = (d && d.events) || [];
+    memberCount = (d && d.count) || 0;
     if (d && d.connected === false) {
-      box.innerHTML = '<div class="home-empty">Googleカレンダーが連携されていません。設定から連携してください。</div>';
+      box.innerHTML = '<div class="home-empty">Googleカレンダーが連携されているメンバーがいません。設定から連携してください。</div>';
       return;
     }
   } catch {
@@ -268,8 +289,9 @@ document.addEventListener("DOMContentLoaded", async () => {
       const s = stOf(key);
       s.open = !s.open;
       if (s.open && s.leads === null && !s.picked) {
-        const card = open.closest("[data-ev]");
-        const title = card ? (card.querySelector(".home-card-title") || {}).textContent || "" : "";
+        const ev = (dayEventsL || []).find((x) => (x.id || (x.title + "@" + x.start)) === key);
+        const title = ev ? ev.title : "";
+        s.evDate = ev && ev.start ? ymdL(new Date(ev.start)) : selDateL;
         s.q = companyOf(title);
         s.qp = personOf(title);
         render();

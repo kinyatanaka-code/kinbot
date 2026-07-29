@@ -625,3 +625,55 @@ async function buildRawMessage(owner, { to, subject, bodyText, inReplyTo, refere
     .replace(/\//g, "_")
     .replace(/=+$/, "");
 }
+
+// 「その日に作成された予定」を取る（予定の開催日ではなく、カレンダーに登録した日で拾う）
+export async function listEventsCreatedOn(owner, dateStr) {
+  const token = await accessToken(owner);
+  if (!token) throw new Error("Googleが連携されていません");
+  const dayStart = new Date(`${dateStr}T00:00:00+09:00`);
+  const dayEnd = new Date(`${dateStr}T23:59:59.999+09:00`);
+  const out = [];
+  let pageToken = "";
+  for (let guard = 0; guard < 10; guard++) {
+    const p = new URLSearchParams({
+      singleEvents: "true",
+      orderBy: "updated",
+      maxResults: "250",
+      showDeleted: "false",
+      // その日に作られた予定は、その日に更新もされている
+      updatedMin: dayStart.toISOString(),
+      // 登録した時点より前に始まる予定は対象外（過去の予定の編集を拾わないため）
+      timeMin: dayStart.toISOString(),
+    });
+    if (pageToken) p.set("pageToken", pageToken);
+    const res = await fetch(
+      `https://www.googleapis.com/calendar/v3/calendars/primary/events?${p}`,
+      { headers: { Authorization: `Bearer ${token}` } }
+    );
+    if (!res.ok) throw new Error(`Google events ${res.status}: ${(await res.text()).slice(0, 200)}`);
+    const data = await res.json();
+    for (const ev of data.items || []) {
+      if (ev.status === "cancelled") continue;
+      const created = ev.created ? new Date(ev.created) : null;
+      if (!created || created < dayStart || created > dayEnd) continue; // その日に作られたものだけ
+      const start = ev.start?.dateTime || ev.start?.date || null;
+      out.push({
+        id: ev.id,
+        uid: ev.iCalUID || ev.id,
+        title: ev.summary || "",
+        start,
+        allDay: !ev.start?.dateTime,
+        url: findMeetingUrl(ev) || "",
+        organizer: (ev.organizer && ev.organizer.email) || "",
+        organizerName: (ev.organizer && ev.organizer.displayName) || "",
+        creator: (ev.creator && ev.creator.email) || "",
+        creatorName: (ev.creator && ev.creator.displayName) || "",
+        created: ev.created || "",
+        guests: (ev.attendees || []).length,
+      });
+    }
+    if (!data.nextPageToken) break;
+    pageToken = data.nextPageToken;
+  }
+  return out;
+}
