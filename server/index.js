@@ -171,6 +171,11 @@ import { mountOauthServer, oauthTokenUser } from "./oauth.js";
 import {
   salesforceConfigured,
   getSfUserId,
+  describeObject,
+  searchLeads,
+  updateLead,
+  convertLead,
+  convertedLeadStatus,
   authUrl as sfAuthUrl,
   createPkce as sfCreatePkce,
   exchangeCode as sfExchangeCode,
@@ -5246,6 +5251,74 @@ app.post("/api/salesforce/opportunity/:id/lose", async (req, res) => {
     }
     try { await postChatter(req.user, req.params.id, `[kinbot] ${note}`); } catch {}
     res.json({ ok: true, stage: hit.label || hit.value, ownerChanged, fields });
+  } catch (e) {
+    sfErrorResponse(res, e);
+  }
+});
+
+// ===== SF立ち上げ（リードのコンバート） =====
+
+// 立ち上げに使うリードの入力項目を、ラベルからAPI名に解決して返す
+const LEAD_WANT = [
+  { key: "campaign",  label: "主キャンペーンソース", re: /主?キャンペーン(ソース|元)/, apis: ["Primary_Campaign_Source__c", "CampaignSource__c"] },
+  { key: "visitDate", label: "初回訪問日",           re: /初回(訪問|商談)日/,          apis: ["First_Visit_Date__c", "firstvisit_date__c"] },
+  { key: "apoDate",   label: "アポ獲得日",           re: /アポ獲得日/,                apis: ["Apo_Date__c", "apo_date__c"] },
+  { key: "fsNote",    label: "FSへの連携事項",       re: /FS.*(連携|引継|引き継)/i,   apis: ["FS_Note__c", "to_fs__c"] },
+  { key: "website",   label: "会社URL",              re: /会社.*(URL|ホームページ|サイト)|Website/i, apis: ["Website"] },
+  { key: "address",   label: "会社住所",             re: /住所|Street/i,              apis: ["Street"] },
+  { key: "employees", label: "会社従業員数",         re: /従業員/,                    apis: ["NumberOfEmployees"] },
+];
+
+app.get("/api/salesforce/lead-fields", async (req, res) => {
+  try {
+    res.set("Cache-Control", "no-store");
+    const desc = await describeObject(req.user, "Lead");
+    const all = (desc.fields || []).filter((f) => f.updateable || f.createable);
+    const out = [];
+    for (const w of LEAD_WANT) {
+      let f = null;
+      for (const api of w.apis) { f = all.find((x) => x.name === api); if (f) break; }
+      if (!f) f = all.find((x) => w.re.test(String(x.label || "")));
+      if (!f) { out.push({ ...w, name: "", found: false }); continue; }
+      out.push({
+        key: w.key, label: f.label || w.label, name: f.name, found: true,
+        type: f.type,
+        options: (f.picklistValues || []).filter((o) => o.active).map((o) => ({ value: o.value, label: o.label || o.value })),
+      });
+    }
+    res.json({ fields: out, convertedStatus: await convertedLeadStatus(req.user) });
+  } catch (e) {
+    sfErrorResponse(res, e);
+  }
+});
+
+// リードを探す
+app.get("/api/salesforce/leads", async (req, res) => {
+  try {
+    res.set("Cache-Control", "no-store");
+    const records = await searchLeads(req.user, {
+      company: req.query.company || "",
+      person: req.query.person || "",
+    });
+    res.json({ records });
+  } catch (e) {
+    sfErrorResponse(res, e);
+  }
+});
+
+// 入力した項目を保存してから、リードをコンバートする
+app.post("/api/salesforce/leads/:id/convert", async (req, res) => {
+  try {
+    const b = req.body || {};
+    const fields = b.fields && typeof b.fields === "object" ? b.fields : {};
+    if (Object.keys(fields).length) await updateLead(req.user, req.params.id, fields);
+    const r = await convertLead(req.user, {
+      leadId: req.params.id,
+      convertedStatus: b.convertedStatus || "",
+      opportunityName: b.opportunityName || "",
+      ownerId: await getSfUserId(req.user).catch(() => ""),
+    });
+    res.json(r);
   } catch (e) {
     sfErrorResponse(res, e);
   }

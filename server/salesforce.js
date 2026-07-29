@@ -703,3 +703,100 @@ export async function createTaskIdempotent(owner, botId, data) {
     throw e;
   }
 }
+
+// ===== リード（Lead）まわり：SF立ち上げ用 =====
+
+// 任意のオブジェクトの項目定義を取る
+export async function describeObject(owner, sobject) {
+  const acc = await getAccess(owner);
+  if (!acc) throw new Error("Salesforce未連携です");
+  const name = String(sobject).replace(/[^A-Za-z0-9_]/g, "");
+  const res = await fetch(
+    `${acc.instanceUrl}/services/data/${API_VERSION}/sobjects/${name}/describe`,
+    { headers: { Authorization: `Bearer ${acc.token}` } }
+  );
+  if (!res.ok) throw new Error(`SF describe ${name} ${res.status}`);
+  return res.json();
+}
+
+// 未コンバートのリードを、会社名や担当者名で探す
+export async function searchLeads(owner, { company = "", person = "", limit = 20 } = {}) {
+  const esc = (v) => String(v || "").replace(/['\\%_]/g, "").trim();
+  const conds = ["IsConverted = false"];
+  const c = esc(company), p = esc(person);
+  const or = [];
+  if (c) or.push(`Company LIKE '%${c}%'`);
+  if (p) or.push(`LastName LIKE '%${p}%'`, `Name LIKE '%${p}%'`);
+  if (or.length) conds.push(`(${or.join(" OR ")})`);
+  const soql =
+    `SELECT Id, Name, LastName, FirstName, Company, Title, Email, Phone, Status, Website, Street, City, State, PostalCode, NumberOfEmployees, LeadSource, CreatedDate, Owner.Name ` +
+    `FROM Lead WHERE ${conds.join(" AND ")} ORDER BY CreatedDate DESC LIMIT ${Math.min(50, Number(limit) || 20)}`;
+  const d = await sfQuery(owner, soql);
+  return d.records || [];
+}
+
+// リードの項目を更新する
+export async function updateLead(owner, id, fields) {
+  const acc = await getAccess(owner);
+  if (!acc) throw new Error("Salesforce未連携です");
+  const clean = String(id).replace(/[^a-zA-Z0-9]/g, "");
+  const res = await fetch(
+    `${acc.instanceUrl}/services/data/${API_VERSION}/sobjects/Lead/${clean}`,
+    {
+      method: "PATCH",
+      headers: { Authorization: `Bearer ${acc.token}`, "content-type": "application/json" },
+      body: JSON.stringify(fields),
+    }
+  );
+  if (res.status === 204) return { ok: true };
+  const t = await res.text();
+  throw new Error(`SF lead update ${res.status}: ${t}`);
+}
+
+// コンバート済みを表すリードステータスを取る
+export async function convertedLeadStatus(owner) {
+  try {
+    const d = await sfQuery(owner, `SELECT MasterLabel FROM LeadStatus WHERE IsConverted = true ORDER BY SortOrder LIMIT 1`);
+    return (d.records && d.records[0] && d.records[0].MasterLabel) || "";
+  } catch {
+    return "";
+  }
+}
+
+// リードをコンバートする（標準の convertLead アクションを使う）
+export async function convertLead(owner, { leadId, convertedStatus, opportunityName, accountId, contactId, ownerId, doNotCreateOpportunity }) {
+  const acc = await getAccess(owner);
+  if (!acc) throw new Error("Salesforce未連携です");
+  const input = {
+    leadId: String(leadId).replace(/[^a-zA-Z0-9]/g, ""),
+    convertedStatus: convertedStatus || (await convertedLeadStatus(owner)),
+  };
+  if (opportunityName) input.opportunityName = opportunityName;
+  if (accountId) input.accountId = accountId;
+  if (contactId) input.contactId = contactId;
+  if (ownerId) input.ownerId = ownerId;
+  if (doNotCreateOpportunity) input.doNotCreateOpportunity = true;
+  const res = await fetch(
+    `${acc.instanceUrl}/services/data/${API_VERSION}/actions/standard/convertLead`,
+    {
+      method: "POST",
+      headers: { Authorization: `Bearer ${acc.token}`, "content-type": "application/json" },
+      body: JSON.stringify({ inputs: [input] }),
+    }
+  );
+  const data = await res.json().catch(() => null);
+  const first = Array.isArray(data) ? data[0] : null;
+  if (!res.ok || !first || first.isSuccess === false) {
+    const msg = (first && first.errors && first.errors.map((e) => e.message).join(" / ")) ||
+                (data && JSON.stringify(data)) || `SF convert ${res.status}`;
+    throw new Error(`SF lead convert: ${msg}`);
+  }
+  const out = first.outputValues || {};
+  return {
+    ok: true,
+    accountId: out.accountId || "",
+    contactId: out.contactId || "",
+    opportunityId: out.opportunityId || "",
+    instanceUrl: acc.instanceUrl,
+  };
+}

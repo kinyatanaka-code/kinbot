@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html lang="ja">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>kinbot SF立ち上げ</title>
+    <link rel="stylesheet" href="style.css" />
+  </head>
+  <body>
+    <div class="app">
+      <nav class="sidebar">
+        <div class="side-brand"><span class="brand-mark"></span><span>kinbot</span></div>
+        <a class="side-item" href="home.html"><span class="side-ico ico-home"></span><span class="side-label">ホーム</span></a>
+        <a class="side-item" href="index.html"><span class="side-ico ico-rec"></span><span class="side-label">レコーディング</span></a>
+        <a class="side-item" href="history.html"><span class="side-ico ico-hist"></span><span class="side-label">商談履歴</span></a>
+        <a class="side-item active" href="sf-launch.html"><span class="side-ico ico-deal"></span><span class="side-label">SF立ち上げ</span></a>
+        <a class="side-item" href="report.html"><span class="side-ico ico-ana"></span><span class="side-label">分析</span></a>
+        <a class="side-item" href="report.html?panel=interns"><span class="side-ico ico-apo"></span><span class="side-label">インターンアポ</span></a>
+        <a class="side-item" href="settings.html"><span class="side-ico ico-set"></span><span class="side-label">設定</span></a>
+        <div class="side-foot"><span id="who" class="who"></span><a href="#" id="logout" class="side-logout">ログアウト</a></div>
+      </nav>
+
+      <div class="main">
+        <header class="topbar">
+          <div class="brand"><img class="topbar-bot" src="kinbot.svg" alt="" /><span class="brand-name">SF立ち上げ</span></div>
+        </header>
+
+        <div class="home-wrap">
+          <div class="home-head">
+            <div class="home-title" id="lnTitle">その日の【初回】【新/ヒ】の予定</div>
+            <div class="home-head-right">
+              <div class="home-datenav">
+                <button class="home-dbtn" id="lnPrev" type="button" title="前の日">
+                  <svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true"><path d="M15 5.5 8.5 12l6.5 6.5" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                </button>
+                <label class="home-dinput">
+                  <svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true"><rect x="3.5" y="5" width="17" height="15" rx="3" fill="none" stroke="currentColor" stroke-width="1.9"/><path d="M3.5 9.5h17M8 3.5v3M16 3.5v3" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"/></svg>
+                  <input type="date" id="lnDate" />
+                </label>
+                <button class="home-dbtn" id="lnNext" type="button" title="次の日">
+                  <svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true"><path d="M9 5.5 15.5 12 9 18.5" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                </button>
+                <button class="home-dtoday" id="lnToday" type="button">今日</button>
+              </div>
+            </div>
+          </div>
+
+          <div class="home-note">
+            カレンダーの予定から【初回】【新/ヒ】のものを拾って、会社名と担当者名でSalesforceのリードを探します。
+            リードを選んで必要な項目を入れると、そのまま商談を立ち上げ（コンバート）します。
+          </div>
+
+          <div id="lnList"><div class="home-empty">読み込み中…</div></div>
+        </div>
+      </div>
+    </div>
+    <script src="product.js"></script>
+    <script src="sf-launch.js"></script>
+    <script src="nav.js"></script>
+  </body>
+</html>

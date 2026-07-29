@@ -267,7 +267,7 @@ window.kbSheet = function (html) {
   const bar = document.querySelector(".sidebar");
   if (!bar || bar.querySelector(".side-fab")) return;
   if (window.kbIsMobile()) {
-    const SHORT = { "history.html": "履歴", "report.html": "分析", "report.html?panel=interns": "アポ", "settings.html": "設定" };
+    const SHORT = { "history.html": "履歴", "report.html": "分析", "report.html?panel=interns": "アポ", "sf-launch.html": "SF", "settings.html": "設定" };
     bar.querySelectorAll(".side-item").forEach((a) => {
       const key = (a.getAttribute("href") || "").split("/").pop();
       const lb = a.querySelector(".side-label");
