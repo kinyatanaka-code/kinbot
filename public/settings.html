@@ -131,6 +131,10 @@
 
             <div class="set-card">
               <h3>Zoom自動入室</h3>
+              <p class="note" style="background:#fbf3e0;border:1px solid #e6d3a3;border-radius:9px;padding:10px 12px;color:#8a6d1f">
+                現在、<b>カレンダーからの自動入室はオフ</b>になっています。商談の録音はレコーディング画面から手動でボットを入れてください。
+                以下の設定は保存されますが、自動入室は行われません。再開したい場合は、Railwayの環境変数に <b>CALENDAR_AUTO_JOIN=1</b> を追加してください。
+              </p>
               <p class="note">登録したZoomのURLの会議が始まると、kinbotが自動で入室して録画を開始します。方法は2つあります。<br>（1）<b>カレンダー方式（おすすめ・Zoomアプリ不要）</b>：Googleカレンダーにその会議の予定が入っていれば、開始時刻に自動入室します。各URLの「予定の時間に入室（URL照合なし）」にチェックを入れると、予定にURLを貼っていなくても、相手を招待した予定の開始時刻にその部屋へ入室します。<br>（2）Zoom Webhook方式：会議開始を即時検知して入室します（下の手順でZoom連携が必要・上級者向け）。</p>
               <div class="autojoin-status" id="autoJoinStatus"></div>
               <ul class="link-list" id="autoJoinList"></ul>

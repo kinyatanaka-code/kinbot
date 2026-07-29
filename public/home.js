@@ -255,12 +255,18 @@ function render() {
     } else if (e) {
       const past = new Date(e.start).getTime() < now;
       badges += `<span class="home-badge home-badge-plan">${past ? "実施済み予定" : "予定"}</span>`;
-      badges += e.hasUrl ? '<span class="home-badge">自動入室対象</span>' : '<span class="home-badge home-badge-st">URLなし</span>';
+      if (window._autoJoin) {
+        badges += e.hasUrl ? '<span class="home-badge">自動入室対象</span>' : '<span class="home-badge home-badge-st">URLなし</span>';
+      }
     }
     // 補足行
     let meta = "";
     if (m) meta = `担当：${escH(repOf(m))}`;
-    else if (e) meta = e.hasUrl ? "開始時刻にボットが自動入室します" : "予定にZoom等のURLがありません（自動入室されません）";
+    else if (e) {
+      meta = window._autoJoin
+        ? (e.hasUrl ? "開始時刻にボットが自動入室します" : "予定にZoom等のURLがありません（自動入室されません）")
+        : "録音するときは、レコーディング画面からボットを入れてください";
+    }
     const summary = (m && m.summary && m.summary.overview) ? String(m.summary.overview).slice(0, 90) + "…" : "";
     const openLabel = m ? "商談を開く" : "会社を開く";
     homeItems[key] = { title, time, company, done: !!m, link: "history.html?company=" + enc, openLabel };
@@ -390,8 +396,13 @@ function renderTodo(items) {
     rows.push({ label: "再商談が未設定", sub: `${pend.length}件 ・ 最短 ${near} まで`, href: "history.html", warn: true });
   }
   // この日の予定でZoom等のURLが無いもの
-  const noUrl = (items || []).filter((it) => it.ev && !it.ev.hasUrl && !it.rec).length;
-  if (noUrl) rows.push({ label: "自動入室されない予定", sub: `${noUrl}件 ・ URLが未設定`, href: "", warn: false });
+  if (window._autoJoin) {
+    const noUrl = (items || []).filter((it) => it.ev && !it.ev.hasUrl && !it.rec).length;
+    if (noUrl) rows.push({ label: "自動入室されない予定", sub: `${noUrl}件 ・ URLが未設定`, href: "", warn: false });
+  } else {
+    const notRec = (items || []).filter((it) => it.ev && !it.rec && new Date(it.ev.start).getTime() < Date.now()).length;
+    if (notRec) rows.push({ label: "録音されていない予定", sub: `${notRec}件 ・ 手動で入室が必要です`, href: "index.html", warn: false });
+  }
   box.innerHTML = rows.length
     ? rows.map((r) => (r.href
         ? `<a class="home-todo" href="${r.href}"><span class="home-todo-dot${r.warn ? " is-warn" : ""}"></span><span class="home-todo-t"><b>${escH(r.label)}</b><em>${escH(r.sub)}</em></span></a>`
@@ -566,6 +577,7 @@ async function loadCalendar() {
     const cd = await cr.json();
     const events = (cd && cd.events) || [];
     const connected = !!(cd && cd.connected !== false);
+    window._autoJoin = !!(cd && cd.autoJoin);
     calCache[target] = { events, connected };
     if (target !== selDate) return; // 連打で日付が変わっていたら破棄
     dayEvents = events;
