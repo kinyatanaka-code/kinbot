@@ -171,6 +171,7 @@ import { mountOauthServer, oauthTokenUser } from "./oauth.js";
 import {
   salesforceConfigured,
   authUrl as sfAuthUrl,
+  createPkce as sfCreatePkce,
   exchangeCode as sfExchangeCode,
   isConnected as sfConnected,
   disconnect as sfDisconnect,
@@ -4928,13 +4929,30 @@ app.post("/api/calendar/disconnect", async (req, res) => {
 function sfRedirectUri() {
   return `${PUBLIC_URL}/auth/salesforce/callback`;
 }
+// PKCEのcode_verifierを、認証開始からコールバックまで一時的に持っておく（stateがカギ）
+const _sfPkce = new Map(); // state -> { verifier, exp }
+function pkcePut(state, verifier) {
+  const now = Date.now();
+  for (const [k, v] of _sfPkce) if (v.exp < now) _sfPkce.delete(k);
+  _sfPkce.set(state, { verifier, exp: now + 10 * 60 * 1000 });
+}
+function pkceTake(state) {
+  const v = _sfPkce.get(state);
+  if (!v) return "";
+  _sfPkce.delete(state);
+  return v.exp > Date.now() ? v.verifier : "";
+}
+
 app.get("/auth/salesforce", (req, res) => {
   if (!salesforceConfigured()) return res.status(500).send("SF_CLIENT_ID/SECRET が未設定です（後日の連携作業で設定します）");
   if (!PUBLIC_URL) return res.status(500).send("PUBLIC_URL が未設定です");
   // returnクエリパラメータで認証後の戻り先を指定可能
   const returnUrl = req.query.return || "/settings.html";
   const state = makeToken(JSON.stringify({ owner: req.user || "", returnUrl }));
-  res.redirect(sfAuthUrl(sfRedirectUri(), state));
+  // 接続アプリで「PKCEの要求」がONでも通るように、毎回PKCEを付ける
+  const { verifier, challenge } = sfCreatePkce();
+  pkcePut(state, verifier);
+  res.redirect(sfAuthUrl(sfRedirectUri(), state, challenge));
 });
 app.get("/auth/salesforce/callback", async (req, res) => {
   try {
@@ -4946,7 +4964,8 @@ app.get("/auth/salesforce/callback", async (req, res) => {
       owner = parsed.owner || raw;
       returnUrl = parsed.returnUrl || "/settings.html";
     } catch {}
-    await sfExchangeCode(req.query.code, sfRedirectUri(), owner);
+    const verifier = pkceTake(req.query.state || "");
+    await sfExchangeCode(req.query.code, sfRedirectUri(), owner, verifier);
     clearSfTokenCache(owner);
     // ポップアップ完了ページの場合は自動で閉じるHTMLを返す
     if (returnUrl === "/auth/salesforce/done") {

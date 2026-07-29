@@ -2,6 +2,7 @@
 // Salesforce 連携（ユーザーごと）。トークンは salesforce_accounts に owner 単位で保存。
 // 後日、SF側で「接続アプリ(Connected App)」を作成し、以下の環境変数を設定すると有効になります:
 //   SF_CLIENT_ID, SF_CLIENT_SECRET, SF_LOGIN_URL(任意, 既定 https://login.salesforce.com)
+import crypto from "crypto";
 import {
   getSalesforceToken,
   saveSalesforceToken,
@@ -30,7 +31,16 @@ async function logSfDiag(where, body) {
   );
 }
 
-export function authUrl(redirectUri, state) {
+// PKCE（接続アプリで「PKCEの要求」がONのときに必須）
+// 認証開始時に verifier を作り、その SHA-256 を challenge として送る。
+// トークン交換のときに verifier をそのまま送ると、同じブラウザからの要求だと証明できる。
+export function createPkce() {
+  const verifier = crypto.randomBytes(48).toString("base64url"); // 64文字
+  const challenge = crypto.createHash("sha256").update(verifier).digest("base64url");
+  return { verifier, challenge };
+}
+
+export function authUrl(redirectUri, state, codeChallenge) {
   const p = new URLSearchParams({
     response_type: "code",
     client_id: CLIENT_ID,
@@ -38,20 +48,26 @@ export function authUrl(redirectUri, state) {
     scope: "api refresh_token",
     state: state || "",
   });
+  if (codeChallenge) {
+    p.set("code_challenge", codeChallenge);
+    p.set("code_challenge_method", "S256");
+  }
   return `${LOGIN_URL}/services/oauth2/authorize?${p}`;
 }
 
-export async function exchangeCode(code, redirectUri, owner) {
+export async function exchangeCode(code, redirectUri, owner, codeVerifier) {
+  const form = {
+    grant_type: "authorization_code",
+    code,
+    client_id: CLIENT_ID,
+    client_secret: CLIENT_SECRET,
+    redirect_uri: redirectUri,
+  };
+  if (codeVerifier) form.code_verifier = codeVerifier;
   const res = await fetch(`${LOGIN_URL}/services/oauth2/token`, {
     method: "POST",
     headers: { "content-type": "application/x-www-form-urlencoded" },
-    body: new URLSearchParams({
-      grant_type: "authorization_code",
-      code,
-      client_id: CLIENT_ID,
-      client_secret: CLIENT_SECRET,
-      redirect_uri: redirectUri,
-    }),
+    body: new URLSearchParams(form),
   });
   if (!res.ok) {
     const body = (await res.text()).slice(0, 200);
