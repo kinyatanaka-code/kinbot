@@ -1907,22 +1907,38 @@ async function loadSfTaskTypes() {
   await loadSfTaskFields();
   return sfTaskFieldTypes || {};
 }
+// 活動記録の「説明」に入れる文章。商談画面で見えている要約・商談メモをそのまま貼れる形にする。
 function buildActivityComment(latestMeeting) {
   if (!latestMeeting) return "";
-  const ov = (latestMeeting.summary && latestMeeting.summary.overview) || "";
-  const concerns = ((latestMeeting.summary && latestMeeting.summary.customer_concerns) || []).join("、");
-  let auto = "";
-  if (ov) auto += ov;
-  if (concerns) auto += (auto ? "\n\n" : "") + "【顧客の懸念】" + concerns;
-  if (latestMeeting.suggestions) {
-    try {
-      const sug = typeof latestMeeting.suggestions === "string" ? JSON.parse(latestMeeting.suggestions) : latestMeeting.suggestions;
-      if (Array.isArray(sug) && sug.length) {
-        auto += (auto ? "\n\n" : "") + "【次のアクション】" + sug.map(s => typeof s === "string" ? s : s.text || s.action || "").filter(Boolean).join("、");
+  const m = latestMeeting;
+  const s = m.summary || {};
+  const parts = [];
+
+  // 1) まとめ済みの本文（■つきの商談メモ形式）があれば、それをそのまま使う
+  if (s.formatted && String(s.formatted).trim()) {
+    parts.push(String(s.formatted).trim());
+  } else {
+    // 2) 無ければ、要約の各項目を組み立てる
+    const lines = [];
+    if (s.overview) lines.push(String(s.overview).trim(), "");
+    const sec = (label, items) => {
+      if (Array.isArray(items) && items.length) {
+        lines.push("■" + label);
+        items.forEach((i) => lines.push("・" + (typeof i === "string" ? i : (i && (i.text || i.title)) || "")));
+        lines.push("");
       }
-    } catch {}
+    };
+    sec("要点", s.key_points);
+    sec("合意事項", s.agreements);
+    sec("宿題・次アクション", s.action_items);
+    sec("相手の懸念", s.customer_concerns);
+    if (lines.length) parts.push(lines.join("\n").trim());
   }
-  return auto.trim();
+
+  // 3) 商談メモ（手入力・ヒアリング内容）があれば続けて入れる
+  if (m.note && String(m.note).trim()) parts.push(String(m.note).trim());
+
+  return parts.join("\n\n").trim();
 }
 async function renderTaskFields(account, latestMeeting) {
   const container = $("sfTaskFields");

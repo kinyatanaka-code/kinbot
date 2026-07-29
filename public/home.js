@@ -152,7 +152,7 @@ function sfPanelHtml(key, ev) {
         <button class="btn sf-btn-secondary home-sf-mini" data-sf-reset="${escH(key)}" type="button">別の商談を選ぶ</button>
         <a class="home-sf-link" href="history.html?company=${encodeURIComponent(companyFromTitle(ev.title) || ev.title || "")}">SF更新画面で細かく編集する</a>
       </div>
-      <div class="home-sf-note">ステージを「失注」、失注理由を「ニーズ・優先度不足 ／ 初回商談リスケ」で登録します。</div>`;
+      <div class="home-sf-note">ステージを「失注」、失注理由を「ニーズ・優先度不足 ／ 初回商談リスケ」、理由詳細を「リスケ」、失注日と失注後次回アクション日を今日の日付で登録します。</div>`;
   } else {
     const rows = s.records;
     let listHtml = "";
