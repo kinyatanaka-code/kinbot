@@ -3433,3 +3433,4 @@ a.home-todo:hover .home-todo-t b { color: #0d5b47; text-decoration: underline; }
 .ln-gbiz-note b { color: var(--ink); }
 .ln-gbiz-pick { display: inline-flex; align-items: center; gap: 6px; margin-top: 6px; }
 .ln-gbiz-sel { min-height: 32px; font-size: 12px; padding: 4px 8px; }
+.ln-missing { font-size: 11.5px; color: var(--muted); background: var(--panel-2); border-radius: 8px; padding: 7px 10px; margin-bottom: 10px; }

@@ -5301,9 +5301,9 @@ app.get("/api/calendar/created", async (req, res) => {
 // 立ち上げに使うリードの入力項目を、ラベルからAPI名に解決して返す
 const LEAD_WANT = [
   { key: "campaign",  label: "主キャンペーンソース", re: /主?キャンペーン(ソース|元)/, apis: ["Primary_Campaign_Source__c", "CampaignSource__c"] },
-  { key: "visitDate", label: "初回訪問日",           re: /初回(訪問|商談)日/,          apis: ["First_Visit_Date__c", "firstvisit_date__c"] },
-  { key: "apoDate",   label: "アポ獲得日",           re: /アポ獲得日/,                apis: ["Apo_Date__c", "apo_date__c"] },
-  { key: "fsNote",    label: "FSへの連携事項",       re: /FS.*(連携|引継|引き継)/i,   apis: ["FS_Note__c", "to_fs__c"] },
+  { key: "visitDate", label: "初回訪問日",           re: /初回(訪問|商談|面談|アポ).*日|初回.*日/, apis: ["First_Visit_Date__c", "firstvisit_date__c"] },
+  { key: "apoDate",   label: "アポ獲得日",           re: /アポ.*獲得.*日|獲得日/,      apis: ["Apo_Date__c", "apo_date__c"] },
+  { key: "fsNote",    label: "FSへの連携事項",       re: /(FS|ＦＳ|フィールドセールス)/i, apis: ["FS_Note__c", "to_fs__c"] },
   { key: "website",   label: "会社URL",              re: /会社.*(URL|ホームページ|サイト)|Website/i, apis: ["Website"] },
   { key: "address",   label: "会社住所",             re: /住所|Street/i,              apis: ["Street"] },
   { key: "employees", label: "会社従業員数",         re: /従業員/,                    apis: ["NumberOfEmployees"] },
@@ -5327,7 +5327,16 @@ app.get("/api/salesforce/lead-fields", async (req, res) => {
         options: (f.picklistValues || []).filter((o) => o.active).map((o) => ({ value: o.value, label: o.label || o.value })),
       });
     }
-    res.json({ fields: out, convertedStatus: await convertedLeadStatus(req.user) });
+    // この組織でリードの必須になっている項目も返す（入れないと更新・コンバートで弾かれるため）
+    const required = all
+      .filter((f) => f.updateable && !f.nillable && !f.defaultedOnCreate)
+      .filter((f) => !out.find((o) => o.name === f.name))
+      .map((f) => ({
+        key: "req_" + f.name, label: f.label || f.name, name: f.name, found: true, required: true,
+        type: f.type, referenceTo: f.referenceTo || [],
+        options: (f.picklistValues || []).filter((o) => o.active).map((o) => ({ value: o.value, label: o.label || o.value })),
+      }));
+    res.json({ fields: out.concat(required), convertedStatus: await convertedLeadStatus(req.user) });
   } catch (e) {
     sfErrorResponse(res, e);
   }

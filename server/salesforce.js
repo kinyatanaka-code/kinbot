@@ -787,9 +787,13 @@ export async function convertLead(owner, { leadId, convertedStatus, opportunityN
   const data = await res.json().catch(() => null);
   const first = Array.isArray(data) ? data[0] : null;
   if (!res.ok || !first || first.isSuccess === false) {
-    const msg = (first && first.errors && first.errors.map((e) => e.message).join(" / ")) ||
+    const raw = (first && first.errors && first.errors.map((e) => e.message).join(" / ")) ||
                 (data && JSON.stringify(data)) || `SF convert ${res.status}`;
-    throw new Error(`SF lead convert: ${msg}`);
+    // この組織で標準アクションが使えない場合は、SOAP APIのconvertLeadで実行する
+    if (/Invalid Action Type|NOT_FOUND/i.test(raw)) {
+      return await convertLeadSoap(acc, input);
+    }
+    throw new Error(`SF lead convert: ${raw}`);
   }
   const out = first.outputValues || {};
   return {
@@ -798,6 +802,54 @@ export async function convertLead(owner, { leadId, convertedStatus, opportunityN
     contactId: out.contactId || "",
     opportunityId: out.opportunityId || "",
     instanceUrl: acc.instanceUrl,
+  };
+}
+
+// SOAP APIでのリードコンバート（標準アクションが使えない組織向け）
+async function convertLeadSoap(acc, input) {
+  const ver = String(API_VERSION).replace(/^v/, "");
+  const esc = (v) => String(v == null ? "" : v)
+    .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;").replace(/'/g, "&apos;");
+  const tag = (name, v) => (v ? `<${name}>${esc(v)}</${name}>` : "");
+  const body =
+    `<?xml version="1.0" encoding="UTF-8"?>` +
+    `<soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/" xmlns:urn="urn:partner.soap.sforce.com">` +
+    `<soapenv:Header><urn:SessionHeader><urn:sessionId>${esc(acc.token)}</urn:sessionId></urn:SessionHeader></soapenv:Header>` +
+    `<soapenv:Body><urn:convertLead><urn:leadConverts>` +
+    tag("urn:leadId", input.leadId) +
+    tag("urn:convertedStatus", input.convertedStatus) +
+    tag("urn:accountId", input.accountId) +
+    tag("urn:contactId", input.contactId) +
+    tag("urn:ownerId", input.ownerId) +
+    tag("urn:opportunityName", input.opportunityName) +
+    `<urn:doNotCreateOpportunity>${input.doNotCreateOpportunity ? "true" : "false"}</urn:doNotCreateOpportunity>` +
+    `<urn:overwriteLeadSource>false</urn:overwriteLeadSource>` +
+    `<urn:sendNotificationEmail>false</urn:sendNotificationEmail>` +
+    `</urn:leadConverts></urn:convertLead></soapenv:Body></soapenv:Envelope>`;
+
+  const res = await fetch(`${acc.instanceUrl}/services/Soap/u/${ver}`, {
+    method: "POST",
+    headers: { "content-type": "text/xml; charset=UTF-8", SOAPAction: '""' },
+    body,
+  });
+  const xml = await res.text();
+  const pick = (name) => {
+    const m = xml.match(new RegExp(`<${name}>([^<]*)</${name}>`));
+    return m ? m[1] : "";
+  };
+  const success = /<success>true<\/success>/.test(xml);
+  if (!res.ok || !success) {
+    const msg = pick("faultstring") || pick("message") || `SOAP convert ${res.status}`;
+    throw new Error(`SF lead convert: ${msg}`);
+  }
+  return {
+    ok: true,
+    accountId: pick("accountId"),
+    contactId: pick("contactId"),
+    opportunityId: pick("opportunityId"),
+    instanceUrl: acc.instanceUrl,
+    via: "soap",
   };
 }
 

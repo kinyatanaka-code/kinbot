@@ -75,28 +75,29 @@ function dateLabelL(s) {
 // ---- 入力フォーム ----
 function fieldInput(f, key, value) {
   if (!f.found) {
-    return `<div class="sf-field"><label>${escL(f.label)}</label><div class="home-panel-empty">この項目がSalesforceに見つかりませんでした（入力せずに進みます）</div></div>`;
+    return `<div class="ln-missing">「${escL(f.label)}」はSalesforceに見つかりませんでした（入力せずに進みます）</div>`;
   }
   const id = `f_${key}_${f.key}`;
+  const req = f.required ? ' <span class="sf-req">＊必須</span>' : "";
   if (isRef(f)) {
-    return `<div class="sf-field"><label>${escL(f.label)}</label>${lookupHtml(f, "data-api", "", "")}</div>`;
+    return `<div class="sf-field"><label>${escL(f.label)}${req}</label>${lookupHtml(f, "data-api", "", "")}</div>`;
   }
   if (f.options && f.options.length) {
     const opts = ['<option value=""></option>'].concat(
       f.options.map((o) => `<option value="${escL(o.value)}" ${o.value === value || o.label === value ? "selected" : ""}>${escL(o.label)}</option>`)
     ).join("");
-    return `<div class="sf-field"><label>${escL(f.label)}</label><select class="sf-select" id="${id}" data-api="${escL(f.name)}">${opts}</select></div>`;
+    return `<div class="sf-field"><label>${escL(f.label)}${req}</label><select class="sf-select" id="${id}" data-api="${escL(f.name)}">${opts}</select></div>`;
   }
   if (f.type === "date") {
-    return `<div class="sf-field"><label>${escL(f.label)}</label><input type="date" class="sf-input" id="${id}" data-api="${escL(f.name)}" value="${escL(value || "")}"/></div>`;
+    return `<div class="sf-field"><label>${escL(f.label)}${req}</label><input type="date" class="sf-input" id="${id}" data-api="${escL(f.name)}" value="${escL(value || "")}"/></div>`;
   }
   if (f.type === "int" || f.type === "double") {
-    return `<div class="sf-field"><label>${escL(f.label)}</label><input type="number" class="sf-input" id="${id}" data-api="${escL(f.name)}" data-num="1" value="${escL(value || "")}"/></div>`;
+    return `<div class="sf-field"><label>${escL(f.label)}${req}</label><input type="number" class="sf-input" id="${id}" data-api="${escL(f.name)}" data-num="1" value="${escL(value || "")}"/></div>`;
   }
   if (f.type === "textarea") {
-    return `<div class="sf-field"><label>${escL(f.label)}</label><textarea class="sf-textarea" id="${id}" data-api="${escL(f.name)}" rows="2">${escL(value || "")}</textarea></div>`;
+    return `<div class="sf-field"><label>${escL(f.label)}${req}</label><textarea class="sf-textarea" id="${id}" data-api="${escL(f.name)}" rows="2">${escL(value || "")}</textarea></div>`;
   }
-  return `<div class="sf-field"><label>${escL(f.label)}</label><input type="text" class="sf-input" id="${id}" data-api="${escL(f.name)}" value="${escL(value || "")}"/></div>`;
+  return `<div class="sf-field"><label>${escL(f.label)}${req}</label><input type="text" class="sf-input" id="${id}" data-api="${escL(f.name)}" value="${escL(value || "")}"/></div>`;
 }
 
 function formHtml(key, ev) {
@@ -111,7 +112,10 @@ function formHtml(key, ev) {
     if (k === "employees") return lead.NumberOfEmployees != null ? String(lead.NumberOfEmployees) : "";
     return "";
   };
-  const fields = (leadFields || []).map((f) => fieldInput(f, key, def(f.key))).join("");
+  const main = (leadFields || []).filter((f) => !String(f.key).startsWith("req_"));
+  const reqs = (leadFields || []).filter((f) => String(f.key).startsWith("req_"));
+  const fields = main.map((f) => fieldInput(f, key, def(f.key))).join("") +
+    (reqs.length ? `<div class="ln-group">この組織で必須の項目</div>` + reqs.map((f) => fieldInput(f, key, "")).join("") : "");
   return `<div class="ln-form">
     <div class="ln-lead">
       <div class="home-sf-name">${escL(lead.Name || "")}（${escL(lead.Company || "")}）</div>
