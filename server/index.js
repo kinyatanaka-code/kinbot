@@ -5323,6 +5323,7 @@ app.get("/api/salesforce/lead-fields", async (req, res) => {
       out.push({
         key: w.key, label: f.label || w.label, name: f.name, found: true,
         type: f.type,
+        referenceTo: f.referenceTo || [],
         options: (f.picklistValues || []).filter((o) => o.active).map((o) => ({ value: o.value, label: o.label || o.value })),
       });
     }
@@ -5375,6 +5376,7 @@ app.get("/api/salesforce/lead-create-fields", async (req, res) => {
       name: f.name,
       label: f.label || f.name,
       type: f.type,
+      referenceTo: f.referenceTo || [],
       required: !f.nillable && !f.defaultedOnCreate,
       group,
       options: (f.picklistValues || []).filter((o) => o.active).map((o) => ({ value: o.value, label: o.label || o.value })),
@@ -5409,6 +5411,27 @@ app.post("/api/salesforce/leads", async (req, res) => {
     if (!fields.LastName || !fields.Company) return res.status(400).json({ error: "姓と会社名は必須です" });
     const r = await createLead(req.user, fields);
     res.json(r);
+  } catch (e) {
+    sfErrorResponse(res, e);
+  }
+});
+
+// キャンペーン一覧（主キャンペーンソースの選択用）
+app.get("/api/salesforce/campaigns", async (req, res) => {
+  try {
+    res.set("Cache-Control", "no-store");
+    const q = String(req.query.q || "").replace(/['"\\%_]/g, "").trim();
+    const where = ["IsDeleted = false"];
+    if (q) where.push(`Name LIKE '%${q}%'`);
+    let records = [];
+    try {
+      const d = await sfQuery(req.user, `SELECT Id, Name, IsActive FROM Campaign WHERE ${where.join(" AND ")} ORDER BY IsActive DESC, CreatedDate DESC LIMIT 300`);
+      records = d.records || [];
+    } catch {
+      const d = await sfQuery(req.user, `SELECT Id, Name FROM Campaign ORDER BY CreatedDate DESC LIMIT 300`);
+      records = d.records || [];
+    }
+    res.json({ records: records.map((r) => ({ id: r.Id, name: r.Name, active: r.IsActive !== false })) });
   } catch (e) {
     sfErrorResponse(res, e);
   }

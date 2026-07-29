@@ -78,6 +78,10 @@ function fieldInput(f, key, value) {
     return `<div class="sf-field"><label>${escL(f.label)}</label><div class="home-panel-empty">この項目がSalesforceに見つかりませんでした（入力せずに進みます）</div></div>`;
   }
   const id = `f_${key}_${f.key}`;
+  if (isCampaignRef(f)) {
+    const sel = /^[a-zA-Z0-9]{15,18}$/.test(String(value || "")) ? value : "";
+    return `<div class="sf-field"><label>${escL(f.label)}</label>${campaignSelectHtml(id, f.name, sel).replace("data-newapi=", "data-api=")}</div>`;
+  }
   if (f.options && f.options.length) {
     const opts = ['<option value=""></option>'].concat(
       f.options.map((o) => `<option value="${escL(o.value)}" ${o.value === value || o.label === value ? "selected" : ""}>${escL(o.label)}</option>`)
@@ -149,6 +153,9 @@ function createFormHtml(key, ev) {
       const id = `nf_${key}_${f.name}`;
       const req = f.required || f.name === "LastName" || f.name === "Company" ? ' <span class="sf-req">＊必須</span>' : "";
       const v = def(f);
+      if (isCampaignRef(f)) {
+        return `<div class="sf-field"><label>${escL(f.label)}${req}</label>${campaignSelectHtml(id, f.name, "")}</div>`;
+      }
       if (f.options && f.options.length) {
         const opts = ['<option value=""></option>'].concat(
           f.options.map((o) => `<option value="${escL(o.value)}" ${o.value === v || o.label === v ? "selected" : ""}>${escL(o.label)}</option>`)
@@ -220,6 +227,7 @@ let ownerFilter = null; // 表示する登録者（null＝全員）
 let launched = {};      // 会社名 → すでにある商談
 let sfInstanceUrl = "";
 let createFields = null; // 新規リード作成の入力項目
+let campaigns = null;    // キャンペーン一覧（主キャンペーンソース用）
 function render() {
   const box = $l("lnList");
   $l("lnTitle").textContent = (selDateL === todayL ? "今日" : dateLabelL(selDateL)) + "に登録された【初回】【新/ヒ】の予定" + (memberCount ? `（${memberCount}名分）` : "");
@@ -411,6 +419,35 @@ async function checkLaunched(events) {
   } catch {}
 }
 
+// キャンペーン一覧（主キャンペーンソースはキャンペーンへの参照項目なので、名前ではなくIDを入れる必要がある）
+async function loadCampaigns() {
+  if (campaigns) return;
+  try {
+    const r = await fetch("/api/salesforce/campaigns");
+    const d = await r.json().catch(() => ({}));
+    campaigns = r.ok ? (d.records || []) : [];
+  } catch { campaigns = []; }
+}
+function defaultCampaignId() {
+  const list = campaigns || [];
+  const hit = list.find((c) => /3\s*d\s*メタバース/i.test(String(c.name || "").replace(/[\s　]/g, ""))) ||
+              list.find((c) => /メタバース/.test(String(c.name || "")));
+  return hit ? hit.id : "";
+}
+// キャンペーン参照かどうか
+function isCampaignRef(f) {
+  const refs = f.referenceTo || [];
+  return f.type === "reference" && refs.some((x) => String(x).toLowerCase() === "campaign");
+}
+function campaignSelectHtml(id, api, selected) {
+  const list = campaigns || [];
+  const sel = selected || defaultCampaignId();
+  const opts = ['<option value="">（選択なし）</option>'].concat(
+    list.map((c) => `<option value="${escL(c.id)}" ${c.id === sel ? "selected" : ""}>${escL(c.name)}${c.active ? "" : "（無効）"}</option>`)
+  ).join("");
+  return `<select class="sf-select" id="${escL(id)}" data-newapi="${escL(api)}">${opts}</select>`;
+}
+
 async function loadNames() {
   try {
     const r = await fetch("/api/interns");
@@ -528,7 +565,7 @@ document.addEventListener("DOMContentLoaded", async () => {
       s.evDate = e2 && e2.start ? ymdL(new Date(e2.start)) : selDateL;
       s.mode = "create"; s.error = "";
       render();
-      loadCreateFields();
+      loadCampaigns().then(() => { loadCreateFields(); });
       return;
     }
     const cc = ev.target.closest("[data-ln-cancel]");
@@ -577,5 +614,6 @@ document.addEventListener("DOMContentLoaded", async () => {
 
   await loadNames();
   await loadFields();
+  await loadCampaigns();
   loadDay();
 });
