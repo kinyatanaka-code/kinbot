@@ -228,6 +228,11 @@ const RAILWAY_DOMAIN = process.env.RAILWAY_PUBLIC_DOMAIN;
 const PUBLIC_URL = (
   process.env.PUBLIC_URL || (RAILWAY_DOMAIN ? `https://${RAILWAY_DOMAIN}` : "")
 ).replace(/\/$/, "");
+
+// カレンダーからの自動入室のON/OFF。
+// 既定はOFF（手動でのみボットを入れる）。再開したい場合は Railway の環境変数に
+// CALENDAR_AUTO_JOIN=1 を追加してください。
+const CALENDAR_AUTO_JOIN = String(process.env.CALENDAR_AUTO_JOIN || "") === "1";
 const WEBHOOK_SECRET = process.env.RECALL_WEBHOOK_SECRET || "";
 
 const llm = analyzerInfo();
@@ -3906,6 +3911,7 @@ app.post("/api/zoom/webhook", async (req, res) => {
   // Zoomは3秒以内の200応答を期待するので、先に返してから処理する
   res.status(200).json({ ok: true });
   if (body.event !== "meeting.started") return;
+  if (!CALENDAR_AUTO_JOIN) return; // 自動入室オフのときは何もしない（手動入室のみ）
   try {
     const obj = (body.payload && body.payload.object) || {};
     const meetingId = String(obj.id || "").replace(/\s/g, "");
@@ -3978,7 +3984,7 @@ app.get("/api/calendar/today", async (req, res) => {
     try {
       events = await listCalendarEvents(req.user, "primary", { timeMin: start.toISOString(), timeMax: end.toISOString() });
     } catch (e) {
-      return res.json({ connected: false, date: dateStr, events: [] });
+      return res.json({ connected: false, date: dateStr, autoJoin: CALENDAR_AUTO_JOIN, events: [] });
     }
     const timed = (events || []).filter((e) => !e.allDay && e.start).map((e) => ({
       id: e.id, title: e.title || "(無題)", start: e.start,
@@ -3988,7 +3994,7 @@ app.get("/api/calendar/today", async (req, res) => {
       const ms = new Date(e.start).getTime();
       return ms >= start.getTime() && ms <= end.getTime();
     });
-    res.json({ connected: true, date: dateStr, events: timed });
+    res.json({ connected: true, date: dateStr, autoJoin: CALENDAR_AUTO_JOIN, events: timed });
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
@@ -6216,9 +6222,13 @@ app.delete("/api/proposals/:id", async (req, res) => {
 
 server.listen(PORT, async () => {
   await initDb().catch((e) => console.error("[db] init失敗", e.message));
-  startScheduler({ publicUrl: PUBLIC_URL });
+  if (CALENDAR_AUTO_JOIN) {
+    startScheduler({ publicUrl: PUBLIC_URL });
+  } else {
+    console.log("[自動入室] カレンダーからの自動入室はオフです（手動でのみ入室します）");
+  }
   startSessionMonitor();
-  startAutoJoinCalendarMonitor();
+  if (CALENDAR_AUTO_JOIN) startAutoJoinCalendarMonitor();
   // 起動から1分後、「無題」や担当なしのまま残っている最近の商談をカレンダーから補完する
   setTimeout(() => { repairRecentMeetings().catch((e) => console.error("[meta補完]", e.message)); }, 60 * 1000);
   // 「進行中(未設定)」のうち auto_lose_deadline を過ぎた案件を自動で失注に切り替える：起動直後＋1時間ごと
