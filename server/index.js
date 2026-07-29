@@ -5729,8 +5729,18 @@ app.post("/api/salesforce/field-suggest", async (req, res) => {
     if (!m) return res.status(404).json({ error: "商談が見つかりません" });
     let summary = "";
     if (m.summary) summary = typeof m.summary === "string" ? m.summary : JSON.stringify(m.summary);
-    const content = (summary ? "【要約】\n" + summary + "\n\n" : "") + "【文字起こし】\n" + (m.transcript || "");
-    if (!content.trim()) return res.json({ values: {} });
+    // 文字起こしは配列なので、そのまま連結すると [object Object] になってしまう。話者付きの文章にする。
+    const trText = Array.isArray(m.transcript)
+      ? m.transcript.map((u) => `${(u && u.speaker && u.speaker.name) || "話者"}: ${(u && u.text) || ""}`).join("\n")
+      : String(m.transcript || "");
+    const mDate = m.created_at ? new Date(m.created_at) : new Date();
+    const ymdOf = (d) => new Date(d.getTime() + 9 * 3600 * 1000).toISOString().slice(0, 10);
+    const content =
+      `【商談実施日】${ymdOf(mDate)}\n【今日】${ymdOf(new Date())}\n\n` +
+      (summary ? "【要約】\n" + summary + "\n\n" : "") +
+      (m.note ? "【商談メモ】\n" + m.note + "\n\n" : "") +
+      "【文字起こし】\n" + trText;
+    if (!trText.trim() && !summary) return res.json({ values: {} });
     const fieldLines = fields.map((f) => {
       let line = `- ${f.label}（キー:${f.api}`;
       if (f.type === "date" || f.type === "datetime") line += "・日付 YYYY-MM-DD";
@@ -5742,8 +5752,11 @@ app.post("/api/salesforce/field-suggest", async (req, res) => {
       "あなたはSalesforceの商談項目を、商談の内容から埋めるアシスタントです。\n" +
       "以下の各項目について、商談の内容から読み取れる値を日本語で簡潔に記入してください。\n" +
       "・読み取れない項目は空文字にする（推測で埋めない）。\n" +
-      "・日付は YYYY-MM-DD 形式。\n" +
-      "・選択肢がある項目は、必ず選択肢の中から最も近いものを選ぶ。\n" +
+      "・日付は YYYY-MM-DD 形式。「来週の火曜」「月末」などの言い方は、上の【商談実施日】を基準に実際の日付へ直す。\n" +
+      "・次回アクション日は、次回の打ち合わせ日や、宿題の期限として話に出た日付を入れる。\n" +
+      "・次回アクション種別は、次に何をするか（再商談・電話・メールなど）を選択肢から選ぶ。\n" +
+      "・失注理由や受失注理由は、顧客が断った理由・保留した理由に最も近い選択肢を選ぶ。\n" +
+      "・選択肢がある項目は、必ず選択肢の中から最も近いものを選ぶ。選択肢の文字列をそのまま返す。\n" +
       "・出力はJSONオブジェクトのみ。キーは各項目の「キー」、値は記入する文字列。説明やコードブロックは不要。\n\n" +
       "【項目】\n" + fieldLines;
     const out = await runCustomAnalysis(String(content).slice(0, 40000), prompt);
