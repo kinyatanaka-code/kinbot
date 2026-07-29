@@ -5331,6 +5331,39 @@ app.get("/api/salesforce/lead-fields", async (req, res) => {
   }
 });
 
+// すでにSalesforceで立ち上がっている（クロスの商談がある）会社を調べる
+app.post("/api/salesforce/launched-check", async (req, res) => {
+  try {
+    res.set("Cache-Control", "no-store");
+    const list = Array.isArray(req.body && req.body.companies) ? req.body.companies : [];
+    if (!list.length) return res.json({ found: {} });
+    // 「株式会社」などを外した中心の語で探す
+    const core = (v) => String(v || "")
+      .replace(/(株式会社|有限会社|合同会社|合資会社|一般社団法人|一般財団法人|公益社団法人|公益財団法人|医療法人|学校法人|社会福祉法人|㈱|\(株\)|（株）)/g, "")
+      .replace(/['"\\%_\s　]/g, "")
+      .trim();
+    const uniq = [...new Set(list.map(core).filter((x) => x.length >= 2))].slice(0, 25);
+    if (!uniq.length) return res.json({ found: {} });
+    const ors = uniq.map((c) => `Name LIKE '%${c}%'`).join(" OR ");
+    const soql =
+      `SELECT Id, Name, StageName, CreatedDate, Account.Name FROM Opportunity ` +
+      `WHERE Name LIKE '%クロス%' AND (${ors}) ORDER BY CreatedDate DESC LIMIT 300`;
+    const d = await sfQuery(req.user, soql);
+    const recs = d.records || [];
+    const found = {};
+    for (const c of list) {
+      const k = core(c);
+      if (!k) continue;
+      const hit = recs.find((r) => core(r.Name).includes(k) || (r.Account && core(r.Account.Name).includes(k)));
+      if (hit) found[c] = { id: hit.Id, name: hit.Name, stage: hit.StageName || "", createdDate: hit.CreatedDate || "" };
+    }
+    const info = await sfInfo(req.user).catch(() => null);
+    res.json({ found, instanceUrl: (info && info.instanceUrl) || "" });
+  } catch (e) {
+    sfErrorResponse(res, e);
+  }
+});
+
 // リードを探す
 app.get("/api/salesforce/leads", async (req, res) => {
   try {

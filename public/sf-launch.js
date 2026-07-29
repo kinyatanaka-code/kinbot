@@ -163,6 +163,8 @@ let dayEventsL = [];
 let memberCount = 0;
 let nameByEmail = {};   // メール → 表示名
 let ownerFilter = null; // 表示する登録者（null＝全員）
+let launched = {};      // 会社名 → すでにある商談
+let sfInstanceUrl = "";
 function render() {
   const box = $l("lnList");
   $l("lnTitle").textContent = (selDateL === todayL ? "今日" : dateLabelL(selDateL)) + "に登録された【初回】【新/ヒ】の予定" + (memberCount ? `（${memberCount}名分）` : "");
@@ -186,15 +188,18 @@ function render() {
       : "日時未定";
     const madeAt = e.created ? new Date(e.created).toLocaleTimeString("ja-JP", { hour: "2-digit", minute: "2-digit" }) : "";
     const who = creatorNameOf(e);
+    const done = launched[companyOf(e.title)] || null;
     return `<div class="home-card home-card-v" data-ev="${escL(key)}">
       <div class="home-card-row">
         <div class="home-card-main">
-          <div class="home-card-top"><span class="home-time">${escL(when)}</span><span class="home-badge home-badge-plan">商談予定</span>${madeAt ? `<span class="home-badge home-badge-st">${escL(madeAt)}に登録</span>` : ""}</div>
+          <div class="home-card-top"><span class="home-time">${escL(when)}</span>${done ? `<span class="home-badge home-badge-done">立ち上げ済み</span>` : `<span class="home-badge home-badge-plan">商談予定</span>`}${madeAt ? `<span class="home-badge home-badge-st">${escL(madeAt)}に登録</span>` : ""}</div>
           <div class="home-card-title">${escL(e.title || "")}</div>
           <div class="home-card-meta">会社名：${escL(companyOf(e.title) || "—")}　／　担当者：${escL(personOf(e.title) || "—")}${who ? "　／　登録者：" + escL(who) : ""}</div>
+          ${done ? `<div class="home-card-meta">SF商談：${escL(done.name)}${done.stage ? "（" + escL(done.stage) + "）" : ""}</div>` : ""}
         </div>
         <div class="home-card-actions">
-          <button class="btn" data-ln-open="${escL(key)}" type="button">${s.open ? "閉じる" : "リードを探す"}</button>
+          ${done && sfInstanceUrl ? `<a class="btn" href="${escL(sfInstanceUrl)}/${escL(done.id)}" target="_blank" rel="noopener">SFで開く</a>` : ""}
+          <button class="btn${done ? " sf-btn-secondary" : ""}" data-ln-open="${escL(key)}" type="button">${s.open ? "閉じる" : "リードを探す"}</button>
         </div>
       </div>
       ${panelHtml(key, e)}
@@ -288,6 +293,20 @@ async function convert(key) {
   }
 }
 
+// すでにSalesforceで立ち上がっている会社を調べる
+async function checkLaunched(events) {
+  const companies = [...new Set(events.map((e) => companyOf(e.title)).filter(Boolean))];
+  if (!companies.length) return;
+  try {
+    const r = await fetch("/api/salesforce/launched-check", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ companies }),
+    });
+    const d = await r.json().catch(() => ({}));
+    if (r.ok) { launched = d.found || {}; sfInstanceUrl = d.instanceUrl || ""; render(); }
+  } catch {}
+}
+
 async function loadNames() {
   try {
     const r = await fetch("/api/interns");
@@ -327,6 +346,7 @@ async function loadDay() {
     dayEventsL = [];
   }
   render();
+  checkLaunched((dayEventsL || []).filter((e) => isTarget(e.title)));
 }
 
 function shiftDay(n) {
@@ -334,6 +354,7 @@ function shiftDay(n) {
   const x = new Date(y, m - 1, d);
   x.setDate(x.getDate() + n);
   selDateL = ymdL(x);
+  launched = {};
   loadDay();
 }
 
