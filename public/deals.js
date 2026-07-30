@@ -2913,11 +2913,11 @@ async function renderSSFields(stageName) {
       const opts = ['<option value=""></option>'].concat(
         m.picklistValues.map((o) => `<option value="${esc(o.value)}" ${o.value === cur ? "selected" : ""}>${esc(o.label || o.value)}</option>`)
       ).join("");
-      return `<div class="sf-field"><label>${label}</label><select class="sf-select" data-sf-field="${api}"${orig}>${opts}</select></div>`;
+      return `<div class="sf-field"><label>${label}<span class="sf-api">${esc(api)}</span></label><select class="sf-select" data-sf-field="${api}"${orig}>${opts}</select></div>`;
     }
-    if (t === "textarea") return `<div class="sf-field"><label>${label}</label><textarea class="sf-textarea" data-sf-field="${api}"${orig} rows="2">${esc(cur)}</textarea></div>`;
-    if (t === "date") return `<div class="sf-field"><label>${label}</label><input type="date" class="sf-input" data-sf-field="${api}"${orig} value="${esc(cur)}"/></div>`;
-    return `<div class="sf-field"><label>${label}</label><input type="text" class="sf-input" data-sf-field="${api}"${orig} value="${esc(cur)}"/></div>`;
+    if (t === "textarea") return `<div class="sf-field"><label>${label}<span class="sf-api">${esc(api)}</span></label><textarea class="sf-textarea" data-sf-field="${api}"${orig} rows="2">${esc(cur)}</textarea></div>`;
+    if (t === "date") return `<div class="sf-field"><label>${label}<span class="sf-api">${esc(api)}</span></label><input type="date" class="sf-input" data-sf-field="${api}"${orig} value="${esc(cur)}"/></div>`;
+    return `<div class="sf-field"><label>${label}<span class="sf-api">${esc(api)}</span></label><input type="text" class="sf-input" data-sf-field="${api}"${orig} value="${esc(cur)}"/></div>`;
   };
 
   // 段階（SS01〜SS06）ごとの項目。画像の項目リストを基準に、describeのラベル→API名で解決する。
@@ -2931,8 +2931,27 @@ async function renderSSFields(stageName) {
     { key: "99：失注", labels: ["order_date__c", "Loss_Reason__c", "Loss_Reason1__c", "Loss_Reason2__c", "order_reason_detail__c", "失注後次回アクション日"] },
   ];
   const normLbl = (s) => String(s || "").replace(/[\s　()（）:：★☆・_]/g, "").toLowerCase();
+  // 同じラベルの項目が複数ある場合に備えて、候補をすべて持つ
+  const labelCands = {};
+  for (const f of Object.values(meta)) {
+    if (!f.label) continue;
+    const k = normLbl(f.label);
+    (labelCands[k] = labelCands[k] || []).push(f);
+  }
+  // 選択肢のある項目・独自項目（__c）を優先して1つ選ぶ
+  const bestOf = (arr) => {
+    if (!arr || !arr.length) return null;
+    const score = (f) => {
+      let n = 0;
+      if (f.picklistValues && f.picklistValues.length) n += 4;
+      if (/__c$/.test(f.name)) n += 2;
+      if (f.updateable) n += 1;
+      return n;
+    };
+    return arr.slice().sort((a, b) => score(b) - score(a) || String(a.label).length - String(b.label).length)[0];
+  };
   const labelToApi = {};
-  for (const f of Object.values(meta)) if (f.label) labelToApi[normLbl(f.label)] = f.name;
+  for (const k of Object.keys(labelCands)) labelToApi[k] = bestOf(labelCands[k]).name;
   // ラベル、またはAPI名（末尾__cなど、metaに存在するもの）で解決する。
   // 組織によって項目名が少し違う（例：同席打診 ↔ 同席打診有無）ので、部分一致でも探す。
   const labelKeys = Object.keys(labelToApi);
@@ -2941,9 +2960,19 @@ async function renderSSFields(stageName) {
     const n = normLbl(lb);
     if (labelToApi[n]) return labelToApi[n];
     if (n.length < 3) return null;
-    const hit = labelKeys.find((k) => k.includes(n)) ||
-                labelKeys.find((k) => k.length >= 3 && n.includes(k));
-    return hit ? labelToApi[hit] : null;
+    // 部分一致。候補が複数あるときは選択肢つき・独自項目を優先する
+    const partial = labelKeys.filter((k) => k.includes(n));
+    if (partial.length) {
+      const pool = partial.flatMap((k) => labelCands[k] || []);
+      const b = bestOf(pool);
+      if (b) return b.name;
+    }
+    const loose = labelKeys.filter((k) => k.length >= 4 && n.includes(k));
+    if (loose.length) {
+      const b = bestOf(loose.flatMap((k) => labelCands[k] || []));
+      if (b) return b.name;
+    }
+    return null;
   };
   // この組織で必須（空を許さない）になっている項目。段階を問わず必ず出しておく。
   const requiredApis = Object.values(meta)
