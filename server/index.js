@@ -5493,6 +5493,39 @@ app.get("/api/gbiz/company", async (req, res) => {
   }
 });
 
+// Salesforce連携の診断（つながらない理由を確認する）
+app.get("/api/salesforce/diag", async (req, res) => {
+  try {
+    res.set("Cache-Control", "no-store");
+    const info = await sfInfo(req.user).catch((e) => ({ error: e.message }));
+    let tokenTest = { ok: false, error: "" };
+    try {
+      await sfQuery(req.user, "SELECT Id FROM Opportunity LIMIT 1");
+      tokenTest.ok = true;
+    } catch (e) {
+      tokenTest.error = e.message || String(e);
+    }
+    let egressIp = "";
+    try { egressIp = (await (await fetch("https://api.ipify.org")).text()).trim(); } catch {}
+    res.json({
+      owner: req.user,
+      loginUrl: (process.env.SF_LOGIN_URL || "https://login.salesforce.com").replace(/\/+$/, ""),
+      clientIdSet: !!process.env.SF_CLIENT_ID,
+      clientSecretSet: !!process.env.SF_CLIENT_SECRET,
+      connection: info,
+      tokenTest,
+      egressIp,
+      hint: !tokenTest.ok && /ip restricted/i.test(tokenTest.error)
+        ? "SalesforceのIP制限で弾かれています。接続アプリのOAuthポリシーで「IP制限の緩和」を設定するか、上のegressIpを信頼済みIPに登録してください。"
+        : !tokenTest.ok && /invalid_grant/i.test(tokenTest.error)
+          ? "リフレッシュトークンが無効です。設定から再連携してください。"
+          : "",
+    });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // 会社名やメールから、電話番号・Webサイトを探す
 // （1）Salesforceの既存の取引先・リード （2）メールのドメイン の順で拾う
 const FREE_MAIL = /^(gmail|yahoo|outlook|hotmail|icloud|docomo|ezweb|softbank|au|me|live|msn|nifty|so-net|biglobe|ocn)\./i;

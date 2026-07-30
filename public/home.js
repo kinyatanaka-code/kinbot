@@ -157,7 +157,7 @@ function sfPanelHtml(key, ev) {
     const rows = s.records;
     let listHtml = "";
     if (s.loading) listHtml = `<div class="home-sf-msg">検索中…</div>`;
-    else if (s.reauth) listHtml = `<div class="home-sf-err">Salesforceの再連携が必要です。<a class="home-sf-link" href="settings.html">設定を開く</a></div>`;
+    else if (s.reauth) listHtml = `<div class="home-sf-err">Salesforceにつながりませんでした。<a class="home-sf-link" href="settings.html">設定を開いて再連携</a>${s.raw ? `<br><span class="home-sf-note">${escH(s.raw)}</span>` : ""}<br><a class="home-sf-link" href="/api/salesforce/diag" target="_blank" rel="noopener">接続の状態を確認する</a></div>`;
     else if (s.error) listHtml = `<div class="home-sf-err">${escH(s.error)}</div>`;
     else if (rows && !rows.length) listHtml = `<div class="home-sf-msg">一致する商談が見つかりませんでした。会社名を変えて検索してください。</div>`;
     else if (rows) listHtml = `<div class="home-sf-list">` + rows.map((r) => `
@@ -418,7 +418,7 @@ async function sfSearch(key) {
     const r = await fetch("/api/salesforce/search?q=" + encodeURIComponent(s.q));
     const d = await r.json().catch(() => ({}));
     if (!r.ok) {
-      if (d.sfReauth || r.status === 401 || /未連携/.test(d.error || "")) s.reauth = true;
+      if (d.sfReauth || r.status === 401 || /未連携/.test(d.error || "")) { s.reauth = true; s.raw = d.error || ""; }
       else s.error = d.error || "検索に失敗しました";
       s.records = null;
     } else {

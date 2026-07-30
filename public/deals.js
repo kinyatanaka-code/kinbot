@@ -2176,11 +2176,17 @@ function requiredHints(errMsg) {
   for (const c of clauses) {
     const toks = [];
     // 「〜にはA・B・Cを入力してください」形式（項目が中黒で並ぶ）
-    const multi = c.match(/([^。]+?)を(?:入力|選択|登録|設定|記入)して/);
+    const mList = c.match(/([^。]+?)を(?:入力|選択|登録|設定|記入)して/);
+    const mNeed = c.match(/([^。]+?)の(?:入力|選択|登録|設定|記入)が(?:必要|必須)/);
+    // 「A」「B」のような列挙、または「AをBを入力してください」形式のときだけ、まとめて拾う
+    const multi = mList || (mNeed && /[「『・]/.test(mNeed[1]) ? mNeed : null);
     if (multi) {
       let seg = String(multi[1]).replace(/^.*?(?:のためには|ためには|には|は)\s*/, "");
-      const items = seg.split(/[・､、,／\/]/).map((x) => x.trim()).filter((x) => x.length >= 2 && x.length <= 30);
+      // 「商談種別」「初回提案商品」のようなかぎかっこ区切りにも対応
+      seg = seg.replace(/[「『]/g, "・").replace(/[」』]/g, "・");
+      const items = seg.split(/[・､、,／\/]+/).map((x) => x.trim()).filter((x) => x.length >= 2 && x.length <= 30);
       if (items.length > 1) { items.forEach((x) => hints.push([x])); continue; }
+      if (items.length === 1 && (mList || /[「『]/.test(String(multi[1])))) { hints.push([items[0]]); continue; }
     }
     let m = c.match(/([^、。：:！!]{2,}?)が(?:不要|必要|未入力|未選択|空|ない|無い)/);
     if (m) toks.push(m[1]);
@@ -2191,6 +2197,10 @@ function requiredHints(errMsg) {
     const clean = [];
     for (let t of toks) {
       t = String(t).replace(/^[、\s　]+|[、\s　]+$/g, "");
+      // 「失注時には失注日」のような前置きを落とす
+      const cut = t.replace(/^.*?(?:時には|には|の場合、?)/, "");
+      if (cut && cut.length >= 2) t = cut;
+      t = t.replace(/の(?:入力|選択|登録|設定|記入)$/, "");
       if (t && t.length >= 2 && !clean.includes(t)) clean.push(t);
     }
     if (clean.length) hints.push(clean);
@@ -2913,7 +2923,7 @@ async function renderSSFields(stageName) {
   // 段階（SS01〜SS06）ごとの項目。画像の項目リストを基準に、describeのラベル→API名で解決する。
   const SS_STAGE_LABELS = [
     { key: "01：アポ獲得", labels: ["SS01昇格日", "担当領域", "アポ獲得日", "初回アポ設定日", "顧客の現状"] },
-    { key: "02：有効商談(3ヶ月以内検討)", labels: ["SS02昇格日", "初回提案プラン", "利用目的", "担当者が解決したい課題", "商談メモ", "担当者の解決したい課題（その他）", "次回お打合せ日時"] },
+    { key: "02：有効商談(3ヶ月以内検討)", labels: ["SS02昇格日", "商談種別", "初回提案商品", "初回提案プラン", "利用目的", "担当者が解決したい課題", "商談メモ", "担当者の解決したい課題（その他）", "次回お打合せ日時"] },
     { key: "03：担当者合意", labels: ["SS03昇格日", "今やるべき理由", "比較されてる代替手段", "DOCでないといけない理由", "上申先", "同席打診", "上申日", "上申に必要な書類"] },
     { key: "04：企画決定者合意", labels: ["SS04昇格日", "役員等への業績等に必要な書類", "決裁フロー", "利用開始希望時期", "リーガル・セキュリティチェック", "申込書回収想定日"] },
     { key: "05：決裁者合意", labels: ["目標用_SS05昇格日", "最終的な決裁の決め手"] },
@@ -2935,10 +2945,15 @@ async function renderSSFields(stageName) {
                 labelKeys.find((k) => k.length >= 3 && n.includes(k));
     return hit ? labelToApi[hit] : null;
   };
-  const ssSections = SS_STAGE_LABELS.map((s) => ({
-    heading: s.key,
-    fields: s.labels.map(resolveLabel).filter(Boolean),
-  })).filter((s) => s.fields.length);
+  // この組織で必須（空を許さない）になっている項目。段階を問わず必ず出しておく。
+  const requiredApis = Object.values(meta)
+    .filter((f) => f.updateable && f.nillable === false && !f.defaultedOnCreate && f.name !== "StageName")
+    .map((f) => f.name);
+  const ssSections = SS_STAGE_LABELS.map((s) => {
+    const fields = s.labels.map(resolveLabel).filter(Boolean);
+    for (const api of requiredApis) if (!fields.includes(api)) fields.push(api);
+    return { heading: s.key, fields };
+  }).filter((s) => s.fields.length);
 
   if (ssSections.length) {
     // 各SS段階に対応するSalesforceのステージ値をマッピング（先頭番号で対応。99などの多桁にも対応）
