@@ -106,6 +106,10 @@ import {
   saveSetCache,
   listUsers,
   dbGetUser,
+  listQaBank,
+  deleteQaBank,
+  markQaGood,
+  addQaPairs,
   listGoogleAccounts,
   dbUpdateUser,
   getUserSettings,
@@ -179,6 +183,10 @@ import {
   createLead,
   convertedLeadStatus,
   convertedLeadStatuses,
+  listReports,
+  runReport,
+  listDashboards,
+  describeDashboard,
   authUrl as sfAuthUrl,
   createPkce as sfCreatePkce,
   exchangeCode as sfExchangeCode,
@@ -5491,6 +5499,71 @@ app.get("/api/gbiz/company", async (req, res) => {
     console.error("[gbiz company]", e.message);
     res.status(502).json({ error: e.message });
   }
+});
+
+// ===== Salesforceのレポート =====
+app.get("/api/salesforce/reports", async (req, res) => {
+  try {
+    res.set("Cache-Control", "no-store");
+    res.json({ reports: await listReports(req.user, req.query.q || "") });
+  } catch (e) {
+    sfErrorResponse(res, e);
+  }
+});
+
+app.get("/api/salesforce/reports/:id", async (req, res) => {
+  try {
+    res.set("Cache-Control", "no-store");
+    res.json(await runReport(req.user, req.params.id));
+  } catch (e) {
+    sfErrorResponse(res, e);
+  }
+});
+
+app.get("/api/salesforce/dashboards", async (req, res) => {
+  try {
+    res.set("Cache-Control", "no-store");
+    res.json({ dashboards: await listDashboards(req.user, req.query.q || "") });
+  } catch (e) {
+    sfErrorResponse(res, e);
+  }
+});
+
+app.get("/api/salesforce/dashboards/:id", async (req, res) => {
+  try {
+    res.set("Cache-Control", "no-store");
+    res.json(await describeDashboard(req.user, req.params.id));
+  } catch (e) {
+    sfErrorResponse(res, e);
+  }
+});
+
+// ===== 商談から集めた質問と回答（全員で共有するナレッジ） =====
+app.get("/api/qa-bank", async (req, res) => {
+  try {
+    res.set("Cache-Control", "no-store");
+    res.json({ items: await listQaBank({ q: req.query.q || "", limit: 300 }) });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+app.post("/api/qa-bank", async (req, res) => {
+  try {
+    const { question, answer, topic } = req.body || {};
+    if (!question || !answer) return res.status(400).json({ error: "質問と回答が必要です" });
+    const n = await addQaPairs([{ question, answer, topic: topic || "その他" }], { repName: req.user });
+    res.json({ ok: true, added: n });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+app.delete("/api/qa-bank/:id", async (req, res) => {
+  try { await deleteQaBank(Number(req.params.id)); res.json({ ok: true }); }
+  catch (e) { res.status(500).json({ error: e.message }); }
+});
+app.post("/api/qa-bank/:id/good", async (req, res) => {
+  try { await markQaGood(Number(req.params.id), 1); res.json({ ok: true }); }
+  catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 // Salesforce連携の診断（つながらない理由を確認する）

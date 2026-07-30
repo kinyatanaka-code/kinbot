@@ -472,6 +472,17 @@ curl -H "Authorization: Bearer <span class="cc-tok">&lt;トークン&gt;</span>"
           </div>
           <div class="set-pane" data-pane="knowledge" hidden>
             <div class="set-card">
+              <h3>商談から集めた質問と回答</h3>
+              <p class="note">商談が終わるたびに、AIが「顧客の質問」と「営業が実際に答えた内容」を取り出して自動で貯めます。全員分がたまり、商談中の即答はこの内容も参考にします。よく効いた回答は「使えた」を押すと優先して使われます。</p>
+              <div class="rep-controls">
+                <input type="text" id="qaQ" class="sf-input" placeholder="質問や回答で絞り込み" style="min-width:240px" />
+                <button class="btn ghost" id="qaSearch">検索</button>
+                <span class="rev-status" id="qaStatus"></span>
+              </div>
+              <div id="qaList"><div class="empty-state">読み込み中…</div></div>
+            </div>
+
+            <div class="set-card">
               <h3>自社ナレッジ（チーム共有）</h3>
               <p class="note">PDF・画像・Webサイト・Googleドライブの資料を取り込むと、AIが中身を読み取り・構造化して蓄積し、ライブの提案／フィードバック／御礼メールに活用します。チーム全員に反映されます。</p>
 

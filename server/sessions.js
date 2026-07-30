@@ -1,6 +1,6 @@
 // server/sessions.js
-import { analyze, analyzeMeeting, analyzeDeep } from "./analyzer.js";
-import { createMeeting, saveMeeting, saveAnalysis, saveDeepAnalysis, getMeeting, setDealStatusAuto, getSettings, companyFromTitle, getDealBrief, normCompanyKey } from "./db.js";
+import { analyze, analyzeMeeting, analyzeDeep, answerQuestion, extractQaPairs } from "./analyzer.js";
+import { createMeeting, saveMeeting, saveAnalysis, saveDeepAnalysis, getMeeting, setDealStatusAuto, getSettings, companyFromTitle, getDealBrief, normCompanyKey, getKnowledgeContext, searchQaBank, addQaPairs } from "./db.js";
 import { disableLiveStream } from "./mux.js";
 
 const DEFAULT_INTERVAL_MS = Number(process.env.ANALYZE_INTERVAL_MS || 20000);
@@ -121,6 +121,58 @@ class Session {
     const u = { speaker, text, ts: Date.now() };
     this.utterances.push(u);
     this.broadcast({ type: "final", speaker, text, ts: u.ts });
+    this.maybeAnswer(speaker, text); // 顧客の質問ならその場で回答案を出す
+  }
+
+  // 顧客からの質問かどうか
+  isCustomer(speaker) {
+    const name = String((speaker && speaker.name) || "").replace(/\s+/g, "");
+    const rep = String(this.repName || "").replace(/\s+/g, "");
+    if (!rep) return false;           // 担当者が分からないときは判定しない
+    return !name.includes(rep);
+  }
+  static looksLikeQuestion(text) {
+    const t = String(text || "").trim();
+    if (t.length < 6) return false;
+    return /[?？]$|ですか[。？?]?$|ますか[。？?]?$|でしょうか|ますでしょうか|教えて(いただけ|くださ)|どのくらい|いくら|可能でしょうか|できますか|なぜ|どうやって|違いは|対応して(いますか|ますか)/.test(t);
+  }
+
+  // 質問を検知したら、その場で回答案を作って画面に出す
+  async maybeAnswer(speaker, text) {
+    try {
+      if (!this.isCustomer(speaker)) return;
+      if (!Session.looksLikeQuestion(text)) return;
+      if (this.answering) return;
+      if (Date.now() < (this.answerCooldownUntil || 0)) return;
+      this.answering = true;
+      this.answerCooldownUntil = Date.now() + 6000; // 連発しないように
+
+      if (this.knowledgeCtx === undefined) {
+        this.knowledgeCtx = await getKnowledgeContext(5000).catch(() => "");
+      }
+      const context = this.utterances.slice(-8)
+        .map((u) => `${(u.speaker && u.speaker.name) || "話者"}: ${u.text}`)
+        .join("\n");
+      // これまでの商談で同じような質問にどう答えたかを探して、参考として渡す
+      let pastQa = [];
+      try { pastQa = await searchQaBank(text, 4); } catch {}
+      const r = await answerQuestion({
+        question: text,
+        context,
+        knowledge: this.knowledgeCtx,
+        pastQa,
+        repName: this.repName,
+      });
+      if (!r.answer) return;
+      const ts = Date.now();
+      this.broadcast({ type: "answer", question: text, ...r, ts });
+      this.aiLog.push({ t: "qa", question: text, answer: r.answer, basis: r.basis || "", caution: r.caution || "", ts });
+      saveMeeting(this.botId, { aiLog: this.aiLog });
+    } catch (e) {
+      console.error("[即答]", e.message);
+    } finally {
+      this.answering = false;
+    }
   }
   onPartial(speaker, text) {
     this.broadcast({ type: "partial", speaker, text });
@@ -262,6 +314,18 @@ class Session {
       this.broadcast({ type: "analysis", ...rev, ts: Date.now() });
     } catch (e) {
       console.error("[auto review]", e.message);
+    }
+    // 商談から「顧客の質問と営業の回答」を取り出して、全員で使うナレッジに貯める
+    try {
+      const pairs = await extractQaPairs({ transcript, repName: this.repName });
+      const n = await addQaPairs(pairs, {
+        botId: this.botId,
+        company: companyFromTitle(this.title || "") || "",
+        repName: this.repName || "",
+      });
+      if (n) console.log(`[QAナレッジ] ${this.botId} から${n}件の質問と回答を保存しました`);
+    } catch (e) {
+      console.error("[QAナレッジ]", e.message);
     }
     try {
       let lostSignals = [];

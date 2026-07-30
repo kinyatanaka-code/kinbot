@@ -892,3 +892,119 @@ export async function createLead(owner, fields) {
   }
   return { id: d.id, instanceUrl: acc.instanceUrl };
 }
+
+// ===== Salesforceのレポート =====
+
+// レポートの一覧（名前で絞り込み可）
+export async function listReports(owner, q = "", limit = 200) {
+  const esc = String(q || "").replace(/['"\\%_]/g, "").trim();
+  const where = esc ? ` WHERE Name LIKE '%${esc}%'` : "";
+  const d = await sfQuery(
+    owner,
+    `SELECT Id, Name, DeveloperName, FolderName, Format, LastRunDate FROM Report${where} ORDER BY LastRunDate DESC NULLS LAST, Name LIMIT ${Math.min(500, Number(limit) || 200)}`
+  );
+  return (d.records || []).map((r) => ({
+    id: r.Id, name: r.Name, folder: r.FolderName || "", format: r.Format || "", lastRun: r.LastRunDate || "",
+  }));
+}
+
+// レポートを実行して、表として使える形に整える
+export async function runReport(owner, reportId) {
+  const acc = await getAccess(owner);
+  if (!acc) throw new Error("Salesforce未連携です");
+  const id = String(reportId).replace(/[^a-zA-Z0-9]/g, "");
+  const res = await fetch(
+    `${acc.instanceUrl}/services/data/${API_VERSION}/analytics/reports/${id}?includeDetails=true`,
+    { headers: { Authorization: `Bearer ${acc.token}` } }
+  );
+  const data = await res.json().catch(() => null);
+  if (!res.ok) {
+    const msg = Array.isArray(data) ? data.map((e) => e.message).join(" / ") : (data && data.message) || `SF report ${res.status}`;
+    throw new Error(`SF report: ${msg}`);
+  }
+
+  const meta = data.reportMetadata || {};
+  const ext = data.reportExtendedMetadata || {};
+  const info = ext.detailColumnInfo || {};
+  const cols = (meta.detailColumns || []).map((name) => ({
+    name,
+    label: (info[name] && info[name].label) || name,
+    type: (info[name] && info[name].dataType) || "string",
+  }));
+
+  // 明細行は factMap の "◯!T" に入っている（グルーピングがあるとキーが増える）
+  const rows = [];
+  const fm = data.factMap || {};
+  for (const key of Object.keys(fm)) {
+    if (!/!T$/.test(key)) continue;
+    for (const r of (fm[key] && fm[key].rows) || []) {
+      rows.push((r.dataCells || []).map((c) => (c.label != null ? c.label : c.value)));
+    }
+  }
+
+  return {
+    id,
+    name: data.attributes?.reportName || meta.name || "",
+    format: meta.reportFormat || "",
+    columns: cols,
+    rows,
+    truncated: data.allData === false,
+    instanceUrl: acc.instanceUrl,
+  };
+}
+
+// ダッシュボードの一覧
+export async function listDashboards(owner, q = "", limit = 200) {
+  const esc = String(q || "").replace(/['"\\%_]/g, "").trim();
+  const where = esc ? ` WHERE Title LIKE '%${esc}%'` : "";
+  const d = await sfQuery(
+    owner,
+    `SELECT Id, Title, DeveloperName, FolderName FROM Dashboard${where} ORDER BY Title LIMIT ${Math.min(500, Number(limit) || 200)}`
+  );
+  return (d.records || []).map((r) => ({ id: r.Id, name: r.Title, folder: r.FolderName || "" }));
+}
+
+// ダッシュボードの中身（どのコンポーネントがどのレポートを見ているか）
+export async function describeDashboard(owner, dashboardId) {
+  const acc = await getAccess(owner);
+  if (!acc) throw new Error("Salesforce未連携です");
+  const id = String(dashboardId).replace(/[^a-zA-Z0-9]/g, "");
+  const res = await fetch(
+    `${acc.instanceUrl}/services/data/${API_VERSION}/analytics/dashboards/${id}/describe`,
+    { headers: { Authorization: `Bearer ${acc.token}` } }
+  );
+  const data = await res.json().catch(() => null);
+  if (!res.ok) {
+    const msg = Array.isArray(data) ? data.map((e) => e.message).join(" / ") : (data && data.message) || `SF dashboard ${res.status}`;
+    throw new Error(`SF dashboard: ${msg}`);
+  }
+  // 構造がバージョンで変わるので、reportId を持つオブジェクトを再帰的に集める
+  const comps = [];
+  const seen = new Set();
+  const walk = (node, parentTitle) => {
+    if (!node || typeof node !== "object") return;
+    if (Array.isArray(node)) { node.forEach((x) => walk(x, parentTitle)); return; }
+    const title = node.header || node.title || node.name || parentTitle || "";
+    if (node.reportId && !seen.has(node.id + ":" + node.reportId)) {
+      seen.add(node.id + ":" + node.reportId);
+      comps.push({
+        componentId: node.id || "",
+        title: title || "(名称なし)",
+        reportId: node.reportId,
+        type: node.componentType || node.type || "",
+      });
+    }
+    for (const k of Object.keys(node)) {
+      if (k === "reportId") continue;
+      walk(node[k], title);
+    }
+  };
+  walk(data, "");
+  return {
+    id,
+    name: data.name || data.title || "",
+    description: data.description || "",
+    components: comps,
+    instanceUrl: acc.instanceUrl,
+  };
+}

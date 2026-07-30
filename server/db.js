@@ -204,6 +204,22 @@ export async function initDb() {
   await pool.query(`ALTER TABLE knowledge ADD COLUMN IF NOT EXISTS source_type TEXT;`);
   await pool.query(`ALTER TABLE knowledge ADD COLUMN IF NOT EXISTS source_ref TEXT;`);
   await pool.query(`ALTER TABLE knowledge ADD COLUMN IF NOT EXISTS folder TEXT DEFAULT '';`);
+  // 商談から自動で集めた「質問と回答」
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS qa_bank (
+      id         SERIAL PRIMARY KEY,
+      question   TEXT NOT NULL,
+      answer     TEXT NOT NULL,
+      topic      TEXT,
+      keywords   TEXT,
+      bot_id     TEXT,
+      company    TEXT,
+      rep_name   TEXT,
+      good       INTEGER DEFAULT 0,
+      created_at TIMESTAMPTZ DEFAULT now()
+    );
+  `);
+  await pool.query(`CREATE INDEX IF NOT EXISTS qa_bank_created_idx ON qa_bank (created_at DESC);`);
   await pool.query(`
     CREATE TABLE IF NOT EXISTS kb_folders (
       path       TEXT PRIMARY KEY,
@@ -2378,4 +2394,98 @@ export async function listMeetingsWithoutTranscript({ days = 30, limit = 50 } = 
     console.error("[db] listMeetingsWithoutTranscript", e.message);
     return [];
   }
+}
+
+
+// ===== 商談から集めた「質問と回答」 =====
+
+// 質問から検索用のキーワードを取り出す（助詞などを落とす）
+export function qaKeywords(text) {
+  // 日本語は分かち書きが無いので、漢字・カタカナ・英数字のまとまりを内容語として取り出す
+  const hits = String(text || "").match(/[一-龥々]{2,}|[ァ-ヺー]{2,}|[A-Za-z0-9]{2,}/g) || [];
+  const stop = new Set(["御社", "弊社", "場合", "確認", "対応", "実際", "今回", "以下", "以上", "内容", "感じ"]);
+  const out = [];
+  for (const w of hits) {
+    const v = w.trim();
+    if (!v || v.length < 2 || stop.has(v)) continue;
+    if (!out.includes(v)) out.push(v);
+  }
+  return out.slice(0, 12);
+}
+
+export async function addQaPairs(pairs, { botId, company, repName } = {}) {
+  if (!pool || !Array.isArray(pairs) || !pairs.length) return 0;
+  let n = 0;
+  for (const p of pairs) {
+    const q = String(p.question || "").trim();
+    const a = String(p.answer || "").trim();
+    if (q.length < 5 || a.length < 5) continue;
+    try {
+      // 同じ商談で同じ質問は入れない
+      const dup = await pool.query(
+        `SELECT id FROM qa_bank WHERE bot_id=$1 AND question=$2 LIMIT 1`, [botId || "", q]
+      );
+      if (dup.rows.length) continue;
+      await pool.query(
+        `INSERT INTO qa_bank (question, answer, topic, keywords, bot_id, company, rep_name)
+         VALUES ($1,$2,$3,$4,$5,$6,$7)`,
+        [q, a, p.topic || "", qaKeywords(q).join(" "), botId || "", company || "", repName || ""]
+      );
+      n++;
+    } catch (e) {
+      console.error("[qa_bank] 保存", e.message);
+    }
+  }
+  return n;
+}
+
+// 質問に近い過去の質問と回答を探す（キーワードの一致数で並べる）
+export async function searchQaBank(question, limit = 5) {
+  if (!pool) return [];
+  const keys = qaKeywords(question);
+  if (!keys.length) return [];
+  try {
+    const { rows } = await pool.query(
+      `SELECT id, question, answer, topic, keywords, company, rep_name, good, created_at
+         FROM qa_bank ORDER BY created_at DESC LIMIT 800`
+    );
+    const scored = rows.map((r) => {
+      const rk = String(r.keywords || "").split(" ").filter(Boolean);
+      let score = 0;
+      for (const k of keys) {
+        if (rk.includes(k)) score += 2;
+        else if (rk.some((x) => x.includes(k) || k.includes(x))) score += 1;
+      }
+      score += Math.min(3, Number(r.good) || 0);
+      return { ...r, score };
+    }).filter((r) => r.score >= 2);
+    scored.sort((a, b) => b.score - a.score || new Date(b.created_at) - new Date(a.created_at));
+    return scored.slice(0, limit);
+  } catch (e) {
+    console.error("[qa_bank] 検索", e.message);
+    return [];
+  }
+}
+
+// 一覧（設定画面用）。よく出る質問の順に並べる。
+export async function listQaBank({ q = "", limit = 200 } = {}) {
+  if (!pool) return [];
+  try {
+    const where = q ? `WHERE question ILIKE $2 OR answer ILIKE $2` : "";
+    const vals = q ? [limit, "%" + q + "%"] : [limit];
+    const { rows } = await pool.query(
+      `SELECT id, question, answer, topic, company, rep_name, good, created_at
+         FROM qa_bank ${where} ORDER BY created_at DESC LIMIT $1`, vals
+    );
+    return rows;
+  } catch { return []; }
+}
+
+export async function deleteQaBank(id) {
+  if (!pool) return;
+  try { await pool.query(`DELETE FROM qa_bank WHERE id=$1`, [id]); } catch {}
+}
+export async function markQaGood(id, delta = 1) {
+  if (!pool) return;
+  try { await pool.query(`UPDATE qa_bank SET good = COALESCE(good,0) + $2 WHERE id=$1`, [id, delta]); } catch {}
 }

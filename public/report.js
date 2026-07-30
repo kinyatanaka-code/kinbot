@@ -13,6 +13,7 @@ function repShowPanel(rp) {
   if (rp === "daily") loadDaily();
   if (rp === "pipeline") loadPipeline();
   if (rp === "interns") loadInternDash();
+  if (rp === "sfreport") initSfReport();
   if (rp === "insights") loadInsights();
 }
 (function () {
@@ -819,3 +820,142 @@ function renderInternDash(body, d) {
     if (typeof loadInsights === "function" && document.querySelector('[data-rpanel="insights"]:not([hidden])')) loadInsights();
   }, { renderOnMount: false }); // 初回のfunnel取得には既にproductが乗っているため
 })();
+
+
+// ===== Salesforceのレポート =====
+const _sr = { kind: "report", list: [], current: null, wired: false, dash: null };
+function srEsc(v) { return String(v == null ? "" : v).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c])); }
+
+function initSfReport() {
+  if (_sr.wired) return;
+  _sr.wired = true;
+  const q = $("srQ"), btn = $("srSearch"), list = $("srList");
+  if (btn) btn.addEventListener("click", srLoadList);
+  if (q) q.addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); srLoadList(); } });
+  if (list) list.addEventListener("click", (e) => {
+    const it = e.target.closest("[data-report-id]");
+    if (it) { srRun(it.dataset.reportId); return; }
+    const db = e.target.closest("[data-dash-id]");
+    if (db) srOpenDashboard(db.dataset.dashId);
+  });
+  const kind = $("srKind");
+  if (kind) kind.addEventListener("click", (e) => {
+    const b = e.target.closest("[data-kind]");
+    if (!b) return;
+    _sr.kind = b.dataset.kind;
+    kind.querySelectorAll(".seg-btn").forEach((x) => x.classList.toggle("active", x === b));
+    srLoadList();
+  });
+  srLoadList();
+}
+
+async function srLoadList() {
+  const list = $("srList"), st = $("srStatus");
+  if (!list) return;
+  list.innerHTML = '<div class="empty-state">読み込み中…</div>';
+  if (st) st.textContent = "";
+  try {
+    const q = ($("srQ") && $("srQ").value.trim()) || "";
+    const isDash = _sr.kind === "dashboard";
+    const r = await fetch(`/api/salesforce/${isDash ? "dashboards" : "reports"}?q=` + encodeURIComponent(q));
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(d.error || "取得に失敗しました");
+    _sr.list = (isDash ? d.dashboards : d.reports) || [];
+    list.innerHTML = _sr.list.length
+      ? _sr.list.map((x) => `<button type="button" class="sr-item" ${isDash ? `data-dash-id="${srEsc(x.id)}"` : `data-report-id="${srEsc(x.id)}"`}>
+          <span class="sr-item-name">${srEsc(x.name)}</span>
+          <span class="sr-item-sub">${srEsc(x.folder)}${x.format ? " ・ " + srEsc(x.format) : ""}</span>
+        </button>`).join("")
+      : `<div class="empty-state">${isDash ? "ダッシュボード" : "レポート"}が見つかりませんでした。</div>`;
+    if (st) st.textContent = `${_sr.list.length}件`;
+  } catch (e) {
+    list.innerHTML = `<div class="empty-state">${srEsc(e.message)}</div>`;
+  }
+}
+
+async function srRun(id) {
+  const view = $("srView");
+  if (!view) return;
+  view.innerHTML = '<div class="empty-state">レポートを実行中…</div>';
+  try {
+    const r = await fetch("/api/salesforce/reports/" + encodeURIComponent(id));
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(d.error || "実行に失敗しました");
+    _sr.current = d;
+    const cols = d.columns || [];
+    const rows = d.rows || [];
+    const head = cols.map((c) => `<th>${srEsc(c.label)}</th>`).join("");
+    const body = rows.slice(0, 500).map((row) => `<tr>${row.map((v) => `<td>${srEsc(v)}</td>`).join("")}</tr>`).join("");
+    view.innerHTML =
+      `<div class="sr-head">
+         <div>
+           <div class="sr-title">${srEsc(d.name)}</div>
+           <div class="sr-sub">${rows.length}行${d.truncated ? "（2000行までの制限あり）" : ""}${rows.length > 500 ? " ・ 画面には500行まで表示" : ""}</div>
+         </div>
+         <div class="sr-actions">
+           <button class="btn ghost" id="srCsv">CSVで保存</button>
+           <a class="btn ghost" href="${srEsc(d.instanceUrl)}/${srEsc(d.id)}" target="_blank" rel="noopener">Salesforceで開く</a>
+         </div>
+       </div>` +
+      (cols.length ? `<div class="sr-table-wrap"><table class="sr-table"><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table></div>`
+                   : '<div class="empty-state">表形式で取り出せる明細がありませんでした（集計だけのレポートの可能性があります）。</div>');
+    const csvBtn = $("srCsv");
+    if (csvBtn) csvBtn.addEventListener("click", srCsv);
+  } catch (e) {
+    view.innerHTML = `<div class="empty-state">${srEsc(e.message)}</div>`;
+  }
+}
+
+function srCsv() {
+  const d = _sr.current;
+  if (!d) return;
+  const cell = (v) => {
+    const t = String(v == null ? "" : v);
+    return /[",\n]/.test(t) ? '"' + t.replace(/"/g, '""') + '"' : t;
+  };
+  const lines = [(d.columns || []).map((c) => cell(c.label)).join(",")]
+    .concat((d.rows || []).map((r) => r.map(cell).join(",")));
+  const blob = new Blob(["\ufeff" + lines.join("\n")], { type: "text/csv;charset=utf-8" });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = (d.name || "report").replace(/[\\/:*?"<>|]/g, "_") + ".csv";
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 3000);
+}
+
+
+// ダッシュボードを開いて、中のグラフ（元レポート）を一覧表示する
+async function srOpenDashboard(id) {
+  const view = $("srView");
+  if (!view) return;
+  view.innerHTML = '<div class="empty-state">ダッシュボードを読み込み中…</div>';
+  try {
+    const r = await fetch("/api/salesforce/dashboards/" + encodeURIComponent(id));
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(d.error || "取得に失敗しました");
+    _sr.dash = d;
+    const comps = d.components || [];
+    view.innerHTML =
+      `<div class="sr-head">
+         <div>
+           <div class="sr-title">${srEsc(d.name)}</div>
+           <div class="sr-sub">${comps.length}個のグラフ・表${d.description ? " ・ " + srEsc(d.description) : ""}</div>
+         </div>
+         <div class="sr-actions">
+           <a class="btn ghost" href="${srEsc(d.instanceUrl)}/${srEsc(d.id)}" target="_blank" rel="noopener">Salesforceで開く</a>
+         </div>
+       </div>` +
+      (comps.length
+        ? `<div class="sr-comps">` + comps.map((c) => `
+            <button type="button" class="sr-item" data-report-id="${srEsc(c.reportId)}">
+              <span class="sr-item-name">${srEsc(c.title)}</span>
+              <span class="sr-item-sub">${srEsc(c.type || "")} ・ クリックで中身を表示・CSV保存</span>
+            </button>`).join("") + `</div>`
+        : '<div class="empty-state">元になるレポートが見つかりませんでした。</div>');
+    view.querySelectorAll("[data-report-id]").forEach((b) => {
+      b.addEventListener("click", () => srRun(b.dataset.reportId));
+    });
+  } catch (e) {
+    view.innerHTML = `<div class="empty-state">${srEsc(e.message)}</div>`;
+  }
+}

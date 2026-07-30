@@ -1891,3 +1891,56 @@ function initSmartLinks() {
     }
   });
 })();
+
+// ===== 商談から集めた質問と回答 =====
+(function () {
+  const $q = (id) => document.getElementById(id);
+  const escQ = (v) => String(v == null ? "" : v).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+
+  async function loadQaBank() {
+    const box = $q("qaList");
+    if (!box) return;
+    box.innerHTML = '<div class="empty-state">読み込み中…</div>';
+    try {
+      const q = ($q("qaQ") && $q("qaQ").value.trim()) || "";
+      const r = await fetch("/api/qa-bank?q=" + encodeURIComponent(q));
+      const d = await r.json();
+      const items = d.items || [];
+      const st = $q("qaStatus");
+      if (st) st.textContent = `${items.length}件`;
+      box.innerHTML = items.length
+        ? items.map((x) => `<div class="qa-row" data-id="${x.id}">
+            <div class="qa-row-main">
+              <div class="qa-row-q">${escQ(x.question)}</div>
+              <div class="qa-row-a">${escQ(x.answer)}</div>
+              <div class="qa-row-meta">${escQ(x.topic || "その他")}${x.rep_name ? " ・ " + escQ(x.rep_name) : ""}${x.company ? " ・ " + escQ(x.company) : ""}${x.good ? " ・ 使えた " + x.good : ""}</div>
+            </div>
+            <div class="qa-row-act">
+              <button type="button" class="btn ghost" data-qa-good="${x.id}">使えた</button>
+              <button type="button" class="btn ghost" data-qa-del="${x.id}">削除</button>
+            </div>
+          </div>`).join("")
+        : '<div class="empty-state">まだ集まっていません。商談を録音すると自動でたまります。</div>';
+    } catch (e) {
+      box.innerHTML = '<div class="empty-state">読み込みに失敗しました。</div>';
+    }
+  }
+
+  document.addEventListener("DOMContentLoaded", () => {
+    const btn = $q("qaSearch");
+    if (btn) btn.addEventListener("click", loadQaBank);
+    const inp = $q("qaQ");
+    if (inp) inp.addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); loadQaBank(); } });
+    const box = $q("qaList");
+    if (box) box.addEventListener("click", async (e) => {
+      const g = e.target.closest("[data-qa-good]");
+      if (g) { await fetch("/api/qa-bank/" + g.dataset.qaGood + "/good", { method: "POST" }); loadQaBank(); return; }
+      const d = e.target.closest("[data-qa-del]");
+      if (d && confirm("この質問と回答を削除しますか？")) {
+        await fetch("/api/qa-bank/" + d.dataset.qaDel, { method: "DELETE" });
+        loadQaBank();
+      }
+    });
+    if ($q("qaList")) loadQaBank();
+  });
+})();

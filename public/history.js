@@ -2063,6 +2063,16 @@ function renderAiLogInto(el, log) {
       ).join("") +
       `</div></div>`;
   }
+  const qas = log.filter((e) => e.t === "qa");
+  if (qas.length) {
+    summary += `<div class="ailog-sec"><div class="ailog-sec-h">質問 → その場の回答（${qas.length}）</div><div class="ailog-pairs">` +
+      qas.map((e) =>
+        `<div class="ailog-pair"><div class="ailog-q">「${escapeHtml(e.question || "")}」</div>` +
+        `<div class="ailog-a">${escapeHtml(e.answer || "")}</div>` +
+        (e.basis ? `<div class="ailog-basis">根拠: ${escapeHtml(e.basis)}</div>` : "") + `</div>`
+      ).join("") +
+      `</div></div>`;
+  }
   const feedHtml = '<div class="ailog-sec-h" style="margin-top:14px;">🗨 タイムライン</div>';
 
   el.innerHTML = summary + feedHtml + '<div class="ai-feed-inline"></div>';
@@ -2080,6 +2090,11 @@ function renderAiLogInto(el, log) {
     } else if (e.t === "land") {
       kind = "land"; label = "💡 刺さったトーク";
       title = e.text || ""; text = e.why || "";
+    } else if (e.t === "qa") {
+      kind = "obj"; label = "質問 → その場の回答";
+      title = e.question ? "「" + e.question + "」" : "";
+      text = e.answer || "";
+      sub = [e.basis ? "根拠: " + e.basis : "", e.caution || ""].filter(Boolean).join(" ／ ");
     } else if (e.t === "sig") {
       // 旧データ互換
       const buy = e.sigType !== "risk";

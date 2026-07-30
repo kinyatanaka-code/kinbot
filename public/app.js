@@ -664,6 +664,9 @@ function handle(msg) {
     case "partial":
       els.partial.textContent = labelOf(msg.speaker) + ": " + (msg.text || "");
       break;
+    case "answer":
+      renderInstantAnswer(msg);
+      break;
     case "analysis":
       renderSummary(msg.summary);
       renderCoverage(msg.coverage);
@@ -1078,3 +1081,36 @@ function stopTimer() {
   btn.addEventListener("click", send);
   inp.addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); send(); } });
 })();
+
+
+// ===== 商談中の即答（顧客の質問に対する回答案） =====
+function renderInstantAnswer(msg) {
+  const feed = $("aiFeed");
+  if (!feed || !msg || !msg.answer) return;
+  const empty = feed.querySelector(".empty-state");
+  if (empty) empty.remove();
+  const esc = (v) => String(v == null ? "" : v).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+  const time = new Date(msg.ts || Date.now()).toLocaleTimeString("ja-JP", { hour: "2-digit", minute: "2-digit" });
+  // 前の回答は小さく畳んで、いちばん新しい回答を目立たせる
+  feed.querySelectorAll(".qa-card").forEach((c) => c.classList.add("is-old"));
+  const el = document.createElement("div");
+  el.className = "qa-card";
+  el.innerHTML =
+    `<div class="qa-head"><span class="qa-tag">今の質問への回答</span><span class="qa-time">${esc(time)}</span></div>
+     <div class="qa-q">${esc(msg.question || "")}</div>
+     <div class="qa-a" id="qaA">${esc(msg.answer)}</div>
+     ${(msg.points || []).length ? `<ul class="qa-points">${msg.points.map((p) => `<li>${esc(p)}</li>`).join("")}</ul>` : ""}
+     ${msg.basis ? `<div class="qa-basis">根拠：${esc(msg.basis)}</div>` : ""}
+     ${msg.caution ? `<div class="qa-caution">${esc(msg.caution)}</div>` : ""}
+     <button type="button" class="qa-copy">コピー</button>`;
+  el.querySelector(".qa-copy").addEventListener("click", () => {
+    navigator.clipboard.writeText(msg.answer).then(() => {
+      const b = el.querySelector(".qa-copy");
+      b.textContent = "コピーしました";
+      setTimeout(() => { b.textContent = "コピー"; }, 1500);
+    }).catch(() => {});
+  });
+  feed.appendChild(el);
+  feed.scrollTop = feed.scrollHeight;
+  if (el.scrollIntoView) el.scrollIntoView({ behavior: "smooth", block: "nearest" });
+}

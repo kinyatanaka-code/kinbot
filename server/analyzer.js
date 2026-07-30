@@ -1694,3 +1694,52 @@ export async function generateFeatureCInsights(statsText) {
   const o = parseJson(await callLLM(sys, user, 1200, { schema, provider: "gemini" })) || {};
   return Array.isArray(o.insights) ? o.insights : [];
 }
+
+// ===== 商談中の即答（顧客の質問にその場で回答案を出す） =====
+const ANSWER_PROMPT = `あなたはBtoB営業の即答アシスタントです。商談中に顧客から出た質問へ、営業がそのまま口に出せる回答案を作ります。
+出力はJSONのみ。前置きやコードブロックは書かないでください。
+{"answer":"そのまま話せる回答（80〜160字・丁寧語・断定しすぎない）","points":["補足に使える要点（15〜30字）"],"basis":"根拠にした自社ナレッジの見出し。無ければ空文字","caution":"確認が必要なこと・言ってはいけないことがあれば1文。無ければ空文字"}
+ルール:
+・自社ナレッジに書かれていることを最優先で使う。次に、過去の商談での回答例を参考にする。書かれていない数字や条件は断定しない。
+・ナレッジに無い場合は「確認してご連絡します」の形にし、caution に「ナレッジに記載なし」と書く。
+・顧客の呼称は「御社」。answer に箇条書きや記号は入れない（そのまま読み上げられる文章にする）。`;
+
+export async function answerQuestion({ question, context, knowledge, pastQa, repName }) {
+  const past = (Array.isArray(pastQa) ? pastQa : [])
+    .map((p, i) => `${i + 1}. Q: ${p.question}\n   A: ${p.answer}`).join("\n");
+  const user =
+    `自社の営業担当: ${repName || "（未指定）"}\n` +
+    (past ? `\n過去の商談で同じような質問に答えた内容（実績のある言い回し。使えるものは活かす）:\n"""\n${past}\n"""\n` : "") +
+    (knowledge ? `\n自社ナレッジ:\n"""\n${knowledge}\n"""\n` : "") +
+    `\n直前の会話:\n"""\n${context || ""}\n"""\n` +
+    `\n顧客の質問:\n"""\n${question}\n"""\n\n回答案をJSONで返してください。`;
+  const text = await callLLM(ANSWER_PROMPT, user, 700);
+  const o = parseJson(text) || {};
+  return {
+    answer: o.answer || "",
+    points: Array.isArray(o.points) ? o.points.slice(0, 3) : [],
+    basis: o.basis || "",
+    caution: o.caution || "",
+  };
+}
+
+
+// ===== 商談から「顧客の質問」と「営業の回答」を取り出してナレッジに貯める =====
+const QA_PROMPT = `あなたは商談の文字起こしから、顧客の質問と営業の回答のペアを抜き出す担当です。
+出力はJSONのみ。前置きやコードブロックは書かないでください。
+{"pairs":[{"question":"顧客が聞いたこと（そのままではなく、他の商談でも使える一般的な聞き方に言い換える。20〜40字）","answer":"営業が実際に答えた内容（要点を1〜2文にまとめる。40〜120字）","topic":"料金 / 機能 / セキュリティ / 導入 / サポート / 契約 / 実績 / その他 のいずれか"}]}
+ルール:
+・顧客が質問し、営業がきちんと答えている組だけを拾う。答えていない・はぐらかしている組は入れない。
+・雑談、日程調整、あいさつは入れない。
+・会社名や個人名は入れない（他の商談でも使えるようにする）。
+・最大8組。無ければ pairs は空配列。`;
+
+export async function extractQaPairs({ transcript, repName }) {
+  const user =
+    `自社の営業担当: ${repName || "（未指定）"}\n\n` +
+    `商談の文字起こし:\n"""\n${String(transcript || "").slice(-12000)}\n"""\n\n` +
+    `顧客の質問と営業の回答のペアをJSONで返してください。`;
+  const text = await callLLM(QA_PROMPT, user, 1400);
+  const o = parseJson(text) || {};
+  return Array.isArray(o.pairs) ? o.pairs.slice(0, 8) : [];
+}
