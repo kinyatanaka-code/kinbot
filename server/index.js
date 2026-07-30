@@ -5667,6 +5667,10 @@ app.get("/api/salesforce/describe", async (req, res) => {
     const fields = (desc.fields || []).map(f => ({
       name: f.name, label: f.label, type: f.type,
       updateable: f.updateable, custom: f.custom,
+      createable: f.createable,
+      nillable: f.nillable,                 // falseなら必須
+      defaultedOnCreate: f.defaultedOnCreate,
+      referenceTo: f.referenceTo || [],
       dependentPicklist: !!f.dependentPicklist, // 従属ピックリストか
       controllerName: f.controllerName || null,  // 上位（制御）項目のAPI名
       picklistValues: f.picklistValues?.filter(v => v.active).map(v => ({ value: v.value, label: v.label, validFor: v.validFor || null })),

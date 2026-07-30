@@ -2896,6 +2896,17 @@ async function renderSSFields(stageName) {
     const cur = valStr(api);
     const orig = ` data-sf-orig="${esc(cur)}"`;
     const m = meta[api];
+    // 複数選択のピックリスト（multipicklist）はチェックボックスで出す。値はセミコロン区切り。
+    if (t === "multipicklist" && m && m.picklistValues && m.picklistValues.length) {
+      const chosen = new Set(String(cur || "").split(";").map((x) => x.trim()).filter(Boolean));
+      const boxes = m.picklistValues.map((o, i) => {
+        const on = chosen.has(o.value) || chosen.has(o.label);
+        return `<label class="sf-mpick-item"><input type="checkbox" data-mpick="${esc(api)}" value="${esc(o.value)}" ${on ? "checked" : ""}/>${esc(o.label || o.value)}</label>`;
+      }).join("");
+      return `<div class="sf-field"><label>${label}<span class="sf-api">${esc(api)}</span></label>` +
+        `<input type="hidden" class="sf-input" data-sf-field="${esc(api)}"${orig} value="${esc(cur)}"/>` +
+        `<div class="sf-mpick" data-mpick-for="${esc(api)}">${boxes}</div></div>`;
+    }
     if (t === "picklist" && m && m.picklistValues && m.picklistValues.length) {
       if (m.dependentPicklist && m.controllerName) {
         // 従属ピックリスト：制御値で選択肢を絞る。制御がステージ(StageName)の場合は、
@@ -2923,7 +2934,7 @@ async function renderSSFields(stageName) {
   // 段階（SS01〜SS06）ごとの項目。画像の項目リストを基準に、describeのラベル→API名で解決する。
   const SS_STAGE_LABELS = [
     { key: "01：アポ獲得", labels: ["SS01昇格日", "担当領域", "アポ獲得日", "初回アポ設定日", "顧客の現状"] },
-    { key: "02：有効商談(3ヶ月以内検討)", labels: ["SS02昇格日", "商談種別", "初回提案商品", "初回提案プラン", "利用目的", "担当者が解決したい課題", "商談メモ", "担当者の解決したい課題（その他）", "次回お打合せ日時"] },
+    { key: "02：有効商談(3ヶ月以内検討)", labels: ["SS02昇格日", "営業種別", "初回提案商品", "初回提案プラン", "利用目的", "担当者が解決したい課題", "商談メモ", "担当者の解決したい課題（その他）", "次回お打合せ日時"] },
     { key: "03：担当者合意", labels: ["SS03昇格日", "今やるべき理由", "比較されてる代替手段", "DOCでないといけない理由", "上申先", "同席打診", "上申日", "上申に必要な書類"] },
     { key: "04：企画決定者合意", labels: ["SS04昇格日", "役員等への業績等に必要な書類", "決裁フロー", "利用開始希望時期", "リーガル・セキュリティチェック", "申込書回収想定日"] },
     { key: "05：決裁者合意", labels: ["目標用_SS05昇格日", "最終的な決裁の決め手"] },
@@ -2931,6 +2942,11 @@ async function renderSSFields(stageName) {
     { key: "99：失注", labels: ["order_date__c", "Loss_Reason__c", "Loss_Reason1__c", "Loss_Reason2__c", "order_reason_detail__c", "失注後次回アクション日"] },
   ];
   const normLbl = (s) => String(s || "").replace(/[\s　()（）:：★☆・_]/g, "").toLowerCase();
+  // 項目の取り違えを手で直せるようにする（ラベル→API名の差し替えを保存）
+  const OVR_KEY = "kinbot_sf_field_override";
+  const loadOvr = () => { try { return JSON.parse(localStorage.getItem(OVR_KEY) || "{}"); } catch { return {}; } };
+  const saveOvr = (o) => { try { localStorage.setItem(OVR_KEY, JSON.stringify(o)); } catch {} };
+  let fieldOvr = loadOvr();
   // 同じラベルの項目が複数ある場合に備えて、候補をすべて持つ
   const labelCands = {};
   for (const f of Object.values(meta)) {
@@ -2958,6 +2974,7 @@ async function renderSSFields(stageName) {
   const resolveLabel = (lb) => {
     if (meta[lb]) return lb;
     const n = normLbl(lb);
+    if (fieldOvr[n] && meta[fieldOvr[n]]) return fieldOvr[n]; // 手で選び直した項目
     if (labelToApi[n]) return labelToApi[n];
     if (n.length < 3) return null;
     // 部分一致。候補が複数あるときは選択肢つき・独自項目を優先する
@@ -2979,9 +2996,14 @@ async function renderSSFields(stageName) {
     .filter((f) => f.updateable && f.nillable === false && !f.defaultedOnCreate && f.name !== "StageName")
     .map((f) => f.name);
   const ssSections = SS_STAGE_LABELS.map((s) => {
-    const fields = s.labels.map(resolveLabel).filter(Boolean);
+    const fields = [];
+    const wanted = {}; // API名 → もとの項目名（差し替えのキー）
+    for (const lb of s.labels) {
+      const api = resolveLabel(lb);
+      if (api && !fields.includes(api)) { fields.push(api); wanted[api] = lb; }
+    }
     for (const api of requiredApis) if (!fields.includes(api)) fields.push(api);
-    return { heading: s.key, fields };
+    return { heading: s.key, fields, wanted };
   }).filter((s) => s.fields.length);
 
   if (ssSections.length) {
@@ -3064,7 +3086,23 @@ async function renderSSFields(stageName) {
         for (const el of others) {
           const v = values[el.dataset.sfField];
           if (v == null || v === "" || el.type === "checkbox") continue;
-          if (!el.value) { el.value = v; filled++; }
+          if (el.value) continue;
+          // 複数選択ピックリストは、該当するチェックを入れる
+          const mwrap = document.querySelector(`[data-mpick-for="${el.dataset.sfField}"]`);
+          if (mwrap) {
+            const wants = String(v).split(/[;、,・\s]+/).map((x) => x.trim()).filter(Boolean);
+            let hit = false;
+            mwrap.querySelectorAll("input[type=checkbox]").forEach((c) => {
+              const lb = (c.parentElement.textContent || "").trim();
+              if (wants.some((w) => c.value === w || lb === w || lb.includes(w))) { c.checked = true; hit = true; }
+            });
+            if (hit) {
+              el.value = [...mwrap.querySelectorAll("input[type=checkbox]:checked")].map((c) => c.value).join(";");
+              filled++;
+            }
+            continue;
+          }
+          el.value = v; filled++;
         }
         filled += fillDefaultDates();
         if (note) note.textContent = filled ? `${filled}項目を自動入力しました。内容を確認・編集してから更新してください。` : "商談から埋められる項目はありませんでした。";
@@ -3079,9 +3117,68 @@ async function renderSSFields(stageName) {
       const box = document.getElementById("ssSectionFields");
       box.innerHTML = `<div class="sf-ss-title">${esc(sec.heading)} の項目</div>` +
         `<div class="sf-autofill-row"><button type="button" class="btn btn-ghost" id="ssAutofillBtn">商談から自動入力</button>${window._sfReadMeetingSelectHtml ? window._sfReadMeetingSelectHtml() : ""}<span class="sf-autofill-note" id="ssAutofillNote">選んだ商談の内容で空欄を埋めます</span></div>` +
-        (sec.fields.length ? sec.fields.map(render1).join("") : '<div class="sf-ss-note">この段階に編集できる項目がありません。</div>');
+        (sec.fields.length
+          ? sec.fields.map((api) => {
+              const html = render1(api);
+              const want = (sec.wanted && sec.wanted[api]) || (meta[api] && meta[api].label) || api;
+              return html.replace(
+                '</label>',
+                `<button type="button" class="sf-swap" data-swap="${esc(want)}" data-cur="${esc(api)}" title="別の項目に変える">項目を変える</button></label>`
+              );
+            }).join("")
+          : '<div class="sf-ss-note">この段階に編集できる項目がありません。</div>');
       // 読み取る商談セレクタの変更を反映
       box.querySelectorAll("[data-read-meeting]").forEach((s) => s.addEventListener("change", () => { window._sfReadBotId = s.value; }));
+      // 複数選択ピックリスト：チェックの内容をセミコロン区切りでまとめる
+      const syncMpick = (api) => {
+        const wrap = box.querySelector(`[data-mpick-for="${api}"]`);
+        const hidden = box.querySelector(`input[type="hidden"][data-sf-field="${api}"]`);
+        if (!wrap || !hidden) return;
+        hidden.value = [...wrap.querySelectorAll("input[type=checkbox]:checked")].map((c) => c.value).join(";");
+      };
+      box.querySelectorAll("[data-mpick]").forEach((c) => {
+        c.addEventListener("change", () => syncMpick(c.dataset.mpick));
+      });
+      // 「項目を変える」：Salesforceの項目を検索して差し替える
+      box.querySelectorAll("[data-swap]").forEach((b) => {
+        b.addEventListener("click", (ev) => {
+          ev.preventDefault();
+          const want = b.dataset.swap;
+          const field = b.closest(".sf-field");
+          if (field.querySelector(".sf-swap-box")) { field.querySelector(".sf-swap-box").remove(); return; }
+          const boxEl = document.createElement("div");
+          boxEl.className = "sf-swap-box";
+          boxEl.innerHTML =
+            `<input type="text" class="sf-input sf-swap-q" placeholder="項目名かAPI名で検索（例：直販、種別）" />
+             <div class="sf-swap-list"></div>`;
+          field.appendChild(boxEl);
+          const q = boxEl.querySelector(".sf-swap-q");
+          const list = boxEl.querySelector(".sf-swap-list");
+          const draw = () => {
+            const t = (q.value || "").trim().toLowerCase();
+            const hits = Object.values(meta)
+              .filter((f) => f.updateable)
+              .filter((f) => !t || String(f.label || "").toLowerCase().includes(t) || String(f.name).toLowerCase().includes(t))
+              .slice(0, 20);
+            list.innerHTML = hits.length
+              ? hits.map((f) => `<button type="button" class="sf-swap-item" data-api="${esc(f.name)}">
+                   <span>${esc(f.label || f.name)}</span>
+                   <span class="sf-api">${esc(f.name)}${(f.picklistValues && f.picklistValues.length) ? " ・選択肢" + f.picklistValues.length + "件" : ""}</span>
+                 </button>`).join("")
+              : '<div class="sf-ss-note">見つかりません</div>';
+          };
+          draw();
+          q.addEventListener("input", draw);
+          list.addEventListener("click", (e2) => {
+            const it = e2.target.closest(".sf-swap-item");
+            if (!it) return;
+            fieldOvr[normLbl(want)] = it.dataset.api;
+            saveOvr(fieldOvr);
+            alert(`「${want}」の項目を ${it.dataset.api} に変更しました。画面を作り直します。`);
+            location.reload();
+          });
+        });
+      });
       // 従属ピックリスト（大→中→小）の連動を配線
       box.querySelectorAll("select[data-dependent-on]").forEach((depSel) => {
         const depApi = depSel.dataset.sfField;
