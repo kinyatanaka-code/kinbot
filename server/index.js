@@ -6088,9 +6088,13 @@ app.get("/api/salesforce/products", async (req, res) => {
     ]);
     // 入力に出す項目：必須のもの＋売上/原価/提供日っぽいもの（標準の数量・単価・小計・PricebookEntryは除く）
     const skip = /^(Id|OpportunityId|PricebookEntryId|Product2Id|Quantity|UnitPrice|TotalPrice|ListPrice|IsDeleted|Created|LastModified|SystemModstamp|SortOrder|Subtotal|Discount)$/i;
+    // 必須の項目と、提供日・売上・原価などの実務で使う項目だけに絞る。
+    // 【積上用】などの集計項目・フラグ・メモは入力させない（数が多くなりすぎるため）
+    const noisy = /^【|積上|フラグ|メモ|発注確認|販売管理|料率/;
     const fields = (allFields || []).filter((f) =>
       f.createable && !skip.test(f.name) && !["reference", "address", "location"].includes(f.type) &&
-      (f.required || f.custom || f.name === "ServiceDate" || /売上|原価|提供|金額|コスト|cost/i.test(f.label || ""))
+      !noisy.test(String(f.label || "")) &&
+      (f.required || f.name === "ServiceDate" || /提供日|売上|原価/.test(f.label || ""))
     );
     res.json({ ...out, fields });
   } catch (e) {

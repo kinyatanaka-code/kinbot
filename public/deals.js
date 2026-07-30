@@ -2945,7 +2945,6 @@ async function renderSSFields(stageName) {
   // 項目の取り違えを手で直せるようにする（ラベル→API名の差し替えを保存）
   const OVR_KEY = "kinbot_sf_field_override";
   const loadOvr = () => { try { return JSON.parse(localStorage.getItem(OVR_KEY) || "{}"); } catch { return {}; } };
-  const saveOvr = (o) => { try { localStorage.setItem(OVR_KEY, JSON.stringify(o)); } catch {} };
   let fieldOvr = loadOvr();
   // 同じラベルの項目が複数ある場合に備えて、候補をすべて持つ
   const labelCands = {};
@@ -3117,16 +3116,7 @@ async function renderSSFields(stageName) {
       const box = document.getElementById("ssSectionFields");
       box.innerHTML = `<div class="sf-ss-title">${esc(sec.heading)} の項目</div>` +
         `<div class="sf-autofill-row"><button type="button" class="btn btn-ghost" id="ssAutofillBtn">商談から自動入力</button>${window._sfReadMeetingSelectHtml ? window._sfReadMeetingSelectHtml() : ""}<span class="sf-autofill-note" id="ssAutofillNote">選んだ商談の内容で空欄を埋めます</span></div>` +
-        (sec.fields.length
-          ? sec.fields.map((api) => {
-              const html = render1(api);
-              const want = (sec.wanted && sec.wanted[api]) || (meta[api] && meta[api].label) || api;
-              return html.replace(
-                '</label>',
-                `<button type="button" class="sf-swap" data-swap="${esc(want)}" data-cur="${esc(api)}" title="別の項目に変える">項目を変える</button></label>`
-              );
-            }).join("")
-          : '<div class="sf-ss-note">この段階に編集できる項目がありません。</div>');
+        (sec.fields.length ? sec.fields.map(render1).join("") : '<div class="sf-ss-note">この段階に編集できる項目がありません。</div>');
       // 読み取る商談セレクタの変更を反映
       box.querySelectorAll("[data-read-meeting]").forEach((s) => s.addEventListener("change", () => { window._sfReadBotId = s.value; }));
       // 複数選択ピックリスト：チェックの内容をセミコロン区切りでまとめる
@@ -3138,46 +3128,6 @@ async function renderSSFields(stageName) {
       };
       box.querySelectorAll("[data-mpick]").forEach((c) => {
         c.addEventListener("change", () => syncMpick(c.dataset.mpick));
-      });
-      // 「項目を変える」：Salesforceの項目を検索して差し替える
-      box.querySelectorAll("[data-swap]").forEach((b) => {
-        b.addEventListener("click", (ev) => {
-          ev.preventDefault();
-          const want = b.dataset.swap;
-          const field = b.closest(".sf-field");
-          if (field.querySelector(".sf-swap-box")) { field.querySelector(".sf-swap-box").remove(); return; }
-          const boxEl = document.createElement("div");
-          boxEl.className = "sf-swap-box";
-          boxEl.innerHTML =
-            `<input type="text" class="sf-input sf-swap-q" placeholder="項目名かAPI名で検索（例：直販、種別）" />
-             <div class="sf-swap-list"></div>`;
-          field.appendChild(boxEl);
-          const q = boxEl.querySelector(".sf-swap-q");
-          const list = boxEl.querySelector(".sf-swap-list");
-          const draw = () => {
-            const t = (q.value || "").trim().toLowerCase();
-            const hits = Object.values(meta)
-              .filter((f) => f.updateable)
-              .filter((f) => !t || String(f.label || "").toLowerCase().includes(t) || String(f.name).toLowerCase().includes(t))
-              .slice(0, 20);
-            list.innerHTML = hits.length
-              ? hits.map((f) => `<button type="button" class="sf-swap-item" data-api="${esc(f.name)}">
-                   <span>${esc(f.label || f.name)}</span>
-                   <span class="sf-api">${esc(f.name)}${(f.picklistValues && f.picklistValues.length) ? " ・選択肢" + f.picklistValues.length + "件" : ""}</span>
-                 </button>`).join("")
-              : '<div class="sf-ss-note">見つかりません</div>';
-          };
-          draw();
-          q.addEventListener("input", draw);
-          list.addEventListener("click", (e2) => {
-            const it = e2.target.closest(".sf-swap-item");
-            if (!it) return;
-            fieldOvr[normLbl(want)] = it.dataset.api;
-            saveOvr(fieldOvr);
-            alert(`「${want}」の項目を ${it.dataset.api} に変更しました。画面を作り直します。`);
-            location.reload();
-          });
-        });
       });
       // 従属ピックリスト（大→中→小）の連動を配線
       box.querySelectorAll("select[data-dependent-on]").forEach((depSel) => {
