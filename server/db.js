@@ -2489,3 +2489,13 @@ export async function markQaGood(id, delta = 1) {
   if (!pool) return;
   try { await pool.query(`UPDATE qa_bank SET good = COALESCE(good,0) + $2 WHERE id=$1`, [id, delta]); } catch {}
 }
+
+
+// すでに取り込み済みの商談ID
+export async function qaBankBotIds() {
+  if (!pool) return [];
+  try {
+    const { rows } = await pool.query(`SELECT DISTINCT bot_id FROM qa_bank WHERE bot_id <> ''`);
+    return rows.map((r) => r.bot_id);
+  } catch { return []; }
+}

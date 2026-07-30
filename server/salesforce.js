@@ -942,15 +942,66 @@ export async function runReport(owner, reportId) {
     }
   }
 
+  // 集計（グラフ用）。グルーピングごとの数値を取り出す。
+  const groups = [];
+  const gd = (data.groupingsDown && data.groupingsDown.groupings) || [];
+  const aggInfo = ext.aggregateColumnInfo || {};
+  const aggName = (meta.aggregates || [])[0] || Object.keys(aggInfo)[0] || "";
+  const aggLabel = (aggInfo[aggName] && aggInfo[aggName].label) || "件数";
+  for (const g of gd) {
+    const cell = fm[`${g.key}!T`];
+    const a = cell && cell.aggregates && cell.aggregates[0];
+    groups.push({
+      label: g.label || String(g.value || ""),
+      value: a && typeof a.value === "number" ? a.value : Number(String((a && a.label) || "").replace(/[^\d.-]/g, "")) || 0,
+      display: (a && a.label) || "",
+    });
+  }
+
   return {
     id,
     name: data.attributes?.reportName || meta.name || "",
     format: meta.reportFormat || "",
     columns: cols,
     rows,
+    groups,
+    aggLabel,
     truncated: data.allData === false,
     instanceUrl: acc.instanceUrl,
   };
+}
+
+// リードを一覧で取り出す（表・CSV用）
+export async function exportLeads(owner, { days = 0, converted = "open", limit = 2000 } = {}) {
+  const conds = [];
+  if (converted === "open") conds.push("IsConverted = false");
+  else if (converted === "converted") conds.push("IsConverted = true");
+  if (days > 0) conds.push(`CreatedDate >= LAST_N_DAYS:${Math.min(365, Number(days) || 30)}`);
+  const where = conds.length ? ` WHERE ${conds.join(" AND ")}` : "";
+  const fields = [
+    "Id", "Name", "Company", "Title", "Email", "Phone", "Status", "LeadSource",
+    "Website", "State", "City", "NumberOfEmployees", "Owner.Name", "CreatedDate", "IsConverted",
+  ];
+  const d = await sfQuery(
+    owner,
+    `SELECT ${fields.join(", ")} FROM Lead${where} ORDER BY CreatedDate DESC LIMIT ${Math.min(2000, Number(limit) || 2000)}`
+  );
+  const labels = {
+    Id: "ID", Name: "氏名", Company: "会社名", Title: "役職", Email: "メール", Phone: "電話",
+    Status: "状況", LeadSource: "リードソース", Website: "Webサイト", State: "都道府県", City: "市区郡",
+    NumberOfEmployees: "従業員数", "Owner.Name": "所有者", CreatedDate: "作成日", IsConverted: "コンバート済",
+  };
+  const columns = fields.map((f) => ({ name: f, label: labels[f] || f }));
+  const rows = (d.records || []).map((r) =>
+    fields.map((f) => {
+      if (f === "Owner.Name") return (r.Owner && r.Owner.Name) || "";
+      if (f === "CreatedDate") return String(r.CreatedDate || "").slice(0, 10);
+      if (f === "IsConverted") return r.IsConverted ? "済" : "";
+      return r[f] == null ? "" : String(r[f]);
+    })
+  );
+  const acc = await getAccess(owner);
+  return { id: "", name: "リード一覧", columns, rows, groups: [], instanceUrl: (acc && acc.instanceUrl) || "" };
 }
 
 // ダッシュボードの一覧

@@ -107,6 +107,7 @@ import {
   listUsers,
   dbGetUser,
   listQaBank,
+  qaBankBotIds,
   deleteQaBank,
   markQaGood,
   addQaPairs,
@@ -138,7 +139,7 @@ import {
   deleteProposalFile,
 } from "./db.js";
 import { resolveConfig, statusInfo } from "./config.js";
-import { analyzerInfo, analyzeMeeting, analyzeDeep, freeAnalyze, chatWithData, enrichCompany, lookupEmployeeCount, lookupCompanyBasics, generateThanks, THANKS_PROMPT, getCheckItems, getSummaryPrompt, getCustomPrompt, runCustomAnalysis, analyzeWinPatterns, classifyMeetingKind, extractFirstMeeting, extractReMeeting, buildBrief, extractFeatureCTags, enrichCompanyAttributes, generateFeatureCInsights } from "./analyzer.js";
+import { analyzerInfo, analyzeMeeting, analyzeDeep, freeAnalyze, chatWithData, enrichCompany, lookupEmployeeCount, lookupCompanyBasics, generateThanks, THANKS_PROMPT, getCheckItems, getSummaryPrompt, getCustomPrompt, runCustomAnalysis, analyzeWinPatterns, classifyMeetingKind, extractFirstMeeting, extractReMeeting, buildBrief, extractFeatureCTags, enrichCompanyAttributes, generateFeatureCInsights, extractQaPairs } from "./analyzer.js";
 import { searchCompanies, getCompanyDetail, gbizConfigured } from "./gbizinfo.js";
 import {
   googleConfigured,
@@ -187,6 +188,7 @@ import {
   runReport,
   listDashboards,
   describeDashboard,
+  exportLeads,
   authUrl as sfAuthUrl,
   createPkce as sfCreatePkce,
   exchangeCode as sfExchangeCode,
@@ -5520,6 +5522,18 @@ app.get("/api/salesforce/reports/:id", async (req, res) => {
   }
 });
 
+app.get("/api/salesforce/leads-export", async (req, res) => {
+  try {
+    res.set("Cache-Control", "no-store");
+    res.json(await exportLeads(req.user, {
+      days: Number(req.query.days) || 0,
+      converted: req.query.converted || "open",
+    }));
+  } catch (e) {
+    sfErrorResponse(res, e);
+  }
+});
+
 app.get("/api/salesforce/dashboards", async (req, res) => {
   try {
     res.set("Cache-Control", "no-store");
@@ -5557,6 +5571,47 @@ app.post("/api/qa-bank", async (req, res) => {
     res.status(500).json({ error: e.message });
   }
 });
+// 過去の商談から、質問と回答をまとめて取り込む（時間がかかるので少しずつ）
+app.post("/api/qa-bank/import", async (req, res) => {
+  try {
+    const days = Math.max(1, Math.min(365, Number((req.body && req.body.days) || 90)));
+    const max = Math.max(1, Math.min(20, Number((req.body && req.body.max) || 8)));
+    const heads = await listRecentMeetingHeads({ days, limit: 300 });
+    const done = new Set(await qaBankBotIds());
+    const targets = heads
+      .filter((h) => !/【ユ\/フォ】|【社内MTG】/.test(h.title || ""))
+      .filter((h) => !done.has(h.bot_id));
+    const remaining = targets.length;
+    const part = targets.slice(0, max);
+    if (!part.length) return res.json({ ok: true, processed: 0, added: 0, remaining: 0 });
+
+    const rows = await getTranscriptsByIds(part.map((h) => h.bot_id));
+    const byId = new Map(rows.map((r) => [r.bot_id, r.transcript]));
+    let added = 0, processed = 0;
+    const deadline = Date.now() + 50000;
+    for (const h of part) {
+      if (Date.now() > deadline) break;
+      const tr = byId.get(h.bot_id);
+      if (!Array.isArray(tr) || !tr.length) { processed++; continue; }
+      const text = tr.map((u) => `${(u && u.speaker && u.speaker.name) || "話者"}: ${(u && u.text) || ""}`).join("\n");
+      try {
+        const pairs = await extractQaPairs({ transcript: text, repName: h.rep_name || h.owner_name || "" });
+        added += await addQaPairs(pairs, {
+          botId: h.bot_id,
+          company: h.account || "",
+          repName: h.rep_name || h.owner_name || "",
+        });
+      } catch (e) {
+        console.error("[QA取り込み]", h.bot_id, e.message);
+      }
+      processed++;
+    }
+    res.json({ ok: true, processed, added, remaining: Math.max(0, remaining - processed) });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 app.delete("/api/qa-bank/:id", async (req, res) => {
   try { await deleteQaBank(Number(req.params.id)); res.json({ ok: true }); }
   catch (e) { res.status(500).json({ error: e.message }); }

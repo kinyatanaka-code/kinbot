@@ -477,8 +477,10 @@ curl -H "Authorization: Bearer <span class="cc-tok">&lt;トークン&gt;</span>"
               <div class="rep-controls">
                 <input type="text" id="qaQ" class="sf-input" placeholder="質問や回答で絞り込み" style="min-width:240px" />
                 <button class="btn ghost" id="qaSearch">検索</button>
+                <button class="btn" id="qaImport">過去の商談から取り込む</button>
                 <span class="rev-status" id="qaStatus"></span>
               </div>
+              <p class="note" id="qaImportNote">直近90日の商談を対象に、まだ取り込んでいないものから順に処理します。時間がかかるので、押すと数件ずつ進みます。</p>
               <div id="qaList"><div class="empty-state">読み込み中…</div></div>
             </div>
 

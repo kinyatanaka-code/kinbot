@@ -1931,6 +1931,35 @@ function initSmartLinks() {
     if (btn) btn.addEventListener("click", loadQaBank);
     const inp = $q("qaQ");
     if (inp) inp.addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); loadQaBank(); } });
+    const imp = $q("qaImport");
+    if (imp) imp.addEventListener("click", async () => {
+      const note = $q("qaImportNote");
+      imp.disabled = true;
+      let total = 0, loops = 0;
+      try {
+        while (loops < 40) {
+          loops++;
+          if (note) note.textContent = `取り込み中… これまでに${total}件を追加しました`;
+          const r = await fetch("/api/qa-bank/import", {
+            method: "POST", headers: { "content-type": "application/json" },
+            body: JSON.stringify({ days: 90, max: 6 }),
+          });
+          const d = await r.json().catch(() => ({}));
+          if (!r.ok) throw new Error(d.error || "取り込みに失敗しました");
+          total += d.added || 0;
+          if (!d.processed || !d.remaining) {
+            if (note) note.textContent = `取り込み完了。${total}件の質問と回答を追加しました。`;
+            break;
+          }
+        }
+      } catch (e) {
+        if (note) note.textContent = "取り込みに失敗しました：" + e.message;
+      } finally {
+        imp.disabled = false;
+        loadQaBank();
+      }
+    });
+
     const box = $q("qaList");
     if (box) box.addEventListener("click", async (e) => {
       const g = e.target.closest("[data-qa-good]");

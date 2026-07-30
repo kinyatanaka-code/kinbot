@@ -836,7 +836,9 @@ function initSfReport() {
     const it = e.target.closest("[data-report-id]");
     if (it) { srRun(it.dataset.reportId); return; }
     const db = e.target.closest("[data-dash-id]");
-    if (db) srOpenDashboard(db.dataset.dashId);
+    if (db) { srOpenDashboard(db.dataset.dashId); return; }
+    const ld = e.target.closest("[data-lead]");
+    if (ld) srLoadLeads(ld.dataset.lead);
   });
   const kind = $("srKind");
   if (kind) kind.addEventListener("click", (e) => {
@@ -856,6 +858,17 @@ async function srLoadList() {
   if (st) st.textContent = "";
   try {
     const q = ($("srQ") && $("srQ").value.trim()) || "";
+    if (_sr.kind === "lead") {
+      list.innerHTML =
+        `<button type="button" class="sr-item" data-lead="open">
+           <span class="sr-item-name">未コンバートのリード</span><span class="sr-item-sub">まだ商談化していないもの</span></button>` +
+        `<button type="button" class="sr-item" data-lead="converted">
+           <span class="sr-item-name">コンバート済みのリード</span><span class="sr-item-sub">商談化したもの</span></button>` +
+        `<button type="button" class="sr-item" data-lead="all">
+           <span class="sr-item-name">すべてのリード</span><span class="sr-item-sub">直近から2000件まで</span></button>`;
+      if (st) st.textContent = "";
+      return;
+    }
     const isDash = _sr.kind === "dashboard";
     const r = await fetch(`/api/salesforce/${isDash ? "dashboards" : "reports"}?q=` + encodeURIComponent(q));
     const d = await r.json().catch(() => ({}));
@@ -881,26 +894,7 @@ async function srRun(id) {
     const r = await fetch("/api/salesforce/reports/" + encodeURIComponent(id));
     const d = await r.json().catch(() => ({}));
     if (!r.ok) throw new Error(d.error || "実行に失敗しました");
-    _sr.current = d;
-    const cols = d.columns || [];
-    const rows = d.rows || [];
-    const head = cols.map((c) => `<th>${srEsc(c.label)}</th>`).join("");
-    const body = rows.slice(0, 500).map((row) => `<tr>${row.map((v) => `<td>${srEsc(v)}</td>`).join("")}</tr>`).join("");
-    view.innerHTML =
-      `<div class="sr-head">
-         <div>
-           <div class="sr-title">${srEsc(d.name)}</div>
-           <div class="sr-sub">${rows.length}行${d.truncated ? "（2000行までの制限あり）" : ""}${rows.length > 500 ? " ・ 画面には500行まで表示" : ""}</div>
-         </div>
-         <div class="sr-actions">
-           <button class="btn ghost" id="srCsv">CSVで保存</button>
-           <a class="btn ghost" href="${srEsc(d.instanceUrl)}/${srEsc(d.id)}" target="_blank" rel="noopener">Salesforceで開く</a>
-         </div>
-       </div>` +
-      (cols.length ? `<div class="sr-table-wrap"><table class="sr-table"><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table></div>`
-                   : '<div class="empty-state">表形式で取り出せる明細がありませんでした（集計だけのレポートの可能性があります）。</div>');
-    const csvBtn = $("srCsv");
-    if (csvBtn) csvBtn.addEventListener("click", srCsv);
+    srShowResult(d);
   } catch (e) {
     view.innerHTML = `<div class="empty-state">${srEsc(e.message)}</div>`;
   }
@@ -958,4 +952,65 @@ async function srOpenDashboard(id) {
   } catch (e) {
     view.innerHTML = `<div class="empty-state">${srEsc(e.message)}</div>`;
   }
+}
+
+
+// リードを表で取り出す
+async function srLoadLeads(kind) {
+  const view = $("srView");
+  if (!view) return;
+  view.innerHTML = '<div class="empty-state">リードを取得中…</div>';
+  try {
+    const conv = kind === "converted" ? "converted" : kind === "all" ? "all" : "open";
+    const r = await fetch("/api/salesforce/leads-export?converted=" + conv);
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(d.error || "取得に失敗しました");
+    d.name = kind === "converted" ? "コンバート済みのリード" : kind === "all" ? "すべてのリード" : "未コンバートのリード";
+    srShowResult(d);
+  } catch (e) {
+    view.innerHTML = `<div class="empty-state">${srEsc(e.message)}</div>`;
+  }
+}
+
+// グラフ＋表で表示する（レポート・ダッシュボードの各グラフ・リード共通）
+function srShowResult(d) {
+  const view = $("srView");
+  if (!view) return;
+  _sr.current = d;
+  const cols = d.columns || [];
+  const rows = d.rows || [];
+  const groups = (d.groups || []).filter((g) => g.label);
+  const head = cols.map((c) => `<th>${srEsc(c.label)}</th>`).join("");
+  const body = rows.slice(0, 500).map((row) => `<tr>${row.map((v) => `<td>${srEsc(v)}</td>`).join("")}</tr>`).join("");
+
+  let chart = "";
+  if (groups.length) {
+    const max = Math.max(...groups.map((g) => Math.abs(g.value) || 0), 1);
+    chart =
+      `<div class="sr-chart"><div class="sr-chart-h">${srEsc(d.aggLabel || "集計")}</div>` +
+      groups.slice(0, 20).map((g) => `
+        <div class="sr-bar-row">
+          <span class="sr-bar-label" title="${srEsc(g.label)}">${srEsc(g.label)}</span>
+          <span class="sr-bar-track"><span class="sr-bar-fill" style="width:${Math.max(2, Math.round((Math.abs(g.value) / max) * 100))}%"></span></span>
+          <span class="sr-bar-val">${srEsc(g.display || g.value)}</span>
+        </div>`).join("") +
+      `</div>`;
+  }
+
+  view.innerHTML =
+    `<div class="sr-head">
+       <div>
+         <div class="sr-title">${srEsc(d.name)}</div>
+         <div class="sr-sub">${rows.length}行${d.truncated ? "（2000行までの制限あり）" : ""}${rows.length > 500 ? " ・ 画面には500行まで表示" : ""}</div>
+       </div>
+       <div class="sr-actions">
+         <button class="btn ghost" id="srCsv">CSVで保存</button>
+         ${d.id ? `<a class="btn ghost" href="${srEsc(d.instanceUrl)}/${srEsc(d.id)}" target="_blank" rel="noopener">Salesforceで開く</a>` : ""}
+       </div>
+     </div>` + chart +
+    (cols.length && rows.length
+      ? `<div class="sr-table-wrap"><table class="sr-table"><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table></div>`
+      : (groups.length ? "" : '<div class="empty-state">表にできる明細がありませんでした。</div>'));
+  const csvBtn = $("srCsv");
+  if (csvBtn) csvBtn.addEventListener("click", srCsv);
 }
