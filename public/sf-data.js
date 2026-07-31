@@ -32,13 +32,34 @@ async function srLoadList() {
     const q = ($("srQ") && $("srQ").value.trim()) || "";
     if (_sr.kind === "lead") {
       list.innerHTML =
+        `<div class="sr-group">リードの一覧</div>` +
         `<button type="button" class="sr-item" data-lead="open">
            <span class="sr-item-name">未コンバートのリード</span><span class="sr-item-sub">まだ商談化していないもの</span></button>` +
         `<button type="button" class="sr-item" data-lead="converted">
            <span class="sr-item-name">コンバート済みのリード</span><span class="sr-item-sub">商談化したもの</span></button>` +
         `<button type="button" class="sr-item" data-lead="all">
-           <span class="sr-item-name">すべてのリード</span><span class="sr-item-sub">直近から2000件まで</span></button>`;
+           <span class="sr-item-name">すべてのリード</span><span class="sr-item-sub">直近から2000件まで</span></button>` +
+        `<div class="sr-group">リードのレポート</div><div id="srLeadReports"><div class="empty-state">読み込み中…</div></div>`;
       if (st) st.textContent = "";
+      // Salesforceにあるリード系のレポートも一覧に出す
+      try {
+        const rq = q || "リード";
+        const rr = await fetch("/api/salesforce/reports?q=" + encodeURIComponent(rq));
+        const rd = await rr.json().catch(() => ({}));
+        const reps = (rd.reports || []);
+        const box = $("srLeadReports");
+        if (box) {
+          box.innerHTML = reps.length
+            ? reps.map((x) => `<button type="button" class="sr-item" data-report-id="${srEsc(x.id)}">
+                <span class="sr-item-name">${srEsc(x.name)}</span>
+                <span class="sr-item-sub">${srEsc(x.folder)}${x.format ? " ・ " + srEsc(x.format) : ""}</span>
+              </button>`).join("")
+            : `<div class="empty-state">「${srEsc(rq)}」を含むレポートが見つかりませんでした。上の欄に別の言葉を入れて検索してください。</div>`;
+        }
+      } catch {
+        const box = $("srLeadReports");
+        if (box) box.innerHTML = '<div class="empty-state">レポートの取得に失敗しました。</div>';
+      }
       return;
     }
     const isDash = _sr.kind === "dashboard";
@@ -201,7 +222,7 @@ document.addEventListener("DOMContentLoaded", () => {
     const t = document.querySelector(".home-title");
     if (!isLaunch) {
       const q = document.getElementById("srQ");
-      if (q) q.placeholder = name === "lead" ? "（リードは下の一覧から選びます）" : "名前で絞り込み";
+      if (q) { q.placeholder = name === "lead" ? "リードのレポート名で絞り込み（例：リード、アポ）" : "名前で絞り込み"; q.value = ""; }
       initSfReport(name);
     }
   };
