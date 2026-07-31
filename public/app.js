@@ -33,6 +33,27 @@ const speakerColors = new Map();
 els.joinBtn.addEventListener("click", joinMeeting);
 els.leaveBtn.addEventListener("click", leaveMeeting);
 
+// ホームの予定から「録音する」で来たとき：商談名と会議URLを入れて、そのまま入室する
+(function () {
+  try {
+    const q = new URLSearchParams(location.search);
+    const url = q.get("url") || "";
+    const title = q.get("title") || "";
+    if (!url && !title) return;
+    const urlEl = document.getElementById("meetingUrl");
+    const titleEl = document.getElementById("meetingTitle");
+    if (urlEl && url) urlEl.value = url;
+    if (titleEl && title) titleEl.value = title;
+    // アドレスバーを元に戻す（再読み込みで二重に入室しないように）
+    history.replaceState(null, "", location.pathname);
+    if (q.get("auto") === "1" && url) {
+      setTimeout(() => { if (!els.joinBtn.disabled) els.joinBtn.click(); }, 300);
+    } else if (titleEl) {
+      titleEl.focus();
+    }
+  } catch {}
+})();
+
 // 進行中の商談一覧（全員が閲覧できる）
 async function refreshActive() {
   if (!els.activeList) return;

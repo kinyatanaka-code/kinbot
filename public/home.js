@@ -221,7 +221,6 @@ function render() {
   });
   items.sort((a, b) => a.when - b.when);
   renderMini();
-  renderTodo(items);
 
   let html = "";
   if (window._calConnected === false) {
@@ -279,7 +278,8 @@ function render() {
           ${summary ? `<div class="home-card-sum">${escH(summary)}</div>` : ""}
         </div>
         <div class="home-card-actions">
-          <a class="btn" href="history.html?company=${enc}">${openLabel}</a>
+          ${!m && e && e.hasUrl ? `<a class="btn" href="index.html?auto=1&url=${encodeURIComponent(e.url || "")}&title=${encodeURIComponent(title)}">録音する</a>` : ""}
+          <a class="btn${!m && e && e.hasUrl ? " sf-btn-secondary" : ""}" href="history.html?company=${enc}">${openLabel}</a>
           <button class="btn sf-btn-secondary" data-sf-open="${escH(key)}" type="button">${s.open ? "SF商談を閉じる" : "SF商談を選ぶ"}</button>
         </div>
       </div>
@@ -381,33 +381,6 @@ function renderRank(items) {
       <span class="home-rank-v is-${tone}">${val}</span>
     </a>`;
   }).join("");
-}
-
-// ---- 右パネル：要対応 ----
-function renderTodo(items) {
-  const box = $h("homeTodo");
-  if (!box) return;
-  const rows = [];
-  // 再商談が未設定のまま猶予中の案件
-  let pend = allDeals.filter((d) => String(d.status || "").includes("進行中(未設定)") && d.auto_lose_deadline);
-  if (homeScope === "mine" && meEmail) pend = pend.filter((d) => String(d.owner || "").toLowerCase() === meEmail);
-  if (pend.length) {
-    const near = pend.map((d) => String(d.auto_lose_deadline).slice(0, 10)).sort()[0];
-    rows.push({ label: "再商談が未設定", sub: `${pend.length}件 ・ 最短 ${near} まで`, href: "history.html", warn: true });
-  }
-  // この日の予定でZoom等のURLが無いもの
-  if (window._autoJoin) {
-    const noUrl = (items || []).filter((it) => it.ev && !it.ev.hasUrl && !it.rec).length;
-    if (noUrl) rows.push({ label: "自動入室されない予定", sub: `${noUrl}件 ・ URLが未設定`, href: "", warn: false });
-  } else {
-    const notRec = (items || []).filter((it) => it.ev && !it.rec && new Date(it.ev.start).getTime() < Date.now()).length;
-    if (notRec) rows.push({ label: "録音されていない予定", sub: `${notRec}件 ・ 手動で入室が必要です`, href: "index.html", warn: false });
-  }
-  box.innerHTML = rows.length
-    ? rows.map((r) => (r.href
-        ? `<a class="home-todo" href="${r.href}"><span class="home-todo-dot${r.warn ? " is-warn" : ""}"></span><span class="home-todo-t"><b>${escH(r.label)}</b><em>${escH(r.sub)}</em></span></a>`
-        : `<div class="home-todo"><span class="home-todo-dot${r.warn ? " is-warn" : ""}"></span><span class="home-todo-t"><b>${escH(r.label)}</b><em>${escH(r.sub)}</em></span></div>`)).join("")
-    : '<div class="home-panel-empty">いまのところ対応が必要なものはありません。</div>';
 }
 
 async function sfSearch(key) {
