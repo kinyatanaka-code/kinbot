@@ -463,39 +463,40 @@ async function showRecPicker(key) {
   const old = card.querySelector(".home-rec-pick");
   if (old) { old.remove(); return; }
   const rooms = await loadRooms();
+
+  // 予定に書かれているリンク
   let cands = (ev.urls || []).filter((c) => c && c.url);
-  if (!cands.length && ev.url) cands = [{ url: ev.url, source: "予定", used: null }];
-  // 設定に登録しているZoomルームも候補に出す（予定に載っていない自分の部屋を使いたいとき用）
+  if (!cands.length && ev.url) cands = [{ url: ev.url, source: "予定のリンク", used: null }];
+  const remembered = recUrlPref()[key];
+  if (remembered) cands.sort((a, b) => (b.url === remembered ? 1 : 0) - (a.url === remembered ? 1 : 0));
+  // 設定に登録しているZoomルーム
   const have = new Set(cands.map((c) => String(c.url)));
   const roomCands = (rooms || [])
     .filter((r) => !have.has(String(r.url)))
-    .map((r) => ({ url: r.url, source: "登録ルーム" + (r.label ? "：" + r.label : ""), used: null, room: true }));
-  const remembered = recUrlPref()[key];
-  if (remembered) cands.sort((a, b) => (b.url === remembered ? 1 : 0) - (a.url === remembered ? 1 : 0));
+    .map((r) => ({ url: r.url, label: r.label || "登録ルーム" }));
+
   const box = document.createElement("div");
   box.className = "home-rec-pick";
-  const head = !cands.length
-    ? "この予定にはZoom等のURLがありません。登録しているルームを選ぶか、レコーディング画面から入室してください。"
-    : (cands.length > 1 ? `会議URLが${cands.length}つあります。どれで録音しますか？` : "このURLで録音します。押すとボットが入室します。");
-  box.innerHTML =
-    `<div class="home-rec-pick-h">${head}</div>` +
-    cands.map((c, i) => {
-      const used = c.used && (c.used.mine || c.used.all)
-        ? `よく使っている部屋（自分${c.used.mine || 0}回 / 全体${c.used.all || 0}回）`
-        : "使用実績なし";
-      return `<button type="button" class="home-rec-item" data-url="${escH(c.url)}">
-        <span class="home-rec-item-t">${escH(c.source)}${i === 0 ? (c.url === remembered ? " ・ 前回使ったURL" : " ・ おすすめ") : ""}　<span class="home-rec-used">${escH(used)}</span></span>
-        <span class="home-rec-item-u">${escH(c.url)}</span>
-      </button>`;
-    }).join("") +
-    (roomCands.length
-      ? `<div class="home-rec-pick-h" style="margin-top:10px">登録しているZoomルーム</div>` +
-        roomCands.map((c) => `<button type="button" class="home-rec-item" data-url="${escH(c.url)}">
-            <span class="home-rec-item-t">${escH(c.source)}</span>
-            <span class="home-rec-item-u">${escH(c.url)}</span>
-          </button>`).join("")
-      : "");
+  const chip = (label, url, on) =>
+    `<button type="button" class="quick-link-btn${on ? " active" : ""}" data-url="${escH(url)}" title="${escH(url)}">${escH(label)}</button>`;
+
+  let html = "";
+  if (cands.length) {
+    html += `<div class="quick-links-label">この予定のリンク（押すと録音が始まります）</div><div class="quick-links">` +
+      cands.map((c, i) => chip(
+        c.source + (c.used && c.used.mine ? `（${c.used.mine}回）` : ""),
+        c.url,
+        i === 0
+      )).join("") + `</div>`;
+  }
+  if (roomCands.length) {
+    html += `<div class="quick-links-label" style="margin-top:10px">よく使うリンク</div><div class="quick-links">` +
+      roomCands.map((r) => chip(r.label, r.url, false)).join("") + `</div>`;
+  }
+  if (!html) html = '<div class="home-rec-pick-h">この予定にはZoom等のURLがありません。レコーディング画面から入室してください。</div>';
+  box.innerHTML = html;
   card.appendChild(box);
+
   box.addEventListener("click", (e2) => {
     const b = e2.target.closest("[data-url]");
     if (!b) return;
