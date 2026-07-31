@@ -35,7 +35,6 @@
             <button class="rep-tab" data-rp="detail">詳細</button>
             <button class="rep-tab" data-rp="insights">インサイト</button>
             <button class="rep-tab" data-rp="interns">インターンアポ</button>
-            <button class="rep-tab" data-rp="sfreport">SFレポート</button>
           </div>
 
           <!-- サマリー（ファネル） -->
@@ -97,25 +96,6 @@
             </div>
             <div id="pipelineBody"><div class="empty-state">読み込み中…</div></div>
 
-          </section>
-
-          <!-- Salesforceのレポート -->
-          <section class="rep-panel" data-rpanel="sfreport" hidden>
-            <h3 class="rep-section-title">Salesforceのレポート</h3>
-            <div class="rep-controls">
-              <div class="seg" id="srKind">
-                <button class="seg-btn active" data-kind="report" type="button">レポート</button>
-                <button class="seg-btn" data-kind="dashboard" type="button">ダッシュボード</button>
-                <button class="seg-btn" data-kind="lead" type="button">リード</button>
-              </div>
-              <input type="text" id="srQ" class="sf-input" placeholder="名前で絞り込み" style="min-width:240px" />
-              <button class="btn ghost" id="srSearch">検索</button>
-              <span class="rev-status" id="srStatus"></span>
-            </div>
-            <div class="sr-wrap">
-              <div class="sr-list" id="srList"><div class="empty-state">「検索」を押すとレポートの一覧を表示します。</div></div>
-              <div class="sr-view" id="srView"><div class="empty-state">左のレポートを選ぶと内容を表示します。</div></div>
-            </div>
           </section>
 
           <!-- インターンアポ（メニューバーから直接開ける） -->
