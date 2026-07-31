@@ -150,18 +150,38 @@ export async function listZoomEvents(owner, { timeMin, timeMax } = {}) {
 
 // Zoom以外・終日予定も含めて、その範囲の全予定を返す（商談名の選択用）
 const MEET_RE = /https?:\/\/[\w.-]*(?:zoom\.us|meet\.google\.com|teams\.microsoft\.com|teams\.live\.com)\/[^\s"'<>)\]]+/i;
-function findMeetingUrl(ev) {
-  const blobs = [
-    ev.hangoutLink,
-    ev.location,
-    ev.description,
-    ...(ev.conferenceData?.entryPoints || []).map((e) => e.uri),
-  ].filter(Boolean);
-  for (const b of blobs) {
-    const m = String(b).match(MEET_RE);
-    if (m) return m[0];
+// 予定に入っている会議URLを、確からしい順にすべて拾う
+// 1) Googleの会議情報（正式な会議室） 2) 場所 3) 説明文
+export function findMeetingUrls(ev) {
+  const sources = [
+    { key: "会議情報", text: ev.hangoutLink || "" },
+    ...(ev.conferenceData?.entryPoints || []).map((e) => ({ key: "会議情報", text: e.uri || "" })),
+    { key: "場所", text: ev.location || "" },
+    { key: "説明", text: ev.description || "" },
+  ];
+  const out = [];
+  const seen = new Set();
+  for (const src of sources) {
+    const t = String(src.text || "");
+    if (!t) continue;
+    const re = new RegExp(MEET_RE.source, "g");
+    let m;
+    while ((m = re.exec(t))) {
+      const url = m[0];
+      // 同じ会議は1つにまとめる（末尾のパスワード等で別物に見えることがある）
+      const id = (url.match(/\/j\/(\d{9,})/) || url.match(/\/(\d{9,})/) || [])[1] || url;
+      if (seen.has(id)) continue;
+      seen.add(id);
+      out.push({ url, source: src.key, id });
+      if (out.length >= 5) return out;
+    }
   }
-  return null;
+  return out;
+}
+
+function findMeetingUrl(ev) {
+  const list = findMeetingUrls(ev);
+  return list.length ? list[0].url : null;
 }
 
 export async function listDayEvents(owner, { timeMin, timeMax } = {}) {
@@ -193,6 +213,7 @@ export async function listDayEvents(owner, { timeMin, timeMax } = {}) {
       start,
       allDay: !ev.start?.dateTime,
       url: findMeetingUrl(ev) || "",
+      urls: findMeetingUrls(ev),
     });
   }
   return out;
@@ -664,6 +685,7 @@ export async function listEventsCreatedOn(owner, dateStr) {
         start,
         allDay: !ev.start?.dateTime,
         url: findMeetingUrl(ev) || "",
+      urls: findMeetingUrls(ev),
         organizer: (ev.organizer && ev.organizer.email) || "",
         organizerName: (ev.organizer && ev.organizer.displayName) || "",
         creator: (ev.creator && ev.creator.email) || "",

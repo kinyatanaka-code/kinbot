@@ -3503,3 +3503,11 @@ a.home-todo:hover .home-todo-t b { color: #0d5b47; text-decoration: underline; }
 .sr-bar-track { flex: 1; min-width: 0; height: 14px; background: var(--panel-2); border-radius: 20px; overflow: hidden; }
 .sr-bar-fill { display: block; height: 100%; border-radius: 20px; background: #1d9e75; }
 .sr-bar-val { flex: 0 0 auto; font-size: 12px; font-weight: 700; color: var(--ink); min-width: 48px; text-align: right; }
+.home-rec-pick { margin-top: 10px; padding-top: 10px; border-top: 1px dashed var(--line); }
+.home-rec-pick-h { font-size: 12px; color: var(--muted); margin-bottom: 8px; }
+.home-rec-item { display: block; width: 100%; text-align: left; border: 1px solid var(--line); background: var(--panel); border-radius: 10px; padding: 8px 11px; margin-bottom: 6px; cursor: pointer; font: inherit; }
+.home-rec-item:hover { border-color: #5DCAA5; background: #f4fbf8; }
+.home-rec-item-t { display: block; font-size: 12.5px; font-weight: 700; color: var(--ink); }
+.home-rec-item-u { display: block; font-size: 10.5px; color: var(--muted); margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.home-rec-alt { font: inherit; font-size: 11px; color: #1d9e75; background: transparent; border: 0; padding: 2px 0; cursor: pointer; text-decoration: underline; }
+.home-rec-used { font-weight: 400; font-size: 10.5px; color: var(--muted); }

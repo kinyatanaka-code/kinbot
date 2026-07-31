@@ -278,7 +278,7 @@ function render() {
           ${summary ? `<div class="home-card-sum">${escH(summary)}</div>` : ""}
         </div>
         <div class="home-card-actions">
-          ${!m && e && e.hasUrl ? `<a class="btn" href="index.html?auto=1&url=${encodeURIComponent(e.url || "")}&title=${encodeURIComponent(title)}">録音する</a>` : ""}
+          ${!m && e && e.hasUrl ? `<button class="btn" type="button" data-rec="${escH(key)}">録音する</button>` : ""}
           <a class="btn${!m && e && e.hasUrl ? " sf-btn-secondary" : ""}" href="history.html?company=${enc}">${openLabel}</a>
           <button class="btn sf-btn-secondary" data-sf-open="${escH(key)}" type="button">${s.open ? "SF商談を閉じる" : "SF商談を選ぶ"}</button>
         </div>
@@ -432,9 +432,62 @@ async function sfLose(key) {
   }
 }
 
+// 会議URLの候補が複数あるときは、どれで録音するかを選ばせる（1回選べば次から覚える）
+const REC_URL_KEY = "kinbot_rec_url";
+function recUrlPref() { try { return JSON.parse(localStorage.getItem(REC_URL_KEY) || "{}"); } catch { return {}; } }
+function saveRecUrl(key, url) {
+  try { const o = recUrlPref(); o[key] = url; localStorage.setItem(REC_URL_KEY, JSON.stringify(o)); } catch {}
+}
+function startRecording(key) {
+  const ev = (dayEvents || []).find((x) => (x.id || (x.title + "@" + x.start)) === key);
+  if (!ev) return;
+  const title = ev.title || "";
+  const go = (url) => {
+    location.href = `index.html?auto=1&url=${encodeURIComponent(url)}&title=${encodeURIComponent(title)}`;
+  };
+  const cands = (ev.urls || []).filter((c) => c && c.url);
+  const remembered = recUrlPref()[key];
+  if (remembered && cands.some((c) => c.url === remembered)) return go(remembered);
+  if (cands.length <= 1) return go(cands.length ? cands[0].url : ev.url);
+  // 会議URLが複数あるときは選んでもらう
+  return showRecPicker(key);
+}
+
+// 別のURLで録音したいとき（候補が複数あるときだけ出す）
+function showRecPicker(key) {
+  const ev = (dayEvents || []).find((x) => (x.id || (x.title + "@" + x.start)) === key);
+  const card = document.querySelector(`[data-card="${cssEsc(key)}"]`);
+  if (!ev || !card) return;
+  const old = card.querySelector(".home-rec-pick");
+  if (old) { old.remove(); return; }
+  const cands = (ev.urls || []).filter((c) => c && c.url);
+  const box = document.createElement("div");
+  box.className = "home-rec-pick";
+  box.innerHTML =
+    `<div class="home-rec-pick-h">この予定には会議URLが${cands.length}つあります。どれで録音しますか？（選ぶと次回から覚えます）</div>` +
+    cands.map((c, i) => {
+      const used = c.used && (c.used.mine || c.used.all)
+        ? `よく使っている部屋（自分${c.used.mine || 0}回 / 全体${c.used.all || 0}回）`
+        : "使用実績なし";
+      return `<button type="button" class="home-rec-item" data-url="${escH(c.url)}">
+        <span class="home-rec-item-t">${escH(c.source)}${i === 0 ? " ・ おすすめ" : ""}　<span class="home-rec-used">${escH(used)}</span></span>
+        <span class="home-rec-item-u">${escH(c.url)}</span>
+      </button>`;
+    }).join("");
+  card.appendChild(box);
+  box.addEventListener("click", (e2) => {
+    const b = e2.target.closest("[data-url]");
+    if (!b) return;
+    saveRecUrl(key, b.dataset.url);
+    location.href = `index.html?auto=1&url=${encodeURIComponent(b.dataset.url)}&title=${encodeURIComponent(ev.title || "")}`;
+  });
+}
+
 function wireList() {
   const box = $h("homeList");
   box.addEventListener("click", (ev) => {
+    const rec = ev.target.closest("[data-rec]");
+    if (rec) { startRecording(rec.dataset.rec); return; }
     const openBtn = ev.target.closest("[data-sf-open]");
     if (openBtn) {
       const key = openBtn.dataset.sfOpen;

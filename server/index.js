@@ -117,6 +117,7 @@ import {
   saveUserSettings,
   saveMeeting,
   listAutoJoin,
+  recentMeetingUrls,
   findAutoJoinByMeetingId,
   addAutoJoin,
   removeAutoJoin,
@@ -3991,6 +3992,29 @@ app.put("/api/auto-join/:id", async (req, res) => {
 });
 // 自動入室の診断：登録URLごとに、カレンダー連携の有無・一致する直近の予定・今入室対象かを返す
 // ホーム用：今日のカレンダー予定（これからの商談）を返す
+// 会議URLの使用回数を数える（数分キャッシュ）
+let _urlUsage = { at: 0, rows: [] };
+function zoomIdOf(url) {
+  const u = String(url || "");
+  return (u.match(/\/j\/(\d{9,})/) || u.match(/\/(\d{9,})/) || [])[1] || "";
+}
+async function meetingUrlUsage(owner) {
+  if (Date.now() - _urlUsage.at > 5 * 60 * 1000) {
+    _urlUsage = { at: Date.now(), rows: await recentMeetingUrls(600).catch(() => []) };
+  }
+  const me = String(owner || "").toLowerCase();
+  const map = new Map();
+  for (const r of _urlUsage.rows) {
+    const id = zoomIdOf(r.meeting_url);
+    if (!id) continue;
+    const v = map.get(id) || { mine: 0, all: 0 };
+    v.all++;
+    if (me && String(r.owner || "").toLowerCase() === me) v.mine++;
+    map.set(id, v);
+  }
+  return map;
+}
+
 app.get("/api/calendar/today", async (req, res) => {
   try {
     // 日付指定（?date=YYYY-MM-DD）。未指定なら日本時間の今日。
@@ -4006,10 +4030,30 @@ app.get("/api/calendar/today", async (req, res) => {
     } catch (e) {
       return res.json({ connected: false, date: dateStr, autoJoin: CALENDAR_AUTO_JOIN, events: [] });
     }
-    const timed = (events || []).filter((e) => !e.allDay && e.start).map((e) => ({
-      id: e.id, title: e.title || "(無題)", start: e.start,
-      url: e.url || "", hasUrl: !!(e.url && /zoom|meet|teams/.test(e.url)), guests: e.guests || 0,
-    })).filter((e) => {
+    // 自分が登録している自動入室ルーム（自社のZoom部屋）は、候補の優先度を上げる
+    let myRooms = [];
+    try { myRooms = (await listAutoJoin(req.user)) || []; } catch {}
+    const roomIds = new Set(myRooms.map((r) => String(r.meeting_id || "")).filter(Boolean));
+    // これまでよく使っているZoom部屋を数える（自分の実績を重く見る）
+    const usage = await meetingUrlUsage(req.user);
+
+    const score = (c) => {
+      const id = String(c.id || "");
+      const u = usage.get(id) || { mine: 0, all: 0 };
+      return u.mine * 10 + u.all * 2 + (roomIds.has(id) ? 5 : 0);
+    };
+    const timed = (events || []).filter((e) => !e.allDay && e.start).map((e) => {
+      const cands = (e.urls || []).slice();
+      // よく使っている部屋・自社の登録部屋を先頭に。同点なら元の順（会議情報→場所→説明）のまま。
+      cands.forEach((c, i) => { c._i = i; c.used = (usage.get(String(c.id)) || { mine: 0, all: 0 }); });
+      cands.sort((a, b) => score(b) - score(a) || a._i - b._i);
+      cands.forEach((c) => { delete c._i; });
+      const url = cands.length ? cands[0].url : (e.url || "");
+      return {
+        id: e.id, title: e.title || "(無題)", start: e.start,
+        url, urls: cands, hasUrl: !!(url && /zoom|meet|teams/.test(url)), guests: e.guests || 0,
+      };
+    }).filter((e) => {
       // Googleが返す範囲外の予定（前日・翌日）が混ざることがあるので日本時間で再確認
       const ms = new Date(e.start).getTime();
       return ms >= start.getTime() && ms <= end.getTime();

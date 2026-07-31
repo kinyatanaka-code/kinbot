@@ -2499,3 +2499,16 @@ export async function qaBankBotIds() {
     return rows.map((r) => r.bot_id);
   } catch { return []; }
 }
+
+// これまでに録音した会議URLの使用回数（よく使うZoom部屋を判定するため）
+export async function recentMeetingUrls(limit = 600) {
+  if (!pool) return [];
+  try {
+    const { rows } = await pool.query(
+      `SELECT meeting_url, owner, created_at FROM meetings
+        WHERE meeting_url IS NOT NULL AND meeting_url <> ''
+        ORDER BY created_at DESC LIMIT $1`, [limit]
+    );
+    return rows;
+  } catch { return []; }
+}
