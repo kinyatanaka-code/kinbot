@@ -438,19 +438,9 @@ function recUrlPref() { try { return JSON.parse(localStorage.getItem(REC_URL_KEY
 function saveRecUrl(key, url) {
   try { const o = recUrlPref(); o[key] = url; localStorage.setItem(REC_URL_KEY, JSON.stringify(o)); } catch {}
 }
+// 「録音する」を押したら、会議URLのボタンを出す。押したURLで録音を始める。
 function startRecording(key) {
-  const ev = (dayEvents || []).find((x) => (x.id || (x.title + "@" + x.start)) === key);
-  if (!ev) return;
-  const title = ev.title || "";
-  const go = (url) => {
-    location.href = `index.html?auto=1&url=${encodeURIComponent(url)}&title=${encodeURIComponent(title)}`;
-  };
-  const cands = (ev.urls || []).filter((c) => c && c.url);
-  const remembered = recUrlPref()[key];
-  if (remembered && cands.some((c) => c.url === remembered)) return go(remembered);
-  if (cands.length <= 1) return go(cands.length ? cands[0].url : ev.url);
-  // 会議URLが複数あるときは選んでもらう
-  return showRecPicker(key);
+  showRecPicker(key);
 }
 
 // 別のURLで録音したいとき（候補が複数あるときだけ出す）
@@ -460,17 +450,27 @@ function showRecPicker(key) {
   if (!ev || !card) return;
   const old = card.querySelector(".home-rec-pick");
   if (old) { old.remove(); return; }
-  const cands = (ev.urls || []).filter((c) => c && c.url);
+  let cands = (ev.urls || []).filter((c) => c && c.url);
+  if (!cands.length && ev.url) cands = [{ url: ev.url, source: "予定", used: null }];
+  if (!cands.length) {
+    const b0 = document.createElement("div");
+    b0.className = "home-rec-pick";
+    b0.innerHTML = '<div class="home-rec-pick-h">この予定にはZoom等のURLがありません。レコーディング画面から手動で入室してください。</div>';
+    card.appendChild(b0);
+    return;
+  }
+  const remembered = recUrlPref()[key];
+  if (remembered) cands.sort((a, b) => (b.url === remembered ? 1 : 0) - (a.url === remembered ? 1 : 0));
   const box = document.createElement("div");
   box.className = "home-rec-pick";
   box.innerHTML =
-    `<div class="home-rec-pick-h">この予定には会議URLが${cands.length}つあります。どれで録音しますか？（選ぶと次回から覚えます）</div>` +
+    `<div class="home-rec-pick-h">${cands.length > 1 ? `会議URLが${cands.length}つあります。どれで録音しますか？` : "このURLで録音します。押すとボットが入室します。"}</div>` +
     cands.map((c, i) => {
       const used = c.used && (c.used.mine || c.used.all)
         ? `よく使っている部屋（自分${c.used.mine || 0}回 / 全体${c.used.all || 0}回）`
         : "使用実績なし";
       return `<button type="button" class="home-rec-item" data-url="${escH(c.url)}">
-        <span class="home-rec-item-t">${escH(c.source)}${i === 0 ? " ・ おすすめ" : ""}　<span class="home-rec-used">${escH(used)}</span></span>
+        <span class="home-rec-item-t">${escH(c.source)}${i === 0 ? (c.url === remembered ? " ・ 前回使ったURL" : " ・ おすすめ") : ""}　<span class="home-rec-used">${escH(used)}</span></span>
         <span class="home-rec-item-u">${escH(c.url)}</span>
       </button>`;
     }).join("");
@@ -478,6 +478,8 @@ function showRecPicker(key) {
   box.addEventListener("click", (e2) => {
     const b = e2.target.closest("[data-url]");
     if (!b) return;
+    b.textContent = "入室しています…";
+    b.disabled = true;
     saveRecUrl(key, b.dataset.url);
     location.href = `index.html?auto=1&url=${encodeURIComponent(b.dataset.url)}&title=${encodeURIComponent(ev.title || "")}`;
   });
