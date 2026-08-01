@@ -2266,6 +2266,25 @@ function tempCurveSvg(curve) {
   </svg>`;
 }
 
+// スコアを輪で表す
+function ringSvg(score) {
+  const v = Math.max(0, Math.min(100, Number(score) || 0));
+  const r = 26, c = 2 * Math.PI * r;
+  const off = c * (1 - v / 100);
+  ringSvg._n = (ringSvg._n || 0) + 1;
+  const gid = "kbRingGrad" + ringSvg._n;
+  return `<span class="temp-ring">
+    <svg viewBox="0 0 62 62" aria-hidden="true">
+      <defs><linearGradient id="${gid}" x1="0" y1="0" x2="1" y2="1">
+        <stop offset="0%" stop-color="#0d5b47"/><stop offset="60%" stop-color="#1d9e75"/><stop offset="100%" stop-color="#5DCAA5"/>
+      </linearGradient></defs>
+      <circle class="bg" cx="31" cy="31" r="${r}"/>
+      <circle class="fg" cx="31" cy="31" r="${r}" stroke="url(#${gid})" stroke-dasharray="${c.toFixed(1)}" stroke-dashoffset="${off.toFixed(1)}"/>
+    </svg>
+    <b>${v}</b>
+  </span>`;
+}
+
 function tempTile(label, value, sub, tone) {
   const small = String(value).length > 4 ? " is-text" : "";
   return `<div class="temp-tile${tone ? " is-" + tone : ""}">
@@ -2289,7 +2308,7 @@ function renderMetricsInto(el, tr, repName) {
     const tone = t.score >= 70 ? "hot" : t.score >= 45 ? "warm" : "cool";
     html += `<div class="temp-box is-${tone}">
       <div class="temp-head">
-        <div class="temp-score"><b>${t.score}</b><span>/100</span></div>
+        <div class="temp-score">${ringSvg(t.score)}<span>/100</span></div>
         <div class="temp-meta">
           <div class="temp-label">顧客の温度感：${escapeHtml(t.level)}</div>
           <div class="temp-note">${escapeHtml(t.levelNote)}</div>
@@ -2347,7 +2366,7 @@ function renderMetricsInto(el, tr, repName) {
     const fillTone = !fl.repChars ? "" : fl.count === 0 ? "pos" : fl.per100 <= 1.0 ? "pos" : fl.per100 <= 2.0 ? "" : "neg";
     html += `<div class="temp-box is-${stone}">
       <div class="temp-head">
-        <div class="temp-score"><b>${t.skill}</b><span>/100</span></div>
+        <div class="temp-score">${ringSvg(t.skill)}<span>/100</span></div>
         <div class="temp-meta">
           <div class="temp-label">営業の進め方</div>
           <div class="temp-note">次回設定・つなぎ言葉・話す割合・質問数からの目安です</div>
@@ -2398,7 +2417,7 @@ function renderMetricsInto(el, tr, repName) {
   el.innerHTML = html;
   // スコアの数字を数え上げる
   if (window.kbCountUp) {
-    el.querySelectorAll(".temp-score b").forEach((b) => window.kbCountUp(b, Number(b.textContent), 800));
+    el.querySelectorAll(".temp-score b, .temp-ring b").forEach((b) => window.kbCountUp(b, Number(b.textContent), 800));
     el.querySelectorAll(".temp-tile-v").forEach((b) => {
       const v = Number(String(b.textContent).replace(/[^\d-]/g, ""));
       if (isFinite(v) && String(b.textContent).trim() === String(v)) window.kbCountUp(b, v, 600);

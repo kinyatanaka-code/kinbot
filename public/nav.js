@@ -356,3 +356,63 @@ window.kbCountUp = function (el, to, ms) {
   el.textContent = "0";
   requestAnimationFrame(step);
 };
+
+// ===== 仕上げの動き（波紋・カーソルの光・サイドバーの目印） =====
+(function () {
+  const reduce = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  if (reduce) return;
+
+  // ボタンを押したときの波紋
+  document.addEventListener("click", (ev) => {
+    const b = ev.target && ev.target.closest ? ev.target.closest(".btn") : null;
+    if (!b) return;
+    const r = b.getBoundingClientRect();
+    const size = Math.max(r.width, r.height);
+    const el = document.createElement("span");
+    el.className = "kb-ripple";
+    el.style.width = el.style.height = size + "px";
+    el.style.left = (ev.clientX - r.left - size / 2) + "px";
+    el.style.top = (ev.clientY - r.top - size / 2) + "px";
+    b.appendChild(el);
+    setTimeout(() => el.remove(), 600);
+  }, true);
+
+  // カードの上でカーソルの位置を光らせる
+  let raf = null, last = null;
+  document.addEventListener("mousemove", (ev) => {
+    const c = ev.target && ev.target.closest ? ev.target.closest(".home-card, .hcard") : null;
+    if (!c) return;
+    last = { c, x: ev.clientX, y: ev.clientY };
+    if (raf) return;
+    raf = requestAnimationFrame(() => {
+      raf = null;
+      if (!last) return;
+      const r = last.c.getBoundingClientRect();
+      last.c.style.setProperty("--mx", ((last.x - r.left) / r.width * 100) + "%");
+      last.c.style.setProperty("--my", ((last.y - r.top) / r.height * 100) + "%");
+    });
+  }, { passive: true });
+
+  // サイドバーの選択位置に、すべるバーを置く
+  function mountMarker() {
+    const bar = document.querySelector(".sidebar");
+    if (!bar || window.innerWidth <= 760) return;
+    let mk = bar.querySelector(".side-marker");
+    if (!mk) { mk = document.createElement("span"); mk.className = "side-marker"; bar.appendChild(mk); }
+    const move = (el) => {
+      if (!el) { mk.style.height = "0px"; return; }
+      const br = bar.getBoundingClientRect();
+      const r = el.getBoundingClientRect();
+      mk.style.top = (r.top - br.top + 6) + "px";
+      mk.style.height = Math.max(0, r.height - 12) + "px";
+    };
+    move(bar.querySelector(".side-item.active"));
+    bar.querySelectorAll(".side-item").forEach((a) => {
+      a.addEventListener("mouseenter", () => move(a));
+      a.addEventListener("mouseleave", () => move(bar.querySelector(".side-item.active")));
+    });
+    window.addEventListener("resize", () => move(bar.querySelector(".side-item.active")));
+  }
+  if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", mountMarker);
+  else mountMarker();
+})();
