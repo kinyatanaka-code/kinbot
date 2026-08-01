@@ -1,6 +1,7 @@
 // server/sessions.js
 import { analyze, analyzeMeeting, analyzeDeep, answerQuestion, extractQaPairs, splitPhases } from "./analyzer.js";
 import { createMeeting, saveMeeting, saveAnalysis, saveDeepAnalysis, getMeeting, setDealStatusAuto, getSettings, companyFromTitle, getDealBrief, normCompanyKey, getKnowledgeContext, searchQaBank, addQaPairs, saveChapters } from "./db.js";
+import { buildChapters } from "./chapters.js";
 import { disableLiveStream } from "./mux.js";
 
 const DEFAULT_INTERVAL_MS = Number(process.env.ANALYZE_INTERVAL_MS || 20000);
@@ -319,19 +320,8 @@ class Session {
     // 商談を段階（ヒアリング・提案・クロージングなど）に分けて、再生バーの頭出しに使う
     try {
       const raw = await splitPhases({ transcript: this.utterances, repName: this.repName });
-      if (raw.length) {
-        const tr = this.utterances;
-        const firstTs = tr.length && tr[0].ts ? new Date(tr[0].ts).getTime() : 0;
-        const secOf = (i) => {
-          const u = tr[Math.max(0, Math.min(tr.length - 1, i))] || {};
-          if (typeof u.off === "number") return Math.max(0, Math.round(u.off));
-          if (u.ts && firstTs) return Math.max(0, Math.round((new Date(u.ts).getTime() - firstTs) / 1000));
-          return 0;
-        };
-        const chapters = raw.map((c) => ({
-          phase: c.phase, note: c.note, from: c.from, to: c.to,
-          start: secOf(c.from), end: Math.max(secOf(c.from) + 1, secOf(c.to)),
-        }));
+      const chapters = buildChapters(this.utterances, raw);
+      if (chapters.length) {
         await saveChapters(this.botId, chapters);
         console.log(`[段階] ${this.botId} を${chapters.length}段階に分けました`);
       }

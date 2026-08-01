@@ -21,6 +21,7 @@ import { transcribeFile, transcriberAvailable } from "./transcribe.js";
 import { createBot, leaveBot, parseTranscriptEvent, getRecordingUrl, getBot, recallConnectionInfo, getRecallUsage, getLastRecallCreate } from "./recall.js";
 import { createSession, getSession, removeSession, listActiveSessions, setOnMeetingFinalized } from "./sessions.js";
 import { scoreTranscript } from "./temperature.js";
+import { buildChapters } from "./chapters.js";
 import {
   initDb,
   listRecentMeetingHeads,
@@ -5618,26 +5619,9 @@ app.post("/api/meetings/:id/chapters", async (req, res) => {
     const tr = Array.isArray(m.transcript) ? m.transcript : [];
     if (tr.length < 6) return res.json({ chapters: [] });
     const raw = await splitPhases({ transcript: tr, repName: m.rep_name || m.owner_name || "" });
-
-    // 発言番号を、録画の先頭からの秒数に変換する
-    const firstTs = tr.find((u) => u && u.ts) ? new Date(tr.find((u) => u && u.ts).ts).getTime() : 0;
-    const secOf = (i) => {
-      const u = tr[Math.max(0, Math.min(tr.length - 1, i))] || {};
-      if (typeof u.off === "number") return Math.max(0, Math.round(u.off));
-      if (u.ts && firstTs) return Math.max(0, Math.round((new Date(u.ts).getTime() - firstTs) / 1000));
-      return 0;
-    };
-    const lastSec = secOf(tr.length - 1);
-    const chapters = raw.map((c) => ({
-      phase: c.phase,
-      note: c.note,
-      from: c.from,
-      to: c.to,
-      start: secOf(c.from),
-      end: Math.max(secOf(c.from) + 1, secOf(c.to)),
-    }));
+    const chapters = buildChapters(tr, raw);
     await saveChapters(req.params.id, chapters);
-    res.json({ chapters, total: lastSec });
+    res.json({ chapters });
   } catch (e) {
     console.error("[chapters]", e.message);
     res.status(502).json({ error: e.message });

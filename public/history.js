@@ -2042,6 +2042,24 @@ function renderChapters(drec, video, meeting, mediaUrl) {
     if (p && p.catch) p.catch(() => {});
   };
 
+  // 動画の長さが分かってから、各段階の位置を決める
+  const mediaEl = () => drec.querySelector("video") || drec.querySelector("audio");
+  const durationOf = () => {
+    const el = mediaEl();
+    const d = el && el.duration;
+    return (d && isFinite(d) && d > 1) ? d : 0;
+  };
+  // 秒が入っていればそれを使い、無ければ「話した文字数の割合 × 動画の長さ」で決める
+  const timesOf = () => {
+    const dur = durationOf();
+    return chapters.map((c) => {
+      const hasSec = typeof c.start === "number" && isFinite(c.start);
+      const start = hasSec ? c.start : Math.round((c.ratioStart || 0) * dur);
+      const endRaw = hasSec && typeof c.end === "number" ? c.end : Math.round((c.ratioEnd || 1) * dur);
+      return { start, end: Math.max(start + 1, endRaw) };
+    });
+  };
+
   const draw = () => {
     if (!chapters.length) {
       if (!renderChapters._busy) {
@@ -2050,7 +2068,8 @@ function renderChapters(drec, video, meeting, mediaUrl) {
       }
       return;
     }
-    const total = Math.max(1, chapters[chapters.length - 1].end || 1);
+    const times = timesOf();
+    const total = Math.max(1, durationOf() || times[times.length - 1].end || 1);
     wrap.innerHTML =
       `<div class="ch-track">
          <div class="ch-hover" hidden>
@@ -2059,19 +2078,19 @@ function renderChapters(drec, video, meeting, mediaUrl) {
            <div class="ch-hover-time"></div>
          </div>
          <div class="ch-bar" role="group" aria-label="商談の段階">` +
-      chapters.map((c) => {
-        const w = Math.max(2, ((c.end - c.start) / total) * 100);
+      chapters.map((c, i) => {
+        const w = Math.max(2, ((times[i].end - times[i].start) / total) * 100);
         const col = PHASE_COLOR[c.phase] || "#9db3ab";
-        return `<button type="button" class="ch-seg" data-sec="${c.start}" style="width:${w}%;background:${col}"
-                  title="${escapeHtml(c.phase)}（${mmss(c.start)}〜）${c.note ? " " + escapeHtml(c.note) : ""}">
+        return `<button type="button" class="ch-seg" data-sec="${times[i].start}" style="width:${w}%;background:${col}"
+                  title="${escapeHtml(c.phase)}（${mmss(times[i].start)}〜）${c.note ? " " + escapeHtml(c.note) : ""}">
                   <span class="ch-seg-label">${escapeHtml(c.phase)}</span>
                 </button>`;
       }).join("") + `</div></div>` +
       `<div class="ch-list">` +
-      chapters.map((c) => `
-        <button type="button" class="ch-item" data-sec="${c.start}">
+      chapters.map((c, i) => `
+        <button type="button" class="ch-item" data-sec="${times[i].start}">
           <span class="ch-dot" style="background:${PHASE_COLOR[c.phase] || "#9db3ab"}"></span>
-          <span class="ch-time">${mmss(c.start)}</span>
+          <span class="ch-time">${mmss(times[i].start)}</span>
           <span class="ch-phase">${escapeHtml(c.phase)}</span>
           <span class="ch-note">${escapeHtml(c.note || "")}</span>
         </button>`).join("") + `</div>`;
@@ -2087,19 +2106,14 @@ function renderChapters(drec, video, meeting, mediaUrl) {
     const lab = wrap.querySelector(".ch-hover-label");
     const tm = wrap.querySelector(".ch-hover-time");
 
-    const durationOf = () => {
-      const el = drec.querySelector("video") || drec.querySelector("audio");
-      const d = el && el.duration;
-      return (d && isFinite(d) && d > 1) ? d : total;
-    };
     const timeAt = (ev) => {
       const r = bar.getBoundingClientRect();
       const x = Math.max(0, Math.min(r.width, ev.clientX - r.left));
-      return (x / Math.max(1, r.width)) * durationOf();
+      return (x / Math.max(1, r.width)) * total;
     };
     const phaseAt = (t) => {
       let c = chapters[0];
-      for (const x of chapters) if (t >= x.start) c = x;
+      chapters.forEach((x, i) => { if (t >= times[i].start) c = x; });
       return c || {};
     };
 
@@ -2140,11 +2154,17 @@ function renderChapters(drec, video, meeting, mediaUrl) {
       el.addEventListener("timeupdate", () => {
         const t = el.currentTime || 0;
         let idx = 0;
-        chapters.forEach((c, i) => { if (t >= c.start) idx = i; });
+        times.forEach((x, i) => { if (t >= x.start) idx = i; });
         wrap.querySelectorAll(".ch-seg").forEach((x, i) => x.classList.toggle("is-now", i === idx));
       });
     }
   };
+  // 動画の長さが分かってから位置を確定させる
+  const el0 = mediaEl();
+  if (el0) {
+    if (durationOf()) draw();
+    else el0.addEventListener("loadedmetadata", () => draw(), { once: true });
+  }
   draw();
 }
 
