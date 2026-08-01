@@ -1,3 +1,6 @@
+// 通知（トーストが使えないときはダイアログ）
+function kbNotify(msg) { if (window.kbToast) window.kbToast(msg); else alert(msg); }
+
 // public/settings.js
 const $ = (id) => document.getElementById(id);
 
@@ -1228,7 +1231,7 @@ async function loadKnowledge() {
           const path = e.currentTarget.dataset.path;
           if (!confirm(`フォルダ「${kbLeaf(path)}」を削除しますか？（空の場合のみ）`)) return;
           const r = await fetch("/api/knowledge/folders", { method: "DELETE", headers: { "content-type": "application/json" }, body: JSON.stringify({ path }) });
-          if (!r.ok) { const d = await r.json().catch(() => ({})); alert(d.error || "削除できませんでした"); }
+          if (!r.ok) { const d = await r.json().catch(() => ({})); kbNotify(d.error || "削除できませんでした"); }
           loadKnowledge();
         });
         folders.appendChild(li);
@@ -1275,7 +1278,7 @@ async function loadKnowledge() {
   btn.addEventListener("click", async () => {
     const name = (prompt("新しいフォルダ名") || "").trim();
     if (!name) return;
-    if (/[\/"'\\]/.test(name)) return alert("/ \" ' \\ は使えません");
+    if (/[\/"'\\]/.test(name)) return kbNotify("/ \" ' \\ は使えません");
     const path = kbCurrentFolder ? `${kbCurrentFolder}/${name}` : name;
     await fetch("/api/knowledge/folders", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ path }) });
     loadKnowledge();
@@ -1665,7 +1668,7 @@ loadKnowledge();
       if (statusEl) statusEl.textContent = d.configured ? "連携済み" : "未設定";
       if (tokenEl && d.hasToken) tokenEl.value = "••••••••••••";
     } catch (e) {
-      alert("保存に失敗: " + e.message);
+      kbNotify("保存に失敗: " + e.message);
     } finally {
       saveBtn.disabled = false;
     }
@@ -1717,7 +1720,7 @@ async function renderSmartLinkTable() {
         await fetch(`/api/smart-links/${encodeURIComponent(sel.dataset.slug)}/owner`, {
           method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ owner: sel.value || null }),
         });
-      } catch (e) { alert("担当者の切り替えに失敗しました: " + e.message); }
+      } catch (e) { kbNotify("担当者の切り替えに失敗しました: " + e.message); }
     });
   });
   table.querySelectorAll(".sl-copy").forEach((btn) => {
@@ -1746,7 +1749,7 @@ function initSmartLinks() {
         await fetch("/api/my-zoom-link", { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ url: input.value.trim() }) });
         if (saved) { saved.hidden = false; setTimeout(() => (saved.hidden = true), 2000); }
         smartLinksRepsCache = null; // 自分のリンク有無の表示を最新化
-      } catch (e) { alert("保存に失敗しました: " + e.message); }
+      } catch (e) { kbNotify("保存に失敗しました: " + e.message); }
       finally { saveBtn.disabled = false; }
     });
   }
@@ -1764,7 +1767,7 @@ function initSmartLinks() {
         await renderSmartLinkTable();
         try { await navigator.clipboard.writeText(d.url); createBtn.textContent = "作成＋コピーしました"; } catch { createBtn.textContent = "作成しました"; }
         setTimeout(() => (createBtn.textContent = "スマートリンクを作成"), 2000);
-      } catch (e) { alert("作成に失敗しました: " + e.message); }
+      } catch (e) { kbNotify("作成に失敗しました: " + e.message); }
       finally { createBtn.disabled = false; }
     });
   }
@@ -1816,7 +1819,7 @@ function initSmartLinks() {
       const d = await r.json();
       if (!r.ok) throw new Error(d.error || "保存に失敗しました");
       if (nameSaved) { nameSaved.hidden = false; nameSaved.textContent = "保存しました"; setTimeout(() => (nameSaved.hidden = true), 4000); }
-    } catch (e) { alert(e.message); }
+    } catch (e) { kbNotify(e.message); }
     finally { saveName.disabled = false; }
   });
 
@@ -1826,8 +1829,8 @@ function initSmartLinks() {
     const cur = document.getElementById("accPwCur").value;
     const nw = document.getElementById("accPwNew").value;
     const nw2 = document.getElementById("accPwNew2").value;
-    if (!nw || nw.length < 8) return alert("新しいパスワードは8文字以上にしてください");
-    if (nw !== nw2) return alert("新しいパスワード（確認）が一致しません");
+    if (!nw || nw.length < 8) return kbNotify("新しいパスワードは8文字以上にしてください");
+    if (nw !== nw2) return kbNotify("新しいパスワード（確認）が一致しません");
     savePw.disabled = true;
     try {
       const r = await fetch("/api/me", { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ current_password: cur, new_password: nw }) });
@@ -1835,7 +1838,7 @@ function initSmartLinks() {
       if (!r.ok) throw new Error(d.error || "変更に失敗しました");
       document.getElementById("accPwCur").value = ""; document.getElementById("accPwNew").value = ""; document.getElementById("accPwNew2").value = "";
       if (pwSaved) { pwSaved.hidden = false; pwSaved.textContent = "パスワードを変更しました"; setTimeout(() => (pwSaved.hidden = true), 5000); }
-    } catch (e) { alert(e.message); }
+    } catch (e) { kbNotify(e.message); }
     finally { savePw.disabled = false; }
   });
 })();
@@ -1855,10 +1858,10 @@ function initSmartLinks() {
       const d = await r.json();
       if (!r.ok) throw new Error(d.error || "実行に失敗しました");
       const sampleLines = (d.sample || []).slice(0, 5).map((s) => `・「${s.before}」→「${s.after}」`).join("\n");
-      alert(`完了：${d.total}件中 ${d.updated}件の案件名を書き直しました。\n\n例：\n${sampleLines || "（変更なし）"}`);
+      kbNotify(`完了：${d.total}件中 ${d.updated}件の案件名を書き直しました。\n\n例：\n${sampleLines || "（変更なし）"}`);
       if (msg) { msg.hidden = false; msg.textContent = `${d.updated}件を書き直しました`; setTimeout(() => (msg.hidden = true), 6000); }
     } catch (e) {
-      alert("失敗: " + e.message);
+      kbNotify("失敗: " + e.message);
     } finally {
       btn.textContent = orig;
       btn.disabled = false;
@@ -1881,10 +1884,10 @@ function initSmartLinks() {
       const d = await r.json();
       if (!r.ok) throw new Error(d.error || "実行に失敗しました");
       const sampleLines = (d.sample || []).slice(0, 5).map((s) => `・${s.company}: 「${s.before}」→「${s.after}」`).join("\n");
-      alert(`完了：${d.total}件中 ${d.updated}件を同期しました。\n\n${sampleLines ? "例：\n" + sampleLines : "（すべて既に一致していました）"}`);
+      kbNotify(`完了：${d.total}件中 ${d.updated}件を同期しました。\n\n${sampleLines ? "例：\n" + sampleLines : "（すべて既に一致していました）"}`);
       if (msg) { msg.hidden = false; msg.textContent = `${d.updated}件を同期しました`; setTimeout(() => (msg.hidden = true), 6000); }
     } catch (e) {
-      alert("失敗: " + e.message);
+      kbNotify("失敗: " + e.message);
     } finally {
       btn.textContent = orig;
       btn.disabled = false;

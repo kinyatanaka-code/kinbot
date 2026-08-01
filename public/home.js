@@ -270,7 +270,7 @@ function render() {
     const summary = (m && m.summary && m.summary.overview) ? String(m.summary.overview).slice(0, 90) + "…" : "";
     const openLabel = m ? "商談を開く" : "会社を開く";
     const link = m && m.bot_id ? "history.html?m=" + encodeURIComponent(m.bot_id) : "history.html?company=" + enc;
-    homeItems[key] = { title, time, company, done: !!m, link, openLabel };
+    homeItems[key] = { title, time, company, done: !!m, link, openLabel, botId: (m && m.bot_id) || "" };
     return `<div class="home-row" style="--i:${idx}"><div class="home-rail">${escH(time)}</div><div class="home-card home-card-v${m ? " is-done" : " home-card-plan"}" data-card="${escH(key)}">
       <div class="home-card-row">
         <div class="home-card-main">
@@ -280,11 +280,14 @@ function render() {
           ${summary ? `<div class="home-card-sum">${escH(summary)}</div>` : ""}
         </div>
         <div class="home-card-actions">
-          ${!m && e ? `<button class="btn" type="button" data-rec="${escH(key)}"><span class="lb-l">録音する</span><span class="lb-s">録音</span></button>` : ""}
-          ${m && m.bot_id ? `<button class="btn" type="button" data-mail="${escH(m.bot_id)}" data-key="${escH(key)}"><span class="lb-l">御礼メール</span><span class="lb-s">メール</span></button>` : ""}
-          ${m ? `<button class="btn sf-btn-secondary" type="button" data-sfedit="${escH(key)}"><span class="lb-l">SF更新</span><span class="lb-s">SF</span></button>` : ""}
-          <a class="btn sf-btn-secondary" href="${link}"><span class="lb-l">${openLabel}</span><span class="lb-s">開く</span></a>
-          ${!m ? `<button class="btn sf-btn-secondary" data-sf-open="${escH(key)}" type="button"><span class="lb-l">${s.open ? "SF商談を閉じる" : "SF商談を選ぶ"}</span><span class="lb-s">${s.open ? "閉じる" : "SF商談"}</span></button>` : ""}
+          ${!m && e ? `<button class="btn kb-prio" type="button" data-rec="${escH(key)}"><span class="lb-l">録音する</span><span class="lb-s">録音</span></button>` : ""}
+          ${m && m.bot_id ? `<button class="btn kb-prio" type="button" data-mail="${escH(m.bot_id)}" data-key="${escH(key)}"><span class="lb-l">御礼メール</span><span class="lb-s">メール</span></button>` : ""}
+          ${m ? `<button class="btn sf-btn-secondary kb-more" type="button" data-sfedit="${escH(key)}"><span class="lb-l">SF更新</span><span class="lb-s">SF</span></button>` : ""}
+          <a class="btn sf-btn-secondary kb-more" href="${link}"><span class="lb-l">${openLabel}</span><span class="lb-s">開く</span></a>
+          ${!m ? `<button class="btn sf-btn-secondary kb-more" data-sf-open="${escH(key)}" type="button"><span class="lb-l">${s.open ? "SF商談を閉じる" : "SF商談を選ぶ"}</span><span class="lb-s">${s.open ? "閉じる" : "SF商談"}</span></button>` : ""}
+          <button type="button" class="home-card-more" data-sheet-open="${escH(key)}" aria-label="そのほかの操作">
+            <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><circle cx="5" cy="12" r="1.7"/><circle cx="12" cy="12" r="1.7"/><circle cx="19" cy="12" r="1.7"/></svg>
+          </button>
         </div>
       </div>
       ${sfPanelHtml(key, { title })}
@@ -567,16 +570,36 @@ async function openMail(botId, key) {
   }
 }
 
-// SF更新をカードの中で開く（商談履歴の画面と同じものを埋め込む）
+// SF更新を開く。スマホでは画面いっぱいに開いて、狭さを解消する。
 function openSfEdit(key) {
   const it = homeItems[key];
   if (!it) return;
   const enc = encodeURIComponent(it.company || it.title || "");
+  const src = `deals.html?company=${enc}&embed=1&view=salesforce`;
+
+  if (window.kbIsMobile && window.kbIsMobile()) {
+    const old = document.querySelector(".kb-full");
+    if (old) old.remove();
+    const full = document.createElement("div");
+    full.className = "kb-full";
+    full.innerHTML =
+      `<div class="kb-full-head">
+         <span class="kb-full-t">${escH(it.company || it.title || "Salesforce 更新")}</span>
+         <button type="button" class="kb-full-x" aria-label="閉じる">閉じる</button>
+       </div>
+       <iframe class="kb-full-frame" src="${escH(src)}" title="SF更新"></iframe>`;
+    document.body.appendChild(full);
+    document.body.style.overflow = "hidden";
+    const close = () => { full.remove(); document.body.style.overflow = ""; };
+    full.querySelector(".kb-full-x").addEventListener("click", close);
+    return;
+  }
+
   cardPanel(key,
     `<div class="home-inline-h">Salesforce 更新
        <button type="button" class="home-sf-hide" data-inline-close="1" style="width:auto;padding:0 0 0 10px">閉じる</button>
      </div>
-     <iframe class="home-sf-frame" src="deals.html?company=${enc}&embed=1&view=salesforce" title="SF更新"></iframe>`);
+     <iframe class="home-sf-frame" src="${escH(src)}" title="SF更新"></iframe>`);
 }
 
 // 会議URLの候補が複数あるときは、どれで録音するかを選ばせる（1回選べば次から覚える）
@@ -645,6 +668,8 @@ async function showRecPicker(key) {
 function wireList() {
   const box = $h("homeList");
   box.addEventListener("click", (ev) => {
+    const more = ev.target.closest("[data-sheet-open]");
+    if (more) { openCardSheet(more.dataset.sheetOpen); return; }
     const rec = ev.target.closest("[data-rec]");
     if (rec) { startRecording(rec.dataset.rec); return; }
     const mail = ev.target.closest("[data-mail]");
@@ -721,20 +746,32 @@ const ICO = {
   cloud: '<svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path d="M7 18.5a4 4 0 0 1-.3-8 5.5 5.5 0 0 1 10.6 1.2A3.6 3.6 0 0 1 17 18.5z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></svg>',
   mic: '<svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><rect x="9.5" y="3" width="5" height="10" rx="2.5" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M6.5 11a5.5 5.5 0 0 0 11 0M12 16.5V21" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>',
   arrow: '<svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path d="M9 5.5 15.5 12 9 18.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+  mail: '<svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="2.5" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="m4 7 8 6 8-6" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+  doc: '<svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path d="M6 3.5h8l4 4v13H6z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path d="M9 12h6M9 15.5h6" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>',
 };
 
 function openCardSheet(key) {
   const it = homeItems[key];
   if (!it) return;
+  const ev0 = (dayEvents || []).find((x) => (x.id || (x.title + "@" + x.start)) === key);
+  const botId = (homeItems[key] && homeItems[key].botId) || "";
   const sub = `${dateLabel(selDate)} ${it.time} ・ ${it.done ? "商談済み" : "予定"}`;
+  const act = (attr, ico, label) =>
+    `<button type="button" class="kb-sheet-act" ${attr}><span class="kb-sheet-ico">${ico}</span>${label}<span class="kb-sheet-arrow">${ICO.arrow}</span></button>`;
   const html =
-    `<div class="kb-sheet-title">${escH(it.title)}</div>
+    `<div class="kb-sheet-title">${escH(it.company || it.title)}</div>
      <div class="kb-sheet-sub">${escH(sub)}</div>
-     <a class="kb-sheet-act" href="${it.link}"><span class="kb-sheet-ico">${ICO.building}</span>${escH(it.openLabel)}<span class="kb-sheet-arrow">${ICO.arrow}</span></a>
-     <button type="button" class="kb-sheet-act" data-sheet-sf><span class="kb-sheet-ico">${ICO.cloud}</span>SF商談を選ぶ・リスケ失注<span class="kb-sheet-arrow">${ICO.arrow}</span></button>
+     ${!it.done && ev0 ? act("data-sheet-rec", ICO.mic, "録音する") : ""}
+     ${it.done && botId ? act("data-sheet-mail", ICO.mail, "御礼メールを作る") : ""}
+     ${it.done ? act("data-sheet-sfedit", ICO.cloud, "Salesforceを更新") : ""}
+     <a class="kb-sheet-act" href="${it.link}"><span class="kb-sheet-ico">${ICO.doc}</span>${escH(it.openLabel)}<span class="kb-sheet-arrow">${ICO.arrow}</span></a>
+     ${!it.done ? act("data-sheet-sf", ICO.cloud, "SF商談を選ぶ・リスケ失注") : ""}
      <button type="button" class="kb-sheet-close" data-sheet-close>閉じる</button>`;
   const sheet = window.kbSheet(html);
   sheet.el.addEventListener("click", (ev) => {
+    if (ev.target.closest("[data-sheet-rec]")) { sheet.close(); setTimeout(() => startRecording(key), 120); return; }
+    if (ev.target.closest("[data-sheet-mail]")) { sheet.close(); setTimeout(() => openMail(botId, key), 120); return; }
+    if (ev.target.closest("[data-sheet-sfedit]")) { sheet.close(); setTimeout(() => openSfEdit(key), 120); return; }
     if (!ev.target.closest("[data-sheet-sf]")) return;
     sheet.close();
     const s = sfOf(key);

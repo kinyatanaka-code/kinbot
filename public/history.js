@@ -1,3 +1,6 @@
+// 通知（トーストが使えないときはダイアログ）
+function kbNotify(msg) { if (window.kbToast) window.kbToast(msg); else alert(msg); }
+
 // public/history.js
 const hlist = document.getElementById("hlist");
 const hdetail = document.getElementById("hdetail");
@@ -674,10 +677,10 @@ function renderList() {
             const r = await fetch("/api/meetings/backfill-owner", { method: "POST" });
             const d = await r.json();
             if (!r.ok) throw new Error(d.error || "失敗");
-            alert(d.updated ? `${d.updated}件に営業担当を設定しました。各担当の商談履歴に移動します。` : "発言者から担当を特定できる商談はありませんでした（発言者名に登録ユーザー名が含まれていない可能性があります）。");
+            kbNotify(d.updated ? `${d.updated}件に営業担当を設定しました。各担当の商談履歴に移動します。` : "発言者から担当を特定できる商談はありませんでした（発言者名に登録ユーザー名が含まれていない可能性があります）。");
             await loadList();
           } catch (e) {
-            alert("失敗しました: " + e.message);
+            kbNotify("失敗しました: " + e.message);
             bf.disabled = false;
             bf.textContent = orig;
           }
@@ -856,7 +859,7 @@ function renderCompanyOverview() {
       if (act === "judge") { showSubEmbed("judge", "進捗・判定"); return; }
       if (act === "proposals") { showSubEmbed("proposals", "提案資料"); return; }
       if (act === "sf") { showSubEmbed("salesforce", "SF更新"); return; }
-      if (!latest) { alert("この企業の商談がまだありません。"); return; }
+      if (!latest) { kbNotify("この企業の商談がまだありません。"); return; }
       loadDetail(latest.bot_id, "thanks", { focus: true });
     })
   );
@@ -1276,7 +1279,7 @@ async function loadDetail(botId, openTab, opts = {}) {
         thanksBody.value = d.body || "";
         thanksNote.textContent = `${d.round || "?"}回目${d.exampleCount ? `・例文${d.exampleCount}件を参照` : "・例文なし"}`;
       } catch (e) {
-        alert("生成に失敗しました: " + e.message);
+        kbNotify("生成に失敗しました: " + e.message);
       } finally {
         thanksGen.disabled = false;
         thanksGen.textContent = o;
@@ -1848,7 +1851,7 @@ async function loadDetail(botId, openTab, opts = {}) {
         if (d.url) window.open(d.url, "_blank", "noopener");
         setTimeout(() => { notionBtn.textContent = orig; notionBtn.disabled = false; }, 2500);
       } catch (e) {
-        alert("Notion送信に失敗: " + e.message);
+        kbNotify("Notion送信に失敗: " + e.message);
         notionBtn.textContent = orig; notionBtn.disabled = false;
       }
     });
@@ -1868,7 +1871,7 @@ async function loadDetail(botId, openTab, opts = {}) {
         renderList();
         hdetail.innerHTML = '<div class="empty-state">削除しました。左の一覧から別の商談を選べます。</div>';
       } catch (e) {
-        alert("削除に失敗しました: " + e.message);
+        kbNotify("削除に失敗しました: " + e.message);
         delBtn.disabled = false;
       }
     });
@@ -1897,7 +1900,7 @@ async function loadDetail(botId, openTab, opts = {}) {
         renderAiInto(hdetail.querySelector("#dai"), data);
       } catch (e) {
         window.kbProgress(hdetail.querySelector("#dai"), { clear: true });
-        alert("生成に失敗しました: " + e.message);
+        kbNotify("生成に失敗しました: " + e.message);
       } finally {
         deepBtn.disabled = false;
         deepBtn.textContent = orig;
@@ -1932,7 +1935,7 @@ async function loadDetail(botId, openTab, opts = {}) {
         loadList(); // 一覧の「要約なし」表示を更新
       } catch (e) {
         window.kbProgress(hdetail.querySelector("#dsummary"), { clear: true });
-        alert("生成に失敗しました: " + e.message);
+        kbNotify("生成に失敗しました: " + e.message);
       } finally {
         genBtn.disabled = false;
         genBtn.textContent = orig;

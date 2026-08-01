@@ -1,3 +1,6 @@
+// 通知（トーストが使えないときはダイアログ）
+function kbNotify(msg) { if (window.kbToast) window.kbToast(msg); else alert(msg); }
+
 // deals.js — 案件単位ビュー＋ネクストアクション管理
 const $ = (id) => document.getElementById(id);
 // ホームの「失注にする」から来たときのフラグ（自動で99失注を選ぶ）
@@ -502,7 +505,7 @@ function renderNewProcess(box, d) {
             badgeEl.className = `status-badge st-${stNow}`;
           }
         } catch (e) {
-          alert(e.message);
+          kbNotify(e.message);
           box.querySelectorAll(".np-step.clickable").forEach((x) => (x.disabled = false));
         }
       });
@@ -556,7 +559,7 @@ function renderNewProcess(box, d) {
           badgeEl.className = `status-badge st-${stNow}`;
         }
       } catch (e) {
-        alert(e.message);
+        kbNotify(e.message);
         box.querySelectorAll(".np-edit-sel, .np-edit-date, .np-next-clear").forEach((x) => (x.disabled = false));
       }
     };
@@ -665,7 +668,7 @@ function renderProfile(account) {
         renderProfile(account);
         renderList();
       } catch (e) {
-        alert(e.message);
+        kbNotify(e.message);
         rb.disabled = false; rb.textContent = "リセット";
       }
     });
@@ -1334,8 +1337,8 @@ async function selectDeal(account) {
   if (proposalAddBtn) {
     proposalAddBtn.addEventListener("click", async () => {
       const url = $("proposalUrl").value.trim();
-      if (!url) return alert("GoogleスライドのURLを入力してください");
-      if (!url.includes("docs.google.com/presentation")) return alert("GoogleスライドのURLを入力してください\n例: https://docs.google.com/presentation/d/xxxxx/edit");
+      if (!url) return kbNotify("GoogleスライドのURLを入力してください");
+      if (!url.includes("docs.google.com/presentation")) return kbNotify("GoogleスライドのURLを入力してください\n例: https://docs.google.com/presentation/d/xxxxx/edit");
       proposalAddBtn.disabled = true;
       proposalAddBtn.textContent = "登録中…";
       try {
@@ -1366,7 +1369,7 @@ async function selectDeal(account) {
         if (!r.ok) throw new Error(d.error || "登録失敗");
         $("proposalUrl").value = "";
         loadProposals(dealId);
-      } catch (e) { alert("登録失敗: " + e.message); }
+      } catch (e) { kbNotify("登録失敗: " + e.message); }
       finally { proposalAddBtn.disabled = false; proposalAddBtn.textContent = "登録"; }
     });
     // 提案資料の読み込み
@@ -1391,12 +1394,12 @@ async function selectDeal(account) {
       const newName = prompt("この案件の会社名を編集します。\n\n※過去の商談履歴や判定結果はそのまま保持され、案件名だけが変わります。", currentName);
       if (newName == null) return; // キャンセル
       const trimmed = newName.trim();
-      if (!trimmed) { alert("会社名を空にはできません"); return; }
+      if (!trimmed) { kbNotify("会社名を空にはできません"); return; }
       if (trimmed === currentName) return; // 変更なし
       // deal_id を lookup（会社名で引く）
       const np = lookupNewProc(displayName(account)) || lookupNewProc(account);
       const dealId = np && np.deal_id;
-      if (!dealId) { alert("案件が見つかりません。ページを再読み込みしてください。"); return; }
+      if (!dealId) { kbNotify("案件が見つかりません。ページを再読み込みしてください。"); return; }
       try {
         const r = await fetch(`/api/deals/${encodeURIComponent(dealId)}/company-name`, {
           method: "PUT", headers: { "content-type": "application/json" },
@@ -1413,7 +1416,7 @@ async function selectDeal(account) {
         // 一覧を再取得。会社名が変わったので groups の再構築が必要。
         await load();
       } catch (e) {
-        alert(e.message);
+        kbNotify(e.message);
       }
     });
   }
@@ -1424,7 +1427,7 @@ async function selectDeal(account) {
     const r = await fetch("/api/deal-status", { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
     if (!r.ok) {
       const d = await r.json().catch(() => ({}));
-      alert(d.error || "ステータスを変更できませんでした");
+      kbNotify(d.error || "ステータスを変更できませんでした");
       selectDeal(account); // 元の表示に戻す
       return;
     }
@@ -2699,7 +2702,7 @@ async function initSfTab(account) {
           ownerChanged = !!d.ownerChanged;
         }
         window._sfExtraFields = null;
-        alert("Salesforceを更新しました" + (ownerChanged ? "（商談所有者を自分に変更しました）" : ""));
+        kbNotify("Salesforceを更新しました" + (ownerChanged ? "（商談所有者を自分に変更しました）" : ""));
         linkOpportunity(sfLinkedOpp.Id);
       } catch (e) {
         const msg = String(e.message || "");
@@ -2723,7 +2726,7 @@ async function initSfTab(account) {
   const taskBtn = $("sfTaskBtn");
   if (taskBtn) {
     taskBtn.onclick = async () => {
-      if (!sfLinkedOpp) { alert("先に商談をリンクしてください"); return; }
+      if (!sfLinkedOpp) { kbNotify("先に商談をリンクしてください"); return; }
       taskBtn.disabled = true;
       taskBtn.textContent = "記録中…";
       try {
@@ -2763,7 +2766,7 @@ async function initSfTab(account) {
         if (e.sfReauth || /expired|invalid_grant/.test(e.message || "")) {
           showSfReauth($("sfTaskMsg"), null, () => taskBtn.click());
         } else {
-          alert("記録失敗: " + e.message);
+          kbNotify("記録失敗: " + e.message);
         }
       }
       finally { taskBtn.disabled = false; taskBtn.textContent = "活動を記録"; }
@@ -3111,6 +3114,54 @@ async function renderSSFields(stageName) {
         if (btn) { btn.disabled = false; btn.textContent = "商談から自動入力"; }
       }
     };
+    // スマホでは項目が縦に長くなりすぎるので、5つずつのページに分ける
+    const paginateFields = (box) => {
+      if (!box || !(window.matchMedia && window.matchMedia("(max-width: 760px)").matches)) return;
+      const fields = [...box.querySelectorAll(".sf-field, .ln-missing, .ln-group")];
+      if (fields.length <= 6) return;
+      const per = 5;
+      const pages = [];
+      for (let i = 0; i < fields.length; i += per) pages.push(fields.slice(i, i + per));
+      const wrap = document.createElement("div");
+      wrap.className = "sf-step-pages";
+      pages.forEach((group, i) => {
+        const pg = document.createElement("div");
+        pg.className = "sf-step-page" + (i === 0 ? " is-on" : "");
+        group.forEach((f) => pg.appendChild(f));
+        wrap.appendChild(pg);
+      });
+      const nav = document.createElement("div");
+      nav.className = "sf-step-nav";
+      nav.innerHTML =
+        `<button type="button" class="btn sf-btn-secondary" data-step="-1">戻る</button>
+         <span class="sf-step-count">1 / ${pages.length}</span>
+         <button type="button" class="btn" data-step="1">次へ</button>`;
+      box.appendChild(wrap);
+      box.appendChild(nav);
+      let cur = 0;
+      const show = () => {
+        wrap.querySelectorAll(".sf-step-page").forEach((p, i) => p.classList.toggle("is-on", i === cur));
+        nav.querySelector(".sf-step-count").textContent = `${cur + 1} / ${pages.length}`;
+        nav.querySelector('[data-step="-1"]').disabled = cur === 0;
+        const next = nav.querySelector('[data-step="1"]');
+        next.textContent = cur === pages.length - 1 ? "入力おわり" : "次へ";
+        box.scrollIntoView({ behavior: "smooth", block: "nearest" });
+      };
+      nav.addEventListener("click", (e) => {
+        const b = e.target.closest("[data-step]");
+        if (!b) return;
+        const d = Number(b.dataset.step);
+        if (d > 0 && cur === pages.length - 1) {
+          const btn = document.getElementById("sfUpdateBtn");
+          if (btn) btn.scrollIntoView({ behavior: "smooth", block: "center" });
+          return;
+        }
+        cur = Math.max(0, Math.min(pages.length - 1, cur + d));
+        show();
+      });
+      show();
+    };
+
     const renderSection = (idx, auto) => {
       const sec = ssSections[idx];
       const box = document.getElementById("ssSectionFields");
@@ -3165,6 +3216,7 @@ async function renderSSFields(stageName) {
       const abtn = document.getElementById("ssAutofillBtn");
       if (abtn) abtn.addEventListener("click", () => autofillSection(sec));
       fillDefaultDates(); // 昇格日などに今日の日付を入れておく
+      paginateFields(box); // スマホでは項目を数個ずつに分ける
       if (auto && sec.fields.length) autofillSection(sec); // 段階を選んだら自動で読み取り
     };
     const sel = document.getElementById("sfStage");
@@ -3402,7 +3454,7 @@ function wireTaskItem(el, oppId) {
       const dd = await rr.json().catch(() => ({}));
       if (!rr.ok) throw new Error(dd.error || "削除失敗");
       loadSfTaskHistory(oppId);
-    } catch (e) { alert("削除に失敗：" + cleanSfError(e.message)); }
+    } catch (e) { kbNotify("削除に失敗：" + cleanSfError(e.message)); }
   });
 }
 

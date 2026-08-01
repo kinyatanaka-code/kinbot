@@ -400,3 +400,22 @@ window.kbCountUp = function (el, to, ms) {
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", mountMarker);
   else mountMarker();
 })();
+
+// 画面下から出て、すっと消える通知
+window.kbToast = function (msg, kind) {
+  if (!msg) return;
+  let box = document.querySelector(".kb-toasts");
+  if (!box) {
+    box = document.createElement("div");
+    box.className = "kb-toasts";
+    document.body.appendChild(box);
+  }
+  const el = document.createElement("div");
+  el.className = "kb-toast" + (kind === "error" ? " is-error" : "");
+  el.textContent = String(msg);
+  box.appendChild(el);
+  setTimeout(() => {
+    el.classList.add("is-out");
+    setTimeout(() => el.remove(), 300);
+  }, kind === "error" ? 5000 : 2600);
+};

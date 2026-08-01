@@ -3973,3 +3973,81 @@ input:focus, select:focus, textarea:focus, .sf-input:focus, .sf-select:focus, .s
   .home-rank-ring { width: 38px; height: 38px; flex: 0 0 38px; }
   .home-rank-ring b { font-size: 12.5px; }
 }
+
+/* ---- スマホ：SF更新を画面いっぱいに開く ---- */
+.kb-full { position: fixed; inset: 0; z-index: 900; background: var(--bg); display: flex; flex-direction: column; }
+.kb-full-head {
+  flex: 0 0 auto; display: flex; align-items: center; gap: 10px;
+  padding: 12px 14px; background: rgba(255,255,255,.92);
+  -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px);
+  border-bottom: 1px solid var(--line);
+}
+.kb-full-t { flex: 1; min-width: 0; font-size: 14px; font-weight: 700; color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.kb-full-x { flex: 0 0 auto; font: inherit; font-size: 12.5px; color: #0d5b47; background: #e5f3ee; border: 1px solid #b9ded0; border-radius: 999px; padding: 8px 16px; cursor: pointer; }
+.kb-full-frame { flex: 1; width: 100%; border: 0; background: var(--panel); }
+
+/* ---- SF更新の中身を、狭い画面でも読みやすく ---- */
+@media (max-width: 760px) {
+  .kb-embed { padding: 0; }
+  .kb-embed .sf-field { margin-bottom: 9px; }
+  .kb-embed .sf-field label { font-size: 12px; margin-bottom: 3px; display: block; }
+  .kb-embed .sf-api { display: none; }
+  .kb-embed .sf-input, .kb-embed .sf-select, .kb-embed .sf-textarea { font-size: 15px; padding: 9px 11px; }
+  .kb-embed .sf-textarea { min-height: 72px; }
+  /* 更新ボタンは下に貼り付けて、いつでも押せるように */
+  .kb-embed #sfUpdateBtn { position: sticky; bottom: 8px; width: 100%; z-index: 5; }
+  .kb-embed .sf-linked-card { padding: 9px 11px; }
+  .kb-embed .sf-linked-name { font-size: 13px; }
+  .kb-embed .sf-mpick { gap: 6px; padding: 7px 9px; }
+  .kb-embed .sf-mpick-item { font-size: 12px; }
+}
+
+/* ---- スマホ：カードは情報だけ、操作はシートで ---- */
+.home-card-more { display: none; }
+@media (max-width: 760px) {
+  .home-card-sum { display: none; }
+  .home-card-actions .kb-more { display: none; }
+  .home-card-actions { flex-wrap: nowrap; align-items: center; gap: 8px; }
+  .home-card-actions .kb-prio { flex: 0 0 auto; padding: 8px 18px; }
+  .home-card-more {
+    display: inline-flex; align-items: center; justify-content: center;
+    flex: 0 0 auto; width: 38px; height: 38px; margin-left: auto;
+    border: 1px solid var(--line); border-radius: 50%; background: var(--panel);
+    color: var(--muted); cursor: pointer;
+  }
+  .home-card-more:active { transform: scale(.95); }
+  .home-card-row { flex-direction: row; align-items: center; gap: 10px; }
+  .home-card-main { flex: 1; min-width: 0; }
+  .home-card-actions { flex: 0 0 auto; }
+  .kb-sheet-title { font-size: 15px; }
+}
+
+/* ---- スマホ：SF更新の項目を数個ずつに分ける ---- */
+.sf-step-page { display: none; }
+.sf-step-page.is-on { display: block; }
+.sf-step-nav { display: none; }
+@media (max-width: 760px) {
+  .sf-step-nav {
+    display: flex; align-items: center; gap: 10px; margin-top: 12px;
+    position: sticky; bottom: 6px; z-index: 6;
+    background: rgba(255,255,255,.94); -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px);
+    border: 1px solid var(--line); border-radius: 999px; padding: 7px 10px;
+  }
+  .sf-step-nav .btn { flex: 1; padding: 9px 0; font-size: 12.5px; }
+  .sf-step-nav .btn:disabled { opacity: .4; }
+  .sf-step-count { flex: 0 0 auto; font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+}
+
+/* ---- トースト（画面下の通知）---- */
+.kb-toasts { position: fixed; left: 0; right: 0; bottom: 22px; z-index: 950; display: flex; flex-direction: column; align-items: center; gap: 8px; pointer-events: none; }
+.kb-toast {
+  max-width: min(92vw, 420px); background: rgba(4, 52, 44, .95); color: #fff;
+  font-size: 13.5px; line-height: 1.6; padding: 12px 18px; border-radius: 999px;
+  box-shadow: 0 12px 30px -10px rgba(0,0,0,.4);
+  animation: kbToastIn .26s cubic-bezier(.2,.8,.2,1) both;
+}
+.kb-toast.is-error { background: rgba(122, 34, 34, .95); }
+.kb-toast.is-out { animation: kbToastOut .3s ease-in both; }
+@keyframes kbToastIn { from { opacity: 0; transform: translateY(14px) scale(.96); } to { opacity: 1; transform: none; } }
+@keyframes kbToastOut { to { opacity: 0; transform: translateY(10px); } }
+@media (max-width: 760px) { .kb-toasts { bottom: 84px; } }
