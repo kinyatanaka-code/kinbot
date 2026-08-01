@@ -2012,6 +2012,10 @@ const mmss = (sec) => {
   return Math.floor(s / 60) + ":" + String(s % 60).padStart(2, "0");
 };
 
+function chOpen() {
+  try { return localStorage.getItem("kinbot_ch_open") !== "0"; } catch { return true; }
+}
+
 function renderChapters(drec, video, meeting, mediaUrl) {
   const wrap = drec.querySelector("#chWrap");
   if (!wrap || !meeting) return;
@@ -2086,7 +2090,11 @@ function renderChapters(drec, video, meeting, mediaUrl) {
                   <span class="ch-seg-label">${escapeHtml(c.phase)}</span>
                 </button>`;
       }).join("") + `</div></div>` +
-      `<div class="ch-list">` +
+      `<div class="ch-tools">
+         <button type="button" class="ch-toggle">${chOpen() ? "段階の一覧を隠す" : "段階の一覧を出す"}</button>
+         <button type="button" class="ch-redo">作り直す</button>
+       </div>` +
+      `<div class="ch-list${chOpen() ? "" : " is-hidden"}">` +
       chapters.map((c, i) => `
         <button type="button" class="ch-item" data-sec="${times[i].start}">
           <span class="ch-dot" style="background:${PHASE_COLOR[c.phase] || "#9db3ab"}"></span>
@@ -2094,6 +2102,23 @@ function renderChapters(drec, video, meeting, mediaUrl) {
           <span class="ch-phase">${escapeHtml(c.phase)}</span>
           <span class="ch-note">${escapeHtml(c.note || "")}</span>
         </button>`).join("") + `</div>`;
+
+    // 一覧の開閉と作り直し
+    const tg = wrap.querySelector(".ch-toggle");
+    if (tg) tg.addEventListener("click", () => {
+      const open = !chOpen();
+      try { localStorage.setItem("kinbot_ch_open", open ? "1" : "0"); } catch {}
+      const list = wrap.querySelector(".ch-list");
+      if (list) list.classList.toggle("is-hidden", !open);
+      tg.textContent = open ? "段階の一覧を隠す" : "段階の一覧を出す";
+    });
+    const redo = wrap.querySelector(".ch-redo");
+    if (redo) redo.addEventListener("click", () => {
+      if (!confirm("段階を作り直しますか？（30秒ほどかかります）")) return;
+      chapters = [];
+      meeting.chapters = [];
+      make();
+    });
 
     // 一覧をクリック → その段階の頭へ
     wrap.querySelectorAll(".ch-item").forEach((b) => {

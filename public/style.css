@@ -3896,3 +3896,8 @@ input:focus, select:focus, textarea:focus, .sf-input:focus, .sf-select:focus, .s
   border: 6px solid transparent; border-top-color: rgba(4, 52, 44, .94);
 }
 @media (max-width: 760px) { .ch-hover { display: none; } }
+.ch-tools { display: flex; gap: 10px; align-items: center; margin: 8px 0 6px; }
+.ch-toggle, .ch-redo { font: inherit; font-size: 11.5px; color: var(--muted); background: transparent; border: 0; padding: 4px 0; cursor: pointer; text-decoration: underline; }
+.ch-toggle:hover, .ch-redo:hover { color: #0d5b47; }
+.ch-redo { margin-left: auto; }
+.ch-list.is-hidden { display: none; }
