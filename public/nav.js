@@ -377,22 +377,6 @@ window.kbCountUp = function (el, to, ms) {
     setTimeout(() => el.remove(), 600);
   }, true);
 
-  // カードの上でカーソルの位置を光らせる
-  let raf = null, last = null;
-  document.addEventListener("mousemove", (ev) => {
-    const c = ev.target && ev.target.closest ? ev.target.closest(".home-card, .hcard") : null;
-    if (!c) return;
-    last = { c, x: ev.clientX, y: ev.clientY };
-    if (raf) return;
-    raf = requestAnimationFrame(() => {
-      raf = null;
-      if (!last) return;
-      const r = last.c.getBoundingClientRect();
-      last.c.style.setProperty("--mx", ((last.x - r.left) / r.width * 100) + "%");
-      last.c.style.setProperty("--my", ((last.y - r.top) / r.height * 100) + "%");
-    });
-  }, { passive: true });
-
   // サイドバーの選択位置に、すべるバーを置く
   function mountMarker() {
     const bar = document.querySelector(".sidebar");
