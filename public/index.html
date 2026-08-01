@@ -138,25 +138,27 @@
           </div>
 
           <div class="live-pane live-pane-scroll coach-pane" data-pane="ai" hidden>
-            <div class="ai-feed coach-feed" id="aiFeed">
-              <div class="empty-state">商談が進むと、kinbotコーチが「切り返し」「聞いておきたい質問」「次の一手」をチャットで送ります。</div>
-            </div>
-            <div class="coach-ask">
-              <input id="coachAsk" type="text" placeholder="コーチに質問する…（例：今の反応どう？）" />
-              <button id="coachAskBtn" class="coach-send" aria-label="送信"><span>送信</span></button>
-            </div>
-            <section class="panel check-panel" style="margin-top:16px;border-top:1px solid #e6e8e5;padding-top:16px">
-              <div class="panel-head"><h2>抜け漏れチェック</h2><span class="hint" id="checkHint">確認すべき項目</span></div>
-              <div class="check-list" id="checkList">
-                <div class="empty-state">会話が進むと、予算・決裁者・時期などの「聞けている／まだの項目」を表示します。</div>
+            <div class="coach-grid">
+              <div class="coach-main">
+                <div class="ai-feed coach-feed" id="aiFeed">
+                  <div class="empty-state">お客様が質問すると、その場で回答案を出します。切り返しや次の一手もここに出ます。</div>
+                </div>
               </div>
-            </section>
-            <section class="panel summary-panel" style="margin-top:16px;border-top:1px solid #e6e8e5;padding-top:16px">
-              <div class="panel-head"><h2>要約</h2><span class="hint" id="summaryHint">—</span></div>
-              <div class="summary" id="summary">
-                <div class="empty-state">会話が進むと、状況・要点・合意・宿題・相手の懸念を自動でまとめます。</div>
-              </div>
-            </section>
+              <aside class="coach-side">
+                <section class="panel check-panel">
+                  <div class="panel-head"><h2>抜け漏れチェック</h2><span class="hint" id="checkHint">確認すべき項目</span></div>
+                  <div class="check-list" id="checkList">
+                    <div class="empty-state">会話が進むと、予算・決裁者・時期などの「聞けている／まだの項目」を表示します。</div>
+                  </div>
+                </section>
+                <section class="panel summary-panel">
+                  <div class="panel-head"><h2>要約</h2><span class="hint" id="summaryHint">—</span></div>
+                  <div class="summary" id="summary">
+                    <div class="empty-state">会話が進むと、状況・要点・合意・宿題・相手の懸念を自動でまとめます。</div>
+                  </div>
+                </section>
+              </aside>
+            </div>
           </div>
 
           <div class="live-pane live-pane-scroll" data-pane="note" hidden>

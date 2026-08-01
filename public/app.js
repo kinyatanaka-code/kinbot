@@ -685,6 +685,12 @@ function handle(msg) {
     case "partial":
       els.partial.textContent = labelOf(msg.speaker) + ": " + (msg.text || "");
       break;
+    case "answering":
+      renderAnswerPending(msg);
+      break;
+    case "answer_failed":
+      removeAnswerPending();
+      break;
     case "answer":
       renderInstantAnswer(msg);
       break;
@@ -1064,45 +1070,31 @@ function stopTimer() {
   });
 })();
 
-// コーチに質問（ライブ中）
-(function () {
-  const btn = document.getElementById("coachAskBtn");
-  const inp = document.getElementById("coachAsk");
-  if (!btn || !inp) return;
-  const send = async () => {
-    const q = (inp.value || "").trim();
-    if (!q || !sessionId) return;
-    const feed = $("aiFeed");
-    if (aiHasItems === false && feed) { feed.innerHTML = ""; aiHasItems = true; }
-    feed.appendChild(aiBubble({ you: true, text: q }));
-    const time = new Date().toLocaleTimeString("ja-JP", { hour: "2-digit", minute: "2-digit" });
-    const thinking = aiBubble({ kind: "reply", text: "考え中…", time });
-    feed.appendChild(thinking);
-    feed.scrollTop = feed.scrollHeight;
-    inp.value = "";
-    btn.disabled = true;
-    try {
-      const r = await fetch(`/api/sessions/${encodeURIComponent(sessionId)}/ask`, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ question: q }),
-      });
-      const d = await r.json();
-      thinking.remove();
-      if (!r.ok) throw new Error(d.error || "応答に失敗");
-      feed.appendChild(aiBubble({ kind: "reply", text: d.reply || "（回答なし）", time }));
-    } catch (e) {
-      thinking.remove();
-      feed.appendChild(aiBubble({ kind: "reply", text: "うまく答えられなかった…(" + e.message + ")", time }));
-    } finally {
-      btn.disabled = false;
-      feed.scrollTop = feed.scrollHeight;
-    }
-  };
-  btn.addEventListener("click", send);
-  inp.addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); send(); } });
-})();
 
+
+// 質問を拾った瞬間に「考えています」を出す
+function renderAnswerPending(msg) {
+  const feed = $("aiFeed");
+  if (!feed) return;
+  removeAnswerPending();
+  const empty = feed.querySelector(".empty-state");
+  if (empty) empty.remove();
+  const esc = (v) => String(v == null ? "" : v).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+  const el = document.createElement("div");
+  el.className = "qa-card qa-pending";
+  el.innerHTML =
+    `<div class="qa-head"><span class="qa-tag">今の質問への回答</span><span class="qa-time">考えています…</span></div>
+     <div class="qa-q">${esc(msg.question || "")}</div>
+     <div class="qa-skeleton"><span></span><span></span><span></span></div>`;
+  feed.appendChild(el);
+  feed.scrollTop = feed.scrollHeight;
+}
+function removeAnswerPending() {
+  const feed = $("aiFeed");
+  if (!feed) return;
+  const p = feed.querySelector(".qa-pending");
+  if (p) p.remove();
+}
 
 // ===== 商談中の即答（顧客の質問に対する回答案） =====
 function renderInstantAnswer(msg) {
@@ -1112,6 +1104,7 @@ function renderInstantAnswer(msg) {
   if (empty) empty.remove();
   const esc = (v) => String(v == null ? "" : v).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
   const time = new Date(msg.ts || Date.now()).toLocaleTimeString("ja-JP", { hour: "2-digit", minute: "2-digit" });
+  removeAnswerPending();
   // 前の回答は小さく畳んで、いちばん新しい回答を目立たせる
   feed.querySelectorAll(".qa-card").forEach((c) => c.classList.add("is-old"));
   const el = document.createElement("div");

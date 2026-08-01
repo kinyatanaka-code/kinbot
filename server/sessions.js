@@ -148,6 +148,8 @@ class Session {
       if (Date.now() < (this.answerCooldownUntil || 0)) return;
       this.answering = true;
       this.answerCooldownUntil = Date.now() + 6000; // 連発しないように
+      // 先に「考えています」を出して、待たされている感じを減らす
+      this.broadcast({ type: "answering", question: text, ts: Date.now() });
 
       if (this.knowledgeCtx === undefined) {
         this.knowledgeCtx = await getKnowledgeContext(5000).catch(() => "");
@@ -165,13 +167,14 @@ class Session {
         pastQa,
         repName: this.repName,
       });
-      if (!r.answer) return;
+      if (!r.answer) { this.broadcast({ type: "answer_failed", ts: Date.now() }); return; }
       const ts = Date.now();
       this.broadcast({ type: "answer", question: text, ...r, ts });
       this.aiLog.push({ t: "qa", question: text, answer: r.answer, basis: r.basis || "", caution: r.caution || "", ts });
       saveMeeting(this.botId, { aiLog: this.aiLog });
     } catch (e) {
       console.error("[即答]", e.message);
+      this.broadcast({ type: "answer_failed", ts: Date.now() });
     } finally {
       this.answering = false;
     }

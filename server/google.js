@@ -699,3 +699,13 @@ export async function listEventsCreatedOn(owner, dateStr) {
   }
   return out;
 }
+
+// 下書きを消す（接続確認で作ったものの後始末に使う）
+export async function gmailDeleteDraft(owner, draftId) {
+  const token = await accessToken(owner);
+  if (!token || !draftId) return;
+  await fetch(`https://gmail.googleapis.com/gmail/v1/users/me/drafts/${encodeURIComponent(draftId)}`, {
+    method: "DELETE",
+    headers: { Authorization: `Bearer ${token}` },
+  }).catch(() => {});
+}

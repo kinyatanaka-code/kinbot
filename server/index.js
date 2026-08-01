@@ -172,6 +172,7 @@ import {
   gmailGetThread,
   gmailSend,
   gmailCreateDraft,
+  gmailDeleteDraft,
   parseEmailAddr,
 } from "./google.js";
 import { startScheduler } from "./scheduler.js";
@@ -3587,6 +3588,98 @@ app.get("/api/meetings/:id/gmail-threads", async (req, res) => {
   }
 });
 
+// 御礼メールをGmailの下書きとして保存する。
+// これまでのやり取りがあればその返信として、無ければ新規で作る。
+app.post("/api/meetings/:id/thanks-gmail-draft", async (req, res) => {
+  try {
+    const m = await getMeeting(req.params.id);
+    if (!m) return res.status(404).json({ error: "見つかりません" });
+    if (!(await gcalConnected(req.user))) return res.status(400).json({ error: "Googleが連携されていません（設定から連携してください）" });
+    const ready = await gmailReady(req.user);
+    if (!ready.ok) return res.status(400).json({ error: "Gmailが使えません（" + (ready.detail || ready.reason) + "）", needScope: true });
+
+    // 相手を探すための言葉：会社名 → 商談名から取り出した担当者名
+    const company = (m.account || companyFromTitle(m.title || "") || "").trim();
+    const person = (() => {
+      const t = String(m.title || "").replace(/【[^】]*】/g, " ");
+      const mm = t.match(/([一-龥ぁ-んァ-ヶa-zA-Z]{1,10})\s*(様|さま|さん)/);
+      return mm ? mm[1] : "";
+    })();
+
+    let threads = [];
+    for (const q of [company, person].filter(Boolean)) {
+      try { threads = await gmailSearchThreads(req.user, q, 5); } catch {}
+      if (threads.length) break;
+    }
+
+    const myEmail = (await getPrimaryEmail(req.user)) || "";
+    const sm = m.summary || {};
+    let summaryText = sm.overview ? sm.overview + "\n" : "";
+    for (const [lab, key] of [["合意", "agreements"], ["次アクション", "action_items"], ["懸念", "customer_concerns"]]) {
+      if (Array.isArray(sm[key]) && sm[key].length) summaryText += `\n[${lab}]\n` + sm[key].map((x) => "・" + x).join("\n");
+    }
+    const st = await getUserSettings(m.owner);
+    const round = m.round_no || "";
+    const all = st.thanksExamples || {};
+    let examples = Array.isArray(all[String(round)]) ? all[String(round)] : [];
+    if (!examples.length) for (const k of Object.keys(all)) { if (Array.isArray(all[k]) && all[k].length) { examples = all[k]; break; } }
+
+    let to = "", subject = "", body = "", threadId = "", inReplyTo = "", references = "", replied = false;
+
+    if (threads.length) {
+      // いちばん新しいやり取りに返信する
+      replied = true;
+      threadId = threads[0].threadId;
+      const thread = await gmailGetThread(req.user, threadId);
+      const msgs = thread.messages || [];
+      const last = msgs[msgs.length - 1] || {};
+      const fromAddr = parseEmailAddr(last.from);
+      to = fromAddr && fromAddr !== myEmail ? fromAddr : parseEmailAddr(last.to);
+      const threadText = msgs.map((x) => `--- ${x.date} / ${x.from}\n${(x.body || "").slice(0, 2000)}`).join("\n\n").slice(-8000);
+      const prompt =
+        (typeof st.thanksPrompt === "string" ? st.thanksPrompt + "\n\n" : "") +
+        "以下は、この商談相手との過去のメールのやり取りです。最後のメールに続く形で、商談のお礼と次のアクションを伝える返信を日本語で作ってください。" +
+        "やり取りの流れと敬称・文体を合わせ、簡潔にまとめてください。\n\n【過去のやり取り】\n" + threadText;
+      const r = await generateThanks({ round, examples, summaryText: summaryText || "（要約なし）", repName: m.owner_name || m.rep_name, customer: person, prompt });
+      body = r.body || "";
+      subject = last.subject || r.subject || "";
+      if (subject && !/^re:/i.test(subject)) subject = "Re: " + subject;
+      inReplyTo = last.messageIdHeader || "";
+      references = [last.references, last.messageIdHeader].filter(Boolean).join(" ").trim();
+    } else {
+      const r = await generateThanks({
+        round, examples, summaryText: summaryText || "（要約なし）",
+        repName: m.owner_name || m.rep_name, customer: person,
+        prompt: typeof st.thanksPrompt === "string" ? st.thanksPrompt : "",
+      });
+      body = r.body || "";
+      subject = r.subject || `【御礼】${company || "本日"}のお打ち合わせについて`;
+    }
+
+    if (req.body && req.body.body) body = String(req.body.body);
+    if (req.body && req.body.subject) subject = String(req.body.subject);
+    if (req.body && req.body.to) to = String(req.body.to);
+    if (!body) return res.status(502).json({ error: "文面を作れませんでした" });
+
+    const draft = await gmailCreateDraft(req.user, { to, subject, bodyText: body, threadId, inReplyTo, references });
+    const msgId = (draft && draft.message && draft.message.id) || "";
+    res.json({
+      ok: true,
+      replied,
+      to,
+      subject,
+      body,
+      threadCount: threads.length,
+      draftId: (draft && draft.id) || "",
+      url: msgId ? `https://mail.google.com/mail/u/0/#drafts?compose=${msgId}` : "https://mail.google.com/mail/u/0/#drafts",
+    });
+  } catch (e) {
+    if (e.needScope) return res.status(400).json({ error: "Gmailの権限が足りません。設定から連携し直してください。", needScope: true });
+    console.error("[thanks-gmail-draft]", e.message);
+    res.status(502).json({ error: e.message });
+  }
+});
+
 // 選んだスレッドの内容＋商談要約から、返信の下書きを作る
 app.post("/api/meetings/:id/gmail-reply-draft", async (req, res) => {
   try {
@@ -4974,6 +5067,47 @@ app.get("/auth/google/callback", async (req, res) => {
     res.status(500).send("連携に失敗しました: " + e.message);
   }
 });
+// Gmailが使える状態か確認する（下書きが作れない原因を切り分ける）
+app.get("/api/gmail/status", async (req, res) => {
+  try {
+    res.set("Cache-Control", "no-store");
+    const out = { connected: false, email: null, ready: false, reason: "", detail: "", canDraft: false, hint: "" };
+    out.connected = await gcalConnected(req.user);
+    if (!out.connected) {
+      out.hint = "Googleが未連携です。設定→外部連携から連携してください。";
+      return res.json(out);
+    }
+    out.email = await getPrimaryEmail(req.user);
+    const ready = await gmailReady(req.user);
+    out.ready = !!ready.ok;
+    out.reason = ready.reason || "";
+    out.detail = ready.detail || "";
+    if (!ready.ok) {
+      out.hint = ready.reason === "no_scope"
+        ? "メールを読む権限はありますが、下書きを作る権限がありません。設定→外部連携でGoogleを連携し直してください（同意画面でGmailの項目にチェックを入れてください）。"
+        : ready.reason === "api_disabled"
+          ? "Google Cloud側でGmail APIが有効になっていません。"
+          : "Gmailに接続できませんでした。";
+      return res.json(out);
+    }
+    // 下書きが実際に作れるかを、空の下書きを作って消して確かめる
+    try {
+      const d = await gmailCreateDraft(req.user, { to: "", subject: "kinbot 接続確認", bodyText: "接続確認のため作成し、すぐ削除します。" });
+      out.canDraft = true;
+      try { await gmailDeleteDraft(req.user, d.id); } catch {}
+    } catch (e) {
+      out.canDraft = false;
+      out.detail = e.message;
+      out.hint = e.needScope
+        ? "下書きを作る権限（gmail.compose）がありません。設定→外部連携でGoogleを連携し直してください。"
+        : "下書きの作成に失敗しました。";
+    }
+    res.json(out);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 app.get("/api/calendar/status", async (req, res) => {
   const out = { configured: googleConfigured(), connected: false, email: null, events: [] };
   try {

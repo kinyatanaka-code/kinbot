@@ -507,19 +507,54 @@ async function openMail(botId, key) {
        <input type="text" class="home-mail-subj" value="${escH(subject)}" />
        <textarea class="home-mail-body" rows="10">${escH(body)}</textarea>
        <div class="home-sf-row">
-         <button type="button" class="btn" data-mailcopy="1">コピー</button>
-         <a class="btn sf-btn-secondary home-sf-mini" data-mailto="1" href="#">メールを開く</a>
+         <button type="button" class="btn" data-gdraft="${escH(botId)}">Gmailに下書きを作る</button>
+         <button type="button" class="btn sf-btn-secondary home-sf-mini" data-mailcopy="1">コピー</button>
+         <a class="btn sf-btn-secondary home-sf-mini" data-mailto="1" href="#" target="_blank" rel="noopener">Gmailの作成画面で開く</a>
          <button type="button" class="btn sf-btn-secondary home-sf-mini" data-inline-close="1">閉じる</button>
-       </div>`;
+       </div>
+       <div class="home-mail-note"></div>`;
     const ta = box.querySelector(".home-mail-body");
     const su = box.querySelector(".home-mail-subj");
+    // Gmailの作成画面を開く（メーラー未設定のパソコンでも動くように mailto は使わない）
     const sync = () => {
-      box.querySelector("[data-mailto]").href =
-        `mailto:?subject=${encodeURIComponent(su.value)}&body=${encodeURIComponent(ta.value)}`;
+      const base = "https://mail.google.com/mail/?view=cm&fs=1&tf=1";
+      let url = `${base}&su=${encodeURIComponent(su.value)}&body=${encodeURIComponent(ta.value)}`;
+      // URLが長すぎるとブラウザが開けないので、そのときは本文を切る
+      if (url.length > 7000) {
+        url = `${base}&su=${encodeURIComponent(su.value)}&body=${encodeURIComponent(ta.value.slice(0, 1500) + "\n\n（続きはkinbotからコピーしてください）")}`;
+      }
+      const a = box.querySelector("[data-mailto]");
+      a.href = url;
     };
     sync();
     su.addEventListener("input", sync);
     ta.addEventListener("input", sync);
+    // Gmailに下書きを作る（やり取りがあれば返信として）
+    box.querySelector("[data-gdraft]").addEventListener("click", async (e) => {
+      const btn = e.currentTarget;
+      const note = box.querySelector(".home-mail-note");
+      btn.disabled = true; btn.textContent = "作成中…";
+      note.textContent = "";
+      try {
+        const r = await fetch(`/api/meetings/${encodeURIComponent(botId)}/thanks-gmail-draft`, {
+          method: "POST", headers: { "content-type": "application/json" },
+          body: JSON.stringify({ subject: su.value, body: ta.value }),
+        });
+        const d = await r.json().catch(() => ({}));
+        if (!r.ok) throw new Error(d.error || "作成に失敗しました");
+        note.innerHTML =
+          `${d.replied ? "これまでのやり取りへの返信として" : "新規メールとして"}下書きを保存しました` +
+          (d.to ? `（宛先：${escH(d.to)}）` : "（宛先は未設定です。Gmailで入れてください）") +
+          ` <a class="home-sf-link" href="${escH(d.url)}" target="_blank" rel="noopener">Gmailで開く</a>`;
+        btn.textContent = "下書きを作成しました";
+      } catch (err) {
+        note.innerHTML = escH(err.message) +
+          ` <a class="home-sf-link" href="/api/gmail/status" target="_blank" rel="noopener">接続を確認する</a>` +
+          ` <a class="home-sf-link" href="settings.html">設定を開く</a>`;
+        btn.disabled = false; btn.textContent = "Gmailに下書きを作る";
+      }
+    });
+
     box.querySelector("[data-mailcopy]").addEventListener("click", (e) => {
       navigator.clipboard.writeText(ta.value).then(() => {
         e.target.textContent = "コピーしました";
