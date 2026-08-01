@@ -1743,3 +1743,44 @@ export async function extractQaPairs({ transcript, repName }) {
   const o = parseJson(text) || {};
   return Array.isArray(o.pairs) ? o.pairs.slice(0, 8) : [];
 }
+
+// ===== 商談の段階（章）に分ける =====
+const PHASE_PROMPT = `あなたは商談の文字起こしを、話の段階ごとに区切る担当です。
+出力はJSONのみ。前置きやコードブロックは書かないでください。
+{"chapters":[{"from":0,"to":12,"phase":"ヒアリング","note":"採用課題を確認（20〜35字）"}]}
+使える phase: アイスブレイク / ヒアリング / 提案・説明 / デモ / 質疑・懸念 / 価格・条件 / クロージング / 次回調整 / 雑談
+ルール:
+・from と to は、渡した発言の番号（0から始まる）。前の章の to+1 が次の章の from になるように、すき間なく最後まで区切る。
+・短すぎる章は作らない（最低でも3発言以上）。全体で4〜9章にまとめる。
+・note には、その章で何を話したかを短く書く。会社名や個人名は入れない。
+・話が戻ったら、同じ phase が再び出てもよい。`;
+
+export async function splitPhases({ transcript, repName }) {
+  const arr = Array.isArray(transcript) ? transcript : [];
+  if (arr.length < 6) return [];
+  // 長い商談はAIに渡しきれないので、発言を間引かずに要点だけ短くする
+  const lines = arr.map((u, i) => {
+    const who = (u.speaker && u.speaker.name) || "話者";
+    const t = String(u.text || "").replace(/\s+/g, " ").slice(0, 90);
+    return `${i}|${who}: ${t}`;
+  });
+  const user =
+    `自社の営業担当: ${repName || "（未指定）"}\n全${arr.length}発言\n\n` +
+    `"""\n${lines.join("\n").slice(-24000)}\n"""\n\n段階ごとに区切ってJSONで返してください。`;
+  const text = await callLLM(PHASE_PROMPT, user, 1200);
+  const o = parseJson(text) || {};
+  const raw = Array.isArray(o.chapters) ? o.chapters : [];
+  // 番号を整えて、範囲外や重なりを直す
+  const out = [];
+  let cursor = 0;
+  for (const c of raw) {
+    const from = Math.max(cursor, Math.min(arr.length - 1, Number(c.from) || 0));
+    const to = Math.max(from, Math.min(arr.length - 1, Number(c.to) || from));
+    if (to < from) continue;
+    out.push({ from, to, phase: String(c.phase || "その他").slice(0, 12), note: String(c.note || "").slice(0, 60) });
+    cursor = to + 1;
+    if (cursor >= arr.length) break;
+  }
+  if (out.length && out[out.length - 1].to < arr.length - 1) out[out.length - 1].to = arr.length - 1;
+  return out;
+}

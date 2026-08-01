@@ -201,11 +201,21 @@ export function parseTranscriptEvent(body) {
   const text = joinWords(words);
   if (!text) return null;
   const p = d.participant || {};
+  // 録画の先頭からの秒数（あれば）。動画の頭出しに使う。
+  let off = null;
+  const w0 = words[0];
+  if (w0) {
+    const st = w0.start_timestamp;
+    if (typeof st === "number") off = st;
+    else if (st && typeof st.relative === "number") off = st.relative;
+    else if (typeof w0.start_time === "number") off = w0.start_time;
+  }
   return {
     type: event === "transcript.data" ? "final" : "partial",
     botId: body?.data?.bot?.id,
     speaker: { id: p.id ?? null, name: p.name ?? null },
     text,
+    off: typeof off === "number" && isFinite(off) ? Math.max(0, Math.round(off)) : null,
   };
 }
 

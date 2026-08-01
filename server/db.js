@@ -45,6 +45,7 @@ export async function initDb() {
   await pool.query(`ALTER TABLE meetings ADD COLUMN IF NOT EXISTS custom_analysis TEXT;`);
   await pool.query(`ALTER TABLE meetings ADD COLUMN IF NOT EXISTS ai_log JSONB;`);
   await pool.query(`ALTER TABLE meetings ADD COLUMN IF NOT EXISTS metrics JSONB;`);
+  await pool.query(`ALTER TABLE meetings ADD COLUMN IF NOT EXISTS chapters JSONB;`);
   await pool.query(`ALTER TABLE meetings ADD COLUMN IF NOT EXISTS account TEXT;`);
   await pool.query(`ALTER TABLE meetings ADD COLUMN IF NOT EXISTS note TEXT;`);
   await pool.query(`ALTER TABLE meetings ADD COLUMN IF NOT EXISTS apo_setter TEXT;`);
@@ -2655,4 +2656,14 @@ export async function listOpenFollowups(days = 3) {
     );
     return rows;
   } catch { return []; }
+}
+
+
+// 商談の段階（章）を保存・取得
+export async function saveChapters(botId, chapters) {
+  if (!pool || !botId) return;
+  try {
+    await pool.query(`UPDATE meetings SET chapters=$2, updated_at=now() WHERE bot_id=$1`,
+      [botId, JSON.stringify(chapters || [])]);
+  } catch (e) { console.error("[chapters]", e.message); }
 }

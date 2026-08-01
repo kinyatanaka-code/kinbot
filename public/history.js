@@ -1995,6 +1995,91 @@ function setMediaSession(el, meeting) {
   } catch {}
 }
 
+// ===== 商談の段階（章）を再生バーの下に出す =====
+const PHASE_COLOR = {
+  "アイスブレイク": "#cfe7dd",
+  "ヒアリング": "#5DCAA5",
+  "提案・説明": "#1d9e75",
+  "デモ": "#17b39a",
+  "質疑・懸念": "#e0b25e",
+  "価格・条件": "#d99114",
+  "クロージング": "#0d5b47",
+  "次回調整": "#8fb8ab",
+  "雑談": "#c9c7bd",
+};
+const mmss = (sec) => {
+  const s = Math.max(0, Math.round(Number(sec) || 0));
+  return Math.floor(s / 60) + ":" + String(s % 60).padStart(2, "0");
+};
+
+function renderChapters(drec, video, meeting) {
+  const wrap = drec.querySelector("#chWrap");
+  if (!wrap || !meeting) return;
+  let chapters = Array.isArray(meeting.chapters) ? meeting.chapters : [];
+
+  const draw = () => {
+    if (!chapters.length) {
+      wrap.innerHTML = `<button type="button" class="btn ghost ch-make">商談の段階（ヒアリング・提案・クロージングなど）を出す</button>`;
+      const b = wrap.querySelector(".ch-make");
+      b.addEventListener("click", async () => {
+        b.disabled = true; b.textContent = "分けています…（30秒ほど）";
+        try {
+          const r = await fetch(`/api/meetings/${encodeURIComponent(meeting.bot_id)}/chapters`, { method: "POST" });
+          const d = await r.json();
+          if (!r.ok) throw new Error(d.error || "作成に失敗しました");
+          chapters = d.chapters || [];
+          meeting.chapters = chapters;
+          draw();
+        } catch (e) {
+          b.disabled = false; b.textContent = "もう一度試す（" + e.message + "）";
+        }
+      });
+      return;
+    }
+    const total = Math.max(1, chapters[chapters.length - 1].end || 1);
+    wrap.innerHTML =
+      `<div class="ch-bar" role="group" aria-label="商談の段階">` +
+      chapters.map((c) => {
+        const w = Math.max(2, ((c.end - c.start) / total) * 100);
+        const col = PHASE_COLOR[c.phase] || "#9db3ab";
+        return `<button type="button" class="ch-seg" data-sec="${c.start}" style="width:${w}%;background:${col}"
+                  title="${escapeHtml(c.phase)}（${mmss(c.start)}〜）${c.note ? " " + escapeHtml(c.note) : ""}">
+                  <span class="ch-seg-label">${escapeHtml(c.phase)}</span>
+                </button>`;
+      }).join("") + `</div>` +
+      `<div class="ch-list">` +
+      chapters.map((c) => `
+        <button type="button" class="ch-item" data-sec="${c.start}">
+          <span class="ch-dot" style="background:${PHASE_COLOR[c.phase] || "#9db3ab"}"></span>
+          <span class="ch-time">${mmss(c.start)}</span>
+          <span class="ch-phase">${escapeHtml(c.phase)}</span>
+          <span class="ch-note">${escapeHtml(c.note || "")}</span>
+        </button>`).join("") + `</div>`;
+
+    wrap.querySelectorAll("[data-sec]").forEach((b) => {
+      b.addEventListener("click", () => {
+        const el = drec.querySelector("video") || drec.querySelector("audio");
+        if (!el) return;
+        try { el.currentTime = Number(b.dataset.sec) || 0; } catch {}
+        const p = el.play();
+        if (p && p.catch) p.catch(() => {});
+      });
+    });
+
+    // 再生位置に合わせて、いまの段階を光らせる
+    const el = drec.querySelector("video") || drec.querySelector("audio");
+    if (el) {
+      el.addEventListener("timeupdate", () => {
+        const t = el.currentTime || 0;
+        let idx = 0;
+        chapters.forEach((c, i) => { if (t >= c.start) idx = i; });
+        wrap.querySelectorAll(".ch-seg").forEach((x, i) => x.classList.toggle("is-now", i === idx));
+      });
+    }
+  };
+  draw();
+}
+
 // iPhoneかどうか（iPhoneだけ、裏に回ったときに音声へ引き継ぐ）
 function isIOS() {
   return /iP(hone|ad|od)/.test(navigator.userAgent) ||
@@ -2015,12 +2100,14 @@ function setupRecordingPlayer(drec, d, meeting) {
 
   drec.innerHTML =
     `<video class="rec-video" controls preload="metadata" playsinline autopictureinpicture></video>
+     <div class="ch-wrap" id="chWrap"></div>
      <div class="rec-bar">
        <span class="rec-hint">ホーム画面に戻ったり、他のアプリを開いても音声は再生され続けます。</span>
        ${isHls ? "" : `<a class="rec-open" href="${escapeHtml(url)}" target="_blank" rel="noopener">別タブで開く</a>`}
      </div>`;
 
   const video = drec.querySelector("video");
+  renderChapters(drec, video, meeting);
   if (isHls && window.Hls && window.Hls.isSupported() && !video.canPlayType("application/vnd.apple.mpegurl")) {
     hlsInst = new Hls();
     hlsInst.loadSource(url);

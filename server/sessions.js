@@ -117,8 +117,9 @@ class Session {
     for (const ws of this.sockets) if (ws.readyState === ws.OPEN) ws.send(msg);
   }
 
-  onFinal(speaker, text) {
+  onFinal(speaker, text, off) {
     const u = { speaker, text, ts: Date.now() };
+    if (typeof off === "number" && isFinite(off)) u.off = off; // 録画の先頭からの秒数
     this.utterances.push(u);
     this.broadcast({ type: "final", speaker, text, ts: u.ts });
     this.maybeAnswer(speaker, text); // 顧客の質問ならその場で回答案を出す

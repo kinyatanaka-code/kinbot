@@ -37,6 +37,7 @@ import {
   saveDeepAnalysis,
   updateMeetingMeta,
   setMeetingTitle,
+  saveChapters,
   listMeetingsWithoutTranscript,
   deleteMeeting,
   deleteEmptyMeetings,
@@ -146,7 +147,7 @@ import {
   deleteProposalFile,
 } from "./db.js";
 import { resolveConfig, statusInfo } from "./config.js";
-import { analyzerInfo, analyzeMeeting, analyzeDeep, freeAnalyze, chatWithData, enrichCompany, lookupEmployeeCount, lookupCompanyBasics, generateThanks, THANKS_PROMPT, getCheckItems, getSummaryPrompt, getCustomPrompt, runCustomAnalysis, analyzeWinPatterns, classifyMeetingKind, extractFirstMeeting, extractReMeeting, buildBrief, extractFeatureCTags, enrichCompanyAttributes, generateFeatureCInsights, extractQaPairs } from "./analyzer.js";
+import { analyzerInfo, analyzeMeeting, analyzeDeep, freeAnalyze, chatWithData, enrichCompany, lookupEmployeeCount, lookupCompanyBasics, generateThanks, THANKS_PROMPT, getCheckItems, getSummaryPrompt, getCustomPrompt, runCustomAnalysis, analyzeWinPatterns, classifyMeetingKind, extractFirstMeeting, extractReMeeting, buildBrief, extractFeatureCTags, enrichCompanyAttributes, generateFeatureCInsights, extractQaPairs, splitPhases } from "./analyzer.js";
 import { searchCompanies, getCompanyDetail, gbizConfigured } from "./gbizinfo.js";
 import {
   googleConfigured,
@@ -4699,7 +4700,7 @@ app.post("/api/recall/webhook", (req, res) => {
             }
           } catch {}
         }
-        if (ev.type === "final") s.onFinal(ev.speaker, ev.text);
+        if (ev.type === "final") s.onFinal(ev.speaker, ev.text, ev.off);
         else s.onPartial(ev.speaker, ev.text);
         return;
       }
@@ -5606,6 +5607,40 @@ app.get("/api/salesforce/dashboards/:id", async (req, res) => {
     res.json(await describeDashboard(req.user, req.params.id));
   } catch (e) {
     sfErrorResponse(res, e);
+  }
+});
+
+// 商談を段階（章）に分ける。再生バーの頭出しに使う。
+app.post("/api/meetings/:id/chapters", async (req, res) => {
+  try {
+    const m = await getMeeting(req.params.id);
+    if (!m) return res.status(404).json({ error: "見つかりません" });
+    const tr = Array.isArray(m.transcript) ? m.transcript : [];
+    if (tr.length < 6) return res.json({ chapters: [] });
+    const raw = await splitPhases({ transcript: tr, repName: m.rep_name || m.owner_name || "" });
+
+    // 発言番号を、録画の先頭からの秒数に変換する
+    const firstTs = tr.find((u) => u && u.ts) ? new Date(tr.find((u) => u && u.ts).ts).getTime() : 0;
+    const secOf = (i) => {
+      const u = tr[Math.max(0, Math.min(tr.length - 1, i))] || {};
+      if (typeof u.off === "number") return Math.max(0, Math.round(u.off));
+      if (u.ts && firstTs) return Math.max(0, Math.round((new Date(u.ts).getTime() - firstTs) / 1000));
+      return 0;
+    };
+    const lastSec = secOf(tr.length - 1);
+    const chapters = raw.map((c) => ({
+      phase: c.phase,
+      note: c.note,
+      from: c.from,
+      to: c.to,
+      start: secOf(c.from),
+      end: Math.max(secOf(c.from) + 1, secOf(c.to)),
+    }));
+    await saveChapters(req.params.id, chapters);
+    res.json({ chapters, total: lastSec });
+  } catch (e) {
+    console.error("[chapters]", e.message);
+    res.status(502).json({ error: e.message });
   }
 });
 

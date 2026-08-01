@@ -3786,11 +3786,13 @@ input:focus, select:focus, textarea:focus, .sf-input:focus, .sf-select:focus, .s
 .active-block, .apidoc, .autojoin-setup, .kb-card, .sr-list, .sr-view {
   border-radius: var(--kb-r-lg);
 }
-.hdetail, .set-menu, .ov-c, .active-block, .autojoin-setup {
+.hdetail, .set-menu, .ov-c, .autojoin-setup {
   background-image: linear-gradient(180deg, #ffffff 0%, #fbfdfc 100%);
   border: 1px solid rgba(13, 91, 71, .07);
   box-shadow: var(--kb-shadow-1), var(--kb-shadow-2);
 }
+/* 進行中の商談（ライブ）は、枠を付けず背景になじませる */
+.active-block { background: transparent !important; border: 0 !important; box-shadow: none !important; }
 .hlist { background: transparent; box-shadow: none; border: 0; }
 
 /* --- 中の小さな面 --- */
@@ -3852,4 +3854,24 @@ input:focus, select:focus, textarea:focus, .sf-input:focus, .sf-select:focus, .s
 @media (max-width: 760px) {
   .hfilters, .rep-controls, .hl-toolbar { padding: 10px 12px; border-radius: var(--kb-r-md); }
   .tabs, .live-tabs { width: 100%; justify-content: space-between; }
+}
+
+/* ---- 商談の段階（章）---- */
+.ch-wrap { margin-top: 10px; }
+.ch-bar { display: flex; gap: 2px; height: 26px; border-radius: 999px; overflow: hidden; margin-bottom: 10px; }
+.ch-seg { border: 0; padding: 0; cursor: pointer; position: relative; transition: filter .15s ease, transform .15s ease; overflow: hidden; }
+.ch-seg:hover { filter: brightness(1.08); }
+.ch-seg.is-now { box-shadow: inset 0 0 0 2px rgba(255,255,255,.9); }
+.ch-seg-label { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; font-size: 10px; color: #fff; text-shadow: 0 1px 2px rgba(0,0,0,.25); white-space: nowrap; padding: 0 4px; }
+.ch-list { display: flex; flex-direction: column; gap: 2px; }
+.ch-item { display: flex; align-items: center; gap: 10px; width: 100%; text-align: left; border: 0; background: transparent; font: inherit; padding: 7px 10px; border-radius: 10px; cursor: pointer; }
+.ch-item:hover { background: var(--panel-2); }
+.ch-dot { width: 8px; height: 8px; border-radius: 50%; flex: 0 0 8px; }
+.ch-time { font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; flex: 0 0 42px; }
+.ch-phase { font-size: 12.5px; font-weight: 700; color: var(--ink); flex: 0 0 auto; }
+.ch-note { font-size: 12px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+@media (max-width: 760px) {
+  .ch-seg-label { display: none; }
+  .ch-bar { height: 20px; }
+  .ch-note { display: none; }
 }
