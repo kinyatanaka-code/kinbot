@@ -3763,3 +3763,15 @@ input:focus, select:focus, textarea:focus, .sf-input:focus, .sf-select:focus, .s
   :root { --kb-r-lg: 16px; --kb-r-md: 13px; --kb-r-sm: 11px; }
   .home-card { padding: 13px 15px; }
 }
+
+/* ランキングのスコアを円ゲージで */
+.home-rank-ring { position: relative; width: 44px; height: 44px; flex: 0 0 44px; display: flex; align-items: center; justify-content: center; }
+.home-rank-ring svg { position: absolute; inset: 0; transform: rotate(-90deg); }
+.home-rank-ring .bg { fill: none; stroke: #e6e3d8; stroke-width: 4; }
+.home-rank-ring .fg { fill: none; stroke-width: 4; stroke-linecap: round; animation: kbRing 1s cubic-bezier(.2,.8,.2,1) both; }
+.home-rank-ring b { position: relative; font-size: 14px; font-weight: 700; color: #0d5b47; font-variant-numeric: tabular-nums; }
+.home-rank-ring.is-warm b { color: #a06a12; }
+.home-rank-ring.is-cool b { color: var(--muted); }
+.home-rank { gap: 11px; }
+.home-rank-t b { font-size: 12.5px; }
+.home-rank-t em { margin-top: 3px; }

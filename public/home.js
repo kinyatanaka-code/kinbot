@@ -351,9 +351,30 @@ async function loadRank() {
   } catch { rankCache[key] = []; }
   renderRank(rankCache[key]);
 }
+// ランキングのスコアを円のゲージで見せる
+function rankRing(val, tone) {
+  const v = Math.max(0, Math.min(100, Number(val) || 0));
+  const r = 18, c = 2 * Math.PI * r;
+  const off = c * (1 - v / 100);
+  rankRing._n = (rankRing._n || 0) + 1;
+  const gid = "kbRankGrad" + rankRing._n;
+  const from = tone === "cool" ? "#8f9c96" : tone === "warm" ? "#b8791a" : "#0d5b47";
+  const to = tone === "cool" ? "#b4b2a9" : tone === "warm" ? "#e0b25e" : "#5DCAA5";
+  return `<span class="home-rank-ring is-${tone}">
+    <svg viewBox="0 0 44 44" aria-hidden="true">
+      <defs><linearGradient id="${gid}" x1="0" y1="0" x2="1" y2="1">
+        <stop offset="0%" stop-color="${from}"/><stop offset="100%" stop-color="${to}"/>
+      </linearGradient></defs>
+      <circle class="bg" cx="22" cy="22" r="${r}"/>
+      <circle class="fg" cx="22" cy="22" r="${r}" stroke="url(#${gid})" stroke-dasharray="${c.toFixed(1)}" stroke-dashoffset="${off.toFixed(1)}"/>
+    </svg>
+    <b>${v}</b>
+  </span>`;
+}
+
 function animateRankNumbers() {
   if (!window.kbCountUp) return;
-  document.querySelectorAll("#homeRank .home-rank-v").forEach((el) => {
+  document.querySelectorAll("#homeRank .home-rank-ring b").forEach((el) => {
     const v = Number(el.textContent);
     if (isFinite(v)) window.kbCountUp(el, v, 600);
   });
@@ -375,9 +396,8 @@ function renderRank(items) {
               ? `${m.count}件 ・ 最高 ${m.best} ・ 平均温度感 ${m.score}`
               : `${m.count}件 ・ 最高 ${m.best} ・ 平均振れ幅 ${m.swing}`;
           return `<div class="home-rank">
-            <span class="home-rank-no">${i + 1}</span>
-            <span class="home-rank-t"><b>${escH(m.name)}</b><em>${escH(sub)}</em></span>
-            <span class="home-rank-v is-${tone}">${val}</span>
+            ${rankRing(val, tone)}
+            <span class="home-rank-t"><b>${escH(m.name)}</b><em>${i + 1}位 ・ ${escH(sub)}</em></span>
           </div>`;
         }).join("")
       : '<div class="home-panel-empty">2件以上の商談があるメンバーがまだいません。</div>';
@@ -400,9 +420,8 @@ function renderRank(items) {
               : rankSort === "skill" ? (it.nextLevel || `温度感 ${it.score}`)
               : (it.swing ? `振れ幅 ${it.swing}` : "");
     return `<a class="home-rank" href="history.html?m=${encodeURIComponent(it.bot_id)}">
-      <span class="home-rank-no">${i + 1}</span>
-      <span class="home-rank-t"><b>${escH(name)}</b><em>${escH(d)}${rn ? " ・ " + escH(rn) : ""}${it.owner_name ? " ・ " + escH(it.owner_name) : ""}${sub ? " ・ " + escH(sub) : ""}</em></span>
-      <span class="home-rank-v is-${tone}">${val}</span>
+      ${rankRing(val, tone)}
+      <span class="home-rank-t"><b>${escH(name)}</b><em>${i + 1}位 ・ ${escH(d)}${rn ? " ・ " + escH(rn) : ""}${it.owner_name ? " ・ " + escH(it.owner_name) : ""}${sub ? " ・ " + escH(sub) : ""}</em></span>
     </a>`;
   }).join("");
   animateRankNumbers();
