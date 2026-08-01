@@ -11,6 +11,7 @@ let meEmail = "";
 let allMeetings = [];
 let dayEvents = [];
 let allDeals = [];
+let followups = {}; // bot_id → 商談後の進み具合
 let rankSort = "score";
 let rankRound = "";
 let rankBy = "deal";
@@ -250,6 +251,11 @@ function render() {
     let badges = "";
     if (m) {
       badges += '<span class="home-badge home-badge-done">商談済み</span>';
+      const fu = followups[m.bot_id];
+      if (fu) {
+        const n = [fu.thanks_done, fu.next_done, fu.sf_done].filter(Boolean).length;
+        badges += `<span class="home-badge home-badge-todo">商談後 ${n}/3</span>`;
+      }
       if (m.phase) badges += `<span class="home-badge">${escH(m.phase)}</span>`;
       if (m.status) badges += `<span class="home-badge home-badge-st">${escH(m.status)}</span>`;
     } else if (e) {
@@ -269,7 +275,8 @@ function render() {
     }
     const summary = (m && m.summary && m.summary.overview) ? String(m.summary.overview).slice(0, 90) + "…" : "";
     const openLabel = m ? "商談を開く" : "会社を開く";
-    homeItems[key] = { title, time, company, done: !!m, link: "history.html?company=" + enc, openLabel };
+    const link = m && m.bot_id ? "history.html?m=" + encodeURIComponent(m.bot_id) : "history.html?company=" + enc;
+    homeItems[key] = { title, time, company, done: !!m, link, openLabel };
     return `<div class="home-row"><div class="home-rail">${escH(time)}</div><div class="home-card home-card-v${m ? " is-done" : " home-card-plan"}" data-card="${escH(key)}">
       <div class="home-card-row">
         <div class="home-card-main">
@@ -280,7 +287,7 @@ function render() {
         </div>
         <div class="home-card-actions">
           ${!m && e ? `<button class="btn" type="button" data-rec="${escH(key)}">録音する</button>` : ""}
-          <a class="btn${!m && e && e.hasUrl ? " sf-btn-secondary" : ""}" href="history.html?company=${enc}">${openLabel}</a>
+          <a class="btn${!m && e && e.hasUrl ? " sf-btn-secondary" : ""}" href="${link}">${openLabel}</a>
           <button class="btn sf-btn-secondary" data-sf-open="${escH(key)}" type="button">${s.open ? "SF商談を閉じる" : "SF商談を選ぶ"}</button>
         </div>
       </div>
@@ -669,6 +676,12 @@ async function load() {
     const d = await r.json();
     allMeetings = Array.isArray(d) ? d : (d.meetings || []);
   } catch { allMeetings = []; }
+  try {
+    const rf = await fetch("/api/followups?days=3");
+    const df = await rf.json();
+    followups = {};
+    for (const x of (df.items || [])) followups[x.bot_id] = x;
+  } catch { followups = {}; }
   try {
     const rd = await fetch("/api/deals");
     const dd = await rd.json();

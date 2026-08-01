@@ -106,6 +106,9 @@ import {
   saveSetCache,
   listUsers,
   dbGetUser,
+  getFollowup,
+  saveFollowup,
+  listOpenFollowups,
   addUsageEvents,
   usageSummary,
   usageLabels,
@@ -4876,8 +4879,15 @@ app.get("/api/meetings/no-transcript", async (req, res) => {
 
 app.get("/api/meetings", async (req, res) => {
   try {
-    // 全員が全商談を閲覧できる
-    res.json(await listMeetings({ isAdmin: true }));
+    res.set("Cache-Control", "no-store");
+    // 全員が全商談を閲覧できる。期間を指定すると、その範囲を古いものまで取れる。
+    const ymd = /^\d{4}-\d{2}-\d{2}$/;
+    res.json(await listMeetings({
+      isAdmin: true,
+      from: ymd.test(String(req.query.from || "")) ? req.query.from : "",
+      to: ymd.test(String(req.query.to || "")) ? req.query.to : "",
+      limit: req.query.limit,
+    }));
   } catch (e) {
     sfErrorResponse(res, e);
   }
@@ -5596,6 +5606,32 @@ app.get("/api/salesforce/dashboards/:id", async (req, res) => {
     res.json(await describeDashboard(req.user, req.params.id));
   } catch (e) {
     sfErrorResponse(res, e);
+  }
+});
+
+// ===== 商談後にやること（御礼メール・次回アクション・SF更新） =====
+app.get("/api/meetings/:id/followup", async (req, res) => {
+  try {
+    res.set("Cache-Control", "no-store");
+    res.json({ followup: (await getFollowup(req.params.id)) || {} });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+app.put("/api/meetings/:id/followup", async (req, res) => {
+  try {
+    await saveFollowup(req.params.id, req.body || {});
+    res.json({ ok: true, followup: (await getFollowup(req.params.id)) || {} });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+app.get("/api/followups", async (req, res) => {
+  try {
+    res.set("Cache-Control", "no-store");
+    res.json({ items: await listOpenFollowups(Number(req.query.days) || 3) });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
   }
 });
 

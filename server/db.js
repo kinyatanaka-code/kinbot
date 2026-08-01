@@ -232,6 +232,19 @@ export async function initDb() {
     );
   `);
   await pool.query(`CREATE INDEX IF NOT EXISTS usage_events_created_idx ON usage_events (created_at DESC);`);
+  // 商談後にやること（御礼メール・次回アクション・SF更新）の進み具合
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS meeting_followup (
+      bot_id       TEXT PRIMARY KEY,
+      thanks_done  BOOLEAN DEFAULT FALSE,
+      next_done    BOOLEAN DEFAULT FALSE,
+      sf_done      BOOLEAN DEFAULT FALSE,
+      next_date    DATE,
+      next_type    TEXT,
+      next_memo    TEXT,
+      updated_at   TIMESTAMPTZ DEFAULT now()
+    );
+  `);
   await pool.query(`
     CREATE TABLE IF NOT EXISTS kb_folders (
       path       TEXT PRIMARY KEY,
@@ -551,7 +564,7 @@ export async function saveMeeting(botId, { transcript, summary, suggestions, aiL
   }
 }
 
-export async function listMeetings({ owner, isAdmin } = {}) {
+export async function listMeetings({ owner, isAdmin, from, to, limit } = {}) {
   if (!pool) return [];
   const base = `SELECT m.bot_id, m.meeting_url, m.rep_name, m.title, m.owner,
                        m.round_no, m.phase, m.status, m.created_at, m.updated_at, m.summary, m.analysis, m.note,
@@ -560,13 +573,18 @@ export async function listMeetings({ owner, isAdmin } = {}) {
                 FROM meetings m LEFT JOIN users u ON u.email = m.owner`;
   // 文字起こしが無い（空配列/NULL）の商談は履歴に残さない
   const hasTranscript = `(jsonb_typeof(m.transcript)='array' AND jsonb_array_length(m.transcript) > 0)`;
-  if (isAdmin || !owner) {
-    const { rows } = await pool.query(`${base} WHERE ${hasTranscript} ORDER BY m.created_at DESC LIMIT 300`);
-    return rows;
+  const conds = [hasTranscript];
+  const vals = [];
+  if (!isAdmin && owner) {
+    vals.push(owner);
+    conds.push(`(m.owner=$${vals.length} OR m.owner IS NULL OR m.owner='')`);
   }
+  // 商談日でしぼる（日本時間の日付で比較）
+  if (from) { vals.push(from); conds.push(`(m.created_at AT TIME ZONE 'Asia/Tokyo')::date >= $${vals.length}::date`); }
+  if (to)   { vals.push(to);   conds.push(`(m.created_at AT TIME ZONE 'Asia/Tokyo')::date <= $${vals.length}::date`); }
+  const lim = Math.max(1, Math.min(3000, Number(limit) || 300));
   const { rows } = await pool.query(
-    `${base} WHERE (m.owner=$1 OR m.owner IS NULL OR m.owner='') AND ${hasTranscript} ORDER BY m.created_at DESC LIMIT 300`,
-    [owner]
+    `${base} WHERE ${conds.join(" AND ")} ORDER BY m.created_at DESC LIMIT ${lim}`, vals
   );
   return rows;
 }
@@ -2581,5 +2599,60 @@ export async function usageLabels(days = 30) {
         WHERE created_at >= now() - make_interval(days => ${d}) AND kind='click' AND label <> ''`
     );
     return rows.map((r) => r.label);
+  } catch { return []; }
+}
+
+
+// ===== 商談後にやること =====
+export async function getFollowup(botId) {
+  if (!pool || !botId) return null;
+  try {
+    const { rows } = await pool.query(`SELECT * FROM meeting_followup WHERE bot_id=$1`, [botId]);
+    return rows[0] || null;
+  } catch { return null; }
+}
+
+export async function saveFollowup(botId, f = {}) {
+  if (!pool || !botId) return;
+  const sets = [], vals = [botId];
+  const put = (col, v) => { vals.push(v); sets.push(`${col}=$${vals.length}`); };
+  if (f.thanksDone !== undefined) put("thanks_done", !!f.thanksDone);
+  if (f.nextDone !== undefined) put("next_done", !!f.nextDone);
+  if (f.sfDone !== undefined) put("sf_done", !!f.sfDone);
+  if (f.nextDate !== undefined) put("next_date", f.nextDate || null);
+  if (f.nextType !== undefined) put("next_type", f.nextType || "");
+  if (f.nextMemo !== undefined) put("next_memo", f.nextMemo || "");
+  if (!sets.length) return;
+  try {
+    await pool.query(
+      `INSERT INTO meeting_followup (bot_id) VALUES ($1) ON CONFLICT (bot_id) DO NOTHING`, [botId]
+    );
+    await pool.query(
+      `UPDATE meeting_followup SET ${sets.join(", ")}, updated_at=now() WHERE bot_id=$1`, vals
+    );
+  } catch (e) {
+    console.error("[followup]", e.message);
+  }
+}
+
+// まだ終わっていない商談後のフォロー（ホームの表示用）
+export async function listOpenFollowups(days = 3) {
+  if (!pool) return [];
+  const d = Math.max(1, Math.min(30, Number(days) || 3));
+  try {
+    const { rows } = await pool.query(
+      `SELECT m.bot_id, m.title, m.owner, m.created_at, u.name AS owner_name,
+              COALESCE(f.thanks_done,false) AS thanks_done,
+              COALESCE(f.next_done,false)   AS next_done,
+              COALESCE(f.sf_done,false)     AS sf_done
+         FROM meetings m
+         LEFT JOIN meeting_followup f ON f.bot_id = m.bot_id
+         LEFT JOIN users u ON u.email = m.owner
+        WHERE m.created_at >= now() - make_interval(days => ${d})
+          AND jsonb_typeof(m.transcript)='array' AND jsonb_array_length(m.transcript) > 0
+          AND NOT (COALESCE(f.thanks_done,false) AND COALESCE(f.next_done,false) AND COALESCE(f.sf_done,false))
+        ORDER BY m.created_at DESC LIMIT 50`
+    );
+    return rows;
   } catch { return []; }
 }

@@ -3508,3 +3508,35 @@ a.home-todo:hover .home-todo-t b { color: #0d5b47; text-decoration: underline; }
 .home-rec-pick .quick-link-btn { max-width: 240px; }
 .sr-group { font-size: 11px; font-weight: 700; color: var(--muted); margin: 10px 0 6px; padding-bottom: 4px; border-bottom: 1px solid var(--line); }
 .sr-group:first-child { margin-top: 0; }
+
+/* ---- 商談後にやること ---- */
+.af-card { border: 2px solid #5DCAA5; background: #f2fbf7; border-radius: 14px; padding: 14px 16px; margin: 12px 0 14px; }
+.af-card.is-done { border-color: var(--line); background: var(--panel-2); }
+.af-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 10px; }
+.af-title { font-size: 14px; font-weight: 700; color: #0d5b47; }
+.af-card.is-done .af-title { color: var(--muted); }
+.af-count { font-size: 13px; font-weight: 700; color: #1d9e75; }
+.af-steps { display: flex; flex-direction: column; gap: 8px; }
+.af-step { display: flex; align-items: flex-start; gap: 10px; background: var(--panel); border: 1px solid var(--line); border-radius: 11px; padding: 10px 12px; }
+.af-step.is-done { opacity: .6; }
+.af-no { flex: 0 0 22px; width: 22px; height: 22px; border-radius: 50%; background: #1d9e75; color: #fff; font-size: 12px; font-weight: 700; display: flex; align-items: center; justify-content: center; }
+.af-step.is-done .af-no { background: var(--muted); }
+.af-body { flex: 1; min-width: 0; }
+.af-body b { display: block; font-size: 13.5px; color: var(--ink); }
+.af-body em { display: block; font-style: normal; font-size: 11.5px; color: var(--muted); margin-top: 2px; }
+.af-next { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.af-next input[type="date"], .af-next select { min-height: 34px; font-size: 12.5px; padding: 4px 8px; border: 1px solid var(--line); border-radius: 8px; background: #fff; }
+.af-next input[type="text"] { flex: 1; min-width: 160px; min-height: 34px; font-size: 12.5px; padding: 4px 10px; border: 1px solid var(--line); border-radius: 8px; }
+.af-next .btn { font-size: 12.5px; padding: 7px 14px; }
+.af-act { flex: 0 0 auto; display: flex; align-items: center; gap: 8px; }
+.af-act .btn { font-size: 12px; padding: 7px 12px; }
+.af-chk { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; color: var(--muted); cursor: pointer; }
+.af-chk input { width: 16px; height: 16px; accent-color: #1d9e75; margin: 0; }
+.af-mail { width: 100%; margin-top: 10px; border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; font: inherit; font-size: 13px; line-height: 1.8; }
+.af-mail-act { display: flex; gap: 8px; margin-top: 8px; }
+.af-note { font-size: 12.5px; color: var(--muted); margin-top: 8px; }
+@media (max-width: 760px) {
+  .af-step { flex-wrap: wrap; }
+  .af-act { width: 100%; justify-content: flex-end; }
+}
+.home-badge-todo { color: #8a6d1f; background: #fbf3e0; }
