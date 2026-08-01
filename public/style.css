@@ -3775,3 +3775,81 @@ input:focus, select:focus, textarea:focus, .sf-input:focus, .sf-select:focus, .s
 .home-rank { gap: 11px; }
 .home-rank-t b { font-size: 12.5px; }
 .home-rank-t em { margin-top: 3px; }
+
+/* ============================================================
+   リッチ仕上げを、ホーム以外の画面にも広げる
+   ============================================================ */
+
+/* --- 大きな面（各ページの主要ブロック） --- */
+.hlist, .hdetail, .set-menu, .rep-panel > .rev-card, .ov-c, .na-card,
+.check-panel, .summary-panel, .transcript-panel, .coach-feed, .ai-feed,
+.active-block, .apidoc, .autojoin-setup, .kb-card, .sr-list, .sr-view {
+  border-radius: var(--kb-r-lg);
+}
+.hdetail, .set-menu, .ov-c, .active-block, .autojoin-setup {
+  background-image: linear-gradient(180deg, #ffffff 0%, #fbfdfc 100%);
+  border: 1px solid rgba(13, 91, 71, .07);
+  box-shadow: var(--kb-shadow-1), var(--kb-shadow-2);
+}
+.hlist { background: transparent; box-shadow: none; border: 0; }
+
+/* --- 中の小さな面 --- */
+.na-card, .ov-c, .hcard, .sr-item, .set-menu-item, .kb-item, .cal-row,
+.temp-q, .home-todo, .qa-row, .af-step, .ln-lead {
+  border-radius: var(--kb-r-sm);
+}
+.na-card, .sr-item, .kb-item { transition: transform .14s ease, border-color .14s ease, box-shadow .14s ease; }
+.na-card:hover, .sr-item:hover, .kb-item:hover { transform: translateY(-1px); box-shadow: var(--kb-shadow-1), var(--kb-shadow-2); }
+
+/* --- タブ類をすべてピル型にそろえる --- */
+/* ページ内のタブは、囲みのあるピル型に */
+.tabs, .live-tabs, .ins-level-tabs {
+  gap: 4px; border-bottom: 0; padding: 4px; background: var(--panel-2); border-radius: 999px; display: inline-flex; flex-wrap: wrap;
+}
+/* 上部バーのタブは、囲み無しでピル型だけ（ヘッダーが窮屈にならないように） */
+.hist-cat-tabs, .ana-top-tabs { gap: 4px; }
+.tabs .tab, .live-tabs button, .hist-cat-tab, .ana-top-tab, .ins-level-tab, .prod-tab {
+  border-radius: 999px; border: 0; border-bottom: 0; background: transparent; padding: 7px 16px; font-size: 12.5px; color: var(--muted); transition: background .15s ease, color .15s ease;
+}
+.tabs .tab.active, .live-tabs button.active, .hist-cat-tab.active, .ana-top-tab.active, .ins-level-tab.active, .prod-tab.active {
+  background: var(--panel); color: #0d5b47; font-weight: 700; box-shadow: var(--kb-shadow-1);
+}
+.tabs .tab.active::after, .hist-cat-tab.active::after, .ana-top-tab.active::after { display: none; }
+
+/* --- 絞り込みバー --- */
+.hfilters, .rep-controls, .hl-toolbar {
+  background: rgba(255,255,255,.7); -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px);
+  border: 1px solid rgba(13,91,71,.06); border-radius: var(--kb-r-lg);
+  padding: 12px 16px; margin: 0 0 12px;
+}
+.hfilters select, .hfilters input { border-radius: var(--kb-r-sm); }
+
+/* --- 設定のメニュー --- */
+.set-menu-item { margin: 0 8px 2px; padding-left: 14px; }
+.set-menu-item.active { background: linear-gradient(180deg, #e9f7f1, #ddf1e9); box-shadow: var(--kb-shadow-1); }
+.set-menu-item.active::before { display: none; }
+
+/* --- 表 --- */
+.sr-table-wrap, table.rep-table, .rev-table-wrap { border-radius: var(--kb-r-md); overflow: hidden; border: 1px solid rgba(13,91,71,.08); }
+.sr-table th, table.rep-table th { background: linear-gradient(180deg, #f7faf8, #eef4f1); }
+
+/* --- レコーディング画面 --- */
+.join-inner .panel, .live-pane .panel { border-radius: var(--kb-r-lg); }
+.coach-ask input { border-radius: 999px; padding: 11px 18px; }
+.coach-send { border-radius: 999px; }
+
+/* --- 商談履歴の詳細まわり --- */
+.dhead { padding-bottom: 12px; }
+.dactions .btn { padding: 9px 16px; font-size: 12.5px; }
+.hdetail h3 { color: #0d5b47; }
+
+/* --- 会社ページのボタン群 --- */
+.ov-actions .na-card { background-image: linear-gradient(180deg, #ffffff, #fbfdfc); }
+
+/* --- ページの余白をそろえる --- */
+.settings, .report-page, .home-wrap { padding-top: 22px; }
+
+@media (max-width: 760px) {
+  .hfilters, .rep-controls, .hl-toolbar { padding: 10px 12px; border-radius: var(--kb-r-md); }
+  .tabs, .live-tabs { width: 100%; justify-content: space-between; }
+}
