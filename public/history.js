@@ -370,23 +370,25 @@ function applyHistoryFilter() {
     if (isNaN(d)) return "";
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
   };
-  return allMeetings.filter((m) => {
-    // カテゴリタブによるフィルタ
+  // プロダクト以外の条件（カテゴリ・担当・検索語・期間）
+  window.passesNonProductFilters = (m) => {
     if (meetingCategory(m) !== histCatFilter) return false;
-    // プロダクト（DOC/MOCHICA）タブの絞り込み。実施者の所属で判定する。
-    // ただし担当者が未設定の商談は振り分けようがないので、どのプロダクトでも表示する。
-    const ownerForProduct = (m.owner_name || m.owner || "").trim();
-    if (ownerForProduct && window.kbProduct && !window.kbProduct.matches(ownerForProduct)) return false;
     if (owner && (m.owner || "").trim() !== owner) return false;
-    // 商談名の部分一致（会社名・担当者名など、タイトルに含まれる文字で検索）
     if (nameQ && !String(m.title || "").toLowerCase().includes(nameQ)) return false;
-    // 商談日の範囲。片方だけの指定でも動く。
     if (dFrom || dTo) {
       const md = mDate(m);
       if (!md) return false;
       if (dFrom && md < dFrom) return false;
       if (dTo && md > dTo) return false;
     }
+    return true;
+  };
+  return allMeetings.filter((m) => {
+    if (!window.passesNonProductFilters(m)) return false;
+    // プロダクト（DOC/MOCHICA）タブの絞り込み。実施者の所属で判定する。
+    // ただし担当者が未設定の商談は振り分けようがないので、どのプロダクトでも表示する。
+    const ownerForProduct = (m.owner_name || m.owner || "").trim();
+    if (ownerForProduct && window.kbProduct && !window.kbProduct.matches(ownerForProduct)) return false;
     return true;
   });
 }
@@ -573,7 +575,27 @@ function renderList() {
     // プロダクト絞り込みが原因（全体では商談があるのに、このタブで0件）なら、その旨を出す
     const totalInView = allMeetings.filter((m) => (HIST_CAT_OTHER ? isOtherCat(m) : !isOtherCat(m))).length;
     if (p && totalInView > 0) {
-      e.innerHTML = `${escapeHtml(p)} に割り当てられた担当者の商談がありません。<br><span style="font-size:12px;color:var(--muted)">設定→チーム編集で担当者に「${escapeHtml(p)}」を割り当てるか、右上で「全体」を選んでください。</span>`;
+      // 絞り込みを外したら何件あるのか、誰の商談なのかを出す（原因が分かるように）
+      const wouldShow = allMeetings
+        .filter((m) => (HIST_CAT_OTHER ? isOtherCat(m) : !isOtherCat(m)))
+        .filter((m) => (window.passesNonProductFilters ? window.passesNonProductFilters(m) : true));
+      const owners = [...new Set(wouldShow.map((m) => (m.owner_name || m.owner || "（担当者なし）").trim()))].slice(0, 8);
+      e.innerHTML =
+        `${escapeHtml(p)} のタブでは0件です。` +
+        (wouldShow.length
+          ? `<br><span style="font-size:12px;color:var(--muted)">「全体」なら${wouldShow.length}件あります。担当者：${escapeHtml(owners.join("、"))}<br>` +
+            `この担当者が ${escapeHtml(p)} に割り当てられていないため隠れています。設定→チーム編集で割り当てるか、右上で「全体」を選んでください。</span>` +
+            `<br><button type="button" class="btn ghost" id="histShowAll" style="margin-top:10px">全体で表示する</button>`
+          : `<br><span style="font-size:12px;color:var(--muted)">条件（期間・担当・検索語）に合う商談がありません。</span>`);
+      setTimeout(() => {
+        const b = document.getElementById("histShowAll");
+        if (b) b.addEventListener("click", () => {
+          // 「全体」タブを押したのと同じ動きにする
+          const all = document.querySelector(".prod-tab");
+          if (all) { all.click(); return; }
+          if (window.kbProduct && window.kbProduct.setCurrent) { window.kbProduct.setCurrent(""); location.reload(); }
+        });
+      }, 0);
     } else {
       e.textContent = "該当する商談がありません。";
     }

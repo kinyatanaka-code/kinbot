@@ -220,6 +220,18 @@ export async function initDb() {
     );
   `);
   await pool.query(`CREATE INDEX IF NOT EXISTS qa_bank_created_idx ON qa_bank (created_at DESC);`);
+  // 利用状況（どの画面のどこが押されているか）
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS usage_events (
+      id         BIGSERIAL PRIMARY KEY,
+      owner      TEXT,
+      page       TEXT,
+      kind       TEXT,
+      label      TEXT,
+      created_at TIMESTAMPTZ DEFAULT now()
+    );
+  `);
+  await pool.query(`CREATE INDEX IF NOT EXISTS usage_events_created_idx ON usage_events (created_at DESC);`);
   await pool.query(`
     CREATE TABLE IF NOT EXISTS kb_folders (
       path       TEXT PRIMARY KEY,
@@ -2510,5 +2522,64 @@ export async function recentMeetingUrls(limit = 600) {
         ORDER BY created_at DESC LIMIT $1`, [limit]
     );
     return rows;
+  } catch { return []; }
+}
+
+
+// ===== 利用状況 =====
+export async function addUsageEvents(owner, events) {
+  if (!pool || !Array.isArray(events) || !events.length) return 0;
+  const rows = events.slice(0, 100);
+  try {
+    const vals = [];
+    const ph = rows.map((e, i) => {
+      const b = i * 4;
+      vals.push(owner || "", String(e.page || "").slice(0, 60), String(e.kind || "click").slice(0, 20), String(e.label || "").slice(0, 120));
+      return `($${b + 1},$${b + 2},$${b + 3},$${b + 4})`;
+    }).join(",");
+    await pool.query(`INSERT INTO usage_events (owner, page, kind, label) VALUES ${ph}`, vals);
+    return rows.length;
+  } catch (e) {
+    console.error("[usage]", e.message);
+    return 0;
+  }
+}
+
+export async function usageSummary(days = 14) {
+  if (!pool) return null;
+  const d = Math.max(1, Math.min(180, Number(days) || 14));
+  const since = `now() - make_interval(days => ${d})`;
+  const q = async (sql) => { try { return (await pool.query(sql)).rows; } catch { return []; } };
+  const [byDay, byPage, topActions, byUser, total] = await Promise.all([
+    q(`SELECT to_char(created_at AT TIME ZONE 'Asia/Tokyo','YYYY-MM-DD') AS day,
+              COUNT(*) AS events, COUNT(DISTINCT owner) AS users
+         FROM usage_events WHERE created_at >= ${since}
+        GROUP BY 1 ORDER BY 1`),
+    q(`SELECT page, COUNT(*) FILTER (WHERE kind='page') AS views, COUNT(*) FILTER (WHERE kind='click') AS clicks
+         FROM usage_events WHERE created_at >= ${since}
+        GROUP BY page ORDER BY views DESC NULLS LAST, clicks DESC LIMIT 30`),
+    q(`SELECT page, label, COUNT(*) AS n
+         FROM usage_events WHERE created_at >= ${since} AND kind='click' AND label <> ''
+        GROUP BY page, label ORDER BY n DESC LIMIT 40`),
+    q(`SELECT owner, COUNT(*) AS events,
+              COUNT(DISTINCT to_char(created_at AT TIME ZONE 'Asia/Tokyo','YYYY-MM-DD')) AS days,
+              MAX(created_at) AS last_at
+         FROM usage_events WHERE created_at >= ${since} AND owner <> ''
+        GROUP BY owner ORDER BY events DESC LIMIT 50`),
+    q(`SELECT COUNT(*) AS events, COUNT(DISTINCT owner) AS users FROM usage_events WHERE created_at >= ${since}`),
+  ]);
+  return { days: d, byDay, byPage, topActions, byUser, total: total[0] || { events: 0, users: 0 } };
+}
+
+// 使われていない機能を出すために、押された操作名の一覧を返す
+export async function usageLabels(days = 30) {
+  if (!pool) return [];
+  const d = Math.max(1, Math.min(180, Number(days) || 30));
+  try {
+    const { rows } = await pool.query(
+      `SELECT DISTINCT label FROM usage_events
+        WHERE created_at >= now() - make_interval(days => ${d}) AND kind='click' AND label <> ''`
+    );
+    return rows.map((r) => r.label);
   } catch { return []; }
 }

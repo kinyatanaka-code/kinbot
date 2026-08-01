@@ -35,6 +35,7 @@
             <button class="rep-tab" data-rp="detail">詳細</button>
             <button class="rep-tab" data-rp="insights">インサイト</button>
             <button class="rep-tab" data-rp="interns">インターンアポ</button>
+            <button class="rep-tab" data-rp="usage">利用状況</button>
           </div>
 
           <!-- サマリー（ファネル） -->
@@ -96,6 +97,24 @@
             </div>
             <div id="pipelineBody"><div class="empty-state">読み込み中…</div></div>
 
+          </section>
+
+          <!-- 利用状況（どの画面のどこが使われているか） -->
+          <section class="rep-panel" data-rpanel="usage" hidden>
+            <h3 class="rep-section-title">利用状況</h3>
+            <p class="note">kinbotのどの画面・どのボタンが使われているかを集計します。使われていない機能を見つけて直すための数字です。</p>
+            <div class="rep-controls">
+              <label>期間
+                <select id="ugDays">
+                  <option value="7">直近7日</option>
+                  <option value="14" selected>直近14日</option>
+                  <option value="30">直近30日</option>
+                </select>
+              </label>
+              <button class="btn ghost" id="ugReload">更新</button>
+              <span class="rev-status" id="ugStatus"></span>
+            </div>
+            <div id="ugBody"><div class="empty-state">読み込み中…</div></div>
           </section>
 
           <!-- インターンアポ（メニューバーから直接開ける） -->

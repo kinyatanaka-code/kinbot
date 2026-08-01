@@ -106,6 +106,9 @@ import {
   saveSetCache,
   listUsers,
   dbGetUser,
+  addUsageEvents,
+  usageSummary,
+  usageLabels,
   listQaBank,
   qaBankBotIds,
   deleteQaBank,
@@ -5593,6 +5596,27 @@ app.get("/api/salesforce/dashboards/:id", async (req, res) => {
     res.json(await describeDashboard(req.user, req.params.id));
   } catch (e) {
     sfErrorResponse(res, e);
+  }
+});
+
+// ===== 利用状況（どの画面のどこが押されているか） =====
+app.post("/api/usage", async (req, res) => {
+  try {
+    const events = (req.body && req.body.events) || [];
+    await addUsageEvents(req.user || "", events);
+    res.json({ ok: true });
+  } catch {
+    res.json({ ok: false });
+  }
+});
+app.get("/api/usage/summary", async (req, res) => {
+  try {
+    res.set("Cache-Control", "no-store");
+    const days = Number(req.query.days) || 14;
+    const [sum, labels] = await Promise.all([usageSummary(days), usageLabels(Math.max(30, days))]);
+    res.json({ ...(sum || {}), labels });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
   }
 });
 

@@ -13,6 +13,7 @@ function repShowPanel(rp) {
   if (rp === "daily") loadDaily();
   if (rp === "pipeline") loadPipeline();
   if (rp === "interns") loadInternDash();
+  if (rp === "usage") loadUsage();
   if (rp === "insights") loadInsights();
 }
 (function () {
@@ -819,3 +820,87 @@ function renderInternDash(body, d) {
     if (typeof loadInsights === "function" && document.querySelector('[data-rpanel="insights"]:not([hidden])')) loadInsights();
   }, { renderOnMount: false }); // 初回のfunnel取得には既にproductが乗っているため
 })();
+
+
+// ===== 利用状況 =====
+const UG_FEATURES = [
+  { page: "home", label: "録音する", name: "ホーム：予定から録音" },
+  { page: "home", label: "SF商談を選ぶ", name: "ホーム：SF商談を選ぶ" },
+  { page: "home", label: "リスケ失注", name: "ホーム：リスケ失注" },
+  { page: "home", label: "メンバー", name: "ホーム：メンバー別ランキング" },
+  { page: "home", label: "振れ幅", name: "ホーム：振れ幅で並べ替え" },
+  { page: "home", label: "進め方", name: "ホーム：進め方で並べ替え" },
+  { page: "index", label: "Botを入室させる", name: "レコーディング：入室" },
+  { page: "history", label: "商談を開く", name: "商談履歴：商談を開く" },
+  { page: "history", label: "SF更新", name: "商談履歴：SF更新" },
+  { page: "sf-launch", label: "リードを探す", name: "Salesforce：リードを探す" },
+  { page: "sf-launch", label: "レポート", name: "Salesforce：レポート" },
+  { page: "sf-launch", label: "ダッシュボード", name: "Salesforce：ダッシュボード" },
+  { page: "report", label: "インサイト", name: "分析：インサイト" },
+  { page: "settings", label: "自社ナレッジ", name: "設定：自社ナレッジ" },
+];
+
+async function loadUsage() {
+  const box = $("ugBody");
+  if (!box) return;
+  box.innerHTML = '<div class="empty-state">読み込み中…</div>';
+  const days = ($("ugDays") && $("ugDays").value) || 14;
+  try {
+    const r = await fetch("/api/usage/summary?days=" + encodeURIComponent(days));
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.error || "取得に失敗しました");
+    const esc = (v) => String(v == null ? "" : v).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+    const st = $("ugStatus");
+    if (st) st.textContent = `${(d.total && d.total.events) || 0}操作 / ${(d.total && d.total.users) || 0}人`;
+
+    const bars = (rows, labelKey, valKey, max) => {
+      const m = Math.max(1, ...rows.map((x) => Number(x[valKey]) || 0));
+      return rows.slice(0, max || 20).map((x) => `
+        <div class="sr-bar-row">
+          <span class="sr-bar-label" title="${esc(x[labelKey])}">${esc(x[labelKey])}</span>
+          <span class="sr-bar-track"><span class="sr-bar-fill" style="width:${Math.max(2, Math.round((Number(x[valKey]) || 0) / m * 100))}%"></span></span>
+          <span class="sr-bar-val">${esc(x[valKey])}</span>
+        </div>`).join("");
+    };
+
+    const pages = (d.byPage || []).map((x) => ({ page: x.page || "(不明)", n: Number(x.views) + Number(x.clicks) }));
+    const actions = (d.topActions || []).map((x) => ({ label: `${x.page}：${x.label}`, n: Number(x.n) }));
+    const usedSet = new Set((d.labels || []).map((x) => String(x)));
+    const unused = UG_FEATURES.filter((f) => ![...usedSet].some((u) => u.includes(f.label)));
+
+    box.innerHTML =
+      `<div class="sr-chart"><div class="sr-chart-h">日ごとの利用（操作数 / 人数）</div>` +
+      (d.byDay || []).map((x) => `
+        <div class="sr-bar-row">
+          <span class="sr-bar-label">${esc(x.day)}</span>
+          <span class="sr-bar-track"><span class="sr-bar-fill" style="width:${Math.max(2, Math.round(Number(x.events) / Math.max(1, ...(d.byDay || []).map((y) => Number(y.events))) * 100))}%"></span></span>
+          <span class="sr-bar-val">${esc(x.events)} / ${esc(x.users)}人</span>
+        </div>`).join("") + `</div>` +
+
+      `<div class="sr-chart"><div class="sr-chart-h">よく開かれている画面</div>${bars(pages, "page", "n", 12)}</div>` +
+      `<div class="sr-chart"><div class="sr-chart-h">よく押されている操作</div>${bars(actions, "label", "n", 20)}</div>` +
+
+      `<div class="sr-chart"><div class="sr-chart-h">メンバー別の利用</div>` +
+      (d.byUser || []).map((x) => `
+        <div class="sr-bar-row">
+          <span class="sr-bar-label" title="${esc(x.owner)}">${esc(x.owner)}</span>
+          <span class="sr-bar-track"><span class="sr-bar-fill" style="width:${Math.max(2, Math.round(Number(x.events) / Math.max(1, ...(d.byUser || []).map((y) => Number(y.events))) * 100))}%"></span></span>
+          <span class="sr-bar-val">${esc(x.events)}操作 / ${esc(x.days)}日</span>
+        </div>`).join("") + `</div>` +
+
+      `<div class="sr-chart"><div class="sr-chart-h">まだ使われていない機能</div>` +
+      (unused.length
+        ? `<ul style="margin:0;padding-left:20px">` + unused.map((f) => `<li style="font-size:12.5px;line-height:1.9">${esc(f.name)}</li>`).join("") + `</ul>`
+        : `<div class="sr-chart-h" style="margin:0">主要な機能はひととおり使われています。</div>`) +
+      `</div>`;
+  } catch (e) {
+    box.innerHTML = `<div class="empty-state">${String(e.message)}</div>`;
+  }
+}
+
+document.addEventListener("DOMContentLoaded", () => {
+  const b = $("ugReload");
+  if (b) b.addEventListener("click", loadUsage);
+  const sel = $("ugDays");
+  if (sel) sel.addEventListener("change", loadUsage);
+});

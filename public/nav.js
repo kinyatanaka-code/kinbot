@@ -283,3 +283,54 @@ window.kbSheet = function (html) {
   if (here === "index.html" || here === "") a.classList.add("active");
   bar.appendChild(a);
 })();
+
+// ===== 利用状況の記録（どの画面のどこが押されているか） =====
+// 個人を責めるためではなく、使われていない機能を見つけて直すために使います。
+(function () {
+  if (!document.querySelector(".sidebar")) return; // ログイン画面などでは記録しない
+  const page = (location.pathname.split("/").pop() || "home.html").replace(/\.html$/, "");
+  let queue = [];
+  let timer = null;
+
+  const push = (kind, label) => {
+    queue.push({ page, kind, label: String(label || "").slice(0, 120) });
+    if (queue.length >= 20) flush();
+    else if (!timer) timer = setTimeout(flush, 15000);
+  };
+
+  function flush(useBeacon) {
+    if (timer) { clearTimeout(timer); timer = null; }
+    if (!queue.length) return;
+    const body = JSON.stringify({ events: queue });
+    queue = [];
+    try {
+      if (useBeacon && navigator.sendBeacon) {
+        navigator.sendBeacon("/api/usage", new Blob([body], { type: "application/json" }));
+      } else {
+        fetch("/api/usage", { method: "POST", headers: { "content-type": "application/json" }, body, keepalive: true }).catch(() => {});
+      }
+    } catch {}
+  }
+
+  // 画面を開いた
+  push("page", page);
+
+  // 押された場所を拾う（入力欄の中身は記録しません）
+  document.addEventListener("click", (ev) => {
+    const el = ev.target && ev.target.closest
+      ? ev.target.closest("a, button, [role=button], .rep-tab, .seg-btn, .side-item, .home-tg, .prod-tab, .set-menu-item, .home-rank-tab, .home-rank-round")
+      : null;
+    if (!el) return;
+    if (el.closest("input, textarea, select")) return;
+    const label =
+      el.dataset.track ||
+      el.getAttribute("aria-label") ||
+      (el.textContent || "").replace(/\s+/g, " ").trim().slice(0, 40) ||
+      el.className;
+    if (!label) return;
+    push("click", label);
+  }, true);
+
+  window.addEventListener("pagehide", () => flush(true));
+  document.addEventListener("visibilitychange", () => { if (document.hidden) flush(true); });
+})();
