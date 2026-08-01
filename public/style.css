@@ -3540,3 +3540,10 @@ a.home-todo:hover .home-todo-t b { color: #0d5b47; text-decoration: underline; }
   .af-act { width: 100%; justify-content: flex-end; }
 }
 .home-badge-todo { color: #8a6d1f; background: #fbf3e0; }
+
+/* ---- ホームのカード内パネル（メール・SF更新） ---- */
+.home-inline { margin-top: 12px; padding-top: 12px; border-top: 1px dashed var(--line); }
+.home-inline-h { display: flex; align-items: center; font-size: 12.5px; font-weight: 700; color: #0d5b47; margin-bottom: 9px; }
+.home-mail-subj { width: 100%; border: 1px solid var(--line); border-radius: 9px; padding: 8px 11px; font: inherit; font-size: 13px; margin-bottom: 8px; }
+.home-mail-body { width: 100%; border: 1px solid var(--line); border-radius: 9px; padding: 10px 12px; font: inherit; font-size: 13px; line-height: 1.85; resize: vertical; }
+.home-sf-frame { width: 100%; height: 70vh; min-height: 460px; border: 1px solid var(--line); border-radius: 10px; background: var(--panel); display: block; }

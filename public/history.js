@@ -1046,7 +1046,6 @@ async function loadDetail(botId, openTab, opts = {}) {
           <button class="btn danger" id="delBtn">削除</button>
         </div>
       </div>
-      <div id="afterCard"></div>
       <div class="dmeta-edit">
         <label>営業担当 <select id="mOwner"><option value="">未設定</option></select></label>
         <label>日時 <input type="datetime-local" id="mDatetime" /></label>
@@ -1875,7 +1874,6 @@ async function loadDetail(botId, openTab, opts = {}) {
     });
 
     renderSummaryInto(hdetail.querySelector("#dsummary"), s);
-    renderAfterCard(botId, m); // 商談後にやること
     const noteWrap = hdetail.querySelector("#dnoteWrap");
     if (noteWrap && m.note && m.note.trim()) {
       noteWrap.innerHTML = `<div class="dlabel">📝 商談メモ</div><div class="dnote">${escapeHtml(m.note)}</div>`;
@@ -2275,144 +2273,6 @@ function tempTile(label, value, sub, tone) {
     <div class="temp-tile-l">${escapeHtml(label)}</div>
     ${sub ? `<div class="temp-tile-s">${sub}</div>` : ""}
   </div>`;
-}
-
-// ===== 商談後にやること（3つ済ませれば終わり） =====
-async function renderAfterCard(botId, meeting) {
-  const el = hdetail.querySelector("#afterCard");
-  if (!el || !botId) return;
-  let f = {};
-  try {
-    const r = await fetch(`/api/meetings/${encodeURIComponent(botId)}/followup`);
-    const d = await r.json();
-    f = (d && d.followup) || {};
-  } catch {}
-
-  const done = [!!f.thanks_done, !!f.next_done, !!f.sf_done];
-  const n = done.filter(Boolean).length;
-  const company = companyFromTitleH(meeting && meeting.title) || "";
-  const dt = (f.next_date || "").slice(0, 10);
-
-  el.innerHTML = `
-    <div class="af-card${n === 3 ? " is-done" : ""}">
-      <div class="af-head">
-        <span class="af-title">${n === 3 ? "商談後の対応は完了しています" : "商談が終わったら、この3つだけ"}</span>
-        <span class="af-count">${n}/3</span>
-      </div>
-      <div class="af-steps">
-        <div class="af-step${done[0] ? " is-done" : ""}">
-          <span class="af-no">1</span>
-          <span class="af-body">
-            <b>御礼メールを送る</b>
-            <em>要約から文面を作ります</em>
-          </span>
-          <span class="af-act">
-            <button type="button" class="btn ghost" id="afThanks">文面を作る</button>
-            <label class="af-chk"><input type="checkbox" data-af="thanksDone" ${done[0] ? "checked" : ""}/>済</label>
-          </span>
-        </div>
-        <div class="af-step${done[1] ? " is-done" : ""}">
-          <span class="af-no">2</span>
-          <span class="af-body">
-            <b>次回アクションを決める</b>
-            <div class="af-next">
-              <input type="date" id="afDate" value="${escapeHtml(dt)}" />
-              <select id="afType">
-                <option value="">種別</option>
-                <option value="再商談">再商談</option>
-                <option value="電話">電話</option>
-                <option value="メール">メール</option>
-                <option value="資料送付">資料送付</option>
-                <option value="見積提出">見積提出</option>
-                <option value="社内確認待ち">社内確認待ち</option>
-              </select>
-              <input type="text" id="afMemo" placeholder="内容（例：稟議資料を送る）" value="${escapeHtml(f.next_memo || "")}" />
-              <button type="button" class="btn" id="afSaveNext">保存</button>
-            </div>
-          </span>
-          <span class="af-act"><label class="af-chk"><input type="checkbox" data-af="nextDone" ${done[1] ? "checked" : ""}/>済</label></span>
-        </div>
-        <div class="af-step${done[2] ? " is-done" : ""}">
-          <span class="af-no">3</span>
-          <span class="af-body">
-            <b>Salesforceを更新する</b>
-            <em>ステージ・項目・活動記録</em>
-          </span>
-          <span class="af-act">
-            <button type="button" class="btn ghost" id="afSf">SF更新を開く</button>
-            <label class="af-chk"><input type="checkbox" data-af="sfDone" ${done[2] ? "checked" : ""}/>済</label>
-          </span>
-        </div>
-      </div>
-      <div id="afThanksBox"></div>
-    </div>`;
-
-  const save = async (patch) => {
-    try {
-      await fetch(`/api/meetings/${encodeURIComponent(botId)}/followup`, {
-        method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify(patch),
-      });
-    } catch {}
-  };
-
-  el.querySelectorAll("[data-af]").forEach((c) => {
-    c.addEventListener("change", async () => {
-      await save({ [c.dataset.af]: c.checked });
-      renderAfterCard(botId, meeting);
-    });
-  });
-
-  const typeSel = el.querySelector("#afType");
-  if (typeSel && f.next_type) typeSel.value = f.next_type;
-
-  const sn = el.querySelector("#afSaveNext");
-  if (sn) sn.addEventListener("click", async () => {
-    const d = el.querySelector("#afDate").value;
-    const t = el.querySelector("#afType").value;
-    const memo = el.querySelector("#afMemo").value;
-    if (!d && !t && !memo) { alert("日付か内容を入れてください。"); return; }
-    sn.disabled = true; sn.textContent = "保存中…";
-    await save({ nextDate: d, nextType: t, nextMemo: memo, nextDone: true });
-    renderAfterCard(botId, meeting);
-  });
-
-  const th = el.querySelector("#afThanks");
-  if (th) th.addEventListener("click", async () => {
-    const box = el.querySelector("#afThanksBox");
-    box.innerHTML = '<div class="af-note">文面を作っています…</div>';
-    try {
-      const r = await fetch(`/api/meetings/${encodeURIComponent(botId)}/thanks`, { method: "POST", headers: { "content-type": "application/json" }, body: "{}" });
-      const d = await r.json();
-      const body = d.body || d.text || d.mail || "";
-      if (!body) throw new Error(d.error || "文面を作れませんでした");
-      const subject = d.subject || `【御礼】${company || "本日"}のお打ち合わせについて`;
-      box.innerHTML =
-        `<textarea class="af-mail" rows="8">${escapeHtml(body)}</textarea>
-         <div class="af-mail-act">
-           <button type="button" class="btn" id="afCopy">コピー</button>
-           <a class="btn ghost" id="afMailto" href="#">メールを開く</a>
-         </div>`;
-      const ta = box.querySelector(".af-mail");
-      box.querySelector("#afCopy").addEventListener("click", () => {
-        navigator.clipboard.writeText(ta.value).then(() => {
-          box.querySelector("#afCopy").textContent = "コピーしました";
-          save({ thanksDone: true });
-        }).catch(() => {});
-      });
-      box.querySelector("#afMailto").href =
-        `mailto:?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
-      box.querySelector("#afMailto").addEventListener("click", () => save({ thanksDone: true }));
-    } catch (e) {
-      box.innerHTML = `<div class="af-note">${escapeHtml(e.message)}</div>`;
-    }
-  });
-
-  const sf = el.querySelector("#afSf");
-  if (sf) sf.addEventListener("click", () => {
-    save({ sfDone: true });
-    window._kbSfLose = false;
-    showSubEmbed("salesforce", "SF更新");
-  });
 }
 
 function renderMetricsInto(el, tr, repName) {

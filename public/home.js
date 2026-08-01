@@ -11,7 +11,6 @@ let meEmail = "";
 let allMeetings = [];
 let dayEvents = [];
 let allDeals = [];
-let followups = {}; // bot_id → 商談後の進み具合
 let rankSort = "score";
 let rankRound = "";
 let rankBy = "deal";
@@ -251,11 +250,6 @@ function render() {
     let badges = "";
     if (m) {
       badges += '<span class="home-badge home-badge-done">商談済み</span>';
-      const fu = followups[m.bot_id];
-      if (fu) {
-        const n = [fu.thanks_done, fu.next_done, fu.sf_done].filter(Boolean).length;
-        badges += `<span class="home-badge home-badge-todo">商談後 ${n}/3</span>`;
-      }
       if (m.phase) badges += `<span class="home-badge">${escH(m.phase)}</span>`;
       if (m.status) badges += `<span class="home-badge home-badge-st">${escH(m.status)}</span>`;
     } else if (e) {
@@ -287,8 +281,10 @@ function render() {
         </div>
         <div class="home-card-actions">
           ${!m && e ? `<button class="btn" type="button" data-rec="${escH(key)}">録音する</button>` : ""}
-          <a class="btn${!m && e && e.hasUrl ? " sf-btn-secondary" : ""}" href="${link}">${openLabel}</a>
-          <button class="btn sf-btn-secondary" data-sf-open="${escH(key)}" type="button">${s.open ? "SF商談を閉じる" : "SF商談を選ぶ"}</button>
+          ${m && m.bot_id ? `<button class="btn" type="button" data-mail="${escH(m.bot_id)}" data-key="${escH(key)}">御礼メール</button>` : ""}
+          ${m ? `<button class="btn sf-btn-secondary" type="button" data-sfedit="${escH(key)}">SF更新</button>` : ""}
+          <a class="btn sf-btn-secondary" href="${link}">${openLabel}</a>
+          ${!m ? `<button class="btn sf-btn-secondary" data-sf-open="${escH(key)}" type="button">${s.open ? "SF商談を閉じる" : "SF商談を選ぶ"}</button>` : ""}
         </div>
       </div>
       ${sfPanelHtml(key, { title })}
@@ -451,6 +447,74 @@ async function sfLose(key) {
   }
 }
 
+// カードの中にパネルを出す（画面を移動せずに操作する）
+function cardPanel(key, html) {
+  const card = document.querySelector(`[data-card="${cssEsc(key)}"]`);
+  if (!card) return null;
+  const old = card.querySelector(".home-inline");
+  if (old) old.remove();
+  const box = document.createElement("div");
+  box.className = "home-inline";
+  box.innerHTML = html;
+  card.appendChild(box);
+  if (box.scrollIntoView) box.scrollIntoView({ behavior: "smooth", block: "nearest" });
+  return box;
+}
+
+// 御礼メールをその場で作る
+async function openMail(botId, key) {
+  const box = cardPanel(key, '<div class="home-inline-h">御礼メール</div><div class="home-sf-msg">文面を作っています…</div>');
+  if (!box) return;
+  try {
+    const r = await fetch(`/api/meetings/${encodeURIComponent(botId)}/thanks`, {
+      method: "POST", headers: { "content-type": "application/json" }, body: "{}",
+    });
+    const d = await r.json().catch(() => ({}));
+    const body = d.body || d.text || "";
+    if (!body) throw new Error(d.error || "文面を作れませんでした");
+    const subject = d.subject || "【御礼】本日のお打ち合わせについて";
+    box.innerHTML =
+      `<div class="home-inline-h">御礼メール</div>
+       <input type="text" class="home-mail-subj" value="${escH(subject)}" />
+       <textarea class="home-mail-body" rows="10">${escH(body)}</textarea>
+       <div class="home-sf-row">
+         <button type="button" class="btn" data-mailcopy="1">コピー</button>
+         <a class="btn sf-btn-secondary home-sf-mini" data-mailto="1" href="#">メールを開く</a>
+         <button type="button" class="btn sf-btn-secondary home-sf-mini" data-inline-close="1">閉じる</button>
+       </div>`;
+    const ta = box.querySelector(".home-mail-body");
+    const su = box.querySelector(".home-mail-subj");
+    const sync = () => {
+      box.querySelector("[data-mailto]").href =
+        `mailto:?subject=${encodeURIComponent(su.value)}&body=${encodeURIComponent(ta.value)}`;
+    };
+    sync();
+    su.addEventListener("input", sync);
+    ta.addEventListener("input", sync);
+    box.querySelector("[data-mailcopy]").addEventListener("click", (e) => {
+      navigator.clipboard.writeText(ta.value).then(() => {
+        e.target.textContent = "コピーしました";
+        setTimeout(() => { e.target.textContent = "コピー"; }, 1500);
+      }).catch(() => {});
+    });
+  } catch (e) {
+    box.innerHTML = `<div class="home-inline-h">御礼メール</div><div class="home-sf-err">${escH(e.message)}</div>
+      <div class="home-sf-row"><button type="button" class="btn sf-btn-secondary home-sf-mini" data-inline-close="1">閉じる</button></div>`;
+  }
+}
+
+// SF更新をカードの中で開く（商談履歴の画面と同じものを埋め込む）
+function openSfEdit(key) {
+  const it = homeItems[key];
+  if (!it) return;
+  const enc = encodeURIComponent(it.company || it.title || "");
+  cardPanel(key,
+    `<div class="home-inline-h">Salesforce 更新
+       <button type="button" class="home-sf-hide" data-inline-close="1" style="width:auto;padding:0 0 0 10px">閉じる</button>
+     </div>
+     <iframe class="home-sf-frame" src="deals.html?company=${enc}&embed=1&view=salesforce" title="SF更新"></iframe>`);
+}
+
 // 会議URLの候補が複数あるときは、どれで録音するかを選ばせる（1回選べば次から覚える）
 const REC_URL_KEY = "kinbot_rec_url";
 function recUrlPref() { try { return JSON.parse(localStorage.getItem(REC_URL_KEY) || "{}"); } catch { return {}; } }
@@ -519,6 +583,12 @@ function wireList() {
   box.addEventListener("click", (ev) => {
     const rec = ev.target.closest("[data-rec]");
     if (rec) { startRecording(rec.dataset.rec); return; }
+    const mail = ev.target.closest("[data-mail]");
+    if (mail) { openMail(mail.dataset.mail, mail.dataset.key); return; }
+    const sfe = ev.target.closest("[data-sfedit]");
+    if (sfe) { openSfEdit(sfe.dataset.sfedit); return; }
+    const cls = ev.target.closest("[data-inline-close]");
+    if (cls) { const p = cls.closest(".home-inline"); if (p) p.remove(); return; }
     const openBtn = ev.target.closest("[data-sf-open]");
     if (openBtn) {
       const key = openBtn.dataset.sfOpen;
@@ -676,12 +746,6 @@ async function load() {
     const d = await r.json();
     allMeetings = Array.isArray(d) ? d : (d.meetings || []);
   } catch { allMeetings = []; }
-  try {
-    const rf = await fetch("/api/followups?days=3");
-    const df = await rf.json();
-    followups = {};
-    for (const x of (df.items || [])) followups[x.bot_id] = x;
-  } catch { followups = {}; }
   try {
     const rd = await fetch("/api/deals");
     const dd = await rd.json();
