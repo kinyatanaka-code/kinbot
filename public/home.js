@@ -280,11 +280,11 @@ function render() {
           ${summary ? `<div class="home-card-sum">${escH(summary)}</div>` : ""}
         </div>
         <div class="home-card-actions">
-          ${!m && e ? `<button class="btn" type="button" data-rec="${escH(key)}">録音する</button>` : ""}
-          ${m && m.bot_id ? `<button class="btn" type="button" data-mail="${escH(m.bot_id)}" data-key="${escH(key)}">御礼メール</button>` : ""}
-          ${m ? `<button class="btn sf-btn-secondary" type="button" data-sfedit="${escH(key)}">SF更新</button>` : ""}
-          <a class="btn sf-btn-secondary" href="${link}">${openLabel}</a>
-          ${!m ? `<button class="btn sf-btn-secondary" data-sf-open="${escH(key)}" type="button">${s.open ? "SF商談を閉じる" : "SF商談を選ぶ"}</button>` : ""}
+          ${!m && e ? `<button class="btn" type="button" data-rec="${escH(key)}"><span class="lb-l">録音する</span><span class="lb-s">録音</span></button>` : ""}
+          ${m && m.bot_id ? `<button class="btn" type="button" data-mail="${escH(m.bot_id)}" data-key="${escH(key)}"><span class="lb-l">御礼メール</span><span class="lb-s">メール</span></button>` : ""}
+          ${m ? `<button class="btn sf-btn-secondary" type="button" data-sfedit="${escH(key)}"><span class="lb-l">SF更新</span><span class="lb-s">SF</span></button>` : ""}
+          <a class="btn sf-btn-secondary" href="${link}"><span class="lb-l">${openLabel}</span><span class="lb-s">開く</span></a>
+          ${!m ? `<button class="btn sf-btn-secondary" data-sf-open="${escH(key)}" type="button"><span class="lb-l">${s.open ? "SF商談を閉じる" : "SF商談を選ぶ"}</span><span class="lb-s">${s.open ? "閉じる" : "SF商談"}</span></button>` : ""}
         </div>
       </div>
       ${sfPanelHtml(key, { title })}

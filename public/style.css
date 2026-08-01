@@ -3930,3 +3930,46 @@ input:focus, select:focus, textarea:focus, .sf-input:focus, .sf-select:focus, .s
 }
 .qa-skeleton span:nth-child(2) { width: 88%; }
 .qa-skeleton span:nth-child(3) { width: 62%; }
+
+/* ============================================================
+   スマホでの見やすさ
+   ============================================================ */
+.lb-s { display: none; }
+
+@media (max-width: 760px) {
+  /* 上部：週バーと自分/全員を1行にまとめる */
+  .home-head { flex-direction: column; gap: 6px; margin-bottom: 10px; }
+  .home-head-right { display: flex; align-items: center; gap: 8px; }
+  .home-week { flex: 1; min-width: 0; }
+  .home-toggle { flex: 0 0 auto; }
+  .home-title { font-size: 16px; }
+  .home-wrap { padding-top: 12px; }
+
+  /* 時刻はカードの上に小さく置く */
+  .home-row { display: block; margin-bottom: 10px; }
+  .home-rail { font-size: 11px; color: var(--muted); padding: 0 0 3px 6px; text-align: left; width: auto; }
+
+  /* カードを詰める */
+  .home-card { padding: 12px 14px; }
+  .home-card-title { font-size: 13.5px; line-height: 1.45; }
+  .home-card-meta { font-size: 11px; margin-top: 4px; }
+  /* 要約は1行だけ。続きは商談を開いて読む */
+  .home-card-sum {
+    display: -webkit-box; -webkit-line-clamp: 1; -webkit-box-orient: vertical;
+    overflow: hidden; font-size: 11.5px; line-height: 1.6; margin-top: 5px;
+  }
+
+  /* ボタンは横1列。名前は短いほうを出す */
+  .home-card-row { flex-direction: column; gap: 10px; }
+  .home-card-actions { flex-direction: row; flex-wrap: wrap; gap: 6px; width: 100%; }
+  .home-card-actions .btn { flex: 1 1 auto; min-width: 0; padding: 9px 12px; font-size: 12px; }
+  .lb-l { display: none; }
+  .lb-s { display: inline; }
+
+  /* 右パネル：ミニカレンダーは隠し、ランキングだけ下に出す */
+  .home-side { display: block; margin-top: 16px; }
+  .home-panel-mini { display: none; }
+  .home-side .home-panel { margin-bottom: 12px; }
+  .home-rank-ring { width: 38px; height: 38px; flex: 0 0 38px; }
+  .home-rank-ring b { font-size: 12.5px; }
+}
