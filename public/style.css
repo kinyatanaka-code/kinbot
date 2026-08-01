@@ -3638,8 +3638,10 @@ a.home-todo:hover .home-todo-t b { color: #0d5b47; text-decoration: underline; }
 @keyframes kbRipple { to { transform: scale(2.6); opacity: 0; } }
 
 
-/* サイドバーの選択位置を、すべるバーで示す */
-.sidebar { position: relative; }
+/* サイドバーの選択位置を、すべるバーで示す（パソコンのみ。スマホは下タブなので付けない） */
+@media (min-width: 761px) {
+  .sidebar { position: relative; }
+}
 .side-marker {
   position: absolute; left: 6px; width: 3px; border-radius: 3px;
   background: linear-gradient(180deg, #9FE1CB, #5DCAA5);
@@ -3726,8 +3728,10 @@ input:focus, select:focus, textarea:focus, .sf-input:focus, .sf-select:focus, .s
   outline: none;
 }
 
-/* サイドバー：選択中を丸いカプセルに */
-.side-item { border-radius: 999px; margin: 0 6px 3px; padding-left: 14px; }
+/* サイドバー：選択中を丸いカプセルに（パソコンのみ） */
+@media (min-width: 761px) {
+  .side-item { border-radius: 999px; margin: 0 6px 3px; padding-left: 14px; }
+}
 .side-item.active {
   background: linear-gradient(180deg, rgba(255,255,255,.20), rgba(255,255,255,.10)) !important;
   box-shadow: 0 1px 0 rgba(255,255,255,.16) inset, 0 6px 16px -8px rgba(0,0,0,.5) !important;
@@ -4051,3 +4055,51 @@ input:focus, select:focus, textarea:focus, .sf-input:focus, .sf-select:focus, .s
 @keyframes kbToastIn { from { opacity: 0; transform: translateY(14px) scale(.96); } to { opacity: 1; transform: none; } }
 @keyframes kbToastOut { to { opacity: 0; transform: translateY(10px); } }
 @media (max-width: 760px) { .kb-toasts { bottom: 84px; } }
+
+@media (max-width: 760px) {
+  /* 下のタブバーを確実に画面下へ */
+  .sidebar { position: fixed !important; left: 0; right: 0; bottom: 0; top: auto; }
+  .side-marker { display: none; }
+  .side-item { margin: 0; padding-left: 1px; border-radius: 0; }
+}
+
+/* ---- スマホ：右上のメニューボタン ---- */
+.kb-menu-btn { display: none; }
+@media (max-width: 760px) {
+  /* 下タブはやめて、右上のメニューにまとめる */
+  .sidebar { display: none !important; }
+  .side-fab { display: none !important; }
+  .main { padding-bottom: 24px !important; }
+  .topbar { position: sticky; top: 0; z-index: 40; display: flex; align-items: center; gap: 10px; }
+  .kb-menu-btn {
+    display: inline-flex; align-items: center; justify-content: center;
+    margin-left: auto; flex: 0 0 auto; width: 40px; height: 40px;
+    border: 1px solid var(--line); border-radius: 12px;
+    background: var(--panel); color: #0d5b47; cursor: pointer;
+  }
+  .kb-menu-btn:active { transform: scale(.95); }
+  /* 「他メンバーとして操作」はメニューボタンと重ならない位置に */
+  .sidebar-imp-btn { display: none !important; }
+  .kb-toasts { bottom: 22px; }
+}
+.kb-menu { position: fixed; inset: 0; z-index: 800; }
+.kb-menu-back { position: absolute; inset: 0; background: rgba(4, 52, 44, .38); animation: kbFade .18s ease-out both; }
+.kb-menu-panel {
+  position: absolute; top: 0; right: 0; bottom: 0; width: min(78vw, 300px);
+  background: #0d5b47; padding: 12px 10px calc(16px + env(safe-area-inset-bottom));
+  display: flex; flex-direction: column; gap: 3px; overflow: auto;
+  animation: kbSlideIn .22s cubic-bezier(.2,.8,.2,1) both;
+  box-shadow: -10px 0 30px rgba(0,0,0,.3);
+}
+@keyframes kbSlideIn { from { transform: translateX(100%); } to { transform: none; } }
+.kb-menu-head { display: flex; align-items: center; gap: 10px; padding: 6px 8px 12px; margin-bottom: 6px; border-bottom: 1px solid rgba(255,255,255,.14); }
+.kb-menu-who { flex: 1; min-width: 0; font-size: 13px; color: #9FE1CB; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.kb-menu-x { flex: 0 0 auto; width: 34px; height: 34px; display: inline-flex; align-items: center; justify-content: center; border: 0; background: rgba(255,255,255,.12); color: #fff; border-radius: 10px; cursor: pointer; }
+.kb-menu-item {
+  display: flex; align-items: center; gap: 12px; padding: 13px 12px;
+  border-radius: 12px; color: #d8efe6; font-size: 14.5px; text-decoration: none;
+}
+.kb-menu-item .side-ico { width: 21px; height: 21px; background-color: currentColor; }
+.kb-menu-item:active { background: rgba(255,255,255,.10); }
+.kb-menu-item.is-on { background: rgba(255,255,255,.16); color: #fff; font-weight: 700; }
+.kb-menu-out { margin-top: auto; color: #9FE1CB; font-size: 13px; border-top: 1px solid rgba(255,255,255,.14); border-radius: 0; padding-top: 16px; }

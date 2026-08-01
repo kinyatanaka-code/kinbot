@@ -261,27 +261,80 @@ window.kbSheet = function (html) {
   return { el: back, close };
 };
 
-// 下部タブの中央に録音ボタンを差し込む（スマホ幅のときだけ見えます）
-// あわせて、スマホでは横幅が足りないのでタブ名を短くする
+// スマホ：右上のメニューボタンから、行き先を選ぶ
 (function () {
   const bar = document.querySelector(".sidebar");
-  if (!bar || bar.querySelector(".side-fab")) return;
-  if (window.kbIsMobile()) {
-    const SHORT = { "history.html": "履歴", "report.html": "分析", "report.html?panel=interns": "アポ", "sf-launch.html": "SF", "settings.html": "設定" };
-    bar.querySelectorAll(".side-item").forEach((a) => {
-      const key = (a.getAttribute("href") || "").split("/").pop();
-      const lb = a.querySelector(".side-label");
-      if (lb && SHORT[key]) lb.textContent = SHORT[key];
+  const topbar = document.querySelector(".topbar");
+  if (!bar || !topbar || topbar.querySelector(".kb-menu-btn")) return;
+
+  const btn = document.createElement("button");
+  btn.type = "button";
+  btn.className = "kb-menu-btn";
+  btn.setAttribute("aria-label", "メニュー");
+  btn.innerHTML =
+    '<svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>';
+  topbar.appendChild(btn);
+
+  const here = (location.pathname.split("/").pop() || "home.html") + location.search;
+  const items = [
+    { href: "home.html", label: "ホーム", ico: "ico-home" },
+    { href: "index.html", label: "レコーディング", ico: "ico-rec" },
+    { href: "history.html", label: "商談履歴", ico: "ico-hist" },
+    { href: "sf-launch.html", label: "Salesforce", ico: "ico-deal" },
+    { href: "report.html", label: "分析", ico: "ico-ana" },
+    { href: "report.html?panel=interns", label: "インターンアポ", ico: "ico-apo" },
+    { href: "settings.html", label: "設定", ico: "ico-set" },
+  ];
+
+  const open = () => {
+    if (document.querySelector(".kb-menu")) return;
+    const who = (document.getElementById("who") || {}).textContent || "";
+    const wrap = document.createElement("div");
+    wrap.className = "kb-menu";
+    wrap.innerHTML =
+      `<div class="kb-menu-back"></div>
+       <nav class="kb-menu-panel" aria-label="メニュー">
+         <div class="kb-menu-head">
+           <span class="kb-menu-who">${who ? who.replace(/[<>&]/g, "") : "kinbot"}</span>
+           <button type="button" class="kb-menu-x" aria-label="閉じる">
+             <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+           </button>
+         </div>
+         ${items.map((it) => {
+           const on = here === it.href || (it.href === "home.html" && (here === "" || here === "home.html"));
+           return `<a class="kb-menu-item${on ? " is-on" : ""}" href="${it.href}">
+             <span class="side-ico ${it.ico}"></span><span>${it.label}</span>
+           </a>`;
+         }).join("")}
+         <a class="kb-menu-item kb-menu-out" href="#" id="kbMenuLogout"><span>ログアウト</span></a>
+       </nav>`;
+    document.body.appendChild(wrap);
+    document.body.style.overflow = "hidden";
+    const close = () => { wrap.remove(); document.body.style.overflow = ""; };
+    wrap.querySelector(".kb-menu-back").addEventListener("click", close);
+    wrap.querySelector(".kb-menu-x").addEventListener("click", close);
+    const out = wrap.querySelector("#kbMenuLogout");
+    if (out) out.addEventListener("click", (e) => {
+      e.preventDefault();
+      const real = document.getElementById("logout");
+      if (real) real.click(); else location.href = "/logout";
     });
+    document.addEventListener("keydown", function esc(e) {
+      if (e.key === "Escape") { close(); document.removeEventListener("keydown", esc); }
+    });
+  };
+  btn.addEventListener("click", open);
+
+  // パソコンでは左のサイドバーに録音ボタンを出す（これまでどおり）
+  if (!bar.querySelector(".side-fab")) {
+    const a = document.createElement("a");
+    a.className = "side-fab";
+    a.href = "index.html";
+    a.setAttribute("aria-label", "レコーディング");
+    a.innerHTML = '<span class="side-ico ico-rec"></span>';
+    if (here.startsWith("index.html")) a.classList.add("active");
+    bar.appendChild(a);
   }
-  const a = document.createElement("a");
-  a.className = "side-fab";
-  a.href = "index.html";
-  a.setAttribute("aria-label", "レコーディング");
-  a.innerHTML = '<span class="side-ico ico-rec"></span>';
-  const here = (location.pathname.split("/").pop() || "home.html");
-  if (here === "index.html" || here === "") a.classList.add("active");
-  bar.appendChild(a);
 })();
 
 // ===== 利用状況の記録（どの画面のどこが押されているか） =====
