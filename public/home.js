@@ -228,7 +228,7 @@ function render() {
     html += `<div class="home-note">Googleカレンダーが連携されていません。設定で連携すると、予定がここに表示され、開始時刻にボットが自動入室します。</div>`;
   }
   if (calLoading) {
-    html += '<div class="home-empty">読み込み中…</div>';
+    html += '<div class="home-empty"><span class="empty-state is-loading">読み込み中…</span></div>';
     box.innerHTML = html;
     return;
   }
@@ -238,7 +238,7 @@ function render() {
     return;
   }
 
-  html += items.map((it) => {
+  html += items.map((it, idx) => {
     const e = it.ev, m = it.rec;
     const key = it.key;
     const s = sfOf(key);
@@ -271,7 +271,7 @@ function render() {
     const openLabel = m ? "商談を開く" : "会社を開く";
     const link = m && m.bot_id ? "history.html?m=" + encodeURIComponent(m.bot_id) : "history.html?company=" + enc;
     homeItems[key] = { title, time, company, done: !!m, link, openLabel };
-    return `<div class="home-row"><div class="home-rail">${escH(time)}</div><div class="home-card home-card-v${m ? " is-done" : " home-card-plan"}" data-card="${escH(key)}">
+    return `<div class="home-row" style="--i:${idx}"><div class="home-rail">${escH(time)}</div><div class="home-card home-card-v${m ? " is-done" : " home-card-plan"}" data-card="${escH(key)}">
       <div class="home-card-row">
         <div class="home-card-main">
           <div class="home-card-top"><span class="home-time">${escH(time)}</span>${badges}</div>
@@ -340,7 +340,7 @@ async function loadRank() {
   if (!box) return;
   const key = rankBy + ":" + (rankBy === "member" ? "all" : homeScope) + ":" + rankSort + ":" + rankRound;
   if (rankCache[key]) { renderRank(rankCache[key]); return; }
-  box.innerHTML = '<div class="home-panel-empty">読み込み中…</div>';
+  box.innerHTML = '<div class="home-panel-empty is-loading">読み込み中…</div>';
   try {
     // メンバー別は全員で比較する
     const scope = rankBy === "member" ? "all" : (homeScope === "mine" ? "mine" : "all");
@@ -351,6 +351,14 @@ async function loadRank() {
   } catch { rankCache[key] = []; }
   renderRank(rankCache[key]);
 }
+function animateRankNumbers() {
+  if (!window.kbCountUp) return;
+  document.querySelectorAll("#homeRank .home-rank-v").forEach((el) => {
+    const v = Number(el.textContent);
+    if (isFinite(v)) window.kbCountUp(el, v, 600);
+  });
+}
+
 function renderRank(items) {
   const box = $h("homeRank");
   if (!box) return;
@@ -373,6 +381,7 @@ function renderRank(items) {
           </div>`;
         }).join("")
       : '<div class="home-panel-empty">2件以上の商談があるメンバーがまだいません。</div>';
+    animateRankNumbers();
     return;
   }
   if (!items.length) {
@@ -396,6 +405,7 @@ function renderRank(items) {
       <span class="home-rank-v is-${tone}">${val}</span>
     </a>`;
   }).join("");
+  animateRankNumbers();
 }
 
 async function sfSearch(key) {

@@ -2396,6 +2396,14 @@ function renderMetricsInto(el, tr, repName) {
   const repQ = rep ? rep.questions : m.speakers.reduce((a, s) => a + s.questions, 0);
   html += `<p class="metric-note">自社からの質問：<b>${repQ}</b>回　／　お客様からの質問：<b>${t.custQuestions}</b>回　／　発話ターン合計：<b>${m.speakers.reduce((a, s) => a + s.turns, 0)}</b></p>`;
   el.innerHTML = html;
+  // スコアの数字を数え上げる
+  if (window.kbCountUp) {
+    el.querySelectorAll(".temp-score b").forEach((b) => window.kbCountUp(b, Number(b.textContent), 800));
+    el.querySelectorAll(".temp-tile-v").forEach((b) => {
+      const v = Number(String(b.textContent).replace(/[^\d-]/g, ""));
+      if (isFinite(v) && String(b.textContent).trim() === String(v)) window.kbCountUp(b, v, 600);
+    });
+  }
 }
 
 function renderAiInto(el, a) {

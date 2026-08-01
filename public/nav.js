@@ -334,3 +334,25 @@ window.kbSheet = function (html) {
   window.addEventListener("pagehide", () => flush(true));
   document.addEventListener("visibilitychange", () => { if (document.hidden) flush(true); });
 })();
+
+// 数字をぱらぱらと増やす（スコアなど）
+window.kbCountUp = function (el, to, ms) {
+  if (!el) return;
+  const target = Number(to);
+  if (!isFinite(target)) return;
+  if (window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+    el.textContent = String(target);
+    return;
+  }
+  const dur = ms || 700;
+  const start = performance.now();
+  const step = (now) => {
+    const p = Math.min(1, (now - start) / dur);
+    const eased = 1 - Math.pow(1 - p, 3);
+    el.textContent = String(Math.round(target * eased));
+    if (p < 1) requestAnimationFrame(step);
+    else el.textContent = String(target);
+  };
+  el.textContent = "0";
+  requestAnimationFrame(step);
+};

@@ -3547,3 +3547,61 @@ a.home-todo:hover .home-todo-t b { color: #0d5b47; text-decoration: underline; }
 .home-mail-subj { width: 100%; border: 1px solid var(--line); border-radius: 9px; padding: 8px 11px; font: inherit; font-size: 13px; margin-bottom: 8px; }
 .home-mail-body { width: 100%; border: 1px solid var(--line); border-radius: 9px; padding: 10px 12px; font: inherit; font-size: 13px; line-height: 1.85; resize: vertical; }
 .home-sf-frame { width: 100%; height: 70vh; min-height: 460px; border: 1px solid var(--line); border-radius: 10px; background: var(--panel); display: block; }
+
+/* ============================================================
+   動き（アニメーション）
+   端末の設定で「視差効果を減らす」にしている人には出しません
+   ============================================================ */
+@keyframes kbUp   { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
+@keyframes kbDown { from { opacity: 0; transform: translateY(-6px); } to { opacity: 1; transform: none; } }
+@keyframes kbFade { from { opacity: 0; } to { opacity: 1; } }
+@keyframes kbPop  { 0% { opacity: 0; transform: translateY(8px) scale(.98); } 60% { transform: translateY(0) scale(1.01); } 100% { opacity: 1; transform: none; } }
+@keyframes kbGrow { from { transform: scaleX(0); } to { transform: scaleX(1); } }
+@keyframes kbPulse { 0%,100% { box-shadow: 0 0 0 0 rgba(29,158,117,.45); } 50% { box-shadow: 0 0 0 8px rgba(29,158,117,0); } }
+@keyframes kbShimmer { 0% { background-position: -200px 0; } 100% { background-position: 200px 0; } }
+
+/* 一覧のカードは、少しずつずらして下から出す */
+.home-row, .hcard, .sr-item, .home-rank, .ls-row { animation: kbUp .3s cubic-bezier(.2,.8,.2,1) both; }
+.home-row { animation-delay: calc(var(--i, 0) * 35ms); }
+.hcard { animation-delay: calc(var(--i, 0) * 20ms); }
+
+/* カードの中で開くパネルは、上から降りてくる */
+.home-inline, .home-rec-pick, .home-sf, .ln-form, .sf-swap-box, .kb-sheet { animation: kbDown .22s ease-out both; }
+
+/* 商談中の即答カードは、少し弾ませて目立たせる */
+.qa-card { animation: kbPop .34s cubic-bezier(.2,.8,.3,1.15) both; }
+
+/* ゲージ・グラフの棒は、左から伸ばす */
+.temp-gauge span, .sr-bar-fill, .bar-fill, .home-todo-dot { transform-origin: left center; animation: kbGrow .7s cubic-bezier(.2,.8,.2,1) both; }
+.temp-curve polyline { stroke-dasharray: 600; stroke-dashoffset: 600; animation: kbLine 1s ease-out .1s forwards; }
+@keyframes kbLine { to { stroke-dashoffset: 0; } }
+.temp-curve circle { animation: kbFade .3s ease-out both; animation-delay: .5s; }
+
+/* 画面の中身をふわっと出す */
+.main > .home-wrap, .main > .history, .main > .settings, .main > .report-page { animation: kbFade .25s ease-out both; }
+
+/* 押したときの反応 */
+.btn { transition: transform .12s ease, filter .15s ease, background-color .15s ease, border-color .15s ease; }
+.btn:active { transform: scale(.97); }
+.home-card { transition: transform .16s ease, border-color .16s ease, box-shadow .16s ease; }
+.home-card:hover { transform: translateY(-2px); box-shadow: 0 6px 18px rgba(15,110,98,.10); }
+.sr-item, .home-sf-item, .ln-owner-item, .quick-link-btn { transition: transform .12s ease, border-color .12s ease, background .12s ease; }
+.sr-item:hover, .home-sf-item:hover, .quick-link-btn:hover { transform: translateY(-1px); }
+
+/* 録音中は、退出ボタンのそばの点を脈打たせる */
+.live-dot, .rec-dot, .badge-live { animation: kbPulse 1.8s ease-in-out infinite; }
+
+/* 読み込み中の表示を、流れる帯にする */
+.home-panel-empty.is-loading, .empty-state.is-loading {
+  background: linear-gradient(90deg, var(--panel-2) 25%, #eef3f0 50%, var(--panel-2) 75%);
+  background-size: 400px 100%;
+  animation: kbShimmer 1.2s linear infinite;
+  border-radius: 8px; color: transparent;
+}
+
+/* 数字が増えていくときのゆらぎを抑える */
+.temp-score b, .home-rank-v, .temp-move-n b { font-variant-numeric: tabular-nums; }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: .001ms !important; animation-iteration-count: 1 !important; transition-duration: .001ms !important; }
+}
