@@ -2012,33 +2012,53 @@ const mmss = (sec) => {
   return Math.floor(s / 60) + ":" + String(s % 60).padStart(2, "0");
 };
 
-function renderChapters(drec, video, meeting) {
+function renderChapters(drec, video, meeting, mediaUrl) {
   const wrap = drec.querySelector("#chWrap");
   if (!wrap || !meeting) return;
   let chapters = Array.isArray(meeting.chapters) ? meeting.chapters : [];
 
+  // まだ段階が無ければ、開いたときに自動で作る（1回だけ）
+  const make = async () => {
+    wrap.innerHTML = '<div class="ch-loading">商談の段階に分けています…</div>';
+    try {
+      const r = await fetch(`/api/meetings/${encodeURIComponent(meeting.bot_id)}/chapters`, { method: "POST" });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.error || "作成に失敗しました");
+      chapters = d.chapters || [];
+      meeting.chapters = chapters;
+      draw();
+    } catch (e) {
+      wrap.innerHTML = `<button type="button" class="btn ghost ch-make">段階を作り直す（${escapeHtml(e.message)}）</button>`;
+      const b = wrap.querySelector(".ch-make");
+      if (b) b.addEventListener("click", make);
+    }
+  };
+
+  const seekTo = (sec) => {
+    const el = drec.querySelector("video") || drec.querySelector("audio");
+    if (!el) return;
+    try { el.currentTime = Math.max(0, sec || 0); } catch {}
+    const p = el.play();
+    if (p && p.catch) p.catch(() => {});
+  };
+
   const draw = () => {
     if (!chapters.length) {
-      wrap.innerHTML = `<button type="button" class="btn ghost ch-make">商談の段階（ヒアリング・提案・クロージングなど）を出す</button>`;
-      const b = wrap.querySelector(".ch-make");
-      b.addEventListener("click", async () => {
-        b.disabled = true; b.textContent = "分けています…（30秒ほど）";
-        try {
-          const r = await fetch(`/api/meetings/${encodeURIComponent(meeting.bot_id)}/chapters`, { method: "POST" });
-          const d = await r.json();
-          if (!r.ok) throw new Error(d.error || "作成に失敗しました");
-          chapters = d.chapters || [];
-          meeting.chapters = chapters;
-          draw();
-        } catch (e) {
-          b.disabled = false; b.textContent = "もう一度試す（" + e.message + "）";
-        }
-      });
+      if (!renderChapters._busy) {
+        renderChapters._busy = true;
+        make().finally(() => { renderChapters._busy = false; });
+      }
       return;
     }
     const total = Math.max(1, chapters[chapters.length - 1].end || 1);
     wrap.innerHTML =
-      `<div class="ch-bar" role="group" aria-label="商談の段階">` +
+      `<div class="ch-track">
+         <div class="ch-hover" hidden>
+           <video class="ch-prev" muted playsinline preload="metadata"></video>
+           <div class="ch-hover-label"></div>
+           <div class="ch-hover-time"></div>
+         </div>
+         <div class="ch-bar" role="group" aria-label="商談の段階">` +
       chapters.map((c) => {
         const w = Math.max(2, ((c.end - c.start) / total) * 100);
         const col = PHASE_COLOR[c.phase] || "#9db3ab";
@@ -2046,7 +2066,7 @@ function renderChapters(drec, video, meeting) {
                   title="${escapeHtml(c.phase)}（${mmss(c.start)}〜）${c.note ? " " + escapeHtml(c.note) : ""}">
                   <span class="ch-seg-label">${escapeHtml(c.phase)}</span>
                 </button>`;
-      }).join("") + `</div>` +
+      }).join("") + `</div></div>` +
       `<div class="ch-list">` +
       chapters.map((c) => `
         <button type="button" class="ch-item" data-sec="${c.start}">
@@ -2056,15 +2076,63 @@ function renderChapters(drec, video, meeting) {
           <span class="ch-note">${escapeHtml(c.note || "")}</span>
         </button>`).join("") + `</div>`;
 
-    wrap.querySelectorAll("[data-sec]").forEach((b) => {
-      b.addEventListener("click", () => {
-        const el = drec.querySelector("video") || drec.querySelector("audio");
-        if (!el) return;
-        try { el.currentTime = Number(b.dataset.sec) || 0; } catch {}
-        const p = el.play();
-        if (p && p.catch) p.catch(() => {});
-      });
+    // 一覧をクリック → その段階の頭へ
+    wrap.querySelectorAll(".ch-item").forEach((b) => {
+      b.addEventListener("click", () => seekTo(Number(b.dataset.sec) || 0));
     });
+
+    const bar = wrap.querySelector(".ch-bar");
+    const hov = wrap.querySelector(".ch-hover");
+    const prev = wrap.querySelector(".ch-prev");
+    const lab = wrap.querySelector(".ch-hover-label");
+    const tm = wrap.querySelector(".ch-hover-time");
+
+    const durationOf = () => {
+      const el = drec.querySelector("video") || drec.querySelector("audio");
+      const d = el && el.duration;
+      return (d && isFinite(d) && d > 1) ? d : total;
+    };
+    const timeAt = (ev) => {
+      const r = bar.getBoundingClientRect();
+      const x = Math.max(0, Math.min(r.width, ev.clientX - r.left));
+      return (x / Math.max(1, r.width)) * durationOf();
+    };
+    const phaseAt = (t) => {
+      let c = chapters[0];
+      for (const x of chapters) if (t >= x.start) c = x;
+      return c || {};
+    };
+
+    let seekTimer = null;
+    if (bar) {
+      bar.addEventListener("mousemove", (ev) => {
+        if (!hov) return;
+        const t = timeAt(ev);
+        const c = phaseAt(t);
+        const r = bar.getBoundingClientRect();
+        const x = Math.max(0, Math.min(r.width, ev.clientX - r.left));
+        hov.hidden = false;
+        hov.style.left = Math.max(70, Math.min(r.width - 70, x)) + "px";
+        if (lab) lab.textContent = c.phase ? c.phase + (c.note ? " ・ " + c.note : "") : "";
+        if (tm) tm.textContent = mmss(t);
+        // 少し止まったら、その位置の映像を出す
+        if (prev && prev.dataset.ok === "1") {
+          clearTimeout(seekTimer);
+          seekTimer = setTimeout(() => { try { prev.currentTime = t; } catch {} }, 60);
+        }
+      });
+      bar.addEventListener("mouseleave", () => { if (hov) hov.hidden = true; });
+      bar.addEventListener("click", (ev) => seekTo(timeAt(ev)));
+    }
+
+    // プレビュー用の動画を用意する（同じ動画を音無しで読み込む）
+    if (prev && mediaUrl && !/\.m3u8(\?|$)/.test(mediaUrl)) {
+      prev.src = mediaUrl;
+      prev.addEventListener("loadedmetadata", () => { prev.dataset.ok = "1"; }, { once: true });
+      prev.addEventListener("error", () => { prev.dataset.ok = "0"; prev.style.display = "none"; }, { once: true });
+    } else if (prev) {
+      prev.style.display = "none";
+    }
 
     // 再生位置に合わせて、いまの段階を光らせる
     const el = drec.querySelector("video") || drec.querySelector("audio");
@@ -2107,7 +2175,7 @@ function setupRecordingPlayer(drec, d, meeting) {
      </div>`;
 
   const video = drec.querySelector("video");
-  renderChapters(drec, video, meeting);
+  renderChapters(drec, video, meeting, url);
   if (isHls && window.Hls && window.Hls.isSupported() && !video.canPlayType("application/vnd.apple.mpegurl")) {
     hlsInst = new Hls();
     hlsInst.loadSource(url);
