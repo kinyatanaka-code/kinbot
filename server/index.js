@@ -1268,6 +1268,19 @@ app.get("/api/recall/status", async (req, res) => {
   } catch (e) {
     out.usageError = e.message || "利用状況の取得に失敗しました";
   }
+  // 今月の商談数と突き合わせて、1件あたりの時間を出す（課金の目安）
+  try {
+    const jstNow = new Date(Date.now() + 9 * 3600 * 1000);
+    const from = `${jstNow.getUTCFullYear()}-${String(jstNow.getUTCMonth() + 1).padStart(2, "0")}-01`;
+    const rows = await listMeetings({ isAdmin: true, from, limit: 2000 });
+    const hours = out.usage ? out.usage.botTotalSeconds / 3600 : 0;
+    out.thisMonth = {
+      meetings: rows.length,
+      botHours: Math.round(hours * 10) / 10,
+      hoursPerMeeting: rows.length ? Math.round((hours / rows.length) * 100) / 100 : null,
+      note: "Recallは『ボットが会議にいた時間』で課金されます。1件あたりの時間が長い場合、誰も来ない会議で待ち続けている可能性があります。",
+    };
+  } catch {}
   res.json(out);
 });
 
