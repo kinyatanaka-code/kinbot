@@ -184,6 +184,26 @@
           </div>
 
           <div class="set-pane" data-pane="integrations" hidden>
+            <div class="set-card">
+              <h3>商談録画のGoogleドライブ移行</h3>
+              <p class="note">これまでの商談の録画を、まとめてGoogleドライブへ移します。Recallの録画があればそこから、無ければMuxから取り出して保存し、Muxからは削除します。1件あたり数百MBあるため少しずつ処理します。</p>
+              <div class="rep-controls">
+                <label>対象期間
+                  <select id="dmDays">
+                    <option value="30">直近30日</option>
+                    <option value="90">直近90日</option>
+                    <option value="180" selected>直近180日</option>
+                    <option value="365">直近1年</option>
+                  </select>
+                </label>
+                <button class="btn ghost" id="dmCheck">状況を確認</button>
+                <button class="btn" id="dmStart">移行を始める</button>
+                <button class="btn ghost" id="dmStop" hidden>中止</button>
+              </div>
+              <div id="dmStatus" class="note"></div>
+              <div id="dmLog" class="dm-log"></div>
+            </div>
+
             <div class="integ-grid" id="integGrid">
               <button class="integ-card" data-integ="calendar">
                 <span class="integ-icon integ-icon-google">

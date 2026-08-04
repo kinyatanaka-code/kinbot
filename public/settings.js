@@ -1976,3 +1976,79 @@ function initSmartLinks() {
     if ($q("qaList")) loadQaBank();
   });
 })();
+
+// ===== 商談録画のGoogleドライブ移行 =====
+(function () {
+  const $d = (id) => document.getElementById(id);
+  const escD = (v) => String(v == null ? "" : v).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+  let stop = false;
+
+  async function check() {
+    const st = $d("dmStatus");
+    if (!st) return;
+    st.textContent = "確認しています…";
+    try {
+      const days = ($d("dmDays") && $d("dmDays").value) || 180;
+      const r = await fetch("/api/drive/archive-status?days=" + encodeURIComponent(days));
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.error || "確認に失敗しました");
+      st.innerHTML =
+        `対象 ${d.meetings} 件のうち、<b>${d.savedToDrive} 件</b>がドライブに保存済み。` +
+        `<b>${d.notSaved} 件</b>が未保存です。` +
+        (d.auto ? "（これからの商談は自動で保存されます）" : "（自動保存は止まっています）");
+    } catch (e) {
+      st.textContent = "確認に失敗しました：" + e.message;
+    }
+  }
+
+  async function start() {
+    const st = $d("dmStatus"), log = $d("dmLog");
+    const btn = $d("dmStart"), stopBtn = $d("dmStop");
+    if (!st) return;
+    stop = false;
+    btn.disabled = true;
+    stopBtn.hidden = false;
+    log.innerHTML = "";
+    let done = 0, loops = 0;
+    const days = Number(($d("dmDays") && $d("dmDays").value) || 180);
+    try {
+      while (!stop && loops < 500) {
+        loops++;
+        st.innerHTML = `移行中… <b>${done} 件</b>を保存しました`;
+        const r = await fetch("/api/drive/migrate", {
+          method: "POST", headers: { "content-type": "application/json" },
+          body: JSON.stringify({ days, max: 2 }),
+        });
+        const d = await r.json().catch(() => ({}));
+        if (!r.ok) throw new Error(d.error || "移行に失敗しました");
+        done += d.done || 0;
+        (d.errors || []).forEach((m) => {
+          const p = document.createElement("div");
+          p.className = "dm-log-line";
+          p.textContent = m;
+          log.appendChild(p);
+        });
+        if (!d.remaining) {
+          st.innerHTML = `移行が完了しました。合計 <b>${done} 件</b>を保存しました。`;
+          break;
+        }
+        if (!d.done && !(d.errors || []).length && d.skipped) {
+          st.innerHTML = `残り ${d.remaining} 件は録画が見つからないため保存できません（合計 ${done} 件を保存）。`;
+          break;
+        }
+      }
+      if (stop) st.innerHTML = `中止しました。ここまでに <b>${done} 件</b>を保存しています。`;
+    } catch (e) {
+      st.textContent = "移行に失敗しました：" + e.message;
+    } finally {
+      btn.disabled = false;
+      stopBtn.hidden = true;
+    }
+  }
+
+  document.addEventListener("DOMContentLoaded", () => {
+    const c = $d("dmCheck"); if (c) c.addEventListener("click", check);
+    const s = $d("dmStart"); if (s) s.addEventListener("click", start);
+    const x = $d("dmStop"); if (x) x.addEventListener("click", () => { stop = true; });
+  });
+})();

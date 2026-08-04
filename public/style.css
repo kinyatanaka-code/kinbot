@@ -4112,3 +4112,5 @@ input:focus, select:focus, textarea:focus, .sf-input:focus, .sf-select:focus, .s
 .ln-kind.is-cross { color: #0d5b47; background: #e1f5ee; border: 1px solid #9fe1cb; }
 .ln-kind.is-mochica { color: #7a4a12; background: #fbf1de; border: 1px solid #e6cf9d; }
 .ln-kind.is-other { color: var(--muted); background: var(--panel-2); border: 1px solid var(--line); }
+.dm-log { max-height: 200px; overflow: auto; margin-top: 10px; }
+.dm-log-line { font-size: 11.5px; color: #8a6d1f; background: #fbf3e0; border-radius: 8px; padding: 6px 10px; margin-bottom: 4px; line-height: 1.6; }
