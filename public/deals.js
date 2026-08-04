@@ -1281,6 +1281,14 @@ async function selectDeal(account) {
     `<button class="dc-back" type="button"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" style="vertical-align:-2px;margin-right:4px"><path d="M10 4L6 8l4 4" stroke="#0d5b47" stroke-width="1.5" stroke-linecap="round"/></svg>${esc(displayName(account))}</button>` +
     `<section class="deal-sec"><div class="deal-sec-h"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" style="vertical-align:-2px;margin-right:4px"><path d="M3 2h7l4 4v8a1 1 0 01-1 1H3a1 1 0 01-1-1V3a1 1 0 011-1z" fill="#1d9e75"/><path d="M10 2v4h4" fill="#5DCAA5"/></svg>提案資料</div>` +
     `<div class="proposal-add"><input type="text" id="proposalUrl" class="proposal-url-input" placeholder="GoogleスライドのURLを貼り付け" /><button class="btn" id="proposalAddBtn">登録</button></div>` +
+    `<div class="proposal-find">
+       <div class="proposal-find-h">社内のGoogleドライブから探す</div>
+       <div class="proposal-find-row">
+         <input type="text" id="propSearchQ" class="proposal-url-input" placeholder="会社名や資料名で検索" />
+         <button class="btn sf-btn-secondary" id="propSearchBtn">検索</button>
+       </div>
+       <div id="propSearchList"></div>
+     </div>` +
     `<div id="proposalList"><div class="empty-state">読み込み中…</div></div></section>` +
     `</div>` +
     `<div class="dc-page" data-page="salesforce" hidden>` +
@@ -1336,12 +1344,55 @@ async function selectDeal(account) {
   // 案件のステータス変更は、中澤・浦林のみ可能。それ以外は参照のみ（プルダウンをロック）。
 
   // 提案資料タブの処理
+  // 社内のドライブから資料を探して、そのまま登録できるようにする
+  const propSearchBtn = $("propSearchBtn");
+  if (propSearchBtn && !propSearchBtn._wired) {
+    propSearchBtn._wired = true;
+    const qEl = $("propSearchQ");
+    if (qEl && !qEl.value) qEl.value = displayName(account);
+    const listEl = $("propSearchList");
+
+    const runSearch = async () => {
+      const q = (qEl && qEl.value.trim()) || displayName(account);
+      listEl.innerHTML = '<div class="empty-state">探しています…</div>';
+      try {
+        const r = await fetch("/api/drive/company-files?company=" + encodeURIComponent(q));
+        const d = await r.json();
+        if (d.error) { listEl.innerHTML = `<div class="empty-state">${esc(d.error)}</div>`; return; }
+        const files = d.files || [];
+        listEl.innerHTML = files.length
+          ? files.map((f) => `
+              <div class="prop-hit">
+                <span class="ov-file-kind ${f.kind === "スライド" ? "is-slide" : f.kind === "PDF" ? "is-pdf" : "is-doc"}">${esc(f.kind)}</span>
+                <a class="prop-hit-name" href="${esc(f.link)}" target="_blank" rel="noopener">${esc(f.name)}</a>
+                <span class="prop-hit-meta">${esc(f.modified)}${f.owner ? " ・ " + esc(f.owner) : ""}</span>
+                <button type="button" class="btn sf-btn-secondary prop-hit-add" data-url="${esc(f.link)}" data-name="${esc(f.name)}">この資料を登録</button>
+              </div>`).join("")
+          : '<div class="empty-state">見つかりませんでした。社内共有されていない資料は表示されません。</div>';
+      } catch (e) {
+        listEl.innerHTML = '<div class="empty-state">検索に失敗しました。</div>';
+      }
+    };
+
+    propSearchBtn.addEventListener("click", runSearch);
+    if (qEl) qEl.addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); runSearch(); } });
+    if (listEl) listEl.addEventListener("click", (e) => {
+      const b = e.target.closest(".prop-hit-add");
+      if (!b) return;
+      const u = $("proposalUrl");
+      if (u) { u.value = b.dataset.url; u.scrollIntoView({ behavior: "smooth", block: "nearest" }); }
+      const add = $("proposalAddBtn");
+      if (add) add.click();
+    });
+    runSearch();
+  }
+
   const proposalAddBtn = $("proposalAddBtn");
   if (proposalAddBtn) {
     proposalAddBtn.addEventListener("click", async () => {
       const url = $("proposalUrl").value.trim();
       if (!url) return kbNotify("GoogleスライドのURLを入力してください");
-      if (!url.includes("docs.google.com/presentation")) return kbNotify("GoogleスライドのURLを入力してください\n例: https://docs.google.com/presentation/d/xxxxx/edit");
+      if (!/^https?:\/\/(docs|drive)\.google\.com\//.test(url)) return kbNotify("GoogleスライドやドライブのURLを入力してください\n例: https://docs.google.com/presentation/d/xxxxx/edit");
       proposalAddBtn.disabled = true;
       proposalAddBtn.textContent = "登録中…";
       try {

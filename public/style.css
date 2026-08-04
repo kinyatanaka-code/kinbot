@@ -4127,3 +4127,21 @@ input:focus, select:focus, textarea:focus, .sf-input:focus, .sf-select:focus, .s
 .ov-file-name { flex: 1; min-width: 0; font-size: 12.5px; color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ov-file-meta { flex: 0 0 auto; font-size: 10.5px; color: var(--muted); }
 @media (max-width: 760px) { .ov-file-meta { display: none; } }
+
+/* ---- 提案資料：ドライブから探す ---- */
+.proposal-find { margin: 14px 0 6px; padding: 12px 14px; border: 1px solid var(--line); border-radius: var(--kb-r-md, 12px); background: var(--panel-2); }
+.proposal-find-h { font-size: 12px; font-weight: 700; color: var(--muted); margin-bottom: 8px; }
+.proposal-find-row { display: flex; gap: 8px; margin-bottom: 8px; }
+.proposal-find-row .proposal-url-input { flex: 1; min-width: 0; }
+.prop-hit { display: flex; align-items: center; gap: 9px; padding: 8px 6px; border-bottom: 1px solid var(--line); }
+.prop-hit:last-child { border-bottom: 0; }
+.prop-hit-name { flex: 1; min-width: 0; font-size: 12.5px; color: var(--ink); text-decoration: none; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.prop-hit-name:hover { text-decoration: underline; }
+.prop-hit-meta { flex: 0 0 auto; font-size: 10.5px; color: var(--muted); }
+.prop-hit-add { flex: 0 0 auto; font-size: 11.5px; padding: 6px 12px; }
+@media (max-width: 760px) {
+  .proposal-find-row { flex-direction: column; }
+  .prop-hit { flex-wrap: wrap; }
+  .prop-hit-meta { display: none; }
+  .prop-hit-add { width: 100%; }
+}
