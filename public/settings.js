@@ -2022,12 +2022,20 @@ function initSmartLinks() {
         const d = await r.json().catch(() => ({}));
         if (!r.ok) throw new Error(d.error || "移行に失敗しました");
         done += d.done || 0;
+        let scopeError = false;
         (d.errors || []).forEach((m) => {
+          if (/権限がありません/.test(m)) scopeError = true;
           const p = document.createElement("div");
           p.className = "dm-log-line";
           p.textContent = m;
           log.appendChild(p);
         });
+        if (scopeError) {
+          st.innerHTML =
+            'Googleの<b>書き込み権限</b>が足りません。下の「Google連携」カードから連携し直してください' +
+            '（同意画面でドライブの項目にチェックを入れてください）。';
+          break;
+        }
         if (!d.remaining) {
           st.innerHTML = `移行が完了しました。合計 <b>${done} 件</b>を保存しました。`;
           break;

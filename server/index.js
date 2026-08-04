@@ -1244,9 +1244,18 @@ async function archiveRecordingSafe(botId) {
       let url = null;
       try { url = await getRecordingUrl(botId); } catch {}
       if (url) {
-        const owner = m.owner || "";
-        if (!owner) return;
-        const folderId = await driveEnsureFolder(owner, process.env.DRIVE_FOLDER_NAME || "kinbot 商談録画");
+        // 担当者の権限で保存する。権限が無ければ、指定した保存用アカウントで保存する。
+        const owners = [m.owner, process.env.DRIVE_ARCHIVE_OWNER].filter(Boolean);
+        if (!owners.length) return;
+        let owner = owners[0], folderId = null, lastErr = null;
+        for (const cand of owners) {
+          try {
+            folderId = await driveEnsureFolder(cand, process.env.DRIVE_FOLDER_NAME || "kinbot 商談録画");
+            owner = cand;
+            break;
+          } catch (e) { lastErr = e; }
+        }
+        if (!folderId) throw lastErr || new Error("保存先フォルダを用意できませんでした");
         const when = new Date(m.created_at || Date.now()).toISOString().slice(0, 10);
         const safe = String(m.title || "商談").replace(/[\\/:*?"<>|]/g, "_").slice(0, 80);
         const up = await driveUploadFromUrl(owner, { url, name: `${when}_${safe}.mp4`, folderId });
@@ -1471,8 +1480,10 @@ app.post("/api/drive/migrate", async (req, res) => {
     const part = targets.slice(0, max);
     const out = { remaining: Math.max(0, targets.length - part.length), done: 0, skipped: 0, errors: [] };
 
+    // 保存はまず操作者の権限で行う（共有フォルダに入れるので誰の権限でも同じ場所になる）
+    const uploader = b.uploader || req.user || "";
     for (const m of part) {
-      const owner = m.owner || "";
+      const owner = uploader || m.owner || "";
       if (!owner) { out.skipped++; continue; }
       try {
         // 1) Recallの録画をまず探す
@@ -1512,7 +1523,12 @@ app.post("/api/drive/migrate", async (req, res) => {
           } catch {}
         }
       } catch (e) {
-        out.errors.push(`${m.title || m.bot_id}: ${e.message}`);
+        const msg = String(e.message || "");
+        out.errors.push(
+          /insufficient|Insufficient Permission|403/.test(msg)
+            ? `${m.title || m.bot_id}: Googleの書き込み権限がありません。設定→外部連携でGoogleを連携し直してください。`
+            : `${m.title || m.bot_id}: ${msg.slice(0, 160)}`
+        );
       }
     }
     res.json(out);
