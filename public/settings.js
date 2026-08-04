@@ -2009,19 +2009,23 @@ function initSmartLinks() {
     btn.disabled = true;
     stopBtn.hidden = false;
     log.innerHTML = "";
-    let done = 0, loops = 0;
+    let done = 0, loops = 0, offset = 0, noRec = 0, total = 0;
     const days = Number(($d("dmDays") && $d("dmDays").value) || 180);
     try {
-      while (!stop && loops < 500) {
+      while (!stop && loops < 800) {
         loops++;
-        st.innerHTML = `移行中… <b>${done} 件</b>を保存しました`;
+        st.innerHTML = `移行中… <b>${done} 件</b>を保存${total ? `（${offset}/${total} 件を確認）` : ""}`;
         const r = await fetch("/api/drive/migrate", {
           method: "POST", headers: { "content-type": "application/json" },
-          body: JSON.stringify({ days, max: 2 }),
+          body: JSON.stringify({ days, max: 2, offset }),
         });
         const d = await r.json().catch(() => ({}));
         if (!r.ok) throw new Error(d.error || "移行に失敗しました");
         done += d.done || 0;
+        total = d.total || total;
+        noRec += (d.reasons && d.reasons["録画なし"]) || 0;
+        // 保存できたぶんは一覧から消えるので位置は進めない。飛ばしたぶんだけ先へ進む。
+        offset += Math.max(0, (d.processed || 0) - (d.done || 0));
         let scopeError = false;
         (d.errors || []).forEach((m) => {
           if (/権限がありません/.test(m)) scopeError = true;
@@ -2036,12 +2040,10 @@ function initSmartLinks() {
             '（同意画面でドライブの項目にチェックを入れてください）。';
           break;
         }
-        if (!d.remaining) {
-          st.innerHTML = `移行が完了しました。合計 <b>${done} 件</b>を保存しました。`;
-          break;
-        }
-        if (!d.done && !(d.errors || []).length && d.skipped) {
-          st.innerHTML = `残り ${d.remaining} 件は録画が見つからないため保存できません（合計 ${done} 件を保存）。`;
+        if (!d.processed || (!d.remaining && !d.done)) {
+          st.innerHTML =
+            `移行が終わりました。<b>${done} 件</b>を保存しました。` +
+            (noRec ? `<br>${noRec} 件は録画が残っていないため保存できませんでした（Recallの保存期限切れ・Muxにも無し）。` : "");
           break;
         }
       }

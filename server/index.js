@@ -1477,14 +1477,23 @@ app.post("/api/drive/migrate", async (req, res) => {
     const from = new Date(jst.getTime() - days * 86400000).toISOString().slice(0, 10);
     const rows = await listMeetings({ isAdmin: true, from, limit: 2000 });
     const targets = rows.filter((m) => !m.drive_file_id);
-    const part = targets.slice(0, max);
-    const out = { remaining: Math.max(0, targets.length - part.length), done: 0, skipped: 0, errors: [] };
+    // 保存できないものを何度も掴まないように、開始位置を指定できるようにする
+    const offset = Math.max(0, Math.min(targets.length, Number(b.offset) || 0));
+    const part = targets.slice(offset, offset + max);
+    const out = {
+      total: targets.length,
+      offset,
+      processed: part.length,
+      remaining: Math.max(0, targets.length - (offset + part.length)),
+      done: 0, skipped: 0, errors: [],
+      reasons: { 録画なし: 0, Mux準備中: 0, 担当者なし: 0 },
+    };
 
     // 保存はまず操作者の権限で行う（共有フォルダに入れるので誰の権限でも同じ場所になる）
     const uploader = b.uploader || req.user || "";
     for (const m of part) {
       const owner = uploader || m.owner || "";
-      if (!owner) { out.skipped++; continue; }
+      if (!owner) { out.skipped++; out.reasons.担当者なし++; continue; }
       try {
         // 1) Recallの録画をまず探す
         let url = null;
@@ -1498,13 +1507,14 @@ app.post("/api/drive/migrate", async (req, res) => {
             const ready = (asset.static_renditions && asset.static_renditions.status) === "ready";
             if (!ready) {
               await enableMp4(asset.id).catch(() => {});
+              out.reasons.Mux準備中++;
               out.errors.push(`${m.title || m.bot_id}: Muxのダウンロード用ファイルを準備中です。数分後にもう一度実行してください。`);
               continue;
             }
             url = mp4Url(m.mux_playback_id, "high");
           }
         }
-        if (!url) { out.skipped++; continue; }
+        if (!url) { out.skipped++; out.reasons.録画なし++; continue; }
 
         const folderId = await driveEnsureFolder(owner, process.env.DRIVE_FOLDER_NAME || "kinbot 商談録画");
         const when = new Date(m.created_at || Date.now()).toISOString().slice(0, 10);
