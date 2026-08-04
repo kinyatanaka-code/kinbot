@@ -178,7 +178,7 @@ import {
   gmailDeleteDraft,
   parseEmailAddr, driveEnsureFolder, driveUploadFromUrl, driveShareDomain, driveStream } from "./google.js";
 import { startScheduler } from "./scheduler.js";
-import { muxConfigured, startVodUpload, waitVodPlayback, muxStorageSummary, listAssets, deleteAsset } from "./mux.js";
+import { muxConfigured, startVodUpload, waitVodPlayback, muxStorageSummary, listAssets, deleteAsset, findAssetByPlaybackId, enableMp4, mp4Url } from "./mux.js";
 import { liveConfigured, createLiveStream, playbackUrl as livePlaybackUrl, liveInfo } from "./live.js";
 import { notionConfigured, notionStatus, createMeetingPage, createReportPage } from "./notion.js";
 import { pdfToText, urlToText, officeToText } from "./ingest.js";
@@ -1409,7 +1409,15 @@ app.get("/api/meetings/:id/drive-video", async (req, res) => {
   try {
     const m = await getMeeting(req.params.id);
     if (!m || !canAccess(m, req) || !m.drive_file_id) return res.status(404).end();
-    const up = await driveStream(m.owner || req.user, m.drive_file_id, req.headers.range);
+    // まず自分の権限で読み、だめなら商談の担当者の権限で読む（共有ドライブなら誰でも見られる）
+    let up = null;
+    for (const who of [req.user, m.owner].filter(Boolean)) {
+      try {
+        const r = await driveStream(who, m.drive_file_id, req.headers.range);
+        if (r.ok || r.status === 206) { up = r; break; }
+      } catch {}
+    }
+    if (!up) return res.status(404).end();
     res.status(up.status === 206 ? 206 : 200);
     for (const h of ["content-type", "content-length", "content-range", "accept-ranges"]) {
       const v = up.headers.get(h);
@@ -1444,6 +1452,73 @@ app.get("/api/live/info", (req, res) => {
   res.set("Cache-Control", "no-store");
   const info = liveInfo();
   res.json({ ...info, customerCode: info.provider === "cloudflare" ? (process.env.CF_STREAM_CUSTOMER_CODE || "") : "" });
+});
+
+// 既にある商談の録画を、まとめてGoogleドライブへ移す。
+// Recallの録画があればそこから、無ければMuxから取り出して保存します。
+// 時間がかかるので少しずつ処理します（画面から繰り返し呼んでください）。
+app.post("/api/drive/migrate", async (req, res) => {
+  try {
+    const b = req.body || {};
+    const days = Math.max(1, Math.min(365, Number(b.days) || 180));
+    const max = Math.max(1, Math.min(5, Number(b.max) || 2));
+    const deleteMux = b.deleteMux !== false;
+
+    const jst = new Date(Date.now() + 9 * 3600 * 1000);
+    const from = new Date(jst.getTime() - days * 86400000).toISOString().slice(0, 10);
+    const rows = await listMeetings({ isAdmin: true, from, limit: 2000 });
+    const targets = rows.filter((m) => !m.drive_file_id);
+    const part = targets.slice(0, max);
+    const out = { remaining: Math.max(0, targets.length - part.length), done: 0, skipped: 0, errors: [] };
+
+    for (const m of part) {
+      const owner = m.owner || "";
+      if (!owner) { out.skipped++; continue; }
+      try {
+        // 1) Recallの録画をまず探す
+        let url = null;
+        try { url = await getRecordingUrl(m.bot_id); } catch {}
+        let asset = null;
+
+        // 2) 無ければMuxから取り出す
+        if (!url && m.mux_playback_id && muxConfigured()) {
+          asset = await findAssetByPlaybackId(m.mux_playback_id);
+          if (asset) {
+            const ready = (asset.static_renditions && asset.static_renditions.status) === "ready";
+            if (!ready) {
+              await enableMp4(asset.id).catch(() => {});
+              out.errors.push(`${m.title || m.bot_id}: Muxのダウンロード用ファイルを準備中です。数分後にもう一度実行してください。`);
+              continue;
+            }
+            url = mp4Url(m.mux_playback_id, "high");
+          }
+        }
+        if (!url) { out.skipped++; continue; }
+
+        const folderId = await driveEnsureFolder(owner, process.env.DRIVE_FOLDER_NAME || "kinbot 商談録画");
+        const when = new Date(m.created_at || Date.now()).toISOString().slice(0, 10);
+        const safe = String(m.title || "商談").replace(/[\\/:*?"<>|]/g, "_").slice(0, 80);
+        const up = await driveUploadFromUrl(owner, { url, name: `${when}_${safe}.mp4`, folderId });
+        const domain = process.env.DRIVE_SHARE_DOMAIN || "";
+        if (domain) await driveShareDomain(owner, up.fileId, domain);
+        await saveDriveFile(m.bot_id, { fileId: up.fileId, link: up.link });
+        out.done++;
+
+        // 3) Muxの録画はもう不要なので消す
+        if (deleteMux && m.mux_playback_id && muxConfigured()) {
+          try {
+            const a = asset || (await findAssetByPlaybackId(m.mux_playback_id));
+            if (a) await deleteAsset(a.id);
+          } catch {}
+        }
+      } catch (e) {
+        out.errors.push(`${m.title || m.bot_id}: ${e.message}`);
+      }
+    }
+    res.json(out);
+  } catch (e) {
+    res.status(502).json({ error: e.message });
+  }
 });
 
 // Muxにどれだけ動画が保存されているか（課金の目安）

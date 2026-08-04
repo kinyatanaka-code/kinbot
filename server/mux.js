@@ -166,3 +166,32 @@ export async function muxStorageSummary({ maxPages = 20 } = {}) {
     byMonth: Object.fromEntries(Object.entries(byMonth).map(([k, v]) => [k, Math.round(v)])),
   };
 }
+
+// 再生IDからアセットを探す
+export async function findAssetByPlaybackId(playbackId) {
+  if (!playbackId) return null;
+  for (let page = 1; page <= 20; page++) {
+    const rows = await listAssets({ limit: 100, page });
+    if (!rows.length) return null;
+    const hit = rows.find((a) => (a.playback_ids || []).some((p) => p.id === playbackId));
+    if (hit) return hit;
+    if (rows.length < 100) return null;
+  }
+  return null;
+}
+
+// ダウンロード用のMP4を用意する（Muxから取り出すために必要）
+export async function enableMp4(assetId) {
+  const res = await fetch(`https://api.mux.com/video/v1/assets/${encodeURIComponent(assetId)}/mp4-support`, {
+    method: "PUT",
+    headers: { Authorization: authHeader(), "content-type": "application/json" },
+    body: JSON.stringify({ mp4_support: "standard" }),
+  });
+  if (!res.ok && res.status !== 400) throw new Error(`Mux mp4-support ${res.status}`);
+  return true;
+}
+
+// MuxからMP4を取り出すURL
+export function mp4Url(playbackId, quality = "high") {
+  return playbackId ? `https://stream.mux.com/${playbackId}/${quality}.mp4` : null;
+}

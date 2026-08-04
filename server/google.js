@@ -714,20 +714,40 @@ export async function gmailDeleteDraft(owner, draftId) {
 // ===== 録画をGoogleドライブに保存する =====
 
 // 保存先フォルダを用意する（無ければ作る）
+// DRIVE_SHARED_DRIVE_ID を設定すると、個人のドライブではなく共有ドライブに保存します。
+// 共有ドライブなら、そこに参加している全員がそのまま見られます。
 export async function driveEnsureFolder(owner, name = "kinbot 商談録画") {
+  // 保存先のフォルダIDを直接指定しているときは、それをそのまま使う
+  // （共有ドライブでなくても、共有した普通のフォルダでOK）
+  const fixed = (process.env.DRIVE_FOLDER_ID || "").trim();
+  if (fixed) return fixed;
+
   const token = await driveAccessToken(owner);
   if (!token) throw new Error("Googleが連携されていません");
+  const driveId = process.env.DRIVE_SHARED_DRIVE_ID || "";
+
   const q = `name='${String(name).replace(/'/g, "")}' and mimeType='application/vnd.google-apps.folder' and trashed=false`;
-  const res = await fetch(
-    `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(q)}&fields=files(id,name)&spaces=drive`,
-    { headers: { Authorization: `Bearer ${token}` } }
-  );
+  const params = new URLSearchParams({ q, fields: "files(id,name)" });
+  if (driveId) {
+    params.set("corpora", "drive");
+    params.set("driveId", driveId);
+    params.set("includeItemsFromAllDrives", "true");
+    params.set("supportsAllDrives", "true");
+  } else {
+    params.set("spaces", "drive");
+  }
+  const res = await fetch(`https://www.googleapis.com/drive/v3/files?${params}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
   const d = await res.json().catch(() => ({}));
   if (res.ok && d.files && d.files.length) return d.files[0].id;
-  const mk = await fetch("https://www.googleapis.com/drive/v3/files?fields=id", {
+
+  const body = { name, mimeType: "application/vnd.google-apps.folder" };
+  if (driveId) body.parents = [driveId];
+  const mk = await fetch(`https://www.googleapis.com/drive/v3/files?fields=id${driveId ? "&supportsAllDrives=true" : ""}`, {
     method: "POST",
     headers: { Authorization: `Bearer ${token}`, "content-type": "application/json" },
-    body: JSON.stringify({ name, mimeType: "application/vnd.google-apps.folder" }),
+    body: JSON.stringify(body),
   });
   const md = await mk.json().catch(() => ({}));
   if (!mk.ok) throw new Error(`Drive folder ${mk.status}: ${JSON.stringify(md).slice(0, 200)}`);
@@ -740,7 +760,8 @@ export async function driveUploadFromUrl(owner, { url, name, folderId, mimeType 
   if (!token) throw new Error("Googleが連携されていません");
 
   // 1) アップロード枠を作る
-  const start = await fetch("https://www.googleapis.com/upload/drive/v3/files?uploadType=resumable&fields=id,webViewLink,size", {
+  const sd = (process.env.DRIVE_SHARED_DRIVE_ID || process.env.DRIVE_FOLDER_ID) ? "&supportsAllDrives=true" : "";
+  const start = await fetch(`https://www.googleapis.com/upload/drive/v3/files?uploadType=resumable&fields=id,webViewLink,size${sd}`, {
     method: "POST",
     headers: { Authorization: `Bearer ${token}`, "content-type": "application/json", "X-Upload-Content-Type": mimeType },
     body: JSON.stringify({ name, parents: folderId ? [folderId] : undefined }),
@@ -782,5 +803,6 @@ export async function driveStream(owner, fileId, range) {
   if (!token) throw new Error("Googleが連携されていません");
   const headers = { Authorization: `Bearer ${token}` };
   if (range) headers.Range = range;
-  return await fetch(`https://www.googleapis.com/drive/v3/files/${encodeURIComponent(fileId)}?alt=media`, { headers });
+  const sd = (process.env.DRIVE_SHARED_DRIVE_ID || process.env.DRIVE_FOLDER_ID) ? "&supportsAllDrives=true" : "";
+  return await fetch(`https://www.googleapis.com/drive/v3/files/${encodeURIComponent(fileId)}?alt=media${sd}`, { headers });
 }
