@@ -93,3 +93,21 @@ export function playbackUrl(playbackId) {
   if (!CF_CODE) return null; // 顧客コードが未設定だと再生URLを作れない
   return `https://customer-${CF_CODE}.cloudflarestream.com/${playbackId}/manifest/video.m3u8`;
 }
+
+// 配信が実際に届いているかを確認する（Cloudflareのみ）
+export async function liveStatus(liveStreamId) {
+  if (liveProvider() !== "cloudflare") return { provider: "mux", state: "unknown" };
+  if (!liveConfigured() || !liveStreamId) return { provider: "cloudflare", state: "unconfigured" };
+  try {
+    const r = await cfFetch(`/stream/live_inputs/${encodeURIComponent(liveStreamId)}`);
+    const st = (r && r.status && r.status.current) || {};
+    return {
+      provider: "cloudflare",
+      state: st.state || "idle",       // connected / disconnected / idle など
+      reason: st.reason || "",
+      ingestedAt: st.statusLastSeen || "",
+    };
+  } catch (e) {
+    return { provider: "cloudflare", state: "error", reason: e.message };
+  }
+}

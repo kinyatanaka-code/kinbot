@@ -179,7 +179,7 @@ import {
   parseEmailAddr, driveEnsureFolder, driveUploadFromUrl, driveShareDomain, driveStream, driveFindCompanyFiles } from "./google.js";
 import { startScheduler } from "./scheduler.js";
 import { muxConfigured, startVodUpload, waitVodPlayback, muxStorageSummary, listAssets, deleteAsset, findAssetByPlaybackId, enableMp4, mp4Url, readyMp4Name, getAsset } from "./mux.js";
-import { liveConfigured, createLiveStream, playbackUrl as livePlaybackUrl, liveInfo } from "./live.js";
+import { liveConfigured, createLiveStream, playbackUrl as livePlaybackUrl, liveInfo, liveStatus } from "./live.js";
 import { notionConfigured, notionStatus, createMeetingPage, createReportPage } from "./notion.js";
 import { pdfToText, urlToText, officeToText } from "./ingest.js";
 import { indexKnowledge, embeddingsAvailable } from "./retrieval.js";
@@ -1624,6 +1624,36 @@ app.post("/api/drive/migrate", async (req, res) => {
   }
 });
 
+// 進行中の商談のライブ配信が、実際に届いているか確認する
+app.get("/api/live/status", async (req, res) => {
+  try {
+    res.set("Cache-Control", "no-store");
+    const botId = String(req.query.bot || "").trim();
+    let liveId = String(req.query.id || "").trim();
+    if (!liveId && botId) {
+      const a = listActiveSessions().find((x) => x.botId === botId);
+      if (a) liveId = a.muxLiveStreamId || "";
+      if (!liveId) {
+        const m = await getMeeting(botId);
+        liveId = (m && m.mux_live_stream_id) || "";
+      }
+    }
+    const info = liveInfo();
+    const st = await liveStatus(liveId);
+    res.json({
+      ...info,
+      liveStreamId: liveId || null,
+      ...st,
+      hint: st.state === "connected" ? "映像が届いています。"
+        : st.state === "disconnected" || st.state === "idle"
+          ? "配信がまだ届いていません。ボットが入室してから30秒ほどかかります。数分たっても変わらない場合は、配信先の設定（RTMP）が合っていない可能性があります。"
+          : st.state === "unconfigured" ? "配信の設定が読み込めていません。環境変数を確認してください。" : "",
+    });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // Muxにどれだけ動画が保存されているか（課金の目安）
 app.get("/api/mux/storage", async (req, res) => {
   try {
@@ -1840,11 +1870,25 @@ app.get("/api/integrations", async (req, res) => {
     inUse: has(env.DEEPGRAM_API_KEY),
     dashboardUrl: "https://console.deepgram.com/",
   });
-  // Mux（ライブ配信）
+  // ライブ配信（MuxかCloudflareのどちらかを使う）
+  const liveProv = (env.LIVE_PROVIDER || "mux").toLowerCase();
+  const cfOk = has(env.CF_ACCOUNT_ID) && has(env.CF_STREAM_TOKEN);
   services.push({
-    key: "mux", name: "Mux（ライブ配信・任意）", billable: true,
+    key: "cloudflare", name: "Cloudflare Stream（ライブ配信）", billable: true,
+    configured: cfOk && has(env.CF_STREAM_CUSTOMER_CODE), keyLast4: last4(env.CF_STREAM_TOKEN),
+    detail: liveProv === "cloudflare"
+      ? (cfOk ? (has(env.CF_STREAM_CUSTOMER_CODE) ? "商談のライブ映像配信（使用中）" : "顧客サブドメイン（CF_STREAM_CUSTOMER_CODE）が未設定です")
+              : "アカウントIDかAPIトークンが未設定です")
+      : "設定すれば使えます（今はMuxを使用中）",
+    role: liveProv === "cloudflare" ? "ライブ配信（使用中）" : "ライブ配信（待機）",
+    inUse: liveProv === "cloudflare" && cfOk,
+    dashboardUrl: "https://dash.cloudflare.com/?to=/:account/stream",
+  });
+  services.push({
+    key: "mux", name: "Mux（ライブ配信・録画の保管）", billable: true,
     configured: has(env.MUX_TOKEN_ID) && has(env.MUX_TOKEN_SECRET), keyLast4: last4(env.MUX_TOKEN_ID),
-    detail: "商談のライブ映像配信", role: "ライブ配信（使う場合のみ）",
+    detail: liveProv === "mux" ? "商談のライブ映像配信（使用中）" : "ライブ配信はCloudflareに切り替え済み（アップロード動画のみ使用）",
+    role: liveProv === "mux" ? "ライブ配信（使用中）" : "予備・アップロード動画",
     inUse: has(env.MUX_TOKEN_ID) && has(env.MUX_TOKEN_SECRET),
     dashboardUrl: "https://dashboard.mux.com/",
   });

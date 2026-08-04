@@ -551,12 +551,37 @@ function liveHlsUrl(playbackId) {
 }
 fetch("/api/live/info").then((r) => r.json()).then((d) => { _liveCfg = d; }).catch(() => {});
 
+// ライブ映像が届いているかを確かめて、待たされている理由を表示する
+let _liveCheckTimer = null;
+function checkLiveStatus() {
+  clearInterval(_liveCheckTimer);
+  let tries = 0;
+  const run = async () => {
+    tries++;
+    try {
+      const r = await fetch("/api/live/status?bot=" + encodeURIComponent(sessionId || ""));
+      const d = await r.json();
+      const overlay = document.getElementById("liveVideoMsg");
+      if (overlay && d && d.state) {
+        if (d.state === "connected") { clearInterval(_liveCheckTimer); return; }
+        if (d.provider === "cloudflare") {
+          overlay.textContent = `ライブ映像を準備中…（配信の状態：${d.state}）${d.hint ? " " + d.hint : ""}`;
+        }
+      }
+    } catch {}
+    if (tries > 20) clearInterval(_liveCheckTimer);
+  };
+  run();
+  _liveCheckTimer = setInterval(run, 15000);
+}
+
 function showLiveVideo(playbackId) {
   const box = $("liveVideo");
   const video = $("liveVideoEl");
   if (!box || !video || !playbackId) return;
   // 配信元（Mux / Cloudflare）はサーバーが決めるので、URLを聞きに行く
   const src = liveHlsUrl(playbackId);
+  checkLiveStatus(); // 届いているかを確かめて、状況を表示する
   box.hidden = false;
   video.style.display = "";
   showVideoTab(true);

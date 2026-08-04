@@ -36,6 +36,7 @@ export function listActiveSessions() {
     startedAt: s.startedAt,
     utterances: s.utterances.length,
     muxPlaybackId: s.muxPlaybackId || "",
+    muxLiveStreamId: s.muxLiveStreamId || "",
   }));
 }
 
