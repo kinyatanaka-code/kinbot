@@ -541,11 +541,22 @@ function showVideoTab(show) {
 
 let hls = null;
 let liveVideoRetry = null;
+// ライブ映像のURL。サーバーから配信元の情報をもらって組み立てる。
+let _liveCfg = null;
+function liveHlsUrl(playbackId) {
+  if (_liveCfg && _liveCfg.provider === "cloudflare" && _liveCfg.customerCode) {
+    return `https://customer-${_liveCfg.customerCode}.cloudflarestream.com/${playbackId}/manifest/video.m3u8`;
+  }
+  return `https://stream.mux.com/${playbackId}.m3u8`;
+}
+fetch("/api/live/info").then((r) => r.json()).then((d) => { _liveCfg = d; }).catch(() => {});
+
 function showLiveVideo(playbackId) {
   const box = $("liveVideo");
   const video = $("liveVideoEl");
   if (!box || !video || !playbackId) return;
-  const src = `https://stream.mux.com/${playbackId}.m3u8`;
+  // 配信元（Mux / Cloudflare）はサーバーが決めるので、URLを聞きに行く
+  const src = liveHlsUrl(playbackId);
   box.hidden = false;
   video.style.display = "";
   showVideoTab(true);

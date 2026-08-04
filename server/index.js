@@ -39,6 +39,9 @@ import {
   updateMeetingMeta,
   setMeetingTitle,
   saveChapters,
+  saveDriveFile,
+  muxLiveUsage,
+  listSalesforceOwners,
   listMeetingsWithoutTranscript,
   deleteMeeting,
   deleteEmptyMeetings,
@@ -173,10 +176,10 @@ import {
   gmailSend,
   gmailCreateDraft,
   gmailDeleteDraft,
-  parseEmailAddr,
-} from "./google.js";
+  parseEmailAddr, driveEnsureFolder, driveUploadFromUrl, driveShareDomain, driveStream } from "./google.js";
 import { startScheduler } from "./scheduler.js";
-import { muxConfigured, createLiveStream, startVodUpload, waitVodPlayback } from "./mux.js";
+import { muxConfigured, startVodUpload, waitVodPlayback, muxStorageSummary, listAssets, deleteAsset } from "./mux.js";
+import { liveConfigured, createLiveStream, playbackUrl as livePlaybackUrl, liveInfo } from "./live.js";
 import { notionConfigured, notionStatus, createMeetingPage, createReportPage } from "./notion.js";
 import { pdfToText, urlToText, officeToText } from "./ingest.js";
 import { indexKnowledge, embeddingsAvailable } from "./retrieval.js";
@@ -1228,8 +1231,85 @@ function runExtractionSafe(botId) {
     .then(() => runExtraction(botId)) // 判定は既定プロバイダ（Gemini）を使う。Claudeを使う場合は判定画面のモデル選択で切り替え
     .catch((e) => console.warn("[extract] スキップ", botId, e.message));
 }
+// 商談が終わったら、録画をGoogleドライブへ保存し、Muxに残った録画を消す。
+// 既定で動きます（止めたいときは DRIVE_AUTO_ARCHIVE=0）。
+async function archiveRecordingSafe(botId) {
+  if (process.env.DRIVE_AUTO_ARCHIVE === "0") return;
+  try {
+    // 録画が用意できるまで少し待つ（Recall側の書き出し待ち）
+    for (let i = 0; i < 10; i++) {
+      const m = await getMeeting(botId);
+      if (!m) return;
+      if (m.drive_file_id) return;
+      let url = null;
+      try { url = await getRecordingUrl(botId); } catch {}
+      if (url) {
+        const owner = m.owner || "";
+        if (!owner) return;
+        const folderId = await driveEnsureFolder(owner, process.env.DRIVE_FOLDER_NAME || "kinbot 商談録画");
+        const when = new Date(m.created_at || Date.now()).toISOString().slice(0, 10);
+        const safe = String(m.title || "商談").replace(/[\\/:*?"<>|]/g, "_").slice(0, 80);
+        const up = await driveUploadFromUrl(owner, { url, name: `${when}_${safe}.mp4`, folderId });
+        const domain = process.env.DRIVE_SHARE_DOMAIN || "";
+        if (domain) await driveShareDomain(owner, up.fileId, domain);
+        await saveDriveFile(botId, { fileId: up.fileId, link: up.link });
+        console.log(`[ドライブ保存] ${botId} → ${up.link}`);
+
+        // Muxに残っている同じ商談の録画は不要なので消す（保存料を止める）
+        if (m.mux_playback_id && muxConfigured() && process.env.MUX_KEEP_ASSETS !== "1") {
+          try {
+            const assets = await listAssets({ limit: 100, page: 1 });
+            const hit = (assets || []).find((a) => (a.playback_ids || []).some((p) => p.id === m.mux_playback_id));
+            if (hit) { await deleteAsset(hit.id); console.log(`[Mux削除] ${hit.id}`); }
+          } catch (e) { console.warn("[Mux削除] スキップ", e.message); }
+        }
+        return;
+      }
+      await new Promise((r) => setTimeout(r, 60000)); // 1分待って再挑戦（最大10分）
+    }
+  } catch (e) {
+    const msg = String(e.message || "");
+    if (/insufficient|scope|403/i.test(msg)) {
+      console.error("[ドライブ保存] 権限が足りません。設定→外部連携でGoogleを連携し直してください（書き込み権限が必要です）。", msg);
+    } else if (/連携されていません/.test(msg)) {
+      console.warn("[ドライブ保存] Google未連携のため保存できません:", botId);
+    } else {
+      console.error("[ドライブ保存]", msg);
+    }
+  }
+}
+
+// 直近の商談が、ドライブに保存できているかを確認する
+app.get("/api/drive/archive-status", async (req, res) => {
+  try {
+    res.set("Cache-Control", "no-store");
+    const days = Math.max(1, Math.min(90, Number(req.query.days) || 14));
+    const jst = new Date(Date.now() + 9 * 3600 * 1000);
+    const from = new Date(jst.getTime() - days * 86400000).toISOString().slice(0, 10);
+    const rows = await listMeetings({ isAdmin: true, from, limit: 500 });
+    const saved = rows.filter((m) => m.drive_file_id);
+    res.json({
+      days,
+      meetings: rows.length,
+      savedToDrive: saved.length,
+      notSaved: rows.length - saved.length,
+      auto: process.env.DRIVE_AUTO_ARCHIVE !== "0",
+      recent: rows.slice(0, 20).map((m) => ({
+        title: m.title, date: String(m.created_at).slice(0, 10),
+        owner: m.owner_name || m.owner, drive: !!m.drive_file_id,
+      })),
+      hint: "driveがfalseばかりの場合は、設定→外部連携でGoogleを連携し直してください（録画の保存には書き込み権限が必要です）。",
+    });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // 録音ボット経由の商談確定後にも抽出を走らせる（sessions.js から呼ばれる）
-setOnMeetingFinalized(runExtractionSafe);
+setOnMeetingFinalized((botId) => {
+  runExtractionSafe(botId);
+  archiveRecordingSafe(botId);
+});
 
 // メール→氏名の解決マップを作る
 async function buildRepNameMap() {
@@ -1258,6 +1338,164 @@ function resolveRepName(repName, repEmail, nameMap) {
 
 
 
+// Salesforceのトークンを切らさないように、定期的に使っておく。
+// 接続アプリの設定が「一定期間使わないと失効」の場合、これで失効を防げます。
+setInterval(async () => {
+  try {
+    const owners = await listSalesforceOwners();
+    for (const owner of owners) {
+      try {
+        await sfQuery(owner, "SELECT Id FROM Opportunity LIMIT 1");
+      } catch (e) {
+        const msg = String(e.message || "");
+        if (/invalid_grant|expired/i.test(msg)) {
+          console.warn(`[SF維持] ${owner} のトークンが失効しています。設定から再連携が必要です。`);
+        }
+      }
+    }
+  } catch (e) {
+    console.error("[SF維持]", e.message);
+  }
+}, 20 * 60 * 60 * 1000); // 20時間ごと（更新の回数を増やしすぎないため）
+
+// 長時間つけっぱなしのBotを見張って、自動で退出させる（課金の暴走を防ぐ）
+const BOT_MAX_HOURS = Math.max(1, Math.min(12, Number(process.env.BOT_MAX_HOURS || 4)));
+setInterval(async () => {
+  try {
+    const now = Date.now();
+    for (const a of listActiveSessions()) {
+      const hours = (now - (a.startedAt || now)) / 3600000;
+      if (hours < BOT_MAX_HOURS) continue;
+      console.warn(`[見張り] ${a.botId}（${a.title}）が${hours.toFixed(1)}時間続いているため退出させます`);
+      try { await leaveBot(a.botId); } catch (e) { console.error("[見張り] 退出失敗", e.message); }
+      try { removeSession(a.botId); } catch {}
+    }
+  } catch (e) {
+    console.error("[見張り]", e.message);
+  }
+}, 10 * 60 * 1000);
+
+// 録画をGoogleドライブに保存する（Recallの保存期限が切れても残るようにする）
+app.post("/api/meetings/:id/archive-drive", async (req, res) => {
+  try {
+    const m = await getMeeting(req.params.id);
+    if (!m) return res.status(404).json({ error: "見つかりません" });
+    if (m.drive_file_id) return res.json({ ok: true, already: true, fileId: m.drive_file_id, link: m.drive_link });
+
+    let url = null;
+    try { url = await getRecordingUrl(req.params.id); } catch {}
+    if (!url && m.mux_playback_id) return res.status(400).json({ error: "Recallの録画が見つかりません（Muxの配信のみのため保存できません）" });
+    if (!url) return res.status(400).json({ error: "録画が見つかりません" });
+
+    const owner = m.owner || req.user;
+    const folderId = await driveEnsureFolder(owner, process.env.DRIVE_FOLDER_NAME || "kinbot 商談録画");
+    const when = new Date(m.created_at || Date.now()).toISOString().slice(0, 10);
+    const safe = String(m.title || "商談").replace(/[\\/:*?"<>|]/g, "_").slice(0, 80);
+    const name = `${when}_${safe}.mp4`;
+
+    const up = await driveUploadFromUrl(owner, { url, name, folderId });
+    const domain = process.env.DRIVE_SHARE_DOMAIN || "";
+    if (domain) await driveShareDomain(owner, up.fileId, domain);
+    await saveDriveFile(req.params.id, { fileId: up.fileId, link: up.link });
+    res.json({ ok: true, fileId: up.fileId, link: up.link, sizeMB: Math.round((up.size || 0) / 1048576) });
+  } catch (e) {
+    console.error("[archive-drive]", e.message);
+    res.status(502).json({ error: e.message });
+  }
+});
+
+// ドライブに保存した録画を、kinbotの画面で再生する（途中送りに対応）
+app.get("/api/meetings/:id/drive-video", async (req, res) => {
+  try {
+    const m = await getMeeting(req.params.id);
+    if (!m || !canAccess(m, req) || !m.drive_file_id) return res.status(404).end();
+    const up = await driveStream(m.owner || req.user, m.drive_file_id, req.headers.range);
+    res.status(up.status === 206 ? 206 : 200);
+    for (const h of ["content-type", "content-length", "content-range", "accept-ranges"]) {
+      const v = up.headers.get(h);
+      if (v) res.setHeader(h, v);
+    }
+    if (!up.headers.get("accept-ranges")) res.setHeader("accept-ranges", "bytes");
+    if (!up.body) return res.end();
+    const reader = up.body.getReader();
+    let closed = false;
+    // 途中送りなどで再生側が切ったら、読み込みも止める
+    res.on("close", () => { closed = true; try { reader.cancel(); } catch {} });
+    const pump = async () => {
+      if (closed) return;
+      try {
+        const { done, value } = await reader.read();
+        if (done || closed) return res.end();
+        if (!res.write(Buffer.from(value))) { res.once("drain", pump); return; }
+        pump();
+      } catch {
+        try { res.end(); } catch {}
+      }
+    };
+    pump();
+  } catch (e) {
+    console.error("[drive-video]", e.message);
+    res.status(502).end();
+  }
+});
+
+// ライブ配信の設定（画面側が再生URLを組み立てるために使う）
+app.get("/api/live/info", (req, res) => {
+  res.set("Cache-Control", "no-store");
+  const info = liveInfo();
+  res.json({ ...info, customerCode: info.provider === "cloudflare" ? (process.env.CF_STREAM_CUSTOMER_CODE || "") : "" });
+});
+
+// Muxにどれだけ動画が保存されているか（課金の目安）
+app.get("/api/mux/storage", async (req, res) => {
+  try {
+    res.set("Cache-Control", "no-store");
+    if (!muxConfigured()) return res.json({ configured: false });
+    const sum = await muxStorageSummary({ maxPages: Number(req.query.pages) || 20 });
+    const live = await muxLiveUsage(Number(req.query.days) || 30);
+    res.json({
+      configured: true,
+      ...sum,
+      live,
+      note: "Muxは『保存している分数 × 月数』で課金されます。kinbotの再生はRecallの録画を優先して使うため、ここに残っている動画は使われていないことが多いです。",
+    });
+  } catch (e) {
+    res.status(502).json({ error: e.message });
+  }
+});
+
+// 古い動画を消す。まずは dry=1（消さずに一覧だけ）で確認してから実行してください。
+app.post("/api/mux/cleanup", async (req, res) => {
+  try {
+    if (!muxConfigured()) return res.status(400).json({ error: "Muxが未設定です" });
+    const days = Math.max(7, Math.min(3650, Number((req.body && req.body.days) || 90)));
+    const dry = !(req.body && req.body.confirm === true);
+    const cutoff = Date.now() - days * 86400000;
+    const targets = [];
+    for (let page = 1; page <= 20; page++) {
+      const rows = await listAssets({ limit: 100, page });
+      if (!rows.length) break;
+      for (const a of rows) {
+        const at = a.created_at ? Number(a.created_at) * 1000 : 0;
+        if (at && at < cutoff) targets.push({ id: a.id, created: new Date(at).toISOString().slice(0, 10), minutes: Math.round((Number(a.duration || 0) / 60) * 10) / 10 });
+      }
+      if (rows.length < 100) break;
+    }
+    const minutes = Math.round(targets.reduce((n, t) => n + t.minutes, 0));
+    if (dry) {
+      return res.json({ dryRun: true, days, count: targets.length, minutes, sample: targets.slice(0, 10),
+        hint: "消してよければ {\"days\":90,\"confirm\":true} で実行してください。" });
+    }
+    let done = 0;
+    for (const t of targets) {
+      try { await deleteAsset(t.id); done++; } catch (e) { console.error("[mux cleanup]", t.id, e.message); }
+    }
+    res.json({ dryRun: false, days, deleted: done, minutes });
+  } catch (e) {
+    res.status(502).json({ error: e.message });
+  }
+});
+
 // Recall接続状況（どのリージョン/キーに繋がっているか＋今月の利用時間＋直近のボット起動結果）
 // ※Recall APIは「残高（チャージ額）」を返さないため、残高は取得できない。利用時間と接続先のみ表示する。
 app.get("/api/recall/status", async (req, res) => {
@@ -1285,6 +1523,66 @@ app.get("/api/recall/status", async (req, res) => {
 });
 
 // 接続している外部APIの一覧（課金の有無・接続先・確認先）。キーは末尾4文字のみ。
+// 稟議用：課金しているサービスの提供会社をまとめて出す
+const VENDORS = {
+  recall: { vendor: "Recall.ai, Inc.", country: "アメリカ", billing: "従量課金（ボットの稼働時間）", currency: "USD", site: "https://www.recall.ai/" },
+  anthropic: { vendor: "Anthropic PBC", country: "アメリカ", billing: "従量課金（AIの処理量）", currency: "USD", site: "https://www.anthropic.com/" },
+  gemini: { vendor: "Google LLC（請求は Google Cloud Japan 合同会社の場合あり）", country: "アメリカ／日本", billing: "従量課金（AIの処理量）", currency: "USD/JPY", site: "https://ai.google.dev/" },
+  groq: { vendor: "Groq, Inc.", country: "アメリカ", billing: "従量課金", currency: "USD", site: "https://groq.com/" },
+  openai: { vendor: "OpenAI, L.L.C.", country: "アメリカ", billing: "従量課金", currency: "USD", site: "https://openai.com/" },
+  deepgram: { vendor: "Deepgram, Inc.", country: "アメリカ", billing: "従量課金（文字起こしの時間）", currency: "USD", site: "https://deepgram.com/" },
+  mux: { vendor: "Mux, Inc.", country: "アメリカ", billing: "従量課金（配信・保存・視聴）", currency: "USD", site: "https://www.mux.com/" },
+  cloudflare: { vendor: "Cloudflare, Inc.", country: "アメリカ", billing: "月額＋従量（視聴時間・保存）", currency: "USD", site: "https://www.cloudflare.com/ja-jp/developer-platform/products/cloudflare-stream/" },
+  railway: { vendor: "Railway Corp.", country: "アメリカ", billing: "従量課金（サーバー・通信量）", currency: "USD", site: "https://railway.com/" },
+  google: { vendor: "Google LLC", country: "アメリカ", billing: "無料（Workspaceの契約内で利用）", currency: "-", site: "https://workspace.google.com/" },
+  notion: { vendor: "Notion Labs, Inc.", country: "アメリカ", billing: "無料（既存契約内で利用）", currency: "-", site: "https://www.notion.so/" },
+  salesforce: { vendor: "株式会社セールスフォース・ジャパン", country: "日本", billing: "無料（既存契約内で利用）", currency: "-", site: "https://www.salesforce.com/jp/" },
+  gbizinfo: { vendor: "経済産業省（gBizINFO）", country: "日本", billing: "無料", currency: "-", site: "https://info.gbiz.go.jp/" },
+};
+
+app.get("/api/vendors", async (req, res) => {
+  try {
+    res.set("Cache-Control", "no-store");
+    const env = process.env;
+    const has = (v) => !!(v && String(v).trim());
+    const provider = (env.LIVE_PROVIDER || "mux").toLowerCase();
+    const rows = [
+      { key: "recall", label: "会議への入室・録音・文字起こし", used: has(env.RECALL_API_KEY) },
+      { key: "anthropic", label: "商談の要約・分析・抽出", used: has(env.ANTHROPIC_API_KEY) },
+      { key: "gemini", label: "商談の要約・分析", used: has(env.GEMINI_API_KEY) },
+      { key: "groq", label: "AI（控え）", used: has(env.GROQ_API_KEY) },
+      { key: "openai", label: "AI（任意）", used: has(env.OPENAI_API_KEY) },
+      { key: "deepgram", label: "文字起こし（任意）", used: has(env.DEEPGRAM_API_KEY) },
+      { key: "mux", label: "商談中のライブ配信・録画の保管", used: has(env.MUX_TOKEN_ID) && provider === "mux" },
+      { key: "cloudflare", label: "商談中のライブ配信", used: has(env.CF_STREAM_TOKEN) && provider === "cloudflare" },
+      { key: "railway", label: "kinbot本体の稼働（サーバー・データベース）", used: true },
+      { key: "google", label: "カレンダー・Gmail・ドライブ連携", used: has(env.GOOGLE_CLIENT_ID) },
+      { key: "salesforce", label: "商談・リードの連携", used: has(env.SF_CLIENT_ID) },
+      { key: "notion", label: "議事録の書き出し", used: has(env.NOTION_TOKEN) },
+      { key: "gbizinfo", label: "企業情報の取得", used: has(env.GBIZINFO_TOKEN) },
+    ];
+    // 文字起こしは、どのエンジンを使うかで請求先が変わる
+    const tp = (env.RECALL_TRANSCRIBE_PROVIDER || "recallai").toLowerCase();
+    const transcription =
+      tp === "deepgram"
+        ? { engine: "Deepgram", vendor: "Deepgram, Inc.", billedBy: "Deepgram（Recallの請求とは別）", note: "DeepgramのAPIキーを使う場合はDeepgramから直接請求されます。Recall経由で使う場合はRecallの請求に含まれます。" }
+        : tp === "gladia"
+          ? { engine: "Gladia", vendor: "Gladia SAS", billedBy: "Gladia またはRecall経由", note: "契約形態によって請求元が変わります。" }
+          : { engine: "Recall標準", vendor: "Recall.ai, Inc.", billedBy: "Recall（ボット稼働時間とは別の明細）", note: "Recallの請求書に『Transcription』などの明細として、ボット稼働時間とは別に計上されます。" };
+
+    res.json({
+      generatedAt: new Date().toISOString(),
+      note: "法人名・請求条件は変更されることがあります。稟議に使う際は請求書（インボイス）の記載で最終確認してください。",
+      transcription,
+      paid: rows.filter((r) => r.used && VENDORS[r.key] && VENDORS[r.key].currency !== "-").map((r) => ({ 用途: r.label, ...VENDORS[r.key] })),
+      free: rows.filter((r) => r.used && VENDORS[r.key] && VENDORS[r.key].currency === "-").map((r) => ({ 用途: r.label, ...VENDORS[r.key] })),
+      notUsed: rows.filter((r) => !r.used).map((r) => r.key),
+    });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 app.get("/api/integrations", async (req, res) => {
   const env = process.env;
   const last4 = (v) => (v && String(v).length > 4 ? String(v).trim().slice(-4) : "");
@@ -3945,7 +4243,9 @@ async function startBotSession(owner, meetingUrl, { title = "", repName = "", la
   }
   let mux = null;
   let muxError = "";
-  if (muxConfigured()) {
+  // ライブ配信は常に用意する（Cloudflareは見られた分だけの課金なので、流しっぱなしでも費用は増えません）
+  // 止めたいときは LIVE_STREAM_ENABLED=0
+  if (process.env.LIVE_STREAM_ENABLED !== "0" && liveConfigured()) {
     try {
       mux = await createLiveStream();
       if (!mux?.playbackId) muxError = "Muxから再生IDが取得できませんでした";
@@ -5018,9 +5318,14 @@ app.get("/api/meetings/:id/recording", async (req, res) => {
     let recallUrl = null;
     try { recallUrl = await getRecordingUrl(req.params.id); } catch (e) { console.error("[recording] recall", e.message); }
     if (recallUrl) return res.json({ url: recallUrl, source: "recall" });
-    // 2) 無ければ Mux VOD（アップロード動画など）
+    // 2) Recallの保存期限が切れていても、Googleドライブに保存済みならそこから再生
+    if (m.drive_file_id) {
+      return res.json({ url: `/api/meetings/${encodeURIComponent(req.params.id)}/drive-video`, source: "drive", driveLink: m.drive_link || "" });
+    }
+    // 3) 無ければ Mux VOD（アップロード動画など）
     if (m.mux_playback_id) {
-      return res.json({ url: `https://stream.mux.com/${m.mux_playback_id}.m3u8`, hls: true, source: "mux" });
+      const u = livePlaybackUrl(m.mux_playback_id);
+      if (u) return res.json({ url: u, hls: true, source: "live" });
     }
     res.json({ url: null, source: null });
   } catch {
@@ -5915,8 +6220,10 @@ app.get("/api/salesforce/diag", async (req, res) => {
       egressIp,
       hint: !tokenTest.ok && /ip restricted/i.test(tokenTest.error)
         ? "SalesforceのIP制限で弾かれています。接続アプリのOAuthポリシーで「IP制限の緩和」を設定するか、上のegressIpを信頼済みIPに登録してください。"
+        : !tokenTest.ok && /expired access\/refresh token/i.test(tokenTest.error)
+          ? "リフレッシュトークンが期限切れです。(1)設定→外部連携でSalesforceを連携し直してください。(2)何度も起きる場合は、接続アプリのOAuthポリシー「更新トークンポリシー」を『リフレッシュトークンが失効するまで』に変更してもらってください（管理者作業）。"
         : !tokenTest.ok && /invalid_grant/i.test(tokenTest.error)
-          ? "リフレッシュトークンが無効です。設定から再連携してください。"
+          ? "リフレッシュトークンが無効です。設定から再連携してください。管理者に、接続アプリの更新トークンポリシーの確認も依頼してください。"
           : "",
     });
   } catch (e) {

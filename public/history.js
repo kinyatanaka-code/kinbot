@@ -2218,12 +2218,32 @@ function setupRecordingPlayer(drec, d, meeting) {
     `<video class="rec-video" controls preload="metadata" playsinline autopictureinpicture></video>
      <div class="ch-wrap" id="chWrap"></div>
      <div class="rec-bar">
-       <span class="rec-hint">ホーム画面に戻ったり、他のアプリを開いても音声は再生され続けます。</span>
+       <span class="rec-hint">${d && d.source === "drive" ? "Googleドライブに保存した録画を再生しています。" : "ホーム画面に戻ったり、他のアプリを開いても音声は再生され続けます。"}</span>
+       ${d && d.source === "recall" ? `<button type="button" class="rec-open" id="recToDrive">ドライブに保存</button>` : ""}
+       ${d && d.driveLink ? `<a class="rec-open" href="${escapeHtml(d.driveLink)}" target="_blank" rel="noopener">ドライブで開く</a>` : ""}
        ${isHls ? "" : `<a class="rec-open" href="${escapeHtml(url)}" target="_blank" rel="noopener">別タブで開く</a>`}
      </div>`;
 
   const video = drec.querySelector("video");
   renderChapters(drec, video, meeting, url);
+
+  // Googleドライブに保存する
+  const toDrive = drec.querySelector("#recToDrive");
+  if (toDrive) toDrive.addEventListener("click", async () => {
+    toDrive.disabled = true;
+    toDrive.textContent = "保存中…（数分かかります）";
+    try {
+      const r = await fetch(`/api/meetings/${encodeURIComponent(meeting.bot_id)}/archive-drive`, { method: "POST" });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(j.error || "保存に失敗しました");
+      toDrive.textContent = j.already ? "保存済み" : `保存しました（${j.sizeMB || "?"}MB）`;
+      if (window.kbToast) window.kbToast("Googleドライブに保存しました");
+    } catch (e) {
+      toDrive.disabled = false;
+      toDrive.textContent = "ドライブに保存";
+      if (window.kbToast) window.kbToast("保存に失敗しました：" + e.message, "error");
+    }
+  });
   if (isHls && window.Hls && window.Hls.isSupported() && !video.canPlayType("application/vnd.apple.mpegurl")) {
     hlsInst = new Hls();
     hlsInst.loadSource(url);

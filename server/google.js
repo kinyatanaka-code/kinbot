@@ -6,7 +6,7 @@ const CLIENT_ID = process.env.GOOGLE_CLIENT_ID || "";
 const CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET || "";
 // calendar.events は「自分のカレンダーに予定を作り、ゲストを招待する」ために必要。
 // 招待方式なので、相手（クローザー）のカレンダーへの権限は不要。
-const SCOPE = "https://www.googleapis.com/auth/calendar.readonly https://www.googleapis.com/auth/calendar.events https://www.googleapis.com/auth/drive.readonly https://www.googleapis.com/auth/gmail.readonly https://www.googleapis.com/auth/gmail.compose";
+const SCOPE = "https://www.googleapis.com/auth/calendar.readonly https://www.googleapis.com/auth/calendar.events https://www.googleapis.com/auth/drive.readonly https://www.googleapis.com/auth/drive.file https://www.googleapis.com/auth/gmail.readonly https://www.googleapis.com/auth/gmail.compose";
 
 export function googleConfigured() {
   return !!(CLIENT_ID && CLIENT_SECRET);
@@ -708,4 +708,79 @@ export async function gmailDeleteDraft(owner, draftId) {
     method: "DELETE",
     headers: { Authorization: `Bearer ${token}` },
   }).catch(() => {});
+}
+
+
+// ===== 録画をGoogleドライブに保存する =====
+
+// 保存先フォルダを用意する（無ければ作る）
+export async function driveEnsureFolder(owner, name = "kinbot 商談録画") {
+  const token = await driveAccessToken(owner);
+  if (!token) throw new Error("Googleが連携されていません");
+  const q = `name='${String(name).replace(/'/g, "")}' and mimeType='application/vnd.google-apps.folder' and trashed=false`;
+  const res = await fetch(
+    `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(q)}&fields=files(id,name)&spaces=drive`,
+    { headers: { Authorization: `Bearer ${token}` } }
+  );
+  const d = await res.json().catch(() => ({}));
+  if (res.ok && d.files && d.files.length) return d.files[0].id;
+  const mk = await fetch("https://www.googleapis.com/drive/v3/files?fields=id", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}`, "content-type": "application/json" },
+    body: JSON.stringify({ name, mimeType: "application/vnd.google-apps.folder" }),
+  });
+  const md = await mk.json().catch(() => ({}));
+  if (!mk.ok) throw new Error(`Drive folder ${mk.status}: ${JSON.stringify(md).slice(0, 200)}`);
+  return md.id;
+}
+
+// URLの動画を、そのままドライブへ流し込む（サーバーのメモリに溜めない）
+export async function driveUploadFromUrl(owner, { url, name, folderId, mimeType = "video/mp4" }) {
+  const token = await driveAccessToken(owner);
+  if (!token) throw new Error("Googleが連携されていません");
+
+  // 1) アップロード枠を作る
+  const start = await fetch("https://www.googleapis.com/upload/drive/v3/files?uploadType=resumable&fields=id,webViewLink,size", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}`, "content-type": "application/json", "X-Upload-Content-Type": mimeType },
+    body: JSON.stringify({ name, parents: folderId ? [folderId] : undefined }),
+  });
+  if (!start.ok) throw new Error(`Drive upload start ${start.status}: ${(await start.text()).slice(0, 200)}`);
+  const session = start.headers.get("location");
+  if (!session) throw new Error("Driveのアップロード枠を作れませんでした");
+
+  // 2) 元の動画を取りながら、そのまま送る
+  const src = await fetch(url);
+  if (!src.ok || !src.body) throw new Error(`録画の取得に失敗しました（${src.status}）`);
+  const len = src.headers.get("content-length");
+  const put = await fetch(session, {
+    method: "PUT",
+    headers: len ? { "content-length": len } : {},
+    body: src.body,
+    duplex: "half",
+  });
+  const pd = await put.json().catch(() => ({}));
+  if (!put.ok) throw new Error(`Drive upload ${put.status}: ${JSON.stringify(pd).slice(0, 200)}`);
+  return { fileId: pd.id, link: pd.webViewLink || `https://drive.google.com/file/d/${pd.id}/view`, size: Number(pd.size || 0) };
+}
+
+// 社内の人が見られるように共有する（ドメイン指定。指定が無ければ何もしない）
+export async function driveShareDomain(owner, fileId, domain) {
+  if (!domain) return;
+  const token = await driveAccessToken(owner);
+  if (!token) return;
+  await fetch(`https://www.googleapis.com/drive/v3/files/${encodeURIComponent(fileId)}/permissions`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}`, "content-type": "application/json" },
+    body: JSON.stringify({ role: "reader", type: "domain", domain }),
+  }).catch(() => {});
+}
+
+// ドライブの動画を、kinbot経由で再生できるように取り出す（途中再生に対応）
+export async function driveStream(owner, fileId, range) {
+  const token = await driveAccessToken(owner);
+  if (!token) throw new Error("Googleが連携されていません");
+  const headers = { Authorization: `Bearer ${token}` };
+  if (range) headers.Range = range;
+  return await fetch(`https://www.googleapis.com/drive/v3/files/${encodeURIComponent(fileId)}?alt=media`, { headers });
 }

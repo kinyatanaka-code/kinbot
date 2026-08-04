@@ -129,7 +129,7 @@ export async function createBot({
   const automaticLeave = {
     waiting_room_timeout: secs("RECALL_WAIT_ROOM_SEC", 420),               // 待機室で7分待って入れなければ退出
     noone_joined_timeout: secs("RECALL_NOONE_SEC", 420),                   // 誰も来なければ7分で退出
-    everyone_left_timeout: secs("RECALL_EVERYONE_LEFT_SEC", 60),           // 全員退出したら1分で退出
+    everyone_left_timeout: secs("RECALL_EVERYONE_LEFT_SEC", 30),           // 全員退出したら30秒で退出（一時的な回線切れで録音が切れないための余裕）
     in_call_not_recording_timeout: secs("RECALL_NOT_RECORDING_SEC", 600),  // 録音できないまま10分たったら退出
     recording_permission_denied_timeout: secs("RECALL_PERM_DENIED_SEC", 120),
   };

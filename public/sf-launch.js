@@ -63,6 +63,19 @@ function creatorNameOf(e) {
   return e.creatorName || e.organizerName || (em ? em.split("@")[0] : "");
 }
 
+// クロスのリードか、MOCHICAのリードかを見分ける
+function leadKind(r) {
+  const bag = [
+    (r.RecordType && r.RecordType.Name) || "",
+    r.LeadSource || "",
+    (r.Owner && r.Owner.Name) || "",
+    r.Status || "",
+  ].join(" ");
+  if (/mochica/i.test(bag)) return { label: "MOCHICAリード", cls: "is-mochica" };
+  if (/クロス|cross/i.test(bag)) return { label: "クロスリード", cls: "is-cross" };
+  return { label: (r.RecordType && r.RecordType.Name) || r.LeadSource || "種別不明", cls: "is-other" };
+}
+
 function stOf(key) {
   if (!state[key]) state[key] = { open: false, mode: "search", loading: false, error: "", leads: null, picked: null, done: null, q: "", qp: "" };
   return state[key];
@@ -134,7 +147,7 @@ function formHtml(key, ev) {
     (reqs.length ? `<div class="ln-group">この組織で必須の項目</div>` + reqs.map((f) => fieldInput(f, key, def(f.key))).join("") : "");
   return `<div class="ln-form">
     <div class="ln-lead">
-      <div class="home-sf-name">${escL(lead.Name || "")}（${escL(lead.Company || "")}）</div>
+      <div class="home-sf-name">${escL(lead.Name || "")}（${escL(lead.Company || "")}）<span class="ln-kind ${leadKind(lead).cls}">${escL(leadKind(lead).label)}</span></div>
       <div class="home-sf-meta">${escL(lead.Status || "")}${lead.Owner && lead.Owner.Name ? " ・ " + escL(lead.Owner.Name) : ""}${lead.Email ? " ・ " + escL(lead.Email) : ""}</div>
     </div>
     <div class="ln-gbiz">
@@ -231,7 +244,7 @@ function panelHtml(key, ev) {
   else if (s.leads) {
     inner = `<div class="home-sf-list">` + s.leads.map((r) => `
       <button class="home-sf-item" data-ln-pick="${escL(key)}" data-id="${escL(r.Id)}" type="button">
-        <span class="home-sf-name">${escL(r.Name || "")}</span>
+        <span class="home-sf-name">${escL(r.Name || "")}<span class="ln-kind ${leadKind(r).cls}">${escL(leadKind(r).label)}</span></span>
         <span class="home-sf-meta">${escL(r.Company || "")}${r.Status ? " ・ " + escL(r.Status) : ""}${r.Owner && r.Owner.Name ? " ・ " + escL(r.Owner.Name) : ""}</span>
       </button>`).join("") + `</div>`;
   }

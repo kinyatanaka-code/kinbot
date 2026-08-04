@@ -123,11 +123,30 @@ export function clearSfTokenCache(owner) {
 }
 
 // アクセストークン取得（有効な間はキャッシュ、失効時のみ refresh_token で更新）。{ token, instanceUrl } を返す
+// 同じアカウントで同時に更新を走らせない。
+// ローテーション設定の組織では、同時に2回更新すると片方が無効になり「expired」になるため。
+const _sfRefreshing = new Map(); // owner -> Promise
+
 async function getAccess(owner, force = false) {
   if (!force) {
     const c = _sfTokenCache.get(owner);
     if (c && c.exp > Date.now()) return { token: c.token, instanceUrl: c.instanceUrl };
   }
+  // すでに更新中なら、その結果を待つ
+  const running = _sfRefreshing.get(owner);
+  if (running) return await running;
+  const task = (async () => {
+    try {
+      return await refreshAccess(owner);
+    } finally {
+      _sfRefreshing.delete(owner);
+    }
+  })();
+  _sfRefreshing.set(owner, task);
+  return await task;
+}
+
+async function refreshAccess(owner) {
   const row = await getSalesforceToken(owner);
   if (!row || !row.refresh_token) return null;
   // 接続先が変わった（サンドボックス↔本番）場合は、古い連携を消して再連携させる
@@ -166,8 +185,8 @@ async function getAccess(owner, force = false) {
   if (data.instance_url && data.instance_url !== row.instance_url) patch.instanceUrl = data.instance_url;
   if (Object.keys(patch).length) await saveSalesforceToken(owner, patch);
   // expires_in があれば利用、無ければ15分。上限1時間、1分の余裕を引く。
-  const ttlSec = Number(data.expires_in) > 0 ? Number(data.expires_in) : 900;
-  const exp = Date.now() + Math.min(ttlSec, 3600) * 1000 - 60 * 1000;
+  const ttlSec = Number(data.expires_in) > 0 ? Number(data.expires_in) : 7200;
+  const exp = Date.now() + Math.min(ttlSec, 7200) * 1000 - 5 * 60 * 1000;
   _sfTokenCache.set(owner, { token: data.access_token, instanceUrl, exp });
   return { token: data.access_token, instanceUrl };
 }
@@ -729,7 +748,7 @@ export async function searchLeads(owner, { company = "", person = "", limit = 20
   if (p) or.push(`LastName LIKE '%${p}%'`, `Name LIKE '%${p}%'`);
   if (or.length) conds.push(`(${or.join(" OR ")})`);
   const soql =
-    `SELECT Id, Name, LastName, FirstName, Company, Title, Email, Phone, Status, Website, Street, City, State, PostalCode, NumberOfEmployees, LeadSource, CreatedDate, Owner.Name ` +
+    `SELECT Id, Name, LastName, FirstName, Company, Title, Email, Phone, Status, Website, Street, City, State, PostalCode, NumberOfEmployees, LeadSource, RecordType.Name, CreatedDate, Owner.Name ` +
     `FROM Lead WHERE ${conds.join(" AND ")} ORDER BY CreatedDate DESC LIMIT ${Math.min(50, Number(limit) || 20)}`;
   const d = await sfQuery(owner, soql);
   return d.records || [];

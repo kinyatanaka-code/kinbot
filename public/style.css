@@ -4103,3 +4103,12 @@ input:focus, select:focus, textarea:focus, .sf-input:focus, .sf-select:focus, .s
 .kb-menu-item:active { background: rgba(255,255,255,.10); }
 .kb-menu-item.is-on { background: rgba(255,255,255,.16); color: #fff; font-weight: 700; }
 .kb-menu-out { margin-top: auto; color: #9FE1CB; font-size: 13px; border-top: 1px solid rgba(255,255,255,.14); border-radius: 0; padding-top: 16px; }
+.live-opt { display: flex; align-items: center; gap: 8px; font-size: 12.5px; color: var(--muted); margin: 2px 0 10px; cursor: pointer; }
+.live-opt input { width: 17px; height: 17px; min-height: 0; accent-color: #1d9e75; margin: 0; }
+.sf-search { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.sf-search-q { flex: 1; min-width: 180px; }
+@media (max-width: 760px) { .sf-search { flex-direction: column; align-items: stretch; } .sf-search .btn { width: 100%; } }
+.ln-kind { display: inline-block; margin-left: 8px; font-size: 10.5px; font-weight: 700; border-radius: 999px; padding: 2px 9px; vertical-align: middle; }
+.ln-kind.is-cross { color: #0d5b47; background: #e1f5ee; border: 1px solid #9fe1cb; }
+.ln-kind.is-mochica { color: #7a4a12; background: #fbf1de; border: 1px solid #e6cf9d; }
+.ln-kind.is-other { color: var(--muted); background: var(--panel-2); border: 1px solid var(--line); }

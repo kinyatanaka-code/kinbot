@@ -46,6 +46,8 @@ export async function initDb() {
   await pool.query(`ALTER TABLE meetings ADD COLUMN IF NOT EXISTS ai_log JSONB;`);
   await pool.query(`ALTER TABLE meetings ADD COLUMN IF NOT EXISTS metrics JSONB;`);
   await pool.query(`ALTER TABLE meetings ADD COLUMN IF NOT EXISTS chapters JSONB;`);
+  await pool.query(`ALTER TABLE meetings ADD COLUMN IF NOT EXISTS drive_file_id TEXT;`);
+  await pool.query(`ALTER TABLE meetings ADD COLUMN IF NOT EXISTS drive_link TEXT;`);
   await pool.query(`ALTER TABLE meetings ADD COLUMN IF NOT EXISTS account TEXT;`);
   await pool.query(`ALTER TABLE meetings ADD COLUMN IF NOT EXISTS note TEXT;`);
   await pool.query(`ALTER TABLE meetings ADD COLUMN IF NOT EXISTS apo_setter TEXT;`);
@@ -569,7 +571,7 @@ export async function listMeetings({ owner, isAdmin, from, to, limit } = {}) {
   if (!pool) return [];
   const base = `SELECT m.bot_id, m.meeting_url, m.rep_name, m.title, m.owner,
                        m.round_no, m.phase, m.status, m.created_at, m.updated_at, m.summary, m.analysis, m.note,
-                       m.metrics, m.sf_url, COALESCE(m.account,'') AS account, m.category, m.deal_kind,
+                       m.metrics, m.sf_url, m.drive_file_id, m.drive_link, COALESCE(m.account,'') AS account, m.category, m.deal_kind,
                        m.apo_setter, u.name AS owner_name
                 FROM meetings m LEFT JOIN users u ON u.email = m.owner`;
   // 文字起こしが無い（空配列/NULL）の商談は履歴に残さない
@@ -2666,4 +2668,50 @@ export async function saveChapters(botId, chapters) {
     await pool.query(`UPDATE meetings SET chapters=$2, updated_at=now() WHERE bot_id=$1`,
       [botId, JSON.stringify(chapters || [])]);
   } catch (e) { console.error("[chapters]", e.message); }
+}
+
+
+// 録画のGoogleドライブ保存先を記録する
+export async function saveDriveFile(botId, { fileId, link }) {
+  if (!pool || !botId) return;
+  try {
+    await pool.query(`UPDATE meetings SET drive_file_id=$2, drive_link=$3, updated_at=now() WHERE bot_id=$1`,
+      [botId, fileId || null, link || null]);
+  } catch (e) { console.error("[drive]", e.message); }
+}
+
+
+// ライブ配信を使った商談の本数と、おおよその配信時間（Muxの費用の目安）
+export async function muxLiveUsage(days = 30) {
+  if (!pool) return null;
+  const d = Math.max(1, Math.min(365, Number(days) || 30));
+  try {
+    const { rows } = await pool.query(
+      `SELECT bot_id, created_at, updated_at, mux_playback_id,
+              jsonb_array_length(COALESCE(transcript,'[]'::jsonb)) AS n
+         FROM meetings
+        WHERE created_at >= now() - make_interval(days => ${d})`
+    );
+    let live = 0, all = 0, minutes = 0;
+    for (const r of rows) {
+      all++;
+      if (!r.mux_playback_id) continue;
+      live++;
+      // 開始から最終更新までを配信時間の目安にする（取れなければ45分とみなす）
+      const st = r.created_at ? new Date(r.created_at).getTime() : 0;
+      const en = r.updated_at ? new Date(r.updated_at).getTime() : 0;
+      const m = st && en && en > st ? Math.min(240, (en - st) / 60000) : 45;
+      minutes += m;
+    }
+    return { days: d, meetings: all, liveMeetings: live, estimatedLiveMinutes: Math.round(minutes), estimatedLiveHours: Math.round((minutes / 60) * 10) / 10 };
+  } catch { return null; }
+}
+
+// Salesforceを連携しているアカウント一覧（トークンを切らさないための巡回に使う）
+export async function listSalesforceOwners() {
+  if (!pool) return [];
+  try {
+    const { rows } = await pool.query(`SELECT owner FROM salesforce_accounts WHERE refresh_token IS NOT NULL`);
+    return rows.map((r) => r.owner).filter(Boolean);
+  } catch { return []; }
 }

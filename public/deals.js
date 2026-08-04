@@ -1286,7 +1286,10 @@ async function selectDeal(account) {
     `<div class="dc-page" data-page="salesforce" hidden>` +
     `<button class="dc-back" type="button"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" style="vertical-align:-2px;margin-right:4px"><path d="M10 4L6 8l4 4" stroke="#0d5b47" stroke-width="1.5" stroke-linecap="round"/></svg>${esc(displayName(account))}</button>` +
     `<section class="deal-sec"><div class="deal-sec-h"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" style="vertical-align:-2px;margin-right:4px"><path d="M8 1a7 7 0 110 14A7 7 0 018 1z" fill="#185FA5"/><path d="M5.5 8.5l2 2 3.5-4" stroke="#fff" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>Salesforce</div>` +
-    `<div id="sfSearch" class="sf-search"><button class="btn sf-search-btn" id="sfSearchBtn">商談を検索</button></div>` +
+    `<div id="sfSearch" class="sf-search">
+       <input type="text" id="sfSearchQ" class="sf-input sf-search-q" placeholder="会社名や商談名で検索" />
+       <button class="btn sf-search-btn" id="sfSearchBtn">商談を検索</button>
+     </div>` +
     `<div id="sfMatches"></div>` +
     `<div id="sfLinked" style="display:none"><div id="sfLinkedInfo" class="sf-linked-info"></div>` +
     `<div class="sf-field" id="sfReadMeetingWrap" style="display:none;margin:8px 0 4px"><label>読み取る商談（自動入力の元）</label><select id="sfReadMeeting" class="sf-select"></select></div>` +
@@ -2601,12 +2604,24 @@ async function initSfTab(account) {
     linkOpportunity(oppId);
   }
 
+  // 検索欄でEnterを押しても検索する
+  const sfQEl = $("sfSearchQ");
+  if (sfQEl && !sfQEl._wired) {
+    sfQEl._wired = true;
+    sfQEl.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") { e.preventDefault(); searchBtn.click(); }
+    });
+  }
+
   // 商談検索
   searchBtn.onclick = async () => {
     searchBtn.disabled = true;
     searchBtn.textContent = "検索中…";
     try {
-      const companyName = displayName(account);
+      const qEl = $("sfSearchQ");
+      const typed = qEl && qEl.value.trim();
+      const companyName = typed || displayName(account);
+      if (qEl && !typed) qEl.value = companyName; // 何で探したか分かるように入れておく
       const r = await sfFetch("/api/salesforce/search?q=" + encodeURIComponent(companyName));
       const d = await r.json();
       if (!r.ok) throw new Error(d.error || "検索失敗");
@@ -2623,7 +2638,11 @@ async function initSfTab(account) {
         if (ssKeys.length) console.log("[SF] SS関連フィールド:", ssKeys.join(", "));
       }
       if (!records.length) {
-        matchesEl.innerHTML = '<div style="padding:12px;color:#8a938c;font-size:13px;">Salesforceに一致する商談が見つかりませんでした</div>';
+        matchesEl.innerHTML =
+          `<div style="padding:12px;color:#8a938c;font-size:13px;line-height:1.8">
+             「${esc(companyName)}」で見つかりませんでした。<br>
+             上の欄に別の言い方（正式名称・略称・担当者名など）を入れて、もう一度検索してください。
+           </div>`;
         return;
       }
       matchesEl.innerHTML = '<div class="sf-match-list">' + records.map(r =>

@@ -1,12 +1,12 @@
 // server/scheduler.js
 // 連携済みの各ユーザーのGoogleカレンダーを定期チェックし、
-// Zoom予定の「開始3分前」にBotを予約する（商談はその人の所有に）。
+// Zoom予定の少し前（既定は1分前。BOT_JOIN_LEAD_MIN で変更可）にBotを予約する。
 import { listZoomEvents } from "./google.js";
 import { createBot } from "./recall.js";
 import { resolveConfig } from "./config.js";
 import { isScheduled, markScheduled, createMeeting, listGoogleAccounts, dbGetUser } from "./db.js";
 
-import { muxConfigured, createLiveStream } from "./mux.js";
+import { liveConfigured as muxConfigured, createLiveStream } from "./live.js";
 import { getDisplayName } from "./auth.js";
 
 let publicUrl = "";
@@ -43,13 +43,21 @@ async function tick() {
     for (const ev of events) {
       const key = `${owner}::${ev.id}`;
       if (await isScheduled(key)) continue;
+      // 商談以外（社内MTG・ユーザーフォロー）は録音しない。Recallは時間で課金されるため。
+      if (/【\s*社内MTG\s*】|【\s*ユ\s*\/\s*フォ\s*】/.test(String(ev.title || ""))) {
+        console.log(`[scheduler] 商談以外なので録音しません: ${ev.title}`);
+        continue;
+      }
       const startMs = new Date(ev.start).getTime();
       // 商談名＝カレンダーの予定タイトル、営業担当＝カレンダーの主催者
       const meta = await meetingMeta(owner, ownerName, ev);
-      const joinAt = new Date(Math.max(startMs - 3 * 60 * 1000, now + 5000)).toISOString();
+      // 何分前に入室させるか（早すぎると、待っている時間もRecallの課金対象になる）
+      const leadMin = Math.max(0, Math.min(10, Number(process.env.BOT_JOIN_LEAD_MIN || 1)));
+      const joinAt = new Date(Math.max(startMs - leadMin * 60 * 1000, now + 5000)).toISOString();
       try {
         let mux = null;
-        if (muxConfigured()) {
+        // 予約入室でもライブ配信する（止めたいときは LIVE_STREAM_ENABLED=0）
+        if (process.env.LIVE_STREAM_ENABLED !== "0" && muxConfigured()) {
           try {
             mux = await createLiveStream();
           } catch (e) {

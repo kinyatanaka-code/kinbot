@@ -117,3 +117,52 @@ export async function waitVodPlayback(uploadId, { maxMs = 15 * 60 * 1000, interv
   }
   throw new Error("Muxエンコードがタイムアウトしました");
 }
+
+// ===== 保存されている動画（アセット）の確認と掃除 =====
+
+// アセット一覧（新しい順）。limitは最大100。
+export async function listAssets({ limit = 100, page = 1 } = {}) {
+  const res = await fetch(`https://api.mux.com/video/v1/assets?limit=${Math.min(100, limit)}&page=${page}`, {
+    headers: { Authorization: authHeader() },
+  });
+  if (!res.ok) throw new Error(`Mux list ${res.status}: ${(await res.text()).slice(0, 200)}`);
+  return (await res.json()).data || [];
+}
+
+export async function deleteAsset(assetId) {
+  const res = await fetch(`https://api.mux.com/video/v1/assets/${encodeURIComponent(assetId)}`, {
+    method: "DELETE",
+    headers: { Authorization: authHeader() },
+  });
+  if (!res.ok && res.status !== 404) throw new Error(`Mux delete ${res.status}`);
+  return true;
+}
+
+// いま何分ぶん保存されているかを数える（課金の目安）
+export async function muxStorageSummary({ maxPages = 20 } = {}) {
+  let total = 0, count = 0, oldest = null;
+  const byMonth = {};
+  for (let page = 1; page <= maxPages; page++) {
+    const rows = await listAssets({ limit: 100, page });
+    if (!rows.length) break;
+    for (const a of rows) {
+      const dur = Number(a.duration || 0);
+      total += dur;
+      count++;
+      const at = a.created_at ? new Date(Number(a.created_at) * 1000) : null;
+      if (at) {
+        if (!oldest || at < oldest) oldest = at;
+        const k = `${at.getFullYear()}-${String(at.getMonth() + 1).padStart(2, "0")}`;
+        byMonth[k] = (byMonth[k] || 0) + dur / 60;
+      }
+    }
+    if (rows.length < 100) break;
+  }
+  return {
+    assets: count,
+    totalMinutes: Math.round(total / 60),
+    totalHours: Math.round((total / 3600) * 10) / 10,
+    oldest: oldest ? oldest.toISOString().slice(0, 10) : null,
+    byMonth: Object.fromEntries(Object.entries(byMonth).map(([k, v]) => [k, Math.round(v)])),
+  };
+}

@@ -2,9 +2,13 @@
 import { analyze, analyzeMeeting, analyzeDeep, answerQuestion, extractQaPairs, splitPhases } from "./analyzer.js";
 import { createMeeting, saveMeeting, saveAnalysis, saveDeepAnalysis, getMeeting, setDealStatusAuto, getSettings, companyFromTitle, getDealBrief, normCompanyKey, getKnowledgeContext, searchQaBank, addQaPairs, saveChapters } from "./db.js";
 import { buildChapters } from "./chapters.js";
-import { disableLiveStream } from "./mux.js";
+import { disableLiveStream } from "./live.js";
 
-const DEFAULT_INTERVAL_MS = Number(process.env.ANALYZE_INTERVAL_MS || 20000);
+const DEFAULT_INTERVAL_MS = Number(process.env.ANALYZE_INTERVAL_MS || 30000);
+// 前回の分析からこれだけ話が進んでいなければ、AIを呼ばない（無駄な課金を減らす）
+const MIN_NEW_CHARS = Number(process.env.ANALYZE_MIN_CHARS || 250);
+// 商談以外（社内MTG・ユーザーフォロー）はライブ分析をしない
+const SKIP_LIVE = /【\s*社内MTG\s*】|【\s*ユ\s*\/\s*フォ\s*】/;
 
 const sessions = new Map(); // botId -> Session
 
@@ -214,8 +218,9 @@ class Session {
 
   async maybeAnalyze() {
     if (Date.now() < this.cooldownUntil) return; // 429などで休止中
+    if (SKIP_LIVE.test(String(this.title || ""))) return; // 商談以外はライブ分析しない
     const full = this.transcriptText();
-    if (full.length - this.lastAnalyzedLen < 20) return;
+    if (full.length - this.lastAnalyzedLen < MIN_NEW_CHARS) return;
     if (this.analyzing) return;
     this.analyzing = true;
     const lenAtStart = full.length;
