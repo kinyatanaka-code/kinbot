@@ -805,6 +805,33 @@ function openCompanyOverview() {
 }
 
 // 会社概要：企業名 → 会社プロフィール（gBiz＋URL取得）→ 判定・御礼メール・SF更新 → 提案資料
+// 社内にあるこの会社の資料（スライド・PDF・ドキュメント）を探して並べる
+async function loadCompanyFiles(company) {
+  const box = hdetail.querySelector("#ovFiles");
+  if (!box) return;
+  const body = () => box.querySelector(".ov-files-body") || box;
+  try {
+    const r = await fetch("/api/drive/company-files?company=" + encodeURIComponent(company));
+    const d = await r.json();
+    const files = d.files || [];
+    const head = `<div class="ov-c-h">社内にあるこの会社の資料<span class="ov-files-note">Googleドライブから検索</span></div>`;
+    if (d.error) {
+      box.innerHTML = head + `<div class="ov-muted">${escapeHtml(d.error)}</div>`;
+      return;
+    }
+    box.innerHTML = head + (files.length
+      ? `<div class="ov-files">` + files.map((f) => `
+          <a class="ov-file" href="${escapeHtml(f.link)}" target="_blank" rel="noopener">
+            <span class="ov-file-kind ${f.kind === "スライド" ? "is-slide" : f.kind === "PDF" ? "is-pdf" : "is-doc"}">${escapeHtml(f.kind)}</span>
+            <span class="ov-file-name">${escapeHtml(f.name)}</span>
+            <span class="ov-file-meta">${escapeHtml(f.modified)}${f.owner ? " ・ " + escapeHtml(f.owner) : ""}</span>
+          </a>`).join("") + `</div>`
+      : `<div class="ov-muted">見つかりませんでした。社内共有されていない資料は表示されません。</div>`);
+  } catch (e) {
+    box.innerHTML = `<div class="ov-c-h">社内にあるこの会社の資料</div><div class="ov-muted">検索に失敗しました。</div>`;
+  }
+}
+
 function renderCompanyOverview() {
   const norm = normKey(selectedAccount);
   const mine = allMeetings
@@ -851,7 +878,13 @@ function renderCompanyOverview() {
          <div class="ov-c" id="ovTodo"><div class="ov-c-h">ネクストアクション（やること）</div><div class="ov-muted">読み込み中…</div></div>
          <div class="ov-c"><div class="ov-c-h">相手の懸念</div>${concernInner}</div>
        </div>
+       <div class="ov-c" id="ovFiles" style="margin-top:12px;">
+         <div class="ov-c-h">社内にあるこの会社の資料<span class="ov-files-note">Googleドライブから検索</span></div>
+         <div class="ov-muted">探しています…</div>
+       </div>
      </div>`;
+
+  loadCompanyFiles(name);
 
   hdetail.querySelectorAll(".ov-qcard").forEach((b) =>
     b.addEventListener("click", () => {

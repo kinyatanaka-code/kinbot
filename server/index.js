@@ -176,7 +176,7 @@ import {
   gmailSend,
   gmailCreateDraft,
   gmailDeleteDraft,
-  parseEmailAddr, driveEnsureFolder, driveUploadFromUrl, driveShareDomain, driveStream } from "./google.js";
+  parseEmailAddr, driveEnsureFolder, driveUploadFromUrl, driveShareDomain, driveStream, driveFindCompanyFiles } from "./google.js";
 import { startScheduler } from "./scheduler.js";
 import { muxConfigured, startVodUpload, waitVodPlayback, muxStorageSummary, listAssets, deleteAsset, findAssetByPlaybackId, enableMp4, mp4Url } from "./mux.js";
 import { liveConfigured, createLiveStream, playbackUrl as livePlaybackUrl, liveInfo } from "./live.js";
@@ -1289,6 +1289,23 @@ async function archiveRecordingSafe(botId) {
 }
 
 // 直近の商談が、ドライブに保存できているかを確認する
+// 会社名から、社内にある提案資料を探す（自分が見られるものだけ）
+app.get("/api/drive/company-files", async (req, res) => {
+  try {
+    res.set("Cache-Control", "no-store");
+    const company = String(req.query.company || "").trim();
+    if (!company) return res.json({ files: [] });
+    const files = await driveFindCompanyFiles(req.user, company, Number(req.query.limit) || 12);
+    res.json({ files });
+  } catch (e) {
+    const msg = String(e.message || "");
+    res.status(200).json({
+      files: [],
+      error: /未連携/.test(msg) ? "Googleが連携されていません" : msg.slice(0, 160),
+    });
+  }
+});
+
 app.get("/api/drive/archive-status", async (req, res) => {
   try {
     res.set("Cache-Control", "no-store");
@@ -1491,6 +1508,22 @@ app.post("/api/drive/migrate", async (req, res) => {
 
     // 保存はまず操作者の権限で行う（共有フォルダに入れるので誰の権限でも同じ場所になる）
     const uploader = b.uploader || req.user || "";
+
+    // 調査モード：保存はせず、なぜ保存できないのかだけを返す
+    if (b.probe) {
+      const probe = [];
+      for (const m of targets.slice(offset, offset + Math.max(5, max))) {
+        const row = { title: m.title || m.bot_id, date: String(m.created_at).slice(0, 10), recall: false, mux: !!m.mux_playback_id, error: "" };
+        try {
+          const u = await getRecordingUrl(m.bot_id);
+          row.recall = !!u;
+        } catch (e) {
+          row.error = String(e.message || "").slice(0, 140);
+        }
+        probe.push(row);
+      }
+      return res.json({ probe, total: targets.length, offset });
+    }
     for (const m of part) {
       const owner = uploader || m.owner || "";
       if (!owner) { out.skipped++; out.reasons.担当者なし++; continue; }

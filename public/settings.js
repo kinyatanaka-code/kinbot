@@ -2056,7 +2056,30 @@ function initSmartLinks() {
     }
   }
 
+  async function probe() {
+    const st = $d("dmStatus"), log = $d("dmLog");
+    if (!st) return;
+    st.textContent = "調べています…";
+    log.innerHTML = "";
+    try {
+      const days = Number(($d("dmDays") && $d("dmDays").value) || 180);
+      const r = await fetch("/api/drive/migrate", {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ days, probe: true }),
+      });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.error || "調査に失敗しました");
+      st.innerHTML = `未保存 ${d.total} 件のうち、先頭5件を調べました。`;
+      log.innerHTML = (d.probe || []).map((x) =>
+        `<div class="dm-log-line">${escD(x.date)} ${escD(x.title)}｜Recallの録画：${x.recall ? "あり" : "なし"}｜Muxの録画：${x.mux ? "あり" : "なし"}${x.error ? "｜" + escD(x.error) : ""}</div>`
+      ).join("");
+    } catch (e) {
+      st.textContent = "調査に失敗しました：" + e.message;
+    }
+  }
+
   document.addEventListener("DOMContentLoaded", () => {
+    const pb = $d("dmProbe"); if (pb) pb.addEventListener("click", probe);
     const c = $d("dmCheck"); if (c) c.addEventListener("click", check);
     const s = $d("dmStart"); if (s) s.addEventListener("click", start);
     const x = $d("dmStop"); if (x) x.addEventListener("click", () => { stop = true; });

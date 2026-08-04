@@ -4114,3 +4114,16 @@ input:focus, select:focus, textarea:focus, .sf-input:focus, .sf-select:focus, .s
 .ln-kind.is-other { color: var(--muted); background: var(--panel-2); border: 1px solid var(--line); }
 .dm-log { max-height: 200px; overflow: auto; margin-top: 10px; }
 .dm-log-line { font-size: 11.5px; color: #8a6d1f; background: #fbf3e0; border-radius: 8px; padding: 6px 10px; margin-bottom: 4px; line-height: 1.6; }
+
+/* ---- 会社ページ：社内にあるこの会社の資料 ---- */
+.ov-files-note { font-size: 10.5px; font-weight: 400; color: var(--muted); margin-left: 8px; }
+.ov-files { display: flex; flex-direction: column; gap: 4px; }
+.ov-file { display: flex; align-items: center; gap: 10px; padding: 9px 10px; border-radius: 10px; text-decoration: none; transition: background .12s ease; }
+.ov-file:hover { background: var(--panel-2); }
+.ov-file-kind { flex: 0 0 auto; font-size: 10px; font-weight: 700; border-radius: 999px; padding: 3px 9px; }
+.ov-file-kind.is-slide { color: #8a5b12; background: #fbf1de; }
+.ov-file-kind.is-pdf { color: #8f2f2f; background: #fbe6e6; }
+.ov-file-kind.is-doc { color: #0d5b47; background: #e1f5ee; }
+.ov-file-name { flex: 1; min-width: 0; font-size: 12.5px; color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ov-file-meta { flex: 0 0 auto; font-size: 10.5px; color: var(--muted); }
+@media (max-width: 760px) { .ov-file-meta { display: none; } }

@@ -806,3 +806,50 @@ export async function driveStream(owner, fileId, range) {
   const sd = (process.env.DRIVE_SHARED_DRIVE_ID || process.env.DRIVE_FOLDER_ID) ? "&supportsAllDrives=true" : "";
   return await fetch(`https://www.googleapis.com/drive/v3/files/${encodeURIComponent(fileId)}?alt=media${sd}`, { headers });
 }
+
+
+// 会社名から、社内にある資料（スライド・PDF・ドキュメント）を探す。
+// 検索は「この人が見られるもの」に限られるので、社内共有されている資料が見つかります。
+export async function driveFindCompanyFiles(owner, company, limit = 12) {
+  const token = await accessToken(owner);
+  if (!token) throw new Error("Google未連携です");
+  const esc = (v) => String(v || "").replace(/['\\]/g, "");
+  const full = esc(company);
+  // 「株式会社」などを外した中心の語でも探す
+  const core = esc(String(company || "").replace(/(株式会社|有限会社|合同会社|一般社団法人|医療法人|学校法人|社会福祉法人|㈱|\(株\)|（株）)/g, "").trim());
+  const words = [...new Set([full, core].filter((w) => w && w.length >= 2))];
+  if (!words.length) return [];
+
+  const nameQ = words.map((w) => `name contains '${w}'`).join(" or ");
+  const kinds = [
+    "application/vnd.google-apps.presentation",
+    "application/vnd.google-apps.document",
+    "application/pdf",
+    "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+  ].map((m) => `mimeType = '${m}'`).join(" or ");
+
+  const p = new URLSearchParams({
+    q: `(${nameQ}) and (${kinds}) and trashed = false`,
+    pageSize: String(Math.min(30, limit)),
+    fields: "files(id,name,mimeType,modifiedTime,webViewLink,iconLink,owners(displayName))",
+    orderBy: "modifiedTime desc",
+    supportsAllDrives: "true",
+    includeItemsFromAllDrives: "true",
+    corpora: "allDrives",
+  });
+  const res = await fetch(`https://www.googleapis.com/drive/v3/files?${p}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!res.ok) throw new Error(`Drive検索 ${res.status}: ${(await res.text()).slice(0, 160)}`);
+  const data = await res.json();
+  return (data.files || []).map((f) => ({
+    id: f.id,
+    name: f.name,
+    kind: /presentation/.test(f.mimeType) ? "スライド"
+      : /document/.test(f.mimeType) ? "ドキュメント"
+      : /pdf/.test(f.mimeType) ? "PDF" : "ファイル",
+    modified: (f.modifiedTime || "").slice(0, 10),
+    link: f.webViewLink || `https://drive.google.com/file/d/${f.id}/view`,
+    owner: (f.owners && f.owners[0] && f.owners[0].displayName) || "",
+  }));
+}
