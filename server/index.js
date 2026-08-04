@@ -1410,7 +1410,18 @@ app.post("/api/meetings/:id/archive-drive", async (req, res) => {
 
     let url = null;
     try { url = await getRecordingUrl(req.params.id); } catch {}
-    if (!url && m.mux_playback_id) return res.status(400).json({ error: "Recallの録画が見つかりません（Muxの配信のみのため保存できません）" });
+    // Recallに無ければ、Muxに保存されている録画から取り出す
+    if (!url && m.mux_playback_id && muxConfigured()) {
+      const asset = await findAssetByPlaybackId(m.mux_playback_id);
+      if (asset) {
+        const ready = (asset.static_renditions && asset.static_renditions.status) === "ready";
+        if (!ready) {
+          await enableMp4(asset.id).catch(() => {});
+          return res.status(202).json({ error: "Muxのダウンロード用ファイルを準備しています。2〜3分後にもう一度押してください。" });
+        }
+        url = mp4Url(m.mux_playback_id, "high");
+      }
+    }
     if (!url) return res.status(400).json({ error: "録画が見つかりません" });
 
     const owner = m.owner || req.user;
@@ -1512,7 +1523,8 @@ app.post("/api/drive/migrate", async (req, res) => {
     // 調査モード：保存はせず、なぜ保存できないのかだけを返す
     if (b.probe) {
       const probe = [];
-      for (const m of targets.slice(offset, offset + Math.max(5, max))) {
+      for (const t of targets.slice(offset, offset + Math.max(5, max))) {
+        const m = (await getMeeting(t.bot_id)) || t;
         const row = { title: m.title || m.bot_id, date: String(m.created_at).slice(0, 10), recall: false, mux: !!m.mux_playback_id, error: "" };
         try {
           const u = await getRecordingUrl(m.bot_id);
@@ -1524,7 +1536,8 @@ app.post("/api/drive/migrate", async (req, res) => {
       }
       return res.json({ probe, total: targets.length, offset });
     }
-    for (const m of part) {
+    for (const t of part) {
+      const m = (await getMeeting(t.bot_id)) || t;
       const owner = uploader || m.owner || "";
       if (!owner) { out.skipped++; out.reasons.担当者なし++; continue; }
       try {

@@ -2252,7 +2252,7 @@ function setupRecordingPlayer(drec, d, meeting) {
      <div class="ch-wrap" id="chWrap"></div>
      <div class="rec-bar">
        <span class="rec-hint">${d && d.source === "drive" ? "Googleドライブに保存した録画を再生しています。" : "ホーム画面に戻ったり、他のアプリを開いても音声は再生され続けます。"}</span>
-       ${d && d.source === "recall" ? `<button type="button" class="rec-open" id="recToDrive">ドライブに保存</button>` : ""}
+       ${d && d.source !== "drive" ? `<button type="button" class="rec-open" id="recToDrive">ドライブに保存</button>` : ""}
        ${d && d.driveLink ? `<a class="rec-open" href="${escapeHtml(d.driveLink)}" target="_blank" rel="noopener">ドライブで開く</a>` : ""}
        ${isHls ? "" : `<a class="rec-open" href="${escapeHtml(url)}" target="_blank" rel="noopener">別タブで開く</a>`}
      </div>`;

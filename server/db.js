@@ -571,7 +571,8 @@ export async function listMeetings({ owner, isAdmin, from, to, limit } = {}) {
   if (!pool) return [];
   const base = `SELECT m.bot_id, m.meeting_url, m.rep_name, m.title, m.owner,
                        m.round_no, m.phase, m.status, m.created_at, m.updated_at, m.summary, m.analysis, m.note,
-                       m.metrics, m.sf_url, m.drive_file_id, m.drive_link, COALESCE(m.account,'') AS account, m.category, m.deal_kind,
+                       m.metrics, m.sf_url, m.drive_file_id, m.drive_link, m.mux_playback_id,
+                       COALESCE(m.account,'') AS account, m.category, m.deal_kind,
                        m.apo_setter, u.name AS owner_name
                 FROM meetings m LEFT JOIN users u ON u.email = m.owner`;
   // 文字起こしが無い（空配列/NULL）の商談は履歴に残さない
