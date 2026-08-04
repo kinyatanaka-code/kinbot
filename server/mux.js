@@ -180,18 +180,68 @@ export async function findAssetByPlaybackId(playbackId) {
   return null;
 }
 
-// ダウンロード用のMP4を用意する（Muxから取り出すために必要）
+// ダウンロード用のMP4を用意する。
+// Muxは新旧2つのやり方があるので、新しい方を試してから古い方に切り替える。
 export async function enableMp4(assetId) {
-  const res = await fetch(`https://api.mux.com/video/v1/assets/${encodeURIComponent(assetId)}/mp4-support`, {
-    method: "PUT",
-    headers: { Authorization: authHeader(), "content-type": "application/json" },
-    body: JSON.stringify({ mp4_support: "standard" }),
-  });
-  if (!res.ok && res.status !== 400) throw new Error(`Mux mp4-support ${res.status}`);
-  return true;
+  const errs = [];
+  // 新しいやり方：静的レンディションを作る
+  try {
+    const res = await fetch(`https://api.mux.com/video/v1/assets/${encodeURIComponent(assetId)}/static-renditions`, {
+      method: "POST",
+      headers: { Authorization: authHeader(), "content-type": "application/json" },
+      body: JSON.stringify({ resolution: "highest" }),
+    });
+    if (res.ok) return { ok: true, via: "static-renditions" };
+    const t = (await res.text()).slice(0, 200);
+    // すでに作成済みなら成功扱い
+    if (/already|duplicate/i.test(t)) return { ok: true, via: "static-renditions(既存)" };
+    errs.push(`static-renditions ${res.status}: ${t}`);
+  } catch (e) { errs.push(`static-renditions: ${e.message}`); }
+
+  // 古いやり方：mp4_support
+  try {
+    const res = await fetch(`https://api.mux.com/video/v1/assets/${encodeURIComponent(assetId)}/mp4-support`, {
+      method: "PUT",
+      headers: { Authorization: authHeader(), "content-type": "application/json" },
+      body: JSON.stringify({ mp4_support: "standard" }),
+    });
+    if (res.ok) return { ok: true, via: "mp4-support" };
+    errs.push(`mp4-support ${res.status}: ${(await res.text()).slice(0, 200)}`);
+  } catch (e) { errs.push(`mp4-support: ${e.message}`); }
+
+  const err = new Error(errs.join(" / "));
+  err.muxDetail = errs.join(" / ");
+  throw err;
+}
+
+// アセットの状態から、ダウンロードできるMP4の名前を返す（無ければ null）
+export function readyMp4Name(asset) {
+  const sr = asset && asset.static_renditions;
+  if (!sr) return null;
+  // 新しい形：files[] に name と status
+  if (Array.isArray(sr.files)) {
+    const f = sr.files.find((x) => x && x.status === "ready" && /\.mp4$/i.test(x.name || ""));
+    if (f) return f.name;
+    const any = sr.files.find((x) => /\.mp4$/i.test((x && x.name) || ""));
+    if (any && sr.status === "ready") return any.name;
+  }
+  // 古い形：status が ready なら high.mp4 で取れる
+  if (sr.status === "ready") return "high.mp4";
+  return null;
 }
 
 // MuxからMP4を取り出すURL
-export function mp4Url(playbackId, quality = "high") {
-  return playbackId ? `https://stream.mux.com/${playbackId}/${quality}.mp4` : null;
+export function mp4Url(playbackId, nameOrQuality = "high.mp4") {
+  if (!playbackId) return null;
+  const name = /\.mp4$/i.test(nameOrQuality) ? nameOrQuality : `${nameOrQuality}.mp4`;
+  return `https://stream.mux.com/${playbackId}/${name}`;
+}
+
+// 1件のアセットを取り直す（準備が終わったか確認するため）
+export async function getAsset(assetId) {
+  const res = await fetch(`https://api.mux.com/video/v1/assets/${encodeURIComponent(assetId)}`, {
+    headers: { Authorization: authHeader() },
+  });
+  if (!res.ok) throw new Error(`Mux asset ${res.status}`);
+  return (await res.json()).data;
 }

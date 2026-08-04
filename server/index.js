@@ -178,7 +178,7 @@ import {
   gmailDeleteDraft,
   parseEmailAddr, driveEnsureFolder, driveUploadFromUrl, driveShareDomain, driveStream, driveFindCompanyFiles } from "./google.js";
 import { startScheduler } from "./scheduler.js";
-import { muxConfigured, startVodUpload, waitVodPlayback, muxStorageSummary, listAssets, deleteAsset, findAssetByPlaybackId, enableMp4, mp4Url } from "./mux.js";
+import { muxConfigured, startVodUpload, waitVodPlayback, muxStorageSummary, listAssets, deleteAsset, findAssetByPlaybackId, enableMp4, mp4Url, readyMp4Name, getAsset } from "./mux.js";
 import { liveConfigured, createLiveStream, playbackUrl as livePlaybackUrl, liveInfo } from "./live.js";
 import { notionConfigured, notionStatus, createMeetingPage, createReportPage } from "./notion.js";
 import { pdfToText, urlToText, officeToText } from "./ingest.js";
@@ -1414,12 +1414,13 @@ app.post("/api/meetings/:id/archive-drive", async (req, res) => {
     if (!url && m.mux_playback_id && muxConfigured()) {
       const asset = await findAssetByPlaybackId(m.mux_playback_id);
       if (asset) {
-        const ready = (asset.static_renditions && asset.static_renditions.status) === "ready";
-        if (!ready) {
-          await enableMp4(asset.id).catch(() => {});
-          return res.status(202).json({ error: "Muxのダウンロード用ファイルを準備しています。2〜3分後にもう一度押してください。" });
+        let name = readyMp4Name(asset);
+        if (!name) {
+          let detail = "";
+          try { await enableMp4(asset.id); } catch (e) { detail = e.muxDetail || e.message; }
+          return res.status(202).json({ error: "Muxのダウンロード用ファイルを準備しています。2〜3分後にもう一度押してください。" + (detail ? "（" + detail.slice(0, 160) + "）" : "") });
         }
-        url = mp4Url(m.mux_playback_id, "high");
+        url = mp4Url(m.mux_playback_id, name);
       }
     }
     if (!url) return res.status(400).json({ error: "録画が見つかりません" });
@@ -1550,14 +1551,22 @@ app.post("/api/drive/migrate", async (req, res) => {
         if (!url && m.mux_playback_id && muxConfigured()) {
           asset = await findAssetByPlaybackId(m.mux_playback_id);
           if (asset) {
-            const ready = (asset.static_renditions && asset.static_renditions.status) === "ready";
-            if (!ready) {
-              await enableMp4(asset.id).catch(() => {});
-              out.reasons.Mux準備中++;
-              out.errors.push(`${m.title || m.bot_id}: Muxのダウンロード用ファイルを準備中です。数分後にもう一度実行してください。`);
-              continue;
+            let name = readyMp4Name(asset);
+            if (!name) {
+              // 準備を頼んでから、少しだけ待って様子を見る
+              let detail = "";
+              try { await enableMp4(asset.id); } catch (e) { detail = e.muxDetail || e.message; }
+              for (let i = 0; i < 3 && !name; i++) {
+                await new Promise((r) => setTimeout(r, 8000));
+                try { name = readyMp4Name(await getAsset(asset.id)); } catch {}
+              }
+              if (!name) {
+                out.reasons.Mux準備中++;
+                out.errors.push(`${m.title || m.bot_id}: Muxのダウンロード用ファイルを準備中です。数分後にもう一度実行してください。${detail ? "（" + detail.slice(0, 120) + "）" : ""}`);
+                continue;
+              }
             }
-            url = mp4Url(m.mux_playback_id, "high");
+            url = mp4Url(m.mux_playback_id, name);
           }
         }
         if (!url) { out.skipped++; out.reasons.録画なし++; continue; }
