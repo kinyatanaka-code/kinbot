@@ -2012,6 +2012,36 @@ function initSmartLinks() {
     let done = 0, loops = 0, offset = 0, noRec = 0, total = 0;
     const days = Number(($d("dmDays") && $d("dmDays").value) || 180);
     try {
+      // 1) まずMuxに「ダウンロード用のMP4を作って」と全件ぶん頼む
+      let pOffset = 0, asked = 0;
+      for (let i = 0; i < 100 && !stop; i++) {
+        st.innerHTML = `準備を依頼しています…（${pOffset} 件）`;
+        const r = await fetch("/api/drive/migrate", {
+          method: "POST", headers: { "content-type": "application/json" },
+          body: JSON.stringify({ days, prepareOnly: true, offset: pOffset, max: 20 }),
+        });
+        const d = await r.json().catch(() => ({}));
+        if (!r.ok) throw new Error(d.error || "準備の依頼に失敗しました");
+        asked += d.asked || 0;
+        (d.errors || []).forEach((m) => {
+          const p = document.createElement("div");
+          p.className = "dm-log-line";
+          p.textContent = m;
+          log.appendChild(p);
+        });
+        pOffset += d.processed || 0;
+        if (!d.remaining || !d.processed) break;
+      }
+
+      // 2) Muxが作り終わるのを待つ（動画の長さによって数分かかります）
+      if (asked && !stop) {
+        for (let sec = 180; sec > 0 && !stop; sec -= 5) {
+          st.innerHTML = `Muxがダウンロード用ファイルを作っています… あと約 ${sec} 秒`;
+          await new Promise((r) => setTimeout(r, 5000));
+        }
+      }
+
+      // 3) ドライブへ保存する
       while (!stop && loops < 800) {
         loops++;
         st.innerHTML = `移行中… <b>${done} 件</b>を保存${total ? `（${offset}/${total} 件を確認）` : ""}`;

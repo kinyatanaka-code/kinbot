@@ -1521,6 +1521,28 @@ app.post("/api/drive/migrate", async (req, res) => {
     // 保存はまず操作者の権限で行う（共有フォルダに入れるので誰の権限でも同じ場所になる）
     const uploader = b.uploader || req.user || "";
 
+    // 準備モード：Muxに「ダウンロード用のMP4を作って」と頼むだけ（待たない）
+    if (b.prepareOnly) {
+      const out2 = { total: targets.length, offset, asked: 0, ready: 0, skipped: 0, errors: [] };
+      for (const t of targets.slice(offset, offset + Math.max(20, max))) {
+        const m = (await getMeeting(t.bot_id)) || t;
+        out2.offset = offset;
+        if (!m.mux_playback_id || !muxConfigured()) { out2.skipped++; continue; }
+        try {
+          const asset = await findAssetByPlaybackId(m.mux_playback_id);
+          if (!asset) { out2.skipped++; continue; }
+          if (readyMp4Name(asset)) { out2.ready++; continue; }
+          await enableMp4(asset.id);
+          out2.asked++;
+        } catch (e) {
+          out2.errors.push(`${m.title || m.bot_id}: ${(e.muxDetail || e.message || "").slice(0, 140)}`);
+        }
+      }
+      out2.processed = Math.min(Math.max(20, max), Math.max(0, targets.length - offset));
+      out2.remaining = Math.max(0, targets.length - (offset + out2.processed));
+      return res.json(out2);
+    }
+
     // 調査モード：保存はせず、なぜ保存できないのかだけを返す
     if (b.probe) {
       const probe = [];
@@ -1556,8 +1578,8 @@ app.post("/api/drive/migrate", async (req, res) => {
               // 準備を頼んでから、少しだけ待って様子を見る
               let detail = "";
               try { await enableMp4(asset.id); } catch (e) { detail = e.muxDetail || e.message; }
-              for (let i = 0; i < 3 && !name; i++) {
-                await new Promise((r) => setTimeout(r, 8000));
+              for (let i = 0; i < 2 && !name; i++) {
+                await new Promise((r) => setTimeout(r, 5000));
                 try { name = readyMp4Name(await getAsset(asset.id)); } catch {}
               }
               if (!name) {
