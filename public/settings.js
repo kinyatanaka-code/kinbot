@@ -2147,7 +2147,28 @@ function initSmartLinks() {
     }
   }
 
+  // 同名フォルダが増えてしまった分を1つにまとめる
+  async function mergeFolders() {
+    const st = $d("dmStatus"), log = $d("dmLog"), btn = $d("dmMerge");
+    if (!st) return;
+    btn.disabled = true;
+    log.innerHTML = "";
+    st.textContent = "重複フォルダをまとめています…（数分かかります）";
+    try {
+      const r = await fetch("/api/drive/merge-folders", { method: "POST" });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.error || "片付けに失敗しました");
+      st.innerHTML = `重複フォルダ <b>${d.merged} 個</b>をまとめ、<b>${d.movedFiles} 件</b>のファイルを移動しました。`;
+      log.innerHTML = (d.errors || []).slice(0, 20).map((m) => `<div class="dm-log-line">${escD(m)}</div>`).join("");
+    } catch (e) {
+      st.textContent = "片付けに失敗しました：" + e.message;
+    } finally {
+      btn.disabled = false;
+    }
+  }
+
   document.addEventListener("DOMContentLoaded", () => {
+    const mg = $d("dmMerge"); if (mg) mg.addEventListener("click", mergeFolders);
     const so = $d("dmSort"); if (so) so.addEventListener("click", sortFolders);
     const pb = $d("dmProbe"); if (pb) pb.addEventListener("click", probe);
     const c = $d("dmCheck"); if (c) c.addEventListener("click", check);

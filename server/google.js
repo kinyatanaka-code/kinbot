@@ -872,24 +872,43 @@ export async function driveShareAnyone(owner, fileId) {
 }
 
 // フォルダを掘って作る（担当者名 / 8月 / 5日 のような入れ子）
+// 作ったフォルダを覚えておく。
+// ドライブの検索は作成直後のフォルダを返さないことがあり、そのままだと同名フォルダが増えてしまう。
+const _folderCache = new Map(); // owner|root|a/b/c -> id
+
 export async function driveEnsurePath(owner, names = [], rootId = "") {
   const token = await driveAccessToken(owner);
   if (!token) throw new Error("Googleが連携されていません");
   const driveId = process.env.DRIVE_SHARED_DRIVE_ID || "";
-  const sd = (driveId || process.env.DRIVE_FOLDER_ID) ? "&supportsAllDrives=true&includeItemsFromAllDrives=true" : "";
+  const sd = "&supportsAllDrives=true&includeItemsFromAllDrives=true";
   let parent = rootId;
+  const trail = [];
   for (const raw of names) {
-    const name = String(raw || "").replace(/['\\\\/]/g, "").trim();
+    const name = String(raw || "").replace(/[/\\'"]/g, "").trim();
     if (!name) continue;
-    const q = `name='${name}' and mimeType='application/vnd.google-apps.folder' and trashed=false` +
-      (parent ? ` and '${parent}' in parents` : "");
-    const params = new URLSearchParams({ q, fields: "files(id,name)" });
+    trail.push(name);
+    const cacheKey = owner + "|" + rootId + "|" + trail.join("/");
+    const hit = _folderCache.get(cacheKey);
+    if (hit) { parent = hit; continue; }
+
+    // 同名が複数あるときは、いちばん古いものを使う（重複を増やさない）
+    const params = new URLSearchParams({
+      q: `name='${name}' and mimeType='application/vnd.google-apps.folder' and trashed=false` +
+         (parent ? ` and '${parent}' in parents` : ""),
+      fields: "files(id,name,createdTime)",
+      orderBy: "createdTime",
+    });
     if (driveId) { params.set("corpora", "drive"); params.set("driveId", driveId); }
     const res = await fetch(`https://www.googleapis.com/drive/v3/files?${params}${sd}`, {
       headers: { Authorization: `Bearer ${token}` },
     });
     const d = await res.json().catch(() => ({}));
-    if (res.ok && d.files && d.files.length) { parent = d.files[0].id; continue; }
+    if (res.ok && d.files && d.files.length) {
+      parent = d.files[0].id;
+      _folderCache.set(cacheKey, parent);
+      continue;
+    }
+
     const body = { name, mimeType: "application/vnd.google-apps.folder" };
     if (parent) body.parents = [parent];
     else if (driveId) body.parents = [driveId];
@@ -901,8 +920,48 @@ export async function driveEnsurePath(owner, names = [], rootId = "") {
     const md = await mk.json().catch(() => ({}));
     if (!mk.ok) throw new Error(`フォルダ作成に失敗: ${JSON.stringify(md).slice(0, 160)}`);
     parent = md.id;
+    _folderCache.set(cacheKey, parent);
   }
   return parent;
+}
+
+// フォルダの中身を一覧する（片付け用）
+export async function driveListChildren(owner, folderId, onlyFolders = false) {
+  const token = await driveAccessToken(owner);
+  if (!token) throw new Error("Googleが連携されていません");
+  const out = [];
+  let pageToken = "";
+  for (let i = 0; i < 20; i++) {
+    const p = new URLSearchParams({
+      q: `'${folderId}' in parents and trashed=false` + (onlyFolders ? " and mimeType='application/vnd.google-apps.folder'" : ""),
+      fields: "nextPageToken,files(id,name,mimeType,createdTime)",
+      pageSize: "200",
+      orderBy: "createdTime",
+      supportsAllDrives: "true",
+      includeItemsFromAllDrives: "true",
+    });
+    if (pageToken) p.set("pageToken", pageToken);
+    const res = await fetch(`https://www.googleapis.com/drive/v3/files?${p}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    const d = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(`一覧の取得に失敗: ${JSON.stringify(d).slice(0, 140)}`);
+    out.push(...(d.files || []));
+    if (!d.nextPageToken) break;
+    pageToken = d.nextPageToken;
+  }
+  return out;
+}
+
+// 空のフォルダをゴミ箱へ
+export async function driveTrash(owner, fileId) {
+  const token = await driveAccessToken(owner);
+  if (!token) return;
+  await fetch(`https://www.googleapis.com/drive/v3/files/${encodeURIComponent(fileId)}?supportsAllDrives=true`, {
+    method: "PATCH",
+    headers: { Authorization: `Bearer ${token}`, "content-type": "application/json" },
+    body: JSON.stringify({ trashed: true }),
+  }).catch(() => {});
 }
 
 // ファイルを別のフォルダへ移す（コピーではないので容量は増えません）

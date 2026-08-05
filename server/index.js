@@ -176,7 +176,7 @@ import {
   gmailSend,
   gmailCreateDraft,
   gmailDeleteDraft,
-  parseEmailAddr, driveEnsureFolder, driveUploadFromUrl, driveShareDomain, driveStream, driveFindCompanyFiles, driveShareAnyone, driveEnsurePath, driveMoveFile } from "./google.js";
+  parseEmailAddr, driveEnsureFolder, driveUploadFromUrl, driveShareDomain, driveStream, driveFindCompanyFiles, driveShareAnyone, driveEnsurePath, driveMoveFile, driveListChildren, driveTrash } from "./google.js";
 import { startScheduler } from "./scheduler.js";
 import { muxConfigured, startVodUpload, waitVodPlayback, muxStorageSummary, listAssets, deleteAsset, findAssetByPlaybackId, enableMp4, mp4Url, readyMp4Name, getAsset } from "./mux.js";
 import { liveConfigured, createLiveStream, playbackUrl as livePlaybackUrl, liveInfo, liveStatus } from "./live.js";
@@ -1566,6 +1566,50 @@ app.get("/api/live/info", (req, res) => {
   res.set("Cache-Control", "no-store");
   const info = liveInfo();
   res.json({ ...info, customerCode: info.provider === "cloudflare" ? (process.env.CF_STREAM_CUSTOMER_CODE || "") : "" });
+});
+
+// 同じ名前のフォルダが増えてしまった分をまとめて片付ける
+app.post("/api/drive/merge-folders", async (req, res) => {
+  try {
+    const who = req.user;
+    const root = await driveEnsureFolder(who, process.env.DRIVE_FOLDER_NAME || "kinbot 商談録画");
+    const out = { merged: 0, movedFiles: 0, trashed: 0, errors: [] };
+
+    // 深さ3（担当者 → 月 → 日）まで、同名フォルダを1つにまとめる
+    const mergeIn = async (parentId, depth) => {
+      if (depth > 3) return;
+      let kids;
+      try { kids = await driveListChildren(who, parentId, true); } catch (e) { out.errors.push(e.message); return; }
+      const byName = new Map();
+      for (const k of kids) {
+        const list = byName.get(k.name) || [];
+        list.push(k);
+        byName.set(k.name, list);
+      }
+      for (const [name, list] of byName) {
+        const keep = list[0]; // いちばん古いものを残す
+        for (const dup of list.slice(1)) {
+          try {
+            const items = await driveListChildren(who, dup.id, false);
+            for (const it of items) {
+              await driveMoveFile(who, it.id, keep.id);
+              out.movedFiles++;
+            }
+            await driveTrash(who, dup.id);
+            out.trashed++;
+            out.merged++;
+          } catch (e) {
+            out.errors.push(`${name}: ${String(e.message || "").slice(0, 120)}`);
+          }
+        }
+        await mergeIn(keep.id, depth + 1);
+      }
+    };
+    await mergeIn(root, 1);
+    res.json(out);
+  } catch (e) {
+    res.status(502).json({ error: e.message });
+  }
 });
 
 // すでにドライブにある録画を、担当者 / ◯月 / ◯日 のフォルダへ並べ替える
