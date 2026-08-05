@@ -2153,13 +2153,32 @@ function initSmartLinks() {
     if (!st) return;
     btn.disabled = true;
     log.innerHTML = "";
-    st.textContent = "重複フォルダをまとめています…（数分かかります）";
+    stop = false;
+    let merged = 0, movedFiles = 0, loops = 0;
     try {
-      const r = await fetch("/api/drive/merge-folders", { method: "POST" });
-      const d = await r.json();
-      if (!r.ok) throw new Error(d.error || "片付けに失敗しました");
-      st.innerHTML = `重複フォルダ <b>${d.merged} 個</b>をまとめ、<b>${d.movedFiles} 件</b>のファイルを移動しました。`;
-      log.innerHTML = (d.errors || []).slice(0, 20).map((m) => `<div class="dm-log-line">${escD(m)}</div>`).join("");
+      // 少しずつ何度も呼んで、終わるまで続ける
+      while (!stop && loops < 200) {
+        loops++;
+        st.innerHTML = `重複フォルダをまとめています… <b>${merged} 個</b>を整理（ファイル ${movedFiles} 件を移動）`;
+        const r = await fetch("/api/drive/merge-folders", {
+          method: "POST", headers: { "content-type": "application/json" },
+          body: JSON.stringify({ budget: 40 }),
+        });
+        const text = await r.text();
+        let d = {};
+        try { d = JSON.parse(text); } catch { throw new Error("サーバーの応答が途切れました。もう一度押してください。"); }
+        if (!r.ok) throw new Error(d.error || "片付けに失敗しました");
+        merged += d.merged || 0;
+        movedFiles += d.movedFiles || 0;
+        (d.errors || []).slice(0, 5).forEach((m) => {
+          const p = document.createElement("div");
+          p.className = "dm-log-line";
+          p.textContent = m;
+          log.appendChild(p);
+        });
+        if (!d.more) break;
+      }
+      st.innerHTML = `片付けが終わりました。重複フォルダ <b>${merged} 個</b>をまとめ、<b>${movedFiles} 件</b>のファイルを移動しました。`;
     } catch (e) {
       st.textContent = "片付けに失敗しました：" + e.message;
     } finally {

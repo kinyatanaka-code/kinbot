@@ -1568,18 +1568,22 @@ app.get("/api/live/info", (req, res) => {
   res.json({ ...info, customerCode: info.provider === "cloudflare" ? (process.env.CF_STREAM_CUSTOMER_CODE || "") : "" });
 });
 
-// 同じ名前のフォルダが増えてしまった分をまとめて片付ける
+// 同じ名前のフォルダが増えてしまった分をまとめて片付ける。
+// 1回のリクエストで少しずつ進める（まとめてやると通信が途中で切れてしまうため）。
 app.post("/api/drive/merge-folders", async (req, res) => {
   try {
     const who = req.user;
+    const budget = Math.max(10, Math.min(200, Number((req.body && req.body.budget) || 60))); // 1回の作業量
     const root = await driveEnsureFolder(who, process.env.DRIVE_FOLDER_NAME || "kinbot 商談録画");
-    const out = { merged: 0, movedFiles: 0, trashed: 0, errors: [] };
+    const out = { merged: 0, movedFiles: 0, trashed: 0, more: false, errors: [] };
+    let ops = 0;
 
-    // 深さ3（担当者 → 月 → 日）まで、同名フォルダを1つにまとめる
-    const mergeIn = async (parentId, depth) => {
-      if (depth > 3) return;
-      let kids;
-      try { kids = await driveListChildren(who, parentId, true); } catch (e) { out.errors.push(e.message); return; }
+    const walk = async (parentId, depth) => {
+      if (depth > 3 || ops >= budget) return;
+      let kids = [];
+      try { kids = await driveListChildren(who, parentId, true); ops++; }
+      catch (e) { out.errors.push(String(e.message || "").slice(0, 120)); return; }
+
       const byName = new Map();
       for (const k of kids) {
         const list = byName.get(k.name) || [];
@@ -1587,28 +1591,37 @@ app.post("/api/drive/merge-folders", async (req, res) => {
         byName.set(k.name, list);
       }
       for (const [name, list] of byName) {
-        const keep = list[0]; // いちばん古いものを残す
+        if (ops >= budget) { out.more = true; return; }
+        const keep = list[0];
         for (const dup of list.slice(1)) {
+          if (ops >= budget) { out.more = true; return; }
           try {
             const items = await driveListChildren(who, dup.id, false);
+            ops++;
             for (const it of items) {
+              if (ops >= budget) { out.more = true; return; }
               await driveMoveFile(who, it.id, keep.id);
               out.movedFiles++;
+              ops += 2;
             }
             await driveTrash(who, dup.id);
             out.trashed++;
             out.merged++;
+            ops++;
           } catch (e) {
-            out.errors.push(`${name}: ${String(e.message || "").slice(0, 120)}`);
+            out.errors.push(`${name}: ${String(e.message || "").slice(0, 110)}`);
           }
         }
-        await mergeIn(keep.id, depth + 1);
+        await walk(keep.id, depth + 1);
       }
     };
-    await mergeIn(root, 1);
+
+    await walk(root, 1);
+    if (ops >= budget) out.more = true;
     res.json(out);
   } catch (e) {
-    res.status(502).json({ error: e.message });
+    console.error("[merge-folders]", e.message);
+    res.status(502).json({ error: String(e.message || "").slice(0, 200) });
   }
 });
 
