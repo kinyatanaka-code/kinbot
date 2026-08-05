@@ -870,3 +870,66 @@ export async function driveShareAnyone(owner, fileId) {
   }
   return true;
 }
+
+// フォルダを掘って作る（担当者名 / 8月 / 5日 のような入れ子）
+export async function driveEnsurePath(owner, names = [], rootId = "") {
+  const token = await driveAccessToken(owner);
+  if (!token) throw new Error("Googleが連携されていません");
+  const driveId = process.env.DRIVE_SHARED_DRIVE_ID || "";
+  const sd = (driveId || process.env.DRIVE_FOLDER_ID) ? "&supportsAllDrives=true&includeItemsFromAllDrives=true" : "";
+  let parent = rootId;
+  for (const raw of names) {
+    const name = String(raw || "").replace(/['\\\\/]/g, "").trim();
+    if (!name) continue;
+    const q = `name='${name}' and mimeType='application/vnd.google-apps.folder' and trashed=false` +
+      (parent ? ` and '${parent}' in parents` : "");
+    const params = new URLSearchParams({ q, fields: "files(id,name)" });
+    if (driveId) { params.set("corpora", "drive"); params.set("driveId", driveId); }
+    const res = await fetch(`https://www.googleapis.com/drive/v3/files?${params}${sd}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    const d = await res.json().catch(() => ({}));
+    if (res.ok && d.files && d.files.length) { parent = d.files[0].id; continue; }
+    const body = { name, mimeType: "application/vnd.google-apps.folder" };
+    if (parent) body.parents = [parent];
+    else if (driveId) body.parents = [driveId];
+    const mk = await fetch(`https://www.googleapis.com/drive/v3/files?fields=id${sd}`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}`, "content-type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    const md = await mk.json().catch(() => ({}));
+    if (!mk.ok) throw new Error(`フォルダ作成に失敗: ${JSON.stringify(md).slice(0, 160)}`);
+    parent = md.id;
+  }
+  return parent;
+}
+
+// ファイルを別のフォルダへ移す（コピーではないので容量は増えません）
+export async function driveMoveFile(owner, fileId, newParentId) {
+  const token = await driveAccessToken(owner);
+  if (!token) throw new Error("Googleが連携されていません");
+  const sd = "&supportsAllDrives=true";
+  const cur = await fetch(
+    `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(fileId)}?fields=parents,name${sd}`,
+    { headers: { Authorization: `Bearer ${token}` } }
+  );
+  const info = await cur.json().catch(() => ({}));
+  if (!cur.ok) throw new Error(`ファイル情報の取得に失敗: ${JSON.stringify(info).slice(0, 140)}`);
+  const parents = info.parents || [];
+  if (parents.includes(newParentId)) return { moved: false, name: info.name };
+
+  const p = new URLSearchParams({
+    addParents: newParentId,
+    removeParents: parents.join(","),
+    fields: "id,parents",
+  });
+  const res = await fetch(`https://www.googleapis.com/drive/v3/files/${encodeURIComponent(fileId)}?${p}${sd}`, {
+    method: "PATCH",
+    headers: { Authorization: `Bearer ${token}`, "content-type": "application/json" },
+    body: "{}",
+  });
+  const d = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(`移動に失敗: ${JSON.stringify(d).slice(0, 140)}`);
+  return { moved: true, name: info.name };
+}

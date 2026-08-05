@@ -176,7 +176,7 @@ import {
   gmailSend,
   gmailCreateDraft,
   gmailDeleteDraft,
-  parseEmailAddr, driveEnsureFolder, driveUploadFromUrl, driveShareDomain, driveStream, driveFindCompanyFiles, driveShareAnyone } from "./google.js";
+  parseEmailAddr, driveEnsureFolder, driveUploadFromUrl, driveShareDomain, driveStream, driveFindCompanyFiles, driveShareAnyone, driveEnsurePath, driveMoveFile } from "./google.js";
 import { startScheduler } from "./scheduler.js";
 import { muxConfigured, startVodUpload, waitVodPlayback, muxStorageSummary, listAssets, deleteAsset, findAssetByPlaybackId, enableMp4, mp4Url, readyMp4Name, getAsset } from "./mux.js";
 import { liveConfigured, createLiveStream, playbackUrl as livePlaybackUrl, liveInfo, liveStatus } from "./live.js";
@@ -1231,6 +1231,15 @@ function runExtractionSafe(botId) {
     .then(() => runExtraction(botId)) // 判定は既定プロバイダ（Gemini）を使う。Claudeを使う場合は判定画面のモデル選択で切り替え
     .catch((e) => console.warn("[extract] スキップ", botId, e.message));
 }
+// 保存先フォルダ：（基準フォルダ）/ 担当者名 / 8月 / 5日
+async function driveFolderForMeeting(owner, m) {
+  const root = await driveEnsureFolder(owner, process.env.DRIVE_FOLDER_NAME || "kinbot 商談録画");
+  const d = new Date(m.created_at || Date.now());
+  const jst = new Date(d.getTime() + 9 * 3600 * 1000);
+  const rep = String(m.rep_name || m.owner_name || m.owner || "担当者未設定").trim() || "担当者未設定";
+  return await driveEnsurePath(owner, [rep, `${jst.getUTCMonth() + 1}月`, `${jst.getUTCDate()}日`], root);
+}
+
 // 商談が終わったら、録画をGoogleドライブへ保存し、Muxに残った録画を消す。
 // 既定で動きます（止めたいときは DRIVE_AUTO_ARCHIVE=0）。
 async function archiveRecordingSafe(botId) {
@@ -1250,7 +1259,7 @@ async function archiveRecordingSafe(botId) {
         let owner = owners[0], folderId = null, lastErr = null;
         for (const cand of owners) {
           try {
-            folderId = await driveEnsureFolder(cand, process.env.DRIVE_FOLDER_NAME || "kinbot 商談録画");
+            folderId = await driveFolderForMeeting(cand, m);
             owner = cand;
             break;
           } catch (e) { lastErr = e; }
@@ -1384,6 +1393,30 @@ setInterval(async () => {
   }
 }, 20 * 60 * 60 * 1000); // 20時間ごと（更新の回数を増やしすぎないため）
 
+// 取りこぼしを拾う見回り：ドライブに入っていない録画を、あとからでも保存する。
+// 商談終了時の保存が失敗しても、これで自動的に追いつきます。
+let _sweeping = false;
+setInterval(async () => {
+  if (_sweeping || process.env.DRIVE_AUTO_ARCHIVE === "0") return;
+  _sweeping = true;
+  try {
+    const days = Math.max(1, Math.min(30, Number(process.env.DRIVE_SWEEP_DAYS || 7)));
+    const jst = new Date(Date.now() + 9 * 3600 * 1000);
+    const from = new Date(jst.getTime() - days * 86400000).toISOString().slice(0, 10);
+    const rows = await listMeetings({ isAdmin: true, from, limit: 500 });
+    const todo = rows.filter((m) => !m.drive_file_id).slice(0, 3); // 1回に3件まで
+    for (const t of todo) {
+      // 直近5分以内の商談は、録画の書き出し待ちの可能性があるので飛ばす
+      if (Date.now() - new Date(t.created_at).getTime() < 5 * 60 * 1000) continue;
+      await archiveRecordingSafe(t.bot_id);
+    }
+  } catch (e) {
+    console.error("[ドライブ見回り]", e.message);
+  } finally {
+    _sweeping = false;
+  }
+}, 30 * 60 * 1000); // 30分ごと
+
 // 長時間つけっぱなしのBotを見張って、自動で退出させる（課金の暴走を防ぐ）
 const BOT_MAX_HOURS = Math.max(1, Math.min(12, Number(process.env.BOT_MAX_HOURS || 4)));
 setInterval(async () => {
@@ -1425,8 +1458,8 @@ app.post("/api/meetings/:id/archive-drive", async (req, res) => {
     }
     if (!url) return res.status(400).json({ error: "録画が見つかりません" });
 
-    const owner = m.owner || req.user;
-    const folderId = await driveEnsureFolder(owner, process.env.DRIVE_FOLDER_NAME || "kinbot 商談録画");
+    const owner = req.user || m.owner;
+    const folderId = await driveFolderForMeeting(owner, m);
     const when = new Date(m.created_at || Date.now()).toISOString().slice(0, 10);
     const safe = String(m.title || "商談").replace(/[\\/:*?"<>|]/g, "_").slice(0, 80);
     const name = `${when}_${safe}.mp4`;
@@ -1535,6 +1568,38 @@ app.get("/api/live/info", (req, res) => {
   res.json({ ...info, customerCode: info.provider === "cloudflare" ? (process.env.CF_STREAM_CUSTOMER_CODE || "") : "" });
 });
 
+// すでにドライブにある録画を、担当者 / ◯月 / ◯日 のフォルダへ並べ替える
+app.post("/api/drive/reorganize", async (req, res) => {
+  try {
+    const b = req.body || {};
+    const days = Math.max(1, Math.min(730, Number(b.days) || 365));
+    const max = Math.max(1, Math.min(20, Number(b.max) || 8));
+    const jst = new Date(Date.now() + 9 * 3600 * 1000);
+    const from = new Date(jst.getTime() - days * 86400000).toISOString().slice(0, 10);
+    const rows = await listMeetings({ isAdmin: true, from, limit: 2000 });
+    const targets = rows.filter((m) => m.drive_file_id);
+    const offset = Math.max(0, Math.min(targets.length, Number(b.offset) || 0));
+    const part = targets.slice(offset, offset + max);
+    const out = { total: targets.length, offset, processed: part.length, moved: 0, already: 0, errors: [] };
+    out.remaining = Math.max(0, targets.length - (offset + part.length));
+
+    const who = req.user;
+    for (const t of part) {
+      try {
+        const m = (await getMeeting(t.bot_id)) || t;
+        const folderId = await driveFolderForMeeting(who, m);
+        const r = await driveMoveFile(who, m.drive_file_id, folderId);
+        if (r.moved) out.moved++; else out.already++;
+      } catch (e) {
+        out.errors.push(`${t.title || t.bot_id}: ${String(e.message || "").slice(0, 140)}`);
+      }
+    }
+    res.json(out);
+  } catch (e) {
+    res.status(502).json({ error: e.message });
+  }
+});
+
 // 既にある商談の録画を、まとめてGoogleドライブへ移す。
 // Recallの録画があればそこから、無ければMuxから取り出して保存します。
 // 時間がかかるので少しずつ処理します（画面から繰り返し呼んでください）。
@@ -1636,7 +1701,7 @@ app.post("/api/drive/migrate", async (req, res) => {
         }
         if (!url) { out.skipped++; out.reasons.録画なし++; continue; }
 
-        const folderId = await driveEnsureFolder(owner, process.env.DRIVE_FOLDER_NAME || "kinbot 商談録画");
+        const folderId = await driveFolderForMeeting(owner, m);
         const when = new Date(m.created_at || Date.now()).toISOString().slice(0, 10);
         const safe = String(m.title || "商談").replace(/[\\/:*?"<>|]/g, "_").slice(0, 80);
         const up = await driveUploadFromUrl(owner, { url, name: `${when}_${safe}.mp4`, folderId });

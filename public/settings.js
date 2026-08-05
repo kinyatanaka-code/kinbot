@@ -2108,7 +2108,47 @@ function initSmartLinks() {
     }
   }
 
+  // 保存済みの録画を「担当者 / ◯月 / ◯日」のフォルダへ並べ替える
+  async function sortFolders() {
+    const st = $d("dmStatus"), log = $d("dmLog");
+    const btn = $d("dmSort");
+    if (!st) return;
+    stop = false;
+    btn.disabled = true;
+    log.innerHTML = "";
+    let moved = 0, already = 0, offset = 0, total = 0, loops = 0;
+    try {
+      while (!stop && loops < 500) {
+        loops++;
+        st.innerHTML = `並べ替え中… <b>${moved} 件</b>を移動${total ? `（${offset}/${total} 件を確認）` : ""}`;
+        const r = await fetch("/api/drive/reorganize", {
+          method: "POST", headers: { "content-type": "application/json" },
+          body: JSON.stringify({ days: 365, max: 8, offset }),
+        });
+        const d = await r.json().catch(() => ({}));
+        if (!r.ok) throw new Error(d.error || "並べ替えに失敗しました");
+        moved += d.moved || 0;
+        already += d.already || 0;
+        total = d.total || total;
+        offset += d.processed || 0;
+        (d.errors || []).forEach((m) => {
+          const p = document.createElement("div");
+          p.className = "dm-log-line";
+          p.textContent = m;
+          log.appendChild(p);
+        });
+        if (!d.processed || !d.remaining) break;
+      }
+      st.innerHTML = `並べ替えが終わりました。<b>${moved} 件</b>を移動しました${already ? `（${already} 件はすでに正しい場所にありました）` : ""}。`;
+    } catch (e) {
+      st.textContent = "並べ替えに失敗しました：" + e.message;
+    } finally {
+      btn.disabled = false;
+    }
+  }
+
   document.addEventListener("DOMContentLoaded", () => {
+    const so = $d("dmSort"); if (so) so.addEventListener("click", sortFolders);
     const pb = $d("dmProbe"); if (pb) pb.addEventListener("click", probe);
     const c = $d("dmCheck"); if (c) c.addEventListener("click", check);
     const s = $d("dmStart"); if (s) s.addEventListener("click", start);
