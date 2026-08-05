@@ -2655,13 +2655,19 @@ async function initSfTab(account) {
     linkOpportunity(oppId);
   }
 
-  // 検索欄でEnterを押しても検索する
+  // 検索欄に会社名を入れておき、開いたら自動で検索する
   const sfQEl = $("sfSearchQ");
   if (sfQEl && !sfQEl._wired) {
     sfQEl._wired = true;
+    if (!sfQEl.value) sfQEl.value = displayName(account);
     sfQEl.addEventListener("keydown", (e) => {
       if (e.key === "Enter") { e.preventDefault(); searchBtn.click(); }
     });
+    // 開いた直後に一度だけ自動検索（何度も走らないように印を付ける）
+    if (!sfLinkedOpp && !searchBtn._autoRan) {
+      searchBtn._autoRan = true;
+      setTimeout(() => searchBtn.click(), 60);
+    }
   }
 
   // 商談検索

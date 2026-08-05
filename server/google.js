@@ -853,3 +853,20 @@ export async function driveFindCompanyFiles(owner, company, limit = 12) {
     owner: (f.owners && f.owners[0] && f.owners[0].displayName) || "",
   }));
 }
+
+// リンクを知っている人なら誰でも見られるようにする（社外・kinbot未登録の人向け）
+export async function driveShareAnyone(owner, fileId) {
+  const token = await driveAccessToken(owner);
+  if (!token) throw new Error("Googleが連携されていません");
+  const sd = (process.env.DRIVE_SHARED_DRIVE_ID || process.env.DRIVE_FOLDER_ID) ? "?supportsAllDrives=true" : "";
+  const res = await fetch(`https://www.googleapis.com/drive/v3/files/${encodeURIComponent(fileId)}/permissions${sd}`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}`, "content-type": "application/json" },
+    body: JSON.stringify({ role: "reader", type: "anyone" }),
+  });
+  if (!res.ok) {
+    const t = (await res.text()).slice(0, 200);
+    throw new Error(`共有設定に失敗しました: ${t}`);
+  }
+  return true;
+}

@@ -176,7 +176,7 @@ import {
   gmailSend,
   gmailCreateDraft,
   gmailDeleteDraft,
-  parseEmailAddr, driveEnsureFolder, driveUploadFromUrl, driveShareDomain, driveStream, driveFindCompanyFiles } from "./google.js";
+  parseEmailAddr, driveEnsureFolder, driveUploadFromUrl, driveShareDomain, driveStream, driveFindCompanyFiles, driveShareAnyone } from "./google.js";
 import { startScheduler } from "./scheduler.js";
 import { muxConfigured, startVodUpload, waitVodPlayback, muxStorageSummary, listAssets, deleteAsset, findAssetByPlaybackId, enableMp4, mp4Url, readyMp4Name, getAsset } from "./mux.js";
 import { liveConfigured, createLiveStream, playbackUrl as livePlaybackUrl, liveInfo, liveStatus } from "./live.js";
@@ -1442,6 +1442,49 @@ app.post("/api/meetings/:id/archive-drive", async (req, res) => {
   }
 });
 
+// kinbotのアカウントが無い人にも録画を見せるための共有リンクを作る
+app.post("/api/meetings/:id/share-link", async (req, res) => {
+  try {
+    let m = await getMeeting(req.params.id);
+    if (!m) return res.status(404).json({ error: "見つかりません" });
+
+    // まだドライブに無ければ、先に保存する
+    if (!m.drive_file_id) {
+      let url = null;
+      try { url = await getRecordingUrl(req.params.id); } catch {}
+      if (!url && m.mux_playback_id && muxConfigured()) {
+        const asset = await findAssetByPlaybackId(m.mux_playback_id);
+        if (asset) {
+          const name = readyMp4Name(asset);
+          if (!name) {
+            try { await enableMp4(asset.id); } catch {}
+            return res.status(202).json({ error: "録画の準備をしています。2〜3分後にもう一度押してください。" });
+          }
+          url = mp4Url(m.mux_playback_id, name);
+        }
+      }
+      if (!url) return res.status(400).json({ error: "録画が見つかりません" });
+      const owner = req.user || m.owner;
+      const folderId = await driveEnsureFolder(owner, process.env.DRIVE_FOLDER_NAME || "kinbot 商談録画");
+      const when = new Date(m.created_at || Date.now()).toISOString().slice(0, 10);
+      const safe = String(m.title || "商談").replace(/[\\/:*?"<>|]/g, "_").slice(0, 80);
+      const up = await driveUploadFromUrl(owner, { url, name: `${when}_${safe}.mp4`, folderId });
+      await saveDriveFile(req.params.id, { fileId: up.fileId, link: up.link });
+      m = await getMeeting(req.params.id);
+    }
+
+    await driveShareAnyone(req.user || m.owner, m.drive_file_id);
+    res.json({
+      ok: true,
+      link: m.drive_link || `https://drive.google.com/file/d/${m.drive_file_id}/view`,
+      note: "このリンクを知っている人なら、kinbotのアカウントが無くても視聴できます。",
+    });
+  } catch (e) {
+    console.error("[share-link]", e.message);
+    res.status(502).json({ error: e.message });
+  }
+});
+
 // ドライブに保存した録画を、kinbotの画面で再生する（途中送りに対応）
 app.get("/api/meetings/:id/drive-video", async (req, res) => {
   try {
@@ -1651,6 +1694,29 @@ app.get("/api/live/status", async (req, res) => {
     });
   } catch (e) {
     res.status(500).json({ error: e.message });
+  }
+});
+
+// Recall側が配信先をどう扱っているかを見る（届かないときの切り分け用）
+app.get("/api/live/debug", async (req, res) => {
+  try {
+    res.set("Cache-Control", "no-store");
+    const botId = String(req.query.bot || "").trim();
+    if (!botId) return res.status(400).json({ error: "bot（商談ID）を指定してください" });
+    const bot = await getBot(botId);
+    const eps = (bot && (bot.realtime_endpoints || bot.recording_config?.realtime_endpoints)) || [];
+    const mask = (u) => String(u || "").replace(/[^/]+$/, "***");
+    res.json({
+      botId,
+      status: (bot && bot.status_changes && bot.status_changes.slice(-3)) || bot?.status || null,
+      endpoints: (Array.isArray(eps) ? eps : []).map((e) => ({
+        type: e.type, url: mask(e.url), events: e.events || e.config?.events || null,
+        status: e.status || null, error: e.error || null,
+      })),
+      note: "type=rtmp の status や error に、配信できない理由が出ることがあります。",
+    });
+  } catch (e) {
+    res.status(502).json({ error: e.message });
   }
 });
 

@@ -4145,3 +4145,7 @@ input:focus, select:focus, textarea:focus, .sf-input:focus, .sf-select:focus, .s
   .prop-hit-meta { display: none; }
   .prop-hit-add { width: 100%; }
 }
+.rec-share { width: 100%; display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 10px; }
+.rec-share-url { flex: 1; min-width: 220px; font-size: 12.5px; padding: 9px 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--panel); }
+.rec-share-copy { font-size: 12.5px; padding: 8px 16px; }
+.rec-share-note { width: 100%; font-size: 11.5px; color: var(--muted); }

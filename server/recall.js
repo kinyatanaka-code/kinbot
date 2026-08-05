@@ -121,6 +121,11 @@ export async function createBot({
       url: rtmpUrl,
       events: ["video_mixed_flv.data"],
     });
+    // 配信先の形をログに残す（鍵は伏せる）。届かないときの切り分けに使う。
+    try {
+      const u = new URL(rtmpUrl);
+      console.log(`[live] 配信先 ${u.protocol}//${u.host}${u.pathname.replace(/[^/]+$/, "***")}`);
+    } catch { console.log("[live] 配信先の形式が不正です"); }
   }
 
   // 無駄な課金を防ぐ：誰も来ない・全員退出した会議から自動で出る

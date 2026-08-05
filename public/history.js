@@ -2253,12 +2253,45 @@ function setupRecordingPlayer(drec, d, meeting) {
      <div class="rec-bar">
        <span class="rec-hint">${d && d.source === "drive" ? "Googleドライブに保存した録画を再生しています。" : "ホーム画面に戻ったり、他のアプリを開いても音声は再生され続けます。"}</span>
        ${d && d.source !== "drive" ? `<button type="button" class="rec-open" id="recToDrive">ドライブに保存</button>` : ""}
+       <button type="button" class="rec-open" id="recShare">共有リンクを作る</button>
        ${d && d.driveLink ? `<a class="rec-open" href="${escapeHtml(d.driveLink)}" target="_blank" rel="noopener">ドライブで開く</a>` : ""}
        ${isHls ? "" : `<a class="rec-open" href="${escapeHtml(url)}" target="_blank" rel="noopener">別タブで開く</a>`}
      </div>`;
 
   const video = drec.querySelector("video");
   renderChapters(drec, video, meeting, url);
+
+  // kinbotのアカウントが無い人にも見せる共有リンク
+  const shareBtn = drec.querySelector("#recShare");
+  if (shareBtn) shareBtn.addEventListener("click", async () => {
+    shareBtn.disabled = true;
+    shareBtn.textContent = "作成中…";
+    try {
+      const r = await fetch(`/api/meetings/${encodeURIComponent(meeting.bot_id)}/share-link`, { method: "POST" });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(j.error || "作成に失敗しました");
+      const box = document.createElement("div");
+      box.className = "rec-share";
+      box.innerHTML =
+        `<input type="text" class="rec-share-url" value="${escapeHtml(j.link)}" readonly />
+         <button type="button" class="btn rec-share-copy">コピー</button>
+         <div class="rec-share-note">${escapeHtml(j.note || "")}</div>`;
+      shareBtn.parentElement.appendChild(box);
+      box.querySelector(".rec-share-copy").addEventListener("click", () => {
+        const inp = box.querySelector(".rec-share-url");
+        inp.select();
+        navigator.clipboard.writeText(inp.value).then(() => {
+          box.querySelector(".rec-share-copy").textContent = "コピーしました";
+          if (window.kbToast) window.kbToast("共有リンクをコピーしました");
+        }).catch(() => {});
+      });
+      shareBtn.textContent = "共有リンクを作りました";
+    } catch (e) {
+      shareBtn.disabled = false;
+      shareBtn.textContent = "共有リンクを作る";
+      if (window.kbToast) window.kbToast(e.message, "error");
+    }
+  });
 
   // Googleドライブに保存する
   const toDrive = drec.querySelector("#recToDrive");
