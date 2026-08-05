@@ -2135,7 +2135,7 @@ function initSmartLinks() {
         const text = await r.text();
         let d = {};
         try { d = JSON.parse(text); } catch { throw new Error("サーバーの応答が途切れました。もう一度押してください。"); }
-        if (!r.ok) throw new Error(d.error || "並べ替えに失敗しました");
+        if (!r.ok) throw new Error([d.error, d.hint].filter(Boolean).join(" / ") || `並べ替えに失敗しました（HTTP ${r.status}）`);
         moved += d.moved || 0;
         already += d.already || 0;
         total = d.total || total;
@@ -2146,9 +2146,13 @@ function initSmartLinks() {
 
       // 2) 空になったフォルダをゴミ箱へ
       loops = 0;
+      let checked = 0, kept = 0, folders = 0;
       while (!stop && loops < 400) {
         loops++;
-        st.innerHTML = `空フォルダを片付けています… <b>${trashed} 個</b>をゴミ箱へ`;
+        st.innerHTML =
+          `空フォルダを片付けています… 確認した数 <b>${checked}</b>／` +
+          `ゴミ箱へ <b>${trashed}</b>／中身があり残した <b>${kept}</b>` +
+          (folders ? `　（担当者フォルダは残り ${folders} 個）` : "");
         const r = await fetch("/api/drive/rebuild", {
           method: "POST", headers: { "content-type": "application/json" },
           body: JSON.stringify({ phase: "clean", budget: 40 }),
@@ -2156,15 +2160,20 @@ function initSmartLinks() {
         const text = await r.text();
         let d = {};
         try { d = JSON.parse(text); } catch { throw new Error("サーバーの応答が途切れました。もう一度押してください。"); }
-        if (!r.ok) throw new Error(d.error || "片付けに失敗しました");
+        if (!r.ok) throw new Error([d.error, d.hint].filter(Boolean).join(" / ") || `片付けに失敗しました（HTTP ${r.status}）`);
         trashed += d.trashed || 0;
+        checked += d.checked || 0;
+        kept += d.kept || 0;
+        folders = d.folders || folders;
         addLog(d.errors);
         if (!d.more) break;
       }
 
       st.innerHTML =
-        `作り直しが終わりました。<b>${moved} 件</b>を移動し、空フォルダ <b>${trashed} 個</b>をゴミ箱へ送りました` +
-        (already ? `（${already} 件はすでに正しい場所にありました）` : "") + "。";
+        `作り直しが終わりました。<br>` +
+        `録画の移動：<b>${moved} 件</b>${already ? `（${already} 件はすでに正しい場所）` : ""}<br>` +
+        `フォルダの確認：<b>${checked} 個</b>　→　ゴミ箱へ <b>${trashed} 個</b>／中身があり残した <b>${kept} 個</b><br>` +
+        (folders ? `いま担当者フォルダは <b>${folders} 個</b>です。まだ重複していれば、もう一度押してください。` : "");
     } catch (e) {
       st.textContent = "作り直しに失敗しました：" + e.message;
     } finally {

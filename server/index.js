@@ -1623,7 +1623,7 @@ app.post("/api/drive/rebuild", async (req, res) => {
     }
 
     // ---- (2) 空になったフォルダをゴミ箱へ ----
-    const out = { phase, trashed: 0, checked: 0, more: false, errors: [] };
+    const out = { phase, trashed: 0, checked: 0, kept: 0, folders: 0, more: false, errors: [] };
     let ops = 0;
     const sweep = async (parentId, depth) => {
       if (depth > 3 || ops >= budget) return;
@@ -1642,6 +1642,8 @@ app.post("/api/drive/rebuild", async (req, res) => {
             await driveTrash(who, k.id);
             out.trashed++;
             ops++;
+          } else {
+            out.kept++;
           }
         } catch (e) {
           out.errors.push(`${k.name}: ${String(e.message || "").slice(0, 100)}`);
@@ -1650,10 +1652,25 @@ app.post("/api/drive/rebuild", async (req, res) => {
     };
     await sweep(root, 1);
     if (ops >= budget) out.more = true;
+    // いま残っているフォルダの数（進み具合の目安）
+    try {
+      const top = await driveListChildren(who, root, true);
+      out.folders = top.length;
+    } catch {}
     res.json(out);
   } catch (e) {
-    console.error("[drive rebuild]", e.message);
-    res.status(502).json({ error: String(e.message || "").slice(0, 200) });
+    console.error("[drive rebuild]", e && e.stack ? e.stack : e);
+    const msg = String((e && e.message) || e || "不明なエラー");
+    res.status(502).json({
+      error: msg.slice(0, 300),
+      hint: /insufficient|Insufficient Permission|403/.test(msg)
+        ? "Googleの書き込み権限がありません。設定→外部連携でGoogleを連携し直してください。"
+        : /連携されていません/.test(msg)
+          ? "Googleが未連携です。"
+          : /404|notFound/.test(msg)
+            ? "保存先フォルダが見つかりません。DRIVE_FOLDER_ID の値を確認してください。"
+            : "",
+    });
   }
 });
 
