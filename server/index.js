@@ -1568,92 +1568,82 @@ app.get("/api/live/info", (req, res) => {
   res.json({ ...info, customerCode: info.provider === "cloudflare" ? (process.env.CF_STREAM_CUSTOMER_CODE || "") : "" });
 });
 
-// 同じ名前のフォルダが増えてしまった分をまとめて片付ける。
-// 1回のリクエストで少しずつ進める（まとめてやると通信が途中で切れてしまうため）。
-app.post("/api/drive/merge-folders", async (req, res) => {
+// 録画の保存先フォルダを、kinbotのデータを正解として作り直す。
+// （1）正しいフォルダへ移動 →（2）空になったフォルダをゴミ箱へ、の2段構え。
+app.post("/api/drive/rebuild", async (req, res) => {
   try {
+    const b = req.body || {};
     const who = req.user;
-    const budget = Math.max(10, Math.min(200, Number((req.body && req.body.budget) || 60))); // 1回の作業量
+    const phase = b.phase === "clean" ? "clean" : "move";
+    const budget = Math.max(10, Math.min(200, Number(b.budget) || 50));
     const root = await driveEnsureFolder(who, process.env.DRIVE_FOLDER_NAME || "kinbot 商談録画");
-    const out = { merged: 0, movedFiles: 0, trashed: 0, more: false, errors: [] };
-    let ops = 0;
 
-    const walk = async (parentId, depth) => {
+    // ---- (1) ファイルを正しいフォルダへ移す ----
+    if (phase === "move") {
+      const days = Math.max(1, Math.min(1095, Number(b.days) || 730));
+      const jst = new Date(Date.now() + 9 * 3600 * 1000);
+      const from = new Date(jst.getTime() - days * 86400000).toISOString().slice(0, 10);
+      const rows = await listMeetings({ isAdmin: true, from, limit: 3000 });
+      const targets = rows.filter((m) => m.drive_file_id);
+      const offset = Math.max(0, Math.min(targets.length, Number(b.offset) || 0));
+      const part = targets.slice(offset, offset + Math.max(5, Math.floor(budget / 4)));
+      const nameMap = await buildRepNameMap();
+
+      const out = { phase, total: targets.length, offset, processed: part.length, moved: 0, already: 0, errors: [] };
+      out.remaining = Math.max(0, targets.length - (offset + part.length));
+
+      for (const t of part) {
+        try {
+          const m = (await getMeeting(t.bot_id)) || t;
+          const rep = resolveRepName(m.rep_name, m.owner, nameMap) || "担当者未設定";
+          const d = new Date(m.created_at || Date.now());
+          const j = new Date(d.getTime() + 9 * 3600 * 1000);
+          const folderId = await driveEnsurePath(
+            who,
+            [rep, `${j.getUTCMonth() + 1}月`, `${j.getUTCDate()}日`],
+            root
+          );
+          const r = await driveMoveFile(who, m.drive_file_id, folderId);
+          if (r.moved) out.moved++; else out.already++;
+        } catch (e) {
+          out.errors.push(`${t.title || t.bot_id}: ${String(e.message || "").slice(0, 120)}`);
+        }
+      }
+      return res.json(out);
+    }
+
+    // ---- (2) 空になったフォルダをゴミ箱へ ----
+    const out = { phase, trashed: 0, checked: 0, more: false, errors: [] };
+    let ops = 0;
+    const sweep = async (parentId, depth) => {
       if (depth > 3 || ops >= budget) return;
       let kids = [];
       try { kids = await driveListChildren(who, parentId, true); ops++; }
-      catch (e) { out.errors.push(String(e.message || "").slice(0, 120)); return; }
-
-      const byName = new Map();
+      catch (e) { out.errors.push(String(e.message || "").slice(0, 110)); return; }
       for (const k of kids) {
-        const list = byName.get(k.name) || [];
-        list.push(k);
-        byName.set(k.name, list);
-      }
-      for (const [name, list] of byName) {
         if (ops >= budget) { out.more = true; return; }
-        const keep = list[0];
-        for (const dup of list.slice(1)) {
-          if (ops >= budget) { out.more = true; return; }
-          try {
-            const items = await driveListChildren(who, dup.id, false);
-            ops++;
-            for (const it of items) {
-              if (ops >= budget) { out.more = true; return; }
-              await driveMoveFile(who, it.id, keep.id);
-              out.movedFiles++;
-              ops += 2;
-            }
-            await driveTrash(who, dup.id);
+        await sweep(k.id, depth + 1);
+        if (ops >= budget) { out.more = true; return; }
+        try {
+          const items = await driveListChildren(who, k.id, false);
+          ops++;
+          out.checked++;
+          if (!items.length) {
+            await driveTrash(who, k.id);
             out.trashed++;
-            out.merged++;
             ops++;
-          } catch (e) {
-            out.errors.push(`${name}: ${String(e.message || "").slice(0, 110)}`);
           }
+        } catch (e) {
+          out.errors.push(`${k.name}: ${String(e.message || "").slice(0, 100)}`);
         }
-        await walk(keep.id, depth + 1);
       }
     };
-
-    await walk(root, 1);
+    await sweep(root, 1);
     if (ops >= budget) out.more = true;
     res.json(out);
   } catch (e) {
-    console.error("[merge-folders]", e.message);
+    console.error("[drive rebuild]", e.message);
     res.status(502).json({ error: String(e.message || "").slice(0, 200) });
-  }
-});
-
-// すでにドライブにある録画を、担当者 / ◯月 / ◯日 のフォルダへ並べ替える
-app.post("/api/drive/reorganize", async (req, res) => {
-  try {
-    const b = req.body || {};
-    const days = Math.max(1, Math.min(730, Number(b.days) || 365));
-    const max = Math.max(1, Math.min(20, Number(b.max) || 8));
-    const jst = new Date(Date.now() + 9 * 3600 * 1000);
-    const from = new Date(jst.getTime() - days * 86400000).toISOString().slice(0, 10);
-    const rows = await listMeetings({ isAdmin: true, from, limit: 2000 });
-    const targets = rows.filter((m) => m.drive_file_id);
-    const offset = Math.max(0, Math.min(targets.length, Number(b.offset) || 0));
-    const part = targets.slice(offset, offset + max);
-    const out = { total: targets.length, offset, processed: part.length, moved: 0, already: 0, errors: [] };
-    out.remaining = Math.max(0, targets.length - (offset + part.length));
-
-    const who = req.user;
-    for (const t of part) {
-      try {
-        const m = (await getMeeting(t.bot_id)) || t;
-        const folderId = await driveFolderForMeeting(who, m);
-        const r = await driveMoveFile(who, m.drive_file_id, folderId);
-        if (r.moved) out.moved++; else out.already++;
-      } catch (e) {
-        out.errors.push(`${t.title || t.bot_id}: ${String(e.message || "").slice(0, 140)}`);
-      }
-    }
-    res.json(out);
-  } catch (e) {
-    res.status(502).json({ error: e.message });
   }
 });
 

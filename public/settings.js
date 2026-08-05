@@ -2108,87 +2108,72 @@ function initSmartLinks() {
     }
   }
 
-  // 保存済みの録画を「担当者 / ◯月 / ◯日」のフォルダへ並べ替える
-  async function sortFolders() {
-    const st = $d("dmStatus"), log = $d("dmLog");
-    const btn = $d("dmSort");
+  // 録画の保存先フォルダを、kinbotのデータどおりに作り直す
+  async function rebuildFolders() {
+    const st = $d("dmStatus"), log = $d("dmLog"), btn = $d("dmRebuild");
     if (!st) return;
+    if (!confirm("録画を「担当者 / ◯月 / ◯日」のフォルダへ並べ替え、空になったフォルダをゴミ箱へ送ります。よろしいですか？")) return;
     stop = false;
     btn.disabled = true;
     log.innerHTML = "";
-    let moved = 0, already = 0, offset = 0, total = 0, loops = 0;
+    let moved = 0, already = 0, offset = 0, total = 0, trashed = 0, loops = 0;
+    const addLog = (arr) => (arr || []).slice(0, 5).forEach((m) => {
+      const p = document.createElement("div");
+      p.className = "dm-log-line";
+      p.textContent = m;
+      log.appendChild(p);
+    });
     try {
-      while (!stop && loops < 500) {
+      // 1) 正しいフォルダへ移動
+      while (!stop && loops < 400) {
         loops++;
         st.innerHTML = `並べ替え中… <b>${moved} 件</b>を移動${total ? `（${offset}/${total} 件を確認）` : ""}`;
-        const r = await fetch("/api/drive/reorganize", {
+        const r = await fetch("/api/drive/rebuild", {
           method: "POST", headers: { "content-type": "application/json" },
-          body: JSON.stringify({ days: 365, max: 8, offset }),
+          body: JSON.stringify({ phase: "move", offset, budget: 40, days: 730 }),
         });
-        const d = await r.json().catch(() => ({}));
+        const text = await r.text();
+        let d = {};
+        try { d = JSON.parse(text); } catch { throw new Error("サーバーの応答が途切れました。もう一度押してください。"); }
         if (!r.ok) throw new Error(d.error || "並べ替えに失敗しました");
         moved += d.moved || 0;
         already += d.already || 0;
         total = d.total || total;
         offset += d.processed || 0;
-        (d.errors || []).forEach((m) => {
-          const p = document.createElement("div");
-          p.className = "dm-log-line";
-          p.textContent = m;
-          log.appendChild(p);
-        });
+        addLog(d.errors);
         if (!d.processed || !d.remaining) break;
       }
-      st.innerHTML = `並べ替えが終わりました。<b>${moved} 件</b>を移動しました${already ? `（${already} 件はすでに正しい場所にありました）` : ""}。`;
-    } catch (e) {
-      st.textContent = "並べ替えに失敗しました：" + e.message;
-    } finally {
-      btn.disabled = false;
-    }
-  }
 
-  // 同名フォルダが増えてしまった分を1つにまとめる
-  async function mergeFolders() {
-    const st = $d("dmStatus"), log = $d("dmLog"), btn = $d("dmMerge");
-    if (!st) return;
-    btn.disabled = true;
-    log.innerHTML = "";
-    stop = false;
-    let merged = 0, movedFiles = 0, loops = 0;
-    try {
-      // 少しずつ何度も呼んで、終わるまで続ける
-      while (!stop && loops < 200) {
+      // 2) 空になったフォルダをゴミ箱へ
+      loops = 0;
+      while (!stop && loops < 400) {
         loops++;
-        st.innerHTML = `重複フォルダをまとめています… <b>${merged} 個</b>を整理（ファイル ${movedFiles} 件を移動）`;
-        const r = await fetch("/api/drive/merge-folders", {
+        st.innerHTML = `空フォルダを片付けています… <b>${trashed} 個</b>をゴミ箱へ`;
+        const r = await fetch("/api/drive/rebuild", {
           method: "POST", headers: { "content-type": "application/json" },
-          body: JSON.stringify({ budget: 40 }),
+          body: JSON.stringify({ phase: "clean", budget: 40 }),
         });
         const text = await r.text();
         let d = {};
         try { d = JSON.parse(text); } catch { throw new Error("サーバーの応答が途切れました。もう一度押してください。"); }
         if (!r.ok) throw new Error(d.error || "片付けに失敗しました");
-        merged += d.merged || 0;
-        movedFiles += d.movedFiles || 0;
-        (d.errors || []).slice(0, 5).forEach((m) => {
-          const p = document.createElement("div");
-          p.className = "dm-log-line";
-          p.textContent = m;
-          log.appendChild(p);
-        });
+        trashed += d.trashed || 0;
+        addLog(d.errors);
         if (!d.more) break;
       }
-      st.innerHTML = `片付けが終わりました。重複フォルダ <b>${merged} 個</b>をまとめ、<b>${movedFiles} 件</b>のファイルを移動しました。`;
+
+      st.innerHTML =
+        `作り直しが終わりました。<b>${moved} 件</b>を移動し、空フォルダ <b>${trashed} 個</b>をゴミ箱へ送りました` +
+        (already ? `（${already} 件はすでに正しい場所にありました）` : "") + "。";
     } catch (e) {
-      st.textContent = "片付けに失敗しました：" + e.message;
+      st.textContent = "作り直しに失敗しました：" + e.message;
     } finally {
       btn.disabled = false;
     }
   }
 
   document.addEventListener("DOMContentLoaded", () => {
-    const mg = $d("dmMerge"); if (mg) mg.addEventListener("click", mergeFolders);
-    const so = $d("dmSort"); if (so) so.addEventListener("click", sortFolders);
+    const rb = $d("dmRebuild"); if (rb) rb.addEventListener("click", rebuildFolders);
     const pb = $d("dmProbe"); if (pb) pb.addEventListener("click", probe);
     const c = $d("dmCheck"); if (c) c.addEventListener("click", check);
     const s = $d("dmStart"); if (s) s.addEventListener("click", start);
