@@ -17,6 +17,9 @@ const CF_ACCOUNT = process.env.CF_ACCOUNT_ID || "";
 const CF_TOKEN = process.env.CF_STREAM_TOKEN || "";
 const CF_CODE = process.env.CF_STREAM_CUSTOMER_CODE || "";
 
+// 中継サーバー用：合図の文字列 → Cloudflareの宛先
+export const relayMap = new Map();
+
 export function liveProvider() {
   return PROVIDER === "cloudflare" ? "cloudflare" : "mux";
 }
@@ -33,6 +36,7 @@ export function liveInfo() {
     provider: p,
     configured: liveConfigured(),
     customerCodeSet: p === "cloudflare" ? !!CF_CODE : null,
+    relay: (process.env.LIVE_RELAY_RTMP || "") ? "設定あり（中継経由）" : "なし（Cloudflareへ直接）",
   };
 }
 
@@ -67,11 +71,26 @@ export async function createLiveStream() {
     }),
   });
   const rtmps = r.rtmps || {};
-  const rtmpUrl = rtmps.url && rtmps.streamKey ? `${rtmps.url}${rtmps.streamKey}` : "";
+  const cfUrl = rtmps.url && rtmps.streamKey ? `${rtmps.url}${rtmps.streamKey}` : "";
+
+  // RecallがRTMPS（暗号化あり）に対応していない場合は、中継サーバーを経由する。
+  // LIVE_RELAY_RTMP を設定すると、Recallには中継サーバーのRTMPを渡し、
+  // 中継がCloudflareへRTMPSで送り直します（映像は作り直さないので負荷はほぼゼロ）。
+  const relay = (process.env.LIVE_RELAY_RTMP || "").replace(/\/+$/, "");
+  let rtmpUrl = cfUrl;
+  if (relay && cfUrl) {
+    const token = "kb" + Math.random().toString(36).slice(2, 12);
+    relayMap.set(token, { dest: cfUrl, at: Date.now() });
+    // 古い割り当ては片付ける（12時間）
+    for (const [k, v] of relayMap) if (Date.now() - v.at > 12 * 3600 * 1000) relayMap.delete(k);
+    rtmpUrl = `${relay}/${token}`;
+  }
+
   return {
     liveStreamId: r.uid,
     playbackId: r.uid,   // Cloudflareは配信枠のIDがそのまま再生IDになる
     rtmpUrl,
+    relayed: !!(relay && cfUrl),
   };
 }
 

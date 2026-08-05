@@ -1,0 +1,22 @@
+# kinbot ライブ中継（RecallのRTMPを受けて、CloudflareへRTMPSで送り直す）
+# 映像は作り直さず、そのまま通します（-c copy）。CPUをほとんど使いません。
+
+logLevel: info
+readTimeout: 20s
+writeTimeout: 20s
+
+# RTMPだけ使う
+rtmp: yes
+rtmpAddress: :1935
+rtsp: no
+hls: no
+webrtc: no
+srt: no
+
+pathDefaults:
+  # 配信が始まったら、宛先をkinbotに問い合わせて、そこへ転送する
+  runOnReady: /app/on-ready.sh $MTX_PATH
+  runOnReadyRestart: yes
+
+paths:
+  all_others:

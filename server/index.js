@@ -179,7 +179,7 @@ import {
   parseEmailAddr, driveEnsureFolder, driveUploadFromUrl, driveShareDomain, driveStream, driveFindCompanyFiles, driveShareAnyone, driveEnsurePath, driveMoveFile, driveListChildren, driveTrash } from "./google.js";
 import { startScheduler } from "./scheduler.js";
 import { muxConfigured, startVodUpload, waitVodPlayback, muxStorageSummary, listAssets, deleteAsset, findAssetByPlaybackId, enableMp4, mp4Url, readyMp4Name, getAsset } from "./mux.js";
-import { liveConfigured, createLiveStream, playbackUrl as livePlaybackUrl, liveInfo, liveStatus } from "./live.js";
+import { liveConfigured, createLiveStream, playbackUrl as livePlaybackUrl, liveInfo, liveStatus, relayMap } from "./live.js";
 import { notionConfigured, notionStatus, createMeetingPage, createReportPage } from "./notion.js";
 import { pdfToText, urlToText, officeToText } from "./ingest.js";
 import { indexKnowledge, embeddingsAvailable } from "./retrieval.js";
@@ -1559,6 +1559,16 @@ app.get("/api/meetings/:id/drive-video", async (req, res) => {
     console.error("[drive-video]", e.message);
     res.status(502).end();
   }
+});
+
+// 中継サーバーが「この配信をどこへ送るか」を尋ねてくる窓口
+app.get("/api/live/relay-dest", (req, res) => {
+  const secret = process.env.RELAY_SECRET || "";
+  if (!secret || req.get("X-Relay-Secret") !== secret) return res.status(403).type("text/plain").send("");
+  const token = String(req.query.token || "").replace(/[^a-zA-Z0-9]/g, "");
+  const hit = relayMap.get(token);
+  if (!hit) return res.status(404).type("text/plain").send("");
+  res.type("text/plain").send(hit.dest);
 });
 
 // ライブ配信の設定（画面側が再生URLを組み立てるために使う）
