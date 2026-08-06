@@ -240,7 +240,7 @@ function panelHtml(key, ev) {
   let inner = "";
   if (s.loading) inner = `<div class="home-sf-msg">検索中…</div>`;
   else if (s.error) inner = `<div class="home-sf-err">${escL(s.error)}</div>`;
-  else if (s.leads && !s.leads.length) inner = `<div class="home-sf-msg">一致するリードが見つかりませんでした。会社名や担当者名を変えて検索してください。</div>`;
+  else if (s.leads && !s.leads.length) inner = `<div class="home-sf-msg">一致するリードが見つかりませんでした。会社名の書き方（正式名称・略称）を変えて検索してください。</div>`;
   else if (s.leads) {
     inner = `<div class="home-sf-list">` + s.leads.map((r) => `
       <button class="home-sf-item" data-ln-pick="${escL(key)}" data-id="${escL(r.Id)}" type="button">
@@ -250,8 +250,7 @@ function panelHtml(key, ev) {
   }
   return `<div class="home-sf">
     <div class="home-sf-search">
-      <input type="text" class="home-sf-input" data-ln-q="${escL(key)}" value="${escL(s.q)}" placeholder="会社名" />
-      <input type="text" class="home-sf-input" data-ln-qp="${escL(key)}" value="${escL(s.qp)}" placeholder="担当者名" />
+      <input type="text" class="home-sf-input" data-ln-q="${escL(key)}" value="${escL(s.q)}" placeholder="会社名で検索" />
       <button class="btn sf-btn-secondary home-sf-mini" data-ln-search="${escL(key)}" type="button">検索</button>
     </div>
     ${inner}
@@ -351,7 +350,8 @@ async function searchLeads(key) {
   s.loading = true; s.error = ""; s.leads = null;
   render();
   try {
-    const r = await fetch(`/api/salesforce/leads?company=${encodeURIComponent(s.q)}&person=${encodeURIComponent(s.qp)}`);
+    // 会社名だけで検索する（担当者名を混ぜると別の会社まで拾ってしまうため）
+    const r = await fetch(`/api/salesforce/leads?company=${encodeURIComponent(s.q)}`);
     const d = await r.json().catch(() => ({}));
     if (!r.ok) throw new Error(d.error || "検索に失敗しました");
     s.leads = d.records || [];

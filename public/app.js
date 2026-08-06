@@ -565,9 +565,14 @@ function checkLiveStatus() {
       if (overlay && d && d.state) {
         if (d.state === "connected") { clearInterval(_liveCheckTimer); return; }
         if (d.provider === "cloudflare") {
-          overlay.textContent =
-            (d.state === "no_stream" || d.state === "unconfigured" ? "ライブ映像は使えません" : "ライブ映像を準備中…") +
-            `（${d.state}）${d.hint ? " " + d.hint : ""}`;
+          // どこで止まっているかが一目で分かるようにする
+          const lines = [
+            (d.state === "no_stream" || d.state === "unconfigured" ? "ライブ映像は使えません" : "ライブ映像を準備中…") + `（${d.state}）`,
+            `配信先：${d.sentTo || "—"}`,
+            d.relayCheck ? `中継サーバー：${d.relayCheck.ok ? "届きます" : "届きません"}（${d.relayCheck.host || ""}:${d.relayCheck.port || ""}）${d.relayCheck.why ? " " + d.relayCheck.why : ""}` : "中継サーバー：使っていません",
+            d.hint || "",
+          ].filter(Boolean);
+          overlay.innerHTML = lines.map((t) => `<div>${String(t).replace(/[<>&]/g, "")}</div>`).join("");
           if (d.state === "unconfigured" || d.state === "no_stream") clearInterval(_liveCheckTimer);
         }
       }

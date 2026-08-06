@@ -12,8 +12,9 @@ const SKIP_LIVE = /【\s*社内MTG\s*】|【\s*ユ\s*\/\s*フォ\s*】/;
 
 const sessions = new Map(); // botId -> Session
 
-export function createSession(botId, { repName = "", meetingUrl = "", title = "", owner = "", analyzeIntervalMs, muxPlaybackId = "", muxLiveStreamId = "", muxError = "" } = {}) {
+export function createSession(botId, { repName = "", meetingUrl = "", title = "", owner = "", analyzeIntervalMs, muxPlaybackId = "", muxLiveStreamId = "", muxError = "", liveRtmpUrl = "" } = {}) {
   const s = new Session(botId, { repName, meetingUrl, title, owner, muxPlaybackId, muxLiveStreamId, muxError }, analyzeIntervalMs || DEFAULT_INTERVAL_MS);
+  s.liveRtmpUrl = liveRtmpUrl;
   sessions.set(botId, s);
   createMeeting(botId, { meetingUrl, repName, title, owner, muxPlaybackId }); // 履歴に行を作成（DB無効なら無視）
   return s;
@@ -37,6 +38,7 @@ export function listActiveSessions() {
     utterances: s.utterances.length,
     muxPlaybackId: s.muxPlaybackId || "",
     muxLiveStreamId: s.muxLiveStreamId || "",
+    liveRtmpUrl: s.liveRtmpUrl || "",
   }));
 }
 

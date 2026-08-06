@@ -743,10 +743,14 @@ export async function searchLeads(owner, { company = "", person = "", limit = 20
   const esc = (v) => String(v || "").replace(/['\\%_]/g, "").trim();
   const conds = ["IsConverted = false"];
   const c = esc(company), p = esc(person);
-  const or = [];
-  if (c) or.push(`Company LIKE '%${c}%'`);
-  if (p) or.push(`LastName LIKE '%${p}%'`, `Name LIKE '%${p}%'`);
-  if (or.length) conds.push(`(${or.join(" OR ")})`);
+  // 会社名があるときは会社名でしぼる。担当者名は「その会社の中」でさらに絞るときだけ使う。
+  // （会社名と担当者名をORにすると、別の会社のリードまで出てしまうため）
+  if (c) {
+    conds.push(`Company LIKE '%${c}%'`);
+    if (p) conds.push(`(LastName LIKE '%${p}%' OR Name LIKE '%${p}%')`);
+  } else if (p) {
+    conds.push(`(LastName LIKE '%${p}%' OR Name LIKE '%${p}%')`);
+  }
   const soql =
     `SELECT Id, Name, LastName, FirstName, Company, Title, Email, Phone, Status, Website, Street, City, State, PostalCode, NumberOfEmployees, LeadSource, RecordType.Name, CreatedDate, Owner.Name ` +
     `FROM Lead WHERE ${conds.join(" AND ")} ORDER BY CreatedDate DESC LIMIT ${Math.min(50, Number(limit) || 20)}`;

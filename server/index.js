@@ -1658,6 +1658,46 @@ app.get("/api/meetings/:id/drive-video", async (req, res) => {
   }
 });
 
+// 中継サーバーに届くかどうかを、kinbotから実際につないで確かめる
+app.get("/api/live/relay-check", async (req, res) => {
+  try {
+    res.set("Cache-Control", "no-store");
+    const raw = String(process.env.LIVE_RELAY_RTMP || "").trim();
+    if (!raw) return res.json({ ok: false, reason: "LIVE_RELAY_RTMP が未設定です" });
+
+    let host = "", port = 0;
+    try {
+      const u = new URL(raw.replace(/^rtmp:/, "http:"));
+      host = u.hostname;
+      port = Number(u.port || 1935);
+    } catch {
+      return res.json({ ok: false, raw, reason: "URLの形式が正しくありません（例：rtmp://xxx.proxy.rlwy.net:12345）" });
+    }
+
+    const net = await import("node:net");
+    const result = await new Promise((resolve) => {
+      const sock = new net.Socket();
+      const done = (ok, reason) => { try { sock.destroy(); } catch {} resolve({ ok, reason }); };
+      sock.setTimeout(6000);
+      sock.once("connect", () => done(true, "つながりました"));
+      sock.once("timeout", () => done(false, "応答がありません（ポートが公開されていない可能性）"));
+      sock.once("error", (e) => done(false, e.message));
+      sock.connect(port, host);
+    });
+
+    res.json({
+      ok: result.ok,
+      host, port, url: raw,
+      reason: result.reason,
+      hint: result.ok
+        ? "中継サーバーには届きます。映らない場合は、Recall側から送れていない可能性があります。"
+        : "中継サーバーに届きません。RailwayのTCP Proxy（ポート1935）が有効か、LIVE_RELAY_RTMP の値が正しいか確認してください。",
+    });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // 中継サーバーが「この配信をどこへ送るか」を尋ねてくる窓口
 app.get("/api/live/relay-dest", (req, res) => {
   const secret = process.env.RELAY_SECRET || "";
@@ -1926,11 +1966,36 @@ app.get("/api/live/status", async (req, res) => {
     }
     const info = liveInfo();
     const st = await liveStatus(liveId);
+
+    // Recallに渡した配信先と、中継サーバーへ届くかどうかを一緒に返す
+    const act = listActiveSessions().find((x) => x.botId === botId);
+    const sentTo = (act && act.liveRtmpUrl) || "";
+    const mask = (u) => String(u || "").replace(/[^/]+$/, "***");
+    let relayCheck = null;
+    const raw = String(process.env.LIVE_RELAY_RTMP || "").trim();
+    if (raw) {
+      try {
+        const u = new URL(raw.replace(/^rtmp:/, "http:"));
+        const net = await import("node:net");
+        relayCheck = await new Promise((resolve) => {
+          const sock = new net.Socket();
+          const done = (ok, why) => { try { sock.destroy(); } catch {} resolve({ host: u.hostname, port: Number(u.port || 1935), ok, why }); };
+          sock.setTimeout(5000);
+          sock.once("connect", () => done(true, "中継サーバーに届きます"));
+          sock.once("timeout", () => done(false, "中継サーバーに届きません（TCP Proxyの設定を確認）"));
+          sock.once("error", (e) => done(false, e.message));
+          sock.connect(Number(u.port || 1935), u.hostname);
+        });
+      } catch { relayCheck = { ok: false, why: "LIVE_RELAY_RTMP の形式が正しくありません" }; }
+    }
     res.json({
       ...info,
       liveStreamId: liveId || null,
       ...st,
-      relay: (process.env.LIVE_RELAY_RTMP || "") ? "中継あり" : "中継なし（直接）",
+      relay: raw ? "中継あり" : "中継なし（直接）",
+      sentTo: mask(sentTo) || "（この商談には配信先が設定されていません）",
+      sentToIsRelay: !!(raw && sentTo && sentTo.startsWith(raw)),
+      relayCheck,
       hint: st.why ? st.why
         : st.state === "connected" ? "映像が届いています。"
         : st.state === "disconnected" || st.state === "idle"
@@ -4805,6 +4870,7 @@ async function startBotSession(owner, meetingUrl, { title = "", repName = "", la
     analyzeIntervalMs: cfg.analyzeIntervalMs,
     muxPlaybackId: mux?.playbackId || "",
     muxLiveStreamId: mux?.liveStreamId || "",
+    liveRtmpUrl: mux?.rtmpUrl || "",
     muxError,
   });
   return { sessionId: botId, muxReady: !!mux?.playbackId, muxError, autoTitle: autoTitled ? sessionTitle : "" };
