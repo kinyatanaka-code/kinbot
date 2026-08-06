@@ -15,7 +15,13 @@ import {
 const PROVIDER = (process.env.LIVE_PROVIDER || "mux").toLowerCase();
 const CF_ACCOUNT = process.env.CF_ACCOUNT_ID || "";
 const CF_TOKEN = process.env.CF_STREAM_TOKEN || "";
-const CF_CODE = process.env.CF_STREAM_CUSTOMER_CODE || "";
+// 顧客サブドメイン。"customer-xxxx.cloudflarestream.com" のように貼られても動くように整える。
+const CF_CODE = String(process.env.CF_STREAM_CUSTOMER_CODE || "")
+  .trim()
+  .replace(/^https?:\/\//, "")
+  .replace(/^customer-/, "")
+  .replace(/\.cloudflarestream\.com.*$/, "")
+  .replace(/\/.*$/, "");
 
 // 中継サーバー用：合図の文字列 → Cloudflareの宛先
 export const relayMap = new Map();
@@ -116,7 +122,21 @@ export function playbackUrl(playbackId) {
 // 配信が実際に届いているかを確認する（Cloudflareのみ）
 export async function liveStatus(liveStreamId) {
   if (liveProvider() !== "cloudflare") return { provider: "mux", state: "unknown" };
-  if (!liveConfigured() || !liveStreamId) return { provider: "cloudflare", state: "unconfigured" };
+  if (!liveConfigured()) {
+    return {
+      provider: "cloudflare", state: "unconfigured",
+      why: "CF_ACCOUNT_ID か CF_STREAM_TOKEN が設定されていません（kinbot側の環境変数）",
+    };
+  }
+  if (!CF_CODE) {
+    return { provider: "cloudflare", state: "unconfigured", why: "CF_STREAM_CUSTOMER_CODE が設定されていません" };
+  }
+  if (!liveStreamId) {
+    return {
+      provider: "cloudflare", state: "no_stream",
+      why: "この商談には配信枠が作られていません。録音を開始した時点で配信の設定が読めていなかった可能性があります。設定を直したあと、録音を開始し直してください。",
+    };
+  }
   try {
     const r = await cfFetch(`/stream/live_inputs/${encodeURIComponent(liveStreamId)}`);
     const st = (r && r.status && r.status.current) || {};

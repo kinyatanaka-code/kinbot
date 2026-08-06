@@ -1123,13 +1123,14 @@ async function runExtraction(botId, forceProvider) {
   const titleRound = roundFromTitle(m.title);           // 1 / n / null
   const titleSaysRe = /【[^】]*(再商談|再提案)[^】]*】/.test(String(m.title || "").normalize("NFKC"));
   let kind;
+  let kindRes = null; // AIに判定させたときの結果（判定不能のときに理由を残すため）
   if (titleRound === 1) {
     kind = "初回商談";
   } else if ((titleRound && titleRound >= 2) || titleSaysRe) {
     kind = "再商談";
   } else {
-    const kindRes = await classifyMeetingKind(transcript, { provider: forceProvider });
-    kind = kindRes.meeting_kind;
+    kindRes = await classifyMeetingKind(transcript, { provider: forceProvider });
+    kind = kindRes && kindRes.meeting_kind;
   }
 
   // 既存の同一商談イベントを消してから入れ直す（再抽出の重複防止）
@@ -1142,9 +1143,9 @@ async function runExtraction(botId, forceProvider) {
     await insertDealEvent({
       deal_id: deal && deal.deal_id, bot_id: botId, event_date: meetingDateStr,
       event_type: "初回商談", meeting_kind: "判定不能",
-      confidence: kindRes.confidence, needs_review: true,
+      confidence: (kindRes && kindRes.confidence) || null, needs_review: true,
       judgment_basis: "商談種別を判定できませんでした",
-      raw_extraction: { kind: kindRes },
+      raw_extraction: { kind: kindRes || null },
     });
     return { kind, needs_review: true };
   }
@@ -1671,7 +1672,14 @@ app.get("/api/live/relay-dest", (req, res) => {
 app.get("/api/live/info", (req, res) => {
   res.set("Cache-Control", "no-store");
   const info = liveInfo();
-  res.json({ ...info, customerCode: info.provider === "cloudflare" ? (process.env.CF_STREAM_CUSTOMER_CODE || "") : "" });
+  const raw = String(process.env.CF_STREAM_CUSTOMER_CODE || "");
+  const code = raw.trim().replace(/^https?:\/\//, "").replace(/^customer-/, "").replace(/\.cloudflarestream\.com.*$/, "").replace(/\/.*$/, "");
+  res.json({
+    ...info,
+    customerCode: info.provider === "cloudflare" ? code : "",
+    customerCodeRaw: raw !== code ? raw : undefined,
+    playbackSample: code ? `https://customer-${code}.cloudflarestream.com/（配信ID）/manifest/video.m3u8` : "",
+  });
 });
 
 // 録画の保存先フォルダを、kinbotのデータを正解として作り直す。
@@ -1922,10 +1930,12 @@ app.get("/api/live/status", async (req, res) => {
       ...info,
       liveStreamId: liveId || null,
       ...st,
-      hint: st.state === "connected" ? "映像が届いています。"
+      relay: (process.env.LIVE_RELAY_RTMP || "") ? "中継あり" : "中継なし（直接）",
+      hint: st.why ? st.why
+        : st.state === "connected" ? "映像が届いています。"
         : st.state === "disconnected" || st.state === "idle"
-          ? "配信がまだ届いていません。ボットが入室してから30秒ほどかかります。数分たっても変わらない場合は、配信先の設定（RTMP）が合っていない可能性があります。"
-          : st.state === "unconfigured" ? "配信の設定が読み込めていません。環境変数を確認してください。" : "",
+          ? "配信がまだ届いていません。ボットが入室してから30秒ほどかかります。数分たっても変わらない場合は、Recallから中継サーバーへ届いていない可能性があります（中継のログを確認してください）。"
+          : "",
     });
   } catch (e) {
     res.status(500).json({ error: e.message });
