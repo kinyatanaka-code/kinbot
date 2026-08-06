@@ -1082,3 +1082,45 @@ export async function describeDashboard(owner, dashboardId) {
     instanceUrl: acc.instanceUrl,
   };
 }
+
+// 商談を作る（コンバートで商談が作られなかったときの補い）
+export async function createOpportunity(owner, { name, accountId, stageName, closeDate, ownerId, extra = {} }) {
+  const acc = await getAccess(owner);
+  if (!acc) throw new Error("Salesforce未連携です");
+  const body = {
+    Name: name,
+    AccountId: accountId,
+    StageName: stageName,
+    CloseDate: closeDate,
+    ...(ownerId ? { OwnerId: ownerId } : {}),
+    ...extra,
+  };
+  const res = await fetch(`${acc.instanceUrl}/services/data/${API_VERSION}/sobjects/Opportunity`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${acc.token}`, "content-type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  const d = await res.json().catch(() => null);
+  if (!res.ok) {
+    const msg = Array.isArray(d) ? d.map((x) => x.message).join(" / ") : JSON.stringify(d || {});
+    const err = new Error(`商談の作成に失敗しました: ${String(msg).slice(0, 300)}`);
+    err.sf = d;
+    throw err;
+  }
+  return d && d.id;
+}
+
+// 商談ステージの最初の値を取り出す（新規作成のときの初期値に使う）
+export async function firstOpportunityStage(owner) {
+  try {
+    const desc = await describeOpportunity(owner);
+    const f = (desc.fields || []).find((x) => x.name === "StageName");
+    const vals = (f && f.picklistValues || []).filter((v) => v.active);
+    // 「01：アポ獲得」のような番号付きがあれば、いちばん小さい番号を選ぶ
+    const numbered = vals
+      .map((v) => ({ v, n: (String(v.value).match(/^\s*0*(\d+)/) || [])[1] }))
+      .filter((x) => x.n !== undefined)
+      .sort((a, b) => Number(a.n) - Number(b.n));
+    return (numbered[0] && numbered[0].v.value) || (vals[0] && vals[0].value) || "";
+  } catch { return ""; }
+}

@@ -233,8 +233,7 @@ import {
   createContactRole,
   describeContactRolePicklist,
   fillEmptyFields,
-  createTaskIdempotent,
-} from "./salesforce.js";
+  createTaskIdempotent, createOpportunity, firstOpportunityStage } from "./salesforce.js";
 import {
   authEnabled,
   getUser,
@@ -6986,13 +6985,36 @@ app.post("/api/salesforce/leads/:id/convert", async (req, res) => {
     const b = req.body || {};
     const fields = b.fields && typeof b.fields === "object" ? b.fields : {};
     if (Object.keys(fields).length) await updateLead(req.user, req.params.id, fields);
+    const ownerId = await getSfUserId(req.user).catch(() => "");
     const r = await convertLead(req.user, {
       leadId: req.params.id,
       convertedStatus: b.convertedStatus || "",
       opportunityName: b.opportunityName || "",
-      ownerId: await getSfUserId(req.user).catch(() => ""),
+      ownerId,
     });
-    res.json(r);
+
+    // コンバートで商談が作られなかった場合は、こちらで作る（立ち上げ漏れを防ぐ）
+    let createdOpportunity = false;
+    let oppId = r && (r.opportunityId || r.opportunity_id);
+    if (!oppId && r && (r.accountId || r.account_id)) {
+      try {
+        const stage = await firstOpportunityStage(req.user);
+        const close = new Date(Date.now() + 60 * 86400000).toISOString().slice(0, 10);
+        oppId = await createOpportunity(req.user, {
+          name: b.opportunityName || "新規商談",
+          accountId: r.accountId || r.account_id,
+          stageName: stage || "01：アポ獲得",
+          closeDate: close,
+          ownerId,
+        });
+        createdOpportunity = true;
+        console.log(`[SF立ち上げ] 商談が作られなかったので作成しました: ${oppId}`);
+      } catch (e) {
+        console.error("[SF立ち上げ] 商談の作成に失敗", e.message);
+        return res.json({ ...r, opportunityId: null, warning: "リードは変換されましたが、商談を作れませんでした：" + String(e.message).slice(0, 200) });
+      }
+    }
+    res.json({ ...r, opportunityId: oppId || null, createdOpportunity });
   } catch (e) {
     sfErrorResponse(res, e);
   }
