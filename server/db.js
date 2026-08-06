@@ -567,14 +567,22 @@ export async function saveMeeting(botId, { transcript, summary, suggestions, aiL
   }
 }
 
-export async function listMeetings({ owner, isAdmin, from, to, limit } = {}) {
+export async function listMeetings({ owner, isAdmin, from, to, limit, light } = {}) {
   if (!pool) return [];
-  const base = `SELECT m.bot_id, m.meeting_url, m.rep_name, m.title, m.owner,
-                       m.round_no, m.phase, m.status, m.created_at, m.updated_at, m.summary, m.analysis, m.note,
-                       m.metrics, m.sf_url, m.drive_file_id, m.drive_link, m.mux_playback_id,
-                       COALESCE(m.account,'') AS account, m.category, m.deal_kind,
-                       m.apo_setter, u.name AS owner_name
-                FROM meetings m LEFT JOIN users u ON u.email = m.owner`;
+  // light=true のときは、一覧に必要な項目だけを返す（全期間を一度に読めるように軽くする）
+  const cols = light
+    ? `m.bot_id, m.meeting_url, m.rep_name, m.title, m.owner,
+       m.round_no, m.phase, m.status, m.created_at, m.updated_at,
+       jsonb_build_object('overview', m.summary->'overview') AS summary,
+       m.sf_url, m.drive_file_id, m.mux_playback_id,
+       COALESCE(m.account,'') AS account, m.category, m.deal_kind,
+       m.apo_setter, u.name AS owner_name`
+    : `m.bot_id, m.meeting_url, m.rep_name, m.title, m.owner,
+       m.round_no, m.phase, m.status, m.created_at, m.updated_at, m.summary, m.analysis, m.note,
+       m.metrics, m.sf_url, m.drive_file_id, m.drive_link, m.mux_playback_id,
+       COALESCE(m.account,'') AS account, m.category, m.deal_kind,
+       m.apo_setter, u.name AS owner_name`;
+  const base = `SELECT ${cols} FROM meetings m LEFT JOIN users u ON u.email = m.owner`;
   // 文字起こしが無い（空配列/NULL）の商談は履歴に残さない
   const hasTranscript = `(jsonb_typeof(m.transcript)='array' AND jsonb_array_length(m.transcript) > 0)`;
   const conds = [hasTranscript];

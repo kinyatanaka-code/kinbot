@@ -5818,6 +5818,7 @@ app.get("/api/meetings", async (req, res) => {
       from: ymd.test(String(req.query.from || "")) ? req.query.from : "",
       to: ymd.test(String(req.query.to || "")) ? req.query.to : "",
       limit: req.query.limit,
+      light: req.query.light === "1",
     }));
   } catch (e) {
     sfErrorResponse(res, e);

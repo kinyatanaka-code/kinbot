@@ -403,7 +403,9 @@ async function fetchMeetings() {
   const p = new URLSearchParams();
   if (from) p.set("from", from);
   if (to) p.set("to", to);
-  p.set("limit", from || to ? "2000" : "400");
+  // 期間を指定していないときは全期間を読み込む（一覧用の軽い形で取得する）
+  p.set("limit", "3000");
+  p.set("light", "1");
   const res = await fetch("/api/meetings?" + p.toString());
   return await res.json();
 }
