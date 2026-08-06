@@ -2181,7 +2181,55 @@ function initSmartLinks() {
     }
   }
 
+  // 文字起こしが消えて一覧に出なくなった商談を、ドライブの録画から復元する
+  async function restoreHidden() {
+    const st = $d("dmStatus"), log = $d("dmLog"), btn = $d("dmRestore");
+    if (!st) return;
+    btn.disabled = true;
+    log.innerHTML = "";
+    st.textContent = "一覧に出ていない商談を調べています…";
+    try {
+      const r = await fetch("/api/meetings/hidden?days=180");
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.error || "調査に失敗しました");
+      const items = d.items || [];
+      const withDrive = items.filter((x) => x.drive);
+      log.innerHTML = items.slice(0, 30).map((x) =>
+        `<div class="dm-log-line">${escD(x.date)} ${escD(x.title || x.botId)}｜録画：${x.drive ? "ドライブにあり" : "なし"}</div>`
+      ).join("");
+      if (!withDrive.length) {
+        st.innerHTML = `一覧に出ていない商談は <b>${items.length} 件</b>です。うち録画が残っているものはありませんでした。`;
+        return;
+      }
+      if (!confirm(`${withDrive.length} 件を、ドライブの録画から文字起こしし直します。1件あたり数分かかり、文字起こしの費用が発生します。進めますか？`)) {
+        st.innerHTML = `${withDrive.length} 件が復元できます。`;
+        return;
+      }
+      let done = 0;
+      for (const x of withDrive) {
+        st.innerHTML = `復元中… <b>${done}/${withDrive.length}</b> 件（${escD(x.title || x.botId)}）`;
+        try {
+          const rr = await fetch(`/api/meetings/${encodeURIComponent(x.botId)}/retranscribe`, { method: "POST" });
+          const dd = await rr.json().catch(() => ({}));
+          if (!rr.ok) throw new Error(dd.error || "失敗");
+          done++;
+        } catch (e) {
+          const p = document.createElement("div");
+          p.className = "dm-log-line";
+          p.textContent = `${x.title || x.botId}: ${e.message}`;
+          log.appendChild(p);
+        }
+      }
+      st.innerHTML = `復元が終わりました。<b>${done} 件</b>の文字起こし・要約・分析をやり直しました。商談履歴を再読み込みしてください。`;
+    } catch (e) {
+      st.textContent = "復元に失敗しました：" + e.message;
+    } finally {
+      btn.disabled = false;
+    }
+  }
+
   document.addEventListener("DOMContentLoaded", () => {
+    const rs = $d("dmRestore"); if (rs) rs.addEventListener("click", restoreHidden);
     const rb = $d("dmRebuild"); if (rb) rb.addEventListener("click", rebuildFolders);
     const pb = $d("dmProbe"); if (pb) pb.addEventListener("click", probe);
     const c = $d("dmCheck"); if (c) c.addEventListener("click", check);

@@ -2416,6 +2416,7 @@ export async function listMeetingsWithoutTranscript({ days = 30, limit = 50 } = 
   try {
     const { rows } = await pool.query(
       `SELECT m.bot_id, m.title, m.owner, m.rep_name, m.meeting_url, m.created_at,
+              m.drive_file_id, m.drive_link, m.mux_playback_id,
               (m.transcript IS NULL) AS no_transcript_col
          FROM meetings m
         WHERE m.created_at >= now() - make_interval(days => $1)

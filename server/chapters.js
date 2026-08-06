@@ -30,9 +30,16 @@ export function buildChapters(tr, raw) {
   const secOk = secs.every((v) => v !== null) && secs[secs.length - 1] > 30 &&
                 secs.every((v, i) => i === 0 || v >= secs[i - 1]);
 
+  // AIが指示文をそのまま書いてしまうことがあるので取り除く
+  const clean = (v) => String(v || "")
+    .replace(/[（(]\s*\d+\s*[〜~ー–-]\s*\d+\s*字\s*[)）]/g, "")
+    .replace(/\s{2,}/g, " ")
+    .replace(/\s*\/\s*$/, "")
+    .trim();
+
   return merged.slice(0, 9).map((c, i) => ({
-    phase: c.phase,
-    note: c.note,
+    phase: clean(c.phase),
+    note: clean(c.note),
     from: c.from,
     to: c.to,
     start: secOk ? secs[i] : null,

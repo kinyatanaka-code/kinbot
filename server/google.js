@@ -858,17 +858,31 @@ export async function driveFindCompanyFiles(owner, company, limit = 12) {
 export async function driveShareAnyone(owner, fileId) {
   const token = await driveAccessToken(owner);
   if (!token) throw new Error("Googleが連携されていません");
-  const sd = (process.env.DRIVE_SHARED_DRIVE_ID || process.env.DRIVE_FOLDER_ID) ? "?supportsAllDrives=true" : "";
-  const res = await fetch(`https://www.googleapis.com/drive/v3/files/${encodeURIComponent(fileId)}/permissions${sd}`, {
-    method: "POST",
-    headers: { Authorization: `Bearer ${token}`, "content-type": "application/json" },
-    body: JSON.stringify({ role: "reader", type: "anyone" }),
-  });
-  if (!res.ok) {
-    const t = (await res.text()).slice(0, 200);
-    throw new Error(`共有設定に失敗しました: ${t}`);
+  const sd = "?supportsAllDrives=true";
+  const url = `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(fileId)}/permissions${sd}`;
+  const put = async (body) =>
+    await fetch(url, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}`, "content-type": "application/json" },
+      body: JSON.stringify(body),
+    });
+
+  // 1) リンクを知っている人なら誰でも
+  let res = await put({ role: "reader", type: "anyone" });
+  if (res.ok) return { scope: "anyone" };
+  const t1 = (await res.text()).slice(0, 300);
+
+  // 2) 会社の方針で外部共有が禁止されている場合は、社内全員に共有する
+  const domain = process.env.DRIVE_SHARE_DOMAIN || (String(owner).includes("@") ? String(owner).split("@")[1] : "");
+  if (domain) {
+    res = await put({ role: "reader", type: "domain", domain });
+    if (res.ok) return { scope: "domain", domain };
+    const t2 = (await res.text()).slice(0, 200);
+    const err = new Error(`共有設定に失敗しました。社外共有：${t1} ／ 社内共有：${t2}`);
+    err.detail = { anyone: t1, domain: t2 };
+    throw err;
   }
-  return true;
+  throw new Error(`共有設定に失敗しました: ${t1}`);
 }
 
 // フォルダを掘って作る（担当者名 / 8月 / 5日 のような入れ子）

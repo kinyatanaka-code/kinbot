@@ -1434,6 +1434,91 @@ setInterval(async () => {
   }
 }, 10 * 60 * 1000);
 
+// 一覧に出てこない商談（文字起こしが空）を調べる
+app.get("/api/meetings/hidden", async (req, res) => {
+  try {
+    res.set("Cache-Control", "no-store");
+    const days = Math.max(1, Math.min(365, Number(req.query.days) || 90));
+    const rows = await listMeetingsWithoutTranscript({ days, limit: 200 });
+    res.json({
+      days,
+      count: rows.length,
+      items: rows.map((m) => ({
+        botId: m.bot_id,
+        title: m.title,
+        date: String(m.created_at).slice(0, 10),
+        rep: m.rep_name || m.owner,
+        drive: !!m.drive_file_id,
+        driveLink: m.drive_link || "",
+      })),
+      note: "文字起こしが空のため商談履歴に出ていません。ドライブに録画があるものは、文字起こしをやり直せます。",
+    });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ドライブの録画から、文字起こしと分析をやり直す（消えた商談の復元）
+app.post("/api/meetings/:id/retranscribe", async (req, res) => {
+  const tmp = `/tmp/kb-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.mp4`;
+  try {
+    const m = await getMeeting(req.params.id);
+    if (!m) return res.status(404).json({ error: "見つかりません" });
+    if (!m.drive_file_id) return res.status(400).json({ error: "ドライブに録画がありません" });
+    if (!transcriberAvailable()) return res.status(400).json({ error: "文字起こし用のAPIキーが未設定です" });
+
+    // ドライブから一時ファイルに落とす
+    const up = await driveStream(req.user || m.owner, m.drive_file_id, null);
+    if (!up.ok || !up.body) return res.status(502).json({ error: "録画を取り出せませんでした" });
+    const fsp = await import("node:fs");
+    await new Promise((resolve, reject) => {
+      const ws = fsp.createWriteStream(tmp);
+      const reader = up.body.getReader();
+      const pump = () => reader.read().then(({ done, value }) => {
+        if (done) { ws.end(); return; }
+        ws.write(Buffer.from(value)) ? pump() : ws.once("drain", pump);
+      }).catch(reject);
+      ws.on("finish", resolve);
+      ws.on("error", reject);
+      pump();
+    });
+
+    const utterances = await transcribeFile(tmp, "video/mp4");
+    if (!Array.isArray(utterances) || !utterances.length) {
+      return res.status(502).json({ error: "文字起こしできませんでした（音声が入っていない可能性があります）" });
+    }
+    await saveMeeting(req.params.id, { transcript: utterances });
+
+    // 要約・分析もやり直す
+    const text = utterances.map((u) => `${u.speaker?.name || ""}: ${u.text}`).join("\n").slice(-12000);
+    const repName = m.rep_name || m.owner_name || "";
+    const dateStr = new Date(m.created_at || Date.now()).toLocaleString("ja-JP", { timeZone: "Asia/Tokyo", year: "numeric", month: "long", day: "numeric", hour: "2-digit", minute: "2-digit" });
+    const speakers = [...new Set(utterances.map((u) => u.speaker?.name).filter(Boolean))];
+    try {
+      const rev = await analyzeMeeting({ transcript: text, repName, dateStr, speakers });
+      await saveAnalysis(req.params.id, rev);
+    } catch (e) { console.error("[復元:要約]", e.message); }
+    try {
+      let lostSignals = [];
+      try { lostSignals = (await getSettings()).lostSignals || []; } catch {}
+      const deep = await analyzeDeep({ transcript: text, repName, lostSignals });
+      await saveDeepAnalysis(req.params.id, deep);
+    } catch (e) { console.error("[復元:分析]", e.message); }
+    try {
+      const raw = await splitPhases({ transcript: utterances, repName });
+      const chapters = buildChapters(utterances, raw);
+      if (chapters.length) await saveChapters(req.params.id, chapters);
+    } catch (e) { console.error("[復元:段階]", e.message); }
+
+    res.json({ ok: true, utterances: utterances.length });
+  } catch (e) {
+    console.error("[retranscribe]", e.message);
+    res.status(502).json({ error: String(e.message || "").slice(0, 200) });
+  } finally {
+    try { (await import("node:fs")).unlinkSync(tmp); } catch {}
+  }
+});
+
 // 録画をGoogleドライブに保存する（Recallの保存期限が切れても残るようにする）
 app.post("/api/meetings/:id/archive-drive", async (req, res) => {
   try {
@@ -1506,15 +1591,26 @@ app.post("/api/meetings/:id/share-link", async (req, res) => {
       m = await getMeeting(req.params.id);
     }
 
-    await driveShareAnyone(req.user || m.owner, m.drive_file_id);
+    const share = await driveShareAnyone(req.user || m.owner, m.drive_file_id);
     res.json({
       ok: true,
       link: m.drive_link || `https://drive.google.com/file/d/${m.drive_file_id}/view`,
-      note: "このリンクを知っている人なら、kinbotのアカウントが無くても視聴できます。",
+      scope: share.scope,
+      note: share.scope === "anyone"
+        ? "このリンクを知っている人なら、kinbotのアカウントが無くても視聴できます。"
+        : `会社の設定で社外共有ができないため、社内（${share.domain}）の人が見られる状態にしました。`,
     });
   } catch (e) {
     console.error("[share-link]", e.message);
-    res.status(502).json({ error: e.message });
+    const msg = String(e.message || "");
+    res.status(502).json({
+      error: msg.slice(0, 300),
+      hint: /sharingRateLimit|cannotShare|forbidden|403/i.test(msg)
+        ? "Google Workspaceの設定で共有が制限されている可能性があります。管理者に、外部共有またはリンク共有の許可を確認してください。"
+        : /insufficient|scope/i.test(msg)
+          ? "Googleの権限が足りません。設定→外部連携で連携し直してください。"
+          : "",
+    });
   }
 });
 

@@ -2269,7 +2269,7 @@ function setupRecordingPlayer(drec, d, meeting) {
     try {
       const r = await fetch(`/api/meetings/${encodeURIComponent(meeting.bot_id)}/share-link`, { method: "POST" });
       const j = await r.json().catch(() => ({}));
-      if (!r.ok) throw new Error(j.error || "作成に失敗しました");
+      if (!r.ok) throw new Error([j.error, j.hint].filter(Boolean).join(" / ") || "作成に失敗しました");
       const box = document.createElement("div");
       box.className = "rec-share";
       box.innerHTML =
