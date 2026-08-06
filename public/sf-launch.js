@@ -296,7 +296,11 @@ function render() {
         <div class="home-card-main">
           <div class="home-card-top"><span class="home-time">${escL(when)}</span>${done ? `<span class="home-badge home-badge-done">立ち上げ済み</span>` : `<span class="home-badge home-badge-plan">商談予定</span>`}${madeAt ? `<span class="home-badge home-badge-st">${escL(madeAt)}に登録</span>` : ""}</div>
           <div class="home-card-title">${escL(e.title || "")}</div>
-          <div class="home-card-meta">会社名：${escL(companyOf(e.title) || "—")}　／　担当者：${escL(personOf(e.title) || "—")}${who ? "　／　登録者：" + escL(who) : ""}</div>
+          <div class="home-card-meta">会社名：${escL(companyOf(e.title) || "—")}　／　担当者：${escL(personOf(e.title) || "—")}</div>
+          <div class="home-card-meta ln-who">
+            ${e.apoBy ? `<span class="ln-tag ln-tag-intern">アポ獲得：${escL(e.apoBy)}</span>` : (who ? `<span class="ln-tag">登録者：${escL(who)}</span>` : "")}
+            ${e.assigneeName ? `<span class="ln-tag ln-tag-rep">担当営業：${escL(e.assigneeName)}</span>` : `<span class="ln-tag ln-tag-none">担当営業：未割り当て</span>`}
+          </div>
           ${done ? `<div class="home-card-meta">SF商談：${escL(done.name)}${done.stage ? "（" + escL(done.stage) + "）" : ""}</div>` : ""}
         </div>
         <div class="home-card-actions">

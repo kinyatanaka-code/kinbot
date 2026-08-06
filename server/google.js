@@ -692,6 +692,10 @@ export async function listEventsCreatedOn(owner, dateStr) {
         creatorName: (ev.creator && ev.creator.displayName) || "",
         created: ev.created || "",
         guests: (ev.attendees || []).length,
+        // 招待されている人（誰に振り分けられたかを判定するために使う）
+        attendees: (ev.attendees || [])
+          .filter((a) => a && a.email && !a.resource)
+          .map((a) => ({ email: a.email, name: a.displayName || "", self: !!a.self, organizer: !!a.organizer })),
       });
     }
     if (!data.nextPageToken) break;

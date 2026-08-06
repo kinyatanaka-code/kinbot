@@ -6411,7 +6411,40 @@ app.get("/api/calendar/created", async (req, res) => {
         errors.push(`${own}: ${err.message}`);
       }
     }
-    const events = [...byUid.values()].sort((x, y) => new Date(x.created) - new Date(y.created));
+    // 誰がアポを取り（インターン）、誰に振り分けられたか（営業担当）を割り出す
+    const nameMap = await buildRepNameMap();          // メール → 氏名
+    let internMap = {};
+    try {
+      const interns = await listInterns();
+      for (const i of interns || []) {
+        if (i.email) internMap[String(i.email).toLowerCase()] = i.name || i.email;
+        if (i.name) internMap[String(i.name).toLowerCase()] = i.name;
+      }
+    } catch {}
+    const isIntern = (email) => !!internMap[String(email || "").toLowerCase()];
+    const nameOf = (email, fallback) =>
+      internMap[String(email || "").toLowerCase()] || nameMap[String(email || "").toLowerCase()] || nameMap[email] || fallback || (String(email || "").split("@")[0] || "");
+
+    const events = [...byUid.values()]
+      .map((e) => {
+        const creator = String(e.creator || "").toLowerCase();
+        // 招待されている人のうち、社内の営業（kinbotの利用者）で、作成者ではない人
+        const cands = (e.attendees || []).filter((a) => {
+          const em = String(a.email || "").toLowerCase();
+          if (!em || em === creator) return false;
+          if (isIntern(em)) return false;
+          return !!nameMap[em];
+        });
+        const assignee = cands[0] || null;
+        return {
+          ...e,
+          apoBy: isIntern(creator) ? nameOf(e.creator, e.creatorName) : "",   // アポを取ったインターン
+          apoByIsIntern: isIntern(creator),
+          assigneeEmail: assignee ? assignee.email : (e.organizer || ""),
+          assigneeName: assignee ? nameOf(assignee.email, assignee.name) : nameOf(e.organizer, e.organizerName),
+        };
+      })
+      .sort((x, y) => new Date(x.created) - new Date(y.created));
     res.json({ connected: true, date: dateStr, count: accounts.length, events, errors });
   } catch (e) {
     res.status(500).json({ error: e.message });
