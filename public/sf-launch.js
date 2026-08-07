@@ -231,10 +231,11 @@ function panelHtml(key, ev) {
       <div class="home-sf-done">
         ${u.opportunityId
           ? `Salesforceで立ち上げました${u.createdOpportunity ? "（商談も作成しました）" : ""}`
-          : "リードは変換しましたが、<b>商談は作られていません</b>"}
+          : u.restoredLeadId ? "立ち上げできなかったので、<b>元に戻しました</b>" : "リードは変換しましたが、<b>商談は作られていません</b>"}
       </div>
       ${u.warning ? `<div class="home-sf-err">${escL(u.warning)}</div>` : ""}
       ${!u.opportunityId && !u.warning ? `<div class="home-sf-err">Salesforceで商談を手動で作成してください。</div>` : ""}
+      ${u.restoredLeadId ? `<div class="home-sf-msg">リードを作り直したので、原因を直したあとにもう一度立ち上げられます。</div>` : ""}
       <div class="home-sf-row">
         ${u.opportunityId ? `<a class="btn" href="${escL(u.instanceUrl)}/${escL(u.opportunityId)}" target="_blank" rel="noopener">商談を開く</a>` : ""}
         ${u.accountId ? `<a class="home-sf-link" href="${escL(u.instanceUrl)}/${escL(u.accountId)}" target="_blank" rel="noopener">取引先を開く</a>` : ""}
