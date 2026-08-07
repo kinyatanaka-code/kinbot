@@ -233,7 +233,7 @@ import {
   createContactRole,
   describeContactRolePicklist,
   fillEmptyFields,
-  createTaskIdempotent, createOpportunity, firstOpportunityStage } from "./salesforce.js";
+  createTaskIdempotent, createOpportunity, firstOpportunityStage, snapshotLead, deleteRecord, isFreshlyCreated } from "./salesforce.js";
 import {
   authEnabled,
   getUser,
@@ -6986,6 +6986,12 @@ app.post("/api/salesforce/leads/:id/convert", async (req, res) => {
     const fields = b.fields && typeof b.fields === "object" ? b.fields : {};
     if (Object.keys(fields).length) await updateLead(req.user, req.params.id, fields);
     const ownerId = await getSfUserId(req.user).catch(() => "");
+
+    // 立ち上げに失敗したときに作り直せるよう、リードの中身を控えておく
+    let snapshot = null;
+    try { snapshot = await snapshotLead(req.user, req.params.id); }
+    catch (e) { console.warn("[SF立ち上げ] リードの控えを取れませんでした:", e.message); }
+
     const r = await convertLead(req.user, {
       leadId: req.params.id,
       convertedStatus: b.convertedStatus || "",
@@ -7011,7 +7017,39 @@ app.post("/api/salesforce/leads/:id/convert", async (req, res) => {
         console.log(`[SF立ち上げ] 商談が作られなかったので作成しました: ${oppId}`);
       } catch (e) {
         console.error("[SF立ち上げ] 商談の作成に失敗", e.message);
-        return res.json({ ...r, opportunityId: null, warning: "リードは変換されましたが、商談を作れませんでした：" + String(e.message).slice(0, 200) });
+
+        // 商談が作れなかったので、元に戻す。
+        // Salesforceはコンバートの取り消しができないため、同じ内容でリードを作り直す。
+        let restoredLeadId = null;
+        const cleaned = [];
+        try {
+          if (snapshot) {
+            restoredLeadId = await createLead(req.user, snapshot);
+            console.log(`[SF立ち上げ] リードを作り直しました: ${restoredLeadId}`);
+          }
+          // 変換で新しく作られた取引先責任者・取引先を片付ける（元からあったものは消さない）
+          const cid = r.contactId || r.contact_id;
+          const aid = r.accountId || r.account_id;
+          if (cid && (await isFreshlyCreated(req.user, "Contact", cid))) {
+            if (await deleteRecord(req.user, "Contact", cid)) cleaned.push("取引先責任者");
+          }
+          if (aid && (await isFreshlyCreated(req.user, "Account", aid))) {
+            if (await deleteRecord(req.user, "Account", aid)) cleaned.push("取引先");
+          }
+        } catch (e2) {
+          console.error("[SF立ち上げ] 元に戻す処理で失敗", e2.message);
+        }
+
+        return res.json({
+          ...r,
+          opportunityId: null,
+          restoredLeadId,
+          cleaned,
+          warning:
+            "商談を作れなかったため、立ち上げを取り消しました：" + String(e.message).slice(0, 200) +
+            (restoredLeadId ? "／同じ内容のリードを作り直しました" : "／リードの作り直しはできませんでした") +
+            (cleaned.length ? `／${cleaned.join("・")}を削除しました` : ""),
+        });
       }
     }
     console.log(`[SF立ち上げ] 経路=${r.via || "rest"} 商談=${oppId || "なし"}${createdOpportunity ? "（kinbotが作成）" : ""}`);

@@ -1128,3 +1128,58 @@ export async function firstOpportunityStage(owner) {
     return (numbered[0] && numbered[0].v.value) || (vals[0] && vals[0].value) || "";
   } catch { return ""; }
 }
+
+// リードの中身を控える（立ち上げに失敗したときに作り直すため）
+export async function snapshotLead(owner, leadId) {
+  const acc = await getAccess(owner);
+  if (!acc) throw new Error("Salesforce未連携です");
+  const res = await fetch(
+    `${acc.instanceUrl}/services/data/${API_VERSION}/sobjects/Lead/${encodeURIComponent(leadId)}`,
+    { headers: { Authorization: `Bearer ${acc.token}` } }
+  );
+  const d = await res.json().catch(() => null);
+  if (!res.ok || !d) throw new Error("リードの内容を取得できませんでした");
+
+  // 新しく作れる項目だけを残す（システム項目やコンバート結果は除く）
+  let createable = null;
+  try {
+    const desc = await fetch(
+      `${acc.instanceUrl}/services/data/${API_VERSION}/sobjects/Lead/describe`,
+      { headers: { Authorization: `Bearer ${acc.token}` } }
+    ).then((r) => r.json());
+    createable = new Set((desc.fields || []).filter((f) => f.createable).map((f) => f.name));
+  } catch {}
+
+  const skip = /^(Id|IsConverted|Converted|CreatedBy|LastModifiedBy|SystemModstamp|IsDeleted|MasterRecord|Photo|EmailBounced|Jigsaw|Individual)/i;
+  const out = {};
+  for (const [k, v] of Object.entries(d)) {
+    if (v === null || v === undefined || typeof v === "object") continue;
+    if (skip.test(k)) continue;
+    if (createable && !createable.has(k)) continue;
+    out[k] = v;
+  }
+  return out;
+}
+
+// レコードを消す（コンバートで新しく作られた取引先・取引先責任者の後始末）
+export async function deleteRecord(owner, sobject, id) {
+  if (!id) return false;
+  const acc = await getAccess(owner);
+  if (!acc) return false;
+  const res = await fetch(
+    `${acc.instanceUrl}/services/data/${API_VERSION}/sobjects/${sobject}/${encodeURIComponent(id)}`,
+    { method: "DELETE", headers: { Authorization: `Bearer ${acc.token}` } }
+  );
+  return res.ok || res.status === 404;
+}
+
+// そのレコードが「たった今の変換で作られたもの」かを確かめる
+export async function isFreshlyCreated(owner, sobject, id, withinSec = 300) {
+  if (!id) return false;
+  try {
+    const d = await sfQuery(owner, `SELECT Id, CreatedDate FROM ${sobject} WHERE Id = '${String(id).replace(/[^a-zA-Z0-9]/g, "")}'`);
+    const rec = (d.records || [])[0];
+    if (!rec) return false;
+    return Date.now() - new Date(rec.CreatedDate).getTime() < withinSec * 1000;
+  } catch { return false; }
+}
