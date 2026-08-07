@@ -7014,7 +7014,8 @@ app.post("/api/salesforce/leads/:id/convert", async (req, res) => {
         return res.json({ ...r, opportunityId: null, warning: "リードは変換されましたが、商談を作れませんでした：" + String(e.message).slice(0, 200) });
       }
     }
-    res.json({ ...r, opportunityId: oppId || null, createdOpportunity });
+    console.log(`[SF立ち上げ] 経路=${r.via || "rest"} 商談=${oppId || "なし"}${createdOpportunity ? "（kinbotが作成）" : ""}`);
+    res.json({ ...r, opportunityId: oppId || null, createdOpportunity, via: r.via || "rest" });
   } catch (e) {
     sfErrorResponse(res, e);
   }

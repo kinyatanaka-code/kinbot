@@ -834,7 +834,9 @@ export async function convertLead(owner, { leadId, convertedStatus, opportunityN
                 (data && JSON.stringify(data)) || `SF convert ${res.status}`;
     // この組織で標準アクションが使えない場合は、SOAP APIのconvertLeadで実行する
     if (/Invalid Action Type|NOT_FOUND/i.test(raw)) {
-      return await convertLeadSoap(acc, input);
+      console.log("[SF立ち上げ] 標準アクションが使えないため、SOAPで実行します");
+      const r = await convertLeadSoap(acc, input);
+      return { ...r, via: "soap" };
     }
     throw new Error(`SF lead convert: ${raw}`);
   }
@@ -860,14 +862,16 @@ async function convertLeadSoap(acc, input) {
     `<soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/" xmlns:urn="urn:partner.soap.sforce.com">` +
     `<soapenv:Header><urn:SessionHeader><urn:sessionId>${esc(acc.token)}</urn:sessionId></urn:SessionHeader></soapenv:Header>` +
     `<soapenv:Body><urn:convertLead><urn:leadConverts>` +
-    tag("urn:leadId", input.leadId) +
-    tag("urn:convertedStatus", input.convertedStatus) +
+    // ★項目の順番はSalesforceの定義どおりに並べる必要がある。
+    //   順番が違うと opportunityName などが無視され、商談が作られないことがある。
     tag("urn:accountId", input.accountId) +
     tag("urn:contactId", input.contactId) +
-    tag("urn:ownerId", input.ownerId) +
-    tag("urn:opportunityName", input.opportunityName) +
+    tag("urn:convertedStatus", input.convertedStatus) +
     `<urn:doNotCreateOpportunity>${input.doNotCreateOpportunity ? "true" : "false"}</urn:doNotCreateOpportunity>` +
+    tag("urn:leadId", input.leadId) +
+    tag("urn:opportunityName", input.opportunityName) +
     `<urn:overwriteLeadSource>false</urn:overwriteLeadSource>` +
+    tag("urn:ownerId", input.ownerId) +
     `<urn:sendNotificationEmail>false</urn:sendNotificationEmail>` +
     `</urn:leadConverts></urn:convertLead></soapenv:Body></soapenv:Envelope>`;
 
