@@ -165,7 +165,7 @@ const TEAM_STATS = [
 ];
 
 const ROTATION = {
-  config: { autoAssign: true, autoScan: true, bufferMin: 15, nextOrder: 2, maxPerRun: 30,
+  config: { autoAssign: true, autoScan: true, bufferMin: 15, nextOrder: 2, maxPerRun: 30, scanIntervalSec: 60,
             teamBalance: "perDay", balanceWindow: "all", fairnessStart: "2026-06-08" },
   closers: CLOSERS, order: CLOSERS, teams: TEAMS, teamStats: TEAM_STATS, suspensions: SUSPENSIONS,
   period: { window: "month", label: "2026年8月" },

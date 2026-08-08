@@ -46,6 +46,9 @@ export async function getRotationConfig() {
     nextOrderByBiz: (s.apoRotationNextByBiz && typeof s.apoRotationNextByBiz === "object") ? s.apoRotationNextByBiz : {},
     // 1回のスキャンで自動割り振りする上限（暴走時の保険）
     maxPerRun: Number.isFinite(+s.apoRotationMaxPerRun) ? Math.max(1, +s.apoRotationMaxPerRun) : 30,
+    // 自動スキャンの間隔（秒）。短くすると反映が速いが、Googleへの問い合わせが増える。
+    scanIntervalSec: Number.isFinite(+s.apoScanIntervalSec)
+      ? Math.min(900, Math.max(30, +s.apoScanIntervalSec)) : 60,
     // チーム単位の均等化
     //   off     … チームを見ない（個人のローテーションだけ）
     //   total   … チームの合計件数が少ないチームを優先

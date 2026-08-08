@@ -729,6 +729,7 @@ async function loadRotation() {
     if ($("rcAutoAssign")) $("rcAutoAssign").checked = !!c.autoAssign;
     if ($("rcBuffer")) $("rcBuffer").value = c.bufferMin ?? 0;
     if ($("rcMax")) $("rcMax").value = c.maxPerRun ?? 30;
+    if ($("rcInterval")) $("rcInterval").value = c.scanIntervalSec ?? 60;
     if ($("rcTeamBalance")) $("rcTeamBalance").value = c.teamBalance || "off";
     if ($("rcWindow")) $("rcWindow").value = c.balanceWindow || "month";
     if ($("rcFairStart")) $("rcFairStart").value = c.fairnessStart || "";
@@ -776,6 +777,7 @@ async function saveRotation() {
         autoAssign: $("rcAutoAssign").checked,
         bufferMin: $("rcBuffer").value,
         maxPerRun: $("rcMax").value,
+        scanIntervalSec: $("rcInterval") ? $("rcInterval").value : 60,
         teamBalance: $("rcTeamBalance").value,
         balanceWindow: $("rcWindow").value,
         fairnessStart: $("rcFairStart") ? $("rcFairStart").value : "",

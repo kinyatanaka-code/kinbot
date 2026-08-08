@@ -222,7 +222,10 @@ export async function listDayEvents(owner, { timeMin, timeMax } = {}) {
 // 指定カレンダー（calendarId=メールアドレス等）の予定を範囲取得する。
 // 連携済みアカウントのトークンで、共有された他人のカレンダーも読める（要「予定の詳細を表示」共有）。
 // アクセス不可（未共有）の場合は 403/404 を投げるので、呼び出し側で個別に握りつぶす。
-export async function listCalendarEvents(owner, calendarId, { timeMin, timeMax } = {}) {
+// updatedMin を渡すと「その時刻以降に追加・変更された予定」だけを返す。
+// 差分だけを取れるので、短い間隔で何度も呼んでも軽い。
+// （updatedMin を使うときは orderBy=startTime が使えないため自動で外す）
+export async function listCalendarEvents(owner, calendarId, { timeMin, timeMax, updatedMin } = {}) {
   const token = await accessToken(owner);
   if (!token) throw new Error("Googleが連携されていません");
   const cal = encodeURIComponent(String(calendarId || "primary"));
@@ -231,11 +234,15 @@ export async function listCalendarEvents(owner, calendarId, { timeMin, timeMax }
   for (let guard = 0; guard < 10; guard++) {
     const p = new URLSearchParams({
       singleEvents: "true",
-      orderBy: "startTime",
       maxResults: "250",
     });
+    if (!updatedMin) p.set("orderBy", "startTime");
     if (timeMin) p.set("timeMin", timeMin);
     if (timeMax) p.set("timeMax", timeMax);
+    if (updatedMin) {
+      p.set("updatedMin", new Date(updatedMin).toISOString());
+      p.set("showDeleted", "false");
+    }
     if (pageToken) p.set("pageToken", pageToken);
     const res = await fetch(
       `https://www.googleapis.com/calendar/v3/calendars/${cal}/events?${p}`,

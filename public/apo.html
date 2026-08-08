@@ -52,12 +52,13 @@
             <div class="ap-card">
               <h3 class="ap-card-h">自動化のON／OFF</h3>
 
-              <p class="note">カレンダーを15分おきに見て、新しいアポを自動で記録し、クローザーへ順番に割り振ります。商談の時間帯に予定が入っている人は飛ばして代打を立て、飛ばされた人は次のアポで最優先に戻します。</p>
+              <p class="note">カレンダーに予定が追加されると、次のスキャン（既定60秒以内）で自動的に記録され、クローザーへ順番に割り振られます。<b>普段は差分だけを見るので軽く、15分ごとに全期間を見直して取りこぼしを拾います。</b><br>商談の時間帯に予定が入っている人は飛ばして代打を立て、飛ばされた人は次のアポで最優先に戻します。</p>
               <div class="ap-cfg-row">
-                <label class="ap-check"><input type="checkbox" id="rcAutoScan" /> 15分おきにカレンダーを自動スキャンする</label>
+                <label class="ap-check"><input type="checkbox" id="rcAutoScan" /> カレンダーを自動スキャンする</label>
                 <label class="ap-check"><input type="checkbox" id="rcAutoAssign" /> スキャンしたアポを自動で割り振る</label>
               </div>
               <div class="ap-cfg-row">
+                <label>スキャンの間隔 <input type="number" id="rcInterval" min="30" max="900" step="30" style="width:80px" /> 秒</label>
                 <label>商談の前後に確保する余白 <input type="number" id="rcBuffer" min="0" max="180" style="width:70px" /> 分</label>
                 <label>1回のスキャンで割り振る上限 <input type="number" id="rcMax" min="1" max="200" style="width:70px" /> 件</label>
               </div>

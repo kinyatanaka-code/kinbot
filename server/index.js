@@ -8003,6 +8003,8 @@ async function collectApoAppointments(scanOwner, opts = {}) {
     const dateRe = /^\d{4}-\d{2}-\d{2}$/;
     const created = dateRe.test(String(opts.created || "")) ? String(opts.created) : "";
     const start = dateRe.test(String(opts.start || "")) ? String(opts.start) : "";
+    // 差分スキャン：この時刻以降に追加・変更された予定だけを見る（軽いので短い間隔で回せる）
+    const updatedMin = opts.updatedMin || null;
     let timeMin, timeMax;
     if (start) {
       // 商談日が指定されていれば、その日の窓（Googleの開始時刻で直接絞れる）
@@ -8025,7 +8027,7 @@ async function collectApoAppointments(scanOwner, opts = {}) {
       const setterEmail = String(st.email || "").toLowerCase();
       let evs = [];
       try {
-        evs = await listCalendarEvents(gcalOwner, st.email, { timeMin, timeMax });
+        evs = await listCalendarEvents(gcalOwner, st.email, { timeMin, timeMax, updatedMin });
       } catch (e) {
         const msg = /40[34]/.test(e.message)
           ? "カレンダーを読めませんでした（このメールのカレンダーが共有されているか確認してください）"
@@ -8142,7 +8144,7 @@ async function autoAssignOne(link, { inviteOwner, closers = null, cfg, teamCtx =
 }
 
 // カレンダーを走査して、未割り当てのアポを順に自動割り振りする
-async function runApoAutoScan({ actor = "auto-scan", force = false } = {}) {
+async function runApoAutoScan({ actor = "auto-scan", force = false, updatedMin = null } = {}) {
   const cfg = await getRotationConfig();
   if (!force && !cfg.autoScan) return { skipped: true, reason: "自動スキャンがOFFです" };
 
@@ -8155,7 +8157,7 @@ async function runApoAutoScan({ actor = "auto-scan", force = false } = {}) {
 
   let scan;
   try {
-    scan = await collectApoAppointments(scanOwner, {});
+    scan = await collectApoAppointments(scanOwner, { updatedMin });
   } catch (e) {
     console.error("[apo-scan] 走査に失敗:", e.message);
     return { skipped: true, reason: e.message };
@@ -8164,7 +8166,7 @@ async function runApoAutoScan({ actor = "auto-scan", force = false } = {}) {
   // 担当が未定で、まだ自動割り振りを試していないものだけを対象にする
   const targets = scan.items.filter((it) => !it.current_owner && !it.auto_assigned_at);
   if (!targets.length) {
-    return { total: scan.items.length, targets: 0, assigned: 0, results: [], errors: scan.errors };
+    return { total: scan.items.length, targets: 0, assigned: 0, results: [], errors: scan.errors, differential: !!updatedMin };
   }
 
   if (!cfg.autoAssign) {
@@ -8195,8 +8197,8 @@ async function runApoAutoScan({ actor = "auto-scan", force = false } = {}) {
     }
     await new Promise((r) => setTimeout(r, 400)); // Google APIのレート対策
   }
-  console.log(`[apo-scan] 走査${scan.items.length}件 / 未割当${targets.length}件 / 割り当て${assigned}件`);
-  return { total: scan.items.length, targets: targets.length, assigned, results, errors: scan.errors };
+  console.log(`[apo-scan]${updatedMin ? "（差分）" : ""} 走査${scan.items.length}件 / 未割当${targets.length}件 / 割り当て${assigned}件`);
+  return { total: scan.items.length, targets: targets.length, assigned, results, errors: scan.errors, differential: !!updatedMin };
 }
 
 // 手動で自動スキャンを流す（動作確認用）
@@ -8256,6 +8258,10 @@ app.put("/api/apo/rotation-config", async (req, res) => {
     if (b.autoScan !== undefined) patch.apoAutoScan = !!b.autoScan;
     if (b.bufferMin !== undefined) patch.apoRotationBufferMin = Math.max(0, parseInt(b.bufferMin, 10) || 0);
     if (b.maxPerRun !== undefined) patch.apoRotationMaxPerRun = Math.max(1, parseInt(b.maxPerRun, 10) || 30);
+    if (b.scanIntervalSec !== undefined) {
+      // 短すぎるとGoogleのAPI制限に当たるので30秒以上にする
+      patch.apoScanIntervalSec = Math.min(900, Math.max(30, parseInt(b.scanIntervalSec, 10) || 60));
+    }
     if (b.scanOwner !== undefined) patch.apoScanOwner = String(b.scanOwner || "").trim();
     if (b.teamBalance !== undefined) {
       patch.apoTeamBalance = ["off", "total", "perHead", "perDay"].includes(b.teamBalance) ? b.teamBalance : "off";
@@ -9024,22 +9030,52 @@ server.listen(PORT, async () => {
   };
   setInterval(() => { checkReminderSchedule().catch(() => {}); }, 60 * 1000);
 
-  // アポの自動スキャン：15分おきにカレンダーを見て、新しいアポを記録・自動割り振りする
+  // アポの自動スキャン。
+  //   ・短い間隔（既定1分）で「差分だけ」を見る → カレンダーに入れてすぐ反映される
+  //   ・15分おきに全期間を見直す（差分で取りこぼした分の保険）
   let apoScanRunning = false;
+  let lastScanAt = null;      // 差分の起点
+  let lastFullScanAt = 0;
+  const FULL_SCAN_EVERY_MS = 15 * 60 * 1000;
+
   const apoScanTick = async () => {
     if (apoScanRunning) return; // 前回が終わっていなければ見送る
     apoScanRunning = true;
+    const startedAt = new Date();
     try {
-      const r = await runApoAutoScan({ actor: "auto-scan" });
-      if (r && r.skipped && r.reason && !/OFF/.test(r.reason)) {
-        console.warn("[apo-scan] 実行できませんでした:", r.reason);
+      const now = Date.now();
+      const wantFull = !lastScanAt || (now - lastFullScanAt) >= FULL_SCAN_EVERY_MS;
+      // 差分は少し前から見る（作成直後の反映ずれと時計のずれを吸収する）
+      const updatedMin = wantFull ? null : new Date(new Date(lastScanAt).getTime() - 3 * 60 * 1000);
+      const r = await runApoAutoScan({ actor: wantFull ? "auto-scan" : "auto-scan-diff", updatedMin });
+      if (r && r.skipped) {
+        if (r.reason && !/OFF/.test(r.reason)) console.warn("[apo-scan] 実行できませんでした:", r.reason);
+        return; // 設定不足のときは起点を進めない
       }
+      lastScanAt = startedAt;
+      if (wantFull) lastFullScanAt = now;
     } catch (e) {
       console.error("[apo-scan] エラー:", e.message);
     } finally { apoScanRunning = false; }
   };
-  setTimeout(() => { apoScanTick().catch(() => {}); }, 3 * 60 * 1000);
-  setInterval(() => { apoScanTick().catch(() => {}); }, 15 * 60 * 1000);
+
+  // 間隔は設定で変えられる（既定60秒）。反映が遅いと感じたら短くする。
+  let scanTimer = null;
+  const scheduleApoScan = async () => {
+    let sec = 60;
+    try {
+      const st = await getSettings();
+      const v = parseInt(st && st.apoScanIntervalSec, 10);
+      if (Number.isFinite(v)) sec = Math.min(900, Math.max(30, v));
+    } catch {}
+    if (scanTimer) clearInterval(scanTimer);
+    scanTimer = setInterval(() => { apoScanTick().catch(() => {}); }, sec * 1000);
+    console.log(`[apo-scan] 自動スキャンの間隔: ${sec}秒（15分ごとに全期間を再確認）`);
+  };
+  setTimeout(() => { apoScanTick().catch(() => {}); }, 60 * 1000);
+  scheduleApoScan();
+  // 設定を変えたときに間隔を作り直す（5分ごとに設定を見る）
+  setInterval(() => { scheduleApoScan().catch(() => {}); }, 5 * 60 * 1000);
   console.log(`\n  kinbot (Bot方式) → http://localhost:${PORT}`);
   console.log(`  ビルド: ${BUILD_TAG}`);
   console.log(`  公開URL(Webhook受け口): ${PUBLIC_URL || "(未設定)"}`);
