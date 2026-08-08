@@ -55,11 +55,18 @@ function mk(n, setter, title, start, createdDate, { owner = null, mail = {}, cli
   };
 }
 
+const TEAMS = [
+  { team_name: "浦林チーム", sort_order: 1, active: true,  priority: false, assigned_count: 82, next_email: "eda@neo-career.co.jp" },
+  { team_name: "中澤チーム", sort_order: 2, active: true,  priority: true,  assigned_count: 67, next_email: "tanaka@neo-career.co.jp" },
+];
+
 const CLOSERS = [
-  { email: "ueno@neo-career.co.jp",   name: "植野 大輔", sort_order: 1, active: true,  priority: false, daily_cap: null, assigned_count: 42 },
-  { email: "tanaka@neo-career.co.jp", name: "田中 遼",   sort_order: 2, active: true,  priority: true,  daily_cap: 3,    assigned_count: 38 },
-  { email: "eda@neo-career.co.jp",    name: "江田 直人", sort_order: 3, active: true,  priority: false, daily_cap: null, assigned_count: 40 },
-  { email: "morita@neo-career.co.jp", name: "森田 彩",   sort_order: 4, active: false, priority: false, daily_cap: 2,    assigned_count: 29 },
+  { email: "ueno@neo-career.co.jp",   name: "植野 大輔", team: "浦林チーム", sort_order: 1, active: true,  priority: false, daily_cap: null, assigned_count: 42, period_count: 11 },
+  { email: "tanaka@neo-career.co.jp", name: "田中 遼",   team: "中澤チーム", sort_order: 2, active: true,  priority: true,  daily_cap: 3,    assigned_count: 38, period_count: 9 },
+  { email: "eda@neo-career.co.jp",    name: "江田 直人", team: "浦林チーム", sort_order: 3, active: true,  priority: false, daily_cap: null, assigned_count: 40, period_count: 10 },
+  { email: "morita@neo-career.co.jp", name: "森田 彩",   team: "中澤チーム", sort_order: 4, active: false, priority: false, daily_cap: 2,    assigned_count: 29, period_count: 6 },
+  { email: "ura@neo-career.co.jp",    name: "浦林 鷹也", team: "浦林チーム", sort_order: 5, active: true,  priority: false, daily_cap: null, assigned_count: 6,  period_count: 1, fallback: true },
+  { email: "naka@neo-career.co.jp",   name: "中澤 良太", team: "中澤チーム", sort_order: 6, active: true,  priority: false, daily_cap: null, assigned_count: 4,  period_count: 0, fallback: true },
 ];
 
 const CONFIRM_BODY = `{{会社名}}
@@ -104,14 +111,21 @@ const MAIL_CONFIG = {
   },
 };
 
+const TEAM_STATS = [
+  { team: "浦林チーム", members: 3, activeMembers: 2, fallbackMembers: 1, count: 22, perHead: 11, totalAllTime: 82, active: true,  priority: false, sortOrder: 1 },
+  { team: "中澤チーム", members: 3, activeMembers: 1, fallbackMembers: 1, count: 15, perHead: 15, totalAllTime: 67, active: true,  priority: true,  sortOrder: 2 },
+];
+
 const ROTATION = {
-  config: { autoAssign: true, autoScan: true, bufferMin: 15, nextOrder: 2, maxPerRun: 30 },
-  closers: CLOSERS, order: CLOSERS,
-  next: { email: "tanaka@neo-career.co.jp", name: "田中 遼", priority: true },
+  config: { autoAssign: true, autoScan: true, bufferMin: 15, nextOrder: 2, maxPerRun: 30,
+            teamBalance: "perHead", balanceWindow: "month" },
+  closers: CLOSERS, order: CLOSERS, teams: TEAMS, teamStats: TEAM_STATS,
+  period: { window: "month", label: "2026年8月" },
+  next: { email: "tanaka@neo-career.co.jp", name: "田中 遼", team: "中澤チーム", priority: true },
 };
 
 // 表示を切り替えて確認したいとき用のスイッチ（?empty=1 などで呼べる）
-const MOCK = { REPS, APPOINTMENTS, CLOSERS, MAIL_CONFIG, ROTATION };
+const MOCK = { REPS, APPOINTMENTS, CLOSERS, MAIL_CONFIG, ROTATION, TEAMS, TEAM_STATS };
 
 // ===== ルーティング =====================================================
 const MIME = {
@@ -151,6 +165,19 @@ function apiResponse(pathname, query) {
   }
   if (pathname === "/api/smart-links/reps") return MOCK.REPS;
   if (pathname === "/api/apo/rotation") return MOCK.ROTATION;
+  if (pathname === "/api/apo/team-stats") {
+    return { period: { window: query.get("window") || "month", label: query.get("window") === "all" ? "通算" : "2026年8月" },
+      mode: "perHead", teams: TEAMS, teamStats: TEAM_STATS,
+      members: {
+        "浦林チーム": [{ email: "ueno@neo-career.co.jp", name: "植野 大輔", active: true, count: 11, total_all_time: 42 },
+                     { email: "eda@neo-career.co.jp", name: "江田 直人", active: true, count: 10, total_all_time: 40 },
+                     { email: "ura@neo-career.co.jp", name: "浦林 鷹也", active: true, count: 1, total_all_time: 6 }],
+        "中澤チーム": [{ email: "tanaka@neo-career.co.jp", name: "田中 遼", active: true, count: 9, total_all_time: 38 },
+                     { email: "morita@neo-career.co.jp", name: "森田 彩", active: false, count: 6, total_all_time: 29 },
+                     { email: "naka@neo-career.co.jp", name: "中澤 良太", active: true, count: 0, total_all_time: 4 }],
+      } };
+  }
+  if (pathname === "/api/apo/teams") return { ok: true, ...MOCK.ROTATION };
   if (pathname === "/api/apo-mail-config") return MOCK.MAIL_CONFIG;
   if (pathname === "/api/apo/assign-log") {
     return [

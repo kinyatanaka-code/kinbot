@@ -29,7 +29,7 @@ async function sq(sql, params) {
 // 期待するテーブル・カラムが実際にできているかを確認する
 const EXPECTED_TABLES = [
   "meetings", "deals", "deal_events", "smart_links", "interns", "users", "settings",
-  "apo_mail_log", "gmail_actions", "closer_rotation", "assign_log", "proposal_files",
+  "apo_mail_log", "gmail_actions", "closer_rotation", "assign_log", "team_rotation", "proposal_files",
 ];
 const EXPECTED_COLUMNS = [
   ["smart_links", "client_email"], ["smart_links", "client_name"],
@@ -598,6 +598,31 @@ export async function initDb() {
   await sq(`CREATE INDEX IF NOT EXISTS ix_assign_log_slug ON assign_log(slug, created_at DESC);`);
   // 予定1件につき1回だけ自動割り振りする（重複割り当ての防止）
   await sq(`ALTER TABLE smart_links ADD COLUMN IF NOT EXISTS auto_assigned_at TIMESTAMPTZ;`);
+
+  // クローザーの所属チーム。チーム単位でも均等に配れるようにする。
+  await sq(`ALTER TABLE closer_rotation ADD COLUMN IF NOT EXISTS team TEXT;`);
+  // 予備（フォールバック）。通常のローテーションには入らず、他の全員が埋まっているときだけ回す。
+  // チームリーダーのように「他が空いていなければ自分が出る」運用のため。
+  await sq(`ALTER TABLE closer_rotation ADD COLUMN IF NOT EXISTS fallback BOOLEAN NOT NULL DEFAULT false;`);
+  // どのチームに配ったかを割り振り履歴にも残す
+  await sq(`ALTER TABLE assign_log ADD COLUMN IF NOT EXISTS team TEXT;`);
+  // チーム単位のローテーション状態と通算件数。
+  // 期間ごとの正確な件数は smart_links から集計するが、通算はここに持って画面表示を速くする。
+  await sq(`
+    CREATE TABLE IF NOT EXISTS team_rotation (
+      team_name        TEXT PRIMARY KEY,
+      sort_order       INT NOT NULL DEFAULT 1,
+      active           BOOLEAN NOT NULL DEFAULT true,
+      priority         BOOLEAN NOT NULL DEFAULT false,
+      assigned_count   INT NOT NULL DEFAULT 0,
+      last_assigned_at TIMESTAMPTZ,
+      created_at       TIMESTAMPTZ DEFAULT now(),
+      updated_at       TIMESTAMPTZ DEFAULT now()
+    );
+  `);
+  // チームごとの「次に回ってくる人」。全体で1つのポインタだとチーム内が偏るため、チーム別に持つ。
+  await sq(`ALTER TABLE team_rotation ADD COLUMN IF NOT EXISTS next_email TEXT;`);
+  await sq(`CREATE INDEX IF NOT EXISTS ix_team_rotation_order ON team_rotation(sort_order);`);
 
   // 提案資料テーブル
   await sq(`
@@ -2378,11 +2403,12 @@ export async function saveClosers(list) {
       if (!email) continue;
       const cap = Number.isFinite(+c.daily_cap) && +c.daily_cap > 0 ? +c.daily_cap : null;
       await client.query(
-        `INSERT INTO closer_rotation (email, name, sort_order, active, daily_cap)
-         VALUES ($1,$2,$3,$4,$5)
+        `INSERT INTO closer_rotation (email, name, sort_order, active, daily_cap, team, fallback)
+         VALUES ($1,$2,$3,$4,$5,$6,$7)
          ON CONFLICT (email) DO UPDATE
-           SET name=$2, sort_order=$3, active=$4, daily_cap=$5, updated_at=now()`,
-        [email, String(c.name || "").trim() || email, i + 1, c.active !== false, cap]
+           SET name=$2, sort_order=$3, active=$4, daily_cap=$5, team=$6, fallback=$7, updated_at=now()`,
+        [email, String(c.name || "").trim() || email, i + 1, c.active !== false, cap,
+         String(c.team || "").trim() || null, c.fallback === true]
       );
     }
     await client.query("COMMIT");
@@ -2437,13 +2463,14 @@ export async function countAssignedOnDate(email, jstDate) {
   } catch { return 0; }
 }
 
-export async function logAssign({ slug, assigned, reason, skipped, actor }) {
+export async function logAssign({ slug, assigned, reason, skipped, actor, team }) {
   if (!pool || !slug) return null;
   try {
     const { rows } = await pool.query(
-      `INSERT INTO assign_log (slug, assigned, reason, skipped, actor)
-       VALUES ($1,$2,$3,$4,$5) RETURNING *`,
-      [slug, assigned || null, (reason || "").slice(0, 300), JSON.stringify(skipped || []), actor || null]
+      `INSERT INTO assign_log (slug, assigned, reason, skipped, actor, team)
+       VALUES ($1,$2,$3,$4,$5,$6) RETURNING *`,
+      [slug, assigned || null, (reason || "").slice(0, 300), JSON.stringify(skipped || []), actor || null,
+       team || null]
     );
     return rows[0];
   } catch (e) { console.error("[db] logAssign", e.message); return null; }
@@ -2461,6 +2488,161 @@ export async function listAssignLog(limit = 50) {
 export async function markAutoAssigned(slug) {
   if (!pool || !slug) return;
   try { await pool.query(`UPDATE smart_links SET auto_assigned_at = now() WHERE slug=$1`, [slug]); } catch {}
+}
+
+// ===== チーム単位のローテーション =====
+// closer_rotation.team に入っているチーム名ぶんだけ、team_rotation に行を用意する。
+export async function syncTeamsFromClosers() {
+  if (!pool) return [];
+  try {
+    await pool.query(`
+      INSERT INTO team_rotation (team_name, sort_order)
+      SELECT DISTINCT COALESCE(NULLIF(TRIM(team), ''), '未設定'),
+             ROW_NUMBER() OVER (ORDER BY MIN(sort_order))
+        FROM closer_rotation
+       GROUP BY COALESCE(NULLIF(TRIM(team), ''), '未設定')
+      ON CONFLICT (team_name) DO NOTHING`);
+    // クローザーが1人もいなくなったチームは外す
+    await pool.query(`
+      DELETE FROM team_rotation t
+       WHERE NOT EXISTS (
+         SELECT 1 FROM closer_rotation c
+          WHERE COALESCE(NULLIF(TRIM(c.team), ''), '未設定') = t.team_name)`);
+  } catch (e) { console.error("[db] syncTeamsFromClosers", e.message); }
+  return listTeams();
+}
+
+export async function listTeams() {
+  if (!pool) return [];
+  try {
+    const { rows } = await pool.query(`SELECT * FROM team_rotation ORDER BY sort_order, team_name`);
+    return rows;
+  } catch { return []; }
+}
+
+export async function saveTeams(list) {
+  if (!pool || !Array.isArray(list)) return listTeams();
+  try {
+    for (let i = 0; i < list.length; i++) {
+      const t = list[i];
+      const name = String(t.team_name || "").trim();
+      if (!name) continue;
+      await pool.query(
+        `INSERT INTO team_rotation (team_name, sort_order, active)
+         VALUES ($1,$2,$3)
+         ON CONFLICT (team_name) DO UPDATE SET sort_order=$2, active=$3, updated_at=now()`,
+        [name, i + 1, t.active !== false]
+      );
+    }
+  } catch (e) { console.error("[db] saveTeams", e.message); }
+  return listTeams();
+}
+
+// そのチームで次に回ってくる人を記録する
+export async function setTeamNext(team, email) {
+  if (!pool) return;
+  const name = String(team || "").trim() || "未設定";
+  try {
+    await pool.query(
+      `INSERT INTO team_rotation (team_name, next_email) VALUES ($1,$2)
+       ON CONFLICT (team_name) DO UPDATE SET next_email=$2, updated_at=now()`,
+      [name, email || null]
+    );
+  } catch (e) { console.error("[db] setTeamNext", e.message); }
+}
+
+export async function markTeamAssigned(team) {
+  if (!pool) return;
+  const name = String(team || "").trim() || "未設定";
+  try {
+    await pool.query(
+      `INSERT INTO team_rotation (team_name, assigned_count, last_assigned_at)
+       VALUES ($1, 1, now())
+       ON CONFLICT (team_name) DO UPDATE
+         SET assigned_count = team_rotation.assigned_count + 1,
+             last_assigned_at = now(), priority = false, updated_at = now()`,
+      [name]
+    );
+  } catch (e) { console.error("[db] markTeamAssigned", e.message); }
+}
+
+// 飛ばされたチームに「次は優先」の印をつける
+export async function markTeamsSkipped(teams) {
+  if (!pool || !Array.isArray(teams) || !teams.length) return;
+  try {
+    await pool.query(
+      `UPDATE team_rotation SET priority=true, updated_at=now() WHERE team_name = ANY($1::text[])`,
+      [teams.map((t) => String(t || "").trim() || "未設定")]
+    );
+  } catch (e) { console.error("[db] markTeamsSkipped", e.message); }
+}
+
+export async function clearTeamPriority() {
+  if (!pool) return;
+  try { await pool.query(`UPDATE team_rotation SET priority=false, updated_at=now() WHERE priority`); } catch {}
+}
+
+// チーム別の実績。期間は商談日（start_time）のJST基準。
+// 通算だけでなく人数も返すので、1人あたりの件数でも比べられる。
+export async function teamAssignStats(fromISO, toISO) {
+  if (!pool) return [];
+  try {
+    const params = [];
+    let where = "";
+    if (fromISO && toISO) { params.push(fromISO, toISO); where = `AND sl.start_time >= $1 AND sl.start_time < $2`; }
+    const { rows } = await pool.query(`
+      WITH members AS (
+        SELECT COALESCE(NULLIF(TRIM(team), ''), '未設定') AS team,
+               COUNT(*)::int                                             AS members,
+               -- 1人あたりの計算では、予備メンバーは通常の頭数に入れない
+               COUNT(*) FILTER (WHERE active AND NOT fallback)::int      AS active_members,
+               COUNT(*) FILTER (WHERE fallback)::int                     AS fallback_members
+          FROM closer_rotation GROUP BY 1
+      ), counts AS (
+        SELECT COALESCE(NULLIF(TRIM(cr.team), ''), '未設定') AS team,
+               COUNT(*)::int AS cnt
+          FROM smart_links sl
+          JOIN closer_rotation cr ON cr.email = sl.current_owner
+         WHERE COALESCE(sl.current_owner,'') <> '' ${where}
+         GROUP BY 1
+      )
+      SELECT m.team,
+             m.members, m.active_members, m.fallback_members,
+             COALESCE(c.cnt, 0) AS cnt,
+             COALESCE(t.assigned_count, 0) AS total_all_time,
+             COALESCE(t.active, true)      AS active,
+             COALESCE(t.priority, false)   AS priority,
+             COALESCE(t.sort_order, 1)     AS sort_order,
+             t.last_assigned_at
+        FROM members m
+        LEFT JOIN counts c       ON c.team = m.team
+        LEFT JOIN team_rotation t ON t.team_name = m.team
+       ORDER BY COALESCE(t.sort_order, 1), m.team`, params);
+    return rows.map((r) => ({
+      team: r.team, members: r.members, activeMembers: r.active_members,
+      fallbackMembers: r.fallback_members,
+      count: r.cnt, totalAllTime: r.total_all_time,
+      perHead: r.active_members ? +(r.cnt / r.active_members).toFixed(2) : null,
+      active: r.active, priority: r.priority, sortOrder: r.sort_order,
+      lastAssignedAt: r.last_assigned_at,
+    }));
+  } catch (e) { console.error("[db] teamAssignStats", e.message); return []; }
+}
+
+// クローザー別の件数（同じ期間で、チーム内の偏りも見られるように）
+export async function closerAssignStats(fromISO, toISO) {
+  if (!pool) return {};
+  try {
+    const params = [];
+    let where = "";
+    if (fromISO && toISO) { params.push(fromISO, toISO); where = `AND start_time >= $1 AND start_time < $2`; }
+    const { rows } = await pool.query(
+      `SELECT current_owner AS email, COUNT(*)::int AS cnt FROM smart_links
+        WHERE COALESCE(current_owner,'') <> '' ${where} GROUP BY 1`, params);
+    const out = {};
+    for (const r of rows) out[r.email] = r.cnt;
+    return out;
+  } catch { return {}; }
 }
 
 // ===== Gmail操作ログ =====

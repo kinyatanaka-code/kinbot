@@ -28,6 +28,7 @@
           <div class="ap-tabs" role="tablist">
             <button type="button" class="ap-tab active" data-pane="list">アポ一覧</button>
             <button type="button" class="ap-tab" data-pane="rot">割り振り設定</button>
+            <button type="button" class="ap-tab" data-pane="team">チーム実績</button>
             <button type="button" class="ap-tab" data-pane="mail">メール設定</button>
             <button type="button" class="ap-tab" data-pane="sys">システム</button>
           </div>
@@ -60,9 +61,28 @@
                 <label>商談の前後に確保する余白 <input type="number" id="rcBuffer" min="0" max="180" style="width:70px" /> 分</label>
                 <label>1回のスキャンで割り振る上限 <input type="number" id="rcMax" min="1" max="200" style="width:70px" /> 件</label>
               </div>
+              <h4 class="ap-rot-h">チーム間の均等化</h4>
+              <p class="note">チームごとの件数を見て、少ないチームから先に配ります。チーム内は各チームの順番どおりに回るので、個人間も偏りません。</p>
+              <div class="ap-cfg-row">
+                <label>配り方
+                  <select id="rcTeamBalance">
+                    <option value="off">チームを見ない（個人の順番だけ）</option>
+                    <option value="total">チームの合計件数で均等にする</option>
+                    <option value="perHead">1人あたりの件数で均等にする</option>
+                  </select>
+                </label>
+                <label>比べる期間
+                  <select id="rcWindow">
+                    <option value="month">当月</option>
+                    <option value="all">通算</option>
+                  </select>
+                </label>
+              </div>
+              <div id="rcTeams" class="ap-team-list"></div>
               <div class="ap-rot-next" id="rcNext"></div>
               <h4 class="ap-rot-h">割り振りの順番</h4>
-              <p class="note">上から順に回ります。行をドラッグで並べ替えできます。「上限」を空にすると件数の制限なしです。</p>
+              <p class="note">上から順に回ります。行をドラッグで並べ替えできます。「上限」を空にすると件数の制限なしです。<br>
+              <b>「予備」に印を付けた人は通常の順番に入りません。</b>通常メンバー全員が埋まっているときだけ回り、予備が複数いる場合は所属チームのアポ累計が少ない側から試します（チームリーダー向け）。</p>
               <div id="rcList" class="ap-rot-list"></div>
               <div class="ap-cfg-row">
                 <select id="rcAddSel"></select>
@@ -76,6 +96,23 @@
               </div>
               <pre id="rcLogBox" class="ap-rot-log" hidden></pre>
             
+            </div>
+          </section>
+
+          <section class="ap-pane" data-pane="team" hidden>
+            <div class="ap-card">
+              <h3 class="ap-card-h">チーム別の割り振り実績</h3>
+              <div class="ap-cfg-row">
+                <label>期間
+                  <select id="tsWindow">
+                    <option value="month">当月</option>
+                    <option value="all">通算</option>
+                  </select>
+                </label>
+                <button class="btn ghost" id="tsReload">更新</button>
+                <span class="rev-status" id="tsStatus"></span>
+              </div>
+              <div id="tsBody"><div class="empty-state">読み込み中…</div></div>
             </div>
           </section>
 

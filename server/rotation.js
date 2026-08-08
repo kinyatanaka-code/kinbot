@@ -11,13 +11,18 @@
 //   3. 商談の時間帯にカレンダーが埋まっていたら飛ばして次の人へ（＝代打）
 //      飛ばされた人には priority を立て、次のアポで最優先に戻す
 //   4. 代打も順番に回るので、特定の人に偏らない
-//   5. 全員埋まっていたら未割り当てのまま残す（画面で手動対応）
+//   5. 「予備」に印を付けた人（チームリーダー等）は通常の順番に入らず、
+//      通常メンバー全員が埋まっているときだけ回る。予備が複数いる場合は、
+//      所属チームのアポ累計が少ない側を先に試す。
+//   6. 全員埋まっていたら未割り当てのまま残す（画面で手動対応）
 // ───────────────────────────────────────────────────────────
 import { freeBusy, isSlotFree } from "./google.js";
 import {
   getSettings, saveSettings,
   listClosers, markCloserAssigned, markCloserSkipped,
   countAssignedOnDate, logAssign, clearCloserPriority,
+  listTeams, syncTeamsFromClosers, markTeamAssigned, markTeamsSkipped, clearTeamPriority, setTeamNext,
+  teamAssignStats, closerAssignStats,
 } from "./db.js";
 
 // JSTの「YYYY-MM-DD」
@@ -40,29 +45,123 @@ export async function getRotationConfig() {
     nextOrder: Number.isFinite(+s.apoRotationNextOrder) ? +s.apoRotationNextOrder : 1,
     // 1回のスキャンで自動割り振りする上限（暴走時の保険）
     maxPerRun: Number.isFinite(+s.apoRotationMaxPerRun) ? Math.max(1, +s.apoRotationMaxPerRun) : 30,
+    // チーム単位の均等化
+    //   off     … チームを見ない（個人のローテーションだけ）
+    //   total   … チームの合計件数が少ないチームを優先
+    //   perHead … 1人あたりの件数が少ないチームを優先（人数が違うチームでも公平）
+    teamBalance: ["off", "total", "perHead"].includes(s.apoTeamBalance) ? s.apoTeamBalance : "off",
+    // 均等化を判断する期間（month=当月・all=通算）
+    balanceWindow: s.apoBalanceWindow === "all" ? "all" : "month",
   };
 }
 
-// 「次に回ってくる人」を起点に、候補を順番に並べた配列を作る
-export function orderCandidates(closers, nextOrder) {
-  const list = closers.filter((c) => c.active);
-  if (!list.length) return [];
+// 均等化に使う期間（JSTの当月、または通算=null）
+export function balanceRange(window) {
+  if (window === "all") return { from: null, to: null };
+  const nowJst = new Date(Date.now() + 9 * 3600 * 1000);
+  const y = nowJst.getUTCFullYear(), m = nowJst.getUTCMonth();
+  const from = new Date(Date.UTC(y, m, 1, 0, 0, 0) - 9 * 3600 * 1000);
+  const to = new Date(Date.UTC(y, m + 1, 1, 0, 0, 0) - 9 * 3600 * 1000);
+  return { from: from.toISOString(), to: to.toISOString(), label: `${y}年${m + 1}月` };
+}
+
+export function teamOf(closer) {
+  return String((closer && closer.team) || "").trim() || "未設定";
+}
+
+// チームの「配りたい度合い」を数値にする。小さいほど優先。
+export function teamScore(stat, mode) {
+  if (!stat) return 0;
+  if (mode === "perHead") {
+    const n = stat.activeMembers || stat.members || 0;
+    return n ? stat.count / n : Number.POSITIVE_INFINITY; // 稼働者0のチームは最後
+  }
+  return stat.count;
+}
+
+// 「次に回ってくる人」を起点に、候補を順番に並べた配列を作る。
+// teamBalance が off 以外なら、件数の少ないチームを先に持ってくる。
+//
+// opts:
+//   teamBalance … "off" | "total" | "perHead"
+//   teamStats   … teamAssignStats() の結果（チーム名→件数・人数）
+//   teams       … team_rotation の行（active=false のチームは外す）
+export function orderCandidates(closers, nextOrder, opts = {}) {
+  const mode = opts.teamBalance || "off";
+  const stats = {};
+  for (const t of opts.teamStats || []) stats[t.team] = t;
+  const teamActive = {};
+  for (const t of opts.teams || []) teamActive[t.team_name] = t.active !== false;
+  const teamPriority = {};
+  for (const t of opts.teams || []) teamPriority[t.team_name] = !!t.priority;
+
+  // 休みの人と、休止中のチームの人は外す
+  const enabled = closers.filter((c) => c.active && (mode === "off" || teamActive[teamOf(c)] !== false));
+  if (!enabled.length) return [];
+
+  // 予備メンバーは通常の順番から外し、最後にまとめて足す
+  const list = enabled.filter((c) => !c.fallback);
+  const fallbacks = enabled.filter((c) => c.fallback).sort((a, b) => {
+    // 所属チームのアポ累計が少ない側を先に試す
+    const ca = (stats[teamOf(a)] || {}).count ?? 0;
+    const cb = (stats[teamOf(b)] || {}).count ?? 0;
+    if (ca !== cb) return ca - cb;
+    return a.sort_order - b.sort_order;
+  });
+  // 通常メンバーが1人もいなければ、予備だけで回す
+  if (!list.length) return fallbacks;
+
   // sort_order が nextOrder 以上の人 → その後に前半の人、で1周分の順番を作る
   const after = list.filter((c) => c.sort_order >= nextOrder);
   const before = list.filter((c) => c.sort_order < nextOrder);
-  const rotated = [...after, ...before];
-  // 代打で飛ばされた人（priority）を先頭へ。複数いれば sort_order 順。
+  let rotated = [...after, ...before];
+
+  if (mode !== "off") {
+    // チームごとにまとめ、チームの件数が少ない順に並べ替える。
+    // チーム内の順番は上のローテーション順をそのまま保つ。
+    const groups = new Map();
+    for (const c of rotated) {
+      const t = teamOf(c);
+      if (!groups.has(t)) groups.set(t, []);
+      groups.get(t).push(c);
+    }
+    // チーム内は、そのチームの「次の人」を先頭に回す。
+    // 全体で1つのポインタだけだとチーム内で同じ人に偏るため、チームごとに持つ。
+    const teamNext = {};
+    for (const t of opts.teams || []) teamNext[t.team_name] = t.next_email || "";
+    for (const [t, members] of groups) {
+      // チーム内はローテーション順（sort_order）に整える
+      members.sort((a, b) => a.sort_order - b.sort_order);
+      const at = members.findIndex((m) => m.email === teamNext[t]);
+      if (at > 0) groups.set(t, [...members.slice(at), ...members.slice(0, at)]);
+    }
+    const order = [...groups.keys()].sort((a, b) => {
+      // 代打で飛ばされたチームは最優先で戻す
+      if (teamPriority[a] !== teamPriority[b]) return teamPriority[a] ? -1 : 1;
+      const d = teamScore(stats[a], mode) - teamScore(stats[b], mode);
+      if (d !== 0) return d;
+      // 同数なら、そのチームの先頭の人のローテーション順で決める（毎回同じ結果になるように）
+      return rotated.indexOf(groups.get(a)[0]) - rotated.indexOf(groups.get(b)[0]);
+    });
+    rotated = order.flatMap((t) => groups.get(t));
+  }
+
+  // 代打で飛ばされた人（priority）は、チームより優先して先頭へ。
+  // 予備メンバーはこの対象にせず、必ず最後に置く。
   const pri = rotated.filter((c) => c.priority).sort((a, b) => a.sort_order - b.sort_order);
   const rest = rotated.filter((c) => !c.priority);
-  return [...pri, ...rest];
+  return [...pri, ...rest, ...fallbacks];
 }
 
 // 1件のアポについてクローザーを決める。
 // 戻り値: { email, name, reason, skipped:[{email,name,reason}] } / 割り当て不可なら email=null
-export async function pickCloser(link, { inviteOwner, closers = null, cfg = null } = {}) {
+export async function pickCloser(link, { inviteOwner, closers = null, cfg = null, teamCtx = null } = {}) {
   const conf = cfg || (await getRotationConfig());
   const all = closers || (await listClosers());
-  const cands = orderCandidates(all, conf.nextOrder);
+  const ctx = teamCtx || (await loadTeamContext(conf));
+  const cands = orderCandidates(all, conf.nextOrder, {
+    teamBalance: conf.teamBalance, teamStats: ctx.teamStats, teams: ctx.teams,
+  });
   if (!cands.length) {
     return { email: null, name: "", reason: "有効なクローザーが登録されていません", skipped: [] };
   }
@@ -95,46 +194,107 @@ export async function pickCloser(link, { inviteOwner, closers = null, cfg = null
     if (c.daily_cap) {
       const n = await countAssignedOnDate(c.email, day);
       if (n >= c.daily_cap) {
-        skipped.push({ email: c.email, name: c.name, reason: `1日の上限${c.daily_cap}件に達しています` });
+        skipped.push({ email: c.email, name: c.name, team: teamOf(c), reason: `1日の上限${c.daily_cap}件に達しています` });
         continue;
       }
     }
     const chk = isSlotFree(fb, c.email, startISO, endISO, conf.bufferMin);
     if (!chk.free) {
-      skipped.push({ email: c.email, name: c.name, reason: chk.reason });
+      skipped.push({ email: c.email, name: c.name, team: teamOf(c), reason: chk.reason });
       continue;
+    }
+    const st = (ctx.teamStats || []).find((t) => t.team === teamOf(c));
+    let why;
+    if (c.fallback) {
+      // 通常メンバーが全員埋まっていたので予備に回った
+      why = `予備（通常メンバーが全員埋まっていたため）／${teamOf(c)}のアポ累計${st ? st.count : 0}件で最少`;
+    } else {
+      why = c.priority ? "前回代打で飛ばされたため最優先" : "ローテーション順";
+      if (conf.teamBalance !== "off" && st) {
+        why += conf.teamBalance === "perHead"
+          ? `／${st.team}が1人あたり${st.perHead ?? 0}件で最少`
+          : `／${st.team}が${st.count}件で最少`;
+      }
     }
     return {
       email: c.email,
       name: c.name,
+      team: teamOf(c),
       sortOrder: c.sort_order,
-      reason: c.priority ? "前回代打で飛ばされたため最優先" : "ローテーション順",
+      reason: why,
       skipped,
     };
   }
-  return { email: null, name: "", reason: "全員この時間帯に予定が入っています", skipped };
+  return { email: null, name: "", team: "", reason: "全員この時間帯に予定が入っています", skipped };
+}
+
+// チームの状態と件数をまとめて読む（1件ごとに何度も引かないようにキャッシュして渡す）
+export async function loadTeamContext(cfg) {
+  const conf = cfg || (await getRotationConfig());
+  // teamBalance が off でも、予備メンバーの優先順（チームのアポ累計）に使うので常に集計する
+  await syncTeamsFromClosers();
+  const range = balanceRange(conf.balanceWindow);
+  const [teams, teamStats] = await Promise.all([
+    listTeams(),
+    teamAssignStats(range.from, range.to),
+  ]);
+  return { teams, teamStats, range };
 }
 
 // 割り当てを確定し、ローテーションの状態を進める
 export async function commitAssignment(link, pick, { actor = "auto" } = {}) {
+  const cfg = await getRotationConfig();
   const all = await listClosers();
   const active = all.filter((c) => c.active).sort((a, b) => a.sort_order - b.sort_order);
 
   // 飛ばされた人には最優先の印を立てる
-  const skippedEmails = (pick.skipped || []).map((s) => s.email);
+  // 予備メンバーは常に最後なので、飛ばされた印（次は最優先）は付けない
+  const fallbackSet = new Set(all.filter((c) => c.fallback).map((c) => c.email));
+  const skippedEmails = (pick.skipped || []).map((s) => s.email).filter((e) => !fallbackSet.has(e));
   if (skippedEmails.length) await markCloserSkipped(skippedEmails);
+
+  // チーム単位の状態も進める。
+  // 飛ばされたチームのうち、1人も割り当てられなかったチームだけ「次は優先」にする。
+  if (cfg.teamBalance !== "off") {
+    const assignedTeam = pick.team || "未設定";
+    const skippedTeams = [...new Set((pick.skipped || []).map((s) => s.team).filter(Boolean))]
+      .filter((t) => t !== assignedTeam);
+    if (skippedTeams.length) await markTeamsSkipped(skippedTeams);
+    await markTeamAssigned(assignedTeam);
+
+    // そのチームの次の人へポインタを進める（チーム内で順番に回るようにする）
+    const mates = all
+      .filter((c) => c.active && !c.fallback && (String(c.team || "").trim() || "未設定") === assignedTeam)
+      .sort((a, b) => a.sort_order - b.sort_order);
+    const isFallbackPick = all.some((c) => c.email === pick.email && c.fallback);
+    if (mates.length && !isFallbackPick) {
+      const at = mates.findIndex((m) => m.email === pick.email);
+      const nextMate = mates[(at + 1) % mates.length];
+      await setTeamNext(assignedTeam, nextMate ? nextMate.email : null);
+    }
+  }
 
   // 割り当てられた人の印を外し、件数を進める
   await markCloserAssigned(pick.email);
 
-  // 次に回ってくる人＝割り当てた人の次
-  const idx = active.findIndex((c) => c.email === pick.email);
-  const next = idx >= 0 && active.length ? active[(idx + 1) % active.length] : active[0];
-  if (next) await saveSettings({ apoRotationNextOrder: next.sort_order });
+  // 次に回ってくる人＝割り当てた人の次（予備に配ったときは通常の順番を動かさない）
+  const normals = active.filter((c) => !c.fallback);
+  const pickedIsFallback = all.some((c) => c.email === pick.email && c.fallback);
+  let next = null;
+  if (!pickedIsFallback && normals.length) {
+    const idx = normals.findIndex((c) => c.email === pick.email);
+    next = idx >= 0 ? normals[(idx + 1) % normals.length] : normals[0];
+    await saveSettings({ apoRotationNextOrder: next.sort_order });
+  } else if (normals.length) {
+    // 予備に配った場合は、通常の順番を動かさず、現在の「次の人」をそのまま返す
+    const curOrder = cfg.nextOrder;
+    next = normals.find((c) => c.sort_order >= curOrder) || normals[0];
+  }
 
   await logAssign({
     slug: link.slug,
     assigned: pick.email,
+    team: pick.team || null,
     reason: pick.reason,
     skipped: pick.skipped || [],
     actor,
@@ -146,16 +306,28 @@ export async function commitAssignment(link, pick, { actor = "auto" } = {}) {
 export async function rotationStatus() {
   const cfg = await getRotationConfig();
   const all = await listClosers();
-  const cands = orderCandidates(all, cfg.nextOrder);
+  // チーム表示は均等化がOFFでも見たいので、常に集計する
+  await syncTeamsFromClosers();
+  const range = balanceRange(cfg.balanceWindow);
+  const [teams, teamStats, byCloser] = await Promise.all([
+    listTeams(), teamAssignStats(range.from, range.to), closerAssignStats(range.from, range.to),
+  ]);
+  const cands = orderCandidates(all, cfg.nextOrder, {
+    teamBalance: cfg.teamBalance, teamStats, teams,
+  });
   return {
     config: cfg,
-    closers: all,
+    closers: all.map((c) => ({ ...c, team: teamOf(c), fallback: !!c.fallback, period_count: byCloser[c.email] || 0 })),
+    teams, teamStats,
+    period: { window: cfg.balanceWindow, label: range.label || "通算", from: range.from, to: range.to },
     // 実際に次に試される順番（代打の最優先を反映済み）
     order: cands.map((c) => ({
-      email: c.email, name: c.name, sort_order: c.sort_order, priority: c.priority,
-      assigned_count: c.assigned_count, daily_cap: c.daily_cap,
+      email: c.email, name: c.name, team: teamOf(c), fallback: !!c.fallback,
+      sort_order: c.sort_order, priority: c.priority,
+      assigned_count: c.assigned_count, period_count: byCloser[c.email] || 0, daily_cap: c.daily_cap,
     })),
-    next: cands[0] ? { email: cands[0].email, name: cands[0].name, priority: cands[0].priority } : null,
+    next: cands[0] ? { email: cands[0].email, name: cands[0].name, team: teamOf(cands[0]),
+                       fallback: !!cands[0].fallback, priority: cands[0].priority } : null,
   };
 }
 
@@ -166,6 +338,7 @@ export async function setNextCloser(email) {
   if (!target) throw new Error("そのクローザーは登録されていません");
   // 最優先フラグ（代打で飛ばされた印）は全員分クリアしてから、指定の人を起点にする
   await clearCloserPriority();
+  await clearTeamPriority();
   await saveSettings({ apoRotationNextOrder: target.sort_order });
   return rotationStatus();
 }

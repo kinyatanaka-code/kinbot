@@ -264,6 +264,7 @@ function setupTabs() {
     try { localStorage.setItem("apoTab", name); } catch {}
     // 設定タブを開いたときに最新値を読み直す
     if (name === "rot") loadRotation();
+    if (name === "team") loadTeamStats();
     if (name === "sys") loadBuild();
   };
   tabs.forEach((t) => t.addEventListener("click", () => show(t.dataset.pane)));
@@ -284,6 +285,65 @@ async function loadBuild() {
   } catch {
     el.textContent = "動いているのは古いビルドです（/api/version がまだありません）。アップロードとデプロイを確認してください。";
     el.classList.add("ap-build-old");
+  }
+}
+
+// ===== チーム実績タブ =====
+// チーム間の偏りと、チーム内の偏りの両方が見えるようにする。
+async function loadTeamStats() {
+  const box = $("tsBody");
+  if (!box) return;
+  const say = (m) => { const e = $("tsStatus"); if (e) e.textContent = m; };
+  const w = $("tsWindow") ? $("tsWindow").value : "month";
+  say("読み込み中…");
+  try {
+    const d = await (await fetch("/api/apo/team-stats?window=" + encodeURIComponent(w))).json();
+    if (d.error) throw new Error(d.error);
+    const stats = (d.teamStats || []).slice();
+    if (!stats.length) {
+      box.innerHTML = `<div class="empty-state">クローザーがまだ登録されていません。「割り振り設定」タブで登録してください。</div>`;
+      say(""); return;
+    }
+    const modeLabel = { off: "チームを見ない", total: "チーム合計で均等", perHead: "1人あたりで均等" }[d.mode] || d.mode;
+    const max = Math.max(1, ...stats.map((t) => t.count));
+    const maxPer = Math.max(0.01, ...stats.map((t) => t.perHead || 0));
+    const usePer = d.mode === "perHead";
+
+    let html = `<p class="note">期間：<b>${esc(d.period.label)}</b>／配り方：<b>${esc(modeLabel)}</b>` +
+      `（商談日を基準に集計しています）</p>`;
+    html += `<div class="ts-teams">`;
+    for (const t of stats) {
+      const val = usePer ? (t.perHead || 0) : t.count;
+      const pct = Math.round((val / (usePer ? maxPer : max)) * 100);
+      html += `<div class="ts-team${t.active === false ? " ap-rot-off" : ""}">
+        <div class="ts-head">
+          <span class="ts-name">${esc(t.team)}</span>
+          ${t.priority ? '<span class="ap-badge ap-warn">次を優先</span>' : ""}
+          ${t.active === false ? '<span class="ap-badge ap-pending">配布対象外</span>' : ""}
+          <span class="ts-num">${t.count}件<span class="ts-sub">／通常${t.activeMembers}名${t.fallbackMembers ? "・予備" + t.fallbackMembers + "名" : ""}・1人あたり${t.perHead ?? 0}件</span></span>
+        </div>
+        <div class="ts-bar"><span style="width:${pct}%"></span></div>
+        <div class="ts-members">`;
+      for (const m of (d.members || {})[t.team] || []) {
+        html += `<span class="ts-member${m.active === false ? " ts-off" : ""}">${esc(m.name)} <b>${m.count}</b></span>`;
+      }
+      html += `</div></div>`;
+    }
+    html += `</div>`;
+
+    // 偏りの目安を出す
+    const values = stats.filter((t) => t.active !== false).map((t) => (usePer ? (t.perHead || 0) : t.count));
+    if (values.length > 1) {
+      const gap = (Math.max(...values) - Math.min(...values)).toFixed(usePer ? 2 : 0);
+      html += `<p class="note ${(+gap > (usePer ? 1.5 : 3)) ? "cc-warn" : ""}">` +
+        `最も多いチームと少ないチームの差：<b>${gap}${usePer ? "件/人" : "件"}</b>` +
+        `${(+gap > (usePer ? 1.5 : 3)) ? "　偏りが出ています。配り方の設定を見直すか、チームの稼働状態を確認してください。" : "　均等に配れています。"}</p>`;
+    }
+    box.innerHTML = html;
+    say("");
+  } catch (e) {
+    box.innerHTML = `<div class="empty-state">読み込めませんでした：${esc(e.message)}</div>`;
+    say("");
   }
 }
 
@@ -329,6 +389,13 @@ async function dbCheck(repair) {
 // ===== クローザーのローテーション設定パネル =====
 let rotState = { closers: [], next: null };
 
+// 予備を飛ばして、通常メンバーだけに順番の番号を振る
+function rcOrderNo(index) {
+  let n = 0;
+  for (let k = 0; k <= index; k++) if (!rotState.closers[k].fallback) n++;
+  return n;
+}
+
 function rcRender() {
   const box = $("rcList");
   if (!box) return;
@@ -339,15 +406,26 @@ function rcRender() {
     row.draggable = true;
     row.dataset.i = i;
     row.innerHTML =
-      `<span class="ap-rot-num">${i + 1}</span>` +
-      `<span class="ap-rot-name">${esc(c.name || c.email)}${c.priority ? '<span class="ap-badge ap-warn">次を最優先</span>' : ""}</span>` +
+      `<span class="ap-rot-num${c.fallback ? " ap-rot-num-fb" : ""}">${c.fallback ? "予" : rcOrderNo(i)}</span>` +
+      `<span class="ap-rot-name">${esc(c.name || c.email)}` +
+        `${c.fallback ? '<span class="ap-badge ap-badge-fb">予備</span>' : ""}` +
+        `${c.priority && !c.fallback ? '<span class="ap-badge ap-warn">次を最優先</span>' : ""}</span>` +
       `<label class="ap-check"><input type="checkbox" class="rc-active" ${c.active === false ? "" : "checked"} /> 稼働中</label>` +
-      `<label class="ap-rot-cap">上限 <input type="number" class="rc-cap" min="1" max="20" value="${c.daily_cap || ""}" /> 件/日</label>` +
+      `<label class="ap-check ap-check-fb" title="通常の順番には入らず、他の全員が埋まっているときだけ回ります"><input type="checkbox" class="rc-fb" ${c.fallback ? "checked" : ""} /> 予備</label>` +
+      `<label class="ap-rot-team">チーム <input type="text" class="rc-team" list="rcTeamOptions" placeholder="未設定" value="${esc(c.team || "")}" /></label>` +
+      `<label class="ap-rot-cap">上限 <input type="number" class="rc-cap" min="1" max="20" placeholder="なし" value="${c.daily_cap || ""}" /> 件/日</label>` +
       `<span class="ap-rot-cnt">累計${c.assigned_count || 0}件</span>` +
-      `<button type="button" class="btn ghost rc-first">ここから開始</button>` +
+      (c.fallback ? "" : `<button type="button" class="btn ghost rc-first">ここから開始</button>`) +
       `<button type="button" class="btn ghost rc-del">外す</button>`;
 
     row.querySelector(".rc-active").addEventListener("change", (e) => { c.active = e.target.checked; rcRender(); });
+    row.querySelector(".rc-fb").addEventListener("change", (e) => {
+      c.fallback = e.target.checked; rcRender(); rcTeamsRender();
+    });
+    row.querySelector(".rc-team").addEventListener("change", (e) => {
+      c.team = e.target.value.trim();
+      rcTeamsRender();
+    });
     row.querySelector(".rc-cap").addEventListener("change", (e) => {
       const v = parseInt(e.target.value, 10);
       c.daily_cap = Number.isFinite(v) && v > 0 ? v : null;
@@ -355,7 +433,8 @@ function rcRender() {
     row.querySelector(".rc-del").addEventListener("click", () => {
       rotState.closers.splice(i, 1); rcRender(); rcFillAdd();
     });
-    row.querySelector(".rc-first").addEventListener("click", async () => {
+    const firstBtn = row.querySelector(".rc-first");
+    if (firstBtn) firstBtn.addEventListener("click", async () => {
       if (!confirm(`次のアポを ${c.name || c.email} さんから始めます。よろしいですか？`)) return;
       try {
         const r = await fetch("/api/apo/rotation/next", {
@@ -391,13 +470,80 @@ function rcRender() {
   }
 }
 
+// 割り振り設定タブ内のチーム一覧。並び順と稼働／休止を切り替える。
+function rcTeamsRender() {
+  const box = $("rcTeams");
+  if (!box) return;
+  // 入力済みのチーム名を候補として使えるようにする
+  let dl = document.getElementById("rcTeamOptions");
+  if (!dl) {
+    dl = document.createElement("datalist");
+    dl.id = "rcTeamOptions";
+    document.body.appendChild(dl);
+  }
+  const names = [...new Set(rotState.closers.map((c) => (c.team || "").trim()).filter(Boolean))];
+  dl.innerHTML = names.map((n) => `<option value="${esc(n)}"></option>`).join("");
+
+  const mode = $("rcTeamBalance") ? $("rcTeamBalance").value : "off";
+  if (mode === "off") { box.innerHTML = ""; return; }
+  if (!names.length) {
+    box.innerHTML = `<p class="note cc-warn">クローザーにチーム名が入っていません。各行の「チーム」欄に入力してください。</p>`;
+    return;
+  }
+  // サーバー側のチーム状態（稼働・順番）に、未保存のチーム名も足して表示
+  const known = new Map((rotState.teams || []).map((t) => [t.team_name, t]));
+  rotState.teamRows = names.map((n, i) => {
+    const prev = (rotState.teamRows || []).find((t) => t.team_name === n);
+    const srv = known.get(n);
+    return prev || { team_name: n, active: srv ? srv.active !== false : true, sort_order: srv ? srv.sort_order : i + 1 };
+  });
+
+  box.innerHTML = "";
+  rotState.teamRows.forEach((t, i) => {
+    const members = rotState.closers.filter((c) => ((c.team || "").trim() || "未設定") === t.team_name);
+    const activeN = members.filter((m) => m.active !== false).length;
+    const row = document.createElement("div");
+    row.className = "ap-team-row" + (t.active === false ? " ap-rot-off" : "");
+    row.draggable = true;
+    row.innerHTML =
+      `<span class="ap-rot-num">${i + 1}</span>` +
+      `<span class="ap-rot-name">${esc(t.team_name)}</span>` +
+      `<span class="ap-rot-cnt">${members.length}名（稼働${activeN}名）</span>` +
+      `<label class="ap-check"><input type="checkbox" class="rt-active" ${t.active === false ? "" : "checked"} /> 配布対象</label>`;
+    row.querySelector(".rt-active").addEventListener("change", (e) => { t.active = e.target.checked; rcTeamsRender(); });
+    row.addEventListener("dragstart", (e) => e.dataTransfer.setData("text/plain", String(i)));
+    row.addEventListener("dragover", (e) => e.preventDefault());
+    row.addEventListener("drop", (e) => {
+      e.preventDefault();
+      const from = parseInt(e.dataTransfer.getData("text/plain"), 10);
+      if (!Number.isFinite(from) || from === i) return;
+      const moved = rotState.teamRows.splice(from, 1)[0];
+      rotState.teamRows.splice(i, 0, moved);
+      rcTeamsRender();
+    });
+    box.appendChild(row);
+  });
+}
+
 function rcNextLabel() {
   const el = $("rcNext");
   if (!el) return;
   const n = rotState.next;
-  el.innerHTML = n
-    ? `次に割り振られるのは <b>${esc(n.name || n.email)}</b> さんです${n.priority ? "（前回代打で飛ばされたため最優先）" : ""}`
-    : `割り振り可能なクローザーがいません`;
+  el.classList.remove("ap-rot-next-warn");
+  if (n) {
+    el.innerHTML = `次に割り振られるのは <b>${esc(n.name || n.email)}</b> さん${n.team ? `（${esc(n.team)}）` : ""}です` +
+      `${n.fallback ? " ※通常メンバーが全員埋まっているため予備" : n.priority ? " ※前回代打で飛ばされたため最優先" : ""}`;
+    return;
+  }
+  // サーバーに保存されていないが、画面上に候補が並んでいる状態
+  const pending = rotState.closers.filter((c) => c.active !== false);
+  if (pending.length) {
+    el.innerHTML = `まだ保存されていません。［保存］を押すと <b>${esc(pending[0].name || pending[0].email)}</b> さんから割り振りが始まります。`;
+    el.classList.add("ap-rot-next-warn");
+    return;
+  }
+  el.innerHTML = "クローザーが登録されていません。下のプルダウンから追加して［保存］を押してください。";
+  el.classList.add("ap-rot-next-warn");
 }
 
 // 未登録のメンバーだけを追加プルダウンに出す
@@ -416,12 +562,17 @@ async function loadRotation() {
     const d = await (await fetch("/api/apo/rotation")).json();
     rotState.closers = (d.closers || []).map((c) => ({ ...c }));
     rotState.next = d.next || null;
+    rotState.teams = d.teams || rotState.teams;
     const c = d.config || {};
     if ($("rcAutoScan")) $("rcAutoScan").checked = !!c.autoScan;
     if ($("rcAutoAssign")) $("rcAutoAssign").checked = !!c.autoAssign;
     if ($("rcBuffer")) $("rcBuffer").value = c.bufferMin ?? 0;
     if ($("rcMax")) $("rcMax").value = c.maxPerRun ?? 30;
-    rcRender(); rcNextLabel(); rcFillAdd();
+    if ($("rcTeamBalance")) $("rcTeamBalance").value = c.teamBalance || "off";
+    if ($("rcWindow")) $("rcWindow").value = c.balanceWindow || "month";
+    rotState.teams = d.teams || [];
+    rotState.teamRows = null;
+    rcRender(); rcNextLabel(); rcFillAdd(); rcTeamsRender();
   } catch { rcSay("ローテーションの設定を読めませんでした"); }
 }
 
@@ -444,6 +595,16 @@ async function saveRotation() {
     let d = await r.json();
     if (!r.ok) throw new Error(d.error || "保存に失敗しました");
 
+    // チームの並び順・稼働状態
+    if (rotState.teamRows && rotState.teamRows.length) {
+      const rt = await fetch("/api/apo/teams", {
+        method: "PUT", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ teams: rotState.teamRows }),
+      });
+      const rd = await rt.json();
+      if (!rt.ok) throw new Error(rd.error || "チームの保存に失敗しました");
+    }
+
     r = await fetch("/api/apo/rotation-config", {
       method: "PUT", headers: { "content-type": "application/json" },
       body: JSON.stringify({
@@ -451,14 +612,19 @@ async function saveRotation() {
         autoAssign: $("rcAutoAssign").checked,
         bufferMin: $("rcBuffer").value,
         maxPerRun: $("rcMax").value,
+        teamBalance: $("rcTeamBalance").value,
+        balanceWindow: $("rcWindow").value,
       }),
     });
     d = await r.json();
     if (!r.ok) throw new Error(d.error || "設定の保存に失敗しました");
     rotState.closers = (d.closers || []).map((c) => ({ ...c }));
     rotState.next = d.next || null;
-    rcRender(); rcNextLabel(); rcFillAdd();
-    rcSay("保存しました", 2500);
+    rotState.teams = d.teams || rotState.teams;
+    rotState.teams = d.teams || [];
+    rotState.teamRows = null;
+    rcRender(); rcNextLabel(); rcFillAdd(); rcTeamsRender();
+    rcSay(`保存しました（通常${rotState.closers.filter((c) => c.active !== false && !c.fallback).length}名・予備${rotState.closers.filter((c) => c.fallback).length}名）`, 4000);
   } catch (e) {
     rcSay("保存に失敗しました: " + e.message);
   } finally { if (btn) btn.disabled = false; }
@@ -547,6 +713,9 @@ async function saveMailCfg() {
   loadBuild();
   if ($("dbCheckBtn")) $("dbCheckBtn").addEventListener("click", () => dbCheck(false));
   if ($("dbRepairBtn")) $("dbRepairBtn").addEventListener("click", () => dbCheck(true));
+  if ($("tsReload")) $("tsReload").addEventListener("click", loadTeamStats);
+  if ($("tsWindow")) $("tsWindow").addEventListener("change", loadTeamStats);
+  if ($("rcTeamBalance")) $("rcTeamBalance").addEventListener("change", () => { rcTeamsRender(); rcNextLabel(); });
   if ($("rcSave")) $("rcSave").addEventListener("click", saveRotation);
   if ($("rcAdd")) $("rcAdd").addEventListener("click", () => {
     const sel = $("rcAddSel");

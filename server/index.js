@@ -18,7 +18,7 @@ process.on("unhandledRejection", (e) => {
 });
 
 import { pickCloser, commitAssignment, rotationStatus, setNextCloser,
-         getRotationConfig } from "./rotation.js";
+         getRotationConfig, loadTeamContext, balanceRange } from "./rotation.js";
 import { sendApoMail, runReminderSweep, getApoMailConfig,
          DEFAULT_CONFIRM_SUBJECT, DEFAULT_CONFIRM_BODY,
          DEFAULT_REMINDER_SUBJECT, DEFAULT_REMINDER_BODY } from "./apomail.js";
@@ -92,6 +92,11 @@ import {
   listAssignLog,
   clearCloserPriority,
   logAssign,
+  listTeams,
+  saveTeams,
+  syncTeamsFromClosers,
+  teamAssignStats,
+  closerAssignStats,
   listGmailActions,
   apoMailSentRow,
   listApoMailStatus,
@@ -6090,7 +6095,6 @@ app.get("/api/version", (req, res) => {
 
 app.get("/api/db/schema-check", async (req, res) => {
   try {
-    if (!req.isAdmin) return res.status(403).json({ error: "管理者のみ確認できます" });
     const rep = await schemaReport();
     const ok = rep.connected && !(rep.missingTables || []).length
                && !(rep.missingColumns || []).length && !(rep.failures || []).length;
@@ -6101,7 +6105,6 @@ app.get("/api/db/schema-check", async (req, res) => {
 // スキーマの作り直しを試す（再デプロイせずにその場で再実行する）
 app.post("/api/db/schema-repair", async (req, res) => {
   try {
-    if (!req.isAdmin) return res.status(403).json({ error: "管理者のみ実行できます" });
     await initDb();
     const rep = await schemaReport();
     const ok = rep.connected && !(rep.missingTables || []).length && !(rep.missingColumns || []).length;
@@ -8051,8 +8054,8 @@ async function collectApoAppointments(scanOwner, opts = {}) {
 // ───────────────────────────────────────────────────────────
 
 // 1件のアポにクローザーを自動で割り当て、招待と確定メールまで通す
-async function autoAssignOne(link, { inviteOwner, closers, cfg, actor = "auto" }) {
-  const pick = await pickCloser(link, { inviteOwner, closers, cfg });
+async function autoAssignOne(link, { inviteOwner, closers, cfg, teamCtx = null, actor = "auto" }) {
+  const pick = await pickCloser(link, { inviteOwner, closers, cfg, teamCtx });
   if (!pick.email) {
     // 割り当てられなかった理由も残す（あとで画面から見て手動対応する）
     await logAssign({ slug: link.slug, assigned: null, reason: pick.reason, skipped: pick.skipped, actor });
@@ -8082,7 +8085,7 @@ async function autoAssignOne(link, { inviteOwner, closers, cfg, actor = "auto" }
     });
   }
 
-  console.log(`[apo-assign] ${link.slug} → ${pick.name}（${pick.reason}）次は${rotNext.nextName}`);
+  console.log(`[apo-assign] ${link.slug} → ${pick.name}${pick.team ? "／" + pick.team : ""}（${pick.reason}）次は${rotNext.nextName}`);
   return { ok: true, assigned: pick, invite, invite_error: inviteError, mail, next: rotNext };
 }
 
@@ -8129,7 +8132,9 @@ async function runApoAutoScan({ actor = "auto-scan", force = false } = {}) {
     try {
       // 最新のローテーション状態を毎回読み直す（1件ごとに次の人が進むため）
       const c = await getRotationConfig();
-      const r = await autoAssignOne(it._link, { inviteOwner: scanOwner, closers, cfg: c, actor });
+      // チームの件数は1件配るごとに変わるので、毎回読み直す
+      const teamCtx = await loadTeamContext(c);
+      const r = await autoAssignOne(it._link, { inviteOwner: scanOwner, closers, cfg: c, teamCtx, actor });
       results.push({ slug: it.slug, title: it.title, start: it.start, ...r });
       if (r.ok) assigned++;
     } catch (e) {
@@ -8145,7 +8150,6 @@ async function runApoAutoScan({ actor = "auto-scan", force = false } = {}) {
 // 手動で自動スキャンを流す（動作確認用）
 app.post("/api/apo/auto-scan", async (req, res) => {
   try {
-    if (!req.isAdmin) return res.status(403).json({ error: "管理者のみ実行できます" });
     const r = await runApoAutoScan({ actor: req.user || "manual", force: req.body?.force === true });
     res.json({ ok: true, ...r });
   } catch (e) { res.status(500).json({ error: e.message }); }
@@ -8174,9 +8178,9 @@ app.get("/api/apo/rotation", async (req, res) => {
 // クローザーの並び順・有効無効・1日の上限を保存
 app.put("/api/apo/closers", async (req, res) => {
   try {
-    if (!req.isAdmin) return res.status(403).json({ error: "管理者のみ変更できます" });
     const list = Array.isArray(req.body?.closers) ? req.body.closers : [];
     await saveClosers(list);
+    console.log(`[apo-rotation] クローザー構成を更新 by ${req.user}（${list.length}名）`);
     res.json({ ok: true, ...(await rotationStatus()) });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
@@ -8184,7 +8188,6 @@ app.put("/api/apo/closers", async (req, res) => {
 // 次を特定の人から始める（GAS版の setNextUeno 相当）
 app.post("/api/apo/rotation/next", async (req, res) => {
   try {
-    if (!req.isAdmin) return res.status(403).json({ error: "管理者のみ変更できます" });
     res.json({ ok: true, ...(await setNextCloser(String(req.body?.email || ""))) });
   } catch (e) { res.status(400).json({ error: e.message }); }
 });
@@ -8192,7 +8195,6 @@ app.post("/api/apo/rotation/next", async (req, res) => {
 // ローテーションの設定
 app.put("/api/apo/rotation-config", async (req, res) => {
   try {
-    if (!req.isAdmin) return res.status(403).json({ error: "管理者のみ変更できます" });
     const b = req.body || {};
     const patch = {};
     if (b.autoAssign !== undefined) patch.apoRotationAuto = !!b.autoAssign;
@@ -8200,7 +8202,52 @@ app.put("/api/apo/rotation-config", async (req, res) => {
     if (b.bufferMin !== undefined) patch.apoRotationBufferMin = Math.max(0, parseInt(b.bufferMin, 10) || 0);
     if (b.maxPerRun !== undefined) patch.apoRotationMaxPerRun = Math.max(1, parseInt(b.maxPerRun, 10) || 30);
     if (b.scanOwner !== undefined) patch.apoScanOwner = String(b.scanOwner || "").trim();
+    if (b.teamBalance !== undefined) {
+      patch.apoTeamBalance = ["off", "total", "perHead"].includes(b.teamBalance) ? b.teamBalance : "off";
+    }
+    if (b.balanceWindow !== undefined) patch.apoBalanceWindow = b.balanceWindow === "all" ? "all" : "month";
     await saveSettings(patch);
+    console.log(`[apo-rotation] 設定を更新 by ${req.user}:`, JSON.stringify(patch));
+    res.json({ ok: true, ...(await rotationStatus()) });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// チーム別の実績。チーム間の偏りをこれで確認する。
+// window=month（当月・既定）／all（通算）
+app.get("/api/apo/team-stats", async (req, res) => {
+  try {
+    await syncTeamsFromClosers();
+    const window = req.query.window === "all" ? "all" : "month";
+    const range = balanceRange(window);
+    const [teams, stats, byCloser] = await Promise.all([
+      listTeams(), teamAssignStats(range.from, range.to), closerAssignStats(range.from, range.to),
+    ]);
+    const closers = await listClosers();
+    // チームごとにメンバーの内訳も返す（チーム内の偏りも見えるように）
+    const members = {};
+    for (const c of closers) {
+      const t = String(c.team || "").trim() || "未設定";
+      members[t] = members[t] || [];
+      members[t].push({
+        email: c.email, name: c.name, active: c.active,
+        count: byCloser[c.email] || 0, total_all_time: c.assigned_count,
+      });
+    }
+    for (const t of Object.keys(members)) members[t].sort((a, b) => b.count - a.count);
+    const cfg = await getRotationConfig();
+    res.json({
+      period: { window, label: range.label || "通算", from: range.from, to: range.to },
+      mode: cfg.teamBalance, teams, teamStats: stats, members,
+    });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// チームの並び順・稼働状態を保存
+app.put("/api/apo/teams", async (req, res) => {
+  try {
+    const list = Array.isArray(req.body?.teams) ? req.body.teams : [];
+    await saveTeams(list);
+    console.log(`[apo-rotation] チーム構成を更新 by ${req.user}（${list.length}チーム）`);
     res.json({ ok: true, ...(await rotationStatus()) });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
@@ -8386,7 +8433,6 @@ app.get("/api/apo-mail-config", async (req, res) => {
 });
 app.put("/api/apo-mail-config", async (req, res) => {
   try {
-    if (!req.isAdmin) return res.status(403).json({ error: "管理者のみ変更できます" });
     const b = req.body || {};
     const patch = {};
     if (b.autoConfirm !== undefined) patch.apoMailAutoConfirm = !!b.autoConfirm;
@@ -8399,6 +8445,7 @@ app.put("/api/apo-mail-config", async (req, res) => {
     if (b.reminderBody !== undefined) patch.apoMailReminderBody = String(b.reminderBody || "").slice(0, 8000);
     if (b.maxPerRun !== undefined) patch.apoMailMaxPerRun = Math.max(1, parseInt(b.maxPerRun, 10) || 50);
     await saveSettings(patch);
+    console.log(`[apo-mail] 設定を更新 by ${req.user}`);
     res.json({ ok: true, config: await getApoMailConfig() });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
@@ -8406,7 +8453,6 @@ app.put("/api/apo-mail-config", async (req, res) => {
 // 前日リマインドを今すぐ流す（動作確認用）
 app.post("/api/apo-mail/run-reminders", async (req, res) => {
   try {
-    if (!req.isAdmin) return res.status(403).json({ error: "管理者のみ実行できます" });
     const r = await runReminderSweep({ joinUrl, repNameOf: repDisplayName });
     res.json({ ok: true, ...r });
   } catch (e) { res.status(500).json({ error: e.message }); }
