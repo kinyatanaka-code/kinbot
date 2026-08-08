@@ -21,7 +21,7 @@ import { pickCloser, commitAssignment, rotationStatus, setNextCloser,
          getRotationConfig, loadTeamContext, balanceRange, nextOrderFor } from "./rotation.js";
 import { sendApoMail, runReminderSweep, getApoMailConfig,
          DEFAULT_CONFIRM_SUBJECT, DEFAULT_CONFIRM_BODY,
-         DEFAULT_REMINDER_SUBJECT, DEFAULT_REMINDER_BODY } from "./apomail.js";
+         DEFAULT_REMINDER_SUBJECT, DEFAULT_REMINDER_BODY, stripRetiredLines } from "./apomail.js";
 import { transcribeFile, transcriberAvailable } from "./transcribe.js";
 import { createBot, leaveBot, parseTranscriptEvent, getRecordingUrl, getBot, recallConnectionInfo, getRecallUsage, getLastRecallCreate } from "./recall.js";
 import { createSession, getSession, removeSession, listActiveSessions, setOnMeetingFinalized } from "./sessions.js";
@@ -8908,9 +8908,9 @@ app.put("/api/apo-mail-config", async (req, res) => {
     if (b.reminderHour !== undefined) patch.apoMailReminderHour = Math.min(23, Math.max(0, parseInt(b.reminderHour, 10) || 0));
     if (b.companyName !== undefined) patch.apoMailCompanyName = String(b.companyName || "").slice(0, 100);
     if (b.confirmSubject !== undefined) patch.apoMailConfirmSubject = String(b.confirmSubject || "").slice(0, 300);
-    if (b.confirmBody !== undefined) patch.apoMailConfirmBody = String(b.confirmBody || "").slice(0, 8000);
+    if (b.confirmBody !== undefined) patch.apoMailConfirmBody = stripRetiredLines(String(b.confirmBody || "")).slice(0, 8000);
     if (b.reminderSubject !== undefined) patch.apoMailReminderSubject = String(b.reminderSubject || "").slice(0, 300);
-    if (b.reminderBody !== undefined) patch.apoMailReminderBody = String(b.reminderBody || "").slice(0, 8000);
+    if (b.reminderBody !== undefined) patch.apoMailReminderBody = stripRetiredLines(String(b.reminderBody || "")).slice(0, 8000);
     if (b.maxPerRun !== undefined) patch.apoMailMaxPerRun = Math.max(1, parseInt(b.maxPerRun, 10) || 50);
     await saveSettings(patch);
     console.log(`[apo-mail] 設定を更新 by ${req.user}`);

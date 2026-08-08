@@ -85,6 +85,16 @@ Phone：{{担当者電話}}
 TEL：03-6756-0421　 FAX：03-5908-8385
 ■━━━━━━━━━━━━━━━━━━━━━━━━━■`;
 
+// もう使わなくなった差し込みの行を、保存済みの本文からも取り除く。
+// （以前のテンプレートを保存したままの人が、設定を触らなくても新しい形になる）
+const RETIRED_TAGS = ["ミーティングID", "パスコード"];
+export function stripRetiredLines(body) {
+  return String(body || "")
+    .split("\n")
+    .filter((line) => !RETIRED_TAGS.some((t) => line.includes(`{{${t}}}`)))
+    .join("\n");
+}
+
 // ===== 設定の読み出し（未設定なら既定値） =====
 export async function getApoMailConfig() {
   const s = (await getSettings().catch(() => ({}))) || {};
@@ -101,9 +111,9 @@ export async function getApoMailConfig() {
     reminderHour: Number.isFinite(+s.apoMailReminderHour) ? Math.min(23, Math.max(0, +s.apoMailReminderHour)) : 8,
     companyName: String(s.apoMailCompanyName || "").trim() || "株式会社ネオキャリア",
     confirmSubject: String(s.apoMailConfirmSubject || "").trim() || DEFAULT_CONFIRM_SUBJECT,
-    confirmBody: String(s.apoMailConfirmBody || "").trim() || DEFAULT_CONFIRM_BODY,
+    confirmBody: stripRetiredLines(String(s.apoMailConfirmBody || "").trim() || DEFAULT_CONFIRM_BODY),
     reminderSubject: String(s.apoMailReminderSubject || "").trim() || DEFAULT_REMINDER_SUBJECT,
-    reminderBody: String(s.apoMailReminderBody || "").trim() || DEFAULT_REMINDER_BODY,
+    reminderBody: stripRetiredLines(String(s.apoMailReminderBody || "").trim() || DEFAULT_REMINDER_BODY),
     // 1回の自動実行で送る上限（暴走したときの保険）
     maxPerRun: Number.isFinite(+s.apoMailMaxPerRun) ? Math.max(1, +s.apoMailMaxPerRun) : 50,
   };
@@ -193,7 +203,6 @@ export function buildVars(link, { repName, repEmail, url, companyName, profile =
     "ユニット": String(profile.unit || "").trim(),
     "ZoomURL": smart,
     "担当者の会議室URL": direct,
-    "ミーティングID": meetingIdFromUrl(direct),
     "アポ獲得者姓": familyName(link.setter),
     "会社名": parts.company || "",
     "お客様名": String(link.client_name || "").trim() || parts.person || "ご担当者",
@@ -296,7 +305,7 @@ export async function sendApoMail(link, kind, { url, repName, force = false, act
 
   // 差し込みが埋まらない項目があれば、送る前に気づけるようログに出す
   const body = kind === "reminder" ? cfg.reminderBody : cfg.confirmBody;
-  const missing = ["ZoomURL", "ミーティングID", "担当者の会議室URL", "担当者電話", "部署", "ユニット", "担当者ローマ字"]
+  const missing = ["ZoomURL", "担当者の会議室URL", "担当者電話", "部署", "ユニット", "担当者ローマ字"]
     .filter((k) => body.includes(`{{${k}}}`) && !vars[k]);
   if (missing.length) {
     console.warn(`[apo-mail] ${owner} の設定が未入力のため空欄になります: ${missing.join("、")}` +
