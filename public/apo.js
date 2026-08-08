@@ -434,6 +434,15 @@ async function dbCheck(repair) {
 // ===== クローザーのローテーション設定パネル =====
 let rotState = { closers: [], next: null };
 
+// 事業が未設定のクローザーがいれば知らせる（DOCとMOCHICAの両方に出てしまうため）
+function rcBizWarning() {
+  const no = rotState.closers.filter((c) => !(c.businesses && c.businesses.length));
+  if (!no.length) return "";
+  return `<p class="note cc-warn">事業が未設定の人がいます：<b>${no.map((c) => esc(c.name || c.email)).join("、")}</b><br>` +
+    `事業が未設定だと DOC と MOCHICA の両方に出ます。` +
+    `<a href="settings.html#members">設定 → メンバー管理</a>で担当事業にチェックを入れてください。</p>`;
+}
+
 // 予備を飛ばして、通常メンバーだけに順番の番号を振る
 function rcOrderNo(index) {
   let n = 0;
@@ -458,6 +467,9 @@ function rcRender() {
         `${c.active === false ? '<span class="ap-badge ap-pending">在籍なし</span>' : ""}` +
         `${c.priority && !c.fallback ? '<span class="ap-badge ap-warn">次を最優先</span>' : ""}</span>` +
       `<span class="ap-rot-meta">${esc(c.team || "チーム未設定")}</span>` +
+      ((c.businesses && c.businesses.length)
+        ? c.businesses.map((b) => `<span class="ap-biz-badge ap-biz-${esc(b)}">${esc(b)}</span>`).join("")
+        : `<span class="ap-biz-badge ap-biz-none" title="事業が未設定のため、DOCとMOCHICAの両方に出ています">事業未設定</span>`) +
       `<span class="ap-rot-meta">${c.daily_cap ? "1日" + c.daily_cap + "件まで" : "上限なし"}</span>` +
       `<span class="ap-rot-cnt">当月${c.period_count || 0}件／累計${c.assigned_count || 0}件</span>` +
       (c.fallback || c.active === false ? "" : `<button type="button" class="btn ghost rc-first">ここから開始</button>`);
@@ -494,6 +506,12 @@ function rcRender() {
     });
     box.appendChild(row);
   });
+  const warn = rcBizWarning();
+  if (warn) {
+    const w = document.createElement("div");
+    w.innerHTML = warn;
+    box.appendChild(w);
+  }
   if (!rotState.closers.length) {
     const b = curBiz();
     box.innerHTML = `<p class="note cc-warn">${b ? b + "を担当する" : ""}クローザーが登録されていません。` +

@@ -670,6 +670,13 @@ export async function initDb() {
     )
   `);
 
+  // 初回だけ既存の登録から members を作り、そのあと各テーブルへ同期する。
+  // これで closer_rotation の事業・チーム・予備がメンバー管理の内容に揃う。
+  try {
+    await seedMembersFromLegacy();
+    await syncMembersToLegacy();
+  } catch (e) { console.error("[members] 起動時の同期に失敗", e.message); }
+
   // スキーマの作成結果をまとめて出す。ここを見れば何が足りないか一目で分かる。
   const rep = await schemaReport();
   if (schemaFailures.length) {
@@ -2622,6 +2629,12 @@ export async function syncMembersToLegacy() {
   const out = { closers: 0, interns: 0, teams: 0 };
   try {
     const members = await listMembers();
+    // メンバーが1人も登録されていないときに同期すると、既存の
+    // クローザー設定やインターン登録を消してしまうため何もしない。
+    if (!members.length) {
+      console.log("[members] 未登録のため同期しません（既存の設定はそのまま）");
+      return { ...out, skipped: true };
+    }
 
     // --- クローザー（closer / fallback） ---
     const closers = members.filter((m) => m.roles.includes("closer") || m.roles.includes("fallback"));
@@ -2673,6 +2686,75 @@ export async function syncMembersToLegacy() {
 }
 
 // メンバー未登録だが、システム内に名前が出ている人を拾う（登録漏れの案内用）
+// 初回だけ：既存の closer_rotation・interns・rep_team_mapping から members を作る。
+// これまでの登録を引き継ぐので、メンバー管理を開いた時点で一覧が埋まっている。
+export async function seedMembersFromLegacy() {
+  if (!pool) return { seeded: 0 };
+  try {
+    const { rows: has } = await pool.query(`SELECT 1 FROM members LIMIT 1`);
+    if (has.length) return { seeded: 0, skipped: true };
+
+    const [{ rows: closers }, { rows: interns }, { rows: maps }] = await Promise.all([
+      pool.query(`SELECT * FROM closer_rotation ORDER BY sort_order`),
+      pool.query(`SELECT * FROM interns ORDER BY name`),
+      pool.query(`SELECT rep_name, team_name, COALESCE(product,'') AS product FROM rep_team_mapping`),
+    ]);
+    if (!closers.length && !interns.length) return { seeded: 0, empty: true };
+
+    // 名前 → チーム・プロダクト（rep_team_mapping は名前で持っているため部分一致も見る）
+    const findMap = (name) => {
+      const n = String(name || "").trim();
+      let hit = maps.find((m) => String(m.rep_name).trim() === n);
+      if (!hit) hit = maps.find((m) => n && (n.includes(String(m.rep_name).trim()) || String(m.rep_name).trim().includes(n)));
+      return hit || null;
+    };
+
+    const byEmail = new Map();
+    const put = (email, name, role) => {
+      const e = String(email || "").trim().toLowerCase();
+      if (!e) return;
+      const cur = byEmail.get(e) || { email: e, name: String(name || "").trim() || e, roles: [], businesses: [], team: null, daily_cap: null, active: true };
+      if (!cur.roles.includes(role)) cur.roles.push(role);
+      if (!cur.name || cur.name === e) cur.name = String(name || "").trim() || cur.name;
+      byEmail.set(e, cur);
+    };
+
+    for (const c of closers) {
+      put(c.email, c.name, c.fallback ? "fallback" : "closer");
+      const m = byEmail.get(String(c.email).toLowerCase());
+      m.team = c.team || m.team;
+      m.daily_cap = c.daily_cap ?? m.daily_cap;
+      m.active = c.active !== false;
+      const bs = Array.isArray(c.businesses) ? c.businesses : [];
+      if (bs.length) m.businesses = bs;
+    }
+    for (const i of interns) put(i.email, i.name, "inside");
+
+    // チーム・プロダクトを名前から補う
+    let n = 0;
+    for (const m of byEmail.values()) {
+      const hit = findMap(m.name);
+      if (hit) {
+        if (!m.team) m.team = hit.team_name || null;
+        if (!m.businesses.length && hit.product) m.businesses = [hit.product];
+      }
+      n++;
+      await pool.query(
+        `INSERT INTO members (email, name, businesses, team, roles, active, daily_cap, sort_order)
+         VALUES ($1,$2,$3::jsonb,$4,$5::jsonb,$6,$7,$8)
+         ON CONFLICT (email) DO NOTHING`,
+        [m.email, m.name, JSON.stringify(m.businesses), m.team,
+         JSON.stringify(m.roles), m.active, m.daily_cap, n]
+      );
+    }
+    console.log(`[members] 既存の登録から ${n}名を取り込みました（クローザー${closers.length}名・インターン${interns.length}名）`);
+    return { seeded: n };
+  } catch (e) {
+    console.error("[db] seedMembersFromLegacy", e.message);
+    return { seeded: 0, error: e.message };
+  }
+}
+
 export async function memberCandidates() {
   if (!pool) return [];
   try {

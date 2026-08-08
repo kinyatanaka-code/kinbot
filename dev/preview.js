@@ -66,6 +66,7 @@ const CLOSERS = [
   { email: "eda@neo-career.co.jp", businesses: ["DOC","MOCHICA"],    name: "江田 直人", team: "浦林チーム", sort_order: 3, active: true,  priority: false, daily_cap: null, assigned_count: 40, period_count: 10 },
   { email: "morita@neo-career.co.jp", businesses: ["MOCHICA"], name: "森田 彩",   team: "中澤チーム", sort_order: 4, active: false, priority: false, daily_cap: 2,    assigned_count: 29, period_count: 6 },
   { email: "ura@neo-career.co.jp", businesses: ["DOC"], name: "浦林 鷹也", team: "浦林チーム", sort_order: 5, active: true,  priority: false, daily_cap: null, assigned_count: 6,  period_count: 1, fallback: true },
+  { email: "etori@neo-career.co.jp", name: "餌取 鴻志", team: "", sort_order: 7, active: true, priority: false, daily_cap: null, assigned_count: 0, period_count: 0 },
   { email: "naka@neo-career.co.jp", businesses: ["DOC"], name: "中澤 良太", team: "中澤チーム", sort_order: 6, active: true,  priority: false, daily_cap: null, assigned_count: 4,  period_count: 0, fallback: true },
 ];
 
