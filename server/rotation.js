@@ -22,7 +22,7 @@ import {
   listClosers, markCloserAssigned, markCloserSkipped,
   countAssignedOnDate, logAssign, clearCloserPriority,
   listTeams, syncTeamsFromClosers, markTeamAssigned, markTeamsSkipped, clearTeamPriority, setTeamNext,
-  teamAssignStats, closerAssignStats,
+  teamAssignStats, closerAssignStats, suspendedNow, eligibleDays, listSuspensions,
 } from "./db.js";
 
 // JSTの「YYYY-MM-DD」
@@ -49,16 +49,28 @@ export async function getRotationConfig() {
     // チーム単位の均等化
     //   off     … チームを見ない（個人のローテーションだけ）
     //   total   … チームの合計件数が少ないチームを優先
-    //   perHead … 1人あたりの件数が少ないチームを優先（人数が違うチームでも公平）
-    teamBalance: ["off", "total", "perHead"].includes(s.apoTeamBalance) ? s.apoTeamBalance : "off",
+    //   perHead … 1人あたりの件数が少ないチームを優先
+    //   perDay  … 稼働1日あたりの件数が少ないチームを優先（停止期間を分母から除く）
+    //             停止していた人・チームを、あとから優先して埋め合わせないのでこれが公平。
+    teamBalance: ["off", "total", "perHead", "perDay"].includes(s.apoTeamBalance) ? s.apoTeamBalance : "off",
+    // 稼働日を数える起点（未設定なら90日前から）
+    fairnessStart: /^\d{4}-\d{2}-\d{2}$/.test(String(s.apoFairnessStart || "")) ? String(s.apoFairnessStart) : "",
     // 均等化を判断する期間（month=当月・all=通算）
     balanceWindow: s.apoBalanceWindow === "all" ? "all" : "month",
   };
 }
 
 // 均等化に使う期間（JSTの当月、または通算=null）
-export function balanceRange(window) {
-  if (window === "all") return { from: null, to: null };
+export function balanceRange(window, fairnessStart = "") {
+  if (window === "all") {
+    // 通算のときは「稼働日を数える起点」から今日までを見る。
+    // 未設定なら90日前から（SQL側の既定と揃える）。
+    const to = new Date(Date.now() + 9 * 3600 * 1000);
+    const toStr = new Date(to.getTime() + 86400000).toISOString().slice(0, 10);
+    if (fairnessStart) return { from: fairnessStart, to: toStr, label: `${fairnessStart}以降` };
+    const from = new Date(to.getTime() - 90 * 86400000).toISOString().slice(0, 10);
+    return { from, to: toStr, label: "直近90日" };
+  }
   const nowJst = new Date(Date.now() + 9 * 3600 * 1000);
   const y = nowJst.getUTCFullYear(), m = nowJst.getUTCMonth();
   const from = new Date(Date.UTC(y, m, 1, 0, 0, 0) - 9 * 3600 * 1000);
@@ -89,6 +101,12 @@ export function teamOf(closer) {
 // チームの「配りたい度合い」を数値にする。小さいほど優先。
 export function teamScore(stat, mode) {
   if (!stat) return 0;
+  if (mode === "perDay") {
+    // 稼働人日で割る。停止していた期間は分母に入っていないので、
+    // 停止で件数が少なくなっただけのチームが優先されることはない。
+    const d = stat.personDays || 0;
+    return d ? stat.count / d : Number.POSITIVE_INFINITY;
+  }
   if (mode === "perHead") {
     const n = stat.activeMembers || stat.members || 0;
     return n ? stat.count / n : Number.POSITIVE_INFINITY; // 稼働者0のチームは最後
@@ -176,7 +194,11 @@ export async function pickCloser(link, { inviteOwner, closers = null, cfg = null
   const conf = cfg || (await getRotationConfig());
   // その事業を担当するクローザーだけを候補にする
   const biz = String(business || link.business || "").trim();
-  const all = closers || (await listClosers({ business: biz }));
+  let all = closers || (await listClosers({ business: biz }));
+  // 停止中の人は候補から外す（順番も飛ばす。復帰後に埋め合わせはしない）
+  const susp = (teamCtx && teamCtx.suspended) || (await suspendedNow());
+  all = all.map((c) => ({ ...c, suspended: !!susp[c.email], suspendReason: susp[c.email] || "" }))
+           .filter((c) => !c.suspended);
   const ctx = teamCtx || (await loadTeamContext(conf, biz));
   const cands = orderCandidates(all, nextOrderFor(conf, biz), {
     teamBalance: conf.teamBalance, teamStats: ctx.teamStats, teams: ctx.teams,
@@ -232,9 +254,13 @@ export async function pickCloser(link, { inviteOwner, closers = null, cfg = null
     } else {
       why = c.priority ? "前回代打で飛ばされたため最優先" : "ローテーション順";
       if (conf.teamBalance !== "off" && st) {
-        why += conf.teamBalance === "perHead"
-          ? `／${st.team}が1人あたり${st.perHead ?? 0}件で最少`
-          : `／${st.team}が${st.count}件で最少`;
+        if (conf.teamBalance === "perDay") {
+          why += `／${st.team}が稼働1日あたり${st.perDay ?? 0}件で最少（稼働${st.personDays ?? 0}人日）`;
+        } else if (conf.teamBalance === "perHead") {
+          why += `／${st.team}が1人あたり${st.perHead ?? 0}件で最少`;
+        } else {
+          why += `／${st.team}が${st.count}件で最少`;
+        }
       }
     }
     return {
@@ -255,12 +281,13 @@ export async function loadTeamContext(cfg, business = "") {
   const conf = cfg || (await getRotationConfig());
   // teamBalance が off でも、予備メンバーの優先順（チームのアポ累計）に使うので常に集計する
   await syncTeamsFromClosers();
-  const range = balanceRange(conf.balanceWindow);
-  const [teams, teamStats] = await Promise.all([
+  const range = balanceRange(conf.balanceWindow, conf.fairnessStart);
+  const [teams, teamStats, suspended] = await Promise.all([
     listTeams(),
     teamAssignStats(range.from, range.to, business),
+    suspendedNow(),
   ]);
-  return { teams, teamStats, range, business };
+  return { teams, teamStats, range, business, suspended };
 }
 
 // 割り当てを確定し、ローテーションの状態を進める
@@ -332,16 +359,26 @@ export async function rotationStatus(business = "") {
   const all = await listClosers({ business: biz });
   // チーム表示は均等化がOFFでも見たいので、常に集計する
   await syncTeamsFromClosers();
-  const range = balanceRange(cfg.balanceWindow);
-  const [teams, teamStats, byCloser] = await Promise.all([
+  const range = balanceRange(cfg.balanceWindow, cfg.fairnessStart);
+  const [teams, teamStats, byCloser, susp, days, suspList] = await Promise.all([
     listTeams(), teamAssignStats(range.from, range.to, biz), closerAssignStats(range.from, range.to),
+    suspendedNow(), eligibleDays(range.from, range.to), listSuspensions(),
   ]);
-  const cands = orderCandidates(all, nextOrderFor(cfg, biz), {
+  const cands = orderCandidates(all.filter((c) => !susp[c.email]), nextOrderFor(cfg, biz), {
     teamBalance: cfg.teamBalance, teamStats, teams,
   });
   return {
     config: cfg,
-    closers: all.map((c) => ({ ...c, team: teamOf(c), fallback: !!c.fallback, period_count: byCloser[c.email] || 0 })),
+    closers: all.map((c) => {
+      const d = days[c.email] || { days: 0, suspendedDays: 0 };
+      const cnt = byCloser[c.email] || 0;
+      return { ...c, team: teamOf(c), fallback: !!c.fallback,
+        baseline_count: c.baseline_count || 0, period_count: cnt,
+        suspended: !!susp[c.email], suspend_reason: susp[c.email] || "",
+        eligible_days: d.days, suspended_days: d.suspendedDays,
+        per_day: d.days ? +(cnt / d.days).toFixed(3) : null };
+    }),
+    suspensions: suspList,
     teams, teamStats,
     period: { window: cfg.balanceWindow, label: range.label || "通算", from: range.from, to: range.to },
     business: biz,

@@ -29,7 +29,7 @@ async function sq(sql, params) {
 // 期待するテーブル・カラムが実際にできているかを確認する
 const EXPECTED_TABLES = [
   "meetings", "deals", "deal_events", "smart_links", "interns", "users", "settings",
-  "apo_mail_log", "gmail_actions", "closer_rotation", "assign_log", "team_rotation", "members", "proposal_files",
+  "apo_mail_log", "gmail_actions", "closer_rotation", "assign_log", "team_rotation", "members", "closer_suspensions", "proposal_files",
 ];
 const EXPECTED_COLUMNS = [
   ["smart_links", "client_email"], ["smart_links", "client_name"],
@@ -606,6 +606,8 @@ export async function initDb() {
   await sq(`ALTER TABLE closer_rotation ADD COLUMN IF NOT EXISTS fallback BOOLEAN NOT NULL DEFAULT false;`);
   // 担当事業（DOC / MOCHICA）。アポ振り分けを事業ごとに分けるために使う。
   await sq(`ALTER TABLE closer_rotation ADD COLUMN IF NOT EXISTS businesses JSONB NOT NULL DEFAULT '[]'::jsonb;`);
+  // 過去の実績（スプレッドシート等からの取り込み分）。均等化の計算に足して使う。
+  await sq(`ALTER TABLE closer_rotation ADD COLUMN IF NOT EXISTS baseline_count INT NOT NULL DEFAULT 0;`);
   // そのアポがどちらの事業のものか（アポ獲得者の担当事業から決まる。画面で変更もできる）
   await sq(`ALTER TABLE smart_links ADD COLUMN IF NOT EXISTS business TEXT;`);
   // どのチームに配ったかを割り振り履歴にも残す
@@ -627,6 +629,21 @@ export async function initDb() {
   // チームごとの「次に回ってくる人」。全体で1つのポインタだとチーム内が偏るため、チーム別に持つ。
   await sq(`ALTER TABLE team_rotation ADD COLUMN IF NOT EXISTS next_email TEXT;`);
   await sq(`CREATE INDEX IF NOT EXISTS ix_team_rotation_order ON team_rotation(sort_order);`);
+
+  // 割り振り停止の履歴。停止していた期間は「稼働日」から除くため、
+  // 停止で件数が少なくなった人を、あとから優先して埋め合わせることをしない。
+  await sq(`
+    CREATE TABLE IF NOT EXISTS closer_suspensions (
+      id         BIGSERIAL PRIMARY KEY,
+      email      TEXT NOT NULL,
+      start_date DATE NOT NULL,
+      end_date   DATE,
+      reason     TEXT,
+      created_by TEXT,
+      created_at TIMESTAMPTZ DEFAULT now()
+    );
+  `);
+  await sq(`CREATE INDEX IF NOT EXISTS ix_suspensions_email ON closer_suspensions(email, start_date);`);
 
   // ===== メンバー管理（登録元をここ1つにまとめる） =====
   // 事業（DOC / MOCHICA）・チーム・役割（クローザー／インサイド／予備）をここで持ち、
@@ -2553,6 +2570,91 @@ export async function markAutoAssigned(slug) {
   try { await pool.query(`UPDATE smart_links SET auto_assigned_at = now() WHERE slug=$1`, [slug]); } catch {}
 }
 
+// ===== 割り振り停止の履歴 =====
+// 停止していた期間は稼働日に数えない。そのため「停止で減った分」を
+// あとから優先して取り戻すような動きにはならない。
+export async function listSuspensions(email = "") {
+  if (!pool) return [];
+  try {
+    // 名前も一緒に返す（事業タブによって候補一覧に居ない人でも画面に名前が出るように）
+    const sql = `SELECT s.*, COALESCE(c.name, m.name, s.email) AS name
+                   FROM closer_suspensions s
+                   LEFT JOIN closer_rotation c ON c.email = s.email
+                   LEFT JOIN members m         ON m.email = s.email
+                  ${email ? "WHERE s.email = $1" : ""}
+                  ORDER BY s.start_date DESC`;
+    const { rows } = email
+      ? await pool.query(sql, [String(email).toLowerCase()])
+      : await pool.query(sql);
+    return rows;
+  } catch (e) { console.error("[db] listSuspensions", e.message); return []; }
+}
+
+export async function addSuspension({ email, startDate, endDate, reason, createdBy }) {
+  if (!pool || !email || !startDate) return null;
+  try {
+    const { rows } = await pool.query(
+      `INSERT INTO closer_suspensions (email, start_date, end_date, reason, created_by)
+       VALUES ($1,$2,$3,$4,$5) RETURNING *`,
+      [String(email).toLowerCase(), startDate, endDate || null,
+       String(reason || "").slice(0, 200) || null, createdBy || null]);
+    return rows[0];
+  } catch (e) { console.error("[db] addSuspension", e.message); return null; }
+}
+
+export async function deleteSuspension(id) {
+  if (!pool) return;
+  try { await pool.query(`DELETE FROM closer_suspensions WHERE id=$1`, [id]); } catch {}
+}
+
+// 今この人が停止中か（自動割り振りの対象から外すため）
+export async function suspendedNow() {
+  if (!pool) return {};
+  try {
+    const { rows } = await pool.query(
+      `SELECT email, reason FROM closer_suspensions
+        WHERE start_date <= (now() AT TIME ZONE 'Asia/Tokyo')::date
+          AND (end_date IS NULL OR end_date >= (now() AT TIME ZONE 'Asia/Tokyo')::date)`);
+    const out = {};
+    for (const r of rows) out[r.email] = r.reason || "停止中";
+    return out;
+  } catch { return {}; }
+}
+
+// 期間内の「稼働日数」をクローザーごとに返す。
+// 停止期間と、登録前の期間は差し引く。fromISO が無い場合は運用開始日から数える。
+export async function eligibleDays(fromISO, toISO) {
+  if (!pool) return {};
+  try {
+    const { rows } = await pool.query(
+      `WITH win AS (
+         SELECT $1::date AS f, LEAST($2::date, (now() AT TIME ZONE 'Asia/Tokyo')::date + 1) AS t
+       ), base AS (
+         SELECT c.email,
+                GREATEST(w.f, (c.created_at AT TIME ZONE 'Asia/Tokyo')::date) AS start_d,
+                w.t AS end_d
+           FROM closer_rotation c CROSS JOIN win w
+       ), susp AS (
+         SELECT b.email,
+                COALESCE(SUM(GREATEST(0,
+                  LEAST(COALESCE(s.end_date + 1, b.end_d), b.end_d)
+                  - GREATEST(s.start_date, b.start_d))), 0) AS d
+           FROM base b
+           LEFT JOIN closer_suspensions s ON s.email = b.email
+          GROUP BY b.email
+       )
+       SELECT b.email,
+              GREATEST(0, (b.end_d - b.start_d) - COALESCE(s.d, 0))::int AS days,
+              GREATEST(0, (b.end_d - b.start_d))::int                    AS raw_days,
+              COALESCE(s.d, 0)::int                                       AS suspended_days
+         FROM base b LEFT JOIN susp s ON s.email = b.email`,
+      [fromISO, toISO]);
+    const out = {};
+    for (const r of rows) out[r.email] = { days: r.days, rawDays: r.raw_days, suspendedDays: r.suspended_days };
+    return out;
+  } catch (e) { console.error("[db] eligibleDays", e.message); return {}; }
+}
+
 // ===== メンバー管理 =====
 // 役割: closer（クローザー）／inside（インサイド＝アポ獲得）／fallback（予備）
 export const MEMBER_ROLES = ["closer", "inside", "fallback"];
@@ -2871,13 +2973,18 @@ export async function teamAssignStats(fromISO, toISO, business = "") {
     if (fromISO && toISO) { params.push(fromISO, toISO); where = `AND sl.start_time >= $1 AND sl.start_time < $2`; }
     // 事業の絞り込み。事業が未設定の人はどの事業でも対象にする（設定漏れで消えないように）。
     const b = String(business || "").trim();
-    let bizWhere = "", bizMembers = "";
+    let bizWhere = "", bizMembers = "", bizDays = "";
     if (b) {
       params.push(b);
       const n = params.length;
       bizWhere = `AND (jsonb_array_length(cr.businesses) = 0 OR cr.businesses ? $${n})`;
       bizMembers = `WHERE (jsonb_array_length(businesses) = 0 OR businesses ? $${n})`;
+      bizDays = `AND (jsonb_array_length(c.businesses) = 0 OR c.businesses ? $${n})`;
     }
+    // 稼働日の計算に使う期間。通算のときは開始日を渡してもらう（無ければ90日前）。
+    params.push(fromISO || null, toISO || null);
+    const fromParam = `COALESCE($${params.length - 1}::date, (now() AT TIME ZONE 'Asia/Tokyo')::date - 90)`;
+    const toParam = `COALESCE($${params.length}::date, (now() AT TIME ZONE 'Asia/Tokyo')::date + 1)`;
     const { rows } = await pool.query(`
       WITH members AS (
         SELECT COALESCE(NULLIF(TRIM(team), ''), '未設定') AS team,
@@ -2893,10 +3000,35 @@ export async function teamAssignStats(fromISO, toISO, business = "") {
           JOIN closer_rotation cr ON cr.email = sl.current_owner
          WHERE COALESCE(sl.current_owner,'') <> '' ${where} ${bizWhere}
          GROUP BY 1
+      ), base AS (
+        -- 過去の実績（取り込み分）。kinbotで配る前の件数も均等化に反映させる。
+        SELECT COALESCE(NULLIF(TRIM(team), ''), '未設定') AS team,
+               COALESCE(SUM(baseline_count), 0)::int AS base
+          FROM closer_rotation ${bizMembers} GROUP BY 1
+      ), days AS (
+        -- 稼働人日：停止していた期間を除いた「配れた日数」の合計。
+        -- 停止で件数が減った人・チームを、あとから優先して埋め合わせないための分母。
+        SELECT COALESCE(NULLIF(TRIM(c.team), ''), '未設定') AS team,
+               COALESCE(SUM(GREATEST(0,
+                 (LEAST(${toParam}, (now() AT TIME ZONE 'Asia/Tokyo')::date + 1)
+                  - GREATEST(${fromParam}, (c.created_at AT TIME ZONE 'Asia/Tokyo')::date))
+                 - COALESCE((
+                     SELECT SUM(GREATEST(0,
+                       LEAST(COALESCE(s.end_date + 1, LEAST(${toParam}, (now() AT TIME ZONE 'Asia/Tokyo')::date + 1)),
+                             LEAST(${toParam}, (now() AT TIME ZONE 'Asia/Tokyo')::date + 1))
+                       - GREATEST(s.start_date, GREATEST(${fromParam}, (c.created_at AT TIME ZONE 'Asia/Tokyo')::date))))
+                       FROM closer_suspensions s WHERE s.email = c.email), 0)
+               )), 0)::int AS person_days
+          FROM closer_rotation c
+         WHERE c.active AND NOT c.fallback ${bizDays}
+         GROUP BY 1
       )
       SELECT m.team,
              m.members, m.active_members, m.fallback_members,
-             COALESCE(c.cnt, 0) AS cnt,
+             COALESCE(c.cnt, 0) + COALESCE(bs.base, 0) AS cnt,
+             COALESCE(c.cnt, 0) AS cnt_kinbot,
+             COALESCE(bs.base, 0) AS base_cnt,
+             COALESCE(dy.person_days, 0) AS person_days,
              COALESCE(t.assigned_count, 0) AS total_all_time,
              COALESCE(t.active, true)      AS active,
              COALESCE(t.priority, false)   AS priority,
@@ -2904,12 +3036,18 @@ export async function teamAssignStats(fromISO, toISO, business = "") {
              t.last_assigned_at
         FROM members m
         LEFT JOIN counts c       ON c.team = m.team
+        LEFT JOIN base   bs      ON bs.team = m.team
+        LEFT JOIN days   dy      ON dy.team = m.team
         LEFT JOIN team_rotation t ON t.team_name = m.team
        ORDER BY COALESCE(t.sort_order, 1), m.team`, params);
     return rows.map((r) => ({
       team: r.team, members: r.members, activeMembers: r.active_members,
       fallbackMembers: r.fallback_members,
-      count: r.cnt, totalAllTime: r.total_all_time,
+      count: r.cnt, countKinbot: r.cnt_kinbot, baseline: r.base_cnt,
+      personDays: r.person_days,
+      // 稼働1日あたりの件数。停止期間は分母から除かれている。
+      perDay: r.person_days ? +(r.cnt / r.person_days).toFixed(3) : null,
+      totalAllTime: r.total_all_time,
       perHead: r.active_members ? +(r.cnt / r.active_members).toFixed(2) : null,
       active: r.active, priority: r.priority, sortOrder: r.sort_order,
       lastAssignedAt: r.last_assigned_at,
@@ -2929,8 +3067,26 @@ export async function closerAssignStats(fromISO, toISO) {
         WHERE COALESCE(current_owner,'') <> '' ${where} GROUP BY 1`, params);
     const out = {};
     for (const r of rows) out[r.email] = r.cnt;
+    // 過去の実績（取り込み分）を足す
+    const { rows: bs } = await pool.query(
+      `SELECT email, baseline_count FROM closer_rotation WHERE baseline_count > 0`);
+    for (const r of bs) out[r.email] = (out[r.email] || 0) + r.baseline_count;
     return out;
   } catch { return {}; }
+}
+
+// 過去の実績を保存する（メールアドレス → 件数）
+export async function saveBaselineCounts(map) {
+  if (!pool || !map || typeof map !== "object") return listClosers();
+  try {
+    for (const [email, n] of Object.entries(map)) {
+      const v = Math.max(0, parseInt(n, 10) || 0);
+      await pool.query(
+        `UPDATE closer_rotation SET baseline_count=$2, updated_at=now() WHERE email=$1`,
+        [String(email).toLowerCase(), v]);
+    }
+  } catch (e) { console.error("[db] saveBaselineCounts", e.message); }
+  return listClosers();
 }
 
 // ===== Gmail操作ログ =====

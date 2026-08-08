@@ -348,23 +348,29 @@ async function loadTeamStats() {
       box.innerHTML = `<div class="empty-state">クローザーがまだ登録されていません。「割り振り設定」タブで登録してください。</div>`;
       say(""); return;
     }
-    const modeLabel = { off: "チームを見ない", total: "チーム合計で均等", perHead: "1人あたりで均等" }[d.mode] || d.mode;
+    const modeLabel = { off: "チームを見ない", total: "チーム合計で均等",
+      perHead: "1人あたりで均等", perDay: "稼働1日あたりで均等" }[d.mode] || d.mode;
     const max = Math.max(1, ...stats.map((t) => t.count));
-    const maxPer = Math.max(0.01, ...stats.map((t) => t.perHead || 0));
-    const usePer = d.mode === "perHead";
+    const usePerDay = d.mode === "perDay";
+    const maxPer = usePerDay
+      ? Math.max(0.001, ...stats.map((t) => t.perDay || 0))
+      : Math.max(0.01, ...stats.map((t) => t.perHead || 0));
+    const usePer = d.mode === "perHead" || usePerDay;
 
     let html = `<p class="note">期間：<b>${esc(d.period.label)}</b>／配り方：<b>${esc(modeLabel)}</b>` +
       `（商談日を基準に集計しています）</p>`;
     html += `<div class="ts-teams">`;
     for (const t of stats) {
-      const val = usePer ? (t.perHead || 0) : t.count;
+      const val = usePerDay ? (t.perDay || 0) : usePer ? (t.perHead || 0) : t.count;
       const pct = Math.round((val / (usePer ? maxPer : max)) * 100);
       html += `<div class="ts-team${t.active === false ? " ap-rot-off" : ""}">
         <div class="ts-head">
           <span class="ts-name">${esc(t.team)}</span>
           ${t.priority ? '<span class="ap-badge ap-warn">次を優先</span>' : ""}
           ${t.active === false ? '<span class="ap-badge ap-pending">配布対象外</span>' : ""}
-          <span class="ts-num">${t.count}件<span class="ts-sub">／通常${t.activeMembers}名${t.fallbackMembers ? "・予備" + t.fallbackMembers + "名" : ""}・1人あたり${t.perHead ?? 0}件</span></span>
+          <span class="ts-num">${t.count}件<span class="ts-sub">／通常${t.activeMembers}名${t.fallbackMembers ? "・予備" + t.fallbackMembers + "名" : ""}` +
+          `・1人あたり${t.perHead ?? 0}件${t.personDays ? "・稼働" + t.personDays + "人日で1日" + (t.perDay ?? 0) + "件" : ""}` +
+          `${t.baseline ? "・過去" + t.baseline + "件含む" : ""}</span></span>
         </div>
         <div class="ts-bar"><span style="width:${pct}%"></span></div>
         <div class="ts-members">`;
@@ -378,10 +384,11 @@ async function loadTeamStats() {
     // 偏りの目安を出す
     const values = stats.filter((t) => t.active !== false).map((t) => (usePer ? (t.perHead || 0) : t.count));
     if (values.length > 1) {
-      const gap = (Math.max(...values) - Math.min(...values)).toFixed(usePer ? 2 : 0);
-      html += `<p class="note ${(+gap > (usePer ? 1.5 : 3)) ? "cc-warn" : ""}">` +
-        `最も多いチームと少ないチームの差：<b>${gap}${usePer ? "件/人" : "件"}</b>` +
-        `${(+gap > (usePer ? 1.5 : 3)) ? "　偏りが出ています。配り方の設定を見直すか、チームの稼働状態を確認してください。" : "　均等に配れています。"}</p>`;
+      const gap = (Math.max(...values) - Math.min(...values)).toFixed(usePerDay ? 3 : usePer ? 2 : 0);
+      const thr = usePerDay ? 0.15 : usePer ? 1.5 : 3;
+      html += `<p class="note ${(+gap > thr) ? "cc-warn" : ""}">` +
+        `最も多いチームと少ないチームの差：<b>${gap}${usePerDay ? "件/稼働日" : usePer ? "件/人" : "件"}</b>` +
+        `${(+gap > thr) ? "　偏りが出ています。配り方の設定を見直すか、チームの稼働状態を確認してください。" : "　均等に配れています。"}</p>`;
     }
     box.innerHTML = html;
     bizLabel("tsBizLabel");
@@ -465,13 +472,17 @@ function rcRender() {
       `<span class="ap-rot-name">${esc(c.name || c.email)}` +
         `${c.fallback ? '<span class="ap-badge ap-badge-fb">予備</span>' : ""}` +
         `${c.active === false ? '<span class="ap-badge ap-pending">在籍なし</span>' : ""}` +
+        `${c.suspended ? '<span class="ap-badge ap-warn">停止中</span>' : ""}` +
         `${c.priority && !c.fallback ? '<span class="ap-badge ap-warn">次を最優先</span>' : ""}</span>` +
       `<span class="ap-rot-meta">${esc(c.team || "チーム未設定")}</span>` +
       ((c.businesses && c.businesses.length)
         ? c.businesses.map((b) => `<span class="ap-biz-badge ap-biz-${esc(b)}">${esc(b)}</span>`).join("")
         : `<span class="ap-biz-badge ap-biz-none" title="事業が未設定のため、DOCとMOCHICAの両方に出ています">事業未設定</span>`) +
       `<span class="ap-rot-meta">${c.daily_cap ? "1日" + c.daily_cap + "件まで" : "上限なし"}</span>` +
-      `<span class="ap-rot-cnt">当月${c.period_count || 0}件／累計${c.assigned_count || 0}件</span>` +
+      `<span class="ap-rot-cnt">${c.period_count || 0}件` +
+        `${c.eligible_days ? " ／ 稼働" + c.eligible_days + "日" : ""}` +
+        `${c.per_day != null ? "（1日" + c.per_day + "件）" : ""}` +
+        `${c.suspended_days ? " ／ 停止" + c.suspended_days + "日" : ""}</span>` +
       (c.fallback || c.active === false ? "" : `<button type="button" class="btn ghost rc-first">ここから開始</button>`);
 
     const firstBtn = row.querySelector(".rc-first");
@@ -574,6 +585,70 @@ function rcTeamsRender() {
   });
 }
 
+// 割り振り停止の履歴
+function rcSuspRender() {
+  const sel = $("rcSuspWho");
+  if (sel) {
+    const cur = sel.value;
+    sel.innerHTML = "";
+    for (const c of rotState.closers) sel.add(new Option(c.name || c.email, c.email));
+    if (cur) sel.value = cur;
+  }
+  const box = $("rcSuspList");
+  if (!box) return;
+  const list = rotState.suspensions || [];
+  if (!list.length) { box.innerHTML = '<p class="note">停止の登録はありません。</p>'; return; }
+  const nameOf = (r) => {
+    if (r.name) return r.name;
+    const c = rotState.closers.find((x) => x.email === r.email);
+    return c ? (c.name || c.email) : r.email;
+  };
+  box.innerHTML = "";
+  for (const r of list) {
+    const ongoing = !r.end_date;
+    const row = document.createElement("div");
+    row.className = "ap-susp-row" + (ongoing ? " ap-susp-now" : "");
+    const f = String(r.start_date).slice(0, 10);
+    const t = r.end_date ? String(r.end_date).slice(0, 10) : "";
+    row.innerHTML = `<span class="ap-susp-name">${esc(nameOf(r))}</span>` +
+      `<span class="ap-susp-term">${esc(f)} 〜 ${t ? esc(t) : "継続中"}</span>` +
+      (ongoing ? '<span class="ap-badge ap-warn">停止中</span>' : "") +
+      `<span class="ap-rot-cnt">${esc(r.reason || "")}</span>` +
+      `<button type="button" class="btn ghost ap-susp-del" data-id="${r.id}">削除</button>`;
+    row.querySelector(".ap-susp-del").addEventListener("click", async () => {
+      if (!confirm("この停止の登録を削除します。稼働日の計算がやり直されます。よろしいですか？")) return;
+      try {
+        const rr = await fetch(`/api/apo/suspensions/${r.id}?product=` + encodeURIComponent(curBiz()), { method: "DELETE" });
+        const dd = await rr.json();
+        if (!rr.ok) throw new Error(dd.error || "削除に失敗しました");
+        await loadRotation();
+      } catch (e) { alert("削除できませんでした: " + e.message); }
+    });
+    box.appendChild(row);
+  }
+}
+
+// 過去の実績（取り込み分）の入力欄
+function rcBaseRender() {
+  const box = $("rcBaseList");
+  if (!box) return;
+  if (!rotState.closers.length) { box.innerHTML = '<p class="note">クローザーが登録されていません。</p>'; return; }
+  box.innerHTML = "";
+  rotState.closers.forEach((c) => {
+    const row = document.createElement("label");
+    row.className = "ap-base-row";
+    row.innerHTML = `<span class="ap-base-name">${esc(c.name || c.email)}` +
+      `${c.fallback ? '<span class="ap-badge ap-badge-fb">予備</span>' : ""}</span>` +
+      `<input type="number" min="0" max="9999" class="rc-base" value="${c.baseline_count || 0}" /> 件` +
+      `<span class="ap-rot-cnt">kinbotで配った分は別に数えます</span>`;
+    row.querySelector(".rc-base").addEventListener("change", (e) => {
+      const v = parseInt(e.target.value, 10);
+      c.baseline_count = Number.isFinite(v) && v > 0 ? v : 0;
+    });
+    box.appendChild(row);
+  });
+}
+
 function rcNextLabel() {
   const el = $("rcNext");
   if (!el) return;
@@ -611,9 +686,11 @@ async function loadRotation() {
     if ($("rcMax")) $("rcMax").value = c.maxPerRun ?? 30;
     if ($("rcTeamBalance")) $("rcTeamBalance").value = c.teamBalance || "off";
     if ($("rcWindow")) $("rcWindow").value = c.balanceWindow || "month";
+    if ($("rcFairStart")) $("rcFairStart").value = c.fairnessStart || "";
+    rotState.suspensions = d.suspensions || [];
     rotState.teams = d.teams || [];
     rotState.teamRows = null;
-    rcRender(); rcNextLabel(); rcFillAdd(); rcTeamsRender(); bizLabel("rcBizLabel");
+    rcRender(); rcNextLabel(); rcFillAdd(); rcTeamsRender(); rcBaseRender(); rcSuspRender(); bizLabel("rcBizLabel");
   } catch { rcSay("ローテーションの設定を読めませんでした"); }
 }
 
@@ -656,6 +733,7 @@ async function saveRotation() {
         maxPerRun: $("rcMax").value,
         teamBalance: $("rcTeamBalance").value,
         balanceWindow: $("rcWindow").value,
+        fairnessStart: $("rcFairStart") ? $("rcFairStart").value : "",
       }),
     });
     d = await r.json();
@@ -665,7 +743,7 @@ async function saveRotation() {
     rotState.teams = d.teams || rotState.teams;
     rotState.teams = d.teams || [];
     rotState.teamRows = null;
-    rcRender(); rcNextLabel(); rcFillAdd(); rcTeamsRender(); bizLabel("rcBizLabel");
+    rcRender(); rcNextLabel(); rcFillAdd(); rcTeamsRender(); rcBaseRender(); rcSuspRender(); bizLabel("rcBizLabel");
     rcSay(`保存しました（通常${rotState.closers.filter((c) => c.active !== false && !c.fallback).length}名・予備${rotState.closers.filter((c) => c.fallback).length}名）`, 4000);
   } catch (e) {
     rcSay("保存に失敗しました: " + e.message);
@@ -770,6 +848,45 @@ async function saveMailCfg() {
   if ($("tsReload")) $("tsReload").addEventListener("click", loadTeamStats);
   if ($("tsWindow")) $("tsWindow").addEventListener("change", loadTeamStats);
   if ($("rcTeamBalance")) $("rcTeamBalance").addEventListener("change", () => { rcTeamsRender(); rcNextLabel(); });
+  if ($("rcSuspAdd")) $("rcSuspAdd").addEventListener("click", async () => {
+    const el = $("rcSuspStatus");
+    const say = (m, ms) => { if (el) { el.textContent = m; if (ms) setTimeout(() => { if (el.textContent === m) el.textContent = ""; }, ms); } };
+    const email = $("rcSuspWho").value;
+    const from = $("rcSuspFrom").value;
+    const to = $("rcSuspTo").value;
+    if (!email) { say("クローザーを選んでください", 4000); return; }
+    if (!from) { say("開始日を入力してください", 4000); return; }
+    if (!to && !confirm("終了日が空です。現在も停止中として扱い、自動割り振りの対象から外します。よろしいですか？")) return;
+    say("登録中…");
+    try {
+      const r = await fetch("/api/apo/suspensions", {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ email, startDate: from, endDate: to || null, reason: $("rcSuspWhy").value, product: curBiz() }),
+      });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.error || "登録に失敗しました");
+      $("rcSuspFrom").value = ""; $("rcSuspTo").value = ""; $("rcSuspWhy").value = "";
+      say("登録しました。稼働日の計算に反映されます", 5000);
+      await loadRotation();
+    } catch (e) { say("失敗: " + e.message); }
+  });
+  if ($("rcBaseSave")) $("rcBaseSave").addEventListener("click", async () => {
+    const el = $("rcBaseStatus");
+    const say = (m, ms) => { if (el) { el.textContent = m; if (ms) setTimeout(() => { if (el.textContent === m) el.textContent = ""; }, ms); } };
+    say("保存中…");
+    try {
+      const counts = {};
+      for (const c of rotState.closers) counts[c.email] = c.baseline_count || 0;
+      const r = await fetch("/api/apo/baseline", {
+        method: "PUT", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ counts, product: curBiz() }),
+      });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.error || "保存に失敗しました");
+      say("保存しました。均等化の計算に反映されます", 5000);
+      await loadRotation();
+    } catch (e) { say("失敗: " + e.message); }
+  });
   if ($("rcSave")) $("rcSave").addEventListener("click", saveRotation);
   if ($("rcScanNow")) $("rcScanNow").addEventListener("click", async () => {
     if (!confirm("カレンダーを今すぐスキャンして、未割り当てのアポを自動で割り振ります。よろしいですか？")) return;

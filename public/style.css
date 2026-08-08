@@ -726,6 +726,19 @@ table.bant td:first-child { color: var(--muted); width: 80px; }
   border-radius: 999px; background: var(--panel-2); color: var(--muted); vertical-align: middle; }
 .ap-biz-DOC { background: #E3F4EA; color: #1F7A4D; }
 .ap-biz-MOCHICA { background: #E7EEFB; color: #3A5C9A; }
+.ap-susp-add { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 10px 0 12px; font-size: 12.5px; }
+.ap-susp-add input[type="text"] { flex: 1 1 180px; padding: 6px 9px; border: 1px solid var(--line); border-radius: 8px; font-size: 12.5px; font-family: inherit; }
+.ap-susp-add input[type="date"], .ap-susp-add select { padding: 5px 8px; border: 1px solid var(--line); border-radius: 8px; font-size: 12.5px; font-family: inherit; }
+.ap-susp-list { display: flex; flex-direction: column; gap: 7px; }
+.ap-susp-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; padding: 8px 12px; border: 1px solid var(--line); border-radius: 9px; background: var(--panel-2); font-size: 12.5px; }
+.ap-susp-row.ap-susp-now { border-color: #E8D3B6; background: #FDF6EE; }
+.ap-susp-name { font-weight: 700; min-width: 110px; }
+.ap-susp-term { color: var(--muted); }
+.ap-susp-row .btn { margin-left: auto; }
+.ap-base-list { display: flex; flex-direction: column; gap: 7px; margin: 10px 0; }
+.ap-base-row { display: flex; align-items: center; gap: 10px; font-size: 12.5px; }
+.ap-base-name { min-width: 150px; font-weight: 700; display: inline-flex; align-items: center; gap: 6px; }
+.rc-base { width: 74px; padding: 5px 8px; border: 1px solid var(--line); border-radius: 8px; font-size: 12.5px; font-family: inherit; }
 .ap-biz-none { background: #FBEEE0; color: #A8611A; }
 .ap-bizsel { padding: 4px 6px; border: 1px solid var(--line); border-radius: 7px; font-size: 11.5px; font-family: inherit; background: var(--panel); }
 

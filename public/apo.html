@@ -69,6 +69,7 @@
                     <option value="off">チームを見ない（個人の順番だけ）</option>
                     <option value="total">チームの合計件数で均等にする</option>
                     <option value="perHead">1人あたりの件数で均等にする</option>
+                    <option value="perDay">稼働1日あたりの件数で均等にする（推奨）</option>
                   </select>
                 </label>
                 <label>比べる期間
@@ -77,13 +78,37 @@
                     <option value="all">通算</option>
                   </select>
                 </label>
+                <label>稼働日を数える起点 <input type="date" id="rcFairStart" /></label>
               </div>
+              <p class="note">「稼働1日あたり」は<b>停止していた期間を分母から除いて</b>比べます。1週間停止した人は件数が少なくなりますが、稼働日も少ないので<b>復帰後に埋め合わせで多く配られることはありません</b>。停止期間は下の「割り振り停止の履歴」に登録してください。</p>
               <div id="rcTeams" class="ap-team-list"></div>
               <div class="ap-rot-next" id="rcNext"></div>
               <h4 class="ap-rot-h">割り振りの順番<span id="rcBizLabel" class="ap-biz-badge"></span></h4>
               <p class="note"><b>ここに並ぶのは、<a href="settings.html#members">設定 → メンバー管理</a>で「クローザー」または「予備」の役割を付けた人です。</b>メンバーの追加・削除、チーム、1日の上限、在籍状況はメンバー管理で設定します。この画面では<b>回る順番だけ</b>をドラッグで変更します。<br>
               「予備」の人は通常の順番に入りません。通常メンバー全員が埋まっているときだけ回り、予備が複数いる場合は所属チームのアポ累計が少ない側から試します。</p>
               <div id="rcList" class="ap-rot-list"></div>
+              <details class="ap-help" id="rcSuspWrap">
+                <summary>割り振り停止の履歴</summary>
+                <p class="note">停止していた期間を登録すると、その分は<b>稼働日から除かれます</b>。件数が少なくても「配れなかった期間があっただけ」と扱われるので、復帰後に優先されません。<br>終了日を空にすると<b>現在も停止中</b>として扱い、自動割り振りの対象から外します。</p>
+                <div class="ap-susp-add">
+                  <select id="rcSuspWho"></select>
+                  <label>開始 <input type="date" id="rcSuspFrom" /></label>
+                  <label>終了 <input type="date" id="rcSuspTo" /></label>
+                  <input type="text" id="rcSuspWhy" placeholder="理由（任意）" />
+                  <button class="btn ghost" id="rcSuspAdd">追加</button>
+                  <span class="rev-status" id="rcSuspStatus"></span>
+                </div>
+                <div id="rcSuspList" class="ap-susp-list"></div>
+              </details>
+              <details class="ap-help" id="rcBaseWrap">
+                <summary>過去の実績を取り込む（均等化の初期値）</summary>
+                <p class="note">kinbotで配る前の件数を入れておくと、チーム間・個人間の均等化がその分を含めて計算されます。スプレッドシートの集計値をそのまま入れてください。0にすると使いません。</p>
+                <div id="rcBaseList" class="ap-base-list"></div>
+                <div class="ap-cfg-actions">
+                  <button class="btn ghost" id="rcBaseSave">過去実績を保存</button>
+                  <span class="rev-status" id="rcBaseStatus"></span>
+                </div>
+              </details>
               <div class="ap-cfg-actions">
                 <button class="btn" id="rcSave">保存</button>
                 <button class="btn ghost" id="rcScanNow">今すぐスキャンする</button>

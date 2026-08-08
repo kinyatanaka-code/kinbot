@@ -90,6 +90,11 @@ import {
   listClosers,
   saveClosers,
   saveCloserOrder,
+  saveBaselineCounts,
+  listSuspensions,
+  addSuspension,
+  deleteSuspension,
+  suspendedNow,
   listMembers,
   saveMembers,
   deleteMember,
@@ -8246,9 +8251,13 @@ app.put("/api/apo/rotation-config", async (req, res) => {
     if (b.maxPerRun !== undefined) patch.apoRotationMaxPerRun = Math.max(1, parseInt(b.maxPerRun, 10) || 30);
     if (b.scanOwner !== undefined) patch.apoScanOwner = String(b.scanOwner || "").trim();
     if (b.teamBalance !== undefined) {
-      patch.apoTeamBalance = ["off", "total", "perHead"].includes(b.teamBalance) ? b.teamBalance : "off";
+      patch.apoTeamBalance = ["off", "total", "perHead", "perDay"].includes(b.teamBalance) ? b.teamBalance : "off";
     }
     if (b.balanceWindow !== undefined) patch.apoBalanceWindow = b.balanceWindow === "all" ? "all" : "month";
+    if (b.fairnessStart !== undefined) {
+      const v = String(b.fairnessStart || "").trim();
+      patch.apoFairnessStart = /^\d{4}-\d{2}-\d{2}$/.test(v) ? v : "";
+    }
     await saveSettings(patch);
     console.log(`[apo-rotation] 設定を更新 by ${req.user}:`, JSON.stringify(patch));
     res.json({ ok: true, ...(await rotationStatus()) });
@@ -8295,6 +8304,67 @@ app.delete("/api/members/:email", async (req, res) => {
   try {
     await deleteMember(req.params.email);
     res.json({ ok: true, members: await listMembers() });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// ===== 割り振り停止の履歴 =====
+// 停止していた期間は「稼働日」から除かれるので、復帰後に埋め合わせで多く配られることはない。
+app.get("/api/apo/suspensions", async (req, res) => {
+  try {
+    const [list, now] = await Promise.all([listSuspensions(String(req.query.email || "")), suspendedNow()]);
+    res.json({ suspensions: list, activeNow: now });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.post("/api/apo/suspensions", async (req, res) => {
+  try {
+    const b = req.body || {};
+    const email = String(b.email || "").trim().toLowerCase();
+    const d = /^\d{4}-\d{2}-\d{2}$/;
+    if (!email) return res.status(400).json({ error: "クローザーを選んでください" });
+    if (!d.test(String(b.startDate || ""))) return res.status(400).json({ error: "開始日を入力してください" });
+    if (b.endDate && !d.test(String(b.endDate))) return res.status(400).json({ error: "終了日の形式が正しくありません" });
+    if (b.endDate && String(b.endDate) < String(b.startDate)) {
+      return res.status(400).json({ error: "終了日が開始日より前になっています" });
+    }
+    const row = await addSuspension({
+      email, startDate: b.startDate, endDate: b.endDate || null,
+      reason: b.reason, createdBy: req.user,
+    });
+    console.log(`[apo-suspend] ${email} ${b.startDate}〜${b.endDate || "（継続中）"} by ${req.user}`);
+    res.json({ ok: true, row, ...(await rotationStatus(String(b.product || ""))) });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.delete("/api/apo/suspensions/:id", async (req, res) => {
+  try {
+    await deleteSuspension(parseInt(req.params.id, 10));
+    res.json({ ok: true, ...(await rotationStatus(String(req.query.product || ""))) });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// 過去の実績（スプレッドシート等の件数）を取り込む。均等化の計算に足される。
+// 名前でもメールでも指定できるようにして、姓だけの表記にも対応する。
+app.put("/api/apo/baseline", async (req, res) => {
+  try {
+    const body = req.body || {};
+    const closers = await listClosers();
+    const map = {};
+    const matched = [], unmatched = [];
+
+    // { "email": 件数 } 形式
+    for (const [k, v] of Object.entries(body.counts || {})) {
+      const key = String(k).trim();
+      let hit = closers.find((c) => c.email.toLowerCase() === key.toLowerCase());
+      // 見つからなければ名前で照合（「森田」→「森田弥鳴」のような部分一致も許す）
+      if (!hit) hit = closers.find((c) => c.name === key);
+      if (!hit) hit = closers.find((c) => c.name && (c.name.includes(key) || key.includes(c.name)));
+      if (hit) { map[hit.email] = v; matched.push({ input: key, name: hit.name, count: v }); }
+      else unmatched.push(key);
+    }
+    await saveBaselineCounts(map);
+    console.log(`[apo-baseline] 過去実績を取り込み by ${req.user}:`, JSON.stringify(matched));
+    res.json({ ok: true, matched, unmatched, ...(await rotationStatus(String(req.body?.product || ""))) });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
