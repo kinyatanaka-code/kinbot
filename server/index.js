@@ -6070,6 +6070,24 @@ app.get("/api/gmail/actions", async (req, res) => {
 });
 
 // DBスキーマの診断。テーブルやカラムが作られていないときの原因調査用。
+// このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
+// 新機能を足したらここを更新する。
+const START_TIME = new Date().toISOString();
+const BUILD_TAG = "2026-08-08 アポ自動化v2（アポメール自動送付／クローザー自動割り振り／Gmail操作／スキーマ診断）";
+const BUILD_FEATURES = [
+  "アポメール自動送付（確定＋前日リマインド）",
+  "お客様アドレスの自動取得",
+  "クローザーのローテーション自動割り振り",
+  "15分おきのカレンダー自動スキャン",
+  "Gmailのアーカイブ／ゴミ箱",
+  "DBスキーマの1文ずつ実行と診断",
+];
+
+// 今動いているコードのバージョンを返す（ログイン不要で確認できる）
+app.get("/api/version", (req, res) => {
+  res.json({ build: BUILD_TAG, features: BUILD_FEATURES, startedAt: START_TIME });
+});
+
 app.get("/api/db/schema-check", async (req, res) => {
   try {
     if (!req.isAdmin) return res.status(403).json({ error: "管理者のみ確認できます" });
@@ -8696,6 +8714,7 @@ server.listen(PORT, async () => {
   setTimeout(() => { apoScanTick().catch(() => {}); }, 3 * 60 * 1000);
   setInterval(() => { apoScanTick().catch(() => {}); }, 15 * 60 * 1000);
   console.log(`\n  kinbot (Bot方式) → http://localhost:${PORT}`);
+  console.log(`  ビルド: ${BUILD_TAG}`);
   console.log(`  公開URL(Webhook受け口): ${PUBLIC_URL || "(未設定)"}`);
   console.log(`  要約エンジン: ${llm.provider} (${llm.model})`);
   console.log(`  カレンダー連携: ${googleConfigured() ? "設定あり" : "未設定"}\n`);

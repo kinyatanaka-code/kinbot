@@ -250,6 +250,22 @@ async function loadApo() {
     body.innerHTML = `<div class="empty-state">${esc(e.message)}</div>`;
   }
 }
+// ===== 今動いているビルドの表示 =====
+// 「アップロードしたのに機能が出てこない」ときに、まずここを見れば反映されたか分かる。
+async function loadBuild() {
+  const el = $("dbBuild");
+  if (!el) return;
+  try {
+    const d = await (await fetch("/api/version")).json();
+    if (!d.build) throw new Error("バージョン情報を取得できません");
+    el.innerHTML = `<b>動いているビルド：</b>${esc(d.build)}<br><span class="note">起動: ${esc(new Date(d.startedAt).toLocaleString("ja-JP"))}</span>`;
+    el.classList.remove("ap-build-old");
+  } catch {
+    el.textContent = "動いているのは古いビルドです（/api/version がまだありません）。アップロードとデプロイを確認してください。";
+    el.classList.add("ap-build-old");
+  }
+}
+
 // ===== データベースの状態確認 =====
 function dbRender(d) {
   const box = $("dbCheckBox");
@@ -506,6 +522,7 @@ async function saveMailCfg() {
       loadApo();
     } catch (e) { mcSay("失敗: " + e.message); }
   });
+  loadBuild();
   if ($("dbCheckBtn")) $("dbCheckBtn").addEventListener("click", () => dbCheck(false));
   if ($("dbRepairBtn")) $("dbRepairBtn").addEventListener("click", () => dbCheck(true));
   if ($("rcSave")) $("rcSave").addEventListener("click", saveRotation);

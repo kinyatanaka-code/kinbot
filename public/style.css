@@ -721,6 +721,9 @@ table.bant td:first-child { color: var(--muted); width: 80px; }
 .gm-thread.gm-done { opacity: 0.55; }
 .gm-done-msg { font-size: 12px; color: #1f7a4d; font-weight: 700; }
 
+.ap-build { margin: 12px 0; padding: 11px 14px; background: #E8F6F0; border-radius: 10px; font-size: 12.5px; line-height: 1.7; color: #0F6E56; }
+.ap-build.ap-build-old { background: #FBEEE0; color: #A8611A; font-weight: 700; }
+
 /* クローザーのローテーション設定 */
 .ap-rot-h { margin: 18px 0 6px; font-size: 13px; color: #0F6E56; }
 .ap-rot-next { margin: 14px 0; padding: 11px 14px; background: #E8F6F0; border-radius: 10px; font-size: 13px; color: #0F6E56; }
