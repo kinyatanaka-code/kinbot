@@ -283,6 +283,7 @@ window.kbSheet = function (html) {
     { href: "sf-launch.html", label: "Salesforce", ico: "ico-deal" },
     { href: "report.html", label: "分析", ico: "ico-ana" },
     { href: "report.html?panel=interns", label: "インターンアポ", ico: "ico-apo" },
+    { href: "apo.html", label: "アポ振り分け", ico: "ico-assign" },
     { href: "settings.html", label: "設定", ico: "ico-set" },
   ];
 
