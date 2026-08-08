@@ -70,45 +70,88 @@ const CLOSERS = [
   { email: "naka@neo-career.co.jp", eligible_days: 62, suspended_days: 0, baseline_count: 3, businesses: ["DOC"], name: "中澤 良太", team: "中澤チーム", sort_order: 6, active: true,  priority: false, daily_cap: null, assigned_count: 4,  period_count: 0, fallback: true },
 ];
 
+const CONFIRM_SUBJECT = "【ご案内】お打ち合わせ日程について（{{自社名}}）";
 const CONFIRM_BODY = `{{会社名}}
-{{お客様名}} 様
+{{お客様名}}様
 
-お世話になっております。
-{{自社名}}の{{担当者名}}と申します。
+いつも大変お世話になっております。
+{{自社名}}の{{担当者姓}}でございます。
 
-このたびはお打ち合わせのお時間をいただき、誠にありがとうございます。
-下記の日程で承りましたのでご案内いたします。
+先ほどは弊社{{アポ獲得者姓}}のお電話にご対応いただき、
+またお忙しい中お打ち合わせのお時間をいただき、
+誠にありがとうございました。
 
-■ 日時：{{商談日時}}
-■ 参加URL：{{URL}}
+それでは、お打ち合わせの日程につきまして、
+下記のとおりご案内いたします。
 
-お時間になりましたら、上記URLよりご入室ください。
-ご都合の変更やご不明点がございましたら、本メールにご返信ください。
+【日時】{{商談日時}}
+【形式】Web会議（Zoom）
+{{ZoomURL}}
+ミーティングID: {{ミーティングID}}
+パスコード: {{パスコード}}
 
-当日はどうぞよろしくお願いいたします。`;
+当日は、{{お客様名}}様の現在の採用状況をお伺いさせていただき、
+採用領域全般でご活用いただける弊社AIエージェントが{{お客様名}}様にとってどのようにお役立ちできるか、
+具体的にご案内させていただければと存じます。
 
+{{お客様名}}様にとって少しでも有意義なお時間となるよう準備してまいります。
+ご不明点などございましたら、お気軽にご連絡ください。
+
+{{お客様名}}様とお話しできることを心より楽しみにしております。
+当日はどうぞよろしくお願いいたします。
+
+■━━━━━━━━━━━━━━━━━━━━━━━━━■
+◇{{自社名}}（http://www.neo-career.co.jp/）
+{{部署}}
+{{ユニット}}
+{{担当者名}}　/　{{担当者ローマ字}}
+Phone：{{担当者電話}}
+◇本社 〒160-0023
+東京都新宿区西新宿1-22-2 新宿サンエービル4階
+TEL：03-6756-0421　 FAX：03-5908-8385
+■━━━━━━━━━━━━━━━━━━━━━━━━━■`;
+const REMINDER_SUBJECT = "【リマインド】明日{{商談時刻}}〜 お打ち合わせのご案内（{{自社名}}）";
 const REMINDER_BODY = `{{会社名}}
-{{お客様名}} 様
+{{お客様名}}様
 
-お世話になっております。{{自社名}}の{{担当者名}}です。
+いつも大変お世話になっております。
+{{自社名}}の{{担当者姓}}でございます。
 
 明日のお打ち合わせにつきまして、あらためてご案内いたします。
 
-■ 日時：{{商談日時}}
-■ 参加URL：{{URL}}
+【日時】{{商談日時}}
+【形式】Web会議（Zoom）
+{{ZoomURL}}
+ミーティングID: {{ミーティングID}}
+パスコード: {{パスコード}}
 
-よろしくお願いいたします。`;
+お時間になりましたら、上記URLよりご入室ください。
+ご都合が変わられた場合は、お手数ですが本メールにご返信ください。
+
+{{お客様名}}様とお話しできることを楽しみにしております。
+当日はどうぞよろしくお願いいたします。
+
+■━━━━━━━━━━━━━━━━━━━━━━━━━■
+◇{{自社名}}（http://www.neo-career.co.jp/）
+{{部署}}
+{{ユニット}}
+{{担当者名}}　/　{{担当者ローマ字}}
+Phone：{{担当者電話}}
+◇本社 〒160-0023
+東京都新宿区西新宿1-22-2 新宿サンエービル4階
+TEL：03-6756-0421　 FAX：03-5908-8385
+■━━━━━━━━━━━━━━━━━━━━━━━━━■`;
 
 const MAIL_CONFIG = {
   autoConfirm: true, autoReminder: true, reminderHour: 8, maxPerRun: 50,
   companyName: "株式会社ネオキャリア",
-  confirmSubject: "【{{会社名}}様】{{商談日時}} オンライン商談のご案内",
+  confirmSubject: CONFIRM_SUBJECT,
   confirmBody: CONFIRM_BODY,
-  reminderSubject: "【リマインド】明日{{商談時刻}}〜 オンライン商談のご案内",
+  reminderSubject: REMINDER_SUBJECT,
   reminderBody: REMINDER_BODY,
   defaults: {
-    confirmSubject: "【{{会社名}}様】{{商談日時}} オンライン商談のご案内", confirmBody: CONFIRM_BODY,
-    reminderSubject: "【リマインド】明日{{商談時刻}}〜 オンライン商談のご案内", reminderBody: REMINDER_BODY,
+    confirmSubject: CONFIRM_SUBJECT, confirmBody: CONFIRM_BODY,
+    reminderSubject: REMINDER_SUBJECT, reminderBody: REMINDER_BODY,
   },
 };
 
@@ -126,12 +169,12 @@ const ROTATION = {
             teamBalance: "perDay", balanceWindow: "all", fairnessStart: "2026-06-08" },
   closers: CLOSERS, order: CLOSERS, teams: TEAMS, teamStats: TEAM_STATS, suspensions: SUSPENSIONS,
   period: { window: "month", label: "2026年8月" },
-  next: { email: "tanaka@neo-career.co.jp", name: "田中 遼", team: "中澤チーム", priority: true },
+  next: { email: "tanaka@neo-career.co.jp", profile: { shortName: "田中", nameRoman: "Ryo Tanaka", phone: "080-2222-2222", dept: "事業統括本部 事業開発部", unit: "DOCユニット FSグループ" }, name: "田中 遼", team: "中澤チーム", priority: true },
 };
 
 const MEMBERS = [
-  { email: "ueno@neo-career.co.jp",   name: "植野 大輔", businesses: ["DOC"],           team: "浦林チーム", roles: ["closer"],   active: true,  daily_cap: null, sort_order: 1 },
-  { email: "tanaka@neo-career.co.jp", name: "田中 遼",   businesses: ["DOC"],           team: "中澤チーム", roles: ["closer"],   active: true,  daily_cap: 3,    sort_order: 2 },
+  { email: "ueno@neo-career.co.jp", profile: { shortName: "植野", nameRoman: "Hikari Ueno", phone: "080-1111-1111", dept: "事業統括本部 事業開発部", unit: "DOCユニット FSグループ", zoomUrl: "https://us04web.zoom.us/j/1111111111", zoomId: "111 111 1111", zoomPass: "abc123" },   name: "植野 大輔", businesses: ["DOC"],           team: "浦林チーム", roles: ["closer"],   active: true,  daily_cap: null, sort_order: 1 },
+  { email: "tanaka@neo-career.co.jp", profile: { shortName: "田中", nameRoman: "Ryo Tanaka", phone: "080-2222-2222", dept: "事業統括本部 事業開発部", unit: "DOCユニット FSグループ" }, name: "田中 遼",   businesses: ["DOC"],           team: "中澤チーム", roles: ["closer"],   active: true,  daily_cap: 3,    sort_order: 2 },
   { email: "eda@neo-career.co.jp",    name: "江田 直人", businesses: ["DOC","MOCHICA"], team: "浦林チーム", roles: ["closer"],   active: true,  daily_cap: null, sort_order: 3 },
   { email: "morita@neo-career.co.jp", name: "森田 彩",   businesses: ["MOCHICA"],       team: "中澤チーム", roles: ["closer"],   active: false, daily_cap: 2,    sort_order: 4 },
   { email: "ura@neo-career.co.jp",    name: "浦林 鷹也", businesses: ["DOC"],           team: "浦林チーム", roles: ["fallback"], active: true,  daily_cap: null, sort_order: 5 },
@@ -236,7 +279,7 @@ function apiResponse(pathname, query) {
     return { period: { window: query.get("window") || "all", label: "2026-06-08以降" },
       mode: "perDay", teams: TEAMS, teamStats: TEAM_STATS,
       members: {
-        "浦林チーム": [{ email: "ueno@neo-career.co.jp", name: "植野 大輔", active: true, count: 11, total_all_time: 42 },
+        "浦林チーム": [{ email: "ueno@neo-career.co.jp", profile: { shortName: "植野", nameRoman: "Hikari Ueno", phone: "080-1111-1111", dept: "事業統括本部 事業開発部", unit: "DOCユニット FSグループ", zoomUrl: "https://us04web.zoom.us/j/1111111111", zoomId: "111 111 1111", zoomPass: "abc123" }, name: "植野 大輔", active: true, count: 11, total_all_time: 42 },
                      { email: "eda@neo-career.co.jp", name: "江田 直人", active: true, count: 10, total_all_time: 40 },
                      { email: "ura@neo-career.co.jp", name: "浦林 鷹也", active: true, count: 1, total_all_time: 6 }],
         "中澤チーム": [{ email: "tanaka@neo-career.co.jp", name: "田中 遼", active: true, count: 9, total_all_time: 38 },

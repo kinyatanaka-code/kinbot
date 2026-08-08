@@ -781,6 +781,7 @@ async function loadMembers() {
       ...m,
       businesses: Array.isArray(m.businesses) ? m.businesses : [],
       roles: Array.isArray(m.roles) ? m.roles : [],
+      profile: (m.profile && typeof m.profile === "object") ? { ...m.profile } : {},
     }));
     mbState.candidates = d.candidates || [];
     mbState.teams = d.teams || [];
@@ -814,6 +815,7 @@ function mbRender() {
   } else {
     box.innerHTML = "";
     mbState.members.forEach((m, i) => {
+      const p = m.profile || {};
       const row = document.createElement("div");
       row.className = "mb-row" + (m.active === false ? " mb-off" : "");
       row.draggable = true;
@@ -830,10 +832,32 @@ function mbRender() {
            ${Object.keys(ROLE_LABEL).map((r) => `<label class="mb-chk mb-chk-${r}"><input type="checkbox" class="mb-role" data-v="${r}" ${m.roles.includes(r) ? "checked" : ""} /> ${ROLE_LABEL[r]}</label>`).join("")}
            <label class="mb-chk">1日上限 <input type="number" class="mb-cap" min="1" max="20" placeholder="なし" value="${m.daily_cap || ""}" /> 件</label>
            <label class="mb-chk"><input type="checkbox" class="mb-active" ${m.active === false ? "" : "checked"} /> 在籍中</label>
+           <button type="button" class="btn ghost mb-sig">署名・Zoom</button>
            <button type="button" class="btn ghost mb-del">外す</button>
+         </div>
+         <div class="mb-sigbox" hidden>
+           <p class="note">アポ確定メール・リマインドメールの差し込みに使います。空欄のままだと本文がその部分だけ空になります。</p>
+           <div class="mb-sig-grid">
+             <label>姓（「◯◯でございます」に入ります）<input class="mb-p" data-k="shortName" value="${mbEsc(p.shortName || "")}" placeholder="田中" /></label>
+             <label>ローマ字<input class="mb-p" data-k="nameRoman" value="${mbEsc(p.nameRoman || "")}" placeholder="Kinya Tanaka" /></label>
+             <label>電話番号<input class="mb-p" data-k="phone" value="${mbEsc(p.phone || "")}" placeholder="080-0000-0000" /></label>
+             <label>部署<input class="mb-p" data-k="dept" value="${mbEsc(p.dept || "")}" placeholder="事業統括本部 事業開発部" /></label>
+             <label>ユニット・グループ<input class="mb-p" data-k="unit" value="${mbEsc(p.unit || "")}" placeholder="DOCユニット FSグループ" /></label>
+             <label class="mb-sig-wide">Zoom 参加URL<input class="mb-p" data-k="zoomUrl" value="${mbEsc(p.zoomUrl || "")}" placeholder="https://us04web.zoom.us/j/..." /></label>
+             <label>ミーティングID<input class="mb-p" data-k="zoomId" value="${mbEsc(p.zoomId || "")}" placeholder="849 580 4084" /></label>
+             <label>パスコード<input class="mb-p" data-k="zoomPass" value="${mbEsc(p.zoomPass || "")}" placeholder="yasx33" /></label>
+           </div>
          </div>`;
 
       const q = (sel) => row.querySelector(sel);
+      q(".mb-sig").addEventListener("click", () => {
+        const box = q(".mb-sigbox");
+        box.hidden = !box.hidden;
+      });
+      row.querySelectorAll(".mb-p").forEach((el) => el.addEventListener("input", (e) => {
+        m.profile = m.profile || {};
+        m.profile[e.target.dataset.k] = e.target.value;
+      }));
       q(".mb-name").addEventListener("input", (e) => { m.name = e.target.value; });
       q(".mb-email").addEventListener("input", (e) => { m.email = e.target.value.trim().toLowerCase(); });
       q(".mb-team").addEventListener("input", (e) => { m.team = e.target.value.trim(); });
@@ -900,7 +924,7 @@ function mbAddMember(name, email) {
   if (mbState.members.some((m) => m.email === e)) { mbSay("すでに登録されています", 3000); return; }
   mbState.members.push({
     email: e, name: String(name || "").trim() || e,
-    businesses: [], team: "", roles: [], active: true, daily_cap: null,
+    businesses: [], team: "", roles: [], active: true, daily_cap: null, profile: {},
   });
   mbRender();
   mbSay("追加しました。役割を選んで［保存］を押してください", 5000);
@@ -1079,6 +1103,8 @@ async function loadApoInvite() {
     sel.value = d.owner || "";
     const cal = document.getElementById("apoInviteCal");
     if (cal) cal.value = d.calendar_id || "";
+    const mode = document.getElementById("apoInviteMode");
+    if (mode) mode.value = d.mode || "closer";
     const auto = document.getElementById("apoAutoInvite");
     if (auto) auto.checked = d.auto !== false;
     const st = document.getElementById("apoInviteStatus");
@@ -1096,6 +1122,7 @@ async function loadApoInvite() {
         body: JSON.stringify({
           owner: document.getElementById("apoInviteOwnerSel").value,
           calendar_id: document.getElementById("apoInviteCal").value,
+          mode: (document.getElementById("apoInviteMode") || {}).value || "closer",
           auto: document.getElementById("apoAutoInvite").checked,
         }),
       });

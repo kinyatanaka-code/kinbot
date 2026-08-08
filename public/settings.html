@@ -674,13 +674,22 @@ curl -H "Authorization: Bearer <span class="cc-tok">&lt;トークン&gt;</span>"
             </div>
             <div class="set-card">
               <h3>商談予定の自動作成（招待方式）</h3>
-              <p class="note">アポ振り分けで担当を割り当てると、<b>運用者のカレンダーに商談予定を作成し、担当クローザーをゲストとして招待</b>します。招待方式なので、クローザーのカレンダーへの権限は不要です（招待された本人が時間を変更できるようにしています）。<br><b>重要：</b>この機能を使うには、運用者が 設定→連携→<b>Google連携をやり直して</b>、カレンダーへの書き込み権限を承認する必要があります（読み取りだけの連携では作成できません）。</p>
+              <p class="note">アポ振り分けで担当を割り当てると、商談予定を自動で作成します。作り方は2通りから選べます。</p>
+              <div class="teams-add">
+                <select id="apoInviteMode">
+                  <option value="closer">担当者本人のカレンダーに作る（他の人のカレンダーには入らない）</option>
+                  <option value="owner">運用者のカレンダーに作り、担当者を招待する（従来方式）</option>
+                </select>
+              </div>
+              <p class="note"><b>担当者本人のカレンダーに作る</b>…その担当者のGoogle連携を使って本人のカレンダーだけに作成します。運用者や他のメンバーのカレンダーには入りません。担当者がGoogle未連携の場合は、自動的に下の招待方式に切り替わります。<br>
+              <b>運用者のカレンダーに作り、招待する</b>…運用者のカレンダーに予定ができ、担当者はゲストとして招待されます。担当者がGoogle未連携でも使えますが、<b>運用者のカレンダーにすべての商談が入ります</b>。</p>
               <div class="teams-add">
                 <select id="apoInviteOwnerSel"><option value="">（未設定：自動作成しない）</option></select>
-                <input id="apoInviteCal" placeholder="カレンダーID（空ならメインのカレンダー）" />
+                <input id="apoInviteCal" placeholder="カレンダーID（空ならメインのカレンダー・招待方式のときだけ使用）" />
                 <button class="btn" id="apoInviteSave">保存</button>
                 <span class="tm-status" id="apoInviteStatus"></span>
               </div>
+              <p class="note">上の運用者は<b>招待方式のときと、担当者が未連携のときの受け皿</b>として使われます。カレンダーへの書き込みには、その人が 設定→連携→<b>Google連携をやり直して</b>権限を承認しておく必要があります。</p>
               <label class="note" style="display:block;margin-top:8px;"><input type="checkbox" id="apoAutoInvite" checked /> 担当を割り当てたときに自動で予定を作成する（オフにすると手動のみ）</label>
             </div>
           </div>

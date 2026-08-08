@@ -8,55 +8,85 @@
 import { gmailSend } from "./google.js";
 import {
   getSettings,
+  memberProfiles,
   apoMailSentRow,
   logApoMail,
   listApoReminderTargets,
 } from "./db.js";
 
 // ===== 既定テンプレート =====
-export const DEFAULT_CONFIRM_SUBJECT = "【{{会社名}}様】{{商談日時}} オンライン商談のご案内";
+export const DEFAULT_CONFIRM_SUBJECT = "【ご案内】お打ち合わせ日程について（{{自社名}}）";
 export const DEFAULT_CONFIRM_BODY = `{{会社名}}
-{{お客様名}} 様
+{{お客様名}}様
 
-お世話になっております。
-{{自社名}}の{{担当者名}}と申します。
+いつも大変お世話になっております。
+{{自社名}}の{{担当者姓}}でございます。
 
-このたびはお打ち合わせのお時間をいただき、誠にありがとうございます。
-下記の日程で承りましたのでご案内いたします。
+先ほどは弊社{{アポ獲得者姓}}のお電話にご対応いただき、
+またお忙しい中お打ち合わせのお時間をいただき、
+誠にありがとうございました。
 
-■ 日時：{{商談日時}}
-■ 参加URL：{{URL}}
+それでは、お打ち合わせの日程につきまして、
+下記のとおりご案内いたします。
 
-お時間になりましたら、上記URLよりご入室ください。
-ご都合の変更やご不明点がございましたら、本メールにご返信ください。
+【日時】{{商談日時}}
+【形式】Web会議（Zoom）
+{{ZoomURL}}
+ミーティングID: {{ミーティングID}}
+パスコード: {{パスコード}}
 
+当日は、{{お客様名}}様の現在の採用状況をお伺いさせていただき、
+採用領域全般でご活用いただける弊社AIエージェントが{{お客様名}}様にとってどのようにお役立ちできるか、
+具体的にご案内させていただければと存じます。
+
+{{お客様名}}様にとって少しでも有意義なお時間となるよう準備してまいります。
+ご不明点などございましたら、お気軽にご連絡ください。
+
+{{お客様名}}様とお話しできることを心より楽しみにしております。
 当日はどうぞよろしくお願いいたします。
 
-─────────────────
-{{担当者名}}
-{{担当者メール}}
-─────────────────`;
+■━━━━━━━━━━━━━━━━━━━━━━━━━■
+◇{{自社名}}（http://www.neo-career.co.jp/）
+{{部署}}
+{{ユニット}}
+{{担当者名}}　/　{{担当者ローマ字}}
+Phone：{{担当者電話}}
+◇本社 〒160-0023
+東京都新宿区西新宿1-22-2 新宿サンエービル4階
+TEL：03-6756-0421　 FAX：03-5908-8385
+■━━━━━━━━━━━━━━━━━━━━━━━━━■`;
 
-export const DEFAULT_REMINDER_SUBJECT = "【リマインド】明日{{商談時刻}}〜 オンライン商談のご案内";
+export const DEFAULT_REMINDER_SUBJECT = "【リマインド】明日{{商談時刻}}〜 お打ち合わせのご案内（{{自社名}}）";
 export const DEFAULT_REMINDER_BODY = `{{会社名}}
-{{お客様名}} 様
+{{お客様名}}様
 
-お世話になっております。{{自社名}}の{{担当者名}}です。
+いつも大変お世話になっております。
+{{自社名}}の{{担当者姓}}でございます。
 
 明日のお打ち合わせにつきまして、あらためてご案内いたします。
 
-■ 日時：{{商談日時}}
-■ 参加URL：{{URL}}
+【日時】{{商談日時}}
+【形式】Web会議（Zoom）
+{{ZoomURL}}
+ミーティングID: {{ミーティングID}}
+パスコード: {{パスコード}}
 
-お時間になりましたら上記URLよりご入室ください。
+お時間になりましたら、上記URLよりご入室ください。
 ご都合が変わられた場合は、お手数ですが本メールにご返信ください。
 
-よろしくお願いいたします。
+{{お客様名}}様とお話しできることを楽しみにしております。
+当日はどうぞよろしくお願いいたします。
 
-─────────────────
-{{担当者名}}
-{{担当者メール}}
-─────────────────`;
+■━━━━━━━━━━━━━━━━━━━━━━━━━■
+◇{{自社名}}（http://www.neo-career.co.jp/）
+{{部署}}
+{{ユニット}}
+{{担当者名}}　/　{{担当者ローマ字}}
+Phone：{{担当者電話}}
+◇本社 〒160-0023
+東京都新宿区西新宿1-22-2 新宿サンエービル4階
+TEL：03-6756-0421　 FAX：03-5908-8385
+■━━━━━━━━━━━━━━━━━━━━━━━━━■`;
 
 // ===== 設定の読み出し（未設定なら既定値） =====
 export async function getApoMailConfig() {
@@ -67,7 +97,7 @@ export async function getApoMailConfig() {
     autoReminder: s.apoMailAutoReminder === true,
     // リマインドを流す時刻（JST・0〜23）
     reminderHour: Number.isFinite(+s.apoMailReminderHour) ? Math.min(23, Math.max(0, +s.apoMailReminderHour)) : 8,
-    companyName: String(s.apoMailCompanyName || "").trim() || "弊社",
+    companyName: String(s.apoMailCompanyName || "").trim() || "株式会社ネオキャリア",
     confirmSubject: String(s.apoMailConfirmSubject || "").trim() || DEFAULT_CONFIRM_SUBJECT,
     confirmBody: String(s.apoMailConfirmBody || "").trim() || DEFAULT_CONFIRM_BODY,
     reminderSubject: String(s.apoMailReminderSubject || "").trim() || DEFAULT_REMINDER_SUBJECT,
@@ -104,12 +134,31 @@ function jstParts(iso) {
   };
 }
 
-export function buildVars(link, { repName, repEmail, url, companyName }) {
+// 「田中 欽也」→「田中」。姓だけを取り出す（全角/半角スペース区切り）。
+export function familyName(name) {
+  const n = String(name || "").trim();
+  if (!n) return "";
+  const m = n.split(/[\s\u3000]+/);
+  return m[0] || n;
+}
+
+export function buildVars(link, { repName, repEmail, url, companyName, profile = {} }) {
   const parts = parseTitleParts(link.label);
   const t = jstParts(link.start_time);
   const dateStr = t ? `${t.m}月${t.d}日(${t.wd})` : "";
   const timeStr = t ? `${t.hh}:${t.mm}` : "";
+  // Zoomは担当者ごとの設定を優先し、無ければkinbotの共有リンクを使う
+  const zoomUrl = String(profile.zoomUrl || "").trim() || url || "";
   return {
+    "担当者姓": familyName(profile.shortName || repName),
+    "担当者ローマ字": String(profile.nameRoman || "").trim(),
+    "担当者電話": String(profile.phone || "").trim(),
+    "部署": String(profile.dept || "").trim(),
+    "ユニット": String(profile.unit || "").trim(),
+    "ZoomURL": zoomUrl,
+    "ミーティングID": String(profile.zoomId || "").trim(),
+    "パスコード": String(profile.zoomPass || "").trim(),
+    "アポ獲得者姓": familyName(link.setter),
     "会社名": parts.company || "",
     "お客様名": String(link.client_name || "").trim() || parts.person || "ご担当者",
     "商談日時": t ? `${dateStr} ${timeStr}〜` : "",
@@ -124,10 +173,51 @@ export function buildVars(link, { repName, repEmail, url, companyName }) {
   };
 }
 
+// 差し込みが空だった行を片付ける。
+// 「ミーティングID: 」だけの行や、{{部署}} だけの行が空欄で残らないようにする。
+// タグを含まない行（会社の住所やTELなど）は、空でもそのまま残す。
+function tidyLines(lines) {
+  const out = [];
+  for (const { text, hadTag, allTagsEmpty } of lines) {
+    if (hadTag && allTagsEmpty) {
+      const t = text.trim();
+      // 完全に空になった行、または「ラベル：」だけになった行は落とす
+      if (!t) continue;
+      if (/^[^\s:：]{1,16}\s*[:：]\s*$/.test(t)) continue;
+    }
+    out.push(text);
+  }
+  // 空行が3つ以上続いたら2つにまとめる
+  const res = [];
+  let blank = 0;
+  for (const l of out) {
+    if (l.trim() === "") { blank++; if (blank > 2) continue; }
+    else blank = 0;
+    res.push(l);
+  }
+  return res.join("\n");
+}
+
 export function render(tpl, vars) {
-  return String(tpl || "").replace(/\{\{\s*([^}]+?)\s*\}\}/g, (whole, key) =>
-    Object.prototype.hasOwnProperty.call(vars, key) ? String(vars[key] ?? "") : whole
-  );
+  const lines = String(tpl || "").split("\n").map((line) => {
+    let hadTag = false, filled = 0, tags = 0;
+    const text = line.replace(/\{\{\s*([^}]+?)\s*\}\}/g, (whole, key) => {
+      if (!Object.prototype.hasOwnProperty.call(vars, key)) return whole;
+      hadTag = true; tags++;
+      const v = String(vars[key] ?? "");
+      if (v) filled++;
+      return v;
+    });
+    // 「田中 欽也　/　」のように、空になったタグのせいで区切り記号だけが
+    // 行末（または行頭）に残るのを片付ける
+    let cleaned = text;
+    if (tags > filled) {
+      cleaned = cleaned.replace(/[\s\u3000]*[\/／・][\s\u3000]*$/, "")
+                       .replace(/^[\s\u3000]*[\/／・][\s\u3000]*/, "");
+    }
+    return { text: cleaned, hadTag, allTagsEmpty: tags > 0 && filled === 0 };
+  });
+  return tidyLines(lines);
 }
 
 // ===== 送信本体 =====
@@ -149,12 +239,24 @@ export async function sendApoMail(link, kind, { url, repName, force = false, act
     if (already) return { ok: false, skipped: true, reason: "送信済みです", at: already.created_at };
   }
 
+  // 担当セールスの署名・Zoom情報を読む（メンバー管理で設定した内容）
+  const profiles = await memberProfiles().catch(() => ({}));
+  const profile = profiles[owner] || {};
   const vars = buildVars(link, {
-    repName: repName || owner,
+    repName: repName || profile.name || owner,
     repEmail: owner,
     url,
     companyName: cfg.companyName,
+    profile,
   });
+
+  // 差し込みが埋まらない項目があれば、送る前に気づけるようログに出す
+  const missing = ["ZoomURL", "ミーティングID", "パスコード", "担当者電話", "部署", "ユニット", "担当者ローマ字"]
+    .filter((k) => (kind === "reminder" ? cfg.reminderBody : cfg.confirmBody).includes(`{{${k}}}`) && !vars[k]);
+  if (missing.length) {
+    console.warn(`[apo-mail] ${owner} の設定が未入力のため空欄になります: ${missing.join("、")}` +
+      `（設定→メンバー管理→署名・Zoom情報）`);
+  }
   const subject = render(kind === "reminder" ? cfg.reminderSubject : cfg.confirmSubject, vars);
   const bodyText = render(kind === "reminder" ? cfg.reminderBody : cfg.confirmBody, vars);
 
@@ -165,14 +267,15 @@ export async function sendApoMail(link, kind, { url, repName, force = false, act
       subject, status: "sent", messageId: (r && r.id) || null,
     });
     console.log(`[apo-mail] ${kind} 送信 ${link.slug} → ${to}（差出人: ${owner} / ${actor}）`);
-    return { ok: true, subject, to, messageId: (r && r.id) || null };
+    return { ok: true, subject, to, messageId: (r && r.id) || null, missing };
   } catch (e) {
     await logApoMail({
       slug: link.slug, kind, toEmail: to, fromOwner: owner,
       subject, status: "failed", error: e.message,
     });
     console.warn(`[apo-mail] ${kind} 失敗 ${link.slug} → ${to}: ${e.message}`);
-    return { ok: false, skipped: false, reason: e.message, needScope: !!e.needScope };
+    return { ok: false, skipped: false, reason: e.message,
+             needScope: !!e.needScope, needScopeOwner: e.owner || owner };
   }
 }
 

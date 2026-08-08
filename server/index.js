@@ -201,6 +201,7 @@ import {
   listCalendarEvents,
   listEventsCreatedOn,
   createCalendarEvent,
+  deleteCalendarEvent,
   getPrimaryEmail,
   driveReady,
   driveSearch,
@@ -2686,6 +2687,7 @@ app.get("/api/apo-invite-config", async (req, res) => {
       auto: !(s && s.apoAutoInvite === false),
       connected: owner ? await gcalConnected(owner) : false,
       calendar_id: (s && String(s.apoInviteCalendarId || "")) || "",
+      mode: s && s.apoInviteMode === "owner" ? "owner" : "closer",
       candidates: candidates.map((c) => ({ owner: c.owner, email: c.google_email })),
     });
   } catch (e) { res.status(500).json({ error: e.message }); }
@@ -2703,6 +2705,7 @@ app.put("/api/apo-invite-config", async (req, res) => {
     }
     if (b.auto !== undefined) patch.apoAutoInvite = !!b.auto;
     if (b.calendar_id !== undefined) patch.apoInviteCalendarId = String(b.calendar_id || "").trim();
+    if (b.mode !== undefined) patch.apoInviteMode = b.mode === "owner" ? "owner" : "closer";
     const r = await saveSettings(patch);
     res.json({ ok: true, ...patch, ...r });
   } catch (e) { res.status(500).json({ error: e.message }); }
@@ -8541,30 +8544,73 @@ app.get("/api/smart-links", async (req, res) => {
 // 招待方式なので、クローザーのカレンダーへの権限は不要。
 async function createApoInvite(link, { actor } = {}) {
   const s = await getSettings();
-  const inviteOwner = (s && String(s.apoInviteOwner || "").trim()) || "";
-  if (!inviteOwner) throw new Error("予定を作る運用者が未設定です。設定→インターン登録→「予定作成の運用者」を指定してください。");
-  if (!(await gcalConnected(inviteOwner))) {
-    throw new Error(`運用者（${inviteOwner}）のGoogle連携が切れています。本人が 設定→連携→Google連携 を実行してください。`);
-  }
   if (!link.current_owner) throw new Error("担当者が未割り当てです。先に担当者を選んでください。");
   if (!link.start_time) throw new Error("この商談の開始時刻が分かりません（カレンダー予定の時刻が取得できていません）。");
 
   const start = new Date(link.start_time);
   const end = link.end_time ? new Date(link.end_time) : new Date(start.getTime() + 60 * 60 * 1000); // 既定1時間
-  const calendarId = (s && String(s.apoInviteCalendarId || "").trim()) || "primary";
+  const summary = link.label || "商談";
+  const description = `kinbotが自動作成した商談予定です。\n参加URL: ${joinUrl(link.slug)}\n` +
+    `アポ獲得: ${link.setter || "-"}\n担当: ${link.current_owner}`;
 
-  const ev = await createCalendarEvent(inviteOwner, {
-    summary: link.label || "商談",
-    description: `kinbotが自動作成した商談予定です。\n参加URL: ${joinUrl(link.slug)}\nアポ獲得: ${link.setter || "-"}\n担当: ${link.current_owner}`,
-    start, end,
-    guests: [link.current_owner],   // クローザーをゲストとして招待
-    guestsCanModify: true,          // 本人が時間を動かせるようにする
-    calendarId,
-    eventId: link.invite_event_id || null, // 既存があれば更新（担当変更で招待し直し）
-    sendUpdates: "all",
-  });
-  await setSmartLinkInviteEvent(link.slug, ev.id);
-  console.log(`[apo-invite] ${link.slug} → ${link.current_owner} (${ev.id}) by ${actor || "auto"}`);
+  // 作り方は2通り。
+  //   closer … 担当者本人のカレンダーに直接作る（運用者のカレンダーには入らない）
+  //   owner  … 運用者のカレンダーに作り、担当者をゲストとして招待する（従来方式）
+  // 既定は closer。担当者がGoogle未連携のときだけ owner 方式にする。
+  const mode = s && s.apoInviteMode === "owner" ? "owner" : "closer";
+  const closerReady = await gcalConnected(link.current_owner).catch(() => false);
+
+  // 担当が変わっていた場合、前の担当のカレンダーから古い予定を消す
+  const prevId = link.invite_event_id || null;
+  const prevOwner = link.invite_event_owner || null;
+  const useCloser = mode === "closer" && closerReady;
+  const targetOwner = useCloser
+    ? link.current_owner
+    : (s && String(s.apoInviteOwner || "").trim()) || "";
+
+  if (!targetOwner) {
+    throw new Error(
+      "商談予定を作るアカウントがありません。担当者本人がGoogle連携するか、" +
+      "設定→メンバー管理→「商談予定の自動作成」で運用者を指定してください。"
+    );
+  }
+  if (prevId && prevOwner && prevOwner !== targetOwner) {
+    try {
+      await deleteCalendarEvent(prevOwner, prevId, "primary");
+      console.log(`[apo-invite] 前の担当（${prevOwner}）のカレンダーから予定を削除 ${prevId}`);
+    } catch (e) {
+      console.warn(`[apo-invite] 前の予定を削除できませんでした（${prevOwner}）: ${e.message}`);
+    }
+  }
+
+  let ev;
+  if (useCloser) {
+    // 担当者本人のカレンダーに作る。ゲストは付けないので、他の人のカレンダーには入らない。
+    ev = await createCalendarEvent(link.current_owner, {
+      summary, description, start, end,
+      guests: [],
+      calendarId: "primary",
+      eventId: prevOwner === link.current_owner ? prevId : null,
+      sendUpdates: "none",
+    });
+    console.log(`[apo-invite] ${link.slug} → ${link.current_owner} 本人のカレンダーに作成 (${ev.id}) by ${actor || "auto"}`);
+  } else {
+    if (!(await gcalConnected(targetOwner))) {
+      throw new Error(`運用者（${targetOwner}）のGoogle連携が切れています。本人が 設定→連携→Google連携 を実行してください。`);
+    }
+    const calendarId = (s && String(s.apoInviteCalendarId || "").trim()) || "primary";
+    ev = await createCalendarEvent(targetOwner, {
+      summary, description, start, end,
+      guests: [link.current_owner],  // クローザーをゲストとして招待
+      guestsCanModify: true,
+      calendarId,
+      eventId: prevOwner === targetOwner ? prevId : null,
+      sendUpdates: "all",
+    });
+    console.log(`[apo-invite] ${link.slug} → ${link.current_owner} を招待（運用者 ${targetOwner} のカレンダー, ${ev.id}）` +
+      `${mode === "closer" ? "※担当者がGoogle未連携のため招待方式にしました" : ""} by ${actor || "auto"}`);
+  }
+  await setSmartLinkInviteEvent(link.slug, ev.id, targetOwner);
   return ev;
 }
 

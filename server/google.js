@@ -6,7 +6,7 @@ const CLIENT_ID = process.env.GOOGLE_CLIENT_ID || "";
 const CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET || "";
 // calendar.events は「自分のカレンダーに予定を作り、ゲストを招待する」ために必要。
 // 招待方式なので、相手（クローザー）のカレンダーへの権限は不要。
-const SCOPE = "https://www.googleapis.com/auth/calendar.readonly https://www.googleapis.com/auth/calendar.events https://www.googleapis.com/auth/drive.readonly https://www.googleapis.com/auth/drive.file https://www.googleapis.com/auth/gmail.readonly https://www.googleapis.com/auth/gmail.compose https://www.googleapis.com/auth/gmail.modify";
+const SCOPE = "https://www.googleapis.com/auth/calendar.readonly https://www.googleapis.com/auth/calendar.events https://www.googleapis.com/auth/drive.readonly https://www.googleapis.com/auth/drive.file https://www.googleapis.com/auth/gmail.readonly https://www.googleapis.com/auth/gmail.compose https://www.googleapis.com/auth/gmail.send https://www.googleapis.com/auth/gmail.modify";
 
 export function googleConfigured() {
   return !!(CLIENT_ID && CLIENT_SECRET);
@@ -602,8 +602,16 @@ export async function gmailSend(owner, { to, subject, bodyText, threadId, inRepl
   });
   if (!res.ok) {
     const t = await res.text();
+    if (res.status === 403 && /insufficient|scope/i.test(t)) {
+      const err = new Error(
+        `${owner} のGoogle連携にメール送信の権限がありません。` +
+        `本人が 設定 → 連携 → Google連携 で「連携解除」→「再連携」を行い、同意画面でGmailの項目を許可してください。`
+      );
+      err.needScope = true;
+      err.owner = owner;
+      throw err;
+    }
     const err = new Error(`Gmail送信 ${res.status}: ${t.slice(0, 200)}`);
-    if (res.status === 403 && /insufficient|scope/i.test(t)) err.needScope = true;
     throw err;
   }
   return res.json();

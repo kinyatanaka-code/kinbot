@@ -151,7 +151,14 @@
               <div class="ap-cfg-row">
                 <label style="flex:1 1 100%">自社名（{{自社名}}に入ります） <input type="text" id="mcCompany" placeholder="株式会社ネオキャリア" style="width:280px" /></label>
               </div>
-              <p class="note">差し込みタグ：<code>{{会社名}}</code> <code>{{お客様名}}</code> <code>{{商談日時}}</code> <code>{{商談日}}</code> <code>{{商談時刻}}</code> <code>{{URL}}</code> <code>{{担当者名}}</code> <code>{{担当者メール}}</code> <code>{{アポ獲得者}}</code> <code>{{自社名}}</code></p>
+              <div class="ap-tags">
+                <div><b>お客様・商談</b> <code>{{会社名}}</code> <code>{{お客様名}}</code> <code>{{商談日時}}</code> <code>{{商談日}}</code> <code>{{商談時刻}}</code></div>
+                <div><b>アポ獲得者</b> <code>{{アポ獲得者}}</code> <code>{{アポ獲得者姓}}</code></div>
+                <div><b>担当セールス</b> <code>{{担当者名}}</code> <code>{{担当者姓}}</code> <code>{{担当者ローマ字}}</code> <code>{{担当者メール}}</code> <code>{{担当者電話}}</code> <code>{{部署}}</code> <code>{{ユニット}}</code></div>
+                <div><b>Zoom</b> <code>{{ZoomURL}}</code> <code>{{ミーティングID}}</code> <code>{{パスコード}}</code> <code>{{URL}}</code>（kinbotの共有リンク）</div>
+                <div><b>自社</b> <code>{{自社名}}</code></div>
+              </div>
+              <p class="note">担当セールスとZoomのタグは、<a href="settings.html#members">設定 → メンバー管理</a>の各メンバーの「署名・Zoom」で設定した内容が入ります。未入力の項目はその部分だけ空欄になります。</p>
               <div class="ap-tpl">
                 <h4>アポ確定メール</h4>
                 <label>件名<input type="text" id="mcCSubject" /></label>

@@ -209,8 +209,11 @@ function renderApo() {
           alert("担当は変更しましたが、商談予定の自動作成に失敗しました:\n" + d.invite_error);
         }
         if (owner && d.mail && !d.mail.ok && !d.mail.skipped) {
-          alert("アポ確定メールの自動送信に失敗しました:\n" + (d.mail.reason || "") +
-            (d.mail.needScope ? "\n\n担当者のGoogle連携を取り直してください（設定 → 連携）。" : ""));
+          alert("アポ確定メールの自動送信に失敗しました。\n\n" + (d.mail.reason || "") +
+            (d.mail.needScope
+              ? "\n\n※ 担当は割り当てられています。メールだけ送れていません。" +
+                "\n" + (d.mail.needScopeOwner || "本人") + " が Google連携をやり直すと送れるようになります。"
+              : ""));
         }
       } catch (e) {
         alert("担当者の変更に失敗しました: " + e.message);

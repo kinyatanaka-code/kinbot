@@ -525,6 +525,9 @@ export async function initDb() {
   await sq(`ALTER TABLE smart_links ADD COLUMN IF NOT EXISTS start_time TIMESTAMPTZ;`);
   await sq(`ALTER TABLE smart_links ADD COLUMN IF NOT EXISTS end_time TIMESTAMPTZ;`);
   await sq(`ALTER TABLE smart_links ADD COLUMN IF NOT EXISTS invite_event_id TEXT;`);
+  // 商談予定をどのアカウントのカレンダーに作ったか。
+  // 担当が変わったときに、前の担当のカレンダーから消すために必要。
+  await sq(`ALTER TABLE smart_links ADD COLUMN IF NOT EXISTS invite_event_owner TEXT;`);
   await sq(`CREATE UNIQUE INDEX IF NOT EXISTS uq_smart_links_event ON smart_links(event_id) WHERE event_id IS NOT NULL;`);
 
   // アポメール自動送付：お客様の宛先（カレンダーのゲストから自動取得、手入力で補完）
@@ -664,6 +667,9 @@ export async function initDb() {
       updated_at  TIMESTAMPTZ DEFAULT now()
     );
   `);
+  // 署名・Zoom情報など、人によって変わる項目。
+  // メールの差し込みタグ（{{担当者電話}} など）から使う。
+  await sq(`ALTER TABLE members ADD COLUMN IF NOT EXISTS profile JSONB NOT NULL DEFAULT '{}'::jsonb;`);
   await sq(`CREATE INDEX IF NOT EXISTS ix_members_order ON members(sort_order);`);
 
   // 提案資料テーブル
@@ -2315,13 +2321,13 @@ export async function createSmartLink({ slug, label, owner, createdBy, eventId, 
 }
 
 // 招待予定（kinbotが作成したGoogleカレンダー予定）のIDを保存
-export async function setSmartLinkInviteEvent(slug, inviteEventId) {
-  if (!pool) return null;
+export async function setSmartLinkInviteEvent(slug, eventId, eventOwner = null) {
+  if (!pool || !slug) return null;
   try {
     const { rows } = await pool.query(
-      `UPDATE smart_links SET invite_event_id=$2, updated_at=now() WHERE slug=$1 RETURNING *`,
-      [slug, inviteEventId || null]
-    );
+      `UPDATE smart_links SET invite_event_id=$2, invite_event_owner=$3, updated_at=now()
+        WHERE slug=$1 RETURNING *`,
+      [slug, eventId || null, eventOwner || null]);
     return rows[0] || null;
   } catch (e) { console.error("[db] setSmartLinkInviteEvent", e.message); return null; }
 }
@@ -2672,6 +2678,40 @@ function normBusinesses(v) {
   return MEMBER_BUSINESSES.filter((b) => a.includes(b));
 }
 
+// 署名・Zoom情報として保存する項目。想定外のキーは捨てる。
+export const MEMBER_PROFILE_FIELDS = [
+  "shortName",   // 姓（例：田中）→ 「田中でございます」に入る
+  "nameRoman",   // ローマ字（例：Kinya Tanaka）
+  "phone",       // 電話番号
+  "dept",        // 部署（例：事業統括本部 事業開発部）
+  "unit",        // ユニット・グループ（例：DOCユニット FSグループ）
+  "zoomUrl",     // Zoomの参加URL
+  "zoomId",      // ミーティングID
+  "zoomPass",    // パスコード
+];
+function normProfile(v) {
+  const src = (v && typeof v === "object") ? v : {};
+  const out = {};
+  for (const k of MEMBER_PROFILE_FIELDS) {
+    const val = String(src[k] == null ? "" : src[k]).trim();
+    if (val) out[k] = val.slice(0, 300);
+  }
+  return out;
+}
+
+// メールの差し込みに使うため、メールアドレス → プロフィール の対応を返す
+export async function memberProfiles() {
+  if (!pool) return {};
+  try {
+    const { rows } = await pool.query(`SELECT email, name, profile FROM members`);
+    const out = {};
+    for (const r of rows) {
+      out[r.email] = { name: r.name, ...((r.profile && typeof r.profile === "object") ? r.profile : {}) };
+    }
+    return out;
+  } catch { return {}; }
+}
+
 export async function listMembers() {
   if (!pool) return [];
   try {
@@ -2680,6 +2720,7 @@ export async function listMembers() {
       ...r,
       businesses: Array.isArray(r.businesses) ? r.businesses : [],
       roles: Array.isArray(r.roles) ? r.roles : [],
+      profile: (r.profile && typeof r.profile === "object") ? r.profile : {},
     }));
   } catch { return []; }
 }
@@ -2699,15 +2740,16 @@ export async function saveMembers(list) {
       if (!email) continue;
       const cap = Number.isFinite(+m.daily_cap) && +m.daily_cap > 0 ? +m.daily_cap : null;
       await client.query(
-        `INSERT INTO members (email, name, businesses, team, roles, active, daily_cap, sort_order, note)
-         VALUES ($1,$2,$3::jsonb,$4,$5::jsonb,$6,$7,$8,$9)
+        `INSERT INTO members (email, name, businesses, team, roles, active, daily_cap, sort_order, note, profile)
+         VALUES ($1,$2,$3::jsonb,$4,$5::jsonb,$6,$7,$8,$9,$10::jsonb)
          ON CONFLICT (email) DO UPDATE
            SET name=$2, businesses=$3::jsonb, team=$4, roles=$5::jsonb,
-               active=$6, daily_cap=$7, sort_order=$8, note=$9, updated_at=now()`,
+               active=$6, daily_cap=$7, sort_order=$8, note=$9, profile=$10::jsonb, updated_at=now()`,
         [email, String(m.name || "").trim() || email,
          JSON.stringify(normBusinesses(m.businesses)), String(m.team || "").trim() || null,
          JSON.stringify(normRoles(m.roles)), m.active !== false, cap, i + 1,
-         String(m.note || "").slice(0, 300) || null]
+         String(m.note || "").slice(0, 300) || null,
+         JSON.stringify(normProfile(m.profile))]
       );
     }
     await client.query("COMMIT");
