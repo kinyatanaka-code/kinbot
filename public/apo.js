@@ -138,6 +138,11 @@ function bindMailButtons(scope) {
         if (!r.ok) throw new Error(d.error || "送信に失敗しました");
         a.mail = Object.assign({}, a.mail, { [kind]: { status: d.draft ? "draft" : "sent", at: new Date().toISOString() } });
         refreshMailCell(i);
+        if (d.noRoom) {
+          alert(`${a.current_owner} が「設定 → 登録リンク」に会議室URLを登録していません。\n\n` +
+            `メールのURLはkinbotのスマートリンクなので、このままだとお客様が開いても入室できません。\n` +
+            `本人に登録してもらってから送信してください。`);
+        }
       } catch (e) {
         a.mail = Object.assign({}, a.mail, { [kind]: { status: "failed", error: e.message } });
         refreshMailCell(i);
@@ -214,6 +219,10 @@ function renderApo() {
         // 商談予定の自動作成（招待）の結果を知らせる
         if (owner && d.invite_error) {
           alert("担当は変更しましたが、商談予定の自動作成に失敗しました:\n" + d.invite_error);
+        }
+        if (owner && d.mail && d.mail.ok && d.mail.noRoom) {
+          alert(`${owner} が「設定 → 登録リンク」に会議室URLを登録していません。\n\n` +
+            `メールは用意できましたが、URLを開いてもお客様が入室できません。本人に登録してもらってください。`);
         }
         if (owner && d.mail && !d.mail.ok && !d.mail.skipped) {
           alert("アポ確定メールの自動送信に失敗しました。\n\n" + (d.mail.reason || "") +

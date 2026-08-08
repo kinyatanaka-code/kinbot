@@ -33,7 +33,6 @@ export const DEFAULT_CONFIRM_BODY = `{{会社名}}
 【日時】{{商談日時}}
 【形式】Web会議（Zoom）
 {{ZoomURL}}
-ミーティングID: {{ミーティングID}}
 
 当日は、{{お客様名}}様の現在の採用状況をお伺いさせていただき、
 採用領域全般でご活用いただける弊社AIエージェントが{{お客様名}}様にとってどのようにお役立ちできるか、
@@ -68,7 +67,6 @@ export const DEFAULT_REMINDER_BODY = `{{会社名}}
 【日時】{{商談日時}}
 【形式】Web会議（Zoom）
 {{ZoomURL}}
-ミーティングID: {{ミーティングID}}
 
 お時間になりましたら、上記URLよりご入室ください。
 ご都合が変わられた場合は、お手数ですが本メールにご返信ください。
@@ -182,16 +180,20 @@ export function buildVars(link, { repName, repEmail, url, companyName, profile =
   const t = jstParts(link.start_time);
   const dateStr = t ? `${t.m}月${t.d}日(${t.wd})` : "";
   const timeStr = t ? `${t.hh}:${t.mm}` : "";
-  // Zoomは「設定 → 登録リンク」で各自が登録したURLを使う。未登録ならkinbotの共有リンク。
-  const zoomUrl = String(zoomLink || "").trim() || url || "";
+  // お客様に案内するURLは kinbot のスマートリンク。
+  // 担当が変わっても行き先が自動で切り替わるので、送信済みのメールを直す必要がない。
+  const smart = String(url || "").trim();
+  // 担当者本人の会議室URL（設定→登録リンク）。ミーティングIDの表示にだけ使う。
+  const direct = String(zoomLink || "").trim();
   return {
     "担当者姓": String(profile.shortName || "").trim() || familyName(repName),
     "担当者ローマ字": String(profile.nameRoman || "").trim(),
     "担当者電話": String(profile.phone || "").trim(),
     "部署": String(profile.dept || "").trim(),
     "ユニット": String(profile.unit || "").trim(),
-    "ZoomURL": zoomUrl,
-    "ミーティングID": meetingIdFromUrl(zoomUrl),
+    "ZoomURL": smart,
+    "担当者の会議室URL": direct,
+    "ミーティングID": meetingIdFromUrl(direct),
     "アポ獲得者姓": familyName(link.setter),
     "会社名": parts.company || "",
     "お客様名": String(link.client_name || "").trim() || parts.person || "ご担当者",
@@ -293,11 +295,18 @@ export async function sendApoMail(link, kind, { url, repName, force = false, act
   });
 
   // 差し込みが埋まらない項目があれば、送る前に気づけるようログに出す
-  const missing = ["ZoomURL", "ミーティングID", "担当者電話", "部署", "ユニット", "担当者ローマ字"]
-    .filter((k) => (kind === "reminder" ? cfg.reminderBody : cfg.confirmBody).includes(`{{${k}}}`) && !vars[k]);
+  const body = kind === "reminder" ? cfg.reminderBody : cfg.confirmBody;
+  const missing = ["ZoomURL", "ミーティングID", "担当者の会議室URL", "担当者電話", "部署", "ユニット", "担当者ローマ字"]
+    .filter((k) => body.includes(`{{${k}}}`) && !vars[k]);
   if (missing.length) {
     console.warn(`[apo-mail] ${owner} の設定が未入力のため空欄になります: ${missing.join("、")}` +
       `（署名は 設定→メンバー管理→署名、会議室URLは 設定→登録リンク）`);
+  }
+  // スマートリンクは担当者の会議室URLへ転送する仕組みなので、未登録だとお客様が入室できない
+  const noRoom = !zoomLink && body.includes("{{ZoomURL}}");
+  if (noRoom) {
+    console.warn(`[apo-mail] ${owner} が「設定→登録リンク」に会議室URLを登録していません。` +
+      `このままだとスマートリンクを開いてもお客様が入室できません。`);
   }
   const subject = render(kind === "reminder" ? cfg.reminderSubject : cfg.confirmSubject, vars);
   const bodyText = render(kind === "reminder" ? cfg.reminderBody : cfg.confirmBody, vars);
@@ -314,7 +323,7 @@ export async function sendApoMail(link, kind, { url, repName, force = false, act
     });
     console.log(`[apo-mail] ${kind} ${asDraft ? "下書き作成" : "送信"} ${link.slug} → ${to}（${owner} / ${actor}）`);
     return { ok: true, draft: asDraft, subject, to,
-             messageId: (r && (r.id || (r.message && r.message.id))) || null, missing };
+             messageId: (r && (r.id || (r.message && r.message.id))) || null, missing, noRoom };
   } catch (e) {
     await logApoMail({
       slug: link.slug, kind, toEmail: to, fromOwner: owner,
