@@ -6,7 +6,7 @@ const CLIENT_ID = process.env.GOOGLE_CLIENT_ID || "";
 const CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET || "";
 // calendar.events は「自分のカレンダーに予定を作り、ゲストを招待する」ために必要。
 // 招待方式なので、相手（クローザー）のカレンダーへの権限は不要。
-const SCOPE = "https://www.googleapis.com/auth/calendar.readonly https://www.googleapis.com/auth/calendar.events https://www.googleapis.com/auth/drive.readonly https://www.googleapis.com/auth/drive.file https://www.googleapis.com/auth/gmail.readonly https://www.googleapis.com/auth/gmail.compose";
+const SCOPE = "https://www.googleapis.com/auth/calendar.readonly https://www.googleapis.com/auth/calendar.events https://www.googleapis.com/auth/drive.readonly https://www.googleapis.com/auth/drive.file https://www.googleapis.com/auth/gmail.readonly https://www.googleapis.com/auth/gmail.compose https://www.googleapis.com/auth/gmail.modify";
 
 export function googleConfigured() {
   return !!(CLIENT_ID && CLIENT_SECRET);
@@ -247,7 +247,11 @@ export async function listCalendarEvents(owner, calendarId, { timeMin, timeMax }
       if (ev.status === "cancelled") continue;
       const start = ev.start?.dateTime || ev.start?.date || null;
       const end = ev.end?.dateTime || ev.end?.date || null;
-      out.push({ id: ev.id, title: ev.summary || "", start, end, allDay: !ev.start?.dateTime, url: findMeetingUrl(ev) || "", guests: (ev.attendees || []).length, organizer: (ev.organizer && ev.organizer.email) || "", creator: (ev.creator && ev.creator.email) || "", created: ev.created || "" });
+      out.push({ id: ev.id, title: ev.summary || "", start, end, allDay: !ev.start?.dateTime, url: findMeetingUrl(ev) || "", guests: (ev.attendees || []).length, organizer: (ev.organizer && ev.organizer.email) || "", creator: (ev.creator && ev.creator.email) || "", created: ev.created || "",
+        // 招待されている人（アポメールの宛先をここから自動取得する）
+        attendees: (ev.attendees || [])
+          .filter((a) => a && a.email && !a.resource)
+          .map((a) => ({ email: a.email, name: a.displayName || "", self: !!a.self, organizer: !!a.organizer })) });
     }
     if (!data.nextPageToken) break;
     pageToken = data.nextPageToken;
@@ -619,6 +623,142 @@ export async function gmailCreateDraft(owner, { to, subject, bodyText, threadId,
   if (!res.ok) {
     const t = await res.text();
     const err = new Error(`Gmail下書き ${res.status}: ${t.slice(0, 200)}`);
+    if (res.status === 403 && /insufficient|scope/i.test(t)) err.needScope = true;
+    throw err;
+  }
+  return res.json();
+}
+
+// ───────────────────────────────────────────────────────────
+// FreeBusy：複数人のカレンダーの「埋まっている時間帯」をまとめて取得する。
+// 予定の中身は見ないので、社内で予定の詳細が非公開でも空き状況だけは取れる。
+// ───────────────────────────────────────────────────────────
+export async function freeBusy(owner, emails, timeMin, timeMax) {
+  const token = await accessToken(owner);
+  if (!token) throw new Error("Google未連携です");
+  const items = (Array.isArray(emails) ? emails : [emails])
+    .map((e) => String(e || "").trim()).filter(Boolean).map((id) => ({ id }));
+  if (!items.length) return {};
+
+  const res = await fetch("https://www.googleapis.com/calendar/v3/freeBusy", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}`, "content-type": "application/json" },
+    body: JSON.stringify({
+      timeMin: new Date(timeMin).toISOString(),
+      timeMax: new Date(timeMax).toISOString(),
+      timeZone: "Asia/Tokyo",
+      items,
+    }),
+  });
+  if (!res.ok) {
+    const t = await res.text();
+    const err = new Error(`FreeBusy ${res.status}: ${t.slice(0, 200)}`);
+    if (res.status === 403 && /insufficient|scope/i.test(t)) err.needScope = true;
+    throw err;
+  }
+  const data = await res.json();
+  const out = {};
+  for (const [email, cal] of Object.entries(data.calendars || {})) {
+    out[email.toLowerCase()] = {
+      // カレンダーが見えない場合はここにエラーが入る（権限不足・存在しないアドレス等）
+      errors: (cal.errors || []).map((e) => e.reason || "unknown"),
+      busy: (cal.busy || []).map((b) => ({ start: b.start, end: b.end })),
+    };
+  }
+  return out;
+}
+
+// 指定の時間帯が空いているか。バッファ（分）を前後に足して判定できる。
+export function isSlotFree(fb, email, startISO, endISO, bufferMin = 0) {
+  const c = fb[String(email || "").toLowerCase()];
+  // カレンダーが読めない相手は「判定不能」として空き扱いにしない（勝手に埋めないため）
+  if (!c) return { free: false, reason: "カレンダーの空き状況が取得できませんでした" };
+  if (c.errors.length) return { free: false, reason: `カレンダーを参照できません（${c.errors.join(",")}）` };
+  const s = new Date(startISO).getTime() - bufferMin * 60000;
+  const e = new Date(endISO).getTime() + bufferMin * 60000;
+  for (const b of c.busy) {
+    const bs = new Date(b.start).getTime();
+    const be = new Date(b.end).getTime();
+    if (bs < e && be > s) return { free: false, reason: "この時間帯に別の予定が入っています" };
+  }
+  return { free: true, reason: "" };
+}
+
+// ───────────────────────────────────────────────────────────
+// Gmail のスレッド操作（アーカイブ / ゴミ箱 / 既読）
+// scope: gmail.modify が必要。既存ユーザーはGoogleの再連携（再同意）が要る。
+// なお「完全削除」は mail.google.com という非常に広い権限を要求するため実装しない。
+// ゴミ箱への移動は30日間は元に戻せるので、運用上もこちらが安全。
+// ───────────────────────────────────────────────────────────
+
+// ラベルの付け外し（アーカイブ＝INBOXラベルを外す、既読＝UNREADを外す）
+export async function gmailModifyThread(owner, threadId, { add = [], remove = [] } = {}) {
+  const token = await accessToken(owner);
+  if (!token) throw new Error("Google未連携です");
+  if (!threadId) throw new Error("スレッドIDがありません");
+  const res = await fetch(
+    `https://gmail.googleapis.com/gmail/v1/users/me/threads/${encodeURIComponent(threadId)}/modify`,
+    {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}`, "content-type": "application/json" },
+      body: JSON.stringify({ addLabelIds: add, removeLabelIds: remove }),
+    }
+  );
+  if (!res.ok) {
+    const t = await res.text();
+    const err = new Error(`Gmail操作 ${res.status}: ${t.slice(0, 200)}`);
+    if (res.status === 403 && /insufficient|scope|ACCESS_TOKEN_SCOPE/i.test(t)) err.needScope = true;
+    if (res.status === 404) err.notFound = true;
+    throw err;
+  }
+  return res.json();
+}
+
+// 受信トレイから外す（メールは消えず、検索やアーカイブから見られる）
+export async function gmailArchiveThread(owner, threadId) {
+  return gmailModifyThread(owner, threadId, { remove: ["INBOX"] });
+}
+// 受信トレイに戻す
+export async function gmailUnarchiveThread(owner, threadId) {
+  return gmailModifyThread(owner, threadId, { add: ["INBOX"] });
+}
+// 既読・未読
+export async function gmailSetRead(owner, threadId, read = true) {
+  return read
+    ? gmailModifyThread(owner, threadId, { remove: ["UNREAD"] })
+    : gmailModifyThread(owner, threadId, { add: ["UNREAD"] });
+}
+
+// ゴミ箱へ移動（30日以内なら元に戻せる）
+export async function gmailTrashThread(owner, threadId) {
+  const token = await accessToken(owner);
+  if (!token) throw new Error("Google未連携です");
+  if (!threadId) throw new Error("スレッドIDがありません");
+  const res = await fetch(
+    `https://gmail.googleapis.com/gmail/v1/users/me/threads/${encodeURIComponent(threadId)}/trash`,
+    { method: "POST", headers: { Authorization: `Bearer ${token}` } }
+  );
+  if (!res.ok) {
+    const t = await res.text();
+    const err = new Error(`Gmailゴミ箱 ${res.status}: ${t.slice(0, 200)}`);
+    if (res.status === 403 && /insufficient|scope|ACCESS_TOKEN_SCOPE/i.test(t)) err.needScope = true;
+    if (res.status === 404) err.notFound = true;
+    throw err;
+  }
+  return res.json();
+}
+
+// ゴミ箱から戻す
+export async function gmailUntrashThread(owner, threadId) {
+  const token = await accessToken(owner);
+  if (!token) throw new Error("Google未連携です");
+  const res = await fetch(
+    `https://gmail.googleapis.com/gmail/v1/users/me/threads/${encodeURIComponent(threadId)}/untrash`,
+    { method: "POST", headers: { Authorization: `Bearer ${token}` } }
+  );
+  if (!res.ok) {
+    const t = await res.text();
+    const err = new Error(`Gmail復元 ${res.status}: ${t.slice(0, 200)}`);
     if (res.status === 403 && /insufficient|scope/i.test(t)) err.needScope = true;
     throw err;
   }

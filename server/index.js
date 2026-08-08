@@ -17,6 +17,11 @@ process.on("unhandledRejection", (e) => {
   console.error("[unhandledRejection]", e && e.stack ? e.stack : e);
 });
 
+import { pickCloser, commitAssignment, rotationStatus, setNextCloser,
+         getRotationConfig } from "./rotation.js";
+import { sendApoMail, runReminderSweep, getApoMailConfig,
+         DEFAULT_CONFIRM_SUBJECT, DEFAULT_CONFIRM_BODY,
+         DEFAULT_REMINDER_SUBJECT, DEFAULT_REMINDER_BODY } from "./apomail.js";
 import { transcribeFile, transcriberAvailable } from "./transcribe.js";
 import { createBot, leaveBot, parseTranscriptEvent, getRecordingUrl, getBot, recallConnectionInfo, getRecallUsage, getLastRecallCreate } from "./recall.js";
 import { createSession, getSession, removeSession, listActiveSessions, setOnMeetingFinalized } from "./sessions.js";
@@ -77,6 +82,17 @@ import {
   setSmartLinkOwner,
   setSmartLinkInviteEvent,
   deleteSmartLink,
+  setSmartLinkClient,
+  logGmailAction,
+  listClosers,
+  saveClosers,
+  markAutoAssigned,
+  listAssignLog,
+  clearCloserPriority,
+  logAssign,
+  listGmailActions,
+  apoMailSentRow,
+  listApoMailStatus,
   deleteDealEventsByBot,
   insertDealEvent,
   upsertDealFeatureTags,
@@ -174,6 +190,11 @@ import {
   gmailSearchThreads,
   gmailGetThread,
   gmailSend,
+  gmailArchiveThread,
+  gmailUnarchiveThread,
+  gmailTrashThread,
+  gmailUntrashThread,
+  gmailSetRead,
   gmailCreateDraft,
   gmailDeleteDraft,
   parseEmailAddr, driveEnsureFolder, driveUploadFromUrl, driveShareDomain, driveStream, driveFindCompanyFiles, driveShareAnyone, driveEnsurePath, driveMoveFile, driveListChildren, driveTrash } from "./google.js";
@@ -5985,6 +6006,67 @@ app.get("/auth/google/callback", async (req, res) => {
   }
 });
 // Gmailが使える状態か確認する（下書きが作れない原因を切り分ける）
+// ===== Gmailのスレッド操作（アーカイブ / ゴミ箱 / 既読） =====
+// 操作できるのは「自分のGmail」だけ。ログインユーザー本人のトークンで叩く。
+// 完全削除は実装していない（Googleの権限が広くなりすぎるため）。ゴミ箱なら30日間は戻せる。
+const GMAIL_ACTIONS = {
+  archive:   { fn: gmailArchiveThread,   label: "アーカイブ" },
+  unarchive: { fn: gmailUnarchiveThread, label: "受信トレイに戻す" },
+  trash:     { fn: gmailTrashThread,     label: "ゴミ箱へ移動" },
+  untrash:   { fn: gmailUntrashThread,   label: "ゴミ箱から復元" },
+};
+
+app.post("/api/gmail/threads/:threadId/:action", async (req, res) => {
+  try {
+    const action = String(req.params.action || "");
+    const entry = GMAIL_ACTIONS[action];
+    if (!entry) return res.status(400).json({ error: "不明な操作です" });
+    const threadId = String(req.params.threadId || "").trim();
+    if (!threadId) return res.status(400).json({ error: "スレッドIDがありません" });
+
+    await entry.fn(req.user, threadId);
+    await logGmailAction({
+      owner: req.user,
+      threadId,
+      action,
+      subject: String(req.body?.subject || ""),
+      fromAddr: String(req.body?.from || ""),
+    });
+    console.log(`[gmail] ${entry.label} ${threadId} by ${req.user}`);
+    res.json({ ok: true, action, label: entry.label, threadId });
+  } catch (e) {
+    if (e.needScope) {
+      return res.status(403).json({
+        error: "Gmailを操作する権限がありません。設定→外部連携でGoogleを一度「連携解除」してから、再連携してください。",
+        needScope: true,
+      });
+    }
+    if (e.notFound) return res.status(404).json({ error: "このスレッドは見つかりませんでした（すでに削除された可能性があります）" });
+    console.error("[gmail action]", e.message);
+    res.status(502).json({ error: e.message });
+  }
+});
+
+// 既読・未読の切り替え
+app.post("/api/gmail/threads/:threadId/read", async (req, res) => {
+  try {
+    const read = req.body?.read !== false;
+    await gmailSetRead(req.user, String(req.params.threadId), read);
+    res.json({ ok: true, read });
+  } catch (e) {
+    if (e.needScope) return res.status(403).json({ error: "Gmailを操作する権限がありません。Googleを再連携してください。", needScope: true });
+    res.status(502).json({ error: e.message });
+  }
+});
+
+// 自分の操作履歴（間違って消したときに、どれを戻せばいいか分かるように）
+app.get("/api/gmail/actions", async (req, res) => {
+  try {
+    const rows = await listGmailActions(req.isAdmin && req.query.all === "1" ? null : req.user, 50);
+    res.json(rows);
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 app.get("/api/gmail/status", async (req, res) => {
   try {
     res.set("Cache-Control", "no-store");
@@ -7779,6 +7861,39 @@ function apoNameMatch(mTitle, eTitle) {
   return true; // 片方に担当者名が無ければ会社名一致で採用
 }
 
+// 予定のゲストからお客様（＝社外の人）を1人選ぶ。
+// 自社ドメインの人・アポ獲得者本人・登録済みの社内ユーザーは除外する。
+let _internalDomainCache = null;
+function internalDomains() {
+  if (_internalDomainCache) return _internalDomainCache;
+  const raw = String(process.env.INTERNAL_EMAIL_DOMAINS || "neo-career.co.jp,neocareer.co.jp");
+  _internalDomainCache = raw.split(/[,\s]+/).map((d) => d.trim().toLowerCase()).filter(Boolean);
+  return _internalDomainCache;
+}
+function isInternalAddress(email) {
+  const a = String(email || "").toLowerCase();
+  const at = a.lastIndexOf("@");
+  if (at < 0) return true; // アドレスとして壊れているものは対象外にする
+  const dom = a.slice(at + 1);
+  return internalDomains().some((d) => dom === d || dom.endsWith("." + d));
+}
+function pickClientGuest(attendees, setterEmail) {
+  const list = Array.isArray(attendees) ? attendees : [];
+  const setter = String(setterEmail || "").toLowerCase();
+  const cands = list.filter((a) => {
+    const em = String(a.email || "").toLowerCase();
+    if (!em || em === setter) return false;
+    if (a.self || a.organizer) return false;
+    if (a.resource) return false;
+    if (isInternalAddress(em)) return false;
+    return true;
+  });
+  if (!cands.length) return null;
+  // 複数いる場合は最初の1人を宛先にする（残りは画面で手入力で直せる）
+  const g = cands[0];
+  return { email: String(g.email).toLowerCase(), name: g.name || "" };
+}
+
 function apoTitleTag(title) {
   const t = String(title || "").normalize("NFKC");
   return t.includes("【新/ヒ】") || t.includes("【初回/】");
@@ -7787,20 +7902,21 @@ function apoTitleTag(title) {
 // タイトルが対象タグの予定を取り込み、各アポにスマートリンクを自動発行して返す。
 // 担当者を割り当てると /j/<slug> がその人のZoomに切り替わる。
 // query: days（既定30。今日から何日先までの予定を取り込むか）
-app.get("/api/apo/pickup", async (req, res) => {
-  try {
-    const gcalOwner = req.user;
+// カレンダーを走査して、アポの一覧（スマートリンク付き）を返す。
+// 「取得」ボタンと15分おきの自動スキャンの両方から呼ばれる共通処理。
+async function collectApoAppointments(scanOwner, opts = {}) {
+    const gcalOwner = scanOwner;
     if (!gcalOwner || !(await gcalConnected(gcalOwner))) {
-      return res.status(400).json({ error: "あなたのGoogleが連携されていません。設定→連携→Google連携 を先に済ませてください。" });
+      throw new Error("Googleが連携されていません。設定→連携→Google連携 を先に済ませてください。");
     }
     const setters = await listInterns();
     if (!setters.length) {
-      return res.status(400).json({ error: "アポを取る人が未登録です。設定→インターン登録 で、笹原拓真さんとインターン生の名前・メールアドレスを登録してください。" });
+      throw new Error("アポを取る人が未登録です。設定→インターン登録 で、名前とメールアドレスを登録してください。");
     }
     // 取得日・商談日はそれぞれ任意の1日。両方空なら「今後の予定」を既定表示。
     const dateRe = /^\d{4}-\d{2}-\d{2}$/;
-    const created = dateRe.test(String(req.query.created || "")) ? String(req.query.created) : "";
-    const start = dateRe.test(String(req.query.start || "")) ? String(req.query.start) : "";
+    const created = dateRe.test(String(opts.created || "")) ? String(opts.created) : "";
+    const start = dateRe.test(String(opts.start || "")) ? String(opts.start) : "";
     let timeMin, timeMax;
     if (start) {
       // 商談日が指定されていれば、その日の窓（Googleの開始時刻で直接絞れる）
@@ -7856,6 +7972,15 @@ app.get("/api/apo/pickup", async (req, res) => {
             eventId: ev.id, setter: st.name, startTime: ev.start, endTime: ev.end || null,
           });
         }
+        // お客様のメールアドレスを、カレンダー予定の「外部ドメインのゲスト」から自動取得する。
+        // 社内メンバー（インターン・営業担当）は除外。既に手入力で入っていれば上書きしない。
+        const guest = pickClientGuest(ev.attendees, setterEmail);
+        if (guest && !String(link.client_email || "").trim()) {
+          const updated = await setSmartLinkClient(
+            link.slug, { email: guest.email, name: guest.name, source: "calendar" }, false
+          );
+          if (updated) link = updated;
+        }
         items.push({
           event_id: ev.id,
           setter_name: st.name,
@@ -7867,11 +7992,199 @@ app.get("/api/apo/pickup", async (req, res) => {
           slug: link.slug,
           smart_url: joinUrl(link.slug),
           current_owner: link.current_owner || null,
+          client_email: link.client_email || "",
+          client_name: link.client_name || "",
+          client_email_source: link.client_email_source || "",
+          auto_assigned_at: link.auto_assigned_at || null,
+          _link: link, // 内部用。APIレスポンスに出す前に落とす。
         });
       }
     }
     items.sort((a, b) => String(a.start).localeCompare(String(b.start)));
-    res.json({ filters: { created, start }, count: items.length, appointments: items, errors });
+    return { items, errors };
+}
+
+// ───────────────────────────────────────────────────────────
+// 自動割り振り（ローテーション）と15分おきの自動スキャン
+// ───────────────────────────────────────────────────────────
+
+// 1件のアポにクローザーを自動で割り当て、招待と確定メールまで通す
+async function autoAssignOne(link, { inviteOwner, closers, cfg, actor = "auto" }) {
+  const pick = await pickCloser(link, { inviteOwner, closers, cfg });
+  if (!pick.email) {
+    // 割り当てられなかった理由も残す（あとで画面から見て手動対応する）
+    await logAssign({ slug: link.slug, assigned: null, reason: pick.reason, skipped: pick.skipped, actor });
+    return { ok: false, reason: pick.reason, skipped: pick.skipped };
+  }
+
+  const updated = await setSmartLinkOwner(link.slug, pick.email);
+  const rotNext = await commitAssignment(updated, pick, { actor });
+  await markAutoAssigned(link.slug);
+
+  // クローザーのカレンダーに商談予定を作る
+  let invite = null, inviteError = null;
+  const s = await getSettings().catch(() => ({}));
+  if (s && s.apoAutoInvite !== false) {
+    try { invite = await createApoInvite(updated, { actor }); }
+    catch (e) { inviteError = e.message; console.warn("[apo-assign] 招待の作成に失敗", link.slug, e.message); }
+  }
+
+  // アポ確定メール（担当セールス本人のGmailから）
+  let mail = null;
+  const mcfg = await getApoMailConfig().catch(() => null);
+  if (mcfg && mcfg.autoConfirm) {
+    mail = await sendApoMail(updated, "confirm", {
+      url: joinUrl(updated.slug),
+      repName: await repDisplayName(pick.email),
+      actor,
+    });
+  }
+
+  console.log(`[apo-assign] ${link.slug} → ${pick.name}（${pick.reason}）次は${rotNext.nextName}`);
+  return { ok: true, assigned: pick, invite, invite_error: inviteError, mail, next: rotNext };
+}
+
+// カレンダーを走査して、未割り当てのアポを順に自動割り振りする
+async function runApoAutoScan({ actor = "auto-scan", force = false } = {}) {
+  const cfg = await getRotationConfig();
+  if (!force && !cfg.autoScan) return { skipped: true, reason: "自動スキャンがOFFです" };
+
+  const s = await getSettings().catch(() => ({}));
+  // 走査するアカウント。未指定なら「予定作成の運用者」を使う。
+  const scanOwner = String(s.apoScanOwner || s.apoInviteOwner || "").trim();
+  if (!scanOwner) {
+    return { skipped: true, reason: "走査するアカウントが未設定です（設定→インターン登録→予定作成の運用者）" };
+  }
+
+  let scan;
+  try {
+    scan = await collectApoAppointments(scanOwner, {});
+  } catch (e) {
+    console.error("[apo-scan] 走査に失敗:", e.message);
+    return { skipped: true, reason: e.message };
+  }
+
+  // 担当が未定で、まだ自動割り振りを試していないものだけを対象にする
+  const targets = scan.items.filter((it) => !it.current_owner && !it.auto_assigned_at);
+  if (!targets.length) {
+    return { total: scan.items.length, targets: 0, assigned: 0, results: [], errors: scan.errors };
+  }
+
+  if (!cfg.autoAssign) {
+    return { total: scan.items.length, targets: targets.length, assigned: 0,
+             skipped: true, reason: "自動割り振りがOFFです（アポの記録だけ行いました）", errors: scan.errors };
+  }
+
+  const closers = await listClosers();
+  const results = [];
+  let assigned = 0;
+  // 商談が早いものから順に処理する（ローテーションの順序が時系列で自然になる）
+  for (const it of targets) {
+    if (assigned >= cfg.maxPerRun) {
+      console.warn(`[apo-scan] 1回あたりの上限 ${cfg.maxPerRun}件に達したため中断しました`);
+      break;
+    }
+    try {
+      // 最新のローテーション状態を毎回読み直す（1件ごとに次の人が進むため）
+      const c = await getRotationConfig();
+      const r = await autoAssignOne(it._link, { inviteOwner: scanOwner, closers, cfg: c, actor });
+      results.push({ slug: it.slug, title: it.title, start: it.start, ...r });
+      if (r.ok) assigned++;
+    } catch (e) {
+      console.error("[apo-scan]", it.slug, e.message);
+      results.push({ slug: it.slug, ok: false, reason: e.message });
+    }
+    await new Promise((r) => setTimeout(r, 400)); // Google APIのレート対策
+  }
+  console.log(`[apo-scan] 走査${scan.items.length}件 / 未割当${targets.length}件 / 割り当て${assigned}件`);
+  return { total: scan.items.length, targets: targets.length, assigned, results, errors: scan.errors };
+}
+
+// 手動で自動スキャンを流す（動作確認用）
+app.post("/api/apo/auto-scan", async (req, res) => {
+  try {
+    if (!req.isAdmin) return res.status(403).json({ error: "管理者のみ実行できます" });
+    const r = await runApoAutoScan({ actor: req.user || "manual", force: req.body?.force === true });
+    res.json({ ok: true, ...r });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// 1件だけ手動で自動割り振りを試す（画面の「自動で決める」ボタン）
+app.post("/api/smart-links/:slug/auto-assign", async (req, res) => {
+  try {
+    const link = await getSmartLink(req.params.slug);
+    if (!link) return res.status(404).json({ error: "リンクが見つかりません" });
+    const s = await getSettings().catch(() => ({}));
+    const inviteOwner = String(s.apoScanOwner || s.apoInviteOwner || "").trim();
+    if (!inviteOwner) return res.status(400).json({ error: "予定作成の運用者が未設定です" });
+    const r = await autoAssignOne(link, { inviteOwner, closers: null, cfg: null, actor: req.user || "manual" });
+    if (!r.ok) return res.status(409).json({ error: r.reason, ...r });
+    res.json({ ok: true, ...r });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// ローテーションの状態（次に誰に回るか）
+app.get("/api/apo/rotation", async (req, res) => {
+  try { res.json(await rotationStatus()); }
+  catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// クローザーの並び順・有効無効・1日の上限を保存
+app.put("/api/apo/closers", async (req, res) => {
+  try {
+    if (!req.isAdmin) return res.status(403).json({ error: "管理者のみ変更できます" });
+    const list = Array.isArray(req.body?.closers) ? req.body.closers : [];
+    await saveClosers(list);
+    res.json({ ok: true, ...(await rotationStatus()) });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// 次を特定の人から始める（GAS版の setNextUeno 相当）
+app.post("/api/apo/rotation/next", async (req, res) => {
+  try {
+    if (!req.isAdmin) return res.status(403).json({ error: "管理者のみ変更できます" });
+    res.json({ ok: true, ...(await setNextCloser(String(req.body?.email || ""))) });
+  } catch (e) { res.status(400).json({ error: e.message }); }
+});
+
+// ローテーションの設定
+app.put("/api/apo/rotation-config", async (req, res) => {
+  try {
+    if (!req.isAdmin) return res.status(403).json({ error: "管理者のみ変更できます" });
+    const b = req.body || {};
+    const patch = {};
+    if (b.autoAssign !== undefined) patch.apoRotationAuto = !!b.autoAssign;
+    if (b.autoScan !== undefined) patch.apoAutoScan = !!b.autoScan;
+    if (b.bufferMin !== undefined) patch.apoRotationBufferMin = Math.max(0, parseInt(b.bufferMin, 10) || 0);
+    if (b.maxPerRun !== undefined) patch.apoRotationMaxPerRun = Math.max(1, parseInt(b.maxPerRun, 10) || 30);
+    if (b.scanOwner !== undefined) patch.apoScanOwner = String(b.scanOwner || "").trim();
+    await saveSettings(patch);
+    res.json({ ok: true, ...(await rotationStatus()) });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// 割り振りの履歴（順番がおかしいときの調査用）
+app.get("/api/apo/assign-log", async (req, res) => {
+  try { res.json(await listAssignLog(50)); }
+  catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.get("/api/apo/pickup", async (req, res) => {
+  try {
+    const { items, errors } = await collectApoAppointments(req.user, {
+      created: req.query.created, start: req.query.start,
+    });
+    // アポメールの送信状況をまとめて引く（1件ずつ引くとN+1になるため）
+    const mailStatus = await listApoMailStatus(items.map((i) => i.slug));
+    for (const it of items) it.mail = mailStatus[it.slug] || {};
+    const mailCfg = await getApoMailConfig().catch(() => null);
+    const rot = await rotationStatus().catch(() => null);
+    for (const it of items) delete it._link;
+    res.json({
+      filters: { created: req.query.created || "", start: req.query.start || "" },
+      count: items.length, appointments: items, errors,
+      mail_config: mailCfg, rotation: rot,
+    });
   } catch (e) {
     console.error("[apo/pickup]", e);
     res.status(500).json({ error: e.message });
@@ -7941,6 +8254,16 @@ async function createApoInvite(link, { actor } = {}) {
   return ev;
 }
 
+// 担当セールスの表示名を引く（メールしか無い場合はメールをそのまま使う）
+async function repDisplayName(email) {
+  if (!email) return "";
+  try {
+    const users = await listUsers();
+    const u = (users || []).find((x) => String(x.email || "").toLowerCase() === String(email).toLowerCase());
+    return (u && (u.name || u.email)) || email;
+  } catch { return email; }
+}
+
 app.put("/api/smart-links/:slug/owner", async (req, res) => {
   try {
     const existing = await getSmartLink(req.params.slug);
@@ -7955,7 +8278,95 @@ app.put("/api/smart-links/:slug/owner", async (req, res) => {
       try { invite = await createApoInvite(link, { actor: req.user }); }
       catch (e) { inviteError = e.message; console.warn("[apo-invite] 失敗", req.params.slug, e.message); }
     }
-    res.json({ ok: true, link, invite, invite_error: inviteError });
+    // 続けてアポ確定メールを、担当セールス本人のGmailから自動送信する
+    let mail = null;
+    if (owner) {
+      const cfg = await getApoMailConfig().catch(() => null);
+      if (cfg && cfg.autoConfirm) {
+        mail = await sendApoMail(link, "confirm", {
+          url: joinUrl(link.slug),
+          repName: await repDisplayName(owner),
+          actor: req.user || "auto",
+        });
+      } else {
+        mail = { ok: false, skipped: true, reason: "確定メールの自動送信がOFFです" };
+      }
+    }
+    res.json({ ok: true, link, invite, invite_error: inviteError, mail });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// お客様の宛先を手入力で補完・修正する
+app.put("/api/smart-links/:slug/client", async (req, res) => {
+  try {
+    const link = await getSmartLink(req.params.slug);
+    if (!link) return res.status(404).json({ error: "リンクが見つかりません" });
+    const email = String(req.body?.email || "").trim().toLowerCase();
+    const name = String(req.body?.name || "").trim();
+    if (email && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) {
+      return res.status(400).json({ error: "メールアドレスの形式が正しくありません" });
+    }
+    const updated = await setSmartLinkClient(req.params.slug, { email, name, source: "manual" }, true);
+    res.json({ ok: true, link: updated });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// 手動送信・再送（自動が失敗したとき、内容を直して送り直すとき）
+app.post("/api/smart-links/:slug/mail", async (req, res) => {
+  try {
+    const link = await getSmartLink(req.params.slug);
+    if (!link) return res.status(404).json({ error: "リンクが見つかりません" });
+    const kind = req.body?.kind === "reminder" ? "reminder" : "confirm";
+    const force = req.body?.force === true;
+    const r = await sendApoMail(link, kind, {
+      url: joinUrl(link.slug),
+      repName: await repDisplayName(link.current_owner),
+      force,
+      actor: req.user || "manual",
+    });
+    if (!r.ok) return res.status(r.skipped ? 409 : 400).json({ error: r.reason, ...r });
+    res.json({ ok: true, ...r });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// アポメールの設定
+app.get("/api/apo-mail-config", async (req, res) => {
+  try {
+    const cfg = await getApoMailConfig();
+    res.json({
+      ...cfg,
+      defaults: {
+        confirmSubject: DEFAULT_CONFIRM_SUBJECT, confirmBody: DEFAULT_CONFIRM_BODY,
+        reminderSubject: DEFAULT_REMINDER_SUBJECT, reminderBody: DEFAULT_REMINDER_BODY,
+      },
+    });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+app.put("/api/apo-mail-config", async (req, res) => {
+  try {
+    if (!req.isAdmin) return res.status(403).json({ error: "管理者のみ変更できます" });
+    const b = req.body || {};
+    const patch = {};
+    if (b.autoConfirm !== undefined) patch.apoMailAutoConfirm = !!b.autoConfirm;
+    if (b.autoReminder !== undefined) patch.apoMailAutoReminder = !!b.autoReminder;
+    if (b.reminderHour !== undefined) patch.apoMailReminderHour = Math.min(23, Math.max(0, parseInt(b.reminderHour, 10) || 0));
+    if (b.companyName !== undefined) patch.apoMailCompanyName = String(b.companyName || "").slice(0, 100);
+    if (b.confirmSubject !== undefined) patch.apoMailConfirmSubject = String(b.confirmSubject || "").slice(0, 300);
+    if (b.confirmBody !== undefined) patch.apoMailConfirmBody = String(b.confirmBody || "").slice(0, 8000);
+    if (b.reminderSubject !== undefined) patch.apoMailReminderSubject = String(b.reminderSubject || "").slice(0, 300);
+    if (b.reminderBody !== undefined) patch.apoMailReminderBody = String(b.reminderBody || "").slice(0, 8000);
+    if (b.maxPerRun !== undefined) patch.apoMailMaxPerRun = Math.max(1, parseInt(b.maxPerRun, 10) || 50);
+    await saveSettings(patch);
+    res.json({ ok: true, config: await getApoMailConfig() });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// 前日リマインドを今すぐ流す（動作確認用）
+app.post("/api/apo-mail/run-reminders", async (req, res) => {
+  try {
+    if (!req.isAdmin) return res.status(403).json({ error: "管理者のみ実行できます" });
+    const r = await runReminderSweep({ joinUrl, repNameOf: repDisplayName });
+    res.json({ ok: true, ...r });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
@@ -8220,6 +8631,46 @@ server.listen(PORT, async () => {
   };
   setTimeout(judgeSweep, 2 * 60 * 1000);
   setInterval(judgeSweep, 30 * 60 * 1000);
+
+  // 前日リマインドの定時実行：設定した時刻（JST）の0〜4分の間に、その日1回だけ流す
+  let lastReminderRunDay = "";
+  let reminderRunning = false;
+  const checkReminderSchedule = async () => {
+    if (reminderRunning) return;
+    try {
+      const cfg = await getApoMailConfig();
+      if (!cfg.autoReminder) return;
+      const nowJst = new Date(Date.now() + 9 * 3600 * 1000);
+      const dateStr = nowJst.toISOString().slice(0, 10);
+      const h = nowJst.getUTCHours(), m = nowJst.getUTCMinutes();
+      if (h !== cfg.reminderHour || m >= 5) return;
+      if (lastReminderRunDay === dateStr) return;
+      lastReminderRunDay = dateStr;
+      reminderRunning = true;
+      console.log(`[apo-mail] 前日リマインドの定時実行を開始（${cfg.reminderHour}:00 JST）: ${dateStr}`);
+      await runReminderSweep({ joinUrl, repNameOf: repDisplayName });
+    } catch (e) {
+      console.error("[apo-mail] 前日リマインド実行エラー:", e.message);
+    } finally { reminderRunning = false; }
+  };
+  setInterval(() => { checkReminderSchedule().catch(() => {}); }, 60 * 1000);
+
+  // アポの自動スキャン：15分おきにカレンダーを見て、新しいアポを記録・自動割り振りする
+  let apoScanRunning = false;
+  const apoScanTick = async () => {
+    if (apoScanRunning) return; // 前回が終わっていなければ見送る
+    apoScanRunning = true;
+    try {
+      const r = await runApoAutoScan({ actor: "auto-scan" });
+      if (r && r.skipped && r.reason && !/OFF/.test(r.reason)) {
+        console.warn("[apo-scan] 実行できませんでした:", r.reason);
+      }
+    } catch (e) {
+      console.error("[apo-scan] エラー:", e.message);
+    } finally { apoScanRunning = false; }
+  };
+  setTimeout(() => { apoScanTick().catch(() => {}); }, 3 * 60 * 1000);
+  setInterval(() => { apoScanTick().catch(() => {}); }, 15 * 60 * 1000);
   console.log(`\n  kinbot (Bot方式) → http://localhost:${PORT}`);
   console.log(`  公開URL(Webhook受け口): ${PUBLIC_URL || "(未設定)"}`);
   console.log(`  要約エンジン: ${llm.provider} (${llm.model})`);

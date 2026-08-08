@@ -717,7 +717,26 @@ table.bant td:first-child { color: var(--muted); width: 80px; }
 .gm-from { font-weight: 700; color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .gm-subj { font-size: 13px; font-weight: 700; color: var(--ink); margin: 3px 0 2px; }
 .gm-snip { font-size: 12px; color: var(--muted); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
-.gm-act { margin-top: 8px; }
+.gm-act { margin-top: 8px; display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.gm-thread.gm-done { opacity: 0.55; }
+.gm-done-msg { font-size: 12px; color: #1f7a4d; font-weight: 700; }
+
+/* クローザーのローテーション設定 */
+.ap-rot-h { margin: 18px 0 6px; font-size: 13px; color: #0F6E56; }
+.ap-rot-next { margin: 14px 0; padding: 11px 14px; background: #E8F6F0; border-radius: 10px; font-size: 13px; color: #0F6E56; }
+.ap-rot-list { display: flex; flex-direction: column; gap: 8px; margin: 10px 0 14px; }
+.ap-rot-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--panel-2); font-size: 12.5px; cursor: grab; }
+.ap-rot-row.ap-rot-drag { opacity: 0.45; }
+.ap-rot-row.ap-rot-off { opacity: 0.5; }
+.ap-rot-num { display: inline-flex; align-items: center; justify-content: center; width: 22px; height: 22px; border-radius: 999px; background: #1d9e75; color: #fff; font-size: 11px; font-weight: 700; flex: none; }
+.ap-rot-name { font-weight: 700; min-width: 90px; display: inline-flex; align-items: center; gap: 6px; }
+.ap-rot-cap input { width: 54px; padding: 4px 6px; border: 1px solid var(--line); border-radius: 7px; font-size: 12px; }
+.ap-rot-cnt { color: var(--muted); font-size: 11.5px; }
+.ap-rot-log { margin-top: 14px; padding: 12px; background: var(--panel-2); border: 1px solid var(--line); border-radius: 10px; font-size: 11.5px; line-height: 1.7; white-space: pre-wrap; word-break: break-all; max-height: 320px; overflow: auto; }
+@media (max-width: 720px) {
+  .ap-rot-row { gap: 6px 10px; }
+  .ap-rot-name { min-width: 100%; }
+}
 .gmail-to { display: flex; align-items: flex-end; gap: 10px; margin-top: 12px; flex-wrap: wrap; }
 .gmail-to .thanks-field { flex: 1 1 240px; margin: 0; }
 
@@ -2343,6 +2362,28 @@ button.pipe-cell { background: none; border: none; cursor: pointer; color: #0F6E
 .ap-ok { background: #e3f4ea; color: #1f7a4d; }
 .ap-warn { background: #fbeee0; color: #a8611a; }
 .ap-pending { background: var(--panel-2); color: var(--muted); }
+
+/* アポメール自動送付 */
+.ap-mailaddr { font-size: 12px; word-break: break-all; }
+.ap-mailstate { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 6px; }
+.ap-warn-btn { color: #a8611a; border-color: #e8d3b6; }
+.ap-mailcfg { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; margin: 0 0 16px; box-shadow: 0 1px 2px rgba(0,0,0,0.04); }
+.ap-mailcfg > summary { cursor: pointer; padding: 14px 18px; font-weight: 700; font-size: 14px; color: #0F6E56; list-style: none; }
+.ap-mailcfg > summary::-webkit-details-marker { display: none; }
+.ap-mailcfg > summary::before { content: "▸"; display: inline-block; margin-right: 8px; transition: transform .15s ease; }
+.ap-mailcfg[open] > summary::before { transform: rotate(90deg); }
+.ap-mailcfg-body { padding: 0 18px 18px; border-top: 1px solid var(--line); }
+.ap-cfg-row { display: flex; flex-wrap: wrap; gap: 14px 22px; align-items: center; margin: 14px 0; font-size: 13px; }
+.ap-check { display: inline-flex; align-items: center; gap: 7px; cursor: pointer; }
+.ap-tpl { margin-top: 16px; }
+.ap-tpl h4 { margin: 0 0 8px; font-size: 13px; color: #0F6E56; }
+.ap-tpl label { display: block; font-size: 12px; color: var(--muted); margin-bottom: 10px; }
+.ap-tpl input[type="text"], .ap-tpl textarea { display: block; width: 100%; margin-top: 4px; padding: 9px 11px; border: 1px solid var(--line); border-radius: 10px; font-size: 13px; font-family: inherit; color: var(--text); background: var(--panel-2); box-sizing: border-box; }
+.ap-tpl textarea { line-height: 1.7; resize: vertical; }
+.ap-cfg-actions { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin-top: 16px; }
+@media (max-width: 720px) {
+  .ap-cfg-row { flex-direction: column; align-items: flex-start; gap: 10px; }
+}
 
 /* 実績：商談種別・日次確認・パイプラインをfn4トンマナに統一 */
 .fn4-kind-rows { display: flex; justify-content: space-between; margin-top: 10px; font-size: 12px; color: var(--muted); border-top: 1px dashed var(--line); padding-top: 8px; }

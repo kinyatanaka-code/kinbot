@@ -1412,7 +1412,59 @@ async function loadDetail(botId, openTab, opts = {}) {
             `<div class="gm-thread-top"><span class="gm-from">${escapeHtml(t.from || "")}</span><span class="gm-date">${escapeHtml((t.date || "").slice(0, 25))}</span></div>` +
             `<div class="gm-subj">${escapeHtml(t.subject || "(件名なし)")}</div>` +
             `<div class="gm-snip">${escapeHtml(t.snippet || "")}</div>` +
-            `<div class="gm-act"><button type="button" class="btn btn-ghost gm-reply-btn">この相手への返信を作成</button></div>`;
+            `<div class="gm-act">` +
+              `<button type="button" class="btn btn-ghost gm-reply-btn">この相手への返信を作成</button>` +
+              `<button type="button" class="btn btn-ghost gm-arch-btn">アーカイブ</button>` +
+              `<button type="button" class="btn btn-ghost gm-trash-btn">ゴミ箱へ</button>` +
+            `</div>`;
+
+          // アーカイブ / ゴミ箱。どちらもGmail側で元に戻せるので、取り消しボタンを出す。
+          const runAct = async (btn, action, confirmMsg) => {
+            if (confirmMsg && !confirm(confirmMsg)) return;
+            btn.disabled = true;
+            const bo = btn.textContent;
+            btn.textContent = "処理中…";
+            try {
+              const rr = await fetch(`/api/gmail/threads/${encodeURIComponent(t.threadId)}/${action}`, {
+                method: "POST", headers: { "content-type": "application/json" },
+                body: JSON.stringify({ subject: t.subject || "", from: t.from || "" }),
+              });
+              const dd = await rr.json();
+              if (!rr.ok) throw new Error(dd.error || "操作に失敗しました");
+              el.classList.add("gm-done");
+              const undo = action === "archive" ? "unarchive" : "untrash";
+              const doneLabel = action === "archive" ? "アーカイブしました" : "ゴミ箱に移動しました";
+              const act = el.querySelector(".gm-act");
+              act.innerHTML = `<span class="gm-done-msg">${doneLabel}</span>`;
+              const ub = document.createElement("button");
+              ub.type = "button";
+              ub.className = "btn btn-ghost";
+              ub.textContent = "取り消す";
+              ub.addEventListener("click", async () => {
+                ub.disabled = true; ub.textContent = "戻しています…";
+                try {
+                  const r2 = await fetch(`/api/gmail/threads/${encodeURIComponent(t.threadId)}/${undo}`, {
+                    method: "POST", headers: { "content-type": "application/json" },
+                    body: JSON.stringify({ subject: t.subject || "", from: t.from || "" }),
+                  });
+                  const d2 = await r2.json();
+                  if (!r2.ok) throw new Error(d2.error || "元に戻せませんでした");
+                  el.classList.remove("gm-done");
+                  act.innerHTML = `<span class="gm-done-msg">元に戻しました</span>`;
+                } catch (e2) { alert("元に戻せませんでした: " + e2.message); ub.disabled = false; ub.textContent = "取り消す"; }
+              });
+              act.appendChild(ub);
+            } catch (e) {
+              alert("操作に失敗しました: " + e.message);
+              btn.disabled = false; btn.textContent = bo;
+            }
+          };
+          el.querySelector(".gm-arch-btn").addEventListener("click", (ev) =>
+            runAct(ev.currentTarget, "archive", null));
+          el.querySelector(".gm-trash-btn").addEventListener("click", (ev) =>
+            runAct(ev.currentTarget, "trash",
+              `このやり取りをGmailのゴミ箱に移動します。\n\n件名: ${t.subject || "(件名なし)"}\n\n30日以内ならGmailから元に戻せます。よろしいですか？`));
+
           el.querySelector(".gm-reply-btn").addEventListener("click", async (ev) => {
             const b = ev.currentTarget;
             b.disabled = true; const bo = b.textContent; b.textContent = "作成中…";

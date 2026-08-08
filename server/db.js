@@ -477,6 +477,78 @@ export async function initDb() {
   await pool.query(`ALTER TABLE smart_links ADD COLUMN IF NOT EXISTS invite_event_id TEXT;`);
   await pool.query(`CREATE UNIQUE INDEX IF NOT EXISTS uq_smart_links_event ON smart_links(event_id) WHERE event_id IS NOT NULL;`);
 
+  // アポメール自動送付：お客様の宛先（カレンダーのゲストから自動取得、手入力で補完）
+  await pool.query(`ALTER TABLE smart_links ADD COLUMN IF NOT EXISTS client_email TEXT;`);
+  await pool.query(`ALTER TABLE smart_links ADD COLUMN IF NOT EXISTS client_name TEXT;`);
+  await pool.query(`ALTER TABLE smart_links ADD COLUMN IF NOT EXISTS client_email_source TEXT;`);
+  // 送信ログ。status='sent' に一意制約をかけて、同じアポへの二重送信を防ぐ。
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS apo_mail_log (
+      id          BIGSERIAL PRIMARY KEY,
+      slug        TEXT NOT NULL,
+      kind        TEXT NOT NULL,
+      to_email    TEXT,
+      from_owner  TEXT,
+      subject     TEXT,
+      status      TEXT NOT NULL,
+      error       TEXT,
+      message_id  TEXT,
+      created_at  TIMESTAMPTZ DEFAULT now()
+    );
+  `);
+  await pool.query(`CREATE UNIQUE INDEX IF NOT EXISTS uq_apo_mail_sent ON apo_mail_log(slug, kind) WHERE status='sent';`);
+  await pool.query(`CREATE INDEX IF NOT EXISTS ix_apo_mail_slug ON apo_mail_log(slug);`);
+
+  // Gmail操作ログ：誰がどのスレッドをアーカイブ／ゴミ箱に入れたかを残す。
+  // 元に戻すときの手がかりになり、チームで使う以上あとから追える状態にしておく。
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS gmail_actions (
+      id         BIGSERIAL PRIMARY KEY,
+      owner      TEXT NOT NULL,
+      thread_id  TEXT NOT NULL,
+      action     TEXT NOT NULL,
+      subject    TEXT,
+      from_addr  TEXT,
+      created_at TIMESTAMPTZ DEFAULT now()
+    );
+  `);
+  await pool.query(`CREATE INDEX IF NOT EXISTS ix_gmail_actions_owner ON gmail_actions(owner, created_at DESC);`);
+
+  // クローザーの割り振りローテーション。
+  // sort_order が回る順番（植野1→田中2→江田3→森田4）。
+  // priority=true は「代打で飛ばされた人」で、次のアポで最優先に戻す印。
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS closer_rotation (
+      email            TEXT PRIMARY KEY,
+      name             TEXT,
+      sort_order       INT NOT NULL,
+      active           BOOLEAN NOT NULL DEFAULT true,
+      priority         BOOLEAN NOT NULL DEFAULT false,
+      daily_cap        INT,
+      last_assigned_at TIMESTAMPTZ,
+      assigned_count   INT NOT NULL DEFAULT 0,
+      created_at       TIMESTAMPTZ DEFAULT now(),
+      updated_at       TIMESTAMPTZ DEFAULT now()
+    );
+  `);
+  await pool.query(`CREATE INDEX IF NOT EXISTS ix_closer_rotation_order ON closer_rotation(sort_order);`);
+
+  // 割り振りの記録。誰がなぜ選ばれた／飛ばされたかを残す（順番がおかしいときの調査用）
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS assign_log (
+      id         BIGSERIAL PRIMARY KEY,
+      slug       TEXT NOT NULL,
+      assigned   TEXT,
+      reason     TEXT,
+      skipped    JSONB,
+      actor      TEXT,
+      created_at TIMESTAMPTZ DEFAULT now()
+    );
+  `);
+  await pool.query(`CREATE INDEX IF NOT EXISTS ix_assign_log_slug ON assign_log(slug, created_at DESC);`);
+  // 予定1件につき1回だけ自動割り振りする（重複割り当ての防止）
+  await pool.query(`ALTER TABLE smart_links ADD COLUMN IF NOT EXISTS auto_assigned_at TIMESTAMPTZ;`);
+
   // 提案資料テーブル
   await pool.query(`
     CREATE TABLE IF NOT EXISTS proposal_files (
@@ -2145,6 +2217,229 @@ export async function setSmartLinkOwner(slug, owner) {
 export async function deleteSmartLink(slug) {
   if (!pool) return;
   try { await pool.query(`DELETE FROM smart_links WHERE slug=$1`, [slug]); } catch {}
+}
+
+// ===== アポメール自動送付 =====
+// お客様の宛先を保存する。force=false のときは、既に入っている値を上書きしない
+// （手入力で直したアドレスを、あとからカレンダーの自動取得で戻さないため）。
+export async function setSmartLinkClient(slug, { email, name, source } = {}, force = true) {
+  if (!pool || !slug) return null;
+  try {
+    const addr = String(email || "").trim().toLowerCase();
+    const { rows } = await pool.query(
+      `UPDATE smart_links
+          SET client_email        = CASE WHEN $4 OR COALESCE(client_email,'')='' THEN $2 ELSE client_email END,
+              client_name         = CASE WHEN $4 OR COALESCE(client_name,'')=''  THEN $3 ELSE client_name  END,
+              client_email_source = CASE WHEN $4 OR COALESCE(client_email,'')='' THEN $5 ELSE client_email_source END,
+              updated_at = now()
+        WHERE slug=$1 RETURNING *`,
+      [slug, addr || null, String(name || "").trim() || null, force, String(source || "") || null]
+    );
+    return rows[0] || null;
+  } catch (e) { console.error("[db] setSmartLinkClient", e.message); return null; }
+}
+
+// 送信済みかどうか（status='sent' の行があるか）
+export async function apoMailSentRow(slug, kind) {
+  if (!pool || !slug) return null;
+  try {
+    const { rows } = await pool.query(
+      `SELECT * FROM apo_mail_log WHERE slug=$1 AND kind=$2 AND status='sent' LIMIT 1`, [slug, kind]
+    );
+    return rows[0] || null;
+  } catch { return null; }
+}
+
+export async function logApoMail({ slug, kind, toEmail, fromOwner, subject, status, error, messageId }) {
+  if (!pool || !slug) return null;
+  try {
+    const { rows } = await pool.query(
+      `INSERT INTO apo_mail_log (slug, kind, to_email, from_owner, subject, status, error, message_id)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING *`,
+      [slug, kind, toEmail || null, fromOwner || null, (subject || "").slice(0, 300),
+       status, error ? String(error).slice(0, 500) : null, messageId || null]
+    );
+    return rows[0];
+  } catch (e) {
+    // 一意制約に当たった＝既に送信済み。エラーにはしない。
+    if (/uq_apo_mail_sent/.test(e.message)) return null;
+    console.error("[db] logApoMail", e.message);
+    return null;
+  }
+}
+
+// 複数slugぶんの送信状況をまとめて返す： { slug: { confirm: row, reminder: row } }
+export async function listApoMailStatus(slugs) {
+  const out = {};
+  if (!pool || !Array.isArray(slugs) || !slugs.length) return out;
+  try {
+    const { rows } = await pool.query(
+      `SELECT DISTINCT ON (slug, kind) * FROM apo_mail_log
+        WHERE slug = ANY($1::text[]) ORDER BY slug, kind, created_at DESC`, [slugs]
+    );
+    for (const r of rows) {
+      out[r.slug] = out[r.slug] || {};
+      out[r.slug][r.kind] = { status: r.status, at: r.created_at, to: r.to_email, error: r.error };
+    }
+  } catch (e) { console.error("[db] listApoMailStatus", e.message); }
+  return out;
+}
+
+// ===== クローザーのローテーション =====
+export async function listClosers({ activeOnly = false } = {}) {
+  if (!pool) return [];
+  try {
+    const { rows } = await pool.query(
+      `SELECT * FROM closer_rotation ${activeOnly ? "WHERE active" : ""} ORDER BY sort_order, email`
+    );
+    return rows;
+  } catch { return []; }
+}
+
+// 画面から並び順ごと保存する。渡されなかったクローザーは削除する。
+export async function saveClosers(list) {
+  if (!pool) return [];
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    const emails = list.map((c) => String(c.email || "").toLowerCase()).filter(Boolean);
+    if (emails.length) {
+      await client.query(`DELETE FROM closer_rotation WHERE email <> ALL($1::text[])`, [emails]);
+    } else {
+      await client.query(`DELETE FROM closer_rotation`);
+    }
+    for (let i = 0; i < list.length; i++) {
+      const c = list[i];
+      const email = String(c.email || "").toLowerCase();
+      if (!email) continue;
+      const cap = Number.isFinite(+c.daily_cap) && +c.daily_cap > 0 ? +c.daily_cap : null;
+      await client.query(
+        `INSERT INTO closer_rotation (email, name, sort_order, active, daily_cap)
+         VALUES ($1,$2,$3,$4,$5)
+         ON CONFLICT (email) DO UPDATE
+           SET name=$2, sort_order=$3, active=$4, daily_cap=$5, updated_at=now()`,
+        [email, String(c.name || "").trim() || email, i + 1, c.active !== false, cap]
+      );
+    }
+    await client.query("COMMIT");
+  } catch (e) {
+    await client.query("ROLLBACK");
+    console.error("[db] saveClosers", e.message);
+  } finally { client.release(); }
+  return listClosers();
+}
+
+// 割り当て確定：件数を進め、最優先フラグを外す
+export async function markCloserAssigned(email) {
+  if (!pool || !email) return;
+  try {
+    await pool.query(
+      `UPDATE closer_rotation
+          SET assigned_count = assigned_count + 1, last_assigned_at = now(),
+              priority = false, updated_at = now()
+        WHERE email = $1`, [email]
+    );
+  } catch (e) { console.error("[db] markCloserAssigned", e.message); }
+}
+
+// 代打で飛ばされた人に、次のアポで最優先に戻る印をつける
+export async function markCloserSkipped(emails) {
+  if (!pool || !Array.isArray(emails) || !emails.length) return;
+  try {
+    await pool.query(
+      `UPDATE closer_rotation SET priority = true, updated_at = now() WHERE email = ANY($1::text[])`,
+      [emails]
+    );
+  } catch (e) { console.error("[db] markCloserSkipped", e.message); }
+}
+
+// その日にすでに割り当てた件数（1日の上限判定に使う。JST基準）
+// 最優先フラグを全員分クリアする（順番をリセットするとき）
+export async function clearCloserPriority() {
+  if (!pool) return;
+  try { await pool.query(`UPDATE closer_rotation SET priority=false, updated_at=now() WHERE priority`); } catch {}
+}
+
+export async function countAssignedOnDate(email, jstDate) {
+  if (!pool || !email) return 0;
+  try {
+    const { rows } = await pool.query(
+      `SELECT COUNT(*)::int AS n FROM smart_links
+        WHERE current_owner = $1
+          AND (start_time AT TIME ZONE 'Asia/Tokyo')::date = $2::date`,
+      [email, jstDate]
+    );
+    return rows[0] ? rows[0].n : 0;
+  } catch { return 0; }
+}
+
+export async function logAssign({ slug, assigned, reason, skipped, actor }) {
+  if (!pool || !slug) return null;
+  try {
+    const { rows } = await pool.query(
+      `INSERT INTO assign_log (slug, assigned, reason, skipped, actor)
+       VALUES ($1,$2,$3,$4,$5) RETURNING *`,
+      [slug, assigned || null, (reason || "").slice(0, 300), JSON.stringify(skipped || []), actor || null]
+    );
+    return rows[0];
+  } catch (e) { console.error("[db] logAssign", e.message); return null; }
+}
+
+export async function listAssignLog(limit = 50) {
+  if (!pool) return [];
+  try {
+    const { rows } = await pool.query(`SELECT * FROM assign_log ORDER BY created_at DESC LIMIT $1`, [limit]);
+    return rows;
+  } catch { return []; }
+}
+
+// 自動割り振り済みの印（同じ予定を二重に割り当てないため）
+export async function markAutoAssigned(slug) {
+  if (!pool || !slug) return;
+  try { await pool.query(`UPDATE smart_links SET auto_assigned_at = now() WHERE slug=$1`, [slug]); } catch {}
+}
+
+// ===== Gmail操作ログ =====
+export async function logGmailAction({ owner, threadId, action, subject, fromAddr }) {
+  if (!pool) return null;
+  try {
+    const { rows } = await pool.query(
+      `INSERT INTO gmail_actions (owner, thread_id, action, subject, from_addr)
+       VALUES ($1,$2,$3,$4,$5) RETURNING *`,
+      [owner || "", threadId || "", action, (subject || "").slice(0, 300), (fromAddr || "").slice(0, 200)]
+    );
+    return rows[0];
+  } catch (e) { console.error("[db] logGmailAction", e.message); return null; }
+}
+
+// 直近の操作履歴（元に戻したいときに使う）
+export async function listGmailActions(owner, limit = 50) {
+  if (!pool) return [];
+  try {
+    const { rows } = owner
+      ? await pool.query(`SELECT * FROM gmail_actions WHERE owner=$1 ORDER BY created_at DESC LIMIT $2`, [owner, limit])
+      : await pool.query(`SELECT * FROM gmail_actions ORDER BY created_at DESC LIMIT $1`, [limit]);
+    return rows;
+  } catch { return []; }
+}
+
+// 前日リマインドの対象：指定の時間帯に商談があり、担当・宛先が揃っていて、まだ送っていないもの
+export async function listApoReminderTargets(fromISO, toISO) {
+  if (!pool) return [];
+  try {
+    const { rows } = await pool.query(
+      `SELECT s.* FROM smart_links s
+        WHERE s.start_time >= $1 AND s.start_time < $2
+          AND COALESCE(s.current_owner,'') <> ''
+          AND COALESCE(s.client_email,'') <> ''
+          AND NOT EXISTS (
+                SELECT 1 FROM apo_mail_log l
+                 WHERE l.slug = s.slug AND l.kind = 'reminder' AND l.status = 'sent')
+        ORDER BY s.start_time`,
+      [fromISO, toISO]
+    );
+    return rows;
+  } catch (e) { console.error("[db] listApoReminderTargets", e.message); return []; }
 }
 // ===== Feature C: 商談特徴タグ =====
 // 1案件=1レコード。判定完了時と手動バックフィルの両方から呼ばれる。

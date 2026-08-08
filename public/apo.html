@@ -31,6 +31,67 @@
             <span class="rev-status" id="apStatus"></span>
           </div>
           <p class="note ap-desc">笹原拓真さん・インターン生（<a href="settings.html">設定 → インターン登録</a>で登録）のカレンダーから、<b>本人が主催者で、タイトルに【新/ヒ】または【初回/】が付いた予定</b>だけを取り込みます（全角・半角の違いは無視）。<b>取得日（アポが取れた日）・商談日（実施日）でそれぞれ絞り込めます</b>（両方指定すると両方に一致するアポだけ表示。空欄のときは今後の予定を表示）。各アポに共有用のスマートリンクを自動発行し、担当セールスを選ぶと、そのリンクの行き先が担当者のZoomに切り替わります（すでにお客様に送ったリンクも自動で切り替わります）。担当者のZoom URLは <a href="settings.html">設定 → 登録リンク</a> で各自が設定します。</p>
+          <details class="ap-mailcfg" id="apRotCfg">
+            <summary>クローザーの自動割り振り（ローテーション）</summary>
+            <div class="ap-mailcfg-body">
+              <p class="note">カレンダーを15分おきに見て、新しいアポを自動で記録し、クローザーへ順番に割り振ります。商談の時間帯に予定が入っている人は飛ばして代打を立て、飛ばされた人は次のアポで最優先に戻します。</p>
+              <div class="ap-cfg-row">
+                <label class="ap-check"><input type="checkbox" id="rcAutoScan" /> 15分おきにカレンダーを自動スキャンする</label>
+                <label class="ap-check"><input type="checkbox" id="rcAutoAssign" /> スキャンしたアポを自動で割り振る</label>
+              </div>
+              <div class="ap-cfg-row">
+                <label>商談の前後に確保する余白 <input type="number" id="rcBuffer" min="0" max="180" style="width:70px" /> 分</label>
+                <label>1回のスキャンで割り振る上限 <input type="number" id="rcMax" min="1" max="200" style="width:70px" /> 件</label>
+              </div>
+              <div class="ap-rot-next" id="rcNext"></div>
+              <h4 class="ap-rot-h">割り振りの順番</h4>
+              <p class="note">上から順に回ります。行をドラッグで並べ替えできます。「上限」を空にすると件数の制限なしです。</p>
+              <div id="rcList" class="ap-rot-list"></div>
+              <div class="ap-cfg-row">
+                <select id="rcAddSel"></select>
+                <button class="btn ghost" id="rcAdd">クローザーを追加</button>
+              </div>
+              <div class="ap-cfg-actions">
+                <button class="btn" id="rcSave">保存</button>
+                <button class="btn ghost" id="rcScanNow">今すぐスキャンする</button>
+                <button class="btn ghost" id="rcLog">割り振り履歴を見る</button>
+                <span class="rev-status" id="rcStatus"></span>
+              </div>
+              <pre id="rcLogBox" class="ap-rot-log" hidden></pre>
+            </div>
+          </details>
+          <details class="ap-mailcfg" id="apMailCfg">
+            <summary>アポメール自動送付の設定</summary>
+            <div class="ap-mailcfg-body">
+              <p class="note">担当セールスを割り当てた瞬間に<b>アポ確定メール</b>を、商談前日の朝に<b>リマインドメール</b>を、<b>担当セールス本人のGmailアカウントから</b>自動送信します。本文は担当者の署名で届き、返信も本人に返ります。</p>
+              <div class="ap-cfg-row">
+                <label class="ap-check"><input type="checkbox" id="mcAutoConfirm" /> 担当割り当て時に確定メールを自動送信する</label>
+                <label class="ap-check"><input type="checkbox" id="mcAutoReminder" /> 商談前日にリマインドを自動送信する</label>
+                <label>リマインド送信時刻 <select id="mcHour"></select> 時（JST）</label>
+                <label>1回あたりの送信上限 <input type="number" id="mcMax" min="1" max="500" style="width:80px" /> 通</label>
+              </div>
+              <div class="ap-cfg-row">
+                <label style="flex:1 1 100%">自社名（{{自社名}}に入ります） <input type="text" id="mcCompany" placeholder="株式会社ネオキャリア" style="width:280px" /></label>
+              </div>
+              <p class="note">差し込みタグ：<code>{{会社名}}</code> <code>{{お客様名}}</code> <code>{{商談日時}}</code> <code>{{商談日}}</code> <code>{{商談時刻}}</code> <code>{{URL}}</code> <code>{{担当者名}}</code> <code>{{担当者メール}}</code> <code>{{アポ獲得者}}</code> <code>{{自社名}}</code></p>
+              <div class="ap-tpl">
+                <h4>アポ確定メール</h4>
+                <label>件名<input type="text" id="mcCSubject" /></label>
+                <label>本文<textarea id="mcCBody" rows="14"></textarea></label>
+              </div>
+              <div class="ap-tpl">
+                <h4>前日リマインドメール</h4>
+                <label>件名<input type="text" id="mcRSubject" /></label>
+                <label>本文<textarea id="mcRBody" rows="14"></textarea></label>
+              </div>
+              <div class="ap-cfg-actions">
+                <button class="btn" id="mcSave">保存</button>
+                <button class="btn ghost" id="mcReset">本文を初期文面に戻す</button>
+                <button class="btn ghost" id="mcRunRemind">前日リマインドを今すぐ流す</button>
+                <span class="rev-status" id="mcStatus"></span>
+              </div>
+            </div>
+          </details>
           <div id="apoBody"><div class="empty-state">読み込み中…</div></div>
         </main>
       </div>
