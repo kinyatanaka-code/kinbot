@@ -40,7 +40,7 @@ const APPOINTMENTS = [
   mk(3, "迫間 美羽", "【新/ヒ】株式会社アイドマ・ホールディングス　田中様",   "2026-08-28T01:00:00.000Z", "2026-08-06",
      { owner: "eda@neo-career.co.jp",    mail: { confirm: FAILED },               clientEmail: "tanaka@aidma.example.jp", source: "manual" }),
   mk(4, "薦原 一樹", "【新/ヒ】株式会社グリーンフィールド　鈴木様",           "2026-08-28T06:00:00.000Z", "2026-08-07", {}),
-  mk(5, "飯島 稜",   "【初回/】株式会社ミナト工業　高橋様",                   "2026-08-31T03:00:00.000Z", "2026-08-08",
+  mk(5, "飯島 稜",   "【初回】株式会社ミナト工業　高橋様",                   "2026-08-31T03:00:00.000Z", "2026-08-08",
      { owner: "morita@neo-career.co.jp" }),
 ];
 
@@ -61,13 +61,13 @@ const TEAMS = [
 ];
 
 const CLOSERS = [
-  { email: "ueno@neo-career.co.jp", baseline_count: 90, businesses: ["DOC"],   name: "植野 大輔", team: "浦林チーム", sort_order: 1, active: true,  priority: false, daily_cap: null, assigned_count: 42, period_count: 11 },
-  { email: "tanaka@neo-career.co.jp", baseline_count: 87, businesses: ["DOC"], name: "田中 遼",   team: "中澤チーム", sort_order: 2, active: true,  priority: true,  daily_cap: 3,    assigned_count: 38, period_count: 9 },
-  { email: "eda@neo-career.co.jp", baseline_count: 90, businesses: ["DOC","MOCHICA"],    name: "江田 直人", team: "浦林チーム", sort_order: 3, active: true,  priority: false, daily_cap: null, assigned_count: 40, period_count: 10 },
-  { email: "morita@neo-career.co.jp", baseline_count: 76, businesses: ["MOCHICA"], name: "森田 彩",   team: "中澤チーム", sort_order: 4, active: false, priority: false, daily_cap: 2,    assigned_count: 29, period_count: 6 },
-  { email: "ura@neo-career.co.jp", eligible_days: 60, suspended_days: 0, baseline_count: 4, businesses: ["DOC"], name: "浦林 鷹也", team: "浦林チーム", sort_order: 5, active: true,  priority: false, daily_cap: null, assigned_count: 6,  period_count: 1, fallback: true },
-  { email: "etori@neo-career.co.jp", eligible_days: 21, suspended_days: 0, baseline_count: 0, name: "餌取 鴻志", team: "", sort_order: 7, active: true, priority: false, daily_cap: null, assigned_count: 0, period_count: 0 },
-  { email: "naka@neo-career.co.jp", eligible_days: 60, suspended_days: 0, baseline_count: 3, businesses: ["DOC"], name: "中澤 良太", team: "中澤チーム", sort_order: 6, active: true,  priority: false, daily_cap: null, assigned_count: 4,  period_count: 0, fallback: true },
+  { email: "ueno@neo-career.co.jp", eligible_days: 62, suspended_days: 0, baseline_count: 90, businesses: ["DOC"],   name: "植野 大輔", team: "浦林チーム", sort_order: 1, active: true,  priority: false, daily_cap: null, assigned_count: 42, period_count: 11 },
+  { email: "tanaka@neo-career.co.jp", eligible_days: 62, suspended_days: 0, baseline_count: 87, businesses: ["DOC"], name: "田中 遼",   team: "中澤チーム", sort_order: 2, active: true,  priority: true,  daily_cap: 3,    assigned_count: 38, period_count: 9 },
+  { email: "eda@neo-career.co.jp", eligible_days: 62, suspended_days: 0, baseline_count: 90, businesses: ["DOC","MOCHICA"],    name: "江田 直人", team: "浦林チーム", sort_order: 3, active: true,  priority: false, daily_cap: null, assigned_count: 40, period_count: 10 },
+  { email: "morita@neo-career.co.jp", eligible_days: 55, suspended_days: 7, baseline_count: 76, businesses: ["MOCHICA"], name: "森田 彩",   team: "中澤チーム", sort_order: 4, active: false, priority: false, daily_cap: 2,    assigned_count: 29, period_count: 6 },
+  { email: "ura@neo-career.co.jp", eligible_days: 62, suspended_days: 0, baseline_count: 4, businesses: ["DOC"], name: "浦林 鷹也", team: "浦林チーム", sort_order: 5, active: true,  priority: false, daily_cap: null, assigned_count: 6,  period_count: 1, fallback: true },
+  { email: "etori@neo-career.co.jp", eligible_days: 62, suspended_days: 0, baseline_count: 0, name: "餌取 鴻志", team: "", sort_order: 7, active: true, priority: false, daily_cap: null, assigned_count: 0, period_count: 0 },
+  { email: "naka@neo-career.co.jp", eligible_days: 62, suspended_days: 0, baseline_count: 3, businesses: ["DOC"], name: "中澤 良太", team: "中澤チーム", sort_order: 6, active: true,  priority: false, daily_cap: null, assigned_count: 4,  period_count: 0, fallback: true },
 ];
 
 const CONFIRM_BODY = `{{会社名}}
@@ -196,6 +196,18 @@ function apiResponse(pathname, query) {
   }
   if (pathname.indexOf("/api/apo/suspensions") === 0) return { ok: true, ...MOCK.ROTATION };
   if (pathname === "/api/apo/closer-order") return { ok: true, ...MOCK.ROTATION };
+  if (pathname === "/api/apo/calendar-check") {
+    return { owner: "kinya.tanaka@neo-career.co.jp",
+      window: { from: "2026-08-01", to: "2026-10-07" },
+      members: [
+        { name: "飯島 稜", email: "iijima@neo-career.co.jp", readable: true, total: 34, hosted: 21, tagged: 21, samples: [] },
+        { name: "加藤 宋宙", email: "kato@neo-career.co.jp", readable: true, total: 12, hosted: 9, tagged: 0, samples: [
+            { title: "株式会社サンプル 面談", start: "" }, { title: "定例MTG", start: "" }] },
+        { name: "田中欽也", email: "tanaking0924@gmail.com", readable: false, total: 0, hosted: 0, tagged: 0, samples: [],
+          error: "カレンダーを参照できません（このアドレスのカレンダーが代表者に共有されていない可能性があります）" },
+        { name: "迫間 美羽", email: "hazama@neo-career.co.jp", readable: true, total: 0, hosted: 0, tagged: 0, samples: [] },
+      ] };
+  }
   if (pathname === "/api/apo/suspensions") return { suspensions: SUSPENSIONS, activeNow: {} };
   if (pathname === "/api/apo/baseline") return { ok: true, matched: [], unmatched: [], ...MOCK.ROTATION };
   if (pathname === "/api/smart-links/reps") return MOCK.REPS;

@@ -399,6 +399,48 @@ async function loadTeamStats() {
   }
 }
 
+// ===== インサイドのカレンダー診断 =====
+async function calCheck() {
+  const box = $("calCheckBox");
+  const btn = $("calCheckBtn");
+  const say = (m) => { const e = $("calCheckStatus"); if (e) e.textContent = m; };
+  if (!box) return;
+  if (btn) btn.disabled = true;
+  say("診断中…（人数分カレンダーを読むので少し時間がかかります）");
+  box.innerHTML = "";
+  try {
+    const d = await (await fetch("/api/apo/calendar-check")).json();
+    if (d.error) throw new Error(d.error);
+    let html = `<p class="note">代表者 <b>${esc(d.owner)}</b> の連携でカレンダーを読みました（7日前〜60日先）。</p>`;
+    html += `<div class="cal-list">`;
+    for (const m of d.members || []) {
+      let verdict, cls;
+      if (m.error) { verdict = m.error; cls = "cal-ng"; }
+      else if (m.total === 0) { verdict = "カレンダーは読めましたが、期間内に予定が1件もありません"; cls = "cal-warn"; }
+      else if (m.hosted === 0) { verdict = `予定は${m.total}件ありますが、この人が主催者の予定がありません（招待されているだけの予定は対象外です）`; cls = "cal-warn"; }
+      else if (m.tagged === 0) { verdict = `主催の予定が${m.hosted}件ありますが、タイトルに【新】【ヒ】【初回】のいずれかが付いた予定がありません`; cls = "cal-warn"; }
+      else { verdict = `取り込み対象の予定が ${m.tagged}件 見つかりました`; cls = "cal-ok"; }
+      html += `<div class="cal-row ${cls}">
+        <div class="cal-head"><b>${esc(m.name)}</b><span class="ap-rot-cnt">${esc(m.email)}</span></div>
+        <div class="cal-verdict">${esc(verdict)}</div>`;
+      if (!m.error && m.total) {
+        html += `<div class="ap-rot-cnt">予定${m.total}件 ／ 本人が主催${m.hosted}件 ／ タグ一致${m.tagged}件</div>`;
+      }
+      if ((m.samples || []).length) {
+        html += `<div class="cal-samples">タグが付いていない予定の例：` +
+          m.samples.map((x) => `<span>${esc(x.title)}</span>`).join("") + `</div>`;
+      }
+      html += `</div>`;
+    }
+    html += `</div>`;
+    box.innerHTML = html;
+    say("");
+  } catch (e) {
+    box.innerHTML = `<p class="note cc-warn">診断できませんでした：${esc(e.message)}</p>`;
+    say("");
+  } finally { if (btn) btn.disabled = false; }
+}
+
 // ===== データベースの状態確認 =====
 function dbRender(d) {
   const box = $("dbCheckBox");
@@ -480,9 +522,9 @@ function rcRender() {
         : `<span class="ap-biz-badge ap-biz-none" title="事業が未設定のため、DOCとMOCHICAの両方に出ています">事業未設定</span>`) +
       `<span class="ap-rot-meta">${c.daily_cap ? "1日" + c.daily_cap + "件まで" : "上限なし"}</span>` +
       `<span class="ap-rot-cnt">${c.period_count || 0}件` +
-        `${c.eligible_days ? " ／ 稼働" + c.eligible_days + "日" : ""}` +
-        `${c.per_day != null ? "（1日" + c.per_day + "件）" : ""}` +
-        `${c.suspended_days ? " ／ 停止" + c.suspended_days + "日" : ""}</span>` +
+        `${c.eligible_days > 0 ? `／稼働${c.eligible_days}日` : ""}` +
+        `${c.eligible_days > 0 && c.per_day != null ? `／1日あたり${c.per_day}件` : ""}` +
+        `${c.suspended_days > 0 ? `<span class="ap-susp-chip">停止${c.suspended_days}日を除外</span>` : ""}</span>` +
       (c.fallback || c.active === false ? "" : `<button type="button" class="btn ghost rc-first">ここから開始</button>`);
 
     const firstBtn = row.querySelector(".rc-first");
@@ -843,6 +885,7 @@ async function saveMailCfg() {
     bizLabel("rcBizLabel"); bizLabel("tsBizLabel");
   })();
   loadBuild();
+  if ($("calCheckBtn")) $("calCheckBtn").addEventListener("click", calCheck);
   if ($("dbCheckBtn")) $("dbCheckBtn").addEventListener("click", () => dbCheck(false));
   if ($("dbRepairBtn")) $("dbRepairBtn").addEventListener("click", () => dbCheck(true));
   if ($("tsReload")) $("tsReload").addEventListener("click", loadTeamStats);

@@ -43,7 +43,7 @@
           </div>
             <details class="ap-help">
               <summary>この画面の使い方</summary>
-              <p class="note ap-desc">笹原拓真さん・インターン生（<a href="settings.html">設定 → インターン登録</a>で登録）のカレンダーから、<b>本人が主催者で、タイトルに【新/ヒ】または【初回/】が付いた予定</b>だけを取り込みます（全角・半角の違いは無視）。<b>取得日（アポが取れた日）・商談日（実施日）でそれぞれ絞り込めます</b>（両方指定すると両方に一致するアポだけ表示。空欄のときは今後の予定を表示）。各アポに共有用のスマートリンクを自動発行し、担当セールスを選ぶと、そのリンクの行き先が担当者のZoomに切り替わります（すでにお客様に送ったリンクも自動で切り替わります）。担当者のZoom URLは <a href="settings.html">設定 → 登録リンク</a> で各自が設定します。</p>
+              <p class="note ap-desc">インサイドのメンバー（<a href="settings.html#members">設定 → メンバー管理</a>で役割に「インサイド」を付けた人）のカレンダーから、<b>本人が主催者で、タイトルの先頭に【新】【ヒ】【初回】のいずれかが付いた予定</b>だけを取り込みます。<code>【新/ヒ】</code><code>【初回/】</code><code>【初回】</code><code>【新/初回】</code>のようにスラッシュの有無や全角・半角の違いは無視します（<code>【再商談】</code><code>【新規】</code>などは対象外）。<b>取得日（アポが取れた日）・商談日（実施日）でそれぞれ絞り込めます</b>（両方指定すると両方に一致するアポだけ表示。空欄のときは今後の予定を表示）。各アポに共有用のスマートリンクを自動発行し、担当セールスを選ぶと、そのリンクの行き先が担当者のZoomに切り替わります（すでにお客様に送ったリンクも自動で切り替わります）。担当者のZoom URLは <a href="settings.html">設定 → 登録リンク</a> で各自が設定します。</p>
             </details>
             <div id="apoBody"><div class="empty-state">読み込み中…</div></div>
           </section>
@@ -179,6 +179,13 @@
 
               <p class="note">新機能に必要なテーブルが作られているかを確認します。不足があれば「作り直す」で再作成できます。</p>
               <div class="ap-build" id="dbBuild">確認中…</div>
+              <h4 class="ap-rot-h">インサイドのカレンダー診断</h4>
+              <p class="note">「メンバー管理に登録したのにアポが出てこない」ときに使います。1人ずつカレンダーを読んで、読めているか・予定が何件あるか・タイトルのタグが一致しているかを確認します。</p>
+              <div class="ap-cfg-actions">
+                <button class="btn ghost" id="calCheckBtn">カレンダーを診断する</button>
+                <span class="rev-status" id="calCheckStatus"></span>
+              </div>
+              <div id="calCheckBox"></div>
               <div class="ap-cfg-actions">
                 <button class="btn" id="dbCheckBtn">今すぐ確認する</button>
                 <button class="btn ghost" id="dbRepairBtn">不足分を作り直す</button>

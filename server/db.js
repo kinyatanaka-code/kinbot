@@ -867,8 +867,8 @@ export function roundFromTitle(title) {
     const n = parseInt(m[1], 10);
     if (Number.isFinite(n) && n > 0) return n;
   }
-  if (/【[^】]*初回[^】]*】/.test(t)) return 1;        // 【初回/】【初回/コールド】【初回/過去失注】
-  if (/【[^】]*新\s*\/\s*ヒ[^】]*】/.test(t)) return 1; // 【新/ヒ】
+  if (/【[^】]*初回[^】]*】/.test(t)) return 1;        // 【初回】【初回/】【初回/コールド】【初回/過去失注】
+  if (/【[^】]*(?:新|ヒ)[^】]*】/.test(t)) return 1;     // 【新/ヒ】【新】【ヒ】【新規】
   return null;
 }
 
@@ -2626,31 +2626,34 @@ export async function suspendedNow() {
 export async function eligibleDays(fromISO, toISO) {
   if (!pool) return {};
   try {
+    // 稼働日 = 期間の日数 − 停止日数。
+    // closer_rotation.created_at は「kinbotに登録した日」であって稼働開始日ではないため使わない
+    // （同期した当日だと全員1日になってしまう）。
+    // 停止日数は相関サブクエリで求める。停止の登録が無い人は 0 になる。
     const { rows } = await pool.query(
       `WITH win AS (
-         SELECT $1::date AS f, LEAST($2::date, (now() AT TIME ZONE 'Asia/Tokyo')::date + 1) AS t
-       ), base AS (
-         SELECT c.email,
-                GREATEST(w.f, (c.created_at AT TIME ZONE 'Asia/Tokyo')::date) AS start_d,
-                w.t AS end_d
-           FROM closer_rotation c CROSS JOIN win w
-       ), susp AS (
-         SELECT b.email,
-                COALESCE(SUM(GREATEST(0,
-                  LEAST(COALESCE(s.end_date + 1, b.end_d), b.end_d)
-                  - GREATEST(s.start_date, b.start_d))), 0) AS d
-           FROM base b
-           LEFT JOIN closer_suspensions s ON s.email = b.email
-          GROUP BY b.email
+         SELECT COALESCE($1::date, (now() AT TIME ZONE 'Asia/Tokyo')::date - 90) AS f,
+                LEAST(COALESCE($2::date, (now() AT TIME ZONE 'Asia/Tokyo')::date + 1),
+                      (now() AT TIME ZONE 'Asia/Tokyo')::date + 1)               AS t
        )
-       SELECT b.email,
-              GREATEST(0, (b.end_d - b.start_d) - COALESCE(s.d, 0))::int AS days,
-              GREATEST(0, (b.end_d - b.start_d))::int                    AS raw_days,
-              COALESCE(s.d, 0)::int                                       AS suspended_days
-         FROM base b LEFT JOIN susp s ON s.email = b.email`,
-      [fromISO, toISO]);
+       SELECT c.email,
+              GREATEST(0, (w.t - w.f))::int AS raw_days,
+              COALESCE((
+                SELECT SUM(GREATEST(0,
+                         LEAST(COALESCE(s.end_date + 1, w.t), w.t)
+                         - GREATEST(s.start_date, w.f)))
+                  FROM closer_suspensions s
+                 WHERE s.email = c.email
+                   AND s.start_date < w.t
+                   AND COALESCE(s.end_date + 1, w.t) > w.f
+              ), 0)::int AS suspended_days
+         FROM closer_rotation c CROSS JOIN win w`,
+      [fromISO || null, toISO || null]);
     const out = {};
-    for (const r of rows) out[r.email] = { days: r.days, rawDays: r.raw_days, suspendedDays: r.suspended_days };
+    for (const r of rows) {
+      const days = Math.max(0, r.raw_days - r.suspended_days);
+      out[r.email] = { days, rawDays: r.raw_days, suspendedDays: r.suspended_days };
+    }
     return out;
   } catch (e) { console.error("[db] eligibleDays", e.message); return {}; }
 }
@@ -2984,7 +2987,7 @@ export async function teamAssignStats(fromISO, toISO, business = "") {
     // 稼働日の計算に使う期間。通算のときは開始日を渡してもらう（無ければ90日前）。
     params.push(fromISO || null, toISO || null);
     const fromParam = `COALESCE($${params.length - 1}::date, (now() AT TIME ZONE 'Asia/Tokyo')::date - 90)`;
-    const toParam = `COALESCE($${params.length}::date, (now() AT TIME ZONE 'Asia/Tokyo')::date + 1)`;
+    const toParam = `LEAST(COALESCE($${params.length}::date, (now() AT TIME ZONE 'Asia/Tokyo')::date + 1), (now() AT TIME ZONE 'Asia/Tokyo')::date + 1)`;
     const { rows } = await pool.query(`
       WITH members AS (
         SELECT COALESCE(NULLIF(TRIM(team), ''), '未設定') AS team,
@@ -3006,19 +3009,21 @@ export async function teamAssignStats(fromISO, toISO, business = "") {
                COALESCE(SUM(baseline_count), 0)::int AS base
           FROM closer_rotation ${bizMembers} GROUP BY 1
       ), days AS (
-        -- 稼働人日：停止していた期間を除いた「配れた日数」の合計。
+        -- 稼働人日：期間の日数から停止日数を引いた「配れた日数」の合計。
         -- 停止で件数が減った人・チームを、あとから優先して埋め合わせないための分母。
         SELECT COALESCE(NULLIF(TRIM(c.team), ''), '未設定') AS team,
-               COALESCE(SUM(GREATEST(0,
-                 (LEAST(${toParam}, (now() AT TIME ZONE 'Asia/Tokyo')::date + 1)
-                  - GREATEST(${fromParam}, (c.created_at AT TIME ZONE 'Asia/Tokyo')::date))
+               COALESCE(SUM(
+                 GREATEST(0, (${toParam} - ${fromParam}))
                  - COALESCE((
                      SELECT SUM(GREATEST(0,
-                       LEAST(COALESCE(s.end_date + 1, LEAST(${toParam}, (now() AT TIME ZONE 'Asia/Tokyo')::date + 1)),
-                             LEAST(${toParam}, (now() AT TIME ZONE 'Asia/Tokyo')::date + 1))
-                       - GREATEST(s.start_date, GREATEST(${fromParam}, (c.created_at AT TIME ZONE 'Asia/Tokyo')::date))))
-                       FROM closer_suspensions s WHERE s.email = c.email), 0)
-               )), 0)::int AS person_days
+                              LEAST(COALESCE(s.end_date + 1, ${toParam}), ${toParam})
+                              - GREATEST(s.start_date, ${fromParam})))
+                       FROM closer_suspensions s
+                      WHERE s.email = c.email
+                        AND s.start_date < ${toParam}
+                        AND COALESCE(s.end_date + 1, ${toParam}) > ${fromParam}
+                   ), 0)
+               ), 0)::int AS person_days
           FROM closer_rotation c
          WHERE c.active AND NOT c.fallback ${bizDays}
          GROUP BY 1

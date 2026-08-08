@@ -7973,9 +7973,13 @@ function pickClientGuest(attendees, setterEmail) {
   return { email: String(g.email).toLowerCase(), name: g.name || "" };
 }
 
+// 取り込み対象のタイトルか判定する。
+// 【新/ヒ】【初回/】【初回】【新】【ヒ】のように、スラッシュの有無や
+// 記号のゆれ（全角半角・全角スラッシュ・空白）に関係なく拾う。
+const APO_TAG_RE = /【\s*(?:新|初回|ヒ)(?:\s*[\/／、,・]\s*(?:新|初回|ヒ)?)?\s*】/;
 function apoTitleTag(title) {
   const t = String(title || "").normalize("NFKC");
-  return t.includes("【新/ヒ】") || t.includes("【初回/】");
+  return APO_TAG_RE.test(t);
 }
 // 笹原拓真＋インターン（＝インターン登録に登録した「アポを取る人」）が主催者で、
 // タイトルが対象タグの予定を取り込み、各アポにスマートリンクを自動発行して返す。
@@ -8304,6 +8308,58 @@ app.delete("/api/members/:email", async (req, res) => {
   try {
     await deleteMember(req.params.email);
     res.json({ ok: true, members: await listMembers() });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// インサイドメンバーのカレンダーを1人ずつ調べて、どこで止まっているかを返す。
+// 「登録したのに予定が出てこない」ときの原因切り分け用。
+app.get("/api/apo/calendar-check", async (req, res) => {
+  try {
+    const s = await getSettings().catch(() => ({}));
+    const owner = String(s.apoScanOwner || s.apoInviteOwner || req.user || "").trim();
+    if (!owner) return res.status(400).json({ error: "走査するアカウントが未設定です（設定→メンバー管理→カレンダー照合の代表者）" });
+    if (!(await gcalConnected(owner))) {
+      return res.status(400).json({ error: `${owner} のGoogle連携が切れています。本人が 設定→連携→Google連携 を実行してください。` });
+    }
+    const setters = await listInterns();
+    if (!setters.length) {
+      return res.status(400).json({ error: "インサイドのメンバーが登録されていません（設定→メンバー管理で役割に「インサイド」を付けてください）" });
+    }
+    // 今日から60日先まで
+    const now = new Date();
+    const timeMin = new Date(now.getTime() - 7 * 86400 * 1000).toISOString();
+    const timeMax = new Date(now.getTime() + 60 * 86400 * 1000).toISOString();
+
+    const out = [];
+    for (const st of setters) {
+      const row = { name: st.name, email: st.email, readable: false, total: 0, hosted: 0, tagged: 0, samples: [], error: "" };
+      try {
+        const evs = await listCalendarEvents(owner, st.email, { timeMin, timeMax });
+        row.readable = true;
+        row.total = evs.length;
+        const em = String(st.email || "").toLowerCase();
+        for (const ev of evs) {
+          if (ev.allDay || !ev.title) continue;
+          const org = String(ev.organizer || "").toLowerCase();
+          const cre = String(ev.creator || "").toLowerCase();
+          const isHost = (org && org === em) || (!org && cre && cre === em);
+          if (!isHost) continue;
+          row.hosted++;
+          if (apoTitleTag(ev.title)) {
+            row.tagged++;
+          } else if (row.samples.length < 4) {
+            // タグが無くて取り込まれていない予定を例として返す
+            row.samples.push({ title: ev.title.slice(0, 60), start: ev.start });
+          }
+        }
+      } catch (e) {
+        row.error = /40[34]/.test(e.message)
+          ? "カレンダーを参照できません（このアドレスのカレンダーが代表者に共有されていない可能性があります）"
+          : e.message;
+      }
+      out.push(row);
+    }
+    res.json({ owner, window: { from: timeMin, to: timeMax }, members: out });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
