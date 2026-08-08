@@ -721,6 +721,30 @@ table.bant td:first-child { color: var(--muted); width: 80px; }
 .gm-thread.gm-done { opacity: 0.55; }
 .gm-done-msg { font-size: 12px; color: #1f7a4d; font-weight: 700; }
 
+/* アポ振り分け：タブ */
+.ap-tabs { display: flex; gap: 6px; margin: 0 0 18px; border-bottom: 1px solid var(--line); overflow-x: auto; -webkit-overflow-scrolling: touch; }
+.ap-tab { flex: none; appearance: none; background: transparent; border: none; border-bottom: 2px solid transparent; padding: 11px 18px; font-size: 13.5px; font-weight: 700; color: var(--muted); cursor: pointer; white-space: nowrap; border-radius: 10px 10px 0 0; transition: color .15s ease, background .15s ease; font-family: inherit; }
+.ap-tab:hover { color: #0F6E56; background: var(--panel-2); }
+.ap-tab.active { color: #0F6E56; border-bottom-color: #1d9e75; background: var(--panel-2); }
+.ap-pane[hidden] { display: none; }
+
+/* 設定タブの中身をカードにまとめる */
+.ap-card { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 18px 20px 22px; box-shadow: 0 1px 2px rgba(0,0,0,0.04), 0 8px 20px rgba(0,0,0,0.05); }
+.ap-card-h { margin: 0 0 12px; font-size: 15px; color: #0F6E56; }
+
+/* 使い方の折りたたみ */
+.ap-help { margin: 0 0 16px; }
+.ap-help > summary { cursor: pointer; font-size: 12.5px; color: #0F6E56; font-weight: 700; list-style: none; padding: 8px 0; }
+.ap-help > summary::-webkit-details-marker { display: none; }
+.ap-help > summary::before { content: "▸"; display: inline-block; margin-right: 6px; transition: transform .15s ease; }
+.ap-help[open] > summary::before { transform: rotate(90deg); }
+.ap-help .ap-desc { margin-top: 4px; }
+
+/* 共有リンク列 */
+.ap-link { white-space: nowrap; }
+.ap-link-a { display: inline-block; font-size: 12px; font-weight: 700; color: #1d9e75; text-decoration: none; padding: 5px 10px; border: 1px solid #BFE6D6; border-radius: 999px; margin-right: 6px; }
+.ap-link-a:hover { background: #E8F6F0; }
+
 .ap-build { margin: 12px 0; padding: 11px 14px; background: #E8F6F0; border-radius: 10px; font-size: 12.5px; line-height: 1.7; color: #0F6E56; }
 .ap-build.ap-build-old { background: #FBEEE0; color: #A8611A; font-weight: 700; }
 

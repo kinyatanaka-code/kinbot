@@ -147,7 +147,7 @@ function renderApo() {
         (a.current_owner ? "" : `<button class="btn ghost ap-auto" data-i="${i}">自動で決める</button>`) + `</td>
       <td class="ap-client" data-i="${i}">${clientCell(a, i)}</td>
       <td class="ap-mail" data-i="${i}">${mailCell(a, i)}</td>
-      <td class="ap-link"><code>${esc(a.smart_url)}</code> <button class="btn ghost ap-copy" data-url="${esc(a.smart_url)}">コピー</button></td>
+      <td class="ap-link"><a class="ap-link-a" href="${esc(a.smart_url)}" target="_blank" rel="noopener" title="${esc(a.smart_url)}">開く</a><button class="btn ghost ap-copy" data-url="${esc(a.smart_url)}">コピー</button></td>
       <td class="ap-status" data-i="${i}">${statusCell(a)}</td>
     </tr>`;
   });
@@ -252,6 +252,27 @@ async function loadApo() {
 }
 // ===== 今動いているビルドの表示 =====
 // 「アップロードしたのに機能が出てこない」ときに、まずここを見れば反映されたか分かる。
+// ===== タブ切り替え =====
+// 選んだタブは記憶して、リロードしても同じタブに戻る。
+function setupTabs() {
+  const tabs = Array.from(document.querySelectorAll(".ap-tab"));
+  const panes = Array.from(document.querySelectorAll(".ap-pane"));
+  if (!tabs.length) return;
+  const show = (name) => {
+    tabs.forEach((t) => t.classList.toggle("active", t.dataset.pane === name));
+    panes.forEach((p) => { p.hidden = p.dataset.pane !== name; });
+    try { localStorage.setItem("apoTab", name); } catch {}
+    // 設定タブを開いたときに最新値を読み直す
+    if (name === "rot") loadRotation();
+    if (name === "sys") loadBuild();
+  };
+  tabs.forEach((t) => t.addEventListener("click", () => show(t.dataset.pane)));
+  let init = "list";
+  try { init = localStorage.getItem("apoTab") || "list"; } catch {}
+  if (!tabs.some((t) => t.dataset.pane === init)) init = "list";
+  show(init);
+}
+
 async function loadBuild() {
   const el = $("dbBuild");
   if (!el) return;
@@ -522,6 +543,7 @@ async function saveMailCfg() {
       loadApo();
     } catch (e) { mcSay("失敗: " + e.message); }
   });
+  setupTabs();
   loadBuild();
   if ($("dbCheckBtn")) $("dbCheckBtn").addEventListener("click", () => dbCheck(false));
   if ($("dbRepairBtn")) $("dbRepairBtn").addEventListener("click", () => dbCheck(true));

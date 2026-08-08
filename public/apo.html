@@ -25,30 +25,32 @@
       <div class="main">
         <header class="topbar"><div class="brand"><img class="topbar-bot" src="kinbot.svg" alt="" /><span class="brand-name">アポ振り分け</span></div></header>
         <main class="report-page">
-          <div class="rep-controls">
+          <div class="ap-tabs" role="tablist">
+            <button type="button" class="ap-tab active" data-pane="list">アポ一覧</button>
+            <button type="button" class="ap-tab" data-pane="rot">割り振り設定</button>
+            <button type="button" class="ap-tab" data-pane="mail">メール設定</button>
+            <button type="button" class="ap-tab" data-pane="sys">システム</button>
+          </div>
+
+          <section class="ap-pane" data-pane="list">
+            <div class="rep-controls">
             <label>取得日 <input type="date" id="apCreated" /></label>
             <label>商談日 <input type="date" id="apStart" /></label>
             <button class="btn" id="apReload">表示</button>
             <button class="btn ghost" id="apClear">リセット</button>
             <span class="rev-status" id="apStatus"></span>
           </div>
-          <p class="note ap-desc">笹原拓真さん・インターン生（<a href="settings.html">設定 → インターン登録</a>で登録）のカレンダーから、<b>本人が主催者で、タイトルに【新/ヒ】または【初回/】が付いた予定</b>だけを取り込みます（全角・半角の違いは無視）。<b>取得日（アポが取れた日）・商談日（実施日）でそれぞれ絞り込めます</b>（両方指定すると両方に一致するアポだけ表示。空欄のときは今後の予定を表示）。各アポに共有用のスマートリンクを自動発行し、担当セールスを選ぶと、そのリンクの行き先が担当者のZoomに切り替わります（すでにお客様に送ったリンクも自動で切り替わります）。担当者のZoom URLは <a href="settings.html">設定 → 登録リンク</a> で各自が設定します。</p>
-          <details class="ap-mailcfg" id="apDbCheck">
-            <summary>データベースの状態を確認する</summary>
-            <div class="ap-mailcfg-body">
-              <p class="note">新機能に必要なテーブルが作られているかを確認します。不足があれば「作り直す」で再作成できます。</p>
-              <div class="ap-build" id="dbBuild">確認中…</div>
-              <div class="ap-cfg-actions">
-                <button class="btn" id="dbCheckBtn">今すぐ確認する</button>
-                <button class="btn ghost" id="dbRepairBtn">不足分を作り直す</button>
-                <span class="rev-status" id="dbCheckStatus"></span>
-              </div>
-              <pre id="dbCheckBox" class="ap-rot-log" hidden></pre>
-            </div>
-          </details>
-          <details class="ap-mailcfg" id="apRotCfg">
-            <summary>クローザーの自動割り振り（ローテーション）</summary>
-            <div class="ap-mailcfg-body">
+            <details class="ap-help">
+              <summary>この画面の使い方</summary>
+              <p class="note ap-desc">笹原拓真さん・インターン生（<a href="settings.html">設定 → インターン登録</a>で登録）のカレンダーから、<b>本人が主催者で、タイトルに【新/ヒ】または【初回/】が付いた予定</b>だけを取り込みます（全角・半角の違いは無視）。<b>取得日（アポが取れた日）・商談日（実施日）でそれぞれ絞り込めます</b>（両方指定すると両方に一致するアポだけ表示。空欄のときは今後の予定を表示）。各アポに共有用のスマートリンクを自動発行し、担当セールスを選ぶと、そのリンクの行き先が担当者のZoomに切り替わります（すでにお客様に送ったリンクも自動で切り替わります）。担当者のZoom URLは <a href="settings.html">設定 → 登録リンク</a> で各自が設定します。</p>
+            </details>
+            <div id="apoBody"><div class="empty-state">読み込み中…</div></div>
+          </section>
+
+          <section class="ap-pane" data-pane="rot" hidden>
+            <div class="ap-card">
+              <h3 class="ap-card-h">自動化のON／OFF</h3>
+
               <p class="note">カレンダーを15分おきに見て、新しいアポを自動で記録し、クローザーへ順番に割り振ります。商談の時間帯に予定が入っている人は飛ばして代打を立て、飛ばされた人は次のアポで最優先に戻します。</p>
               <div class="ap-cfg-row">
                 <label class="ap-check"><input type="checkbox" id="rcAutoScan" /> 15分おきにカレンダーを自動スキャンする</label>
@@ -73,11 +75,14 @@
                 <span class="rev-status" id="rcStatus"></span>
               </div>
               <pre id="rcLogBox" class="ap-rot-log" hidden></pre>
+            
             </div>
-          </details>
-          <details class="ap-mailcfg" id="apMailCfg">
-            <summary>アポメール自動送付の設定</summary>
-            <div class="ap-mailcfg-body">
+          </section>
+
+          <section class="ap-pane" data-pane="mail" hidden>
+            <div class="ap-card">
+              <h3 class="ap-card-h">アポメール自動送付</h3>
+
               <p class="note">担当セールスを割り当てた瞬間に<b>アポ確定メール</b>を、商談前日の朝に<b>リマインドメール</b>を、<b>担当セールス本人のGmailアカウントから</b>自動送信します。本文は担当者の署名で届き、返信も本人に返ります。</p>
               <div class="ap-cfg-row">
                 <label class="ap-check"><input type="checkbox" id="mcAutoConfirm" /> 担当割り当て時に確定メールを自動送信する</label>
@@ -105,9 +110,26 @@
                 <button class="btn ghost" id="mcRunRemind">前日リマインドを今すぐ流す</button>
                 <span class="rev-status" id="mcStatus"></span>
               </div>
+            
             </div>
-          </details>
-          <div id="apoBody"><div class="empty-state">読み込み中…</div></div>
+          </section>
+
+          <section class="ap-pane" data-pane="sys" hidden>
+            <div class="ap-card">
+              <h3 class="ap-card-h">システムの状態</h3>
+              <p class="note">日常の業務では使いません。機能が反映されないときや、動作がおかしいときの確認用です。</p>
+
+              <p class="note">新機能に必要なテーブルが作られているかを確認します。不足があれば「作り直す」で再作成できます。</p>
+              <div class="ap-build" id="dbBuild">確認中…</div>
+              <div class="ap-cfg-actions">
+                <button class="btn" id="dbCheckBtn">今すぐ確認する</button>
+                <button class="btn ghost" id="dbRepairBtn">不足分を作り直す</button>
+                <span class="rev-status" id="dbCheckStatus"></span>
+              </div>
+              <pre id="dbCheckBox" class="ap-rot-log" hidden></pre>
+            
+            </div>
+          </section>
         </main>
       </div>
     </div>
