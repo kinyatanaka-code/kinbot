@@ -7960,21 +7960,74 @@ function isInternalAddress(email) {
   const dom = a.slice(at + 1);
   return internalDomains().some((d) => dom === d || dom.endsWith("." + d));
 }
-function pickClientGuest(attendees, setterEmail) {
-  const list = Array.isArray(attendees) ? attendees : [];
+// kinbotに登録されている人のアドレス一覧（メンバー・インターン・ユーザー）。
+// お客様の宛先を選ぶときに、社内の人を誤って拾わないために使う。
+let _internalEmailCache = { at: 0, set: new Set() };
+async function internalEmailSet() {
+  const now = Date.now();
+  if (now - _internalEmailCache.at < 60 * 1000) return _internalEmailCache.set;
+  const set = new Set();
+  try {
+    const [members, interns, users] = await Promise.all([
+      listMembers().catch(() => []),
+      listInterns().catch(() => []),
+      listUsers().catch(() => []),
+    ]);
+    for (const arr of [members, interns, users]) {
+      for (const x of arr || []) {
+        const e = String(x.email || "").trim().toLowerCase();
+        if (e) set.add(e);
+      }
+    }
+  } catch {}
+  _internalEmailCache = { at: now, set };
+  return set;
+}
+
+// 文章の中からメールアドレスを取り出す（説明欄に書かれた先方アドレスを拾う）
+function extractEmails(text) {
+  const t = String(text || "");
+  const found = t.match(/[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}/g) || [];
+  const out = [];
+  for (const raw of found) {
+    // 文末の句読点などを落とす
+    const e = raw.replace(/[.,;:）)】」＞>]+$/, "").toLowerCase();
+    if (e && !out.includes(e)) out.push(e);
+  }
+  return out;
+}
+
+// お客様の宛先を決める。
+//   1. アポ獲得者が書いた予定の説明欄にあるメールアドレス（これが本来の入力場所）
+//   2. 無ければカレンダーのゲスト（社外の人）
+// どちらでも、kinbotに登録されている人のアドレスと自社ドメインは除外する。
+async function pickClientContact({ description, attendees, setterEmail }) {
+  const internal = await internalEmailSet();
   const setter = String(setterEmail || "").toLowerCase();
-  const cands = list.filter((a) => {
+  const isOurs = (e) => !e || e === setter || internal.has(e) || isInternalAddress(e);
+
+  // 1. 説明欄から
+  for (const e of extractEmails(description)) {
+    if (!isOurs(e)) return { email: e, name: "", source: "description" };
+  }
+
+  // 2. カレンダーのゲストから
+  const list = Array.isArray(attendees) ? attendees : [];
+  for (const a of list) {
     const em = String(a.email || "").toLowerCase();
-    if (!em || em === setter) return false;
-    if (a.self || a.organizer) return false;
-    if (a.resource) return false;
-    if (isInternalAddress(em)) return false;
-    return true;
-  });
-  if (!cands.length) return null;
-  // 複数いる場合は最初の1人を宛先にする（残りは画面で手入力で直せる）
-  const g = cands[0];
-  return { email: String(g.email).toLowerCase(), name: g.name || "" };
+    if (a.self || a.organizer || a.resource) continue;
+    if (isOurs(em)) continue;
+    return { email: em, name: a.name || "", source: "calendar" };
+  }
+  return null;
+}
+
+// 保存されている宛先が「社内の人」だったら間違いなので入れ替える
+async function isWrongClientEmail(email) {
+  const e = String(email || "").trim().toLowerCase();
+  if (!e) return false;
+  const internal = await internalEmailSet();
+  return internal.has(e) || isInternalAddress(e);
 }
 
 // 取り込み対象のタイトルか判定する。
@@ -8074,14 +8127,23 @@ async function collectApoAppointments(scanOwner, opts = {}) {
             link = { ...link, business: biz };
           }
         }
-        // お客様のメールアドレスを、カレンダー予定の「外部ドメインのゲスト」から自動取得する。
-        // 社内メンバー（インターン・営業担当）は除外。既に手入力で入っていれば上書きしない。
-        const guest = pickClientGuest(ev.attendees, setterEmail);
-        if (guest && !String(link.client_email || "").trim()) {
-          const updated = await setSmartLinkClient(
-            link.slug, { email: guest.email, name: guest.name, source: "calendar" }, false
-          );
-          if (updated) link = updated;
+        // お客様のメールアドレスを決める。まず予定の説明欄、次にカレンダーのゲスト。
+        // 手入力で直した宛先は守るが、社内の人が入っていたら間違いなので入れ替える。
+        const cur = String(link.client_email || "").trim();
+        const keepCurrent = cur && link.client_email_source === "manual";
+        if (!keepCurrent && (!cur || (await isWrongClientEmail(cur)))) {
+          const hit = await pickClientContact({
+            description: ev.description, attendees: ev.attendees, setterEmail,
+          });
+          if (hit && hit.email !== cur) {
+            const updated = await setSmartLinkClient(
+              link.slug, { email: hit.email, name: hit.name, source: hit.source }, true
+            );
+            if (updated) {
+              link = updated;
+              console.log(`[apo] 宛先を${hit.source === "description" ? "説明欄" : "カレンダーのゲスト"}から取得: ${link.slug} → ${hit.email}`);
+            }
+          }
         }
         items.push({
           event_id: ev.id,

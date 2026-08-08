@@ -51,10 +51,13 @@ function bizCell(a, i) {
 
 // 宛先セル：自動取得できていればそのまま表示、無ければ入力欄。クリックで編集できる。
 function clientCell(a, i) {
-  const src = a.client_email_source === "manual" ? "手入力" : a.client_email_source === "calendar" ? "自動取得" : "";
+  const src = a.client_email_source === "manual" ? "手入力"
+    : a.client_email_source === "description" ? "予定の説明欄から取得"
+    : a.client_email_source === "calendar" ? "カレンダーのゲストから取得" : "";
   if (a.client_email) {
-    return `<span class="ap-mailaddr" title="${esc(src)}">${esc(a.client_email)}</span>
-      <button class="btn ghost ap-mailedit" data-i="${i}">変更</button>`;
+    return `<span class="ap-mailaddr" title="${esc(src)}">${esc(a.client_email)}</span>` +
+      `${a.client_email_source === "description" ? '<span class="ap-src-chip">説明欄</span>' : ""}` +
+      `<button class="btn ghost ap-mailedit" data-i="${i}">変更</button>`;
   }
   return `<button class="btn ghost ap-mailedit ap-warn-btn" data-i="${i}">宛先を入力</button>`;
 }

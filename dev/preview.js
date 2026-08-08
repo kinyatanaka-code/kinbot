@@ -35,9 +35,9 @@ const FAILED = { status: "failed", error: "Gmail送信 403: 権限がありま�
 // 見た目の確認用に、状態のパターンを一通り並べてある
 const APPOINTMENTS = [
   mk(1, "飯島 稜",   "【新/ヒ】株式会社ベルク　町田様",                     "2026-08-27T02:00:00.000Z", "2026-07-06",
-     { owner: "ueno@neo-career.co.jp",   mail: { confirm: DRAFT },                 clientEmail: "machida@belc.example.jp", source: "calendar" }),
+     { owner: "ueno@neo-career.co.jp",   mail: { confirm: DRAFT },                 clientEmail: "machida@belc.example.jp", source: "description" }),
   mk(2, "加藤 宋宙", "【初回/】合同会社サンライズ　佐藤様（資料希望）",       "2026-08-27T05:30:00.000Z", "2026-08-05",
-     { owner: "tanaka@neo-career.co.jp", mail: { confirm: SENT, reminder: SENT }, clientEmail: "sato@sunrise.example.jp", source: "calendar" }),
+     { owner: "tanaka@neo-career.co.jp", mail: { confirm: SENT, reminder: SENT }, clientEmail: "sato@sunrise.example.jp", source: "description" }),
   mk(3, "迫間 美羽", "【新/ヒ】株式会社アイドマ・ホールディングス　田中様",   "2026-08-28T01:00:00.000Z", "2026-08-06",
      { owner: "eda@neo-career.co.jp",    mail: { confirm: FAILED },               clientEmail: "tanaka@aidma.example.jp", source: "manual" }),
   mk(4, "薦原 一樹", "【新/ヒ】株式会社グリーンフィールド　鈴木様",           "2026-08-28T06:00:00.000Z", "2026-08-07", {}),

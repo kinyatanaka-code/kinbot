@@ -2489,6 +2489,8 @@ button.pipe-cell { background: none; border: none; cursor: pointer; color: #0F6E
 .ap-pending { background: var(--panel-2); color: var(--muted); }
 
 /* アポメール自動送付 */
+.ap-src-chip { display: inline-block; margin: 0 5px; padding: 1px 7px; border-radius: 999px;
+  background: #E3F4EA; color: #1F7A4D; font-size: 10px; font-weight: 700; }
 .ap-mailaddr { font-size: 12px; word-break: break-all; }
 .ap-mailstate { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 6px; }
 .ap-warn-btn { color: #a8611a; border-color: #e8d3b6; }
