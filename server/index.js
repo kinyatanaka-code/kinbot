@@ -87,6 +87,8 @@ import {
   setSmartLinkClient,
   setSmartLinkBusiness,
   setSmartLinkSourceNote,
+  recentInvites,
+  activeInviteEventIds,
   logGmailAction,
   listClosers,
   saveClosers,
@@ -8437,6 +8439,110 @@ app.get("/api/apo/calendar-check", async (req, res) => {
       out.push(row);
     }
     res.json({ owner, window: { from: timeMin, to: timeMax }, members: out });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// ===== 作ってしまった商談予定の取り消し =====
+// 「間違えて割り振り直した」ときに、作られた予定をカレンダーから消すための機能。
+
+// 直近に作られた商談予定の一覧
+app.get("/api/apo/invites", async (req, res) => {
+  try {
+    const hours = Math.max(1, Math.min(720, parseInt(req.query.hours, 10) || 24));
+    const rows = await recentInvites(hours);
+    const names = {};
+    for (const u of await listUsers().catch(() => [])) names[u.email] = u.name || u.email;
+    res.json({
+      hours,
+      invites: rows.map((r) => ({
+        slug: r.slug, label: r.label, setter: r.setter, business: r.business || "",
+        owner: r.current_owner, ownerName: names[r.current_owner] || r.current_owner,
+        start: r.start_time, eventId: r.invite_event_id,
+        eventOwner: r.invite_event_owner, eventOwnerName: names[r.invite_event_owner] || r.invite_event_owner,
+        updatedAt: r.updated_at,
+      })),
+    });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// 1件の商談予定をカレンダーから消す（アポの割り当て自体は残す）
+app.delete("/api/apo/invites/:slug", async (req, res) => {
+  try {
+    const link = await getSmartLink(req.params.slug);
+    if (!link) return res.status(404).json({ error: "リンクが見つかりません" });
+    if (!link.invite_event_id) return res.status(400).json({ error: "この商談には作成された予定がありません" });
+    const owner = link.invite_event_owner ||
+      (await getSettings().catch(() => ({}))).apoInviteOwner || "";
+    if (!owner) return res.status(400).json({ error: "どのカレンダーに作られたか分かりません。手動で削除してください。" });
+    try {
+      await deleteCalendarEvent(owner, link.invite_event_id, "primary");
+    } catch (e) {
+      // すでに手で消されている場合もあるので、404系は成功として扱う
+      if (!/40[04]/.test(e.message)) throw e;
+    }
+    await setSmartLinkInviteEvent(link.slug, null, null);
+    console.log(`[apo-invite] 予定を取り消し ${link.slug}（${owner}）by ${req.user}`);
+    res.json({ ok: true, slug: link.slug, owner });
+  } catch (e) { res.status(502).json({ error: e.message }); }
+});
+
+// 取り残しの予定を探す。
+// kinbotが作った予定のうち、いまkinbotが管理していないもの（＝作り直しで置き換わった古い予定など）。
+app.get("/api/apo/orphan-invites", async (req, res) => {
+  try {
+    const s = await getSettings().catch(() => ({}));
+    // 運用者と、クローザー全員のカレンダーを見る
+    const owners = new Set();
+    const op = String(s.apoInviteOwner || "").trim();
+    if (op) owners.add(op);
+    for (const c of await listClosers().catch(() => [])) if (c.email) owners.add(c.email);
+    if (!owners.size) return res.status(400).json({ error: "調べる対象のカレンダーがありません" });
+
+    const active = await activeInviteEventIds();
+    const days = Math.max(1, Math.min(180, parseInt(req.query.days, 10) || 90));
+    const timeMin = new Date(Date.now() - 7 * 86400 * 1000).toISOString();
+    const timeMax = new Date(Date.now() + days * 86400 * 1000).toISOString();
+
+    const found = [], errors = [];
+    for (const owner of owners) {
+      if (!(await gcalConnected(owner).catch(() => false))) continue;
+      try {
+        const evs = await listCalendarEvents(owner, "primary", { timeMin, timeMax });
+        for (const ev of evs) {
+          if (!String(ev.description || "").includes("kinbotが自動作成した商談予定です")) continue;
+          if (active.has(ev.id)) continue; // いま有効なものは対象外
+          found.push({ owner, eventId: ev.id, title: ev.title, start: ev.start });
+        }
+      } catch (e) { errors.push({ owner, error: e.message }); }
+    }
+    found.sort((a, b) => String(a.start).localeCompare(String(b.start)));
+    res.json({ owners: [...owners], found, errors });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// 取り残しの予定をまとめて消す
+app.post("/api/apo/orphan-invites/delete", async (req, res) => {
+  try {
+    const list = Array.isArray(req.body?.items) ? req.body.items : [];
+    if (!list.length) return res.status(400).json({ error: "消す対象が指定されていません" });
+    const active = await activeInviteEventIds();
+    const done = [], failed = [];
+    for (const it of list) {
+      const owner = String(it.owner || "").trim();
+      const eventId = String(it.eventId || "").trim();
+      if (!owner || !eventId) continue;
+      // 念のため、いま有効な予定は消さない
+      if (active.has(eventId)) { failed.push({ eventId, error: "現在使われている予定のため消しませんでした" }); continue; }
+      try {
+        await deleteCalendarEvent(owner, eventId, "primary");
+        done.push({ owner, eventId });
+      } catch (e) {
+        if (/40[04]/.test(e.message)) done.push({ owner, eventId });
+        else failed.push({ owner, eventId, error: e.message });
+      }
+    }
+    console.log(`[apo-invite] 取り残しの予定を削除 ${done.length}件 by ${req.user}`);
+    res.json({ ok: true, deleted: done.length, done, failed });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 

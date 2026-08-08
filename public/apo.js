@@ -410,6 +410,120 @@ async function loadTeamStats() {
   }
 }
 
+// ===== 作ってしまった商談予定の取り消し =====
+function fmtWhen(iso) {
+  if (!iso) return "";
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return esc(iso);
+  const wd = ["日","月","火","水","木","金","土"][d.getDay()];
+  const p = (n) => String(n).padStart(2, "0");
+  return `${d.getMonth() + 1}/${d.getDate()}(${wd}) ${p(d.getHours())}:${p(d.getMinutes())}`;
+}
+
+async function loadInvites() {
+  const box = $("ivBox");
+  const say = (m) => { const e = $("ivStatus"); if (e) e.textContent = m; };
+  if (!box) return;
+  say("読み込み中…");
+  box.innerHTML = "";
+  try {
+    const h = $("ivHours") ? $("ivHours").value : "24";
+    const d = await (await fetch("/api/apo/invites?hours=" + encodeURIComponent(h))).json();
+    if (d.error) throw new Error(d.error);
+    const list = d.invites || [];
+    if (!list.length) { box.innerHTML = `<p class="note">この期間に作られた商談予定はありません。</p>`; say(""); return; }
+    box.innerHTML = `<div class="iv-list">` + list.map((x) => `
+      <div class="iv-row" data-slug="${esc(x.slug)}">
+        <div class="iv-main">
+          <span class="iv-when">${fmtWhen(x.start)}</span>
+          <span class="iv-title">${esc(x.label || "(予定名なし)")}</span>
+        </div>
+        <div class="iv-sub">
+          担当 <b>${esc(x.ownerName)}</b>／予定は <b>${esc(x.eventOwnerName)}</b> のカレンダー
+          ${x.business ? `／${esc(x.business)}` : ""}
+          ／作成 ${fmtWhen(x.updatedAt)}
+        </div>
+        <button type="button" class="btn ghost iv-del">この予定を消す</button>
+      </div>`).join("") + `</div>`;
+    box.querySelectorAll(".iv-del").forEach((b) => b.addEventListener("click", async () => {
+      const row = b.closest(".iv-row");
+      const slug = row.dataset.slug;
+      const t = row.querySelector(".iv-title").textContent;
+      if (!confirm(`この商談予定をカレンダーから消します。\n\n${t}\n\n※ 担当の割り当ては残ります。よろしいですか？`)) return;
+      b.disabled = true; b.textContent = "削除中…";
+      try {
+        const r = await fetch(`/api/apo/invites/${encodeURIComponent(slug)}`, { method: "DELETE" });
+        const dd = await r.json();
+        if (!r.ok) throw new Error(dd.error || "削除に失敗しました");
+        row.classList.add("iv-done");
+        row.querySelector(".iv-del").outerHTML = `<span class="ap-badge ap-ok">削除しました</span>`;
+      } catch (e) {
+        alert("削除できませんでした: " + e.message);
+        b.disabled = false; b.textContent = "この予定を消す";
+      }
+    }));
+    say(`${list.length}件`);
+  } catch (e) {
+    box.innerHTML = `<p class="note cc-warn">読み込めませんでした：${esc(e.message)}</p>`;
+    say("");
+  }
+}
+
+async function loadOrphans() {
+  const box = $("orBox");
+  const say = (m) => { const e = $("orStatus"); if (e) e.textContent = m; };
+  const btn = $("orLoad");
+  if (!box) return;
+  if (btn) btn.disabled = true;
+  say("探しています…（人数分カレンダーを読むので少し時間がかかります）");
+  box.innerHTML = "";
+  try {
+    const d = await (await fetch("/api/apo/orphan-invites")).json();
+    if (d.error) throw new Error(d.error);
+    const list = d.found || [];
+    let html = `<p class="note">調べたカレンダー：${(d.owners || []).map(esc).join("、")}</p>`;
+    if ((d.errors || []).length) {
+      html += `<p class="note cc-warn">読めなかったカレンダー：` +
+        d.errors.map((x) => `${esc(x.owner)}（${esc(x.error).slice(0, 60)}）`).join("、") + `</p>`;
+    }
+    if (!list.length) {
+      html += `<p class="note">取り残しの予定はありません。</p>`;
+      box.innerHTML = html; say(""); return;
+    }
+    html += `<div class="iv-list">` + list.map((x, k) => `
+      <label class="iv-row">
+        <input type="checkbox" class="or-chk" data-i="${k}" checked />
+        <div class="iv-main"><span class="iv-when">${fmtWhen(x.start)}</span>
+          <span class="iv-title">${esc(x.title || "(予定名なし)")}</span></div>
+        <div class="iv-sub">${esc(x.owner)} のカレンダー</div>
+      </label>`).join("") + `</div>
+      <div class="ap-cfg-actions">
+        <button class="btn ghost" id="orDel">チェックしたものを消す</button>
+      </div>`;
+    box.innerHTML = html;
+    box.querySelector("#orDel").addEventListener("click", async () => {
+      const items = [...box.querySelectorAll(".or-chk")].filter((c) => c.checked).map((c) => list[+c.dataset.i]);
+      if (!items.length) { say("チェックがありません"); return; }
+      if (!confirm(`${items.length}件の予定をカレンダーから消します。よろしいですか？`)) return;
+      say("削除中…");
+      try {
+        const r = await fetch("/api/apo/orphan-invites/delete", {
+          method: "POST", headers: { "content-type": "application/json" },
+          body: JSON.stringify({ items }),
+        });
+        const dd = await r.json();
+        if (!r.ok) throw new Error(dd.error || "削除に失敗しました");
+        say(`${dd.deleted}件を削除しました${(dd.failed || []).length ? `（${dd.failed.length}件は失敗）` : ""}`);
+        loadOrphans();
+      } catch (e) { say("失敗: " + e.message); }
+    });
+    say(`${list.length}件見つかりました`);
+  } catch (e) {
+    box.innerHTML = `<p class="note cc-warn">探せませんでした：${esc(e.message)}</p>`;
+    say("");
+  } finally { if (btn) btn.disabled = false; }
+}
+
 // ===== インサイドのカレンダー診断 =====
 async function calCheck() {
   const box = $("calCheckBox");
@@ -900,6 +1014,9 @@ async function saveMailCfg() {
     bizLabel("rcBizLabel"); bizLabel("tsBizLabel");
   })();
   loadBuild();
+  if ($("ivLoad")) $("ivLoad").addEventListener("click", loadInvites);
+  if ($("ivHours")) $("ivHours").addEventListener("change", loadInvites);
+  if ($("orLoad")) $("orLoad").addEventListener("click", loadOrphans);
   if ($("calCheckBtn")) $("calCheckBtn").addEventListener("click", calCheck);
   if ($("dbCheckBtn")) $("dbCheckBtn").addEventListener("click", () => dbCheck(false));
   if ($("dbRepairBtn")) $("dbRepairBtn").addEventListener("click", () => dbCheck(true));

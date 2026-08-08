@@ -240,6 +240,25 @@ function apiResponse(pathname, query) {
   }
   if (pathname.indexOf("/api/apo/suspensions") === 0) return { ok: true, ...MOCK.ROTATION };
   if (pathname === "/api/apo/closer-order") return { ok: true, ...MOCK.ROTATION };
+  if (pathname === "/api/apo/invites") {
+    return { hours: 24, invites: [
+      { slug: "abc-def-001", label: "【初回】株式会社テスト/テスト様", setter: "田中欽也", business: "DOC",
+        owner: "m_morita@neo-career.co.jp", ownerName: "森田弥鳴", start: "2026-08-09T05:00:00.000Z",
+        eventId: "ev1", eventOwner: "m_morita@neo-career.co.jp", eventOwnerName: "森田弥鳴",
+        updatedAt: "2026-08-09T04:50:00.000Z" },
+      { slug: "abc-def-003", label: "【初回】テスト株式会社/テスト様", setter: "田中欽也", business: "DOC",
+        owner: "ueno@neo-career.co.jp", ownerName: "植野ひかり", start: "2026-08-09T08:00:00.000Z",
+        eventId: "ev2", eventOwner: "ueno@neo-career.co.jp", eventOwnerName: "植野ひかり",
+        updatedAt: "2026-08-09T04:52:00.000Z" },
+    ] };
+  }
+  if (pathname === "/api/apo/orphan-invites") {
+    return { owners: ["kinya.tanaka@neo-career.co.jp", "m_morita@neo-career.co.jp"],
+      found: [{ owner: "kinya.tanaka@neo-career.co.jp", eventId: "old1",
+                title: "【初回】テスト株式会社/テスト様", start: "2026-08-09T08:00:00.000Z" }],
+      errors: [] };
+  }
+  if (pathname === "/api/apo/orphan-invites/delete") return { ok: true, deleted: 1, done: [], failed: [] };
   if (pathname === "/api/apo/calendar-check") {
     return { owner: "kinya.tanaka@neo-career.co.jp",
       window: { from: "2026-08-01", to: "2026-10-07" },
@@ -315,6 +334,7 @@ function apiResponse(pathname, query) {
   if (pathname.startsWith("/api/apo/closers") || pathname.startsWith("/api/apo/rotation")) {
     return { ok: true, ...MOCK.ROTATION };
   }
+  if (pathname.indexOf("/api/apo/invites/") === 0) return { ok: true };
   if (pathname.startsWith("/api/smart-links/")) return { ok: true, link: {}, mail: { ok: true } };
   return {};
 }

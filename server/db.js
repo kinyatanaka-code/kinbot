@@ -2390,6 +2390,32 @@ export async function setSmartLinkClient(slug, { email, name, source } = {}, for
 // 送信済みかどうか（status='sent' の行があるか）
 // このアポの事業（DOC / MOCHICA）を保存する
 // 元の予定の説明欄を保存する（すでに入っていれば上書きしない＝手で直した内容を守る）
+// 直近に商談予定を作った（または作り直した）アポの一覧。取り消し画面で使う。
+export async function recentInvites(hours = 24) {
+  if (!pool) return [];
+  try {
+    const { rows } = await pool.query(
+      `SELECT slug, label, setter, current_owner, start_time, business,
+              invite_event_id, invite_event_owner, updated_at
+         FROM smart_links
+        WHERE COALESCE(invite_event_id,'') <> ''
+          AND updated_at >= now() - ($1 || ' hours')::interval
+        ORDER BY updated_at DESC
+        LIMIT 200`, [String(Math.max(1, Math.min(720, hours)))]);
+    return rows;
+  } catch (e) { console.error("[db] recentInvites", e.message); return []; }
+}
+
+// いま有効な商談予定のID一覧（取り残しの判定に使う）
+export async function activeInviteEventIds() {
+  if (!pool) return new Set();
+  try {
+    const { rows } = await pool.query(
+      `SELECT invite_event_id FROM smart_links WHERE COALESCE(invite_event_id,'') <> ''`);
+    return new Set(rows.map((r) => r.invite_event_id));
+  } catch { return new Set(); }
+}
+
 export async function setSmartLinkSourceNote(slug, note, force = false) {
   if (!pool || !slug) return null;
   try {

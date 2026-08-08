@@ -197,6 +197,29 @@
 
               <p class="note">新機能に必要なテーブルが作られているかを確認します。不足があれば「作り直す」で再作成できます。</p>
               <div class="ap-build" id="dbBuild">確認中…</div>
+              <h4 class="ap-rot-h">作ってしまった商談予定の取り消し</h4>
+              <p class="note">間違えて割り振り直したときに、カレンダーに作られた予定を消せます。<b>アポの担当割り当ては残ります</b>（予定だけ消えます）。</p>
+              <div class="ap-cfg-row">
+                <label>直近 <select id="ivHours">
+                  <option value="1">1時間</option>
+                  <option value="3">3時間</option>
+                  <option value="24" selected>24時間</option>
+                  <option value="72">3日</option>
+                  <option value="168">7日</option>
+                </select> に作られた予定</label>
+                <button class="btn ghost" id="ivLoad">一覧を出す</button>
+                <span class="rev-status" id="ivStatus"></span>
+              </div>
+              <div id="ivBox"></div>
+
+              <h4 class="ap-rot-h">取り残しの予定を探す</h4>
+              <p class="note">kinbotが過去に作った予定のうち、<b>いまkinbotが管理していないもの</b>（作り直しで置き換わった古い予定など）を探します。運用者と全クローザーのカレンダーを調べます。</p>
+              <div class="ap-cfg-actions">
+                <button class="btn ghost" id="orLoad">取り残しを探す</button>
+                <span class="rev-status" id="orStatus"></span>
+              </div>
+              <div id="orBox"></div>
+
               <h4 class="ap-rot-h">インサイドのカレンダー診断</h4>
               <p class="note">「メンバー管理に登録したのにアポが出てこない」ときに使います。1人ずつカレンダーを読んで、読めているか・予定が何件あるか・タイトルのタグが一致しているかを確認します。</p>
               <div class="ap-cfg-actions">
