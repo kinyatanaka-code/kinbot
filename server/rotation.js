@@ -41,8 +41,9 @@ export async function getRotationConfig() {
     autoScan: s.apoAutoScan === true,
     // 商談の前後に確保したい余白（分）。移動や準備の時間。
     bufferMin: Number.isFinite(+s.apoRotationBufferMin) ? Math.max(0, +s.apoRotationBufferMin) : 0,
-    // 次に回ってくる人の sort_order
+    // 次に回ってくる人の sort_order（事業ごとに別で持つ）
     nextOrder: Number.isFinite(+s.apoRotationNextOrder) ? +s.apoRotationNextOrder : 1,
+    nextOrderByBiz: (s.apoRotationNextByBiz && typeof s.apoRotationNextByBiz === "object") ? s.apoRotationNextByBiz : {},
     // 1回のスキャンで自動割り振りする上限（暴走時の保険）
     maxPerRun: Number.isFinite(+s.apoRotationMaxPerRun) ? Math.max(1, +s.apoRotationMaxPerRun) : 30,
     // チーム単位の均等化
@@ -63,6 +64,22 @@ export function balanceRange(window) {
   const from = new Date(Date.UTC(y, m, 1, 0, 0, 0) - 9 * 3600 * 1000);
   const to = new Date(Date.UTC(y, m + 1, 1, 0, 0, 0) - 9 * 3600 * 1000);
   return { from: from.toISOString(), to: to.toISOString(), label: `${y}年${m + 1}月` };
+}
+
+// その事業で次に回ってくる人の順番。事業を指定しない場合は全体の値を使う。
+export function nextOrderFor(cfg, business) {
+  const b = String(business || "").trim();
+  if (b && Number.isFinite(+cfg.nextOrderByBiz[b])) return +cfg.nextOrderByBiz[b];
+  return cfg.nextOrder;
+}
+async function saveNextOrder(cfg, business, order) {
+  const b = String(business || "").trim();
+  if (b) {
+    const map = { ...cfg.nextOrderByBiz, [b]: order };
+    await saveSettings({ apoRotationNextByBiz: map });
+  } else {
+    await saveSettings({ apoRotationNextOrder: order });
+  }
 }
 
 export function teamOf(closer) {
@@ -155,15 +172,19 @@ export function orderCandidates(closers, nextOrder, opts = {}) {
 
 // 1件のアポについてクローザーを決める。
 // 戻り値: { email, name, reason, skipped:[{email,name,reason}] } / 割り当て不可なら email=null
-export async function pickCloser(link, { inviteOwner, closers = null, cfg = null, teamCtx = null } = {}) {
+export async function pickCloser(link, { inviteOwner, closers = null, cfg = null, teamCtx = null, business = "" } = {}) {
   const conf = cfg || (await getRotationConfig());
-  const all = closers || (await listClosers());
-  const ctx = teamCtx || (await loadTeamContext(conf));
-  const cands = orderCandidates(all, conf.nextOrder, {
+  // その事業を担当するクローザーだけを候補にする
+  const biz = String(business || link.business || "").trim();
+  const all = closers || (await listClosers({ business: biz }));
+  const ctx = teamCtx || (await loadTeamContext(conf, biz));
+  const cands = orderCandidates(all, nextOrderFor(conf, biz), {
     teamBalance: conf.teamBalance, teamStats: ctx.teamStats, teams: ctx.teams,
   });
   if (!cands.length) {
-    return { email: null, name: "", reason: "有効なクローザーが登録されていません", skipped: [] };
+    return { email: null, name: "",
+      reason: biz ? `${biz}を担当するクローザーが登録されていません` : "有効なクローザーが登録されていません",
+      skipped: [] };
   }
   if (!link.start_time) {
     return { email: null, name: "", reason: "商談の開始時刻が分かりません", skipped: [] };
@@ -220,6 +241,7 @@ export async function pickCloser(link, { inviteOwner, closers = null, cfg = null
       email: c.email,
       name: c.name,
       team: teamOf(c),
+      business: biz,
       sortOrder: c.sort_order,
       reason: why,
       skipped,
@@ -229,22 +251,23 @@ export async function pickCloser(link, { inviteOwner, closers = null, cfg = null
 }
 
 // チームの状態と件数をまとめて読む（1件ごとに何度も引かないようにキャッシュして渡す）
-export async function loadTeamContext(cfg) {
+export async function loadTeamContext(cfg, business = "") {
   const conf = cfg || (await getRotationConfig());
   // teamBalance が off でも、予備メンバーの優先順（チームのアポ累計）に使うので常に集計する
   await syncTeamsFromClosers();
   const range = balanceRange(conf.balanceWindow);
   const [teams, teamStats] = await Promise.all([
     listTeams(),
-    teamAssignStats(range.from, range.to),
+    teamAssignStats(range.from, range.to, business),
   ]);
-  return { teams, teamStats, range };
+  return { teams, teamStats, range, business };
 }
 
 // 割り当てを確定し、ローテーションの状態を進める
 export async function commitAssignment(link, pick, { actor = "auto" } = {}) {
   const cfg = await getRotationConfig();
-  const all = await listClosers();
+  const biz = String(pick.business || link.business || "").trim();
+  const all = await listClosers({ business: biz });
   const active = all.filter((c) => c.active).sort((a, b) => a.sort_order - b.sort_order);
 
   // 飛ばされた人には最優先の印を立てる
@@ -284,10 +307,10 @@ export async function commitAssignment(link, pick, { actor = "auto" } = {}) {
   if (!pickedIsFallback && normals.length) {
     const idx = normals.findIndex((c) => c.email === pick.email);
     next = idx >= 0 ? normals[(idx + 1) % normals.length] : normals[0];
-    await saveSettings({ apoRotationNextOrder: next.sort_order });
+    await saveNextOrder(cfg, biz, next.sort_order);
   } else if (normals.length) {
     // 予備に配った場合は、通常の順番を動かさず、現在の「次の人」をそのまま返す
-    const curOrder = cfg.nextOrder;
+    const curOrder = nextOrderFor(cfg, biz);
     next = normals.find((c) => c.sort_order >= curOrder) || normals[0];
   }
 
@@ -295,7 +318,7 @@ export async function commitAssignment(link, pick, { actor = "auto" } = {}) {
     slug: link.slug,
     assigned: pick.email,
     team: pick.team || null,
-    reason: pick.reason,
+    reason: (biz ? `[${biz}] ` : "") + pick.reason,
     skipped: pick.skipped || [],
     actor,
   });
@@ -303,16 +326,17 @@ export async function commitAssignment(link, pick, { actor = "auto" } = {}) {
 }
 
 // 次に誰に回るかを見る（GAS版の checkRotation 相当）
-export async function rotationStatus() {
+export async function rotationStatus(business = "") {
   const cfg = await getRotationConfig();
-  const all = await listClosers();
+  const biz = String(business || "").trim();
+  const all = await listClosers({ business: biz });
   // チーム表示は均等化がOFFでも見たいので、常に集計する
   await syncTeamsFromClosers();
   const range = balanceRange(cfg.balanceWindow);
   const [teams, teamStats, byCloser] = await Promise.all([
-    listTeams(), teamAssignStats(range.from, range.to), closerAssignStats(range.from, range.to),
+    listTeams(), teamAssignStats(range.from, range.to, biz), closerAssignStats(range.from, range.to),
   ]);
-  const cands = orderCandidates(all, cfg.nextOrder, {
+  const cands = orderCandidates(all, nextOrderFor(cfg, biz), {
     teamBalance: cfg.teamBalance, teamStats, teams,
   });
   return {
@@ -320,6 +344,7 @@ export async function rotationStatus() {
     closers: all.map((c) => ({ ...c, team: teamOf(c), fallback: !!c.fallback, period_count: byCloser[c.email] || 0 })),
     teams, teamStats,
     period: { window: cfg.balanceWindow, label: range.label || "通算", from: range.from, to: range.to },
+    business: biz,
     // 実際に次に試される順番（代打の最優先を反映済み）
     order: cands.map((c) => ({
       email: c.email, name: c.name, team: teamOf(c), fallback: !!c.fallback,
@@ -332,13 +357,15 @@ export async function rotationStatus() {
 }
 
 // 次を特定の人から始める（GAS版の setNextUeno 相当。誰でも指定できるようにした）
-export async function setNextCloser(email) {
-  const all = await listClosers();
+export async function setNextCloser(email, business = "") {
+  const cfg = await getRotationConfig();
+  const biz = String(business || "").trim();
+  const all = await listClosers({ business: biz });
   const target = all.find((c) => c.email === String(email || "").toLowerCase());
   if (!target) throw new Error("そのクローザーは登録されていません");
   // 最優先フラグ（代打で飛ばされた印）は全員分クリアしてから、指定の人を起点にする
   await clearCloserPriority();
   await clearTeamPriority();
-  await saveSettings({ apoRotationNextOrder: target.sort_order });
-  return rotationStatus();
+  await saveNextOrder(cfg, biz, target.sort_order);
+  return rotationStatus(biz);
 }

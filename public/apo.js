@@ -4,6 +4,22 @@ function esc(s) {
 }
 const apState = { reps: [], appts: [], errors: [] };
 
+// 現在選択中の事業（全体なら空文字）。トップバーの 全体/DOC/MOCHICA と連動する。
+function curBiz() {
+  try { return (window.kbProduct && window.kbProduct.current()) || ""; } catch { return ""; }
+}
+function bizQuery() {
+  const b = curBiz();
+  return b ? "&product=" + encodeURIComponent(b) : "";
+}
+function bizLabel(id) {
+  const el = $(id);
+  if (!el) return;
+  const b = curBiz();
+  el.textContent = b || "全体";
+  el.className = "ap-biz-badge" + (b ? " ap-biz-" + b : "");
+}
+
 // ISO日時 → 「7/10(水) 14:00」（ブラウザのタイムゾーン＝通常JST）
 function fmtDT(iso) {
   if (!iso) return "";
@@ -26,6 +42,13 @@ function repOptions(selected) {
   }
   return o;
 }
+// 事業セル：DOC / MOCHICA を切り替えられる
+function bizCell(a, i) {
+  const opts = ["", "DOC", "MOCHICA"].map((b) =>
+    `<option value="${b}"${(a.business || "") === b ? " selected" : ""}>${b || "未判定"}</option>`).join("");
+  return `<select class="ap-bizsel" data-i="${i}">${opts}</select>`;
+}
+
 // 宛先セル：自動取得できていればそのまま表示、無ければ入力欄。クリックで編集できる。
 function clientCell(a, i) {
   const src = a.client_email_source === "manual" ? "手入力" : a.client_email_source === "calendar" ? "自動取得" : "";
@@ -136,11 +159,12 @@ function renderApo() {
   }
   const gotTh = apState.fCreated ? '<th class="ap-active">取得日 ●</th>' : '<th>取得日</th>';
   const startTh = apState.fStart ? '<th class="ap-active">商談日時 ●</th>' : '<th>商談日時</th>';
-  let html = `<table class="ap-table"><thead><tr>${gotTh}${startTh}<th>アポ獲得者</th><th>予定名</th><th>担当セールス</th><th>お客様の宛先</th><th>アポメール</th><th>共有リンク</th><th>状態</th></tr></thead><tbody>`;
+  let html = `<table class="ap-table"><thead><tr>${gotTh}${startTh}<th>事業</th><th>アポ獲得者</th><th>予定名</th><th>担当セールス</th><th>お客様の宛先</th><th>アポメール</th><th>共有リンク</th><th>状態</th></tr></thead><tbody>`;
   appts.forEach((a, i) => {
     html += `<tr>
       <td class="ap-got">${fmtYmd(a.created_date)}</td>
       <td class="ap-when">${fmtDT(a.start)}</td>
+      <td class="ap-biz" data-i="${i}">${bizCell(a, i)}</td>
       <td>${esc(a.setter_name)}</td>
       <td class="ap-title">${esc(a.title)}</td>
       <td><select class="ap-rep" data-i="${i}">${repOptions(a.current_owner)}</select>` +
@@ -193,6 +217,25 @@ function renderApo() {
       } finally { sel.disabled = false; }
     });
   });
+  body.querySelectorAll(".ap-bizsel").forEach((sel) => {
+    sel.addEventListener("change", async () => {
+      const i = +sel.dataset.i;
+      const a = apState.appts[i];
+      sel.disabled = true;
+      try {
+        const r = await fetch(`/api/smart-links/${encodeURIComponent(a.slug)}/business`, {
+          method: "PUT", headers: { "content-type": "application/json" },
+          body: JSON.stringify({ business: sel.value }),
+        });
+        const d = await r.json();
+        if (!r.ok) throw new Error(d.error || "変更に失敗しました");
+        a.business = sel.value;
+      } catch (e) {
+        alert("事業を変更できませんでした: " + e.message);
+        sel.value = a.business || "";
+      } finally { sel.disabled = false; }
+    });
+  });
   body.querySelectorAll(".ap-auto").forEach((b) => {
     b.addEventListener("click", async () => {
       const i = +b.dataset.i;
@@ -238,6 +281,7 @@ async function loadApo() {
     const q = new URLSearchParams();
     if (created) q.set("created", created);
     if (start) q.set("start", start);
+    if (curBiz()) q.set("product", curBiz());
     const r = await fetch("/api/apo/pickup?" + q.toString());
     const d = await r.json();
     if (!r.ok) throw new Error(d.error || "取り込みに失敗しました");
@@ -297,7 +341,7 @@ async function loadTeamStats() {
   const w = $("tsWindow") ? $("tsWindow").value : "month";
   say("読み込み中…");
   try {
-    const d = await (await fetch("/api/apo/team-stats?window=" + encodeURIComponent(w))).json();
+    const d = await (await fetch("/api/apo/team-stats?window=" + encodeURIComponent(w) + bizQuery())).json();
     if (d.error) throw new Error(d.error);
     const stats = (d.teamStats || []).slice();
     if (!stats.length) {
@@ -340,6 +384,7 @@ async function loadTeamStats() {
         `${(+gap > (usePer ? 1.5 : 3)) ? "　偏りが出ています。配り方の設定を見直すか、チームの稼働状態を確認してください。" : "　均等に配れています。"}</p>`;
     }
     box.innerHTML = html;
+    bizLabel("tsBizLabel");
     say("");
   } catch (e) {
     box.innerHTML = `<div class="empty-state">読み込めませんでした：${esc(e.message)}</div>`;
@@ -423,7 +468,7 @@ function rcRender() {
       try {
         const r = await fetch("/api/apo/rotation/next", {
           method: "POST", headers: { "content-type": "application/json" },
-          body: JSON.stringify({ email: c.email }),
+          body: JSON.stringify({ email: c.email, product: curBiz() }),
         });
         const d = await r.json();
         if (!r.ok) throw new Error(d.error || "変更に失敗しました");
@@ -450,8 +495,9 @@ function rcRender() {
     box.appendChild(row);
   });
   if (!rotState.closers.length) {
-    box.innerHTML = `<p class="note cc-warn">クローザーが登録されていません。` +
-      `<a href="settings.html#members">設定 → メンバー管理</a>で「クローザー」の役割を付けてください。</p>`;
+    const b = curBiz();
+    box.innerHTML = `<p class="note cc-warn">${b ? b + "を担当する" : ""}クローザーが登録されていません。` +
+      `<a href="settings.html#members">設定 → メンバー管理</a>で「クローザー」の役割と事業（${b || "DOC / MOCHICA"}）を設定してください。</p>`;
   }
 }
 
@@ -536,7 +582,7 @@ function rcFillAdd() {}
 
 async function loadRotation() {
   try {
-    const d = await (await fetch("/api/apo/rotation")).json();
+    const d = await (await fetch("/api/apo/rotation?product=" + encodeURIComponent(curBiz()))).json();
     rotState.closers = (d.closers || []).map((c) => ({ ...c }));
     rotState.next = d.next || null;
     rotState.teams = d.teams || rotState.teams;
@@ -549,7 +595,7 @@ async function loadRotation() {
     if ($("rcWindow")) $("rcWindow").value = c.balanceWindow || "month";
     rotState.teams = d.teams || [];
     rotState.teamRows = null;
-    rcRender(); rcNextLabel(); rcFillAdd(); rcTeamsRender();
+    rcRender(); rcNextLabel(); rcFillAdd(); rcTeamsRender(); bizLabel("rcBizLabel");
   } catch { rcSay("ローテーションの設定を読めませんでした"); }
 }
 
@@ -601,7 +647,7 @@ async function saveRotation() {
     rotState.teams = d.teams || rotState.teams;
     rotState.teams = d.teams || [];
     rotState.teamRows = null;
-    rcRender(); rcNextLabel(); rcFillAdd(); rcTeamsRender();
+    rcRender(); rcNextLabel(); rcFillAdd(); rcTeamsRender(); bizLabel("rcBizLabel");
     rcSay(`保存しました（通常${rotState.closers.filter((c) => c.active !== false && !c.fallback).length}名・予備${rotState.closers.filter((c) => c.fallback).length}名）`, 4000);
   } catch (e) {
     rcSay("保存に失敗しました: " + e.message);
@@ -688,6 +734,18 @@ async function saveMailCfg() {
     } catch (e) { mcSay("失敗: " + e.message); }
   });
   setupTabs();
+  // トップバーの 全体 / DOC / MOCHICA と連動させる
+  (async function () {
+    if (!window.kbProduct) return;
+    await window.kbProduct.loadMap();
+    window.kbProduct.mount(() => {
+      loadApo();
+      loadRotation();
+      if (!$("tsBody") || !document.querySelector('.ap-pane[data-pane="team"]:not([hidden])')) bizLabel("tsBizLabel");
+      else loadTeamStats();
+    }, { renderOnMount: false });
+    bizLabel("rcBizLabel"); bizLabel("tsBizLabel");
+  })();
   loadBuild();
   if ($("dbCheckBtn")) $("dbCheckBtn").addEventListener("click", () => dbCheck(false));
   if ($("dbRepairBtn")) $("dbRepairBtn").addEventListener("click", () => dbCheck(true));

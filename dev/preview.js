@@ -22,10 +22,10 @@ const PORT = process.env.PORT || 8099;
 
 // ===== ダミーデータ =====================================================
 const REPS = [
-  { email: "ueno@neo-career.co.jp",   name: "植野 大輔", has_zoom_link: true },
-  { email: "tanaka@neo-career.co.jp", name: "田中 遼",   has_zoom_link: true },
-  { email: "eda@neo-career.co.jp",    name: "江田 直人", has_zoom_link: true },
-  { email: "morita@neo-career.co.jp", name: "森田 彩",   has_zoom_link: false },
+  { email: "ueno@neo-career.co.jp", businesses: ["DOC"],   name: "植野 大輔", has_zoom_link: true },
+  { email: "tanaka@neo-career.co.jp", businesses: ["DOC"], name: "田中 遼",   has_zoom_link: true },
+  { email: "eda@neo-career.co.jp", businesses: ["DOC","MOCHICA"],    name: "江田 直人", has_zoom_link: true },
+  { email: "morita@neo-career.co.jp", businesses: ["MOCHICA"], name: "森田 彩",   has_zoom_link: false },
 ];
 
 const SENT = { status: "sent", at: "2026-08-08T02:00:00.000Z" };
@@ -51,7 +51,7 @@ function mk(n, setter, title, start, createdDate, { owner = null, mail = {}, cli
     original_url: "https://zoom.us/j/1", slug: `abc-def-${String(n).padStart(3, "0")}`,
     smart_url: `http://localhost:${PORT}/j/9006868174?pwd=Qj7DcInBMT6vePGojiFG_${n}`,
     current_owner: owner, client_email: clientEmail, client_name: "",
-    client_email_source: source, auto_assigned_at: null, mail,
+    client_email_source: source, business: n % 2 === 0 ? "MOCHICA" : "DOC", auto_assigned_at: null, mail,
   };
 }
 
@@ -61,12 +61,12 @@ const TEAMS = [
 ];
 
 const CLOSERS = [
-  { email: "ueno@neo-career.co.jp",   name: "植野 大輔", team: "浦林チーム", sort_order: 1, active: true,  priority: false, daily_cap: null, assigned_count: 42, period_count: 11 },
-  { email: "tanaka@neo-career.co.jp", name: "田中 遼",   team: "中澤チーム", sort_order: 2, active: true,  priority: true,  daily_cap: 3,    assigned_count: 38, period_count: 9 },
-  { email: "eda@neo-career.co.jp",    name: "江田 直人", team: "浦林チーム", sort_order: 3, active: true,  priority: false, daily_cap: null, assigned_count: 40, period_count: 10 },
-  { email: "morita@neo-career.co.jp", name: "森田 彩",   team: "中澤チーム", sort_order: 4, active: false, priority: false, daily_cap: 2,    assigned_count: 29, period_count: 6 },
-  { email: "ura@neo-career.co.jp",    name: "浦林 鷹也", team: "浦林チーム", sort_order: 5, active: true,  priority: false, daily_cap: null, assigned_count: 6,  period_count: 1, fallback: true },
-  { email: "naka@neo-career.co.jp",   name: "中澤 良太", team: "中澤チーム", sort_order: 6, active: true,  priority: false, daily_cap: null, assigned_count: 4,  period_count: 0, fallback: true },
+  { email: "ueno@neo-career.co.jp", businesses: ["DOC"],   name: "植野 大輔", team: "浦林チーム", sort_order: 1, active: true,  priority: false, daily_cap: null, assigned_count: 42, period_count: 11 },
+  { email: "tanaka@neo-career.co.jp", businesses: ["DOC"], name: "田中 遼",   team: "中澤チーム", sort_order: 2, active: true,  priority: true,  daily_cap: 3,    assigned_count: 38, period_count: 9 },
+  { email: "eda@neo-career.co.jp", businesses: ["DOC","MOCHICA"],    name: "江田 直人", team: "浦林チーム", sort_order: 3, active: true,  priority: false, daily_cap: null, assigned_count: 40, period_count: 10 },
+  { email: "morita@neo-career.co.jp", businesses: ["MOCHICA"], name: "森田 彩",   team: "中澤チーム", sort_order: 4, active: false, priority: false, daily_cap: 2,    assigned_count: 29, period_count: 6 },
+  { email: "ura@neo-career.co.jp", businesses: ["DOC"], name: "浦林 鷹也", team: "浦林チーム", sort_order: 5, active: true,  priority: false, daily_cap: null, assigned_count: 6,  period_count: 1, fallback: true },
+  { email: "naka@neo-career.co.jp", businesses: ["DOC"], name: "中澤 良太", team: "中澤チーム", sort_order: 6, active: true,  priority: false, daily_cap: null, assigned_count: 4,  period_count: 0, fallback: true },
 ];
 
 const CONFIRM_BODY = `{{会社名}}
@@ -158,7 +158,9 @@ function apiResponse(pathname, query) {
   if (pathname === "/api/apo/pickup") {
     const empty = query.get("empty") === "1";
     const many = parseInt(query.get("many") || "0", 10);
+    const biz = String(query.get("product") || "");
     let list = empty ? [] : MOCK.APPOINTMENTS.slice();
+    if (biz) list = list.filter((a) => !a.business || a.business === biz);
     if (many > 0) {
       list = [];
       for (let i = 0; i < many; i++) {
@@ -175,6 +177,11 @@ function apiResponse(pathname, query) {
       mail_config: MOCK.MAIL_CONFIG, rotation: MOCK.ROTATION,
     };
   }
+  if (pathname === "/api/rep-products") {
+    const map = {};
+    for (const m of MEMBERS) if (m.businesses.length === 1) { map[m.name] = m.businesses[0]; map[m.email] = m.businesses[0]; }
+    return { map };
+  }
   if (pathname === "/api/members") {
     return { members: MEMBERS,
       candidates: [{ email: "new@neo-career.co.jp", name: "新入 太郎", src: "ユーザー" }],
@@ -184,8 +191,28 @@ function apiResponse(pathname, query) {
   }
   if (pathname === "/api/apo/closer-order") return { ok: true, ...MOCK.ROTATION };
   if (pathname === "/api/smart-links/reps") return MOCK.REPS;
-  if (pathname === "/api/apo/rotation") return MOCK.ROTATION;
+  if (pathname === "/api/apo/rotation") {
+    const b = String(query.get("product") || "");
+    // 実サーバーと同じく、その事業を担当する人だけに絞る（未設定の人はどの事業でも残す）
+    const cl = b ? CLOSERS.filter((c) => !c.businesses || !c.businesses.length || c.businesses.includes(b)) : CLOSERS;
+    const teamsIn = [...new Set(cl.map((c) => c.team))];
+    return { ...MOCK.ROTATION, business: b, closers: cl, order: cl,
+      teams: TEAMS.filter((t) => teamsIn.includes(t.team_name)),
+      teamStats: TEAM_STATS.filter((t) => teamsIn.includes(t.team)),
+      next: cl.find((c) => !c.fallback && c.active) || null };
+  }
   if (pathname === "/api/apo/team-stats") {
+    const b = String(query.get("product") || "");
+    if (b) {
+      const cl = CLOSERS.filter((c) => !c.businesses || !c.businesses.length || c.businesses.includes(b));
+      const tn = [...new Set(cl.map((c) => c.team))];
+      const mem = {};
+      for (const t of tn) mem[t] = cl.filter((c) => c.team === t)
+        .map((c) => ({ email: c.email, name: c.name, active: c.active, count: c.period_count || 0, total_all_time: c.assigned_count }));
+      return { period: { window: "month", label: "2026年8月" }, business: b, mode: "perHead",
+        teams: TEAMS.filter((t) => tn.includes(t.team_name)),
+        teamStats: TEAM_STATS.filter((t) => tn.includes(t.team)), members: mem };
+    }
     return { period: { window: query.get("window") || "month", label: query.get("window") === "all" ? "通算" : "2026年8月" },
       mode: "perHead", teams: TEAMS, teamStats: TEAM_STATS,
       members: {

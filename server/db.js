@@ -604,6 +604,10 @@ export async function initDb() {
   // 予備（フォールバック）。通常のローテーションには入らず、他の全員が埋まっているときだけ回す。
   // チームリーダーのように「他が空いていなければ自分が出る」運用のため。
   await sq(`ALTER TABLE closer_rotation ADD COLUMN IF NOT EXISTS fallback BOOLEAN NOT NULL DEFAULT false;`);
+  // 担当事業（DOC / MOCHICA）。アポ振り分けを事業ごとに分けるために使う。
+  await sq(`ALTER TABLE closer_rotation ADD COLUMN IF NOT EXISTS businesses JSONB NOT NULL DEFAULT '[]'::jsonb;`);
+  // そのアポがどちらの事業のものか（アポ獲得者の担当事業から決まる。画面で変更もできる）
+  await sq(`ALTER TABLE smart_links ADD COLUMN IF NOT EXISTS business TEXT;`);
   // どのチームに配ったかを割り振り履歴にも残す
   await sq(`ALTER TABLE assign_log ADD COLUMN IF NOT EXISTS team TEXT;`);
   // チーム単位のローテーション状態と通算件数。
@@ -2350,6 +2354,17 @@ export async function setSmartLinkClient(slug, { email, name, source } = {}, for
 }
 
 // 送信済みかどうか（status='sent' の行があるか）
+// このアポの事業（DOC / MOCHICA）を保存する
+export async function setSmartLinkBusiness(slug, business) {
+  if (!pool || !slug) return null;
+  try {
+    const { rows } = await pool.query(
+      `UPDATE smart_links SET business=$2, updated_at=now() WHERE slug=$1 RETURNING *`,
+      [slug, business || null]);
+    return rows[0] || null;
+  } catch (e) { console.error("[db] setSmartLinkBusiness", e.message); return null; }
+}
+
 export async function apoMailSentRow(slug, kind) {
   if (!pool || !slug) return null;
   try {
@@ -2396,13 +2411,21 @@ export async function listApoMailStatus(slugs) {
 }
 
 // ===== クローザーのローテーション =====
-export async function listClosers({ activeOnly = false } = {}) {
+export async function listClosers({ activeOnly = false, business = "" } = {}) {
   if (!pool) return [];
   try {
     const { rows } = await pool.query(
       `SELECT * FROM closer_rotation ${activeOnly ? "WHERE active" : ""} ORDER BY sort_order, email`
     );
-    return rows;
+    let list = rows.map((r) => ({
+      ...r,
+      businesses: Array.isArray(r.businesses) ? r.businesses : [],
+    }));
+    // 事業の指定があれば、その事業を担当する人だけに絞る。
+    // 事業が未設定の人は、どの事業でも対象にする（設定漏れで割り振りが止まらないように）。
+    const b = String(business || "").trim();
+    if (b) list = list.filter((c) => !c.businesses.length || c.businesses.includes(b));
+    return list;
   } catch { return []; }
 }
 
@@ -2605,12 +2628,12 @@ export async function syncMembersToLegacy() {
     for (let i = 0; i < closers.length; i++) {
       const m = closers[i];
       await pool.query(
-        `INSERT INTO closer_rotation (email, name, sort_order, active, daily_cap, team, fallback)
-         VALUES ($1,$2,$3,$4,$5,$6,$7)
+        `INSERT INTO closer_rotation (email, name, sort_order, active, daily_cap, team, fallback, businesses)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8::jsonb)
          ON CONFLICT (email) DO UPDATE
-           SET name=$2, active=$4, daily_cap=$5, team=$6, fallback=$7, updated_at=now()`,
+           SET name=$2, active=$4, daily_cap=$5, team=$6, fallback=$7, businesses=$8::jsonb, updated_at=now()`,
         [m.email, m.name, i + 1, m.active !== false, m.daily_cap,
-         m.team || null, m.roles.includes("fallback")]
+         m.team || null, m.roles.includes("fallback"), JSON.stringify(m.businesses || [])]
       );
     }
     const cEmails = closers.map((m) => m.email);
@@ -2758,12 +2781,21 @@ export async function clearTeamPriority() {
 
 // チーム別の実績。期間は商談日（start_time）のJST基準。
 // 通算だけでなく人数も返すので、1人あたりの件数でも比べられる。
-export async function teamAssignStats(fromISO, toISO) {
+export async function teamAssignStats(fromISO, toISO, business = "") {
   if (!pool) return [];
   try {
     const params = [];
     let where = "";
     if (fromISO && toISO) { params.push(fromISO, toISO); where = `AND sl.start_time >= $1 AND sl.start_time < $2`; }
+    // 事業の絞り込み。事業が未設定の人はどの事業でも対象にする（設定漏れで消えないように）。
+    const b = String(business || "").trim();
+    let bizWhere = "", bizMembers = "";
+    if (b) {
+      params.push(b);
+      const n = params.length;
+      bizWhere = `AND (jsonb_array_length(cr.businesses) = 0 OR cr.businesses ? $${n})`;
+      bizMembers = `WHERE (jsonb_array_length(businesses) = 0 OR businesses ? $${n})`;
+    }
     const { rows } = await pool.query(`
       WITH members AS (
         SELECT COALESCE(NULLIF(TRIM(team), ''), '未設定') AS team,
@@ -2771,13 +2803,13 @@ export async function teamAssignStats(fromISO, toISO) {
                -- 1人あたりの計算では、予備メンバーは通常の頭数に入れない
                COUNT(*) FILTER (WHERE active AND NOT fallback)::int      AS active_members,
                COUNT(*) FILTER (WHERE fallback)::int                     AS fallback_members
-          FROM closer_rotation GROUP BY 1
+          FROM closer_rotation ${bizMembers} GROUP BY 1
       ), counts AS (
         SELECT COALESCE(NULLIF(TRIM(cr.team), ''), '未設定') AS team,
                COUNT(*)::int AS cnt
           FROM smart_links sl
           JOIN closer_rotation cr ON cr.email = sl.current_owner
-         WHERE COALESCE(sl.current_owner,'') <> '' ${where}
+         WHERE COALESCE(sl.current_owner,'') <> '' ${where} ${bizWhere}
          GROUP BY 1
       )
       SELECT m.team,

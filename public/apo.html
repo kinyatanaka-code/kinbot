@@ -80,7 +80,7 @@
               </div>
               <div id="rcTeams" class="ap-team-list"></div>
               <div class="ap-rot-next" id="rcNext"></div>
-              <h4 class="ap-rot-h">割り振りの順番</h4>
+              <h4 class="ap-rot-h">割り振りの順番<span id="rcBizLabel" class="ap-biz-badge"></span></h4>
               <p class="note"><b>ここに並ぶのは、<a href="settings.html#members">設定 → メンバー管理</a>で「クローザー」または「予備」の役割を付けた人です。</b>メンバーの追加・削除、チーム、1日の上限、在籍状況はメンバー管理で設定します。この画面では<b>回る順番だけ</b>をドラッグで変更します。<br>
               「予備」の人は通常の順番に入りません。通常メンバー全員が埋まっているときだけ回り、予備が複数いる場合は所属チームのアポ累計が少ない側から試します。</p>
               <div id="rcList" class="ap-rot-list"></div>
@@ -97,7 +97,7 @@
 
           <section class="ap-pane" data-pane="team" hidden>
             <div class="ap-card">
-              <h3 class="ap-card-h">チーム別の割り振り実績</h3>
+              <h3 class="ap-card-h">チーム別の割り振り実績<span id="tsBizLabel" class="ap-biz-badge"></span></h3>
               <div class="ap-cfg-row">
                 <label>期間
                   <select id="tsWindow">
@@ -166,6 +166,7 @@
         </main>
       </div>
     </div>
+    <script src="product.js"></script>
     <script src="apo.js"></script>
     <script src="nav.js"></script>
   </body>

@@ -18,7 +18,7 @@ process.on("unhandledRejection", (e) => {
 });
 
 import { pickCloser, commitAssignment, rotationStatus, setNextCloser,
-         getRotationConfig, loadTeamContext, balanceRange } from "./rotation.js";
+         getRotationConfig, loadTeamContext, balanceRange, nextOrderFor } from "./rotation.js";
 import { sendApoMail, runReminderSweep, getApoMailConfig,
          DEFAULT_CONFIRM_SUBJECT, DEFAULT_CONFIRM_BODY,
          DEFAULT_REMINDER_SUBJECT, DEFAULT_REMINDER_BODY } from "./apomail.js";
@@ -85,6 +85,7 @@ import {
   setSmartLinkInviteEvent,
   deleteSmartLink,
   setSmartLinkClient,
+  setSmartLinkBusiness,
   logGmailAction,
   listClosers,
   saveClosers,
@@ -7914,6 +7915,26 @@ function apoNameMatch(mTitle, eTitle) {
   return true; // 片方に担当者名が無ければ会社名一致で採用
 }
 
+// アポ獲得者（インサイド）の担当事業から、そのアポの事業を決める。
+// 両方を担当している人・未設定の人の場合は空（＝どの事業でも扱える）にする。
+let _memberBizCache = { at: 0, map: {} };
+async function businessOfSetter(setterName) {
+  const now = Date.now();
+  if (now - _memberBizCache.at > 60 * 1000) {
+    const members = await listMembers().catch(() => []);
+    const map = {};
+    for (const m of members) {
+      const b = Array.isArray(m.businesses) ? m.businesses : [];
+      // 1つだけ担当しているときに限り、その事業とみなす
+      map[String(m.name || "").trim()] = b.length === 1 ? b[0] : "";
+      map[String(m.email || "").toLowerCase()] = b.length === 1 ? b[0] : "";
+    }
+    _memberBizCache = { at: now, map };
+  }
+  const k = String(setterName || "").trim();
+  return _memberBizCache.map[k] || _memberBizCache.map[k.toLowerCase()] || "";
+}
+
 // 予定のゲストからお客様（＝社外の人）を1人選ぶ。
 // 自社ドメインの人・アポ獲得者本人・登録済みの社内ユーザーは除外する。
 let _internalDomainCache = null;
@@ -8025,6 +8046,14 @@ async function collectApoAppointments(scanOwner, opts = {}) {
             eventId: ev.id, setter: st.name, startTime: ev.start, endTime: ev.end || null,
           });
         }
+        // このアポの事業（DOC / MOCHICA）を、アポ獲得者の担当事業から決めて保存する
+        if (!String(link.business || "").trim()) {
+          const biz = await businessOfSetter(st.name);
+          if (biz) {
+            await setSmartLinkBusiness(link.slug, biz);
+            link = { ...link, business: biz };
+          }
+        }
         // お客様のメールアドレスを、カレンダー予定の「外部ドメインのゲスト」から自動取得する。
         // 社内メンバー（インターン・営業担当）は除外。既に手入力で入っていれば上書きしない。
         const guest = pickClientGuest(ev.attendees, setterEmail);
@@ -8048,6 +8077,7 @@ async function collectApoAppointments(scanOwner, opts = {}) {
           client_email: link.client_email || "",
           client_name: link.client_name || "",
           client_email_source: link.client_email_source || "",
+          business: link.business || "",
           auto_assigned_at: link.auto_assigned_at || null,
           _link: link, // 内部用。APIレスポンスに出す前に落とす。
         });
@@ -8062,8 +8092,10 @@ async function collectApoAppointments(scanOwner, opts = {}) {
 // ───────────────────────────────────────────────────────────
 
 // 1件のアポにクローザーを自動で割り当て、招待と確定メールまで通す
-async function autoAssignOne(link, { inviteOwner, closers, cfg, teamCtx = null, actor = "auto" }) {
-  const pick = await pickCloser(link, { inviteOwner, closers, cfg, teamCtx });
+async function autoAssignOne(link, { inviteOwner, closers = null, cfg, teamCtx = null, actor = "auto" }) {
+  // 事業ごとに候補が違うので、アポの事業に合わせて毎回引き直す
+  const biz = String(link.business || "").trim();
+  const pick = await pickCloser(link, { inviteOwner, closers, cfg, teamCtx, business: biz });
   if (!pick.email) {
     // 割り当てられなかった理由も残す（あとで画面から見て手動対応する）
     await logAssign({ slug: link.slug, assigned: null, reason: pick.reason, skipped: pick.skipped, actor });
@@ -8128,7 +8160,6 @@ async function runApoAutoScan({ actor = "auto-scan", force = false } = {}) {
              skipped: true, reason: "自動割り振りがOFFです（アポの記録だけ行いました）", errors: scan.errors };
   }
 
-  const closers = await listClosers();
   const results = [];
   let assigned = 0;
   // 商談が早いものから順に処理する（ローテーションの順序が時系列で自然になる）
@@ -8140,9 +8171,10 @@ async function runApoAutoScan({ actor = "auto-scan", force = false } = {}) {
     try {
       // 最新のローテーション状態を毎回読み直す（1件ごとに次の人が進むため）
       const c = await getRotationConfig();
-      // チームの件数は1件配るごとに変わるので、毎回読み直す
-      const teamCtx = await loadTeamContext(c);
-      const r = await autoAssignOne(it._link, { inviteOwner: scanOwner, closers, cfg: c, teamCtx, actor });
+      // 事業ごとに候補とチーム件数が変わるので、アポの事業に合わせて毎回読み直す
+      const biz = String(it._link.business || "").trim();
+      const teamCtx = await loadTeamContext(c, biz);
+      const r = await autoAssignOne(it._link, { inviteOwner: scanOwner, closers: null, cfg: c, teamCtx, actor });
       results.push({ slug: it.slug, title: it.title, start: it.start, ...r });
       if (r.ok) assigned++;
     } catch (e) {
@@ -8179,7 +8211,10 @@ app.post("/api/smart-links/:slug/auto-assign", async (req, res) => {
 
 // ローテーションの状態（次に誰に回るか）
 app.get("/api/apo/rotation", async (req, res) => {
-  try { res.json(await rotationStatus()); }
+  try {
+    const biz = ["DOC", "MOCHICA"].includes(String(req.query.product || "")) ? String(req.query.product) : "";
+    res.json(await rotationStatus(biz));
+  }
   catch (e) { res.status(500).json({ error: e.message }); }
 });
 
@@ -8196,7 +8231,7 @@ app.put("/api/apo/closers", async (req, res) => {
 // 次を特定の人から始める（GAS版の setNextUeno 相当）
 app.post("/api/apo/rotation/next", async (req, res) => {
   try {
-    res.json({ ok: true, ...(await setNextCloser(String(req.body?.email || ""))) });
+    res.json({ ok: true, ...(await setNextCloser(String(req.body?.email || ""), String(req.body?.product || ""))) });
   } catch (e) { res.status(400).json({ error: e.message }); }
 });
 
@@ -8278,11 +8313,12 @@ app.get("/api/apo/team-stats", async (req, res) => {
   try {
     await syncTeamsFromClosers();
     const window = req.query.window === "all" ? "all" : "month";
+    const biz = ["DOC", "MOCHICA"].includes(String(req.query.product || "")) ? String(req.query.product) : "";
     const range = balanceRange(window);
     const [teams, stats, byCloser] = await Promise.all([
-      listTeams(), teamAssignStats(range.from, range.to), closerAssignStats(range.from, range.to),
+      listTeams(), teamAssignStats(range.from, range.to, biz), closerAssignStats(range.from, range.to),
     ]);
-    const closers = await listClosers();
+    const closers = await listClosers({ business: biz });
     // チームごとにメンバーの内訳も返す（チーム内の偏りも見えるように）
     const members = {};
     for (const c of closers) {
@@ -8297,7 +8333,7 @@ app.get("/api/apo/team-stats", async (req, res) => {
     const cfg = await getRotationConfig();
     res.json({
       period: { window, label: range.label || "通算", from: range.from, to: range.to },
-      mode: cfg.teamBalance, teams, teamStats: stats, members,
+      business: biz, mode: cfg.teamBalance, teams, teamStats: stats, members,
     });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
@@ -8320,17 +8356,20 @@ app.get("/api/apo/assign-log", async (req, res) => {
 
 app.get("/api/apo/pickup", async (req, res) => {
   try {
-    const { items, errors } = await collectApoAppointments(req.user, {
+    const biz = ["DOC", "MOCHICA"].includes(String(req.query.product || "")) ? String(req.query.product) : "";
+    let { items, errors } = await collectApoAppointments(req.user, {
       created: req.query.created, start: req.query.start,
     });
+    // 事業タブで絞る。事業が未判定のアポはどのタブでも残す（取りこぼさないため）。
+    if (biz) items = items.filter((it) => !it.business || it.business === biz);
     // アポメールの送信状況をまとめて引く（1件ずつ引くとN+1になるため）
     const mailStatus = await listApoMailStatus(items.map((i) => i.slug));
     for (const it of items) it.mail = mailStatus[it.slug] || {};
     const mailCfg = await getApoMailConfig().catch(() => null);
-    const rot = await rotationStatus().catch(() => null);
+    const rot = await rotationStatus(biz).catch(() => null);
     for (const it of items) delete it._link;
     res.json({
-      filters: { created: req.query.created || "", start: req.query.start || "" },
+      filters: { created: req.query.created || "", start: req.query.start || "", product: biz },
       count: items.length, appointments: items, errors,
       mail_config: mailCfg, rotation: rot,
     });
@@ -8442,6 +8481,16 @@ app.put("/api/smart-links/:slug/owner", async (req, res) => {
       }
     }
     res.json({ ok: true, link, invite, invite_error: inviteError, mail });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// このアポの事業（DOC / MOCHICA）を手で変える
+app.put("/api/smart-links/:slug/business", async (req, res) => {
+  try {
+    const b = String(req.body?.business || "").trim();
+    if (b && !["DOC", "MOCHICA"].includes(b)) return res.status(400).json({ error: "DOC か MOCHICA を指定してください" });
+    const link = await setSmartLinkBusiness(req.params.slug, b || null);
+    res.json({ ok: true, link });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
