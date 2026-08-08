@@ -88,6 +88,14 @@ import {
   logGmailAction,
   listClosers,
   saveClosers,
+  saveCloserOrder,
+  listMembers,
+  saveMembers,
+  deleteMember,
+  syncMembersToLegacy,
+  memberCandidates,
+  MEMBER_ROLES,
+  MEMBER_BUSINESSES,
   markAutoAssigned,
   listAssignLog,
   clearCloserPriority,
@@ -8208,6 +8216,58 @@ app.put("/api/apo/rotation-config", async (req, res) => {
     if (b.balanceWindow !== undefined) patch.apoBalanceWindow = b.balanceWindow === "all" ? "all" : "month";
     await saveSettings(patch);
     console.log(`[apo-rotation] 設定を更新 by ${req.user}:`, JSON.stringify(patch));
+    res.json({ ok: true, ...(await rotationStatus()) });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// ===== メンバー管理 =====
+// 事業（DOC/MOCHICA）・チーム・役割（クローザー／インサイド／予備）をここで一括管理し、
+// 保存時に closer_rotation・interns・rep_team_mapping へ同期する。
+app.get("/api/members", async (req, res) => {
+  try {
+    const [members, candidates] = await Promise.all([listMembers(), memberCandidates()]);
+    const teams = [...new Set(members.map((m) => (m.team || "").trim()).filter(Boolean))].sort();
+    res.json({
+      members, candidates, teams,
+      roles: MEMBER_ROLES, businesses: MEMBER_BUSINESSES,
+      labels: { closer: "クローザー", inside: "インサイド", fallback: "予備" },
+    });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.put("/api/members", async (req, res) => {
+  try {
+    const list = Array.isArray(req.body?.members) ? req.body.members : [];
+    // 同じメールアドレスが二重に入っていないか確認する
+    const seen = new Set();
+    for (const m of list) {
+      const e = String(m.email || "").trim().toLowerCase();
+      if (!e) return res.status(400).json({ error: "メールアドレスが空のメンバーがいます" });
+      if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(e)) {
+        return res.status(400).json({ error: `メールアドレスの形式が正しくありません：${e}` });
+      }
+      if (seen.has(e)) return res.status(400).json({ error: `メールアドレスが重複しています：${e}` });
+      seen.add(e);
+    }
+    const saved = await saveMembers(list);
+    console.log(`[members] 更新 by ${req.user}（${saved.length}名）`);
+    const sync = await syncMembersToLegacy();
+    res.json({ ok: true, members: saved, sync });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.delete("/api/members/:email", async (req, res) => {
+  try {
+    await deleteMember(req.params.email);
+    res.json({ ok: true, members: await listMembers() });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// 並び順だけを保存する（アポ振り分けのドラッグ並べ替え用）
+app.put("/api/apo/closer-order", async (req, res) => {
+  try {
+    const emails = Array.isArray(req.body?.emails) ? req.body.emails : [];
+    await saveCloserOrder(emails);
     res.json({ ok: true, ...(await rotationStatus()) });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });

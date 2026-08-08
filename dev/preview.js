@@ -124,8 +124,20 @@ const ROTATION = {
   next: { email: "tanaka@neo-career.co.jp", name: "田中 遼", team: "中澤チーム", priority: true },
 };
 
+const MEMBERS = [
+  { email: "ueno@neo-career.co.jp",   name: "植野 大輔", businesses: ["DOC"],           team: "浦林チーム", roles: ["closer"],   active: true,  daily_cap: null, sort_order: 1 },
+  { email: "tanaka@neo-career.co.jp", name: "田中 遼",   businesses: ["DOC"],           team: "中澤チーム", roles: ["closer"],   active: true,  daily_cap: 3,    sort_order: 2 },
+  { email: "eda@neo-career.co.jp",    name: "江田 直人", businesses: ["DOC","MOCHICA"], team: "浦林チーム", roles: ["closer"],   active: true,  daily_cap: null, sort_order: 3 },
+  { email: "morita@neo-career.co.jp", name: "森田 彩",   businesses: ["MOCHICA"],       team: "中澤チーム", roles: ["closer"],   active: false, daily_cap: 2,    sort_order: 4 },
+  { email: "ura@neo-career.co.jp",    name: "浦林 鷹也", businesses: ["DOC"],           team: "浦林チーム", roles: ["fallback"], active: true,  daily_cap: null, sort_order: 5 },
+  { email: "naka@neo-career.co.jp",   name: "中澤 良太", businesses: ["DOC"],           team: "中澤チーム", roles: ["fallback"], active: true,  daily_cap: null, sort_order: 6 },
+  { email: "iijima@neo-career.co.jp", name: "飯島 稜",   businesses: ["DOC"],           team: "浦林チーム", roles: ["inside"],   active: true,  daily_cap: null, sort_order: 7 },
+  { email: "kato@neo-career.co.jp",   name: "加藤 宋宙", businesses: ["DOC"],           team: "中澤チーム", roles: ["inside"],   active: true,  daily_cap: null, sort_order: 8 },
+  { email: "hazama@neo-career.co.jp", name: "迫間 美羽", businesses: ["MOCHICA"],       team: "",           roles: ["inside"],   active: true,  daily_cap: null, sort_order: 9 },
+];
+
 // 表示を切り替えて確認したいとき用のスイッチ（?empty=1 などで呼べる）
-const MOCK = { REPS, APPOINTMENTS, CLOSERS, MAIL_CONFIG, ROTATION, TEAMS, TEAM_STATS };
+const MOCK = { REPS, APPOINTMENTS, CLOSERS, MAIL_CONFIG, ROTATION, TEAMS, TEAM_STATS, MEMBERS };
 
 // ===== ルーティング =====================================================
 const MIME = {
@@ -163,6 +175,14 @@ function apiResponse(pathname, query) {
       mail_config: MOCK.MAIL_CONFIG, rotation: MOCK.ROTATION,
     };
   }
+  if (pathname === "/api/members") {
+    return { members: MEMBERS,
+      candidates: [{ email: "new@neo-career.co.jp", name: "新入 太郎", src: "ユーザー" }],
+      teams: ["浦林チーム", "中澤チーム"], roles: ["closer", "inside", "fallback"],
+      businesses: ["DOC", "MOCHICA"],
+      labels: { closer: "クローザー", inside: "インサイド", fallback: "予備" } };
+  }
+  if (pathname === "/api/apo/closer-order") return { ok: true, ...MOCK.ROTATION };
   if (pathname === "/api/smart-links/reps") return MOCK.REPS;
   if (pathname === "/api/apo/rotation") return MOCK.ROTATION;
   if (pathname === "/api/apo/team-stats") {
@@ -239,7 +259,7 @@ server.listen(PORT, () => {
 
     アポ振り分け   http://localhost:${PORT}/apo.html
     ホーム         http://localhost:${PORT}/home.html
-    設定           http://localhost:${PORT}/settings.html
+    メンバー管理   http://localhost:${PORT}/settings.html
 
   表示パターンの切り替え（URLに付ける）
     ?many=30   アポを30件に増やして詰まり具合を見る

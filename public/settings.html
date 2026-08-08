@@ -16,7 +16,6 @@
         <a class="side-item" href="sf-launch.html"><span class="side-ico ico-deal"></span><span class="side-label">Salesforce</span></a>
         <a class="side-item" href="report.html"><span class="side-ico ico-ana"></span><span class="side-label">分析</span></a>
         <a class="side-item" href="report.html?panel=interns"><span class="side-ico ico-apo"></span><span class="side-label">インターンアポ</span></a>
-        <a class="side-item" href="apo.html"><span class="side-ico ico-assign"></span><span class="side-label">アポ振り分け</span></a>
         <a class="side-item" href="settings.html"><span class="side-ico ico-set"></span><span class="side-label">設定</span></a>
         <div class="side-foot"><span id="who" class="who"></span><a href="#" id="logout" class="side-logout">ログアウト</a></div>
       </nav>
@@ -37,8 +36,7 @@
             <button class="set-menu-item" data-tab="knowledge">自社ナレッジ</button>
             <button class="set-menu-item" data-tab="ai">プロンプト設定</button>
             <div class="set-group-label">管理</div>
-            <button class="set-menu-item" data-tab="teams">チーム編集</button>
-            <button class="set-menu-item" data-tab="interns">インターン登録</button>
+            <button class="set-menu-item" data-tab="members">メンバー管理</button>
           </nav>
           <div class="set-body">
 
@@ -640,30 +638,30 @@ curl -H "Authorization: Bearer <span class="cc-tok">&lt;トークン&gt;</span>"
             </div>
           </div>
 
-          <div class="set-pane" data-pane="teams" hidden>
+          <div class="set-pane" data-pane="members" hidden>
             <div class="set-card">
-              <h3>担当者 → チーム の割り当て</h3>
-              <p class="note">フェーズ分析の「チーム別」集計に使います。商談の<b>営業担当者名</b>とここの担当者名が一致した分がチームに集計されます。異動などで変わったらここで変更してください。</p>
-              <div class="teams-add">
-                <input id="tmRep" list="tmRepList" placeholder="担当者名（例：田中欽也）" />
-                <datalist id="tmRepList"></datalist>
-                <input id="tmTeam" list="tmTeamList" placeholder="チーム名（例：中澤チーム）" />
-                <datalist id="tmTeamList"></datalist>
-                <input id="tmGroup" placeholder="グループ（既定：直販）" />
-                <select id="tmProduct" title="所属プロダクト（実績の絞り込みに使われます）">
-                  <option value="">プロダクト: 未設定</option>
-                  <option value="DOC">DOC</option>
-                  <option value="MOCHICA">MOCHICA</option>
-                </select>
-                <button class="btn" id="tmAdd">追加・更新</button>
-                <span class="tm-status" id="tmStatus"></span>
+              <h3>メンバー管理</h3>
+              <p class="note">kinbotに関わる人をここで一括登録します。<b>この内容がアポ振り分けの割り振り設定、アポ獲得者のカレンダー照合、実績のチーム別集計にそのまま使われます。</b>ほかの画面で別に登録する必要はありません。</p>
+              <div class="mb-legend">
+                <span><b>クローザー</b>　商談を担当します。アポ振り分けのローテーションに入ります。</span>
+                <span><b>インサイド</b>　アポを獲得します。カレンダー照合の対象になります。</span>
+                <span><b>予備</b>　通常の順番には入らず、他の全員が埋まっているときだけ回ります。</span>
               </div>
-              <div id="tmUnmapped"></div>
-              <table class="tm-table" id="tmTable"></table>
+              <div id="mbList" class="mb-list"></div>
+              <div class="mb-add">
+                <input id="mbName" placeholder="名前（例：田中欽也）" />
+                <input id="mbEmail" type="email" placeholder="メールアドレス" list="mbCandList" />
+                <datalist id="mbCandList"></datalist>
+                <button class="btn ghost" id="mbAdd">メンバーを追加</button>
+              </div>
+              <div id="mbCandidates"></div>
+              <div class="modal-actions">
+                <button class="btn" id="mbSave">保存</button>
+                <span class="tm-status" id="mbStatus"></span>
+              </div>
+              <p class="note cc-warn">インサイドのカレンダー照合には、各メンバーのGoogleカレンダーが下の「カレンダー照合の代表者」に指定した人へ共有されている必要があります（共有設定で「予定の詳細をすべて表示」）。社内カレンダーが全社共有になっていれば、そのままで読めます。</p>
+              <p class="note">アポ数の集計は <a href="report.html?panel=interns">インターンアポ</a>、割り振りの設定は <a href="apo.html">アポ振り分け</a> から行えます。</p>
             </div>
-          </div>
-
-          <div class="set-pane" data-pane="interns" hidden>
             <div class="set-card">
               <h3>カレンダー照合の代表者</h3>
               <p class="note">インターン生のカレンダーを読むために使う<b>Google連携</b>を選びます。ここで指定した人の連携を経由して照合されるため、<b>他のメンバーはGoogle未連携でも「カレンダーと照合」を実行でき、全員がアポ状況を見られます</b>。候補には、Google連携済みの人だけが表示されます。</p>
@@ -683,19 +681,6 @@ curl -H "Authorization: Bearer <span class="cc-tok">&lt;トークン&gt;</span>"
                 <span class="tm-status" id="apoInviteStatus"></span>
               </div>
               <label class="note" style="display:block;margin-top:8px;"><input type="checkbox" id="apoAutoInvite" checked /> 担当を割り当てたときに自動で予定を作成する（オフにすると手動のみ）</label>
-            </div>
-            <div class="set-card">
-              <h3>インターン生（アポ獲得者）の登録</h3>
-              <p class="note">アポを獲得したインターン生の<b>名前</b>と<b>Googleカレンダーのメールアドレス</b>を登録します。ここに登録した人のカレンダーの予定名と、kinbotの商談名を突き合わせて、一致した商談に「アポ獲得者」としてその人の名前を記録します。</p>
-              <div class="teams-add">
-                <input id="inName" placeholder="名前（例：山田太郎）" />
-                <input id="inEmail" type="email" placeholder="メールアドレス（例：t.yamada@neo-career.co.jp）" />
-                <button class="btn" id="inAdd">追加・更新</button>
-                <span class="tm-status" id="inStatus"></span>
-              </div>
-              <table class="tm-table" id="inTable"></table>
-              <p class="note cc-warn">⚠️ 照合には、各インターン生のGoogleカレンダーが<b>あなた（連携済みアカウント）に共有</b>されている必要があります（共有設定で「予定の詳細をすべて表示」）。社内カレンダーが全社共有になっていれば、そのままでも読めます。</p>
-              <p class="note">📊 アポ数の照合と集計（ダッシュボード）は <a href="report.html">実績 → インターンアポ</a> から行えます。</p>
             </div>
           </div>
 

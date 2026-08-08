@@ -29,7 +29,7 @@ async function sq(sql, params) {
 // 期待するテーブル・カラムが実際にできているかを確認する
 const EXPECTED_TABLES = [
   "meetings", "deals", "deal_events", "smart_links", "interns", "users", "settings",
-  "apo_mail_log", "gmail_actions", "closer_rotation", "assign_log", "team_rotation", "proposal_files",
+  "apo_mail_log", "gmail_actions", "closer_rotation", "assign_log", "team_rotation", "members", "proposal_files",
 ];
 const EXPECTED_COLUMNS = [
   ["smart_links", "client_email"], ["smart_links", "client_name"],
@@ -623,6 +623,27 @@ export async function initDb() {
   // チームごとの「次に回ってくる人」。全体で1つのポインタだとチーム内が偏るため、チーム別に持つ。
   await sq(`ALTER TABLE team_rotation ADD COLUMN IF NOT EXISTS next_email TEXT;`);
   await sq(`CREATE INDEX IF NOT EXISTS ix_team_rotation_order ON team_rotation(sort_order);`);
+
+  // ===== メンバー管理（登録元をここ1つにまとめる） =====
+  // 事業（DOC / MOCHICA）・チーム・役割（クローザー／インサイド／予備）をここで持ち、
+  // closer_rotation・interns・rep_team_mapping へ同期する。
+  // 既存機能はこれまでのテーブルを見続けるので、動きは変わらない。
+  await sq(`
+    CREATE TABLE IF NOT EXISTS members (
+      email       TEXT PRIMARY KEY,
+      name        TEXT NOT NULL,
+      businesses  JSONB NOT NULL DEFAULT '[]'::jsonb,
+      team        TEXT,
+      roles       JSONB NOT NULL DEFAULT '[]'::jsonb,
+      active      BOOLEAN NOT NULL DEFAULT true,
+      daily_cap   INT,
+      sort_order  INT NOT NULL DEFAULT 1,
+      note        TEXT,
+      created_at  TIMESTAMPTZ DEFAULT now(),
+      updated_at  TIMESTAMPTZ DEFAULT now()
+    );
+  `);
+  await sq(`CREATE INDEX IF NOT EXISTS ix_members_order ON members(sort_order);`);
 
   // 提案資料テーブル
   await sq(`
@@ -2420,6 +2441,18 @@ export async function saveClosers(list) {
 }
 
 // 割り当て確定：件数を進め、最優先フラグを外す
+// 並び順だけを更新する（メンバーの増減はメンバー管理で行うため、ここでは触らない）
+export async function saveCloserOrder(emails) {
+  if (!pool || !Array.isArray(emails)) return listClosers();
+  try {
+    for (let i = 0; i < emails.length; i++) {
+      await pool.query(`UPDATE closer_rotation SET sort_order=$2, updated_at=now() WHERE email=$1`,
+        [String(emails[i]).toLowerCase(), i + 1]);
+    }
+  } catch (e) { console.error("[db] saveCloserOrder", e.message); }
+  return listClosers();
+}
+
 export async function markCloserAssigned(email) {
   if (!pool || !email) return;
   try {
@@ -2488,6 +2521,147 @@ export async function listAssignLog(limit = 50) {
 export async function markAutoAssigned(slug) {
   if (!pool || !slug) return;
   try { await pool.query(`UPDATE smart_links SET auto_assigned_at = now() WHERE slug=$1`, [slug]); } catch {}
+}
+
+// ===== メンバー管理 =====
+// 役割: closer（クローザー）／inside（インサイド＝アポ獲得）／fallback（予備）
+export const MEMBER_ROLES = ["closer", "inside", "fallback"];
+export const MEMBER_BUSINESSES = ["DOC", "MOCHICA"];
+
+function normRoles(v) {
+  const a = Array.isArray(v) ? v : [];
+  return MEMBER_ROLES.filter((r) => a.includes(r));
+}
+function normBusinesses(v) {
+  const a = Array.isArray(v) ? v : [];
+  return MEMBER_BUSINESSES.filter((b) => a.includes(b));
+}
+
+export async function listMembers() {
+  if (!pool) return [];
+  try {
+    const { rows } = await pool.query(`SELECT * FROM members ORDER BY sort_order, name`);
+    return rows.map((r) => ({
+      ...r,
+      businesses: Array.isArray(r.businesses) ? r.businesses : [],
+      roles: Array.isArray(r.roles) ? r.roles : [],
+    }));
+  } catch { return []; }
+}
+
+// 画面から一覧まるごと保存する。渡されなかったメンバーは削除。
+export async function saveMembers(list) {
+  if (!pool || !Array.isArray(list)) return listMembers();
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    const emails = list.map((m) => String(m.email || "").trim().toLowerCase()).filter(Boolean);
+    if (emails.length) await client.query(`DELETE FROM members WHERE email <> ALL($1::text[])`, [emails]);
+    else await client.query(`DELETE FROM members`);
+    for (let i = 0; i < list.length; i++) {
+      const m = list[i];
+      const email = String(m.email || "").trim().toLowerCase();
+      if (!email) continue;
+      const cap = Number.isFinite(+m.daily_cap) && +m.daily_cap > 0 ? +m.daily_cap : null;
+      await client.query(
+        `INSERT INTO members (email, name, businesses, team, roles, active, daily_cap, sort_order, note)
+         VALUES ($1,$2,$3::jsonb,$4,$5::jsonb,$6,$7,$8,$9)
+         ON CONFLICT (email) DO UPDATE
+           SET name=$2, businesses=$3::jsonb, team=$4, roles=$5::jsonb,
+               active=$6, daily_cap=$7, sort_order=$8, note=$9, updated_at=now()`,
+        [email, String(m.name || "").trim() || email,
+         JSON.stringify(normBusinesses(m.businesses)), String(m.team || "").trim() || null,
+         JSON.stringify(normRoles(m.roles)), m.active !== false, cap, i + 1,
+         String(m.note || "").slice(0, 300) || null]
+      );
+    }
+    await client.query("COMMIT");
+  } catch (e) {
+    await client.query("ROLLBACK");
+    console.error("[db] saveMembers", e.message);
+  } finally { client.release(); }
+  await syncMembersToLegacy();
+  return listMembers();
+}
+
+export async function deleteMember(email) {
+  if (!pool || !email) return;
+  try { await pool.query(`DELETE FROM members WHERE email=$1`, [String(email).toLowerCase()]); } catch {}
+  await syncMembersToLegacy();
+}
+
+// メンバー管理の内容を、既存の3テーブルへ反映する。
+//  closer_rotation … クローザー／予備の人（ローテーションの状態は保ったまま）
+//  interns         … インサイドの人（アポ獲得者マスタ）
+//  rep_team_mapping… 担当者名→チーム（実績のチーム別集計用）
+export async function syncMembersToLegacy() {
+  if (!pool) return { closers: 0, interns: 0, teams: 0 };
+  const out = { closers: 0, interns: 0, teams: 0 };
+  try {
+    const members = await listMembers();
+
+    // --- クローザー（closer / fallback） ---
+    const closers = members.filter((m) => m.roles.includes("closer") || m.roles.includes("fallback"));
+    for (let i = 0; i < closers.length; i++) {
+      const m = closers[i];
+      await pool.query(
+        `INSERT INTO closer_rotation (email, name, sort_order, active, daily_cap, team, fallback)
+         VALUES ($1,$2,$3,$4,$5,$6,$7)
+         ON CONFLICT (email) DO UPDATE
+           SET name=$2, active=$4, daily_cap=$5, team=$6, fallback=$7, updated_at=now()`,
+        [m.email, m.name, i + 1, m.active !== false, m.daily_cap,
+         m.team || null, m.roles.includes("fallback")]
+      );
+    }
+    const cEmails = closers.map((m) => m.email);
+    if (cEmails.length) await pool.query(`DELETE FROM closer_rotation WHERE email <> ALL($1::text[])`, [cEmails]);
+    else await pool.query(`DELETE FROM closer_rotation`);
+    out.closers = closers.length;
+
+    // --- インサイド（アポ獲得者） ---
+    const insides = members.filter((m) => m.roles.includes("inside"));
+    for (const m of insides) {
+      await pool.query(
+        `INSERT INTO interns (email, name) VALUES ($1,$2)
+         ON CONFLICT (email) DO UPDATE SET name=$2`, [m.email, m.name]);
+    }
+    const iEmails = insides.map((m) => m.email);
+    if (iEmails.length) await pool.query(`DELETE FROM interns WHERE email <> ALL($1::text[])`, [iEmails]);
+    else await pool.query(`DELETE FROM interns`);
+    out.interns = insides.length;
+
+    // --- 担当者名→チーム（実績のチーム別集計） ---
+    for (const m of members) {
+      if (!m.team) continue;
+      await pool.query(
+        `INSERT INTO rep_team_mapping (rep_name, team_name, group_name, product)
+         VALUES ($1,$2,'直販',$3)
+         ON CONFLICT (rep_name) DO UPDATE SET team_name=$2, product=$3`,
+        [m.name, m.team, m.businesses[0] || null]);
+      out.teams++;
+    }
+    // チームが変わったので team_rotation も作り直す
+    await syncTeamsFromClosers();
+    console.log(`[members] 同期しました（クローザー${out.closers}名・インサイド${out.interns}名・チーム設定${out.teams}件）`);
+  } catch (e) {
+    console.error("[db] syncMembersToLegacy", e.message);
+  }
+  return out;
+}
+
+// メンバー未登録だが、システム内に名前が出ている人を拾う（登録漏れの案内用）
+export async function memberCandidates() {
+  if (!pool) return [];
+  try {
+    const { rows } = await pool.query(`
+      SELECT u.email, COALESCE(u.name, u.email) AS name, 'ユーザー' AS src FROM users u
+       WHERE NOT EXISTS (SELECT 1 FROM members m WHERE m.email = u.email)
+      UNION
+      SELECT i.email, i.name, 'インターン登録' AS src FROM interns i
+       WHERE NOT EXISTS (SELECT 1 FROM members m WHERE m.email = i.email)
+      ORDER BY name`);
+    return rows;
+  } catch { return []; }
 }
 
 // ===== チーム単位のローテーション =====

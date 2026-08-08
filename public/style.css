@@ -721,6 +721,33 @@ table.bant td:first-child { color: var(--muted); width: 80px; }
 .gm-thread.gm-done { opacity: 0.55; }
 .gm-done-msg { font-size: 12px; color: #1f7a4d; font-weight: 700; }
 
+/* メンバー管理 */
+.mb-legend { display: flex; flex-direction: column; gap: 4px; margin: 12px 0 16px; padding: 12px 14px;
+  background: var(--panel-2); border-radius: 10px; font-size: 12px; color: var(--muted); line-height: 1.7; }
+.mb-legend b { color: #0F6E56; }
+.mb-list { display: flex; flex-direction: column; gap: 10px; margin-bottom: 14px; }
+.mb-row { border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; background: var(--panel); cursor: grab; }
+.mb-row.mb-drag { opacity: .45; }
+.mb-row.mb-off { opacity: .55; background: var(--panel-2); }
+.mb-main { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 9px; }
+.mb-main input { padding: 7px 10px; border: 1px solid var(--line); border-radius: 8px; font-size: 13px; font-family: inherit; }
+.mb-name { width: 150px; } .mb-email { flex: 1 1 240px; min-width: 190px; } .mb-team { width: 140px; }
+.mb-tags { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; font-size: 12px; }
+.mb-tag-label { color: var(--muted); font-weight: 700; font-size: 11px; }
+.mb-chk { display: inline-flex; align-items: center; gap: 5px; cursor: pointer; white-space: nowrap; }
+.mb-chk-closer { color: #0F6E56; font-weight: 700; }
+.mb-chk-inside { color: #8A6A1F; font-weight: 700; }
+.mb-chk-fallback { color: #3A5C9A; font-weight: 700; }
+.mb-cap { width: 54px; padding: 3px 6px; border: 1px solid var(--line); border-radius: 6px; font-size: 12px; }
+.mb-del { margin-left: auto; }
+.mb-add { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 10px; }
+.mb-add input { padding: 8px 11px; border: 1px solid var(--line); border-radius: 9px; font-size: 13px; font-family: inherit; }
+.mb-sum { margin-top: 4px; }
+@media (max-width: 720px) {
+  .mb-name, .mb-team, .mb-email { width: 100%; flex: 1 1 100%; }
+  .mb-del { margin-left: 0; }
+}
+
 /* アポ振り分け：タブ */
 .ap-tabs { display: flex; gap: 6px; margin: 0 0 18px; border-bottom: 1px solid var(--line); overflow-x: auto; -webkit-overflow-scrolling: touch; }
 .ap-tab { flex: none; appearance: none; background: transparent; border: none; border-bottom: 2px solid transparent; padding: 11px 18px; font-size: 13.5px; font-weight: 700; color: var(--muted); cursor: pointer; white-space: nowrap; border-radius: 10px 10px 0 0; transition: color .15s ease, background .15s ease; font-family: inherit; }
@@ -786,6 +813,7 @@ table.bant td:first-child { color: var(--muted); width: 80px; }
 .ap-rot-num { display: inline-flex; align-items: center; justify-content: center; width: 22px; height: 22px; border-radius: 999px; background: #1d9e75; color: #fff; font-size: 11px; font-weight: 700; flex: none; }
 .ap-rot-name { font-weight: 700; min-width: 90px; display: inline-flex; align-items: center; gap: 6px; }
 .ap-rot-cap input { width: 54px; padding: 4px 6px; border: 1px solid var(--line); border-radius: 7px; font-size: 12px; }
+.ap-rot-meta { font-size: 11.5px; color: var(--muted); padding: 3px 9px; border-radius: 999px; background: var(--panel); border: 1px solid var(--line); }
 .ap-rot-cnt { color: var(--muted); font-size: 11.5px; }
 .ap-rot-log { margin-top: 14px; padding: 12px; background: var(--panel-2); border: 1px solid var(--line); border-radius: 10px; font-size: 11.5px; line-height: 1.7; white-space: pre-wrap; word-break: break-all; max-height: 320px; overflow: auto; }
 @media (max-width: 720px) {

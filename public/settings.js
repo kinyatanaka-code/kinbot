@@ -468,14 +468,22 @@ loadThanks();
 (function () {
   const menu = document.getElementById("setMenu");
   if (!menu) return;
+  // 他の画面から settings.html#members のように来たとき、そのタブを開く
+  const openFromHash = () => {
+    const want = (location.hash || "").replace("#", "");
+    if (!want) return;
+    const item = menu.querySelector(`.set-menu-item[data-tab="${want}"]`);
+    if (item) item.click();
+  };
+  window.addEventListener("hashchange", openFromHash);
+  setTimeout(openFromHash, 0);
   menu.querySelectorAll(".set-menu-item").forEach((item) => {
     item.addEventListener("click", () => {
       menu.querySelectorAll(".set-menu-item").forEach((t) => t.classList.toggle("active", t === item));
       const name = item.dataset.tab;
       document.querySelectorAll(".set-pane").forEach((p) => (p.hidden = p.dataset.pane !== name));
-      if (name === "teams") loadTeams();
+      if (name === "members") { loadMembers(); loadApoOwner(); loadApoInvite(); }
       if (name === "knowledge") loadKnowledge();
-      if (name === "interns") { loadInterns(); loadApoOwner(); loadApoInvite(); }
       if (name === "ai") loadThanksPrompt();
       if (name === "integrations") showIntegGrid();
       if (name === "smartlinks") initSmartLinks();
@@ -748,6 +756,189 @@ async function loadRecallStatus() {
 (function () {
   const btn = document.getElementById("recallStatusReload");
   if (btn && !btn._wired) { btn._wired = true; btn.addEventListener("click", loadRecallStatus); }
+})();
+
+// ===== メンバー管理 =====
+// ここが唯一の登録元。保存すると closer_rotation / interns / rep_team_mapping へ同期される。
+const ROLE_LABEL = { closer: "クローザー", inside: "インサイド", fallback: "予備" };
+const BIZ = ["DOC", "MOCHICA"];
+let mbState = { members: [], candidates: [], teams: [] };
+
+function mbSay(msg, ms) {
+  const el = document.getElementById("mbStatus");
+  if (!el) return;
+  el.textContent = msg;
+  if (ms) setTimeout(() => { if (el.textContent === msg) el.textContent = ""; }, ms);
+}
+
+async function loadMembers() {
+  const box = document.getElementById("mbList");
+  if (!box) return;
+  box.innerHTML = '<p class="note">読み込み中…</p>';
+  try {
+    const d = await (await fetch("/api/members")).json();
+    mbState.members = (d.members || []).map((m) => ({
+      ...m,
+      businesses: Array.isArray(m.businesses) ? m.businesses : [],
+      roles: Array.isArray(m.roles) ? m.roles : [],
+    }));
+    mbState.candidates = d.candidates || [];
+    mbState.teams = d.teams || [];
+    mbRender();
+  } catch (e) {
+    box.innerHTML = `<p class="note cc-warn">読み込めませんでした：${mbEsc(e.message)}</p>`;
+  }
+}
+
+function mbEsc(v) {
+  return String(v == null ? "" : v).replace(/[&<>"']/g, (c) =>
+    ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+}
+
+function mbRender() {
+  const box = document.getElementById("mbList");
+  if (!box) return;
+
+  // チーム名の候補
+  let dl = document.getElementById("mbTeamList");
+  if (!dl) { dl = document.createElement("datalist"); dl.id = "mbTeamList"; document.body.appendChild(dl); }
+  const teamNames = [...new Set(mbState.members.map((m) => (m.team || "").trim()).filter(Boolean))];
+  dl.innerHTML = teamNames.map((t) => `<option value="${mbEsc(t)}"></option>`).join("");
+
+  // 未登録の候補をメールの入力補完に出す
+  const cl = document.getElementById("mbCandList");
+  if (cl) cl.innerHTML = mbState.candidates.map((c) => `<option value="${mbEsc(c.email)}">${mbEsc(c.name)}</option>`).join("");
+
+  if (!mbState.members.length) {
+    box.innerHTML = '<p class="note">まだ誰も登録されていません。下の欄から追加してください。</p>';
+  } else {
+    box.innerHTML = "";
+    mbState.members.forEach((m, i) => {
+      const row = document.createElement("div");
+      row.className = "mb-row" + (m.active === false ? " mb-off" : "");
+      row.draggable = true;
+      row.innerHTML =
+        `<div class="mb-main">
+           <input class="mb-name" value="${mbEsc(m.name)}" placeholder="名前" />
+           <input class="mb-email" value="${mbEsc(m.email)}" placeholder="メールアドレス" />
+           <input class="mb-team" list="mbTeamList" value="${mbEsc(m.team || "")}" placeholder="チーム" />
+         </div>
+         <div class="mb-tags">
+           <span class="mb-tag-label">事業</span>
+           ${BIZ.map((b) => `<label class="mb-chk"><input type="checkbox" class="mb-biz" data-v="${b}" ${m.businesses.includes(b) ? "checked" : ""} /> ${b}</label>`).join("")}
+           <span class="mb-tag-label">役割</span>
+           ${Object.keys(ROLE_LABEL).map((r) => `<label class="mb-chk mb-chk-${r}"><input type="checkbox" class="mb-role" data-v="${r}" ${m.roles.includes(r) ? "checked" : ""} /> ${ROLE_LABEL[r]}</label>`).join("")}
+           <label class="mb-chk">1日上限 <input type="number" class="mb-cap" min="1" max="20" placeholder="なし" value="${m.daily_cap || ""}" /> 件</label>
+           <label class="mb-chk"><input type="checkbox" class="mb-active" ${m.active === false ? "" : "checked"} /> 在籍中</label>
+           <button type="button" class="btn ghost mb-del">外す</button>
+         </div>`;
+
+      const q = (sel) => row.querySelector(sel);
+      q(".mb-name").addEventListener("input", (e) => { m.name = e.target.value; });
+      q(".mb-email").addEventListener("input", (e) => { m.email = e.target.value.trim().toLowerCase(); });
+      q(".mb-team").addEventListener("input", (e) => { m.team = e.target.value.trim(); });
+      q(".mb-cap").addEventListener("change", (e) => {
+        const v = parseInt(e.target.value, 10);
+        m.daily_cap = Number.isFinite(v) && v > 0 ? v : null;
+      });
+      q(".mb-active").addEventListener("change", (e) => { m.active = e.target.checked; mbRender(); });
+      row.querySelectorAll(".mb-biz").forEach((c) => c.addEventListener("change", (e) => {
+        const v = e.target.dataset.v;
+        m.businesses = e.target.checked ? [...new Set([...m.businesses, v])] : m.businesses.filter((x) => x !== v);
+      }));
+      row.querySelectorAll(".mb-role").forEach((c) => c.addEventListener("change", (e) => {
+        const v = e.target.dataset.v;
+        m.roles = e.target.checked ? [...new Set([...m.roles, v])] : m.roles.filter((x) => x !== v);
+        mbRender();
+      }));
+      q(".mb-del").addEventListener("click", () => {
+        if (!confirm(`${m.name || m.email} をメンバーから外します。よろしいですか？（保存を押すまで反映されません）`)) return;
+        mbState.members.splice(i, 1); mbRender();
+      });
+
+      row.addEventListener("dragstart", (e) => { e.dataTransfer.setData("text/plain", String(i)); row.classList.add("mb-drag"); });
+      row.addEventListener("dragend", () => row.classList.remove("mb-drag"));
+      row.addEventListener("dragover", (e) => e.preventDefault());
+      row.addEventListener("drop", (e) => {
+        e.preventDefault();
+        const from = parseInt(e.dataTransfer.getData("text/plain"), 10);
+        if (!Number.isFinite(from) || from === i) return;
+        const moved = mbState.members.splice(from, 1)[0];
+        mbState.members.splice(i, 0, moved);
+        mbRender();
+      });
+      box.appendChild(row);
+    });
+  }
+
+  // 内訳のまとめ
+  const count = (r) => mbState.members.filter((m) => m.active !== false && m.roles.includes(r)).length;
+  const sum = document.createElement("p");
+  sum.className = "note mb-sum";
+  sum.innerHTML = `在籍 <b>${mbState.members.filter((m) => m.active !== false).length}</b>名` +
+    `／クローザー <b>${count("closer")}</b>名・インサイド <b>${count("inside")}</b>名・予備 <b>${count("fallback")}</b>名` +
+    `／チーム <b>${teamNames.length}</b>`;
+  box.appendChild(sum);
+
+  // 未登録の候補
+  const cand = document.getElementById("mbCandidates");
+  if (cand) {
+    const rest = mbState.candidates.filter((c) => !mbState.members.some((m) => m.email === c.email));
+    cand.innerHTML = rest.length
+      ? `<p class="note">未登録の人がいます：${rest.map((c) =>
+          `<button type="button" class="btn ghost mb-quick" data-e="${mbEsc(c.email)}" data-n="${mbEsc(c.name)}">${mbEsc(c.name)} を追加</button>`).join(" ")}</p>`
+      : "";
+    cand.querySelectorAll(".mb-quick").forEach((b) => b.addEventListener("click", () => {
+      mbAddMember(b.dataset.n, b.dataset.e);
+    }));
+  }
+}
+
+function mbAddMember(name, email) {
+  const e = String(email || "").trim().toLowerCase();
+  if (!e) { mbSay("メールアドレスを入力してください", 3000); return; }
+  if (mbState.members.some((m) => m.email === e)) { mbSay("すでに登録されています", 3000); return; }
+  mbState.members.push({
+    email: e, name: String(name || "").trim() || e,
+    businesses: [], team: "", roles: [], active: true, daily_cap: null,
+  });
+  mbRender();
+  mbSay("追加しました。役割を選んで［保存］を押してください", 5000);
+}
+
+(function () {
+  const add = document.getElementById("mbAdd");
+  if (add) add.addEventListener("click", () => {
+    const n = document.getElementById("mbName");
+    const e = document.getElementById("mbEmail");
+    mbAddMember(n.value, e.value);
+    n.value = ""; e.value = "";
+  });
+  const save = document.getElementById("mbSave");
+  if (save) save.addEventListener("click", async () => {
+    // 入力漏れを先に知らせる
+    const bad = mbState.members.find((m) => !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(m.email || ""));
+    if (bad) { mbSay(`メールアドレスを確認してください：${bad.name || "(名前なし)"}`); return; }
+    const noRole = mbState.members.filter((m) => m.active !== false && !m.roles.length);
+    if (noRole.length && !confirm(
+      `役割が未設定の人がいます（${noRole.map((m) => m.name).join("、")}）。\nこのままでは割り振りにも照合にも使われません。保存しますか？`)) return;
+
+    save.disabled = true;
+    mbSay("保存中…");
+    try {
+      const r = await fetch("/api/members", {
+        method: "PUT", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ members: mbState.members }),
+      });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.error || "保存に失敗しました");
+      const sy = d.sync || {};
+      mbSay(`保存しました（クローザー${sy.closers ?? 0}名・インサイド${sy.interns ?? 0}名に反映）`, 6000);
+      await loadMembers();
+    } catch (e) {
+      mbSay("保存に失敗しました: " + e.message);
+    } finally { save.disabled = false; }
+  });
 })();
 
 // ===== 担当者→チーム マッピング編集 =====

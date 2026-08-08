@@ -405,34 +405,18 @@ function rcRender() {
     row.className = "ap-rot-row" + (c.active === false ? " ap-rot-off" : "");
     row.draggable = true;
     row.dataset.i = i;
+    // 表示は読み取り専用。メンバーの内容はメンバー管理が唯一の登録元。
     row.innerHTML =
       `<span class="ap-rot-num${c.fallback ? " ap-rot-num-fb" : ""}">${c.fallback ? "予" : rcOrderNo(i)}</span>` +
       `<span class="ap-rot-name">${esc(c.name || c.email)}` +
         `${c.fallback ? '<span class="ap-badge ap-badge-fb">予備</span>' : ""}` +
+        `${c.active === false ? '<span class="ap-badge ap-pending">在籍なし</span>' : ""}` +
         `${c.priority && !c.fallback ? '<span class="ap-badge ap-warn">次を最優先</span>' : ""}</span>` +
-      `<label class="ap-check"><input type="checkbox" class="rc-active" ${c.active === false ? "" : "checked"} /> 稼働中</label>` +
-      `<label class="ap-check ap-check-fb" title="通常の順番には入らず、他の全員が埋まっているときだけ回ります"><input type="checkbox" class="rc-fb" ${c.fallback ? "checked" : ""} /> 予備</label>` +
-      `<label class="ap-rot-team">チーム <input type="text" class="rc-team" list="rcTeamOptions" placeholder="未設定" value="${esc(c.team || "")}" /></label>` +
-      `<label class="ap-rot-cap">上限 <input type="number" class="rc-cap" min="1" max="20" placeholder="なし" value="${c.daily_cap || ""}" /> 件/日</label>` +
-      `<span class="ap-rot-cnt">累計${c.assigned_count || 0}件</span>` +
-      (c.fallback ? "" : `<button type="button" class="btn ghost rc-first">ここから開始</button>`) +
-      `<button type="button" class="btn ghost rc-del">外す</button>`;
+      `<span class="ap-rot-meta">${esc(c.team || "チーム未設定")}</span>` +
+      `<span class="ap-rot-meta">${c.daily_cap ? "1日" + c.daily_cap + "件まで" : "上限なし"}</span>` +
+      `<span class="ap-rot-cnt">当月${c.period_count || 0}件／累計${c.assigned_count || 0}件</span>` +
+      (c.fallback || c.active === false ? "" : `<button type="button" class="btn ghost rc-first">ここから開始</button>`);
 
-    row.querySelector(".rc-active").addEventListener("change", (e) => { c.active = e.target.checked; rcRender(); });
-    row.querySelector(".rc-fb").addEventListener("change", (e) => {
-      c.fallback = e.target.checked; rcRender(); rcTeamsRender();
-    });
-    row.querySelector(".rc-team").addEventListener("change", (e) => {
-      c.team = e.target.value.trim();
-      rcTeamsRender();
-    });
-    row.querySelector(".rc-cap").addEventListener("change", (e) => {
-      const v = parseInt(e.target.value, 10);
-      c.daily_cap = Number.isFinite(v) && v > 0 ? v : null;
-    });
-    row.querySelector(".rc-del").addEventListener("click", () => {
-      rotState.closers.splice(i, 1); rcRender(); rcFillAdd();
-    });
     const firstBtn = row.querySelector(".rc-first");
     if (firstBtn) firstBtn.addEventListener("click", async () => {
       if (!confirm(`次のアポを ${c.name || c.email} さんから始めます。よろしいですか？`)) return;
@@ -466,7 +450,8 @@ function rcRender() {
     box.appendChild(row);
   });
   if (!rotState.closers.length) {
-    box.innerHTML = `<p class="note">クローザーが未登録です。下のプルダウンから追加してください。</p>`;
+    box.innerHTML = `<p class="note cc-warn">クローザーが登録されていません。` +
+      `<a href="settings.html#members">設定 → メンバー管理</a>で「クローザー」の役割を付けてください。</p>`;
   }
 }
 
@@ -538,24 +523,16 @@ function rcNextLabel() {
   // サーバーに保存されていないが、画面上に候補が並んでいる状態
   const pending = rotState.closers.filter((c) => c.active !== false);
   if (pending.length) {
-    el.innerHTML = `まだ保存されていません。［保存］を押すと <b>${esc(pending[0].name || pending[0].email)}</b> さんから割り振りが始まります。`;
+    el.innerHTML = `［保存］を押すと <b>${esc(pending[0].name || pending[0].email)}</b> さんから割り振りが始まります。`;
     el.classList.add("ap-rot-next-warn");
     return;
   }
-  el.innerHTML = "クローザーが登録されていません。下のプルダウンから追加して［保存］を押してください。";
+  el.innerHTML = 'クローザーが登録されていません。<a href="settings.html#members">設定 → メンバー管理</a>で役割を付けてください。';
   el.classList.add("ap-rot-next-warn");
 }
 
-// 未登録のメンバーだけを追加プルダウンに出す
-function rcFillAdd() {
-  const sel = $("rcAddSel");
-  if (!sel) return;
-  const have = new Set(rotState.closers.map((c) => c.email));
-  sel.innerHTML = "";
-  const rest = apState.reps.filter((r) => !have.has(r.email));
-  if (!rest.length) { sel.innerHTML = `<option value="">追加できる人がいません</option>`; return; }
-  for (const r of rest) sel.add(new Option(r.name || r.email, r.email));
-}
+// メンバーの追加はメンバー管理で行うため、この画面には無い
+function rcFillAdd() {}
 
 async function loadRotation() {
   try {
@@ -588,12 +565,13 @@ async function saveRotation() {
   if (btn) btn.disabled = true;
   rcSay("保存中…");
   try {
-    let r = await fetch("/api/apo/closers", {
+    // 並び順だけを保存する（メンバーの内容はメンバー管理側で保存される）
+    let r = await fetch("/api/apo/closer-order", {
       method: "PUT", headers: { "content-type": "application/json" },
-      body: JSON.stringify({ closers: rotState.closers }),
+      body: JSON.stringify({ emails: rotState.closers.map((c) => c.email) }),
     });
     let d = await r.json();
-    if (!r.ok) throw new Error(d.error || "保存に失敗しました");
+    if (!r.ok) throw new Error(d.error || "並び順の保存に失敗しました");
 
     // チームの並び順・稼働状態
     if (rotState.teamRows && rotState.teamRows.length) {
@@ -717,15 +695,6 @@ async function saveMailCfg() {
   if ($("tsWindow")) $("tsWindow").addEventListener("change", loadTeamStats);
   if ($("rcTeamBalance")) $("rcTeamBalance").addEventListener("change", () => { rcTeamsRender(); rcNextLabel(); });
   if ($("rcSave")) $("rcSave").addEventListener("click", saveRotation);
-  if ($("rcAdd")) $("rcAdd").addEventListener("click", () => {
-    const sel = $("rcAddSel");
-    const email = sel && sel.value;
-    if (!email) return;
-    const rep = apState.reps.find((r) => r.email === email);
-    rotState.closers.push({ email, name: (rep && rep.name) || email, active: true, priority: false, daily_cap: null, assigned_count: 0 });
-    rcRender(); rcFillAdd();
-    rcSay("追加しました。保存を押してください", 4000);
-  });
   if ($("rcScanNow")) $("rcScanNow").addEventListener("click", async () => {
     if (!confirm("カレンダーを今すぐスキャンして、未割り当てのアポを自動で割り振ります。よろしいですか？")) return;
     rcSay("スキャン中…");
