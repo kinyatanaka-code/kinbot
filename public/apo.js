@@ -250,6 +250,45 @@ async function loadApo() {
     body.innerHTML = `<div class="empty-state">${esc(e.message)}</div>`;
   }
 }
+// ===== データベースの状態確認 =====
+function dbRender(d) {
+  const box = $("dbCheckBox");
+  if (!box) return;
+  box.hidden = false;
+  if (d.error) { box.textContent = "確認できませんでした: " + d.error; return; }
+  if (!d.connected) { box.textContent = "データベースに接続されていません（DATABASE_URL 未設定）。"; return; }
+  const lines = [];
+  if (d.ok) {
+    lines.push("問題ありません。必要なテーブル・カラムはすべて揃っています。");
+  } else {
+    if ((d.missingTables || []).length) lines.push("■ 作られていないテーブル\n  " + d.missingTables.join("\n  "));
+    if ((d.missingColumns || []).length) lines.push("■ 作られていないカラム\n  " + d.missingColumns.join("\n  "));
+    if ((d.failures || []).length) {
+      lines.push("■ 作成に失敗したSQL（これが原因です）");
+      for (const f of d.failures) lines.push(`  ${f.sql}\n    理由: ${f.error}`);
+    }
+    if (!lines.length) lines.push("不足は検出されませんでした。");
+  }
+  box.textContent = lines.join("\n\n");
+}
+
+async function dbCheck(repair) {
+  const btn = repair ? $("dbRepairBtn") : $("dbCheckBtn");
+  const say = (m) => { const e = $("dbCheckStatus"); if (e) e.textContent = m; };
+  if (repair && !confirm("不足しているテーブルとカラムを作り直します。既存のデータは消えません。よろしいですか？")) return;
+  if (btn) btn.disabled = true;
+  say(repair ? "作り直しています…" : "確認中…");
+  try {
+    const r = await fetch("/api/db/schema-" + (repair ? "repair" : "check"), { method: repair ? "POST" : "GET" });
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.error || "確認に失敗しました");
+    dbRender(d);
+    say(d.ok ? "問題ありません" : "不足があります（下を確認してください）");
+  } catch (e) {
+    say("失敗: " + e.message);
+  } finally { if (btn) btn.disabled = false; }
+}
+
 // ===== クローザーのローテーション設定パネル =====
 let rotState = { closers: [], next: null };
 
@@ -467,6 +506,8 @@ async function saveMailCfg() {
       loadApo();
     } catch (e) { mcSay("失敗: " + e.message); }
   });
+  if ($("dbCheckBtn")) $("dbCheckBtn").addEventListener("click", () => dbCheck(false));
+  if ($("dbRepairBtn")) $("dbRepairBtn").addEventListener("click", () => dbCheck(true));
   if ($("rcSave")) $("rcSave").addEventListener("click", saveRotation);
   if ($("rcAdd")) $("rcAdd").addEventListener("click", () => {
     const sel = $("rcAddSel");

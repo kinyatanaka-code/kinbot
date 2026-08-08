@@ -8,6 +8,56 @@ let pool = null;
 
 export const dbEnabled = () => !!pool;
 
+// スキーマ作成を1文ずつ独立して実行する。
+// 1つ失敗しても残りを作り続け、失敗したものは名前つきで記録する。
+// （以前は途中で1つ失敗すると、それ以降のテーブルが一切作られなかった）
+const schemaFailures = [];
+export function getSchemaFailures() { return schemaFailures.slice(); }
+
+async function sq(sql, params) {
+  const label = String(sql).replace(/\s+/g, " ").trim().slice(0, 90);
+  try {
+    await pool.query(sql, params);
+    return true;
+  } catch (e) {
+    schemaFailures.push({ sql: label, error: e.message });
+    console.error(`[db] スキーマ失敗 → ${label}\n        理由: ${e.message}`);
+    return false;
+  }
+}
+
+// 期待するテーブル・カラムが実際にできているかを確認する
+const EXPECTED_TABLES = [
+  "meetings", "deals", "deal_events", "smart_links", "interns", "users", "settings",
+  "apo_mail_log", "gmail_actions", "closer_rotation", "assign_log", "proposal_files",
+];
+const EXPECTED_COLUMNS = [
+  ["smart_links", "client_email"], ["smart_links", "client_name"],
+  ["smart_links", "client_email_source"], ["smart_links", "auto_assigned_at"],
+];
+
+export async function schemaReport() {
+  if (!pool) return { connected: false, missingTables: [], missingColumns: [], failures: schemaFailures };
+  const missingTables = [];
+  const missingColumns = [];
+  try {
+    const { rows } = await pool.query(
+      `SELECT table_name FROM information_schema.tables WHERE table_schema='public'`
+    );
+    const have = new Set(rows.map((r) => r.table_name));
+    for (const t of EXPECTED_TABLES) if (!have.has(t)) missingTables.push(t);
+
+    const { rows: cols } = await pool.query(
+      `SELECT table_name, column_name FROM information_schema.columns WHERE table_schema='public'`
+    );
+    const haveCol = new Set(cols.map((r) => r.table_name + "." + r.column_name));
+    for (const [t, c] of EXPECTED_COLUMNS) if (!haveCol.has(t + "." + c)) missingColumns.push(`${t}.${c}`);
+  } catch (e) {
+    return { connected: true, error: e.message, failures: schemaFailures };
+  }
+  return { connected: true, missingTables, missingColumns, failures: schemaFailures };
+}
+
 export async function initDb() {
   if (!DATABASE_URL) {
     console.warn("[db] DATABASE_URL 未設定。保存は無効（履歴は残りません）。");
@@ -20,7 +70,7 @@ export async function initDb() {
       : { rejectUnauthorized: false };
   pool = new pg.Pool({ connectionString: DATABASE_URL, ssl });
 
-  await pool.query(`
+  await sq(`
     CREATE TABLE IF NOT EXISTS meetings (
       bot_id      TEXT PRIMARY KEY,
       meeting_url TEXT,
@@ -32,26 +82,26 @@ export async function initDb() {
       suggestions JSONB
     );
   `);
-  await pool.query(`ALTER TABLE meetings ADD COLUMN IF NOT EXISTS feedback JSONB;`);
-  await pool.query(`ALTER TABLE meetings ADD COLUMN IF NOT EXISTS title TEXT;`);
-  await pool.query(`ALTER TABLE meetings ADD COLUMN IF NOT EXISTS analysis JSONB;`);
-  await pool.query(`ALTER TABLE meetings ADD COLUMN IF NOT EXISTS owner TEXT;`);
-  await pool.query(`ALTER TABLE meetings ADD COLUMN IF NOT EXISTS round_no INT;`);
-  await pool.query(`ALTER TABLE meetings ADD COLUMN IF NOT EXISTS phase TEXT;`);
-  await pool.query(`ALTER TABLE meetings ADD COLUMN IF NOT EXISTS category TEXT;`);
-  await pool.query(`ALTER TABLE meetings ADD COLUMN IF NOT EXISTS deal_kind TEXT;`);
-  await pool.query(`ALTER TABLE meetings ADD COLUMN IF NOT EXISTS status TEXT;`);
-  await pool.query(`ALTER TABLE meetings ADD COLUMN IF NOT EXISTS mux_playback_id TEXT;`);
-  await pool.query(`ALTER TABLE meetings ADD COLUMN IF NOT EXISTS custom_analysis TEXT;`);
-  await pool.query(`ALTER TABLE meetings ADD COLUMN IF NOT EXISTS ai_log JSONB;`);
-  await pool.query(`ALTER TABLE meetings ADD COLUMN IF NOT EXISTS metrics JSONB;`);
-  await pool.query(`ALTER TABLE meetings ADD COLUMN IF NOT EXISTS chapters JSONB;`);
-  await pool.query(`ALTER TABLE meetings ADD COLUMN IF NOT EXISTS drive_file_id TEXT;`);
-  await pool.query(`ALTER TABLE meetings ADD COLUMN IF NOT EXISTS drive_link TEXT;`);
-  await pool.query(`ALTER TABLE meetings ADD COLUMN IF NOT EXISTS account TEXT;`);
-  await pool.query(`ALTER TABLE meetings ADD COLUMN IF NOT EXISTS note TEXT;`);
-  await pool.query(`ALTER TABLE meetings ADD COLUMN IF NOT EXISTS apo_setter TEXT;`);
-  await pool.query(`
+  await sq(`ALTER TABLE meetings ADD COLUMN IF NOT EXISTS feedback JSONB;`);
+  await sq(`ALTER TABLE meetings ADD COLUMN IF NOT EXISTS title TEXT;`);
+  await sq(`ALTER TABLE meetings ADD COLUMN IF NOT EXISTS analysis JSONB;`);
+  await sq(`ALTER TABLE meetings ADD COLUMN IF NOT EXISTS owner TEXT;`);
+  await sq(`ALTER TABLE meetings ADD COLUMN IF NOT EXISTS round_no INT;`);
+  await sq(`ALTER TABLE meetings ADD COLUMN IF NOT EXISTS phase TEXT;`);
+  await sq(`ALTER TABLE meetings ADD COLUMN IF NOT EXISTS category TEXT;`);
+  await sq(`ALTER TABLE meetings ADD COLUMN IF NOT EXISTS deal_kind TEXT;`);
+  await sq(`ALTER TABLE meetings ADD COLUMN IF NOT EXISTS status TEXT;`);
+  await sq(`ALTER TABLE meetings ADD COLUMN IF NOT EXISTS mux_playback_id TEXT;`);
+  await sq(`ALTER TABLE meetings ADD COLUMN IF NOT EXISTS custom_analysis TEXT;`);
+  await sq(`ALTER TABLE meetings ADD COLUMN IF NOT EXISTS ai_log JSONB;`);
+  await sq(`ALTER TABLE meetings ADD COLUMN IF NOT EXISTS metrics JSONB;`);
+  await sq(`ALTER TABLE meetings ADD COLUMN IF NOT EXISTS chapters JSONB;`);
+  await sq(`ALTER TABLE meetings ADD COLUMN IF NOT EXISTS drive_file_id TEXT;`);
+  await sq(`ALTER TABLE meetings ADD COLUMN IF NOT EXISTS drive_link TEXT;`);
+  await sq(`ALTER TABLE meetings ADD COLUMN IF NOT EXISTS account TEXT;`);
+  await sq(`ALTER TABLE meetings ADD COLUMN IF NOT EXISTS note TEXT;`);
+  await sq(`ALTER TABLE meetings ADD COLUMN IF NOT EXISTS apo_setter TEXT;`);
+  await sq(`
     CREATE TABLE IF NOT EXISTS accounts (
       key TEXT PRIMARY KEY,
       site_url TEXT,
@@ -61,9 +111,9 @@ export async function initDb() {
       updated_at TIMESTAMPTZ DEFAULT now()
     );
   `);
-  await pool.query(`ALTER TABLE accounts ADD COLUMN IF NOT EXISTS owner TEXT;`);
+  await sq(`ALTER TABLE accounts ADD COLUMN IF NOT EXISTS owner TEXT;`);
   // 商談フェーズ自動判定の結果（1商談1行）
-  await pool.query(`
+  await sq(`
     CREATE TABLE IF NOT EXISTS phase_judgments (
       bot_id TEXT PRIMARY KEY,
       rep_name TEXT,
@@ -88,12 +138,12 @@ export async function initDb() {
     );
   `);
   for (const n of [1, 2, 3, 4]) {
-    await pool.query(`ALTER TABLE phase_judgments ADD COLUMN IF NOT EXISTS phase${n}_reasoning TEXT;`);
+    await sq(`ALTER TABLE phase_judgments ADD COLUMN IF NOT EXISTS phase${n}_reasoning TEXT;`);
   }
-  await pool.query(`CREATE INDEX IF NOT EXISTS idx_pj_meeting_date ON phase_judgments(meeting_date);`);
-  await pool.query(`CREATE INDEX IF NOT EXISTS idx_pj_rep ON phase_judgments(rep_name);`);
+  await sq(`CREATE INDEX IF NOT EXISTS idx_pj_meeting_date ON phase_judgments(meeting_date);`);
+  await sq(`CREATE INDEX IF NOT EXISTS idx_pj_rep ON phase_judgments(rep_name);`);
   // 案件単位のフェーズ判定（その案件の全商談をまとめて判定した結果）
-  await pool.query(`
+  await sq(`
     CREATE TABLE IF NOT EXISTS account_phase_judgments (
       account_key TEXT PRIMARY KEY,
       rep_name TEXT,
@@ -118,10 +168,10 @@ export async function initDb() {
     );
   `);
   for (const n of [1, 2, 3, 4]) {
-    await pool.query(`ALTER TABLE account_phase_judgments ADD COLUMN IF NOT EXISTS phase${n}_reasoning TEXT;`);
+    await sq(`ALTER TABLE account_phase_judgments ADD COLUMN IF NOT EXISTS phase${n}_reasoning TEXT;`);
   }
   // 担当者→チーム→グループ のマスタ
-  await pool.query(`
+  await sq(`
     CREATE TABLE IF NOT EXISTS rep_team_mapping (
       rep_name TEXT PRIMARY KEY,
       team_name TEXT NOT NULL,
@@ -129,13 +179,13 @@ export async function initDb() {
     );
   `);
   // 担当者が所属するプロダクト（DOC / MOCHICA）。空は未設定＝「全体」タブでのみ表示。
-  await pool.query(`ALTER TABLE rep_team_mapping ADD COLUMN IF NOT EXISTS product TEXT;`);
+  await sq(`ALTER TABLE rep_team_mapping ADD COLUMN IF NOT EXISTS product TEXT;`);
   // 初期データ（既存があれば上書きしない）
   for (const [rep, team] of [["植野", "浦林チーム"], ["江田", "浦林チーム"], ["田中", "中澤チーム"], ["森田", "中澤チーム"]]) {
-    await pool.query(`INSERT INTO rep_team_mapping (rep_name, team_name, group_name) VALUES ($1,$2,'直販') ON CONFLICT (rep_name) DO NOTHING`, [rep, team]);
+    await sq(`INSERT INTO rep_team_mapping (rep_name, team_name, group_name) VALUES ($1,$2,'直販') ON CONFLICT (rep_name) DO NOTHING`, [rep, team]);
   }
   // インターン生（アポ獲得者）マスタ：名前＋Googleカレンダーのメールアドレス
-  await pool.query(`
+  await sq(`
     CREATE TABLE IF NOT EXISTS interns (
       email      TEXT PRIMARY KEY,
       name       TEXT NOT NULL,
@@ -143,7 +193,7 @@ export async function initDb() {
     );
   `);
   // 事前ブリーフのキャッシュ（会社ごと。再作成で上書き）
-  await pool.query(`
+  await sq(`
     CREATE TABLE IF NOT EXISTS deal_briefs (
       company_key  TEXT PRIMARY KEY,
       company_name TEXT,
@@ -152,7 +202,7 @@ export async function initDb() {
       generated_at TIMESTAMPTZ DEFAULT now()
     );
   `);
-  await pool.query(`
+  await sq(`
     CREATE TABLE IF NOT EXISTS win_insights (
       scope_key    TEXT PRIMARY KEY,
       scope_label  TEXT,
@@ -162,7 +212,7 @@ export async function initDb() {
       generated_at TIMESTAMPTZ DEFAULT now()
     );
   `);
-  await pool.query(`
+  await sq(`
     CREATE TABLE IF NOT EXISTS notion_sent (
       owner TEXT NOT NULL,
       bot_id TEXT NOT NULL,
@@ -171,7 +221,7 @@ export async function initDb() {
       PRIMARY KEY (owner, bot_id)
     );
   `);
-  await pool.query(`
+  await sq(`
     CREATE TABLE IF NOT EXISTS action_items (
       id          SERIAL PRIMARY KEY,
       account     TEXT NOT NULL,
@@ -184,8 +234,8 @@ export async function initDb() {
       created_at  TIMESTAMPTZ DEFAULT now()
     );
   `);
-  await pool.query(`CREATE INDEX IF NOT EXISTS idx_action_items_account ON action_items(account);`);
-  await pool.query(`
+  await sq(`CREATE INDEX IF NOT EXISTS idx_action_items_account ON action_items(account);`);
+  await sq(`
     CREATE TABLE IF NOT EXISTS deal_status (
       account     TEXT PRIMARY KEY,
       status      TEXT NOT NULL DEFAULT '進行中',
@@ -194,7 +244,7 @@ export async function initDb() {
       updated_at  TIMESTAMPTZ DEFAULT now()
     );
   `);
-  await pool.query(`
+  await sq(`
     CREATE TABLE IF NOT EXISTS knowledge (
       id         SERIAL PRIMARY KEY,
       category   TEXT,
@@ -204,11 +254,11 @@ export async function initDb() {
       created_at TIMESTAMPTZ DEFAULT now()
     );
   `);
-  await pool.query(`ALTER TABLE knowledge ADD COLUMN IF NOT EXISTS source_type TEXT;`);
-  await pool.query(`ALTER TABLE knowledge ADD COLUMN IF NOT EXISTS source_ref TEXT;`);
-  await pool.query(`ALTER TABLE knowledge ADD COLUMN IF NOT EXISTS folder TEXT DEFAULT '';`);
+  await sq(`ALTER TABLE knowledge ADD COLUMN IF NOT EXISTS source_type TEXT;`);
+  await sq(`ALTER TABLE knowledge ADD COLUMN IF NOT EXISTS source_ref TEXT;`);
+  await sq(`ALTER TABLE knowledge ADD COLUMN IF NOT EXISTS folder TEXT DEFAULT '';`);
   // 商談から自動で集めた「質問と回答」
-  await pool.query(`
+  await sq(`
     CREATE TABLE IF NOT EXISTS qa_bank (
       id         SERIAL PRIMARY KEY,
       question   TEXT NOT NULL,
@@ -222,9 +272,9 @@ export async function initDb() {
       created_at TIMESTAMPTZ DEFAULT now()
     );
   `);
-  await pool.query(`CREATE INDEX IF NOT EXISTS qa_bank_created_idx ON qa_bank (created_at DESC);`);
+  await sq(`CREATE INDEX IF NOT EXISTS qa_bank_created_idx ON qa_bank (created_at DESC);`);
   // 利用状況（どの画面のどこが押されているか）
-  await pool.query(`
+  await sq(`
     CREATE TABLE IF NOT EXISTS usage_events (
       id         BIGSERIAL PRIMARY KEY,
       owner      TEXT,
@@ -234,9 +284,9 @@ export async function initDb() {
       created_at TIMESTAMPTZ DEFAULT now()
     );
   `);
-  await pool.query(`CREATE INDEX IF NOT EXISTS usage_events_created_idx ON usage_events (created_at DESC);`);
+  await sq(`CREATE INDEX IF NOT EXISTS usage_events_created_idx ON usage_events (created_at DESC);`);
   // 商談後にやること（御礼メール・次回アクション・SF更新）の進み具合
-  await pool.query(`
+  await sq(`
     CREATE TABLE IF NOT EXISTS meeting_followup (
       bot_id       TEXT PRIMARY KEY,
       thanks_done  BOOLEAN DEFAULT FALSE,
@@ -248,13 +298,13 @@ export async function initDb() {
       updated_at   TIMESTAMPTZ DEFAULT now()
     );
   `);
-  await pool.query(`
+  await sq(`
     CREATE TABLE IF NOT EXISTS kb_folders (
       path       TEXT PRIMARY KEY,
       created_at TIMESTAMPTZ DEFAULT now()
     );
   `);
-  await pool.query(`
+  await sq(`
     CREATE TABLE IF NOT EXISTS knowledge_chunks (
       id           SERIAL PRIMARY KEY,
       knowledge_id INTEGER REFERENCES knowledge(id) ON DELETE CASCADE,
@@ -266,13 +316,13 @@ export async function initDb() {
       created_at   TIMESTAMPTZ DEFAULT now()
     );
   `);
-  await pool.query(`
+  await sq(`
     CREATE TABLE IF NOT EXISTS settings (
       id   INT PRIMARY KEY,
       data JSONB
     );
   `);
-  await pool.query(`
+  await sq(`
     CREATE TABLE IF NOT EXISTS calendar_bots (
       event_id   TEXT PRIMARY KEY,
       bot_id     TEXT,
@@ -280,7 +330,7 @@ export async function initDb() {
       created_at TIMESTAMPTZ DEFAULT now()
     );
   `);
-  await pool.query(`
+  await sq(`
     CREATE TABLE IF NOT EXISTS auto_join_meetings (
       id         SERIAL PRIMARY KEY,
       owner      TEXT NOT NULL,
@@ -292,9 +342,9 @@ export async function initDb() {
       created_at TIMESTAMPTZ DEFAULT now()
     );
   `);
-  await pool.query(`CREATE INDEX IF NOT EXISTS idx_auto_join_meeting ON auto_join_meetings(meeting_id);`);
-  await pool.query(`ALTER TABLE auto_join_meetings ADD COLUMN IF NOT EXISTS calendar_any BOOLEAN DEFAULT FALSE;`);
-  await pool.query(`
+  await sq(`CREATE INDEX IF NOT EXISTS idx_auto_join_meeting ON auto_join_meetings(meeting_id);`);
+  await sq(`ALTER TABLE auto_join_meetings ADD COLUMN IF NOT EXISTS calendar_any BOOLEAN DEFAULT FALSE;`);
+  await sq(`
     CREATE TABLE IF NOT EXISTS users (
       email      TEXT PRIMARY KEY,
       name       TEXT,
@@ -302,7 +352,7 @@ export async function initDb() {
       created_at TIMESTAMPTZ DEFAULT now()
     );
   `);
-  await pool.query(`
+  await sq(`
     CREATE TABLE IF NOT EXISTS google_accounts (
       owner         TEXT PRIMARY KEY,
       refresh_token TEXT,
@@ -310,7 +360,7 @@ export async function initDb() {
       updated_at    TIMESTAMPTZ DEFAULT now()
     );
   `);
-  await pool.query(`
+  await sq(`
     CREATE TABLE IF NOT EXISTS salesforce_accounts (
       owner         TEXT PRIMARY KEY,
       refresh_token TEXT,
@@ -319,15 +369,15 @@ export async function initDb() {
       updated_at    TIMESTAMPTZ DEFAULT now()
     );
   `);
-  await pool.query(`ALTER TABLE meetings ADD COLUMN IF NOT EXISTS sf_url TEXT;`);
-  await pool.query(`
+  await sq(`ALTER TABLE meetings ADD COLUMN IF NOT EXISTS sf_url TEXT;`);
+  await sq(`
     CREATE TABLE IF NOT EXISTS user_settings (
       owner      TEXT PRIMARY KEY,
       data       JSONB DEFAULT '{}'::jsonb,
       updated_at TIMESTAMPTZ DEFAULT now()
     );
   `);
-  await pool.query(`
+  await sq(`
     CREATE TABLE IF NOT EXISTS set_analysis_cache (
       key         TEXT PRIMARY KEY,
       fingerprint TEXT,
@@ -336,7 +386,7 @@ export async function initDb() {
     );
   `);
   // ===== Feature A: 新営業プロセス（案件＝会社名ベース、イベントログ方式） =====
-  await pool.query(`
+  await sq(`
     CREATE TABLE IF NOT EXISTS deals (
       deal_id            TEXT PRIMARY KEY,
       company_name       TEXT,
@@ -348,10 +398,10 @@ export async function initDb() {
       updated_at         TIMESTAMPTZ DEFAULT now()
     );
   `);
-  await pool.query(`ALTER TABLE deals ADD COLUMN IF NOT EXISTS auto_lose_deadline DATE;`);
+  await sq(`ALTER TABLE deals ADD COLUMN IF NOT EXISTS auto_lose_deadline DATE;`);
   // ステッパー上で人が手動で進める進捗（AIの判定とは独立して持つ）。JSONBで {stage:1-5, updated_by, updated_at}。
-  await pool.query(`ALTER TABLE deals ADD COLUMN IF NOT EXISTS manual_progress JSONB;`);
-  await pool.query(`
+  await sq(`ALTER TABLE deals ADD COLUMN IF NOT EXISTS manual_progress JSONB;`);
+  await sq(`
     CREATE TABLE IF NOT EXISTS deal_events (
       id                     BIGSERIAL PRIMARY KEY,
       deal_id                TEXT,
@@ -376,12 +426,12 @@ export async function initDb() {
       created_at             TIMESTAMPTZ DEFAULT now()
     );
   `);
-  await pool.query(`CREATE INDEX IF NOT EXISTS idx_deal_events_deal ON deal_events(deal_id);`);
-  await pool.query(`CREATE INDEX IF NOT EXISTS idx_deal_events_date ON deal_events(event_date);`);
-  await pool.query(`CREATE INDEX IF NOT EXISTS idx_deal_events_bot ON deal_events(bot_id);`);
+  await sq(`CREATE INDEX IF NOT EXISTS idx_deal_events_deal ON deal_events(deal_id);`);
+  await sq(`CREATE INDEX IF NOT EXISTS idx_deal_events_date ON deal_events(event_date);`);
+  await sq(`CREATE INDEX IF NOT EXISTS idx_deal_events_bot ON deal_events(bot_id);`);
 
   // ===== Feature C: 商談特徴タグ =====
-  await pool.query(`
+  await sq(`
     CREATE TABLE IF NOT EXISTS deal_feature_tags (
       deal_id                  TEXT PRIMARY KEY,
       first_meeting_date       DATE,
@@ -410,10 +460,10 @@ export async function initDb() {
       updated_at               TIMESTAMPTZ DEFAULT now()
     );
   `);
-  await pool.query(`CREATE INDEX IF NOT EXISTS idx_dft_owner ON deal_feature_tags(owner);`);
-  await pool.query(`CREATE INDEX IF NOT EXISTS idx_dft_date ON deal_feature_tags(first_meeting_date);`);
-  await pool.query(`CREATE INDEX IF NOT EXISTS idx_dft_result ON deal_feature_tags(result);`);
-  await pool.query(`
+  await sq(`CREATE INDEX IF NOT EXISTS idx_dft_owner ON deal_feature_tags(owner);`);
+  await sq(`CREATE INDEX IF NOT EXISTS idx_dft_date ON deal_feature_tags(first_meeting_date);`);
+  await sq(`CREATE INDEX IF NOT EXISTS idx_dft_result ON deal_feature_tags(result);`);
+  await sq(`
     CREATE TABLE IF NOT EXISTS enterprise_attributes (
       company_name         TEXT PRIMARY KEY,
       industry             TEXT,
@@ -425,7 +475,7 @@ export async function initDb() {
   `);
 
   // ===== OAuth（Claude.aiのカスタムコネクタ用。RFC7591動的クライアント登録 + 認可コードフロー） =====
-  await pool.query(`
+  await sq(`
     CREATE TABLE IF NOT EXISTS oauth_clients (
       client_id      TEXT PRIMARY KEY,
       client_name    TEXT,
@@ -433,7 +483,7 @@ export async function initDb() {
       created_at     TIMESTAMPTZ DEFAULT now()
     );
   `);
-  await pool.query(`
+  await sq(`
     CREATE TABLE IF NOT EXISTS oauth_codes (
       code            TEXT PRIMARY KEY,
       client_id       TEXT,
@@ -445,7 +495,7 @@ export async function initDb() {
       created_at      TIMESTAMPTZ DEFAULT now()
     );
   `);
-  await pool.query(`
+  await sq(`
     CREATE TABLE IF NOT EXISTS oauth_tokens (
       access_token   TEXT PRIMARY KEY,
       refresh_token  TEXT,
@@ -456,10 +506,10 @@ export async function initDb() {
       created_at     TIMESTAMPTZ DEFAULT now()
     );
   `);
-  await pool.query(`CREATE INDEX IF NOT EXISTS idx_oauth_tokens_refresh ON oauth_tokens(refresh_token);`);
+  await sq(`CREATE INDEX IF NOT EXISTS idx_oauth_tokens_refresh ON oauth_tokens(refresh_token);`);
 
   // ===== スマートリンク（担当者切り替えに追随する共有Zoom URL） =====
-  await pool.query(`
+  await sq(`
     CREATE TABLE IF NOT EXISTS smart_links (
       slug           TEXT PRIMARY KEY,
       label          TEXT,
@@ -470,19 +520,19 @@ export async function initDb() {
     );
   `);
   // アポ振り分け：スマートリンクをカレンダーの1予定に紐づける（重複発行を防ぐ）
-  await pool.query(`ALTER TABLE smart_links ADD COLUMN IF NOT EXISTS event_id TEXT;`);
-  await pool.query(`ALTER TABLE smart_links ADD COLUMN IF NOT EXISTS setter TEXT;`);
-  await pool.query(`ALTER TABLE smart_links ADD COLUMN IF NOT EXISTS start_time TIMESTAMPTZ;`);
-  await pool.query(`ALTER TABLE smart_links ADD COLUMN IF NOT EXISTS end_time TIMESTAMPTZ;`);
-  await pool.query(`ALTER TABLE smart_links ADD COLUMN IF NOT EXISTS invite_event_id TEXT;`);
-  await pool.query(`CREATE UNIQUE INDEX IF NOT EXISTS uq_smart_links_event ON smart_links(event_id) WHERE event_id IS NOT NULL;`);
+  await sq(`ALTER TABLE smart_links ADD COLUMN IF NOT EXISTS event_id TEXT;`);
+  await sq(`ALTER TABLE smart_links ADD COLUMN IF NOT EXISTS setter TEXT;`);
+  await sq(`ALTER TABLE smart_links ADD COLUMN IF NOT EXISTS start_time TIMESTAMPTZ;`);
+  await sq(`ALTER TABLE smart_links ADD COLUMN IF NOT EXISTS end_time TIMESTAMPTZ;`);
+  await sq(`ALTER TABLE smart_links ADD COLUMN IF NOT EXISTS invite_event_id TEXT;`);
+  await sq(`CREATE UNIQUE INDEX IF NOT EXISTS uq_smart_links_event ON smart_links(event_id) WHERE event_id IS NOT NULL;`);
 
   // アポメール自動送付：お客様の宛先（カレンダーのゲストから自動取得、手入力で補完）
-  await pool.query(`ALTER TABLE smart_links ADD COLUMN IF NOT EXISTS client_email TEXT;`);
-  await pool.query(`ALTER TABLE smart_links ADD COLUMN IF NOT EXISTS client_name TEXT;`);
-  await pool.query(`ALTER TABLE smart_links ADD COLUMN IF NOT EXISTS client_email_source TEXT;`);
+  await sq(`ALTER TABLE smart_links ADD COLUMN IF NOT EXISTS client_email TEXT;`);
+  await sq(`ALTER TABLE smart_links ADD COLUMN IF NOT EXISTS client_name TEXT;`);
+  await sq(`ALTER TABLE smart_links ADD COLUMN IF NOT EXISTS client_email_source TEXT;`);
   // 送信ログ。status='sent' に一意制約をかけて、同じアポへの二重送信を防ぐ。
-  await pool.query(`
+  await sq(`
     CREATE TABLE IF NOT EXISTS apo_mail_log (
       id          BIGSERIAL PRIMARY KEY,
       slug        TEXT NOT NULL,
@@ -496,12 +546,12 @@ export async function initDb() {
       created_at  TIMESTAMPTZ DEFAULT now()
     );
   `);
-  await pool.query(`CREATE UNIQUE INDEX IF NOT EXISTS uq_apo_mail_sent ON apo_mail_log(slug, kind) WHERE status='sent';`);
-  await pool.query(`CREATE INDEX IF NOT EXISTS ix_apo_mail_slug ON apo_mail_log(slug);`);
+  await sq(`CREATE UNIQUE INDEX IF NOT EXISTS uq_apo_mail_sent ON apo_mail_log(slug, kind) WHERE status='sent';`);
+  await sq(`CREATE INDEX IF NOT EXISTS ix_apo_mail_slug ON apo_mail_log(slug);`);
 
   // Gmail操作ログ：誰がどのスレッドをアーカイブ／ゴミ箱に入れたかを残す。
   // 元に戻すときの手がかりになり、チームで使う以上あとから追える状態にしておく。
-  await pool.query(`
+  await sq(`
     CREATE TABLE IF NOT EXISTS gmail_actions (
       id         BIGSERIAL PRIMARY KEY,
       owner      TEXT NOT NULL,
@@ -512,12 +562,12 @@ export async function initDb() {
       created_at TIMESTAMPTZ DEFAULT now()
     );
   `);
-  await pool.query(`CREATE INDEX IF NOT EXISTS ix_gmail_actions_owner ON gmail_actions(owner, created_at DESC);`);
+  await sq(`CREATE INDEX IF NOT EXISTS ix_gmail_actions_owner ON gmail_actions(owner, created_at DESC);`);
 
   // クローザーの割り振りローテーション。
   // sort_order が回る順番（植野1→田中2→江田3→森田4）。
   // priority=true は「代打で飛ばされた人」で、次のアポで最優先に戻す印。
-  await pool.query(`
+  await sq(`
     CREATE TABLE IF NOT EXISTS closer_rotation (
       email            TEXT PRIMARY KEY,
       name             TEXT,
@@ -531,10 +581,10 @@ export async function initDb() {
       updated_at       TIMESTAMPTZ DEFAULT now()
     );
   `);
-  await pool.query(`CREATE INDEX IF NOT EXISTS ix_closer_rotation_order ON closer_rotation(sort_order);`);
+  await sq(`CREATE INDEX IF NOT EXISTS ix_closer_rotation_order ON closer_rotation(sort_order);`);
 
   // 割り振りの記録。誰がなぜ選ばれた／飛ばされたかを残す（順番がおかしいときの調査用）
-  await pool.query(`
+  await sq(`
     CREATE TABLE IF NOT EXISTS assign_log (
       id         BIGSERIAL PRIMARY KEY,
       slug       TEXT NOT NULL,
@@ -545,12 +595,12 @@ export async function initDb() {
       created_at TIMESTAMPTZ DEFAULT now()
     );
   `);
-  await pool.query(`CREATE INDEX IF NOT EXISTS ix_assign_log_slug ON assign_log(slug, created_at DESC);`);
+  await sq(`CREATE INDEX IF NOT EXISTS ix_assign_log_slug ON assign_log(slug, created_at DESC);`);
   // 予定1件につき1回だけ自動割り振りする（重複割り当ての防止）
-  await pool.query(`ALTER TABLE smart_links ADD COLUMN IF NOT EXISTS auto_assigned_at TIMESTAMPTZ;`);
+  await sq(`ALTER TABLE smart_links ADD COLUMN IF NOT EXISTS auto_assigned_at TIMESTAMPTZ;`);
 
   // 提案資料テーブル
-  await pool.query(`
+  await sq(`
     CREATE TABLE IF NOT EXISTS proposal_files (
       id SERIAL PRIMARY KEY,
       deal_id TEXT,
@@ -570,6 +620,20 @@ export async function initDb() {
     )
   `);
 
+  // スキーマの作成結果をまとめて出す。ここを見れば何が足りないか一目で分かる。
+  const rep = await schemaReport();
+  if (schemaFailures.length) {
+    console.error(`[db] スキーマ作成で ${schemaFailures.length} 件失敗しました（上のログを確認してください）`);
+  }
+  if (rep.missingTables && rep.missingTables.length) {
+    console.error("[db] 作られていないテーブル:", rep.missingTables.join(", "));
+  }
+  if (rep.missingColumns && rep.missingColumns.length) {
+    console.error("[db] 作られていないカラム:", rep.missingColumns.join(", "));
+  }
+  if (!schemaFailures.length && !(rep.missingTables || []).length && !(rep.missingColumns || []).length) {
+    console.log("[db] スキーマは最新です（不足なし）。");
+  }
   console.log("[db] Postgres に接続しました（履歴を保存します）。");
 }
 

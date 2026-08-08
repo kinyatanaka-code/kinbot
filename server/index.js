@@ -29,6 +29,8 @@ import { scoreTranscript } from "./temperature.js";
 import { buildChapters } from "./chapters.js";
 import {
   initDb,
+  schemaReport,
+  getSchemaFailures,
   listRecentMeetingHeads,
   getTranscriptsByIds,
   listMeetings,
@@ -6064,6 +6066,28 @@ app.get("/api/gmail/actions", async (req, res) => {
   try {
     const rows = await listGmailActions(req.isAdmin && req.query.all === "1" ? null : req.user, 50);
     res.json(rows);
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// DBスキーマの診断。テーブルやカラムが作られていないときの原因調査用。
+app.get("/api/db/schema-check", async (req, res) => {
+  try {
+    if (!req.isAdmin) return res.status(403).json({ error: "管理者のみ確認できます" });
+    const rep = await schemaReport();
+    const ok = rep.connected && !(rep.missingTables || []).length
+               && !(rep.missingColumns || []).length && !(rep.failures || []).length;
+    res.json({ ok, ...rep });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// スキーマの作り直しを試す（再デプロイせずにその場で再実行する）
+app.post("/api/db/schema-repair", async (req, res) => {
+  try {
+    if (!req.isAdmin) return res.status(403).json({ error: "管理者のみ実行できます" });
+    await initDb();
+    const rep = await schemaReport();
+    const ok = rep.connected && !(rep.missingTables || []).length && !(rep.missingColumns || []).length;
+    res.json({ ok, ...rep });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
