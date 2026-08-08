@@ -528,13 +528,15 @@ export async function initDb() {
   // 商談予定をどのアカウントのカレンダーに作ったか。
   // 担当が変わったときに、前の担当のカレンダーから消すために必要。
   await sq(`ALTER TABLE smart_links ADD COLUMN IF NOT EXISTS invite_event_owner TEXT;`);
+  // アポ獲得者が元の予定の説明欄に書いた内容。商談担当の予定にもそのまま引き継ぐ。
+  await sq(`ALTER TABLE smart_links ADD COLUMN IF NOT EXISTS source_note TEXT;`);
   await sq(`CREATE UNIQUE INDEX IF NOT EXISTS uq_smart_links_event ON smart_links(event_id) WHERE event_id IS NOT NULL;`);
 
   // アポメール自動送付：お客様の宛先（カレンダーのゲストから自動取得、手入力で補完）
   await sq(`ALTER TABLE smart_links ADD COLUMN IF NOT EXISTS client_email TEXT;`);
   await sq(`ALTER TABLE smart_links ADD COLUMN IF NOT EXISTS client_name TEXT;`);
   await sq(`ALTER TABLE smart_links ADD COLUMN IF NOT EXISTS client_email_source TEXT;`);
-  // 送信ログ。status='sent' に一意制約をかけて、同じアポへの二重送信を防ぐ。
+  // 送信ログ。status='sent' / 'draft' に一意制約をかけて、同じアポへの二重作成を防ぐ。
   await sq(`
     CREATE TABLE IF NOT EXISTS apo_mail_log (
       id          BIGSERIAL PRIMARY KEY,
@@ -549,7 +551,9 @@ export async function initDb() {
       created_at  TIMESTAMPTZ DEFAULT now()
     );
   `);
-  await sq(`CREATE UNIQUE INDEX IF NOT EXISTS uq_apo_mail_sent ON apo_mail_log(slug, kind) WHERE status='sent';`);
+  // 送信済み・下書き作成済みの両方で二重作成を防ぐ（旧インデックスは作り直す）
+  await sq(`DROP INDEX IF EXISTS uq_apo_mail_sent;`);
+  await sq(`CREATE UNIQUE INDEX IF NOT EXISTS uq_apo_mail_done ON apo_mail_log(slug, kind) WHERE status IN ('sent','draft');`);
   await sq(`CREATE INDEX IF NOT EXISTS ix_apo_mail_slug ON apo_mail_log(slug);`);
 
   // Gmail操作ログ：誰がどのスレッドをアーカイブ／ゴミ箱に入れたかを残す。
@@ -2385,6 +2389,20 @@ export async function setSmartLinkClient(slug, { email, name, source } = {}, for
 
 // 送信済みかどうか（status='sent' の行があるか）
 // このアポの事業（DOC / MOCHICA）を保存する
+// 元の予定の説明欄を保存する（すでに入っていれば上書きしない＝手で直した内容を守る）
+export async function setSmartLinkSourceNote(slug, note, force = false) {
+  if (!pool || !slug) return null;
+  try {
+    const { rows } = await pool.query(
+      `UPDATE smart_links
+          SET source_note = CASE WHEN $3 OR COALESCE(source_note,'')='' THEN $2 ELSE source_note END,
+              updated_at = now()
+        WHERE slug=$1 RETURNING *`,
+      [slug, String(note || "").slice(0, 4000) || null, force]);
+    return rows[0] || null;
+  } catch (e) { console.error("[db] setSmartLinkSourceNote", e.message); return null; }
+}
+
 export async function setSmartLinkBusiness(slug, business) {
   if (!pool || !slug) return null;
   try {
@@ -2417,7 +2435,7 @@ export async function logApoMail({ slug, kind, toEmail, fromOwner, subject, stat
     return rows[0];
   } catch (e) {
     // 一意制約に当たった＝既に送信済み。エラーにはしない。
-    if (/uq_apo_mail_sent/.test(e.message)) return null;
+    if (/uq_apo_mail_(sent|done)/.test(e.message)) return null;
     console.error("[db] logApoMail", e.message);
     return null;
   }
@@ -2679,15 +2697,14 @@ function normBusinesses(v) {
 }
 
 // 署名・Zoom情報として保存する項目。想定外のキーは捨てる。
+// 姓は名前から自動で判定する。自動判定が合わないときだけ shortName で上書きする。
+// Zoomの情報は「設定 → 登録リンク」（myZoomLink）から取るので持たない。
 export const MEMBER_PROFILE_FIELDS = [
-  "shortName",   // 姓（例：田中）→ 「田中でございます」に入る
+  "shortName",   // 姓の上書き（空欄なら名前から自動で判定する）
   "nameRoman",   // ローマ字（例：Kinya Tanaka）
   "phone",       // 電話番号
   "dept",        // 部署（例：事業統括本部 事業開発部）
   "unit",        // ユニット・グループ（例：DOCユニット FSグループ）
-  "zoomUrl",     // Zoomの参加URL
-  "zoomId",      // ミーティングID
-  "zoomPass",    // パスコード
 ];
 function normProfile(v) {
   const src = (v && typeof v === "object") ? v : {};
@@ -3171,7 +3188,7 @@ export async function listApoReminderTargets(fromISO, toISO) {
           AND COALESCE(s.client_email,'') <> ''
           AND NOT EXISTS (
                 SELECT 1 FROM apo_mail_log l
-                 WHERE l.slug = s.slug AND l.kind = 'reminder' AND l.status = 'sent')
+                 WHERE l.slug = s.slug AND l.kind = 'reminder' AND l.status IN ('sent','draft'))
         ORDER BY s.start_time`,
       [fromISO, toISO]
     );

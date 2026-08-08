@@ -142,10 +142,19 @@
             <div class="ap-card">
               <h3 class="ap-card-h">アポメール自動送付</h3>
 
-              <p class="note">担当セールスを割り当てた瞬間に<b>アポ確定メール</b>を、商談前日の朝に<b>リマインドメール</b>を、<b>担当セールス本人のGmailアカウントから</b>自動送信します。本文は担当者の署名で届き、返信も本人に返ります。</p>
+              <p class="note">担当セールスを割り当てた瞬間に<b>アポ確定メール</b>を、商談前日の朝に<b>リマインドメール</b>を、<b>担当セールス本人のGmailアカウント</b>で用意します。本文は担当者の署名で作られ、返信も本人に返ります。</p>
               <div class="ap-cfg-row">
-                <label class="ap-check"><input type="checkbox" id="mcAutoConfirm" /> 担当割り当て時に確定メールを自動送信する</label>
-                <label class="ap-check"><input type="checkbox" id="mcAutoReminder" /> 商談前日にリマインドを自動送信する</label>
+                <label>メールの出し方
+                  <select id="mcDeliver">
+                    <option value="draft">担当セールスのGmailに下書きを作る（本人が確認して送る）</option>
+                    <option value="send">そのまま自動送信する</option>
+                  </select>
+                </label>
+              </div>
+              <p class="note"><b>下書きを作る</b>…お客様にはまだ届きません。担当セールスがGmailの「下書き」を開いて、内容を確認してから送信します。誤送信が起きないので、まずはこちらを勧めます。</p>
+              <div class="ap-cfg-row">
+                <label class="ap-check"><input type="checkbox" id="mcAutoConfirm" /> 担当割り当て時に確定メールを自動で用意する</label>
+                <label class="ap-check"><input type="checkbox" id="mcAutoReminder" /> 商談前日にリマインドを自動で用意する</label>
                 <label>リマインド送信時刻 <select id="mcHour"></select> 時（JST）</label>
                 <label>1回あたりの送信上限 <input type="number" id="mcMax" min="1" max="500" style="width:80px" /> 通</label>
               </div>
@@ -155,11 +164,12 @@
               <div class="ap-tags">
                 <div><b>お客様・商談</b> <code>{{会社名}}</code> <code>{{お客様名}}</code> <code>{{商談日時}}</code> <code>{{商談日}}</code> <code>{{商談時刻}}</code></div>
                 <div><b>アポ獲得者</b> <code>{{アポ獲得者}}</code> <code>{{アポ獲得者姓}}</code></div>
-                <div><b>担当セールス</b> <code>{{担当者名}}</code> <code>{{担当者姓}}</code> <code>{{担当者ローマ字}}</code> <code>{{担当者メール}}</code> <code>{{担当者電話}}</code> <code>{{部署}}</code> <code>{{ユニット}}</code></div>
-                <div><b>Zoom</b> <code>{{ZoomURL}}</code> <code>{{ミーティングID}}</code> <code>{{パスコード}}</code> <code>{{URL}}</code>（kinbotの共有リンク）</div>
+                <div><b>担当セールス</b> <code>{{担当者名}}</code> <code>{{担当者姓}}</code>（自動）<code>{{担当者ローマ字}}</code> <code>{{担当者メール}}</code> <code>{{担当者電話}}</code> <code>{{部署}}</code> <code>{{ユニット}}</code></div>
+                <div><b>会議室</b> <code>{{ZoomURL}}</code> <code>{{ミーティングID}}</code>（自動）<code>{{URL}}</code>（kinbotの共有リンク）</div>
                 <div><b>自社</b> <code>{{自社名}}</code></div>
               </div>
-              <p class="note">担当セールスとZoomのタグは、<a href="settings.html#members">設定 → メンバー管理</a>の各メンバーの「署名・Zoom」で設定した内容が入ります。未入力の項目はその部分だけ空欄になります。</p>
+              <p class="note"><code>{{担当者ローマ字}}</code><code>{{担当者電話}}</code><code>{{部署}}</code><code>{{ユニット}}</code>は <a href="settings.html#members">設定 → メンバー管理</a>の各メンバーの「署名」で設定します。<br>
+              <code>{{担当者姓}}</code>は名前から自動、<code>{{ZoomURL}}</code>と<code>{{ミーティングID}}</code>は<a href="settings.html">設定 → 登録リンク</a>で各自が登録した会議室URLから自動で入ります。未設定の項目はその行ごと本文から消えます。</p>
               <div class="ap-tpl">
                 <h4>アポ確定メール</h4>
                 <label>件名<input type="text" id="mcCSubject" /></label>

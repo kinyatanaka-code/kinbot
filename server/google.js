@@ -255,6 +255,8 @@ export async function listCalendarEvents(owner, calendarId, { timeMin, timeMax, 
       const start = ev.start?.dateTime || ev.start?.date || null;
       const end = ev.end?.dateTime || ev.end?.date || null;
       out.push({ id: ev.id, title: ev.summary || "", start, end, allDay: !ev.start?.dateTime, url: findMeetingUrl(ev) || "", guests: (ev.attendees || []).length, organizer: (ev.organizer && ev.organizer.email) || "", creator: (ev.creator && ev.creator.email) || "", created: ev.created || "",
+        // 予定の説明欄。アポ獲得者が書いたメモを商談担当の予定にも引き継ぐために使う。
+        description: ev.description || "",
         // 招待されている人（アポメールの宛先をここから自動取得する）
         attendees: (ev.attendees || [])
           .filter((a) => a && a.email && !a.resource)

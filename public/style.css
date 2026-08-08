@@ -2485,6 +2485,7 @@ button.pipe-cell { background: none; border: none; cursor: pointer; color: #0F6E
 .ap-badge { display: inline-block; font-size: 11px; font-weight: 700; padding: 3px 10px; border-radius: 999px; white-space: nowrap; }
 .ap-ok { background: #e3f4ea; color: #1f7a4d; }
 .ap-warn { background: #fbeee0; color: #a8611a; }
+.ap-draft { background: #E7EEFB; color: #3A5C9A; }
 .ap-pending { background: var(--panel-2); color: var(--muted); }
 
 /* アポメール自動送付 */

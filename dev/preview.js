@@ -29,12 +29,13 @@ const REPS = [
 ];
 
 const SENT = { status: "sent", at: "2026-08-08T02:00:00.000Z" };
+const DRAFT = { status: "draft", at: "2026-08-08T02:10:00.000Z" };
 const FAILED = { status: "failed", error: "Gmail送信 403: 権限がありません" };
 
 // 見た目の確認用に、状態のパターンを一通り並べてある
 const APPOINTMENTS = [
   mk(1, "飯島 稜",   "【新/ヒ】株式会社ベルク　町田様",                     "2026-08-27T02:00:00.000Z", "2026-07-06",
-     { owner: "ueno@neo-career.co.jp",   mail: { confirm: SENT },                 clientEmail: "machida@belc.example.jp", source: "calendar" }),
+     { owner: "ueno@neo-career.co.jp",   mail: { confirm: DRAFT },                 clientEmail: "machida@belc.example.jp", source: "calendar" }),
   mk(2, "加藤 宋宙", "【初回/】合同会社サンライズ　佐藤様（資料希望）",       "2026-08-27T05:30:00.000Z", "2026-08-05",
      { owner: "tanaka@neo-career.co.jp", mail: { confirm: SENT, reminder: SENT }, clientEmail: "sato@sunrise.example.jp", source: "calendar" }),
   mk(3, "迫間 美羽", "【新/ヒ】株式会社アイドマ・ホールディングス　田中様",   "2026-08-28T01:00:00.000Z", "2026-08-06",
@@ -143,7 +144,7 @@ TEL：03-6756-0421　 FAX：03-5908-8385
 ■━━━━━━━━━━━━━━━━━━━━━━━━━■`;
 
 const MAIL_CONFIG = {
-  autoConfirm: true, autoReminder: true, reminderHour: 8, maxPerRun: 50,
+  deliverMode: "draft", autoConfirm: true, autoReminder: true, reminderHour: 8, maxPerRun: 50,
   companyName: "株式会社ネオキャリア",
   confirmSubject: CONFIRM_SUBJECT,
   confirmBody: CONFIRM_BODY,
@@ -169,12 +170,12 @@ const ROTATION = {
             teamBalance: "perDay", balanceWindow: "all", fairnessStart: "2026-06-08" },
   closers: CLOSERS, order: CLOSERS, teams: TEAMS, teamStats: TEAM_STATS, suspensions: SUSPENSIONS,
   period: { window: "month", label: "2026年8月" },
-  next: { email: "tanaka@neo-career.co.jp", profile: { shortName: "田中", nameRoman: "Ryo Tanaka", phone: "080-2222-2222", dept: "事業統括本部 事業開発部", unit: "DOCユニット FSグループ" }, name: "田中 遼", team: "中澤チーム", priority: true },
+  next: { email: "tanaka@neo-career.co.jp", profile: { nameRoman: "Ryo Tanaka", phone: "080-2222-2222", dept: "事業統括本部 事業開発部", unit: "DOCユニット FSグループ" }, name: "田中 遼", team: "中澤チーム", priority: true },
 };
 
 const MEMBERS = [
-  { email: "ueno@neo-career.co.jp", profile: { shortName: "植野", nameRoman: "Hikari Ueno", phone: "080-1111-1111", dept: "事業統括本部 事業開発部", unit: "DOCユニット FSグループ", zoomUrl: "https://us04web.zoom.us/j/1111111111", zoomId: "111 111 1111", zoomPass: "abc123" },   name: "植野 大輔", businesses: ["DOC"],           team: "浦林チーム", roles: ["closer"],   active: true,  daily_cap: null, sort_order: 1 },
-  { email: "tanaka@neo-career.co.jp", profile: { shortName: "田中", nameRoman: "Ryo Tanaka", phone: "080-2222-2222", dept: "事業統括本部 事業開発部", unit: "DOCユニット FSグループ" }, name: "田中 遼",   businesses: ["DOC"],           team: "中澤チーム", roles: ["closer"],   active: true,  daily_cap: 3,    sort_order: 2 },
+  { email: "ueno@neo-career.co.jp", profile: { nameRoman: "Hikari Ueno", phone: "080-1111-1111", dept: "事業統括本部 事業開発部", unit: "DOCユニット FSグループ" },   name: "植野 大輔", businesses: ["DOC"],           team: "浦林チーム", roles: ["closer"],   active: true,  daily_cap: null, sort_order: 1 },
+  { email: "tanaka@neo-career.co.jp", profile: { nameRoman: "Ryo Tanaka", phone: "080-2222-2222", dept: "事業統括本部 事業開発部", unit: "DOCユニット FSグループ" }, name: "田中 遼",   businesses: ["DOC"],           team: "中澤チーム", roles: ["closer"],   active: true,  daily_cap: 3,    sort_order: 2 },
   { email: "eda@neo-career.co.jp",    name: "江田 直人", businesses: ["DOC","MOCHICA"], team: "浦林チーム", roles: ["closer"],   active: true,  daily_cap: null, sort_order: 3 },
   { email: "morita@neo-career.co.jp", name: "森田 彩",   businesses: ["MOCHICA"],       team: "中澤チーム", roles: ["closer"],   active: false, daily_cap: 2,    sort_order: 4 },
   { email: "ura@neo-career.co.jp",    name: "浦林 鷹也", businesses: ["DOC"],           team: "浦林チーム", roles: ["fallback"], active: true,  daily_cap: null, sort_order: 5 },
@@ -279,7 +280,7 @@ function apiResponse(pathname, query) {
     return { period: { window: query.get("window") || "all", label: "2026-06-08以降" },
       mode: "perDay", teams: TEAMS, teamStats: TEAM_STATS,
       members: {
-        "浦林チーム": [{ email: "ueno@neo-career.co.jp", profile: { shortName: "植野", nameRoman: "Hikari Ueno", phone: "080-1111-1111", dept: "事業統括本部 事業開発部", unit: "DOCユニット FSグループ", zoomUrl: "https://us04web.zoom.us/j/1111111111", zoomId: "111 111 1111", zoomPass: "abc123" }, name: "植野 大輔", active: true, count: 11, total_all_time: 42 },
+        "浦林チーム": [{ email: "ueno@neo-career.co.jp", profile: { nameRoman: "Hikari Ueno", phone: "080-1111-1111", dept: "事業統括本部 事業開発部", unit: "DOCユニット FSグループ" }, name: "植野 大輔", active: true, count: 11, total_all_time: 42 },
                      { email: "eda@neo-career.co.jp", name: "江田 直人", active: true, count: 10, total_all_time: 40 },
                      { email: "ura@neo-career.co.jp", name: "浦林 鷹也", active: true, count: 1, total_all_time: 6 }],
         "中澤チーム": [{ email: "tanaka@neo-career.co.jp", name: "田中 遼", active: true, count: 9, total_all_time: 38 },

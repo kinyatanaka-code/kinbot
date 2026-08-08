@@ -63,13 +63,15 @@ function clientCell(a, i) {
 function mailCell(a, i) {
   const m = a.mail || {};
   const chip = (label, st) => {
-    if (!st) return `<span class="ap-badge ap-pending">${label}未送信</span>`;
+    if (!st) return `<span class="ap-badge ap-pending">${label}未作成</span>`;
+    if (st.status === "draft") return `<span class="ap-badge ap-draft" title="${esc(st.at || "")}｜担当者のGmailの下書きに入っています">${label}下書き済</span>`;
     if (st.status === "sent") return `<span class="ap-badge ap-ok" title="${esc(st.at || "")}">${label}送信済</span>`;
     return `<span class="ap-badge ap-warn" title="${esc(st.error || "")}">${label}失敗</span>`;
   };
   const canSend = !!a.current_owner && !!a.client_email;
+  const draftMode = (apState.mailConfig || {}).deliverMode !== "send";
   const btn = canSend
-    ? `<button class="btn ghost ap-sendmail" data-i="${i}" data-kind="confirm">確定メール送信</button>`
+    ? `<button class="btn ghost ap-sendmail" data-i="${i}" data-kind="confirm">${draftMode ? "下書きを作る" : "確定メールを送信"}</button>`
     : "";
   return `<div class="ap-mailstate">${chip("確定", m.confirm)}${chip("前日", m.reminder)}</div>${btn}`;
 }
@@ -115,9 +117,11 @@ function bindMailButtons(scope) {
       const kind = b.dataset.kind || "confirm";
       const already = (a.mail || {})[kind] && (a.mail || {})[kind].status === "sent";
       const label = kind === "reminder" ? "前日リマインド" : "アポ確定メール";
+      const dm = (apState.mailConfig || {}).deliverMode !== "send";
+      const verb = dm ? "下書きを作成" : "送信";
       const msg = already
-        ? `この商談には既に${label}を送信済みです。もう一度送りますか？`
-        : `${a.current_owner} のGmailから${label}を送信します。よろしいですか？`;
+        ? `この商談の${label}はすでに${dm ? "下書きを作成" : "送信"}済みです。もう一度${verb}しますか？`
+        : `${a.current_owner} のGmailに${label}の${dm ? "下書きを作成" : "送信を実行"}します。よろしいですか？`;
       if (!confirm(msg)) return;
       b.disabled = true;
       const orig = b.textContent;
@@ -129,7 +133,7 @@ function bindMailButtons(scope) {
         });
         const d = await r.json();
         if (!r.ok) throw new Error(d.error || "送信に失敗しました");
-        a.mail = Object.assign({}, a.mail, { [kind]: { status: "sent", at: new Date().toISOString() } });
+        a.mail = Object.assign({}, a.mail, { [kind]: { status: d.draft ? "draft" : "sent", at: new Date().toISOString() } });
         refreshMailCell(i);
       } catch (e) {
         a.mail = Object.assign({}, a.mail, { [kind]: { status: "failed", error: e.message } });
@@ -199,7 +203,7 @@ function renderApo() {
         if (cell) cell.innerHTML = statusCell(a);
         // アポ確定メールの送信結果を反映する
         if (d.mail && d.mail.ok) {
-          a.mail = Object.assign({}, a.mail, { confirm: { status: "sent", at: new Date().toISOString() } });
+          a.mail = Object.assign({}, a.mail, { confirm: { status: d.mail.draft ? "draft" : "sent", at: new Date().toISOString() } });
         } else if (d.mail && !d.mail.skipped && d.mail.reason) {
           a.mail = Object.assign({}, a.mail, { confirm: { status: "failed", error: d.mail.reason } });
         }
@@ -290,6 +294,7 @@ async function loadApo() {
     if (!r.ok) throw new Error(d.error || "取り込みに失敗しました");
     apState.appts = d.appointments || [];
     apState.errors = d.errors || [];
+    apState.mailConfig = d.mail_config || {};
     renderApo();
     if (st) st.textContent = `${apState.appts.length}件`;
     setTimeout(() => { if (st) st.textContent = ""; }, 2500);
@@ -807,6 +812,7 @@ async function loadMailCfg() {
   try {
     const c = await (await fetch("/api/apo-mail-config")).json();
     mailDefaults = c.defaults || null;
+    if ($("mcDeliver")) $("mcDeliver").value = c.deliverMode || "draft";
     if ($("mcAutoConfirm")) $("mcAutoConfirm").checked = !!c.autoConfirm;
     if ($("mcAutoReminder")) $("mcAutoReminder").checked = !!c.autoReminder;
     if (hourSel) hourSel.value = String(c.reminderHour);
@@ -832,6 +838,7 @@ async function saveMailCfg() {
   mcSay("保存中…");
   try {
     const body = {
+      deliverMode: $("mcDeliver") ? $("mcDeliver").value : "draft",
       autoConfirm: $("mcAutoConfirm").checked,
       autoReminder: $("mcAutoReminder").checked,
       reminderHour: $("mcHour").value,
@@ -847,7 +854,7 @@ async function saveMailCfg() {
     });
     const d = await r.json();
     if (!r.ok) throw new Error(d.error || "保存に失敗しました");
-    mcSay("保存しました", 2500);
+    mcSay(`保存しました（${$("mcDeliver") && $("mcDeliver").value === "send" ? "自動送信" : "下書き作成"}）`, 3500);
   } catch (e) {
     mcSay("保存に失敗しました: " + e.message);
   } finally { if (btn) btn.disabled = false; }
@@ -865,14 +872,14 @@ async function saveMailCfg() {
     mcSay("初期文面に戻しました。保存を押してください", 4000);
   });
   if ($("mcRunRemind")) $("mcRunRemind").addEventListener("click", async () => {
-    if (!confirm("明日ぶんの商談について、前日リマインドを今すぐ送信します。よろしいですか？")) return;
+    if (!confirm("明日ぶんの商談について、前日リマインドを今すぐ用意します。設定が「下書き」なら下書きが作られ、「自動送信」ならお客様に届きます。よろしいですか？")) return;
     mcSay("送信中…");
     try {
       const r = await fetch("/api/apo-mail/run-reminders", { method: "POST" });
       const d = await r.json();
       if (!r.ok) throw new Error(d.error || "実行に失敗しました");
       if (d.skipped) mcSay(d.reason || "実行しませんでした", 4000);
-      else mcSay(`対象${d.total}件のうち${d.sent}件を送信しました`, 6000);
+      else mcSay(`対象${d.total}件のうち${d.sent}件を用意しました`, 6000);
       loadApo();
     } catch (e) { mcSay("失敗: " + e.message); }
   });

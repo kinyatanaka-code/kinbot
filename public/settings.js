@@ -761,6 +761,19 @@ async function loadRecallStatus() {
 // ===== メンバー管理 =====
 // ここが唯一の登録元。保存すると closer_rotation / interns / rep_team_mapping へ同期される。
 const ROLE_LABEL = { closer: "クローザー", inside: "インサイド", fallback: "予備" };
+// 姓の自動判定（サーバー側と同じ規則）。表示用。
+const THREE_CHAR_SURNAMES = ["佐々木","長谷川","小野寺","久保田","佐久間","五十嵐","小早川","大河原",
+  "宇佐美","小笠原","阿久津","長谷部","八木橋","宇都宮","喜多村","小田切","西園寺","早乙女"];
+function guessFamilyName(name) {
+  const n = String(name || "").trim().replace(/[\s\u3000]+/g, " ");
+  if (!n) return "";
+  if (n.includes(" ")) return n.split(" ")[0];
+  for (const f of THREE_CHAR_SURNAMES) if (n.startsWith(f)) return f;
+  const m = n.match(/^([\u4E00-\u9FFF々]{1,4})[\u3040-\u309F\u30A0-\u30FF]/);
+  if (m) return m[1];
+  if (/^[\u4E00-\u9FFF々]{3,}$/.test(n)) return n.slice(0, 2);
+  return n;
+}
 const BIZ = ["DOC", "MOCHICA"];
 let mbState = { members: [], candidates: [], teams: [] };
 
@@ -832,20 +845,18 @@ function mbRender() {
            ${Object.keys(ROLE_LABEL).map((r) => `<label class="mb-chk mb-chk-${r}"><input type="checkbox" class="mb-role" data-v="${r}" ${m.roles.includes(r) ? "checked" : ""} /> ${ROLE_LABEL[r]}</label>`).join("")}
            <label class="mb-chk">1日上限 <input type="number" class="mb-cap" min="1" max="20" placeholder="なし" value="${m.daily_cap || ""}" /> 件</label>
            <label class="mb-chk"><input type="checkbox" class="mb-active" ${m.active === false ? "" : "checked"} /> 在籍中</label>
-           <button type="button" class="btn ghost mb-sig">署名・Zoom</button>
+           <button type="button" class="btn ghost mb-sig">署名</button>
            <button type="button" class="btn ghost mb-del">外す</button>
          </div>
          <div class="mb-sigbox" hidden>
-           <p class="note">アポ確定メール・リマインドメールの差し込みに使います。空欄のままだと本文がその部分だけ空になります。</p>
+           <p class="note">アポ確定メール・リマインドメールの署名に入ります。空欄のままだと本文がその行だけ空になります。<br>
+           「◯◯でございます」の姓は<b>名前から自動で判定</b>します（違うときだけ下の欄で上書きしてください）。会議室のURLとミーティングIDは<b>設定 → 登録リンク</b>で各自が登録したものが入ります。</p>
            <div class="mb-sig-grid">
-             <label>姓（「◯◯でございます」に入ります）<input class="mb-p" data-k="shortName" value="${mbEsc(p.shortName || "")}" placeholder="田中" /></label>
+             <label>姓（自動判定：<b>${mbEsc(guessFamilyName(m.name))}</b>）<input class="mb-p" data-k="shortName" value="${mbEsc(p.shortName || "")}" placeholder="自動判定のままでよければ空欄" /></label>
              <label>ローマ字<input class="mb-p" data-k="nameRoman" value="${mbEsc(p.nameRoman || "")}" placeholder="Kinya Tanaka" /></label>
              <label>電話番号<input class="mb-p" data-k="phone" value="${mbEsc(p.phone || "")}" placeholder="080-0000-0000" /></label>
              <label>部署<input class="mb-p" data-k="dept" value="${mbEsc(p.dept || "")}" placeholder="事業統括本部 事業開発部" /></label>
              <label>ユニット・グループ<input class="mb-p" data-k="unit" value="${mbEsc(p.unit || "")}" placeholder="DOCユニット FSグループ" /></label>
-             <label class="mb-sig-wide">Zoom 参加URL<input class="mb-p" data-k="zoomUrl" value="${mbEsc(p.zoomUrl || "")}" placeholder="https://us04web.zoom.us/j/..." /></label>
-             <label>ミーティングID<input class="mb-p" data-k="zoomId" value="${mbEsc(p.zoomId || "")}" placeholder="849 580 4084" /></label>
-             <label>パスコード<input class="mb-p" data-k="zoomPass" value="${mbEsc(p.zoomPass || "")}" placeholder="yasx33" /></label>
            </div>
          </div>`;
 
@@ -859,6 +870,7 @@ function mbRender() {
         m.profile[e.target.dataset.k] = e.target.value;
       }));
       q(".mb-name").addEventListener("input", (e) => { m.name = e.target.value; });
+      q(".mb-name").addEventListener("change", () => mbRender());
       q(".mb-email").addEventListener("input", (e) => { m.email = e.target.value.trim().toLowerCase(); });
       q(".mb-team").addEventListener("input", (e) => { m.team = e.target.value.trim(); });
       q(".mb-cap").addEventListener("change", (e) => {

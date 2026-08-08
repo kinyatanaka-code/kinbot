@@ -5,9 +5,10 @@
 // いずれも「担当セールス本人のGmailアカウント」から送信する（gmailSend）。
 // scope は gmail.compose に送信権限が含まれるため、追加の再連携は不要。
 // ───────────────────────────────────────────────────────────
-import { gmailSend } from "./google.js";
+import { gmailSend, gmailCreateDraft } from "./google.js";
 import {
   getSettings,
+  getUserSettings,
   memberProfiles,
   apoMailSentRow,
   logApoMail,
@@ -33,7 +34,6 @@ export const DEFAULT_CONFIRM_BODY = `{{会社名}}
 【形式】Web会議（Zoom）
 {{ZoomURL}}
 ミーティングID: {{ミーティングID}}
-パスコード: {{パスコード}}
 
 当日は、{{お客様名}}様の現在の採用状況をお伺いさせていただき、
 採用領域全般でご活用いただける弊社AIエージェントが{{お客様名}}様にとってどのようにお役立ちできるか、
@@ -69,7 +69,6 @@ export const DEFAULT_REMINDER_BODY = `{{会社名}}
 【形式】Web会議（Zoom）
 {{ZoomURL}}
 ミーティングID: {{ミーティングID}}
-パスコード: {{パスコード}}
 
 お時間になりましたら、上記URLよりご入室ください。
 ご都合が変わられた場合は、お手数ですが本メールにご返信ください。
@@ -92,6 +91,11 @@ TEL：03-6756-0421　 FAX：03-5908-8385
 export async function getApoMailConfig() {
   const s = (await getSettings().catch(() => ({}))) || {};
   return {
+    // メールの出し方。
+    //   draft … 担当セールスのGmailに下書きを作る（本人が内容を見て送る）
+    //   send  … そのまま自動送信する
+    // 既定は draft。誤送信が起きないので、まずはこちらで運用する。
+    deliverMode: s.apoMailDeliverMode === "send" ? "send" : "draft",
     // 自動送信のON/OFF（既定はOFF。設定画面で明示的に入れてもらう）
     autoConfirm: s.apoMailAutoConfirm === true,
     autoReminder: s.apoMailAutoReminder === true,
@@ -134,30 +138,60 @@ function jstParts(iso) {
   };
 }
 
-// 「田中 欽也」→「田中」。姓だけを取り出す（全角/半角スペース区切り）。
+// よくある3文字の姓。2文字で切ると間違えるものだけを並べる。
+const THREE_CHAR_SURNAMES = [
+  "佐々木", "長谷川", "小野寺", "久保田", "佐久間", "五十嵐", "小早川", "大河原",
+  "宇佐美", "小笠原", "阿久津", "菅野原", "長谷部", "勅使河", "八木橋", "宇都宮",
+  "喜多村", "神保町", "小田切", "西園寺", "早乙女", "十河内", "武者小", "四十物",
+];
+
+// 名前から姓を取り出す。
+//   「田中 欽也」    → スペース区切りなら前半
+//   「植野ひかり」    → 先頭の漢字のかたまり
+//   「森田弥鳴」      → 漢字だけなら先頭2文字（3文字姓のリストを先に見る）
+//   「Kinya Tanaka」→ 英字はスペース区切りの前半
 export function familyName(name) {
-  const n = String(name || "").trim();
+  const n = String(name || "").trim().replace(/[\s\u3000]+/g, " ");
   if (!n) return "";
-  const m = n.split(/[\s\u3000]+/);
-  return m[0] || n;
+  // スペースで区切られていればそれが一番確実
+  if (n.includes(" ")) return n.split(" ")[0];
+  // 3文字の姓を先に確認
+  for (const f of THREE_CHAR_SURNAMES) if (n.startsWith(f)) return f;
+  // 「漢字＋ひらがな/カタカナ」なら漢字のかたまりが姓
+  const m = n.match(/^([\u4E00-\u9FFF々]{1,4})[\u3040-\u309F\u30A0-\u30FF]/);
+  if (m) return m[1];
+  // 漢字だけの名前は先頭2文字を姓とみなす（3文字以上のときだけ）
+  if (/^[\u4E00-\u9FFF々]{3,}$/.test(n)) return n.slice(0, 2);
+  return n;
 }
 
-export function buildVars(link, { repName, repEmail, url, companyName, profile = {} }) {
+// ZoomのURLからミーティングIDを取り出して「849 580 4084」の形にする
+export function meetingIdFromUrl(zoomUrl) {
+  const m = String(zoomUrl || "").match(/\/j\/(\d{9,12})/);
+  if (!m) return "";
+  const d = m[1];
+  // 3-3-4 / 3-4-4 のように、Zoomの表示に近い形で区切る
+  if (d.length === 10) return `${d.slice(0, 3)} ${d.slice(3, 6)} ${d.slice(6)}`;
+  if (d.length === 11) return `${d.slice(0, 3)} ${d.slice(3, 7)} ${d.slice(7)}`;
+  if (d.length === 9) return `${d.slice(0, 3)} ${d.slice(3, 6)} ${d.slice(6)}`;
+  return d;
+}
+
+export function buildVars(link, { repName, repEmail, url, companyName, profile = {}, zoomLink = "" }) {
   const parts = parseTitleParts(link.label);
   const t = jstParts(link.start_time);
   const dateStr = t ? `${t.m}月${t.d}日(${t.wd})` : "";
   const timeStr = t ? `${t.hh}:${t.mm}` : "";
-  // Zoomは担当者ごとの設定を優先し、無ければkinbotの共有リンクを使う
-  const zoomUrl = String(profile.zoomUrl || "").trim() || url || "";
+  // Zoomは「設定 → 登録リンク」で各自が登録したURLを使う。未登録ならkinbotの共有リンク。
+  const zoomUrl = String(zoomLink || "").trim() || url || "";
   return {
-    "担当者姓": familyName(profile.shortName || repName),
+    "担当者姓": String(profile.shortName || "").trim() || familyName(repName),
     "担当者ローマ字": String(profile.nameRoman || "").trim(),
     "担当者電話": String(profile.phone || "").trim(),
     "部署": String(profile.dept || "").trim(),
     "ユニット": String(profile.unit || "").trim(),
     "ZoomURL": zoomUrl,
-    "ミーティングID": String(profile.zoomId || "").trim(),
-    "パスコード": String(profile.zoomPass || "").trim(),
+    "ミーティングID": meetingIdFromUrl(zoomUrl),
     "アポ獲得者姓": familyName(link.setter),
     "会社名": parts.company || "",
     "お客様名": String(link.client_name || "").trim() || parts.person || "ご担当者",
@@ -236,44 +270,57 @@ export async function sendApoMail(link, kind, { url, repName, force = false, act
 
   if (!force) {
     const already = await apoMailSentRow(link.slug, kind);
-    if (already) return { ok: false, skipped: true, reason: "送信済みです", at: already.created_at };
+    if (already) {
+      return { ok: false, skipped: true,
+        reason: already.status === "draft" ? "すでに下書きを作成しています" : "送信済みです",
+        at: already.created_at };
+    }
   }
 
   // 担当セールスの署名・Zoom情報を読む（メンバー管理で設定した内容）
   const profiles = await memberProfiles().catch(() => ({}));
   const profile = profiles[owner] || {};
+  // 会議室URLは「設定 → 登録リンク」で本人が登録したもの
+  const us = await getUserSettings(owner).catch(() => ({}));
+  const zoomLink = (us && String(us.myZoomLink || "").trim()) || "";
   const vars = buildVars(link, {
     repName: repName || profile.name || owner,
     repEmail: owner,
     url,
     companyName: cfg.companyName,
     profile,
+    zoomLink,
   });
 
   // 差し込みが埋まらない項目があれば、送る前に気づけるようログに出す
-  const missing = ["ZoomURL", "ミーティングID", "パスコード", "担当者電話", "部署", "ユニット", "担当者ローマ字"]
+  const missing = ["ZoomURL", "ミーティングID", "担当者電話", "部署", "ユニット", "担当者ローマ字"]
     .filter((k) => (kind === "reminder" ? cfg.reminderBody : cfg.confirmBody).includes(`{{${k}}}`) && !vars[k]);
   if (missing.length) {
     console.warn(`[apo-mail] ${owner} の設定が未入力のため空欄になります: ${missing.join("、")}` +
-      `（設定→メンバー管理→署名・Zoom情報）`);
+      `（署名は 設定→メンバー管理→署名、会議室URLは 設定→登録リンク）`);
   }
   const subject = render(kind === "reminder" ? cfg.reminderSubject : cfg.confirmSubject, vars);
   const bodyText = render(kind === "reminder" ? cfg.reminderBody : cfg.confirmBody, vars);
 
+  const asDraft = cfg.deliverMode !== "send";
   try {
-    const r = await gmailSend(owner, { to, subject, bodyText });
+    const r = asDraft
+      ? await gmailCreateDraft(owner, { to, subject, bodyText })
+      : await gmailSend(owner, { to, subject, bodyText });
     await logApoMail({
       slug: link.slug, kind, toEmail: to, fromOwner: owner,
-      subject, status: "sent", messageId: (r && r.id) || null,
+      subject, status: asDraft ? "draft" : "sent",
+      messageId: (r && (r.id || (r.message && r.message.id))) || null,
     });
-    console.log(`[apo-mail] ${kind} 送信 ${link.slug} → ${to}（差出人: ${owner} / ${actor}）`);
-    return { ok: true, subject, to, messageId: (r && r.id) || null, missing };
+    console.log(`[apo-mail] ${kind} ${asDraft ? "下書き作成" : "送信"} ${link.slug} → ${to}（${owner} / ${actor}）`);
+    return { ok: true, draft: asDraft, subject, to,
+             messageId: (r && (r.id || (r.message && r.message.id))) || null, missing };
   } catch (e) {
     await logApoMail({
       slug: link.slug, kind, toEmail: to, fromOwner: owner,
       subject, status: "failed", error: e.message,
     });
-    console.warn(`[apo-mail] ${kind} 失敗 ${link.slug} → ${to}: ${e.message}`);
+    console.warn(`[apo-mail] ${kind} ${asDraft ? "下書き作成" : "送信"}に失敗 ${link.slug} → ${to}: ${e.message}`);
     return { ok: false, skipped: false, reason: e.message,
              needScope: !!e.needScope, needScopeOwner: e.owner || owner };
   }

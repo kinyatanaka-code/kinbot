@@ -86,6 +86,7 @@ import {
   deleteSmartLink,
   setSmartLinkClient,
   setSmartLinkBusiness,
+  setSmartLinkSourceNote,
   logGmailAction,
   listClosers,
   saveClosers,
@@ -8060,6 +8061,11 @@ async function collectApoAppointments(scanOwner, opts = {}) {
             eventId: ev.id, setter: st.name, startTime: ev.start, endTime: ev.end || null,
           });
         }
+        // アポ獲得者が予定の説明欄に書いた内容を保存する（商談担当の予定に引き継ぐ）
+        if (ev.description && !String(link.source_note || "").trim()) {
+          const up = await setSmartLinkSourceNote(link.slug, ev.description, false);
+          if (up) link = up;
+        }
         // このアポの事業（DOC / MOCHICA）を、アポ獲得者の担当事業から決めて保存する
         if (!String(link.business || "").trim()) {
           const biz = await businessOfSetter(st.name);
@@ -8556,8 +8562,14 @@ async function createApoInvite(link, { actor } = {}) {
   const start = new Date(link.start_time);
   const end = link.end_time ? new Date(link.end_time) : new Date(start.getTime() + 60 * 60 * 1000); // 既定1時間
   const summary = link.label || "商談";
-  const description = `kinbotが自動作成した商談予定です。\n参加URL: ${joinUrl(link.slug)}\n` +
+  let description = `kinbotが自動作成した商談予定です。\n参加URL: ${joinUrl(link.slug)}\n` +
     `アポ獲得: ${link.setter || "-"}\n担当: ${link.current_owner}`;
+  // アポ獲得者が元の予定に書いたメモをそのまま引き継ぐ（先方の連絡先や資料希望などが入っている）
+  const note = String(link.source_note || "").trim();
+  if (note) {
+    description += `\n\n────────────────\n` +
+      `【アポ獲得時のメモ（${link.setter || "アポ獲得者"}）】\n${note}`;
+  }
 
   // 作り方は2通り。
   //   closer … 担当者本人のカレンダーに直接作る（運用者のカレンダーには入らない）
@@ -8722,6 +8734,7 @@ app.put("/api/apo-mail-config", async (req, res) => {
   try {
     const b = req.body || {};
     const patch = {};
+    if (b.deliverMode !== undefined) patch.apoMailDeliverMode = b.deliverMode === "send" ? "send" : "draft";
     if (b.autoConfirm !== undefined) patch.apoMailAutoConfirm = !!b.autoConfirm;
     if (b.autoReminder !== undefined) patch.apoMailAutoReminder = !!b.autoReminder;
     if (b.reminderHour !== undefined) patch.apoMailReminderHour = Math.min(23, Math.max(0, parseInt(b.reminderHour, 10) || 0));
