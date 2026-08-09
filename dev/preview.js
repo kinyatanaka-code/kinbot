@@ -234,16 +234,30 @@ function apiResponse(pathname, query) {
   if (pathname === "/api/kasasagi/status") {
     if (!globalThis.__ks) return { tts: { provider: "edge", ready: true }, active: [], session: null };
     return { tts: { provider: "edge", ready: true }, active: ["bot-demo-1"], session: {
-      botId: "bot-demo-1", speaking: false, autoAnswer: true, scriptTotal: 3, scriptIndex: 1, queued: 0, error: "",
+      botId: "bot-demo-1", speaking: false, autoAnswer: true, autoAdvance: true,
+      mode: "buddy", listening: false, stopped: false, slide: "service", slideLabel: "サービスの説明",
+      unanswered: 1, ngHits: 0, scriptTotal: 6, scriptIndex: 3, queued: 0, error: "",
       log: [
         { at: "", kind: "info", text: "かささぎを開始しました" },
-        { at: "", kind: "script", text: "本日はお時間をいただきありがとうございます。株式会社ネオキャリアの田中です。" },
+        { at: "", kind: "info", text: "台本が空だったので、社内の情報から自動で作りました" },
+        { at: "", kind: "script", text: "本日はお時間をいただきありがとうございます。ネオキャリアのかささぎと申します。" },
+        { at: "", kind: "hear", text: "町田様: 佐々木さんお願いします" },
+        { at: "", kind: "answer", text: "はい、よろしくお願いいたします。" },
+        { at: "", kind: "script", text: "まず御社の採用状況をお伺いできればと思います。" },
         { at: "", kind: "hear", text: "町田様: 料金はいくらくらいになりますか？" },
         { at: "", kind: "answer", text: "料金は社数と期間で変わります。確認して折り返します。" },
-        { at: "", kind: "skip", text: "質問ではないと判断：なるほど" },
+        { at: "", kind: "skip", text: "相づちと判断：なるほど" },
+        { at: "", kind: "lead", text: "ここまでで、気になる点はございますか。" },
+        { at: "", kind: "slide", text: "スライドを「サービスの説明」に切り替えました" },
+        { at: "", kind: "todo", text: "答えられなかった質問として記録：他社ATSとの連携は" },
       ] } };
   }
-  if (pathname === "/api/kasasagi/start") { globalThis.__ks = true; return { ok: true }; }
+  if (pathname === "/api/kasasagi/face") return { ok: true, slide: "service", label: "サービスの説明", speaking: false, listening: false, caption: "会社の様子をそのまま見ていただけます。", summary: "" };
+  if (pathname === "/api/kasasagi/unanswered") return { items: [
+    { id: 1, question: "他社ATSとの連携は可能ですか？", title: "【初回】株式会社ベルク", asked_by: "町田様", answer: null, answered_at: null },
+    { id: 2, question: "解約はいつでもできますか？", title: "【初回】合同会社サンライズ", asked_by: "佐藤様", answer: "契約期間は1年で、更新月に解約できます。", answered_at: "2026-08-08" },
+  ], blocked: [] };
+  if (pathname === "/api/kasasagi/start") { globalThis.__ks = true; return { ok: true, slides: { cover: "表紙", company: "会社紹介", problem: "採用の課題", service: "サービスの説明", usage: "使い方", flow: "導入の流れ", case: "導入事例", pricing: "料金", faq: "よくある質問", next: "次のご案内", summary: "この商談のまとめ" }, generatedScript: "本日はお時間をいただきありがとうございます。ネオキャリアのかささぎと申します。まず御社の採用状況をお伺いします。次にサービスをご説明します。" }; }
   if (pathname === "/api/kasasagi/stop") { globalThis.__ks = false; return { ok: true }; }
   if (pathname.indexOf("/api/kasasagi/") === 0) return { ok: true, done: false, remaining: 2 };
   if (pathname === "/api/members") {

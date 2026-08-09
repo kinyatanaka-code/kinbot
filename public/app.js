@@ -386,11 +386,18 @@ async function joinMeeting() {
     const res = await fetch("/api/sessions", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ meetingUrl, title }),
+      body: JSON.stringify({
+        meetingUrl, title,
+        // かささぎを使う商談は、喋れる作りのBotで入室させる（あとから変えられない）
+        kasasagi: !!(document.getElementById("joinKasasagi") || {}).checked,
+      }),
     });
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || "作成に失敗しました");
     openLive(data.sessionId, { viewer: false });
+    if ((document.getElementById("joinKasasagi") || {}).checked) {
+      setTimeout(() => liveSwitchTab("kasasagi"), 600);
+    }
     if (data.autoTitle) {
       setStatus(`Botが入室処理中です。会議で参加を許可してください。（商談名をカレンダーから自動設定：「${data.autoTitle}」）`);
     } else {
@@ -1224,21 +1231,67 @@ async function ksRefresh() {
     if (!live) { box.hidden = true; return; }
     box.hidden = false;
     const s = d.session;
-    const kindLabel = { script: "台本", answer: "返答", manual: "手動", hear: "聞取", chat: "チャット", error: "エラー", skip: "見送り", info: "" };
+    const kindLabel = { script: "台本", answer: "返答", lead: "進行", manual: "手動", ack: "受け",
+      hear: "聞取", slide: "資料", todo: "宿題", blocked: "停止", chat: "チャット", error: "エラー", skip: "見送り", info: "" };
     box.innerHTML =
       `<div class="ks-meta">台本 ${s.scriptIndex}/${s.scriptTotal}　` +
-      `${s.speaking ? "話しています" : "待機中"}　` +
-      `${s.autoAnswer ? "自動応答ON" : "自動応答OFF"}` +
+      `${s.listening ? "合図を待っています" : s.stopped ? "停止中" : s.speaking ? "話しています" : "待機中"}　` +
+      `${s.mode === "solo" ? "ソロ" : "バディ"}　${s.autoAdvance ? "自動進行ON" : "自動進行OFF"}　` +
+      `${s.autoAnswer ? "応答ON" : "応答OFF"}${s.slideLabel ? "　スライド：" + ks.esc(s.slideLabel) : ""}` +
       `${s.error ? `　<span class="cc-warn">${ks.esc(s.error).slice(0, 60)}</span>` : ""}</div>` +
       (s.log || []).slice(-14).reverse().map((l) =>
         `<div class="ks-line ks-${ks.esc(l.kind)}"><span class="ks-k">${ks.esc(kindLabel[l.kind] ?? l.kind)}</span>${ks.esc(l.text)}</div>`).join("");
   } catch {}
 }
 
+function ksFillSlides(map) {
+  const sel = ks.el("ksSlide");
+  const row = ks.el("ksSlideRow");
+  if (!sel || !map) return;
+  const cur = sel.value;
+  sel.innerHTML = "";
+  for (const [k, v] of Object.entries(map)) sel.add(new Option(v, k));
+  if (cur) sel.value = cur;
+  if (row) row.hidden = false;
+}
+
+async function ksLoadUnanswered() {
+  const box = ks.el("ksUnans");
+  if (!box) return;
+  try {
+    const d = await (await fetch("/api/kasasagi/unanswered")).json();
+    const items = d.items || [];
+    if (!items.length) { box.innerHTML = '<div class="empty-state">まだありません。</div>'; return; }
+    box.innerHTML = items.map((x) => `
+      <div class="ks-qa${x.answered_at ? " ks-qa-done" : ""}" data-id="${x.id}">
+        <div class="ks-q">${ks.esc(x.question)}</div>
+        <div class="ks-qmeta">${ks.esc(x.title || "")}${x.asked_by ? "／" + ks.esc(x.asked_by) : ""}</div>
+        ${x.answered_at
+          ? `<div class="ks-a">${ks.esc(x.answer)}</div>`
+          : `<div class="ks-arow"><input type="text" class="ks-ain" placeholder="ここに答えを書く" />
+               <button type="button" class="btn ghost ks-asave">登録</button></div>`}
+      </div>`).join("");
+    box.querySelectorAll(".ks-asave").forEach((b) => b.addEventListener("click", async () => {
+      const wrap = b.closest(".ks-qa");
+      const v = wrap.querySelector(".ks-ain").value.trim();
+      if (!v) return;
+      b.disabled = true; b.textContent = "登録中…";
+      try {
+        const r = await fetch(`/api/kasasagi/unanswered/${wrap.dataset.id}`, {
+          method: "PUT", headers: { "content-type": "application/json" },
+          body: JSON.stringify({ answer: v }),
+        });
+        if (!r.ok) throw new Error((await r.json()).error || "登録に失敗しました");
+        ksLoadUnanswered();
+      } catch (e) { alert(e.message); b.disabled = false; b.textContent = "登録"; }
+    }));
+  } catch { box.innerHTML = '<div class="empty-state">読み込めませんでした。</div>'; }
+}
+
 // タブを開いている間だけ状態を見に行く
 function ksWatch(on) {
   if (ks.timer) { clearInterval(ks.timer); ks.timer = null; }
-  if (on) { ksRefresh(); ks.timer = setInterval(ksRefresh, 4000); }
+  if (on) { ksRefresh(); ksLoadUnanswered(); ks.timer = setInterval(ksRefresh, 4000); }
 }
 
 (function ksInit() {
@@ -1257,11 +1310,21 @@ function ksWatch(on) {
           script: ks.el("ksScript").value,
           persona: ks.el("ksPersona").value,
           autoAnswer: ks.el("ksAuto").checked,
+          autoAdvance: ks.el("ksAdvance") ? ks.el("ksAdvance").checked : true,
+          useSlides: ks.el("ksSlides") ? ks.el("ksSlides").checked : true,
+          mode: ks.el("ksMode") ? ks.el("ksMode").value : "buddy",
         }),
       });
       const d = await r.json();
       if (!r.ok) throw new Error(d.error || "開始できませんでした");
-      ksSay("開始しました", 3000);
+      // 台本を自動で作った場合は、画面にも入れて中身が見えるようにする
+      if (d.generatedScript) ks.el("ksScript").value = d.generatedScript;
+      if (d.slides) ksFillSlides(d.slides);
+      ksSay(
+        (ks.el("ksMode") && ks.el("ksMode").value === "buddy")
+          ? "待機に入りました。「かささぎさん、お願いします」で話し始めます"
+          : (d.generatedScript ? "開始しました（台本を自動で作りました）" : "開始しました"),
+        7000);
       ksRefresh();
     } catch (e) { ksSay("失敗: " + e.message); }
   });
@@ -1308,14 +1371,66 @@ function ksWatch(on) {
     } catch {}
   });
 
+  const adv = document.getElementById("ksAdvance");
+  if (adv) adv.addEventListener("change", async () => {
+    const botId = ksBotId();
+    if (!botId) return;
+    try {
+      await fetch("/api/kasasagi/auto", {
+        method: "PUT", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ botId, autoAnswer: ks.el("ksAuto").checked, autoAdvance: adv.checked }),
+      });
+      ksRefresh();
+    } catch {}
+  });
+
+  const slideSel = document.getElementById("ksSlide");
+  if (slideSel) slideSel.addEventListener("change", async () => {
+    try {
+      await fetch("/api/kasasagi/slide", {
+        method: "PUT", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ botId: ksBotId(), slide: slideSel.value }),
+      });
+      ksRefresh();
+    } catch {}
+  });
+
+  const sumBtn = document.getElementById("ksSummaryBtn");
+  if (sumBtn) sumBtn.addEventListener("click", async () => {
+    const t = prompt("認識合わせとして映す内容を書いてください。\n例：中途の営業職を3名、年内に採用したい。");
+    if (t == null) return;
+    try {
+      await fetch("/api/kasasagi/summary", {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ botId: ksBotId(), text: t }),
+      });
+      ksRefresh();
+    } catch {}
+  });
+
   document.getElementById("ksStop").addEventListener("click", async () => {
     if (!confirm("かささぎを停止します。よろしいですか？")) return;
     try {
+      const botId = ksBotId();
+      // 止める前に、営業へのフィードバックと次アクションを作っておく
+      ksSay("まとめを作っています…");
+      try {
+        const rr = await fetch("/api/kasasagi/report", {
+          method: "POST", headers: { "content-type": "application/json" },
+          body: JSON.stringify({ botId }),
+        });
+        const rd = await rr.json();
+        if (rr.ok && rd.report && (rd.report.feedback || rd.report.nextAction)) {
+          alert("【営業へのフィードバック】\n" + (rd.report.feedback || "（なし）") +
+                "\n\n【次のアクション】\n" + (rd.report.nextAction || "（なし）"));
+        }
+      } catch {}
       await fetch("/api/kasasagi/stop", {
         method: "POST", headers: { "content-type": "application/json" },
-        body: JSON.stringify({ botId: ksBotId() }),
+        body: JSON.stringify({ botId }),
       });
       ksSay("停止しました", 3000);
+      ksLoadUnanswered();
       ksRefresh();
     } catch (e) { ksSay("失敗: " + e.message); }
   });

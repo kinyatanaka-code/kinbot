@@ -29,7 +29,8 @@ async function sq(sql, params) {
 // 期待するテーブル・カラムが実際にできているかを確認する
 const EXPECTED_TABLES = [
   "meetings", "deals", "deal_events", "smart_links", "interns", "users", "settings",
-  "apo_mail_log", "gmail_actions", "closer_rotation", "assign_log", "team_rotation", "members", "closer_suspensions", "proposal_files",
+  "apo_mail_log", "gmail_actions", "closer_rotation", "assign_log", "team_rotation", "members", "closer_suspensions",
+  "kasasagi_unanswered", "kasasagi_blocked", "kasasagi_reports", "proposal_files",
 ];
 const EXPECTED_COLUMNS = [
   ["smart_links", "client_email"], ["smart_links", "client_name"],
@@ -651,6 +652,51 @@ export async function initDb() {
     );
   `);
   await sq(`CREATE INDEX IF NOT EXISTS ix_suspensions_email ON closer_suspensions(email, start_date);`);
+
+  // かささぎが答えられなかった質問。あとから社内で答えを書き、ナレッジに反映する。
+  await sq(`
+    CREATE TABLE IF NOT EXISTS kasasagi_unanswered (
+      id          BIGSERIAL PRIMARY KEY,
+      bot_id      TEXT,
+      title       TEXT,
+      asked_by    TEXT,
+      question    TEXT NOT NULL,
+      answer      TEXT,
+      answered_by TEXT,
+      answered_at TIMESTAMPTZ,
+      created_at  TIMESTAMPTZ DEFAULT now()
+    );
+  `);
+  await sq(`CREATE INDEX IF NOT EXISTS ix_ks_unanswered ON kasasagi_unanswered(answered_at NULLS FIRST, created_at DESC);`);
+
+  // かささぎが言ってはいけない語を止めた記録（週次の点検用）
+  await sq(`
+    CREATE TABLE IF NOT EXISTS kasasagi_blocked (
+      id         BIGSERIAL PRIMARY KEY,
+      bot_id     TEXT,
+      word       TEXT,
+      text       TEXT,
+      created_at TIMESTAMPTZ DEFAULT now()
+    );
+  `);
+
+  // 商談ごとのかささぎの記録（営業へのフィードバックと次アクション）
+  await sq(`
+    CREATE TABLE IF NOT EXISTS kasasagi_reports (
+      bot_id      TEXT PRIMARY KEY,
+      title       TEXT,
+      owner       TEXT,
+      feedback    TEXT,
+      next_action TEXT,
+      spoken      INT DEFAULT 0,
+      answered    INT DEFAULT 0,
+      unanswered  INT DEFAULT 0,
+      created_at  TIMESTAMPTZ DEFAULT now()
+    );
+  `);
+
+  // 社内ナレッジの公開範囲。かささぎが商談で使ってよいものだけを絞る。
+  await sq(`ALTER TABLE knowledge ADD COLUMN IF NOT EXISTS visibility TEXT NOT NULL DEFAULT 'both';`);
 
   // ===== メンバー管理（登録元をここ1つにまとめる） =====
   // 事業（DOC / MOCHICA）・チーム・役割（クローザー／インサイド／予備）をここで持ち、
@@ -2725,6 +2771,93 @@ export async function eligibleDays(fromISO, toISO) {
     }
     return out;
   } catch (e) { console.error("[db] eligibleDays", e.message); return {}; }
+}
+
+// ===== かささぎ =====
+// 答えられなかった質問をためる
+export async function addUnanswered({ botId, title, askedBy, question }) {
+  if (!pool || !question) return null;
+  try {
+    const { rows } = await pool.query(
+      `INSERT INTO kasasagi_unanswered (bot_id, title, asked_by, question)
+       VALUES ($1,$2,$3,$4) RETURNING *`,
+      [botId || null, title || null, askedBy || null, String(question).slice(0, 1000)]);
+    return rows[0];
+  } catch (e) { console.error("[db] addUnanswered", e.message); return null; }
+}
+
+export async function listUnanswered({ onlyOpen = false, limit = 200 } = {}) {
+  if (!pool) return [];
+  try {
+    const { rows } = await pool.query(
+      `SELECT * FROM kasasagi_unanswered
+        ${onlyOpen ? "WHERE answered_at IS NULL" : ""}
+        ORDER BY answered_at NULLS FIRST, created_at DESC LIMIT $1`, [limit]);
+    return rows;
+  } catch { return []; }
+}
+
+export async function answerUnanswered(id, { answer, answeredBy }) {
+  if (!pool) return null;
+  try {
+    const { rows } = await pool.query(
+      `UPDATE kasasagi_unanswered SET answer=$2, answered_by=$3, answered_at=now()
+        WHERE id=$1 RETURNING *`,
+      [id, String(answer || "").slice(0, 4000), answeredBy || null]);
+    return rows[0] || null;
+  } catch (e) { console.error("[db] answerUnanswered", e.message); return null; }
+}
+
+// 言ってはいけない語で止めた記録
+export async function addBlocked({ botId, word, text }) {
+  if (!pool) return;
+  try {
+    await pool.query(`INSERT INTO kasasagi_blocked (bot_id, word, text) VALUES ($1,$2,$3)`,
+      [botId || null, word || null, String(text || "").slice(0, 1000)]);
+  } catch {}
+}
+export async function listBlocked(limit = 100) {
+  if (!pool) return [];
+  try {
+    const { rows } = await pool.query(
+      `SELECT * FROM kasasagi_blocked ORDER BY created_at DESC LIMIT $1`, [limit]);
+    return rows;
+  } catch { return []; }
+}
+
+// 商談ごとの記録（営業へのフィードバックと次アクション）
+export async function saveKasasagiReport(r) {
+  if (!pool || !r?.botId) return null;
+  try {
+    const { rows } = await pool.query(
+      `INSERT INTO kasasagi_reports (bot_id, title, owner, feedback, next_action, spoken, answered, unanswered)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+       ON CONFLICT (bot_id) DO UPDATE SET title=$2, owner=$3, feedback=$4, next_action=$5,
+         spoken=$6, answered=$7, unanswered=$8
+       RETURNING *`,
+      [r.botId, r.title || null, r.owner || null, r.feedback || null, r.nextAction || null,
+       r.spoken || 0, r.answered || 0, r.unanswered || 0]);
+    return rows[0];
+  } catch (e) { console.error("[db] saveKasasagiReport", e.message); return null; }
+}
+export async function getKasasagiReport(botId) {
+  if (!pool) return null;
+  try {
+    const { rows } = await pool.query(`SELECT * FROM kasasagi_reports WHERE bot_id=$1`, [botId]);
+    return rows[0] || null;
+  } catch { return null; }
+}
+
+// かささぎが商談で使ってよいナレッジだけを返す
+export async function knowledgeForKasasagi(limit = 40) {
+  if (!pool) return [];
+  try {
+    const { rows } = await pool.query(
+      `SELECT id, title, category, body FROM knowledge
+        WHERE COALESCE(visibility,'both') IN ('both','kasasagi')
+        ORDER BY updated_at DESC NULLS LAST, id DESC LIMIT $1`, [limit]);
+    return rows;
+  } catch { return []; }
 }
 
 // ===== メンバー管理 =====

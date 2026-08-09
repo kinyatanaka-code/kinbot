@@ -98,7 +98,8 @@ export async function createBot({
   joinAt = null, // ISO文字列。指定すると予約入室（例: 開始3分前）
   rtmpUrl = null, // 指定するとミックス映像+音声をRTMPでライブ配信（Mux等）
   videoLayout = "gallery_view_v2",
-  speak = false,  // true にすると、かささぎがこのボットで喋れるようになる
+  speak = false,   // true にすると、かささぎがこのボットで喋れるようになる
+  faceUrl = null,  // スライドを映すページのURL（かささぎ用）
 }) {
   // recallai_streaming 用：英語以外は accuracy（低遅延は英語のみ対応のため）
   const mode =
@@ -111,7 +112,11 @@ export async function createBot({
     {
       type: "webhook",
       url: webhookUrl,
-      events: ["transcript.data", "transcript.partial_data"],
+      events: [
+        "transcript.data", "transcript.partial_data",
+        // 会議のチャット。かささぎを止める合図（「かささぎストップ」）を受ける。
+        "participant_events.chat_message",
+      ],
     },
   ];
   if (rtmpUrl) {
@@ -161,6 +166,9 @@ export async function createBot({
     ...(speak
       ? { variant: { zoom: "web_4_core", google_meet: "web_4_core", microsoft_teams: "web_4_core" } }
       : {}),
+    // スライドを見せる。音声は Output Audio で別に送る（Output Media 経由の音声は
+    // Meetで途切れることが分かっているため、映像と音声は分ける）。
+    ...(faceUrl ? { output_media: { camera: { kind: "webpage", config: { url: faceUrl } } } } : {}),
   };
 
   // 507（容量一時不足）は数回リトライ推奨
@@ -256,6 +264,20 @@ function joinWords(words) {
  * Webhook ボディから文字起こしイベントを取り出す。
  * @returns {null | {type:'final'|'partial', botId:string, speaker:{id,name}, text:string}}
  */
+// 会議のチャットを1件取り出す（かささぎを止める合図に使う）
+export function parseChatEvent(body) {
+  if (body?.event !== "participant_events.chat_message") return null;
+  const d = body?.data?.data || body?.data || {};
+  const text = String(d.text || d.message || "").trim();
+  if (!text) return null;
+  const p = d.participant || {};
+  return {
+    botId: body?.data?.bot?.id || body?.data?.bot_id || null,
+    speaker: { id: p.id ?? null, name: p.name ?? null },
+    text,
+  };
+}
+
 export function parseTranscriptEvent(body) {
   const event = body?.event;
   if (event !== "transcript.data" && event !== "transcript.partial_data") return null;

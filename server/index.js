@@ -22,9 +22,10 @@ import { pickCloser, commitAssignment, rotationStatus, setNextCloser,
 import { sendApoMail, runReminderSweep, getApoMailConfig,
          DEFAULT_CONFIRM_SUBJECT, DEFAULT_CONFIRM_BODY,
          DEFAULT_REMINDER_SUBJECT, DEFAULT_REMINDER_BODY, stripRetiredLines } from "./apomail.js";
-import { startKasasagi, getKasasagi, stopKasasagi, feedTranscript, kasasagiInfo } from "./kasasagi.js";
+import { startKasasagi, getKasasagi, stopKasasagi, feedTranscript, kasasagiInfo,
+         buildScript, buildReport, faceState, SLIDE_LABELS } from "./kasasagi.js";
 import { transcribeFile, transcriberAvailable } from "./transcribe.js";
-import { createBot, leaveBot, parseTranscriptEvent, outputAudio, getRecordingUrl, getBot, recallConnectionInfo, getRecallUsage, getLastRecallCreate } from "./recall.js";
+import { createBot, leaveBot, parseTranscriptEvent, parseChatEvent, outputAudio, getRecordingUrl, getBot, recallConnectionInfo, getRecallUsage, getLastRecallCreate } from "./recall.js";
 import { createSession, getSession, removeSession, listActiveSessions, setOnMeetingFinalized } from "./sessions.js";
 import { scoreTranscript } from "./temperature.js";
 import { buildChapters } from "./chapters.js";
@@ -90,6 +91,13 @@ import {
   setSmartLinkSourceNote,
   recentInvites,
   myAssignedApos,
+  addUnanswered,
+  listUnanswered,
+  answerUnanswered,
+  listBlocked,
+  saveKasasagiReport,
+  getKasasagiReport,
+  knowledgeForKasasagi,
   activeInviteEventIds,
   logGmailAction,
   listClosers,
@@ -343,6 +351,8 @@ const app = express();
 // --- 個人アカウント認証（Cookieセッション） ---
 const OPEN_PATHS = new Set([
   "/api/recall/webhook", "/api/zoom/webhook", "/api/login", "/api/register", "/api/auth-info",
+  // 会議に映すページとその中身（Recallのブラウザから認証なしで読む）
+  "/api/kasasagi/face", "/kasasagi-face.html",
   "/.well-known/oauth-authorization-server", "/.well-known/oauth-protected-resource",
   "/oauth/register", "/oauth/authorize", "/oauth/token",
   // ChatGPTのCustom GPTが「URLからインポート」で取得する公開スキーマ（トークンは含まない）
@@ -2129,6 +2139,80 @@ app.post("/api/mux/cleanup", async (req, res) => {
 
 // Recall接続状況（どのリージョン/キーに繋がっているか＋今月の利用時間＋直近のボット起動結果）
 // ※Recall APIは「残高（チャージ額）」を返さないため、残高は取得できない。利用時間と接続先のみ表示する。
+// アバターページ（会議に映すページ）が読む内容。認証なしで読めるようにする。
+app.get("/api/kasasagi/face", (req, res) => {
+  try { res.json(faceState(String(req.query.botId || ""))); }
+  catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// スライドを手で切り替える
+app.put("/api/kasasagi/slide", async (req, res) => {
+  try {
+    const s = getKasasagi(String(req.body?.botId || ""));
+    if (!s) return res.status(404).json({ error: "かささぎが動いていません" });
+    const key = String(req.body?.slide || "");
+    if (!SLIDE_LABELS[key]) return res.status(400).json({ error: "そのスライドはありません" });
+    s.slide = key; s.slideAt = Date.now();
+    s.note("slide", `スライドを「${SLIDE_LABELS[key]}」に切り替えました（手動）`);
+    res.json({ ok: true, slides: SLIDE_LABELS, status: s.status() });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// その商談専用のまとめスライドを出す（認識合わせ）
+app.post("/api/kasasagi/summary", async (req, res) => {
+  try {
+    const s = getKasasagi(String(req.body?.botId || ""));
+    if (!s) return res.status(404).json({ error: "かささぎが動いていません" });
+    await s.showSummary(String(req.body?.text || ""));
+    res.json({ ok: true, status: s.status() });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// 答えられなかった質問（一覧・回答）
+app.get("/api/kasasagi/unanswered", async (req, res) => {
+  try {
+    res.json({
+      items: await listUnanswered({ onlyOpen: req.query.open === "1" }),
+      blocked: await listBlocked(50),
+    });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.put("/api/kasasagi/unanswered/:id", async (req, res) => {
+  try {
+    const answer = String(req.body?.answer || "").trim();
+    if (!answer) return res.status(400).json({ error: "答えが空です" });
+    const row = await answerUnanswered(parseInt(req.params.id, 10), { answer, answeredBy: req.user });
+    // そのまま社内ナレッジにも足して、次の商談から使えるようにする
+    if (row && req.body?.toKnowledge !== false) {
+      try {
+        const k = await addKnowledge({
+          category: "かささぎQA", title: row.question.slice(0, 80), body: answer,
+          owner: req.user, sourceType: "kasasagi", sourceRef: row.bot_id || "",
+        });
+        if (k && k.id) await indexKnowledge(k.id, { title: row.question, category: "かささぎQA", body: answer });
+      } catch (e) { console.warn("[kasasagi] ナレッジ追加に失敗", e.message); }
+    }
+    res.json({ ok: true, row });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// 商談後のまとめ（営業へのフィードバックと次アクション）
+app.post("/api/kasasagi/report", async (req, res) => {
+  try {
+    const botId = String(req.body?.botId || "");
+    const r = await buildReport(botId);
+    if (!r) return res.status(404).json({ error: "かささぎが動いていません" });
+    await saveKasasagiReport({ ...r, owner: req.user });
+    res.json({ ok: true, report: r });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.get("/api/kasasagi/report", async (req, res) => {
+  try { res.json({ report: await getKasasagiReport(String(req.query.botId || "")) }); }
+  catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 // ===== かささぎ（AIが商談で喋る） =====
 app.get("/api/kasasagi/status", async (req, res) => {
   try {
@@ -2146,21 +2230,57 @@ app.post("/api/kasasagi/start", async (req, res) => {
     if (getKasasagi(botId)) return res.status(409).json({ error: "この商談ではすでに動いています" });
 
     // 社内ナレッジを参考情報として渡す（あれば）
+    // かささぎが商談で使ってよいナレッジだけを材料にする（visibility で絞る）
     let knowledge = "";
     try {
-      const hit = await retrieve(String(req.body?.topic || "サービス紹介 料金 導入事例"), { topK: 6, maxChars: 3500 });
-      knowledge = typeof hit === "string" ? hit : (hit && hit.text) || "";
+      const rows = await knowledgeForKasasagi(30);
+      knowledge = rows.map((r) => `【${r.category || "情報"}】${r.title}\n${String(r.body || "").slice(0, 600)}`)
+        .join("\n\n").slice(0, 6000);
     } catch {}
+    if (!knowledge) {
+      try {
+        const hit = await retrieve(String(req.body?.topic || "サービス紹介 料金 導入事例"), { topK: 6, maxChars: 3500 });
+        knowledge = typeof hit === "string" ? hit : (hit && hit.text) || "";
+      } catch {}
+    }
+
+    // 商談名（相手の会社名）を添えると、台本の作りが良くなる
+    let company = "";
+    try { const m = await getMeeting(botId); company = (m && m.title) || ""; } catch {}
+
+    // 台本が空なら、参考情報からAIに作ってもらう
+    let script = String(req.body?.script || "").trim();
+    let generated = false;
+    if (!script) {
+      script = await buildScript({ knowledge, company, persona: req.body?.persona || "" });
+      generated = !!script;
+    }
 
     const s = startKasasagi(botId, {
-      script: req.body?.script || "",
+      script,
+      title: company,
+      mode: req.body?.mode === "solo" ? "solo" : "buddy",
       persona: req.body?.persona || "",
       knowledge,
       autoAnswer: req.body?.autoAnswer !== false,
+      autoAdvance: req.body?.autoAdvance !== false,
+      quickAck: req.body?.quickAck !== false,
+      useSlides: req.body?.useSlides !== false,
+      greeting: req.body?.greeting || "",
       botName: req.body?.botName || "",
     });
-    console.log(`[kasasagi] 開始 ${botId} by ${req.user}`);
-    res.json({ ok: true, status: s.status() });
+    if (generated) s.note("info", "台本が空だったので、社内の情報から自動で作りました");
+    console.log(`[kasasagi] 開始 ${botId} by ${req.user}（台本 ${generated ? "自動生成" : "手入力"}）`);
+
+    if (s.mode === "solo") {
+      // ソロは開始した時点から自分で進行する
+      s.begin().catch((e) => s.note("error", e.message));
+    } else {
+      // バディは営業のブリーフィングが終わるまで完全に沈黙し、合図で話し始める
+      s.note("info", "待機中です。「かささぎさん、お願いします」で話し始めます。");
+    }
+    res.json({ ok: true, generatedScript: generated ? script : "",
+               slides: SLIDE_LABELS, status: s.status() });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
@@ -2192,7 +2312,12 @@ app.put("/api/kasasagi/auto", async (req, res) => {
     const s = getKasasagi(String(req.body?.botId || ""));
     if (!s) return res.status(404).json({ error: "かささぎが動いていません" });
     s.autoAnswer = req.body?.autoAnswer !== false;
-    s.note("info", s.autoAnswer ? "質問への自動応答をONにしました" : "自動応答をOFFにしました");
+    if (req.body?.autoAdvance !== undefined) {
+      s.autoAdvance = req.body.autoAdvance !== false;
+      if (s.autoAdvance) s.scheduleAdvance();
+      else if (s.advanceTimer) { clearTimeout(s.advanceTimer); s.advanceTimer = null; }
+    }
+    s.note("info", `応答${s.autoAnswer ? "ON" : "OFF"}／自動進行${s.autoAdvance ? "ON" : "OFF"} にしました`);
     res.json({ ok: true, status: s.status() });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
@@ -4957,7 +5082,7 @@ async function guessTitleFromCalendar(owner, meetingUrl, at = new Date()) {
 }
 
 // ボットを会議へ送り、セッションを開始する共通処理（手動開始・Zoom自動入室で共用）
-async function startBotSession(owner, meetingUrl, { title = "", repName = "", languageCode = "" } = {}) {
+async function startBotSession(owner, meetingUrl, { title = "", repName = "", languageCode = "", kasasagi = false } = {}) {
   const cfg = await resolveConfig(owner);
   let sessionTitle = (title || "").trim();
   let autoTitled = false;
@@ -4978,6 +5103,9 @@ async function startBotSession(owner, meetingUrl, { title = "", repName = "", la
       console.error("[mux] createLiveStream", e.message);
     }
   }
+  // かささぎを使う商談は、喋れる作りのBotにして、スライドを映すページも渡す。
+  // 「常にかささぎを使えるようにする」場合は KASASAGI_ALWAYS=1 を設定する。
+  const wantKasasagi = kasasagi === true || process.env.KASASAGI_ALWAYS === "1";
   const botId = await createBot({
     meetingUrl,
     webhookUrl: `${PUBLIC_URL}/api/recall/webhook`,
@@ -4986,6 +5114,8 @@ async function startBotSession(owner, meetingUrl, { title = "", repName = "", la
     provider: cfg.transcribeProvider,
     deepgramModel: cfg.deepgramModel,
     rtmpUrl: mux?.rtmpUrl || null,
+    speak: wantKasasagi,
+    faceUrl: wantKasasagi && PUBLIC_URL ? `${PUBLIC_URL}/kasasagi-face.html` : null,
   });
   const displayName = await getDisplayName(owner);
   createSession(botId, {
@@ -5031,7 +5161,7 @@ app.post("/api/sessions", async (req, res) => {
   if (!meetingUrl) return res.status(400).json({ error: "meetingUrl が必要です" });
   if (!PUBLIC_URL) return res.status(500).json({ error: "PUBLIC_URL が未設定です" });
   try {
-    const out = await startBotSession(req.user, meetingUrl, { title, repName, languageCode });
+    const out = await startBotSession(req.user, meetingUrl, { title, repName, languageCode, kasasagi: req.body?.kasasagi === true });
     res.json(out);
   } catch (e) {
     console.error("[sessions]", e.message);
@@ -5805,6 +5935,14 @@ async function processUpload(id, file, repName) {
 
 // --- Recall からのリアルタイム文字起こし Webhook ---
 app.post("/api/recall/webhook", (req, res) => {
+  // 会議のチャット（「かささぎストップ」など）
+  try {
+    const c = parseChatEvent(req.body);
+    if (c && c.botId) {
+      const ks = getKasasagi(c.botId);
+      if (ks) ks.onChat((c.speaker && c.speaker.name) || "", c.text);
+    }
+  } catch {}
   if (!verifyRecallRequest(req)) return res.status(401).end();
   res.status(200).end(); // まず即ACK（処理は非同期で）
   setImmediate(async () => {

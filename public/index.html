@@ -57,7 +57,9 @@
                 <select id="linkSelect" class="link-select"><option value="">会議リンクを選ぶ…（登録リンク / 予定のリンク）</option></select>
                 <input id="meetingUrl" type="url" placeholder="会議のURL（Zoom / Meet / Teams）" />
                 <button class="btn big" id="joinBtn">Botを入室させる</button>
-                <p class="join-consent">Botが参加者として入室します。<strong>相手に録音・記録の同意</strong>を得てください。</p>
+                <label class="ks-check join-ks"><input type="checkbox" id="joinKasasagi" /> かささぎ（AIが説明する）を使う</label>
+                <p class="join-consent">Botが参加者として入室します。<strong>相手に録音・記録の同意</strong>を得てください。<br>
+                かささぎを使う場合は、<strong>AIが応対することも必ず伝えて</strong>ください。</p>
               </div>
               <div class="join-card upload-card" data-mrec="file" data-recpanel="file" hidden>
                 <h2 class="join-title">ファイルから記録</h2>
@@ -172,14 +174,26 @@
 
           <div class="live-pane live-pane-scroll" data-pane="kasasagi" hidden>
             <div class="ks-body ks-live">
-              <p class="note">この商談で<b>AIが代わりに喋ります</b>。台本を順に読み上げ、お客様の質問には自動で答えます。<br>
+              <p class="note">この商談で<b>AIが代わりに喋ります</b>。開始するとあいさつから話し始め、間があいたら自分で説明を進めます。お客様の発言にはその場で応じます。<br>
               相手には<b>AIが応対していることを必ず伝えてから</b>お使いください。</p>
               <div class="ks-row">
-                <label class="ks-check"><input type="checkbox" id="ksAuto" checked /> 質問に自動で答える</label>
+                <label>モード
+                  <select id="ksMode">
+                    <option value="buddy">バディ（合図まで黙って待つ）</option>
+                    <option value="solo">ソロ（開始してすぐ話し始める）</option>
+                  </select>
+                </label>
                 <span class="rev-status" id="ksStatus"></span>
               </div>
-              <label class="ks-field">台本（順に読み上げます。空でも使えます）
-                <textarea id="ksScript" rows="5" placeholder="本日はお時間をいただきありがとうございます。株式会社ネオキャリアの田中です。&#10;まず、御社の採用状況をお伺いしたうえで…"></textarea>
+              <p class="note ks-cue">バディでは、営業のブリーフィング中は<b>完全に沈黙</b>します。<b>「かささぎさん、お願いします」</b>で話し始めます。<br>
+              止めたいときは、声でもチャットでも<b>「かささぎストップ」</b>。もう一度合図をいただければ再開します。</p>
+              <div class="ks-row">
+                <label class="ks-check"><input type="checkbox" id="ksAdvance" checked /> 自分から説明を進める</label>
+                <label class="ks-check"><input type="checkbox" id="ksAuto" checked /> 相手の発言に応じる</label>
+                <label class="ks-check"><input type="checkbox" id="ksSlides" checked /> スライドを切り替える</label>
+              </div>
+              <label class="ks-field">台本（<b>空のままでOK。社内の情報から自動で作ります</b>）
+                <textarea id="ksScript" rows="5" placeholder="空のまま開始すると、自社ナレッジと商談名からAIが説明の流れを作ります。&#10;自分で決めたい場合はここに書いてください。"></textarea>
               </label>
               <label class="ks-field">話し方の指示（任意）
                 <textarea id="ksPersona" rows="2" placeholder="空欄なら既定の指示を使います"></textarea>
@@ -193,7 +207,16 @@
                 <input type="text" id="ksSay" placeholder="いますぐ喋らせる文章" />
                 <button class="btn ghost" id="ksSayBtn" disabled>喋らせる</button>
               </div>
+              <div class="ks-row" id="ksSlideRow" hidden>
+                <label>映しているスライド <select id="ksSlide"></select></label>
+                <button class="btn ghost" id="ksSummaryBtn">認識合わせを出す</button>
+              </div>
               <div id="ksLog" class="ks-log" hidden></div>
+              <details class="ks-sub">
+                <summary>答えられなかった質問</summary>
+                <p class="note">かささぎが「確認して折り返します」と答えた質問です。ここに答えを書くと、<b>社内ナレッジに追加され、次の商談から使われます</b>。</p>
+                <div id="ksUnans"><div class="empty-state">読み込み中…</div></div>
+              </details>
             </div>
           </div>
         </div>

@@ -4457,5 +4457,21 @@ input:focus, select:focus, textarea:focus, .sf-input:focus, .sf-select:focus, .s
 .ks-k { flex: none; width: 46px; font-size: 10.5px; font-weight: 700; color: var(--muted); padding-top: 2px; }
 .ks-script .ks-k, .ks-answer .ks-k { color: #1F7A4D; }
 .ks-hear .ks-k { color: #8A6A1F; }
+.ks-lead .ks-k { color: #1F7A4D; }
+.ks-blocked .ks-k, .ks-blocked { color: #A33C24; }
+.ks-todo .ks-k { color: #8A6A1F; }
+.ks-slide .ks-k { color: #3A5C9A; }
+.ks-ack .ks-k { color: var(--muted); }
+.ks-cue { background: var(--panel-2); border-radius: 10px; padding: 10px 13px; margin: 6px 0 12px; line-height: 1.8; }
+.join-ks { margin: 6px 0 10px; font-size: 13px; }
+.ks-sub { margin-top: 14px; }
+.ks-sub > summary { cursor: pointer; font-size: 12.5px; font-weight: 700; color: #0F6E56; padding: 8px 0; }
+.ks-qa { border: 1px solid var(--line); border-radius: 10px; padding: 10px 13px; margin-bottom: 8px; background: var(--panel); font-size: 12.5px; }
+.ks-qa-done { background: var(--panel-2); }
+.ks-q { font-weight: 700; line-height: 1.6; }
+.ks-qmeta { font-size: 11px; color: var(--muted); margin-top: 3px; }
+.ks-a { margin-top: 6px; color: #1F7A4D; line-height: 1.7; }
+.ks-arow { display: flex; gap: 8px; margin-top: 8px; }
+.ks-arow input { flex: 1; padding: 7px 10px; border: 1px solid var(--line); border-radius: 8px; font-size: 12.5px; font-family: inherit; }
 .ks-error { color: #A33C24; }
 .ks-error .ks-k { color: #A33C24; }
