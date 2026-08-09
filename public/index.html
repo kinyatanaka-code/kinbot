@@ -75,6 +75,37 @@
             <div class="active-block" data-mrec="live">
               <h2 class="active-title with-bot">進行中の商談（ライブ）</h2>
               <div class="active-list" id="activeList"><div class="empty-state">いま進行中の商談はありません。</div></div>
+
+              <details class="ks-wrap" id="ksWrap">
+                <summary>かささぎ（AIが商談で説明する）</summary>
+                <div class="ks-body">
+                  <p class="note">進行中の商談を選んで開始すると、<b>Botのマイクからかささぎが喋ります</b>。台本を順に読み上げ、お客様の質問には自動で答えます。<br>
+                  相手には<b>AIが応対していることを必ず伝えてから</b>お使いください。</p>
+                  <div class="ks-row">
+                    <label>対象の商談
+                      <select id="ksBot"><option value="">進行中の商談を選ぶ…</option></select>
+                    </label>
+                    <label class="ks-check"><input type="checkbox" id="ksAuto" checked /> 質問に自動で答える</label>
+                  </div>
+                  <label class="ks-field">台本（順に読み上げます。空でも使えます）
+                    <textarea id="ksScript" rows="6" placeholder="本日はお時間をいただきありがとうございます。株式会社ネオキャリアの田中です。&#10;まず、御社の採用状況をお伺いしたうえで…"></textarea>
+                  </label>
+                  <label class="ks-field">話し方の指示（任意）
+                    <textarea id="ksPersona" rows="2" placeholder="空欄なら既定の指示を使います"></textarea>
+                  </label>
+                  <div class="ks-actions">
+                    <button class="btn" id="ksStart">かささぎを開始</button>
+                    <button class="btn ghost" id="ksNext" disabled>台本を1つ読む</button>
+                    <button class="btn ghost" id="ksStop" disabled>停止</button>
+                    <span class="rev-status" id="ksStatus"></span>
+                  </div>
+                  <div class="ks-row">
+                    <input type="text" id="ksSay" placeholder="いますぐ喋らせる文章" />
+                    <button class="btn ghost" id="ksSayBtn" disabled>喋らせる</button>
+                  </div>
+                  <div id="ksLog" class="ks-log" hidden></div>
+                </div>
+              </details>
             </div>
           </div>
         </div>

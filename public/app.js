@@ -1172,3 +1172,162 @@ function renderInstantAnswer(msg) {
   feed.scrollTop = feed.scrollHeight;
   if (el.scrollIntoView) el.scrollIntoView({ behavior: "smooth", block: "nearest" });
 }
+
+// ───────────────────────────────────────────────────────────
+// かささぎ（AIが商談で喋る）の操作パネル
+// ───────────────────────────────────────────────────────────
+const ks = {
+  el: (id) => document.getElementById(id),
+  timer: null,
+  esc: (v) => String(v == null ? "" : v).replace(/[&<>"']/g, (c) =>
+    ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c])),
+};
+
+function ksSay(msg, ms) {
+  const e = ks.el("ksStatus");
+  if (!e) return;
+  e.textContent = msg;
+  if (ms) setTimeout(() => { if (e.textContent === msg) e.textContent = ""; }, ms);
+}
+
+// 進行中の商談をプルダウンに入れる
+async function ksFillBots() {
+  const sel = ks.el("ksBot");
+  if (!sel) return;
+  try {
+    const [active, meetings] = await Promise.all([
+      fetch("/api/sessions/active").then((r) => r.json()),
+      fetch("/api/meetings").then((r) => r.json()).catch(() => []),
+    ]);
+    const meta = {};
+    for (const m of meetings || []) meta[m.bot_id] = m;
+    const cur = sel.value;
+    sel.innerHTML = '<option value="">進行中の商談を選ぶ…</option>';
+    for (const a of active || []) {
+      const t = a.title || (meta[a.botId] || {}).title || a.botId;
+      sel.add(new Option(t, a.botId));
+    }
+    if (cur) sel.value = cur;
+  } catch {}
+}
+
+async function ksRefresh() {
+  const sel = ks.el("ksBot");
+  const botId = sel ? sel.value : "";
+  const on = (id, v) => { const e = ks.el(id); if (e) e.disabled = !v; };
+  if (!botId) { on("ksNext", false); on("ksStop", false); on("ksSayBtn", false); return; }
+  try {
+    const d = await (await fetch("/api/kasasagi/status?botId=" + encodeURIComponent(botId))).json();
+    const live = !!(d && d.session);
+    on("ksNext", live); on("ksStop", live); on("ksSayBtn", live);
+    const st = ks.el("ksStart");
+    if (st) st.textContent = live ? "開始済み" : "かささぎを開始";
+    if (st) st.disabled = live;
+    const box = ks.el("ksLog");
+    if (box) {
+      if (!live) { box.hidden = true; return; }
+      box.hidden = false;
+      const s = d.session;
+      const kindLabel = { script: "台本", answer: "返答", manual: "手動", hear: "聞取", chat: "チャット", error: "エラー", skip: "見送り", info: "" };
+      box.innerHTML =
+        `<div class="ks-meta">台本 ${s.scriptIndex}/${s.scriptTotal}　` +
+        `${s.speaking ? "話しています" : "待機中"}　` +
+        `${s.autoAnswer ? "自動応答ON" : "自動応答OFF"}` +
+        `${s.error ? `　<span class="cc-warn">${ks.esc(s.error).slice(0, 60)}</span>` : ""}</div>` +
+        (s.log || []).slice(-14).reverse().map((l) =>
+          `<div class="ks-line ks-${ks.esc(l.kind)}"><span class="ks-k">${ks.esc(kindLabel[l.kind] ?? l.kind)}</span>${ks.esc(l.text)}</div>`).join("");
+    }
+  } catch {}
+}
+
+(function ksInit() {
+  const wrap = document.getElementById("ksWrap");
+  if (!wrap) return;
+  ksFillBots();
+  const sel = ks.el("ksBot");
+  if (sel) sel.addEventListener("change", ksRefresh);
+
+  ks.el("ksStart").addEventListener("click", async () => {
+    const botId = sel.value;
+    if (!botId) { ksSay("進行中の商談を選んでください", 4000); return; }
+    if (!confirm("かささぎを開始します。\n\nBotのマイクからAIが喋ります。相手にAIが応対することを伝えたうえで進めてください。\n\nよろしいですか？")) return;
+    ksSay("開始しています…");
+    try {
+      const r = await fetch("/api/kasasagi/start", {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          botId,
+          script: ks.el("ksScript").value,
+          persona: ks.el("ksPersona").value,
+          autoAnswer: ks.el("ksAuto").checked,
+        }),
+      });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.error || "開始できませんでした");
+      ksSay("開始しました", 3000);
+      ksRefresh();
+    } catch (e) { ksSay("失敗: " + e.message); }
+  });
+
+  ks.el("ksNext").addEventListener("click", async () => {
+    ksSay("読み上げ中…");
+    try {
+      const r = await fetch("/api/kasasagi/next", {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ botId: sel.value }),
+      });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.error || "読み上げできませんでした");
+      ksSay(d.done ? "台本を最後まで読みました" : `残り${d.remaining}`, 4000);
+      ksRefresh();
+    } catch (e) { ksSay("失敗: " + e.message); }
+  });
+
+  ks.el("ksSayBtn").addEventListener("click", async () => {
+    const t = ks.el("ksSay").value.trim();
+    if (!t) return;
+    ksSay("喋らせています…");
+    try {
+      const r = await fetch("/api/kasasagi/say", {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ botId: sel.value, text: t }),
+      });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.error || "喋らせられませんでした");
+      ks.el("ksSay").value = "";
+      ksSay("", 100); ksRefresh();
+    } catch (e) { ksSay("失敗: " + e.message); }
+  });
+
+  ks.el("ksAuto").addEventListener("change", async () => {
+    if (!sel.value) return;
+    try {
+      await fetch("/api/kasasagi/auto", {
+        method: "PUT", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ botId: sel.value, autoAnswer: ks.el("ksAuto").checked }),
+      });
+      ksRefresh();
+    } catch {}
+  });
+
+  ks.el("ksStop").addEventListener("click", async () => {
+    if (!confirm("かささぎを停止します。よろしいですか？")) return;
+    try {
+      await fetch("/api/kasasagi/stop", {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ botId: sel.value }),
+      });
+      ksSay("停止しました", 3000);
+      ksRefresh();
+    } catch (e) { ksSay("失敗: " + e.message); }
+  });
+
+  // 開いている間だけ状態を見に行く
+  wrap.addEventListener("toggle", () => {
+    if (ks.timer) { clearInterval(ks.timer); ks.timer = null; }
+    if (wrap.open) {
+      ksFillBots(); ksRefresh();
+      ks.timer = setInterval(() => { ksFillBots(); ksRefresh(); }, 5000);
+    }
+  });
+})();

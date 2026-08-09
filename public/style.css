@@ -4429,3 +4429,30 @@ input:focus, select:focus, textarea:focus, .sf-input:focus, .sf-select:focus, .s
   .home-cols .home-card { margin-bottom: 8px; }
   .home-cols .home-row { margin-bottom: 0; }
 }
+
+/* かささぎ（AIが商談で喋る）の操作パネル */
+.ks-wrap { margin-top: 16px; background: var(--panel); border: 1px solid var(--line); border-radius: 14px; }
+.ks-wrap > summary { cursor: pointer; padding: 14px 18px; font-weight: 700; font-size: 14px; color: #0F6E56; list-style: none; }
+.ks-wrap > summary::-webkit-details-marker { display: none; }
+.ks-wrap > summary::before { content: "▸"; display: inline-block; margin-right: 8px; transition: transform .15s ease; }
+.ks-wrap[open] > summary::before { transform: rotate(90deg); }
+.ks-body { padding: 0 18px 18px; border-top: 1px solid var(--line); }
+.ks-row { display: flex; flex-wrap: wrap; gap: 10px 16px; align-items: center; margin: 12px 0; font-size: 13px; }
+.ks-row select, .ks-row input[type="text"] { padding: 8px 11px; border: 1px solid var(--line); border-radius: 9px;
+  font-size: 13px; font-family: inherit; background: var(--panel); }
+.ks-row input[type="text"] { flex: 1 1 260px; }
+.ks-check { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; }
+.ks-field { display: block; font-size: 12px; color: var(--muted); margin: 10px 0; }
+.ks-field textarea { display: block; width: 100%; margin-top: 4px; padding: 9px 11px; border: 1px solid var(--line);
+  border-radius: 10px; font-size: 13px; font-family: inherit; line-height: 1.7; box-sizing: border-box; resize: vertical; }
+.ks-actions { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin: 12px 0; }
+.ks-log { margin-top: 12px; padding: 12px 14px; background: var(--panel-2); border: 1px solid var(--line);
+  border-radius: 10px; font-size: 12px; max-height: 280px; overflow-y: auto; }
+.ks-meta { font-weight: 700; color: #0F6E56; margin-bottom: 8px; }
+.ks-line { display: flex; gap: 8px; padding: 4px 0; border-top: 1px dashed var(--line); line-height: 1.6; }
+.ks-line:first-of-type { border-top: 0; }
+.ks-k { flex: none; width: 46px; font-size: 10.5px; font-weight: 700; color: var(--muted); padding-top: 2px; }
+.ks-script .ks-k, .ks-answer .ks-k { color: #1F7A4D; }
+.ks-hear .ks-k { color: #8A6A1F; }
+.ks-error { color: #A33C24; }
+.ks-error .ks-k { color: #A33C24; }

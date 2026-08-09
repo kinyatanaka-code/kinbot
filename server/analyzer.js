@@ -821,6 +821,11 @@ function fallbackProvider(current = PROVIDER) {
   return "";
 }
 
+// 他のモジュールからも同じ設定でAIを呼べるようにする（かささぎ等）
+export async function callLLMPublic(system, user, maxTokens = 800, opts = {}) {
+  return callLLM(system, user, maxTokens, opts);
+}
+
 async function callLLM(system, user, maxTokens = 1400, opts = {}) {
   const json = opts.json !== false;
   const schema = opts.schema || null;

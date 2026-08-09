@@ -98,6 +98,7 @@ export async function createBot({
   joinAt = null, // ISO文字列。指定すると予約入室（例: 開始3分前）
   rtmpUrl = null, // 指定するとミックス映像+音声をRTMPでライブ配信（Mux等）
   videoLayout = "gallery_view_v2",
+  speak = false,  // true にすると、かささぎがこのボットで喋れるようになる
 }) {
   // recallai_streaming 用：英語以外は accuracy（低遅延は英語のみ対応のため）
   const mode =
@@ -155,6 +156,11 @@ export async function createBot({
       ...(rtmpUrl ? { video_mixed_flv: {}, video_mixed_layout: videoLayout } : {}),
       realtime_endpoints: realtimeEndpoints,
     },
+    // かささぎ（AIが会議で喋る）を使うときは、音声を出せる作りのボットにする。
+    // Recallは output_audio を使う場合に web_4_core の指定が必要。
+    ...(speak
+      ? { variant: { zoom: "web_4_core", google_meet: "web_4_core", microsoft_teams: "web_4_core" } }
+      : {}),
   };
 
   // 507（容量一時不足）は数回リトライ推奨
@@ -184,6 +190,46 @@ export async function createBot({
 }
 
 /** Botを会議から退出させる */
+// 会議でボットに喋らせる（かささぎ用）。
+// mp3のbase64を渡すと、Recallがボットのマイクから流してくれる。
+export async function outputAudio(botId, b64Mp3, kind = "mp3") {
+  if (!botId) throw new Error("botIdがありません");
+  if (!b64Mp3) throw new Error("音声データがありません");
+  const res = await fetch(`${BASE}/bot/${botId}/output_audio/`, {
+    method: "POST",
+    headers: { ...headers(), "content-type": "application/json" },
+    body: JSON.stringify({ kind, b64_data: b64Mp3 }),
+  });
+  if (!res.ok) {
+    const t = await res.text();
+    const err = new Error(`音声の出力 ${res.status}: ${t.slice(0, 300)}`);
+    // ボットの作り方が音声出力に対応していない場合はここに来る
+    if (res.status === 400 && /output|media|variant/i.test(t)) err.needOutputMedia = true;
+    throw err;
+  }
+  return res.json().catch(() => ({}));
+}
+
+// 流している音声を止める
+export async function stopOutputAudio(botId) {
+  if (!botId) return;
+  try {
+    await fetch(`${BASE}/bot/${botId}/output_audio/`, { method: "DELETE", headers: headers() });
+  } catch (e) { console.warn("[recall] 音声の停止に失敗", e.message); }
+}
+
+// 会議のチャットに文字で送る（音声が使えないときの代わり）
+export async function sendChatMessage(botId, text) {
+  if (!botId || !text) return;
+  const res = await fetch(`${BASE}/bot/${botId}/send_chat_message/`, {
+    method: "POST",
+    headers: { ...headers(), "content-type": "application/json" },
+    body: JSON.stringify({ message: String(text).slice(0, 900) }),
+  });
+  if (!res.ok) throw new Error(`チャット送信 ${res.status}: ${(await res.text()).slice(0, 200)}`);
+  return res.json().catch(() => ({}));
+}
+
 export async function leaveBot(botId) {
   try {
     await fetch(`${BASE}/bot/${botId}/leave_call/`, {
