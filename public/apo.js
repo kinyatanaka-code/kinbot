@@ -42,35 +42,7 @@ function repOptions(selected) {
   }
   return o;
 }
-// 宛先セル：自動取得できていればそのまま表示、無ければ入力欄。クリックで編集できる。
-function clientCell(a, i) {
-  const src = a.client_email_source === "manual" ? "手入力"
-    : a.client_email_source === "description" ? "予定の説明欄から取得"
-    : a.client_email_source === "calendar" ? "カレンダーのゲストから取得" : "";
-  if (a.client_email) {
-    return `<span class="ap-mailaddr" title="${esc(src)}">${esc(a.client_email)}</span>` +
-      `${a.client_email_source === "description" ? '<span class="ap-src-chip">説明欄</span>' : ""}` +
-      `<button class="btn ghost ap-mailedit" data-i="${i}">変更</button>`;
-  }
-  return `<button class="btn ghost ap-mailedit ap-warn-btn" data-i="${i}">宛先を入力</button>`;
-}
 
-// アポメールの送信状況
-function mailCell(a, i) {
-  const m = a.mail || {};
-  const chip = (label, st) => {
-    if (!st) return `<span class="ap-badge ap-pending">${label}未作成</span>`;
-    if (st.status === "draft") return `<span class="ap-badge ap-draft" title="${esc(st.at || "")}｜担当者のGmailの下書きに入っています">${label}下書き済</span>`;
-    if (st.status === "sent") return `<span class="ap-badge ap-ok" title="${esc(st.at || "")}">${label}送信済</span>`;
-    return `<span class="ap-badge ap-warn" title="${esc(st.error || "")}">${label}失敗</span>`;
-  };
-  const canSend = !!a.current_owner && !!a.client_email;
-  const draftMode = (apState.mailConfig || {}).deliverMode !== "send";
-  const btn = canSend
-    ? `<button class="btn ghost ap-sendmail" data-i="${i}" data-kind="confirm">${draftMode ? "下書きを作る" : "確定メールを送信"}</button>`
-    : "";
-  return `<div class="ap-mailstate">${chip("確定", m.confirm)}${chip("前日", m.reminder)}</div>${btn}`;
-}
 
 function statusCell(a) {
   if (!a.current_owner) return `<span class="ap-badge ap-pending">担当未定</span>`;
@@ -98,8 +70,6 @@ function bindMailButtons(scope) {
         if (!r.ok) throw new Error(d.error || "保存に失敗しました");
         a.client_email = (d.link && d.link.client_email) || "";
         a.client_email_source = (d.link && d.link.client_email_source) || "";
-        const cell = document.querySelector(`.ap-client[data-i="${i}"]`);
-        if (cell) { cell.innerHTML = clientCell(a, i); bindMailButtons(cell); }
         refreshMailCell(i);
       } catch (e) {
         alert("宛先の保存に失敗しました: " + e.message);
@@ -144,12 +114,15 @@ function bindMailButtons(scope) {
     });
   });
 }
-// メール状況セルだけを描き直す
+// 1枚のカードだけを描き直す（メールの状態や宛先が変わったとき）
 function refreshMailCell(i) {
-  const cell = document.querySelector(`.ap-mail[data-i="${i}"]`);
-  if (!cell) return;
-  cell.innerHTML = mailCell(apState.appts[i], i);
-  bindMailButtons(cell);
+  const card = document.querySelector(`.ap-card[data-i="${i}"]`);
+  if (!card) return;
+  const wrap = document.createElement("div");
+  wrap.innerHTML = apoCard(apState.appts[i], i);
+  const next = wrap.firstElementChild;
+  card.replaceWith(next);
+  bindCardEvents(next);
 }
 
 // 「8/9(日)」のような1行の見出し
@@ -173,48 +146,70 @@ function fmtTime(iso) {
   return `${p(d.getHours())}:${p(d.getMinutes())}`;
 }
 
-// アポ1件をカードにする
+// アポ1件をカードにする（Salesforce商談立ち上げ画面と同じ作り）
 function apoCard(a, i) {
   const assigned = !!a.current_owner;
-  const badges =
-    (a.business ? `<span class="ap-biz-badge ap-biz-${esc(a.business)}">${esc(a.business)}</span>` : "") +
-    (assigned ? "" : '<span class="home-badge home-badge-st">担当未定</span>');
+  const rep = apState.reps.find((r) => r.email === a.current_owner);
+  const repName = rep ? (rep.name || rep.email) : a.current_owner;
+  const m = a.mail || {};
 
-  return `<div class="ap-card${assigned ? "" : " ap-card-todo"}" data-i="${i}">
-    <div class="ap-card-row">
-      <div class="ap-card-main">
-        <div class="ap-card-top">
-          <span class="ap-card-time">${esc(fmtTime(a.start))}</span>${badges}
+  // 上段のバッジ
+  let badges = assigned
+    ? '<span class="home-badge home-badge-done">担当決定</span>'
+    : '<span class="home-badge home-badge-plan">担当未定</span>';
+  if (a.business) badges += `<span class="ap-biz-badge ap-biz-${esc(a.business)}">${esc(a.business)}</span>`;
+
+  // メールの状態
+  const mailChip = (label, st) => {
+    if (!st) return `<span class="ln-tag">${label}：未作成</span>`;
+    if (st.status === "draft") return `<span class="ln-tag ln-tag-draft" title="${esc(st.at || "")}">${label}：下書き済</span>`;
+    if (st.status === "sent") return `<span class="ln-tag ln-tag-rep" title="${esc(st.at || "")}">${label}：送信済</span>`;
+    return `<span class="ln-tag ln-tag-none" title="${esc(st.error || "")}">${label}：失敗</span>`;
+  };
+
+  // 宛先
+  const src = a.client_email_source === "manual" ? "手入力"
+    : a.client_email_source === "description" ? "予定の説明欄から取得"
+    : a.client_email_source === "calendar" ? "カレンダーのゲストから取得" : "";
+  const client = a.client_email
+    ? `<span class="ap-mailaddr" title="${esc(src)}">${esc(a.client_email)}</span>` +
+      `${a.client_email_source === "description" ? '<span class="ap-src-chip">説明欄</span>' : ""}` +
+      `<button class="btn ghost ap-mailedit" data-i="${i}">変更</button>`
+    : `<button class="btn ghost ap-mailedit ap-warn-btn" data-i="${i}">宛先を入力</button>`;
+
+  const canSend = assigned && !!a.client_email;
+  const draftMode = (apState.mailConfig || {}).deliverMode !== "send";
+
+  return `<div class="home-card home-card-v ap-card${assigned ? "" : " home-card-plan"}" data-i="${i}">
+    <div class="home-card-row">
+      <div class="home-card-main">
+        <div class="home-card-top">
+          <span class="home-time">${esc(fmtDT(a.start))}</span>${badges}
+          <span class="home-badge home-badge-st">取得 ${esc(fmtYmd(a.created_date))}</span>
         </div>
-        <div class="ap-card-title">${esc(a.title)}</div>
-        <div class="ap-card-meta">
-          アポ獲得 <b>${esc(a.setter_name)}</b>
-          <span class="ap-dot">・</span>取得 ${esc(fmtYmd(a.created_date))}
+        <div class="home-card-title">${esc(a.title)}</div>
+        <div class="home-card-meta ln-who">
+          <span class="ln-tag ln-tag-intern">アポ獲得：${esc(a.setter_name)}</span>
+          ${assigned
+            ? `<span class="ln-tag ln-tag-rep">担当営業：${esc(repName)}</span>`
+            : '<span class="ln-tag ln-tag-none">担当営業：未割り当て</span>'}
+          ${mailChip("確定", m.confirm)}${mailChip("前日", m.reminder)}
         </div>
-        <div class="ap-card-lines">
-          <div class="ap-line">
-            <span class="ap-line-k">お客様の宛先</span>
-            <span class="ap-line-v ap-client" data-i="${i}">${clientCell(a, i)}</span>
-          </div>
-          <div class="ap-line">
-            <span class="ap-line-k">アポメール</span>
-            <span class="ap-line-v ap-mail" data-i="${i}">${mailCell(a, i)}</span>
-          </div>
-          <div class="ap-line">
-            <span class="ap-line-k">状態</span>
-            <span class="ap-line-v ap-status" data-i="${i}">${statusCell(a)}</span>
-          </div>
+        <div class="home-card-meta ap-addr-line">
+          <span class="ap-addr-k">お客様の宛先</span>${client}
         </div>
+        <div class="home-card-meta ap-status" data-i="${i}">${statusCell(a)}</div>
       </div>
-      <div class="ap-card-actions">
+      <div class="home-card-actions">
         <select class="ap-rep" data-i="${i}">${repOptions(a.current_owner)}</select>
-        ${assigned ? "" : `<button class="btn kb-prio ap-auto" data-i="${i}">自動で決める</button>`}
+        ${assigned ? "" : `<button class="btn ap-auto" data-i="${i}">自動で決める</button>`}
+        ${canSend ? `<button class="btn ap-sendmail" data-i="${i}" data-kind="confirm">${draftMode ? "下書きを作る" : "メールを送信"}</button>` : ""}
         <select class="ap-bizsel" data-i="${i}">${
           ["", "DOC", "MOCHICA"].map((b) =>
             `<option value="${b}"${(a.business || "") === b ? " selected" : ""}>${b || "事業 未判定"}</option>`).join("")
         }</select>
         <div class="ap-card-links">
-          <a class="ap-link-a" href="${esc(a.smart_url)}" target="_blank" rel="noopener" title="${esc(a.smart_url)}">開く</a>
+          <a class="btn ghost" href="${esc(a.smart_url)}" target="_blank" rel="noopener" title="${esc(a.smart_url)}">開く</a>
           <button class="btn ghost ap-copy" data-url="${esc(a.smart_url)}">コピー</button>
         </div>
       </div>
@@ -254,94 +249,100 @@ function renderApo() {
   }
   body.innerHTML = html + errNote;
 
-  body.querySelectorAll(".ap-rep").forEach((sel) => {
-    sel.addEventListener("change", async () => {
-      const i = +sel.dataset.i;
-      const a = apState.appts[i];
-      const owner = sel.value || null;
-      sel.disabled = true;
-      try {
-        const r = await fetch(`/api/smart-links/${encodeURIComponent(a.slug)}/owner`, {
-          method: "PUT", headers: { "content-type": "application/json" },
-          body: JSON.stringify({ owner }),
-        });
-        const d = await r.json();
-        if (!r.ok) throw new Error(d.error || "変更に失敗しました");
-        a.current_owner = owner;
-        const cell = body.querySelector(`.ap-status[data-i="${i}"]`);
-        if (cell) cell.innerHTML = statusCell(a);
-        // アポ確定メールの送信結果を反映する
-        if (d.mail && d.mail.ok) {
-          a.mail = Object.assign({}, a.mail, { confirm: { status: d.mail.draft ? "draft" : "sent", at: new Date().toISOString() } });
-        } else if (d.mail && !d.mail.skipped && d.mail.reason) {
-          a.mail = Object.assign({}, a.mail, { confirm: { status: "failed", error: d.mail.reason } });
-        }
-        refreshMailCell(i);
-        // 商談予定の自動作成（招待）の結果を知らせる
-        if (owner && d.invite_error) {
-          alert("担当は変更しましたが、商談予定の自動作成に失敗しました:\n" + d.invite_error);
-        }
-        if (owner && d.mail && d.mail.ok && d.mail.noRoom) {
-          alert(`${owner} が「設定 → 登録リンク」に会議室URLを登録していません。\n\n` +
-            `メールは用意できましたが、URLを開いてもお客様が入室できません。本人に登録してもらってください。`);
-        }
-        if (owner && d.mail && !d.mail.ok && !d.mail.skipped) {
-          alert("アポ確定メールの自動送信に失敗しました。\n\n" + (d.mail.reason || "") +
-            (d.mail.needScope
-              ? "\n\n※ 担当は割り当てられています。メールだけ送れていません。" +
-                "\n" + (d.mail.needScopeOwner || "本人") + " が Google連携をやり直すと送れるようになります。"
-              : ""));
-        }
-      } catch (e) {
-        alert("担当者の変更に失敗しました: " + e.message);
-      } finally { sel.disabled = false; }
-    });
-  });
-  body.querySelectorAll(".ap-bizsel").forEach((sel) => {
-    sel.addEventListener("change", async () => {
-      const i = +sel.dataset.i;
-      const a = apState.appts[i];
-      sel.disabled = true;
-      try {
-        const r = await fetch(`/api/smart-links/${encodeURIComponent(a.slug)}/business`, {
-          method: "PUT", headers: { "content-type": "application/json" },
-          body: JSON.stringify({ business: sel.value }),
-        });
-        const d = await r.json();
-        if (!r.ok) throw new Error(d.error || "変更に失敗しました");
-        a.business = sel.value;
-      } catch (e) {
-        alert("事業を変更できませんでした: " + e.message);
-        sel.value = a.business || "";
-      } finally { sel.disabled = false; }
-    });
-  });
-  body.querySelectorAll(".ap-auto").forEach((b) => {
-    b.addEventListener("click", async () => {
-      const i = +b.dataset.i;
-      const a = apState.appts[i];
-      b.disabled = true;
-      const bo = b.textContent;
-      b.textContent = "判定中…";
-      try {
-        const r = await fetch(`/api/smart-links/${encodeURIComponent(a.slug)}/auto-assign`, { method: "POST" });
-        const d = await r.json();
-        if (!r.ok) throw new Error(d.error || "割り振れませんでした");
-        loadApo();
-      } catch (e) {
-        alert("自動で決められませんでした:\n" + e.message);
-        b.disabled = false; b.textContent = bo;
+  body.querySelectorAll(".ap-card").forEach(bindCardEvents);
+}
+
+// カード1枚ぶんのボタン・セレクトをつなぐ（描き直したあとにも呼ぶ）
+function bindCardEvents(card) {
+  const q = (sel) => card.querySelector(sel);
+
+  const rep = q(".ap-rep");
+  if (rep) rep.addEventListener("change", async () => {
+    const i = +rep.dataset.i;
+    const a = apState.appts[i];
+    const owner = rep.value || null;
+    rep.disabled = true;
+    try {
+      const r = await fetch(`/api/smart-links/${encodeURIComponent(a.slug)}/owner`, {
+        method: "PUT", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ owner }),
+      });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.error || "変更に失敗しました");
+      a.current_owner = owner;
+      if (d.mail && d.mail.ok) {
+        a.mail = Object.assign({}, a.mail, { confirm: { status: d.mail.draft ? "draft" : "sent", at: new Date().toISOString() } });
+      } else if (d.mail && !d.mail.skipped && d.mail.reason) {
+        a.mail = Object.assign({}, a.mail, { confirm: { status: "failed", error: d.mail.reason } });
       }
-    });
+      refreshMailCell(i);
+      if (owner && d.invite_error) {
+        alert("担当は変更しましたが、商談予定の自動作成に失敗しました:\n" + d.invite_error);
+      }
+      if (owner && d.mail && d.mail.ok && d.mail.noRoom) {
+        alert(`${owner} が「設定 → 登録リンク」に会議室URLを登録していません。\n\n` +
+          `メールは用意できましたが、URLを開いてもお客様が入室できません。本人に登録してもらってください。`);
+      }
+      if (owner && d.mail && !d.mail.ok && !d.mail.skipped) {
+        alert("アポ確定メールを用意できませんでした。\n\n" + (d.mail.reason || "") +
+          (d.mail.needScope
+            ? "\n\n※ 担当は割り当てられています。メールだけ用意できていません。" +
+              "\n" + (d.mail.needScopeOwner || "本人") + " が Google連携をやり直すと解決します。"
+            : ""));
+      }
+    } catch (e) {
+      alert("担当者の変更に失敗しました: " + e.message);
+      rep.disabled = false;
+    }
   });
-  bindMailButtons(body);
-  body.querySelectorAll(".ap-copy").forEach((b) => {
-    b.addEventListener("click", async () => {
-      try { await navigator.clipboard.writeText(b.dataset.url); b.textContent = "コピーしました"; }
-      catch { b.textContent = "失敗"; }
-      setTimeout(() => (b.textContent = "コピー"), 1500);
-    });
+
+  const biz = q(".ap-bizsel");
+  if (biz) biz.addEventListener("change", async () => {
+    const i = +biz.dataset.i;
+    const a = apState.appts[i];
+    biz.disabled = true;
+    try {
+      const r = await fetch(`/api/smart-links/${encodeURIComponent(a.slug)}/business`, {
+        method: "PUT", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ business: biz.value }),
+      });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.error || "変更に失敗しました");
+      a.business = biz.value;
+      refreshMailCell(i);
+    } catch (e) {
+      alert("事業を変更できませんでした: " + e.message);
+      biz.value = a.business || "";
+      biz.disabled = false;
+    }
   });
+
+  const auto = q(".ap-auto");
+  if (auto) auto.addEventListener("click", async () => {
+    const i = +auto.dataset.i;
+    const a = apState.appts[i];
+    auto.disabled = true;
+    const bo = auto.textContent;
+    auto.textContent = "判定中…";
+    try {
+      const r = await fetch(`/api/smart-links/${encodeURIComponent(a.slug)}/auto-assign`, { method: "POST" });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.error || "割り振れませんでした");
+      loadApo();
+    } catch (e) {
+      alert("自動で決められませんでした:\n" + e.message);
+      auto.disabled = false; auto.textContent = bo;
+    }
+  });
+
+  const copy = q(".ap-copy");
+  if (copy) copy.addEventListener("click", async () => {
+    try { await navigator.clipboard.writeText(copy.dataset.url); copy.textContent = "コピーしました"; }
+    catch { copy.textContent = "失敗"; }
+    setTimeout(() => (copy.textContent = "コピー"), 1500);
+  });
+
+  bindMailButtons(card);
 }
 function todayStr() { return new Date().toISOString().slice(0, 10); }
 async function loadApo() {
