@@ -24,6 +24,7 @@ import { sendApoMail, runReminderSweep, getApoMailConfig,
          DEFAULT_REMINDER_SUBJECT, DEFAULT_REMINDER_BODY, stripRetiredLines } from "./apomail.js";
 import { startKasasagi, getKasasagi, stopKasasagi, feedTranscript, kasasagiInfo,
          buildScript, buildReport, faceState, SLIDE_LABELS } from "./kasasagi.js";
+import { notifyAssigned, notifyMailDraft, notifyChat, chatWebhookUrl, chatInfo } from "./chat.js";
 import { transcribeFile, transcriberAvailable } from "./transcribe.js";
 import { createBot, leaveBot, parseTranscriptEvent, parseChatEvent, outputAudio, getRecordingUrl, getBot, recallConnectionInfo, getRecallUsage, getLastRecallCreate } from "./recall.js";
 import { createSession, getSession, removeSession, listActiveSessions, setOnMeetingFinalized } from "./sessions.js";
@@ -2139,10 +2140,220 @@ app.post("/api/mux/cleanup", async (req, res) => {
 
 // Recall接続状況（どのリージョン/キーに繋がっているか＋今月の利用時間＋直近のボット起動結果）
 // ※Recall APIは「残高（チャージ額）」を返さないため、残高は取得できない。利用時間と接続先のみ表示する。
+// ===== Google Chat 通知 =====
+app.get("/api/chat-config", async (req, res) => {
+  try {
+    const st = await getSettings();
+    const envUrl = String(process.env.GOOGLE_CHAT_WEBHOOK_URL || "").trim();
+    res.json({
+      url: envUrl || String(st.chatWebhookUrl || ""),
+      fromEnv: !!envUrl,
+      notifyAssign: st.chatNotifyAssign !== false,
+      notifyMail: st.chatNotifyMail !== false,
+      ...chatInfo(),
+    });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.put("/api/chat-config", async (req, res) => {
+  try {
+    const b = req.body || {};
+    const patch = {};
+    if (b.url !== undefined) {
+      const u = String(b.url || "").trim();
+      if (u && !/^https:\/\/chat\.googleapis\.com\/v1\/spaces\//.test(u)) {
+        return res.status(400).json({ error: "Google ChatのWebhook URLを貼ってください（https://chat.googleapis.com/v1/spaces/... で始まります）" });
+      }
+      patch.chatWebhookUrl = u.slice(0, 600);
+    }
+    if (b.notifyAssign !== undefined) patch.chatNotifyAssign = b.notifyAssign !== false;
+    if (b.notifyMail !== undefined) patch.chatNotifyMail = b.notifyMail !== false;
+    await saveSettings(patch);
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.post("/api/chat-config/test", async (req, res) => {
+  try {
+    const url = String(req.body?.url || "").trim() || (await chatWebhookUrl());
+    const r = await notifyChat(
+      "*kinbotからのテスト通知です*\nこのメッセージが見えていれば、通知の設定は完了しています。", { url });
+    if (!r.ok) return res.status(400).json({ error: r.reason || "送信できませんでした" });
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// 自動割り振りが動かない理由を切り分ける。設定と、実際のアポ1件ずつを調べる。
+app.get("/api/apo/why", async (req, res) => {
+  const steps = [];
+  const push = (name, ok, detail, hint) => steps.push({ name, ok, detail: String(detail || ""), hint: hint || "" });
+  try {
+    const biz = ["DOC", "MOCHICA"].includes(String(req.query.product || "")) ? String(req.query.product) : "";
+    const cfg = await getRotationConfig();
+    const st = await getSettings().catch(() => ({}));
+
+    // 1. スイッチ
+    push("15分おきの自動スキャン", !!cfg.autoScan, cfg.autoScan ? `${cfg.scanIntervalSec}秒ごと` : "OFF",
+      cfg.autoScan ? "" : "割り振り設定タブの「カレンダーを自動スキャンする」を入れてください。");
+    push("スキャンしたアポを自動で割り振る", !!cfg.autoAssign, cfg.autoAssign ? "ON" : "OFF",
+      cfg.autoAssign ? "" : "これがOFFだと、アポの記録だけして担当を決めません。");
+
+    // 2. 走査するアカウント
+    const scanOwner = String(st.apoScanOwner || st.apoInviteOwner || "").trim();
+    const ownerOk = !!scanOwner && (await gcalConnected(scanOwner).catch(() => false));
+    push("カレンダーを読むアカウント", ownerOk, scanOwner || "(未設定)",
+      !scanOwner ? "設定→メンバー管理→「カレンダー照合の代表者」を指定してください。"
+        : ownerOk ? "" : `${scanOwner} のGoogle連携が切れています。本人が 設定→連携→Google連携 を実行してください。`);
+
+    // 3. クローザー
+    const closers = await listClosers({ business: biz });
+    const susp = await suspendedNow();
+    const usable = closers.filter((c) => c.active && !susp[c.email]);
+    const normals = usable.filter((c) => !c.fallback);
+    push(`${biz || "全事業"}のクローザー`, normals.length > 0,
+      `登録${closers.length}名 / 稼働${usable.length}名 / 通常${normals.length}名・予備${usable.length - normals.length}名`,
+      normals.length ? "" :
+      "設定→メンバー管理で「クローザー」の役割と、担当事業を設定してください。予備だけでは通常の割り振りが回りません。");
+
+    // 4. 実際のアポを1件ずつ見る
+    const { items, errors } = await collectApoAppointments(req.user, {});
+    const target = items.filter((it) => (!biz || !it.business || it.business === biz));
+    const waiting = target.filter((it) => !it.current_owner);
+    push("担当未定のアポ", true, `${waiting.length}件（読み取れたアポ ${target.length}件）`,
+      errors.length ? "読めなかったカレンダーがあります：" + errors.map((e) => e.setter).join("、") : "");
+
+    // 5. 1件ずつ、なぜ決まらないかを調べる
+    const checked = [];
+    for (const it of waiting.slice(0, 8)) {
+      const link = it._link || {};
+      if (link.auto_assigned_at) {
+        checked.push({ title: it.title, ok: false,
+          why: "一度自動で試して決まらなかったため、もう対象になりません",
+          hint: "「自動で決める」を押すか、担当を手で選んでください。" });
+        continue;
+      }
+      try {
+        const pick = await pickCloser(link, { inviteOwner: scanOwner || req.user, business: String(link.business || "") });
+        checked.push({
+          title: it.title, ok: !!pick.email,
+          why: pick.email ? `${pick.name} に決まります（${pick.reason}）` : pick.reason,
+          hint: pick.email ? "" :
+            (pick.skipped || []).length
+              ? "飛ばした人：" + pick.skipped.map((x) => `${x.name}（${x.reason}）`).join(" / ")
+              : "",
+        });
+      } catch (e) {
+        checked.push({ title: it.title, ok: false, why: e.message, hint: "" });
+      }
+    }
+
+    res.json({
+      ok: steps.every((x) => x.ok),
+      product: biz, steps, appointments: checked,
+      config: { autoScan: cfg.autoScan, autoAssign: cfg.autoAssign, bufferMin: cfg.bufferMin,
+                scanIntervalSec: cfg.scanIntervalSec, maxPerRun: cfg.maxPerRun },
+    });
+  } catch (e) { res.status(500).json({ error: e.message, steps }); }
+});
+
+// 音が出ない原因を切り分ける。1段ずつ試して、どこで止まっているかを日本語で返す。
+app.post("/api/kasasagi/selftest", async (req, res) => {
+  const botId = String(req.body?.botId || "").trim();
+  const steps = [];
+  const push = (name, ok, detail, hint) => steps.push({ name, ok, detail: String(detail || ""), hint: hint || "" });
+
+  // 1. 読み上げ（Edge TTS）が動くか
+  let b64 = "";
+  try {
+    const { synthesizeBase64, ttsInfo, audioKind } = await import("./tts.js");
+    const info = ttsInfo();
+    const t0 = Date.now();
+    b64 = await synthesizeBase64("テストです。");
+    push("読み上げ（音声を作る）", true,
+      `${info.provider} / ${info.voice} / ${info.kind} / ${Math.round(b64.length * 0.75 / 1024)}KB / ${Date.now() - t0}ms`);
+  } catch (e) {
+    push("読み上げ（音声を作る）", false, e.message,
+      "Railwayから speech.platform.bing.com へ出られない可能性があります。" +
+      "環境変数 TTS_PROVIDER=gemini に変えると、Geminiの読み上げに切り替わります（GEMINI_API_KEY が必要）。");
+    return res.json({ ok: false, steps });
+  }
+
+  // 2. Botが音声を出せる作りか
+  if (!botId) { push("Botの確認", false, "botId がありません", "商談を開いてから実行してください。"); return res.json({ ok: false, steps }); }
+  let bot = null;
+  try {
+    bot = await getBot(botId);
+    const variant = JSON.stringify(bot?.variant || bot?.recording_config?.variant || "");
+    const canSpeak = /web_4_core/.test(variant);
+    push("Botが喋れる作りか", canSpeak,
+      `variant=${variant || "(なし)"} / 状態=${bot?.status_changes?.slice(-1)[0]?.code || bot?.status || "不明"}`,
+      canSpeak ? "" :
+      "このBotは音声を出せない作りで入室しています。いったん退出し、" +
+      "レコーディング画面で「かささぎ（AIが説明する）を使う」にチェックを入れてから入室し直してください。" +
+      "（入室後に切り替えることはできません）");
+    if (!canSpeak) return res.json({ ok: false, steps });
+  } catch (e) {
+    push("Botの確認", false, e.message, "Recallの設定（RECALL_API_KEY）をご確認ください。");
+    return res.json({ ok: false, steps });
+  }
+
+  // 3. 実際に会議へ音を流してみる
+  try {
+    const { audioKind: ak } = await import("./tts.js");
+    await outputAudio(botId, b64, ak());
+    push("会議へ音を流す", true, "テストの音声を流しました。会議で聞こえたか確認してください。");
+  } catch (e) {
+    push("会議へ音を流す", false, e.message,
+      e.needOutputMedia
+        ? "Recall側で音声出力が有効になっていません。プランや設定をご確認ください。"
+        : "Botが会議に入室済みか、まだ待機室にいないかをご確認ください。");
+    return res.json({ ok: false, steps });
+  }
+
+  res.json({ ok: true, steps });
+});
+
 // アバターページ（会議に映すページ）が読む内容。認証なしで読めるようにする。
-app.get("/api/kasasagi/face", (req, res) => {
-  try { res.json(faceState(String(req.query.botId || ""))); }
-  catch (e) { res.status(500).json({ error: e.message }); }
+app.get("/api/kasasagi/face", async (req, res) => {
+  try {
+    const st = faceState(String(req.query.botId || ""));
+    // アバターの画像と名前は設定から。未設定なら既定の絵を使う。
+    let look = {};
+    try {
+      const cfg = await getSettings();
+      look = {
+        avatarUrl: String(cfg.kasasagiAvatarUrl || "").trim(),
+        avatarSpeakUrl: String(cfg.kasasagiAvatarSpeakUrl || "").trim(),
+        name: String(cfg.kasasagiName || "かささぎ").trim(),
+        brand: String(cfg.kasasagiBrand || "").trim(),
+      };
+    } catch {}
+    res.json({ ...st, ...look });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// アバターの見た目を設定する
+app.put("/api/kasasagi/look", async (req, res) => {
+  try {
+    const b = req.body || {};
+    const patch = {};
+    if (b.avatarUrl !== undefined) patch.kasasagiAvatarUrl = String(b.avatarUrl || "").trim().slice(0, 500);
+    if (b.avatarSpeakUrl !== undefined) patch.kasasagiAvatarSpeakUrl = String(b.avatarSpeakUrl || "").trim().slice(0, 500);
+    if (b.name !== undefined) patch.kasasagiName = String(b.name || "").trim().slice(0, 40);
+    if (b.brand !== undefined) patch.kasasagiBrand = String(b.brand || "").trim().slice(0, 60);
+    await saveSettings(patch);
+    res.json({ ok: true, look: patch });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.get("/api/kasasagi/look", async (req, res) => {
+  try {
+    const cfg = await getSettings();
+    res.json({
+      avatarUrl: cfg.kasasagiAvatarUrl || "", avatarSpeakUrl: cfg.kasasagiAvatarSpeakUrl || "",
+      name: cfg.kasasagiName || "かささぎ", brand: cfg.kasasagiBrand || "",
+    });
+  } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 // スライドを手で切り替える
@@ -8431,6 +8642,16 @@ async function autoAssignOne(link, { inviteOwner, closers = null, cfg, teamCtx =
   }
 
   console.log(`[apo-assign] ${link.slug} → ${pick.name}${pick.team ? "／" + pick.team : ""}（${pick.reason}）次は${rotNext.nextName}`);
+
+  // Google Chat へ通知する。下書きも自動でできるので、メールの状況を含めて1通にまとめる。
+  // （通知が失敗しても割り振り自体は止めない）
+  notifyAssigned({
+    title: updated.label, start: updated.start_time, repName: pick.name,
+    setter: updated.setter, business: biz, reason: pick.reason,
+    url: joinUrl(updated.slug), auto: actor !== "manual" && !String(actor || "").includes("@"),
+    mail, clientEmail: updated.client_email,
+  }).catch(() => {});
+
   return { ok: true, assigned: pick, invite, invite_error: inviteError, mail, next: rotNext };
 }
 
@@ -9086,6 +9307,15 @@ app.put("/api/smart-links/:slug/owner", async (req, res) => {
         mail = { ok: false, skipped: true, reason: "確定メールの自動送信がOFFです" };
       }
     }
+    // Google Chat へ通知する（手で担当を選んだときも、メールの状況を含めて1通で知らせる）
+    if (owner) {
+      notifyAssigned({
+        title: link.label, start: link.start_time, repName: await repDisplayName(owner),
+        setter: link.setter, business: link.business, reason: `${req.user} が選択`,
+        url: joinUrl(link.slug), auto: false,
+        mail, clientEmail: link.client_email,
+      }).catch(() => {});
+    }
     res.json({ ok: true, link, invite, invite_error: inviteError, mail });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
@@ -9129,6 +9359,12 @@ app.post("/api/smart-links/:slug/mail", async (req, res) => {
       actor: req.user || "manual",
     });
     if (!r.ok) return res.status(r.skipped ? 409 : 400).json({ error: r.reason, ...r });
+    // Google Chat へ通知
+    notifyMailDraft({
+      title: link.label, start: link.start_time,
+      repName: await repDisplayName(link.current_owner),
+      to: r.to, draft: !!r.draft, subject: r.subject,
+    }).catch(() => {});
     res.json({ ok: true, ...r });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });

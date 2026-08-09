@@ -16,7 +16,7 @@
 //   ・迷ったら黙る。分からないことは「確認して折り返す」と答える
 // ───────────────────────────────────────────────────────────
 import { outputAudio, stopOutputAudio, sendChatMessage } from "./recall.js";
-import { synthesizeBase64, splitForSpeech, ttsInfo } from "./tts.js";
+import { synthesizeBase64, splitForSpeech, ttsInfo, audioKind } from "./tts.js";
 import { addUnanswered, addBlocked } from "./db.js";
 
 // botId → セッション
@@ -106,7 +106,7 @@ class KasasagiSession {
           }
           try {
             const b64 = await synthesizeBase64(part);
-            await outputAudio(this.botId, b64, "mp3");
+            await outputAudio(this.botId, b64, audioKind());
             this.note(kind, part);
             this.history.push({ role: "assistant", text: part });
             this.lastSpokeAt = Date.now();

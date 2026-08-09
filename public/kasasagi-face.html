@@ -33,6 +33,8 @@
   .face { flex: none; width: 8.4vh; height: 8.4vh; border-radius: 50%; background: #0f6e56;
     display: flex; align-items: center; justify-content: center; position: relative; }
   .face svg { width: 5vh; height: 5vh; }
+  .face img { width: 100%; height: 100%; border-radius: 50%; object-fit: cover; display: block; }
+  .face.has-img { background: transparent; }
   .face.talking::after { content: ""; position: absolute; inset: -0.8vh; border-radius: 50%;
     border: 0.4vh solid #5DCAA5; animation: pulse 1.1s ease-out infinite; }
   @keyframes pulse { 0% { transform: scale(.96); opacity: .9 } 100% { transform: scale(1.14); opacity: 0 } }
@@ -46,7 +48,8 @@
     <div class="slide" id="slide"></div>
     <div class="bar">
       <div class="face" id="face">
-        <svg viewBox="0 0 48 48" fill="none" aria-hidden="true">
+        <img id="faceImg" alt="" hidden />
+        <svg id="faceSvg" viewBox="0 0 48 48" fill="none" aria-hidden="true">
           <rect x="9" y="14" width="30" height="22" rx="9" fill="#eaf6f1"/>
           <circle cx="18.5" cy="25" r="3.4" fill="#0f6e56"/>
           <circle cx="29.5" cy="25" r="3.4" fill="#0f6e56"/>
@@ -81,6 +84,10 @@
     summary: { eyebrow: "本日のまとめ", head: "承った内容", lead: "" },
   };
 
+  const imgEl = document.getElementById("faceImg");
+  const svgEl = document.getElementById("faceSvg");
+  const whoEl = document.querySelector(".who");
+  let curImg = "";
   const slideEl = document.getElementById("slide");
   const capEl = document.getElementById("caption");
   const faceEl = document.getElementById("face");
@@ -113,6 +120,16 @@
       if (cap !== curCap) { curCap = cap; capEl.textContent = cap; }
       capEl.classList.toggle("idle", !d.caption || !!d.listening);
       faceEl.classList.toggle("talking", !!d.speaking);
+
+      // アバターの画像（設定されていれば差し替える。話しているとき用の絵も指定できる）
+      const want = (d.speaking && d.avatarSpeakUrl) ? d.avatarSpeakUrl : (d.avatarUrl || "");
+      if (want !== curImg) {
+        curImg = want;
+        if (want) { imgEl.src = want; imgEl.hidden = false; svgEl.style.display = "none"; faceEl.classList.add("has-img"); }
+        else { imgEl.hidden = true; svgEl.style.display = ""; faceEl.classList.remove("has-img"); }
+      }
+      if (d.name && whoEl.textContent !== d.name) whoEl.textContent = d.name;
+      if (d.brand) SLIDES.cover.eyebrow = d.brand;
     } catch {}
   }
 

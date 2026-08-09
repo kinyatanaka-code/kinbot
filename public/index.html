@@ -211,7 +211,27 @@
                 <label>映しているスライド <select id="ksSlide"></select></label>
                 <button class="btn ghost" id="ksSummaryBtn">認識合わせを出す</button>
               </div>
+              <div class="ks-actions">
+                <button class="btn ghost" id="ksTest">音が出るか確認する</button>
+                <span class="rev-status" id="ksTestStatus"></span>
+              </div>
+              <div id="ksTestBox"></div>
               <div id="ksLog" class="ks-log" hidden></div>
+              <details class="ks-sub">
+                <summary>かささぎの見た目</summary>
+                <p class="note">会議に映る顔と名前を設定します。画像のURLを入れると、既定の絵の代わりに使われます（正方形・256px以上を推奨）。</p>
+                <div class="ks-look">
+                  <label>名前<input type="text" id="lkName" placeholder="かささぎ" /></label>
+                  <label>肩書き・ブランド名<input type="text" id="lkBrand" placeholder="NEO CAREER" /></label>
+                  <label>顔の画像URL<input type="text" id="lkAvatar" placeholder="https://.../kasasagi.png" /></label>
+                  <label>話しているとき用（任意）<input type="text" id="lkAvatar2" placeholder="口が開いた絵など" /></label>
+                </div>
+                <div class="ks-actions">
+                  <button class="btn ghost" id="lkSave">見た目を保存</button>
+                  <a class="btn ghost" id="lkPreview" href="kasasagi-face.html" target="_blank" rel="noopener">映る画面を確認</a>
+                  <span class="rev-status" id="lkStatus"></span>
+                </div>
+              </details>
               <details class="ks-sub">
                 <summary>答えられなかった質問</summary>
                 <p class="note">かささぎが「確認して折り返します」と答えた質問です。ここに答えを書くと、<b>社内ナレッジに追加され、次の商談から使われます</b>。</p>

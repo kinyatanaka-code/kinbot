@@ -19,9 +19,11 @@ const RATE = process.env.TTS_RATE || "+0%";
 const PITCH = process.env.TTS_PITCH || "+0Hz";
 
 const EDGE_TOKEN = "6A5AA1D4EAFF4E9FB37E23D68491D6F4";
+// 接続先。Microsoftが仕様を変えたときに、環境変数だけで差し替えられるようにしてある。
 const EDGE_URL =
-  "wss://speech.platform.bing.com/consumer/speech/synthesize/readaloud/edge/v1" +
-  `?TrustedClientToken=${EDGE_TOKEN}`;
+  process.env.TTS_EDGE_URL ||
+  ("wss://speech.platform.bing.com/consumer/speech/synthesize/readaloud/edge/v1" +
+   `?TrustedClientToken=${EDGE_TOKEN}`);
 // Edgeの読み上げは2024年から署名（Sec-MS-GEC）が必要になった。
 // 5分単位に丸めた時刻からハッシュを作る。これが無いと 403 が返る。
 function secMsGec() {
@@ -30,11 +32,17 @@ function secMsGec() {
 }
 const GEC_VERSION = process.env.TTS_EDGE_GEC_VERSION || "1-130.0.2849.68";
 
+// 会議へ送るときの形式。Recallに渡す kind に使う。
+export function audioKind() {
+  return PROVIDER === "gemini" ? "wav" : "mp3";
+}
+
 export function ttsInfo() {
   return {
     provider: PROVIDER,
-    voice: VOICE,
+    voice: PROVIDER === "gemini" ? (process.env.TTS_GEMINI_VOICE || "Kore") : VOICE,
     rate: RATE,
+    kind: audioKind(),
     ready: PROVIDER === "edge" ? true : !!process.env.GEMINI_API_KEY,
   };
 }
@@ -56,7 +64,13 @@ function nowXml() {
 function synthesizeEdge(text, { voice = VOICE, rate = RATE, pitch = PITCH, timeoutMs = 20000 } = {}) {
   return new Promise((resolve, reject) => {
     const id = randomUUID().replace(/-/g, "");
-    const url = `${EDGE_URL}&Sec-MS-GEC=${secMsGec()}&Sec-MS-GEC-Version=${GEC_VERSION}&ConnectionId=${id}`;
+    // クエリは URL で組み立てる。接続先を差し替えても壊れないようにする。
+    const u = new URL(EDGE_URL);
+    if (!u.searchParams.get("TrustedClientToken")) u.searchParams.set("TrustedClientToken", EDGE_TOKEN);
+    u.searchParams.set("Sec-MS-GEC", secMsGec());
+    u.searchParams.set("Sec-MS-GEC-Version", GEC_VERSION);
+    u.searchParams.set("ConnectionId", id);
+    const url = u.toString();
     const ws = new WebSocket(url, {
       headers: {
         Origin: "chrome-extension://jdiccldimpdaibmpdkjnbmckianbfold",
@@ -135,6 +149,28 @@ function synthesizeEdge(text, { voice = VOICE, rate = RATE, pitch = PITCH, timeo
 // Gemini の読み上げ（Edgeが使えないときの控え）
 // 返ってくるのは PCM なので、そのままでは会議に流せない点に注意。
 // ───────────────────────────────────────────────────────────
+// GeminiはPCM（生の波形）を返すので、そのままでは会議に流せない。
+// WAVのヘッダーを付けて、音声ファイルとして成立させる。
+function pcmToWav(pcm, { sampleRate = 24000, channels = 1, bits = 16 } = {}) {
+  const blockAlign = (channels * bits) / 8;
+  const byteRate = sampleRate * blockAlign;
+  const h = Buffer.alloc(44);
+  h.write("RIFF", 0);
+  h.writeUInt32LE(36 + pcm.length, 4);
+  h.write("WAVE", 8);
+  h.write("fmt ", 12);
+  h.writeUInt32LE(16, 16);          // fmtチャンクの長さ
+  h.writeUInt16LE(1, 20);           // 1 = PCM
+  h.writeUInt16LE(channels, 22);
+  h.writeUInt32LE(sampleRate, 24);
+  h.writeUInt32LE(byteRate, 28);
+  h.writeUInt16LE(blockAlign, 32);
+  h.writeUInt16LE(bits, 34);
+  h.write("data", 36);
+  h.writeUInt32LE(pcm.length, 40);
+  return Buffer.concat([h, pcm]);
+}
+
 async function synthesizeGemini(text, { voice = "Kore" } = {}) {
   const key = process.env.GEMINI_API_KEY;
   if (!key) throw new Error("GEMINI_API_KEY が設定されていません");
@@ -155,9 +191,13 @@ async function synthesizeGemini(text, { voice = "Kore" } = {}) {
   );
   if (!res.ok) throw new Error(`Gemini読み上げ ${res.status}: ${(await res.text()).slice(0, 200)}`);
   const d = await res.json();
-  const b64 = d?.candidates?.[0]?.content?.parts?.find((p) => p.inlineData)?.inlineData?.data;
+  const part = d?.candidates?.[0]?.content?.parts?.find((p) => p.inlineData);
+  const b64 = part?.inlineData?.data;
   if (!b64) throw new Error("Geminiから音声が返りませんでした");
-  return Buffer.from(b64, "base64");
+  // mimeType の例: audio/L16;codec=pcm;rate=24000
+  const mime = String(part?.inlineData?.mimeType || "");
+  const rate = parseInt((mime.match(/rate=(\d+)/) || [])[1], 10) || 24000;
+  return pcmToWav(Buffer.from(b64, "base64"), { sampleRate: rate });
 }
 
 // 長い文章はそのまま投げると失敗しやすいので、句点で区切って読み上げる
@@ -179,7 +219,7 @@ export function splitForSpeech(text, max = 400) {
 export async function synthesize(text, opts = {}) {
   const t = String(text || "").trim();
   if (!t) throw new Error("読み上げる文章が空です");
-  if (PROVIDER === "gemini") return synthesizeGemini(t, opts);
+  if (PROVIDER === "gemini") return synthesizeGemini(t, { voice: process.env.TTS_GEMINI_VOICE || "Kore", ...opts });
   return synthesizeEdge(t, opts);
 }
 

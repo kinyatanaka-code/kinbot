@@ -483,6 +483,7 @@ loadThanks();
       const name = item.dataset.tab;
       document.querySelectorAll(".set-pane").forEach((p) => (p.hidden = p.dataset.pane !== name));
       if (name === "members") { loadMembers(); loadApoOwner(); loadApoInvite(); }
+      if (name === "integrations") loadChatConfig();
       if (name === "knowledge") loadKnowledge();
       if (name === "ai") loadThanksPrompt();
       if (name === "integrations") showIntegGrid();
@@ -2465,5 +2466,70 @@ function initSmartLinks() {
     const c = $d("dmCheck"); if (c) c.addEventListener("click", check);
     const s = $d("dmStart"); if (s) s.addEventListener("click", start);
     const x = $d("dmStop"); if (x) x.addEventListener("click", () => { stop = true; });
+  });
+})();
+
+// ===== Google Chat 通知の設定 =====
+async function loadChatConfig() {
+  const inp = document.getElementById("chatUrl");
+  if (!inp) return;
+  try {
+    const d = await (await fetch("/api/chat-config")).json();
+    inp.value = d.url || "";
+    inp.disabled = !!d.fromEnv;
+    const a = document.getElementById("chatAssign");
+    const m = document.getElementById("chatMail");
+    if (a) a.checked = d.notifyAssign !== false;
+    if (m) m.checked = d.notifyMail !== false;
+    const st = document.getElementById("chatStatus");
+    if (st && d.fromEnv) st.textContent = "環境変数で設定されています";
+    else if (st && d.lastError) st.textContent = "前回の送信でエラー: " + d.lastError;
+  } catch {}
+}
+
+(function chatInit() {
+  const save = document.getElementById("chatSave");
+  if (!save) return;
+  const say = (m, ms) => {
+    const e = document.getElementById("chatStatus");
+    if (!e) return;
+    e.textContent = m;
+    if (ms) setTimeout(() => { if (e.textContent === m) e.textContent = ""; }, ms);
+  };
+  const body = () => ({
+    url: document.getElementById("chatUrl").value,
+    notifyAssign: document.getElementById("chatAssign").checked,
+    notifyMail: document.getElementById("chatMail").checked,
+  });
+
+  save.addEventListener("click", async () => {
+    say("保存中…");
+    try {
+      const r = await fetch("/api/chat-config", {
+        method: "PUT", headers: { "content-type": "application/json" },
+        body: JSON.stringify(body()),
+      });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.error || "保存に失敗しました");
+      say("保存しました", 3000);
+    } catch (e) { say("失敗: " + e.message); }
+  });
+
+  document.getElementById("chatTest").addEventListener("click", async () => {
+    say("送信しています…");
+    try {
+      const r = await fetch("/api/chat-config/test", {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ url: document.getElementById("chatUrl").value }),
+      });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.error || "送信できませんでした");
+      say("送信しました。Google Chatを確認してください", 6000);
+    } catch (e) { say("失敗: " + e.message); }
+  });
+
+  ["chatAssign", "chatMail"].forEach((id) => {
+    const el = document.getElementById(id);
+    if (el) el.addEventListener("change", () => save.click());
   });
 })();

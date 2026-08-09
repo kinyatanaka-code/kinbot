@@ -571,6 +571,43 @@ async function loadOrphans() {
   } finally { if (btn) btn.disabled = false; }
 }
 
+// ===== 自動割り振りが動かない理由を調べる =====
+async function whyNoAssign() {
+  const box = $("rcWhyBox");
+  const btn = $("rcWhy");
+  const say = (m) => { const e = $("rcWhyStatus"); if (e) e.textContent = m; };
+  if (!box) return;
+  btn.disabled = true;
+  say("調べています…");
+  box.innerHTML = "";
+  try {
+    const d = await (await fetch("/api/apo/why?product=" + encodeURIComponent(curBiz()))).json();
+    if (d.error) throw new Error(d.error);
+    let html = `<div class="ks-test">` + (d.steps || []).map((x) =>
+      `<div class="ks-step ${x.ok ? "ok" : "ng"}">
+         <div class="ks-step-h">${x.ok ? "OK" : "NG"}　${esc(x.name)}</div>
+         ${x.detail ? `<div class="ks-step-d">${esc(x.detail)}</div>` : ""}
+         ${x.hint ? `<div class="ks-step-hint">${esc(x.hint)}</div>` : ""}
+       </div>`).join("") + `</div>`;
+
+    const ap = d.appointments || [];
+    if (ap.length) {
+      html += `<h4 class="ap-rot-h">担当未定のアポを1件ずつ確認</h4><div class="ks-test">` +
+        ap.map((x) =>
+          `<div class="ks-step ${x.ok ? "ok" : "ng"}">
+             <div class="ks-step-h">${x.ok ? "決まる" : "決まらない"}　${esc(x.title)}</div>
+             <div class="ks-step-d">${esc(x.why)}</div>
+             ${x.hint ? `<div class="ks-step-hint">${esc(x.hint)}</div>` : ""}
+           </div>`).join("") + `</div>`;
+    }
+    box.innerHTML = html;
+    say("");
+  } catch (e) {
+    box.innerHTML = `<p class="note cc-warn">調べられませんでした：${esc(e.message)}</p>`;
+    say("");
+  } finally { btn.disabled = false; }
+}
+
 // ===== インサイドのカレンダー診断 =====
 async function calCheck() {
   const box = $("calCheckBox");
@@ -1092,6 +1129,7 @@ async function saveMailCfg() {
       await loadRotation();
     } catch (e) { say("失敗: " + e.message); }
   });
+  if ($("rcWhy")) $("rcWhy").addEventListener("click", whyNoAssign);
   if ($("rcBaseSave")) $("rcBaseSave").addEventListener("click", async () => {
     const el = $("rcBaseStatus");
     const say = (m, ms) => { if (el) { el.textContent = m; if (ms) setTimeout(() => { if (el.textContent === m) el.textContent = ""; }, ms); } };

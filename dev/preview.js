@@ -252,6 +252,12 @@ function apiResponse(pathname, query) {
         { at: "", kind: "todo", text: "答えられなかった質問として記録：他社ATSとの連携は" },
       ] } };
   }
+  if (pathname === "/api/kasasagi/look") return { avatarUrl: "", avatarSpeakUrl: "", name: "かささぎ", brand: "NEO CAREER" };
+  if (pathname === "/api/kasasagi/selftest") return { ok: false, steps: [
+    { name: "読み上げ（音声を作る）", ok: true, detail: "edge / ja-JP-NanamiNeural / 12KB / 380ms", hint: "" },
+    { name: "Botが喋れる作りか", ok: false, detail: "variant=(なし) / 状態=in_call_recording",
+      hint: "このBotは音声を出せない作りで入室しています。いったん退出し、レコーディング画面で「かささぎ（AIが説明する）を使う」にチェックを入れてから入室し直してください。（入室後に切り替えることはできません）" },
+  ] };
   if (pathname === "/api/kasasagi/face") return { ok: true, slide: "service", label: "サービスの説明", speaking: false, listening: false, caption: "会社の様子をそのまま見ていただけます。", summary: "" };
   if (pathname === "/api/kasasagi/unanswered") return { items: [
     { id: 1, question: "他社ATSとの連携は可能ですか？", title: "【初回】株式会社ベルク", asked_by: "町田様", answer: null, answered_at: null },
@@ -260,6 +266,8 @@ function apiResponse(pathname, query) {
   if (pathname === "/api/kasasagi/start") { globalThis.__ks = true; return { ok: true, slides: { cover: "表紙", company: "会社紹介", problem: "採用の課題", service: "サービスの説明", usage: "使い方", flow: "導入の流れ", case: "導入事例", pricing: "料金", faq: "よくある質問", next: "次のご案内", summary: "この商談のまとめ" }, generatedScript: "本日はお時間をいただきありがとうございます。ネオキャリアのかささぎと申します。まず御社の採用状況をお伺いします。次にサービスをご説明します。" }; }
   if (pathname === "/api/kasasagi/stop") { globalThis.__ks = false; return { ok: true }; }
   if (pathname.indexOf("/api/kasasagi/") === 0) return { ok: true, done: false, remaining: 2 };
+  if (pathname === "/api/chat-config") return { url: "", fromEnv: false, notifyAssign: true, notifyMail: true, lastError: "", sentCount: 0 };
+  if (pathname === "/api/chat-config/test") return { ok: true };
   if (pathname === "/api/members") {
     return { members: MEMBERS,
       candidates: [{ email: "new@neo-career.co.jp", name: "新入 太郎", src: "ユーザー" }],
@@ -378,6 +386,21 @@ function apiResponse(pathname, query) {
       teams: TEAMS.filter((t) => teamsIn.includes(t.team_name)),
       teamStats: TEAM_STATS.filter((t) => teamsIn.includes(t.team)),
       next: cl.find((c) => !c.fallback && c.active) || null };
+  }
+  if (pathname === "/api/apo/why") {
+    return { ok: false, product: query.get("product") || "", steps: [
+      { name: "15分おきの自動スキャン", ok: true, detail: "60秒ごと", hint: "" },
+      { name: "スキャンしたアポを自動で割り振る", ok: false, detail: "OFF",
+        hint: "これがOFFだと、アポの記録だけして担当を決めません。" },
+      { name: "カレンダーを読むアカウント", ok: true, detail: "kinya.tanaka@neo-career.co.jp", hint: "" },
+      { name: "DOCのクローザー", ok: true, detail: "登録6名 / 稼働5名 / 通常3名・予備2名", hint: "" },
+      { name: "担当未定のアポ", ok: true, detail: "2件（読み取れたアポ 5件）", hint: "" },
+    ], appointments: [
+      { title: "【初回】株式会社コロンバン　宮村様", ok: false,
+        why: "一度自動で試して決まらなかったため、もう対象になりません",
+        hint: "「自動で決める」を押すか、担当を手で選んでください。" },
+      { title: "【初回】テスト株式会社/田中様", ok: true, why: "植野 大輔 に決まります（ローテーション順）", hint: "" },
+    ] };
   }
   if (pathname === "/api/apo/team-stats") {
     const b = String(query.get("product") || "");

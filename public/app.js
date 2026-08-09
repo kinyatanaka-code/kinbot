@@ -1288,10 +1288,51 @@ async function ksLoadUnanswered() {
   } catch { box.innerHTML = '<div class="empty-state">読み込めませんでした。</div>'; }
 }
 
+// 音が出るかを1段ずつ試す
+async function ksSelfTest() {
+  const box = ks.el("ksTestBox");
+  const btn = ks.el("ksTest");
+  const st = ks.el("ksTestStatus");
+  if (!box) return;
+  btn.disabled = true;
+  if (st) st.textContent = "確認しています…";
+  box.innerHTML = "";
+  try {
+    const r = await fetch("/api/kasasagi/selftest", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ botId: ksBotId() }),
+    });
+    const d = await r.json();
+    box.innerHTML = `<div class="ks-test">` + (d.steps || []).map((x) =>
+      `<div class="ks-step ${x.ok ? "ok" : "ng"}">
+         <div class="ks-step-h">${x.ok ? "OK" : "NG"}　${ks.esc(x.name)}</div>
+         ${x.detail ? `<div class="ks-step-d">${ks.esc(x.detail)}</div>` : ""}
+         ${x.hint ? `<div class="ks-step-hint">${ks.esc(x.hint)}</div>` : ""}
+       </div>`).join("") + `</div>` +
+      (d.ok ? `<p class="note">最後まで通りました。会議で音が聞こえたか確認してください。聞こえない場合は、会議側でBotがミュートになっていないかご確認ください。</p>` : "");
+    if (st) st.textContent = "";
+  } catch (e) {
+    box.innerHTML = `<p class="note cc-warn">確認できませんでした：${ks.esc(e.message)}</p>`;
+    if (st) st.textContent = "";
+  } finally { btn.disabled = false; }
+}
+
+// 見た目（顔・名前）の設定
+async function ksLoadLook() {
+  if (!ks.el("lkName")) return;
+  try {
+    const d = await (await fetch("/api/kasasagi/look")).json();
+    ks.el("lkName").value = d.name || "";
+    ks.el("lkBrand").value = d.brand || "";
+    ks.el("lkAvatar").value = d.avatarUrl || "";
+    ks.el("lkAvatar2").value = d.avatarSpeakUrl || "";
+  } catch {}
+}
+
 // タブを開いている間だけ状態を見に行く
 function ksWatch(on) {
   if (ks.timer) { clearInterval(ks.timer); ks.timer = null; }
-  if (on) { ksRefresh(); ksLoadUnanswered(); ks.timer = setInterval(ksRefresh, 4000); }
+  if (on) { ksRefresh(); ksLoadUnanswered(); ksLoadLook(); ks.timer = setInterval(ksRefresh, 4000); }
 }
 
 (function ksInit() {
@@ -1382,6 +1423,26 @@ function ksWatch(on) {
       });
       ksRefresh();
     } catch {}
+  });
+
+  const testBtn = document.getElementById("ksTest");
+  if (testBtn) testBtn.addEventListener("click", ksSelfTest);
+
+  const lkSave = document.getElementById("lkSave");
+  if (lkSave) lkSave.addEventListener("click", async () => {
+    const st = ks.el("lkStatus");
+    if (st) st.textContent = "保存中…";
+    try {
+      const r = await fetch("/api/kasasagi/look", {
+        method: "PUT", headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          name: ks.el("lkName").value, brand: ks.el("lkBrand").value,
+          avatarUrl: ks.el("lkAvatar").value, avatarSpeakUrl: ks.el("lkAvatar2").value,
+        }),
+      });
+      if (!r.ok) throw new Error((await r.json()).error || "保存に失敗しました");
+      if (st) { st.textContent = "保存しました"; setTimeout(() => (st.textContent = ""), 3000); }
+    } catch (e) { if (st) st.textContent = "失敗: " + e.message; }
   });
 
   const slideSel = document.getElementById("ksSlide");
