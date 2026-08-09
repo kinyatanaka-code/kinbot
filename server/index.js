@@ -8452,10 +8452,12 @@ app.get("/api/apo/mine", async (req, res) => {
       : new Date(Date.now() + 9 * 3600 * 1000).toISOString().slice(0, 10);
     // 「他メンバーとして操作」中はその人のぶんを見る
     const owner = String(req.query.owner || req.user || "").toLowerCase();
-    const rows = await myAssignedApos(owner, d);
+    // 既定はその日のぶんだけ。mode=from を渡すと、その日以降をまとめて返す。
+    const mode = req.query.mode === "from" ? "from" : "day";
+    const rows = await myAssignedApos(owner, d, mode);
     const mail = await listApoMailStatus(rows.map((r) => r.slug));
     res.json({
-      date: d, owner,
+      date: d, owner, mode,
       items: rows.map((r) => ({
         slug: r.slug, title: r.label, setter: r.setter, business: r.business || "",
         start: r.start_time, end: r.end_time,

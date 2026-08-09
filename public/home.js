@@ -439,7 +439,7 @@ function renderRank(items) {
 async function sfSearch(key) {
   const s = sfOf(key);
   s.loading = true; s.error = ""; s.reauth = false; s.records = null;
-  render();
+  renderBoth();
   try {
     const r = await fetch("/api/salesforce/search?q=" + encodeURIComponent(s.q));
     const d = await r.json().catch(() => ({}));
@@ -454,7 +454,7 @@ async function sfSearch(key) {
     s.error = "検索に失敗しました（通信エラー）";
   } finally {
     s.loading = false;
-    render();
+    renderBoth();
   }
 }
 
@@ -464,7 +464,7 @@ async function sfLose(key) {
   const ok = confirm(`「${s.picked.Name}」をリスケ理由で失注にします。よろしいですか？`);
   if (!ok) return;
   s.loading = true; s.error = "";
-  render();
+  renderBoth();
   try {
     const r = await fetch("/api/salesforce/opportunity/" + encodeURIComponent(s.picked.Id) + "/lose", {
       method: "POST",
@@ -481,7 +481,7 @@ async function sfLose(key) {
     s.error = "更新に失敗しました（通信エラー）";
   } finally {
     s.loading = false;
-    render();
+    renderBoth();
   }
 }
 
@@ -672,7 +672,13 @@ async function showRecPicker(key) {
 }
 
 function wireList() {
-  const box = $h("homeList");
+  // 商談リストと「割り振られたアポ」リストの両方で同じ操作を効かせる
+  [$h("homeList"), document.getElementById("homeApoList")].forEach((el) => {
+    if (el) wireListBox(el);
+  });
+}
+
+function wireListBox(box) {
   box.addEventListener("click", (ev) => {
     const more = ev.target.closest("[data-sheet-open]");
     if (more) { openCardSheet(more.dataset.sheetOpen); return; }
@@ -684,6 +690,16 @@ function wireList() {
     if (sfe) { openSfEdit(sfe.dataset.sfedit); return; }
     const cls = ev.target.closest("[data-inline-close]");
     if (cls) { const p = cls.closest(".home-inline"); if (p) p.remove(); return; }
+    const sfBtn = ev.target.closest("[data-apo-sf]");
+    if (sfBtn) {
+      openApoSfLaunch(sfBtn.dataset.apoSf);
+      return;
+    }
+    const mailBtn = ev.target.closest("[data-apo-mail]");
+    if (mailBtn) {
+      apoMakeDraft(mailBtn);
+      return;
+    }
     const openBtn = ev.target.closest("[data-sf-open]");
     if (openBtn) {
       const key = openBtn.dataset.sfOpen;
@@ -693,11 +709,11 @@ function wireList() {
         const card = openBtn.closest(".home-card");
         const title = card ? (card.querySelector(".home-card-title") || {}).textContent || "" : "";
         s.q = searchNameFromTitle(title);
-        render();
+        renderBoth();
         sfSearch(key);
         return;
       }
-      render();
+      renderBoth();
       return;
     }
     const searchBtn = ev.target.closest("[data-sf-search]");
@@ -714,7 +730,7 @@ function wireList() {
       const s = sfOf(key);
       s.picked = (s.records || []).find((r) => r.Id === pick.dataset.sfId) || null;
       s.error = "";
-      render();
+      renderBoth();
       return;
     }
     const reset = ev.target.closest("[data-sf-reset]");
@@ -722,13 +738,13 @@ function wireList() {
       const key = reset.dataset.sfReset;
       const s = sfOf(key);
       s.picked = null; s.done = ""; s.error = "";
-      render();
+      renderBoth();
       return;
     }
     const lose = ev.target.closest("[data-sf-lose]");
     if (lose) { sfLose(lose.dataset.sfLose); return; }
     const closeBtn = ev.target.closest("[data-sf-close]");
-    if (closeBtn) { sfOf(closeBtn.dataset.sfClose).open = false; render(); return; }
+    if (closeBtn) { sfOf(closeBtn.dataset.sfClose).open = false; renderBoth(); return; }
     // スマホ：カードをタップしたら操作シートを出す
     if (window.kbIsMobile && window.kbIsMobile() && window.kbSheet) {
       if (ev.target.closest("a, button, input, select, textarea, .home-sf")) return;
@@ -944,10 +960,10 @@ function apoTime(iso) {
   return `${p(d.getHours())}:${p(d.getMinutes())}`;
 }
 
+let myApos = [];
+
 async function loadMyApos() {
   const box = document.getElementById("homeApoList");
-  const cnt = document.getElementById("homeApoCount");
-  const sec = document.getElementById("homeApoSec");
   if (!box) return;
   box.innerHTML = '<div class="home-empty">読み込み中…</div>';
   try {
@@ -956,13 +972,33 @@ async function loadMyApos() {
     try { if (new URLSearchParams(location.search).get("many")) q.set("many", "1"); } catch {}
     const d = await (await fetch("/api/apo/mine?" + q.toString())).json();
     if (d.error) throw new Error(d.error);
-    const items = d.items || [];
-    if (cnt) cnt.textContent = items.length ? `${items.length}件` : "";
-    if (!items.length) {
-      box.innerHTML = '<div class="home-empty home-empty-s">この日に割り振られたアポはありません。</div>';
-      return;
-    }
-    box.innerHTML = items.map((x) => {
+    myApos = d.items || [];
+    renderMyApos();
+  } catch (e) {
+    myApos = [];
+    box.innerHTML = `<div class="home-empty home-empty-s">読み込めませんでした：${apoEsc(e.message)}</div>`;
+  }
+}
+
+// 手元の配列から描き直す（Salesforceのパネルを開いたときにも呼ぶ）
+function renderMyApos() {
+  const box = document.getElementById("homeApoList");
+  const cnt = document.getElementById("homeApoCount");
+  if (!box) return;
+  if (cnt) cnt.textContent = myApos.length ? `${myApos.length}件` : "";
+  box.innerHTML = myApos.length
+    ? myApos.map(apoHomeCard).join("")
+    : '<div class="home-empty home-empty-s">この日に割り振られたアポはありません。</div>';
+}
+
+// 商談リストとアポリストの両方を描き直す
+function renderBoth() {
+  render();
+  renderMyApos();
+}
+
+function apoHomeCard(x) {
+  return ((x) => {
       const chip = (label, st) => {
         if (!st) return `<span class="ln-tag">${label}：未作成</span>`;
         if (st.status === "draft") return `<span class="ln-tag ln-tag-draft">${label}：下書き済</span>`;
@@ -971,7 +1007,8 @@ async function loadMyApos() {
       };
       const m = x.mail || {};
       const needMail = !m.confirm;
-      return `<div class="home-card home-card-v ap-home-card${needMail ? " home-card-plan" : ""}">
+      const sfKey = "apo:" + x.slug;   // カードを特定するキー（パネルの差し込み先）
+      return `<div class="home-card home-card-v ap-home-card${needMail ? " home-card-plan" : ""}" data-card="${apoEsc(sfKey)}">
         <div class="home-card-row">
           <div class="home-card-main">
             <div class="home-card-top">
@@ -989,13 +1026,96 @@ async function loadMyApos() {
               : '<div class="home-card-meta cc-warn">お客様の宛先が未登録です（メールを出せません）</div>'}
           </div>
           <div class="home-card-actions">
-            <a class="btn" href="sf-launch.html">SFを立ち上げる</a>
+            <button type="button" class="btn" data-apo-mail="${apoEsc(x.slug)}"${m.confirm ? " disabled" : ""}>${
+              m.confirm ? (m.confirm.status === "sent" ? "送信済み" : "下書き作成済み") : "メール送付（下書きへ）"
+            }</button>
+            <button type="button" class="btn sf-btn-secondary" data-apo-sf="${apoEsc(x.slug)}">SF立ち上げ</button>
             <a class="btn ghost" href="${apoEsc(x.smartUrl)}" target="_blank" rel="noopener">会議室</a>
           </div>
         </div>
       </div>`;
-    }).join("");
+  })(x);
+}
+
+// 「メール送付（下書きへ）」…担当者のGmailに下書きを作り、Gmailを開くリンクを出す
+async function apoMakeDraft(btn) {
+  const slug = btn.dataset.apoMail;
+  const x = myApos.find((a) => a.slug === slug);
+  if (!x) return;
+  if (!x.clientEmail) {
+    alert("お客様の宛先が未登録です。\n\nアポ振り分けの画面で宛先を入れてから、もう一度お試しください。");
+    return;
+  }
+  if (!confirm(`アポ確定メールを用意します。\n\n${x.title}\n宛先：${x.clientEmail}\n\nよろしいですか？`)) return;
+  btn.disabled = true;
+  const label = btn.textContent;
+  btn.textContent = "作成中…";
+  try {
+    const r = await fetch(`/api/smart-links/${encodeURIComponent(slug)}/mail`, {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ kind: "confirm" }),
+    });
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.error || "用意できませんでした");
+    x.mail = Object.assign({}, x.mail, {
+      confirm: { status: d.draft ? "draft" : "sent", at: new Date().toISOString() },
+    });
+    renderMyApos();
+    cardPanel("apo:" + slug,
+      `<div class="home-inline-h">${d.draft ? "下書きを作りました" : "送信しました"}</div>` +
+      `<div class="home-sf-msg">宛先：${apoEsc(x.clientEmail)}</div>` +
+      (d.draft
+        ? `<div class="home-sf-row"><a class="btn" href="https://mail.google.com/mail/u/0/#drafts" target="_blank" rel="noopener">Gmailの下書きを開く</a>` +
+          `<button class="btn sf-btn-secondary home-sf-mini" data-inline-close="1" type="button">閉じる</button></div>` +
+          `<div class="home-sf-note">内容を確認してから、Gmailの画面で送信してください。</div>`
+        : `<div class="home-sf-row"><button class="btn sf-btn-secondary home-sf-mini" data-inline-close="1" type="button">閉じる</button></div>`) +
+      (d.noRoom
+        ? `<div class="home-sf-err">「設定 → 登録リンク」に会議室URLが登録されていません。このままだとお客様が入室できません。</div>`
+        : ""));
   } catch (e) {
-    box.innerHTML = `<div class="home-empty home-empty-s">読み込めませんでした：${apoEsc(e.message)}</div>`;
+    alert("メールを用意できませんでした:\n" + e.message);
+    btn.disabled = false; btn.textContent = label;
   }
 }
+
+// 「SF立ち上げ」…Salesforce商談立ち上げの画面を、その1件に絞ってカード内に開く。
+// 画面を移動せずに、リード検索からコンバートまでそのまま行える。
+function openApoSfLaunch(slug) {
+  const x = myApos.find((a) => a.slug === slug);
+  if (!x) return;
+  const day = String(x.start || "").slice(0, 10) || selDate;
+  const src = `sf-launch.html?embed=1&date=${encodeURIComponent(day)}&q=${encodeURIComponent(x.title || "")}`;
+  const key = "apo:" + slug;
+
+  if (window.kbIsMobile && window.kbIsMobile()) {
+    const old = document.querySelector(".kb-full");
+    if (old) old.remove();
+    const full = document.createElement("div");
+    full.className = "kb-full";
+    full.innerHTML =
+      `<div class="kb-full-head">
+         <span class="kb-full-t">${escH(x.title || "Salesforce 立ち上げ")}</span>
+         <button type="button" class="kb-full-x" aria-label="閉じる">閉じる</button>
+       </div>
+       <iframe class="kb-full-frame" src="${escH(src)}" title="SF立ち上げ"></iframe>`;
+    document.body.appendChild(full);
+    document.body.style.overflow = "hidden";
+    const close = () => { full.remove(); document.body.style.overflow = ""; };
+    full.querySelector(".kb-full-x").addEventListener("click", close);
+    return;
+  }
+
+  cardPanel(key,
+    `<div class="home-inline-h">Salesforce 立ち上げ
+       <button type="button" class="home-sf-hide" data-inline-close="1" style="width:auto;padding:0 0 0 10px">閉じる</button>
+     </div>
+     <iframe class="home-sf-frame apo-sf-frame" src="${escH(src)}" title="SF立ち上げ"></iframe>`);
+}
+
+// 埋め込んだ画面から高さを受け取って、iframeの高さを合わせる
+window.addEventListener("message", (ev) => {
+  const d = ev && ev.data;
+  if (!d || d.type !== "kb-embed-height") return;
+  const h = Math.max(220, Math.min(900, parseInt(d.height, 10) || 0));
+  document.querySelectorAll(".apo-sf-frame").forEach((f) => { f.style.height = h + "px"; });
+});

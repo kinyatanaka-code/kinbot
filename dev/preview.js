@@ -236,23 +236,71 @@ function apiResponse(pathname, query) {
   }
   if (pathname.indexOf("/api/apo/suspensions") === 0) return { ok: true, ...MOCK.ROTATION };
   if (pathname === "/api/apo/closer-order") return { ok: true, ...MOCK.ROTATION };
+  if (pathname === "/api/calendar/created") {
+    return { events: [
+      { id: "cal1", title: "【初回】株式会社ベルク　町田様", start: "2026-08-09T05:00:00.000Z",
+        created: "2026-08-09T02:00:00.000Z", organizer: "iijima@neo-career.co.jp",
+        creator: "iijima@neo-career.co.jp", apoBy: "飯島 稜", assigneeName: "田中欽也" },
+    ] };
+  }
+  if (pathname === "/api/salesforce/lead-fields" || pathname === "/api/salesforce/lead-create-fields") {
+    return { fields: [
+      { name: "LastName", label: "姓", type: "string", required: true },
+      { name: "Company", label: "会社名", type: "string", required: true },
+      { name: "Email", label: "メール", type: "string" },
+    ], convertedStatuses: [{ value: "Closed - Converted", label: "コンバート済み" }] };
+  }
+  if (pathname === "/api/salesforce/launched-check") return { launched: {}, instanceUrl: "https://x.my.salesforce.com" };
+  if (pathname === "/api/salesforce/leads") {
+    return { records: [
+      { Id: "00Qxx001", Name: "町田 太郎", Company: "株式会社ベルク", Status: "新規", Email: "machida@belc.example.jp" },
+    ] };
+  }
+  if (pathname === "/api/users") return [{ email: "kinya.tanaka@neo-career.co.jp", name: "田中欽也" }];
+  if (pathname === "/api/salesforce/search") {
+    return { records: [
+      { Id: "006xx0001", Name: "直販_クロス_テスト企業_99", StageName: "01：初回商談", CloseDate: "2026-09-30",
+        Account: { Name: "株式会社テスト" } },
+      { Id: "006xx0002", Name: "直販_新規_テスト企業", StageName: "02：提案", CloseDate: "2026-10-31",
+        Account: { Name: "テスト株式会社" } },
+    ] };
+  }
   if (pathname === "/api/apo/mine") {
-    const many = query.get("many") === "1";
-    return { date: query.get("date") || "2026-08-09", owner: "kinya.tanaka@neo-career.co.jp",
-      items: [
-        { slug: "abc-def-001", title: "【初回】株式会社ベルク　町田様", setter: "飯島 稜", business: "DOC",
-          start: "2026-08-09T05:00:00.000Z", clientEmail: "machida@belc.example.jp",
-          smartUrl: "https://kinbot/j/abc-def-001", inviteEventId: "ev1",
-          mail: { confirm: { status: "draft", at: "2026-08-09T02:00:00.000Z" } } },
-        { slug: "abc-def-002", title: "【初回】合同会社サンライズ　佐藤様", setter: "加藤 宋宙", business: "DOC",
-          start: "2026-08-09T06:30:00.000Z", clientEmail: "sato@sunrise.example.jp",
-          smartUrl: "https://kinbot/j/abc-def-002", inviteEventId: "ev2",
-          mail: { confirm: { status: "sent", at: "2026-08-09T02:10:00.000Z" }, reminder: { status: "sent" } } },
-        { slug: "abc-def-003", title: "【初回】株式会社ミナト工業　高橋様", setter: "迫間 美羽", business: "MOCHICA",
-          start: "2026-08-09T08:00:00.000Z", clientEmail: "",
-          smartUrl: "https://kinbot/j/abc-def-003", inviteEventId: "",
-          mail: {} },
-      ].flatMap((x, k) => many ? Array.from({ length: 4 }, (_, n) => ({ ...x, slug: x.slug + n })) : [x]) };
+    const base = [
+      { title: "【初回】株式会社ベルク　町田様", setter: "飯島 稜", business: "DOC",
+        d: "2026-08-09", t: "05:00", email: "machida@belc.example.jp", ev: "ev1",
+        mail: { confirm: { status: "draft" } } },
+      { title: "【初回】合同会社サンライズ　佐藤様", setter: "加藤 宋宙", business: "DOC",
+        d: "2026-08-09", t: "06:30", email: "sato@sunrise.example.jp", ev: "ev2",
+        mail: { confirm: { status: "sent" }, reminder: { status: "sent" } } },
+      { title: "【初回】株式会社ミナト工業　高橋様", setter: "迫間 美羽", business: "MOCHICA",
+        d: "2026-08-09", t: "08:00", email: "takahashi@minato.example.jp", ev: "", mail: {} },
+      { title: "【初回】株式会社サンプル　山田様", setter: "飯島 稜", business: "DOC",
+        d: "2026-08-09", t: "10:00", email: "", ev: "", mail: {} },
+      { title: "【新/ヒ】株式会社アイドマ・ホールディングス　田中様", setter: "薦原 一樹", business: "DOC",
+        d: "2026-08-10", t: "02:00", email: "tanaka@aidma.example.jp", ev: "ev3",
+        mail: { confirm: { status: "draft" } } },
+      { title: "【初回】株式会社コロンバン　宮村様", setter: "飯島 稜", business: "DOC",
+        d: "2026-08-11", t: "08:00", email: "miyamura@colombin.co.jp", ev: "",
+        mail: {} },
+      { title: "【初回】一般財団法人沖縄美ら島財団　比嘉様", setter: "加藤 宋宙", business: "DOC",
+        d: "2026-08-17", t: "01:00", email: "w-higa@okichura.jp", ev: "ev4",
+        mail: { confirm: { status: "failed", error: "403" } } },
+    ];
+    const from = query.get("date") || "2026-08-09";
+    // 既定はその日のぶんだけ（?mode=from でそれ以降も返す）
+    const mode = query.get("mode") === "from" ? "from" : "day";
+    let src = base.filter((x) => (mode === "from" ? x.d >= from : x.d === from));
+    // ?many=1 で件数を増やして、ペイン内スクロールを確認できる
+    if (query.get("many") === "1") {
+      src = Array.from({ length: 4 }, () => base.filter((x) => x.d === from)).flat();
+    }
+    const items = src.map((x, k) => ({
+      slug: "home-" + k, title: x.title, setter: x.setter, business: x.business,
+      start: `${x.d}T${x.t}:00.000Z`, clientEmail: x.email,
+      smartUrl: "https://kinbot/j/home-" + k, inviteEventId: x.ev, mail: x.mail,
+    }));
+    return { date: from, owner: "kinya.tanaka@neo-career.co.jp", mode, items };
   }
   if (pathname === "/api/apo/invites") {
     return { hours: 24, invites: [
@@ -349,6 +397,7 @@ function apiResponse(pathname, query) {
     return { ok: true, ...MOCK.ROTATION };
   }
   if (pathname.indexOf("/api/apo/invites/") === 0) return { ok: true };
+  if (pathname.indexOf("/api/smart-links/") === 0 && pathname.endsWith("/mail")) return { ok: true, draft: true, to: "x@y.jp" };
   if (pathname.startsWith("/api/smart-links/")) return { ok: true, link: {}, mail: { ok: true } };
   return {};
 }

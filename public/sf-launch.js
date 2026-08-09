@@ -274,6 +274,7 @@ let ownerFilter = null; // 表示する登録者（null＝全員）
 let launched = {};      // 会社名 → すでにある商談
 let sfInstanceUrl = "";
 let createFields = null; // 新規リード作成の入力項目
+let autoOpened = false;  // 埋め込みでパネルを自動で開いたか
 function render() {
   const box = $l("lnList");
   $l("lnTitle").textContent = (selDateL === todayL ? "今日" : dateLabelL(selDateL)) + "に登録された【初回】【新/ヒ】の予定" + (memberCount ? `（${memberCount}名分）` : "");
@@ -282,12 +283,27 @@ function render() {
   const tb = $l("lnToday");
   if (tb) tb.style.visibility = selDateL === todayL ? "hidden" : "visible";
 
-  const all = (dayEventsL || []).filter((e) => isTarget(e.title));
+  let all = (dayEventsL || []).filter((e) => isTarget(e.title));
+  // 埋め込みで q が渡されたときは、その1件だけに絞る
+  if (focusQ) {
+    const norm = (t) => String(t || "").replace(/[\s　]/g, "");
+    const key = norm(focusQ);
+    const hit = all.filter((e) => norm(e.title).includes(key) || key.includes(norm(e.title)));
+    if (hit.length) all = hit;
+  }
   renderOwnerFilter(all);
   const list = ownerFilter ? all.filter((e) => ownerFilter.has(creatorEmailOf(e))) : all;
   if (!list.length) {
-    box.innerHTML = `<div class="home-empty">${all.length ? "選んだ登録者の予定はありません。" : "この日に登録された【初回】【新/ヒ】の予定はありません。"}</div>`;
+    box.innerHTML = `<div class="home-empty">${
+      focusQ ? "この予定はSalesforce立ち上げの対象ではありません（タイトルに【初回】【新/ヒ】が必要です）。"
+             : all.length ? "選んだ登録者の予定はありません。" : "この日に登録された【初回】【新/ヒ】の予定はありません。"}</div>`;
     return;
+  }
+  // 1件だけなら、リード検索のパネルを自動で開く
+  if (focusQ && list.length === 1 && !autoOpened) {
+    autoOpened = true;
+    const k0 = list[0].id || (list[0].title + "@" + list[0].start);
+    setTimeout(() => { const b = box.querySelector(`[data-ln-open="${cssEscL(k0)}"]`); if (b) b.click(); }, 60);
   }
   box.innerHTML = list.map((e) => {
     const key = e.id || (e.title + "@" + e.start);
@@ -693,7 +709,36 @@ function shiftDay(n) {
   loadDay();
 }
 
+// ホームなどからiframeで埋め込まれたときの制御。
+//   embed=1 … 余計な枠を隠して、対象の1件だけを出す
+//   date    … その日を開く
+//   q       … 予定名の一部で絞り込む（1件だけならパネルを自動で開く）
+const embedQ = (() => {
+  try { return new URLSearchParams(location.search); } catch { return new URLSearchParams(); }
+})();
+const isEmbed = embedQ.get("embed") === "1";
+const focusQ = String(embedQ.get("q") || "").trim();
+if (isEmbed) {
+  try { document.body.classList.add("kb-embed", "kb-embed-ln"); } catch {}
+  // 中身の高さを親に伝えて、iframeの高さを合わせる
+  const postH = () => {
+    try {
+      const t = document.querySelector(".report-page") || document.body;
+      parent.postMessage({ type: "kb-embed-height", height: Math.ceil(t.getBoundingClientRect().height) + 16 }, "*");
+    } catch {}
+  };
+  window.addEventListener("load", postH);
+  for (const ms of [400, 1200, 2500]) setTimeout(postH, ms);
+  const mo = new MutationObserver(() => postH());
+  window.addEventListener("load", () => {
+    const box = $l("lnList");
+    if (box) mo.observe(box, { childList: true, subtree: true });
+  });
+}
+
 document.addEventListener("DOMContentLoaded", async () => {
+  const d0 = String(embedQ.get("date") || "");
+  if (/^\d{4}-\d{2}-\d{2}$/.test(d0)) selDateL = d0;
   $l("lnDate").value = selDateL;
   $l("lnDate").addEventListener("change", (e) => {
     if (/^\d{4}-\d{2}-\d{2}$/.test(e.target.value)) { selDateL = e.target.value; loadDay(); }

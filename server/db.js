@@ -2391,16 +2391,21 @@ export async function setSmartLinkClient(slug, { email, name, source } = {}, for
 // このアポの事業（DOC / MOCHICA）を保存する
 // 元の予定の説明欄を保存する（すでに入っていれば上書きしない＝手で直した内容を守る）
 // 直近に商談予定を作った（または作り直した）アポの一覧。取り消し画面で使う。
-// 指定した日に自分へ割り振られているアポ（ホーム画面用）
-export async function myAssignedApos(owner, dateJst) {
+// 自分へ割り振られているアポ（ホーム画面用）。
+// mode="day"（既定） … その日のぶんだけ
+// mode="from"        … その日以降ぜんぶ
+export async function myAssignedApos(owner, dateJst, mode = "day", limit = 200) {
   if (!pool || !owner) return [];
   try {
+    const cond = mode === "day"
+      ? `(start_time AT TIME ZONE 'Asia/Tokyo')::date = $2::date`
+      : `(start_time AT TIME ZONE 'Asia/Tokyo')::date >= $2::date`;
     const { rows } = await pool.query(
       `SELECT * FROM smart_links
-        WHERE current_owner = $1
-          AND (start_time AT TIME ZONE 'Asia/Tokyo')::date = $2::date
-        ORDER BY start_time`,
-      [String(owner).toLowerCase(), dateJst]);
+        WHERE current_owner = $1 AND ${cond}
+        ORDER BY start_time
+        LIMIT $3`,
+      [String(owner).toLowerCase(), dateJst, Math.max(1, Math.min(500, limit))]);
     return rows;
   } catch (e) { console.error("[db] myAssignedApos", e.message); return []; }
 }
