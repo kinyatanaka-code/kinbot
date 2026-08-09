@@ -88,6 +88,7 @@ import {
   setSmartLinkBusiness,
   setSmartLinkSourceNote,
   recentInvites,
+  myAssignedApos,
   activeInviteEventIds,
   logGmailAction,
   listClosers,
@@ -8439,6 +8440,31 @@ app.get("/api/apo/calendar-check", async (req, res) => {
       out.push(row);
     }
     res.json({ owner, window: { from: timeMin, to: timeMax }, members: out });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// ホーム画面用：指定日に自分へ割り振られたアポ。
+// メールの状態と、Salesforceの立ち上げに使う情報も一緒に返す。
+app.get("/api/apo/mine", async (req, res) => {
+  try {
+    const d = /^\d{4}-\d{2}-\d{2}$/.test(String(req.query.date || ""))
+      ? String(req.query.date)
+      : new Date(Date.now() + 9 * 3600 * 1000).toISOString().slice(0, 10);
+    // 「他メンバーとして操作」中はその人のぶんを見る
+    const owner = String(req.query.owner || req.user || "").toLowerCase();
+    const rows = await myAssignedApos(owner, d);
+    const mail = await listApoMailStatus(rows.map((r) => r.slug));
+    res.json({
+      date: d, owner,
+      items: rows.map((r) => ({
+        slug: r.slug, title: r.label, setter: r.setter, business: r.business || "",
+        start: r.start_time, end: r.end_time,
+        clientEmail: r.client_email || "",
+        smartUrl: joinUrl(r.slug),
+        inviteEventId: r.invite_event_id || "",
+        mail: mail[r.slug] || {},
+      })),
+    });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 

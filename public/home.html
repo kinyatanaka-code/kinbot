@@ -59,7 +59,23 @@
           </div>
           <div class="home-body">
             <div class="home-main">
-              <div id="homeList"><div class="home-empty">読み込み中…</div></div>
+              <div class="home-cols">
+                <section class="home-sec home-pane">
+                  <div class="home-sec-head">
+                    <span class="home-sec-title">今日の商談</span>
+                    <span class="home-sec-count" id="homeMtgCount"></span>
+                  </div>
+                  <div class="home-pane-body" id="homeList"><div class="home-empty">読み込み中…</div></div>
+                </section>
+                <section class="home-sec home-pane" id="homeApoSec">
+                  <div class="home-sec-head">
+                    <span class="home-sec-title">割り振られたアポ</span>
+                    <span class="home-sec-count" id="homeApoCount"></span>
+                    <a class="home-sec-link" href="apo.html">一覧へ</a>
+                  </div>
+                  <div class="home-pane-body" id="homeApoList"></div>
+                </section>
+              </div>
             </div>
             <aside class="home-side">
               <div class="home-panel home-panel-mini">

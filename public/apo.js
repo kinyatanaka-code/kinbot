@@ -204,10 +204,6 @@ function apoCard(a, i) {
         <select class="ap-rep" data-i="${i}">${repOptions(a.current_owner)}</select>
         ${assigned ? "" : `<button class="btn ap-auto" data-i="${i}">自動で決める</button>`}
         ${canSend ? `<button class="btn ap-sendmail" data-i="${i}" data-kind="confirm">${draftMode ? "下書きを作る" : "メールを送信"}</button>` : ""}
-        <select class="ap-bizsel" data-i="${i}">${
-          ["", "DOC", "MOCHICA"].map((b) =>
-            `<option value="${b}"${(a.business || "") === b ? " selected" : ""}>${b || "事業 未判定"}</option>`).join("")
-        }</select>
         <div class="ap-card-links">
           <a class="btn ghost" href="${esc(a.smart_url)}" target="_blank" rel="noopener" title="${esc(a.smart_url)}">開く</a>
           <button class="btn ghost ap-copy" data-url="${esc(a.smart_url)}">コピー</button>
@@ -296,26 +292,6 @@ function bindCardEvents(card) {
     }
   });
 
-  const biz = q(".ap-bizsel");
-  if (biz) biz.addEventListener("change", async () => {
-    const i = +biz.dataset.i;
-    const a = apState.appts[i];
-    biz.disabled = true;
-    try {
-      const r = await fetch(`/api/smart-links/${encodeURIComponent(a.slug)}/business`, {
-        method: "PUT", headers: { "content-type": "application/json" },
-        body: JSON.stringify({ business: biz.value }),
-      });
-      const d = await r.json();
-      if (!r.ok) throw new Error(d.error || "変更に失敗しました");
-      a.business = biz.value;
-      refreshMailCell(i);
-    } catch (e) {
-      alert("事業を変更できませんでした: " + e.message);
-      biz.value = a.business || "";
-      biz.disabled = false;
-    }
-  });
 
   const auto = q(".ap-auto");
   if (auto) auto.addEventListener("click", async () => {

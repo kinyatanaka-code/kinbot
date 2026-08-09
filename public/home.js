@@ -85,7 +85,7 @@ function dateLabel(s) {
 
 function updateHead() {
   const isToday = selDate === todayStr;
-  $h("homeDate").textContent = (isToday ? "今日の商談（" : "商談（") + dateLabel(selDate) + "）";
+  $h("homeDate").textContent = (isToday ? "今日（" : "") + dateLabel(selDate) + (isToday ? "）" : "");
   const pick = $h("datePick");
   if (pick && pick.value !== selDate) pick.value = selDate;
   const tb = $h("dateToday");
@@ -227,14 +227,18 @@ function render() {
   if (window._calConnected === false) {
     html += `<div class="home-note">Googleカレンダーが連携されていません。設定で連携すると、予定がここに表示され、開始時刻にボットが自動入室します。</div>`;
   }
+  const setCount = (n) => {
+    const c = document.getElementById("homeMtgCount");
+    if (c) c.textContent = n ? `${n}件` : "";
+  };
   if (calLoading) {
     html += '<div class="home-empty"><span class="empty-state is-loading">読み込み中…</span></div>';
-    box.innerHTML = html;
+    box.innerHTML = html; setCount(0);
     return;
   }
   if (!items.length) {
     html += `<div class="home-empty">${dayWord}の商談はありません。</div>`;
-    box.innerHTML = html;
+    box.innerHTML = html; setCount(0);
     return;
   }
 
@@ -295,6 +299,8 @@ function render() {
   }).join("");
 
   box.innerHTML = html;
+  const c = document.getElementById("homeMtgCount");
+  if (c) c.textContent = items.length ? `${items.length}件` : "";
 }
 
 // ---- 右パネル：ミニカレンダー ----
@@ -828,6 +834,7 @@ async function changeDate(next) {
   await loadCalendar();
   updateHead();
   render();
+  loadMyApos();
 }
 
 function shiftDate(days) {
@@ -855,6 +862,7 @@ async function load() {
   await loadCalendar();
   updateHead();
   render();
+  loadMyApos();
 }
 
 document.addEventListener("DOMContentLoaded", () => {
@@ -920,3 +928,74 @@ document.addEventListener("DOMContentLoaded", () => {
   load();
   loadRank();
 });
+
+// ───────────────────────────────────────────────────────────
+// 割り振られたアポ（自分が担当になった商談）
+// メールが用意できているか、Salesforceを立ち上げたかがここで分かる。
+// ───────────────────────────────────────────────────────────
+function apoEsc(v) {
+  return String(v == null ? "" : v).replace(/[&<>"']/g, (c) =>
+    ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+}
+function apoTime(iso) {
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return "時刻未定";
+  const p = (n) => String(n).padStart(2, "0");
+  return `${p(d.getHours())}:${p(d.getMinutes())}`;
+}
+
+async function loadMyApos() {
+  const box = document.getElementById("homeApoList");
+  const cnt = document.getElementById("homeApoCount");
+  const sec = document.getElementById("homeApoSec");
+  if (!box) return;
+  box.innerHTML = '<div class="home-empty">読み込み中…</div>';
+  try {
+    const q = new URLSearchParams({ date: selDate || todayStr });
+    // 動作確認用：?many=1 で件数を増やせる（本番では無視される）
+    try { if (new URLSearchParams(location.search).get("many")) q.set("many", "1"); } catch {}
+    const d = await (await fetch("/api/apo/mine?" + q.toString())).json();
+    if (d.error) throw new Error(d.error);
+    const items = d.items || [];
+    if (cnt) cnt.textContent = items.length ? `${items.length}件` : "";
+    if (!items.length) {
+      box.innerHTML = '<div class="home-empty home-empty-s">この日に割り振られたアポはありません。</div>';
+      return;
+    }
+    box.innerHTML = items.map((x) => {
+      const chip = (label, st) => {
+        if (!st) return `<span class="ln-tag">${label}：未作成</span>`;
+        if (st.status === "draft") return `<span class="ln-tag ln-tag-draft">${label}：下書き済</span>`;
+        if (st.status === "sent") return `<span class="ln-tag ln-tag-rep">${label}：送信済</span>`;
+        return `<span class="ln-tag ln-tag-none">${label}：失敗</span>`;
+      };
+      const m = x.mail || {};
+      const needMail = !m.confirm;
+      return `<div class="home-card home-card-v ap-home-card${needMail ? " home-card-plan" : ""}">
+        <div class="home-card-row">
+          <div class="home-card-main">
+            <div class="home-card-top">
+              <span class="home-time">${apoEsc(apoTime(x.start))}</span>
+              ${x.business ? `<span class="ap-biz-badge ap-biz-${apoEsc(x.business)}">${apoEsc(x.business)}</span>` : ""}
+              ${x.inviteEventId ? '<span class="home-badge home-badge-done">予定作成済</span>' : ""}
+            </div>
+            <div class="home-card-title">${apoEsc(x.title || "")}</div>
+            <div class="home-card-meta ln-who">
+              <span class="ln-tag ln-tag-intern">アポ獲得：${apoEsc(x.setter || "-")}</span>
+              ${chip("確定メール", m.confirm)}${chip("前日", m.reminder)}
+            </div>
+            ${x.clientEmail
+              ? `<div class="home-card-meta ap-home-addr">${apoEsc(x.clientEmail)}</div>`
+              : '<div class="home-card-meta cc-warn">お客様の宛先が未登録です（メールを出せません）</div>'}
+          </div>
+          <div class="home-card-actions">
+            <a class="btn" href="sf-launch.html">SFを立ち上げる</a>
+            <a class="btn ghost" href="${apoEsc(x.smartUrl)}" target="_blank" rel="noopener">会議室</a>
+          </div>
+        </div>
+      </div>`;
+    }).join("");
+  } catch (e) {
+    box.innerHTML = `<div class="home-empty home-empty-s">読み込めませんでした：${apoEsc(e.message)}</div>`;
+  }
+}

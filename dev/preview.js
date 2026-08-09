@@ -236,6 +236,24 @@ function apiResponse(pathname, query) {
   }
   if (pathname.indexOf("/api/apo/suspensions") === 0) return { ok: true, ...MOCK.ROTATION };
   if (pathname === "/api/apo/closer-order") return { ok: true, ...MOCK.ROTATION };
+  if (pathname === "/api/apo/mine") {
+    const many = query.get("many") === "1";
+    return { date: query.get("date") || "2026-08-09", owner: "kinya.tanaka@neo-career.co.jp",
+      items: [
+        { slug: "abc-def-001", title: "【初回】株式会社ベルク　町田様", setter: "飯島 稜", business: "DOC",
+          start: "2026-08-09T05:00:00.000Z", clientEmail: "machida@belc.example.jp",
+          smartUrl: "https://kinbot/j/abc-def-001", inviteEventId: "ev1",
+          mail: { confirm: { status: "draft", at: "2026-08-09T02:00:00.000Z" } } },
+        { slug: "abc-def-002", title: "【初回】合同会社サンライズ　佐藤様", setter: "加藤 宋宙", business: "DOC",
+          start: "2026-08-09T06:30:00.000Z", clientEmail: "sato@sunrise.example.jp",
+          smartUrl: "https://kinbot/j/abc-def-002", inviteEventId: "ev2",
+          mail: { confirm: { status: "sent", at: "2026-08-09T02:10:00.000Z" }, reminder: { status: "sent" } } },
+        { slug: "abc-def-003", title: "【初回】株式会社ミナト工業　高橋様", setter: "迫間 美羽", business: "MOCHICA",
+          start: "2026-08-09T08:00:00.000Z", clientEmail: "",
+          smartUrl: "https://kinbot/j/abc-def-003", inviteEventId: "",
+          mail: {} },
+      ].flatMap((x, k) => many ? Array.from({ length: 4 }, (_, n) => ({ ...x, slug: x.slug + n })) : [x]) };
+  }
   if (pathname === "/api/apo/invites") {
     return { hours: 24, invites: [
       { slug: "abc-def-001", label: "【初回】株式会社テスト/テスト様", setter: "田中欽也", business: "DOC",
