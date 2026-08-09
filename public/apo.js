@@ -42,13 +42,6 @@ function repOptions(selected) {
   }
   return o;
 }
-// 事業セル：DOC / MOCHICA を切り替えられる
-function bizCell(a, i) {
-  const opts = ["", "DOC", "MOCHICA"].map((b) =>
-    `<option value="${b}"${(a.business || "") === b ? " selected" : ""}>${b || "未判定"}</option>`).join("");
-  return `<select class="ap-bizsel" data-i="${i}">${opts}</select>`;
-}
-
 // 宛先セル：自動取得できていればそのまま表示、無ければ入力欄。クリックで編集できる。
 function clientCell(a, i) {
   const src = a.client_email_source === "manual" ? "手入力"
@@ -159,39 +152,107 @@ function refreshMailCell(i) {
   bindMailButtons(cell);
 }
 
+// 「8/9(日)」のような1行の見出し
+function fmtDay(iso) {
+  if (!iso) return "日付未定";
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return "日付未定";
+  const wd = ["日", "月", "火", "水", "木", "金", "土"][d.getDay()];
+  const t = new Date();
+  const same = (x, y) => x.toDateString() === y.toDateString();
+  const tomorrow = new Date(t.getTime() + 86400000);
+  const head = `${d.getMonth() + 1}月${d.getDate()}日(${wd})`;
+  if (same(d, t)) return head + "　今日";
+  if (same(d, tomorrow)) return head + "　明日";
+  return head;
+}
+function fmtTime(iso) {
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return "";
+  const p = (n) => String(n).padStart(2, "0");
+  return `${p(d.getHours())}:${p(d.getMinutes())}`;
+}
+
+// アポ1件をカードにする
+function apoCard(a, i) {
+  const assigned = !!a.current_owner;
+  const badges =
+    (a.business ? `<span class="ap-biz-badge ap-biz-${esc(a.business)}">${esc(a.business)}</span>` : "") +
+    (assigned ? "" : '<span class="home-badge home-badge-st">担当未定</span>');
+
+  return `<div class="ap-card${assigned ? "" : " ap-card-todo"}" data-i="${i}">
+    <div class="ap-card-row">
+      <div class="ap-card-main">
+        <div class="ap-card-top">
+          <span class="ap-card-time">${esc(fmtTime(a.start))}</span>${badges}
+        </div>
+        <div class="ap-card-title">${esc(a.title)}</div>
+        <div class="ap-card-meta">
+          アポ獲得 <b>${esc(a.setter_name)}</b>
+          <span class="ap-dot">・</span>取得 ${esc(fmtYmd(a.created_date))}
+        </div>
+        <div class="ap-card-lines">
+          <div class="ap-line">
+            <span class="ap-line-k">お客様の宛先</span>
+            <span class="ap-line-v ap-client" data-i="${i}">${clientCell(a, i)}</span>
+          </div>
+          <div class="ap-line">
+            <span class="ap-line-k">アポメール</span>
+            <span class="ap-line-v ap-mail" data-i="${i}">${mailCell(a, i)}</span>
+          </div>
+          <div class="ap-line">
+            <span class="ap-line-k">状態</span>
+            <span class="ap-line-v ap-status" data-i="${i}">${statusCell(a)}</span>
+          </div>
+        </div>
+      </div>
+      <div class="ap-card-actions">
+        <select class="ap-rep" data-i="${i}">${repOptions(a.current_owner)}</select>
+        ${assigned ? "" : `<button class="btn kb-prio ap-auto" data-i="${i}">自動で決める</button>`}
+        <select class="ap-bizsel" data-i="${i}">${
+          ["", "DOC", "MOCHICA"].map((b) =>
+            `<option value="${b}"${(a.business || "") === b ? " selected" : ""}>${b || "事業 未判定"}</option>`).join("")
+        }</select>
+        <div class="ap-card-links">
+          <a class="ap-link-a" href="${esc(a.smart_url)}" target="_blank" rel="noopener" title="${esc(a.smart_url)}">開く</a>
+          <button class="btn ghost ap-copy" data-url="${esc(a.smart_url)}">コピー</button>
+        </div>
+      </div>
+    </div>
+  </div>`;
+}
+
 function renderApo() {
   const body = $("apoBody");
   const appts = apState.appts;
+  const errNote = (apState.errors || []).length
+    ? '<p class="note cc-warn">一部のカレンダーを読めませんでした：' +
+      apState.errors.map((e) => esc(e.setter) + "（" + esc(e.error) + "）").join("、") + '</p>'
+    : "";
   if (!appts.length) {
-    body.innerHTML = '<div class="empty-state">該当するアポがありませんでした。取得日・商談日の指定を変えて［表示］を押すか、<a href="settings.html">設定 → インターン登録</a>の登録内容・カレンダー共有をご確認ください。</div>';
-    if ((apState.errors || []).length) {
-      body.innerHTML += '<p class="note cc-warn">一部のカレンダーを読めませんでした：' + apState.errors.map((e) => esc(e.setter) + "（" + esc(e.error) + "）").join("、") + '</p>';
-    }
+    body.innerHTML = '<div class="empty-state">該当するアポがありませんでした。取得日・商談日の指定を変えて［表示］を押すか、' +
+      '<a href="settings.html#members">設定 → メンバー管理</a>の登録内容とカレンダー共有をご確認ください。</div>' + errNote;
     return;
   }
-  const gotTh = apState.fCreated ? '<th class="ap-active">取得日 ●</th>' : '<th>取得日</th>';
-  const startTh = apState.fStart ? '<th class="ap-active">商談日時 ●</th>' : '<th>商談日時</th>';
-  let html = `<table class="ap-table"><thead><tr>${gotTh}${startTh}<th>事業</th><th>アポ獲得者</th><th>予定名</th><th>担当セールス</th><th>お客様の宛先</th><th>アポメール</th><th>共有リンク</th><th>状態</th></tr></thead><tbody>`;
+
+  // 商談日でグループにまとめる（ホームと同じ見せ方）
+  const groups = [];
+  let last = null;
   appts.forEach((a, i) => {
-    html += `<tr>
-      <td class="ap-got">${fmtYmd(a.created_date)}</td>
-      <td class="ap-when">${fmtDT(a.start)}</td>
-      <td class="ap-biz" data-i="${i}">${bizCell(a, i)}</td>
-      <td>${esc(a.setter_name)}</td>
-      <td class="ap-title">${esc(a.title)}</td>
-      <td><select class="ap-rep" data-i="${i}">${repOptions(a.current_owner)}</select>` +
-        (a.current_owner ? "" : `<button class="btn ghost ap-auto" data-i="${i}">自動で決める</button>`) + `</td>
-      <td class="ap-client" data-i="${i}">${clientCell(a, i)}</td>
-      <td class="ap-mail" data-i="${i}">${mailCell(a, i)}</td>
-      <td class="ap-link"><a class="ap-link-a" href="${esc(a.smart_url)}" target="_blank" rel="noopener" title="${esc(a.smart_url)}">開く</a><button class="btn ghost ap-copy" data-url="${esc(a.smart_url)}">コピー</button></td>
-      <td class="ap-status" data-i="${i}">${statusCell(a)}</td>
-    </tr>`;
+    const key = String(a.start || "").slice(0, 10);
+    if (!last || last.key !== key) { last = { key, label: fmtDay(a.start), items: [] }; groups.push(last); }
+    last.items.push({ a, i });
   });
-  html += '</tbody></table>';
-  if ((apState.errors || []).length) {
-    html += '<p class="note cc-warn">一部のカレンダーを読めませんでした：' + apState.errors.map((e) => esc(e.setter) + "（" + esc(e.error) + "）").join("、") + '</p>';
+
+  let html = "";
+  for (const g of groups) {
+    html += `<div class="ap-daysec"><span class="ap-dayname">${esc(g.label)}</span>` +
+      `<span class="ap-daycount">${g.items.length}件</span></div>`;
+    for (const { a, i } of g.items) {
+      html += apoCard(a, i);
+    }
   }
-  body.innerHTML = html;
+  body.innerHTML = html + errNote;
 
   body.querySelectorAll(".ap-rep").forEach((sel) => {
     sel.addEventListener("change", async () => {

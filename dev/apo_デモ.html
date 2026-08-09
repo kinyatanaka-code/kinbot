@@ -1,3 +1,10 @@
+<!DOCTYPE html>
+<html lang="ja">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>デモ｜kinbot アポ振り分け</title>
+    <style>
 :root {
   --bg: #f3f1ea;
   --panel: #ffffff;
@@ -371,7 +378,7 @@ body.kb-only-salesforce .dc-page[data-page="salesforce"] .deal-sec { border: 0; 
   padding: 6px 8px 16px;
 }
 .side-brand .brand-mark {
-  width: 28px; height: 28px; border-radius: 0; background: url("kinbot.svg") center/contain no-repeat;
+  width: 28px; height: 28px; border-radius: 0; background: url("data:image/svg+xml;base64,PHN2ZyB2aWV3Qm94PSIwIDAgMjQwIDI0MCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIiByb2xlPSJpbWciIGFyaWEtbGFiZWw9ImtpbmJvdCBtYXNjb3QiPgogIDxkZWZzPgogICAgPGxpbmVhckdyYWRpZW50IGlkPSJrYkhlYWQiIHgxPSIwIiB5MT0iMCIgeDI9IjAiIHkyPSIxIj4KICAgICAgPHN0b3Agb2Zmc2V0PSIwIiBzdG9wLWNvbG9yPSIjOWVlOGQyIi8+CiAgICAgIDxzdG9wIG9mZnNldD0iMSIgc3RvcC1jb2xvcj0iIzVmYzlhOSIvPgogICAgPC9saW5lYXJHcmFkaWVudD4KICAgIDxsaW5lYXJHcmFkaWVudCBpZD0ia2JWaXNvciIgeDE9IjAiIHkxPSIwIiB4Mj0iMCIgeTI9IjEiPgogICAgICA8c3RvcCBvZmZzZXQ9IjAiIHN0b3AtY29sb3I9IiMxYjU3NGYiLz4KICAgICAgPHN0b3Agb2Zmc2V0PSIxIiBzdG9wLWNvbG9yPSIjMTAzZjM5Ii8+CiAgICA8L2xpbmVhckdyYWRpZW50PgogICAgPHJhZGlhbEdyYWRpZW50IGlkPSJrYkV5ZSIgY3g9IjAuNSIgY3k9IjAuNCIgcj0iMC43Ij4KICAgICAgPHN0b3Agb2Zmc2V0PSIwIiBzdG9wLWNvbG9yPSIjZDdmZmYzIi8+CiAgICAgIDxzdG9wIG9mZnNldD0iMSIgc3RvcC1jb2xvcj0iIzZmZThjNiIvPgogICAgPC9yYWRpYWxHcmFkaWVudD4KICAgIDxsaW5lYXJHcmFkaWVudCBpZD0ia2JHbG93IiB4MT0iMCIgeTE9IjAiIHgyPSIwIiB5Mj0iMSI+CiAgICAgIDxzdG9wIG9mZnNldD0iMCIgc3RvcC1jb2xvcj0iI2I2ZmZlNiIvPgogICAgICA8c3RvcCBvZmZzZXQ9IjEiIHN0b3AtY29sb3I9IiM2NmU2YzAiLz4KICAgIDwvbGluZWFyR3JhZGllbnQ+CiAgICA8bGluZWFyR3JhZGllbnQgaWQ9ImtiSGFpciIgeDE9IjAiIHkxPSIwIiB4Mj0iMCIgeTI9IjEiPgogICAgICA8c3RvcCBvZmZzZXQ9IjAiIHN0b3AtY29sb3I9IiM2OWMyYWIiLz4KICAgICAgPHN0b3Agb2Zmc2V0PSIxIiBzdG9wLWNvbG9yPSIjNDNhNjkwIi8+CiAgICA8L2xpbmVhckdyYWRpZW50PgogIDwvZGVmcz4KCiAgPCEtLSBhbnRlbm5hIC0tPgogIDxsaW5lIHgxPSIxMjAiIHkxPSI0MCIgeDI9IjEyMCIgeTI9IjE4IiBzdHJva2U9IiM1Y2JmYTYiIHN0cm9rZS13aWR0aD0iNiIgc3Ryb2tlLWxpbmVjYXA9InJvdW5kIi8+CiAgPGNpcmNsZSBjeD0iMTIwIiBjeT0iMTMiIHI9IjkiIGZpbGw9InVybCgja2JHbG93KSI+CiAgICA8YW5pbWF0ZSBhdHRyaWJ1dGVOYW1lPSJvcGFjaXR5IiB2YWx1ZXM9IjE7MC41OzEiIGR1cj0iMi40cyIgcmVwZWF0Q291bnQ9ImluZGVmaW5pdGUiLz4KICA8L2NpcmNsZT4KCiAgPCEtLSBoZWFkcGhvbmUgYmFuZCAtLT4KICA8cGF0aCBkPSJNNDQgMTIyIEE3OCA3OCAwIDAgMSAxOTYgMTIyIiBmaWxsPSJub25lIiBzdHJva2U9IiM1Y2JmYTYiIHN0cm9rZS13aWR0aD0iMTIiIHN0cm9rZS1saW5lY2FwPSJyb3VuZCIvPgoKICA8IS0tIOWkqeeEtuODkeODvOODniAtLT4KICA8ZyBmaWxsPSJ1cmwoI2tiSGFpcikiPgogICAgPGNpcmNsZSBjeD0iNjYiIGN5PSI2NCIgcj0iMTgiLz4KICAgIDxjaXJjbGUgY3g9Ijg0IiBjeT0iNTAiIHI9IjE5Ii8+CiAgICA8Y2lyY2xlIGN4PSIxMDQiIGN5PSI0MiIgcj0iMjAiLz4KICAgIDxjaXJjbGUgY3g9IjEyNCIgY3k9IjM5IiByPSIyMSIvPgogICAgPGNpcmNsZSBjeD0iMTQ0IiBjeT0iNDMiIHI9IjIwIi8+CiAgICA8Y2lyY2xlIGN4PSIxNjMiIGN5PSI1MiIgcj0iMTgiLz4KICAgIDxjaXJjbGUgY3g9IjE3OCIgY3k9IjY2IiByPSIxNiIvPgogICAgPGNpcmNsZSBjeD0iOTUiIGN5PSI2MiIgcj0iMTUiLz4KICAgIDxjaXJjbGUgY3g9IjExOCIgY3k9IjU4IiByPSIxNSIvPgogICAgPGNpcmNsZSBjeD0iMTQwIiBjeT0iNjAiIHI9IjE1Ii8+CiAgPC9nPgogIDxnIGZpbGw9IiM4ZmQ5YzQiIG9wYWNpdHk9IjAuNzUiPgogICAgPGNpcmNsZSBjeD0iOTAiIGN5PSI0NiIgcj0iNiIvPgogICAgPGNpcmNsZSBjeD0iMTEyIiBjeT0iMzkiIHI9IjYiLz4KICAgIDxjaXJjbGUgY3g9IjEzNCIgY3k9IjQwIiByPSI2Ii8+CiAgICA8Y2lyY2xlIGN4PSIxNTYiIGN5PSI0OSIgcj0iNSIvPgogICAgPGNpcmNsZSBjeD0iNzIiIGN5PSI2MCIgcj0iNSIvPgogIDwvZz4KCiAgPCEtLSBoZWFkIC0tPgogIDxyZWN0IHg9IjUyIiB5PSI1MiIgd2lkdGg9IjEzNiIgaGVpZ2h0PSIxMTQiIHJ4PSIzNiIgZmlsbD0idXJsKCNrYkhlYWQpIi8+CgogIDwhLS0g44G744Gj44G677yIYmx1c2jvvIkgLS0+CiAgPGVsbGlwc2UgY3g9Ijc0IiBjeT0iMTI2IiByeD0iOSIgcnk9IjYiIGZpbGw9IiNmZjliYjAiIG9wYWNpdHk9IjAuNDUiLz4KICA8ZWxsaXBzZSBjeD0iMTY2IiBjeT0iMTI2IiByeD0iOSIgcnk9IjYiIGZpbGw9IiNmZjliYjAiIG9wYWNpdHk9IjAuNDUiLz4KCiAgPCEtLSB2aXNvciAtLT4KICA8cmVjdCB4PSI3MCIgeT0iODAiIHdpZHRoPSIxMDAiIGhlaWdodD0iNTYiIHJ4PSIyNiIgZmlsbD0idXJsKCNrYlZpc29yKSIvPgoKICA8IS0tIOWkquOBhOecieavmyAtLT4KICA8cGF0aCBkPSJNODUgOTIgUTEwMCA4NSAxMTQgOTEiIGZpbGw9Im5vbmUiIHN0cm9rZT0iI2JmZjhlYSIgc3Ryb2tlLXdpZHRoPSI4IiBzdHJva2UtbGluZWNhcD0icm91bmQiLz4KICA8cGF0aCBkPSJNMTI2IDkxIFExNDAgODUgMTU1IDkyIiBmaWxsPSJub25lIiBzdHJva2U9IiNiZmY4ZWEiIHN0cm9rZS13aWR0aD0iOCIgc3Ryb2tlLWxpbmVjYXA9InJvdW5kIi8+CgogIDwhLS0gZXllcyAtLT4KICA8Y2lyY2xlIGN4PSIxMDAiIGN5PSIxMTEiIHI9IjEzIiBmaWxsPSJ1cmwoI2tiRXllKSI+CiAgICA8YW5pbWF0ZSBhdHRyaWJ1dGVOYW1lPSJyIiB2YWx1ZXM9IjEzOzEzOzIuNTsxMzsxMyIgZHVyPSI1cyIga2V5VGltZXM9IjA7MC45MjswLjk1OzAuOTg7MSIgcmVwZWF0Q291bnQ9ImluZGVmaW5pdGUiLz4KICA8L2NpcmNsZT4KICA8Y2lyY2xlIGN4PSIxNDAiIGN5PSIxMTEiIHI9IjEzIiBmaWxsPSJ1cmwoI2tiRXllKSI+CiAgICA8YW5pbWF0ZSBhdHRyaWJ1dGVOYW1lPSJyIiB2YWx1ZXM9IjEzOzEzOzIuNTsxMzsxMyIgZHVyPSI1cyIga2V5VGltZXM9IjA7MC45MjswLjk1OzAuOTg7MSIgcmVwZWF0Q291bnQ9ImluZGVmaW5pdGUiLz4KICA8L2NpcmNsZT4KCiAgPCEtLSBzbWlsZSAtLT4KICA8cGF0aCBkPSJNMTAzIDEyNyBRMTIwIDEzOSAxMzcgMTI3IiBmaWxsPSJub25lIiBzdHJva2U9IiM3ZmVjY2UiIHN0cm9rZS13aWR0aD0iNCIgc3Ryb2tlLWxpbmVjYXA9InJvdW5kIi8+CgogIDwhLS0gZWFyIGN1cHMgLS0+CiAgPHJlY3QgeD0iMzQiIHk9IjEwNCIgd2lkdGg9IjI2IiBoZWlnaHQ9IjQ0IiByeD0iMTIiIGZpbGw9IiM1Y2JmYTYiLz4KICA8cmVjdCB4PSIxODAiIHk9IjEwNCIgd2lkdGg9IjI2IiBoZWlnaHQ9IjQ0IiByeD0iMTIiIGZpbGw9IiM1Y2JmYTYiLz4KICA8cmVjdCB4PSI0MCIgeT0iMTEyIiB3aWR0aD0iMTQiIGhlaWdodD0iMjgiIHJ4PSI3IiBmaWxsPSIjOWVlOGQyIiBvcGFjaXR5PSIwLjg1Ii8+CiAgPHJlY3QgeD0iMTg2IiB5PSIxMTIiIHdpZHRoPSIxNCIgaGVpZ2h0PSIyOCIgcng9IjciIGZpbGw9IiM5ZWU4ZDIiIG9wYWNpdHk9IjAuODUiLz4KPC9zdmc+Cg==") center/contain no-repeat;
   filter: drop-shadow(0 2px 6px rgba(57,224,180,.35));
 }
 .side-item {
@@ -1208,7 +1215,7 @@ a.kb-src:hover { color: var(--accent); border-color: var(--accent); }
 .live-side h2.with-bot::before,
 .active-title.with-bot::before {
   content: ""; display: inline-block; width: 22px; height: 22px; vertical-align: -5px; margin-right: 8px;
-  background: url("kinbot.svg") center/contain no-repeat;
+  background: url("data:image/svg+xml;base64,PHN2ZyB2aWV3Qm94PSIwIDAgMjQwIDI0MCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIiByb2xlPSJpbWciIGFyaWEtbGFiZWw9ImtpbmJvdCBtYXNjb3QiPgogIDxkZWZzPgogICAgPGxpbmVhckdyYWRpZW50IGlkPSJrYkhlYWQiIHgxPSIwIiB5MT0iMCIgeDI9IjAiIHkyPSIxIj4KICAgICAgPHN0b3Agb2Zmc2V0PSIwIiBzdG9wLWNvbG9yPSIjOWVlOGQyIi8+CiAgICAgIDxzdG9wIG9mZnNldD0iMSIgc3RvcC1jb2xvcj0iIzVmYzlhOSIvPgogICAgPC9saW5lYXJHcmFkaWVudD4KICAgIDxsaW5lYXJHcmFkaWVudCBpZD0ia2JWaXNvciIgeDE9IjAiIHkxPSIwIiB4Mj0iMCIgeTI9IjEiPgogICAgICA8c3RvcCBvZmZzZXQ9IjAiIHN0b3AtY29sb3I9IiMxYjU3NGYiLz4KICAgICAgPHN0b3Agb2Zmc2V0PSIxIiBzdG9wLWNvbG9yPSIjMTAzZjM5Ii8+CiAgICA8L2xpbmVhckdyYWRpZW50PgogICAgPHJhZGlhbEdyYWRpZW50IGlkPSJrYkV5ZSIgY3g9IjAuNSIgY3k9IjAuNCIgcj0iMC43Ij4KICAgICAgPHN0b3Agb2Zmc2V0PSIwIiBzdG9wLWNvbG9yPSIjZDdmZmYzIi8+CiAgICAgIDxzdG9wIG9mZnNldD0iMSIgc3RvcC1jb2xvcj0iIzZmZThjNiIvPgogICAgPC9yYWRpYWxHcmFkaWVudD4KICAgIDxsaW5lYXJHcmFkaWVudCBpZD0ia2JHbG93IiB4MT0iMCIgeTE9IjAiIHgyPSIwIiB5Mj0iMSI+CiAgICAgIDxzdG9wIG9mZnNldD0iMCIgc3RvcC1jb2xvcj0iI2I2ZmZlNiIvPgogICAgICA8c3RvcCBvZmZzZXQ9IjEiIHN0b3AtY29sb3I9IiM2NmU2YzAiLz4KICAgIDwvbGluZWFyR3JhZGllbnQ+CiAgICA8bGluZWFyR3JhZGllbnQgaWQ9ImtiSGFpciIgeDE9IjAiIHkxPSIwIiB4Mj0iMCIgeTI9IjEiPgogICAgICA8c3RvcCBvZmZzZXQ9IjAiIHN0b3AtY29sb3I9IiM2OWMyYWIiLz4KICAgICAgPHN0b3Agb2Zmc2V0PSIxIiBzdG9wLWNvbG9yPSIjNDNhNjkwIi8+CiAgICA8L2xpbmVhckdyYWRpZW50PgogIDwvZGVmcz4KCiAgPCEtLSBhbnRlbm5hIC0tPgogIDxsaW5lIHgxPSIxMjAiIHkxPSI0MCIgeDI9IjEyMCIgeTI9IjE4IiBzdHJva2U9IiM1Y2JmYTYiIHN0cm9rZS13aWR0aD0iNiIgc3Ryb2tlLWxpbmVjYXA9InJvdW5kIi8+CiAgPGNpcmNsZSBjeD0iMTIwIiBjeT0iMTMiIHI9IjkiIGZpbGw9InVybCgja2JHbG93KSI+CiAgICA8YW5pbWF0ZSBhdHRyaWJ1dGVOYW1lPSJvcGFjaXR5IiB2YWx1ZXM9IjE7MC41OzEiIGR1cj0iMi40cyIgcmVwZWF0Q291bnQ9ImluZGVmaW5pdGUiLz4KICA8L2NpcmNsZT4KCiAgPCEtLSBoZWFkcGhvbmUgYmFuZCAtLT4KICA8cGF0aCBkPSJNNDQgMTIyIEE3OCA3OCAwIDAgMSAxOTYgMTIyIiBmaWxsPSJub25lIiBzdHJva2U9IiM1Y2JmYTYiIHN0cm9rZS13aWR0aD0iMTIiIHN0cm9rZS1saW5lY2FwPSJyb3VuZCIvPgoKICA8IS0tIOWkqeeEtuODkeODvOODniAtLT4KICA8ZyBmaWxsPSJ1cmwoI2tiSGFpcikiPgogICAgPGNpcmNsZSBjeD0iNjYiIGN5PSI2NCIgcj0iMTgiLz4KICAgIDxjaXJjbGUgY3g9Ijg0IiBjeT0iNTAiIHI9IjE5Ii8+CiAgICA8Y2lyY2xlIGN4PSIxMDQiIGN5PSI0MiIgcj0iMjAiLz4KICAgIDxjaXJjbGUgY3g9IjEyNCIgY3k9IjM5IiByPSIyMSIvPgogICAgPGNpcmNsZSBjeD0iMTQ0IiBjeT0iNDMiIHI9IjIwIi8+CiAgICA8Y2lyY2xlIGN4PSIxNjMiIGN5PSI1MiIgcj0iMTgiLz4KICAgIDxjaXJjbGUgY3g9IjE3OCIgY3k9IjY2IiByPSIxNiIvPgogICAgPGNpcmNsZSBjeD0iOTUiIGN5PSI2MiIgcj0iMTUiLz4KICAgIDxjaXJjbGUgY3g9IjExOCIgY3k9IjU4IiByPSIxNSIvPgogICAgPGNpcmNsZSBjeD0iMTQwIiBjeT0iNjAiIHI9IjE1Ii8+CiAgPC9nPgogIDxnIGZpbGw9IiM4ZmQ5YzQiIG9wYWNpdHk9IjAuNzUiPgogICAgPGNpcmNsZSBjeD0iOTAiIGN5PSI0NiIgcj0iNiIvPgogICAgPGNpcmNsZSBjeD0iMTEyIiBjeT0iMzkiIHI9IjYiLz4KICAgIDxjaXJjbGUgY3g9IjEzNCIgY3k9IjQwIiByPSI2Ii8+CiAgICA8Y2lyY2xlIGN4PSIxNTYiIGN5PSI0OSIgcj0iNSIvPgogICAgPGNpcmNsZSBjeD0iNzIiIGN5PSI2MCIgcj0iNSIvPgogIDwvZz4KCiAgPCEtLSBoZWFkIC0tPgogIDxyZWN0IHg9IjUyIiB5PSI1MiIgd2lkdGg9IjEzNiIgaGVpZ2h0PSIxMTQiIHJ4PSIzNiIgZmlsbD0idXJsKCNrYkhlYWQpIi8+CgogIDwhLS0g44G744Gj44G677yIYmx1c2jvvIkgLS0+CiAgPGVsbGlwc2UgY3g9Ijc0IiBjeT0iMTI2IiByeD0iOSIgcnk9IjYiIGZpbGw9IiNmZjliYjAiIG9wYWNpdHk9IjAuNDUiLz4KICA8ZWxsaXBzZSBjeD0iMTY2IiBjeT0iMTI2IiByeD0iOSIgcnk9IjYiIGZpbGw9IiNmZjliYjAiIG9wYWNpdHk9IjAuNDUiLz4KCiAgPCEtLSB2aXNvciAtLT4KICA8cmVjdCB4PSI3MCIgeT0iODAiIHdpZHRoPSIxMDAiIGhlaWdodD0iNTYiIHJ4PSIyNiIgZmlsbD0idXJsKCNrYlZpc29yKSIvPgoKICA8IS0tIOWkquOBhOecieavmyAtLT4KICA8cGF0aCBkPSJNODUgOTIgUTEwMCA4NSAxMTQgOTEiIGZpbGw9Im5vbmUiIHN0cm9rZT0iI2JmZjhlYSIgc3Ryb2tlLXdpZHRoPSI4IiBzdHJva2UtbGluZWNhcD0icm91bmQiLz4KICA8cGF0aCBkPSJNMTI2IDkxIFExNDAgODUgMTU1IDkyIiBmaWxsPSJub25lIiBzdHJva2U9IiNiZmY4ZWEiIHN0cm9rZS13aWR0aD0iOCIgc3Ryb2tlLWxpbmVjYXA9InJvdW5kIi8+CgogIDwhLS0gZXllcyAtLT4KICA8Y2lyY2xlIGN4PSIxMDAiIGN5PSIxMTEiIHI9IjEzIiBmaWxsPSJ1cmwoI2tiRXllKSI+CiAgICA8YW5pbWF0ZSBhdHRyaWJ1dGVOYW1lPSJyIiB2YWx1ZXM9IjEzOzEzOzIuNTsxMzsxMyIgZHVyPSI1cyIga2V5VGltZXM9IjA7MC45MjswLjk1OzAuOTg7MSIgcmVwZWF0Q291bnQ9ImluZGVmaW5pdGUiLz4KICA8L2NpcmNsZT4KICA8Y2lyY2xlIGN4PSIxNDAiIGN5PSIxMTEiIHI9IjEzIiBmaWxsPSJ1cmwoI2tiRXllKSI+CiAgICA8YW5pbWF0ZSBhdHRyaWJ1dGVOYW1lPSJyIiB2YWx1ZXM9IjEzOzEzOzIuNTsxMzsxMyIgZHVyPSI1cyIga2V5VGltZXM9IjA7MC45MjswLjk1OzAuOTg7MSIgcmVwZWF0Q291bnQ9ImluZGVmaW5pdGUiLz4KICA8L2NpcmNsZT4KCiAgPCEtLSBzbWlsZSAtLT4KICA8cGF0aCBkPSJNMTAzIDEyNyBRMTIwIDEzOSAxMzcgMTI3IiBmaWxsPSJub25lIiBzdHJva2U9IiM3ZmVjY2UiIHN0cm9rZS13aWR0aD0iNCIgc3Ryb2tlLWxpbmVjYXA9InJvdW5kIi8+CgogIDwhLS0gZWFyIGN1cHMgLS0+CiAgPHJlY3QgeD0iMzQiIHk9IjEwNCIgd2lkdGg9IjI2IiBoZWlnaHQ9IjQ0IiByeD0iMTIiIGZpbGw9IiM1Y2JmYTYiLz4KICA8cmVjdCB4PSIxODAiIHk9IjEwNCIgd2lkdGg9IjI2IiBoZWlnaHQ9IjQ0IiByeD0iMTIiIGZpbGw9IiM1Y2JmYTYiLz4KICA8cmVjdCB4PSI0MCIgeT0iMTEyIiB3aWR0aD0iMTQiIGhlaWdodD0iMjgiIHJ4PSI3IiBmaWxsPSIjOWVlOGQyIiBvcGFjaXR5PSIwLjg1Ii8+CiAgPHJlY3QgeD0iMTg2IiB5PSIxMTIiIHdpZHRoPSIxNCIgaGVpZ2h0PSIyOCIgcng9IjciIGZpbGw9IiM5ZWU4ZDIiIG9wYWNpdHk9IjAuODUiLz4KPC9zdmc+Cg==") center/contain no-repeat;
 }
 
 /* ライブ：抜け漏れチェック */
@@ -4385,3 +4392,2287 @@ input:focus, select:focus, textarea:focus, .sf-input:focus, .sf-select:focus, .s
 .ln-tag-intern { color: #7a4a12; background: #fbf1de; border-color: #e6cf9d; }
 .ln-tag-rep { color: #0d5b47; background: #e1f5ee; border-color: #9fe1cb; }
 .ln-tag-none { color: #8f2f2f; background: #fbe6e6; border-color: #edc3c3; }
+/* デモ用の切り替えパネル（右下に小さく置き、画面を隠さない） */
+.demo-bar { position: fixed; right: 16px; bottom: 16px; z-index: 9999;
+  display: flex; flex-direction: column; gap: 8px; padding: 12px 14px; max-width: 250px;
+  background: #0d5b47; color: #fff; font-size: 12px; border-radius: 14px;
+  box-shadow: 0 8px 28px rgba(0,0,0,0.28); }
+.demo-tag { font-weight: 700; background: #1d9e75; padding: 3px 10px; border-radius: 999px; align-self: flex-start; }
+.demo-note { opacity: .85; line-height: 1.6; }
+.demo-btns { display: flex; gap: 6px; flex-wrap: wrap; }
+.demo-bar button { appearance: none; border: 1px solid rgba(255,255,255,.35); background: transparent;
+  color: #fff; font-size: 11.5px; padding: 5px 11px; border-radius: 999px; cursor: pointer; font-family: inherit; }
+.demo-bar button:hover { background: rgba(255,255,255,.14); }
+.demo-bar button.on { background: #fff; color: #0d5b47; font-weight: 700; border-color: #fff; }
+.demo-bar.min { max-width: none; padding: 8px 12px; }
+.demo-bar.min .demo-note, .demo-bar.min .demo-btns { display: none; }
+.demo-x { position: absolute; top: 6px; right: 8px; border: none !important; padding: 2px 6px !important;
+  font-size: 14px !important; opacity: .7; }
+@media (max-width: 640px) { .demo-bar { left: 12px; right: 12px; max-width: none; } }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+</style>
+    
+  </head>
+  <body>
+    <div class="app">
+      <nav class="sidebar">
+        <div class="side-brand"><span class="brand-mark"></span><span>kinbot</span></div>
+        <a class="side-item" href="home.html"><span class="side-ico ico-home"></span><span class="side-label">ホーム</span></a>
+        <a class="side-item" href="index.html"><span class="side-ico ico-rec"></span><span class="side-label">レコーディング</span></a>
+        <a class="side-item" href="history.html"><span class="side-ico ico-hist"></span><span class="side-label">商談履歴</span></a>
+        <a class="side-item" href="sf-launch.html"><span class="side-ico ico-deal"></span><span class="side-label">Salesforce</span></a>
+        <a class="side-item" href="report.html"><span class="side-ico ico-ana"></span><span class="side-label">分析</span></a>
+        <a class="side-item" href="report.html?panel=interns"><span class="side-ico ico-apo"></span><span class="side-label">インターンアポ</span></a>
+        <a class="side-item active" href="apo.html"><span class="side-ico ico-assign"></span><span class="side-label">アポ振り分け</span></a>
+        <a class="side-item" href="settings.html"><span class="side-ico ico-set"></span><span class="side-label">設定</span></a>
+        <div class="side-foot"><span id="who" class="who"></span><a href="#" id="logout" class="side-logout">ログアウト</a></div>
+      </nav>
+
+      <div class="main">
+        <header class="topbar"><div class="brand"><span class="brand-name">アポ振り分け</span></div></header>
+        <main class="report-page">
+          <div class="ap-tabs" role="tablist">
+            <button type="button" class="ap-tab active" data-pane="list">アポ一覧</button>
+            <button type="button" class="ap-tab" data-pane="rot">割り振り設定</button>
+            <button type="button" class="ap-tab" data-pane="team">チーム実績</button>
+            <button type="button" class="ap-tab" data-pane="mail">メール設定</button>
+            <button type="button" class="ap-tab" data-pane="sys">システム</button>
+          </div>
+
+          <section class="ap-pane" data-pane="list">
+            <div class="rep-controls">
+            <label>取得日 <input type="date" id="apCreated" /></label>
+            <label>商談日 <input type="date" id="apStart" /></label>
+            <button class="btn" id="apReload">表示</button>
+            <button class="btn ghost" id="apClear">リセット</button>
+            <span class="rev-status" id="apStatus"></span>
+          </div>
+            <details class="ap-help">
+              <summary>この画面の使い方</summary>
+              <p class="note ap-desc">インサイドのメンバー（<a href="settings.html#members">設定 → メンバー管理</a>で役割に「インサイド」を付けた人）のカレンダーから、<b>本人が主催者で、タイトルの先頭に【新】【ヒ】【初回】のいずれかが付いた予定</b>だけを取り込みます。<code>【新/ヒ】</code><code>【初回/】</code><code>【初回】</code><code>【新/初回】</code>のようにスラッシュの有無や全角・半角の違いは無視します（<code>【再商談】</code><code>【新規】</code>などは対象外）。<b>お客様のメールアドレスは、予定の説明欄に書いておけば自動で読み取ります</b>（説明欄に無ければカレンダーのゲストから拾います）。<b>取得日（アポが取れた日）・商談日（実施日）でそれぞれ絞り込めます</b>（両方指定すると両方に一致するアポだけ表示。空欄のときは今後の予定を表示）。各アポに共有用のスマートリンクを自動発行し、担当セールスを選ぶと、そのリンクの行き先が担当者のZoomに切り替わります（すでにお客様に送ったリンクも自動で切り替わります）。担当者のZoom URLは <a href="settings.html">設定 → 登録リンク</a> で各自が設定します。</p>
+            </details>
+            <div id="apoBody"><div class="empty-state">読み込み中…</div></div>
+          </section>
+
+          <section class="ap-pane" data-pane="rot" hidden>
+            <div class="ap-card">
+              <h3 class="ap-card-h">自動化のON／OFF</h3>
+
+              <p class="note">カレンダーに予定が追加されると、次のスキャン（既定60秒以内）で自動的に記録され、クローザーへ順番に割り振られます。<b>普段は差分だけを見るので軽く、15分ごとに全期間を見直して取りこぼしを拾います。</b><br>商談の時間帯に予定が入っている人は飛ばして代打を立て、飛ばされた人は次のアポで最優先に戻します。</p>
+              <div class="ap-cfg-row">
+                <label class="ap-check"><input type="checkbox" id="rcAutoScan" /> カレンダーを自動スキャンする</label>
+                <label class="ap-check"><input type="checkbox" id="rcAutoAssign" /> スキャンしたアポを自動で割り振る</label>
+              </div>
+              <div class="ap-cfg-row">
+                <label>スキャンの間隔 <input type="number" id="rcInterval" min="30" max="900" step="30" style="width:80px" /> 秒</label>
+                <label>商談の前後に確保する余白 <input type="number" id="rcBuffer" min="0" max="180" style="width:70px" /> 分</label>
+                <label>1回のスキャンで割り振る上限 <input type="number" id="rcMax" min="1" max="200" style="width:70px" /> 件</label>
+              </div>
+              <h4 class="ap-rot-h">チーム間の均等化</h4>
+              <p class="note">チームごとの件数を見て、少ないチームから先に配ります。チーム内は各チームの順番どおりに回るので、個人間も偏りません。</p>
+              <div class="ap-cfg-row">
+                <label>配り方
+                  <select id="rcTeamBalance">
+                    <option value="off">チームを見ない（個人の順番だけ）</option>
+                    <option value="total">チームの合計件数で均等にする</option>
+                    <option value="perHead">1人あたりの件数で均等にする</option>
+                    <option value="perDay">稼働1日あたりの件数で均等にする（推奨）</option>
+                  </select>
+                </label>
+                <label>比べる期間
+                  <select id="rcWindow">
+                    <option value="month">当月</option>
+                    <option value="all">通算</option>
+                  </select>
+                </label>
+                <label>稼働日を数える起点 <input type="date" id="rcFairStart" /></label>
+              </div>
+              <p class="note">「稼働1日あたり」は<b>停止していた期間を分母から除いて</b>比べます。1週間停止した人は件数が少なくなりますが、稼働日も少ないので<b>復帰後に埋め合わせで多く配られることはありません</b>。停止期間は下の「割り振り停止の履歴」に登録してください。</p>
+              <div id="rcTeams" class="ap-team-list"></div>
+              <div class="ap-rot-next" id="rcNext"></div>
+              <h4 class="ap-rot-h">割り振りの順番<span id="rcBizLabel" class="ap-biz-badge"></span></h4>
+              <p class="note"><b>ここに並ぶのは、<a href="settings.html#members">設定 → メンバー管理</a>で「クローザー」または「予備」の役割を付けた人です。</b>メンバーの追加・削除、チーム、1日の上限、在籍状況はメンバー管理で設定します。この画面では<b>回る順番だけ</b>をドラッグで変更します。<br>
+              「予備」の人は通常の順番に入りません。通常メンバー全員が埋まっているときだけ回り、予備が複数いる場合は所属チームのアポ累計が少ない側から試します。</p>
+              <div id="rcList" class="ap-rot-list"></div>
+              <details class="ap-help" id="rcSuspWrap">
+                <summary>割り振り停止の履歴</summary>
+                <p class="note">停止していた期間を登録すると、その分は<b>稼働日から除かれます</b>。件数が少なくても「配れなかった期間があっただけ」と扱われるので、復帰後に優先されません。<br>終了日を空にすると<b>現在も停止中</b>として扱い、自動割り振りの対象から外します。</p>
+                <div class="ap-susp-add">
+                  <select id="rcSuspWho"></select>
+                  <label>開始 <input type="date" id="rcSuspFrom" /></label>
+                  <label>終了 <input type="date" id="rcSuspTo" /></label>
+                  <input type="text" id="rcSuspWhy" placeholder="理由（任意）" />
+                  <button class="btn ghost" id="rcSuspAdd">追加</button>
+                  <span class="rev-status" id="rcSuspStatus"></span>
+                </div>
+                <div id="rcSuspList" class="ap-susp-list"></div>
+              </details>
+              <details class="ap-help" id="rcBaseWrap">
+                <summary>過去の実績を取り込む（均等化の初期値）</summary>
+                <p class="note">kinbotで配る前の件数を入れておくと、チーム間・個人間の均等化がその分を含めて計算されます。スプレッドシートの集計値をそのまま入れてください。0にすると使いません。</p>
+                <div id="rcBaseList" class="ap-base-list"></div>
+                <div class="ap-cfg-actions">
+                  <button class="btn ghost" id="rcBaseSave">過去実績を保存</button>
+                  <span class="rev-status" id="rcBaseStatus"></span>
+                </div>
+              </details>
+              <div class="ap-cfg-actions">
+                <button class="btn" id="rcSave">保存</button>
+                <button class="btn ghost" id="rcScanNow">今すぐスキャンする</button>
+                <button class="btn ghost" id="rcLog">割り振り履歴を見る</button>
+                <span class="rev-status" id="rcStatus"></span>
+              </div>
+              <pre id="rcLogBox" class="ap-rot-log" hidden></pre>
+            
+            </div>
+          </section>
+
+          <section class="ap-pane" data-pane="team" hidden>
+            <div class="ap-card">
+              <h3 class="ap-card-h">チーム別の割り振り実績<span id="tsBizLabel" class="ap-biz-badge"></span></h3>
+              <div class="ap-cfg-row">
+                <label>期間
+                  <select id="tsWindow">
+                    <option value="month">当月</option>
+                    <option value="all">通算</option>
+                  </select>
+                </label>
+                <button class="btn ghost" id="tsReload">更新</button>
+                <span class="rev-status" id="tsStatus"></span>
+              </div>
+              <div id="tsBody"><div class="empty-state">読み込み中…</div></div>
+            </div>
+          </section>
+
+          <section class="ap-pane" data-pane="mail" hidden>
+            <div class="ap-card">
+              <h3 class="ap-card-h">アポメール自動送付</h3>
+
+              <p class="note">担当セールスを割り当てた瞬間に<b>アポ確定メール</b>を、商談前日の朝に<b>リマインドメール</b>を、<b>担当セールス本人のGmailアカウント</b>で用意します。本文は担当者の署名で作られ、返信も本人に返ります。</p>
+              <div class="ap-cfg-row">
+                <label>メールの出し方
+                  <select id="mcDeliver">
+                    <option value="draft">担当セールスのGmailに下書きを作る（本人が確認して送る）</option>
+                    <option value="send">そのまま自動送信する</option>
+                  </select>
+                </label>
+              </div>
+              <p class="note"><b>下書きを作る</b>…お客様にはまだ届きません。担当セールスがGmailの「下書き」を開いて、内容を確認してから送信します。誤送信が起きないので、まずはこちらを勧めます。</p>
+              <div class="ap-cfg-row">
+                <label class="ap-check"><input type="checkbox" id="mcAutoConfirm" /> 担当割り当て時に確定メールを自動で用意する</label>
+                <label class="ap-check"><input type="checkbox" id="mcAutoReminder" /> 商談前日にリマインドを自動で用意する</label>
+                <label>リマインド送信時刻 <select id="mcHour"></select> 時（JST）</label>
+                <label>1回あたりの送信上限 <input type="number" id="mcMax" min="1" max="500" style="width:80px" /> 通</label>
+              </div>
+              <div class="ap-cfg-row">
+                <label style="flex:1 1 100%">自社名（{{自社名}}に入ります） <input type="text" id="mcCompany" placeholder="株式会社ネオキャリア" style="width:280px" /></label>
+              </div>
+              <div class="ap-tags">
+                <div><b>お客様・商談</b> <code>{{会社名}}</code> <code>{{お客様名}}</code> <code>{{商談日時}}</code> <code>{{商談日}}</code> <code>{{商談時刻}}</code></div>
+                <div><b>アポ獲得者</b> <code>{{アポ獲得者}}</code> <code>{{アポ獲得者姓}}</code></div>
+                <div><b>担当セールス</b> <code>{{担当者名}}</code> <code>{{担当者姓}}</code>（自動）<code>{{担当者ローマ字}}</code> <code>{{担当者メール}}</code> <code>{{担当者電話}}</code> <code>{{部署}}</code> <code>{{ユニット}}</code></div>
+                <div><b>会議室</b> <code>{{ZoomURL}}</code>（スマートリンク）<code>{{担当者の会議室URL}}</code></div>
+                <div><b>自社</b> <code>{{自社名}}</code></div>
+              </div>
+              <p class="note"><code>{{担当者ローマ字}}</code><code>{{担当者電話}}</code><code>{{部署}}</code><code>{{ユニット}}</code>は <a href="settings.html#members">設定 → メンバー管理</a>の各メンバーの「署名」で設定します。<br>
+              <code>{{担当者姓}}</code>は名前から自動で入ります。<br>
+              <b><code>{{ZoomURL}}</code>はkinbotのスマートリンクです。</b>担当が変わっても行き先が自動で切り替わるので、送ったあとに担当が代わってもメールを送り直す必要がありません。転送先は<a href="settings.html">設定 → 登録リンク</a>で各自が登録した会議室URLです。<br>
+              担当者のZoom URLをそのまま載せたい場合は <code>{{担当者の会議室URL}}</code> が使えますが、<b>担当が変わると古いURLのままになります</b>。未設定の項目はその行ごと本文から消えます。</p>
+              <div class="ap-tpl">
+                <h4>アポ確定メール</h4>
+                <label>件名<input type="text" id="mcCSubject" /></label>
+                <label>本文<textarea id="mcCBody" rows="14"></textarea></label>
+              </div>
+              <div class="ap-tpl">
+                <h4>前日リマインドメール</h4>
+                <label>件名<input type="text" id="mcRSubject" /></label>
+                <label>本文<textarea id="mcRBody" rows="14"></textarea></label>
+              </div>
+              <div class="ap-cfg-actions">
+                <button class="btn" id="mcSave">保存</button>
+                <button class="btn ghost" id="mcReset">本文を初期文面に戻す</button>
+                <button class="btn ghost" id="mcRunRemind">前日リマインドを今すぐ流す</button>
+                <span class="rev-status" id="mcStatus"></span>
+              </div>
+            
+            </div>
+          </section>
+
+          <section class="ap-pane" data-pane="sys" hidden>
+            <div class="ap-card">
+              <h3 class="ap-card-h">システムの状態</h3>
+              <p class="note">日常の業務では使いません。機能が反映されないときや、動作がおかしいときの確認用です。</p>
+
+              <p class="note">新機能に必要なテーブルが作られているかを確認します。不足があれば「作り直す」で再作成できます。</p>
+              <div class="ap-build" id="dbBuild">確認中…</div>
+              <h4 class="ap-rot-h">作ってしまった商談予定の取り消し</h4>
+              <p class="note">間違えて割り振り直したときに、カレンダーに作られた予定を消せます。<b>アポの担当割り当ては残ります</b>（予定だけ消えます）。</p>
+              <div class="ap-cfg-row">
+                <label>直近 <select id="ivHours">
+                  <option value="1">1時間</option>
+                  <option value="3">3時間</option>
+                  <option value="24" selected>24時間</option>
+                  <option value="72">3日</option>
+                  <option value="168">7日</option>
+                </select> に作られた予定</label>
+                <button class="btn ghost" id="ivLoad">一覧を出す</button>
+                <span class="rev-status" id="ivStatus"></span>
+              </div>
+              <div id="ivBox"></div>
+
+              <h4 class="ap-rot-h">取り残しの予定を探す</h4>
+              <p class="note">kinbotが過去に作った予定のうち、<b>いまkinbotが管理していないもの</b>（作り直しで置き換わった古い予定など）を探します。運用者と全クローザーのカレンダーを調べます。</p>
+              <div class="ap-cfg-actions">
+                <button class="btn ghost" id="orLoad">取り残しを探す</button>
+                <span class="rev-status" id="orStatus"></span>
+              </div>
+              <div id="orBox"></div>
+
+              <h4 class="ap-rot-h">インサイドのカレンダー診断</h4>
+              <p class="note">「メンバー管理に登録したのにアポが出てこない」ときに使います。1人ずつカレンダーを読んで、読めているか・予定が何件あるか・タイトルのタグが一致しているかを確認します。</p>
+              <div class="ap-cfg-actions">
+                <button class="btn ghost" id="calCheckBtn">カレンダーを診断する</button>
+                <span class="rev-status" id="calCheckStatus"></span>
+              </div>
+              <div id="calCheckBox"></div>
+              <div class="ap-cfg-actions">
+                <button class="btn" id="dbCheckBtn">今すぐ確認する</button>
+                <button class="btn ghost" id="dbRepairBtn">不足分を作り直す</button>
+                <span class="rev-status" id="dbCheckStatus"></span>
+              </div>
+              <pre id="dbCheckBox" class="ap-rot-log" hidden></pre>
+            
+            </div>
+          </section>
+        </main>
+      </div>
+    </div>
+    <script>
+// プロダクト切り替え（全体 / DOC / MOCHICA）
+// - 選択はブラウザに保存され、ページを移動しても保持される
+// - 権限は変えない。全員がすべての商談を閲覧できる（これは表示の絞り込みだけ）
+(function () {
+  const KEY = "kinbot.product";
+  const PRODUCTS = ["DOC", "MOCHICA"];
+  const DEFAULT_PRODUCT = "DOC"; // 初回アクセス時に開くタブ
+  const ALL = "__all__";         // 「全体」を明示的に選んだ状態（未選択と区別する）
+
+  let repProductMap = {}; // 表示名/メール -> "DOC" | "MOCHICA"
+  let loaded = null;
+  let ready = false;      // マッピングの読み込みが完了したか
+
+  // 現在の選択。未保存（初回アクセス）なら既定の DOC を返す。
+  // 「全体」を選んでいる場合は "" を返す（＝絞り込みなし）。
+  function current() {
+    try {
+      const v = localStorage.getItem(KEY);
+      if (v === null) return DEFAULT_PRODUCT; // 初回はDOC
+      if (v === ALL) return "";               // 明示的に全体を選んだ
+      return v || "";
+    } catch { return DEFAULT_PRODUCT; }
+  }
+  function setCurrent(v) {
+    try { localStorage.setItem(KEY, v || ALL); } catch {}
+  }
+
+  async function loadMap() {
+    if (loaded) return loaded;
+    loaded = fetch("/api/rep-products")
+      .then((r) => r.json())
+      .then((d) => { repProductMap = (d && d.map) || {}; ready = true; return repProductMap; })
+      .catch(() => { repProductMap = {}; ready = true; return repProductMap; });
+    return loaded;
+  }
+
+  // 担当者名（表示名 or メール）からプロダクトを引く。未設定なら ""。
+  function productOf(owner) {
+    if (!owner) return "";
+    const k = String(owner).trim();
+    return repProductMap[k] || repProductMap[k.toLowerCase()] || "";
+  }
+
+  // 現在のプロダクト選択に、この担当者が含まれるか
+  function matches(owner) {
+    if (!ready) return true;        // マッピング未読込のうちは絞り込まない（一覧が空になるのを防ぐ）
+    if (!hasAnyAssignment()) return true; // 誰にもプロダクトが割り当てられていない → 絞り込まない
+    const p = current();
+    if (!p) return true;            // 「全体」は全部見せる
+    const po = productOfLoose(owner);
+    if (!po) return true;           // この担当者にプロダクトが未設定 → どのタブでも表示する（消えないように）
+    return po === p;
+  }
+
+  // 部分一致も許容してプロダクトを引く（「田中」登録 ↔ 「田中欽也」表示 のズレを吸収）
+  function productOfLoose(owner) {
+    const exact = productOf(owner);
+    if (exact) return exact;
+    const o = String(owner || "").trim().toLowerCase();
+    if (!o) return "";
+    for (const k in repProductMap) {
+      const kk = String(k).trim().toLowerCase();
+      if (!kk || !repProductMap[k]) continue;
+      if (o === kk || o.includes(kk) || kk.includes(o)) return repProductMap[k];
+    }
+    return "";
+  }
+
+  // 1人でもプロダクトが設定されているか（未設定運用では絞り込みを無効化する）
+  function hasAnyAssignment() {
+    for (const k in repProductMap) if (repProductMap[k]) return true;
+    return false;
+  }
+
+  // タブUIを .topbar に差し込む
+  function mount(onChange, opts) {
+    const bar = document.querySelector(".topbar");
+    if (!bar || document.getElementById("productTabs")) return;
+    const wrap = document.createElement("div");
+    wrap.id = "productTabs";
+    wrap.className = "prod-tabs";
+    const mk = (val, label) => {
+      const b = document.createElement("button");
+      b.type = "button";
+      b.className = "prod-tab" + (current() === val ? " active" : "");
+      b.textContent = label;
+      b.addEventListener("click", () => {
+        setCurrent(val);
+        wrap.querySelectorAll(".prod-tab").forEach((x) => x.classList.remove("active"));
+        b.classList.add("active");
+        if (typeof onChange === "function") onChange(val);
+      });
+      return b;
+    };
+    wrap.appendChild(mk("", "全体"));
+    for (const p of PRODUCTS) wrap.appendChild(mk(p, p));
+    bar.appendChild(wrap);
+    // マッピング読込前に描画された一覧は、既定のプロダクトで描き直す必要がある。
+    // サーバー側で絞るページ（実績）は初回取得に既にプロダクトが乗っているので不要。
+    const renderOnMount = !opts || opts.renderOnMount !== false;
+    if (renderOnMount && typeof onChange === "function") onChange(current());
+  }
+
+  window.kbProduct = { current, setCurrent, loadMap, productOf, matches, mount, PRODUCTS, isReady: () => ready, hasAnyAssignment };
+})();
+
+</script>
+    <script>
+const NEW_CONFIRM_SUBJECT = "【ご案内】お打ち合わせ日程について（{{自社名}}）";
+const NEW_CONFIRM_BODY = `{{会社名}}
+{{お客様名}}様
+
+いつも大変お世話になっております。
+{{自社名}}の{{担当者姓}}でございます。
+
+先ほどは弊社{{アポ獲得者姓}}のお電話にご対応いただき、
+またお忙しい中お打ち合わせのお時間をいただき、
+誠にありがとうございました。
+
+それでは、お打ち合わせの日程につきまして、
+下記のとおりご案内いたします。
+
+【日時】{{商談日時}}
+【形式】Web会議（Zoom）
+{{ZoomURL}}
+
+当日は、{{お客様名}}様の現在の採用状況をお伺いさせていただき、
+採用領域全般でご活用いただける弊社AIエージェントが{{お客様名}}様にとってどのようにお役立ちできるか、
+具体的にご案内させていただければと存じます。
+
+{{お客様名}}様にとって少しでも有意義なお時間となるよう準備してまいります。
+ご不明点などございましたら、お気軽にご連絡ください。
+
+{{お客様名}}様とお話しできることを心より楽しみにしております。
+当日はどうぞよろしくお願いいたします。
+
+■━━━━━━━━━━━━━━━━━━━━━━━━━■
+◇{{自社名}}（http://www.neo-career.co.jp/）
+{{部署}}
+{{ユニット}}
+{{担当者名}}　/　{{担当者ローマ字}}
+Phone：{{担当者電話}}
+◇本社 〒160-0023
+東京都新宿区西新宿1-22-2 新宿サンエービル4階
+TEL：03-6756-0421　 FAX：03-5908-8385
+■━━━━━━━━━━━━━━━━━━━━━━━━━■`;
+const NEW_REMINDER_SUBJECT = "【リマインド】明日{{商談時刻}}〜 お打ち合わせのご案内（{{自社名}}）";
+const NEW_REMINDER_BODY = `{{会社名}}
+{{お客様名}}様
+
+いつも大変お世話になっております。
+{{自社名}}の{{担当者姓}}でございます。
+
+明日のお打ち合わせにつきまして、あらためてご案内いたします。
+
+【日時】{{商談日時}}
+【形式】Web会議（Zoom）
+{{ZoomURL}}
+
+お時間になりましたら、上記URLよりご入室ください。
+ご都合が変わられた場合は、お手数ですが本メールにご返信ください。
+
+{{お客様名}}様とお話しできることを楽しみにしております。
+当日はどうぞよろしくお願いいたします。
+
+■━━━━━━━━━━━━━━━━━━━━━━━━━■
+◇{{自社名}}（http://www.neo-career.co.jp/）
+{{部署}}
+{{ユニット}}
+{{担当者名}}　/　{{担当者ローマ字}}
+Phone：{{担当者電話}}
+◇本社 〒160-0023
+東京都新宿区西新宿1-22-2 新宿サンエービル4階
+TEL：03-6756-0421　 FAX：03-5908-8385
+■━━━━━━━━━━━━━━━━━━━━━━━━━■`;
+// ───── デモ用：fetch をすべてダミーデータに差し替える（サーバー不要） ─────
+const DEMO = {"reps": [{"email": "ueno@neo-career.co.jp", "baseline_count": 90, "name": "植野 大輔", "has_zoom_link": true}, {"email": "tanaka@neo-career.co.jp", "baseline_count": 87, "name": "田中 遼", "has_zoom_link": true}, {"email": "eda@neo-career.co.jp", "baseline_count": 90, "name": "江田 直人", "has_zoom_link": true}, {"email": "morita@neo-career.co.jp", "baseline_count": 76, "name": "森田 彩", "has_zoom_link": false}], "appointments": [{"event_id": "ev1", "setter_name": "飯島 稜", "title": "【新/ヒ】株式会社ベルク　町田様", "start": "2026-08-27T02:00:00.000Z", "created": "2026-07-06T04:00:00.000Z", "created_date": "2026-07-06", "original_url": "#", "slug": "abc-def-001", "business": "DOC", "smart_url": "https://kinbot-production-225f.up.railway.app/j/9006868174?pwd=Qj7DcInBMT6vePGojiFG_1", "current_owner": "ueno@neo-career.co.jp", "client_email": "machida@belc.example.jp", "client_name": "", "client_email_source": "description", "auto_assigned_at": null, "mail": {"confirm": {"status": "draft", "at": "2026-08-08T02:00:00.000Z"}}}, {"event_id": "ev2", "setter_name": "加藤 宋宙", "title": "【初回/】合同会社サンライズ　佐藤様（資料希望）", "start": "2026-08-27T05:30:00.000Z", "created": "2026-08-05T04:00:00.000Z", "created_date": "2026-08-05", "original_url": "#", "slug": "abc-def-002", "business": "MOCHICA", "smart_url": "https://kinbot-production-225f.up.railway.app/j/9006868174?pwd=Qj7DcInBMT6vePGojiFG_2", "current_owner": "tanaka@neo-career.co.jp", "client_email": "sato@sunrise.example.jp", "client_name": "", "client_email_source": "description", "auto_assigned_at": null, "mail": {"confirm": {"status": "sent", "at": "2026-08-08T02:00:00.000Z"}, "reminder": {"status": "sent", "at": "2026-08-08T02:00:00.000Z"}}}, {"event_id": "ev3", "setter_name": "迫間 美羽", "title": "【新/ヒ】株式会社アイドマ・ホールディングス　田中様", "start": "2026-08-28T01:00:00.000Z", "created": "2026-08-06T04:00:00.000Z", "created_date": "2026-08-06", "original_url": "#", "slug": "abc-def-003", "business": "DOC", "smart_url": "https://kinbot-production-225f.up.railway.app/j/9006868174?pwd=Qj7DcInBMT6vePGojiFG_3", "current_owner": "eda@neo-career.co.jp", "client_email": "tanaka@aidma.example.jp", "client_name": "", "client_email_source": "manual", "auto_assigned_at": null, "mail": {"confirm": {"status": "failed", "error": "Gmail送信 403: 権限がありません"}}}, {"event_id": "ev4", "setter_name": "薦原 一樹", "title": "【新/ヒ】株式会社グリーンフィールド　鈴木様", "start": "2026-08-28T06:00:00.000Z", "created": "2026-08-07T04:00:00.000Z", "created_date": "2026-08-07", "original_url": "#", "slug": "abc-def-004", "business": "MOCHICA", "smart_url": "https://kinbot-production-225f.up.railway.app/j/9006868174?pwd=Qj7DcInBMT6vePGojiFG_4", "current_owner": null, "client_email": "", "client_name": "", "client_email_source": "", "auto_assigned_at": null, "mail": {}}, {"event_id": "ev5", "setter_name": "飯島 稜", "title": "【初回】株式会社ミナト工業　高橋様", "start": "2026-08-31T03:00:00.000Z", "created": "2026-08-08T04:00:00.000Z", "created_date": "2026-08-08", "original_url": "#", "slug": "abc-def-005", "business": "DOC", "smart_url": "https://kinbot-production-225f.up.railway.app/j/9006868174?pwd=Qj7DcInBMT6vePGojiFG_5", "current_owner": "morita@neo-career.co.jp", "client_email": "", "client_name": "", "client_email_source": "", "auto_assigned_at": null, "mail": {}}], "rotation": {"config": {"autoAssign": true, "autoScan": true, "bufferMin": 15, "nextOrder": 2, "maxPerRun": 30, "scanIntervalSec": 60}, "closers": [{"email": "ueno@neo-career.co.jp", "baseline_count": 90, "name": "植野 大輔", "team": "浦林チーム", "sort_order": 1, "active": true, "priority": false, "daily_cap": null, "assigned_count": 42}, {"email": "tanaka@neo-career.co.jp", "baseline_count": 87, "name": "田中 遼", "team": "中澤チーム", "sort_order": 2, "active": true, "priority": true, "daily_cap": 3, "assigned_count": 38}, {"email": "eda@neo-career.co.jp", "baseline_count": 90, "name": "江田 直人", "team": "浦林チーム", "sort_order": 3, "active": true, "priority": false, "daily_cap": null, "assigned_count": 40}, {"email": "morita@neo-career.co.jp", "baseline_count": 76, "name": "森田 彩", "team": "中澤チーム", "sort_order": 4, "active": false, "priority": false, "daily_cap": 2, "assigned_count": 29}, {"email": "ura@neo-career.co.jp", "baseline_count": 4, "team": "浦林チーム", "name": "浦林 鷹也", "sort_order": 5, "active": true, "priority": false, "daily_cap": null, "assigned_count": 6, "period_count": 1, "fallback": true}, {"email": "naka@neo-career.co.jp", "baseline_count": 3, "team": "中澤チーム", "name": "中澤 良太", "sort_order": 6, "active": true, "priority": false, "daily_cap": null, "assigned_count": 4, "period_count": 0, "fallback": true}, {"email": "etori@neo-career.co.jp", "baseline_count": 0, "name": "餌取 鴻志", "team": "", "sort_order": 7, "active": true, "priority": false, "daily_cap": null, "assigned_count": 0, "period_count": 0}], "order": [{"email": "ueno@neo-career.co.jp", "baseline_count": 90, "name": "植野 大輔", "team": "浦林チーム", "sort_order": 1, "active": true, "priority": false, "daily_cap": null, "assigned_count": 42}, {"email": "tanaka@neo-career.co.jp", "baseline_count": 87, "name": "田中 遼", "team": "中澤チーム", "sort_order": 2, "active": true, "priority": true, "daily_cap": 3, "assigned_count": 38}, {"email": "eda@neo-career.co.jp", "baseline_count": 90, "name": "江田 直人", "team": "浦林チーム", "sort_order": 3, "active": true, "priority": false, "daily_cap": null, "assigned_count": 40}, {"email": "morita@neo-career.co.jp", "baseline_count": 76, "name": "森田 彩", "team": "中澤チーム", "sort_order": 4, "active": false, "priority": false, "daily_cap": 2, "assigned_count": 29}], "next": {"email": "tanaka@neo-career.co.jp", "baseline_count": 87, "name": "田中 遼", "priority": true}}, "mailConfig": {"deliverMode": "draft", "autoConfirm": true, "autoReminder": true, "reminderHour": 8, "maxPerRun": 50, "companyName": "株式会社ネオキャリア", "confirmSubject": "【{{会社名}}様】{{商談日時}} オンライン商談のご案内", "confirmBody": "{{会社名}}\n{{お客様名}} 様\n\nお世話になっております。\n{{自社名}}の{{担当者名}}と申します。\n\nこのたびはお打ち合わせのお時間をいただき、誠にありがとうございます。\n下記の日程で承りましたのでご案内いたします。\n\n■ 日時：{{商談日時}}\n■ 参加URL：{{URL}}\n\nお時間になりましたら、上記URLよりご入室ください。\nご都合の変更やご不明点がございましたら、本メールにご返信ください。\n\n当日はどうぞよろしくお願いいたします。", "reminderSubject": "【リマインド】明日{{商談時刻}}〜 オンライン商談のご案内", "reminderBody": "{{会社名}}\n{{お客様名}} 様\n\nお世話になっております。{{自社名}}の{{担当者名}}です。\n\n明日のお打ち合わせにつきまして、あらためてご案内いたします。\n\n■ 日時：{{商談日時}}\n■ 参加URL：{{URL}}\n\nよろしくお願いいたします。", "defaults": {"confirmSubject": "【{{会社名}}様】{{商談日時}} オンライン商談のご案内", "confirmBody": "{{会社名}}\n{{お客様名}} 様\n\nお世話になっております。\n{{自社名}}の{{担当者名}}と申します。\n\nこのたびはお打ち合わせのお時間をいただき、誠にありがとうございます。\n下記の日程で承りましたのでご案内いたします。\n\n■ 日時：{{商談日時}}\n■ 参加URL：{{URL}}\n\nお時間になりましたら、上記URLよりご入室ください。\nご都合の変更やご不明点がございましたら、本メールにご返信ください。\n\n当日はどうぞよろしくお願いいたします。", "reminderSubject": "【リマインド】明日{{商談時刻}}〜 オンライン商談のご案内", "reminderBody": "{{会社名}}\n{{お客様名}} 様\n\nお世話になっております。{{自社名}}の{{担当者名}}です。\n\n明日のお打ち合わせにつきまして、あらためてご案内いたします。\n\n■ 日時：{{商談日時}}\n■ 参加URL：{{URL}}\n\nよろしくお願いいたします。"}}, "assignLog": [{"created_at": "2026-08-08T02:00:00.000Z", "assigned": "eda@neo-career.co.jp", "reason": "ローテーション順", "skipped": [{"name": "田中 遼", "reason": "この時間帯に別の予定が入っています"}]}, {"created_at": "2026-08-07T23:30:00.000Z", "assigned": null, "reason": "全員この時間帯に予定が入っています", "skipped": []}]};
+const demoState = { pattern: "normal" };
+try { demoState.pattern = localStorage.getItem("demoPattern") || "normal"; } catch (e) {}
+
+function demoAppointments() {
+  if (demoState.pattern === "empty") return [];
+  if (demoState.pattern === "many") {
+    const out = [];
+    for (let i = 0; i < 30; i++) {
+      const b = DEMO.appointments[i % DEMO.appointments.length];
+      out.push(Object.assign({}, b, { slug: b.slug + "-" + i, event_id: "ev-" + i }));
+    }
+    return out;
+  }
+  return DEMO.appointments;
+}
+
+const DEMO_TEAMS = [{"team_name":"浦林チーム","sort_order":1,"active":true,"priority":false,"assigned_count":82,"next_email":"eda@neo-career.co.jp"},{"team_name":"中澤チーム","sort_order":2,"active":true,"priority":true,"assigned_count":67,"next_email":"tanaka@neo-career.co.jp"}];
+const DEMO_TEAM_STATS = [{"team":"浦林チーム","members":3,"activeMembers":2,"fallbackMembers":1,"count":202,"perHead":101,"personDays":120,"perDay":1.683,"baseline":180,"totalAllTime":82,"active":true,"priority":false,"sortOrder":1},{"team":"中澤チーム","members":3,"activeMembers":2,"fallbackMembers":1,"count":178,"perHead":89,"personDays":113,"perDay":1.575,"baseline":163,"totalAllTime":67,"active":true,"priority":true,"sortOrder":2}];
+const DEMO_MEMBERS = {"浦林チーム":[{"email":"ueno@neo-career.co.jp","team":"浦林チーム","name":"植野 大輔","active":true,"count":11,"total_all_time":42},{"email":"eda@neo-career.co.jp","team":"浦林チーム","name":"江田 直人","active":true,"count":10,"total_all_time":40}],"中澤チーム":[{"email":"tanaka@neo-career.co.jp","team":"中澤チーム","name":"田中 遼","active":true,"count":9,"total_all_time":38},{"email":"morita@neo-career.co.jp","team":"中澤チーム","name":"森田 彩","active":false,"count":6,"total_all_time":29}]};
+const DEMO_BIZ = { "植野 大輔": "DOC", "田中 遼": "DOC", "森田 彩": "MOCHICA",
+  "浦林 鷹也": "DOC", "中澤 良太": "DOC", "飯島 稜": "DOC", "加藤 宋宙": "DOC", "迫間 美羽": "MOCHICA" };
+const CLOSER_BIZ = { "ueno@neo-career.co.jp": ["DOC"], "tanaka@neo-career.co.jp": ["DOC"],
+  "eda@neo-career.co.jp": ["DOC","MOCHICA"], "morita@neo-career.co.jp": ["MOCHICA"],
+  "ura@neo-career.co.jp": ["DOC"], "naka@neo-career.co.jp": ["DOC"] };
+function demoBizParam() {
+  try { return (window.kbProduct && window.kbProduct.current()) || ""; } catch (e) { return ""; }
+}
+const DEMO_SUSP = [{ id: 1, email: "morita@neo-career.co.jp", name: "森田 彩",
+  start_date: "2026-07-06", end_date: "2026-07-12", reason: "割り振り停止" }];
+const DEMO_DAYS = { "ueno@neo-career.co.jp": [62,0], "tanaka@neo-career.co.jp": [62,0],
+  "eda@neo-career.co.jp": [62,0], "morita@neo-career.co.jp": [55,7],
+  "ura@neo-career.co.jp": [62,0], "naka@neo-career.co.jp": [62,0], "etori@neo-career.co.jp": [62,0] };
+const demoRoutes = (p) => {
+  if (p === "/api/apo/invites") return { hours: 24, invites: [
+    { slug: "abc-def-001", label: "【初回】株式会社テスト/テスト様", setter: "田中欽也", business: "DOC",
+      owner: "m_morita@neo-career.co.jp", ownerName: "森田弥鳴", start: "2026-08-09T05:00:00.000Z",
+      eventId: "ev1", eventOwner: "m_morita@neo-career.co.jp", eventOwnerName: "森田弥鳴",
+      updatedAt: "2026-08-09T04:50:00.000Z" }] };
+  if (p === "/api/apo/orphan-invites") return { owners: ["kinya.tanaka@neo-career.co.jp"],
+    found: [{ owner: "kinya.tanaka@neo-career.co.jp", eventId: "old1",
+              title: "【初回】テスト株式会社/テスト様", start: "2026-08-09T08:00:00.000Z" }], errors: [] };
+  if (p === "/api/apo/orphan-invites/delete") return { ok: true, deleted: 1, done: [], failed: [] };
+  if (p.indexOf("/api/apo/invites/") === 0) return { ok: true };
+  if (p === "/api/apo/calendar-check") return { owner: "kinya.tanaka@neo-career.co.jp",
+    members: [
+      { name: "飯島 稜", email: "iijima@neo-career.co.jp", readable: true, total: 34, hosted: 21, tagged: 21, samples: [] },
+      { name: "加藤 宋宙", email: "kato@neo-career.co.jp", readable: true, total: 12, hosted: 9, tagged: 0,
+        samples: [{ title: "株式会社サンプル 面談" }, { title: "定例MTG" }] },
+      { name: "田中欽也", email: "tanaking0924@gmail.com", readable: false, total: 0, hosted: 0, tagged: 0, samples: [],
+        error: "カレンダーを参照できません（このアドレスのカレンダーが代表者に共有されていない可能性があります）" },
+    ] };
+  if (p.indexOf("/api/apo/suspensions") === 0) return { ok: true, suspensions: DEMO_SUSP, activeNow: {} };
+  if (p === "/api/rep-products") {
+    const map = {};
+    for (const k in DEMO_BIZ) map[k] = DEMO_BIZ[k];
+    return { map };
+  }
+  if (p === "/api/apo/team-stats")
+    return { period: { window: "month", label: "2026年8月" }, mode: "perDay",
+             teams: DEMO_TEAMS, teamStats: DEMO_TEAM_STATS, members: DEMO_MEMBERS };
+  if (p === "/api/apo/teams") return Object.assign({ ok: true }, DEMO.rotation);
+  if (p.indexOf("/api/apo/pickup") === 0) {
+    const b = demoBizParam();
+    let list = demoAppointments();
+    if (b) list = list.filter((a) => !a.business || a.business === b);
+    return { filters: { created: "", start: "" }, count: list.length, appointments: list,
+      errors: demoState.pattern === "error"
+        ? [{ setter: "笹原拓真", error: "カレンダーを読めませんでした（このメールのカレンダーが共有されているか確認してください）" }] : [],
+      mail_config: DEMO.mailConfig, rotation: DEMO.rotation };
+  }
+  if (p === "/api/smart-links/reps") return DEMO.reps;
+  if (p === "/api/apo/baseline") return Object.assign({ ok: true, matched: [], unmatched: [] }, DEMO.rotation);
+  if (p === "/api/apo/closer-order") return Object.assign({ ok: true }, DEMO.rotation);
+  if (p === "/api/apo/rotation") {
+    const b = demoBizParam();
+    const cl = (DEMO.rotation.closers || []).map((c) => ({ ...c, businesses: CLOSER_BIZ[c.email] || [] })).filter((c) => {
+      const bs = c.businesses || [];
+      return !b || !bs.length || bs.includes(b);
+    });
+    const tn = [...new Set(cl.map((c) => c.team))];
+    const cl2 = cl.map((c) => { const d = DEMO_DAYS[c.email] || [60,0];
+      return { ...c, eligible_days: d[0], suspended_days: d[1],
+               per_day: d[0] ? +(((c.period_count||0)+(c.baseline_count||0))/d[0]).toFixed(3) : null }; });
+    return { ...DEMO.rotation, business: b, closers: cl2, order: cl2, suspensions: DEMO_SUSP,
+      teams: DEMO_TEAMS.filter((t) => tn.includes(t.team_name)),
+      teamStats: DEMO_TEAM_STATS.filter((t) => tn.includes(t.team)),
+      config: Object.assign({}, DEMO.rotation.config, { teamBalance: "perDay", balanceWindow: "all", fairnessStart: "2026-06-08" }),
+      period: { window: "month", label: "2026年8月" },
+      next: cl2.find((c) => !c.fallback && c.active !== false) || null };
+  }
+  if (p === "/api/__unused") return Object.assign({}, DEMO.rotation, {
+    teams: DEMO_TEAMS, teamStats: DEMO_TEAM_STATS,
+    config: Object.assign({}, DEMO.rotation.config, { teamBalance: "perDay", balanceWindow: "all", fairnessStart: "2026-06-08" }),
+    period: { window: "month", label: "2026年8月" } });
+  if (p === "/api/apo-mail-config") return { ...DEMO.mailConfig,
+    confirmSubject: NEW_CONFIRM_SUBJECT, confirmBody: NEW_CONFIRM_BODY,
+    reminderSubject: NEW_REMINDER_SUBJECT, reminderBody: NEW_REMINDER_BODY,
+    companyName: "株式会社ネオキャリア",
+    defaults: { confirmSubject: NEW_CONFIRM_SUBJECT, confirmBody: NEW_CONFIRM_BODY,
+                reminderSubject: NEW_REMINDER_SUBJECT, reminderBody: NEW_REMINDER_BODY } };
+  if (p === "/api/apo/assign-log") return DEMO.assignLog;
+  if (p === "/api/me") return { email: "kinya.tanaka@neo-career.co.jp", name: "田中欽也", isAdmin: true };
+  if (p === "/api/version") return { build: "デモ表示（1ファイル版・ダミーデータ）", startedAt: new Date().toISOString(), features: [] };
+  if (p === "/api/db/schema-check" || p === "/api/db/schema-repair")
+    return { ok: true, connected: true, missingTables: [], missingColumns: [], failures: [] };
+  if (p === "/api/apo/auto-scan") return { ok: true, total: 5, targets: 2, assigned: 2, results: [] };
+  if (p === "/api/apo-mail/run-reminders") return { ok: true, total: 3, sent: 3, results: [] };
+  if (p.indexOf("/api/apo/closers") === 0 || p.indexOf("/api/apo/rotation") === 0)
+    return Object.assign({ ok: true }, DEMO.rotation);
+  if (p.indexOf("/api/smart-links/") === 0) return { ok: true, link: {}, mail: { ok: true } };
+  return {};
+};
+
+window.fetch = function (input, init) {
+  const url = String(typeof input === "string" ? input : (input && input.url) || "");
+  const p = url.replace(/^[a-z]+:\/\/[^/]*/i, "").split("?")[0];
+  const data = demoRoutes(p);
+  return Promise.resolve({
+    ok: true, status: 200,
+    json: () => Promise.resolve(data),
+    text: () => Promise.resolve(JSON.stringify(data)),
+  });
+};
+
+// 表示パターンを切り替えるバー
+window.addEventListener("DOMContentLoaded", function () {
+  const bar = document.createElement("div");
+  bar.className = "demo-bar";
+  bar.innerHTML = '<button type="button" class="demo-x" data-min="1">−</button><span class="demo-tag">デモ表示</span>' +
+    '<span class="demo-note">ダミーデータです。保存・送信は動きません。</span>' +
+    '<span class="demo-btns">' +
+      '<button type="button" data-p="normal">5件</button>' +
+      '<button type="button" data-p="many">30件</button>' +
+      '<button type="button" data-p="empty">0件</button>' +
+      '<button type="button" data-p="error">読み取りエラー</button>' +
+    '</span>';
+  document.body.appendChild(bar);
+  bar.querySelector(".demo-x").addEventListener("click", function () {
+    bar.classList.toggle("min");
+    bar.querySelector(".demo-x").textContent = bar.classList.contains("min") ? "＋" : "−";
+  });
+  bar.querySelectorAll("button[data-p]").forEach(function (b) {
+    if (b.dataset.p === demoState.pattern) b.classList.add("on");
+    b.addEventListener("click", function () {
+      try { localStorage.setItem("demoPattern", b.dataset.p); } catch (e) {}
+      location.reload();
+    });
+  });
+});
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+</script>
+<script>
+const $ = (id) => document.getElementById(id);
+function esc(s) {
+  return String(s == null ? "" : s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+}
+const apState = { reps: [], appts: [], errors: [] };
+
+// 現在選択中の事業（全体なら空文字）。トップバーの 全体/DOC/MOCHICA と連動する。
+function curBiz() {
+  try { return (window.kbProduct && window.kbProduct.current()) || ""; } catch { return ""; }
+}
+function bizQuery() {
+  const b = curBiz();
+  return b ? "&product=" + encodeURIComponent(b) : "";
+}
+function bizLabel(id) {
+  const el = $(id);
+  if (!el) return;
+  const b = curBiz();
+  el.textContent = b || "全体";
+  el.className = "ap-biz-badge" + (b ? " ap-biz-" + b : "");
+}
+
+// ISO日時 → 「7/10(水) 14:00」（ブラウザのタイムゾーン＝通常JST）
+function fmtDT(iso) {
+  if (!iso) return "";
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return esc(iso);
+  const wd = ["日", "月", "火", "水", "木", "金", "土"][d.getDay()];
+  const p = (n) => String(n).padStart(2, "0");
+  return `${d.getMonth() + 1}/${d.getDate()}(${wd}) ${p(d.getHours())}:${p(d.getMinutes())}`;
+}
+// "YYYY-MM-DD" → "M/D"
+function fmtYmd(ymd) {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(ymd || ""));
+  return m ? `${Number(m[2])}/${Number(m[3])}` : esc(ymd);
+}
+function repOptions(selected) {
+  let o = `<option value="">担当未定</option>`;
+  for (const r of apState.reps) {
+    const sel = r.email === selected ? " selected" : "";
+    o += `<option value="${esc(r.email)}"${sel}>${esc(r.name)}${r.has_zoom_link ? "" : "（Zoom未設定）"}</option>`;
+  }
+  return o;
+}
+// 宛先セル：自動取得できていればそのまま表示、無ければ入力欄。クリックで編集できる。
+function clientCell(a, i) {
+  const src = a.client_email_source === "manual" ? "手入力"
+    : a.client_email_source === "description" ? "予定の説明欄から取得"
+    : a.client_email_source === "calendar" ? "カレンダーのゲストから取得" : "";
+  if (a.client_email) {
+    return `<span class="ap-mailaddr" title="${esc(src)}">${esc(a.client_email)}</span>` +
+      `${a.client_email_source === "description" ? '<span class="ap-src-chip">説明欄</span>' : ""}` +
+      `<button class="btn ghost ap-mailedit" data-i="${i}">変更</button>`;
+  }
+  return `<button class="btn ghost ap-mailedit ap-warn-btn" data-i="${i}">宛先を入力</button>`;
+}
+
+// アポメールの送信状況
+function mailCell(a, i) {
+  const m = a.mail || {};
+  const chip = (label, st) => {
+    if (!st) return `<span class="ap-badge ap-pending">${label}未作成</span>`;
+    if (st.status === "draft") return `<span class="ap-badge ap-draft" title="${esc(st.at || "")}｜担当者のGmailの下書きに入っています">${label}下書き済</span>`;
+    if (st.status === "sent") return `<span class="ap-badge ap-ok" title="${esc(st.at || "")}">${label}送信済</span>`;
+    return `<span class="ap-badge ap-warn" title="${esc(st.error || "")}">${label}失敗</span>`;
+  };
+  const canSend = !!a.current_owner && !!a.client_email;
+  const draftMode = (apState.mailConfig || {}).deliverMode !== "send";
+  const btn = canSend
+    ? `<button class="btn ghost ap-sendmail" data-i="${i}" data-kind="confirm">${draftMode ? "下書きを作る" : "確定メールを送信"}</button>`
+    : "";
+  return `<div class="ap-mailstate">${chip("確定", m.confirm)}${chip("前日", m.reminder)}</div>${btn}`;
+}
+
+function statusCell(a) {
+  if (!a.current_owner) return `<span class="ap-badge ap-pending">担当未定</span>`;
+  const rep = apState.reps.find((r) => r.email === a.current_owner);
+  if (rep && rep.has_zoom_link) return `<span class="ap-badge ap-ok">${esc(rep.name)}のZoomへ転送中</span>`;
+  return `<span class="ap-badge ap-warn">${esc(rep ? rep.name : a.current_owner)}：Zoom未設定</span>`;
+}
+// 宛先の編集と手動送信のボタンをつなぐ。セルを描き直したあとにも呼ぶ。
+function bindMailButtons(scope) {
+  scope.querySelectorAll(".ap-mailedit").forEach((b) => {
+    b.addEventListener("click", async () => {
+      const i = +b.dataset.i;
+      const a = apState.appts[i];
+      const cur = a.client_email || "";
+      const next = prompt("お客様のメールアドレスを入力してください。\n（空にすると宛先を削除します）", cur);
+      if (next === null) return;
+      const email = String(next).trim();
+      b.disabled = true;
+      try {
+        const r = await fetch(`/api/smart-links/${encodeURIComponent(a.slug)}/client`, {
+          method: "PUT", headers: { "content-type": "application/json" },
+          body: JSON.stringify({ email, name: a.client_name || "" }),
+        });
+        const d = await r.json();
+        if (!r.ok) throw new Error(d.error || "保存に失敗しました");
+        a.client_email = (d.link && d.link.client_email) || "";
+        a.client_email_source = (d.link && d.link.client_email_source) || "";
+        const cell = document.querySelector(`.ap-client[data-i="${i}"]`);
+        if (cell) { cell.innerHTML = clientCell(a, i); bindMailButtons(cell); }
+        refreshMailCell(i);
+      } catch (e) {
+        alert("宛先の保存に失敗しました: " + e.message);
+      } finally { b.disabled = false; }
+    });
+  });
+  scope.querySelectorAll(".ap-sendmail").forEach((b) => {
+    b.addEventListener("click", async () => {
+      const i = +b.dataset.i;
+      const a = apState.appts[i];
+      const kind = b.dataset.kind || "confirm";
+      const already = (a.mail || {})[kind] && (a.mail || {})[kind].status === "sent";
+      const label = kind === "reminder" ? "前日リマインド" : "アポ確定メール";
+      const dm = (apState.mailConfig || {}).deliverMode !== "send";
+      const verb = dm ? "下書きを作成" : "送信";
+      const msg = already
+        ? `この商談の${label}はすでに${dm ? "下書きを作成" : "送信"}済みです。もう一度${verb}しますか？`
+        : `${a.current_owner} のGmailに${label}の${dm ? "下書きを作成" : "送信を実行"}します。よろしいですか？`;
+      if (!confirm(msg)) return;
+      b.disabled = true;
+      const orig = b.textContent;
+      b.textContent = "送信中…";
+      try {
+        const r = await fetch(`/api/smart-links/${encodeURIComponent(a.slug)}/mail`, {
+          method: "POST", headers: { "content-type": "application/json" },
+          body: JSON.stringify({ kind, force: !!already }),
+        });
+        const d = await r.json();
+        if (!r.ok) throw new Error(d.error || "送信に失敗しました");
+        a.mail = Object.assign({}, a.mail, { [kind]: { status: d.draft ? "draft" : "sent", at: new Date().toISOString() } });
+        refreshMailCell(i);
+        if (d.noRoom) {
+          alert(`${a.current_owner} が「設定 → 登録リンク」に会議室URLを登録していません。\n\n` +
+            `メールのURLはkinbotのスマートリンクなので、このままだとお客様が開いても入室できません。\n` +
+            `本人に登録してもらってから送信してください。`);
+        }
+      } catch (e) {
+        a.mail = Object.assign({}, a.mail, { [kind]: { status: "failed", error: e.message } });
+        refreshMailCell(i);
+        alert("送信に失敗しました: " + e.message);
+      } finally { b.disabled = false; b.textContent = orig; }
+    });
+  });
+}
+// メール状況セルだけを描き直す
+function refreshMailCell(i) {
+  const cell = document.querySelector(`.ap-mail[data-i="${i}"]`);
+  if (!cell) return;
+  cell.innerHTML = mailCell(apState.appts[i], i);
+  bindMailButtons(cell);
+}
+
+// 「8/9(日)」のような1行の見出し
+function fmtDay(iso) {
+  if (!iso) return "日付未定";
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return "日付未定";
+  const wd = ["日", "月", "火", "水", "木", "金", "土"][d.getDay()];
+  const t = new Date();
+  const same = (x, y) => x.toDateString() === y.toDateString();
+  const tomorrow = new Date(t.getTime() + 86400000);
+  const head = `${d.getMonth() + 1}月${d.getDate()}日(${wd})`;
+  if (same(d, t)) return head + "　今日";
+  if (same(d, tomorrow)) return head + "　明日";
+  return head;
+}
+function fmtTime(iso) {
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return "";
+  const p = (n) => String(n).padStart(2, "0");
+  return `${p(d.getHours())}:${p(d.getMinutes())}`;
+}
+
+// アポ1件をカードにする
+function apoCard(a, i) {
+  const assigned = !!a.current_owner;
+  const badges =
+    (a.business ? `<span class="ap-biz-badge ap-biz-${esc(a.business)}">${esc(a.business)}</span>` : "") +
+    (assigned ? "" : '<span class="home-badge home-badge-st">担当未定</span>');
+
+  return `<div class="ap-card${assigned ? "" : " ap-card-todo"}" data-i="${i}">
+    <div class="ap-card-row">
+      <div class="ap-card-main">
+        <div class="ap-card-top">
+          <span class="ap-card-time">${esc(fmtTime(a.start))}</span>${badges}
+        </div>
+        <div class="ap-card-title">${esc(a.title)}</div>
+        <div class="ap-card-meta">
+          アポ獲得 <b>${esc(a.setter_name)}</b>
+          <span class="ap-dot">・</span>取得 ${esc(fmtYmd(a.created_date))}
+        </div>
+        <div class="ap-card-lines">
+          <div class="ap-line">
+            <span class="ap-line-k">お客様の宛先</span>
+            <span class="ap-line-v ap-client" data-i="${i}">${clientCell(a, i)}</span>
+          </div>
+          <div class="ap-line">
+            <span class="ap-line-k">アポメール</span>
+            <span class="ap-line-v ap-mail" data-i="${i}">${mailCell(a, i)}</span>
+          </div>
+          <div class="ap-line">
+            <span class="ap-line-k">状態</span>
+            <span class="ap-line-v ap-status" data-i="${i}">${statusCell(a)}</span>
+          </div>
+        </div>
+      </div>
+      <div class="ap-card-actions">
+        <select class="ap-rep" data-i="${i}">${repOptions(a.current_owner)}</select>
+        ${assigned ? "" : `<button class="btn kb-prio ap-auto" data-i="${i}">自動で決める</button>`}
+        <select class="ap-bizsel" data-i="${i}">${
+          ["", "DOC", "MOCHICA"].map((b) =>
+            `<option value="${b}"${(a.business || "") === b ? " selected" : ""}>${b || "事業 未判定"}</option>`).join("")
+        }</select>
+        <div class="ap-card-links">
+          <a class="ap-link-a" href="${esc(a.smart_url)}" target="_blank" rel="noopener" title="${esc(a.smart_url)}">開く</a>
+          <button class="btn ghost ap-copy" data-url="${esc(a.smart_url)}">コピー</button>
+        </div>
+      </div>
+    </div>
+  </div>`;
+}
+
+function renderApo() {
+  const body = $("apoBody");
+  const appts = apState.appts;
+  const errNote = (apState.errors || []).length
+    ? '<p class="note cc-warn">一部のカレンダーを読めませんでした：' +
+      apState.errors.map((e) => esc(e.setter) + "（" + esc(e.error) + "）").join("、") + '</p>'
+    : "";
+  if (!appts.length) {
+    body.innerHTML = '<div class="empty-state">該当するアポがありませんでした。取得日・商談日の指定を変えて［表示］を押すか、' +
+      '<a href="settings.html#members">設定 → メンバー管理</a>の登録内容とカレンダー共有をご確認ください。</div>' + errNote;
+    return;
+  }
+
+  // 商談日でグループにまとめる（ホームと同じ見せ方）
+  const groups = [];
+  let last = null;
+  appts.forEach((a, i) => {
+    const key = String(a.start || "").slice(0, 10);
+    if (!last || last.key !== key) { last = { key, label: fmtDay(a.start), items: [] }; groups.push(last); }
+    last.items.push({ a, i });
+  });
+
+  let html = "";
+  for (const g of groups) {
+    html += `<div class="ap-daysec"><span class="ap-dayname">${esc(g.label)}</span>` +
+      `<span class="ap-daycount">${g.items.length}件</span></div>`;
+    for (const { a, i } of g.items) {
+      html += apoCard(a, i);
+    }
+  }
+  body.innerHTML = html + errNote;
+
+  body.querySelectorAll(".ap-rep").forEach((sel) => {
+    sel.addEventListener("change", async () => {
+      const i = +sel.dataset.i;
+      const a = apState.appts[i];
+      const owner = sel.value || null;
+      sel.disabled = true;
+      try {
+        const r = await fetch(`/api/smart-links/${encodeURIComponent(a.slug)}/owner`, {
+          method: "PUT", headers: { "content-type": "application/json" },
+          body: JSON.stringify({ owner }),
+        });
+        const d = await r.json();
+        if (!r.ok) throw new Error(d.error || "変更に失敗しました");
+        a.current_owner = owner;
+        const cell = body.querySelector(`.ap-status[data-i="${i}"]`);
+        if (cell) cell.innerHTML = statusCell(a);
+        // アポ確定メールの送信結果を反映する
+        if (d.mail && d.mail.ok) {
+          a.mail = Object.assign({}, a.mail, { confirm: { status: d.mail.draft ? "draft" : "sent", at: new Date().toISOString() } });
+        } else if (d.mail && !d.mail.skipped && d.mail.reason) {
+          a.mail = Object.assign({}, a.mail, { confirm: { status: "failed", error: d.mail.reason } });
+        }
+        refreshMailCell(i);
+        // 商談予定の自動作成（招待）の結果を知らせる
+        if (owner && d.invite_error) {
+          alert("担当は変更しましたが、商談予定の自動作成に失敗しました:\n" + d.invite_error);
+        }
+        if (owner && d.mail && d.mail.ok && d.mail.noRoom) {
+          alert(`${owner} が「設定 → 登録リンク」に会議室URLを登録していません。\n\n` +
+            `メールは用意できましたが、URLを開いてもお客様が入室できません。本人に登録してもらってください。`);
+        }
+        if (owner && d.mail && !d.mail.ok && !d.mail.skipped) {
+          alert("アポ確定メールの自動送信に失敗しました。\n\n" + (d.mail.reason || "") +
+            (d.mail.needScope
+              ? "\n\n※ 担当は割り当てられています。メールだけ送れていません。" +
+                "\n" + (d.mail.needScopeOwner || "本人") + " が Google連携をやり直すと送れるようになります。"
+              : ""));
+        }
+      } catch (e) {
+        alert("担当者の変更に失敗しました: " + e.message);
+      } finally { sel.disabled = false; }
+    });
+  });
+  body.querySelectorAll(".ap-bizsel").forEach((sel) => {
+    sel.addEventListener("change", async () => {
+      const i = +sel.dataset.i;
+      const a = apState.appts[i];
+      sel.disabled = true;
+      try {
+        const r = await fetch(`/api/smart-links/${encodeURIComponent(a.slug)}/business`, {
+          method: "PUT", headers: { "content-type": "application/json" },
+          body: JSON.stringify({ business: sel.value }),
+        });
+        const d = await r.json();
+        if (!r.ok) throw new Error(d.error || "変更に失敗しました");
+        a.business = sel.value;
+      } catch (e) {
+        alert("事業を変更できませんでした: " + e.message);
+        sel.value = a.business || "";
+      } finally { sel.disabled = false; }
+    });
+  });
+  body.querySelectorAll(".ap-auto").forEach((b) => {
+    b.addEventListener("click", async () => {
+      const i = +b.dataset.i;
+      const a = apState.appts[i];
+      b.disabled = true;
+      const bo = b.textContent;
+      b.textContent = "判定中…";
+      try {
+        const r = await fetch(`/api/smart-links/${encodeURIComponent(a.slug)}/auto-assign`, { method: "POST" });
+        const d = await r.json();
+        if (!r.ok) throw new Error(d.error || "割り振れませんでした");
+        loadApo();
+      } catch (e) {
+        alert("自動で決められませんでした:\n" + e.message);
+        b.disabled = false; b.textContent = bo;
+      }
+    });
+  });
+  bindMailButtons(body);
+  body.querySelectorAll(".ap-copy").forEach((b) => {
+    b.addEventListener("click", async () => {
+      try { await navigator.clipboard.writeText(b.dataset.url); b.textContent = "コピーしました"; }
+      catch { b.textContent = "失敗"; }
+      setTimeout(() => (b.textContent = "コピー"), 1500);
+    });
+  });
+}
+function todayStr() { return new Date().toISOString().slice(0, 10); }
+async function loadApo() {
+  const body = $("apoBody");
+  const st = $("apStatus");
+  const created = ($("apCreated") && $("apCreated").value) || "";
+  const start = ($("apStart") && $("apStart").value) || "";
+  apState.fCreated = created;
+  apState.fStart = start;
+  body.innerHTML = '<div class="empty-state">カレンダーから取り込み中…（件数によっては数十秒かかります）</div>';
+  try {
+    const reps = await (await fetch("/api/smart-links/reps")).json();
+    apState.reps = Array.isArray(reps) ? reps : [];
+  } catch { apState.reps = []; }
+  loadRotation();
+  try {
+    const q = new URLSearchParams();
+    if (created) q.set("created", created);
+    if (start) q.set("start", start);
+    if (curBiz()) q.set("product", curBiz());
+    const r = await fetch("/api/apo/pickup?" + q.toString());
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.error || "取り込みに失敗しました");
+    apState.appts = d.appointments || [];
+    apState.errors = d.errors || [];
+    apState.mailConfig = d.mail_config || {};
+    renderApo();
+    if (st) st.textContent = `${apState.appts.length}件`;
+    setTimeout(() => { if (st) st.textContent = ""; }, 2500);
+  } catch (e) {
+    body.innerHTML = `<div class="empty-state">${esc(e.message)}</div>`;
+  }
+}
+// ===== 今動いているビルドの表示 =====
+// 「アップロードしたのに機能が出てこない」ときに、まずここを見れば反映されたか分かる。
+// ===== タブ切り替え =====
+// 選んだタブは記憶して、リロードしても同じタブに戻る。
+function setupTabs() {
+  const tabs = Array.from(document.querySelectorAll(".ap-tab"));
+  const panes = Array.from(document.querySelectorAll(".ap-pane"));
+  if (!tabs.length) return;
+  const show = (name) => {
+    tabs.forEach((t) => t.classList.toggle("active", t.dataset.pane === name));
+    panes.forEach((p) => { p.hidden = p.dataset.pane !== name; });
+    try { localStorage.setItem("apoTab", name); } catch {}
+    // 設定タブを開いたときに最新値を読み直す
+    if (name === "rot") loadRotation();
+    if (name === "team") loadTeamStats();
+    if (name === "sys") loadBuild();
+  };
+  tabs.forEach((t) => t.addEventListener("click", () => show(t.dataset.pane)));
+  let init = "list";
+  try { init = localStorage.getItem("apoTab") || "list"; } catch {}
+  if (!tabs.some((t) => t.dataset.pane === init)) init = "list";
+  show(init);
+}
+
+async function loadBuild() {
+  const el = $("dbBuild");
+  if (!el) return;
+  try {
+    const d = await (await fetch("/api/version")).json();
+    if (!d.build) throw new Error("バージョン情報を取得できません");
+    el.innerHTML = `<b>動いているビルド：</b>${esc(d.build)}<br><span class="note">起動: ${esc(new Date(d.startedAt).toLocaleString("ja-JP"))}</span>`;
+    el.classList.remove("ap-build-old");
+  } catch {
+    el.textContent = "動いているのは古いビルドです（/api/version がまだありません）。アップロードとデプロイを確認してください。";
+    el.classList.add("ap-build-old");
+  }
+}
+
+// ===== チーム実績タブ =====
+// チーム間の偏りと、チーム内の偏りの両方が見えるようにする。
+async function loadTeamStats() {
+  const box = $("tsBody");
+  if (!box) return;
+  const say = (m) => { const e = $("tsStatus"); if (e) e.textContent = m; };
+  const w = $("tsWindow") ? $("tsWindow").value : "month";
+  say("読み込み中…");
+  try {
+    const d = await (await fetch("/api/apo/team-stats?window=" + encodeURIComponent(w) + bizQuery())).json();
+    if (d.error) throw new Error(d.error);
+    const stats = (d.teamStats || []).slice();
+    if (!stats.length) {
+      box.innerHTML = `<div class="empty-state">クローザーがまだ登録されていません。「割り振り設定」タブで登録してください。</div>`;
+      say(""); return;
+    }
+    const modeLabel = { off: "チームを見ない", total: "チーム合計で均等",
+      perHead: "1人あたりで均等", perDay: "稼働1日あたりで均等" }[d.mode] || d.mode;
+    const max = Math.max(1, ...stats.map((t) => t.count));
+    const usePerDay = d.mode === "perDay";
+    const maxPer = usePerDay
+      ? Math.max(0.001, ...stats.map((t) => t.perDay || 0))
+      : Math.max(0.01, ...stats.map((t) => t.perHead || 0));
+    const usePer = d.mode === "perHead" || usePerDay;
+
+    let html = `<p class="note">期間：<b>${esc(d.period.label)}</b>／配り方：<b>${esc(modeLabel)}</b>` +
+      `（商談日を基準に集計しています）</p>`;
+    html += `<div class="ts-teams">`;
+    for (const t of stats) {
+      const val = usePerDay ? (t.perDay || 0) : usePer ? (t.perHead || 0) : t.count;
+      const pct = Math.round((val / (usePer ? maxPer : max)) * 100);
+      html += `<div class="ts-team${t.active === false ? " ap-rot-off" : ""}">
+        <div class="ts-head">
+          <span class="ts-name">${esc(t.team)}</span>
+          ${t.priority ? '<span class="ap-badge ap-warn">次を優先</span>' : ""}
+          ${t.active === false ? '<span class="ap-badge ap-pending">配布対象外</span>' : ""}
+          <span class="ts-num">${t.count}件<span class="ts-sub">／通常${t.activeMembers}名${t.fallbackMembers ? "・予備" + t.fallbackMembers + "名" : ""}` +
+          `・1人あたり${t.perHead ?? 0}件${t.personDays ? "・稼働" + t.personDays + "人日で1日" + (t.perDay ?? 0) + "件" : ""}` +
+          `${t.baseline ? "・過去" + t.baseline + "件含む" : ""}</span></span>
+        </div>
+        <div class="ts-bar"><span style="width:${pct}%"></span></div>
+        <div class="ts-members">`;
+      for (const m of (d.members || {})[t.team] || []) {
+        html += `<span class="ts-member${m.active === false ? " ts-off" : ""}">${esc(m.name)} <b>${m.count}</b></span>`;
+      }
+      html += `</div></div>`;
+    }
+    html += `</div>`;
+
+    // 偏りの目安を出す
+    const values = stats.filter((t) => t.active !== false).map((t) => (usePer ? (t.perHead || 0) : t.count));
+    if (values.length > 1) {
+      const gap = (Math.max(...values) - Math.min(...values)).toFixed(usePerDay ? 3 : usePer ? 2 : 0);
+      const thr = usePerDay ? 0.15 : usePer ? 1.5 : 3;
+      html += `<p class="note ${(+gap > thr) ? "cc-warn" : ""}">` +
+        `最も多いチームと少ないチームの差：<b>${gap}${usePerDay ? "件/稼働日" : usePer ? "件/人" : "件"}</b>` +
+        `${(+gap > thr) ? "　偏りが出ています。配り方の設定を見直すか、チームの稼働状態を確認してください。" : "　均等に配れています。"}</p>`;
+    }
+    box.innerHTML = html;
+    bizLabel("tsBizLabel");
+    say("");
+  } catch (e) {
+    box.innerHTML = `<div class="empty-state">読み込めませんでした：${esc(e.message)}</div>`;
+    say("");
+  }
+}
+
+// ===== 作ってしまった商談予定の取り消し =====
+function fmtWhen(iso) {
+  if (!iso) return "";
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return esc(iso);
+  const wd = ["日","月","火","水","木","金","土"][d.getDay()];
+  const p = (n) => String(n).padStart(2, "0");
+  return `${d.getMonth() + 1}/${d.getDate()}(${wd}) ${p(d.getHours())}:${p(d.getMinutes())}`;
+}
+
+async function loadInvites() {
+  const box = $("ivBox");
+  const say = (m) => { const e = $("ivStatus"); if (e) e.textContent = m; };
+  if (!box) return;
+  say("読み込み中…");
+  box.innerHTML = "";
+  try {
+    const h = $("ivHours") ? $("ivHours").value : "24";
+    const d = await (await fetch("/api/apo/invites?hours=" + encodeURIComponent(h))).json();
+    if (d.error) throw new Error(d.error);
+    const list = d.invites || [];
+    if (!list.length) { box.innerHTML = `<p class="note">この期間に作られた商談予定はありません。</p>`; say(""); return; }
+    box.innerHTML = `<div class="iv-list">` + list.map((x) => `
+      <div class="iv-row" data-slug="${esc(x.slug)}">
+        <div class="iv-main">
+          <span class="iv-when">${fmtWhen(x.start)}</span>
+          <span class="iv-title">${esc(x.label || "(予定名なし)")}</span>
+        </div>
+        <div class="iv-sub">
+          担当 <b>${esc(x.ownerName)}</b>／予定は <b>${esc(x.eventOwnerName)}</b> のカレンダー
+          ${x.business ? `／${esc(x.business)}` : ""}
+          ／作成 ${fmtWhen(x.updatedAt)}
+        </div>
+        <button type="button" class="btn ghost iv-del">この予定を消す</button>
+      </div>`).join("") + `</div>`;
+    box.querySelectorAll(".iv-del").forEach((b) => b.addEventListener("click", async () => {
+      const row = b.closest(".iv-row");
+      const slug = row.dataset.slug;
+      const t = row.querySelector(".iv-title").textContent;
+      if (!confirm(`この商談予定をカレンダーから消します。\n\n${t}\n\n※ 担当の割り当ては残ります。よろしいですか？`)) return;
+      b.disabled = true; b.textContent = "削除中…";
+      try {
+        const r = await fetch(`/api/apo/invites/${encodeURIComponent(slug)}`, { method: "DELETE" });
+        const dd = await r.json();
+        if (!r.ok) throw new Error(dd.error || "削除に失敗しました");
+        row.classList.add("iv-done");
+        row.querySelector(".iv-del").outerHTML = `<span class="ap-badge ap-ok">削除しました</span>`;
+      } catch (e) {
+        alert("削除できませんでした: " + e.message);
+        b.disabled = false; b.textContent = "この予定を消す";
+      }
+    }));
+    say(`${list.length}件`);
+  } catch (e) {
+    box.innerHTML = `<p class="note cc-warn">読み込めませんでした：${esc(e.message)}</p>`;
+    say("");
+  }
+}
+
+async function loadOrphans() {
+  const box = $("orBox");
+  const say = (m) => { const e = $("orStatus"); if (e) e.textContent = m; };
+  const btn = $("orLoad");
+  if (!box) return;
+  if (btn) btn.disabled = true;
+  say("探しています…（人数分カレンダーを読むので少し時間がかかります）");
+  box.innerHTML = "";
+  try {
+    const d = await (await fetch("/api/apo/orphan-invites")).json();
+    if (d.error) throw new Error(d.error);
+    const list = d.found || [];
+    let html = `<p class="note">調べたカレンダー：${(d.owners || []).map(esc).join("、")}</p>`;
+    if ((d.errors || []).length) {
+      html += `<p class="note cc-warn">読めなかったカレンダー：` +
+        d.errors.map((x) => `${esc(x.owner)}（${esc(x.error).slice(0, 60)}）`).join("、") + `</p>`;
+    }
+    if (!list.length) {
+      html += `<p class="note">取り残しの予定はありません。</p>`;
+      box.innerHTML = html; say(""); return;
+    }
+    html += `<div class="iv-list">` + list.map((x, k) => `
+      <label class="iv-row">
+        <input type="checkbox" class="or-chk" data-i="${k}" checked />
+        <div class="iv-main"><span class="iv-when">${fmtWhen(x.start)}</span>
+          <span class="iv-title">${esc(x.title || "(予定名なし)")}</span></div>
+        <div class="iv-sub">${esc(x.owner)} のカレンダー</div>
+      </label>`).join("") + `</div>
+      <div class="ap-cfg-actions">
+        <button class="btn ghost" id="orDel">チェックしたものを消す</button>
+      </div>`;
+    box.innerHTML = html;
+    box.querySelector("#orDel").addEventListener("click", async () => {
+      const items = [...box.querySelectorAll(".or-chk")].filter((c) => c.checked).map((c) => list[+c.dataset.i]);
+      if (!items.length) { say("チェックがありません"); return; }
+      if (!confirm(`${items.length}件の予定をカレンダーから消します。よろしいですか？`)) return;
+      say("削除中…");
+      try {
+        const r = await fetch("/api/apo/orphan-invites/delete", {
+          method: "POST", headers: { "content-type": "application/json" },
+          body: JSON.stringify({ items }),
+        });
+        const dd = await r.json();
+        if (!r.ok) throw new Error(dd.error || "削除に失敗しました");
+        say(`${dd.deleted}件を削除しました${(dd.failed || []).length ? `（${dd.failed.length}件は失敗）` : ""}`);
+        loadOrphans();
+      } catch (e) { say("失敗: " + e.message); }
+    });
+    say(`${list.length}件見つかりました`);
+  } catch (e) {
+    box.innerHTML = `<p class="note cc-warn">探せませんでした：${esc(e.message)}</p>`;
+    say("");
+  } finally { if (btn) btn.disabled = false; }
+}
+
+// ===== インサイドのカレンダー診断 =====
+async function calCheck() {
+  const box = $("calCheckBox");
+  const btn = $("calCheckBtn");
+  const say = (m) => { const e = $("calCheckStatus"); if (e) e.textContent = m; };
+  if (!box) return;
+  if (btn) btn.disabled = true;
+  say("診断中…（人数分カレンダーを読むので少し時間がかかります）");
+  box.innerHTML = "";
+  try {
+    const d = await (await fetch("/api/apo/calendar-check")).json();
+    if (d.error) throw new Error(d.error);
+    let html = `<p class="note">代表者 <b>${esc(d.owner)}</b> の連携でカレンダーを読みました（7日前〜60日先）。</p>`;
+    html += `<div class="cal-list">`;
+    for (const m of d.members || []) {
+      let verdict, cls;
+      if (m.error) { verdict = m.error; cls = "cal-ng"; }
+      else if (m.total === 0) { verdict = "カレンダーは読めましたが、期間内に予定が1件もありません"; cls = "cal-warn"; }
+      else if (m.hosted === 0) { verdict = `予定は${m.total}件ありますが、この人が主催者の予定がありません（招待されているだけの予定は対象外です）`; cls = "cal-warn"; }
+      else if (m.tagged === 0) { verdict = `主催の予定が${m.hosted}件ありますが、タイトルに【新】【ヒ】【初回】のいずれかが付いた予定がありません`; cls = "cal-warn"; }
+      else { verdict = `取り込み対象の予定が ${m.tagged}件 見つかりました`; cls = "cal-ok"; }
+      html += `<div class="cal-row ${cls}">
+        <div class="cal-head"><b>${esc(m.name)}</b><span class="ap-rot-cnt">${esc(m.email)}</span></div>
+        <div class="cal-verdict">${esc(verdict)}</div>`;
+      if (!m.error && m.total) {
+        html += `<div class="ap-rot-cnt">予定${m.total}件 ／ 本人が主催${m.hosted}件 ／ タグ一致${m.tagged}件</div>`;
+      }
+      if ((m.samples || []).length) {
+        html += `<div class="cal-samples">タグが付いていない予定の例：` +
+          m.samples.map((x) => `<span>${esc(x.title)}</span>`).join("") + `</div>`;
+      }
+      html += `</div>`;
+    }
+    html += `</div>`;
+    box.innerHTML = html;
+    say("");
+  } catch (e) {
+    box.innerHTML = `<p class="note cc-warn">診断できませんでした：${esc(e.message)}</p>`;
+    say("");
+  } finally { if (btn) btn.disabled = false; }
+}
+
+// ===== データベースの状態確認 =====
+function dbRender(d) {
+  const box = $("dbCheckBox");
+  if (!box) return;
+  box.hidden = false;
+  if (d.error) { box.textContent = "確認できませんでした: " + d.error; return; }
+  if (!d.connected) { box.textContent = "データベースに接続されていません（DATABASE_URL 未設定）。"; return; }
+  const lines = [];
+  if (d.ok) {
+    lines.push("問題ありません。必要なテーブル・カラムはすべて揃っています。");
+  } else {
+    if ((d.missingTables || []).length) lines.push("■ 作られていないテーブル\n  " + d.missingTables.join("\n  "));
+    if ((d.missingColumns || []).length) lines.push("■ 作られていないカラム\n  " + d.missingColumns.join("\n  "));
+    if ((d.failures || []).length) {
+      lines.push("■ 作成に失敗したSQL（これが原因です）");
+      for (const f of d.failures) lines.push(`  ${f.sql}\n    理由: ${f.error}`);
+    }
+    if (!lines.length) lines.push("不足は検出されませんでした。");
+  }
+  box.textContent = lines.join("\n\n");
+}
+
+async function dbCheck(repair) {
+  const btn = repair ? $("dbRepairBtn") : $("dbCheckBtn");
+  const say = (m) => { const e = $("dbCheckStatus"); if (e) e.textContent = m; };
+  if (repair && !confirm("不足しているテーブルとカラムを作り直します。既存のデータは消えません。よろしいですか？")) return;
+  if (btn) btn.disabled = true;
+  say(repair ? "作り直しています…" : "確認中…");
+  try {
+    const r = await fetch("/api/db/schema-" + (repair ? "repair" : "check"), { method: repair ? "POST" : "GET" });
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.error || "確認に失敗しました");
+    dbRender(d);
+    say(d.ok ? "問題ありません" : "不足があります（下を確認してください）");
+  } catch (e) {
+    say("失敗: " + e.message);
+  } finally { if (btn) btn.disabled = false; }
+}
+
+// ===== クローザーのローテーション設定パネル =====
+let rotState = { closers: [], next: null };
+
+// 事業が未設定のクローザーがいれば知らせる（DOCとMOCHICAの両方に出てしまうため）
+function rcBizWarning() {
+  const no = rotState.closers.filter((c) => !(c.businesses && c.businesses.length));
+  if (!no.length) return "";
+  return `<p class="note cc-warn">事業が未設定の人がいます：<b>${no.map((c) => esc(c.name || c.email)).join("、")}</b><br>` +
+    `事業が未設定だと DOC と MOCHICA の両方に出ます。` +
+    `<a href="settings.html#members">設定 → メンバー管理</a>で担当事業にチェックを入れてください。</p>`;
+}
+
+// 予備を飛ばして、通常メンバーだけに順番の番号を振る
+function rcOrderNo(index) {
+  let n = 0;
+  for (let k = 0; k <= index; k++) if (!rotState.closers[k].fallback) n++;
+  return n;
+}
+
+function rcRender() {
+  const box = $("rcList");
+  if (!box) return;
+  box.innerHTML = "";
+  rotState.closers.forEach((c, i) => {
+    const row = document.createElement("div");
+    row.className = "ap-rot-row" + (c.active === false ? " ap-rot-off" : "");
+    row.draggable = true;
+    row.dataset.i = i;
+    // 表示は読み取り専用。メンバーの内容はメンバー管理が唯一の登録元。
+    row.innerHTML =
+      `<span class="ap-rot-num${c.fallback ? " ap-rot-num-fb" : ""}">${c.fallback ? "予" : rcOrderNo(i)}</span>` +
+      `<span class="ap-rot-name">${esc(c.name || c.email)}` +
+        `${c.fallback ? '<span class="ap-badge ap-badge-fb">予備</span>' : ""}` +
+        `${c.active === false ? '<span class="ap-badge ap-pending">在籍なし</span>' : ""}` +
+        `${c.suspended ? '<span class="ap-badge ap-warn">停止中</span>' : ""}` +
+        `${c.priority && !c.fallback ? '<span class="ap-badge ap-warn">次を最優先</span>' : ""}</span>` +
+      `<span class="ap-rot-meta">${esc(c.team || "チーム未設定")}</span>` +
+      ((c.businesses && c.businesses.length)
+        ? c.businesses.map((b) => `<span class="ap-biz-badge ap-biz-${esc(b)}">${esc(b)}</span>`).join("")
+        : `<span class="ap-biz-badge ap-biz-none" title="事業が未設定のため、DOCとMOCHICAの両方に出ています">事業未設定</span>`) +
+      `<span class="ap-rot-meta">${c.daily_cap ? "1日" + c.daily_cap + "件まで" : "上限なし"}</span>` +
+      `<span class="ap-rot-cnt">${c.period_count || 0}件` +
+        `${c.eligible_days > 0 ? `／稼働${c.eligible_days}日` : ""}` +
+        `${c.eligible_days > 0 && c.per_day != null ? `／1日あたり${c.per_day}件` : ""}` +
+        `${c.suspended_days > 0 ? `<span class="ap-susp-chip">停止${c.suspended_days}日を除外</span>` : ""}</span>` +
+      (c.fallback || c.active === false ? "" : `<button type="button" class="btn ghost rc-first">ここから開始</button>`);
+
+    const firstBtn = row.querySelector(".rc-first");
+    if (firstBtn) firstBtn.addEventListener("click", async () => {
+      if (!confirm(`次のアポを ${c.name || c.email} さんから始めます。よろしいですか？`)) return;
+      try {
+        const r = await fetch("/api/apo/rotation/next", {
+          method: "POST", headers: { "content-type": "application/json" },
+          body: JSON.stringify({ email: c.email, product: curBiz() }),
+        });
+        const d = await r.json();
+        if (!r.ok) throw new Error(d.error || "変更に失敗しました");
+        rotState.closers = d.closers || rotState.closers;
+        rotState.next = d.next || null;
+        rcRender(); rcNextLabel();
+        rcSay("次の担当を変更しました", 3000);
+      } catch (e) { rcSay("失敗: " + e.message); }
+    });
+
+    // ドラッグで並べ替え
+    row.addEventListener("dragstart", (e) => { e.dataTransfer.setData("text/plain", String(i)); row.classList.add("ap-rot-drag"); });
+    row.addEventListener("dragend", () => row.classList.remove("ap-rot-drag"));
+    row.addEventListener("dragover", (e) => e.preventDefault());
+    row.addEventListener("drop", (e) => {
+      e.preventDefault();
+      const from = parseInt(e.dataTransfer.getData("text/plain"), 10);
+      const to = i;
+      if (!Number.isFinite(from) || from === to) return;
+      const moved = rotState.closers.splice(from, 1)[0];
+      rotState.closers.splice(to, 0, moved);
+      rcRender();
+    });
+    box.appendChild(row);
+  });
+  const warn = rcBizWarning();
+  if (warn) {
+    const w = document.createElement("div");
+    w.innerHTML = warn;
+    box.appendChild(w);
+  }
+  if (!rotState.closers.length) {
+    const b = curBiz();
+    box.innerHTML = `<p class="note cc-warn">${b ? b + "を担当する" : ""}クローザーが登録されていません。` +
+      `<a href="settings.html#members">設定 → メンバー管理</a>で「クローザー」の役割と事業（${b || "DOC / MOCHICA"}）を設定してください。</p>`;
+  }
+}
+
+// 割り振り設定タブ内のチーム一覧。並び順と稼働／休止を切り替える。
+function rcTeamsRender() {
+  const box = $("rcTeams");
+  if (!box) return;
+  // 入力済みのチーム名を候補として使えるようにする
+  let dl = document.getElementById("rcTeamOptions");
+  if (!dl) {
+    dl = document.createElement("datalist");
+    dl.id = "rcTeamOptions";
+    document.body.appendChild(dl);
+  }
+  const names = [...new Set(rotState.closers.map((c) => (c.team || "").trim()).filter(Boolean))];
+  dl.innerHTML = names.map((n) => `<option value="${esc(n)}"></option>`).join("");
+
+  const mode = $("rcTeamBalance") ? $("rcTeamBalance").value : "off";
+  if (mode === "off") { box.innerHTML = ""; return; }
+  if (!names.length) {
+    box.innerHTML = `<p class="note cc-warn">クローザーにチーム名が入っていません。各行の「チーム」欄に入力してください。</p>`;
+    return;
+  }
+  // サーバー側のチーム状態（稼働・順番）に、未保存のチーム名も足して表示
+  const known = new Map((rotState.teams || []).map((t) => [t.team_name, t]));
+  rotState.teamRows = names.map((n, i) => {
+    const prev = (rotState.teamRows || []).find((t) => t.team_name === n);
+    const srv = known.get(n);
+    return prev || { team_name: n, active: srv ? srv.active !== false : true, sort_order: srv ? srv.sort_order : i + 1 };
+  });
+
+  box.innerHTML = "";
+  rotState.teamRows.forEach((t, i) => {
+    const members = rotState.closers.filter((c) => ((c.team || "").trim() || "未設定") === t.team_name);
+    const activeN = members.filter((m) => m.active !== false).length;
+    const row = document.createElement("div");
+    row.className = "ap-team-row" + (t.active === false ? " ap-rot-off" : "");
+    row.draggable = true;
+    row.innerHTML =
+      `<span class="ap-rot-num">${i + 1}</span>` +
+      `<span class="ap-rot-name">${esc(t.team_name)}</span>` +
+      `<span class="ap-rot-cnt">${members.length}名（稼働${activeN}名）</span>` +
+      `<label class="ap-check"><input type="checkbox" class="rt-active" ${t.active === false ? "" : "checked"} /> 配布対象</label>`;
+    row.querySelector(".rt-active").addEventListener("change", (e) => { t.active = e.target.checked; rcTeamsRender(); });
+    row.addEventListener("dragstart", (e) => e.dataTransfer.setData("text/plain", String(i)));
+    row.addEventListener("dragover", (e) => e.preventDefault());
+    row.addEventListener("drop", (e) => {
+      e.preventDefault();
+      const from = parseInt(e.dataTransfer.getData("text/plain"), 10);
+      if (!Number.isFinite(from) || from === i) return;
+      const moved = rotState.teamRows.splice(from, 1)[0];
+      rotState.teamRows.splice(i, 0, moved);
+      rcTeamsRender();
+    });
+    box.appendChild(row);
+  });
+}
+
+// 割り振り停止の履歴
+function rcSuspRender() {
+  const sel = $("rcSuspWho");
+  if (sel) {
+    const cur = sel.value;
+    sel.innerHTML = "";
+    for (const c of rotState.closers) sel.add(new Option(c.name || c.email, c.email));
+    if (cur) sel.value = cur;
+  }
+  const box = $("rcSuspList");
+  if (!box) return;
+  const list = rotState.suspensions || [];
+  if (!list.length) { box.innerHTML = '<p class="note">停止の登録はありません。</p>'; return; }
+  const nameOf = (r) => {
+    if (r.name) return r.name;
+    const c = rotState.closers.find((x) => x.email === r.email);
+    return c ? (c.name || c.email) : r.email;
+  };
+  box.innerHTML = "";
+  for (const r of list) {
+    const ongoing = !r.end_date;
+    const row = document.createElement("div");
+    row.className = "ap-susp-row" + (ongoing ? " ap-susp-now" : "");
+    const f = String(r.start_date).slice(0, 10);
+    const t = r.end_date ? String(r.end_date).slice(0, 10) : "";
+    row.innerHTML = `<span class="ap-susp-name">${esc(nameOf(r))}</span>` +
+      `<span class="ap-susp-term">${esc(f)} 〜 ${t ? esc(t) : "継続中"}</span>` +
+      (ongoing ? '<span class="ap-badge ap-warn">停止中</span>' : "") +
+      `<span class="ap-rot-cnt">${esc(r.reason || "")}</span>` +
+      `<button type="button" class="btn ghost ap-susp-del" data-id="${r.id}">削除</button>`;
+    row.querySelector(".ap-susp-del").addEventListener("click", async () => {
+      if (!confirm("この停止の登録を削除します。稼働日の計算がやり直されます。よろしいですか？")) return;
+      try {
+        const rr = await fetch(`/api/apo/suspensions/${r.id}?product=` + encodeURIComponent(curBiz()), { method: "DELETE" });
+        const dd = await rr.json();
+        if (!rr.ok) throw new Error(dd.error || "削除に失敗しました");
+        await loadRotation();
+      } catch (e) { alert("削除できませんでした: " + e.message); }
+    });
+    box.appendChild(row);
+  }
+}
+
+// 過去の実績（取り込み分）の入力欄
+function rcBaseRender() {
+  const box = $("rcBaseList");
+  if (!box) return;
+  if (!rotState.closers.length) { box.innerHTML = '<p class="note">クローザーが登録されていません。</p>'; return; }
+  box.innerHTML = "";
+  rotState.closers.forEach((c) => {
+    const row = document.createElement("label");
+    row.className = "ap-base-row";
+    row.innerHTML = `<span class="ap-base-name">${esc(c.name || c.email)}` +
+      `${c.fallback ? '<span class="ap-badge ap-badge-fb">予備</span>' : ""}</span>` +
+      `<input type="number" min="0" max="9999" class="rc-base" value="${c.baseline_count || 0}" /> 件` +
+      `<span class="ap-rot-cnt">kinbotで配った分は別に数えます</span>`;
+    row.querySelector(".rc-base").addEventListener("change", (e) => {
+      const v = parseInt(e.target.value, 10);
+      c.baseline_count = Number.isFinite(v) && v > 0 ? v : 0;
+    });
+    box.appendChild(row);
+  });
+}
+
+function rcNextLabel() {
+  const el = $("rcNext");
+  if (!el) return;
+  const n = rotState.next;
+  el.classList.remove("ap-rot-next-warn");
+  if (n) {
+    el.innerHTML = `次に割り振られるのは <b>${esc(n.name || n.email)}</b> さん${n.team ? `（${esc(n.team)}）` : ""}です` +
+      `${n.fallback ? " ※通常メンバーが全員埋まっているため予備" : n.priority ? " ※前回代打で飛ばされたため最優先" : ""}`;
+    return;
+  }
+  // サーバーに保存されていないが、画面上に候補が並んでいる状態
+  const pending = rotState.closers.filter((c) => c.active !== false);
+  if (pending.length) {
+    el.innerHTML = `［保存］を押すと <b>${esc(pending[0].name || pending[0].email)}</b> さんから割り振りが始まります。`;
+    el.classList.add("ap-rot-next-warn");
+    return;
+  }
+  el.innerHTML = 'クローザーが登録されていません。<a href="settings.html#members">設定 → メンバー管理</a>で役割を付けてください。';
+  el.classList.add("ap-rot-next-warn");
+}
+
+// メンバーの追加はメンバー管理で行うため、この画面には無い
+function rcFillAdd() {}
+
+async function loadRotation() {
+  try {
+    const d = await (await fetch("/api/apo/rotation?product=" + encodeURIComponent(curBiz()))).json();
+    rotState.closers = (d.closers || []).map((c) => ({ ...c }));
+    rotState.next = d.next || null;
+    rotState.teams = d.teams || rotState.teams;
+    const c = d.config || {};
+    if ($("rcAutoScan")) $("rcAutoScan").checked = !!c.autoScan;
+    if ($("rcAutoAssign")) $("rcAutoAssign").checked = !!c.autoAssign;
+    if ($("rcBuffer")) $("rcBuffer").value = c.bufferMin ?? 0;
+    if ($("rcMax")) $("rcMax").value = c.maxPerRun ?? 30;
+    if ($("rcInterval")) $("rcInterval").value = c.scanIntervalSec ?? 60;
+    if ($("rcTeamBalance")) $("rcTeamBalance").value = c.teamBalance || "off";
+    if ($("rcWindow")) $("rcWindow").value = c.balanceWindow || "month";
+    if ($("rcFairStart")) $("rcFairStart").value = c.fairnessStart || "";
+    rotState.suspensions = d.suspensions || [];
+    rotState.teams = d.teams || [];
+    rotState.teamRows = null;
+    rcRender(); rcNextLabel(); rcFillAdd(); rcTeamsRender(); rcBaseRender(); rcSuspRender(); bizLabel("rcBizLabel");
+  } catch { rcSay("ローテーションの設定を読めませんでした"); }
+}
+
+function rcSay(msg, ms) {
+  const el = $("rcStatus");
+  if (!el) return;
+  el.textContent = msg;
+  if (ms) setTimeout(() => { if (el.textContent === msg) el.textContent = ""; }, ms);
+}
+
+async function saveRotation() {
+  const btn = $("rcSave");
+  if (btn) btn.disabled = true;
+  rcSay("保存中…");
+  try {
+    // 並び順だけを保存する（メンバーの内容はメンバー管理側で保存される）
+    let r = await fetch("/api/apo/closer-order", {
+      method: "PUT", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ emails: rotState.closers.map((c) => c.email) }),
+    });
+    let d = await r.json();
+    if (!r.ok) throw new Error(d.error || "並び順の保存に失敗しました");
+
+    // チームの並び順・稼働状態
+    if (rotState.teamRows && rotState.teamRows.length) {
+      const rt = await fetch("/api/apo/teams", {
+        method: "PUT", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ teams: rotState.teamRows }),
+      });
+      const rd = await rt.json();
+      if (!rt.ok) throw new Error(rd.error || "チームの保存に失敗しました");
+    }
+
+    r = await fetch("/api/apo/rotation-config", {
+      method: "PUT", headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        autoScan: $("rcAutoScan").checked,
+        autoAssign: $("rcAutoAssign").checked,
+        bufferMin: $("rcBuffer").value,
+        maxPerRun: $("rcMax").value,
+        scanIntervalSec: $("rcInterval") ? $("rcInterval").value : 60,
+        teamBalance: $("rcTeamBalance").value,
+        balanceWindow: $("rcWindow").value,
+        fairnessStart: $("rcFairStart") ? $("rcFairStart").value : "",
+      }),
+    });
+    d = await r.json();
+    if (!r.ok) throw new Error(d.error || "設定の保存に失敗しました");
+    rotState.closers = (d.closers || []).map((c) => ({ ...c }));
+    rotState.next = d.next || null;
+    rotState.teams = d.teams || rotState.teams;
+    rotState.teams = d.teams || [];
+    rotState.teamRows = null;
+    rcRender(); rcNextLabel(); rcFillAdd(); rcTeamsRender(); rcBaseRender(); rcSuspRender(); bizLabel("rcBizLabel");
+    rcSay(`保存しました（通常${rotState.closers.filter((c) => c.active !== false && !c.fallback).length}名・予備${rotState.closers.filter((c) => c.fallback).length}名）`, 4000);
+  } catch (e) {
+    rcSay("保存に失敗しました: " + e.message);
+  } finally { if (btn) btn.disabled = false; }
+}
+
+// ===== アポメール設定パネル =====
+let mailDefaults = null;
+async function loadMailCfg() {
+  const hourSel = $("mcHour");
+  if (hourSel && !hourSel.options.length) {
+    for (let h = 0; h < 24; h++) hourSel.add(new Option(String(h).padStart(2, "0"), String(h)));
+  }
+  try {
+    const c = await (await fetch("/api/apo-mail-config")).json();
+    mailDefaults = c.defaults || null;
+    if ($("mcDeliver")) $("mcDeliver").value = c.deliverMode || "draft";
+    if ($("mcAutoConfirm")) $("mcAutoConfirm").checked = !!c.autoConfirm;
+    if ($("mcAutoReminder")) $("mcAutoReminder").checked = !!c.autoReminder;
+    if (hourSel) hourSel.value = String(c.reminderHour);
+    if ($("mcMax")) $("mcMax").value = c.maxPerRun;
+    if ($("mcCompany")) $("mcCompany").value = c.companyName === "弊社" ? "" : c.companyName;
+    if ($("mcCSubject")) $("mcCSubject").value = c.confirmSubject;
+    if ($("mcCBody")) $("mcCBody").value = c.confirmBody;
+    if ($("mcRSubject")) $("mcRSubject").value = c.reminderSubject;
+    if ($("mcRBody")) $("mcRBody").value = c.reminderBody;
+  } catch (e) {
+    if ($("mcStatus")) $("mcStatus").textContent = "設定を読めませんでした";
+  }
+}
+function mcSay(msg, ms) {
+  const el = $("mcStatus");
+  if (!el) return;
+  el.textContent = msg;
+  if (ms) setTimeout(() => { if (el.textContent === msg) el.textContent = ""; }, ms);
+}
+async function saveMailCfg() {
+  const btn = $("mcSave");
+  if (btn) btn.disabled = true;
+  mcSay("保存中…");
+  try {
+    const body = {
+      deliverMode: $("mcDeliver") ? $("mcDeliver").value : "draft",
+      autoConfirm: $("mcAutoConfirm").checked,
+      autoReminder: $("mcAutoReminder").checked,
+      reminderHour: $("mcHour").value,
+      maxPerRun: $("mcMax").value,
+      companyName: $("mcCompany").value,
+      confirmSubject: $("mcCSubject").value,
+      confirmBody: $("mcCBody").value,
+      reminderSubject: $("mcRSubject").value,
+      reminderBody: $("mcRBody").value,
+    };
+    const r = await fetch("/api/apo-mail-config", {
+      method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify(body),
+    });
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.error || "保存に失敗しました");
+    mcSay(`保存しました（${$("mcDeliver") && $("mcDeliver").value === "send" ? "自動送信" : "下書き作成"}）`, 3500);
+  } catch (e) {
+    mcSay("保存に失敗しました: " + e.message);
+  } finally { if (btn) btn.disabled = false; }
+}
+
+(function () {
+  if ($("mcSave")) $("mcSave").addEventListener("click", saveMailCfg);
+  if ($("mcReset")) $("mcReset").addEventListener("click", () => {
+    if (!mailDefaults) return;
+    if (!confirm("件名と本文を初期文面に戻します。よろしいですか？（保存を押すまで反映されません）")) return;
+    $("mcCSubject").value = mailDefaults.confirmSubject;
+    $("mcCBody").value = mailDefaults.confirmBody;
+    $("mcRSubject").value = mailDefaults.reminderSubject;
+    $("mcRBody").value = mailDefaults.reminderBody;
+    mcSay("初期文面に戻しました。保存を押してください", 4000);
+  });
+  if ($("mcRunRemind")) $("mcRunRemind").addEventListener("click", async () => {
+    if (!confirm("明日ぶんの商談について、前日リマインドを今すぐ用意します。設定が「下書き」なら下書きが作られ、「自動送信」ならお客様に届きます。よろしいですか？")) return;
+    mcSay("送信中…");
+    try {
+      const r = await fetch("/api/apo-mail/run-reminders", { method: "POST" });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.error || "実行に失敗しました");
+      if (d.skipped) mcSay(d.reason || "実行しませんでした", 4000);
+      else mcSay(`対象${d.total}件のうち${d.sent}件を用意しました`, 6000);
+      loadApo();
+    } catch (e) { mcSay("失敗: " + e.message); }
+  });
+  setupTabs();
+  // トップバーの 全体 / DOC / MOCHICA と連動させる
+  (async function () {
+    if (!window.kbProduct) return;
+    await window.kbProduct.loadMap();
+    window.kbProduct.mount(() => {
+      loadApo();
+      loadRotation();
+      if (!$("tsBody") || !document.querySelector('.ap-pane[data-pane="team"]:not([hidden])')) bizLabel("tsBizLabel");
+      else loadTeamStats();
+    }, { renderOnMount: false });
+    bizLabel("rcBizLabel"); bizLabel("tsBizLabel");
+  })();
+  loadBuild();
+  if ($("ivLoad")) $("ivLoad").addEventListener("click", loadInvites);
+  if ($("ivHours")) $("ivHours").addEventListener("change", loadInvites);
+  if ($("orLoad")) $("orLoad").addEventListener("click", loadOrphans);
+  if ($("calCheckBtn")) $("calCheckBtn").addEventListener("click", calCheck);
+  if ($("dbCheckBtn")) $("dbCheckBtn").addEventListener("click", () => dbCheck(false));
+  if ($("dbRepairBtn")) $("dbRepairBtn").addEventListener("click", () => dbCheck(true));
+  if ($("tsReload")) $("tsReload").addEventListener("click", loadTeamStats);
+  if ($("tsWindow")) $("tsWindow").addEventListener("change", loadTeamStats);
+  if ($("rcTeamBalance")) $("rcTeamBalance").addEventListener("change", () => { rcTeamsRender(); rcNextLabel(); });
+  if ($("rcSuspAdd")) $("rcSuspAdd").addEventListener("click", async () => {
+    const el = $("rcSuspStatus");
+    const say = (m, ms) => { if (el) { el.textContent = m; if (ms) setTimeout(() => { if (el.textContent === m) el.textContent = ""; }, ms); } };
+    const email = $("rcSuspWho").value;
+    const from = $("rcSuspFrom").value;
+    const to = $("rcSuspTo").value;
+    if (!email) { say("クローザーを選んでください", 4000); return; }
+    if (!from) { say("開始日を入力してください", 4000); return; }
+    if (!to && !confirm("終了日が空です。現在も停止中として扱い、自動割り振りの対象から外します。よろしいですか？")) return;
+    say("登録中…");
+    try {
+      const r = await fetch("/api/apo/suspensions", {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ email, startDate: from, endDate: to || null, reason: $("rcSuspWhy").value, product: curBiz() }),
+      });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.error || "登録に失敗しました");
+      $("rcSuspFrom").value = ""; $("rcSuspTo").value = ""; $("rcSuspWhy").value = "";
+      say("登録しました。稼働日の計算に反映されます", 5000);
+      await loadRotation();
+    } catch (e) { say("失敗: " + e.message); }
+  });
+  if ($("rcBaseSave")) $("rcBaseSave").addEventListener("click", async () => {
+    const el = $("rcBaseStatus");
+    const say = (m, ms) => { if (el) { el.textContent = m; if (ms) setTimeout(() => { if (el.textContent === m) el.textContent = ""; }, ms); } };
+    say("保存中…");
+    try {
+      const counts = {};
+      for (const c of rotState.closers) counts[c.email] = c.baseline_count || 0;
+      const r = await fetch("/api/apo/baseline", {
+        method: "PUT", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ counts, product: curBiz() }),
+      });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.error || "保存に失敗しました");
+      say("保存しました。均等化の計算に反映されます", 5000);
+      await loadRotation();
+    } catch (e) { say("失敗: " + e.message); }
+  });
+  if ($("rcSave")) $("rcSave").addEventListener("click", saveRotation);
+  if ($("rcScanNow")) $("rcScanNow").addEventListener("click", async () => {
+    if (!confirm("カレンダーを今すぐスキャンして、未割り当てのアポを自動で割り振ります。よろしいですか？")) return;
+    rcSay("スキャン中…");
+    try {
+      const r = await fetch("/api/apo/auto-scan", {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ force: true }),
+      });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.error || "実行に失敗しました");
+      if (d.skipped) rcSay(d.reason || "実行しませんでした", 6000);
+      else rcSay(`アポ${d.total}件を確認し、未割り当て${d.targets}件のうち${d.assigned}件を割り振りました`, 8000);
+      await loadRotation();
+      loadApo();
+    } catch (e) { rcSay("失敗: " + e.message); }
+  });
+  if ($("rcLog")) $("rcLog").addEventListener("click", async () => {
+    const box = $("rcLogBox");
+    if (!box) return;
+    if (!box.hidden) { box.hidden = true; return; }
+    box.hidden = false;
+    box.textContent = "読み込み中…";
+    try {
+      const rows = await (await fetch("/api/apo/assign-log")).json();
+      if (!Array.isArray(rows) || !rows.length) { box.textContent = "履歴はまだありません。"; return; }
+      box.textContent = rows.map((r) => {
+        const t = new Date(r.created_at).toLocaleString("ja-JP");
+        const sk = Array.isArray(r.skipped) && r.skipped.length
+          ? "  飛ばした: " + r.skipped.map((s) => `${s.name}(${s.reason})`).join(" / ") : "";
+        return `${t}  ${r.assigned || "未割当"}  ${r.reason || ""}${sk}`;
+      }).join("\n");
+    } catch (e) { box.textContent = "履歴を読めませんでした: " + e.message; }
+  });
+  loadMailCfg();
+  if ($("apReload")) $("apReload").addEventListener("click", loadApo);
+  if ($("apClear")) $("apClear").addEventListener("click", () => {
+    if ($("apCreated")) $("apCreated").value = "";
+    if ($("apStart")) $("apStart").value = "";
+    loadApo();
+  });
+  loadApo();
+})();
+
+</script>
+    <script>
+// public/nav.js — サイドバーのユーザー表示とログアウト
+(async () => {
+  try {
+    const me = await (await fetch("/api/me")).json();
+    const who = document.getElementById("who");
+    if (who) {
+      const name = me.name || me.username || "";
+      who.textContent = name ? name + (me.admin ? "（管理者）" : "") : "";
+      who.title = me.username || "";
+      // 頭文字の丸アイコンを添える（パソコン表示のサイドバー下）
+      const foot = who.parentElement;
+      if (foot && !foot.querySelector(".side-avatar") && name) {
+        const av = document.createElement("span");
+        av.className = "side-avatar";
+        av.setAttribute("aria-hidden", "true");
+        av.textContent = String(name).trim().charAt(0).toUpperCase();
+        foot.insertBefore(av, who);
+      }
+    }
+  } catch {}
+  const lo = document.getElementById("logout");
+  if (lo)
+    lo.addEventListener("click", async (e) => {
+      e.preventDefault();
+      await fetch("/api/logout", { method: "POST" });
+      location.href = "/login.html";
+    });
+})();
+
+// ===== Notion一括送信（自動分割・進捗・重複スキップはサーバー側で実施） =====
+window.kinbotBulkNotion = async function (ids, { onProgress } = {}) {
+  const CHUNK = 5; // 小さめにして進捗をこまめに更新＋1リクエストを短く（タイムアウト回避）
+  let sent = 0, failed = 0, skipped = 0;
+  const errors = [];
+  const total = ids.length;
+  let done = 0;
+  for (let i = 0; i < ids.length; i += CHUNK) {
+    const part = ids.slice(i, i + CHUNK);
+    if (onProgress) onProgress({ done, total, sent, failed, skipped, busy: part.length });
+    let d;
+    try {
+      const r = await fetch("/api/notion/bulk", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ ids: part }),
+      });
+      d = await r.json();
+      if (!r.ok) throw new Error(d.error || "送信に失敗しました");
+    } catch (e) {
+      failed += part.length;
+      if (errors.length < 5) errors.push(e.message);
+      done += part.length;
+      if (onProgress) onProgress({ done, total, sent, failed, skipped });
+      continue;
+    }
+    sent += d.sent || 0;
+    failed += d.failed || 0;
+    skipped += d.skipped || 0;
+    if (d.errors) for (const e of d.errors) if (errors.length < 5) errors.push(e);
+    done += part.length;
+    if (onProgress) onProgress({ done, total, sent, failed, skipped });
+  }
+  return { sent, failed, skipped, total, errors };
+};
+
+// ===== 進捗バー（％ or 不確定アニメ）共通部品 =====
+window.kbProgress = function (el, opts = {}) {
+  if (!el) return;
+  if (opts.clear) { el.innerHTML = ""; return; }
+  let wrap = el.querySelector(".kb-progwrap");
+  const indet = opts.percent == null;
+  if (!wrap) {
+    el.innerHTML = `<div class="kb-progwrap"><div class="kb-prog"><div class="kb-prog-bar"></div></div><div class="kb-prog-label"></div></div>`;
+    wrap = el.querySelector(".kb-progwrap");
+  }
+  const prog = wrap.querySelector(".kb-prog");
+  const bar = wrap.querySelector(".kb-prog-bar");
+  const label = wrap.querySelector(".kb-prog-label");
+  prog.classList.toggle("indet", indet);
+  if (indet) bar.style.width = "";
+  else bar.style.width = Math.max(0, Math.min(100, Math.round(opts.percent))) + "%";
+  label.textContent = (opts.label || "") + (indet ? "" : "  " + Math.round(opts.percent) + "%");
+};
+
+// ===== 進行中ライブの「botを退出」バナー（自分が立ち上げた商談・全ページ共通） =====
+(function liveBanner() {
+  if (location.pathname.endsWith("/") || /index\.html$/.test(location.pathname)) return; // 録画ページ自身は除外
+  let el = null;
+  const render = (list) => {
+    if (!list || !list.length) { if (el) { el.remove(); el = null; } return; }
+    const s = list[0];
+    if (!el) {
+      el = document.createElement("div");
+      el.className = "live-banner";
+      document.body.appendChild(el);
+    }
+    const extra = list.length > 1 ? `<span class="lb-extra">ほか${list.length - 1}件</span>` : "";
+    el.innerHTML =
+      `<span class="lb-dot"></span>` +
+      `<span class="lb-text">ライブ商談中：<b>${(s.title || "").replace(/[<>&]/g, "")}</b></span>${extra}` +
+      `<button class="lb-stop" data-id="${s.id}">botを退出させる</button>`;
+    const btn = el.querySelector(".lb-stop");
+    btn.addEventListener("click", async () => {
+      if (!confirm("このライブ商談からbotを退出させます。よろしいですか？\n（録画・要約・分析はこれまでの内容で生成されます）")) return;
+      btn.disabled = true; btn.textContent = "退出中…";
+      try {
+        await fetch(`/api/sessions/${encodeURIComponent(s.id)}/stop`, { method: "POST" });
+      } catch {}
+      poll();
+    });
+  };
+  const poll = async () => {
+    try {
+      const r = await fetch("/api/sessions/mine");
+      render(await r.json());
+    } catch { /* 失敗時は何もしない */ }
+  };
+  poll();
+  setInterval(poll, 15000);
+})();
+
+// （社内・フォローのサイドバーは削除。商談履歴ページのタブに統合済み）
+
+// ===== 代理ログイン（なりすまし） =====
+// 田中欽也（kinya.tanaka@neo-career.co.jp）だけが使える。
+// - 代理ログイン中は上部に目立つバナーを常時表示（元のアカウントへすぐ戻れる）
+// - サイドバーに「他メンバーとして操作」ボタンを表示（田中さん本人 or 代理中のときのみ）
+(async function impersonation() {
+  if (location.pathname === "/login.html" || location.pathname === "/register.html") return;
+  let me;
+  try { me = await (await fetch("/api/me")).json(); } catch { return; }
+  if (!me || !me.username) return;
+
+  // 代理ログイン中：上部に目立つバナー
+  if (me.impersonating) {
+    const bar = document.createElement("div");
+    bar.className = "imp-banner";
+    const impName = me.impersonator_name || me.impersonator_email || "元アカウント";
+    const targetName = me.name || me.username;
+    bar.innerHTML = `
+      <div class="imp-banner-inner">
+        <span class="imp-banner-icon" aria-hidden="true">👤</span>
+        <span class="imp-banner-text">
+          <b>${escapeH(impName)}</b> として、<b>${escapeH(targetName)}</b> の画面を操作しています
+        </span>
+        <button type="button" class="imp-banner-btn" id="impBackBtn">← 元のアカウントに戻る</button>
+      </div>`;
+    document.body.insertBefore(bar, document.body.firstChild);
+    document.body.classList.add("imp-active");
+    document.getElementById("impBackBtn").addEventListener("click", async () => {
+      try {
+        const r = await fetch("/api/impersonate/stop", { method: "POST" });
+        if (!r.ok) throw new Error("戻れませんでした");
+        location.reload();
+      } catch (e) { alert(e.message); }
+    });
+  }
+
+  // 田中さん本人 or 代理ログイン中なら、サイドバーに切替ボタンを追加
+  if (!me.can_impersonate) return;
+  const side = document.querySelector(".sidebar-nav") || document.querySelector(".sidebar");
+  if (!side) return;
+  const btn = document.createElement("button");
+  btn.type = "button";
+  btn.className = "sidebar-imp-btn";
+  btn.innerHTML = `<span aria-hidden="true">🔀</span><span>他メンバーとして操作</span>`;
+  btn.addEventListener("click", openImpPicker);
+  side.appendChild(btn);
+
+  async function openImpPicker() {
+    // 既に開いていれば閉じる
+    const existing = document.getElementById("impPicker");
+    if (existing) { existing.remove(); return; }
+    let users = [];
+    try { users = (await (await fetch("/api/impersonate/users")).json()).users || []; }
+    catch { alert("ユーザー一覧を取得できませんでした"); return; }
+    const currentEmail = String(me.impersonator_email || me.username).toLowerCase();
+    users = users.filter((u) => (u.email || "").toLowerCase() !== currentEmail);
+
+    const modal = document.createElement("div");
+    modal.id = "impPicker";
+    modal.className = "imp-modal";
+    modal.innerHTML = `
+      <div class="imp-modal-panel">
+        <div class="imp-modal-h">
+          <span>他のメンバーとして操作</span>
+          <button type="button" class="imp-modal-x" aria-label="閉じる">×</button>
+        </div>
+        <div class="imp-modal-note">
+          切り替えたメンバーの画面がそのまま操作できます。<b>編集・削除・パスワード変更もあなたの操作として記録に残ります。</b>くれぐれも慎重に扱ってください。
+        </div>
+        <input type="search" class="imp-modal-filter" id="impFilter" placeholder="名前・メールで絞り込み" autocomplete="off" />
+        <div class="imp-modal-list" id="impList"></div>
+      </div>`;
+    document.body.appendChild(modal);
+    const render = (q) => {
+      const qq = (q || "").trim().toLowerCase();
+      const list = document.getElementById("impList");
+      const shown = users.filter((u) => !qq || (u.name || "").toLowerCase().includes(qq) || (u.email || "").toLowerCase().includes(qq));
+      list.innerHTML = shown.length
+        ? shown.map((u) => `<button type="button" class="imp-user" data-email="${escapeH(u.email)}"><span class="imp-user-name">${escapeH(u.name || u.email)}</span><span class="imp-user-email">${escapeH(u.email)}</span></button>`).join("")
+        : '<div class="imp-empty">該当ユーザーがいません</div>';
+      list.querySelectorAll(".imp-user").forEach((el) => el.addEventListener("click", () => switchTo(el.dataset.email, el.querySelector(".imp-user-name").textContent)));
+    };
+    document.getElementById("impFilter").addEventListener("input", (e) => render(e.target.value));
+    modal.querySelector(".imp-modal-x").addEventListener("click", () => modal.remove());
+    modal.addEventListener("click", (e) => { if (e.target === modal) modal.remove(); });
+    render("");
+    setTimeout(() => document.getElementById("impFilter").focus(), 30);
+  }
+
+  async function switchTo(email, name) {
+    if (!confirm(`${name} として操作を開始します。よろしいですか？\n（この操作は監査ログに記録されます）`)) return;
+    try {
+      const r = await fetch("/api/impersonate/start", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ email }) });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.error || "切り替えに失敗しました");
+      location.href = "/";
+    } catch (e) { alert(e.message); }
+  }
+
+  function escapeH(s) { return String(s || "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c])); }
+})();
+
+// 分析ページ群のサイドバーactive処理
+// report.html?panel=interns（インターンアポ）は別メニュー扱いにする
+(function() {
+  const path = location.pathname;
+  if (!/style-analysis|dashboard|report/.test(path)) return;
+  const isInterns = new URLSearchParams(location.search).get("panel") === "interns";
+  document.querySelectorAll('.side-item').forEach(a => {
+    const href = a.getAttribute("href") || "";
+    const forInterns = href.indexOf("panel=interns") >= 0;
+    const forReport = href.indexOf("report.html") >= 0 && !forInterns;
+    a.classList.toggle('active', isInterns ? forInterns : forReport);
+  });
+})();
+
+// ===== スマホ用：下部タブバー中央の録音ボタン＆ボトムシート =====
+window.kbIsMobile = function () {
+  if (window.matchMedia) return window.matchMedia("(max-width: 760px)").matches;
+  return (window.innerWidth || 1024) <= 760;
+};
+
+// 画面下から出てくるシート。html は中身のHTML文字列。
+// 閉じるボタンには data-sheet-close を付ける。
+window.kbSheet = function (html) {
+  const back = document.createElement("div");
+  back.className = "kb-sheet-back";
+  back.innerHTML = `<div class="kb-sheet"><div class="kb-sheet-grip"></div>${html}</div>`;
+  const close = () => {
+    back.remove();
+    document.removeEventListener("keydown", onKey);
+  };
+  const onKey = (e) => { if (e.key === "Escape") close(); };
+  back.addEventListener("click", (e) => {
+    if (e.target === back || e.target.closest("[data-sheet-close]")) close();
+  });
+  document.addEventListener("keydown", onKey);
+  document.body.appendChild(back);
+  return { el: back, close };
+};
+
+// スマホ：右上のメニューボタンから、行き先を選ぶ
+(function () {
+  const bar = document.querySelector(".sidebar");
+  const topbar = document.querySelector(".topbar");
+  if (!bar || !topbar || topbar.querySelector(".kb-menu-btn")) return;
+
+  const btn = document.createElement("button");
+  btn.type = "button";
+  btn.className = "kb-menu-btn";
+  btn.setAttribute("aria-label", "メニュー");
+  btn.innerHTML =
+    '<svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>';
+  topbar.appendChild(btn);
+
+  const here = (location.pathname.split("/").pop() || "home.html") + location.search;
+  const items = [
+    { href: "home.html", label: "ホーム", ico: "ico-home" },
+    { href: "index.html", label: "レコーディング", ico: "ico-rec" },
+    { href: "history.html", label: "商談履歴", ico: "ico-hist" },
+    { href: "sf-launch.html", label: "Salesforce", ico: "ico-deal" },
+    { href: "report.html", label: "分析", ico: "ico-ana" },
+    { href: "report.html?panel=interns", label: "インターンアポ", ico: "ico-apo" },
+    { href: "apo.html", label: "アポ振り分け", ico: "ico-assign" },
+    { href: "settings.html", label: "設定", ico: "ico-set" },
+  ];
+
+  const open = () => {
+    if (document.querySelector(".kb-menu")) return;
+    const who = (document.getElementById("who") || {}).textContent || "";
+    const wrap = document.createElement("div");
+    wrap.className = "kb-menu";
+    wrap.innerHTML =
+      `<div class="kb-menu-back"></div>
+       <nav class="kb-menu-panel" aria-label="メニュー">
+         <div class="kb-menu-head">
+           <span class="kb-menu-who">${who ? who.replace(/[<>&]/g, "") : "kinbot"}</span>
+           <button type="button" class="kb-menu-x" aria-label="閉じる">
+             <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+           </button>
+         </div>
+         ${items.map((it) => {
+           const on = here === it.href || (it.href === "home.html" && (here === "" || here === "home.html"));
+           return `<a class="kb-menu-item${on ? " is-on" : ""}" href="${it.href}">
+             <span class="side-ico ${it.ico}"></span><span>${it.label}</span>
+           </a>`;
+         }).join("")}
+         <a class="kb-menu-item kb-menu-out" href="#" id="kbMenuLogout"><span>ログアウト</span></a>
+       </nav>`;
+    document.body.appendChild(wrap);
+    document.body.style.overflow = "hidden";
+    const close = () => { wrap.remove(); document.body.style.overflow = ""; };
+    wrap.querySelector(".kb-menu-back").addEventListener("click", close);
+    wrap.querySelector(".kb-menu-x").addEventListener("click", close);
+    const out = wrap.querySelector("#kbMenuLogout");
+    if (out) out.addEventListener("click", (e) => {
+      e.preventDefault();
+      const real = document.getElementById("logout");
+      if (real) real.click(); else location.href = "/logout";
+    });
+    document.addEventListener("keydown", function esc(e) {
+      if (e.key === "Escape") { close(); document.removeEventListener("keydown", esc); }
+    });
+  };
+  btn.addEventListener("click", open);
+
+  // パソコンでは左のサイドバーに録音ボタンを出す（これまでどおり）
+  if (!bar.querySelector(".side-fab")) {
+    const a = document.createElement("a");
+    a.className = "side-fab";
+    a.href = "index.html";
+    a.setAttribute("aria-label", "レコーディング");
+    a.innerHTML = '<span class="side-ico ico-rec"></span>';
+    if (here.startsWith("index.html")) a.classList.add("active");
+    bar.appendChild(a);
+  }
+})();
+
+// ===== 利用状況の記録（どの画面のどこが押されているか） =====
+// 個人を責めるためではなく、使われていない機能を見つけて直すために使います。
+(function () {
+  if (!document.querySelector(".sidebar")) return; // ログイン画面などでは記録しない
+  const page = (location.pathname.split("/").pop() || "home.html").replace(/\.html$/, "");
+  let queue = [];
+  let timer = null;
+
+  const push = (kind, label) => {
+    queue.push({ page, kind, label: String(label || "").slice(0, 120) });
+    if (queue.length >= 20) flush();
+    else if (!timer) timer = setTimeout(flush, 15000);
+  };
+
+  function flush(useBeacon) {
+    if (timer) { clearTimeout(timer); timer = null; }
+    if (!queue.length) return;
+    const body = JSON.stringify({ events: queue });
+    queue = [];
+    try {
+      if (useBeacon && navigator.sendBeacon) {
+        navigator.sendBeacon("/api/usage", new Blob([body], { type: "application/json" }));
+      } else {
+        fetch("/api/usage", { method: "POST", headers: { "content-type": "application/json" }, body, keepalive: true }).catch(() => {});
+      }
+    } catch {}
+  }
+
+  // 画面を開いた
+  push("page", page);
+
+  // 押された場所を拾う（入力欄の中身は記録しません）
+  document.addEventListener("click", (ev) => {
+    const el = ev.target && ev.target.closest
+      ? ev.target.closest("a, button, [role=button], .rep-tab, .seg-btn, .side-item, .home-tg, .prod-tab, .set-menu-item, .home-rank-tab, .home-rank-round")
+      : null;
+    if (!el) return;
+    if (el.closest("input, textarea, select")) return;
+    const label =
+      el.dataset.track ||
+      el.getAttribute("aria-label") ||
+      (el.textContent || "").replace(/\s+/g, " ").trim().slice(0, 40) ||
+      el.className;
+    if (!label) return;
+    push("click", label);
+  }, true);
+
+  window.addEventListener("pagehide", () => flush(true));
+  document.addEventListener("visibilitychange", () => { if (document.hidden) flush(true); });
+})();
+
+// 数字をぱらぱらと増やす（スコアなど）
+window.kbCountUp = function (el, to, ms) {
+  if (!el) return;
+  const target = Number(to);
+  if (!isFinite(target)) return;
+  if (window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+    el.textContent = String(target);
+    return;
+  }
+  const dur = ms || 700;
+  const start = performance.now();
+  const step = (now) => {
+    const p = Math.min(1, (now - start) / dur);
+    const eased = 1 - Math.pow(1 - p, 3);
+    el.textContent = String(Math.round(target * eased));
+    if (p < 1) requestAnimationFrame(step);
+    else el.textContent = String(target);
+  };
+  el.textContent = "0";
+  requestAnimationFrame(step);
+};
+
+// ===== 仕上げの動き（波紋・カーソルの光・サイドバーの目印） =====
+(function () {
+  const reduce = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  if (reduce) return;
+
+  // ボタンを押したときの波紋
+  document.addEventListener("click", (ev) => {
+    const b = ev.target && ev.target.closest ? ev.target.closest(".btn") : null;
+    if (!b) return;
+    const r = b.getBoundingClientRect();
+    const size = Math.max(r.width, r.height);
+    const el = document.createElement("span");
+    el.className = "kb-ripple";
+    el.style.width = el.style.height = size + "px";
+    el.style.left = (ev.clientX - r.left - size / 2) + "px";
+    el.style.top = (ev.clientY - r.top - size / 2) + "px";
+    b.appendChild(el);
+    setTimeout(() => el.remove(), 600);
+  }, true);
+
+  // サイドバーの選択位置に、すべるバーを置く
+  function mountMarker() {
+    const bar = document.querySelector(".sidebar");
+    if (!bar || window.innerWidth <= 760) return;
+    let mk = bar.querySelector(".side-marker");
+    if (!mk) { mk = document.createElement("span"); mk.className = "side-marker"; bar.appendChild(mk); }
+    const move = (el) => {
+      if (!el) { mk.style.height = "0px"; return; }
+      const br = bar.getBoundingClientRect();
+      const r = el.getBoundingClientRect();
+      mk.style.top = (r.top - br.top + 6) + "px";
+      mk.style.height = Math.max(0, r.height - 12) + "px";
+    };
+    move(bar.querySelector(".side-item.active"));
+    bar.querySelectorAll(".side-item").forEach((a) => {
+      a.addEventListener("mouseenter", () => move(a));
+      a.addEventListener("mouseleave", () => move(bar.querySelector(".side-item.active")));
+    });
+    window.addEventListener("resize", () => move(bar.querySelector(".side-item.active")));
+  }
+  if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", mountMarker);
+  else mountMarker();
+})();
+
+// 画面下から出て、すっと消える通知
+window.kbToast = function (msg, kind) {
+  if (!msg) return;
+  let box = document.querySelector(".kb-toasts");
+  if (!box) {
+    box = document.createElement("div");
+    box.className = "kb-toasts";
+    document.body.appendChild(box);
+  }
+  const el = document.createElement("div");
+  el.className = "kb-toast" + (kind === "error" ? " is-error" : "");
+  el.textContent = String(msg);
+  box.appendChild(el);
+  setTimeout(() => {
+    el.classList.add("is-out");
+    setTimeout(() => el.remove(), 300);
+  }, kind === "error" ? 5000 : 2600);
+};
+
+</script>
+  </body>
+</html>
