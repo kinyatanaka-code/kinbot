@@ -227,6 +227,25 @@ function apiResponse(pathname, query) {
     for (const m of MEMBERS) if (m.businesses.length === 1) { map[m.name] = m.businesses[0]; map[m.email] = m.businesses[0]; }
     return { map };
   }
+  if (pathname === "/api/sessions/active") {
+    return [{ botId: "bot-demo-1", title: "【初回】株式会社ベルク　町田様", repName: "田中欽也", startedAt: new Date().toISOString() }];
+  }
+  if (pathname === "/api/meetings") return [{ bot_id: "bot-demo-1", title: "【初回】株式会社ベルク　町田様", owner_name: "田中欽也" }];
+  if (pathname === "/api/kasasagi/status") {
+    if (!globalThis.__ks) return { tts: { provider: "edge", ready: true }, active: [], session: null };
+    return { tts: { provider: "edge", ready: true }, active: ["bot-demo-1"], session: {
+      botId: "bot-demo-1", speaking: false, autoAnswer: true, scriptTotal: 3, scriptIndex: 1, queued: 0, error: "",
+      log: [
+        { at: "", kind: "info", text: "かささぎを開始しました" },
+        { at: "", kind: "script", text: "本日はお時間をいただきありがとうございます。株式会社ネオキャリアの田中です。" },
+        { at: "", kind: "hear", text: "町田様: 料金はいくらくらいになりますか？" },
+        { at: "", kind: "answer", text: "料金は社数と期間で変わります。確認して折り返します。" },
+        { at: "", kind: "skip", text: "質問ではないと判断：なるほど" },
+      ] } };
+  }
+  if (pathname === "/api/kasasagi/start") { globalThis.__ks = true; return { ok: true }; }
+  if (pathname === "/api/kasasagi/stop") { globalThis.__ks = false; return { ok: true }; }
+  if (pathname.indexOf("/api/kasasagi/") === 0) return { ok: true, done: false, remaining: 2 };
   if (pathname === "/api/members") {
     return { members: MEMBERS,
       candidates: [{ email: "new@neo-career.co.jp", name: "新入 太郎", src: "ユーザー" }],
