@@ -2239,8 +2239,10 @@ app.get("/api/docs", async (req, res) => {
   catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-// 資料をアップロードする
-app.post("/api/docs", kbUpload.single("file"), async (req, res) => {
+// 資料をアップロードする。
+// 受け口はここで作る（あとの行で定義している kbUpload を先に使うと起動時に落ちるため）。
+const docUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 30 * 1024 * 1024 } });
+app.post("/api/docs", docUpload.single("file"), async (req, res) => {
   try {
     if (!req.file) return res.status(400).json({ error: "ファイルを選んでください" });
     if (req.file.size > 25 * 1024 * 1024) {
