@@ -294,6 +294,13 @@ function apiResponse(pathname, query) {
     globalThis.__beat = (globalThis.__beat || 0) + 1;
     return { ok: true, seconds: 0 };
   }
+  if (pathname.indexOf("/api/meetings/") === 0 && pathname.endsWith("/thanks")) {
+    return { subject: "【時之栖】本日のお打ち合わせのお礼（株式会社ネオキャリア）",
+      body: "株式会社時之栖\n奥宮様\n\nいつも大変お世話になっております。\n株式会社ネオキャリアの田中でございます。\n\n本日は、お忙しい中お打ち合わせのお時間をいただき、誠にありがとうございました。\n\n冒頭、通信環境によりご迷惑をおかけし、大変申し訳ございませんでした。奥宮様には、ご退出・再入室までご対応いただき、重ねて御礼申し上げます。\n\n今回ヒアリングさせていただきました、求職者の方が応募前に抱える情報収集の不安や、リアルな社内の様子を伝えたいというご要望について、弊社の「どこでもオープンカンパニー」でお役立ちできると考えております。\n\n引き続きどうぞよろしくお願いいたします。" };
+  }
+  if (pathname.indexOf("/api/meetings/") === 0 && pathname.endsWith("/thanks-gmail-draft")) {
+    return { ok: true, replied: false, to: "okumiya@tokinosumika.example.jp", url: "https://mail.google.com/mail/u/0/#drafts" };
+  }
   if (pathname === "/api/docs") {
     return { base: "https://kinbot-production-225f.up.railway.app", docs: [
       { id: 1, name: "DOCサービス紹介", filename: "doc_service.pdf", size: 2411520, active: true,

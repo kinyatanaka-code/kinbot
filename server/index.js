@@ -7955,6 +7955,25 @@ app.get("/api/salesforce/task-describe", async (req, res) => {
   }
 });
 
+let _taskFieldCache = { at: 0, map: null };
+async function taskFieldNames(owner) {
+  if (_taskFieldCache.map && Date.now() - _taskFieldCache.at < 60 * 1000) return _taskFieldCache.map;
+  const normL = (x) => String(x || "").replace(/[\s　()（）_]/g, "").toLowerCase();
+  const map = { actKind: "", nextKind: "", nextDate: "", statusPicklist: [] };
+  try {
+    const desc = await describeTask(owner);
+    for (const f of desc.fields || []) {
+      const L = normL(f.label);
+      if (!map.actKind && L === "活動種別") map.actKind = f.name;
+      if (!map.nextKind && L === "次回アクション種別") map.nextKind = f.name;
+      if (!map.nextDate && L === "次回アクション日") map.nextDate = f.name;
+      if (f.name === "Status") map.statusPicklist = (f.picklistValues || []).map((v) => v.value);
+    }
+  } catch (e) { console.warn("[sf] Taskの項目を読めませんでした", e.message); }
+  _taskFieldCache = { at: Date.now(), map };
+  return map;
+}
+
 app.post("/api/salesforce/task", async (req, res) => {
   try {
     const { opportunityId, fields, subject, type, description, status, activityDate } = req.body || {};
@@ -7969,7 +7988,22 @@ app.post("/api/salesforce/task", async (req, res) => {
     if (activityDate && data.ActivityDate === undefined) data.ActivityDate = activityDate;
     // 既定値
     if (!data.Subject) data.Subject = "[kinbot] 活動記録";
-    if (!data.Status) data.Status = "完了";
+    // 次回アクションが入っている活動は「未着手」で作る。
+    // そうしないと、やることが残っているのに最初から完了扱いになり、
+    // 過去の活動のチェックが意味を持たなくなる。
+    if (!data.Status) {
+      const fn = await taskFieldNames(req.user).catch(() => ({}));
+      const hasNext =
+        (fn.nextKind && data[fn.nextKind]) || (fn.nextDate && data[fn.nextDate]);
+      const list = fn.statusPicklist || [];
+      const openValue =
+        list.find((v) => /^(未着手|未完了|未対応|未実施|オープン|Not Started|Open)$/i.test(String(v).trim())) ||
+        list.find((v) => /^(未|Not|Open)/i.test(String(v).trim())) || "未着手";
+      const doneValue =
+        list.find((v) => /^(完了|済|完了済|Completed|Closed)$/i.test(String(v).trim())) ||
+        list.find((v) => /完了|Completed/i.test(String(v)) && !/^未/.test(String(v).trim())) || "完了";
+      data.Status = hasNext ? openValue : doneValue;
+    }
     // ActivityDate はSalesforce側で更新日として扱われるため、記録した日を入れる。
     // 次回アクションの日付は専用の項目に入る（フォーム側で指定）。
     if (!data.ActivityDate) data.ActivityDate = new Date(Date.now() + 9 * 3600 * 1000).toISOString().slice(0, 10);
@@ -8221,24 +8255,6 @@ app.delete("/api/salesforce/task/:id", async (req, res) => {
 
 // 活動（Task）の項目のうち、ラベルから「活動種別」「次回アクション種別」「次回アクション日」を探す。
 // 組織ごとにAPI名が違うため、describeの結果から毎回引く（1分キャッシュ）。
-let _taskFieldCache = { at: 0, map: null };
-async function taskFieldNames(owner) {
-  if (_taskFieldCache.map && Date.now() - _taskFieldCache.at < 60 * 1000) return _taskFieldCache.map;
-  const normL = (x) => String(x || "").replace(/[\s　()（）_]/g, "").toLowerCase();
-  const map = { actKind: "", nextKind: "", nextDate: "", statusPicklist: [] };
-  try {
-    const desc = await describeTask(owner);
-    for (const f of desc.fields || []) {
-      const L = normL(f.label);
-      if (!map.actKind && L === "活動種別") map.actKind = f.name;
-      if (!map.nextKind && L === "次回アクション種別") map.nextKind = f.name;
-      if (!map.nextDate && L === "次回アクション日") map.nextDate = f.name;
-      if (f.name === "Status") map.statusPicklist = (f.picklistValues || []).map((v) => v.value);
-    }
-  } catch (e) { console.warn("[sf] Taskの項目を読めませんでした", e.message); }
-  _taskFieldCache = { at: Date.now(), map };
-  return map;
-}
 
 app.get("/api/salesforce/task-field-names", async (req, res) => {
   try { res.json(await taskFieldNames(req.user)); }
@@ -8491,7 +8507,11 @@ app.post("/api/salesforce/field-suggest", async (req, res) => {
     const fieldLines = fields.map((f) => {
       let line = `- ${f.label}（キー:${f.api}`;
       if (f.type === "date" || f.type === "datetime") line += "・日付 YYYY-MM-DD";
-      if (Array.isArray(f.options) && f.options.length) line += "・選択肢:[" + f.options.join(" / ") + "] から選ぶ";
+      if (Array.isArray(f.options) && f.options.length) {
+        line += "・選択肢:[" + f.options.join(" / ") + "] から選ぶ";
+        // 複数選べる項目は、当てはまるものを全部返してもらう
+        if (f.type === "multipicklist") line += "・当てはまるものを全て、セミコロン( ; )で区切って返す";
+      }
       line += "）";
       return line;
     }).join("\n");
@@ -8504,6 +8524,17 @@ app.post("/api/salesforce/field-suggest", async (req, res) => {
       "・次回アクション種別は、次に何をするか（再商談・電話・メールなど）を選択肢から選ぶ。\n" +
       "・失注理由や受失注理由は、顧客が断った理由・保留した理由に最も近い選択肢を選ぶ。\n" +
       "・選択肢がある項目は、必ず選択肢の中から最も近いものを選ぶ。選択肢の文字列をそのまま返す。\n" +
+      "・「当てはまるものを全て」と書かれた項目は、該当する選択肢を全てセミコロン( ; )でつないで返す。\n" +
+      "  例：新卒とアルバイトの話が出ていれば「新卒;アルバイト」。話に出ていないものは入れない。\n" +
+      "・当てはまるものが無い項目は、無理に選ばず空文字にする。\n" +
+      // 現場の運用に合わせた個別の指示。ここが空だと毎回選び直すことになる。
+      "\n【項目ごとの決め方】\n" +
+      "・初回提案商品：商談で具体的に案内したプランを選ぶ。どのプランか話に出ていない場合は「エントリープラン」にする（初回商談での標準提案のため）。\n" +
+      "・利用目的：どの採用（新卒・中途・アルバイト・派遣など）の話だったかを、商談の内容から判断して当てはまるものを全て選ぶ。\n" +
+      "  「新卒採用で困っている」「来年の新卒」→ 新卒。「中途」「経験者」「即戦力」→ 中途。「アルバイト」「パート」「学生スタッフ」→ アルバイト。\n" +
+      "  採用以外（社内コミュニケーション・ブランディング）の話が主だった場合はそれを選ぶ。\n" +
+      "  どの採用区分の話か読み取れない場合は空文字にする。「採用活動」は区分が不明なときの逃げに使わない。\n" +
+      "・担当者が解決したい課題：顧客が困っていると述べた内容に最も近い選択肢を選ぶ。\n" +
       "・出力はJSONオブジェクトのみ。キーは各項目の「キー」、値は記入する文字列。説明やコードブロックは不要。\n\n" +
       "【項目】\n" + fieldLines;
     const out = await runCustomAnalysis(String(content).slice(0, 40000), prompt);

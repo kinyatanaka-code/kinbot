@@ -3704,6 +3704,11 @@ a.home-todo:hover .home-todo-t b { color: #0d5b47; text-decoration: underline; }
 .sf-swap-list { max-height: 220px; overflow: auto; margin-top: 6px; }
 .sf-swap-item { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; width: 100%; text-align: left; border: 0; background: transparent; font: inherit; font-size: 12.5px; color: var(--ink); padding: 7px 8px; border-radius: 8px; cursor: pointer; }
 .sf-swap-item:hover { background: var(--panel); color: #0d5b47; }
+.sf-mpick-more { display: inline-block; margin-top: 6px; border: 1px dashed var(--line);
+  background: var(--panel); border-radius: 999px; padding: 4px 12px; font-size: 11.5px;
+  color: var(--muted); font-family: inherit; cursor: pointer; }
+.sf-mpick-more:hover { background: var(--panel-2); color: var(--ink); }
+.sf-mpick-item[hidden] { display: none !important; }
 .sf-mpick { display: flex; flex-wrap: wrap; gap: 8px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 10px; background: var(--panel); }
 .sf-mpick-item { display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--ink); cursor: pointer; padding: 3px 6px; border-radius: 8px; }
 .sf-mpick-item:hover { background: var(--panel-2); }
@@ -4519,6 +4524,14 @@ input:focus, select:focus, textarea:focus, .sf-input:focus, .sf-select:focus, .s
   border-radius: 999px; padding: 7px 16px; font-size: 12.5px; font-family: inherit; cursor: pointer; color: var(--ink); }
 .sfm-x:hover { background: var(--panel-2); }
 .sfm-body { flex: 1; min-height: 0; overflow-y: auto; padding: 14px 18px 18px; display: flex; flex-direction: column; gap: 14px; }
+.sfm-box-narrow { width: min(760px, 94vw); height: auto; max-height: 92vh; }
+/* 御礼メールの入力欄 */
+.mail-lb { display: block; font-size: 11.5px; color: var(--muted); }
+.mail-lb > * { display: block; width: 100%; margin-top: 4px; padding: 9px 12px; border: 1px solid var(--line);
+  border-radius: 10px; font-size: 13px; font-family: inherit; line-height: 1.8; box-sizing: border-box; }
+.mail-lb textarea { resize: vertical; min-height: 260px; }
+.mail-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.mail-actions .btn { text-decoration: none; }
 .sfm-frame { width: 100%; height: 420px; min-height: 260px; border: 0; display: block;
   background: var(--panel); border-radius: 10px; transition: height .2s ease; }
 

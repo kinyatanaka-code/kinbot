@@ -499,9 +499,16 @@ function cardPanel(key, html) {
   return box;
 }
 
-// 御礼メールをその場で作る
+// 御礼メールをモーダルで作る。文面が長いので、カード内では読めないため。
 async function openMail(botId, key) {
-  const box = cardPanel(key, '<div class="home-inline-h">御礼メール</div><div class="home-sf-msg">文面を作っています…</div>');
+  const it = homeItems[key] || {};
+  const mo = openModal({
+    title: "御礼メール",
+    sub: it.company || it.title || "",
+    inner: '<div class="home-sf-msg">文面を作っています…</div>',
+    wide: false,
+  });
+  const box = mo.body;
   if (!box) return;
   try {
     const r = await fetch(`/api/meetings/${encodeURIComponent(botId)}/thanks`, {
@@ -512,14 +519,12 @@ async function openMail(botId, key) {
     if (!body) throw new Error(d.error || "文面を作れませんでした");
     const subject = d.subject || "【御礼】本日のお打ち合わせについて";
     box.innerHTML =
-      `<div class="home-inline-h">御礼メール</div>
-       <input type="text" class="home-mail-subj" value="${escH(subject)}" />
-       <textarea class="home-mail-body" rows="10">${escH(body)}</textarea>
-       <div class="home-sf-row">
+      `<label class="mail-lb">件名<input type="text" class="home-mail-subj" value="${escH(subject)}" /></label>
+       <label class="mail-lb">本文<textarea class="home-mail-body" rows="18">${escH(body)}</textarea></label>
+       <div class="home-sf-row mail-actions">
          <button type="button" class="btn" data-gdraft="${escH(botId)}">Gmailに下書きを作る</button>
          <button type="button" class="btn sf-btn-secondary home-sf-mini" data-mailcopy="1">コピー</button>
          <a class="btn sf-btn-secondary home-sf-mini" data-mailto="1" href="#" target="_blank" rel="noopener">Gmailの作成画面で開く</a>
-         <button type="button" class="btn sf-btn-secondary home-sf-mini" data-inline-close="1">閉じる</button>
        </div>
        <div class="home-mail-note"></div>`;
     const ta = box.querySelector(".home-mail-body");
@@ -571,9 +576,42 @@ async function openMail(botId, key) {
       }).catch(() => {});
     });
   } catch (e) {
-    box.innerHTML = `<div class="home-inline-h">御礼メール</div><div class="home-sf-err">${escH(e.message)}</div>
-      <div class="home-sf-row"><button type="button" class="btn sf-btn-secondary home-sf-mini" data-inline-close="1">閉じる</button></div>`;
+    box.innerHTML = `<div class="home-sf-err">${escH(e.message)}</div>`;
   }
+}
+
+// 画面中央のモーダルを開く。中身は呼び出し側が入れる。
+// SF更新と御礼メールで同じ枠を使い、狭いパネルで読みづらい問題をまとめて解消する。
+function openModal({ title, sub, inner, wide = true }) {
+  const old = document.querySelector(".sfm");
+  if (old) old.remove();
+
+  const m = document.createElement("div");
+  m.className = "sfm";
+  m.innerHTML =
+    `<div class="sfm-back" data-modal-close="1"></div>
+     <div class="sfm-box${wide ? "" : " sfm-box-narrow"}" role="dialog" aria-modal="true">
+       <div class="sfm-head">
+         <div>
+           <div class="sfm-t">${escH(title || "")}</div>
+           <div class="sfm-s">${escH(sub || "")}</div>
+         </div>
+         <button type="button" class="sfm-x" data-modal-close="1" aria-label="閉じる">閉じる</button>
+       </div>
+       <div class="sfm-body">${inner || ""}</div>
+     </div>`;
+  document.body.appendChild(m);
+  document.body.style.overflow = "hidden";
+
+  const close = () => {
+    m.remove();
+    document.body.style.overflow = "";
+    document.removeEventListener("keydown", onKey);
+  };
+  const onKey = (e) => { if (e.key === "Escape") close(); };
+  document.addEventListener("keydown", onKey);
+  m.querySelectorAll("[data-modal-close]").forEach((b) => b.addEventListener("click", close));
+  return { el: m, body: m.querySelector(".sfm-body"), close };
 }
 
 // SF更新を開く。狭いパネルだと読めないので、画面中央の大きなモーダルで開く。
@@ -582,35 +620,12 @@ function openSfEdit(key) {
   const it = homeItems[key];
   if (!it) return;
   const company = it.company || it.title || "";
-  const enc = encodeURIComponent(company);
-  const src = `deals.html?company=${enc}&embed=1&view=salesforce`;
-
-  const old = document.querySelector(".sfm");
-  if (old) old.remove();
-
-  const m = document.createElement("div");
-  m.className = "sfm";
-  m.innerHTML =
-    `<div class="sfm-back" data-modal-close="1"></div>
-     <div class="sfm-box" role="dialog" aria-modal="true">
-       <div class="sfm-head">
-         <div>
-           <div class="sfm-t">${escH(company || "Salesforce 更新")}</div>
-           <div class="sfm-s">${escH(it.title || "")}</div>
-         </div>
-         <button type="button" class="sfm-x" data-modal-close="1" aria-label="閉じる">閉じる</button>
-       </div>
-       <div class="sfm-body">
-         <iframe class="sfm-frame" src="${escH(src)}" title="SF更新"></iframe>
-       </div>
-     </div>`;
-  document.body.appendChild(m);
-  document.body.style.overflow = "hidden";
-
-  const close = () => { m.remove(); document.body.style.overflow = ""; document.removeEventListener("keydown", onKey); };
-  const onKey = (e) => { if (e.key === "Escape") close(); };
-  document.addEventListener("keydown", onKey);
-  m.querySelectorAll("[data-modal-close]").forEach((b) => b.addEventListener("click", close));
+  const src = `deals.html?company=${encodeURIComponent(company)}&embed=1&view=salesforce`;
+  openModal({
+    title: company || "Salesforce 更新",
+    sub: it.title || "",
+    inner: `<iframe class="sfm-frame" src="${escH(src)}" title="SF更新"></iframe>`,
+  });
 }
 
 // 会議URLの候補が複数あるときは、どれで録音するかを選ばせる（1回選べば次から覚える）
