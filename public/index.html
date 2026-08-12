@@ -219,11 +219,18 @@
               <div id="ksLog" class="ks-log" hidden></div>
               <details class="ks-sub">
                 <summary>かささぎの見た目</summary>
-                <p class="note">会議に映る顔と名前を設定します。画像のURLを入れると、既定の絵の代わりに使われます（正方形・256px以上を推奨）。</p>
+                <p class="note">会議に映る顔と名前を設定します。<b>空欄のままなら、かささぎの絵が使われます。</b><br>
+                同梱の絵：<a href="kasasagi-avatar.svg" target="_blank" rel="noopener">かささぎ</a>／<a href="kasasagi-avatar-talk.svg" target="_blank" rel="noopener">かささぎ（話し中）</a>　
+                <a href="kinbot-avatar.svg" target="_blank" rel="noopener">kinbot</a>／<a href="kinbot-avatar-talk.svg" target="_blank" rel="noopener">kinbot（話し中）</a><br>
+                差し替えたい場合は画像のURLを入れてください（正方形・256px以上を推奨）。</p>
+                <div class="ks-actions">
+                  <button type="button" class="btn ghost" id="lkUseKasasagi">かささぎの絵にする</button>
+                  <button type="button" class="btn ghost" id="lkUseKinbot">kinbotの絵にする</button>
+                </div>
                 <div class="ks-look">
                   <label>名前<input type="text" id="lkName" placeholder="かささぎ" /></label>
                   <label>肩書き・ブランド名<input type="text" id="lkBrand" placeholder="NEO CAREER" /></label>
-                  <label>顔の画像URL<input type="text" id="lkAvatar" placeholder="https://.../kasasagi.png" /></label>
+                  <label>顔の画像URL<input type="text" id="lkAvatar" placeholder="空欄なら同梱の絵を使います" /></label>
                   <label>話しているとき用（任意）<input type="text" id="lkAvatar2" placeholder="口が開いた絵など" /></label>
                 </div>
                 <div class="ks-actions">

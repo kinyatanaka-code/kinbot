@@ -1,0 +1,57 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200" width="200" height="200" role="img" aria-label="かささぎ（話しています）">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#0f6e56"/>
+      <stop offset="58%" stop-color="#1d9e75"/>
+      <stop offset="100%" stop-color="#6fd6b1"/>
+    </linearGradient>
+    <linearGradient id="ink" x1="0.1" y1="0" x2="0.9" y2="1">
+      <stop offset="0%" stop-color="#08251f"/>
+      <stop offset="100%" stop-color="#0e453a"/>
+    </linearGradient>
+    <clipPath id="round"><circle cx="100" cy="100" r="100"/></clipPath>
+  </defs>
+
+  <g clip-path="url(#round)">
+    <rect width="200" height="200" fill="url(#bg)"/>
+    <circle cx="44" cy="38" r="78" fill="#ffffff" opacity="0.11"/>
+    <circle cx="172" cy="184" r="58" fill="#062e25" opacity="0.14"/>
+
+    <!-- 尾（長く、先を細く） -->
+    <path d="M96 118 C 80 138, 56 158, 24 178 C 38 150, 58 126, 78 106 Z" fill="url(#ink)"/>
+
+    <!-- 背中から翼（濃色のかたまり） -->
+    <path d="M118 40 C 148 44, 162 76, 152 108 C 144 134, 122 148, 100 144
+             C 86 141, 78 132, 76 120 C 92 122, 108 114, 116 98
+             C 124 82, 122 60, 118 40 Z" fill="url(#ink)"/>
+
+    <!-- 白い腹と胸 -->
+    <path d="M112 78 C 128 84, 134 104, 128 124 C 122 142, 104 152, 88 148
+             C 72 144, 64 130, 68 116 C 74 96, 94 74, 112 78 Z" fill="#f9fdfc"/>
+
+    <!-- 肩の白い斑（カササギの目印） -->
+    <ellipse cx="120" cy="94" rx="12" ry="17" transform="rotate(18 120 94)" fill="#f9fdfc" opacity="0.95"/>
+
+    <!-- 翼の筋 -->
+    <path d="M134 92 C 146 102, 146 118, 138 130" stroke="#6fd6b1" stroke-width="3.4"
+          stroke-linecap="round" fill="none" opacity="0.55"/>
+
+    <!-- 頭 -->
+    <circle cx="128" cy="58" r="27" fill="url(#ink)"/>
+
+    <!-- くちばし（開いた状態） -->
+    <path d="M152 46 L 190 52 L 153 62 Z" fill="#f6b93b"/>
+    <path d="M153 66 L 190 74 L 152 76 Z" fill="#e0a52c"/>
+    <path d="M156 62 L 182 66 L 156 68 Z" fill="#a4451f" opacity="0.85"/>
+    <!-- 声の波 -->
+    <path d="M186 34 C 196 44, 196 78, 186 88" stroke="#ffffff" stroke-width="4"
+          stroke-linecap="round" fill="none" opacity="0.55"/>
+
+    <!-- 目 -->
+    <circle cx="136" cy="52" r="7.4" fill="#f9fdfc"/>
+    <circle cx="137.6" cy="52" r="4" fill="#08251f"/>
+    <circle cx="139" cy="50" r="1.5" fill="#ffffff"/>
+  </g>
+
+  <circle cx="100" cy="100" r="98" fill="none" stroke="#ffffff" stroke-width="4" opacity="0.32"/>
+</svg>

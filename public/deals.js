@@ -759,7 +759,12 @@ async function load() {  try {
       if (hit) selectDeal(hit);
       else {
         const dp = $("dealDetail");
-        if (dp) dp.innerHTML = `<div class="empty-state">「${esc(want)}」に一致する案件が見つかりませんでした。左の一覧から選んでください。</div>`;
+        // 埋め込み時は左の一覧が見えていないので、案内の文言を変える
+        const embedded = document.body.classList.contains("kb-embed");
+        if (dp) dp.innerHTML = `<div class="empty-state">「${esc(want)}」に一致する案件が見つかりませんでした。` +
+          (embedded
+            ? "会社名の表記がSalesforce側と違っている可能性があります。案件画面から検索してください。"
+            : "左の一覧から選んでください。") + "</div>";
       }
     }
   } catch {}

@@ -266,6 +266,20 @@ function apiResponse(pathname, query) {
   if (pathname === "/api/kasasagi/start") { globalThis.__ks = true; return { ok: true, slides: { cover: "表紙", company: "会社紹介", problem: "採用の課題", service: "サービスの説明", usage: "使い方", flow: "導入の流れ", case: "導入事例", pricing: "料金", faq: "よくある質問", next: "次のご案内", summary: "この商談のまとめ" }, generatedScript: "本日はお時間をいただきありがとうございます。ネオキャリアのかささぎと申します。まず御社の採用状況をお伺いします。次にサービスをご説明します。" }; }
   if (pathname === "/api/kasasagi/stop") { globalThis.__ks = false; return { ok: true }; }
   if (pathname.indexOf("/api/kasasagi/") === 0) return { ok: true, done: false, remaining: 2 };
+  if (pathname === "/api/next-actions") {
+    globalThis.__na = globalThis.__na || [
+      { id: 1, kind: "見積提出", content: "3拠点分の見積を作って送付する", due_date: "2026-08-14", done: false },
+      { id: 2, kind: "資料送付", content: "導入事例（製造業）を送る", due_date: "2026-08-10", done: false },
+      { id: 3, kind: "電話", content: "決裁者の同席可否を確認", due_date: null, done: true, done_by: "kinya.tanaka@neo-career.co.jp" },
+    ];
+    return { kinds: ["電話","メール","再商談","資料送付","見積提出","社内確認","稟議待ち","その他"], items: globalThis.__na };
+  }
+  if (pathname.indexOf("/api/next-actions/") === 0) {
+    const id = parseInt(pathname.split("/").pop(), 10);
+    const it = (globalThis.__na || []).find((x) => x.id === id);
+    if (it) it.done = !it.done;
+    return { ok: true, row: it };
+  }
   if (pathname === "/api/chat-config") return { url: "", fromEnv: false, notifyAssign: true, notifyMail: true, lastError: "", sentCount: 0 };
   if (pathname === "/api/chat-config/test") return { ok: true };
   if (pathname === "/api/members") {

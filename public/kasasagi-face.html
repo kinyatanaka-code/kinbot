@@ -122,7 +122,10 @@
       faceEl.classList.toggle("talking", !!d.speaking);
 
       // アバターの画像（設定されていれば差し替える。話しているとき用の絵も指定できる）
-      const want = (d.speaking && d.avatarSpeakUrl) ? d.avatarSpeakUrl : (d.avatarUrl || "");
+      // 設定が無ければ、kinbotに同梱したかささぎの絵を使う
+      const base = d.avatarUrl || "kasasagi-avatar.svg";
+      const talk = d.avatarSpeakUrl || (d.avatarUrl ? d.avatarUrl : "kasasagi-avatar-talk.svg");
+      const want = d.speaking ? talk : base;
       if (want !== curImg) {
         curImg = want;
         if (want) { imgEl.src = want; imgEl.hidden = false; svgEl.style.display = "none"; faceEl.classList.add("has-img"); }

@@ -92,6 +92,11 @@ import {
   setSmartLinkSourceNote,
   recentInvites,
   myAssignedApos,
+  addNextAction,
+  listNextActions,
+  setNextActionDone,
+  deleteNextAction,
+  NEXT_ACTION_KINDS,
   addUnanswered,
   listUnanswered,
   answerUnanswered,
@@ -2140,6 +2145,55 @@ app.post("/api/mux/cleanup", async (req, res) => {
 
 // Recall接続状況（どのリージョン/キーに繋がっているか＋今月の利用時間＋直近のボット起動結果）
 // ※Recall APIは「残高（チャージ額）」を返さないため、残高は取得できない。利用時間と接続先のみ表示する。
+// ===== 次回アクション（やることリスト） =====
+app.get("/api/next-actions", async (req, res) => {
+  try {
+    res.json({
+      kinds: NEXT_ACTION_KINDS,
+      items: await listNextActions({
+        company: String(req.query.company || ""),
+        botId: String(req.query.botId || ""),
+        onlyOpen: req.query.open === "1",
+      }),
+    });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.post("/api/next-actions", async (req, res) => {
+  try {
+    const b = req.body || {};
+    const kind = String(b.kind || "").trim();
+    const content = String(b.content || "").trim();
+    if (!kind) return res.status(400).json({ error: "種別を選んでください" });
+    if (!content) return res.status(400).json({ error: "内容を入れてください" });
+    if (b.dueDate && !/^\d{4}-\d{2}-\d{2}$/.test(String(b.dueDate))) {
+      return res.status(400).json({ error: "期日の形式が正しくありません" });
+    }
+    const row = await addNextAction({
+      botId: b.botId, company: b.company, title: b.title,
+      kind, content, dueDate: b.dueDate || null, owner: req.user,
+    });
+    console.log(`[next-action] 追加 ${b.company || ""}／${kind} by ${req.user}`);
+    res.json({ ok: true, row });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// チェックで完了・未完了を切り替える
+app.put("/api/next-actions/:id", async (req, res) => {
+  try {
+    const row = await setNextActionDone(parseInt(req.params.id, 10), req.body?.done !== false, req.user);
+    if (!row) return res.status(404).json({ error: "見つかりませんでした" });
+    res.json({ ok: true, row });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.delete("/api/next-actions/:id", async (req, res) => {
+  try {
+    await deleteNextAction(parseInt(req.params.id, 10));
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 // ===== Google Chat 通知 =====
 app.get("/api/chat-config", async (req, res) => {
   try {

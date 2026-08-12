@@ -1445,6 +1445,15 @@ function ksWatch(on) {
     } catch (e) { if (st) st.textContent = "失敗: " + e.message; }
   });
 
+  const setLook = (a, b) => {
+    ks.el("lkAvatar").value = a; ks.el("lkAvatar2").value = b;
+    document.getElementById("lkSave").click();
+  };
+  const uk = document.getElementById("lkUseKasasagi");
+  if (uk) uk.addEventListener("click", () => setLook("kasasagi-avatar.svg", "kasasagi-avatar-talk.svg"));
+  const ub = document.getElementById("lkUseKinbot");
+  if (ub) ub.addEventListener("click", () => setLook("kinbot-avatar.svg", "kinbot-avatar-talk.svg"));
+
   const slideSel = document.getElementById("ksSlide");
   if (slideSel) slideSel.addEventListener("change", async () => {
     try {

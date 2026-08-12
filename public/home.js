@@ -576,36 +576,160 @@ async function openMail(botId, key) {
   }
 }
 
-// SF更新を開く。スマホでは画面いっぱいに開いて、狭さを解消する。
+// SF更新を開く。狭いパネルだと読めないので、画面中央の大きなモーダルで開く。
+// 上に「次回アクション」（kinbot側のやることリスト）、下にSalesforceの画面を並べる。
 function openSfEdit(key) {
   const it = homeItems[key];
   if (!it) return;
-  const enc = encodeURIComponent(it.company || it.title || "");
+  const company = it.company || it.title || "";
+  const enc = encodeURIComponent(company);
   const src = `deals.html?company=${enc}&embed=1&view=salesforce`;
 
-  if (window.kbIsMobile && window.kbIsMobile()) {
-    const old = document.querySelector(".kb-full");
-    if (old) old.remove();
-    const full = document.createElement("div");
-    full.className = "kb-full";
-    full.innerHTML =
-      `<div class="kb-full-head">
-         <span class="kb-full-t">${escH(it.company || it.title || "Salesforce 更新")}</span>
-         <button type="button" class="kb-full-x" aria-label="閉じる">閉じる</button>
+  const old = document.querySelector(".sfm");
+  if (old) old.remove();
+
+  const m = document.createElement("div");
+  m.className = "sfm";
+  m.innerHTML =
+    `<div class="sfm-back" data-modal-close="1"></div>
+     <div class="sfm-box" role="dialog" aria-modal="true">
+       <div class="sfm-head">
+         <div>
+           <div class="sfm-t">${escH(company || "Salesforce 更新")}</div>
+           <div class="sfm-s">${escH(it.title || "")}</div>
+         </div>
+         <button type="button" class="sfm-x" data-modal-close="1" aria-label="閉じる">閉じる</button>
        </div>
-       <iframe class="kb-full-frame" src="${escH(src)}" title="SF更新"></iframe>`;
-    document.body.appendChild(full);
-    document.body.style.overflow = "hidden";
-    const close = () => { full.remove(); document.body.style.overflow = ""; };
-    full.querySelector(".kb-full-x").addEventListener("click", close);
-    return;
+       <div class="sfm-body">
+         <section class="na-box">
+           <div class="na-head">
+             <span class="na-title">次回アクション</span>
+             <span class="na-note">Salesforceの活動記録とは別に、kinbot側のやることとして残します</span>
+           </div>
+           <div class="na-form">
+             <select class="na-kind" aria-label="種別"></select>
+             <input type="text" class="na-content" placeholder="内容（例：見積を作って送付する）" />
+             <input type="date" class="na-due" aria-label="期日" />
+             <button type="button" class="btn na-add">記録する</button>
+           </div>
+           <div class="na-msg"></div>
+           <div class="na-list"><div class="na-empty">読み込み中…</div></div>
+         </section>
+         <section class="sf-embed-box">
+           <div class="na-head"><span class="na-title">Salesforce</span></div>
+           <iframe class="sfm-frame" src="${escH(src)}" title="SF更新"></iframe>
+         </section>
+       </div>
+     </div>`;
+  document.body.appendChild(m);
+  document.body.style.overflow = "hidden";
+
+  const close = () => { m.remove(); document.body.style.overflow = ""; document.removeEventListener("keydown", onKey); };
+  const onKey = (e) => { if (e.key === "Escape") close(); };
+  document.addEventListener("keydown", onKey);
+  m.querySelectorAll("[data-modal-close]").forEach((b) => b.addEventListener("click", close));
+
+  wireNextActions(m, { company, title: it.title || "", botId: it.botId || "" });
+}
+
+// 次回アクションの一覧・追加・完了チェック
+function wireNextActions(root, ctx) {
+  const q = (sel) => root.querySelector(sel);
+  const list = q(".na-list");
+  const msg = q(".na-msg");
+  const say = (t, ms) => {
+    msg.textContent = t || "";
+    if (ms) setTimeout(() => { if (msg.textContent === t) msg.textContent = ""; }, ms);
+  };
+
+  const fmtDue = (d) => {
+    if (!d) return "";
+    const x = new Date(d);
+    if (isNaN(x.getTime())) return "";
+    const wd = ["日", "月", "火", "水", "木", "金", "土"][x.getDay()];
+    return `${x.getMonth() + 1}/${x.getDate()}(${wd})`;
+  };
+  const isLate = (d) => {
+    if (!d) return false;
+    const x = new Date(d); x.setHours(23, 59, 59);
+    return x.getTime() < Date.now();
+  };
+
+  async function load() {
+    try {
+      const d = await (await fetch("/api/next-actions?company=" + encodeURIComponent(ctx.company))).json();
+      if (d.error) throw new Error(d.error);
+      const sel = q(".na-kind");
+      if (sel && !sel.options.length) {
+        for (const k of d.kinds || []) sel.add(new Option(k, k));
+      }
+      const items = d.items || [];
+      if (!items.length) {
+        list.innerHTML = '<div class="na-empty">まだ登録がありません。上の欄から記録してください。</div>';
+        return;
+      }
+      list.innerHTML = items.map((x) => `
+        <label class="na-item${x.done ? " na-done" : ""}">
+          <input type="checkbox" class="na-check" data-id="${x.id}" ${x.done ? "checked" : ""} />
+          <span class="na-kind-tag">${escH(x.kind)}</span>
+          <span class="na-text">${escH(x.content)}</span>
+          ${x.due_date ? `<span class="na-due-tag${!x.done && isLate(x.due_date) ? " na-late" : ""}">${escH(fmtDue(x.due_date))}</span>` : ""}
+          ${x.done ? `<span class="na-doneby">完了${x.done_by ? "・" + escH(String(x.done_by).split("@")[0]) : ""}</span>` : ""}
+          <button type="button" class="na-del" data-id="${x.id}" aria-label="削除">×</button>
+        </label>`).join("");
+
+      list.querySelectorAll(".na-check").forEach((c) =>
+        c.addEventListener("change", async () => {
+          c.disabled = true;
+          try {
+            const r = await fetch(`/api/next-actions/${c.dataset.id}`, {
+              method: "PUT", headers: { "content-type": "application/json" },
+              body: JSON.stringify({ done: c.checked }),
+            });
+            if (!r.ok) throw new Error((await r.json()).error || "変更できませんでした");
+            load();
+          } catch (e) { say("失敗: " + e.message, 5000); c.checked = !c.checked; c.disabled = false; }
+        })
+      );
+      list.querySelectorAll(".na-del").forEach((b) =>
+        b.addEventListener("click", async (e) => {
+          e.preventDefault();
+          if (!confirm("この次回アクションを削除します。よろしいですか？")) return;
+          try {
+            await fetch(`/api/next-actions/${b.dataset.id}`, { method: "DELETE" });
+            load();
+          } catch {}
+        })
+      );
+    } catch (e) {
+      list.innerHTML = `<div class="na-empty">読み込めませんでした：${escH(e.message)}</div>`;
+    }
   }
 
-  cardPanel(key,
-    `<div class="home-inline-h">Salesforce 更新
-       <button type="button" class="home-sf-hide" data-inline-close="1" style="width:auto;padding:0 0 0 10px">閉じる</button>
-     </div>
-     <iframe class="home-sf-frame" src="${escH(src)}" title="SF更新"></iframe>`);
+  q(".na-add").addEventListener("click", async () => {
+    const kind = q(".na-kind").value;
+    const content = q(".na-content").value.trim();
+    const dueDate = q(".na-due").value;
+    if (!content) { say("内容を入れてください", 4000); return; }
+    say("記録しています…");
+    try {
+      const r = await fetch("/api/next-actions", {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ ...ctx, kind, content, dueDate: dueDate || null }),
+      });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.error || "記録できませんでした");
+      q(".na-content").value = ""; q(".na-due").value = "";
+      say("記録しました", 3000);
+      load();
+    } catch (e) { say("失敗: " + e.message); }
+  });
+
+  q(".na-content").addEventListener("keydown", (e) => {
+    if (e.key === "Enter") q(".na-add").click();
+  });
+
+  load();
 }
 
 // 会議URLの候補が複数あるときは、どれで録音するかを選ばせる（1回選べば次から覚える）
@@ -1116,6 +1240,11 @@ function openApoSfLaunch(slug) {
 window.addEventListener("message", (ev) => {
   const d = ev && ev.data;
   if (!d || d.type !== "kb-embed-height") return;
-  const h = Math.max(220, Math.min(900, parseInt(d.height, 10) || 0));
-  document.querySelectorAll(".apo-sf-frame").forEach((f) => { f.style.height = h + "px"; });
+  const h = Math.max(220, Math.min(1600, parseInt(d.height, 10) || 0));
+  // かささぎの埋め込み
+  document.querySelectorAll(".apo-sf-frame").forEach((f) => { f.style.height = Math.min(h, 900) + "px"; });
+  // SF更新モーダルの埋め込み（中身の高さに合わせて、下の空白を作らない）
+  document.querySelectorAll(".sfm-frame").forEach((f) => { f.style.height = h + "px"; });
+  // カード内に開いた旧パネル
+  document.querySelectorAll(".home-sf-frame").forEach((f) => { f.style.height = Math.min(h, 700) + "px"; });
 });

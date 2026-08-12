@@ -30,7 +30,7 @@ async function sq(sql, params) {
 const EXPECTED_TABLES = [
   "meetings", "deals", "deal_events", "smart_links", "interns", "users", "settings",
   "apo_mail_log", "gmail_actions", "closer_rotation", "assign_log", "team_rotation", "members", "closer_suspensions",
-  "kasasagi_unanswered", "kasasagi_blocked", "kasasagi_reports", "proposal_files",
+  "kasasagi_unanswered", "kasasagi_blocked", "kasasagi_reports", "next_actions", "proposal_files",
 ];
 const EXPECTED_COLUMNS = [
   ["smart_links", "client_email"], ["smart_links", "client_name"],
@@ -668,6 +668,27 @@ export async function initDb() {
     );
   `);
   await sq(`CREATE INDEX IF NOT EXISTS ix_ks_unanswered ON kasasagi_unanswered(answered_at NULLS FIRST, created_at DESC);`);
+
+  // 次回アクション。種別と内容を分けて持ち、チェックで完了にする。
+  // Salesforceの活動記録とは別に、kinbot側のやることリストとして扱う。
+  await sq(`
+    CREATE TABLE IF NOT EXISTS next_actions (
+      id         BIGSERIAL PRIMARY KEY,
+      bot_id     TEXT,
+      company    TEXT,
+      title      TEXT,
+      kind       TEXT NOT NULL,
+      content    TEXT NOT NULL,
+      due_date   DATE,
+      done       BOOLEAN NOT NULL DEFAULT false,
+      done_at    TIMESTAMPTZ,
+      done_by    TEXT,
+      owner      TEXT,
+      created_at TIMESTAMPTZ DEFAULT now()
+    );
+  `);
+  await sq(`CREATE INDEX IF NOT EXISTS ix_next_actions ON next_actions(done, due_date NULLS LAST, created_at DESC);`);
+  await sq(`CREATE INDEX IF NOT EXISTS ix_next_actions_company ON next_actions(company);`);
 
   // かささぎが言ってはいけない語を止めた記録（週次の点検用）
   await sq(`
@@ -2771,6 +2792,60 @@ export async function eligibleDays(fromISO, toISO) {
     }
     return out;
   } catch (e) { console.error("[db] eligibleDays", e.message); return {}; }
+}
+
+// ===== 次回アクション（やることリスト） =====
+export const NEXT_ACTION_KINDS = [
+  "電話", "メール", "再商談", "資料送付", "見積提出", "社内確認", "稟議待ち", "その他",
+];
+
+export async function addNextAction({ botId, company, title, kind, content, dueDate, owner }) {
+  if (!pool || !kind || !content) return null;
+  try {
+    const { rows } = await pool.query(
+      `INSERT INTO next_actions (bot_id, company, title, kind, content, due_date, owner)
+       VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING *`,
+      [botId || null, company || null, title || null, String(kind).slice(0, 40),
+       String(content).slice(0, 1000), dueDate || null, owner || null]);
+    return rows[0];
+  } catch (e) { console.error("[db] addNextAction", e.message); return null; }
+}
+
+export async function listNextActions({ company = "", botId = "", owner = "", onlyOpen = false, limit = 200 } = {}) {
+  if (!pool) return [];
+  try {
+    const w = [], p = [];
+    if (company) { p.push(company); w.push(`company = $${p.length}`); }
+    if (botId) { p.push(botId); w.push(`bot_id = $${p.length}`); }
+    if (owner) { p.push(owner); w.push(`owner = $${p.length}`); }
+    if (onlyOpen) w.push("NOT done");
+    p.push(limit);
+    const { rows } = await pool.query(
+      `SELECT * FROM next_actions
+        ${w.length ? "WHERE " + w.join(" AND ") : ""}
+        ORDER BY done, due_date NULLS LAST, created_at DESC
+        LIMIT $${p.length}`, p);
+    return rows;
+  } catch (e) { console.error("[db] listNextActions", e.message); return []; }
+}
+
+// チェックの入り／外しで完了・未完了を切り替える
+export async function setNextActionDone(id, done, by) {
+  if (!pool) return null;
+  try {
+    const { rows } = await pool.query(
+      `UPDATE next_actions
+          SET done = $2,
+              done_at = CASE WHEN $2 THEN now() ELSE NULL END,
+              done_by = CASE WHEN $2 THEN $3 ELSE NULL END
+        WHERE id = $1 RETURNING *`, [id, !!done, by || null]);
+    return rows[0] || null;
+  } catch (e) { console.error("[db] setNextActionDone", e.message); return null; }
+}
+
+export async function deleteNextAction(id) {
+  if (!pool) return;
+  try { await pool.query(`DELETE FROM next_actions WHERE id=$1`, [id]); } catch {}
 }
 
 // ===== かささぎ =====
