@@ -192,6 +192,13 @@ const MIME = {
   ".woff2": "font/woff2", ".woff": "font/woff",
 };
 
+function fixMojibake(str) {
+  const t = String(str || "");
+  if (!t || !/[\u0080-\u00FF]/.test(t)) return t;
+  try { const re = Buffer.from(t, "latin1").toString("utf8"); if (re && !re.includes("\uFFFD")) return re; } catch {}
+  return t;
+}
+
 function json(res, data, status = 200) {
   const body = JSON.stringify(data);
   res.writeHead(status, { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" });
@@ -303,7 +310,7 @@ function apiResponse(pathname, query) {
   }
   if (pathname === "/api/docs") {
     return { base: "https://kinbot-production-225f.up.railway.app", docs: [
-      { id: 1, name: "DOCサービス紹介", filename: "doc_service.pdf", size: 2411520, active: true,
+      { id: 1, name: fixMojibake(Buffer.from("【DOC】サービス紹介_2026年版.pptx.pdf","utf8").toString("latin1")), filename: fixMojibake(Buffer.from("【DOC】サービス紹介_2026年版.pptx.pdf","utf8").toString("latin1")), size: 2411520, active: true,
         uploaded_by: "kinya.tanaka@neo-career.co.jp", created_at: "2026-08-01T02:00:00Z", links: 214, views: 63 },
       { id: 2, name: "導入事例（製造業）", filename: "case_manufacturing.pdf", size: 1802240, active: true,
         uploaded_by: "kinya.tanaka@neo-career.co.jp", created_at: "2026-08-05T02:00:00Z", links: 88, views: 21 },
@@ -424,6 +431,12 @@ function apiResponse(pathname, query) {
       slug: "home-" + k, title: x.title, setter: x.setter, business: x.business,
       start: `${x.d}T${x.t}:00.000Z`, clientEmail: x.email,
       smartUrl: "https://kinbot/j/home-" + k, inviteEventId: x.ev, mail: x.mail,
+      launch: [
+        { ok: true, oppId: "006xx1", filledUrl: "https://belc.example.jp", reasonText: "" },
+        { ok: false, reasonText: "クロスのリードがありません（直販などのリードのみ）" },
+        { ok: false, reasonText: "リードの担当者名が商談の担当者名と一致しません（リード側の担当者：鈴木 花子）" },
+        null,
+      ][k % 4],
     }));
     return { date: from, owner: "kinya.tanaka@neo-career.co.jp", mode, items };
   }

@@ -25,6 +25,8 @@ import { sendApoMail, runReminderSweep, getApoMailConfig,
 import { startKasasagi, getKasasagi, stopKasasagi, feedTranscript, kasasagiInfo,
          buildScript, buildReport, faceState, SLIDE_LABELS } from "./kasasagi.js";
 import { notifyAssigned, notifyMailDraft, notifyChat, chatWebhookUrl, chatInfo } from "./chat.js";
+import { judge as judgeAutolaunch, reasonText, parseTitle as parseLaunchTitle } from "./autolaunch.js";
+import { fixMojibake } from "./docs.js";
 import { openDocView, beatDocViewAndNotify, recordOpen, recordClick,
          PIXEL, docUrl, pixelUrl, clickUrl, fmtSeconds, topPages } from "./docs.js";
 import { transcribeFile, transcriberAvailable } from "./transcribe.js";
@@ -94,10 +96,14 @@ import {
   setSmartLinkSourceNote,
   recentInvites,
   myAssignedApos,
+  saveAutolaunch,
+  getAutolaunch,
+  autolaunchForSlugs,
   addDocFile,
   listDocFiles,
   getDocBytes,
   setDocActive,
+  renameDocFile,
   deleteDocFile,
   addDocLinks,
   listDocLinks,
@@ -2165,6 +2171,136 @@ app.post("/api/mux/cleanup", async (req, res) => {
 
 // Recall接続状況（どのリージョン/キーに繋がっているか＋今月の利用時間＋直近のボット起動結果）
 // ※Recall APIは「残高（チャージ額）」を返さないため、残高は取得できない。利用時間と接続先のみ表示する。
+// ===== Salesforceの自動立ち上げ =====
+// 条件を満たしたものだけ実行する。コンバートは取り消せないため、
+// 少しでも怪しいものは実行せず、理由を残してホームに出す。
+
+// URLが空のときは gBizINFO で補う。見つからなければ空のまま。
+async function fillLeadWebsite(user, lead, company) {
+  if (lead.Website) return { url: lead.Website, filled: false };
+  try {
+    const hits = await searchCompanies(company || lead.Company, 3);
+    for (const h of hits) {
+      const d = await getCompanyDetail(h.corporate_number).catch(() => null);
+      const url = d && d.company_url;
+      if (url && /^https?:\/\//i.test(url)) {
+        await updateLead(user, lead.Id, { Website: url });
+        console.log(`[SF自動] URLを補いました ${lead.Company} → ${url}`);
+        return { url, filled: true };
+      }
+    }
+  } catch (e) { console.warn("[SF自動] URLの補完に失敗", e.message); }
+  return { url: "", filled: false };
+}
+
+// 1件を判定して、通れば立ち上げる
+async function tryAutoLaunch(user, link, { dryRun = false } = {}) {
+  const base = { slug: link.slug, botId: link.bot_id || null, title: link.label };
+  try {
+    // すでに立ち上げ済みなら触らない
+    const prev = await getAutolaunch(link.slug);
+    if (prev && prev.ok && prev.opp_id) {
+      return { ...base, ok: true, reason: "already", oppId: prev.opp_id, skipped: true };
+    }
+
+    const { company, person } = parseLaunchTitle(link.label);
+    if (!company || !person) {
+      const r = { ...base, ok: false, company, person, reason: company ? "no_person" : "no_company" };
+      if (!dryRun) await saveAutolaunch(r);
+      return r;
+    }
+
+    const leads = await searchLeads(user, { company, person: "" }).catch(() => []);
+    const j = judgeAutolaunch({ title: link.label, leads });
+    if (!j.ok) {
+      const r = { ...base, ok: false, company: j.company, person: j.person, reason: j.reason, detail: j.detail || "" };
+      if (!dryRun) await saveAutolaunch(r);
+      return r;
+    }
+
+    // URLの補完
+    const site = await fillLeadWebsite(user, j.lead, j.company);
+    if (!site.url) {
+      const r = { ...base, ok: false, company: j.company, person: j.person,
+                  reason: "missing_url", leadId: j.lead.Id };
+      if (!dryRun) await saveAutolaunch(r);
+      return r;
+    }
+
+    if (dryRun) {
+      return { ...base, ok: true, company: j.company, person: j.person,
+               leadId: j.lead.Id, filledUrl: site.filled ? site.url : "", dryRun: true };
+    }
+
+    // ここから先は取り消せない
+    const ownerId = await getSfUserId(user).catch(() => "");
+    const statuses = await convertedLeadStatuses(user).catch(() => []);
+    const conv = await convertLead(user, {
+      leadId: j.lead.Id,
+      convertedStatus: (statuses[0] || {}).value || "",
+      opportunityName: `${j.company}_${j.person}`,
+      ownerId,
+    });
+    const oppId = conv && (conv.opportunityId || conv.opportunity_id) || "";
+    const r = { ...base, ok: true, company: j.company, person: j.person,
+                reason: "", leadId: j.lead.Id, oppId, filledUrl: site.filled ? site.url : "" };
+    await saveAutolaunch(r);
+    console.log(`[SF自動] 立ち上げ完了 ${j.company}／${j.person} → ${oppId}`);
+    notifyChat([
+      "*Salesforceの商談を自動で立ち上げました*",
+      `${j.company}　${j.person}様`,
+      site.filled ? `URLを補いました：${site.url}` : "",
+      oppId ? `商談ID：${oppId}` : "",
+    ].filter(Boolean).join("\n")).catch(() => {});
+    return r;
+  } catch (e) {
+    const r = { ...base, ok: false, reason: "sf_error", detail: String(e.message || "").slice(0, 200) };
+    if (!dryRun) await saveAutolaunch(r);
+    console.error("[SF自動] 失敗", link.slug, e.message);
+    return r;
+  }
+}
+
+// 判定だけしてみる（実行しない）
+app.post("/api/sf-autolaunch/check", async (req, res) => {
+  try {
+    const link = await getSmartLink(String(req.body?.slug || ""));
+    if (!link) return res.status(404).json({ error: "商談が見つかりません" });
+    const r = await tryAutoLaunch(req.user, link, { dryRun: true });
+    res.json({ ...r, reasonText: r.ok ? "" : reasonText(r.reason, r.detail) });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// 1件を実行する
+app.post("/api/sf-autolaunch/run", async (req, res) => {
+  try {
+    const link = await getSmartLink(String(req.body?.slug || ""));
+    if (!link) return res.status(404).json({ error: "商談が見つかりません" });
+    const r = await tryAutoLaunch(req.user, link);
+    res.json({ ...r, reasonText: r.ok ? "" : reasonText(r.reason, r.detail) });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// その日のぶんをまとめて実行する
+app.post("/api/sf-autolaunch/run-day", async (req, res) => {
+  try {
+    const d = /^\d{4}-\d{2}-\d{2}$/.test(String(req.body?.date || ""))
+      ? String(req.body.date)
+      : new Date(Date.now() + 9 * 3600 * 1000).toISOString().slice(0, 10);
+    const owner = String(req.body?.owner || req.user || "").toLowerCase();
+    const rows = await myAssignedApos(owner, d, "day");
+    const out = [];
+    for (const link of rows) {
+      const r = await tryAutoLaunch(req.user, link);
+      out.push({ slug: link.slug, title: link.label, ok: r.ok,
+                 reasonText: r.ok ? "" : reasonText(r.reason, r.detail) });
+    }
+    const done = out.filter((x) => x.ok).length;
+    console.log(`[SF自動] ${d} のぶんを実行：${done}/${out.length}件`);
+    res.json({ ok: true, date: d, total: out.length, done, results: out });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 // ===== 送った資料の閲覧トラッキング =====
 // ここから4つは、受け取った相手が開くため認証なしで動く。
 
@@ -2182,7 +2318,7 @@ app.post("/api/doc/:slug/open", async (req, res) => {
     if (r.error) return res.status(404).json({ error: r.error });
     res.json({
       ok: true, viewId: r.view ? r.view.id : null,
-      name: r.link.doc_name, filename: r.link.filename || "",
+      name: fixMojibake(r.link.doc_name), filename: fixMojibake(r.link.filename || ""),
       to: [r.link.company, r.link.contact].filter(Boolean).join(" "),
     });
   } catch (e) { res.status(500).json({ error: e.message }); }
@@ -2198,7 +2334,7 @@ app.get("/api/doc/:slug/file", async (req, res) => {
     res.setHeader("content-type", f.mime || "application/pdf");
     res.setHeader("cache-control", "private, max-age=600");
     res.setHeader("content-disposition",
-      `inline; filename*=UTF-8''${encodeURIComponent(f.filename || "document.pdf")}`);
+      `inline; filename*=UTF-8''${encodeURIComponent(fixMojibake(f.filename) || "document.pdf")}`);
     res.send(f.bytes);
   } catch (e) { res.status(500).send("読み込めませんでした"); }
 });
@@ -2235,8 +2371,13 @@ app.get("/c/:slug", async (req, res) => {
 
 // 資料の一覧
 app.get("/api/docs", async (req, res) => {
-  try { res.json({ docs: await listDocFiles(), base: PUBLIC_URL }); }
-  catch (e) { res.status(500).json({ error: e.message }); }
+  try {
+    // すでに文字化けして保存されているものも、表示のときに直す
+    const docs = (await listDocFiles()).map((d) => ({
+      ...d, name: fixMojibake(d.name), filename: fixMojibake(d.filename),
+    }));
+    res.json({ docs, base: PUBLIC_URL });
+  } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 // 資料をアップロードする。
@@ -2251,12 +2392,23 @@ app.post("/api/docs", docUpload.single("file"), async (req, res) => {
     const mime = req.file.mimetype || "application/pdf";
     if (!/pdf/i.test(mime)) return res.status(400).json({ error: "PDFを選んでください" });
     const row = await addDocFile({
-      name: String(req.body?.name || "").trim() || req.file.originalname,
-      filename: req.file.originalname, mime, buf: req.file.buffer, uploadedBy: req.user,
+      // ファイル名はlatin1として届くので、UTF-8に直してから保存する
+      name: fixMojibake(String(req.body?.name || "").trim()) || fixMojibake(req.file.originalname),
+      filename: fixMojibake(req.file.originalname), mime, buf: req.file.buffer, uploadedBy: req.user,
     });
     if (!row) return res.status(500).json({ error: "保存できませんでした" });
     console.log(`[doc] 資料を追加「${row.name}」${Math.round(row.size / 1024)}KB by ${req.user}`);
     res.json({ ok: true, doc: row });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// 資料の名前を変える（文字化けしていたものを直すときにも使う）
+app.put("/api/docs/:id/name", async (req, res) => {
+  try {
+    const name = fixMojibake(String(req.body?.name || "").trim());
+    if (!name) return res.status(400).json({ error: "名前を入れてください" });
+    await renameDocFile(parseInt(req.params.id, 10), name);
+    res.json({ ok: true, name });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
@@ -2306,6 +2458,7 @@ app.get("/api/doc-links", async (req, res) => {
       base: PUBLIC_URL,
       links: rows.map((r) => ({
         ...r,
+        doc_name: fixMojibake(r.doc_name),
         url: docUrl(PUBLIC_URL, r.slug),
         pixel: pixelUrl(PUBLIC_URL, r.slug),
         total_label: fmtSeconds(r.total_seconds),
@@ -6121,7 +6274,7 @@ app.post("/api/knowledge/file", kbUpload.single("file"), async (req, res) => {
     const mt = req.file.mimetype || "";
     const folder = (req.body && req.body.folder) || "";
     const category = (req.body && req.body.category) || "資料";
-    const name = (req.file.originalname || "資料").replace(/\.[^.]+$/, "");
+    const name = fixMojibake(req.file.originalname || "資料").replace(/\.[^.]+$/, "");
     const sourceType = mt === "application/pdf" ? "pdf" : mt.startsWith("image/") ? "image" : "file";
 
     let result;
@@ -6139,7 +6292,7 @@ app.post("/api/knowledge/file", kbUpload.single("file"), async (req, res) => {
       body,
       owner: req.user || "",
       sourceType,
-      sourceRef: req.file.originalname || "",
+      sourceRef: fixMojibake(req.file.originalname || ""),
       folder,
     });
     if (id) indexKnowledge(id, { title: name, category, body }).catch((e) => console.error("[index]", e.message));
@@ -6155,14 +6308,14 @@ app.post("/api/knowledge/pdf", kbUpload.single("file"), async (req, res) => {
     const text = await pdfToText(req.file.buffer);
     if (!text || text.length < 20)
       return res.status(422).json({ error: "テキストを抽出できませんでした（スキャンPDFはOCRが必要です）" });
-    const name = (req.file.originalname || "PDF").replace(/\.pdf$/i, "");
+    const name = fixMojibake(req.file.originalname || "PDF").replace(/\.pdf$/i, "");
     const id = await addKnowledge({
       category: (req.body && req.body.category) || "資料",
       title: name,
       body: text,
       owner: req.user || "",
       sourceType: "pdf",
-      sourceRef: req.file.originalname || "",
+      sourceRef: fixMojibake(req.file.originalname || ""),
       folder: (req.body && req.body.folder) || "",
     });
     if (id) indexKnowledge(id, { title: name, category: (req.body && req.body.category) || "資料", body: text }).catch((e) => console.error("[index]", e.message));
@@ -6309,7 +6462,7 @@ app.post("/api/uploads", upload.single("file"), async (req, res) => {
     }
     if (!req.file) return res.status(400).json({ error: "ファイルがありません" });
     const id = "upload_" + crypto.randomUUID();
-    const title = (req.body.title || "").trim() || req.file.originalname || "アップロード";
+    const title = fixMojibake((req.body.title || "").trim()) || fixMojibake(req.file.originalname || "") || "アップロード";
     const round = req.body.round ? Number(req.body.round) : roundFromTitle(title);
     const phase = req.body.phase || null;
     const displayName = await getDisplayName(req.user);
@@ -9279,6 +9432,8 @@ app.get("/api/apo/mine", async (req, res) => {
     // 既定はその日のぶんだけ。mode=from を渡すと、その日以降をまとめて返す。
     const mode = req.query.mode === "from" ? "from" : "day";
     const rows = await myAssignedApos(owner, d, mode);
+    // 自動立ち上げの結果（通せなかった理由）を添える
+    const al = await autolaunchForSlugs(rows.map((r) => r.slug)).catch(() => ({}));
     const mail = await listApoMailStatus(rows.map((r) => r.slug));
     res.json({
       date: d, owner, mode,
@@ -9289,6 +9444,15 @@ app.get("/api/apo/mine", async (req, res) => {
         smartUrl: joinUrl(r.slug),
         inviteEventId: r.invite_event_id || "",
         mail: mail[r.slug] || {},
+        launch: al[r.slug]
+          ? {
+              ok: al[r.slug].ok,
+              oppId: al[r.slug].opp_id || "",
+              filledUrl: al[r.slug].filled_url || "",
+              reasonText: al[r.slug].ok ? "" : reasonText(al[r.slug].reason, al[r.slug].detail),
+              at: al[r.slug].tried_at,
+            }
+          : null,
       })),
     });
   } catch (e) { res.status(500).json({ error: e.message }); }

@@ -68,11 +68,28 @@ async function loadDocs() {
             発行 ${f.links}件／閲覧 ${f.views}件　${esc(fmtWhen(f.created_at))}</div>
         </div>
         <div class="dk-act">
+          <button type="button" class="btn ghost df-rename">名前を直す</button>
           <button type="button" class="btn ghost df-toggle">${f.active ? "使わない" : "使う"}</button>
           <button type="button" class="btn ghost df-del">削除</button>
         </div>
       </div>`).join("") + `</div>`;
 
+    box.querySelectorAll(".df-rename").forEach((b) =>
+      b.addEventListener("click", async () => {
+        const row = b.closest(".dk-row");
+        const cur = row.querySelector(".dk-t").textContent.trim();
+        const name = prompt("資料の名前を入れてください。", cur);
+        if (name == null || !name.trim()) return;
+        try {
+          const r = await fetch(`/api/docs/${row.dataset.id}/name`, {
+            method: "PUT", headers: { "content-type": "application/json" },
+            body: JSON.stringify({ name: name.trim() }),
+          });
+          if (!r.ok) throw new Error(((await r.json()) || {}).error || "変えられませんでした");
+          loadDocs();
+        } catch (e) { alert(e.message); }
+      })
+    );
     box.querySelectorAll(".df-toggle").forEach((b) =>
       b.addEventListener("click", async () => {
         const row = b.closest(".dk-row");

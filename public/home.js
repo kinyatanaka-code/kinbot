@@ -1017,6 +1017,18 @@ function renderBoth() {
   renderMyApos();
 }
 
+// Salesforceの自動立ち上げの結果を1行で出す。
+// 通せなかったときは、なぜ通らなかったかをそのまま見せる（探しに行かせない）。
+function launchLine(x) {
+  const l = x.launch;
+  if (!l) return "";
+  if (l.ok) {
+    return `<div class="home-card-meta al-ok">SFを自動で立ち上げました` +
+      `${l.filledUrl ? `（URLも補いました）` : ""}</div>`;
+  }
+  return `<div class="home-card-meta al-ng">SFを自動で立ち上げられませんでした：${apoEsc(l.reasonText)}</div>`;
+}
+
 function apoHomeCard(x) {
   return ((x) => {
       const chip = (label, st) => {
@@ -1044,12 +1056,14 @@ function apoHomeCard(x) {
             ${x.clientEmail
               ? `<div class="home-card-meta ap-home-addr">${apoEsc(x.clientEmail)}</div>`
               : '<div class="home-card-meta cc-warn">お客様の宛先が未登録です（メールを出せません）</div>'}
+            ${launchLine(x)}
           </div>
           <div class="home-card-actions">
             <button type="button" class="btn" data-apo-mail="${apoEsc(x.slug)}"${m.confirm ? " disabled" : ""}>${
               m.confirm ? (m.confirm.status === "sent" ? "送信済み" : "下書き作成済み") : "メール送付（下書きへ）"
             }</button>
-            <button type="button" class="btn sf-btn-secondary" data-apo-sf="${apoEsc(x.slug)}">SF立ち上げ</button>
+            <button type="button" class="btn${x.launch && x.launch.ok ? " ghost" : " sf-btn-secondary"}" data-apo-sf="${apoEsc(x.slug)}">${
+              x.launch && x.launch.ok ? "SFを開く" : "SF立ち上げ"}</button>
             <a class="btn ghost" href="${apoEsc(x.smartUrl)}" target="_blank" rel="noopener">会議室</a>
           </div>
         </div>

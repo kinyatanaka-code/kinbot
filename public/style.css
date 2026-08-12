@@ -4443,6 +4443,8 @@ input:focus, select:focus, textarea:focus, .sf-input:focus, .sf-select:focus, .s
   .home-cols .home-card-meta { margin-top: 4px; font-size: 11.5px; }
   .home-cols .ln-tag { font-size: 10.5px; padding: 2px 8px; }
   .ap-home-addr { color: var(--muted); }
+.al-ok { color: #1F7A4D; }
+.al-ng { color: #A8611A; line-height: 1.7; }
 .apo-sf-frame { width: 100%; min-height: 260px; border: 0; display: block; background: var(--panel); border-radius: 10px; }
 .ap-home-day { font-size: 11.5px; font-weight: 800; color: var(--muted); margin: 12px 2px 7px; }
 .ap-home-day:first-child { margin-top: 0; }

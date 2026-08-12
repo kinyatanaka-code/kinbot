@@ -31,7 +31,7 @@ const EXPECTED_TABLES = [
   "meetings", "deals", "deal_events", "smart_links", "interns", "users", "settings",
   "apo_mail_log", "gmail_actions", "closer_rotation", "assign_log", "team_rotation", "members", "closer_suspensions",
   "kasasagi_unanswered", "kasasagi_blocked", "kasasagi_reports", "next_actions",
-  "doc_files", "doc_links", "doc_views", "doc_events", "proposal_files",
+  "doc_files", "doc_links", "doc_views", "doc_events", "sf_autolaunch", "proposal_files",
 ];
 const EXPECTED_COLUMNS = [
   ["smart_links", "client_email"], ["smart_links", "client_name"],
@@ -755,6 +755,24 @@ export async function initDb() {
     );
   `);
   await sq(`CREATE INDEX IF NOT EXISTS ix_doc_events_link ON doc_events(link_id, at DESC);`);
+
+  // Salesforceの自動立ち上げの結果。通せなかった理由をホームに出すために持つ。
+  await sq(`
+    CREATE TABLE IF NOT EXISTS sf_autolaunch (
+      slug        TEXT PRIMARY KEY,
+      bot_id      TEXT,
+      title       TEXT,
+      company     TEXT,
+      person      TEXT,
+      ok          BOOLEAN NOT NULL DEFAULT false,
+      reason      TEXT,
+      detail      TEXT,
+      lead_id     TEXT,
+      opp_id      TEXT,
+      filled_url  TEXT,
+      tried_at    TIMESTAMPTZ DEFAULT now()
+    );
+  `);
 
   // かささぎが言ってはいけない語を止めた記録（週次の点検用）
   await sq(`
@@ -2860,6 +2878,41 @@ export async function eligibleDays(fromISO, toISO) {
   } catch (e) { console.error("[db] eligibleDays", e.message); return {}; }
 }
 
+// ===== Salesforceの自動立ち上げ =====
+export async function saveAutolaunch(r) {
+  if (!pool || !r?.slug) return null;
+  try {
+    const { rows } = await pool.query(
+      `INSERT INTO sf_autolaunch (slug, bot_id, title, company, person, ok, reason, detail, lead_id, opp_id, filled_url, tried_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11, now())
+       ON CONFLICT (slug) DO UPDATE SET
+         bot_id=$2, title=$3, company=$4, person=$5, ok=$6, reason=$7, detail=$8,
+         lead_id=$9, opp_id=$10, filled_url=$11, tried_at=now()
+       RETURNING *`,
+      [r.slug, r.botId || null, r.title || null, r.company || null, r.person || null,
+       !!r.ok, r.reason || null, r.detail || null, r.leadId || null, r.oppId || null, r.filledUrl || null]);
+    return rows[0];
+  } catch (e) { console.error("[db] saveAutolaunch", e.message); return null; }
+}
+
+export async function getAutolaunch(slug) {
+  if (!pool || !slug) return null;
+  try {
+    const { rows } = await pool.query(`SELECT * FROM sf_autolaunch WHERE slug=$1`, [slug]);
+    return rows[0] || null;
+  } catch { return null; }
+}
+
+export async function autolaunchForSlugs(slugs) {
+  if (!pool || !Array.isArray(slugs) || !slugs.length) return {};
+  try {
+    const { rows } = await pool.query(`SELECT * FROM sf_autolaunch WHERE slug = ANY($1::text[])`, [slugs]);
+    const out = {};
+    for (const r of rows) out[r.slug] = r;
+    return out;
+  } catch { return {}; }
+}
+
 // ===== 資料の閲覧トラッキング =====
 export async function addDocFile({ name, filename, mime, buf, uploadedBy }) {
   if (!pool || !buf) return null;
@@ -2893,6 +2946,13 @@ export async function getDocBytes(id) {
     const { rows } = await pool.query(`SELECT name, filename, mime, bytes FROM doc_files WHERE id=$1`, [id]);
     return rows[0] || null;
   } catch { return null; }
+}
+
+// 資料の名前を変える（文字化けを直すときにも使う）
+export async function renameDocFile(id, name) {
+  if (!pool || !id || !name) return;
+  try { await pool.query(`UPDATE doc_files SET name=$2, filename=$2 WHERE id=$1`, [id, String(name).slice(0, 200)]); }
+  catch (e) { console.error("[db] renameDocFile", e.message); }
 }
 
 export async function setDocActive(id, active) {

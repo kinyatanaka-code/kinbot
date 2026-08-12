@@ -19,6 +19,22 @@ import { notifyChat } from "./chat.js";
 // 通知の条件。短すぎる閲覧（開いてすぐ閉じた）は流さない。
 const NOTIFY_MIN_SECONDS = Number(process.env.DOC_NOTIFY_MIN_SECONDS || 20);
 
+// アップロードされたファイル名の文字化けを直す。
+// multipart（ファイルアップロード）のファイル名はlatin1として読まれるため、
+// 日本語のファイル名が「ã€ã¨ã...」のように壊れる。UTF-8として読み直す。
+export function fixMojibake(str) {
+  const t = String(str || "");
+  if (!t) return "";
+  // 半角英数だけなら壊れていない
+  if (!/[\u0080-\u00FF]/.test(t)) return t;
+  try {
+    const re = Buffer.from(t, "latin1").toString("utf8");
+    // 読み直して壊れ（置換文字）が出るなら、元のままが正しい
+    if (re && !re.includes("\uFFFD")) return re;
+  } catch {}
+  return t;
+}
+
 // IPはそのまま残さず、日付を混ぜたハッシュにする。
 // 同じ日の同一人物の見分けはつくが、個人の追跡には使えない。
 export function hashIp(ip) {
