@@ -268,26 +268,68 @@ function apiResponse(pathname, query) {
   if (pathname.indexOf("/api/kasasagi/") === 0) return { ok: true, done: false, remaining: 2 };
   if (pathname === "/api/salesforce/tasks") {
     globalThis.__tasks = globalThis.__tasks || [
-      { id: "00T1", subject: "2026-08-12_商談_田中 欽也", status: "完了", isClosed: true,
+      { id: "00T1", subject: "2026-08-12_商談_田中 欽也", status: "未完了", isClosed: false,
         activityDate: "2026-08-12", owner: "田中 欽也", actKind: "商談", nextKind: "再商談", nextDate: "2026-08-19",
         description: "本商談は、AI採用担当サービス「どこでもオープンカンパニー」に関する提案商談である。" },
       { id: "00T2", subject: "[次回アクション] 見積提出", status: "未着手", isClosed: false,
         activityDate: "2026-08-14", owner: "田中 欽也", actKind: "", nextKind: "見積提出", nextDate: "2026-08-10",
         description: "3拠点分の見積を作って送付する" },
+      { id: "00T3", subject: "2026-08-06_電話_田中 欽也", status: "完了", isClosed: true,
+        activityDate: "2026-08-06", owner: "田中 欽也", actKind: "電話", nextKind: "", nextDate: "",
+        description: "すんなりアポくれた／DOCのことは知らなかった" },
     ];
     return { tasks: globalThis.__tasks, fieldNames: { actKind: "ActKind__c", nextKind: "NextKind__c", nextDate: "NextDate__c" } };
   }
   if (pathname.indexOf("/api/salesforce/task/") === 0 && pathname.endsWith("/status")) {
     const id = pathname.split("/")[4];
     const t = (globalThis.__tasks || []).find((x) => x.id === id);
-    if (t) { t.isClosed = !t.isClosed; t.status = t.isClosed ? "完了" : "未着手"; }
+    if (t) { t.isClosed = !t.isClosed; t.status = t.isClosed ? "完了" : "未完了"; }
     return { ok: true, status: t ? t.status : "完了" };
   }
-  if (pathname === "/api/salesforce/next-action") {
-    globalThis.__sfNext = body || {};
-    return { ok: true, id: "00T9", warn: "" };
+  if (pathname === "/api/salesforce/next-action") return { ok: true, id: "00T9", warn: "" };
+  if (pathname.indexOf("/api/doc/") === 0 && pathname.endsWith("/open")) {
+    return { ok: true, viewId: 1, name: "DOCサービス紹介", filename: "doc_service.pdf", to: "株式会社ベルク 町田" };
+  }
+  if (pathname.indexOf("/api/doc/") === 0 && pathname.endsWith("/beat")) {
+    globalThis.__beat = (globalThis.__beat || 0) + 1;
+    return { ok: true, seconds: 0 };
+  }
+  if (pathname === "/api/docs") {
+    return { base: "https://kinbot-production-225f.up.railway.app", docs: [
+      { id: 1, name: "DOCサービス紹介", filename: "doc_service.pdf", size: 2411520, active: true,
+        uploaded_by: "kinya.tanaka@neo-career.co.jp", created_at: "2026-08-01T02:00:00Z", links: 214, views: 63 },
+      { id: 2, name: "導入事例（製造業）", filename: "case_manufacturing.pdf", size: 1802240, active: true,
+        uploaded_by: "kinya.tanaka@neo-career.co.jp", created_at: "2026-08-05T02:00:00Z", links: 88, views: 21 },
+      { id: 3, name: "料金表（2026年度）", filename: "price_2026.pdf", size: 512000, active: false,
+        uploaded_by: "kinya.tanaka@neo-career.co.jp", created_at: "2026-07-10T02:00:00Z", links: 0, views: 0 },
+    ] };
+  }
+  if (pathname === "/api/doc-links") {
+    const mk = (i, o) => ({
+      id: i, slug: "slug" + i, doc_name: "DOCサービス紹介", url: "https://kinbot-production-225f.up.railway.app/d/slug" + i,
+      company: o.c, contact: o.n, email: o.e, view_count: o.v || 0, total_seconds: o.s || 0,
+      total_label: o.s ? (o.s >= 60 ? Math.floor(o.s/60) + "分" + (o.s%60 ? (o.s%60)+"秒" : "") : o.s + "秒") : "0秒",
+      max_page: o.p || 0, last_at: o.at || null, opens: o.o || 0, clicks: o.k || 0,
+    });
+    return { base: "https://kinbot-production-225f.up.railway.app", links: [
+      mk(1, { c: "株式会社ベルク", n: "町田", e: "machida@belc.example.jp", v: 4, s: 312, p: 9, o: 6, k: 2, at: "2026-08-12T05:20:00Z" }),
+      mk(2, { c: "合同会社サンライズ", n: "佐藤", e: "sato@sunrise.example.jp", v: 1, s: 46, p: 3, o: 2, k: 0, at: "2026-08-11T23:10:00Z" }),
+      mk(3, { c: "株式会社ミナト工業", n: "高橋", e: "takahashi@minato.example.jp", v: 2, s: 138, p: 7, o: 3, k: 1, at: "2026-08-10T07:40:00Z" }),
+      mk(4, { c: "株式会社コロンバン", n: "宮村", e: "miyamura@colombin.co.jp", v: 0, s: 0, p: 0, o: 1, k: 0 }),
+      mk(5, { c: "一般財団法人沖縄美ら島財団", n: "比嘉", e: "w-higa@okichura.jp", v: 0, s: 0, p: 0, o: 0, k: 0 }),
+    ] };
+  }
+  if (pathname.indexOf("/api/doc-links/") === 0) {
+    return { link: { slug: "slug1", company: "株式会社ベルク" }, views: [
+      { started_at: "2026-08-12T05:20:00Z", seconds_label: "2分12秒", max_page: 9, top_pages: "5ページ 1分2秒／7ページ 15秒" },
+      { started_at: "2026-08-11T02:05:00Z", seconds_label: "58秒", max_page: 4, top_pages: "1ページ 22秒" },
+    ], events: [
+      { at: "2026-08-12T05:19:00Z", kind: "open", url: null },
+      { at: "2026-08-12T05:25:00Z", kind: "click", url: "https://neo-career.co.jp/doc/price" },
+    ] };
   }
   if (pathname === "/api/next-actions") {
+    // company で絞る想定（モックでは常に同じ一覧を返す）
     globalThis.__na = globalThis.__na || [
       { id: 1, kind: "見積提出", content: "3拠点分の見積を作って送付する", due_date: "2026-08-14", done: false },
       { id: 2, kind: "資料送付", content: "導入事例（製造業）を送る", due_date: "2026-08-10", done: false },
@@ -504,7 +546,10 @@ const server = http.createServer((req, res) => {
     return;
   }
 
-  const rel = pathname === "/" ? "/apo.html" : pathname;
+  // /d/xxx は本番と同じく資料のビューアーを返す
+  const rel = /^\/d\/[a-z0-9]+$/i.test(pathname)
+    ? "/doc.html"
+    : (pathname === "/" ? "/apo.html" : pathname);
   const file = path.join(PUBLIC_DIR, path.normalize(rel).replace(/^(\.\.[/\\])+/, ""));
   if (!file.startsWith(PUBLIC_DIR)) { res.writeHead(403); return res.end("forbidden"); }
 

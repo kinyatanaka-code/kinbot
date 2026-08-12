@@ -1,0 +1,174 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<meta name="robots" content="noindex, nofollow" />
+<title>資料</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  :root { --ink: #12211d; --muted: #6b7f79; --line: #e2ebe7; --accent: #0f6e56; }
+  body { background: #eef4f1; color: var(--ink);
+    font-family: "Hiragino Sans", "Yu Gothic", "Noto Sans JP", system-ui, sans-serif; }
+
+  .bar { position: sticky; top: 0; z-index: 10; background: rgba(255,255,255,.94);
+    backdrop-filter: blur(6px); border-bottom: 1px solid var(--line);
+    display: flex; align-items: center; gap: 14px; padding: 12px 20px; }
+  .bar-t { font-weight: 800; font-size: 14.5px; }
+  .bar-s { font-size: 11.5px; color: var(--muted); }
+  .bar-r { margin-left: auto; display: flex; align-items: center; gap: 10px; }
+  .pageno { font-size: 12.5px; color: var(--muted); font-variant-numeric: tabular-nums; }
+  .dl { border: 1px solid var(--line); background: #fff; border-radius: 999px;
+    padding: 7px 15px; font-size: 12.5px; color: var(--accent); text-decoration: none; font-weight: 700; }
+  .dl:hover { background: #f3faf7; }
+
+  .wrap { max-width: 940px; margin: 0 auto; padding: 20px 16px 60px; }
+  .page { background: #fff; border: 1px solid var(--line); border-radius: 8px;
+    box-shadow: 0 2px 10px rgba(0,0,0,.05); margin-bottom: 16px; overflow: hidden; }
+  .page canvas { display: block; width: 100%; height: auto; }
+  .page-lb { font-size: 11px; color: var(--muted); padding: 6px 10px; border-top: 1px solid var(--line); }
+
+  .msg { text-align: center; padding: 60px 20px; color: var(--muted); font-size: 13.5px; line-height: 2; }
+  .fallback { width: 100%; height: 78vh; border: 1px solid var(--line); border-radius: 8px; background: #fff; }
+  .note { text-align: center; font-size: 11.5px; color: var(--muted); padding: 18px 20px 0; line-height: 1.9; }
+</style>
+</head>
+<body>
+  <div class="bar">
+    <div>
+      <div class="bar-t" id="title">資料</div>
+      <div class="bar-s" id="sub"></div>
+    </div>
+    <div class="bar-r">
+      <span class="pageno" id="pageno"></span>
+      <a class="dl" id="dl" href="#" download>ダウンロード</a>
+    </div>
+  </div>
+
+  <div class="wrap">
+    <div id="body"><div class="msg">資料を読み込んでいます…</div></div>
+    <p class="note" id="foot"></p>
+  </div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<script>
+(function () {
+  // URLの /d/xxxx から鍵を取り出す
+  const slug = (location.pathname.match(/\/d\/([A-Za-z0-9_-]+)/) || [])[1] || "";
+  const $ = (id) => document.getElementById(id);
+  const body = $("body");
+
+  let viewId = null;
+  let total = 0;
+
+  // ページごとの滞在秒数。画面に映っているページに毎秒足していく。
+  const pageSec = {};
+  let visible = new Set();
+  let seconds = 0;
+  let active = true;
+
+  const fileUrl = `/api/doc/${encodeURIComponent(slug)}/file`;
+
+  function setFoot(t) { $("foot").textContent = t || ""; }
+
+  // 進捗を送る。閉じるときは sendBeacon で取りこぼさない。
+  function payload() {
+    const maxPage = Math.max(0, ...Object.keys(pageSec).map((n) => +n || 0));
+    return JSON.stringify({ viewId, seconds, maxPage, pages: pageSec });
+  }
+  function beat(final) {
+    if (!viewId) return;
+    const url = `/api/doc/${encodeURIComponent(slug)}/beat`;
+    const data = payload();
+    if (final && navigator.sendBeacon) {
+      try { navigator.sendBeacon(url, new Blob([data], { type: "application/json" })); return; } catch {}
+    }
+    fetch(url, { method: "POST", headers: { "content-type": "application/json" }, body: data,
+                 keepalive: !!final }).catch(() => {});
+  }
+
+  // 1秒ごとに、見えているページへ時間を足す
+  setInterval(() => {
+    if (!active || document.hidden) return;
+    seconds += 1;
+    for (const p of visible) pageSec[p] = (pageSec[p] || 0) + 1;
+  }, 1000);
+  setInterval(() => beat(false), 5000);
+  window.addEventListener("pagehide", () => beat(true));
+  window.addEventListener("beforeunload", () => beat(true));
+  document.addEventListener("visibilitychange", () => { if (document.hidden) beat(false); });
+
+  // どのページが画面に映っているかを見る
+  const io = new IntersectionObserver((entries) => {
+    for (const e of entries) {
+      const p = +e.target.dataset.page;
+      if (e.isIntersecting && e.intersectionRatio > 0.35) visible.add(p);
+      else visible.delete(p);
+    }
+    const cur = visible.size ? Math.min(...visible) : 0;
+    if (cur && total) $("pageno").textContent = `${cur} / ${total}`;
+  }, { threshold: [0, 0.35, 0.7] });
+
+  // PDFを1ページずつ描く
+  async function render() {
+    const pdfjsLib = window.pdfjsLib;
+    if (!pdfjsLib) throw new Error("no-pdfjs");
+    pdfjsLib.GlobalWorkerOptions.workerSrc =
+      "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
+    const pdf = await pdfjsLib.getDocument(fileUrl).promise;
+    total = pdf.numPages;
+    body.innerHTML = "";
+    const width = Math.min(900, document.querySelector(".wrap").clientWidth - 32);
+    for (let n = 1; n <= total; n++) {
+      const page = await pdf.getPage(n);
+      const base = page.getViewport({ scale: 1 });
+      const scale = Math.min(2.2, Math.max(1, (width / base.width) * (window.devicePixelRatio || 1)));
+      const vp = page.getViewport({ scale });
+      const wrap = document.createElement("div");
+      wrap.className = "page";
+      wrap.dataset.page = n;
+      const canvas = document.createElement("canvas");
+      canvas.width = vp.width; canvas.height = vp.height;
+      wrap.appendChild(canvas);
+      const lb = document.createElement("div");
+      lb.className = "page-lb";
+      lb.textContent = `${n} / ${total}`;
+      wrap.appendChild(lb);
+      body.appendChild(wrap);
+      io.observe(wrap);
+      await page.render({ canvasContext: canvas.getContext("2d"), viewport: vp }).promise;
+    }
+    $("pageno").textContent = `1 / ${total}`;
+  }
+
+  // pdf.jsが使えないときは、ブラウザ標準の表示に切り替える（ページ単位の記録はできない）
+  function fallback() {
+    body.innerHTML = `<iframe class="fallback" src="${fileUrl}" title="資料"></iframe>`;
+    setFoot("この環境ではページごとの表示に対応していないため、標準の表示で開いています。");
+  }
+
+  (async () => {
+    if (!slug) { body.innerHTML = '<div class="msg">リンクが正しくありません。</div>'; return; }
+    try {
+      const r = await fetch(`/api/doc/${encodeURIComponent(slug)}/open`, { method: "POST" });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.error || "開けませんでした");
+      viewId = d.viewId;
+      $("title").textContent = d.name || "資料";
+      $("sub").textContent = d.to ? `${d.to} 様` : "";
+      document.title = d.name || "資料";
+      $("dl").href = fileUrl;
+      $("dl").setAttribute("download", d.filename || "document.pdf");
+    } catch (e) {
+      body.innerHTML = `<div class="msg">この資料は見つかりませんでした。<br>お手数ですが、送り主にご確認ください。</div>`;
+      $("dl").style.display = "none";
+      return;
+    }
+    try { await render(); }
+    catch { fallback(); }
+    beat(false);
+  })();
+})();
+</script>
+</body>
+</html>

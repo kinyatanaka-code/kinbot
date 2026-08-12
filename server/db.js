@@ -30,7 +30,8 @@ async function sq(sql, params) {
 const EXPECTED_TABLES = [
   "meetings", "deals", "deal_events", "smart_links", "interns", "users", "settings",
   "apo_mail_log", "gmail_actions", "closer_rotation", "assign_log", "team_rotation", "members", "closer_suspensions",
-  "kasasagi_unanswered", "kasasagi_blocked", "kasasagi_reports", "next_actions", "proposal_files",
+  "kasasagi_unanswered", "kasasagi_blocked", "kasasagi_reports", "next_actions",
+  "doc_files", "doc_links", "doc_views", "doc_events", "proposal_files",
 ];
 const EXPECTED_COLUMNS = [
   ["smart_links", "client_email"], ["smart_links", "client_name"],
@@ -689,6 +690,71 @@ export async function initDb() {
   `);
   await sq(`CREATE INDEX IF NOT EXISTS ix_next_actions ON next_actions(done, due_date NULLS LAST, created_at DESC);`);
   await sq(`CREATE INDEX IF NOT EXISTS ix_next_actions_company ON next_actions(company);`);
+
+  // ===== 資料の閲覧トラッキング =====
+  // 送った資料が「いつ・何ページまで・どれくらいの時間」見られたかを記録する。
+  // Railwayはファイルが消えるので、PDFはDBに入れる（2〜3種・数MBを想定）。
+  await sq(`
+    CREATE TABLE IF NOT EXISTS doc_files (
+      id          SERIAL PRIMARY KEY,
+      name        TEXT NOT NULL,
+      filename    TEXT,
+      mime        TEXT DEFAULT 'application/pdf',
+      bytes       BYTEA,
+      size        INT,
+      active      BOOLEAN NOT NULL DEFAULT true,
+      uploaded_by TEXT,
+      created_at  TIMESTAMPTZ DEFAULT now()
+    );
+  `);
+
+  // 宛先ごとに1本ずつURLを発行する。誰が見たかを特定するため。
+  await sq(`
+    CREATE TABLE IF NOT EXISTS doc_links (
+      id         SERIAL PRIMARY KEY,
+      slug       TEXT UNIQUE NOT NULL,
+      doc_id     INT REFERENCES doc_files(id) ON DELETE CASCADE,
+      company    TEXT,
+      contact    TEXT,
+      email      TEXT,
+      owner      TEXT,
+      note       TEXT,
+      revoked    BOOLEAN NOT NULL DEFAULT false,
+      created_at TIMESTAMPTZ DEFAULT now()
+    );
+  `);
+  await sq(`CREATE INDEX IF NOT EXISTS ix_doc_links_doc ON doc_links(doc_id, created_at DESC);`);
+
+  // 1回の閲覧（開いて閉じるまで）を1行にする
+  await sq(`
+    CREATE TABLE IF NOT EXISTS doc_views (
+      id         SERIAL PRIMARY KEY,
+      link_id    INT REFERENCES doc_links(id) ON DELETE CASCADE,
+      started_at TIMESTAMPTZ DEFAULT now(),
+      last_at    TIMESTAMPTZ DEFAULT now(),
+      seconds    INT NOT NULL DEFAULT 0,
+      max_page   INT NOT NULL DEFAULT 0,
+      pages      JSONB NOT NULL DEFAULT '{}'::jsonb,
+      ua         TEXT,
+      referrer   TEXT,
+      ip_hash    TEXT,
+      notified   BOOLEAN NOT NULL DEFAULT false
+    );
+  `);
+  await sq(`CREATE INDEX IF NOT EXISTS ix_doc_views_link ON doc_views(link_id, started_at DESC);`);
+
+  // 開封（画像の読み込み）とリンクのクリック
+  await sq(`
+    CREATE TABLE IF NOT EXISTS doc_events (
+      id      SERIAL PRIMARY KEY,
+      link_id INT REFERENCES doc_links(id) ON DELETE CASCADE,
+      kind    TEXT NOT NULL,
+      url     TEXT,
+      ua      TEXT,
+      at      TIMESTAMPTZ DEFAULT now()
+    );
+  `);
+  await sq(`CREATE INDEX IF NOT EXISTS ix_doc_events_link ON doc_events(link_id, at DESC);`);
 
   // かささぎが言ってはいけない語を止めた記録（週次の点検用）
   await sq(`
@@ -2792,6 +2858,180 @@ export async function eligibleDays(fromISO, toISO) {
     }
     return out;
   } catch (e) { console.error("[db] eligibleDays", e.message); return {}; }
+}
+
+// ===== 資料の閲覧トラッキング =====
+export async function addDocFile({ name, filename, mime, buf, uploadedBy }) {
+  if (!pool || !buf) return null;
+  try {
+    const { rows } = await pool.query(
+      `INSERT INTO doc_files (name, filename, mime, bytes, size, uploaded_by)
+       VALUES ($1,$2,$3,$4,$5,$6) RETURNING id, name, filename, mime, size, active, created_at`,
+      [String(name || filename || "資料").slice(0, 200), filename || null,
+       mime || "application/pdf", buf, buf.length, uploadedBy || null]);
+    return rows[0];
+  } catch (e) { console.error("[db] addDocFile", e.message); return null; }
+}
+
+// 一覧では中身（bytes）を返さない。重いので。
+export async function listDocFiles() {
+  if (!pool) return [];
+  try {
+    const { rows } = await pool.query(
+      `SELECT f.id, f.name, f.filename, f.mime, f.size, f.active, f.uploaded_by, f.created_at,
+              (SELECT count(*) FROM doc_links l WHERE l.doc_id = f.id) AS links,
+              (SELECT count(*) FROM doc_views v JOIN doc_links l ON l.id = v.link_id
+                WHERE l.doc_id = f.id) AS views
+         FROM doc_files f ORDER BY f.active DESC, f.created_at DESC`);
+    return rows;
+  } catch { return []; }
+}
+
+export async function getDocBytes(id) {
+  if (!pool) return null;
+  try {
+    const { rows } = await pool.query(`SELECT name, filename, mime, bytes FROM doc_files WHERE id=$1`, [id]);
+    return rows[0] || null;
+  } catch { return null; }
+}
+
+export async function setDocActive(id, active) {
+  if (!pool) return;
+  try { await pool.query(`UPDATE doc_files SET active=$2 WHERE id=$1`, [id, !!active]); } catch {}
+}
+export async function deleteDocFile(id) {
+  if (!pool) return;
+  try { await pool.query(`DELETE FROM doc_files WHERE id=$1`, [id]); } catch {}
+}
+
+// 宛先ごとのリンクをまとめて発行する
+export async function addDocLinks(docId, rows, owner) {
+  if (!pool || !docId || !Array.isArray(rows) || !rows.length) return [];
+  const out = [];
+  for (const r of rows) {
+    const slug = randomSlug(10);
+    try {
+      const { rows: ins } = await pool.query(
+        `INSERT INTO doc_links (slug, doc_id, company, contact, email, owner, note)
+         VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING *`,
+        [slug, docId, (r.company || "").slice(0, 200) || null, (r.contact || "").slice(0, 100) || null,
+         (r.email || "").slice(0, 200) || null, owner || null, (r.note || "").slice(0, 300) || null]);
+      out.push(ins[0]);
+    } catch (e) { console.error("[db] addDocLinks", e.message); }
+  }
+  return out;
+}
+
+function randomSlug(n = 10) {
+  const c = "abcdefghijkmnpqrstuvwxyz23456789";
+  let s = "";
+  for (let i = 0; i < n; i++) s += c[Math.floor(Math.random() * c.length)];
+  return s;
+}
+
+// 一覧。閲覧回数・合計秒数・最終閲覧・最大ページ・開封・クリックをまとめて出す。
+export async function listDocLinks({ docId = 0, onlyViewed = false, limit = 500 } = {}) {
+  if (!pool) return [];
+  try {
+    const p = [];
+    let where = "NOT l.revoked";
+    if (docId) { p.push(docId); where += ` AND l.doc_id = $${p.length}`; }
+    p.push(limit);
+    const { rows } = await pool.query(
+      `SELECT l.*, f.name AS doc_name,
+              COALESCE(v.cnt,0)      AS view_count,
+              COALESCE(v.secs,0)     AS total_seconds,
+              COALESCE(v.max_page,0) AS max_page,
+              v.last_at,
+              COALESCE(e.opens,0)    AS opens,
+              COALESCE(e.clicks,0)   AS clicks
+         FROM doc_links l
+         JOIN doc_files f ON f.id = l.doc_id
+         LEFT JOIN (SELECT link_id, count(*) cnt, sum(seconds) secs,
+                           max(max_page) max_page, max(last_at) last_at
+                      FROM doc_views GROUP BY link_id) v ON v.link_id = l.id
+         LEFT JOIN (SELECT link_id,
+                           count(*) FILTER (WHERE kind='open')  opens,
+                           count(*) FILTER (WHERE kind='click') clicks
+                      FROM doc_events GROUP BY link_id) e ON e.link_id = l.id
+        WHERE ${where}
+        ORDER BY v.last_at DESC NULLS LAST, l.created_at DESC
+        LIMIT $${p.length}`, p);
+    return onlyViewed ? rows.filter((r) => +r.view_count > 0) : rows;
+  } catch (e) { console.error("[db] listDocLinks", e.message); return []; }
+}
+
+export async function getDocLink(slug) {
+  if (!pool || !slug) return null;
+  try {
+    const { rows } = await pool.query(
+      `SELECT l.*, f.name AS doc_name, f.mime, f.filename
+         FROM doc_links l JOIN doc_files f ON f.id = l.doc_id
+        WHERE l.slug = $1 AND NOT l.revoked AND f.active`, [slug]);
+    return rows[0] || null;
+  } catch { return null; }
+}
+
+export async function revokeDocLink(id) {
+  if (!pool) return;
+  try { await pool.query(`UPDATE doc_links SET revoked=true WHERE id=$1`, [id]); } catch {}
+}
+
+// 閲覧を開始する（1回の閲覧＝1行）
+export async function startDocView(linkId, { ua, referrer, ipHash } = {}) {
+  if (!pool || !linkId) return null;
+  try {
+    const { rows } = await pool.query(
+      `INSERT INTO doc_views (link_id, ua, referrer, ip_hash) VALUES ($1,$2,$3,$4) RETURNING *`,
+      [linkId, (ua || "").slice(0, 300), (referrer || "").slice(0, 300), ipHash || null]);
+    return rows[0];
+  } catch (e) { console.error("[db] startDocView", e.message); return null; }
+}
+
+// 数秒おきに進捗を上書きする
+export async function beatDocView(viewId, { seconds, maxPage, pages }) {
+  if (!pool || !viewId) return null;
+  try {
+    const { rows } = await pool.query(
+      `UPDATE doc_views
+          SET seconds = GREATEST(seconds, $2),
+              max_page = GREATEST(max_page, $3),
+              pages = $4::jsonb,
+              last_at = now()
+        WHERE id = $1 RETURNING *`,
+      [viewId, Math.max(0, Math.min(60 * 60 * 6, parseInt(seconds, 10) || 0)),
+       Math.max(0, parseInt(maxPage, 10) || 0), JSON.stringify(pages || {})]);
+    return rows[0] || null;
+  } catch (e) { console.error("[db] beatDocView", e.message); return null; }
+}
+
+export async function markDocViewNotified(viewId) {
+  if (!pool) return;
+  try { await pool.query(`UPDATE doc_views SET notified=true WHERE id=$1`, [viewId]); } catch {}
+}
+
+export async function addDocEvent(linkId, kind, { url, ua } = {}) {
+  if (!pool || !linkId) return null;
+  try {
+    const { rows } = await pool.query(
+      `INSERT INTO doc_events (link_id, kind, url, ua) VALUES ($1,$2,$3,$4) RETURNING *`,
+      [linkId, String(kind).slice(0, 20), (url || "").slice(0, 600) || null, (ua || "").slice(0, 300)]);
+    return rows[0];
+  } catch { return null; }
+}
+
+// 1件のリンクの詳しい記録（閲覧ごとの明細）
+export async function docLinkDetail(slug) {
+  if (!pool || !slug) return null;
+  try {
+    const link = await getDocLink(slug);
+    if (!link) return null;
+    const { rows: views } = await pool.query(
+      `SELECT * FROM doc_views WHERE link_id=$1 ORDER BY started_at DESC LIMIT 50`, [link.id]);
+    const { rows: events } = await pool.query(
+      `SELECT * FROM doc_events WHERE link_id=$1 ORDER BY at DESC LIMIT 100`, [link.id]);
+    return { link, views, events };
+  } catch { return null; }
 }
 
 // ===== 次回アクション（やることリスト） =====

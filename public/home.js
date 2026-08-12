@@ -601,29 +601,7 @@ function openSfEdit(key) {
          <button type="button" class="sfm-x" data-modal-close="1" aria-label="閉じる">閉じる</button>
        </div>
        <div class="sfm-body">
-         <section class="na-box">
-           <div class="na-head">
-             <span class="na-title">次回アクション</span>
-             <span class="na-note">Salesforceの活動記録とは別に、kinbot側のやることとして残します</span>
-           </div>
-           <div class="na-form">
-             <label class="na-lb">種別<select class="na-kind"></select></label>
-             <label class="na-lb na-lb-wide">内容<input type="text" class="na-content" placeholder="例：見積を作って送付する" /></label>
-             <label class="na-lb">次回アクション日<input type="date" class="na-due" /></label>
-             <button type="button" class="btn na-add">記録する</button>
-           </div>
-           <label class="na-sf-wrap" hidden>
-             <input type="checkbox" class="na-sf" checked />
-             Salesforceの活動としても記録する（状況は「未着手」／日付は「次回アクション日」に入ります）
-             <span class="na-sf-name"></span>
-           </label>
-           <div class="na-msg"></div>
-           <div class="na-list"><div class="na-empty">読み込み中…</div></div>
-         </section>
-         <section class="sf-embed-box">
-           <div class="na-head"><span class="na-title">Salesforce</span></div>
-           <iframe class="sfm-frame" src="${escH(src)}" title="SF更新"></iframe>
-         </section>
+         <iframe class="sfm-frame" src="${escH(src)}" title="SF更新"></iframe>
        </div>
      </div>`;
   document.body.appendChild(m);
@@ -633,132 +611,6 @@ function openSfEdit(key) {
   const onKey = (e) => { if (e.key === "Escape") close(); };
   document.addEventListener("keydown", onKey);
   m.querySelectorAll("[data-modal-close]").forEach((b) => b.addEventListener("click", close));
-
-  wireNextActions(m, { company, title: it.title || "", botId: it.botId || "" });
-}
-
-// 次回アクションの一覧・追加・完了チェック
-function wireNextActions(root, ctx) {
-  const q = (sel) => root.querySelector(sel);
-  const list = q(".na-list");
-  const msg = q(".na-msg");
-  const say = (t, ms) => {
-    msg.textContent = t || "";
-    if (ms) setTimeout(() => { if (msg.textContent === t) msg.textContent = ""; }, ms);
-  };
-
-  const fmtDue = (d) => {
-    if (!d) return "";
-    const x = new Date(d);
-    if (isNaN(x.getTime())) return "";
-    const wd = ["日", "月", "火", "水", "木", "金", "土"][x.getDay()];
-    return `${x.getMonth() + 1}/${x.getDate()}(${wd})`;
-  };
-  // 次回アクション日を過ぎているか
-  const isLate = (d) => {
-    if (!d) return false;
-    const x = new Date(d); x.setHours(23, 59, 59);
-    return x.getTime() < Date.now();
-  };
-
-  async function load() {
-    try {
-      const d = await (await fetch("/api/next-actions?company=" + encodeURIComponent(ctx.company))).json();
-      if (d.error) throw new Error(d.error);
-      const sel = q(".na-kind");
-      if (sel && !sel.options.length) {
-        for (const k of d.kinds || []) sel.add(new Option(k, k));
-      }
-      const items = d.items || [];
-      if (!items.length) {
-        list.innerHTML = '<div class="na-empty">まだ登録がありません。上の欄から記録してください。</div>';
-        return;
-      }
-      list.innerHTML = items.map((x) => `
-        <label class="na-item${x.done ? " na-done" : ""}">
-          <input type="checkbox" class="na-check" data-id="${x.id}" ${x.done ? "checked" : ""} />
-          <span class="na-kind-tag">${escH(x.kind)}</span>
-          <span class="na-text">${escH(x.content)}</span>
-          ${x.due_date ? `<span class="na-due-tag${!x.done && isLate(x.due_date) ? " na-late" : ""}">${escH(fmtDue(x.due_date))}</span>` : ""}
-          ${x.done ? `<span class="na-doneby">完了${x.done_by ? "・" + escH(String(x.done_by).split("@")[0]) : ""}</span>` : ""}
-          <button type="button" class="na-del" data-id="${x.id}" aria-label="削除">×</button>
-        </label>`).join("");
-
-      list.querySelectorAll(".na-check").forEach((c) =>
-        c.addEventListener("change", async () => {
-          c.disabled = true;
-          try {
-            const r = await fetch(`/api/next-actions/${c.dataset.id}`, {
-              method: "PUT", headers: { "content-type": "application/json" },
-              body: JSON.stringify({ done: c.checked }),
-            });
-            if (!r.ok) throw new Error((await r.json()).error || "変更できませんでした");
-            load();
-          } catch (e) { say("失敗: " + e.message, 5000); c.checked = !c.checked; c.disabled = false; }
-        })
-      );
-      list.querySelectorAll(".na-del").forEach((b) =>
-        b.addEventListener("click", async (e) => {
-          e.preventDefault();
-          if (!confirm("この次回アクションを削除します。よろしいですか？")) return;
-          try {
-            await fetch(`/api/next-actions/${b.dataset.id}`, { method: "DELETE" });
-            load();
-          } catch {}
-        })
-      );
-    } catch (e) {
-      list.innerHTML = `<div class="na-empty">読み込めませんでした：${escH(e.message)}</div>`;
-    }
-  }
-
-  q(".na-add").addEventListener("click", async () => {
-    const kind = q(".na-kind").value;
-    const content = q(".na-content").value.trim();
-    const dueDate = q(".na-due").value;
-    if (!content) { say("内容を入れてください", 4000); return; }
-    say("記録しています…");
-    try {
-      const r = await fetch("/api/next-actions", {
-        method: "POST", headers: { "content-type": "application/json" },
-        body: JSON.stringify({ ...ctx, kind, content, dueDate: dueDate || null }),
-      });
-      const d = await r.json();
-      if (!r.ok) throw new Error(d.error || "記録できませんでした");
-
-      // Salesforce側にも「次回アクション」として活動を作る
-      let sfNote = "";
-      const wantSf = q(".na-sf") && q(".na-sf").checked && window.sfLinkedOppId;
-      if (wantSf) {
-        try {
-          const rs = await fetch("/api/salesforce/next-action", {
-            method: "POST", headers: { "content-type": "application/json" },
-            body: JSON.stringify({
-              opportunityId: window.sfLinkedOppId,
-              kind, content, dueDate: dueDate || null,
-            }),
-          });
-          const ds = await rs.json();
-          if (!rs.ok) throw new Error(ds.error || "登録できませんでした");
-          sfNote = ds.warn ? "／Salesforceにも登録しました（" + ds.warn + "）"
-                           : "／Salesforceにも登録しました";
-          // 埋め込み側の「過去の活動」を作り直す
-          const fr = document.querySelector(".sfm-frame");
-          if (fr) fr.contentWindow.postMessage({ type: "kb-sf-reload-tasks" }, "*");
-        } catch (e) { sfNote = "／Salesforceへの登録は失敗しました（" + e.message + "）"; }
-      }
-
-      q(".na-content").value = ""; q(".na-due").value = "";
-      say("記録しました" + sfNote, 7000);
-      load();
-    } catch (e) { say("失敗: " + e.message); }
-  });
-
-  q(".na-content").addEventListener("keydown", (e) => {
-    if (e.key === "Enter") q(".na-add").click();
-  });
-
-  load();
 }
 
 // 会議URLの候補が複数あるときは、どれで録音するかを選ばせる（1回選べば次から覚える）
@@ -1271,13 +1123,8 @@ window.sfLinkedOppId = "";
 window.addEventListener("message", (ev) => {
   const x = ev && ev.data;
   if (x && x.type === "kb-sf-opp") {
+    // 埋め込み側で紐づいた商談を覚えておく（今は表示に使わないが、他の機能から参照できる）
     window.sfLinkedOppId = x.id || "";
-    const w = document.querySelector(".na-sf-wrap");
-    if (w) {
-      w.hidden = !window.sfLinkedOppId;
-      const n = w.querySelector(".na-sf-name");
-      if (n) n.textContent = x.name || "";
-    }
     return;
   }
 });

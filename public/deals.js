@@ -1317,6 +1317,17 @@ async function selectDeal(account) {
     `<div id="sfTaskFields"><div class="empty-state">項目を読み込み中…</div></div>` +
     `<div class="sf-autofill-row"><button type="button" class="btn btn-ghost" id="sfTaskReadBtn">商談から読み取る</button><span id="sfTaskReadSelWrap"></span><span class="sf-autofill-note" id="sfTaskReadNote">選んだ商談から活動種別・次回アクション・説明を埋めます</span></div>` +
     `<div class="sf-field" style="margin-top:8px"><button class="btn sf-btn-secondary" id="sfTaskBtn">活動を記録</button></div><div id="sfTaskMsg"></div></div>` +
+    // 次回アクション（kinbot側のやることリスト。Salesforceにも同時に登録できる）
+    `<div class="sf-section-box"><div class="sf-section-title">` +
+    `<svg width="14" height="14" viewBox="0 0 16 16" fill="none" style="vertical-align:-2px;margin-right:4px"><rect x="2" y="2" width="12" height="12" rx="3" fill="#0d5b47"/><path d="M5 8.2l2 2 4-4.4" stroke="#fff" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>` +
+    `次回アクション<span class="na-note" style="margin-left:10px">やることとして残し、チェックで完了にできます</span></div>` +
+    `<div class="na-form">` +
+    `<label class="na-lb">種別<select class="na-kind" id="naKind"></select></label>` +
+    `<label class="na-lb na-lb-wide">内容<input type="text" class="na-content" id="naContent" placeholder="例：見積を作って送付する" /></label>` +
+    `<label class="na-lb">次回アクション日<input type="date" class="na-due" id="naDue" /></label>` +
+    `<button type="button" class="btn na-add" id="naAdd">記録する</button></div>` +
+    `<label class="na-sf-wrap" id="naSfWrap"><input type="checkbox" class="na-sf" id="naSf" checked /> Salesforceの活動としても記録する（状況は「未着手」／日付は「次回アクション日」に入ります）</label>` +
+    `<div class="na-msg" id="naMsg"></div><div class="na-list" id="naList"></div></div>` +
     `<div class="sf-section-box"><div class="sf-section-title"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" style="vertical-align:-2px;margin-right:4px"><rect x="2" y="3" width="12" height="11" rx="1.5" fill="#0d5b47"/><rect x="4" y="6" width="8" height="1.3" rx=".5" fill="#5DCAA5"/><rect x="4" y="9" width="6" height="1.3" rx=".5" fill="#5DCAA5"/></svg>過去の活動</div><div id="sfTaskHistory"><div class="sf-ss-note">商談をリンクすると表示されます。</div></div></div>` +
     `</div>` +
     `<div class="sf-subpanel" data-sfpanel="stage" hidden>` +
@@ -3480,6 +3491,140 @@ async function loadProducts() {
 }
 
 // 商談に紐づく過去の活動（Task）を表示
+// ───────────────────────────────────────────────────────────
+// 次回アクション（kinbot側のやることリスト）
+// 会社名で紐づけて保存し、チェックで完了にする。
+// Salesforceにも「未着手」の活動として同時に登録できる。
+// ───────────────────────────────────────────────────────────
+function naCompany() {
+  // いま開いている会社名。Salesforceの商談名より、kinbot側の会社名を優先する。
+  try {
+    const q = new URLSearchParams(location.search).get("company");
+    if (q) return q;
+  } catch {}
+  return (window.currentAccount && (currentAccount.company_name || currentAccount.name)) || "";
+}
+
+function naSay(t, ms) {
+  const e = $("naMsg");
+  if (!e) return;
+  e.textContent = t || "";
+  if (ms) setTimeout(() => { if (e.textContent === t) e.textContent = ""; }, ms);
+}
+
+function naFmtDue(d) {
+  if (!d) return "";
+  const x = new Date(d);
+  if (isNaN(x.getTime())) return "";
+  const wd = ["日", "月", "火", "水", "木", "金", "土"][x.getDay()];
+  return `${x.getMonth() + 1}/${x.getDate()}(${wd})`;
+}
+function naIsLate(d) {
+  if (!d) return false;
+  const x = new Date(d); x.setHours(23, 59, 59);
+  return x.getTime() < Date.now();
+}
+
+async function loadNextActions() {
+  const list = $("naList");
+  if (!list) return;
+  const company = naCompany();
+  try {
+    const d = await (await fetch("/api/next-actions?company=" + encodeURIComponent(company))).json();
+    if (d.error) throw new Error(d.error);
+    const sel = $("naKind");
+    if (sel && !sel.options.length) for (const k of d.kinds || []) sel.add(new Option(k, k));
+    const items = d.items || [];
+    if (!items.length) {
+      list.innerHTML = '<div class="na-empty">まだ登録がありません。上の欄から記録してください。</div>';
+      return;
+    }
+    list.innerHTML = items.map((x) => `
+      <label class="na-item${x.done ? " na-done" : ""}">
+        <input type="checkbox" class="na-check" data-id="${x.id}" ${x.done ? "checked" : ""} />
+        <span class="na-kind-tag">${esc(x.kind)}</span>
+        <span class="na-text">${esc(x.content)}</span>
+        ${x.due_date ? `<span class="na-due-tag${!x.done && naIsLate(x.due_date) ? " na-late" : ""}">${esc(naFmtDue(x.due_date))}</span>` : ""}
+        ${x.done ? `<span class="na-doneby">完了${x.done_by ? "・" + esc(String(x.done_by).split("@")[0]) : ""}</span>` : ""}
+        <button type="button" class="na-del" data-id="${x.id}" aria-label="削除">×</button>
+      </label>`).join("");
+
+    list.querySelectorAll(".na-check").forEach((c) =>
+      c.addEventListener("change", async () => {
+        c.disabled = true;
+        try {
+          const r = await fetch(`/api/next-actions/${c.dataset.id}`, {
+            method: "PUT", headers: { "content-type": "application/json" },
+            body: JSON.stringify({ done: c.checked }),
+          });
+          if (!r.ok) throw new Error(((await r.json()) || {}).error || "変更できませんでした");
+          loadNextActions();
+        } catch (e) { naSay("失敗: " + e.message, 5000); c.checked = !c.checked; c.disabled = false; }
+      })
+    );
+    list.querySelectorAll(".na-del").forEach((b) =>
+      b.addEventListener("click", async (ev) => {
+        ev.preventDefault(); ev.stopPropagation();
+        if (!confirm("この次回アクションを削除します。よろしいですか？")) return;
+        try { await fetch(`/api/next-actions/${b.dataset.id}`, { method: "DELETE" }); loadNextActions(); } catch {}
+      })
+    );
+  } catch (e) {
+    list.innerHTML = `<div class="na-empty">読み込めませんでした：${esc(e.message)}</div>`;
+  }
+}
+
+function wireNextActionForm() {
+  const add = $("naAdd");
+  if (!add || add.dataset.wired) return;
+  add.dataset.wired = "1";
+
+  const submit = async () => {
+    const kind = $("naKind").value;
+    const content = $("naContent").value.trim();
+    const dueDate = $("naDue").value;
+    if (!content) { naSay("内容を入れてください", 4000); return; }
+    add.disabled = true;
+    naSay("記録しています…");
+    try {
+      const r = await fetch("/api/next-actions", {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ company: naCompany(), kind, content, dueDate: dueDate || null }),
+      });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.error || "記録できませんでした");
+
+      // Salesforceにも「未着手」の活動として登録する
+      let note = "";
+      const oppId = (window.sfLinkedOpp && (sfLinkedOpp.Id || sfLinkedOpp.id)) || "";
+      if ($("naSf") && $("naSf").checked && oppId) {
+        try {
+          const rs = await sfFetch("/api/salesforce/next-action", {
+            method: "POST", headers: { "content-type": "application/json" },
+            body: JSON.stringify({ opportunityId: oppId, kind, content, dueDate: dueDate || null }),
+          });
+          const ds = await rs.json();
+          if (!rs.ok) throw new Error(ds.error || "登録できませんでした");
+          note = ds.warn ? "／Salesforceにも登録しました（" + ds.warn + "）" : "／Salesforceにも登録しました";
+          loadSfTaskHistory(oppId);
+        } catch (e) { note = "／Salesforceへの登録は失敗しました（" + e.message + "）"; }
+      }
+
+      $("naContent").value = ""; $("naDue").value = "";
+      naSay("記録しました" + note, 7000);
+      loadNextActions();
+    } catch (e) { naSay("失敗: " + e.message); }
+    finally { add.disabled = false; }
+  };
+
+  add.addEventListener("click", submit);
+  $("naContent").addEventListener("keydown", (e) => { if (e.key === "Enter") submit(); });
+
+  // 商談が紐づいていないときは、Salesforceへの登録欄を隠す
+  const w = $("naSfWrap");
+  if (w) w.hidden = !((window.sfLinkedOpp && (sfLinkedOpp.Id || sfLinkedOpp.id)) || "");
+}
+
 // 親（ホームのモーダル）から「過去の活動を読み直して」と言われたときに応じる
 try {
   window.addEventListener("message", (ev) => {
@@ -3506,6 +3651,8 @@ async function loadSfTaskHistory(oppId) {
   const box = $("sfTaskHistory");
   if (!box || !oppId) return;
   postLinkedOpp(sfLinkedOpp || { Id: oppId });
+  wireNextActionForm();
+  loadNextActions();
   box.innerHTML = '<div class="sf-ss-note">読み込み中…</div>';
   try {
     const r = await sfFetch("/api/salesforce/tasks?opportunityId=" + encodeURIComponent(oppId));
@@ -3520,22 +3667,30 @@ async function loadSfTaskHistory(oppId) {
       // 次回アクション（種別・日）と説明は、別々の行に分けて見せる
       const nextDate = (t.nextDate || "").slice(0, 10);
       const late = nextDate && !t.isClosed && new Date(nextDate + "T23:59:59").getTime() < Date.now();
+      // 次回アクションがある活動だけ、その行にチェックを出す。
+      // チェック＝この次回アクションが終わった（Salesforceの状況を「完了」にする）。
+      const hasNext = !!(t.nextKind || nextDate);
+      const nextRow = hasNext
+        ? `<label class="sf-task-row sf-task-nextrow${t.isClosed ? " sf-next-done" : ""}" title="チェックすると、この次回アクションを完了にします">
+             <span class="sf-task-k">次回アクション</span>
+             <span class="sf-next-body">
+               <input type="checkbox" class="sf-task-done-chk" ${t.isClosed ? "checked" : ""} />
+               <span class="sf-next-label">${t.nextKind ? esc(t.nextKind) : "（種別なし）"}</span>
+               ${nextDate ? `<span class="sf-task-next${late && !t.isClosed ? " sf-task-late" : ""}" data-late="${late ? "1" : "0"}">${esc(nextDate)}</span>` : ""}
+               <span class="sf-next-state">${t.isClosed ? "完了" : "未完了"}</span>
+             </span>
+           </label>`
+        : "";
+
       const rows =
         (t.actKind ? `<div class="sf-task-row"><span class="sf-task-k">活動種別</span><span>${esc(t.actKind)}</span></div>` : "") +
-        (t.nextKind || nextDate
-          ? `<div class="sf-task-row"><span class="sf-task-k">次回アクション</span>` +
-            `<span>${t.nextKind ? esc(t.nextKind) : "（種別なし）"}` +
-            `${nextDate ? `　<span class="sf-task-next${late ? " sf-task-late" : ""}">${esc(nextDate)}</span>` : ""}</span></div>`
-          : "") +
+        nextRow +
         (short ? `<div class="sf-task-row"><span class="sf-task-k">説明</span><span class="sf-task-desc">${esc(short)}</span></div>` : "");
 
-      return `<div class="sf-task-item${t.isClosed ? " sf-task-done" : ""}" data-tid="${esc(t.id)}" data-subject="${esc(t.subject || "")}" data-status="${esc(t.status || "")}" data-date="${esc(t.activityDate || "")}" data-desc="${esc(t.description || "")}">
+      return `<div class="sf-task-item" data-tid="${esc(t.id)}" data-subject="${esc(t.subject || "")}" data-status="${esc(t.status || "")}" data-date="${esc(t.activityDate || "")}" data-desc="${esc(t.description || "")}">
         <div class="sf-task-head">
-          <label class="sf-task-chk" title="チェックすると、この活動の状況を「完了」にします">
-            <input type="checkbox" class="sf-task-done-chk" ${t.isClosed ? "checked" : ""} />
-          </label>
           <span class="sf-task-subj">${esc(t.subject || "(件名なし)")}</span>
-          <span class="sf-task-meta">${esc(date)}${t.owner ? " ・ " + esc(t.owner) : ""}${t.status ? " ・ " + esc(t.status) : ""}</span>
+          <span class="sf-task-meta">${esc(date)}${t.owner ? " ・ " + esc(t.owner) : ""}</span>
         </div>
         ${rows}
         <div class="sf-task-actions"><button type="button" class="btn btn-ghost sf-task-edit">編集</button><button type="button" class="btn btn-ghost sf-task-del">削除</button></div>
@@ -3555,16 +3710,23 @@ async function loadSfTaskHistory(oppId) {
           });
           const d = await r.json();
           if (!r.ok) throw new Error(d.error || "変更できませんでした");
-          item.classList.toggle("sf-task-done", c.checked);
-          const meta = item.querySelector(".sf-task-meta");
-          if (meta && d.status) meta.textContent = meta.textContent.replace(/・[^・]*$/, "・" + d.status);
+          const row = c.closest(".sf-task-nextrow");
+          if (row) {
+            row.classList.toggle("sf-next-done", c.checked);
+            const st = row.querySelector(".sf-next-state");
+            if (st) st.textContent = c.checked ? "完了" : "未完了";
+            // 完了にしたら、期限切れの赤は消す
+            const nd = row.querySelector(".sf-task-next");
+            if (nd) nd.classList.toggle("sf-task-late", !c.checked && nd.dataset.late === "1");
+          }
         } catch (e) {
           alert("状況を変更できませんでした：" + e.message);
           c.checked = !c.checked;
         } finally { c.disabled = false; }
       });
-      // チェックのクリックで編集モードに入らないようにする
-      c.closest(".sf-task-chk").addEventListener("click", (ev) => ev.stopPropagation());
+      // 行のクリックで編集モードに入らないようにする
+      const row = c.closest(".sf-task-nextrow");
+      if (row) row.addEventListener("click", (ev) => ev.stopPropagation());
     });
   } catch (e) {
     box.innerHTML = `<div class="sf-ss-note">履歴の取得に失敗しました：${esc(e.message)}</div>`;

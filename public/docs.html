@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="ja">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>kinbot 資料トラッキング</title>
+    <link rel="stylesheet" href="style.css" />
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/tabler-icons/2.44.0/iconfont/tabler-icons.min.css" />
+  </head>
+  <body>
+    <div class="app">
+      <nav class="sidebar">
+        <div class="side-brand"><span class="brand-mark"></span><span>kinbot</span></div>
+        <a class="side-item" href="home.html"><span class="side-ico ico-home"></span><span class="side-label">ホーム</span></a>
+        <a class="side-item" href="index.html"><span class="side-ico ico-rec"></span><span class="side-label">レコーディング</span></a>
+        <a class="side-item" href="history.html"><span class="side-ico ico-hist"></span><span class="side-label">商談履歴</span></a>
+        <a class="side-item" href="sf-launch.html"><span class="side-ico ico-deal"></span><span class="side-label">Salesforce</span></a>
+        <a class="side-item" href="report.html"><span class="side-ico ico-ana"></span><span class="side-label">分析</span></a>
+        <a class="side-item" href="report.html?panel=interns"><span class="side-ico ico-apo"></span><span class="side-label">インターンアポ</span></a>
+        <a class="side-item" href="apo.html"><span class="side-ico ico-assign"></span><span class="side-label">アポ振り分け</span></a>
+        <a class="side-item active" href="docs.html"><span class="side-ico ico-doc"></span><span class="side-label">資料トラッキング</span></a>
+        <a class="side-item" href="settings.html"><span class="side-ico ico-set"></span><span class="side-label">設定</span></a>
+        <div class="side-foot"><span id="who" class="who"></span><a href="#" id="logout" class="side-logout">ログアウト</a></div>
+      </nav>
+
+      <div class="main">
+        <header class="topbar"><div class="brand"><img class="topbar-bot" src="kinbot.svg" alt="" /><span class="brand-name">資料トラッキング</span></div></header>
+        <main class="report-page">
+          <div class="ap-tabs" role="tablist">
+            <button type="button" class="ap-tab active" data-dpane="track">閲覧状況</button>
+            <button type="button" class="ap-tab" data-dpane="send">URLを発行する</button>
+            <button type="button" class="ap-tab" data-dpane="files">資料</button>
+          </div>
+
+          <!-- 閲覧状況 -->
+          <section class="ap-pane" data-dpane="track">
+            <div class="set-card">
+              <h3>閲覧状況</h3>
+              <p class="note">送ったURLが開かれると、ここに滞在時間と到達ページが出ます。<b>20秒以上見られた時点でGoogle Chatへ通知</b>します。<br>
+              「開封」はメールに埋め込んだ画像の読み込み回数です。<b>iPhoneの標準メールは受信時に画像を先読みするため、本人が読んでいなくても開封が立ちます。</b>参考値として見てください。</p>
+              <div class="ap-cfg-row">
+                <label>資料 <select id="dkDoc"><option value="">すべて</option></select></label>
+                <label class="ks-check"><input type="checkbox" id="dkViewed" /> 閲覧があったものだけ</label>
+                <button class="btn ghost" id="dkReload">読み込む</button>
+                <span class="rev-status" id="dkStatus"></span>
+              </div>
+              <div id="dkList"><div class="empty-state">読み込み中…</div></div>
+            </div>
+          </section>
+
+          <!-- URLを発行する -->
+          <section class="ap-pane" data-dpane="send" hidden>
+            <div class="set-card">
+              <h3>宛先ごとのURLを発行する</h3>
+              <p class="note">宛先ごとに別のURLを作ります。<b>誰が見たかを区別するため、同じURLを使い回さないでください。</b><br>
+              Excelから「会社名・担当者名・メール」の3列をコピーして、下に貼り付けられます。1行1社で、200社分をまとめて発行できます。</p>
+              <div class="ap-cfg-row">
+                <label>送る資料 <select id="dsDoc"></select></label>
+              </div>
+              <label class="ks-field">宛先（1行1社。タブまたはカンマ区切りで「会社名, 担当者名, メール」）
+                <textarea id="dsRows" rows="8" placeholder="株式会社ベルク	町田	machida@belc.example.jp&#10;合同会社サンライズ	佐藤	sato@sunrise.example.jp"></textarea>
+              </label>
+              <div class="ap-cfg-actions">
+                <button class="btn" id="dsMake">URLを発行する</button>
+                <span class="rev-status" id="dsStatus"></span>
+              </div>
+              <div id="dsResult"></div>
+            </div>
+          </section>
+
+          <!-- 資料 -->
+          <section class="ap-pane" data-dpane="files" hidden>
+            <div class="set-card">
+              <h3>資料</h3>
+              <p class="note">PDFを登録します。<b>25MBまで。</b>登録した資料は、宛先ごとのURLから開かれます。<br>
+              添付ではなくURLで送ることで、何ページまで読まれたかが分かります。</p>
+              <div class="ap-cfg-row">
+                <input type="text" id="dfName" placeholder="資料の名前（例：DOCサービス紹介）" style="flex:1 1 260px" />
+                <input type="file" id="dfFile" accept="application/pdf" />
+                <button class="btn" id="dfUp">登録する</button>
+                <span class="rev-status" id="dfStatus"></span>
+              </div>
+              <div id="dfList"><div class="empty-state">読み込み中…</div></div>
+            </div>
+          </section>
+        </main>
+      </div>
+    </div>
+    <script src="nav.js"></script>
+    <script src="docs.js"></script>
+  </body>
+</html>

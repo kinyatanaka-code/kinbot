@@ -25,6 +25,8 @@ import { sendApoMail, runReminderSweep, getApoMailConfig,
 import { startKasasagi, getKasasagi, stopKasasagi, feedTranscript, kasasagiInfo,
          buildScript, buildReport, faceState, SLIDE_LABELS } from "./kasasagi.js";
 import { notifyAssigned, notifyMailDraft, notifyChat, chatWebhookUrl, chatInfo } from "./chat.js";
+import { openDocView, beatDocViewAndNotify, recordOpen, recordClick,
+         PIXEL, docUrl, pixelUrl, clickUrl, fmtSeconds, topPages } from "./docs.js";
 import { transcribeFile, transcriberAvailable } from "./transcribe.js";
 import { createBot, leaveBot, parseTranscriptEvent, parseChatEvent, outputAudio, getRecordingUrl, getBot, recallConnectionInfo, getRecallUsage, getLastRecallCreate } from "./recall.js";
 import { createSession, getSession, removeSession, listActiveSessions, setOnMeetingFinalized } from "./sessions.js";
@@ -92,6 +94,16 @@ import {
   setSmartLinkSourceNote,
   recentInvites,
   myAssignedApos,
+  addDocFile,
+  listDocFiles,
+  getDocBytes,
+  setDocActive,
+  deleteDocFile,
+  addDocLinks,
+  listDocLinks,
+  getDocLink,
+  revokeDocLink,
+  docLinkDetail,
   addNextAction,
   listNextActions,
   setNextActionDone,
@@ -359,6 +371,8 @@ const OPEN_PATHS = new Set([
   "/api/recall/webhook", "/api/zoom/webhook", "/api/login", "/api/register", "/api/auth-info",
   // 会議に映すページとその中身（Recallのブラウザから認証なしで読む）
   "/api/kasasagi/face", "/kasasagi-face.html",
+  // 送った資料のビューアー（受け取った人が開くので認証なし）
+  "/doc.html",
   "/.well-known/oauth-authorization-server", "/.well-known/oauth-protected-resource",
   "/oauth/register", "/oauth/authorize", "/oauth/token",
   // ChatGPTのCustom GPTが「URLからインポート」で取得する公開スキーマ（トークンは含まない）
@@ -412,6 +426,12 @@ app.use(async (req, res, next) => {
     return next();
   }
   if (OPEN_PATHS.has(req.path) || req.path.startsWith("/j/")) return next();
+  // 送った資料まわりは、受け取った相手が認証なしで開く
+  //   /d/xxx  … 資料のビューアー
+  //   /px/xxx … 開封計測の画像
+  //   /c/xxx  … リンクのクリック計測
+  //   /api/doc/xxx … ビューアーが呼ぶ処理（資料の中身・進捗の記録）
+  if (/^\/(d|px|c)\//.test(req.path) || req.path.startsWith("/api/doc/")) return next();
   // APIトークンでの認証（Cookie不要。外部プログラム・Claude Code用）
   const tk = apiTokenUser(req);
   if (tk) {
@@ -2145,6 +2165,171 @@ app.post("/api/mux/cleanup", async (req, res) => {
 
 // Recall接続状況（どのリージョン/キーに繋がっているか＋今月の利用時間＋直近のボット起動結果）
 // ※Recall APIは「残高（チャージ額）」を返さないため、残高は取得できない。利用時間と接続先のみ表示する。
+// ===== 送った資料の閲覧トラッキング =====
+// ここから4つは、受け取った相手が開くため認証なしで動く。
+
+// 資料のビューアー
+app.get("/d/:slug", async (req, res) => {
+  const link = await getDocLink(String(req.params.slug || ""));
+  if (!link) return res.status(404).send("この資料は見つかりませんでした。送り主にご確認ください。");
+  res.sendFile("doc.html", { root: path.join(__dirname, "..", "public") });
+});
+
+// ビューアーが最初に呼ぶ。閲覧を1件つくり、資料の情報を返す。
+app.post("/api/doc/:slug/open", async (req, res) => {
+  try {
+    const r = await openDocView(String(req.params.slug || ""), req);
+    if (r.error) return res.status(404).json({ error: r.error });
+    res.json({
+      ok: true, viewId: r.view ? r.view.id : null,
+      name: r.link.doc_name, filename: r.link.filename || "",
+      to: [r.link.company, r.link.contact].filter(Boolean).join(" "),
+    });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// 資料の中身（PDF）を返す
+app.get("/api/doc/:slug/file", async (req, res) => {
+  try {
+    const link = await getDocLink(String(req.params.slug || ""));
+    if (!link) return res.status(404).send("見つかりません");
+    const f = await getDocBytes(link.doc_id);
+    if (!f || !f.bytes) return res.status(404).send("資料がありません");
+    res.setHeader("content-type", f.mime || "application/pdf");
+    res.setHeader("cache-control", "private, max-age=600");
+    res.setHeader("content-disposition",
+      `inline; filename*=UTF-8''${encodeURIComponent(f.filename || "document.pdf")}`);
+    res.send(f.bytes);
+  } catch (e) { res.status(500).send("読み込めませんでした"); }
+});
+
+// 数秒おきの進捗。しきい値を超えたらChatへ通知する。
+app.post("/api/doc/:slug/beat", async (req, res) => {
+  try {
+    const r = await beatDocViewAndNotify(
+      String(req.params.slug || ""), parseInt(req.body?.viewId, 10), req.body || {});
+    if (r.error) return res.status(400).json({ error: r.error });
+    res.json(r);
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// 開封計測の画像。1×1の透明PNGを返す。
+app.get("/px/:file", async (req, res) => {
+  const slug = String(req.params.file || "").replace(/\.png$/i, "");
+  try { await recordOpen(slug, req); } catch {}
+  res.setHeader("content-type", "image/png");
+  res.setHeader("cache-control", "no-store, no-cache, must-revalidate, private");
+  res.setHeader("pragma", "no-cache");
+  res.send(PIXEL);
+});
+
+// リンクのクリック計測。記録してから本来のURLへ送る。
+app.get("/c/:slug", async (req, res) => {
+  const target = String(req.query.u || "");
+  try { await recordClick(String(req.params.slug || ""), target, req); } catch {}
+  if (!/^https?:\/\//i.test(target)) return res.status(400).send("行き先が正しくありません");
+  res.redirect(target);
+});
+
+// ===== ここから下は社内向け（認証あり） =====
+
+// 資料の一覧
+app.get("/api/docs", async (req, res) => {
+  try { res.json({ docs: await listDocFiles(), base: PUBLIC_URL }); }
+  catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// 資料をアップロードする
+app.post("/api/docs", kbUpload.single("file"), async (req, res) => {
+  try {
+    if (!req.file) return res.status(400).json({ error: "ファイルを選んでください" });
+    if (req.file.size > 25 * 1024 * 1024) {
+      return res.status(400).json({ error: "25MBを超えています。PDFを軽くしてからお試しください。" });
+    }
+    const mime = req.file.mimetype || "application/pdf";
+    if (!/pdf/i.test(mime)) return res.status(400).json({ error: "PDFを選んでください" });
+    const row = await addDocFile({
+      name: String(req.body?.name || "").trim() || req.file.originalname,
+      filename: req.file.originalname, mime, buf: req.file.buffer, uploadedBy: req.user,
+    });
+    if (!row) return res.status(500).json({ error: "保存できませんでした" });
+    console.log(`[doc] 資料を追加「${row.name}」${Math.round(row.size / 1024)}KB by ${req.user}`);
+    res.json({ ok: true, doc: row });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.put("/api/docs/:id", async (req, res) => {
+  try {
+    await setDocActive(parseInt(req.params.id, 10), req.body?.active !== false);
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.delete("/api/docs/:id", async (req, res) => {
+  try {
+    await deleteDocFile(parseInt(req.params.id, 10));
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// 宛先ごとのURLをまとめて発行する（200社分をCSVの貼り付けで作れる）
+app.post("/api/doc-links", async (req, res) => {
+  try {
+    const docId = parseInt(req.body?.docId, 10);
+    if (!docId) return res.status(400).json({ error: "資料を選んでください" });
+    const rows = Array.isArray(req.body?.rows) ? req.body.rows : [];
+    if (!rows.length) return res.status(400).json({ error: "宛先がありません" });
+    if (rows.length > 1000) return res.status(400).json({ error: "一度に発行できるのは1000件までです" });
+    const made = await addDocLinks(docId, rows, req.user);
+    console.log(`[doc] リンクを${made.length}件発行 by ${req.user}`);
+    res.json({
+      ok: true,
+      links: made.map((l) => ({
+        ...l,
+        url: docUrl(PUBLIC_URL, l.slug),
+        pixel: pixelUrl(PUBLIC_URL, l.slug),
+      })),
+    });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// 発行したリンクと、その閲覧状況
+app.get("/api/doc-links", async (req, res) => {
+  try {
+    const rows = await listDocLinks({
+      docId: parseInt(req.query.docId, 10) || 0,
+      onlyViewed: req.query.viewed === "1",
+    });
+    res.json({
+      base: PUBLIC_URL,
+      links: rows.map((r) => ({
+        ...r,
+        url: docUrl(PUBLIC_URL, r.slug),
+        pixel: pixelUrl(PUBLIC_URL, r.slug),
+        total_label: fmtSeconds(r.total_seconds),
+      })),
+    });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// 1件の詳しい記録
+app.get("/api/doc-links/:slug", async (req, res) => {
+  try {
+    const d = await docLinkDetail(String(req.params.slug || ""));
+    if (!d) return res.status(404).json({ error: "見つかりません" });
+    res.json({
+      link: { ...d.link, url: docUrl(PUBLIC_URL, d.link.slug), pixel: pixelUrl(PUBLIC_URL, d.link.slug) },
+      views: d.views.map((v) => ({ ...v, seconds_label: fmtSeconds(v.seconds), top_pages: topPages(v.pages) })),
+      events: d.events,
+    });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.delete("/api/doc-links/:id", async (req, res) => {
+  try { await revokeDocLink(parseInt(req.params.id, 10)); res.json({ ok: true }); }
+  catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 // ===== 次回アクション（やることリスト） =====
 app.get("/api/next-actions", async (req, res) => {
   try {
@@ -8095,13 +8280,17 @@ app.post("/api/salesforce/next-action", async (req, res) => {
     if (!content) return res.status(400).json({ error: "内容を入れてください" });
 
     const fn = await taskFieldNames(req.user);
-    const pick = (want, fallback) => (fn.statusPicklist || []).find((v) => want.test(v)) || fallback;
+    const list = fn.statusPicklist || [];
+    const openValue =
+      list.find((v) => /^(未着手|未完了|未対応|未実施|オープン|Not Started|Open)$/i.test(String(v).trim())) ||
+      list.find((v) => /^(未|Not|Open)/i.test(String(v).trim())) ||
+      "未着手";
     const today = new Date(Date.now() + 9 * 3600 * 1000).toISOString().slice(0, 10);
     const data = {
       WhatId: oppId,
       Subject: `[次回アクション] ${kind}`,
       Description: content,
-      Status: pick(/未着手|Not Started/i, "未着手"),
+      Status: openValue,
       // ActivityDate はSalesforce側で更新日として扱われるため、記録した日を入れる。
       // 入力された日付は「次回アクション日」の項目にだけ入れる。
       ActivityDate: today,
@@ -8135,11 +8324,18 @@ app.put("/api/salesforce/task/:id/status", async (req, res) => {
     const fn = await taskFieldNames(req.user);
     const done = req.body?.done !== false;
     // 組織の選択肢から、完了／未着手にあたる値を選ぶ
-    const pick = (want, fallback) =>
-      (fn.statusPicklist || []).find((v) => want.test(v)) || fallback;
-    const value = done
-      ? pick(/完了|Completed/i, "完了")
-      : pick(/未着手|Not Started/i, "未着手");
+    // 状況の選択肢は組織ごとに違う（完了／未着手／未完了／未対応／Completed など）。
+    // 「未完了」は「完了」にも一致してしまうので、未完了側を先に判定する。
+    const list = fn.statusPicklist || [];
+    const findOpen = () =>
+      list.find((v) => /^(未着手|未完了|未対応|未実施|オープン|Not Started|Open)$/i.test(String(v).trim())) ||
+      list.find((v) => /^(未|Not|Open)/i.test(String(v).trim())) ||
+      "未着手";
+    const findDone = () =>
+      list.find((v) => /^(完了|済|完了済|Completed|Closed)$/i.test(String(v).trim())) ||
+      list.find((v) => /完了|Completed/i.test(String(v)) && !/^未/.test(String(v).trim())) ||
+      "完了";
+    const value = done ? findDone() : findOpen();
     await updateTask(req.user, id, { Status: value });
     console.log(`[sf-task] ${id} の状況を「${value}」にしました by ${req.user}`);
     res.json({ ok: true, status: value });
