@@ -53,6 +53,7 @@ function mk(n, setter, title, start, createdDate, { owner = null, mail = {}, cli
     smart_url: `http://localhost:${PORT}/j/9006868174?pwd=Qj7DcInBMT6vePGojiFG_${n}`,
     current_owner: owner, client_email: clientEmail, client_name: "",
     client_email_source: source, business: n % 2 === 0 ? "MOCHICA" : "DOC", auto_assigned_at: null, mail,
+    excluded: n === 3,   // 3件目をテスト扱いにして、見え方を確かめる
   };
 }
 

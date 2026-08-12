@@ -621,6 +621,10 @@ export async function initDb() {
   await sq(`ALTER TABLE smart_links ADD COLUMN IF NOT EXISTS business TEXT;`);
   // どのチームに配ったかを割り振り履歴にも残す
   await sq(`ALTER TABLE assign_log ADD COLUMN IF NOT EXISTS team TEXT;`);
+  // テストで作ったアポを、件数の集計から外すための印。
+  // 予定や記録は残したまま、実績・均等化・通知の数から除く。
+  await sq(`ALTER TABLE smart_links ADD COLUMN IF NOT EXISTS excluded BOOLEAN NOT NULL DEFAULT false;`);
+  await sq(`CREATE INDEX IF NOT EXISTS ix_smart_links_excluded ON smart_links(excluded) WHERE excluded;`);
   // チーム単位のローテーション状態と通算件数。
   // 期間ごとの正確な件数は smart_links から集計するが、通算はここに持って画面表示を速くする。
   await sq(`
@@ -2758,11 +2762,23 @@ export async function countAssignedOnDate(email, jstDate) {
     const { rows } = await pool.query(
       `SELECT COUNT(*)::int AS n FROM smart_links
         WHERE current_owner = $1
+          AND NOT excluded
           AND (start_time AT TIME ZONE 'Asia/Tokyo')::date = $2::date`,
       [email, jstDate]
     );
     return rows[0] ? rows[0].n : 0;
   } catch { return 0; }
+}
+
+// テストで作ったアポを、集計から外す／戻す
+export async function setApoExcluded(slug, excluded) {
+  if (!pool || !slug) return null;
+  try {
+    const { rows } = await pool.query(
+      `UPDATE smart_links SET excluded=$2 WHERE slug=$1 RETURNING slug, label, excluded`,
+      [slug, !!excluded]);
+    return rows[0] || null;
+  } catch (e) { console.error("[db] setApoExcluded", e.message); return null; }
 }
 
 export async function logAssign({ slug, assigned, reason, skipped, actor, team }) {
@@ -2909,7 +2925,7 @@ export async function assignCounts(business = "") {
       const { rows } = await pool.query(
         `SELECT count(*)::int AS n FROM assign_log a
            JOIN smart_links s ON s.slug = a.slug
-          WHERE a.created_at >= ${from} ${cond}`, p);
+          WHERE a.created_at >= ${from} AND NOT s.excluded ${cond}`, p);
       return rows[0]?.n || 0;
     };
     // JSTの区切りで数える
@@ -3679,7 +3695,7 @@ export async function teamAssignStats(fromISO, toISO, business = "") {
                COUNT(*)::int AS cnt
           FROM smart_links sl
           JOIN closer_rotation cr ON cr.email = sl.current_owner
-         WHERE COALESCE(sl.current_owner,'') <> '' ${where} ${bizWhere}
+         WHERE COALESCE(sl.current_owner,'') <> '' AND NOT sl.excluded ${where} ${bizWhere}
          GROUP BY 1
       ), base AS (
         -- 過去の実績（取り込み分）。kinbotで配る前の件数も均等化に反映させる。
@@ -3747,7 +3763,7 @@ export async function closerAssignStats(fromISO, toISO) {
     if (fromISO && toISO) { params.push(fromISO, toISO); where = `AND start_time >= $1 AND start_time < $2`; }
     const { rows } = await pool.query(
       `SELECT current_owner AS email, COUNT(*)::int AS cnt FROM smart_links
-        WHERE COALESCE(current_owner,'') <> '' ${where} GROUP BY 1`, params);
+        WHERE COALESCE(current_owner,'') <> '' AND NOT excluded ${where} GROUP BY 1`, params);
     const out = {};
     for (const r of rows) out[r.email] = r.cnt;
     // 過去の実績（取り込み分）を足す

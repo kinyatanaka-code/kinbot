@@ -98,6 +98,7 @@ import {
   recentInvites,
   myAssignedApos,
   assignCounts,
+  setApoExcluded,
   saveAutolaunch,
   getAutolaunch,
   autolaunchForSlugs,
@@ -2174,6 +2175,50 @@ app.post("/api/mux/cleanup", async (req, res) => {
 
 // Recall接続状況（どのリージョン/キーに繋がっているか＋今月の利用時間＋直近のボット起動結果）
 // ※Recall APIは「残高（チャージ額）」を返さないため、残高は取得できない。利用時間と接続先のみ表示する。
+// テストで作ったアポを、件数の集計から外す／戻す。
+// 予定もアポ自体も残したまま、実績・均等化・通知の数からだけ除く。
+app.put("/api/smart-links/:slug/excluded", async (req, res) => {
+  try {
+    const slug = String(req.params.slug || "");
+    const on = req.body?.excluded !== false;
+    const link = await getSmartLink(slug);
+    if (!link) return res.status(404).json({ error: "見つかりませんでした" });
+
+    const row = await setApoExcluded(slug, on);
+    if (!row) return res.status(404).json({ error: "見つかりませんでした" });
+
+    // 集計から外すときは、担当者のカレンダーに作った商談予定も消す。
+    // テストのために作った予定を残しておく理由がないため。
+    let calendar = "";
+    if (on && link.invite_event_id) {
+      const owner = link.invite_event_owner ||
+        (await getSettings().catch(() => ({}))).apoInviteOwner || "";
+      if (!owner) {
+        calendar = "予定は残っています（どのカレンダーに作られたか分かりません）";
+      } else {
+        try {
+          await deleteCalendarEvent(owner, link.invite_event_id, "primary");
+          await setSmartLinkInviteEvent(slug, null, null);
+          calendar = "カレンダーの予定も消しました";
+          console.log(`[apo] ${slug} の予定を削除（${owner}）`);
+        } catch (e) {
+          // すでに手で消されている場合は消えたものとして扱う
+          if (/40[04]/.test(e.message)) {
+            await setSmartLinkInviteEvent(slug, null, null);
+            calendar = "カレンダーの予定はすでにありませんでした";
+          } else {
+            calendar = `予定を消せませんでした（${String(e.message).slice(0, 80)}）`;
+            console.warn("[apo] 予定の削除に失敗", slug, e.message);
+          }
+        }
+      }
+    }
+
+    console.log(`[apo] ${row.slug}（${row.label || "-"}）を集計から${on ? "外しました" : "戻しました"} by ${req.user}`);
+    res.json({ ok: true, excluded: row.excluded, calendar });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 // ===== Salesforceの自動立ち上げ =====
 // 条件を満たしたものだけ実行する。コンバートは取り消せないため、
 // 少しでも怪しいものは実行せず、理由を残してホームに出す。
@@ -9215,6 +9260,7 @@ async function collectApoAppointments(scanOwner, opts = {}) {
           client_email_source: link.client_email_source || "",
           business: link.business || "",
           auto_assigned_at: link.auto_assigned_at || null,
+          excluded: !!link.excluded,
           _link: link, // 内部用。APIレスポンスに出す前に落とす。
         });
       }

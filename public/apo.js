@@ -158,6 +158,7 @@ function apoCard(a, i) {
     ? '<span class="home-badge home-badge-done">担当決定</span>'
     : '<span class="home-badge home-badge-plan">担当未定</span>';
   if (a.business) badges += `<span class="ap-biz-badge ap-biz-${esc(a.business)}">${esc(a.business)}</span>`;
+  if (a.excluded) badges += `<span class="ap-badge ap-excluded">集計から除外</span>`;
 
   // メールの状態
   const mailChip = (label, st) => {
@@ -207,6 +208,8 @@ function apoCard(a, i) {
         <div class="ap-card-links">
           <a class="btn ghost" href="${esc(a.smart_url)}" target="_blank" rel="noopener" title="${esc(a.smart_url)}">開く</a>
           <button class="btn ghost ap-copy" data-url="${esc(a.smart_url)}">コピー</button>
+          <button class="btn ghost ap-exclude" data-slug="${esc(a.slug)}" data-on="${a.excluded ? "1" : "0"}"
+            title="実績・均等化・通知の件数から外し、カレンダーの商談予定も消します">${a.excluded ? "集計に戻す" : "テストとして外す"}</button>
         </div>
       </div>
     </div>
@@ -309,6 +312,26 @@ function bindCardEvents(card) {
       alert("自動で決められませんでした:\n" + e.message);
       auto.disabled = false; auto.textContent = bo;
     }
+  });
+
+  const ex = q(".ap-exclude");
+  if (ex) ex.addEventListener("click", async () => {
+    const on = ex.dataset.on !== "1";
+    if (on && !confirm(
+      "このアポを、実績・均等化・通知の件数から外します。\n" +
+      "担当者のカレンダーに作った商談予定も消します。\n\nよろしいですか？")) return;
+    ex.disabled = true;
+    try {
+      const r = await fetch(`/api/smart-links/${encodeURIComponent(ex.dataset.slug)}/excluded`, {
+        method: "PUT", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ excluded: on }),
+      });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.error || "変えられませんでした");
+      // 予定を消せなかったときだけ知らせる（消せたときは黙って進む）
+      if (d.calendar && !/消しました|ありませんでした/.test(d.calendar)) alert(d.calendar);
+      load();
+    } catch (e) { alert(e.message); ex.disabled = false; }
   });
 
   const copy = q(".ap-copy");

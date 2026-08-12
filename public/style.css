@@ -4569,6 +4569,16 @@ input:focus, select:focus, textarea:focus, .sf-input:focus, .sf-select:focus, .s
 .na-del { flex: none; border: 0; background: transparent; color: var(--muted); font-size: 16px;
   line-height: 1; cursor: pointer; padding: 2px 4px; }
 .na-del:hover { color: #A33C24; }
+/* テストとして集計から外したアポ */
+.ap-badge.ap-excluded { font-size: 10.5px; font-weight: 700; color: #6b7f79; background: #eef1f0;
+  border: 1px solid #d8e0dd; border-radius: 999px; padding: 2px 9px; }
+.ap-card:has(.ap-excluded) { opacity: .72; }
+/* ボタンが増えたので、入りきらないときは折り返す */
+/* ボタンが3つになったので、操作列を少し広げて折り返せるようにする */
+.ap-card .home-card-actions { width: 232px; }
+.ap-card-links { display: flex; flex-wrap: wrap; gap: 6px; }
+.ap-card-links .btn { flex: 1 1 auto; min-width: 0; white-space: nowrap; }
+.ap-card-links .ap-exclude { flex: 1 1 100%; font-size: 11.5px; }
 .na-sf-wrap { display: flex; align-items: center; gap: 8px; margin-top: 10px; font-size: 12.5px; color: var(--ink); cursor: pointer; }
 .na-sf-wrap[hidden] { display: none; }
 /* Salesforceの区画に入れたときの余白 */
