@@ -266,6 +266,27 @@ function apiResponse(pathname, query) {
   if (pathname === "/api/kasasagi/start") { globalThis.__ks = true; return { ok: true, slides: { cover: "表紙", company: "会社紹介", problem: "採用の課題", service: "サービスの説明", usage: "使い方", flow: "導入の流れ", case: "導入事例", pricing: "料金", faq: "よくある質問", next: "次のご案内", summary: "この商談のまとめ" }, generatedScript: "本日はお時間をいただきありがとうございます。ネオキャリアのかささぎと申します。まず御社の採用状況をお伺いします。次にサービスをご説明します。" }; }
   if (pathname === "/api/kasasagi/stop") { globalThis.__ks = false; return { ok: true }; }
   if (pathname.indexOf("/api/kasasagi/") === 0) return { ok: true, done: false, remaining: 2 };
+  if (pathname === "/api/salesforce/tasks") {
+    globalThis.__tasks = globalThis.__tasks || [
+      { id: "00T1", subject: "2026-08-12_商談_田中 欽也", status: "完了", isClosed: true,
+        activityDate: "2026-08-12", owner: "田中 欽也", actKind: "商談", nextKind: "再商談", nextDate: "2026-08-19",
+        description: "本商談は、AI採用担当サービス「どこでもオープンカンパニー」に関する提案商談である。" },
+      { id: "00T2", subject: "[次回アクション] 見積提出", status: "未着手", isClosed: false,
+        activityDate: "2026-08-14", owner: "田中 欽也", actKind: "", nextKind: "見積提出", nextDate: "2026-08-10",
+        description: "3拠点分の見積を作って送付する" },
+    ];
+    return { tasks: globalThis.__tasks, fieldNames: { actKind: "ActKind__c", nextKind: "NextKind__c", nextDate: "NextDate__c" } };
+  }
+  if (pathname.indexOf("/api/salesforce/task/") === 0 && pathname.endsWith("/status")) {
+    const id = pathname.split("/")[4];
+    const t = (globalThis.__tasks || []).find((x) => x.id === id);
+    if (t) { t.isClosed = !t.isClosed; t.status = t.isClosed ? "完了" : "未着手"; }
+    return { ok: true, status: t ? t.status : "完了" };
+  }
+  if (pathname === "/api/salesforce/next-action") {
+    globalThis.__sfNext = body || {};
+    return { ok: true, id: "00T9", warn: "" };
+  }
   if (pathname === "/api/next-actions") {
     globalThis.__na = globalThis.__na || [
       { id: 1, kind: "見積提出", content: "3拠点分の見積を作って送付する", due_date: "2026-08-14", done: false },

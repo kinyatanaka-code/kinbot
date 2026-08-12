@@ -7783,7 +7783,9 @@ app.post("/api/salesforce/task", async (req, res) => {
     // 既定値
     if (!data.Subject) data.Subject = "[kinbot] 活動記録";
     if (!data.Status) data.Status = "完了";
-    if (!data.ActivityDate) data.ActivityDate = new Date().toISOString().slice(0, 10);
+    // ActivityDate はSalesforce側で更新日として扱われるため、記録した日を入れる。
+    // 次回アクションの日付は専用の項目に入る（フォーム側で指定）。
+    if (!data.ActivityDate) data.ActivityDate = new Date(Date.now() + 9 * 3600 * 1000).toISOString().slice(0, 10);
     const task = await createTask(req.user, data); // 存在しない項目は自動で外して再送
     // 作成時に入らなかった項目（活動種別などのカスタム項目）を、後追いのupdateで確実に反映する
     const taskId = task && (task.id || task.Id);
@@ -8030,20 +8032,118 @@ app.delete("/api/salesforce/task/:id", async (req, res) => {
   } catch (e) { sfErrorResponse(res, e); }
 });
 
+// 活動（Task）の項目のうち、ラベルから「活動種別」「次回アクション種別」「次回アクション日」を探す。
+// 組織ごとにAPI名が違うため、describeの結果から毎回引く（1分キャッシュ）。
+let _taskFieldCache = { at: 0, map: null };
+async function taskFieldNames(owner) {
+  if (_taskFieldCache.map && Date.now() - _taskFieldCache.at < 60 * 1000) return _taskFieldCache.map;
+  const normL = (x) => String(x || "").replace(/[\s　()（）_]/g, "").toLowerCase();
+  const map = { actKind: "", nextKind: "", nextDate: "", statusPicklist: [] };
+  try {
+    const desc = await describeTask(owner);
+    for (const f of desc.fields || []) {
+      const L = normL(f.label);
+      if (!map.actKind && L === "活動種別") map.actKind = f.name;
+      if (!map.nextKind && L === "次回アクション種別") map.nextKind = f.name;
+      if (!map.nextDate && L === "次回アクション日") map.nextDate = f.name;
+      if (f.name === "Status") map.statusPicklist = (f.picklistValues || []).map((v) => v.value);
+    }
+  } catch (e) { console.warn("[sf] Taskの項目を読めませんでした", e.message); }
+  _taskFieldCache = { at: Date.now(), map };
+  return map;
+}
+
+app.get("/api/salesforce/task-field-names", async (req, res) => {
+  try { res.json(await taskFieldNames(req.user)); }
+  catch (e) { sfErrorResponse(res, e); }
+});
+
 app.get("/api/salesforce/tasks", async (req, res) => {
   try {
     const oppId = String(req.query.opportunityId || "").replace(/[^a-zA-Z0-9]/g, "");
     if (!oppId) return res.status(400).json({ error: "opportunityIdが必要です" });
-    const soql = `SELECT Id, Subject, Status, ActivityDate, Description, CreatedDate, Owner.Name FROM Task WHERE WhatId = '${oppId}' ORDER BY CreatedDate DESC LIMIT 30`;
+    const fn = await taskFieldNames(req.user);
+    // 次回アクションの種別・日も一緒に取る（過去の活動で別々に見せるため）
+    const extra = [fn.actKind, fn.nextKind, fn.nextDate].filter(Boolean).join(", ");
+    const soql = `SELECT Id, Subject, Status, IsClosed, ActivityDate, Description, CreatedDate, Owner.Name` +
+      `${extra ? ", " + extra : ""} FROM Task WHERE WhatId = '${oppId}' ORDER BY CreatedDate DESC LIMIT 30`;
     const data = await sfQuery(req.user, soql);
     const tasks = (data.records || []).map((t) => ({
-      id: t.Id, subject: t.Subject, status: t.Status, activityDate: t.ActivityDate,
-      description: t.Description, createdDate: t.CreatedDate, owner: (t.Owner && t.Owner.Name) || "",
+      id: t.Id, subject: t.Subject, status: t.Status, isClosed: !!t.IsClosed,
+      activityDate: t.ActivityDate, description: t.Description,
+      createdDate: t.CreatedDate, owner: (t.Owner && t.Owner.Name) || "",
+      actKind: fn.actKind ? t[fn.actKind] || "" : "",
+      nextKind: fn.nextKind ? t[fn.nextKind] || "" : "",
+      nextDate: fn.nextDate ? t[fn.nextDate] || "" : "",
     }));
-    res.json({ tasks });
+    res.json({ tasks, fieldNames: fn });
   } catch (e) {
     sfErrorResponse(res, e);
   }
+});
+
+// 次回アクションを Salesforce の活動として登録する。
+// 状況は「未着手」で作るので、やることとして残り、チェックで完了にできる。
+app.post("/api/salesforce/next-action", async (req, res) => {
+  try {
+    const b = req.body || {};
+    const oppId = String(b.opportunityId || "").replace(/[^a-zA-Z0-9]/g, "");
+    const kind = String(b.kind || "").trim();
+    const content = String(b.content || "").trim();
+    if (!oppId) return res.status(400).json({ error: "商談が紐づいていません" });
+    if (!kind) return res.status(400).json({ error: "種別を選んでください" });
+    if (!content) return res.status(400).json({ error: "内容を入れてください" });
+
+    const fn = await taskFieldNames(req.user);
+    const pick = (want, fallback) => (fn.statusPicklist || []).find((v) => want.test(v)) || fallback;
+    const today = new Date(Date.now() + 9 * 3600 * 1000).toISOString().slice(0, 10);
+    const data = {
+      WhatId: oppId,
+      Subject: `[次回アクション] ${kind}`,
+      Description: content,
+      Status: pick(/未着手|Not Started/i, "未着手"),
+      // ActivityDate はSalesforce側で更新日として扱われるため、記録した日を入れる。
+      // 入力された日付は「次回アクション日」の項目にだけ入れる。
+      ActivityDate: today,
+    };
+    if (fn.nextKind) data[fn.nextKind] = kind;
+    if (fn.nextDate && b.dueDate) data[fn.nextDate] = b.dueDate;
+
+    const task = await createTask(req.user, data);
+    const taskId = task && (task.id || task.Id);
+    // 作成時に落ちたカスタム項目を、後追いで入れ直す
+    if (taskId && (fn.nextKind || fn.nextDate)) {
+      const after = {};
+      if (fn.nextKind) after[fn.nextKind] = kind;
+      if (fn.nextDate && b.dueDate) after[fn.nextDate] = b.dueDate;
+      try { await updateTask(req.user, taskId, after); } catch {}
+    }
+    // 「次回アクション日」の項目が組織に無いと、入力した日付は入らない
+    const warn = (b.dueDate && !fn.nextDate)
+      ? "Salesforceに「次回アクション日」の項目が見つからないため、日付は登録されていません。"
+      : "";
+    console.log(`[sf-next] ${oppId} に次回アクションを登録（${kind}／次回アクション日 ${b.dueDate || "なし"}） by ${req.user}`);
+    res.json({ ok: true, id: taskId || null, warn });
+  } catch (e) { sfErrorResponse(res, e); }
+});
+
+// 活動のチェックを入れる／外す（Salesforceの状況を完了・未着手に切り替える）
+app.put("/api/salesforce/task/:id/status", async (req, res) => {
+  try {
+    const id = String(req.params.id || "").replace(/[^a-zA-Z0-9]/g, "");
+    if (!id) return res.status(400).json({ error: "活動IDが必要です" });
+    const fn = await taskFieldNames(req.user);
+    const done = req.body?.done !== false;
+    // 組織の選択肢から、完了／未着手にあたる値を選ぶ
+    const pick = (want, fallback) =>
+      (fn.statusPicklist || []).find((v) => want.test(v)) || fallback;
+    const value = done
+      ? pick(/完了|Completed/i, "完了")
+      : pick(/未着手|Not Started/i, "未着手");
+    await updateTask(req.user, id, { Status: value });
+    console.log(`[sf-task] ${id} の状況を「${value}」にしました by ${req.user}`);
+    res.json({ ok: true, status: value });
+  } catch (e) { sfErrorResponse(res, e); }
 });
 
 // 段階の各項目を、商談の内容から読み取って提案する（フォームに入れて確認・編集してから更新）

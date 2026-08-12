@@ -3480,9 +3480,32 @@ async function loadProducts() {
 }
 
 // 商談に紐づく過去の活動（Task）を表示
+// 親（ホームのモーダル）から「過去の活動を読み直して」と言われたときに応じる
+try {
+  window.addEventListener("message", (ev) => {
+    const d = ev && ev.data;
+    if (!d || d.type !== "kb-sf-reload-tasks") return;
+    const id = (window.sfLinkedOpp && (sfLinkedOpp.Id || sfLinkedOpp.id)) || "";
+    if (id) loadSfTaskHistory(id);
+  });
+} catch {}
+
+// 埋め込みのとき、いま紐づいている商談を親に伝える（次回アクションをSFへ書くために使う）
+function postLinkedOpp(opp) {
+  try {
+    if (!document.body.classList.contains("kb-embed")) return;
+    parent.postMessage({
+      type: "kb-sf-opp",
+      id: (opp && (opp.Id || opp.id)) || "",
+      name: (opp && (opp.Name || opp.name)) || "",
+    }, "*");
+  } catch {}
+}
+
 async function loadSfTaskHistory(oppId) {
   const box = $("sfTaskHistory");
   if (!box || !oppId) return;
+  postLinkedOpp(sfLinkedOpp || { Id: oppId });
   box.innerHTML = '<div class="sf-ss-note">読み込み中…</div>';
   try {
     const r = await sfFetch("/api/salesforce/tasks?opportunityId=" + encodeURIComponent(oppId));
@@ -3494,13 +3517,55 @@ async function loadSfTaskHistory(oppId) {
       const date = (t.activityDate || (t.createdDate || "").slice(0, 10) || "");
       const desc = (t.description || "").trim();
       const short = desc.length > 140 ? desc.slice(0, 140) + "…" : desc;
-      return `<div class="sf-task-item" data-tid="${esc(t.id)}" data-subject="${esc(t.subject || "")}" data-status="${esc(t.status || "")}" data-date="${esc(t.activityDate || "")}" data-desc="${esc(t.description || "")}">
-        <div class="sf-task-head"><span class="sf-task-subj">${esc(t.subject || "(件名なし)")}</span><span class="sf-task-meta">${esc(date)}${t.owner ? " ・ " + esc(t.owner) : ""}${t.status ? " ・ " + esc(t.status) : ""}</span></div>
-        ${short ? `<div class="sf-task-desc">${esc(short)}</div>` : ""}
+      // 次回アクション（種別・日）と説明は、別々の行に分けて見せる
+      const nextDate = (t.nextDate || "").slice(0, 10);
+      const late = nextDate && !t.isClosed && new Date(nextDate + "T23:59:59").getTime() < Date.now();
+      const rows =
+        (t.actKind ? `<div class="sf-task-row"><span class="sf-task-k">活動種別</span><span>${esc(t.actKind)}</span></div>` : "") +
+        (t.nextKind || nextDate
+          ? `<div class="sf-task-row"><span class="sf-task-k">次回アクション</span>` +
+            `<span>${t.nextKind ? esc(t.nextKind) : "（種別なし）"}` +
+            `${nextDate ? `　<span class="sf-task-next${late ? " sf-task-late" : ""}">${esc(nextDate)}</span>` : ""}</span></div>`
+          : "") +
+        (short ? `<div class="sf-task-row"><span class="sf-task-k">説明</span><span class="sf-task-desc">${esc(short)}</span></div>` : "");
+
+      return `<div class="sf-task-item${t.isClosed ? " sf-task-done" : ""}" data-tid="${esc(t.id)}" data-subject="${esc(t.subject || "")}" data-status="${esc(t.status || "")}" data-date="${esc(t.activityDate || "")}" data-desc="${esc(t.description || "")}">
+        <div class="sf-task-head">
+          <label class="sf-task-chk" title="チェックすると、この活動の状況を「完了」にします">
+            <input type="checkbox" class="sf-task-done-chk" ${t.isClosed ? "checked" : ""} />
+          </label>
+          <span class="sf-task-subj">${esc(t.subject || "(件名なし)")}</span>
+          <span class="sf-task-meta">${esc(date)}${t.owner ? " ・ " + esc(t.owner) : ""}${t.status ? " ・ " + esc(t.status) : ""}</span>
+        </div>
+        ${rows}
         <div class="sf-task-actions"><button type="button" class="btn btn-ghost sf-task-edit">編集</button><button type="button" class="btn btn-ghost sf-task-del">削除</button></div>
       </div>`;
     }).join("");
     box.querySelectorAll(".sf-task-item").forEach((el) => wireTaskItem(el, oppId));
+    // チェックで Salesforce の状況（完了／未着手）を切り替える
+    box.querySelectorAll(".sf-task-done-chk").forEach((c) => {
+      c.addEventListener("change", async (ev) => {
+        ev.stopPropagation();
+        const item = c.closest(".sf-task-item");
+        c.disabled = true;
+        try {
+          const r = await sfFetch(`/api/salesforce/task/${encodeURIComponent(item.dataset.tid)}/status`, {
+            method: "PUT", headers: { "content-type": "application/json" },
+            body: JSON.stringify({ done: c.checked }),
+          });
+          const d = await r.json();
+          if (!r.ok) throw new Error(d.error || "変更できませんでした");
+          item.classList.toggle("sf-task-done", c.checked);
+          const meta = item.querySelector(".sf-task-meta");
+          if (meta && d.status) meta.textContent = meta.textContent.replace(/・[^・]*$/, "・" + d.status);
+        } catch (e) {
+          alert("状況を変更できませんでした：" + e.message);
+          c.checked = !c.checked;
+        } finally { c.disabled = false; }
+      });
+      // チェックのクリックで編集モードに入らないようにする
+      c.closest(".sf-task-chk").addEventListener("click", (ev) => ev.stopPropagation());
+    });
   } catch (e) {
     box.innerHTML = `<div class="sf-ss-note">履歴の取得に失敗しました：${esc(e.message)}</div>`;
   }

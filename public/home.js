@@ -607,11 +607,16 @@ function openSfEdit(key) {
              <span class="na-note">Salesforceの活動記録とは別に、kinbot側のやることとして残します</span>
            </div>
            <div class="na-form">
-             <select class="na-kind" aria-label="種別"></select>
-             <input type="text" class="na-content" placeholder="内容（例：見積を作って送付する）" />
-             <input type="date" class="na-due" aria-label="期日" />
+             <label class="na-lb">種別<select class="na-kind"></select></label>
+             <label class="na-lb na-lb-wide">内容<input type="text" class="na-content" placeholder="例：見積を作って送付する" /></label>
+             <label class="na-lb">次回アクション日<input type="date" class="na-due" /></label>
              <button type="button" class="btn na-add">記録する</button>
            </div>
+           <label class="na-sf-wrap" hidden>
+             <input type="checkbox" class="na-sf" checked />
+             Salesforceの活動としても記録する（状況は「未着手」／日付は「次回アクション日」に入ります）
+             <span class="na-sf-name"></span>
+           </label>
            <div class="na-msg"></div>
            <div class="na-list"><div class="na-empty">読み込み中…</div></div>
          </section>
@@ -649,6 +654,7 @@ function wireNextActions(root, ctx) {
     const wd = ["日", "月", "火", "水", "木", "金", "土"][x.getDay()];
     return `${x.getMonth() + 1}/${x.getDate()}(${wd})`;
   };
+  // 次回アクション日を過ぎているか
   const isLate = (d) => {
     if (!d) return false;
     const x = new Date(d); x.setHours(23, 59, 59);
@@ -719,8 +725,31 @@ function wireNextActions(root, ctx) {
       });
       const d = await r.json();
       if (!r.ok) throw new Error(d.error || "記録できませんでした");
+
+      // Salesforce側にも「次回アクション」として活動を作る
+      let sfNote = "";
+      const wantSf = q(".na-sf") && q(".na-sf").checked && window.sfLinkedOppId;
+      if (wantSf) {
+        try {
+          const rs = await fetch("/api/salesforce/next-action", {
+            method: "POST", headers: { "content-type": "application/json" },
+            body: JSON.stringify({
+              opportunityId: window.sfLinkedOppId,
+              kind, content, dueDate: dueDate || null,
+            }),
+          });
+          const ds = await rs.json();
+          if (!rs.ok) throw new Error(ds.error || "登録できませんでした");
+          sfNote = ds.warn ? "／Salesforceにも登録しました（" + ds.warn + "）"
+                           : "／Salesforceにも登録しました";
+          // 埋め込み側の「過去の活動」を作り直す
+          const fr = document.querySelector(".sfm-frame");
+          if (fr) fr.contentWindow.postMessage({ type: "kb-sf-reload-tasks" }, "*");
+        } catch (e) { sfNote = "／Salesforceへの登録は失敗しました（" + e.message + "）"; }
+      }
+
       q(".na-content").value = ""; q(".na-due").value = "";
-      say("記録しました", 3000);
+      say("記録しました" + sfNote, 7000);
       load();
     } catch (e) { say("失敗: " + e.message); }
   });
@@ -1237,6 +1266,22 @@ function openApoSfLaunch(slug) {
 }
 
 // 埋め込んだ画面から高さを受け取って、iframeの高さを合わせる
+// 埋め込みのSalesforce画面から、いま紐づいている商談を受け取る
+window.sfLinkedOppId = "";
+window.addEventListener("message", (ev) => {
+  const x = ev && ev.data;
+  if (x && x.type === "kb-sf-opp") {
+    window.sfLinkedOppId = x.id || "";
+    const w = document.querySelector(".na-sf-wrap");
+    if (w) {
+      w.hidden = !window.sfLinkedOppId;
+      const n = w.querySelector(".na-sf-name");
+      if (n) n.textContent = x.name || "";
+    }
+    return;
+  }
+});
+
 window.addEventListener("message", (ev) => {
   const d = ev && ev.data;
   if (!d || d.type !== "kb-embed-height") return;
