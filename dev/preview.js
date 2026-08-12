@@ -357,7 +357,9 @@ function apiResponse(pathname, query) {
     if (it) it.done = !it.done;
     return { ok: true, row: it };
   }
-  if (pathname === "/api/chat-config") return { url: "", fromEnv: false, notifyAssign: true, notifyMail: true, lastError: "", sentCount: 0 };
+  if (pathname === "/api/chat-config") return { url: "https://chat.googleapis.com/v1/spaces/AAA/messages?key=x",
+    fromEnv: false, spaceId: "", spaceFromEnv: false, notifyAssign: true, notifyMail: true,
+    lastError: "", sentCount: 0, app: { configured: false, account: "" } };
   if (pathname === "/api/chat-config/test") return { ok: true };
   if (pathname === "/api/members") {
     return { members: MEMBERS,
@@ -484,6 +486,7 @@ function apiResponse(pathname, query) {
       teamStats: TEAM_STATS.filter((t) => teamsIn.includes(t.team)),
       next: cl.find((c) => !c.fallback && c.active) || null };
   }
+  if (pathname === "/api/sf-autolaunch/config") return { enabled: false };
   if (pathname === "/api/apo/why") {
     return { ok: false, product: query.get("product") || "", steps: [
       { name: "15分おきの自動スキャン", ok: true, detail: "60秒ごと", hint: "" },

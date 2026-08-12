@@ -571,6 +571,46 @@ async function loadOrphans() {
   } finally { if (btn) btn.disabled = false; }
 }
 
+// ===== Salesforceの自動立ち上げ =====
+async function loadAutoLaunch() {
+  const el = $("alOn");
+  if (!el) return;
+  try {
+    const d = await (await fetch("/api/sf-autolaunch/config")).json();
+    el.checked = !!d.enabled;
+  } catch {}
+}
+
+if (typeof document !== "undefined") {
+  document.addEventListener("DOMContentLoaded", () => {
+    const el = document.getElementById("alOn");
+    if (!el) return;
+    loadAutoLaunch();
+    el.addEventListener("change", async () => {
+      const st = document.getElementById("alStatus");
+      const on = el.checked;
+      if (on && !confirm(
+        "条件を満たしたアポについて、Salesforceの商談を自動で立ち上げます。\n\n" +
+        "コンバートは取り消せません。判定が正しいことを通知で確かめてからONにしてください。\n\nよろしいですか？")) {
+        el.checked = false;
+        return;
+      }
+      if (st) st.textContent = "保存しています…";
+      try {
+        const r = await fetch("/api/sf-autolaunch/config", {
+          method: "PUT", headers: { "content-type": "application/json" },
+          body: JSON.stringify({ enabled: on }),
+        });
+        if (!r.ok) throw new Error(((await r.json()) || {}).error || "保存できませんでした");
+        if (st) { st.textContent = on ? "自動で立ち上げます" : "判定だけ行います"; setTimeout(() => (st.textContent = ""), 5000); }
+      } catch (e) {
+        if (st) st.textContent = "失敗: " + e.message;
+        el.checked = !on;
+      }
+    });
+  });
+}
+
 // ===== 自動割り振りが動かない理由を調べる =====
 async function whyNoAssign() {
   const box = $("rcWhyBox");

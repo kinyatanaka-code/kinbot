@@ -742,6 +742,8 @@ export async function initDb() {
     );
   `);
   await sq(`CREATE INDEX IF NOT EXISTS ix_doc_views_link ON doc_views(link_id, started_at DESC);`);
+  // 資料を閉じたかどうか。閉じた時点の滞在時間で通知するために使う。
+  await sq(`ALTER TABLE doc_views ADD COLUMN IF NOT EXISTS ended BOOLEAN NOT NULL DEFAULT false;`);
 
   // 開封（画像の読み込み）とリンクのクリック
   await sq(`
@@ -2879,6 +2881,47 @@ export async function eligibleDays(fromISO, toISO) {
 }
 
 // ===== Salesforceの自動立ち上げ =====
+// 割り振りの件数（本日・今週・今月）。通知に添えて、進み具合が分かるようにする。
+// メールアドレスから営業担当の名前を引く。通知に「kinya.tanaka」ではなく
+// 「田中欽也」と出すために使う。見つからなければアドレスの@より前を返す。
+export async function displayNameOf(email) {
+  const e = String(email || "").trim().toLowerCase();
+  if (!e) return "";
+  if (pool) {
+    try {
+      const { rows } = await pool.query(`SELECT name FROM members WHERE lower(email)=$1`, [e]);
+      if (rows[0]?.name) return rows[0].name;
+    } catch {}
+    try {
+      const { rows } = await pool.query(`SELECT name FROM users WHERE lower(email)=$1`, [e]);
+      if (rows[0]?.name) return rows[0].name;
+    } catch {}
+  }
+  return e.split("@")[0];
+}
+
+export async function assignCounts(business = "") {
+  if (!pool) return { today: 0, week: 0, month: 0 };
+  try {
+    const cond = business ? `AND s.business = $1` : "";
+    const p = business ? [business] : [];
+    const q = async (from) => {
+      const { rows } = await pool.query(
+        `SELECT count(*)::int AS n FROM assign_log a
+           JOIN smart_links s ON s.slug = a.slug
+          WHERE a.created_at >= ${from} ${cond}`, p);
+      return rows[0]?.n || 0;
+    };
+    // JSTの区切りで数える
+    const [today, week, month] = await Promise.all([
+      q("date_trunc('day',   now() AT TIME ZONE 'Asia/Tokyo') AT TIME ZONE 'Asia/Tokyo'"),
+      q("date_trunc('week',  now() AT TIME ZONE 'Asia/Tokyo') AT TIME ZONE 'Asia/Tokyo'"),
+      q("date_trunc('month', now() AT TIME ZONE 'Asia/Tokyo') AT TIME ZONE 'Asia/Tokyo'"),
+    ]);
+    return { today, week, month };
+  } catch (e) { console.error("[db] assignCounts", e.message); return { today: 0, week: 0, month: 0 }; }
+}
+
 export async function saveAutolaunch(r) {
   if (!pool || !r?.slug) return null;
   try {
@@ -3063,6 +3106,29 @@ export async function beatDocView(viewId, { seconds, maxPage, pages }) {
        Math.max(0, parseInt(maxPage, 10) || 0), JSON.stringify(pages || {})]);
     return rows[0] || null;
   } catch (e) { console.error("[db] beatDocView", e.message); return null; }
+}
+
+export async function endDocView(viewId) {
+  if (!pool || !viewId) return null;
+  try {
+    const { rows } = await pool.query(
+      `UPDATE doc_views SET ended = true, last_at = now() WHERE id = $1 RETURNING *`, [viewId]);
+    return rows[0] || null;
+  } catch { return null; }
+}
+
+// 閉じる合図が届かなかった閲覧を拾う（タブごと落ちた場合など）。
+// しばらく進捗が来ていないものは、終わったとみなす。
+export async function staleDocViews(idleSeconds = 90) {
+  if (!pool) return [];
+  try {
+    const { rows } = await pool.query(
+      `SELECT v.*, l.slug FROM doc_views v JOIN doc_links l ON l.id = v.link_id
+        WHERE NOT v.notified AND NOT v.ended
+          AND v.last_at < now() - ($1 || ' seconds')::interval
+        LIMIT 50`, [String(Math.max(30, idleSeconds))]);
+    return rows;
+  } catch { return []; }
 }
 
 export async function markDocViewNotified(viewId) {

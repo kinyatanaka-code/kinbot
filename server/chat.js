@@ -7,12 +7,23 @@
 // 送信は投げっぱなしにする。通知が失敗しても、割り振りやメール作成は止めない。
 // ───────────────────────────────────────────────────────────
 import { getSettings } from "./db.js";
+import { chatAppConfigured, postToSpace, normalizeSpace, chatAppInfo } from "./chatapp.js";
 
 let lastError = "";
 let sentCount = 0;
 
 export function chatInfo() {
-  return { lastError, sentCount };
+  return { lastError, sentCount, app: chatAppInfo() };
+}
+
+// 投稿先のスペース（Chatアプリで送るときに使う）
+export async function chatSpace() {
+  const env = String(process.env.GOOGLE_CHAT_SPACE || "").trim();
+  if (env) return normalizeSpace(env);
+  try {
+    const s = await getSettings();
+    return normalizeSpace((s && s.chatSpaceId) || "");
+  } catch { return ""; }
 }
 
 // 設定に入っているURLを取る。環境変数があればそちらを優先。
@@ -30,9 +41,28 @@ function looksLikeChatUrl(u) {
 }
 
 // 文字だけの通知を送る。Google Chat は *太字* が使える。
-export async function notifyChat(text, { url = "" } = {}) {
+export async function notifyChat(text, { url = "", space = "" } = {}) {
   const t = String(text || "").trim();
   if (!t) return { ok: false, skipped: true, reason: "本文が空です" };
+
+  // Chatアプリ（kinbot名義）で送れるならそちらを使う。
+  // Webhookだと送信者が「Webhook Bot」になってしまうため。
+  if (!url && chatAppConfigured()) {
+    const sp = space || (await chatSpace());
+    if (sp) {
+      try {
+        await postToSpace(sp, t);
+        sentCount++;
+        lastError = "";
+        return { ok: true, via: "app" };
+      } catch (e) {
+        lastError = e.message + (e.hint ? `／${e.hint}` : "");
+        console.warn("[chat] アプリでの投稿に失敗、Webhookに切り替えます", e.message);
+        // ここでは止めず、Webhookがあればそちらで送る
+      }
+    }
+  }
+
   const hook = url || (await chatWebhookUrl());
   if (!hook) return { ok: false, skipped: true, reason: "通知先が未設定です" };
   if (!looksLikeChatUrl(hook)) {
@@ -52,7 +82,7 @@ export async function notifyChat(text, { url = "" } = {}) {
     }
     sentCount++;
     lastError = "";
-    return { ok: true };
+    return { ok: true, via: "webhook" };
   } catch (e) {
     lastError = e.message;
     console.warn("[chat] 送信に失敗", e.message);
@@ -70,37 +100,59 @@ export function jstLabel(iso) {
   return `${j.getUTCMonth() + 1}/${j.getUTCDate()}(${wd}) ${p(j.getUTCHours())}:${p(j.getUTCMinutes())}`;
 }
 
-// 確定メールがどうなったかを1行にする
+// 確定メールがどうなったかを1行にする。
+// 長い説明はChatだと読みづらいので、要点だけにして詳しくは画面で見てもらう。
 function mailLine(mail, clientEmail) {
   if (!mail) {
-    return clientEmail
-      ? "確定メール：作成していません"
-      : "確定メール：*お客様の宛先が未登録のため作れません*";
+    // 要対応のものだけ目立たせる
+    return clientEmail ? "✉️ メール未作成" : "⚠️ *宛先が未登録*　メールを出せません";
   }
   if (mail.ok) {
-    const to = mail.to ? `（宛先 ${mail.to}）` : "";
     return mail.draft
-      ? `確定メール：*下書きを作りました*${to}　担当者のGmailで内容を確認して送信してください`
-      : `確定メール：送信しました${to}`;
+      ? `📝 下書き済　${mail.to || "-"}`
+      : `✉️ 送信済　${mail.to || "-"}`;
   }
-  if (mail.skipped) return `確定メール：作成していません（${mail.reason || "自動作成がOFF"}）`;
-  return `確定メール：*作れませんでした*（${String(mail.reason || "").slice(0, 120)}）`;
+  if (mail.skipped) return "✉️ メール未作成（自動作成OFF）";
+  return `⚠️ *メールを作れません*　${shortReason(mail.reason)}`;
 }
+
+// Salesforceの立ち上げがどうなったかを1行にする
+function launchLine(launch) {
+  if (!launch) return "";
+  if (launch.ok && !launch.dryRun) return "🚀 SF立ち上げ済";
+  if (launch.ok && launch.dryRun) return "🔹 SF立ち上げできます（自動実行はOFF）";
+  return `⚠️ *SF立ち上げできません*　${String(launch.reasonText || "").slice(0, 90)}`;
+}
+
+// エラーの理由を、短い一言にまとめる
+function shortReason(reason) {
+  const r = String(reason || "");
+  if (/gmail|メール送信の権限|scope|権限がありません/i.test(r)) return "Gmailの権限不足（本人がGoogle連携をやり直し）";
+  if (/宛先|to は|アドレス/i.test(r)) return "宛先が不明";
+  if (/token|認証|no_token/i.test(r)) return "Google連携が切れています";
+  return r.replace(/\s+/g, " ").slice(0, 60);
+}
+
+
 
 // アポを割り振ったときの通知。
 // 担当が決まると下書きも自動でできるため、メールの状況も同じ1通にまとめる。
 export async function notifyAssigned({
-  title, start, repName, setter, business, reason, url, auto, mail, clientEmail,
+  title, start, repName, setter, business, reason, url, auto, mail, clientEmail, counts, goal, launch,
 }) {
   try { const st = await getSettings(); if (st && st.chatNotifyAssign === false) return { ok: false, skipped: true }; } catch {}
+  // スマホで一目で分かることを優先し、4〜5行に収める。
+  // 会議室のURLは長く折り返すので載せない（kinbotの画面から開ける）。
   const lines = [
-    `*アポを割り振りました*${auto ? "（自動）" : ""}`,
-    `${jstLabel(start)}　${title || "(予定名なし)"}`,
-    `担当：${repName || "-"}${business ? `　事業：${business}` : ""}`,
-    setter ? `アポ獲得：${setter}` : "",
+    `✅ *アポ割り振り*${auto ? "" : "（手動）"}　${jstLabel(start)}`,
+    `　${title || "(予定名なし)"}`,
+    `👤 ${[repName || "-", setter ? `獲得 ${setter}` : ""].filter(Boolean).join(" ・ ")}`,
     mailLine(mail, clientEmail),
-    reason ? `理由：${reason}` : "",
-    url ? `会議室：${url}` : "",
+    launchLine(launch),
+    counts
+      ? `📊 本日 ${counts.today} / 今週 ${counts.week} / 今月 ${counts.month}` +
+        (goal ? `（目標 ${goal}・あと ${Math.max(0, goal - counts.month)}）` : "")
+      : "",
   ].filter(Boolean);
   return notifyChat(lines.join("\n"));
 }
@@ -110,11 +162,9 @@ export async function notifyAssigned({
 export async function notifyMailDraft({ title, start, repName, to, draft, subject }) {
   try { const st = await getSettings(); if (st && st.chatNotifyMail === false) return { ok: false, skipped: true }; } catch {}
   const lines = [
-    draft ? "*アポ確定メールの下書きを作りました*" : "*アポ確定メールを送信しました*",
-    `${jstLabel(start)}　${title || "(予定名なし)"}`,
-    `担当：${repName || "-"}　宛先：${to || "-"}`,
-    subject ? `件名：${subject}` : "",
-    draft ? "担当者のGmailの下書きに入っています。内容を確認して送信してください。" : "",
-  ].filter(Boolean);
+    `${draft ? "📝" : "✉️"} *確定メール${draft ? "の下書き" : "を送信"}*　${jstLabel(start)}`,
+    `　${title || "(予定名なし)"}`,
+    `👤 ${repName || "-"} ・ 宛先 ${to || "-"}`,
+  ];
   return notifyChat(lines.join("\n"));
 }

@@ -303,3 +303,47 @@ $("dkViewed").addEventListener("change", loadLinks);
   await loadDocs();
   loadLinks();
 })();
+
+// ───────── スプレッドシートへの記録の設定 ─────────
+async function loadSheetConfig() {
+  if (!$("shId")) return;
+  try {
+    const d = await (await fetch("/api/doc-sheet")).json();
+    $("shId").value = d.sheetId || "";
+    $("shName").value = d.sheetName || "";
+    $("shOwner").value = d.owner || "";
+  } catch {}
+}
+
+if ($("shSave")) {
+  const body = () => ({
+    sheetId: $("shId").value, sheetName: $("shName").value, owner: $("shOwner").value,
+  });
+  $("shSave").addEventListener("click", async () => {
+    say("shStatus", "保存しています…");
+    try {
+      const r = await fetch("/api/doc-sheet", {
+        method: "PUT", headers: { "content-type": "application/json" },
+        body: JSON.stringify(body()),
+      });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.error || "保存できませんでした");
+      if (d.docSheetId) $("shId").value = d.docSheetId;  // URLからIDだけ取り出したものに直す
+      say("shStatus", "保存しました", 4000);
+    } catch (e) { say("shStatus", "失敗: " + e.message); }
+  });
+  $("shTest").addEventListener("click", async () => {
+    say("shStatus", "書き込んでみています…");
+    try {
+      const r = await fetch("/api/doc-sheet/test", {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify(body()),
+      });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.error || "書き込めませんでした");
+      say("shStatus", `「${d.title}」に書き込めました。シートを確認してください`, 8000);
+    } catch (e) { say("shStatus", "失敗: " + e.message); }
+  });
+}
+
+loadSheetConfig();

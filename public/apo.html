@@ -111,6 +111,14 @@
                   <span class="rev-status" id="rcBaseStatus"></span>
                 </div>
               </details>
+              <h4 class="ap-rot-h">Salesforceの自動立ち上げ</h4>
+              <p class="note">アポを割り振ったときに、条件を満たしていればSalesforceの商談を自動で立ち上げます。<br>
+              条件は「会社名でクロスのリードが見つかる」「担当者名が一致する」「候補が1件に絞れる」の3つで、URLが空なら gBizINFO で補います。<br>
+              <b>OFFのときは判定だけ行い、通知に「立ち上げできます／できません＋理由」を出します。</b>
+              コンバートは取り消せないので、まずOFFのまま通知を見て、判定が正しいことを確かめてからONにしてください。</p>
+              <label class="ks-check" style="margin:10px 0"><input type="checkbox" id="alOn" /> 条件を満たしたら自動で立ち上げる</label>
+              <span class="rev-status" id="alStatus"></span>
+
               <div class="ap-cfg-actions">
                 <button class="btn ghost" id="rcWhy">自動で決まらない理由を調べる</button>
                 <span class="rev-status" id="rcWhyStatus"></span>

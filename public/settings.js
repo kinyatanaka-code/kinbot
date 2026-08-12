@@ -2484,6 +2484,23 @@ async function loadChatConfig() {
     const st = document.getElementById("chatStatus");
     if (st && d.fromEnv) st.textContent = "環境変数で設定されています";
     else if (st && d.lastError) st.textContent = "前回の送信でエラー: " + d.lastError;
+
+    // Chatアプリ（kinbot名義）の状態
+    const sp = document.getElementById("chatSpace");
+    if (sp) {
+      sp.value = d.spaceId || "";
+      sp.disabled = !!d.spaceFromEnv;
+    }
+    const state = document.getElementById("chatAppState");
+    if (state) {
+      if (!d.app || !d.app.configured) {
+        state.textContent = "いまはWebhookで送っています（送信者は「Webhook Bot」）。上の手順で鍵を設定すると、kinbot名義に切り替わります。";
+      } else if (!d.spaceId) {
+        state.textContent = `鍵は設定されています（${d.app.account}）。あとはスペースを指定すれば、kinbot名義で送れます。`;
+      } else {
+        state.textContent = `kinbot名義で送っています（${d.app.account}）。`;
+      }
+    }
   } catch {}
 }
 
@@ -2531,5 +2548,46 @@ async function loadChatConfig() {
   ["chatAssign", "chatMail"].forEach((id) => {
     const el = document.getElementById(id);
     if (el) el.addEventListener("change", () => save.click());
+  });
+})();
+
+// ===== 送信者名を kinbot にする設定 =====
+(function chatSpaceInit() {
+  const save = document.getElementById("chatSpaceSave");
+  if (!save) return;
+  const say = (m, ms) => {
+    const e = document.getElementById("chatSpaceStatus");
+    if (!e) return;
+    e.textContent = m;
+    if (ms) setTimeout(() => { if (e.textContent === m) e.textContent = ""; }, ms);
+  };
+
+  save.addEventListener("click", async () => {
+    say("保存しています…");
+    try {
+      const r = await fetch("/api/chat-config", {
+        method: "PUT", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ spaceId: document.getElementById("chatSpace").value }),
+      });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.error || "保存できませんでした");
+      say("保存しました", 4000);
+      loadChatConfig();
+    } catch (e) { say("失敗: " + e.message); }
+  });
+
+  document.getElementById("chatSpaceTest").addEventListener("click", async () => {
+    const sp = document.getElementById("chatSpace").value.trim();
+    if (!sp) { say("スペースを入れてください", 4000); return; }
+    say("送信しています…");
+    try {
+      const r = await fetch("/api/chat-config/test", {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ spaceId: sp }),
+      });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.error || "送信できませんでした");
+      say(d.via === "app" ? "kinbot名義で送信しました" : "Webhookで送信しました（アプリの設定を確認してください）", 8000);
+    } catch (e) { say("失敗: " + e.message); }
   });
 })();

@@ -72,14 +72,15 @@
   function setFoot(t) { $("foot").textContent = t || ""; }
 
   // 進捗を送る。閉じるときは sendBeacon で取りこぼさない。
-  function payload() {
+  function payload(final) {
     const maxPage = Math.max(0, ...Object.keys(pageSec).map((n) => +n || 0));
-    return JSON.stringify({ viewId, seconds, maxPage, pages: pageSec });
+    // final を付けると、サーバー側で「閉じた」とみなして通知する
+    return JSON.stringify({ viewId, seconds, maxPage, pages: pageSec, final: !!final });
   }
   function beat(final) {
     if (!viewId) return;
     const url = `/api/doc/${encodeURIComponent(slug)}/beat`;
-    const data = payload();
+    const data = payload(final);
     if (final && navigator.sendBeacon) {
       try { navigator.sendBeacon(url, new Blob([data], { type: "application/json" })); return; } catch {}
     }

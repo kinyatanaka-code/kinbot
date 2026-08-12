@@ -46,6 +46,24 @@
               </div>
               <div id="dkList"><div class="empty-state">読み込み中…</div></div>
             </div>
+
+            <div class="set-card">
+              <h3>スプレッドシートに記録する</h3>
+              <p class="note">閲覧が終わるたびに、指定したスプレッドシートへ1行足します。<b>資料を閉じた時点の滞在時間</b>で記録されます。<br>
+              列は「開いた日時・閉じた日時・会社名・担当者名・メール・資料名・滞在秒・滞在・到達ページ・よく見たページ・担当・鍵」の順です。</p>
+              <div class="ap-cfg-row">
+                <label>スプレッドシート<input type="text" id="shId" placeholder="URLをそのまま貼っても構いません" style="flex:1 1 380px" /></label>
+              </div>
+              <div class="ap-cfg-row">
+                <label>シート名<input type="text" id="shName" placeholder="資料閲覧" style="width:160px" /></label>
+                <label>書き込むアカウント<input type="text" id="shOwner" placeholder="kinya.tanaka@neo-career.co.jp" style="width:280px" /></label>
+                <button class="btn" id="shSave">保存</button>
+                <button class="btn ghost" id="shTest">書き込みを試す</button>
+                <span class="rev-status" id="shStatus"></span>
+              </div>
+              <p class="note"><b>書き込むアカウントは、そのスプレッドシートに編集権限がある人</b>にしてください。kinbotはその人のGoogle連携を使って書き込みます。<br>
+              権限が足りないと言われたら、本人が 設定 → 連携 → Google連携 で「連携解除」→「再連携」を行ってください。</p>
+            </div>
           </section>
 
           <!-- URLを発行する -->

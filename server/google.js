@@ -6,7 +6,7 @@ const CLIENT_ID = process.env.GOOGLE_CLIENT_ID || "";
 const CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET || "";
 // calendar.events は「自分のカレンダーに予定を作り、ゲストを招待する」ために必要。
 // 招待方式なので、相手（クローザー）のカレンダーへの権限は不要。
-const SCOPE = "https://www.googleapis.com/auth/calendar.readonly https://www.googleapis.com/auth/calendar.events https://www.googleapis.com/auth/drive.readonly https://www.googleapis.com/auth/drive.file https://www.googleapis.com/auth/gmail.readonly https://www.googleapis.com/auth/gmail.compose https://www.googleapis.com/auth/gmail.send https://www.googleapis.com/auth/gmail.modify";
+const SCOPE = "https://www.googleapis.com/auth/calendar.readonly https://www.googleapis.com/auth/calendar.events https://www.googleapis.com/auth/drive.readonly https://www.googleapis.com/auth/drive.file https://www.googleapis.com/auth/gmail.readonly https://www.googleapis.com/auth/gmail.compose https://www.googleapis.com/auth/gmail.send https://www.googleapis.com/auth/gmail.modify https://www.googleapis.com/auth/spreadsheets";
 
 export function googleConfigured() {
   return !!(CLIENT_ID && CLIENT_SECRET);
@@ -1166,4 +1166,54 @@ export async function driveMoveFile(owner, fileId, newParentId) {
   const d = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(`移動に失敗: ${JSON.stringify(d).slice(0, 140)}`);
   return { moved: true, name: info.name };
+}
+
+// ───────────────────────────────────────────────────────────
+// スプレッドシートに1行足す。
+// 記録を残す先を、担当者ではなく「記録用のアカウント」に固定して使う想定。
+// ───────────────────────────────────────────────────────────
+export async function appendSheetRow(owner, spreadsheetId, sheetName, values) {
+  if (!spreadsheetId) throw new Error("スプレッドシートのIDが設定されていません");
+  const token = await accessToken(owner);
+  const range = `${encodeURIComponent(sheetName || "シート1")}!A1`;
+  const res = await fetch(
+    `https://sheets.googleapis.com/v4/spreadsheets/${encodeURIComponent(spreadsheetId)}` +
+    `/values/${range}:append?valueInputOption=USER_ENTERED&insertDataOption=INSERT_ROWS`,
+    {
+      method: "POST",
+      headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+      body: JSON.stringify({ values: [values] }),
+    }
+  );
+  if (!res.ok) {
+    const t = await res.text();
+    const err = new Error(`シートへの書き込み ${res.status}: ${t.slice(0, 300)}`);
+    if (res.status === 403 && /insufficient|scope|ACCESS_TOKEN_SCOPE/i.test(t)) err.needScope = true;
+    if (res.status === 404) err.notFound = true;
+    throw err;
+  }
+  return res.json().catch(() => ({}));
+}
+
+// 書き込めるかどうかを試す（設定画面の確認用）
+export async function checkSheet(owner, spreadsheetId) {
+  const token = await accessToken(owner);
+  const res = await fetch(
+    `https://sheets.googleapis.com/v4/spreadsheets/${encodeURIComponent(spreadsheetId)}?fields=properties.title,sheets.properties.title`,
+    { headers: { authorization: `Bearer ${token}` } }
+  );
+  if (!res.ok) {
+    const t = await res.text();
+    if (res.status === 403 && /insufficient|scope/i.test(t)) {
+      return { ok: false, reason: "no_scope" };
+    }
+    if (res.status === 404) return { ok: false, reason: "not_found" };
+    return { ok: false, reason: "error", detail: t.slice(0, 200) };
+  }
+  const d = await res.json();
+  return {
+    ok: true,
+    title: d?.properties?.title || "",
+    sheets: (d.sheets || []).map((x) => x?.properties?.title).filter(Boolean),
+  };
 }

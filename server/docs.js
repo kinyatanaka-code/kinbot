@@ -13,7 +13,9 @@
 import { createHash } from "node:crypto";
 import {
   getDocLink, startDocView, beatDocView, markDocViewNotified, addDocEvent,
+  endDocView, staleDocViews, getSettings, displayNameOf,
 } from "./db.js";
+import { appendSheetRow } from "./google.js";
 import { notifyChat } from "./chat.js";
 
 // 通知の条件。短すぎる閲覧（開いてすぐ閉じた）は流さない。
@@ -63,21 +65,24 @@ export function topPages(pages, n = 3) {
     .filter(([p, v]) => p > 0 && v > 0)
     .sort((a, b) => b[1] - a[1])
     .slice(0, n);
-  return e.map(([p, v]) => `${p}ページ ${fmtSeconds(v)}`).join("／");
+  return e.map(([p, v]) => `${p}p ${fmtSeconds(v)}`).join(" / ");
 }
 
 // 閲覧を検知したときのChat通知
 export async function notifyDocView(link, view) {
   const who = [link.company, link.contact].filter(Boolean).join(" ") || link.email || "宛先不明";
-  const lines = [
-    "*資料が閲覧されました*",
-    `${who}`,
-    `資料：${link.doc_name || "-"}`,
-    `滞在 ${fmtSeconds(view.seconds)}／${view.max_page ? `${view.max_page}ページまで` : "ページ不明"}`,
-  ];
+  const rep = link.owner ? await displayNameOf(link.owner).catch(() => "") : "";
   const tp = topPages(view.pages);
-  if (tp) lines.push(`よく見たページ：${tp}`);
-  if (link.owner) lines.push(`担当：${String(link.owner).split("@")[0]}`);
+  // 行数を抑える。スマホのChatで折り返しが増えると読みづらいため。
+  // 長く見ているほど脈があるので、ひと目で分かるようにする
+  const hot = view.seconds >= 120 ? "🔥 " : "";
+  const lines = [
+    `👀 ${hot}*資料を見ました*　${who}`,
+    `📄 ${fixMojibake(link.doc_name) || "-"}`,
+    `⏱ ${fmtSeconds(view.seconds)}　📖 ${view.max_page ? `${view.max_page}ページまで` : "ページ不明"}`,
+    tp ? `🔎 ${tp}` : "",
+    rep ? `👤 ${rep}` : "",
+  ].filter(Boolean);
   return notifyChat(lines.join("\n"));
 }
 
@@ -115,7 +120,8 @@ export async function openDocView(slug, req) {
   return { link, view };
 }
 
-// 数秒おきの進捗。しきい値を超えたら、その閲覧について1回だけ通知する。
+// 数秒おきの進捗を受ける。
+// 通知は「閉じたとき」に出す。途中で出すと滞在時間が実際より短く見えるため。
 export async function beatDocViewAndNotify(slug, viewId, body) {
   const link = await getDocLink(slug);
   if (!link) return { error: "見つかりません" };
@@ -125,11 +131,63 @@ export async function beatDocViewAndNotify(slug, viewId, body) {
     pages: body?.pages,
   });
   if (!view) return { error: "記録できませんでした" };
-  if (!view.notified && view.seconds >= NOTIFY_MIN_SECONDS) {
-    await markDocViewNotified(view.id);
-    notifyDocView(link, view).catch(() => {});
+
+  // 閉じたときだけ知らせる（短すぎる閲覧は流さない）
+  if (body?.final) {
+    const done = await endDocView(view.id);
+    await finishView(link, done || view);
   }
   return { ok: true, seconds: view.seconds };
+}
+
+// 1回の閲覧が終わったときの処理。通知とシートへの記録をまとめて行う。
+export async function finishView(link, view) {
+  if (!view || view.notified) return;
+  await markDocViewNotified(view.id);
+  if (view.seconds < NOTIFY_MIN_SECONDS) return; // 開いてすぐ閉じた分は流さない
+  notifyDocView(link, view).catch(() => {});
+  logViewToSheet(link, view).catch(() => {});
+}
+
+// 閉じる合図が届かなかったぶんを拾う（タブごと落ちた場合など）
+export async function sweepStaleViews(idleSeconds = 90) {
+  const rows = await staleDocViews(idleSeconds).catch(() => []);
+  for (const v of rows) {
+    const link = await getDocLink(v.slug).catch(() => null);
+    if (!link) continue;
+    await endDocView(v.id).catch(() => {});
+    await finishView(link, v).catch(() => {});
+  }
+  return rows.length;
+}
+
+// スプレッドシートに1行足す。設定していなければ何もしない。
+export async function logViewToSheet(link, view) {
+  try {
+    const st = await getSettings();
+    const id = String(st?.docSheetId || "").trim();
+    if (!id) return;
+    const owner = String(st?.docSheetOwner || "").trim();
+    if (!owner) return;
+    const jst = (d) => new Date(new Date(d).getTime() + 9 * 3600 * 1000).toISOString().replace("T", " ").slice(0, 19);
+    await appendSheetRow(owner, id, String(st?.docSheetName || "").trim() || "資料閲覧", [
+      jst(view.started_at),                 // 開いた日時
+      jst(view.last_at || new Date()),      // 閉じた日時
+      link.company || "",
+      link.contact || "",
+      link.email || "",
+      fixMojibake(link.doc_name) || "",
+      view.seconds,                          // 滞在（秒）
+      fmtSeconds(view.seconds),              // 滞在（表示用）
+      view.max_page || 0,                    // 到達ページ
+      topPages(view.pages, 5),               // よく見たページ
+      link.owner || "",
+      link.slug,
+    ]);
+    console.log(`[doc] シートに記録しました（${link.company || link.slug}）`);
+  } catch (e) {
+    console.warn("[doc] シートへの記録に失敗", e.message);
+  }
 }
 
 // 開封（画像の読み込み）

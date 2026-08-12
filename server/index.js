@@ -25,9 +25,10 @@ import { sendApoMail, runReminderSweep, getApoMailConfig,
 import { startKasasagi, getKasasagi, stopKasasagi, feedTranscript, kasasagiInfo,
          buildScript, buildReport, faceState, SLIDE_LABELS } from "./kasasagi.js";
 import { notifyAssigned, notifyMailDraft, notifyChat, chatWebhookUrl, chatInfo } from "./chat.js";
+import { normalizeSpace } from "./chatapp.js";
 import { judge as judgeAutolaunch, reasonText, parseTitle as parseLaunchTitle } from "./autolaunch.js";
 import { fixMojibake } from "./docs.js";
-import { openDocView, beatDocViewAndNotify, recordOpen, recordClick,
+import { openDocView, beatDocViewAndNotify, recordOpen, recordClick, sweepStaleViews,
          PIXEL, docUrl, pixelUrl, clickUrl, fmtSeconds, topPages } from "./docs.js";
 import { transcribeFile, transcriberAvailable } from "./transcribe.js";
 import { createBot, leaveBot, parseTranscriptEvent, parseChatEvent, outputAudio, getRecordingUrl, getBot, recallConnectionInfo, getRecallUsage, getLastRecallCreate } from "./recall.js";
@@ -96,6 +97,7 @@ import {
   setSmartLinkSourceNote,
   recentInvites,
   myAssignedApos,
+  assignCounts,
   saveAutolaunch,
   getAutolaunch,
   autolaunchForSlugs,
@@ -256,7 +258,8 @@ import {
   gmailSetRead,
   gmailCreateDraft,
   gmailDeleteDraft,
-  parseEmailAddr, driveEnsureFolder, driveUploadFromUrl, driveShareDomain, driveStream, driveFindCompanyFiles, driveShareAnyone, driveEnsurePath, driveMoveFile, driveListChildren, driveTrash } from "./google.js";
+  parseEmailAddr, driveEnsureFolder, driveUploadFromUrl, driveShareDomain, driveStream, driveFindCompanyFiles, driveShareAnyone, driveEnsurePath, driveMoveFile, driveListChildren, driveTrash,
+  appendSheetRow, checkSheet } from "./google.js";
 import { startScheduler } from "./scheduler.js";
 import { muxConfigured, startVodUpload, waitVodPlayback, muxStorageSummary, listAssets, deleteAsset, findAssetByPlaybackId, enableMp4, mp4Url, readyMp4Name, getAsset } from "./mux.js";
 import { liveConfigured, createLiveStream, playbackUrl as livePlaybackUrl, liveInfo, liveStatus, relayMap } from "./live.js";
@@ -2247,10 +2250,9 @@ async function tryAutoLaunch(user, link, { dryRun = false } = {}) {
     await saveAutolaunch(r);
     console.log(`[SF自動] 立ち上げ完了 ${j.company}／${j.person} → ${oppId}`);
     notifyChat([
-      "*Salesforceの商談を自動で立ち上げました*",
-      `${j.company}　${j.person}様`,
-      site.filled ? `URLを補いました：${site.url}` : "",
-      oppId ? `商談ID：${oppId}` : "",
+      "🚀 *SFの商談を自動で立ち上げました*",
+      `　${j.company}　${j.person}様`,
+      site.filled ? "🔗 URLも補いました" : "",
     ].filter(Boolean).join("\n")).catch(() => {});
     return r;
   } catch (e) {
@@ -2534,14 +2536,86 @@ app.delete("/api/next-actions/:id", async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+// ===== 資料の閲覧をスプレッドシートに記録する設定 =====
+// Salesforceの自動立ち上げを実際に行うかどうか
+app.get("/api/sf-autolaunch/config", async (req, res) => {
+  try {
+    const st = await getSettings();
+    res.json({ enabled: st.sfAutoLaunch === true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.put("/api/sf-autolaunch/config", async (req, res) => {
+  try {
+    const on = req.body?.enabled === true;
+    await saveSettings({ sfAutoLaunch: on });
+    console.log(`[SF自動] 自動立ち上げを${on ? "ON" : "OFF"}にしました by ${req.user}`);
+    res.json({ ok: true, enabled: on });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.get("/api/doc-sheet", async (req, res) => {
+  try {
+    const st = await getSettings();
+    res.json({
+      sheetId: st.docSheetId || "", sheetName: st.docSheetName || "資料閲覧",
+      owner: st.docSheetOwner || "", monthlyGoal: st.apoMonthlyGoal || "",
+    });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.put("/api/doc-sheet", async (req, res) => {
+  try {
+    const b = req.body || {};
+    const patch = {};
+    if (b.sheetId !== undefined) {
+      // URLを貼られても動くように、IDだけ取り出す
+      const raw = String(b.sheetId || "").trim();
+      const m = raw.match(/\/spreadsheets\/d\/([a-zA-Z0-9_-]+)/);
+      patch.docSheetId = (m ? m[1] : raw).slice(0, 120);
+    }
+    if (b.sheetName !== undefined) patch.docSheetName = String(b.sheetName || "").trim().slice(0, 80);
+    if (b.owner !== undefined) patch.docSheetOwner = String(b.owner || "").trim().toLowerCase().slice(0, 120);
+    if (b.monthlyGoal !== undefined) patch.apoMonthlyGoal = String(parseInt(b.monthlyGoal, 10) || 0);
+    await saveSettings(patch);
+    res.json({ ok: true, ...patch });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// 書き込めるか試す
+app.post("/api/doc-sheet/test", async (req, res) => {
+  try {
+    const st = await getSettings();
+    const id = String(req.body?.sheetId || st.docSheetId || "").trim();
+    const owner = String(req.body?.owner || st.docSheetOwner || req.user || "").trim();
+    if (!id) return res.status(400).json({ error: "スプレッドシートのIDまたはURLを入れてください" });
+    const info = await checkSheet(owner, id);
+    if (!info.ok) {
+      const msg = info.reason === "no_scope"
+        ? `${owner} のGoogle連携にスプレッドシートの権限がありません。本人が 設定 → 連携 → Google連携 で「連携解除」→「再連携」を行ってください。`
+        : info.reason === "not_found"
+          ? "そのスプレッドシートが見つかりません。IDが正しいか、そのアカウントに共有されているかご確認ください。"
+          : "確認できませんでした：" + (info.detail || "");
+      return res.status(400).json({ error: msg });
+    }
+    // 1行書いてみる
+    const name = String(req.body?.sheetName || st.docSheetName || "").trim() || "資料閲覧";
+    await appendSheetRow(owner, id, name, ["テスト", new Date().toISOString(), "kinbotからの書き込み確認"]);
+    res.json({ ok: true, title: info.title, sheets: info.sheets });
+  } catch (e) { res.status(400).json({ error: e.message }); }
+});
+
 // ===== Google Chat 通知 =====
 app.get("/api/chat-config", async (req, res) => {
   try {
     const st = await getSettings();
     const envUrl = String(process.env.GOOGLE_CHAT_WEBHOOK_URL || "").trim();
+    const envSpace = String(process.env.GOOGLE_CHAT_SPACE || "").trim();
     res.json({
       url: envUrl || String(st.chatWebhookUrl || ""),
       fromEnv: !!envUrl,
+      spaceId: envSpace || String(st.chatSpaceId || ""),
+      spaceFromEnv: !!envSpace,
       notifyAssign: st.chatNotifyAssign !== false,
       notifyMail: st.chatNotifyMail !== false,
       ...chatInfo(),
@@ -2560,6 +2634,13 @@ app.put("/api/chat-config", async (req, res) => {
       }
       patch.chatWebhookUrl = u.slice(0, 600);
     }
+    if (b.spaceId !== undefined) {
+      const sp = normalizeSpace(String(b.spaceId || ""));
+      if (String(b.spaceId || "").trim() && !sp) {
+        return res.status(400).json({ error: "スペースIDは spaces/AAAA… の形で入れてください（スペースのURLを貼っても構いません）" });
+      }
+      patch.chatSpaceId = sp;
+    }
     if (b.notifyAssign !== undefined) patch.chatNotifyAssign = b.notifyAssign !== false;
     if (b.notifyMail !== undefined) patch.chatNotifyMail = b.notifyMail !== false;
     await saveSettings(patch);
@@ -2570,10 +2651,13 @@ app.put("/api/chat-config", async (req, res) => {
 app.post("/api/chat-config/test", async (req, res) => {
   try {
     const url = String(req.body?.url || "").trim() || (await chatWebhookUrl());
+    const space = String(req.body?.spaceId || "").trim();
     const r = await notifyChat(
-      "*kinbotからのテスト通知です*\nこのメッセージが見えていれば、通知の設定は完了しています。", { url });
+      "🤖 *kinbotからのテスト通知です*\nこのメッセージが見えていれば、通知の設定は完了しています。",
+      // スペースが指定されていればアプリで、なければWebhookで送る
+      space ? { space } : { url });
     if (!r.ok) return res.status(400).json({ error: r.reason || "送信できませんでした" });
-    res.json({ ok: true });
+    res.json({ ok: true, via: r.via });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
@@ -9181,12 +9265,23 @@ async function autoAssignOne(link, { inviteOwner, closers = null, cfg, teamCtx =
 
   // Google Chat へ通知する。下書きも自動でできるので、メールの状況を含めて1通にまとめる。
   // （通知が失敗しても割り振り自体は止めない）
-  notifyAssigned({
-    title: updated.label, start: updated.start_time, repName: pick.name,
-    setter: updated.setter, business: biz, reason: pick.reason,
-    url: joinUrl(updated.slug), auto: actor !== "manual" && !String(actor || "").includes("@"),
-    mail, clientEmail: updated.client_email,
-  }).catch(() => {});
+  (async () => {
+    const counts = await assignCounts(biz).catch(() => null);
+    const st = await getSettings().catch(() => ({}));
+    const goal = parseInt(st?.apoMonthlyGoal, 10) || 0;
+    // Salesforceの立ち上げ。設定がONのときだけ実際に立ち上げ、
+    // OFFのときは「立ち上げられるか」の判定だけ行う（コンバートは取り消せないため）。
+    const runIt = st?.sfAutoLaunch === true;
+    const launch = await tryAutoLaunch(updated.current_owner || actor, updated, { dryRun: !runIt })
+      .then((r) => ({ ok: r.ok, dryRun: !runIt, reasonText: r.ok ? "" : reasonText(r.reason, r.detail) }))
+      .catch(() => null);
+    return notifyAssigned({
+      title: updated.label, start: updated.start_time, repName: pick.name,
+      setter: updated.setter, reason: pick.reason,
+      url: joinUrl(updated.slug), auto: actor !== "manual" && !String(actor || "").includes("@"),
+      mail, clientEmail: updated.client_email, counts, goal, launch,
+    });
+  })().catch(() => {});
 
   return { ok: true, assigned: pick, invite, invite_error: inviteError, mail, next: rotNext };
 }
@@ -9856,12 +9951,21 @@ app.put("/api/smart-links/:slug/owner", async (req, res) => {
     }
     // Google Chat へ通知する（手で担当を選んだときも、メールの状況を含めて1通で知らせる）
     if (owner) {
-      notifyAssigned({
-        title: link.label, start: link.start_time, repName: await repDisplayName(owner),
-        setter: link.setter, business: link.business, reason: `${req.user} が選択`,
-        url: joinUrl(link.slug), auto: false,
-        mail, clientEmail: link.client_email,
-      }).catch(() => {});
+      (async () => {
+        const counts = await assignCounts(link.business || "").catch(() => null);
+        const st = await getSettings().catch(() => ({}));
+        const runIt = st?.sfAutoLaunch === true;
+        const launch = await tryAutoLaunch(req.user, link, { dryRun: !runIt })
+          .then((r) => ({ ok: r.ok, dryRun: !runIt, reasonText: r.ok ? "" : reasonText(r.reason, r.detail) }))
+          .catch(() => null);
+        return notifyAssigned({
+          title: link.label, start: link.start_time, repName: await repDisplayName(owner),
+          setter: link.setter, reason: `${req.user} が選択`,
+          url: joinUrl(link.slug), auto: false,
+          mail, clientEmail: link.client_email,
+          counts, goal: parseInt(st?.apoMonthlyGoal, 10) || 0, launch,
+        });
+      })().catch(() => {});
     }
     res.json({ ok: true, link, invite, invite_error: inviteError, mail });
   } catch (e) { res.status(500).json({ error: e.message }); }
@@ -10284,6 +10388,13 @@ server.listen(PORT, async () => {
     scanTimer = setInterval(() => { apoScanTick().catch(() => {}); }, sec * 1000);
     console.log(`[apo-scan] 自動スキャンの間隔: ${sec}秒（15分ごとに全期間を再確認）`);
   };
+  // 資料を閉じた合図が届かなかった閲覧を拾う（タブごと落ちた場合など）
+  setInterval(() => {
+    sweepStaleViews(Number(process.env.DOC_IDLE_SECONDS || 90))
+      .then((n) => { if (n) console.log(`[doc] 終了扱いにした閲覧: ${n}件`); })
+      .catch(() => {});
+  }, 3 * 60 * 1000);
+
   setTimeout(() => { apoScanTick().catch(() => {}); }, 60 * 1000);
   scheduleApoScan();
   // 設定を変えたときに間隔を作り直す（5分ごとに設定を見る）
