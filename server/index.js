@@ -140,6 +140,7 @@ import {
   activeInviteEventIds,
   logGmailAction,
   listClosers,
+  markCloserAssigned,
   saveClosers,
   saveCloserOrder,
   saveBaselineCounts,
@@ -10077,6 +10078,9 @@ async function collectApoAppointments(scanOwner, opts = {}) {
           business: link.business || "",
           auto_assigned_at: link.auto_assigned_at || null,
           excluded: !!link.excluded,
+          // 担当がすでに入っている＝クローザーが自分のカレンダーで作ったアポ。
+          // 割り振りは要らないが、メール・SF立ち上げ・通知は必要。
+          selfAcquired: !!link.current_owner,
           _link: link, // 内部用。APIレスポンスに出す前に落とす。
         });
       }
@@ -10093,7 +10097,7 @@ async function collectApoAppointments(scanOwner, opts = {}) {
 // アポを取ったのがクローザー本人かどうかを見る。
 // クローザーが自分で取ったアポは、ローテーションに乗せず本人が担当する。
 async function selfAcquired(link, biz) {
-  const cands = [link.created_by, link.setter_email, link.creator]
+  const cands = [link.current_owner, link.created_by, link.setter_email, link.creator]
     .map((x) => String(x || "").trim().toLowerCase()).filter(Boolean);
   const name = String(link.setter || "").trim();
   if (!cands.length && !name) return null;
@@ -10125,12 +10129,20 @@ async function autoAssignOne(link, { inviteOwner, closers = null, cfg, teamCtx =
     return { ok: false, reason: pick.reason, skipped: pick.skipped };
   }
 
-  const updated = await setSmartLinkOwner(link.slug, pick.email);
+  // すでに担当が入っている（自分で取ったアポ）なら、担当は変えない
+  const updated = link.current_owner && pick.self
+    ? link
+    : await setSmartLinkOwner(link.slug, pick.email);
   // 自分で取ったアポは、ローテーションの順番を進めない
-  const rotNext = pick.self ? null : await commitAssignment(updated, pick, { actor });
+  let rotNext = null;
   if (pick.self) {
+    // 自分で取ったアポ。順番は動かさないが、件数は実績として数える。
+    // 数えないと、その人にばかりアポが回ってしまう。
+    await markCloserAssigned(pick.email).catch(() => {});
     await logAssign({ slug: link.slug, assigned: pick.email, reason: "自分で獲得したアポ（割り振りなし）", actor });
-    console.log(`[apo-assign] ${link.slug} → ${pick.name}（自分で獲得したアポ。順番は動かしません）`);
+    console.log(`[apo-assign] ${link.slug} → ${pick.name}（自分で獲得したアポ。件数は数え、順番は動かしません）`);
+  } else {
+    rotNext = await commitAssignment(updated, pick, { actor });
   }
   await markAutoAssigned(link.slug);
 
@@ -10201,8 +10213,11 @@ async function runApoAutoScan({ actor = "auto-scan", force = false, updatedMin =
     return { skipped: true, reason: e.message };
   }
 
-  // 担当が未定で、まだ自動割り振りを試していないものだけを対象にする
-  const targets = scan.items.filter((it) => !it.current_owner && !it.auto_assigned_at);
+  // 担当が未定で、まだ自動割り振りを試していないものを対象にする。
+  // クローザーが自分で取ったアポは担当が入っているが、
+  // メール・SF立ち上げ・通知はまだなので、こちらも対象に含める。
+  const targets = scan.items.filter((it) =>
+    !it.auto_assigned_at && (!it.current_owner || it.selfAcquired));
   if (!targets.length) {
     return { total: scan.items.length, targets: 0, assigned: 0, results: [], errors: scan.errors, differential: !!updatedMin };
   }
