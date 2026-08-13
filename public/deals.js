@@ -752,19 +752,41 @@ async function load() {  try {
     const params = new URLSearchParams(location.search);
     const want = params.get("company");
     if (want) {
+      // 「アールプランナーグループ 水谷様」のように担当者名が混ざっていることがある。
+      // 会社名だけを取り出して照合する。
+      const onlyCompany = (v) => String(v || "")
+        .replace(/[／\/｜|]/g, " ")
+        .replace(/[^\s]*(?:様|さま|さん|御中)\s*$/, "")
+        .replace(/[\s　]+$/, "")
+        .trim();
       const names = Object.keys(groups);
-      const hit = names.find((n) => n === want)
-        || names.find((n) => normName(n) === normName(want))
-        || names.find((n) => { const a = normName(n), b = normName(want); return a && b && (a.includes(b) || b.includes(a)); });
+      const cands = [want, onlyCompany(want)].filter(Boolean);
+      let hit = null;
+      for (const w of cands) {
+        hit = names.find((n) => n === w)
+          || names.find((n) => normName(n) === normName(w))
+          || names.find((n) => { const a = normName(n), b = normName(w); return a && b && b.length >= 2 && (a.includes(b) || b.includes(a)); });
+        if (hit) break;
+      }
       if (hit) selectDeal(hit);
       else {
         const dp = $("dealDetail");
         // 埋め込み時は左の一覧が見えていないので、案内の文言を変える
         const embedded = document.body.classList.contains("kb-embed");
-        if (dp) dp.innerHTML = `<div class="empty-state">「${esc(want)}」に一致する案件が見つかりませんでした。` +
-          (embedded
-            ? "会社名の表記がSalesforce側と違っている可能性があります。案件画面から検索してください。"
-            : "左の一覧から選んでください。") + "</div>";
+        if (dp) {
+          const co = onlyCompany(want) || want;
+          // 見つからなくても、この場で商談を探せるようにする。
+          // 「案件画面から探してください」と突き放すと、そこで手が止まってしまう。
+          dp.innerHTML =
+            `<div class="empty-state" style="padding-bottom:4px">kinbotに「${esc(want)}」の商談履歴がありません。` +
+            `${embedded ? "" : "左の一覧から選ぶか、"}下の欄からSalesforceの案件を探して更新できます。</div>` +
+            `<div class="sf-search" style="margin:10px 0">
+               <input type="text" id="sfSoloQ" class="sf-input sf-search-q" value="${esc(co)}" placeholder="会社名や商談名で検索" />
+               <button class="btn sf-search-btn" id="sfSoloBtn">商談を検索</button>
+             </div>
+             <div id="sfSoloList"></div>`;
+          wireSoloSearch();
+        }
       }
     }
   } catch {}
@@ -2519,6 +2541,78 @@ async function showProductDiagnose(container, q) {
   } catch (e) {
     box.innerHTML = `<div class="sf-ss-note">診断に失敗しました：${esc(cleanSfError(e.message))}</div>`;
   }
+}
+
+// kinbotに商談履歴が無い会社でも、この場でSalesforceの案件を探して開けるようにする。
+// 「案件画面から探してください」で終わらせると、そこで手が止まってしまうため。
+function wireSoloSearch() {
+  const btn = $("sfSoloBtn");
+  const q = $("sfSoloQ");
+  const list = $("sfSoloList");
+  if (!btn || btn._wired) return;
+  btn._wired = true;
+
+  const run = async () => {
+    const word = (q.value || "").trim();
+    if (!word) return;
+    btn.disabled = true;
+    btn.textContent = "検索中…";
+    list.innerHTML = "";
+    try {
+      const r = await sfFetch("/api/salesforce/search?q=" + encodeURIComponent(word));
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.error || "検索できませんでした");
+      const recs = d.records || [];
+      if (!recs.length) {
+        list.innerHTML =
+          `<div class="empty-state">「${esc(word)}」で見つかりませんでした。` +
+          `正式名称や略称など、別の言い方でもう一度お試しください。</div>`;
+        return;
+      }
+      list.innerHTML = recs.slice(0, 20).map((x) => `
+        <div class="sf-match" data-id="${esc(x.Id)}" data-name="${esc(x.Name || "")}">
+          <div class="sf-match-name">${esc(x.Name || "(名称なし)")}</div>
+          <div class="sf-match-meta">${esc(x.StageName || "")}${x.Account && x.Account.Name ? " ・ " + esc(x.Account.Name) : ""}${x.CloseDate ? " ・ " + esc(x.CloseDate) : ""}</div>
+          <button type="button" class="btn sf-solo-pick">この案件を更新する</button>
+        </div>`).join("");
+
+      list.querySelectorAll(".sf-solo-pick").forEach((b) =>
+        b.addEventListener("click", () => {
+          const row = b.closest(".sf-match");
+          // 選んだ案件を、そのままSalesforceの更新画面で開く
+          sfLinkedOpp = { Id: row.dataset.id, Name: row.dataset.name };
+          openSfForOpportunity(row.dataset.id, row.dataset.name);
+        })
+      );
+    } catch (e) {
+      list.innerHTML = `<div class="empty-state">検索できませんでした：${esc(e.message)}</div>`;
+    } finally {
+      btn.disabled = false;
+      btn.textContent = "商談を検索";
+    }
+  };
+
+  btn.addEventListener("click", run);
+  q.addEventListener("keydown", (e) => { if (e.key === "Enter") run(); });
+}
+
+// 選んだ案件で、Salesforceの更新画面を開く。
+// kinbotに商談履歴が無いので、案件名を仮の見出しにして画面を組み立てる。
+async function openSfForOpportunity(oppId, oppName) {
+  const account = oppName || "(選んだ案件)";
+  // 商談履歴が無い会社として、空の入れ物を用意する
+  if (!groups[account]) groups[account] = [];
+  await selectDeal(account);
+  // Salesforceのページに切り替える
+  const card = document.querySelector('.dc-card[data-page="salesforce"]');
+  if (card) card.click();
+  // 少し待ってから、選んだ案件をそのまま探して紐づける
+  setTimeout(() => {
+    const qEl = $("sfSearchQ");
+    if (qEl) qEl.value = oppName || "";
+    const btn = $("sfSearchBtn");
+    if (btn) btn.click();
+  }, 250);
 }
 
 async function initSfTab(account) {
