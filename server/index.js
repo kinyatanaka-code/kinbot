@@ -2242,10 +2242,13 @@ app.post("/api/apo/:slug/redo", async (req, res) => {
     if (!link) return res.status(404).json({ error: "見つかりません" });
     await clearAutoAssigned(link.slug);
     const cfg = await getRotationConfig();
+    const st = await getSettings().catch(() => ({}));
+    // 商談予定を作るアカウント。空だと予定の作成でつまずく。
+    const inviteOwner = String(st.apoInviteOwner || st.apoScanOwner || "").trim() || null;
     const r = await autoAssignOne({ ...link, auto_assigned_at: null },
-      { inviteOwner: null, closers: null, cfg, actor: req.user || "manual" });
-    console.log(`[apo] ${link.slug} をやり直しました by ${req.user}`);
-    res.json({ ok: true, ...r });
+      { inviteOwner, closers: null, cfg, actor: req.user || "manual" });
+    console.log(`[apo] ${link.slug} をやり直しました by ${req.user}（${r.ok ? "成功" : r.reason || "失敗"}）`);
+    res.json({ ok: !!r.ok, ...r });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
@@ -10266,7 +10269,9 @@ async function autoAssignOne(link, { inviteOwner, closers = null, cfg, teamCtx =
     });
   }
 
-  console.log(`[apo-assign] ${link.slug} → ${pick.name}${pick.team ? "／" + pick.team : ""}（${pick.reason}）次は${rotNext.nextName}`);
+  // 自分で取ったアポは順番を進めないので、rotNext が無いことがある
+  console.log(`[apo-assign] ${link.slug} → ${pick.name}${pick.team ? "／" + pick.team : ""}` +
+    `（${pick.reason}）${rotNext && rotNext.nextName ? `次は${rotNext.nextName}` : "順番は動かしません"}`);
 
   // Google Chat へ通知する。下書きも自動でできるので、メールの状況を含めて1通にまとめる。
   // （通知が失敗しても割り振り自体は止めない）
