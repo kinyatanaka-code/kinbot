@@ -498,8 +498,8 @@ async function psRun(dryRun) {
     psSay("");
     const ups = d.updates || [];
     box.innerHTML =
-      `<div class="ps-sum">レポートの明細 ${d.rows}行 ／ シートの担当者 ${(d.people || []).join("、")} ／ ` +
-      `SF側で見つかった人 ${(d.matched || []).join("、") || "なし"}</div>` +
+      `<div class="ps-sum">レポートの明細 ${d.rows}行 ／ アポは${srEsc(d.apoSource || "-")}<br>` +
+      `シートの担当者 ${(d.people || []).join("、")} ／ 数えられた人 ${(d.matched || []).join("、") || "なし"}</div>` +
       (d.skipped && d.skipped.length ? `<div class="ps-skip">${srEsc(d.skipped.join(" ／ "))}</div>` : "") +
       (ups.length
         ? `<div class="ps-note">この内容で書き込みます（${d.count}箇所）。問題なければ「シートに書き込む」を押してください。</div>` +

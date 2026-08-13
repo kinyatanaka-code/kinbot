@@ -2987,6 +2987,32 @@ export async function displayNameOf(email) {
   return e.split("@")[0];
 }
 
+// アポ獲得の実績を、獲得者ごと・取得日ごとに数える。
+// 商談日が期間内かどうかで、期内・期外を分ける。
+// SFのレポートには商談日が無いので、kinbotが持っているアポの記録を使う。
+export async function apoCountsBySetter({ termFrom, termTo, business = "" } = {}) {
+  if (!pool) return [];
+  try {
+    const p = [termFrom, termTo];
+    let where = "COALESCE(setter,'') <> '' AND NOT COALESCE(excluded,false)";
+    if (business) { p.push(business); where += ` AND business = $${p.length}`; }
+    const { rows } = await pool.query(
+      `SELECT setter,
+              to_char(created_at AT TIME ZONE 'Asia/Tokyo', 'FMMM/FMDD') AS day,
+              count(*) FILTER (
+                WHERE (start_time AT TIME ZONE 'Asia/Tokyo')::date BETWEEN $1::date AND $2::date
+              )::int AS in_term,
+              count(*) FILTER (
+                WHERE start_time IS NULL
+                   OR (start_time AT TIME ZONE 'Asia/Tokyo')::date NOT BETWEEN $1::date AND $2::date
+              )::int AS out_term
+         FROM smart_links
+        WHERE ${where}
+        GROUP BY 1, 2`, p);
+    return rows;
+  } catch (e) { console.error("[db] apoCountsBySetter", e.message); return []; }
+}
+
 export async function assignCounts(business = "") {
   if (!pool) return { today: 0, week: 0, month: 0 };
   try {

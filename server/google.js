@@ -1200,7 +1200,9 @@ export async function readSheet(owner, spreadsheetId, range) {
   const token = await accessToken(owner);
   const res = await fetch(
     `https://sheets.googleapis.com/v4/spreadsheets/${encodeURIComponent(spreadsheetId)}` +
-    `/values/${encodeURIComponent(range)}?valueRenderOption=UNFORMATTED_VALUE`,
+    // 画面に見えているとおりの文字で読む。
+    // UNFORMATTED_VALUE だと日付が連番（45872 など）になり、「8/3」を探せない。
+    `/values/${encodeURIComponent(range)}?valueRenderOption=FORMATTED_VALUE`,
     { headers: { authorization: `Bearer ${token}` } }
   );
   if (!res.ok) {

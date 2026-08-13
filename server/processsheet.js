@@ -41,6 +41,17 @@ export function parseMD(v) {
   if (m) return { m: +m[1], d: +m[2] };
   m = t.match(/^(\d{4})[-/](\d{1,2})[-/](\d{1,2})/);
   if (m) return { m: +m[2], d: +m[3] };
+  // 「8月3日」の書き方
+  m = t.match(/^(\d{1,2})月\s*(\d{1,2})日/);
+  if (m) return { m: +m[1], d: +m[2] };
+  // スプレッドシートの日付連番（1899-12-30 が 0 日目）
+  if (/^\d{5}(\.\d+)?$/.test(t)) {
+    const n = Math.floor(+t);
+    if (n > 30000 && n < 80000) {
+      const d = new Date(Date.UTC(1899, 11, 30) + n * 86400000);
+      return { m: d.getUTCMonth() + 1, d: d.getUTCDate() };
+    }
+  }
   return null;
 }
 
@@ -141,6 +152,23 @@ export function tally(records, { fromISO, toISO } = {}) {
       // 商談日が期間内なら期内、そうでなければ期外
       t[inTerm(r.meetingDate) ? "アポ（期内）" : "アポ（期外）"] += 1;
     }
+  }
+  return out;
+}
+
+// アポの件数を、kinbotが持っている記録で上書きする。
+// SFのレポートには商談日が無く期内・期外を分けられないため、
+// アポ獲得者・取得日・商談日が揃っているkinbot側の記録を使う。
+export function applyApoCounts(tallied, apoRows) {
+  const out = { ...tallied };
+  for (const r of apoRows || []) {
+    const who = String(r.setter || "").trim();
+    const day = String(r.day || "").trim();
+    if (!who || !day) continue;
+    out[who] = out[who] || {};
+    const t = (out[who][day] = out[who][day] || { "コール": 0, "接触": 0, "アポ（期内）": 0, "アポ（期外）": 0 });
+    t["アポ（期内）"] = Number(r.in_term) || 0;
+    t["アポ（期外）"] = Number(r.out_term) || 0;
   }
   return out;
 }

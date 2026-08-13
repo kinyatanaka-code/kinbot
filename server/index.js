@@ -98,6 +98,7 @@ import {
   recentInvites,
   myAssignedApos,
   assignCounts,
+  apoCountsBySetter,
   listChatTargets,
   addChatTarget,
   updateChatTarget,
@@ -238,7 +239,7 @@ import { resolveConfig, statusInfo } from "./config.js";
 import { analyzerInfo, analyzeMeeting, analyzeDeep, freeAnalyze, chatWithData, enrichCompany, lookupEmployeeCount, lookupCompanyBasics, generateThanks, THANKS_PROMPT, getCheckItems, getSummaryPrompt, getCustomPrompt, runCustomAnalysis, analyzeWinPatterns, classifyMeetingKind, extractFirstMeeting, extractReMeeting, buildBrief, extractFeatureCTags, enrichCompanyAttributes, generateFeatureCInsights, extractQaPairs, splitPhases } from "./analyzer.js";
 import { searchCompanies, getCompanyDetail, gbizConfigured } from "./gbizinfo.js";
 import { searchCompanyInfo, webLookupAvailable } from "./websearch.js";
-import { readLayout, tally, buildUpdates, METRICS } from "./processsheet.js";
+import { readLayout, tally, buildUpdates, applyApoCounts, METRICS } from "./processsheet.js";
 import {
   googleConfigured,
   authUrl,
@@ -2930,8 +2931,12 @@ async function runProcessSheet(sfUser, opts = {}) {
   const report = await runReport(sfUser, reportId, saved);
   const records = toRecords(report);
 
-  // 2. 担当者ごと・日ごとに数える（期内・期外は商談日で分ける）
-  const tallied = tally(records, { fromISO: from, toISO: to });
+  // 2. 担当者ごと・日ごとに数える。
+  //    コールと接触はSFのレポートから。
+  //    アポはkinbotの記録から（商談日が分かるので、期内・期外を正しく分けられる）。
+  let tallied = tally(records, { fromISO: from, toISO: to });
+  const apoRows = await apoCountsBySetter({ termFrom: from, termTo: to }).catch(() => []);
+  tallied = applyApoCounts(tallied, apoRows);
 
   // 3. シートの構造を読んで、書き込む場所を決める
   const values = await readSheet(owner, sheetId, `${sheetName}!A1:DZ200`);
