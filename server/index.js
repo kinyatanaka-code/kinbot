@@ -107,6 +107,7 @@ import {
   updateChatTarget,
   deleteChatTarget,
   setApoExcluded,
+  setApoExcludedMany,
   saveAutolaunch,
   getAutolaunch,
   autolaunchForSlugs,
@@ -2195,6 +2196,19 @@ app.post("/api/mux/cleanup", async (req, res) => {
 
 // Recall接続状況（どのリージョン/キーに繋がっているか＋今月の利用時間＋直近のボット起動結果）
 // ※Recall APIは「残高（チャージ額）」を返さないため、残高は取得できない。利用時間と接続先のみ表示する。
+// 複数のアポを、まとめて集計から外す。テストで作ったものを一度に片付けるため。
+app.put("/api/smart-links/excluded-many", async (req, res) => {
+  try {
+    const slugs = (Array.isArray(req.body?.slugs) ? req.body.slugs : [])
+      .map((x) => String(x || "").trim()).filter(Boolean).slice(0, 500);
+    if (!slugs.length) return res.status(400).json({ error: "対象がありません" });
+    const on = req.body?.excluded !== false;
+    const n = await setApoExcludedMany(slugs, on);
+    console.log(`[apo] ${n}件を集計から${on ? "外しました" : "戻しました"} by ${req.user}`);
+    res.json({ ok: true, count: n });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 // テストで作ったアポを、件数の集計から外す／戻す。
 // 予定もアポ自体も残したまま、実績・均等化・通知の数からだけ除く。
 app.put("/api/smart-links/:slug/excluded", async (req, res) => {
@@ -3017,7 +3031,10 @@ async function runProcessSheet(sfUser, opts = {}) {
       apoFixed: fixed,
       // 期外になった理由を確かめられるように、1件ずつの内訳も返す
       apoDetail: (await apoDetailBySetter({ termFrom: from, termTo: to, limit: 100 }).catch(() => []))
-        .map((r) => ({ setter: r.setter, day: r.day, meetingDate: r.meeting_date, term: r.term, label: r.label })),
+        .map((r) => ({ slug: r.slug, setter: r.setter, day: r.day, createdJst: r.created_jst,
+                       meetingDate: r.meeting_date, term: r.term, label: r.label })),
+      // 判定に使った期間も返す（ずれていないか確かめられるように）
+      termUsed: { from, to },
     };
   }
 
@@ -10073,10 +10090,35 @@ async function collectApoAppointments(scanOwner, opts = {}) {
 // ───────────────────────────────────────────────────────────
 
 // 1件のアポにクローザーを自動で割り当て、招待と確定メールまで通す
+// アポを取ったのがクローザー本人かどうかを見る。
+// クローザーが自分で取ったアポは、ローテーションに乗せず本人が担当する。
+async function selfAcquired(link, biz) {
+  const cands = [link.created_by, link.setter_email, link.creator]
+    .map((x) => String(x || "").trim().toLowerCase()).filter(Boolean);
+  const name = String(link.setter || "").trim();
+  if (!cands.length && !name) return null;
+  try {
+    const closers = await listClosers({ activeOnly: false, business: biz });
+    // メールアドレスで照合。無ければ名前で照合する。
+    let hit = closers.find((c) => cands.includes(String(c.email || "").toLowerCase()));
+    if (!hit && name) {
+      const norm = (v) => String(v || "").replace(/[\s　]/g, "");
+      hit = closers.find((c) => norm(c.name) && norm(c.name) === norm(name));
+    }
+    return hit || null;
+  } catch { return null; }
+}
+
 async function autoAssignOne(link, { inviteOwner, closers = null, cfg, teamCtx = null, actor = "auto" }) {
   // 事業ごとに候補が違うので、アポの事業に合わせて毎回引き直す
   const biz = String(link.business || "").trim();
-  const pick = await pickCloser(link, { inviteOwner, closers, cfg, teamCtx, business: biz });
+
+  // クローザーが自分で取ったアポは、割り振らずに本人を担当にする。
+  // ローテーションの順番も動かさない（他の人の順番を飛ばさないため）。
+  const self = await selfAcquired(link, biz);
+  const pick = self
+    ? { email: self.email, name: self.name || self.email, reason: "自分で獲得したアポ", self: true }
+    : await pickCloser(link, { inviteOwner, closers, cfg, teamCtx, business: biz });
   if (!pick.email) {
     // 割り当てられなかった理由も残す（あとで画面から見て手動対応する）
     await logAssign({ slug: link.slug, assigned: null, reason: pick.reason, skipped: pick.skipped, actor });
@@ -10084,7 +10126,12 @@ async function autoAssignOne(link, { inviteOwner, closers = null, cfg, teamCtx =
   }
 
   const updated = await setSmartLinkOwner(link.slug, pick.email);
-  const rotNext = await commitAssignment(updated, pick, { actor });
+  // 自分で取ったアポは、ローテーションの順番を進めない
+  const rotNext = pick.self ? null : await commitAssignment(updated, pick, { actor });
+  if (pick.self) {
+    await logAssign({ slug: link.slug, assigned: pick.email, reason: "自分で獲得したアポ（割り振りなし）", actor });
+    console.log(`[apo-assign] ${link.slug} → ${pick.name}（自分で獲得したアポ。順番は動かしません）`);
+  }
   await markAutoAssigned(link.slug);
 
   // クローザーのカレンダーに商談予定を作る

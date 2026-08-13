@@ -372,6 +372,7 @@ async function loadProcessReports(selectedId) {
 // レポートの絞り込み条件を出して、覚えさせる。
 // 「今月」で絞らないと中身が出てこないレポートがあるため、条件ごと保存しておく。
 let _psFilters = null;
+let _psTerm = null;   // 判定に使った期間（画面に出して確かめられるように）
 
 async function loadProcessFilters(reportId, saved) {
   const box = $("psFilters");
@@ -508,14 +509,78 @@ function psApoDetail(list) {
   if (!list || !list.length) return "";
   const ng = list.filter((x) => x.term !== "期内");
   return `<details class="ps-apo"${ng.length ? " open" : ""}>` +
-    `<summary>アポの内訳（${list.length}件${ng.length ? `／うち期内でないもの ${ng.length}件` : ""}）</summary>` +
-    `<table class="ps-table"><thead><tr><th>取得日</th><th>獲得者</th><th>商談日</th><th>判定</th><th>予定名</th></tr></thead><tbody>` +
+    `<summary>アポの内訳（${list.length}件${ng.length ? `／うち期内でないもの ${ng.length}件` : ""}）` +
+    `${_psTerm ? `　期内とみなす期間：${srEsc(_psTerm.from)} 〜 ${srEsc(_psTerm.to)}` : ""}</summary>` +
+    `<div class="ps-apo-bar">` +
+    `<input type="text" id="psApoFind" class="sf-input" placeholder="予定名で絞り込み（例：テスト）" />` +
+    `<button type="button" class="btn ghost" id="psApoPick">絞り込んだものに印を付ける</button>` +
+    `<button type="button" class="btn ghost" id="psApoDrop">印を付けたものを集計から外す</button>` +
+    `<span class="rev-status" id="psApoStatus"></span></div>` +
+    `<table class="ps-table"><thead><tr><th></th><th>取得日時</th><th>獲得者</th><th>商談日</th><th>判定</th><th>予定名</th></tr></thead><tbody>` +
     list.slice(0, 100).map((x) =>
-      `<tr class="${x.term === "期内" ? "" : "ps-out"}">` +
-      `<td>${srEsc(x.day || "")}</td><td>${srEsc(x.setter || "")}</td>` +
+      `<tr class="${x.term === "期内" ? "" : "ps-out"}" data-slug="${srEsc(x.slug || "")}" data-label="${srEsc(x.label || "")}">` +
+      `<td><input type="checkbox" class="ps-apo-chk" ${x.slug ? "" : "disabled"} /></td>` +
+      `<td>${srEsc(x.createdJst || x.day || "")}</td><td>${srEsc(x.setter || "")}</td>` +
       `<td>${srEsc(x.meetingDate || "—")}</td><td>${srEsc(x.term || "")}</td>` +
       `<td>${srEsc((x.label || "").slice(0, 30))}</td></tr>`).join("") +
     `</tbody></table></details>`;
+}
+
+// 内訳から、テストで作ったアポを選んで集計から外す
+function wireApoPicker() {
+  const find = $("psApoFind");
+  const pick = $("psApoPick");
+  const drop = $("psApoDrop");
+  if (!pick || pick._wired) return;
+  pick._wired = true;
+
+  const rows = () => [...document.querySelectorAll(".ps-apo tbody tr[data-slug]")];
+  const say = (t, ms) => {
+    const e = $("psApoStatus");
+    if (!e) return;
+    e.textContent = t || "";
+    if (ms) setTimeout(() => { if (e.textContent === t) e.textContent = ""; }, ms);
+  };
+
+  // 入力した言葉を含むものに、まとめて印を付ける
+  pick.addEventListener("click", () => {
+    const w = (find.value || "").trim();
+    if (!w) { say("絞り込む言葉を入れてください", 4000); return; }
+    let n = 0;
+    for (const r of rows()) {
+      const hit = (r.dataset.label || "").includes(w);
+      const c = r.querySelector(".ps-apo-chk");
+      if (c && hit && !c.disabled) { c.checked = true; n++; }
+    }
+    say(`${n}件に印を付けました`, 4000);
+  });
+
+  // 入力に合わせて、行を絞る
+  find.addEventListener("input", () => {
+    const w = (find.value || "").trim();
+    for (const r of rows()) r.hidden = !!w && !(r.dataset.label || "").includes(w);
+  });
+
+  drop.addEventListener("click", async () => {
+    const slugs = rows()
+      .filter((r) => r.querySelector(".ps-apo-chk")?.checked)
+      .map((r) => r.dataset.slug).filter(Boolean);
+    if (!slugs.length) { say("印を付けたものがありません", 4000); return; }
+    if (!confirm(`${slugs.length}件を集計から外します。\n実績・均等化・通知の数から除かれます。よろしいですか？`)) return;
+    say("外しています…");
+    try {
+      const r = await fetch("/api/smart-links/excluded-many", {
+        method: "PUT", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ slugs, excluded: true }),
+      });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.error || "外せませんでした");
+      say(`${d.count}件を外しました。もう一度「中身を確認する」を押してください`, 8000);
+      for (const row of rows()) {
+        if (row.querySelector(".ps-apo-chk")?.checked) row.remove();
+      }
+    } catch (e) { say("失敗: " + e.message); }
+  });
 }
 
 function psSay(t, ms) {
@@ -559,6 +624,7 @@ async function psRun(dryRun) {
             ? `<br><span class="ps-skip">補えなかったもの：${srEsc(d.apoFixed.notes.join(" ／ "))}</span>` : "") +
           `</div>`
         : "") +
+      (() => { _psTerm = d.termUsed || null; return ""; })() +
       psApoDetail(d.apoDetail) +
       (ups.length
         ? `<div class="ps-note">この内容で書き込みます（${d.count}箇所）。問題なければ「シートに書き込む」を押してください。</div>` +
@@ -567,6 +633,7 @@ async function psRun(dryRun) {
             `<tr><td>${srEsc(u.range)}</td><td>${srEsc(u.who)}</td><td>${srEsc(u.date)}</td><td>${srEsc(u.metric)}</td><td class="ps-v">${srEsc(u.value)}</td></tr>`).join("") +
           `</tbody></table>`
         : '<div class="ps-note">書き込む内容がありませんでした。レポートの期間や担当者名をご確認ください。</div>');
+    wireApoPicker();
   } catch (e) {
     psSay("");
     box.innerHTML = `<div class="ps-err">${srEsc(e.message)}</div>` +

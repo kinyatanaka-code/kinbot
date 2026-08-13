@@ -531,10 +531,11 @@ function apiResponse(pathname, query) {
     matched: ["植野 ひかり","田中 欽也","森田 弥鳴","江田 有一郎"], count: 12, skipped: [],
     apoSource: "kinbotのアポ記録から 12件",
     apoDetail: [
-      { setter:"田中欽也", day:"8/4", meetingDate:"2026-08-18", term:"期内", label:"【初回】株式会社ベルク/町田様" },
-      { setter:"田中欽也", day:"8/4", meetingDate:null, term:"商談日が未定", label:"【初回】テスト株式会社" },
-      { setter:"田中欽也", day:"8/4", meetingDate:"2026-09-20", term:"期外", label:"【初回】ミナト工業/高橋様" },
-      { setter:"森田弥鳴", day:"8/5", meetingDate:"2026-08-25", term:"期内", label:"【初回】石井商事運輸/石井様" },
+      { slug:"a1", setter:"田中欽也", day:"8/4", meetingDate:"2026-08-18", term:"期内", label:"【初回】株式会社ベルク/町田様" },
+      { slug:"a2", setter:"田中欽也", day:"8/13", meetingDate:null, term:"商談日が未定", label:"【初回】テスト株式会社" },
+      { slug:"a3", setter:"田中欽也", day:"8/13", meetingDate:"2026-08-18", term:"期内", label:"【初回】アールプランナーグループ/水谷様" },
+      { slug:"a4", setter:"田中欽也", day:"8/9", meetingDate:"2026-08-09", term:"期内", label:"【初回】テストホールディングス/テスト様" },
+      { slug:"a5", setter:"森田弥鳴", day:"8/5", meetingDate:"2026-08-25", term:"期内", label:"【初回】石井商事運輸/石井様" },
     ],
     updates: [
       { range:"K32", who:"植野", date:"8/4", metric:"コール", value:58 },

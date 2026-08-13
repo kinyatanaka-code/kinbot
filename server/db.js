@@ -2790,6 +2790,17 @@ export async function countAssignedOnDate(email, jstDate) {
 }
 
 // テストで作ったアポを、集計から外す／戻す
+// 複数のアポを、まとめて集計から外す／戻す
+export async function setApoExcludedMany(slugs, excluded) {
+  if (!pool || !Array.isArray(slugs) || !slugs.length) return 0;
+  try {
+    const { rowCount } = await pool.query(
+      `UPDATE smart_links SET excluded = $2 WHERE slug = ANY($1::text[])`,
+      [slugs, !!excluded]);
+    return rowCount || 0;
+  } catch (e) { console.error("[db] setApoExcludedMany", e.message); return 0; }
+}
+
 export async function setApoExcluded(slug, excluded) {
   if (!pool || !slug) return null;
   try {
@@ -3045,8 +3056,9 @@ export async function apoDetailBySetter({ termFrom, termTo, limit = 200 } = {}) 
   if (!pool) return [];
   try {
     const { rows } = await pool.query(
-      `SELECT setter,
+      `SELECT slug, setter,
               to_char(created_at AT TIME ZONE 'Asia/Tokyo', 'FMMM/FMDD') AS day,
+              to_char(created_at AT TIME ZONE 'Asia/Tokyo', 'YYYY-MM-DD HH24:MI') AS created_jst,
               to_char(start_time AT TIME ZONE 'Asia/Tokyo', 'YYYY-MM-DD') AS meeting_date,
               label,
               CASE

@@ -193,9 +193,13 @@ export async function notifyAssigned({
   // スマホで一目で分かることを優先し、4〜5行に収める。
   // 会議室のURLは長く折り返すので載せない（kinbotの画面から開ける）。
   const lines = [
-    `✅ *アポ割り振り*${auto ? "" : "（手動）"}　${jstLabel(start)}`,
+    reason === "自分で獲得したアポ"
+      ? `✅ *自分で獲得したアポ*　${jstLabel(start)}`
+      : `✅ *アポ割り振り*${auto ? "" : "（手動）"}　${jstLabel(start)}`,
     `　${title || "(予定名なし)"}`,
-    `👤 ${[repName || "-", setter ? `獲得 ${setter}` : ""].filter(Boolean).join(" ・ ")}`,
+    `👤 ${[repName || "-",
+      setter && String(setter).replace(/[\s　]/g, "") !== String(repName || "").replace(/[\s　]/g, "")
+        ? `獲得 ${setter}` : ""].filter(Boolean).join(" ・ ")}`,
     mailLine(mail, clientEmail),
     launchLine(launch),
     counts
