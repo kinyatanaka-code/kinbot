@@ -106,6 +106,7 @@ import {
   saveAutolaunch,
   getAutolaunch,
   autolaunchForSlugs,
+  autolaunchByCompanies,
   addDocFile,
   listDocFiles,
   getDocBytes,
@@ -2343,14 +2344,38 @@ async function tryAutoLaunch(user, link, { dryRun = false, ownerEmail = "" } = {
       opportunityName: `${j.company}_${j.person}`,
       ownerId,
     });
-    const oppId = conv && (conv.opportunityId || conv.opportunity_id) || "";
+    const oppId = (conv && (conv.opportunityId || conv.opportunity_id)) || "";
+
+    // 「立ち上げました」と言う前に、Salesforceに商談ができているか必ず確かめる。
+    // ここを確かめないと、実際には立ち上がっていないのに成功と伝えてしまう。
+    let verified = null;
+    if (oppId) {
+      try {
+        const d = await sfQuery(user,
+          `SELECT Id, Name, StageName, OwnerId, Owner.Name FROM Opportunity WHERE Id = '${String(oppId).replace(/[^a-zA-Z0-9]/g, "")}'`);
+        verified = d?.records?.[0] || null;
+      } catch (e) {
+        console.warn("[SF自動] 商談の確認に失敗", e.message);
+      }
+    }
+    if (!verified) {
+      const r = { ...base, ok: false, company: j.company, person: j.person,
+                  reason: "not_created", detail: oppId ? `商談ID ${oppId} を確認できませんでした` : "商談IDが返りませんでした",
+                  leadId: j.lead.Id, oppId };
+      await saveAutolaunch(r);
+      console.error(`[SF自動] 立ち上げたはずが確認できません ${j.company}／${j.person}（商談ID ${oppId || "なし"}）`);
+      return r;
+    }
+
     const r = { ...base, ok: true, company: j.company, person: j.person,
-                reason: "", leadId: j.lead.Id, oppId, filledUrl: site.filled ? site.url : "" };
+                reason: "", leadId: j.lead.Id, oppId, oppName: verified.Name || "",
+                stage: verified.StageName || "", filledUrl: site.filled ? site.url : "" };
     await saveAutolaunch(r);
     console.log(`[SF自動] 立ち上げ完了 ${j.company}／${j.person} → ${oppId}`);
     notifyAll([
       "🚀 *SFの商談を自動で立ち上げました*",
-      `　${j.company}　${j.person}様`,
+      `　${verified.Name || `${j.company}_${j.person}`}`,
+      `　${verified.StageName || ""}${verified.Owner && verified.Owner.Name ? " ・ " + verified.Owner.Name : ""}`,
       site.filled ? "🔗 URLも補いました" : "",
     ].filter(Boolean).join("\n"), "launch").catch(() => {});
     return r;
@@ -7613,12 +7638,24 @@ app.post("/api/salesforce/opportunity/:id/lose", async (req, res) => {
 });
 
 // その日にカレンダーへ登録された予定を、Google連携している全員分まとめて返す
+// 日付ごとの読み取り結果を、少しの間だけ覚えておく。
+// 日付を行き来したときに、毎回30人ぶん読み直さないようにするため。
+const _createdCache = new Map();
+const CREATED_CACHE_MS = Number(process.env.CAL_CACHE_MS || 90 * 1000);
+
 app.get("/api/calendar/created", async (req, res) => {
   try {
     res.set("Cache-Control", "no-store");
+    const fresh = String(req.query.fresh || "") === "1";
     const jstToday = new Date(Date.now() + 9 * 60 * 60 * 1000).toISOString().slice(0, 10);
     const q = String((req.query && req.query.date) || "").trim();
     const dateStr = /^\d{4}-\d{2}-\d{2}$/.test(q) ? q : jstToday;
+
+    // 覚えているものがあれば、それを返す（読み直したいときは fresh=1）
+    const cached = _createdCache.get(dateStr);
+    if (!fresh && cached && Date.now() - cached.at < CREATED_CACHE_MS) {
+      return res.json({ ...cached.data, cached: true, cachedAgoSec: Math.round((Date.now() - cached.at) / 1000) });
+    }
 
     let accounts = [];
     try { accounts = await listGoogleAccounts(); } catch {}
@@ -7626,21 +7663,29 @@ app.get("/api/calendar/created", async (req, res) => {
 
     const byUid = new Map();
     const errors = [];
-    for (const a of accounts.slice(0, 30)) {
-      const own = a.owner || a.google_email || "";
-      if (!own) continue;
-      try {
-        const evs = await listEventsCreatedOn(own, dateStr);
-        for (const e of evs) {
+    const owners = accounts.slice(0, 30)
+      .map((a) => a.owner || a.google_email || "")
+      .filter(Boolean);
+
+    // 30人ぶんを1人ずつ読むと待ち時間が積み上がるので、まとめて読む。
+    // Googleの制限に当たらないよう、6人ずつに区切って進める。
+    const CHUNK = Number(process.env.CAL_FETCH_CONCURRENCY || 6);
+    for (let i = 0; i < owners.length; i += CHUNK) {
+      const part = owners.slice(i, i + CHUNK);
+      const results = await Promise.all(part.map(async (own) => {
+        try { return { own, evs: await listEventsCreatedOn(own, dateStr) }; }
+        catch (err) { return { own, err: err.message }; }
+      }));
+      for (const r of results) {
+        if (r.err) { errors.push(`${r.own}: ${r.err}`); continue; }
+        for (const e of r.evs) {
           const key = e.uid || (e.title + "@" + e.start);
           const prev = byUid.get(key);
           // 同じ予定が複数人のカレンダーにある場合は、主催者側を優先して残す
-          if (!prev || (e.organizer && own && e.organizer.toLowerCase() === String(own).toLowerCase())) {
-            byUid.set(key, { ...e, calendarOwner: own });
+          if (!prev || (e.organizer && r.own && e.organizer.toLowerCase() === String(r.own).toLowerCase())) {
+            byUid.set(key, { ...e, calendarOwner: r.own });
           }
         }
-      } catch (err) {
-        errors.push(`${own}: ${err.message}`);
       }
     }
     // 誰がアポを取り（インターン）、誰に振り分けられたか（営業担当）を割り出す
@@ -7677,7 +7722,15 @@ app.get("/api/calendar/created", async (req, res) => {
         };
       })
       .sort((x, y) => new Date(x.created) - new Date(y.created));
-    res.json({ connected: true, date: dateStr, count: accounts.length, events, errors });
+    const payload = { connected: true, date: dateStr, count: accounts.length, events, errors };
+    _createdCache.set(dateStr, { at: Date.now(), data: payload });
+    // 覚えておくのは直近の数日だけにする
+    if (_createdCache.size > 12) {
+      const oldest = [..._createdCache.entries()].sort((a, b) => a[1].at - b[1].at)[0];
+      if (oldest) _createdCache.delete(oldest[0]);
+    }
+    console.log(`[SF立ち上げ] ${dateStr} のカレンダーを読みました（${accounts.length}人／${events.length}件${errors.length ? `／読めず ${errors.length}人` : ""}）`);
+    res.json(payload);
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
@@ -7750,9 +7803,12 @@ app.post("/api/salesforce/launched-check", async (req, res) => {
     const uniq = [...new Set(list.map(core).filter((x) => x.length >= 2))].slice(0, 25);
     if (!uniq.length) return res.json({ found: {} });
     const ors = uniq.map((c) => `Name LIKE '%${c}%'`).join(" OR ");
+    // 商談名に「クロス」が入るものだけを見ていると、
+    // kinbotが自動で立ち上げた「会社名_担当者名」の商談を取りこぼす。
+    // 会社名で当てて、あとから絞り込む。
     const soql =
       `SELECT Id, Name, StageName, CreatedDate, Account.Name FROM Opportunity ` +
-      `WHERE Name LIKE '%クロス%' AND (${ors}) ORDER BY CreatedDate DESC LIMIT 300`;
+      `WHERE (${ors}) ORDER BY CreatedDate DESC LIMIT 300`;
     const d = await sfQuery(req.user, soql);
     const recs = d.records || [];
     const found = {};
@@ -7762,6 +7818,18 @@ app.post("/api/salesforce/launched-check", async (req, res) => {
       const hit = recs.find((r) => core(r.Name).includes(k) || (r.Account && core(r.Account.Name).includes(k)));
       if (hit) found[c] = { id: hit.Id, name: hit.Name, stage: hit.StageName || "", createdDate: hit.CreatedDate || "" };
     }
+    // Salesforceで見つからなくても、kinbotが立ち上げた記録があれば拾う
+    try {
+      const rows = await autolaunchByCompanies(list);
+      for (const c of list) {
+        if (found[c]) continue;
+        const r = rows[core(c)];
+        if (r && r.ok && r.opp_id) {
+          found[c] = { id: r.opp_id, name: r.title || "", stage: "", createdDate: r.tried_at, viaKinbot: true };
+        }
+      }
+    } catch {}
+
     const info = await sfInfo(req.user).catch(() => null);
     res.json({ found, instanceUrl: (info && info.instanceUrl) || "" });
   } catch (e) {

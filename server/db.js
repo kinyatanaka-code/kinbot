@@ -3033,6 +3033,25 @@ export async function getAutolaunch(slug) {
   } catch { return null; }
 }
 
+// 会社名から、kinbotが立ち上げた記録を引く。
+// Salesforce側で見つからなくても、立ち上げ済みだと分かるようにするため。
+export async function autolaunchByCompanies(names) {
+  if (!pool || !Array.isArray(names) || !names.length) return {};
+  const core = (v) => String(v || "")
+    .replace(/(株式会社|有限会社|合同会社|合資会社|一般社団法人|一般財団法人|公益社団法人|公益財団法人|医療法人|学校法人|社会福祉法人|㈱|\(株\)|（株）)/g, "")
+    .replace(/[\s　]/g, "").trim();
+  try {
+    const { rows } = await pool.query(
+      `SELECT * FROM sf_autolaunch WHERE ok AND opp_id IS NOT NULL ORDER BY tried_at DESC LIMIT 500`);
+    const out = {};
+    for (const r of rows) {
+      const k = core(r.company);
+      if (k && !out[k]) out[k] = r;
+    }
+    return out;
+  } catch { return {}; }
+}
+
 export async function autolaunchForSlugs(slugs) {
   if (!pool || !Array.isArray(slugs) || !slugs.length) return {};
   try {

@@ -309,10 +309,15 @@ let ownerFilter = null; // 表示する登録者（null＝全員）
 let launched = {};      // 会社名 → すでにある商談
 let sfInstanceUrl = "";
 let createFields = null; // 新規リード作成の入力項目
+let lastLoad = { cached: false, agoSec: 0 }; // 直近の読み込みが、覚えていたものかどうか
 let autoOpened = false;  // 埋め込みでパネルを自動で開いたか
 function render() {
   const box = $l("lnList");
   $l("lnTitle").textContent = (selDateL === todayL ? "今日" : dateLabelL(selDateL)) + "に登録された【初回】【新/ヒ】の予定" + (memberCount ? `（${memberCount}名分）` : "");
+  const rl = $l("lnReload");
+  if (rl) rl.title = lastLoad.cached
+    ? `${lastLoad.agoSec}秒前に読んだ内容を出しています。押すと読み直します。`
+    : "カレンダーを読み直します";
   const pick = $l("lnDate");
   if (pick && pick.value !== selDateL) pick.value = selDateL;
   const tb = $l("lnToday");
@@ -804,15 +809,17 @@ async function loadFields() {
   } catch {}
 }
 
-async function loadDay() {
+async function loadDay(fresh = false) {
   const box = $l("lnList");
   box.innerHTML = '<div class="home-empty">読み込み中…（全員のカレンダーを見ています）</div>';
   try {
     // その日にカレンダーへ登録された予定を、Google連携している全員分まとめて取る
-    const r = await fetch("/api/calendar/created?date=" + encodeURIComponent(selDateL));
+    const r = await fetch("/api/calendar/created?date=" + encodeURIComponent(selDateL) +
+      (fresh ? "&fresh=1" : ""));
     const d = await r.json();
     dayEventsL = (d && d.events) || [];
     memberCount = (d && d.count) || 0;
+    lastLoad = { cached: !!(d && d.cached), agoSec: (d && d.cachedAgoSec) || 0 };
     if (d && d.connected === false) {
       box.innerHTML = '<div class="home-empty">Googleカレンダーが連携されているメンバーがいません。設定から連携してください。</div>';
       return;
@@ -970,6 +977,9 @@ document.addEventListener("DOMContentLoaded", async () => {
         });
       return;
     }
+
+      const rlb = ev.target.closest("#lnReload");
+    if (rlb) { loadDay(true); return; }
 
     const gb = ev.target.closest("[data-ln-gbiz]");
     if (gb) {
