@@ -2954,8 +2954,14 @@ async function runProcessSheet(sfUser, opts = {}) {
   }
 
   // 4. 「実績」のセルだけを書き換える
-  const r = await updateSheetCells(owner, sheetId, sheetName, updates);
-  return { ok: true, updated: r.updated, count: updates.length, skipped };
+  try {
+    const r = await updateSheetCells(owner, sheetId, sheetName, updates);
+    return { ok: true, updated: r.updated, count: updates.length, skipped };
+  } catch (e) {
+    // どのセルに書こうとしたかを添える（原因を調べるときに使う）
+    e.firstRange = updates[0] ? updates[0].range : "";
+    throw e;
+  }
 }
 
 app.post("/api/process-sheet/run", async (req, res) => {
@@ -2975,7 +2981,8 @@ app.post("/api/process-sheet/run", async (req, res) => {
         const d = await diagnoseSheet(
           String(req.body?.owner || st.psOwner || req.user),
           String(req.body?.sheetId || st.psSheetId || ""),
-          String(req.body?.sheetName || st.psSheetName || "")
+          String(req.body?.sheetName || st.psSheetName || ""),
+          String(e.firstRange || "")
         );
         hint = d.note;
       } catch {}
@@ -2992,8 +2999,14 @@ app.post("/api/process-sheet/permission", async (req, res) => {
     const sheetId = String(req.body?.sheetId || st.psSheetId || "").trim();
     const sheetName = String(req.body?.sheetName || st.psSheetName || "").trim();
     if (!sheetId) return res.status(400).json({ error: "スプレッドシートを指定してください" });
-    const d = await diagnoseSheet(owner, sheetId, sheetName);
-    res.json({ ok: true, owner, ...d });
+    // どこに書く予定かを調べて、そのセルで試す
+    let probe = "";
+    try {
+      const r = await runProcessSheet(req.user, { ...req.body, dryRun: true });
+      probe = (r.updates && r.updates[0] && r.updates[0].range) || "";
+    } catch {}
+    const d = await diagnoseSheet(owner, sheetId, sheetName, probe);
+    res.json({ ok: true, owner, probe, ...d });
   } catch (e) { res.status(400).json({ error: e.message }); }
 });
 

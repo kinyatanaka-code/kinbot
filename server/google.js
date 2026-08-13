@@ -1246,7 +1246,7 @@ export async function updateSheetCells(owner, spreadsheetId, sheetName, cells) {
 
 // なぜ書き込めないのかを調べる。
 // 403は「閲覧のみで共有されている」か「シートが保護されている」のどちらかが多い。
-export async function diagnoseSheet(owner, spreadsheetId, sheetName = "") {
+export async function diagnoseSheet(owner, spreadsheetId, sheetName = "", probeCell = "") {
   const token = await accessToken(owner);
   const out = { canEdit: null, name: "", owners: [], protected: [], note: "" };
 
@@ -1265,7 +1265,7 @@ export async function diagnoseSheet(owner, spreadsheetId, sheetName = "") {
     }
   } catch {}
 
-  // 2. シートやセルが保護されていないか
+  // 2-0. どのシートに保護があるか（範囲の指定漏れを防ぐため、全シートを見る）
   try {
     const r = await fetch(
       `https://sheets.googleapis.com/v4/spreadsheets/${encodeURIComponent(spreadsheetId)}` +
@@ -1276,18 +1276,88 @@ export async function diagnoseSheet(owner, spreadsheetId, sheetName = "") {
       const d = await r.json();
       for (const sh of d.sheets || []) {
         const title = sh?.properties?.title || "";
-        if (sheetName && title !== sheetName) continue;
+        // シート名の指定が違っていても見逃さないよう、全部見る。
+        // 対象のシートかどうかは、あとで印を付けて分かるようにする。
+        const target = !sheetName || title === sheetName;
         for (const pr of sh.protectedRanges || []) {
-          out.protected.push({ sheet: title, description: pr.description || "（説明なし）" });
+          // どの範囲が保護されているかを、A1の形で出す。
+          // 「（説明なし）」だけだと、どこを直せばよいか分からないため。
+          const r = pr.range || {};
+          const colA1 = (n) => {
+            let s2 = "", x = (n || 0) + 1;
+            while (x > 0) { const m2 = (x - 1) % 26; s2 = String.fromCharCode(65 + m2) + s2; x = Math.floor((x - 1) / 26); }
+            return s2;
+          };
+          const hasRange = r.startRowIndex != null || r.startColumnIndex != null;
+          const where = hasRange
+            ? `${colA1(r.startColumnIndex || 0)}${(r.startRowIndex || 0) + 1}` +
+              `:${r.endColumnIndex != null ? colA1(r.endColumnIndex - 1) : ""}${r.endRowIndex != null ? r.endRowIndex : ""}`
+            : "シート全体";
+          out.protected.push({
+            sheet: title,
+            target,
+            description: pr.description || "",
+            where,
+            editors: (pr.editors && pr.editors.users) || [],
+            // 自分が編集できる人に入っているか
+            canEditThis: ((pr.editors && pr.editors.users) || [])
+              .some((u) => String(u).toLowerCase() === String(owner).toLowerCase()),
+          });
         }
       }
     }
   } catch {}
 
+  // 3. 本当に書けるかを、実際に1セル試して確かめる。
+  // 保護の設定は読み取れないことがあるので、試すのが確実。
+  if (out.canEdit !== false && sheetName) {
+    try {
+      // 実際に書き込む予定のセルで試す。
+      // いま入っている値を読んで、そのまま同じ値を書き戻すので中身は変わらない。
+      const probe = `${sheetName}!${probeCell || "A1"}`;
+      const rr = await fetch(
+        `https://sheets.googleapis.com/v4/spreadsheets/${encodeURIComponent(spreadsheetId)}` +
+        `/values/${encodeURIComponent(probe)}?valueRenderOption=FORMULA`,
+        { headers: { authorization: `Bearer ${token}` } }
+      );
+      const cur = rr.ok ? (((await rr.json()).values || [[]])[0] || [])[0] : "";
+      const wr = await fetch(
+        `https://sheets.googleapis.com/v4/spreadsheets/${encodeURIComponent(spreadsheetId)}` +
+        `/values/${encodeURIComponent(probe)}?valueInputOption=USER_ENTERED`,
+        {
+          method: "PUT",
+          headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+          body: JSON.stringify({ values: [[cur == null ? "" : cur]] }),
+        }
+      );
+      out.canWrite = wr.ok;
+      if (!wr.ok) out.writeError = (await wr.text()).slice(0, 200);
+    } catch (e) { out.canWrite = null; }
+  }
+
+  if (out.canWrite === false) {
+    const mine = out.protected.filter((p) => p.target);
+    out.note = mine.length
+      ? `書き込めませんでした。${mine.map((p) => `${p.sheet}の${p.where}`).join("、")}が保護されています。` +
+        `データ → シートと範囲を保護 から、その保護を選び「権限を設定」で ${owner} を追加してください。`
+      : `書き込めませんでした。共有では編集者になっていますが、Googleスプレッドシートの` +
+        `データ → シートと範囲を保護 で、書き込む範囲に保護がかかっていないかご確認ください。`;
+    return out;
+  }
+  if (out.canWrite === true) {
+    out.note = "書き込めます。このまま実行して問題ありません。";
+    return out;
+  }
+
   if (out.canEdit === false) {
     out.note = `${owner} には編集権限がありません。スプレッドシートの「共有」から、このアカウントを${out.owners.length ? `（オーナー：${out.owners.join("、")}）` : ""}編集者として追加してください。`;
   } else if (out.protected.length) {
-    out.note = `シートに保護がかかっています（${out.protected.map((p) => p.description).join("、")}）。保護の設定で ${owner} を編集できる人に追加してください。`;
+    const list = out.protected
+      .map((p) => `${p.sheet}の${p.where}${p.description ? `「${p.description}」` : ""}`)
+      .join("、");
+    out.note = `シートに保護がかかっています（${list}）。` +
+      `スプレッドシートを開き、データ → シートと範囲を保護 → その保護をクリック → 権限を設定 から、` +
+      `${owner} を編集できる人に追加してください。`;
   } else if (out.canEdit === true) {
     out.note = "編集権限はあります。書き込めない場合は、対象のセルだけが保護されている可能性があります。";
   } else {

@@ -566,11 +566,17 @@ if ($("psSave")) {
       const d = await r.json();
       if (!r.ok) throw new Error(d.error || "調べられませんでした");
       psSay("");
+      const prot = (d.protected || []).map((p) =>
+        `${srEsc(p.sheet)}の${srEsc(p.where)}${p.description ? `「${srEsc(p.description)}」` : ""}` +
+        `${p.canEditThis ? "（編集できます）" : "（編集できません）"}`).join("<br>");
       $("psResult").innerHTML =
-        `<div class="ps-sum">${srEsc(d.name || "")}　書き込むアカウント：${srEsc(d.owner)}</div>` +
-        `<div class="${d.canEdit ? "ps-note" : "ps-err"}">` +
-        `${d.canEdit === true ? "編集権限あり" : d.canEdit === false ? "編集権限なし" : "権限を確認できません"}` +
-        `${d.protected && d.protected.length ? `／保護あり（${srEsc(d.protected.map((p) => p.description).join("、"))}）` : ""}</div>` +
+        `<div class="ps-sum">${srEsc(d.name || "")}　書き込むアカウント：${srEsc(d.owner)}` +
+        `${d.probe ? `　試したセル：${srEsc(d.probe)}` : ""}</div>` +
+        `<div class="${d.canWrite === false ? "ps-err" : "ps-note"}">` +
+        `${d.canWrite === true ? "書き込めます"
+          : d.canWrite === false ? "書き込めません"
+          : d.canEdit === true ? "編集権限あり" : d.canEdit === false ? "編集権限なし" : "権限を確認できません"}</div>` +
+        (prot ? `<div class="ps-sum">保護の一覧<br>${prot}</div>` : "") +
         `<div class="ps-note">${srEsc(d.note || "")}</div>`;
     } catch (e) { psSay(""); $("psResult").innerHTML = `<div class="ps-err">${srEsc(e.message)}</div>`; }
   });
