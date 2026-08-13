@@ -108,6 +108,7 @@ import {
   deleteChatTarget,
   setApoExcluded,
   setApoExcludedMany,
+  dedupeSmartLinksByEvent,
   saveAutolaunch,
   getAutolaunch,
   autolaunchForSlugs,
@@ -2197,6 +2198,16 @@ app.post("/api/mux/cleanup", async (req, res) => {
 
 // Recall接続状況（どのリージョン/キーに繋がっているか＋今月の利用時間＋直近のボット起動結果）
 // ※Recall APIは「残高（チャージ額）」を返さないため、残高は取得できない。利用時間と接続先のみ表示する。
+// 同じ予定から二重にできてしまったアポを片付ける
+app.post("/api/apo/dedupe", async (req, res) => {
+  try {
+    const dryRun = req.body?.confirm !== true;
+    const r = await dedupeSmartLinksByEvent({ dryRun });
+    if (!dryRun) console.log(`[apo] 重複したアポを ${r.remove}件 消しました by ${req.user}`);
+    res.json({ ok: true, dryRun, ...r });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 // 複数のアポを、まとめて集計から外す。テストで作ったものを一度に片付けるため。
 app.put("/api/smart-links/excluded-many", async (req, res) => {
   try {

@@ -218,6 +218,16 @@
 
               <p class="note">新機能に必要なテーブルが作られているかを確認します。不足があれば「作り直す」で再作成できます。</p>
               <div class="ap-build" id="dbBuild">確認中…</div>
+              <h4 class="ap-rot-h">重複したアポを片付ける</h4>
+              <p class="note">同じカレンダー予定から、同じアポが何件もできてしまった場合に片付けます。<br>
+              <b>担当・宛先・処理済みの情報が入っているものを1件だけ残し</b>、残りを消します。まず「調べる」で件数を確認してください。</p>
+              <div class="ap-cfg-actions">
+                <button class="btn ghost" id="dupCheck">調べる</button>
+                <button class="btn" id="dupRun" hidden>重複を消す</button>
+                <span class="rev-status" id="dupStatus"></span>
+              </div>
+              <div id="dupResult"></div>
+
               <h4 class="ap-rot-h">作ってしまった商談予定の取り消し</h4>
               <p class="note">間違えて割り振り直したときに、カレンダーに作られた予定を消せます。<b>アポの担当割り当ては残ります</b>（予定だけ消えます）。</p>
               <div class="ap-cfg-row">

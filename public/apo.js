@@ -634,6 +634,39 @@ if (typeof document !== "undefined") {
   });
 }
 
+// ===== 重複したアポを片付ける =====
+async function dedupeApos(confirm) {
+  const box = $("dupResult");
+  const say = (m) => { const e = $("dupStatus"); if (e) e.textContent = m; };
+  say(confirm ? "消しています…" : "調べています…");
+  box.innerHTML = "";
+  try {
+    const r = await fetch("/api/apo/dedupe", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ confirm }),
+    });
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.error || "できませんでした");
+    say("");
+    if (!d.remove) {
+      box.innerHTML = '<p class="note">重複はありませんでした。</p>';
+      $("dupRun").hidden = true;
+      return;
+    }
+    box.innerHTML =
+      `<p class="note">${d.groups}件の予定で重複がありました。${confirm ? `<b>${d.remove}件を消しました。</b>` : `<b>${d.remove}件が消える対象です。</b>`}</p>` +
+      (d.samples && d.samples.length
+        ? `<ul class="ks-list">` + d.samples.map((x) =>
+            `<li>${esc(x.label || "(予定名なし)")}　→ 1件残して ${x.removed}件を消す</li>`).join("") + `</ul>`
+        : "");
+    $("dupRun").hidden = !!confirm;
+    if (confirm) setTimeout(() => location.reload(), 1500);
+  } catch (e) {
+    say("");
+    box.innerHTML = `<p class="note cc-warn">${esc(e.message)}</p>`;
+  }
+}
+
 // ===== 商談が立ち上がらない原因を調べる =====
 async function diagnoseLaunch() {
   const box = $("alDiagBox");
@@ -1219,6 +1252,11 @@ async function saveMailCfg() {
   });
   if ($("rcWhy")) $("rcWhy").addEventListener("click", whyNoAssign);
   if ($("alDiag")) $("alDiag").addEventListener("click", diagnoseLaunch);
+  if ($("dupCheck")) $("dupCheck").addEventListener("click", () => dedupeApos(false));
+  if ($("dupRun")) $("dupRun").addEventListener("click", () => {
+    if (!confirm("重複したアポを消します。\n担当や宛先が入っているものを1件だけ残します。\n\nよろしいですか？")) return;
+    dedupeApos(true);
+  });
   if ($("rcBaseSave")) $("rcBaseSave").addEventListener("click", async () => {
     const el = $("rcBaseStatus");
     const say = (m, ms) => { if (el) { el.textContent = m; if (ms) setTimeout(() => { if (el.textContent === m) el.textContent = ""; }, ms); } };

@@ -624,6 +624,38 @@ export async function initDb() {
   // テストで作ったアポを、件数の集計から外すための印。
   // 予定や記録は残したまま、実績・均等化・通知の数から除く。
   await sq(`ALTER TABLE smart_links ADD COLUMN IF NOT EXISTS excluded BOOLEAN NOT NULL DEFAULT false;`);
+
+  // 同じカレンダー予定を二度登録しないようにする。
+  // スキャンが重なったときに、同じ予定が何件もできてしまうのを防ぐ。
+  try {
+    await pool.query(
+      `CREATE UNIQUE INDEX IF NOT EXISTS ux_smart_links_event
+         ON smart_links(event_id) WHERE event_id IS NOT NULL`);
+  } catch {
+    // すでに重複があると索引を作れない。
+    // 情報が多いものを1件だけ残して片付けてから、もう一度作る。
+    try {
+      const r = await pool.query(`
+        DELETE FROM smart_links s USING (
+          SELECT slug FROM (
+            SELECT slug, row_number() OVER (
+              PARTITION BY event_id
+              ORDER BY (current_owner IS NOT NULL) DESC,
+                       (client_email IS NOT NULL) DESC,
+                       (auto_assigned_at IS NOT NULL) DESC,
+                       created_at ASC
+            ) AS rn
+              FROM smart_links WHERE event_id IS NOT NULL
+          ) t WHERE rn > 1
+        ) d WHERE s.slug = d.slug`);
+      if (r.rowCount) console.warn(`[db] 重複していたアポを ${r.rowCount}件 片付けました。`);
+      await pool.query(
+        `CREATE UNIQUE INDEX IF NOT EXISTS ux_smart_links_event
+           ON smart_links(event_id) WHERE event_id IS NOT NULL`);
+    } catch (e2) {
+      console.warn("[db] 二重登録の防止をかけられませんでした:", e2.message);
+    }
+  }
   await sq(`CREATE INDEX IF NOT EXISTS ix_smart_links_excluded ON smart_links(excluded) WHERE excluded;`);
 
   // Google Chatの通知先。複数のスペースに送れるようにする。
@@ -2492,6 +2524,21 @@ export async function deleteOauthToken(access_token) {
 // ===== スマートリンク（担当者切り替えに追随する共有Zoom URL） =====
 export async function createSmartLink({ slug, label, owner, createdBy, eventId, setter, startTime, endTime }) {
   if (!pool) return null;
+  // 同じカレンダー予定からは1件しか作らない。
+  // スキャンが重なっても、二重に登録されないようにする。
+  if (eventId) {
+    const { rows } = await pool.query(
+      `INSERT INTO smart_links (slug, label, current_owner, created_by, event_id, setter, start_time, end_time)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+       ON CONFLICT (event_id) WHERE event_id IS NOT NULL DO NOTHING
+       RETURNING *`,
+      [slug, label || "", owner || null, createdBy || "", eventId, setter || null, startTime || null, endTime || null]
+    );
+    if (rows[0]) return rows[0];
+    // すでにあった場合は、そちらを返す
+    const { rows: cur } = await pool.query(`SELECT * FROM smart_links WHERE event_id=$1 LIMIT 1`, [eventId]);
+    return cur[0] || null;
+  }
   const { rows } = await pool.query(
     `INSERT INTO smart_links (slug, label, current_owner, created_by, event_id, setter, start_time, end_time)
      VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING *`,
@@ -2791,6 +2838,47 @@ export async function countAssignedOnDate(email, jstDate) {
 
 // テストで作ったアポを、集計から外す／戻す
 // 複数のアポを、まとめて集計から外す／戻す
+// 同じカレンダー予定から作られた重複を片付ける。
+// 情報が多いもの（担当・宛先・処理済み）を1件だけ残して、残りを消す。
+export async function dedupeSmartLinksByEvent({ dryRun = true } = {}) {
+  if (!pool) return { groups: 0, remove: 0, samples: [] };
+  try {
+    const { rows } = await pool.query(
+      `SELECT event_id, count(*)::int AS n
+         FROM smart_links
+        WHERE event_id IS NOT NULL
+        GROUP BY event_id HAVING count(*) > 1
+        ORDER BY count(*) DESC LIMIT 500`);
+    if (!rows.length) return { groups: 0, remove: 0, samples: [] };
+
+    let remove = 0;
+    const samples = [];
+    for (const g of rows) {
+      const { rows: dup } = await pool.query(
+        `SELECT slug, label, current_owner, client_email, auto_assigned_at, created_at
+           FROM smart_links WHERE event_id = $1
+          ORDER BY (current_owner IS NOT NULL) DESC,
+                   (client_email IS NOT NULL) DESC,
+                   (auto_assigned_at IS NOT NULL) DESC,
+                   created_at ASC`, [g.event_id]);
+      const keep = dup[0];
+      const drop = dup.slice(1).map((d) => d.slug);
+      if (!drop.length) continue;
+      remove += drop.length;
+      if (samples.length < 10) {
+        samples.push({ label: keep.label, keep: keep.slug, removed: drop.length });
+      }
+      if (!dryRun) {
+        await pool.query(`DELETE FROM smart_links WHERE slug = ANY($1::text[])`, [drop]);
+      }
+    }
+    return { groups: rows.length, remove, samples };
+  } catch (e) {
+    console.error("[db] dedupeSmartLinksByEvent", e.message);
+    return { groups: 0, remove: 0, samples: [], error: e.message };
+  }
+}
+
 export async function setApoExcludedMany(slugs, excluded) {
   if (!pool || !Array.isArray(slugs) || !slugs.length) return 0;
   try {
