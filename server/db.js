@@ -31,7 +31,7 @@ const EXPECTED_TABLES = [
   "meetings", "deals", "deal_events", "smart_links", "interns", "users", "settings",
   "apo_mail_log", "gmail_actions", "closer_rotation", "assign_log", "team_rotation", "members", "closer_suspensions",
   "kasasagi_unanswered", "kasasagi_blocked", "kasasagi_reports", "next_actions",
-  "doc_files", "doc_links", "doc_views", "doc_events", "sf_autolaunch", "proposal_files",
+  "doc_files", "doc_links", "doc_views", "doc_events", "sf_autolaunch", "chat_targets", "proposal_files",
 ];
 const EXPECTED_COLUMNS = [
   ["smart_links", "client_email"], ["smart_links", "client_name"],
@@ -625,6 +625,25 @@ export async function initDb() {
   // 予定や記録は残したまま、実績・均等化・通知の数から除く。
   await sq(`ALTER TABLE smart_links ADD COLUMN IF NOT EXISTS excluded BOOLEAN NOT NULL DEFAULT false;`);
   await sq(`CREATE INDEX IF NOT EXISTS ix_smart_links_excluded ON smart_links(excluded) WHERE excluded;`);
+
+  // Google Chatの通知先。複数のスペースに送れるようにする。
+  // 種類ごと（アポ割り振り／メール／資料の閲覧）にON・OFFを持つ。
+  await sq(`
+    CREATE TABLE IF NOT EXISTS chat_targets (
+      id           SERIAL PRIMARY KEY,
+      name         TEXT NOT NULL,
+      webhook_url  TEXT,
+      space_id     TEXT,
+      on_assign    BOOLEAN NOT NULL DEFAULT true,
+      on_mail      BOOLEAN NOT NULL DEFAULT true,
+      on_doc       BOOLEAN NOT NULL DEFAULT true,
+      on_launch    BOOLEAN NOT NULL DEFAULT true,
+      active       BOOLEAN NOT NULL DEFAULT true,
+      last_error   TEXT,
+      sent_count   INT NOT NULL DEFAULT 0,
+      created_at   TIMESTAMPTZ DEFAULT now()
+    );
+  `);
   // チーム単位のローテーション状態と通算件数。
   // 期間ごとの正確な件数は smart_links から集計するが、通算はここに持って画面表示を速くする。
   await sq(`
@@ -2894,6 +2913,58 @@ export async function eligibleDays(fromISO, toISO) {
     }
     return out;
   } catch (e) { console.error("[db] eligibleDays", e.message); return {}; }
+}
+
+// ===== Google Chatの通知先（複数） =====
+export async function listChatTargets({ onlyActive = false } = {}) {
+  if (!pool) return [];
+  try {
+    const { rows } = await pool.query(
+      `SELECT * FROM chat_targets ${onlyActive ? "WHERE active" : ""} ORDER BY id`);
+    return rows;
+  } catch { return []; }
+}
+
+export async function addChatTarget({ name, webhookUrl, spaceId }) {
+  if (!pool) return null;
+  try {
+    const { rows } = await pool.query(
+      `INSERT INTO chat_targets (name, webhook_url, space_id) VALUES ($1,$2,$3) RETURNING *`,
+      [String(name || "通知先").slice(0, 80), webhookUrl || null, spaceId || null]);
+    return rows[0];
+  } catch (e) { console.error("[db] addChatTarget", e.message); return null; }
+}
+
+export async function updateChatTarget(id, patch) {
+  if (!pool || !id) return null;
+  const cols = { name: "name", webhookUrl: "webhook_url", spaceId: "space_id",
+    onAssign: "on_assign", onMail: "on_mail", onDoc: "on_doc", onLaunch: "on_launch", active: "active" };
+  const sets = [], vals = [id];
+  for (const [k, col] of Object.entries(cols)) {
+    if (patch[k] === undefined) continue;
+    vals.push(patch[k]);
+    sets.push(`${col} = $${vals.length}`);
+  }
+  if (!sets.length) return null;
+  try {
+    const { rows } = await pool.query(
+      `UPDATE chat_targets SET ${sets.join(", ")} WHERE id = $1 RETURNING *`, vals);
+    return rows[0] || null;
+  } catch (e) { console.error("[db] updateChatTarget", e.message); return null; }
+}
+
+export async function deleteChatTarget(id) {
+  if (!pool) return;
+  try { await pool.query(`DELETE FROM chat_targets WHERE id=$1`, [id]); } catch {}
+}
+
+// 送った結果を残す（画面で「前回のエラー」を出すため）
+export async function markChatTarget(id, { ok, error = "" }) {
+  if (!pool || !id) return;
+  try {
+    if (ok) await pool.query(`UPDATE chat_targets SET sent_count = sent_count + 1, last_error = NULL WHERE id=$1`, [id]);
+    else await pool.query(`UPDATE chat_targets SET last_error=$2 WHERE id=$1`, [id, String(error).slice(0, 300)]);
+  } catch {}
 }
 
 // ===== Salesforceの自動立ち上げ =====

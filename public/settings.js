@@ -483,7 +483,7 @@ loadThanks();
       const name = item.dataset.tab;
       document.querySelectorAll(".set-pane").forEach((p) => (p.hidden = p.dataset.pane !== name));
       if (name === "members") { loadMembers(); loadApoOwner(); loadApoInvite(); }
-      if (name === "integrations") loadChatConfig();
+      if (name === "integrations") { loadChatConfig(); loadChatTargets(); }
       if (name === "knowledge") loadKnowledge();
       if (name === "ai") loadThanksPrompt();
       if (name === "integrations") showIntegGrid();
@@ -2469,85 +2469,149 @@ function initSmartLinks() {
   });
 })();
 
-// ===== Google Chat 通知の設定 =====
+// ===== 送信者名（kinbot名義）の設定を読む =====
 async function loadChatConfig() {
-  const inp = document.getElementById("chatUrl");
-  if (!inp) return;
+  const sp = document.getElementById("chatSpace");
+  if (!sp) return;
   try {
     const d = await (await fetch("/api/chat-config")).json();
-    inp.value = d.url || "";
-    inp.disabled = !!d.fromEnv;
-    const a = document.getElementById("chatAssign");
-    const m = document.getElementById("chatMail");
-    if (a) a.checked = d.notifyAssign !== false;
-    if (m) m.checked = d.notifyMail !== false;
-    const st = document.getElementById("chatStatus");
-    if (st && d.fromEnv) st.textContent = "環境変数で設定されています";
-    else if (st && d.lastError) st.textContent = "前回の送信でエラー: " + d.lastError;
-
-    // Chatアプリ（kinbot名義）の状態
-    const sp = document.getElementById("chatSpace");
-    if (sp) {
-      sp.value = d.spaceId || "";
-      sp.disabled = !!d.spaceFromEnv;
-    }
+    sp.value = d.spaceId || "";
+    sp.disabled = !!d.spaceFromEnv;
     const state = document.getElementById("chatAppState");
     if (state) {
       if (!d.app || !d.app.configured) {
-        state.textContent = "いまはWebhookで送っています（送信者は「Webhook Bot」）。上の手順で鍵を設定すると、kinbot名義に切り替わります。";
+        state.textContent = "いまはWebhookで送っています（送信者は「Webhook Bot」）。下の手順で鍵を設定すると、kinbot名義に切り替わります。";
       } else if (!d.spaceId) {
-        state.textContent = `鍵は設定されています（${d.app.account}）。あとはスペースを指定すれば、kinbot名義で送れます。`;
+        state.textContent = `鍵は設定されています（${d.app.account}）。通知先にスペースのURLを入れると、kinbot名義で送れます。`;
       } else {
-        state.textContent = `kinbot名義で送っています（${d.app.account}）。`;
+        state.textContent = `kinbot名義で送れます（${d.app.account}）。`;
       }
     }
   } catch {}
 }
 
-(function chatInit() {
-  const save = document.getElementById("chatSave");
-  if (!save) return;
-  const say = (m, ms) => {
-    const e = document.getElementById("chatStatus");
-    if (!e) return;
-    e.textContent = m;
-    if (ms) setTimeout(() => { if (e.textContent === m) e.textContent = ""; }, ms);
-  };
-  const body = () => ({
-    url: document.getElementById("chatUrl").value,
-    notifyAssign: document.getElementById("chatAssign").checked,
-    notifyMail: document.getElementById("chatMail").checked,
-  });
+// ===== Google Chat 通知先（複数） =====
+const CT_KINDS = [
+  ["onAssign", "アポ割り振り"],
+  ["onMail", "メール"],
+  ["onDoc", "資料の閲覧"],
+  ["onLaunch", "SF立ち上げ"],
+];
 
-  save.addEventListener("click", async () => {
-    say("保存中…");
-    try {
-      const r = await fetch("/api/chat-config", {
-        method: "PUT", headers: { "content-type": "application/json" },
-        body: JSON.stringify(body()),
-      });
-      const d = await r.json();
-      if (!r.ok) throw new Error(d.error || "保存に失敗しました");
-      say("保存しました", 3000);
-    } catch (e) { say("失敗: " + e.message); }
-  });
+function ctSay(id, t, ms) {
+  const e = document.getElementById(id);
+  if (!e) return;
+  e.textContent = t || "";
+  if (ms) setTimeout(() => { if (e.textContent === t) e.textContent = ""; }, ms);
+}
 
-  document.getElementById("chatTest").addEventListener("click", async () => {
-    say("送信しています…");
+async function loadChatTargets() {
+  const box = document.getElementById("ctList");
+  if (!box) return;
+  try {
+    const d = await (await fetch("/api/chat-targets")).json();
+    const list = d.targets || [];
+    if (!list.length) {
+      box.innerHTML = '<div class="empty-state">まだ通知先がありません。下の欄から追加してください。</div>';
+      return;
+    }
+    const esc = (v) => String(v == null ? "" : v).replace(/[&<>"']/g,
+      (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+    box.innerHTML = list.map((t) => `
+      <div class="ct-row${t.active ? "" : " ct-off"}" data-id="${t.id}">
+        <div class="ct-head">
+          <label class="ks-check ct-active"><input type="checkbox" class="ct-on" ${t.active ? "checked" : ""} /> <b>${esc(t.name)}</b></label>
+          <span class="ct-via">${esc(t.via)}</span>
+          <span class="ct-meta">送信 ${t.sentCount}件</span>
+          <div class="ct-act">
+            <button type="button" class="btn ghost ct-test">テスト送信</button>
+            <button type="button" class="btn ghost ct-del">削除</button>
+          </div>
+        </div>
+        <div class="ct-kinds">
+          ${CT_KINDS.map(([k, label]) =>
+            `<label class="ks-check"><input type="checkbox" class="ct-kind" data-k="${k}" ${t[k] ? "checked" : ""} /> ${label}</label>`).join("")}
+        </div>
+        ${t.lastError ? `<div class="ct-err">前回のエラー：${esc(t.lastError)}</div>` : ""}
+        <div class="ct-note"></div>
+      </div>`).join("");
+
+    // ON・OFFの切り替え
+    const save = async (row, patch) => {
+      const note = row.querySelector(".ct-note");
+      try {
+        const r = await fetch(`/api/chat-targets/${row.dataset.id}`, {
+          method: "PUT", headers: { "content-type": "application/json" },
+          body: JSON.stringify(patch),
+        });
+        if (!r.ok) throw new Error(((await r.json()) || {}).error || "保存できませんでした");
+        if (note) { note.textContent = "保存しました"; setTimeout(() => (note.textContent = ""), 2500); }
+      } catch (e) { if (note) note.textContent = "失敗: " + e.message; }
+    };
+
+    box.querySelectorAll(".ct-on").forEach((c) =>
+      c.addEventListener("change", () => {
+        const row = c.closest(".ct-row");
+        row.classList.toggle("ct-off", !c.checked);
+        save(row, { active: c.checked });
+      })
+    );
+    box.querySelectorAll(".ct-kind").forEach((c) =>
+      c.addEventListener("change", () => {
+        const row = c.closest(".ct-row");
+        save(row, { [c.dataset.k]: c.checked });
+      })
+    );
+    box.querySelectorAll(".ct-test").forEach((b) =>
+      b.addEventListener("click", async () => {
+        const row = b.closest(".ct-row");
+        const note = row.querySelector(".ct-note");
+        b.disabled = true;
+        if (note) note.textContent = "送信しています…";
+        try {
+          const r = await fetch(`/api/chat-targets/${row.dataset.id}/test`, { method: "POST" });
+          const d = await r.json();
+          if (!r.ok) throw new Error(d.error || "送信できませんでした");
+          if (note) note.textContent = d.via === "app" ? "kinbot名義で送信しました" : "送信しました";
+        } catch (e) { if (note) note.textContent = "失敗: " + e.message; }
+        finally { b.disabled = false; }
+      })
+    );
+    box.querySelectorAll(".ct-del").forEach((b) =>
+      b.addEventListener("click", async () => {
+        const row = b.closest(".ct-row");
+        if (!confirm("この通知先を削除します。よろしいですか？")) return;
+        await fetch(`/api/chat-targets/${row.dataset.id}`, { method: "DELETE" });
+        loadChatTargets();
+      })
+    );
+  } catch (e) {
+    box.innerHTML = '<div class="empty-state">読み込めませんでした。</div>';
+  }
+}
+
+(function ctInit() {
+  const add = document.getElementById("ctAdd");
+  if (!add) return;
+  add.addEventListener("click", async () => {
+    ctSay("ctStatus", "追加しています…");
     try {
-      const r = await fetch("/api/chat-config/test", {
+      const r = await fetch("/api/chat-targets", {
         method: "POST", headers: { "content-type": "application/json" },
-        body: JSON.stringify({ url: document.getElementById("chatUrl").value }),
+        body: JSON.stringify({
+          name: document.getElementById("ctName").value,
+          webhookUrl: document.getElementById("ctUrl").value,
+          spaceId: document.getElementById("ctSpace").value,
+        }),
       });
       const d = await r.json();
-      if (!r.ok) throw new Error(d.error || "送信できませんでした");
-      say("送信しました。Google Chatを確認してください", 6000);
-    } catch (e) { say("失敗: " + e.message); }
-  });
-
-  ["chatAssign", "chatMail"].forEach((id) => {
-    const el = document.getElementById(id);
-    if (el) el.addEventListener("change", () => save.click());
+      if (!r.ok) throw new Error(d.error || "追加できませんでした");
+      document.getElementById("ctName").value = "";
+      document.getElementById("ctUrl").value = "";
+      document.getElementById("ctSpace").value = "";
+      ctSay("ctStatus", "追加しました", 3000);
+      loadChatTargets();
+    } catch (e) { ctSay("ctStatus", "失敗: " + e.message); }
   });
 })();
 

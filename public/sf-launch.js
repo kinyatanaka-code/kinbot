@@ -63,17 +63,18 @@ function creatorNameOf(e) {
   return e.creatorName || e.organizerName || (em ? em.split("@")[0] : "");
 }
 
-// クロスのリードか、MOCHICAのリードかを見分ける
+// クロスのリードか、MOCHICAのリードかを見分ける。
+// 種別はレコードタイプで決まる。所有者名や状況は種別ではないので混ぜない
+// （「MOCHICA 管理者」が所有者だとMOCHICAリードに見えてしまうため）。
 function leadKind(r) {
-  const bag = [
-    (r.RecordType && r.RecordType.Name) || "",
-    r.LeadSource || "",
-    (r.Owner && r.Owner.Name) || "",
-    r.Status || "",
-  ].join(" ");
-  if (/mochica/i.test(bag)) return { label: "MOCHICAリード", cls: "is-mochica" };
-  if (/クロス|cross/i.test(bag)) return { label: "クロスリード", cls: "is-cross" };
-  return { label: (r.RecordType && r.RecordType.Name) || r.LeadSource || "種別不明", cls: "is-other" };
+  const rt = (r.RecordType && r.RecordType.Name) || "";
+  const decide = (v) => {
+    if (/mochica/i.test(v)) return { label: "MOCHICAリード", cls: "is-mochica" };
+    if (/クロス|cross/i.test(v)) return { label: "クロスリード", cls: "is-cross" };
+    return null;
+  };
+  return decide(rt) || decide(r.LeadSource || "") ||
+    { label: rt || r.LeadSource || "種別不明", cls: "is-other" };
 }
 
 function stOf(key) {
@@ -158,6 +159,9 @@ function formHtml(key, ev) {
     <div class="ln-lead">
       <div class="home-sf-name">${escL(lead.Name || "")}（${escL(lead.Company || "")}）<span class="ln-kind ${leadKind(lead).cls}">${escL(leadKind(lead).label)}</span></div>
       <div class="home-sf-meta">${escL(lead.Status || "")}${lead.Owner && lead.Owner.Name ? " ・ " + escL(lead.Owner.Name) : ""}${lead.Email ? " ・ " + escL(lead.Email) : ""}</div>
+      ${leadKind(lead).cls === "is-cross" ? "" :
+        `<button type="button" class="btn sf-btn-secondary home-sf-mini ln-to-cross" data-ln-cross="${escL(key)}" data-id="${escL(lead.Id || "")}">クロスリードに変更する</button>`}
+      <div class="ln-cross-note"></div>
     </div>
     <div class="ln-gbiz">
       <button type="button" class="btn sf-btn-secondary home-sf-mini" data-ln-gbiz="${escL(key)}">会社情報を取り込む（gBizINFO・既存データ）</button>
@@ -478,6 +482,8 @@ async function createLeadNow(key) {
     s.picked = {
       Id: d.id, Name: `${fields.LastName || ""} ${fields.FirstName || ""}`.trim(),
       Company: fields.Company || "", Status: "作成しました",
+      // 作ったときの種別（クロスなど）を持たせて、正しく表示する
+      RecordType: d.recordTypeName ? { Name: d.recordTypeName } : undefined,
       Website: fields.Website || "", Street: fields.Street || "", City: fields.City || "", State: fields.State || "",
       NumberOfEmployees: fields.NumberOfEmployees || null,
     };
@@ -939,6 +945,32 @@ document.addEventListener("DOMContentLoaded", async () => {
     if (cc) { const s = stOf(cc.dataset.lnCancel); s.mode = "search"; s.error = ""; render(); return; }
     const cr = ev.target.closest("[data-ln-create]");
     if (cr) { createLeadNow(cr.dataset.lnCreate); return; }
+    // 選んだリードの種別を、クロスリードに変える
+    const cx = ev.target.closest("[data-ln-cross]");
+    if (cx) {
+      const key = cx.dataset.lnCross;
+      const s2 = stOf(key);
+      const card = document.querySelector(`[data-ev="${cssEscL(key)}"]`);
+      const note = card && card.querySelector(".ln-cross-note");
+      if (!confirm("このリードの種別をクロスリードに変えます。よろしいですか？")) return;
+      cx.disabled = true;
+      if (note) note.textContent = "変更しています…";
+      fetch(`/api/salesforce/leads/${encodeURIComponent(cx.dataset.id)}/record-type`, {
+        method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({}),
+      })
+        .then(async (r) => {
+          const d = await r.json().catch(() => ({}));
+          if (!r.ok) throw new Error(d.error || "変えられませんでした");
+          if (s2.picked) s2.picked.RecordType = { Name: d.recordTypeName || "クロスリード" };
+          render();
+        })
+        .catch((e) => {
+          cx.disabled = false;
+          if (note) note.textContent = "失敗しました：" + e.message;
+        });
+      return;
+    }
+
     const gb = ev.target.closest("[data-ln-gbiz]");
     if (gb) {
       const key = gb.dataset.lnGbiz;

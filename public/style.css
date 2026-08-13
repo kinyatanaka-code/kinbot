@@ -4585,6 +4585,22 @@ input:focus, select:focus, textarea:focus, .sf-input:focus, .sf-select:focus, .s
 .sf-from-web { background: #fff8e8; border-color: #f0d6ae !important; }
 .ln-web-note { display: inline-block; margin-top: 5px; font-size: 11.5px; color: #A8611A; line-height: 1.7; }
 .ln-web-note a { color: #3A5C9A; }
+.ln-to-cross { margin-top: 8px; }
+.ln-cross-note { font-size: 11.5px; color: #A8611A; margin-top: 5px; }
+/* Google Chatの通知先（複数） */
+.ct-row { border: 1px solid var(--line); border-radius: 11px; padding: 12px 15px;
+  margin-bottom: 9px; background: var(--panel); }
+.ct-row.ct-off { opacity: .55; background: var(--panel-2); }
+.ct-head { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.ct-active b { font-size: 13.5px; }
+.ct-via { font-size: 10.5px; font-weight: 700; color: #0d5b47; background: #e1f5ee;
+  border: 1px solid #9fe1cb; border-radius: 999px; padding: 2px 9px; }
+.ct-meta { font-size: 11.5px; color: var(--muted); }
+.ct-act { margin-left: auto; display: flex; gap: 7px; }
+.ct-kinds { display: flex; flex-wrap: wrap; gap: 8px 18px; margin-top: 9px;
+  padding-top: 9px; border-top: 1px dashed var(--line); font-size: 12.5px; }
+.ct-err { margin-top: 8px; font-size: 11.5px; color: #A33C24; }
+.ct-note { font-size: 11.5px; color: #0F6E56; margin-top: 6px; min-height: 15px; }
 .na-sf-wrap { display: flex; align-items: center; gap: 8px; margin-top: 10px; font-size: 12.5px; color: var(--ink); cursor: pointer; }
 .na-sf-wrap[hidden] { display: none; }
 /* Salesforceの区画に入れたときの余白 */

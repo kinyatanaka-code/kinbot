@@ -6,7 +6,7 @@
 //
 // 送信は投げっぱなしにする。通知が失敗しても、割り振りやメール作成は止めない。
 // ───────────────────────────────────────────────────────────
-import { getSettings } from "./db.js";
+import { getSettings, listChatTargets, markChatTarget, addChatTarget } from "./db.js";
 import { chatAppConfigured, postToSpace, normalizeSpace, chatAppInfo } from "./chatapp.js";
 
 let lastError = "";
@@ -41,6 +41,55 @@ function looksLikeChatUrl(u) {
 }
 
 // 文字だけの通知を送る。Google Chat は *太字* が使える。
+// 1つの宛先へ送る。スペースが指定されていればChatアプリ、なければWebhook。
+async function sendTo({ webhook_url, space_id }, text) {
+  if (space_id && chatAppConfigured()) {
+    await postToSpace(space_id, text);
+    return "app";
+  }
+  if (!webhook_url) throw new Error("通知先が設定されていません");
+  if (!looksLikeChatUrl(webhook_url)) throw new Error("URLがGoogle ChatのWebhookの形式ではありません");
+  const res = await fetch(webhook_url, {
+    method: "POST",
+    headers: { "content-type": "application/json; charset=UTF-8" },
+    body: JSON.stringify({ text: String(text).slice(0, 3800) }),
+  });
+  if (!res.ok) throw new Error(`Chat通知 ${res.status}: ${(await res.text()).slice(0, 200)}`);
+  return "webhook";
+}
+
+// 登録されている通知先すべてに送る。
+// kind を渡すと、その種類がONになっている宛先だけに送る。
+export async function notifyAll(text, kind = "") {
+  const t = String(text || "").trim();
+  if (!t) return { ok: false, skipped: true, reason: "本文が空です" };
+
+  const targets = await listChatTargets({ onlyActive: true }).catch(() => []);
+  if (!targets.length) {
+    // まだ通知先を登録していない環境では、これまでどおり1件の設定で送る
+    return notifyChat(t);
+  }
+
+  const col = { assign: "on_assign", mail: "on_mail", doc: "on_doc", launch: "on_launch" }[kind];
+  const list = col ? targets.filter((x) => x[col]) : targets;
+  if (!list.length) return { ok: false, skipped: true, reason: "この種類の通知はどこもONになっていません" };
+
+  let sent = 0;
+  for (const tg of list) {
+    try {
+      await sendTo(tg, t);
+      sent++;
+      markChatTarget(tg.id, { ok: true }).catch(() => {});
+    } catch (e) {
+      lastError = `${tg.name}：${e.message}${e.hint ? "／" + e.hint : ""}`;
+      console.warn("[chat] 送信に失敗", tg.name, e.message);
+      markChatTarget(tg.id, { ok: false, error: e.message }).catch(() => {});
+    }
+  }
+  sentCount += sent;
+  return { ok: sent > 0, sent, total: list.length };
+}
+
 export async function notifyChat(text, { url = "", space = "" } = {}) {
   const t = String(text || "").trim();
   if (!t) return { ok: false, skipped: true, reason: "本文が空です" };
@@ -154,7 +203,7 @@ export async function notifyAssigned({
         (goal ? `（目標 ${goal}・あと ${Math.max(0, goal - counts.month)}）` : "")
       : "",
   ].filter(Boolean);
-  return notifyChat(lines.join("\n"));
+  return notifyAll(lines.join("\n"), "assign");
 }
 
 // 確定メールの下書きを作ったときの通知
@@ -166,5 +215,5 @@ export async function notifyMailDraft({ title, start, repName, to, draft, subjec
     `　${title || "(予定名なし)"}`,
     `👤 ${repName || "-"} ・ 宛先 ${to || "-"}`,
   ];
-  return notifyChat(lines.join("\n"));
+  return notifyAll(lines.join("\n"), "mail");
 }

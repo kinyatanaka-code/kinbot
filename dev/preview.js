@@ -358,6 +358,16 @@ function apiResponse(pathname, query) {
     if (it) it.done = !it.done;
     return { ok: true, row: it };
   }
+  if (pathname === "/api/chat-targets") return { appReady: false, targets: [
+    { id: 1, name: "DOC Team", webhookUrl: "https://chat.googleapis.com/v1/spaces/AAA/messages?key=x", spaceId: "",
+      onAssign: true, onMail: false, onDoc: false, onLaunch: true, active: true, lastError: "", sentCount: 128, via: "Webhook" },
+    { id: 2, name: "自分用（テスト）", webhookUrl: "", spaceId: "spaces/BBB",
+      onAssign: true, onMail: true, onDoc: true, onLaunch: true, active: true, lastError: "", sentCount: 43, via: "kinbot名義" },
+    { id: 3, name: "資料の閲覧だけ", webhookUrl: "https://chat.googleapis.com/v1/spaces/CCC/messages?key=x", spaceId: "",
+      onAssign: false, onMail: false, onDoc: true, onLaunch: false, active: false,
+      lastError: "Chat通知 404: space not found", sentCount: 5, via: "Webhook" },
+  ] };
+  if (pathname.indexOf("/api/chat-targets/") === 0) return { ok: true, via: "webhook" };
   if (pathname === "/api/chat-config") return { url: "https://chat.googleapis.com/v1/spaces/AAA/messages?key=x",
     fromEnv: false, spaceId: "", spaceFromEnv: false, notifyAssign: true, notifyMail: true,
     lastError: "", sentCount: 0, app: { configured: false, account: "" } };

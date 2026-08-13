@@ -24,7 +24,7 @@ import { sendApoMail, runReminderSweep, getApoMailConfig,
          DEFAULT_REMINDER_SUBJECT, DEFAULT_REMINDER_BODY, stripRetiredLines } from "./apomail.js";
 import { startKasasagi, getKasasagi, stopKasasagi, feedTranscript, kasasagiInfo,
          buildScript, buildReport, faceState, SLIDE_LABELS } from "./kasasagi.js";
-import { notifyAssigned, notifyMailDraft, notifyChat, chatWebhookUrl, chatInfo } from "./chat.js";
+import { notifyAssigned, notifyMailDraft, notifyChat, notifyAll, chatWebhookUrl, chatInfo } from "./chat.js";
 import { normalizeSpace } from "./chatapp.js";
 import { judge as judgeAutolaunch, reasonText, parseTitle as parseLaunchTitle } from "./autolaunch.js";
 import { fixMojibake } from "./docs.js";
@@ -98,6 +98,10 @@ import {
   recentInvites,
   myAssignedApos,
   assignCounts,
+  listChatTargets,
+  addChatTarget,
+  updateChatTarget,
+  deleteChatTarget,
   setApoExcluded,
   saveAutolaunch,
   getAutolaunch,
@@ -2344,11 +2348,11 @@ async function tryAutoLaunch(user, link, { dryRun = false, ownerEmail = "" } = {
                 reason: "", leadId: j.lead.Id, oppId, filledUrl: site.filled ? site.url : "" };
     await saveAutolaunch(r);
     console.log(`[SF自動] 立ち上げ完了 ${j.company}／${j.person} → ${oppId}`);
-    notifyChat([
+    notifyAll([
       "🚀 *SFの商談を自動で立ち上げました*",
       `　${j.company}　${j.person}様`,
       site.filled ? "🔗 URLも補いました" : "",
-    ].filter(Boolean).join("\n")).catch(() => {});
+    ].filter(Boolean).join("\n"), "launch").catch(() => {});
     return r;
   } catch (e) {
     const r = { ...base, ok: false, reason: "sf_error", detail: String(e.message || "").slice(0, 200) };
@@ -2703,6 +2707,77 @@ app.post("/api/doc-sheet/test", async (req, res) => {
     const name = String(req.body?.sheetName || st.docSheetName || "").trim() || "資料閲覧";
     await appendSheetRow(owner, id, name, ["テスト", new Date().toISOString(), "kinbotからの書き込み確認"]);
     res.json({ ok: true, title: info.title, sheets: info.sheets });
+  } catch (e) { res.status(400).json({ error: e.message }); }
+});
+
+// ===== Google Chatの通知先（複数登録） =====
+app.get("/api/chat-targets", async (req, res) => {
+  try {
+    const rows = await listChatTargets();
+    res.json({
+      targets: rows.map((r) => ({
+        id: r.id, name: r.name,
+        webhookUrl: r.webhook_url || "", spaceId: r.space_id || "",
+        onAssign: r.on_assign, onMail: r.on_mail, onDoc: r.on_doc, onLaunch: r.on_launch,
+        active: r.active, lastError: r.last_error || "", sentCount: r.sent_count,
+        via: r.space_id ? "kinbot名義" : "Webhook",
+      })),
+      appReady: chatInfo().app.configured,
+    });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.post("/api/chat-targets", async (req, res) => {
+  try {
+    const b = req.body || {};
+    const name = String(b.name || "").trim();
+    if (!name) return res.status(400).json({ error: "名前を入れてください（例：DOC Team）" });
+    const url = String(b.webhookUrl || "").trim();
+    const space = normalizeSpace(String(b.spaceId || ""));
+    if (!url && !space) return res.status(400).json({ error: "WebhookのURLか、スペースのどちらかを入れてください" });
+    if (url && !/^https:\/\/chat\.googleapis\.com\/v1\/spaces\//.test(url)) {
+      return res.status(400).json({ error: "Google ChatのWebhook URLを貼ってください" });
+    }
+    const row = await addChatTarget({ name, webhookUrl: url || null, spaceId: space || null });
+    console.log(`[chat] 通知先を追加「${name}」by ${req.user}`);
+    res.json({ ok: true, id: row && row.id });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.put("/api/chat-targets/:id", async (req, res) => {
+  try {
+    const b = req.body || {};
+    const patch = {};
+    for (const k of ["onAssign", "onMail", "onDoc", "onLaunch", "active"]) {
+      if (b[k] !== undefined) patch[k] = b[k] !== false;
+    }
+    if (b.name !== undefined) patch.name = String(b.name).trim().slice(0, 80);
+    if (b.webhookUrl !== undefined) patch.webhookUrl = String(b.webhookUrl).trim() || null;
+    if (b.spaceId !== undefined) patch.spaceId = normalizeSpace(String(b.spaceId)) || null;
+    const row = await updateChatTarget(parseInt(req.params.id, 10), patch);
+    if (!row) return res.status(404).json({ error: "見つかりませんでした" });
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.delete("/api/chat-targets/:id", async (req, res) => {
+  try {
+    await deleteChatTarget(parseInt(req.params.id, 10));
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// 1つの通知先にテスト送信する
+app.post("/api/chat-targets/:id/test", async (req, res) => {
+  try {
+    const rows = await listChatTargets();
+    const t = rows.find((x) => x.id === parseInt(req.params.id, 10));
+    if (!t) return res.status(404).json({ error: "見つかりませんでした" });
+    const r = await notifyChat(
+      "🤖 *kinbotからのテスト通知です*\nこのメッセージが見えていれば、この通知先の設定は完了しています。",
+      t.space_id ? { space: t.space_id } : { url: t.webhook_url });
+    if (!r.ok) return res.status(400).json({ error: r.reason || "送信できませんでした" });
+    res.json({ ok: true, via: r.via });
   } catch (e) { res.status(400).json({ error: e.message }); }
 });
 
@@ -7748,11 +7823,42 @@ app.post("/api/salesforce/leads", async (req, res) => {
     }
 
     const r = await createLead(req.user, fields);
-    console.log(`[SF] リードを作成 ${fields.Company}／${fields.LastName}（${recordTypeNote || "種別は画面指定"}）by ${req.user}`);
-    res.json({ ...r, recordTypeNote });
+
+    // 作ったリードの種別を読み返して返す。画面で正しく「クロスリード」と出すため。
+    let recordTypeName = "";
+    try {
+      const id = r && (r.id || r.Id);
+      if (id) {
+        const d = await sfQuery(req.user,
+          `SELECT Id, RecordType.Name, LeadSource FROM Lead WHERE Id = '${String(id).replace(/[^a-zA-Z0-9]/g, "")}'`);
+        recordTypeName = d?.records?.[0]?.RecordType?.Name || "";
+      }
+    } catch {}
+
+    console.log(`[SF] リードを作成 ${fields.Company}／${fields.LastName}（種別 ${recordTypeName || "不明"}）by ${req.user}`);
+    res.json({ ...r, recordTypeNote, recordTypeName });
   } catch (e) {
     sfErrorResponse(res, e);
   }
+});
+
+// 既存のリードの種別（レコードタイプ）を変える。
+// 「直販で登録されていたが、実はクロス」というときに使う。
+app.put("/api/salesforce/leads/:id/record-type", async (req, res) => {
+  try {
+    const id = String(req.params.id || "").replace(/[^a-zA-Z0-9]/g, "");
+    if (!id) return res.status(400).json({ error: "リードIDが必要です" });
+    let rtId = String(req.body?.recordTypeId || "").trim();
+    if (!rtId) {
+      rtId = await crossLeadRecordTypeId(req.user);
+      if (!rtId) return res.status(400).json({ error: "クロスのレコードタイプが見つかりませんでした" });
+    }
+    await updateLead(req.user, id, { RecordTypeId: rtId });
+    const d = await sfQuery(req.user, `SELECT RecordType.Name FROM Lead WHERE Id = '${id}'`);
+    const name = d?.records?.[0]?.RecordType?.Name || "";
+    console.log(`[SF] リード ${id} の種別を「${name}」に変更 by ${req.user}`);
+    res.json({ ok: true, recordTypeName: name });
+  } catch (e) { sfErrorResponse(res, e); }
 });
 
 // リードのレコードタイプの一覧（画面で選べるように）

@@ -16,7 +16,7 @@ import {
   endDocView, staleDocViews, getSettings, displayNameOf,
 } from "./db.js";
 import { appendSheetRow } from "./google.js";
-import { notifyChat } from "./chat.js";
+import { notifyChat, notifyAll } from "./chat.js";
 
 // 通知の条件。短すぎる閲覧（開いてすぐ閉じた）は流さない。
 const NOTIFY_MIN_SECONDS = Number(process.env.DOC_NOTIFY_MIN_SECONDS || 20);
@@ -83,7 +83,7 @@ export async function notifyDocView(link, view) {
     tp ? `🔎 ${tp}` : "",
     rep ? `👤 ${rep}` : "",
   ].filter(Boolean);
-  return notifyChat(lines.join("\n"));
+  return notifyAll(lines.join("\n"), "doc");
 }
 
 // 送った資料のURLを組み立てる

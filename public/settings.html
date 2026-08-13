@@ -283,14 +283,19 @@
             </div>
             <div class="set-card">
               <h3>Google Chat に通知する</h3>
-              <p class="note">アポの担当が決まったときに、<b>確定メールの下書きができたかどうかも含めて1通</b>でGoogle Chatのスペースへ知らせます。<br>
-              <b>通知先の作り方：</b>Google Chatで通知したいスペースを開き、スペース名 → <b>アプリと統合</b> → <b>Webhook を管理</b> → 「Webhookを追加」。名前を「kinbot」などにして作ると、URLが表示されます。それをここに貼ってください。</p>
+              <p class="note">通知先はいくつでも登録できます。<b>種類ごとにON・OFF</b>を切り替えられるので、「チームには割り振りだけ、自分には全部」といった分け方ができます。<br>
+              <b>Webhookの作り方：</b>Google Chatで通知したいスペースを開き、スペース名 → <b>アプリと統合</b> → <b>Webhook を管理</b> → 「Webhookを追加」。名前を「kinbot」などにして作ると、URLが表示されます。</p>
+              <div id="ctList"><div class="empty-state">読み込み中…</div></div>
+
+              <h4 class="ap-rot-h" style="margin-top:16px">通知先を追加する</h4>
               <div class="teams-add">
-                <input id="chatUrl" placeholder="https://chat.googleapis.com/v1/spaces/..." style="flex:1 1 380px" />
-                <button class="btn" id="chatSave">保存</button>
-                <button class="btn ghost" id="chatTest">テスト送信</button>
-                <span class="tm-status" id="chatStatus"></span>
+                <input id="ctName" placeholder="名前（例：DOC Team）" style="flex:0 1 200px" />
+                <input id="ctUrl" placeholder="WebhookのURL" style="flex:1 1 300px" />
+                <input id="ctSpace" placeholder="またはスペースのURL（kinbot名義）" style="flex:1 1 260px" />
+                <button class="btn" id="ctAdd">追加</button>
+                <span class="tm-status" id="ctStatus"></span>
               </div>
+              <p class="note">WebhookのURLか、スペースのURLのどちらかを入れてください。<b>スペースを入れるとkinbot名義で送れます</b>（下の設定が必要です）。</p>
 
               <h4 class="ap-rot-h" style="margin-top:18px">送信者名を「kinbot」にする（任意）</h4>
               <p class="note">Webhookで送ると、送信者が<b>「Webhook Bot」</b>になります。Chatアプリとして登録すると<b>「kinbot」</b>の名前で投稿できます。<br>
@@ -312,10 +317,7 @@
                 <span class="tm-status" id="chatSpaceStatus"></span>
               </div>
               <p class="note" id="chatAppState"></p>
-              <div class="chat-opts">
-                <label class="ks-check"><input type="checkbox" id="chatAssign" checked /> アポの担当が決まったとき（メールの状況も含む）</label>
-                <label class="ks-check"><input type="checkbox" id="chatMail" checked /> あとからメールだけ作り直したとき</label>
-              </div>
+
               <p class="note">URLは他人に知られると誰でもスペースへ書き込めます。<b>共有しないでください。</b></p>
             </div>
 
