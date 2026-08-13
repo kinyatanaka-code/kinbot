@@ -10009,18 +10009,33 @@ async function collectApoAppointments(scanOwner, opts = {}) {
 
     const items = [];
     const errors = [];
-    for (const st of setters) {
+
+    // カレンダーの読み取りは、まとめて行う。
+    // 1人ずつ順番に読むと人数分の待ち時間が積み上がり、
+    // 次のスキャンが始まってしまう（クローザーも見るようになって人数が増えたため）。
+    const CHUNK = Number(process.env.CAL_FETCH_CONCURRENCY || 6);
+    const fetched = [];
+    for (let i = 0; i < setters.length; i += CHUNK) {
+      const part = setters.slice(i, i + CHUNK);
+      const got = await Promise.all(part.map(async (st) => {
+        try {
+          const evs = await listCalendarEvents(gcalOwner, st.email, { timeMin, timeMax, updatedMin });
+          return { st, evs };
+        } catch (e) {
+          const msg = /40[34]/.test(e.message)
+            ? "カレンダーを読めませんでした（このメールのカレンダーが共有されているか確認してください）"
+            : e.message;
+          return { st, error: msg };
+        }
+      }));
+      fetched.push(...got);
+    }
+
+    for (const f of fetched) {
+      const st = f.st;
+      if (f.error) { errors.push({ setter: st.name, email: st.email, error: f.error }); continue; }
       const setterEmail = String(st.email || "").toLowerCase();
-      let evs = [];
-      try {
-        evs = await listCalendarEvents(gcalOwner, st.email, { timeMin, timeMax, updatedMin });
-      } catch (e) {
-        const msg = /40[34]/.test(e.message)
-          ? "カレンダーを読めませんでした（このメールのカレンダーが共有されているか確認してください）"
-          : e.message;
-        errors.push({ setter: st.name, email: st.email, error: msg });
-        continue;
-      }
+      const evs = f.evs || [];
       for (const ev of evs) {
         if (ev.allDay) continue;          // 終日予定はアポではない
         if (!ev.title) continue;
