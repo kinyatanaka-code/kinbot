@@ -4659,6 +4659,13 @@ input:focus, select:focus, textarea:focus, .sf-input:focus, .sf-select:focus, .s
 .ps-lb .ps-rep + input { margin-top: 6px; font-size: 12px; }
 .ps-filters:not(:empty) { border: 1px solid var(--line); border-radius: 12px; padding: 13px 16px;
   margin: 4px 0 14px; background: var(--panel-2); }
+/* Apps Script経由の設定 */
+.ps-gas { border: 1px solid var(--line); border-radius: 12px; padding: 12px 16px;
+  margin: 0 0 14px; background: var(--panel); }
+.ps-gas summary { font-size: 13px; font-weight: 700; color: #0F6E56; cursor: pointer; }
+.ps-code { max-height: 320px; overflow: auto; background: #0f1e1a; color: #d6e7e0;
+  border-radius: 10px; padding: 12px 14px; font-size: 11.5px; line-height: 1.7;
+  white-space: pre; margin: 8px 0; }
 @media (max-width: 720px) {
   .pd-card { grid-template-columns: 1fr; }
   .pd-act { justify-content: flex-start; }

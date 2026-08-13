@@ -270,7 +270,8 @@ import {
   gmailCreateDraft,
   gmailDeleteDraft,
   parseEmailAddr, driveEnsureFolder, driveUploadFromUrl, driveShareDomain, driveStream, driveFindCompanyFiles, driveShareAnyone, driveEnsurePath, driveMoveFile, driveListChildren, driveTrash,
-  appendSheetRow, checkSheet, readSheet, updateSheetCells, diagnoseSheet } from "./google.js";
+  appendSheetRow, checkSheet, readSheet, updateSheetCells, diagnoseSheet,
+  writeViaAppsScript } from "./google.js";
 import { startScheduler } from "./scheduler.js";
 import { muxConfigured, startVodUpload, waitVodPlayback, muxStorageSummary, listAssets, deleteAsset, findAssetByPlaybackId, enableMp4, mp4Url, readyMp4Name, getAsset } from "./mux.js";
 import { liveConfigured, createLiveStream, playbackUrl as livePlaybackUrl, liveInfo, liveStatus, relayMap } from "./live.js";
@@ -397,6 +398,8 @@ const OPEN_PATHS = new Set([
   "/api/kasasagi/face", "/kasasagi-face.html",
   // 送った資料のビューアー（受け取った人が開くので認証なし）
   "/doc.html",
+  // Apps Scriptに貼るコード（画面から読むだけ）
+  "/kinbot-sheet-writer.gs",
   "/.well-known/oauth-authorization-server", "/.well-known/oauth-protected-resource",
   "/oauth/register", "/oauth/authorize", "/oauth/token",
   // ChatGPTのCustom GPTが「URLからインポート」で取得する公開スキーマ（トークンは含まない）
@@ -2876,6 +2879,7 @@ app.get("/api/process-sheet", async (req, res) => {
       termFrom: st.psTermFrom || "", termTo: st.psTermTo || "",
       autoRun: st.psAutoRun === true,
       filters: (() => { try { return JSON.parse(st.psFilters || "null"); } catch { return null; } })(),
+      gasUrl: st.psGasUrl || "", gasSecretSet: !!st.psGasSecret,
       intervalMin: Number(process.env.PS_INTERVAL_MIN || 30),
       hours: String(process.env.PS_HOURS || "7-22"),
       last: processSheetStatus(),
@@ -2898,6 +2902,11 @@ app.put("/api/process-sheet", async (req, res) => {
     if (b.termFrom !== undefined) patch.psTermFrom = String(b.termFrom || "").slice(0, 10);
     if (b.termTo !== undefined) patch.psTermTo = String(b.termTo || "").slice(0, 10);
     if (b.autoRun !== undefined) patch.psAutoRun = b.autoRun === true;
+    // Apps Script経由の書き込み（保護されたシート向け）
+    if (b.gasUrl !== undefined) patch.psGasUrl = String(b.gasUrl || "").trim().slice(0, 300);
+    if (b.gasSecret !== undefined && String(b.gasSecret).trim()) {
+      patch.psGasSecret = String(b.gasSecret).trim().slice(0, 100);
+    }
     // レポートの絞り込み条件（「今月」など）を覚えておく。
     // これが無いと、実行のたびに条件なしで走って中身が出てこない。
     if (b.filters !== undefined) {
@@ -2959,10 +2968,16 @@ async function runProcessSheet(sfUser, opts = {}) {
     };
   }
 
-  // 4. 「実績」のセルだけを書き換える
+  // 4. 「実績」のセルだけを書き換える。
+  // シートが保護されている場合は、Apps Script経由で書く（設定されていれば）。
+  const gasUrl = String(st.psGasUrl || "").trim();
   try {
+    if (gasUrl) {
+      const r = await writeViaAppsScript(gasUrl, String(st.psGasSecret || ""), { sheetName, cells: updates });
+      return { ok: true, updated: r.updated, count: updates.length, skipped, via: "gas" };
+    }
     const r = await updateSheetCells(owner, sheetId, sheetName, updates);
-    return { ok: true, updated: r.updated, count: updates.length, skipped };
+    return { ok: true, updated: r.updated, count: updates.length, skipped, via: "google" };
   } catch (e) {
     // どのセルに書こうとしたかを添える（原因を調べるときに使う）
     e.firstRange = updates[0] ? updates[0].range : "";

@@ -1244,6 +1244,35 @@ export async function updateSheetCells(owner, spreadsheetId, sheetName, cells) {
   return { updated: d.totalUpdatedCells || 0 };
 }
 
+// ───────────────────────────────────────────────────────────
+// Apps Script 経由でシートに書き込む
+//
+// シートが保護されていると、外部のアカウントからは書き込めない。
+// スプレッドシートに紐づけたApps Scriptは「置いた人の権限」で動くので、
+// オーナーが仕込めば保護のかかったシートにも書ける。
+// ───────────────────────────────────────────────────────────
+export async function writeViaAppsScript(url, secret, { sheetName, cells }) {
+  if (!/^https:\/\/script\.google(usercontent)?\.com\//.test(String(url || ""))) {
+    throw new Error("Apps ScriptのURLが正しくありません（https://script.google.com/... の形）");
+  }
+  const res = await fetch(url, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ secret, sheetName, cells }),
+    redirect: "follow",
+  });
+  const text = await res.text();
+  let d = null;
+  try { d = JSON.parse(text); } catch {}
+  if (!res.ok) throw new Error(`Apps Script ${res.status}: ${text.slice(0, 200)}`);
+  if (!d) {
+    // ログイン画面のHTMLが返ってきた場合は、公開設定が違う
+    throw new Error("Apps Scriptから正しい応答がありません。デプロイの「アクセスできるユーザー」を『全員』にしてください。");
+  }
+  if (d.error) throw new Error(`Apps Script: ${d.error}`);
+  return { updated: d.updated || 0 };
+}
+
 // なぜ書き込めないのかを調べる。
 // 403は「閲覧のみで共有されている」か「シートが保護されている」のどちらかが多い。
 export async function diagnoseSheet(owner, spreadsheetId, sheetName = "", probeCell = "") {

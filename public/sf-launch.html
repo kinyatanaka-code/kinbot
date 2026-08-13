@@ -103,6 +103,31 @@
             </div>
             <div class="ps-filters" id="psFilters"></div>
 
+            <details class="ps-gas">
+              <summary>シートが保護されていて書き込めないとき（Apps Script経由）</summary>
+              <p class="note">シートに保護がかかっていると、kinbotのアカウントからは書き込めません。<br>
+              スプレッドシートに小さなプログラムを置くと、<b>置いた人の権限で書き込める</b>ようになります。保護の設定を変えずに済みます。</p>
+              <p class="note ks-cue">
+                <b>手順</b><br>
+                1. 対象のスプレッドシートを開き、<b>拡張機能 → Apps Script</b><br>
+                2. 下の「コードを見る」を押してコードをコピーし、貼り付ける<br>
+                3. コードの中の <code>SECRET</code> を、自分で決めた合言葉に書き換える<br>
+                4. 右上の<b>デプロイ → 新しいデプロイ → ウェブアプリ</b>。<br>
+                　 実行するユーザー：<b>自分</b>／アクセスできるユーザー：<b>全員</b><br>
+                5. 表示されたURLと、同じ合言葉を下に入れて保存<br>
+                <b>この作業は、シートを編集できる人（オーナーなど）が行ってください。</b>
+              </p>
+              <div class="ap-cfg-row">
+                <button type="button" class="btn ghost" id="psGasCode">コードを見る</button>
+              </div>
+              <pre class="ps-code" id="psGasCodeBox" hidden></pre>
+              <div class="ps-form">
+                <label class="ps-lb">Apps ScriptのURL<input type="text" id="psGasUrl" placeholder="https://script.google.com/macros/s/.../exec" /></label>
+                <label class="ps-lb">合言葉<input type="text" id="psGasSecret" placeholder="Apps Script側と同じ文字（保存済みなら空でOK）" /></label>
+              </div>
+              <p class="note" id="psGasState"></p>
+            </details>
+
             <label class="ks-check" style="margin:6px 0 2px"><input type="checkbox" id="psAuto" /> <b>30分ごとに自動で書き込む</b></label>
             <p class="note" id="psAutoNote">平日の決まった時間帯だけ動きます。手で押す必要はなくなります。</p>
 

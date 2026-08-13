@@ -442,6 +442,13 @@ async function loadProcessSheet() {
     $("psFrom").value = d.termFrom || "";
     $("psTo").value = d.termTo || "";
     if ($("psAuto")) $("psAuto").checked = !!d.autoRun;
+    if ($("psGasUrl")) $("psGasUrl").value = d.gasUrl || "";
+    const gs = $("psGasState");
+    if (gs) {
+      gs.textContent = d.gasUrl
+        ? `Apps Script経由で書き込みます${d.gasSecretSet ? "（合言葉は保存済み）" : "（合言葉が未設定です）"}`
+        : "いまはkinbotのアカウントで直接書き込んでいます。";
+    }
     loadProcessReports(d.reportId || "");
     loadProcessFilters(d.reportId || "", d.filters);
 
@@ -465,6 +472,8 @@ function psBody(dryRun) {
     reportId: $("psReport").value, owner: $("psOwner").value,
     termFrom: $("psFrom").value, termTo: $("psTo").value,
     autoRun: $("psAuto") ? $("psAuto").checked : false,
+    gasUrl: $("psGasUrl") ? $("psGasUrl").value : undefined,
+    gasSecret: $("psGasSecret") ? $("psGasSecret").value : undefined,
     filters: psFilterBody(),
     dryRun,
   };
@@ -530,7 +539,9 @@ if ($("psSave")) {
       const d = await r.json();
       if (!r.ok) throw new Error(d.error || "保存できませんでした");
       if (d.psSheetId) $("psSheet").value = d.psSheetId;
+      if ($("psGasSecret")) $("psGasSecret").value = "";   // 合言葉は画面に残さない
       psSay("保存しました", 4000);
+      loadProcessSheet();
     } catch (e) { psSay("失敗: " + e.message); }
   });
   if ($("psAuto")) $("psAuto").addEventListener("change", async () => {
@@ -579,6 +590,17 @@ if ($("psSave")) {
         (prot ? `<div class="ps-sum">保護の一覧<br>${prot}</div>` : "") +
         `<div class="ps-note">${srEsc(d.note || "")}</div>`;
     } catch (e) { psSay(""); $("psResult").innerHTML = `<div class="ps-err">${srEsc(e.message)}</div>`; }
+  });
+
+  if ($("psGasCode")) $("psGasCode").addEventListener("click", async () => {
+    const box = $("psGasCodeBox");
+    if (!box.hidden) { box.hidden = true; return; }
+    box.hidden = false;
+    box.textContent = "読み込んでいます…";
+    try {
+      const t = await (await fetch("/kinbot-sheet-writer.gs")).text();
+      box.textContent = t;
+    } catch { box.textContent = "コードを読み込めませんでした。"; }
   });
 
   $("psCheck").addEventListener("click", () => psRun(true));
