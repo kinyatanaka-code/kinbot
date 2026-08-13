@@ -9965,7 +9965,23 @@ async function collectApoAppointments(scanOwner, opts = {}) {
     if (!gcalOwner || !(await gcalConnected(gcalOwner))) {
       throw new Error("Googleが連携されていません。設定→連携→Google連携 を先に済ませてください。");
     }
-    const setters = await listInterns();
+    const interns = await listInterns();
+    // クローザーも自分でアポを取るため、そのカレンダーも見る。
+    // 見ないと、自分で取ったアポにメール・SF立ち上げ・通知が走らない。
+    let closerList = [];
+    try {
+      closerList = (await listClosers({ activeOnly: true }))
+        .filter((c) => c.email)
+        .map((c) => ({ email: c.email, name: c.name || c.email, isCloser: true }));
+    } catch {}
+    // 同じ人を二度見ないようにまとめる
+    const seen = new Set();
+    const setters = [...interns, ...closerList].filter((x) => {
+      const k = String(x.email || "").toLowerCase();
+      if (!k || seen.has(k)) return false;
+      seen.add(k);
+      return true;
+    });
     if (!setters.length) {
       throw new Error("アポを取る人が未登録です。設定→インターン登録 で、名前とメールアドレスを登録してください。");
     }
@@ -10026,7 +10042,8 @@ async function collectApoAppointments(scanOwner, opts = {}) {
           let slug;
           for (let k = 0; k < 6; k++) { slug = zoomLikeSlug(); if (!(await getSmartLink(slug))) break; }
           link = await createSmartLink({
-            slug, label: ev.title, owner: null, createdBy: gcalOwner,
+            // クローザー自身が取ったアポは、最初から本人を担当にする
+            slug, label: ev.title, owner: st.isCloser ? st.email : null, createdBy: gcalOwner,
             eventId: ev.id, setter: st.name, startTime: ev.start, endTime: ev.end || null,
           });
         }
@@ -10078,9 +10095,9 @@ async function collectApoAppointments(scanOwner, opts = {}) {
           business: link.business || "",
           auto_assigned_at: link.auto_assigned_at || null,
           excluded: !!link.excluded,
-          // 担当がすでに入っている＝クローザーが自分のカレンダーで作ったアポ。
+          // クローザー自身のカレンダーで見つけたアポ。
           // 割り振りは要らないが、メール・SF立ち上げ・通知は必要。
-          selfAcquired: !!link.current_owner,
+          selfAcquired: !!st.isCloser || !!link.current_owner,
           _link: link, // 内部用。APIレスポンスに出す前に落とす。
         });
       }
@@ -10218,6 +10235,8 @@ async function runApoAutoScan({ actor = "auto-scan", force = false, updatedMin =
   // メール・SF立ち上げ・通知はまだなので、こちらも対象に含める。
   const targets = scan.items.filter((it) =>
     !it.auto_assigned_at && (!it.current_owner || it.selfAcquired));
+  const selfCount = targets.filter((t) => t.selfAcquired).length;
+  if (selfCount) console.log(`[apo-scan] うち ${selfCount}件はクローザーが自分で取ったアポです`);
   if (!targets.length) {
     return { total: scan.items.length, targets: 0, assigned: 0, results: [], errors: scan.errors, differential: !!updatedMin };
   }
