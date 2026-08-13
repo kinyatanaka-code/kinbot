@@ -2970,10 +2970,11 @@ async function runProcessSheet(sfUser, opts = {}) {
 
   // 4. 「実績」のセルだけを書き換える。
   // シートが保護されている場合は、Apps Script経由で書く（設定されていれば）。
-  const gasUrl = String(st.psGasUrl || "").trim();
+  const gasUrl = String(opts.gasUrl || st.psGasUrl || "").trim();
+  const gasSecret = String(opts.gasSecret || st.psGasSecret || "");
   try {
     if (gasUrl) {
-      const r = await writeViaAppsScript(gasUrl, String(st.psGasSecret || ""), { sheetName, cells: updates });
+      const r = await writeViaAppsScript(gasUrl, gasSecret, { sheetName, cells: updates });
       return { ok: true, updated: r.updated, count: updates.length, skipped, via: "gas" };
     }
     const r = await updateSheetCells(owner, sheetId, sheetName, updates);

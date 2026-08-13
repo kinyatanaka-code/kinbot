@@ -413,6 +413,21 @@ async function loadProcessFilters(reportId, saved) {
   }
 }
 
+// 保存されているApps ScriptのURL。入力欄と食い違っていたら知らせる。
+let _psSavedGas = "";
+
+function checkGasSaved() {
+  const el = $("psGasUrl");
+  const gs = $("psGasState");
+  if (!el || !gs) return;
+  const typed = el.value.trim();
+  if (typed && typed !== _psSavedGas) {
+    gs.className = "note cc-warn";
+    gs.textContent = "このURLはまだ保存されていません。「設定を保存」を押してください。" +
+      "保存しないと、30分ごとの自動更新では使われません。";
+  }
+}
+
 // 画面で指定されている条件を、保存や実行に渡せる形にする
 function psFilterBody() {
   if (!$("psFilters") || !$("psFilters").innerHTML) return null;
@@ -448,7 +463,10 @@ async function loadProcessSheet() {
       gs.textContent = d.gasUrl
         ? `Apps Script経由で書き込みます${d.gasSecretSet ? "（合言葉は保存済み）" : "（合言葉が未設定です）"}`
         : "いまはkinbotのアカウントで直接書き込んでいます。";
+      gs.className = "note";
     }
+    _psSavedGas = d.gasUrl || "";
+    checkGasSaved();
     loadProcessReports(d.reportId || "");
     loadProcessFilters(d.reportId || "", d.filters);
 
@@ -460,7 +478,12 @@ async function loadProcessSheet() {
       note.innerHTML =
         `${d.intervalMin || 30}分ごとに、平日の${srEsc(d.hours || "7-22")}時だけ動きます。手で押す必要はなくなります。` +
         (l.at
-          ? `<br>直近の自動更新：${srEsc(when)}　${l.ok ? `${l.count}箇所を更新` : `<span class="ps-skip">失敗（${srEsc(l.error)}）</span>`}`
+          ? `<br>直近の自動更新：${srEsc(when)}　${l.ok
+              ? `${l.count}箇所を更新`
+              : `<span class="ps-skip">失敗（${srEsc(l.error)}）` +
+                (/403|PERMISSION_DENIED/.test(l.error || "") && !d.gasUrl
+                  ? "<br>Apps ScriptのURLが保存されていません。下の設定を保存してください。" : "") +
+                `</span>`}`
           : "");
     }
   } catch {}
@@ -596,6 +619,8 @@ if ($("psSave")) {
         `<div class="ps-note">${srEsc(d.note || "")}</div>`;
     } catch (e) { psSay(""); $("psResult").innerHTML = `<div class="ps-err">${srEsc(e.message)}</div>`; }
   });
+
+  if ($("psGasUrl")) $("psGasUrl").addEventListener("input", checkGasSaved);
 
   if ($("psGasCode")) $("psGasCode").addEventListener("click", async () => {
     const box = $("psGasCodeBox");
