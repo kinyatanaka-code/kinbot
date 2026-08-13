@@ -330,6 +330,14 @@ function render() {
     const key = norm(focusQ);
     const hit = all.filter((e) => norm(e.title).includes(key) || key.includes(norm(e.title)));
     if (hit.length) all = hit;
+    else if (!focusSearched) {
+      // この画面は「予定を登録した日」で読む。ホームから商談日で開かれると
+      // 見つからないので、前後の日も探しに行く。
+      focusSearched = true;
+      findEventAround(focusQ);
+      box.innerHTML = '<div class="home-empty">この予定を探しています…</div>';
+      return;
+    }
   }
   renderOwnerFilter(all);
   const list = ownerFilter ? all.filter((e) => ownerFilter.has(creatorEmailOf(e))) : all;
@@ -809,7 +817,44 @@ async function loadFields() {
   } catch {}
 }
 
+let focusSearched = false;
+
+// 指定の予定を、前後の日から探す。
+// ホームからは商談日で開かれるが、この画面は「登録した日」で読むため。
+async function findEventAround(q) {
+  const norm = (t) => String(t || "").replace(/[\s　]/g, "");
+  const key = norm(q);
+  const base = new Date(selDateL + "T00:00:00+09:00");
+  // 直近1か月を、近い日から順に見る
+  const days = [];
+  for (let i = 1; i <= 31; i++) {
+    const d = new Date(base);
+    d.setDate(d.getDate() - i);
+    days.push(d.toISOString().slice(0, 10));
+  }
+  for (const day of days) {
+    try {
+      const r = await fetch("/api/calendar/created?date=" + encodeURIComponent(day));
+      const d = await r.json();
+      const evs = (d && d.events) || [];
+      const hit = evs.filter((e) => isTarget(e.title) &&
+        (norm(e.title).includes(key) || key.includes(norm(e.title))));
+      if (hit.length) {
+        selDateL = day;
+        dayEventsL = evs;
+        memberCount = (d && d.count) || 0;
+        render();
+        checkLaunched(hit);
+        return;
+      }
+    } catch {}
+  }
+  // 見つからなければ、そのまま「対象ではありません」を出す
+  render();
+}
+
 async function loadDay(fresh = false) {
+  focusSearched = false;
   const box = $l("lnList");
   box.innerHTML = '<div class="home-empty">読み込み中…（全員のカレンダーを見ています）</div>';
   try {

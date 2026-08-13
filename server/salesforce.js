@@ -854,7 +854,7 @@ export async function convertedLeadStatus(owner) {
 }
 
 // リードをコンバートする（標準の convertLead アクションを使う）
-export async function convertLead(owner, { leadId, convertedStatus, opportunityName, accountId, contactId, ownerId, doNotCreateOpportunity }) {
+export async function convertLead(owner, { leadId, convertedStatus, opportunityName, accountId, contactId, ownerId, doNotCreateOpportunity, allowDuplicate }) {
   const acc = await getAccess(owner);
   if (!acc) throw new Error("Salesforce未連携です");
   const input = {
@@ -866,6 +866,7 @@ export async function convertLead(owner, { leadId, convertedStatus, opportunityN
   if (contactId) input.contactId = contactId;
   if (ownerId) input.ownerId = ownerId;
   if (doNotCreateOpportunity) input.doNotCreateOpportunity = true;
+  if (allowDuplicate) input.allowDuplicate = true;
   const res = await fetch(
     `${acc.instanceUrl}/services/data/${API_VERSION}/actions/standard/convertLead`,
     {
@@ -889,6 +890,16 @@ export async function convertLead(owner, { leadId, convertedStatus, opportunityN
   }
   const out = first.outputValues || {};
   const oppId = out.opportunityId || "";
+  // 何が返ったかを必ず残す。商談ができない原因を追うのに要る。
+  console.log("[SF立ち上げ] コンバートの応答",
+    JSON.stringify({
+      leadId: input.leadId,
+      accountId: out.accountId || "",
+      contactId: out.contactId || "",
+      opportunityId: oppId,
+      渡した商談名: input.opportunityName || "(なし)",
+      渡した所有者: input.ownerId || "(なし)",
+    }));
   if (!oppId) {
     // コンバートは通ったのに商談IDが返らない場合がある。
     // 何が返ったかを残しておかないと原因を追えないので、記録する。
@@ -915,7 +926,16 @@ async function convertLeadSoap(acc, input) {
   const body =
     `<?xml version="1.0" encoding="UTF-8"?>` +
     `<soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/" xmlns:urn="urn:partner.soap.sforce.com">` +
-    `<soapenv:Header><urn:SessionHeader><urn:sessionId>${esc(acc.token)}</urn:sessionId></urn:SessionHeader></soapenv:Header>` +
+    `<soapenv:Header>` +
+    `<urn:SessionHeader><urn:sessionId>${esc(acc.token)}</urn:sessionId></urn:SessionHeader>` +
+    // 重複ルールで止められたときに、それでも通すかどうか。
+    // 既存の取引先に紐づけたい場面があるため、指定できるようにしておく。
+    (input.allowDuplicate
+      ? `<urn:DuplicateRuleHeader><urn:allowSave>true</urn:allowSave>` +
+        `<urn:includeRecordDetails>false</urn:includeRecordDetails>` +
+        `<urn:runAsCurrentUser>true</urn:runAsCurrentUser></urn:DuplicateRuleHeader>`
+      : "") +
+    `</soapenv:Header>` +
     `<soapenv:Body><urn:convertLead><urn:leadConverts>` +
     // ★項目の順番はSalesforceの定義どおりに並べる必要がある。
     //   順番が違うと opportunityName などが無視され、商談が作られないことがある。
@@ -941,19 +961,33 @@ async function convertLeadSoap(acc, input) {
     return m ? m[1] : "";
   };
   const success = /<success>true<\/success>/.test(xml);
-  if (success && !/<opportunityId>/.test(xml)) {
-    console.error("[SF立ち上げ] SOAPで商談IDが返りませんでした",
-      xml.replace(/\s+/g, " ").slice(0, 600));
+  const accountId = pick("accountId");
+  const contactId = pick("contactId");
+  const opportunityId = pick("opportunityId");
+
+  // <errors> があれば、success の有無にかかわらず失敗として扱う。
+  // 重複ルールに弾かれたときは success が返らず errors だけが来る。
+  const errType = (xml.match(/<errors[^>]*xsi:type="([^"]+)"/) || [])[1] || "";
+  const errMsg = pick("message");
+  if (!res.ok || !success || errMsg || !accountId) {
+    const fault = pick("faultstring");
+    const raw = fault || errMsg || `SOAP convert ${res.status}`;
+    console.error("[SF立ち上げ] コンバートに失敗", JSON.stringify({
+      種類: errType || "(なし)", 内容: raw.slice(0, 300),
+      取引先: accountId || "(できていません)", 取引先責任者: contactId || "(できていません)",
+    }));
+    const e = new Error(`SF lead convert: ${raw}`);
+    e.errType = errType;
+    e.duplicate = /Duplicate/i.test(errType) || /duplicate/i.test(raw);
+    throw e;
   }
-  if (!res.ok || !success) {
-    const msg = pick("faultstring") || pick("message") || `SOAP convert ${res.status}`;
-    throw new Error(`SF lead convert: ${msg}`);
+  if (!opportunityId) {
+    console.error("[SF立ち上げ] 取引先はできましたが、商談ができていません",
+      JSON.stringify({ accountId, contactId }));
   }
   return {
     ok: true,
-    accountId: pick("accountId"),
-    contactId: pick("contactId"),
-    opportunityId: pick("opportunityId"),
+    accountId, contactId, opportunityId,
     instanceUrl: acc.instanceUrl,
     via: "soap",
   };

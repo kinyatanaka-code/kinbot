@@ -2233,6 +2233,28 @@ app.put("/api/smart-links/:slug/excluded", async (req, res) => {
 // 条件を満たしたものだけ実行する。コンバートは取り消せないため、
 // 少しでも怪しいものは実行せず、理由を残してホームに出す。
 
+// 商談の「入力必須なのに既定値が無い項目」を調べる。
+// これがあると、リードをコンバートしても商談だけ作られない。
+let _oppReqCache = { at: 0, list: null };
+async function opportunityRequiredFields(owner) {
+  if (_oppReqCache.list && Date.now() - _oppReqCache.at < 10 * 60 * 1000) return _oppReqCache.list;
+  const list = [];
+  try {
+    const d = await describeOpportunity(owner);
+    for (const f of d.fields || []) {
+      if (!f.createable || f.nillable || f.defaultedOnCreate) continue;
+      // コンバートで自動的に入る項目は除く
+      if (["Name", "StageName", "CloseDate", "AccountId", "OwnerId", "RecordTypeId"].includes(f.name)) continue;
+      list.push({ name: f.name, label: f.label });
+    }
+  } catch (e) { console.warn("[SF自動] 商談の項目を読めませんでした", e.message); }
+  _oppReqCache = { at: Date.now(), list };
+  if (list.length) {
+    console.warn(`[SF自動] 商談に必須項目があります：${list.map((f) => f.label).join("、")}`);
+  }
+  return list;
+}
+
 // Salesforceを操作するアカウントを決める。
 // 割り振られたクローザーがSF連携をしているとは限らないので、
 // 連携できている人（運用者）で操作し、商談の所有者だけをクローザーにする。
@@ -2320,6 +2342,19 @@ async function tryAutoLaunch(user, link, { dryRun = false, ownerEmail = "" } = {
                leadId: j.lead.Id, filledUrl: site.filled ? site.url : "", dryRun: true };
     }
 
+    // 商談が作られない原因の多くは、商談側の必須項目が空なこと。
+    // 実行前に確かめて、当てはまるなら立ち上げずに理由を出す。
+    try {
+      const need = await opportunityRequiredFields(user);
+      if (need.length) {
+        const r = { ...base, ok: false, company: j.company, person: j.person,
+                    reason: "opp_required", detail: need.map((f) => f.label).join("、"),
+                    leadId: j.lead.Id };
+        if (!dryRun) await saveAutolaunch(r);
+        return r;
+      }
+    } catch {}
+
     // 商談の所有者は、割り振られた担当者にする。
     // その人がkinbotでSF連携をしていなくてよいように、メールからSFのユーザーを引く。
     const wantOwner = String(ownerEmail || link.current_owner || "").trim();
@@ -2339,12 +2374,37 @@ async function tryAutoLaunch(user, link, { dryRun = false, ownerEmail = "" } = {
 
     // ここから先は取り消せない
     const statuses = await convertedLeadStatuses(user).catch(() => []);
-    const conv = await convertLead(user, {
+    const convArgs = {
       leadId: j.lead.Id,
       convertedStatus: (statuses[0] || {}).value || "",
       opportunityName: `${j.company}_${j.person}`,
       ownerId,
-    });
+    };
+    let conv = null;
+    try {
+      conv = await convertLead(user, convArgs);
+    } catch (e) {
+      // 重複ルールで止められた場合は、すでにある取引先に紐づけてやり直す。
+      // 取引先を二重に作らないのが目的なので、既存に寄せるのが正しい。
+      if (!e.duplicate) throw e;
+      console.log(`[SF自動] 重複と判定されたため、既存の取引先を探します（${j.company}）`);
+      let accountId = "";
+      try {
+        const esc2 = j.company.replace(/'/g, "\\'");
+        const d = await sfQuery(user,
+          `SELECT Id, Name FROM Account WHERE Name LIKE '%${esc2}%' ORDER BY LastModifiedDate DESC LIMIT 1`);
+        accountId = d?.records?.[0]?.Id || "";
+        if (accountId) console.log(`[SF自動] 既存の取引先に紐づけます（${d.records[0].Name}）`);
+      } catch {}
+      if (!accountId) {
+        const r = { ...base, ok: false, company: j.company, person: j.person,
+                    reason: "duplicate", detail: "既存の取引先が見つかりませんでした",
+                    leadId: j.lead.Id };
+        if (!dryRun) await saveAutolaunch(r);
+        return r;
+      }
+      conv = await convertLead(user, { ...convArgs, accountId, allowDuplicate: true });
+    }
     const oppId = (conv && (conv.opportunityId || conv.opportunity_id)) || "";
 
     // 「立ち上げました」と言う前に、Salesforceに商談ができているか必ず確かめる。

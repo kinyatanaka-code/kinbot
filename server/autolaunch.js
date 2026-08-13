@@ -29,6 +29,8 @@ export const REASONS = {
   no_sf_user:    "割り振られた担当者が、Salesforceのユーザーとして見つかりません",
   no_operator:   "Salesforceにつながっているアカウントがありません",
   not_created:   "コンバートは通ったのに、商談ができていません（Salesforceの設定をご確認ください）",
+  opp_required:  "商談に必須項目があるため作れません。既定値を入れるか、必須を外してください",
+  duplicate:     "Salesforceの重複ルールで止められました（同じ会社・担当者が既にあります）",
 };
 
 // 「【初回】株式会社ベルク／町田様」から会社名と担当者名を取り出す
