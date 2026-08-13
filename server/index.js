@@ -238,6 +238,7 @@ import { resolveConfig, statusInfo } from "./config.js";
 import { analyzerInfo, analyzeMeeting, analyzeDeep, freeAnalyze, chatWithData, enrichCompany, lookupEmployeeCount, lookupCompanyBasics, generateThanks, THANKS_PROMPT, getCheckItems, getSummaryPrompt, getCustomPrompt, runCustomAnalysis, analyzeWinPatterns, classifyMeetingKind, extractFirstMeeting, extractReMeeting, buildBrief, extractFeatureCTags, enrichCompanyAttributes, generateFeatureCInsights, extractQaPairs, splitPhases } from "./analyzer.js";
 import { searchCompanies, getCompanyDetail, gbizConfigured } from "./gbizinfo.js";
 import { searchCompanyInfo, webLookupAvailable } from "./websearch.js";
+import { readLayout, tally, buildUpdates, METRICS } from "./processsheet.js";
 import {
   googleConfigured,
   authUrl,
@@ -268,7 +269,7 @@ import {
   gmailCreateDraft,
   gmailDeleteDraft,
   parseEmailAddr, driveEnsureFolder, driveUploadFromUrl, driveShareDomain, driveStream, driveFindCompanyFiles, driveShareAnyone, driveEnsurePath, driveMoveFile, driveListChildren, driveTrash,
-  appendSheetRow, checkSheet } from "./google.js";
+  appendSheetRow, checkSheet, readSheet, updateSheetCells } from "./google.js";
 import { startScheduler } from "./scheduler.js";
 import { muxConfigured, startVodUpload, waitVodPlayback, muxStorageSummary, listAssets, deleteAsset, findAssetByPlaybackId, enableMp4, mp4Url, readyMp4Name, getAsset } from "./mux.js";
 import { liveConfigured, createLiveStream, playbackUrl as livePlaybackUrl, liveInfo, liveStatus, relayMap } from "./live.js";
@@ -2811,6 +2812,174 @@ app.delete("/api/next-actions/:id", async (req, res) => {
     res.json({ ok: true });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
+
+// ===== プロセスシートへの架電結果の書き込み =====
+// SFのレポートから架電結果を取り、担当者ごと・日ごとに数えてシートの「実績」に入れる。
+
+// レポートの列名から、必要な項目を見つける
+function pickCol(columns, ...words) {
+  const norm = (v) => String(v || "").replace(/[\s　_（）()]/g, "");
+  for (const w of words) {
+    const i = columns.findIndex((c) => norm(c.label).includes(norm(w)) || norm(c.name).includes(norm(w)));
+    if (i >= 0) return i;
+  }
+  return -1;
+}
+
+// レポートの結果を、集計しやすい形にそろえる
+function toRecords(report) {
+  const cols = report.columns || [];
+  const at = {
+    date: pickCol(cols, "日付", "活動日", "作成日"),
+    owner: pickCol(cols, "所有者", "担当", "ユーザ"),
+    called: pickCol(cols, "架電数", "架電"),
+    contacted: pickCol(cols, "接触済", "接触"),
+    appointed: pickCol(cols, "アポ獲得", "アポ"),
+    meeting: pickCol(cols, "商談日", "初回訪問", "面談日"),
+  };
+  const missing = ["date", "owner", "called"].filter((k) => at[k] < 0);
+  if (missing.length) {
+    const label = { date: "日付", owner: "所有者", called: "架電数" };
+    throw new Error(`レポートに「${missing.map((k) => label[k]).join("」「")}」の列が見つかりません`);
+  }
+  return (report.rows || []).map((r) => ({
+    date: r[at.date],
+    owner: r[at.owner],
+    called: r[at.called],
+    contacted: at.contacted >= 0 ? r[at.contacted] : false,
+    appointed: at.appointed >= 0 ? r[at.appointed] : false,
+    meetingDate: at.meeting >= 0 ? r[at.meeting] : "",
+  }));
+}
+
+// 設定の読み書き
+app.get("/api/process-sheet", async (req, res) => {
+  try {
+    const st = await getSettings();
+    res.json({
+      sheetId: st.psSheetId || "", sheetName: st.psSheetName || "",
+      reportId: st.psReportId || "", owner: st.psOwner || "",
+      termFrom: st.psTermFrom || "", termTo: st.psTermTo || "",
+      autoRun: st.psAutoRun === true,
+      intervalMin: Number(process.env.PS_INTERVAL_MIN || 30),
+      hours: String(process.env.PS_HOURS || "7-22"),
+      last: processSheetStatus(),
+    });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.put("/api/process-sheet", async (req, res) => {
+  try {
+    const b = req.body || {};
+    const patch = {};
+    if (b.sheetId !== undefined) {
+      const raw = String(b.sheetId || "").trim();
+      const m = raw.match(/\/spreadsheets\/d\/([a-zA-Z0-9_-]+)/);
+      patch.psSheetId = (m ? m[1] : raw).slice(0, 120);
+    }
+    if (b.sheetName !== undefined) patch.psSheetName = String(b.sheetName || "").trim().slice(0, 80);
+    if (b.reportId !== undefined) patch.psReportId = String(b.reportId || "").trim().replace(/[^a-zA-Z0-9]/g, "").slice(0, 30);
+    if (b.owner !== undefined) patch.psOwner = String(b.owner || "").trim().toLowerCase().slice(0, 120);
+    if (b.termFrom !== undefined) patch.psTermFrom = String(b.termFrom || "").slice(0, 10);
+    if (b.termTo !== undefined) patch.psTermTo = String(b.termTo || "").slice(0, 10);
+    if (b.autoRun !== undefined) patch.psAutoRun = b.autoRun === true;
+    await saveSettings(patch);
+    res.json({ ok: true, ...patch });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// 実行の本体。画面からも、30分ごとの自動実行からも、ここを使う。
+async function runProcessSheet(sfUser, opts = {}) {
+  const st = await getSettings();
+  const sheetId = String(opts.sheetId || st.psSheetId || "").trim();
+  const sheetName = String(opts.sheetName || st.psSheetName || "").trim();
+  const reportId = String(opts.reportId || st.psReportId || "").trim();
+  const owner = String(opts.owner || st.psOwner || sfUser || "").trim();
+  const from = String(opts.termFrom || st.psTermFrom || "").trim();
+  const to = String(opts.termTo || st.psTermTo || "").trim();
+  const dryRun = opts.dryRun !== false;
+  const onlyDates = Array.isArray(opts.dates) && opts.dates.length ? opts.dates : null;
+
+  if (!sheetId) throw new Error("スプレッドシートを指定してください");
+  if (!sheetName) throw new Error("シート名を指定してください");
+  if (!reportId) throw new Error("SFのレポートを指定してください");
+  if (!from || !to) throw new Error("期内とみなす期間を指定してください");
+
+  // 1. SFのレポートを実行
+  const report = await runReport(sfUser, reportId);
+  const records = toRecords(report);
+
+  // 2. 担当者ごと・日ごとに数える（期内・期外は商談日で分ける）
+  const tallied = tally(records, { fromISO: from, toISO: to });
+
+  // 3. シートの構造を読んで、書き込む場所を決める
+  const values = await readSheet(owner, sheetId, `${sheetName}!A1:DZ200`);
+  const layout = readLayout(values);
+  if (layout.error) throw new Error(layout.error);
+  const { updates, skipped } = buildUpdates(layout, tallied, { onlyDates });
+
+  if (dryRun) {
+    return {
+      ok: true, dryRun: true, rows: records.length,
+      people: layout.people.map((p) => p.name),
+      matched: Object.keys(tallied),
+      updates: updates.slice(0, 400), count: updates.length, skipped,
+    };
+  }
+
+  // 4. 「実績」のセルだけを書き換える
+  const r = await updateSheetCells(owner, sheetId, sheetName, updates);
+  return { ok: true, updated: r.updated, count: updates.length, skipped };
+}
+
+app.post("/api/process-sheet/run", async (req, res) => {
+  try {
+    const r = await runProcessSheet(req.user, req.body || {});
+    if (!r.dryRun) console.log(`[プロセスシート] ${r.count}箇所を更新しました by ${req.user}`);
+    res.json(r);
+  } catch (e) {
+    console.error("[プロセスシート]", e.message);
+    res.status(400).json({ error: e.message + (e.needScope ? "（Google連携にスプレッドシートの権限がありません。再連携してください）" : "") });
+  }
+});
+
+// ───────────────────────────────────────────────────────────
+// 30分ごとの自動更新
+// 一日中動かす必要はないので、平日の決まった時間帯だけにする。
+// ───────────────────────────────────────────────────────────
+let psLast = { at: null, ok: false, count: 0, error: "" };
+function processSheetStatus() { return psLast; }
+
+function inWorkingHours() {
+  const now = new Date(Date.now() + 9 * 3600 * 1000);   // JST
+  const day = now.getUTCDay();                          // 0=日
+  const hour = now.getUTCHours();
+  const [h1, h2] = String(process.env.PS_HOURS || "7-22").split("-").map((x) => parseInt(x, 10));
+  if (process.env.PS_WEEKEND !== "1" && (day === 0 || day === 6)) return false;
+  return hour >= (h1 || 7) && hour < (h2 || 22);
+}
+
+async function processSheetTick() {
+  try {
+    const st = await getSettings();
+    if (st.psAutoRun !== true) return;
+    if (!inWorkingHours()) return;
+    const user = String(st.psOwner || "").trim();
+    if (!user) return;
+
+    const r = await runProcessSheet(user, { dryRun: false });
+    psLast = { at: new Date().toISOString(), ok: true, count: r.count, error: "" };
+    console.log(`[プロセスシート] 自動更新：${r.count}箇所`);
+  } catch (e) {
+    psLast = { at: new Date().toISOString(), ok: false, count: 0, error: e.message };
+    console.warn("[プロセスシート] 自動更新に失敗", e.message);
+  }
+}
+
+const PS_INTERVAL_MIN = Number(process.env.PS_INTERVAL_MIN || 30);
+setInterval(() => { processSheetTick().catch(() => {}); }, PS_INTERVAL_MIN * 60 * 1000);
+// 起動直後に走らせると、まだ設定が読めていないことがあるので少し待つ
+setTimeout(() => { processSheetTick().catch(() => {}); }, 3 * 60 * 1000);
 
 // ===== 資料の閲覧をスプレッドシートに記録する設定 =====
 // Salesforceの自動立ち上げを実際に行うかどうか

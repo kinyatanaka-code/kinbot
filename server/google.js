@@ -1195,6 +1195,53 @@ export async function appendSheetRow(owner, spreadsheetId, sheetName, values) {
   return res.json().catch(() => ({}));
 }
 
+// シートの中身を読む
+export async function readSheet(owner, spreadsheetId, range) {
+  const token = await accessToken(owner);
+  const res = await fetch(
+    `https://sheets.googleapis.com/v4/spreadsheets/${encodeURIComponent(spreadsheetId)}` +
+    `/values/${encodeURIComponent(range)}?valueRenderOption=UNFORMATTED_VALUE`,
+    { headers: { authorization: `Bearer ${token}` } }
+  );
+  if (!res.ok) {
+    const t = await res.text();
+    const e = new Error(`シートの読み取り ${res.status}: ${t.slice(0, 300)}`);
+    if (res.status === 403 && /insufficient|scope/i.test(t)) e.needScope = true;
+    if (res.status === 404) e.notFound = true;
+    throw e;
+  }
+  const d = await res.json();
+  return d.values || [];
+}
+
+// 決まった場所だけを、まとめて書き換える（他のセルには触れない）
+export async function updateSheetCells(owner, spreadsheetId, sheetName, cells) {
+  if (!cells.length) return { updated: 0 };
+  const token = await accessToken(owner);
+  const res = await fetch(
+    `https://sheets.googleapis.com/v4/spreadsheets/${encodeURIComponent(spreadsheetId)}/values:batchUpdate`,
+    {
+      method: "POST",
+      headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+      body: JSON.stringify({
+        valueInputOption: "USER_ENTERED",
+        data: cells.map((c) => ({
+          range: `${sheetName}!${c.range}`,
+          values: [[c.value]],
+        })),
+      }),
+    }
+  );
+  if (!res.ok) {
+    const t = await res.text();
+    const e = new Error(`シートへの書き込み ${res.status}: ${t.slice(0, 300)}`);
+    if (res.status === 403 && /insufficient|scope/i.test(t)) e.needScope = true;
+    throw e;
+  }
+  const d = await res.json();
+  return { updated: d.totalUpdatedCells || 0 };
+}
+
 // 書き込めるかどうかを試す（設定画面の確認用）
 export async function checkSheet(owner, spreadsheetId) {
   const token = await accessToken(owner);

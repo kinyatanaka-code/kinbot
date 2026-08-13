@@ -310,12 +310,18 @@ document.addEventListener("DOMContentLoaded", () => {
   const show = (name) => {
     tabs.querySelectorAll(".rep-tab").forEach((b) => b.classList.toggle("active", b.dataset.sftab === name));
     // 立ち上げ／立ち上げ待ち／レポート系の3種類でパネルを出し分ける
-    const panel = name === "launch" ? "launch" : name === "pending" ? "pending" : "data";
+    const panel = name === "launch" ? "launch"
+      : name === "pending" ? "pending"
+      : name === "process" ? "process" : "data";
     document.querySelectorAll("[data-sfpanel]").forEach((p) => {
       p.hidden = p.dataset.sfpanel !== panel;
     });
     if (panel === "pending") {
       if (typeof loadPending === "function") loadPending();
+      return;
+    }
+    if (panel === "process") {
+      if (typeof loadProcessSheet === "function") loadProcessSheet();
       return;
     }
     if (panel === "data") {
@@ -328,3 +334,127 @@ document.addEventListener("DOMContentLoaded", () => {
   // 立ち上げ待ちの件数を、最初に一度だけ数えてタブに出す
   setTimeout(() => { if (typeof loadPending === "function") loadPending(); }, 1500);
 });
+
+// ───────────────────────────────────────────────────────────
+// プロセスシート — SFの架電結果を「実績」に入れる
+// ───────────────────────────────────────────────────────────
+async function loadProcessSheet() {
+  if (!$("psSheet")) return;
+  try {
+    const d = await (await fetch("/api/process-sheet")).json();
+    $("psSheet").value = d.sheetId || "";
+    $("psName").value = d.sheetName || "";
+    $("psReport").value = d.reportId || "";
+    $("psOwner").value = d.owner || "";
+    $("psFrom").value = d.termFrom || "";
+    $("psTo").value = d.termTo || "";
+    if ($("psAuto")) $("psAuto").checked = !!d.autoRun;
+
+    // 自動更新の状態を、そのまま出す
+    const note = $("psAutoNote");
+    if (note) {
+      const l = d.last || {};
+      const when = l.at ? new Date(l.at).toLocaleString("ja-JP", { hour12: false }) : "";
+      note.innerHTML =
+        `${d.intervalMin || 30}分ごとに、平日の${srEsc(d.hours || "7-22")}時だけ動きます。手で押す必要はなくなります。` +
+        (l.at
+          ? `<br>直近の自動更新：${srEsc(when)}　${l.ok ? `${l.count}箇所を更新` : `<span class="ps-skip">失敗（${srEsc(l.error)}）</span>`}`
+          : "");
+    }
+  } catch {}
+}
+
+function psBody(dryRun) {
+  return {
+    sheetId: $("psSheet").value, sheetName: $("psName").value,
+    reportId: $("psReport").value, owner: $("psOwner").value,
+    termFrom: $("psFrom").value, termTo: $("psTo").value,
+    autoRun: $("psAuto") ? $("psAuto").checked : false,
+    dryRun,
+  };
+}
+
+function psSay(t, ms) {
+  const e = $("psStatus");
+  if (!e) return;
+  e.textContent = t || "";
+  if (ms) setTimeout(() => { if (e.textContent === t) e.textContent = ""; }, ms);
+}
+
+async function psRun(dryRun) {
+  const box = $("psResult");
+  psSay(dryRun ? "確認しています…" : "書き込んでいます…");
+  box.innerHTML = "";
+  try {
+    const r = await fetch("/api/process-sheet/run", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify(psBody(dryRun)),
+    });
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.error || "できませんでした");
+
+    if (!dryRun) {
+      psSay(`${d.count}箇所に書き込みました`, 8000);
+      box.innerHTML = `<div class="ps-done">シートを更新しました（${d.count}箇所）。シートを開いて確認してください。</div>`;
+      return;
+    }
+
+    psSay("");
+    const ups = d.updates || [];
+    box.innerHTML =
+      `<div class="ps-sum">レポートの明細 ${d.rows}行 ／ シートの担当者 ${(d.people || []).join("、")} ／ ` +
+      `SF側で見つかった人 ${(d.matched || []).join("、") || "なし"}</div>` +
+      (d.skipped && d.skipped.length ? `<div class="ps-skip">${srEsc(d.skipped.join(" ／ "))}</div>` : "") +
+      (ups.length
+        ? `<div class="ps-note">この内容で書き込みます（${d.count}箇所）。問題なければ「シートに書き込む」を押してください。</div>` +
+          `<table class="ps-table"><thead><tr><th>セル</th><th>担当</th><th>日付</th><th>項目</th><th>値</th></tr></thead><tbody>` +
+          ups.slice(0, 200).map((u) =>
+            `<tr><td>${srEsc(u.range)}</td><td>${srEsc(u.who)}</td><td>${srEsc(u.date)}</td><td>${srEsc(u.metric)}</td><td class="ps-v">${srEsc(u.value)}</td></tr>`).join("") +
+          `</tbody></table>`
+        : '<div class="ps-note">書き込む内容がありませんでした。レポートの期間や担当者名をご確認ください。</div>');
+  } catch (e) {
+    psSay("");
+    box.innerHTML = `<div class="ps-err">${srEsc(e.message)}</div>`;
+  }
+}
+
+if ($("psSave")) {
+  $("psSave").addEventListener("click", async () => {
+    psSay("保存しています…");
+    try {
+      const r = await fetch("/api/process-sheet", {
+        method: "PUT", headers: { "content-type": "application/json" },
+        body: JSON.stringify(psBody(true)),
+      });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.error || "保存できませんでした");
+      if (d.psSheetId) $("psSheet").value = d.psSheetId;
+      psSay("保存しました", 4000);
+    } catch (e) { psSay("失敗: " + e.message); }
+  });
+  if ($("psAuto")) $("psAuto").addEventListener("change", async () => {
+    const on = $("psAuto").checked;
+    if (on && !confirm(
+      "30分ごとに、シートの「実績」を自動で書き換えます。\n" +
+      "先に「中身を確認する」で内容を確かめましたか？\n\nよろしいですか？")) {
+      $("psAuto").checked = false;
+      return;
+    }
+    psSay("保存しています…");
+    try {
+      const r = await fetch("/api/process-sheet", {
+        method: "PUT", headers: { "content-type": "application/json" },
+        body: JSON.stringify(psBody(true)),
+      });
+      if (!r.ok) throw new Error(((await r.json()) || {}).error || "保存できませんでした");
+      psSay(on ? "30分ごとに自動で書き込みます" : "自動更新を止めました", 5000);
+      loadProcessSheet();
+    } catch (e) { psSay("失敗: " + e.message); $("psAuto").checked = !on; }
+  });
+
+  $("psCheck").addEventListener("click", () => psRun(true));
+  $("psRun").addEventListener("click", () => {
+    if (!confirm("シートの「実績」の列を書き換えます。\n先に「中身を確認する」で内容を見ましたか？\n\n実行してよろしいですか？")) return;
+    psRun(false);
+  });
+}

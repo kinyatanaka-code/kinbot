@@ -33,6 +33,7 @@
             <button class="rep-tab" data-sftab="pending" type="button">立ち上げ待ち<span class="pd-badge" id="pdBadge" hidden></span></button>
             <button class="rep-tab" data-sftab="lead" type="button">リード</button>
             <button class="rep-tab" data-sftab="report" type="button">レポート</button>
+            <button class="rep-tab" data-sftab="process" type="button">プロセスシート</button>
             <button class="rep-tab" data-sftab="dashboard" type="button">ダッシュボード</button>
           </div>
 
@@ -78,6 +79,31 @@
             <p class="note">条件を満たさず自動で立ち上がらなかったものが並びます。<b>理由を直してから「もう一度試す」を押すか、「開く」から手で立ち上げてください。</b><br>
             テストとして集計から外したアポは出ません。</p>
             <div id="pdList"><div class="home-empty">読み込み中…</div></div>
+          </div>
+
+          <div class="sf-panel" data-sfpanel="process" hidden>
+            <div class="home-head"><div class="home-title">架電結果をプロセスシートに入れる</div></div>
+            <p class="note">SFのレポートから架電結果を読み取り、担当者ごと・日ごとに数えて、シートの<b>「実績」の列だけ</b>に入れます。<br>
+            目標や数式には触れません。<b>アポの期内・期外は、商談日が下の期間に入るかどうかで分けます。</b></p>
+
+            <div class="ps-form">
+              <label class="ps-lb">スプレッドシート<input type="text" id="psSheet" placeholder="URLをそのまま貼れます" /></label>
+              <label class="ps-lb">シート名<input type="text" id="psName" placeholder="8月アポ管理" /></label>
+              <label class="ps-lb">SFのレポートID<input type="text" id="psReport" placeholder="00O..." /></label>
+              <label class="ps-lb">書き込むアカウント<input type="text" id="psOwner" placeholder="kinya.tanaka@neo-career.co.jp" /></label>
+              <label class="ps-lb">期内とみなす期間（開始）<input type="date" id="psFrom" /></label>
+              <label class="ps-lb">同（終了）<input type="date" id="psTo" /></label>
+            </div>
+            <label class="ks-check" style="margin:6px 0 2px"><input type="checkbox" id="psAuto" /> <b>30分ごとに自動で書き込む</b></label>
+            <p class="note" id="psAutoNote">平日の決まった時間帯だけ動きます。手で押す必要はなくなります。</p>
+
+            <div class="ap-cfg-actions">
+              <button class="btn ghost" id="psSave">設定を保存</button>
+              <button class="btn ghost" id="psCheck">中身を確認する（書き込まない）</button>
+              <button class="btn" id="psRun">いますぐ書き込む</button>
+              <span class="rev-status" id="psStatus"></span>
+            </div>
+            <div id="psResult"></div>
           </div>
 
           <div class="sf-panel" data-sfpanel="data" hidden>

@@ -515,6 +515,22 @@ function apiResponse(pathname, query) {
     columns: [{ name: "c1", label: "会社名" }, { name: "c2", label: "件数" }],
     rows: [["株式会社ベルク", "12"], ["合同会社サンライズ", "8"]],
   };
+  if (pathname === "/api/process-sheet") return { sheetId: "1IgeixnK7iIrf335MR05_B97NvpjoxUEVnqoYVcVYdLY",
+    sheetName: "8月アポ管理", reportId: "00O5h00000ABCDE", owner: "kinya.tanaka@neo-career.co.jp",
+    termFrom: "2026-08-01", termTo: "2026-08-31" };
+  if (pathname === "/api/process-sheet/run") return { ok: true, dryRun: true, rows: 864,
+    people: ["植野","田中","森田","江田","飯島","迫間","加藤","萩原"],
+    matched: ["植野 ひかり","田中 欽也","森田 弥鳴","江田 有一郎"], count: 12, skipped: [],
+    updates: [
+      { range:"K32", who:"植野", date:"8/4", metric:"コール", value:58 },
+      { range:"K33", who:"植野", date:"8/4", metric:"接触", value:5 },
+      { range:"K34", who:"植野", date:"8/4", metric:"アポ（期内）", value:1 },
+      { range:"K35", who:"植野", date:"8/4", metric:"アポ（期外）", value:0 },
+      { range:"K44", who:"田中", date:"8/4", metric:"コール", value:64 },
+      { range:"K45", who:"田中", date:"8/4", metric:"接触", value:15 },
+      { range:"K46", who:"田中", date:"8/4", metric:"アポ（期内）", value:2 },
+      { range:"K47", who:"田中", date:"8/4", metric:"アポ（期外）", value:0 },
+    ] };
   if (pathname === "/api/sf-autolaunch/pending") return { items: [
     { slug:"a1", title:"【初回】アールプランナーグループ/水谷様", company:"アールプランナーグループ", ok:false,
       reasonText:"Salesforceの重複ルールで止められました（同じ会社・担当者が既にあります）",
