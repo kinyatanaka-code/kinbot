@@ -2956,6 +2956,12 @@ export async function listAssignLog(limit = 50) {
 }
 
 // 自動割り振り済みの印（同じ予定を二重に割り当てないため）
+// 処理済みの印を外す。メール・SF立ち上げ・通知をやり直すときに使う。
+export async function clearAutoAssigned(slug) {
+  if (!pool || !slug) return;
+  try { await pool.query(`UPDATE smart_links SET auto_assigned_at = NULL WHERE slug=$1`, [slug]); } catch {}
+}
+
 export async function markAutoAssigned(slug) {
   if (!pool || !slug) return;
   try { await pool.query(`UPDATE smart_links SET auto_assigned_at = now() WHERE slug=$1`, [slug]); } catch {}

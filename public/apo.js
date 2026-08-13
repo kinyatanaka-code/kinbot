@@ -210,6 +210,8 @@ function apoCard(a, i) {
           <button class="btn ghost ap-copy" data-url="${esc(a.smart_url)}">コピー</button>
           <button class="btn ghost ap-exclude" data-slug="${esc(a.slug)}" data-on="${a.excluded ? "1" : "0"}"
             title="実績・均等化・通知の件数から外し、カレンダーの商談予定も消します">${a.excluded ? "集計に戻す" : "テストとして外す"}</button>
+          <button class="btn ghost ap-why" data-slug="${esc(a.slug)}"
+            title="メール・SF立ち上げ・通知がどこで止まっているかを調べます">調べる</button>
         </div>
       </div>
     </div>
@@ -312,6 +314,40 @@ function bindCardEvents(card) {
       alert("自動で決められませんでした:\n" + e.message);
       auto.disabled = false; auto.textContent = bo;
     }
+  });
+
+  const why = q(".ap-why");
+  if (why) why.addEventListener("click", async () => {
+    const card = why.closest(".ap-card");
+    let box = card.querySelector(".ap-why-box");
+    if (box) { box.remove(); return; }
+    box = document.createElement("div");
+    box.className = "ap-why-box";
+    box.textContent = "調べています…";
+    card.appendChild(box);
+    try {
+      const d = await (await fetch(`/api/apo/${encodeURIComponent(why.dataset.slug)}/why`)).json();
+      if (d.error) throw new Error(d.error);
+      box.innerHTML = (d.steps || []).map((x) =>
+        `<div class="ap-why-row ${x.ok ? "ok" : "ng"}"><b>${x.ok ? "OK" : "要確認"}</b> ${esc(x.name)}` +
+        `${x.detail ? `<span>${esc(x.detail)}</span>` : ""}</div>`).join("") +
+        `<div class="ap-why-act"><button type="button" class="btn ap-redo">メール・SF・通知をやり直す</button>` +
+        `<span class="rev-status ap-redo-st"></span></div>`;
+      box.querySelector(".ap-redo").addEventListener("click", async (ev) => {
+        const b = ev.target;
+        const st2 = box.querySelector(".ap-redo-st");
+        if (!confirm("メールの作成・SF立ち上げ・通知をもう一度行います。\nよろしいですか？")) return;
+        b.disabled = true;
+        st2.textContent = "やり直しています…";
+        try {
+          const r = await fetch(`/api/apo/${encodeURIComponent(why.dataset.slug)}/redo`, { method: "POST" });
+          const d2 = await r.json();
+          if (!r.ok) throw new Error(d2.error || "できませんでした");
+          st2.textContent = d2.ok ? "やり直しました。通知を確認してください" : `できませんでした：${d2.reason || ""}`;
+          if (d2.ok) setTimeout(load, 2000);
+        } catch (e) { st2.textContent = "失敗: " + e.message; b.disabled = false; }
+      });
+    } catch (e) { box.innerHTML = `<div class="ap-why-row ng">${esc(e.message)}</div>`; }
   });
 
   const ex = q(".ap-exclude");

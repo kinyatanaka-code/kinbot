@@ -560,6 +560,17 @@ function apiResponse(pathname, query) {
   ] };
   if (pathname === "/api/sf-autolaunch/retry") return { ok: false, reasonText: "やはり同じ理由で止まりました" };
   if (pathname === "/api/sf-autolaunch/config") return { enabled: false };
+  if (/^\/api\/apo\/[^/]+\/why$/.test(pathname)) return { ok: false, steps: [
+    { name: "アポの登録", ok: true, detail: "【初回】株式会社テスト/テスト様／獲得 田中欽也" },
+    { name: "担当", ok: true, detail: "kinya.tanaka@neo-career.co.jp" },
+    { name: "処理済みの印", ok: true, detail: "付いています（2026/8/13 20:15:00）。これが付いていると、自動処理の対象になりません。" },
+    { name: "集計から除外", ok: true, detail: "対象です" },
+    { name: "自動スキャン", ok: true, detail: "ONです" },
+    { name: "自動割り振り", ok: true, detail: "ONです" },
+    { name: "通知先", ok: false, detail: "3件のうち、アポ割り振りがONなのは 0件" },
+    { name: "アポ割り振りの通知", ok: true, detail: "ONです" },
+  ] };
+  if (/^\/api\/apo\/[^/]+\/redo$/.test(pathname)) return { ok: true };
   if (pathname === "/api/apo/why") {
     return { ok: false, product: query.get("product") || "", steps: [
       { name: "15分おきの自動スキャン", ok: true, detail: "60秒ごと", hint: "" },

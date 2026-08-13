@@ -157,6 +157,7 @@ import {
   MEMBER_ROLES,
   MEMBER_BUSINESSES,
   markAutoAssigned,
+  clearAutoAssigned,
   listAssignLog,
   clearCloserPriority,
   logAssign,
@@ -2198,6 +2199,56 @@ app.post("/api/mux/cleanup", async (req, res) => {
 
 // Recall接続状況（どのリージョン/キーに繋がっているか＋今月の利用時間＋直近のボット起動結果）
 // ※Recall APIは「残高（チャージ額）」を返さないため、残高は取得できない。利用時間と接続先のみ表示する。
+// アポ1件について、いまどこで止まっているかを調べる。
+// 「通知が来ない」の原因を、その場で確かめられるようにする。
+app.get("/api/apo/:slug/why", async (req, res) => {
+  try {
+    const link = await getSmartLink(String(req.params.slug || ""));
+    if (!link) return res.status(404).json({ error: "見つかりません" });
+    const st = await getSettings().catch(() => ({}));
+    const cfg = await getRotationConfig().catch(() => ({}));
+
+    const steps = [];
+    const add2 = (name, ok, detail) => steps.push({ name, ok, detail: detail || "" });
+
+    add2("アポの登録", true, `${link.label || "(予定名なし)"}／獲得 ${link.setter || "-"}`);
+    add2("担当", !!link.current_owner, link.current_owner || "未定");
+    add2("処理済みの印", true,
+      link.auto_assigned_at
+        ? `付いています（${new Date(link.auto_assigned_at).toLocaleString("ja-JP", { hour12: false })}）。これが付いていると、自動処理の対象になりません。`
+        : "付いていません（自動処理の対象です）");
+    add2("集計から除外", !link.excluded, link.excluded ? "外されています" : "対象です");
+    add2("自動スキャン", cfg.autoScan !== false, cfg.autoScan === false ? "OFFになっています" : "ONです");
+    add2("自動割り振り", cfg.autoAssign !== false, cfg.autoAssign === false ? "OFFになっています" : "ONです");
+
+    // 通知先の設定
+    const targets = await listChatTargets({ onlyActive: true }).catch(() => []);
+    const assignTargets = targets.filter((t) => t.on_assign);
+    add2("通知先", assignTargets.length > 0 || !!(await chatWebhookUrl().catch(() => "")),
+      targets.length
+        ? `${targets.length}件のうち、アポ割り振りがONなのは ${assignTargets.length}件`
+        : "通知先が登録されていません（設定 → 外部連携 → Google連携）");
+    add2("アポ割り振りの通知", st.chatNotifyAssign !== false,
+      st.chatNotifyAssign === false ? "OFFになっています" : "ONです");
+
+    res.json({ ok: steps.every((x) => x.ok), steps, slug: link.slug });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// 処理済みの印を外して、もう一度やり直す（メール・SF立ち上げ・通知）
+app.post("/api/apo/:slug/redo", async (req, res) => {
+  try {
+    const link = await getSmartLink(String(req.params.slug || ""));
+    if (!link) return res.status(404).json({ error: "見つかりません" });
+    await clearAutoAssigned(link.slug);
+    const cfg = await getRotationConfig();
+    const r = await autoAssignOne({ ...link, auto_assigned_at: null },
+      { inviteOwner: null, closers: null, cfg, actor: req.user || "manual" });
+    console.log(`[apo] ${link.slug} をやり直しました by ${req.user}`);
+    res.json({ ok: true, ...r });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 // 同じ予定から二重にできてしまったアポを片付ける
 app.post("/api/apo/dedupe", async (req, res) => {
   try {
