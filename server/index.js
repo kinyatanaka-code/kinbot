@@ -2831,25 +2831,38 @@ function toRecords(report) {
   const cols = report.columns || [];
   const at = {
     date: pickCol(cols, "日付", "活動日", "作成日"),
-    owner: pickCol(cols, "所有者", "担当", "ユーザ"),
+    owner: pickCol(cols, "所有者", "担当者", "担当", "ユーザ", "割り当て", "作成者", "登録者"),
+    subject: pickCol(cols, "件名", "表題", "タイトル"),
     called: pickCol(cols, "架電数", "架電"),
     contacted: pickCol(cols, "接触済", "接触"),
     appointed: pickCol(cols, "アポ獲得", "アポ"),
     meeting: pickCol(cols, "商談日", "初回訪問", "面談日"),
   };
-  const missing = ["date", "owner", "called"].filter((k) => at[k] < 0);
+  const missing = ["date", "called"].filter((k) => at[k] < 0);
   if (missing.length) {
-    const label = { date: "日付", owner: "所有者", called: "架電数" };
+    const label = { date: "日付", called: "架電数" };
     throw new Error(`レポートに「${missing.map((k) => label[k]).join("」「")}」の列が見つかりません`);
+  }
+  // 所有者の列が無いレポートもある（担当者でグループ化しているだけの場合など）。
+  // その場合は件名から取り出す（「2026-08-04_電話_植野 ひかり」の形）。
+  const fromSubject = (v) => {
+    const t = String(v || "");
+    const m = t.match(/^\d{4}[-/]\d{1,2}[-/]\d{1,2}_[^_]*_(.+)$/);
+    if (m) return m[1].trim();
+    const parts = t.split("_");
+    return parts.length >= 3 ? parts[parts.length - 1].trim() : "";
+  };
+  if (at.owner < 0 && at.subject < 0) {
+    throw new Error("レポートに担当者が分かる列（所有者・担当者・件名のいずれか）がありません");
   }
   return (report.rows || []).map((r) => ({
     date: r[at.date],
-    owner: r[at.owner],
+    owner: at.owner >= 0 ? r[at.owner] : fromSubject(r[at.subject]),
     called: r[at.called],
     contacted: at.contacted >= 0 ? r[at.contacted] : false,
     appointed: at.appointed >= 0 ? r[at.appointed] : false,
     meetingDate: at.meeting >= 0 ? r[at.meeting] : "",
-  }));
+  })).filter((x) => x.owner);
 }
 
 // 設定の読み書き
@@ -2861,6 +2874,7 @@ app.get("/api/process-sheet", async (req, res) => {
       reportId: st.psReportId || "", owner: st.psOwner || "",
       termFrom: st.psTermFrom || "", termTo: st.psTermTo || "",
       autoRun: st.psAutoRun === true,
+      filters: (() => { try { return JSON.parse(st.psFilters || "null"); } catch { return null; } })(),
       intervalMin: Number(process.env.PS_INTERVAL_MIN || 30),
       hours: String(process.env.PS_HOURS || "7-22"),
       last: processSheetStatus(),
@@ -2883,6 +2897,11 @@ app.put("/api/process-sheet", async (req, res) => {
     if (b.termFrom !== undefined) patch.psTermFrom = String(b.termFrom || "").slice(0, 10);
     if (b.termTo !== undefined) patch.psTermTo = String(b.termTo || "").slice(0, 10);
     if (b.autoRun !== undefined) patch.psAutoRun = b.autoRun === true;
+    // レポートの絞り込み条件（「今月」など）を覚えておく。
+    // これが無いと、実行のたびに条件なしで走って中身が出てこない。
+    if (b.filters !== undefined) {
+      patch.psFilters = b.filters ? JSON.stringify(b.filters).slice(0, 4000) : "";
+    }
     await saveSettings(patch);
     res.json({ ok: true, ...patch });
   } catch (e) { res.status(500).json({ error: e.message }); }
@@ -2905,8 +2924,10 @@ async function runProcessSheet(sfUser, opts = {}) {
   if (!reportId) throw new Error("SFのレポートを指定してください");
   if (!from || !to) throw new Error("期内とみなす期間を指定してください");
 
-  // 1. SFのレポートを実行
-  const report = await runReport(sfUser, reportId);
+  // 1. SFのレポートを実行（覚えている条件があれば、その条件で）
+  let saved = null;
+  try { saved = opts.filters !== undefined ? opts.filters : JSON.parse(st.psFilters || "null"); } catch {}
+  const report = await runReport(sfUser, reportId, saved);
   const records = toRecords(report);
 
   // 2. 担当者ごと・日ごとに数える（期内・期外は商談日で分ける）

@@ -4657,6 +4657,8 @@ input:focus, select:focus, textarea:focus, .sf-input:focus, .sf-select:focus, .s
   border-radius: 9px; font-size: 13px; font-family: inherit; background: var(--panel); }
 .ps-rep .btn { flex: none; padding: 6px 12px; }
 .ps-lb .ps-rep + input { margin-top: 6px; font-size: 12px; }
+.ps-filters:not(:empty) { border: 1px solid var(--line); border-radius: 12px; padding: 13px 16px;
+  margin: 4px 0 14px; background: var(--panel-2); }
 @media (max-width: 720px) {
   .pd-card { grid-template-columns: 1fr; }
   .pd-act { justify-content: flex-start; }

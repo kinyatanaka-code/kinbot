@@ -359,12 +359,76 @@ async function loadProcessReports(selectedId) {
     if (!sel._wired) {
       sel._wired = true;
       sel.addEventListener("change", () => {
-        if (sel.value) $("psReport").value = sel.value;
+        if (!sel.value) return;
+        $("psReport").value = sel.value;
+        loadProcessFilters(sel.value, null);   // 選び直したら条件も読み直す
       });
     }
   } catch {
     sel.innerHTML = '<option value="">一覧を読めませんでした。IDを直接入れてください</option>';
   }
+}
+
+// レポートの絞り込み条件を出して、覚えさせる。
+// 「今月」で絞らないと中身が出てこないレポートがあるため、条件ごと保存しておく。
+let _psFilters = null;
+
+async function loadProcessFilters(reportId, saved) {
+  const box = $("psFilters");
+  if (!box) return;
+  if (!reportId) { box.innerHTML = ""; return; }
+  box.innerHTML = '<div class="sr-f-note">レポートの条件を読み込んでいます…</div>';
+  try {
+    const d = await (await fetch(`/api/salesforce/reports/${encodeURIComponent(reportId)}/filters`)).json();
+    if (d.error) throw new Error(d.error);
+    _psFilters = d;
+
+    // 覚えている条件があれば、そちらを初期値にする
+    const savedFs = (saved && saved.reportFilters) || null;
+    const savedDate = (saved && saved.standardDateFilter) || null;
+    const fs = (d.filters || []).map((f, i) => savedFs && savedFs[i] ? { ...f, ...savedFs[i] } : f);
+    const dr = d.dateRanges || [];
+    const cur = (savedDate && savedDate.durationValue) ||
+      (d.standardDateFilter && d.standardDateFilter.durationValue) || "";
+
+    box.innerHTML =
+      `<div class="sr-f-head">レポートの絞り込み<span class="sr-f-note">この条件でレポートを実行します。自動更新にも使われます。</span></div>` +
+      (dr.length
+        ? `<div class="sr-f-row"><span class="sr-f-k">期間</span>
+             <select class="sr-f-v" id="psDate">
+               ${dr.map((x) => `<option value="${srEsc(x.value)}"${x.value === cur ? " selected" : ""}>${srEsc(x.label)}</option>`).join("")}
+             </select></div>`
+        : "") +
+      fs.map((f) => `
+        <div class="sr-f-row" data-col="${srEsc(f.column)}">
+          <span class="sr-f-k">${srEsc(f.label)}</span>
+          <select class="sr-f-op">
+            ${SR_OPS.map(([v, l]) => `<option value="${v}"${v === f.operator ? " selected" : ""}>${l}</option>`).join("")}
+          </select>
+          <input type="text" class="sr-f-v" value="${srEsc(f.value || "")}" />
+        </div>`).join("") +
+      (fs.length || dr.length ? "" : '<div class="sr-f-note">このレポートには変えられる条件がありません。</div>');
+  } catch (e) {
+    box.innerHTML = `<div class="sr-f-note">条件を読めませんでした：${srEsc(e.message)}</div>`;
+  }
+}
+
+// 画面で指定されている条件を、保存や実行に渡せる形にする
+function psFilterBody() {
+  if (!$("psFilters") || !$("psFilters").innerHTML) return null;
+  const reportFilters = [...$("psFilters").querySelectorAll(".sr-f-row[data-col]")].map((row) => ({
+    column: row.dataset.col,
+    operator: row.querySelector(".sr-f-op").value,
+    value: row.querySelector(".sr-f-v").value,
+  }));
+  const out = {};
+  if (reportFilters.length) out.reportFilters = reportFilters;
+  const dsel = $("psDate");
+  if (dsel && _psFilters && _psFilters.standardDateFilter) {
+    out.standardDateFilter = { ..._psFilters.standardDateFilter, durationValue: dsel.value };
+  }
+  if (_psFilters && _psFilters.booleanFilter) out.reportBooleanFilter = _psFilters.booleanFilter;
+  return Object.keys(out).length ? out : null;
 }
 
 async function loadProcessSheet() {
@@ -379,6 +443,7 @@ async function loadProcessSheet() {
     $("psTo").value = d.termTo || "";
     if ($("psAuto")) $("psAuto").checked = !!d.autoRun;
     loadProcessReports(d.reportId || "");
+    loadProcessFilters(d.reportId || "", d.filters);
 
     // 自動更新の状態を、そのまま出す
     const note = $("psAutoNote");
@@ -400,6 +465,7 @@ function psBody(dryRun) {
     reportId: $("psReport").value, owner: $("psOwner").value,
     termFrom: $("psFrom").value, termTo: $("psTo").value,
     autoRun: $("psAuto") ? $("psAuto").checked : false,
+    filters: psFilterBody(),
     dryRun,
   };
 }

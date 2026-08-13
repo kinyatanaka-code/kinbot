@@ -522,7 +522,10 @@ function apiResponse(pathname, query) {
   ] };
   if (pathname === "/api/process-sheet") return { sheetId: "1IgeixnK7iIrf335MR05_B97NvpjoxUEVnqoYVcVYdLY",
     sheetName: "8月アポ管理", reportId: "00O5h00000ABCDE", owner: "kinya.tanaka@neo-career.co.jp",
-    termFrom: "2026-08-01", termTo: "2026-08-31" };
+    termFrom: "2026-08-01", termTo: "2026-08-31", autoRun: true, intervalMin: 30, hours: "7-22",
+    last: { at: "2026-08-13T05:00:00Z", ok: true, count: 128, error: "" },
+    filters: { standardDateFilter: { column: "Task.CreatedDate", durationValue: "THIS_MONTH" },
+               reportFilters: [{ column: "Task.Subject", operator: "contains", value: "電話" }] } };
   if (pathname === "/api/process-sheet/run") return { ok: true, dryRun: true, rows: 864,
     people: ["植野","田中","森田","江田","飯島","迫間","加藤","萩原"],
     matched: ["植野 ひかり","田中 欽也","森田 弥鳴","江田 有一郎"], count: 12, skipped: [],
