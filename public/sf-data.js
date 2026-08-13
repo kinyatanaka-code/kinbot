@@ -525,6 +525,10 @@ async function psRun(dryRun) {
     psSay("");
     box.innerHTML = `<div class="ps-err">${srEsc(e.message)}</div>` +
       (e.hint ? `<div class="ps-note">${srEsc(e.hint)}</div>` : "");
+    // 保護が原因のときは、Apps Scriptの設定欄を開いて気づけるようにする
+    if (/403|PERMISSION_DENIED|保護/.test(e.message + (e.hint || "")) && $("psGasBox")) {
+      $("psGasBox").open = true;
+    }
   }
 }
 
@@ -582,7 +586,8 @@ if ($("psSave")) {
         `${p.canEditThis ? "（編集できます）" : "（編集できません）"}`).join("<br>");
       $("psResult").innerHTML =
         `<div class="ps-sum">${srEsc(d.name || "")}　書き込むアカウント：${srEsc(d.owner)}` +
-        `${d.probe ? `　試したセル：${srEsc(d.probe)}` : ""}</div>` +
+        `${d.probe ? `　試したセル：${srEsc(d.probe)}` : ""}` +
+        `　経路：${d.via === "gas" ? "Apps Script経由" : "kinbotから直接"}</div>` +
         `<div class="${d.canWrite === false ? "ps-err" : "ps-note"}">` +
         `${d.canWrite === true ? "書き込めます"
           : d.canWrite === false ? "書き込めません"

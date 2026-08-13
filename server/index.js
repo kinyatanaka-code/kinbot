@@ -3006,6 +3006,10 @@ app.post("/api/process-sheet/run", async (req, res) => {
           String(e.firstRange || "")
         );
         hint = d.note;
+        if (!String(st.psGasUrl || "").trim()) {
+          hint += "　保護を変えられない場合は、下の「シートが保護されていて書き込めないとき」から" +
+            "Apps Script経由の設定をすると、保護をそのままにして書き込めます。";
+        }
       } catch {}
     }
     res.status(400).json({ error: e.message, hint });
@@ -3026,6 +3030,35 @@ app.post("/api/process-sheet/permission", async (req, res) => {
       const r = await runProcessSheet(req.user, { ...req.body, dryRun: true });
       probe = (r.updates && r.updates[0] && r.updates[0].range) || "";
     } catch {}
+
+    // Apps Scriptを設定しているなら、そちらの経路で試す。
+    // 直接の権限が無くても、Apps Script経由なら書けるため。
+    const gasUrl = String(req.body?.gasUrl || st.psGasUrl || "").trim();
+    if (gasUrl) {
+      try {
+        // いまの値を読んで、同じ値を書き戻す（中身は変わらない）
+        let cur = "";
+        try {
+          const v = await readSheet(owner, sheetId, `${sheetName}!${probe || "A1"}`);
+          cur = (v[0] || [])[0] ?? "";
+        } catch {}
+        await writeViaAppsScript(gasUrl, String(st.psGasSecret || ""), {
+          sheetName, cells: [{ range: probe || "A1", value: cur }],
+        });
+        return res.json({
+          ok: true, owner, probe, via: "gas", canWrite: true,
+          name: "", protected: [],
+          note: "Apps Script経由で書き込めます。このまま実行して問題ありません。",
+        });
+      } catch (e) {
+        return res.json({
+          ok: true, owner, probe, via: "gas", canWrite: false,
+          name: "", protected: [],
+          note: `Apps Scriptで書き込めませんでした：${e.message}`,
+        });
+      }
+    }
+
     const d = await diagnoseSheet(owner, sheetId, sheetName, probe);
     res.json({ ok: true, owner, probe, ...d });
   } catch (e) { res.status(400).json({ error: e.message }); }
