@@ -274,6 +274,9 @@ import { mountOauthServer, oauthTokenUser } from "./oauth.js";
 import {
   salesforceConfigured,
   getSfUserId,
+  sfUserIdByEmail,
+  leadRecordTypes,
+  crossLeadRecordTypeId,
   describeObject,
   searchLeads,
   updateLead,
@@ -2223,6 +2226,24 @@ app.put("/api/smart-links/:slug/excluded", async (req, res) => {
 // 条件を満たしたものだけ実行する。コンバートは取り消せないため、
 // 少しでも怪しいものは実行せず、理由を残してホームに出す。
 
+// Salesforceを操作するアカウントを決める。
+// 割り振られたクローザーがSF連携をしているとは限らないので、
+// 連携できている人（運用者）で操作し、商談の所有者だけをクローザーにする。
+async function sfOperator(prefer = "") {
+  const cands = [];
+  if (prefer && String(prefer).includes("@")) cands.push(prefer);
+  try {
+    const st = await getSettings();
+    if (st.apoScanOwner) cands.push(st.apoScanOwner);
+    if (st.apoInviteOwner) cands.push(st.apoInviteOwner);
+  } catch {}
+  for (const c of cands) {
+    const ok = await sfConnected(c).catch(() => false);
+    if (ok) return c;
+  }
+  return "";
+}
+
 // URLが空のときは gBizINFO で補う。見つからなければ空のまま。
 async function fillLeadWebsite(user, lead, company) {
   if (lead.Website) return { url: lead.Website, filled: false };
@@ -2242,7 +2263,9 @@ async function fillLeadWebsite(user, lead, company) {
 }
 
 // 1件を判定して、通れば立ち上げる
-async function tryAutoLaunch(user, link, { dryRun = false } = {}) {
+// user      … Salesforceを操作するアカウント（SF連携ができている人）
+// ownerEmail… 商談の所有者にしたい人（＝アポを割り振られたクローザー）
+async function tryAutoLaunch(user, link, { dryRun = false, ownerEmail = "" } = {}) {
   const base = { slug: link.slug, botId: link.bot_id || null, title: link.label };
   try {
     // すでに立ち上げ済みなら触らない
@@ -2276,12 +2299,38 @@ async function tryAutoLaunch(user, link, { dryRun = false } = {}) {
     }
 
     if (dryRun) {
+      // 実際に立ち上げる前に、所有者にできる人かどうかも見ておく
+      const want = String(ownerEmail || link.current_owner || "").trim();
+      if (want) {
+        const id = await sfUserIdByEmail(user, want).catch(() => "");
+        if (!id) {
+          const r = { ...base, ok: false, company: j.company, person: j.person,
+                      reason: "no_sf_user", detail: want, leadId: j.lead.Id };
+          return r;
+        }
+      }
       return { ...base, ok: true, company: j.company, person: j.person,
                leadId: j.lead.Id, filledUrl: site.filled ? site.url : "", dryRun: true };
     }
 
+    // 商談の所有者は、割り振られた担当者にする。
+    // その人がkinbotでSF連携をしていなくてよいように、メールからSFのユーザーを引く。
+    const wantOwner = String(ownerEmail || link.current_owner || "").trim();
+    let ownerId = "";
+    if (wantOwner) {
+      ownerId = await sfUserIdByEmail(user, wantOwner).catch(() => "");
+      if (!ownerId) {
+        const r = { ...base, ok: false, company: j.company, person: j.person,
+                    reason: "no_sf_user", detail: wantOwner, leadId: j.lead.Id };
+        if (!dryRun) await saveAutolaunch(r);
+        return r;
+      }
+    } else {
+      // 割り振り先が分からないときは、操作しているアカウントを所有者にする
+      ownerId = await getSfUserId(user).catch(() => "");
+    }
+
     // ここから先は取り消せない
-    const ownerId = await getSfUserId(user).catch(() => "");
     const statuses = await convertedLeadStatuses(user).catch(() => []);
     const conv = await convertLead(user, {
       leadId: j.lead.Id,
@@ -2313,7 +2362,9 @@ app.post("/api/sf-autolaunch/check", async (req, res) => {
   try {
     const link = await getSmartLink(String(req.body?.slug || ""));
     if (!link) return res.status(404).json({ error: "商談が見つかりません" });
-    const r = await tryAutoLaunch(req.user, link, { dryRun: true });
+    const op = await sfOperator(req.user);
+    if (!op) return res.status(400).json({ error: "Salesforceにつながっているアカウントがありません" });
+    const r = await tryAutoLaunch(op, link, { dryRun: true, ownerEmail: link.current_owner });
     res.json({ ...r, reasonText: r.ok ? "" : reasonText(r.reason, r.detail) });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
@@ -2323,7 +2374,9 @@ app.post("/api/sf-autolaunch/run", async (req, res) => {
   try {
     const link = await getSmartLink(String(req.body?.slug || ""));
     if (!link) return res.status(404).json({ error: "商談が見つかりません" });
-    const r = await tryAutoLaunch(req.user, link);
+    const op = await sfOperator(req.user);
+    if (!op) return res.status(400).json({ error: "Salesforceにつながっているアカウントがありません" });
+    const r = await tryAutoLaunch(op, link, { ownerEmail: link.current_owner });
     res.json({ ...r, reasonText: r.ok ? "" : reasonText(r.reason, r.detail) });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
@@ -2335,10 +2388,12 @@ app.post("/api/sf-autolaunch/run-day", async (req, res) => {
       ? String(req.body.date)
       : new Date(Date.now() + 9 * 3600 * 1000).toISOString().slice(0, 10);
     const owner = String(req.body?.owner || req.user || "").toLowerCase();
+    const op = await sfOperator(req.user);
+    if (!op) return res.status(400).json({ error: "Salesforceにつながっているアカウントがありません" });
     const rows = await myAssignedApos(owner, d, "day");
     const out = [];
     for (const link of rows) {
-      const r = await tryAutoLaunch(req.user, link);
+      const r = await tryAutoLaunch(op, link, { ownerEmail: link.current_owner });
       out.push({ slug: link.slug, title: link.label, ok: r.ok,
                  reasonText: r.ok ? "" : reasonText(r.reason, r.detail) });
     }
@@ -7679,13 +7734,33 @@ app.get("/api/salesforce/lead-create-fields", async (req, res) => {
 // リードを新規作成する
 app.post("/api/salesforce/leads", async (req, res) => {
   try {
-    const fields = (req.body && req.body.fields) || {};
+    const fields = { ...((req.body && req.body.fields) || {}) };
     if (!fields.LastName || !fields.Company) return res.status(400).json({ error: "姓と会社名は必須です" });
+
+    // 新しく作るリードは、既定でクロスリードにする。
+    // 画面から明示的に指定されているときは、そちらを尊重する。
+    let recordTypeNote = "";
+    if (!fields.RecordTypeId && req.body?.cross !== false) {
+      const id = await crossLeadRecordTypeId(req.user).catch(() => "");
+      if (id) { fields.RecordTypeId = id; recordTypeNote = "クロスリードとして作成しました"; }
+      else recordTypeNote = "クロスのレコードタイプが見つからないため、既定の種別で作成しました";
+    }
+
     const r = await createLead(req.user, fields);
-    res.json(r);
+    console.log(`[SF] リードを作成 ${fields.Company}／${fields.LastName}（${recordTypeNote || "種別は画面指定"}）by ${req.user}`);
+    res.json({ ...r, recordTypeNote });
   } catch (e) {
     sfErrorResponse(res, e);
   }
+});
+
+// リードのレコードタイプの一覧（画面で選べるように）
+app.get("/api/salesforce/lead-record-types", async (req, res) => {
+  try {
+    const list = await leadRecordTypes(req.user);
+    const cross = await crossLeadRecordTypeId(req.user);
+    res.json({ types: list, crossId: cross });
+  } catch (e) { sfErrorResponse(res, e); }
 });
 
 // 会社名からgBizINFOの企業情報を引いて、住所・従業員数・URLなどを返す
@@ -9318,7 +9393,10 @@ async function autoAssignOne(link, { inviteOwner, closers = null, cfg, teamCtx =
     // Salesforceの立ち上げ。設定がONのときだけ実際に立ち上げ、
     // OFFのときは「立ち上げられるか」の判定だけ行う（コンバートは取り消せないため）。
     const runIt = st?.sfAutoLaunch === true;
-    const launch = await tryAutoLaunch(updated.current_owner || actor, updated, { dryRun: !runIt })
+    const op = await sfOperator(actor).catch(() => "");
+    const launch = await (op
+      ? tryAutoLaunch(op, updated, { dryRun: !runIt, ownerEmail: updated.current_owner })
+      : Promise.resolve({ ok: false, reason: "no_operator" }))
       .then((r) => ({ ok: r.ok, dryRun: !runIt, reasonText: r.ok ? "" : reasonText(r.reason, r.detail) }))
       .catch(() => null);
     return notifyAssigned({
@@ -10001,7 +10079,10 @@ app.put("/api/smart-links/:slug/owner", async (req, res) => {
         const counts = await assignCounts(link.business || "").catch(() => null);
         const st = await getSettings().catch(() => ({}));
         const runIt = st?.sfAutoLaunch === true;
-        const launch = await tryAutoLaunch(req.user, link, { dryRun: !runIt })
+        const op = await sfOperator(req.user).catch(() => "");
+        const launch = await (op
+          ? tryAutoLaunch(op, link, { dryRun: !runIt, ownerEmail: owner })
+          : Promise.resolve({ ok: false, reason: "no_operator" }))
           .then((r) => ({ ok: r.ok, dryRun: !runIt, reasonText: r.ok ? "" : reasonText(r.reason, r.detail) }))
           .catch(() => null);
         return notifyAssigned({

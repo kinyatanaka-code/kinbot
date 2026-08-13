@@ -26,6 +26,8 @@ export const REASONS = {
   missing_field: "必須項目が埋まっていません",
   already:       "すでに立ち上げ済みです",
   sf_error:      "Salesforceでエラーが起きました",
+  no_sf_user:    "割り振られた担当者が、Salesforceのユーザーとして見つかりません",
+  no_operator:   "Salesforceにつながっているアカウントがありません",
 };
 
 // 「【初回】株式会社ベルク／町田様」から会社名と担当者名を取り出す

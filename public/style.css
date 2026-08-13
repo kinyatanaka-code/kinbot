@@ -4579,6 +4579,8 @@ input:focus, select:focus, textarea:focus, .sf-input:focus, .sf-select:focus, .s
 .ap-card-links { display: flex; flex-wrap: wrap; gap: 6px; }
 .ap-card-links .btn { flex: 1 1 auto; min-width: 0; white-space: nowrap; }
 .ap-card-links .ap-exclude { flex: 1 1 100%; font-size: 11.5px; }
+/* 新規リードの種別 */
+.ln-rt-note { font-size: 11px; color: var(--muted); margin-top: 4px; }
 .na-sf-wrap { display: flex; align-items: center; gap: 8px; margin-top: 10px; font-size: 12.5px; color: var(--ink); cursor: pointer; }
 .na-sf-wrap[hidden] { display: none; }
 /* Salesforceの区画に入れたときの余白 */

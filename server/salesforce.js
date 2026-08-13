@@ -206,6 +206,53 @@ export function extractRecordId(input) {
 // 商談レコードの指定フィールドを取得
 // 連携している本人のSalesforceユーザーIDを取る（商談所有者の付け替えに使う）
 const _sfUserIdCache = new Map(); // owner -> { id, exp }
+// リードのレコードタイプ（クロス／直販など）を引く。
+// 名前は組織ごとに違うので、一覧を返して呼び出し側で選ぶ。
+let _leadRecordTypes = { at: 0, list: null };
+export async function leadRecordTypes(owner) {
+  if (_leadRecordTypes.list && Date.now() - _leadRecordTypes.at < 10 * 60 * 1000) {
+    return _leadRecordTypes.list;
+  }
+  try {
+    const d = await sfQuery(owner,
+      `SELECT Id, Name, DeveloperName FROM RecordType WHERE SobjectType = 'Lead' AND IsActive = true`);
+    const list = (d.records || []).map((r) => ({ id: r.Id, name: r.Name, dev: r.DeveloperName }));
+    _leadRecordTypes = { at: Date.now(), list };
+    return list;
+  } catch (e) {
+    console.warn("[sf] リードのレコードタイプを読めませんでした", e.message);
+    return [];
+  }
+}
+
+// 「クロス」にあたるレコードタイプを選ぶ
+export async function crossLeadRecordTypeId(owner) {
+  const list = await leadRecordTypes(owner);
+  const hit = list.find((r) => /クロス|cross/i.test(`${r.name} ${r.dev}`));
+  return hit ? hit.id : "";
+}
+
+// メールアドレスから、Salesforce上のユーザーIDを引く。
+// 割り振られた担当者がkinbotでSF連携をしていなくても、商談の所有者にできるようにする。
+const _sfUserByEmail = new Map();
+export async function sfUserIdByEmail(owner, email) {
+  const key = String(email || "").trim().toLowerCase();
+  if (!key) return "";
+  const c = _sfUserByEmail.get(key);
+  if (c && c.exp > Date.now()) return c.id;
+  try {
+    const esc = key.replace(/'/g, "\\'");
+    const d = await sfQuery(owner,
+      `SELECT Id, Name FROM User WHERE IsActive = true AND Email = '${esc}' LIMIT 1`);
+    const id = (d.records && d.records[0] && d.records[0].Id) || "";
+    _sfUserByEmail.set(key, { id, exp: Date.now() + 10 * 60 * 1000 });
+    return id;
+  } catch (e) {
+    console.warn("[sf] ユーザーを引けませんでした", key, e.message);
+    return "";
+  }
+}
+
 export async function getSfUserId(owner) {
   const c = _sfUserIdCache.get(owner);
   if (c && c.exp > Date.now()) return c.id;

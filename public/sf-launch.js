@@ -205,8 +205,20 @@ function createFormHtml(key, ev) {
       return `<div class="sf-field"><label>${escL(f.label)}${req}</label><input type="text" class="sf-input" id="${id}" data-newapi="${escL(f.name)}" value="${escL(v)}"/></div>`;
     }).join("");
   }
+  const rtList = window._leadRecordTypes || null;
+  const rtCross = window._leadCrossId || "";
+  const rtHtml = rtList && rtList.length
+    ? `<div class="sf-field"><label>リードの種別</label>
+         <select class="sf-input" id="lnRecordType">
+           ${rtList.map((t) => `<option value="${escL(t.id)}"${t.id === rtCross ? " selected" : ""}>${escL(t.name)}</option>`).join("")}
+         </select>
+         <div class="ln-rt-note">${rtCross ? "既定はクロスリードです。必要なときだけ変えてください。" : "クロスのレコードタイプが見つかりませんでした。"}</div>
+       </div>`
+    : "";
+
   return `<div class="ln-form">
     <div class="ln-group">新しいリードを作る</div>
+    ${rtHtml}
     <div class="ln-gbiz">
       <button type="button" class="btn sf-btn-secondary home-sf-mini" data-ln-gbiz="${escL(key)}">gBizINFOから会社情報を取り込む</button>
       <div class="ln-gbiz-note"></div>
@@ -391,13 +403,25 @@ async function searchLeads(key) {
 }
 
 async function loadCreateFields() {
-  if (createFields) { render(); return; }
+  if (createFields) { await loadLeadRecordTypes(); render(); return; }
   try {
     const r = await fetch("/api/salesforce/lead-create-fields");
     const d = await r.json().catch(() => ({}));
     if (r.ok) createFields = d.fields || [];
   } catch {}
+  // リードの種別（クロス／直販など）も一緒に読む
+  await loadLeadRecordTypes();
   render();
+}
+
+// リードの種別（レコードタイプ）を読み込んでおく。既定でクロスを選ぶために使う。
+async function loadLeadRecordTypes() {
+  if (window._leadRecordTypes) return;
+  try {
+    const d = await (await fetch("/api/salesforce/lead-record-types")).json();
+    window._leadRecordTypes = d.types || [];
+    window._leadCrossId = d.crossId || "";
+  } catch { window._leadRecordTypes = []; }
 }
 
 async function createLeadNow(key) {
@@ -418,7 +442,15 @@ async function createLeadNow(key) {
   try {
     const r = await fetch("/api/salesforce/leads", {
       method: "POST", headers: { "content-type": "application/json" },
-      body: JSON.stringify({ fields }),
+      body: JSON.stringify({
+        fields: {
+          ...fields,
+          // 画面で選ばれている種別（既定はクロス）
+          ...(document.getElementById("lnRecordType")
+            ? { RecordTypeId: document.getElementById("lnRecordType").value }
+            : {}),
+        },
+      }),
     });
     const d = await r.json().catch(() => ({}));
     if (!r.ok) throw new Error(d.error || "作成に失敗しました");
