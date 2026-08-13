@@ -648,7 +648,8 @@ async function fillFromWeb(card, companyName, note, standalone = false) {
     const el = card.querySelector(`[data-newapi="${api}"], [data-api="${api}"]`);
     return el && !el.value ? el : null;
   };
-  const wants = ["Website", "Phone", "NumberOfEmployees"].map(need).filter(Boolean);
+  const TARGETS = ["Website", "Phone", "NumberOfEmployees", "PostalCode", "State", "City", "Street"];
+  const wants = TARGETS.map(need).filter(Boolean);
   if (!wants.length) return;   // すでに全部埋まっていれば何もしない
 
   try {
@@ -673,6 +674,16 @@ async function fillFromWeb(card, companyName, note, standalone = false) {
     put("Website", d.website, "URL");
     put("Phone", d.phone, "電話");
     put("NumberOfEmployees", d.employees, "従業員数");
+    put("PostalCode", d.postalCode, "郵便番号");
+    // 都道府県・市区郡の欄がある組織は分けて、無い組織は1つにまとめて入れる
+    const hasState = !!card.querySelector('[data-newapi="State"], [data-api="State"]');
+    if (hasState) {
+      put("State", d.state, "都道府県");
+      put("City", d.city, "市区郡");
+      put("Street", d.street, "町名・番地");
+    } else {
+      put("Street", d.address, "住所");
+    }
     if (!filled.length) return;
 
     if (note) {

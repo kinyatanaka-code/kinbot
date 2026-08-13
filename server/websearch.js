@@ -52,12 +52,17 @@ export async function searchCompanyInfo(name, { hintUrl = "", timeoutMs = 25000 
     `日本の会社「${q}」の公式サイトを調べて、次の項目をJSONで返してください。\n` +
     (hintUrl ? `参考URL: ${hintUrl}\n` : "") +
     `\n{"website":"公式サイトのURL","phone":"代表電話番号","employees":従業員数の数値,` +
-    `"address":"本社住所","note":"どのページを見て判断したか"}\n` +
+    `"postalCode":"郵便番号（例 460-0004）","state":"都道府県","city":"市区郡",` +
+    `"street":"町名・番地・建物名","note":"どのページを見て判断したか"}\n` +
     `\n守ること：\n` +
     `・確かめられなかった項目は、必ず空文字（数値はnull）にする。推測で埋めない。\n` +
     `・同じ名前の別会社と取り違えないよう、事業内容や所在地が一致するか確かめる。\n` +
     `・電話番号は代表番号のみ。営業時間や部署番号は入れない。\n` +
     `・従業員数は数値のみ（「約100名」なら100）。連結・単体が分かれるときは単体。\n` +
+    `・住所は本社のもの。都道府県・市区郡・それ以降（町名番地・建物名）に分けて入れる。\n` +
+    `  例：「愛知県名古屋市東区東桜1-13-3 NHK名古屋放送センタービル10階」なら\n` +
+    `  state="愛知県", city="名古屋市東区", street="東桜1-13-3 NHK名古屋放送センタービル10階"\n` +
+    `・郵便番号はハイフン付きの7桁。分からなければ空にする。\n` +
     `・JSONだけを返す。前置きや説明は書かない。`;
 
   try {
@@ -124,13 +129,57 @@ function shape(d, q, noSearch = false) {
   const sources = (d?.candidates?.[0]?.groundingMetadata?.groundingChunks || [])
     .map((c) => c?.web?.uri || "").filter(Boolean).slice(0, 3);
 
+  // 住所。分けて返ってこなかったときは、1つの文字列から切り分ける。
+  let state = String(j.state || "").trim();
+  let city = String(j.city || "").trim();
+  let street = String(j.street || "").trim();
+  const whole = String(j.address || "").trim();
+  if ((!state || !city) && whole) {
+    const p = splitAddress(whole);
+    state = state || p.state;
+    city = city || p.city;
+    street = street || p.street;
+  }
+  const postalCode = normalizePostal(j.postalCode);
+
   return {
-    ok: !!(website || phone || employees),
+    ok: !!(website || phone || employees || state || street),
     company: q,
     website, phone, employees,
-    address: String(j.address || "").trim(),
+    postalCode, state, city, street,
+    address: whole || [state, city, street].filter(Boolean).join(""),
     note: String(j.note || "").slice(0, 200),
     sources,
     searched: !noSearch,
   };
+}
+
+// 郵便番号を「460-0004」の形にそろえる
+export function normalizePostal(v) {
+  const d = String(v || "").replace(/[^\d]/g, "");
+  if (d.length !== 7) return "";
+  return `${d.slice(0, 3)}-${d.slice(3)}`;
+}
+
+// 「愛知県名古屋市東区東桜1-13-3 …」を、都道府県・市区郡・それ以降に分ける
+export function splitAddress(v) {
+  const t = String(v || "").replace(/^〒?\s*\d{3}-?\d{4}\s*/, "").trim();
+  const m = t.match(/^(北海道|東京都|京都府|大阪府|.{2,3}県)/);
+  if (!m) return { state: "", city: "", street: t };
+  const state = m[1];
+  const rest = t.slice(state.length);
+  // 政令指定都市は「◯◯市◯◯区」までを市区郡とする
+  const c = rest.match(/^(.+?[市区町村郡])(.*)$/);
+  if (!c) return { state, city: "", street: rest };
+  let city = c[1];
+  let street = c[2];
+  // 政令指定都市は「◯◯市◯◯区」まで、郡は「◯◯郡◯◯町（村）」までを市区郡とする
+  if (/市$/.test(city)) {
+    const ward = street.match(/^(.+?区)(.*)$/);
+    if (ward) { city += ward[1]; street = ward[2]; }
+  } else if (/郡$/.test(city)) {
+    const town = street.match(/^(.+?[町村])(.*)$/);
+    if (town) { city += town[1]; street = town[2]; }
+  }
+  return { state, city, street: street.trim() };
 }
