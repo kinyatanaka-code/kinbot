@@ -10021,6 +10021,10 @@ async function collectApoAppointments(scanOwner, opts = {}) {
     const items = [];
     const errors = [];
 
+    // kinbotが作った商談予定の一覧。これらはアポの元ではないので拾わない。
+    let inviteIds = new Set();
+    try { inviteIds = await activeInviteEventIds(); } catch {}
+
     // カレンダーの読み取りは、まとめて行う。
     // 1人ずつ順番に読むと人数分の待ち時間が積み上がり、
     // 次のスキャンが始まってしまう（クローザーも見るようになって人数が増えたため）。
@@ -10055,6 +10059,9 @@ async function collectApoAppointments(scanOwner, opts = {}) {
         const creator = String(ev.creator || "").toLowerCase();
         const isHost = (org && org === setterEmail) || (!org && creator && creator === setterEmail);
         if (!isHost) continue;
+        // kinbotが担当者のカレンダーに作った商談予定は、アポの元ではない。
+        // これを拾うと、同じ商談から次々に新しいアポができてしまう。
+        if (inviteIds.has(ev.id)) continue;
         // タイトルが【新/ヒ】または【初回/】を含む予定だけ（全角半角問わず）
         if (!apoTitleTag(ev.title)) continue;
         // 取得日・商談日の指定があれば、それぞれ完全一致で絞る

@@ -2527,6 +2527,21 @@ export async function createSmartLink({ slug, label, owner, createdBy, eventId, 
   // 同じカレンダー予定からは1件しか作らない。
   // スキャンが重なっても、二重に登録されないようにする。
   if (eventId) {
+    // 同じ予定名・同じ開始時刻のアポが既にあれば、それを使う。
+    // 予定を作り直すとIDが変わるため、IDだけでは重複を防げない。
+    if (label && startTime) {
+      const { rows: same } = await pool.query(
+        `SELECT * FROM smart_links
+          WHERE label = $1 AND start_time = $2 AND NOT COALESCE(excluded,false)
+          ORDER BY created_at ASC LIMIT 1`, [label, startTime]);
+      if (same[0]) {
+        // 予定のIDが変わっていたら、新しいIDに付け替える
+        if (same[0].event_id !== eventId) {
+          try { await pool.query(`UPDATE smart_links SET event_id=$2 WHERE slug=$1`, [same[0].slug, eventId]); } catch {}
+        }
+        return same[0];
+      }
+    }
     const { rows } = await pool.query(
       `INSERT INTO smart_links (slug, label, current_owner, created_by, event_id, setter, start_time, end_time)
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
@@ -2849,8 +2864,6 @@ export async function dedupeSmartLinksByEvent({ dryRun = true } = {}) {
         WHERE event_id IS NOT NULL
         GROUP BY event_id HAVING count(*) > 1
         ORDER BY count(*) DESC LIMIT 500`);
-    if (!rows.length) return { groups: 0, remove: 0, samples: [] };
-
     let remove = 0;
     const samples = [];
     for (const g of rows) {
@@ -2872,7 +2885,29 @@ export async function dedupeSmartLinksByEvent({ dryRun = true } = {}) {
         await pool.query(`DELETE FROM smart_links WHERE slug = ANY($1::text[])`, [drop]);
       }
     }
-    return { groups: rows.length, remove, samples };
+    // 予定を作り直してIDが変わったぶんも片付ける（予定名＋開始時刻が同じもの）
+    const { rows: same } = await pool.query(
+      `SELECT label, start_time, count(*)::int AS n
+         FROM smart_links
+        WHERE COALESCE(label,'') <> '' AND start_time IS NOT NULL
+        GROUP BY label, start_time HAVING count(*) > 1
+        ORDER BY count(*) DESC LIMIT 500`);
+    for (const g of same) {
+      const { rows: dup } = await pool.query(
+        `SELECT slug, label, current_owner, client_email, auto_assigned_at
+           FROM smart_links WHERE label = $1 AND start_time = $2
+          ORDER BY (current_owner IS NOT NULL) DESC,
+                   (client_email IS NOT NULL) DESC,
+                   (auto_assigned_at IS NOT NULL) DESC,
+                   created_at ASC`, [g.label, g.start_time]);
+      const drop = dup.slice(1).map((d) => d.slug);
+      if (!drop.length) continue;
+      remove += drop.length;
+      if (samples.length < 10) samples.push({ label: g.label, keep: dup[0].slug, removed: drop.length });
+      if (!dryRun) await pool.query(`DELETE FROM smart_links WHERE slug = ANY($1::text[])`, [drop]);
+    }
+
+    return { groups: rows.length + same.length, remove, samples };
   } catch (e) {
     console.error("[db] dedupeSmartLinksByEvent", e.message);
     return { groups: 0, remove: 0, samples: [], error: e.message };
