@@ -4621,6 +4621,20 @@ input:focus, select:focus, textarea:focus, .sf-input:focus, .sf-select:focus, .s
 #sfSoloList .sf-match-name { font-weight: 700; font-size: 13px; }
 #sfSoloList .sf-match-meta { font-size: 11.5px; color: var(--muted); margin-top: 3px; }
 #sfSoloList .sf-solo-pick { margin-top: 9px; }
+/* レポートの絞り込み条件 */
+.sr-right { min-width: 0; display: flex; flex-direction: column; }
+.sr-filters:not(:empty) { border: 1px solid var(--line); border-radius: 12px; padding: 13px 16px;
+  margin-bottom: 12px; background: var(--panel); }
+.sr-f-head { font-weight: 800; font-size: 13px; color: #0F6E56; margin-bottom: 10px;
+  display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+.sr-f-note { font-size: 11.5px; color: var(--muted); font-weight: 400; }
+.sr-f-row { display: flex; align-items: center; gap: 9px; margin-bottom: 8px; flex-wrap: wrap; }
+.sr-f-k { flex: 0 0 150px; font-size: 12.5px; color: var(--ink); }
+.sr-f-op { flex: 0 0 150px; padding: 7px 10px; border: 1px solid var(--line); border-radius: 9px;
+  font-size: 12.5px; font-family: inherit; background: var(--panel); }
+.sr-f-v { flex: 1 1 180px; min-width: 120px; padding: 7px 11px; border: 1px solid var(--line);
+  border-radius: 9px; font-size: 12.5px; font-family: inherit; background: var(--panel); }
+.sr-f-act { display: flex; align-items: center; gap: 9px; margin-top: 10px; }
 @media (max-width: 720px) {
   .pd-card { grid-template-columns: 1fr; }
   .pd-act { justify-content: flex-start; }

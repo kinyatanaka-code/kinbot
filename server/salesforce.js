@@ -1028,15 +1028,80 @@ export async function listReports(owner, q = "", limit = 200) {
   }));
 }
 
-// レポートを実行して、表として使える形に整える
-export async function runReport(owner, reportId) {
+// レポートに設定されている絞り込み条件を読む。
+// kinbotの画面で値を変えて実行できるようにするために使う。
+export async function reportFilters(owner, reportId) {
   const acc = await getAccess(owner);
   if (!acc) throw new Error("Salesforce未連携です");
   const id = String(reportId).replace(/[^a-zA-Z0-9]/g, "");
   const res = await fetch(
-    `${acc.instanceUrl}/services/data/${API_VERSION}/analytics/reports/${id}?includeDetails=true`,
+    `${acc.instanceUrl}/services/data/${API_VERSION}/analytics/reports/${id}/describe`,
     { headers: { Authorization: `Bearer ${acc.token}` } }
   );
+  const d = await res.json().catch(() => null);
+  if (!res.ok) {
+    const msg = Array.isArray(d) ? d.map((e) => e.message).join(" / ") : (d && d.message) || `SF report describe ${res.status}`;
+    throw new Error(`SF report: ${msg}`);
+  }
+  const meta = d.reportMetadata || {};
+  const ext = d.reportExtendedMetadata || {};
+  const colInfo = { ...(ext.detailColumnInfo || {}), ...(ext.aggregateColumnInfo || {}) };
+  const typeInfo = d.reportTypeMetadata || {};
+
+  // 項目のラベルを引けるようにする（画面に「作成日」などと出すため）
+  const labelOf = {};
+  for (const cat of typeInfo.categories || []) {
+    for (const [api, c] of Object.entries(cat.columns || {})) {
+      labelOf[api] = c.label || api;
+    }
+  }
+  for (const [api, c] of Object.entries(colInfo)) {
+    if (c && c.label) labelOf[api] = c.label;
+  }
+
+  return {
+    name: meta.name || "",
+    filters: (meta.reportFilters || []).map((f, i) => ({
+      index: i,
+      column: f.column,
+      label: labelOf[f.column] || f.column,
+      operator: f.operator,
+      value: f.value,
+    })),
+    booleanFilter: meta.reportBooleanFilter || "",
+    standardDateFilter: meta.standardDateFilter || null,
+    // 選べる期間（今月・先月など）
+    dateRanges: (typeInfo.standardDateFilterDurationGroups || [])
+      .flatMap((g) => (g.standardDateFilterDurations || []).map((x) => ({ value: x.value, label: x.label }))),
+    dateColumns: (typeInfo.standardDateFilterDurationGroups || [])
+      .map((g) => ({ value: g.value, label: g.label })),
+  };
+}
+
+// レポートを実行して、表として使える形に整える。
+// filters を渡すと、その条件で実行する（Salesforce側の保存内容は変えない）。
+export async function runReport(owner, reportId, filters = null) {
+  const acc = await getAccess(owner);
+  if (!acc) throw new Error("Salesforce未連携です");
+  const id = String(reportId).replace(/[^a-zA-Z0-9]/g, "");
+  const url = `${acc.instanceUrl}/services/data/${API_VERSION}/analytics/reports/${id}?includeDetails=true`;
+
+  // 条件が指定されていれば、その条件で実行する（POST）。
+  // 保存されているレポートは書き換わらないので、気軽に試せる。
+  const useFilters = filters && (Array.isArray(filters.reportFilters) || filters.standardDateFilter);
+  const res = useFilters
+    ? await fetch(url, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${acc.token}`, "content-type": "application/json" },
+        body: JSON.stringify({
+          reportMetadata: {
+            ...(Array.isArray(filters.reportFilters) ? { reportFilters: filters.reportFilters } : {}),
+            ...(filters.reportBooleanFilter ? { reportBooleanFilter: filters.reportBooleanFilter } : {}),
+            ...(filters.standardDateFilter ? { standardDateFilter: filters.standardDateFilter } : {}),
+          },
+        }),
+      })
+    : await fetch(url, { headers: { Authorization: `Bearer ${acc.token}` } });
   const data = await res.json().catch(() => null);
   if (!res.ok) {
     const msg = Array.isArray(data) ? data.map((e) => e.message).join(" / ") : (data && data.message) || `SF report ${res.status}`;

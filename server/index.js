@@ -294,6 +294,7 @@ import {
   convertedLeadStatuses,
   listReports,
   runReport,
+  reportFilters,
   listDashboards,
   describeDashboard,
   exportLeads,
@@ -8173,6 +8174,36 @@ app.get("/api/salesforce/reports/:id", async (req, res) => {
   } catch (e) {
     sfErrorResponse(res, e);
   }
+});
+
+// レポートに設定されている絞り込み条件を読む
+app.get("/api/salesforce/reports/:id/filters", async (req, res) => {
+  try {
+    res.set("Cache-Control", "no-store");
+    res.json(await reportFilters(req.user, req.params.id));
+  } catch (e) { sfErrorResponse(res, e); }
+});
+
+// 条件を変えてレポートを実行する。
+// Salesforceに保存されているレポートは書き換えないので、何度でも試せる。
+app.post("/api/salesforce/reports/:id/run", async (req, res) => {
+  try {
+    res.set("Cache-Control", "no-store");
+    const b = req.body || {};
+    const filters = {
+      reportFilters: Array.isArray(b.filters)
+        ? b.filters.map((f) => ({
+            column: String(f.column || ""),
+            operator: String(f.operator || "equals"),
+            value: String(f.value == null ? "" : f.value),
+          })).filter((f) => f.column)
+        : null,
+      reportBooleanFilter: b.booleanFilter || "",
+      standardDateFilter: b.standardDateFilter || null,
+    };
+    console.log(`[SFレポート] 条件を変えて実行 ${req.params.id}（${(filters.reportFilters || []).length}件）by ${req.user}`);
+    res.json(await runReport(req.user, req.params.id, filters));
+  } catch (e) { sfErrorResponse(res, e); }
 });
 
 app.get("/api/salesforce/leads-export", async (req, res) => {

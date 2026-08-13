@@ -497,6 +497,24 @@ function apiResponse(pathname, query) {
       teamStats: TEAM_STATS.filter((t) => teamsIn.includes(t.team)),
       next: cl.find((c) => !c.fallback && c.active) || null };
   }
+  if (/^\/api\/salesforce\/reports\/[^/]+\/filters$/.test(pathname)) return {
+    name: "【X】コール状況管理_本日",
+    filters: [
+      { index: 0, column: "Owner.Name", label: "商談所有者", operator: "equals", value: "田中 欽也" },
+      { index: 1, column: "Task.Status", label: "状況", operator: "notEqual", value: "未着手" },
+      { index: 2, column: "Task.Subject", label: "件名", operator: "contains", value: "コール" },
+    ],
+    booleanFilter: "", standardDateFilter: { column: "Task.CreatedDate", durationValue: "THIS_MONTH" },
+    dateRanges: [
+      { value: "TODAY", label: "今日" }, { value: "THIS_WEEK", label: "今週" },
+      { value: "THIS_MONTH", label: "今月" }, { value: "LAST_MONTH", label: "先月" },
+    ],
+  };
+  if (/^\/api\/salesforce\/reports\/[^/]+\/run$/.test(pathname)) return {
+    name: "【X】コール状況管理_本日",
+    columns: [{ name: "c1", label: "会社名" }, { name: "c2", label: "件数" }],
+    rows: [["株式会社ベルク", "12"], ["合同会社サンライズ", "8"]],
+  };
   if (pathname === "/api/sf-autolaunch/pending") return { items: [
     { slug:"a1", title:"【初回】アールプランナーグループ/水谷様", company:"アールプランナーグループ", ok:false,
       reasonText:"Salesforceの重複ルールで止められました（同じ会社・担当者が既にあります）",

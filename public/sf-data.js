@@ -82,14 +82,108 @@ async function srLoadList() {
 async function srRun(id) {
   const view = $("srView");
   if (!view) return;
+  _sr.reportId = id;
   view.innerHTML = '<div class="empty-state">レポートを実行中…</div>';
   try {
     const r = await fetch("/api/salesforce/reports/" + encodeURIComponent(id));
     const d = await r.json().catch(() => ({}));
     if (!r.ok) throw new Error(d.error || "実行に失敗しました");
     srShowResult(d);
+    loadReportFilters(id);   // 絞り込み条件も読んでおく
   } catch (e) {
     view.innerHTML = `<div class="empty-state">${srEsc(e.message)}</div>`;
+  }
+}
+
+// ───────────────────────────────────────────────────────────
+// レポートの絞り込み条件を、kinbotから変えて実行する。
+// Salesforceに保存されているレポートは書き換えないので、何度でも試せる。
+// ───────────────────────────────────────────────────────────
+const SR_OPS = [
+  ["equals", "＝ 等しい"],
+  ["notEqual", "≠ 等しくない"],
+  ["contains", "含む"],
+  ["notContain", "含まない"],
+  ["startsWith", "で始まる"],
+  ["greaterThan", "＞ より大きい"],
+  ["lessThan", "＜ より小さい"],
+  ["greaterOrEqual", "≧ 以上"],
+  ["lessOrEqual", "≦ 以下"],
+];
+
+async function loadReportFilters(id) {
+  const box = $("srFilters");
+  if (!box) return;
+  box.innerHTML = '<div class="sr-f-note">条件を読み込んでいます…</div>';
+  try {
+    const d = await (await fetch(`/api/salesforce/reports/${encodeURIComponent(id)}/filters`)).json();
+    if (d.error) throw new Error(d.error);
+    _sr.filters = d;
+    const fs = d.filters || [];
+    const dr = d.dateRanges || [];
+
+    box.innerHTML =
+      `<div class="sr-f-head">絞り込み条件<span class="sr-f-note">ここで変えて実行しても、Salesforce側のレポートは変わりません</span></div>` +
+      (d.standardDateFilter && dr.length
+        ? `<div class="sr-f-row">
+             <span class="sr-f-k">期間</span>
+             <select class="sr-f-v" id="srDateRange">
+               ${dr.map((x) => `<option value="${srEsc(x.value)}"${x.value === d.standardDateFilter.durationValue ? " selected" : ""}>${srEsc(x.label)}</option>`).join("")}
+             </select>
+           </div>`
+        : "") +
+      (fs.length
+        ? fs.map((f) => `
+            <div class="sr-f-row" data-col="${srEsc(f.column)}">
+              <span class="sr-f-k">${srEsc(f.label)}</span>
+              <select class="sr-f-op">
+                ${SR_OPS.map(([v, l]) => `<option value="${v}"${v === f.operator ? " selected" : ""}>${l}</option>`).join("")}
+              </select>
+              <input type="text" class="sr-f-v" value="${srEsc(f.value || "")}" />
+            </div>`).join("")
+        : '<div class="sr-f-note">このレポートには変えられる条件がありません。</div>') +
+      `<div class="sr-f-act">
+         <button type="button" class="btn" id="srApply">この条件で実行</button>
+         <button type="button" class="btn ghost" id="srReset">元に戻す</button>
+         <span class="rev-status" id="srFStatus"></span>
+       </div>`;
+
+    $("srApply").addEventListener("click", () => applyReportFilters(id));
+    $("srReset").addEventListener("click", () => { srRun(id); });
+  } catch (e) {
+    box.innerHTML = `<div class="sr-f-note">条件を読めませんでした：${srEsc(e.message)}</div>`;
+  }
+}
+
+async function applyReportFilters(id) {
+  const st = $("srFStatus");
+  const view = $("srView");
+  if (st) st.textContent = "実行しています…";
+  try {
+    const filters = [...document.querySelectorAll(".sr-f-row[data-col]")].map((row) => ({
+      column: row.dataset.col,
+      operator: row.querySelector(".sr-f-op").value,
+      value: row.querySelector(".sr-f-v").value,
+    }));
+    const body = { filters };
+    const dr = $("srDateRange");
+    if (dr && _sr.filters && _sr.filters.standardDateFilter) {
+      body.standardDateFilter = { ..._sr.filters.standardDateFilter, durationValue: dr.value };
+    }
+    if (_sr.filters && _sr.filters.booleanFilter) body.booleanFilter = _sr.filters.booleanFilter;
+
+    if (view) view.innerHTML = '<div class="empty-state">レポートを実行中…</div>';
+    const r = await fetch(`/api/salesforce/reports/${encodeURIComponent(id)}/run`, {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(d.error || "実行できませんでした");
+    srShowResult(d);
+    if (st) { st.textContent = "この条件で実行しました"; setTimeout(() => (st.textContent = ""), 4000); }
+  } catch (e) {
+    if (st) st.textContent = "失敗: " + e.message;
+    if (view) view.innerHTML = `<div class="empty-state">${srEsc(e.message)}</div>`;
   }
 }
 
