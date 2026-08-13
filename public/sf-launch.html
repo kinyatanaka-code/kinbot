@@ -89,7 +89,13 @@
             <div class="ps-form">
               <label class="ps-lb">スプレッドシート<input type="text" id="psSheet" placeholder="URLをそのまま貼れます" /></label>
               <label class="ps-lb">シート名<input type="text" id="psName" placeholder="8月アポ管理" /></label>
-              <label class="ps-lb">SFのレポートID<input type="text" id="psReport" placeholder="00O..." /></label>
+              <label class="ps-lb">SFのレポート
+                <div class="ps-rep">
+                  <select id="psReportSel"><option value="">読み込み中…</option></select>
+                  <button type="button" class="btn ghost" id="psRepReload" title="レポートの一覧を読み直します">↻</button>
+                </div>
+                <input type="text" id="psReport" placeholder="一覧に無ければIDを直接入れてください（00O...）" />
+              </label>
               <label class="ps-lb">書き込むアカウント<input type="text" id="psOwner" placeholder="kinya.tanaka@neo-career.co.jp" /></label>
               <label class="ps-lb">期内とみなす期間（開始）<input type="date" id="psFrom" /></label>
               <label class="ps-lb">同（終了）<input type="date" id="psTo" /></label>

@@ -338,6 +338,35 @@ document.addEventListener("DOMContentLoaded", () => {
 // ───────────────────────────────────────────────────────────
 // プロセスシート — SFの架電結果を「実績」に入れる
 // ───────────────────────────────────────────────────────────
+// レポートの一覧を読んで、選べるようにする。
+// IDを自分で調べるのは手間なので、名前で選べるようにする。
+async function loadProcessReports(selectedId) {
+  const sel = $("psReportSel");
+  if (!sel) return;
+  sel.innerHTML = '<option value="">読み込み中…</option>';
+  try {
+    const d = await (await fetch("/api/salesforce/reports")).json();
+    const list = d.reports || [];
+    if (!list.length) {
+      sel.innerHTML = '<option value="">レポートが見つかりませんでした</option>';
+      return;
+    }
+    sel.innerHTML = '<option value="">レポートを選んでください</option>' +
+      list.map((r) =>
+        `<option value="${srEsc(r.id)}"${r.id === selectedId ? " selected" : ""}>` +
+        `${srEsc(r.name)}${r.folder ? "（" + srEsc(r.folder) + "）" : ""}</option>`).join("");
+    // 選んだら、下のID欄にも入れる（何が選ばれているか分かるように）
+    if (!sel._wired) {
+      sel._wired = true;
+      sel.addEventListener("change", () => {
+        if (sel.value) $("psReport").value = sel.value;
+      });
+    }
+  } catch {
+    sel.innerHTML = '<option value="">一覧を読めませんでした。IDを直接入れてください</option>';
+  }
+}
+
 async function loadProcessSheet() {
   if (!$("psSheet")) return;
   try {
@@ -349,6 +378,7 @@ async function loadProcessSheet() {
     $("psFrom").value = d.termFrom || "";
     $("psTo").value = d.termTo || "";
     if ($("psAuto")) $("psAuto").checked = !!d.autoRun;
+    loadProcessReports(d.reportId || "");
 
     // 自動更新の状態を、そのまま出す
     const note = $("psAutoNote");
@@ -451,6 +481,8 @@ if ($("psSave")) {
       loadProcessSheet();
     } catch (e) { psSay("失敗: " + e.message); $("psAuto").checked = !on; }
   });
+
+  if ($("psRepReload")) $("psRepReload").addEventListener("click", () => loadProcessReports($("psReport").value));
 
   $("psCheck").addEventListener("click", () => psRun(true));
   $("psRun").addEventListener("click", () => {

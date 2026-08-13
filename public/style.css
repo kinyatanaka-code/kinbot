@@ -4651,6 +4651,12 @@ input:focus, select:focus, textarea:focus, .sf-input:focus, .sf-select:focus, .s
 .ps-table th, .ps-table td { border-bottom: 1px solid var(--line); padding: 6px 10px; text-align: left; }
 .ps-table th { color: var(--muted); font-size: 11.5px; font-weight: 700; }
 .ps-table .ps-v { text-align: right; font-weight: 700; color: #0F6E56; }
+/* レポートの選択 */
+.ps-rep { display: flex; gap: 6px; margin-top: 4px; }
+.ps-rep select { flex: 1; min-width: 0; padding: 8px 11px; border: 1px solid var(--line);
+  border-radius: 9px; font-size: 13px; font-family: inherit; background: var(--panel); }
+.ps-rep .btn { flex: none; padding: 6px 12px; }
+.ps-lb .ps-rep + input { margin-top: 6px; font-size: 12px; }
 @media (max-width: 720px) {
   .pd-card { grid-template-columns: 1fr; }
   .pd-act { justify-content: flex-start; }

@@ -515,6 +515,11 @@ function apiResponse(pathname, query) {
     columns: [{ name: "c1", label: "会社名" }, { name: "c2", label: "件数" }],
     rows: [["株式会社ベルク", "12"], ["合同会社サンライズ", "8"]],
   };
+  if (pathname === "/api/salesforce/reports") return { reports: [
+    { id: "00O5h00000ABCDE", name: "【X】コール状況管理_本日", folder: "MOCHICA_X", format: "Summary" },
+    { id: "00O5h00000FGHIJ", name: "FY25【コール状況管理】コール数_本日", folder: "MOCHICA_SDR", format: "Summary" },
+    { id: "00O5h00000KLMNO", name: "6月直販新規コールドリスト", folder: "公開レポート", format: "Summary" },
+  ] };
   if (pathname === "/api/process-sheet") return { sheetId: "1IgeixnK7iIrf335MR05_B97NvpjoxUEVnqoYVcVYdLY",
     sheetName: "8月アポ管理", reportId: "00O5h00000ABCDE", owner: "kinya.tanaka@neo-career.co.jp",
     termFrom: "2026-08-01", termTo: "2026-08-31" };
