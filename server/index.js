@@ -230,6 +230,7 @@ import {
 import { resolveConfig, statusInfo } from "./config.js";
 import { analyzerInfo, analyzeMeeting, analyzeDeep, freeAnalyze, chatWithData, enrichCompany, lookupEmployeeCount, lookupCompanyBasics, generateThanks, THANKS_PROMPT, getCheckItems, getSummaryPrompt, getCustomPrompt, runCustomAnalysis, analyzeWinPatterns, classifyMeetingKind, extractFirstMeeting, extractReMeeting, buildBrief, extractFeatureCTags, enrichCompanyAttributes, generateFeatureCInsights, extractQaPairs, splitPhases } from "./analyzer.js";
 import { searchCompanies, getCompanyDetail, gbizConfigured } from "./gbizinfo.js";
+import { searchCompanyInfo, webLookupAvailable } from "./websearch.js";
 import {
   googleConfigured,
   authUrl,
@@ -7761,6 +7762,19 @@ app.get("/api/salesforce/lead-record-types", async (req, res) => {
     const cross = await crossLeadRecordTypeId(req.user);
     res.json({ types: list, crossId: cross });
   } catch (e) { sfErrorResponse(res, e); }
+});
+
+// 会社名から、ネット検索でURL・電話・従業員数を調べる。
+// gBizINFOに載っていない情報を補うためのもので、値は「要確認」の扱い。
+app.get("/api/company-lookup", async (req, res) => {
+  try {
+    const name = String(req.query.name || "").trim();
+    if (!name) return res.status(400).json({ error: "会社名を指定してください" });
+    if (!webLookupAvailable()) return res.json({ ok: false, reason: "検索の設定がありません" });
+    const r = await searchCompanyInfo(name, { hintUrl: String(req.query.url || "") });
+    console.log(`[検索] ${name} → ${r.ok ? [r.website, r.phone, r.employees].filter(Boolean).join(" / ") : r.reason}`);
+    res.json(r);
+  } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 // 会社名からgBizINFOの企業情報を引いて、住所・従業員数・URLなどを返す

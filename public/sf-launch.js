@@ -118,7 +118,16 @@ function formHtml(key, ev) {
   const s = stOf(key);
   const lead = s.picked;
   const def = (k) => {
-    if (k === "leadSource") return lead.LeadSource || "";  // 空ならプルダウンから選ぶ
+    // リードにすでに入っていればそれを使い、空なら「アウトバウンド」を選ぶ
+    if (k === "leadSource") {
+      if (lead.LeadSource) return lead.LeadSource;
+      const f = (leadFields || []).find((x) => x.key === "leadSource");
+      const hit = (f && f.options || []).find((o) =>
+        /アウトバウンド|outbound/i.test(`${o.value} ${o.label}`));
+      return hit ? hit.value : "";
+    }
+    // FSへの案件パス情報は、毎回同じ形で入れる
+    if (k === "fsNote") return "-";
     if (k === "campaign") return "";  // 参照項目なので、検索で選ぶ（初期値は自動で3Dメタバース）
     if (k === "visitDate") return s.evDate || selDateL;  // 商談の開催日
     if (k === "apoDate") return selDateL;                // 予定を登録した日＝アポ獲得日
@@ -171,10 +180,19 @@ function createFormHtml(key, ev) {
   const title = ev ? ev.title : "";
   const def = (f) => {
     if (f.name === "Company") return companyOf(title);
+    // 姓は、予定名の担当者名から「様」を外したもの
     if (f.name === "LastName") return personOf(title);
     if (/主?キャンペーン/.test(f.label)) return "3Dメタバース";
     if (/初回(訪問|商談)日/.test(f.label)) return s.evDate || selDateL;
     if (/アポ獲得日/.test(f.label)) return selDateL;
+    // リードソースは、選択肢の中から「アウトバウンド」に当たるものを選ぶ
+    if (f.name === "LeadSource" || /リードソース/.test(f.label)) {
+      const hit = (f.options || []).find((o) =>
+        /アウトバウンド|outbound/i.test(`${o.value} ${o.label}`));
+      return hit ? hit.value : "";
+    }
+    // FSへの案件パス情報・連携事項は、毎回同じ形で入れる
+    if (/(FS|ＦＳ|フィールドセールス)/i.test(f.label)) return "-";
     return "";
   };
   const groups = [
@@ -229,7 +247,8 @@ function createFormHtml(key, ev) {
       <button class="btn" data-ln-create="${escL(key)}" type="button"${s.loading ? " disabled" : ""}>${s.loading ? "作成中…" : "リードを作成する"}</button>
       <button class="btn sf-btn-secondary home-sf-mini" data-ln-cancel="${escL(key)}" type="button">やめる</button>
     </div>
-    <div class="home-sf-note">作成したあと、続けて「この内容で立ち上げる」でコンバートできます。</div>
+    <div class="home-sf-note">リードソースは「アウトバウンド」、主キャンペーンソースは「3Dメタバース」、姓は予定名の担当者名を初期値にしています。<br>
+      作成したあと、続けて「この内容で立ち上げる」でコンバートできます。</div>
   </div>`;
 }
 
@@ -576,7 +595,13 @@ async function fillFromGbiz(key, companyName, number) {
     if (!r.ok) throw new Error(d.error || "取得に失敗しました");
     if (d.configured === false) { if (note) note.textContent = "gBizINFOのトークンが未設定です（設定で登録できます）"; return; }
     const b = d.best;
-    if (!b) { if (note) note.textContent = "gBizINFOで会社が見つかりませんでした"; return; }
+    if (!b) {
+      // gBizINFOに無い会社（屋号・グループ名など）は、ネット検索で補う
+      if (note) note.textContent = "gBizINFOで会社が見つかりませんでした。ネットで調べています…";
+      await fillContactInfo(card, note);
+      await fillFromWeb(card, companyName, note, true);
+      return;
+    }
 
     const setIfEmpty = (api, v) => {
       if (v == null || v === "") return;
@@ -599,6 +624,8 @@ async function fillFromGbiz(key, companyName, number) {
 
     // 電話・Webサイトが空なら、Salesforceの既存データやメールのドメインから補う
     await fillContactInfo(card, note);
+    // それでも空なら、ネット検索で補う
+    await fillFromWeb(card, companyName || (b && b.name) || "", note);
 
     if (note) {
       const opts = (d.candidates || []).map((c) =>
@@ -610,6 +637,54 @@ async function fillFromGbiz(key, companyName, number) {
     }
   } catch (e) {
     if (note) note.textContent = "gBizINFOの取り込みに失敗しました：" + e.message;
+  }
+}
+
+// ネット検索で、URL・電話・従業員数を補う。
+// AIの検索結果なので、埋めたことがひと目で分かるようにして、確認を促す。
+async function fillFromWeb(card, companyName, note, standalone = false) {
+  if (!companyName) return;
+  const need = (api) => {
+    const el = card.querySelector(`[data-newapi="${api}"], [data-api="${api}"]`);
+    return el && !el.value ? el : null;
+  };
+  const wants = ["Website", "Phone", "NumberOfEmployees"].map(need).filter(Boolean);
+  if (!wants.length) return;   // すでに全部埋まっていれば何もしない
+
+  try {
+    const site = card.querySelector('[data-newapi="Website"], [data-api="Website"]');
+    const r = await fetch(`/api/company-lookup?name=${encodeURIComponent(companyName)}` +
+      (site && site.value ? `&url=${encodeURIComponent(site.value)}` : ""));
+    const d = await r.json().catch(() => ({}));
+    if (!d || !d.ok) {
+      if (standalone && note) note.textContent = "ネットでも会社の情報が見つかりませんでした。手で入れてください。";
+      return;
+    }
+
+    const filled = [];
+    const put = (api, v, label) => {
+      if (v == null || v === "") return;
+      const el = need(api);
+      if (!el) return;
+      el.value = String(v);
+      el.classList.add("sf-from-web");
+      filled.push(label);
+    };
+    put("Website", d.website, "URL");
+    put("Phone", d.phone, "電話");
+    put("NumberOfEmployees", d.employees, "従業員数");
+    if (!filled.length) return;
+
+    if (note) {
+      const src = (d.sources || []).slice(0, 2)
+        .map((u) => `<a href="${escL(u)}" target="_blank" rel="noopener">${escL(new URL(u).hostname)}</a>`)
+        .join("、");
+      note.innerHTML = (standalone ? "" : note.innerHTML + "<br>") +
+        `<span class="ln-web-note">ネット検索で ${escL(filled.join("・"))} を入れました。` +
+        `<b>内容を確認してください。</b>${src ? `（参照：${src}）` : ""}</span>`;
+    }
+  } catch {
+    if (standalone && note) note.textContent = "ネット検索に失敗しました。手で入れてください。";
   }
 }
 
