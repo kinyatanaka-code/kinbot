@@ -3035,6 +3035,16 @@ export async function getAutolaunch(slug) {
 
 // 会社名から、kinbotが立ち上げた記録を引く。
 // Salesforce側で見つからなくても、立ち上げ済みだと分かるようにするため。
+// 直近の自動立ち上げの結果（診断で使う）
+export async function listAutolaunch(limit = 20) {
+  if (!pool) return [];
+  try {
+    const { rows } = await pool.query(
+      `SELECT * FROM sf_autolaunch ORDER BY tried_at DESC LIMIT $1`, [limit]);
+    return rows;
+  } catch { return []; }
+}
+
 export async function autolaunchByCompanies(names) {
   if (!pool || !Array.isArray(names) || !names.length) return {};
   const core = (v) => String(v || "")

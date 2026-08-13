@@ -888,11 +888,19 @@ export async function convertLead(owner, { leadId, convertedStatus, opportunityN
     throw new Error(`SF lead convert: ${raw}`);
   }
   const out = first.outputValues || {};
+  const oppId = out.opportunityId || "";
+  if (!oppId) {
+    // コンバートは通ったのに商談IDが返らない場合がある。
+    // 何が返ったかを残しておかないと原因を追えないので、記録する。
+    console.error("[SF立ち上げ] 商談IDが返りませんでした",
+      JSON.stringify({ leadId: input.leadId, outputValues: out }).slice(0, 500));
+  }
   return {
     ok: true,
     accountId: out.accountId || "",
     contactId: out.contactId || "",
-    opportunityId: out.opportunityId || "",
+    opportunityId: oppId,
+    raw: out,
     instanceUrl: acc.instanceUrl,
   };
 }
@@ -933,6 +941,10 @@ async function convertLeadSoap(acc, input) {
     return m ? m[1] : "";
   };
   const success = /<success>true<\/success>/.test(xml);
+  if (success && !/<opportunityId>/.test(xml)) {
+    console.error("[SF立ち上げ] SOAPで商談IDが返りませんでした",
+      xml.replace(/\s+/g, " ").slice(0, 600));
+  }
   if (!res.ok || !success) {
     const msg = pick("faultstring") || pick("message") || `SOAP convert ${res.status}`;
     throw new Error(`SF lead convert: ${msg}`);

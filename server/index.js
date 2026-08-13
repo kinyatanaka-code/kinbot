@@ -107,6 +107,7 @@ import {
   getAutolaunch,
   autolaunchForSlugs,
   autolaunchByCompanies,
+  listAutolaunch,
   addDocFile,
   listDocFiles,
   getDocBytes,
@@ -2348,19 +2349,33 @@ async function tryAutoLaunch(user, link, { dryRun = false, ownerEmail = "" } = {
 
     // 「立ち上げました」と言う前に、Salesforceに商談ができているか必ず確かめる。
     // ここを確かめないと、実際には立ち上がっていないのに成功と伝えてしまう。
+    const clean = (v) => String(v || "").replace(/[^a-zA-Z0-9]/g, "");
     let verified = null;
     if (oppId) {
       try {
         const d = await sfQuery(user,
-          `SELECT Id, Name, StageName, OwnerId, Owner.Name FROM Opportunity WHERE Id = '${String(oppId).replace(/[^a-zA-Z0-9]/g, "")}'`);
+          `SELECT Id, Name, StageName, OwnerId, Owner.Name FROM Opportunity WHERE Id = '${clean(oppId)}'`);
         verified = d?.records?.[0] || null;
       } catch (e) {
         console.warn("[SF自動] 商談の確認に失敗", e.message);
       }
     }
+    // 商談IDが返らないことがあるので、できた取引先から探し直す。
+    // コンバート自体は通っているので、商談は作られている可能性が高い。
+    if (!verified && conv && conv.accountId) {
+      try {
+        const d = await sfQuery(user,
+          `SELECT Id, Name, StageName, OwnerId, Owner.Name FROM Opportunity ` +
+          `WHERE AccountId = '${clean(conv.accountId)}' ORDER BY CreatedDate DESC LIMIT 1`);
+        verified = d?.records?.[0] || null;
+        if (verified) console.log(`[SF自動] 商談IDは返りませんでしたが、取引先から見つけました（${verified.Id}）`);
+      } catch {}
+    }
     if (!verified) {
       const r = { ...base, ok: false, company: j.company, person: j.person,
-                  reason: "not_created", detail: oppId ? `商談ID ${oppId} を確認できませんでした` : "商談IDが返りませんでした",
+                  reason: "not_created",
+                  detail: oppId ? `商談ID ${oppId} を確認できませんでした`
+                    : (conv && conv.accountId ? `取引先 ${conv.accountId} はできましたが、商談が見つかりません` : "商談IDが返りませんでした"),
                   leadId: j.lead.Id, oppId };
       await saveAutolaunch(r);
       console.error(`[SF自動] 立ち上げたはずが確認できません ${j.company}／${j.person}（商談ID ${oppId || "なし"}）`);
@@ -2368,7 +2383,7 @@ async function tryAutoLaunch(user, link, { dryRun = false, ownerEmail = "" } = {
     }
 
     const r = { ...base, ok: true, company: j.company, person: j.person,
-                reason: "", leadId: j.lead.Id, oppId, oppName: verified.Name || "",
+                reason: "", leadId: j.lead.Id, oppId: verified.Id, oppName: verified.Name || "",
                 stage: verified.StageName || "", filledUrl: site.filled ? site.url : "" };
     await saveAutolaunch(r);
     console.log(`[SF自動] 立ち上げ完了 ${j.company}／${j.person} → ${oppId}`);
@@ -2386,6 +2401,54 @@ async function tryAutoLaunch(user, link, { dryRun = false, ownerEmail = "" } = {
     return r;
   }
 }
+
+// なぜ商談が立ち上がらないのかを調べる。
+// リードをコンバートしても商談ができない原因は、たいてい組織の設定にある。
+app.get("/api/sf-autolaunch/diagnose", async (req, res) => {
+  const steps = [];
+  const push = (name, ok, detail, hint) => steps.push({ name, ok, detail: String(detail || ""), hint: hint || "" });
+  try {
+    const op = await sfOperator(req.user);
+    if (!op) {
+      push("Salesforceの接続", false, "つながっているアカウントがありません");
+      return res.json({ ok: false, steps });
+    }
+    push("Salesforceの接続", true, op);
+
+    // 1. コンバート後の状況（この値が「商談を作らない」設定だと、商談ができない）
+    try {
+      const list = await convertedLeadStatuses(op);
+      const first = list[0] || {};
+      push("コンバート後のリード状況", !!first.value,
+        list.map((x) => x.value).join("、") || "取得できませんでした",
+        first.value ? "" : "「変換済み」にあたる状況がありません。Salesforceのリード状況の設定をご確認ください。");
+    } catch (e) { push("コンバート後のリード状況", false, e.message); }
+
+    // 2. 商談の必須項目（入力必須の項目があると、コンバート時に商談だけ作られないことがある）
+    try {
+      const d = await describeOpportunity(op);
+      const required = (d.fields || []).filter((f) =>
+        f.createable && !f.nillable && !f.defaultedOnCreate &&
+        !["Name", "StageName", "CloseDate", "AccountId"].includes(f.name));
+      push("商談の必須項目", required.length === 0,
+        required.length ? required.map((f) => `${f.label}（${f.name}）`).join("、") : "標準の項目だけです",
+        required.length
+          ? "これらが空だと商談が作られません。既定値を設定するか、必須を外してください。"
+          : "");
+    } catch (e) { push("商談の必須項目", false, e.message); }
+
+    // 3. 直近の自動立ち上げの結果
+    try {
+      const rows = await listAutolaunch(10);
+      const ng = rows.filter((r) => !r.ok);
+      push("直近の自動立ち上げ", ng.length === 0,
+        `${rows.length}件中 ${rows.length - ng.length}件が成功`,
+        ng.length ? ng.slice(0, 3).map((r) => `${r.company}：${reasonText(r.reason, r.detail)}`).join(" ／ ") : "");
+    } catch (e) { push("直近の自動立ち上げ", false, e.message); }
+
+    res.json({ ok: steps.every((x) => x.ok), steps });
+  } catch (e) { res.status(500).json({ error: e.message, steps }); }
+});
 
 // 判定だけしてみる（実行しない）
 app.post("/api/sf-autolaunch/check", async (req, res) => {

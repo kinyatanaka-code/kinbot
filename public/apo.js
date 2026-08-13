@@ -634,6 +634,31 @@ if (typeof document !== "undefined") {
   });
 }
 
+// ===== 商談が立ち上がらない原因を調べる =====
+async function diagnoseLaunch() {
+  const box = $("alDiagBox");
+  const btn = $("alDiag");
+  const say = (m) => { const e = $("alDiagStatus"); if (e) e.textContent = m; };
+  if (!box) return;
+  btn.disabled = true;
+  say("調べています…");
+  box.innerHTML = "";
+  try {
+    const d = await (await fetch("/api/sf-autolaunch/diagnose")).json();
+    if (d.error) throw new Error(d.error);
+    box.innerHTML = `<div class="ks-test">` + (d.steps || []).map((x) =>
+      `<div class="ks-step ${x.ok ? "ok" : "ng"}">
+         <div class="ks-step-h">${x.ok ? "OK" : "要確認"}　${esc(x.name)}</div>
+         ${x.detail ? `<div class="ks-step-d">${esc(x.detail)}</div>` : ""}
+         ${x.hint ? `<div class="ks-step-hint">${esc(x.hint)}</div>` : ""}
+       </div>`).join("") + `</div>`;
+    say("");
+  } catch (e) {
+    box.innerHTML = `<p class="note cc-warn">調べられませんでした：${esc(e.message)}</p>`;
+    say("");
+  } finally { btn.disabled = false; }
+}
+
 // ===== 自動割り振りが動かない理由を調べる =====
 async function whyNoAssign() {
   const box = $("rcWhyBox");
@@ -1193,6 +1218,7 @@ async function saveMailCfg() {
     } catch (e) { say("失敗: " + e.message); }
   });
   if ($("rcWhy")) $("rcWhy").addEventListener("click", whyNoAssign);
+  if ($("alDiag")) $("alDiag").addEventListener("click", diagnoseLaunch);
   if ($("rcBaseSave")) $("rcBaseSave").addEventListener("click", async () => {
     const el = $("rcBaseStatus");
     const say = (m, ms) => { if (el) { el.textContent = m; if (ms) setTimeout(() => { if (el.textContent === m) el.textContent = ""; }, ms); } };
