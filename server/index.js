@@ -99,6 +99,9 @@ import {
   myAssignedApos,
   assignCounts,
   apoCountsBySetter,
+  apoDetailBySetter,
+  apoMissingStart,
+  setApoStartTime,
   listChatTargets,
   addChatTarget,
   updateChatTarget,
@@ -271,7 +274,7 @@ import {
   gmailDeleteDraft,
   parseEmailAddr, driveEnsureFolder, driveUploadFromUrl, driveShareDomain, driveStream, driveFindCompanyFiles, driveShareAnyone, driveEnsurePath, driveMoveFile, driveListChildren, driveTrash,
   appendSheetRow, checkSheet, readSheet, updateSheetCells, diagnoseSheet,
-  writeViaAppsScript } from "./google.js";
+  writeViaAppsScript, tokenScopes, getCalendarEvent } from "./google.js";
 import { startScheduler } from "./scheduler.js";
 import { muxConfigured, startVodUpload, waitVodPlayback, muxStorageSummary, listAssets, deleteAsset, findAssetByPlaybackId, enableMp4, mp4Url, readyMp4Name, getAsset } from "./mux.js";
 import { liveConfigured, createLiveStream, playbackUrl as livePlaybackUrl, liveInfo, liveStatus, relayMap } from "./live.js";
@@ -2917,6 +2920,49 @@ app.put("/api/process-sheet", async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+// 商談日が入っていないアポを、カレンダーから拾って補う。
+// アポの記録には予定のIDが入っているので、それでカレンダーを引く。
+// 期内・期外の判定は商談日で決まるので、ここが空だと正しく数えられない。
+async function fillMissingMeetingDates() {
+  const rows = await apoMissingStart(200).catch(() => []);
+  if (!rows.length) return { checked: 0, filled: 0, notes: [] };
+
+  // 探しに行くカレンダーの持ち主。予定を作った人・担当者・運用者の順に試す。
+  let owners = [];
+  try {
+    const st = await getSettings();
+    const accounts = await listGoogleAccounts();
+    owners = (accounts || []).map((a) => a.owner || a.google_email).filter(Boolean);
+    if (st.apoScanOwner) owners.unshift(st.apoScanOwner);
+  } catch {}
+
+  let filled = 0;
+  const notes = [];
+  for (const r of rows) {
+    const ids = [r.event_id, r.invite_event_id].filter(Boolean);
+    if (!ids.length) { notes.push(`${r.label || r.slug}：予定のIDがありません`); continue; }
+    // 近い人から順に探す（同じ予定は誰のカレンダーでも同じIDになる）
+    const cands = [r.created_by, r.current_owner, ...owners].filter(Boolean);
+    let found = null;
+    for (const own of [...new Set(cands)]) {
+      for (const id of ids) {
+        try {
+          const ev = await getCalendarEvent(own, id);
+          if (ev && ev.start) { found = ev; break; }
+        } catch {}
+      }
+      if (found) break;
+    }
+    if (!found) { notes.push(`${r.label || r.slug}：カレンダーに予定が見つかりません`); continue; }
+    const saved = await setApoStartTime(r.slug, found.start);
+    if (saved) {
+      filled++;
+      console.log(`[プロセスシート] 商談日を補いました ${r.label || r.slug} → ${String(found.start).slice(0, 16)}`);
+    }
+  }
+  return { checked: rows.length, filled, notes: notes.slice(0, 20) };
+}
+
 // 実行の本体。画面からも、30分ごとの自動実行からも、ここを使う。
 async function runProcessSheet(sfUser, opts = {}) {
   const st = await getSettings();
@@ -2944,6 +2990,8 @@ async function runProcessSheet(sfUser, opts = {}) {
   //    コールと接触はSFのレポートから。
   //    アポはkinbotの記録から（商談日が分かるので、期内・期外を正しく分けられる）。
   let tallied = tally(records, { fromISO: from, toISO: to });
+  // 商談日が空のアポを、カレンダーから補ってから数える
+  const fixed = await fillMissingMeetingDates().catch(() => ({ checked: 0, filled: 0, notes: [] }));
   const apoRows = await apoCountsBySetter({ termFrom: from, termTo: to }).catch(() => []);
   tallied = applyApoCounts(tallied, apoRows);
 
@@ -2965,6 +3013,11 @@ async function runProcessSheet(sfUser, opts = {}) {
       people: layout.people.map((p) => p.name),
       matched: Object.keys(tallied),
       updates: updates.slice(0, 400), count: updates.length, skipped,
+      apoSource: apoRows.length ? `kinbotのアポ記録から ${apoRows.length}件` : "kinbotにアポの記録がありません",
+      apoFixed: fixed,
+      // 期外になった理由を確かめられるように、1件ずつの内訳も返す
+      apoDetail: (await apoDetailBySetter({ termFrom: from, termTo: to, limit: 100 }).catch(() => []))
+        .map((r) => ({ setter: r.setter, day: r.day, meetingDate: r.meeting_date, term: r.term, label: r.label })),
     };
   }
 
@@ -3060,8 +3113,14 @@ app.post("/api/process-sheet/permission", async (req, res) => {
       }
     }
 
+    // トークンにスプレッドシートの権限があるか（無いと読めるのに書けない）
+    const sc = await tokenScopes(owner).catch(() => null);
     const d = await diagnoseSheet(owner, sheetId, sheetName, probe);
-    res.json({ ok: true, owner, probe, ...d });
+    // 権限が足りないなら、そちらを先に伝える
+    if (sc && sc.ok && sc.canSheets === false) {
+      return res.json({ ok: true, owner, probe, ...d, canWrite: false, scopes: sc.scopes, note: sc.note });
+    }
+    res.json({ ok: true, owner, probe, ...d, scopes: sc ? sc.scopes : [] });
   } catch (e) { res.status(400).json({ error: e.message }); }
 });
 

@@ -529,6 +529,13 @@ function apiResponse(pathname, query) {
   if (pathname === "/api/process-sheet/run") return { ok: true, dryRun: true, rows: 864,
     people: ["植野","田中","森田","江田","飯島","迫間","加藤","萩原"],
     matched: ["植野 ひかり","田中 欽也","森田 弥鳴","江田 有一郎"], count: 12, skipped: [],
+    apoSource: "kinbotのアポ記録から 12件",
+    apoDetail: [
+      { setter:"田中欽也", day:"8/4", meetingDate:"2026-08-18", term:"期内", label:"【初回】株式会社ベルク/町田様" },
+      { setter:"田中欽也", day:"8/4", meetingDate:null, term:"商談日が未定", label:"【初回】テスト株式会社" },
+      { setter:"田中欽也", day:"8/4", meetingDate:"2026-09-20", term:"期外", label:"【初回】ミナト工業/高橋様" },
+      { setter:"森田弥鳴", day:"8/5", meetingDate:"2026-08-25", term:"期内", label:"【初回】石井商事運輸/石井様" },
+    ],
     updates: [
       { range:"K32", who:"植野", date:"8/4", metric:"コール", value:58 },
       { range:"K33", who:"植野", date:"8/4", metric:"接触", value:5 },

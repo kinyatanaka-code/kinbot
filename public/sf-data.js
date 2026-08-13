@@ -502,6 +502,22 @@ function psBody(dryRun) {
   };
 }
 
+// アポが期内・期外のどちらに入ったかを、1件ずつ出す。
+// 「期内のはずなのに期外」の原因を、その場で確かめられるようにする。
+function psApoDetail(list) {
+  if (!list || !list.length) return "";
+  const ng = list.filter((x) => x.term !== "期内");
+  return `<details class="ps-apo"${ng.length ? " open" : ""}>` +
+    `<summary>アポの内訳（${list.length}件${ng.length ? `／うち期内でないもの ${ng.length}件` : ""}）</summary>` +
+    `<table class="ps-table"><thead><tr><th>取得日</th><th>獲得者</th><th>商談日</th><th>判定</th><th>予定名</th></tr></thead><tbody>` +
+    list.slice(0, 100).map((x) =>
+      `<tr class="${x.term === "期内" ? "" : "ps-out"}">` +
+      `<td>${srEsc(x.day || "")}</td><td>${srEsc(x.setter || "")}</td>` +
+      `<td>${srEsc(x.meetingDate || "—")}</td><td>${srEsc(x.term || "")}</td>` +
+      `<td>${srEsc((x.label || "").slice(0, 30))}</td></tr>`).join("") +
+    `</tbody></table></details>`;
+}
+
 function psSay(t, ms) {
   const e = $("psStatus");
   if (!e) return;
@@ -537,6 +553,13 @@ async function psRun(dryRun) {
       `<div class="ps-sum">レポートの明細 ${d.rows}行 ／ アポは${srEsc(d.apoSource || "-")}<br>` +
       `シートの担当者 ${(d.people || []).join("、")} ／ 数えられた人 ${(d.matched || []).join("、") || "なし"}</div>` +
       (d.skipped && d.skipped.length ? `<div class="ps-skip">${srEsc(d.skipped.join(" ／ "))}</div>` : "") +
+      (d.apoFixed && d.apoFixed.checked
+        ? `<div class="ps-note">商談日が空のアポ ${d.apoFixed.checked}件を調べ、${d.apoFixed.filled}件をカレンダーから補いました。` +
+          (d.apoFixed.notes && d.apoFixed.notes.length
+            ? `<br><span class="ps-skip">補えなかったもの：${srEsc(d.apoFixed.notes.join(" ／ "))}</span>` : "") +
+          `</div>`
+        : "") +
+      psApoDetail(d.apoDetail) +
       (ups.length
         ? `<div class="ps-note">この内容で書き込みます（${d.count}箇所）。問題なければ「シートに書き込む」を押してください。</div>` +
           `<table class="ps-table"><thead><tr><th>セル</th><th>担当</th><th>日付</th><th>項目</th><th>値</th></tr></thead><tbody>` +
@@ -616,6 +639,8 @@ if ($("psSave")) {
           : d.canWrite === false ? "書き込めません"
           : d.canEdit === true ? "編集権限あり" : d.canEdit === false ? "編集権限なし" : "権限を確認できません"}</div>` +
         (prot ? `<div class="ps-sum">保護の一覧<br>${prot}</div>` : "") +
+        (d.scopes && d.scopes.length
+          ? `<div class="ps-sum">いまの権限：${srEsc(d.scopes.join("、"))}</div>` : "") +
         `<div class="ps-note">${srEsc(d.note || "")}</div>`;
     } catch (e) { psSay(""); $("psResult").innerHTML = `<div class="ps-err">${srEsc(e.message)}</div>`; }
   });

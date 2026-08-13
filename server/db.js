@@ -3013,6 +3013,55 @@ export async function apoCountsBySetter({ termFrom, termTo, business = "" } = {}
   } catch (e) { console.error("[db] apoCountsBySetter", e.message); return []; }
 }
 
+// 商談日（start_time）が入っていないアポを探す。
+// カレンダーから拾って補うために使う。
+export async function apoMissingStart(limit = 200) {
+  if (!pool) return [];
+  try {
+    const { rows } = await pool.query(
+      `SELECT slug, label, setter, event_id, invite_event_id, current_owner, created_by
+         FROM smart_links
+        WHERE start_time IS NULL
+          AND COALESCE(setter,'') <> ''
+          AND NOT COALESCE(excluded,false)
+        ORDER BY created_at DESC
+        LIMIT $1`, [limit]);
+    return rows;
+  } catch (e) { console.error("[db] apoMissingStart", e.message); return []; }
+}
+
+export async function setApoStartTime(slug, startISO) {
+  if (!pool || !slug || !startISO) return null;
+  try {
+    const { rows } = await pool.query(
+      `UPDATE smart_links SET start_time = $2 WHERE slug = $1 AND start_time IS NULL
+        RETURNING slug, label, start_time`, [slug, startISO]);
+    return rows[0] || null;
+  } catch (e) { console.error("[db] setApoStartTime", e.message); return null; }
+}
+
+// アポ1件ずつの内訳。なぜ期外になったのかを画面で確かめるために使う。
+export async function apoDetailBySetter({ termFrom, termTo, limit = 200 } = {}) {
+  if (!pool) return [];
+  try {
+    const { rows } = await pool.query(
+      `SELECT setter,
+              to_char(created_at AT TIME ZONE 'Asia/Tokyo', 'FMMM/FMDD') AS day,
+              to_char(start_time AT TIME ZONE 'Asia/Tokyo', 'YYYY-MM-DD') AS meeting_date,
+              label,
+              CASE
+                WHEN start_time IS NULL THEN '商談日が未定'
+                WHEN (start_time AT TIME ZONE 'Asia/Tokyo')::date BETWEEN $1::date AND $2::date THEN '期内'
+                ELSE '期外'
+              END AS term
+         FROM smart_links
+        WHERE COALESCE(setter,'') <> '' AND NOT COALESCE(excluded,false)
+        ORDER BY created_at DESC
+        LIMIT $3`, [termFrom, termTo, limit]);
+    return rows;
+  } catch (e) { console.error("[db] apoDetailBySetter", e.message); return []; }
+}
+
 export async function assignCounts(business = "") {
   if (!pool) return { today: 0, week: 0, month: 0 };
   try {

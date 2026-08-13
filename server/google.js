@@ -1273,6 +1273,45 @@ export async function writeViaAppsScript(url, secret, { sheetName, cells }) {
   return { updated: d.updated || 0 };
 }
 
+// 予定を1件だけ読む。商談日が分からないアポを、カレンダーから補うために使う。
+export async function getCalendarEvent(owner, eventId, calendarId = "primary") {
+  const token = await accessToken(owner);
+  const res = await fetch(
+    `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(calendarId)}` +
+    `/events/${encodeURIComponent(eventId)}`,
+    { headers: { authorization: `Bearer ${token}` } }
+  );
+  if (res.status === 404) return null;
+  if (!res.ok) throw new Error(`予定の読み取り ${res.status}`);
+  const d = await res.json();
+  if (d.status === "cancelled") return null;
+  const start = (d.start && (d.start.dateTime || d.start.date)) || "";
+  return { id: d.id, title: d.summary || "", start, organizer: d.organizer?.email || "" };
+}
+
+// いまのトークンに、どの権限が付いているかを確かめる。
+// スプレッドシートの権限が無いと、読めるのに書けない状態になる。
+export async function tokenScopes(owner) {
+  const token = await accessToken(owner);
+  try {
+    const res = await fetch(
+      `https://www.googleapis.com/oauth2/v3/tokeninfo?access_token=${encodeURIComponent(token)}`
+    );
+    if (!res.ok) return { ok: false, scopes: [], note: "権限を確認できませんでした" };
+    const d = await res.json();
+    const scopes = String(d.scope || "").split(/\s+/).filter(Boolean);
+    const canSheets = scopes.some((x) => /auth\/spreadsheets(\.|$)/.test(x) && !/readonly/.test(x));
+    return {
+      ok: true,
+      scopes: scopes.map((x) => x.replace("https://www.googleapis.com/auth/", "")),
+      canSheets,
+      note: canSheets
+        ? "スプレッドシートに書き込む権限があります。"
+        : "スプレッドシートに書き込む権限がありません。設定 → 連携 → Google連携 で「連携解除」→「再連携」を行い、同意画面でスプレッドシートの項目を許可してください。",
+    };
+  } catch (e) { return { ok: false, scopes: [], note: e.message }; }
+}
+
 // なぜ書き込めないのかを調べる。
 // 403は「閲覧のみで共有されている」か「シートが保護されている」のどちらかが多い。
 export async function diagnoseSheet(owner, spreadsheetId, sheetName = "", probeCell = "") {
