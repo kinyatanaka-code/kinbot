@@ -270,7 +270,7 @@ import {
   gmailCreateDraft,
   gmailDeleteDraft,
   parseEmailAddr, driveEnsureFolder, driveUploadFromUrl, driveShareDomain, driveStream, driveFindCompanyFiles, driveShareAnyone, driveEnsurePath, driveMoveFile, driveListChildren, driveTrash,
-  appendSheetRow, checkSheet, readSheet, updateSheetCells } from "./google.js";
+  appendSheetRow, checkSheet, readSheet, updateSheetCells, diagnoseSheet } from "./google.js";
 import { startScheduler } from "./scheduler.js";
 import { muxConfigured, startVodUpload, waitVodPlayback, muxStorageSummary, listAssets, deleteAsset, findAssetByPlaybackId, enableMp4, mp4Url, readyMp4Name, getAsset } from "./mux.js";
 import { liveConfigured, createLiveStream, playbackUrl as livePlaybackUrl, liveInfo, liveStatus, relayMap } from "./live.js";
@@ -2965,8 +2965,36 @@ app.post("/api/process-sheet/run", async (req, res) => {
     res.json(r);
   } catch (e) {
     console.error("[プロセスシート]", e.message);
-    res.status(400).json({ error: e.message + (e.needScope ? "（Google連携にスプレッドシートの権限がありません。再連携してください）" : "") });
+    let hint = "";
+    if (e.needScope) {
+      hint = "Google連携にスプレッドシートの権限がありません。設定 → 連携 → Google連携 で「連携解除」→「再連携」を行ってください。";
+    } else if (/403|PERMISSION_DENIED/.test(e.message)) {
+      // 読めているのに書けない場合は、共有の権限かシートの保護が原因のことが多い
+      try {
+        const st = await getSettings();
+        const d = await diagnoseSheet(
+          String(req.body?.owner || st.psOwner || req.user),
+          String(req.body?.sheetId || st.psSheetId || ""),
+          String(req.body?.sheetName || st.psSheetName || "")
+        );
+        hint = d.note;
+      } catch {}
+    }
+    res.status(400).json({ error: e.message, hint });
   }
+});
+
+// 書き込めるかどうかを、事前に調べる
+app.post("/api/process-sheet/permission", async (req, res) => {
+  try {
+    const st = await getSettings();
+    const owner = String(req.body?.owner || st.psOwner || req.user || "").trim();
+    const sheetId = String(req.body?.sheetId || st.psSheetId || "").trim();
+    const sheetName = String(req.body?.sheetName || st.psSheetName || "").trim();
+    if (!sheetId) return res.status(400).json({ error: "スプレッドシートを指定してください" });
+    const d = await diagnoseSheet(owner, sheetId, sheetName);
+    res.json({ ok: true, owner, ...d });
+  } catch (e) { res.status(400).json({ error: e.message }); }
 });
 
 // ───────────────────────────────────────────────────────────

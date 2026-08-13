@@ -1244,6 +1244,58 @@ export async function updateSheetCells(owner, spreadsheetId, sheetName, cells) {
   return { updated: d.totalUpdatedCells || 0 };
 }
 
+// なぜ書き込めないのかを調べる。
+// 403は「閲覧のみで共有されている」か「シートが保護されている」のどちらかが多い。
+export async function diagnoseSheet(owner, spreadsheetId, sheetName = "") {
+  const token = await accessToken(owner);
+  const out = { canEdit: null, name: "", owners: [], protected: [], note: "" };
+
+  // 1. そのアカウントに編集権限があるか（ドライブ側で確認）
+  try {
+    const r = await fetch(
+      `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(spreadsheetId)}` +
+      `?fields=name,capabilities(canEdit),owners(emailAddress)&supportsAllDrives=true`,
+      { headers: { authorization: `Bearer ${token}` } }
+    );
+    if (r.ok) {
+      const d = await r.json();
+      out.name = d.name || "";
+      out.canEdit = !!(d.capabilities && d.capabilities.canEdit);
+      out.owners = (d.owners || []).map((o) => o.emailAddress).filter(Boolean);
+    }
+  } catch {}
+
+  // 2. シートやセルが保護されていないか
+  try {
+    const r = await fetch(
+      `https://sheets.googleapis.com/v4/spreadsheets/${encodeURIComponent(spreadsheetId)}` +
+      `?fields=sheets(properties(title),protectedRanges(description,range,editors(users)))`,
+      { headers: { authorization: `Bearer ${token}` } }
+    );
+    if (r.ok) {
+      const d = await r.json();
+      for (const sh of d.sheets || []) {
+        const title = sh?.properties?.title || "";
+        if (sheetName && title !== sheetName) continue;
+        for (const pr of sh.protectedRanges || []) {
+          out.protected.push({ sheet: title, description: pr.description || "（説明なし）" });
+        }
+      }
+    }
+  } catch {}
+
+  if (out.canEdit === false) {
+    out.note = `${owner} には編集権限がありません。スプレッドシートの「共有」から、このアカウントを${out.owners.length ? `（オーナー：${out.owners.join("、")}）` : ""}編集者として追加してください。`;
+  } else if (out.protected.length) {
+    out.note = `シートに保護がかかっています（${out.protected.map((p) => p.description).join("、")}）。保護の設定で ${owner} を編集できる人に追加してください。`;
+  } else if (out.canEdit === true) {
+    out.note = "編集権限はあります。書き込めない場合は、対象のセルだけが保護されている可能性があります。";
+  } else {
+    out.note = "権限を確認できませんでした。スプレッドシートが共有されているかご確認ください。";
+  }
+  return out;
+}
+
 // 書き込めるかどうかを試す（設定画面の確認用）
 export async function checkSheet(owner, spreadsheetId) {
   const token = await accessToken(owner);

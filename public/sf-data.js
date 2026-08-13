@@ -487,7 +487,11 @@ async function psRun(dryRun) {
       body: JSON.stringify(psBody(dryRun)),
     });
     const d = await r.json();
-    if (!r.ok) throw new Error(d.error || "できませんでした");
+    if (!r.ok) {
+      const err = new Error(d.error || "できませんでした");
+      err.hint = d.hint || "";
+      throw err;
+    }
 
     if (!dryRun) {
       psSay(`${d.count}箇所に書き込みました`, 8000);
@@ -510,7 +514,8 @@ async function psRun(dryRun) {
         : '<div class="ps-note">書き込む内容がありませんでした。レポートの期間や担当者名をご確認ください。</div>');
   } catch (e) {
     psSay("");
-    box.innerHTML = `<div class="ps-err">${srEsc(e.message)}</div>`;
+    box.innerHTML = `<div class="ps-err">${srEsc(e.message)}</div>` +
+      (e.hint ? `<div class="ps-note">${srEsc(e.hint)}</div>` : "");
   }
 }
 
@@ -549,6 +554,26 @@ if ($("psSave")) {
   });
 
   if ($("psRepReload")) $("psRepReload").addEventListener("click", () => loadProcessReports($("psReport").value));
+
+  if ($("psPerm")) $("psPerm").addEventListener("click", async () => {
+    psSay("調べています…");
+    $("psResult").innerHTML = "";
+    try {
+      const r = await fetch("/api/process-sheet/permission", {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify(psBody(true)),
+      });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.error || "調べられませんでした");
+      psSay("");
+      $("psResult").innerHTML =
+        `<div class="ps-sum">${srEsc(d.name || "")}　書き込むアカウント：${srEsc(d.owner)}</div>` +
+        `<div class="${d.canEdit ? "ps-note" : "ps-err"}">` +
+        `${d.canEdit === true ? "編集権限あり" : d.canEdit === false ? "編集権限なし" : "権限を確認できません"}` +
+        `${d.protected && d.protected.length ? `／保護あり（${srEsc(d.protected.map((p) => p.description).join("、"))}）` : ""}</div>` +
+        `<div class="ps-note">${srEsc(d.note || "")}</div>`;
+    } catch (e) { psSay(""); $("psResult").innerHTML = `<div class="ps-err">${srEsc(e.message)}</div>`; }
+  });
 
   $("psCheck").addEventListener("click", () => psRun(true));
   $("psRun").addEventListener("click", () => {
