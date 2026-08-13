@@ -30,6 +30,7 @@
         <div class="home-wrap">
           <div class="rep-tabs" id="sfTabs" style="margin-bottom:16px">
             <button class="rep-tab active" data-sftab="launch" type="button">商談立ち上げ</button>
+            <button class="rep-tab" data-sftab="pending" type="button">立ち上げ待ち<span class="pd-badge" id="pdBadge" hidden></span></button>
             <button class="rep-tab" data-sftab="lead" type="button">リード</button>
             <button class="rep-tab" data-sftab="report" type="button">レポート</button>
             <button class="rep-tab" data-sftab="dashboard" type="button">ダッシュボード</button>
@@ -63,6 +64,20 @@
           </div>
 
           <div id="lnList"><div class="home-empty">読み込み中…</div></div>
+          </div>
+
+          <div class="sf-panel" data-sfpanel="pending" hidden>
+            <div class="home-head">
+              <div class="home-title">自動で立ち上げられなかったアポ</div>
+              <div class="home-head-right">
+                <label class="ks-check"><input type="checkbox" id="pdAll" /> 成功したものも表示</label>
+                <button type="button" class="btn ghost" id="pdReload">読み直す</button>
+                <span class="rev-status" id="pdStatus"></span>
+              </div>
+            </div>
+            <p class="note">条件を満たさず自動で立ち上がらなかったものが並びます。<b>理由を直してから「もう一度試す」を押すか、「開く」から手で立ち上げてください。</b><br>
+            テストとして集計から外したアポは出ません。</p>
+            <div id="pdList"><div class="home-empty">読み込み中…</div></div>
           </div>
 
           <div class="sf-panel" data-sfpanel="data" hidden>

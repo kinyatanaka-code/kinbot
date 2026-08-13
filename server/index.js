@@ -108,6 +108,7 @@ import {
   autolaunchForSlugs,
   autolaunchByCompanies,
   listAutolaunch,
+  pendingAutolaunch,
   addDocFile,
   listDocFiles,
   getDocBytes,
@@ -2384,26 +2385,12 @@ async function tryAutoLaunch(user, link, { dryRun = false, ownerEmail = "" } = {
     try {
       conv = await convertLead(user, convArgs);
     } catch (e) {
-      // 重複ルールで止められた場合は、すでにある取引先に紐づけてやり直す。
-      // 取引先を二重に作らないのが目的なので、既存に寄せるのが正しい。
+      // 重複ルールで止められた場合は、そのまま通して新しく取引先と担当者を作る。
+      // 既存の取引先に紐づけるには、その取引先への編集権限が要る。
+      // 権限が無いと結局失敗するので、こちらのほうが確実に立ち上がる。
       if (!e.duplicate) throw e;
-      console.log(`[SF自動] 重複と判定されたため、既存の取引先を探します（${j.company}）`);
-      let accountId = "";
-      try {
-        const esc2 = j.company.replace(/'/g, "\\'");
-        const d = await sfQuery(user,
-          `SELECT Id, Name FROM Account WHERE Name LIKE '%${esc2}%' ORDER BY LastModifiedDate DESC LIMIT 1`);
-        accountId = d?.records?.[0]?.Id || "";
-        if (accountId) console.log(`[SF自動] 既存の取引先に紐づけます（${d.records[0].Name}）`);
-      } catch {}
-      if (!accountId) {
-        const r = { ...base, ok: false, company: j.company, person: j.person,
-                    reason: "duplicate", detail: "既存の取引先が見つかりませんでした",
-                    leadId: j.lead.Id };
-        if (!dryRun) await saveAutolaunch(r);
-        return r;
-      }
-      conv = await convertLead(user, { ...convArgs, accountId, allowDuplicate: true });
+      console.log(`[SF自動] 重複と判定されましたが、新しく取引先と担当者を作ります（${j.company}）`);
+      conv = await convertLead(user, { ...convArgs, allowDuplicate: true });
     }
     const oppId = (conv && (conv.opportunityId || conv.opportunity_id)) || "";
 
@@ -2461,6 +2448,41 @@ async function tryAutoLaunch(user, link, { dryRun = false, ownerEmail = "" } = {
     return r;
   }
 }
+
+// 自動で立ち上げられなかったアポの一覧。
+// 通知を1件ずつ追わなくても、ここを見れば残っているものが分かる。
+app.get("/api/sf-autolaunch/pending", async (req, res) => {
+  try {
+    const rows = await pendingAutolaunch({ includeDone: req.query.all === "1" });
+    const name = {};
+    for (const r of rows) {
+      const e = r.current_owner;
+      if (e && !name[e]) name[e] = await displayNameOf(e).catch(() => e);
+    }
+    res.json({
+      items: rows.map((r) => ({
+        slug: r.slug, title: r.title || "", company: r.company || "", person: r.person || "",
+        ok: r.ok, reason: r.reason || "", reasonText: r.ok ? "" : reasonText(r.reason, r.detail),
+        oppId: r.opp_id || "", leadId: r.lead_id || "",
+        start: r.start_time, owner: name[r.current_owner] || r.current_owner || "",
+        business: r.business || "", triedAt: r.tried_at,
+      })),
+    });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// 一覧から、もう一度立ち上げてみる
+app.post("/api/sf-autolaunch/retry", async (req, res) => {
+  try {
+    const slug = String(req.body?.slug || "");
+    const link = await getSmartLink(slug);
+    if (!link) return res.status(404).json({ error: "商談が見つかりません" });
+    const op = await sfOperator(req.user);
+    if (!op) return res.status(400).json({ error: "Salesforceにつながっているアカウントがありません" });
+    const r = await tryAutoLaunch(op, link, { ownerEmail: link.current_owner });
+    res.json({ ...r, reasonText: r.ok ? "" : reasonText(r.reason, r.detail) });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
 
 // なぜ商談が立ち上がらないのかを調べる。
 // リードをコンバートしても商談ができない原因は、たいてい組織の設定にある。
@@ -8480,12 +8502,22 @@ app.post("/api/salesforce/leads/:id/convert", async (req, res) => {
     try { snapshot = await snapshotLead(req.user, req.params.id); }
     catch (e) { console.warn("[SF立ち上げ] リードの控えを取れませんでした:", e.message); }
 
-    const r = await convertLead(req.user, {
+    const convArgs = {
       leadId: req.params.id,
       convertedStatus: b.convertedStatus || "",
       opportunityName: b.opportunityName || "",
       ownerId,
-    });
+    };
+    let r;
+    try {
+      r = await convertLead(req.user, convArgs);
+    } catch (e) {
+      // 重複ルールで止められたときは、そのまま通して新しく取引先と担当者を作る。
+      // 既存に紐づけるには、その取引先への編集権限が必要になるため。
+      if (!e.duplicate) throw e;
+      console.log("[SF立ち上げ] 重複と判定されましたが、新しく取引先と担当者を作ります");
+      r = await convertLead(req.user, { ...convArgs, allowDuplicate: true });
+    }
 
     // コンバートで商談が作られなかった場合は、こちらで作る（立ち上げ漏れを防ぐ）
     let createdOpportunity = false;

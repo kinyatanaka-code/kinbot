@@ -3036,6 +3036,23 @@ export async function getAutolaunch(slug) {
 // 会社名から、kinbotが立ち上げた記録を引く。
 // Salesforce側で見つからなくても、立ち上げ済みだと分かるようにするため。
 // 直近の自動立ち上げの結果（診断で使う）
+// 自動で立ち上げられなかったものを一覧にする。
+// 通知を追いかけなくても、ここを見れば取りこぼしが分かるようにする。
+export async function pendingAutolaunch({ limit = 200, includeDone = false } = {}) {
+  if (!pool) return [];
+  try {
+    const { rows } = await pool.query(
+      `SELECT a.*, s.start_time, s.current_owner, s.client_email, s.business, s.excluded
+         FROM sf_autolaunch a
+         LEFT JOIN smart_links s ON s.slug = a.slug
+        WHERE ${includeDone ? "true" : "NOT a.ok"}
+          AND COALESCE(s.excluded, false) = false
+        ORDER BY a.tried_at DESC
+        LIMIT $1`, [limit]);
+    return rows;
+  } catch (e) { console.error("[db] pendingAutolaunch", e.message); return []; }
+}
+
 export async function listAutolaunch(limit = 20) {
   if (!pool) return [];
   try {

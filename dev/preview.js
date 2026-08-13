@@ -497,6 +497,18 @@ function apiResponse(pathname, query) {
       teamStats: TEAM_STATS.filter((t) => teamsIn.includes(t.team)),
       next: cl.find((c) => !c.fallback && c.active) || null };
   }
+  if (pathname === "/api/sf-autolaunch/pending") return { items: [
+    { slug:"a1", title:"【初回】アールプランナーグループ/水谷様", company:"アールプランナーグループ", ok:false,
+      reasonText:"Salesforceの重複ルールで止められました（同じ会社・担当者が既にあります）",
+      start:"2026-08-18T02:00:00Z", owner:"中澤良太", business:"DOC", triedAt:"2026-08-13T02:25:00Z" },
+    { slug:"a2", title:"【初回】テスト株式会社　テスト", company:"テスト株式会社", ok:false,
+      reasonText:"商談の予定名から担当者名が読み取れません",
+      start:"2026-08-15T02:00:00Z", owner:"田中欽也", business:"DOC", triedAt:"2026-08-13T00:10:00Z" },
+    { slug:"a3", title:"【初回】株式会社ベルク　町田様", company:"株式会社ベルク", ok:false,
+      reasonText:"クロスのリードがありません（直販などのリードのみ）",
+      start:"2026-08-20T05:00:00Z", owner:"植野ひかり", business:"DOC", triedAt:"2026-08-12T09:00:00Z" },
+  ] };
+  if (pathname === "/api/sf-autolaunch/retry") return { ok: false, reasonText: "やはり同じ理由で止まりました" };
   if (pathname === "/api/sf-autolaunch/config") return { enabled: false };
   if (pathname === "/api/apo/why") {
     return { ok: false, product: query.get("product") || "", steps: [

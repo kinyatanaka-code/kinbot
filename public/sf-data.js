@@ -215,16 +215,22 @@ document.addEventListener("DOMContentLoaded", () => {
   if (!tabs) return;
   const show = (name) => {
     tabs.querySelectorAll(".rep-tab").forEach((b) => b.classList.toggle("active", b.dataset.sftab === name));
-    const isLaunch = name === "launch";
+    // 立ち上げ／立ち上げ待ち／レポート系の3種類でパネルを出し分ける
+    const panel = name === "launch" ? "launch" : name === "pending" ? "pending" : "data";
     document.querySelectorAll("[data-sfpanel]").forEach((p) => {
-      p.hidden = p.dataset.sfpanel !== (isLaunch ? "launch" : "data");
+      p.hidden = p.dataset.sfpanel !== panel;
     });
-    const t = document.querySelector(".home-title");
-    if (!isLaunch) {
+    if (panel === "pending") {
+      if (typeof loadPending === "function") loadPending();
+      return;
+    }
+    if (panel === "data") {
       const q = document.getElementById("srQ");
       if (q) { q.placeholder = name === "lead" ? "リードのレポート名で絞り込み（例：リード、アポ）" : "名前で絞り込み"; q.value = ""; }
       initSfReport(name);
     }
   };
   tabs.querySelectorAll(".rep-tab").forEach((b) => b.addEventListener("click", () => show(b.dataset.sftab)));
+  // 立ち上げ待ちの件数を、最初に一度だけ数えてタブに出す
+  setTimeout(() => { if (typeof loadPending === "function") loadPending(); }, 1500);
 });

@@ -1108,3 +1108,94 @@ document.addEventListener("DOMContentLoaded", async () => {
   await loadFields();
   loadDay();
 });
+
+// ───────────────────────────────────────────────────────────
+// 立ち上げ待ち — 自動で立ち上げられなかったアポの一覧
+// 通知を1件ずつ追わなくても、ここを見れば残りが分かるようにする。
+// ───────────────────────────────────────────────────────────
+function pdWhen(iso) {
+  if (!iso) return "";
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return "";
+  const wd = ["日", "月", "火", "水", "木", "金", "土"][d.getDay()];
+  const p = (n) => String(n).padStart(2, "0");
+  return `${d.getMonth() + 1}/${d.getDate()}(${wd}) ${p(d.getHours())}:${p(d.getMinutes())}`;
+}
+
+async function loadPending() {
+  const box = $l("pdList");
+  if (!box) return;
+  const st = $l("pdStatus");
+  if (st) st.textContent = "読み込み中…";
+  try {
+    const all = $l("pdAll") && $l("pdAll").checked ? "?all=1" : "";
+    const d = await (await fetch("/api/sf-autolaunch/pending" + all)).json();
+    const items = d.items || [];
+    const ng = items.filter((x) => !x.ok).length;
+
+    // タブに件数を出す（見落とさないように）
+    const badge = $l("pdBadge");
+    if (badge) {
+      badge.hidden = ng === 0;
+      badge.textContent = ng;
+    }
+    if (st) st.textContent = `${items.length}件`;
+
+    if (!items.length) {
+      box.innerHTML = '<div class="home-empty">立ち上げ待ちのアポはありません。</div>';
+      return;
+    }
+    box.innerHTML = items.map((x) => `
+      <div class="pd-card${x.ok ? " pd-ok" : ""}" data-slug="${escL(x.slug)}">
+        <div class="pd-main">
+          <div class="pd-t">${escL(x.title || x.company || "(予定名なし)")}</div>
+          <div class="pd-s">${escL(pdWhen(x.start))}${x.owner ? " ・ 担当 " + escL(x.owner) : ""}${x.business ? " ・ " + escL(x.business) : ""}</div>
+          <div class="pd-r">${x.ok
+            ? `🚀 立ち上げ済${x.oppId ? "" : ""}`
+            : `⚠️ ${escL(x.reasonText)}`}</div>
+        </div>
+        <div class="pd-act">
+          ${x.ok ? "" : '<button type="button" class="btn pd-retry">もう一度試す</button>'}
+          <button type="button" class="btn ghost pd-open">開く</button>
+        </div>
+        <div class="pd-note"></div>
+      </div>`).join("");
+
+    box.querySelectorAll(".pd-retry").forEach((b) =>
+      b.addEventListener("click", async () => {
+        const card = b.closest(".pd-card");
+        const note = card.querySelector(".pd-note");
+        b.disabled = true;
+        note.textContent = "立ち上げています…";
+        try {
+          const r = await fetch("/api/sf-autolaunch/retry", {
+            method: "POST", headers: { "content-type": "application/json" },
+            body: JSON.stringify({ slug: card.dataset.slug }),
+          });
+          const d2 = await r.json();
+          if (!r.ok) throw new Error(d2.error || "できませんでした");
+          note.textContent = d2.ok ? "立ち上げました" : "やはりできません：" + d2.reasonText;
+          if (d2.ok) setTimeout(loadPending, 1200);
+          else b.disabled = false;
+        } catch (e) { note.textContent = "失敗：" + e.message; b.disabled = false; }
+      })
+    );
+    box.querySelectorAll(".pd-open").forEach((b) =>
+      b.addEventListener("click", () => {
+        const card = b.closest(".pd-card");
+        const item = items.find((x) => x.slug === card.dataset.slug);
+        // 商談立ち上げのタブに移り、その1件を探す
+        focusQ = item ? (item.title || item.company || "") : "";
+        focusSearched = false;
+        document.querySelector('.rep-tab[data-sftab="launch"]').click();
+        findEventAround(focusQ);
+      })
+    );
+  } catch (e) {
+    box.innerHTML = `<div class="home-empty">読み込めませんでした：${escL(e.message)}</div>`;
+    if (st) st.textContent = "";
+  }
+}
+
+if ($l("pdReload")) $l("pdReload").addEventListener("click", loadPending);
+if ($l("pdAll")) $l("pdAll").addEventListener("change", loadPending);
