@@ -174,9 +174,23 @@ export function applyApoCounts(tallied, apoRows) {
 }
 
 // 集計とシートの構造を突き合わせて、書き込む場所と値の一覧を作る
-export function buildUpdates(layout, tallied, { onlyDates = null } = {}) {
+export function buildUpdates(layout, tallied, { onlyDates = null, zeroFrom = "", zeroTo = "" } = {}) {
   const updates = [];
   const skipped = [];
+
+  // 実績が0だった日も、0で上書きする。
+  // 書かずに飛ばすと、前に入っていた数字がそのまま残ってしまうため。
+  // ただし対象の期間内で、今日までの日だけにする（先の日付を0で埋めない）。
+  const ZERO = { "コール": 0, "接触": 0, "アポ（期内）": 0, "アポ（期外）": 0 };
+  const inZeroRange = (d) => {
+    if (!zeroFrom || !zeroTo) return false;
+    const y = +String(zeroFrom).slice(0, 4);
+    // 年をまたぐ場合に備えて、月で年を推測する
+    const year = d.m < +String(zeroFrom).slice(5, 7) ? y + 1 : y;
+    const iso = `${year}-${String(d.m).padStart(2, "0")}-${String(d.d).padStart(2, "0")}`;
+    return iso >= zeroFrom && iso <= zeroTo;
+  };
+
   for (const p of layout.people) {
     // シートの担当者名に当てはまるSF側の名前を探す
     const sfName = Object.keys(tallied).find((n) => sameName(p.name, n));
@@ -184,7 +198,7 @@ export function buildUpdates(layout, tallied, { onlyDates = null } = {}) {
     for (const d of layout.dates) {
       const key = `${d.m}/${d.d}`;
       if (onlyDates && !onlyDates.includes(key)) continue;
-      const t = tallied[sfName][key];
+      const t = tallied[sfName][key] || (inZeroRange(d) ? ZERO : null);
       if (!t) continue;
       for (const metric of METRICS) {
         const row = p.rows[metric];

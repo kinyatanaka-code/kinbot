@@ -2942,7 +2942,13 @@ async function runProcessSheet(sfUser, opts = {}) {
   const values = await readSheet(owner, sheetId, `${sheetName}!A1:DZ200`);
   const layout = readLayout(values);
   if (layout.error) throw new Error(layout.error);
-  const { updates, skipped } = buildUpdates(layout, tallied, { onlyDates });
+  // 実績が0の日も0で上書きする。範囲は「期間の開始〜今日」まで。
+  // 先の日付まで0で埋めると、手で入れた予定の数字を消してしまうため。
+  const todayJst = new Date(Date.now() + 9 * 3600 * 1000).toISOString().slice(0, 10);
+  const zeroTo = to < todayJst ? to : todayJst;
+  const { updates, skipped } = buildUpdates(layout, tallied, {
+    onlyDates, zeroFrom: from, zeroTo,
+  });
 
   if (dryRun) {
     return {
