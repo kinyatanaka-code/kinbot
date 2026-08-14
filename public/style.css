@@ -4819,8 +4819,7 @@ input:focus, select:focus, textarea:focus, .sf-input:focus, .sf-select:focus, .s
    1画面に入る件数が増え、やることが残っているものは色で分かる。 */
 /* 行は中で自分でレイアウトするので、カード側の flex は使わない。
    flex のままだと幅の計算が合わず、右端のアイコンが切れて見える。 */
-.home-card.home-line { display: block; padding: 0; border-radius: 12px;
-  overflow: hidden; }
+.home-card.home-line { display: block; padding: 0; border-radius: 12px; }
 .hl-row { display: grid; grid-template-columns: 48px 1fr auto; gap: 8px;
   align-items: center; padding: 9px 10px; }
 .home-card.home-line:hover { background: var(--panel-2); }
@@ -4885,10 +4884,13 @@ input:focus, select:focus, textarea:focus, .sf-input:focus, .sf-select:focus, .s
 .hl-more .hib:hover .hib-name { color: #C0563C; }
 
 /* アイコンだけだと分からないので、名前を吹き出しで出す */
-.hib-tip { position: absolute; bottom: calc(100% + 4px); left: 50%; transform: translateX(-50%);
+/* 吹き出しは下に出す。上に出すと、1行目でスクロール領域の外に出て切れてしまう。 */
+.hib-tip { position: absolute; top: calc(100% + 4px); left: 50%; transform: translateX(-50%);
   background: #12211d; color: #fff; font-size: 10.5px; white-space: nowrap;
   padding: 4px 8px; border-radius: 6px; opacity: 0; pointer-events: none;
-  transition: opacity .12s ease; z-index: 20; }
+  transition: opacity .12s ease; z-index: 40; }
+/* 右端のアイコンは、吹き出しが画面の外に出ないよう左に寄せる */
+.hl-acts > *:last-child .hib-tip { left: auto; right: 0; transform: none; }
 .hib:hover .hib-tip, .hib:focus-visible .hib-tip { opacity: 1; }
 
 /* 画面が狭いときは、行を2段にして名前が読めるようにする */
