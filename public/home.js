@@ -31,7 +31,7 @@ const HOME_ICONS = {
   trash: "M9 3h6l1 2h4v2H4V5h4zM6 9h12l-1 12H7zm3 2v8h1.5v-8zm4.5 0v8H15v-8z",
   more: "M5 10.3a1.7 1.7 0 1 0 0 3.4 1.7 1.7 0 0 0 0-3.4zm7 0a1.7 1.7 0 1 0 0 3.4 1.7 1.7 0 0 0 0-3.4zm7 0a1.7 1.7 0 1 0 0 3.4 1.7 1.7 0 0 0 0-3.4z",
   // 御礼メールの画面で使うもの
-  draft: "M4 3h9l7 7v11H4zm2 2v14h12v-8h-6V5zm3 8h6v2H9zm0 3h6v2H9z",
+  draft: "M2 21l20-9L2 3v7l13 2-13 2z",
   copy: "M8 3h9a2 2 0 0 1 2 2v11h-2V5H8zM5 7h9a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V9a2 2 0 0 1 2-2zm0 2v10h9V9z",
   gmail: "M3 5h18v14H3zm2 2v.6l7 4.4 7-4.4V7zm0 3v7h14v-7l-7 4.4z",
   tpl: "M4 4h16v4H4zm0 6h7v10H4zm9 0h7v4h-7zm0 6h7v4h-7z",
@@ -43,7 +43,7 @@ const HOME_ICONS = {
 // アイコンの下に出す短い名前。長いと横に広がるので、2〜4文字にそろえる。
 const HOME_ICON_NAMES = {
   rec: "録音", sf: "SF", open: "開く", mail: "メール", cal: "会議室", trash: "外す", more: "その他",
-  draft: "下書き", copy: "コピー", gmail: "Gmail", tpl: "型", doc: "資料URL",
+  draft: "下書き", copy: "コピー", gmail: "Gmail", tpl: "テンプレ", doc: "資料URL",
 };
 
 function hIcon(kind, label, attrs = "", state = "", tag = "button") {
@@ -318,18 +318,18 @@ function render() {
     // やることが残っているものだけ色を付けるので、見れば次の一手が分かる。
     // 並びは 録音 → SF → メール → 開く。4つとも必ず出す。
     // 押せない場合も場所は空けておく（行ごとに並びが変わると探しにくいため）。
+    // 4つとも、いつでも押せる。
+    // まだ済んでいないものだけ色を濃くして、次にやることが分かるようにする。
     const acts =
       (m
-        ? hIcon("rec", "録音済み", "", "done")
-        : e
-          ? hIcon("rec", "録音する", `data-rec="${escH(key)}"`, "need")
-          : hIcon("rec", "この予定は録音できません", "disabled", "off")) +
+        ? hIcon("rec", "録音済み（もう一度録る）", `data-rec="${escH(key)}"`, "done")
+        : hIcon("rec", "録音する", `data-rec="${escH(key)}"`, "need")) +
       (m
         ? hIcon("sf", "SFを更新", `data-sfedit="${escH(key)}"`, "need")
         : hIcon("sf", s.open ? "SF商談を閉じる" : "SF商談を選ぶ", `data-sf-open="${escH(key)}"`, "done")) +
       (m && m.bot_id
         ? hIcon("mail", "御礼メール", `data-mail="${escH(m.bot_id)}" data-key="${escH(key)}"`, "need")
-        : hIcon("mail", "商談が終わると使えます", "disabled", "off")) +
+        : hIcon("mail", "御礼メール（商談の記録がまだありません）", `data-mail-none="${escH(key)}"`, "done")) +
       hIcon("open", openLabel, `href="${link}"`, "done", "a");
 
     return `<div class="home-row" style="--i:${idx}"><div class="home-card home-line${m ? " is-done" : ""}" data-card="${escH(key)}">
@@ -471,35 +471,58 @@ function wireMailTemplates(box, botId, tpls) {
     })
   );
 
-  // いまの文面を型として保存する
+  // いまの文面をテンプレートとして保存する。
+  // すでに選ばれているものがあれば、上書きするか新しく作るかを選べる。
   const saveBtn = box.querySelector("[data-tpl-save]");
   if (saveBtn) saveBtn.addEventListener("click", async () => {
     const bodyText = box.querySelector(".home-mail-body").value.trim();
     const subj = box.querySelector(".home-mail-subj").value.trim();
     if (!bodyText) { say("本文が空です", 4000); return; }
-    const name = prompt(
-      "この文面に名前を付けて保存します。\n（例：初回・価格の話が出たとき）\n\n" +
-      "次に使うときは、この型に沿って商談の内容が差し込まれます。", "");
-    if (name === null) return;
-    if (!name.trim()) { say("名前を入れてください", 4000); return; }
+
+    const cur = sel && sel.value ? tpls.find((t) => t.id === sel.value) : null;
+    let mode = "new";
+    if (cur) {
+      // 選んでいるものがあるときは、上書きするかを聞く
+      mode = confirm(
+        `「${cur.name}」を、いまの文面で上書きしますか。\n\n` +
+        `OK … 上書きする\nキャンセル … 別の名前で新しく保存する`) ? "over" : "new";
+    }
+
+    let name = cur && mode === "over" ? cur.name : "";
+    if (mode === "new") {
+      const input = prompt(
+        "この文面に名前を付けて保存します。\n（例：初回・価格の話が出たとき）\n\n" +
+        "次に使うときは、この形に沿って商談の内容が差し込まれます。", "");
+      if (input === null) return;
+      if (!input.trim()) { say("名前を入れてください", 4000); return; }
+      name = input.trim();
+    }
+
     saveBtn.disabled = true;
     say("保存しています…");
     try {
-      const next = [...tpls, { id: "t" + Date.now(), name: name.trim(), subject: subj, body: bodyText }];
+      let next, saved;
+      if (mode === "over") {
+        next = tpls.map((t) => (t.id === cur.id ? { ...t, subject: subj, body: bodyText } : t));
+        saved = next.find((t) => t.id === cur.id);
+      } else {
+        saved = { id: "t" + Date.now(), name, subject: subj, body: bodyText };
+        next = [...tpls, saved];
+      }
       const r = await fetch("/api/mail-templates", {
         method: "PUT", headers: { "content-type": "application/json" },
         body: JSON.stringify({ templates: next }),
       });
       if (!r.ok) throw new Error(((await r.json()) || {}).error || "保存できませんでした");
-      // 一覧に足して、そのまま選んだ状態にする
-      const t = next[next.length - 1];
-      if (sel) {
+
+      if (mode === "new" && sel) {
         const op = document.createElement("option");
-        op.value = t.id; op.textContent = t.name;
-        sel.appendChild(op); sel.value = t.id;
+        op.value = saved.id; op.textContent = saved.name;
+        sel.appendChild(op); sel.value = saved.id;
       }
-      tpls.push(t);
-      say(`「${t.name}」として保存しました`, 6000);
+      tpls.length = 0;
+      tpls.push(...next);
+      say(mode === "over" ? `「${saved.name}」を上書きしました` : `「${saved.name}」として保存しました`, 6000);
     } catch (e) { say("失敗: " + e.message); }
     finally { saveBtn.disabled = false; }
   });
@@ -887,11 +910,11 @@ async function openMail(botId, key) {
              ${tpls.map((t) => `<option value="${escH(t.id)}">${escH(t.name)}</option>`).join("")}
            </select>
          </label>
-         <button type="button" class="btn sf-btn-secondary home-sf-mini" data-tpl-apply="${escH(botId)}">この型で作り直す</button>
-         <button type="button" class="btn sf-btn-secondary home-sf-mini" data-tpl-save="1">いまの文面を型として保存</button>
+         <button type="button" class="btn sf-btn-secondary home-sf-mini" data-tpl-apply="${escH(botId)}">このテンプレートで作り直す</button>
+         <button type="button" class="btn sf-btn-secondary home-sf-mini" data-tpl-save="1">いまの文面を保存</button>
          <span class="mail-tpl-st"></span>
          <div class="mail-tpl-help">
-           型の中にこう書くと、送るときに中身が入ります。
+           テンプレートにこう書くと、送るときに中身が入ります。
            <button type="button" class="tag-ins" data-ins="{資料URL}">{資料URL}</button>
            <button type="button" class="tag-ins" data-ins="{会社名}">{会社名}</button>
            <button type="button" class="tag-ins" data-ins="{担当者名}">{担当者名}</button>
@@ -1097,6 +1120,13 @@ function wireListBox(box) {
     if (rec) { startRecording(rec.dataset.rec); return; }
     const mail = ev.target.closest("[data-mail]");
     if (mail) { openMail(mail.dataset.mail, mail.dataset.key); return; }
+    // 商談の記録が無いと文面を作れないので、その理由を出す
+    const mailNone = ev.target.closest("[data-mail-none]");
+    if (mailNone) {
+      alert("この商談はまだ録音・要約がないため、御礼メールの文面を作れません。\n\n" +
+            "先に録音するか、商談履歴から要約を作ってからお試しください。");
+      return;
+    }
     const sfe = ev.target.closest("[data-sfedit]");
     if (sfe) { openSfEdit(sfe.dataset.sfedit); return; }
     const cls = ev.target.closest("[data-inline-close]");
