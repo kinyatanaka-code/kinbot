@@ -4922,6 +4922,24 @@ input:focus, select:focus, textarea:focus, .sf-input:focus, .sf-select:focus, .s
 .hf-none a { color: #0F6E56; margin-left: 6px; }
 
 /* 御礼メールのテンプレート */
+/* ───────── モーダルを小さくする ─────────
+   作りかけの文面を残したまま、ほかの画面も見られるようにする。 */
+.sfm-min { border: 1px solid var(--line); background: var(--panel); color: #4a6b62;
+  width: 30px; height: 30px; border-radius: 9px; cursor: pointer; font-size: 15px;
+  line-height: 1; margin-right: 6px; font-family: inherit; }
+.sfm-min:hover { background: #1d9e75; border-color: #1d9e75; color: #fff; }
+
+/* 小さくしたとき。右下に寄せて、後ろを触れるようにする。 */
+.sfm.sfm-small { position: fixed; inset: auto 20px 20px auto; width: 400px;
+  max-width: calc(100vw - 40px); pointer-events: none; }
+.sfm.sfm-small .sfm-back { display: none; }
+.sfm.sfm-small .sfm-box { pointer-events: auto; width: 100%; max-width: 100%;
+  max-height: 60vh; box-shadow: 0 20px 60px rgba(10, 34, 30, .28); }
+.sfm.sfm-small .sfm-body { max-height: calc(60vh - 64px); overflow: auto; }
+.sfm.sfm-small .sfm-t { font-size: 13px; }
+.sfm.sfm-small .sfm-s { font-size: 11px; }
+.sfm.sfm-small .home-mail-body { min-height: 140px; }
+
 /* メールの操作。行と同じ小さなアイコンにそろえ、右に寄せる。 */
 .mail-acts { display: flex; gap: 8px; align-items: flex-start;
   justify-content: flex-end; margin-top: 12px; }

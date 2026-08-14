@@ -974,6 +974,7 @@ function openModal({ title, sub, inner, wide = true }) {
            <div class="sfm-t">${escH(title || "")}</div>
            <div class="sfm-s">${escH(sub || "")}</div>
          </div>
+         <button type="button" class="sfm-min" data-modal-min="1" aria-label="小さくする" title="小さくして、ほかの画面も見る">－</button>
          <button type="button" class="sfm-x" data-modal-close="1" aria-label="閉じる">閉じる</button>
        </div>
        <div class="sfm-body">${inner || ""}</div>
@@ -989,6 +990,18 @@ function openModal({ title, sub, inner, wide = true }) {
   const onKey = (e) => { if (e.key === "Escape") close(); };
   document.addEventListener("keydown", onKey);
   m.querySelectorAll("[data-modal-close]").forEach((b) => b.addEventListener("click", close));
+
+  // 小さくして右下に寄せる。後ろの画面をそのまま操作できるようにする。
+  // 作りかけの文面を残したまま、別の商談を見に行けるようにするため。
+  const minBtn = m.querySelector("[data-modal-min]");
+  if (minBtn) minBtn.addEventListener("click", () => {
+    const small = m.classList.toggle("sfm-small");
+    minBtn.textContent = small ? "□" : "－";
+    minBtn.title = small ? "元の大きさに戻す" : "小さくして、ほかの画面も見る";
+    // 小さいときは、後ろを操作できるようにする
+    document.body.style.overflow = small ? "" : "hidden";
+  });
+
   return { el: m, body: m.querySelector(".sfm-body"), close };
 }
 
