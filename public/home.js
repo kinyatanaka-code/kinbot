@@ -479,6 +479,8 @@ function wireMailMode(box, botId) {
       su().value = d.subject || su().value;
       ta().value = d.body;
       ctx.to = d.to || "";
+      const toEl = box.querySelector(".home-mail-to");
+      if (toEl && ctx.to) { toEl.value = ctx.to; toEl.dispatchEvent(new Event("input")); }
       say(ctx.to ? `返信先：${ctx.to}` : "返信先を選びました");
     } catch (e) {
       say("文面を作れませんでした（" + e.message + "）。文面はそのまま返信として送れます。");
@@ -678,11 +680,9 @@ function wireMailTemplates(box, botId, tpls) {
     showTpl(true);
   };
 
-  // 型を選んだら、その型を直す画面へスライドする
-  if (sel) sel.addEventListener("change", () => {
-    syncBtns();
-    if (sel.value) openTplEditor(sel.value);
-  });
+  // 型を選んだだけでは何も開かない。
+  // 直したいときだけ「型を直す」を押してもらう（選ぶたびに画面が変わると邪魔なため）。
+  if (sel) sel.addEventListener("change", syncBtns);
   syncBtns();
 
   if (editBtn) editBtn.addEventListener("click", () => {
@@ -1162,6 +1162,9 @@ async function openMail(botId, key) {
          <div class="mail-reply-list"></div>
        </div>
 
+       <label class="mail-lb">宛先<input type="text" class="home-mail-to" value="${escH(d.to || "")}"
+         placeholder="送り先のメールアドレス（空のままでもGmailで入れられます）" />
+         ${d.to ? `<span class="mail-to-src">${escH(d.toSource || "")}から入れました</span>` : ""}</label>
        <label class="mail-lb">件名<input type="text" class="home-mail-subj" value="${escH(subject)}" /></label>
        <label class="mail-lb">本文<textarea class="home-mail-body" rows="16" placeholder="ここに文面を書きます。「文面を作る」を押すと、商談の内容からAIが下書きします。">${escH(body)}</textarea></label>
        <div class="mail-acts">
@@ -1176,7 +1179,7 @@ async function openMail(botId, key) {
 
        <!-- テンプレートは、アイコンを押したときだけ開く -->
        <div class="mail-tpl" hidden>
-         <label class="mail-lb mail-tpl-lb">テンプレート（選ぶと、その型を直す画面が開きます）
+         <label class="mail-lb mail-tpl-lb">テンプレート
            <select class="mail-tpl-sel">
              <option value="">使わない（商談内容から作る）</option>
              ${tpls.map((t) => `<option value="${escH(t.id)}">${escH(t.name)}</option>`).join("")}
@@ -1229,12 +1232,14 @@ async function openMail(botId, key) {
     const ta = box.querySelector(".home-mail-body");
     const su = box.querySelector(".home-mail-subj");
     // Gmailの作成画面を開く（メーラー未設定のパソコンでも動くように mailto は使わない）
+    const toEl = box.querySelector(".home-mail-to");
     const sync = () => {
       const base = "https://mail.google.com/mail/?view=cm&fs=1&tf=1";
-      let url = `${base}&su=${encodeURIComponent(su.value)}&body=${encodeURIComponent(ta.value)}`;
+      const toQ = toEl && toEl.value.trim() ? `&to=${encodeURIComponent(toEl.value.trim())}` : "";
+      let url = `${base}${toQ}&su=${encodeURIComponent(su.value)}&body=${encodeURIComponent(ta.value)}`;
       // URLが長すぎるとブラウザが開けないので、そのときは本文を切る
       if (url.length > 7000) {
-        url = `${base}&su=${encodeURIComponent(su.value)}&body=${encodeURIComponent(ta.value.slice(0, 1500) + "\n\n（続きはkinbotからコピーしてください）")}`;
+        url = `${base}${toQ}&su=${encodeURIComponent(su.value)}&body=${encodeURIComponent(ta.value.slice(0, 1500) + "\n\n（続きはkinbotからコピーしてください）")}`;
       }
       const a = box.querySelector("[data-mailto]");
       a.href = url;
@@ -1242,6 +1247,7 @@ async function openMail(botId, key) {
     sync();
     su.addEventListener("input", sync);
     ta.addEventListener("input", sync);
+    if (toEl) toEl.addEventListener("input", sync);
     // Gmailに下書きを作る（やり取りがあれば返信として）
     box.querySelector("[data-gdraft]").addEventListener("click", async (e) => {
       const btn = e.currentTarget;
@@ -1260,6 +1266,7 @@ async function openMail(botId, key) {
           method: "POST", headers: { "content-type": "application/json" },
           body: JSON.stringify({
             subject: su.value, body: ta.value,
+            to: toEl ? toEl.value.trim() : "",
             mode: mailCtx.mode, threadId: mailCtx.threadId || "",
           }),
         });

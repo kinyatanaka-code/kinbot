@@ -3559,6 +3559,45 @@ export async function docLinksForCompany(company, limit = 5) {
   } catch (e) { console.error("[db] docLinksForCompany", e.message); return []; }
 }
 
+// この会社あての宛先（メールアドレス）を探す。
+// 御礼メールの「宛先」を自動で入れるために使う。
+//   1. アポの記録（カレンダーのゲスト・説明欄から取ったもの）
+//   2. 資料URLを発行したときの宛先
+export async function clientEmailForCompany(company) {
+  if (!pool || !company) return null;
+  const core = (v) => String(v || "")
+    .replace(/(株式会社|有限会社|合同会社|合資会社|一般社団法人|一般財団法人|公益社団法人|公益財団法人|医療法人|学校法人|社会福祉法人|㈱|\(株\)|（株）)/g, "")
+    .replace(/[\s　]/g, "").trim();
+  const key = core(company);
+  if (!key || key.length < 2) return null;
+  try {
+    const { rows } = await pool.query(
+      `SELECT label, client_email, client_name, updated_at
+         FROM smart_links
+        WHERE COALESCE(client_email,'') <> '' AND NOT COALESCE(excluded,false)
+        ORDER BY updated_at DESC LIMIT 500`);
+    for (const r of rows) {
+      const c = core(String(r.label || "").replace(/【[^】]*】/g, "").split(/[／\/|]/)[0]);
+      if (c && (c.includes(key) || key.includes(c))) {
+        return { email: r.client_email, name: r.client_name || "", source: "アポの記録" };
+      }
+    }
+  } catch {}
+  try {
+    const { rows } = await pool.query(
+      `SELECT company, contact, email FROM doc_links
+        WHERE COALESCE(email,'') <> '' AND NOT revoked
+        ORDER BY created_at DESC LIMIT 500`);
+    for (const r of rows) {
+      const c = core(r.company);
+      if (c && (c.includes(key) || key.includes(c))) {
+        return { email: r.email, name: r.contact || "", source: "資料URLの宛先" };
+      }
+    }
+  } catch {}
+  return null;
+}
+
 export async function listDocLinks({ docId = 0, onlyViewed = false, limit = 500 } = {}) {
   if (!pool) return [];
   try {

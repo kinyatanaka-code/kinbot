@@ -118,6 +118,13 @@
               コンバートは取り消せないので、まずOFFのまま通知を見て、判定が正しいことを確かめてからONにしてください。</p>
               <label class="ks-check" style="margin:10px 0"><input type="checkbox" id="alOn" /> 条件を満たしたら自動で立ち上げる</label>
               <span class="rev-status" id="alStatus"></span>
+              <div class="ap-cfg-row">
+                <label>主キャンペーンソース <input type="text" id="alCampaign" style="width:200px" placeholder="3Dメタバース" /></label>
+                <button class="btn ghost" id="alCampaignSave">保存</button>
+                <span class="rev-status" id="alCampaignStatus"></span>
+              </div>
+              <p class="note">コンバートに必須の項目です。リードが空のときだけ、この値を入れてから立ち上げます（すでに入っていれば触りません）。<br>
+              「アポ獲得日」も同じように、空ならアポを取った日を自動で入れます。</p>
               <div class="ap-cfg-actions">
                 <button class="btn ghost" id="alDiag">立ち上がらない原因を調べる</button>
                 <span class="rev-status" id="alDiagStatus"></span>

@@ -826,6 +826,10 @@ async function loadAutoLaunch() {
   try {
     const d = await (await fetch("/api/sf-autolaunch/config")).json();
     el.checked = !!d.enabled;
+    if ($("alCampaign")) {
+      $("alCampaign").value = d.campaignSource || "";
+      $("alCampaign").placeholder = d.campaignSourceDefault || "3Dメタバース";
+    }
   } catch {}
 }
 
@@ -855,6 +859,25 @@ if (typeof document !== "undefined") {
         if (st) st.textContent = "失敗: " + e.message;
         el.checked = !on;
       }
+    });
+
+    // 主キャンペーンソースの保存
+    const cs = document.getElementById("alCampaignSave");
+    if (cs) cs.addEventListener("click", async () => {
+      const st = document.getElementById("alCampaignStatus");
+      const v = (document.getElementById("alCampaign") || {}).value || "";
+      if (st) st.textContent = "保存しています…";
+      try {
+        const r = await fetch("/api/sf-autolaunch/config", {
+          method: "PUT", headers: { "content-type": "application/json" },
+          body: JSON.stringify({ campaignSource: v }),
+        });
+        if (!r.ok) throw new Error(((await r.json()) || {}).error || "保存できませんでした");
+        if (st) {
+          st.textContent = v ? `「${v}」を入れます` : "入れません（空のまま立ち上げます）";
+          setTimeout(() => (st.textContent = ""), 5000);
+        }
+      } catch (e) { if (st) st.textContent = "失敗: " + e.message; }
     });
   });
 }

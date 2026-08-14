@@ -853,6 +853,68 @@ export async function convertedLeadStatus(owner) {
   return (list[0] && list[0].value) || "";
 }
 
+// リードの項目を、API名かラベルから探す（結果は覚えておく）
+const _leadFieldCache = new Map();
+export async function findLeadField(owner, { key, apis = [], re }) {
+  const hit = _leadFieldCache.get(key);
+  if (hit && Date.now() - hit.at < 30 * 60 * 1000) return hit.field;
+  let field = null;
+  try {
+    const desc = await describeObject(owner, "Lead");
+    const all = (desc.fields || []).filter((f) => f.updateable);
+    for (const api of apis) { field = all.find((x) => x.name === api); if (field) break; }
+    if (!field && re) field = all.find((x) => re.test(String(x.label || "")));
+  } catch {}
+  _leadFieldCache.set(key, { at: Date.now(), field: field || null });
+  return field || null;
+}
+
+// 「主キャンペーンソース」を入れておく。
+// 空だと「コンバート時には主キャンペーンソース入力が必要です」で弾かれる。
+// 項目がキャンペーンの参照（ルックアップ）なら、その名前のキャンペーンを探してIDを入れる。
+// すでに値が入っていれば触らない。
+export async function ensureLeadCampaignSource(owner, leadId, value) {
+  const v = String(value || "").trim();
+  if (!leadId || !v) return { ok: false, skipped: true };
+  const f = await findLeadField(owner, {
+    key: "campaignSource",
+    apis: ["Primary_Campaign_Source__c", "CampaignSource__c"],
+    re: /主?キャンペーン(ソース|元)/,
+  });
+  if (!f) return { ok: false, skipped: true, reason: "項目が見つかりません" };
+  const id = String(leadId).replace(/[^a-zA-Z0-9]/g, "");
+  try {
+    const d = await sfQuery(owner, `SELECT Id, ${f.name} FROM Lead WHERE Id = '${id}' LIMIT 1`);
+    const cur = (d.records || [])[0] || {};
+    if (cur[f.name]) return { ok: true, already: true, field: f.name, value: cur[f.name] };
+  } catch {}
+
+  let put = v;
+  // キャンペーンの参照なら、名前からIDを引く
+  if (f.type === "reference" && (f.referenceTo || []).includes("Campaign")) {
+    const esc = v.replace(/['\\%_]/g, "");
+    const d = await sfQuery(owner, `SELECT Id, Name FROM Campaign WHERE Name = '${esc}' LIMIT 1`)
+      .catch(() => ({ records: [] }));
+    let rec = (d.records || [])[0];
+    if (!rec) {
+      const d2 = await sfQuery(owner, `SELECT Id, Name FROM Campaign WHERE Name LIKE '%${esc}%' LIMIT 1`)
+        .catch(() => ({ records: [] }));
+      rec = (d2.records || [])[0];
+    }
+    if (!rec) return { ok: false, field: f.name, reason: `「${v}」というキャンペーンがSalesforceにありません` };
+    put = rec.Id;
+  }
+  // 選択リストなら、その値があるか見ておく（無ければ理由を返す）
+  if (f.type === "picklist") {
+    const opts = (f.picklistValues || []).filter((o) => o.active).map((o) => o.value);
+    if (opts.length && !opts.includes(v)) {
+      return { ok: false, field: f.name, reason: `「${v}」は選択肢にありません（候補：${opts.slice(0, 8).join("、")}）` };
+    }
+  }
+  await updateLead(owner, id, { [f.name]: put });
+  return { ok: true, filled: true, field: f.name, value: v };
+}
+
 // 「アポ獲得日」にあたるリードの項目名を突き止める。
 // 組織ごとにAPI名が違うので、まずよくある名前で探し、無ければラベルで探す。
 let _apoDateFieldCache = { at: 0, name: null };

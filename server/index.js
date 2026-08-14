@@ -134,6 +134,7 @@ import {
   addDocLinks,
   listDocLinks,
   docLinksForCompany,
+  clientEmailForCompany,
   getDocLink,
   revokeDocLink,
   deleteDocLink,
@@ -315,6 +316,7 @@ import {
   updateLead,
   convertLead,
   ensureLeadApoDate,
+  ensureLeadCampaignSource,
   createLead,
   convertedLeadStatus,
   convertedLeadStatuses,
@@ -2496,6 +2498,19 @@ async function tryAutoLaunch(user, link, { dryRun = false, ownerEmail = "" } = {
       console.warn("[SF立ち上げ] アポ獲得日を入れられませんでした:", e.message);
     }
 
+    // 主キャンペーンソースも、空ならここで入れる（同じくコンバートの必須項目）
+    try {
+      const stc = await getSettings().catch(() => ({}));
+      const cs = String(stc.sfCampaignSource || DEFAULT_CAMPAIGN_SOURCE).trim();
+      if (cs) {
+        const rc = await ensureLeadCampaignSource(user, j.lead.Id, cs);
+        if (rc && rc.filled) console.log(`[SF立ち上げ] 主キャンペーンソースを入れました ${j.company} → ${cs}`);
+        else if (rc && !rc.ok && rc.reason) console.warn(`[SF立ち上げ] 主キャンペーンソース: ${rc.reason}`);
+      }
+    } catch (e) {
+      console.warn("[SF立ち上げ] 主キャンペーンソースを入れられませんでした:", e.message);
+    }
+
     // ここから先は取り消せない
     const statuses = await convertedLeadStatuses(user).catch(() => []);
     const convArgs = {
@@ -3423,19 +3438,36 @@ setTimeout(() => { processSheetTick().catch(() => {}); }, 3 * 60 * 1000);
 
 // ===== 資料の閲覧をスプレッドシートに記録する設定 =====
 // Salesforceの自動立ち上げを実際に行うかどうか
+// コンバートで必須になっている「主キャンペーンソース」の既定値。
+// 設定で変えられる。空にすると入れない。
+const DEFAULT_CAMPAIGN_SOURCE = "3Dメタバース";
+
 app.get("/api/sf-autolaunch/config", async (req, res) => {
   try {
     const st = await getSettings();
-    res.json({ enabled: st.sfAutoLaunch === true });
+    res.json({
+      enabled: st.sfAutoLaunch === true,
+      campaignSource: st.sfCampaignSource === undefined ? DEFAULT_CAMPAIGN_SOURCE : st.sfCampaignSource,
+      campaignSourceDefault: DEFAULT_CAMPAIGN_SOURCE,
+    });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 app.put("/api/sf-autolaunch/config", async (req, res) => {
   try {
-    const on = req.body?.enabled === true;
-    await saveSettings({ sfAutoLaunch: on });
-    console.log(`[SF自動] 自動立ち上げを${on ? "ON" : "OFF"}にしました by ${req.user}`);
-    res.json({ ok: true, enabled: on });
+    const patch = {};
+    if (req.body?.enabled !== undefined) patch.sfAutoLaunch = req.body.enabled === true;
+    if (req.body?.campaignSource !== undefined) {
+      patch.sfCampaignSource = String(req.body.campaignSource || "").trim().slice(0, 80);
+    }
+    await saveSettings(patch);
+    console.log(`[SF自動] 設定を更新 by ${req.user}:`, JSON.stringify(patch));
+    const st = await getSettings();
+    res.json({
+      ok: true,
+      enabled: st.sfAutoLaunch === true,
+      campaignSource: st.sfCampaignSource === undefined ? DEFAULT_CAMPAIGN_SOURCE : st.sfCampaignSource,
+    });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
@@ -6369,10 +6401,18 @@ app.get("/api/meetings/:id/thanks-context", async (req, res) => {
     let docLinks = [];
     try { docLinks = await docLinksForCompany(company, 5); } catch {}
     const base = String(process.env.PUBLIC_URL || "").replace(/\/+$/, "");
+    // 宛先（分かれば画面に入れておく）
+    let to = String(m.client_email || "").trim();
+    let toSource = to ? "商談の記録" : "";
+    if (!to) {
+      const hit = await clientEmailForCompany(company).catch(() => null);
+      if (hit) { to = hit.email; toSource = hit.source; }
+    }
     res.json({
       company,
       round: m.round_no || "",
       subject: `【御礼】${company ? company + "様との" : "本日の"}お打ち合わせについて`,
+      to, toSource,
       docLinks: docLinks.map((d) => ({ name: fixMojibake(d.doc_name), url: `${base}/d/${d.slug}` })),
     });
   } catch (e) {
@@ -6605,6 +6645,12 @@ app.post("/api/meetings/:id/thanks-gmail-draft", async (req, res) => {
     if (req.body && req.body.body) body = String(req.body.body);
     if (req.body && req.body.subject) subject = String(req.body.subject);
     if (req.body && req.body.to) to = String(req.body.to);
+    // 新規メールのときは宛先が空になりがちなので、分かる範囲で補う
+    if (!to) to = String(m.client_email || "").trim();
+    if (!to) {
+      const hit = await clientEmailForCompany(company).catch(() => null);
+      if (hit) to = hit.email;
+    }
     if (!body) return res.status(502).json({ error: "文面を作れませんでした" });
 
     const draft = await gmailCreateDraft(req.user, { to, subject, bodyText: body, threadId, inReplyTo, references });
@@ -9286,6 +9332,16 @@ app.post("/api/salesforce/leads/:id/convert", async (req, res) => {
       if (rr && rr.filled) console.log(`[SF立ち上げ] アポ獲得日を入れました → ${rr.value}`);
     } catch (e) {
       console.warn("[SF立ち上げ] アポ獲得日を入れられませんでした:", e.message);
+    }
+    try {
+      const stc = await getSettings().catch(() => ({}));
+      const cs = String(b.campaignSource || stc.sfCampaignSource || DEFAULT_CAMPAIGN_SOURCE).trim();
+      if (cs) {
+        const rc = await ensureLeadCampaignSource(req.user, req.params.id, cs);
+        if (rc && rc.filled) console.log(`[SF立ち上げ] 主キャンペーンソースを入れました → ${cs}`);
+      }
+    } catch (e) {
+      console.warn("[SF立ち上げ] 主キャンペーンソースを入れられませんでした:", e.message);
     }
     const ownerId = await getSfUserId(req.user).catch(() => "");
 
