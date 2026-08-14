@@ -24,12 +24,22 @@ const KB_MENU = [
   {
     href: "sf-launch.html", label: "ツール", ico: "ico-tool",
     subs: [
-      { href: "sf-launch.html", label: "Salesforce", desc: "商談立ち上げ・レポート・プロセスシート" },
+      { href: "sf-launch.html", label: "商談立ち上げ", desc: "リードを探してコンバートする" },
+      { href: "sf-launch.html?tab=pending", label: "立ち上げ待ち", desc: "自動で立ち上がらなかったもの" },
+      { href: "sf-launch.html?tab=process", label: "プロセスシート", desc: "架電結果をシートに書き込む" },
       { href: "apo.html", label: "アポ振り分け", desc: "担当の自動割り振り・チーム実績" },
       { href: "docs.html", label: "資料トラッキング", desc: "送った資料の閲覧状況" },
     ],
   },
-  { href: "settings.html", label: "設定", ico: "ico-set" },
+  {
+    href: "settings.html", label: "設定", ico: "ico-set",
+    subs: [
+      { href: "settings.html", label: "動作設定", desc: "録音・要約・自動入室" },
+      { href: "settings.html?tab=integrations", label: "外部連携", desc: "Google・Salesforce・Chat通知" },
+      { href: "settings.html?tab=members", label: "メンバー管理", desc: "クローザー・インサイドの登録" },
+      { href: "settings.html?tab=ai", label: "AIの設定", desc: "自社ナレッジ・プロンプト" },
+    ],
+  },
 ];
 
 // パソコンのサイドバーを組み立てる。

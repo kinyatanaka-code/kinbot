@@ -331,6 +331,9 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   };
   tabs.querySelectorAll(".rep-tab").forEach((b) => b.addEventListener("click", () => show(b.dataset.sftab)));
+  // メニューから ?tab=... で直接そのタブを開けるようにする
+  const want = new URLSearchParams(location.search).get("tab");
+  if (want && tabs.querySelector(`.rep-tab[data-sftab="${CSS.escape(want)}"]`)) show(want);
   // 立ち上げ待ちの件数を、最初に一度だけ数えてタブに出す
   setTimeout(() => { if (typeof loadPending === "function") loadPending(); }, 1500);
 });

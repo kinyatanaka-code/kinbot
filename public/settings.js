@@ -2655,3 +2655,16 @@ async function loadChatTargets() {
     } catch (e) { say("失敗: " + e.message); }
   });
 })();
+
+// メニューから ?tab=... で直接そのタブを開けるようにする。
+// 「設定 → 外部連携 → …」の3段を、1回で飛べるようにするため。
+(function openTabFromUrl() {
+  const want = new URLSearchParams(location.search).get("tab");
+  if (!want) return;
+  const go = () => {
+    const item = document.querySelector(`.set-menu-item[data-tab="${CSS.escape(want)}"]`);
+    if (item) item.click();
+  };
+  if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", go);
+  else setTimeout(go, 0);
+})();

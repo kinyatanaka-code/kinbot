@@ -429,8 +429,10 @@ function setupTabs() {
     if (name === "sys") loadBuild();
   };
   tabs.forEach((t) => t.addEventListener("click", () => show(t.dataset.pane)));
-  let init = "list";
-  try { init = localStorage.getItem("apoTab") || "list"; } catch {}
+  // メニューから ?tab=... で直接そのタブを開けるようにする。
+  // 指定が無ければ、前に開いていたタブに戻る。
+  let init = new URLSearchParams(location.search).get("tab") || "";
+  if (!init) { try { init = localStorage.getItem("apoTab") || "list"; } catch { init = "list"; } }
   if (!tabs.some((t) => t.dataset.pane === init)) init = "list";
   show(init);
 }
