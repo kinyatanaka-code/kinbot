@@ -39,6 +39,8 @@ const HOME_ICONS = {
   // テンプレート（型）の呼び出し・保存
   tplin: "M3 5h9v2H3zm0 5h9v2H3zm0 5h9v2H3zm14-8 5 5-5 5v-3.2h-4.2v-3.6H17z",
   tplsave: "M11 3h2v8h3.2L12 16.4 7.8 11H11zM4 17h16v3H4z",
+  tpledit: "M3 17.3 14.1 6.2l3.7 3.7L6.7 21H3zM15.5 4.8l2-2a1.4 1.4 0 0 1 2 0l1.7 1.7a1.4 1.4 0 0 1 0 2l-2 2z",
+  tpldel: "M9 3h6l1 2h4v2H4V5h4zM6 9h12l-1 12H7zm3 2v8h1.5v-8zm4.5 0v8H15v-8z",
 };
 
 // アイコンのボタンを1つ作る。
@@ -47,7 +49,7 @@ const HOME_ICONS = {
 const HOME_ICON_NAMES = {
   rec: "録音", sf: "SF", open: "開く", mail: "メール", cal: "会議室", trash: "外す", more: "その他",
   draft: "下書き", copy: "コピー", gmail: "Gmail", tpl: "テンプレ", doc: "資料URL",
-  tplin: "型を入れる", tplsave: "型を保存",
+  tplin: "型を入れる", tplsave: "型を保存", tpledit: "型を直す", tpldel: "型を消す",
 };
 
 function hIcon(kind, label, attrs = "", state = "", tag = "button") {
@@ -588,8 +590,63 @@ function wireMailTemplates(box, botId, tpls) {
     })
   );
 
+  // 一覧（プルダウン）を作り直す。消したり名前を変えたあとに使う。
+  const refreshSel = (keepId) => {
+    if (!sel) return;
+    sel.innerHTML =
+      `<option value="">使わない（商談内容から作る）</option>` +
+      tpls.map((t) => `<option value="${escH(t.id)}">${escH(t.name)}</option>`).join("");
+    sel.value = tpls.some((t) => t.id === keepId) ? keepId : "";
+    syncBtns();
+  };
+
+  // 型を選んでいないときは、直す・消すは押せないようにする
+  const editBtn = box.querySelector("[data-tpl-edit]");
+  const delBtn = box.querySelector("[data-tpl-del]");
+  const syncBtns = () => {
+    const on = !!(sel && sel.value);
+    [editBtn, delBtn].forEach((b) => { if (b) b.classList.toggle("hib-off", !on); });
+  };
+  if (sel) sel.addEventListener("change", syncBtns);
+  syncBtns();
+
+  // 型の中身をそのまま画面に出して直す。
+  // 直したあと「型を保存」で上書きすれば、型そのものを書き換えられる。
+  if (editBtn) editBtn.addEventListener("click", () => {
+    const cur = sel && sel.value ? tpls.find((t) => t.id === sel.value) : null;
+    if (!cur) { say("先に、直したいテンプレートを選んでください", 5000); return; }
+    const ta = box.querySelector(".home-mail-body");
+    const su2 = box.querySelector(".home-mail-subj");
+    if (ta.value.trim() && !confirm(
+      `いま書いてある文面を、テンプレート「${cur.name}」の中身に置き換えます。よろしいですか。`)) return;
+    su2.value = cur.subject || "";
+    ta.value = cur.body || "";
+    say(`「${cur.name}」を出しました。直したら「型を保存」で上書きできます`, 8000);
+  });
+
+  // 型を消す
+  if (delBtn) delBtn.addEventListener("click", async () => {
+    const cur = sel && sel.value ? tpls.find((t) => t.id === sel.value) : null;
+    if (!cur) { say("先に、消したいテンプレートを選んでください", 5000); return; }
+    if (!confirm(`テンプレート「${cur.name}」を消します。元には戻せません。よろしいですか。`)) return;
+    delBtn.disabled = true;
+    say("消しています…");
+    try {
+      const next = tpls.filter((t) => t.id !== cur.id);
+      const r = await fetch("/api/mail-templates", {
+        method: "PUT", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ templates: next }),
+      });
+      if (!r.ok) throw new Error(((await r.json()) || {}).error || "消せませんでした");
+      tpls.length = 0; tpls.push(...next);
+      refreshSel("");
+      say(`「${cur.name}」を消しました`, 6000);
+    } catch (e) { say("失敗: " + e.message); }
+    finally { delBtn.disabled = false; }
+  });
+
   // いまの文面をテンプレートとして保存する。
-  // すでに選ばれているものがあれば、上書きするか新しく作るかを選べる。
+  // すでに選ばれているものがあれば、上書き（名前も変えられる）か新しく作るかを選べる。
   const saveBtn = box.querySelector("[data-tpl-save]");
   if (saveBtn) saveBtn.addEventListener("click", async () => {
     const bodyText = box.querySelector(".home-mail-body").value.trim();
@@ -602,11 +659,16 @@ function wireMailTemplates(box, botId, tpls) {
       // 選んでいるものがあるときは、上書きするかを聞く
       mode = confirm(
         `「${cur.name}」を、いまの文面で上書きしますか。\n\n` +
-        `OK … 上書きする\nキャンセル … 別の名前で新しく保存する`) ? "over" : "new";
+        `OK … 上書きする（名前も変えられます）\nキャンセル … 別の名前で新しく保存する`) ? "over" : "new";
     }
 
-    let name = cur && mode === "over" ? cur.name : "";
-    if (mode === "new") {
+    let name = "";
+    if (mode === "over") {
+      // 上書きのときは、ここで名前も変えられるようにする
+      const input = prompt("名前です。変えたいときは書き直してください。", cur.name);
+      if (input === null) return;
+      name = input.trim() || cur.name;
+    } else {
       const input = prompt(
         "この文面に名前を付けて保存します。\n（例：初回・価格の話が出たとき）\n\n" +
         "次に使うときは、この形に沿って商談の内容が差し込まれます。", "");
@@ -620,7 +682,7 @@ function wireMailTemplates(box, botId, tpls) {
     try {
       let next, saved;
       if (mode === "over") {
-        next = tpls.map((t) => (t.id === cur.id ? { ...t, subject: subj, body: bodyText } : t));
+        next = tpls.map((t) => (t.id === cur.id ? { ...t, name, subject: subj, body: bodyText } : t));
         saved = next.find((t) => t.id === cur.id);
       } else {
         saved = { id: "t" + Date.now(), name, subject: subj, body: bodyText };
@@ -632,13 +694,9 @@ function wireMailTemplates(box, botId, tpls) {
       });
       if (!r.ok) throw new Error(((await r.json()) || {}).error || "保存できませんでした");
 
-      if (mode === "new" && sel) {
-        const op = document.createElement("option");
-        op.value = saved.id; op.textContent = saved.name;
-        sel.appendChild(op); sel.value = saved.id;
-      }
       tpls.length = 0;
       tpls.push(...next);
+      refreshSel(saved.id);
       say(mode === "over" ? `「${saved.name}」を上書きしました` : `「${saved.name}」として保存しました`, 6000);
     } catch (e) { say("失敗: " + e.message); }
     finally { saveBtn.disabled = false; }
@@ -1046,7 +1104,9 @@ async function openMail(botId, key) {
          </label>
          <div class="mail-tpl-acts">
            ${hIcon("tplin", "選んだテンプレートで本文を作り直す", `data-tpl-apply="${escH(botId)}"`)}
-           ${hIcon("tplsave", "いまの文面をテンプレートとして保存する", 'data-tpl-save="1"')}
+           ${hIcon("tpledit", "選んだテンプレートの文をそのまま出して直す", 'data-tpl-edit="1"')}
+           ${hIcon("tplsave", "いまの文面をテンプレートとして保存する（上書き・名前の変更もできます）", 'data-tpl-save="1"')}
+           ${hIcon("tpldel", "選んだテンプレートを消す", 'data-tpl-del="1"')}
          </div>
          <span class="mail-tpl-st"></span>
          <div class="mail-tpl-help">

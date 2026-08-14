@@ -4951,9 +4951,12 @@ input:focus, select:focus, textarea:focus, .sf-input:focus, .sf-select:focus, .s
   border-radius: 11px; margin-top: 14px; }
 .mail-tpl-lb { flex: 1 1 220px; min-width: 180px; margin: 0; }
 /* テンプレートの操作は、他と同じ小さなアイコンにそろえる */
-.mail-tpl-acts { display: flex; gap: 8px; align-items: flex-start; padding-bottom: 2px; }
+.mail-tpl-acts { display: flex; gap: 8px; align-items: flex-start; padding-bottom: 2px; flex-wrap: wrap; }
 .mail-tpl-acts .hib { width: auto; min-width: 44px; }
 .mail-tpl-acts .hib-name { white-space: nowrap; }
+/* 消す操作は、間違えないよう赤くする */
+.mail-tpl-acts [data-tpl-del]:not(.hib-off):hover .hib-btn { background: #C0563C; border-color: #C0563C; }
+.mail-tpl-acts [data-tpl-del]:not(.hib-off):hover .hib-name { color: #C0563C; }
 
 /* 送り方（新規作成／返信）の切り替え */
 .mail-mode { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 12px; }
