@@ -39,6 +39,7 @@ const HOME_ICONS = {
   doc: "M4 3h9l7 7v11H4zm2 2v14h12v-8h-6V5zm2 8h8v2H8zm0 3h8v2H8z",
   // テンプレート（型）の呼び出し・保存
   tplin: "M3 5h9v2H3zm0 5h9v2H3zm0 5h9v2H3zm14-8 5 5-5 5v-3.2h-4.2v-3.6H17z",
+  tpluse: "M3 5h9v2H3zm0 5h9v2H3zm0 5h9v2H3zm14-8 5 5-5 5v-3.2h-4.2v-3.6H17z",
   tplsave: "M11 3h2v8h3.2L12 16.4 7.8 11H11zM4 17h16v3H4z",
   tpledit: "M3 17.3 14.1 6.2l3.7 3.7L6.7 21H3zM15.5 4.8l2-2a1.4 1.4 0 0 1 2 0l1.7 1.7a1.4 1.4 0 0 1 0 2l-2 2z",
   tpldel: "M9 3h6l1 2h4v2H4V5h4zM6 9h12l-1 12H7zm3 2v8h1.5v-8zm4.5 0v8H15v-8z",
@@ -50,7 +51,7 @@ const HOME_ICONS = {
 const HOME_ICON_NAMES = {
   rec: "録音", sf: "SF", open: "開く", mail: "メール", cal: "会議室", trash: "外す", more: "その他",
   gen: "文面を作る", draft: "下書き", copy: "コピー", gmail: "Gmail", tpl: "テンプレ", doc: "資料URL",
-  tplin: "型を入れる", tplsave: "型を保存", tpledit: "型を直す", tpldel: "型を消す",
+  tplin: "型を入れる", tpluse: "この型で作る", tplsave: "型を保存", tpledit: "型を直す", tpldel: "型を消す",
 };
 
 function hIcon(kind, label, attrs = "", state = "", tag = "button") {
@@ -610,7 +611,10 @@ function wireMailTemplates(box, botId, tpls) {
   // 差し込み語を、カーソルの位置に入れる
   box.querySelectorAll(".tag-ins").forEach((b) =>
     b.addEventListener("click", () => {
-      const ta = box.querySelector(".home-mail-body");
+      // 押したボタンと同じ画面（メール／型を直す）の本文に入れる
+      const pane = b.closest(".mail-pane") || box;
+      const ta = pane.querySelector("textarea");
+      if (!ta) return;
       const t = b.dataset.ins;
       const i = ta.selectionStart ?? ta.value.length;
       ta.value = ta.value.slice(0, i) + t + ta.value.slice(ta.selectionEnd ?? i);
@@ -629,37 +633,107 @@ function wireMailTemplates(box, botId, tpls) {
     syncBtns();
   };
 
-  // 型を選んでいないときは、直す・消すは押せないようにする
+  // 型を選んでいないときは、押せないようにする
   const editBtn = box.querySelector("[data-tpl-edit]");
-  const delBtn = box.querySelector("[data-tpl-del]");
   const syncBtns = () => {
     const on = !!(sel && sel.value);
-    [editBtn, delBtn].forEach((b) => { if (b) b.classList.toggle("hib-off", !on); });
+    [editBtn].forEach((b) => { if (b) b.classList.toggle("hib-off", !on); });
   };
-  if (sel) sel.addEventListener("change", syncBtns);
+
+  // ── テンプレートを直す画面（横にスライドして出す） ──
+  const slider = box.querySelector(".mail-slider");
+  const mainPane = box.querySelector(".mail-pane-main");
+  const tplPane = box.querySelector(".mail-pane-tpl");
+  const tName = box.querySelector(".tple-name");
+  const tSubj = box.querySelector(".tple-subj");
+  const tBody = box.querySelector(".tple-body");
+  const tSt = box.querySelector(".tple-st");
+  const tellT = (t, ms) => {
+    if (!tSt) return;
+    tSt.textContent = t || "";
+    if (ms) setTimeout(() => { if (tSt.textContent === t) tSt.textContent = ""; }, ms);
+  };
+
+  // いま直している型のid
+  let editingId = "";
+
+  const showTpl = (on) => {
+    if (!slider) return;
+    slider.classList.toggle("on", on);
+    if (mainPane) mainPane.setAttribute("aria-hidden", on ? "true" : "false");
+    if (tplPane) tplPane.setAttribute("aria-hidden", on ? "false" : "true");
+    // 上に戻して、直す欄が見えるようにする
+    const sc = box.closest(".sfm-body") || box;
+    if (sc && sc.scrollTo) sc.scrollTo({ top: 0, behavior: "smooth" });
+  };
+
+  const openTplEditor = (id) => {
+    const cur = tpls.find((t) => t.id === id);
+    if (!cur) return;
+    editingId = cur.id;
+    if (tName) tName.value = cur.name || "";
+    if (tSubj) tSubj.value = cur.subject || "";
+    if (tBody) tBody.value = cur.body || "";
+    tellT("");
+    showTpl(true);
+  };
+
+  // 型を選んだら、その型を直す画面へスライドする
+  if (sel) sel.addEventListener("change", () => {
+    syncBtns();
+    if (sel.value) openTplEditor(sel.value);
+  });
   syncBtns();
 
-  // 型の中身をそのまま画面に出して直す。
-  // 直したあと「型を保存」で上書きすれば、型そのものを書き換えられる。
   if (editBtn) editBtn.addEventListener("click", () => {
-    const cur = sel && sel.value ? tpls.find((t) => t.id === sel.value) : null;
-    if (!cur) { say("先に、直したいテンプレートを選んでください", 5000); return; }
-    const ta = box.querySelector(".home-mail-body");
-    const su2 = box.querySelector(".home-mail-subj");
-    if (ta.value.trim() && !confirm(
-      `いま書いてある文面を、テンプレート「${cur.name}」の中身に置き換えます。よろしいですか。`)) return;
-    su2.value = cur.subject || "";
-    ta.value = cur.body || "";
-    say(`「${cur.name}」を出しました。直したら「型を保存」で上書きできます`, 8000);
+    if (!(sel && sel.value)) { say("先に、直したいテンプレートを選んでください", 5000); return; }
+    openTplEditor(sel.value);
+  });
+
+  const backBtn = box.querySelector("[data-tple-back]");
+  if (backBtn) backBtn.addEventListener("click", () => showTpl(false));
+
+  // この型でメールの文面を作る（メール画面に戻ってから作る）
+  const useBtn = box.querySelector("[data-tple-use]");
+  if (useBtn) useBtn.addEventListener("click", async () => {
+    showTpl(false);
+    await doGen(useBtn, true);
+  });
+
+  // 型を保存する（名前も変えられる）
+  const tSaveBtn = box.querySelector("[data-tple-save]");
+  if (tSaveBtn) tSaveBtn.addEventListener("click", async () => {
+    const cur = tpls.find((t) => t.id === editingId);
+    if (!cur) { tellT("直す型が選ばれていません", 5000); return; }
+    const name = (tName ? tName.value : "").trim();
+    const bodyText = (tBody ? tBody.value : "").trim();
+    if (!name) { tellT("名前を入れてください", 5000); return; }
+    if (!bodyText) { tellT("本文が空です", 5000); return; }
+    tSaveBtn.disabled = true;
+    tellT("保存しています…");
+    try {
+      const next = tpls.map((t) => (t.id === cur.id
+        ? { ...t, name, subject: (tSubj ? tSubj.value : "").trim(), body: bodyText } : t));
+      const r = await fetch("/api/mail-templates", {
+        method: "PUT", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ templates: next }),
+      });
+      if (!r.ok) throw new Error(((await r.json()) || {}).error || "保存できませんでした");
+      tpls.length = 0; tpls.push(...next);
+      refreshSel(cur.id);
+      tellT(`「${name}」を保存しました`, 6000);
+    } catch (e) { tellT("失敗: " + e.message, 8000); }
+    finally { tSaveBtn.disabled = false; }
   });
 
   // 型を消す
-  if (delBtn) delBtn.addEventListener("click", async () => {
-    const cur = sel && sel.value ? tpls.find((t) => t.id === sel.value) : null;
-    if (!cur) { say("先に、消したいテンプレートを選んでください", 5000); return; }
+  const tDelBtn = box.querySelector("[data-tple-del]");
+  if (tDelBtn) tDelBtn.addEventListener("click", async () => {
+    const cur = tpls.find((t) => t.id === editingId);
+    if (!cur) { tellT("消す型が選ばれていません", 5000); return; }
     if (!confirm(`テンプレート「${cur.name}」を消します。元には戻せません。よろしいですか。`)) return;
-    delBtn.disabled = true;
-    say("消しています…");
+    tDelBtn.disabled = true;
+    tellT("消しています…");
     try {
       const next = tpls.filter((t) => t.id !== cur.id);
       const r = await fetch("/api/mail-templates", {
@@ -668,65 +742,43 @@ function wireMailTemplates(box, botId, tpls) {
       });
       if (!r.ok) throw new Error(((await r.json()) || {}).error || "消せませんでした");
       tpls.length = 0; tpls.push(...next);
+      editingId = "";
       refreshSel("");
+      showTpl(false);
       say(`「${cur.name}」を消しました`, 6000);
-    } catch (e) { say("失敗: " + e.message); }
-    finally { delBtn.disabled = false; }
+    } catch (e) { tellT("失敗: " + e.message, 8000); }
+    finally { tDelBtn.disabled = false; }
   });
 
-  // いまの文面をテンプレートとして保存する。
-  // すでに選ばれているものがあれば、上書き（名前も変えられる）か新しく作るかを選べる。
+  // いまの文面を、新しいテンプレートとして保存する。
+  // すでにある型を直したいときは、上のプルダウンから選ぶと直す画面が開く。
   const saveBtn = box.querySelector("[data-tpl-save]");
   if (saveBtn) saveBtn.addEventListener("click", async () => {
     const bodyText = box.querySelector(".home-mail-body").value.trim();
     const subj = box.querySelector(".home-mail-subj").value.trim();
     if (!bodyText) { say("本文が空です", 4000); return; }
 
-    const cur = sel && sel.value ? tpls.find((t) => t.id === sel.value) : null;
-    let mode = "new";
-    if (cur) {
-      // 選んでいるものがあるときは、上書きするかを聞く
-      mode = confirm(
-        `「${cur.name}」を、いまの文面で上書きしますか。\n\n` +
-        `OK … 上書きする（名前も変えられます）\nキャンセル … 別の名前で新しく保存する`) ? "over" : "new";
-    }
-
-    let name = "";
-    if (mode === "over") {
-      // 上書きのときは、ここで名前も変えられるようにする
-      const input = prompt("名前です。変えたいときは書き直してください。", cur.name);
-      if (input === null) return;
-      name = input.trim() || cur.name;
-    } else {
-      const input = prompt(
-        "この文面に名前を付けて保存します。\n（例：初回・価格の話が出たとき）\n\n" +
-        "次に使うときは、この形に沿って商談の内容が差し込まれます。", "");
-      if (input === null) return;
-      if (!input.trim()) { say("名前を入れてください", 4000); return; }
-      name = input.trim();
-    }
+    const input = prompt(
+      "この文面に名前を付けて保存します。\n（例：初回・価格の話が出たとき）\n\n" +
+      "次に使うときは、この形に沿って商談の内容が差し込まれます。", "");
+    if (input === null) return;
+    if (!input.trim()) { say("名前を入れてください", 4000); return; }
+    const name = input.trim();
 
     saveBtn.disabled = true;
     say("保存しています…");
     try {
-      let next, saved;
-      if (mode === "over") {
-        next = tpls.map((t) => (t.id === cur.id ? { ...t, name, subject: subj, body: bodyText } : t));
-        saved = next.find((t) => t.id === cur.id);
-      } else {
-        saved = { id: "t" + Date.now(), name, subject: subj, body: bodyText };
-        next = [...tpls, saved];
-      }
+      const saved = { id: "t" + Date.now(), name, subject: subj, body: bodyText };
+      const next = [...tpls, saved];
       const r = await fetch("/api/mail-templates", {
         method: "PUT", headers: { "content-type": "application/json" },
         body: JSON.stringify({ templates: next }),
       });
       if (!r.ok) throw new Error(((await r.json()) || {}).error || "保存できませんでした");
-
       tpls.length = 0;
       tpls.push(...next);
-      refreshSel(saved.id);
-      say(mode === "over" ? `「${saved.name}」を上書きしました` : `「${saved.name}」として保存しました`, 6000);
+      refreshSel("");
+      say(`「${saved.name}」として保存しました`, 6000);
     } catch (e) { say("失敗: " + e.message); }
     finally { saveBtn.disabled = false; }
   });
@@ -1091,7 +1143,9 @@ async function openMail(botId, key) {
     const subject = d.subject || "【御礼】本日のお打ち合わせについて";
     const body = "";
     box.innerHTML =
-      `<div class="mail-mode">
+      `<div class="mail-slider">
+       <div class="mail-pane mail-pane-main">
+       <div class="mail-mode">
          <span class="mail-mode-lb">送り方</span>
          <button type="button" class="mail-mode-b on" data-mode="new">新規作成</button>
          <button type="button" class="mail-mode-b" data-mode="reply">返信</button>
@@ -1122,7 +1176,7 @@ async function openMail(botId, key) {
 
        <!-- テンプレートは、アイコンを押したときだけ開く -->
        <div class="mail-tpl" hidden>
-         <label class="mail-lb mail-tpl-lb">テンプレート
+         <label class="mail-lb mail-tpl-lb">テンプレート（選ぶと、その型を直す画面が開きます）
            <select class="mail-tpl-sel">
              <option value="">使わない（商談内容から作る）</option>
              ${tpls.map((t) => `<option value="${escH(t.id)}">${escH(t.name)}</option>`).join("")}
@@ -1130,23 +1184,44 @@ async function openMail(botId, key) {
          </label>
          <div class="mail-tpl-acts">
            ${hIcon("tplin", "選んだテンプレートで本文を作り直す", `data-tpl-apply="${escH(botId)}"`)}
-           ${hIcon("tpledit", "選んだテンプレートの文をそのまま出して直す", 'data-tpl-edit="1"')}
-           ${hIcon("tplsave", "いまの文面をテンプレートとして保存する（上書き・名前の変更もできます）", 'data-tpl-save="1"')}
-           ${hIcon("tpldel", "選んだテンプレートを消す", 'data-tpl-del="1"')}
+           ${hIcon("tpledit", "選んだテンプレートを直す画面を開く", 'data-tpl-edit="1"')}
+           ${hIcon("tplsave", "いまの文面を、新しいテンプレートとして保存する", 'data-tpl-save="1"')}
          </div>
          <span class="mail-tpl-st"></span>
          <div class="mail-tpl-help">
-           テンプレートにこう書くと、送るときに中身が入ります。
-           <button type="button" class="tag-ins" data-ins="{資料URL}">{資料URL}</button>
-           <button type="button" class="tag-ins" data-ins="{会社名}">{会社名}</button>
-           <button type="button" class="tag-ins" data-ins="{担当者名}">{担当者名}</button>
-           <button type="button" class="tag-ins" data-ins="{自分の名前}">{自分の名前}</button>
            <span class="mail-doc-st">${
              (d.docLinks && d.docLinks.length)
                ? `この会社の資料URL ${d.docLinks.length}件（誰が何ページ見たか追えます）`
                : "この会社向けの資料URLはまだありません（資料トラッキングで発行できます）"
            }</span>
          </div>
+       </div>
+       </div>
+
+       <!-- テンプレートを直す画面。型を選ぶと、ここへ横にスライドする -->
+       <div class="mail-pane mail-pane-tpl" aria-hidden="true">
+         <div class="tple-head">
+           <button type="button" class="btn sf-btn-secondary home-sf-mini" data-tple-back="1">← メールに戻る</button>
+           <span class="tple-t">テンプレートを直す</span>
+         </div>
+         <label class="mail-lb">型の名前<input type="text" class="tple-name" /></label>
+         <label class="mail-lb">件名<input type="text" class="tple-subj" /></label>
+         <label class="mail-lb">本文<textarea class="tple-body" rows="14"></textarea></label>
+         <div class="mail-tpl-help">
+           ここにこう書くと、送るときに中身が入ります。
+           <button type="button" class="tag-ins" data-ins="{資料URL}">{資料URL}</button>
+           <button type="button" class="tag-ins" data-ins="{会社名}">{会社名}</button>
+           <button type="button" class="tag-ins" data-ins="{担当者名}">{担当者名}</button>
+           <button type="button" class="tag-ins" data-ins="{自分の名前}">{自分の名前}</button>
+           <span class="mail-doc-st">【】で囲んだところと空欄は、商談の内容で埋まります。</span>
+         </div>
+         <div class="mail-acts">
+           ${hIcon("tpluse", "この型でメールの文面を作る", `data-tple-use="${escH(botId)}"`, "need")}
+           ${hIcon("tplsave", "この型を保存する", 'data-tple-save="1"')}
+           ${hIcon("tpldel", "この型を消す", 'data-tple-del="1"')}
+         </div>
+         <div class="tple-st"></div>
+       </div>
        </div>`;
 
     wireMailTemplates(box, botId, tpls);

@@ -6284,7 +6284,7 @@ app.get("/api/meetings/:id/thanks-context", async (req, res) => {
       company,
       round: m.round_no || "",
       subject: `【御礼】${company ? company + "様との" : "本日の"}お打ち合わせについて`,
-      docLinks: docLinks.map((d) => ({ name: d.doc_name, url: `${base}/d/${d.slug}` })),
+      docLinks: docLinks.map((d) => ({ name: fixMojibake(d.doc_name), url: `${base}/d/${d.slug}` })),
     });
   } catch (e) {
     console.error("[thanks-context]", e.message);
@@ -6329,7 +6329,7 @@ app.post("/api/meetings/:id/thanks", async (req, res) => {
     let docLinks = [];
     try { docLinks = await docLinksForCompany(company, 5); } catch {}
     const base = String(process.env.PUBLIC_URL || "").replace(/\/+$/, "");
-    const docLines = docLinks.map((d) => `${d.doc_name}：${base}/d/${d.slug}`).join("\n");
+    const docLines = docLinks.map((d) => `${fixMojibake(d.doc_name)}：${base}/d/${d.slug}`).join("\n");
 
     // テンプレートが選ばれていれば、それを最優先の手本にする。
     // 商談の要約と組み合わせて、その型に沿った文面を作る。
@@ -6382,7 +6382,7 @@ app.post("/api/meetings/:id/thanks", async (req, res) => {
 
     res.json({ ...result, round, exampleCount: examples.length,
                templateName: tpl ? tpl.name : "",
-               docLinks: docLinks.map((d) => ({ name: d.doc_name, url: `${base}/d/${d.slug}` })) });
+               docLinks: docLinks.map((d) => ({ name: fixMojibake(d.doc_name), url: `${base}/d/${d.slug}` })) });
   } catch (e) {
     console.error("[thanks]", e.message);
     res.status(502).json({ error: e.message });
