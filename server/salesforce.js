@@ -853,6 +853,42 @@ export async function convertedLeadStatus(owner) {
   return (list[0] && list[0].value) || "";
 }
 
+// 「アポ獲得日」にあたるリードの項目名を突き止める。
+// 組織ごとにAPI名が違うので、まずよくある名前で探し、無ければラベルで探す。
+let _apoDateFieldCache = { at: 0, name: null };
+export async function apoDateFieldName(owner) {
+  if (_apoDateFieldCache.name !== null && Date.now() - _apoDateFieldCache.at < 30 * 60 * 1000) {
+    return _apoDateFieldCache.name;
+  }
+  let name = "";
+  try {
+    const desc = await describeObject(owner, "Lead");
+    const all = (desc.fields || []).filter((f) => f.updateable);
+    let f = all.find((x) => x.name === "Apo_Date__c") || all.find((x) => x.name === "apo_date__c");
+    if (!f) f = all.find((x) => /アポ.*獲得.*日|獲得日/.test(String(x.label || "")));
+    if (f && (f.type === "date" || f.type === "datetime")) name = f.name;
+    else if (f) name = f.name;
+  } catch {}
+  _apoDateFieldCache = { at: Date.now(), name };
+  return name;
+}
+
+// コンバートの前に「アポ獲得日」を入れておく。
+// この項目が空だと「取引開始済にするには『アポ獲得日』の入力が必要です」で弾かれる。
+// すでに値が入っていれば触らない（現場が手で入れた日付を上書きしないため）。
+export async function ensureLeadApoDate(owner, leadId, dateStr) {
+  const field = await apoDateFieldName(owner);
+  if (!field || !leadId || !dateStr) return { ok: false, skipped: true, field };
+  const id = String(leadId).replace(/[^a-zA-Z0-9]/g, "");
+  try {
+    const d = await sfQuery(owner, `SELECT Id, ${field} FROM Lead WHERE Id = '${id}' LIMIT 1`);
+    const cur = (d.records || [])[0] || {};
+    if (cur[field]) return { ok: true, already: true, field, value: cur[field] };
+  } catch {}
+  await updateLead(owner, id, { [field]: dateStr });
+  return { ok: true, filled: true, field, value: dateStr };
+}
+
 // リードをコンバートする（標準の convertLead アクションを使う）
 export async function convertLead(owner, { leadId, convertedStatus, opportunityName, accountId, contactId, ownerId, doNotCreateOpportunity, allowDuplicate }) {
   const acc = await getAccess(owner);

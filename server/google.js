@@ -315,6 +315,49 @@ export async function createCalendarEvent(owner, {
   return { id: d.id, htmlLink: d.htmlLink, status: d.status };
 }
 
+// ───────────────────────────────────────────────────────────
+// カレンダーの変更を、Googleから即時に知らせてもらう（プッシュ通知）
+//
+// 1分おきに見に行くのをやめ、予定が作られた瞬間にkinbotへ通知が届くようにする。
+// 監視は期限つき（既定7日）なので、期限が近づいたら作り直す。
+// ───────────────────────────────────────────────────────────
+export async function watchCalendarEvents(owner, calendarId, { channelId, address, token, ttlSec = 604800 } = {}) {
+  const at = await accessToken(owner);
+  if (!at) throw new Error("Googleが連携されていません");
+  const cal = encodeURIComponent(String(calendarId || "primary"));
+  const res = await fetch(
+    `https://www.googleapis.com/calendar/v3/calendars/${cal}/events/watch`,
+    {
+      method: "POST",
+      headers: { authorization: `Bearer ${at}`, "content-type": "application/json" },
+      body: JSON.stringify({
+        id: channelId, type: "web_hook", address, token,
+        params: { ttl: String(ttlSec) },
+      }),
+    }
+  );
+  const t = await res.text();
+  if (!res.ok) throw new Error(`カレンダー監視の登録 ${res.status}: ${t.slice(0, 200)}`);
+  const d = JSON.parse(t || "{}");
+  return {
+    channelId: d.id || channelId,
+    resourceId: d.resourceId || "",
+    expiration: d.expiration ? new Date(Number(d.expiration)).toISOString() : null,
+  };
+}
+
+// 監視を止める（作り直す前に、古いほうを止めて溜めないようにする）
+export async function stopCalendarChannel(owner, channelId, resourceId) {
+  const at = await accessToken(owner);
+  if (!at || !channelId || !resourceId) return false;
+  const res = await fetch(`https://www.googleapis.com/calendar/v3/channels/stop`, {
+    method: "POST",
+    headers: { authorization: `Bearer ${at}`, "content-type": "application/json" },
+    body: JSON.stringify({ id: channelId, resourceId }),
+  });
+  return res.ok || res.status === 404;
+}
+
 export async function deleteCalendarEvent(owner, eventId, calendarId = "primary") {
   const token = await accessToken(owner);
   if (!token || !eventId) return false;

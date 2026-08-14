@@ -510,6 +510,19 @@ export async function initDb() {
   `);
   await sq(`CREATE INDEX IF NOT EXISTS idx_oauth_tokens_refresh ON oauth_tokens(refresh_token);`);
 
+  // ===== カレンダーの変更をGoogleから即時に受け取るための監視 =====
+  await sq(`
+    CREATE TABLE IF NOT EXISTS calendar_watch (
+      channel_id   TEXT PRIMARY KEY,
+      resource_id  TEXT,
+      calendar_id  TEXT,
+      token_owner  TEXT,
+      expires_at   TIMESTAMPTZ,
+      created_at   TIMESTAMPTZ DEFAULT now()
+    );
+  `);
+  await sq(`CREATE INDEX IF NOT EXISTS ix_calendar_watch_cal ON calendar_watch(calendar_id);`);
+
   // ===== スマートリンク（担当者切り替えに追随する共有Zoom URL） =====
   await sq(`
     CREATE TABLE IF NOT EXISTS smart_links (
@@ -2588,6 +2601,60 @@ export async function getSmartLinkByEvent(eventId) {
   const { rows } = await pool.query(`SELECT * FROM smart_links WHERE event_id=$1`, [eventId]);
   return rows[0] || null;
 }
+// ===== カレンダー監視（プッシュ通知）の記録 =====
+export async function listCalendarWatches() {
+  if (!pool) return [];
+  try {
+    const { rows } = await pool.query(
+      `SELECT * FROM calendar_watch ORDER BY calendar_id`);
+    return rows;
+  } catch { return []; }
+}
+
+export async function saveCalendarWatch({ channelId, resourceId, calendarId, tokenOwner, expiresAt }) {
+  if (!pool || !channelId) return null;
+  try {
+    const { rows } = await pool.query(
+      `INSERT INTO calendar_watch (channel_id, resource_id, calendar_id, token_owner, expires_at)
+       VALUES ($1,$2,$3,$4,$5)
+       ON CONFLICT (channel_id) DO UPDATE
+         SET resource_id = EXCLUDED.resource_id, calendar_id = EXCLUDED.calendar_id,
+             token_owner = EXCLUDED.token_owner, expires_at = EXCLUDED.expires_at
+       RETURNING *`,
+      [channelId, resourceId || null, calendarId || null, tokenOwner || null, expiresAt || null]);
+    return rows[0] || null;
+  } catch (e) { console.error("[db] saveCalendarWatch", e.message); return null; }
+}
+
+export async function deleteCalendarWatch(channelId) {
+  if (!pool || !channelId) return 0;
+  try {
+    const { rowCount } = await pool.query(`DELETE FROM calendar_watch WHERE channel_id = $1`, [channelId]);
+    return rowCount;
+  } catch { return 0; }
+}
+
+export async function getCalendarWatch(channelId) {
+  if (!pool || !channelId) return null;
+  try {
+    const { rows } = await pool.query(`SELECT * FROM calendar_watch WHERE channel_id = $1`, [channelId]);
+    return rows[0] || null;
+  } catch { return null; }
+}
+
+// 予定名＋開始時刻が同じアポを探す。
+// 予定を作り直すと予定IDが変わるので、「同じ商談か」を見分けるのに使う。
+export async function findSmartLinkByLabelStart(label, startTime) {
+  if (!pool || !label || !startTime) return null;
+  try {
+    const { rows } = await pool.query(
+      `SELECT * FROM smart_links
+        WHERE label = $1 AND start_time = $2 AND NOT COALESCE(excluded,false)
+        ORDER BY created_at ASC LIMIT 1`, [label, startTime]);
+    return rows[0] || null;
+  } catch { return null; }
+}
+
 export async function getSmartLink(slug) {
   if (!pool) return null;
   const { rows } = await pool.query(`SELECT * FROM smart_links WHERE slug=$1`, [slug]);

@@ -88,6 +88,11 @@ import {
   createSmartLink,
   getSmartLink,
   getSmartLinkByEvent,
+  findSmartLinkByLabelStart,
+  listCalendarWatches,
+  saveCalendarWatch,
+  deleteCalendarWatch,
+  getCalendarWatch,
   listSmartLinks,
   setSmartLinkOwner,
   setSmartLinkInviteEvent,
@@ -264,6 +269,8 @@ import {
   listZoomEvents,
   listDayEvents,
   listCalendarEvents,
+  watchCalendarEvents,
+  stopCalendarChannel,
   listEventsCreatedOn,
   createCalendarEvent,
   deleteCalendarEvent,
@@ -307,6 +314,7 @@ import {
   searchLeads,
   updateLead,
   convertLead,
+  ensureLeadApoDate,
   createLead,
   convertedLeadStatus,
   convertedLeadStatuses,
@@ -419,6 +427,8 @@ const OPEN_PATHS = new Set([
   "/oauth/register", "/oauth/authorize", "/oauth/token",
   // ChatGPTのCustom GPTが「URLからインポート」で取得する公開スキーマ（トークンは含まない）
   "/gpt-actions-openapi.yaml",
+  // Googleカレンダーからの変更通知（Googleが直接叩くので認証なし。合言葉で本物か確かめる）
+  "/api/google/calendar-push",
 ]);
 if (!authEnabled()) {
   console.warn("[警告] アカウント未設定。誰でも操作できます。公開時は DATABASE_URL を設定し登録制にしてください。");
@@ -2470,6 +2480,20 @@ async function tryAutoLaunch(user, link, { dryRun = false, ownerEmail = "" } = {
     } else {
       // 割り振り先が分からないときは、操作しているアカウントを所有者にする
       ownerId = await getSfUserId(user).catch(() => "");
+    }
+
+    // コンバートの前に「アポ獲得日」を入れておく。
+    // 空のままだと「取引開始済にするには『アポ獲得日』の入力が必要です」で弾かれる。
+    // 入れる日付は、このアポを取った日（＝Chatに流れた日）。すでに値があれば触らない。
+    let apoDate = null;
+    try {
+      const jst = (v) => new Date(new Date(v).getTime() + 9 * 3600 * 1000).toISOString().slice(0, 10);
+      const at = link.apo_at || link.created_at || new Date();
+      apoDate = jst(at);
+      const rr = await ensureLeadApoDate(user, j.lead.Id, apoDate);
+      if (rr && rr.filled) console.log(`[SF立ち上げ] アポ獲得日を入れました ${j.company} → ${apoDate}`);
+    } catch (e) {
+      console.warn("[SF立ち上げ] アポ獲得日を入れられませんでした:", e.message);
     }
 
     // ここから先は取り消せない
@@ -9255,6 +9279,14 @@ app.post("/api/salesforce/leads/:id/convert", async (req, res) => {
     const b = req.body || {};
     const fields = b.fields && typeof b.fields === "object" ? b.fields : {};
     if (Object.keys(fields).length) await updateLead(req.user, req.params.id, fields);
+    // 「アポ獲得日」が空だとコンバートで弾かれる。画面で入れていなければ今日を入れる。
+    try {
+      const today = new Date(Date.now() + 9 * 3600 * 1000).toISOString().slice(0, 10);
+      const rr = await ensureLeadApoDate(req.user, req.params.id, String(b.apoDate || today).slice(0, 10));
+      if (rr && rr.filled) console.log(`[SF立ち上げ] アポ獲得日を入れました → ${rr.value}`);
+    } catch (e) {
+      console.warn("[SF立ち上げ] アポ獲得日を入れられませんでした:", e.message);
+    }
     const ownerId = await getSfUserId(req.user).catch(() => "");
 
     // 立ち上げに失敗したときに作り直せるよう、リードの中身を控えておく
@@ -10731,6 +10763,128 @@ async function runApoAutoScan({ actor = "auto-scan", force = false, updatedMin =
   return { total: scan.items.length, targets: targets.length, assigned, results, errors: scan.errors, differential: !!updatedMin };
 }
 
+// ───────────────────────────────────────────────────────────
+// カレンダーの変更を、Googleから即時に受け取る（プッシュ通知）
+//
+// 1分おきに見に行くのをやめ、予定が作られた瞬間に差分スキャンを走らせる。
+// 通知そのものには中身が入らないので、合図として使い、いつもの差分スキャンを呼ぶ。
+// ───────────────────────────────────────────────────────────
+
+// 通知が本物かを確かめる合言葉
+const PUSH_TOKEN = crypto.createHash("sha256")
+  .update(String(process.env.SESSION_SECRET || "kinbot") + "|calendar-push")
+  .digest("hex").slice(0, 32);
+
+// 続けて何度も通知が来ても、スキャンは1回にまとめる
+let pushTimer = null;
+let lastPushAt = 0;
+export function triggerScanSoon(delayMs = 3000) {
+  if (pushTimer) return;
+  pushTimer = setTimeout(() => {
+    pushTimer = null;
+    lastPushAt = Date.now();
+    if (typeof globalThis.__kinbotApoScanTick === "function") {
+      globalThis.__kinbotApoScanTick().catch(() => {});
+    }
+  }, delayMs);
+}
+
+app.post("/api/google/calendar-push", async (req, res) => {
+  // Googleは本文を送らないので、ヘッダだけを見る
+  const channelId = String(req.headers["x-goog-channel-id"] || "");
+  const token = String(req.headers["x-goog-channel-token"] || "");
+  const state = String(req.headers["x-goog-resource-state"] || "");
+  res.status(200).end();   // まず受け取ったことを返す（Googleは応答が遅いと再送する）
+  try {
+    if (token !== PUSH_TOKEN) return;
+    if (state === "sync") return;              // 登録直後の挨拶。まだ変更ではない。
+    const w = await getCalendarWatch(channelId).catch(() => null);
+    console.log(`[apo-push] カレンダーに変更がありました（${(w && w.calendar_id) || channelId}）`);
+    triggerScanSoon(3000);
+  } catch (e) { console.warn("[apo-push]", e.message); }
+});
+
+// 監視の登録・付け直し。
+// 期限が近いものは作り直し、対象が増えていれば追加する。
+async function ensureCalendarWatches({ force = false } = {}) {
+  if (!PUBLIC_URL) return { skipped: true, reason: "PUBLIC_URL が未設定です" };
+  const st = await getSettings().catch(() => ({}));
+  if (st.apoPushEnabled === false) return { skipped: true, reason: "即時通知がOFFです" };
+  const rep = String(st.apoScanOwner || st.apoInviteOwner || "").trim();
+  if (!rep) return { skipped: true, reason: "カレンダー照合の代表者が未設定です" };
+  if (!(await gcalConnected(rep).catch(() => false))) {
+    return { skipped: true, reason: `${rep} のGoogle連携が切れています` };
+  }
+
+  // 見張る対象＝アポを取る人（インサイド）とクローザー
+  const targets = new Map();
+  for (const i of await listInterns().catch(() => [])) if (i.email) targets.set(String(i.email).toLowerCase(), i.name || i.email);
+  for (const c of await listClosers({ activeOnly: false }).catch(() => [])) if (c.email) targets.set(String(c.email).toLowerCase(), c.name || c.email);
+  if (!targets.size) return { skipped: true, reason: "対象のメンバーが登録されていません" };
+
+  const address = `${PUBLIC_URL.replace(/\/+$/, "")}/api/google/calendar-push`;
+  const now = Date.now();
+  const cur = await listCalendarWatches().catch(() => []);
+  const byCal = new Map(cur.map((w) => [String(w.calendar_id || "").toLowerCase(), w]));
+
+  const made = [], failed = [];
+  for (const [email, name] of targets) {
+    const w = byCal.get(email);
+    const left = w && w.expires_at ? new Date(w.expires_at).getTime() - now : -1;
+    // 期限まで1日を切ったら作り直す
+    if (!force && w && left > 24 * 3600 * 1000) continue;
+    try {
+      const channelId = "kb-" + crypto.randomBytes(12).toString("hex");
+      const r = await watchCalendarEvents(rep, email, {
+        channelId, address, token: PUSH_TOKEN, ttlSec: 7 * 24 * 3600,
+      });
+      await saveCalendarWatch({
+        channelId: r.channelId, resourceId: r.resourceId, calendarId: email,
+        tokenOwner: rep, expiresAt: r.expiration,
+      });
+      // 古いほうは止める（残すと同じ通知が二重に来る）
+      if (w) {
+        await stopCalendarChannel(w.token_owner || rep, w.channel_id, w.resource_id).catch(() => {});
+        await deleteCalendarWatch(w.channel_id).catch(() => {});
+      }
+      made.push({ email, name, expires: r.expiration });
+      console.log(`[apo-push] 監視を登録しました ${name}（${email}）期限 ${String(r.expiration || "").slice(0, 16)}`);
+    } catch (e) {
+      failed.push({ email, name, error: e.message });
+      console.warn(`[apo-push] 監視を登録できませんでした ${email}: ${e.message}`);
+    }
+  }
+  return { address, watched: targets.size, made, failed };
+}
+
+// 即時通知の状態を見る・付け直す
+app.get("/api/apo/push-status", async (req, res) => {
+  try {
+    const st = await getSettings().catch(() => ({}));
+    const rows = await listCalendarWatches();
+    res.json({
+      enabled: st.apoPushEnabled !== false,
+      publicUrl: PUBLIC_URL || "",
+      address: PUBLIC_URL ? `${PUBLIC_URL.replace(/\/+$/, "")}/api/google/calendar-push` : "",
+      lastPushAt: lastPushAt ? new Date(lastPushAt).toISOString() : null,
+      watches: rows.map((w) => ({
+        calendar: w.calendar_id, expires: w.expires_at, owner: w.token_owner,
+      })),
+    });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.post("/api/apo/push-setup", async (req, res) => {
+  try {
+    if (req.body && req.body.enabled !== undefined) {
+      await saveSettings({ apoPushEnabled: req.body.enabled !== false });
+    }
+    const r = await ensureCalendarWatches({ force: req.body?.force === true });
+    console.log(`[apo-push] 監視を付け直しました by ${req.user}`);
+    res.json({ ok: true, ...r });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 // 手動で自動スキャンを流す（動作確認用）
 app.post("/api/apo/auto-scan", async (req, res) => {
   try {
@@ -10789,8 +10943,8 @@ app.put("/api/apo/rotation-config", async (req, res) => {
     if (b.bufferMin !== undefined) patch.apoRotationBufferMin = Math.max(0, parseInt(b.bufferMin, 10) || 0);
     if (b.maxPerRun !== undefined) patch.apoRotationMaxPerRun = Math.max(1, parseInt(b.maxPerRun, 10) || 30);
     if (b.scanIntervalSec !== undefined) {
-      // 短すぎるとGoogleのAPI制限に当たるので30秒以上にする
-      patch.apoScanIntervalSec = Math.min(900, Math.max(30, parseInt(b.scanIntervalSec, 10) || 60));
+      // 短すぎるとGoogleのAPI制限に当たるので15秒以上にする
+      patch.apoScanIntervalSec = Math.min(900, Math.max(15, parseInt(b.scanIntervalSec, 10) || 60));
     }
     if (b.scanOwner !== undefined) patch.apoScanOwner = String(b.scanOwner || "").trim();
     if (b.teamBalance !== undefined) {
@@ -10877,7 +11031,8 @@ app.get("/api/apo/calendar-check", async (req, res) => {
     const out = [];
     for (const st of setters) {
       const row = { name: st.name, email: st.email, readable: false, total: 0, hosted: 0,
-                    tagged: 0, kinbotSkipped: 0, kinbotSamples: [], samples: [], error: "" };
+                    tagged: 0, fresh: 0, known: 0, knownSamples: [],
+                    kinbotSkipped: 0, kinbotSamples: [], samples: [], error: "" };
       try {
         const evs = await listCalendarEvents(owner, st.email, { timeMin, timeMax });
         row.readable = true;
@@ -10899,6 +11054,21 @@ app.get("/api/apo/calendar-check", async (req, res) => {
               continue;
             }
             row.tagged++;
+            // すでにkinbotに登録ずみか（登録ずみなら、通知はその時に済んでいる）
+            let known = await getSmartLinkByEvent(ev.id).catch(() => null);
+            if (!known) known = await findSmartLinkByLabelStart(ev.title, ev.start).catch(() => null);
+            if (known) {
+              row.known++;
+              if (row.knownSamples.length < 4) {
+                row.knownSamples.push({
+                  title: ev.title.slice(0, 60), start: ev.start,
+                  owner: known.current_owner || "", assigned: !!known.auto_assigned_at,
+                  sameEvent: known.event_id === ev.id,
+                });
+              }
+            } else {
+              row.fresh++;
+            }
           } else if (row.samples.length < 4) {
             // タグが無くて取り込まれていない予定を例として返す
             row.samples.push({ title: ev.title.slice(0, 60), start: ev.start });
@@ -11973,6 +12143,9 @@ server.listen(PORT, async () => {
     } finally { apoScanRunning = false; }
   };
 
+  // 予定が作られた瞬間の通知（プッシュ）から呼べるようにしておく
+  globalThis.__kinbotApoScanTick = apoScanTick;
+
   // 間隔は設定で変えられる（既定60秒）。反映が遅いと感じたら短くする。
   let scanTimer = null;
   const scheduleApoScan = async () => {
@@ -11980,7 +12153,7 @@ server.listen(PORT, async () => {
     try {
       const st = await getSettings();
       const v = parseInt(st && st.apoScanIntervalSec, 10);
-      if (Number.isFinite(v)) sec = Math.min(900, Math.max(30, v));
+      if (Number.isFinite(v)) sec = Math.min(900, Math.max(15, v));
     } catch {}
     if (scanTimer) clearInterval(scanTimer);
     scanTimer = setInterval(() => { apoScanTick().catch(() => {}); }, sec * 1000);
@@ -11995,6 +12168,14 @@ server.listen(PORT, async () => {
 
   setTimeout(() => { apoScanTick().catch(() => {}); }, 60 * 1000);
   scheduleApoScan();
+  // カレンダーの変更を即時に受け取る監視を用意し、1時間ごとに期限を見て付け直す
+  setTimeout(() => {
+    ensureCalendarWatches().then((r) => {
+      if (r && r.skipped) console.log(`[apo-push] 即時通知は使いません（${r.reason}）`);
+      else if (r) console.log(`[apo-push] 即時通知の監視 ${r.watched}件（新しく登録 ${r.made.length}件）`);
+    }).catch((e) => console.warn("[apo-push]", e.message));
+  }, 20 * 1000);
+  setInterval(() => { ensureCalendarWatches().catch(() => {}); }, 60 * 60 * 1000);
   // 設定を変えたときに間隔を作り直す（5分ごとに設定を見る）
   setInterval(() => { scheduleApoScan().catch(() => {}); }, 5 * 60 * 1000);
   console.log(`\n  kinbot (Bot方式) → http://localhost:${PORT}`);

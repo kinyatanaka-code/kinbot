@@ -607,6 +607,61 @@ async function apiJson(url, opts) {
   return d;
 }
 
+// 即時通知（Googleカレンダーのプッシュ通知）の状態
+function pushRender(d) {
+  const box = $("pushBox");
+  if (!box) return;
+  const rows = d.watches || [];
+  let html = "";
+  if (!d.publicUrl) {
+    html += `<p class="note cc-warn">公開URLが未設定のため、即時通知は使えません（PUBLIC_URL）。</p>`;
+  } else {
+    html += `<p class="note">受け口：${esc(d.address)}<br>` +
+      `いまの状態：${d.enabled ? "オン" : "オフ"}　` +
+      `最後に通知が来たとき：${d.lastPushAt ? esc(fmtWhen(d.lastPushAt)) : "まだありません"}</p>`;
+  }
+  if (!rows.length) {
+    html += `<p class="note cc-warn">見張っているカレンダーがありません。「今すぐ設定し直す」を押してください。</p>`;
+  } else {
+    html += `<div class="cal-list">` + rows.map((w) =>
+      `<div class="cal-row cal-ok"><div class="cal-head"><b>${esc(w.calendar)}</b></div>` +
+      `<div class="ap-rot-cnt">期限：${esc(fmtWhen(w.expires))}</div></div>`).join("") + `</div>`;
+  }
+  box.innerHTML = html;
+}
+
+async function pushCheck() {
+  const say = (m) => { const e = $("pushStatus"); if (e) e.textContent = m; };
+  say("確認中…");
+  try { pushRender(await apiJson("/api/apo/push-status")); say(""); }
+  catch (e) { say("失敗: " + e.message); }
+}
+
+async function pushSetup() {
+  const say = (m) => { const e = $("pushStatus"); if (e) e.textContent = m; };
+  const btn = $("pushSetup");
+  if (btn) btn.disabled = true;
+  say("設定しています…（人数分の登録に少し時間がかかります）");
+  try {
+    const d = await apiJson("/api/apo/push-setup", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ enabled: true, force: true }),
+    });
+    if (d.skipped) { say("設定できません：" + esc(d.reason || "")); }
+    else {
+      say(`${(d.made || []).length}件を登録しました` +
+        ((d.failed || []).length ? `（${d.failed.length}件は失敗）` : ""));
+      if ((d.failed || []).length) {
+        const box = $("pushBox");
+        if (box) box.innerHTML = `<p class="note cc-warn">登録できなかったもの：` +
+          d.failed.map((f) => `${esc(f.email)}（${esc(f.error).slice(0, 80)}）`).join("、") + `</p>`;
+      }
+    }
+    pushCheck();
+  } catch (e) { say("失敗: " + e.message); }
+  finally { if (btn) btn.disabled = false; }
+}
+
 // 今動いているバージョンを出す（デプロイが反映されたか確かめる用）
 async function showVersion() {
   const el = $("verBox");
@@ -915,18 +970,26 @@ async function calCheck() {
     html += `<div class="cal-list">`;
     for (const m of d.members || []) {
       let verdict, cls;
-      if (m.error) { verdict = m.error; cls = "cal-ng"; }
+      if (m.error) { verdict = esc(m.error); cls = "cal-ng"; }
       else if (m.total === 0) { verdict = "カレンダーは読めましたが、期間内に予定が1件もありません"; cls = "cal-warn"; }
       else if (m.hosted === 0) { verdict = `予定は${m.total}件ありますが、この人が主催者の予定がありません（招待されているだけの予定は対象外です）`; cls = "cal-warn"; }
       else if (m.tagged === 0 && m.kinbotSkipped) { verdict = `タグ付きの予定は${m.kinbotSkipped}件ありますが、すべて「kinbotが作った商談予定」なので取り込みません。アポの元になる予定は、アポ獲得者ご自身で新しく作ってください（kinbotの予定をコピーすると取り込まれません）`; cls = "cal-warn"; }
       else if (m.tagged === 0) { verdict = `主催の予定が${m.hosted}件ありますが、タイトルに【新】【ヒ】【初回】のいずれかが付いた予定がありません`; cls = "cal-warn"; }
-      else { verdict = `取り込み対象の予定が ${m.tagged}件 見つかりました`; cls = "cal-ok"; }
+      else if (m.fresh === 0 && m.known) { verdict = `タグ付きの予定は${m.tagged}件ありますが、すべて<b>すでにkinbotに登録ずみ</b>です（通知は登録したときに1回だけ出ます）。同じ予定名・同じ時刻の予定を作り直しても、同じアポとして扱われるので通知は出ません`; cls = "cal-warn"; }
+      else { verdict = `取り込み対象の予定が ${m.tagged}件 見つかりました（新しく取り込めるもの ${m.fresh}件／登録ずみ ${m.known}件）`; cls = "cal-ok"; }
       html += `<div class="cal-row ${cls}">
         <div class="cal-head"><b>${esc(m.name)}</b><span class="ap-rot-cnt">${esc(m.email)}</span></div>
-        <div class="cal-verdict">${esc(verdict)}</div>`;
+        <div class="cal-verdict">${verdict}</div>`;
       if (!m.error && m.total) {
         html += `<div class="ap-rot-cnt">予定${m.total}件 ／ 本人が主催${m.hosted}件 ／ タグ一致${m.tagged}件` +
+          (m.known ? ` ／ 登録ずみ${m.known}件` : "") +
           (m.kinbotSkipped ? ` ／ kinbotが作った予定として除外${m.kinbotSkipped}件` : "") + `</div>`;
+      }
+      if ((m.knownSamples || []).length) {
+        html += `<div class="cal-samples">すでに登録ずみの予定：` +
+          m.knownSamples.map((x) =>
+            `<span>${esc(x.title)}${x.assigned ? "（割り振り済み）" : "（未割り振り）"}` +
+            `${x.sameEvent ? "" : "／予定を作り直したもの"}</span>`).join("") + `</div>`;
       }
       if ((m.kinbotSamples || []).length) {
         html += `<div class="cal-samples">kinbotが作った予定として除外した例：` +
@@ -1405,6 +1468,9 @@ async function saveMailCfg() {
   if ($("siNone")) $("siNone").addEventListener("click", () =>
     document.querySelectorAll("#siBox .si-chk").forEach((c) => { c.checked = false; }));
   if ($("verBox")) showVersion();
+  if ($("pushCheck")) $("pushCheck").addEventListener("click", pushCheck);
+  if ($("pushSetup")) $("pushSetup").addEventListener("click", pushSetup);
+  if ($("pushBox")) pushCheck();
   if ($("calCheckBtn")) $("calCheckBtn").addEventListener("click", calCheck);
   if ($("dbCheckBtn")) $("dbCheckBtn").addEventListener("click", () => dbCheck(false));
   if ($("dbRepairBtn")) $("dbRepairBtn").addEventListener("click", () => dbCheck(true));

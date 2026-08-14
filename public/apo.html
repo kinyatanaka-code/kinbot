@@ -59,7 +59,7 @@
                 <label class="ap-check"><input type="checkbox" id="rcAutoAssign" /> スキャンしたアポを自動で割り振る</label>
               </div>
               <div class="ap-cfg-row">
-                <label>スキャンの間隔 <input type="number" id="rcInterval" min="30" max="900" step="30" style="width:80px" /> 秒</label>
+                <label>スキャンの間隔 <input type="number" id="rcInterval" min="15" max="900" step="15" style="width:80px" /> 秒</label>
                 <label>商談の前後に確保する余白 <input type="number" id="rcBuffer" min="0" max="180" style="width:70px" /> 分</label>
                 <label>1回のスキャンで割り振る上限 <input type="number" id="rcMax" min="1" max="200" style="width:70px" /> 件</label>
               </div>
@@ -242,6 +242,16 @@
                 <span class="rev-status" id="ivStatus"></span>
               </div>
               <div id="ivBox"></div>
+
+              <h4 class="ap-rot-h">予定ができた瞬間に通知する（即時通知）</h4>
+              <p class="note">Googleカレンダーに<b>変更があった瞬間</b>にkinbotへ知らせてもらう設定です。間隔を待たずに、数秒でChatに流れます。<br>
+              インサイド・クローザー全員のカレンダーを、代表者の連携で見張ります。期限は7日で、1時間ごとに自動で付け直します。</p>
+              <div class="ap-cfg-actions">
+                <button class="btn ghost" id="pushCheck">状態を見る</button>
+                <button class="btn ghost" id="pushSetup">今すぐ設定し直す</button>
+                <span class="rev-status" id="pushStatus"></span>
+              </div>
+              <div id="pushBox"></div>
 
               <h4 class="ap-rot-h">今動いているバージョン</h4>
               <p class="note">GitHubに上げた内容がRailwayに反映されたかを、ここで確かめられます。日付が古いままなら、まだ反映されていません。</p>
