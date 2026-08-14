@@ -798,8 +798,18 @@ async function openMail(botId, key) {
     let tpls = [];
     try { tpls = ((await (await fetch("/api/mail-templates")).json()).templates) || []; } catch {}
 
+    // 件名・本文を先に出し、テンプレートは下にまとめる。
+    // 文面を確かめてから型として保存する流れに合うため。
     box.innerHTML =
-      `<div class="mail-tpl">
+      `<label class="mail-lb">件名<input type="text" class="home-mail-subj" value="${escH(subject)}" /></label>
+       <label class="mail-lb">本文<textarea class="home-mail-body" rows="16">${escH(body)}</textarea></label>
+       <div class="home-sf-row mail-actions">
+         <button type="button" class="btn" data-gdraft="${escH(botId)}">Gmailに下書きを作る</button>
+         <button type="button" class="btn sf-btn-secondary home-sf-mini" data-mailcopy="1">コピー</button>
+         <a class="btn sf-btn-secondary home-sf-mini" data-mailto="1" href="#" target="_blank" rel="noopener">Gmailの作成画面で開く</a>
+       </div>
+       <div class="home-mail-note"></div>
+       <div class="mail-tpl">
          <label class="mail-lb mail-tpl-lb">テンプレート
            <select class="mail-tpl-sel">
              <option value="">使わない（商談内容から作る）</option>
@@ -809,15 +819,7 @@ async function openMail(botId, key) {
          <button type="button" class="btn sf-btn-secondary home-sf-mini" data-tpl-apply="${escH(botId)}">この型で作り直す</button>
          <button type="button" class="btn sf-btn-secondary home-sf-mini" data-tpl-save="1">いまの文面を型として保存</button>
          <span class="mail-tpl-st"></span>
-       </div>
-       <label class="mail-lb">件名<input type="text" class="home-mail-subj" value="${escH(subject)}" /></label>
-       <label class="mail-lb">本文<textarea class="home-mail-body" rows="16">${escH(body)}</textarea></label>
-       <div class="home-sf-row mail-actions">
-         <button type="button" class="btn" data-gdraft="${escH(botId)}">Gmailに下書きを作る</button>
-         <button type="button" class="btn sf-btn-secondary home-sf-mini" data-mailcopy="1">コピー</button>
-         <a class="btn sf-btn-secondary home-sf-mini" data-mailto="1" href="#" target="_blank" rel="noopener">Gmailの作成画面で開く</a>
-       </div>
-       <div class="home-mail-note"></div>`;
+       </div>`;
 
     wireMailTemplates(box, botId, tpls);
     const ta = box.querySelector(".home-mail-body");
@@ -1025,8 +1027,11 @@ function wireListBox(box) {
       const s = sfOf(key);
       s.open = !s.open;
       if (s.open && s.records === null && !s.picked && !s.done) {
+        // 予定名は、記録しておいたものを使う。
+        // 画面の見出しは幅に収めるため省略されている（…）ので、そこからは読まない。
         const card = openBtn.closest(".home-card");
-        const title = card ? (card.querySelector(".home-card-title") || {}).textContent || "" : "";
+        const el = card && (card.querySelector(".hl-title") || card.querySelector(".home-card-title"));
+        const title = (homeItems[key] && homeItems[key].title) || (el && el.textContent) || "";
         s.q = searchNameFromTitle(title);
         renderBoth();
         sfSearch(key);
