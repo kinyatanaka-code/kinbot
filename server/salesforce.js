@@ -869,6 +869,51 @@ export async function findLeadField(owner, { key, apis = [], re }) {
   return field || null;
 }
 
+// 文字を入れるだけの項目を、空のときだけ埋める。
+// （コンバートで必須になっているのに、リードが空のままだと弾かれるものに使う）
+export async function ensureLeadTextField(owner, leadId, { key, apis = [], re, value, label = "" }) {
+  const v = String(value || "").trim();
+  if (!leadId || !v) return { ok: false, skipped: true };
+  const f = await findLeadField(owner, { key, apis, re });
+  if (!f) return { ok: false, skipped: true, reason: `${label || key}の項目が見つかりません` };
+  const id = String(leadId).replace(/[^a-zA-Z0-9]/g, "");
+  try {
+    const d = await sfQuery(owner, `SELECT Id, ${f.name} FROM Lead WHERE Id = '${id}' LIMIT 1`);
+    const cur = (d.records || [])[0] || {};
+    if (cur[f.name] !== null && cur[f.name] !== undefined && String(cur[f.name]).trim() !== "") {
+      return { ok: true, already: true, field: f.name, value: cur[f.name] };
+    }
+  } catch {}
+  if (f.type === "picklist") {
+    const opts = (f.picklistValues || []).filter((o) => o.active).map((o) => o.value);
+    if (opts.length && !opts.includes(v)) {
+      return { ok: false, field: f.name, reason: `「${v}」は選択肢にありません（候補：${opts.slice(0, 8).join("、")}）` };
+    }
+  }
+  await updateLead(owner, id, { [f.name]: v });
+  return { ok: true, filled: true, field: f.name, value: v };
+}
+
+// 「FSへの案件パス情報（FSへの連携事項）」を入れておく
+export async function ensureLeadFsNote(owner, leadId, value) {
+  return ensureLeadTextField(owner, leadId, {
+    key: "fsNote",
+    apis: ["FS_Note__c", "to_fs__c"],
+    re: /(FS|ＦＳ|フィールドセールス).*(パス|連携|申し送り|情報|事項)/i,
+    value, label: "FSへの案件パス情報",
+  });
+}
+
+// 「初回訪問予定日・web商談日」を入れておく（空のときだけ）
+export async function ensureLeadVisitDate(owner, leadId, dateStr) {
+  return ensureLeadTextField(owner, leadId, {
+    key: "visitDate",
+    apis: ["First_Visit_Date__c", "firstvisit_date__c"],
+    re: /初回(訪問|商談|面談).*日|初回.*日/,
+    value: dateStr, label: "初回訪問予定日",
+  });
+}
+
 // 「主キャンペーンソース」を入れておく。
 // 空だと「コンバート時には主キャンペーンソース入力が必要です」で弾かれる。
 // 項目がキャンペーンの参照（ルックアップ）なら、その名前のキャンペーンを探してIDを入れる。

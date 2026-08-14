@@ -830,6 +830,10 @@ async function loadAutoLaunch() {
       $("alCampaign").value = d.campaignSource || "";
       $("alCampaign").placeholder = d.campaignSourceDefault || "3Dメタバース";
     }
+    if ($("alFsNote")) {
+      $("alFsNote").value = d.fsNote || "";
+      $("alFsNote").placeholder = d.fsNoteDefault || "-";
+    }
   } catch {}
 }
 
@@ -866,16 +870,17 @@ if (typeof document !== "undefined") {
     if (cs) cs.addEventListener("click", async () => {
       const st = document.getElementById("alCampaignStatus");
       const v = (document.getElementById("alCampaign") || {}).value || "";
+      const fs = (document.getElementById("alFsNote") || {}).value || "";
       if (st) st.textContent = "保存しています…";
       try {
         const r = await fetch("/api/sf-autolaunch/config", {
           method: "PUT", headers: { "content-type": "application/json" },
-          body: JSON.stringify({ campaignSource: v }),
+          body: JSON.stringify({ campaignSource: v, fsNote: fs }),
         });
         if (!r.ok) throw new Error(((await r.json()) || {}).error || "保存できませんでした");
         if (st) {
-          st.textContent = v ? `「${v}」を入れます` : "入れません（空のまま立ち上げます）";
-          setTimeout(() => (st.textContent = ""), 5000);
+          st.textContent = `保存しました（キャンペーン：${v || "入れない"} ／ FS：${fs || "入れない"}）`;
+          setTimeout(() => (st.textContent = ""), 6000);
         }
       } catch (e) { if (st) st.textContent = "失敗: " + e.message; }
     });

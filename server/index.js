@@ -317,6 +317,8 @@ import {
   convertLead,
   ensureLeadApoDate,
   ensureLeadCampaignSource,
+  ensureLeadFsNote,
+  ensureLeadVisitDate,
   createLead,
   convertedLeadStatus,
   convertedLeadStatuses,
@@ -2494,21 +2496,34 @@ async function tryAutoLaunch(user, link, { dryRun = false, ownerEmail = "" } = {
       apoDate = jst(at);
       const rr = await ensureLeadApoDate(user, j.lead.Id, apoDate);
       if (rr && rr.filled) console.log(`[SF立ち上げ] アポ獲得日を入れました ${j.company} → ${apoDate}`);
+      // 初回訪問予定日＝この商談の日
+      if (link.start_time) {
+        const visit = jst(link.start_time);
+        const rv = await ensureLeadVisitDate(user, j.lead.Id, visit);
+        if (rv && rv.filled) console.log(`[SF立ち上げ] 初回訪問予定日を入れました ${j.company} → ${visit}`);
+      }
     } catch (e) {
       console.warn("[SF立ち上げ] アポ獲得日を入れられませんでした:", e.message);
     }
 
-    // 主キャンペーンソースも、空ならここで入れる（同じくコンバートの必須項目）
+    // 主キャンペーンソース・FSへの案件パス情報も、空ならここで入れる
+    // （どちらもコンバートの必須項目。空だと弾かれる）
     try {
       const stc = await getSettings().catch(() => ({}));
-      const cs = String(stc.sfCampaignSource || DEFAULT_CAMPAIGN_SOURCE).trim();
+      const cs = String(stc.sfCampaignSource === undefined ? DEFAULT_CAMPAIGN_SOURCE : stc.sfCampaignSource).trim();
       if (cs) {
         const rc = await ensureLeadCampaignSource(user, j.lead.Id, cs);
         if (rc && rc.filled) console.log(`[SF立ち上げ] 主キャンペーンソースを入れました ${j.company} → ${cs}`);
         else if (rc && !rc.ok && rc.reason) console.warn(`[SF立ち上げ] 主キャンペーンソース: ${rc.reason}`);
       }
+      const fs = String(stc.sfFsNote === undefined ? DEFAULT_FS_NOTE : stc.sfFsNote).trim();
+      if (fs) {
+        const rf = await ensureLeadFsNote(user, j.lead.Id, fs);
+        if (rf && rf.filled) console.log(`[SF立ち上げ] FSへの案件パス情報を入れました ${j.company} → ${fs}`);
+        else if (rf && !rf.ok && rf.reason) console.warn(`[SF立ち上げ] FSへの案件パス情報: ${rf.reason}`);
+      }
     } catch (e) {
-      console.warn("[SF立ち上げ] 主キャンペーンソースを入れられませんでした:", e.message);
+      console.warn("[SF立ち上げ] 必須項目を入れられませんでした:", e.message);
     }
 
     // ここから先は取り消せない
@@ -3441,6 +3456,8 @@ setTimeout(() => { processSheetTick().catch(() => {}); }, 3 * 60 * 1000);
 // コンバートで必須になっている「主キャンペーンソース」の既定値。
 // 設定で変えられる。空にすると入れない。
 const DEFAULT_CAMPAIGN_SOURCE = "3Dメタバース";
+// 「FSへの案件パス情報」の既定値。中身は商談後に書くので、立ち上げ時は「-」で通す。
+const DEFAULT_FS_NOTE = "-";
 
 app.get("/api/sf-autolaunch/config", async (req, res) => {
   try {
@@ -3449,6 +3466,8 @@ app.get("/api/sf-autolaunch/config", async (req, res) => {
       enabled: st.sfAutoLaunch === true,
       campaignSource: st.sfCampaignSource === undefined ? DEFAULT_CAMPAIGN_SOURCE : st.sfCampaignSource,
       campaignSourceDefault: DEFAULT_CAMPAIGN_SOURCE,
+      fsNote: st.sfFsNote === undefined ? DEFAULT_FS_NOTE : st.sfFsNote,
+      fsNoteDefault: DEFAULT_FS_NOTE,
     });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
@@ -3460,6 +3479,9 @@ app.put("/api/sf-autolaunch/config", async (req, res) => {
     if (req.body?.campaignSource !== undefined) {
       patch.sfCampaignSource = String(req.body.campaignSource || "").trim().slice(0, 80);
     }
+    if (req.body?.fsNote !== undefined) {
+      patch.sfFsNote = String(req.body.fsNote || "").trim().slice(0, 200);
+    }
     await saveSettings(patch);
     console.log(`[SF自動] 設定を更新 by ${req.user}:`, JSON.stringify(patch));
     const st = await getSettings();
@@ -3467,6 +3489,7 @@ app.put("/api/sf-autolaunch/config", async (req, res) => {
       ok: true,
       enabled: st.sfAutoLaunch === true,
       campaignSource: st.sfCampaignSource === undefined ? DEFAULT_CAMPAIGN_SOURCE : st.sfCampaignSource,
+      fsNote: st.sfFsNote === undefined ? DEFAULT_FS_NOTE : st.sfFsNote,
     });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
@@ -9335,13 +9358,20 @@ app.post("/api/salesforce/leads/:id/convert", async (req, res) => {
     }
     try {
       const stc = await getSettings().catch(() => ({}));
-      const cs = String(b.campaignSource || stc.sfCampaignSource || DEFAULT_CAMPAIGN_SOURCE).trim();
+      const cs = String(b.campaignSource ||
+        (stc.sfCampaignSource === undefined ? DEFAULT_CAMPAIGN_SOURCE : stc.sfCampaignSource)).trim();
       if (cs) {
         const rc = await ensureLeadCampaignSource(req.user, req.params.id, cs);
         if (rc && rc.filled) console.log(`[SF立ち上げ] 主キャンペーンソースを入れました → ${cs}`);
       }
+      const fs = String(b.fsNote ||
+        (stc.sfFsNote === undefined ? DEFAULT_FS_NOTE : stc.sfFsNote)).trim();
+      if (fs) {
+        const rf = await ensureLeadFsNote(req.user, req.params.id, fs);
+        if (rf && rf.filled) console.log(`[SF立ち上げ] FSへの案件パス情報を入れました → ${fs}`);
+      }
     } catch (e) {
-      console.warn("[SF立ち上げ] 主キャンペーンソースを入れられませんでした:", e.message);
+      console.warn("[SF立ち上げ] 必須項目を入れられませんでした:", e.message);
     }
     const ownerId = await getSfUserId(req.user).catch(() => "");
 

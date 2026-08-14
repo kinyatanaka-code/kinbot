@@ -119,12 +119,13 @@
               <label class="ks-check" style="margin:10px 0"><input type="checkbox" id="alOn" /> 条件を満たしたら自動で立ち上げる</label>
               <span class="rev-status" id="alStatus"></span>
               <div class="ap-cfg-row">
-                <label>主キャンペーンソース <input type="text" id="alCampaign" style="width:200px" placeholder="3Dメタバース" /></label>
+                <label>主キャンペーンソース <input type="text" id="alCampaign" style="width:180px" placeholder="3Dメタバース" /></label>
+                <label>FSへの案件パス情報 <input type="text" id="alFsNote" style="width:120px" placeholder="-" /></label>
                 <button class="btn ghost" id="alCampaignSave">保存</button>
                 <span class="rev-status" id="alCampaignStatus"></span>
               </div>
-              <p class="note">コンバートに必須の項目です。リードが空のときだけ、この値を入れてから立ち上げます（すでに入っていれば触りません）。<br>
-              「アポ獲得日」も同じように、空ならアポを取った日を自動で入れます。</p>
+              <p class="note">どちらもコンバートに必須の項目です。リードが空のときだけ、この値を入れてから立ち上げます（すでに入っていれば触りません）。<br>
+              「アポ獲得日」も同じように、空ならアポを取った日を自動で入れます。空欄にすると、その項目には何も入れません。</p>
               <div class="ap-cfg-actions">
                 <button class="btn ghost" id="alDiag">立ち上がらない原因を調べる</button>
                 <span class="rev-status" id="alDiagStatus"></span>
