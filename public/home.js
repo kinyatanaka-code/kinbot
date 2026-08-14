@@ -27,6 +27,7 @@ const HOME_ICONS = {
   sf:   "M12 2a10 10 0 1 0 10 10h-2a8 8 0 1 1-8-8zm7.5.5l-6.8 6.8-2.2-2.2L9 8.6l3.7 3.7 8.2-8.2z",
   open: "M4 4h7v2H6v12h12v-5h2v7H4zm9 0h7v7h-2V7.4l-8.3 8.3-1.4-1.4L16.6 6H13z",
   mail: "M3 5h18v14H3zm2 2v.6l7 4.4 7-4.4V7zm0 3v7h14v-7l-7 4.4z",
+  cal:  "M7 2v2h10V2h2v2h3v18H2V4h3V2zm13 8H4v10h16zm-9 2v2H7v-2zm6 0v2h-4v-2z",
   more: "M5 10.3a1.7 1.7 0 1 0 0 3.4 1.7 1.7 0 0 0 0-3.4zm7 0a1.7 1.7 0 1 0 0 3.4 1.7 1.7 0 0 0 0-3.4zm7 0a1.7 1.7 0 1 0 0 3.4 1.7 1.7 0 0 0 0-3.4z",
 };
 
@@ -288,9 +289,8 @@ function render() {
     let meta = "";
     if (m) meta = `担当：${escH(repOf(m))}`;
     else if (e) {
-      meta = window._autoJoin
-        ? (e.hasUrl ? "開始時刻にボットが自動入室します" : "予定にZoom等のURLがありません（自動入室されません）")
-        : "録音するときは、レコーディング画面からボットを入れてください";
+      // 1行なので短く。詳しい案内は印（バッジ）で足りる。
+      meta = window._autoJoin && !e.hasUrl ? "URLなし（自動入室されません）" : "";
     }
     const summary = (m && m.summary && m.summary.overview) ? String(m.summary.overview).slice(0, 90) + "…" : "";
     const openLabel = m ? "商談を開く" : "会社を開く";
@@ -305,14 +305,14 @@ function render() {
       (m ? hIcon("sf", "SFを更新", `data-sfedit="${escH(key)}"`, "need") : "") +
       (!m ? hIcon("sf", s.open ? "SF商談を閉じる" : "SF商談を選ぶ", `data-sf-open="${escH(key)}"`) : "") +
       (m && m.bot_id ? hIcon("mail", "御礼メール", `data-mail="${escH(m.bot_id)}" data-key="${escH(key)}"`, "need") : "") +
-      hIcon("more", "そのほかの操作", `data-sheet-open="${escH(key)}"`);
+      `<span class="hl-more">${hIcon("more", "そのほかの操作", `data-sheet-open="${escH(key)}"`)}</span>`;
 
     return `<div class="home-row" style="--i:${idx}"><div class="home-card home-line${m ? " is-done" : ""}" data-card="${escH(key)}">
       <div class="hl-row">
         <div class="hl-time">${escH(time)}</div>
         <div class="hl-main">
           <div class="hl-title">${escH(title)}</div>
-          <div class="hl-meta">${badges}${meta}${meta && summary ? " ・ " : ""}${summary ? escH(summary.slice(0, 36)) : ""}</div>
+          <div class="hl-meta"${summary ? ` title="${escH(summary)}"` : ""}>${badges}${meta}</div>
         </div>
         <div class="hl-acts">${acts}</div>
       </div>
@@ -1045,10 +1045,12 @@ function launchLine(x) {
   const l = x.launch;
   if (!l) return "";
   if (l.ok) {
-    return `<div class="home-card-meta al-ok">SFを自動で立ち上げました` +
-      `${l.filledUrl ? `（URLも補いました）` : ""}</div>`;
+    // 立ち上がったものは、アイコンの色で分かるので行には出さない
+    return "";
   }
-  return `<div class="home-card-meta al-ng">SFを自動で立ち上げられませんでした：${apoEsc(l.reasonText)}</div>`;
+  // 理由は長いので1行に省略する。全文はカーソルを合わせると出る。
+  const full = `SFを自動で立ち上げられませんでした：${l.reasonText || ""}`;
+  return `<div class="home-sf-err al-ng" title="${apoEsc(full)}">⚠ ${apoEsc(l.reasonText || "立ち上げできません")}</div>`;
 }
 
 function apoHomeCard(x) {
@@ -1062,32 +1064,36 @@ function apoHomeCard(x) {
       const m = x.mail || {};
       const needMail = !m.confirm;
       const sfKey = "apo:" + x.slug;   // カードを特定するキー（パネルの差し込み先）
-      return `<div class="home-card home-card-v ap-home-card${needMail ? " home-card-plan" : ""}" data-card="${apoEsc(sfKey)}">
-        <div class="home-card-row">
-          <div class="home-card-main">
-            <div class="home-card-top">
-              <span class="home-time">${apoEsc(apoTime(x.start))}</span>
-              ${x.business ? `<span class="ap-biz-badge ap-biz-${apoEsc(x.business)}">${apoEsc(x.business)}</span>` : ""}
-              ${x.inviteEventId ? '<span class="home-badge home-badge-done">予定作成済</span>' : ""}
-            </div>
-            <div class="home-card-title">${apoEsc(x.title || "")}</div>
-            <div class="home-card-meta ln-who">
-              <span class="ln-tag ln-tag-intern">アポ獲得：${apoEsc(x.setter || "-")}</span>
-              ${chip("確定メール", m.confirm)}${chip("前日", m.reminder)}
-            </div>
-            ${x.clientEmail
-              ? `<div class="home-card-meta ap-home-addr">${apoEsc(x.clientEmail)}</div>`
-              : '<div class="home-card-meta cc-warn">お客様の宛先が未登録です（メールを出せません）</div>'}
+      // 商談と同じく1行にして、操作は小さなアイコンにする。
+      // やることが残っているものだけ色が付くので、押す先が分かる。
+      const launched = !!(x.launch && x.launch.ok);
+      const mailLabel = m.confirm
+        ? (m.confirm.status === "sent" ? "送信済み" : "下書き作成済み")
+        : (x.clientEmail ? "メールを作る" : "宛先が未登録");
+      const acts =
+        hIcon("mail", mailLabel, `data-apo-mail="${apoEsc(x.slug)}"${m.confirm ? " disabled" : ""}`,
+              m.confirm ? "done" : "need") +
+        hIcon("sf", launched ? "SFを開く" : "SF立ち上げ", `data-apo-sf="${apoEsc(x.slug)}"`,
+              launched ? "done" : "need") +
+        hIcon("cal", "会議室", `href="${apoEsc(x.smartUrl)}" target="_blank" rel="noopener"`, "", "a");
+
+      // 補足行。宛先が無い・立ち上げできない場合は、その理由を出す。
+      const warn = !x.clientEmail ? '<span class="cc-warn">宛先が未登録</span>' : "";
+      const meta = [
+        x.business ? apoEsc(x.business) : "",
+        `獲得 ${apoEsc(x.setter || "-")}`,
+        warn || (x.clientEmail ? apoEsc(x.clientEmail) : ""),
+      ].filter(Boolean).join(" ・ ");
+
+      return `<div class="home-card home-line ap-home-card${needMail ? " home-card-plan" : ""}" data-card="${apoEsc(sfKey)}">
+        <div class="hl-row">
+          <div class="hl-time">${apoEsc(apoTime(x.start))}</div>
+          <div class="hl-main">
+            <div class="hl-title">${apoEsc(x.title || "")}</div>
+            <div class="hl-meta">${x.inviteEventId ? '<span class="home-badge home-badge-done">予定作成済</span>' : ""}${meta}</div>
             ${launchLine(x)}
           </div>
-          <div class="home-card-actions">
-            <button type="button" class="btn" data-apo-mail="${apoEsc(x.slug)}"${m.confirm ? " disabled" : ""}>${
-              m.confirm ? (m.confirm.status === "sent" ? "送信済み" : "下書き作成済み") : "メール送付（下書きへ）"
-            }</button>
-            <button type="button" class="btn${x.launch && x.launch.ok ? " ghost" : " sf-btn-secondary"}" data-apo-sf="${apoEsc(x.slug)}">${
-              x.launch && x.launch.ok ? "SFを開く" : "SF立ち上げ"}</button>
-            <a class="btn ghost" href="${apoEsc(x.smartUrl)}" target="_blank" rel="noopener">会議室</a>
-          </div>
+          <div class="hl-acts">${acts}</div>
         </div>
       </div>`;
   })(x);

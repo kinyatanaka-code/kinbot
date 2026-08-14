@@ -4429,9 +4429,9 @@ input:focus, select:focus, textarea:focus, .sf-input:focus, .sf-select:focus, .s
    横に十分な幅があるときだけ左右に並べ、それぞれの中だけをスクロールさせる。 */
 @media (min-width: 1200px) {
   /* 商談と割り振られたアポを左右に。ページは動かさず、各ペインの中だけスクロールする */
-  /* 1行にしたぶん、商談の列を広く取れる（会社名が切れないように） */
-  .home-cols { grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr); gap: 18px; }
-  .home-pane { background: var(--panel-2); border: 1px solid var(--line); border-radius: 14px; padding: 12px 14px 14px; }
+  /* 1行にしたぶん、どちらの列にも会社名がきちんと入るようにする */
+  .home-cols { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 18px; }
+  .home-pane { background: var(--panel-2); border: 1px solid var(--line); border-radius: 14px; padding: 12px 10px 14px; }
   .home-pane .home-sec-head { margin: 2px 2px 10px; }
   .home-pane-body { overflow-y: auto; overscroll-behavior: contain; padding-right: 4px;
     max-height: calc(100vh - 226px); scrollbar-width: thin; }
@@ -4816,8 +4816,8 @@ input:focus, select:focus, textarea:focus, .sf-input:focus, .sf-select:focus, .s
    カードをやめて行にし、操作は小さなアイコンにした。
    1画面に入る件数が増え、やることが残っているものは色で分かる。 */
 .home-card.home-line { padding: 0; border-radius: 12px; }
-.hl-row { display: grid; grid-template-columns: 54px 1fr auto; gap: 10px;
-  align-items: center; padding: 9px 12px; }
+.hl-row { display: grid; grid-template-columns: 48px 1fr auto; gap: 8px;
+  align-items: center; padding: 9px 10px; }
 .home-card.home-line:hover { background: var(--panel-2); }
 .hl-time { font-size: 12.5px; font-weight: 800; color: #0F6E56; }
 .hl-main { min-width: 0; }
@@ -4828,10 +4828,20 @@ input:focus, select:focus, textarea:focus, .sf-input:focus, .sf-select:focus, .s
   display: flex; align-items: center; gap: 6px; }
 /* 行に置く印は小さくする（会社名の幅を取らないように） */
 .hl-meta .home-badge { font-size: 9.5px; padding: 1px 7px; flex: none; }
+/* 立ち上げできない理由は長いので、1行に省略して出す。
+   全文はカーソルを合わせると見られる（title属性）。 */
+.home-line .home-sf-err, .home-line .cc-warn { font-size: 10.5px; line-height: 1.6; }
+.home-line .home-sf-err { margin-top: 2px; white-space: nowrap;
+  overflow: hidden; text-overflow: ellipsis; }
 .home-card.home-line.is-done .hl-time { color: #57bd90; }
 
 /* 小さなアイコンのボタン。押すとモーダルが開く。 */
 .hl-acts { display: flex; gap: 4px; align-items: center; }
+/* 「そのほか」は普段は場所を取らない。行にカーソルを合わせたときだけ出す。
+   会社名の幅を1つぶん広く使えるようにするため。 */
+.hl-more { width: 0; overflow: hidden; transition: width .14s ease; display: inline-flex; }
+.home-line:hover .hl-more, .home-line:focus-within .hl-more { width: 34px; }
+@media (max-width: 900px) { .hl-more { width: 34px; } }
 .hib { width: 30px; height: 30px; border-radius: 9px; border: 1px solid var(--line);
   background: var(--panel); display: grid; place-items: center; cursor: pointer;
   position: relative; padding: 0; flex: none; text-decoration: none; }
