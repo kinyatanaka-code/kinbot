@@ -4817,7 +4817,10 @@ input:focus, select:focus, textarea:focus, .sf-input:focus, .sf-select:focus, .s
 /* ───────── ホームの商談を1行にする ─────────
    カードをやめて行にし、操作は小さなアイコンにした。
    1画面に入る件数が増え、やることが残っているものは色で分かる。 */
-.home-card.home-line { padding: 0; border-radius: 12px; }
+/* 行は中で自分でレイアウトするので、カード側の flex は使わない。
+   flex のままだと幅の計算が合わず、右端のアイコンが切れて見える。 */
+.home-card.home-line { display: block; padding: 0; border-radius: 12px;
+  overflow: hidden; }
 .hl-row { display: grid; grid-template-columns: 48px 1fr auto; gap: 8px;
   align-items: center; padding: 9px 10px; }
 .home-card.home-line:hover { background: var(--panel-2); }
@@ -4838,32 +4841,45 @@ input:focus, select:focus, textarea:focus, .sf-input:focus, .sf-select:focus, .s
 .home-card.home-line.is-done .hl-time { color: #57bd90; }
 
 /* 小さなアイコンのボタン。押すとモーダルが開く。 */
-.hl-acts { display: flex; gap: 4px; align-items: center; }
+.hl-acts { display: flex; gap: 4px; align-items: center; flex: none; }
 /* 「外す」は普段は場所を取らない。行にカーソルを合わせたときだけ出す。
    ふだんは会社名の幅を広く使いたいので。 */
-.hl-more { width: 0; overflow: hidden; transition: width .14s ease; display: inline-flex; }
+.hl-more { width: 0; overflow: hidden; transition: width .14s ease;
+  display: inline-flex; flex: none; }
+/* 隠している間は中身も見えないようにする（枠からはみ出して見えるのを防ぐ） */
+.hl-more > .hib { visibility: hidden; }
+.home-line:hover .hl-more > .hib, .home-line:focus-within .hl-more > .hib { visibility: visible; }
 .home-line:hover .hl-more, .home-line:focus-within .hl-more { width: 42px; }
 @media (max-width: 900px) { .hl-more { width: 42px; } }
 /* アイコンと、その下の短い名前をひと組にする */
 .hib { display: flex; flex-direction: column; align-items: center; gap: 2px;
   background: transparent; border: 0; padding: 0; cursor: pointer;
   position: relative; flex: none; text-decoration: none; width: 38px; }
-.hib-btn { width: 30px; height: 30px; border-radius: 9px; border: 1px solid var(--line);
-  background: var(--panel); display: grid; place-items: center; }
-.hib svg { width: 15px; height: 15px; fill: #4a6b62; pointer-events: none; }
-.hib-name { font-size: 9px; color: var(--muted); line-height: 1.2; white-space: nowrap; }
+/* 色は2種類だけ。薄い緑（やることが残っている）と、薄い灰（それ以外）。 */
+.hib-btn { width: 30px; height: 30px; border-radius: 9px; border: 1px solid #dfeae5;
+  background: #eef4f1; display: grid; place-items: center; }
+.hib svg { width: 15px; height: 15px; fill: #7f958d; pointer-events: none; }
+.hib-name { font-size: 9px; color: #8b9e97; line-height: 1.2; white-space: nowrap; }
 .hib:hover .hib-btn { background: #1d9e75; border-color: #1d9e75; }
 .hib:hover svg { fill: #fff; }
-.hib:hover .hib-name { color: #0F6E56; }
+.hib:hover .hib-name { color: #1d9e75; }
 /* やることが残っているものだけ色を付ける */
-.hib.hib-need .hib-btn { border-color: #f0d6ae; background: #fdf3e6; }
-.hib.hib-need svg { fill: #A8611A; }
-.hib.hib-need .hib-name { color: #A8611A; }
+/* やることが残っているものは、薄い緑にして区別する。
+   濃い緑（押せる）と薄い灰（済み）の中間の濃さ。 */
+.hib.hib-need .hib-btn { border-color: #9fe1cb; background: #9fe1cb; }
+.hib.hib-need svg { fill: #0d5b47; }
+.hib.hib-need .hib-name { color: #0F6E56; font-weight: 700; }
 .hib.hib-need:hover .hib-btn { background: #1d9e75; border-color: #1d9e75; }
 .hib.hib-need:hover svg { fill: #fff; }
-/* もう済んだものは、押せるが目立たせない */
-.hib.hib-done svg { fill: #a9c6bc; }
-.hib.hib-done .hib-name { color: #b5c8c1; }
+/* 済んだもの・いつでも押せるものは、上の薄い灰のまま（指定は不要） */
+/* まだ押せないものは、場所は空けたまま薄くして押せないことを示す */
+.hib.hib-off { cursor: default; }
+.hib.hib-off .hib-btn { background: #f6f9f8; border-color: #eaf0ed; }
+.hib.hib-off svg { fill: #cfdcd7; }
+.hib.hib-off .hib-name { color: #cfdcd7; }
+.hib.hib-off:hover .hib-btn { background: #f6f9f8; border-color: #eaf0ed; }
+.hib.hib-off:hover svg { fill: #cfdcd7; }
+.hib.hib-off:hover .hib-name { color: #cfdcd7; }
 /* 消す操作は、間違えないよう赤くする */
 .hl-more .hib:hover .hib-btn { background: #C0563C; border-color: #C0563C; }
 .hl-more .hib:hover .hib-name { color: #C0563C; }

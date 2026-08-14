@@ -306,14 +306,21 @@ function render() {
     homeItems[key] = { title, time, company, done: !!m, link, openLabel, botId: (m && m.bot_id) || "" };
     // 1行1商談。操作は小さなアイコンにして、押すとモーダルが開く。
     // やることが残っているものだけ色を付けるので、見れば次の一手が分かる。
+    // 並びは 録音 → SF → メール → 開く。4つとも必ず出す。
+    // 押せない場合も場所は空けておく（行ごとに並びが変わると探しにくいため）。
     const acts =
-      (!m && e ? hIcon("rec", "録音する", `data-rec="${escH(key)}"`, "need") : "") +
-      (m ? hIcon("rec", "録音済み", "", "done") : "") +
-      hIcon("open", openLabel, `href="${link}"`, "", "a") +
-      (m ? hIcon("sf", "SFを更新", `data-sfedit="${escH(key)}"`, "need") : "") +
-      (!m ? hIcon("sf", s.open ? "SF商談を閉じる" : "SF商談を選ぶ", `data-sf-open="${escH(key)}"`) : "") +
-      (m && m.bot_id ? hIcon("mail", "御礼メール", `data-mail="${escH(m.bot_id)}" data-key="${escH(key)}"`, "need") : "") +
-      "";
+      (m
+        ? hIcon("rec", "録音済み", "", "done")
+        : e
+          ? hIcon("rec", "録音する", `data-rec="${escH(key)}"`, "need")
+          : hIcon("rec", "この予定は録音できません", "disabled", "off")) +
+      (m
+        ? hIcon("sf", "SFを更新", `data-sfedit="${escH(key)}"`, "need")
+        : hIcon("sf", s.open ? "SF商談を閉じる" : "SF商談を選ぶ", `data-sf-open="${escH(key)}"`, "done")) +
+      (m && m.bot_id
+        ? hIcon("mail", "御礼メール", `data-mail="${escH(m.bot_id)}" data-key="${escH(key)}"`, "need")
+        : hIcon("mail", "商談が終わると使えます", "disabled", "off")) +
+      hIcon("open", openLabel, `href="${link}"`, "done", "a");
 
     return `<div class="home-row" style="--i:${idx}"><div class="home-card home-line${m ? " is-done" : ""}" data-card="${escH(key)}">
       <div class="hl-row">
@@ -1085,11 +1092,11 @@ function apoHomeCard(x) {
         ? (m.confirm.status === "sent" ? "送信済み" : "下書き作成済み")
         : (x.clientEmail ? "メールを作る" : "宛先が未登録");
       const acts =
-        hIcon("mail", mailLabel, `data-apo-mail="${apoEsc(x.slug)}"${m.confirm ? " disabled" : ""}`,
-              m.confirm ? "done" : "need") +
         hIcon("sf", launched ? "SFを開く" : "SF立ち上げ", `data-apo-sf="${apoEsc(x.slug)}"`,
               launched ? "done" : "need") +
-        hIcon("cal", "会議室", `href="${apoEsc(x.smartUrl)}" target="_blank" rel="noopener"`, "", "a") +
+        hIcon("mail", mailLabel, `data-apo-mail="${apoEsc(x.slug)}"${m.confirm ? " disabled" : ""}`,
+              m.confirm ? "done" : "need") +
+        hIcon("cal", "会議室", `href="${apoEsc(x.smartUrl)}" target="_blank" rel="noopener"`, "done", "a") +
         // テストで作ったアポを、その場で片付けられるようにする。
         // 実績・均等化・通知の数から外し、カレンダーの予定も消す。
         `<span class="hl-more">${hIcon("trash", "テストとして外す", `data-apo-drop="${apoEsc(x.slug)}"`)}</span>`;
