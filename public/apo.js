@@ -577,46 +577,60 @@ async function loadInvites() {
   }
 }
 
-// 「アポを取った人＝担当者」なのに、kinbotがもう1つ予定を作ってしまったもの
+// カレンダーを直接見て、同じ商談の予定が2つ以上あるものを探して消す
 async function loadSelfInvites() {
   const box = $("siBox");
   const say = (m) => { const e = $("siStatus"); if (e) e.textContent = m; };
   const btn = $("siLoad");
   if (!box) return;
   if (btn) btn.disabled = true;
-  say("探しています…");
+  say("探しています…（人数分カレンダーを読むので少し時間がかかります）");
   box.innerHTML = "";
   try {
-    const d = await (await fetch("/api/apo/self-invites")).json();
+    const d = await (await fetch("/api/apo/duplicate-events")).json();
     if (d.error) throw new Error(d.error);
     const list = d.found || [];
-    if (!list.length) {
-      box.innerHTML = `<p class="note">余分な予定はありません。</p>`;
-      say(""); return;
+    let html = "";
+    if ((d.checked || []).length) {
+      html += `<p class="note">調べたカレンダー：` +
+        d.checked.map((c) => `${esc(c.name || c.email)}（${c.events}件）`).join("、") + `</p>`;
     }
-    box.innerHTML = `<div class="iv-list">` + list.map((x, k) => `
+    if ((d.errors || []).length) {
+      html += `<p class="note cc-warn">読めなかったカレンダー：` +
+        d.errors.map((x) => `${esc(x.email)}（${esc(x.error).slice(0, 60)}）`).join("、") + `</p>`;
+    }
+    if (!list.length) {
+      html += `<p class="note">重複した予定は見つかりませんでした。</p>`;
+      box.innerHTML = html; say(""); return;
+    }
+    html += `<div class="iv-list">` + list.map((x, k) => `
       <label class="iv-row">
         <input type="checkbox" class="si-chk" data-i="${k}" checked />
         <div class="iv-main"><span class="iv-when">${fmtWhen(x.start)}</span>
-          <span class="iv-title">${esc(x.label || "(予定名なし)")}</span></div>
-        <div class="iv-sub">アポ獲得：${esc(x.setter || "-")} ／ ${esc(x.owner || "")} のカレンダー</div>
+          <span class="iv-title">${esc(x.title || "(予定名なし)")}</span></div>
+        <div class="iv-sub">${esc(x.name || x.calendarEmail)} のカレンダー ／ kinbotが作った予定</div>
       </label>`).join("") + `</div>
       <div class="ap-cfg-actions">
         <button class="btn ghost" id="siDel">チェックしたものを消す</button>
       </div>`;
+    box.innerHTML = html;
     box.querySelector("#siDel").addEventListener("click", async () => {
       const items = [...box.querySelectorAll(".si-chk")].filter((c) => c.checked).map((c) => list[+c.dataset.i]);
       if (!items.length) { say("チェックがありません"); return; }
-      if (!confirm(`${items.length}件の予定を消して、1つに戻します。よろしいですか？\n（アポを取ったときの元の予定は残ります）`)) return;
+      if (!confirm(`${items.length}件の予定をカレンダーから消して、1つに戻します。よろしいですか？\n（アポ獲得者が作った元の予定は残ります）`)) return;
       say("削除中…");
       try {
-        const r = await fetch("/api/apo/self-invites/delete", {
+        const r = await fetch("/api/apo/duplicate-events/delete", {
           method: "POST", headers: { "content-type": "application/json" },
           body: JSON.stringify({ items }),
         });
         const dd = await r.json();
         if (!r.ok) throw new Error(dd.error || "削除に失敗しました");
         say(`${dd.deleted}件を消しました${(dd.failed || []).length ? `（${dd.failed.length}件は失敗）` : ""}`);
+        if ((dd.failed || []).length) {
+          box.innerHTML += `<p class="note cc-warn">消せなかったもの：` +
+            dd.failed.map((f) => `${esc(f.calendarEmail || "")}（${esc(f.error || "")}）`).join("、") + `</p>`;
+        }
         loadSelfInvites();
       } catch (e) { say("失敗: " + e.message); }
     });
@@ -836,13 +850,19 @@ async function calCheck() {
       if (m.error) { verdict = m.error; cls = "cal-ng"; }
       else if (m.total === 0) { verdict = "カレンダーは読めましたが、期間内に予定が1件もありません"; cls = "cal-warn"; }
       else if (m.hosted === 0) { verdict = `予定は${m.total}件ありますが、この人が主催者の予定がありません（招待されているだけの予定は対象外です）`; cls = "cal-warn"; }
+      else if (m.tagged === 0 && m.kinbotSkipped) { verdict = `タグ付きの予定は${m.kinbotSkipped}件ありますが、すべて「kinbotが作った商談予定」なので取り込みません。アポの元になる予定は、アポ獲得者ご自身で新しく作ってください（kinbotの予定をコピーすると取り込まれません）`; cls = "cal-warn"; }
       else if (m.tagged === 0) { verdict = `主催の予定が${m.hosted}件ありますが、タイトルに【新】【ヒ】【初回】のいずれかが付いた予定がありません`; cls = "cal-warn"; }
       else { verdict = `取り込み対象の予定が ${m.tagged}件 見つかりました`; cls = "cal-ok"; }
       html += `<div class="cal-row ${cls}">
         <div class="cal-head"><b>${esc(m.name)}</b><span class="ap-rot-cnt">${esc(m.email)}</span></div>
         <div class="cal-verdict">${esc(verdict)}</div>`;
       if (!m.error && m.total) {
-        html += `<div class="ap-rot-cnt">予定${m.total}件 ／ 本人が主催${m.hosted}件 ／ タグ一致${m.tagged}件</div>`;
+        html += `<div class="ap-rot-cnt">予定${m.total}件 ／ 本人が主催${m.hosted}件 ／ タグ一致${m.tagged}件` +
+          (m.kinbotSkipped ? ` ／ kinbotが作った予定として除外${m.kinbotSkipped}件` : "") + `</div>`;
+      }
+      if ((m.kinbotSamples || []).length) {
+        html += `<div class="cal-samples">kinbotが作った予定として除外した例：` +
+          m.kinbotSamples.map((x) => `<span>${esc(x.title)}</span>`).join("") + `</div>`;
       }
       if ((m.samples || []).length) {
         html += `<div class="cal-samples">タグが付いていない予定の例：` +

@@ -243,11 +243,11 @@
               </div>
               <div id="ivBox"></div>
 
-              <h4 class="ap-rot-h">自分で取ったアポの、余分な予定を消す</h4>
-              <p class="note"><b>アポを取った人が、そのまま担当になった</b>商談です。本人のカレンダーには元の予定があるので、kinbotが作った予定は余分（同じ商談が2つ並びます）。消すと1つに戻ります。<br>
-              元の予定は消えません。消すのはkinbotが作ったほうだけです。</p>
+              <h4 class="ap-rot-h">カレンダーの重複予定を消して1つに戻す</h4>
+              <p class="note">カレンダーそのものを見て、<b>同じ予定名・同じ時刻の予定が2つ以上</b>あるものを探します。消すのは<b>kinbotが作った予定だけ</b>で、アポ獲得者が作った元の予定は必ず残ります。<br>
+              インサイド・クローザー全員のカレンダーを見ます（本人が未連携でも、代表者に共有されていれば読めます）。</p>
               <div class="ap-cfg-actions">
-                <button class="btn ghost" id="siLoad">余分な予定を探す</button>
+                <button class="btn ghost" id="siLoad">重複を探す</button>
                 <span class="rev-status" id="siStatus"></span>
               </div>
               <div id="siBox"></div>

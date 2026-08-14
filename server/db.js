@@ -2684,6 +2684,17 @@ export async function activeInviteEventIds() {
   } catch { return new Set(); }
 }
 
+// カレンダーから消した予定を、kinbotの管理からも外す（次に作り直されないように）
+export async function clearInviteEvent(eventId) {
+  if (!pool || !eventId) return 0;
+  try {
+    const { rowCount } = await pool.query(
+      `UPDATE smart_links SET invite_event_id = NULL, invite_event_owner = NULL, updated_at = now()
+        WHERE invite_event_id = $1`, [eventId]);
+    return rowCount;
+  } catch (e) { console.error("[db] clearInviteEvent", e.message); return 0; }
+}
+
 export async function setSmartLinkSetterEmail(slug, email) {
   if (!pool || !slug || !email) return null;
   try {

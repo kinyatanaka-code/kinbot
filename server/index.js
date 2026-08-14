@@ -103,6 +103,7 @@ import {
   apoMissingStart,
   apoMissingApoAt,
   setSmartLinkSetterEmail,
+  clearInviteEvent,
   linksWithInvite,
   setApoAt,
   setApoStartTime,
@@ -10405,10 +10406,12 @@ async function collectApoAppointments(scanOwner, opts = {}) {
         if (!isHost) continue;
         // kinbotが担当者のカレンダーに作った商談予定は、アポの元ではない。
         // これを拾うと、同じ商談から次々に新しいアポができてしまう。
-        if (inviteIds.has(ev.id)) continue;
         // 予定をコピーしたり作り直すとIDが変わるので、本文の目印でも見る。
         // これを拾うと、kinbotの予定から次のアポができ、際限なく増えてしまう。
-        if (isKinbotInvite(ev.description)) continue;
+        if (await isKinbotInviteEvent(ev, inviteIds)) {
+          console.log(`[apo-scan] kinbotが作った予定なので取り込みません：${String(ev.title || "").slice(0, 40)}`);
+          continue;
+        }
         // タイトルが【新/ヒ】または【初回/】を含む予定だけ（全角半角問わず）
         if (!apoTitleTag(ev.title)) continue;
         // 取得日・商談日の指定があれば、それぞれ完全一致で絞る
@@ -10511,6 +10514,26 @@ async function collectApoAppointments(scanOwner, opts = {}) {
 const KINBOT_INVITE_MARK = "kinbotが自動作成した商談予定です";
 function isKinbotInvite(description) {
   return String(description || "").includes(KINBOT_INVITE_MARK);
+}
+
+// kinbotの予定の本文に書かれている参加URL（/j/xxxx）から、アポの鍵を取り出す
+function kinbotInviteSlug(description) {
+  const m = String(description || "").match(/\/j\/([A-Za-z0-9_-]{4,})/);
+  return m ? m[1] : "";
+}
+
+// この予定は「kinbotが作った商談予定」か。
+//   ・kinbotが管理している予定ID → そのまま除外
+//   ・本文に目印があり、書かれているアポがいまも残っている → 除外（予定のコピーや作り直し）
+//   ・本文に目印があっても、そのアポがもう無い → 新しいアポとして拾う
+//     （消したあとに予定だけ残っている場合に、取り込めなくなるのを防ぐ）
+async function isKinbotInviteEvent(ev, inviteIds) {
+  if (inviteIds && inviteIds.has(ev.id)) return true;
+  if (!isKinbotInvite(ev.description)) return false;
+  const slug = kinbotInviteSlug(ev.description);
+  if (!slug) return true;
+  const link = await getSmartLink(slug).catch(() => null);
+  return !!link;
 }
 
 // アポ獲得者が予定に書いたメモを取り出す。
@@ -10841,9 +10864,15 @@ app.get("/api/apo/calendar-check", async (req, res) => {
     const timeMin = new Date(now.getTime() - 7 * 86400 * 1000).toISOString();
     const timeMax = new Date(now.getTime() + 60 * 86400 * 1000).toISOString();
 
+    // kinbotが作った商談予定は取り込まない。除外された件数も出して、
+    // 「作ったのに通知が来ない」ときの理由が分かるようにする。
+    let inviteIds = new Set();
+    try { inviteIds = await activeInviteEventIds(); } catch {}
+
     const out = [];
     for (const st of setters) {
-      const row = { name: st.name, email: st.email, readable: false, total: 0, hosted: 0, tagged: 0, samples: [], error: "" };
+      const row = { name: st.name, email: st.email, readable: false, total: 0, hosted: 0,
+                    tagged: 0, kinbotSkipped: 0, kinbotSamples: [], samples: [], error: "" };
       try {
         const evs = await listCalendarEvents(owner, st.email, { timeMin, timeMax });
         row.readable = true;
@@ -10857,6 +10886,13 @@ app.get("/api/apo/calendar-check", async (req, res) => {
           if (!isHost) continue;
           row.hosted++;
           if (apoTitleTag(ev.title)) {
+            if (await isKinbotInviteEvent(ev, inviteIds)) {
+              row.kinbotSkipped++;
+              if (row.kinbotSamples.length < 4) {
+                row.kinbotSamples.push({ title: ev.title.slice(0, 60), start: ev.start });
+              }
+              continue;
+            }
             row.tagged++;
           } else if (row.samples.length < 4) {
             // タグが無くて取り込まれていない予定を例として返す
@@ -10987,6 +11023,141 @@ app.get("/api/apo/orphan-invites", async (req, res) => {
     }
     found.sort((a, b) => String(a.start).localeCompare(String(b.start)));
     res.json({ owners: [...owners], found, errors });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// ───────────────────────────────────────────────────────────
+// カレンダーに同じ商談の予定が2つ以上あるものを探して、余分なほうを消す。
+//
+// データベースの記録に頼らず、カレンダーそのものを見て突き合わせる。
+// （アポの記録を先に消してしまうと、予定だけが残って追えなくなるため）
+// 消すのは「kinbotが作った予定」だけ。アポ獲得者が作った元の予定は必ず残す。
+// ───────────────────────────────────────────────────────────
+
+// 予定名をそろえて比べる。「リスケ済み」などの付け足しや空白の違いは無視する。
+function normEventTitle(t) {
+  return String(t || "")
+    .replace(/^[\s　]*(リスケ済み|リスケ|再調整|変更後|確定)[\s　]*/g, "")
+    .replace(/[\s　]/g, "")
+    .toLowerCase();
+}
+
+// 誰のカレンダーを見るか。運用者・代表者・インサイド・クローザー全員。
+async function calendarPeople() {
+  const s = await getSettings().catch(() => ({}));
+  const rep = String(s.apoScanOwner || s.apoInviteOwner || "").trim();
+  const list = new Map();
+  for (const c of await listClosers({ activeOnly: false }).catch(() => [])) {
+    if (c.email) list.set(String(c.email).toLowerCase(), c.name || c.email);
+  }
+  for (const i of await listInterns().catch(() => [])) {
+    if (i.email) list.set(String(i.email).toLowerCase(), i.name || i.email);
+  }
+  const op = String(s.apoInviteOwner || "").trim().toLowerCase();
+  if (op && !list.has(op)) list.set(op, op);
+  return { rep, people: [...list.entries()].map(([email, name]) => ({ email, name })) };
+}
+
+// その人のカレンダーを読む。本人が連携していればその権限で、
+// 連携していなければ代表者の権限で（共有されていれば読める）。
+async function readPersonCalendar(rep, email, range) {
+  if (await gcalConnected(email).catch(() => false)) {
+    try { return { by: email, calendarId: "primary", evs: await listCalendarEvents(email, "primary", range) }; }
+    catch {}
+  }
+  if (rep && await gcalConnected(rep).catch(() => false)) {
+    return { by: rep, calendarId: email, evs: await listCalendarEvents(rep, email, range) };
+  }
+  throw new Error("カレンダーを読めません（本人のGoogle連携も、代表者への共有もありません）");
+}
+
+app.get("/api/apo/duplicate-events", async (req, res) => {
+  try {
+    const { rep, people } = await calendarPeople();
+    if (!people.length) return res.status(400).json({ error: "調べる対象のメンバーが登録されていません" });
+
+    const days = Math.max(1, Math.min(180, parseInt(req.query.days, 10) || 90));
+    const range = {
+      timeMin: new Date(Date.now() - 30 * 86400 * 1000).toISOString(),
+      timeMax: new Date(Date.now() + days * 86400 * 1000).toISOString(),
+    };
+    let inviteIds = new Set();
+    try { inviteIds = await activeInviteEventIds(); } catch {}
+
+    const found = [], errors = [], checked = [];
+    for (const p of people) {
+      let got;
+      try { got = await readPersonCalendar(rep, p.email, range); }
+      catch (e) { errors.push({ email: p.email, error: e.message }); continue; }
+      const evs = (got.evs || []).filter((ev) => !ev.allDay && ev.title);
+      checked.push({ email: p.email, name: p.name, events: evs.length });
+
+      // 予定名＋開始時刻でまとめる
+      const groups = new Map();
+      for (const ev of evs) {
+        if (!apoTitleTag(ev.title) && !isKinbotInvite(ev.description)) continue;
+        const key = `${normEventTitle(ev.title)}|${String(ev.start || "").slice(0, 16)}`;
+        if (!groups.has(key)) groups.set(key, []);
+        groups.get(key).push(ev);
+      }
+      for (const [, list] of groups) {
+        if (list.length < 2) continue;
+        // kinbotが作ったものと、本人が作ったものに分ける
+        const mine = list.filter((ev) => !isKinbotInvite(ev.description));
+        const bots = list.filter((ev) => isKinbotInvite(ev.description));
+        let drop = [];
+        if (mine.length && bots.length) {
+          drop = bots;                       // 本人の予定を残し、kinbotの予定を消す
+        } else if (!mine.length && bots.length > 1) {
+          // どれもkinbotの予定。いま使っているものを1つ残す。
+          const keep = bots.find((ev) => inviteIds.has(ev.id)) || bots[0];
+          drop = bots.filter((ev) => ev.id !== keep.id);
+        } else if (mine.length > 1 && !bots.length) {
+          continue;                          // 本人が作った予定同士。kinbotは触らない。
+        }
+        for (const ev of drop) {
+          found.push({
+            calendarEmail: p.email, name: p.name, tokenOwner: got.by, calendarId: got.calendarId,
+            eventId: ev.id, title: ev.title, start: ev.start,
+            keeps: (mine[0] || {}).title || "",
+          });
+        }
+      }
+    }
+    found.sort((a, b) => String(a.start).localeCompare(String(b.start)));
+    res.json({ rep, checked, found, errors });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.post("/api/apo/duplicate-events/delete", async (req, res) => {
+  try {
+    const list = Array.isArray(req.body?.items) ? req.body.items : [];
+    if (!list.length) return res.status(400).json({ error: "消す対象が指定されていません" });
+    const done = [], failed = [];
+    for (const it of list) {
+      const eventId = String(it.eventId || "").trim();
+      const calendarEmail = String(it.calendarEmail || "").trim();
+      if (!eventId || !calendarEmail) continue;
+      // 本人の権限 → 代表者の権限（共有されていれば消せる）の順に試す
+      const tries = [];
+      if (await gcalConnected(calendarEmail).catch(() => false)) tries.push([calendarEmail, "primary"]);
+      const rep = String(it.tokenOwner || "").trim();
+      if (rep && rep !== calendarEmail) tries.push([rep, calendarEmail]);
+      let ok = false, lastErr = "";
+      for (const [owner, calId] of tries) {
+        try { ok = await deleteCalendarEvent(owner, eventId, calId); if (ok) break; }
+        catch (e) { lastErr = e.message; }
+      }
+      if (ok) {
+        // kinbotの管理からも外す（次に作り直されないように）
+        await clearInviteEvent(eventId).catch(() => {});
+        done.push({ eventId, calendarEmail });
+      } else {
+        failed.push({ eventId, calendarEmail, error: lastErr || "消せませんでした（権限がない可能性があります）" });
+      }
+    }
+    console.log(`[apo-invite] カレンダーの重複予定を削除 ${done.length}件 by ${req.user}`);
+    res.json({ ok: true, deleted: done.length, done, failed });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
