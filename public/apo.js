@@ -577,6 +577,42 @@ async function loadInvites() {
   }
 }
 
+// APIの返事を受け取る。
+// JSONでない（＝ログイン画面やExpressの404ページが返ってきた）ときは、
+// 「Unexpected token '<'」ではなく、何が起きているかが分かる文にする。
+async function apiJson(url, opts) {
+  const r = await fetch(url, opts);
+  const text = await r.text();
+  let d = null;
+  try { d = JSON.parse(text); } catch {}
+  if (d === null) {
+    if (r.status === 404) {
+      throw new Error(
+        "この機能がサーバー側にまだありません。デプロイが反映されていない可能性があります。" +
+        "数分待ってから、シークレットウィンドウで開き直してください。" +
+        "（設定の一番下「今動いているバージョン」でも確かめられます）");
+    }
+    if (r.status === 401 || /<!DOCTYPE/i.test(text.slice(0, 40))) {
+      throw new Error("ログインが切れている可能性があります。画面を開き直してログインし直してください。");
+    }
+    throw new Error(`サーバーから予期しない返事が来ました（${r.status}）`);
+  }
+  if (!r.ok) throw new Error(d.error || `失敗しました（${r.status}）`);
+  return d;
+}
+
+// 今動いているバージョンを出す（デプロイが反映されたか確かめる用）
+async function showVersion() {
+  const el = $("verBox");
+  if (!el) return;
+  try {
+    const d = await apiJson("/api/version");
+    el.innerHTML = `<b>${esc(d.build || "-")}</b><br>` +
+      `起動：${esc(d.startedAt ? new Date(d.startedAt).toLocaleString("ja-JP", { hour12: false }) : "-")}<br>` +
+      (d.features || []).map((f) => `・${esc(f)}`).join("<br>");
+  } catch (e) { el.textContent = "確認できませんでした：" + e.message; }
+}
+
 // カレンダーを直接見て、同じ商談の予定が2つ以上あるものを探して消す
 async function loadSelfInvites() {
   const box = $("siBox");
@@ -587,8 +623,7 @@ async function loadSelfInvites() {
   say("探しています…（人数分カレンダーを読むので少し時間がかかります）");
   box.innerHTML = "";
   try {
-    const d = await (await fetch("/api/apo/duplicate-events")).json();
-    if (d.error) throw new Error(d.error);
+    const d = await apiJson("/api/apo/duplicate-events");
     const list = d.found || [];
     let html = "";
     if ((d.checked || []).length) {
@@ -620,12 +655,10 @@ async function loadSelfInvites() {
       if (!confirm(`${items.length}件の予定をカレンダーから消して、1つに戻します。よろしいですか？\n（アポ獲得者が作った元の予定は残ります）`)) return;
       say("削除中…");
       try {
-        const r = await fetch("/api/apo/duplicate-events/delete", {
+        const dd = await apiJson("/api/apo/duplicate-events/delete", {
           method: "POST", headers: { "content-type": "application/json" },
           body: JSON.stringify({ items }),
         });
-        const dd = await r.json();
-        if (!r.ok) throw new Error(dd.error || "削除に失敗しました");
         say(`${dd.deleted}件を消しました${(dd.failed || []).length ? `（${dd.failed.length}件は失敗）` : ""}`);
         if ((dd.failed || []).length) {
           box.innerHTML += `<p class="note cc-warn">消せなかったもの：` +
@@ -1331,6 +1364,7 @@ async function saveMailCfg() {
   if ($("ivHours")) $("ivHours").addEventListener("change", loadInvites);
   if ($("orLoad")) $("orLoad").addEventListener("click", loadOrphans);
   if ($("siLoad")) $("siLoad").addEventListener("click", loadSelfInvites);
+  if ($("verBox")) showVersion();
   if ($("calCheckBtn")) $("calCheckBtn").addEventListener("click", calCheck);
   if ($("dbCheckBtn")) $("dbCheckBtn").addEventListener("click", () => dbCheck(false));
   if ($("dbRepairBtn")) $("dbRepairBtn").addEventListener("click", () => dbCheck(true));
