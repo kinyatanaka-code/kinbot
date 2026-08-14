@@ -156,15 +156,38 @@ export function tally(records, { fromISO, toISO } = {}) {
   return out;
 }
 
-// アポの件数を、kinbotが持っている記録で上書きする。
-// SFのレポートには商談日が無く期内・期外を分けられないため、
-// アポ獲得者・取得日・商談日が揃っているkinbot側の記録を使う。
-export function applyApoCounts(tallied, apoRows) {
-  const out = { ...tallied };
+// アポの件数は、kinbotが持っている記録だけを使う。
+//
+// SFのレポートには商談日が無く、期内・期外を分けられない。
+// kinbot側は「Chatに流したアポ（＝営業担当が取ったアポ）」を1件ずつ持っていて、
+// アポ獲得者・アポを取った日・商談日が揃っているので、こちらで数える。
+// コールと接触だけがSFのレポートから来る。
+//
+// 名前は「植野 ひかり」「植野ひかり」のような表記ゆれを同じ人として扱う。
+// 別々の人として持つと、シートに書くときにどちらか片方しか当たらない。
+export function applyApoCounts(tallied, apoRows, { replace = true } = {}) {
+  const out = {};
+  for (const [who, days] of Object.entries(tallied || {})) {
+    out[who] = {};
+    for (const [day, t] of Object.entries(days)) out[who][day] = { ...t };
+  }
+
+  // SFから拾ったアポの数は捨てる（期内・期外を分けられないため）
+  if (replace) {
+    for (const who of Object.keys(out)) {
+      for (const day of Object.keys(out[who])) {
+        out[who][day]["アポ（期内）"] = 0;
+        out[who][day]["アポ（期外）"] = 0;
+      }
+    }
+  }
+
   for (const r of apoRows || []) {
-    const who = String(r.setter || "").trim();
+    const name = String(r.setter || "").trim();
     const day = String(r.day || "").trim();
-    if (!who || !day) continue;
+    if (!name || !day) continue;
+    // 同じ人がSF側にいれば、そこへ足す（表記が違っても同じ人とみなす）
+    const who = Object.keys(out).find((n) => sameName(n, name)) || name;
     out[who] = out[who] || {};
     const t = (out[who][day] = out[who][day] || { "コール": 0, "接触": 0, "アポ（期内）": 0, "アポ（期外）": 0 });
     t["アポ（期内）"] = Number(r.in_term) || 0;

@@ -524,7 +524,15 @@ export async function initDb() {
   // アポ振り分け：スマートリンクをカレンダーの1予定に紐づける（重複発行を防ぐ）
   await sq(`ALTER TABLE smart_links ADD COLUMN IF NOT EXISTS event_id TEXT;`);
   await sq(`ALTER TABLE smart_links ADD COLUMN IF NOT EXISTS setter TEXT;`);
+  // アポ獲得者のメールアドレス。
+  // 「自分で取ったアポ」かどうかを名前ではなくメールで判定するために持つ。
+  // 名前だけだと表記ゆれで外れ、同じ商談の予定がもう1つ作られてしまう。
+  await sq(`ALTER TABLE smart_links ADD COLUMN IF NOT EXISTS setter_email TEXT;`);
   await sq(`ALTER TABLE smart_links ADD COLUMN IF NOT EXISTS start_time TIMESTAMPTZ;`);
+  // アポを取った日時（カレンダー予定を作った時刻）。
+  // created_at はkinbotが拾った時刻なので、実際にアポを取った日とずれる。
+  // プロセスシートは「アポを取った日」の列に入れるため、こちらを使う。
+  await sq(`ALTER TABLE smart_links ADD COLUMN IF NOT EXISTS apo_at TIMESTAMPTZ;`);
   await sq(`ALTER TABLE smart_links ADD COLUMN IF NOT EXISTS end_time TIMESTAMPTZ;`);
   await sq(`ALTER TABLE smart_links ADD COLUMN IF NOT EXISTS invite_event_id TEXT;`);
   // 商談予定をどのアカウントのカレンダーに作ったか。
@@ -2522,7 +2530,7 @@ export async function deleteOauthToken(access_token) {
 }
 
 // ===== スマートリンク（担当者切り替えに追随する共有Zoom URL） =====
-export async function createSmartLink({ slug, label, owner, createdBy, eventId, setter, startTime, endTime }) {
+export async function createSmartLink({ slug, label, owner, createdBy, eventId, setter, setterEmail, startTime, endTime, apoAt }) {
   if (!pool) return null;
   // 同じカレンダー予定からは1件しか作らない。
   // スキャンが重なっても、二重に登録されないようにする。
@@ -2543,11 +2551,12 @@ export async function createSmartLink({ slug, label, owner, createdBy, eventId, 
       }
     }
     const { rows } = await pool.query(
-      `INSERT INTO smart_links (slug, label, current_owner, created_by, event_id, setter, start_time, end_time)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+      `INSERT INTO smart_links (slug, label, current_owner, created_by, event_id, setter, setter_email, start_time, end_time, apo_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
        ON CONFLICT (event_id) WHERE event_id IS NOT NULL DO NOTHING
        RETURNING *`,
-      [slug, label || "", owner || null, createdBy || "", eventId, setter || null, startTime || null, endTime || null]
+      [slug, label || "", owner || null, createdBy || "", eventId, setter || null,
+       (setterEmail || "").toLowerCase() || null, startTime || null, endTime || null, apoAt || null]
     );
     if (rows[0]) return rows[0];
     // すでにあった場合は、そちらを返す
@@ -2555,9 +2564,10 @@ export async function createSmartLink({ slug, label, owner, createdBy, eventId, 
     return cur[0] || null;
   }
   const { rows } = await pool.query(
-    `INSERT INTO smart_links (slug, label, current_owner, created_by, event_id, setter, start_time, end_time)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING *`,
-    [slug, label || "", owner || null, createdBy || "", eventId || null, setter || null, startTime || null, endTime || null]
+    `INSERT INTO smart_links (slug, label, current_owner, created_by, event_id, setter, setter_email, start_time, end_time, apo_at)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING *`,
+    [slug, label || "", owner || null, createdBy || "", eventId || null, setter || null,
+     (setterEmail || "").toLowerCase() || null, startTime || null, endTime || null, apoAt || null]
   );
   return rows[0];
 }
@@ -2672,6 +2682,35 @@ export async function activeInviteEventIds() {
       `SELECT invite_event_id FROM smart_links WHERE COALESCE(invite_event_id,'') <> ''`);
     return new Set(rows.map((r) => r.invite_event_id));
   } catch { return new Set(); }
+}
+
+export async function setSmartLinkSetterEmail(slug, email) {
+  if (!pool || !slug || !email) return null;
+  try {
+    const { rows } = await pool.query(
+      `UPDATE smart_links SET setter_email = $2, updated_at = now()
+        WHERE slug = $1 AND COALESCE(setter_email,'') = '' RETURNING *`,
+      [slug, String(email).toLowerCase()]);
+    return rows[0] || null;
+  } catch (e) { console.error("[db] setSmartLinkSetterEmail", e.message); return null; }
+}
+
+// kinbotが作った商談予定が付いているアポの一覧。
+// 「アポを取った人＝担当者」なら、本人のカレンダーに元の予定があるので、
+// kinbotが作った予定は余分（同じ商談が2つ並ぶ）。それを見つけるために使う。
+export async function linksWithInvite(limit = 500) {
+  if (!pool) return [];
+  try {
+    const { rows } = await pool.query(
+      `SELECT slug, label, setter, setter_email, current_owner, start_time,
+              event_id, invite_event_id, invite_event_owner
+         FROM smart_links
+        WHERE COALESCE(invite_event_id,'') <> ''
+          AND NOT COALESCE(excluded,false)
+        ORDER BY start_time DESC NULLS LAST
+        LIMIT $1`, [limit]);
+    return rows;
+  } catch (e) { console.error("[db] linksWithInvite", e.message); return []; }
 }
 
 export async function setSmartLinkSourceNote(slug, note, force = false) {
@@ -3131,22 +3170,31 @@ export async function displayNameOf(email) {
 // アポ獲得の実績を、獲得者ごと・取得日ごとに数える。
 // 商談日が期間内かどうかで、期内・期外を分ける。
 // SFのレポートには商談日が無いので、kinbotが持っているアポの記録を使う。
-export async function apoCountsBySetter({ termFrom, termTo, business = "" } = {}) {
+// 期内かどうかの条件（SQLの式）。
+//   fixed … 決めた期間（termFrom〜termTo）に商談日が入っていれば期内
+//   auto  … アポを取った月と、商談の月が同じなら期内（毎月の設定変更が要らない）
+// どちらでも、商談日が未定のものは期内にしない。
+export function apoInTermSql(mode = "fixed") {
+  return String(mode) === "auto"
+    ? `date_trunc('month', start_time AT TIME ZONE 'Asia/Tokyo')
+       = date_trunc('month', COALESCE(apo_at, created_at) AT TIME ZONE 'Asia/Tokyo')`
+    : `(start_time AT TIME ZONE 'Asia/Tokyo')::date BETWEEN $1::date AND $2::date`;
+}
+
+export async function apoCountsBySetter({ termFrom, termTo, business = "", mode = "fixed" } = {}) {
   if (!pool) return [];
   try {
     const p = [termFrom, termTo];
     let where = "COALESCE(setter,'') <> '' AND NOT COALESCE(excluded,false)";
     if (business) { p.push(business); where += ` AND business = $${p.length}`; }
+    const inTerm = apoInTermSql(mode);
+    // 日付は「アポを取った日」。分からないものだけ、kinbotが拾った日で代用する。
     const { rows } = await pool.query(
       `SELECT setter,
-              to_char(created_at AT TIME ZONE 'Asia/Tokyo', 'FMMM/FMDD') AS day,
-              count(*) FILTER (
-                WHERE (start_time AT TIME ZONE 'Asia/Tokyo')::date BETWEEN $1::date AND $2::date
-              )::int AS in_term,
-              count(*) FILTER (
-                WHERE start_time IS NULL
-                   OR (start_time AT TIME ZONE 'Asia/Tokyo')::date NOT BETWEEN $1::date AND $2::date
-              )::int AS out_term
+              to_char(COALESCE(apo_at, created_at) AT TIME ZONE 'Asia/Tokyo', 'FMMM/FMDD') AS day,
+              count(*) FILTER (WHERE start_time IS NOT NULL AND ${inTerm})::int AS in_term,
+              count(*) FILTER (WHERE start_time IS NOT NULL AND NOT (${inTerm}))::int AS out_term,
+              count(*) FILTER (WHERE start_time IS NULL)::int AS undecided
          FROM smart_links
         WHERE ${where}
         GROUP BY 1, 2`, p);
@@ -3171,6 +3219,33 @@ export async function apoMissingStart(limit = 200) {
   } catch (e) { console.error("[db] apoMissingStart", e.message); return []; }
 }
 
+// アポを取った日時が入っていないものを探す（カレンダーから補うため）
+export async function apoMissingApoAt(limit = 300) {
+  if (!pool) return [];
+  try {
+    const { rows } = await pool.query(
+      `SELECT slug, label, setter, event_id, invite_event_id, current_owner, created_by
+         FROM smart_links
+        WHERE apo_at IS NULL
+          AND event_id IS NOT NULL
+          AND COALESCE(setter,'') <> ''
+          AND NOT COALESCE(excluded,false)
+        ORDER BY created_at DESC
+        LIMIT $1`, [limit]);
+    return rows;
+  } catch (e) { console.error("[db] apoMissingApoAt", e.message); return []; }
+}
+
+export async function setApoAt(slug, atISO) {
+  if (!pool || !slug || !atISO) return null;
+  try {
+    const { rows } = await pool.query(
+      `UPDATE smart_links SET apo_at = $2 WHERE slug = $1 AND apo_at IS NULL
+        RETURNING slug, label, apo_at`, [slug, atISO]);
+    return rows[0] || null;
+  } catch (e) { console.error("[db] setApoAt", e.message); return null; }
+}
+
 export async function setApoStartTime(slug, startISO) {
   if (!pool || !slug || !startISO) return null;
   try {
@@ -3182,23 +3257,25 @@ export async function setApoStartTime(slug, startISO) {
 }
 
 // アポ1件ずつの内訳。なぜ期外になったのかを画面で確かめるために使う。
-export async function apoDetailBySetter({ termFrom, termTo, limit = 200 } = {}) {
+export async function apoDetailBySetter({ termFrom, termTo, limit = 200, mode = "fixed" } = {}) {
   if (!pool) return [];
   try {
+    const inTerm = apoInTermSql(mode);
     const { rows } = await pool.query(
       `SELECT slug, setter,
-              to_char(created_at AT TIME ZONE 'Asia/Tokyo', 'FMMM/FMDD') AS day,
-              to_char(created_at AT TIME ZONE 'Asia/Tokyo', 'YYYY-MM-DD HH24:MI') AS created_jst,
+              to_char(COALESCE(apo_at, created_at) AT TIME ZONE 'Asia/Tokyo', 'FMMM/FMDD') AS day,
+              to_char(COALESCE(apo_at, created_at) AT TIME ZONE 'Asia/Tokyo', 'YYYY-MM-DD HH24:MI') AS created_jst,
+              (apo_at IS NULL) AS apo_at_missing,
               to_char(start_time AT TIME ZONE 'Asia/Tokyo', 'YYYY-MM-DD') AS meeting_date,
               label,
               CASE
                 WHEN start_time IS NULL THEN '商談日が未定'
-                WHEN (start_time AT TIME ZONE 'Asia/Tokyo')::date BETWEEN $1::date AND $2::date THEN '期内'
+                WHEN ${inTerm} THEN '期内'
                 ELSE '期外'
               END AS term
          FROM smart_links
         WHERE COALESCE(setter,'') <> '' AND NOT COALESCE(excluded,false)
-        ORDER BY created_at DESC
+        ORDER BY COALESCE(apo_at, created_at) DESC
         LIMIT $3`, [termFrom, termTo, limit]);
     return rows;
   } catch (e) { console.error("[db] apoDetailBySetter", e.message); return []; }
@@ -3418,7 +3495,8 @@ export async function listDocLinks({ docId = 0, onlyViewed = false, limit = 500 
               COALESCE(v.max_page,0) AS max_page,
               v.last_at,
               COALESCE(e.opens,0)    AS opens,
-              COALESCE(e.clicks,0)   AS clicks
+              COALESCE(e.clicks,0)   AS clicks,
+              COALESCE(e.downloads,0) AS downloads
          FROM doc_links l
          JOIN doc_files f ON f.id = l.doc_id
          LEFT JOIN (SELECT link_id, count(*) cnt, sum(seconds) secs,
@@ -3426,7 +3504,8 @@ export async function listDocLinks({ docId = 0, onlyViewed = false, limit = 500 
                       FROM doc_views GROUP BY link_id) v ON v.link_id = l.id
          LEFT JOIN (SELECT link_id,
                            count(*) FILTER (WHERE kind='open')  opens,
-                           count(*) FILTER (WHERE kind='click') clicks
+                           count(*) FILTER (WHERE kind='click') clicks,
+                           count(*) FILTER (WHERE kind='download') downloads
                       FROM doc_events GROUP BY link_id) e ON e.link_id = l.id
         WHERE ${where}
         ORDER BY v.last_at DESC NULLS LAST, l.created_at DESC
@@ -3449,6 +3528,27 @@ export async function getDocLink(slug) {
 export async function revokeDocLink(id) {
   if (!pool) return;
   try { await pool.query(`UPDATE doc_links SET revoked=true WHERE id=$1`, [id]); } catch {}
+}
+
+// 発行したURLと、その閲覧の記録をまるごと消す。
+// 一覧から消えるだけでなく、そのURLも開けなくなる。
+// （doc_views／doc_events は ON DELETE CASCADE で一緒に消える）
+export async function deleteDocLink(id) {
+  if (!pool || !id) return { deleted: 0 };
+  try {
+    const { rowCount } = await pool.query(`DELETE FROM doc_links WHERE id = $1`, [id]);
+    return { deleted: rowCount };
+  } catch (e) { console.error("[db] deleteDocLink", e.message); return { deleted: 0 }; }
+}
+
+// 閲覧・開封の記録だけを消す（URLはそのまま使える）
+export async function clearDocLinkHistory(id) {
+  if (!pool || !id) return { views: 0, events: 0 };
+  try {
+    const a = await pool.query(`DELETE FROM doc_views WHERE link_id = $1`, [id]);
+    const b = await pool.query(`DELETE FROM doc_events WHERE link_id = $1`, [id]);
+    return { views: a.rowCount, events: b.rowCount };
+  } catch (e) { console.error("[db] clearDocLinkHistory", e.message); return { views: 0, events: 0 }; }
 }
 
 // 閲覧を開始する（1回の閲覧＝1行）

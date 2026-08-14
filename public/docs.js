@@ -232,6 +232,7 @@ async function loadLinks() {
             <span class="dk-st"><b>${l.view_count}</b>回</span>
             <span class="dk-st">滞在 <b>${esc(l.total_label)}</b></span>
             <span class="dk-st">${l.max_page ? `<b>${l.max_page}</b>ページまで` : "ページ不明"}</span>
+            <span class="dk-st${+l.downloads > 0 ? " dk-dl" : " dk-dim"}">DL ${l.downloads || 0}</span>
             <span class="dk-st dk-dim">開封 ${l.opens}</span>
             <span class="dk-st dk-dim">クリック ${l.clicks}</span>
             <span class="dk-st dk-dim">最終 ${esc(fmtWhen(l.last_at))}</span>
@@ -240,6 +241,8 @@ async function loadLinks() {
         <div class="dk-act">
           <button type="button" class="btn ghost dk-detail">詳しく</button>
           <button type="button" class="btn ghost dk-copy" data-u="${esc(l.url)}">URL</button>
+          <button type="button" class="btn ghost dk-del" data-id="${esc(l.id)}"
+            data-who="${esc([l.company, l.contact].filter(Boolean).join(" ") || l.email || "この宛先")}">削除</button>
         </div>
         <div class="dk-panel" hidden></div>
       </div>`;
@@ -254,6 +257,36 @@ async function loadLinks() {
     );
     box.querySelectorAll(".dk-detail").forEach((b) =>
       b.addEventListener("click", () => showDetail(b.closest(".dk-row")))
+    );
+    // 履歴を消す。記録だけ消すか、URLごと消すかを選べる。
+    box.querySelectorAll(".dk-del").forEach((b) =>
+      b.addEventListener("click", async () => {
+        const who = b.dataset.who || "この宛先";
+        const keep = confirm(
+          `「${who}」の記録を消します。\n\n` +
+          `OK … 閲覧の記録だけ消す（送ったURLはこのまま使えます）\n` +
+          `キャンセル … 次に進む（URLごと消すか選べます）`);
+        let mode = "history";
+        if (!keep) {
+          if (!confirm(
+            `「${who}」に発行したURLごと消します。\n` +
+            `相手がそのURLを開いても、資料は見られなくなります。よろしいですか？`)) return;
+          mode = "";
+        }
+        b.disabled = true;
+        b.textContent = "消しています…";
+        try {
+          const r = await fetch(`/api/doc-links/${encodeURIComponent(b.dataset.id)}` +
+            (mode ? `?mode=${mode}` : ""), { method: "DELETE" });
+          const d = await r.json().catch(() => ({}));
+          if (!r.ok) throw new Error(d.error || "消せませんでした");
+          say("dkStatus", mode === "history" ? "記録を消しました" : "URLと記録を消しました", 4000);
+          loadLinks();
+        } catch (e) {
+          b.disabled = false; b.textContent = "削除";
+          say("dkStatus", "失敗：" + e.message, 6000);
+        }
+      })
     );
   } catch (e) {
     box.innerHTML = `<div class="empty-state">読み込めませんでした：${esc(e.message)}</div>`;
@@ -281,11 +314,11 @@ async function showDetail(row) {
              ${v.top_pages ? `<span class="dk-dim">${esc(v.top_pages)}</span>` : ""}
            </div>`).join("")
         : '<div class="dk-s">まだ開かれていません。</div>') +
-      `<div class="dk-sub">開封・クリック</div>` +
+      `<div class="dk-sub">開封・クリック・ダウンロード</div>` +
       (events.length
         ? events.slice(0, 20).map((e) => `<div class="dk-view">
              <span class="dk-vwhen">${esc(fmtWhen(e.at))}</span>
-             <span>${e.kind === "open" ? "開封" : "クリック"}</span>
+             <span>${e.kind === "open" ? "開封" : e.kind === "download" ? "ダウンロード" : "クリック"}</span>
              ${e.url ? `<span class="dk-dim">${esc(String(e.url).slice(0, 60))}</span>` : ""}
            </div>`).join("")
         : '<div class="dk-s">記録はありません。</div>');

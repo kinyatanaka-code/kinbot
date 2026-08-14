@@ -200,6 +200,43 @@ export async function recordOpen(slug, req) {
   return link;
 }
 
+// ダウンロード。
+// 資料を保存＝社内で共有される可能性が高いので、閲覧とは別に知らせる。
+// 同じ人が続けて押したときに何度も流れないよう、少しのあいだは1回にまとめる。
+const dlSeen = new Map();
+const DL_QUIET_MS = Number(process.env.DOC_DOWNLOAD_QUIET_MS || 5 * 60 * 1000);
+
+export async function recordDownload(slug, req) {
+  const link = await getDocLink(slug);
+  if (!link) return null;
+  const ua = String(req.headers["user-agent"] || "");
+  await addDocEvent(link.id, "download", { ua });
+  console.log(`[doc] ダウンロード ${slug}（${link.company || link.email || "-"}）`);
+
+  const key = `${slug}|${hashIp(clientIp(req))}`;
+  const now = Date.now();
+  // 古いものを捨てる（増え続けないように）
+  for (const [k, t] of dlSeen) if (now - t > DL_QUIET_MS) dlSeen.delete(k);
+  if (!dlSeen.has(key)) {
+    dlSeen.set(key, now);
+    notifyDocDownload(link).catch(() => {});
+  }
+  return link;
+}
+
+// ダウンロードのChat通知
+export async function notifyDocDownload(link) {
+  const who = [link.company, link.contact].filter(Boolean).join(" ") || link.email || "宛先不明";
+  const rep = link.owner ? await displayNameOf(link.owner).catch(() => "") : "";
+  const lines = [
+    `⬇️ *資料をダウンロードしました*　${who}`,
+    `📄 ${fixMojibake(link.doc_name) || "-"}`,
+    `💡 手元に保存＝社内で共有される可能性があります`,
+    rep ? `👤 ${rep}` : "",
+  ].filter(Boolean);
+  return notifyAll(lines.join("\n"), "doc");
+}
+
 // リンクのクリック
 export async function recordClick(slug, url, req) {
   const link = await getDocLink(slug);

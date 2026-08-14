@@ -1286,7 +1286,9 @@ export async function getCalendarEvent(owner, eventId, calendarId = "primary") {
   const d = await res.json();
   if (d.status === "cancelled") return null;
   const start = (d.start && (d.start.dateTime || d.start.date)) || "";
-  return { id: d.id, title: d.summary || "", start, organizer: d.organizer?.email || "" };
+  // created＝予定を作った時刻。アポを取った日時として使う。
+  return { id: d.id, title: d.summary || "", start, created: d.created || "",
+           organizer: d.organizer?.email || "" };
 }
 
 // いまのトークンに、どの権限が付いているかを確かめる。

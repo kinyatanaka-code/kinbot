@@ -158,7 +158,8 @@
       $("title").textContent = d.name || "資料";
       $("sub").textContent = d.to ? `${d.to} 様` : "";
       document.title = d.name || "資料";
-      $("dl").href = fileUrl;
+      // ダウンロードは ?dl=1 を付けて、送り主に知らせる
+      $("dl").href = fileUrl + "?dl=1";
       $("dl").setAttribute("download", d.filename || "document.pdf");
     } catch (e) {
       body.innerHTML = `<div class="msg">この資料は見つかりませんでした。<br>お手数ですが、送り主にご確認ください。</div>`;

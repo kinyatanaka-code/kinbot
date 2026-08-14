@@ -1309,8 +1309,10 @@ function openModal({ title, sub, inner, wide = true }) {
            <div class="sfm-t">${escH(title || "")}</div>
            <div class="sfm-s">${escH(sub || "")}</div>
          </div>
-         <button type="button" class="sfm-min" data-modal-min="1" aria-label="小さくする" title="小さくして、ほかの画面も見る">－</button>
-         <button type="button" class="sfm-x" data-modal-close="1" aria-label="閉じる">閉じる</button>
+         <div class="sfm-acts">
+           <button type="button" class="sfm-min" data-modal-min="1" aria-label="小さくする" title="小さくして、ほかの画面も見る">－</button>
+           <button type="button" class="sfm-x" data-modal-close="1" aria-label="閉じる" title="閉じる">✕</button>
+         </div>
        </div>
        <div class="sfm-body">${inner || ""}</div>
      </div>`;

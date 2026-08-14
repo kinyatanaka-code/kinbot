@@ -28,7 +28,7 @@ import { notifyAssigned, notifyMailDraft, notifyChat, notifyAll, chatWebhookUrl,
 import { normalizeSpace } from "./chatapp.js";
 import { judge as judgeAutolaunch, reasonText, parseTitle as parseLaunchTitle } from "./autolaunch.js";
 import { fixMojibake } from "./docs.js";
-import { openDocView, beatDocViewAndNotify, recordOpen, recordClick, sweepStaleViews,
+import { openDocView, beatDocViewAndNotify, recordOpen, recordClick, recordDownload, sweepStaleViews,
          PIXEL, docUrl, pixelUrl, clickUrl, fmtSeconds, topPages } from "./docs.js";
 import { transcribeFile, transcriberAvailable } from "./transcribe.js";
 import { createBot, leaveBot, parseTranscriptEvent, parseChatEvent, outputAudio, getRecordingUrl, getBot, recallConnectionInfo, getRecallUsage, getLastRecallCreate } from "./recall.js";
@@ -101,6 +101,10 @@ import {
   apoCountsBySetter,
   apoDetailBySetter,
   apoMissingStart,
+  apoMissingApoAt,
+  setSmartLinkSetterEmail,
+  linksWithInvite,
+  setApoAt,
   setApoStartTime,
   listChatTargets,
   addChatTarget,
@@ -126,6 +130,8 @@ import {
   docLinksForCompany,
   getDocLink,
   revokeDocLink,
+  deleteDocLink,
+  clearDocLinkHistory,
   docLinkDetail,
   addNextAction,
   listNextActions,
@@ -2691,17 +2697,21 @@ app.post("/api/doc/:slug/open", async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-// 資料の中身（PDF）を返す
+// 資料の中身（PDF）を返す。
+// ?dl=1 が付いているときは「ダウンロード」として記録し、Chatにも知らせる。
 app.get("/api/doc/:slug/file", async (req, res) => {
   try {
-    const link = await getDocLink(String(req.params.slug || ""));
+    const slug = String(req.params.slug || "");
+    const link = await getDocLink(slug);
     if (!link) return res.status(404).send("見つかりません");
     const f = await getDocBytes(link.doc_id);
     if (!f || !f.bytes) return res.status(404).send("資料がありません");
+    const isDl = String(req.query.dl || "") === "1";
+    if (isDl) { try { await recordDownload(slug, req); } catch {} }
     res.setHeader("content-type", f.mime || "application/pdf");
     res.setHeader("cache-control", "private, max-age=600");
     res.setHeader("content-disposition",
-      `inline; filename*=UTF-8''${encodeURIComponent(fixMojibake(f.filename) || "document.pdf")}`);
+      `${isDl ? "attachment" : "inline"}; filename*=UTF-8''${encodeURIComponent(fixMojibake(f.filename) || "document.pdf")}`);
     res.send(f.bytes);
   } catch (e) { res.status(500).send("読み込めませんでした"); }
 });
@@ -2869,9 +2879,29 @@ app.get("/api/doc-links/:slug", async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+// 発行したURLを消す。
+//   ?mode=history … 閲覧の記録だけ消す（URLはそのまま使える）
+//   ?mode=revoke  … URLを止めるが、記録は残す
+//   指定なし       … URLも記録も、まとめて消す
 app.delete("/api/doc-links/:id", async (req, res) => {
-  try { await revokeDocLink(parseInt(req.params.id, 10)); res.json({ ok: true }); }
-  catch (e) { res.status(500).json({ error: e.message }); }
+  try {
+    const id = parseInt(req.params.id, 10);
+    if (!id) return res.status(400).json({ error: "対象がありません" });
+    const mode = String(req.query.mode || "");
+    if (mode === "history") {
+      const r = await clearDocLinkHistory(id);
+      console.log(`[doc] 記録を消しました id=${id}（閲覧${r.views}件・開封等${r.events}件） by ${req.user}`);
+      return res.json({ ok: true, mode, ...r });
+    }
+    if (mode === "revoke") {
+      await revokeDocLink(id);
+      console.log(`[doc] URLを止めました id=${id} by ${req.user}`);
+      return res.json({ ok: true, mode });
+    }
+    const r = await deleteDocLink(id);
+    console.log(`[doc] URLと記録を消しました id=${id} by ${req.user}`);
+    res.json({ ok: true, mode: "delete", ...r });
+  } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 // ===== 次回アクション（やることリスト） =====
@@ -3047,6 +3077,7 @@ app.get("/api/process-sheet", async (req, res) => {
       sheetId: st.psSheetId || "", sheetName: st.psSheetName || "",
       reportId: st.psReportId || "", owner: st.psOwner || "",
       termFrom: st.psTermFrom || "", termTo: st.psTermTo || "",
+      termMode: st.psTermMode === "auto" ? "auto" : "fixed",
       autoRun: st.psAutoRun === true,
       filters: (() => { try { return JSON.parse(st.psFilters || "null"); } catch { return null; } })(),
       gasUrl: st.psGasUrl || "", gasSecretSet: !!st.psGasSecret,
@@ -3071,6 +3102,8 @@ app.put("/api/process-sheet", async (req, res) => {
     if (b.owner !== undefined) patch.psOwner = String(b.owner || "").trim().toLowerCase().slice(0, 120);
     if (b.termFrom !== undefined) patch.psTermFrom = String(b.termFrom || "").slice(0, 10);
     if (b.termTo !== undefined) patch.psTermTo = String(b.termTo || "").slice(0, 10);
+    // 期内・期外の分け方（auto＝アポ取得月と商談月が同じなら期内／fixed＝決めた期間）
+    if (b.termMode !== undefined) patch.psTermMode = b.termMode === "auto" ? "auto" : "fixed";
     if (b.autoRun !== undefined) patch.psAutoRun = b.autoRun === true;
     // Apps Script経由の書き込み（保護されたシート向け）
     if (b.gasUrl !== undefined) patch.psGasUrl = String(b.gasUrl || "").trim().slice(0, 300);
@@ -3091,8 +3124,16 @@ app.put("/api/process-sheet", async (req, res) => {
 // アポの記録には予定のIDが入っているので、それでカレンダーを引く。
 // 期内・期外の判定は商談日で決まるので、ここが空だと正しく数えられない。
 async function fillMissingMeetingDates() {
-  const rows = await apoMissingStart(200).catch(() => []);
-  if (!rows.length) return { checked: 0, filled: 0, notes: [] };
+  // 商談日が空のものと、アポを取った日時が空のものをまとめて調べる。
+  // どちらも同じカレンダー予定から分かるので、1回の照会で両方を埋める。
+  const needStart = await apoMissingStart(200).catch(() => []);
+  const needApoAt = await apoMissingApoAt(300).catch(() => []);
+  const bySlug = new Map();
+  for (const r of [...needStart, ...needApoAt]) if (!bySlug.has(r.slug)) bySlug.set(r.slug, r);
+  const rows = [...bySlug.values()];
+  const wantStart = new Set(needStart.map((r) => r.slug));
+  const wantApoAt = new Set(needApoAt.map((r) => r.slug));
+  if (!rows.length) return { checked: 0, filled: 0, filledApoAt: 0, notes: [] };
 
   // 探しに行くカレンダーの持ち主。予定を作った人・担当者・運用者の順に試す。
   let owners = [];
@@ -3103,7 +3144,7 @@ async function fillMissingMeetingDates() {
     if (st.apoScanOwner) owners.unshift(st.apoScanOwner);
   } catch {}
 
-  let filled = 0;
+  let filled = 0, filledApoAt = 0;
   const notes = [];
   for (const r of rows) {
     const ids = [r.event_id, r.invite_event_id].filter(Boolean);
@@ -3121,13 +3162,23 @@ async function fillMissingMeetingDates() {
       if (found) break;
     }
     if (!found) { notes.push(`${r.label || r.slug}：カレンダーに予定が見つかりません`); continue; }
-    const saved = await setApoStartTime(r.slug, found.start);
-    if (saved) {
-      filled++;
-      console.log(`[プロセスシート] 商談日を補いました ${r.label || r.slug} → ${String(found.start).slice(0, 16)}`);
+    if (wantStart.has(r.slug) && found.start) {
+      const saved = await setApoStartTime(r.slug, found.start);
+      if (saved) {
+        filled++;
+        console.log(`[プロセスシート] 商談日を補いました ${r.label || r.slug} → ${String(found.start).slice(0, 16)}`);
+      }
+    }
+    // アポを取った日時＝予定を作った時刻
+    if (wantApoAt.has(r.slug) && found.created) {
+      const saved2 = await setApoAt(r.slug, found.created);
+      if (saved2) {
+        filledApoAt++;
+        console.log(`[プロセスシート] アポ取得日を補いました ${r.label || r.slug} → ${String(found.created).slice(0, 16)}`);
+      }
     }
   }
-  return { checked: rows.length, filled, notes: notes.slice(0, 20) };
+  return { checked: rows.length, filled, filledApoAt, notes: notes.slice(0, 20) };
 }
 
 // 実行の本体。画面からも、30分ごとの自動実行からも、ここを使う。
@@ -3139,13 +3190,17 @@ async function runProcessSheet(sfUser, opts = {}) {
   const owner = String(opts.owner || st.psOwner || sfUser || "").trim();
   const from = String(opts.termFrom || st.psTermFrom || "").trim();
   const to = String(opts.termTo || st.psTermTo || "").trim();
+  // 期内・期外の分け方。
+  //   auto  … アポを取った月と商談の月が同じなら期内（毎月の設定変更が要らない）
+  //   fixed … 下で指定した期間に商談日が入っていれば期内
+  const termMode = String(opts.termMode || st.psTermMode || "fixed") === "auto" ? "auto" : "fixed";
   const dryRun = opts.dryRun !== false;
   const onlyDates = Array.isArray(opts.dates) && opts.dates.length ? opts.dates : null;
 
   if (!sheetId) throw new Error("スプレッドシートを指定してください");
   if (!sheetName) throw new Error("シート名を指定してください");
   if (!reportId) throw new Error("SFのレポートを指定してください");
-  if (!from || !to) throw new Error("期内とみなす期間を指定してください");
+  if (termMode === "fixed" && (!from || !to)) throw new Error("期内とみなす期間を指定してください");
 
   // 1. SFのレポートを実行（覚えている条件があれば、その条件で）
   let saved = null;
@@ -3158,8 +3213,8 @@ async function runProcessSheet(sfUser, opts = {}) {
   //    アポはkinbotの記録から（商談日が分かるので、期内・期外を正しく分けられる）。
   let tallied = tally(records, { fromISO: from, toISO: to });
   // 商談日が空のアポを、カレンダーから補ってから数える
-  const fixed = await fillMissingMeetingDates().catch(() => ({ checked: 0, filled: 0, notes: [] }));
-  const apoRows = await apoCountsBySetter({ termFrom: from, termTo: to }).catch(() => []);
+  const fixed = await fillMissingMeetingDates().catch(() => ({ checked: 0, filled: 0, filledApoAt: 0, notes: [] }));
+  const apoRows = await apoCountsBySetter({ termFrom: from, termTo: to, mode: termMode }).catch(() => []);
   tallied = applyApoCounts(tallied, apoRows);
 
   // 3. シートの構造を読んで、書き込む場所を決める
@@ -3180,14 +3235,21 @@ async function runProcessSheet(sfUser, opts = {}) {
       people: layout.people.map((p) => p.name),
       matched: Object.keys(tallied),
       updates: updates.slice(0, 400), count: updates.length, skipped,
-      apoSource: apoRows.length ? `kinbotのアポ記録から ${apoRows.length}件` : "kinbotにアポの記録がありません",
+      apoSource: apoRows.length
+        ? `kinbotのアポ記録（Chatに流れたアポ）から ${apoRows.reduce((n, r) => n + (Number(r.in_term) || 0) + (Number(r.out_term) || 0), 0)}件`
+        : "kinbotにアポの記録がありません",
+      // SFのレポート側にもアポの印は付いているが、商談日が無いので使っていない
+      apoInSf: records.filter((r) => r.appointed === true || r.appointed === "true" || r.appointed === 1 || r.appointed === "1").length,
       apoFixed: fixed,
       // 期外になった理由を確かめられるように、1件ずつの内訳も返す
-      apoDetail: (await apoDetailBySetter({ termFrom: from, termTo: to, limit: 100 }).catch(() => []))
+      apoDetail: (await apoDetailBySetter({ termFrom: from, termTo: to, limit: 100, mode: termMode }).catch(() => []))
         .map((r) => ({ slug: r.slug, setter: r.setter, day: r.day, createdJst: r.created_jst,
+                       apoAtMissing: r.apo_at_missing === true,
                        meetingDate: r.meeting_date, term: r.term, label: r.label })),
-      // 判定に使った期間も返す（ずれていないか確かめられるように）
-      termUsed: { from, to },
+      // 商談日が未定のもの（未定は期内に数えない）。全部期外になる原因の多くはこれ。
+      undecided: apoRows.reduce((n, r) => n + (Number(r.undecided) || 0), 0),
+      // 判定に使った期間・分け方も返す（ずれていないか確かめられるように）
+      termUsed: { from, to, mode: termMode },
     };
   }
 
@@ -10344,6 +10406,9 @@ async function collectApoAppointments(scanOwner, opts = {}) {
         // kinbotが担当者のカレンダーに作った商談予定は、アポの元ではない。
         // これを拾うと、同じ商談から次々に新しいアポができてしまう。
         if (inviteIds.has(ev.id)) continue;
+        // 予定をコピーしたり作り直すとIDが変わるので、本文の目印でも見る。
+        // これを拾うと、kinbotの予定から次のアポができ、際限なく増えてしまう。
+        if (isKinbotInvite(ev.description)) continue;
         // タイトルが【新/ヒ】または【初回/】を含む予定だけ（全角半角問わず）
         if (!apoTitleTag(ev.title)) continue;
         // 取得日・商談日の指定があれば、それぞれ完全一致で絞る
@@ -10359,13 +10424,26 @@ async function collectApoAppointments(scanOwner, opts = {}) {
           link = await createSmartLink({
             // クローザー自身が取ったアポは、最初から本人を担当にする
             slug, label: ev.title, owner: st.isCloser ? st.email : null, createdBy: gcalOwner,
-            eventId: ev.id, setter: st.name, startTime: ev.start, endTime: ev.end || null,
+            eventId: ev.id, setter: st.name, setterEmail: st.email,
+            startTime: ev.start, endTime: ev.end || null,
+            // アポを取った日時＝予定を作った時刻。プロセスシートの日付はこれで決まる。
+            apoAt: ev.created || null,
           });
+        } else if (!link.apo_at && ev.created) {
+          // 前に拾ったぶんにも、アポを取った日時を後から入れる
+          const up = await setApoAt(link.slug, ev.created);
+          if (up) link = { ...link, apo_at: up.apo_at };
         }
         // アポ獲得者が予定の説明欄に書いた内容を保存する（商談担当の予定に引き継ぐ）
-        if (ev.description && !String(link.source_note || "").trim()) {
-          const up = await setSmartLinkSourceNote(link.slug, ev.description, false);
+        const memo = cleanSourceNote(ev.description);
+        if (memo && !String(link.source_note || "").trim()) {
+          const up = await setSmartLinkSourceNote(link.slug, memo, false);
           if (up) link = up;
+        }
+        // アポ獲得者のメールを持っておく（「自分で取ったアポ」の判定に使う）
+        if (!String(link.setter_email || "").trim() && st.email) {
+          const up2 = await setSmartLinkSetterEmail(link.slug, st.email);
+          if (up2) link = up2;
         }
         // このアポの事業（DOC / MOCHICA）を、アポ獲得者の担当事業から決めて保存する
         if (!String(link.business || "").trim()) {
@@ -10428,15 +10506,46 @@ async function collectApoAppointments(scanOwner, opts = {}) {
 // 1件のアポにクローザーを自動で割り当て、招待と確定メールまで通す
 // アポを取ったのがクローザー本人かどうかを見る。
 // クローザーが自分で取ったアポは、ローテーションに乗せず本人が担当する。
+// kinbotが自分で作った商談予定かどうか。
+// 予定をコピー・作り直しするとIDが変わるので、本文の目印で見分ける。
+const KINBOT_INVITE_MARK = "kinbotが自動作成した商談予定です";
+function isKinbotInvite(description) {
+  return String(description || "").includes(KINBOT_INVITE_MARK);
+}
+
+// アポ獲得者が予定に書いたメモを取り出す。
+// kinbotが付け足した部分（参加URL・アポ獲得・担当・前のメモ）は落とす。
+// これを落とさないと、メモの中にメモが入る形でどんどん増えていく。
+function cleanSourceNote(description) {
+  let t = String(description || "");
+  if (!t.trim()) return "";
+  // 「────」から下は、kinbotが引き継いだ前のメモ
+  const cut = t.search(/[─―—-]{6,}/);
+  if (cut >= 0) t = t.slice(0, cut);
+  const drop = [
+    new RegExp(KINBOT_INVITE_MARK),
+    /^参加URL\s*[:：]/,
+    /^アポ獲得\s*[:：]/,
+    /^担当\s*[:：]/,
+    /^【アポ獲得時のメモ/,
+  ];
+  const kept = t.split("\n").filter((line) => !drop.some((re) => re.test(line.trim())));
+  return kept.join("\n").trim();
+}
+
+// 「自分で取ったアポ」＝アポを取った人（setter）自身がクローザーであること。
+// 見るのは setter だけにする。
+//   ・created_by は、カレンダーを読みに行ったアカウント（運用者）であって、取った人ではない。
+//     これを混ぜると、運用者がクローザーの場合に全部のアポが「自分で取った」になってしまう。
+//   ・current_owner も、割り当てた後は必ずクローザーなので、混ぜると必ず一致してしまう。
 async function selfAcquired(link, biz) {
-  const cands = [link.current_owner, link.created_by, link.setter_email, link.creator]
-    .map((x) => String(x || "").trim().toLowerCase()).filter(Boolean);
+  const email = String(link.setter_email || "").trim().toLowerCase();
   const name = String(link.setter || "").trim();
-  if (!cands.length && !name) return null;
+  if (!email && !name) return null;
   try {
     const closers = await listClosers({ activeOnly: false, business: biz });
     // メールアドレスで照合。無ければ名前で照合する。
-    let hit = closers.find((c) => cands.includes(String(c.email || "").toLowerCase()));
+    let hit = email ? closers.find((c) => String(c.email || "").toLowerCase() === email) : null;
     if (!hit && name) {
       const norm = (v) => String(v || "").replace(/[\s　]/g, "");
       hit = closers.find((c) => norm(c.name) && norm(c.name) === norm(name));
@@ -10881,6 +10990,57 @@ app.get("/api/apo/orphan-invites", async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+// 「アポを取った人＝担当者」なのに、kinbotが別の商談予定を作ってしまったものを探す。
+// 本人のカレンダーには元の予定があるので、kinbotの予定は余分（同じ商談が2つ並ぶ）。
+app.get("/api/apo/self-invites", async (req, res) => {
+  try {
+    const closers = await listClosers({ activeOnly: false }).catch(() => []);
+    const norm = (v) => String(v || "").replace(/[\s　]/g, "");
+    const rows = await linksWithInvite(500);
+    const found = [];
+    for (const l of rows) {
+      const owner = String(l.current_owner || "").toLowerCase();
+      if (!owner) continue;
+      // アポ獲得者のメールが担当者と同じ／獲得者の名前が担当クローザーと同じ
+      const byMail = String(l.setter_email || "").toLowerCase() === owner;
+      const c = closers.find((x) => String(x.email || "").toLowerCase() === owner);
+      const byName = !!(c && norm(c.name) && norm(c.name) === norm(l.setter));
+      if (!byMail && !byName) continue;
+      found.push({
+        slug: l.slug, label: l.label, start: l.start_time, setter: l.setter,
+        owner: l.invite_event_owner || l.current_owner, eventId: l.invite_event_id,
+      });
+    }
+    found.sort((a, b) => String(a.start).localeCompare(String(b.start)));
+    res.json({ found });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// 上で見つけた「余分な予定」を消して、1つに戻す
+app.post("/api/apo/self-invites/delete", async (req, res) => {
+  try {
+    const list = Array.isArray(req.body?.items) ? req.body.items : [];
+    if (!list.length) return res.status(400).json({ error: "消す対象が指定されていません" });
+    const done = [], failed = [];
+    for (const it of list) {
+      const slug = String(it.slug || "").trim();
+      const owner = String(it.owner || "").trim();
+      const eventId = String(it.eventId || "").trim();
+      if (!slug || !eventId) continue;
+      try {
+        if (owner) await deleteCalendarEvent(owner, eventId, "primary");
+      } catch (e) {
+        if (!/40[04]/.test(e.message)) { failed.push({ slug, error: e.message }); continue; }
+      }
+      // kinbotの管理からも外す（次に作り直されないように）
+      await setSmartLinkInviteEvent(slug, null, null).catch(() => {});
+      done.push({ slug, eventId });
+    }
+    console.log(`[apo-invite] 自分で取ったアポの余分な予定を削除 ${done.length}件 by ${req.user}`);
+    res.json({ ok: true, deleted: done.length, done, failed });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 // 取り残しの予定をまとめて消す
 app.post("/api/apo/orphan-invites/delete", async (req, res) => {
   try {
@@ -11183,8 +11343,9 @@ app.put("/api/smart-links/:slug/owner", async (req, res) => {
     const s = await getSettings().catch(() => ({}));
     // 予定を取った本人が担当になる場合は、本人のカレンダーにもう予定がある。
     // ここで作ると同じ商談の予定が2つになるので、作らない。
-    const selfOwn = !!(owner && await selfAcquired({ ...link, current_owner: owner },
-      String(link.business || "")).catch(() => null));
+    const setterSelf = await selfAcquired(link, String(link.business || "")).catch(() => null);
+    const selfOwn = !!(owner && setterSelf &&
+      String(setterSelf.email || "").toLowerCase() === String(owner).toLowerCase());
     if (owner && !selfOwn && s && s.apoAutoInvite !== false) {
       try { invite = await createApoInvite(link, { actor: req.user }); }
       catch (e) { inviteError = e.message; console.warn("[apo-invite] 失敗", req.params.slug, e.message); }

@@ -577,6 +577,56 @@ async function loadInvites() {
   }
 }
 
+// 「アポを取った人＝担当者」なのに、kinbotがもう1つ予定を作ってしまったもの
+async function loadSelfInvites() {
+  const box = $("siBox");
+  const say = (m) => { const e = $("siStatus"); if (e) e.textContent = m; };
+  const btn = $("siLoad");
+  if (!box) return;
+  if (btn) btn.disabled = true;
+  say("探しています…");
+  box.innerHTML = "";
+  try {
+    const d = await (await fetch("/api/apo/self-invites")).json();
+    if (d.error) throw new Error(d.error);
+    const list = d.found || [];
+    if (!list.length) {
+      box.innerHTML = `<p class="note">余分な予定はありません。</p>`;
+      say(""); return;
+    }
+    box.innerHTML = `<div class="iv-list">` + list.map((x, k) => `
+      <label class="iv-row">
+        <input type="checkbox" class="si-chk" data-i="${k}" checked />
+        <div class="iv-main"><span class="iv-when">${fmtWhen(x.start)}</span>
+          <span class="iv-title">${esc(x.label || "(予定名なし)")}</span></div>
+        <div class="iv-sub">アポ獲得：${esc(x.setter || "-")} ／ ${esc(x.owner || "")} のカレンダー</div>
+      </label>`).join("") + `</div>
+      <div class="ap-cfg-actions">
+        <button class="btn ghost" id="siDel">チェックしたものを消す</button>
+      </div>`;
+    box.querySelector("#siDel").addEventListener("click", async () => {
+      const items = [...box.querySelectorAll(".si-chk")].filter((c) => c.checked).map((c) => list[+c.dataset.i]);
+      if (!items.length) { say("チェックがありません"); return; }
+      if (!confirm(`${items.length}件の予定を消して、1つに戻します。よろしいですか？\n（アポを取ったときの元の予定は残ります）`)) return;
+      say("削除中…");
+      try {
+        const r = await fetch("/api/apo/self-invites/delete", {
+          method: "POST", headers: { "content-type": "application/json" },
+          body: JSON.stringify({ items }),
+        });
+        const dd = await r.json();
+        if (!r.ok) throw new Error(dd.error || "削除に失敗しました");
+        say(`${dd.deleted}件を消しました${(dd.failed || []).length ? `（${dd.failed.length}件は失敗）` : ""}`);
+        loadSelfInvites();
+      } catch (e) { say("失敗: " + e.message); }
+    });
+    say(`${list.length}件見つかりました`);
+  } catch (e) {
+    box.innerHTML = `<p class="note cc-warn">探せませんでした：${esc(e.message)}</p>`;
+    say("");
+  } finally { if (btn) btn.disabled = false; }
+}
+
 async function loadOrphans() {
   const box = $("orBox");
   const say = (m) => { const e = $("orStatus"); if (e) e.textContent = m; };
@@ -1260,6 +1310,7 @@ async function saveMailCfg() {
   if ($("ivLoad")) $("ivLoad").addEventListener("click", loadInvites);
   if ($("ivHours")) $("ivHours").addEventListener("change", loadInvites);
   if ($("orLoad")) $("orLoad").addEventListener("click", loadOrphans);
+  if ($("siLoad")) $("siLoad").addEventListener("click", loadSelfInvites);
   if ($("calCheckBtn")) $("calCheckBtn").addEventListener("click", calCheck);
   if ($("dbCheckBtn")) $("dbCheckBtn").addEventListener("click", () => dbCheck(false));
   if ($("dbRepairBtn")) $("dbRepairBtn").addEventListener("click", () => dbCheck(true));

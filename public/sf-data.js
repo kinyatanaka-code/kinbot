@@ -450,6 +450,20 @@ function psFilterBody() {
   return Object.keys(out).length ? out : null;
 }
 
+// 「決めた期間」を使うときだけ、日付の欄を出す
+function syncTermMode() {
+  const sel = $("psTermMode");
+  if (!sel) return;
+  const fixed = sel.value !== "auto";
+  ["psFromLb", "psToLb"].forEach((id) => { const e = $(id); if (e) e.hidden = !fixed; });
+}
+document.addEventListener("change", (e) => {
+  if (e.target && e.target.id === "psTermMode") syncTermMode();
+});
+// 画面を開いた時点でも、いまの選び方に合わせておく
+if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", syncTermMode);
+else syncTermMode();
+
 async function loadProcessSheet() {
   if (!$("psSheet")) return;
   try {
@@ -460,6 +474,7 @@ async function loadProcessSheet() {
     $("psOwner").value = d.owner || "";
     $("psFrom").value = d.termFrom || "";
     $("psTo").value = d.termTo || "";
+    if ($("psTermMode")) { $("psTermMode").value = d.termMode || "fixed"; syncTermMode(); }
     if ($("psAuto")) $("psAuto").checked = !!d.autoRun;
     if ($("psGasUrl")) $("psGasUrl").value = d.gasUrl || "";
     const gs = $("psGasState");
@@ -498,6 +513,7 @@ function psBody(dryRun) {
     sheetId: $("psSheet").value, sheetName: $("psName").value,
     reportId: $("psReport").value, owner: $("psOwner").value,
     termFrom: $("psFrom").value, termTo: $("psTo").value,
+    termMode: $("psTermMode") ? $("psTermMode").value : undefined,
     autoRun: $("psAuto") ? $("psAuto").checked : false,
     gasUrl: $("psGasUrl") ? $("psGasUrl").value : undefined,
     gasSecret: $("psGasSecret") ? $("psGasSecret").value : undefined,
@@ -513,17 +529,20 @@ function psApoDetail(list) {
   const ng = list.filter((x) => x.term !== "期内");
   return `<details class="ps-apo"${ng.length ? " open" : ""}>` +
     `<summary>アポの内訳（${list.length}件${ng.length ? `／うち期内でないもの ${ng.length}件` : ""}）` +
-    `${_psTerm ? `　期内とみなす期間：${srEsc(_psTerm.from)} 〜 ${srEsc(_psTerm.to)}` : ""}</summary>` +
+    `${_psTerm ? (_psTerm.mode === "auto"
+        ? "　分け方：アポを取った月と商談の月が同じなら期内"
+        : `　期内とみなす期間：${srEsc(_psTerm.from)} 〜 ${srEsc(_psTerm.to)}`) : ""}</summary>` +
     `<div class="ps-apo-bar">` +
     `<input type="text" id="psApoFind" class="sf-input" placeholder="予定名で絞り込み（例：テスト）" />` +
     `<button type="button" class="btn ghost" id="psApoPick">絞り込んだものに印を付ける</button>` +
     `<button type="button" class="btn ghost" id="psApoDrop">印を付けたものを集計から外す</button>` +
     `<span class="rev-status" id="psApoStatus"></span></div>` +
-    `<table class="ps-table"><thead><tr><th></th><th>取得日時</th><th>獲得者</th><th>商談日</th><th>判定</th><th>予定名</th></tr></thead><tbody>` +
+    `<table class="ps-table"><thead><tr><th></th><th>アポを取った日時</th><th>獲得者</th><th>商談日</th><th>判定</th><th>予定名</th></tr></thead><tbody>` +
     list.slice(0, 100).map((x) =>
       `<tr class="${x.term === "期内" ? "" : "ps-out"}" data-slug="${srEsc(x.slug || "")}" data-label="${srEsc(x.label || "")}">` +
       `<td><input type="checkbox" class="ps-apo-chk" ${x.slug ? "" : "disabled"} /></td>` +
-      `<td>${srEsc(x.createdJst || x.day || "")}</td><td>${srEsc(x.setter || "")}</td>` +
+      `<td>${srEsc(x.createdJst || x.day || "")}${x.apoAtMissing ? '<span class="dk-dim">（推定）</span>' : ""}</td>` +
+      `<td>${srEsc(x.setter || "")}</td>` +
       `<td>${srEsc(x.meetingDate || "—")}</td><td>${srEsc(x.term || "")}</td>` +
       `<td>${srEsc((x.label || "").slice(0, 30))}</td></tr>`).join("") +
     `</tbody></table></details>`;
@@ -618,16 +637,24 @@ async function psRun(dryRun) {
     psSay("");
     const ups = d.updates || [];
     box.innerHTML =
-      `<div class="ps-sum">レポートの明細 ${d.rows}行 ／ アポは${srEsc(d.apoSource || "-")}<br>` +
+      `<div class="ps-sum">レポートの明細 ${d.rows}行 ／ アポは${srEsc(d.apoSource || "-")}` +
+      `<br>コール・接触はSFのレポートから、アポ（期内・期外）はkinbotのアポ記録からです` +
+      (d.apoInSf ? `（SFのレポートにもアポの印が ${d.apoInSf}件ありますが、商談日が無く期内・期外を分けられないため使っていません）` : "") +
+      `<br>` +
       `シートの担当者 ${(d.people || []).join("、")} ／ 数えられた人 ${(d.matched || []).join("、") || "なし"}</div>` +
       (d.skipped && d.skipped.length ? `<div class="ps-skip">${srEsc(d.skipped.join(" ／ "))}</div>` : "") +
       (d.apoFixed && d.apoFixed.checked
-        ? `<div class="ps-note">商談日が空のアポ ${d.apoFixed.checked}件を調べ、${d.apoFixed.filled}件をカレンダーから補いました。` +
+        ? `<div class="ps-note">日付が足りないアポ ${d.apoFixed.checked}件を調べ、` +
+          `商談日 ${d.apoFixed.filled}件・アポ取得日 ${d.apoFixed.filledApoAt || 0}件をカレンダーから補いました。` +
           (d.apoFixed.notes && d.apoFixed.notes.length
             ? `<br><span class="ps-skip">補えなかったもの：${srEsc(d.apoFixed.notes.join(" ／ "))}</span>` : "") +
           `</div>`
         : "") +
       (() => { _psTerm = d.termUsed || null; return ""; })() +
+      (d.undecided
+        ? `<div class="ps-skip">商談日が分かっていないアポが ${d.undecided}件あります。` +
+          `これらは「期外」に入ります（下の内訳で「商談日が未定」と出ているもの）。</div>`
+        : "") +
       psApoDetail(d.apoDetail) +
       (ups.length
         ? `<div class="ps-note">この内容で書き込みます（${d.count}箇所）。問題なければ「シートに書き込む」を押してください。</div>` +
