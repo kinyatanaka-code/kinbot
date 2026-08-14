@@ -28,6 +28,7 @@ const HOME_ICONS = {
   open: "M4 4h7v2H6v12h12v-5h2v7H4zm9 0h7v7h-2V7.4l-8.3 8.3-1.4-1.4L16.6 6H13z",
   mail: "M3 5h18v14H3zm2 2v.6l7 4.4 7-4.4V7zm0 3v7h14v-7l-7 4.4z",
   cal:  "M7 2v2h10V2h2v2h3v18H2V4h3V2zm13 8H4v10h16zm-9 2v2H7v-2zm6 0v2h-4v-2z",
+  trash: "M9 3h6l1 2h4v2H4V5h4zM6 9h12l-1 12H7zm3 2v8h1.5v-8zm4.5 0v8H15v-8z",
   more: "M5 10.3a1.7 1.7 0 1 0 0 3.4 1.7 1.7 0 0 0 0-3.4zm7 0a1.7 1.7 0 1 0 0 3.4 1.7 1.7 0 0 0 0-3.4zm7 0a1.7 1.7 0 1 0 0 3.4 1.7 1.7 0 0 0 0-3.4z",
 };
 
@@ -35,7 +36,7 @@ const HOME_ICONS = {
 // state は need（やることが残っている）／done（もう済んだ）／空。
 // アイコンの下に出す短い名前。長いと横に広がるので、2〜4文字にそろえる。
 const HOME_ICON_NAMES = {
-  rec: "録音", sf: "SF", open: "開く", mail: "メール", cal: "会議室", more: "その他",
+  rec: "録音", sf: "SF", open: "開く", mail: "メール", cal: "会議室", trash: "外す", more: "その他",
 };
 
 function hIcon(kind, label, attrs = "", state = "", tag = "button") {
@@ -312,7 +313,7 @@ function render() {
       (m ? hIcon("sf", "SFを更新", `data-sfedit="${escH(key)}"`, "need") : "") +
       (!m ? hIcon("sf", s.open ? "SF商談を閉じる" : "SF商談を選ぶ", `data-sf-open="${escH(key)}"`) : "") +
       (m && m.bot_id ? hIcon("mail", "御礼メール", `data-mail="${escH(m.bot_id)}" data-key="${escH(key)}"`, "need") : "") +
-      `<span class="hl-more">${hIcon("more", "そのほかの操作", `data-sheet-open="${escH(key)}"`)}</span>`;
+      "";
 
     return `<div class="home-row" style="--i:${idx}"><div class="home-card home-line${m ? " is-done" : ""}" data-card="${escH(key)}">
       <div class="hl-row">
@@ -749,6 +750,12 @@ function wireListBox(box) {
       apoMakeDraft(mailBtn);
       return;
     }
+    // テストで作ったアポを、集計から外してカレンダーの予定も消す
+    const dropBtn = ev.target.closest("[data-apo-drop]");
+    if (dropBtn) {
+      apoDropTest(dropBtn);
+      return;
+    }
     const openBtn = ev.target.closest("[data-sf-open]");
     if (openBtn) {
       const key = openBtn.dataset.sfOpen;
@@ -1082,7 +1089,10 @@ function apoHomeCard(x) {
               m.confirm ? "done" : "need") +
         hIcon("sf", launched ? "SFを開く" : "SF立ち上げ", `data-apo-sf="${apoEsc(x.slug)}"`,
               launched ? "done" : "need") +
-        hIcon("cal", "会議室", `href="${apoEsc(x.smartUrl)}" target="_blank" rel="noopener"`, "", "a");
+        hIcon("cal", "会議室", `href="${apoEsc(x.smartUrl)}" target="_blank" rel="noopener"`, "", "a") +
+        // テストで作ったアポを、その場で片付けられるようにする。
+        // 実績・均等化・通知の数から外し、カレンダーの予定も消す。
+        `<span class="hl-more">${hIcon("trash", "テストとして外す", `data-apo-drop="${apoEsc(x.slug)}"`)}</span>`;
 
       // 補足行。宛先が無い・立ち上げできない場合は、その理由を出す。
       const warn = !x.clientEmail ? '<span class="cc-warn">宛先が未登録</span>' : "";
@@ -1104,6 +1114,32 @@ function apoHomeCard(x) {
         </div>
       </div>`;
   })(x);
+}
+
+// テストで作ったアポを片付ける。
+// 実績・均等化・通知の数から外し、カレンダーに作った商談予定も消す。
+async function apoDropTest(btn) {
+  const slug = btn.dataset.apoDrop;
+  const row = btn.closest(".home-card");
+  const name = row ? (row.querySelector(".hl-title") || {}).textContent || "" : "";
+  if (!confirm(
+    `${name}\n\nこのアポを集計から外します。\n` +
+    "実績・均等化・通知の数から除き、カレンダーに作った商談予定も消します。\n\nよろしいですか？")) return;
+  btn.disabled = true;
+  try {
+    const r = await fetch(`/api/smart-links/${encodeURIComponent(slug)}/excluded`, {
+      method: "PUT", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ excluded: true }),
+    });
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(d.error || "外せませんでした");
+    // 予定を消せなかったときだけ知らせる
+    if (d.calendar && !/消しました|ありませんでした/.test(d.calendar)) alert(d.calendar);
+    if (row) { row.style.opacity = "0"; setTimeout(() => row.remove(), 180); }
+  } catch (e) {
+    alert("外せませんでした：" + e.message);
+    btn.disabled = false;
+  }
 }
 
 // 「メール送付（下書きへ）」…担当者のGmailに下書きを作り、Gmailを開くリンクを出す

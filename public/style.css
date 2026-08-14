@@ -4837,8 +4837,8 @@ input:focus, select:focus, textarea:focus, .sf-input:focus, .sf-select:focus, .s
 
 /* 小さなアイコンのボタン。押すとモーダルが開く。 */
 .hl-acts { display: flex; gap: 4px; align-items: center; }
-/* 「そのほか」は普段は場所を取らない。行にカーソルを合わせたときだけ出す。
-   会社名の幅を1つぶん広く使えるようにするため。 */
+/* 「外す」は普段は場所を取らない。行にカーソルを合わせたときだけ出す。
+   ふだんは会社名の幅を広く使いたいので。 */
 .hl-more { width: 0; overflow: hidden; transition: width .14s ease; display: inline-flex; }
 .home-line:hover .hl-more, .home-line:focus-within .hl-more { width: 42px; }
 @media (max-width: 900px) { .hl-more { width: 42px; } }
@@ -4862,6 +4862,9 @@ input:focus, select:focus, textarea:focus, .sf-input:focus, .sf-select:focus, .s
 /* もう済んだものは、押せるが目立たせない */
 .hib.hib-done svg { fill: #a9c6bc; }
 .hib.hib-done .hib-name { color: #b5c8c1; }
+/* 消す操作は、間違えないよう赤くする */
+.hl-more .hib:hover .hib-btn { background: #C0563C; border-color: #C0563C; }
+.hl-more .hib:hover .hib-name { color: #C0563C; }
 
 /* アイコンだけだと分からないので、名前を吹き出しで出す */
 .hib-tip { position: absolute; bottom: calc(100% + 4px); left: 50%; transform: translateX(-50%);
