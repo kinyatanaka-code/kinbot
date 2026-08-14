@@ -4840,24 +4840,31 @@ input:focus, select:focus, textarea:focus, .sf-input:focus, .sf-select:focus, .s
 /* 「そのほか」は普段は場所を取らない。行にカーソルを合わせたときだけ出す。
    会社名の幅を1つぶん広く使えるようにするため。 */
 .hl-more { width: 0; overflow: hidden; transition: width .14s ease; display: inline-flex; }
-.home-line:hover .hl-more, .home-line:focus-within .hl-more { width: 34px; }
-@media (max-width: 900px) { .hl-more { width: 34px; } }
-.hib { width: 30px; height: 30px; border-radius: 9px; border: 1px solid var(--line);
-  background: var(--panel); display: grid; place-items: center; cursor: pointer;
-  position: relative; padding: 0; flex: none; text-decoration: none; }
+.home-line:hover .hl-more, .home-line:focus-within .hl-more { width: 42px; }
+@media (max-width: 900px) { .hl-more { width: 42px; } }
+/* アイコンと、その下の短い名前をひと組にする */
+.hib { display: flex; flex-direction: column; align-items: center; gap: 2px;
+  background: transparent; border: 0; padding: 0; cursor: pointer;
+  position: relative; flex: none; text-decoration: none; width: 38px; }
+.hib-btn { width: 30px; height: 30px; border-radius: 9px; border: 1px solid var(--line);
+  background: var(--panel); display: grid; place-items: center; }
 .hib svg { width: 15px; height: 15px; fill: #4a6b62; pointer-events: none; }
-.hib:hover { background: #1d9e75; border-color: #1d9e75; }
+.hib-name { font-size: 9px; color: var(--muted); line-height: 1.2; white-space: nowrap; }
+.hib:hover .hib-btn { background: #1d9e75; border-color: #1d9e75; }
 .hib:hover svg { fill: #fff; }
+.hib:hover .hib-name { color: #0F6E56; }
 /* やることが残っているものだけ色を付ける */
-.hib.hib-need { border-color: #f0d6ae; background: #fdf3e6; }
+.hib.hib-need .hib-btn { border-color: #f0d6ae; background: #fdf3e6; }
 .hib.hib-need svg { fill: #A8611A; }
-.hib.hib-need:hover { background: #1d9e75; border-color: #1d9e75; }
+.hib.hib-need .hib-name { color: #A8611A; }
+.hib.hib-need:hover .hib-btn { background: #1d9e75; border-color: #1d9e75; }
 .hib.hib-need:hover svg { fill: #fff; }
 /* もう済んだものは、押せるが目立たせない */
 .hib.hib-done svg { fill: #a9c6bc; }
+.hib.hib-done .hib-name { color: #b5c8c1; }
 
 /* アイコンだけだと分からないので、名前を吹き出しで出す */
-.hib-tip { position: absolute; bottom: calc(100% + 6px); left: 50%; transform: translateX(-50%);
+.hib-tip { position: absolute; bottom: calc(100% + 4px); left: 50%; transform: translateX(-50%);
   background: #12211d; color: #fff; font-size: 10.5px; white-space: nowrap;
   padding: 4px 8px; border-radius: 6px; opacity: 0; pointer-events: none;
   transition: opacity .12s ease; z-index: 20; }

@@ -24,7 +24,7 @@ const homeItems = {}; // カードの中身（スマホのシート表示用）
 // 行の操作に使う小さなアイコン。名前は吹き出しで出す。
 const HOME_ICONS = {
   rec:  "M12 3a3 3 0 0 1 3 3v6a3 3 0 0 1-6 0V6a3 3 0 0 1 3-3zm7 9a7 7 0 0 1-6 6.9V22h-2v-3.1A7 7 0 0 1 5 12h2a5 5 0 0 0 10 0z",
-  sf:   "M12 2a10 10 0 1 0 10 10h-2a8 8 0 1 1-8-8zm7.5.5l-6.8 6.8-2.2-2.2L9 8.6l3.7 3.7 8.2-8.2z",
+  sf:   "M10.3 7.2a3.1 3.1 0 0 1 5.2.9 2.6 2.6 0 0 1 1.1-.2 2.7 2.7 0 0 1 2.6 2.2 2.5 2.5 0 0 1 1.8 2.4 2.6 2.6 0 0 1-2.6 2.6H7.6a3.8 3.8 0 0 1-3.8-3.8 3.8 3.8 0 0 1 3.8-3.8c.4 0 .9.1 1.3.3a3.1 3.1 0 0 1 1.4-.6z",
   open: "M4 4h7v2H6v12h12v-5h2v7H4zm9 0h7v7h-2V7.4l-8.3 8.3-1.4-1.4L16.6 6H13z",
   mail: "M3 5h18v14H3zm2 2v.6l7 4.4 7-4.4V7zm0 3v7h14v-7l-7 4.4z",
   cal:  "M7 2v2h10V2h2v2h3v18H2V4h3V2zm13 8H4v10h16zm-9 2v2H7v-2zm6 0v2h-4v-2z",
@@ -33,9 +33,16 @@ const HOME_ICONS = {
 
 // アイコンのボタンを1つ作る。
 // state は need（やることが残っている）／done（もう済んだ）／空。
+// アイコンの下に出す短い名前。長いと横に広がるので、2〜4文字にそろえる。
+const HOME_ICON_NAMES = {
+  rec: "録音", sf: "SF", open: "開く", mail: "メール", cal: "会議室", more: "その他",
+};
+
 function hIcon(kind, label, attrs = "", state = "", tag = "button") {
   const path = HOME_ICONS[kind] || "";
-  const inner = `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="${path}"/></svg>` +
+  const name = HOME_ICON_NAMES[kind] || "";
+  const inner = `<span class="hib-btn"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="${path}"/></svg></span>` +
+    `<span class="hib-name">${escH(name)}</span>` +
     `<span class="hib-tip">${escH(label)}</span>`;
   const cls = `hib${state ? " hib-" + state : ""}`;
   return tag === "a"
