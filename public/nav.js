@@ -1,3 +1,74 @@
+// ───────────────────────────────────────────────────────────
+// メニューの中身。パソコンのサイドバーもスマホのメニューも、ここから作る。
+// 増えすぎた項目を6つにまとめ、深いものはカーソルを合わせると出るようにした。
+// ───────────────────────────────────────────────────────────
+const KB_MENU = [
+  { href: "home.html", label: "ホーム", ico: "ico-home" },
+  { href: "index.html", label: "レコーディング", ico: "ico-rec" },
+  {
+    href: "history.html", label: "商談履歴", ico: "ico-hist",
+    subs: [
+      { href: "history.html", label: "商談", desc: "会社ごとの履歴・判定・提案資料" },
+      { href: "history.html?tab=follow", label: "ユーザーフォロー", desc: "フォロー面談の記録" },
+      { href: "history.html?tab=internal", label: "社内MTG", desc: "社内の打ち合わせ" },
+    ],
+  },
+  {
+    href: "report.html", label: "分析", ico: "ico-ana",
+    subs: [
+      { href: "report.html", label: "全体レポート", desc: "受注率・温度感・進め方" },
+      { href: "report.html?panel=interns", label: "インターンアポ", desc: "アポ獲得者ごとの実績" },
+      { href: "style-analysis.html", label: "営業スタイル分析", desc: "話速・沈黙・被せ" },
+    ],
+  },
+  {
+    href: "sf-launch.html", label: "ツール", ico: "ico-tool",
+    subs: [
+      { href: "sf-launch.html", label: "Salesforce", desc: "商談立ち上げ・レポート・プロセスシート" },
+      { href: "apo.html", label: "アポ振り分け", desc: "担当の自動割り振り・チーム実績" },
+      { href: "docs.html", label: "資料トラッキング", desc: "送った資料の閲覧状況" },
+    ],
+  },
+  { href: "settings.html", label: "設定", ico: "ico-set" },
+];
+
+// パソコンのサイドバーを組み立てる。
+// 各ページに直接書いていたものを、ここでまとめて作るようにした。
+function kbBuildSidebar() {
+  const nav = document.querySelector(".sidebar");
+  if (!nav || nav.dataset.kbBuilt) return;
+  nav.dataset.kbBuilt = "1";
+
+  const here = (location.pathname.split("/").pop() || "home.html") + location.search;
+  const esc = (v) => String(v == null ? "" : v).replace(/[&<>"']/g,
+    (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+  // いまいるページが、その項目（またはその中身）かどうか
+  const isHere = (m) => {
+    const all = [m.href, ...(m.subs || []).map((x) => x.href)].filter(Boolean);
+    return all.some((h) => h === here || h.split("?")[0] === here.split("?")[0]);
+  };
+
+  const foot = nav.querySelector(".side-foot");
+  const html = KB_MENU.map((m) => {
+    const on = isHere(m) ? " active" : "";
+    const link =
+      `<a class="side-item${on}" href="${esc(m.href)}">` +
+      `<span class="side-ico ${esc(m.ico)}"></span>` +
+      `<span class="side-label">${esc(m.label)}</span>` +
+      (m.subs ? '<span class="side-arrow">›</span>' : "") + `</a>`;
+    if (!m.subs) return `<div class="side-wrap">${link}</div>`;
+    const subs = m.subs.map((x) =>
+      `<a class="side-sub-item" href="${esc(x.href)}">` +
+      `<span class="side-sub-t">${esc(x.label)}</span>` +
+      `<span class="side-sub-d">${esc(x.desc || "")}</span></a>`).join("");
+    return `<div class="side-wrap has-sub">${link}` +
+      `<div class="side-sub"><div class="side-sub-head">${esc(m.label)}</div>${subs}</div></div>`;
+  }).join("");
+
+  const brand = nav.querySelector(".side-brand");
+  nav.innerHTML = (brand ? brand.outerHTML : "") + html + (foot ? foot.outerHTML : "");
+}
+
 // public/nav.js — サイドバーのユーザー表示とログアウト
 (async () => {
   try {
@@ -276,17 +347,12 @@ window.kbSheet = function (html) {
   topbar.appendChild(btn);
 
   const here = (location.pathname.split("/").pop() || "home.html") + location.search;
-  const items = [
-    { href: "home.html", label: "ホーム", ico: "ico-home" },
-    { href: "index.html", label: "レコーディング", ico: "ico-rec" },
-    { href: "history.html", label: "商談履歴", ico: "ico-hist" },
-    { href: "sf-launch.html", label: "Salesforce", ico: "ico-deal" },
-    { href: "report.html", label: "分析", ico: "ico-ana" },
-    { href: "report.html?panel=interns", label: "インターンアポ", ico: "ico-apo" },
-    { href: "apo.html", label: "アポ振り分け", ico: "ico-assign" },
-    { href: "docs.html", label: "資料トラッキング", ico: "ico-doc" },
-    { href: "settings.html", label: "設定", ico: "ico-set" },
-  ];
+  // パソコンのサイドバーと同じ内容を使う（下に平らに並べる）
+  const items = [];
+  for (const m of KB_MENU) {
+    if (m.subs) for (const x of m.subs) items.push({ href: x.href, label: x.label, ico: m.ico });
+    else items.push({ href: m.href, label: m.label, ico: m.ico });
+  }
 
   const open = () => {
     if (document.querySelector(".kb-menu")) return;
@@ -474,3 +540,12 @@ window.kbToast = function (msg, kind) {
     setTimeout(() => el.remove(), 300);
   }, kind === "error" ? 5000 : 2600);
 };
+
+// サイドバーは、読み込みのできるだけ早い段階で組み立てる
+try {
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", kbBuildSidebar);
+  } else {
+    kbBuildSidebar();
+  }
+} catch (e) { console.warn("[nav] サイドバーを組み立てられませんでした", e.message); }

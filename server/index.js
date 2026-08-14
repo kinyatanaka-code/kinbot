@@ -2900,6 +2900,70 @@ app.delete("/api/next-actions/:id", async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+// 利用状況をCSVで書き出す。
+// Excelで開くことを前提に、日本語が化けないようBOMを付ける。
+function toCsv(rows) {
+  const esc = (v) => {
+    const t = String(v == null ? "" : v);
+    return /[",\n]/.test(t) ? `"${t.replace(/"/g, '""')}"` : t;
+  };
+  return rows.map((r) => r.map(esc).join(",")).join("\r\n");
+}
+
+app.get("/api/usage/summary.csv", async (req, res) => {
+  try {
+    const days = Math.max(1, Math.min(180, parseInt(req.query.days, 10) || 14));
+    const d = await usageSummary(days);
+    if (!d) return res.status(400).send("記録がありません");
+
+    const jst = (v) => {
+      if (!v) return "";
+      const t = new Date(v);
+      return isNaN(t.getTime()) ? "" : new Date(t.getTime() + 9 * 3600 * 1000)
+        .toISOString().replace("T", " ").slice(0, 16);
+    };
+
+    // 4つの表を、1つのファイルにまとめて入れる。
+    // 別々に落とすより、見比べやすい。
+    const rows = [];
+    rows.push([`利用状況（直近${days}日）`]);
+    rows.push([`書き出した日時`, jst(new Date())]);
+    rows.push([`合計`, `${d.total.events}操作`, `${d.total.users}人`]);
+    rows.push([]);
+
+    rows.push(["日ごとの利用"]);
+    rows.push(["日付", "操作数", "使った人数"]);
+    for (const r of d.byDay || []) rows.push([r.day, r.events, r.users]);
+    rows.push([]);
+
+    rows.push(["画面ごとの利用"]);
+    rows.push(["画面", "表示", "操作", "合計"]);
+    for (const r of d.byPage || []) {
+      rows.push([r.page || "(不明)", r.views, r.clicks, Number(r.views) + Number(r.clicks)]);
+    }
+    rows.push([]);
+
+    rows.push(["よく使われた操作"]);
+    rows.push(["画面", "操作", "回数"]);
+    for (const r of d.topActions || []) rows.push([r.page || "", r.label || "", r.n]);
+    rows.push([]);
+
+    rows.push(["人ごとの利用"]);
+    rows.push(["メンバー", "操作数", "使った日数", "最後に使った日時"]);
+    for (const r of d.byUser || []) {
+      rows.push([r.owner || "", r.events, r.days, jst(r.last_at)]);
+    }
+
+    const name = `kinbot_利用状況_${new Date(Date.now() + 9 * 3600 * 1000).toISOString().slice(0, 10)}.csv`;
+    res.setHeader("content-type", "text/csv; charset=utf-8");
+    res.setHeader("content-disposition",
+      `attachment; filename*=UTF-8''${encodeURIComponent(name)}`);
+    // BOM を付けないと、Excelで開いたときに日本語が化ける
+    res.send("\uFEFF" + toCsv(rows));
+    console.log(`[利用状況] CSVを書き出しました（${days}日分）by ${req.user}`);
+  } catch (e) { res.status(500).send(e.message); }
+});
+
 // ===== プロセスシートへの架電結果の書き込み =====
 // SFのレポートから架電結果を取り、担当者ごと・日ごとに数えてシートの「実績」に入れる。
 
@@ -10250,10 +10314,14 @@ async function autoAssignOne(link, { inviteOwner, closers = null, cfg, teamCtx =
   }
   await markAutoAssigned(link.slug);
 
-  // クローザーのカレンダーに商談予定を作る
+  // クローザーのカレンダーに商談予定を作る。
+  // ただし、クローザーが自分で取ったアポは、本人のカレンダーにもう予定がある。
+  // ここで作ると同じ商談の予定が2つになるので、作らない。
   let invite = null, inviteError = null;
   const s = await getSettings().catch(() => ({}));
-  if (s && s.apoAutoInvite !== false) {
+  if (pick.self) {
+    console.log(`[apo-assign] ${link.slug} は本人の予定をそのまま使います（商談予定は作りません）`);
+  } else if (s && s.apoAutoInvite !== false) {
     try { invite = await createApoInvite(updated, { actor }); }
     catch (e) { inviteError = e.message; console.warn("[apo-assign] 招待の作成に失敗", link.slug, e.message); }
   }
@@ -10949,9 +11017,15 @@ app.put("/api/smart-links/:slug/owner", async (req, res) => {
     // 担当が決まったら、商談予定を自動作成してクローザーを招待する（失敗しても割り当ては成功のまま返す）
     let invite = null, inviteError = null;
     const s = await getSettings().catch(() => ({}));
-    if (owner && s && s.apoAutoInvite !== false) {
+    // 予定を取った本人が担当になる場合は、本人のカレンダーにもう予定がある。
+    // ここで作ると同じ商談の予定が2つになるので、作らない。
+    const selfOwn = !!(owner && await selfAcquired({ ...link, current_owner: owner },
+      String(link.business || "")).catch(() => null));
+    if (owner && !selfOwn && s && s.apoAutoInvite !== false) {
       try { invite = await createApoInvite(link, { actor: req.user }); }
       catch (e) { inviteError = e.message; console.warn("[apo-invite] 失敗", req.params.slug, e.message); }
+    } else if (selfOwn) {
+      console.log(`[apo-invite] ${req.params.slug} は本人の予定をそのまま使います`);
     }
     // 続けてアポ確定メールを、担当セールス本人のGmailから自動送信する
     let mail = null;

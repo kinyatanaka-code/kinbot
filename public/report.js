@@ -823,6 +823,12 @@ function renderInternDash(body, d) {
 
 
 // ===== 利用状況 =====
+// CSVで保存する。ブラウザにそのまま落とさせるので、画面側の処理は最小限。
+function usageCsv() {
+  const days = ($("ugDays") && $("ugDays").value) || "14";
+  location.href = "/api/usage/summary.csv?days=" + encodeURIComponent(days);
+}
+
 const UG_FEATURES = [
   { page: "home", label: "録音する", name: "ホーム：予定から録音" },
   { page: "home", label: "SF商談を選ぶ", name: "ホーム：SF商談を選ぶ" },
@@ -903,4 +909,6 @@ document.addEventListener("DOMContentLoaded", () => {
   if (b) b.addEventListener("click", loadUsage);
   const sel = $("ugDays");
   if (sel) sel.addEventListener("change", loadUsage);
+  const csv = $("ugCsv");
+  if (csv) csv.addEventListener("click", usageCsv);
 });

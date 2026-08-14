@@ -21,6 +21,27 @@ const calCache = {};
 const sfState = {}; // 予定ごとのSalesforceパネルの状態
 const homeItems = {}; // カードの中身（スマホのシート表示用）
 
+// 行の操作に使う小さなアイコン。名前は吹き出しで出す。
+const HOME_ICONS = {
+  rec:  "M12 3a3 3 0 0 1 3 3v6a3 3 0 0 1-6 0V6a3 3 0 0 1 3-3zm7 9a7 7 0 0 1-6 6.9V22h-2v-3.1A7 7 0 0 1 5 12h2a5 5 0 0 0 10 0z",
+  sf:   "M12 2a10 10 0 1 0 10 10h-2a8 8 0 1 1-8-8zm7.5.5l-6.8 6.8-2.2-2.2L9 8.6l3.7 3.7 8.2-8.2z",
+  open: "M4 4h7v2H6v12h12v-5h2v7H4zm9 0h7v7h-2V7.4l-8.3 8.3-1.4-1.4L16.6 6H13z",
+  mail: "M3 5h18v14H3zm2 2v.6l7 4.4 7-4.4V7zm0 3v7h14v-7l-7 4.4z",
+  more: "M5 10.3a1.7 1.7 0 1 0 0 3.4 1.7 1.7 0 0 0 0-3.4zm7 0a1.7 1.7 0 1 0 0 3.4 1.7 1.7 0 0 0 0-3.4zm7 0a1.7 1.7 0 1 0 0 3.4 1.7 1.7 0 0 0 0-3.4z",
+};
+
+// アイコンのボタンを1つ作る。
+// state は need（やることが残っている）／done（もう済んだ）／空。
+function hIcon(kind, label, attrs = "", state = "", tag = "button") {
+  const path = HOME_ICONS[kind] || "";
+  const inner = `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="${path}"/></svg>` +
+    `<span class="hib-tip">${escH(label)}</span>`;
+  const cls = `hib${state ? " hib-" + state : ""}`;
+  return tag === "a"
+    ? `<a class="${cls}" ${attrs} aria-label="${escH(label)}">${inner}</a>`
+    : `<button type="button" class="${cls}" ${attrs} aria-label="${escH(label)}">${inner}</button>`;
+}
+
 function ymd(d) {
   const x = new Date(d);
   const p = (n) => String(n).padStart(2, "0");
@@ -275,24 +296,25 @@ function render() {
     const openLabel = m ? "商談を開く" : "会社を開く";
     const link = m && m.bot_id ? "history.html?m=" + encodeURIComponent(m.bot_id) : "history.html?company=" + enc;
     homeItems[key] = { title, time, company, done: !!m, link, openLabel, botId: (m && m.bot_id) || "" };
-    return `<div class="home-row" style="--i:${idx}"><div class="home-rail">${escH(time)}</div><div class="home-card home-card-v${m ? " is-done" : " home-card-plan"}" data-card="${escH(key)}">
-      <div class="home-card-row">
-        <div class="home-card-main">
-          <div class="home-card-top"><span class="home-time">${escH(time)}</span>${badges}</div>
-          <div class="home-card-title">${escH(title)}</div>
-          ${meta ? `<div class="home-card-meta">${meta}</div>` : ""}
-          ${summary ? `<div class="home-card-sum">${escH(summary)}</div>` : ""}
+    // 1行1商談。操作は小さなアイコンにして、押すとモーダルが開く。
+    // やることが残っているものだけ色を付けるので、見れば次の一手が分かる。
+    const acts =
+      (!m && e ? hIcon("rec", "録音する", `data-rec="${escH(key)}"`, "need") : "") +
+      (m ? hIcon("rec", "録音済み", "", "done") : "") +
+      hIcon("open", openLabel, `href="${link}"`, "", "a") +
+      (m ? hIcon("sf", "SFを更新", `data-sfedit="${escH(key)}"`, "need") : "") +
+      (!m ? hIcon("sf", s.open ? "SF商談を閉じる" : "SF商談を選ぶ", `data-sf-open="${escH(key)}"`) : "") +
+      (m && m.bot_id ? hIcon("mail", "御礼メール", `data-mail="${escH(m.bot_id)}" data-key="${escH(key)}"`, "need") : "") +
+      hIcon("more", "そのほかの操作", `data-sheet-open="${escH(key)}"`);
+
+    return `<div class="home-row" style="--i:${idx}"><div class="home-card home-line${m ? " is-done" : ""}" data-card="${escH(key)}">
+      <div class="hl-row">
+        <div class="hl-time">${escH(time)}</div>
+        <div class="hl-main">
+          <div class="hl-title">${escH(title)}</div>
+          <div class="hl-meta">${badges}${meta}${meta && summary ? " ・ " : ""}${summary ? escH(summary.slice(0, 36)) : ""}</div>
         </div>
-        <div class="home-card-actions">
-          ${!m && e ? `<button class="btn kb-prio" type="button" data-rec="${escH(key)}"><span class="lb-l">録音する</span><span class="lb-s">録音</span></button>` : ""}
-          ${m && m.bot_id ? `<button class="btn kb-prio" type="button" data-mail="${escH(m.bot_id)}" data-key="${escH(key)}"><span class="lb-l">御礼メール</span><span class="lb-s">メール</span></button>` : ""}
-          ${m ? `<button class="btn sf-btn-secondary kb-more" type="button" data-sfedit="${escH(key)}"><span class="lb-l">SF更新</span><span class="lb-s">SF</span></button>` : ""}
-          <a class="btn sf-btn-secondary kb-more" href="${link}"><span class="lb-l">${openLabel}</span><span class="lb-s">開く</span></a>
-          ${!m ? `<button class="btn sf-btn-secondary kb-more" data-sf-open="${escH(key)}" type="button"><span class="lb-l">${s.open ? "SF商談を閉じる" : "SF商談を選ぶ"}</span><span class="lb-s">${s.open ? "閉じる" : "SF商談"}</span></button>` : ""}
-          <button type="button" class="home-card-more" data-sheet-open="${escH(key)}" aria-label="そのほかの操作">
-            <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><circle cx="5" cy="12" r="1.7"/><circle cx="12" cy="12" r="1.7"/><circle cx="19" cy="12" r="1.7"/></svg>
-          </button>
-        </div>
+        <div class="hl-acts">${acts}</div>
       </div>
       ${sfPanelHtml(key, { title })}
     </div></div>`;

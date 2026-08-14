@@ -238,7 +238,15 @@ function apiResponse(pathname, query) {
   if (pathname === "/api/sessions/active") {
     return [{ botId: "bot-demo-1", title: "【初回】株式会社ベルク　町田様", repName: "田中欽也", startedAt: new Date().toISOString() }];
   }
-  if (pathname === "/api/meetings") return [{ bot_id: "bot-demo-1", title: "【初回】株式会社ベルク　町田様", owner_name: "田中欽也" }];
+  if (pathname === "/api/meetings") {
+    const t = new Date(); const d = t.toISOString().slice(0, 10);
+    return [
+      { bot_id: "bot-demo-1", title: "【初回】アールプランナーグループ／水谷様", owner_name: "田中欽也",
+        created_at: d + "T00:30:00.000Z", summary: { overview: "採用の課題を伺い、DOCの提案を実施" } },
+      { bot_id: "bot-demo-2", title: "【初回】株式会社時之栖／奥宮様", owner_name: "田中欽也",
+        created_at: d + "T23:00:00.000Z", summary: { overview: "既存の運用を確認" } },
+    ];
+  }
   if (pathname === "/api/kasasagi/status") {
     if (!globalThis.__ks) return { tts: { provider: "edge", ready: true }, active: [], session: null };
     return { tts: { provider: "edge", ready: true }, active: ["bot-demo-1"], session: {
@@ -381,6 +389,16 @@ function apiResponse(pathname, query) {
   }
   if (pathname.indexOf("/api/apo/suspensions") === 0) return { ok: true, ...MOCK.ROTATION };
   if (pathname === "/api/apo/closer-order") return { ok: true, ...MOCK.ROTATION };
+  if (pathname === "/api/calendar/day" || pathname === "/api/calendar/today") {
+    const d = new Date().toISOString().slice(0, 10);
+    return { events: [
+      { id: "e1", title: "【初回】株式会社ベルク／町田様", start: d + "T02:00:00.000Z", hasUrl: true },
+      { id: "e2", title: "【初回】アールプランナーグループ／水谷様", start: d + "T00:30:00.000Z", hasUrl: true },
+      { id: "e3", title: "【初回】株式会社ミナト工業／高橋様", start: d + "T05:00:00.000Z", hasUrl: true },
+      { id: "e4", title: "【再商談】石井商事運輸／石井様", start: d + "T07:30:00.000Z", hasUrl: false },
+      { id: "e5", title: "【初回】株式会社時之栖／奥宮様", start: d + "T23:00:00.000Z", hasUrl: true },
+    ] };
+  }
   if (pathname === "/api/calendar/created") {
     return { events: [
       { id: "cal1", title: "【初回】株式会社ベルク　町田様", start: "2026-08-09T05:00:00.000Z",
