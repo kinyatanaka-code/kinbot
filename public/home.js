@@ -125,10 +125,11 @@ function updateHead() {
 
 // スマホ用の週バー（月曜はじまり）。選んだ日を含む週を出す。
 let weekBase = null; // 表示中の週の月曜（YYYY-MM-DD）
+// その週の日曜日を返す（Googleカレンダーに合わせて日曜はじまり）
 function mondayOf(dateStr) {
   const [y, m, d] = dateStr.split("-").map(Number);
   const x = new Date(y, m - 1, d);
-  x.setDate(x.getDate() - ((x.getDay() + 6) % 7));
+  x.setDate(x.getDate() - x.getDay());
   return ymd(x);
 }
 function addDays(dateStr, n) {
@@ -142,7 +143,7 @@ function renderWeek() {
   if (!box) return;
   const mon = weekBase || mondayOf(selDate);
   weekBase = mon;
-  const w = ["月", "火", "水", "木", "金", "土", "日"];
+  const w = ["日", "月", "火", "水", "木", "金", "土"];
   // 録音済み商談がある日に印を付ける
   const marks = new Set(allMeetings.filter((m) => !isOtherCat(m)).map((m) => ymd(m.created_at)));
   let html = "";
@@ -252,6 +253,8 @@ function render() {
   });
   items.sort((a, b) => a.when - b.when);
   renderMini();
+  lastRows = items;
+  renderTodoBar(items);
 
   let html = "";
   if (window._calConnected === false) {
@@ -351,10 +354,12 @@ function renderMini() {
   const lab = $h("miniLabel");
   if (lab) lab.textContent = y + "年" + mo + "月";
   const first = new Date(y, mo - 1, 1);
-  const lead = (first.getDay() + 6) % 7; // 月曜はじまり
+  const lead = first.getDay(); // 日曜はじまり（Googleカレンダーに合わせる）
   const days = new Date(y, mo, 0).getDate();
   const marks = new Set(allMeetings.filter((m) => !isOtherCat(m)).map((m) => ymd(m.created_at)));
-  let html = '<div class="home-mini-w">' + ["月","火","水","木","金","土","日"].map((w) => `<span>${w}</span>`).join("") + "</div>";
+  let html = '<div class="home-mini-w">' +
+    ["日","月","火","水","木","金","土"].map((w, i) =>
+      `<span class="${i === 0 ? "is-sun" : i === 6 ? "is-sat" : ""}">${w}</span>`).join("") + "</div>";
   html += '<div class="home-mini-g">';
   for (let i = 0; i < lead; i++) html += "<span></span>";
   for (let d = 1; d <= days; d++) {
@@ -367,6 +372,176 @@ function renderMini() {
   }
   html += "</div>";
   box.innerHTML = html;
+}
+
+// ───────────────────────────────────────────────────────────
+// 会社名で探す
+// 商談履歴を開かなくても、ここから直接その会社を開けるようにする。
+// 一番よく使われている操作なので、ホームに置く。
+// ───────────────────────────────────────────────────────────
+function hfCompanies() {
+  // これまでの商談から、会社ごとにまとめる
+  const map = new Map();
+  for (const m of allMeetings || []) {
+    if (isOtherCat(m)) continue;
+    // 「株式会社ベルク／町田様」から会社名だけを取り出す
+    const name = String(companyFromTitle(m.title || ""))
+      .split(/[／\/｜|]/)[0]
+      .replace(/[^\s]*(?:様|さま|さん|御中)\s*$/, "")
+      .replace(/[\s　]+$/, "")
+      .trim();
+    if (!name) continue;
+    const cur = map.get(name);
+    const at = +new Date(m.created_at);
+    if (!cur) map.set(name, { name, n: 1, last: at, rep: repOf(m) });
+    else { cur.n++; if (at > cur.last) { cur.last = at; cur.rep = repOf(m); } }
+  }
+  return [...map.values()].sort((a, b) => b.last - a.last);
+}
+
+function hfRender(word) {
+  const box = $h("hfList");
+  const clear = $h("hfClear");
+  if (!box) return;
+  const w = String(word || "").trim();
+  if (clear) clear.hidden = !w;
+  if (!w) { box.hidden = true; box.innerHTML = ""; return; }
+
+  // 空白や記号の違いは無視して探す
+  const norm = (v) => String(v || "").replace(/[\s　（）()・,、.。]/g, "").toLowerCase();
+  const key = norm(w);
+  const hit = hfCompanies().filter((c) => norm(c.name).includes(key)).slice(0, 8);
+
+  box.hidden = false;
+  box.innerHTML = hit.length
+    ? hit.map((c) =>
+        `<a class="hf-item" href="history.html?company=${encodeURIComponent(c.name)}">` +
+        `<span class="hf-n">${escH(c.name)}</span>` +
+        `<span class="hf-m">${c.n}件 ・ 最後は${escH(hfWhen(c.last))}${c.rep ? " ・ " + escH(c.rep) : ""}</span></a>`).join("")
+    : `<div class="hf-none">「${escH(w)}」に当てはまる会社はありません。` +
+      `<a href="history.html">商談履歴で探す</a></div>`;
+}
+
+function hfWhen(t) {
+  const d = new Date(t);
+  if (isNaN(d.getTime())) return "";
+  const days = Math.floor((Date.now() - d.getTime()) / 86400000);
+  if (days <= 0) return "今日";
+  if (days === 1) return "昨日";
+  if (days < 30) return `${days}日前`;
+  return `${d.getMonth() + 1}/${d.getDate()}`;
+}
+
+(function hfInit() {
+  const q = $h("hfQ");
+  if (!q) return;
+  let t = null;
+  q.addEventListener("input", () => {
+    clearTimeout(t);
+    t = setTimeout(() => hfRender(q.value), 120);
+  });
+  // 最初の候補をそのまま開けるようにする
+  q.addEventListener("keydown", (ev) => {
+    if (ev.key === "Escape") { q.value = ""; hfRender(""); q.blur(); return; }
+    if (ev.key !== "Enter") return;
+    const first = document.querySelector(".hf-item");
+    if (first) location.href = first.getAttribute("href");
+  });
+  const clear = $h("hfClear");
+  if (clear) clear.addEventListener("click", () => { q.value = ""; hfRender(""); q.focus(); });
+  // 外を押したら閉じる
+  document.addEventListener("click", (ev) => {
+    if (!ev.target.closest(".home-find")) {
+      const box = $h("hfList");
+      if (box) box.hidden = true;
+    } else if (ev.target === q && q.value.trim()) {
+      hfRender(q.value);
+    }
+  });
+})();
+
+// ───────────────────────────────────────────────────────────
+// やり残しの帯
+// SFの更新・御礼メール・立ち上げの「し忘れ」を、上にまとめて出す。
+// 押すと、その件だけに絞り込める。
+// ───────────────────────────────────────────────────────────
+let todoFilter = "";
+let lastRows = [];
+
+function renderTodoBar(rows) {
+  setTimeout(applyTodoFilter, 0);
+  const bar = $h("todoBar");
+  if (!bar) return;
+
+  // 今日の商談のうち、まだ済んでいないもの
+  const now = Date.now();
+  let recLeft = 0, sfLeft = 0, mailLeft = 0;
+  for (const it of rows || []) {
+    if (it.rec) {
+      // 録音できている商談は、SF更新と御礼メールが残っていないかを見る
+      sfLeft++;
+      if (it.rec.bot_id) mailLeft++;
+    } else if (it.ev && new Date(it.ev.start).getTime() < now) {
+      // 時間が過ぎたのに録音が無いもの
+      recLeft++;
+    }
+  }
+  // 割り振られたアポのうち、まだ済んでいないもの
+  const apos = myApos || [];
+  const apoMail = apos.filter((x) => !(x.mail && x.mail.confirm)).length;
+  const apoSf = apos.filter((x) => !(x.launch && x.launch.ok)).length;
+
+  const items = [
+    { key: "rec", n: recLeft, label: "録音まだ" },
+    { key: "sf", n: sfLeft, label: "SF更新まだ" },
+    { key: "mail", n: mailLeft, label: "御礼メールまだ" },
+    { key: "apoSf", n: apoSf, label: "SF立ち上げまだ" },
+    { key: "apoMail", n: apoMail, label: "確定メールまだ" },
+  ].filter((x) => x.n > 0);
+
+  if (!items.length) {
+    bar.hidden = false;
+    bar.innerHTML = '<div class="todo-none">やり残しはありません。</div>';
+    return;
+  }
+  bar.hidden = false;
+  bar.innerHTML =
+    '<span class="todo-lb">やり残し</span>' +
+    items.map((x) =>
+      `<button type="button" class="todo-chip${todoFilter === x.key ? " on" : ""}" data-todo="${x.key}">` +
+      `<b>${x.n}</b>${escH(x.label)}</button>`).join("") +
+    (todoFilter ? '<button type="button" class="todo-clear" data-todo="">絞り込みを解除</button>' : "");
+
+  // 押した種類だけに絞り込む。もう一度押すと元に戻る。
+  if (!bar._wired) {
+    bar._wired = true;
+    bar.addEventListener("click", (ev) => {
+      const b = ev.target.closest("[data-todo]");
+      if (!b) return;
+      const k = b.dataset.todo;
+      todoFilter = todoFilter === k ? "" : k;
+      applyTodoFilter();
+      renderTodoBar(lastRows);
+    });
+  }
+}
+
+// 絞り込みを、いま出ている行に反映する。
+// 描き直すと重いので、当てはまらない行を隠すだけにする。
+function applyTodoFilter() {
+  const has = (row, kind) => {
+    const names = [...row.querySelectorAll(".hib.hib-need .hib-name")].map((x) => x.textContent);
+    if (kind === "rec") return names.includes("録音");
+    if (kind === "sf" || kind === "apoSf") return names.includes("SF");
+    if (kind === "mail" || kind === "apoMail") return names.includes("メール");
+    return true;
+  };
+  const isApo = (row) => row.classList.contains("ap-home-card");
+  document.querySelectorAll(".home-line").forEach((row) => {
+    if (!todoFilter) { row.closest(".home-row, .home-card") && (row.hidden = false); row.hidden = false; return; }
+    const forApo = todoFilter.startsWith("apo");
+    row.hidden = (forApo !== isApo(row)) || !has(row, todoFilter);
+  });
 }
 
 // ---- 右パネル：温度感ランキング ----

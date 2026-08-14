@@ -4879,6 +4879,47 @@ input:focus, select:focus, textarea:focus, .sf-input:focus, .sf-select:focus, .s
 .hib.hib-off:hover .hib-btn { background: #f6f9f8; border-color: #eaf0ed; }
 .hib.hib-off:hover svg { fill: #cfdcd7; }
 .hib.hib-off:hover .hib-name { color: #cfdcd7; }
+
+/* カレンダーは日曜はじまり。土日は色を変えて見分けやすくする。 */
+.home-mini-w .is-sun { color: #C0563C; }
+.home-mini-w .is-sat { color: #3A5C9A; }
+
+/* やり残しの帯。し忘れを上にまとめて出す。 */
+.todo-bar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  background: var(--panel); border: 1px solid var(--line); border-radius: 12px;
+  padding: 9px 14px; margin-bottom: 12px; }
+.todo-lb { font-size: 11.5px; font-weight: 800; color: #0F6E56; margin-right: 2px; }
+.todo-chip { display: inline-flex; align-items: center; gap: 6px; cursor: pointer;
+  border: 1px solid #cfe9df; background: #f1f9f6; color: #0d5b47;
+  border-radius: 999px; padding: 5px 13px; font-size: 12px; font-family: inherit; }
+.todo-chip b { font-size: 13.5px; }
+.todo-chip:hover { background: #9fe1cb; }
+.todo-chip.on { background: #0d5b47; border-color: #0d5b47; color: #fff; }
+.todo-none { font-size: 12px; color: var(--muted); }
+.todo-clear { border: 0; background: transparent; color: var(--muted); font-size: 11.5px;
+  cursor: pointer; font-family: inherit; text-decoration: underline; }
+
+/* 会社名で探す。商談履歴まで行かずに、ここから開ける。 */
+.home-find { position: relative; margin-bottom: 12px; max-width: 420px; }
+.home-find .hf-ico { position: absolute; left: 12px; top: 50%; transform: translateY(-50%);
+  width: 15px; height: 15px; fill: #8b9e97; pointer-events: none; }
+.home-find input { width: 100%; padding: 10px 34px 10px 34px; border: 1px solid var(--line);
+  border-radius: 11px; font-size: 13px; font-family: inherit; background: var(--panel);
+  box-sizing: border-box; }
+.home-find input:focus { outline: none; border-color: #9fe1cb;
+  box-shadow: 0 0 0 3px rgba(29,158,117,.12); }
+.hf-clear { position: absolute; right: 8px; top: 50%; transform: translateY(-50%);
+  width: 22px; height: 22px; border: 0; border-radius: 50%; background: #eef4f1;
+  color: #6b7f79; font-size: 13px; line-height: 1; cursor: pointer; font-family: inherit; }
+.hf-list { position: absolute; top: calc(100% + 6px); left: 0; right: 0; z-index: 50;
+  background: var(--panel); border: 1px solid var(--line); border-radius: 12px;
+  padding: 6px; box-shadow: 0 16px 44px rgba(10,34,30,.18); max-height: 320px; overflow: auto; }
+.hf-item { display: block; text-decoration: none; padding: 9px 12px; border-radius: 9px; }
+.hf-item:hover { background: #f1f9f6; }
+.hf-n { display: block; font-size: 13px; font-weight: 700; color: var(--ink); }
+.hf-m { display: block; font-size: 11px; color: var(--muted); margin-top: 2px; }
+.hf-none { padding: 10px 12px; font-size: 12px; color: var(--muted); }
+.hf-none a { color: #0F6E56; margin-left: 6px; }
 /* 消す操作は、間違えないよう赤くする */
 .hl-more .hib:hover .hib-btn { background: #C0563C; border-color: #C0563C; }
 .hl-more .hib:hover .hib-name { color: #C0563C; }

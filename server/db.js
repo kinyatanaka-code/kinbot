@@ -2641,6 +2641,7 @@ export async function myAssignedApos(owner, dateJst, mode = "day", limit = 200) 
     const { rows } = await pool.query(
       `SELECT * FROM smart_links
         WHERE current_owner = $1 AND ${cond}
+          AND NOT COALESCE(excluded, false)
         ORDER BY start_time
         LIMIT $3`,
       [String(owner).toLowerCase(), dateJst, Math.max(1, Math.min(500, limit))]);
