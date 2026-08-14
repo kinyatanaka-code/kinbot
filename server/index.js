@@ -527,7 +527,9 @@ app.use(
   "/api/zoom/webhook",
   express.json({ verify: (req, _res, buf) => (req.rawBody = buf) })
 );
-app.use(express.json());
+// まとめて送る操作（重複予定の削除・URLの一括発行など）があるので、
+// 既定の100kbだと足りずに「Payload Too Large」のHTMLが返ってしまう。
+app.use(express.json({ limit: "5mb" }));
 app.use(express.urlencoded({ extended: true })); // OAuth承認画面の<form>送信（application/x-www-form-urlencoded）用
 
 // kinbot OAuthサーバー（Claude.aiのカスタムコネクタが自動で試すOAuthフローに対応）
@@ -11158,6 +11160,8 @@ app.post("/api/apo/duplicate-events/delete", async (req, res) => {
       } else {
         failed.push({ eventId, calendarEmail, error: lastErr || "消せませんでした（権限がない可能性があります）" });
       }
+      // Googleのレート制限に当たらないよう、少し間を置く
+      await new Promise((r) => setTimeout(r, 120));
     }
     console.log(`[apo-invite] カレンダーの重複予定を削除 ${done.length}件 by ${req.user}`);
     res.json({ ok: true, deleted: done.length, done, failed });

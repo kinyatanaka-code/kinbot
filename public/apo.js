@@ -592,8 +592,14 @@ async function apiJson(url, opts) {
         "数分待ってから、シークレットウィンドウで開き直してください。" +
         "（設定の一番下「今動いているバージョン」でも確かめられます）");
     }
-    if (r.status === 401 || /<!DOCTYPE/i.test(text.slice(0, 40))) {
+    if (r.status === 413) {
+      throw new Error("一度に送る量が多すぎます。件数を分けて実行してください。");
+    }
+    if (r.status === 401) {
       throw new Error("ログインが切れている可能性があります。画面を開き直してログインし直してください。");
+    }
+    if (/<!DOCTYPE/i.test(text.slice(0, 40))) {
+      throw new Error(`サーバーがエラーページを返しました（${r.status}）。少し待ってからもう一度お試しください。`);
     }
     throw new Error(`サーバーから予期しない返事が来ました（${r.status}）`);
   }
@@ -613,18 +619,28 @@ async function showVersion() {
   } catch (e) { el.textContent = "確認できませんでした：" + e.message; }
 }
 
-// カレンダーを直接見て、同じ商談の予定が2つ以上あるものを探して消す
+// カレンダーを直接見て、同じ商談の予定が2つ以上あるものを探して消す。
+// 「探す」「消す」を同じ行に並べる（一覧が長いと、下まで送らないと押せないため）。
+let siList = [];
+
+function siSetActions(on) {
+  ["siDel", "siAll", "siNone"].forEach((id) => { const b = $(id); if (b) b.hidden = !on; });
+}
+
 async function loadSelfInvites() {
   const box = $("siBox");
   const say = (m) => { const e = $("siStatus"); if (e) e.textContent = m; };
   const btn = $("siLoad");
   if (!box) return;
   if (btn) btn.disabled = true;
+  siSetActions(false);
+  siList = [];
   say("探しています…（人数分カレンダーを読むので少し時間がかかります）");
   box.innerHTML = "";
   try {
     const d = await apiJson("/api/apo/duplicate-events");
     const list = d.found || [];
+    siList = list;
     let html = "";
     if ((d.checked || []).length) {
       html += `<p class="note">調べたカレンダー：` +
@@ -644,34 +660,53 @@ async function loadSelfInvites() {
         <div class="iv-main"><span class="iv-when">${fmtWhen(x.start)}</span>
           <span class="iv-title">${esc(x.title || "(予定名なし)")}</span></div>
         <div class="iv-sub">${esc(x.name || x.calendarEmail)} のカレンダー ／ kinbotが作った予定</div>
-      </label>`).join("") + `</div>
-      <div class="ap-cfg-actions">
-        <button class="btn ghost" id="siDel">チェックしたものを消す</button>
-      </div>`;
+      </label>`).join("") + `</div>`;
     box.innerHTML = html;
-    box.querySelector("#siDel").addEventListener("click", async () => {
-      const items = [...box.querySelectorAll(".si-chk")].filter((c) => c.checked).map((c) => list[+c.dataset.i]);
-      if (!items.length) { say("チェックがありません"); return; }
-      if (!confirm(`${items.length}件の予定をカレンダーから消して、1つに戻します。よろしいですか？\n（アポ獲得者が作った元の予定は残ります）`)) return;
-      say("削除中…");
-      try {
-        const dd = await apiJson("/api/apo/duplicate-events/delete", {
-          method: "POST", headers: { "content-type": "application/json" },
-          body: JSON.stringify({ items }),
-        });
-        say(`${dd.deleted}件を消しました${(dd.failed || []).length ? `（${dd.failed.length}件は失敗）` : ""}`);
-        if ((dd.failed || []).length) {
-          box.innerHTML += `<p class="note cc-warn">消せなかったもの：` +
-            dd.failed.map((f) => `${esc(f.calendarEmail || "")}（${esc(f.error || "")}）`).join("、") + `</p>`;
-        }
-        loadSelfInvites();
-      } catch (e) { say("失敗: " + e.message); }
-    });
-    say(`${list.length}件見つかりました`);
+    siSetActions(true);
+    say(`${list.length}件見つかりました（上の「チェックしたものを消す」で消せます）`);
   } catch (e) {
     box.innerHTML = `<p class="note cc-warn">探せませんでした：${esc(e.message)}</p>`;
     say("");
   } finally { if (btn) btn.disabled = false; }
+}
+
+// 「消す」を押したとき
+async function delSelfInvites() {
+  const box = $("siBox");
+  const say = (m) => { const e = $("siStatus"); if (e) e.textContent = m; };
+  const items = [...box.querySelectorAll(".si-chk")].filter((c) => c.checked).map((c) => siList[+c.dataset.i]);
+  if (!items.length) { say("チェックがありません"); return; }
+  if (!confirm(`${items.length}件の予定をカレンダーから消して、1つに戻します。よろしいですか？\n（アポ獲得者が作った元の予定は残ります）`)) return;
+
+  // 件数が多いと一度に送れないので、50件ずつに分けて送る
+  const CHUNK = 50;
+  let deleted = 0;
+  const failed = [];
+  const del = $("siDel");
+  if (del) del.disabled = true;
+  try {
+    for (let i = 0; i < items.length; i += CHUNK) {
+      const part = items.slice(i, i + CHUNK).map((x) => ({
+        eventId: x.eventId, calendarEmail: x.calendarEmail, tokenOwner: x.tokenOwner,
+      }));
+      say(`削除中… ${Math.min(i + part.length, items.length)} / ${items.length}件`);
+      const dd = await apiJson("/api/apo/duplicate-events/delete", {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ items: part }),
+      });
+      deleted += dd.deleted || 0;
+      for (const f of dd.failed || []) failed.push(f);
+    }
+    say(`${deleted}件を消しました${failed.length ? `（${failed.length}件は失敗）` : ""}`);
+    if (failed.length) {
+      box.innerHTML += `<p class="note cc-warn">消せなかったもの：` +
+        failed.slice(0, 10).map((f) => `${esc(f.calendarEmail || "")}（${esc(f.error || "")}）`).join("、") +
+        (failed.length > 10 ? ` ほか${failed.length - 10}件` : "") + `</p>`;
+    }
+    loadSelfInvites();
+  } catch (e) {
+    say(`失敗: ${e.message}${deleted ? `（${deleted}件までは消えました）` : ""}`);
+  } finally { if (del) del.disabled = false; }
 }
 
 async function loadOrphans() {
@@ -1364,6 +1399,11 @@ async function saveMailCfg() {
   if ($("ivHours")) $("ivHours").addEventListener("change", loadInvites);
   if ($("orLoad")) $("orLoad").addEventListener("click", loadOrphans);
   if ($("siLoad")) $("siLoad").addEventListener("click", loadSelfInvites);
+  if ($("siDel")) $("siDel").addEventListener("click", delSelfInvites);
+  if ($("siAll")) $("siAll").addEventListener("click", () =>
+    document.querySelectorAll("#siBox .si-chk").forEach((c) => { c.checked = true; }));
+  if ($("siNone")) $("siNone").addEventListener("click", () =>
+    document.querySelectorAll("#siBox .si-chk").forEach((c) => { c.checked = false; }));
   if ($("verBox")) showVersion();
   if ($("calCheckBtn")) $("calCheckBtn").addEventListener("click", calCheck);
   if ($("dbCheckBtn")) $("dbCheckBtn").addEventListener("click", () => dbCheck(false));
