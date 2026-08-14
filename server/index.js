@@ -6376,10 +6376,24 @@ app.get("/api/meetings/:id/gmail-threads", async (req, res) => {
     if (!ready.ok) return res.json({ ...out, needScope: true, gmailReason: ready.reason, gmailDetail: ready.detail || "", projectHint: ready.projectHint || "" });
     const m = await getMeeting(req.params.id);
     if (!m) return res.status(404).json({ error: "見つかりません" });
-    const q = (req.query.q || m.account || "").trim();
-    if (!q) return res.json({ ...out, needQuery: true });
-    const threads = await gmailSearchThreads(req.user, q, 6);
-    res.json({ ...out, query: q, threads });
+    // 会社名で探し、見つからなければ商談名の担当者名でも探す
+    const company = (m.account || companyFromTitle(m.title || "") || "").trim();
+    const person = (() => {
+      const t = String(m.title || "").replace(/【[^】]*】/g, " ");
+      const mm = t.match(/([一-龥ぁ-んァ-ヶa-zA-Z]{1,10})\s*(様|さま|さん)/);
+      return mm ? mm[1] : "";
+    })();
+    const asked = String(req.query.q || "").trim();
+    const words = asked ? [asked] : [company, person].filter(Boolean);
+    if (!words.length) return res.json({ ...out, needQuery: true });
+
+    let threads = [], query = words[0];
+    for (const w of words) {
+      threads = await gmailSearchThreads(req.user, w, 8);
+      query = w;
+      if (threads.length) break;
+    }
+    res.json({ ...out, query, company, person, threads });
   } catch (e) {
     if (e.needScope) return res.json({ connected: true, threads: [], needScope: true });
     console.error("[gmail-threads]", e.message);
@@ -6388,7 +6402,8 @@ app.get("/api/meetings/:id/gmail-threads", async (req, res) => {
 });
 
 // 御礼メールをGmailの下書きとして保存する。
-// これまでのやり取りがあればその返信として、無ければ新規で作る。
+// 画面から「新規作成」「返信（返信先のメールを選ぶ）」を指定できる。
+// 指定が無いときは、これまでのやり取りがあればその返信として、無ければ新規で作る（従来どおり）。
 app.post("/api/meetings/:id/thanks-gmail-draft", async (req, res) => {
   try {
     const m = await getMeeting(req.params.id);
@@ -6396,6 +6411,13 @@ app.post("/api/meetings/:id/thanks-gmail-draft", async (req, res) => {
     if (!(await gcalConnected(req.user))) return res.status(400).json({ error: "Googleが連携されていません（設定から連携してください）" });
     const ready = await gmailReady(req.user);
     if (!ready.ok) return res.status(400).json({ error: "Gmailが使えません（" + (ready.detail || ready.reason) + "）", needScope: true });
+
+    // 画面からの指定（new＝新規／reply＝返信）。無ければ auto。
+    const wantMode = String((req.body && req.body.mode) || "auto");
+    const wantThreadId = String((req.body && req.body.threadId) || "");
+    if (wantMode === "reply" && !wantThreadId) {
+      return res.status(400).json({ error: "返信するメールを選んでください" });
+    }
 
     // 相手を探すための言葉：会社名 → 商談名から取り出した担当者名
     const company = (m.account || companyFromTitle(m.title || "") || "").trim();
@@ -6405,10 +6427,16 @@ app.post("/api/meetings/:id/thanks-gmail-draft", async (req, res) => {
       return mm ? mm[1] : "";
     })();
 
+    // 新規と指定されたときは、過去のやり取りは探さない（そのまま新規メールにする）
+    // 返信先が指定されたときは、そのメールだけを見る
     let threads = [];
-    for (const q of [company, person].filter(Boolean)) {
-      try { threads = await gmailSearchThreads(req.user, q, 5); } catch {}
-      if (threads.length) break;
+    if (wantMode === "reply") {
+      threads = [{ threadId: wantThreadId }];
+    } else if (wantMode !== "new") {
+      for (const q of [company, person].filter(Boolean)) {
+        try { threads = await gmailSearchThreads(req.user, q, 5); } catch {}
+        if (threads.length) break;
+      }
     }
 
     const myEmail = (await getPrimaryEmail(req.user)) || "";
@@ -6425,8 +6453,11 @@ app.post("/api/meetings/:id/thanks-gmail-draft", async (req, res) => {
 
     let to = "", subject = "", body = "", threadId = "", inReplyTo = "", references = "", replied = false;
 
+    // 画面で文面ができているときは、AIで作り直さない（そのまま下書きにする）
+    const hasText = !!(req.body && req.body.body);
+
     if (threads.length) {
-      // いちばん新しいやり取りに返信する
+      // 返信として作る（返信先が指定されていればそのメール、無ければいちばん新しいやり取り）
       replied = true;
       threadId = threads[0].threadId;
       const thread = await gmailGetThread(req.user, threadId);
@@ -6434,18 +6465,22 @@ app.post("/api/meetings/:id/thanks-gmail-draft", async (req, res) => {
       const last = msgs[msgs.length - 1] || {};
       const fromAddr = parseEmailAddr(last.from);
       to = fromAddr && fromAddr !== myEmail ? fromAddr : parseEmailAddr(last.to);
-      const threadText = msgs.map((x) => `--- ${x.date} / ${x.from}\n${(x.body || "").slice(0, 2000)}`).join("\n\n").slice(-8000);
-      const prompt =
-        (typeof st.thanksPrompt === "string" ? st.thanksPrompt + "\n\n" : "") +
-        "以下は、この商談相手との過去のメールのやり取りです。最後のメールに続く形で、商談のお礼と次のアクションを伝える返信を日本語で作ってください。" +
-        "やり取りの流れと敬称・文体を合わせ、簡潔にまとめてください。\n\n【過去のやり取り】\n" + threadText;
-      const r = await generateThanks({ round, examples, summaryText: summaryText || "（要約なし）", repName: m.owner_name || m.rep_name, customer: person, prompt });
-      body = r.body || "";
-      subject = last.subject || r.subject || "";
+      if (hasText) {
+        subject = last.subject || "";
+      } else {
+        const threadText = msgs.map((x) => `--- ${x.date} / ${x.from}\n${(x.body || "").slice(0, 2000)}`).join("\n\n").slice(-8000);
+        const prompt =
+          (typeof st.thanksPrompt === "string" ? st.thanksPrompt + "\n\n" : "") +
+          "以下は、この商談相手との過去のメールのやり取りです。最後のメールに続く形で、商談のお礼と次のアクションを伝える返信を日本語で作ってください。" +
+          "やり取りの流れと敬称・文体を合わせ、簡潔にまとめてください。\n\n【過去のやり取り】\n" + threadText;
+        const r = await generateThanks({ round, examples, summaryText: summaryText || "（要約なし）", repName: m.owner_name || m.rep_name, customer: person, prompt });
+        body = r.body || "";
+        subject = last.subject || r.subject || "";
+      }
       if (subject && !/^re:/i.test(subject)) subject = "Re: " + subject;
       inReplyTo = last.messageIdHeader || "";
       references = [last.references, last.messageIdHeader].filter(Boolean).join(" ").trim();
-    } else {
+    } else if (!hasText) {
       const r = await generateThanks({
         round, examples, summaryText: summaryText || "（要約なし）",
         repName: m.owner_name || m.rep_name, customer: person,

@@ -4950,6 +4950,42 @@ input:focus, select:focus, textarea:focus, .sf-input:focus, .sf-select:focus, .s
   padding: 10px 12px; background: var(--panel-2); border: 1px solid var(--line);
   border-radius: 11px; margin-top: 14px; }
 .mail-tpl-lb { flex: 1 1 220px; min-width: 180px; margin: 0; }
+/* テンプレートの操作は、他と同じ小さなアイコンにそろえる */
+.mail-tpl-acts { display: flex; gap: 8px; align-items: flex-start; padding-bottom: 2px; }
+.mail-tpl-acts .hib { width: auto; min-width: 44px; }
+.mail-tpl-acts .hib-name { white-space: nowrap; }
+
+/* 送り方（新規作成／返信）の切り替え */
+.mail-mode { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 12px; }
+.mail-mode-lb { font-size: 12px; color: var(--muted); font-weight: 700; }
+.mail-mode-b { border: 1px solid var(--line); background: var(--panel); color: #6f8781;
+  border-radius: 999px; padding: 6px 16px; font-size: 12.5px; font-family: inherit; cursor: pointer; }
+.mail-mode-b:hover { border-color: #9fe1cb; color: #0F6E56; }
+.mail-mode-b.on { background: #0d5b47; border-color: #0d5b47; color: #fff; font-weight: 700; }
+.mail-mode-st { font-size: 11.5px; color: #0F6E56; }
+
+/* どのメールに返信するかを選ぶところ */
+.mail-reply { border: 1px solid var(--line); background: var(--panel-2);
+  border-radius: 11px; padding: 10px 12px; margin-bottom: 14px; }
+.mail-reply-hd { display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  font-size: 12px; color: var(--muted); font-weight: 700; margin-bottom: 8px; }
+.mail-reply-q { flex: 1 1 180px; min-width: 140px; padding: 6px 10px; border: 1px solid var(--line);
+  border-radius: 8px; font-size: 12px; font-family: inherit; background: var(--panel); font-weight: 400; }
+.mail-reply-list { display: flex; flex-direction: column; gap: 6px; max-height: 240px; overflow: auto; }
+.mail-reply-note { font-size: 11.5px; color: var(--muted); line-height: 1.7; }
+.mail-th { display: flex; flex-direction: column; gap: 2px; text-align: left; width: 100%;
+  border: 1px solid var(--line); background: var(--panel); border-radius: 9px;
+  padding: 8px 10px; font-family: inherit; cursor: pointer; }
+.mail-th:hover { border-color: #9fe1cb; background: #f1f9f6; }
+.mail-th.on { border-color: #1d9e75; background: #eaf7f2; box-shadow: 0 0 0 1px #1d9e75 inset; }
+.mail-th-top { display: flex; justify-content: space-between; gap: 8px; align-items: baseline; }
+.mail-th-from { font-size: 11.5px; color: #0d5b47; font-weight: 700; overflow: hidden;
+  text-overflow: ellipsis; white-space: nowrap; }
+.mail-th-date { font-size: 10.5px; color: var(--muted); white-space: nowrap; }
+.mail-th-subj { font-size: 12.5px; color: var(--ink); font-weight: 600; overflow: hidden;
+  text-overflow: ellipsis; white-space: nowrap; }
+.mail-th-snip { font-size: 11px; color: var(--muted); overflow: hidden;
+  text-overflow: ellipsis; white-space: nowrap; }
 .mail-tpl-sel { width: 100%; margin-top: 4px; padding: 8px 11px; border: 1px solid var(--line);
   border-radius: 9px; font-size: 12.5px; font-family: inherit; background: var(--panel); }
 .mail-tpl-st { font-size: 11.5px; color: #0F6E56; flex: 1 1 100%; }

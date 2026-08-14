@@ -36,6 +36,9 @@ const HOME_ICONS = {
   gmail: "M3 5h18v14H3zm2 2v.6l7 4.4 7-4.4V7zm0 3v7h14v-7l-7 4.4z",
   tpl: "M4 4h16v4H4zm0 6h7v10H4zm9 0h7v4h-7zm0 6h7v4h-7z",
   doc: "M4 3h9l7 7v11H4zm2 2v14h12v-8h-6V5zm2 8h8v2H8zm0 3h8v2H8z",
+  // テンプレート（型）の呼び出し・保存
+  tplin: "M3 5h9v2H3zm0 5h9v2H3zm0 5h9v2H3zm14-8 5 5-5 5v-3.2h-4.2v-3.6H17z",
+  tplsave: "M11 3h2v8h3.2L12 16.4 7.8 11H11zM4 17h16v3H4z",
 };
 
 // アイコンのボタンを1つ作る。
@@ -44,6 +47,7 @@ const HOME_ICONS = {
 const HOME_ICON_NAMES = {
   rec: "録音", sf: "SF", open: "開く", mail: "メール", cal: "会議室", trash: "外す", more: "その他",
   draft: "下書き", copy: "コピー", gmail: "Gmail", tpl: "テンプレ", doc: "資料URL",
+  tplin: "型を入れる", tplsave: "型を保存",
 };
 
 function hIcon(kind, label, attrs = "", state = "", tag = "button") {
@@ -383,6 +387,119 @@ function renderMini() {
 
 // 御礼メールのテンプレート。
 // 選んで作り直す／いまの文面を型として保存する。
+// 「新規作成」と「返信」を切り替える。
+// 返信のときは、これまでのやり取りを一覧で出して、どのメールに返すかを選んでもらう。
+// 選ぶと、そのやり取りの流れに合わせた文面をAIが作り直す。
+function wireMailMode(box, botId) {
+  // いま画面に出ている文面は、モードごとに覚えておく。
+  // 行ったり来たりしても、書きかけの文面が消えないようにするため。
+  const ctx = { mode: "new", threadId: "", to: "", stash: { new: null, reply: null } };
+  const su = () => box.querySelector(".home-mail-subj");
+  const ta = () => box.querySelector(".home-mail-body");
+  const panel = box.querySelector(".mail-reply");
+  const list = box.querySelector(".mail-reply-list");
+  const st = box.querySelector(".mail-mode-st");
+  const qIn = box.querySelector(".mail-reply-q");
+  const say = (t) => { if (st) st.textContent = t || ""; };
+  let loaded = false;
+
+  const setMode = (mode) => {
+    if (mode === ctx.mode) return;
+    ctx.stash[ctx.mode] = { subject: su().value, body: ta().value };
+    ctx.mode = mode;
+    box.querySelectorAll(".mail-mode-b").forEach((b) => b.classList.toggle("on", b.dataset.mode === mode));
+    if (panel) panel.hidden = mode !== "reply";
+    const keep = ctx.stash[mode];
+    if (keep) { su().value = keep.subject; ta().value = keep.body; }
+    if (mode === "new") { ctx.threadId = ""; ctx.to = ""; say(""); }
+    else {
+      say(ctx.threadId ? (ctx.to ? `返信先：${ctx.to}` : "返信先を選びました") : "返信するメールを選んでください");
+      if (!loaded) loadThreads("");
+    }
+  };
+
+  // 過去のやり取りを探して一覧にする
+  async function loadThreads(q) {
+    if (!list) return;
+    loaded = true;
+    list.innerHTML = '<div class="mail-reply-note">これまでのやり取りを探しています…</div>';
+    try {
+      const url = `/api/meetings/${encodeURIComponent(botId)}/gmail-threads` + (q ? `?q=${encodeURIComponent(q)}` : "");
+      const d = await (await fetch(url)).json();
+      if (d.needScope) {
+        list.innerHTML = '<div class="mail-reply-note">Gmailの権限が足りません。<a class="home-sf-link" href="settings.html">設定</a>から連携し直してください。</div>';
+        return;
+      }
+      if (!d.connected) {
+        list.innerHTML = '<div class="mail-reply-note">Googleが連携されていません。<a class="home-sf-link" href="settings.html">設定</a>から連携してください。</div>';
+        return;
+      }
+      const th = d.threads || [];
+      if (qIn && !qIn.value) qIn.value = d.query || "";
+      if (!th.length) {
+        list.innerHTML = `<div class="mail-reply-note">「${escH(d.query || "")}」ではやり取りが見つかりませんでした。上の欄で別の言葉でも探せます。</div>`;
+        return;
+      }
+      list.innerHTML = th.map((t) => `
+        <button type="button" class="mail-th" data-th="${escH(t.threadId)}" data-to="${escH(t.from || "")}">
+          <span class="mail-th-top">
+            <span class="mail-th-from">${escH(t.from || "")}</span>
+            <span class="mail-th-date">${escH(fmtMailDate(t.date))}${t.count > 1 ? `・${t.count}通` : ""}</span>
+          </span>
+          <span class="mail-th-subj">${escH(t.subject || "（件名なし）")}</span>
+          <span class="mail-th-snip">${escH((t.snippet || "").slice(0, 90))}</span>
+        </button>`).join("");
+    } catch (e) {
+      list.innerHTML = `<div class="mail-reply-note">読み込みに失敗しました（${escH(e.message)}）</div>`;
+    }
+  }
+
+  // 返信先を選んだら、そのやり取りに合わせた文面をAIが作る
+  async function pickThread(btn) {
+    const threadId = btn.dataset.th;
+    list.querySelectorAll(".mail-th").forEach((b) => b.classList.toggle("on", b === btn));
+    ctx.threadId = threadId;
+    say("この相手への返信を作っています…");
+    try {
+      const r = await fetch(`/api/meetings/${encodeURIComponent(botId)}/gmail-reply-draft`, {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ threadId }),
+      });
+      const d = await r.json();
+      if (!r.ok || !d.body) throw new Error(d.error || "作れませんでした");
+      su().value = d.subject || su().value;
+      ta().value = d.body;
+      ctx.to = d.to || "";
+      say(ctx.to ? `返信先：${ctx.to}` : "返信先を選びました");
+    } catch (e) {
+      say("文面を作れませんでした（" + e.message + "）。文面はそのまま返信として送れます。");
+    }
+  }
+
+  box.querySelectorAll(".mail-mode-b").forEach((b) =>
+    b.addEventListener("click", () => setMode(b.dataset.mode)));
+  if (list) list.addEventListener("click", (e) => {
+    const b = e.target.closest(".mail-th");
+    if (b) pickThread(b);
+  });
+  const sb = box.querySelector("[data-reply-search]");
+  if (sb) sb.addEventListener("click", () => loadThreads(qIn ? qIn.value.trim() : ""));
+  if (qIn) qIn.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") { e.preventDefault(); loadThreads(qIn.value.trim()); }
+  });
+
+  return ctx;
+}
+
+// メールの日付を「8/4(月) 14:30」の形にする
+function fmtMailDate(s) {
+  const d = new Date(s);
+  if (!s || isNaN(d.getTime())) return String(s || "").slice(0, 16);
+  const w = "日月火水木金土"[d.getDay()];
+  const p = (n) => String(n).padStart(2, "0");
+  return `${d.getMonth() + 1}/${d.getDate()}(${w}) ${p(d.getHours())}:${p(d.getMinutes())}`;
+}
+
 function wireMailTemplates(box, botId, tpls) {
   const sel = box.querySelector(".mail-tpl-sel");
   const st = box.querySelector(".mail-tpl-st");
@@ -891,7 +1008,24 @@ async function openMail(botId, key) {
     // 件名・本文を先に出し、テンプレートは下にまとめる。
     // 文面を確かめてから型として保存する流れに合うため。
     box.innerHTML =
-      `<label class="mail-lb">件名<input type="text" class="home-mail-subj" value="${escH(subject)}" /></label>
+      `<div class="mail-mode">
+         <span class="mail-mode-lb">送り方</span>
+         <button type="button" class="mail-mode-b on" data-mode="new">新規作成</button>
+         <button type="button" class="mail-mode-b" data-mode="reply">返信</button>
+         <span class="mail-mode-st"></span>
+       </div>
+
+       <!-- 「返信」を選んだときだけ、どのメールに返信するかを選ぶ -->
+       <div class="mail-reply" hidden>
+         <div class="mail-reply-hd">
+           <span>どのメールに返信しますか</span>
+           <input type="text" class="mail-reply-q" placeholder="会社名や担当者名で探す" />
+           <button type="button" class="btn sf-btn-secondary home-sf-mini" data-reply-search="1">探す</button>
+         </div>
+         <div class="mail-reply-list"></div>
+       </div>
+
+       <label class="mail-lb">件名<input type="text" class="home-mail-subj" value="${escH(subject)}" /></label>
        <label class="mail-lb">本文<textarea class="home-mail-body" rows="16">${escH(body)}</textarea></label>
        <div class="mail-acts">
          ${hIcon("draft", "Gmailに下書きを作る", `data-gdraft="${escH(botId)}"`)}
@@ -910,8 +1044,10 @@ async function openMail(botId, key) {
              ${tpls.map((t) => `<option value="${escH(t.id)}">${escH(t.name)}</option>`).join("")}
            </select>
          </label>
-         <button type="button" class="btn sf-btn-secondary home-sf-mini" data-tpl-apply="${escH(botId)}">このテンプレートで作り直す</button>
-         <button type="button" class="btn sf-btn-secondary home-sf-mini" data-tpl-save="1">いまの文面を保存</button>
+         <div class="mail-tpl-acts">
+           ${hIcon("tplin", "選んだテンプレートで本文を作り直す", `data-tpl-apply="${escH(botId)}"`)}
+           ${hIcon("tplsave", "いまの文面をテンプレートとして保存する", 'data-tpl-save="1"')}
+         </div>
          <span class="mail-tpl-st"></span>
          <div class="mail-tpl-help">
            テンプレートにこう書くと、送るときに中身が入ります。
@@ -928,6 +1064,7 @@ async function openMail(botId, key) {
        </div>`;
 
     wireMailTemplates(box, botId, tpls);
+    const mailCtx = wireMailMode(box, botId);
     const ta = box.querySelector(".home-mail-body");
     const su = box.querySelector(".home-mail-subj");
     // Gmailの作成画面を開く（メーラー未設定のパソコンでも動くように mailto は使わない）
@@ -948,12 +1085,19 @@ async function openMail(botId, key) {
     box.querySelector("[data-gdraft]").addEventListener("click", async (e) => {
       const btn = e.currentTarget;
       const note = box.querySelector(".home-mail-note");
-      btn.disabled = true; btn.textContent = "作成中…";
+      const nm = btn.querySelector(".hib-name");
+      btn.disabled = true; if (nm) nm.textContent = "作成中…";
       note.textContent = "";
       try {
+        if (mailCtx.mode === "reply" && !mailCtx.threadId) {
+          throw new Error("返信するメールを選んでください");
+        }
         const r = await fetch(`/api/meetings/${encodeURIComponent(botId)}/thanks-gmail-draft`, {
           method: "POST", headers: { "content-type": "application/json" },
-          body: JSON.stringify({ subject: su.value, body: ta.value }),
+          body: JSON.stringify({
+            subject: su.value, body: ta.value,
+            mode: mailCtx.mode, threadId: mailCtx.threadId || "",
+          }),
         });
         const d = await r.json().catch(() => ({}));
         if (!r.ok) throw new Error(d.error || "作成に失敗しました");
@@ -961,19 +1105,22 @@ async function openMail(botId, key) {
           `${d.replied ? "これまでのやり取りへの返信として" : "新規メールとして"}下書きを保存しました` +
           (d.to ? `（宛先：${escH(d.to)}）` : "（宛先は未設定です。Gmailで入れてください）") +
           ` <a class="home-sf-link" href="${escH(d.url)}" target="_blank" rel="noopener">Gmailで開く</a>`;
-        btn.textContent = "下書きを作成しました";
+        if (nm) nm.textContent = "作成済み";
+        btn.classList.add("hib-need");
       } catch (err) {
         note.innerHTML = escH(err.message) +
           ` <a class="home-sf-link" href="/api/gmail/status" target="_blank" rel="noopener">接続を確認する</a>` +
           ` <a class="home-sf-link" href="settings.html">設定を開く</a>`;
-        btn.disabled = false; btn.textContent = "Gmailに下書きを作る";
+        btn.disabled = false; if (nm) nm.textContent = "下書き";
       }
     });
 
     box.querySelector("[data-mailcopy]").addEventListener("click", (e) => {
+      const nm = e.currentTarget.querySelector(".hib-name");
       navigator.clipboard.writeText(ta.value).then(() => {
-        e.target.textContent = "コピーしました";
-        setTimeout(() => { e.target.textContent = "コピー"; }, 1500);
+        if (!nm) return;
+        nm.textContent = "コピー済";
+        setTimeout(() => { nm.textContent = "コピー"; }, 1500);
       }).catch(() => {});
     });
   } catch (e) {
