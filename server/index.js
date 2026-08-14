@@ -2794,6 +2794,28 @@ app.delete("/api/docs/:id", async (req, res) => {
 });
 
 // 宛先ごとのURLをまとめて発行する（200社分をCSVの貼り付けで作れる）
+// 御礼メールの画面から、この会社向けの資料URLをその場で発行する。
+// 資料トラッキングの画面まで行かずに済むようにする。
+app.post("/api/meetings/:id/doc-link", async (req, res) => {
+  try {
+    const m = await getMeeting(req.params.id);
+    if (!m) return res.status(404).json({ error: "商談が見つかりません" });
+    const docId = parseInt(req.body?.docId, 10);
+    if (!docId) return res.status(400).json({ error: "資料を選んでください" });
+
+    const company = String(req.body?.company || m.company || m.title || "")
+      .replace(/【[^】]*】/g, "").split(/[／\/|]/)[0].trim();
+    const contact = String(req.body?.contact || "").trim();
+    const email = String(req.body?.email || m.client_email || "").trim();
+
+    const made = await addDocLinks(docId, [{ company, contact, email }], req.user);
+    const base = String(process.env.PUBLIC_URL || "").replace(/\/+$/, "");
+    const links = (made || []).map((l) => ({ slug: l.slug, url: `${base}/d/${l.slug}` }));
+    console.log(`[doc] ${company} 向けにリンクを発行 by ${req.user}`);
+    res.json({ ok: true, links });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 app.post("/api/doc-links", async (req, res) => {
   try {
     const docId = parseInt(req.body?.docId, 10);
@@ -6306,7 +6328,9 @@ app.post("/api/meetings/:id/thanks", async (req, res) => {
         `　　2. 何も書かれていない空欄 … 商談の内容で埋める\n` +
         `　　3. 宛名・会社名・担当者名 … 今回の相手に合わせる\n` +
         `・{資料URL} {会社名} {担当者名} {自分の名前} は、その文字のまま残してください（あとで差し替えます）。\n` +
-        `・商談で話に出ていないことは書かないでください。埋められない箇所は、その部分ごと削ってください。\n\n` +
+        `・商談で話に出ていないことは書かないでください。埋められない箇所は、その部分ごと削ってください。\n` +
+        `・型の中の本文で、今回の相手に合わない言い回しがあれば、その文だけを今回の商談に合う内容に書き換えてください。\n` +
+        `　（例：型が「採用の課題」で今回が「定着の課題」なら、その一文だけ差し替える。前後の文や構成はそのまま。）\n\n` +
         `【型】\n${tpl.body}\n\n` +
         (prompt ? `【そのほかの指示】\n${prompt}` : "");
     }

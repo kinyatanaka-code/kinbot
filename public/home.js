@@ -35,6 +35,7 @@ const HOME_ICONS = {
   copy: "M8 3h9a2 2 0 0 1 2 2v11h-2V5H8zM5 7h9a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V9a2 2 0 0 1 2-2zm0 2v10h9V9z",
   gmail: "M3 5h18v14H3zm2 2v.6l7 4.4 7-4.4V7zm0 3v7h14v-7l-7 4.4z",
   tpl: "M4 4h16v4H4zm0 6h7v10H4zm9 0h7v4h-7zm0 6h7v4h-7z",
+  doc: "M4 3h9l7 7v11H4zm2 2v14h12v-8h-6V5zm2 8h8v2H8zm0 3h8v2H8z",
 };
 
 // アイコンのボタンを1つ作る。
@@ -42,7 +43,7 @@ const HOME_ICONS = {
 // アイコンの下に出す短い名前。長いと横に広がるので、2〜4文字にそろえる。
 const HOME_ICON_NAMES = {
   rec: "録音", sf: "SF", open: "開く", mail: "メール", cal: "会議室", trash: "外す", more: "その他",
-  draft: "下書き", copy: "コピー", gmail: "Gmail", tpl: "テンプレ",
+  draft: "下書き", copy: "コピー", gmail: "Gmail", tpl: "型", doc: "資料URL",
 };
 
 function hIcon(kind, label, attrs = "", state = "", tag = "button") {
@@ -408,6 +409,46 @@ function wireMailTemplates(box, botId, tpls) {
       say(d.templateName ? `「${d.templateName}」で作りました` : "商談内容から作りました", 5000);
     } catch (e) { say("失敗: " + e.message); }
     finally { applyBtn.disabled = false; }
+  });
+
+  // 資料URLをその場で発行する。
+  // 資料トラッキングの画面まで行かずに、ここで作って本文に入れられるようにする。
+  const docBtn = box.querySelector("[data-doc-make]");
+  if (docBtn) docBtn.addEventListener("click", async () => {
+    const note = box.querySelector(".home-mail-note");
+    const say = (t) => { if (note) note.textContent = t || ""; };
+    docBtn.disabled = true;
+    say("資料の一覧を読んでいます…");
+    try {
+      const d2 = await (await fetch("/api/docs")).json();
+      const docs = d2.docs || [];
+      if (!docs.length) {
+        say("登録されている資料がありません。ツール → 資料トラッキングで先に登録してください。");
+        return;
+      }
+      // どの資料のURLを作るかを選んでもらう
+      const list = docs.slice(0, 20).map((x, i) => `${i + 1}. ${x.name}`).join("\n");
+      const ans = prompt(`どの資料のURLを作りますか。番号を入れてください。\n\n${list}`, "1");
+      if (ans === null) { say(""); return; }
+      const idx = parseInt(ans, 10) - 1;
+      if (!(idx >= 0 && idx < docs.length)) { say("番号が正しくありません"); return; }
+
+      say("URLを作っています…");
+      const r = await fetch(`/api/meetings/${encodeURIComponent(botId)}/doc-link`, {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ docId: docs[idx].id }),
+      });
+      const d3 = await r.json();
+      if (!r.ok || !(d3.links && d3.links.length)) throw new Error(d3.error || "作れませんでした");
+
+      // できたURLを本文に入れる（{資料URL} があればそこを置き換える）
+      const ta = box.querySelector(".home-mail-body");
+      const line = `${docs[idx].name}：${d3.links[0].url}`;
+      if (ta.value.includes("{資料URL}")) ta.value = ta.value.replace(/\{資料URL\}/g, line);
+      else ta.value = ta.value.trimEnd() + "\n\n" + line + "\n";
+      say("資料URLを本文に入れました。誰が何ページ見たかを追えます。");
+    } catch (e) { say("失敗: " + e.message); }
+    finally { docBtn.disabled = false; }
   });
 
   // テンプレートのアイコンで開け閉めする
@@ -833,6 +874,7 @@ async function openMail(botId, key) {
          ${hIcon("draft", "Gmailに下書きを作る", `data-gdraft="${escH(botId)}"`)}
          ${hIcon("copy", "コピー", 'data-mailcopy="1"')}
          ${hIcon("gmail", "Gmailの作成画面で開く", 'data-mailto="1" href="#" target="_blank" rel="noopener"', "", "a")}
+         ${hIcon("doc", "資料URLを作る", `data-doc-make="${escH(botId)}"`)}
          ${hIcon("tpl", "テンプレートを使う", 'data-tpl-toggle="1"')}
        </div>
        <div class="home-mail-note"></div>
