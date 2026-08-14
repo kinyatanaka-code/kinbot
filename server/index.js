@@ -6269,6 +6269,29 @@ app.put("/api/thanks-prompt", async (req, res) => {
   }
 });
 
+// 御礼メールの画面を開いたときに使う、軽い情報だけを返す。
+// ここではAIを動かさない（開いただけで文面が作られると、待たされるうえに無駄になるため）。
+app.get("/api/meetings/:id/thanks-context", async (req, res) => {
+  try {
+    const m = await getMeeting(req.params.id);
+    if (!m) return res.status(404).json({ error: "見つかりません" });
+    const company = String(m.company || m.account || m.title || "")
+      .replace(/【[^】]*】/g, "").split(/[／\/|]/)[0].trim();
+    let docLinks = [];
+    try { docLinks = await docLinksForCompany(company, 5); } catch {}
+    const base = String(process.env.PUBLIC_URL || "").replace(/\/+$/, "");
+    res.json({
+      company,
+      round: m.round_no || "",
+      subject: `【御礼】${company ? company + "様との" : "本日の"}お打ち合わせについて`,
+      docLinks: docLinks.map((d) => ({ name: d.doc_name, url: `${base}/d/${d.slug}` })),
+    });
+  } catch (e) {
+    console.error("[thanks-context]", e.message);
+    res.status(502).json({ error: e.message });
+  }
+});
+
 // 御礼メールを生成（商談内容＋そのラウンドの例文を手本に）
 app.post("/api/meetings/:id/thanks", async (req, res) => {
   try {

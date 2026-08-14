@@ -31,6 +31,7 @@ const HOME_ICONS = {
   trash: "M9 3h6l1 2h4v2H4V5h4zM6 9h12l-1 12H7zm3 2v8h1.5v-8zm4.5 0v8H15v-8z",
   more: "M5 10.3a1.7 1.7 0 1 0 0 3.4 1.7 1.7 0 0 0 0-3.4zm7 0a1.7 1.7 0 1 0 0 3.4 1.7 1.7 0 0 0 0-3.4zm7 0a1.7 1.7 0 1 0 0 3.4 1.7 1.7 0 0 0 0-3.4z",
   // 御礼メールの画面で使うもの
+  gen: "M12 2.5l1.9 5.1 5.1 1.9-5.1 1.9L12 16.5l-1.9-5.1L5 9.5l5.1-1.9zM19 15l.9 2.4 2.4.9-2.4.9L19 21.6l-.9-2.4-2.4-.9 2.4-.9zM5.5 14l.7 1.9 1.9.7-1.9.7-.7 1.9-.7-1.9-1.9-.7 1.9-.7z",
   draft: "M2 21l20-9L2 3v7l13 2-13 2z",
   copy: "M8 3h9a2 2 0 0 1 2 2v11h-2V5H8zM5 7h9a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V9a2 2 0 0 1 2-2zm0 2v10h9V9z",
   gmail: "M3 5h18v14H3zm2 2v.6l7 4.4 7-4.4V7zm0 3v7h14v-7l-7 4.4z",
@@ -48,7 +49,7 @@ const HOME_ICONS = {
 // アイコンの下に出す短い名前。長いと横に広がるので、2〜4文字にそろえる。
 const HOME_ICON_NAMES = {
   rec: "録音", sf: "SF", open: "開く", mail: "メール", cal: "会議室", trash: "外す", more: "その他",
-  draft: "下書き", copy: "コピー", gmail: "Gmail", tpl: "テンプレ", doc: "資料URL",
+  gen: "文面を作る", draft: "下書き", copy: "コピー", gmail: "Gmail", tpl: "テンプレ", doc: "資料URL",
   tplin: "型を入れる", tplsave: "型を保存", tpledit: "型を直す", tpldel: "型を消す",
 };
 
@@ -461,6 +462,11 @@ function wireMailMode(box, botId) {
     const threadId = btn.dataset.th;
     list.querySelectorAll(".mail-th").forEach((b) => b.classList.toggle("on", b === btn));
     ctx.threadId = threadId;
+    // 書きかけの文面があるときは、消してよいか聞く
+    if (ta().value.trim() && !confirm("このやり取りに合わせた返信を作ります。いま書いてある文面は置き換わります。よろしいですか。")) {
+      say("返信先を選びました（文面はそのままです）");
+      return;
+    }
     say("この相手への返信を作っています…");
     try {
       const r = await fetch(`/api/meetings/${encodeURIComponent(botId)}/gmail-reply-draft`, {
@@ -511,24 +517,47 @@ function wireMailTemplates(box, botId, tpls) {
     if (ms) setTimeout(() => { if (st.textContent === t) st.textContent = ""; }, ms);
   };
 
-  // 選んだ型で作り直す
-  const applyBtn = box.querySelector("[data-tpl-apply]");
-  if (applyBtn) applyBtn.addEventListener("click", async () => {
-    applyBtn.disabled = true;
-    say("作り直しています…");
+  // 文面を作る。
+  // 「文面を作る」＝商談の内容から、「型を入れる」＝選んだ型に沿って作る。
+  // どちらも同じ作り方なので、ひとつにまとめる。
+  const note = box.querySelector(".home-mail-note");
+  const doGen = async (btn, useTpl) => {
+    const nm = btn.querySelector(".hib-name");
+    const before = nm ? nm.textContent : "";
+    const tell = (t, ms) => {
+      say(t, ms);
+      if (note) {
+        note.textContent = t || "";
+        if (ms) setTimeout(() => { if (note.textContent === t) note.textContent = ""; }, ms);
+      }
+    };
+    const ta = box.querySelector(".home-mail-body");
+    if (ta.value.trim() && !confirm("いま書いてある文面を、作り直したもので置き換えます。よろしいですか。")) return;
+    btn.disabled = true;
+    if (nm) nm.textContent = "作成中…";
+    tell("文面を作っています…");
     try {
       const r = await fetch(`/api/meetings/${encodeURIComponent(botId)}/thanks`, {
         method: "POST", headers: { "content-type": "application/json" },
-        body: JSON.stringify({ templateId: sel ? sel.value : "" }),
+        body: JSON.stringify({ templateId: useTpl && sel ? sel.value : "" }),
       });
       const d = await r.json();
       if (!r.ok || !(d.body || d.text)) throw new Error(d.error || "作れませんでした");
-      box.querySelector(".home-mail-subj").value = d.subject || "";
-      box.querySelector(".home-mail-body").value = d.body || d.text || "";
-      say(d.templateName ? `「${d.templateName}」で作りました` : "商談内容から作りました", 5000);
-    } catch (e) { say("失敗: " + e.message); }
-    finally { applyBtn.disabled = false; }
-  });
+      box.querySelector(".home-mail-subj").value = d.subject || box.querySelector(".home-mail-subj").value;
+      ta.value = d.body || d.text || "";
+      ta.dispatchEvent(new Event("input"));
+      tell(d.templateName ? `「${d.templateName}」で作りました` : "商談内容から作りました", 6000);
+    } catch (e) { tell("失敗: " + e.message, 8000); }
+    finally { btn.disabled = false; if (nm) nm.textContent = before; }
+  };
+
+  // 商談の内容から文面を作る（開いたときには作らない）
+  const genBtn = box.querySelector("[data-mail-gen]");
+  if (genBtn) genBtn.addEventListener("click", () => doGen(genBtn, false));
+
+  // 選んだ型で作り直す
+  const applyBtn = box.querySelector("[data-tpl-apply]");
+  if (applyBtn) applyBtn.addEventListener("click", () => doGen(applyBtn, true));
 
   // 資料URLをその場で発行する。
   // 資料トラッキングの画面まで行かずに、ここで作って本文に入れられるようにする。
@@ -1041,30 +1070,26 @@ function cardPanel(key, html) {
 }
 
 // 御礼メールをモーダルで作る。文面が長いので、カード内では読めないため。
+// 開いただけではAIを動かさない。「文面を作る」を押したときだけ作る。
+// （毎回作ると待たされるうえ、テンプレートを選び直すと作り直しになって無駄になるため）
 async function openMail(botId, key) {
   const it = homeItems[key] || {};
   const mo = openModal({
     title: "御礼メール",
     sub: it.company || it.title || "",
-    inner: '<div class="home-sf-msg">文面を作っています…</div>',
+    inner: '<div class="home-sf-msg">読み込んでいます…</div>',
     wide: false,
   });
   const box = mo.body;
   if (!box) return;
   try {
-    const r = await fetch(`/api/meetings/${encodeURIComponent(botId)}/thanks`, {
-      method: "POST", headers: { "content-type": "application/json" }, body: "{}",
-    });
-    const d = await r.json().catch(() => ({}));
-    const body = d.body || d.text || "";
-    if (!body) throw new Error(d.error || "文面を作れませんでした");
+    // 型の一覧と、この会社の資料URLだけを読む（文面は作らない）
+    const [tpls, d] = await Promise.all([
+      fetch("/api/mail-templates").then((r) => r.json()).then((x) => x.templates || []).catch(() => []),
+      fetch(`/api/meetings/${encodeURIComponent(botId)}/thanks-context`).then((r) => r.json()).catch(() => ({})),
+    ]);
     const subject = d.subject || "【御礼】本日のお打ち合わせについて";
-    // 保存してあるテンプレートを読む（無ければ空のまま）
-    let tpls = [];
-    try { tpls = ((await (await fetch("/api/mail-templates")).json()).templates) || []; } catch {}
-
-    // 件名・本文を先に出し、テンプレートは下にまとめる。
-    // 文面を確かめてから型として保存する流れに合うため。
+    const body = "";
     box.innerHTML =
       `<div class="mail-mode">
          <span class="mail-mode-lb">送り方</span>
@@ -1084,8 +1109,9 @@ async function openMail(botId, key) {
        </div>
 
        <label class="mail-lb">件名<input type="text" class="home-mail-subj" value="${escH(subject)}" /></label>
-       <label class="mail-lb">本文<textarea class="home-mail-body" rows="16">${escH(body)}</textarea></label>
+       <label class="mail-lb">本文<textarea class="home-mail-body" rows="16" placeholder="ここに文面を書きます。「文面を作る」を押すと、商談の内容からAIが下書きします。">${escH(body)}</textarea></label>
        <div class="mail-acts">
+         ${hIcon("gen", "商談の内容から文面を作る", `data-mail-gen="${escH(botId)}"`, "need")}
          ${hIcon("draft", "Gmailに下書きを作る", `data-gdraft="${escH(botId)}"`)}
          ${hIcon("copy", "コピー", 'data-mailcopy="1"')}
          ${hIcon("gmail", "Gmailの作成画面で開く", 'data-mailto="1" href="#" target="_blank" rel="noopener"', "", "a")}
@@ -1149,6 +1175,9 @@ async function openMail(botId, key) {
       btn.disabled = true; if (nm) nm.textContent = "作成中…";
       note.textContent = "";
       try {
+        if (!ta.value.trim()) {
+          throw new Error("本文が空です。「文面を作る」を押すか、自分で書いてください。");
+        }
         if (mailCtx.mode === "reply" && !mailCtx.threadId) {
           throw new Error("返信するメールを選んでください");
         }
@@ -1168,9 +1197,10 @@ async function openMail(botId, key) {
         if (nm) nm.textContent = "作成済み";
         btn.classList.add("hib-need");
       } catch (err) {
-        note.innerHTML = escH(err.message) +
+        const isInput = /本文が空|返信するメール/.test(err.message);
+        note.innerHTML = escH(err.message) + (isInput ? "" :
           ` <a class="home-sf-link" href="/api/gmail/status" target="_blank" rel="noopener">接続を確認する</a>` +
-          ` <a class="home-sf-link" href="settings.html">設定を開く</a>`;
+          ` <a class="home-sf-link" href="settings.html">設定を開く</a>`);
         btn.disabled = false; if (nm) nm.textContent = "下書き";
       }
     });
