@@ -123,6 +123,7 @@ import {
   deleteDocFile,
   addDocLinks,
   listDocLinks,
+  docLinksForCompany,
   getDocLink,
   revokeDocLink,
   docLinkDetail,
@@ -6277,6 +6278,14 @@ app.post("/api/meetings/:id/thanks", async (req, res) => {
     }
     const speakers = Array.isArray(m.transcript) ? [...new Set(m.transcript.map((u) => u.speaker?.name).filter(Boolean))] : [];
     const customer = speakers.find((n) => n && n !== m.rep_name) || "";
+    // この会社に発行ずみの資料URLを集める。
+    // テンプレートに {資料URL} と書いてあれば、あとで差し替える。
+    const company = String(m.company || m.title || "").replace(/【[^】]*】/g, "").split(/[／\/|]/)[0].trim();
+    let docLinks = [];
+    try { docLinks = await docLinksForCompany(company, 5); } catch {}
+    const base = String(process.env.PUBLIC_URL || "").replace(/\/+$/, "");
+    const docLines = docLinks.map((d) => `${d.doc_name}：${base}/d/${d.slug}`).join("\n");
+
     // テンプレートが選ばれていれば、それを最優先の手本にする。
     // 商談の要約と組み合わせて、その型に沿った文面を作る。
     const tplId = String(req.body?.templateId || "").trim();
@@ -6284,11 +6293,20 @@ app.post("/api/meetings/:id/thanks", async (req, res) => {
     const tpl = tplId ? tpls.find((t) => t.id === tplId) : null;
     let prompt = typeof s.thanksPrompt === "string" ? s.thanksPrompt : "";
     if (tpl) {
+      // 型はそのまま使い、埋めるべき箇所だけを商談の内容で置き換える。
+      // 文章を作り直させると型が崩れるので、そこを強く止める。
       prompt =
-        `次の「型」に沿って、商談の御礼メールを作ってください。\n` +
-        `型の言い回し・順番・改行の入れ方はそのまま活かし、` +
-        `【】で囲まれた箇所や中身が空の箇所を、今回の商談の内容で埋めてください。\n` +
-        `商談で出ていない話を勝手に足さないでください。\n\n` +
+        `次の「型」を使って、この商談の御礼メールを作ってください。\n\n` +
+        `【守ること】\n` +
+        `・型の文章は、一字一句そのまま残してください。言い回しを整えたり、言い換えたりしないでください。\n` +
+        `・改行の位置、空行の数、記号（──、■、・など）もそのままにしてください。\n` +
+        `・段落を足したり減らしたりしないでください。\n` +
+        `・変えてよいのは、次の箇所だけです。\n` +
+        `　　1. 【】で囲まれた箇所 … 商談の内容に置き換える（【】の記号ごと消す）\n` +
+        `　　2. 何も書かれていない空欄 … 商談の内容で埋める\n` +
+        `　　3. 宛名・会社名・担当者名 … 今回の相手に合わせる\n` +
+        `・{資料URL} {会社名} {担当者名} {自分の名前} は、その文字のまま残してください（あとで差し替えます）。\n` +
+        `・商談で話に出ていないことは書かないでください。埋められない箇所は、その部分ごと削ってください。\n\n` +
         `【型】\n${tpl.body}\n\n` +
         (prompt ? `【そのほかの指示】\n${prompt}` : "");
     }
@@ -6304,8 +6322,20 @@ app.post("/api/meetings/:id/thanks", async (req, res) => {
     });
     // 件名は、テンプレートに書かれていればそちらを優先する
     if (tpl && tpl.subject) result.subject = tpl.subject;
+
+    // 差し込み語を、実際の値に置き換える。
+    // 資料URLは、誰が何ページ見たかを追えるものになる。
+    const fill = (v) => String(v || "")
+      .replace(/\{資料URL\}/g, docLines || "（この会社向けの資料URLがまだありません）")
+      .replace(/\{会社名\}/g, company)
+      .replace(/\{担当者名\}/g, customer || "")
+      .replace(/\{自分の名前\}/g, m.owner_name || m.rep_name || "");
+    result.body = fill(result.body);
+    result.subject = fill(result.subject);
+
     res.json({ ...result, round, exampleCount: examples.length,
-               templateName: tpl ? tpl.name : "" });
+               templateName: tpl ? tpl.name : "",
+               docLinks: docLinks.map((d) => ({ name: d.doc_name, url: `${base}/d/${d.slug}` })) });
   } catch (e) {
     console.error("[thanks]", e.message);
     res.status(502).json({ error: e.message });

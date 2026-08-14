@@ -30,6 +30,11 @@ const HOME_ICONS = {
   cal:  "M7 2v2h10V2h2v2h3v18H2V4h3V2zm13 8H4v10h16zm-9 2v2H7v-2zm6 0v2h-4v-2z",
   trash: "M9 3h6l1 2h4v2H4V5h4zM6 9h12l-1 12H7zm3 2v8h1.5v-8zm4.5 0v8H15v-8z",
   more: "M5 10.3a1.7 1.7 0 1 0 0 3.4 1.7 1.7 0 0 0 0-3.4zm7 0a1.7 1.7 0 1 0 0 3.4 1.7 1.7 0 0 0 0-3.4zm7 0a1.7 1.7 0 1 0 0 3.4 1.7 1.7 0 0 0 0-3.4z",
+  // 御礼メールの画面で使うもの
+  draft: "M4 3h9l7 7v11H4zm2 2v14h12v-8h-6V5zm3 8h6v2H9zm0 3h6v2H9z",
+  copy: "M8 3h9a2 2 0 0 1 2 2v11h-2V5H8zM5 7h9a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V9a2 2 0 0 1 2-2zm0 2v10h9V9z",
+  gmail: "M3 5h18v14H3zm2 2v.6l7 4.4 7-4.4V7zm0 3v7h14v-7l-7 4.4z",
+  tpl: "M4 4h16v4H4zm0 6h7v10H4zm9 0h7v4h-7zm0 6h7v4h-7z",
 };
 
 // アイコンのボタンを1つ作る。
@@ -37,6 +42,7 @@ const HOME_ICONS = {
 // アイコンの下に出す短い名前。長いと横に広がるので、2〜4文字にそろえる。
 const HOME_ICON_NAMES = {
   rec: "録音", sf: "SF", open: "開く", mail: "メール", cal: "会議室", trash: "外す", more: "その他",
+  draft: "下書き", copy: "コピー", gmail: "Gmail", tpl: "テンプレ",
 };
 
 function hIcon(kind, label, attrs = "", state = "", tag = "button") {
@@ -403,6 +409,26 @@ function wireMailTemplates(box, botId, tpls) {
     } catch (e) { say("失敗: " + e.message); }
     finally { applyBtn.disabled = false; }
   });
+
+  // テンプレートのアイコンで開け閉めする
+  const toggle = box.querySelector("[data-tpl-toggle]");
+  const panel = box.querySelector(".mail-tpl");
+  if (toggle && panel) toggle.addEventListener("click", () => {
+    panel.hidden = !panel.hidden;
+    toggle.classList.toggle("hib-need", !panel.hidden);
+  });
+
+  // 差し込み語を、カーソルの位置に入れる
+  box.querySelectorAll(".tag-ins").forEach((b) =>
+    b.addEventListener("click", () => {
+      const ta = box.querySelector(".home-mail-body");
+      const t = b.dataset.ins;
+      const i = ta.selectionStart ?? ta.value.length;
+      ta.value = ta.value.slice(0, i) + t + ta.value.slice(ta.selectionEnd ?? i);
+      ta.focus();
+      ta.selectionStart = ta.selectionEnd = i + t.length;
+    })
+  );
 
   // いまの文面を型として保存する
   const saveBtn = box.querySelector("[data-tpl-save]");
@@ -803,13 +829,16 @@ async function openMail(botId, key) {
     box.innerHTML =
       `<label class="mail-lb">件名<input type="text" class="home-mail-subj" value="${escH(subject)}" /></label>
        <label class="mail-lb">本文<textarea class="home-mail-body" rows="16">${escH(body)}</textarea></label>
-       <div class="home-sf-row mail-actions">
-         <button type="button" class="btn" data-gdraft="${escH(botId)}">Gmailに下書きを作る</button>
-         <button type="button" class="btn sf-btn-secondary home-sf-mini" data-mailcopy="1">コピー</button>
-         <a class="btn sf-btn-secondary home-sf-mini" data-mailto="1" href="#" target="_blank" rel="noopener">Gmailの作成画面で開く</a>
+       <div class="mail-acts">
+         ${hIcon("draft", "Gmailに下書きを作る", `data-gdraft="${escH(botId)}"`)}
+         ${hIcon("copy", "コピー", 'data-mailcopy="1"')}
+         ${hIcon("gmail", "Gmailの作成画面で開く", 'data-mailto="1" href="#" target="_blank" rel="noopener"', "", "a")}
+         ${hIcon("tpl", "テンプレートを使う", 'data-tpl-toggle="1"')}
        </div>
        <div class="home-mail-note"></div>
-       <div class="mail-tpl">
+
+       <!-- テンプレートは、アイコンを押したときだけ開く -->
+       <div class="mail-tpl" hidden>
          <label class="mail-lb mail-tpl-lb">テンプレート
            <select class="mail-tpl-sel">
              <option value="">使わない（商談内容から作る）</option>
@@ -819,6 +848,18 @@ async function openMail(botId, key) {
          <button type="button" class="btn sf-btn-secondary home-sf-mini" data-tpl-apply="${escH(botId)}">この型で作り直す</button>
          <button type="button" class="btn sf-btn-secondary home-sf-mini" data-tpl-save="1">いまの文面を型として保存</button>
          <span class="mail-tpl-st"></span>
+         <div class="mail-tpl-help">
+           型の中にこう書くと、送るときに中身が入ります。
+           <button type="button" class="tag-ins" data-ins="{資料URL}">{資料URL}</button>
+           <button type="button" class="tag-ins" data-ins="{会社名}">{会社名}</button>
+           <button type="button" class="tag-ins" data-ins="{担当者名}">{担当者名}</button>
+           <button type="button" class="tag-ins" data-ins="{自分の名前}">{自分の名前}</button>
+           <span class="mail-doc-st">${
+             (d.docLinks && d.docLinks.length)
+               ? `この会社の資料URL ${d.docLinks.length}件（誰が何ページ見たか追えます）`
+               : "この会社向けの資料URLはまだありません（資料トラッキングで発行できます）"
+           }</span>
+         </div>
        </div>`;
 
     wireMailTemplates(box, botId, tpls);

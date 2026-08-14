@@ -3383,6 +3383,27 @@ function randomSlug(n = 10) {
 }
 
 // 一覧。閲覧回数・合計秒数・最終閲覧・最大ページ・開封・クリックをまとめて出す。
+// 会社名から、その会社向けに発行ずみの資料URLを引く。
+// 御礼メールに差し込むときに使う。
+export async function docLinksForCompany(company, limit = 5) {
+  if (!pool || !company) return [];
+  const core = (v) => String(v || "")
+    .replace(/(株式会社|有限会社|合同会社|合資会社|一般社団法人|一般財団法人|公益社団法人|公益財団法人|医療法人|学校法人|社会福祉法人|㈱|\(株\)|（株）)/g, "")
+    .replace(/[\s　]/g, "").trim();
+  try {
+    const { rows } = await pool.query(
+      `SELECT l.*, f.name AS doc_name
+         FROM doc_links l JOIN doc_files f ON f.id = l.doc_id
+        WHERE NOT l.revoked
+        ORDER BY l.created_at DESC LIMIT 500`);
+    const key = core(company);
+    if (!key) return [];
+    return rows
+      .filter((r) => { const c = core(r.company); return c && (c.includes(key) || key.includes(c)); })
+      .slice(0, limit);
+  } catch (e) { console.error("[db] docLinksForCompany", e.message); return []; }
+}
+
 export async function listDocLinks({ docId = 0, onlyViewed = false, limit = 500 } = {}) {
   if (!pool) return [];
   try {
