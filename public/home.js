@@ -374,6 +374,70 @@ function renderMini() {
   box.innerHTML = html;
 }
 
+// 御礼メールのテンプレート。
+// 選んで作り直す／いまの文面を型として保存する。
+function wireMailTemplates(box, botId, tpls) {
+  const sel = box.querySelector(".mail-tpl-sel");
+  const st = box.querySelector(".mail-tpl-st");
+  const say = (t, ms) => {
+    if (!st) return;
+    st.textContent = t || "";
+    if (ms) setTimeout(() => { if (st.textContent === t) st.textContent = ""; }, ms);
+  };
+
+  // 選んだ型で作り直す
+  const applyBtn = box.querySelector("[data-tpl-apply]");
+  if (applyBtn) applyBtn.addEventListener("click", async () => {
+    applyBtn.disabled = true;
+    say("作り直しています…");
+    try {
+      const r = await fetch(`/api/meetings/${encodeURIComponent(botId)}/thanks`, {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ templateId: sel ? sel.value : "" }),
+      });
+      const d = await r.json();
+      if (!r.ok || !(d.body || d.text)) throw new Error(d.error || "作れませんでした");
+      box.querySelector(".home-mail-subj").value = d.subject || "";
+      box.querySelector(".home-mail-body").value = d.body || d.text || "";
+      say(d.templateName ? `「${d.templateName}」で作りました` : "商談内容から作りました", 5000);
+    } catch (e) { say("失敗: " + e.message); }
+    finally { applyBtn.disabled = false; }
+  });
+
+  // いまの文面を型として保存する
+  const saveBtn = box.querySelector("[data-tpl-save]");
+  if (saveBtn) saveBtn.addEventListener("click", async () => {
+    const bodyText = box.querySelector(".home-mail-body").value.trim();
+    const subj = box.querySelector(".home-mail-subj").value.trim();
+    if (!bodyText) { say("本文が空です", 4000); return; }
+    const name = prompt(
+      "この文面に名前を付けて保存します。\n（例：初回・価格の話が出たとき）\n\n" +
+      "次に使うときは、この型に沿って商談の内容が差し込まれます。", "");
+    if (name === null) return;
+    if (!name.trim()) { say("名前を入れてください", 4000); return; }
+    saveBtn.disabled = true;
+    say("保存しています…");
+    try {
+      const next = [...tpls, { id: "t" + Date.now(), name: name.trim(), subject: subj, body: bodyText }];
+      const r = await fetch("/api/mail-templates", {
+        method: "PUT", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ templates: next }),
+      });
+      if (!r.ok) throw new Error(((await r.json()) || {}).error || "保存できませんでした");
+      // 一覧に足して、そのまま選んだ状態にする
+      const t = next[next.length - 1];
+      if (sel) {
+        const op = document.createElement("option");
+        op.value = t.id; op.textContent = t.name;
+        sel.appendChild(op); sel.value = t.id;
+      }
+      tpls.push(t);
+      say(`「${t.name}」として保存しました`, 6000);
+    } catch (e) { say("失敗: " + e.message); }
+    finally { saveBtn.disabled = false; }
+  });
+}
+
 // ───────────────────────────────────────────────────────────
 // 会社名で探す
 // 商談履歴を開かなくても、ここから直接その会社を開けるようにする。
@@ -730,15 +794,32 @@ async function openMail(botId, key) {
     const body = d.body || d.text || "";
     if (!body) throw new Error(d.error || "文面を作れませんでした");
     const subject = d.subject || "【御礼】本日のお打ち合わせについて";
+    // 保存してあるテンプレートを読む（無ければ空のまま）
+    let tpls = [];
+    try { tpls = ((await (await fetch("/api/mail-templates")).json()).templates) || []; } catch {}
+
     box.innerHTML =
-      `<label class="mail-lb">件名<input type="text" class="home-mail-subj" value="${escH(subject)}" /></label>
-       <label class="mail-lb">本文<textarea class="home-mail-body" rows="18">${escH(body)}</textarea></label>
+      `<div class="mail-tpl">
+         <label class="mail-lb mail-tpl-lb">テンプレート
+           <select class="mail-tpl-sel">
+             <option value="">使わない（商談内容から作る）</option>
+             ${tpls.map((t) => `<option value="${escH(t.id)}">${escH(t.name)}</option>`).join("")}
+           </select>
+         </label>
+         <button type="button" class="btn sf-btn-secondary home-sf-mini" data-tpl-apply="${escH(botId)}">この型で作り直す</button>
+         <button type="button" class="btn sf-btn-secondary home-sf-mini" data-tpl-save="1">いまの文面を型として保存</button>
+         <span class="mail-tpl-st"></span>
+       </div>
+       <label class="mail-lb">件名<input type="text" class="home-mail-subj" value="${escH(subject)}" /></label>
+       <label class="mail-lb">本文<textarea class="home-mail-body" rows="16">${escH(body)}</textarea></label>
        <div class="home-sf-row mail-actions">
          <button type="button" class="btn" data-gdraft="${escH(botId)}">Gmailに下書きを作る</button>
          <button type="button" class="btn sf-btn-secondary home-sf-mini" data-mailcopy="1">コピー</button>
          <a class="btn sf-btn-secondary home-sf-mini" data-mailto="1" href="#" target="_blank" rel="noopener">Gmailの作成画面で開く</a>
        </div>
        <div class="home-mail-note"></div>`;
+
+    wireMailTemplates(box, botId, tpls);
     const ta = box.querySelector(".home-mail-body");
     const su = box.querySelector(".home-mail-subj");
     // Gmailの作成画面を開く（メーラー未設定のパソコンでも動くように mailto は使わない）

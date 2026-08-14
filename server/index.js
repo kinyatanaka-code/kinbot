@@ -6194,6 +6194,38 @@ app.put("/api/thanks-examples", async (req, res) => {
   }
 });
 
+// ───────────────────────────────────────────────────────────
+// 御礼メールのテンプレート（名前を付けて保存し、あとから呼び出す）
+// ラウンド別の例文とは別に、「初回向け」「価格の話が出たとき」のような
+// 場面ごとの型を持てるようにする。
+// ───────────────────────────────────────────────────────────
+app.get("/api/mail-templates", async (req, res) => {
+  try {
+    const s = await getUserSettings(req.user);
+    const list = Array.isArray(s.mailTemplates) ? s.mailTemplates : [];
+    res.json({ templates: list });
+  } catch (e) { sfErrorResponse(res, e); }
+});
+
+app.put("/api/mail-templates", async (req, res) => {
+  try {
+    const raw = Array.isArray(req.body?.templates) ? req.body.templates : [];
+    // 名前と本文だけを残す。長すぎるものは切る。
+    const list = raw
+      .map((t) => ({
+        id: String(t.id || Date.now() + Math.random().toString(36).slice(2, 6)).slice(0, 40),
+        name: String(t.name || "").trim().slice(0, 60),
+        subject: String(t.subject || "").trim().slice(0, 200),
+        body: String(t.body || "").slice(0, 6000),
+      }))
+      .filter((t) => t.name && t.body)
+      .slice(0, 30);
+    await saveUserSettings(req.user, { mailTemplates: list });
+    console.log(`[メール] テンプレートを保存 ${list.length}件 by ${req.user}`);
+    res.json({ ok: true, count: list.length });
+  } catch (e) { sfErrorResponse(res, e); }
+});
+
 // 御礼メール生成プロンプト（ユーザーごと。空にすると既定に戻る）
 app.get("/api/thanks-prompt", async (req, res) => {
   try {
@@ -6245,15 +6277,35 @@ app.post("/api/meetings/:id/thanks", async (req, res) => {
     }
     const speakers = Array.isArray(m.transcript) ? [...new Set(m.transcript.map((u) => u.speaker?.name).filter(Boolean))] : [];
     const customer = speakers.find((n) => n && n !== m.rep_name) || "";
+    // テンプレートが選ばれていれば、それを最優先の手本にする。
+    // 商談の要約と組み合わせて、その型に沿った文面を作る。
+    const tplId = String(req.body?.templateId || "").trim();
+    const tpls = Array.isArray(s.mailTemplates) ? s.mailTemplates : [];
+    const tpl = tplId ? tpls.find((t) => t.id === tplId) : null;
+    let prompt = typeof s.thanksPrompt === "string" ? s.thanksPrompt : "";
+    if (tpl) {
+      prompt =
+        `次の「型」に沿って、商談の御礼メールを作ってください。\n` +
+        `型の言い回し・順番・改行の入れ方はそのまま活かし、` +
+        `【】で囲まれた箇所や中身が空の箇所を、今回の商談の内容で埋めてください。\n` +
+        `商談で出ていない話を勝手に足さないでください。\n\n` +
+        `【型】\n${tpl.body}\n\n` +
+        (prompt ? `【そのほかの指示】\n${prompt}` : "");
+    }
+
     const result = await generateThanks({
       round,
-      examples,
+      // テンプレートを使うときは、そちらを手本にするので例文は渡さない
+      examples: tpl ? [] : examples,
       summaryText,
       repName: m.owner_name || m.rep_name,
       customer,
-      prompt: typeof s.thanksPrompt === "string" ? s.thanksPrompt : "",
+      prompt,
     });
-    res.json({ ...result, round, exampleCount: examples.length });
+    // 件名は、テンプレートに書かれていればそちらを優先する
+    if (tpl && tpl.subject) result.subject = tpl.subject;
+    res.json({ ...result, round, exampleCount: examples.length,
+               templateName: tpl ? tpl.name : "" });
   } catch (e) {
     console.error("[thanks]", e.message);
     res.status(502).json({ error: e.message });
