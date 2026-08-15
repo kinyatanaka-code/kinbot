@@ -450,15 +450,19 @@ function psFilterBody() {
   return Object.keys(out).length ? out : null;
 }
 
+// いま選ばれている分け方
+function termMode() {
+  const on = document.querySelector('input[name="psTermMode"]:checked');
+  return on && on.value === "fixed" ? "fixed" : "auto";
+}
+
 // 「決めた期間」を使うときだけ、日付の欄を出す
 function syncTermMode() {
-  const sel = $("psTermMode");
-  if (!sel) return;
-  const fixed = sel.value !== "auto";
-  ["psFromLb", "psToLb"].forEach((id) => { const e = $(id); if (e) e.hidden = !fixed; });
+  const box = $("psTermDates");
+  if (box) box.hidden = termMode() !== "fixed";
 }
 document.addEventListener("change", (e) => {
-  if (e.target && e.target.id === "psTermMode") syncTermMode();
+  if (e.target && e.target.name === "psTermMode") syncTermMode();
 });
 // 画面を開いた時点でも、いまの選び方に合わせておく
 if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", syncTermMode);
@@ -474,7 +478,9 @@ async function loadProcessSheet() {
     $("psOwner").value = d.owner || "";
     $("psFrom").value = d.termFrom || "";
     $("psTo").value = d.termTo || "";
-    if ($("psTermMode")) { $("psTermMode").value = d.termMode || "fixed"; syncTermMode(); }
+    const want = d.termMode === "fixed" ? "fixed" : "auto";
+    const rb = document.querySelector(`input[name="psTermMode"][value="${want}"]`);
+    if (rb) { rb.checked = true; syncTermMode(); }
     if ($("psAuto")) $("psAuto").checked = !!d.autoRun;
     if ($("psGasUrl")) $("psGasUrl").value = d.gasUrl || "";
     const gs = $("psGasState");
@@ -513,7 +519,7 @@ function psBody(dryRun) {
     sheetId: $("psSheet").value, sheetName: $("psName").value,
     reportId: $("psReport").value, owner: $("psOwner").value,
     termFrom: $("psFrom").value, termTo: $("psTo").value,
-    termMode: $("psTermMode") ? $("psTermMode").value : undefined,
+    termMode: termMode(),
     autoRun: $("psAuto") ? $("psAuto").checked : false,
     gasUrl: $("psGasUrl") ? $("psGasUrl").value : undefined,
     gasSecret: $("psGasSecret") ? $("psGasSecret").value : undefined,

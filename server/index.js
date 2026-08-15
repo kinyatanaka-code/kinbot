@@ -2883,6 +2883,42 @@ app.post("/api/meetings/:id/doc-link", async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+// 御礼メールを開いたときに、この会社あての資料URLを用意する。
+// すでにあればそれを返し、無ければ資料を1つ選んで発行する。
+// （文面に {資料URL} を入れても、リンクが無ければ差し込めないため）
+app.post("/api/meetings/:id/doc-link/ensure", async (req, res) => {
+  try {
+    const m = await getMeeting(req.params.id);
+    if (!m) return res.status(404).json({ error: "商談が見つかりません" });
+    const company = String(m.company || m.account || m.title || "")
+      .replace(/【[^】]*】/g, "").split(/[／\/|]/)[0].trim();
+    const base = String(process.env.PUBLIC_URL || "").replace(/\/+$/, "");
+
+    const have = await docLinksForCompany(company, 5).catch(() => []);
+    if (have.length) {
+      return res.json({
+        ok: true, created: false, company,
+        links: have.map((d) => ({ name: fixMojibake(d.doc_name), url: `${base}/d/${d.slug}` })),
+      });
+    }
+
+    // どの資料にするか。指定が無ければ、いちばん新しく登録された資料を使う。
+    const docs = await listDocFiles().catch(() => []);
+    if (!docs.length) {
+      return res.json({ ok: true, created: false, company, links: [], reason: "登録されている資料がありません" });
+    }
+    const wantId = parseInt(req.body?.docId, 10);
+    const doc = docs.find((d) => d.id === wantId) || docs[0];
+
+    const email = String(m.client_email || "").trim() ||
+      ((await clientEmailForCompany(company).catch(() => null)) || {}).email || "";
+    const made = await addDocLinks(doc.id, [{ company, contact: "", email }], req.user);
+    const links = (made || []).map((l) => ({ name: fixMojibake(doc.name), url: `${base}/d/${l.slug}` }));
+    console.log(`[doc] ${company} 向けにリンクを自動発行（${doc.name}） by ${req.user}`);
+    res.json({ ok: true, created: true, company, docName: fixMojibake(doc.name), links });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 app.post("/api/doc-links", async (req, res) => {
   try {
     const docId = parseInt(req.body?.docId, 10);

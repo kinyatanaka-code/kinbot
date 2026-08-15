@@ -98,16 +98,26 @@
                 <input type="text" id="psReport" placeholder="一覧に無ければIDを直接入れてください（00O...）" />
               </label>
               <label class="ps-lb">書き込むアカウント<input type="text" id="psOwner" placeholder="kinya.tanaka@neo-career.co.jp" /></label>
-              <label class="ps-lb">期内・期外の分け方
-                <select id="psTermMode">
-                  <option value="auto">アポを取った月と、商談の月が同じなら「期内」（おすすめ・毎月の設定変更が不要）</option>
-                  <option value="fixed">下で決めた期間に商談日が入っていれば「期内」</option>
-                </select>
-              </label>
-              <label class="ps-lb" id="psFromLb">期内とみなす期間（開始）<input type="date" id="psFrom" /></label>
-              <label class="ps-lb" id="psToLb">同（終了）<input type="date" id="psTo" /></label>
-              <p class="note" id="psTermNote">商談日が分かっていないアポは、どちらの分け方でも「期外」に入ります。<br>
-              実行後の「アポの内訳」で、1件ずつの判定理由を確かめられます。</p>
+              <div class="ps-term">
+                <div class="ps-term-h">期内・期外の分け方</div>
+                <div class="ps-term-row">
+                  <label class="ps-radio">
+                    <input type="radio" name="psTermMode" value="auto" checked />
+                    <span><b>アポを取った月と、商談の月が同じなら「期内」</b>
+                      <em>おすすめ。毎月の設定変更がいりません</em></span>
+                  </label>
+                  <label class="ps-radio">
+                    <input type="radio" name="psTermMode" value="fixed" />
+                    <span><b>決めた期間に商談日が入っていれば「期内」</b>
+                      <em>期の区切りが月とずれるときはこちら</em></span>
+                  </label>
+                </div>
+                <div class="ps-term-dates" id="psTermDates">
+                  <label class="ps-lb" id="psFromLb">期間の開始<input type="date" id="psFrom" /></label>
+                  <label class="ps-lb" id="psToLb">期間の終了<input type="date" id="psTo" /></label>
+                </div>
+                <p class="note" id="psTermNote">商談日が分かっていないアポは、どちらの分け方でも「期外」に入ります。実行後の「アポの内訳」で、1件ずつの判定理由を確かめられます。</p>
+              </div>
             </div>
             <div class="ps-filters" id="psFilters"></div>
 

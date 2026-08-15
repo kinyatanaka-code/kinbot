@@ -1166,14 +1166,17 @@ async function openMail(botId, key) {
          placeholder="送り先のメールアドレス（空のままでもGmailで入れられます）" />
          ${d.to ? `<span class="mail-to-src">${escH(d.toSource || "")}から入れました</span>` : ""}</label>
        <label class="mail-lb">件名<input type="text" class="home-mail-subj" value="${escH(subject)}" /></label>
-       <label class="mail-lb">本文<textarea class="home-mail-body" rows="16" placeholder="ここに文面を書きます。「文面を作る」を押すと、商談の内容からAIが下書きします。">${escH(body)}</textarea></label>
-       <div class="mail-acts">
-         ${hIcon("gen", "商談の内容から文面を作る", `data-mail-gen="${escH(botId)}"`, "need")}
-         ${hIcon("draft", "Gmailに下書きを作る", `data-gdraft="${escH(botId)}"`)}
-         ${hIcon("copy", "コピー", 'data-mailcopy="1"')}
-         ${hIcon("gmail", "Gmailの作成画面で開く", 'data-mailto="1" href="#" target="_blank" rel="noopener"', "", "a")}
-         ${hIcon("doc", "資料URLを作る", `data-doc-make="${escH(botId)}"`)}
-         ${hIcon("tpl", "テンプレートを使う", 'data-tpl-toggle="1"')}
+       <!-- 本文の右にアイコンを置く。下に置くと、長い文面のときに画面の外に出てしまうため。 -->
+       <div class="mail-body-row">
+         <label class="mail-lb mail-lb-body">本文<textarea class="home-mail-body" rows="16" placeholder="ここに文面を書きます。「文面を作る」を押すと、商談の内容からAIが下書きします。">${escH(body)}</textarea></label>
+         <div class="mail-acts mail-acts-side">
+           ${hIcon("gen", "商談の内容から文面を作る", `data-mail-gen="${escH(botId)}"`, "need")}
+           ${hIcon("draft", "Gmailに下書きを作る", `data-gdraft="${escH(botId)}"`)}
+           ${hIcon("copy", "コピー", 'data-mailcopy="1"')}
+           ${hIcon("gmail", "Gmailの作成画面で開く", 'data-mailto="1" href="#" target="_blank" rel="noopener"', "", "a")}
+           ${hIcon("doc", "資料URLを作る", `data-doc-make="${escH(botId)}"`)}
+           ${hIcon("tpl", "テンプレートを使う", 'data-tpl-toggle="1"')}
+         </div>
        </div>
        <div class="home-mail-note"></div>
 
@@ -1229,6 +1232,26 @@ async function openMail(botId, key) {
 
     wireMailTemplates(box, botId, tpls);
     const mailCtx = wireMailMode(box, botId);
+
+    // この会社あての資料URLを、開いた時点で用意しておく。
+    // 文面に {資料URL} を入れたときに、その場で差し込めるようにするため。
+    (async () => {
+      const st = box.querySelector(".mail-doc-st");
+      try {
+        const r = await fetch(`/api/meetings/${encodeURIComponent(botId)}/doc-link/ensure`, {
+          method: "POST", headers: { "content-type": "application/json" }, body: "{}",
+        });
+        const dd = await r.json();
+        if (!r.ok || !st) return;
+        if (dd.created) {
+          st.textContent = `資料URLを用意しました（${dd.docName || ""}）。誰が何ページ見たか追えます`;
+        } else if ((dd.links || []).length) {
+          st.textContent = `この会社の資料URL ${dd.links.length}件（誰が何ページ見たか追えます）`;
+        } else {
+          st.textContent = dd.reason || "この会社向けの資料URLはまだありません";
+        }
+      } catch {}
+    })();
     const ta = box.querySelector(".home-mail-body");
     const su = box.querySelector(".home-mail-subj");
     // Gmailの作成画面を開く（メーラー未設定のパソコンでも動くように mailto は使わない）
