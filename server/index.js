@@ -25,6 +25,7 @@ import { sendApoMail, runReminderSweep, getApoMailConfig,
 import { startKasasagi, getKasasagi, stopKasasagi, feedTranscript, kasasagiInfo,
          buildScript, buildReport, faceState, SLIDE_LABELS } from "./kasasagi.js";
 import { notifyAssigned, notifyMailDraft, notifyChat, notifyAll, chatWebhookUrl, chatInfo } from "./chat.js";
+import { note as devNote, errKey, buildMorningSummary, NOTE_KINDS } from "./devnotes.js";
 import { verifyChatRequest, readEvent, replyBody, parseCommand, helpText, jstDate, jstTime, INTENT_SYSTEM, guessIntent } from "./chatcmd.js";
 import { normalizeSpace } from "./chatapp.js";
 import { judge as judgeAutolaunch, reasonText, parseTitle as parseLaunchTitle } from "./autolaunch.js";
@@ -91,6 +92,10 @@ import {
   getSmartLinkByEvent,
   findSmartLinkByLabelStart,
   noticeOnce,
+  listDevNotes,
+  updateDevNote,
+  deleteDevNote,
+  addDevNote,
   futureApos,
   excludeApo,
   listCalendarWatches,
@@ -3400,6 +3405,74 @@ async function maybeSendCallReport() {
     await notifyAll(r.text, "assign");
     console.log(`[call-report] ${h}時の進捗を送りました`);
   } catch (e) { console.warn("[call-report]", e.message); }
+}
+
+// ───────────────────────────────────────────────────────────
+// 開発メモ（直したいこと）
+// ───────────────────────────────────────────────────────────
+app.get("/api/dev-notes", async (req, res) => {
+  try {
+    const rows = await listDevNotes({ status: String(req.query.status || ""), limit: 300 });
+    res.json({ kinds: NOTE_KINDS, items: rows });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.post("/api/dev-notes", async (req, res) => {
+  try {
+    const b = req.body || {};
+    const title = String(b.title || "").trim();
+    if (!title) return res.status(400).json({ error: "内容を書いてください" });
+    const r = await addDevNote({
+      key: `manual:${Date.now()}:${title}`.slice(0, 200),
+      kind: b.kind || "request", title, detail: String(b.detail || ""),
+      source: "画面", createdBy: req.user || "",
+    });
+    res.json({ ok: true, item: r });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.patch("/api/dev-notes/:id", async (req, res) => {
+  try {
+    const r = await updateDevNote(parseInt(req.params.id, 10), req.body || {});
+    res.json({ ok: true, item: r });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.delete("/api/dev-notes/:id", async (req, res) => {
+  try {
+    const n = await deleteDevNote(parseInt(req.params.id, 10));
+    res.json({ ok: true, deleted: n });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// 朝のまとめを作る（?send=1 でChatにも流す）
+app.post("/api/dev-notes/summary", async (req, res) => {
+  try {
+    const r = await buildMorningSummary(callLLMPublic);
+    if (r.empty) return res.json({ ok: true, empty: true, text: "未対応の開発メモはありません。" });
+    if (req.body?.send === true) await notifyAll(r.text, "assign");
+    res.json({ ok: true, ...r, sent: req.body?.send === true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// 朝6時に、その日の開発メモをChatへ流す
+let lastDevSummaryDay = "";
+async function maybeSendDevSummary() {
+  try {
+    const st = await getSettings().catch(() => ({}));
+    if (st.devSummary === false) return;
+    const now = new Date(Date.now() + 9 * 3600 * 1000);
+    const h = now.getUTCHours(), m = now.getUTCMinutes();
+    const hour = Number(st.devSummaryHour ?? 6);
+    if (h !== hour || m > 4) return;
+    const day = now.toISOString().slice(0, 10);
+    if (lastDevSummaryDay === day) return;
+    lastDevSummaryDay = day;
+    const r = await buildMorningSummary(callLLMPublic);
+    if (r.empty) return;
+    await notifyAll(r.text, "assign");
+    console.log(`[dev-note] 朝のまとめを送りました（${r.count}件）`);
+  } catch (e) { console.warn("[dev-note]", e.message); }
 }
 
 // テスト用アポの見分け方（設定）
@@ -11717,6 +11790,8 @@ app.post("/api/chat/command", async (req, res) => {
       if (!v.ok) {
         console.warn("[chat-cmd] 受け取りませんでした:", v.reason);
         logChatCmd({ ok: false, reason: v.reason, from: ev.email, said, type: ev.type, addon: ev.addon });
+        devNote({ key: errKey("Chat受け取り", v.reason), kind: "error",
+                  title: `Chatからの呼びかけを受け取れない：${v.reason}`, source: "Chat" }).catch(() => {});
         // Chatには「応答がありません」ではなく、理由を返す（設定を直せるように）
         return reply(`kinbotが受け取れませんでした：${v.reason}\n（設定→Google Chat の「Chatから kinbot を動かす」をご確認ください）`);
       }
@@ -11731,6 +11806,26 @@ app.post("/api/chat/command", async (req, res) => {
     console.log(`[chat-cmd] ${who || "不明"}「${text}」→ ${cmd.kind}`);
 
     if (cmd.kind === "help") return reply(helpText());
+
+    // 「要望 〜」「バグ 〜」を、その場で開発メモに残す
+    if (cmd.kind === "note") {
+      const r = await addDevNote({
+        key: `chat:${Date.now()}:${cmd.text}`.slice(0, 200),
+        kind: cmd.noteKind, title: cmd.text, source: "Chat", createdBy: ev.email,
+      });
+      return reply(r
+        ? `${NOTE_KINDS[cmd.noteKind] || "メモ"}として残しました。\n「${cmd.text}」\n（朝にまとめて知らせます）`
+        : "残せませんでした。もう一度お試しください。");
+    }
+
+    // 溜まっている開発メモを見る
+    if (cmd.kind === "notes") {
+      const rows = await listDevNotes({ status: "new", limit: 20 }).catch(() => []);
+      if (!rows.length) return reply("未対応の開発メモはありません。");
+      const lines = rows.map((r) =>
+        `・[${NOTE_KINDS[r.kind] || r.kind}] ${r.title}${r.hits > 1 ? `（${r.hits}回）` : ""}`);
+      return reply([`*開発メモ ${rows.length}件*`, ...lines].join("\n"));
+    }
 
     if (cmd.kind === "status") return reply(statusText());
 
@@ -11814,9 +11909,17 @@ app.post("/api/chat/command", async (req, res) => {
 
       const ans = await chatAnswer(intent, who);
       if (ans) return reply(ans);
+      // 答えられなかった質問は「まだできないこと」として残す。
+      // 何を聞かれているかが、そのまま次に作るものになる。
+      await devNote({
+        key: errKey("答えられない質問", text), kind: "gap",
+        title: `Chatで答えられなかった：${text.slice(0, 100)}`,
+        source: "Chat", by: ev.email,
+      }).catch(() => {});
       return reply(
         "それはkinbotが持っていない情報です。\n" +
-        "kinbotで分かるのは、商談・アポ・SFの更新や立ち上げの状況です。\n\n" + helpText());
+        "kinbotで分かるのは、商談・アポ・SFの更新や立ち上げの状況です。\n" +
+        "（この質問は開発メモに残しました）");
     }
 
     return reply(`「${text}」は分かりませんでした。\n\n` + helpText());
@@ -13053,6 +13156,19 @@ server.listen(PORT, async () => {
 
   // コール進捗のお知らせ（11時〜18時の毎正時）。毎分見て、その時刻になったら1回だけ流す。
   setInterval(() => { maybeSendCallReport().catch(() => {}); }, 60 * 1000);
+  // 朝の開発メモ（既定6時）
+  setInterval(() => { maybeSendDevSummary().catch(() => {}); }, 60 * 1000);
+
+  // どこにも拾われなかったエラーも、開発メモに残す
+  process.on("unhandledRejection", (e) => {
+    const msg = (e && e.message) || String(e);
+    console.error("[unhandled]", msg);
+    devNote({
+      key: errKey("未処理", msg), kind: "error",
+      title: `処理が途中で止まりました：${msg.slice(0, 120)}`,
+      detail: (e && e.stack ? String(e.stack).slice(0, 1500) : ""), source: "サーバー",
+    }).catch(() => {});
+  });
 
   // 未判定の商談を自動で判定するスイープ：起動2分後＋30分ごとに最大5件ずつ。
   // （アップロード由来や過去分など、商談終了時の自動判定を通らなかった商談を拾う）

@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="ja">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>kinbot 開発メモ</title>
+    <link rel="stylesheet" href="style.css" />
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/tabler-icons/2.44.0/iconfont/tabler-icons.min.css" />
+  </head>
+  <body>
+    <div class="app">
+      <nav class="sidebar">
+        <div class="side-brand"><span class="brand-mark"></span><span>kinbot</span></div>
+        <div class="side-foot"><span id="who" class="who"></span><a href="#" id="logout" class="side-logout">ログアウト</a></div>
+      </nav>
+
+      <div class="main">
+        <header class="topbar"><div class="brand"><img class="topbar-bot" src="kinbot.svg" alt="" /><span class="brand-name">開発メモ</span></div></header>
+        <main class="report-page">
+          <section class="card">
+            <h3>直したいこと・やりたいこと</h3>
+            <p class="note">気づいたときに、Google Chatで <b>@kinbot 要望 〜</b> と送るだけで、ここに溜まります。<br>
+            うまくいかなかった処理（SFの立ち上げ・カレンダーの取り込みなど）や、Chatで答えられなかった質問も、kinbotが自動で拾って残します。<br>
+            <b>朝6時に、まとめてGoogle Chatへ流します。</b></p>
+
+            <div class="ap-cfg-actions">
+              <input type="text" id="dnTitle" placeholder="ここからも足せます（例：メールの宛先を自動で入れたい）" style="flex:1 1 380px" />
+              <select id="dnKind" style="width:120px">
+                <option value="request">要望</option>
+                <option value="bug">不具合</option>
+                <option value="idea">アイデア</option>
+              </select>
+              <button class="btn" id="dnAdd">足す</button>
+              <span class="rev-status" id="dnStatus"></span>
+            </div>
+
+            <div class="ap-cfg-actions" style="margin-top:6px">
+              <button class="btn ghost" id="dnReload">読み込み直す</button>
+              <button class="btn ghost" id="dnSummary">いまのまとめを見る</button>
+              <button class="btn ghost" id="dnSend">まとめをChatに送る</button>
+              <button class="btn ghost" id="dnCopy">未対応をまとめてコピー</button>
+              <label class="ks-check"><input type="checkbox" id="dnAll" /> 済んだものも表示</label>
+            </div>
+
+            <div class="note" id="dnSummaryBox"></div>
+            <div id="dnList"><div class="empty-state">読み込み中…</div></div>
+          </section>
+        </main>
+      </div>
+    </div>
+    <script src="dev.js"></script>
+    <script src="nav.js"></script>
+  </body>
+</html>

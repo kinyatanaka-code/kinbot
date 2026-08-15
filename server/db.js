@@ -510,6 +510,25 @@ export async function initDb() {
   `);
   await sq(`CREATE INDEX IF NOT EXISTS idx_oauth_tokens_refresh ON oauth_tokens(refresh_token);`);
 
+  // ===== 開発メモ（直したいこと・要望・自動で拾ったエラー） =====
+  // 気づいたときにChatへ一言送るだけで溜まり、朝にまとめて届くようにする。
+  await sq(`
+    CREATE TABLE IF NOT EXISTS dev_notes (
+      id         SERIAL PRIMARY KEY,
+      dedupe_key TEXT UNIQUE,
+      kind       TEXT NOT NULL DEFAULT 'request',
+      title      TEXT NOT NULL,
+      detail     TEXT,
+      source     TEXT,
+      status     TEXT NOT NULL DEFAULT 'new',
+      hits       INT NOT NULL DEFAULT 1,
+      created_by TEXT,
+      first_at   TIMESTAMPTZ DEFAULT now(),
+      last_at    TIMESTAMPTZ DEFAULT now()
+    );
+  `);
+  await sq(`CREATE INDEX IF NOT EXISTS ix_dev_notes_status ON dev_notes(status, last_at DESC);`);
+
   // ===== カレンダーで気づいたこと（同じ予定で何度も通知しないため） =====
   await sq(`
     CREATE TABLE IF NOT EXISTS calendar_notice (
@@ -2626,6 +2645,65 @@ export async function getSmartLinkByEvent(eventId) {
   const { rows } = await pool.query(`SELECT * FROM smart_links WHERE event_id=$1`, [eventId]);
   return rows[0] || null;
 }
+// ===== 開発メモ =====
+// 同じ内容は1件にまとめ、回数だけ増やす（同じエラーが並ばないように）
+export async function addDevNote({ key, kind = "request", title, detail = "", source = "", createdBy = "" }) {
+  if (!pool || !title) return null;
+  const k = String(key || `${kind}:${title}`).slice(0, 200);
+  try {
+    const { rows } = await pool.query(
+      `INSERT INTO dev_notes (dedupe_key, kind, title, detail, source, created_by)
+       VALUES ($1,$2,$3,$4,$5,$6)
+       ON CONFLICT (dedupe_key) DO UPDATE
+         SET hits = dev_notes.hits + 1,
+             last_at = now(),
+             detail = CASE WHEN dev_notes.detail IS NULL OR dev_notes.detail = ''
+                           THEN EXCLUDED.detail ELSE dev_notes.detail END,
+             status = CASE WHEN dev_notes.status = 'done' THEN 'new' ELSE dev_notes.status END
+       RETURNING *`,
+      [k, kind, String(title).slice(0, 300), String(detail || "").slice(0, 4000),
+       String(source || "").slice(0, 80), String(createdBy || "").slice(0, 120)]);
+    return rows[0] || null;
+  } catch (e) { console.error("[db] addDevNote", e.message); return null; }
+}
+
+export async function listDevNotes({ status = "", limit = 200 } = {}) {
+  if (!pool) return [];
+  try {
+    const p = [];
+    let where = "1=1";
+    if (status) { p.push(status); where += ` AND status = $${p.length}`; }
+    p.push(Math.max(1, Math.min(500, limit)));
+    const { rows } = await pool.query(
+      `SELECT * FROM dev_notes WHERE ${where}
+        ORDER BY (status='new') DESC, hits DESC, last_at DESC LIMIT $${p.length}`, p);
+    return rows;
+  } catch (e) { console.error("[db] listDevNotes", e.message); return []; }
+}
+
+export async function updateDevNote(id, patch = {}) {
+  if (!pool || !id) return null;
+  const cols = [], vals = [];
+  for (const [k, col] of Object.entries({ status: "status", title: "title", detail: "detail", kind: "kind" })) {
+    if (patch[k] !== undefined) { vals.push(patch[k]); cols.push(`${col} = $${vals.length}`); }
+  }
+  if (!cols.length) return null;
+  vals.push(id);
+  try {
+    const { rows } = await pool.query(
+      `UPDATE dev_notes SET ${cols.join(", ")} WHERE id = $${vals.length} RETURNING *`, vals);
+    return rows[0] || null;
+  } catch (e) { console.error("[db] updateDevNote", e.message); return null; }
+}
+
+export async function deleteDevNote(id) {
+  if (!pool || !id) return 0;
+  try {
+    const { rowCount } = await pool.query(`DELETE FROM dev_notes WHERE id = $1`, [id]);
+    return rowCount;
+  } catch { return 0; }
+}
+
 // ===== カレンダーで気づいたこと =====
 // 同じ予定で何度も通知しないよう、1回目だけ true を返す
 export async function noticeOnce(eventId, kind, title = "") {

@@ -29,6 +29,7 @@ const KB_MENU = [
       { href: "sf-launch.html?tab=process", label: "プロセスシート", desc: "架電結果をシートに書き込む" },
       { href: "apo.html", label: "アポ振り分け", desc: "担当の自動割り振り・チーム実績" },
       { href: "docs.html", label: "資料トラッキング", desc: "送った資料の閲覧状況" },
+      { href: "dev.html", label: "開発メモ", desc: "直したいこと・自動で拾ったエラー" },
     ],
   },
   {

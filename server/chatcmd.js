@@ -182,7 +182,19 @@ export function replyBody(text, addon) {
 // どの操作かを決める。ひらがな・カタカナ・英語のゆらぎを吸収する。
 export function parseCommand(text) {
   const t = String(text || "").trim().toLowerCase().replace(/[\s　]+/g, "");
+  const flat = t;
   if (!t || /^(ヘルプ|help|使い方|\?|？)$/.test(t)) return { kind: "help" };
+
+  // 「要望 〜」「バグ 〜」「メモ 〜」は、そのまま開発メモに残す。
+  // 商談中でも思いついたときに一言送れるように、いちばん先に見る。
+  const raw = String(text || "").trim();
+  const memo = raw.match(/^(要望|ようぼう|リクエスト|バグ|不具合|メモ|アイデア|改善)[\s　:：、,]+([\s\S]+)$/);
+  if (memo) {
+    const kindMap = { 要望: "request", ようぼう: "request", リクエスト: "request", 改善: "request",
+                      バグ: "bug", 不具合: "bug", メモ: "idea", アイデア: "idea" };
+    return { kind: "note", noteKind: kindMap[memo[1]] || "request", text: memo[2].trim() };
+  }
+  if (/^(開発メモ|要件|開発)$/.test(flat)) return { kind: "notes" };
 
   // 短い決まり文句だけ、その場で判断する。
   // それ以外（文になっているもの）は、AIに読み取ってもらう。
@@ -295,6 +307,12 @@ export function helpText() {
     "・`重複` … 同じ商談の予定が2つ以上ないか数える",
     "・`立ち上げ` … Salesforceを立ち上げられていないもの",
     "・`状態` … いま動いているkinbot",
+    "",
+    "*直したいことを残す*",
+    "・`要望 メールの宛先を自動で入れてほしい`",
+    "・`バグ 削除しても消えない`",
+    "・`メモ 温度感の出し方を見直したい`",
+    "　→ 溜めておいて、朝6時にまとめて知らせます（`開発メモ` で一覧）",
     "",
     "*ふつうの文でも*",
     "・8/4の商談は何件？",

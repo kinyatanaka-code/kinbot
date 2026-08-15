@@ -5139,3 +5139,12 @@ input:focus, select:focus, textarea:focus, .sf-input:focus, .sf-select:focus, .s
 /* 更新通知の受け口URL */
 .dep-url { display: inline-block; font-size: 11px; word-break: break-all;
   background: var(--panel-2); border: 1px solid var(--line); border-radius: 6px; padding: 4px 6px; }
+
+/* 開発メモ */
+.dn-kind { margin-right: 6px; }
+.dn-request { background: #eaf7f2; color: #0F6E56; border: 1px solid #cfeee2; }
+.dn-bug { background: #fdecea; color: #A33C24; border: 1px solid #f7d4cd; }
+.dn-error { background: #fdf3e6; color: #A8611A; border: 1px solid #f3e0c4; }
+.dn-gap { background: #eef4ff; color: #2b5aa8; border: 1px solid #d7e4f8; }
+.dn-idea { background: #f4f0fb; color: #5b4a9a; border: 1px solid #e2d9f5; }
+.cc-ok { color: #1F7A4D; }
