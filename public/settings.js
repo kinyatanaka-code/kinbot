@@ -2522,6 +2522,26 @@ async function loadChatConfig() {
     } catch (e) { box.textContent = "確認できませんでした：" + e.message; }
   });
 
+  // Chatと同じ質問を、画面から試す
+  const askGo = document.getElementById("ccAskGo");
+  const askIn = document.getElementById("ccAsk");
+  const runAsk = async () => {
+    const box = document.getElementById("ccAskBox");
+    if (!box || !askIn || !askIn.value.trim()) return;
+    box.textContent = "聞いています…";
+    try {
+      const r = await fetch("/api/chat/ask", {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ text: askIn.value.trim() }),
+      });
+      const d = await r.json();
+      if (d.error) throw new Error(d.error);
+      box.innerHTML = String(d.text || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/\n/g, "<br>");
+    } catch (e) { box.textContent = "失敗：" + e.message; }
+  };
+  if (askGo) askGo.addEventListener("click", runAsk);
+  if (askIn) askIn.addEventListener("keydown", (e) => { if (e.key === "Enter") runAsk(); });
+
   const btn = document.getElementById("ccCopy");
   if (btn) btn.addEventListener("click", () => {
     if (!el.value) return;

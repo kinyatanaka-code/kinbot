@@ -184,6 +184,12 @@ export function parseCommand(text) {
   const t = String(text || "").trim().toLowerCase().replace(/[\s　]+/g, "");
   if (!t || /^(ヘルプ|help|使い方|\?|？)$/.test(t)) return { kind: "help" };
 
+  // 短い決まり文句だけ、その場で判断する。
+  // それ以外（文になっているもの）は、AIに読み取ってもらう。
+  if (t.length > 12 || /[？?]$/.test(t) || /何件|いくつ|教え|ある\?|できて/.test(t)) {
+    return { kind: "ask", text };
+  }
+
   const tomorrow = /明日|あした|翌日/.test(t);
   const day = tomorrow ? 1 : 0;
 
@@ -193,19 +199,110 @@ export function parseCommand(text) {
   if (/状態|version|バージョン|更新/.test(t)) return { kind: "status" };
   if (/アポ/.test(t)) return { kind: "apo", day };
   if (/商談|予定|今日|きょう/.test(t)) return { kind: "meetings", day };
-  return { kind: "unknown", text };
+  return { kind: "ask", text };
+}
+
+// 自由に書かれた質問を、kinbotが分かる形に読み替えてもらうための指示。
+// AIには「何を知りたいか」だけを決めてもらい、数はこちらのデータで数える。
+export const INTENT_SYSTEM =
+  "あなたは営業支援システム kinbot の受付です。ユーザーの日本語の質問を読み、下のJSONだけを返してください。説明や記号は付けないでください。\n" +
+  "{\n" +
+  '  "intent": "meetings" | "apo" | "apo_taken" | "sf_pending" | "launch_pending" | "scan" | "dupes" | "status" | "unknown",\n' +
+  '  "from": "YYYY-MM-DD",\n' +
+  '  "to": "YYYY-MM-DD",\n' +
+  '  "scope": "me" | "all",\n' +
+  '  "person": "名前（特定の人について聞いているときだけ。無ければ空）",\n' +
+  '  "business": "DOC" | "MOCHICA" | "",\n' +
+  '  "want": "count" | "list"\n' +
+  "}\n" +
+  "意味:\n" +
+  "- meetings … 商談（実施した打ち合わせ）\n" +
+  "- apo … 商談日がその期間にあるアポ（予定）\n" +
+  "- apo_taken … その期間に「取った」アポ（実績）\n" +
+  "- sf_pending … Salesforceの更新ができていない商談\n" +
+  "- launch_pending … Salesforceの立ち上げができていないもの\n" +
+  "- scan … カレンダーを見に行く／取り込む\n" +
+  "- dupes … 重複した予定\n" +
+  "- status … kinbot自体の状態やバージョン\n" +
+  "- unknown … kinbotのデータでは答えられない質問（目標値など、kinbotが持っていないもの）\n" +
+  "決まり:\n" +
+  "- 「自分」「私」と書いていなければ scope は all（チーム全体）にする\n" +
+  "- 期間の指定が無ければ、今日を from と to にする\n" +
+  "- 「今月」は今月の1日から末日、「今週」は月曜から日曜にする\n" +
+  "- 「何件」「いくつ」なら want は count、それ以外は list\n";
+
+// AIが使えないときのために、こちらでも読み取る。
+// よく使う言い方（日付・今日/今週/今月・何件）だけを見る。
+export function guessIntent(text, today = jstDate(0)) {
+  const t = String(text || "");
+  const flat = t.replace(/[\s　]/g, "");
+  const y = Number(today.slice(0, 4));
+
+  // 期間
+  const d = new Date(today + "T00:00:00Z");
+  const iso = (dt) => dt.toISOString().slice(0, 10);
+  let from = today, to = today;
+  const md = flat.match(/(\d{1,2})[\/月](\d{1,2})/);
+  if (md) {
+    const p = (n) => String(n).padStart(2, "0");
+    from = to = `${y}-${p(md[1])}-${p(md[2])}`;
+  } else if (/明日|あした/.test(flat)) {
+    const n = new Date(d); n.setUTCDate(n.getUTCDate() + 1); from = to = iso(n);
+  } else if (/昨日|きのう/.test(flat)) {
+    const n = new Date(d); n.setUTCDate(n.getUTCDate() - 1); from = to = iso(n);
+  } else if (/今週|週間/.test(flat)) {
+    const n = new Date(d); const w = (n.getUTCDay() + 6) % 7;   // 月曜はじまり
+    const a = new Date(n); a.setUTCDate(a.getUTCDate() - w);
+    const b = new Date(a); b.setUTCDate(b.getUTCDate() + 6);
+    from = iso(a); to = iso(b);
+  } else if (/今月/.test(flat)) {
+    from = today.slice(0, 8) + "01";
+    const b = new Date(today.slice(0, 8) + "01T00:00:00Z");
+    b.setUTCMonth(b.getUTCMonth() + 1); b.setUTCDate(0);
+    to = iso(b);
+  }
+
+  // 何を聞かれているか
+  let intent = "unknown";
+  if (/立ち上げ|立上げ/.test(flat)) intent = "launch_pending";
+  else if (/(sf|salesforce|エスエフ).*(更新|反映)|更新.*(sf|salesforce)/i.test(flat)) intent = "sf_pending";
+  else if (/重複|だぶ/.test(flat)) intent = "dupes";
+  else if (/スキャン|取り込/.test(flat)) intent = "scan";
+  else if (/取った|獲得|実績/.test(flat) && /アポ/.test(flat)) intent = "apo_taken";
+  else if (/アポ/.test(flat)) intent = "apo";
+  else if (/商談|打ち合わせ|ミーティング/.test(flat)) intent = "meetings";
+  else if (/状態|バージョン/.test(flat)) intent = "status";
+
+  return {
+    intent, from, to,
+    scope: /自分|私|わたし|僕|俺/.test(flat) ? "me" : "all",
+    person: "",
+    business: /mochica|モチカ/i.test(flat) ? "MOCHICA" : (/doc|ドック/i.test(flat) ? "DOC" : ""),
+    want: /何件|いくつ|件数/.test(flat) ? "count" : "list",
+    by: "簡易",
+  };
 }
 
 export function helpText() {
   return [
-    "*kinbotにできること*（このまま送ってください）",
-    "・`アポ`　… 今日の自分のアポ（自分で取ったぶんも出ます）",
-    "・`明日のアポ`　… 明日のぶん",
-    "・`商談`　… 今日の自分の商談",
-    "・`スキャン`　… カレンダーを今すぐ見に行く",
-    "・`重複`　… 同じ商談の予定が2つ以上ないか数える",
-    "・`立ち上げ`　… Salesforceを立ち上げられていないもの",
-    "・`状態`　… いま動いているkinbot",
+    "*kinbotにできること*",
+    "短い言葉でも、ふつうの文でも大丈夫です。",
+    "",
+    "*短い言葉*",
+    "・`アポ` `明日のアポ` … 今日／明日の自分のアポ",
+    "・`商談` … 今日の自分の商談",
+    "・`スキャン` … カレンダーを今すぐ見に行く",
+    "・`重複` … 同じ商談の予定が2つ以上ないか数える",
+    "・`立ち上げ` … Salesforceを立ち上げられていないもの",
+    "・`状態` … いま動いているkinbot",
+    "",
+    "*ふつうの文でも*",
+    "・8/4の商談は何件？",
+    "・今週チームで取ったアポは？",
+    "・SFの更新ができていない商談は？",
+    "・明日のアポを全員ぶん教えて",
+    "",
+    "何も言わなければ、チーム全体でお答えします。自分のぶんだけ見たいときは「自分の」と付けてください。",
   ].join("\n");
 }
 

@@ -2743,6 +2743,47 @@ export async function myAssignedApos(owner, dateJst, mode = "day", limit = 200, 
   } catch (e) { console.error("[db] myAssignedApos", e.message); return []; }
 }
 
+// 期間のアポを、担当者や獲得者で絞らずに集める（チーム全体の質問に答えるため）。
+// business を渡すと、その事業だけにできる。
+export async function aposInRange({ from, to, business = "", limit = 500 } = {}) {
+  if (!pool) return [];
+  try {
+    const p = [from, to || from];
+    let where = `(start_time AT TIME ZONE 'Asia/Tokyo')::date BETWEEN $1::date AND $2::date
+                 AND NOT COALESCE(excluded,false)`;
+    if (business) { p.push(business); where += ` AND business = $${p.length}`; }
+    p.push(Math.max(1, Math.min(1000, limit)));
+    const { rows } = await pool.query(
+      `SELECT slug, label, setter, setter_email, current_owner, business,
+              start_time, apo_at, created_at, client_email, invite_event_id
+         FROM smart_links
+        WHERE ${where}
+        ORDER BY start_time
+        LIMIT $${p.length}`, p);
+    return rows;
+  } catch (e) { console.error("[db] aposInRange", e.message); return []; }
+}
+
+// アポを「取った日」で集める（実績の質問に答えるため）
+export async function aposTakenInRange({ from, to, business = "", limit = 1000 } = {}) {
+  if (!pool) return [];
+  try {
+    const p = [from, to || from];
+    let where = `(COALESCE(apo_at, created_at) AT TIME ZONE 'Asia/Tokyo')::date BETWEEN $1::date AND $2::date
+                 AND NOT COALESCE(excluded,false)`;
+    if (business) { p.push(business); where += ` AND business = $${p.length}`; }
+    p.push(Math.max(1, Math.min(2000, limit)));
+    const { rows } = await pool.query(
+      `SELECT slug, label, setter, current_owner, business, start_time,
+              COALESCE(apo_at, created_at) AS taken_at
+         FROM smart_links
+        WHERE ${where}
+        ORDER BY taken_at
+        LIMIT $${p.length}`, p);
+    return rows;
+  } catch (e) { console.error("[db] aposTakenInRange", e.message); return []; }
+}
+
 export async function recentInvites(hours = 24) {
   if (!pool) return [];
   try {

@@ -25,7 +25,7 @@ import { sendApoMail, runReminderSweep, getApoMailConfig,
 import { startKasasagi, getKasasagi, stopKasasagi, feedTranscript, kasasagiInfo,
          buildScript, buildReport, faceState, SLIDE_LABELS } from "./kasasagi.js";
 import { notifyAssigned, notifyMailDraft, notifyChat, notifyAll, chatWebhookUrl, chatInfo } from "./chat.js";
-import { verifyChatRequest, readEvent, replyBody, parseCommand, helpText, jstDate, jstTime } from "./chatcmd.js";
+import { verifyChatRequest, readEvent, replyBody, parseCommand, helpText, jstDate, jstTime, INTENT_SYSTEM, guessIntent } from "./chatcmd.js";
 import { normalizeSpace } from "./chatapp.js";
 import { judge as judgeAutolaunch, reasonText, parseTitle as parseLaunchTitle } from "./autolaunch.js";
 import { fixMojibake } from "./docs.js";
@@ -103,6 +103,8 @@ import {
   setSmartLinkSourceNote,
   recentInvites,
   myAssignedApos,
+  aposInRange,
+  aposTakenInRange,
   displayNameOf,
   assignCounts,
   apoCountsBySetter,
@@ -259,7 +261,7 @@ import {
   deleteProposalFile,
 } from "./db.js";
 import { resolveConfig, statusInfo } from "./config.js";
-import { analyzerInfo, analyzeMeeting, analyzeDeep, freeAnalyze, chatWithData, enrichCompany, lookupEmployeeCount, lookupCompanyBasics, generateThanks, THANKS_PROMPT, getCheckItems, getSummaryPrompt, getCustomPrompt, runCustomAnalysis, analyzeWinPatterns, classifyMeetingKind, extractFirstMeeting, extractReMeeting, buildBrief, extractFeatureCTags, enrichCompanyAttributes, generateFeatureCInsights, extractQaPairs, splitPhases } from "./analyzer.js";
+import { callLLMPublic, analyzerInfo, analyzeMeeting, analyzeDeep, freeAnalyze, chatWithData, enrichCompany, lookupEmployeeCount, lookupCompanyBasics, generateThanks, THANKS_PROMPT, getCheckItems, getSummaryPrompt, getCustomPrompt, runCustomAnalysis, analyzeWinPatterns, classifyMeetingKind, extractFirstMeeting, extractReMeeting, buildBrief, extractFeatureCTags, enrichCompanyAttributes, generateFeatureCInsights, extractQaPairs, splitPhases } from "./analyzer.js";
 import { searchCompanies, getCompanyDetail, gbizConfigured } from "./gbizinfo.js";
 import { searchCompanyInfo, webLookupAvailable } from "./websearch.js";
 import { readLayout, tally, buildUpdates, applyApoCounts, METRICS } from "./processsheet.js";
@@ -11147,6 +11149,155 @@ app.put("/api/deploy/info", async (req, res) => {
 // Chatで「@kinbot アポ」と話しかけると、ここが受け取って返事をする。
 // 誰が話しかけたかはメールアドレスで分かるので、その人のぶんを返す。
 // ───────────────────────────────────────────────────────────
+// ───────────────────────────────────────────────────────────
+// Chatの自由な質問に答える
+//
+// 「8/4の商談は何件？」のような文は、AIに“何を知りたいか”だけ読み取ってもらい、
+// 数えるのはkinbotのデータで行う（AIに数えさせない＝数がずれないため）。
+// ───────────────────────────────────────────────────────────
+
+// AIの読み取りは待ちすぎない（Chatは待たせると「応答がありません」になるため）。
+// 間に合わなければ、こちらの簡易の読み取りで答える。
+async function readIntent(text, today) {
+  const ai = (async () => {
+    const raw = await callLLMPublic(INTENT_SYSTEM, `今日は ${today} です。質問：${text}`, 400, { json: true });
+    return typeof raw === "string" ? JSON.parse(String(raw).replace(/```json|```/g, "").trim()) : raw;
+  })();
+  const timeout = new Promise((_, rej) => setTimeout(() => rej(new Error("時間切れ")), 8000));
+  try {
+    const got = await Promise.race([ai, timeout]);
+    if (got && got.intent && got.intent !== "unknown") return got;
+    if (got && got.intent === "unknown") {
+      // AIが「分からない」と言っても、こちらで拾えることがある
+      const g = guessIntent(text, today);
+      return g.intent !== "unknown" ? g : got;
+    }
+  } catch (e) {
+    console.warn("[chat-cmd] AIで読み取れませんでした:", e.message);
+  }
+  return guessIntent(text, today);
+}
+
+// 何も指定が無いときの期間（今日）
+function chatRange(v) {
+  const ok = (x) => /^\d{4}-\d{2}-\d{2}$/.test(String(x || ""));
+  const today = jstDate(0);
+  const from = ok(v.from) ? v.from : today;
+  const to = ok(v.to) ? v.to : from;
+  return from <= to ? { from, to } : { from: to, to: from };
+}
+
+function sameName(a, b) {
+  const n = (v) => String(v || "").replace(/[\s　]/g, "").toLowerCase();
+  return !!n(a) && n(a) === n(b);
+}
+
+function rangeLabel(from, to) {
+  return from === to ? from : `${from} 〜 ${to}`;
+}
+
+// 読み取った意図に沿って、kinbotのデータから答えを作る
+async function chatAnswer(intent, who) {
+  const { from, to } = chatRange(intent);
+  const mine = intent.scope === "me";
+  const person = String(intent.person || "").trim();
+  const want = intent.want === "count" ? "count" : "list";
+  const label = rangeLabel(from, to);
+
+  if (intent.intent === "meetings" || intent.intent === "sf_pending") {
+    // 「SF未更新は？」のように日付を言われていないときは、直近2週間を見る
+    let f = from, t2 = to;
+    if (intent.intent === "sf_pending" && from === to) {
+      const d = new Date(to + "T00:00:00Z"); d.setUTCDate(d.getUTCDate() - 13);
+      f = d.toISOString().slice(0, 10);
+    }
+    let rows = await listMeetings({ isAdmin: true, from: f, to: t2, light: true, limit: 500 }).catch(() => []);
+    if (mine) rows = rows.filter((r) => String(r.owner || "").toLowerCase() === who);
+    if (person) rows = rows.filter((r) => sameName(r.owner_name, person) || sameName(r.rep_name, person));
+    if (intent.intent === "sf_pending") rows = rows.filter((r) => !r.sf_url);
+
+    const head = intent.intent === "sf_pending"
+      ? `*${rangeLabel(f, t2)} のSF未更新の商談 ${rows.length}件*`
+      : `*${label} の商談 ${rows.length}件*${mine ? "（自分）" : "（チーム全体）"}`;
+    if (!rows.length) return head.replace("*", "").replace("*", "") + "（該当なし）";
+    if (want === "count") return head;
+    const lines = rows.slice(0, 20).map((r) =>
+      `・${String(r.created_at).slice(5, 10)} ${r.title || r.account || "(名前なし)"}` +
+      `${r.owner_name ? `／${r.owner_name}` : ""}${r.sf_url ? "" : "　⚠️SF未更新"}`);
+    return [head, ...lines, rows.length > 20 ? `…ほか${rows.length - 20}件` : ""].filter(Boolean).join("\n");
+  }
+
+  if (intent.intent === "apo" || intent.intent === "apo_taken") {
+    const taken = intent.intent === "apo_taken";
+    let rows = taken
+      ? await aposTakenInRange({ from, to, business: intent.business || "" }).catch(() => [])
+      : await aposInRange({ from, to, business: intent.business || "" }).catch(() => []);
+    if (mine) {
+      const myName = await displayNameOf(who).catch(() => "");
+      rows = rows.filter((r) =>
+        String(r.current_owner || "").toLowerCase() === who ||
+        String(r.setter_email || "").toLowerCase() === who ||
+        sameName(r.setter, myName));
+    }
+    if (person) rows = rows.filter((r) => sameName(r.setter, person));
+
+    const head = taken
+      ? `*${label} に取ったアポ ${rows.length}件*`
+      : `*${label} のアポ ${rows.length}件*`;
+    if (!rows.length) return `${label} のアポはありません。`;
+    if (want === "count") {
+      // 誰が何件かも添える
+      const by = new Map();
+      for (const r of rows) {
+        const k = (taken ? r.setter : (r.current_owner || r.setter)) || "不明";
+        by.set(k, (by.get(k) || 0) + 1);
+      }
+      const detail = [...by.entries()].sort((a, b) => b[1] - a[1])
+        .slice(0, 10).map(([k, v]) => `${k} ${v}件`).join("／");
+      return [head, detail].filter(Boolean).join("\n");
+    }
+    const lines = rows.slice(0, 20).map((r) =>
+      `・${jstTime(r.start_time)} ${r.label || ""}` +
+      `${r.setter ? `／獲得 ${r.setter}` : ""}`);
+    return [head, ...lines, rows.length > 20 ? `…ほか${rows.length - 20}件` : ""].filter(Boolean).join("\n");
+  }
+
+  if (intent.intent === "launch_pending") {
+    const rows = await listAutolaunch(50).catch(() => []);
+    const ng = rows.filter((r) => !r.ok);
+    if (!ng.length) return "立ち上げできていないものはありません。";
+    if (want === "count") return `*立ち上げできていないもの ${ng.length}件*`;
+    const lines = ng.slice(0, 12).map((r) => `・${r.company || r.slug}　${reasonText(r.reason, r.detail)}`);
+    return [`*立ち上げできていないもの ${ng.length}件*`, ...lines].join("\n");
+  }
+
+  return null;   // ここに来たら、kinbotのデータでは答えられない
+}
+
+function statusText() {
+  const jst = new Date(Date.now() + 9 * 3600 * 1000).toISOString().replace("T", " ").slice(0, 16);
+  return [
+    "*いま動いているkinbot*",
+    `🧩 ${BUILD_TAG}`,
+    `🕒 いまは ${jst}（起動：${String(START_TIME).replace("T", " ").slice(0, 16)}）`,
+    DEPLOY_ENV.message ? `📝 ${DEPLOY_ENV.message}` : "",
+  ].filter(Boolean).join("\n");
+}
+
+// 画面から、Chatと同じ質問を試す（動作確認用）
+app.post("/api/chat/ask", async (req, res) => {
+  try {
+    const text = String(req.body?.text || "").trim();
+    const who = String(req.body?.as || req.user || "").toLowerCase();
+    let intent = req.body?.intent || null;
+    if (!intent && text) intent = await readIntent(text, jstDate(0));
+    if (!intent) return res.json({ ok: false, text: "読み取れませんでした" });
+    if (intent.intent === "status") return res.json({ ok: true, intent, text: statusText() });
+    const ans = await chatAnswer(intent, who);
+    res.json({ ok: true, intent, text: ans || "kinbotが持っていない情報です" });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 // 届いた呼びかけの記録（うまくいかないときに、画面で理由を見るため）
 const chatCmdLog = [];
 function logChatCmd(row) {
@@ -11184,15 +11335,7 @@ app.post("/api/chat/command", async (req, res) => {
 
     if (cmd.kind === "help") return reply(helpText());
 
-    if (cmd.kind === "status") {
-      const jst = new Date(Date.now() + 9 * 3600 * 1000).toISOString().replace("T", " ").slice(0, 16);
-      return reply([
-        "*いま動いているkinbot*",
-        `🧩 ${BUILD_TAG}`,
-        `🕒 いまは ${jst}（起動：${String(START_TIME).replace("T", " ").slice(0, 16)}）`,
-        DEPLOY_ENV.message ? `📝 ${DEPLOY_ENV.message}` : "",
-      ].filter(Boolean).join("\n"));
-    }
+    if (cmd.kind === "status") return reply(statusText());
 
     if (!who) return reply("あなたのメールアドレスが分かりませんでした。kinbotのスペースで話しかけてください。");
 
@@ -11253,6 +11396,30 @@ app.post("/api/chat/command", async (req, res) => {
       const lines = ng.slice(0, 10).map((r) =>
         `・${r.company || r.slug}　${reasonText(r.reason, r.detail)}`);
       return reply([`*立ち上げできていないもの ${ng.length}件*`, ...lines].join("\n"));
+    }
+
+    // ここから先は、ふつうの文で来た質問。
+    // AIには「何を知りたいか」だけ読み取ってもらい、数えるのはkinbotのデータで行う。
+    if (cmd.kind === "ask") {
+      const today = jstDate(0);
+      const jd = new Date(Date.now() + 9 * 3600 * 1000);
+      const week = "日月火水木金土"[jd.getUTCDay()];
+      const intent = await readIntent(`${text}（${week}曜）`, today);
+      if (!intent || !intent.intent) return reply("うまく読み取れませんでした。\n\n" + helpText());
+
+      console.log(`[chat-cmd] 読み取り: ${JSON.stringify(intent)}`);
+      if (intent.intent === "scan") {
+        reply("カレンダーを見に行きます。新しいアポが見つかったら、いつもの通知が流れます。");
+        if (typeof globalThis.__kinbotApoScanTick === "function") globalThis.__kinbotApoScanTick().catch(() => {});
+        return;
+      }
+      if (intent.intent === "status") return reply(statusText());
+
+      const ans = await chatAnswer(intent, who);
+      if (ans) return reply(ans);
+      return reply(
+        "それはkinbotが持っていない情報です。\n" +
+        "kinbotで分かるのは、商談・アポ・SFの更新や立ち上げの状況です。\n\n" + helpText());
     }
 
     return reply(`「${text}」は分かりませんでした。\n\n` + helpText());
