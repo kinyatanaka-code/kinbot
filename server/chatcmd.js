@@ -17,18 +17,38 @@
 
 import { createVerify } from "node:crypto";
 
+import { createPublicKey } from "node:crypto";
+
 const CHAT_ISSUER = "chat@system.gserviceaccount.com";
-const CERT_URL = "https://www.googleapis.com/service_accounts/v1/metadata/x509/" + CHAT_ISSUER;
+// Googleが証明を出す元は2通りある。どちらで来ても受け取れるようにする。
+//   ・chat@system.gserviceaccount.com が出したもの → サービスアカウントの証明書で確かめる
+//   ・https://accounts.google.com が出したもの     → Googleの公開鍵（JWK）で確かめる
+const SA_CERT_URL = "https://www.googleapis.com/service_accounts/v1/metadata/x509/" + CHAT_ISSUER;
+const GOOGLE_JWKS_URL = "https://www.googleapis.com/oauth2/v3/certs";
+const GOOGLE_ISSUERS = ["https://accounts.google.com", "accounts.google.com", CHAT_ISSUER];
 
 // Googleの公開鍵。1時間ほど覚えておく（毎回取りに行かないため）。
-let _certs = { at: 0, keys: null };
-async function chatCerts() {
-  if (_certs.keys && Date.now() - _certs.at < 60 * 60 * 1000) return _certs.keys;
-  const r = await fetch(CERT_URL);
+const _certCache = new Map();
+async function fetchJson(url) {
+  const hit = _certCache.get(url);
+  if (hit && Date.now() - hit.at < 60 * 60 * 1000) return hit.data;
+  const r = await fetch(url);
   if (!r.ok) throw new Error(`公開鍵を取れませんでした（${r.status}）`);
-  const keys = await r.json();
-  _certs = { at: Date.now(), keys };
-  return keys;
+  const data = await r.json();
+  _certCache.set(url, { at: Date.now(), data });
+  return data;
+}
+
+// kid に合う公開鍵を取り出す（証明書の形でも、JWKの形でも扱える）
+async function publicKeyFor(iss, kid) {
+  if (String(iss) === CHAT_ISSUER) {
+    const certs = await fetchJson(SA_CERT_URL);
+    return certs[kid] || null;
+  }
+  const jwks = await fetchJson(GOOGLE_JWKS_URL);
+  const jwk = (jwks.keys || []).find((k) => k.kid === kid);
+  if (!jwk) return null;
+  return createPublicKey({ key: jwk, format: "jwk" });
 }
 
 function b64urlToBuf(s) {
@@ -61,20 +81,23 @@ export async function verifyChatRequest(req, { audience = "" } = {}) {
   const { header, payload } = dec;
   const now = Math.floor(Date.now() / 1000);
   if (payload.exp && payload.exp < now - 60) return { ok: false, reason: "証明の期限が切れています" };
-  const from = String(payload.iss || payload.email || "");
-  if (from !== CHAT_ISSUER) return { ok: false, reason: `送り主が違います（${from || "不明"}）` };
+  // 送り主の確認。email が Google Chat なら本物（iss はGoogle側の都合で2通りある）。
+  const email = String(payload.email || "");
+  const iss = String(payload.iss || "");
+  const fromChat = email === CHAT_ISSUER || iss === CHAT_ISSUER;
+  if (!fromChat) return { ok: false, reason: `送り主が違います（${email || iss || "不明"}）` };
+  if (!GOOGLE_ISSUERS.includes(iss)) return { ok: false, reason: `証明の出どころが違います（${iss || "不明"}）` };
   if (audience && String(payload.aud || "") !== String(audience)) {
     return { ok: false, reason: `宛先が合いません（${payload.aud || "なし"}）` };
   }
 
   // 1. 署名を自分で確かめる
   try {
-    const keys = await chatCerts();
-    const cert = keys[header.kid];
-    if (cert) {
+    const key = await publicKeyFor(iss, header.kid);
+    if (key) {
       const v = createVerify("RSA-SHA256");
       v.update(parts[0] + "." + parts[1]);
-      if (v.verify(cert, b64urlToBuf(parts[2]))) return { ok: true, aud: payload.aud, by: "署名" };
+      if (v.verify(key, b64urlToBuf(parts[2]))) return { ok: true, aud: payload.aud, by: "署名" };
       return { ok: false, reason: "署名が合いません" };
     }
   } catch (e) {
