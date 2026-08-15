@@ -223,7 +223,7 @@ async function loadLinks() {
       const viewed = +l.view_count > 0;
       // 熱量の目安：滞在が長い／何度も開いている
       const hot = +l.total_seconds >= 120 || +l.view_count >= 3;
-      return `<div class="dk-row${viewed ? "" : " dk-none"}" data-slug="${esc(l.slug)}">
+      return `<div class="dk-row${viewed ? "" : " dk-none"}" data-slug="${esc(l.slug)}" data-id="${esc(l.id)}">
         <div class="dk-main">
           <div class="dk-t">${esc(l.company || "(会社名なし)")}${l.contact ? " ｜ " + esc(l.contact) : ""}
             ${hot ? '<span class="dk-hot">よく見ています</span>' : ""}</div>
@@ -258,29 +258,26 @@ async function loadLinks() {
     box.querySelectorAll(".dk-detail").forEach((b) =>
       b.addEventListener("click", () => showDetail(b.closest(".dk-row")))
     );
-    // 履歴を消す。記録だけ消すか、URLごと消すかを選べる。
+    // 削除＝この行をまるごと消す（発行したURLと、その閲覧の記録）。
+    // 「記録だけ消す」は「詳しく」の中に置いてある。
     box.querySelectorAll(".dk-del").forEach((b) =>
       b.addEventListener("click", async () => {
         const who = b.dataset.who || "この宛先";
-        const keep = confirm(
-          `「${who}」の記録を消します。\n\n` +
-          `OK … 閲覧の記録だけ消す（送ったURLはこのまま使えます）\n` +
-          `キャンセル … 次に進む（URLごと消すか選べます）`);
-        let mode = "history";
-        if (!keep) {
-          if (!confirm(
-            `「${who}」に発行したURLごと消します。\n` +
-            `相手がそのURLを開いても、資料は見られなくなります。よろしいですか？`)) return;
-          mode = "";
-        }
+        if (!confirm(
+          `「${who}」に発行したURLと、その閲覧の記録を消します。\n\n` +
+          `相手がそのURLを開いても、資料は見られなくなります。元には戻せません。\n` +
+          `よろしいですか？`)) return;
         b.disabled = true;
         b.textContent = "消しています…";
         try {
-          const r = await fetch(`/api/doc-links/${encodeURIComponent(b.dataset.id)}` +
-            (mode ? `?mode=${mode}` : ""), { method: "DELETE" });
+          const r = await fetch(`/api/doc-links/${encodeURIComponent(b.dataset.id)}`, { method: "DELETE" });
           const d = await r.json().catch(() => ({}));
           if (!r.ok) throw new Error(d.error || "消せませんでした");
-          say("dkStatus", mode === "history" ? "記録を消しました" : "URLと記録を消しました", 4000);
+          if (!d.deleted) throw new Error("対象が見つかりませんでした（画面を読み直してください）");
+          // 行をその場で消してから、一覧を読み直す
+          const row = b.closest(".dk-row");
+          if (row) row.remove();
+          say("dkStatus", "消しました", 4000);
           loadLinks();
         } catch (e) {
           b.disabled = false; b.textContent = "削除";
@@ -321,7 +318,29 @@ async function showDetail(row) {
              <span>${e.kind === "open" ? "開封" : e.kind === "download" ? "ダウンロード" : "クリック"}</span>
              ${e.url ? `<span class="dk-dim">${esc(String(e.url).slice(0, 60))}</span>` : ""}
            </div>`).join("")
-        : '<div class="dk-s">記録はありません。</div>');
+        : '<div class="dk-s">記録はありません。</div>') +
+      // URLは残したまま、閲覧・開封の記録だけ消したいとき
+      `<div class="dk-panel-act">
+         <button type="button" class="btn ghost dk-clear" data-id="${esc(row.dataset.id || "")}">記録だけ消す（URLはそのまま）</button>
+         <span class="dk-s dk-clear-st"></span>
+       </div>`;
+    const cb = panel.querySelector(".dk-clear");
+    if (cb) cb.addEventListener("click", async () => {
+      if (!confirm("閲覧・開封の記録だけを消します。送ったURLはこのまま使えます。よろしいですか？")) return;
+      cb.disabled = true;
+      const st = panel.querySelector(".dk-clear-st");
+      if (st) st.textContent = "消しています…";
+      try {
+        const r = await fetch(`/api/doc-links/${encodeURIComponent(row.dataset.id)}?mode=history`, { method: "DELETE" });
+        const dd = await r.json().catch(() => ({}));
+        if (!r.ok) throw new Error(dd.error || "消せませんでした");
+        if (st) st.textContent = "記録を消しました";
+        loadLinks();
+      } catch (e) {
+        cb.disabled = false;
+        if (st) st.textContent = "失敗：" + e.message;
+      }
+    });
   } catch (e) {
     panel.innerHTML = `<div class="dk-s">読み込めませんでした：${esc(e.message)}</div>`;
   }
