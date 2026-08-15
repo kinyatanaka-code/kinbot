@@ -657,22 +657,15 @@ function wireMailTemplates(box, botId, tpls, side) {
     }
   });
 
-  // テンプレートのアイコンで、下の選ぶ欄を開け閉めする。
-  // 型を選ぶと、右に「テンプレートを直す」欄が出る。
+  // テンプレートのアイコンで、右の欄を開け閉めする
   const toggle = box.querySelector("[data-tpl-toggle]");
-  const panel = box.querySelector(".mail-tpl");
-  if (toggle && panel) toggle.addEventListener("click", () => {
-    panel.hidden = !panel.hidden;
-    toggle.classList.toggle("hib-need", !panel.hidden);
-    if (panel.hidden && side.current === "tpl") side.close();
-    if (!panel.hidden && sel && sel.value) openTplEditor(sel.value);
-  });
+  if (toggle) toggle.addEventListener("click", () => side.toggle("tpl", "テンプレート"));
 
   // 差し込み語を、カーソルの位置に入れる
   box.querySelectorAll(".tag-ins").forEach((b) =>
     b.addEventListener("click", () => {
       // 押したボタンと同じ画面（メール／型を直す）の本文に入れる
-      const pane = b.closest(".mail-tpl-side") || box;
+      const pane = b.closest(".tple-edit") || box;
       const ta = pane.querySelector("textarea");
       if (!ta) return;
       const t = b.dataset.ins;
@@ -693,11 +686,11 @@ function wireMailTemplates(box, botId, tpls, side) {
     syncBtns();
   };
 
-  // 型を選んでいないときは、押せないようにする
-  const editBtn = box.querySelector("[data-tpl-edit]");
+  // 型を選んでいないときは「型を入れる」は押せない
+  const applyBtn0 = box.querySelector("[data-tpl-apply]");
   const syncBtns = () => {
     const on = !!(sel && sel.value);
-    [editBtn].forEach((b) => { if (b) b.classList.toggle("hib-off", !on); });
+    if (applyBtn0) applyBtn0.classList.toggle("hib-off", !on);
   };
 
   // ── テンプレートを直す欄（アイコンの右に出す） ──
@@ -714,9 +707,11 @@ function wireMailTemplates(box, botId, tpls, side) {
   // いま直している型のid
   let editingId = "";
 
+  // 型を選んだときだけ、直す欄を出す
+  const tplEdit = box.querySelector(".tple-edit");
   const showTpl = (on) => {
-    if (on) side.open("tpl", "テンプレートを直す");
-    else { side.close(); editingId = ""; }
+    if (tplEdit) tplEdit.hidden = !on;
+    if (!on) editingId = "";
   };
 
   const openTplEditor = (id) => {
@@ -738,20 +733,6 @@ function wireMailTemplates(box, botId, tpls, side) {
     else showTpl(false);
   });
   syncBtns();
-
-  if (editBtn) editBtn.addEventListener("click", () => {
-    if (!(sel && sel.value)) { say("先に、直したいテンプレートを選んでください", 5000); return; }
-    openTplEditor(sel.value);
-  });
-
-  const backBtn = box.querySelector("[data-tple-back]");
-  if (backBtn) backBtn.addEventListener("click", () => showTpl(false));
-
-  // この型でメールの文面を作る（メール画面に戻ってから作る）
-  const useBtn = box.querySelector("[data-tple-use]");
-  if (useBtn) useBtn.addEventListener("click", async () => {
-    await doGen(useBtn, true);
-  });
 
   // 型を保存する（名前も変えられる）
   const tSaveBtn = box.querySelector("[data-tple-save]");
@@ -1247,51 +1228,44 @@ async function openMail(botId, key) {
              <div class="mail-draft-box"></div>
            </div>
 
-           <!-- テンプレートを直す -->
+           <!-- テンプレート：選ぶ・使う・直す -->
            <div class="mail-side-sec" data-sec="tpl" hidden>
-           <div class="mail-acts tple-acts">
-             ${hIcon("tpluse", "この型でメールの文面を作る", `data-tple-use="${escH(botId)}"`, "need")}
-             ${hIcon("tplsave", "この型を保存する", 'data-tple-save="1"')}
-             ${hIcon("tpldel", "この型を消す", 'data-tple-del="1"')}
-           </div>
-           <div class="tple-st"></div>
-           <label class="mail-lb">型の名前<input type="text" class="tple-name" /></label>
-           <label class="mail-lb">件名<input type="text" class="tple-subj" /></label>
-           <label class="mail-lb">本文<textarea class="tple-body" rows="12"></textarea></label>
-           <div class="mail-tpl-help">
-             <button type="button" class="tag-ins" data-ins="{資料URL}">{資料URL}</button>
-             <button type="button" class="tag-ins" data-ins="{会社名}">{会社名}</button>
-             <button type="button" class="tag-ins" data-ins="{担当者名}">{担当者名}</button>
-             <button type="button" class="tag-ins" data-ins="{自分の名前}">{自分の名前}</button>
-             <span class="mail-doc-st">【】で囲んだところと空欄は、商談の内容で埋まります。</span>
-           </div>
+             <label class="mail-lb">使う型
+               <select class="mail-tpl-sel">
+                 <option value="">使わない（商談内容から作る）</option>
+                 ${tpls.map((t) => `<option value="${escH(t.id)}">${escH(t.name)}</option>`).join("")}
+               </select>
+             </label>
+             <div class="mail-acts tple-acts">
+               ${hIcon("tplin", "選んだ型で本文を作る", `data-tpl-apply="${escH(botId)}"`)}
+               ${hIcon("tplsave", "いまの文面を、新しい型として保存する", 'data-tpl-save="1"')}
+             </div>
+             <span class="mail-tpl-st"></span>
+
+             <!-- 型を選んだときだけ、その中身を直せる -->
+             <div class="tple-edit" hidden>
+               <div class="tple-t2">この型を直す</div>
+               <label class="mail-lb">型の名前<input type="text" class="tple-name" /></label>
+               <label class="mail-lb">件名<input type="text" class="tple-subj" /></label>
+               <label class="mail-lb">本文<textarea class="tple-body" rows="10"></textarea></label>
+               <div class="mail-tpl-help">
+                 <button type="button" class="tag-ins" data-ins="{資料URL}">{資料URL}</button>
+                 <button type="button" class="tag-ins" data-ins="{会社名}">{会社名}</button>
+                 <button type="button" class="tag-ins" data-ins="{担当者名}">{担当者名}</button>
+                 <button type="button" class="tag-ins" data-ins="{自分の名前}">{自分の名前}</button>
+                 <span class="mail-doc-st">【】で囲んだところと空欄は、商談の内容で埋まります。</span>
+               </div>
+               <div class="mail-acts">
+                 ${hIcon("tplsave", "直した内容で、この型を上書きする", 'data-tple-save="1"')}
+                 ${hIcon("tpldel", "この型を消す", 'data-tple-del="1"')}
+               </div>
+               <div class="tple-st"></div>
+             </div>
+             <div class="mail-side-note"><span class="mail-doc-st"></span></div>
            </div>
          </div>
        </div>
        <div class="home-mail-note"></div>
-
-       <!-- テンプレートは、アイコンを押したときだけ開く -->
-       <div class="mail-tpl" hidden>
-         <label class="mail-lb mail-tpl-lb">テンプレート
-           <select class="mail-tpl-sel">
-             <option value="">使わない（商談内容から作る）</option>
-             ${tpls.map((t) => `<option value="${escH(t.id)}">${escH(t.name)}</option>`).join("")}
-           </select>
-         </label>
-         <div class="mail-tpl-acts">
-           ${hIcon("tplin", "選んだテンプレートで本文を作り直す", `data-tpl-apply="${escH(botId)}"`)}
-           ${hIcon("tpledit", "選んだテンプレートを直す画面を開く", 'data-tpl-edit="1"')}
-           ${hIcon("tplsave", "いまの文面を、新しいテンプレートとして保存する", 'data-tpl-save="1"')}
-         </div>
-         <span class="mail-tpl-st"></span>
-         <div class="mail-tpl-help">
-           <span class="mail-doc-st">${
-             (d.docLinks && d.docLinks.length)
-               ? `この会社の資料URL ${d.docLinks.length}件（誰が何ページ見たか追えます）`
-               : "この会社向けの資料URLはまだありません（資料トラッキングで発行できます）"
-           }</span>
-         </div>
-       </div>
        </div>`;
 
     const side = mailSide(box);
@@ -1303,7 +1277,7 @@ async function openMail(botId, key) {
     // この会社あての資料URLを、開いた時点で用意しておく。
     // 文面に {資料URL} を入れたときに、その場で差し込めるようにするため。
     (async () => {
-      const st = box.querySelector(".mail-doc-st");
+      const st = box.querySelector(".mail-side-note .mail-doc-st");
       try {
         const r = await fetch(`/api/meetings/${encodeURIComponent(botId)}/doc-link/ensure`, {
           method: "POST", headers: { "content-type": "application/json" }, body: "{}",
