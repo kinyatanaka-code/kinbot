@@ -11356,7 +11356,9 @@ app.get("/api/apo/mine", async (req, res) => {
     const owner = String(req.query.owner || req.user || "").toLowerCase();
     // 既定はその日のぶんだけ。mode=from を渡すと、その日以降をまとめて返す。
     const mode = req.query.mode === "from" ? "from" : "day";
-    const rows = await myAssignedApos(owner, d, mode);
+    // 自分で取ったアポも拾うため、名前も渡す（昔の記録にはメールが入っていないため）
+    const myName = await displayNameOf(owner).catch(() => "");
+    const rows = await myAssignedApos(owner, d, mode, 200, myName);
     // 自動立ち上げの結果（通せなかった理由）を添える
     const al = await autolaunchForSlugs(rows.map((r) => r.slug)).catch(() => ({}));
     const mail = await listApoMailStatus(rows.map((r) => r.slug));
@@ -11364,6 +11366,9 @@ app.get("/api/apo/mine", async (req, res) => {
       date: d, owner, mode,
       items: rows.map((r) => ({
         slug: r.slug, title: r.label, setter: r.setter, business: r.business || "",
+        // 自分で取ったアポか（一覧で見分けられるように）
+        selfGot: r.self_got === true,
+        owner: r.current_owner || "",
         start: r.start_time, end: r.end_time,
         clientEmail: r.client_email || "",
         smartUrl: joinUrl(r.slug),

@@ -1838,7 +1838,7 @@ function renderMyApos() {
   if (cnt) cnt.textContent = myApos.length ? `${myApos.length}件` : "";
   box.innerHTML = myApos.length
     ? myApos.map(apoHomeCard).join("")
-    : '<div class="home-empty home-empty-s">この日に割り振られたアポはありません。</div>';
+    : '<div class="home-empty home-empty-s">この日のアポはありません（割り振られたぶんと、自分で取ったぶんが出ます）。</div>';
 }
 
 // 商談リストとアポリストの両方を描き直す
@@ -1901,7 +1901,7 @@ function apoHomeCard(x) {
           <div class="hl-time">${apoEsc(apoTime(x.start))}</div>
           <div class="hl-main">
             <div class="hl-title">${apoEsc(x.title || "")}</div>
-            <div class="hl-meta">${x.inviteEventId ? '<span class="home-badge home-badge-done">予定作成済</span>' : ""}${meta}</div>
+            <div class="hl-meta">${x.selfGot ? '<span class="home-badge home-badge-self">自分で獲得</span>' : ""}${x.inviteEventId ? '<span class="home-badge home-badge-done">予定作成済</span>' : ""}${meta}</div>
             ${launchLine(x)}
           </div>
           <div class="hl-acts">${acts}</div>

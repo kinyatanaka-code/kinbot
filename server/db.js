@@ -2711,19 +2711,34 @@ export async function setSmartLinkClient(slug, { email, name, source } = {}, for
 // 自分へ割り振られているアポ（ホーム画面用）。
 // mode="day"（既定） … その日のぶんだけ
 // mode="from"        … その日以降ぜんぶ
-export async function myAssignedApos(owner, dateJst, mode = "day", limit = 200) {
+// 自分のアポ。
+//   ・自分に割り振られたもの（担当者が自分）
+//   ・自分で取ったもの（アポ獲得者が自分）
+// 自分で取ったアポは、担当が入る前でも自分の予定なので、一覧に出す。
+// 名前は表記ゆれ（「田中 欽也」と「田中欽也」）を無視して比べる。
+export async function myAssignedApos(owner, dateJst, mode = "day", limit = 200, setterName = "") {
   if (!pool || !owner) return [];
   try {
     const cond = mode === "day"
       ? `(start_time AT TIME ZONE 'Asia/Tokyo')::date = $2::date`
       : `(start_time AT TIME ZONE 'Asia/Tokyo')::date >= $2::date`;
+    const nm = String(setterName || "").replace(/[\s　]/g, "");
     const { rows } = await pool.query(
-      `SELECT * FROM smart_links
-        WHERE current_owner = $1 AND ${cond}
+      `SELECT *,
+              (lower(COALESCE(setter_email,'')) = $1
+                OR ($4 <> '' AND regexp_replace(COALESCE(setter,''), '[[:space:]　]', '', 'g') = $4)
+              ) AS self_got
+         FROM smart_links
+        WHERE ${cond}
           AND NOT COALESCE(excluded, false)
+          AND (
+            lower(COALESCE(current_owner,'')) = $1
+            OR lower(COALESCE(setter_email,'')) = $1
+            OR ($4 <> '' AND regexp_replace(COALESCE(setter,''), '[[:space:]　]', '', 'g') = $4)
+          )
         ORDER BY start_time
         LIMIT $3`,
-      [String(owner).toLowerCase(), dateJst, Math.max(1, Math.min(500, limit))]);
+      [String(owner).toLowerCase(), dateJst, Math.max(1, Math.min(500, limit)), nm]);
     return rows;
   } catch (e) { console.error("[db] myAssignedApos", e.message); return []; }
 }
