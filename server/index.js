@@ -11058,17 +11058,11 @@ async function dropDeletedApos(scan) {
       } catch {}
     }
     if (!gone) continue;
+    // 予定が消えたときは、静かに数から外すだけにする（通知はしない）。
+    // 消したこと自体は本人が分かっているので、Chatに流すと数が増えて邪魔になるため。
     await excludeApo(r.slug, "カレンダーから消えたため").catch(() => {});
     n++;
-    const first = await noticeOnce(r.event_id, "削除", r.label).catch(() => false);
-    if (first) {
-      await notifyAll([
-        "🗑 *カレンダーから予定が消えました*",
-        `・${r.label || r.slug}`,
-        `📅 ${String(r.start_time).slice(0, 10)}　👤 ${r.setter || "-"}`,
-        "（kinbotのアポの数からも外しました）",
-      ].join("\n"), "assign").catch(() => {});
-    }
+    console.log(`[apo-scan] カレンダーから消えたので外しました：${r.label || r.slug}（${String(r.start_time).slice(0, 10)}）`);
   }
   if (n) console.log(`[apo-scan] カレンダーから消えたアポ ${n}件を数から外しました`);
   return n;
