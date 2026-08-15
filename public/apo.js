@@ -662,6 +662,66 @@ async function pushSetup() {
   finally { if (btn) btn.disabled = false; }
 }
 
+// コール進捗のお知らせ
+async function loadCallReport() {
+  if (!$("crOn")) return;
+  try {
+    const d = await apiJson("/api/call-report");
+    $("crOn").checked = !!d.enabled;
+    $("crFrom").value = d.from ?? 11;
+    $("crTo").value = d.to ?? 18;
+    $("crGoals").value = Object.entries(d.goals || {})
+      .map(([k, v]) => `${k}, ${v.calls || 0}, ${v.apos || 0}`).join("\n");
+    if (!d.reportReady) {
+      $("crBox").innerHTML = `<span class="cc-warn">SFのレポートが未設定です。` +
+        `SF連携→プロセスシートで先に設定してください。</span>`;
+    }
+  } catch (e) { $("crBox").textContent = "確認できませんでした：" + e.message; }
+}
+
+// 「名前, コール数, アポ数」の行を読み取る
+function parseGoals(text) {
+  const out = {};
+  for (const line of String(text || "").split("\n")) {
+    const p = line.split(/[,、\t]/).map((x) => x.trim());
+    if (!p[0]) continue;
+    out[p[0]] = { calls: parseInt(p[1], 10) || 0, apos: parseInt(p[2], 10) || 0 };
+  }
+  return out;
+}
+
+async function saveCallReport() {
+  const st = $("crStatus");
+  if (st) st.textContent = "保存しています…";
+  try {
+    await apiJson("/api/call-report", {
+      method: "PUT", headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        enabled: $("crOn").checked,
+        from: parseInt($("crFrom").value, 10),
+        to: parseInt($("crTo").value, 10),
+        goals: parseGoals($("crGoals").value),
+      }),
+    });
+    if (st) { st.textContent = "保存しました"; setTimeout(() => (st.textContent = ""), 4000); }
+  } catch (e) { if (st) st.textContent = "失敗: " + e.message; }
+}
+
+async function testCallReport(send) {
+  const st = $("crStatus");
+  const box = $("crBox");
+  if (st) st.textContent = "作っています…";
+  try {
+    const d = await apiJson("/api/call-report/test", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ send: !!send }),
+    });
+    if (!d.ok) { if (box) box.innerHTML = `<span class="cc-warn">${esc(d.reason || "作れませんでした")}</span>`; }
+    else if (box) box.innerHTML = esc(d.text).replace(/\n/g, "<br>");
+    if (st) st.textContent = "";
+  } catch (e) { if (st) st.textContent = "失敗: " + e.message; }
+}
+
 // 更新（デプロイ）の通知
 async function loadDeploy() {
   const box = $("depBox");
@@ -1513,6 +1573,11 @@ async function saveMailCfg() {
     document.querySelectorAll("#siBox .si-chk").forEach((c) => { c.checked = false; }));
   if ($("verBox")) showVersion();
   if ($("depBox")) loadDeploy();
+  if ($("crOn")) {
+    loadCallReport();
+    $("crSave").addEventListener("click", saveCallReport);
+    $("crTest").addEventListener("click", () => testCallReport(false));
+  }
   if ($("depOn")) $("depOn").addEventListener("change", async (e) => {
     const st = $("depStatus");
     try {

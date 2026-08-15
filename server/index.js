@@ -90,6 +90,9 @@ import {
   getSmartLink,
   getSmartLinkByEvent,
   findSmartLinkByLabelStart,
+  noticeOnce,
+  futureApos,
+  excludeApo,
   listCalendarWatches,
   countLiveRelay,
   saveCalendarWatch,
@@ -3250,6 +3253,153 @@ function toRecords(report) {
     meetingDate: at.meeting >= 0 ? r[at.meeting] : "",
   })).filter((x) => x.owner);
 }
+
+// ───────────────────────────────────────────────────────────
+// コール進捗のお知らせ
+//
+// 11時から18時まで、1時間ごとにその日の実績をChatへ流す。
+// 数はSFのレポート（コール・接触）と、kinbotのアポ記録から作る。
+// 目標は、メンバーごとに設定した1日の目標を使う（未設定なら実績だけ出す）。
+// ───────────────────────────────────────────────────────────
+let lastCallReportKey = "";
+
+async function buildCallReport(sfUser) {
+  const st = await getSettings();
+  const reportId = String(st.psReportId || "").trim();
+  if (!reportId) return { skipped: true, reason: "SFのレポートが設定されていません" };
+
+  let saved = null;
+  try { saved = JSON.parse(st.psFilters || "null"); } catch {}
+  const report = await runReport(sfUser, reportId, saved);
+  const records = toRecords(report);
+
+  const today = jstDate(0);
+  const md = `${Number(today.slice(5, 7))}/${Number(today.slice(8, 10))}`;
+  const tallied = tally(records, {});
+
+  // その日に取ったアポ（kinbotの記録）
+  const apos = await aposTakenInRange({ from: today, to: today }).catch(() => []);
+  const apoBy = new Map();
+  for (const a of apos) {
+    const k = String(a.setter || "").trim();
+    if (k) apoBy.set(k, (apoBy.get(k) || 0) + 1);
+  }
+
+  // 目標（メンバーごと）
+  let goals = {};
+  try { goals = JSON.parse(st.callGoals || "{}") || {}; } catch {}
+  const goalOf = (name) => {
+    const n = String(name || "").replace(/[\s　]/g, "");
+    for (const [k, v] of Object.entries(goals)) {
+      if (String(k).replace(/[\s　]/g, "") === n) return v || {};
+    }
+    return {};
+  };
+
+  // 名前をそろえて、SFの実績とkinbotのアポを1つにまとめる
+  const rows = new Map();
+  for (const [who, days] of Object.entries(tallied)) {
+    const t = days[md];
+    if (!t) continue;
+    rows.set(who, { name: who, calls: t["コール"] || 0, contacts: t["接触"] || 0, apos: 0 });
+  }
+  for (const [who, n] of apoBy) {
+    const hit = [...rows.keys()].find((k) => k.replace(/[\s　]/g, "") === who.replace(/[\s　]/g, ""));
+    if (hit) rows.get(hit).apos = n;
+    else rows.set(who, { name: who, calls: 0, contacts: 0, apos: n });
+  }
+
+  const list = [...rows.values()].sort((a, b) => b.calls - a.calls);
+  const sum = list.reduce((o, x) => ({
+    calls: o.calls + x.calls, contacts: o.contacts + x.contacts, apos: o.apos + x.apos,
+  }), { calls: 0, contacts: 0, apos: 0 });
+
+  const now = new Date(Date.now() + 9 * 3600 * 1000);
+  const hh = String(now.getUTCHours()).padStart(2, "0");
+  const rate = sum.calls ? ((sum.apos / sum.calls) * 100).toFixed(1) : "0.0";
+
+  const lines = [
+    `📞 *コール進捗（${hh}:00 時点）*`,
+    `合計：${sum.calls}コール ／ 接触 ${sum.contacts} ／ アポ ${sum.apos}（アポ率 ${rate}%）`,
+    "",
+  ];
+  for (const x of list) {
+    const g = goalOf(x.name);
+    const gc = Number(g.calls) || 0, ga = Number(g.apos) || 0;
+    const need = gc ? `（目標 ${gc}c${ga ? ` / ${ga}アポ` : ""}／あと ${Math.max(0, gc - x.calls)}c）` : "";
+    lines.push(`・${x.name}：${x.calls}c / ${x.apos}アポ${need}`);
+  }
+  if (!list.length) lines.push("（まだ実績がありません）");
+
+  return { skipped: false, text: lines.join("\n"), summary: sum, rows: list };
+}
+
+// 決まった時刻になったら流す（1時間に1回だけ）
+async function maybeSendCallReport() {
+  try {
+    const st = await getSettings().catch(() => ({}));
+    if (st.callReport !== true) return;
+    const now = new Date(Date.now() + 9 * 3600 * 1000);
+    const day = now.getUTCDay();
+    if (day === 0 || day === 6) return;               // 土日は流さない
+    const h = now.getUTCHours(), m = now.getUTCMinutes();
+    const from = Number(st.callReportFrom ?? 11), to = Number(st.callReportTo ?? 18);
+    if (h < from || h > to) return;
+    if (m > 4) return;                                 // 毎時0〜4分の間に1回
+    const key = `${now.toISOString().slice(0, 10)}-${h}`;
+    if (lastCallReportKey === key) return;
+    lastCallReportKey = key;
+
+    const sfUser = String(st.psOwner || "").trim();
+    if (!sfUser) return;
+    const r = await buildCallReport(sfUser);
+    if (r.skipped || !r.text) return;
+    await notifyAll(r.text, "assign");
+    console.log(`[call-report] ${h}時の進捗を送りました`);
+  } catch (e) { console.warn("[call-report]", e.message); }
+}
+
+// 設定の読み書きと、その場で試す
+app.get("/api/call-report", async (req, res) => {
+  try {
+    const st = await getSettings();
+    let goals = {};
+    try { goals = JSON.parse(st.callGoals || "{}") || {}; } catch {}
+    res.json({
+      enabled: st.callReport === true,
+      from: Number(st.callReportFrom ?? 11),
+      to: Number(st.callReportTo ?? 18),
+      goals,
+      reportReady: !!st.psReportId,
+      owner: st.psOwner || "",
+    });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.put("/api/call-report", async (req, res) => {
+  try {
+    const b = req.body || {};
+    const patch = {};
+    if (b.enabled !== undefined) patch.callReport = b.enabled === true;
+    if (b.from !== undefined) patch.callReportFrom = Math.min(23, Math.max(0, parseInt(b.from, 10) || 11));
+    if (b.to !== undefined) patch.callReportTo = Math.min(23, Math.max(0, parseInt(b.to, 10) || 18));
+    if (b.goals !== undefined) patch.callGoals = JSON.stringify(b.goals || {});
+    await saveSettings(patch);
+    console.log(`[call-report] 設定を更新 by ${req.user}`);
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.post("/api/call-report/test", async (req, res) => {
+  try {
+    const st = await getSettings();
+    const sfUser = String(st.psOwner || req.user || "").trim();
+    const r = await buildCallReport(sfUser);
+    if (r.skipped) return res.json({ ok: false, reason: r.reason });
+    if (req.body?.send === true) await notifyAll(r.text, "assign");
+    res.json({ ok: true, text: r.text, sent: req.body?.send === true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
 
 // 設定の読み書き
 app.get("/api/process-sheet", async (req, res) => {
@@ -10609,6 +10759,16 @@ function apoTitleTag(title) {
   const t = String(title || "").normalize("NFKC");
   return APO_TAG_RE.test(t);
 }
+
+// 予定名の先頭に「リスケ」「キャンセル」と書かれているかを見る。
+// 書かれていたら、その予定はアポとして数えない（数えると実績がふくらむため）。
+// 「リスケ済み」「キャンセル済」なども同じ扱いにする。
+function apoHeadState(title) {
+  const t = String(title || "").normalize("NFKC").replace(/^[\s　【\[（(]*/, "");
+  if (/^(リスケ|再調整|日程変更)/.test(t)) return "リスケ";
+  if (/^(キャンセル|中止|取消|取り消し)/.test(t)) return "キャンセル";
+  return "";
+}
 // 笹原拓真＋インターン（＝インターン登録に登録した「アポを取る人」）が主催者で、
 // タイトルが対象タグの予定を取り込み、各アポにスマートリンクを自動発行して返す。
 // 担当者を割り当てると /j/<slug> がその人のZoomに切り替わる。
@@ -10690,6 +10850,10 @@ async function collectApoAppointments(scanOwner, opts = {}) {
       fetched.push(...got);
     }
 
+    // 「リスケ」「キャンセル」と書かれた予定と、カレンダーで見つけた予定のIDを覚えておく
+    const seenHeadStates = [];
+    const seenEventIds = new Set();
+
     for (const f of fetched) {
       const st = f.st;
       if (f.error) { errors.push({ setter: st.name, email: st.email, error: f.error }); continue; }
@@ -10709,6 +10873,13 @@ async function collectApoAppointments(scanOwner, opts = {}) {
         // これを拾うと、kinbotの予定から次のアポができ、際限なく増えてしまう。
         if (await isKinbotInviteEvent(ev, inviteIds)) {
           console.log(`[apo-scan] kinbotが作った予定なので取り込みません：${String(ev.title || "").slice(0, 40)}`);
+          continue;
+        }
+        // 先頭に「リスケ」「キャンセル」と書かれた予定は、アポとして数えない。
+        // 初めて見たときだけ、Chatに知らせる。
+        const head = apoHeadState(ev.title);
+        if (head) {
+          seenHeadStates.push({ ev, head, setter: st.name });
           continue;
         }
         // タイトルが【新/ヒ】または【初回/】を含む予定だけ（全角半角問わず）
@@ -10795,10 +10966,69 @@ async function collectApoAppointments(scanOwner, opts = {}) {
           selfAcquired: !!st.isCloser || !!link.current_owner,
           _link: link, // 内部用。APIレスポンスに出す前に落とす。
         });
+        seenEventIds.add(ev.id);
       }
     }
     items.sort((a, b) => String(a.start).localeCompare(String(b.start)));
-    return { items, errors };
+    return { items, errors, seenHeadStates, seenEventIds, full: !updatedMin };
+}
+
+// 「リスケ」「キャンセル」と書かれた予定を知らせ、アポの数からも外す
+async function handleHeadStates(list) {
+  for (const x of list || []) {
+    const ev = x.ev;
+    // すでにアポとして登録されていたら、数から外す
+    let link = await getSmartLinkByEvent(ev.id).catch(() => null);
+    if (!link) link = await findSmartLinkByLabelStart(ev.title, ev.start).catch(() => null);
+    if (link && !link.excluded) await excludeApo(link.slug, x.head).catch(() => {});
+
+    // 同じ予定では1回だけ知らせる
+    const first = await noticeOnce(ev.id, x.head, ev.title).catch(() => false);
+    if (!first) continue;
+    const when = ev.start ? `${String(ev.start).slice(5, 10)} ${jstTime(ev.start)}` : "日時不明";
+    await notifyAll([
+      x.head === "リスケ" ? "📌 *リスケが入りました*" : "🚫 *キャンセルが入りました*",
+      `・${ev.title}`,
+      `📅 ${when}　👤 ${x.setter || "-"}`,
+      "（アポの件数には数えていません）",
+    ].join("\n"), "assign").catch(() => {});
+    console.log(`[apo-scan] ${x.head}として扱いました：${String(ev.title).slice(0, 40)}`);
+  }
+}
+
+// カレンダーから消された予定を、kinbotの数からも外す。
+// 全期間を見たときだけ行う（差分だけ見たときは「消えた」と判断できないため）。
+async function dropDeletedApos(scan) {
+  if (!scan || !scan.full || !scan.seenEventIds) return 0;
+  const today = jstDate(0);
+  const rows = await futureApos(today, 500).catch(() => []);
+  let n = 0;
+  for (const r of rows) {
+    if (!r.event_id || scan.seenEventIds.has(r.event_id)) continue;
+    // 念のため、カレンダーに本当に無いかを直接確かめる
+    const owner = r.setter_email || r.current_owner || "";
+    let gone = true;
+    if (owner) {
+      try {
+        const ev = await getCalendarEvent(owner, r.event_id).catch(() => null);
+        if (ev && ev.id) gone = false;
+      } catch {}
+    }
+    if (!gone) continue;
+    await excludeApo(r.slug, "カレンダーから消えたため").catch(() => {});
+    n++;
+    const first = await noticeOnce(r.event_id, "削除", r.label).catch(() => false);
+    if (first) {
+      await notifyAll([
+        "🗑 *カレンダーから予定が消えました*",
+        `・${r.label || r.slug}`,
+        `📅 ${String(r.start_time).slice(0, 10)}　👤 ${r.setter || "-"}`,
+        "（kinbotのアポの数からも外しました）",
+      ].join("\n"), "assign").catch(() => {});
+    }
+  }
+  if (n) console.log(`[apo-scan] カレンダーから消えたアポ ${n}件を数から外しました`);
+  return n;
 }
 
 // ───────────────────────────────────────────────────────────
@@ -10981,6 +11211,11 @@ async function runApoAutoScan({ actor = "auto-scan", force = false, updatedMin =
     console.error("[apo-scan] 走査に失敗:", e.message);
     return { skipped: true, reason: e.message };
   }
+
+  // 「リスケ」「キャンセル」と書かれた予定を知らせ、数から外す
+  await handleHeadStates(scan.seenHeadStates).catch((e) => console.warn("[apo-scan] リスケ判定:", e.message));
+  // カレンダーから消された予定を、kinbotの数からも外す（全期間を見たときだけ）
+  await dropDeletedApos(scan).catch((e) => console.warn("[apo-scan] 削除の追随:", e.message));
 
   // 担当が未定で、まだ自動割り振りを試していないものを対象にする。
   // クローザーが自分で取ったアポは担当が入っているが、
@@ -12728,6 +12963,9 @@ server.listen(PORT, async () => {
     }
   };
   setInterval(checkInsightSchedule, 60 * 1000); // 毎分チェック
+
+  // コール進捗のお知らせ（11時〜18時の毎正時）。毎分見て、その時刻になったら1回だけ流す。
+  setInterval(() => { maybeSendCallReport().catch(() => {}); }, 60 * 1000);
 
   // 未判定の商談を自動で判定するスイープ：起動2分後＋30分ごとに最大5件ずつ。
   // （アップロード由来や過去分など、商談終了時の自動判定を通らなかった商談を拾う）

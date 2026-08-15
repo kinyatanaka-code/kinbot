@@ -510,6 +510,17 @@ export async function initDb() {
   `);
   await sq(`CREATE INDEX IF NOT EXISTS idx_oauth_tokens_refresh ON oauth_tokens(refresh_token);`);
 
+  // ===== カレンダーで気づいたこと（同じ予定で何度も通知しないため） =====
+  await sq(`
+    CREATE TABLE IF NOT EXISTS calendar_notice (
+      event_id   TEXT NOT NULL,
+      kind       TEXT NOT NULL,
+      title      TEXT,
+      at         TIMESTAMPTZ DEFAULT now(),
+      PRIMARY KEY (event_id, kind)
+    );
+  `);
+
   // ===== ライブ中継の宛先（中継サーバーが尋ねてくる） =====
   // メモリだけに持っていると、kinbotが再起動したときに失われ、
   // 中継サーバーが宛先を引けなくなって映像が届かなくなる。
@@ -2615,6 +2626,47 @@ export async function getSmartLinkByEvent(eventId) {
   const { rows } = await pool.query(`SELECT * FROM smart_links WHERE event_id=$1`, [eventId]);
   return rows[0] || null;
 }
+// ===== カレンダーで気づいたこと =====
+// 同じ予定で何度も通知しないよう、1回目だけ true を返す
+export async function noticeOnce(eventId, kind, title = "") {
+  if (!pool || !eventId || !kind) return false;
+  try {
+    const { rowCount } = await pool.query(
+      `INSERT INTO calendar_notice (event_id, kind, title) VALUES ($1,$2,$3)
+       ON CONFLICT (event_id, kind) DO NOTHING`,
+      [String(eventId), String(kind), String(title || "").slice(0, 200)]);
+    return rowCount > 0;
+  } catch (e) { console.error("[db] noticeOnce", e.message); return false; }
+}
+
+// これから先のアポ（カレンダーと突き合わせて、消えたものを見つけるため）
+export async function futureApos(fromJst, limit = 500) {
+  if (!pool) return [];
+  try {
+    const { rows } = await pool.query(
+      `SELECT slug, label, setter, setter_email, current_owner, event_id, start_time, business
+         FROM smart_links
+        WHERE event_id IS NOT NULL
+          AND NOT COALESCE(excluded,false)
+          AND (start_time AT TIME ZONE 'Asia/Tokyo')::date >= $1::date
+        ORDER BY start_time
+        LIMIT $2`, [fromJst, limit]);
+    return rows;
+  } catch (e) { console.error("[db] futureApos", e.message); return []; }
+}
+
+// アポを数から外す（テスト・リスケ・キャンセル・カレンダーから消えたとき）
+export async function excludeApo(slug, reason = "") {
+  if (!pool || !slug) return null;
+  try {
+    const { rows } = await pool.query(
+      `UPDATE smart_links SET excluded = true, updated_at = now()
+        WHERE slug = $1 RETURNING slug, label, setter, current_owner, start_time`, [slug]);
+    if (rows[0]) console.log(`[apo] 数から外しました ${rows[0].label || slug}（${reason}）`);
+    return rows[0] || null;
+  } catch (e) { console.error("[db] excludeApo", e.message); return null; }
+}
+
 // ===== ライブ中継の宛先 =====
 export async function saveLiveRelay(token, dest, botId = "") {
   if (!pool || !token || !dest) return null;
