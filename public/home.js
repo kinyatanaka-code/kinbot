@@ -394,13 +394,12 @@ function renderMini() {
 // 「新規作成」と「返信」を切り替える。
 // 返信のときは、これまでのやり取りを一覧で出して、どのメールに返すかを選んでもらう。
 // 選ぶと、そのやり取りの流れに合わせた文面をAIが作り直す。
-function wireMailMode(box, botId) {
+function wireMailMode(box, botId, side) {
   // いま画面に出ている文面は、モードごとに覚えておく。
   // 行ったり来たりしても、書きかけの文面が消えないようにするため。
   const ctx = { mode: "new", threadId: "", to: "", stash: { new: null, reply: null } };
   const su = () => box.querySelector(".home-mail-subj");
   const ta = () => box.querySelector(".home-mail-body");
-  const panel = box.querySelector(".mail-reply");
   const list = box.querySelector(".mail-reply-list");
   const st = box.querySelector(".mail-mode-st");
   const qIn = box.querySelector(".mail-reply-q");
@@ -412,9 +411,11 @@ function wireMailMode(box, botId) {
     ctx.stash[ctx.mode] = { subject: su().value, body: ta().value };
     ctx.mode = mode;
     box.querySelectorAll(".mail-mode-b").forEach((b) => b.classList.toggle("on", b.dataset.mode === mode));
-    if (panel) panel.hidden = mode !== "reply";
+    // 返信のときだけ、右の欄に返信先の一覧を出す
+    if (mode === "reply") side.open("reply", "どのメールに返信しますか");
+    else if (side.current === "reply") side.close();
     const keep = ctx.stash[mode];
-    if (keep) { su().value = keep.subject; ta().value = keep.body; }
+    if (keep) { su().value = keep.subject; ta().value = keep.body; ta().dispatchEvent(new Event("input")); }
     if (mode === "new") { ctx.threadId = ""; ctx.to = ""; say(""); }
     else {
       say(ctx.threadId ? (ctx.to ? `返信先：${ctx.to}` : "返信先を選びました") : "返信するメールを選んでください");
@@ -478,6 +479,7 @@ function wireMailMode(box, botId) {
       if (!r.ok || !d.body) throw new Error(d.error || "作れませんでした");
       su().value = d.subject || su().value;
       ta().value = d.body;
+      ta().dispatchEvent(new Event("input"));
       ctx.to = d.to || "";
       const toEl = box.querySelector(".home-mail-to");
       if (toEl && ctx.to) { toEl.value = ctx.to; toEl.dispatchEvent(new Event("input")); }
@@ -511,7 +513,50 @@ function fmtMailDate(s) {
   return `${d.getMonth() + 1}/${d.getDate()}(${w}) ${p(d.getHours())}:${p(d.getMinutes())}`;
 }
 
-function wireMailTemplates(box, botId, tpls) {
+// メールの右側に出す欄。テンプレ・返信先・資料URL・下書きの結果を、
+// 同じ場所に入れ替えて出す（アイコンを押したら右に出る、で統一する）。
+function mailSide(box) {
+  const el = box.querySelector(".mail-side");
+  const titleEl = box.querySelector(".mail-side-t");
+  const modalBox = box.closest(".sfm-box");
+  const secs = [...box.querySelectorAll(".mail-side-sec")];
+  const iconOf = { tpl: "[data-tpl-toggle]", reply: null, doc: "[data-doc-make]", draft: null };
+  let now = "";
+
+  const markIcons = () => {
+    for (const [kind, sel] of Object.entries(iconOf)) {
+      if (!sel) continue;
+      const b = box.querySelector(sel);
+      if (b) b.classList.toggle("hib-need", now === kind);
+    }
+  };
+
+  return {
+    get current() { return now; },
+    open(kind, title) {
+      now = kind;
+      if (el) el.hidden = false;
+      if (titleEl) titleEl.textContent = title || "";
+      secs.forEach((x) => { x.hidden = x.dataset.sec !== kind; });
+      if (modalBox) modalBox.classList.add("sfm-box-mailwide");
+      markIcons();
+      return box.querySelector(`.mail-side-sec[data-sec="${kind}"]`);
+    },
+    close() {
+      now = "";
+      if (el) el.hidden = true;
+      if (modalBox) modalBox.classList.remove("sfm-box-mailwide");
+      markIcons();
+    },
+    toggle(kind, title) {
+      if (now === kind) this.close();
+      else this.open(kind, title);
+    },
+    sec(kind) { return box.querySelector(`.mail-side-sec[data-sec="${kind}"]`); },
+  };
+}
+
+function wireMailTemplates(box, botId, tpls, side) {
   const sel = box.querySelector(".mail-tpl-sel");
   const st = box.querySelector(".mail-tpl-st");
   const say = (t, ms) => {
@@ -563,58 +608,71 @@ function wireMailTemplates(box, botId, tpls) {
   if (applyBtn) applyBtn.addEventListener("click", () => doGen(applyBtn, true));
 
   // 資料URLをその場で発行する。
-  // 資料トラッキングの画面まで行かずに、ここで作って本文に入れられるようにする。
+  // どの資料にするかは、右の欄から選んでもらう（番号を打つより間違えにくい）。
   const docBtn = box.querySelector("[data-doc-make]");
   if (docBtn) docBtn.addEventListener("click", async () => {
-    const note = box.querySelector(".home-mail-note");
-    const say = (t) => { if (note) note.textContent = t || ""; };
-    docBtn.disabled = true;
-    say("資料の一覧を読んでいます…");
+    if (side.current === "doc") { side.close(); return; }
+    const sec = side.open("doc", "資料URLを作る");
+    const list = sec.querySelector(".mail-doc-list");
+    list.innerHTML = `<div class="mail-side-note">資料の一覧を読んでいます…</div>`;
     try {
       const d2 = await (await fetch("/api/docs")).json();
-      const docs = d2.docs || [];
+      const docs = (d2.docs || []).filter((x) => x.active !== false);
       if (!docs.length) {
-        say("登録されている資料がありません。ツール → 資料トラッキングで先に登録してください。");
+        list.innerHTML = `<div class="mail-side-note">登録されている資料がありません。` +
+          `<a class="home-sf-link" href="docs.html">資料トラッキング</a>で先に登録してください。</div>`;
         return;
       }
-      // どの資料のURLを作るかを選んでもらう
-      const list = docs.slice(0, 20).map((x, i) => `${i + 1}. ${x.name}`).join("\n");
-      const ans = prompt(`どの資料のURLを作りますか。番号を入れてください。\n\n${list}`, "1");
-      if (ans === null) { say(""); return; }
-      const idx = parseInt(ans, 10) - 1;
-      if (!(idx >= 0 && idx < docs.length)) { say("番号が正しくありません"); return; }
-
-      say("URLを作っています…");
-      const r = await fetch(`/api/meetings/${encodeURIComponent(botId)}/doc-link`, {
-        method: "POST", headers: { "content-type": "application/json" },
-        body: JSON.stringify({ docId: docs[idx].id }),
-      });
-      const d3 = await r.json();
-      if (!r.ok || !(d3.links && d3.links.length)) throw new Error(d3.error || "作れませんでした");
-
-      // できたURLを本文に入れる（{資料URL} があればそこを置き換える）
-      const ta = box.querySelector(".home-mail-body");
-      const line = `${docs[idx].name}：${d3.links[0].url}`;
-      if (ta.value.includes("{資料URL}")) ta.value = ta.value.replace(/\{資料URL\}/g, line);
-      else ta.value = ta.value.trimEnd() + "\n\n" + line + "\n";
-      say("資料URLを本文に入れました。誰が何ページ見たかを追えます。");
-    } catch (e) { say("失敗: " + e.message); }
-    finally { docBtn.disabled = false; }
+      list.innerHTML = docs.slice(0, 30).map((x) =>
+        `<button type="button" class="mail-doc-pick" data-id="${escH(x.id)}" data-name="${escH(x.name)}">
+           <span class="mail-doc-nm">${escH(x.name)}</span>
+           <span class="mail-doc-sub">発行済み ${x.links || 0}件 ／ 閲覧 ${x.views || 0}回</span>
+         </button>`).join("");
+      list.querySelectorAll(".mail-doc-pick").forEach((b) =>
+        b.addEventListener("click", async () => {
+          const name = b.dataset.name;
+          list.querySelectorAll(".mail-doc-pick").forEach((x) => x.classList.toggle("on", x === b));
+          const st = document.createElement("div");
+          st.className = "mail-side-note";
+          st.textContent = "URLを作っています…";
+          list.appendChild(st);
+          try {
+            const r = await fetch(`/api/meetings/${encodeURIComponent(botId)}/doc-link`, {
+              method: "POST", headers: { "content-type": "application/json" },
+              body: JSON.stringify({ docId: parseInt(b.dataset.id, 10) }),
+            });
+            const d3 = await r.json();
+            if (!r.ok || !(d3.links && d3.links.length)) throw new Error(d3.error || "作れませんでした");
+            // できたURLを本文に入れる（{資料URL} があればそこを置き換える）
+            const ta = box.querySelector(".home-mail-body");
+            const line = `${name}：${d3.links[0].url}`;
+            if (ta.value.includes("{資料URL}")) ta.value = ta.value.replace(/\{資料URL\}/g, line);
+            else ta.value = ta.value.trimEnd() + "\n\n" + line + "\n";
+            ta.dispatchEvent(new Event("input"));
+            st.innerHTML = `本文に入れました。<br><span class="dk-dim">${escH(d3.links[0].url)}</span>`;
+          } catch (e) { st.textContent = "失敗: " + e.message; }
+        }));
+    } catch (e) {
+      list.innerHTML = `<div class="mail-side-note">読み込めませんでした：${escH(e.message)}</div>`;
+    }
   });
 
-  // テンプレートのアイコンで開け閉めする
+  // テンプレートのアイコンで、下の選ぶ欄を開け閉めする。
+  // 型を選ぶと、右に「テンプレートを直す」欄が出る。
   const toggle = box.querySelector("[data-tpl-toggle]");
   const panel = box.querySelector(".mail-tpl");
   if (toggle && panel) toggle.addEventListener("click", () => {
     panel.hidden = !panel.hidden;
     toggle.classList.toggle("hib-need", !panel.hidden);
+    if (panel.hidden && side.current === "tpl") side.close();
+    if (!panel.hidden && sel && sel.value) openTplEditor(sel.value);
   });
 
   // 差し込み語を、カーソルの位置に入れる
   box.querySelectorAll(".tag-ins").forEach((b) =>
     b.addEventListener("click", () => {
       // 押したボタンと同じ画面（メール／型を直す）の本文に入れる
-      const pane = b.closest(".mail-pane") || box;
+      const pane = b.closest(".mail-tpl-side") || box;
       const ta = pane.querySelector("textarea");
       if (!ta) return;
       const t = b.dataset.ins;
@@ -642,10 +700,7 @@ function wireMailTemplates(box, botId, tpls) {
     [editBtn].forEach((b) => { if (b) b.classList.toggle("hib-off", !on); });
   };
 
-  // ── テンプレートを直す画面（横にスライドして出す） ──
-  const slider = box.querySelector(".mail-slider");
-  const mainPane = box.querySelector(".mail-pane-main");
-  const tplPane = box.querySelector(".mail-pane-tpl");
+  // ── テンプレートを直す欄（アイコンの右に出す） ──
   const tName = box.querySelector(".tple-name");
   const tSubj = box.querySelector(".tple-subj");
   const tBody = box.querySelector(".tple-body");
@@ -660,13 +715,8 @@ function wireMailTemplates(box, botId, tpls) {
   let editingId = "";
 
   const showTpl = (on) => {
-    if (!slider) return;
-    slider.classList.toggle("on", on);
-    if (mainPane) mainPane.setAttribute("aria-hidden", on ? "true" : "false");
-    if (tplPane) tplPane.setAttribute("aria-hidden", on ? "false" : "true");
-    // 上に戻して、直す欄が見えるようにする
-    const sc = box.closest(".sfm-body") || box;
-    if (sc && sc.scrollTo) sc.scrollTo({ top: 0, behavior: "smooth" });
+    if (on) side.open("tpl", "テンプレートを直す");
+    else { side.close(); editingId = ""; }
   };
 
   const openTplEditor = (id) => {
@@ -680,9 +730,13 @@ function wireMailTemplates(box, botId, tpls) {
     showTpl(true);
   };
 
-  // 型を選んだだけでは何も開かない。
-  // 直したいときだけ「型を直す」を押してもらう（選ぶたびに画面が変わると邪魔なため）。
-  if (sel) sel.addEventListener("change", syncBtns);
+  // 型を選んだら、その中身を右の欄に出す（メールの文面はそのまま）。
+  // 「使わない」に戻したら閉じる。
+  if (sel) sel.addEventListener("change", () => {
+    syncBtns();
+    if (sel.value) openTplEditor(sel.value);
+    else showTpl(false);
+  });
   syncBtns();
 
   if (editBtn) editBtn.addEventListener("click", () => {
@@ -696,7 +750,6 @@ function wireMailTemplates(box, botId, tpls) {
   // この型でメールの文面を作る（メール画面に戻ってから作る）
   const useBtn = box.querySelector("[data-tple-use]");
   if (useBtn) useBtn.addEventListener("click", async () => {
-    showTpl(false);
     await doGen(useBtn, true);
   });
 
@@ -1143,23 +1196,12 @@ async function openMail(botId, key) {
     const subject = d.subject || "【御礼】本日のお打ち合わせについて";
     const body = "";
     box.innerHTML =
-      `<div class="mail-slider">
-       <div class="mail-pane mail-pane-main">
+      `<div class="mail-main">
        <div class="mail-mode">
          <span class="mail-mode-lb">送り方</span>
          <button type="button" class="mail-mode-b on" data-mode="new">新規作成</button>
          <button type="button" class="mail-mode-b" data-mode="reply">返信</button>
          <span class="mail-mode-st"></span>
-       </div>
-
-       <!-- 「返信」を選んだときだけ、どのメールに返信するかを選ぶ -->
-       <div class="mail-reply" hidden>
-         <div class="mail-reply-hd">
-           <span>どのメールに返信しますか</span>
-           <input type="text" class="mail-reply-q" placeholder="会社名や担当者名で探す" />
-           <button type="button" class="btn sf-btn-secondary home-sf-mini" data-reply-search="1">探す</button>
-         </div>
-         <div class="mail-reply-list"></div>
        </div>
 
        <label class="mail-lb">宛先<input type="text" class="home-mail-to" value="${escH(d.to || "")}"
@@ -1176,6 +1218,54 @@ async function openMail(botId, key) {
            ${hIcon("gmail", "Gmailの作成画面で開く", 'data-mailto="1" href="#" target="_blank" rel="noopener"', "", "a")}
            ${hIcon("doc", "資料URLを作る", `data-doc-make="${escH(botId)}"`)}
            ${hIcon("tpl", "テンプレートを使う", 'data-tpl-toggle="1"')}
+         </div>
+
+         <!-- アイコンを押すと、その中身がアイコンの右に出る（テンプレ・返信先・資料URL・下書き） -->
+         <div class="mail-side" hidden>
+           <div class="tple-head">
+             <span class="tple-t mail-side-t">テンプレートを直す</span>
+             <button type="button" class="tple-x" data-side-close="1" aria-label="閉じる" title="閉じる">✕</button>
+           </div>
+
+           <!-- 返信先を選ぶ -->
+           <div class="mail-side-sec" data-sec="reply" hidden>
+             <div class="mail-reply-hd">
+               <input type="text" class="mail-reply-q" placeholder="会社名や担当者名で探す" />
+               <button type="button" class="btn sf-btn-secondary home-sf-mini" data-reply-search="1">探す</button>
+             </div>
+             <div class="mail-reply-list"></div>
+           </div>
+
+           <!-- 資料URLを作る -->
+           <div class="mail-side-sec" data-sec="doc" hidden>
+             <div class="mail-side-note">送る資料を選ぶと、この会社あてのURLを作って本文に入れます。</div>
+             <div class="mail-doc-list"></div>
+           </div>
+
+           <!-- Gmailの下書きの結果 -->
+           <div class="mail-side-sec" data-sec="draft" hidden>
+             <div class="mail-draft-box"></div>
+           </div>
+
+           <!-- テンプレートを直す -->
+           <div class="mail-side-sec" data-sec="tpl" hidden>
+           <div class="mail-acts tple-acts">
+             ${hIcon("tpluse", "この型でメールの文面を作る", `data-tple-use="${escH(botId)}"`, "need")}
+             ${hIcon("tplsave", "この型を保存する", 'data-tple-save="1"')}
+             ${hIcon("tpldel", "この型を消す", 'data-tple-del="1"')}
+           </div>
+           <div class="tple-st"></div>
+           <label class="mail-lb">型の名前<input type="text" class="tple-name" /></label>
+           <label class="mail-lb">件名<input type="text" class="tple-subj" /></label>
+           <label class="mail-lb">本文<textarea class="tple-body" rows="12"></textarea></label>
+           <div class="mail-tpl-help">
+             <button type="button" class="tag-ins" data-ins="{資料URL}">{資料URL}</button>
+             <button type="button" class="tag-ins" data-ins="{会社名}">{会社名}</button>
+             <button type="button" class="tag-ins" data-ins="{担当者名}">{担当者名}</button>
+             <button type="button" class="tag-ins" data-ins="{自分の名前}">{自分の名前}</button>
+             <span class="mail-doc-st">【】で囲んだところと空欄は、商談の内容で埋まります。</span>
+           </div>
+           </div>
          </div>
        </div>
        <div class="home-mail-note"></div>
@@ -1202,36 +1292,13 @@ async function openMail(botId, key) {
            }</span>
          </div>
        </div>
-       </div>
-
-       <!-- テンプレートを直す画面。型を選ぶと、ここへ横にスライドする -->
-       <div class="mail-pane mail-pane-tpl" aria-hidden="true">
-         <div class="tple-head">
-           <button type="button" class="btn sf-btn-secondary home-sf-mini" data-tple-back="1">← メールに戻る</button>
-           <span class="tple-t">テンプレートを直す</span>
-         </div>
-         <label class="mail-lb">型の名前<input type="text" class="tple-name" /></label>
-         <label class="mail-lb">件名<input type="text" class="tple-subj" /></label>
-         <label class="mail-lb">本文<textarea class="tple-body" rows="14"></textarea></label>
-         <div class="mail-tpl-help">
-           ここにこう書くと、送るときに中身が入ります。
-           <button type="button" class="tag-ins" data-ins="{資料URL}">{資料URL}</button>
-           <button type="button" class="tag-ins" data-ins="{会社名}">{会社名}</button>
-           <button type="button" class="tag-ins" data-ins="{担当者名}">{担当者名}</button>
-           <button type="button" class="tag-ins" data-ins="{自分の名前}">{自分の名前}</button>
-           <span class="mail-doc-st">【】で囲んだところと空欄は、商談の内容で埋まります。</span>
-         </div>
-         <div class="mail-acts">
-           ${hIcon("tpluse", "この型でメールの文面を作る", `data-tple-use="${escH(botId)}"`, "need")}
-           ${hIcon("tplsave", "この型を保存する", 'data-tple-save="1"')}
-           ${hIcon("tpldel", "この型を消す", 'data-tple-del="1"')}
-         </div>
-         <div class="tple-st"></div>
-       </div>
        </div>`;
 
-    wireMailTemplates(box, botId, tpls);
-    const mailCtx = wireMailMode(box, botId);
+    const side = mailSide(box);
+    const closeBtn = box.querySelector("[data-side-close]");
+    if (closeBtn) closeBtn.addEventListener("click", () => side.close());
+    wireMailTemplates(box, botId, tpls, side);
+    const mailCtx = wireMailMode(box, botId, side);
 
     // この会社あての資料URLを、開いた時点で用意しておく。
     // 文面に {資料URL} を入れたときに、その場で差し込めるようにするため。
@@ -1268,9 +1335,15 @@ async function openMail(botId, key) {
       a.href = url;
     };
     sync();
+    // 本文が入ったら「下書き」を濃い緑にする（次に押すのはここ、と分かるように）
+    const gdraftBtn = box.querySelector("[data-gdraft]");
+    const syncGo = () => {
+      if (gdraftBtn) gdraftBtn.classList.toggle("hib-go", !!ta.value.trim());
+    };
     su.addEventListener("input", sync);
-    ta.addEventListener("input", sync);
+    ta.addEventListener("input", () => { sync(); syncGo(); });
     if (toEl) toEl.addEventListener("input", sync);
+    syncGo();
     // Gmailに下書きを作る（やり取りがあれば返信として）
     box.querySelector("[data-gdraft]").addEventListener("click", async (e) => {
       const btn = e.currentTarget;
@@ -1295,17 +1368,26 @@ async function openMail(botId, key) {
         });
         const d = await r.json().catch(() => ({}));
         if (!r.ok) throw new Error(d.error || "作成に失敗しました");
-        note.innerHTML =
-          `${d.replied ? "これまでのやり取りへの返信として" : "新規メールとして"}下書きを保存しました` +
-          (d.to ? `（宛先：${escH(d.to)}）` : "（宛先は未設定です。Gmailで入れてください）") +
-          ` <a class="home-sf-link" href="${escH(d.url)}" target="_blank" rel="noopener">Gmailで開く</a>`;
+        // 結果は右の欄に出す（本文の下だと、長い文面のときに見えないため）
+        const sec = side.open("draft", "Gmailの下書き");
+        sec.querySelector(".mail-draft-box").innerHTML =
+          `<div class="mail-side-ok">下書きを保存しました</div>` +
+          `<div class="mail-side-note">` +
+          `${d.replied ? "これまでのやり取りへの返信として作りました" : "新規メールとして作りました"}<br>` +
+          (d.to ? `宛先：${escH(d.to)}` : "宛先は未設定です。Gmailで入れてください") + `</div>` +
+          `<a class="btn sf-btn-secondary home-sf-mini" href="${escH(d.url)}" target="_blank" rel="noopener">Gmailで開く</a>`;
+        note.textContent = "";
         if (nm) nm.textContent = "作成済み";
         btn.classList.add("hib-need");
       } catch (err) {
         const isInput = /本文が空|返信するメール/.test(err.message);
-        note.innerHTML = escH(err.message) + (isInput ? "" :
-          ` <a class="home-sf-link" href="/api/gmail/status" target="_blank" rel="noopener">接続を確認する</a>` +
-          ` <a class="home-sf-link" href="settings.html">設定を開く</a>`);
+        const sec = side.open("draft", "Gmailの下書き");
+        sec.querySelector(".mail-draft-box").innerHTML =
+          `<div class="mail-side-ng">${escH(err.message)}</div>` + (isInput ? "" :
+          `<div class="mail-side-note">` +
+          `<a class="home-sf-link" href="/api/gmail/status" target="_blank" rel="noopener">接続を確認する</a>　` +
+          `<a class="home-sf-link" href="settings.html">設定を開く</a></div>`);
+        note.textContent = "";
         btn.disabled = false; if (nm) nm.textContent = "下書き";
       }
     });

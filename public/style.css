@@ -4903,6 +4903,12 @@ input:focus, select:focus, textarea:focus, .sf-input:focus, .sf-select:focus, .s
 .hib.hib-need:hover svg { fill: #fff; }
 /* 済んだもの・いつでも押せるものは、上の薄い灰のまま（指定は不要） */
 /* まだ押せないものは、場所は空けたまま薄くして押せないことを示す */
+/* 送るための一手（下書きを作る）。文面ができたら、濃い緑にして次に押す場所を示す。 */
+.hib.hib-go .hib-btn { background: #0d5b47; border-color: #0d5b47; }
+.hib.hib-go svg { fill: #fff; }
+.hib.hib-go .hib-name { color: #0d5b47; font-weight: 700; }
+.hib.hib-go:hover .hib-btn { background: #1d9e75; border-color: #1d9e75; }
+
 .hib.hib-off { cursor: default; }
 .hib.hib-off .hib-btn { background: #f6f9f8; border-color: #eaf0ed; }
 .hib.hib-off svg { fill: #cfdcd7; }
@@ -4971,20 +4977,51 @@ input:focus, select:focus, textarea:focus, .sf-input:focus, .sf-select:focus, .s
 .sfm.sfm-small .sfm-s { font-size: 11px; }
 .sfm.sfm-small .home-mail-body { min-height: 140px; }
 
-/* メールの画面と「テンプレートを直す」画面を、横にスライドで切り替える */
+/* テンプレートを直す欄は、本文・アイコンの右に並べる */
 .sfm-body { overflow-x: hidden; }
-.mail-slider { display: flex; align-items: flex-start; width: 200%; transition: transform .25s ease; }
-.mail-slider.on { transform: translateX(-50%); }
-.mail-pane { width: 50%; flex: 0 0 50%; padding: 0 2px; }
-/* 出ていない側は、スライドが終わってから隠す（動いている途中は見えるように） */
-.mail-pane[aria-hidden="true"] { visibility: hidden; height: 0; overflow: hidden;
-  transition: visibility 0s linear .25s, height 0s linear .25s; }
-.tple-head { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
+.mail-side { flex: 0 0 330px; max-width: 330px; border-left: 1px solid var(--line);
+  padding-left: 14px; margin-top: 20px; display: flex; flex-direction: column; gap: 8px;
+  max-height: 62vh; overflow-y: auto; }
+.mail-side[hidden] { display: none; }
+.mail-side-sec { display: flex; flex-direction: column; gap: 8px; }
+.mail-side-sec[hidden] { display: none; }
+.mail-side-note { font-size: 11.5px; color: var(--muted); line-height: 1.7; }
+.mail-side-ok { font-size: 12.5px; font-weight: 700; color: #1F7A4D; }
+.mail-side-ng { font-size: 12.5px; color: #A33C24; line-height: 1.7; }
+/* 資料の選択 */
+.mail-doc-list { display: flex; flex-direction: column; gap: 6px; }
+.mail-doc-pick { display: flex; flex-direction: column; gap: 2px; text-align: left; width: 100%;
+  border: 1px solid var(--line); background: var(--panel); border-radius: 9px;
+  padding: 8px 10px; font-family: inherit; cursor: pointer; }
+.mail-doc-pick:hover { border-color: #9fe1cb; background: #f1f9f6; }
+.mail-doc-pick.on { border-color: #1d9e75; background: #eaf7f2; }
+.mail-doc-nm { font-size: 12.5px; color: var(--ink); font-weight: 600;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mail-doc-sub { font-size: 10.5px; color: var(--muted); }
+/* 直す欄を出したときは、その分だけ画面を広げる */
+.sfm-box-mailwide { width: min(1180px, 96vw); }
+.tple-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.tple-x { border: 1px solid var(--line); background: var(--panel); color: #4a6b62;
+  width: 26px; height: 26px; border-radius: 8px; font-size: 12px; line-height: 1;
+  font-family: inherit; cursor: pointer; display: flex; align-items: center; justify-content: center; }
+.tple-x:hover { background: var(--panel-2); }
+/* 操作は上に置く。中身が長くても押しに行かなくて済む。 */
+.tple-acts { margin-top: 0 !important; justify-content: flex-start; }
 .tple-t { font-size: 13px; font-weight: 700; color: #0d5b47; }
 .tple-name, .tple-subj { width: 100%; margin-top: 4px; padding: 9px 11px; border: 1px solid var(--line);
   border-radius: 9px; font-size: 13px; font-family: inherit; background: var(--panel); }
 .tple-body { width: 100%; margin-top: 4px; padding: 10px 12px; border: 1px solid var(--line);
-  border-radius: 9px; font-size: 13px; font-family: inherit; line-height: 1.9; background: var(--panel); }
+  border-radius: 9px; font-size: 12.5px; font-family: inherit; line-height: 1.8;
+  background: var(--panel); box-sizing: border-box; resize: vertical; }
+.mail-side .mail-tpl-help { margin-top: 2px; }
+.mail-side .mail-acts { margin-top: 6px; }
+.mail-side .mail-reply-hd { margin-bottom: 0; }
+.mail-side .mail-reply-list { max-height: none; }
+@media (max-width: 900px) {
+  .mail-side { flex: 1 1 100%; max-width: 100%; border-left: 0; padding-left: 0;
+    border-top: 1px solid var(--line); padding-top: 12px; max-height: none; }
+  .mail-body-row { flex-wrap: wrap; }
+}
 .tple-st { font-size: 11.5px; color: #0F6E56; margin-top: 8px; text-align: right; }
 
 /* 本文とアイコンを横に並べる。アイコンは常に見える位置（右）に置く。 */
