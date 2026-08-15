@@ -662,6 +662,22 @@ async function pushSetup() {
   finally { if (btn) btn.disabled = false; }
 }
 
+// 更新（デプロイ）の通知
+async function loadDeploy() {
+  const box = $("depBox");
+  if (!box) return;
+  try {
+    const d = await apiJson("/api/deploy/info");
+    if ($("depOn")) $("depOn").checked = d.enabled !== false;
+    box.innerHTML =
+      (d.message ? `いまの中身：<b>${esc(d.message)}</b>${d.commit ? `（${esc(d.commit)}）` : ""}<br>` : "") +
+      (d.hookUrl
+        ? `Railwayの Webhook にこのURLを入れると、失敗したときも知らせます：<br>` +
+          `<code class="dep-url">${esc(d.hookUrl)}</code>`
+        : `公開URL（PUBLIC_URL）が未設定のため、Webhookは使えません。`);
+  } catch (e) { box.textContent = "確認できませんでした：" + e.message; }
+}
+
 // 今動いているバージョンを出す（デプロイが反映されたか確かめる用）
 async function showVersion() {
   const el = $("verBox");
@@ -1496,6 +1512,25 @@ async function saveMailCfg() {
   if ($("siNone")) $("siNone").addEventListener("click", () =>
     document.querySelectorAll("#siBox .si-chk").forEach((c) => { c.checked = false; }));
   if ($("verBox")) showVersion();
+  if ($("depBox")) loadDeploy();
+  if ($("depOn")) $("depOn").addEventListener("change", async (e) => {
+    const st = $("depStatus");
+    try {
+      await apiJson("/api/deploy/info", {
+        method: "PUT", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ enabled: e.target.checked }),
+      });
+      if (st) { st.textContent = e.target.checked ? "知らせます" : "知らせません"; setTimeout(() => (st.textContent = ""), 4000); }
+    } catch (err) { if (st) st.textContent = "失敗: " + err.message; }
+  });
+  if ($("depTest")) $("depTest").addEventListener("click", async () => {
+    const st = $("depStatus");
+    if (st) st.textContent = "送っています…";
+    try {
+      const d = await apiJson("/api/deploy/test-notify", { method: "POST" });
+      if (st) st.textContent = d.skipped ? `送れませんでした（${d.reason || ""}）` : "送りました。Chatを見てください";
+    } catch (e) { if (st) st.textContent = "失敗: " + e.message; }
+  });
   if ($("pushCheck")) $("pushCheck").addEventListener("click", pushCheck);
   if ($("pushSetup")) $("pushSetup").addEventListener("click", pushSetup);
   if ($("pushBox")) pushCheck();

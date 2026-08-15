@@ -521,6 +521,7 @@ export async function initDb() {
       created_at   TIMESTAMPTZ DEFAULT now()
     );
   `);
+  await sq(`ALTER TABLE chat_targets ADD COLUMN IF NOT EXISTS on_deploy BOOLEAN NOT NULL DEFAULT true;`);
   await sq(`CREATE INDEX IF NOT EXISTS ix_calendar_watch_cal ON calendar_watch(calendar_id);`);
 
   // ===== スマートリンク（担当者切り替えに追随する共有Zoom URL） =====
@@ -691,6 +692,7 @@ export async function initDb() {
       on_mail      BOOLEAN NOT NULL DEFAULT true,
       on_doc       BOOLEAN NOT NULL DEFAULT true,
       on_launch    BOOLEAN NOT NULL DEFAULT true,
+      on_deploy    BOOLEAN NOT NULL DEFAULT true,
       active       BOOLEAN NOT NULL DEFAULT true,
       last_error   TEXT,
       sent_count   INT NOT NULL DEFAULT 0,
@@ -3196,7 +3198,8 @@ export async function addChatTarget({ name, webhookUrl, spaceId }) {
 export async function updateChatTarget(id, patch) {
   if (!pool || !id) return null;
   const cols = { name: "name", webhookUrl: "webhook_url", spaceId: "space_id",
-    onAssign: "on_assign", onMail: "on_mail", onDoc: "on_doc", onLaunch: "on_launch", active: "active" };
+    onAssign: "on_assign", onMail: "on_mail", onDoc: "on_doc", onLaunch: "on_launch",
+    onDeploy: "on_deploy", active: "active" };
   const sets = [], vals = [id];
   for (const [k, col] of Object.entries(cols)) {
     if (patch[k] === undefined) continue;

@@ -2496,6 +2496,7 @@ const CT_KINDS = [
   ["onMail", "メール"],
   ["onDoc", "資料の閲覧"],
   ["onLaunch", "SF立ち上げ"],
+  ["onDeploy", "kinbotの更新"],
 ];
 
 function ctSay(id, t, ms) {

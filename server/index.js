@@ -433,6 +433,8 @@ const OPEN_PATHS = new Set([
   "/gpt-actions-openapi.yaml",
   // Googleカレンダーからの変更通知（Googleが直接叩くので認証なし。合言葉で本物か確かめる）
   "/api/google/calendar-push",
+  // Railwayからのデプロイ通知（合言葉で本物か確かめる）
+  "/api/railway/deploy-hook",
 ]);
 if (!authEnabled()) {
   console.warn("[警告] アカウント未設定。誰でも操作できます。公開時は DATABASE_URL を設定し登録制にしてください。");
@@ -3610,6 +3612,7 @@ app.get("/api/chat-targets", async (req, res) => {
         id: r.id, name: r.name,
         webhookUrl: r.webhook_url || "", spaceId: r.space_id || "",
         onAssign: r.on_assign, onMail: r.on_mail, onDoc: r.on_doc, onLaunch: r.on_launch,
+        onDeploy: r.on_deploy,
         active: r.active, lastError: r.last_error || "", sentCount: r.sent_count,
         via: r.space_id ? "kinbot名義" : "Webhook",
       })),
@@ -3639,7 +3642,7 @@ app.put("/api/chat-targets/:id", async (req, res) => {
   try {
     const b = req.body || {};
     const patch = {};
-    for (const k of ["onAssign", "onMail", "onDoc", "onLaunch", "active"]) {
+    for (const k of ["onAssign", "onMail", "onDoc", "onLaunch", "onDeploy", "active"]) {
       if (b[k] !== undefined) patch[k] = b[k] !== false;
     }
     if (b.name !== undefined) patch.name = String(b.name).trim().slice(0, 80);
@@ -11057,6 +11060,91 @@ app.post("/api/apo/push-setup", async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+// ───────────────────────────────────────────────────────────
+// 更新（デプロイ）の通知
+//
+// Railwayは、GitHubに上げるたびに新しい中身で起動し直す。
+// その起動をつかまえて「更新が終わりました」とChatに流す。
+// Railwayの環境変数（RAILWAY_GIT_*）があれば、何を入れた更新かも書く。
+// ───────────────────────────────────────────────────────────
+const DEPLOY_ENV = {
+  commit: String(process.env.RAILWAY_GIT_COMMIT_SHA || "").slice(0, 7),
+  message: String(process.env.RAILWAY_GIT_COMMIT_MESSAGE || "").split("\n")[0].slice(0, 120),
+  author: String(process.env.RAILWAY_GIT_AUTHOR || ""),
+  branch: String(process.env.RAILWAY_GIT_BRANCH || ""),
+};
+
+function deployText(head) {
+  const jst = new Date(Date.now() + 9 * 3600 * 1000).toISOString().replace("T", " ").slice(0, 16);
+  return [
+    head,
+    DEPLOY_ENV.message ? `📝 ${DEPLOY_ENV.message}` : "",
+    DEPLOY_ENV.commit ? `🔖 ${DEPLOY_ENV.commit}${DEPLOY_ENV.branch ? `（${DEPLOY_ENV.branch}）` : ""}` : "",
+    `🧩 ${BUILD_TAG}`,
+    `🕒 ${jst}`,
+    PUBLIC_URL ? `🔗 ${PUBLIC_URL}` : "",
+  ].filter(Boolean).join("\n");
+}
+
+async function notifyDeployDone() {
+  const st = await getSettings().catch(() => ({}));
+  if (st.notifyDeploy === false) return;
+  // 手元で動かしているときは流さない（公開URLがある＝本番とみなす）
+  if (!PUBLIC_URL) return;
+  await notifyAll(deployText("🚀 *kinbotの更新が終わりました*"), "deploy");
+  console.log("[deploy] 更新の通知を送りました");
+}
+
+// Railwayの「Webhook」から呼んでもらう受け口（失敗も拾いたいとき用）。
+// 合言葉付きのURLを、Railwayのプロジェクト設定に入れて使う。
+app.post("/api/railway/deploy-hook", async (req, res) => {
+  const token = String(req.query.token || req.headers["x-kinbot-token"] || "");
+  res.status(200).end();
+  try {
+    if (token !== PUSH_TOKEN) return;
+    const b = req.body || {};
+    const status = String(b.status || b.type || "").toUpperCase();
+    const ok = /SUCCESS|DEPLOYED|COMPLETE/.test(status);
+    const ng = /FAIL|CRASH|ERROR/.test(status);
+    if (!ok && !ng) return;   // 途中経過は流さない
+    const msg = String(b.deployment?.meta?.commitMessage || b.commitMessage || "").split("\n")[0];
+    await notifyAll([
+      ok ? "🚀 *kinbotの更新が終わりました*" : "⚠️ *kinbotの更新に失敗しました*",
+      msg ? `📝 ${msg}` : "",
+      `🧩 ${status}`,
+    ].filter(Boolean).join("\n"), "deploy");
+  } catch (e) { console.warn("[deploy-hook]", e.message); }
+});
+
+// 更新通知の設定（Railwayに入れるURLと、いまのON/OFF）
+app.get("/api/deploy/info", async (req, res) => {
+  try {
+    const st = await getSettings().catch(() => ({}));
+    res.json({
+      enabled: st.notifyDeploy !== false,
+      build: BUILD_TAG,
+      startedAt: START_TIME,
+      commit: DEPLOY_ENV.commit, message: DEPLOY_ENV.message, branch: DEPLOY_ENV.branch,
+      hookUrl: PUBLIC_URL ? `${PUBLIC_URL.replace(/\/+$/, "")}/api/railway/deploy-hook?token=${PUSH_TOKEN}` : "",
+    });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.put("/api/deploy/info", async (req, res) => {
+  try {
+    await saveSettings({ notifyDeploy: req.body?.enabled !== false });
+    res.json({ ok: true, enabled: req.body?.enabled !== false });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// 通知の見え方を試す
+app.post("/api/deploy/test-notify", async (req, res) => {
+  try {
+    const r = await notifyAll(deployText("🚀 *kinbotの更新が終わりました（テスト）*"), "deploy");
+    res.json({ ok: true, ...r });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 // 手動で自動スキャンを流す（動作確認用）
 app.post("/api/apo/auto-scan", async (req, res) => {
   try {
@@ -12200,6 +12288,10 @@ app.delete("/api/proposals/:id", async (req, res) => {
 
 server.listen(PORT, async () => {
   await initDb().catch((e) => console.error("[db] init失敗", e.message));
+
+  // 更新（デプロイ）が終わったことをGoogle Chatに知らせる。
+  // Railwayは新しい中身で入れ替えて起動し直すので、この起動＝更新の完了になる。
+  setTimeout(() => { notifyDeployDone().catch(() => {}); }, 8000);
   if (CALENDAR_AUTO_JOIN) {
     startScheduler({ publicUrl: PUBLIC_URL });
   } else {

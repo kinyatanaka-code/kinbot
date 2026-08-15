@@ -70,7 +70,7 @@ export async function notifyAll(text, kind = "") {
     return notifyChat(t);
   }
 
-  const col = { assign: "on_assign", mail: "on_mail", doc: "on_doc", launch: "on_launch" }[kind];
+  const col = { assign: "on_assign", mail: "on_mail", doc: "on_doc", launch: "on_launch", deploy: "on_deploy" }[kind];
   const list = col ? targets.filter((x) => x[col]) : targets;
   if (!list.length) return { ok: false, skipped: true, reason: "この種類の通知はどこもONになっていません" };
 
