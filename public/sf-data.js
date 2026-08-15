@@ -522,6 +522,24 @@ function psBody(dryRun) {
   };
 }
 
+// 獲得者ごとのアポ件数。Chatに流れたアポと突き合わせて確かめるための表。
+function psApoByPerson(list) {
+  if (!Array.isArray(list) || !list.length) return "";
+  const rows = list.map((x) =>
+    `<tr><td>${srEsc(x.setter)}</td>` +
+    `<td class="ps-num">${x.inTerm}</td>` +
+    `<td class="ps-num">${x.outTerm}</td>` +
+    `<td class="ps-num${x.undecided ? " ps-out" : ""}">${x.undecided || 0}</td>` +
+    `<td class="ps-days">${x.days.map((dd) =>
+      `${srEsc(dd.day)}<span class="dk-dim">（内${dd.inTerm}/外${dd.outTerm}${dd.undecided ? `/未${dd.undecided}` : ""}）</span>`
+    ).join("　")}</td></tr>`).join("");
+  return `<details class="ps-detail" open><summary>獲得者ごとのアポ（シートに書く数）</summary>` +
+    `<p class="note">コール・接触はSalesforceのレポートから、アポはkinbotのアポ記録（Chatに流れたもの）から数えています。` +
+    `Chatの通知件数と見比べて、合っているか確かめられます。</p>` +
+    `<table class="ps-table"><thead><tr><th>アポ獲得者</th><th>期内</th><th>期外</th><th>商談日未定</th><th>日ごと</th></tr></thead>` +
+    `<tbody>${rows}</tbody></table></details>`;
+}
+
 // アポが期内・期外のどちらに入ったかを、1件ずつ出す。
 // 「期内のはずなのに期外」の原因を、その場で確かめられるようにする。
 function psApoDetail(list) {
@@ -655,6 +673,7 @@ async function psRun(dryRun) {
         ? `<div class="ps-skip">商談日が分かっていないアポが ${d.undecided}件あります。` +
           `これらは「期外」に入ります（下の内訳で「商談日が未定」と出ているもの）。</div>`
         : "") +
+      psApoByPerson(d.apoByPerson) +
       psApoDetail(d.apoDetail) +
       (ups.length
         ? `<div class="ps-note">この内容で書き込みます（${d.count}箇所）。問題なければ「シートに書き込む」を押してください。</div>` +

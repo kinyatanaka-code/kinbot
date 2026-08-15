@@ -3134,7 +3134,7 @@ app.get("/api/process-sheet", async (req, res) => {
       sheetId: st.psSheetId || "", sheetName: st.psSheetName || "",
       reportId: st.psReportId || "", owner: st.psOwner || "",
       termFrom: st.psTermFrom || "", termTo: st.psTermTo || "",
-      termMode: st.psTermMode === "auto" ? "auto" : "fixed",
+      termMode: st.psTermMode === "fixed" ? "fixed" : "auto",
       autoRun: st.psAutoRun === true,
       filters: (() => { try { return JSON.parse(st.psFilters || "null"); } catch { return null; } })(),
       gasUrl: st.psGasUrl || "", gasSecretSet: !!st.psGasSecret,
@@ -3305,6 +3305,26 @@ async function runProcessSheet(sfUser, opts = {}) {
                        meetingDate: r.meeting_date, term: r.term, label: r.label })),
       // 商談日が未定のもの（未定は期内に数えない）。全部期外になる原因の多くはこれ。
       undecided: apoRows.reduce((n, r) => n + (Number(r.undecided) || 0), 0),
+      // 獲得者ごとの内訳（Chatに流れたアポと突き合わせて確かめられるように）
+      apoByPerson: (() => {
+        const by = new Map();
+        for (const r of apoRows) {
+          const who = String(r.setter || "").trim();
+          if (!who) continue;
+          if (!by.has(who)) by.set(who, { setter: who, inTerm: 0, outTerm: 0, undecided: 0, days: [] });
+          const t = by.get(who);
+          const i = Number(r.in_term) || 0, o = Number(r.out_term) || 0, u = Number(r.undecided) || 0;
+          t.inTerm += i; t.outTerm += o; t.undecided += u;
+          if (i || o || u) t.days.push({ day: r.day, inTerm: i, outTerm: o, undecided: u });
+        }
+        const dayNum = (d) => {
+          const m = String(d || "").match(/(\d+)\/(\d+)/);
+          return m ? Number(m[1]) * 100 + Number(m[2]) : 0;
+        };
+        return [...by.values()]
+          .map((x) => ({ ...x, days: x.days.sort((a, b) => dayNum(a.day) - dayNum(b.day)) }))
+          .sort((a, b) => (b.inTerm + b.outTerm) - (a.inTerm + a.outTerm));
+      })(),
       // 判定に使った期間・分け方も返す（ずれていないか確かめられるように）
       termUsed: { from, to, mode: termMode },
     };
