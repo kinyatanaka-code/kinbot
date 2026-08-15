@@ -268,7 +268,7 @@ import { resolveConfig, statusInfo } from "./config.js";
 import { callLLMPublic, analyzerInfo, analyzeMeeting, analyzeDeep, freeAnalyze, chatWithData, enrichCompany, lookupEmployeeCount, lookupCompanyBasics, generateThanks, THANKS_PROMPT, getCheckItems, getSummaryPrompt, getCustomPrompt, runCustomAnalysis, analyzeWinPatterns, classifyMeetingKind, extractFirstMeeting, extractReMeeting, buildBrief, extractFeatureCTags, enrichCompanyAttributes, generateFeatureCInsights, extractQaPairs, splitPhases } from "./analyzer.js";
 import { searchCompanies, getCompanyDetail, gbizConfigured } from "./gbizinfo.js";
 import { searchCompanyInfo, webLookupAvailable } from "./websearch.js";
-import { readLayout, tally, buildUpdates, applyApoCounts, METRICS } from "./processsheet.js";
+import { readLayout, readGoals, tally, buildUpdates, applyApoCounts, METRICS } from "./processsheet.js";
 import {
   googleConfigured,
   authUrl,
@@ -3285,13 +3285,34 @@ async function buildCallReport(sfUser) {
     if (k) apoBy.set(k, (apoBy.get(k) || 0) + 1);
   }
 
-  // 目標（メンバーごと）
+  // 目標は、プロセスシートの「目標」列から読む。
+  // シートが読めないときだけ、設定に入れた目標を使う。
   let goals = {};
-  try { goals = JSON.parse(st.callGoals || "{}") || {}; } catch {}
+  let goalFrom = "";
+  try {
+    const sheetId = String(st.psSheetId || "").trim();
+    const sheetName = String(st.psSheetName || "").trim();
+    const owner = String(st.psOwner || sfUser || "").trim();
+    if (sheetId && sheetName && owner) {
+      const values = await readSheet(owner, sheetId, `${sheetName}!A1:DZ200`);
+      const layout = readLayout(values);
+      if (!layout.error) {
+        goals = readGoals(values, layout, Number(today.slice(5, 7)), Number(today.slice(8, 10)));
+        if (Object.keys(goals).length) goalFrom = "プロセスシート";
+      }
+    }
+  } catch (e) {
+    console.warn("[call-report] シートの目標を読めませんでした:", e.message);
+  }
+  if (!Object.keys(goals).length) {
+    try { goals = JSON.parse(st.callGoals || "{}") || {}; } catch {}
+    if (Object.keys(goals).length) goalFrom = "設定に入れた目標";
+  }
   const goalOf = (name) => {
     const n = String(name || "").replace(/[\s　]/g, "");
     for (const [k, v] of Object.entries(goals)) {
-      if (String(k).replace(/[\s　]/g, "") === n) return v || {};
+      const g = String(k).replace(/[\s　]/g, "");
+      if (g === n || g.startsWith(n) || n.startsWith(g)) return v || {};
     }
     return {};
   };
@@ -3318,18 +3339,40 @@ async function buildCallReport(sfUser) {
   const hh = String(now.getUTCHours()).padStart(2, "0");
   const rate = sum.calls ? ((sum.apos / sum.calls) * 100).toFixed(1) : "0.0";
 
+  // 目標だけあって、まだ実績が0の人も出す（誰が止まっているか分かるように）
+  for (const name of Object.keys(goals)) {
+    const hit = list.find((x) => {
+      const a = x.name.replace(/[\s　]/g, ""), b = name.replace(/[\s　]/g, "");
+      return a === b || a.startsWith(b) || b.startsWith(a);
+    });
+    if (!hit) list.push({ name, calls: 0, contacts: 0, apos: 0 });
+  }
+
+  const goalSum = list.reduce((o, x) => {
+    const g = goalOf(x.name);
+    return { calls: o.calls + (Number(g.calls) || 0), apos: o.apos + (Number(g.apos) || 0) };
+  }, { calls: 0, apos: 0 });
+
   const lines = [
     `📞 *コール進捗（${hh}:00 時点）*`,
-    `合計：${sum.calls}コール ／ 接触 ${sum.contacts} ／ アポ ${sum.apos}（アポ率 ${rate}%）`,
+    `合計：${sum.calls}コール ／ 接触 ${sum.contacts} ／ アポ ${sum.apos}（アポ率 ${rate}%）` +
+      (goalSum.calls ? `\n🎯 目標：${goalSum.calls}コール / ${goalSum.apos}アポ（あと ${Math.max(0, goalSum.calls - sum.calls)}コール / ${Math.max(0, goalSum.apos - sum.apos)}アポ）` : ""),
     "",
   ];
-  for (const x of list) {
+  for (const x of list.sort((a, b) => b.calls - a.calls)) {
     const g = goalOf(x.name);
-    const gc = Number(g.calls) || 0, ga = Number(g.apos) || 0;
-    const need = gc ? `（目標 ${gc}c${ga ? ` / ${ga}アポ` : ""}／あと ${Math.max(0, gc - x.calls)}c）` : "";
-    lines.push(`・${x.name}：${x.calls}c / ${x.apos}アポ${need}`);
+    const gc = Number(g.calls) || 0, ga = Number(g.apos) || 0, gh = Number(g.hours) || 0;
+    const head = `・${x.name}${gh ? `（${gh}h）` : ""}`;
+    if (gc || ga) {
+      const pct = gc ? Math.round((x.calls / gc) * 100) : 0;
+      lines.push(`${head}　目標 ${gc}c / ${ga}アポ　→　実績 ${x.calls}c / ${x.apos}アポ` +
+        (gc ? `（${pct}%・あと ${Math.max(0, gc - x.calls)}c）` : ""));
+    } else {
+      lines.push(`${head}　実績 ${x.calls}c / ${x.apos}アポ`);
+    }
   }
   if (!list.length) lines.push("（まだ実績がありません）");
+  if (goalFrom) lines.push("", `（目標は${goalFrom}から読みました）`);
 
   return { skipped: false, text: lines.join("\n"), summary: sum, rows: list };
 }

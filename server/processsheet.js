@@ -91,11 +91,14 @@ export function readLayout(values) {
   for (let c = 0; c < row.length; c++) {
     const md = parseMD(row[c]);
     if (!md) continue;
-    let actual = -1;
+    let actual = -1, goal = -1, hours = -1;
     for (let k = c; k < Math.min(c + 4, heads.length); k++) {
-      if (at(headRow, k) === "実績") { actual = k; break; }
+      const h = at(headRow, k);
+      if (actual < 0 && h === "実績") actual = k;
+      if (goal < 0 && h === "目標") goal = k;
+      if (hours < 0 && h === "稼働時間目標") hours = k;
     }
-    found.push({ ...md, col: c, actual });
+    found.push({ ...md, col: c, actual, goal, hours });
   }
   // 見出しから分かったぶんで、ずれ幅（日付の列 → 実績の列）を決める
   const offsets = found.filter((f) => f.actual >= 0).map((f) => f.actual - f.col);
@@ -104,7 +107,9 @@ export function readLayout(values) {
     : 2;
   for (const f of found) {
     const col = f.actual >= 0 ? f.actual : f.col + offset;
-    dates.push({ m: f.m, d: f.d, col });
+    // 目標の列は「実績」のすぐ左にあることが多い。見出しが空なら、その位置で補う。
+    const goalCol = f.goal >= 0 ? f.goal : col - 1;
+    dates.push({ m: f.m, d: f.d, col, goalCol, hoursCol: f.hours });
   }
   if (!dates.length) return { error: "日付の列が見つかりませんでした" };
 
@@ -125,6 +130,30 @@ export function readLayout(values) {
   }
 
   return { dateRow, headRow, dates, people: people.filter((p) => Object.keys(p.rows).length) };
+}
+
+// シートに入っている「目標」を読む。
+// その日の列グループの「目標」列から、担当者ごとのコール目標・アポ目標を取り出す。
+export function readGoals(values, layout, m, d) {
+  const out = {};
+  if (!layout || !layout.dates) return out;
+  const day = layout.dates.find((x) => x.m === Number(m) && x.d === Number(d));
+  if (!day || !(day.goalCol >= 0)) return out;
+  const num = (r, c) => {
+    const v = ((values[r] || [])[c] || "").toString().replace(/[,，\s　]/g, "");
+    const n = Number(v);
+    return Number.isFinite(n) ? n : 0;
+  };
+  for (const p of layout.people || []) {
+    const calls = p.rows["コール"] >= 0 ? num(p.rows["コール"], day.goalCol) : 0;
+    const apoIn = p.rows["アポ（期内）"] >= 0 ? num(p.rows["アポ（期内）"], day.goalCol) : 0;
+    const apoOut = p.rows["アポ（期外）"] >= 0 ? num(p.rows["アポ（期外）"], day.goalCol) : 0;
+    const hours = day.hoursCol >= 0 && p.rows["コール"] >= 0 ? num(p.rows["コール"], day.hoursCol) : 0;
+    if (calls || apoIn || apoOut || hours) {
+      out[p.name] = { calls, apos: apoIn + apoOut, hours };
+    }
+  }
+  return out;
 }
 
 // 架電結果を、担当者ごと・日ごとに数える。
