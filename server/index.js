@@ -6480,12 +6480,42 @@ app.get("/api/meetings/:id/thanks-context", async (req, res) => {
     let docLinks = [];
     try { docLinks = await docLinksForCompany(company, 5); } catch {}
     const base = String(process.env.PUBLIC_URL || "").replace(/\/+$/, "");
-    // 宛先（分かれば画面に入れておく）
+    // 宛先（分かれば画面に入れておく）。
+    //   1. この商談に記録されているお客様のアドレス
+    //   2. アポの記録・資料URLの宛先（会社名で照合）
+    //   3. Gmailのやり取り（会社名 → 担当者名で探し、社外の相手を拾う）
     let to = String(m.client_email || "").trim();
     let toSource = to ? "商談の記録" : "";
     if (!to) {
       const hit = await clientEmailForCompany(company).catch(() => null);
       if (hit) { to = hit.email; toSource = hit.source; }
+    }
+    if (!to) {
+      try {
+        const person = (() => {
+          const t = String(m.title || "").replace(/【[^】]*】/g, " ");
+          const mm = t.match(/([一-龥ぁ-んァ-ヶa-zA-Z]{1,10})\s*(様|さま|さん)/);
+          return mm ? mm[1] : "";
+        })();
+        const ready = await gmailReady(req.user).catch(() => ({ ok: false }));
+        if (ready.ok) {
+          const internal = await internalEmailSet();
+          for (const q of [company, person].filter(Boolean)) {
+            const threads = await gmailSearchThreads(req.user, q, 5).catch(() => []);
+            for (const th of threads) {
+              // 送信者が社外なら、その人が相手。自分が送ったメールなら宛先側を見る。
+              for (const cand of [parseEmailAddr(th.from), parseEmailAddr(th.to)]) {
+                const e = String(cand || "").toLowerCase();
+                if (!e || internal.has(e) || isInternalAddress(e)) continue;
+                to = cand; toSource = "これまでのメール";
+                break;
+              }
+              if (to) break;
+            }
+            if (to) break;
+          }
+        }
+      } catch {}
     }
     res.json({
       company,

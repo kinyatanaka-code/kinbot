@@ -1187,7 +1187,7 @@ async function openMail(botId, key) {
 
        <label class="mail-lb">宛先<input type="text" class="home-mail-to" value="${escH(d.to || "")}"
          placeholder="送り先のメールアドレス（空のままでもGmailで入れられます）" />
-         ${d.to ? `<span class="mail-to-src">${escH(d.toSource || "")}から入れました</span>` : ""}</label>
+         <span class="mail-to-src">${d.to ? `${escH(d.toSource || "")}から入れました` : ""}</span></label>
        <label class="mail-lb">件名<input type="text" class="home-mail-subj" value="${escH(subject)}" /></label>
        <!-- 本文の右にアイコンを置く。下に置くと、長い文面のときに画面の外に出てしまうため。 -->
        <div class="mail-body-row">
