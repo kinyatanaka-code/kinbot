@@ -5,6 +5,7 @@
 // 誰も見なかった商談の費用がかかりません。録画はGoogleドライブに残すので、
 // Cloudflare側の録画は作りません（保存料もかかりません）。
 
+import { saveLiveRelay, getLiveRelay } from "./db.js";
 import {
   muxConfigured,
   createLiveStream as muxCreateLiveStream,
@@ -89,7 +90,10 @@ export async function createLiveStream() {
     relayMap.set(token, { dest: cfUrl, at: Date.now() });
     // 古い割り当ては片付ける（12時間）
     for (const [k, v] of relayMap) if (Date.now() - v.at > 12 * 3600 * 1000) relayMap.delete(k);
-    rtmpUrl = `${relay}/${token}`;
+    // データベースにも残す。kinbotが再起動しても、中継サーバーが宛先を引けるようにするため。
+    await saveLiveRelay(token, cfUrl).catch(() => {});
+    // 「/live/合図」の形にする。配信ソフトによっては、アプリ名と鍵の2つに分かれていないと送れないため。
+    rtmpUrl = `${relay}/live/${token}`;
   }
 
   return {
@@ -98,6 +102,21 @@ export async function createLiveStream() {
     rtmpUrl,
     relayed: !!(relay && cfUrl),
   };
+}
+
+// 中継サーバーから聞かれた合図に対して、送り先を返す。
+// メモリ →（無ければ）データベース の順に探す。
+export async function relayDestFor(token) {
+  const t = String(token || "").trim();
+  if (!t) return "";
+  const hit = relayMap.get(t);
+  if (hit) return hit.dest;
+  const row = await getLiveRelay(t).catch(() => null);
+  if (row && row.dest) {
+    relayMap.set(t, { dest: row.dest, at: Date.now() });
+    return row.dest;
+  }
+  return "";
 }
 
 // 配信を止める（枠を片づける）

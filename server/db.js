@@ -510,6 +510,18 @@ export async function initDb() {
   `);
   await sq(`CREATE INDEX IF NOT EXISTS idx_oauth_tokens_refresh ON oauth_tokens(refresh_token);`);
 
+  // ===== ライブ中継の宛先（中継サーバーが尋ねてくる） =====
+  // メモリだけに持っていると、kinbotが再起動したときに失われ、
+  // 中継サーバーが宛先を引けなくなって映像が届かなくなる。
+  await sq(`
+    CREATE TABLE IF NOT EXISTS live_relay (
+      token      TEXT PRIMARY KEY,
+      dest       TEXT NOT NULL,
+      bot_id     TEXT,
+      created_at TIMESTAMPTZ DEFAULT now()
+    );
+  `);
+
   // ===== カレンダーの変更をGoogleから即時に受け取るための監視 =====
   await sq(`
     CREATE TABLE IF NOT EXISTS calendar_watch (
@@ -2603,6 +2615,36 @@ export async function getSmartLinkByEvent(eventId) {
   const { rows } = await pool.query(`SELECT * FROM smart_links WHERE event_id=$1`, [eventId]);
   return rows[0] || null;
 }
+// ===== ライブ中継の宛先 =====
+export async function saveLiveRelay(token, dest, botId = "") {
+  if (!pool || !token || !dest) return null;
+  try {
+    await pool.query(
+      `INSERT INTO live_relay (token, dest, bot_id) VALUES ($1,$2,$3)
+       ON CONFLICT (token) DO UPDATE SET dest = EXCLUDED.dest, bot_id = EXCLUDED.bot_id`,
+      [token, dest, botId || null]);
+    // 古いものは片付ける（2日）
+    await pool.query(`DELETE FROM live_relay WHERE created_at < now() - interval '2 days'`);
+    return true;
+  } catch (e) { console.error("[db] saveLiveRelay", e.message); return null; }
+}
+
+export async function getLiveRelay(token) {
+  if (!pool || !token) return null;
+  try {
+    const { rows } = await pool.query(`SELECT * FROM live_relay WHERE token = $1`, [token]);
+    return rows[0] || null;
+  } catch { return null; }
+}
+
+export async function countLiveRelay() {
+  if (!pool) return 0;
+  try {
+    const { rows } = await pool.query(`SELECT count(*)::int AS n FROM live_relay`);
+    return rows[0] ? rows[0].n : 0;
+  } catch { return 0; }
+}
+
 // ===== カレンダー監視（プッシュ通知）の記録 =====
 export async function listCalendarWatches() {
   if (!pool) return [];

@@ -25,5 +25,22 @@ RecallのRTMP配信を受けて、CloudflareへRTMPSで送り直すだけの中�
 
 ## 動作確認
 
-商談を始めて、kinbotの `/api/live/status` が `connected` になれば成功です。
-中継のログに `[relay] 転送を開始します` が出ます。
+kinbotの `/api/live/diagnose` を開くと、どこで止まっているかが1画面で分かります。
+1〜5がすべて○なら、あとはRecallから映像が届くのを待つだけです。
+
+商談を始めると、中継のログに次の順で出ます。
+
+```
+[relay] 配信を受け取りました: path=live/kbxxxx token=kbxxxx
+[relay] Cloudflareへ転送します（kbxxxx）
+```
+
+## うまくいかないとき
+
+| 中継のログ | 意味 | 直し方 |
+|---|---|---|
+| 何も出ない | Recallから中継に届いていない | TCP Proxyのホスト・ポートが `LIVE_RELAY_RTMP` と合っているか確認 |
+| `宛先を取得できませんでした` | kinbotが宛先を返せていない | 両方の `RELAY_SECRET` が同じか、`KINBOT_URL` が正しいかを確認 |
+| `転送が終わりました（終了コード …）` がすぐ出る | Cloudflareへ送れていない | Cloudflareの配信枠が消えていないか確認（`CF_STREAM_TOKEN` の権限も） |
+
+宛先の対応表は、kinbotが再起動しても消えないようにデータベースへ保存しています。

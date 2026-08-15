@@ -15,9 +15,13 @@ api: no
 metrics: no
 
 pathDefaults:
+  # 誰でも送れる／見られる（合図の文字列そのものが鍵になっている）
+  source: publisher
+
   # 配信が始まったら、宛先をkinbotに聞いてCloudflareへ送り直す
   runOnReady: /app/on-ready.sh $MTX_PATH
   runOnReadyRestart: yes
 
 paths:
+  # どんな合図（パス）でも受け取る。「live/kbxxxx」のように2段でも受ける。
   all_others:

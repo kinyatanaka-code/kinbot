@@ -91,6 +91,7 @@ import {
   getSmartLinkByEvent,
   findSmartLinkByLabelStart,
   listCalendarWatches,
+  countLiveRelay,
   saveCalendarWatch,
   deleteCalendarWatch,
   getCalendarWatch,
@@ -301,7 +302,7 @@ import {
   writeViaAppsScript, tokenScopes, getCalendarEvent } from "./google.js";
 import { startScheduler } from "./scheduler.js";
 import { muxConfigured, startVodUpload, waitVodPlayback, muxStorageSummary, listAssets, deleteAsset, findAssetByPlaybackId, enableMp4, mp4Url, readyMp4Name, getAsset } from "./mux.js";
-import { liveConfigured, createLiveStream, playbackUrl as livePlaybackUrl, liveInfo, liveStatus, relayMap } from "./live.js";
+import { liveConfigured, createLiveStream, playbackUrl as livePlaybackUrl, liveInfo, liveStatus, relayMap, relayDestFor } from "./live.js";
 import { notionConfigured, notionStatus, createMeetingPage, createReportPage } from "./notion.js";
 import { pdfToText, urlToText, officeToText } from "./ingest.js";
 import { indexKnowledge, embeddingsAvailable, retrieve } from "./retrieval.js";
@@ -1847,14 +1848,23 @@ app.get("/api/live/relay-check", async (req, res) => {
   }
 });
 
-// 中継サーバーが「この配信をどこへ送るか」を尋ねてくる窓口
-app.get("/api/live/relay-dest", (req, res) => {
+// 中継サーバーが「この配信をどこへ送るか」を尋ねてくる窓口。
+// 合図は「live/kbxxxx」の形で来ることがあるので、最後の部分だけを見る。
+app.get("/api/live/relay-dest", async (req, res) => {
   const secret = process.env.RELAY_SECRET || "";
-  if (!secret || req.get("X-Relay-Secret") !== secret) return res.status(403).type("text/plain").send("");
-  const token = String(req.query.token || "").replace(/[^a-zA-Z0-9]/g, "");
-  const hit = relayMap.get(token);
-  if (!hit) return res.status(404).type("text/plain").send("");
-  res.type("text/plain").send(hit.dest);
+  if (!secret || req.get("X-Relay-Secret") !== secret) {
+    console.warn("[live] 中継サーバーの合言葉が合いません");
+    return res.status(403).type("text/plain").send("");
+  }
+  const raw = String(req.query.token || "");
+  const token = raw.split("/").filter(Boolean).pop()?.replace(/[^a-zA-Z0-9]/g, "") || "";
+  const dest = await relayDestFor(token).catch(() => "");
+  if (!dest) {
+    console.warn(`[live] 宛先が見つかりません（合図：${raw}）。配信枠が作られる前か、古い配信の可能性があります。`);
+    return res.status(404).type("text/plain").send("");
+  }
+  console.log(`[live] 中継の宛先を渡しました（合図：${token}）`);
+  res.type("text/plain").send(dest);
 });
 
 // ライブ配信の設定（画面側が再生URLを組み立てるために使う）
@@ -2154,6 +2164,77 @@ app.get("/api/live/status", async (req, res) => {
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
+});
+
+// ライブ配信が映らないときに、どこで止まっているかを1画面で確かめる
+app.get("/api/live/diagnose", async (req, res) => {
+  try {
+    res.set("Cache-Control", "no-store");
+    const steps = [];
+    const info = liveInfo();
+
+    // 1. kinbot側の設定
+    steps.push({
+      step: "1. 配信の設定",
+      ok: info.configured,
+      detail: info.configured
+        ? `${info.provider}（顧客コード：${info.customerCodeSet ? "あり" : "なし"}）`
+        : "CF_ACCOUNT_ID / CF_STREAM_TOKEN が設定されていません",
+    });
+
+    // 2. 中継サーバーの指定
+    const raw = String(process.env.LIVE_RELAY_RTMP || "").trim();
+    steps.push({
+      step: "2. 中継サーバーの指定",
+      ok: !!raw,
+      detail: raw || "LIVE_RELAY_RTMP が未設定（Cloudflareへ直接送ります）",
+    });
+
+    // 3. 中継サーバーにつながるか
+    if (raw) {
+      let host = "", port = 0, ok = false, why = "";
+      try {
+        const u = new URL(raw.replace(/^rtmp:/, "http:"));
+        host = u.hostname; port = Number(u.port || 1935);
+        const net = await import("node:net");
+        const r = await new Promise((resolve) => {
+          const sock = new net.Socket();
+          const done = (o, w) => { try { sock.destroy(); } catch {} resolve({ o, w }); };
+          sock.setTimeout(6000);
+          sock.once("connect", () => done(true, "つながりました"));
+          sock.once("timeout", () => done(false, "応答がありません（TCP Proxyが無効かもしれません）"));
+          sock.once("error", (e) => done(false, e.message));
+          sock.connect(port, host);
+        });
+        ok = r.o; why = r.w;
+      } catch (e) { why = e.message; }
+      steps.push({ step: "3. 中継サーバーへの通信", ok, detail: `${host}:${port} … ${why}` });
+    }
+
+    // 4. 合言葉
+    steps.push({
+      step: "4. 中継サーバーとの合言葉",
+      ok: !!process.env.RELAY_SECRET,
+      detail: process.env.RELAY_SECRET
+        ? "設定あり（中継サーバー側にも同じ値が必要です）"
+        : "RELAY_SECRET が未設定。中継サーバーは宛先を聞けません",
+    });
+
+    // 5. 宛先の対応表
+    const n = await countLiveRelay().catch(() => 0);
+    steps.push({
+      step: "5. 宛先の対応表",
+      ok: true,
+      detail: `いま覚えているぶん：${relayMap.size}件（再起動しても残るぶん：${n}件）`,
+    });
+
+    res.json({
+      ok: steps.every((x) => x.ok),
+      steps,
+      hint: "上から順に見て、×が付いたところが原因です。すべて○なのに映らない場合は、" +
+            "Recallから中継サーバーへ届いていない可能性があるので、中継サーバーのログをご確認ください。",
+    });
+  } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 // Recall側が配信先をどう扱っているかを見る（届かないときの切り分け用）
