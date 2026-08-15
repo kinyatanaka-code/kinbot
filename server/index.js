@@ -3455,6 +3455,24 @@ app.post("/api/dev-notes/summary", async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+// 夜間開発（GitHub ActionsのClaude Code）から、結果を受け取る
+app.post("/api/dev-notes/night-report", async (req, res) => {
+  try {
+    const b = req.body || {};
+    const changed = b.changed === true;
+    const text = [
+      changed ? "🌙 *夜のうちに直してみました*" : "🌙 *夜間開発：今夜は変更なし*",
+      changed ? "内容を見て、よければPRをマージしてください。" : "",
+      b.runUrl ? `🔗 ${b.runUrl}` : "",
+      "",
+      String(b.result || "").slice(0, 1500),
+    ].filter(Boolean).join("\n");
+    await notifyAll(text, "assign").catch(() => {});
+    console.log(`[night] 夜間開発の結果を受け取りました（変更${changed ? "あり" : "なし"}）`);
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 // 朝6時に、その日の開発メモをChatへ流す
 let lastDevSummaryDay = "";
 async function maybeSendDevSummary() {
