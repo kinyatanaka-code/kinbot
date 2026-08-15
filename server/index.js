@@ -25,7 +25,7 @@ import { sendApoMail, runReminderSweep, getApoMailConfig,
 import { startKasasagi, getKasasagi, stopKasasagi, feedTranscript, kasasagiInfo,
          buildScript, buildReport, faceState, SLIDE_LABELS } from "./kasasagi.js";
 import { notifyAssigned, notifyMailDraft, notifyChat, notifyAll, chatWebhookUrl, chatInfo } from "./chat.js";
-import { verifyChatRequest, cleanText, parseCommand, helpText, jstDate, jstTime } from "./chatcmd.js";
+import { verifyChatRequest, readEvent, replyBody, parseCommand, helpText, jstDate, jstTime } from "./chatcmd.js";
 import { normalizeSpace } from "./chatapp.js";
 import { judge as judgeAutolaunch, reasonText, parseTitle as parseLaunchTitle } from "./autolaunch.js";
 import { fixMojibake } from "./docs.js";
@@ -11157,9 +11157,9 @@ function logChatCmd(row) {
 app.get("/api/chat/command-log", (req, res) => res.json({ items: chatCmdLog }));
 
 app.post("/api/chat/command", async (req, res) => {
-  const reply = (text) => res.json({ text: String(text || "").slice(0, 3800) });
-  const ev0 = req.body || {};
-  const said = String(ev0.message?.argumentText || ev0.message?.text || "").slice(0, 60);
+  const ev = readEvent(req.body);
+  const reply = (text) => res.json(replyBody(text, ev.addon));
+  const said = ev.text.slice(0, 60);
   try {
     // 合言葉つきURLでも受けられるようにする（動作確認用）
     const bypass = String(req.query.token || "") === PUSH_TOKEN;
@@ -11168,18 +11168,17 @@ app.post("/api/chat/command", async (req, res) => {
       v = await verifyChatRequest(req, { audience: process.env.GOOGLE_CHAT_AUDIENCE || "" });
       if (!v.ok) {
         console.warn("[chat-cmd] 受け取りませんでした:", v.reason);
-        logChatCmd({ ok: false, reason: v.reason, from: ev0.user?.email || "", said, type: ev0.type || "" });
+        logChatCmd({ ok: false, reason: v.reason, from: ev.email, said, type: ev.type, addon: ev.addon });
         // Chatには「応答がありません」ではなく、理由を返す（設定を直せるように）
-        return res.json({ text: `kinbotが受け取れませんでした：${v.reason}\n（設定→Google Chat の「Chatから kinbot を動かす」をご確認ください）` });
+        return reply(`kinbotが受け取れませんでした：${v.reason}\n（設定→Google Chat の「Chatから kinbot を動かす」をご確認ください）`);
       }
     }
-    logChatCmd({ ok: true, by: v.by || "", from: ev0.user?.email || "", said, type: ev0.type || "" });
-    const ev = req.body || {};
+    logChatCmd({ ok: true, by: v.by || "", sender: v.sender || "", from: ev.email, said, type: ev.type, addon: ev.addon });
     if (ev.type === "ADDED_TO_SPACE") return reply("kinbotです。`ヘルプ` と送ると、できることが出ます。");
-    if (ev.type && ev.type !== "MESSAGE") return res.json({});
+    if (ev.type && ev.type !== "MESSAGE") return res.json(replyBody("", ev.addon));
 
-    const who = String(ev.user?.email || "").toLowerCase();
-    const text = cleanText(ev);
+    const who = ev.email;
+    const text = ev.text;
     const cmd = parseCommand(text);
     console.log(`[chat-cmd] ${who || "不明"}「${text}」→ ${cmd.kind}`);
 
@@ -11259,7 +11258,8 @@ app.post("/api/chat/command", async (req, res) => {
     return reply(`「${text}」は分かりませんでした。\n\n` + helpText());
   } catch (e) {
     console.error("[chat-cmd]", e.message);
-    try { res.json({ text: "うまく動きませんでした：" + e.message }); } catch {}
+    logChatCmd({ ok: false, reason: e.message, from: ev.email, said, type: ev.type, addon: ev.addon });
+    try { res.json(replyBody("うまく動きませんでした：" + e.message, ev.addon)); } catch {}
   }
 });
 

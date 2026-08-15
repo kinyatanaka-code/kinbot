@@ -25,7 +25,21 @@ const CHAT_ISSUER = "chat@system.gserviceaccount.com";
 //   ・https://accounts.google.com が出したもの     → Googleの公開鍵（JWK）で確かめる
 const SA_CERT_URL = "https://www.googleapis.com/service_accounts/v1/metadata/x509/" + CHAT_ISSUER;
 const GOOGLE_JWKS_URL = "https://www.googleapis.com/oauth2/v3/certs";
-const GOOGLE_ISSUERS = ["https://accounts.google.com", "accounts.google.com", CHAT_ISSUER];
+const GOOGLE_ISSUERS = ["https://accounts.google.com", "accounts.google.com"];
+
+// 送り主として認めるもの。
+//   ・chat@system.gserviceaccount.com … Chatが直接送るとき
+//   ・service-<番号>@gcp-sa-gsuiteaddons.iam.gserviceaccount.com
+//       … Google Workspaceアドオンとして登録したChatアプリが送るとき
+//   環境変数 GOOGLE_CHAT_SENDER で、1つに絞ることもできる。
+const ADDON_SENDER_RE = /^service-\d+@gcp-sa-gsuiteaddons\.iam\.gserviceaccount\.com$/;
+export function isAllowedSender(email) {
+  const e = String(email || "").trim();
+  if (!e) return false;
+  const pinned = String(process.env.GOOGLE_CHAT_SENDER || "").trim();
+  if (pinned) return e === pinned;
+  return e === CHAT_ISSUER || ADDON_SENDER_RE.test(e);
+}
 
 // Googleの公開鍵。1時間ほど覚えておく（毎回取りに行かないため）。
 const _certCache = new Map();
@@ -41,8 +55,11 @@ async function fetchJson(url) {
 
 // kid に合う公開鍵を取り出す（証明書の形でも、JWKの形でも扱える）
 async function publicKeyFor(iss, kid) {
-  if (String(iss) === CHAT_ISSUER) {
-    const certs = await fetchJson(SA_CERT_URL);
+  const issuer = String(iss || "");
+  // サービスアカウントが出した証明は、そのアカウントの証明書で確かめる
+  if (issuer.includes("@") && issuer.endsWith("gserviceaccount.com")) {
+    const url = "https://www.googleapis.com/service_accounts/v1/metadata/x509/" + encodeURIComponent(issuer);
+    const certs = await fetchJson(url);
     return certs[kid] || null;
   }
   const jwks = await fetchJson(GOOGLE_JWKS_URL);
@@ -81,12 +98,15 @@ export async function verifyChatRequest(req, { audience = "" } = {}) {
   const { header, payload } = dec;
   const now = Math.floor(Date.now() / 1000);
   if (payload.exp && payload.exp < now - 60) return { ok: false, reason: "証明の期限が切れています" };
-  // 送り主の確認。email が Google Chat なら本物（iss はGoogle側の都合で2通りある）。
+  // 送り主の確認。Chat本体からでも、Workspaceアドオン経由でも受け取る。
   const email = String(payload.email || "");
   const iss = String(payload.iss || "");
-  const fromChat = email === CHAT_ISSUER || iss === CHAT_ISSUER;
-  if (!fromChat) return { ok: false, reason: `送り主が違います（${email || iss || "不明"}）` };
-  if (!GOOGLE_ISSUERS.includes(iss)) return { ok: false, reason: `証明の出どころが違います（${iss || "不明"}）` };
+  const sender = isAllowedSender(email) ? email : (isAllowedSender(iss) ? iss : "");
+  if (!sender) return { ok: false, reason: `送り主が違います（${email || iss || "不明"}）` };
+  // 証明の出どころは、Google本体か、その送り主自身のどちらか
+  if (!GOOGLE_ISSUERS.includes(iss) && iss !== sender && iss !== email) {
+    return { ok: false, reason: `証明の出どころが違います（${iss || "不明"}）` };
+  }
   if (audience && String(payload.aud || "") !== String(audience)) {
     return { ok: false, reason: `宛先が合いません（${payload.aud || "なし"}）` };
   }
@@ -97,7 +117,7 @@ export async function verifyChatRequest(req, { audience = "" } = {}) {
     if (key) {
       const v = createVerify("RSA-SHA256");
       v.update(parts[0] + "." + parts[1]);
-      if (v.verify(key, b64urlToBuf(parts[2]))) return { ok: true, aud: payload.aud, by: "署名" };
+      if (v.verify(key, b64urlToBuf(parts[2]))) return { ok: true, aud: payload.aud, sender, by: "署名" };
       return { ok: false, reason: "署名が合いません" };
     }
   } catch (e) {
@@ -110,19 +130,53 @@ export async function verifyChatRequest(req, { audience = "" } = {}) {
     const r = await fetch("https://oauth2.googleapis.com/tokeninfo?id_token=" + encodeURIComponent(token));
     if (!r.ok) return { ok: false, reason: `証明を確かめられませんでした（${r.status}）` };
     const d = await r.json();
-    if (String(d.email || "") !== CHAT_ISSUER) return { ok: false, reason: "送り主がGoogle Chatではありません" };
+    if (!isAllowedSender(d.email)) return { ok: false, reason: `送り主が違います（${d.email || "不明"}）` };
     if (audience && String(d.aud || "") !== String(audience)) return { ok: false, reason: "宛先が合いません" };
-    return { ok: true, aud: d.aud, by: "問い合わせ" };
+    return { ok: true, aud: d.aud, sender: d.email, by: "問い合わせ" };
   } catch (e) {
     return { ok: false, reason: e.message };
   }
 }
 
+// 届いたイベントを読む。
+// Googleには2つの形があるので、どちらでも読めるようにする。
+//   ・これまでの形     … { type, user, message }
+//   ・アドオンの形     … { chat: { messagePayload: { message, space }, user, type } }
+export function readEvent(body) {
+  const b = body || {};
+  const addon = !!b.chat;
+  const c = b.chat || {};
+  const payload = c.messagePayload || c.addedToSpacePayload || {};
+  const msg = payload.message || b.message || {};
+  const user = c.user || b.user || {};
+  const type = c.type || b.type ||
+    (c.messagePayload ? "MESSAGE" : (c.addedToSpacePayload ? "ADDED_TO_SPACE" : ""));
+  return {
+    addon,
+    type,
+    email: String(user.email || "").toLowerCase(),
+    text: cleanText(msg),
+    space: (payload.space && payload.space.name) || (b.space && b.space.name) || "",
+  };
+}
+
 // 話しかけられた文から、アプリ名（@kinbot）を取り除く
-export function cleanText(event) {
-  let t = String(event?.message?.argumentText || event?.message?.text || "").trim();
+export function cleanText(msgOrEvent) {
+  const m = msgOrEvent?.message || msgOrEvent || {};
+  let t = String(m.argumentText || m.text || "").trim();
   t = t.replace(/^@?kinbot\s*/i, "").trim();
   return t;
+}
+
+// 返事の形。アドオンの形で来たら、その形で返す。
+export function replyBody(text, addon) {
+  const t = String(text || "").slice(0, 3800);
+  if (!addon) return { text: t };
+  return {
+    hostAppDataAction: {
+      chatDataAction: { createMessageAction: { message: { text: t } } },
+    },
+  };
 }
 
 // どの操作かを決める。ひらがな・カタカナ・英語のゆらぎを吸収する。
