@@ -297,6 +297,21 @@
               </div>
               <p class="note">WebhookのURLか、スペースのURLのどちらかを入れてください。<b>スペースを入れるとkinbot名義で送れます</b>（下の設定が必要です）。</p>
 
+              <h4 class="ap-rot-h" style="margin-top:18px">Chatから kinbot を動かす</h4>
+              <p class="note">Google Chatで <b>@kinbot アポ</b> のように話しかけると、その場で答えます。<br>
+              使えることば：<code>ヘルプ</code> <code>アポ</code> <code>明日のアポ</code> <code>商談</code> <code>スキャン</code> <code>重複</code> <code>立ち上げ</code> <code>状態</code></p>
+              <p class="note ks-cue"><b>設定のしかた（1回だけ）</b><br>
+              1. Google Cloud コンソール → <b>Google Chat API</b> → <b>構成</b>（Configuration）<br>
+              2. <b>インタラクティブ機能</b>を有効にする<br>
+              3. 機能：<b>1:1 メッセージを受信する</b>と<b>スペースに参加する</b>にチェック<br>
+              4. 接続設定：<b>HTTPエンドポイントURL</b>を選び、下のURLを貼る<br>
+              5. 保存すると、Chatで話しかけられるようになります</p>
+              <div class="teams-add">
+                <input id="ccUrl" readonly placeholder="読み込み中…" style="flex:1 1 420px" />
+                <button class="btn ghost" id="ccCopy">コピー</button>
+                <span class="tm-status" id="ccStatus"></span>
+              </div>
+
               <h4 class="ap-rot-h" style="margin-top:18px">送信者名を「kinbot」にする（任意）</h4>
               <p class="note">Webhookで送ると、送信者が<b>「Webhook Bot」</b>になります。Chatアプリとして登録すると<b>「kinbot」</b>の名前で投稿できます。<br>
               <b>Chat APIの利用に費用はかかりません。</b>設定すると、こちらが優先して使われます。</p>

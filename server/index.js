@@ -25,6 +25,7 @@ import { sendApoMail, runReminderSweep, getApoMailConfig,
 import { startKasasagi, getKasasagi, stopKasasagi, feedTranscript, kasasagiInfo,
          buildScript, buildReport, faceState, SLIDE_LABELS } from "./kasasagi.js";
 import { notifyAssigned, notifyMailDraft, notifyChat, notifyAll, chatWebhookUrl, chatInfo } from "./chat.js";
+import { verifyChatRequest, cleanText, parseCommand, helpText, jstDate, jstTime } from "./chatcmd.js";
 import { normalizeSpace } from "./chatapp.js";
 import { judge as judgeAutolaunch, reasonText, parseTitle as parseLaunchTitle } from "./autolaunch.js";
 import { fixMojibake } from "./docs.js";
@@ -102,6 +103,7 @@ import {
   setSmartLinkSourceNote,
   recentInvites,
   myAssignedApos,
+  displayNameOf,
   assignCounts,
   apoCountsBySetter,
   apoDetailBySetter,
@@ -435,6 +437,8 @@ const OPEN_PATHS = new Set([
   "/api/google/calendar-push",
   // Railwayからのデプロイ通知（合言葉で本物か確かめる）
   "/api/railway/deploy-hook",
+  // Google Chatからの呼びかけ（Googleが直接叩く。証明はJWTで確かめる）
+  "/api/chat/command",
 ]);
 if (!authEnabled()) {
   console.warn("[警告] アカウント未設定。誰でも操作できます。公開時は DATABASE_URL を設定し登録制にしてください。");
@@ -11134,6 +11138,127 @@ app.put("/api/deploy/info", async (req, res) => {
   try {
     await saveSettings({ notifyDeploy: req.body?.enabled !== false });
     res.json({ ok: true, enabled: req.body?.enabled !== false });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// ───────────────────────────────────────────────────────────
+// Google Chat から kinbot を動かす
+//
+// Chatで「@kinbot アポ」と話しかけると、ここが受け取って返事をする。
+// 誰が話しかけたかはメールアドレスで分かるので、その人のぶんを返す。
+// ───────────────────────────────────────────────────────────
+app.post("/api/chat/command", async (req, res) => {
+  const reply = (text) => res.json({ text: String(text || "").slice(0, 3800) });
+  try {
+    // 合言葉つきURLでも受けられるようにする（動作確認用）
+    const bypass = String(req.query.token || "") === PUSH_TOKEN;
+    if (!bypass) {
+      const v = await verifyChatRequest(req, { audience: process.env.GOOGLE_CHAT_AUDIENCE || "" });
+      if (!v.ok) {
+        console.warn("[chat-cmd] 受け取りませんでした:", v.reason);
+        return res.status(401).json({ text: "" });
+      }
+    }
+    const ev = req.body || {};
+    if (ev.type === "ADDED_TO_SPACE") return reply("kinbotです。`ヘルプ` と送ると、できることが出ます。");
+    if (ev.type && ev.type !== "MESSAGE") return res.json({});
+
+    const who = String(ev.user?.email || "").toLowerCase();
+    const text = cleanText(ev);
+    const cmd = parseCommand(text);
+    console.log(`[chat-cmd] ${who || "不明"}「${text}」→ ${cmd.kind}`);
+
+    if (cmd.kind === "help") return reply(helpText());
+
+    if (cmd.kind === "status") {
+      const jst = new Date(Date.now() + 9 * 3600 * 1000).toISOString().replace("T", " ").slice(0, 16);
+      return reply([
+        "*いま動いているkinbot*",
+        `🧩 ${BUILD_TAG}`,
+        `🕒 いまは ${jst}（起動：${String(START_TIME).replace("T", " ").slice(0, 16)}）`,
+        DEPLOY_ENV.message ? `📝 ${DEPLOY_ENV.message}` : "",
+      ].filter(Boolean).join("\n"));
+    }
+
+    if (!who) return reply("あなたのメールアドレスが分かりませんでした。kinbotのスペースで話しかけてください。");
+
+    if (cmd.kind === "apo") {
+      const date = jstDate(cmd.day);
+      const myName = await displayNameOf(who).catch(() => "");
+      const rows = await myAssignedApos(who, date, "day", 50, myName);
+      if (!rows.length) return reply(`${date} のアポはありません。`);
+      const lines = rows.map((r) =>
+        `・${jstTime(r.start_time)} ${r.label || ""}` +
+        `${r.self_got ? "（自分で獲得）" : ""}` +
+        `${r.client_email ? "" : "　⚠️宛先が未登録"}`);
+      return reply([`*${date} のアポ ${rows.length}件*`, ...lines].join("\n"));
+    }
+
+    if (cmd.kind === "meetings") {
+      const date = jstDate(cmd.day);
+      const rows = await listMeetings({ owner: who, isAdmin: false, from: date, to: date, light: true, limit: 50 })
+        .catch(() => []);
+      if (!rows.length) return reply(`${date} の商談はありません。`);
+      const lines = rows.map((r) =>
+        `・${jstTime(r.created_at)} ${r.title || r.account || "(名前なし)"}` +
+        `${r.sf_url ? "" : "　⚠️SF未更新"}`);
+      return reply([`*${date} の商談 ${rows.length}件*`, ...lines].join("\n"));
+    }
+
+    if (cmd.kind === "scan") {
+      reply("カレンダーを見に行きます。新しいアポが見つかったら、いつもの通知が流れます。");
+      if (typeof globalThis.__kinbotApoScanTick === "function") {
+        globalThis.__kinbotApoScanTick().catch(() => {});
+      }
+      return;
+    }
+
+    if (cmd.kind === "dupes") {
+      const { rep, people } = await calendarPeople();
+      if (!people.length) return reply("調べる対象のメンバーが登録されていません。");
+      reply("重複していないか見ています。少し待ってください…");
+      // 数だけ調べて、あとから知らせる（その場で返すと待たせてしまうため）
+      (async () => {
+        try {
+          const r = await fetch(`http://127.0.0.1:${PORT}/api/apo/duplicate-events`, {
+            headers: { cookie: "" },
+          }).then((x) => x.json()).catch(() => null);
+          const n = r && r.found ? r.found.length : null;
+          await notifyAll(n === null
+            ? "重複を調べられませんでした。画面から試してください。"
+            : (n ? `⚠️ 重複した予定が ${n}件 あります。アポ管理→システムから消せます。` : "✅ 重複した予定はありません。"), "assign");
+        } catch {}
+      })();
+      return;
+    }
+
+    if (cmd.kind === "launch") {
+      const rows = await listAutolaunch(20).catch(() => []);
+      const ng = rows.filter((r) => !r.ok);
+      if (!ng.length) return reply("立ち上げられていないものはありません。");
+      const lines = ng.slice(0, 10).map((r) =>
+        `・${r.company || r.slug}　${reasonText(r.reason, r.detail)}`);
+      return reply([`*立ち上げできていないもの ${ng.length}件*`, ...lines].join("\n"));
+    }
+
+    return reply(`「${text}」は分かりませんでした。\n\n` + helpText());
+  } catch (e) {
+    console.error("[chat-cmd]", e.message);
+    try { res.json({ text: "うまく動きませんでした：" + e.message }); } catch {}
+  }
+});
+
+// Chatから操作するための設定情報（Google Cloudの画面に入れるURL）
+app.get("/api/chat/command-info", async (req, res) => {
+  try {
+    const base = PUBLIC_URL ? PUBLIC_URL.replace(/\/+$/, "") : "";
+    res.json({
+      endpoint: base ? `${base}/api/chat/command` : "",
+      testUrl: base ? `${base}/api/chat/command?token=${PUSH_TOKEN}` : "",
+      audience: process.env.GOOGLE_CHAT_AUDIENCE || "",
+      appConfigured: chatInfo().app ? chatInfo().app.configured : false,
+      commands: ["ヘルプ", "アポ", "明日のアポ", "商談", "スキャン", "重複", "立ち上げ", "状態"],
+    });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 

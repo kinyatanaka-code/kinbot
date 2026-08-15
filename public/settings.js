@@ -2490,6 +2490,25 @@ async function loadChatConfig() {
   } catch {}
 }
 
+// Chatから操作するための受け口URL
+(async () => {
+  const el = document.getElementById("ccUrl");
+  if (!el) return;
+  try {
+    const d = await (await fetch("/api/chat/command-info")).json();
+    el.value = d.endpoint || "";
+    if (!d.endpoint) el.placeholder = "公開URL（PUBLIC_URL）が未設定のため使えません";
+  } catch { el.placeholder = "確認できませんでした"; }
+  const btn = document.getElementById("ccCopy");
+  if (btn) btn.addEventListener("click", () => {
+    if (!el.value) return;
+    navigator.clipboard.writeText(el.value).then(() => {
+      const st = document.getElementById("ccStatus");
+      if (st) { st.textContent = "コピーしました"; setTimeout(() => (st.textContent = ""), 3000); }
+    }).catch(() => {});
+  });
+})();
+
 // ===== Google Chat 通知先（複数） =====
 const CT_KINDS = [
   ["onAssign", "アポ割り振り"],
