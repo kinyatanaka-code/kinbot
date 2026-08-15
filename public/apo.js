@@ -662,6 +662,26 @@ async function pushSetup() {
   finally { if (btn) btn.disabled = false; }
 }
 
+// テスト用アポの見分け方
+async function loadTestWords() {
+  if (!$("twWords")) return;
+  try {
+    const d = await apiJson("/api/test-apo-words");
+    $("twWords").value = d.words || "";
+  } catch {}
+}
+async function saveTestWords() {
+  const st = $("twStatus");
+  if (st) st.textContent = "保存しています…";
+  try {
+    await apiJson("/api/test-apo-words", {
+      method: "PUT", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ words: $("twWords").value }),
+    });
+    if (st) { st.textContent = "保存しました"; setTimeout(() => (st.textContent = ""), 4000); }
+  } catch (e) { if (st) st.textContent = "失敗: " + e.message; }
+}
+
 // コール進捗のお知らせ
 async function loadCallReport() {
   if (!$("crOn")) return;
@@ -1573,6 +1593,10 @@ async function saveMailCfg() {
     document.querySelectorAll("#siBox .si-chk").forEach((c) => { c.checked = false; }));
   if ($("verBox")) showVersion();
   if ($("depBox")) loadDeploy();
+  if ($("twWords")) {
+    loadTestWords();
+    $("twSave").addEventListener("click", saveTestWords);
+  }
   if ($("crOn")) {
     loadCallReport();
     $("crSave").addEventListener("click", saveCallReport);

@@ -3402,6 +3402,26 @@ async function maybeSendCallReport() {
   } catch (e) { console.warn("[call-report]", e.message); }
 }
 
+// テスト用アポの見分け方（設定）
+app.get("/api/test-apo-words", async (req, res) => {
+  try {
+    const st = await getSettings();
+    res.json({
+      words: String(st.testApoWords ?? "テスト株式会社,テスト様,テスト会社,test株式会社"),
+      note: "この言葉が予定名に入っていたら、通知までは普通どおり行い、そのあと実績の数から外します。",
+    });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.put("/api/test-apo-words", async (req, res) => {
+  try {
+    await saveSettings({ testApoWords: String(req.body?.words || "").slice(0, 300) });
+    await loadTestWords().catch(() => {});
+    console.log(`[apo] テスト用アポの言葉を更新 by ${req.user}`);
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 // 設定の読み書きと、その場で試す
 app.get("/api/call-report", async (req, res) => {
   try {
@@ -11016,6 +11036,22 @@ async function collectApoAppointments(scanOwner, opts = {}) {
     return { items, errors, seenHeadStates, seenEventIds, full: !updatedMin };
 }
 
+// テスト用のアポかどうか。
+// 「テスト株式会社」「テスト様」のように、会社名や担当者名がテストのものを見分ける。
+// 設定（testApoWords）で言葉を足せる。
+let _testWords = null;
+async function loadTestWords() {
+  const st = await getSettings().catch(() => ({}));
+  const raw = String(st.testApoWords ?? "テスト株式会社,テスト様,テスト会社,test株式会社");
+  _testWords = raw.split(/[,、\n]/).map((x) => x.trim()).filter(Boolean);
+  return _testWords;
+}
+function isTestApo(title, words) {
+  const t = String(title || "").normalize("NFKC").replace(/[\s　]/g, "").toLowerCase();
+  const list = words || _testWords || ["テスト株式会社", "テスト様"];
+  return list.some((w) => t.includes(String(w).replace(/[\s　]/g, "").toLowerCase()));
+}
+
 // 「リスケ」「キャンセル」と書かれた予定を知らせ、アポの数からも外す
 async function handleHeadStates(list) {
   for (const x of list || []) {
@@ -11218,12 +11254,19 @@ async function autoAssignOne(link, { inviteOwner, closers = null, cfg, teamCtx =
       : Promise.resolve({ ok: false, reason: "no_operator" }))
       .then((r) => ({ ok: r.ok, dryRun: !runIt, reasonText: r.ok ? "" : reasonText(r.reason, r.detail) }))
       .catch(() => null);
-    return notifyAssigned({
+    await notifyAssigned({
       title: updated.label, start: updated.start_time, repName: pick.name,
       setter: updated.setter, reason: pick.reason,
       url: joinUrl(updated.slug), auto: actor !== "manual" && !String(actor || "").includes("@"),
       mail, clientEmail: updated.client_email, counts, goal, launch,
     });
+
+    // テスト用のアポは、通知まで普通どおり行ったあとで、数から外す。
+    // 割り振りやメールの動きは確かめられるが、実績には残らない。
+    if (isTestApo(updated.label)) {
+      await excludeApo(updated.slug, "テスト用のアポ").catch(() => {});
+      console.log(`[apo-assign] テスト用として数から外しました：${updated.label}`);
+    }
   })().catch(() => {});
 
   return { ok: true, assigned: pick, invite, invite_error: inviteError, mail, next: rotNext };
@@ -11249,6 +11292,7 @@ async function runApoAutoScan({ actor = "auto-scan", force = false, updatedMin =
     return { skipped: true, reason: e.message };
   }
 
+  await loadTestWords().catch(() => {});
   // 「リスケ」「キャンセル」と書かれた予定を知らせ、数から外す
   await handleHeadStates(scan.seenHeadStates).catch((e) => console.warn("[apo-scan] リスケ判定:", e.message));
   // カレンダーから消された予定を、kinbotの数からも外す（全期間を見たときだけ）
@@ -12651,13 +12695,19 @@ app.put("/api/smart-links/:slug/owner", async (req, res) => {
           : Promise.resolve({ ok: false, reason: "no_operator" }))
           .then((r) => ({ ok: r.ok, dryRun: !runIt, reasonText: r.ok ? "" : reasonText(r.reason, r.detail) }))
           .catch(() => null);
-        return notifyAssigned({
+        await notifyAssigned({
           title: link.label, start: link.start_time, repName: await repDisplayName(owner),
           setter: link.setter, reason: `${req.user} が選択`,
           url: joinUrl(link.slug), auto: false,
           mail, clientEmail: link.client_email,
           counts, goal: parseInt(st?.apoMonthlyGoal, 10) || 0, launch,
         });
+        // テスト用のアポは、通知まで済ませたら数から外す
+        await loadTestWords().catch(() => {});
+        if (isTestApo(link.label)) {
+          await excludeApo(link.slug, "テスト用のアポ").catch(() => {});
+          console.log(`[apo-assign] テスト用として数から外しました：${link.label}`);
+        }
       })().catch(() => {});
     }
     res.json({ ok: true, link, invite, invite_error: inviteError, mail });
