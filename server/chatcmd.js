@@ -15,23 +15,81 @@
 //   状態 / バージョン  … いま動いているkinbot
 // ───────────────────────────────────────────────────────────
 
+import { createVerify } from "node:crypto";
+
 const CHAT_ISSUER = "chat@system.gserviceaccount.com";
+const CERT_URL = "https://www.googleapis.com/service_accounts/v1/metadata/x509/" + CHAT_ISSUER;
+
+// Googleの公開鍵。1時間ほど覚えておく（毎回取りに行かないため）。
+let _certs = { at: 0, keys: null };
+async function chatCerts() {
+  if (_certs.keys && Date.now() - _certs.at < 60 * 60 * 1000) return _certs.keys;
+  const r = await fetch(CERT_URL);
+  if (!r.ok) throw new Error(`公開鍵を取れませんでした（${r.status}）`);
+  const keys = await r.json();
+  _certs = { at: Date.now(), keys };
+  return keys;
+}
+
+function b64urlToBuf(s) {
+  return Buffer.from(String(s).replace(/-/g, "+").replace(/_/g, "/"), "base64");
+}
+
+export function decodeJwt(token) {
+  const [h, p] = String(token).split(".");
+  if (!h || !p) return null;
+  try {
+    return {
+      header: JSON.parse(b64urlToBuf(h).toString("utf8")),
+      payload: JSON.parse(b64urlToBuf(p).toString("utf8")),
+    };
+  } catch { return null; }
+}
 
 // Googleからの本物の通知かを確かめる。
-// Authorization: Bearer <JWT> を Google に問い合わせて、送り主を見る。
+//   1. Googleの公開鍵で、署名そのものを確かめる（通信が1回で済む・確実）
+//   2. だめなら、Googleに問い合わせて確かめる（予備）
 export async function verifyChatRequest(req, { audience = "" } = {}) {
   const auth = String(req.headers.authorization || "");
   const m = auth.match(/^Bearer\s+(.+)$/i);
-  if (!m) return { ok: false, reason: "証明が付いていません" };
+  if (!m) return { ok: false, reason: "証明（Authorizationヘッダ）が付いていません" };
+  const token = m[1].trim();
+  const parts = token.split(".");
+  const dec = decodeJwt(token);
+  if (!dec || parts.length !== 3) return { ok: false, reason: "証明の形が違います" };
+
+  const { header, payload } = dec;
+  const now = Math.floor(Date.now() / 1000);
+  if (payload.exp && payload.exp < now - 60) return { ok: false, reason: "証明の期限が切れています" };
+  const from = String(payload.iss || payload.email || "");
+  if (from !== CHAT_ISSUER) return { ok: false, reason: `送り主が違います（${from || "不明"}）` };
+  if (audience && String(payload.aud || "") !== String(audience)) {
+    return { ok: false, reason: `宛先が合いません（${payload.aud || "なし"}）` };
+  }
+
+  // 1. 署名を自分で確かめる
   try {
-    const r = await fetch("https://oauth2.googleapis.com/tokeninfo?id_token=" + encodeURIComponent(m[1]));
-    if (!r.ok) return { ok: false, reason: "証明を確かめられませんでした" };
+    const keys = await chatCerts();
+    const cert = keys[header.kid];
+    if (cert) {
+      const v = createVerify("RSA-SHA256");
+      v.update(parts[0] + "." + parts[1]);
+      if (v.verify(cert, b64urlToBuf(parts[2]))) return { ok: true, aud: payload.aud, by: "署名" };
+      return { ok: false, reason: "署名が合いません" };
+    }
+  } catch (e) {
+    // 公開鍵が取れないときは、下の方法に回す
+    console.warn("[chat-cmd] 公開鍵で確かめられませんでした:", e.message);
+  }
+
+  // 2. Googleに問い合わせる
+  try {
+    const r = await fetch("https://oauth2.googleapis.com/tokeninfo?id_token=" + encodeURIComponent(token));
+    if (!r.ok) return { ok: false, reason: `証明を確かめられませんでした（${r.status}）` };
     const d = await r.json();
     if (String(d.email || "") !== CHAT_ISSUER) return { ok: false, reason: "送り主がGoogle Chatではありません" };
-    if (audience && String(d.aud || "") !== String(audience)) {
-      return { ok: false, reason: "宛先（audience）が合いません" };
-    }
-    return { ok: true, aud: d.aud };
+    if (audience && String(d.aud || "") !== String(audience)) return { ok: false, reason: "宛先が合いません" };
+    return { ok: true, aud: d.aud, by: "問い合わせ" };
   } catch (e) {
     return { ok: false, reason: e.message };
   }

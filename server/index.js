@@ -11147,18 +11147,33 @@ app.put("/api/deploy/info", async (req, res) => {
 // Chatで「@kinbot アポ」と話しかけると、ここが受け取って返事をする。
 // 誰が話しかけたかはメールアドレスで分かるので、その人のぶんを返す。
 // ───────────────────────────────────────────────────────────
+// 届いた呼びかけの記録（うまくいかないときに、画面で理由を見るため）
+const chatCmdLog = [];
+function logChatCmd(row) {
+  chatCmdLog.unshift({ at: new Date().toISOString(), ...row });
+  if (chatCmdLog.length > 20) chatCmdLog.length = 20;
+}
+
+app.get("/api/chat/command-log", (req, res) => res.json({ items: chatCmdLog }));
+
 app.post("/api/chat/command", async (req, res) => {
   const reply = (text) => res.json({ text: String(text || "").slice(0, 3800) });
+  const ev0 = req.body || {};
+  const said = String(ev0.message?.argumentText || ev0.message?.text || "").slice(0, 60);
   try {
     // 合言葉つきURLでも受けられるようにする（動作確認用）
     const bypass = String(req.query.token || "") === PUSH_TOKEN;
+    let v = { ok: true, by: "合言葉" };
     if (!bypass) {
-      const v = await verifyChatRequest(req, { audience: process.env.GOOGLE_CHAT_AUDIENCE || "" });
+      v = await verifyChatRequest(req, { audience: process.env.GOOGLE_CHAT_AUDIENCE || "" });
       if (!v.ok) {
         console.warn("[chat-cmd] 受け取りませんでした:", v.reason);
-        return res.status(401).json({ text: "" });
+        logChatCmd({ ok: false, reason: v.reason, from: ev0.user?.email || "", said, type: ev0.type || "" });
+        // Chatには「応答がありません」ではなく、理由を返す（設定を直せるように）
+        return res.json({ text: `kinbotが受け取れませんでした：${v.reason}\n（設定→Google Chat の「Chatから kinbot を動かす」をご確認ください）` });
       }
     }
+    logChatCmd({ ok: true, by: v.by || "", from: ev0.user?.email || "", said, type: ev0.type || "" });
     const ev = req.body || {};
     if (ev.type === "ADDED_TO_SPACE") return reply("kinbotです。`ヘルプ` と送ると、できることが出ます。");
     if (ev.type && ev.type !== "MESSAGE") return res.json({});

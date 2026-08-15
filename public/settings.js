@@ -2499,6 +2499,29 @@ async function loadChatConfig() {
     el.value = d.endpoint || "";
     if (!d.endpoint) el.placeholder = "公開URL（PUBLIC_URL）が未設定のため使えません";
   } catch { el.placeholder = "確認できませんでした"; }
+  // 呼びかけが届いているか、届いていれば受け取れたかを見る
+  const logBtn = document.getElementById("ccLog");
+  if (logBtn) logBtn.addEventListener("click", async () => {
+    const box = document.getElementById("ccLogBox");
+    if (!box) return;
+    box.textContent = "確認しています…";
+    try {
+      const d = await (await fetch("/api/chat/command-log")).json();
+      const items = d.items || [];
+      if (!items.length) {
+        box.innerHTML = "まだ1件も届いていません。<b>Google Cloud の設定でURLが入っているか</b>、" +
+          "スペースに kinbot を追加しているかをご確認ください。";
+        return;
+      }
+      box.innerHTML = items.slice(0, 8).map((x) => {
+        const t = new Date(x.at).toLocaleString("ja-JP", { hour12: false }).slice(5, 16);
+        return x.ok
+          ? `✅ ${t}　${x.from || "-"}「${x.said || x.type || ""}」`
+          : `⚠️ ${t}　${x.from || "-"}「${x.said || x.type || ""}」… ${x.reason || ""}`;
+      }).join("<br>");
+    } catch (e) { box.textContent = "確認できませんでした：" + e.message; }
+  });
+
   const btn = document.getElementById("ccCopy");
   if (btn) btn.addEventListener("click", () => {
     if (!el.value) return;
