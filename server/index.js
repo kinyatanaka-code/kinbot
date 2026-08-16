@@ -24,7 +24,7 @@ import { sendApoMail, runReminderSweep, getApoMailConfig,
          DEFAULT_REMINDER_SUBJECT, DEFAULT_REMINDER_BODY, stripRetiredLines } from "./apomail.js";
 import { startKasasagi, getKasasagi, stopKasasagi, feedTranscript, kasasagiInfo,
          buildScript, buildReport, faceState, SLIDE_LABELS } from "./kasasagi.js";
-import { notifyAssigned, notifyMailDraft, notifyChat, notifyAll, chatWebhookUrl, chatInfo } from "./chat.js";
+import { notifyAssigned, notifyMailDraft, notifyChat, notifyAll, notifyPerson, chatWebhookUrl, chatInfo } from "./chat.js";
 import { note as devNote, errKey, buildMorningSummary, NOTE_KINDS } from "./devnotes.js";
 import { checkLive, checkProcessSheet, checkLinks, buildProposal, notifyCheck } from "./selfcheck.js";
 import { UI_PAGES, nextPage, reviewPage, splitIdeas } from "./uireview.js";
@@ -116,6 +116,7 @@ import {
   myAssignedApos,
   aposInRange,
   aposTakenInRange,
+  aposMailPending,
   displayNameOf,
   assignCounts,
   apoCountsBySetter,
@@ -3499,6 +3500,162 @@ app.post("/api/dev-notes/summary", async (req, res) => {
     if (r.empty) return res.json({ ok: true, empty: true, text: "未対応の開発メモはありません。" });
     if (req.body?.send === true) await notifyAll(r.text, "assign");
     res.json({ ok: true, ...r, sent: req.body?.send === true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// ───────────────────────────────────────────────────────────
+// 夕方のお知らせ（既定18:30）
+//
+// その日のうちに片づけたいことを、本人にだけ1対1のチャットで知らせる。
+//   ・Salesforceを更新していない商談
+//   ・Salesforceを立ち上げられていないアポ
+//   ・確定メールを送っていないアポ
+// ★ チームのスペースには流さない（できていないことを人前に出さないため）。
+// ───────────────────────────────────────────────────────────
+let lastEveningKey = "";
+
+async function buildEveningReminders(dateJst) {
+  const today = dateJst || jstDate(0);
+  const byPerson = new Map();
+  const put = (email, kind, line) => {
+    const k = String(email || "").toLowerCase();
+    if (!k) return;
+    if (!byPerson.has(k)) byPerson.set(k, { sf: [], launch: [], mail: [] });
+    byPerson.get(k)[kind].push(line);
+  };
+
+  // 1. 今日の商談で、Salesforceをまだ更新していないもの
+  try {
+    const rows = await listMeetings({ isAdmin: true, from: today, to: today, light: true, limit: 300 });
+    for (const m of rows) {
+      if (m.sf_url) continue;
+      put(m.owner, "sf", `${String(m.created_at).slice(11, 16)} ${m.title || m.account || "(名前なし)"}`);
+    }
+  } catch (e) { console.warn("[夕方] 商談を読めません:", e.message); }
+
+  // 2. Salesforceを立ち上げられていないもの
+  try {
+    const rows = await listAutolaunch(60);
+    for (const r of rows) {
+      if (r.ok) continue;
+      put(r.owner || r.current_owner, "launch", `${r.company || r.slug}（${reasonText(r.reason, r.detail)}）`);
+    }
+  } catch (e) { console.warn("[夕方] 立ち上げを読めません:", e.message); }
+
+  // 3. 今日取ったアポで、確定メールを送っていないもの
+  try {
+    const rows = await aposMailPending(today, 200);
+    for (const r of rows) {
+      const when = r.start_time ? `${String(r.start_time).slice(5, 10)} ` : "";
+      put(r.current_owner, "mail",
+        `${when}${r.label || r.slug}${r.client_email ? "" : "（宛先が未登録）"}`);
+    }
+  } catch (e) { console.warn("[夕方] アポのメールを読めません:", e.message); }
+
+  return byPerson;
+}
+
+function eveningText(name, x) {
+  const sec = (title, list) => list.length
+    ? [`${title}（${list.length}件）`, ...list.slice(0, 10).map((l) => `・${l}`),
+       list.length > 10 ? `…ほか${list.length - 10}件` : ""].filter(Boolean).join("\n")
+    : "";
+  const body = [
+    sec("☁️ *Salesforceの更新がまだ*", x.sf),
+    sec("🚀 *Salesforceの立ち上げがまだ*", x.launch),
+    sec("✉️ *確定メールがまだ*", x.mail),
+  ].filter(Boolean).join("\n\n");
+  return [
+    `${name ? name + "さん、" : ""}お疲れさまです。今日のうちに片づけたいものです。`,
+    "",
+    body,
+    "",
+    "（このお知らせは、あなたにだけ送っています）",
+  ].join("\n");
+}
+
+async function maybeSendEvening() {
+  try {
+    const st = await getSettings().catch(() => ({}));
+    if (st.eveningReminder !== true) return;
+    const now = new Date(Date.now() + 9 * 3600 * 1000);
+    if (now.getUTCDay() === 0 || now.getUTCDay() === 6) return;   // 土日は送らない
+    const h = Number(st.eveningHour ?? 18), m = Number(st.eveningMinute ?? 30);
+    if (now.getUTCHours() !== h) return;
+    const mm = now.getUTCMinutes();
+    if (mm < m || mm > m + 4) return;
+    const key = `${now.toISOString().slice(0, 10)}-${h}-${m}`;
+    if (lastEveningKey === key) return;
+    lastEveningKey = key;
+
+    const byPerson = await buildEveningReminders();
+    let sent = 0, skipped = [];
+    for (const [email, x] of byPerson) {
+      if (!x.sf.length && !x.launch.length && !x.mail.length) continue;
+      const name = await displayNameOf(email).catch(() => "");
+      const r = await notifyPerson(email, eveningText(name, x));
+      if (r.ok) sent++;
+      else skipped.push(`${email}（${r.reason || ""}）`);
+    }
+    console.log(`[夕方] ${sent}人に送りました${skipped.length ? ` ／ 送れず：${skipped.join("、")}` : ""}`);
+
+    // 送れなかった人がいたら、点検用の場所にだけ知らせる（本人が話しかけないと送れないため）
+    if (skipped.length) {
+      const to = { url: String(st.selfCheckWebhook || "").trim(), space: String(st.selfCheckSpace || "").trim() };
+      if (to.url || to.space) {
+        await notifyCheck([
+          "📨 *夕方のお知らせを送れなかった人がいます*",
+          ...skipped.map((s) => `・${s}`),
+          "",
+          "その人がGoogle Chatで kinbot に一度話しかけると、送れるようになります（「ヘルプ」でOK）。",
+        ].join("\n"), to).catch(() => {});
+      }
+    }
+  } catch (e) { console.warn("[夕方]", e.message); }
+}
+
+// 設定と、その場で試す
+app.get("/api/evening-reminder", async (req, res) => {
+  try {
+    const st = await getSettings();
+    res.json({
+      enabled: st.eveningReminder === true,
+      hour: Number(st.eveningHour ?? 18),
+      minute: Number(st.eveningMinute ?? 30),
+      appReady: chatInfo().app ? chatInfo().app.configured : false,
+    });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.put("/api/evening-reminder", async (req, res) => {
+  try {
+    const b = req.body || {};
+    const patch = {};
+    if (b.enabled !== undefined) patch.eveningReminder = b.enabled === true;
+    if (b.hour !== undefined) patch.eveningHour = Math.max(0, Math.min(23, parseInt(b.hour, 10) || 18));
+    if (b.minute !== undefined) patch.eveningMinute = Math.max(0, Math.min(59, parseInt(b.minute, 10) || 30));
+    await saveSettings(patch);
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// いまの中身を見る（?send=1 で自分にだけ送ってみる）
+app.post("/api/evening-reminder/test", async (req, res) => {
+  try {
+    const byPerson = await buildEveningReminders(String(req.body?.date || "") || undefined);
+    const out = [];
+    for (const [email, x] of byPerson) {
+      if (!x.sf.length && !x.launch.length && !x.mail.length) continue;
+      const name = await displayNameOf(email).catch(() => "");
+      out.push({ email, name, sf: x.sf.length, launch: x.launch.length, mail: x.mail.length,
+                 text: eveningText(name, x) });
+    }
+    let sent = null;
+    if (req.body?.send === true) {
+      const me = out.find((o) => o.email === String(req.user || "").toLowerCase());
+      sent = me ? await notifyPerson(me.email, me.text) : { ok: false, reason: "あなた宛の分はありません" };
+    }
+    res.json({ ok: true, people: out, sent });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
@@ -13720,6 +13877,8 @@ server.listen(PORT, async () => {
   setInterval(() => { maybeSendCallReport().catch(() => {}); }, 60 * 1000);
   // 朝の開発メモ（既定6時）
   setInterval(() => { maybeSendDevSummary().catch(() => {}); }, 60 * 1000);
+  // 夕方のお知らせ（既定18:30）。本人にだけ1対1で送る。
+  setInterval(() => { maybeSendEvening().catch(() => {}); }, 60 * 1000);
   // 自己点検（既定30分おき）。起動から3分たってから始める。
   setTimeout(() => {
     autoState.check.timer = true;

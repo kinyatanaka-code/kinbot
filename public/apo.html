@@ -270,6 +270,21 @@
                 <span class="rev-status" id="twStatus"></span>
               </div>
 
+              <h4 class="ap-rot-h">夕方のお知らせ（本人だけに送る）</h4>
+              <p class="note">決めた時刻に、その日のうちに片づけたいものを<b>本人にだけ</b>1対1のチャットで知らせます。<br>
+              知らせる内容：<b>Salesforceの更新がまだ</b>／<b>立ち上げがまだ</b>／<b>確定メールがまだ</b><br>
+              チームのスペースには流しません（できていないことを人前に出さないため）。</p>
+              <div class="ap-cfg-actions">
+                <label class="ks-check"><input type="checkbox" id="evOn" /> 夕方に知らせる</label>
+                <label>時刻 <input type="number" id="evHour" min="0" max="23" style="width:60px" /> 時
+                  <input type="number" id="evMin" min="0" max="59" step="5" style="width:60px" /> 分</label>
+                <button class="btn ghost" id="evSave">保存</button>
+                <button class="btn ghost" id="evTest">いまの中身を見る</button>
+                <span class="rev-status" id="evStatus"></span>
+              </div>
+              <p class="note">1対1で送るには、その人が<b>Google Chatで kinbot に一度話しかけている</b>必要があります（「ヘルプ」と送るだけで大丈夫です）。まだの人には送れないので、その旨をお知らせします。</p>
+              <div class="note" id="evBox"></div>
+
               <h4 class="ap-rot-h">コール進捗のお知らせ</h4>
               <p class="note">平日の <b>指定した時間帯</b>、毎正時にその日の実績をGoogle Chatへ流します。<br>
               コール・接触はSalesforceのレポートから、アポはkinbotの記録から数えます（プロセスシートと同じレポートを使います）。</p>

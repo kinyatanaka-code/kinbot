@@ -3048,6 +3048,27 @@ export async function setSmartLinkBusiness(slug, business) {
   } catch (e) { console.error("[db] setSmartLinkBusiness", e.message); return null; }
 }
 
+// 今日のアポで、確定メールがまだ送れていないものを探す。
+// 18時半のお知らせに使う（送り忘れをその日のうちに気づけるように）。
+export async function aposMailPending(dateJst, limit = 200) {
+  if (!pool) return [];
+  try {
+    const { rows } = await pool.query(
+      `SELECT s.slug, s.label, s.setter, s.current_owner, s.start_time, s.client_email,
+              COALESCE(s.apo_at, s.created_at) AS taken_at
+         FROM smart_links s
+        WHERE (COALESCE(s.apo_at, s.created_at) AT TIME ZONE 'Asia/Tokyo')::date = $1::date
+          AND NOT COALESCE(s.excluded, false)
+          AND NOT EXISTS (
+            SELECT 1 FROM apo_mail_log m
+             WHERE m.slug = s.slug AND m.kind = 'confirm' AND m.status IN ('sent','draft')
+          )
+        ORDER BY taken_at
+        LIMIT $2`, [dateJst, limit]);
+    return rows;
+  } catch (e) { console.error("[db] aposMailPending", e.message); return []; }
+}
+
 export async function apoMailSentRow(slug, kind) {
   if (!pool || !slug) return null;
   try {

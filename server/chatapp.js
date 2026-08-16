@@ -90,6 +90,45 @@ export function normalizeSpace(input) {
 }
 
 // スペースに1件投稿する
+// その人とkinbotの1対1のスペース（DM）を探す。
+//
+// 見つからないときは、その人がまだkinbotに一度も話しかけていない状態。
+// Google Chatの決まりで、こちらから先に話しかけることはできないので、
+// 「kinbotに一度話しかけてください」と案内する必要がある。
+const _dmCache = new Map();
+export async function findDirectMessage(email) {
+  const key = String(email || "").trim().toLowerCase();
+  if (!key) return "";
+  const hit = _dmCache.get(key);
+  if (hit && Date.now() - hit.at < 6 * 3600 * 1000) return hit.space;
+  const token = await accessToken();
+  const res = await fetch(
+    `https://chat.googleapis.com/v1/spaces:findDirectMessage?name=${encodeURIComponent("users/" + key)}`,
+    { headers: { authorization: `Bearer ${token}` } }
+  );
+  if (!res.ok) {
+    if (res.status === 404) { _dmCache.set(key, { at: Date.now(), space: "" }); return ""; }
+    const t = await res.text();
+    throw new Error(`1対1のスペースを探せません ${res.status}: ${t.slice(0, 200)}`);
+  }
+  const d = await res.json();
+  const space = d.name || "";
+  _dmCache.set(key, { at: Date.now(), space });
+  return space;
+}
+
+// その人だけに送る（1対1のチャット）
+export async function postToPerson(email, text) {
+  const space = await findDirectMessage(email);
+  if (!space) {
+    const e = new Error(`${email} とのやり取りがまだありません`);
+    e.hint = "その人がGoogle Chatで kinbot に一度話しかけると、送れるようになります（「ヘルプ」と送るだけで大丈夫です）";
+    e.needGreeting = true;
+    throw e;
+  }
+  return postToSpace(space, text);
+}
+
 export async function postToSpace(space, text) {
   const sp = normalizeSpace(space);
   if (!sp) throw new Error("スペースIDが正しくありません（spaces/… の形で指定してください）");

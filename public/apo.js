@@ -682,6 +682,63 @@ async function saveTestWords() {
   } catch (e) { if (st) st.textContent = "失敗: " + e.message; }
 }
 
+// 夕方のお知らせ（本人だけに送る）
+async function loadEvening() {
+  if (!$("evOn")) return;
+  try {
+    const d = await apiJson("/api/evening-reminder");
+    $("evOn").checked = !!d.enabled;
+    $("evHour").value = d.hour ?? 18;
+    $("evMin").value = d.minute ?? 30;
+    if (!d.appReady) {
+      $("evBox").innerHTML = '<span class="cc-warn">1対1で送るには、Chatアプリ（kinbot名義）の設定が必要です。' +
+        '設定→外部連携→Google Chat の「送信者名を『kinbot』にする」をご確認ください。</span>';
+    }
+  } catch (e) { $("evBox").textContent = "確認できませんでした：" + e.message; }
+}
+
+async function saveEvening() {
+  setStatusAp("evStatus", "保存しています…");
+  try {
+    await apiJson("/api/evening-reminder", {
+      method: "PUT", headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        enabled: $("evOn").checked,
+        hour: parseInt($("evHour").value, 10),
+        minute: parseInt($("evMin").value, 10),
+      }),
+    });
+    setStatusAp("evStatus", "保存しました", 4000);
+  } catch (e) { setStatusAp("evStatus", "失敗: " + e.message, 6000); }
+}
+
+async function testEvening() {
+  const box = $("evBox");
+  setStatusAp("evStatus", "見ています…");
+  try {
+    const d = await apiJson("/api/evening-reminder/test", {
+      method: "POST", headers: { "content-type": "application/json" }, body: "{}",
+    });
+    const people = d.people || [];
+    if (!people.length) {
+      box.innerHTML = "いま送るものはありません（やり残しなし）。";
+    } else {
+      box.innerHTML = `<b>${people.length}人</b>に送ることになります。<br>` +
+        people.map((p) =>
+          `・${esc(p.name || p.email)}：SF更新 ${p.sf} ／ 立ち上げ ${p.launch} ／ 確定メール ${p.mail}`).join("<br>");
+    }
+    setStatusAp("evStatus", "");
+  } catch (e) { setStatusAp("evStatus", "失敗: " + e.message, 6000); }
+}
+
+// 状態表示のちいさな共通処理
+function setStatusAp(id, t, ms) {
+  const e = $(id);
+  if (!e) return;
+  e.textContent = t || "";
+  if (ms) setTimeout(() => { if (e.textContent === t) e.textContent = ""; }, ms);
+}
+
 // コール進捗のお知らせ
 async function loadCallReport() {
   if (!$("crOn")) return;
@@ -1596,6 +1653,11 @@ async function saveMailCfg() {
   if ($("twWords")) {
     loadTestWords();
     $("twSave").addEventListener("click", saveTestWords);
+  }
+  if ($("evOn")) {
+    loadEvening();
+    $("evSave").addEventListener("click", saveEvening);
+    $("evTest").addEventListener("click", testEvening);
   }
   if ($("crOn")) {
     loadCallReport();

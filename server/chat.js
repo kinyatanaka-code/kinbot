@@ -7,7 +7,7 @@
 // 送信は投げっぱなしにする。通知が失敗しても、割り振りやメール作成は止めない。
 // ───────────────────────────────────────────────────────────
 import { getSettings, listChatTargets, markChatTarget, addChatTarget } from "./db.js";
-import { chatAppConfigured, postToSpace, normalizeSpace, chatAppInfo } from "./chatapp.js";
+import { chatAppConfigured, postToSpace, postToPerson, normalizeSpace, chatAppInfo } from "./chatapp.js";
 
 let lastError = "";
 let sentCount = 0;
@@ -88,6 +88,20 @@ export async function notifyAll(text, kind = "") {
   }
   sentCount += sent;
   return { ok: sent > 0, sent, total: list.length };
+}
+
+// その人だけに送る（1対1のチャット）。
+// チームのスペースには流さないので、個人あてのお知らせに使う。
+export async function notifyPerson(email, text) {
+  if (!chatAppConfigured()) {
+    return { ok: false, skipped: true, reason: "Chatアプリ（kinbot名義）が設定されていません" };
+  }
+  try {
+    await postToPerson(email, text);
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, reason: e.message, hint: e.hint || "", needGreeting: !!e.needGreeting };
+  }
 }
 
 export async function notifyChat(text, { url = "", space = "" } = {}) {
