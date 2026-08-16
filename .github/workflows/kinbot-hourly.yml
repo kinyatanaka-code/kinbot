@@ -45,28 +45,16 @@ jobs:
       - name: Node.jsを用意する
         uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version: "22"
 
+      # kinbot側の「自動で反映する」がONかを見る。OFFなら何もしない。
       # kinbot側の「自動で反映する」がONかを見る。OFFなら何もしない。
       - name: 自動で反映してよいかを確かめる
         id: gate
         env:
           KINBOT_URL: ${{ vars.KINBOT_URL || 'https://kinbot-production-225f.up.railway.app' }}
           KINBOT_TOKEN: ${{ secrets.KINBOT_TOKEN }}
-        run: |
-          node -e '
-            const url = process.env.KINBOT_URL, token = process.env.KINBOT_TOKEN;
-            const out = (k, v) => require("node:fs").appendFileSync(process.env.GITHUB_OUTPUT, `${k}=${v}\n`);
-            if (!url || !token) { out("run", "false"); out("apply", "false"); console.log("設定がありません"); return; }
-            fetch(`${url.replace(/\/+$/, "")}/api/auto-apply`, { headers: { authorization: `Bearer ${token}` } })
-              .then((r) => r.json())
-              .then((d) => {
-                console.log("kinbotの設定:", JSON.stringify(d));
-                out("run", d.enabled ? "true" : "false");
-                out("apply", d.autoApply ? "true" : "false");
-              })
-              .catch((e) => { console.log("読めませんでした:", e.message); out("run", "false"); out("apply", "false"); });
-          '
+        run: node dev/gate.mjs
 
       - name: 今回やることを決める
         if: steps.gate.outputs.run == 'true'
@@ -183,25 +171,5 @@ jobs:
         env:
           KINBOT_URL: ${{ vars.KINBOT_URL || 'https://kinbot-production-225f.up.railway.app' }}
           KINBOT_TOKEN: ${{ secrets.KINBOT_TOKEN }}
-          APPLIED: ${{ steps.apply.outputs.sha }}
-          GUARD_OK: ${{ steps.guard.outputs.ok }}
-        run: |
-          node -e '
-            const fs = require("node:fs");
-            const url = process.env.KINBOT_URL, token = process.env.KINBOT_TOKEN;
-            if (!url || !token) process.exit(0);
-            let result = "", guard = null;
-            try { result = fs.readFileSync("dev/NIGHT_RESULT.md", "utf8").slice(0, 1500); } catch {}
-            try { guard = JSON.parse(fs.readFileSync("dev/GUARD.json", "utf8")); } catch {}
-            fetch(`${url.replace(/\/+$/, "")}/api/dev-notes/applied`, {
-              method: "POST",
-              headers: { "content-type": "application/json", authorization: `Bearer ${token}` },
-              body: JSON.stringify({
-                applied: !!process.env.APPLIED,
-                sha: process.env.APPLIED || "",
-                guard,
-                result,
-                runUrl: `${process.env.GITHUB_SERVER_URL}/${process.env.GITHUB_REPOSITORY}/actions/runs/${process.env.GITHUB_RUN_ID}`,
-              }),
-            }).then((r) => console.log("知らせました:", r.status)).catch((e) => console.log("知らせられず:", e.message));
-          '
+          APPLIED_SHA: ${{ steps.apply.outputs.sha }}
+        run: node dev/report.mjs applied

@@ -36,7 +36,7 @@ jobs:
       - name: Node.jsを用意する
         uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version: "22"
 
       - name: kinbotのいまの状態を集める
         env:
@@ -92,21 +92,4 @@ jobs:
         env:
           KINBOT_URL: ${{ vars.KINBOT_URL || 'https://kinbot-production-225f.up.railway.app' }}
           KINBOT_TOKEN: ${{ secrets.KINBOT_TOKEN }}
-        run: |
-          node -e '
-            const fs = require("node:fs");
-            const url = process.env.KINBOT_URL, token = process.env.KINBOT_TOKEN;
-            if (!url || !token) { console.log("設定がないので送りません"); process.exit(0); }
-            let text = "";
-            try { text = fs.readFileSync("dev/ADVISOR_OUT.md", "utf8"); } catch {}
-            if (!text.trim()) { console.log("案が無いので送りません"); process.exit(0); }
-            fetch(`${url.replace(/\/+$/, "")}/api/dev-notes/advice`, {
-              method: "POST",
-              headers: { "content-type": "application/json", authorization: `Bearer ${token}` },
-              body: JSON.stringify({
-                text,
-                runUrl: `${process.env.GITHUB_SERVER_URL}/${process.env.GITHUB_REPOSITORY}/actions/runs/${process.env.GITHUB_RUN_ID}`,
-              }),
-            }).then((r) => console.log("kinbotへ送りました:", r.status))
-              .catch((e) => console.log("送れませんでした:", e.message));
-          '
+        run: node dev/report.mjs advice
