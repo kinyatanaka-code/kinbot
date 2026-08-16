@@ -317,7 +317,7 @@ import {
   writeViaAppsScript, tokenScopes, getCalendarEvent } from "./google.js";
 import { startScheduler } from "./scheduler.js";
 import { muxConfigured, startVodUpload, waitVodPlayback, muxStorageSummary, listAssets, deleteAsset, findAssetByPlaybackId, enableMp4, mp4Url, readyMp4Name, getAsset } from "./mux.js";
-import { liveConfigured, createLiveStream, disableLiveStream, playbackUrl as livePlaybackUrl, liveInfo, liveStatus, cfCustomerCodeCheck, relayMap, relayDestFor } from "./live.js";
+import { liveConfigured, createLiveStream, disableLiveStream, playbackUrl as livePlaybackUrl, liveInfo, liveStatus, cfCustomerCodeCheck, cleanupOldLiveInputs, relayMap, relayDestFor } from "./live.js";
 import { notionConfigured, notionStatus, createMeetingPage, createReportPage } from "./notion.js";
 import { pdfToText, urlToText, officeToText } from "./ingest.js";
 import { indexKnowledge, embeddingsAvailable, retrieve } from "./retrieval.js";
@@ -2313,6 +2313,21 @@ app.get("/api/live/status", async (req, res) => {
 
 // 配信枠を実際に1つ作ってみて、本当に使えるかを確かめる。
 // 設定が合っていても鍵の権限が足りないことがあるので、本番の商談を待たずに試せるようにする。
+// Cloudflareに残っている古い配信枠と録画を、いま片づける
+app.post("/api/live/cleanup", async (req, res) => {
+  try {
+    const hours = Math.max(0, Math.min(720, Number(req.body?.hours ?? 6)));
+    const r = await cleanupOldLiveInputs(hours);
+    res.json({ ok: true, ...r });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+app.get("/api/live/cleanup", async (req, res) => {
+  try {
+    const r = await cleanupOldLiveInputs(Math.max(0, Math.min(720, Number(req.query.hours ?? 6))));
+    res.json({ ok: true, ...r });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 // 顧客コード（customer-xxxx）が合っているかだけを確かめる。
 // 商談を指定しなくてよいので、いつでも開ける。
 // 中で配信枠を1つ作って調べ、すぐ片づける。
@@ -14371,6 +14386,9 @@ server.listen(PORT, async () => {
 
   // コール進捗のお知らせ（11時〜18時の毎正時）。毎分見て、その時刻になったら1回だけ流す。
   setInterval(() => { maybeSendCallReport().catch(() => {}); }, 60 * 1000);
+  // Cloudflareに残った古い配信枠と録画を片づける（保存料を増やさないため）
+  setInterval(() => { cleanupOldLiveInputs(6).catch(() => {}); }, 60 * 60 * 1000);
+
   // 朝の開発メモ（既定6時）
   setInterval(() => { maybeSendDevSummary().catch(() => {}); }, 60 * 1000);
   // 夕方のお知らせ（既定18:30）。本人にだけ1対1で送る。
