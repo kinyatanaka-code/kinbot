@@ -1408,8 +1408,12 @@ async function driveFolderForMeeting(owner, m) {
 async function archiveRecordingSafe(botId) {
   if (process.env.DRIVE_AUTO_ARCHIVE === "0") return;
   try {
-    // 録画が用意できるまで少し待つ（Recall側の書き出し待ち）
-    for (let i = 0; i < 10; i++) {
+    // 録画が用意できるまで待つ。
+    // 商談が終わってすぐは、Recall側の書き出しが終わっていないことがある。
+    // 最初は数秒おきに見に行き、だんだん間隔を延ばす（できたらすぐ保存できるように）。
+    const waits = [0, 5, 10, 20, 30, 60, 60, 120, 120, 180, 300, 300];
+    for (let i = 0; i < waits.length; i++) {
+      if (waits[i]) await new Promise((r) => setTimeout(r, waits[i] * 1000));
       const m = await getMeeting(botId);
       if (!m) return;
       if (m.drive_file_id) return;
@@ -1446,8 +1450,8 @@ async function archiveRecordingSafe(botId) {
         }
         return;
       }
-      await new Promise((r) => setTimeout(r, 60000)); // 1分待って再挑戦（最大10分）
     }
+    console.warn(`[ドライブ保存] ${botId} は録画がまだ用意できません（あとで自動的に拾い直します）`);
   } catch (e) {
     const msg = String(e.message || "");
     if (/insufficient|scope|403/i.test(msg)) {
@@ -1567,10 +1571,10 @@ setInterval(async () => {
     const jst = new Date(Date.now() + 9 * 3600 * 1000);
     const from = new Date(jst.getTime() - days * 86400000).toISOString().slice(0, 10);
     const rows = await listMeetings({ isAdmin: true, from, limit: 500 });
-    const todo = rows.filter((m) => !m.drive_file_id).slice(0, 3); // 1回に3件まで
+    const todo = rows.filter((m) => !m.drive_file_id).slice(0, 5);
     for (const t of todo) {
-      // 直近5分以内の商談は、録画の書き出し待ちの可能性があるので飛ばす
-      if (Date.now() - new Date(t.created_at).getTime() < 5 * 60 * 1000) continue;
+      // 始まったばかりの商談（まだ録画中）は飛ばす
+      if (Date.now() - new Date(t.created_at).getTime() < 3 * 60 * 1000) continue;
       await archiveRecordingSafe(t.bot_id);
     }
   } catch (e) {
@@ -1578,7 +1582,7 @@ setInterval(async () => {
   } finally {
     _sweeping = false;
   }
-}, 30 * 60 * 1000); // 30分ごと
+}, 5 * 60 * 1000); // 5分ごと（保存もれをすぐ拾うため）
 
 // 長時間つけっぱなしのBotを見張って、自動で退出させる（課金の暴走を防ぐ）
 const BOT_MAX_HOURS = Math.max(1, Math.min(12, Number(process.env.BOT_MAX_HOURS || 4)));
@@ -9226,13 +9230,21 @@ app.get("/api/meetings/:id/recording", async (req, res) => {
   try {
     const m = await getMeeting(req.params.id);
     if (!m || !canAccess(m, req)) return res.json({ url: null });
-    // 1) Bot録画（Recall）があればそれを優先（mp4で確実に再生できる）
+    // 1) Googleドライブに保存できていれば、そこから再生する。
+    //    Recallの録画は保存期限で消えるので、残るドライブを先に見る。
+    if (m.drive_file_id) {
+      return res.json({
+        url: `/api/meetings/${encodeURIComponent(req.params.id)}/drive-video`,
+        source: "drive", driveLink: m.drive_link || "",
+      });
+    }
+    // 2) まだドライブに入っていなければ、Recallの録画で再生する（保存はこのあと動く）
     let recallUrl = null;
     try { recallUrl = await getRecordingUrl(req.params.id); } catch (e) { console.error("[recording] recall", e.message); }
-    if (recallUrl) return res.json({ url: recallUrl, source: "recall" });
-    // 2) Recallの保存期限が切れていても、Googleドライブに保存済みならそこから再生
-    if (m.drive_file_id) {
-      return res.json({ url: `/api/meetings/${encodeURIComponent(req.params.id)}/drive-video`, source: "drive", driveLink: m.drive_link || "" });
+    if (recallUrl) {
+      // 開いた人が待たなくていいよう、裏で保存を始めておく
+      archiveRecordingSafe(req.params.id).catch(() => {});
+      return res.json({ url: recallUrl, source: "recall" });
     }
     // 3) 無ければ Mux VOD（アップロード動画など）
     if (m.mux_playback_id) {
