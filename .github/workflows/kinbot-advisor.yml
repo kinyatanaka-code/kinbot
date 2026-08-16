@@ -1,0 +1,112 @@
+# kinbot 定期提案（Claude）
+#
+# Claudeが決まった時間ごとに、kinbotのいまの状態とコードを読み、
+# 「次はこれをやるといい」という案を出します。
+# コードは変えません。案を出すだけです（直すのは夜間開発のほう）。
+#
+# 必要なもの（GitHub → Settings → Secrets and variables → Actions）
+#   ANTHROPIC_API_KEY … Anthropicのコンソールで作るAPIキー
+#   KINBOT_TOKEN      … kinbotの環境変数 API_TOKENS に入れたトークン
+
+name: 定期提案（Claude）
+
+on:
+  schedule:
+    # 日本時間の 9時 / 12時 / 15時 / 18時 / 21時（UTCで指定）
+    - cron: "0 0,3,6,9,12 * * 1-5"
+  workflow_dispatch:
+    inputs:
+      focus:
+        description: "今回みてほしいこと（空でよい）"
+        required: false
+        default: ""
+
+permissions:
+  contents: read
+
+jobs:
+  advise:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: コードを取ってくる
+        uses: actions/checkout@v4
+
+      - name: Node.jsを用意する
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: kinbotのいまの状態を集める
+        env:
+          KINBOT_URL: ${{ vars.KINBOT_URL || 'https://kinbot-production-225f.up.railway.app' }}
+          KINBOT_TOKEN: ${{ secrets.KINBOT_TOKEN }}
+        run: node dev/advisor.mjs
+
+      - name: 集めた材料を表示する
+        run: cat dev/ADVISOR_INPUT.md
+
+      - name: Claude Code を入れる
+        run: npm install -g @anthropic-ai/claude-code
+
+      - name: 案を考えてもらう
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          FOCUS: ${{ github.event.inputs.focus }}
+        run: |
+          claude -p "$(cat <<'EOF'
+          あなたはこのリポジトリ（kinbot）を一緒に育てている開発パートナーです。
+          まず CLAUDE.md を読み、この製品の決まりと現場の事情を理解してください。
+          次に dev/ADVISOR_INPUT.md を読み、いまkinbotがどういう状態かを把握してください。
+          必要なら server/ や public/ のコードも読んでかまいません。
+
+          そのうえで「次にやるとよいこと」を3件、提案してください。
+
+          決まり:
+          - 相手は毎日この道具を使って営業しているチームのリーダー（開発は本業ではない）。
+            むずかしい言葉を使わず、日本語で書く。
+          - 思いつきではなく、ADVISOR_INPUT.md に出ている実際の困りごと・エラー・
+            使われ方を根拠にする。根拠を必ず1行書く。
+          - すぐ着手できる大きさにする。大きな作り替えは提案しない。
+          - リスク（壊れそうなところ）と、かかる手間の目安も書く。
+          - コードは変えない。案を書くだけ。
+
+          出力は dev/ADVISOR_OUT.md に、この形だけで書く（前置き・締めの言葉は不要）:
+
+          1. 見出し（25字以内）
+             なぜ：〜（根拠となる事実）
+             やること：〜
+             気をつける点：〜
+             手間：小 / 中 / 大
+
+          今回とくに見てほしいこと（空なら気にしない）: ${FOCUS}
+          EOF
+          )" --permission-mode acceptEdits --allowed-tools "Read,Write,Bash(ls *),Bash(grep *),Bash(cat *)"
+
+      - name: 出た案を表示する
+        run: cat dev/ADVISOR_OUT.md || echo "案は出ませんでした"
+
+      - name: kinbotへ送る
+        if: always()
+        env:
+          KINBOT_URL: ${{ vars.KINBOT_URL || 'https://kinbot-production-225f.up.railway.app' }}
+          KINBOT_TOKEN: ${{ secrets.KINBOT_TOKEN }}
+        run: |
+          node -e '
+            const fs = require("node:fs");
+            const url = process.env.KINBOT_URL, token = process.env.KINBOT_TOKEN;
+            if (!url || !token) { console.log("設定がないので送りません"); process.exit(0); }
+            let text = "";
+            try { text = fs.readFileSync("dev/ADVISOR_OUT.md", "utf8"); } catch {}
+            if (!text.trim()) { console.log("案が無いので送りません"); process.exit(0); }
+            fetch(`${url.replace(/\/+$/, "")}/api/dev-notes/advice`, {
+              method: "POST",
+              headers: { "content-type": "application/json", authorization: `Bearer ${token}` },
+              body: JSON.stringify({
+                text,
+                runUrl: `${process.env.GITHUB_SERVER_URL}/${process.env.GITHUB_REPOSITORY}/actions/runs/${process.env.GITHUB_RUN_ID}`,
+              }),
+            }).then((r) => console.log("kinbotへ送りました:", r.status))
+              .catch((e) => console.log("送れませんでした:", e.message));
+          '

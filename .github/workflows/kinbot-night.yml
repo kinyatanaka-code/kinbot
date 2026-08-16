@@ -1,0 +1,150 @@
+# kinbot 夜間開発
+#
+# 毎晩、kinbotに溜まった「開発メモ」を読み、Claude Code が直してPRを作る。
+# mainには直接入れない。朝、田中さんがPRを見て「マージ」を押すと反映される。
+#
+# 動かすのに必要なもの（GitHub → Settings → Secrets and variables → Actions）
+#   ANTHROPIC_API_KEY … Anthropicのコンソールで作るAPIキー
+#   KINBOT_TOKEN      … kinbotの環境変数 API_TOKENS に入れたトークン
+#   KINBOT_URL        … https://kinbot-production-225f.up.railway.app（Variablesでも可）
+
+name: 夜間開発（Claude Code）
+
+on:
+  schedule:
+    # 毎日 日本時間 3:00（UTC 18:00）
+    - cron: "0 18 * * *"
+  workflow_dispatch:      # 手動でも動かせる
+    inputs:
+      max_items:
+        description: "今夜やる件数"
+        required: false
+        default: "3"
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  night:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: コードを取ってくる
+        uses: actions/checkout@v4
+
+      - name: Node.jsを用意する
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: 今夜の作業指示を作る
+        env:
+          KINBOT_URL: ${{ vars.KINBOT_URL || 'https://kinbot-production-225f.up.railway.app' }}
+          KINBOT_TOKEN: ${{ secrets.KINBOT_TOKEN }}
+          MAX_ITEMS: ${{ github.event.inputs.max_items || '3' }}
+        run: node dev/night-brief.mjs
+
+      - name: 指示の中身を表示する
+        run: cat dev/NIGHT_BRIEF.md
+
+      - name: やることが無ければ、ここで終わる
+        id: check
+        run: |
+          if grep -q "今夜やることはない" dev/NIGHT_BRIEF.md; then
+            echo "skip=true" >> $GITHUB_OUTPUT
+          else
+            echo "skip=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Claude Code を入れる
+        if: steps.check.outputs.skip == 'false'
+        run: npm install -g @anthropic-ai/claude-code
+
+      - name: 直してもらう
+        if: steps.check.outputs.skip == 'false'
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: |
+          claude -p "$(cat <<'EOF'
+          あなたはこのリポジトリ（kinbot）の開発者です。
+          まず CLAUDE.md を読み、そこに書かれた決まりを必ず守ってください。
+          次に dev/NIGHT_BRIEF.md を読み、書かれている「やること」を上から順に直してください。
+
+          守ること:
+          - 変更は小さく。1つの要件につき必要最小限だけ変える。
+          - 直したら node --check で確かめる。サーバーの起動確認もする。
+          - 自信が持てないものは手を付けず、理由を残す。
+          - node_modules や package-lock.json は変更しない。
+          - コミットはしない（あとの手順でまとめて行う）。
+
+          最後に、何をどう直したかを dev/NIGHT_RESULT.md に日本語で書いてください。
+          形式:
+          ## 直したもの
+          - メモID: 12 / 内容 / 変えたファイル / 直し方
+          ## 手を付けなかったもの
+          - メモID: 34 / 理由
+          EOF
+          )" --permission-mode acceptEdits --allowed-tools "Read,Edit,Write,Bash(node --check *),Bash(node -e *),Bash(ls *),Bash(grep *),Bash(cat *)"
+
+      - name: 変更を確かめる
+        if: steps.check.outputs.skip == 'false'
+        id: verify
+        run: |
+          git checkout -- package-lock.json 2>/dev/null || true
+          for f in $(git diff --name-only | grep -E '\.js$' || true); do
+            echo "確認: $f"
+            node --check "$f" || exit 1
+          done
+          if git diff --quiet; then
+            echo "changed=false" >> $GITHUB_OUTPUT
+          else
+            echo "changed=true" >> $GITHUB_OUTPUT
+          fi
+
+      - name: 起動できるか確かめる
+        if: steps.verify.outputs.changed == 'true'
+        run: |
+          npm install --omit=dev --no-audit --no-fund
+          RECALL_API_KEY=dummy SESSION_SECRET=dummy GEMINI_API_KEY=dummy PORT=8199 \
+            timeout 25 node server/index.js > /tmp/boot.log 2>&1 || true
+          cat /tmp/boot.log
+          grep -q "自動スキャンの間隔" /tmp/boot.log || (echo "起動できませんでした"; exit 1)
+
+      - name: PRを作る
+        if: steps.verify.outputs.changed == 'true'
+        uses: peter-evans/create-pull-request@v6
+        with:
+          branch: night/auto-${{ github.run_number }}
+          commit-message: "夜間開発：開発メモの対応（自動）"
+          title: "🌙 夜間開発：開発メモの対応（${{ github.run_number }}）"
+          body-path: dev/NIGHT_RESULT.md
+          labels: 自動
+          delete-branch: true
+
+      - name: できたことをkinbotに知らせる
+        if: always()
+        env:
+          KINBOT_URL: ${{ vars.KINBOT_URL || 'https://kinbot-production-225f.up.railway.app' }}
+          KINBOT_TOKEN: ${{ secrets.KINBOT_TOKEN }}
+          CHANGED: ${{ steps.verify.outputs.changed }}
+        run: |
+          node -e '
+            const fs = require("node:fs");
+            const url = process.env.KINBOT_URL, token = process.env.KINBOT_TOKEN;
+            if (!url || !token) { console.log("設定がないので知らせません"); process.exit(0); }
+            let result = "（結果なし）";
+            try { result = fs.readFileSync("dev/NIGHT_RESULT.md", "utf8").slice(0, 2000); } catch {}
+            const body = {
+              runUrl: `${process.env.GITHUB_SERVER_URL}/${process.env.GITHUB_REPOSITORY}/actions/runs/${process.env.GITHUB_RUN_ID}`,
+              result,
+              changed: process.env.CHANGED === "true",
+            };
+            fetch(`${url.replace(/\/+$/, "")}/api/dev-notes/night-report`, {
+              method: "POST",
+              headers: { "content-type": "application/json", authorization: `Bearer ${token}` },
+              body: JSON.stringify(body),
+            }).then((r) => console.log("kinbotへ通知:", r.status))
+              .catch((e) => console.log("通知できず:", e.message));
+          '

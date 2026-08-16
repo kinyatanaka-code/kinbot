@@ -1,0 +1,50 @@
+# kinbot 巻き戻し
+#
+# 自動で入った変更でおかしくなったとき、これを実行すると元に戻ります。
+# Actions → 「巻き戻し」→ Run workflow を押すだけです。
+#
+#   何も入れずに実行 … 直前の自動変更を1つ戻す
+#   sha を入れて実行 … その変更を戻す
+
+name: 巻き戻し
+
+on:
+  workflow_dispatch:
+    inputs:
+      sha:
+        description: "戻したい変更（空なら直前の自動変更）"
+        required: false
+        default: ""
+
+permissions:
+  contents: write
+
+jobs:
+  revert:
+    runs-on: ubuntu-latest
+    steps:
+      - name: コードを取ってくる
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: 戻す
+        run: |
+          git config user.name "kinbot"
+          git config user.email "kinbot@neo-career.co.jp"
+
+          TARGET="${{ github.event.inputs.sha }}"
+          if [ -z "$TARGET" ]; then
+            # kinbotが入れた直近の変更を探す
+            TARGET=$(git log --author="kinbot" --format="%H" -n 1)
+          fi
+          if [ -z "$TARGET" ]; then
+            echo "戻すものが見つかりませんでした"
+            exit 1
+          fi
+
+          echo "戻します: $TARGET"
+          git log -1 --format="  %s" "$TARGET"
+          git revert --no-edit "$TARGET"
+          git push origin HEAD:main
+          echo "戻しました。Railwayが自動で反映します（2〜3分）。"
