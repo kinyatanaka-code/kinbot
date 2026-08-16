@@ -148,7 +148,17 @@ async function loadLinks() {
     links = [];
   }
   renderLinks();
+  loadMyMeetingUrl();
 }
+// いま「自分の商談用」に選んでいるURL
+let myMeetingUrl = "";
+
+// URLの細かい違い（末尾のスラッシュや大文字小文字）を無視して比べる
+function sameUrl(a, b) {
+  const n = (v) => String(v || "").trim().replace(/\/+$/, "").toLowerCase();
+  return !!n(a) && n(a) === n(b);
+}
+
 function renderLinks() {
   const list = $("linkList");
   if (!links.length) {
@@ -157,16 +167,49 @@ function renderLinks() {
   }
   list.innerHTML = "";
   links.forEach((l, i) => {
+    const isMine = sameUrl(l.url, myMeetingUrl);
     const li = document.createElement("li");
-    li.innerHTML = `<span class="ln-name"></span><span class="ln-url"></span><button class="ln-del" data-i="${i}">削除</button>`;
+    li.innerHTML =
+      `<span class="ln-name"></span>` +
+      `<span class="ln-url"></span>` +
+      `<button class="ln-use${isMine ? " on" : ""}" data-i="${i}">${isMine ? "商談用" : "商談用にする"}</button>` +
+      `<button class="ln-del" data-i="${i}">削除</button>`;
     li.querySelector(".ln-name").textContent = l.name;
     li.querySelector(".ln-url").textContent = l.url;
+
+    // このURLを「自分の商談用リンク」にする。
+    // アポのURL（スマートリンク）は、担当者ごとにここへ案内される。
+    li.querySelector(".ln-use").addEventListener("click", async () => {
+      if (isMine) {
+        if (!confirm("商談用の指定を外しますか？\n（外すと、アポのURLから自分の部屋へ案内できなくなります）")) return;
+      }
+      const url = isMine ? "" : l.url;
+      try {
+        const r = await fetch("/api/my-zoom-link", {
+          method: "PUT", headers: { "content-type": "application/json" },
+          body: JSON.stringify({ url }),
+        });
+        if (!r.ok) throw new Error(((await r.json()) || {}).error || "変えられませんでした");
+        myMeetingUrl = url;
+        renderLinks();
+      } catch (e) { kbNotify("変えられませんでした: " + e.message); }
+    });
+
     li.querySelector(".ln-del").addEventListener("click", async () => {
       links.splice(i, 1);
       await saveLinks();
     });
     list.appendChild(li);
   });
+}
+
+// 自分の商談用リンクを読む
+async function loadMyMeetingUrl() {
+  try {
+    const d = await (await fetch("/api/my-zoom-link")).json();
+    myMeetingUrl = d.url || "";
+  } catch {}
+  renderLinks();
 }
 async function saveLinks() {
   try {
@@ -487,7 +530,6 @@ loadThanks();
       if (name === "knowledge") loadKnowledge();
       if (name === "ai") loadThanksPrompt();
       if (name === "integrations") showIntegGrid();
-      if (name === "smartlinks") initSmartLinks();
     });
   });
 })();
@@ -1966,6 +2008,8 @@ async function renderSmartLinkTable() {
     });
   });
 }
+// ※スマートリンクのタブは廃止しました（登録リンクの「商談用にする」に統合）。
+// 一覧が必要になったときのために、関数だけ残してあります。
 function initSmartLinks() {
   loadMyZoomLink();
   renderSmartLinkTable();

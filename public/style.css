@@ -5153,3 +5153,10 @@ input:focus, select:focus, textarea:focus, .sf-input:focus, .sf-select:focus, .s
 .df-own { background: #fdf3e6; color: #A8611A; border: 1px solid #f3e0c4; margin-right: 6px; }
 .df-share { background: #eaf7f2; color: #0F6E56; border: 1px solid #cfeee2; margin-right: 6px; }
 .df-other { background: #eef4ff; color: #2b5aa8; border: 1px solid #d7e4f8; margin-right: 6px; }
+
+/* 登録リンクの「商談用にする」 */
+.ln-use { flex: none; border: 1px solid var(--line); background: var(--panel); color: #6f8781;
+  border-radius: 999px; padding: 4px 12px; font-size: 11.5px; font-family: inherit; cursor: pointer;
+  margin-right: 6px; white-space: nowrap; }
+.ln-use:hover { border-color: #9fe1cb; color: #0F6E56; }
+.ln-use.on { background: #0d5b47; border-color: #0d5b47; color: #fff; font-weight: 700; }
