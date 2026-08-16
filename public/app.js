@@ -517,6 +517,43 @@ function showLiveMessage(text) {
 }
 // 配信枠が無いときは、いまの設定を見に行って、何が足りないかをそのまま出す。
 // 「配信枠が作られていません」だけだと、どこを直せばよいか分からないため。
+// 本人向け：「ほかの人には見えています」の案内と、音なしで見るボタン
+function showOwnerPeek(playbackId) {
+  const box = $("liveVideo");
+  if (!box) return;
+  box.hidden = false;
+  showVideoTab(true);
+  const video = $("liveVideoEl");
+  if (video) video.style.display = "none";
+  let overlay = $("liveVideoMsg");
+  if (!overlay) {
+    overlay = document.createElement("div");
+    overlay.id = "liveVideoMsg";
+    overlay.className = "live-video-msg";
+    box.appendChild(overlay);
+  }
+  overlay.style.whiteSpace = "pre-line";
+  overlay.textContent =
+    "あなたはこの会議に出ているので、ここには映していません。\n" +
+    "（音が二重に聞こえるのを防ぐためです。ほかの人の画面には映っています）";
+  overlay.hidden = false;
+
+  let btn = document.getElementById("livePeekBtn");
+  if (!btn) {
+    btn = document.createElement("button");
+    btn.id = "livePeekBtn";
+    btn.className = "live-unmute-btn";
+    btn.textContent = "配信できているか、音なしで確かめる";
+    box.appendChild(btn);
+  }
+  btn.hidden = false;
+  btn.onclick = () => {
+    btn.hidden = true;
+    if (video) video.style.display = "";
+    showLiveVideo(playbackId, { silent: true });
+  };
+}
+
 async function checkMuxThenMessage() {
   try {
     const d = await (await fetch("/api/live/diagnose")).json();
@@ -601,10 +638,12 @@ function checkLiveStatus() {
   _liveCheckTimer = setInterval(run, 15000);
 }
 
-function showLiveVideo(playbackId) {
+function showLiveVideo(playbackId, opts = {}) {
   const box = $("liveVideo");
   const video = $("liveVideoEl");
   if (!box || !video || !playbackId) return;
+  // 会議に出ている本人が見るときは、音を出さない（自分の声が二重に聞こえるため）
+  const silent = opts.silent === true;
   // 配信元（Mux / Cloudflare）はサーバーが決めるので、URLを聞きに行く
   const src = liveHlsUrl(playbackId);
   checkLiveStatus(); // 届いているかを確かめて、状況を表示する
@@ -651,6 +690,12 @@ function showLiveVideo(playbackId) {
   };
 
   const tryPlayWithSound = () => {
+    // 本人が確かめるときは、音を出さずに映像だけ流す
+    if (silent) {
+      video.muted = true;
+      video.play().catch(() => {});
+      return;
+    }
     // まず音声ありで再生を試みる。ブラウザにブロックされたらミュートで再生し、
     // 「音声をオンにする」ボタンを表示する（クリックで音声オン）。
     video.muted = false;
@@ -719,10 +764,12 @@ function handle(msg) {
       if (msg.repName) liveRepName = msg.repName;
       // ライブ映像（Mux）
       if (msg.isOwner) {
-        // 会議に参加中の本人：音声が二重になるので映像は出さない。
-        // ただし配信できていないときは、その理由だけ知らせる（直せるのは本人だから）。
+        // 会議に出ている本人：音が二重になるので、ふだんは映像を出さない。
+        // ただし「ちゃんと配信できているか」を確かめたいことがあるので、
+        // 音なしで見るボタンだけ出しておく。
         hideLiveVideo();
         if (msg.muxError) setStatus("ほかの人はこの商談を見られません：" + msg.muxError);
+        else if (msg.muxPlaybackId) showOwnerPeek(msg.muxPlaybackId);
       } else if (msg.muxPlaybackId) {
         showLiveVideo(msg.muxPlaybackId);
       } else if (msg.muxError) {

@@ -97,9 +97,9 @@ class Session {
       type: "session",
       startedAt: this.startedAt,
       repName: this.repName || "",
-      // 本人の画面では、自分の会議をそのまま見ればよいので映像は流さない。
-      // ただし「なぜ配信できないか」は本人にも見せる（直せるのは本人だから）。
-      muxPlaybackId: isOwner ? "" : this.muxPlaybackId || "",
+      // 本人の画面でも、確かめられるように再生用のIDは渡す。
+      // ふだんは映さず、「音なしで確かめる」を押したときだけ映す（画面側で判断）。
+      muxPlaybackId: this.muxPlaybackId || "",
       muxError: this.muxError || "",
       isOwner,
     });
