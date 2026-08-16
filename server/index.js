@@ -3781,7 +3781,11 @@ function addDays(dateStr, n) {
   return d.toISOString().slice(0, 10);
 }
 
-// 書く人の一覧（インサイド＋クローザー）
+// ボードを書く人。
+// 全員ではなく、決めた人だけにする（人数が多いと見づらいため）。
+// 既定は 植野・江田・田中・森田。設定で変えられる。
+const WEEKLY_DEFAULT = ["植野", "江田", "田中", "森田"];
+
 async function weeklyMembers() {
   const map = new Map();
   for (const i of await listInterns().catch(() => [])) {
@@ -3790,8 +3794,45 @@ async function weeklyMembers() {
   for (const c of await listClosers({ activeOnly: true }).catch(() => [])) {
     if (c.email) map.set(String(c.email).toLowerCase(), c.name || c.email);
   }
-  return [...map.entries()].map(([email, name]) => ({ email, name }));
+  const all = [...map.entries()].map(([email, name]) => ({ email, name }));
+
+  const st = await getSettings().catch(() => ({}));
+  const raw = st.weeklyMembers === undefined ? WEEKLY_DEFAULT.join(",") : String(st.weeklyMembers);
+  const want = raw.split(/[,、\n]/).map((x) => x.trim()).filter(Boolean);
+  if (!want.length) return all;   // 空にしたら全員
+
+  const norm = (v) => String(v || "").replace(/[\s　]/g, "").toLowerCase();
+  const picked = [];
+  for (const w of want) {
+    const k = norm(w);
+    // メールでも名前（一部でも）でも指定できる
+    const hit = all.find((m) => norm(m.email) === k || norm(m.name) === k) ||
+                all.find((m) => norm(m.name).startsWith(k) || k.startsWith(norm(m.name)));
+    if (hit && !picked.some((p) => p.email === hit.email)) picked.push(hit);
+  }
+  return picked.length ? picked : all;
 }
+
+// 対象メンバーの設定
+app.get("/api/weekly/members", async (req, res) => {
+  try {
+    const st = await getSettings();
+    const list = await weeklyMembers();
+    res.json({
+      指定: st.weeklyMembers === undefined ? WEEKLY_DEFAULT.join(",") : String(st.weeklyMembers),
+      いまの対象: list.map((x) => x.name),
+      note: "名前かメールを、カンマ区切りで書きます。空にすると全員が出ます。",
+    });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.put("/api/weekly/members", async (req, res) => {
+  try {
+    await saveSettings({ weeklyMembers: String(req.body?.members ?? "").slice(0, 400) });
+    const list = await weeklyMembers();
+    res.json({ ok: true, いまの対象: list.map((x) => x.name) });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
 
 // その週の実績（アポを何件取ったか）を、名前ごとに数える
 async function weeklyResults(weekStart) {
@@ -3826,13 +3867,20 @@ app.get("/api/weekly", async (req, res) => {
           if (k.startsWith(norm(m.name)) || norm(m.name).startsWith(k)) { got = v; break; }
         }
       }
+      // 施策は「タスクのカード」。昔の書き方（1つの文章）で入っていたら、行ごとに分けて移す。
+      let items = Array.isArray(r.items) ? r.items : null;
+      if (!items) {
+        items = String(r.actions || "").split("\n").map((t) => t.trim()).filter(Boolean)
+          .map((t, i) => ({ id: `a${i}`, text: t, done: false, review: "" }));
+      }
       return {
         member: m.email, name: m.name,
-        theme: r.theme || "", targets: r.targets || "", actions: r.actions || "",
+        theme: r.theme || "", targets: r.targets || "",
+        items,
         review: r.review || "", updatedAt: r.updated_at || null,
         apos: got || 0,
-        written: !!(r.theme || r.targets || r.actions),
-        reviewed: !!r.review,
+        written: !!(r.theme || r.targets || items.length),
+        reviewed: !!(r.review || items.some((x) => x.review)),
       };
     });
 
@@ -3841,9 +3889,10 @@ app.get("/api/weekly", async (req, res) => {
       if (items.some((x) => x.member === String(r.member).toLowerCase())) continue;
       items.push({
         member: r.member, name: r.member_name || r.member,
-        theme: r.theme || "", targets: r.targets || "", actions: r.actions || "",
+        theme: r.theme || "", targets: r.targets || "",
+        items: Array.isArray(r.items) ? r.items : [],
         review: r.review || "", updatedAt: r.updated_at, apos: 0,
-        written: !!(r.theme || r.targets || r.actions), reviewed: !!r.review,
+        written: !!(r.theme || r.targets), reviewed: !!r.review,
       });
     }
 
@@ -3863,11 +3912,22 @@ app.put("/api/weekly", async (req, res) => {
     const member = String(b.member || req.user || "").toLowerCase();
     if (!member) return res.status(400).json({ error: "誰のぶんかが分かりません" });
     const cut = (v, n) => (v === undefined ? undefined : String(v).slice(0, n));
+    // 施策のカードを整える（多すぎ・長すぎを防ぐ）
+    let items;
+    if (Array.isArray(b.items)) {
+      items = b.items.slice(0, 20).map((x, i) => ({
+        id: String(x.id || `a${i}`).slice(0, 20),
+        text: String(x.text || "").slice(0, 200),
+        done: x.done === true,
+        review: String(x.review || "").slice(0, 500),
+      })).filter((x) => x.text || x.review);
+    }
     const r = await saveWeekly({
       weekStart: week, member,
       memberName: b.name || "",
       theme: cut(b.theme, 200), targets: cut(b.targets, 600),
       actions: cut(b.actions, 1500), review: cut(b.review, 1500),
+      items,
       updatedBy: req.user || "",
     });
     res.json({ ok: true, item: r });
@@ -3881,9 +3941,12 @@ app.post("/api/weekly/copy-last", async (req, res) => {
     const member = String(req.body?.member || req.user || "").toLowerCase();
     const last = await weeklyFor(addDays(week, -7), member);
     if (!last) return res.json({ ok: false, reason: "先週のぶんがありません" });
+    const lastItems = Array.isArray(last.items) ? last.items : [];
     const r = await saveWeekly({
       weekStart: week, member, memberName: last.member_name,
       theme: last.theme, targets: last.targets, actions: last.actions,
+      // 施策は写すが、できた・振り返りは持ち込まない
+      items: lastItems.map((x, i) => ({ id: `a${i}`, text: x.text || "", done: false, review: "" })),
       review: "", updatedBy: req.user || "",
     });
     res.json({ ok: true, item: r });
@@ -3898,7 +3961,9 @@ async function remindWeekly(kind) {
   const byMember = new Map(rows.map((r) => [String(r.member).toLowerCase(), r]));
   const todo = members.filter((m) => {
     const r = byMember.get(m.email) || {};
-    return kind === "plan" ? !(r.theme || r.targets || r.actions) : !r.review;
+    const hasItems = Array.isArray(r.items) && r.items.length > 0;
+    const reviewed = !!r.review || (Array.isArray(r.items) && r.items.some((x) => x.review));
+    return kind === "plan" ? !(r.theme || r.targets || hasItems) : !reviewed;
   });
   let sent = 0;
   for (const m of todo) {

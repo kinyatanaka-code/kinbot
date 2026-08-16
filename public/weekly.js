@@ -36,6 +36,8 @@ function render(d) {
 
   const done = ITEMS.filter((x) => x.written).length;
   const rev = ITEMS.filter((x) => x.reviewed).length;
+  const acts = ITEMS.reduce((n, x) => n + (x.items || []).length, 0);
+  const actsDone = ITEMS.reduce((n, x) => n + (x.items || []).filter((i) => i.done).length, 0);
   const box = $("wbList");
   if (!ITEMS.length) {
     box.innerHTML = '<div class="empty-state">メンバーが登録されていません（設定→メンバー管理）。</div>';
@@ -43,7 +45,8 @@ function render(d) {
   }
 
   box.innerHTML =
-    `<div class="note wb-sum">記入 ${done}/${ITEMS.length}人　振り返り ${rev}/${ITEMS.length}人</div>` +
+    `<div class="note wb-sum">記入 ${done}/${ITEMS.length}人　振り返り ${rev}/${ITEMS.length}人` +
+    (acts ? `　施策 ${actsDone}/${acts} 達成` : "") + `</div>` +
     `<div class="wb-grid">` + ITEMS.map((x) => {
       const mine = String(x.member).toLowerCase() === String(ME).toLowerCase();
       return `<div class="wb-card${mine ? " wb-mine" : ""}" data-m="${esc(x.member)}" data-name="${esc(x.name)}">
@@ -57,11 +60,12 @@ function render(d) {
         <label class="wb-lb">定量目標
           <textarea class="wb-f" data-k="targets" rows="3" placeholder="例：アポ数 36件／商談実施 54件">${esc(x.targets)}</textarea>
         </label>
-        <label class="wb-lb">具体的な施策
-          <textarea class="wb-f" data-k="actions" rows="5" placeholder="例：17時半までのコール時間を3時間確保">${esc(x.actions)}</textarea>
-        </label>
-        <label class="wb-lb wb-review">振り返り（金曜の終礼）
-          <textarea class="wb-f" data-k="review" rows="4" placeholder="できたこと／できなかったこと／来週やること">${esc(x.review)}</textarea>
+        <div class="wb-lb">具体的な施策
+          <div class="wb-items">${(x.items || []).map((it) => itemHtml(it)).join("")}</div>
+          <button type="button" class="wb-add">＋ 施策を足す</button>
+        </div>
+        <label class="wb-lb wb-review">全体の振り返り（金曜の終礼）
+          <textarea class="wb-f" data-k="review" rows="3" placeholder="今週ぜんたいで、できたこと／できなかったこと／来週やること">${esc(x.review)}</textarea>
         </label>
         <div class="wb-foot">
           <button type="button" class="btn ghost wb-copy">先週の内容を写す</button>
@@ -70,18 +74,74 @@ function render(d) {
       </div>`;
     }).join("") + `</div>`;
 
-  // 書き終えて離れたら保存する（打つたびに保存すると重いため）
+  wireCards(box);
+}
+
+// 施策1つぶんのカード。できたかどうかと、その施策の振り返りを書ける。
+function itemHtml(it) {
+  const id = esc(it.id || ("a" + Math.random().toString(36).slice(2, 8)));
+  return `<div class="wb-item${it.done ? " done" : ""}" data-id="${id}">
+    <div class="wb-item-top">
+      <label class="wb-chk"><input type="checkbox" class="wb-done"${it.done ? " checked" : ""} />
+        <span>できた</span></label>
+      <input type="text" class="wb-text" value="${esc(it.text)}" placeholder="例：17時半までのコール時間を3時間確保" />
+      <button type="button" class="wb-del" title="この施策を消す">✕</button>
+    </div>
+    <textarea class="wb-item-rv" rows="2" placeholder="この施策の振り返り">${esc(it.review)}</textarea>
+  </div>`;
+}
+
+// カードの中の操作をつなぐ（作り直すたびに呼ぶ）
+function wireCards(box) {
   box.querySelectorAll(".wb-f").forEach((el) => {
     el.addEventListener("change", () => saveCard(el.closest(".wb-card")));
   });
   box.querySelectorAll(".wb-copy").forEach((b) =>
     b.addEventListener("click", () => copyLast(b.closest(".wb-card"))));
+
+  box.querySelectorAll(".wb-add").forEach((b) =>
+    b.addEventListener("click", () => {
+      const card = b.closest(".wb-card");
+      const list = card.querySelector(".wb-items");
+      const div = document.createElement("div");
+      div.innerHTML = itemHtml({ id: "a" + Date.now(), text: "", done: false, review: "" });
+      const el = div.firstElementChild;
+      list.appendChild(el);
+      wireItem(el, card);
+      const t = el.querySelector(".wb-text");
+      if (t) t.focus();
+    }));
+
+  box.querySelectorAll(".wb-item").forEach((el) => wireItem(el, el.closest(".wb-card")));
+}
+
+function wireItem(el, card) {
+  el.querySelectorAll(".wb-text, .wb-item-rv").forEach((x) =>
+    x.addEventListener("change", () => saveCard(card)));
+  const done = el.querySelector(".wb-done");
+  if (done) done.addEventListener("change", () => {
+    el.classList.toggle("done", done.checked);
+    saveCard(card);
+  });
+  const del = el.querySelector(".wb-del");
+  if (del) del.addEventListener("click", () => {
+    const t = (el.querySelector(".wb-text") || {}).value || "";
+    if (t && !confirm(`「${t}」を消しますか？`)) return;
+    el.remove();
+    saveCard(card);
+  });
 }
 
 async function saveCard(card) {
   if (!card) return;
   const body = { week: WEEK, member: card.dataset.m, name: card.dataset.name };
   card.querySelectorAll(".wb-f").forEach((el) => { body[el.dataset.k] = el.value; });
+  body.items = [...card.querySelectorAll(".wb-item")].map((el) => ({
+    id: el.dataset.id,
+    text: (el.querySelector(".wb-text") || {}).value || "",
+    done: !!(el.querySelector(".wb-done") || {}).checked,
+    review: (el.querySelector(".wb-item-rv") || {}).value || "",
+  }));
   const mark = card.querySelector(".wb-saved");
   if (mark) mark.textContent = "保存しています…";
   try {
@@ -130,6 +190,32 @@ function wrSay(t, ms) {
   if (ms) setTimeout(() => { if (e.textContent === t) e.textContent = ""; }, ms);
 }
 
+// 書く人の設定
+async function memLoad() {
+  if (!$("wbMembers")) return;
+  try {
+    const d = await (await fetch("/api/weekly/members")).json();
+    $("wbMembers").value = d["指定"] || "";
+    const st = $("wbMemStatus");
+    if (st) st.textContent = `いまの対象：${(d["いまの対象"] || []).join("、") || "（見つかりません）"}`;
+  } catch {}
+}
+
+async function memSave() {
+  const st = $("wbMemStatus");
+  if (st) st.textContent = "保存しています…";
+  try {
+    const r = await fetch("/api/weekly/members", {
+      method: "PUT", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ members: $("wbMembers").value }),
+    });
+    const d = await r.json();
+    if (d.error) throw new Error(d.error);
+    if (st) st.textContent = `いまの対象：${(d["いまの対象"] || []).join("、")}`;
+    load(WEEK);
+  } catch (e) { if (st) st.textContent = "失敗：" + e.message; }
+}
+
 async function wrLoad() {
   if (!$("wrOn")) return;
   try {
@@ -168,6 +254,10 @@ async function wrRun(kind) {
   } catch (e) { wrSay("失敗：" + e.message, 6000); }
 }
 
+if ($("wbMembers")) {
+  memLoad();
+  $("wbMemSave").addEventListener("click", memSave);
+}
 if ($("wrOn")) {
   wrLoad();
   $("wrSave").addEventListener("click", wrSave);

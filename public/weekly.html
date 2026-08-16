@@ -46,6 +46,12 @@
             <p class="note">まだ書けていない人に、<b>本人にだけ</b>1対1のチャットで声をかけます。<br>
             月曜の朝は「テーマ・目標・施策」を、金曜の夕方は「振り返り」をお願いします。</p>
             <div class="ap-cfg-actions">
+              <label>書く人 <input type="text" id="wbMembers" style="width:320px" placeholder="植野,江田,田中,森田" /></label>
+              <button class="btn ghost" id="wbMemSave">保存</button>
+              <span class="rev-status" id="wbMemStatus"></span>
+            </div>
+            <p class="note">名前かメールを、カンマ区切りで書きます。空にすると全員が出ます。</p>
+            <div class="ap-cfg-actions">
               <label class="ks-check"><input type="checkbox" id="wrOn" /> 声をかける</label>
               <label>月曜 <input type="number" id="wrPlan" min="0" max="23" style="width:60px" /> 時</label>
               <label>金曜 <input type="number" id="wrReview" min="0" max="23" style="width:60px" /> 時</label>

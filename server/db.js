@@ -530,6 +530,8 @@ export async function initDb() {
     );
   `);
   await sq(`CREATE INDEX IF NOT EXISTS ix_weekly_week ON weekly_board(week_start);`);
+  // 施策は「タスクのカード」で持つ。1つずつ、できた・できなかったと振り返りを書けるようにする。
+  await sq(`ALTER TABLE weekly_board ADD COLUMN IF NOT EXISTS items JSONB;`);
 
   // ===== 開発メモ（直したいこと・要望・自動で拾ったエラー） =====
   // 気づいたときにChatへ一言送るだけで溜まり、朝にまとめて届くようにする。
@@ -2680,23 +2682,25 @@ export async function listWeekly(weekStart) {
   } catch (e) { console.error("[db] listWeekly", e.message); return []; }
 }
 
-export async function saveWeekly({ weekStart, member, memberName, theme, targets, actions, review, updatedBy }) {
+export async function saveWeekly({ weekStart, member, memberName, theme, targets, actions, review, items, updatedBy }) {
   if (!pool || !weekStart || !member) return null;
   try {
     const { rows } = await pool.query(
-      `INSERT INTO weekly_board (week_start, member, member_name, theme, targets, actions, review, updated_by)
-       VALUES ($1::date,$2,$3,$4,$5,$6,$7,$8)
+      `INSERT INTO weekly_board (week_start, member, member_name, theme, targets, actions, review, items, updated_by)
+       VALUES ($1::date,$2,$3,$4,$5,$6,$7,$8::jsonb,$9)
        ON CONFLICT (week_start, member) DO UPDATE SET
          member_name = COALESCE(EXCLUDED.member_name, weekly_board.member_name),
          theme   = COALESCE(EXCLUDED.theme,   weekly_board.theme),
          targets = COALESCE(EXCLUDED.targets, weekly_board.targets),
          actions = COALESCE(EXCLUDED.actions, weekly_board.actions),
          review  = COALESCE(EXCLUDED.review,  weekly_board.review),
+         items   = COALESCE(EXCLUDED.items,   weekly_board.items),
          updated_by = EXCLUDED.updated_by,
          updated_at = now()
        RETURNING *`,
       [weekStart, String(member).toLowerCase(), memberName || null,
-       theme ?? null, targets ?? null, actions ?? null, review ?? null, updatedBy || null]);
+       theme ?? null, targets ?? null, actions ?? null, review ?? null,
+       items === undefined ? null : JSON.stringify(items || []), updatedBy || null]);
     return rows[0] || null;
   } catch (e) { console.error("[db] saveWeekly", e.message); return null; }
 }

@@ -5186,3 +5186,27 @@ input:focus, select:focus, textarea:focus, .sf-input:focus, .sf-select:focus, .s
 .wb-review > * { background: #fbfdfc; }
 .wb-foot { display: flex; align-items: center; gap: 8px; margin-top: 2px; }
 .wb-saved { font-size: 11px; color: #0F6E56; }
+
+/* 週のボード：施策のカード */
+.wb-items { display: flex; flex-direction: column; gap: 6px; margin-top: 4px; }
+.wb-item { border: 1px solid var(--line); border-radius: 10px; background: var(--panel-2);
+  padding: 7px 8px; display: flex; flex-direction: column; gap: 5px; }
+.wb-item.done { background: #eef8f4; border-color: #cfeee2; }
+.wb-item.done .wb-text { color: #4a6b62; text-decoration: line-through; }
+.wb-item-top { display: flex; align-items: center; gap: 6px; }
+.wb-chk { display: flex; align-items: center; gap: 4px; flex: none;
+  font-size: 10.5px; color: var(--muted); white-space: nowrap; cursor: pointer; }
+.wb-chk input { accent-color: #0d5b47; margin: 0; }
+.wb-item .wb-text { flex: 1; min-width: 0; border: 1px solid var(--line); border-radius: 8px;
+  padding: 5px 8px; font-size: 12.5px; font-family: inherit; background: var(--panel); }
+.wb-item .wb-item-rv { border: 1px solid var(--line); border-radius: 8px; padding: 5px 8px;
+  font-size: 11.5px; font-family: inherit; line-height: 1.6; background: var(--panel);
+  resize: vertical; width: 100%; box-sizing: border-box; }
+.wb-item .wb-text:focus, .wb-item .wb-item-rv:focus { outline: none; border-color: #1d9e75; }
+.wb-del { flex: none; border: none; background: transparent; color: #b9c7c2;
+  font-size: 12px; cursor: pointer; padding: 2px 4px; }
+.wb-del:hover { color: #A33C24; }
+.wb-add { border: 1px dashed var(--line); background: transparent; color: #0F6E56;
+  border-radius: 9px; padding: 6px 10px; font-size: 11.5px; font-family: inherit;
+  cursor: pointer; margin-top: 6px; width: 100%; }
+.wb-add:hover { border-color: #9fe1cb; background: #f2fbf7; }
