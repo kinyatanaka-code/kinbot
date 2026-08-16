@@ -1869,6 +1869,18 @@ app.get("/api/live/relay-check", async (req, res) => {
 
 // 中継サーバーが「この配信をどこへ送るか」を尋ねてくる窓口。
 // 合図は「live/kbxxxx」の形で来ることがあるので、最後の部分だけを見る。
+// 中継サーバーが宛先を聞きに来た記録（届いているかの確認用）
+const relayAsks = [];
+
+app.get("/api/live/relay-log", (req, res) => {
+  res.json({
+    items: relayAsks,
+    hint: relayAsks.length
+      ? "中継サーバーからの問い合わせが届いています。ここに記録があれば、Recall→中継までは通っています。"
+      : "中継サーバーからの問い合わせがまだありません。Recallから中継サーバーへ映像が届いていない可能性があります。",
+  });
+});
+
 app.get("/api/live/relay-dest", async (req, res) => {
   const secret = process.env.RELAY_SECRET || "";
   if (!secret || req.get("X-Relay-Secret") !== secret) {
@@ -1878,6 +1890,8 @@ app.get("/api/live/relay-dest", async (req, res) => {
   const raw = String(req.query.token || "");
   const token = raw.split("/").filter(Boolean).pop()?.replace(/[^a-zA-Z0-9]/g, "") || "";
   const dest = await relayDestFor(token).catch(() => "");
+  relayAsks.unshift({ at: new Date().toISOString(), token: raw, found: !!dest });
+  if (relayAsks.length > 20) relayAsks.length = 20;
   if (!dest) {
     console.warn(`[live] 宛先が見つかりません（合図：${raw}）。配信枠が作られる前か、古い配信の可能性があります。`);
     return res.status(404).type("text/plain").send("");
@@ -2220,7 +2234,11 @@ app.get("/api/live/status", async (req, res) => {
 
 // 配信枠を実際に1つ作ってみて、本当に使えるかを確かめる。
 // 設定が合っていても鍵の権限が足りないことがあるので、本番の商談を待たずに試せるようにする。
-app.post("/api/live/test", async (req, res) => {
+// ブラウザのURL欄からも試せるように、GETでも同じ動きにする
+app.get("/api/live/test", async (req, res) => liveTest(req, res));
+app.post("/api/live/test", async (req, res) => liveTest(req, res));
+
+async function liveTest(req, res) {
   try {
     if (!liveConfigured()) {
       return res.json({ ok: false, reason: "配信の設定がありません（CF_ACCOUNT_ID / CF_STREAM_TOKEN）" });
@@ -2245,6 +2263,38 @@ app.post("/api/live/test", async (req, res) => {
   } catch (e) {
     res.json({ ok: false, reason: e.message });
   }
+}
+
+// Recall側が配信をどう扱っているかを見る（届かないときの切り分け）
+app.get("/api/live/bot-check", async (req, res) => {
+  try {
+    const botId = String(req.query.bot || "").trim();
+    if (!botId) return res.status(400).json({ error: "商談のID（bot）を指定してください" });
+    const bot = await getBot(botId);
+
+    // 配信先（RTMP）の設定が、ボットに入っているかを見る
+    const eps = bot?.recording_config?.realtime_endpoints || [];
+    const rtmp = eps.find((e) => e.type === "rtmp");
+    const flv = !!bot?.recording_config?.video_mixed_flv;
+
+    // 状態の移り変わり（入室できたか・録音できているか）
+    const changes = (bot.status_changes || []).map((c) => ({
+      code: c.code, at: c.created_at, message: c.message || c.sub_code || "",
+    }));
+
+    res.json({
+      ok: true,
+      配信先の設定: rtmp
+        ? String(rtmp.url || "").replace(/[^/]+$/, "***")
+        : "（入っていません＝この商談は配信されません）",
+      映像の書き出し: flv ? "あり" : "なし",
+      いまの状態: bot.status_changes?.slice(-1)[0]?.code || "不明",
+      状態の記録: changes.slice(-8),
+      hint: !rtmp
+        ? "配信先が入っていません。録音を開始したときに配信枠が作れていなかった可能性があります。"
+        : "配信先は入っています。ここまで来て映らない場合は、中継サーバーのログ（[relay] で始まる行）をご確認ください。",
+    });
+  } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 // ライブ配信が映らないときに、どこで止まっているかを1画面で確かめる
