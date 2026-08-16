@@ -90,6 +90,50 @@ export function normalizeSpace(input) {
 }
 
 // スペースに1件投稿する
+// スペースに入っている人を調べて、名前から「呼びかけ（メンション）」の書き方を作る。
+//
+// Google Chatで人を呼ぶには <users/123456> のような番号が要る。
+// メールアドレスからは引けないので、スペースの参加者一覧から名前で照らし合わせる。
+const _memberCache = new Map();
+async function spaceMembers(space) {
+  const sp = normalizeSpace(space);
+  if (!sp) return [];
+  const hit = _memberCache.get(sp);
+  if (hit && Date.now() - hit.at < 60 * 60 * 1000) return hit.list;
+  const token = await accessToken();
+  const out = [];
+  let pageToken = "";
+  for (let i = 0; i < 5; i++) {
+    const url = `https://chat.googleapis.com/v1/${sp}/members?pageSize=200` +
+      (pageToken ? `&pageToken=${encodeURIComponent(pageToken)}` : "");
+    const res = await fetch(url, { headers: { authorization: `Bearer ${token}` } });
+    if (!res.ok) break;
+    const d = await res.json();
+    for (const m of d.memberships || []) {
+      const u = m.member || {};
+      if (u.type === "HUMAN" && u.name) out.push({ id: u.name, name: u.displayName || "" });
+    }
+    pageToken = d.nextPageToken || "";
+    if (!pageToken) break;
+  }
+  _memberCache.set(sp, { at: Date.now(), list: out });
+  return out;
+}
+
+// 名前から呼びかけの書き方を作る。見つからなければ空を返す（そのときは名前だけ書く）。
+export async function mentionFor(space, personName) {
+  const want = String(personName || "").replace(/[\s　]/g, "");
+  if (!want) return "";
+  try {
+    const list = await spaceMembers(space);
+    const hit = list.find((m) => {
+      const n = String(m.name || "").replace(/[\s　]/g, "");
+      return n && (n === want || n.startsWith(want) || want.startsWith(n));
+    });
+    return hit ? `<${hit.id}>` : "";
+  } catch { return ""; }
+}
+
 // その人とkinbotの1対1のスペース（DM）を探す。
 //
 // 見つからないときは、その人がまだkinbotに一度も話しかけていない状態。

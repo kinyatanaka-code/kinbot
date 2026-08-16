@@ -7,7 +7,7 @@
 // 送信は投げっぱなしにする。通知が失敗しても、割り振りやメール作成は止めない。
 // ───────────────────────────────────────────────────────────
 import { getSettings, listChatTargets, markChatTarget, addChatTarget } from "./db.js";
-import { chatAppConfigured, postToSpace, postToPerson, normalizeSpace, chatAppInfo } from "./chatapp.js";
+import { chatAppConfigured, postToSpace, postToPerson, mentionFor, normalizeSpace, chatAppInfo } from "./chatapp.js";
 
 let lastError = "";
 let sentCount = 0;
@@ -60,7 +60,19 @@ async function sendTo({ webhook_url, space_id }, text) {
 
 // 登録されている通知先すべてに送る。
 // kind を渡すと、その種類がONになっている宛先だけに送る。
-export async function notifyAll(text, kind = "") {
+// 送り先ごとに、本文の {呼びかけ} をその人への呼びかけに置き換える。
+// スペースごとに人の番号が違うので、送る直前に差し替える。
+async function fillMention(text, target, personName) {
+  if (!text.includes("{呼びかけ}")) return text;
+  let m = "";
+  if (personName && target.space_id && chatAppConfigured()) {
+    m = await mentionFor(target.space_id, personName).catch(() => "");
+  }
+  // 呼びかけが作れないときは、名前をそのまま書く（誰あてか分かるように）
+  return text.replace(/\{呼びかけ\}/g, m || (personName ? `${personName}さん` : ""));
+}
+
+export async function notifyAll(text, kind = "", { mentionName = "" } = {}) {
   const t = String(text || "").trim();
   if (!t) return { ok: false, skipped: true, reason: "本文が空です" };
 
@@ -77,7 +89,7 @@ export async function notifyAll(text, kind = "") {
   let sent = 0;
   for (const tg of list) {
     try {
-      await sendTo(tg, t);
+      await sendTo(tg, await fillMention(t, tg, mentionName));
       sent++;
       markChatTarget(tg.id, { ok: true }).catch(() => {});
     } catch (e) {
@@ -215,13 +227,17 @@ export async function notifyAssigned({
       setter && String(setter).replace(/[\s　]/g, "") !== String(repName || "").replace(/[\s　]/g, "")
         ? `獲得 ${setter}` : ""].filter(Boolean).join(" ・ ")}`,
     mailLine(mail, clientEmail),
+    // 下書きができているときは、担当者を呼んで「送ってください」と伝える
+    mail && mail.ok && mail.draft
+      ? `{呼びかけ} 確定メールの下書きができています。中身を見て送ってください。`
+      : "",
     launchLine(launch),
     counts
       ? `📊 本日 ${counts.today} / 今週 ${counts.week} / 今月 ${counts.month}` +
         (goal ? `（目標 ${goal}・あと ${Math.max(0, goal - counts.month)}）` : "")
       : "",
   ].filter(Boolean);
-  return notifyAll(lines.join("\n"), "assign");
+  return notifyAll(lines.join("\n"), "assign", { mentionName: repName || "" });
 }
 
 // 確定メールの下書きを作ったときの通知
@@ -232,6 +248,7 @@ export async function notifyMailDraft({ title, start, repName, to, draft, subjec
     `${draft ? "📝" : "✉️"} *確定メール${draft ? "の下書き" : "を送信"}*　${jstLabel(start)}`,
     `　${title || "(予定名なし)"}`,
     `👤 ${repName || "-"} ・ 宛先 ${to || "-"}`,
-  ];
-  return notifyAll(lines.join("\n"), "mail");
+    draft ? "{呼びかけ} 下書きに入っています。中身を見て送ってください。" : "",
+  ].filter(Boolean);
+  return notifyAll(lines.join("\n"), "mail", { mentionName: repName || "" });
 }

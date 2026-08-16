@@ -12051,6 +12051,18 @@ async function autoAssignOne(link, { inviteOwner, closers = null, cfg, teamCtx =
       mail, clientEmail: updated.client_email, counts, goal, launch,
     });
 
+    // 下書きができたときは、担当者本人にも直接知らせる。
+    // チームのスペースの呼びかけは流れて見落とすことがあるため。
+    if (mail && mail.ok && mail.draft && pick.email) {
+      await notifyPerson(pick.email, [
+        "📝 *確定メールの下書きができています*",
+        `　${updated.label || ""}`,
+        `📅 ${String(updated.start_time || "").slice(5, 16).replace("T", " ")}　✉️ ${mail.to || "-"}`,
+        "",
+        "Gmailの下書きに入っています。中身を見て、送ってください。",
+      ].join("\n")).catch(() => {});
+    }
+
     // テスト用のアポは、通知まで普通どおり行ったあとで、数から外す。
     // 割り振りやメールの動きは確かめられるが、実績には残らない。
     if (isTestApo(updated.label)) {
