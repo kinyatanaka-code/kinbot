@@ -29,6 +29,61 @@ export async function note({ key, kind = "error", title, detail = "", source = "
   } catch { return null; }
 }
 
+// 2つの文が「同じことを言っているか」を測る。
+//
+// 題名の完全一致だけで見ていると、言い回しが少し違うだけで別物として溜まっていく。
+// 文字の2文字組み合わせがどれだけ重なるかで、0〜1の近さを出す（日本語でもうまく働く）。
+export function similarity(a, b) {
+  const norm = (v) => String(v || "")
+    .normalize("NFKC")
+    .toLowerCase()
+    // 記号・空白・よくある飾り言葉を落として、中身だけで比べる
+    .replace(/[「」『』（）()【】\[\]、。，．・:：;；!！?？~〜\-—_/／\\|]/g, "")
+    .replace(/[\s　]/g, "")
+    .replace(/(を|が|は|に|へ|で|と|の|も|する|します|ます|です|改善|変更|表示|配置|方法|ための|よう|ように)/g, "");
+  const x = norm(a), y = norm(b);
+  if (!x || !y) return 0;
+  if (x === y) return 1;
+  const grams = (v) => {
+    const set = new Set();
+    for (let i = 0; i < v.length - 1; i++) set.add(v.slice(i, i + 2));
+    if (!set.size) set.add(v);
+    return set;
+  };
+  const gx = grams(x), gy = grams(y);
+  let hit = 0;
+  for (const g of gx) if (gy.has(g)) hit++;
+  return (2 * hit) / (gx.size + gy.size);
+}
+
+// すでにある案と似ているものを落とす。
+//
+// 題名どうしを比べるのがいちばん効きます（中身まで混ぜると、
+// 書き方の違いに引っぱられて似ていないと判定されてしまうため）。
+// 目安は 0.55。言い回しを変えただけの案は、だいたいここに入ります。
+export function dropSimilar(candidates, existing, threshold = 0.55) {
+  const asPair = (v) => (typeof v === "string"
+    ? { title: v, detail: "" }
+    : { title: String(v.title || ""), detail: String(v.detail || "") });
+  const kept = [];
+  const seen = (existing || []).map(asPair);
+  for (const c of candidates || []) {
+    const cur = asPair(c);
+    const dup = seen.some((e) => {
+      const t = similarity(cur.title, e.title);
+      const whole = similarity(
+        `${cur.title} ${cur.detail.slice(0, 120)}`,
+        `${e.title} ${e.detail.slice(0, 120)}`);
+      // 題名が似ていれば同じ案とみなす。中身も見て、どちらか高いほうを使う。
+      return Math.max(t, whole) >= threshold;
+    });
+    if (dup) continue;
+    kept.push(c);
+    seen.push(cur);
+  }
+  return kept;
+}
+
 // 短くまとめた見出しを作る（同じ種類のエラーを1件にまとめるため）
 export function errKey(where, message) {
   const m = String(message || "")

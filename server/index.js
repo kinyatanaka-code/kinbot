@@ -25,7 +25,7 @@ import { sendApoMail, runReminderSweep, getApoMailConfig,
 import { startKasasagi, getKasasagi, stopKasasagi, feedTranscript, kasasagiInfo,
          buildScript, buildReport, faceState, SLIDE_LABELS } from "./kasasagi.js";
 import { notifyAssigned, notifyMailDraft, notifyChat, notifyAll, notifyPerson, chatWebhookUrl, chatInfo } from "./chat.js";
-import { note as devNote, errKey, buildMorningSummary, NOTE_KINDS } from "./devnotes.js";
+import { note as devNote, errKey, buildMorningSummary, NOTE_KINDS, dropSimilar } from "./devnotes.js";
 import { checkLive, checkProcessSheet, checkLinks, buildProposal, notifyCheck } from "./selfcheck.js";
 import { UI_PAGES, nextPage, reviewPage, splitIdeas } from "./uireview.js";
 import { verifyChatRequest, readEvent, replyBody, parseCommand, helpText, jstDate, jstTime, INTENT_SYSTEM, guessIntent } from "./chatcmd.js";
@@ -4531,30 +4531,43 @@ async function runUiReview(fileWanted = "") {
     if (hit.length) extra = hit.map((n) => n.title).join(" ／ ");
   } catch {}
 
-  // 前に同じ画面で出した案を渡して、同じことを繰り返さないようにする
-  let already = [];
+  // 前に出した案を渡して、同じことを繰り返さないようにする。
+  // 見送りにしたものも含める（見送った案をまた出されると意味がないため）。
+  let already = [], allSeen = [];
   try {
-    const notes = await listDevNotes({ limit: 200 });
-    already = notes
-      .filter((n) => n.source === "画面の見直し" && String(n.title).startsWith(`${chosen.page.name}：`))
+    const notes = await listDevNotes({ limit: 500 });
+    const mine = notes.filter((n) => n.source === "画面の見直し");
+    already = mine
+      .filter((n) => String(n.title).startsWith(`${chosen.page.name}：`))
       .map((n) => String(n.title).replace(`${chosen.page.name}：`, ""))
-      .slice(0, 20);
+      .slice(0, 40);
+    // 似ているかの判定には、すべての画面のぶんを使う
+    allSeen = mine.map((n) => `${n.title} ${String(n.detail || "").slice(0, 120)}`);
   } catch {}
 
   const publicDir = path.join(__dirname, "..", "public");
   const r = await reviewPage(publicDir, chosen.page, callLLMPublic, extra, already);
   if (r.error) return { error: r.error, page: chosen.page.name };
 
-  // 1件ずつ開発メモに残す（同じ案は1件にまとまる）
-  const ideas = splitIdeas(r.text);
+  // 1件ずつ開発メモに残す。
+  // ただし、言い回しが違うだけで前と同じ内容のものは残さない。
+  const all = splitIdeas(r.text);
+  const ideas = dropSimilar(
+    all.map((x) => ({ ...x, title: `${chosen.page.name}：${x.title}` })),
+    allSeen);
+  const skipped = all.length - ideas.length;
   for (const it of ideas) {
     await devNote({
       key: `ui:${chosen.page.file}:${it.title}`.slice(0, 200), kind: "idea",
-      title: `${chosen.page.name}：${it.title}`, detail: it.detail, source: "画面の見直し",
+      title: it.title, detail: it.detail, source: "画面の見直し",
     }).catch(() => {});
   }
+  if (skipped) console.log(`[画面見直し] 前と同じ内容の案 ${skipped}件は残しませんでした`);
 
-  uiReviewLast = { at: new Date().toISOString(), page: chosen.page.name, file: chosen.page.file, text: r.text, count: ideas.length };
+  uiReviewLast = {
+    at: new Date().toISOString(), page: chosen.page.name, file: chosen.page.file,
+    text: r.text, count: ideas.length, skipped,
+  };
   return uiReviewLast;
 }
 
@@ -4719,16 +4732,29 @@ app.post("/api/dev-notes/advice", async (req, res) => {
 
     // 「1. 見出し」の形で区切って、1件ずつ開発メモに残す
     const blocks = text.split(/\n(?=\d+\.\s)/).map((x) => x.trim()).filter(Boolean);
+    // すでにある案（見送ったものも含む）と似ていたら残さない
+    let seen = [];
+    try {
+      const notes = await listDevNotes({ limit: 500 });
+      seen = notes.map((n) => `${n.title} ${String(n.detail || "").slice(0, 120)}`);
+    } catch {}
+    const cand = blocks.map((blk) => ({
+      title: (blk.split("\n")[0] || "").replace(/^\d+\.\s*/, "").trim(),
+      detail: blk.slice(0, 2000),
+    })).filter((x) => x.title);
+    const fresh = dropSimilar(cand, seen);
+
     let saved = 0;
-    for (const blk of blocks) {
-      const head = (blk.split("\n")[0] || "").replace(/^\d+\.\s*/, "").trim();
-      if (!head) continue;
+    for (const it of fresh) {
       await addDevNote({
-        key: `advice:${head}`.slice(0, 200), kind: "idea",
-        title: `提案：${head.slice(0, 120)}`, detail: blk.slice(0, 2000),
+        key: `advice:${it.title}`.slice(0, 200), kind: "idea",
+        title: `提案：${it.title.slice(0, 120)}`, detail: it.detail,
         source: "Claudeの提案", createdBy: "advisor",
       }).catch(() => {});
       saved++;
+    }
+    if (cand.length - fresh.length) {
+      console.log(`[提案] 前と同じ内容 ${cand.length - fresh.length}件は残しませんでした`);
     }
 
     const st = await getSettings().catch(() => ({}));
