@@ -16,6 +16,13 @@ fi
 
 # kinbotに「この合図はどこへ送るのか」を尋ねる。
 # kinbotが起動中のことがあるので、少し待って何度か試す。
+# 使っている合言葉の特徴をログに出す（中身は出さない）。
+# kinbot側の /api/live/relay-secret と見比べると、食い違いがすぐ分かる。
+SEC_LEN=${#RELAY_SECRET}
+SEC_HEAD=$(printf '%s' "$RELAY_SECRET" | cut -c1-3)
+SEC_TAIL=$(printf '%s' "$RELAY_SECRET" | rev | cut -c1-3 | rev)
+echo "[relay] 合言葉：${SEC_LEN}文字（先頭 ${SEC_HEAD}／末尾 ${SEC_TAIL}）／宛先を尋ねる先：${KINBOT_URL}"
+
 DEST=""
 i=1
 while [ $i -le 5 ]; do

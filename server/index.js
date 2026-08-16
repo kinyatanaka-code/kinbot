@@ -1876,6 +1876,23 @@ app.get("/api/live/relay-check", async (req, res) => {
 // 合言葉が違うときも記録する（気づけるように）。
 const relayAsks = [];
 
+// いまkinbotが持っている合言葉の「特徴」を返す。
+// 中身は出さず、長さと先頭・末尾だけ。中継サーバー側と見比べるために使う。
+app.get("/api/live/relay-secret", (req, res) => {
+  const tidy = (v) => String(v || "").trim().replace(/^["']|["']$/g, "");
+  const sec = tidy(process.env.RELAY_SECRET);
+  res.json({
+    合言葉: sec
+      ? { 長さ: sec.length, 先頭: sec.slice(0, 3), 末尾: sec.slice(-3) }
+      : "設定されていません",
+    中継サーバー: process.env.LIVE_RELAY_RTMP || "（未設定）",
+    kinbotが起動した時刻: START_TIME,
+    hint: "この『長さ・先頭・末尾』が、中継サーバー側の値と同じか見てください。" +
+      "違う場合は、環境変数を保存したあと、そのサービスを再デプロイしてください。" +
+      "（環境変数は、再デプロイして初めて反映されます）",
+  });
+});
+
 app.get("/api/live/relay-log", (req, res) => {
   res.json({
     items: relayAsks,
