@@ -142,6 +142,7 @@ import {
   pendingAutolaunch,
   addDocFile,
   listDocFiles,
+  setDocShared,
   getDocBytes,
   setDocActive,
   renameDocFile,
@@ -2902,14 +2903,39 @@ app.get("/c/:slug", async (req, res) => {
 
 // ===== ここから下は社内向け（認証あり） =====
 
-// 資料の一覧
+// 資料の一覧。
+// 既定は「自分が入れたもの＋チームに共有されているもの」。
+// ?all=1 を付けると全部（誰の資料がいくつあるか見たいとき）。
 app.get("/api/docs", async (req, res) => {
   try {
+    const all = String(req.query.all || "") === "1";
+    const rows = await listDocFiles({ owner: req.user, all });
     // すでに文字化けして保存されているものも、表示のときに直す
-    const docs = (await listDocFiles()).map((d) => ({
-      ...d, name: fixMojibake(d.name), filename: fixMojibake(d.filename),
+    const docs = rows.map((d) => ({
+      ...d,
+      name: fixMojibake(d.name),
+      filename: fixMojibake(d.filename),
+      mine: String(d.uploaded_by || "").toLowerCase() === String(req.user || "").toLowerCase(),
     }));
-    res.json({ docs, base: PUBLIC_URL });
+    res.json({ docs, base: PUBLIC_URL, me: req.user || "" });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// 資料を「自分だけ」「チームに共有」で切り替える
+app.patch("/api/docs/:id/shared", async (req, res) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    const rows = await listDocFiles({ all: true });
+    const doc = rows.find((d) => d.id === id);
+    if (!doc) return res.status(404).json({ error: "見つかりません" });
+    // 入れた本人だけが切り替えられる（他の人の資料を勝手に隠さないため）
+    const mine = String(doc.uploaded_by || "").toLowerCase() === String(req.user || "").toLowerCase();
+    if (!mine && doc.uploaded_by) {
+      return res.status(403).json({ error: "この資料を入れた人だけが切り替えられます" });
+    }
+    const r = await setDocShared(id, req.body?.shared === true);
+    console.log(`[資料] ${doc.name} を${r && r.shared ? "チームに共有" : "自分だけ"}にしました by ${req.user}`);
+    res.json({ ok: true, item: r });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
@@ -3002,7 +3028,7 @@ app.post("/api/meetings/:id/doc-link/ensure", async (req, res) => {
     }
 
     // どの資料にするか。指定が無ければ、いちばん新しく登録された資料を使う。
-    const docs = await listDocFiles().catch(() => []);
+    const docs = await listDocFiles({ owner: req.user }).catch(() => []);
     if (!docs.length) {
       return res.json({ ok: true, created: false, company, links: [], reason: "登録されている資料がありません" });
     }
@@ -7275,11 +7301,48 @@ app.put("/api/thanks-examples", async (req, res) => {
 // ラウンド別の例文とは別に、「初回向け」「価格の話が出たとき」のような
 // 場面ごとの型を持てるようにする。
 // ───────────────────────────────────────────────────────────
+// 自分のテンプレートと、チームに共有されているテンプレートを合わせて返す。
+// 自分のものは直せる。チームのものは、そのまま使えるが直せない。
 app.get("/api/mail-templates", async (req, res) => {
   try {
     const s = await getUserSettings(req.user);
-    const list = Array.isArray(s.mailTemplates) ? s.mailTemplates : [];
-    res.json({ templates: list });
+    const st = await getSettings().catch(() => ({}));
+    const sharedAll = Array.isArray(st.sharedMailTemplates) ? st.sharedMailTemplates : [];
+    const isShared = (id) => sharedAll.some((x) =>
+      String(x.id) === String(id) && String(x.owner || "").toLowerCase() === String(req.user || "").toLowerCase());
+
+    const mine = (Array.isArray(s.mailTemplates) ? s.mailTemplates : [])
+      .map((t) => ({ ...t, mine: true, shared: isShared(t.id) }));
+
+    const shared = sharedAll
+      // 自分が共有したものは、自分の一覧に二重に出さない
+      .filter((t) => String(t.owner || "").toLowerCase() !== String(req.user || "").toLowerCase())
+      .map((t) => ({ ...t, mine: false }));
+
+    res.json({ templates: [...mine, ...shared], me: req.user || "" });
+  } catch (e) { sfErrorResponse(res, e); }
+});
+
+// テンプレートをチームに共有する／やめる
+app.post("/api/mail-templates/share", async (req, res) => {
+  try {
+    const id = String(req.body?.id || "");
+    const on = req.body?.shared === true;
+    const s = await getUserSettings(req.user);
+    const mine = Array.isArray(s.mailTemplates) ? s.mailTemplates : [];
+    const t = mine.find((x) => String(x.id) === id);
+    if (!t) return res.status(404).json({ error: "自分のテンプレートに見つかりません" });
+
+    const st = await getSettings().catch(() => ({}));
+    const list = (Array.isArray(st.sharedMailTemplates) ? st.sharedMailTemplates : [])
+      .filter((x) => !(String(x.id) === id && String(x.owner || "").toLowerCase() === String(req.user).toLowerCase()));
+    if (on) {
+      const who = await displayNameOf(req.user).catch(() => "") || req.user;
+      list.push({ ...t, owner: req.user, ownerName: who, sharedAt: new Date().toISOString() });
+    }
+    await saveSettings({ sharedMailTemplates: list.slice(0, 60) });
+    console.log(`[メール] テンプレート「${t.name}」を${on ? "チームに共有" : "共有から外し"}ました by ${req.user}`);
+    res.json({ ok: true, shared: on });
   } catch (e) { sfErrorResponse(res, e); }
 });
 
@@ -7297,6 +7360,26 @@ app.put("/api/mail-templates", async (req, res) => {
       .filter((t) => t.name && t.body)
       .slice(0, 30);
     await saveUserSettings(req.user, { mailTemplates: list });
+
+    // 共有しているものは、共有側にも同じ中身を反映する（直したら共有先にも届くように）
+    try {
+      const st = await getSettings().catch(() => ({}));
+      const shared = Array.isArray(st.sharedMailTemplates) ? st.sharedMailTemplates : [];
+      let touched = false;
+      const next = shared.map((x) => {
+        if (String(x.owner || "").toLowerCase() !== String(req.user).toLowerCase()) return x;
+        const hit = list.find((t) => String(t.id) === String(x.id));
+        if (!hit) return x;
+        touched = true;
+        return { ...x, name: hit.name, subject: hit.subject, body: hit.body };
+      }).filter((x) => {
+        // 自分が消したテンプレートは、共有からも外す
+        if (String(x.owner || "").toLowerCase() !== String(req.user).toLowerCase()) return true;
+        return list.some((t) => String(t.id) === String(x.id));
+      });
+      if (touched || next.length !== shared.length) await saveSettings({ sharedMailTemplates: next });
+    } catch {}
+
     console.log(`[メール] テンプレートを保存 ${list.length}件 by ${req.user}`);
     res.json({ ok: true, count: list.length });
   } catch (e) { sfErrorResponse(res, e); }

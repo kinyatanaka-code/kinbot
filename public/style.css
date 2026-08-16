@@ -5148,3 +5148,8 @@ input:focus, select:focus, textarea:focus, .sf-input:focus, .sf-select:focus, .s
 .dn-gap { background: #eef4ff; color: #2b5aa8; border: 1px solid #d7e4f8; }
 .dn-idea { background: #f4f0fb; color: #5b4a9a; border: 1px solid #e2d9f5; }
 .cc-ok { color: #1F7A4D; }
+
+/* 資料の持ち主 */
+.df-own { background: #fdf3e6; color: #A8611A; border: 1px solid #f3e0c4; margin-right: 6px; }
+.df-share { background: #eaf7f2; color: #0F6E56; border: 1px solid #cfeee2; margin-right: 6px; }
+.df-other { background: #eef4ff; color: #2b5aa8; border: 1px solid #d7e4f8; margin-right: 6px; }

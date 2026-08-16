@@ -43,6 +43,8 @@ const HOME_ICONS = {
   tplsave: "M11 3h2v8h3.2L12 16.4 7.8 11H11zM4 17h16v3H4z",
   tpledit: "M3 17.3 14.1 6.2l3.7 3.7L6.7 21H3zM15.5 4.8l2-2a1.4 1.4 0 0 1 2 0l1.7 1.7a1.4 1.4 0 0 1 0 2l-2 2z",
   tpldel: "M9 3h6l1 2h4v2H4V5h4zM6 9h12l-1 12H7zm3 2v8h1.5v-8zm4.5 0v8H15v-8z",
+  // チームへ共有（人が3人）
+  tplshare: "M9 11a3 3 0 1 0 0-6 3 3 0 0 0 0 6zm0 1.5c-3 0-6 1.5-6 3.5V19h12v-3c0-2-3-3.5-6-3.5zM17.5 11a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5zm0 1.5c-.8 0-1.6.15-2.3.42 1.1.8 1.8 1.85 1.8 3.08V19H23v-2.6c0-1.7-2.5-2.9-5.5-2.9z",
 };
 
 // アイコンのボタンを1つ作る。
@@ -51,7 +53,7 @@ const HOME_ICONS = {
 const HOME_ICON_NAMES = {
   rec: "録音", sf: "SF", open: "開く", mail: "メール", cal: "会議室", trash: "外す", more: "その他",
   gen: "文面を作る", draft: "下書き", copy: "コピー", gmail: "Gmail", tpl: "テンプレ", doc: "資料URL",
-  tplin: "型を入れる", tpluse: "この型で作る", tplsave: "型を保存", tpledit: "型を直す", tpldel: "型を消す",
+  tplin: "型を入れる", tpluse: "この型で作る", tplsave: "型を保存", tpledit: "型を直す", tpldel: "型を消す", tplshare: "みんなへ",
 };
 
 function hIcon(kind, label, attrs = "", state = "", tag = "button") {
@@ -679,9 +681,17 @@ function wireMailTemplates(box, botId, tpls, side) {
   // 一覧（プルダウン）を作り直す。消したり名前を変えたあとに使う。
   const refreshSel = (keepId) => {
     if (!sel) return;
+    // 自分のものと、チームで共有されているものを分けて並べる
+    const mine = tpls.filter((t) => t.mine !== false);
+    const team = tpls.filter((t) => t.mine === false);
+    const opt = (t) => `<option value="${escH(t.id)}">${escH(t.name)}</option>`;
     sel.innerHTML =
       `<option value="">使わない（商談内容から作る）</option>` +
-      tpls.map((t) => `<option value="${escH(t.id)}">${escH(t.name)}</option>`).join("");
+      (mine.length ? `<optgroup label="自分の型">${mine.map(opt).join("")}</optgroup>` : "") +
+      (team.length
+        ? `<optgroup label="チームの型">${team.map((t) =>
+            `<option value="${escH(t.id)}">${escH(t.name)}（${escH(t.ownerName || t.owner || "")}）</option>`).join("")}</optgroup>`
+        : "");
     sel.value = tpls.some((t) => t.id === keepId) ? keepId : "";
     syncBtns();
   };
@@ -721,9 +731,45 @@ function wireMailTemplates(box, botId, tpls, side) {
     if (tName) tName.value = cur.name || "";
     if (tSubj) tSubj.value = cur.subject || "";
     if (tBody) tBody.value = cur.body || "";
-    tellT("");
+
+    // チームの型（他の人が共有したもの）は、そのまま使えるが直せない
+    const own = cur.mine !== false;
+    [tName, tSubj, tBody].forEach((el) => { if (el) el.readOnly = !own; });
+    const saveB = box.querySelector("[data-tple-save]");
+    const delB = box.querySelector("[data-tple-del]");
+    [saveB, delB].forEach((b) => { if (b) b.classList.toggle("hib-off", !own); });
+    const shareB = box.querySelector("[data-tple-share]");
+    if (shareB) {
+      shareB.hidden = !own;
+      shareB.classList.toggle("hib-need", cur.shared === true);
+      const nm = shareB.querySelector(".hib-name");
+      if (nm) nm.textContent = cur.shared === true ? "共有中" : "みんなへ";
+    }
+    tellT(own ? "" : `${cur.ownerName || cur.owner || "ほかの人"}が共有した型です（そのまま使えます）`, 8000);
     showTpl(true);
   };
+
+  // チームに共有する／やめる
+  const shareBtn = box.querySelector("[data-tple-share]");
+  if (shareBtn) shareBtn.addEventListener("click", async () => {
+    const cur = tpls.find((t) => t.id === editingId);
+    if (!cur || cur.mine === false) { tellT("自分の型だけ共有できます", 5000); return; }
+    const on = cur.shared !== true;
+    if (on && !confirm(`「${cur.name}」をチームのみんなが使えるようにします。よろしいですか？`)) return;
+    shareBtn.disabled = true;
+    tellT(on ? "共有しています…" : "共有を外しています…");
+    try {
+      const r = await fetch("/api/mail-templates/share", {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ id: cur.id, shared: on }),
+      });
+      if (!r.ok) throw new Error(((await r.json()) || {}).error || "できませんでした");
+      cur.shared = on;
+      openTplEditor(cur.id);
+      tellT(on ? "チームに共有しました" : "共有をやめました", 6000);
+    } catch (e) { tellT("失敗: " + e.message, 8000); }
+    finally { shareBtn.disabled = false; }
+  });
 
   // 型を選んだら、その中身を右の欄に出す（メールの文面はそのまま）。
   // 「使わない」に戻したら閉じる。
@@ -739,6 +785,10 @@ function wireMailTemplates(box, botId, tpls, side) {
   if (tSaveBtn) tSaveBtn.addEventListener("click", async () => {
     const cur = tpls.find((t) => t.id === editingId);
     if (!cur) { tellT("直す型が選ばれていません", 5000); return; }
+    if (cur.mine === false) {
+      tellT("これはほかの人が共有した型なので直せません。使うだけならそのままどうぞ", 8000);
+      return;
+    }
     const name = (tName ? tName.value : "").trim();
     const bodyText = (tBody ? tBody.value : "").trim();
     if (!name) { tellT("名前を入れてください", 5000); return; }
@@ -746,14 +796,18 @@ function wireMailTemplates(box, botId, tpls, side) {
     tSaveBtn.disabled = true;
     tellT("保存しています…");
     try {
-      const next = tpls.map((t) => (t.id === cur.id
-        ? { ...t, name, subject: (tSubj ? tSubj.value : "").trim(), body: bodyText } : t));
+      // 送るのは自分の型だけ。チームの型を混ぜると、他の人の型を自分のものとして持ってしまう。
+      const next = tpls
+        .filter((t) => t.mine !== false)
+        .map((t) => (t.id === cur.id
+          ? { ...t, name, subject: (tSubj ? tSubj.value : "").trim(), body: bodyText } : t));
       const r = await fetch("/api/mail-templates", {
         method: "PUT", headers: { "content-type": "application/json" },
         body: JSON.stringify({ templates: next }),
       });
       if (!r.ok) throw new Error(((await r.json()) || {}).error || "保存できませんでした");
-      tpls.length = 0; tpls.push(...next);
+      const team1 = tpls.filter((t) => t.mine === false);
+      tpls.length = 0; tpls.push(...next.map((t) => ({ ...t, mine: true })), ...team1);
       refreshSel(cur.id);
       tellT(`「${name}」を保存しました`, 6000);
     } catch (e) { tellT("失敗: " + e.message, 8000); }
@@ -765,17 +819,22 @@ function wireMailTemplates(box, botId, tpls, side) {
   if (tDelBtn) tDelBtn.addEventListener("click", async () => {
     const cur = tpls.find((t) => t.id === editingId);
     if (!cur) { tellT("消す型が選ばれていません", 5000); return; }
+    if (cur.mine === false) {
+      tellT("これはほかの人の型なので消せません", 6000);
+      return;
+    }
     if (!confirm(`テンプレート「${cur.name}」を消します。元には戻せません。よろしいですか。`)) return;
     tDelBtn.disabled = true;
     tellT("消しています…");
     try {
-      const next = tpls.filter((t) => t.id !== cur.id);
+      const next = tpls.filter((t) => t.mine !== false && t.id !== cur.id);
       const r = await fetch("/api/mail-templates", {
         method: "PUT", headers: { "content-type": "application/json" },
         body: JSON.stringify({ templates: next }),
       });
       if (!r.ok) throw new Error(((await r.json()) || {}).error || "消せませんでした");
-      tpls.length = 0; tpls.push(...next);
+      const team2 = tpls.filter((t) => t.mine === false);
+      tpls.length = 0; tpls.push(...next.map((t) => ({ ...t, mine: true })), ...team2);
       editingId = "";
       refreshSel("");
       showTpl(false);
@@ -802,8 +861,8 @@ function wireMailTemplates(box, botId, tpls, side) {
     saveBtn.disabled = true;
     say("保存しています…");
     try {
-      const saved = { id: "t" + Date.now(), name, subject: subj, body: bodyText };
-      const next = [...tpls, saved];
+      const saved = { id: "t" + Date.now(), name, subject: subj, body: bodyText, mine: true };
+      const next = [...tpls.filter((t) => t.mine !== false), saved];
       const r = await fetch("/api/mail-templates", {
         method: "PUT", headers: { "content-type": "application/json" },
         body: JSON.stringify({ templates: next }),
@@ -1261,6 +1320,7 @@ async function openMail(botId, key) {
                </div>
                <div class="mail-acts">
                  ${hIcon("tplsave", "直した内容で、この型を上書きする", 'data-tple-save="1"')}
+                 ${hIcon("tplshare", "この型をチームのみんなが使えるようにする", 'data-tple-share="1"')}
                  ${hIcon("tpldel", "この型を消す", 'data-tple-del="1"')}
                </div>
                <div class="tple-st"></div>

@@ -827,6 +827,9 @@ export async function initDb() {
       created_at  TIMESTAMPTZ DEFAULT now()
     );
   `);
+  // 資料は入れた人のものにする。チームに見せたいものだけ「共有」にする。
+  // 既定は共有（これまでの資料が急に見えなくなると困るため）。
+  await sq(`ALTER TABLE doc_files ADD COLUMN IF NOT EXISTS shared BOOLEAN NOT NULL DEFAULT true;`);
 
   // 宛先ごとに1本ずつURLを発行する。誰が見たかを特定するため。
   await sq(`
@@ -3706,15 +3709,26 @@ export async function addDocFile({ name, filename, mime, buf, uploadedBy }) {
 }
 
 // 一覧では中身（bytes）を返さない。重いので。
-export async function listDocFiles() {
+// 資料の一覧。
+//   owner を渡すと「自分が入れたもの＋チームに共有されているもの」だけを返す。
+//   all=true なら全部（管理用）。
+export async function listDocFiles({ owner = "", all = false } = {}) {
   if (!pool) return [];
   try {
+    const p = [];
+    let where = "1=1";
+    if (owner && !all) {
+      p.push(String(owner).toLowerCase());
+      where = `(lower(COALESCE(f.uploaded_by,'')) = $${p.length} OR COALESCE(f.shared,true) = true)`;
+    }
     const { rows } = await pool.query(
-      `SELECT f.id, f.name, f.filename, f.mime, f.size, f.active, f.uploaded_by, f.created_at,
+      `SELECT f.id, f.name, f.filename, f.mime, f.size, f.active, f.uploaded_by, f.shared, f.created_at,
               (SELECT count(*) FROM doc_links l WHERE l.doc_id = f.id) AS links,
               (SELECT count(*) FROM doc_views v JOIN doc_links l ON l.id = v.link_id
                 WHERE l.doc_id = f.id) AS views
-         FROM doc_files f ORDER BY f.active DESC, f.created_at DESC`);
+         FROM doc_files f
+        WHERE ${where}
+        ORDER BY f.active DESC, f.created_at DESC`, p);
     return rows;
   } catch { return []; }
 }
@@ -3827,6 +3841,17 @@ export async function clientEmailForCompany(company) {
     }
   } catch {}
   return null;
+}
+
+// 資料を「自分だけ」「チームに共有」に切り替える
+export async function setDocShared(id, shared) {
+  if (!pool || !id) return null;
+  try {
+    const { rows } = await pool.query(
+      `UPDATE doc_files SET shared = $2 WHERE id = $1 RETURNING id, name, shared`,
+      [id, !!shared]);
+    return rows[0] || null;
+  } catch (e) { console.error("[db] setDocShared", e.message); return null; }
 }
 
 export async function listDocLinks({ docId = 0, onlyViewed = false, limit = 500 } = {}) {

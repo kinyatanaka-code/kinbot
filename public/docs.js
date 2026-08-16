@@ -63,16 +63,43 @@ async function loadDocs() {
     box.innerHTML = `<div class="dk-list">` + docsCache.map((f) => `
       <div class="dk-row${f.active ? "" : " dk-off"}" data-id="${f.id}">
         <div class="dk-main">
-          <div class="dk-t">${esc(f.name)}</div>
+          <div class="dk-t">
+            ${f.mine
+              ? (f.shared === false
+                  ? '<span class="home-badge dn-kind df-own">自分だけ</span>'
+                  : '<span class="home-badge dn-kind df-share">チームに共有</span>')
+              : `<span class="home-badge dn-kind df-other">${esc(f.uploaded_by || "ほかの人")}</span>`}
+            ${esc(f.name)}
+          </div>
           <div class="dk-s">${esc(f.filename || "")}　${Math.round((f.size || 0) / 1024)}KB　
             発行 ${f.links}件／閲覧 ${f.views}件　${esc(fmtWhen(f.created_at))}</div>
         </div>
         <div class="dk-act">
-          <button type="button" class="btn ghost df-rename">名前を直す</button>
-          <button type="button" class="btn ghost df-toggle">${f.active ? "使わない" : "使う"}</button>
-          <button type="button" class="btn ghost df-del">削除</button>
+          ${f.mine ? `<button type="button" class="btn ghost df-share">${
+            f.shared === false ? "チームに共有する" : "自分だけにする"}</button>` : ""}
+          ${f.mine ? '<button type="button" class="btn ghost df-rename">名前を直す</button>' : ""}
+          ${f.mine ? `<button type="button" class="btn ghost df-toggle">${f.active ? "使わない" : "使う"}</button>` : ""}
+          ${f.mine ? '<button type="button" class="btn ghost df-del">削除</button>' : ""}
         </div>
       </div>`).join("") + `</div>`;
+
+    // 自分だけにする／チームに共有する
+    box.querySelectorAll(".df-share").forEach((b) =>
+      b.addEventListener("click", async () => {
+        const row = b.closest(".dk-row");
+        const f = docsCache.find((x) => String(x.id) === row.dataset.id);
+        const on = f && f.shared === false;
+        if (on && !confirm(`「${f.name}」を、チームのみんなが使えるようにします。よろしいですか？`)) return;
+        b.disabled = true;
+        try {
+          const r = await fetch(`/api/docs/${row.dataset.id}/shared`, {
+            method: "PATCH", headers: { "content-type": "application/json" },
+            body: JSON.stringify({ shared: !!on }),
+          });
+          if (!r.ok) throw new Error(((await r.json()) || {}).error || "変えられませんでした");
+          loadDocs();
+        } catch (e) { b.disabled = false; alert(e.message); }
+      }));
 
     box.querySelectorAll(".df-rename").forEach((b) =>
       b.addEventListener("click", async () => {
