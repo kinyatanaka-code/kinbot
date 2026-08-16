@@ -97,9 +97,9 @@ class Session {
       type: "session",
       startedAt: this.startedAt,
       repName: this.repName || "",
-      // 本人の画面でも、確かめられるように再生用のIDは渡す。
-      // ふだんは映さず、「音なしで確かめる」を押したときだけ映す（画面側で判断）。
-      muxPlaybackId: this.muxPlaybackId || "",
+      // 録画している本人には、再生用のIDを渡さない。
+      // 同じ会議に出ているので見る必要がなく、音が二重に聞こえてしまうため。
+      muxPlaybackId: isOwner ? "" : this.muxPlaybackId || "",
       muxError: this.muxError || "",
       isOwner,
     });

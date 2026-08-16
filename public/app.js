@@ -517,14 +517,27 @@ function showLiveMessage(text) {
 }
 // 配信枠が無いときは、いまの設定を見に行って、何が足りないかをそのまま出す。
 // 「配信枠が作られていません」だけだと、どこを直せばよいか分からないため。
-// 本人向け：「ほかの人には見えています」の案内と、音なしで見るボタン
-function showOwnerPeek(playbackId) {
+// 録画している本人向けの案内。
+// 映像は出さず、「録画者はライブを見られません」とだけ伝える。
+function showOwnerNotice(why) {
   const box = $("liveVideo");
   if (!box) return;
   box.hidden = false;
   showVideoTab(true);
+
+  // 映像・音声は動かさない（音が二重に聞こえないように、必ず止める）
   const video = $("liveVideoEl");
-  if (video) video.style.display = "none";
+  if (video) {
+    try { video.pause(); } catch {}
+    video.removeAttribute("src");
+    video.muted = true;
+    video.style.display = "none";
+  }
+  const unmute = document.getElementById("liveUnmuteBtn");
+  if (unmute) unmute.hidden = true;
+  const peek = document.getElementById("livePeekBtn");
+  if (peek) peek.hidden = true;
+
   let overlay = $("liveVideoMsg");
   if (!overlay) {
     overlay = document.createElement("div");
@@ -533,25 +546,10 @@ function showOwnerPeek(playbackId) {
     box.appendChild(overlay);
   }
   overlay.style.whiteSpace = "pre-line";
-  overlay.textContent =
-    "あなたはこの会議に出ているので、ここには映していません。\n" +
-    "（音が二重に聞こえるのを防ぐためです。ほかの人の画面には映っています）";
+  overlay.textContent = why
+    ? `録画者はライブを見られません。\nなお、ほかの人も見られない状態です：${why}`
+    : "録画者はライブを見られません。\n（ほかのメンバーの画面には映っています）";
   overlay.hidden = false;
-
-  let btn = document.getElementById("livePeekBtn");
-  if (!btn) {
-    btn = document.createElement("button");
-    btn.id = "livePeekBtn";
-    btn.className = "live-unmute-btn";
-    btn.textContent = "配信できているか、音なしで確かめる";
-    box.appendChild(btn);
-  }
-  btn.hidden = false;
-  btn.onclick = () => {
-    btn.hidden = true;
-    if (video) video.style.display = "";
-    showLiveVideo(playbackId, { silent: true });
-  };
 }
 
 async function checkMuxThenMessage() {
@@ -764,12 +762,9 @@ function handle(msg) {
       if (msg.repName) liveRepName = msg.repName;
       // ライブ映像（Mux）
       if (msg.isOwner) {
-        // 会議に出ている本人：音が二重になるので、ふだんは映像を出さない。
-        // ただし「ちゃんと配信できているか」を確かめたいことがあるので、
-        // 音なしで見るボタンだけ出しておく。
-        hideLiveVideo();
-        if (msg.muxError) setStatus("ほかの人はこの商談を見られません：" + msg.muxError);
-        else if (msg.muxPlaybackId) showOwnerPeek(msg.muxPlaybackId);
+        // 録画している本人は、ライブ映像を見られない。
+        // 同じ会議に出ているので見る必要がなく、音が二重に聞こえてしまうため。
+        showOwnerNotice(msg.muxError || "");
       } else if (msg.muxPlaybackId) {
         showLiveVideo(msg.muxPlaybackId);
       } else if (msg.muxError) {
