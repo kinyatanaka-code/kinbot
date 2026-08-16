@@ -53,14 +53,142 @@ function render() {
         method: "PATCH", headers: { "content-type": "application/json" },
         body: JSON.stringify({ status: b.dataset.st }),
       });
+      // ===== 自己点検 =====
+function scRender(d) {
+  const box = $("scBox");
+  if (!box) return;
+  const last = d.last;
+  if (!last) { box.innerHTML = '<div class="note">まだ点検していません。</div>'; return; }
+  const when = new Date(last.at).toLocaleString("ja-JP", { hour12: false }).slice(5, 16);
+  box.innerHTML =
+    `<div class="note">最後の点検：${esc(when)}　問題 ${last.bad}件</div>` +
+    `<div class="cal-list">` + last.checks.map((c) =>
+      `<div class="cal-row ${c.ok ? "cal-ok" : "cal-ng"}">
+         <div class="cal-head"><b>${esc(c.title)}</b></div>
+         <div class="ap-rot-cnt">${esc(c.detail)}</div>
+         ${!c.ok && c.fix ? `<div class="cal-verdict">直し方の案：${esc(c.fix)}</div>` : ""}
+       </div>`).join("") + `</div>` +
+    (d.proposal ? `<div class="note"><b>まとめた案</b><br>${esc(d.proposal).replace(/\n/g, "<br>")}</div>` : "");
+}
+
+async function scLoad() {
+  if (!$("scOn")) return;
+  try {
+    const d = await (await fetch("/api/self-check")).json();
+    $("scOn").checked = !!d.enabled;
+    $("scEvery").value = d.every ?? 30;
+    $("scHook").value = d.webhook || "";
+    scRender(d);
+  } catch {}
+}
+
+if ($("scOn")) {
+  $("scSave").addEventListener("click", async () => {
+    const st = $("scStatus");
+    st.textContent = "保存しています…";
+    try {
+      await fetch("/api/self-check", {
+        method: "PUT", headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          enabled: $("scOn").checked,
+          every: parseInt($("scEvery").value, 10),
+          webhook: $("scHook").value,
+        }),
+      });
+      st.textContent = "保存しました";
+      setTimeout(() => (st.textContent = ""), 4000);
+    } catch (e) { st.textContent = "失敗：" + e.message; }
+  });
+  $("scRun").addEventListener("click", async () => {
+    const st = $("scStatus");
+    st.textContent = "点検しています…";
+    try {
+      const r = await fetch("/api/self-check/run", {
+        method: "POST", headers: { "content-type": "application/json" }, body: "{}",
+      });
+      const d = await r.json();
+      if (d.error) throw new Error(d.error);
+      scRender({ last: d, proposal: d.proposal });
+      st.textContent = d.bad ? `${d.bad}件見つかりました` : "問題ありません";
+      setTimeout(() => (st.textContent = ""), 6000);
       load();
+    } catch (e) { st.textContent = "失敗：" + e.message; }
+  });
+  scLoad();
+}
+
+load();
     }));
   box.querySelectorAll(".dn-del").forEach((b) =>
     b.addEventListener("click", async () => {
       const row = b.closest(".dk-row");
       if (!confirm("この項目を消します。よろしいですか？")) return;
       await fetch(`/api/dev-notes/${row.dataset.id}`, { method: "DELETE" });
+      // ===== 自己点検 =====
+function scRender(d) {
+  const box = $("scBox");
+  if (!box) return;
+  const last = d.last;
+  if (!last) { box.innerHTML = '<div class="note">まだ点検していません。</div>'; return; }
+  const when = new Date(last.at).toLocaleString("ja-JP", { hour12: false }).slice(5, 16);
+  box.innerHTML =
+    `<div class="note">最後の点検：${esc(when)}　問題 ${last.bad}件</div>` +
+    `<div class="cal-list">` + last.checks.map((c) =>
+      `<div class="cal-row ${c.ok ? "cal-ok" : "cal-ng"}">
+         <div class="cal-head"><b>${esc(c.title)}</b></div>
+         <div class="ap-rot-cnt">${esc(c.detail)}</div>
+         ${!c.ok && c.fix ? `<div class="cal-verdict">直し方の案：${esc(c.fix)}</div>` : ""}
+       </div>`).join("") + `</div>` +
+    (d.proposal ? `<div class="note"><b>まとめた案</b><br>${esc(d.proposal).replace(/\n/g, "<br>")}</div>` : "");
+}
+
+async function scLoad() {
+  if (!$("scOn")) return;
+  try {
+    const d = await (await fetch("/api/self-check")).json();
+    $("scOn").checked = !!d.enabled;
+    $("scEvery").value = d.every ?? 30;
+    $("scHook").value = d.webhook || "";
+    scRender(d);
+  } catch {}
+}
+
+if ($("scOn")) {
+  $("scSave").addEventListener("click", async () => {
+    const st = $("scStatus");
+    st.textContent = "保存しています…";
+    try {
+      await fetch("/api/self-check", {
+        method: "PUT", headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          enabled: $("scOn").checked,
+          every: parseInt($("scEvery").value, 10),
+          webhook: $("scHook").value,
+        }),
+      });
+      st.textContent = "保存しました";
+      setTimeout(() => (st.textContent = ""), 4000);
+    } catch (e) { st.textContent = "失敗：" + e.message; }
+  });
+  $("scRun").addEventListener("click", async () => {
+    const st = $("scStatus");
+    st.textContent = "点検しています…";
+    try {
+      const r = await fetch("/api/self-check/run", {
+        method: "POST", headers: { "content-type": "application/json" }, body: "{}",
+      });
+      const d = await r.json();
+      if (d.error) throw new Error(d.error);
+      scRender({ last: d, proposal: d.proposal });
+      st.textContent = d.bad ? `${d.bad}件見つかりました` : "問題ありません";
+      setTimeout(() => (st.textContent = ""), 6000);
       load();
+    } catch (e) { st.textContent = "失敗：" + e.message; }
+  });
+  scLoad();
+}
+
+load();
     }));
 }
 
@@ -101,7 +229,71 @@ $("dnAdd").addEventListener("click", async () => {
     });
     $("dnTitle").value = "";
     say("足しました", 3000);
-    load();
+    // ===== 自己点検 =====
+function scRender(d) {
+  const box = $("scBox");
+  if (!box) return;
+  const last = d.last;
+  if (!last) { box.innerHTML = '<div class="note">まだ点検していません。</div>'; return; }
+  const when = new Date(last.at).toLocaleString("ja-JP", { hour12: false }).slice(5, 16);
+  box.innerHTML =
+    `<div class="note">最後の点検：${esc(when)}　問題 ${last.bad}件</div>` +
+    `<div class="cal-list">` + last.checks.map((c) =>
+      `<div class="cal-row ${c.ok ? "cal-ok" : "cal-ng"}">
+         <div class="cal-head"><b>${esc(c.title)}</b></div>
+         <div class="ap-rot-cnt">${esc(c.detail)}</div>
+         ${!c.ok && c.fix ? `<div class="cal-verdict">直し方の案：${esc(c.fix)}</div>` : ""}
+       </div>`).join("") + `</div>` +
+    (d.proposal ? `<div class="note"><b>まとめた案</b><br>${esc(d.proposal).replace(/\n/g, "<br>")}</div>` : "");
+}
+
+async function scLoad() {
+  if (!$("scOn")) return;
+  try {
+    const d = await (await fetch("/api/self-check")).json();
+    $("scOn").checked = !!d.enabled;
+    $("scEvery").value = d.every ?? 30;
+    $("scHook").value = d.webhook || "";
+    scRender(d);
+  } catch {}
+}
+
+if ($("scOn")) {
+  $("scSave").addEventListener("click", async () => {
+    const st = $("scStatus");
+    st.textContent = "保存しています…";
+    try {
+      await fetch("/api/self-check", {
+        method: "PUT", headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          enabled: $("scOn").checked,
+          every: parseInt($("scEvery").value, 10),
+          webhook: $("scHook").value,
+        }),
+      });
+      st.textContent = "保存しました";
+      setTimeout(() => (st.textContent = ""), 4000);
+    } catch (e) { st.textContent = "失敗：" + e.message; }
+  });
+  $("scRun").addEventListener("click", async () => {
+    const st = $("scStatus");
+    st.textContent = "点検しています…";
+    try {
+      const r = await fetch("/api/self-check/run", {
+        method: "POST", headers: { "content-type": "application/json" }, body: "{}",
+      });
+      const d = await r.json();
+      if (d.error) throw new Error(d.error);
+      scRender({ last: d, proposal: d.proposal });
+      st.textContent = d.bad ? `${d.bad}件見つかりました` : "問題ありません";
+      setTimeout(() => (st.textContent = ""), 6000);
+      load();
+    } catch (e) { st.textContent = "失敗：" + e.message; }
+  });
+  scLoad();
+}
+
+load();
   } catch (e) { say("失敗：" + e.message, 6000); }
 });
 $("dnTitle").addEventListener("keydown", (e) => { if (e.key === "Enter") $("dnAdd").click(); });
@@ -120,5 +312,69 @@ $("dnCopy").addEventListener("click", () => {
     .then(() => say("コピーしました", 3000))
     .catch(() => say("コピーできませんでした", 4000));
 });
+
+// ===== 自己点検 =====
+function scRender(d) {
+  const box = $("scBox");
+  if (!box) return;
+  const last = d.last;
+  if (!last) { box.innerHTML = '<div class="note">まだ点検していません。</div>'; return; }
+  const when = new Date(last.at).toLocaleString("ja-JP", { hour12: false }).slice(5, 16);
+  box.innerHTML =
+    `<div class="note">最後の点検：${esc(when)}　問題 ${last.bad}件</div>` +
+    `<div class="cal-list">` + last.checks.map((c) =>
+      `<div class="cal-row ${c.ok ? "cal-ok" : "cal-ng"}">
+         <div class="cal-head"><b>${esc(c.title)}</b></div>
+         <div class="ap-rot-cnt">${esc(c.detail)}</div>
+         ${!c.ok && c.fix ? `<div class="cal-verdict">直し方の案：${esc(c.fix)}</div>` : ""}
+       </div>`).join("") + `</div>` +
+    (d.proposal ? `<div class="note"><b>まとめた案</b><br>${esc(d.proposal).replace(/\n/g, "<br>")}</div>` : "");
+}
+
+async function scLoad() {
+  if (!$("scOn")) return;
+  try {
+    const d = await (await fetch("/api/self-check")).json();
+    $("scOn").checked = !!d.enabled;
+    $("scEvery").value = d.every ?? 30;
+    $("scHook").value = d.webhook || "";
+    scRender(d);
+  } catch {}
+}
+
+if ($("scOn")) {
+  $("scSave").addEventListener("click", async () => {
+    const st = $("scStatus");
+    st.textContent = "保存しています…";
+    try {
+      await fetch("/api/self-check", {
+        method: "PUT", headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          enabled: $("scOn").checked,
+          every: parseInt($("scEvery").value, 10),
+          webhook: $("scHook").value,
+        }),
+      });
+      st.textContent = "保存しました";
+      setTimeout(() => (st.textContent = ""), 4000);
+    } catch (e) { st.textContent = "失敗：" + e.message; }
+  });
+  $("scRun").addEventListener("click", async () => {
+    const st = $("scStatus");
+    st.textContent = "点検しています…";
+    try {
+      const r = await fetch("/api/self-check/run", {
+        method: "POST", headers: { "content-type": "application/json" }, body: "{}",
+      });
+      const d = await r.json();
+      if (d.error) throw new Error(d.error);
+      scRender({ last: d, proposal: d.proposal });
+      st.textContent = d.bad ? `${d.bad}件見つかりました` : "問題ありません";
+      setTimeout(() => (st.textContent = ""), 6000);
+      load();
+    } catch (e) { st.textContent = "失敗：" + e.message; }
+  });
+  scLoad();
+}
 
 load();

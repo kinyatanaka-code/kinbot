@@ -18,6 +18,26 @@
         <header class="topbar"><div class="brand"><img class="topbar-bot" src="kinbot.svg" alt="" /><span class="brand-name">開発メモ</span></div></header>
         <main class="report-page">
           <section class="card">
+            <h3>自己点検</h3>
+            <p class="note">kinbotが自分で、<b>ライブ配信・プロセスシート・各連携・カレンダーの見張り</b>を見に行きます。
+            おかしいところが見つかったら、直し方の案を作って知らせます。<br>
+            <b>知らせ先は、ここで指定した1か所だけ</b>です（DOC Teamなどチームの場所には送りません）。
+            点検は<b>読むだけ</b>で、Salesforceは書き換えません。</p>
+            <div class="ap-cfg-actions">
+              <label class="ks-check"><input type="checkbox" id="scOn" /> 自動で点検する</label>
+              <label>間隔 <input type="number" id="scEvery" min="5" max="240" step="5" style="width:70px" /> 分</label>
+              <button class="btn ghost" id="scSave">保存</button>
+              <button class="btn ghost" id="scRun">いま点検する</button>
+              <span class="rev-status" id="scStatus"></span>
+            </div>
+            <div class="teams-add" style="margin-top:6px">
+              <input type="text" id="scHook" placeholder="知らせ先：Google ChatのWebhook URL（自分あて）" style="flex:1 1 420px" />
+            </div>
+            <p class="note">Chatで<b>自分だけのスペース</b>を作り、そのWebhook URLを入れてください。空のままだと、画面で見るだけになります。</p>
+            <div id="scBox"></div>
+          </section>
+
+          <section class="card">
             <h3>直したいこと・やりたいこと</h3>
             <p class="note">気づいたときに、Google Chatで <b>@kinbot 要望 〜</b> と送るだけで、ここに溜まります。<br>
             うまくいかなかった処理（SFの立ち上げ・カレンダーの取り込みなど）や、Chatで答えられなかった質問も、kinbotが自動で拾って残します。<br>

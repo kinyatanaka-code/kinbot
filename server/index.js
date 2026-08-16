@@ -26,6 +26,7 @@ import { startKasasagi, getKasasagi, stopKasasagi, feedTranscript, kasasagiInfo,
          buildScript, buildReport, faceState, SLIDE_LABELS } from "./kasasagi.js";
 import { notifyAssigned, notifyMailDraft, notifyChat, notifyAll, chatWebhookUrl, chatInfo } from "./chat.js";
 import { note as devNote, errKey, buildMorningSummary, NOTE_KINDS } from "./devnotes.js";
+import { checkLive, checkProcessSheet, checkLinks, buildProposal, notifyCheck } from "./selfcheck.js";
 import { verifyChatRequest, readEvent, replyBody, parseCommand, helpText, jstDate, jstTime, INTENT_SYSTEM, guessIntent } from "./chatcmd.js";
 import { normalizeSpace } from "./chatapp.js";
 import { judge as judgeAutolaunch, reasonText, parseTitle as parseLaunchTitle } from "./autolaunch.js";
@@ -3452,6 +3453,179 @@ app.post("/api/dev-notes/summary", async (req, res) => {
     if (r.empty) return res.json({ ok: true, empty: true, text: "未対応の開発メモはありません。" });
     if (req.body?.send === true) await notifyAll(r.text, "assign");
     res.json({ ok: true, ...r, sent: req.body?.send === true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// ───────────────────────────────────────────────────────────
+// 自己点検 — kinbotが自分の動きを見に行く
+//
+// ★ 守ること
+//   ・チームのスペース（DOC Teamなど）には送らない。送り先は点検用の1か所だけ。
+//   ・Salesforceは読むだけ。書き換えない。
+// ───────────────────────────────────────────────────────────
+let lastCheckState = "";      // 前回と同じ結果なら送らない（同じ知らせを何度も出さないため）
+let lastCheckAt = null;
+let lastCheckResult = null;
+
+async function runSelfCheck() {
+  const st = await getSettings().catch(() => ({}));
+  const checks = [];
+
+  // 1. ライブ配信
+  try {
+    const info = liveInfo();
+    const relayUrl = String(process.env.LIVE_RELAY_RTMP || "").trim();
+    let reach = null;
+    if (relayUrl) {
+      try {
+        const u = new URL(relayUrl.replace(/^rtmp:/, "http:"));
+        const net = await import("node:net");
+        reach = await new Promise((resolve) => {
+          const sock = new net.Socket();
+          const done = (ok, why) => { try { sock.destroy(); } catch {} resolve({ ok, why, host: u.hostname, port: Number(u.port || 1935) }); };
+          sock.setTimeout(6000);
+          sock.once("connect", () => done(true, ""));
+          sock.once("timeout", () => done(false, "応答がありません"));
+          sock.once("error", (e) => done(false, e.message));
+          sock.connect(Number(u.port || 1935), u.hostname);
+        });
+      } catch (e) { reach = { ok: false, why: e.message }; }
+    }
+    const relayCount = await countLiveRelay().catch(() => 0);
+    checks.push(...checkLive({
+      info, relayUrl, relaySecret: !!process.env.RELAY_SECRET, relayCount, reach,
+    }));
+  } catch (e) { console.warn("[点検] ライブ:", e.message); }
+
+  // 2. プロセスシート
+  try {
+    let last = null;
+    try { last = JSON.parse(st.psLast || "null"); } catch {}
+    checks.push(...checkProcessSheet({
+      sheetId: st.psSheetId, sheetName: st.psSheetName, reportId: st.psReportId,
+      last, autoRun: st.psAutoRun,
+    }));
+  } catch (e) { console.warn("[点検] シート:", e.message); }
+
+  // 3. つながり（Salesforceは読み取りの確認だけ）
+  try {
+    const owner = String(st.apoScanOwner || st.apoInviteOwner || "").trim();
+    const google = owner ? await gcalConnected(owner).catch(() => false) : false;
+    const gm = owner ? await gmailReady(owner).catch(() => ({ ok: false })) : { ok: false };
+    const sfOwner = String(st.psOwner || "").trim();
+    const sf = sfOwner ? await sfConnected(sfOwner).catch(() => false) : false;
+    checks.push(...checkLinks({
+      google, gmail: gm.ok, salesforce: sf,
+      recall: !!process.env.RECALL_API_KEY,
+      chat: !!(chatInfo().targets || chatInfo().app?.configured || chatWebhookUrl()),
+    }));
+  } catch (e) { console.warn("[点検] 連携:", e.message); }
+
+  // 4. アポの取り込みが止まっていないか
+  try {
+    const rows = await listCalendarWatches().catch(() => []);
+    const alive = rows.filter((w) => !w.expires_at || new Date(w.expires_at).getTime() > Date.now());
+    checks.push({
+      key: "apo.watch", title: "カレンダーの見張り", ok: alive.length > 0,
+      detail: alive.length ? `${alive.length}人ぶんを見張っています` : "見張りがありません（予定を作っても気づけません）",
+      fix: "アポ管理→システム→即時通知で「今すぐ設定し直す」を押す",
+    });
+  } catch {}
+
+  const bad = checks.filter((x) => !x.ok);
+  lastCheckAt = new Date().toISOString();
+  lastCheckResult = { at: lastCheckAt, checks, bad: bad.length };
+  return lastCheckResult;
+}
+
+// 決まった間隔で点検し、変わったときだけ知らせる
+async function maybeSelfCheck() {
+  try {
+    const st = await getSettings().catch(() => ({}));
+    if (st.selfCheck !== true) return;
+    const every = Math.max(5, Number(st.selfCheckEvery ?? 30));
+    if (lastCheckAt && Date.now() - new Date(lastCheckAt).getTime() < every * 60 * 1000) return;
+
+    const r = await runSelfCheck();
+    const bad = r.checks.filter((x) => !x.ok);
+
+    // 見つかった問題は、開発メモにも残す（朝のまとめに乗るように）
+    for (const x of bad) {
+      await devNote({
+        key: `check:${x.key}`, kind: "error",
+        title: `点検で見つかりました：${x.title} — ${x.detail}`,
+        detail: x.fix ? `直し方の案：${x.fix}` : "", source: "自己点検",
+      }).catch(() => {});
+    }
+
+    // 前と同じ状態なら知らせない（同じ知らせが何度も出ないように）
+    const state = bad.map((x) => x.key).sort().join("|");
+    if (state === lastCheckState) return;
+    const fixed = lastCheckState && !state;
+    lastCheckState = state;
+
+    // ★ 送り先は点検用の1か所だけ。チームのスペースには送らない。
+    const to = { url: String(st.selfCheckWebhook || "").trim(), space: String(st.selfCheckSpace || "").trim() };
+    if (!to.url && !to.space) return;
+
+    if (fixed) {
+      await notifyCheck("✅ *点検：問題は無くなりました*", to).catch(() => {});
+      return;
+    }
+    if (!bad.length) return;
+
+    const proposal = await buildProposal(bad, callLLMPublic);
+    await notifyCheck([
+      `🔎 *点検で ${bad.length}件 見つかりました*`,
+      "",
+      proposal,
+      "",
+      "（この知らせは点検用の場所にだけ送っています）",
+    ].join("\n"), to).catch(() => {});
+    console.log(`[点検] ${bad.length}件の問題を知らせました`);
+  } catch (e) { console.warn("[点検]", e.message); }
+}
+
+// 画面から見る・その場で点検する
+app.get("/api/self-check", async (req, res) => {
+  try {
+    const st = await getSettings();
+    res.json({
+      enabled: st.selfCheck === true,
+      every: Number(st.selfCheckEvery ?? 30),
+      webhook: st.selfCheckWebhook || "",
+      space: st.selfCheckSpace || "",
+      last: lastCheckResult,
+    });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.put("/api/self-check", async (req, res) => {
+  try {
+    const b = req.body || {};
+    const patch = {};
+    if (b.enabled !== undefined) patch.selfCheck = b.enabled === true;
+    if (b.every !== undefined) patch.selfCheckEvery = Math.max(5, Math.min(240, parseInt(b.every, 10) || 30));
+    if (b.webhook !== undefined) patch.selfCheckWebhook = String(b.webhook || "").trim().slice(0, 500);
+    if (b.space !== undefined) patch.selfCheckSpace = String(b.space || "").trim().slice(0, 200);
+    await saveSettings(patch);
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.post("/api/self-check/run", async (req, res) => {
+  try {
+    const r = await runSelfCheck();
+    const bad = r.checks.filter((x) => !x.ok);
+    let proposal = "";
+    if (bad.length) proposal = await buildProposal(bad, callLLMPublic);
+    if (req.body?.send === true && bad.length) {
+      const st = await getSettings();
+      const to = { url: String(st.selfCheckWebhook || "").trim(), space: String(st.selfCheckSpace || "").trim() };
+      const sent = await notifyCheck(`🔎 *点検で ${bad.length}件 見つかりました*\n\n${proposal}`, to);
+      return res.json({ ...r, proposal, sent: !sent.skipped, reason: sent.reason || "" });
+    }
+    res.json({ ...r, proposal });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
@@ -13176,6 +13350,10 @@ server.listen(PORT, async () => {
   setInterval(() => { maybeSendCallReport().catch(() => {}); }, 60 * 1000);
   // 朝の開発メモ（既定6時）
   setInterval(() => { maybeSendDevSummary().catch(() => {}); }, 60 * 1000);
+  // 自己点検（既定30分おき）。起動から3分たってから始める。
+  setTimeout(() => {
+    setInterval(() => { maybeSelfCheck().catch(() => {}); }, 5 * 60 * 1000);
+  }, 3 * 60 * 1000);
 
   // どこにも拾われなかったエラーも、開発メモに残す
   process.on("unhandledRejection", (e) => {
