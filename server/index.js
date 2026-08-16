@@ -3884,6 +3884,55 @@ app.post("/api/weekly/apply-photo", async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+// ───────────────────────────────────────────────────────────
+// ホームのツール置き場
+//
+// よく使うツールを、人ごとに並べておける。押すとその画面へ飛ぶ。
+// 「天気予報」は全員に必ず入れる（毎週みんなが使うため）。
+// ───────────────────────────────────────────────────────────
+const HOME_TOOLS = [
+  { id: "weekly", href: "weekly.html", label: "天気予報", always: true },
+  { id: "apo", href: "apo.html", label: "アポ振り分け" },
+  { id: "launch", href: "sf-launch.html", label: "商談立ち上げ" },
+  { id: "pending", href: "sf-launch.html?tab=pending", label: "立ち上げ待ち" },
+  { id: "process", href: "sf-launch.html?tab=process", label: "プロセスシート" },
+  { id: "docs", href: "docs.html", label: "資料トラッキング" },
+  { id: "history", href: "history.html", label: "商談履歴" },
+  { id: "report", label: "実績", href: "report.html" },
+  { id: "style", href: "style-analysis.html", label: "営業スタイル分析" },
+  { id: "deals", href: "deals.html", label: "案件" },
+  { id: "rec", href: "index.html", label: "レコーディング" },
+  { id: "dev", href: "dev.html", label: "開発メモ" },
+];
+
+app.get("/api/home-tools", async (req, res) => {
+  try {
+    const s = await getUserSettings(req.user).catch(() => ({}));
+    const saved = Array.isArray(s.homeTools) ? s.homeTools : null;
+    // まだ選んでいない人は、よく使うものを最初から入れておく
+    const def = ["weekly", "apo", "launch", "docs"];
+    const ids = saved || def;
+    // 天気予報は必ず先頭に入れる
+    const list = ["weekly", ...ids.filter((x) => x !== "weekly")];
+    res.json({
+      選んでいるもの: list,
+      使えるもの: HOME_TOOLS,
+      tools: list.map((id) => HOME_TOOLS.find((t) => t.id === id)).filter(Boolean),
+    });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.put("/api/home-tools", async (req, res) => {
+  try {
+    const want = Array.isArray(req.body?.tools) ? req.body.tools : [];
+    const ok = want.map(String).filter((id) => HOME_TOOLS.some((t) => t.id === id));
+    // 天気予報は外せない（全員が使うため）
+    const list = ["weekly", ...ok.filter((x) => x !== "weekly")].slice(0, 8);
+    await saveUserSettings(req.user, { homeTools: list });
+    res.json({ ok: true, 選んでいるもの: list });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 // 対象メンバーの設定
 app.get("/api/weekly/members", async (req, res) => {
   try {

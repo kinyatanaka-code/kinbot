@@ -5222,3 +5222,27 @@ input:focus, select:focus, textarea:focus, .sf-input:focus, .sf-select:focus, .s
 .wb-photo { border: 1px dashed var(--line); border-radius: 12px; padding: 10px 12px; margin: 10px 0 14px; }
 .wb-file { cursor: pointer; }
 .wb-read { background: var(--panel-2); }
+
+/* ===== ホームのツール置き場 ===== */
+.home-tools { display: flex; gap: 8px; flex-wrap: wrap; margin: 0 0 12px; }
+.ht-item { display: flex; flex-direction: column; align-items: center; gap: 4px;
+  min-width: 74px; padding: 9px 10px; border: 1px solid var(--line); border-radius: 12px;
+  background: var(--panel); color: var(--ink); text-decoration: none;
+  font-family: inherit; cursor: pointer; transition: border-color .15s ease, background .15s ease; }
+.ht-item:hover { border-color: #9fe1cb; background: #f2fbf7; }
+.ht-ico { display: flex; align-items: center; justify-content: center;
+  width: 34px; height: 34px; border-radius: 10px; background: #eaf7f2; }
+.ht-ico svg { fill: #0d5b47; }
+.ht-name { font-size: 11px; font-weight: 700; color: #0F6E56; white-space: nowrap; }
+.ht-edit { border-style: dashed; }
+.ht-edit .ht-ico { background: var(--panel-2); }
+.ht-edit .ht-ico svg { fill: #7d938c; }
+.ht-edit .ht-name { color: var(--muted); }
+
+/* 並べるツールを選ぶ */
+.ht-pick { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 6px; }
+.ht-pick-item { display: flex; align-items: center; gap: 7px; padding: 7px 10px;
+  border: 1px solid var(--line); border-radius: 9px; font-size: 12.5px; cursor: pointer; }
+.ht-pick-item:hover { border-color: #9fe1cb; }
+.ht-pick-item input { accent-color: #0d5b47; }
+.ht-pick-item.fixed { background: var(--panel-2); color: var(--muted); cursor: default; }

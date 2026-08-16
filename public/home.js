@@ -1797,6 +1797,7 @@ async function load() {
 
 document.addEventListener("DOMContentLoaded", () => {
   selDate = loadPref();
+  loadHomeTools();
   $h("homeToggle").querySelectorAll(".home-tg").forEach((b) => {
     b.classList.toggle("active", b.dataset.scope === homeScope);
     b.addEventListener("click", () => {
@@ -1875,6 +1876,86 @@ function apoMeetingWhen(iso) {
   if (ymd(d) === ymd(tomorrow)) return `明日 ${hm}`;
   const w = "日月火水木金土"[d.getDay()];
   return `${d.getMonth() + 1}/${d.getDate()}(${w}) ${hm}`;
+}
+
+// ===== よく使うツール =====
+// ホームから、よく使う画面へすぐ飛べるようにする。
+// 並べるものは人ごとに選べる（天気予報は全員に必ず入る）。
+const TOOL_ICONS = {
+  weekly: "M4 5h16v3H4zm0 5h16v3H4zm0 5h10v3H4z",
+  apo: "M7 3v2H5a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-2V3h-2v2H9V3zm12 8v8H5v-8z",
+  launch: "M12 2l3 6 6 .9-4.5 4.2 1.1 6.1L12 16.9 6.4 19.2l1.1-6.1L3 8.9 9 8z",
+  pending: "M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zm1 5h-2v6l5 3 1-1.7-4-2.3z",
+  process: "M4 4h16v3H4zm0 5h16v3H4zm0 5h16v3H4zm0 5h9v2H4z",
+  docs: "M6 2h8l6 6v14H6zm7 1.5V9h5.5z",
+  history: "M13 3a9 9 0 1 0 8.5 12h-2.1A7 7 0 1 1 13 5v4l5-4.5L13 0z",
+  report: "M4 20h4V10H4zm6 0h4V4h-4zm6 0h4v-7h-4z",
+  style: "M12 3a9 9 0 1 0 9 9h-9z",
+  deals: "M3 6h18v3H3zm2 5h14v9H5zm4 3h6v2H9z",
+  rec: "M12 3a3 3 0 0 1 3 3v6a3 3 0 0 1-6 0V6a3 3 0 0 1 3-3zm7 9a7 7 0 0 1-6 6.9V22h-2v-3.1A7 7 0 0 1 5 12h2a5 5 0 0 0 10 0z",
+  dev: "M9 3h6l1 3h3v14H5V6h3zm3 6a4 4 0 1 0 0 8 4 4 0 0 0 0-8z",
+};
+
+async function loadHomeTools() {
+  const box = document.getElementById("homeTools");
+  if (!box) return;
+  try {
+    const d = await (await fetch("/api/home-tools")).json();
+    const tools = d.tools || [];
+    const svg = (id) =>
+      `<svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">` +
+      `<path d="${TOOL_ICONS[id] || TOOL_ICONS.weekly}"/></svg>`;
+    box.innerHTML =
+      tools.map((t) =>
+        `<a class="ht-item" href="${escH(t.href)}"><span class="ht-ico">${svg(t.id)}</span>` +
+        `<span class="ht-name">${escH(t.label)}</span></a>`).join("") +
+      `<button type="button" class="ht-item ht-edit" id="htEdit" title="並べるツールを選ぶ">` +
+      `<span class="ht-ico"><svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">` +
+      `<path d="M11 5h2v6h6v2h-6v6h-2v-6H5v-2h6z"/></svg></span>` +
+      `<span class="ht-name">えらぶ</span></button>`;
+    box.hidden = false;
+    const ed = document.getElementById("htEdit");
+    if (ed) ed.addEventListener("click", () => openToolPicker(d));
+  } catch { box.hidden = true; }
+}
+
+// 並べるツールを選ぶ画面
+function openToolPicker(d) {
+  const all = d["使えるもの"] || [];
+  const now = new Set(d["選んでいるもの"] || []);
+  const body =
+    `<p class="note">ホームに並べるものを選んでください（8つまで）。<br>` +
+    `天気予報は全員に必ず出るので、外せません。</p>` +
+    `<div class="ht-pick">` + all.map((t) =>
+      `<label class="ht-pick-item${t.always ? " fixed" : ""}">` +
+      `<input type="checkbox" value="${escH(t.id)}"${now.has(t.id) ? " checked" : ""}` +
+      `${t.always ? " checked disabled" : ""} />` +
+      `<span>${escH(t.label)}${t.always ? "（必ず出ます）" : ""}</span></label>`).join("") +
+    `</div>`;
+  const mo = openModal({
+    title: "ホームに並べるツール",
+    sub: "よく使うものだけを出して、すぐ開けるようにします",
+    inner: body + `<div class="ap-cfg-actions" style="margin-top:10px">` +
+      `<button class="btn" id="htSave">保存する</button>` +
+      `<span class="rev-status" id="htMsg"></span></div>`,
+    wide: false,
+  });
+  const box = mo.body;
+  box.querySelector("#htSave").addEventListener("click", async () => {
+    const picked = [...box.querySelectorAll(".ht-pick input:checked")].map((x) => x.value);
+    const msg = box.querySelector("#htMsg");
+    msg.textContent = "保存しています…";
+    try {
+      const r = await fetch("/api/home-tools", {
+        method: "PUT", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ tools: picked }),
+      });
+      if (!r.ok) throw new Error(((await r.json()) || {}).error || "保存できませんでした");
+      msg.textContent = "保存しました";
+      await loadHomeTools();
+      setTimeout(() => mo.close(), 700);
+    } catch (e) { msg.textContent = "失敗：" + e.message; }
+  });
 }
 
 // 自分のアポ（その日に取ったアポ）
