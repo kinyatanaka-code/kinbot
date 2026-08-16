@@ -3778,6 +3778,46 @@ app.post("/api/ui-review/run", async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+// Claude（GitHub Actions）から、定期的な提案を受け取る。
+// 受け取った案は開発メモに残し、点検と同じ1か所にだけ知らせる。
+// ★ チームのスペースには送らない。
+app.post("/api/dev-notes/advice", async (req, res) => {
+  try {
+    const b = req.body || {};
+    const text = String(b.text || "").trim();
+    if (!text) return res.status(400).json({ error: "中身がありません" });
+
+    // 「1. 見出し」の形で区切って、1件ずつ開発メモに残す
+    const blocks = text.split(/\n(?=\d+\.\s)/).map((x) => x.trim()).filter(Boolean);
+    let saved = 0;
+    for (const blk of blocks) {
+      const head = (blk.split("\n")[0] || "").replace(/^\d+\.\s*/, "").trim();
+      if (!head) continue;
+      await addDevNote({
+        key: `advice:${head}`.slice(0, 200), kind: "idea",
+        title: `提案：${head.slice(0, 120)}`, detail: blk.slice(0, 2000),
+        source: "Claudeの提案", createdBy: "advisor",
+      }).catch(() => {});
+      saved++;
+    }
+
+    const st = await getSettings().catch(() => ({}));
+    const to = { url: String(st.selfCheckWebhook || "").trim(), space: String(st.selfCheckSpace || "").trim() };
+    if (to.url || to.space) {
+      await notifyCheck([
+        "💡 *Claudeからの提案*",
+        "",
+        text.slice(0, 3000),
+        "",
+        b.runUrl ? `🔗 ${b.runUrl}` : "",
+        "（開発メモにも残しました。よければ「やる」に印を付けてください）",
+      ].filter(Boolean).join("\n"), to).catch(() => {});
+    }
+    console.log(`[提案] Claudeの提案を ${saved}件 受け取りました`);
+    res.json({ ok: true, saved });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 // 夜間開発（GitHub ActionsのClaude Code）から、結果を受け取る
 app.post("/api/dev-notes/night-report", async (req, res) => {
   try {
