@@ -138,6 +138,29 @@ export function playbackUrl(playbackId) {
   return `https://customer-${CF_CODE}.cloudflarestream.com/${playbackId}/manifest/video.m3u8`;
 }
 
+// Cloudflareが教えてくれる情報から、顧客コード（customer-xxxx）を確かめる。
+// 設定した顧客コードが違うと、配信は届いていても再生できないため。
+export async function cfCustomerCodeCheck(liveStreamId) {
+  if (liveProvider() !== "cloudflare" || !liveConfigured()) return null;
+  try {
+    const r = await cfFetch(`/stream/live_inputs/${encodeURIComponent(liveStreamId)}`);
+    // 返ってくるURL（webRTCの再生用など）に customer-xxxx が入っている
+    const text = JSON.stringify(r || {});
+    const m = text.match(/customer-([a-z0-9]+)\.cloudflarestream\.com/i);
+    const real = m ? m[1] : "";
+    return {
+      設定している顧客コード: CF_CODE || "（未設定）",
+      Cloudflareの顧客コード: real || "（分かりませんでした）",
+      合っているか: real ? (real === CF_CODE) : null,
+      直し方: real && real !== CF_CODE
+        ? `Railwayの CF_STREAM_CUSTOMER_CODE を「${real}」に直してください`
+        : "",
+    };
+  } catch (e) {
+    return { error: e.message };
+  }
+}
+
 // 配信が実際に届いているかを確認する（Cloudflareのみ）
 export async function liveStatus(liveStreamId) {
   if (liveProvider() !== "cloudflare") return { provider: "mux", state: "unknown" };

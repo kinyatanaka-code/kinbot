@@ -317,7 +317,7 @@ import {
   writeViaAppsScript, tokenScopes, getCalendarEvent } from "./google.js";
 import { startScheduler } from "./scheduler.js";
 import { muxConfigured, startVodUpload, waitVodPlayback, muxStorageSummary, listAssets, deleteAsset, findAssetByPlaybackId, enableMp4, mp4Url, readyMp4Name, getAsset } from "./mux.js";
-import { liveConfigured, createLiveStream, disableLiveStream, playbackUrl as livePlaybackUrl, liveInfo, liveStatus, relayMap, relayDestFor } from "./live.js";
+import { liveConfigured, createLiveStream, disableLiveStream, playbackUrl as livePlaybackUrl, liveInfo, liveStatus, cfCustomerCodeCheck, relayMap, relayDestFor } from "./live.js";
 import { notionConfigured, notionStatus, createMeetingPage, createReportPage } from "./notion.js";
 import { pdfToText, urlToText, officeToText } from "./ingest.js";
 import { indexKnowledge, embeddingsAvailable, retrieve } from "./retrieval.js";
@@ -2249,15 +2249,50 @@ app.get("/api/live/status", async (req, res) => {
         });
       } catch { relayCheck = { ok: false, why: "LIVE_RELAY_RTMP の形式が正しくありません" }; }
     }
+    // 再生URLに実際につないでみて、見られる状態かを確かめる。
+    // 顧客コード（CF_STREAM_CUSTOMER_CODE）が違うと、配信は届いていても再生できない。
+    let playCheck = null;
+    const playUrl = liveId ? livePlaybackUrl(liveId) : null;
+    if (playUrl) {
+      try {
+        const r = await fetch(playUrl, { method: "GET", redirect: "follow" });
+        const body = r.ok ? (await r.text()).slice(0, 200) : "";
+        playCheck = {
+          url: playUrl.replace(/\/\/customer-[^.]+\./, "//customer-***."),
+          status: r.status,
+          ok: r.ok && /#EXTM3U/.test(body),
+          why: r.ok
+            ? (/#EXTM3U/.test(body) ? "再生できます" : "中身が動画の一覧ではありません")
+            : r.status === 404
+              ? "再生URLが見つかりません（顧客コードが違うか、まだ配信が始まっていません）"
+              : `再生URLが ${r.status} を返しました`,
+        };
+      } catch (e) {
+        playCheck = { ok: false, why: `再生URLにつながりません：${e.message}` };
+      }
+    }
+
+    // 再生できないときは、顧客コードが合っているかも調べる
+    let codeCheck = null;
+    if (liveId && playCheck && !playCheck.ok) {
+      codeCheck = await cfCustomerCodeCheck(liveId).catch(() => null);
+    }
+
     res.json({
       ...info,
       liveStreamId: liveId || null,
+      playCheck,
+      codeCheck,
       ...st,
       relay: raw ? "中継あり" : "中継なし（直接）",
       sentTo: mask(sentTo) || "（この商談には配信先が設定されていません）",
       sentToIsRelay: !!(raw && sentTo && sentTo.startsWith(raw)),
       relayCheck,
-      hint: st.why ? st.why
+      hint: codeCheck && codeCheck.合っているか === false ? codeCheck.直し方
+        : playCheck && playCheck.ok ? "映像が届いていて、再生もできます。"
+        : playCheck && !playCheck.ok && st.state === "connected"
+          ? `映像は届いていますが、再生できません：${playCheck.why}`
+        : st.why ? st.why
         : st.state === "connected" ? "映像が届いています。"
         : st.state === "disconnected" || st.state === "idle"
           ? "配信がまだ届いていません。ボットが入室してから30秒ほどかかります。数分たっても変わらない場合は、Recallから中継サーバーへ届いていない可能性があります（中継のログを確認してください）。"
