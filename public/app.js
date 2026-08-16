@@ -512,20 +512,28 @@ function showLiveMessage(text) {
     box.appendChild(overlay);
   }
   overlay.textContent = text;
+  overlay.style.whiteSpace = "pre-line";
   overlay.hidden = false;
 }
+// 配信枠が無いときは、いまの設定を見に行って、何が足りないかをそのまま出す。
+// 「配信枠が作られていません」だけだと、どこを直せばよいか分からないため。
 async function checkMuxThenMessage() {
   try {
-    const d = await (await fetch("/api/mux/status")).json();
-    if (d.configured) {
+    const d = await (await fetch("/api/live/diagnose")).json();
+    const bad = (d.steps || []).filter((x) => !x.ok);
+    if (!bad.length) {
       showLiveMessage(
-        d.ok
-          ? "ライブ映像の準備に失敗しました（この商談はMux未連携で開始された可能性）。新しい商談で再度お試しください。"
-          : "Muxキーが無効の可能性があります（設定→状態で確認）。"
-      );
+        "この商談には配信枠がありません。\n" +
+        "設定は足りているので、録音を開始し直すと配信されます。");
+      return;
     }
-    // 未設定なら何も表示しない
-  } catch {}
+    showLiveMessage(
+      "ライブ映像を出すには、次の設定が足りません。\n" +
+      bad.map((x) => `・${x.step.replace(/^\d+\.\s*/, "")}：${x.detail}`).join("\n") +
+      "\n\n直したあと、録音を開始し直してください。");
+  } catch {
+    showLiveMessage("この商談には配信枠がありません。録音を開始し直すと配信されます。");
+  }
 }
 
 let activePane = (document.querySelector(".live-tab.active") || {}).dataset?.pane || "transcript";
@@ -711,12 +719,17 @@ function handle(msg) {
       if (msg.repName) liveRepName = msg.repName;
       // ライブ映像（Mux）
       if (msg.isOwner) {
-        // 会議に参加中の本人：音声二重防止のため映像は出さない
+        // 会議に参加中の本人：音声が二重になるので映像は出さない。
+        // ただし配信できていないときは、その理由だけ知らせる（直せるのは本人だから）。
         hideLiveVideo();
+        if (msg.muxError) setStatus("ほかの人はこの商談を見られません：" + msg.muxError);
       } else if (msg.muxPlaybackId) {
         showLiveVideo(msg.muxPlaybackId);
       } else if (msg.muxError) {
-        showLiveMessage("ライブ映像を開始できませんでした: " + msg.muxError);
+        showLiveMessage(
+          "ライブ映像を開始できませんでした：" + msg.muxError +
+          "\n（設定を直したあと、録音を開始し直してください。" +
+          "いまの設定は /api/live/diagnose で確かめられます）");
       } else {
         // Muxが有効なのに再生IDが無い場合のみ案内（未設定なら何も出さない）
         checkMuxThenMessage();

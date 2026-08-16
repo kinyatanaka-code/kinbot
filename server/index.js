@@ -8387,14 +8387,35 @@ async function startBotSession(owner, meetingUrl, { title = "", repName = "", la
   let muxError = "";
   // ライブ配信は常に用意する（Cloudflareは見られた分だけの課金なので、流しっぱなしでも費用は増えません）
   // 止めたいときは LIVE_STREAM_ENABLED=0
-  if (process.env.LIVE_STREAM_ENABLED !== "0" && liveConfigured()) {
+  //
+  // ここで作れないと、あとから配信できない（Recallに渡す送り先は入室時にしか決められないため）。
+  // だから、作れなかったときは必ず理由を残す。
+  if (process.env.LIVE_STREAM_ENABLED === "0") {
+    muxError = "ライブ配信が止められています（LIVE_STREAM_ENABLED=0）";
+    console.warn("[live] " + muxError);
+  } else if (!liveConfigured()) {
+    const info = liveInfo();
+    muxError = info.provider === "cloudflare"
+      ? "配信の鍵がありません（CF_ACCOUNT_ID / CF_STREAM_TOKEN をRailwayに設定してください）"
+      : "配信の設定がありません（MUXの鍵を設定してください）";
+    console.warn("[live] " + muxError);
+  } else {
     try {
       mux = await createLiveStream();
-      if (!mux?.playbackId) muxError = "Muxから再生IDが取得できませんでした";
+      if (!mux?.playbackId) muxError = "配信枠は作れましたが、再生用のIDが返ってきませんでした";
+      else console.log(`[live] 配信枠を用意しました（${mux.playbackId}）`);
     } catch (e) {
       muxError = e.message;
-      console.error("[mux] createLiveStream", e.message);
+      console.error("[live] 配信枠を作れませんでした:", e.message);
     }
+  }
+  if (muxError) {
+    // 開発メモにも残す（あとで気づけるように）
+    devNote({
+      key: errKey("配信枠", muxError), kind: "error",
+      title: `ライブ配信の枠を作れません：${String(muxError).slice(0, 120)}`,
+      source: "ライブ配信",
+    }).catch(() => {});
   }
   // かささぎを使う商談は、喋れる作りのBotにして、スライドを映すページも渡す。
   // 「常にかささぎを使えるようにする」場合は KASASAGI_ALWAYS=1 を設定する。
