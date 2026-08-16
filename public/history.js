@@ -1000,17 +1000,23 @@ async function loadList() {
         '<div class="empty-state">まだ履歴がありません。商談を1件記録すると、ここに並びます。<br><small>（履歴の保存には DATABASE_URL の設定が必要です）</small></div>';
       return;
     }
-    // 営業担当（所有者）選択肢
+    // 営業担当（所有者）選択肢。
+    // 人数が増えると探しにくいので、商談の多い人を上に出し、件数も添える。
     const fOwner = document.getElementById("fOwner");
     const seen = new Map();
     for (const m of allMeetings) {
       const owner = (m.owner || "").trim();
-      if (owner && !seen.has(owner)) seen.set(owner, (m.owner_name || "").trim() || owner);
+      if (!owner) continue;
+      const label = (m.owner_name || "").trim() || owner;
+      const cur = seen.get(owner) || { label, n: 0 };
+      cur.n++;
+      seen.set(owner, cur);
     }
-    for (const [owner, label] of seen) {
+    const owners = [...seen.entries()].sort((a, b) => b[1].n - a[1].n);
+    for (const [owner, info] of owners) {
       const o = document.createElement("option");
       o.value = owner;
-      o.textContent = label;
+      o.textContent = `${info.label}（${info.n}件）`;
       fOwner.appendChild(o);
     }
     fOwner.addEventListener("change", () => { selectedAccount = null; renderList(); });

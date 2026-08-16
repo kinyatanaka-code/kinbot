@@ -851,10 +851,14 @@ function hfRender(word) {
   if (clear) clear.hidden = !w;
   if (!w) { box.hidden = true; box.innerHTML = ""; return; }
 
-  // 空白や記号の違いは無視して探す
+  // 空白や記号の違いは無視して探す。
+  // 会社名だけでなく、営業担当の名前でも探せるようにする
+  // （「田中さんの商談どれだっけ」を、ここから引けるようにするため）。
   const norm = (v) => String(v || "").replace(/[\s　（）()・,、.。]/g, "").toLowerCase();
   const key = norm(w);
-  const hit = hfCompanies().filter((c) => norm(c.name).includes(key)).slice(0, 8);
+  const hit = hfCompanies()
+    .filter((c) => norm(c.name).includes(key) || norm(c.rep).includes(key))
+    .slice(0, 8);
 
   box.hidden = false;
   box.innerHTML = hit.length
