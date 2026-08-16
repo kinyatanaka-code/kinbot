@@ -2044,21 +2044,54 @@ app.post("/api/drive/migrate", async (req, res) => {
       return res.json(out2);
     }
 
-    // 調査モード：保存はせず、なぜ保存できないのかだけを返す
+    // 調査モード：保存はせず、なぜ保存できないのかだけを返す。
+    // 録画の有無だけでなく、「保存先フォルダを作れるか」まで見る。
+    // 保存できない原因は、ほとんどがGoogleの書き込み権限だから。
     if (b.probe) {
       const probe = [];
+      let folderOk = null, folderErr = "";
+      // フォルダは1回だけ確かめる（毎回作りに行かない）
+      try {
+        const one = (await getMeeting(targets[offset]?.bot_id)) || targets[offset];
+        if (one && uploader) {
+          await driveFolderForMeeting(uploader, one);
+          folderOk = true;
+        } else if (!uploader) {
+          folderOk = false; folderErr = "保存する人が分かりません（ログインし直してください）";
+        }
+      } catch (e) {
+        folderOk = false;
+        const msg = String(e.message || "");
+        folderErr = /insufficient|scope|403/i.test(msg)
+          ? "Googleの書き込み権限が足りません（設定→外部連携→Google連携をやり直してください）"
+          : msg.slice(0, 160);
+      }
+
       for (const t of targets.slice(offset, offset + Math.max(5, max))) {
         const m = (await getMeeting(t.bot_id)) || t;
-        const row = { title: m.title || m.bot_id, date: String(m.created_at).slice(0, 10), recall: false, mux: !!m.mux_playback_id, error: "" };
+        const row = {
+          title: m.title || m.bot_id, date: String(m.created_at).slice(0, 10),
+          recall: false, mux: !!m.mux_playback_id, error: "", can: false,
+        };
         try {
           const u = await getRecordingUrl(m.bot_id);
           row.recall = !!u;
         } catch (e) {
           row.error = String(e.message || "").slice(0, 140);
         }
+        // この商談は保存できる見込みがあるか
+        row.can = !!(folderOk && (row.recall || row.mux));
         probe.push(row);
       }
-      return res.json({ probe, total: targets.length, offset });
+      return res.json({
+        probe, total: targets.length, offset,
+        uploader, folderOk, folderErr,
+        hint: folderOk === false
+          ? folderErr
+          : (probe.some((x) => x.can)
+              ? "保存できる見込みです。「移行を始める」を押してください。"
+              : "録画そのものが見つかりません（Recallの保存期限切れ・Muxの書き出し待ちなど）"),
+      });
     }
     for (const t of part) {
       const m = (await getMeeting(t.bot_id)) || t;

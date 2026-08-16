@@ -2375,9 +2375,16 @@ function initSmartLinks() {
       });
       const d = await r.json();
       if (!r.ok) throw new Error(d.error || "調査に失敗しました");
-      st.innerHTML = `未保存 ${d.total} 件のうち、先頭5件を調べました。`;
-      log.innerHTML = (d.probe || []).map((x) =>
-        `<div class="dm-log-line">${escD(x.date)} ${escD(x.title)}｜Recallの録画：${x.recall ? "あり" : "なし"}｜Muxの録画：${x.mux ? "あり" : "なし"}${x.error ? "｜" + escD(x.error) : ""}</div>`
+      st.innerHTML = `未保存 ${d.total} 件のうち、先頭5件を調べました。` +
+        (d.hint ? `<br><b>${escD(d.hint)}</b>` : "");
+      const head = d.folderOk === false
+        ? `<div class="dm-log-line" style="color:#A33C24">保存先のフォルダを作れません：${escD(d.folderErr || "")}<br>` +
+          `保存する人：${escD(d.uploader || "（不明）")}</div>`
+        : (d.folderOk ? `<div class="dm-log-line">保存先のフォルダは作れます（保存する人：${escD(d.uploader || "")}）</div>` : "");
+      log.innerHTML = head + (d.probe || []).map((x) =>
+        `<div class="dm-log-line">${x.can ? "保存できます" : "保存できません"}｜${escD(x.date)} ${escD(x.title)}` +
+        `｜Recallの録画：${x.recall ? "あり" : "なし"}｜Muxの録画：${x.mux ? "あり" : "なし"}` +
+        `${x.error ? "｜" + escD(x.error) : ""}</div>`
       ).join("");
     } catch (e) {
       st.textContent = "調査に失敗しました：" + e.message;
