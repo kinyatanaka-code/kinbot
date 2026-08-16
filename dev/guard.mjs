@@ -8,7 +8,7 @@
 //   ok=false … PRにする（理由つき）
 
 import { execSync } from "node:child_process";
-import { writeFileSync } from "node:fs";
+import { appendFileSync, writeFileSync } from "node:fs";
 
 // 変えてはいけないところ（ここに触れていたら、必ず人が見る）
 const PROTECTED = [
@@ -38,14 +38,28 @@ function sh(cmd) {
   return execSync(cmd, { encoding: "utf8" }).trim();
 }
 
+// Actionsの「まとめ」欄に書く。ログを開かなくても状況が分かるようにするため。
+function summary(text) {
+  if (process.env.GITHUB_STEP_SUMMARY) {
+    appendFileSync(process.env.GITHUB_STEP_SUMMARY, text + "\n");
+  }
+}
+
 function main() {
   const reasons = [];
+
+  // 新しく作ったファイルは git diff に出てこない（まだgitが知らないため）。
+  // 印だけ付けて、diffに出るようにする。これをしないと、ファイルを1つ増やす
+  // 直し方をしたときに「変更なし」と誤って判定してしまう。
+  sh("git add -A -N");
+
   const files = sh("git diff --name-only").split("\n").filter(Boolean);
 
   if (!files.length) {
     const r = { ok: false, changed: false, reasons: ["変更がありません"], files: [] };
     writeFileSync("dev/GUARD.json", JSON.stringify(r, null, 2));
     console.log("変更なし");
+    summary("## 変更の確認\n\n今回は変更がありませんでした。");
     return;
   }
 
@@ -77,6 +91,16 @@ function main() {
   };
   writeFileSync("dev/GUARD.json", JSON.stringify(r, null, 2));
   console.log(r.ok ? `自動で入れてよい（${files.length}ファイル・${lines}行）` : `人が見る：${reasons.join(" / ")}`);
+
+  summary([
+    "## 変更の確認",
+    "",
+    r.ok ? "小さく安全な変更です。このまま本番に入れられます。" : "人が見たほうがよい変更です。PRにします。",
+    "",
+    `- 触ったファイル：${files.join("、")}`,
+    `- 変わった行：${lines}行`,
+    ...(r.ok ? [] : ["", "理由：", ...reasons.map((x) => `- ${x}`)]),
+  ].join("\n"));
 }
 
 main();

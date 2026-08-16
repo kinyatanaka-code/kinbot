@@ -45,6 +45,16 @@ jobs:
 
           echo "戻します: $TARGET"
           git log -1 --format="  %s" "$TARGET"
-          git revert --no-edit "$TARGET"
+          if ! git revert --no-edit "$TARGET"; then
+            git revert --abort 2>/dev/null || true
+            {
+              echo "## 自動では戻せませんでした"
+              echo ""
+              echo "戻そうとした変更（\`$TARGET\`）のあとに、同じところが直されています。"
+              echo "手で戻す必要があります。開発の分かる人に、このページを見せてください。"
+            } >> $GITHUB_STEP_SUMMARY
+            echo "あとの変更とぶつかったため、自動では戻せませんでした" >&2
+            exit 1
+          fi
           git push origin HEAD:main
           echo "戻しました。Railwayが自動で反映します（2〜3分）。"

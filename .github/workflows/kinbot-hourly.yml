@@ -78,6 +78,25 @@ jobs:
             echo "todo=true" >> $GITHUB_OUTPUT
           fi
 
+      # 鍵が無いまま進むと、意味の分からないエラーで止まる。先に確かめて理由を出す。
+      - name: Anthropicの鍵があるかを確かめる
+        if: steps.has.outputs.todo == 'true'
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: |
+          if [ -z "$ANTHROPIC_API_KEY" ]; then
+            {
+              echo "## 自動改善は動きませんでした"
+              echo ""
+              echo "**ANTHROPIC_API_KEY が設定されていません**"
+              echo ""
+              echo "GitHub → Settings → Secrets and variables → Actions → Secrets に"
+              echo "\`ANTHROPIC_API_KEY\` を登録してください（\`dev/セットアップ手順.md\` の1と3）。"
+            } >> $GITHUB_STEP_SUMMARY
+            echo "ANTHROPIC_API_KEY が設定されていません" >&2
+            exit 1
+          fi
+
       - name: Claude Code を入れる
         if: steps.has.outputs.todo == 'true'
         run: npm install -g @anthropic-ai/claude-code
@@ -108,15 +127,33 @@ jobs:
           EOF
           )" --permission-mode acceptEdits --allowed-tools "Read,Edit,Write,Bash(node --check *),Bash(ls *),Bash(grep *),Bash(cat *)"
 
+      # git checkout は「変えられたファイル」しか戻せない。
+      # 新しく作られた場合に備えて、git clean でも消しておく。
       - name: 触ってはいけない所を戻す
         if: steps.has.outputs.todo == 'true'
         run: |
           git checkout -- package-lock.json 2>/dev/null || true
           git checkout -- .github 2>/dev/null || true
+          git clean -fd .github 2>/dev/null || true
+
+      # Claudeが結果を書かずに終わることがある。PRの本文が空だと作成に失敗するので、
+      # 無ければここで用意しておく。
+      - name: 結果の書き置きが無ければ用意する
+        if: steps.has.outputs.todo == 'true'
+        run: |
+          if [ ! -s dev/NIGHT_RESULT.md ]; then
+            {
+              echo "## 直したもの"
+              echo ""
+              echo "（Claudeが結果を書き残しませんでした。Files changed で中身を見てください）"
+            } > dev/NIGHT_RESULT.md
+          fi
 
       - name: 文法を確かめる
         if: steps.has.outputs.todo == 'true'
         run: |
+          # 新しく作られたファイルも見るために、先に印を付ける
+          git add -A -N
           for f in $(git diff --name-only | grep -E '\.(js|mjs)$' || true); do
             echo "確認: $f"; node --check "$f" || exit 1
           done
@@ -165,6 +202,25 @@ jobs:
           body-path: dev/NIGHT_RESULT.md
           labels: 自動
           delete-branch: true
+
+      # 「動いたのか、何もしなかったのか」を、ログを開かなくても分かるようにする
+      - name: 結果をまとめに書く
+        if: always() && steps.has.outputs.todo == 'true'
+        env:
+          APPLIED_SHA: ${{ steps.apply.outputs.sha }}
+          CHANGED: ${{ steps.guard.outputs.changed }}
+        run: |
+          {
+            echo "## 今回の結果"
+            echo ""
+            if [ -n "$APPLIED_SHA" ]; then
+              echo "本番に入れました（${APPLIED_SHA}）。おかしければ Actions の「巻き戻し」で戻せます。"
+            elif [ "$CHANGED" = "true" ]; then
+              echo "PRを作りました。中身（Files changed）を見てからマージしてください。"
+            else
+              echo "直すところがなく、変更はありませんでした。"
+            fi
+          } >> $GITHUB_STEP_SUMMARY
 
       - name: 結果をkinbotに知らせる
         if: always() && steps.has.outputs.todo == 'true'

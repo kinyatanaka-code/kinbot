@@ -2,3 +2,15 @@ node_modules/
 .DS_Store
 *.log
 .env
+
+# 自動改善の途中で作られるファイル。
+# リポジトリに入れてしまうと、PRに関係ないファイルが混ざって中身が読みにくくなる。
+dev/NIGHT_BRIEF.md
+dev/NIGHT_RESULT.md
+dev/GUARD.json
+dev/night-ids.json
+dev/ADVISOR_INPUT.md
+dev/ADVISOR_OUT.md
+
+# 自動改善のとちゅうで npm install が作る。CLAUDE.mdの決まりどおり、上げない。
+package-lock.json

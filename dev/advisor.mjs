@@ -7,7 +7,7 @@
 //   KINBOT_URL   … https://kinbot-production-225f.up.railway.app
 //   KINBOT_TOKEN … kinbotの API_TOKENS に登録したトークン
 
-import { writeFileSync } from "node:fs";
+import { appendFileSync, writeFileSync } from "node:fs";
 
 const BASE = (process.env.KINBOT_URL || "").replace(/\/+$/, "");
 const TOKEN = process.env.KINBOT_TOKEN || "";
@@ -21,9 +21,16 @@ async function get(path) {
 const KIND = { request: "要望", bug: "不具合", error: "エラー", gap: "できないこと", idea: "アイデア" };
 
 async function main() {
+  // 材料が読めていないのにClaudeを動かすと、根拠のない案が出るだけで料金がかかる。
+  // ここで止めて、赤くして気づけるようにする。
   if (!BASE || !TOKEN) {
-    writeFileSync("dev/ADVISOR_INPUT.md", "# 材料\n\n設定がありません（KINBOT_URL / KINBOT_TOKEN）。何もしないこと。\n");
-    return;
+    const why = "設定がありません（KINBOT_URL / KINBOT_TOKEN）。`dev/セットアップ手順.md` の3を見てください。";
+    writeFileSync("dev/ADVISOR_INPUT.md", `# 材料\n\n${why}\n何もしないこと。\n`);
+    if (process.env.GITHUB_STEP_SUMMARY) {
+      appendFileSync(process.env.GITHUB_STEP_SUMMARY, `## 提案は出せませんでした\n\n**${why}**\n`);
+    }
+    console.error(why);
+    process.exit(1);
   }
 
   const out = ["# いまのkinbotの状態", ""];

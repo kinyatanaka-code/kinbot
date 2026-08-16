@@ -25,6 +25,12 @@ permissions:
   contents: write
   pull-requests: write
 
+# 1時間ごとの自動改善と同じ枠。3時ちょうどに両方が動いて、
+# 同じところを取り合わないようにする。
+concurrency:
+  group: kinbot-auto
+  cancel-in-progress: false
+
 jobs:
   night:
     runs-on: ubuntu-latest
@@ -56,6 +62,25 @@ jobs:
             echo "skip=true" >> $GITHUB_OUTPUT
           else
             echo "skip=false" >> $GITHUB_OUTPUT
+          fi
+
+      # 鍵が無いまま進むと、意味の分からないエラーで止まる。先に確かめて理由を出す。
+      - name: Anthropicの鍵があるかを確かめる
+        if: steps.check.outputs.skip == 'false'
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: |
+          if [ -z "$ANTHROPIC_API_KEY" ]; then
+            {
+              echo "## 夜間開発は動きませんでした"
+              echo ""
+              echo "**ANTHROPIC_API_KEY が設定されていません**"
+              echo ""
+              echo "GitHub → Settings → Secrets and variables → Actions → Secrets に"
+              echo "\`ANTHROPIC_API_KEY\` を登録してください（\`dev/セットアップ手順.md\` の1と3）。"
+            } >> $GITHUB_STEP_SUMMARY
+            echo "ANTHROPIC_API_KEY が設定されていません" >&2
+            exit 1
           fi
 
       - name: Claude Code を入れる
@@ -93,7 +118,9 @@ jobs:
         id: verify
         run: |
           git checkout -- package-lock.json 2>/dev/null || true
-          for f in $(git diff --name-only | grep -E '\.js$' || true); do
+          # 新しく作られたファイルも見るために、先に印を付ける
+          git add -A -N
+          for f in $(git diff --name-only | grep -E '\.(js|mjs)$' || true); do
             echo "確認: $f"
             node --check "$f" || exit 1
           done
@@ -101,6 +128,14 @@ jobs:
             echo "changed=false" >> $GITHUB_OUTPUT
           else
             echo "changed=true" >> $GITHUB_OUTPUT
+          fi
+          # Claudeが結果を書かずに終わると、PRの本文が空で作成に失敗する
+          if [ ! -s dev/NIGHT_RESULT.md ]; then
+            {
+              echo "## 直したもの"
+              echo ""
+              echo "（Claudeが結果を書き残しませんでした。Files changed で中身を見てください）"
+            } > dev/NIGHT_RESULT.md
           fi
 
       - name: 起動できるか確かめる
