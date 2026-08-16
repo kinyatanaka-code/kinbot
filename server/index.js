@@ -457,6 +457,9 @@ const OPEN_PATHS = new Set([
   "/api/railway/deploy-hook",
   // Google Chatからの呼びかけ（Googleが直接叩く。証明はJWTで確かめる）
   "/api/chat/command",
+  // ライブ中継サーバーが「配信の宛先」を聞きに来る窓口。
+  // 中継サーバーはログインできないので、ここは合言葉（RELAY_SECRET）だけで通す。
+  "/api/live/relay-dest",
 ]);
 if (!authEnabled()) {
   console.warn("[警告] アカウント未設定。誰でも操作できます。公開時は DATABASE_URL を設定し登録制にしてください。");
@@ -1869,7 +1872,8 @@ app.get("/api/live/relay-check", async (req, res) => {
 
 // 中継サーバーが「この配信をどこへ送るか」を尋ねてくる窓口。
 // 合図は「live/kbxxxx」の形で来ることがあるので、最後の部分だけを見る。
-// 中継サーバーが宛先を聞きに来た記録（届いているかの確認用）
+// 中継サーバーが宛先を聞きに来た記録（届いているかの確認用）。
+// 合言葉が違うときも記録する（気づけるように）。
 const relayAsks = [];
 
 app.get("/api/live/relay-log", (req, res) => {
@@ -1883,8 +1887,18 @@ app.get("/api/live/relay-log", (req, res) => {
 
 app.get("/api/live/relay-dest", async (req, res) => {
   const secret = process.env.RELAY_SECRET || "";
-  if (!secret || req.get("X-Relay-Secret") !== secret) {
-    console.warn("[live] 中継サーバーの合言葉が合いません");
+  const got = req.get("X-Relay-Secret") || "";
+  if (!secret || got !== secret) {
+    const why = !secret ? "kinbot側に RELAY_SECRET がありません"
+      : !got ? "中継サーバーが合言葉を送っていません"
+      : "合言葉が一致しません";
+    console.warn(`[live] 宛先を渡せません：${why}`);
+    relayAsks.unshift({ at: new Date().toISOString(), token: String(req.query.token || ""), found: false, why });
+    if (relayAsks.length > 20) relayAsks.length = 20;
+    devNote({
+      key: errKey("中継の合言葉", why), kind: "error",
+      title: `ライブ中継に宛先を渡せません：${why}`, source: "ライブ配信",
+    }).catch(() => {});
     return res.status(403).type("text/plain").send("");
   }
   const raw = String(req.query.token || "");
