@@ -12735,6 +12735,8 @@ app.get("/api/apo/mine", async (req, res) => {
         slug: r.slug, title: r.label, setter: r.setter, business: r.business || "",
         // 自分で取ったアポか（一覧で見分けられるように）
         selfGot: r.self_got === true,
+        // アポを取った日時（一覧はこの日で並べている）
+        takenAt: r.apo_at || r.created_at || null,
         owner: r.current_owner || "",
         start: r.start_time, end: r.end_time,
         clientEmail: r.client_email || "",

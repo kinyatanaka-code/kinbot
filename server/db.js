@@ -2894,9 +2894,10 @@ export async function setSmartLinkClient(slug, { email, name, source } = {}, for
 export async function myAssignedApos(owner, dateJst, mode = "day", limit = 200, setterName = "") {
   if (!pool || !owner) return [];
   try {
-    const cond = mode === "day"
-      ? `(start_time AT TIME ZONE 'Asia/Tokyo')::date = $2::date`
-      : `(start_time AT TIME ZONE 'Asia/Tokyo')::date >= $2::date`;
+    // 「自分のアポ」は、その日に“取った”アポを並べる（商談日ではない）。
+    // 何件取れたかを見る場所なので、日付はアポを取った日で数える。
+    const day = `(COALESCE(apo_at, created_at) AT TIME ZONE 'Asia/Tokyo')::date`;
+    const cond = mode === "day" ? `${day} = $2::date` : `${day} >= $2::date`;
     const nm = String(setterName || "").replace(/[\s　]/g, "");
     const { rows } = await pool.query(
       `SELECT *,
@@ -2911,7 +2912,7 @@ export async function myAssignedApos(owner, dateJst, mode = "day", limit = 200, 
             OR lower(COALESCE(setter_email,'')) = $1
             OR ($4 <> '' AND regexp_replace(COALESCE(setter,''), '[[:space:]　]', '', 'g') = $4)
           )
-        ORDER BY start_time
+        ORDER BY COALESCE(apo_at, created_at) DESC, start_time
         LIMIT $3`,
       [String(owner).toLowerCase(), dateJst, Math.max(1, Math.min(500, limit)), nm]);
     return rows;

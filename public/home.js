@@ -1860,7 +1860,24 @@ document.addEventListener("DOMContentLoaded", () => {
 });
 
 // ───────────────────────────────────────────────────────────
-// 割り振られたアポ（自分が担当になった商談）
+// 商談がいつなのかを「8/20(水) 15:30」の形にする。
+// 今日なら「今日 15:30」、明日なら「明日 15:30」と書く。
+function apoMeetingWhen(iso) {
+  const d = new Date(iso);
+  if (!iso || isNaN(d.getTime())) return "日時未定";
+  // ほかの時刻表示と同じく、見ている人の時計に合わせる
+  const now = new Date();
+  const ymd = (x) => `${x.getFullYear()}-${x.getMonth()}-${x.getDate()}`;
+  const tomorrow = new Date(now.getTime() + 86400000);
+  const p = (n) => String(n).padStart(2, "0");
+  const hm = `${p(d.getHours())}:${p(d.getMinutes())}`;
+  if (ymd(d) === ymd(now)) return `今日 ${hm}`;
+  if (ymd(d) === ymd(tomorrow)) return `明日 ${hm}`;
+  const w = "日月火水木金土"[d.getDay()];
+  return `${d.getMonth() + 1}/${d.getDate()}(${w}) ${hm}`;
+}
+
+// 自分のアポ（その日に取ったアポ）
 // メールが用意できているか、Salesforceを立ち上げたかがここで分かる。
 // ───────────────────────────────────────────────────────────
 function apoEsc(v) {
@@ -1954,7 +1971,10 @@ function apoHomeCard(x) {
 
       // 補足行。宛先が無い・立ち上げできない場合は、その理由を出す。
       const warn = !x.clientEmail ? '<span class="cc-warn">宛先が未登録</span>' : "";
+      // ここは「その日に取ったアポ」の一覧なので、商談がいつなのかを添える
+      const when = apoMeetingWhen(x.start);
       const meta = [
+        when ? `商談 ${apoEsc(when)}` : "",
         x.business ? apoEsc(x.business) : "",
         `獲得 ${apoEsc(x.setter || "-")}`,
         warn || (x.clientEmail ? apoEsc(x.clientEmail) : ""),
@@ -1962,7 +1982,7 @@ function apoHomeCard(x) {
 
       return `<div class="home-card home-line ap-home-card${needMail ? " home-card-plan" : ""}" data-card="${apoEsc(sfKey)}">
         <div class="hl-row">
-          <div class="hl-time">${apoEsc(apoTime(x.start))}</div>
+          <div class="hl-time">${apoEsc(apoTime(x.takenAt || x.start))}</div>
           <div class="hl-main">
             <div class="hl-title">${apoEsc(x.title || "")}</div>
             <div class="hl-meta">${x.selfGot ? '<span class="home-badge home-badge-self">自分で獲得</span>' : ""}${x.inviteEventId ? '<span class="home-badge home-badge-done">予定作成済</span>' : ""}${meta}</div>

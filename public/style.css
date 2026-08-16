@@ -5160,3 +5160,6 @@ input:focus, select:focus, textarea:focus, .sf-input:focus, .sf-select:focus, .s
   margin-right: 6px; white-space: nowrap; }
 .ln-use:hover { border-color: #9fe1cb; color: #0F6E56; }
 .ln-use.on { background: #0d5b47; border-color: #0d5b47; color: #fff; font-weight: 700; }
+
+/* 見出しの横に出す小さな補足 */
+.home-sec-note { font-size: 11px; color: var(--muted); margin-left: 8px; font-weight: 400; }
