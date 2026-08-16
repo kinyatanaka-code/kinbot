@@ -1886,12 +1886,17 @@ app.get("/api/live/relay-log", (req, res) => {
 });
 
 app.get("/api/live/relay-dest", async (req, res) => {
-  const secret = process.env.RELAY_SECRET || "";
-  const got = req.get("X-Relay-Secret") || "";
+  // 合言葉は、前後の空白や引用符が混ざっても通るようにそろえて比べる。
+  // Railwayの環境変数に貼るとき、うっかり付いてしまうことが多いため。
+  const tidy = (v) => String(v || "").trim().replace(/^["']|["']$/g, "");
+  const secret = tidy(process.env.RELAY_SECRET);
+  const got = tidy(req.get("X-Relay-Secret"));
   if (!secret || got !== secret) {
     const why = !secret ? "kinbot側に RELAY_SECRET がありません"
       : !got ? "中継サーバーが合言葉を送っていません"
-      : "合言葉が一致しません";
+      // 中身は出さず、長さと先頭・末尾だけで見分けられるようにする
+      : `合言葉が一致しません（kinbot側 ${secret.length}文字「${secret.slice(0, 2)}…${secret.slice(-2)}」／` +
+        `中継側 ${got.length}文字「${got.slice(0, 2)}…${got.slice(-2)}」）`;
     console.warn(`[live] 宛先を渡せません：${why}`);
     relayAsks.unshift({ at: new Date().toISOString(), token: String(req.query.token || ""), found: false, why });
     if (relayAsks.length > 20) relayAsks.length = 20;

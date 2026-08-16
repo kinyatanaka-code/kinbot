@@ -5,6 +5,10 @@ PATH_IN="$1"
 TOKEN=$(basename "$PATH_IN")
 echo "[relay] 配信を受け取りました: path=${PATH_IN} token=${TOKEN}"
 
+# 合言葉に前後の空白や引用符が混ざっていても通るようにそろえる
+RELAY_SECRET=$(printf '%s' "${RELAY_SECRET}" | tr -d '\r\n' | sed -E 's/^[[:space:]"'"'"']+//; s/[[:space:]"'"'"']+$//')
+KINBOT_URL=$(printf '%s' "${KINBOT_URL}" | tr -d '\r\n' | sed -E 's#/+$##')
+
 if [ -z "${KINBOT_URL}" ] || [ -z "${RELAY_SECRET}" ]; then
   echo "[relay] KINBOT_URL か RELAY_SECRET が未設定です。Railwayの Variables を確認してください。"
   exit 0
