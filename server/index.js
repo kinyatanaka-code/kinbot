@@ -321,7 +321,7 @@ import { liveConfigured, createLiveStream, disableLiveStream, playbackUrl as liv
 import { notionConfigured, notionStatus, createMeetingPage, createReportPage } from "./notion.js";
 import { pdfToText, urlToText, officeToText } from "./ingest.js";
 import { indexKnowledge, embeddingsAvailable, retrieve } from "./retrieval.js";
-import { readDocument, readerAvailable } from "./ai_read.js";
+import { readDocument, readerAvailable, readWhiteboard } from "./ai_read.js";
 import { mountMcpServer } from "./mcp.js";
 import { mountGptActions } from "./gpt_actions.js";
 import { mountOauthServer, oauthTokenUser } from "./oauth.js";
@@ -3812,6 +3812,77 @@ async function weeklyMembers() {
   }
   return picked.length ? picked : all;
 }
+
+// ホワイトボードの写真から、週のボードを埋める。
+// 読み取った結果をそのまま保存せず、いったん画面に出して人が直せるようにする。
+const boardUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 20 * 1024 * 1024 } });
+
+app.post("/api/weekly/from-photo", boardUpload.single("photo"), async (req, res) => {
+  try {
+    if (!readerAvailable()) {
+      return res.status(400).json({ error: "画像を読む設定（GEMINI_API_KEY）がありません" });
+    }
+    if (!req.file || !req.file.buffer) return res.status(400).json({ error: "写真がありません" });
+
+    const people = await readWhiteboard({
+      buffer: req.file.buffer,
+      mimeType: req.file.mimetype || "image/jpeg",
+    });
+
+    // 読み取った名前を、kinbotのメンバーに結びつける
+    const members = await weeklyMembers();
+    const norm = (v) => String(v || "").replace(/[\s　]/g, "");
+    const out = people.map((p) => {
+      const k = norm(p.name);
+      const hit = members.find((m) => norm(m.name) === k) ||
+                  members.find((m) => norm(m.name).startsWith(k) || k.startsWith(norm(m.name)));
+      return {
+        読み取った名前: p.name,
+        member: hit ? hit.email : "",
+        name: hit ? hit.name : "",
+        theme: p.theme, targets: p.targets, actions: p.actions,
+      };
+    });
+
+    const 見つからない = out.filter((x) => !x.member).map((x) => x.読み取った名前);
+    console.log(`[週のボード] 写真から ${out.length}人ぶん読み取りました` +
+      (見つからない.length ? `（結びつかない名前：${見つからない.join("、")}）` : ""));
+    res.json({
+      ok: true,
+      people: out,
+      見つからない,
+      note: "中身を確かめてから「この内容で入れる」を押してください。まだ保存していません。",
+    });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// 読み取った内容を、まとめて保存する
+app.post("/api/weekly/apply-photo", async (req, res) => {
+  try {
+    const week = weekStartOf(String(req.body?.week || "").slice(0, 10) || jstDate(0));
+    const list = Array.isArray(req.body?.people) ? req.body.people : [];
+    let saved = 0;
+    for (const p of list) {
+      const member = String(p.member || "").toLowerCase();
+      if (!member) continue;
+      const items = (Array.isArray(p.actions) ? p.actions : [])
+        .map((t, i) => ({ id: `p${i}`, text: String(t).slice(0, 200), done: false, review: "" }))
+        .filter((x) => x.text);
+      await saveWeekly({
+        weekStart: week, member, memberName: p.name || "",
+        theme: String(p.theme || "").slice(0, 200),
+        targets: String(p.targets || "").slice(0, 600),
+        items,
+        updatedBy: req.user || "",
+      });
+      saved++;
+    }
+    console.log(`[週のボード] 写真の内容を ${saved}人ぶん入れました by ${req.user}`);
+    res.json({ ok: true, saved });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
 
 // 対象メンバーの設定
 app.get("/api/weekly/members", async (req, res) => {

@@ -38,6 +38,19 @@
             </div>
             <p class="note">月曜の朝礼までに <b>テーマ・定量目標・具体的な施策</b> を書き、金曜の終礼で <b>振り返り</b> を書きます。<br>
             その週に取ったアポの件数は、kinbotが自動で出します。書いたそばから保存されます。</p>
+            <div class="wb-photo">
+              <div class="ap-cfg-actions">
+                <label class="btn ghost wb-file">
+                  ホワイトボードの写真を選ぶ
+                  <input type="file" id="wbPhoto" accept="image/*" hidden />
+                </label>
+                <span class="rev-status" id="wbPhotoStatus"></span>
+              </div>
+              <p class="note">ホワイトボードを撮った写真から、テーマ・定量目標・施策を読み取って入れます。<br>
+              読み取ったあと、中身を確かめてから入れられます（すぐには保存しません）。手書きが読めなかったところは空になります。</p>
+              <div id="wbPhotoBox"></div>
+            </div>
+
             <div id="wbList"><div class="empty-state">読み込み中…</div></div>
           </section>
 

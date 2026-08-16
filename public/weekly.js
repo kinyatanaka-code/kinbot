@@ -182,6 +182,96 @@ async function load(week) {
   }
 }
 
+// ===== ホワイトボードの写真から入れる =====
+let PHOTO = null;   // 読み取った結果（まだ保存していない）
+
+function photoSay(t, ms) {
+  const e = $("wbPhotoStatus");
+  if (!e) return;
+  e.textContent = t || "";
+  if (ms) setTimeout(() => { if (e.textContent === t) e.textContent = ""; }, ms);
+}
+
+function photoRender() {
+  const box = $("wbPhotoBox");
+  if (!box) return;
+  if (!PHOTO) { box.innerHTML = ""; return; }
+  const people = PHOTO.people || [];
+  box.innerHTML =
+    `<div class="note">読み取った内容です。直してから入れられます。</div>` +
+    `<div class="wb-grid">` + people.map((p, i) => `
+      <div class="wb-card wb-read" data-i="${i}">
+        <div class="wb-name">
+          ${esc(p.name || p["読み取った名前"] || "")}
+          ${p.member ? "" : '<span class="cc-warn">この名前の人が見つかりません</span>'}
+        </div>
+        <label class="wb-lb">テーマ<input type="text" class="pf" data-k="theme" value="${esc(p.theme)}" /></label>
+        <label class="wb-lb">定量目標<textarea class="pf" data-k="targets" rows="2">${esc(p.targets)}</textarea></label>
+        <label class="wb-lb">施策<textarea class="pf" data-k="actions" rows="4">${esc((p.actions || []).join("\n"))}</textarea></label>
+      </div>`).join("") + `</div>` +
+    `<div class="ap-cfg-actions" style="margin-top:8px">
+       <button class="btn" id="wbApply">この内容で入れる</button>
+       <button class="btn ghost" id="wbCancel">やめる</button>
+     </div>`;
+
+  box.querySelectorAll(".pf").forEach((el) => {
+    el.addEventListener("change", () => {
+      const i = Number(el.closest(".wb-read").dataset.i);
+      const k = el.dataset.k;
+      if (k === "actions") PHOTO.people[i].actions = el.value.split("\n").map((x) => x.trim()).filter(Boolean);
+      else PHOTO.people[i][k] = el.value;
+    });
+  });
+  const ap = $("wbApply");
+  if (ap) ap.addEventListener("click", applyPhoto);
+  const ca = $("wbCancel");
+  if (ca) ca.addEventListener("click", () => { PHOTO = null; photoRender(); photoSay("やめました", 3000); });
+}
+
+async function readPhoto(file) {
+  if (!file) return;
+  photoSay("写真を読んでいます…（10秒ほどかかります）");
+  const fd = new FormData();
+  fd.append("photo", file);
+  try {
+    const r = await fetch("/api/weekly/from-photo", { method: "POST", body: fd });
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.error || "読み取れませんでした");
+    PHOTO = d;
+    photoRender();
+    photoSay(`${(d.people || []).length}人ぶん読み取りました` +
+      ((d["見つからない"] || []).length ? `（結びつかない名前：${d["見つからない"].join("、")}）` : ""), 10000);
+  } catch (e) { photoSay("失敗：" + e.message, 8000); }
+}
+
+async function applyPhoto() {
+  if (!PHOTO) return;
+  const ok = (PHOTO.people || []).filter((p) => p.member);
+  if (!ok.length) { photoSay("入れられる人がいません（名前が結びついていません）", 6000); return; }
+  if (!confirm(`${ok.length}人ぶんを入れます。いまの内容は上書きされます。よろしいですか？`)) return;
+  photoSay("入れています…");
+  try {
+    const r = await fetch("/api/weekly/apply-photo", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ week: WEEK, people: ok }),
+    });
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.error || "入れられませんでした");
+    PHOTO = null;
+    photoRender();
+    photoSay(`${d.saved}人ぶん入れました`, 6000);
+    load(WEEK);
+  } catch (e) { photoSay("失敗：" + e.message, 8000); }
+}
+
+if ($("wbPhoto")) {
+  $("wbPhoto").addEventListener("change", (e) => {
+    const f = e.target.files && e.target.files[0];
+    e.target.value = "";
+    readPhoto(f);
+  });
+}
+
 // ===== 書き忘れへの声かけ =====
 function wrSay(t, ms) {
   const e = $("wrStatus");
