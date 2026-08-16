@@ -3320,10 +3320,9 @@ async function buildCallReport(sfUser) {
   }
 
   // 目標の出し方。
+  //   sheet … プロセスシートの「目標」列から読む（既定）
   //   zero  … 目標は 0 として報告する（実績だけ見たいとき）
-  //   sheet … プロセスシートの「目標」列から読む
-  // いまは「0で報告」を既定にしている。設定で切り替えられる。
-  const goalMode = String(st.callGoalMode || "zero") === "sheet" ? "sheet" : "zero";
+  const goalMode = String(st.callGoalMode || "sheet") === "zero" ? "zero" : "sheet";
 
   let goals = {};
   let goalFrom = "";
@@ -4175,7 +4174,7 @@ app.get("/api/call-report", async (req, res) => {
       from: Number(st.callReportFrom ?? 11),
       to: Number(st.callReportTo ?? 18),
       goals,
-      goalMode: String(st.callGoalMode || "zero") === "sheet" ? "sheet" : "zero",
+      goalMode: String(st.callGoalMode || "sheet") === "zero" ? "zero" : "sheet",
       reportReady: !!st.psReportId,
       owner: st.psOwner || "",
     });
@@ -4190,7 +4189,7 @@ app.put("/api/call-report", async (req, res) => {
     if (b.from !== undefined) patch.callReportFrom = Math.min(23, Math.max(0, parseInt(b.from, 10) || 11));
     if (b.to !== undefined) patch.callReportTo = Math.min(23, Math.max(0, parseInt(b.to, 10) || 18));
     if (b.goals !== undefined) patch.callGoals = JSON.stringify(b.goals || {});
-    if (b.goalMode !== undefined) patch.callGoalMode = b.goalMode === "sheet" ? "sheet" : "zero";
+    if (b.goalMode !== undefined) patch.callGoalMode = b.goalMode === "zero" ? "zero" : "sheet";
     await saveSettings(patch);
     console.log(`[call-report] 設定を更新 by ${req.user}`);
     res.json({ ok: true });
@@ -12045,7 +12044,9 @@ async function autoAssignOne(link, { inviteOwner, closers = null, cfg, teamCtx =
   (async () => {
     const counts = await assignCounts(biz).catch(() => null);
     const st = await getSettings().catch(() => ({}));
-    const goal = parseInt(st?.apoMonthlyGoal, 10) || 0;
+    // アポの月間目標はまだ決まっていないので、通知には出さない。
+    // 決まったら、設定で apoShowGoal を true にすれば出るようになる。
+    const goal = st?.apoShowGoal === true ? (parseInt(st?.apoMonthlyGoal, 10) || 0) : 0;
     // Salesforceの立ち上げ。設定がONのときだけ実際に立ち上げ、
     // OFFのときは「立ち上げられるか」の判定だけ行う（コンバートは取り消せないため）。
     const runIt = st?.sfAutoLaunch === true;
@@ -13545,7 +13546,7 @@ app.put("/api/smart-links/:slug/owner", async (req, res) => {
           setter: link.setter, reason: `${req.user} が選択`,
           url: joinUrl(link.slug), auto: false,
           mail, clientEmail: link.client_email,
-          counts, goal: parseInt(st?.apoMonthlyGoal, 10) || 0, launch,
+          counts, goal: st?.apoShowGoal === true ? (parseInt(st?.apoMonthlyGoal, 10) || 0) : 0, launch,
         });
         // テスト用のアポは、通知まで済ませたら数から外す
         await loadTestWords().catch(() => {});
