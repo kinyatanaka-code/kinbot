@@ -35,11 +35,23 @@ if [ -z "$DEST" ]; then
   exit 0
 fi
 
-echo "[relay] Cloudflareへ転送します（${TOKEN}）"
+# 送り先の形をログに残す（鍵は伏せる）
+DEST_HOST=$(echo "$DEST" | sed -E 's#^(rtmps?://[^/]+)/.*#\1#')
+echo "[relay] Cloudflareへ転送します（${TOKEN}）→ ${DEST_HOST}/…"
+
+# rtmps（暗号化）で送るときは、ffmpegがTLSに対応している必要がある。
+# 対応していないと、そのまま失敗するので、先に確かめて分かるようにする。
+case "$DEST" in
+  rtmps://*)
+    if ! ffmpeg -hide_banner -protocols 2>/dev/null | grep -q "^ *rtmps$"; then
+      echo "[relay] このffmpegは rtmps を扱えません。Dockerfileの ffmpeg を入れ直してください。"
+    fi
+    ;;
+esac
 
 # 映像・音声はそのまま流す（作り直さないのでCPUをほとんど使いません）。
 # 切れたときに分かるよう、終了コードを残します。
-ffmpeg -hide_banner -loglevel warning \
+ffmpeg -hide_banner -loglevel info \
   -rw_timeout 15000000 \
   -i "rtmp://127.0.0.1:1935/${PATH_IN}" \
   -c copy -f flv "$DEST"
