@@ -317,7 +317,7 @@ import {
   writeViaAppsScript, tokenScopes, getCalendarEvent } from "./google.js";
 import { startScheduler } from "./scheduler.js";
 import { muxConfigured, startVodUpload, waitVodPlayback, muxStorageSummary, listAssets, deleteAsset, findAssetByPlaybackId, enableMp4, mp4Url, readyMp4Name, getAsset } from "./mux.js";
-import { liveConfigured, createLiveStream, playbackUrl as livePlaybackUrl, liveInfo, liveStatus, relayMap, relayDestFor } from "./live.js";
+import { liveConfigured, createLiveStream, disableLiveStream, playbackUrl as livePlaybackUrl, liveInfo, liveStatus, relayMap, relayDestFor } from "./live.js";
 import { notionConfigured, notionStatus, createMeetingPage, createReportPage } from "./notion.js";
 import { pdfToText, urlToText, officeToText } from "./ingest.js";
 import { indexKnowledge, embeddingsAvailable, retrieve } from "./retrieval.js";
@@ -2218,6 +2218,35 @@ app.get("/api/live/status", async (req, res) => {
   }
 });
 
+// 配信枠を実際に1つ作ってみて、本当に使えるかを確かめる。
+// 設定が合っていても鍵の権限が足りないことがあるので、本番の商談を待たずに試せるようにする。
+app.post("/api/live/test", async (req, res) => {
+  try {
+    if (!liveConfigured()) {
+      return res.json({ ok: false, reason: "配信の設定がありません（CF_ACCOUNT_ID / CF_STREAM_TOKEN）" });
+    }
+    const t0 = Date.now();
+    const st = await createLiveStream();
+    const ms = Date.now() - t0;
+    if (!st || !st.playbackId) {
+      return res.json({ ok: false, reason: "配信枠は作れましたが、再生用のIDが返ってきませんでした" });
+    }
+    // 試したぶんは片づける（残すと使われないまま増えるため）
+    let cleaned = false;
+    try { await disableLiveStream(st.liveStreamId); cleaned = true; } catch {}
+    console.log(`[live] 試しに配信枠を作りました（${ms}ms・片づけ${cleaned ? "済" : "できず"}）`);
+    res.json({
+      ok: true, ms, cleaned,
+      // 送り先は鍵が含まれるので、先頭だけ見せる
+      rtmp: String(st.rtmpUrl || "").slice(0, 40) + "…",
+      playbackId: st.playbackId,
+      note: "配信枠を作れました。次の録音からライブ映像が出ます。",
+    });
+  } catch (e) {
+    res.json({ ok: false, reason: e.message });
+  }
+});
+
 // ライブ配信が映らないときに、どこで止まっているかを1画面で確かめる
 app.get("/api/live/diagnose", async (req, res) => {
   try {
@@ -2283,8 +2312,11 @@ app.get("/api/live/diagnose", async (req, res) => {
     res.json({
       ok: steps.every((x) => x.ok),
       steps,
-      hint: "上から順に見て、×が付いたところが原因です。すべて○なのに映らない場合は、" +
-            "Recallから中継サーバーへ届いていない可能性があるので、中継サーバーのログをご確認ください。",
+      hint: steps.every((x) => x.ok)
+        ? "設定はそろっています。/api/live/test を実行すると、実際に配信枠を作れるか確かめられます。" +
+          "そのうえで録音を開始し直すと、ライブ映像が出ます（配信の送り先は入室時にしか決められないため、" +
+          "設定を直す前に始めた商談は配信できません）。"
+        : "×が付いたところが原因です。直したあと、録音を開始し直してください。",
     });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
