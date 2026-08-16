@@ -3319,11 +3319,18 @@ async function buildCallReport(sfUser) {
     if (k) apoBy.set(k, (apoBy.get(k) || 0) + 1);
   }
 
-  // 目標は、プロセスシートの「目標」列から読む。
-  // シートが読めないときだけ、設定に入れた目標を使う。
+  // 目標の出し方。
+  //   zero  … 目標は 0 として報告する（実績だけ見たいとき）
+  //   sheet … プロセスシートの「目標」列から読む
+  // いまは「0で報告」を既定にしている。設定で切り替えられる。
+  const goalMode = String(st.callGoalMode || "zero") === "sheet" ? "sheet" : "zero";
+
   let goals = {};
   let goalFrom = "";
-  try {
+  if (goalMode === "zero") {
+    goals = {};
+    goalFrom = "";
+  } else try {
     const sheetId = String(st.psSheetId || "").trim();
     const sheetName = String(st.psSheetName || "").trim();
     const owner = String(st.psOwner || sfUser || "").trim();
@@ -3338,7 +3345,7 @@ async function buildCallReport(sfUser) {
   } catch (e) {
     console.warn("[call-report] シートの目標を読めませんでした:", e.message);
   }
-  if (!Object.keys(goals).length) {
+  if (goalMode === "sheet" && !Object.keys(goals).length) {
     try { goals = JSON.parse(st.callGoals || "{}") || {}; } catch {}
     if (Object.keys(goals).length) goalFrom = "設定に入れた目標";
   }
@@ -3390,7 +3397,9 @@ async function buildCallReport(sfUser) {
   const lines = [
     `📞 *コール進捗（${hh}:00 時点）*`,
     `合計：${sum.calls}コール ／ 接触 ${sum.contacts} ／ アポ ${sum.apos}（アポ率 ${rate}%）` +
-      (goalSum.calls ? `\n🎯 目標：${goalSum.calls}コール / ${goalSum.apos}アポ（あと ${Math.max(0, goalSum.calls - sum.calls)}コール / ${Math.max(0, goalSum.apos - sum.apos)}アポ）` : ""),
+      (goalSum.calls
+        ? `\n🎯 目標：${goalSum.calls}コール / ${goalSum.apos}アポ（あと ${Math.max(0, goalSum.calls - sum.calls)}コール / ${Math.max(0, goalSum.apos - sum.apos)}アポ）`
+        : "\n🎯 目標：0（いまは目標なしで出しています）"),
     "",
   ];
   for (const x of list.sort((a, b) => b.calls - a.calls)) {
@@ -4166,6 +4175,7 @@ app.get("/api/call-report", async (req, res) => {
       from: Number(st.callReportFrom ?? 11),
       to: Number(st.callReportTo ?? 18),
       goals,
+      goalMode: String(st.callGoalMode || "zero") === "sheet" ? "sheet" : "zero",
       reportReady: !!st.psReportId,
       owner: st.psOwner || "",
     });
@@ -4180,6 +4190,7 @@ app.put("/api/call-report", async (req, res) => {
     if (b.from !== undefined) patch.callReportFrom = Math.min(23, Math.max(0, parseInt(b.from, 10) || 11));
     if (b.to !== undefined) patch.callReportTo = Math.min(23, Math.max(0, parseInt(b.to, 10) || 18));
     if (b.goals !== undefined) patch.callGoals = JSON.stringify(b.goals || {});
+    if (b.goalMode !== undefined) patch.callGoalMode = b.goalMode === "sheet" ? "sheet" : "zero";
     await saveSettings(patch);
     console.log(`[call-report] 設定を更新 by ${req.user}`);
     res.json({ ok: true });

@@ -296,7 +296,15 @@
                 <button class="btn ghost" id="crTest">いまの内容を見る</button>
                 <span class="rev-status" id="crStatus"></span>
               </div>
-              <p class="note"><b>目標はプロセスシートの「目標」列から自動で読みます</b>（稼働時間目標も読みます）。入力は要りません。<br>
+              <div class="ap-cfg-row">
+                <label>目標の出し方
+                  <select id="crGoalMode" style="width:280px">
+                    <option value="zero">目標は 0 で報告する（実績だけ）</option>
+                    <option value="sheet">プロセスシートの「目標」列から読む</option>
+                  </select>
+                </label>
+              </div>
+              <p class="note">「シートから読む」を選ぶと、その日の目標と稼働時間を読み、「あと何コール」まで出します。<br>
               シートが読めないときだけ、下に入れた目標を使います。1行に1人、<code>名前, コール数, アポ数</code>（例：<code>笹原, 60, 3</code>）。</p>
               <textarea id="crGoals" rows="4" style="width:100%" placeholder="（ふだんは空のままで大丈夫です）"></textarea>
               <div class="note" id="crBox"></div>

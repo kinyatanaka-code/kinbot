@@ -747,6 +747,7 @@ async function loadCallReport() {
     $("crOn").checked = !!d.enabled;
     $("crFrom").value = d.from ?? 11;
     $("crTo").value = d.to ?? 18;
+    if ($("crGoalMode")) $("crGoalMode").value = d.goalMode || "zero";
     $("crGoals").value = Object.entries(d.goals || {})
       .map(([k, v]) => `${k}, ${v.calls || 0}, ${v.apos || 0}`).join("\n");
     if (!d.reportReady) {
@@ -778,6 +779,7 @@ async function saveCallReport() {
         from: parseInt($("crFrom").value, 10),
         to: parseInt($("crTo").value, 10),
         goals: parseGoals($("crGoals").value),
+        goalMode: $("crGoalMode") ? $("crGoalMode").value : undefined,
       }),
     });
     if (st) { st.textContent = "保存しました"; setTimeout(() => (st.textContent = ""), 4000); }
