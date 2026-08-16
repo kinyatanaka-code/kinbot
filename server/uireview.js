@@ -46,6 +46,43 @@ async function readPage(publicDir, file, limit = 14000) {
   }
 }
 
+// その画面で使っている見た目の決まり（CSS）だけを取り出す。
+//
+// HTMLだけ渡すと、AIは「色分けがない」「押せると分からない」と誤解する。
+// 実際には選択中の色もホバーもCSSで作ってあるので、そこを一緒に見せる。
+export function classNamesIn(html) {
+  const set = new Set();
+  for (const m of String(html).matchAll(/class="([^"]+)"/g)) {
+    for (const c of m[1].split(/\s+/)) if (c && !/^\$/.test(c)) set.add(c);
+  }
+  return set;
+}
+
+export function relevantCss(css, classes, limit = 12000) {
+  const out = [];
+  // 「セレクタ { 中身 }」のかたまりに分ける（入れ子の @media は中身ごと拾う）
+  const re = /([^{}]+)\{([^{}]*)\}/g;
+  let m;
+  while ((m = re.exec(css))) {
+    const sel = m[1].trim();
+    if (!sel || sel.startsWith("@")) continue;
+    const used = sel.match(/\.([A-Za-z0-9_-]+)/g) || [];
+    if (!used.length) continue;
+    if (used.some((u) => classes.has(u.slice(1)))) {
+      out.push(`${sel} { ${m[2].trim().replace(/\s+/g, " ")} }`);
+    }
+    if (out.join("\n").length > limit) break;
+  }
+  return out.join("\n").slice(0, limit);
+}
+
+async function readCssFor(publicDir, html) {
+  try {
+    const css = await readFile(path.join(publicDir, "style.css"), "utf8");
+    return relevantCss(css, classNamesIn(html));
+  } catch { return ""; }
+}
+
 // 次に見る画面を決める（順番に回す）
 export function nextPage(index) {
   const i = Number.isFinite(index) ? index : 0;
@@ -53,10 +90,11 @@ export function nextPage(index) {
 }
 
 // 1つの画面について、使いやすさの案を作る
-export async function reviewPage(publicDir, page, callLLM, extra = "") {
+export async function reviewPage(publicDir, page, callLLM, extra = "", already = []) {
   const html = await readPage(publicDir, page.file);
   if (!html) return { error: `${page.file} を読めませんでした` };
   if (!callLLM) return { error: "AIが使えません" };
+  const css = await readCssFor(publicDir, html);
 
   const system =
     "あなたは業務システムの画面を見直す専門家です。日本の営業チームが毎日使う画面を、" +
@@ -64,9 +102,16 @@ export async function reviewPage(publicDir, page, callLLM, extra = "") {
     "この製品の決まり:\n" + DESIGN_RULES.map((x) => `- ${x}`).join("\n") + "\n\n" +
     "出し方の決まり:\n" +
     "- 日本語。むずかしい言葉を使わない。\n" +
+    "- **CSSを必ず読むこと。すでにできていることは提案しない。**\n" +
+    "    例：選択中の色・ホバー・カードの枠・影は、たいていCSSで作ってある。\n" +
+    "    HTMLに色の指定が無いからといって「色分けがない」と判断しない。\n" +
+    "- 「〜をカード型にする」だけの案は出さない。枠が増えるほど、1画面に入る情報が減って使いにくくなる。\n" +
+    "- 見た目の好みではなく、**使う人が実際に困ること**を直す案にする。\n" +
+    "    （押す場所が分からない／必要な情報が画面の外にある／操作の手数が多い、など）\n" +
     "- 実際に手を動かせる具体的な案だけ。「分かりやすくする」のような曖昧なものは書かない。\n" +
     "- 大きな作り替えは出さない。いまの作りのまま直せることに絞る。\n" +
-    "- 効果が大きい順に、ちょうど3件。\n" +
+    "- 効果が大きい順に、多くても3件。**思い当たらなければ「なし」とだけ書く。**\n" +
+    "    無理に3件ひねり出さないこと。的外れな案は、かえって邪魔になる。\n" +
     "- 決まりに反する案（絵文字アイコン、色を増やす等）は出さない。\n" +
     "- 次の形だけを書く。前置きや締めの言葉は書かない。\n" +
     "1. 見出し（20字以内）\n" +
@@ -78,7 +123,11 @@ export async function reviewPage(publicDir, page, callLLM, extra = "") {
     `画面の名前：${page.name}（${page.file}）\n` +
     `この画面の役目：${page.role}\n` +
     (extra ? `いま困っていること：${extra}\n` : "") +
-    `\n画面の中身（HTML。scriptの中身は省略）:\n"""\n${html}\n"""\n`;
+    (already.length
+      ? `\n【前に出した案。同じことを繰り返さない】\n${already.map((x) => `- ${x}`).join("\n")}\n`
+      : "") +
+    `\n画面の中身（HTML。scriptの中身は省略）:\n"""\n${html}\n"""\n` +
+    `\nこの画面で使っている見た目の決まり（CSS。ここに書いてあることは、すでにできている）:\n"""\n${css}\n"""\n`;
 
   try {
     const text = await callLLM(system, user, 1400, { json: false });
@@ -91,6 +140,8 @@ export async function reviewPage(publicDir, page, callLLM, extra = "") {
 // 出てきた案を、1件ずつに切り分ける（開発メモに残すため）
 export function splitIdeas(text) {
   const out = [];
+  // 「なし」と返ってきたら、案は無いものとして扱う
+  if (/^\s*(なし|特になし|ありません)\s*$/.test(String(text || ""))) return out;
   const blocks = String(text || "").split(/\n(?=\d+\.\s)/);
   for (const b of blocks) {
     const t = b.trim();

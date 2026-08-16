@@ -3433,6 +3433,25 @@ app.post("/api/dev-notes", async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+// まとめて状態を変える（溜まった案を一度に片づけるため）
+app.post("/api/dev-notes/bulk", async (req, res) => {
+  try {
+    const b = req.body || {};
+    const status = String(b.status || "dropped");
+    const rows = await listDevNotes({ limit: 500 });
+    const target = rows.filter((r) => {
+      if (Array.isArray(b.ids) && b.ids.length) return b.ids.includes(r.id);
+      if (b.source && r.source !== b.source) return false;
+      if (b.kind && r.kind !== b.kind) return false;
+      if (b.onlyNew !== false && r.status !== "new") return false;
+      return !!(b.source || b.kind);
+    });
+    for (const r of target) await updateDevNote(r.id, { status }).catch(() => {});
+    console.log(`[開発メモ] ${target.length}件を「${status}」にしました by ${req.user}`);
+    res.json({ ok: true, changed: target.length });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 app.patch("/api/dev-notes/:id", async (req, res) => {
   try {
     const r = await updateDevNote(parseInt(req.params.id, 10), req.body || {});
@@ -3678,8 +3697,18 @@ async function runUiReview(fileWanted = "") {
     if (hit.length) extra = hit.map((n) => n.title).join(" ／ ");
   } catch {}
 
+  // 前に同じ画面で出した案を渡して、同じことを繰り返さないようにする
+  let already = [];
+  try {
+    const notes = await listDevNotes({ limit: 200 });
+    already = notes
+      .filter((n) => n.source === "画面の見直し" && String(n.title).startsWith(`${chosen.page.name}：`))
+      .map((n) => String(n.title).replace(`${chosen.page.name}：`, ""))
+      .slice(0, 20);
+  } catch {}
+
   const publicDir = path.join(__dirname, "..", "public");
-  const r = await reviewPage(publicDir, chosen.page, callLLMPublic, extra);
+  const r = await reviewPage(publicDir, chosen.page, callLLMPublic, extra, already);
   if (r.error) return { error: r.error, page: chosen.page.name };
 
   // 1件ずつ開発メモに残す（同じ案は1件にまとまる）

@@ -270,6 +270,29 @@ $("dnAll").addEventListener("change", render);
 $("dnSummary").addEventListener("click", () => summary(false));
 $("dnSend").addEventListener("click", () => summary(true));
 
+// まとめて見送りにする（溜まりすぎた案を一度に片づける）
+async function bulkDrop(where, label) {
+  const n = ITEMS.filter((x) => x.status === "new" &&
+    (where.source ? x.source === where.source : true) &&
+    (where.kind ? x.kind === where.kind : true)).length;
+  if (!n) { setStatus("dnStatus", "対象がありません", 4000); return; }
+  if (!confirm(`${label}を ${n}件、見送りにします。よろしいですか？\n（消えるわけではなく、「済んだものも表示」で見られます）`)) return;
+  setStatus("dnStatus", "片づけています…");
+  try {
+    const r = await fetch("/api/dev-notes/bulk", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ ...where, status: "dropped" }),
+    });
+    const d = await r.json();
+    if (d.error) throw new Error(d.error);
+    setStatus("dnStatus", `${d.changed}件を見送りにしました`, 5000);
+    load();
+  } catch (e) { setStatus("dnStatus", "失敗：" + e.message, 6000); }
+}
+
+$("dnDropUi").addEventListener("click", () => bulkDrop({ source: "画面の見直し" }, "画面の見直しの案"));
+$("dnDropIdea").addEventListener("click", () => bulkDrop({ kind: "idea" }, "アイデア"));
+
 // 未対応をまとめてコピー（そのままClaudeに貼れる形）
 $("dnCopy").addEventListener("click", () => {
   const list = ITEMS.filter((x) => x.status !== "done" && x.status !== "dropped");

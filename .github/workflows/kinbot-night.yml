@@ -37,7 +37,7 @@ jobs:
       - name: Node.jsを用意する
         uses: actions/setup-node@v4
         with:
-          node-version: "22"
+          node-version: "20"
 
       - name: 今夜の作業指示を作る
         env:
@@ -129,4 +129,22 @@ jobs:
           KINBOT_URL: ${{ vars.KINBOT_URL || 'https://kinbot-production-225f.up.railway.app' }}
           KINBOT_TOKEN: ${{ secrets.KINBOT_TOKEN }}
           CHANGED: ${{ steps.verify.outputs.changed }}
-        run: node dev/report.mjs night
+        run: |
+          node -e '
+            const fs = require("node:fs");
+            const url = process.env.KINBOT_URL, token = process.env.KINBOT_TOKEN;
+            if (!url || !token) { console.log("設定がないので知らせません"); process.exit(0); }
+            let result = "（結果なし）";
+            try { result = fs.readFileSync("dev/NIGHT_RESULT.md", "utf8").slice(0, 2000); } catch {}
+            const body = {
+              runUrl: `${process.env.GITHUB_SERVER_URL}/${process.env.GITHUB_REPOSITORY}/actions/runs/${process.env.GITHUB_RUN_ID}`,
+              result,
+              changed: process.env.CHANGED === "true",
+            };
+            fetch(`${url.replace(/\/+$/, "")}/api/dev-notes/night-report`, {
+              method: "POST",
+              headers: { "content-type": "application/json", authorization: `Bearer ${token}` },
+              body: JSON.stringify(body),
+            }).then((r) => console.log("kinbotへ通知:", r.status))
+              .catch((e) => console.log("通知できず:", e.message));
+          '
