@@ -510,6 +510,27 @@ export async function initDb() {
   `);
   await sq(`CREATE INDEX IF NOT EXISTS idx_oauth_tokens_refresh ON oauth_tokens(refresh_token);`);
 
+  // ===== 週のボード（ホワイトボードの代わり） =====
+  // 月曜の朝礼までに「テーマ・定量目標・具体的な施策」を書き、
+  // 金曜の終礼で「振り返り」を書く。1人1週で1枚。
+  await sq(`
+    CREATE TABLE IF NOT EXISTS weekly_board (
+      id          SERIAL PRIMARY KEY,
+      week_start  DATE NOT NULL,
+      member      TEXT NOT NULL,
+      member_name TEXT,
+      theme       TEXT,
+      targets     TEXT,
+      actions     TEXT,
+      review      TEXT,
+      updated_by  TEXT,
+      created_at  TIMESTAMPTZ DEFAULT now(),
+      updated_at  TIMESTAMPTZ DEFAULT now(),
+      UNIQUE (week_start, member)
+    );
+  `);
+  await sq(`CREATE INDEX IF NOT EXISTS ix_weekly_week ON weekly_board(week_start);`);
+
   // ===== 開発メモ（直したいこと・要望・自動で拾ったエラー） =====
   // 気づいたときにChatへ一言送るだけで溜まり、朝にまとめて届くようにする。
   await sq(`
@@ -2648,6 +2669,49 @@ export async function getSmartLinkByEvent(eventId) {
   const { rows } = await pool.query(`SELECT * FROM smart_links WHERE event_id=$1`, [eventId]);
   return rows[0] || null;
 }
+// ===== 週のボード =====
+export async function listWeekly(weekStart) {
+  if (!pool) return [];
+  try {
+    const { rows } = await pool.query(
+      `SELECT * FROM weekly_board WHERE week_start = $1::date ORDER BY member_name, member`,
+      [weekStart]);
+    return rows;
+  } catch (e) { console.error("[db] listWeekly", e.message); return []; }
+}
+
+export async function saveWeekly({ weekStart, member, memberName, theme, targets, actions, review, updatedBy }) {
+  if (!pool || !weekStart || !member) return null;
+  try {
+    const { rows } = await pool.query(
+      `INSERT INTO weekly_board (week_start, member, member_name, theme, targets, actions, review, updated_by)
+       VALUES ($1::date,$2,$3,$4,$5,$6,$7,$8)
+       ON CONFLICT (week_start, member) DO UPDATE SET
+         member_name = COALESCE(EXCLUDED.member_name, weekly_board.member_name),
+         theme   = COALESCE(EXCLUDED.theme,   weekly_board.theme),
+         targets = COALESCE(EXCLUDED.targets, weekly_board.targets),
+         actions = COALESCE(EXCLUDED.actions, weekly_board.actions),
+         review  = COALESCE(EXCLUDED.review,  weekly_board.review),
+         updated_by = EXCLUDED.updated_by,
+         updated_at = now()
+       RETURNING *`,
+      [weekStart, String(member).toLowerCase(), memberName || null,
+       theme ?? null, targets ?? null, actions ?? null, review ?? null, updatedBy || null]);
+    return rows[0] || null;
+  } catch (e) { console.error("[db] saveWeekly", e.message); return null; }
+}
+
+// 前の週の内容（次の週を書くときの参考に出す）
+export async function weeklyFor(weekStart, member) {
+  if (!pool) return null;
+  try {
+    const { rows } = await pool.query(
+      `SELECT * FROM weekly_board WHERE week_start = $1::date AND member = $2`,
+      [weekStart, String(member).toLowerCase()]);
+    return rows[0] || null;
+  } catch { return null; }
+}
+
 // ===== 開発メモ =====
 // 同じ内容は1件にまとめ、回数だけ増やす（同じエラーが並ばないように）
 export async function addDevNote({ key, kind = "request", title, detail = "", source = "", createdBy = "" }) {

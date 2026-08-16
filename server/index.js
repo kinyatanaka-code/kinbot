@@ -117,6 +117,9 @@ import {
   aposInRange,
   aposTakenInRange,
   aposMailPending,
+  listWeekly,
+  saveWeekly,
+  weeklyFor,
   displayNameOf,
   assignCounts,
   apoCountsBySetter,
@@ -3545,6 +3548,215 @@ app.post("/api/dev-notes/summary", async (req, res) => {
     if (r.empty) return res.json({ ok: true, empty: true, text: "未対応の開発メモはありません。" });
     if (req.body?.send === true) await notifyAll(r.text, "assign");
     res.json({ ok: true, ...r, sent: req.body?.send === true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// ───────────────────────────────────────────────────────────
+// 週のボード（ホワイトボードの代わり）
+//
+// 月曜の朝礼までに「テーマ・定量目標・具体的な施策」を書き、
+// 金曜の終礼で「振り返り」を書く。実績はkinbotが自動で添える。
+// ───────────────────────────────────────────────────────────
+
+// その日が入る週の月曜日を返す（日付は日本時間で考える）
+function weekStartOf(dateJst) {
+  const d = new Date((dateJst || jstDate(0)) + "T00:00:00Z");
+  const w = (d.getUTCDay() + 6) % 7;         // 月曜を0にする
+  d.setUTCDate(d.getUTCDate() - w);
+  return d.toISOString().slice(0, 10);
+}
+
+function addDays(dateStr, n) {
+  const d = new Date(dateStr + "T00:00:00Z");
+  d.setUTCDate(d.getUTCDate() + n);
+  return d.toISOString().slice(0, 10);
+}
+
+// 書く人の一覧（インサイド＋クローザー）
+async function weeklyMembers() {
+  const map = new Map();
+  for (const i of await listInterns().catch(() => [])) {
+    if (i.email) map.set(String(i.email).toLowerCase(), i.name || i.email);
+  }
+  for (const c of await listClosers({ activeOnly: true }).catch(() => [])) {
+    if (c.email) map.set(String(c.email).toLowerCase(), c.name || c.email);
+  }
+  return [...map.entries()].map(([email, name]) => ({ email, name }));
+}
+
+// その週の実績（アポを何件取ったか）を、名前ごとに数える
+async function weeklyResults(weekStart) {
+  const from = weekStart, to = addDays(weekStart, 6);
+  const rows = await aposTakenInRange({ from, to }).catch(() => []);
+  const by = new Map();
+  for (const r of rows) {
+    const k = String(r.setter || "").replace(/[\s　]/g, "");
+    if (!k) continue;
+    by.set(k, (by.get(k) || 0) + 1);
+  }
+  return by;
+}
+
+app.get("/api/weekly", async (req, res) => {
+  try {
+    const week = weekStartOf(String(req.query.week || "").slice(0, 10) || jstDate(0));
+    const [rows, members, results] = await Promise.all([
+      listWeekly(week),
+      weeklyMembers(),
+      weeklyResults(week),
+    ]);
+    const byMember = new Map(rows.map((r) => [String(r.member).toLowerCase(), r]));
+    const norm = (v) => String(v || "").replace(/[\s　]/g, "");
+
+    const items = members.map((m) => {
+      const r = byMember.get(m.email) || {};
+      // 名前が少し違っても実績を拾えるようにする
+      let got = results.get(norm(m.name));
+      if (got === undefined) {
+        for (const [k, v] of results) {
+          if (k.startsWith(norm(m.name)) || norm(m.name).startsWith(k)) { got = v; break; }
+        }
+      }
+      return {
+        member: m.email, name: m.name,
+        theme: r.theme || "", targets: r.targets || "", actions: r.actions || "",
+        review: r.review || "", updatedAt: r.updated_at || null,
+        apos: got || 0,
+        written: !!(r.theme || r.targets || r.actions),
+        reviewed: !!r.review,
+      };
+    });
+
+    // 一覧に無い人が書いていたら、その人も出す
+    for (const r of rows) {
+      if (items.some((x) => x.member === String(r.member).toLowerCase())) continue;
+      items.push({
+        member: r.member, name: r.member_name || r.member,
+        theme: r.theme || "", targets: r.targets || "", actions: r.actions || "",
+        review: r.review || "", updatedAt: r.updated_at, apos: 0,
+        written: !!(r.theme || r.targets || r.actions), reviewed: !!r.review,
+      });
+    }
+
+    res.json({
+      week, weekEnd: addDays(week, 6),
+      thisWeek: weekStartOf(jstDate(0)),
+      me: req.user || "",
+      items,
+    });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.put("/api/weekly", async (req, res) => {
+  try {
+    const b = req.body || {};
+    const week = weekStartOf(String(b.week || "").slice(0, 10) || jstDate(0));
+    const member = String(b.member || req.user || "").toLowerCase();
+    if (!member) return res.status(400).json({ error: "誰のぶんかが分かりません" });
+    const cut = (v, n) => (v === undefined ? undefined : String(v).slice(0, n));
+    const r = await saveWeekly({
+      weekStart: week, member,
+      memberName: b.name || "",
+      theme: cut(b.theme, 200), targets: cut(b.targets, 600),
+      actions: cut(b.actions, 1500), review: cut(b.review, 1500),
+      updatedBy: req.user || "",
+    });
+    res.json({ ok: true, item: r });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// 先週の内容を写す（毎週ゼロから書かなくていいように）
+app.post("/api/weekly/copy-last", async (req, res) => {
+  try {
+    const week = weekStartOf(String(req.body?.week || "").slice(0, 10) || jstDate(0));
+    const member = String(req.body?.member || req.user || "").toLowerCase();
+    const last = await weeklyFor(addDays(week, -7), member);
+    if (!last) return res.json({ ok: false, reason: "先週のぶんがありません" });
+    const r = await saveWeekly({
+      weekStart: week, member, memberName: last.member_name,
+      theme: last.theme, targets: last.targets, actions: last.actions,
+      review: "", updatedBy: req.user || "",
+    });
+    res.json({ ok: true, item: r });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// 書けていない人に、本人だけへ声をかける
+async function remindWeekly(kind) {
+  const week = weekStartOf(jstDate(0));
+  const rows = await listWeekly(week);
+  const members = await weeklyMembers();
+  const byMember = new Map(rows.map((r) => [String(r.member).toLowerCase(), r]));
+  const todo = members.filter((m) => {
+    const r = byMember.get(m.email) || {};
+    return kind === "plan" ? !(r.theme || r.targets || r.actions) : !r.review;
+  });
+  let sent = 0;
+  for (const m of todo) {
+    const text = kind === "plan"
+      ? [`${m.name}さん、おはようございます。`, "",
+         "今週のボードがまだ空です。朝礼までに書いてください。",
+         "・テーマ（やり切ること）", "・定量目標", "・具体的な施策", "",
+         "kinbotの「週のボード」から書けます。"].join("\n")
+      : [`${m.name}さん、お疲れさまです。`, "",
+         "今週の振り返りがまだです。終礼までに書いてください。",
+         "kinbotの「週のボード」から書けます（今週の実績も出ています）。"].join("\n");
+    const r = await notifyPerson(m.email, text);
+    if (r.ok) sent++;
+  }
+  console.log(`[週のボード] ${kind === "plan" ? "記入" : "振り返り"}のお願いを ${sent}人に送りました`);
+  return { sent, todo: todo.map((x) => x.name) };
+}
+
+let lastWeeklyKey = "";
+async function maybeRemindWeekly() {
+  try {
+    const st = await getSettings().catch(() => ({}));
+    if (st.weeklyRemind !== true) return;
+    const now = new Date(Date.now() + 9 * 3600 * 1000);
+    const day = now.getUTCDay(), h = now.getUTCHours(), m = now.getUTCMinutes();
+    if (m > 4) return;
+    // 月曜の朝＝記入のお願い、金曜の夕方＝振り返りのお願い
+    const planH = Number(st.weeklyPlanHour ?? 8);
+    const reviewH = Number(st.weeklyReviewHour ?? 17);
+    let kind = "";
+    if (day === 1 && h === planH) kind = "plan";
+    else if (day === 5 && h === reviewH) kind = "review";
+    if (!kind) return;
+    const key = `${now.toISOString().slice(0, 10)}-${kind}`;
+    if (lastWeeklyKey === key) return;
+    lastWeeklyKey = key;
+    await remindWeekly(kind);
+  } catch (e) { console.warn("[週のボード]", e.message); }
+}
+
+app.get("/api/weekly/remind", async (req, res) => {
+  try {
+    const st = await getSettings();
+    res.json({
+      enabled: st.weeklyRemind === true,
+      planHour: Number(st.weeklyPlanHour ?? 8),
+      reviewHour: Number(st.weeklyReviewHour ?? 17),
+    });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.put("/api/weekly/remind", async (req, res) => {
+  try {
+    const b = req.body || {};
+    const patch = {};
+    if (b.enabled !== undefined) patch.weeklyRemind = b.enabled === true;
+    if (b.planHour !== undefined) patch.weeklyPlanHour = Math.max(0, Math.min(23, parseInt(b.planHour, 10) || 8));
+    if (b.reviewHour !== undefined) patch.weeklyReviewHour = Math.max(0, Math.min(23, parseInt(b.reviewHour, 10) || 17));
+    await saveSettings(patch);
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.post("/api/weekly/remind/run", async (req, res) => {
+  try {
+    const r = await remindWeekly(req.body?.kind === "review" ? "review" : "plan");
+    res.json({ ok: true, ...r });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
@@ -13948,6 +14160,8 @@ server.listen(PORT, async () => {
   setInterval(() => { maybeSendDevSummary().catch(() => {}); }, 60 * 1000);
   // 夕方のお知らせ（既定18:30）。本人にだけ1対1で送る。
   setInterval(() => { maybeSendEvening().catch(() => {}); }, 60 * 1000);
+  // 週のボード（月曜の朝＝記入、金曜の夕方＝振り返り）
+  setInterval(() => { maybeRemindWeekly().catch(() => {}); }, 60 * 1000);
   // 自己点検（既定30分おき）。起動から3分たってから始める。
   setTimeout(() => {
     autoState.check.timer = true;

@@ -5163,3 +5163,26 @@ input:focus, select:focus, textarea:focus, .sf-input:focus, .sf-select:focus, .s
 
 /* 見出しの横に出す小さな補足 */
 .home-sec-note { font-size: 11px; color: var(--muted); margin-left: 8px; font-weight: 400; }
+
+/* ===== 週のボード ===== */
+.wb-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.wb-nav { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.wb-range { font-size: 14px; font-weight: 700; color: #0d5b47; }
+.wb-sum { margin: 10px 0 6px; }
+.wb-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 12px; }
+.wb-card { border: 1px solid var(--line); border-radius: 12px; background: var(--panel);
+  padding: 12px 14px; display: flex; flex-direction: column; gap: 8px; }
+.wb-mine { border-color: #9fe1cb; box-shadow: 0 0 0 1px #eaf7f2 inset; }
+.wb-name { font-size: 13.5px; font-weight: 700; color: var(--ink);
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.wb-you { font-size: 10.5px; font-weight: 700; color: #0F6E56; background: #eaf7f2;
+  border: 1px solid #cfeee2; border-radius: 999px; padding: 1px 8px; }
+.wb-apo { margin-left: auto; font-size: 11px; color: var(--muted); font-weight: 400; }
+.wb-lb { display: block; font-size: 11px; color: var(--muted); }
+.wb-lb > * { display: block; width: 100%; margin-top: 3px; padding: 7px 10px; border: 1px solid var(--line);
+  border-radius: 9px; font-size: 12.5px; font-family: inherit; line-height: 1.7;
+  box-sizing: border-box; background: var(--panel); resize: vertical; }
+.wb-lb > *:focus { outline: none; border-color: #1d9e75; }
+.wb-review > * { background: #fbfdfc; }
+.wb-foot { display: flex; align-items: center; gap: 8px; margin-top: 2px; }
+.wb-saved { font-size: 11px; color: #0F6E56; }
