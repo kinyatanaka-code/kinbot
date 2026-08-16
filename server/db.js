@@ -552,6 +552,19 @@ export async function initDb() {
   `);
   await sq(`CREATE INDEX IF NOT EXISTS ix_dev_notes_status ON dev_notes(status, last_at DESC);`);
 
+  // 見送った案の題名だけを覚えておく。
+  // 一覧からは消すが、同じ案がまた出てくるのを防ぐために使う。
+  await sq(`
+    CREATE TABLE IF NOT EXISTS dev_dismissed (
+      id      SERIAL PRIMARY KEY,
+      title   TEXT NOT NULL,
+      detail  TEXT,
+      kind    TEXT,
+      source  TEXT,
+      at      TIMESTAMPTZ DEFAULT now()
+    );
+  `);
+
   // ===== カレンダーで気づいたこと（同じ予定で何度も通知しないため） =====
   await sq(`
     CREATE TABLE IF NOT EXISTS calendar_notice (
@@ -2765,6 +2778,35 @@ export async function updateDevNote(id, patch = {}) {
       `UPDATE dev_notes SET ${cols.join(", ")} WHERE id = $${vals.length} RETURNING *`, vals);
     return rows[0] || null;
   } catch (e) { console.error("[db] updateDevNote", e.message); return null; }
+}
+
+// 見送る＝一覧から消す。ただし題名は覚えておく（同じ案がまた出ないように）。
+export async function dismissDevNote(id) {
+  if (!pool || !id) return 0;
+  try {
+    const { rows } = await pool.query(`SELECT * FROM dev_notes WHERE id = $1`, [id]);
+    const r = rows[0];
+    if (!r) return 0;
+    await pool.query(
+      `INSERT INTO dev_dismissed (title, detail, kind, source) VALUES ($1,$2,$3,$4)`,
+      [r.title, String(r.detail || "").slice(0, 500), r.kind, r.source]);
+    await pool.query(`DELETE FROM dev_notes WHERE id = $1`, [id]);
+    // 覚えておくのは新しい500件まで（増え続けないように）
+    await pool.query(
+      `DELETE FROM dev_dismissed WHERE id NOT IN (
+         SELECT id FROM dev_dismissed ORDER BY at DESC LIMIT 500)`);
+    return 1;
+  } catch (e) { console.error("[db] dismissDevNote", e.message); return 0; }
+}
+
+// 見送った案の題名（似ているかを調べるために使う）
+export async function listDismissed(limit = 500) {
+  if (!pool) return [];
+  try {
+    const { rows } = await pool.query(
+      `SELECT title, detail FROM dev_dismissed ORDER BY at DESC LIMIT $1`, [limit]);
+    return rows;
+  } catch { return []; }
 }
 
 export async function deleteDevNote(id) {

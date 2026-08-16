@@ -97,6 +97,8 @@ import {
   listDevNotes,
   updateDevNote,
   deleteDevNote,
+  dismissDevNote,
+  listDismissed,
   addDevNote,
   futureApos,
   excludeApo,
@@ -3727,18 +3729,28 @@ app.post("/api/dev-notes/bulk", async (req, res) => {
       if (Array.isArray(b.ids) && b.ids.length) return b.ids.includes(r.id);
       if (b.source && r.source !== b.source) return false;
       if (b.kind && r.kind !== b.kind) return false;
-      if (b.onlyNew !== false && r.status !== "new") return false;
+      if (b.onlyNew !== false && r.status === "done") return false;
+      if (b.all === true) return true;
       return !!(b.source || b.kind);
     });
-    for (const r of target) await updateDevNote(r.id, { status }).catch(() => {});
-    console.log(`[開発メモ] ${target.length}件を「${status}」にしました by ${req.user}`);
+    for (const r of target) {
+      if (status === "dropped") await dismissDevNote(r.id).catch(() => {});
+      else await updateDevNote(r.id, { status }).catch(() => {});
+    }
+    console.log(`[開発メモ] ${target.length}件を${status === "dropped" ? "見送って消しました" : `「${status}」にしました`} by ${req.user}`);
     res.json({ ok: true, changed: target.length });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 app.patch("/api/dev-notes/:id", async (req, res) => {
   try {
-    const r = await updateDevNote(parseInt(req.params.id, 10), req.body || {});
+    const id = parseInt(req.params.id, 10);
+    // 「見送り」は一覧から消す。題名は覚えておき、同じ案がまた出ないようにする。
+    if (String(req.body?.status || "") === "dropped") {
+      const n = await dismissDevNote(id);
+      return res.json({ ok: true, dismissed: n });
+    }
+    const r = await updateDevNote(id, req.body || {});
     res.json({ ok: true, item: r });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
@@ -4541,8 +4553,14 @@ async function runUiReview(fileWanted = "") {
       .filter((n) => String(n.title).startsWith(`${chosen.page.name}：`))
       .map((n) => String(n.title).replace(`${chosen.page.name}：`, ""))
       .slice(0, 40);
-    // 似ているかの判定には、すべての画面のぶんを使う
-    allSeen = mine.map((n) => `${n.title} ${String(n.detail || "").slice(0, 120)}`);
+    // 似ているかの判定には、すべての画面のぶんと、見送ったぶんを使う
+    allSeen = mine.map((n) => ({ title: n.title, detail: String(n.detail || "").slice(0, 120) }));
+    const gone = await listDismissed(500).catch(() => []);
+    allSeen = allSeen.concat(gone.map((g) => ({ title: g.title, detail: String(g.detail || "").slice(0, 120) })));
+    // AIに渡す一覧にも、見送ったものを混ぜる
+    already = already.concat(
+      gone.filter((g) => String(g.title).startsWith(`${chosen.page.name}：`))
+          .map((g) => String(g.title).replace(`${chosen.page.name}：`, ""))).slice(0, 60);
   } catch {}
 
   const publicDir = path.join(__dirname, "..", "public");
@@ -4736,7 +4754,8 @@ app.post("/api/dev-notes/advice", async (req, res) => {
     let seen = [];
     try {
       const notes = await listDevNotes({ limit: 500 });
-      seen = notes.map((n) => `${n.title} ${String(n.detail || "").slice(0, 120)}`);
+      const gone = await listDismissed(500).catch(() => []);
+      seen = notes.concat(gone).map((n) => ({ title: n.title, detail: String(n.detail || "").slice(0, 120) }));
     } catch {}
     const cand = blocks.map((blk) => ({
       title: (blk.split("\n")[0] || "").replace(/^\d+\.\s*/, "").trim(),
