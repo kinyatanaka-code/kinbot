@@ -150,7 +150,7 @@ async function loadLinks() {
   renderLinks();
   loadMyMeetingUrl();
 }
-// いま「自分の商談用」に選んでいるURL
+// いまスマートリンクの行き先に選んでいるURL
 let myMeetingUrl = "";
 
 // URLの細かい違い（末尾のスラッシュや大文字小文字）を無視して比べる
@@ -172,16 +172,17 @@ function renderLinks() {
     li.innerHTML =
       `<span class="ln-name"></span>` +
       `<span class="ln-url"></span>` +
-      `<button class="ln-use${isMine ? " on" : ""}" data-i="${i}">${isMine ? "商談用" : "商談用にする"}</button>` +
+      `<button class="ln-use${isMine ? " on" : ""}" data-i="${i}">${
+        isMine ? "スマートリンク" : "スマートリンクにする"}</button>` +
       `<button class="ln-del" data-i="${i}">削除</button>`;
     li.querySelector(".ln-name").textContent = l.name;
     li.querySelector(".ln-url").textContent = l.url;
 
-    // このURLを「自分の商談用リンク」にする。
-    // アポのURL（スマートリンク）は、担当者ごとにここへ案内される。
+    // このURLを自分のスマートリンクの行き先にする。
+    // アポで発行するURLは、担当になった人のここへ案内される。
     li.querySelector(".ln-use").addEventListener("click", async () => {
       if (isMine) {
-        if (!confirm("商談用の指定を外しますか？\n（外すと、アポのURLから自分の部屋へ案内できなくなります）")) return;
+        if (!confirm("スマートリンクの指定を外しますか？\n（外すと、アポのURLから自分の部屋へ案内できなくなります）")) return;
       }
       const url = isMine ? "" : l.url;
       try {
@@ -203,7 +204,7 @@ function renderLinks() {
   });
 }
 
-// 自分の商談用リンクを読む
+// 自分のスマートリンクの行き先を読む
 async function loadMyMeetingUrl() {
   try {
     const d = await (await fetch("/api/my-zoom-link")).json();
