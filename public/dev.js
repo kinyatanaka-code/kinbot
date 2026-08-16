@@ -18,12 +18,23 @@ const setStatus = (id, t, ms) => {
 };
 
 // ───────────────────────── 1. 自己点検 ─────────────────────────
+// 自動で動いているかを、いちばん上に出す
+function autoLine(a, on) {
+  if (!a) return "";
+  const t = (v) => (v ? when(v) : "まだ");
+  const state = !on ? "自動：OFF"
+    : a.timer ? "自動：動いています" : "自動：まもなく始まります（起動から数分お待ちください）";
+  return `<div class="note ${on && a.timer ? "cc-ok" : "cc-warn"}">` +
+    `${esc(state)}　／　最後に見た時刻：${esc(t(a.lastTry))}　／　最後に実行：${esc(t(a.lastRun))}<br>` +
+    `いまの状態：${esc(a.reason || "")}</div>`;
+}
+
 function scRender(d) {
   const box = $("scBox");
   if (!box) return;
   const last = d.last;
-  if (!last) { box.innerHTML = '<div class="note">まだ点検していません。</div>'; return; }
-  box.innerHTML =
+  if (!last) { box.innerHTML = autoLine(d.auto, d.enabled) + '<div class="note">まだ点検していません。</div>'; return; }
+  box.innerHTML = autoLine(d.auto, d.enabled) +
     `<div class="note">最後の点検：${esc(when(last.at))}　問題 ${last.bad}件</div>` +
     `<div class="cal-list">` + (last.checks || []).map((c) =>
       `<div class="cal-row ${c.ok ? "cal-ok" : "cal-ng"}">
@@ -57,6 +68,7 @@ async function scSave() {
       }),
     });
     setStatus("scStatus", "保存しました", 4000);
+    scLoad();
   } catch (e) { setStatus("scStatus", "失敗：" + e.message, 6000); }
 }
 
@@ -71,6 +83,8 @@ async function scRun() {
     scRender({ last: d, proposal: d.proposal });
     setStatus("scStatus", d.bad ? `${d.bad}件見つかりました` : "問題ありません", 6000);
     load();
+// 自動の状態は、開いたままでも分かるように少しずつ読み直す
+setInterval(() => { scLoad(); urLoad(); }, 30 * 1000);
   } catch (e) { setStatus("scStatus", "失敗：" + e.message, 6000); }
 }
 
@@ -79,8 +93,12 @@ function urRender(d) {
   const box = $("urBox");
   if (!box) return;
   const last = d.last;
-  if (!last) { box.innerHTML = `次に見るのは <b>${esc(d.nextPage || "")}</b> です。`; return; }
-  box.innerHTML = `<b>${esc(last.page)}</b>（${esc(when(last.at))}／${last.count || 0}件）<br>` + nl(last.text || "");
+  if (!last) {
+    box.innerHTML = autoLine(d.auto, d.enabled) + `次に見るのは <b>${esc(d.nextPage || "")}</b> です。`;
+    return;
+  }
+  box.innerHTML = autoLine(d.auto, d.enabled) +
+    `<b>${esc(last.page)}</b>（${esc(when(last.at))}／${last.count || 0}件）<br>` + nl(last.text || "");
 }
 
 async function urLoad() {
@@ -103,6 +121,7 @@ async function urSave() {
       body: JSON.stringify({ enabled: $("urOn").checked, every: parseInt($("urEvery").value, 10) }),
     });
     setStatus("urStatus", "保存しました", 4000);
+    urLoad();
   } catch (e) { setStatus("urStatus", "失敗：" + e.message, 6000); }
 }
 

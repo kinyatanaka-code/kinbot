@@ -3467,6 +3467,12 @@ app.post("/api/dev-notes/summary", async (req, res) => {
 let lastCheckState = "";      // 前回と同じ結果なら送らない（同じ知らせを何度も出さないため）
 let lastCheckAt = null;
 let lastCheckResult = null;
+// 自動で動いているかを画面で確かめるための記録。
+// 「動いていない」と思ったとき、なぜ動いていないのかが分かるようにする。
+const autoState = {
+  check: { timer: false, lastTry: null, lastRun: null, reason: "まだ動いていません" },
+  ui: { timer: false, lastTry: null, lastRun: null, reason: "まだ動いていません" },
+};
 
 async function runSelfCheck() {
   const st = await getSettings().catch(() => ({}));
@@ -3541,11 +3547,18 @@ async function runSelfCheck() {
 
 // 決まった間隔で点検し、変わったときだけ知らせる
 async function maybeSelfCheck() {
+  autoState.check.lastTry = new Date().toISOString();
   try {
     const st = await getSettings().catch(() => ({}));
-    if (st.selfCheck !== true) return;
+    if (st.selfCheck !== true) {
+      autoState.check.reason = "「自動で点検する」がOFFです";
+      return;
+    }
     const every = Math.max(5, Number(st.selfCheckEvery ?? 30));
-    if (lastCheckAt && Date.now() - new Date(lastCheckAt).getTime() < every * 60 * 1000) return;
+    if (lastCheckAt && Date.now() - new Date(lastCheckAt).getTime() < every * 60 * 1000) {
+      autoState.check.reason = `次の点検まで待っています（${every}分おき）`;
+      return;
+    }
 
     const r = await runSelfCheck();
     const bad = r.checks.filter((x) => !x.ok);
@@ -3565,9 +3578,15 @@ async function maybeSelfCheck() {
     const fixed = lastCheckState && !state;
     lastCheckState = state;
 
+    autoState.check.lastRun = new Date().toISOString();
+    autoState.check.reason = bad.length ? `${bad.length}件の問題を見つけました` : "問題はありませんでした";
+
     // ★ 送り先は点検用の1か所だけ。チームのスペースには送らない。
     const to = { url: String(st.selfCheckWebhook || "").trim(), space: String(st.selfCheckSpace || "").trim() };
-    if (!to.url && !to.space) return;
+    if (!to.url && !to.space) {
+      autoState.check.reason += "（知らせ先が未設定なので、画面で見るだけです）";
+      return;
+    }
 
     if (fixed) {
       await notifyCheck("✅ *点検：問題は無くなりました*", to).catch(() => {});
@@ -3584,7 +3603,10 @@ async function maybeSelfCheck() {
       "（この知らせは点検用の場所にだけ送っています）",
     ].join("\n"), to).catch(() => {});
     console.log(`[点検] ${bad.length}件の問題を知らせました`);
-  } catch (e) { console.warn("[点検]", e.message); }
+  } catch (e) {
+    autoState.check.reason = "失敗しました：" + e.message;
+    console.warn("[点検]", e.message);
+  }
 }
 
 // 画面から見る・その場で点検する
@@ -3597,6 +3619,7 @@ app.get("/api/self-check", async (req, res) => {
       webhook: st.selfCheckWebhook || "",
       space: st.selfCheckSpace || "",
       last: lastCheckResult,
+      auto: autoState.check,
     });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
@@ -3674,19 +3697,34 @@ async function runUiReview(fileWanted = "") {
 
 let lastUiAt = 0;
 async function maybeUiReview() {
+  autoState.ui.lastTry = new Date().toISOString();
   try {
     const st = await getSettings().catch(() => ({}));
-    if (st.uiReview !== true) return;
+    if (st.uiReview !== true) {
+      autoState.ui.reason = "「自動で見直す」がOFFです";
+      return;
+    }
     const every = Math.max(10, Number(st.uiReviewEvery ?? 30));
-    if (Date.now() - lastUiAt < every * 60 * 1000) return;
+    if (Date.now() - lastUiAt < every * 60 * 1000) {
+      autoState.ui.reason = `次の見直しまで待っています（${every}分おき）`;
+      return;
+    }
     lastUiAt = Date.now();
 
     const r = await runUiReview();
-    if (!r || r.error) return;
+    if (!r || r.error) {
+      autoState.ui.reason = "見直せませんでした：" + ((r && r.error) || "理由不明");
+      return;
+    }
+    autoState.ui.lastRun = new Date().toISOString();
+    autoState.ui.reason = `${r.page} の案を ${r.count}件 出しました`;
 
     // ★ 点検と同じ1か所にだけ送る
     const to = { url: String(st.selfCheckWebhook || "").trim(), space: String(st.selfCheckSpace || "").trim() };
-    if (!to.url && !to.space) return;
+    if (!to.url && !to.space) {
+      autoState.ui.reason += "（知らせ先が未設定なので、画面で見るだけです）";
+      return;
+    }
     await notifyCheck([
       `🎨 *画面の見直し：${r.page}*`,
       "",
@@ -3695,7 +3733,10 @@ async function maybeUiReview() {
       "（開発メモにも残しました）",
     ].join("\n"), to).catch(() => {});
     console.log(`[画面見直し] ${r.page} の案を ${r.count}件 出しました`);
-  } catch (e) { console.warn("[画面見直し]", e.message); }
+  } catch (e) {
+    autoState.ui.reason = "失敗しました：" + e.message;
+    console.warn("[画面見直し]", e.message);
+  }
 }
 
 app.get("/api/ui-review", async (req, res) => {
@@ -3707,6 +3748,7 @@ app.get("/api/ui-review", async (req, res) => {
       pages: UI_PAGES.map((p) => ({ file: p.file, name: p.name })),
       nextPage: UI_PAGES[Number(st.uiReviewIndex ?? 0) % UI_PAGES.length].name,
       last: uiReviewLast,
+      auto: autoState.ui,
     });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
@@ -13459,10 +13501,16 @@ server.listen(PORT, async () => {
   setInterval(() => { maybeSendDevSummary().catch(() => {}); }, 60 * 1000);
   // 自己点検（既定30分おき）。起動から3分たってから始める。
   setTimeout(() => {
+    autoState.check.timer = true;
+    console.log("[点検] 自動の点検を始めます（5分おきに時刻を見ます）");
+    maybeSelfCheck().catch(() => {});
     setInterval(() => { maybeSelfCheck().catch(() => {}); }, 5 * 60 * 1000);
   }, 3 * 60 * 1000);
   // 画面の使いやすさの見直し（既定30分おき）。点検とずらして動かす。
   setTimeout(() => {
+    autoState.ui.timer = true;
+    console.log("[画面見直し] 自動の見直しを始めます（5分おきに時刻を見ます）");
+    maybeUiReview().catch(() => {});
     setInterval(() => { maybeUiReview().catch(() => {}); }, 5 * 60 * 1000);
   }, 6 * 60 * 1000);
 
