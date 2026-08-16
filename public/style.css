@@ -5169,26 +5169,33 @@ input:focus, select:focus, textarea:focus, .sf-input:focus, .sf-select:focus, .s
 .wb-nav { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .wb-range { font-size: 14px; font-weight: 700; color: #0d5b47; }
 .wb-sum { margin: 10px 0 6px; }
-.wb-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 12px; }
+/* 4人を1列に並べる。人数が変わっても、その数だけ横に並ぶ。 */
+.wb-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
+@media (max-width: 1200px) { .wb-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 720px)  { .wb-grid { grid-template-columns: 1fr; } }
 .wb-card { border: 1px solid var(--line); border-radius: 12px; background: var(--panel);
-  padding: 12px 14px; display: flex; flex-direction: column; gap: 8px; }
+  padding: 10px 11px; display: flex; flex-direction: column; gap: 7px; min-width: 0; }
 .wb-mine { border-color: #9fe1cb; box-shadow: 0 0 0 1px #eaf7f2 inset; }
-.wb-name { font-size: 13.5px; font-weight: 700; color: var(--ink);
-  display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.wb-name { font-size: 13px; font-weight: 700; color: var(--ink);
+  display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
 .wb-you { font-size: 10.5px; font-weight: 700; color: #0F6E56; background: #eaf7f2;
   border: 1px solid #cfeee2; border-radius: 999px; padding: 1px 8px; }
 .wb-apo { margin-left: auto; font-size: 11px; color: var(--muted); font-weight: 400; }
 .wb-lb { display: block; font-size: 11px; color: var(--muted); }
-.wb-lb > * { display: block; width: 100%; margin-top: 3px; padding: 7px 10px; border: 1px solid var(--line);
-  border-radius: 9px; font-size: 12.5px; font-family: inherit; line-height: 1.7;
+/* 枠を付けるのは入力欄だけ。施策の一覧や「足す」ボタンには付けない
+   （空の枠が1つ余計に見えてしまうため） */
+.wb-lb > input, .wb-lb > textarea, .wb-lb > select {
+  display: block; width: 100%; margin-top: 3px; padding: 6px 9px; border: 1px solid var(--line);
+  border-radius: 9px; font-size: 12px; font-family: inherit; line-height: 1.6;
   box-sizing: border-box; background: var(--panel); resize: vertical; }
-.wb-lb > *:focus { outline: none; border-color: #1d9e75; }
+.wb-lb > input:focus, .wb-lb > textarea:focus { outline: none; border-color: #1d9e75; }
 .wb-review > * { background: #fbfdfc; }
 .wb-foot { display: flex; align-items: center; gap: 8px; margin-top: 2px; }
 .wb-saved { font-size: 11px; color: #0F6E56; }
 
 /* 週のボード：施策のカード */
-.wb-items { display: flex; flex-direction: column; gap: 6px; margin-top: 4px; }
+.wb-items { display: flex; flex-direction: column; gap: 6px; }
+.wb-items:not(:empty) { margin-top: 4px; }
 .wb-item { border: 1px solid var(--line); border-radius: 10px; background: var(--panel-2);
   padding: 7px 8px; display: flex; flex-direction: column; gap: 5px; }
 .wb-item.done { background: #eef8f4; border-color: #cfeee2; }
@@ -5208,5 +5215,5 @@ input:focus, select:focus, textarea:focus, .sf-input:focus, .sf-select:focus, .s
 .wb-del:hover { color: #A33C24; }
 .wb-add { border: 1px dashed var(--line); background: transparent; color: #0F6E56;
   border-radius: 9px; padding: 6px 10px; font-size: 11.5px; font-family: inherit;
-  cursor: pointer; margin-top: 6px; width: 100%; }
+  cursor: pointer; margin-top: 4px; width: 100%; }
 .wb-add:hover { border-color: #9fe1cb; background: #f2fbf7; }

@@ -55,17 +55,17 @@ function render(d) {
           <span class="wb-apo">今週のアポ ${x.apos}件</span>
         </div>
         <label class="wb-lb">テーマ（やり切ること）
-          <input type="text" class="wb-f" data-k="theme" value="${esc(x.theme)}" placeholder="例：商談実施やりきる" />
+          <input type="text" class="wb-f" data-k="theme" value="${esc(x.theme)}" />
         </label>
         <label class="wb-lb">定量目標
-          <textarea class="wb-f" data-k="targets" rows="3" placeholder="例：アポ数 36件／商談実施 54件">${esc(x.targets)}</textarea>
+          <textarea class="wb-f" data-k="targets" rows="2" >${esc(x.targets)}</textarea>
         </label>
         <div class="wb-lb">具体的な施策
           <div class="wb-items">${(x.items || []).map((it) => itemHtml(it)).join("")}</div>
           <button type="button" class="wb-add">＋ 施策を足す</button>
         </div>
         <label class="wb-lb wb-review">全体の振り返り（金曜の終礼）
-          <textarea class="wb-f" data-k="review" rows="3" placeholder="今週ぜんたいで、できたこと／できなかったこと／来週やること">${esc(x.review)}</textarea>
+          <textarea class="wb-f" data-k="review" rows="2" >${esc(x.review)}</textarea>
         </label>
         <div class="wb-foot">
           <button type="button" class="btn ghost wb-copy">先週の内容を写す</button>
@@ -84,10 +84,10 @@ function itemHtml(it) {
     <div class="wb-item-top">
       <label class="wb-chk"><input type="checkbox" class="wb-done"${it.done ? " checked" : ""} />
         <span>できた</span></label>
-      <input type="text" class="wb-text" value="${esc(it.text)}" placeholder="例：17時半までのコール時間を3時間確保" />
+      <input type="text" class="wb-text" value="${esc(it.text)}" />
       <button type="button" class="wb-del" title="この施策を消す">✕</button>
     </div>
-    <textarea class="wb-item-rv" rows="2" placeholder="この施策の振り返り">${esc(it.review)}</textarea>
+    <textarea class="wb-item-rv" rows="2" >${esc(it.review)}</textarea>
   </div>`;
 }
 
