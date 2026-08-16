@@ -1,23 +1,129 @@
-// dev.js — 開発メモの画面。溜まった「直したいこと」を見て、状態を変える。
+// dev.js — 開発メモの画面
+//   1. 自己点検（kinbotが自分の動きを見る）
+//   2. 画面の使いやすさの見直し
+//   3. 直したいことの一覧
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s == null ? "" : s).replace(/[&<>"']/g, (c) =>
   ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
-
-let KINDS = {};
-let ITEMS = [];
-
-function say(t, ms) {
-  const e = $("dnStatus");
+const nl = (s) => esc(s).replace(/\n/g, "<br>");
+const when = (v) => {
+  const d = new Date(v);
+  return isNaN(d.getTime()) ? "" : d.toLocaleString("ja-JP", { hour12: false }).slice(5, 16);
+};
+const setStatus = (id, t, ms) => {
+  const e = $(id);
   if (!e) return;
   e.textContent = t || "";
   if (ms) setTimeout(() => { if (e.textContent === t) e.textContent = ""; }, ms);
+};
+
+// ───────────────────────── 1. 自己点検 ─────────────────────────
+function scRender(d) {
+  const box = $("scBox");
+  if (!box) return;
+  const last = d.last;
+  if (!last) { box.innerHTML = '<div class="note">まだ点検していません。</div>'; return; }
+  box.innerHTML =
+    `<div class="note">最後の点検：${esc(when(last.at))}　問題 ${last.bad}件</div>` +
+    `<div class="cal-list">` + (last.checks || []).map((c) =>
+      `<div class="cal-row ${c.ok ? "cal-ok" : "cal-ng"}">
+         <div class="cal-head"><b>${esc(c.title)}</b></div>
+         <div class="ap-rot-cnt">${esc(c.detail)}</div>
+         ${!c.ok && c.fix ? `<div class="cal-verdict">直し方の案：${esc(c.fix)}</div>` : ""}
+       </div>`).join("") + `</div>` +
+    (d.proposal ? `<div class="note"><b>まとめた案</b><br>${nl(d.proposal)}</div>` : "");
 }
 
-function when(v) {
-  const d = new Date(v);
-  if (isNaN(d.getTime())) return "";
-  return d.toLocaleString("ja-JP", { hour12: false }).slice(5, 16);
+async function scLoad() {
+  if (!$("scOn")) return;
+  try {
+    const d = await (await fetch("/api/self-check")).json();
+    $("scOn").checked = !!d.enabled;
+    $("scEvery").value = d.every ?? 30;
+    $("scHook").value = d.webhook || "";
+    scRender(d);
+  } catch {}
 }
+
+async function scSave() {
+  setStatus("scStatus", "保存しています…");
+  try {
+    await fetch("/api/self-check", {
+      method: "PUT", headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        enabled: $("scOn").checked,
+        every: parseInt($("scEvery").value, 10),
+        webhook: $("scHook").value,
+      }),
+    });
+    setStatus("scStatus", "保存しました", 4000);
+  } catch (e) { setStatus("scStatus", "失敗：" + e.message, 6000); }
+}
+
+async function scRun() {
+  setStatus("scStatus", "点検しています…");
+  try {
+    const r = await fetch("/api/self-check/run", {
+      method: "POST", headers: { "content-type": "application/json" }, body: "{}",
+    });
+    const d = await r.json();
+    if (d.error) throw new Error(d.error);
+    scRender({ last: d, proposal: d.proposal });
+    setStatus("scStatus", d.bad ? `${d.bad}件見つかりました` : "問題ありません", 6000);
+    load();
+  } catch (e) { setStatus("scStatus", "失敗：" + e.message, 6000); }
+}
+
+// ─────────────────── 2. 画面の使いやすさの見直し ───────────────────
+function urRender(d) {
+  const box = $("urBox");
+  if (!box) return;
+  const last = d.last;
+  if (!last) { box.innerHTML = `次に見るのは <b>${esc(d.nextPage || "")}</b> です。`; return; }
+  box.innerHTML = `<b>${esc(last.page)}</b>（${esc(when(last.at))}／${last.count || 0}件）<br>` + nl(last.text || "");
+}
+
+async function urLoad() {
+  if (!$("urOn")) return;
+  try {
+    const d = await (await fetch("/api/ui-review")).json();
+    $("urOn").checked = !!d.enabled;
+    $("urEvery").value = d.every ?? 30;
+    $("urPage").innerHTML = (d.pages || []).map((p) =>
+      `<option value="${esc(p.file)}">${esc(p.name)}</option>`).join("");
+    urRender(d);
+  } catch {}
+}
+
+async function urSave() {
+  setStatus("urStatus", "保存しています…");
+  try {
+    await fetch("/api/ui-review", {
+      method: "PUT", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ enabled: $("urOn").checked, every: parseInt($("urEvery").value, 10) }),
+    });
+    setStatus("urStatus", "保存しました", 4000);
+  } catch (e) { setStatus("urStatus", "失敗：" + e.message, 6000); }
+}
+
+async function urRun() {
+  setStatus("urStatus", "見ています…（少し時間がかかります）");
+  try {
+    const r = await fetch("/api/ui-review/run", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ file: $("urPage").value }),
+    });
+    const d = await r.json();
+    if (d.error) throw new Error(d.error);
+    urRender({ last: d });
+    setStatus("urStatus", `${d.count || 0}件の案が出ました`, 6000);
+    load();
+  } catch (e) { setStatus("urStatus", "失敗：" + e.message, 6000); }
+}
+
+// ─────────────────── 3. 直したいことの一覧 ───────────────────
+let KINDS = {};
+let ITEMS = [];
 
 function render() {
   const box = $("dnList");
@@ -53,142 +159,14 @@ function render() {
         method: "PATCH", headers: { "content-type": "application/json" },
         body: JSON.stringify({ status: b.dataset.st }),
       });
-      // ===== 自己点検 =====
-function scRender(d) {
-  const box = $("scBox");
-  if (!box) return;
-  const last = d.last;
-  if (!last) { box.innerHTML = '<div class="note">まだ点検していません。</div>'; return; }
-  const when = new Date(last.at).toLocaleString("ja-JP", { hour12: false }).slice(5, 16);
-  box.innerHTML =
-    `<div class="note">最後の点検：${esc(when)}　問題 ${last.bad}件</div>` +
-    `<div class="cal-list">` + last.checks.map((c) =>
-      `<div class="cal-row ${c.ok ? "cal-ok" : "cal-ng"}">
-         <div class="cal-head"><b>${esc(c.title)}</b></div>
-         <div class="ap-rot-cnt">${esc(c.detail)}</div>
-         ${!c.ok && c.fix ? `<div class="cal-verdict">直し方の案：${esc(c.fix)}</div>` : ""}
-       </div>`).join("") + `</div>` +
-    (d.proposal ? `<div class="note"><b>まとめた案</b><br>${esc(d.proposal).replace(/\n/g, "<br>")}</div>` : "");
-}
-
-async function scLoad() {
-  if (!$("scOn")) return;
-  try {
-    const d = await (await fetch("/api/self-check")).json();
-    $("scOn").checked = !!d.enabled;
-    $("scEvery").value = d.every ?? 30;
-    $("scHook").value = d.webhook || "";
-    scRender(d);
-  } catch {}
-}
-
-if ($("scOn")) {
-  $("scSave").addEventListener("click", async () => {
-    const st = $("scStatus");
-    st.textContent = "保存しています…";
-    try {
-      await fetch("/api/self-check", {
-        method: "PUT", headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          enabled: $("scOn").checked,
-          every: parseInt($("scEvery").value, 10),
-          webhook: $("scHook").value,
-        }),
-      });
-      st.textContent = "保存しました";
-      setTimeout(() => (st.textContent = ""), 4000);
-    } catch (e) { st.textContent = "失敗：" + e.message; }
-  });
-  $("scRun").addEventListener("click", async () => {
-    const st = $("scStatus");
-    st.textContent = "点検しています…";
-    try {
-      const r = await fetch("/api/self-check/run", {
-        method: "POST", headers: { "content-type": "application/json" }, body: "{}",
-      });
-      const d = await r.json();
-      if (d.error) throw new Error(d.error);
-      scRender({ last: d, proposal: d.proposal });
-      st.textContent = d.bad ? `${d.bad}件見つかりました` : "問題ありません";
-      setTimeout(() => (st.textContent = ""), 6000);
       load();
-    } catch (e) { st.textContent = "失敗：" + e.message; }
-  });
-  scLoad();
-}
-
-load();
     }));
   box.querySelectorAll(".dn-del").forEach((b) =>
     b.addEventListener("click", async () => {
       const row = b.closest(".dk-row");
       if (!confirm("この項目を消します。よろしいですか？")) return;
       await fetch(`/api/dev-notes/${row.dataset.id}`, { method: "DELETE" });
-      // ===== 自己点検 =====
-function scRender(d) {
-  const box = $("scBox");
-  if (!box) return;
-  const last = d.last;
-  if (!last) { box.innerHTML = '<div class="note">まだ点検していません。</div>'; return; }
-  const when = new Date(last.at).toLocaleString("ja-JP", { hour12: false }).slice(5, 16);
-  box.innerHTML =
-    `<div class="note">最後の点検：${esc(when)}　問題 ${last.bad}件</div>` +
-    `<div class="cal-list">` + last.checks.map((c) =>
-      `<div class="cal-row ${c.ok ? "cal-ok" : "cal-ng"}">
-         <div class="cal-head"><b>${esc(c.title)}</b></div>
-         <div class="ap-rot-cnt">${esc(c.detail)}</div>
-         ${!c.ok && c.fix ? `<div class="cal-verdict">直し方の案：${esc(c.fix)}</div>` : ""}
-       </div>`).join("") + `</div>` +
-    (d.proposal ? `<div class="note"><b>まとめた案</b><br>${esc(d.proposal).replace(/\n/g, "<br>")}</div>` : "");
-}
-
-async function scLoad() {
-  if (!$("scOn")) return;
-  try {
-    const d = await (await fetch("/api/self-check")).json();
-    $("scOn").checked = !!d.enabled;
-    $("scEvery").value = d.every ?? 30;
-    $("scHook").value = d.webhook || "";
-    scRender(d);
-  } catch {}
-}
-
-if ($("scOn")) {
-  $("scSave").addEventListener("click", async () => {
-    const st = $("scStatus");
-    st.textContent = "保存しています…";
-    try {
-      await fetch("/api/self-check", {
-        method: "PUT", headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          enabled: $("scOn").checked,
-          every: parseInt($("scEvery").value, 10),
-          webhook: $("scHook").value,
-        }),
-      });
-      st.textContent = "保存しました";
-      setTimeout(() => (st.textContent = ""), 4000);
-    } catch (e) { st.textContent = "失敗：" + e.message; }
-  });
-  $("scRun").addEventListener("click", async () => {
-    const st = $("scStatus");
-    st.textContent = "点検しています…";
-    try {
-      const r = await fetch("/api/self-check/run", {
-        method: "POST", headers: { "content-type": "application/json" }, body: "{}",
-      });
-      const d = await r.json();
-      if (d.error) throw new Error(d.error);
-      scRender({ last: d, proposal: d.proposal });
-      st.textContent = d.bad ? `${d.bad}件見つかりました` : "問題ありません";
-      setTimeout(() => (st.textContent = ""), 6000);
       load();
-    } catch (e) { st.textContent = "失敗：" + e.message; }
-  });
-  scLoad();
-}
-
-load();
     }));
 }
 
@@ -213,88 +191,24 @@ async function summary(send) {
     });
     const d = await r.json();
     if (d.error) throw new Error(d.error);
-    box.innerHTML = esc(d.text || "").replace(/\n/g, "<br>") +
-      (d.sent ? '<br><b class="cc-ok">Chatにも送りました。</b>' : "");
+    box.innerHTML = nl(d.text || "") + (d.sent ? '<br><b class="cc-ok">Chatにも送りました。</b>' : "");
   } catch (e) { box.textContent = "失敗：" + e.message; }
 }
 
+// ───────────────────────── 画面の組み立て ─────────────────────────
 $("dnAdd").addEventListener("click", async () => {
   const t = $("dnTitle").value.trim();
   if (!t) return;
-  say("足しています…");
+  setStatus("dnStatus", "足しています…");
   try {
     await fetch("/api/dev-notes", {
       method: "POST", headers: { "content-type": "application/json" },
       body: JSON.stringify({ title: t, kind: $("dnKind").value }),
     });
     $("dnTitle").value = "";
-    say("足しました", 3000);
-    // ===== 自己点検 =====
-function scRender(d) {
-  const box = $("scBox");
-  if (!box) return;
-  const last = d.last;
-  if (!last) { box.innerHTML = '<div class="note">まだ点検していません。</div>'; return; }
-  const when = new Date(last.at).toLocaleString("ja-JP", { hour12: false }).slice(5, 16);
-  box.innerHTML =
-    `<div class="note">最後の点検：${esc(when)}　問題 ${last.bad}件</div>` +
-    `<div class="cal-list">` + last.checks.map((c) =>
-      `<div class="cal-row ${c.ok ? "cal-ok" : "cal-ng"}">
-         <div class="cal-head"><b>${esc(c.title)}</b></div>
-         <div class="ap-rot-cnt">${esc(c.detail)}</div>
-         ${!c.ok && c.fix ? `<div class="cal-verdict">直し方の案：${esc(c.fix)}</div>` : ""}
-       </div>`).join("") + `</div>` +
-    (d.proposal ? `<div class="note"><b>まとめた案</b><br>${esc(d.proposal).replace(/\n/g, "<br>")}</div>` : "");
-}
-
-async function scLoad() {
-  if (!$("scOn")) return;
-  try {
-    const d = await (await fetch("/api/self-check")).json();
-    $("scOn").checked = !!d.enabled;
-    $("scEvery").value = d.every ?? 30;
-    $("scHook").value = d.webhook || "";
-    scRender(d);
-  } catch {}
-}
-
-if ($("scOn")) {
-  $("scSave").addEventListener("click", async () => {
-    const st = $("scStatus");
-    st.textContent = "保存しています…";
-    try {
-      await fetch("/api/self-check", {
-        method: "PUT", headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          enabled: $("scOn").checked,
-          every: parseInt($("scEvery").value, 10),
-          webhook: $("scHook").value,
-        }),
-      });
-      st.textContent = "保存しました";
-      setTimeout(() => (st.textContent = ""), 4000);
-    } catch (e) { st.textContent = "失敗：" + e.message; }
-  });
-  $("scRun").addEventListener("click", async () => {
-    const st = $("scStatus");
-    st.textContent = "点検しています…";
-    try {
-      const r = await fetch("/api/self-check/run", {
-        method: "POST", headers: { "content-type": "application/json" }, body: "{}",
-      });
-      const d = await r.json();
-      if (d.error) throw new Error(d.error);
-      scRender({ last: d, proposal: d.proposal });
-      st.textContent = d.bad ? `${d.bad}件見つかりました` : "問題ありません";
-      setTimeout(() => (st.textContent = ""), 6000);
-      load();
-    } catch (e) { st.textContent = "失敗：" + e.message; }
-  });
-  scLoad();
-}
-
-load();
-  } catch (e) { say("失敗：" + e.message, 6000); }
+    setStatus("dnStatus", "足しました", 3000);
+    load();
+  } catch (e) { setStatus("dnStatus", "失敗：" + e.message, 6000); }
 });
 $("dnTitle").addEventListener("keydown", (e) => { if (e.key === "Enter") $("dnAdd").click(); });
 $("dnReload").addEventListener("click", load);
@@ -309,72 +223,18 @@ $("dnCopy").addEventListener("click", () => {
     `${i + 1}. [${KINDS[x.kind] || x.kind}] ${x.title}${x.hits > 1 ? `（${x.hits}回）` : ""}` +
     (x.detail ? `\n   ${String(x.detail).replace(/\n/g, " ").slice(0, 300)}` : "")).join("\n");
   navigator.clipboard.writeText(`kinbotで直したいこと（${list.length}件）\n\n${text}`)
-    .then(() => say("コピーしました", 3000))
-    .catch(() => say("コピーできませんでした", 4000));
+    .then(() => setStatus("dnStatus", "コピーしました", 3000))
+    .catch(() => setStatus("dnStatus", "コピーできませんでした", 4000));
 });
 
-// ===== 自己点検 =====
-function scRender(d) {
-  const box = $("scBox");
-  if (!box) return;
-  const last = d.last;
-  if (!last) { box.innerHTML = '<div class="note">まだ点検していません。</div>'; return; }
-  const when = new Date(last.at).toLocaleString("ja-JP", { hour12: false }).slice(5, 16);
-  box.innerHTML =
-    `<div class="note">最後の点検：${esc(when)}　問題 ${last.bad}件</div>` +
-    `<div class="cal-list">` + last.checks.map((c) =>
-      `<div class="cal-row ${c.ok ? "cal-ok" : "cal-ng"}">
-         <div class="cal-head"><b>${esc(c.title)}</b></div>
-         <div class="ap-rot-cnt">${esc(c.detail)}</div>
-         ${!c.ok && c.fix ? `<div class="cal-verdict">直し方の案：${esc(c.fix)}</div>` : ""}
-       </div>`).join("") + `</div>` +
-    (d.proposal ? `<div class="note"><b>まとめた案</b><br>${esc(d.proposal).replace(/\n/g, "<br>")}</div>` : "");
-}
-
-async function scLoad() {
-  if (!$("scOn")) return;
-  try {
-    const d = await (await fetch("/api/self-check")).json();
-    $("scOn").checked = !!d.enabled;
-    $("scEvery").value = d.every ?? 30;
-    $("scHook").value = d.webhook || "";
-    scRender(d);
-  } catch {}
-}
-
 if ($("scOn")) {
-  $("scSave").addEventListener("click", async () => {
-    const st = $("scStatus");
-    st.textContent = "保存しています…";
-    try {
-      await fetch("/api/self-check", {
-        method: "PUT", headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          enabled: $("scOn").checked,
-          every: parseInt($("scEvery").value, 10),
-          webhook: $("scHook").value,
-        }),
-      });
-      st.textContent = "保存しました";
-      setTimeout(() => (st.textContent = ""), 4000);
-    } catch (e) { st.textContent = "失敗：" + e.message; }
-  });
-  $("scRun").addEventListener("click", async () => {
-    const st = $("scStatus");
-    st.textContent = "点検しています…";
-    try {
-      const r = await fetch("/api/self-check/run", {
-        method: "POST", headers: { "content-type": "application/json" }, body: "{}",
-      });
-      const d = await r.json();
-      if (d.error) throw new Error(d.error);
-      scRender({ last: d, proposal: d.proposal });
-      st.textContent = d.bad ? `${d.bad}件見つかりました` : "問題ありません";
-      setTimeout(() => (st.textContent = ""), 6000);
-      load();
-    } catch (e) { st.textContent = "失敗：" + e.message; }
-  });
+  $("scSave").addEventListener("click", scSave);
+  $("scRun").addEventListener("click", scRun);
   scLoad();
 }
-
+if ($("urOn")) {
+  $("urSave").addEventListener("click", urSave);
+  $("urRun").addEventListener("click", urRun);
+  urLoad();
+}
 load();

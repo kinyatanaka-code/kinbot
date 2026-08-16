@@ -38,6 +38,22 @@
           </section>
 
           <section class="card">
+            <h3>画面の使いやすさの見直し</h3>
+            <p class="note">kinbotが自分の画面を1つずつ見て、<b>使いやすくする案</b>を出します。
+            出た案は下の「直したいこと」に残るので、朝のまとめと夜の自動修正に乗ります。<br>
+            知らせ先は、上の自己点検と同じ<b>1か所だけ</b>です。</p>
+            <div class="ap-cfg-actions">
+              <label class="ks-check"><input type="checkbox" id="urOn" /> 自動で見直す</label>
+              <label>間隔 <input type="number" id="urEvery" min="10" max="240" step="10" style="width:70px" /> 分</label>
+              <select id="urPage" style="width:180px"></select>
+              <button class="btn ghost" id="urSave">保存</button>
+              <button class="btn ghost" id="urRun">この画面をいま見る</button>
+              <span class="rev-status" id="urStatus"></span>
+            </div>
+            <div class="note" id="urBox"></div>
+          </section>
+
+          <section class="card">
             <h3>直したいこと・やりたいこと</h3>
             <p class="note">気づいたときに、Google Chatで <b>@kinbot 要望 〜</b> と送るだけで、ここに溜まります。<br>
             うまくいかなかった処理（SFの立ち上げ・カレンダーの取り込みなど）や、Chatで答えられなかった質問も、kinbotが自動で拾って残します。<br>

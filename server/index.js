@@ -27,6 +27,7 @@ import { startKasasagi, getKasasagi, stopKasasagi, feedTranscript, kasasagiInfo,
 import { notifyAssigned, notifyMailDraft, notifyChat, notifyAll, chatWebhookUrl, chatInfo } from "./chat.js";
 import { note as devNote, errKey, buildMorningSummary, NOTE_KINDS } from "./devnotes.js";
 import { checkLive, checkProcessSheet, checkLinks, buildProposal, notifyCheck } from "./selfcheck.js";
+import { UI_PAGES, nextPage, reviewPage, splitIdeas } from "./uireview.js";
 import { verifyChatRequest, readEvent, replyBody, parseCommand, helpText, jstDate, jstTime, INTENT_SYSTEM, guessIntent } from "./chatcmd.js";
 import { normalizeSpace } from "./chatapp.js";
 import { judge as judgeAutolaunch, reasonText, parseTitle as parseLaunchTitle } from "./autolaunch.js";
@@ -3626,6 +3627,112 @@ app.post("/api/self-check/run", async (req, res) => {
       return res.json({ ...r, proposal, sent: !sent.skipped, reason: sent.reason || "" });
     }
     res.json({ ...r, proposal });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// ───────────────────────────────────────────────────────────
+// 画面の使いやすさを見直す（30分おき）
+//
+// 1回に1画面ずつ、順番に見ます。出た案は開発メモに残るので、
+// 朝のまとめにも、夜間開発にも乗ります。
+// ★ 知らせ先は点検用に指定した1か所だけ。チームのスペースには送りません。
+// ───────────────────────────────────────────────────────────
+let uiReviewLast = null;
+
+async function runUiReview(fileWanted = "") {
+  const st = await getSettings().catch(() => ({}));
+  const idx = Number(st.uiReviewIndex ?? 0);
+  const chosen = fileWanted
+    ? { page: UI_PAGES.find((p) => p.file === fileWanted) || UI_PAGES[0], next: idx }
+    : nextPage(idx);
+  if (!fileWanted) await saveSettings({ uiReviewIndex: chosen.next }).catch(() => {});
+
+  // その画面で最近困っていることがあれば、一緒に渡す（的外れな案にならないように）
+  let extra = "";
+  try {
+    const notes = await listDevNotes({ status: "new", limit: 30 });
+    const hit = notes.filter((n) => String(n.title).includes(chosen.page.name)).slice(0, 3);
+    if (hit.length) extra = hit.map((n) => n.title).join(" ／ ");
+  } catch {}
+
+  const publicDir = path.join(__dirname, "..", "public");
+  const r = await reviewPage(publicDir, chosen.page, callLLMPublic, extra);
+  if (r.error) return { error: r.error, page: chosen.page.name };
+
+  // 1件ずつ開発メモに残す（同じ案は1件にまとまる）
+  const ideas = splitIdeas(r.text);
+  for (const it of ideas) {
+    await devNote({
+      key: `ui:${chosen.page.file}:${it.title}`.slice(0, 200), kind: "idea",
+      title: `${chosen.page.name}：${it.title}`, detail: it.detail, source: "画面の見直し",
+    }).catch(() => {});
+  }
+
+  uiReviewLast = { at: new Date().toISOString(), page: chosen.page.name, file: chosen.page.file, text: r.text, count: ideas.length };
+  return uiReviewLast;
+}
+
+let lastUiAt = 0;
+async function maybeUiReview() {
+  try {
+    const st = await getSettings().catch(() => ({}));
+    if (st.uiReview !== true) return;
+    const every = Math.max(10, Number(st.uiReviewEvery ?? 30));
+    if (Date.now() - lastUiAt < every * 60 * 1000) return;
+    lastUiAt = Date.now();
+
+    const r = await runUiReview();
+    if (!r || r.error) return;
+
+    // ★ 点検と同じ1か所にだけ送る
+    const to = { url: String(st.selfCheckWebhook || "").trim(), space: String(st.selfCheckSpace || "").trim() };
+    if (!to.url && !to.space) return;
+    await notifyCheck([
+      `🎨 *画面の見直し：${r.page}*`,
+      "",
+      r.text,
+      "",
+      "（開発メモにも残しました）",
+    ].join("\n"), to).catch(() => {});
+    console.log(`[画面見直し] ${r.page} の案を ${r.count}件 出しました`);
+  } catch (e) { console.warn("[画面見直し]", e.message); }
+}
+
+app.get("/api/ui-review", async (req, res) => {
+  try {
+    const st = await getSettings();
+    res.json({
+      enabled: st.uiReview === true,
+      every: Number(st.uiReviewEvery ?? 30),
+      pages: UI_PAGES.map((p) => ({ file: p.file, name: p.name })),
+      nextPage: UI_PAGES[Number(st.uiReviewIndex ?? 0) % UI_PAGES.length].name,
+      last: uiReviewLast,
+    });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.put("/api/ui-review", async (req, res) => {
+  try {
+    const b = req.body || {};
+    const patch = {};
+    if (b.enabled !== undefined) patch.uiReview = b.enabled === true;
+    if (b.every !== undefined) patch.uiReviewEvery = Math.max(10, Math.min(240, parseInt(b.every, 10) || 30));
+    await saveSettings(patch);
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.post("/api/ui-review/run", async (req, res) => {
+  try {
+    const r = await runUiReview(String(req.body?.file || ""));
+    if (r.error) return res.status(500).json({ error: r.error });
+    if (req.body?.send === true) {
+      const st = await getSettings();
+      const to = { url: String(st.selfCheckWebhook || "").trim(), space: String(st.selfCheckSpace || "").trim() };
+      const sent = await notifyCheck(`🎨 *画面の見直し：${r.page}*\n\n${r.text}`, to);
+      return res.json({ ...r, sent: !sent.skipped, reason: sent.reason || "" });
+    }
+    res.json(r);
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
@@ -13354,6 +13461,10 @@ server.listen(PORT, async () => {
   setTimeout(() => {
     setInterval(() => { maybeSelfCheck().catch(() => {}); }, 5 * 60 * 1000);
   }, 3 * 60 * 1000);
+  // 画面の使いやすさの見直し（既定30分おき）。点検とずらして動かす。
+  setTimeout(() => {
+    setInterval(() => { maybeUiReview().catch(() => {}); }, 5 * 60 * 1000);
+  }, 6 * 60 * 1000);
 
   // どこにも拾われなかったエラーも、開発メモに残す
   process.on("unhandledRejection", (e) => {
