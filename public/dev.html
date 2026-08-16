@@ -18,6 +18,24 @@
         <header class="topbar"><div class="brand"><img class="topbar-bot" src="kinbot.svg" alt="" /><span class="brand-name">開発メモ</span></div></header>
         <main class="report-page">
           <section class="card">
+            <h3>自動で直す（1時間ごと）</h3>
+            <p class="note">溜まった「直したいこと」を、1時間ごとにClaudeが直します。<br>
+            <b>小さくて安全な変更だけ</b>が本番に入り、少しでも引っかかるものはPR（確認待ち）になります。<br>
+            おかしくなったら、まずここを<b>OFF</b>にしてください。戻すのは GitHub の Actions →「巻き戻し」です。</p>
+            <div class="ap-cfg-actions">
+              <label class="ks-check"><input type="checkbox" id="aaRun" /> 1時間ごとに直す</label>
+              <label class="ks-check"><input type="checkbox" id="aaApply" /> 直したものを本番に入れる</label>
+              <label>入れてよい時間 <input type="number" id="aaFrom" min="0" max="24" style="width:60px" /> 時 〜
+                <input type="number" id="aaTo" min="0" max="24" style="width:60px" /> 時</label>
+              <button class="btn ghost" id="aaSave">保存</button>
+              <span class="rev-status" id="aaStatus"></span>
+            </div>
+            <p class="note">「本番に入れる」をOFFにすると、直したものは全部PRになります（人が見てからマージ）。<br>
+            時間帯を「20〜8」のようにすると、商談中の時間には入らなくなります。</p>
+            <div class="note" id="aaBox"></div>
+          </section>
+
+          <section class="card">
             <h3>自己点検</h3>
             <p class="note">kinbotが自分で、<b>ライブ配信・プロセスシート・各連携・カレンダーの見張り</b>を見に行きます。
             おかしいところが見つかったら、直し方の案を作って知らせます。<br>

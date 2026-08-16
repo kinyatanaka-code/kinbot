@@ -3778,6 +3778,73 @@ app.post("/api/ui-review/run", async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+// ───────────────────────────────────────────────────────────
+// 自動改善のスイッチ
+//
+// 1時間ごとの自動改善が、本番へ入れてよいかどうかをここで決めます。
+// おかしくなったら、まずここをOFFにすれば止まります。
+// ───────────────────────────────────────────────────────────
+app.get("/api/auto-apply", async (req, res) => {
+  try {
+    const st = await getSettings();
+    const now = new Date(Date.now() + 9 * 3600 * 1000);
+    const h = now.getUTCHours();
+    const from = Number(st.autoApplyFrom ?? 0);
+    const to = Number(st.autoApplyTo ?? 24);
+    const inHours = from <= to ? (h >= from && h < to) : (h >= from || h < to);
+    res.json({
+      // 直す作業そのものを動かすか
+      enabled: st.autoImprove === true,
+      // 直したものを本番へ入れてよいか（時間帯の外ならPRにする）
+      autoApply: st.autoApply === true && inHours,
+      hours: { from, to, now: h, inHours },
+    });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.put("/api/auto-apply", async (req, res) => {
+  try {
+    const b = req.body || {};
+    const patch = {};
+    if (b.enabled !== undefined) patch.autoImprove = b.enabled === true;
+    if (b.autoApply !== undefined) patch.autoApply = b.autoApply === true;
+    if (b.from !== undefined) patch.autoApplyFrom = Math.max(0, Math.min(24, parseInt(b.from, 10) || 0));
+    if (b.to !== undefined) patch.autoApplyTo = Math.max(0, Math.min(24, parseInt(b.to, 10) || 24));
+    await saveSettings(patch);
+    console.log(`[自動改善] 設定を更新 by ${req.user}: ${JSON.stringify(patch)}`);
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// 自動改善の結果を受け取る（入れたか／PRにしたか）
+app.post("/api/dev-notes/applied", async (req, res) => {
+  try {
+    const b = req.body || {};
+    const g = b.guard || {};
+    const head = b.applied
+      ? "🤖 *自動で直して、本番に入れました*"
+      : (g.changed ? "🤖 *直しましたが、本番には入れていません*" : "🤖 *今回は変更なし*");
+    const why = !b.applied && g.changed && Array.isArray(g.reasons) ? `理由：${g.reasons.join(" / ")}` : "";
+    const text = [
+      head,
+      b.applied && b.sha ? `🔖 ${String(b.sha).slice(0, 7)}` : "",
+      why,
+      g.files && g.files.length ? `📄 ${g.files.join("、")}（${g.lines || 0}行）` : "",
+      "",
+      String(b.result || "").slice(0, 1200),
+      "",
+      b.runUrl ? `🔗 ${b.runUrl}` : "",
+      b.applied ? "戻すときは、Actionsの「巻き戻し」を実行してください。" : "",
+    ].filter(Boolean).join("\n");
+
+    const st = await getSettings().catch(() => ({}));
+    const to = { url: String(st.selfCheckWebhook || "").trim(), space: String(st.selfCheckSpace || "").trim() };
+    if (to.url || to.space) await notifyCheck(text, to).catch(() => {});
+    console.log(`[自動改善] ${b.applied ? "本番に入れました" : "PRにしました"}`);
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 // Claude（GitHub Actions）から、定期的な提案を受け取る。
 // 受け取った案は開発メモに残し、点検と同じ1か所にだけ知らせる。
 // ★ チームのスペースには送らない。

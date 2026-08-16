@@ -17,6 +17,41 @@ const setStatus = (id, t, ms) => {
   if (ms) setTimeout(() => { if (e.textContent === t) e.textContent = ""; }, ms);
 };
 
+// ─────────────────── 0. 自動で直す（1時間ごと） ───────────────────
+async function aaLoad() {
+  if (!$("aaRun")) return;
+  try {
+    const d = await (await fetch("/api/auto-apply")).json();
+    $("aaRun").checked = !!d.enabled;
+    $("aaApply").checked = !!(d.autoApply || (d.hours && !d.hours.inHours));
+    $("aaFrom").value = d.hours?.from ?? 0;
+    $("aaTo").value = d.hours?.to ?? 24;
+    const state = !d.enabled ? "止まっています"
+      : d.autoApply ? "動いています（直したら本番に入ります）"
+      : "動いています（直したものはPRになります）";
+    $("aaBox").innerHTML = `<span class="${d.enabled ? "cc-ok" : "cc-warn"}">いまの状態：${esc(state)}</span>` +
+      `<br>いまは ${d.hours?.now ?? "-"} 時。入れてよい時間帯：${d.hours?.from ?? 0}〜${d.hours?.to ?? 24}時` +
+      `（${d.hours?.inHours ? "いまは入れてよい時間です" : "いまは時間外なのでPRになります"}）`;
+  } catch {}
+}
+
+async function aaSave() {
+  setStatus("aaStatus", "保存しています…");
+  try {
+    await fetch("/api/auto-apply", {
+      method: "PUT", headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        enabled: $("aaRun").checked,
+        autoApply: $("aaApply").checked,
+        from: parseInt($("aaFrom").value, 10),
+        to: parseInt($("aaTo").value, 10),
+      }),
+    });
+    setStatus("aaStatus", "保存しました", 4000);
+    aaLoad();
+  } catch (e) { setStatus("aaStatus", "失敗：" + e.message, 6000); }
+}
+
 // ───────────────────────── 1. 自己点検 ─────────────────────────
 // 自動で動いているかを、いちばん上に出す
 function autoLine(a, on) {
@@ -84,7 +119,7 @@ async function scRun() {
     setStatus("scStatus", d.bad ? `${d.bad}件見つかりました` : "問題ありません", 6000);
     load();
 // 自動の状態は、開いたままでも分かるように少しずつ読み直す
-setInterval(() => { scLoad(); urLoad(); }, 30 * 1000);
+setInterval(() => { scLoad(); urLoad(); aaLoad(); }, 30 * 1000);
   } catch (e) { setStatus("scStatus", "失敗：" + e.message, 6000); }
 }
 
@@ -246,6 +281,10 @@ $("dnCopy").addEventListener("click", () => {
     .catch(() => setStatus("dnStatus", "コピーできませんでした", 4000));
 });
 
+if ($("aaRun")) {
+  $("aaSave").addEventListener("click", aaSave);
+  aaLoad();
+}
 if ($("scOn")) {
   $("scSave").addEventListener("click", scSave);
   $("scRun").addEventListener("click", scRun);
