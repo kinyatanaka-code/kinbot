@@ -2213,6 +2213,14 @@ app.post("/api/drive/migrate", async (req, res) => {
 
 // 進行中の商談のライブ配信が、実際に届いているか確認する
 app.get("/api/live/status", async (req, res) => {
+  // 商談IDを書かなかったときは、いちばん新しい「配信枠のある商談」を見る
+  if (!String(req.query.bot || "").trim()) {
+    try {
+      const rows = await listMeetings({ isAdmin: true, limit: 20, light: true });
+      const hit = (rows || []).find((m) => m.mux_playback_id);
+      if (hit) req.query.bot = hit.bot_id;
+    } catch {}
+  }
   try {
     res.set("Cache-Control", "no-store");
     const botId = String(req.query.bot || "").trim();
@@ -2305,6 +2313,39 @@ app.get("/api/live/status", async (req, res) => {
 
 // 配信枠を実際に1つ作ってみて、本当に使えるかを確かめる。
 // 設定が合っていても鍵の権限が足りないことがあるので、本番の商談を待たずに試せるようにする。
+// 顧客コード（customer-xxxx）が合っているかだけを確かめる。
+// 商談を指定しなくてよいので、いつでも開ける。
+// 中で配信枠を1つ作って調べ、すぐ片づける。
+app.get("/api/live/code-check", async (req, res) => {
+  try {
+    if (!liveConfigured()) {
+      return res.json({ ok: false, why: "配信の設定がありません（CF_ACCOUNT_ID / CF_STREAM_TOKEN）" });
+    }
+    const st = await createLiveStream();
+    const check = await cfCustomerCodeCheck(st.liveStreamId).catch(() => null);
+    // 再生URLにもつないでみる（配信していないので中身は空でよい。404かどうかを見る）
+    let play = null;
+    const url = livePlaybackUrl(st.liveStreamId);
+    if (url) {
+      try {
+        const r = await fetch(url);
+        play = { status: r.status, why: r.status === 404
+          ? "再生URLが見つかりません（顧客コードが違う可能性が高いです）"
+          : "再生URLは見つかりました（配信中なら映ります）" };
+      } catch (e) { play = { why: `つながりません：${e.message}` }; }
+    }
+    try { await disableLiveStream(st.liveStreamId); } catch {}
+    res.json({
+      ok: !check || check.合っているか !== false,
+      顧客コード: check,
+      再生URL: play,
+      hint: check && check.合っているか === false
+        ? check.直し方
+        : "顧客コードは合っています。",
+    });
+  } catch (e) { res.json({ ok: false, why: e.message }); }
+});
+
 // ブラウザのURL欄からも試せるように、GETでも同じ動きにする
 app.get("/api/live/test", async (req, res) => liveTest(req, res));
 app.post("/api/live/test", async (req, res) => liveTest(req, res));
