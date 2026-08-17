@@ -24,7 +24,7 @@ export const DEFAULT_CONFIRM_BODY = `{{会社名}}
 {{自社名}}の{{担当者姓}}でございます。
 
 {{お礼の書き出し}}
-またお忙しい中お打ち合わせのお時間をいただき、
+またお打ち合わせのお時間をいただき、
 誠にありがとうございました。
 
 それでは、お打ち合わせの日程につきまして、
@@ -212,7 +212,7 @@ export function buildVars(link, { repName, repEmail, url, companyName, profile =
       // 自分で取ったアポ、または獲得者が分からないときは、名前を出さない
       const setter = familyName(link.setter);
       if (!setter || selfAcquired(link, repName, repEmail)) {
-        return "先ほどはお電話ありがとうございました。";
+        return "先ほどはお忙しいところご対応いただき、";
       }
       return `先ほどは弊社${setter}のお電話にご対応いただき、`;
     })(),
