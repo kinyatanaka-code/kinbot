@@ -2,7 +2,7 @@
 (function () {
   if (!document.querySelector('script[src$="kbchat.js"]')) {
     const sc = document.createElement("script");
-    sc.src = "kbchat.js?v=20260818c";
+    sc.src = "kbchat.js?v=20260818e";
     sc.defer = true;
     document.head.appendChild(sc);
   }

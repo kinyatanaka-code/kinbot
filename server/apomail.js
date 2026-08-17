@@ -450,16 +450,25 @@ export async function listTomorrowReminders() {
   const y = nowJst.getUTCFullYear(), m = nowJst.getUTCMonth(), d = nowJst.getUTCDate();
   const fromUtc = new Date(Date.UTC(y, m, d + 1, 0, 0, 0) - 9 * 3600 * 1000);
   const toUtc = new Date(Date.UTC(y, m, d + 2, 0, 0, 0) - 9 * 3600 * 1000);
-  const rows = await listApoReminderTargets(fromUtc.toISOString(), toUtc.toISOString());
-  return rows.map((r) => ({
-    slug: r.slug,
-    label: r.label || "",
-    company: parseTitleParts(r.label || "").company || "",
-    person: parseTitleParts(r.label || "").person || "",
-    to: r.client_email || "",
-    owner: r.current_owner || "",
-    start: r.start_time,
-  }));
+  const rows = await listApoReminderTargets(fromUtc.toISOString(), toUtc.toISOString(), { forList: true });
+  return rows.map((r) => {
+    // なぜ送られないのかを、そのまま添える
+    let 状態 = "送ります";
+    if (r.reminded) 状態 = "送信済み";
+    else if (!r.client_email) 状態 = "宛先がありません";
+    else if (!r.current_owner) 状態 = "担当が決まっていません";
+    return {
+      slug: r.slug,
+      label: r.label || "",
+      company: parseTitleParts(r.label || "").company || "",
+      person: parseTitleParts(r.label || "").person || "",
+      to: r.client_email || "",
+      owner: r.current_owner || "",
+      start: r.start_time,
+      状態,
+      送る: 状態 === "送ります",
+    };
+  });
 }
 
 export async function runReminderSweep({ joinUrl, repNameOf } = {}) {

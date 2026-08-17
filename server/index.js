@@ -3952,7 +3952,7 @@ async function maybeNoticeBeforeReminder() {
     const all = await listTomorrowReminders();
     if (!all.length) return;
 
-    // 担当者ごとにまとめる
+    // 担当者ごとにまとめる（送れないものも一緒に知らせる）
     const byOwner = new Map();
     for (const x of all) {
       const k = String(x.owner || "").toLowerCase();
@@ -3964,17 +3964,24 @@ async function maybeNoticeBeforeReminder() {
     let sent = 0;
     for (const [owner, list] of byOwner) {
       const name = await displayNameOf(owner).catch(() => "");
-      const lines = list.slice(0, 20).map((x) => {
+      const ok = list.filter((x) => x.送る);
+      const ng = list.filter((x) => !x.送る && x["状態"] !== "送信済み");
+      if (!ok.length && !ng.length) continue;
+      const line = (x) => {
         const t = String(x.start || "").slice(11, 16);
-        return `・${t}　${x.company || x.label}　${x.to}`;
-      });
+        return `・${t}　${x.company || x.label}　${x.to || ""}`;
+      };
       const text = [
         `${name ? name + "さん、" : ""}あと1時間で、明日の商談のリマインドメールを送ります。`,
         `（${cfg.reminderHour}:00 に自動で送ります）`,
         "",
-        `📮 *送る先 ${list.length}件*`,
-        ...lines,
-        list.length > 20 ? `…ほか${list.length - 20}件` : "",
+        ok.length ? `📮 *送る先 ${ok.length}件*` : "📮 *送る先はありません*",
+        ...ok.slice(0, 20).map(line),
+        ok.length > 20 ? `…ほか${ok.length - 20}件` : "",
+        // 送れないものは、直せば間に合うので一緒に知らせる
+        ng.length ? "" : "",
+        ng.length ? `⚠️ *送れないもの ${ng.length}件*` : "",
+        ...ng.slice(0, 10).map((x) => `${line(x)}（${x["状態"]}）`),
         "",
         "宛先や日時が違うものがあれば、kinbotのホームから直してください。",
       ].filter(Boolean).join("\n");
@@ -10474,7 +10481,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-08-18c 送ったメールを自分にも届ける（Bcc）／リマインドは前日17時";
+const BUILD_TAG = "2026-08-18d 明日のリマインド一覧（送れない理由つき）／Bcc／前日17時";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",

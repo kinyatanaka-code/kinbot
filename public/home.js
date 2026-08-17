@@ -1974,20 +1974,24 @@ async function loadTomorrowReminders() {
       const p2 = (n) => String(n).padStart(2, "0");
       return `${j.getUTCMonth() + 1}/${j.getUTCDate()} ${p2(j.getUTCHours())}:${p2(j.getUTCMinutes())}`;
     };
+    const okCount = items.filter((x) => x.送る).length;
+    const ngCount = items.length - okCount;
     bar.hidden = false;
     bar.innerHTML =
       `<button type="button" class="rm-head" id="rmToggle">` +
       `<span class="rm-lb">明日のリマインド</span>` +
-      `<span class="rm-n">${items.length}件</span>` +
+      `<span class="rm-n">${okCount}件</span>` +
       `<span class="rm-when">${escH(d["送る時刻"] || "")}に送ります</span>` +
+      (ngCount ? `<span class="cc-warn">送れないもの ${ngCount}件</span>` : "") +
       (d["自動送信"] ? "" : `<span class="cc-warn">自動送信はOFFです</span>`) +
       `<span class="rm-arrow">▾</span></button>` +
       `<div class="rm-list" id="rmList" hidden>` +
       items.map((x) => `
-        <div class="rm-row">
+        <div class="rm-row${x.送る ? "" : " rm-ng"}">
           <span class="rm-time">${escH(when(x.start))}</span>
           <span class="rm-co">${escH(x.company || x.label || "")}</span>
-          <span class="rm-to${x.to ? "" : " cc-warn"}">${escH(x.to || "宛先なし")}</span>
+          <span class="rm-to">${escH(x.to || "")}</span>
+          <span class="rm-st${x.送る ? "" : " cc-warn"}">${escH(x["状態"] || "")}</span>
         </div>`).join("") +
       `</div>`;
     const t = document.getElementById("rmToggle");

@@ -5457,5 +5457,9 @@ input:focus, select:focus, textarea:focus, .sf-input:focus, .sf-select:focus, .s
 .rm-row:last-child { border-bottom: none; }
 .rm-time { flex: none; font-weight: 700; color: #0d5b47; width: 76px; }
 .rm-co { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.rm-to { flex: none; color: var(--muted); font-size: 11px; max-width: 40%;
+.rm-to { flex: none; color: var(--muted); font-size: 11px; max-width: 32%;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rm-st { flex: none; font-size: 10.5px; font-weight: 700; color: #0F6E56;
+  background: #eaf7f2; border: 1px solid #cfeee2; border-radius: 999px; padding: 1px 8px; }
+.rm-st.cc-warn { background: #fdecea; border-color: #f7d4cd; color: #A33C24; }
+.rm-row.rm-ng { background: #fffaf8; }

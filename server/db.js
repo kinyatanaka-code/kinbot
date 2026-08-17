@@ -4820,17 +4820,29 @@ export async function listGmailActions(owner, limit = 50) {
 }
 
 // 前日リマインドの対象：指定の時間帯に商談があり、担当・宛先が揃っていて、まだ送っていないもの
-export async function listApoReminderTargets(fromISO, toISO) {
+// 前日リマインドの対象を取る。
+//   forList = true … 画面に出す用。宛先が無いもの・送信済みのものも含めて全部返す
+//                     （「なぜ送られないのか」を見せるため）
+//   forList = false … 実際に送る用。宛先があり、まだ送っていないものだけ
+export async function listApoReminderTargets(fromISO, toISO, { forList = false } = {}) {
   if (!pool) return [];
   try {
+    const cond = forList
+      ? ""
+      : `AND COALESCE(s.current_owner,'') <> ''
+         AND COALESCE(s.client_email,'') <> ''
+         AND NOT EXISTS (
+               SELECT 1 FROM apo_mail_log l
+                WHERE l.slug = s.slug AND l.kind = 'reminder' AND l.status IN ('sent','draft'))`;
     const { rows } = await pool.query(
-      `SELECT s.* FROM smart_links s
+      `SELECT s.*,
+              EXISTS (SELECT 1 FROM apo_mail_log l
+                       WHERE l.slug = s.slug AND l.kind = 'reminder'
+                         AND l.status IN ('sent','draft')) AS reminded
+         FROM smart_links s
         WHERE s.start_time >= $1 AND s.start_time < $2
-          AND COALESCE(s.current_owner,'') <> ''
-          AND COALESCE(s.client_email,'') <> ''
-          AND NOT EXISTS (
-                SELECT 1 FROM apo_mail_log l
-                 WHERE l.slug = s.slug AND l.kind = 'reminder' AND l.status IN ('sent','draft'))
+          AND NOT COALESCE(s.excluded, false)
+          ${cond}
         ORDER BY s.start_time`,
       [fromISO, toISO]
     );
