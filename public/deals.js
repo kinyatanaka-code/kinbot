@@ -2870,9 +2870,13 @@ async function initSfTab(account) {
         if (window._sfExtraFields) Object.assign(fields, window._sfExtraFields);
         let ownerChanged = false;
         if (Object.keys(fields).length) {
+          // どの商談から更新したかも送る（ホームの「SF更新まだ」の判定に使う）
+          const body = { ...fields };
+          const botId = window._sfReadBotId || window._sfCurrentBotId || "";
+          if (botId) body.botId = botId;
           const r = await sfFetch("/api/salesforce/opportunity/" + sfLinkedOpp.Id, {
             method: "PATCH", headers: {"content-type":"application/json"},
-            body: JSON.stringify(fields),
+            body: JSON.stringify(body),
           });
           const d = await r.json().catch(() => ({}));
           if (!r.ok) {

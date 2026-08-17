@@ -120,6 +120,8 @@ import {
   aposInRange,
   aposTakenInRange,
   aposMailPending,
+  recordSfUpdate,
+  sfUpdatedMap,
   listWeekly,
   saveWeekly,
   weeklyFor,
@@ -3738,6 +3740,25 @@ async function maybeSendCallReport() {
   } catch (e) { console.warn("[call-report]", e.message); }
 }
 
+// Salesforceを更新済みの商談を返す（ホームの「SF更新まだ」の判定に使う）
+app.post("/api/sf-updated-check", async (req, res) => {
+  try {
+    const ids = Array.isArray(req.body?.botIds) ? req.body.botIds.slice(0, 100).map(String) : [];
+    if (!ids.length) return res.json({ ok: true, results: {} });
+    // kinbotから更新したぶん
+    const mine = await sfUpdatedMap(ids).catch(() => ({}));
+    // 商談の記録に、活動履歴を作った印があるものも「更新済み」とみなす
+    const results = {};
+    for (const id of ids) {
+      if (mine[id]) {
+        results[id] = { updated: true, stage: mine[id].stage || "", why: mine[id].stage ? "ステージを更新" : "自動で反映" };
+      }
+      // 記録が無ければ「まだ」とする
+    }
+    res.json({ ok: true, results });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 // ───────────────────────────────────────────────────────────
 // 御礼メールを実際に送ったかを、Gmailの送信済みから見分ける
 //
@@ -6820,7 +6841,10 @@ app.post("/api/meetings/:id/extract", async (req, res) => {
     // 自動反映：設定がONで、SF連携済みのときだけ。応答はブロックせず裏で実行。
     try {
       const settings = await getUserSettings(req.user);
-      if (settings.sfAutoReflect && salesforceConfigured() && (await sfConnected(req.user))) {
+      // 既定でON。商談が終わって要約ができたら、活動履歴と空欄をSFへ自動で反映する。
+      // 止めたい人は 設定→動作設定 でOFFにできる。
+      const autoOn = settings.sfAutoReflect !== false;
+      if (autoOn && salesforceConfigured() && (await sfConnected(req.user))) {
         const meetingId = req.params.id;
         const user = req.user;
         (async () => {
@@ -10585,7 +10609,10 @@ app.get("/api/salesforce/opportunity/:id", async (req, res) => {
 // SF商談を更新（Stage変更、NextStep等）
 app.patch("/api/salesforce/opportunity/:id", async (req, res) => {
   try {
-    const fields = req.body || {};
+    const fields = { ...(req.body || {}) };
+    // botId はkinbot側の記録に使うだけなので、Salesforceへは送らない
+    const fromBotId = String(fields.botId || "");
+    delete fields.botId;
     // 商談所有者を、更新した本人に付け替える（OwnerIdが指定されている場合はそちらを優先）
     let ownerChanged = false;
     if (fields.OwnerId === undefined) {
@@ -10606,6 +10633,18 @@ app.patch("/api/salesforce/opportunity/:id", async (req, res) => {
         throw e;
       }
     }
+    // kinbot側にも「更新した」ことを残す。
+    // ホームの「SF更新まだ」を、実際の更新にもとづいて数えるため。
+    if (fields.StageName) {
+      await recordSfUpdate({
+        botId: fromBotId || null,
+        oppId: req.params.id,
+        stage: fields.StageName,
+        note: "ステージを更新",
+        owner: req.user,
+      }).catch(() => {});
+    }
+
     // 更新内容をログとしてChatterに投稿
     const parts = [];
     if (fields.StageName) parts.push(`Stage → ${fields.StageName}`);
@@ -11899,6 +11938,17 @@ async function autofillMeetingToSf(user, meeting, url) {
   const filledCount =
     Object.keys(oppResult.filled || {}).length + Object.keys(accResult.filled || {}).length;
   const activityCreated = !!(task && task.created);
+  // 活動履歴を作れたら「SFを更新した」ものとして残す。
+  // 商談が終わったあと、これが自動で動くので、手で押さなくても済む。
+  if (activityCreated || filledCount) {
+    await recordSfUpdate({
+      botId: String(m.id),
+      oppId: recordId,
+      stage: "",
+      note: activityCreated ? "活動履歴を自動で作成" : `${filledCount}項目を自動で入力`,
+      owner: user,
+    }).catch(() => {});
+  }
   // 「得」の記録：実際に何かした反映のみカウント
   await recordSfStats(user, { filled: filledCount, activityCreated });
 
@@ -12287,7 +12337,7 @@ app.get("/api/salesforce/stats", async (req, res) => {
     const mk = new Date().toISOString().slice(0, 7);
     const month = (st.monthly && st.monthly[mk]) || { runs: 0, fieldsFilled: 0, activities: 0 };
     res.json({
-      autoReflect: !!settings.sfAutoReflect,
+      autoReflect: settings.sfAutoReflect !== false,
       total: { runs: st.runs || 0, fieldsFilled: st.fieldsFilled || 0, activities: st.activities || 0 },
       month: { key: mk, runs: month.runs || 0, fieldsFilled: month.fieldsFilled || 0, activities: month.activities || 0 },
     });

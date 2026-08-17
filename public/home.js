@@ -276,6 +276,7 @@ function render() {
   if (selDate === todayStr && !mailSentAsked) {
     mailSentAsked = true;
     checkMailSent(items);
+    checkSfUpdated(items);
   }
 
   let html = "";
@@ -340,7 +341,10 @@ function render() {
         ? hIcon("rec", "録音済み（もう一度録る）", `data-rec="${escH(key)}"`, "done")
         : hIcon("rec", "録音する", `data-rec="${escH(key)}"`, "need")) +
       (m
-        ? hIcon("sf", "SFを更新", `data-sfedit="${escH(key)}"`, "need")
+        ? hIcon("sf",
+            sfDoneMap[m.bot_id] ? `SFを更新（済み：${sfDoneMap[m.bot_id]}）` : "SFを更新",
+            `data-sfedit="${escH(key)}"`,
+            sfDoneMap[m.bot_id] ? "done" : "need")
         : hIcon("sf", s.open ? "SF商談を閉じる" : "SF商談を選ぶ", `data-sf-open="${escH(key)}"`, "done")) +
       (m && m.bot_id
         ? hIcon("mail",
@@ -993,8 +997,9 @@ function renderTodoBar(rows) {
   let recLeft = 0, sfLeft = 0, mailLeft = 0;
   for (const it of rows || []) {
     if (it.rec) {
-      // 録音できている商談は、SF更新と御礼メールが残っていないかを見る
-      sfLeft++;
+      // 録音できている商談は、SF更新と御礼メールが残っていないかを見る。
+      // ステージを更新した、または活動履歴が自動で作られたものは数えない。
+      if (!sfDoneMap[it.rec.bot_id]) sfLeft++;
       // 実際にGmailから送っていれば、御礼メールは済んだものとして数えない
       if (it.rec.bot_id && !mailSentMap[it.rec.bot_id]) mailLeft++;
     } else if (it.ev && new Date(it.ev.start).getTime() < now) {
@@ -1768,6 +1773,7 @@ async function changeDate(next) {
   // 日付が変わったら、送信済みの照合をやり直す
   mailSentAsked = false;
   mailSentMap = {};
+  sfDoneMap = {};
   selDate = next;
   weekBase = mondayOf(next);
   miniBase = next.slice(0, 7) + "-01";
@@ -1895,6 +1901,26 @@ function apoMeetingWhen(iso) {
 // その人が今日送ったメールの宛先・件名と照らし合わせて、送ったものは数から外す。
 let mailSentMap = {};
 let mailSentAsked = false;
+// Salesforceを更新済みの商談（ステージ変更・活動履歴の自動作成）
+let sfDoneMap = {};
+
+// Salesforceを更新したかどうかを聞く
+async function checkSfUpdated(rows) {
+  const botIds = (rows || []).filter((x) => x.rec && x.rec.bot_id).map((x) => x.rec.bot_id);
+  if (!botIds.length) return;
+  try {
+    const r = await fetch("/api/sf-updated-check", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ botIds }),
+    });
+    const d = await r.json();
+    if (d.error || !d.results) return;
+    const next = {};
+    for (const [id, v] of Object.entries(d.results)) if (v && v.updated) next[id] = v.why || true;
+    sfDoneMap = next;
+    render();
+  } catch {}
+}
 
 async function checkMailSent(rows) {
   const items = [];

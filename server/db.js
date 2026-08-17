@@ -510,6 +510,22 @@ export async function initDb() {
   `);
   await sq(`CREATE INDEX IF NOT EXISTS idx_oauth_tokens_refresh ON oauth_tokens(refresh_token);`);
 
+  // ===== Salesforceの更新の記録 =====
+  // どの商談を、いつ、どのステージにしたか。
+  // 「SF更新まだ」を正しく数えるために使う。
+  await sq(`
+    CREATE TABLE IF NOT EXISTS sf_updates (
+      id         SERIAL PRIMARY KEY,
+      bot_id     TEXT,
+      opp_id     TEXT,
+      stage      TEXT,
+      note       TEXT,
+      owner      TEXT,
+      at         TIMESTAMPTZ DEFAULT now()
+    );
+  `);
+  await sq(`CREATE INDEX IF NOT EXISTS ix_sf_updates_bot ON sf_updates(bot_id, at DESC);`);
+
   // ===== 週のボード（ホワイトボードの代わり） =====
   // 月曜の朝礼までに「テーマ・定量目標・具体的な施策」を書き、
   // 金曜の終礼で「振り返り」を書く。1人1週で1枚。
@@ -2689,6 +2705,32 @@ export async function getSmartLinkByEvent(eventId) {
   const { rows } = await pool.query(`SELECT * FROM smart_links WHERE event_id=$1`, [eventId]);
   return rows[0] || null;
 }
+// ===== Salesforceの更新の記録 =====
+export async function recordSfUpdate({ botId, oppId, stage, note, owner }) {
+  if (!pool) return null;
+  try {
+    const { rows } = await pool.query(
+      `INSERT INTO sf_updates (bot_id, opp_id, stage, note, owner)
+       VALUES ($1,$2,$3,$4,$5) RETURNING *`,
+      [botId || null, oppId || null, stage || null, String(note || "").slice(0, 500), owner || null]);
+    return rows[0] || null;
+  } catch (e) { console.error("[db] recordSfUpdate", e.message); return null; }
+}
+
+// 指定した商談たちについて、SFを更新済みかどうかを返す
+export async function sfUpdatedMap(botIds = []) {
+  if (!pool || !botIds.length) return {};
+  try {
+    const { rows } = await pool.query(
+      `SELECT bot_id, max(at) AS at, max(stage) AS stage
+         FROM sf_updates WHERE bot_id = ANY($1::text[]) GROUP BY bot_id`,
+      [botIds]);
+    const out = {};
+    for (const r of rows) out[r.bot_id] = { at: r.at, stage: r.stage || "" };
+    return out;
+  } catch { return {}; }
+}
+
 // ===== 週のボード =====
 export async function listWeekly(weekStart) {
   if (!pool) return [];
