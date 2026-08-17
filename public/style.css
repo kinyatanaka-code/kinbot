@@ -5463,3 +5463,8 @@ input:focus, select:focus, textarea:focus, .sf-input:focus, .sf-select:focus, .s
   background: #eaf7f2; border: 1px solid #cfeee2; border-radius: 999px; padding: 1px 8px; }
 .rm-st.cc-warn { background: #fdecea; border-color: #f7d4cd; color: #A33C24; }
 .rm-row.rm-ng { background: #fffaf8; }
+
+/* リマインドを送るかどうかのチェック */
+.rm-chk { flex: none; display: flex; align-items: center; cursor: pointer; }
+.rm-chk input { accent-color: #0d5b47; margin: 0; }
+.rm-chk input:disabled { opacity: .4; cursor: default; }

@@ -773,6 +773,8 @@ export async function initDb() {
     }
   }
   await sq(`CREATE INDEX IF NOT EXISTS ix_smart_links_excluded ON smart_links(excluded) WHERE excluded;`);
+  // 前日リマインドを送らない、と決めたアポ。ホームから切り替えられる。
+  await sq(`ALTER TABLE smart_links ADD COLUMN IF NOT EXISTS no_reminder BOOLEAN NOT NULL DEFAULT false;`);
 
   // Google Chatの通知先。複数のスペースに送れるようにする。
   // 種類ごと（アポ割り振り／メール／資料の閲覧）にON・OFFを持つ。
@@ -2705,6 +2707,17 @@ export async function getSmartLinkByEvent(eventId) {
   const { rows } = await pool.query(`SELECT * FROM smart_links WHERE event_id=$1`, [eventId]);
   return rows[0] || null;
 }
+// 前日リマインドを送る／送らないを切り替える
+export async function setNoReminder(slug, off) {
+  if (!pool || !slug) return null;
+  try {
+    const { rows } = await pool.query(
+      `UPDATE smart_links SET no_reminder = $2 WHERE slug = $1
+       RETURNING slug, label, no_reminder`, [slug, !!off]);
+    return rows[0] || null;
+  } catch (e) { console.error("[db] setNoReminder", e.message); return null; }
+}
+
 // ===== Salesforceの更新の記録 =====
 export async function recordSfUpdate({ botId, oppId, stage, note, owner }) {
   if (!pool) return null;
@@ -4829,7 +4842,8 @@ export async function listApoReminderTargets(fromISO, toISO, { forList = false }
   try {
     const cond = forList
       ? ""
-      : `AND COALESCE(s.current_owner,'') <> ''
+      : `AND NOT COALESCE(s.no_reminder, false)
+         AND COALESCE(s.current_owner,'') <> ''
          AND COALESCE(s.client_email,'') <> ''
          AND NOT EXISTS (
                SELECT 1 FROM apo_mail_log l

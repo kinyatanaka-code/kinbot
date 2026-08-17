@@ -1987,13 +1987,37 @@ async function loadTomorrowReminders() {
       `<span class="rm-arrow">▾</span></button>` +
       `<div class="rm-list" id="rmList" hidden>` +
       items.map((x) => `
-        <div class="rm-row${x.送る ? "" : " rm-ng"}">
+        <div class="rm-row${x.送る ? "" : " rm-ng"}" data-slug="${escH(x.slug)}">
+          <label class="rm-chk" title="チェックを外すと、この会社には送りません">
+            <input type="checkbox" class="rm-send"${x["送らない"] ? "" : " checked"}
+              ${x["状態"] === "送信済み" ? " disabled" : ""} />
+          </label>
           <span class="rm-time">${escH(when(x.start))}</span>
           <span class="rm-co">${escH(x.company || x.label || "")}</span>
           <span class="rm-to">${escH(x.to || "")}</span>
           <span class="rm-st${x.送る ? "" : " cc-warn"}">${escH(x["状態"] || "")}</span>
         </div>`).join("") +
       `</div>`;
+
+    // チェックを外したら「送らない」、戻したら「送る」
+    bar.querySelectorAll(".rm-send").forEach((el) =>
+      el.addEventListener("change", async () => {
+        const row = el.closest(".rm-row");
+        const slug = row.dataset.slug;
+        const off = !el.checked;
+        el.disabled = true;
+        try {
+          const r = await fetch("/api/apo-mail/reminder-off", {
+            method: "POST", headers: { "content-type": "application/json" },
+            body: JSON.stringify({ slug, off }),
+          });
+          if (!r.ok) throw new Error("変えられませんでした");
+          loadTomorrowReminders();   // 件数と状態を出し直す
+        } catch (e) {
+          el.checked = !el.checked;
+          el.disabled = false;
+        }
+      }));
     const t = document.getElementById("rmToggle");
     if (t) t.addEventListener("click", () => {
       const l = document.getElementById("rmList");

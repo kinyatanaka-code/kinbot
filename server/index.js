@@ -121,6 +121,7 @@ import {
   aposInRange,
   aposTakenInRange,
   aposMailPending,
+  setNoReminder,
   recordSfUpdate,
   sfUpdatedMap,
   listWeekly,
@@ -3932,6 +3933,19 @@ app.get("/api/apo-mail/tomorrow", async (req, res) => {
       件数: mine.length,
       items: mine,
     });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// リマインドを送る／送らないを切り替える
+app.post("/api/apo-mail/reminder-off", async (req, res) => {
+  try {
+    const slug = String(req.body?.slug || "").trim();
+    if (!slug) return res.status(400).json({ error: "どのアポか分かりません" });
+    const off = req.body?.off === true;
+    const r = await setNoReminder(slug, off);
+    if (!r) return res.status(404).json({ error: "見つかりません" });
+    console.log(`[apo-mail] ${r.label}：リマインドを${off ? "送らない" : "送る"}にしました by ${req.user}`);
+    res.json({ ok: true, slug, off });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
@@ -10481,7 +10495,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-08-18d 明日のリマインド一覧（送れない理由つき）／Bcc／前日17時";
+const BUILD_TAG = "2026-08-18g リマインドの送信可否を選べる／アポ一覧の検索";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",

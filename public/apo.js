@@ -218,16 +218,31 @@ function apoCard(a, i) {
   </div>`;
 }
 
+// 探す欄の言葉で、アポを絞り込む。
+// 会社名・担当者名・獲得者・予定名・宛先のどれかに当たれば残す。
+function apoMatches(x, word) {
+  const w = String(word || "").replace(/[\s　]/g, "").toLowerCase();
+  if (!w) return true;
+  const norm = (v) => String(v || "").replace(/[\s　（）()・,、.。「」]/g, "").toLowerCase();
+  const fields = [x.title, x.label, x.company, x.person, x.setter, x.owner_name,
+                  x.current_owner, x.client_email, x.business];
+  return fields.some((f) => norm(f).includes(w));
+}
+
 function renderApo() {
   const body = $("apoBody");
-  const appts = apState.appts;
+  const word = ($("apFind") && $("apFind").value) || "";
+  const all = apState.appts || [];
+  const appts = word ? all.filter((x) => apoMatches(x, word)) : all;
   const errNote = (apState.errors || []).length
     ? '<p class="note cc-warn">一部のカレンダーを読めませんでした：' +
       apState.errors.map((e) => esc(e.setter) + "（" + esc(e.error) + "）").join("、") + '</p>'
     : "";
   if (!appts.length) {
-    body.innerHTML = '<div class="empty-state">該当するアポがありませんでした。取得日・商談日の指定を変えて［表示］を押すか、' +
-      '<a href="settings.html#members">設定 → メンバー管理</a>の登録内容とカレンダー共有をご確認ください。</div>' + errNote;
+    body.innerHTML = word
+      ? `<div class="empty-state">「${esc(word)}」に当てはまるアポはありませんでした（全${all.length}件のうち）。</div>` + errNote
+      : '<div class="empty-state">該当するアポがありませんでした。取得日・商談日の指定を変えて［表示］を押すか、' +
+        '<a href="settings.html#members">設定 → メンバー管理</a>の登録内容とカレンダー共有をご確認ください。</div>' + errNote;
     return;
   }
 
@@ -1839,9 +1854,27 @@ async function saveMailCfg() {
   });
   loadMailCfg();
   if ($("apReload")) $("apReload").addEventListener("click", loadApo);
+  // 探す欄は、打つたびにその場で絞り込む（読み込み直さないので速い）
+  if ($("apFind")) {
+    let t = null;
+    $("apFind").addEventListener("input", () => {
+      clearTimeout(t);
+      t = setTimeout(() => {
+        renderApo();
+        const st = $("apStatus");
+        const w = $("apFind").value.trim();
+        if (st) {
+          const all = (apState.appts || []).length;
+          const hit = w ? (apState.appts || []).filter((x) => apoMatches(x, w)).length : all;
+          st.textContent = w ? `${hit}件 / 全${all}件` : `${all}件`;
+        }
+      }, 150);
+    });
+  }
   if ($("apClear")) $("apClear").addEventListener("click", () => {
     if ($("apCreated")) $("apCreated").value = "";
     if ($("apStart")) $("apStart").value = "";
+    if ($("apFind")) $("apFind").value = "";
     loadApo();
   });
   loadApo();
