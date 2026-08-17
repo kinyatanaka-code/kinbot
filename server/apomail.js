@@ -292,6 +292,62 @@ export function render(tpl, vars) {
 // 戻り値: { ok, skipped, reason, subject, to }
 // 送れない理由（宛先なし・担当なし等）は例外ではなく skipped で返す。
 // 自動実行の途中で1件こけても全体を止めないため。
+// テスト送信。
+//
+// 架空のアポで文面を組み立てて、指定の宛先に送る（または下書きにする）。
+// 実際のアポの記録には何も残さないので、何度でも試せる。
+export async function sendTestApoMail({ kind = "confirm", to, owner, draft = false, setter = "" } = {}) {
+  const cfg = await getApoMailConfig();
+  const sendAs = String(owner || "").trim();
+  const dest = String(to || "").trim();
+  if (!sendAs) return { ok: false, reason: "送る人（Gmailの連携先）が分かりません" };
+  if (!dest) return { ok: false, reason: "宛先を入れてください" };
+
+  const profiles = await memberProfiles().catch(() => ({}));
+  const profile = profiles[sendAs] || {};
+  const us = await getUserSettings(sendAs).catch(() => ({}));
+  const zoomLink = (us && String(us.myZoomLink || "").trim()) || "";
+
+  // 明日の10時に商談がある、という想定の架空のアポ
+  const start = new Date(Date.now() + 24 * 3600 * 1000);
+  start.setHours(10, 0, 0, 0);
+  const fake = {
+    slug: "test",
+    label: "【初回】テスト株式会社/テスト様",
+    client_name: "テスト",
+    client_email: dest,
+    current_owner: sendAs,
+    // 空にすると「自分で取ったアポ」の書き方になる。名前を入れると相手が取った書き方になる。
+    setter: setter || "",
+    setter_email: setter ? "" : sendAs,
+    start_time: start.toISOString(),
+  };
+
+  const vars = buildVars(fake, {
+    repName: profile.name || sendAs,
+    repEmail: sendAs,
+    url: zoomLink || "https://example.zoom.us/j/0000000000",
+    companyName: cfg.companyName,
+    profile,
+    zoomLink,
+  });
+
+  const subjectTpl = kind === "reminder" ? cfg.reminderSubject : cfg.confirmSubject;
+  const bodyTpl = kind === "reminder" ? cfg.reminderBody : cfg.confirmBody;
+  const subject = "[テスト] " + render(subjectTpl, vars);
+  const bodyText = render(bodyTpl, vars);
+
+  try {
+    const r = draft
+      ? await gmailCreateDraft(sendAs, { to: dest, subject, bodyText })
+      : await gmailSend(sendAs, { to: dest, subject, bodyText });
+    console.log(`[apo-mail] テスト${draft ? "下書き" : "送信"}：${sendAs} → ${dest}（${kind}）`);
+    return { ok: true, draft, to: dest, from: sendAs, subject, bodyText, url: (r && r.url) || "" };
+  } catch (e) {
+    return { ok: false, reason: e.message, subject, bodyText };
+  }
+}
+
 export async function sendApoMail(link, kind, { url, repName, force = false, actor = "auto" } = {}) {
   if (!link || !link.slug) return { ok: false, skipped: true, reason: "リンクがありません" };
   const cfg = await getApoMailConfig();

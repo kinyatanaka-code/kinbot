@@ -5246,3 +5246,8 @@ input:focus, select:focus, textarea:focus, .sf-input:focus, .sf-select:focus, .s
 .ht-pick-item:hover { border-color: #9fe1cb; }
 .ht-pick-item input { accent-color: #0d5b47; }
 .ht-pick-item.fixed { background: var(--panel-2); color: var(--muted); cursor: default; }
+
+/* テストメールの下見 */
+.mt-preview { margin-top: 6px; padding: 10px 12px; border: 1px solid var(--line);
+  border-radius: 10px; background: var(--panel); font-size: 12px; line-height: 1.8;
+  max-height: 320px; overflow-y: auto; }

@@ -225,6 +225,27 @@
                 <button class="btn ghost" id="mcRunRemind">前日リマインドを今すぐ流す</button>
                 <span class="rev-status" id="mcStatus"></span>
               </div>
+
+              <h4 class="ap-rot-h">テストで送ってみる</h4>
+              <p class="note">架空のアポ（テスト株式会社／明日10時）で文面を作って送ります。<b>実際のアポには何も残りません</b>ので、何度でも試せます。<br>
+              送信元はあなたのGmailです。署名や会議室URLも、あなたの設定が入ります。</p>
+              <div class="ap-cfg-actions">
+                <label>宛先 <input type="text" id="mtTo" style="width:280px" /></label>
+                <label>種類
+                  <select id="mtKind" style="width:180px">
+                    <option value="confirm">アポ確定メール</option>
+                    <option value="reminder">前日リマインド</option>
+                  </select>
+                </label>
+                <label>獲得者 <input type="text" id="mtSetter" style="width:150px" placeholder="空＝自分で取った" /></label>
+              </div>
+              <div class="ap-cfg-actions">
+                <button class="btn ghost" id="mtDraft">下書きにする</button>
+                <button class="btn" id="mtSend">送る</button>
+                <span class="rev-status" id="mtStatus"></span>
+              </div>
+              <p class="note">「獲得者」を空にすると<b>自分で取ったアポ</b>の文面（先ほどはお電話ありがとうございました。）になります。名前を入れると<b>その人が取ったアポ</b>の文面になります。</p>
+              <div class="note" id="mtBox"></div>
             
             </div>
           </section>

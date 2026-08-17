@@ -1626,6 +1626,44 @@ async function saveMailCfg() {
 
 (function () {
   if ($("mcSave")) $("mcSave").addEventListener("click", saveMailCfg);
+
+  // テストで送ってみる
+  if ($("mtSend")) {
+    // 宛先は、はじめは自分のアドレスを入れておく
+    (async () => {
+      try {
+        const me = await apiJson("/api/me");
+        if ($("mtTo") && !$("mtTo").value) $("mtTo").value = me.email || me.username || "";
+      } catch {}
+    })();
+    const runTest = async (draft) => {
+      const st = $("mtStatus"), box = $("mtBox");
+      st.textContent = draft ? "下書きを作っています…" : "送っています…";
+      if (box) box.textContent = "";
+      try {
+        const r = await fetch("/api/apo-mail/test", {
+          method: "POST", headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            to: $("mtTo").value, kind: $("mtKind").value,
+            setter: $("mtSetter").value, draft,
+          }),
+        });
+        const d = await r.json();
+        if (!r.ok || !d.ok) throw new Error(d.reason || d.error || "送れませんでした");
+        st.textContent = draft ? "下書きを作りました" : "送りました";
+        setTimeout(() => (st.textContent = ""), 6000);
+        if (box) {
+          box.innerHTML = `<b>件名</b> ${esc(d.subject)}<br>` +
+            (d.url ? `<a class="home-sf-link" href="${esc(d.url)}" target="_blank" rel="noopener">Gmailで開く</a><br>` : "") +
+            `<div class="mt-preview">${esc(d.bodyText || "").replace(/\n/g, "<br>")}</div>`;
+        }
+      } catch (e) {
+        st.textContent = "失敗：" + e.message;
+      }
+    };
+    $("mtSend").addEventListener("click", () => runTest(false));
+    if ($("mtDraft")) $("mtDraft").addEventListener("click", () => runTest(true));
+  }
   if ($("mcReset")) $("mcReset").addEventListener("click", () => {
     if (!mailDefaults) return;
     if (!confirm("件名と本文を初期文面に戻します。よろしいですか？（保存を押すまで反映されません）")) return;

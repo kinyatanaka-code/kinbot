@@ -19,7 +19,7 @@ process.on("unhandledRejection", (e) => {
 
 import { pickCloser, commitAssignment, rotationStatus, setNextCloser,
          getRotationConfig, loadTeamContext, balanceRange, nextOrderFor } from "./rotation.js";
-import { sendApoMail, runReminderSweep, getApoMailConfig,
+import { sendApoMail, sendTestApoMail, runReminderSweep, getApoMailConfig,
          DEFAULT_CONFIRM_SUBJECT, DEFAULT_CONFIRM_BODY,
          DEFAULT_REMINDER_SUBJECT, DEFAULT_REMINDER_BODY, stripRetiredLines } from "./apomail.js";
 import { startKasasagi, getKasasagi, stopKasasagi, feedTranscript, kasasagiInfo,
@@ -14465,6 +14465,27 @@ app.get("/api/apo-mail-config", async (req, res) => {
     });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
+// テストメールを送る。
+// 架空のアポで文面を作って送るだけなので、実際のアポには何も残らない。
+app.post("/api/apo-mail/test", async (req, res) => {
+  try {
+    const b = req.body || {};
+    const to = String(b.to || req.user || "").trim();
+    const r = await sendTestApoMail({
+      kind: b.kind === "reminder" ? "reminder" : "confirm",
+      to,
+      // 送るのはログインしている本人のGmailから（署名や会議室URLも本人のもの）
+      owner: req.user,
+      draft: b.draft === true,
+      // 「ほかの人が取ったアポ」の文面を試したいときは、獲得者の名前を入れる
+      setter: String(b.setter || "").trim(),
+    });
+    if (!r.ok) return res.status(400).json(r);
+    console.log(`[apo-mail] テストメール（${b.kind || "confirm"}）を ${to} へ by ${req.user}`);
+    res.json(r);
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 app.put("/api/apo-mail-config", async (req, res) => {
   try {
     const b = req.body || {};
