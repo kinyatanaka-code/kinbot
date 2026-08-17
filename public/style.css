@@ -1363,7 +1363,37 @@ a.kb-src:hover { color: var(--accent); border-color: var(--accent); }
 
 /* 各ページヘッダーのkinbot */
 .topbar .brand { display: flex; align-items: center; gap: 9px; }
-.topbar-bot { width: 26px; height: 26px; flex: 0 0 auto; filter: drop-shadow(0 2px 5px rgba(15,110,98,.2)); }
+/* 上のロボ。押すと相談窓が開くので、大きくして押せることが分かるようにする。 */
+.topbar-bot { width: 40px; height: 40px; flex: 0 0 auto;
+  filter: drop-shadow(0 2px 6px rgba(15,110,98,.22));
+  cursor: pointer; border-radius: 50%; padding: 2px;
+  transition: transform .15s ease, background .15s ease, box-shadow .15s ease; }
+.topbar-bot:hover { transform: scale(1.08); background: #eaf7f2;
+  box-shadow: 0 0 0 2px #cfeee2; }
+.topbar-bot:active { transform: scale(0.96); }
+
+/* ロボの横に出す吹き出し。押せることを伝える。 */
+.kb-bot-hint { display: inline-flex; align-items: center; gap: 4px;
+  margin-left: 2px; padding: 3px 9px 3px 8px; border-radius: 999px;
+  background: #eaf7f2; border: 1px solid #cfeee2; color: #0F6E56;
+  font-size: 11px; font-weight: 700; white-space: nowrap; cursor: pointer;
+  position: relative; }
+.kb-bot-hint::before { content: ""; position: absolute; left: -4px; top: 50%;
+  width: 7px; height: 7px; margin-top: -3.5px; transform: rotate(45deg);
+  background: #eaf7f2; border-left: 1px solid #cfeee2; border-bottom: 1px solid #cfeee2; }
+.kb-bot-hint:hover { background: #dff3ea; }
+.kb-bot-hint-x { border: none; background: transparent; color: #7d9c92;
+  font-size: 11px; line-height: 1; cursor: pointer; padding: 0 0 0 2px; font-family: inherit; }
+.kb-bot-hint-x:hover { color: #0F6E56; }
+
+/* まだ一度も使っていない人には、ゆっくり揺れて気づいてもらう */
+@keyframes kbBotWiggle {
+  0%, 88%, 100% { transform: rotate(0deg); }
+  91% { transform: rotate(-7deg); }
+  94% { transform: rotate(7deg); }
+  97% { transform: rotate(-4deg); }
+}
+.topbar-bot.kb-new { animation: kbBotWiggle 6s ease-in-out infinite; }
 /* 履歴の空状態にkinbot */
 .empty-bot { display: flex; flex-direction: column; align-items: center; gap: 12px; text-align: center; }
 .empty-bot img { width: 84px; height: 84px; opacity: 0.95; filter: drop-shadow(0 6px 16px rgba(15,110,98,.18)); }
@@ -3387,7 +3417,9 @@ button.np-step:disabled { opacity: 0.6; cursor: wait; }
     -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px);
   }
   .brand-name { font-size: 15.5px; }
-  .topbar-bot { width: 22px; height: 22px; }
+  .topbar-bot { width: 34px; height: 34px; }
+  /* スマホでは吹き出しの文字を短くする（場所が狭いため） */
+  .kb-bot-hint { font-size: 10.5px; padding: 3px 7px; }
 
   /* ---- 指で押しやすいサイズに ---- */
   .btn { min-height: 44px; padding: 11px 15px; font-size: 13.5px; border-radius: 12px; }

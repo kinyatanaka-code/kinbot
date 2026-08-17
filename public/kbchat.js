@@ -139,6 +139,7 @@
 
   function open() {
     build();
+    markUsed();
     panel.hidden = false;
     setMini(false);
     greet();
@@ -155,6 +156,32 @@
     setMini(true);
   }
 
+  // 一度も使ったことがない人には、ロボの横に吹き出しを出して気づいてもらう。
+  // 「使ったことがある」かどうかは、この端末に覚えておく。
+  const USED_KEY = "kbChatUsed";
+  function used() {
+    try { return localStorage.getItem(USED_KEY) === "1"; } catch { return true; }
+  }
+  function markUsed() {
+    try { localStorage.setItem(USED_KEY, "1"); } catch {}
+    document.querySelectorAll(".topbar-bot").forEach((el) => el.classList.remove("kb-new"));
+    document.querySelectorAll(".kb-bot-hint").forEach((el) => el.remove());
+  }
+
+  function addHint(bot) {
+    if (used() || bot._kbHinted) return;
+    bot._kbHinted = true;
+    bot.classList.add("kb-new");
+    const hint = document.createElement("span");
+    hint.className = "kb-bot-hint";
+    hint.innerHTML = `押すと相談できます<button type="button" class="kb-bot-hint-x" aria-label="閉じる">✕</button>`;
+    hint.addEventListener("click", (e) => {
+      if (e.target.closest(".kb-bot-hint-x")) { e.stopPropagation(); markUsed(); return; }
+      open();
+    });
+    bot.insertAdjacentElement("afterend", hint);
+  }
+
   // ロボの絵をクリックしたら開く。
   // どの画面にもある「上のロボ」と「メニューの印」の両方に付ける。
   function wire() {
@@ -163,9 +190,10 @@
       if (el._kbChatWired) return;
       el._kbChatWired = true;
       el.style.cursor = "pointer";
-      el.title = "kinbotに聞く";
+      el.title = "押すとkinbotに相談できます";
       el.addEventListener("click", (e) => { e.preventDefault(); toggle(); });
     });
+    document.querySelectorAll(".topbar-bot").forEach(addHint);
   }
 
   document.addEventListener("DOMContentLoaded", wire);
