@@ -3563,10 +3563,30 @@ a.home-todo:hover .home-todo-t b { color: #0d5b47; text-decoration: underline; }
   .side-foot .side-logout { flex-basis: 100%; font-size: 11px; }
 
   /* ---- ホーム：横幅を使い切る2カラム ---- */
-  .home-wrap { max-width: 1320px; padding: 22px 30px 32px; }
-  .home-body { display: grid; grid-template-columns: minmax(0, 1fr) 264px; gap: 20px; align-items: start; }
-  .home-main { min-width: 0; }
-  .home-side { position: sticky; top: 14px; }
+  /* 画面の高さに収める。はみ出すぶんは、それぞれの枠の中でスクロールさせる。
+     ページ全体をスクロールしなくても、今日のぶんが一望できるようにする。 */
+  .home-wrap { max-width: 1320px; padding: 18px 30px 18px;
+    height: 100dvh; box-sizing: border-box; display: flex; flex-direction: column; min-height: 0;
+    /* 上の見出しと下端に少し余白を残す。ぴったりだとカードが切れて見える。 */
+    gap: 12px; }
+  /* 下端で切れて見えないよう、一覧の最後に少し余白を足す */
+  .home-pane-body > *:last-child { margin-bottom: 4px; }
+  .home-head { flex: none; }
+  .home-body { display: grid; grid-template-columns: minmax(0, 1fr) 264px; gap: 20px;
+    align-items: stretch; flex: 1 1 auto; min-height: 0; }
+  .home-main { min-width: 0; display: flex; flex-direction: column; min-height: 0; }
+  .home-side { min-height: 0; overflow-y: auto; padding-right: 2px; }
+  /* 探す欄・ツール・やり残しの帯は縮めず、下の一覧だけを伸ばす */
+  .home-find, .home-tools, .todo-bar { flex: none; }
+  .home-cols { flex: 1 1 auto; min-height: 0; }
+  .home-pane { min-height: 0; }
+  .home-pane-body { overflow-y: auto; min-height: 0; }
+
+  /* 中でスクロールしていることが分かるよう、細い線を出す */
+  .home-pane-body::-webkit-scrollbar, .home-side::-webkit-scrollbar { width: 8px; }
+  .home-pane-body::-webkit-scrollbar-thumb, .home-side::-webkit-scrollbar-thumb {
+    background: #cfe3dc; border-radius: 999px; }
+  .home-pane-body::-webkit-scrollbar-track, .home-side::-webkit-scrollbar-track { background: transparent; }
 
 
   /* ---- ホーム：時刻レール付きタイムライン ---- */
@@ -4472,7 +4492,10 @@ input:focus, select:focus, textarea:focus, .sf-input:focus, .sf-select:focus, .s
   .home-pane-body { overflow-y: auto; overscroll-behavior: contain;
     /* 上下に少し余白を取る。無いと1件目の枠が上端で切れて見える。 */
     padding: 3px 4px 3px 2px;
-    max-height: calc(100vh - 226px); scrollbar-width: thin; }
+    /* 高さは、上に並ぶもの（見出し・探す欄・ツール・やり残し）の分だけ引く。
+       決まった数字で引くと、ツールを増やしたときにずれるので、
+       親の高さに合わせて伸び縮みさせる。 */
+    max-height: none; flex: 1 1 auto; scrollbar-width: thin; }
   /* 2カラムだと狭いので、カードの操作は下に回す（1行のものは対象外） */
   .home-cols .home-card-row { flex-direction: column; gap: 10px; }
   .home-cols .home-line .hl-row { display: grid; }
