@@ -312,6 +312,26 @@ $("dnCopy").addEventListener("click", () => {
     .catch(() => setStatus("dnStatus", "コピーできませんでした", 4000));
 });
 
+// 開発メモのChat通知の入り切り
+if ($("dnChatOn")) {
+  (async () => {
+    try {
+      const d = await (await fetch("/api/dev-notes/chat")).json();
+      $("dnChatOn").checked = d.enabled !== false;
+    } catch {}
+  })();
+  $("dnChatSave").addEventListener("click", async () => {
+    setStatus("dnChatStatus", "保存しています…");
+    try {
+      await fetch("/api/dev-notes/chat", {
+        method: "PUT", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ enabled: $("dnChatOn").checked }),
+      });
+      setStatus("dnChatStatus", $("dnChatOn").checked ? "Chatへ送ります" : "Chatへは送りません", 4000);
+    } catch (e) { setStatus("dnChatStatus", "失敗：" + e.message, 6000); }
+  });
+}
+
 if ($("aaRun")) {
   $("aaSave").addEventListener("click", aaSave);
   aaLoad();

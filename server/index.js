@@ -4531,6 +4531,11 @@ async function maybeSelfCheck() {
     autoState.check.lastRun = new Date().toISOString();
     autoState.check.reason = bad.length ? `${bad.length}件の問題を見つけました` : "問題はありませんでした";
 
+    // Chatへの通知をまとめてOFFにしているときは送らない
+    if (st.devSummary === false) {
+      autoState.check.reason += "（Chatへの通知はOFFです）";
+      return;
+    }
     // ★ 送り先は点検用の1か所だけ。チームのスペースには送らない。
     const to = { url: String(st.selfCheckWebhook || "").trim(), space: String(st.selfCheckSpace || "").trim() };
     if (!to.url && !to.space) {
@@ -4699,6 +4704,10 @@ async function maybeUiReview() {
     autoState.ui.reason = `${r.page} の案を ${r.count}件 出しました`;
 
     // ★ 点検と同じ1か所にだけ送る
+    if (st.devSummary === false) {
+      autoState.ui.reason += "（Chatへの通知はOFFです）";
+      return;
+    }
     const to = { url: String(st.selfCheckWebhook || "").trim(), space: String(st.selfCheckSpace || "").trim() };
     if (!to.url && !to.space) {
       autoState.ui.reason += "（知らせ先が未設定なので、画面で見るだけです）";
@@ -4893,6 +4902,23 @@ app.post("/api/dev-notes/night-report", async (req, res) => {
     await notifyAll(text, "assign").catch(() => {});
     console.log(`[night] 夜間開発の結果を受け取りました（変更${changed ? "あり" : "なし"}）`);
     res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// 開発メモのChat通知（朝のまとめ・点検・画面の見直し）を、まとめて入り切りする
+app.get("/api/dev-notes/chat", async (req, res) => {
+  try {
+    const st = await getSettings();
+    res.json({ enabled: st.devSummary !== false, hour: Number(st.devSummaryHour ?? 6) });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.put("/api/dev-notes/chat", async (req, res) => {
+  try {
+    const on = req.body?.enabled !== false;
+    await saveSettings({ devSummary: on });
+    console.log(`[dev-note] Chatへの通知を${on ? "ON" : "OFF"}にしました by ${req.user}`);
+    res.json({ ok: true, enabled: on });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 

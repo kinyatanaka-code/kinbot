@@ -84,6 +84,14 @@
             <b>朝6時に、まとめてGoogle Chatへ流します。</b></p>
 
             <div class="ap-cfg-actions">
+              <label class="ks-check"><input type="checkbox" id="dnChatOn" /> 朝6時にGoogle Chatへ送る</label>
+              <button class="btn ghost" id="dnChatSave">保存</button>
+              <span class="rev-status" id="dnChatStatus"></span>
+            </div>
+            <p class="note">OFFにすると、朝のまとめはChatに流れません（この画面で見るだけになります）。<br>
+            自己点検や画面の見直しの知らせも、あわせて止まります。</p>
+
+            <div class="ap-cfg-actions">
               <input type="text" id="dnTitle" placeholder="ここからも足せます（例：メールの宛先を自動で入れたい）" style="flex:1 1 380px" />
               <select id="dnKind" style="width:120px">
                 <option value="request">要望</option>

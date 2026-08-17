@@ -899,6 +899,7 @@ function mbRender() {
              <label>姓（自動判定：<b>${mbEsc(guessFamilyName(m.name))}</b>）<input class="mb-p" data-k="shortName" value="${mbEsc(p.shortName || "")}" placeholder="自動判定のままでよければ空欄" /></label>
              <label>ローマ字<input class="mb-p" data-k="nameRoman" value="${mbEsc(p.nameRoman || "")}" placeholder="Kinya Tanaka" /></label>
              <label>電話番号<input class="mb-p" data-k="phone" value="${mbEsc(p.phone || "")}" placeholder="080-0000-0000" /></label>
+             <label>メールアドレス<input class="mb-p" data-k="mail" value="${mbEsc(p.mail || "")}" placeholder="空欄ならログインのアドレスが入ります" /></label>
              <label>部署<input class="mb-p" data-k="dept" value="${mbEsc(p.dept || "")}" placeholder="事業統括本部 事業開発部" /></label>
              <label>ユニット・グループ<input class="mb-p" data-k="unit" value="${mbEsc(p.unit || "")}" placeholder="DOCユニット FSグループ" /></label>
            </div>

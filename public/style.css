@@ -1364,7 +1364,7 @@ a.kb-src:hover { color: var(--accent); border-color: var(--accent); }
 /* 各ページヘッダーのkinbot */
 .topbar .brand { display: flex; align-items: center; gap: 9px; }
 /* 上のロボ。押すと相談窓が開くので、大きくして押せることが分かるようにする。 */
-.topbar-bot { width: 40px; height: 40px; flex: 0 0 auto;
+.topbar-bot { width: 52px; height: 52px; flex: 0 0 auto;
   filter: drop-shadow(0 2px 6px rgba(15,110,98,.22));
   cursor: pointer; border-radius: 50%; padding: 2px;
   transition: transform .15s ease, background .15s ease, box-shadow .15s ease; }
@@ -3417,7 +3417,7 @@ button.np-step:disabled { opacity: 0.6; cursor: wait; }
     -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px);
   }
   .brand-name { font-size: 15.5px; }
-  .topbar-bot { width: 34px; height: 34px; }
+  .topbar-bot { width: 42px; height: 42px; }
   /* スマホでは吹き出しの文字を短くする（場所が狭いため） */
   .kb-bot-hint { font-size: 10.5px; padding: 3px 7px; }
 

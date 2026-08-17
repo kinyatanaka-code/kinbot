@@ -50,6 +50,7 @@ export const DEFAULT_CONFIRM_BODY = `{{会社名}}
 {{ユニット}}
 {{担当者名}}　/　{{担当者ローマ字}}
 Phone：{{担当者電話}}
+Mail：{{担当者メール}}
 ◇本社 〒160-0023
 東京都新宿区西新宿1-22-2 新宿サンエービル4階
 TEL：03-6756-0421　 FAX：03-5908-8385
@@ -80,6 +81,7 @@ export const DEFAULT_REMINDER_BODY = `{{会社名}}
 {{ユニット}}
 {{担当者名}}　/　{{担当者ローマ字}}
 Phone：{{担当者電話}}
+Mail：{{担当者メール}}
 ◇本社 〒160-0023
 東京都新宿区西新宿1-22-2 新宿サンエービル4階
 TEL：03-6756-0421　 FAX：03-5908-8385
@@ -192,7 +194,14 @@ export function buildVars(link, { repName, repEmail, url, companyName, profile =
   const timeStr = t ? `${t.hh}:${t.mm}` : "";
   // お客様に案内するURLは kinbot のスマートリンク。
   // 担当が変わっても行き先が自動で切り替わるので、送信済みのメールを直す必要がない。
-  const smart = String(url || "").trim();
+  //
+  // 渡されなかったときは、このアポの合図から自分で組み立てる。
+  // （前日リマインドで空になり、担当者の直リンクが入ってしまうことがあったため）
+  let smart = String(url || "").trim();
+  if (!smart && link && link.slug) {
+    const base = String(process.env.PUBLIC_URL || "").replace(/\/+$/, "");
+    if (base) smart = `${base}/j/${link.slug}`;
+  }
   // 担当者本人の会議室URL（設定→登録リンク）。ミーティングIDの表示にだけ使う。
   const direct = String(zoomLink || "").trim();
   return {
@@ -223,7 +232,8 @@ export function buildVars(link, { repName, repEmail, url, companyName, profile =
     "商談時刻": timeStr,
     "URL": url || "",
     "担当者名": repName || "",
-    "担当者メール": repEmail || "",
+    // 署名に出すアドレス。メンバー管理で決めていればそれを使い、無ければログインのアドレス。
+    "担当者メール": String(profile.mail || profile.email || "").trim() || repEmail || "",
     "アポ獲得者": link.setter || "",
     "自社名": companyName || "弊社",
     "件名元": link.label || "",
@@ -384,7 +394,7 @@ export async function sendApoMail(link, kind, { url, repName, force = false, act
 
   // 差し込みが埋まらない項目があれば、送る前に気づけるようログに出す
   const body = kind === "reminder" ? cfg.reminderBody : cfg.confirmBody;
-  const missing = ["ZoomURL", "担当者の会議室URL", "担当者電話", "部署", "ユニット", "担当者ローマ字"]
+  const missing = ["ZoomURL", "担当者の会議室URL", "担当者電話", "担当者メール", "部署", "ユニット", "担当者ローマ字"]
     .filter((k) => body.includes(`{{${k}}}`) && !vars[k]);
   if (missing.length) {
     console.warn(`[apo-mail] ${owner} の設定が未入力のため空欄になります: ${missing.join("、")}` +
