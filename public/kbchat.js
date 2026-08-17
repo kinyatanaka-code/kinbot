@@ -22,7 +22,9 @@
           <b>kinbotに聞く</b>
           <span>使い方や、直してほしいことをどうぞ</span>
         </div>
-        <button type="button" class="kb-chat-x" aria-label="閉じる">✕</button>
+        <span class="kb-chat-dot" aria-hidden="true"></span>
+        <button type="button" class="kb-chat-mini-btn" aria-label="小さくする" title="小さくする">－</button>
+        <button type="button" class="kb-chat-x" aria-label="閉じる" title="閉じる">✕</button>
       </div>
       <div class="kb-chat-body" id="kbChatBody"></div>
       <div class="kb-chat-tips" id="kbChatTips"></div>
@@ -33,6 +35,16 @@
     document.body.appendChild(panel);
 
     panel.querySelector(".kb-chat-x").addEventListener("click", close);
+
+    // 小さくする／元に戻す。小さくしている間は、ほかの画面をそのまま触れる。
+    const miniBtn = panel.querySelector(".kb-chat-mini-btn");
+    miniBtn.addEventListener("click", (e) => { e.stopPropagation(); setMini(!panel.classList.contains("mini")); });
+    // 小さくなっているときは、見出しをどこでも押せば開く
+    panel.querySelector(".kb-chat-head").addEventListener("click", (e) => {
+      if (!panel.classList.contains("mini")) return;
+      if (e.target.closest(".kb-chat-x")) return;
+      setMini(false);
+    });
     const input = panel.querySelector("#kbChatInput");
     const send = panel.querySelector("#kbChatSend");
     send.addEventListener("click", () => ask(input.value));
@@ -97,6 +109,7 @@
       waiting.remove();
       if (d.error) throw new Error(d.error);
       say("bot", d.answer || "うまく答えられませんでした。", { noted: d.noted });
+      if (panel.classList.contains("mini")) panel.classList.add("has-new");
     } catch (e) {
       waiting.remove();
       say("bot", "つながりませんでした：" + e.message);
@@ -106,14 +119,41 @@
     }
   }
 
+  // 小さくする／元に戻す。
+  // 小さくしても話は消えないので、あとから続けられる。
+  function setMini(on) {
+    if (!panel) return;
+    panel.classList.toggle("mini", !!on);
+    const b = panel.querySelector(".kb-chat-mini-btn");
+    if (b) {
+      b.textContent = on ? "＋" : "－";
+      b.title = on ? "元に戻す" : "小さくする";
+      b.setAttribute("aria-label", b.title);
+    }
+    if (!on) {
+      panel.classList.remove("has-new");
+      const body = panel.querySelector("#kbChatBody");
+      if (body) body.scrollTop = body.scrollHeight;
+    }
+  }
+
   function open() {
     build();
     panel.hidden = false;
+    setMini(false);
     greet();
-    setTimeout(() => panel.querySelector("#kbChatInput").focus(), 50);
+    // スマホでは、開いた瞬間に文字を打つ欄へ飛ばさない（画面が動いて驚くため）
+    if (window.innerWidth > 620) {
+      setTimeout(() => panel.querySelector("#kbChatInput").focus(), 50);
+    }
   }
   function close() { if (panel) panel.hidden = true; }
-  function toggle() { (panel && !panel.hidden) ? close() : open(); }
+  function toggle() {
+    if (!panel || panel.hidden) return open();
+    // 開いているときに押したら、小さくする（話は残る）
+    if (panel.classList.contains("mini")) return setMini(false);
+    setMini(true);
+  }
 
   // ロボの絵をクリックしたら開く。
   // どの画面にもある「上のロボ」と「メニューの印」の両方に付ける。

@@ -5290,8 +5290,9 @@ input:focus, select:focus, textarea:focus, .sf-input:focus, .sf-select:focus, .s
 
 .kb-chat-foot { display: flex; align-items: flex-end; gap: 8px; padding: 10px 12px;
   border-top: 1px solid var(--line); background: var(--panel-2); }
+/* 文字を16px以上にする。これより小さいと、iPhoneが勝手に画面を拡大するため。 */
 .kb-chat-foot textarea { flex: 1; min-width: 0; resize: none; border: 1px solid var(--line);
-  border-radius: 10px; padding: 8px 10px; font-size: 12.5px; font-family: inherit;
+  border-radius: 10px; padding: 8px 10px; font-size: 16px; font-family: inherit;
   line-height: 1.6; background: var(--panel); max-height: 120px; }
 .kb-chat-foot textarea:focus { outline: none; border-color: #1d9e75; }
 .kb-chat-send { flex: none; border: none; background: #0d5b47; color: #fff;
@@ -5299,6 +5300,24 @@ input:focus, select:focus, textarea:focus, .sf-input:focus, .sf-select:focus, .s
   font-family: inherit; cursor: pointer; }
 .kb-chat-send:hover { background: #1d9e75; }
 
+/* 小さくしたとき（見出しだけの丸い形）。ほかの画面をそのまま触れる。 */
+.kb-chat.mini { max-height: none; width: auto; }
+.kb-chat.mini .kb-chat-body,
+.kb-chat.mini .kb-chat-tips,
+.kb-chat.mini .kb-chat-foot { display: none; }
+.kb-chat.mini .kb-chat-head { border-bottom: none; padding: 8px 10px; }
+.kb-chat.mini .kb-chat-title span { display: none; }
+.kb-chat-mini-btn { border: 1px solid var(--line); background: var(--panel); color: #4a6b62;
+  width: 26px; height: 26px; border-radius: 8px; font-size: 12px; cursor: pointer;
+  font-family: inherit; margin-left: auto; }
+.kb-chat-mini-btn:hover { background: var(--panel-2); }
+.kb-chat.mini .kb-chat-x { margin-left: 0; }
+/* 未読の印（小さくしている間に返事が来たとき） */
+.kb-chat-dot { display: none; width: 8px; height: 8px; border-radius: 50%;
+  background: #1d9e75; margin-left: 4px; }
+.kb-chat.mini.has-new .kb-chat-dot { display: inline-block; }
+
 @media (max-width: 620px) {
   .kb-chat { right: 8px; left: 8px; bottom: 8px; width: auto; max-height: 72vh; }
+  .kb-chat.mini { left: auto; right: 8px; }
 }
