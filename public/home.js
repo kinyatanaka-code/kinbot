@@ -411,7 +411,9 @@ function renderMini() {
 function wireMailMode(box, botId, side) {
   // いま画面に出ている文面は、モードごとに覚えておく。
   // 行ったり来たりしても、書きかけの文面が消えないようにするため。
-  const ctx = { mode: "new", threadId: "", to: "", stash: { new: null, reply: null } };
+  // 送り方は「返信」を既定にする。
+  // やり取りが見つからなかったときだけ、新規作成に戻す。
+  const ctx = { mode: "reply", threadId: "", to: "", stash: { new: null, reply: null } };
   const su = () => box.querySelector(".home-mail-subj");
   const ta = () => box.querySelector(".home-mail-body");
   const list = box.querySelector(".mail-reply-list");
@@ -437,9 +439,34 @@ function wireMailMode(box, botId, side) {
     }
   };
 
-  // 過去のやり取りを探して一覧にする
+  // 開いたときに、返信の準備をしておく。
+  // やり取りが1件だけなら、それを自動で選んで返信の文面まで作る。
+  async function startAsReply() {
+    box.querySelectorAll(".mail-mode-b").forEach((b) => b.classList.toggle("on", b.dataset.mode === "reply"));
+    side.open("reply", "どのメールに返信しますか");
+    say("これまでのやり取りを探しています…");
+    const found = await loadThreads("");
+    if (!found) {
+      // やり取りが無いので、新規作成に戻す
+      ctx.mode = "new";
+      box.querySelectorAll(".mail-mode-b").forEach((b) => b.classList.toggle("on", b.dataset.mode === "new"));
+      if (side.current === "reply") side.close();
+      say("やり取りが見つからないので、新規作成にしました");
+      return;
+    }
+    // 1件だけなら、迷わないので自動で選ぶ
+    const btns = list.querySelectorAll(".mail-th");
+    if (btns.length === 1) {
+      await pickThread(btns[0]);
+    } else {
+      say("返信するメールを選んでください");
+    }
+  }
+
+  // 過去のやり取りを探して一覧にする。
+  // やり取りが見つかったかどうかを返す。
   async function loadThreads(q) {
-    if (!list) return;
+    if (!list) return false;
     loaded = true;
     list.innerHTML = '<div class="mail-reply-note">これまでのやり取りを探しています…</div>';
     try {
@@ -447,17 +474,17 @@ function wireMailMode(box, botId, side) {
       const d = await (await fetch(url)).json();
       if (d.needScope) {
         list.innerHTML = '<div class="mail-reply-note">Gmailの権限が足りません。<a class="home-sf-link" href="settings.html">設定</a>から連携し直してください。</div>';
-        return;
+        return false;
       }
       if (!d.connected) {
         list.innerHTML = '<div class="mail-reply-note">Googleが連携されていません。<a class="home-sf-link" href="settings.html">設定</a>から連携してください。</div>';
-        return;
+        return false;
       }
       const th = d.threads || [];
       if (qIn && !qIn.value) qIn.value = d.query || "";
       if (!th.length) {
         list.innerHTML = `<div class="mail-reply-note">「${escH(d.query || "")}」ではやり取りが見つかりませんでした。上の欄で別の言葉でも探せます。</div>`;
-        return;
+        return false;
       }
       list.innerHTML = th.map((t) => `
         <button type="button" class="mail-th" data-th="${escH(t.threadId)}" data-to="${escH(t.from || "")}">
@@ -468,8 +495,10 @@ function wireMailMode(box, botId, side) {
           <span class="mail-th-subj">${escH(t.subject || "（件名なし）")}</span>
           <span class="mail-th-snip">${escH((t.snippet || "").slice(0, 90))}</span>
         </button>`).join("");
+      return true;
     } catch (e) {
       list.innerHTML = `<div class="mail-reply-note">読み込みに失敗しました（${escH(e.message)}）</div>`;
+      return false;
     }
   }
 
@@ -514,6 +543,35 @@ function wireMailMode(box, botId, side) {
   if (qIn) qIn.addEventListener("keydown", (e) => {
     if (e.key === "Enter") { e.preventDefault(); loadThreads(qIn.value.trim()); }
   });
+
+  // 本文のURLを、押して開ける形で下に並べる。
+  // 文面に貼ったURLが正しいか、送る前に確かめられるようにする。
+  const linksBox = box.querySelector(".mail-links");
+  function showLinks() {
+    if (!linksBox) return;
+    const text = ta() ? ta().value : "";
+    // http/https で始まるものを拾う。末尾の句読点やカッコは外す。
+    // 全角のカッコや句読点は、URLの一部ではないので拾わない
+    const found = [...new Set((String(text).match(/https?:\/\/[^\s<>"'（）()【】「」、。]+/g) || [])
+      .map((u) => u.replace(/[.,:;]+$/, "")))];
+    if (!found.length) { linksBox.hidden = true; linksBox.innerHTML = ""; return; }
+    linksBox.hidden = false;
+    linksBox.innerHTML =
+      `<span class="mail-links-lb">本文のリンク（押すと開きます）</span>` +
+      found.map((u) => {
+        const kind = /\/j\//.test(u) ? "会議室" : /\/d\//.test(u) ? "資料" : "";
+        return `<a class="mail-link" href="${escH(u)}" target="_blank" rel="noopener">` +
+          (kind ? `<b>${kind}</b>` : "") +
+          `<span>${escH(u.length > 64 ? u.slice(0, 61) + "…" : u)}</span></a>`;
+      }).join("");
+  }
+  if (ta()) {
+    ta().addEventListener("input", showLinks);
+    showLinks();
+  }
+
+  // 開いたら、まず返信の準備をする（やり取りが無ければ新規作成に戻る）
+  startAsReply();
 
   return ctx;
 }
@@ -1269,6 +1327,8 @@ async function openMail(botId, key) {
        <!-- 本文の右にアイコンを置く。下に置くと、長い文面のときに画面の外に出てしまうため。 -->
        <div class="mail-body-row">
          <label class="mail-lb mail-lb-body">本文<textarea class="home-mail-body" rows="16" placeholder="ここに文面を書きます。「文面を作る」を押すと、商談の内容からAIが下書きします。">${escH(body)}</textarea></label>
+         <!-- 本文に入っているURLを、押して開ける形で並べる（中身の確認用） -->
+         <div class="mail-links" hidden></div>
          <div class="mail-acts mail-acts-side">
            ${hIcon("gen", "商談の内容から文面を作る", `data-mail-gen="${escH(botId)}"`, "need")}
            ${hIcon("draft", "Gmailに下書きを作る", `data-gdraft="${escH(botId)}"`)}
