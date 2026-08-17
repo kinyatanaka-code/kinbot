@@ -23,7 +23,7 @@ export const DEFAULT_CONFIRM_BODY = `{{会社名}}
 いつも大変お世話になっております。
 {{自社名}}の{{担当者姓}}でございます。
 
-先ほどは弊社{{アポ獲得者姓}}のお電話にご対応いただき、
+{{お礼の書き出し}}
 またお忙しい中お打ち合わせのお時間をいただき、
 誠にありがとうございました。
 
@@ -204,6 +204,18 @@ export function buildVars(link, { repName, repEmail, url, companyName, profile =
     "ZoomURL": smart,
     "担当者の会議室URL": direct,
     "アポ獲得者姓": familyName(link.setter),
+    // 書き出しの1行。
+    //   自分で取ったアポ … 「先ほどはお電話ありがとうございました。」
+    //   ほかの人が取ったアポ … 「先ほどは弊社○○のお電話にご対応いただき、」
+    // 自分で電話した相手に「弊社○○の電話に」と書くと不自然なため。
+    "お礼の書き出し": (() => {
+      // 自分で取ったアポ、または獲得者が分からないときは、名前を出さない
+      const setter = familyName(link.setter);
+      if (!setter || selfAcquired(link, repName, repEmail)) {
+        return "先ほどはお電話ありがとうございました。";
+      }
+      return `先ほどは弊社${setter}のお電話にご対応いただき、`;
+    })(),
     "会社名": parts.company || "",
     "お客様名": String(link.client_name || "").trim() || parts.person || "ご担当者",
     "商談日時": t ? `${dateStr} ${timeStr}〜` : "",
@@ -216,6 +228,17 @@ export function buildVars(link, { repName, repEmail, url, companyName, profile =
     "自社名": companyName || "弊社",
     "件名元": link.label || "",
   };
+}
+
+// このアポを、送る本人が自分で取ったかどうか。
+// メールアドレスで照合し、無ければ名前（表記ゆれを無視）で見る。
+function selfAcquired(link, repName, repEmail) {
+  const mail = (v) => String(v || "").trim().toLowerCase();
+  if (mail(link.setter_email) && mail(link.setter_email) === mail(repEmail)) return true;
+  const nm = (v) => String(v || "").replace(/[\s　]/g, "");
+  const a = nm(link.setter), b = nm(repName);
+  if (!a || !b) return false;
+  return a === b || a.startsWith(b) || b.startsWith(a);
 }
 
 // 差し込みが空だった行を片付ける。
