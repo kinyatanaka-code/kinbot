@@ -8323,7 +8323,7 @@ app.get("/api/meetings/:id/thanks-context", async (req, res) => {
       try {
         const person = (() => {
           const t = String(m.title || "").replace(/【[^】]*】/g, " ");
-          const mm = t.match(/([一-龥ぁ-んァ-ヶa-zA-Z]{1,10})\s*(様|さま|さん)/);
+          const mm = t.match(/([^\s　/／|｜:：・、,]{1,20})\s*(?:様|さま|さん|殿)/);
           return mm ? mm[1] : "";
         })();
         const ready = await gmailReady(req.user).catch(() => ({ ok: false }));
@@ -8470,7 +8470,7 @@ app.get("/api/meetings/:id/gmail-threads", async (req, res) => {
     const company = (m.account || companyFromTitle(m.title || "") || "").trim();
     const person = (() => {
       const t = String(m.title || "").replace(/【[^】]*】/g, " ");
-      const mm = t.match(/([一-龥ぁ-んァ-ヶa-zA-Z]{1,10})\s*(様|さま|さん)/);
+      const mm = t.match(/([^\s　/／|｜:：・、,]{1,20})\s*(?:様|さま|さん|殿)/);
       return mm ? mm[1] : "";
     })();
     const asked = String(req.query.q || "").trim();
@@ -8513,7 +8513,7 @@ app.post("/api/meetings/:id/thanks-gmail-draft", async (req, res) => {
     const company = (m.account || companyFromTitle(m.title || "") || "").trim();
     const person = (() => {
       const t = String(m.title || "").replace(/【[^】]*】/g, " ");
-      const mm = t.match(/([一-龥ぁ-んァ-ヶa-zA-Z]{1,10})\s*(様|さま|さん)/);
+      const mm = t.match(/([^\s　/／|｜:：・、,]{1,20})\s*(?:様|さま|さん|殿)/);
       return mm ? mm[1] : "";
     })();
 
