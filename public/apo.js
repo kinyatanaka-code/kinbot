@@ -662,6 +662,26 @@ async function pushSetup() {
   finally { if (btn) btn.disabled = false; }
 }
 
+// アポとして数えない招待者
+async function loadSkipInviters() {
+  if (!$("siWords")) return;
+  try {
+    const d = await apiJson("/api/skip-inviters");
+    $("siWords").value = d.inviters || "";
+  } catch {}
+}
+async function saveSkipInviters() {
+  const st = $("siStatus");
+  if (st) st.textContent = "保存しています…";
+  try {
+    await apiJson("/api/skip-inviters", {
+      method: "PUT", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ inviters: $("siWords").value }),
+    });
+    if (st) { st.textContent = "保存しました"; setTimeout(() => (st.textContent = ""), 4000); }
+  } catch (e) { if (st) st.textContent = "失敗: " + e.message; }
+}
+
 // テスト用アポの見分け方
 async function loadTestWords() {
   if (!$("twWords")) return;
@@ -1652,6 +1672,10 @@ async function saveMailCfg() {
     document.querySelectorAll("#siBox .si-chk").forEach((c) => { c.checked = false; }));
   if ($("verBox")) showVersion();
   if ($("depBox")) loadDeploy();
+  if ($("siWords")) {
+    loadSkipInviters();
+    $("siSave").addEventListener("click", saveSkipInviters);
+  }
   if ($("twWords")) {
     loadTestWords();
     $("twSave").addEventListener("click", saveTestWords);

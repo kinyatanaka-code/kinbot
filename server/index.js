@@ -4831,6 +4831,26 @@ async function maybeSendDevSummary() {
   } catch (e) { console.warn("[dev-note]", e.message); }
 }
 
+// 数えない招待者の設定
+app.get("/api/skip-inviters", async (req, res) => {
+  try {
+    const st = await getSettings();
+    res.json({
+      inviters: st.skipInviters === undefined ? SKIP_INVITERS_DEFAULT : String(st.skipInviters),
+      note: "ここに書いた人が招いた予定は、アポとして数えません。名前でもメールでも書けます。",
+    });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.put("/api/skip-inviters", async (req, res) => {
+  try {
+    await saveSettings({ skipInviters: String(req.body?.inviters ?? "").slice(0, 300) });
+    await loadSkipInviters().catch(() => {});
+    console.log(`[apo] 数えない招待者を更新 by ${req.user}`);
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 // テスト用アポの見分け方（設定）
 app.get("/api/test-apo-words", async (req, res) => {
   try {
@@ -12340,6 +12360,59 @@ function apoTitleTag(title) {
   return APO_TAG_RE.test(t);
 }
 
+// この人たちが招いた予定は、アポとして数えない。
+//
+// 別のチームからの招待がクローザーのカレンダーに入ると、
+// それをアポとして拾ってしまい、実績がふくらむため。
+// 設定（skipInviters）で変えられる。名前でもメールでも書ける。
+// 名前だけ書いても、メールアドレス（ローマ字）で照らし合わせられるようにする。
+// 「中澤」と書けば nakazawa@… も見つかる。
+const NAME_ROMAJI = {
+  "中澤": ["nakazawa", "nakasawa"],
+  "浦林": ["urabayashi"],
+};
+const SKIP_INVITERS_DEFAULT = "中澤,浦林";
+let _skipInviters = null;
+
+async function loadSkipInviters() {
+  const st = await getSettings().catch(() => ({}));
+  const raw = st.skipInviters === undefined ? SKIP_INVITERS_DEFAULT : String(st.skipInviters);
+  _skipInviters = raw.split(/[,、\n]/).map((x) => x.trim()).filter(Boolean);
+  return _skipInviters;
+}
+
+// その予定が「数えない人」から来ているかを見る。
+// 招いた人（organizer）・作った人（creator）・参加者の名前を照らし合わせる。
+function invitedBySkipped(ev, list) {
+  const raw = (list || _skipInviters || SKIP_INVITERS_DEFAULT.split(","));
+  // 書かれた言葉に、ローマ字読みも足して照らし合わせる
+  const words = [];
+  for (const w of raw) {
+    const t = String(w).replace(/[\s　]/g, "").toLowerCase();
+    if (!t) continue;
+    words.push(t);
+    for (const r of NAME_ROMAJI[String(w).replace(/[\s　]/g, "")] || []) words.push(r);
+  }
+  if (!words.length) return "";
+  const hit = (v) => {
+    const t = String(v || "").replace(/[\s　]/g, "").toLowerCase();
+    if (!t) return "";
+    return words.find((w) => t.includes(w)) || "";
+  };
+  // 招いた人・作った人
+  for (const v of [ev.organizer, ev.organizerName, ev.creator, ev.creatorName]) {
+    const w = hit(v);
+    if (w) return w;
+  }
+  // 参加者のうち、招いた側になっている人
+  for (const a of ev.attendees || []) {
+    if (!a || !a.organizer) continue;
+    const w = hit(a.email) || hit(a.name);
+    if (w) return w;
+  }
+  return "";
+}
+
 // 予定名の先頭に「リスケ」「キャンセル」と書かれているかを見る。
 // 書かれていたら、その予定はアポとして数えない（数えると実績がふくらむため）。
 // 「リスケ済み」「キャンセル済」なども同じ扱いにする。
@@ -12433,6 +12506,9 @@ async function collectApoAppointments(scanOwner, opts = {}) {
     // 「リスケ」「キャンセル」と書かれた予定と、カレンダーで見つけた予定のIDを覚えておく
     const seenHeadStates = [];
     const seenEventIds = new Set();
+    // 数えない招待者の一覧（毎回の走査で読み直す）
+    const skipInviters = await loadSkipInviters().catch(() => []);
+    const skippedByInviter = [];
 
     for (const f of fetched) {
       const st = f.st;
@@ -12455,6 +12531,13 @@ async function collectApoAppointments(scanOwner, opts = {}) {
           console.log(`[apo-scan] kinbotが作った予定なので取り込みません：${String(ev.title || "").slice(0, 40)}`);
           continue;
         }
+        // 数えない人から招かれた予定は、アポとして拾わない
+        const by = invitedBySkipped(ev, skipInviters);
+        if (by) {
+          skippedByInviter.push({ title: ev.title, by });
+          continue;
+        }
+
         // 先頭に「リスケ」「キャンセル」と書かれた予定は、アポとして数えない。
         // 初めて見たときだけ、Chatに知らせる。
         const head = apoHeadState(ev.title);
@@ -12550,7 +12633,11 @@ async function collectApoAppointments(scanOwner, opts = {}) {
       }
     }
     items.sort((a, b) => String(a.start).localeCompare(String(b.start)));
-    return { items, errors, seenHeadStates, seenEventIds, full: !updatedMin };
+    if (skippedByInviter.length) {
+      console.log(`[apo-scan] 数えない人からの招待 ${skippedByInviter.length}件を外しました：` +
+        skippedByInviter.slice(0, 5).map((x) => `${x.by}／${String(x.title).slice(0, 30)}`).join("、"));
+    }
+    return { items, errors, seenHeadStates, seenEventIds, skippedByInviter, full: !updatedMin };
 }
 
 // テスト用のアポかどうか。
