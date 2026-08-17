@@ -3567,7 +3567,10 @@ async function buildCallReport(sfUser) {
   const apoBy = new Map();
   for (const a of apos) {
     const k = String(a.setter || "").trim();
-    if (k) apoBy.set(k, (apoBy.get(k) || 0) + 1);
+    if (!k) continue;
+    // 数えない人が取ったアポは外す（予備として割り振られたものは数える）
+    if (isSkippedPerson(k) && !a.current_owner) continue;
+    apoBy.set(k, (apoBy.get(k) || 0) + 1);
   }
 
   // 目標の出し方。
@@ -3609,13 +3612,18 @@ async function buildCallReport(sfUser) {
   };
 
   // 名前をそろえて、SFの実績とkinbotのアポを1つにまとめる
+  // 数えない人（中澤・浦林など）は、コール進捗にも出さない
+  const skip = await loadSkipInviters().catch(() => []);
+
   const rows = new Map();
   for (const [who, days] of Object.entries(tallied)) {
     const t = days[md];
     if (!t) continue;
+    if (isSkippedPerson(who, skip)) continue;
     rows.set(who, { name: who, calls: t["コール"] || 0, contacts: t["接触"] || 0, apos: 0 });
   }
   for (const [who, n] of apoBy) {
+    if (isSkippedPerson(who, skip)) continue;
     const hit = [...rows.keys()].find((k) => k.replace(/[\s　]/g, "") === who.replace(/[\s　]/g, ""));
     if (hit) rows.get(hit).apos = n;
     else rows.set(who, { name: who, calls: 0, contacts: 0, apos: n });
@@ -3632,6 +3640,7 @@ async function buildCallReport(sfUser) {
 
   // 目標だけあって、まだ実績が0の人も出す（誰が止まっているか分かるように）
   for (const name of Object.keys(goals)) {
+    if (isSkippedPerson(name, skip)) continue;
     const hit = list.find((x) => {
       const a = x.name.replace(/[\s　]/g, ""), b = name.replace(/[\s　]/g, "");
       return a === b || a.startsWith(b) || b.startsWith(a);
@@ -3974,6 +3983,7 @@ async function weeklyResults(weekStart) {
   for (const r of rows) {
     const k = String(r.setter || "").replace(/[\s　]/g, "");
     if (!k) continue;
+    if (isSkippedPerson(k) && !r.current_owner) continue;
     by.set(k, (by.get(k) || 0) + 1);
   }
   return by;
@@ -5058,9 +5068,17 @@ async function runProcessSheet(sfUser, opts = {}) {
   //    コールと接触はSFのレポートから。
   //    アポはkinbotの記録から（商談日が分かるので、期内・期外を正しく分けられる）。
   let tallied = tally(records, { fromISO: from, toISO: to });
+  // 数えない人は、コール・接触の行も作らない
+  {
+    const skip = await loadSkipInviters().catch(() => []);
+    for (const who of Object.keys(tallied)) if (isSkippedPerson(who, skip)) delete tallied[who];
+  }
   // 商談日が空のアポを、カレンダーから補ってから数える
   const fixed = await fillMissingMeetingDates().catch(() => ({ checked: 0, filled: 0, filledApoAt: 0, notes: [] }));
-  const apoRows = await apoCountsBySetter({ termFrom: from, termTo: to, mode: termMode }).catch(() => []);
+  let apoRows = await apoCountsBySetter({ termFrom: from, termTo: to, mode: termMode }).catch(() => []);
+  // 数えない人（中澤・浦林など）は、プロセスシートにも書かない
+  const skipPeople = await loadSkipInviters().catch(() => []);
+  apoRows = apoRows.filter((r) => !isSkippedPerson(r.setter, skipPeople));
   tallied = applyApoCounts(tallied, apoRows);
 
   // 3. シートの構造を読んで、書き込む場所を決める
@@ -12383,6 +12401,23 @@ async function loadSkipInviters() {
 
 // その予定が「数えない人」から来ているかを見る。
 // 招いた人（organizer）・作った人（creator）・参加者の名前を照らし合わせる。
+// 名前が「数えない人」に当てはまるか。
+// コール進捗やアポの集計でも使う（同じ設定を1か所で見るため）。
+function isSkippedPerson(name, list) {
+  const raw = (list || _skipInviters || SKIP_INVITERS_DEFAULT.split(","));
+  const t = String(name || "").replace(/[\s　]/g, "").toLowerCase();
+  if (!t) return false;
+  for (const w of raw) {
+    const k = String(w).replace(/[\s　]/g, "").toLowerCase();
+    if (!k) continue;
+    if (t.includes(k)) return true;
+    for (const r of NAME_ROMAJI[String(w).replace(/[\s　]/g, "")] || []) {
+      if (t.includes(r)) return true;
+    }
+  }
+  return false;
+}
+
 function invitedBySkipped(ev, list) {
   const raw = (list || _skipInviters || SKIP_INVITERS_DEFAULT.split(","));
   // 書かれた言葉に、ローマ字読みも足して照らし合わせる
@@ -13247,6 +13282,10 @@ async function chatAnswer(intent, who) {
     let rows = taken
       ? await aposTakenInRange({ from, to, business: intent.business || "" }).catch(() => [])
       : await aposInRange({ from, to, business: intent.business || "" }).catch(() => []);
+    // 数えない人（中澤・浦林など）が取ったアポは外す。
+    // ただし、予備として誰かに割り振られたものは、チームのアポとして数える。
+    const skipList = await loadSkipInviters().catch(() => []);
+    rows = rows.filter((r) => !(isSkippedPerson(r.setter, skipList) && !r.current_owner));
     if (mine) {
       const myName = await displayNameOf(who).catch(() => "");
       rows = rows.filter((r) =>
