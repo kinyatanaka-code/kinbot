@@ -110,7 +110,9 @@ export async function getApoMailConfig() {
     autoConfirm: s.apoMailAutoConfirm === true,
     autoReminder: s.apoMailAutoReminder === true,
     // リマインドを流す時刻（JST・0〜23）
-    reminderHour: Number.isFinite(+s.apoMailReminderHour) ? Math.min(23, Math.max(0, +s.apoMailReminderHour)) : 8,
+    // 前日リマインドを送る時刻。既定は前日の17時。
+    // 「明日の商談」を対象にするので、17時に送れば前日夕方の案内になる。
+    reminderHour: Number.isFinite(+s.apoMailReminderHour) ? Math.min(23, Math.max(0, +s.apoMailReminderHour)) : 17,
     companyName: String(s.apoMailCompanyName || "").trim() || "株式会社ネオキャリア",
     confirmSubject: String(s.apoMailConfirmSubject || "").trim() || DEFAULT_CONFIRM_SUBJECT,
     confirmBody: stripRetiredLines(String(s.apoMailConfirmBody || "").trim() || DEFAULT_CONFIRM_BODY),
@@ -435,6 +437,25 @@ export async function sendApoMail(link, kind, { url, repName, force = false, act
 
 // ===== 前日リマインドのスイープ =====
 // 「翌日ぶん」をまとめて送る。設定した時刻の1時間のあいだに1回だけ動く。
+// 明日リマインドを送る相手の一覧を返す（送らずに見るだけ）。
+// ホームに出したり、1時間前のお知らせに使う。
+export async function listTomorrowReminders() {
+  const nowJst = new Date(Date.now() + 9 * 3600 * 1000);
+  const y = nowJst.getUTCFullYear(), m = nowJst.getUTCMonth(), d = nowJst.getUTCDate();
+  const fromUtc = new Date(Date.UTC(y, m, d + 1, 0, 0, 0) - 9 * 3600 * 1000);
+  const toUtc = new Date(Date.UTC(y, m, d + 2, 0, 0, 0) - 9 * 3600 * 1000);
+  const rows = await listApoReminderTargets(fromUtc.toISOString(), toUtc.toISOString());
+  return rows.map((r) => ({
+    slug: r.slug,
+    label: r.label || "",
+    company: parseTitleParts(r.label || "").company || "",
+    person: parseTitleParts(r.label || "").person || "",
+    to: r.client_email || "",
+    owner: r.current_owner || "",
+    start: r.start_time,
+  }));
+}
+
 export async function runReminderSweep({ joinUrl, repNameOf } = {}) {
   const cfg = await getApoMailConfig();
   if (!cfg.autoReminder) return { skipped: true, reason: "リマインド自動送信がOFFです" };

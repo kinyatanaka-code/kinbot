@@ -5437,3 +5437,25 @@ input:focus, select:focus, textarea:focus, .sf-input:focus, .sf-select:focus, .s
   background: linear-gradient(90deg, #1d9e75, #5DCAA5); transition: width .3s ease; }
 .bl-prog-txt { font-size: 12.5px; color: var(--ink); font-weight: 700; }
 .bl-prog-sub { font-size: 11px; color: var(--muted); font-weight: 400; }
+
+/* ===== 明日のリマインド ===== */
+.rm-bar { margin: 0 0 10px; }
+.rm-head { display: flex; align-items: center; gap: 8px; width: 100%;
+  padding: 8px 12px; border: 1px solid #f0dcc0; border-radius: 12px;
+  background: #fffaf2; font-family: inherit; font-size: 12px; cursor: pointer; text-align: left; }
+.rm-head:hover { background: #fff3e0; }
+.rm-lb { font-weight: 700; color: #A8611A; }
+.rm-n { font-weight: 700; color: #A8611A; background: #fff; border: 1px solid #f0dcc0;
+  border-radius: 999px; padding: 1px 9px; }
+.rm-when { color: var(--muted); font-size: 11px; }
+.rm-arrow { margin-left: auto; color: #A8611A; transition: transform .15s ease; }
+.rm-head.open .rm-arrow { transform: rotate(180deg); }
+.rm-list { margin-top: 6px; border: 1px solid var(--line); border-radius: 12px;
+  background: var(--panel); overflow: hidden; }
+.rm-row { display: flex; align-items: center; gap: 10px; padding: 7px 12px;
+  font-size: 12px; border-bottom: 1px solid var(--line); }
+.rm-row:last-child { border-bottom: none; }
+.rm-time { flex: none; font-weight: 700; color: #0d5b47; width: 76px; }
+.rm-co { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rm-to { flex: none; color: var(--muted); font-size: 11px; max-width: 40%;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

@@ -1876,6 +1876,7 @@ async function load() {
 document.addEventListener("DOMContentLoaded", () => {
   selDate = loadPref();
   loadHomeTools();
+  loadTomorrowReminders();
   $h("homeToggle").querySelectorAll(".home-tg").forEach((b) => {
     b.classList.toggle("active", b.dataset.scope === homeScope);
     b.addEventListener("click", () => {
@@ -1954,6 +1955,48 @@ function apoMeetingWhen(iso) {
   if (ymd(d) === ymd(tomorrow)) return `明日 ${hm}`;
   const w = "日月火水木金土"[d.getDay()];
   return `${d.getMonth() + 1}/${d.getDate()}(${w}) ${hm}`;
+}
+
+// ===== 明日リマインドを送る先 =====
+// 送る前に、宛先や日時が正しいかを確かめられるようにする。
+async function loadTomorrowReminders() {
+  const bar = document.getElementById("rmBar");
+  if (!bar) return;
+  try {
+    const d = await (await fetch("/api/apo-mail/tomorrow")).json();
+    const items = d.items || [];
+    if (!items.length) { bar.hidden = true; bar.innerHTML = ""; return; }
+    // 日本時間で出す（見る人の端末の時差に左右されないように）
+    const when = (iso) => {
+      const x = new Date(iso);
+      if (isNaN(x.getTime())) return "";
+      const j = new Date(x.getTime() + 9 * 3600 * 1000);
+      const p2 = (n) => String(n).padStart(2, "0");
+      return `${j.getUTCMonth() + 1}/${j.getUTCDate()} ${p2(j.getUTCHours())}:${p2(j.getUTCMinutes())}`;
+    };
+    bar.hidden = false;
+    bar.innerHTML =
+      `<button type="button" class="rm-head" id="rmToggle">` +
+      `<span class="rm-lb">明日のリマインド</span>` +
+      `<span class="rm-n">${items.length}件</span>` +
+      `<span class="rm-when">${escH(d["送る時刻"] || "")}に送ります</span>` +
+      (d["自動送信"] ? "" : `<span class="cc-warn">自動送信はOFFです</span>`) +
+      `<span class="rm-arrow">▾</span></button>` +
+      `<div class="rm-list" id="rmList" hidden>` +
+      items.map((x) => `
+        <div class="rm-row">
+          <span class="rm-time">${escH(when(x.start))}</span>
+          <span class="rm-co">${escH(x.company || x.label || "")}</span>
+          <span class="rm-to${x.to ? "" : " cc-warn"}">${escH(x.to || "宛先なし")}</span>
+        </div>`).join("") +
+      `</div>`;
+    const t = document.getElementById("rmToggle");
+    if (t) t.addEventListener("click", () => {
+      const l = document.getElementById("rmList");
+      if (l) l.hidden = !l.hidden;
+      t.classList.toggle("open", l && !l.hidden);
+    });
+  } catch { bar.hidden = true; }
 }
 
 // ===== 御礼メールを実際に送ったか =====

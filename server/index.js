@@ -19,7 +19,7 @@ process.on("unhandledRejection", (e) => {
 
 import { pickCloser, commitAssignment, rotationStatus, setNextCloser,
          getRotationConfig, loadTeamContext, balanceRange, nextOrderFor } from "./rotation.js";
-import { sendApoMail, sendTestApoMail, runReminderSweep, getApoMailConfig,
+import { sendApoMail, sendTestApoMail, runReminderSweep, listTomorrowReminders, getApoMailConfig,
          DEFAULT_CONFIRM_SUBJECT, DEFAULT_CONFIRM_BODY,
          DEFAULT_REMINDER_SUBJECT, DEFAULT_REMINDER_BODY, stripRetiredLines } from "./apomail.js";
 import { startKasasagi, getKasasagi, stopKasasagi, feedTranscript, kasasagiInfo,
@@ -3914,6 +3914,76 @@ app.post("/api/mail-sent-check", async (req, res) => {
     res.json({ ok: true, results, 送信済みの件数: items.length });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
+
+// 明日リマインドを送る相手の一覧（ホームに出す）
+app.get("/api/apo-mail/tomorrow", async (req, res) => {
+  try {
+    const cfg = await getApoMailConfig();
+    const all = await listTomorrowReminders();
+    // 自分のぶんだけにする（?all=1 で全員）
+    const me = String(req.user || "").toLowerCase();
+    const mine = String(req.query.all || "") === "1"
+      ? all
+      : all.filter((x) => String(x.owner || "").toLowerCase() === me);
+    res.json({
+      ok: true,
+      自動送信: cfg.autoReminder !== false,
+      送る時刻: `${cfg.reminderHour}:00`,
+      件数: mine.length,
+      items: mine,
+    });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// 送る1時間前に、対象を本人へ知らせる。
+// 「これから送られる」と分かっていれば、間違いがあっても止められる。
+let lastRemindNoticeKey = "";
+async function maybeNoticeBeforeReminder() {
+  try {
+    const cfg = await getApoMailConfig();
+    if (cfg.autoReminder === false) return;
+    const now = new Date(Date.now() + 9 * 3600 * 1000);
+    const noticeHour = (Number(cfg.reminderHour) + 23) % 24;   // 1時間前
+    if (now.getUTCHours() !== noticeHour || now.getUTCMinutes() > 4) return;
+    const key = `${now.toISOString().slice(0, 10)}-${noticeHour}`;
+    if (lastRemindNoticeKey === key) return;
+    lastRemindNoticeKey = key;
+
+    const all = await listTomorrowReminders();
+    if (!all.length) return;
+
+    // 担当者ごとにまとめる
+    const byOwner = new Map();
+    for (const x of all) {
+      const k = String(x.owner || "").toLowerCase();
+      if (!k) continue;
+      if (!byOwner.has(k)) byOwner.set(k, []);
+      byOwner.get(k).push(x);
+    }
+
+    let sent = 0;
+    for (const [owner, list] of byOwner) {
+      const name = await displayNameOf(owner).catch(() => "");
+      const lines = list.slice(0, 20).map((x) => {
+        const t = String(x.start || "").slice(11, 16);
+        return `・${t}　${x.company || x.label}　${x.to}`;
+      });
+      const text = [
+        `${name ? name + "さん、" : ""}あと1時間で、明日の商談のリマインドメールを送ります。`,
+        `（${cfg.reminderHour}:00 に自動で送ります）`,
+        "",
+        `📮 *送る先 ${list.length}件*`,
+        ...lines,
+        list.length > 20 ? `…ほか${list.length - 20}件` : "",
+        "",
+        "宛先や日時が違うものがあれば、kinbotのホームから直してください。",
+      ].filter(Boolean).join("\n");
+      const r = await notifyPerson(owner, text);
+      if (r.ok) sent++;
+    }
+    console.log(`[apo-mail] リマインドの予告を ${sent}人に送りました（対象 ${all.length}件）`);
+  } catch (e) { console.warn("[apo-mail] リマインドの予告:", e.message); }
+}
 
 // ───────────────────────────────────────────────────────────
 // ロボに話しかける（画面の案内係）
@@ -10400,7 +10470,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-08-17c ホームを1画面に収める／画面ファイルに版を付ける";
+const BUILD_TAG = "2026-08-18a リマインドは前日17時／送る先をホームに表示／1時間前に予告";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
@@ -15158,6 +15228,8 @@ server.listen(PORT, async () => {
     } finally { reminderRunning = false; }
   };
   setInterval(() => { checkReminderSchedule().catch(() => {}); }, 60 * 1000);
+  // 送る1時間前に、対象を本人へ知らせる
+  setInterval(() => { maybeNoticeBeforeReminder().catch(() => {}); }, 60 * 1000);
 
   // アポの自動スキャン。
   //   ・短い間隔（既定1分）で「差分だけ」を見る → カレンダーに入れてすぐ反映される
