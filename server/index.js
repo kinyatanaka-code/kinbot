@@ -596,6 +596,15 @@ app.use(async (req, res, next) => {
   return res.redirect("/login.html");
 });
 
+// 画面のファイル（html/js/css）は、毎回新しいかどうかを確かめてもらう。
+// これをしないと、直したのに古い画面が出たままになる。
+app.use((req, res, next) => {
+  if (/\.(js|css|html)$/i.test(req.path) || req.path === "/") {
+    res.set("Cache-Control", "no-cache, must-revalidate");
+  }
+  next();
+});
+
 app.use(express.static(path.join(__dirname, "..", "public")));
 
 // Webhook だけ raw body も保持（将来の署名検証用）
@@ -10391,8 +10400,12 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-08-17 天気予報／ホームのツール／確定メールの文面／実績に数えない人";
+const BUILD_TAG = "2026-08-17b 名簿ファイルから数千件のURL発行／返信を既定／SF更新の判定";
 const BUILD_FEATURES = [
+  "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
+  "メールは返信を既定にし、本文のリンクを押せるようにした",
+  "SFはステージ変更・活動履歴の自動記録で「更新済み」と判定",
+  "御礼メールはGmailの送信済みを見て「送った」と判定",
   "天気予報（週のテーマ・目標・施策と振り返り／写真から読み取り）",
   "ホームによく使うツールを並べる（人ごとに選べる）",
   "確定メールの書き出しを、自分で取ったアポかどうかで変える",
