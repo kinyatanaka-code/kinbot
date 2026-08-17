@@ -1,3 +1,13 @@
+// ロボに話しかける窓を、どの画面でも使えるように読み込む
+(function () {
+  if (!document.querySelector('script[src$="kbchat.js"]')) {
+    const sc = document.createElement("script");
+    sc.src = "kbchat.js";
+    sc.defer = true;
+    document.head.appendChild(sc);
+  }
+})();
+
 // ───────────────────────────────────────────────────────────
 // メニューの中身。パソコンのサイドバーもスマホのメニューも、ここから作る。
 // 増えすぎた項目を6つにまとめ、深いものはカーソルを合わせると出るようにした。

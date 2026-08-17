@@ -26,6 +26,7 @@ import { startKasasagi, getKasasagi, stopKasasagi, feedTranscript, kasasagiInfo,
          buildScript, buildReport, faceState, SLIDE_LABELS } from "./kasasagi.js";
 import { notifyAssigned, notifyMailDraft, notifyChat, notifyAll, notifyPerson, chatWebhookUrl, chatInfo } from "./chat.js";
 import { note as devNote, errKey, buildMorningSummary, NOTE_KINDS, dropSimilar } from "./devnotes.js";
+import { askBot } from "./askbot.js";
 import { checkLive, checkProcessSheet, checkLinks, buildProposal, notifyCheck } from "./selfcheck.js";
 import { UI_PAGES, nextPage, reviewPage, splitIdeas } from "./uireview.js";
 import { verifyChatRequest, readEvent, replyBody, parseCommand, helpText, jstDate, jstTime, INTENT_SYSTEM, guessIntent } from "./chatcmd.js";
@@ -3735,6 +3736,48 @@ async function maybeSendCallReport() {
     console.log(`[call-report] ${h}時の進捗を送りました`);
   } catch (e) { console.warn("[call-report]", e.message); }
 }
+
+// ───────────────────────────────────────────────────────────
+// ロボに話しかける（画面の案内係）
+//
+// 「これどうやるの？」に答える。
+// 答えられないことと要望は、その場で開発メモに残す。
+// ───────────────────────────────────────────────────────────
+app.post("/api/ask-bot", async (req, res) => {
+  try {
+    const message = String(req.body?.message || "").slice(0, 1000);
+    const history = Array.isArray(req.body?.history) ? req.body.history.slice(-6) : [];
+    const r = await askBot({ message, history, callLLM: callLLMPublic });
+
+    let saved = null;
+    if (r.note) {
+      // 同じ内容が溜まらないよう、似ているものがあれば残さない
+      let seen = [];
+      try {
+        const notes = await listDevNotes({ limit: 300 });
+        const gone = await listDismissed(300).catch(() => []);
+        seen = notes.concat(gone).map((n) => ({ title: n.title, detail: "" }));
+      } catch {}
+      const fresh = dropSimilar([{ title: r.note.title, detail: message }], seen);
+      if (fresh.length) {
+        saved = await addDevNote({
+          key: `bot:${Date.now()}:${r.note.title}`.slice(0, 200),
+          kind: r.note.kind,
+          title: r.note.title,
+          detail: `聞かれたこと：${message}`,
+          source: "ロボに相談",
+          createdBy: req.user || "",
+        }).catch(() => null);
+        console.log(`[ロボ] 開発メモに残しました（${r.note.kind}）：${r.note.title}`);
+      } else {
+        console.log(`[ロボ] 同じ内容が既にあるので残しませんでした：${r.note.title}`);
+      }
+    }
+    res.json({ ok: true, answer: r.answer, noted: !!saved, note: r.note || null });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
 
 // ───────────────────────────────────────────────────────────
 // 開発メモ（直したいこと）
