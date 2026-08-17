@@ -689,10 +689,10 @@ export function parseEmailAddr(s) {
 }
 
 // 返信を送信する。threadIdを渡すと同じスレッドにぶら下がる。
-export async function gmailSend(owner, { to, subject, bodyText, threadId, inReplyTo, references }) {
+export async function gmailSend(owner, { to, subject, bodyText, threadId, inReplyTo, references, bcc, cc }) {
   const token = await accessToken(owner);
   if (!token) throw new Error("Google未連携です");
-  const raw = await buildRawMessage(owner, { to, subject, bodyText, inReplyTo, references });
+  const raw = await buildRawMessage(owner, { to, subject, bodyText, inReplyTo, references, bcc, cc });
   const payload = threadId ? { raw, threadId } : { raw };
   const res = await fetch("https://gmail.googleapis.com/gmail/v1/users/me/messages/send", {
     method: "POST",
@@ -717,10 +717,10 @@ export async function gmailSend(owner, { to, subject, bodyText, threadId, inRepl
 }
 
 // 返信を「下書き」としてGmailに保存する（送信はしない）。threadIdで同じスレッドにぶら下がる。
-export async function gmailCreateDraft(owner, { to, subject, bodyText, threadId, inReplyTo, references }) {
+export async function gmailCreateDraft(owner, { to, subject, bodyText, threadId, inReplyTo, references, bcc, cc }) {
   const token = await accessToken(owner);
   if (!token) throw new Error("Google未連携です");
-  const raw = await buildRawMessage(owner, { to, subject, bodyText, inReplyTo, references });
+  const raw = await buildRawMessage(owner, { to, subject, bodyText, inReplyTo, references, bcc, cc });
   const message = threadId ? { raw, threadId } : { raw };
   const res = await fetch("https://gmail.googleapis.com/gmail/v1/users/me/drafts", {
     method: "POST",
@@ -873,12 +873,15 @@ export async function gmailUntrashThread(owner, threadId) {
 }
 
 // RFC822形式のメッセージを組み立ててbase64url化（送信・下書きで共通）
-async function buildRawMessage(owner, { to, subject, bodyText, inReplyTo, references }) {
+async function buildRawMessage(owner, { to, subject, bodyText, inReplyTo, references, bcc, cc }) {
   const from = await getPrimaryEmail(owner);
   const enc = (s) => `=?UTF-8?B?${Buffer.from(String(s || "")).toString("base64")}?=`;
   const headers = [
     from ? `From: ${from}` : "",
     `To: ${to}`,
+    cc ? `Cc: ${cc}` : "",
+    // Bccは、お客様には見えない控え。送った本人の受信箱にも届く。
+    bcc ? `Bcc: ${bcc}` : "",
     `Subject: ${enc(subject)}`,
     "MIME-Version: 1.0",
     'Content-Type: text/plain; charset="UTF-8"',

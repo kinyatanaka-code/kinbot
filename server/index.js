@@ -9051,6 +9051,9 @@ app.post("/api/gmail/send", async (req, res) => {
   try {
     const { to, subject, body, threadId, inReplyTo, references } = req.body || {};
     if (!to || !body) return res.status(400).json({ error: "宛先と本文が必要です" });
+    // 送った本人にも控えを届ける（Bccなのでお客様には見えない）。
+    // 自分の受信箱に残るので、ちゃんと送れたかが分かる。
+    const cfg = await getApoMailConfig().catch(() => ({ copyToSelf: true }));
     const result = await gmailSend(req.user, {
       to,
       subject: subject || "",
@@ -9058,6 +9061,7 @@ app.post("/api/gmail/send", async (req, res) => {
       threadId: threadId || null,
       inReplyTo: inReplyTo || null,
       references: references || null,
+      bcc: cfg.copyToSelf !== false ? req.user : "",
     });
     res.json({ ok: true, id: result.id, threadId: result.threadId });
   } catch (e) {
@@ -10470,7 +10474,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-08-18a リマインドは前日17時／送る先をホームに表示／1時間前に予告";
+const BUILD_TAG = "2026-08-18c 送ったメールを自分にも届ける（Bcc）／リマインドは前日17時";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
@@ -14883,6 +14887,7 @@ app.put("/api/apo-mail-config", async (req, res) => {
     if (b.autoConfirm !== undefined) patch.apoMailAutoConfirm = !!b.autoConfirm;
     if (b.autoReminder !== undefined) patch.apoMailAutoReminder = !!b.autoReminder;
     if (b.reminderHour !== undefined) patch.apoMailReminderHour = Math.min(23, Math.max(0, parseInt(b.reminderHour, 10) || 0));
+    if (b.copyToSelf !== undefined) patch.apoMailCopyToSelf = b.copyToSelf !== false;
     if (b.companyName !== undefined) patch.apoMailCompanyName = String(b.companyName || "").slice(0, 100);
     if (b.confirmSubject !== undefined) patch.apoMailConfirmSubject = String(b.confirmSubject || "").slice(0, 300);
     if (b.confirmBody !== undefined) patch.apoMailConfirmBody = stripRetiredLines(String(b.confirmBody || "")).slice(0, 8000);

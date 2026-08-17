@@ -113,6 +113,9 @@ export async function getApoMailConfig() {
     // 前日リマインドを送る時刻。既定は前日の17時。
     // 「明日の商談」を対象にするので、17時に送れば前日夕方の案内になる。
     reminderHour: Number.isFinite(+s.apoMailReminderHour) ? Math.min(23, Math.max(0, +s.apoMailReminderHour)) : 17,
+    // 送った本人にも控えを届ける（Bcc）。既定でON。
+    // 送られたかどうかが自分の受信箱で分かるようにするため。
+    copyToSelf: s.apoMailCopyToSelf !== false,
     companyName: String(s.apoMailCompanyName || "").trim() || "株式会社ネオキャリア",
     confirmSubject: String(s.apoMailConfirmSubject || "").trim() || DEFAULT_CONFIRM_SUBJECT,
     confirmBody: stripRetiredLines(String(s.apoMailConfirmBody || "").trim() || DEFAULT_CONFIRM_BODY),
@@ -412,10 +415,13 @@ export async function sendApoMail(link, kind, { url, repName, force = false, act
   const bodyText = render(kind === "reminder" ? cfg.reminderBody : cfg.confirmBody, vars);
 
   const asDraft = cfg.deliverMode !== "send";
+  // 送るときは、自分にも控えを届ける（Bccなのでお客様には見えない）。
+  // 下書きのときは、自分で送る前に確認できるので付けない。
+  const bcc = !asDraft && cfg.copyToSelf ? owner : "";
   try {
     const r = asDraft
       ? await gmailCreateDraft(owner, { to, subject, bodyText })
-      : await gmailSend(owner, { to, subject, bodyText });
+      : await gmailSend(owner, { to, subject, bodyText, bcc });
     await logApoMail({
       slug: link.slug, kind, toEmail: to, fromOwner: owner,
       subject, status: asDraft ? "draft" : "sent",
