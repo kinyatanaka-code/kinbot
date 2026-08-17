@@ -184,6 +184,52 @@
     bot.insertAdjacentElement("afterend", hint);
   }
 
+  // ───────────── ロボの連打あそび ─────────────
+  // 何回も続けて押されたら、ロボが文句を言う。
+  // 2秒あいだが空いたら、数え直す（ふつうの操作では出ない）。
+  let taps = 0;
+  let tapTimer = null;
+  const TAP_WORDS = {
+    3: "痛いでやんす",
+    5: "暇なの？",
+    8: "仕事しろ",
+    10: "…",
+  };
+
+  function tease(bot) {
+    taps++;
+    clearTimeout(tapTimer);
+    tapTimer = setTimeout(() => { taps = 0; }, 2000);
+
+    const word = TAP_WORDS[taps];
+    if (!word) return false;
+
+    if (taps >= 10) {
+      // 10回でドス黒い顔になる。しばらくすると元に戻る。
+      bot.classList.add("kb-bot-dark");
+      showBubble(bot, "……", 2600);
+      setTimeout(() => bot.classList.remove("kb-bot-dark"), 2600);
+      taps = 0;
+      return true;
+    }
+    showBubble(bot, word, 1600);
+    // 3・5・8回目は窓を開かない（文句を言うだけ）
+    return true;
+  }
+
+  // ロボの横に、ひとことだけ出す
+  function showBubble(bot, text, ms) {
+    document.querySelectorAll(".kb-bot-say").forEach((e) => e.remove());
+    const el = document.createElement("span");
+    el.className = "kb-bot-say";
+    el.textContent = text;
+    bot.insertAdjacentElement("afterend", el);
+    // 出てきたときに、ぷるっと動かす
+    bot.classList.add("kb-bot-poke");
+    setTimeout(() => bot.classList.remove("kb-bot-poke"), 400);
+    setTimeout(() => el.remove(), ms);
+  }
+
   // ロボの絵をクリックしたら開く。
   // どの画面にもある「上のロボ」と「メニューの印」の両方に付ける。
   function wire() {
@@ -193,7 +239,12 @@
       el._kbChatWired = true;
       el.style.cursor = "pointer";
       el.title = "押すとkinbotに相談できます";
-      el.addEventListener("click", (e) => { e.preventDefault(); toggle(); });
+      el.addEventListener("click", (e) => {
+        e.preventDefault();
+        // 上のロボは、連打すると文句を言う（そのときは窓を開かない）
+        if (el.classList.contains("topbar-bot") && tease(el)) return;
+        toggle();
+      });
     });
     document.querySelectorAll(".topbar-bot").forEach(addHint);
   }
