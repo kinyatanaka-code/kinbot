@@ -5398,3 +5398,19 @@ input:focus, select:focus, textarea:focus, .sf-input:focus, .sf-select:focus, .s
 .mail-link:hover { text-decoration: underline; }
 .mail-link b { flex: none; font-size: 10px; background: #eaf7f2; border: 1px solid #cfeee2;
   border-radius: 999px; padding: 1px 7px; color: #0d5b47; }
+
+/* 名簿ファイルからの一括発行 */
+.bl-file { cursor: pointer; }
+.bl-prev { margin: 8px 0; padding: 10px 12px; border: 1px solid var(--line);
+  border-radius: 10px; background: var(--panel-2); font-size: 12.5px; line-height: 1.8; }
+.bl-prev b { color: #0d5b47; }
+.bl-prev table { border-collapse: collapse; margin-top: 6px; font-size: 11.5px; }
+.bl-prev th, .bl-prev td { border: 1px solid var(--line); padding: 3px 8px; text-align: left; }
+.bl-prev th { background: #eaf7f2; color: #0d5b47; font-weight: 700; }
+.bl-warn { color: #A33C24; }
+.bl-bar { height: 10px; border-radius: 999px; background: var(--panel-2);
+  border: 1px solid var(--line); overflow: hidden; margin: 10px 0 6px; }
+.bl-bar-in { height: 100%; width: 0%; border-radius: 999px;
+  background: linear-gradient(90deg, #1d9e75, #5DCAA5); transition: width .3s ease; }
+.bl-prog-txt { font-size: 12.5px; color: var(--ink); font-weight: 700; }
+.bl-prog-sub { font-size: 11px; color: var(--muted); font-weight: 400; }

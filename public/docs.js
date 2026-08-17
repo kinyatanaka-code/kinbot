@@ -46,7 +46,7 @@ async function loadDocs() {
     baseUrl = d.base || location.origin;
 
     // 選択欄を埋める
-    for (const [id, withAll] of [["dkDoc", true], ["dsDoc", false]]) {
+    for (const [id, withAll] of [["dkDoc", true], ["dsDoc", false], ["blDoc", false]]) {
       const sel = $(id);
       if (!sel) continue;
       const cur = sel.value;
@@ -426,3 +426,142 @@ if ($("shSave")) {
 }
 
 loadSheetConfig();
+
+
+// ───────────────────────────────────────────────────────────
+// 名簿ファイルからまとめて発行する
+//
+// ① ファイルを選ぶ → 何件・どの列かを下見する（まだ発行しない）
+// ② 「この内容で発行する」を押したら、100件ずつ発行して進み具合を出す
+// ───────────────────────────────────────────────────────────
+let blItems = [];      // 下見で読み取った宛先
+let blJobId = "";      // いま発行中の受付番号
+let blTimer = null;
+
+function blSay(t, ms) {
+  const e = $("blStatus");
+  if (!e) return;
+  e.textContent = t || "";
+  if (ms) setTimeout(() => { if (e.textContent === t) e.textContent = ""; }, ms);
+}
+
+// ① 下見
+async function blPreview(file) {
+  if (!file) return;
+  blSay("ファイルを読んでいます…");
+  $("blPreview").innerHTML = "";
+  const fd = new FormData();
+  fd.append("file", file);
+  try {
+    const r = await fetch("/api/doc-links/preview", { method: "POST", body: fd });
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.error || "読み取れませんでした");
+    blItems = d.items || [];
+    const 列 = d["列"] || {};
+    const 先頭 = d["先頭"] || [];
+    const 飛ばした = d["飛ばした"] || [];
+    $("blPreview").innerHTML =
+      `<div class="bl-prev">` +
+      `<b>${d["件数"]}件</b> 読み取りました（${esc(d["種類"] || "")}` +
+      (d["シート"] ? `／シート「${esc(d["シート"])}」` : "") + `）<br>` +
+      `会社名：${esc(列["会社名"] || "")}　担当者名：${esc(列["担当者名"] || "")}　メール：${esc(列["メール"] || "")}` +
+      (d["見出しあり"] ? "（1行目は見出しとして飛ばしました）" : "（見出しは無いものとして読みました）") +
+      (飛ばした.length ? `<br><span class="bl-warn">${飛ばした.length}行は飛ばしました（メールの形が違うなど）</span>` : "") +
+      (先頭.length ? `<table><tr><th>会社名</th><th>担当者名</th><th>メール</th></tr>` +
+        先頭.map((x) => `<tr><td>${esc(x.company)}</td><td>${esc(x.name)}</td><td>${esc(x.email)}</td></tr>`).join("") +
+        `</table><span class="bl-prog-sub">先頭5件です。列がずれていないか確かめてください。</span>` : "") +
+      `</div>` +
+      `<div class="ap-cfg-actions">
+         <button class="btn" id="blGo">この内容で ${d["件数"]}件 発行する</button>
+         <button class="btn ghost" id="blClear">やめる</button>
+       </div>`;
+    blSay("");
+    $("blGo").addEventListener("click", blStart);
+    $("blClear").addEventListener("click", () => { blItems = []; $("blPreview").innerHTML = ""; });
+  } catch (e) {
+    blSay("失敗：" + e.message, 8000);
+  }
+}
+
+// ② 発行を始める
+async function blStart() {
+  const docId = parseInt($("blDoc").value, 10);
+  if (!docId) { blSay("送る資料を選んでください", 5000); return; }
+  if (!blItems.length) { blSay("先にファイルを選んでください", 5000); return; }
+  if (!confirm(`${blItems.length}件のURLを発行します。よろしいですか？\n（数千件だと1〜2分かかります）`)) return;
+
+  $("blPreview").innerHTML = "";
+  $("blProgress").hidden = false;
+  $("blOpenList").hidden = true;
+  blProg({ done: 0, total: blItems.length, made: 0, failed: 0, 状態: "発行中", 経過秒: 0 });
+  try {
+    const r = await fetch("/api/doc-links/bulk", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ docId, items: blItems }),
+    });
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.error || "始められませんでした");
+    blJobId = d.id;
+    blWatch();
+  } catch (e) {
+    blSay("失敗：" + e.message, 8000);
+    $("blProgress").hidden = true;
+  }
+}
+
+// 進み具合を出す
+function blProg(j) {
+  const pct = j.total ? Math.round((j.done / j.total) * 100) : 0;
+  $("blBarIn").style.width = pct + "%";
+  const nokori = j.done && j.経過秒 ? Math.max(0, Math.round((j.経過秒 / j.done) * (j.total - j.done))) : null;
+  $("blProgTxt").innerHTML =
+    `${esc(j["状態"] || "")}　${j.done} / ${j.total}件（${pct}%）` +
+    `<span class="bl-prog-sub">　発行 ${j.made}件` +
+    (j.failed ? ` ／ <span class="bl-warn">失敗 ${j.failed}件</span>` : "") +
+    (j.state === "running" && nokori !== null ? ` ／ あと ${nokori}秒ほど` : ` ／ ${j.経過秒}秒`) +
+    `</span>`;
+}
+
+// 1秒ごとに進み具合を聞く
+function blWatch() {
+  clearInterval(blTimer);
+  blTimer = setInterval(async () => {
+    if (!blJobId) return clearInterval(blTimer);
+    try {
+      const d = await (await fetch(`/api/doc-links/bulk/${encodeURIComponent(blJobId)}`)).json();
+      if (d.error) throw new Error(d.error);
+      blProg(d);
+      if (d.state !== "running") {
+        clearInterval(blTimer);
+        $("blCancel").hidden = true;
+        $("blOpenList").hidden = false;
+        blSay(d.state === "done" ? `${d.made}件のURLを発行しました` : `止めました（${d.made}件は発行済み）`, 12000);
+        loadLinks();   // 発行したURLの一覧を読み直す
+      }
+    } catch (e) {
+      clearInterval(blTimer);
+      blSay("進み具合を見られませんでした：" + e.message, 8000);
+    }
+  }, 1000);
+}
+
+if ($("blFile")) {
+  $("blFile").addEventListener("change", (e) => {
+    const f = e.target.files && e.target.files[0];
+    e.target.value = "";
+    blPreview(f);
+  });
+  $("blCancel").addEventListener("click", async () => {
+    if (!blJobId) return;
+    if (!confirm("発行を止めます。ここまでのぶんは残ります。よろしいですか？")) return;
+    try {
+      await fetch(`/api/doc-links/bulk/${encodeURIComponent(blJobId)}/cancel`, { method: "POST" });
+      blSay("止めています…");
+    } catch {}
+  });
+  $("blOpenList").addEventListener("click", () => {
+    // 閲覧状況のタブへ移る
+    const tab = document.querySelector('[data-dtab="track"]');
+    if (tab) tab.click();
+  });
+}

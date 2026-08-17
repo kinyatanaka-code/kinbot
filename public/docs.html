@@ -90,6 +90,32 @@
               </div>
               <div id="dsResult"></div>
             </div>
+
+            <div class="set-card">
+              <h3>名簿ファイルからまとめて発行する</h3>
+              <p class="note">CSV・Excel（.xlsx / .xls）・タブ区切りのファイルを読み込んで、<b>数千件のURLを一度に発行</b>できます。<br>
+              「会社名・担当者名・メール」の列を自動で見つけます（見出しが無くても、並び順から判断します）。<br>
+              Googleスプレッドシートは、<b>ファイル → ダウンロード → CSV</b> で保存したものを読み込ませてください。</p>
+              <div class="ap-cfg-row">
+                <label>送る資料 <select id="blDoc"></select></label>
+              </div>
+              <div class="ap-cfg-actions">
+                <label class="btn ghost bl-file">
+                  名簿ファイルを選ぶ
+                  <input type="file" id="blFile" accept=".csv,.tsv,.txt,.xlsx,.xls" hidden />
+                </label>
+                <span class="rev-status" id="blStatus"></span>
+              </div>
+              <div id="blPreview"></div>
+              <div id="blProgress" hidden>
+                <div class="bl-bar"><div class="bl-bar-in" id="blBarIn"></div></div>
+                <div class="bl-prog-txt" id="blProgTxt"></div>
+                <div class="ap-cfg-actions">
+                  <button class="btn ghost" id="blCancel">止める</button>
+                  <button class="btn ghost" id="blOpenList" hidden>発行したURLを見る</button>
+                </div>
+              </div>
+            </div>
           </section>
 
           <!-- 資料 -->

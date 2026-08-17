@@ -27,6 +27,7 @@ import { startKasasagi, getKasasagi, stopKasasagi, feedTranscript, kasasagiInfo,
 import { notifyAssigned, notifyMailDraft, notifyChat, notifyAll, notifyPerson, chatWebhookUrl, chatInfo } from "./chat.js";
 import { note as devNote, errKey, buildMorningSummary, NOTE_KINDS, dropSimilar } from "./devnotes.js";
 import { askBot } from "./askbot.js";
+import { newJobId, getJob, cancelJob, runBulk, tableFromFile, tableFromText, rowsFromTable } from "./bulklinks.js";
 import { checkLive, checkProcessSheet, checkLinks, buildProposal, notifyCheck } from "./selfcheck.js";
 import { UI_PAGES, nextPage, reviewPage, splitIdeas } from "./uireview.js";
 import { verifyChatRequest, readEvent, replyBody, parseCommand, helpText, jstDate, jstTime, INTENT_SYSTEM, guessIntent } from "./chatcmd.js";
@@ -3350,6 +3351,91 @@ app.post("/api/doc-links", async (req, res) => {
       })),
     });
   } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// ───────────────────────────────────────────────────────────
+// 名簿ファイルから、資料URLをまとめて発行する
+//
+// ① 下見（/api/doc-links/preview）… ファイルを読んで、何件・どの列かを返す
+// ② 発行（/api/doc-links/bulk）  … 100件ずつ進める。進み具合は③で見る
+// ③ 進み具合（/api/doc-links/bulk/:id）
+// ───────────────────────────────────────────────────────────
+const listUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 20 * 1024 * 1024 } });
+
+// ① 下見。まだ発行しない。
+app.post("/api/doc-links/preview", listUpload.single("file"), async (req, res) => {
+  try {
+    let table = null, kind = "", sheetName = "", sheetCount = 0;
+    if (req.file && req.file.buffer) {
+      const r = tableFromFile(req.file.buffer, req.file.originalname || "");
+      table = r.table; kind = r.kind; sheetName = r.sheetName; sheetCount = r.sheetCount;
+    } else if (req.body && req.body.text) {
+      const r = tableFromText(req.body.text);
+      table = r.table; kind = r.kind;
+    } else {
+      return res.status(400).json({ error: "ファイルか、貼り付けた表がありません" });
+    }
+    const parsed = rowsFromTable(table);
+    res.json({
+      ok: true,
+      種類: kind,
+      シート: sheetName || "",
+      シート数: sheetCount || 0,
+      件数: parsed.items.length,
+      列: parsed.列,
+      見出しあり: parsed.見出しあり,
+      飛ばした: parsed.飛ばした,
+      // 最初の5件だけ見せる（間違った列を選んでいないか確かめる用）
+      先頭: parsed.items.slice(0, 5),
+      // 発行のときに送り返してもらう
+      items: parsed.items,
+    });
+  } catch (e) {
+    res.status(400).json({ error: `読み取れませんでした：${e.message}` });
+  }
+});
+
+// ② 発行を始める。すぐに受付番号を返し、あとは裏で進める。
+app.post("/api/doc-links/bulk", async (req, res) => {
+  try {
+    const docId = parseInt(req.body?.docId, 10);
+    if (!docId) return res.status(400).json({ error: "資料を選んでください" });
+    const items = Array.isArray(req.body?.items) ? req.body.items : [];
+    if (!items.length) return res.status(400).json({ error: "宛先がありません" });
+    if (items.length > 20000) return res.status(400).json({ error: "一度に発行できるのは20000件までです" });
+
+    const id = newJobId();
+    const owner = req.user;
+    await runBulk({
+      id, docId, items, owner,
+      addLinks: (part) => addDocLinks(docId, part, owner),
+    });
+    console.log(`[一括発行] 受け付けました：${items.length}件 by ${owner}`);
+    res.json({ ok: true, id, total: items.length });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// ③ 進み具合を返す
+app.get("/api/doc-links/bulk/:id", (req, res) => {
+  const j = getJob(req.params.id);
+  if (!j) return res.status(404).json({ error: "その受付番号は見つかりません" });
+  res.json({
+    ok: true,
+    状態: j.state === "running" ? "発行中" : j.state === "done" ? "終わりました" : "止めました",
+    state: j.state,
+    total: j.total,
+    done: j.done,
+    made: j.made,
+    failed: j.failed,
+    errors: j.errors,
+    経過秒: Math.round(((j.finishedAt || Date.now()) - j.startedAt) / 1000),
+  });
+});
+
+// 途中で止める
+app.post("/api/doc-links/bulk/:id/cancel", (req, res) => {
+  const ok = cancelJob(req.params.id);
+  res.json({ ok, note: ok ? "止めます（ここまでのぶんは残ります）" : "すでに終わっています" });
 });
 
 // 発行したリンクと、その閲覧状況
