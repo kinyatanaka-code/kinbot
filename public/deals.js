@@ -3419,8 +3419,25 @@ document.addEventListener("click", (ev) => {
       box.innerHTML = `<div class="sf-ss-title">${esc(sec.heading)} の項目</div>` +
         `<div class="sf-autofill-row"><button type="button" class="btn btn-ghost" id="ssAutofillBtn">商談から自動入力</button>${window._sfReadMeetingSelectHtml ? window._sfReadMeetingSelectHtml() : ""}<span class="sf-autofill-note" id="ssAutofillNote">選んだ商談の内容で空欄を埋めます</span></div>` +
         (sec.fields.length ? sec.fields.map(render1).join("") : '<div class="sf-ss-note">この段階に編集できる項目がありません。</div>');
+      // ボタンの取り付けは、いちばん先に行う。
+      // あとの処理（選択肢の組み立てなど）でつまずいても、
+      // 「押しても反応しない」状態にならないようにするため。
+      // 枠ごと受け止める（ボタンを作り直しても効く／二重には動かない）
+      box._autofillSec = sec;
+      if (!box._autofillDelegated) {
+        box._autofillDelegated = true;
+        box.addEventListener("click", (ev) => {
+          const b = ev.target && ev.target.closest && ev.target.closest("#ssAutofillBtn");
+          if (!b || b.disabled) return;
+          autofillSection(box._autofillSec);
+        });
+      }
+
       // 読み取る商談セレクタの変更を反映
       box.querySelectorAll("[data-read-meeting]").forEach((s) => s.addEventListener("change", () => { window._sfReadBotId = s.value; }));
+      // ここから下は、途中でつまずいてもボタンが動くように、まとめて包む
+      try {
+
       // 複数選択ピックリスト：チェックの内容をセミコロン区切りでまとめる
       const syncMpick = (api) => {
         const wrap = box.querySelector(`[data-mpick-for="${api}"]`);
@@ -3466,10 +3483,15 @@ document.addEventListener("click", (ev) => {
       };
       if (daiSel) daiSel.addEventListener("change", fillChu);
       if (chuSel) chuSel.addEventListener("change", fillSho);
-      const abtn = document.getElementById("ssAutofillBtn");
-      if (abtn) abtn.addEventListener("click", () => autofillSection(sec));
       fillDefaultDates(); // 昇格日などに今日の日付を入れておく
       paginateFields(box); // スマホでは項目を数個ずつに分ける
+
+      } catch (e) {
+        console.error("[SF] 項目の組み立てでつまずきました:", e);
+        const note = box.querySelector("#ssAutofillNote");
+        if (note) note.textContent = "一部の項目を作れませんでした（自動入力は使えます）";
+      }
+
       if (auto && sec.fields.length) autofillSection(sec); // 段階を選んだら自動で読み取り
     };
     const sel = document.getElementById("sfStage");
