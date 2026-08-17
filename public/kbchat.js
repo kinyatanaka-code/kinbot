@@ -23,8 +23,10 @@
           <span>使い方や、直してほしいことをどうぞ</span>
         </div>
         <span class="kb-chat-dot" aria-hidden="true"></span>
-        <button type="button" class="kb-chat-mini-btn" aria-label="小さくする" title="小さくする">－</button>
-        <button type="button" class="kb-chat-x" aria-label="閉じる" title="閉じる">✕</button>
+        <div class="kb-chat-btns">
+          <button type="button" class="kb-chat-mini-btn" aria-label="小さくする" title="小さくする">－</button>
+          <button type="button" class="kb-chat-x" aria-label="閉じる" title="閉じる">✕</button>
+        </div>
       </div>
       <div class="kb-chat-body" id="kbChatBody"></div>
       <div class="kb-chat-tips" id="kbChatTips"></div>

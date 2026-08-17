@@ -5298,9 +5298,11 @@ input:focus, select:focus, textarea:focus, .sf-input:focus, .sf-select:focus, .s
 .kb-chat-title { display: flex; flex-direction: column; line-height: 1.35; }
 .kb-chat-title b { font-size: 13px; color: #0d5b47; }
 .kb-chat-title span { font-size: 10.5px; color: var(--muted); }
-.kb-chat-x { margin-left: auto; border: 1px solid var(--line); background: var(--panel);
+/* 「－」と「✕」は、右端でとなり合わせに並べる */
+.kb-chat-btns { margin-left: auto; display: flex; align-items: center; gap: 4px; flex: none; }
+.kb-chat-x { border: 1px solid var(--line); background: var(--panel);
   width: 26px; height: 26px; border-radius: 8px; color: #4a6b62; font-size: 12px;
-  cursor: pointer; font-family: inherit; }
+  cursor: pointer; font-family: inherit; display: flex; align-items: center; justify-content: center; }
 .kb-chat-x:hover { background: var(--panel-2); }
 
 .kb-chat-body { flex: 1; overflow-y: auto; padding: 12px; display: flex;
@@ -5340,10 +5342,9 @@ input:focus, select:focus, textarea:focus, .sf-input:focus, .sf-select:focus, .s
 .kb-chat.mini .kb-chat-head { border-bottom: none; padding: 8px 10px; }
 .kb-chat.mini .kb-chat-title span { display: none; }
 .kb-chat-mini-btn { border: 1px solid var(--line); background: var(--panel); color: #4a6b62;
-  width: 26px; height: 26px; border-radius: 8px; font-size: 12px; cursor: pointer;
-  font-family: inherit; margin-left: auto; }
+  width: 26px; height: 26px; border-radius: 8px; font-size: 13px; cursor: pointer;
+  font-family: inherit; display: flex; align-items: center; justify-content: center; }
 .kb-chat-mini-btn:hover { background: var(--panel-2); }
-.kb-chat.mini .kb-chat-x { margin-left: 0; }
 /* 未読の印（小さくしている間に返事が来たとき） */
 .kb-chat-dot { display: none; width: 8px; height: 8px; border-radius: 50%;
   background: #1d9e75; margin-left: 4px; }
