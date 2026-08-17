@@ -564,6 +564,53 @@ function extractBody(payload) {
 }
 
 // 会社名などのクエリでスレッドを検索し、各スレッドの最新メッセージ概要を返す
+// その人が「今日送ったメール」の宛先と件名を、まとめて取ってくる。
+//
+// 御礼メールを実際に送ったかどうかを見分けるために使う。
+// 1回の呼び出しで全件まとめて取り、あとは会社名・アドレスの照合だけを行う。
+export async function gmailSentToday(owner, { max = 60 } = {}) {
+  const token = await accessToken(owner);
+  if (!token) throw new Error("Google未連携です");
+  // 日本時間の今日（Gmailの after: は端末の時差ではなくUTC基準なので、少し広めに取る）
+  const jst = new Date(Date.now() + 9 * 3600 * 1000);
+  const y = jst.getUTCFullYear(), m = jst.getUTCMonth() + 1, d = jst.getUTCDate();
+  const q = `in:sent after:${y}/${m}/${d}`;
+  const listRes = await fetch(
+    `https://gmail.googleapis.com/gmail/v1/users/me/messages?q=${encodeURIComponent(q)}&maxResults=${max}`,
+    { headers: { Authorization: `Bearer ${token}` } }
+  );
+  if (!listRes.ok) {
+    const t = await listRes.text();
+    const err = new Error(`Gmail検索 ${listRes.status}: ${t.slice(0, 200)}`);
+    if (listRes.status === 403 && /insufficient|scope|ACCESS_TOKEN_SCOPE/i.test(t)) err.needScope = true;
+    throw err;
+  }
+  const list = await listRes.json();
+  const ids = (list.messages || []).map((x) => x.id);
+  const out = [];
+  // 宛先と件名だけを読む（本文は読まないので速い）
+  for (const id of ids) {
+    try {
+      const r = await fetch(
+        `https://gmail.googleapis.com/gmail/v1/users/me/messages/${id}` +
+        `?format=metadata&metadataHeaders=To&metadataHeaders=Cc&metadataHeaders=Subject&metadataHeaders=Date`,
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+      if (!r.ok) continue;
+      const d2 = await r.json();
+      const h = {};
+      for (const x of (d2.payload && d2.payload.headers) || []) h[String(x.name).toLowerCase()] = x.value || "";
+      out.push({
+        id,
+        to: `${h.to || ""} ${h.cc || ""}`.trim(),
+        subject: h.subject || "",
+        at: Number(d2.internalDate || 0),
+      });
+    } catch {}
+  }
+  return out;
+}
+
 export async function gmailSearchThreads(owner, query, max = 6) {
   const token = await accessToken(owner);
   if (!token) throw new Error("Google未連携です");

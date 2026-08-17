@@ -272,6 +272,11 @@ function render() {
   renderMini();
   lastRows = items;
   renderTodoBar(items);
+  // 今日の商談だけ、Gmailの送信済みと照らし合わせる（1回だけ聞く）
+  if (selDate === todayStr && !mailSentAsked) {
+    mailSentAsked = true;
+    checkMailSent(items);
+  }
 
   let html = "";
   if (window._calConnected === false) {
@@ -338,7 +343,10 @@ function render() {
         ? hIcon("sf", "SFを更新", `data-sfedit="${escH(key)}"`, "need")
         : hIcon("sf", s.open ? "SF商談を閉じる" : "SF商談を選ぶ", `data-sf-open="${escH(key)}"`, "done")) +
       (m && m.bot_id
-        ? hIcon("mail", "御礼メール", `data-mail="${escH(m.bot_id)}" data-key="${escH(key)}"`, "need")
+        ? hIcon("mail",
+            mailSentMap[m.bot_id] ? `御礼メール（送信済み：${mailSentMap[m.bot_id]}）` : "御礼メール",
+            `data-mail="${escH(m.bot_id)}" data-key="${escH(key)}"`,
+            mailSentMap[m.bot_id] ? "done" : "need")
         : hIcon("mail", "御礼メール（商談の記録がまだありません）", `data-mail-none="${escH(key)}"`, "done")) +
       hIcon("open", openLabel, `href="${link}"`, "done", "a");
 
@@ -987,7 +995,8 @@ function renderTodoBar(rows) {
     if (it.rec) {
       // 録音できている商談は、SF更新と御礼メールが残っていないかを見る
       sfLeft++;
-      if (it.rec.bot_id) mailLeft++;
+      // 実際にGmailから送っていれば、御礼メールは済んだものとして数えない
+      if (it.rec.bot_id && !mailSentMap[it.rec.bot_id]) mailLeft++;
     } else if (it.ev && new Date(it.ev.start).getTime() < now) {
       // 時間が過ぎたのに録音が無いもの
       recLeft++;
@@ -1756,6 +1765,9 @@ async function loadCalendar() {
 }
 
 async function changeDate(next) {
+  // 日付が変わったら、送信済みの照合をやり直す
+  mailSentAsked = false;
+  mailSentMap = {};
   selDate = next;
   weekBase = mondayOf(next);
   miniBase = next.slice(0, 7) + "-01";
@@ -1876,6 +1888,46 @@ function apoMeetingWhen(iso) {
   if (ymd(d) === ymd(tomorrow)) return `明日 ${hm}`;
   const w = "日月火水木金土"[d.getDay()];
   return `${d.getMonth() + 1}/${d.getDate()}(${w}) ${hm}`;
+}
+
+// ===== 御礼メールを実際に送ったか =====
+// kinbotで下書きを作っただけでは「送った」ことにならない。
+// その人が今日送ったメールの宛先・件名と照らし合わせて、送ったものは数から外す。
+let mailSentMap = {};
+let mailSentAsked = false;
+
+async function checkMailSent(rows) {
+  const items = [];
+  for (const it of rows || []) {
+    if (!it.rec || !it.rec.bot_id) continue;
+    items.push({
+      id: it.rec.bot_id,
+      company: (it.rec.account || "").trim() || companyOfTitle(it.rec.title || ""),
+      email: it.rec.client_email || "",
+    });
+  }
+  if (!items.length) return;
+  try {
+    const r = await fetch("/api/mail-sent-check", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ items }),
+    });
+    const d = await r.json();
+    if (d.error || !d.results) return;
+    const next = {};
+    for (const [id, v] of Object.entries(d.results)) if (v && v.sent) next[id] = v.why || true;
+    mailSentMap = next;
+    render();   // 帯とカードを描き直す
+  } catch {}
+}
+
+// 予定名から会社名を取り出す（サーバー側と同じ考え方）
+function companyOfTitle(t) {
+  return String(t || "").normalize("NFKC")
+    .replace(/【[^】]*】/g, "")
+    .split(/[\/｜|:：・、,]/)[0]
+    .replace(/[^\s　]{0,16}\s*(?:様|さま|さん|殿)\s*$/u, "")
+    .trim();
 }
 
 // ===== よく使うツール =====

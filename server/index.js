@@ -306,6 +306,7 @@ import {
   driveGetContent,
   gmailReady,
   gmailSearchThreads,
+  gmailSentToday,
   gmailGetThread,
   gmailSend,
   gmailArchiveThread,
@@ -3736,6 +3737,67 @@ async function maybeSendCallReport() {
     console.log(`[call-report] ${h}時の進捗を送りました`);
   } catch (e) { console.warn("[call-report]", e.message); }
 }
+
+// ───────────────────────────────────────────────────────────
+// 御礼メールを実際に送ったかを、Gmailの送信済みから見分ける
+//
+// kinbotで下書きを作っただけでは「送った」ことにならない。
+// その人が今日送ったメールの宛先・件名を見て、会社名かアドレスが
+// 一致していれば「送った」とみなす。
+// ───────────────────────────────────────────────────────────
+const _sentCache = new Map();   // owner → { at, items }
+
+async function sentTodayFor(owner) {
+  const key = String(owner || "").toLowerCase();
+  if (!key) return [];
+  const hit = _sentCache.get(key);
+  // 同じ人のぶんは2分だけ覚えておく（画面を開くたびにGmailを叩かないため）
+  if (hit && Date.now() - hit.at < 2 * 60 * 1000) return hit.items;
+  try {
+    const items = await gmailSentToday(key, { max: 60 });
+    _sentCache.set(key, { at: Date.now(), items });
+    return items;
+  } catch (e) {
+    console.warn(`[御礼メール] 送信済みを読めません（${key}）：${e.message}`);
+    _sentCache.set(key, { at: Date.now(), items: [] });
+    return [];
+  }
+}
+
+// 会社名やアドレスが、送ったメールの中にあるか
+function sentMatches(items, { company, email }) {
+  const norm = (v) => String(v || "").replace(/[\s　（）()・,、.。「」]/g, "").toLowerCase();
+  // 会社名は、法人格を外した「芯」で比べる（株式会社をつけ忘れても拾えるように）
+  const core = (v) => norm(v)
+    .replace(/^(株式会社|有限会社|合同会社|一般社団法人|社会福祉法人|医療法人|学校法人)/, "")
+    .replace(/(株式会社|有限会社|合同会社)$/, "");
+  const mail = String(email || "").trim().toLowerCase();
+  const cc = core(company);
+  for (const it of items) {
+    const to = String(it.to || "").toLowerCase();
+    if (mail && to.includes(mail)) return { ok: true, why: "宛先が一致", id: it.id };
+    if (cc && cc.length >= 2) {
+      const sub = core(it.subject);
+      if (sub.includes(cc)) return { ok: true, why: "件名に会社名", id: it.id };
+    }
+  }
+  return { ok: false };
+}
+
+// ホームから聞かれたら、今日の商談ぶんをまとめて返す
+app.post("/api/mail-sent-check", async (req, res) => {
+  try {
+    const list = Array.isArray(req.body?.items) ? req.body.items.slice(0, 60) : [];
+    if (!list.length) return res.json({ ok: true, results: {} });
+    const items = await sentTodayFor(req.user);
+    const results = {};
+    for (const x of list) {
+      const r = sentMatches(items, { company: x.company, email: x.email });
+      results[String(x.id)] = r.ok ? { sent: true, why: r.why } : { sent: false };
+    }
+    res.json({ ok: true, results, 送信済みの件数: items.length });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
 
 // ───────────────────────────────────────────────────────────
 // ロボに話しかける（画面の案内係）
