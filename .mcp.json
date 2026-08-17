@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "kinbot": {
+      "type": "http",
+      "url": "https://kinbot-production-225f.up.railway.app/mcp",
+      "headers": {
+        "Authorization": "Bearer ${KINBOT_TOKEN}"
+      }
+    }
+  }
+}

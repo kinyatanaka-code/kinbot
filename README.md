@@ -83,6 +83,35 @@ npm start
 
 ---
 
+## Claude Code から kinbot につなぐ（MCP）
+
+リポジトリ直下の `.mcp.json` に、kinbotのMCPサーバーの接続先を置いてあります。
+このリポジトリを Claude Code で開くと、`list_meetings` などのツールがそのまま使えます。
+
+つなぐ前に、**合言葉を環境変数に入れてください**（`.mcp.json` には書きません）。
+
+```
+export KINBOT_TOKEN=kbt_xxxxxxxx
+```
+
+この値は、Railwayの `API_TOKENS` に登録したトークンと同じものです（`:admin` は付けない）。
+決め方は `dev/セットアップ手順.md` の「2. kinbot側の合言葉を決める」と同じで、
+GitHub Actions 用の `KINBOT_TOKEN` と共通で使えます。
+
+決めごとが2つあります。
+
+- **トークンは `.mcp.json` に直接書かず、`${KINBOT_TOKEN}` のままにする。**
+  この形なら、ファイルをそのままGitHubに上げても合言葉は漏れません。
+  実際の値は各自の手元の環境変数から読まれます。
+- **URLの `?token=` ではなく `Authorization` ヘッダで送る。**
+  サーバーはどちらでも受けますが（`server/index.js` の `bearerToken`）、
+  URLに書くと通信ログやブラウザの履歴に合言葉がそのまま残ってしまいます。
+
+つながらないときは、`KINBOT_TOKEN` が設定されているか、
+Railwayの `API_TOKENS` の値と一致しているかを見てください。
+
+---
+
 ## GitHub + Railway で公開する
 
 Railway なら公開URLが自動で付くので、**ngrok は不要**になります（その公開URLが Recall の Webhook 受け口になります）。
