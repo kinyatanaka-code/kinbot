@@ -478,18 +478,31 @@ const API_TOKENS = (() => {
     const s = part.trim();
     if (!s) continue;
     const i = s.indexOf(":");
-    const token = (i === -1 ? s : s.slice(0, i)).trim();
-    const owner = (i === -1 ? "" : s.slice(i + 1).trim()) || "admin";
+    // 値の前後に引用符が付いていても読めるようにする
+    const strip = (v) => String(v || "").trim().replace(/^["'`]+|["'`]+$/g, "").trim();
+    const token = strip(i === -1 ? s : s.slice(0, i));
+    const owner = strip(i === -1 ? "" : s.slice(i + 1)) || "admin";
     if (token) map.set(token, owner);
   }
   return map;
 })();
+// トークンの前後に紛れ込みがちなものを落とす。
+//   ・引用符（.env に KINBOT_TOKEN="kbt_..." と書くと値に " が入ることがある）
+//   ・空白や改行（コピーのときに付いてしまう）
+function tidyToken(v) {
+  return String(v || "").trim().replace(/^["'`]+|["'`]+$/g, "").trim();
+}
+
 function bearerToken(req) {
   const h = req.headers.authorization || req.headers.Authorization || "";
-  const m = /^Bearer\s+(.+)$/i.exec(String(h).trim());
-  if (m) return m[1].trim();
+  const raw = String(h).trim();
+  // Bearer を付け忘れても通す（トークンだけ送るツールがあるため）
+  const m = /^(?:Bearer|Token)\s+(.+)$/i.exec(raw);
+  if (m) return tidyToken(m[1]);
+  // ヘッダに何か入っていて、それが kbt_ で始まるならトークンとして扱う
+  if (/^["'`]*kbt_/.test(raw)) return tidyToken(raw);
   // ヘッダを付けにくいツール向けに ?token= でも受ける
-  if (req.query && req.query.token) return String(req.query.token).trim();
+  if (req.query && req.query.token) return tidyToken(req.query.token);
   return "";
 }
 function apiTokenUser(req) {
@@ -555,7 +568,26 @@ app.use(async (req, res, next) => {
     req.impersonatorFrom = getImpersonator(req);
     return next();
   }
-  if (req.path.startsWith("/api/") || req.path === "/mcp") return res.status(401).json({ error: "ログインが必要です" });
+  if (req.path.startsWith("/api/") || req.path === "/mcp") {
+    // なぜ通らなかったのかを添える（トークンそのものは出さない）。
+    // 「ログインが必要です」だけだと、原因が分からず切り分けができないため。
+    const raw = String(req.headers.authorization || "").trim();
+    const got = bearerToken(req);
+    let なぜ = "ログインしていません（Cookieもトークンもありません）";
+    if (raw || (req.query && req.query.token)) {
+      if (!got) {
+        なぜ = raw
+          ? "Authorizationヘッダの形が違います（Bearer のあとに半角スペース1つ＋トークン）"
+          : "トークンを読み取れませんでした";
+      } else if (!API_TOKENS.size) {
+        なぜ = "kinbot側にトークンが1つも登録されていません（RailwayのAPI_TOKENS）";
+      } else {
+        なぜ = `トークンが一致しません（送られた長さ ${got.length}文字／` +
+          `kinbot側に登録されているのは ${[...API_TOKENS.keys()].map((k) => k.length + "文字").join("・")}）`;
+      }
+    }
+    return res.status(401).json({ error: "ログインが必要です", なぜ });
+  }
   return res.redirect("/login.html");
 });
 
