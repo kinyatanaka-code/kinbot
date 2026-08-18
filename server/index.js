@@ -122,6 +122,11 @@ import {
   aposInRange,
   aposTakenInRange,
   aposMailPending,
+  createJumpLink,
+  getJumpLink,
+  listJumpLinks,
+  recordJumpView,
+  listJumpViewers,
   createBookPage,
   getBookPage,
   listBookPages,
@@ -554,6 +559,8 @@ app.use(async (req, res, next) => {
   if (OPEN_PATHS.has(req.path) || req.path.startsWith("/j/")) return next();
   // お客様が開くページ（日程調整）は、ログインなしで通す
   if (/^\/b\/[A-Za-z0-9_-]+$/.test(req.path)) return next();
+  // 転送URL（お客様が踏むので認証なし）
+  if (/^\/g\/[A-Za-z0-9_-]+$/.test(req.path)) return next();
   if (/^\/api\/booking\/[A-Za-z0-9_-]+(\/book)?$/.test(req.path)) return next();
   // 送った資料まわりは、受け取った相手が認証なしで開く
   //   /d/xxx  … 資料のビューアー
@@ -4164,6 +4171,97 @@ async function maybeNoticeBeforeReminder() {
     console.log(`[apo-mail] リマインドの予告を ${sent}人に送りました（対象 ${all.length}件）`);
   } catch (e) { console.warn("[apo-mail] リマインドの予告:", e.message); }
 }
+
+// ───────────────────────────────────────────────────────────
+// 転送URL
+//
+// レセプショニストなど、ほかのサービスの日程調整URLをそのまま使いつつ、
+// 「誰が開いたか」を記録したいときに使う。
+// kinbotをいったん通してから、本来のURLへ送ります。
+// ───────────────────────────────────────────────────────────
+
+// 転送URLを作る
+app.post("/api/jump", async (req, res) => {
+  try {
+    const b = req.body || {};
+    const url = String(b.targetUrl || "").trim();
+    if (!/^https?:\/\//.test(url)) {
+      return res.status(400).json({ error: "転送先のURLを、http:// か https:// から入れてください" });
+    }
+    const link = await createJumpLink({
+      title: b.title, targetUrl: url, owner: req.user, shared: b.shared === true,
+      company: b.company, person: b.person, email: b.email, createdBy: req.user,
+    });
+    if (!link) return res.status(500).json({ error: "作れませんでした" });
+    const base = String(PUBLIC_URL || "").replace(/\/+$/, "");
+    const my = `${base}/g/${link.slug}`;
+    console.log(`[転送URL] 作りました：${link.title} → ${url}（${link.shared_link ? "共通" : "個別"}）by ${req.user}`);
+    res.json({
+      ok: true, id: link.id, slug: link.slug, url: my, 転送先: url, 共通: !!link.shared_link,
+      貼り方: link.shared_link ? {
+        "Pardot（おすすめ）": `${my}?m=%%email%%&n=%%account_name%%`,
+        "Pardot（アドレスだけ）": `${my}?m=%%email%%`,
+        "差し込みを使わない場合（誰が見たかは分かりません）": my,
+      } : null,
+    });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// 作った転送URLの一覧
+app.get("/api/jump", async (req, res) => {
+  try {
+    const rows = await listJumpLinks(String(req.query.all || "") === "1" ? "" : req.user);
+    const base = String(PUBLIC_URL || "").replace(/\/+$/, "");
+    res.json({
+      ok: true,
+      items: rows.map((r) => ({
+        id: r.id, slug: r.slug, title: r.title, url: `${base}/g/${r.slug}`,
+        転送先: r.target_url, 共通: !!r.shared_link,
+        相手: [r.company, r.person].filter(Boolean).join(" "),
+        閲覧: Number(r["閲覧"] || 0), 人数: Number(r["人数"] || 0),
+      })),
+    });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// 誰が開いたか
+app.get("/api/jump/:id/viewers", async (req, res) => {
+  try {
+    const rows = await listJumpViewers(parseInt(req.params.id, 10));
+    res.json({ ok: true, 人数: rows.length, items: rows });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// お客様が踏んだとき。記録してから、本来のURLへ送る。
+app.get("/g/:slug", async (req, res) => {
+  try {
+    const link = await getJumpLink(String(req.params.slug || ""));
+    if (!link || link.closed) return res.status(404).send("このURLは使えません");
+
+    // 誰が開いたかを残す（共通URLのときは、差し込みから受け取る）
+    const v = viewerFromQuery(req.query || {});
+    await recordJumpView(link.id, {
+      email: v.email || link.email || "",
+      name: v.name || link.company || "",
+      ua: req.get("user-agent") || "",
+    }).catch(() => {});
+
+    // 転送先に、こちらで受け取った情報も渡す（相手側で使えることがあるため）
+    let to = link.target_url;
+    try {
+      const u = new URL(to);
+      if (v.email && !u.searchParams.get("email")) u.searchParams.set("email", v.email);
+      to = u.toString();
+    } catch {}
+
+    console.log(`[転送URL] ${link.title} を開きました（${v.email || "名乗りなし"}）`);
+    // 記録が終わってから送る。ブラウザには残さない（302）。
+    res.redirect(302, to);
+  } catch (e) {
+    console.error("[転送URL]", e.message);
+    res.status(500).send("いま開けません。恐れ入りますが、時間をおいてお試しください。");
+  }
+});
 
 // ───────────────────────────────────────────────────────────
 // 日程調整ページ
@@ -10984,7 +11082,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-08-18s 日程調整ページ（Pardot用の共通URL・閲覧の記録）";
+const BUILD_TAG = "2026-08-18t 調整URLのトラッキング（レセプショニスト等へ転送）";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",

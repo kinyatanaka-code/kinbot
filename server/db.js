@@ -548,6 +548,37 @@ export async function initDb() {
   `);
   await sq(`CREATE INDEX IF NOT EXISTS ix_book_views_page ON book_views(page_id, at DESC);`);
 
+  // ===== 転送URL（外部の日程調整などを、記録してから転送する） =====
+  // レセプショニストなど、ほかのサービスのURLをそのまま使いたいときに、
+  // kinbotをいったん通すことで「誰が開いたか」を記録できるようにする。
+  await sq(`
+    CREATE TABLE IF NOT EXISTS jump_links (
+      id          SERIAL PRIMARY KEY,
+      slug        TEXT UNIQUE NOT NULL,
+      title       TEXT,
+      target_url  TEXT NOT NULL,
+      owner       TEXT,
+      shared_link BOOLEAN NOT NULL DEFAULT false,
+      company     TEXT,
+      person      TEXT,
+      email       TEXT,
+      closed      BOOLEAN NOT NULL DEFAULT false,
+      created_by  TEXT,
+      created_at  TIMESTAMPTZ DEFAULT now()
+    );
+  `);
+  await sq(`
+    CREATE TABLE IF NOT EXISTS jump_views (
+      id        SERIAL PRIMARY KEY,
+      link_id   INT REFERENCES jump_links(id) ON DELETE CASCADE,
+      viewer_email TEXT,
+      viewer_name  TEXT,
+      ua        TEXT,
+      at        TIMESTAMPTZ DEFAULT now()
+    );
+  `);
+  await sq(`CREATE INDEX IF NOT EXISTS ix_jump_views_link ON jump_views(link_id, at DESC);`);
+
   // ===== コールリスト（インターン生の架電） =====
   // どのリードに、誰が、いつかけて、どうだったか。
   // Salesforceへ送る前に、まずここに残す（通信が切れても消えないように）。
@@ -2824,6 +2855,80 @@ export async function setNoReminder(slug, off) {
        RETURNING slug, label, no_reminder`, [slug, !!off]);
     return rows[0] || null;
   } catch (e) { console.error("[db] setNoReminder", e.message); return null; }
+}
+
+// ===== 転送URL =====
+
+// 転送URLを作る（共通URLは、同じ行き先に1本だけ使い回す）
+export async function createJumpLink(x = {}) {
+  if (!pool) return null;
+  const url = String(x.targetUrl || "").trim();
+  if (!/^https?:\/\//.test(url)) return null;
+  try {
+    if (x.shared) {
+      const { rows: found } = await pool.query(
+        `SELECT * FROM jump_links
+          WHERE target_url = $1 AND shared_link = true AND NOT closed
+          ORDER BY created_at LIMIT 1`, [url]);
+      if (found[0]) return found[0];
+    }
+    const slug = Math.random().toString(36).slice(2, 10);
+    const { rows } = await pool.query(
+      `INSERT INTO jump_links (slug, title, target_url, owner, shared_link, company, person, email, created_by)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING *`,
+      [slug, String(x.title || "日程調整").slice(0, 120), url,
+       String(x.owner || "").toLowerCase(), !!x.shared,
+       x.company || "", x.person || "", x.email || "", x.createdBy || null]);
+    return rows[0] || null;
+  } catch (e) { console.error("[db] createJumpLink", e.message); return null; }
+}
+
+export async function getJumpLink(slug) {
+  if (!pool || !slug) return null;
+  try {
+    const { rows } = await pool.query(`SELECT * FROM jump_links WHERE slug = $1`, [slug]);
+    return rows[0] || null;
+  } catch { return null; }
+}
+
+export async function listJumpLinks(owner) {
+  if (!pool) return [];
+  try {
+    const { rows } = await pool.query(
+      `SELECT j.*,
+              (SELECT count(*) FROM jump_views v WHERE v.link_id = j.id) AS 閲覧,
+              (SELECT count(DISTINCT COALESCE(NULLIF(v.viewer_email,''),'-'))
+                 FROM jump_views v WHERE v.link_id = j.id) AS 人数
+         FROM jump_links j
+        WHERE ($1 = '' OR j.owner = $1)
+        ORDER BY j.created_at DESC LIMIT 50`, [String(owner || "").toLowerCase()]);
+    return rows;
+  } catch { return []; }
+}
+
+export async function recordJumpView(linkId, { email, name, ua } = {}) {
+  if (!pool || !linkId) return null;
+  try {
+    await pool.query(
+      `INSERT INTO jump_views (link_id, viewer_email, viewer_name, ua) VALUES ($1,$2,$3,$4)`,
+      [linkId, String(email || "").trim() || null, String(name || "").trim() || null,
+       String(ua || "").slice(0, 200)]);
+    return true;
+  } catch (e) { console.error("[db] recordJumpView", e.message); return null; }
+}
+
+export async function listJumpViewers(linkId, limit = 300) {
+  if (!pool || !linkId) return [];
+  try {
+    const { rows } = await pool.query(
+      `SELECT COALESCE(NULLIF(viewer_email,''), '（名乗りなし）') AS 相手,
+              max(viewer_name) AS 名前,
+              count(*)::int AS 回数,
+              min(at) AS 最初, max(at) AS 最後
+         FROM jump_views WHERE link_id = $1
+        GROUP BY 1 ORDER BY 最後 DESC LIMIT $2`, [linkId, limit]);
+    return rows;
+  } catch { return []; }
 }
 
 // ===== 日程調整ページ =====
