@@ -2028,6 +2028,7 @@ async function loadTomorrowReminders() {
           </select></label>
           <button type="button" class="btn rm-fix-save">入れる</button>
           <span class="rm-fix-st"></span>
+          <span class="rm-fix-note">担当を変えても、知らせやメールは出しません（会議室のURLだけ切り替わります）</span>
         </div>`).join("") +
       `</div>`;
 
@@ -2091,13 +2092,14 @@ async function loadTomorrowReminders() {
         b.disabled = true;
         st.textContent = "入れています…";
         try {
-          // 担当を変えるときは、ふだんの割り当てと同じ道を通す。
-          // （商談予定の招待を作り直し、確定メールも送るため）
+          // 担当の差し替えだけを行う。
+          // すでに案内が済んでいるアポなので、通知・確定メール・招待の作り直しはしない。
+          // （スマートリンクの行き先は、担当に合わせて自動で切り替わる）
           const nowOwner = owner ? (owner.dataset.now || "") : "";
           if (owner && body.owner && body.owner !== nowOwner) {
             const r2 = await fetch(`/api/smart-links/${encodeURIComponent(slug)}/owner`, {
               method: "PUT", headers: { "content-type": "application/json" },
-              body: JSON.stringify({ owner: body.owner }),
+              body: JSON.stringify({ owner: body.owner, quiet: true }),
             });
             const d2 = await r2.json();
             if (!r2.ok) throw new Error(d2.error || "担当を変えられませんでした");

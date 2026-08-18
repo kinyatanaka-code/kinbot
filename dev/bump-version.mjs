@@ -22,8 +22,18 @@ function nextVersion(current) {
   // いまの版が今日以降なら、その次の文字にする。
   // （時計のずれで前の版に戻ってしまうと、ブラウザが古いファイルを使い続けるため）
   if (m && m[1] >= ymd) {
-    const next = String.fromCharCode(m[2].charCodeAt(0) + 1);
+    // z の次は、日付をそのままに 2 桁（za, zb …）にする。
+    // 記号（{）になってしまうのを防ぐ。
+    const c = m[2];
+    if (c === "z") return `${m[1]}za`;
+    const next = String.fromCharCode(c.charCodeAt(0) + 1);
     return `${m[1]}${next}`;
+  }
+  // 2桁（za など）まで来ていたら、その次へ
+  const m2 = cur.match(/^(\d{8})z([a-z])$/);
+  if (m2 && m2[1] >= ymd) {
+    const next = m2[2] === "z" ? "a" : String.fromCharCode(m2[2].charCodeAt(0) + 1);
+    return `${m2[1]}z${next}`;
   }
   return `${ymd}a`;
 }

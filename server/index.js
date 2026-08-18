@@ -11176,7 +11176,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-08-18z リマインドから担当を変えられるようにした";
+const BUILD_TAG = "2026-08-18za 後から担当を変えても、知らせやメールを出さない";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
@@ -15438,6 +15438,19 @@ app.put("/api/smart-links/:slug/owner", async (req, res) => {
     if (!existing) return res.status(404).json({ error: "リンクが見つかりません" });
     if (!req.isAdmin && existing.created_by !== req.user) return res.status(403).json({ error: "このリンクを操作する権限がありません" });
     const owner = req.body?.owner ? String(req.body.owner) : null;
+
+    // 「差し替えだけ」のとき（quiet）は、担当を書き換えるだけで何も動かさない。
+    // すでに案内が済んでいるアポの担当を、あとから直したいときに使う。
+    //   ・Google Chatへの通知を出さない
+    //   ・確定メールを送らない
+    //   ・商談予定の招待を作り直さない
+    // スマートリンクの行き先だけは、担当に合わせて自動で切り替わる。
+    if (req.body?.quiet === true) {
+      const only = await setSmartLinkOwner(req.params.slug, owner);
+      console.log(`[apo] ${req.params.slug} の担当を差し替えました（知らせません）by ${req.user}`);
+      return res.json({ ok: true, link: only, quiet: true });
+    }
+
     const link = await setSmartLinkOwner(req.params.slug, owner);
     // 担当が決まったら、商談予定を自動作成してクローザーを招待する（失敗しても割り当ては成功のまま返す）
     let invite = null, inviteError = null;
