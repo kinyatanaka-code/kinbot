@@ -3172,6 +3172,12 @@ app.post("/api/sf-autolaunch/run-day", async (req, res) => {
 // ここから4つは、受け取った相手が開くため認証なしで動く。
 
 // 資料のビューアー
+// kincall（架電ツール）の入り口。
+// インターン生はここだけを使うので、短いURLで開けるようにする。
+app.get("/kincall", (req, res) => {
+  res.sendFile(path.join(__dirname, "..", "public", "calls.html"));
+});
+
 // 日程調整ページ（お客様が開くURL）
 app.get("/b/:slug", (req, res) => {
   res.sendFile(path.join(__dirname, "..", "public", "book.html"));
@@ -5125,6 +5131,7 @@ const HOME_TOOLS = [
   { id: "style", href: "style-analysis.html", label: "営業スタイル分析" },
   { id: "deals", href: "deals.html", label: "案件" },
   { id: "rec", href: "index.html", label: "レコーディング" },
+  { id: "kincall", href: "/kincall", label: "kincall" },
   { id: "dev", href: "dev.html", label: "開発メモ" },
 ];
 
@@ -11480,7 +11487,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-08-18zi 知らせの設定と送り先の登録を1画面にまとめた";
+const BUILD_TAG = "2026-08-18zk kincall（架電ツール）を独立した見た目と入り口に";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",

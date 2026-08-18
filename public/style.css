@@ -5589,3 +5589,14 @@ input:focus, select:focus, textarea:focus, .sf-input:focus, .sf-select:focus, .s
   border: 1px solid #cfeee2; border-radius: 999px; padding: 1px 9px; }
 .nt-time { border: 1px solid var(--line); border-radius: 8px; padding: 4px 8px;
   font-family: inherit; font-size: 12px; background: var(--panel); }
+
+/* ===== kincall（架電ツール）の見た目 ===== */
+/* kinbotの中にありながら、別の道具だと分かるようにする */
+.kc-brand { display: flex; align-items: center; gap: 8px; }
+.kc-logo { width: 34px; height: 34px; }
+.kc-name { font-size: 17px; font-weight: 700; color: #0d5b47; letter-spacing: .3px; }
+.kc-sub { font-size: 11px; color: var(--muted); background: var(--panel-2);
+  border: 1px solid var(--line); border-radius: 999px; padding: 1px 9px; }
+/* 架電中は目に入る色を少し抑える（一日中見る画面のため） */
+.kc-page { max-width: 900px; }
+.kc-page .card { border-radius: 16px; }
