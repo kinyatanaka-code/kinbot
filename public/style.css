@@ -5733,3 +5733,7 @@ input:focus, select:focus, textarea:focus, .sf-input:focus, .sf-select:focus, .s
   background: #eaf7f2; border: 1px solid #cfeee2; border-radius: 9px;
   padding: 6px 10px; margin-bottom: 6px; text-align: center; }
 .kc-stage-sel { font-size: 12.5px; }
+
+/* 記録した行を、少しだけ光らせる（読み直さなくても分かるように） */
+@keyframes kcJust { 0% { background: #d9f2e7; } 100% { background: transparent; } }
+.kc-table tr.kc-just td { animation: kcJust 1.6s ease-out; }

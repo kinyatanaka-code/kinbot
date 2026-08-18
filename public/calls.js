@@ -53,11 +53,9 @@ async function loadLists() {
 
 function showProgress(x) {
   const el = $("clProg");
-  if (!el || !x) return;
-  const pct = x["全部"] ? Math.round((x["済み"] / x["全部"]) * 100) : 0;
-  el.innerHTML =
-    `<span class="cl-bar"><span class="cl-bar-in" style="width:${pct}%"></span></span>` +
-    `<span class="cl-num">残り ${x["残り"]} / ${x["全部"]}件</span>`;
+  if (!el) return;
+  // 残りの件数は出さない（リストを選ぶ欄にも出ていて、二重になるため）
+  el.innerHTML = "";
 }
 
 // ───────── 一覧（SFのリードレポートのような表） ─────────
@@ -165,7 +163,7 @@ function render() {
         <td>${x["最終ステータス"]
           ? `<span class="kc-st">${esc(x["最終ステータス"])}</span>`
           : x["最終結果"] ? `<span class="kc-st kc-st-r">${esc(x["最終結果"])}</span>` : "-"}</td>
-        <td><button type="button" class="kc-btn kc-hist" data-id="${x.id}">${x["履歴数"] ? `${x["履歴数"]}回` : "なし"}</button></td>
+        <td><button type="button" class="kc-btn kc-hist" data-id="${x.id}">${x["履歴数"] ? `${x["履歴数"]}件` : "なし"}</button></td>
         <td><button type="button" class="kc-btn kc-rec" data-id="${x.id}">記録</button></td>
       </tr>`).join("") + `</table></div>`;
 
@@ -317,17 +315,49 @@ async function openRecord(id) {
       });
       const d = await r.json();
       if (!r.ok) throw new Error(d.error || "記録できませんでした");
+
+      // 読み込み直さず、その行だけを書き換える。
+      // （毎回読み込むと、しぼり込みや見ている場所が消えてしまうため）
+      const sel = m.el.querySelector("#kcStatus");
+      if (sel && sel.value) {
+        const lb = sel.tagName === "SELECT"
+          ? (sel.options[sel.selectedIndex] || {}).textContent
+          : sel.value;
+        if (lb) x["ステージ"] = String(lb).trim();
+      }
+      x["履歴数"] = Number(x["履歴数"] || 0) + 1;
+      x["最終ステータス"] = 結果;
+      updateRow(x);
       m.close();
+      const 代理 = d.sf && d.sf["代理"] ? `（${d.sf["代理"]}さんとして残しました）` : "";
       say("clStatus", d.sf && d.sf.ok
-        ? "記録しました（Salesforceにも残しました）"
+        ? `記録しました${代理 || "（Salesforceにも残しました）"}`
         : `記録しました${d.sf && d.sf.reason ? `（SFへは残せません：${d.sf.reason}）` : ""}`, 8000);
-      loadLists();
+      // 実績の数だけ、そっと更新する（一覧は読み直さない）
       loadStats();
     } catch (e) {
       say("kcSaveSt", "失敗：" + e.message, 8000);
       btn.disabled = false;
     }
   });
+}
+
+// 表の1行だけを書き換える。
+// 一覧ぜんたいを読み直さないので、しぼり込みや見ている場所がそのまま残る。
+function updateRow(x) {
+  const tr = document.querySelector(`.kc-table tr[data-id="${x.id}"]`);
+  if (!tr) return;
+  const td = tr.children;
+  if (td[0]) td[0].textContent = x["ステージ"] || "-";
+  if (td[5]) td[5].innerHTML = x["最終ステータス"]
+    ? `<span class="kc-st">${esc(x["最終ステータス"])}</span>` : "-";
+  if (td[6]) {
+    const b = td[6].querySelector("button");
+    if (b) b.textContent = x["履歴数"] ? `${x["履歴数"]}件` : "なし";
+  }
+  // 記録したことが分かるよう、少し光らせる
+  tr.classList.add("kc-just");
+  setTimeout(() => tr.classList.remove("kc-just"), 1600);
 }
 
 // ───────── 今日の実績 ─────────
@@ -412,6 +442,17 @@ function showPane() {
   });
   if (p === "stats") loadStats();
 }
+
+// 「kincallだけ」の人には、kinbotへ戻る道を見せない
+(async () => {
+  try {
+    const me = await (await fetch("/api/me")).json();
+    if (me && me.kincallOnly) {
+      document.querySelectorAll(".kc-side .side-app, .kc-side .side-sep")
+        .forEach((el) => el.remove());
+    }
+  } catch {}
+})();
 
 showPane();
 loadLists();

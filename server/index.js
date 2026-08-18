@@ -751,6 +751,8 @@ app.get("/api/me", async (req, res) => {
     username: req.user || null,
     name,
     admin: !!req.isAdmin,
+    // 「kincallだけ」の人（インターン生など）
+    kincallOnly: !!req.kincallOnly,
     // 代理ログイン関連
     impersonating: !!impersonator,
     impersonator_email: impersonator,
@@ -4838,9 +4840,15 @@ async function callPicklists(owner) {
   try {
     const desc = await describeObject(owner, "Lead");
     const f = (desc.fields || []).find((x) => x.name === "Status");
-    out.リードの状態 = ((f && f.picklistValues) || [])
+    const all = ((f && f.picklistValues) || [])
       .filter((v) => v.active)
       .map((v) => ({ value: v.value, label: v.label || v.value }));
+    // 実際に使うステージだけを、決めた順に出す
+    const 使う = ["01", "02", "03", "04", "89", "99", "05"];
+    const 並べた = 使う
+      .map((n) => all.find((v) => String(v.label).startsWith(n) || String(v.value).startsWith(n)))
+      .filter(Boolean);
+    out.リードの状態 = 並べた.length ? 並べた : all;
   } catch (e) { console.warn("[kincall] リードの状態を取れません:", e.message); }
 
   // 実際に使う結果だけに絞る。
@@ -11844,7 +11852,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-08-19j kincall：履歴件数・結果のプルダウン・SF代理更新";
+const BUILD_TAG = "2026-08-19l kincall：読み直さず記録・ステージ7つ・kincallだけの人";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
