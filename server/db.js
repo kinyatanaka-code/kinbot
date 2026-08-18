@@ -3280,16 +3280,8 @@ export async function recordCall({ targetId, leadId, company, result, memo, call
        VALUES ($1,$2,$3,$4,$5,$6) RETURNING *`,
       [targetId || null, leadId || null, company || "", result,
        String(memo || "").slice(0, 1000), caller || null]);
-    // 「再コール」以外は、その相手を済みにする
-    if (targetId && result !== "再コール") {
-      await pool.query(`UPDATE call_targets SET done = true WHERE id = $1`, [targetId]);
-    }
-    // 再コールのときは、順番をいちばん後ろに回す
-    if (targetId && result === "再コール") {
-      await pool.query(
-        `UPDATE call_targets SET sort_order = (SELECT COALESCE(max(sort_order),0)+1 FROM call_targets WHERE list_id = call_targets.list_id)
-          WHERE id = $1`, [targetId]).catch(() => {});
-    }
+    // 記録しても「済み」にしない。
+    // 同じリストを何度も使い回すので、相手が消えたり並び順が変わったりしないようにする。
     return rows[0] || null;
   } catch (e) { console.error("[db] recordCall", e.message); return null; }
 }

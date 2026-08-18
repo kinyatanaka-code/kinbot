@@ -152,7 +152,7 @@ function render() {
         <th class="kc-th-r">記録</th>
       </tr>` +
     list.map((x) => `
-      <tr class="${x["済み"] ? "kc-done" : ""}" data-id="${x.id}">
+      <tr data-id="${x.id}">
         <td>${esc(x["ステージ"] || "-")}</td>
         <td class="kc-co">${esc(x["会社名"] || "")}</td>
         <td>${esc(x["担当者"] || "")}</td>
@@ -160,9 +160,7 @@ function render() {
           ? `<a class="kc-tel" href="tel:${esc(telOf(x["電話番号"]))}">${esc(x["電話番号"])}</a>`
           : `<span class="kc-none">なし</span>`}</td>
         <td class="kc-mail">${esc(x["メール"] || "")}</td>
-        <td>${x["最終ステータス"]
-          ? `<span class="kc-st">${esc(x["最終ステータス"])}</span>`
-          : x["最終結果"] ? `<span class="kc-st kc-st-r">${esc(x["最終結果"])}</span>` : "-"}</td>
+        <td>${x["最終ステータス"] ? esc(x["最終ステータス"]) : "-"}</td>
         <td><button type="button" class="kc-btn kc-hist" data-id="${x.id}">${x["履歴数"] ? `${x["履歴数"]}件` : "なし"}</button></td>
         <td><button type="button" class="kc-btn kc-rec" data-id="${x.id}">記録</button></td>
       </tr>`).join("") + `</table></div>`;
@@ -350,8 +348,7 @@ function updateRow(x) {
   if (!tr) return;
   const td = tr.children;
   if (td[0]) td[0].textContent = x["ステージ"] || "-";
-  if (td[5]) td[5].innerHTML = x["最終ステータス"]
-    ? `<span class="kc-st">${esc(x["最終ステータス"])}</span>` : "-";
+  if (td[5]) td[5].textContent = x["最終ステータス"] || "-";
   if (td[6]) {
     const b = td[6].querySelector("button");
     if (b) b.textContent = x["履歴数"] ? `${x["履歴数"]}件` : "なし";
@@ -527,6 +524,31 @@ document.addEventListener("click", (ev) => {
   const t = ev.target && ev.target.closest ? ev.target.closest("button") : null;
   if (!t) return;
   if (t.id === "clSfFind") { ev.preventDefault(); sfFind(); }
+  if (t.id === "clCheck") {
+    ev.preventDefault();
+    (async () => {
+      const m = openModal("履歴の件数を調べる", '<div class="note">調べています…</div>');
+      try {
+        const d = await (await fetch(`/api/calls/count-check?list=${listId}`)).json();
+        const 生 = d["生の答え"];
+        m.el.querySelector(".kc-modal-body").innerHTML =
+          `<div class="kc-chk">
+             <div><b>${esc(d.hint || "")}</b></div>
+             <table class="sh-table">
+               <tr><th>調べたこと</th><th>結果</th></tr>
+               <tr><td>Salesforceを見る人</td><td>${esc(d["数える人"] || "-")}${d["代理を使った"] ? "（代わりに更新する人）" : ""}</td></tr>
+               <tr><td>Salesforceにつながっているか</td><td>${d["つながっている"] ? "つながっています" : "つながっていません"}</td></tr>
+               <tr><td>リードと結びついている数</td><td>${(d["リードのID"] || []).length}件（先頭5件を見ました）</td></tr>
+               <tr><td>Salesforceからの答え</td><td>${生 ? `${生.length}件ぶん返ってきました` : "返ってきませんでした"}</td></tr>
+               ${d["エラー"] ? `<tr><td>つまずいた内容</td><td class="cc-warn">${esc(d["エラー"])}</td></tr>` : ""}
+             </table>
+             <p class="note">リードと結びついていない場合は、<b>kinbotのリードレポートから送り直す</b>と結びつきます。</p>
+           </div>`;
+      } catch (e) {
+        m.el.querySelector(".kc-modal-body").innerHTML = `<div class="note">調べられませんでした：${esc(e.message)}</div>`;
+      }
+    })();
+  }
   if (t.id === "clReset") {
     ev.preventDefault();
     filt.stage = new Set(); filt.status = new Set(); filt.hist = "";
