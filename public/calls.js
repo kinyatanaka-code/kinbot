@@ -161,9 +161,26 @@ async function openHistory(id) {
 }
 
 // 記録の窓
-function openRecord(id) {
+// 架電の結果の選択肢（Salesforceから取ってくる）
+let kcPicks = null;
+async function loadPicks() {
+  if (kcPicks) return kcPicks;
+  try {
+    const d = await (await fetch("/api/calls/picklists")).json();
+    if (!d.error) kcPicks = d;
+  } catch {}
+  return kcPicks;
+}
+
+async function openRecord(id) {
   const x = rows.find((r) => String(r.id) === String(id));
   if (!x) return;
+  // Salesforceの選択肢を使う（担当者不在・コールのみ・担当者接触：アポ獲得 など）
+  const pk = await loadPicks();
+  const 結果の選択肢 = (pk && pk["活動の結果"] && pk["活動の結果"].length)
+    ? pk["活動の結果"].map((v) => v.label)
+    : kinds;
+  const 状態の選択肢 = (pk && pk["リードの状態"]) || [];
   const m = openModal("記録する", `
     <div class="kc-modal-co">${esc(x["会社名"] || "")}${x["担当者"] ? `　${esc(x["担当者"])}` : ""}</div>
     ${x["電話番号"] ? `<a class="kc-tel kc-tel-big" href="tel:${esc(telOf(x["電話番号"]))}">${esc(x["電話番号"])}</a>` : ""}
@@ -171,11 +188,16 @@ function openRecord(id) {
 
     <div class="kc-lb">結果</div>
     <div class="kc-results">
-      ${kinds.map((k) => `<button type="button" class="kc-r" data-r="${esc(k)}">${esc(k)}</button>`).join("")}
+      ${結果の選択肢.map((k) => `<button type="button" class="kc-r" data-r="${esc(k)}">${esc(k)}</button>`).join("")}
     </div>
 
-    <div class="kc-lb">最終ステータス（任意）</div>
-    <input type="text" class="kc-input" id="kcStatus" value="${esc(x["最終ステータス"] || "")}" placeholder="例：掘り起こし10月" />
+    <div class="kc-lb">リードの状態（任意）</div>
+    ${状態の選択肢.length
+      ? `<select class="kc-input" id="kcStatus">
+           <option value="">（変えない）</option>
+           ${状態の選択肢.map((v) => `<option value="${esc(v.value)}"${v.value === x["最終ステータス"] ? " selected" : ""}>${esc(v.label)}</option>`).join("")}
+         </select>`
+      : `<input type="text" class="kc-input" id="kcStatus" value="${esc(x["最終ステータス"] || "")}" placeholder="例：掘り起こし10月" />`}
 
     <div class="kc-lb">説明（任意）</div>
     <textarea class="kc-input" id="kcMemo" rows="3" placeholder="担当者は佐藤様・14時以降が良いとのこと"></textarea>
@@ -204,6 +226,8 @@ function openRecord(id) {
           result: picked,
           memo: m.el.querySelector("#kcMemo").value,
           status: m.el.querySelector("#kcStatus").value,
+          // Salesforceのリードの状態も、この値で書き換える
+          leadStatus: m.el.querySelector("#kcStatus").value,
         }),
       });
       const d = await r.json();
@@ -262,13 +286,6 @@ async function createList(body) {
 document.addEventListener("click", (ev) => {
   const t = ev.target && ev.target.closest ? ev.target.closest("button") : null;
   if (!t) return;
-  if (t.id === "clFromSf") {
-    ev.preventDefault();
-    createList({
-      name: $("clNewName").value, fromSalesforce: true,
-      company: $("clSfCompany").value, limit: parseInt($("clSfLimit").value, 10) || 50,
-    });
-  }
   if (t.id === "clFromPaste") {
     ev.preventDefault();
     const lines = String($("clPaste").value || "").split(/\r?\n/).filter((l) => l.trim());
@@ -298,5 +315,88 @@ if ($("clFind")) {
   });
 }
 
+// ───────── 画面の切り替え ─────────
+// メニューを押すと、その画面だけを出す（かける／今日の実績／リストを作る）
+function showPane() {
+  const p = new URLSearchParams(location.search).get("p") || "call";
+  document.querySelectorAll(".kc-pane").forEach((el) => { el.hidden = el.dataset.p !== p; });
+  document.querySelectorAll(".kc-side .side-item").forEach((a) => {
+    const href = a.getAttribute("href") || "";
+    const mine = href.includes("p=" + p) || (p === "call" && href === "/kincall");
+    a.classList.toggle("active", mine);
+  });
+  if (p === "stats") loadStats();
+}
+
+showPane();
 loadLists();
-loadStats();
+
+
+// ───────── Salesforceのリードから入れる ─────────
+let sfFound = [];
+
+async function sfFind() {
+  const st = $("clSfStatus"), box = $("clSfBox");
+  if (st) st.textContent = "探しています…";
+  box.innerHTML = "";
+  try {
+    const d = await (await fetch("/api/calls/from-leads", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        company: $("clSfCompany").value, person: $("clSfPerson").value,
+        limit: parseInt($("clSfLimit").value, 10) || 30,
+      }),
+    })).json();
+    if (d.error) throw new Error(d.error);
+    sfFound = d.items || [];
+    if (st) st.textContent = "";
+    if (!sfFound.length) { box.innerHTML = '<div class="note">見つかりませんでした。</div>'; return; }
+    box.innerHTML =
+      `<div class="note"><b>${sfFound.length}件</b>見つかりました。入れるものを選んでください。</div>` +
+      `<div class="kc-tablewrap"><table class="kc-table">
+         <tr><th><input type="checkbox" class="sf-all" checked /></th>
+             <th>ステージ</th><th>会社名</th><th>担当者</th><th>電話番号</th><th>リードの状態</th></tr>` +
+      sfFound.map((x, i) => `<tr>
+        <td><input type="checkbox" class="sf-pick" data-i="${i}" checked /></td>
+        <td>${esc(x.stage || "-")}</td>
+        <td class="kc-co">${esc(x.company)}</td>
+        <td>${esc(x.person)}</td>
+        <td>${esc(x.phone || "")}</td>
+        <td>${esc(x.status || "")}</td>
+      </tr>`).join("") + `</table></div>` +
+      `<div class="ap-cfg-actions">
+         <label>リストの名前 <input type="text" class="sf-name" value="${esc($("clNewName").value || "リード（" + new Date().toISOString().slice(5,10).replace("-","/") + "）")}" style="width:220px" /></label>
+         <button type="button" class="btn sf-go">選んだものを入れる</button>
+       </div>`;
+    const all = box.querySelector(".sf-all");
+    if (all) all.addEventListener("change", () =>
+      box.querySelectorAll(".sf-pick").forEach((c) => { c.checked = all.checked; }));
+    box.querySelector(".sf-go").addEventListener("click", () => sfPut(box));
+  } catch (e) { if (st) st.textContent = "失敗：" + e.message; }
+}
+
+async function sfPut(box) {
+  const picked = [...box.querySelectorAll(".sf-pick")]
+    .filter((c) => c.checked).map((c) => sfFound[Number(c.dataset.i)]);
+  if (!picked.length) { say("clSfStatus", "入れるものを選んでください", 5000); return; }
+  const name = (box.querySelector(".sf-name") || {}).value || "リード";
+  say("clSfStatus", "入れています…");
+  try {
+    // リストを作って、そこへ入れる
+    const r = await fetch("/api/calls/lists", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ name, items: picked }),
+    });
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.error || "入れられませんでした");
+    say("clSfStatus", `「${d.name}」に${d["件数"]}件入れました`, 8000);
+    box.innerHTML = "";
+    loadLists();
+  } catch (e) { say("clSfStatus", "失敗：" + e.message, 8000); }
+}
+
+document.addEventListener("click", (ev) => {
+  const t = ev.target && ev.target.closest ? ev.target.closest("button") : null;
+  if (!t) return;
+  if (t.id === "clSfFind") { ev.preventDefault(); sfFind(); }
+});

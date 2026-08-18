@@ -10,7 +10,7 @@
     <link rel="manifest" href="/site.webmanifest" />
     <meta name="theme-color" content="#0d5b47" />
     <meta name="apple-mobile-web-app-title" content="kinbot" />
-    <link rel="stylesheet" href="style.css?v=20260818zq" />
+    <link rel="stylesheet" href="style.css?v=20260819b" />
   </head>
   <body>
     <div class="app">
@@ -19,11 +19,11 @@
         <div class="side-brand kc-side-brand">
           <img class="kc-side-logo" src="/kincall.svg" alt="" /><span>kincall</span>
         </div>
-        <div class="side-wrap"><a class="side-item active" href="/kincall#call">
+        <div class="side-wrap"><a class="side-item active" href="/kincall">
           <span class="kc-side-ico"><svg viewBox="0 0 24 24" width="17" height="17"><path d="M6.6 4.5c-1 0-1.8.8-1.8 1.8 0 6.9 5.6 12.5 12.5 12.5 1 0 1.8-.8 1.8-1.8v-2.3c0-.9-.6-1.6-1.5-1.8l-2.3-.5c-.8-.2-1.6.2-2 .9l-.6 1a11 11 0 0 1-4.4-4.4l1-.6c.7-.4 1.1-1.2.9-2l-.5-2.3c-.2-.9-.9-1.5-1.8-1.5z"/></svg></span><span class="side-label">かける</span></a></div>
-        <div class="side-wrap"><a class="side-item" href="/kincall#stats">
+        <div class="side-wrap"><a class="side-item" href="/kincall?p=stats">
           <span class="kc-side-ico"><svg viewBox="0 0 24 24" width="17" height="17"><path d="M4 20h4V10H4zm6 0h4V4h-4zm6 0h4v-7h-4z"/></svg></span><span class="side-label">今日の実績</span></a></div>
-        <div class="side-wrap"><a class="side-item" href="/kincall#new">
+        <div class="side-wrap"><a class="side-item" href="/kincall?p=new">
           <span class="kc-side-ico"><svg viewBox="0 0 24 24" width="17" height="17"><path d="M11 5h2v6h6v2h-6v6h-2v-6H5v-2h6z"/></svg></span><span class="side-label">リストを作る</span></a></div>
         <div class="side-sep"></div>
         <div class="side-wrap"><a class="side-item side-app" href="/home.html">
@@ -39,7 +39,7 @@
 
         <main class="report-page kc-page">
           <!-- かける画面。リストを表で見て、そこから記録する。 -->
-          <section class="card" id="call">
+          <section class="card kc-pane" data-p="call" id="call">
             <div class="cl-head">
               <label>リスト <select id="clList"></select></label>
               <span class="cl-prog" id="clProg"></span>
@@ -52,7 +52,7 @@
           </section>
 
           <!-- 今日の実績 -->
-          <section class="card">
+          <section class="card kc-pane" data-p="stats" hidden>
             <h3 id="stats">今日の実績</h3>
             <div class="ap-cfg-actions">
               <label class="ks-check"><input type="checkbox" id="clMine" checked /> 自分のぶんだけ</label>
@@ -62,18 +62,24 @@
           </section>
 
           <!-- リストを作る -->
-          <section class="card">
+          <section class="card kc-pane" data-p="new" hidden>
             <h3 id="new">リストを作る</h3>
             <p class="note">Salesforceのリードから作るか、Excelなどから貼り付けて作れます。<br>
             貼り付けは1行1社で、<b>会社名・担当者名・電話番号</b>の順（タブまたはカンマ区切り）です。</p>
             <div class="ap-cfg-row">
               <label>リストの名前 <input type="text" id="clNewName" style="width:280px" /></label>
             </div>
+            <h4 class="ap-rot-h">Salesforceのリードから入れる</h4>
+            <p class="note">会社名や担当者名で探して、<b>中身を見てから</b>リストに入れられます。<br>
+            ステージ（レコードタイプ）とリードの状態も、そのまま持ってきます。</p>
             <div class="ap-cfg-row">
-              <label>Salesforceから <input type="text" id="clSfCompany" placeholder="会社名の一部（例：製作所）" style="width:220px" /></label>
-              <label>件数 <input type="number" id="clSfLimit" value="50" min="1" max="200" style="width:80px" /></label>
-              <button class="btn ghost" id="clFromSf">この条件で作る</button>
+              <label>会社名 <input type="text" id="clSfCompany" placeholder="製作所" style="width:180px" /></label>
+              <label>担当者名 <input type="text" id="clSfPerson" placeholder="（任意）" style="width:130px" /></label>
+              <label>件数 <input type="number" id="clSfLimit" value="30" min="1" max="50" style="width:70px" /></label>
+              <button class="btn ghost" id="clSfFind">探す</button>
+              <span class="rev-status" id="clSfStatus"></span>
             </div>
+            <div id="clSfBox"></div>
             <label class="mail-lb">貼り付けて作る
               <textarea id="clPaste" rows="6" placeholder="株式会社サンプル製作所	佐藤	03-1234-5678"></textarea>
             </label>
@@ -85,7 +91,7 @@
         </main>
       </div>
     </div>
-    <script src="calls.js?v=20260818zq"></script>
-    <script src="nav.js?v=20260818zq"></script>
+    <script src="calls.js?v=20260819b"></script>
+    <script src="nav.js?v=20260819b"></script>
   </body>
 </html>

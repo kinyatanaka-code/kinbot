@@ -4773,6 +4773,87 @@ app.post("/api/calls/lists", async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+// 架電の結果に使う選択肢を、Salesforceから取ってくる。
+//
+// 「担当者不在」「コールのみ」「担当者接触：アポ獲得」など、
+// 組織ごとに決まっている値をそのまま使う。
+// 取れないときは、kinbotの決まった区分にする。
+let _callPicks = null;
+async function callPicklists(owner) {
+  if (_callPicks && Date.now() - _callPicks.at < 30 * 60 * 1000) return _callPicks.data;
+  const out = { 活動の結果: [], リードの状態: [], 元: "kinbot" };
+  try {
+    // 活動（Task）の結果。組織によって項目名が違うので、それらしいものを探す。
+    const td = await describeTask(owner);
+    const cand = (td.fields || []).filter((f) =>
+      f.type === "picklist" &&
+      /(status|result|subtype|type|活動|結果|区分)/i.test(`${f.name} ${f.label}`));
+    // いちばん選択肢が多いものを使う（結果の区分は数が多い）
+    const best = cand.sort((a, b) =>
+      (b.picklistValues || []).length - (a.picklistValues || []).length)[0];
+    if (best) {
+      out.活動の結果 = (best.picklistValues || [])
+        .filter((v) => v.active)
+        .map((v) => ({ value: v.value, label: v.label || v.value }));
+      out.項目 = best.name;
+      out.項目名 = best.label;
+      out.元 = "salesforce";
+    }
+  } catch (e) { console.warn("[kincall] 活動の選択肢を取れません:", e.message); }
+
+  try {
+    const desc = await describeObject(owner, "Lead");
+    const f = (desc.fields || []).find((x) => x.name === "Status");
+    out.リードの状態 = ((f && f.picklistValues) || [])
+      .filter((v) => v.active)
+      .map((v) => ({ value: v.value, label: v.label || v.value }));
+  } catch (e) { console.warn("[kincall] リードの状態を取れません:", e.message); }
+
+  if (!out.活動の結果.length) {
+    out.活動の結果 = CALL_RESULTS.map((x) => ({ value: x.key, label: x.key }));
+  }
+  _callPicks = { at: Date.now(), data: out };
+  return out;
+}
+
+app.get("/api/calls/picklists", async (req, res) => {
+  try {
+    if (String(req.query.refresh || "") === "1") _callPicks = null;
+    const d = await callPicklists(req.user);
+    res.json({ ok: true, ...d });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// Salesforceのリードを探して、その場でkincallに入れる
+app.post("/api/calls/from-leads", async (req, res) => {
+  try {
+    const b = req.body || {};
+    const listId = parseInt(b.listId, 10);
+    const found = await searchLeads(req.user, {
+      company: String(b.company || ""),
+      person: String(b.person || ""),
+      limit: Math.min(50, Number(b.limit) || 30),
+    });
+    const items = (found || []).map((l) => ({
+      leadId: l.Id,
+      company: l.Company || "",
+      person: [l.LastName, l.FirstName].filter(Boolean).join(" "),
+      phone: l.Phone || "",
+      email: l.Email || "",
+      industry: l.Title || "",
+      area: l.State || l.City || "",
+      stage: (l.RecordType && l.RecordType.Name) || "",
+      status: l.Status || "",
+    }));
+    // 見るだけ（まだ入れない）
+    if (!listId) return res.json({ ok: true, 件数: items.length, items });
+
+    const n = await addCallTargets(listId, items);
+    console.log(`[kincall] リードを${n}件入れました by ${req.user}`);
+    res.json({ ok: true, 入れた数: n });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 // リストの中身を表で返す（SFのリードレポートのような一覧）
 app.get("/api/calls/targets", async (req, res) => {
   try {
@@ -4822,9 +4903,9 @@ app.post("/api/calls/targets/:id/record", async (req, res) => {
     if (!t) return res.status(404).json({ error: "見つかりません" });
     const b = req.body || {};
     const result = String(b.result || "").trim();
-    if (!CALL_RESULTS.some((x) => x.key === result)) {
-      return res.status(400).json({ error: "結果を選んでください" });
-    }
+    // 結果はSalesforceの選択肢をそのまま使うので、決め打ちで弾かない。
+    // （「担当者接触：アポ獲得」など、組織ごとに値が違うため）
+    if (!result) return res.status(400).json({ error: "結果を選んでください" });
 
     // kinbotに残す
     const log = await recordCall({
@@ -4840,10 +4921,9 @@ app.post("/api/calls/targets/:id/record", async (req, res) => {
     let sf = { ok: false, reason: "" };
     if (t.lead_id && salesforceConfigured() && (await sfConnected(req.user).catch(() => false))) {
       try {
-        const r = CALL_RESULTS.find((x) => x.key === result);
         await createTask(req.user, {
           WhoId: t.lead_id,
-          Subject: `コール：${(r && r.sf) || result}`,
+          Subject: `コール：${result}`,
           Status: "完了", Type: "Call",
           ActivityDate: jstDate(0),
           Description: [`結果：${result}`, b.memo ? `メモ：${b.memo}` : "",
@@ -4955,9 +5035,13 @@ app.get("/api/calls/stats", async (req, res) => {
       if (!by.has(k)) by.set(k, { 誰: k, コール: 0, 接触: 0, アポ: 0 });
       const o = by.get(k);
       o.コール += r.n;
-      const def = CALL_RESULTS.find((x) => x.key === r.result);
-      if (def && def.接触) o.接触 += r.n;
-      if (r.result === "アポ獲得") o.アポ += r.n;
+      // Salesforceの選択肢をそのまま使うので、言葉で見分ける。
+      // 「担当者接触：アポ獲得」「担当者不在」「コールのみ」など。
+      const v = String(r.result || "");
+      const 接触した = /接触|アポ|再コール|断り|見送り/.test(v) && !/不在|コールのみ|NG/.test(v);
+      const アポ = /アポ獲得/.test(v);
+      if (接触した || アポ) o.接触 += r.n;
+      if (アポ) o.アポ += r.n;
     }
     const list = [...by.values()].sort((a, b) => b.コール - a.コール);
     const sum = list.reduce((o, x) => ({
@@ -11584,7 +11668,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-08-18zq kincallを一覧表に（履歴・記録はモーダル、SFへ書き戻し）";
+const BUILD_TAG = "2026-08-19a kincall：SFのリード取り込み・SFの選択肢・メニュー分割";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
