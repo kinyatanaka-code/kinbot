@@ -19,6 +19,7 @@ document.addEventListener("click", (ev) => {
   if (t.id === "jpMakeShared") { ev.preventDefault(); jpCreate(true); }
   if (t.id === "jpMakeOne") { ev.preventDefault(); jpCreate(false); }
   if (t.id === "jpList") { ev.preventDefault(); jpLoadList(); }
+  if (t.id === "jpNotifySave") { ev.preventDefault(); jpSaveNotify(); }
 });
 
 function say(id, t, ms) {
@@ -759,3 +760,30 @@ async function jpViewers(id) {
 }
 
 
+
+
+// 開かれたときにChatへ知らせるかどうか
+async function jpLoadNotify() {
+  if (!$("jpNotify")) return;
+  try {
+    const d = await (await fetch("/api/jump/notify")).json();
+    $("jpNotify").checked = d.enabled !== false;
+  } catch {}
+}
+
+async function jpSaveNotify() {
+  const st = $("jpNotifySt");
+  if (st) st.textContent = "保存しています…";
+  try {
+    await fetch("/api/jump/notify", {
+      method: "PUT", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ enabled: $("jpNotify").checked }),
+    });
+    if (st) {
+      st.textContent = $("jpNotify").checked ? "知らせます" : "知らせません";
+      setTimeout(() => (st.textContent = ""), 4000);
+    }
+  } catch (e) { if (st) st.textContent = "失敗：" + e.message; }
+}
+
+jpLoadNotify();

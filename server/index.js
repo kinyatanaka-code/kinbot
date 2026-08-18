@@ -4207,6 +4207,52 @@ app.post("/api/jump", async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+// 転送URLが開かれたことを知らせる。
+// 資料トラッキングと同じ形にそろえる。
+const _jumpNotified = new Map();
+async function notifyJumpView(link, v) {
+  // 設定でOFFにしていたら知らせない
+  const st = await getSettings().catch(() => ({}));
+  if (st.jumpNotify === false) return;
+
+  // 同じ相手・同じURLは30分に1回だけ知らせる（何度も鳴らさない）
+  const key = `${link.id}:${v.email || "-"}`;
+  const last = _jumpNotified.get(key) || 0;
+  if (Date.now() - last < 30 * 60 * 1000) return;
+  _jumpNotified.set(key, Date.now());
+  // 古い記録は片付ける
+  if (_jumpNotified.size > 500) {
+    for (const [k, t] of _jumpNotified) if (Date.now() - t > 3600 * 1000) _jumpNotified.delete(k);
+  }
+
+  const who = v.email || v.name || [link.company, link.person].filter(Boolean).join(" ") || "名乗りなし";
+  const rep = link.owner ? await displayNameOf(link.owner).catch(() => "") : "";
+  const lines = [
+    `📅 *日程調整のURLを開きました*　${who}`,
+    `🔗 ${link.title || "日程調整"}`,
+    v.name && v.name !== who ? `🏢 ${v.name}` : "",
+    rep ? `👤 ${rep}` : "",
+  ].filter(Boolean);
+  await notifyAll(lines.join("\n"), "doc");
+}
+
+// 通知の入り切り
+app.get("/api/jump/notify", async (req, res) => {
+  try {
+    const st = await getSettings();
+    res.json({ enabled: st.jumpNotify !== false });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.put("/api/jump/notify", async (req, res) => {
+  try {
+    const on = req.body?.enabled !== false;
+    await saveSettings({ jumpNotify: on });
+    console.log(`[転送URL] Chatへの通知を${on ? "ON" : "OFF"}にしました by ${req.user}`);
+    res.json({ ok: true, enabled: on });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 // 作った転送URLの一覧
 app.get("/api/jump", async (req, res) => {
   try {
@@ -4255,6 +4301,10 @@ app.get("/g/:slug", async (req, res) => {
     } catch {}
 
     console.log(`[転送URL] ${link.title} を開きました（${v.email || "名乗りなし"}）`);
+
+    // Google Chatへ知らせる。
+    // 同じ人が何度も開いたときに毎回鳴らないよう、30分は1回だけにする。
+    notifyJumpView(link, v).catch(() => {});
     // 記録が終わってから送る。ブラウザには残さない（302）。
     res.redirect(302, to);
   } catch (e) {
@@ -4346,6 +4396,12 @@ app.get("/api/booking/:slug", async (req, res) => {
       email: v.email || page.email || "", name: v.name || page.company || "",
       ua: req.get("user-agent") || "",
     }).catch(() => null);
+
+    // 開かれたことを知らせる（30分に1回だけ）
+    notifyJumpView(
+      { id: `book${page.id}`, title: page.title, company: page.company, person: page.person, owner: page.owner },
+      v
+    ).catch(() => {});
 
     const busy = await busyOf(page.owner, page.days_ahead);
     if (busy === null) {
@@ -11082,7 +11138,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-08-18u 調整URLのトラッキングを資料トラッキングへ移した";
+const BUILD_TAG = "2026-08-18v 調整URLが開かれたらGoogle Chatに知らせる";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
