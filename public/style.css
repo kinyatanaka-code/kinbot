@@ -5578,3 +5578,14 @@ input:focus, select:focus, textarea:focus, .sf-input:focus, .sf-select:focus, .s
 .ml-sum { font-size: 13px; font-weight: 700; color: #0d5b47; margin: 8px 0 6px; }
 .ml-ng { background: #fffaf8; }
 .ml-ng td { color: #A33C24; }
+
+/* 知らせの設定 */
+.nt-row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+  padding: 9px 12px; border: 1px solid var(--line); border-radius: 10px;
+  background: var(--panel); margin-bottom: 6px; }
+.nt-row .ks-check { flex: 0 0 220px; }
+.nt-note { flex: 1; min-width: 160px; font-size: 11.5px; color: var(--muted); }
+.nt-to { flex: none; font-size: 10.5px; color: #0F6E56; background: #eaf7f2;
+  border: 1px solid #cfeee2; border-radius: 999px; padding: 1px 9px; }
+.nt-time { border: 1px solid var(--line); border-radius: 8px; padding: 4px 8px;
+  font-family: inherit; font-size: 12px; background: var(--panel); }

@@ -10,7 +10,7 @@
     <link rel="manifest" href="/site.webmanifest" />
     <meta name="theme-color" content="#0d5b47" />
     <meta name="apple-mobile-web-app-title" content="kinbot" />
-    <link rel="stylesheet" href="style.css?v=20260818zf" />
+    <link rel="stylesheet" href="style.css?v=20260818zg" />
   </head>
   <body>
     <div class="app">
@@ -39,6 +39,7 @@
             <button class="set-menu-item" data-tab="links">登録リンク</button>
             <div class="set-group-label">連携</div>
             <button class="set-menu-item" data-tab="integrations">外部連携</button>
+            <button class="set-menu-item" data-tab="notices">知らせ</button>
             <div class="set-group-label">AI</div>
             <button class="set-menu-item" data-tab="knowledge">自社ナレッジ</button>
             <button class="set-menu-item" data-tab="ai">プロンプト設定</button>
@@ -542,6 +543,31 @@ curl -H "Authorization: Bearer <span class="cc-tok">&lt;トークン&gt;</span>"
 
             </div>
           </div>
+          <div class="set-pane" data-pane="notices" hidden>
+            <div class="set-card">
+              <h3>Google Chatへの知らせ</h3>
+              <p class="note">kinbotからGoogle Chatへ流す知らせを、ここでまとめて入り切りできます。<br>
+              どのスペースへ送るかは、<b>外部連携 → Google Chat</b>で決めます。</p>
+
+              <h4 class="ap-rot-h">できごとを知らせる</h4>
+              <p class="note">アポが割り振られた、資料が開かれた、といったときに流れます。</p>
+              <div id="ntKinds"></div>
+
+              <h4 class="ap-rot-h">決まった時刻に流す</h4>
+              <p class="note">毎日・毎週、決まった時刻に流れるものです。</p>
+              <div id="ntTimers"></div>
+
+              <div class="ap-cfg-actions" style="margin-top:14px">
+                <button class="btn" id="ntSave">保存する</button>
+                <span class="rev-status" id="ntStatus"></span>
+              </div>
+
+              <h4 class="ap-rot-h">送り先</h4>
+              <div id="ntTargets"></div>
+            </div>
+          </div>
+
+
           <div class="set-pane" data-pane="knowledge" hidden>
             <div class="set-card">
               <h3>商談から集めた質問と回答</h3>
@@ -747,7 +773,7 @@ curl -H "Authorization: Bearer <span class="cc-tok">&lt;トークン&gt;</span>"
         </main>
       </div>
     </div>
-    <script src="settings.js?v=20260818zf"></script>
-      <script src="nav.js?v=20260818zf"></script>
+    <script src="settings.js?v=20260818zg"></script>
+      <script src="nav.js?v=20260818zg"></script>
   </body>
 </html>

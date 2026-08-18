@@ -2784,3 +2784,75 @@ async function loadChatTargets() {
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", go);
   else setTimeout(go, 0);
 })();
+
+
+// ───────────────────────────────────────────────────────────
+// Google Chatへの知らせ（まとめて設定）
+// ───────────────────────────────────────────────────────────
+async function ntLoad() {
+  if (!document.getElementById("ntKinds")) return;
+  try {
+    const d = await (await fetch("/api/notices")).json();
+    if (d.error) throw new Error(d.error);
+
+    // できごとを知らせるもの
+    document.getElementById("ntKinds").innerHTML =
+      (d["種類"] || []).map((k) => `
+        <div class="nt-row">
+          <label class="ks-check">
+            ${k["入り切り"] === null
+              ? `<input type="checkbox" checked disabled />`
+              : `<input type="checkbox" class="nt-k" data-k="${mbEsc(k.key)}"${k["入り切り"] ? " checked" : ""} />`}
+            <b>${mbEsc(k["名前"])}</b>
+          </label>
+          <span class="nt-note">${mbEsc(k["説明"])}</span>
+          <span class="nt-to">${k["送り先の数"] ? `送り先 ${k["送り先の数"]}か所` : "送り先なし"}</span>
+        </div>`).join("");
+
+    // 決まった時刻に流すもの
+    document.getElementById("ntTimers").innerHTML =
+      (d["定期"] || []).map((t) => `
+        <div class="nt-row">
+          <label class="ks-check">
+            <input type="checkbox" class="nt-t" data-k="${mbEsc(t.key)}"${t["入り切り"] ? " checked" : ""} />
+            <b>${mbEsc(t["名前"])}</b>
+          </label>
+          <span class="nt-note">${mbEsc(t["説明"])}</span>
+          ${t["時刻"] ? `<input type="time" class="nt-time" data-k="${mbEsc(t.key)}" value="${mbEsc(t["時刻"])}" />` : ""}
+        </div>`).join("");
+
+    // 送り先
+    const tg = d["送り先"] || [];
+    document.getElementById("ntTargets").innerHTML = tg.length
+      ? `<div class="note">${tg.map((x) => `${mbEsc(x["名前"])}${x.enabled ? "" : "（止めています）"}`).join(" ／ ")}</div>` +
+        `<p class="note">送り先を増やす・種類ごとの行き先を変えるときは、<b>外部連携 → Google Chat</b>で設定してください。</p>`
+      : `<div class="note cc-warn">送り先が登録されていません。外部連携 → Google Chat で追加してください。</div>`;
+  } catch (e) {
+    const b = document.getElementById("ntKinds");
+    if (b) b.innerHTML = `<div class="note">読み込めませんでした：${mbEsc(e.message)}</div>`;
+  }
+}
+
+async function ntSave() {
+  const st = document.getElementById("ntStatus");
+  if (st) st.textContent = "保存しています…";
+  try {
+    const body = {};
+    document.querySelectorAll(".nt-k, .nt-t").forEach((el) => { body[el.dataset.k] = el.checked; });
+    document.querySelectorAll(".nt-time").forEach((el) => { body[el.dataset.k + "Time"] = el.value; });
+    const r = await fetch("/api/notices", {
+      method: "PUT", headers: { "content-type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    if (!r.ok) throw new Error("保存できませんでした");
+    if (st) { st.textContent = "保存しました"; setTimeout(() => (st.textContent = ""), 4000); }
+  } catch (e) { if (st) st.textContent = "失敗：" + e.message; }
+}
+
+document.addEventListener("click", (ev) => {
+  const t = ev.target && ev.target.closest ? ev.target.closest("button") : null;
+  if (!t) return;
+  if (t.id === "ntSave") { ev.preventDefault(); ntSave(); }
+  // 「知らせ」を開いたときに読み込む
+  if (t.dataset && t.dataset.tab === "notices") setTimeout(ntLoad, 100);
+});

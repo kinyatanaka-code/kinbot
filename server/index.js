@@ -4197,6 +4197,90 @@ async function maybeNoticeBeforeReminder() {
 }
 
 // ───────────────────────────────────────────────────────────
+// Google Chatへの知らせ（まとめて設定する）
+//
+// あちこちの画面に散らばっていた「知らせるかどうか」を、
+// 設定の1か所から入り切りできるようにする。
+// ───────────────────────────────────────────────────────────
+
+// 何を知らせるか。ここに足せば、画面にも自動で並ぶ。
+const NOTICE_KINDS = [
+  { key: "assign", 名前: "アポの割り振り", 説明: "アポが誰かに割り当てられたとき",
+    設定: null, 送り先: "on_assign" },
+  { key: "mail", 名前: "メールの下書き・送信", 説明: "確定メールやリマインドを用意したとき",
+    設定: null, 送り先: "on_mail" },
+  { key: "doc", 名前: "資料・URLの閲覧", 説明: "送った資料や日程調整URLが開かれたとき",
+    設定: "jumpNotify", 送り先: "on_doc" },
+  { key: "launch", 名前: "Salesforceの立ち上げ", 説明: "商談を立ち上げたとき・できなかったとき",
+    設定: null, 送り先: "on_launch" },
+  { key: "deploy", 名前: "kinbotの更新", 説明: "更新が終わったとき",
+    設定: "notifyDeploy", 送り先: "on_deploy" },
+];
+
+// 決まった時刻に流すもの
+const NOTICE_TIMERS = [
+  { key: "deployNews", 名前: "朝の「新しくなりました」", 説明: "前の営業日からの変更をまとめて",
+    既定: true, 時刻: { hour: "deployNewsHour", minute: "deployNewsMinute", 既定時: 8, 既定分: 30 } },
+  { key: "callProgress", 名前: "コール進捗", 説明: "平日11〜18時の毎正時", 既定: true },
+  { key: "eveningReminder", 名前: "夕方のやり残し", 説明: "平日18時半に本人だけへ", 既定: true },
+  { key: "weeklyRemind", 名前: "天気予報の声かけ", 説明: "月曜の朝と金曜の夕方", 既定: false },
+  { key: "devSummary", 名前: "開発メモのまとめ", 説明: "朝6時（既定はOFF）", 既定: false },
+  { key: "selfCheck", 名前: "自己点検", 説明: "30分おきに見張り、問題があれば", 既定: false },
+];
+
+app.get("/api/notices", async (req, res) => {
+  try {
+    const st = await getSettings();
+    const targets = await listChatTargets().catch(() => []);
+    res.json({
+      ok: true,
+      // 種類ごとの送り先（どこに流すか）
+      種類: NOTICE_KINDS.map((k) => ({
+        key: k.key, 名前: k.名前, 説明: k.説明,
+        入り切り: k.設定 ? st[k.設定] !== false : null,
+        送り先の数: targets.filter((t) => t[k.送り先] && t.enabled !== false).length,
+      })),
+      // 時刻を決めて流すもの
+      定期: NOTICE_TIMERS.map((t) => ({
+        key: t.key, 名前: t.名前, 説明: t.説明,
+        入り切り: t.key === "devSummary" ? st[t.key] === true : st[t.key] !== false,
+        時刻: t.時刻
+          ? `${String(st[t.時刻.hour] ?? t.時刻.既定時).padStart(2, "0")}:${String(st[t.時刻.minute] ?? t.時刻.既定分).padStart(2, "0")}`
+          : null,
+      })),
+      送り先: targets.map((t) => ({
+        id: t.id, 名前: t.name || t.space_id || "（名前なし）", enabled: t.enabled !== false,
+      })),
+    });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.put("/api/notices", async (req, res) => {
+  try {
+    const b = req.body || {};
+    const patch = {};
+    // 種類ごと
+    for (const k of NOTICE_KINDS) {
+      if (k.設定 && b[k.key] !== undefined) patch[k.設定] = b[k.key] !== false;
+    }
+    // 定期のもの
+    for (const t of NOTICE_TIMERS) {
+      if (b[t.key] !== undefined) patch[t.key] = b[t.key] !== false;
+      if (t.時刻 && b[`${t.key}Time`]) {
+        const m = String(b[`${t.key}Time`]).match(/^(\d{1,2}):(\d{2})$/);
+        if (m) {
+          patch[t.時刻.hour] = Math.min(23, Math.max(0, Number(m[1])));
+          patch[t.時刻.minute] = Math.min(59, Math.max(0, Number(m[2])));
+        }
+      }
+    }
+    await saveSettings(patch);
+    console.log(`[知らせ] 設定を変えました（${Object.keys(patch).join("・")}）by ${req.user}`);
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// ───────────────────────────────────────────────────────────
 // 送ったメールの記録（届いたか・跳ね返ったか）
 // ───────────────────────────────────────────────────────────
 
@@ -11396,7 +11480,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-08-18zf 毎朝8時半に更新のお知らせ／開発メモの朝通知は既定OFF";
+const BUILD_TAG = "2026-08-18zg Chatへの知らせを、設定の1か所にまとめた";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",

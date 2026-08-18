@@ -129,6 +129,9 @@ export const KINBOT_GUIDE = `
 ## 設定
 - 動作設定、アカウント、登録リンク（スマートリンクにする）
 - 外部連携：Google／Salesforce／Notion／Google Chat
+- 知らせ：Google Chatへ流すものを、まとめて入り切りできる
+  （アポの割り振り／メール／資料やURLの閲覧／SFの立ち上げ／kinbotの更新／
+  　朝の「新しくなりました」／コール進捗／夕方のやり残し／天気予報の声かけ／開発メモ／自己点検）
 - メンバー管理、自社ナレッジ、プロンプト設定
 
 ## Google Chatから使う
