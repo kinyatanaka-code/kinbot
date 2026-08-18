@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="ja">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>kinbot コールリスト</title>
+    <link rel="icon" href="/icon.svg" type="image/svg+xml" />
+    <link rel="icon" href="/favicon-32.png" sizes="32x32" type="image/png" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <link rel="manifest" href="/site.webmanifest" />
+    <meta name="theme-color" content="#0d5b47" />
+    <meta name="apple-mobile-web-app-title" content="kinbot" />
+    <link rel="stylesheet" href="style.css?v=20260818r" />
+  </head>
+  <body>
+    <div class="app">
+      <nav class="sidebar">
+        <div class="side-brand"><span class="brand-mark"></span><span>kinbot</span></div>
+        <div class="side-foot"><span id="who" class="who"></span><a href="#" id="logout" class="side-logout">ログアウト</a></div>
+      </nav>
+
+      <div class="main">
+        <header class="topbar">
+          <div class="brand"><img class="topbar-bot" src="kinbot.svg" alt="" /><span class="brand-name">コールリスト</span></div>
+        </header>
+
+        <main class="report-page">
+          <!-- かける画面。1件ずつ大きく出す。 -->
+          <section class="card" id="clCallCard">
+            <div class="cl-head">
+              <label>リスト <select id="clList"></select></label>
+              <span class="cl-prog" id="clProg"></span>
+              <span class="rev-status" id="clStatus"></span>
+            </div>
+
+            <div id="clTarget"><div class="empty-state">リストを選んでください。</div></div>
+          </section>
+
+          <!-- 今日の実績 -->
+          <section class="card">
+            <h3>今日の実績</h3>
+            <div class="ap-cfg-actions">
+              <label class="ks-check"><input type="checkbox" id="clMine" checked /> 自分のぶんだけ</label>
+              <button class="btn ghost" id="clStatsReload">読み込み直す</button>
+            </div>
+            <div id="clStats"></div>
+          </section>
+
+          <!-- リストを作る -->
+          <section class="card">
+            <h3>リストを作る</h3>
+            <p class="note">Salesforceのリードから作るか、Excelなどから貼り付けて作れます。<br>
+            貼り付けは1行1社で、<b>会社名・担当者名・電話番号</b>の順（タブまたはカンマ区切り）です。</p>
+            <div class="ap-cfg-row">
+              <label>リストの名前 <input type="text" id="clNewName" style="width:280px" /></label>
+            </div>
+            <div class="ap-cfg-row">
+              <label>Salesforceから <input type="text" id="clSfCompany" placeholder="会社名の一部（例：製作所）" style="width:220px" /></label>
+              <label>件数 <input type="number" id="clSfLimit" value="50" min="1" max="200" style="width:80px" /></label>
+              <button class="btn ghost" id="clFromSf">この条件で作る</button>
+            </div>
+            <label class="mail-lb">貼り付けて作る
+              <textarea id="clPaste" rows="6" placeholder="株式会社サンプル製作所	佐藤	03-1234-5678"></textarea>
+            </label>
+            <div class="ap-cfg-actions">
+              <button class="btn" id="clFromPaste">貼り付けから作る</button>
+              <span class="rev-status" id="clNewStatus"></span>
+            </div>
+          </section>
+        </main>
+      </div>
+    </div>
+    <script src="calls.js?v=20260818r"></script>
+    <script src="nav.js?v=20260818r"></script>
+  </body>
+</html>

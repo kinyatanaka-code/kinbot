@@ -121,6 +121,15 @@ import {
   aposInRange,
   aposTakenInRange,
   aposMailPending,
+  createCallList,
+  addCallTargets,
+  listCallLists,
+  nextCallTarget,
+  callHistory,
+  recordCall,
+  markCallSynced,
+  pendingCallLogs,
+  callStats,
   setNoReminder,
   fixApoForReminder,
   recordSfUpdate,
@@ -4137,6 +4146,180 @@ async function maybeNoticeBeforeReminder() {
     console.log(`[apo-mail] リマインドの予告を ${sent}人に送りました（対象 ${all.length}件）`);
   } catch (e) { console.warn("[apo-mail] リマインドの予告:", e.message); }
 }
+
+// ───────────────────────────────────────────────────────────
+// コールリスト（インターン生の架電）
+//
+// リードのリストを見ながら架電し、結果をSalesforceへ残す。
+// 通信が切れても消えないよう、まずkinbotに保存してから送る。
+// ───────────────────────────────────────────────────────────
+
+// 架電の結果。プロセスシートの数え方に合わせている。
+const CALL_RESULTS = [
+  { key: "アポ獲得", sf: "アポ獲得", 接触: true },
+  { key: "再コール", sf: "再コール", 接触: true },
+  { key: "担当者不在", sf: "担当者不在", 接触: true },
+  { key: "断り", sf: "断り", 接触: true },
+  { key: "不在", sf: "不在", 接触: false },
+  { key: "NG", sf: "NG（今後かけない）", 接触: false },
+];
+
+// リストの一覧
+app.get("/api/calls/lists", async (req, res) => {
+  try {
+    const rows = await listCallLists({
+      owner: req.user,
+      includeClosed: String(req.query.all || "") === "1",
+    });
+    res.json({
+      ok: true,
+      items: rows.map((r) => ({
+        id: r.id, name: r.name, note: r.note || "",
+        全部: Number(r["全部"] || 0), 済み: Number(r["済み"] || 0),
+        残り: Number(r["全部"] || 0) - Number(r["済み"] || 0),
+        closed: !!r.closed,
+      })),
+    });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// リストを作る（Salesforceのリードを検索して入れる／貼り付けからも作れる）
+app.post("/api/calls/lists", async (req, res) => {
+  try {
+    const b = req.body || {};
+    const name = String(b.name || "").trim() || `コールリスト ${jstDate(0)}`;
+    const list = await createCallList({ name, owner: req.user, note: b.note, createdBy: req.user });
+    if (!list) return res.status(500).json({ error: "リストを作れませんでした" });
+
+    let items = [];
+    if (Array.isArray(b.items) && b.items.length) {
+      // 貼り付け（会社名・担当者名・電話）から作る
+      items = b.items.slice(0, 5000);
+    } else if (b.fromSalesforce) {
+      // Salesforceのリードから作る
+      const found = await searchLeads(req.user, {
+        company: String(b.company || ""), person: "", limit: Math.min(200, Number(b.limit) || 50),
+      }).catch((e) => { throw new Error(`Salesforceから取れません：${e.message}`); });
+      items = (found || []).map((l) => ({
+        leadId: l.Id,
+        company: l.Company || "",
+        person: [l.LastName, l.FirstName].filter(Boolean).join(" "),
+        phone: l.Phone || l.MobilePhone || "",
+        email: l.Email || "",
+        industry: l.Industry || "",
+        area: l.State || l.City || "",
+      }));
+    }
+
+    // かける人へ順番に配る（指定があれば）
+    const who = (Array.isArray(b.assignTo) ? b.assignTo : []).map((x) => String(x).toLowerCase()).filter(Boolean);
+    if (who.length) items = items.map((x, i) => ({ ...x, assignedTo: who[i % who.length] }));
+
+    const n = await addCallTargets(list.id, items);
+    console.log(`[コール] リスト「${name}」を作りました（${n}件）by ${req.user}`);
+    res.json({ ok: true, id: list.id, name, 件数: n });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// 次にかける1件
+app.get("/api/calls/next", async (req, res) => {
+  try {
+    const listId = parseInt(req.query.list, 10);
+    if (!listId) return res.status(400).json({ error: "リストを選んでください" });
+    const t = await nextCallTarget(listId, req.user);
+    if (!t) return res.json({ ok: true, done: true });
+    const past = await callHistory(t.id, t.lead_id, 5);
+    res.json({
+      ok: true,
+      done: false,
+      target: {
+        id: t.id, leadId: t.lead_id || "", company: t.company, person: t.person,
+        phone: t.phone, email: t.email, industry: t.industry, area: t.area, memo: t.memo || "",
+      },
+      履歴: past.map((h) => ({ 結果: h.result, メモ: h.memo || "", at: h.at, 誰: h.caller || "" })),
+      結果の種類: CALL_RESULTS.map((x) => x.key),
+    });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// 結果を記録する（そのあとSalesforceへ送る）
+app.post("/api/calls/record", async (req, res) => {
+  try {
+    const b = req.body || {};
+    const result = String(b.result || "").trim();
+    if (!CALL_RESULTS.some((x) => x.key === result)) {
+      return res.status(400).json({ error: "結果を選んでください" });
+    }
+    const log = await recordCall({
+      targetId: parseInt(b.targetId, 10) || null,
+      leadId: String(b.leadId || "") || null,
+      company: String(b.company || ""),
+      result,
+      memo: String(b.memo || ""),
+      caller: req.user,
+    });
+    if (!log) return res.status(500).json({ error: "記録できませんでした" });
+
+    // Salesforceへは、待たせずに裏で送る
+    syncCallToSf(log).catch(() => {});
+    res.json({ ok: true, id: log.id });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// 架電の記録をSalesforceへ送る（活動として残す）
+async function syncCallToSf(log) {
+  if (!log || !log.lead_id) return;
+  try {
+    if (!salesforceConfigured()) return;
+    const owner = log.caller;
+    if (!owner || !(await sfConnected(owner).catch(() => false))) return;
+    const r = CALL_RESULTS.find((x) => x.key === log.result);
+    const task = await createTask(owner, {
+      WhoId: log.lead_id,
+      Subject: `コール：${(r && r.sf) || log.result}`,
+      Status: "完了",
+      Type: "Call",
+      ActivityDate: new Date(log.at || Date.now()).toISOString().slice(0, 10),
+      Description: [`結果：${log.result}`, log.memo ? `メモ：${log.memo}` : ""].filter(Boolean).join("\n"),
+    });
+    await markCallSynced(log.id, { taskId: (task && (task.id || task.Id)) || "done" });
+    console.log(`[コール] Salesforceに残しました：${log.company}（${log.result}）`);
+  } catch (e) {
+    await markCallSynced(log.id, { error: e.message }).catch(() => {});
+    console.warn(`[コール] Salesforceへ送れませんでした：${e.message}`);
+  }
+}
+
+// 送れなかったぶんを、あとから送り直す（5分おき）
+async function retryCallSync() {
+  try {
+    const rows = await pendingCallLogs(30);
+    for (const log of rows) await syncCallToSf(log);
+  } catch {}
+}
+
+// その日の実績
+app.get("/api/calls/stats", async (req, res) => {
+  try {
+    const date = /^\d{4}-\d{2}-\d{2}$/.test(String(req.query.date || "")) ? req.query.date : jstDate(0);
+    const rows = await callStats(date, String(req.query.mine || "") === "1" ? req.user : "");
+    const by = new Map();
+    for (const r of rows) {
+      const k = r.caller || "（不明）";
+      if (!by.has(k)) by.set(k, { 誰: k, コール: 0, 接触: 0, アポ: 0 });
+      const o = by.get(k);
+      o.コール += r.n;
+      const def = CALL_RESULTS.find((x) => x.key === r.result);
+      if (def && def.接触) o.接触 += r.n;
+      if (r.result === "アポ獲得") o.アポ += r.n;
+    }
+    const list = [...by.values()].sort((a, b) => b.コール - a.コール);
+    const sum = list.reduce((o, x) => ({
+      コール: o.コール + x.コール, 接触: o.接触 + x.接触, アポ: o.アポ + x.アポ,
+    }), { コール: 0, 接触: 0, アポ: 0 });
+    res.json({ ok: true, date, 合計: sum, items: list });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
 
 // ───────────────────────────────────────────────────────────
 // ロボに話しかける（画面の案内係）
@@ -10627,7 +10810,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-08-18o 共通URLのボタンを確実に動かす／エラーを画面に出す";
+const BUILD_TAG = "2026-08-18r コールリスト（架電の記録をSalesforceへ）";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
@@ -15312,6 +15495,9 @@ server.listen(PORT, async () => {
   setInterval(() => { maybeSendCallReport().catch(() => {}); }, 60 * 1000);
   // Cloudflareに残った古い配信枠と録画を片づける（保存料を増やさないため）
   setInterval(() => { cleanupOldLiveInputs(6).catch(() => {}); }, 60 * 60 * 1000);
+
+  // 送れなかった架電の記録を、あとから送り直す
+  setInterval(() => { retryCallSync().catch(() => {}); }, 5 * 60 * 1000);
 
   // 朝の開発メモ（既定6時）
   setInterval(() => { maybeSendDevSummary().catch(() => {}); }, 60 * 1000);

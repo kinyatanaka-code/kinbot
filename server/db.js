@@ -510,6 +510,57 @@ export async function initDb() {
   `);
   await sq(`CREATE INDEX IF NOT EXISTS idx_oauth_tokens_refresh ON oauth_tokens(refresh_token);`);
 
+  // ===== コールリスト（インターン生の架電） =====
+  // どのリードに、誰が、いつかけて、どうだったか。
+  // Salesforceへ送る前に、まずここに残す（通信が切れても消えないように）。
+  await sq(`
+    CREATE TABLE IF NOT EXISTS call_lists (
+      id         SERIAL PRIMARY KEY,
+      name       TEXT NOT NULL,
+      owner      TEXT,
+      note       TEXT,
+      closed     BOOLEAN NOT NULL DEFAULT false,
+      created_by TEXT,
+      created_at TIMESTAMPTZ DEFAULT now()
+    );
+  `);
+  await sq(`
+    CREATE TABLE IF NOT EXISTS call_targets (
+      id          SERIAL PRIMARY KEY,
+      list_id     INT REFERENCES call_lists(id) ON DELETE CASCADE,
+      lead_id     TEXT,
+      company     TEXT,
+      person      TEXT,
+      phone       TEXT,
+      email       TEXT,
+      industry    TEXT,
+      area        TEXT,
+      memo        TEXT,
+      assigned_to TEXT,
+      done        BOOLEAN NOT NULL DEFAULT false,
+      sort_order  INT DEFAULT 0,
+      created_at  TIMESTAMPTZ DEFAULT now()
+    );
+  `);
+  await sq(`CREATE INDEX IF NOT EXISTS ix_call_targets_list ON call_targets(list_id, done, sort_order);`);
+  await sq(`CREATE INDEX IF NOT EXISTS ix_call_targets_who ON call_targets(assigned_to, done);`);
+  await sq(`
+    CREATE TABLE IF NOT EXISTS call_logs (
+      id         SERIAL PRIMARY KEY,
+      target_id  INT REFERENCES call_targets(id) ON DELETE CASCADE,
+      lead_id    TEXT,
+      company    TEXT,
+      result     TEXT NOT NULL,
+      memo       TEXT,
+      caller     TEXT,
+      sf_task_id TEXT,
+      sf_error   TEXT,
+      at         TIMESTAMPTZ DEFAULT now()
+    );
+  `);
+  await sq(`CREATE INDEX IF NOT EXISTS ix_call_logs_at ON call_logs(at DESC);`);
+  await sq(`CREATE INDEX IF NOT EXISTS ix_call_logs_target ON call_logs(target_id, at DESC);`);
+
   // ===== Salesforceの更新の記録 =====
   // どの商談を、いつ、どのステージにしたか。
   // 「SF更新まだ」を正しく数えるために使う。
@@ -2735,6 +2786,146 @@ export async function setNoReminder(slug, off) {
        RETURNING slug, label, no_reminder`, [slug, !!off]);
     return rows[0] || null;
   } catch (e) { console.error("[db] setNoReminder", e.message); return null; }
+}
+
+// ===== コールリスト =====
+
+// リストを作る
+export async function createCallList({ name, owner, note, createdBy }) {
+  if (!pool) return null;
+  try {
+    const { rows } = await pool.query(
+      `INSERT INTO call_lists (name, owner, note, created_by) VALUES ($1,$2,$3,$4) RETURNING *`,
+      [String(name || "コールリスト").slice(0, 120), owner || null,
+       String(note || "").slice(0, 300), createdBy || null]);
+    return rows[0] || null;
+  } catch (e) { console.error("[db] createCallList", e.message); return null; }
+}
+
+// リストに宛先を足す（何件でもまとめて）
+export async function addCallTargets(listId, items = []) {
+  if (!pool || !listId || !items.length) return 0;
+  try {
+    let n = 0;
+    for (let i = 0; i < items.length; i++) {
+      const x = items[i] || {};
+      await pool.query(
+        `INSERT INTO call_targets
+           (list_id, lead_id, company, person, phone, email, industry, area, memo, assigned_to, sort_order)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
+        [listId, x.leadId || null, x.company || "", x.person || "", x.phone || "",
+         x.email || "", x.industry || "", x.area || "", x.memo || "",
+         String(x.assignedTo || "").toLowerCase() || null, i]);
+      n++;
+    }
+    return n;
+  } catch (e) { console.error("[db] addCallTargets", e.message); return 0; }
+}
+
+// リストの一覧（残り件数つき）
+export async function listCallLists({ owner = "", includeClosed = false } = {}) {
+  if (!pool) return [];
+  try {
+    const { rows } = await pool.query(
+      `SELECT l.*,
+              (SELECT count(*) FROM call_targets t WHERE t.list_id = l.id) AS 全部,
+              (SELECT count(*) FROM call_targets t WHERE t.list_id = l.id AND t.done) AS 済み
+         FROM call_lists l
+        WHERE ($1 = '' OR l.owner = $1 OR EXISTS (
+                 SELECT 1 FROM call_targets t WHERE t.list_id = l.id AND t.assigned_to = $1))
+          AND ($2 OR NOT l.closed)
+        ORDER BY l.created_at DESC LIMIT 50`,
+      [String(owner || "").toLowerCase(), !!includeClosed]);
+    return rows;
+  } catch (e) { console.error("[db] listCallLists", e.message); return []; }
+}
+
+// 次にかける1件を出す（自分に割り当てられたもの／割り当てなしも拾う）
+export async function nextCallTarget(listId, caller) {
+  if (!pool || !listId) return null;
+  try {
+    const { rows } = await pool.query(
+      `SELECT * FROM call_targets
+        WHERE list_id = $1 AND NOT done
+          AND (assigned_to IS NULL OR assigned_to = $2)
+        ORDER BY sort_order, id LIMIT 1`,
+      [listId, String(caller || "").toLowerCase()]);
+    return rows[0] || null;
+  } catch (e) { console.error("[db] nextCallTarget", e.message); return null; }
+}
+
+// その相手に、これまで何をしたか
+export async function callHistory(targetId, leadId, limit = 5) {
+  if (!pool) return [];
+  try {
+    const { rows } = await pool.query(
+      `SELECT result, memo, caller, at FROM call_logs
+        WHERE target_id = $1 OR ($2 <> '' AND lead_id = $2)
+        ORDER BY at DESC LIMIT $3`,
+      [targetId || 0, String(leadId || ""), limit]);
+    return rows;
+  } catch { return []; }
+}
+
+// 架電の結果を残す
+export async function recordCall({ targetId, leadId, company, result, memo, caller }) {
+  if (!pool) return null;
+  try {
+    const { rows } = await pool.query(
+      `INSERT INTO call_logs (target_id, lead_id, company, result, memo, caller)
+       VALUES ($1,$2,$3,$4,$5,$6) RETURNING *`,
+      [targetId || null, leadId || null, company || "", result,
+       String(memo || "").slice(0, 1000), caller || null]);
+    // 「再コール」以外は、その相手を済みにする
+    if (targetId && result !== "再コール") {
+      await pool.query(`UPDATE call_targets SET done = true WHERE id = $1`, [targetId]);
+    }
+    // 再コールのときは、順番をいちばん後ろに回す
+    if (targetId && result === "再コール") {
+      await pool.query(
+        `UPDATE call_targets SET sort_order = (SELECT COALESCE(max(sort_order),0)+1 FROM call_targets WHERE list_id = call_targets.list_id)
+          WHERE id = $1`, [targetId]).catch(() => {});
+    }
+    return rows[0] || null;
+  } catch (e) { console.error("[db] recordCall", e.message); return null; }
+}
+
+// Salesforceへ送れた／送れなかったを記録する
+export async function markCallSynced(logId, { taskId, error } = {}) {
+  if (!pool || !logId) return null;
+  try {
+    await pool.query(
+      `UPDATE call_logs SET sf_task_id = $2, sf_error = $3 WHERE id = $1`,
+      [logId, taskId || null, String(error || "").slice(0, 300) || null]);
+    return true;
+  } catch { return null; }
+}
+
+// まだSalesforceへ送れていないぶん
+export async function pendingCallLogs(limit = 50) {
+  if (!pool) return [];
+  try {
+    const { rows } = await pool.query(
+      `SELECT * FROM call_logs
+        WHERE sf_task_id IS NULL AND lead_id IS NOT NULL
+        ORDER BY at LIMIT $1`, [limit]);
+    return rows;
+  } catch { return []; }
+}
+
+// その日の結果を数える
+export async function callStats(dateJst, caller = "") {
+  if (!pool) return [];
+  try {
+    const { rows } = await pool.query(
+      `SELECT caller, result, count(*)::int AS n
+         FROM call_logs
+        WHERE (at AT TIME ZONE 'Asia/Tokyo')::date = $1::date
+          AND ($2 = '' OR caller = $2)
+        GROUP BY caller, result`,
+      [dateJst, String(caller || "").toLowerCase()]);
+    return rows;
+  } catch { return []; }
 }
 
 // ===== Salesforceの更新の記録 =====
