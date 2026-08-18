@@ -4953,12 +4953,52 @@ app.post("/api/calls/from-report", async (req, res) => {
 
     if (!items.length) return res.status(400).json({ error: "入れられる行がありませんでした" });
 
+    // レポートにはリードIDの列が無いことが多い。
+    // IDが無いとSalesforceの履歴とつながらないので、会社名と電話で照らし合わせて補う。
+    let 紐づけた = 0;
+    const 足りない = items.filter((x) => !x.leadId);
+    if (足りない.length && salesforceConfigured() && (await sfConnected(req.user).catch(() => false))) {
+      try {
+        // 会社名でまとめて引き当てる（80件ずつ）
+        for (let i = 0; i < 足りない.length; i += 80) {
+          const part = 足りない.slice(i, i + 80);
+          const names = part.map((x) => `'${String(x.company).replace(/['\\]/g, "")}'`).filter((v) => v.length > 2);
+          if (!names.length) continue;
+          const d = await sfQuery(req.user,
+            `SELECT Id, Company, Phone, MobilePhone FROM Lead ` +
+            `WHERE IsConverted = false AND Company IN (${names.join(",")}) LIMIT 500`);
+          const byName = new Map();
+          for (const r of d.records || []) {
+            const k = String(r.Company || "");
+            if (!byName.has(k)) byName.set(k, []);
+            byName.get(k).push(r);
+          }
+          const num = (v) => String(v || "").replace(/[^0-9]/g, "");
+          for (const x of part) {
+            const cand = byName.get(x.company) || [];
+            if (!cand.length) continue;
+            // 同じ会社が何件もあるときは、電話番号で決める
+            const hit = cand.length === 1 ? cand[0]
+              : cand.find((r) => num(r.Phone) === num(x.phone) || num(r.MobilePhone) === num(x.phone));
+            if (hit) { x.leadId = hit.Id; 紐づけた++; }
+          }
+        }
+      } catch (e) { console.warn("[kincall] リードの引き当てでつまずきました:", e.message); }
+    }
+    console.log(`[kincall] リードIDを${紐づけた}件つなぎました（列に無かったぶん ${足りない.length}）`);
+
     const name = String(b.name || "").trim() || `リスト ${jstDate(0)}`;
     const list = await createCallList({ name, owner: req.user, createdBy: req.user });
     if (!list) return res.status(500).json({ error: "リストを作れませんでした" });
     const n = await addCallTargets(list.id, items);
     console.log(`[kincall] レポートから${n}件をリスト「${name}」に入れました by ${req.user}`);
-    res.json({ ok: true, id: list.id, name, 件数: n, 見つけた列: ix });
+    res.json({
+      ok: true, id: list.id, name, 件数: n, 見つけた列: ix,
+      リードとつないだ数: 紐づけた,
+      note: 紐づけた < 足りない.length
+        ? `${足りない.length - 紐づけた}件は、Salesforceのリードと結びつけられませんでした（会社名が一致しないなど）`
+        : "",
+    });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
@@ -4976,6 +5016,43 @@ function failedOnce(e, n) {
   const m = String((e && e.message) || e).slice(0, 200);
   if (m !== _lastFail) { console.warn("[kincall] 活動の件数を数えられません:", m); _lastFail = m; }
 }
+
+// 履歴の件数が数えられているかを、その場で確かめる
+app.get("/api/calls/count-check", async (req, res) => {
+  try {
+    const listId = parseInt(req.query.list, 10);
+    const rows = await listCallTargets(listId || 0, { limit: 5 });
+    const ids = rows.map((r) => r.lead_id).filter(Boolean);
+    let 数える人 = req.user;
+    let 代理を使った = false;
+    if (!(await sfConnected(数える人).catch(() => false))) {
+      const st = await getSettings().catch(() => ({}));
+      const 代理 = String(st.sfProxyUser || "").trim().toLowerCase();
+      if (代理 && (await sfConnected(代理).catch(() => false))) { 数える人 = 代理; 代理を使った = true; }
+    }
+    const つながっている = await sfConnected(数える人).catch(() => false);
+    let 生の答え = null, エラー = "";
+    if (ids.length && つながっている) {
+      try {
+        const part = ids.slice(0, 5).map((x) => `'${String(x).replace(/[^A-Za-z0-9]/g, "")}'`);
+        const d = await sfQuery(数える人,
+          `SELECT WhoId, count(Id) n FROM Task WHERE WhoId IN (${part.join(",")}) GROUP BY WhoId`);
+        生の答え = (d.records || []).slice(0, 5);
+      } catch (e) { エラー = e.message; }
+    }
+    res.json({
+      ok: true,
+      数える人, 代理を使った, つながっている,
+      リードのID: ids.slice(0, 5),
+      生の答え,
+      エラー,
+      hint: !ids.length ? "このリストにはSalesforceのリードIDが入っていません（貼り付けで作ったリストなど）"
+        : !つながっている ? "Salesforceにつながっていません。設定→動作設定で「代わりに更新する人」を決めてください"
+        : エラー ? "Salesforceからの答えでつまずいています（上のエラーを見てください）"
+        : 生の答え && 生の答え.length ? "数えられています" : "そのリードには活動履歴がありませんでした",
+    });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
 
 // リストの中身を表で返す（SFのリードレポートのような一覧）
 app.get("/api/calls/targets", async (req, res) => {
@@ -5031,7 +5108,9 @@ app.get("/api/calls/targets", async (req, res) => {
         会社名: r.company || "", 担当者: r.person || "",
         電話番号: r.phone || "", メール: r.email || "",
         最終ステータス: r.status || "",
-        履歴数: Number(r["履歴数"] || 0) + (sfCount.get(r.lead_id) || 0),
+        // 履歴はSFのものを出すので、件数もSFの数に合わせる。
+        // SFへまだ送れていないkinbotの記録があれば、それも足す。
+        履歴数: (sfCount.get(r.lead_id) || 0) + Number(r["未送信数"] || 0),
         最終結果: r["最終結果"] || "",
         最終日時: r["最終日時"] || null,
         済み: !!r.done,
@@ -5046,13 +5125,15 @@ app.get("/api/calls/targets/:id/history", async (req, res) => {
     const id = parseInt(req.params.id, 10);
     const t = await getCallTarget(id);
     if (!t) return res.status(404).json({ error: "見つかりません" });
+    // 履歴はSalesforceに残っているものだけを出す。
+    // kinbot側の記録は、SFへ送れなかったものだけを出す（送れていれば同じものが二重になるため）。
     const rows = await callHistory(id, t.lead_id, 50);
-    const items = rows.map((h) => ({
-      結果: h.result, メモ: h.memo || "", 誰: h.caller || "", at: h.at, 元: "kincall",
-      sfId: h.sf_task_id || "",
-    }));
-    // kincallから作ったSalesforceの活動は、こちらで出すので二重にしない
-    const 作ったID = new Set(items.map((x) => x.sfId).filter((v) => v && v !== "done"));
+    const items = rows
+      .filter((h) => !h.sf_task_id)   // SFへ残せたものは、SF側から出す
+      .map((h) => ({
+        結果: h.result, メモ: h.memo || "", 誰: h.caller || "", at: h.at,
+        元: "kinbot", まだ送れていない: true,
+      }));
 
     // Salesforceに残っている架電の履歴も混ぜる（過去のやり取りはSFにある）
     let sfNote = "";
@@ -5060,8 +5141,7 @@ app.get("/api/calls/targets/:id/history", async (req, res) => {
       try {
         const acts = await leadActivities(req.user, t.lead_id, 50);
         for (const a of acts) {
-          // kincallから作ったものは二重に出さない（活動のIDで見分ける）
-          if (作ったID.has(a.Id)) continue;
+          // SFに残っているものは、すべて出す
           const at = a.ActivityDate || (a.CreatedDate || "").slice(0, 10);
           // 説明の中に書かれている結果を取り出す。
           // 決まった言い方（受付ブロック・担当者接触：アポ獲得 など）を先に探し、
@@ -11900,7 +11980,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-08-19o kincall：二重の原因を直す・件数の数え方・役割の即時反映";
+const BUILD_TAG = "2026-08-19q kincall：履歴はSFのみ・リードIDを会社名で紐づけ";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",

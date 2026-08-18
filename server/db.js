@@ -3148,6 +3148,9 @@ export async function listCallTargets(listId, { q = "", limit = 500 } = {}) {
     const { rows } = await pool.query(
       `SELECT t.*,
               (SELECT count(*) FROM call_logs l WHERE l.target_id = t.id) AS 履歴数,
+              -- Salesforceへまだ送れていないもの（履歴に出すぶん）
+              (SELECT count(*) FROM call_logs l
+                WHERE l.target_id = t.id AND l.sf_task_id IS NULL) AS 未送信数,
               (SELECT l.result FROM call_logs l WHERE l.target_id = t.id
                 ORDER BY l.at DESC LIMIT 1) AS 最終結果,
               (SELECT l.at FROM call_logs l WHERE l.target_id = t.id
