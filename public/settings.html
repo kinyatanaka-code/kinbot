@@ -10,7 +10,7 @@
     <link rel="manifest" href="/site.webmanifest" />
     <meta name="theme-color" content="#0d5b47" />
     <meta name="apple-mobile-web-app-title" content="kinbot" />
-    <link rel="stylesheet" href="style.css?v=20260818zg" />
+    <link rel="stylesheet" href="style.css?v=20260818zi" />
   </head>
   <body>
     <div class="app">
@@ -268,67 +268,6 @@
               <p class="note">ドライブが「未許可」の場合は、一度「解除」→「連携する」をやり直し、同意画面でドライブの許可にチェックしてください。</p>
               <ul class="cal-events" id="calEvents"></ul>
             </div>
-            <div class="set-card">
-              <h3>Google Chat に通知する</h3>
-              <p class="note">通知先はいくつでも登録できます。<b>種類ごとにON・OFF</b>を切り替えられるので、「チームには割り振りだけ、自分には全部」といった分け方ができます。<br>
-              <b>Webhookの作り方：</b>Google Chatで通知したいスペースを開き、スペース名 → <b>アプリと統合</b> → <b>Webhook を管理</b> → 「Webhookを追加」。名前を「kinbot」などにして作ると、URLが表示されます。</p>
-              <div id="ctList"><div class="empty-state">読み込み中…</div></div>
-
-              <h4 class="ap-rot-h" style="margin-top:16px">通知先を追加する</h4>
-              <div class="teams-add">
-                <input id="ctName" placeholder="名前（例：DOC Team）" style="flex:0 1 200px" />
-                <input id="ctUrl" placeholder="WebhookのURL" style="flex:1 1 300px" />
-                <input id="ctSpace" placeholder="またはスペースのURL（kinbot名義）" style="flex:1 1 260px" />
-                <button class="btn" id="ctAdd">追加</button>
-                <span class="tm-status" id="ctStatus"></span>
-              </div>
-              <p class="note">WebhookのURLか、スペースのURLのどちらかを入れてください。<b>スペースを入れるとkinbot名義で送れます</b>（下の設定が必要です）。</p>
-
-              <h4 class="ap-rot-h" style="margin-top:18px">Chatから kinbot を動かす</h4>
-              <p class="note">Google Chatで <b>@kinbot アポ</b> のように話しかけると、その場で答えます。<br>
-              使えることば：<code>ヘルプ</code> <code>アポ</code> <code>明日のアポ</code> <code>商談</code> <code>スキャン</code> <code>重複</code> <code>立ち上げ</code> <code>状態</code></p>
-              <p class="note ks-cue"><b>設定のしかた（1回だけ）</b><br>
-              1. Google Cloud コンソール → <b>Google Chat API</b> → <b>構成</b>（Configuration）<br>
-              2. <b>インタラクティブ機能</b>を有効にする<br>
-              3. 機能：<b>1:1 メッセージを受信する</b>と<b>スペースに参加する</b>にチェック<br>
-              4. 接続設定：<b>HTTPエンドポイントURL</b>を選び、下のURLを貼る<br>
-              5. 保存すると、Chatで話しかけられるようになります</p>
-              <div class="teams-add">
-                <input id="ccUrl" readonly placeholder="読み込み中…" style="flex:1 1 420px" />
-                <button class="btn ghost" id="ccCopy">コピー</button>
-                <button class="btn ghost" id="ccLog">届いているか見る</button>
-                <span class="tm-status" id="ccStatus"></span>
-              </div>
-              <div class="note" id="ccLogBox"></div>
-              <div class="teams-add" style="margin-top:8px">
-                <input id="ccAsk" placeholder="ここで試せます（例：8/4の商談は何件？）" style="flex:1 1 360px" />
-                <button class="btn ghost" id="ccAskGo">聞いてみる</button>
-              </div>
-              <div class="note" id="ccAskBox"></div>
-
-              <h4 class="ap-rot-h" style="margin-top:18px">送信者名を「kinbot」にする（任意）</h4>
-              <p class="note">Webhookで送ると、送信者が<b>「Webhook Bot」</b>になります。Chatアプリとして登録すると<b>「kinbot」</b>の名前で投稿できます。<br>
-              <b>Chat APIの利用に費用はかかりません。</b>設定すると、こちらが優先して使われます。</p>
-              <p class="note ks-cue">
-                <b>手順</b><br>
-                1. Google Cloudで <b>Google Chat API</b> を有効にする（kinbotが使っているプロジェクトでかまいません）<br>
-                2. Chat APIの設定画面で、アプリ名を <b>kinbot</b>、アバターURLに
-                   <code>https://kinbot-production-225f.up.railway.app/kinbot-avatar.svg</code> を入れる<br>
-                3. サービスアカウントを作り、JSONの鍵をダウンロードする<br>
-                4. その<b>JSONの中身を、Railwayの環境変数 <code>GOOGLE_CHAT_SA_KEY</code> に貼る</b>（改行が入るときはbase64にしても構いません）<br>
-                5. Google Chatで通知したいスペースを開き、<b>アプリと統合 → アプリを追加</b> から kinbot を追加する<br>
-                6. スペースのURL（<code>.../room/AAAA…</code>）を下に貼って保存する
-              </p>
-              <div class="teams-add">
-                <input id="chatSpace" placeholder="spaces/AAAA... またはスペースのURL" style="flex:1 1 380px" />
-                <button class="btn" id="chatSpaceSave">保存</button>
-                <button class="btn ghost" id="chatSpaceTest">この経路でテスト送信</button>
-                <span class="tm-status" id="chatSpaceStatus"></span>
-              </div>
-              <p class="note" id="chatAppState"></p>
-
-              <p class="note">URLは他人に知られると誰でもスペースへ書き込めます。<b>共有しないでください。</b></p>
-            </div>
 
               <div class="set-card">
               <h3>商談録画のGoogleドライブ移行</h3>
@@ -546,8 +485,8 @@ curl -H "Authorization: Bearer <span class="cc-tok">&lt;トークン&gt;</span>"
           <div class="set-pane" data-pane="notices" hidden>
             <div class="set-card">
               <h3>Google Chatへの知らせ</h3>
-              <p class="note">kinbotからGoogle Chatへ流す知らせを、ここでまとめて入り切りできます。<br>
-              どのスペースへ送るかは、<b>外部連携 → Google Chat</b>で決めます。</p>
+              <p class="note">kinbotからGoogle Chatへ流す知らせを、この画面でまとめて設定できます。<br>
+              <b>何を知らせるか</b>（下の2つ）と、<b>どこへ送るか</b>（いちばん下の送り先）を決めてください。</p>
 
               <h4 class="ap-rot-h">できごとを知らせる</h4>
               <p class="note">アポが割り振られた、資料が開かれた、といったときに流れます。</p>
@@ -562,8 +501,68 @@ curl -H "Authorization: Bearer <span class="cc-tok">&lt;トークン&gt;</span>"
                 <span class="rev-status" id="ntStatus"></span>
               </div>
 
-              <h4 class="ap-rot-h">送り先</h4>
-              <div id="ntTargets"></div>
+              <h4 class="ap-rot-h">送り先（どこへ送るか）</h4>
+
+            <div class="set-card">
+              <p class="note">送り先はいくつでも登録できます。<b>種類ごとにON・OFF</b>を切り替えられるので、「チームには割り振りだけ、自分には全部」といった分け方ができます。<br>
+              <b>Webhookの作り方：</b>Google Chatで通知したいスペースを開き、スペース名 → <b>アプリと統合</b> → <b>Webhook を管理</b> → 「Webhookを追加」。名前を「kinbot」などにして作ると、URLが表示されます。</p>
+              <div id="ctList"><div class="empty-state">読み込み中…</div></div>
+
+              <h4 class="ap-rot-h" style="margin-top:16px">通知先を追加する</h4>
+              <div class="teams-add">
+                <input id="ctName" placeholder="名前（例：DOC Team）" style="flex:0 1 200px" />
+                <input id="ctUrl" placeholder="WebhookのURL" style="flex:1 1 300px" />
+                <input id="ctSpace" placeholder="またはスペースのURL（kinbot名義）" style="flex:1 1 260px" />
+                <button class="btn" id="ctAdd">追加</button>
+                <span class="tm-status" id="ctStatus"></span>
+              </div>
+              <p class="note">WebhookのURLか、スペースのURLのどちらかを入れてください。<b>スペースを入れるとkinbot名義で送れます</b>（下の設定が必要です）。</p>
+
+              <h4 class="ap-rot-h" style="margin-top:18px">Chatから kinbot を動かす</h4>
+              <p class="note">Google Chatで <b>@kinbot アポ</b> のように話しかけると、その場で答えます。<br>
+              使えることば：<code>ヘルプ</code> <code>アポ</code> <code>明日のアポ</code> <code>商談</code> <code>スキャン</code> <code>重複</code> <code>立ち上げ</code> <code>状態</code></p>
+              <p class="note ks-cue"><b>設定のしかた（1回だけ）</b><br>
+              1. Google Cloud コンソール → <b>Google Chat API</b> → <b>構成</b>（Configuration）<br>
+              2. <b>インタラクティブ機能</b>を有効にする<br>
+              3. 機能：<b>1:1 メッセージを受信する</b>と<b>スペースに参加する</b>にチェック<br>
+              4. 接続設定：<b>HTTPエンドポイントURL</b>を選び、下のURLを貼る<br>
+              5. 保存すると、Chatで話しかけられるようになります</p>
+              <div class="teams-add">
+                <input id="ccUrl" readonly placeholder="読み込み中…" style="flex:1 1 420px" />
+                <button class="btn ghost" id="ccCopy">コピー</button>
+                <button class="btn ghost" id="ccLog">届いているか見る</button>
+                <span class="tm-status" id="ccStatus"></span>
+              </div>
+              <div class="note" id="ccLogBox"></div>
+              <div class="teams-add" style="margin-top:8px">
+                <input id="ccAsk" placeholder="ここで試せます（例：8/4の商談は何件？）" style="flex:1 1 360px" />
+                <button class="btn ghost" id="ccAskGo">聞いてみる</button>
+              </div>
+              <div class="note" id="ccAskBox"></div>
+
+              <h4 class="ap-rot-h" style="margin-top:18px">送信者名を「kinbot」にする（任意）</h4>
+              <p class="note">Webhookで送ると、送信者が<b>「Webhook Bot」</b>になります。Chatアプリとして登録すると<b>「kinbot」</b>の名前で投稿できます。<br>
+              <b>Chat APIの利用に費用はかかりません。</b>設定すると、こちらが優先して使われます。</p>
+              <p class="note ks-cue">
+                <b>手順</b><br>
+                1. Google Cloudで <b>Google Chat API</b> を有効にする（kinbotが使っているプロジェクトでかまいません）<br>
+                2. Chat APIの設定画面で、アプリ名を <b>kinbot</b>、アバターURLに
+                   <code>https://kinbot-production-225f.up.railway.app/kinbot-avatar.svg</code> を入れる<br>
+                3. サービスアカウントを作り、JSONの鍵をダウンロードする<br>
+                4. その<b>JSONの中身を、Railwayの環境変数 <code>GOOGLE_CHAT_SA_KEY</code> に貼る</b>（改行が入るときはbase64にしても構いません）<br>
+                5. Google Chatで通知したいスペースを開き、<b>アプリと統合 → アプリを追加</b> から kinbot を追加する<br>
+                6. スペースのURL（<code>.../room/AAAA…</code>）を下に貼って保存する
+              </p>
+              <div class="teams-add">
+                <input id="chatSpace" placeholder="spaces/AAAA... またはスペースのURL" style="flex:1 1 380px" />
+                <button class="btn" id="chatSpaceSave">保存</button>
+                <button class="btn ghost" id="chatSpaceTest">この経路でテスト送信</button>
+                <span class="tm-status" id="chatSpaceStatus"></span>
+              </div>
+              <p class="note" id="chatAppState"></p>
+
+              <p class="note">URLは他人に知られると誰でもスペースへ書き込めます。<b>共有しないでください。</b></p>
+            </div>
             </div>
           </div>
 
@@ -773,7 +772,7 @@ curl -H "Authorization: Bearer <span class="cc-tok">&lt;トークン&gt;</span>"
         </main>
       </div>
     </div>
-    <script src="settings.js?v=20260818zg"></script>
-      <script src="nav.js?v=20260818zg"></script>
+    <script src="settings.js?v=20260818zi"></script>
+      <script src="nav.js?v=20260818zi"></script>
   </body>
 </html>

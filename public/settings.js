@@ -527,7 +527,9 @@ loadThanks();
       const name = item.dataset.tab;
       document.querySelectorAll(".set-pane").forEach((p) => (p.hidden = p.dataset.pane !== name));
       if (name === "members") { loadMembers(); loadApoOwner(); loadApoInvite(); }
-      if (name === "integrations") { loadChatConfig(); loadChatTargets(); }
+      if (name === "integrations") { loadChatConfig(); }
+      // 送り先の登録も「知らせ」に移したので、こちらで読み込む
+      if (name === "notices") { ntLoad(); loadChatConfig(); loadChatTargets(); }
       if (name === "knowledge") loadKnowledge();
       if (name === "ai") loadThanksPrompt();
       if (name === "integrations") showIntegGrid();
@@ -2821,12 +2823,6 @@ async function ntLoad() {
           ${t["時刻"] ? `<input type="time" class="nt-time" data-k="${mbEsc(t.key)}" value="${mbEsc(t["時刻"])}" />` : ""}
         </div>`).join("");
 
-    // 送り先
-    const tg = d["送り先"] || [];
-    document.getElementById("ntTargets").innerHTML = tg.length
-      ? `<div class="note">${tg.map((x) => `${mbEsc(x["名前"])}${x.enabled ? "" : "（止めています）"}`).join(" ／ ")}</div>` +
-        `<p class="note">送り先を増やす・種類ごとの行き先を変えるときは、<b>外部連携 → Google Chat</b>で設定してください。</p>`
-      : `<div class="note cc-warn">送り先が登録されていません。外部連携 → Google Chat で追加してください。</div>`;
   } catch (e) {
     const b = document.getElementById("ntKinds");
     if (b) b.innerHTML = `<div class="note">読み込めませんでした：${mbEsc(e.message)}</div>`;
@@ -2853,6 +2849,5 @@ document.addEventListener("click", (ev) => {
   const t = ev.target && ev.target.closest ? ev.target.closest("button") : null;
   if (!t) return;
   if (t.id === "ntSave") { ev.preventDefault(); ntSave(); }
-  // 「知らせ」を開いたときに読み込む
-  if (t.dataset && t.dataset.tab === "notices") setTimeout(ntLoad, 100);
+
 });
