@@ -263,22 +263,30 @@ async function openRecord(id) {
     : kinds;
   const 状態の選択肢 = (pk && pk["リードの状態"]) || [];
   const m = openModal("記録する", `
-    <div class="kc-modal-co">${esc(x["会社名"] || "")}${x["担当者"] ? `　${esc(x["担当者"])}` : ""}</div>
-    ${x["電話番号"] ? `<a class="kc-tel kc-tel-big" href="tel:${esc(telOf(x["電話番号"]))}">${esc(x["電話番号"])}</a>` : ""}
+    <div class="kc-rec-top">
+      <div>
+        <div class="kc-modal-co">${esc(x["会社名"] || "")}${x["担当者"] ? `　${esc(x["担当者"])}` : ""}</div>
+        ${x["電話番号"] ? `<a class="kc-tel kc-tel-big" href="tel:${esc(telOf(x["電話番号"]))}">${esc(x["電話番号"])}</a>` : ""}
+      </div>
+      <!-- いまのステージと、変えるところ -->
+      <div class="kc-rec-stage">
+        <div class="kc-lb">いまのステージ</div>
+        <div class="kc-stage-now">${esc(x["ステージ"] || "（なし）")}</div>
+        ${状態の選択肢.length
+          ? `<select class="kc-input kc-stage-sel" id="kcStatus">
+               <option value="">（変えない）</option>
+               ${状態の選択肢.map((v) => `<option value="${esc(v.value)}">${esc(v.label)}</option>`).join("")}
+             </select>`
+          : `<input type="text" class="kc-input kc-stage-sel" id="kcStatus" placeholder="変えるときだけ" />`}
+      </div>
+    </div>
     ${x.leadId ? "" : `<div class="note cc-warn">この相手はSalesforceのリードと結びついていないため、活動履歴は残りません。</div>`}
 
     <div class="kc-lb">結果</div>
-    <div class="kc-results">
-      ${結果の選択肢.map((k) => `<button type="button" class="kc-r" data-r="${esc(k)}">${esc(k)}</button>`).join("")}
-    </div>
-
-    <div class="kc-lb">リードの状態（任意）</div>
-    ${状態の選択肢.length
-      ? `<select class="kc-input" id="kcStatus">
-           <option value="">（変えない）</option>
-           ${状態の選択肢.map((v) => `<option value="${esc(v.value)}"${v.value === x["最終ステータス"] ? " selected" : ""}>${esc(v.label)}</option>`).join("")}
-         </select>`
-      : `<input type="text" class="kc-input" id="kcStatus" value="${esc(x["最終ステータス"] || "")}" placeholder="例：掘り起こし10月" />`}
+    <select class="kc-input" id="kcResult">
+      <option value="">選んでください</option>
+      ${結果の選択肢.map((k) => `<option value="${esc(k)}">${esc(k)}</option>`).join("")}
+    </select>
 
     <div class="kc-lb">説明（任意）</div>
     <textarea class="kc-input" id="kcMemo" rows="3" placeholder="担当者は佐藤様・14時以降が良いとのこと"></textarea>
@@ -288,15 +296,11 @@ async function openRecord(id) {
       <span class="rev-status" id="kcSaveSt"></span>
     </div>`);
 
-  let picked = "";
-  m.el.querySelectorAll(".kc-r").forEach((b) =>
-    b.addEventListener("click", () => {
-      picked = b.dataset.r;
-      m.el.querySelectorAll(".kc-r").forEach((y) => y.classList.toggle("on", y === b));
-    }));
+  const picked = () => (m.el.querySelector("#kcResult") || {}).value || "";
 
   m.el.querySelector("#kcSave").addEventListener("click", async () => {
-    if (!picked) { say("kcSaveSt", "結果を選んでください", 4000); return; }
+    const 結果 = picked();
+    if (!結果) { say("kcSaveSt", "結果を選んでください", 4000); return; }
     const btn = m.el.querySelector("#kcSave");
     btn.disabled = true;
     say("kcSaveSt", "記録しています…");
@@ -304,7 +308,7 @@ async function openRecord(id) {
       const r = await fetch(`/api/calls/targets/${encodeURIComponent(id)}/record`, {
         method: "POST", headers: { "content-type": "application/json" },
         body: JSON.stringify({
-          result: picked,
+          result: 結果,
           memo: m.el.querySelector("#kcMemo").value,
           status: m.el.querySelector("#kcStatus").value,
           // Salesforceのリードの状態も、この値で書き換える

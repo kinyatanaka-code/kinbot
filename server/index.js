@@ -482,6 +482,32 @@ if (!PUBLIC_URL) {
 const app = express();
 
 // --- 個人アカウント認証（Cookieセッション） ---
+// その人が「kincallだけ」の役割かどうか
+const _kcOnly = new Map();
+async function isKincallOnly(email) {
+  const k = String(email || "").toLowerCase();
+  if (!k) return false;
+  const hit = _kcOnly.get(k);
+  if (hit && Date.now() - hit.at < 5 * 60 * 1000) return hit.v;
+  let v = false;
+  try {
+    const list = await listMembers();
+    const m = (list || []).find((x) => String(x.email || "").toLowerCase() === k);
+    v = !!(m && Array.isArray(m.roles) && m.roles.includes("kincall"));
+  } catch {}
+  _kcOnly.set(k, { at: Date.now(), v });
+  return v;
+}
+
+// kincallの人が使ってよい道
+function isKincallPath(p) {
+  return p === "/kincall" || p === "/calls.html" || p === "/calls.js" ||
+    p === "/kincall.svg" || p === "/style.css" || p === "/nav.js" || p === "/icon.svg" ||
+    p === "/api/me" || p === "/api/logout" ||
+    p.startsWith("/api/calls/") || p === "/api/calls" ||
+    /\.(css|svg|png|ico|webmanifest)$/.test(p);
+}
+
 const OPEN_PATHS = new Set([
   "/api/recall/webhook", "/api/zoom/webhook", "/api/login", "/api/register", "/api/auth-info",
   // 会議に映すページとその中身（Recallのブラウザから認証なしで読む）
@@ -615,6 +641,12 @@ app.use(async (req, res, next) => {
     req.isAdmin = u.admin;
     // 代理ログイン中なら、元のアカウントを記録（監査ログや画面表示に使う）
     req.impersonatorFrom = getImpersonator(req);
+    // 「kincallだけ」の人かどうか（インターン生など）
+    req.kincallOnly = !u.admin && (await isKincallOnly(u.username).catch(() => false));
+    if (req.kincallOnly && !isKincallPath(req.path)) {
+      if (req.path.startsWith("/api/")) return res.status(403).json({ error: "この操作はできません" });
+      return res.redirect("/kincall");
+    }
     return next();
   }
   if (req.path.startsWith("/api/") || req.path === "/mcp") {
@@ -4811,6 +4843,18 @@ async function callPicklists(owner) {
       .map((v) => ({ value: v.value, label: v.label || v.value }));
   } catch (e) { console.warn("[kincall] リードの状態を取れません:", e.message); }
 
+  // 実際に使う結果だけに絞る。
+  // SFには使わない値もたくさん入っているので、架電で選ぶものだけを出す。
+  const 使うもの = [
+    "受付ブロック", "担当者不在", "担当者接触：お断り", "担当者接触：アポ獲得",
+    "担当者接触：営業フォロー", "現在使われていない", "コールのみ", "問い合わせ",
+  ];
+  const norm = (v) => String(v || "").replace(/[\s　:：]/g, "");
+  const 絞った = 使うもの
+    .map((w) => out.活動の結果.find((v) => norm(v.label) === norm(w) || norm(v.value) === norm(w))
+      || { value: w, label: w });
+  out.活動の結果 = 絞った;
+
   if (!out.活動の結果.length) {
     out.活動の結果 = CALL_RESULTS.map((x) => ({ value: x.key, label: x.key }));
   }
@@ -4919,6 +4963,21 @@ app.get("/api/calls/targets", async (req, res) => {
       q: String(req.query.q || ""),
       limit: Math.min(2000, parseInt(req.query.limit, 10) || 2000),
     });
+
+    // Salesforceに残っている活動の件数も数える（kincallの記録だけだと0に見えるため）
+    const sfCount = new Map();
+    const ids = rows.map((r) => r.lead_id).filter(Boolean);
+    if (ids.length && salesforceConfigured() && (await sfConnected(req.user).catch(() => false))) {
+      try {
+        // 1件ずつ聞くと遅いので、まとめて数える
+        for (let i = 0; i < ids.length; i += 200) {
+          const part = ids.slice(i, i + 200).map((x) => `'${String(x).replace(/[^A-Za-z0-9]/g, "")}'`);
+          const d = await sfQuery(req.user,
+            `SELECT WhoId, count(Id) n FROM Task WHERE WhoId IN (${part.join(",")}) GROUP BY WhoId`);
+          for (const r of d.records || []) sfCount.set(r.WhoId, Number(r.n || 0));
+        }
+      } catch (e) { console.warn("[kincall] 活動の件数を数えられません:", e.message); }
+    }
     res.json({
       ok: true,
       件数: rows.length,
@@ -4930,7 +4989,7 @@ app.get("/api/calls/targets", async (req, res) => {
         会社名: r.company || "", 担当者: r.person || "",
         電話番号: r.phone || "", メール: r.email || "",
         最終ステータス: r.status || "",
-        履歴数: Number(r["履歴数"] || 0),
+        履歴数: Number(r["履歴数"] || 0) + (sfCount.get(r.lead_id) || 0),
         最終結果: r["最終結果"] || "",
         最終日時: r["最終日時"] || null,
         済み: !!r.done,
@@ -5013,23 +5072,45 @@ app.post("/api/calls/targets/:id/record", async (req, res) => {
     }
 
     // Salesforceへ（活動履歴＋リードの状態）
+    //
+    // インターン生などSalesforceのアカウントを持たない人のために、
+    // 「代わりに更新する人」を決めておける（設定→動作設定）。
+    // その場合、誰が記録したかは説明に残す。
     let sf = { ok: false, reason: "" };
-    if (t.lead_id && salesforceConfigured() && (await sfConnected(req.user).catch(() => false))) {
+    const st0 = await getSettings().catch(() => ({}));
+    const 代理 = String(st0.sfProxyUser || "").trim().toLowerCase();
+    let sfUser = req.user;
+    let 代理で更新 = false;
+    if (!(await sfConnected(req.user).catch(() => false)) && 代理) {
+      if (await sfConnected(代理).catch(() => false)) {
+        sfUser = 代理;
+        代理で更新 = true;
+      }
+    }
+    // 記録した本人の名前（説明に残す）
+    const 記録者 = await displayNameOf(req.user).catch(() => req.user);
+
+    if (t.lead_id && salesforceConfigured() && (await sfConnected(sfUser).catch(() => false))) {
       try {
-        await createTask(req.user, {
+        await createTask(sfUser, {
           WhoId: t.lead_id,
           Subject: `コール：${result}`,
           Status: "完了", Type: "Call",
           ActivityDate: jstDate(0),
-          Description: [`結果：${result}`, b.memo ? `メモ：${b.memo}` : "",
-            b.status ? `最終ステータス：${b.status}` : ""].filter(Boolean).join("\n"),
+          Description: [
+            `結果：${result}`,
+            b.memo ? `メモ：${b.memo}` : "",
+            b.status ? `リードの状態：${b.status}` : "",
+            // 誰がかけたかを必ず残す（代理で更新するときは特に大事）
+            `記録した人：${記録者}`,
+          ].filter(Boolean).join("\n"),
         });
         // リードの状態も直す（項目名は組織ごとに違うので、指定があるときだけ）
         if (b.leadStatus) {
-          await updateLead(req.user, t.lead_id, { Status: String(b.leadStatus) }).catch(() => {});
+          await updateLead(sfUser, t.lead_id, { Status: String(b.leadStatus) }).catch(() => {});
         }
         await markCallSynced(log && log.id, { taskId: "done" }).catch(() => {});
-        sf = { ok: true };
+        sf = { ok: true, 代理: 代理で更新 ? await displayNameOf(sfUser).catch(() => sfUser) : "" };
       } catch (e) {
         sf = { ok: false, reason: e.message };
         await markCallSynced(log && log.id, { error: e.message }).catch(() => {});
@@ -11763,7 +11844,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-08-19h kincall：横スクロール解消・絞り込み・SFの架電履歴";
+const BUILD_TAG = "2026-08-19j kincall：履歴件数・結果のプルダウン・SF代理更新";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",

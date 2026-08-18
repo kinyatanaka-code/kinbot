@@ -10,7 +10,7 @@
     <link rel="manifest" href="/site.webmanifest" />
     <meta name="theme-color" content="#0d5b47" />
     <meta name="apple-mobile-web-app-title" content="kinbot" />
-    <link rel="stylesheet" href="style.css?v=20260819h" />
+    <link rel="stylesheet" href="style.css?v=20260819j" />
   </head>
   <body>
     <div class="app">
@@ -55,7 +55,17 @@
               <div class="modal-actions">
                 <button class="btn" id="runAllInsightsBtn">今すぐ全対象を分析</button>
                 <span class="saved" id="runAllInsightsMsg" hidden>開始しました</span>
+              
+              <h4 class="ap-rot-h">Salesforceを代わりに更新する人</h4>
+              <p class="note">Salesforceのアカウントを持っていない人（インターン生など）がkincallで記録したとき、
+              <b>ここで指定した人のSalesforce連携を使って</b>活動履歴を残します。<br>
+              誰が記録したかは、活動履歴の説明に必ず書かれます。</p>
+              <div class="ap-cfg-row">
+                <label>代わりに更新する人 <input type="text" id="sfProxy" placeholder="urabayashi@neo-career.co.jp" style="width:280px" /></label>
+                <button class="btn ghost" id="sfProxySave">保存</button>
+                <span class="rev-status" id="sfProxySt"></span>
               </div>
+</div>
             </div>
             <div class="set-card">
               <h3>案件ステータスの同期修復</h3>
@@ -772,7 +782,7 @@ curl -H "Authorization: Bearer <span class="cc-tok">&lt;トークン&gt;</span>"
         </main>
       </div>
     </div>
-    <script src="settings.js?v=20260819h"></script>
-      <script src="nav.js?v=20260819h"></script>
+    <script src="settings.js?v=20260819j"></script>
+      <script src="nav.js?v=20260819j"></script>
   </body>
 </html>

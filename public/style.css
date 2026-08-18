@@ -5724,3 +5724,12 @@ input:focus, select:focus, textarea:focus, .sf-input:focus, .sf-select:focus, .s
 
 .kc-hist-sf { flex: none; font-size: 9.5px; font-weight: 700; color: #0F6E56;
   background: #eaf7f2; border: 1px solid #cfeee2; border-radius: 999px; padding: 0 6px; }
+
+/* 記録の窓：上に会社名と、右上にステージ */
+.kc-rec-top { display: flex; align-items: flex-start; gap: 16px; flex-wrap: wrap; }
+.kc-rec-top > div:first-child { flex: 1 1 240px; min-width: 0; }
+.kc-rec-stage { flex: 0 0 190px; }
+.kc-stage-now { font-size: 13px; font-weight: 700; color: #0d5b47;
+  background: #eaf7f2; border: 1px solid #cfeee2; border-radius: 9px;
+  padding: 6px 10px; margin-bottom: 6px; text-align: center; }
+.kc-stage-sel { font-size: 12.5px; }

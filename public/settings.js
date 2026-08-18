@@ -806,7 +806,8 @@ async function loadRecallStatus() {
 
 // ===== メンバー管理 =====
 // ここが唯一の登録元。保存すると closer_rotation / interns / rep_team_mapping へ同期される。
-const ROLE_LABEL = { closer: "クローザー", inside: "インサイド", fallback: "予備" };
+const ROLE_LABEL = { closer: "クローザー", inside: "インサイド", fallback: "予備",
+  kincall: "kincallだけ" };
 // 姓の自動判定（サーバー側と同じ規則）。表示用。
 const THREE_CHAR_SURNAMES = ["佐々木","長谷川","小野寺","久保田","佐久間","五十嵐","小早川","大河原",
   "宇佐美","小笠原","阿久津","長谷部","八木橋","宇都宮","喜多村","小田切","西園寺","早乙女"];
@@ -2851,3 +2852,26 @@ document.addEventListener("click", (ev) => {
   if (t.id === "ntSave") { ev.preventDefault(); ntSave(); }
 
 });
+
+
+// Salesforceを代わりに更新する人
+if (document.getElementById("sfProxy")) {
+  (async () => {
+    try {
+      const d = await (await fetch("/api/settings")).json();
+      document.getElementById("sfProxy").value = d.sfProxyUser || "";
+    } catch {}
+  })();
+  document.getElementById("sfProxySave").addEventListener("click", async () => {
+    const st = document.getElementById("sfProxySt");
+    st.textContent = "保存しています…";
+    try {
+      await fetch("/api/settings", {
+        method: "PUT", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ sfProxyUser: document.getElementById("sfProxy").value.trim() }),
+      });
+      st.textContent = "保存しました";
+      setTimeout(() => (st.textContent = ""), 4000);
+    } catch (e) { st.textContent = "失敗：" + e.message; }
+  });
+}
