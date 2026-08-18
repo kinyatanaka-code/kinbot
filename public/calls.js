@@ -442,6 +442,7 @@ function showPane() {
     a.classList.toggle("active", mine);
   });
   if (p === "stats") loadStats();
+  if (p === "assign") asLoad();
 }
 
 // 「kincallだけ」の人には、kinbotへ戻る道を見せない
@@ -533,4 +534,100 @@ document.addEventListener("click", (ev) => {
     if ($("clFind")) $("clFind").value = "";
     render();
   }
+});
+
+
+// ───────────────────────────────────────────────────────────
+// リストの割り振り
+// ───────────────────────────────────────────────────────────
+async function asLoad() {
+  // リストの選び欄を用意する
+  const sel = $("asList");
+  if (!sel) return;
+  try {
+    const d = await (await fetch("/api/calls/lists")).json();
+    const items = d.items || [];
+    sel.innerHTML = items.length
+      ? items.map((x) => `<option value="${x.id}">${esc(x.name)}</option>`).join("")
+      : `<option value="">まだリストがありません</option>`;
+    if (items.length) { asNow(); asWho(); }
+  } catch (e) { say("asStatus", "読み込めませんでした：" + e.message, 8000); }
+}
+
+// いまの配り具合
+async function asNow() {
+  const box = $("asNow");
+  const id = $("asList").value;
+  if (!box || !id) return;
+  box.innerHTML = "読み込んでいます…";
+  try {
+    const d = await (await fetch(`/api/calls/assign?list=${encodeURIComponent(id)}`)).json();
+    const items = d.items || [];
+    box.innerHTML = items.length
+      ? `<table class="sh-table"><tr><th>かける人</th><th>全部</th><th>済み</th><th>残り</th></tr>` +
+        items.map((x) => `<tr${x.email ? "" : ' class="ml-ng"'}>
+          <td>${esc(x.name)}</td><td>${x["全部"]}</td><td>${x["済み"]}</td><td>${x["残り"]}</td>
+        </tr>`).join("") + `</table>`
+      : `<div class="note">まだ中身がありません。</div>`;
+  } catch (e) { box.innerHTML = "読み込めませんでした：" + esc(e.message); }
+}
+
+// かける人の一覧
+async function asWho() {
+  const box = $("asWho");
+  if (!box) return;
+  try {
+    const d = await (await fetch("/api/calls/members")).json();
+    const items = d.items || [];
+    box.innerHTML = items.length
+      ? `<div class="as-who">` + items.map((m) => `
+          <label class="as-who-row">
+            <input type="checkbox" class="as-pick" value="${esc(m.email)}" />
+            <span class="as-who-n">${esc(m.name)}</span>
+            ${m["kincallだけ"] ? '<span class="as-tag">kincallだけ</span>' : ""}
+            ${m["インサイド"] ? '<span class="as-tag as-tag-i">インサイド</span>' : ""}
+          </label>`).join("") + `</div>`
+      : `<div class="note">メンバーがいません。設定→メンバー管理で追加してください。</div>`;
+  } catch (e) { box.innerHTML = "読み込めませんでした：" + esc(e.message); }
+}
+
+async function asAssign(clear) {
+  const id = $("asList").value;
+  if (!id) { say("asStatus", "リストを選んでください", 5000); return; }
+  if (clear) {
+    if (!confirm("配ったものを全部戻します。よろしいですか？（済みのものはそのままです）")) return;
+    say("asStatus", "戻しています…");
+    try {
+      const d = await (await fetch("/api/calls/assign/clear", {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ listId: Number(id) }),
+      })).json();
+      say("asStatus", `${d["戻した数"]}件を戻しました`, 8000);
+      asNow();
+    } catch (e) { say("asStatus", "失敗：" + e.message, 8000); }
+    return;
+  }
+  const emails = [...document.querySelectorAll(".as-pick:checked")].map((c) => c.value);
+  if (!emails.length) { say("asStatus", "かける人を選んでください", 5000); return; }
+  say("asStatus", "配っています…");
+  try {
+    const d = await (await fetch("/api/calls/assign", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ listId: Number(id), emails, redo: $("asRedo").checked }),
+    })).json();
+    if (d.error) throw new Error(d.error);
+    say("asStatus", `${d["配った数"]}件を${d["人数"]}人に配りました`, 8000);
+    asNow();
+  } catch (e) { say("asStatus", "失敗：" + e.message, 8000); }
+}
+
+document.addEventListener("click", (ev) => {
+  const t = ev.target && ev.target.closest ? ev.target.closest("button") : null;
+  if (!t) return;
+  if (t.id === "asReload") { ev.preventDefault(); asNow(); }
+  if (t.id === "asGo") { ev.preventDefault(); asAssign(false); }
+  if (t.id === "asClear") { ev.preventDefault(); asAssign(true); }
+});
+document.addEventListener("change", (ev) => {
+  if (ev.target && ev.target.id === "asList") { asNow(); }
 });

@@ -10,7 +10,7 @@
     <link rel="manifest" href="/site.webmanifest" />
     <meta name="theme-color" content="#0d5b47" />
     <meta name="apple-mobile-web-app-title" content="kinbot" />
-    <link rel="stylesheet" href="style.css?v=20260819q" />
+    <link rel="stylesheet" href="style.css?v=20260819s" />
   </head>
   <body class="kc-body">
     <div class="app">
@@ -23,6 +23,8 @@
           <span class="kc-side-ico"><svg viewBox="0 0 24 24" width="17" height="17"><path d="M6.6 4.5c-1 0-1.8.8-1.8 1.8 0 6.9 5.6 12.5 12.5 12.5 1 0 1.8-.8 1.8-1.8v-2.3c0-.9-.6-1.6-1.5-1.8l-2.3-.5c-.8-.2-1.6.2-2 .9l-.6 1a11 11 0 0 1-4.4-4.4l1-.6c.7-.4 1.1-1.2.9-2l-.5-2.3c-.2-.9-.9-1.5-1.8-1.5z"/></svg></span><span class="side-label">かける</span></a></div>
         <div class="side-wrap"><a class="side-item" href="/kincall?p=stats">
           <span class="kc-side-ico"><svg viewBox="0 0 24 24" width="17" height="17"><path d="M4 20h4V10H4zm6 0h4V4h-4zm6 0h4v-7h-4z"/></svg></span><span class="side-label">今日の実績</span></a></div>
+        <div class="side-wrap"><a class="side-item" href="/kincall?p=assign">
+          <span class="kc-side-ico"><svg viewBox="0 0 24 24" width="17" height="17"><path d="M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8zm0 2c-3.3 0-6 1.8-6 4v2h12v-2c0-2.2-2.7-4-6-4zm8-2 4 4-4 4v-3h-3v-2h3z"/></svg></span><span class="side-label">割り振り</span></a></div>
         <div class="side-wrap"><a class="side-item" href="/kincall?p=new">
           <span class="kc-side-ico"><svg viewBox="0 0 24 24" width="17" height="17"><path d="M11 5h2v6h6v2h-6v6h-2v-6H5v-2h6z"/></svg></span><span class="side-label">リストを作る</span></a></div>
         <div class="side-sep"></div>
@@ -61,6 +63,30 @@
             <div id="clStats"></div>
           </section>
 
+          <!-- リストの割り振り -->
+          <section class="card kc-pane" data-p="assign" hidden>
+            <h3 id="assign">リストを割り振る</h3>
+            <p class="note">リストの中身を、かける人へ配ります。<b>上から順に代わりばんこ</b>に配るので、件数がほぼ同じになります。<br>
+            配られた人は、自分のぶんだけが「かける」に出ます。</p>
+            <div class="ap-cfg-row">
+              <label>リスト <select id="asList"></select></label>
+              <button class="btn ghost" id="asReload">配り具合を見る</button>
+              <span class="rev-status" id="asStatus"></span>
+            </div>
+
+            <h4 class="ap-rot-h">いまの配り具合</h4>
+            <div id="asNow"></div>
+
+            <h4 class="ap-rot-h">配る</h4>
+            <p class="note">かける人にチェックを入れて「配る」を押してください。</p>
+            <div id="asWho"></div>
+            <div class="ap-cfg-actions">
+              <label class="ks-check"><input type="checkbox" id="asRedo" /> すでに配ったぶんも配り直す</label>
+              <button class="btn" id="asGo">配る</button>
+              <button class="btn ghost" id="asClear">配ったものを全部戻す</button>
+            </div>
+          </section>
+
           <!-- リストを作る -->
           <section class="card kc-pane" data-p="new" hidden>
             <h3 id="new">リストを作る</h3>
@@ -91,7 +117,7 @@
         </main>
       </div>
     </div>
-    <script src="calls.js?v=20260819q"></script>
-    <script src="nav.js?v=20260819q"></script>
+    <script src="calls.js?v=20260819s"></script>
+    <script src="nav.js?v=20260819s"></script>
   </body>
 </html>

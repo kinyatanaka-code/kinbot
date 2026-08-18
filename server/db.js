@@ -3133,6 +3133,54 @@ export async function listCallLists({ owner = "", includeClosed = false } = {}) 
   } catch (e) { console.error("[db] listCallLists", e.message); return []; }
 }
 
+// リストの中身を、かける人へ配る。
+//   均等に配る（人数で割る）／まとめて一人に渡す、の両方ができる。
+export async function assignCallTargets(listId, emails = [], { onlyUnassigned = true } = {}) {
+  if (!pool || !listId) return 0;
+  const who = emails.map((x) => String(x || "").toLowerCase()).filter(Boolean);
+  if (!who.length) return 0;
+  try {
+    // まだ済んでいないものを、順番に並べて取る
+    const { rows } = await pool.query(
+      `SELECT id FROM call_targets
+        WHERE list_id = $1 AND NOT done
+          ${onlyUnassigned ? "AND assigned_to IS NULL" : ""}
+        ORDER BY sort_order, id`, [listId]);
+    let n = 0;
+    for (let i = 0; i < rows.length; i++) {
+      // 上から順に、かける人を代わりばんこに割り当てる
+      await pool.query(`UPDATE call_targets SET assigned_to = $2 WHERE id = $1`,
+        [rows[i].id, who[i % who.length]]);
+      n++;
+    }
+    return n;
+  } catch (e) { console.error("[db] assignCallTargets", e.message); return 0; }
+}
+
+// 誰に何件配ったか
+export async function callAssignCounts(listId) {
+  if (!pool || !listId) return [];
+  try {
+    const { rows } = await pool.query(
+      `SELECT COALESCE(assigned_to, '') AS 誰,
+              count(*)::int AS 全部,
+              count(*) FILTER (WHERE done)::int AS 済み
+         FROM call_targets WHERE list_id = $1
+        GROUP BY 1 ORDER BY 1`, [listId]);
+    return rows;
+  } catch { return []; }
+}
+
+// 配ったものを全部戻す
+export async function clearCallAssign(listId) {
+  if (!pool || !listId) return 0;
+  try {
+    const { rowCount } = await pool.query(
+      `UPDATE call_targets SET assigned_to = NULL WHERE list_id = $1 AND NOT done`, [listId]);
+    return rowCount || 0;
+  } catch { return 0; }
+}
+
 // リストの中身を、表として全部返す（SFのリードレポートのような見た目にする）
 export async function listCallTargets(listId, { q = "", limit = 500 } = {}) {
   if (!pool || !listId) return [];

@@ -5605,8 +5605,9 @@ input:focus, select:focus, textarea:focus, .sf-input:focus, .sf-select:focus, .s
 .side-sep { height: 1px; margin: 14px 16px 10px; background: rgba(255,255,255,.14); }
 .side-app { display: flex; align-items: center; gap: 10px; }
 .side-app-ico { width: 24px; height: 24px; flex: none; border-radius: 7px; }
-.side-app-tag { margin-left: auto; font-size: 9.5px; font-weight: 700;
-  color: #cfeee2; background: rgba(255,255,255,.12); border-radius: 999px; padding: 1px 8px; }
+.side-app-tag { margin-left: auto; font-size: 9.5px; font-weight: 700; flex: none;
+  white-space: nowrap; color: #cfeee2; background: rgba(255,255,255,.12);
+  border-radius: 999px; padding: 1px 8px; }
 .side-app:hover .side-app-tag { background: rgba(255,255,255,.2); }
 
 /* kincall のメニュー */
@@ -5741,3 +5742,17 @@ input:focus, select:focus, textarea:focus, .sf-input:focus, .sf-select:focus, .s
 /* 履歴：件名の横に結果を出す */
 .kc-hist-res { flex: none; font-size: 10.5px; font-weight: 700; color: #0d5b47;
   background: #eaf7f2; border: 1px solid #cfeee2; border-radius: 999px; padding: 0 8px; }
+
+/* 準備中の印 */
+.side-app-tag.kc-wip { background: rgba(255,214,153,.22); color: #ffd699; }
+
+/* リストの割り振り */
+.as-who { display: flex; flex-wrap: wrap; gap: 8px; margin: 6px 0 10px; }
+.as-who-row { display: flex; align-items: center; gap: 7px; padding: 8px 12px;
+  border: 1px solid var(--line); border-radius: 999px; background: var(--panel);
+  font-size: 12.5px; cursor: pointer; }
+.as-who-row:hover { border-color: #9fe1cb; background: #f2fbf7; }
+.as-who-n { font-weight: 700; }
+.as-tag { font-size: 9.5px; font-weight: 700; color: #0F6E56; background: #eaf7f2;
+  border: 1px solid #cfeee2; border-radius: 999px; padding: 0 7px; }
+.as-tag-i { color: #A8611A; background: #fff3e0; border-color: #f0dcc0; }

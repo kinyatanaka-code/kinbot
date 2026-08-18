@@ -135,6 +135,9 @@ import {
   listBookViewers,
   createCallList,
   listCallTargets,
+  assignCallTargets,
+  callAssignCounts,
+  clearCallAssign,
   getCallTarget,
   setCallTargetStatus,
   addCallTargets,
@@ -5016,6 +5019,73 @@ function failedOnce(e, n) {
   const m = String((e && e.message) || e).slice(0, 200);
   if (m !== _lastFail) { console.warn("[kincall] 活動の件数を数えられません:", m); _lastFail = m; }
 }
+
+// かける人の一覧（kincallを使う人）
+app.get("/api/calls/members", async (req, res) => {
+  try {
+    const list = await listMembers().catch(() => []);
+    const items = (list || [])
+      .filter((m) => m.active !== false)
+      .map((m) => ({
+        email: m.email,
+        name: m.name || m.email,
+        // kincallだけの人（インターン生）が分かるようにする
+        kincallだけ: Array.isArray(m.roles) && m.roles.includes("kincall"),
+        インサイド: Array.isArray(m.roles) && m.roles.includes("inside"),
+      }))
+      // kincallだけの人を先に出す（よく使うため）
+      .sort((a, b) => (b.kincallだけ ? 1 : 0) - (a.kincallだけ ? 1 : 0));
+    res.json({ ok: true, items });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// 配り具合を見る
+app.get("/api/calls/assign", async (req, res) => {
+  try {
+    const listId = parseInt(req.query.list, 10);
+    if (!listId) return res.status(400).json({ error: "リストを選んでください" });
+    const rows = await callAssignCounts(listId);
+    const names = new Map();
+    for (const r of rows) {
+      const k = r["誰"];
+      if (!k || names.has(k)) continue;
+      names.set(k, await displayNameOf(k).catch(() => k));
+    }
+    res.json({
+      ok: true,
+      items: rows.map((r) => ({
+        email: r["誰"],
+        name: r["誰"] ? (names.get(r["誰"]) || r["誰"]) : "（まだ配っていない）",
+        全部: r["全部"], 済み: r["済み"], 残り: r["全部"] - r["済み"],
+      })),
+    });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// 配る
+app.post("/api/calls/assign", async (req, res) => {
+  try {
+    const listId = parseInt(req.body?.listId, 10);
+    if (!listId) return res.status(400).json({ error: "リストを選んでください" });
+    const who = Array.isArray(req.body?.emails) ? req.body.emails : [];
+    if (!who.length) return res.status(400).json({ error: "かける人を選んでください" });
+    // すでに配ったぶんも配り直すか
+    const 全部やり直す = req.body?.redo === true;
+    const n = await assignCallTargets(listId, who, { onlyUnassigned: !全部やり直す });
+    console.log(`[kincall] ${n}件を${who.length}人に配りました by ${req.user}`);
+    res.json({ ok: true, 配った数: n, 人数: who.length });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// 配ったものを戻す
+app.post("/api/calls/assign/clear", async (req, res) => {
+  try {
+    const listId = parseInt(req.body?.listId, 10);
+    if (!listId) return res.status(400).json({ error: "リストを選んでください" });
+    const n = await clearCallAssign(listId);
+    res.json({ ok: true, 戻した数: n });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
 
 // 履歴の件数が数えられているかを、その場で確かめる
 app.get("/api/calls/count-check", async (req, res) => {
@@ -11980,7 +12050,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-08-19q kincall：履歴はSFのみ・リードIDを会社名で紐づけ";
+const BUILD_TAG = "2026-08-19s kincall：リストの割り振り画面／サイドは準備中";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",

@@ -34,7 +34,7 @@ window.addEventListener("error", (e) => {
 (function () {
   if (!document.querySelector('script[src$="kbchat.js"]')) {
     const sc = document.createElement("script");
-    sc.src = "kbchat.js?v=20260819q";
+    sc.src = "kbchat.js?v=20260819s";
     sc.defer = true;
     document.head.appendChild(sc);
   }
@@ -127,7 +127,8 @@ function kbBuildSidebar() {
     `<a class="side-item side-app${kcOn}" href="/kincall">` +
     `<img class="side-app-ico" src="/kincall.svg" alt="" />` +
     `<span class="side-label">kincall</span>` +
-    `<span class="side-app-tag">架電</span></a>`;
+    // まだ試している最中なので「準備中」と出しておく
+    `<span class="side-app-tag kc-wip">準備中</span></a>`;
 
   const brand = nav.querySelector(".side-brand");
   nav.innerHTML = (brand ? brand.outerHTML : "") + html + apps + (foot ? foot.outerHTML : "");
