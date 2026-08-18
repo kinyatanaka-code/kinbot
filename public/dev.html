@@ -10,7 +10,7 @@
     <link rel="manifest" href="/site.webmanifest" />
     <meta name="theme-color" content="#0d5b47" />
     <meta name="apple-mobile-web-app-title" content="kinbot" />
-    <link rel="stylesheet" href="style.css?v=20260818ze" />
+    <link rel="stylesheet" href="style.css?v=20260818zf" />
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/tabler-icons/2.44.0/iconfont/tabler-icons.min.css" />
   </head>
   <body>
@@ -84,12 +84,22 @@
             <b>朝6時に、まとめてGoogle Chatへ流します。</b></p>
 
             <div class="ap-cfg-actions">
-              <label class="ks-check"><input type="checkbox" id="dnChatOn" /> 朝6時にGoogle Chatへ送る</label>
+              <label class="ks-check"><input type="checkbox" id="dnChatOn" /> 開発メモを朝Chatへ送る（既定はOFF）</label>
               <button class="btn ghost" id="dnChatSave">保存</button>
               <span class="rev-status" id="dnChatStatus"></span>
             </div>
-            <p class="note">OFFにすると、朝のまとめはChatに流れません（この画面で見るだけになります）。<br>
-            自己点検や画面の見直しの知らせも、あわせて止まります。</p>
+            <p class="note">開発メモの朝のまとめは、<b>既定でOFF</b>です（毎朝の「kinbotが新しくなりました」に置き換えました）。<br>
+            ONにすると、これまで通り朝6時にChatへ流れます。自己点検や画面の見直しの知らせも、この設定に従います。</p>
+
+            <div class="ap-cfg-actions">
+              <label class="ks-check"><input type="checkbox" id="dpNewsOn" /> 朝に「kinbotが新しくなりました」を送る</label>
+              <label><input type="number" id="dpNewsH" value="8" min="0" max="23" style="width:56px" /> 時
+                <input type="number" id="dpNewsM" value="30" min="0" max="59" style="width:56px" /> 分</label>
+              <button class="btn ghost" id="dpNewsSave">保存</button>
+              <button class="btn ghost" id="dpNewsTest">いま試しに送る</button>
+              <span class="rev-status" id="dpNewsSt"></span>
+            </div>
+            <p class="note">前の営業日からの変更を、営業メンバーに分かる言葉でまとめて送ります（月曜は金曜からの3日ぶん）。土日は送りません。</p>
 
             <div class="ap-cfg-actions">
               <input type="text" id="dnTitle" placeholder="ここからも足せます（例：メールの宛先を自動で入れたい）" style="flex:1 1 380px" />
@@ -123,7 +133,7 @@
         </main>
       </div>
     </div>
-    <script src="dev.js?v=20260818ze"></script>
-    <script src="nav.js?v=20260818ze"></script>
+    <script src="dev.js?v=20260818zf"></script>
+    <script src="nav.js?v=20260818zf"></script>
   </body>
 </html>

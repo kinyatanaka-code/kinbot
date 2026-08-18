@@ -332,6 +332,38 @@ if ($("dnChatOn")) {
   });
 }
 
+// 朝の「kinbotが新しくなりました」
+if ($("dpNewsOn")) {
+  (async () => {
+    try {
+      const d = await (await fetch("/api/deploy/news")).json();
+      $("dpNewsOn").checked = d.enabled !== false;
+      $("dpNewsH").value = String(d.hour ?? 8);
+      $("dpNewsM").value = String(d.minute ?? 30);
+    } catch {}
+  })();
+  $("dpNewsSave").addEventListener("click", async () => {
+    setStatus("dpNewsSt", "保存しています…");
+    try {
+      await fetch("/api/deploy/news", {
+        method: "PUT", headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          enabled: $("dpNewsOn").checked,
+          hour: $("dpNewsH").value, minute: $("dpNewsM").value,
+        }),
+      });
+      setStatus("dpNewsSt", "保存しました", 4000);
+    } catch (e) { setStatus("dpNewsSt", "失敗：" + e.message, 6000); }
+  });
+  $("dpNewsTest").addEventListener("click", async () => {
+    setStatus("dpNewsSt", "送っています…");
+    try {
+      const d = await (await fetch("/api/deploy/news/test", { method: "POST" })).json();
+      setStatus("dpNewsSt", d["件数"] ? `${d["件数"]}件をまとめて送りました` : (d.note || "変更はありませんでした"), 8000);
+    } catch (e) { setStatus("dpNewsSt", "失敗：" + e.message, 6000); }
+  });
+}
+
 if ($("aaRun")) {
   $("aaSave").addEventListener("click", aaSave);
   aaLoad();

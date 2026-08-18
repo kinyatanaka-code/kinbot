@@ -146,6 +146,8 @@ import {
   fixApoForReminder,
   listApoMails,
   markBounced,
+  logDeploy,
+  deploysSince,
   recordSfUpdate,
   sfUpdatedMap,
   listWeekly,
@@ -5573,7 +5575,7 @@ async function maybeSelfCheck() {
     autoState.check.reason = bad.length ? `${bad.length}件の問題を見つけました` : "問題はありませんでした";
 
     // Chatへの通知をまとめてOFFにしているときは送らない
-    if (st.devSummary === false) {
+    if (st.devSummary !== true) {
       autoState.check.reason += "（Chatへの通知はOFFです）";
       return;
     }
@@ -5745,7 +5747,7 @@ async function maybeUiReview() {
     autoState.ui.reason = `${r.page} の案を ${r.count}件 出しました`;
 
     // ★ 点検と同じ1か所にだけ送る
-    if (st.devSummary === false) {
+    if (st.devSummary !== true) {
       autoState.ui.reason += "（Chatへの通知はOFFです）";
       return;
     }
@@ -5950,7 +5952,8 @@ app.post("/api/dev-notes/night-report", async (req, res) => {
 app.get("/api/dev-notes/chat", async (req, res) => {
   try {
     const st = await getSettings();
-    res.json({ enabled: st.devSummary !== false, hour: Number(st.devSummaryHour ?? 6) });
+    // 既定はOFF（毎朝の「kinbotが新しくなりました」に置き換えたため）
+    res.json({ enabled: st.devSummary === true, hour: Number(st.devSummaryHour ?? 6) });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
@@ -5963,12 +5966,14 @@ app.put("/api/dev-notes/chat", async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-// 朝6時に、その日の開発メモをChatへ流す
+// 朝の開発メモのまとめ。
+// いまは既定でOFF（更新のお知らせに置き換えたため）。
+// 見たい人だけ、開発メモの画面でONにできる。
 let lastDevSummaryDay = "";
 async function maybeSendDevSummary() {
   try {
     const st = await getSettings().catch(() => ({}));
-    if (st.devSummary === false) return;
+    if (st.devSummary !== true) return;   // 明示的にONにした人だけ
     const now = new Date(Date.now() + 9 * 3600 * 1000);
     const h = now.getUTCHours(), m = now.getUTCMinutes();
     const hour = Number(st.devSummaryHour ?? 6);
@@ -5981,6 +5986,130 @@ async function maybeSendDevSummary() {
     await notifyAll(r.text, "assign");
     console.log(`[dev-note] 朝のまとめを送りました（${r.count}件）`);
   } catch (e) { console.warn("[dev-note]", e.message); }
+}
+
+// ───────────────────────────────────────────────────────────
+// 朝の「kinbotが新しくなりました」のお知らせ（既定 8:30）
+//
+// 前の営業日からの更新をまとめて出す。
+// 月曜は、金曜の朝からの3日ぶんをまとめる。
+// ───────────────────────────────────────────────────────────
+let lastDeployNewsDay = "";
+async function maybeSendDeployNews() {
+  try {
+    const st = await getSettings().catch(() => ({}));
+    if (st.deployNews === false) return;
+
+    const now = new Date(Date.now() + 9 * 3600 * 1000);
+    const h = now.getUTCHours(), m = now.getUTCMinutes();
+    const hour = Number(st.deployNewsHour ?? 8);
+    const min = Number(st.deployNewsMinute ?? 30);
+    // 指定の時刻から10分のあいだに1回だけ
+    // （サーバーが再起動していても、取りこぼしにくいように少し広く取る）
+    if (h !== hour || m < min || m > min + 9) return;
+    const w = now.getUTCDay();
+    if (w === 0 || w === 6) return;   // 土日は出さない
+
+    const day = now.toISOString().slice(0, 10);
+    if (lastDeployNewsDay === day) return;
+    lastDeployNewsDay = day;
+
+    // 月曜は金曜の朝から（3日ぶん）、それ以外は前日の朝から
+    const hours = w === 1 ? 72 : 24;
+    const rows = await deploysSince(hours);
+    if (!rows.length) {
+      console.log("[更新のお知らせ] 前の営業日から変わったところはありません");
+      return;
+    }
+
+    // 開発の言葉のままだと読みにくいので、AIに整えてもらう
+    let body = "";
+    try {
+      const list = rows.map((r) => `・${r.message}`).join("\n");
+      body = await callLLMPublic(
+        "あなたは、営業チームに『使い方が変わったところ』を伝える係です。",
+        `次はkinbotの更新の記録です。営業メンバー（開発者ではありません）に向けて、\n` +
+        `「何ができるようになったか」「どこが変わったか」を、やさしい日本語でまとめてください。\n\n` +
+        `決まり:\n` +
+        `- 使う人に関係することだけ。中の作りの話（DB・API・関数名など）は書かない\n` +
+        `- 1行につき1つ。「・」で始める。多くても6行\n` +
+        `- どこを開けば使えるかを、できるだけ書く（例：ホーム、ツール→天気予報）\n` +
+        `- 直しただけのものは「〜が直りました」と書く\n` +
+        `- 絵文字は使わない。見出しも要らない。箇条書きだけを返す\n\n` +
+        `【更新の記録】\n${list}`,
+        700
+      );
+    } catch {}
+    if (!body) body = rows.slice(0, 6).map((r) => `・${r.message}`).join("\n");
+
+    const 期間 = w === 1 ? "金曜から今朝まで" : "昨日から今朝まで";
+    await notifyAll([
+      "✨ *kinbotが新しくなりました*",
+      `（${期間}の変更 ${rows.length}件）`,
+      "",
+      String(body).trim(),
+      "",
+      "うまく動かないときは、画面のロボを押して教えてください。",
+    ].join("\n"), "deploy");
+    console.log(`[更新のお知らせ] ${rows.length}件をまとめて送りました`);
+  } catch (e) { console.warn("[更新のお知らせ]", e.message); }
+}
+
+// 設定（時刻・ON/OFF）
+app.get("/api/deploy/news", async (req, res) => {
+  try {
+    const st = await getSettings();
+    res.json({
+      enabled: st.deployNews !== false,
+      hour: Number(st.deployNewsHour ?? 8),
+      minute: Number(st.deployNewsMinute ?? 30),
+    });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.put("/api/deploy/news", async (req, res) => {
+  try {
+    const b = req.body || {};
+    const patch = {};
+    if (b.enabled !== undefined) patch.deployNews = b.enabled !== false;
+    if (b.hour !== undefined) patch.deployNewsHour = Math.min(23, Math.max(0, parseInt(b.hour, 10) || 0));
+    if (b.minute !== undefined) patch.deployNewsMinute = Math.min(59, Math.max(0, parseInt(b.minute, 10) || 0));
+    await saveSettings(patch);
+    console.log(`[更新のお知らせ] 設定を変えました by ${req.user}`);
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// いま試しに送る
+app.post("/api/deploy/news/test", async (req, res) => {
+  try {
+    lastDeployNewsDay = "";
+    const st = await getSettings().catch(() => ({}));
+    const now = new Date(Date.now() + 9 * 3600 * 1000);
+    // 時刻の縛りを外して、その場で作って送る
+    const rows = await deploysSince(now.getUTCDay() === 1 ? 72 : 24);
+    if (!rows.length) return res.json({ ok: true, 件数: 0, note: "前の営業日から変わったところはありません" });
+    await maybeSendDeployNewsNow(rows);
+    res.json({ ok: true, 件数: rows.length });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// 試し送り用（時刻を見ずに送る）
+async function maybeSendDeployNewsNow(rows) {
+  const list = rows.map((r) => `・${r.message}`).join("\n");
+  let body = "";
+  try {
+    body = await callLLMPublic(
+      "あなたは、営業チームに『使い方が変わったところ』を伝える係です。",
+      `次はkinbotの更新の記録です。営業メンバーに向けて、やさしい日本語で6行までにまとめてください。\n` +
+      `中の作りの話は書かない。絵文字は使わない。箇条書きだけ返す。\n\n${list}`, 700);
+  } catch {}
+  if (!body) body = rows.slice(0, 6).map((r) => `・${r.message}`).join("\n");
+  await notifyAll([
+    "✨ *kinbotが新しくなりました*（お試し）",
+    "",
+    String(body).trim(),
+  ].join("\n"), "deploy");
 }
 
 // 数えない招待者の設定
@@ -11267,7 +11396,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-08-18ze 送ったメールの記録と、届かなかったメールの検知";
+const BUILD_TAG = "2026-08-18zf 毎朝8時半に更新のお知らせ／開発メモの朝通知は既定OFF";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
@@ -14354,6 +14483,8 @@ app.post("/api/railway/deploy-hook", async (req, res) => {
     const ng = /FAIL|CRASH|ERROR/.test(status);
     if (!ok && !ng) return;   // 途中経過は流さない
     const msg = String(b.deployment?.meta?.commitMessage || b.commitMessage || "").split("\n")[0];
+    // 翌朝まとめて知らせるために、内容を残しておく
+    if (ok && msg) await logDeploy({ message: msg, build: BUILD_TAG, ok: true }).catch(() => {});
     await notifyAll([
       ok ? "🚀 *kinbotの更新が終わりました*" : "⚠️ *kinbotの更新に失敗しました*",
       msg ? `📝 ${msg}` : "",
@@ -15986,6 +16117,8 @@ server.listen(PORT, async () => {
 
   // 朝の開発メモ（既定6時）
   setInterval(() => { maybeSendDevSummary().catch(() => {}); }, 60 * 1000);
+  // 朝の「kinbotが新しくなりました」
+  setInterval(() => { maybeSendDeployNews().catch(() => {}); }, 60 * 1000);
   // 夕方のお知らせ（既定18:30）。本人にだけ1対1で送る。
   setInterval(() => { maybeSendEvening().catch(() => {}); }, 60 * 1000);
   // 週のボード（月曜の朝＝記入、金曜の夕方＝振り返り）

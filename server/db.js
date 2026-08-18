@@ -548,6 +548,20 @@ export async function initDb() {
   `);
   await sq(`CREATE INDEX IF NOT EXISTS ix_book_views_page ON book_views(page_id, at DESC);`);
 
+  // ===== 更新の記録 =====
+  // kinbotが新しくなったときの内容を貯めておき、翌朝まとめて知らせる。
+  await sq(`
+    CREATE TABLE IF NOT EXISTS deploy_log (
+      id       SERIAL PRIMARY KEY,
+      message  TEXT,
+      commit   TEXT,
+      build    TEXT,
+      ok       BOOLEAN NOT NULL DEFAULT true,
+      at       TIMESTAMPTZ DEFAULT now()
+    );
+  `);
+  await sq(`CREATE INDEX IF NOT EXISTS ix_deploy_log_at ON deploy_log(at DESC);`);
+
   // ===== 転送URL（外部の日程調整などを、記録してから転送する） =====
   // レセプショニストなど、ほかのサービスのURLをそのまま使いたいときに、
   // kinbotをいったん通すことで「誰が開いたか」を記録できるようにする。
@@ -2859,6 +2873,37 @@ export async function setNoReminder(slug, off) {
        RETURNING slug, label, no_reminder`, [slug, !!off]);
     return rows[0] || null;
   } catch (e) { console.error("[db] setNoReminder", e.message); return null; }
+}
+
+// ===== 更新の記録 =====
+
+// 更新の内容を1件残す（同じ内容が続けて来たら足さない）
+export async function logDeploy({ message, commit, build, ok = true }) {
+  if (!pool) return null;
+  try {
+    const msg = String(message || "").split("\n")[0].slice(0, 300);
+    if (!msg) return null;
+    const { rows: last } = await pool.query(
+      `SELECT message FROM deploy_log ORDER BY at DESC LIMIT 1`);
+    if (last[0] && last[0].message === msg) return null;
+    const { rows } = await pool.query(
+      `INSERT INTO deploy_log (message, commit, build, ok) VALUES ($1,$2,$3,$4) RETURNING *`,
+      [msg, String(commit || "").slice(0, 40), String(build || "").slice(0, 120), !!ok]);
+    return rows[0] || null;
+  } catch (e) { console.error("[db] logDeploy", e.message); return null; }
+}
+
+// 前の営業日から今までの更新を取る。
+// 月曜の朝は、金曜の朝からの3日ぶんをまとめて出す。
+export async function deploysSince(hours) {
+  if (!pool) return [];
+  try {
+    const { rows } = await pool.query(
+      `SELECT * FROM deploy_log
+        WHERE at > now() - interval '1 hour' * $1
+        ORDER BY at`, [Math.max(1, Math.min(240, Number(hours) || 24))]);
+    return rows;
+  } catch { return []; }
 }
 
 // ===== 転送URL =====
