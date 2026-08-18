@@ -10,12 +10,25 @@
     <link rel="manifest" href="/site.webmanifest" />
     <meta name="theme-color" content="#0d5b47" />
     <meta name="apple-mobile-web-app-title" content="kinbot" />
-    <link rel="stylesheet" href="style.css?v=20260818zl" />
+    <link rel="stylesheet" href="style.css?v=20260818zo" />
   </head>
   <body>
     <div class="app">
-      <nav class="sidebar">
-        <div class="side-brand"><span class="brand-mark"></span><span>kinbot</span></div>
+      <!-- kincall のメニュー。架電に必要なものだけを並べる。 -->
+      <nav class="sidebar kc-side" data-kb-built="1">
+        <div class="side-brand kc-side-brand">
+          <img class="kc-side-logo" src="/kincall.svg" alt="" /><span>kincall</span>
+        </div>
+        <div class="side-wrap"><a class="side-item active" href="/kincall#call">
+          <span class="kc-side-ico"><svg viewBox="0 0 24 24" width="17" height="17"><path d="M6.6 4.5c-1 0-1.8.8-1.8 1.8 0 6.9 5.6 12.5 12.5 12.5 1 0 1.8-.8 1.8-1.8v-2.3c0-.9-.6-1.6-1.5-1.8l-2.3-.5c-.8-.2-1.6.2-2 .9l-.6 1a11 11 0 0 1-4.4-4.4l1-.6c.7-.4 1.1-1.2.9-2l-.5-2.3c-.2-.9-.9-1.5-1.8-1.5z"/></svg></span><span class="side-label">かける</span></a></div>
+        <div class="side-wrap"><a class="side-item" href="/kincall#stats">
+          <span class="kc-side-ico"><svg viewBox="0 0 24 24" width="17" height="17"><path d="M4 20h4V10H4zm6 0h4V4h-4zm6 0h4v-7h-4z"/></svg></span><span class="side-label">今日の実績</span></a></div>
+        <div class="side-wrap"><a class="side-item" href="/kincall#new">
+          <span class="kc-side-ico"><svg viewBox="0 0 24 24" width="17" height="17"><path d="M11 5h2v6h6v2h-6v6h-2v-6H5v-2h6z"/></svg></span><span class="side-label">リストを作る</span></a></div>
+        <div class="side-sep"></div>
+        <div class="side-wrap"><a class="side-item side-app" href="/home.html">
+          <img class="side-app-ico" src="/icon.svg" alt="" /><span class="side-label">kinbot</span>
+          <span class="side-app-tag">戻る</span></a></div>
         <div class="side-foot"><span id="who" class="who"></span><a href="#" id="logout" class="side-logout">ログアウト</a></div>
       </nav>
 
@@ -26,7 +39,7 @@
 
         <main class="report-page kc-page">
           <!-- かける画面。1件ずつ大きく出す。 -->
-          <section class="card" id="clCallCard">
+          <section class="card" id="call">
             <div class="cl-head">
               <label>リスト <select id="clList"></select></label>
               <span class="cl-prog" id="clProg"></span>
@@ -38,7 +51,7 @@
 
           <!-- 今日の実績 -->
           <section class="card">
-            <h3>今日の実績</h3>
+            <h3 id="stats">今日の実績</h3>
             <div class="ap-cfg-actions">
               <label class="ks-check"><input type="checkbox" id="clMine" checked /> 自分のぶんだけ</label>
               <button class="btn ghost" id="clStatsReload">読み込み直す</button>
@@ -48,7 +61,7 @@
 
           <!-- リストを作る -->
           <section class="card">
-            <h3>リストを作る</h3>
+            <h3 id="new">リストを作る</h3>
             <p class="note">Salesforceのリードから作るか、Excelなどから貼り付けて作れます。<br>
             貼り付けは1行1社で、<b>会社名・担当者名・電話番号</b>の順（タブまたはカンマ区切り）です。</p>
             <div class="ap-cfg-row">
@@ -70,7 +83,7 @@
         </main>
       </div>
     </div>
-    <script src="calls.js?v=20260818zl"></script>
-    <script src="nav.js?v=20260818zl"></script>
+    <script src="calls.js?v=20260818zo"></script>
+    <script src="nav.js?v=20260818zo"></script>
   </body>
 </html>
