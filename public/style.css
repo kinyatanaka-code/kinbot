@@ -5673,3 +5673,26 @@ input:focus, select:focus, textarea:focus, .sf-input:focus, .sf-select:focus, .s
 .kc-hist-r { font-weight: 700; color: #0F6E56; }
 .kc-hist-who { margin-left: auto; color: var(--muted); font-size: 10.5px; }
 .kc-hist-m { margin-top: 4px; font-size: 12.5px; line-height: 1.7; }
+
+/* kincallの一覧：画面いっぱいに使い、記録まで見えるようにする */
+/* かける画面は、上から下まで使い切って、表の中だけをスクロールさせる */
+.kc-body .main { height: 100dvh; display: flex; flex-direction: column; min-height: 0; }
+.kc-body .topbar { flex: none; }
+.kc-page { max-width: none; padding: 14px 20px 10px;
+  flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
+.kc-pane[data-p="call"] { flex: 1 1 auto; display: flex; flex-direction: column;
+  min-height: 0; margin-bottom: 0; }
+/* 表を包む入れ物にも、高さを伝える */
+.kc-pane[data-p="call"] > #clTable { flex: 1 1 auto; min-height: 0;
+  display: flex; flex-direction: column; }
+.kc-pane[data-p="call"] .cl-head { flex: none; }
+/* 表の中だけをスクロールさせる（見出しは残す） */
+.kc-tablewrap { flex: 1 1 auto; min-height: 0; overflow: auto;
+  border: 1px solid var(--line); border-radius: 12px; }
+.kc-table { width: 100%; border-collapse: separate; border-spacing: 0; }
+.kc-table th { position: sticky; top: 0; z-index: 2; background: #eaf7f2;
+  color: #0d5b47; font-size: 11.5px; font-weight: 700; text-align: left;
+  padding: 9px 12px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+.kc-table td { padding: 9px 12px; border-bottom: 1px solid var(--line); font-size: 12.5px; }
+.kc-table tr:last-child td { border-bottom: none; }
+.kc-table tbody tr:hover td, .kc-table tr:hover td { background: #f7fbf9; }

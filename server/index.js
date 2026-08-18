@@ -4854,12 +4854,69 @@ app.post("/api/calls/from-leads", async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+// レポートの表を、そのままkincallのリストにする。
+// 列の名前から「会社名・担当者・電話・メール・ステージ・状態」を見つける。
+app.post("/api/calls/from-report", async (req, res) => {
+  try {
+    const b = req.body || {};
+    const cols = (b.columns || []).map((c) => String(c.label || c || ""));
+    const rows = Array.isArray(b.rows) ? b.rows : [];
+    if (!rows.length) return res.status(400).json({ error: "中身がありません" });
+
+    // 列の見つけ方。言い方の違いを吸収する。
+    const find = (...words) => {
+      const norm = (v) => String(v || "").replace(/[\s　_・]/g, "").toLowerCase();
+      for (const w of words) {
+        const i = cols.findIndex((c) => norm(c).includes(norm(w)));
+        if (i >= 0) return i;
+      }
+      return -1;
+    };
+    const ix = {
+      company: find("会社名", "会社", "company", "取引先"),
+      person: find("担当者名", "担当者", "姓", "名前", "氏名", "name"),
+      phone: find("電話", "phone", "tel"),
+      email: find("メール", "email", "mail"),
+      stage: find("リード状況", "リード 状況", "状況", "ステージ", "status"),
+      status: find("最終活動ステータス", "活動ステータス", "最終ステータス"),
+      leadId: find("リードid", "lead id", "レコードid", "id"),
+    };
+    if (ix.company < 0 && ix.phone < 0) {
+      return res.status(400).json({ error: "会社名か電話番号の列が見つかりません", 列: cols });
+    }
+
+    const at = (row, i) => (i >= 0 ? String(row[i] ?? "").trim() : "");
+    const items = rows.map((row) => ({
+      leadId: at(row, ix.leadId) || null,
+      company: at(row, ix.company),
+      person: at(row, ix.person),
+      phone: at(row, ix.phone),
+      email: at(row, ix.email),
+      // ステージは「リード状況」（01：新規・02：担当者未接触・04：ジャッジ など）
+      stage: at(row, ix.stage),
+      status: at(row, ix.status),
+    })).filter((x) => x.company || x.phone);
+
+    if (!items.length) return res.status(400).json({ error: "入れられる行がありませんでした" });
+
+    const name = String(b.name || "").trim() || `リスト ${jstDate(0)}`;
+    const list = await createCallList({ name, owner: req.user, createdBy: req.user });
+    if (!list) return res.status(500).json({ error: "リストを作れませんでした" });
+    const n = await addCallTargets(list.id, items);
+    console.log(`[kincall] レポートから${n}件をリスト「${name}」に入れました by ${req.user}`);
+    res.json({ ok: true, id: list.id, name, 件数: n, 見つけた列: ix });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 // リストの中身を表で返す（SFのリードレポートのような一覧）
 app.get("/api/calls/targets", async (req, res) => {
   try {
     const listId = parseInt(req.query.list, 10);
     if (!listId) return res.status(400).json({ error: "リストを選んでください" });
-    const rows = await listCallTargets(listId, { q: String(req.query.q || "") });
+    const rows = await listCallTargets(listId, {
+      q: String(req.query.q || ""),
+      limit: Math.min(2000, parseInt(req.query.limit, 10) || 2000),
+    });
     res.json({
       ok: true,
       件数: rows.length,
@@ -11668,7 +11725,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-08-19a kincall：SFのリード取り込み・SFの選択肢・メニュー分割";
+const BUILD_TAG = "2026-08-19f レポートからkincallへ送る／一覧を全件・画面いっぱいに";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
