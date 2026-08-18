@@ -2014,7 +2014,8 @@ async function loadTomorrowReminders() {
               ${x["状態"] === "送信済み" ? " disabled" : ""} />
           </label>
           <span class="rm-time">${escH(when(x.start))}</span>
-          <span class="rm-co">${escH(x.company || x.label || "")}</span>
+          <span class="rm-co">${escH(x.company || x.label || "")}${x["重なり"] ? '<span class="rm-dup">重なり</span>' : ""}</span>
+          <span class="rm-who">${escH(x["獲得者"] || "")}${x["担当"] ? `→${escH(x["担当"])}` : ""}</span>
           <span class="rm-to">${escH(x.to || "")}</span>
           <span class="rm-st${x.送る ? "" : " cc-warn"}">${escH(x["状態"] || "")}</span>
           ${x["状態"] === "宛先がありません" || x["状態"] === "担当が決まっていません"

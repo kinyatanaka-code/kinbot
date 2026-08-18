@@ -473,6 +473,9 @@ export async function listTomorrowReminders(dateJst = "") {
       person: parseTitleParts(r.label || "").person || "",
       to: r.client_email || "",
       owner: r.current_owner || "",
+      // どのカレンダーから取り込んだか（アポを取った人のカレンダー）
+      獲得者: r.setter || "",
+      獲得者メール: r.setter_email || "",
       start: r.start_time,
       状態,
       送る: 状態 === "送ります",

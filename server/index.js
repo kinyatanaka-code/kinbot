@@ -4062,13 +4062,32 @@ app.get("/api/apo-mail/tomorrow", async (req, res) => {
           const o = String(x.owner || "").toLowerCase();
           return !o || o === me;
         });
+    // 担当営業の名前を出す（メールアドレスのままだと分かりにくいため）
+    const names = new Map();
+    for (const x of mine) {
+      const k = String(x.owner || "").toLowerCase();
+      if (!k || names.has(k)) continue;
+      names.set(k, await displayNameOf(k).catch(() => k));
+    }
+
+    // 同じ会社・同じ時刻のものが複数あるときは、重なっていると分かるようにする
+    const seen = new Map();
+    for (const x of mine) {
+      const k = `${x.company}|${String(x.start).slice(0, 16)}`;
+      seen.set(k, (seen.get(k) || 0) + 1);
+    }
+
     res.json({
       ok: true,
       自動送信: cfg.autoReminder !== false,
       送る時刻: `${cfg.reminderHour}:00`,
       件数: mine.length,
       全件: all.length,
-      items: mine,
+      items: mine.map((x) => ({
+        ...x,
+        担当: names.get(String(x.owner || "").toLowerCase()) || "",
+        重なり: (seen.get(`${x.company}|${String(x.start).slice(0, 16)}`) || 1) > 1,
+      })),
     });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
@@ -11157,7 +11176,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-08-18w 差し込みが効いているかを確かめられるようにした";
+const BUILD_TAG = "2026-08-18x リマインド一覧に、誰のカレンダーから来たかを出す";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
