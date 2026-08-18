@@ -11176,7 +11176,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-08-18zb メールを作れなかった理由を、そのまま出すようにした";
+const BUILD_TAG = "2026-08-18zc 確定メールを作らなかった理由を、はっきり出す";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
@@ -13967,6 +13967,10 @@ async function autoAssignOne(link, { inviteOwner, closers = null, cfg, teamCtx =
       repName: await repDisplayName(pick.email),
       actor,
     });
+  } else {
+    // 設定がOFFのときは、そうと分かるようにしておく（黙って作らないと原因が追えない）
+    mail = { ok: false, skipped: true, reason: "確定メールの自動用意がOFFです" };
+    console.log(`[apo-assign] ${link.slug}：確定メールは作りません（自動用意OFF）`);
   }
 
   // 自分で取ったアポは順番を進めないので、rotNext が無いことがある

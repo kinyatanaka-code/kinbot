@@ -195,6 +195,9 @@ function mailLine(mail, clientEmail) {
     // すでにできているものは「未作成」ではないので、そう書かない
     if (/下書きを作成/.test(r)) return "📝 下書き済（前に作ったもの）";
     if (/送信済/.test(r)) return "✉️ 送信済（前に送ったもの）";
+    if (/自動用意がOFF/.test(r)) {
+      return "✉️ メール未作成（アポ管理→メール設定で「担当割り当て時に確定メールを自動で用意する」を入れてください）";
+    }
     return `✉️ メール未作成　${shortReason(r)}`;
   }
   return `⚠️ *メールを作れません*　${shortReason(mail.reason)}`;
