@@ -1986,3 +1986,71 @@ document.addEventListener("click", (ev) => {
 });
 
 
+
+
+// ───────────────────────────────────────────────────────────
+// 送ったメールの記録（届いたか・跳ね返ったか）
+// ───────────────────────────────────────────────────────────
+async function mlLoad() {
+  const box = $("mlBox"), st = $("mlStatus");
+  if (!box) return;
+  if (st) st.textContent = "読み込んでいます…";
+  try {
+    const q = new URLSearchParams();
+    if ($("mlFrom").value) q.set("from", $("mlFrom").value);
+    if ($("mlTo").value) q.set("to", $("mlTo").value);
+    if ($("mlKind").value) q.set("kind", $("mlKind").value);
+    if ($("mlMine").checked) q.set("mine", "1");
+    const d = await apiJson("/api/apo-mail/log?" + q.toString());
+    if (st) st.textContent = "";
+    const items = d.items || [];
+    const g = d["集計"] || {};
+    const when = (v) => {
+      const x = new Date(v);
+      if (isNaN(x.getTime())) return "";
+      const j = new Date(x.getTime() + 9 * 3600 * 1000);
+      const p = (n) => String(n).padStart(2, "0");
+      return `${j.getUTCMonth() + 1}/${j.getUTCDate()} ${p(j.getUTCHours())}:${p(j.getUTCMinutes())}`;
+    };
+    box.innerHTML =
+      `<div class="ml-sum">送信済み ${g["送信済み"] || 0}　下書き ${g["下書き"] || 0}` +
+      (g["届きませんでした"] ? `　<span class="cc-warn">届かなかった ${g["届きませんでした"]}</span>` : "") +
+      (g["失敗"] ? `　<span class="cc-warn">失敗 ${g["失敗"]}</span>` : "") + `</div>` +
+      (items.length
+        ? `<table class="sh-table"><tr><th>送った日時</th><th>種類</th><th>会社</th><th>宛先</th><th>送った人</th><th>状態</th></tr>` +
+          items.map((x) => `<tr class="${x["状態"] === "届きませんでした" || x["状態"] === "失敗" ? "ml-ng" : ""}">
+            <td>${esc(when(x.at))}</td>
+            <td>${esc(x["種類"])}</td>
+            <td>${esc(x["会社"] || "")}</td>
+            <td>${esc(x["宛先"] || "")}</td>
+            <td>${esc(x["送った人"] || "")}</td>
+            <td>${esc(x["状態"])}${x["理由"] ? `<br><small>${esc(x["理由"])}</small>` : ""}</td>
+          </tr>`).join("") + `</table>`
+        : `<div class="note">この期間に送ったメールはありません。</div>`);
+  } catch (e) { if (st) st.textContent = "失敗：" + e.message; }
+}
+
+async function mlCheckBounce() {
+  const st = $("mlStatus");
+  if (st) st.textContent = "調べています…（10秒ほどかかります）";
+  try {
+    const d = await apiJson("/api/apo-mail/check-bounces", { method: "POST" });
+    if (st) {
+      st.textContent = d["見つかった数"]
+        ? `届かなかったメールが ${d["見つかった数"]}件 見つかりました`
+        : "届かなかったメールはありませんでした";
+      setTimeout(() => (st.textContent = ""), 8000);
+    }
+    mlLoad();
+  } catch (e) { if (st) st.textContent = "失敗：" + e.message; }
+}
+
+if ($("mlLoad")) {
+  // はじめは直近7日
+  const today = new Date(Date.now() + 9 * 3600 * 1000).toISOString().slice(0, 10);
+  const ago = new Date(Date.now() + 9 * 3600 * 1000 - 6 * 86400000).toISOString().slice(0, 10);
+  if ($("mlFrom") && !$("mlFrom").value) $("mlFrom").value = ago;
+  if ($("mlTo") && !$("mlTo").value) $("mlTo").value = today;
+  $("mlLoad").addEventListener("click", mlLoad);
+  if ($("mlBounce")) $("mlBounce").addEventListener("click", mlCheckBounce);
+}

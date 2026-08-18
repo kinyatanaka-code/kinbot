@@ -10,7 +10,7 @@
     <link rel="manifest" href="/site.webmanifest" />
     <meta name="theme-color" content="#0d5b47" />
     <meta name="apple-mobile-web-app-title" content="kinbot" />
-    <link rel="stylesheet" href="style.css?v=20260818zd" />
+    <link rel="stylesheet" href="style.css?v=20260818ze" />
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/tabler-icons/2.44.0/iconfont/tabler-icons.min.css" />
   </head>
   <body>
@@ -229,6 +229,22 @@
                 <span class="rev-status" id="mcStatus"></span>
               </div>
 
+              <h4 class="ap-rot-h">送ったメールの記録</h4>
+              <p class="note">いつ・誰に・どのメールを送ったかが見られます。<b>届かずに戻ってきたもの</b>には印が付きます（30分おきに自動で調べ、送った本人にも知らせます）。</p>
+              <div class="ap-cfg-actions">
+                <label>期間 <input type="date" id="mlFrom" /> 〜 <input type="date" id="mlTo" /></label>
+                <label>種類 <select id="mlKind">
+                  <option value="">すべて</option>
+                  <option value="confirm">確定メール</option>
+                  <option value="reminder">リマインド</option>
+                </select></label>
+                <label class="ks-check"><input type="checkbox" id="mlMine" /> 自分のぶんだけ</label>
+                <button class="btn" id="mlLoad">見る</button>
+                <button class="btn ghost" id="mlBounce">届かなかったものを調べる</button>
+                <span class="rev-status" id="mlStatus"></span>
+              </div>
+              <div id="mlBox"></div>
+
               <h4 class="ap-rot-h">テストで送ってみる</h4>
               <p class="note">架空のアポ（テスト株式会社／明日10時）で文面を作って送ります。<b>実際のアポには何も残りません</b>ので、何度でも試せます。<br>
               送信元はあなたのGmailです。署名や会議室URLも、あなたの設定が入ります。</p>
@@ -425,8 +441,8 @@
         </main>
       </div>
     </div>
-    <script src="product.js?v=20260818zd"></script>
-    <script src="apo.js?v=20260818zd"></script>
-    <script src="nav.js?v=20260818zd"></script>
+    <script src="product.js?v=20260818ze"></script>
+    <script src="apo.js?v=20260818ze"></script>
+    <script src="nav.js?v=20260818ze"></script>
   </body>
 </html>

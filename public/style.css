@@ -5573,3 +5573,8 @@ input:focus, select:focus, textarea:focus, .sf-input:focus, .sf-select:focus, .s
   border-radius: 999px; padding: 0 6px; }
 
 .rm-fix-note { flex: 1 1 100%; font-size: 10.5px; color: var(--muted); }
+
+/* 送ったメールの記録 */
+.ml-sum { font-size: 13px; font-weight: 700; color: #0d5b47; margin: 8px 0 6px; }
+.ml-ng { background: #fffaf8; }
+.ml-ng td { color: #A33C24; }

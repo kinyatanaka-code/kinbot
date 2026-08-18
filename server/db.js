@@ -793,6 +793,10 @@ export async function initDb() {
   await sq(`DROP INDEX IF EXISTS uq_apo_mail_sent;`);
   await sq(`CREATE UNIQUE INDEX IF NOT EXISTS uq_apo_mail_done ON apo_mail_log(slug, kind) WHERE status IN ('sent','draft');`);
   await sq(`CREATE INDEX IF NOT EXISTS ix_apo_mail_slug ON apo_mail_log(slug);`);
+  // 届かずに戻ってきた（跳ね返った）かどうか
+  await sq(`ALTER TABLE apo_mail_log ADD COLUMN IF NOT EXISTS bounced BOOLEAN NOT NULL DEFAULT false;`);
+  await sq(`ALTER TABLE apo_mail_log ADD COLUMN IF NOT EXISTS bounce_note TEXT;`);
+  await sq(`CREATE INDEX IF NOT EXISTS ix_apo_mail_at ON apo_mail_log(created_at DESC);`);
 
   // Gmail操作ログ：誰がどのスレッドをアーカイブ／ゴミ箱に入れたかを残す。
   // 元に戻すときの手がかりになり、チームで使う以上あとから追える状態にしておく。
@@ -3692,6 +3696,44 @@ export async function apoMailSentRow(slug, kind) {
     );
     return rows[0] || null;
   } catch { return null; }
+}
+
+// 送ったメールの一覧（誰に・いつ・届いたか）
+export async function listApoMails({ from, to, kind = "", owner = "", limit = 300 } = {}) {
+  if (!pool) return [];
+  try {
+    const p = [];
+    const w = [];
+    if (from) { p.push(from); w.push(`(l.created_at AT TIME ZONE 'Asia/Tokyo')::date >= $${p.length}::date`); }
+    if (to) { p.push(to); w.push(`(l.created_at AT TIME ZONE 'Asia/Tokyo')::date <= $${p.length}::date`); }
+    if (kind) { p.push(kind); w.push(`l.kind = $${p.length}`); }
+    if (owner) { p.push(String(owner).toLowerCase()); w.push(`lower(l.from_owner) = $${p.length}`); }
+    p.push(Math.max(1, Math.min(1000, limit)));
+    const { rows } = await pool.query(
+      `SELECT l.*, s.label, s.start_time
+         FROM apo_mail_log l
+         LEFT JOIN smart_links s ON s.slug = l.slug
+        ${w.length ? "WHERE " + w.join(" AND ") : ""}
+        ORDER BY l.created_at DESC LIMIT $${p.length}`, p);
+    return rows;
+  } catch (e) { console.error("[db] listApoMails", e.message); return []; }
+}
+
+// 跳ね返りを記録する
+export async function markBounced(toEmail, note) {
+  if (!pool || !toEmail) return 0;
+  try {
+    // 直近2週間に、そのアドレスへ送ったものを跳ね返り扱いにする
+    const { rowCount } = await pool.query(
+      `UPDATE apo_mail_log
+          SET bounced = true, bounce_note = $2
+        WHERE lower(to_email) = lower($1)
+          AND status = 'sent'
+          AND created_at > now() - interval '14 days'
+          AND NOT bounced`,
+      [String(toEmail).trim(), String(note || "").slice(0, 200)]);
+    return rowCount || 0;
+  } catch (e) { console.error("[db] markBounced", e.message); return 0; }
 }
 
 export async function logApoMail({ slug, kind, toEmail, fromOwner, subject, status, error, messageId }) {

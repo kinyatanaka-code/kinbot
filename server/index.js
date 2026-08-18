@@ -144,6 +144,8 @@ import {
   callStats,
   setNoReminder,
   fixApoForReminder,
+  listApoMails,
+  markBounced,
   recordSfUpdate,
   sfUpdatedMap,
   listWeekly,
@@ -336,6 +338,7 @@ import {
   gmailReady,
   gmailSearchThreads,
   gmailSentToday,
+  gmailFindBounces,
   gmailGetThread,
   gmailSend,
   gmailArchiveThread,
@@ -4190,6 +4193,94 @@ async function maybeNoticeBeforeReminder() {
     console.log(`[apo-mail] リマインドの予告を ${sent}人に送りました（対象 ${all.length}件）`);
   } catch (e) { console.warn("[apo-mail] リマインドの予告:", e.message); }
 }
+
+// ───────────────────────────────────────────────────────────
+// 送ったメールの記録（届いたか・跳ね返ったか）
+// ───────────────────────────────────────────────────────────
+
+// 送ったメールの一覧。全メンバーぶんを見られる。
+app.get("/api/apo-mail/log", async (req, res) => {
+  try {
+    const q = req.query || {};
+    const rows = await listApoMails({
+      from: /^\d{4}-\d{2}-\d{2}$/.test(String(q.from || "")) ? q.from : jstDate(-6),
+      to: /^\d{4}-\d{2}-\d{2}$/.test(String(q.to || "")) ? q.to : jstDate(0),
+      kind: ["confirm", "reminder"].includes(String(q.kind || "")) ? q.kind : "",
+      owner: String(q.mine || "") === "1" ? req.user : "",
+      limit: 500,
+    });
+    const names = new Map();
+    for (const r of rows) {
+      const k = String(r.from_owner || "").toLowerCase();
+      if (!k || names.has(k)) continue;
+      names.set(k, await displayNameOf(k).catch(() => k));
+    }
+    const items = rows.map((r) => ({
+      slug: r.slug,
+      種類: r.kind === "reminder" ? "リマインド" : "確定メール",
+      会社: parseCompany(r.label || ""),
+      宛先: r.to_email || "",
+      送った人: names.get(String(r.from_owner || "").toLowerCase()) || r.from_owner || "",
+      状態: r.bounced ? "届きませんでした"
+        : r.status === "sent" ? "送信済み"
+        : r.status === "draft" ? "下書き"
+        : r.status === "error" ? "失敗" : r.status,
+      理由: r.bounced ? (r.bounce_note || "") : (r.error || ""),
+      at: r.created_at,
+      商談日: r.start_time || null,
+    }));
+    const 集計 = {
+      送信済み: items.filter((x) => x["状態"] === "送信済み").length,
+      下書き: items.filter((x) => x["状態"] === "下書き").length,
+      届きませんでした: items.filter((x) => x["状態"] === "届きませんでした").length,
+      失敗: items.filter((x) => x["状態"] === "失敗").length,
+    };
+    res.json({ ok: true, 集計, 件数: items.length, items });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// 予定名から会社名を取り出す（一覧に出すため）
+function parseCompany(label) {
+  return String(label || "").normalize("NFKC")
+    .replace(/【[^】]*】/g, "")
+    .split(/[\/｜|:：・、,]/)[0]
+    .replace(/[^\s　]{0,16}\s*(?:様|さま|さん|殿)\s*$/u, "")
+    .trim();
+}
+
+// 跳ね返りを探して、記録に印を付ける
+async function checkBounces(owner) {
+  try {
+    const found = await gmailFindBounces(owner, { days: 3, max: 20 });
+    let n = 0;
+    for (const b of found) {
+      const hit = await markBounced(b["宛先"], b["理由"]);
+      if (hit) {
+        n += hit;
+        // 送った本人に知らせる（気づかないと追客が止まるため）
+        notifyPerson(owner, [
+          "⚠️ *メールが届きませんでした*",
+          `✉️ ${b["宛先"]}`,
+          `📝 ${b["理由"]}`,
+          "宛先をご確認のうえ、必要なら送り直してください。",
+        ].join("\n")).catch(() => {});
+      }
+    }
+    if (n) console.log(`[apo-mail] 届かなかったメール ${n}件に印を付けました（${owner}）`);
+    return n;
+  } catch (e) {
+    console.warn(`[apo-mail] 跳ね返りを調べられません（${owner}）：${e.message}`);
+    return 0;
+  }
+}
+
+// いま調べる（画面から押したとき）
+app.post("/api/apo-mail/check-bounces", async (req, res) => {
+  try {
+    const n = await checkBounces(req.user);
+    res.json({ ok: true, 見つかった数: n });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
 
 // ───────────────────────────────────────────────────────────
 // 転送URL
@@ -11176,7 +11267,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-08-18zd 今日取ったアポに、続けてリマインドを送らないようにした";
+const BUILD_TAG = "2026-08-18ze 送ったメールの記録と、届かなかったメールの検知";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
@@ -15879,6 +15970,16 @@ server.listen(PORT, async () => {
   setInterval(() => { maybeSendCallReport().catch(() => {}); }, 60 * 1000);
   // Cloudflareに残った古い配信枠と録画を片づける（保存料を増やさないため）
   setInterval(() => { cleanupOldLiveInputs(6).catch(() => {}); }, 60 * 60 * 1000);
+
+  // 届かなかったメールがないかを、30分おきに調べる
+  setInterval(async () => {
+    try {
+      const rows = await listApoMails({ from: jstDate(-2), to: jstDate(0), limit: 300 }).catch(() => []);
+      const owners = [...new Set(rows.filter((r) => r.status === "sent")
+        .map((r) => String(r.from_owner || "").toLowerCase()).filter(Boolean))];
+      for (const o of owners.slice(0, 10)) await checkBounces(o);
+    } catch {}
+  }, 30 * 60 * 1000);
 
   // 送れなかった架電の記録を、あとから送り直す
   setInterval(() => { retryCallSync().catch(() => {}); }, 5 * 60 * 1000);
