@@ -134,6 +134,9 @@ import {
   markBooked,
   listBookViewers,
   createCallList,
+  listCallTargets,
+  getCallTarget,
+  setCallTargetStatus,
   addCallTargets,
   listCallLists,
   nextCallTarget,
@@ -4767,6 +4770,100 @@ app.post("/api/calls/lists", async (req, res) => {
     const n = await addCallTargets(list.id, items);
     console.log(`[コール] リスト「${name}」を作りました（${n}件）by ${req.user}`);
     res.json({ ok: true, id: list.id, name, 件数: n });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// リストの中身を表で返す（SFのリードレポートのような一覧）
+app.get("/api/calls/targets", async (req, res) => {
+  try {
+    const listId = parseInt(req.query.list, 10);
+    if (!listId) return res.status(400).json({ error: "リストを選んでください" });
+    const rows = await listCallTargets(listId, { q: String(req.query.q || "") });
+    res.json({
+      ok: true,
+      件数: rows.length,
+      残り: rows.filter((r) => !r.done).length,
+      結果の種類: CALL_RESULTS.map((x) => x.key),
+      items: rows.map((r) => ({
+        id: r.id, leadId: r.lead_id || "",
+        ステージ: r.stage || "",
+        会社名: r.company || "", 担当者: r.person || "",
+        電話番号: r.phone || "", メール: r.email || "",
+        最終ステータス: r.status || "",
+        履歴数: Number(r["履歴数"] || 0),
+        最終結果: r["最終結果"] || "",
+        最終日時: r["最終日時"] || null,
+        済み: !!r.done,
+      })),
+    });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// 1件の履歴（モーダルで出す）
+app.get("/api/calls/targets/:id/history", async (req, res) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    const t = await getCallTarget(id);
+    if (!t) return res.status(404).json({ error: "見つかりません" });
+    const rows = await callHistory(id, t.lead_id, 50);
+    res.json({
+      ok: true,
+      相手: { 会社名: t.company || "", 担当者: t.person || "", 電話番号: t.phone || "", メール: t.email || "" },
+      items: rows.map((h) => ({ 結果: h.result, メモ: h.memo || "", 誰: h.caller || "", at: h.at })),
+    });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// 記録する（Salesforceの活動履歴と、リードの状態も更新する）
+app.post("/api/calls/targets/:id/record", async (req, res) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    const t = await getCallTarget(id);
+    if (!t) return res.status(404).json({ error: "見つかりません" });
+    const b = req.body || {};
+    const result = String(b.result || "").trim();
+    if (!CALL_RESULTS.some((x) => x.key === result)) {
+      return res.status(400).json({ error: "結果を選んでください" });
+    }
+
+    // kinbotに残す
+    const log = await recordCall({
+      targetId: id, leadId: t.lead_id, company: t.company,
+      result, memo: String(b.memo || ""), caller: req.user,
+    });
+    // ステージ・最終ステータスも書き換える
+    if (b.stage !== undefined || b.status !== undefined) {
+      await setCallTargetStatus(id, { stage: b.stage, status: b.status }).catch(() => {});
+    }
+
+    // Salesforceへ（活動履歴＋リードの状態）
+    let sf = { ok: false, reason: "" };
+    if (t.lead_id && salesforceConfigured() && (await sfConnected(req.user).catch(() => false))) {
+      try {
+        const r = CALL_RESULTS.find((x) => x.key === result);
+        await createTask(req.user, {
+          WhoId: t.lead_id,
+          Subject: `コール：${(r && r.sf) || result}`,
+          Status: "完了", Type: "Call",
+          ActivityDate: jstDate(0),
+          Description: [`結果：${result}`, b.memo ? `メモ：${b.memo}` : "",
+            b.status ? `最終ステータス：${b.status}` : ""].filter(Boolean).join("\n"),
+        });
+        // リードの状態も直す（項目名は組織ごとに違うので、指定があるときだけ）
+        if (b.leadStatus) {
+          await updateLead(req.user, t.lead_id, { Status: String(b.leadStatus) }).catch(() => {});
+        }
+        await markCallSynced(log && log.id, { taskId: "done" }).catch(() => {});
+        sf = { ok: true };
+      } catch (e) {
+        sf = { ok: false, reason: e.message };
+        await markCallSynced(log && log.id, { error: e.message }).catch(() => {});
+      }
+    } else if (!t.lead_id) {
+      sf = { ok: false, reason: "この相手はSalesforceのリードと結びついていません" };
+    }
+
+    res.json({ ok: true, sf });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
@@ -11487,7 +11584,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-08-18zo kincall専用のメニューと、設定の下の入り口";
+const BUILD_TAG = "2026-08-18zq kincallを一覧表に（履歴・記録はモーダル、SFへ書き戻し）";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",

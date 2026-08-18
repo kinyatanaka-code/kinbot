@@ -1,14 +1,15 @@
-// calls.js — コールリスト
+// calls.js — kincall（架電ツール）
 //
-// インターン生が上から順にかけていく画面。
-// 1件ずつ大きく出し、結果はボタン1つで記録して次へ進む。
+// リストを表で見て、そこから電話をかけ、結果を記録します。
+// 「履歴」を押すと過去のやり取り、「記録」を押すと結果を入れる窓が開きます。
+// 記録した内容は、Salesforceの活動履歴としても残ります。
 const $ = (id) => document.getElementById(id);
 const esc = (v) => String(v == null ? "" : v).replace(/[&<>"']/g, (c) =>
   ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 
 let listId = 0;
-let target = null;
-let busy = false;
+let rows = [];
+let kinds = [];
 
 function say(id, t, ms) {
   const e = $(id);
@@ -17,9 +18,8 @@ function say(id, t, ms) {
   if (ms) setTimeout(() => { if (e.textContent === t) e.textContent = ""; }, ms);
 }
 
-// 電話番号から、かけるときに使う数字だけを取り出す（ハイフンやカッコを外す）
+// 電話番号から、かけるときの数字だけを取り出す（全角も直す）
 function telOf(v) {
-  // 全角の数字で入っていることがあるので、半角にそろえてから取り出す
   return String(v || "").normalize("NFKC").replace(/[^0-9+]/g, "");
 }
 
@@ -38,13 +38,15 @@ async function loadLists() {
     const d = await (await fetch("/api/calls/lists")).json();
     const items = d.items || [];
     const sel = $("clList");
+    const keep = sel.value;
     sel.innerHTML = items.length
-      ? items.map((x) => `<option value="${x.id}">${esc(x.name)}（残り ${x.残り}）</option>`).join("")
+      ? items.map((x) => `<option value="${x.id}">${esc(x.name)}（残り ${x["残り"]}）</option>`).join("")
       : `<option value="">まだリストがありません</option>`;
+    if (keep && items.some((x) => String(x.id) === keep)) sel.value = keep;
     if (items.length) {
       listId = Number(sel.value);
       showProgress(items.find((x) => x.id === listId));
-      loadNext();
+      loadTable();
     }
   } catch (e) { say("clStatus", "読み込めませんでした：" + e.message, 8000); }
 }
@@ -52,101 +54,171 @@ async function loadLists() {
 function showProgress(x) {
   const el = $("clProg");
   if (!el || !x) return;
-  const pct = x.全部 ? Math.round((x.済み / x.全部) * 100) : 0;
+  const pct = x["全部"] ? Math.round((x["済み"] / x["全部"]) * 100) : 0;
   el.innerHTML =
     `<span class="cl-bar"><span class="cl-bar-in" style="width:${pct}%"></span></span>` +
-    `<span class="cl-num">残り ${x.残り} / ${x.全部}件</span>`;
+    `<span class="cl-num">残り ${x["残り"]} / ${x["全部"]}件</span>`;
 }
 
-// ───────── 次の1件を出す ─────────
-async function loadNext() {
-  const box = $("clTarget");
+// ───────── 一覧（SFのリードレポートのような表） ─────────
+async function loadTable() {
+  const box = $("clTable");
   if (!listId) { box.innerHTML = '<div class="empty-state">リストを選んでください。</div>'; return; }
   box.innerHTML = '<div class="empty-state">読み込んでいます…</div>';
   try {
-    const d = await (await fetch(`/api/calls/next?list=${listId}`)).json();
+    const q = $("clFind") && $("clFind").value.trim();
+    const d = await (await fetch(`/api/calls/targets?list=${listId}${q ? "&q=" + encodeURIComponent(q) : ""}`)).json();
     if (d.error) throw new Error(d.error);
-    if (d.done) {
-      target = null;
-      box.innerHTML = '<div class="cl-done">このリストは終わりました。お疲れさまでした。</div>';
-      return;
-    }
-    target = d.target;
-    const past = d["履歴"] || [];
-    const kinds = d["結果の種類"] || [];
-    box.innerHTML = `
-      <div class="cl-card">
-        <div class="cl-co">${esc(target.company || "（会社名なし）")}</div>
-        ${target.phone
-          ? `<a class="cl-tel" href="tel:${esc(telOf(target.phone))}">${esc(target.phone)}</a>
-             <span class="cl-telnote">押すと電話がかかります</span>`
-          : `<span class="cl-nophone">電話番号が入っていません</span>`}
-        <div class="cl-meta">
-          ${[target.person && `担当：${esc(target.person)}`,
-             target.industry && esc(target.industry),
-             target.area && esc(target.area),
-             target.email && esc(target.email)].filter(Boolean).join("　")}
-        </div>
-        ${target.memo ? `<div class="cl-memo">${esc(target.memo)}</div>` : ""}
-        ${past.length ? `<div class="cl-past">
-            <div class="cl-past-lb">これまでのやり取り</div>
-            ${past.map((h) => `<div class="cl-past-row">
-              <span class="cl-past-at">${esc(when(h.at))}</span>
-              <span class="cl-past-r">${esc(h["結果"])}</span>
-              <span class="cl-past-m">${esc(h["メモ"] || "")}</span>
-            </div>`).join("")}
-          </div>` : ""}
-
-        <div class="cl-lb">結果を選ぶ</div>
-        <div class="cl-results">
-          ${kinds.map((k) => `<button type="button" class="cl-r${k === "アポ獲得" ? " on" : ""}" data-r="${esc(k)}">${esc(k)}</button>`).join("")}
-        </div>
-        <label class="cl-memolb">メモ（任意）
-          <textarea id="clMemo" rows="2" placeholder="担当者は佐藤様・14時以降が良いとのこと"></textarea>
-        </label>
-        <div class="cl-foot">
-          <button type="button" class="btn" id="clNext">記録して次へ</button>
-          <button type="button" class="btn ghost" id="clSkip">とばす</button>
-          <span class="rev-status" id="clSaveSt"></span>
-        </div>
-      </div>`;
-
-    let picked = "";
-    box.querySelectorAll(".cl-r").forEach((b) =>
-      b.addEventListener("click", () => {
-        picked = b.dataset.r;
-        box.querySelectorAll(".cl-r").forEach((x) => x.classList.toggle("on", x === b));
-      }));
-    $("clNext").addEventListener("click", () => save(() => picked));
-    $("clSkip").addEventListener("click", () => { loadNext(); });
+    kinds = d["結果の種類"] || [];
+    rows = d.items || [];
+    render();
   } catch (e) {
     box.innerHTML = `<div class="empty-state">読み込めませんでした：${esc(e.message)}</div>`;
   }
 }
 
-// ───────── 記録して次へ ─────────
-async function save(getPicked) {
-  if (busy || !target) return;
-  const result = getPicked();
-  if (!result) { say("clSaveSt", "結果を選んでください", 4000); return; }
-  busy = true;
-  say("clSaveSt", "記録しています…");
+function render() {
+  const box = $("clTable");
+  const hide = $("clHideDone") && $("clHideDone").checked;
+  const list = hide ? rows.filter((x) => !x["済み"]) : rows;
+  if (!list.length) {
+    box.innerHTML = `<div class="empty-state">${hide && rows.length ? "全部かけ終わりました。" : "該当がありません。"}</div>`;
+    return;
+  }
+  box.innerHTML =
+    `<div class="kc-tablewrap"><table class="kc-table">
+      <tr>
+        <th>ステージ</th><th>会社名</th><th>担当者</th><th>電話番号</th>
+        <th>メールアドレス</th><th>最終ステータス</th><th>履歴</th><th>記録</th>
+      </tr>` +
+    list.map((x) => `
+      <tr class="${x["済み"] ? "kc-done" : ""}" data-id="${x.id}">
+        <td>${esc(x["ステージ"] || "-")}</td>
+        <td class="kc-co">${esc(x["会社名"] || "")}</td>
+        <td>${esc(x["担当者"] || "")}</td>
+        <td>${x["電話番号"]
+          ? `<a class="kc-tel" href="tel:${esc(telOf(x["電話番号"]))}">${esc(x["電話番号"])}</a>`
+          : `<span class="kc-none">なし</span>`}</td>
+        <td class="kc-mail">${esc(x["メール"] || "")}</td>
+        <td>${x["最終ステータス"]
+          ? `<span class="kc-st">${esc(x["最終ステータス"])}</span>`
+          : x["最終結果"] ? `<span class="kc-st kc-st-r">${esc(x["最終結果"])}</span>` : "-"}</td>
+        <td><button type="button" class="kc-btn kc-hist" data-id="${x.id}">${x["履歴数"] ? `${x["履歴数"]}回` : "なし"}</button></td>
+        <td><button type="button" class="kc-btn kc-rec" data-id="${x.id}">記録</button></td>
+      </tr>`).join("") + `</table></div>`;
+
+  box.querySelectorAll(".kc-hist").forEach((b) =>
+    b.addEventListener("click", () => openHistory(b.dataset.id)));
+  box.querySelectorAll(".kc-rec").forEach((b) =>
+    b.addEventListener("click", () => openRecord(b.dataset.id)));
+}
+
+// ───────── 窓（モーダル） ─────────
+function openModal(title, inner) {
+  const back = document.createElement("div");
+  back.className = "kc-modal-back";
+  back.innerHTML =
+    `<div class="kc-modal">
+       <div class="kc-modal-head"><b>${esc(title)}</b>
+         <button type="button" class="kc-modal-x" aria-label="閉じる">✕</button></div>
+       <div class="kc-modal-body">${inner}</div>
+     </div>`;
+  document.body.appendChild(back);
+  const close = () => back.remove();
+  back.querySelector(".kc-modal-x").addEventListener("click", close);
+  back.addEventListener("click", (e) => { if (e.target === back) close(); });
+  document.addEventListener("keydown", function escKey(e) {
+    if (e.key === "Escape") { close(); document.removeEventListener("keydown", escKey); }
+  });
+  return { el: back, close };
+}
+
+// 履歴の窓
+async function openHistory(id) {
+  const m = openModal("これまでのやり取り", '<div class="note">読み込んでいます…</div>');
   try {
-    const r = await fetch("/api/calls/record", {
-      method: "POST", headers: { "content-type": "application/json" },
-      body: JSON.stringify({
-        targetId: target.id, leadId: target.leadId, company: target.company,
-        result, memo: ($("clMemo") && $("clMemo").value) || "",
-      }),
-    });
-    const d = await r.json();
-    if (!r.ok) throw new Error(d.error || "記録できませんでした");
-    say("clSaveSt", "");
-    loadLists();       // 残り件数を数え直して、次の1件を出す
-    loadStats();
+    const d = await (await fetch(`/api/calls/targets/${encodeURIComponent(id)}/history`)).json();
+    if (d.error) throw new Error(d.error);
+    const a = d["相手"] || {};
+    const items = d.items || [];
+    m.el.querySelector(".kc-modal-body").innerHTML =
+      `<div class="kc-modal-co">${esc(a["会社名"] || "")}${a["担当者"] ? `　${esc(a["担当者"])}` : ""}</div>` +
+      (items.length
+        ? items.map((h) => `
+            <div class="kc-hist-row">
+              <div class="kc-hist-top">
+                <span class="kc-hist-at">${esc(when(h.at))}</span>
+                <span class="kc-hist-r">${esc(h["結果"])}</span>
+                <span class="kc-hist-who">${esc(h["誰"] || "")}</span>
+              </div>
+              ${h["メモ"] ? `<div class="kc-hist-m">${esc(h["メモ"])}</div>` : ""}
+            </div>`).join("")
+        : `<div class="note">まだ記録がありません。</div>`);
   } catch (e) {
-    say("clSaveSt", "失敗：" + e.message, 8000);
-  } finally { busy = false; }
+    m.el.querySelector(".kc-modal-body").innerHTML =
+      `<div class="note">読み込めませんでした：${esc(e.message)}</div>`;
+  }
+}
+
+// 記録の窓
+function openRecord(id) {
+  const x = rows.find((r) => String(r.id) === String(id));
+  if (!x) return;
+  const m = openModal("記録する", `
+    <div class="kc-modal-co">${esc(x["会社名"] || "")}${x["担当者"] ? `　${esc(x["担当者"])}` : ""}</div>
+    ${x["電話番号"] ? `<a class="kc-tel kc-tel-big" href="tel:${esc(telOf(x["電話番号"]))}">${esc(x["電話番号"])}</a>` : ""}
+    ${x.leadId ? "" : `<div class="note cc-warn">この相手はSalesforceのリードと結びついていないため、活動履歴は残りません。</div>`}
+
+    <div class="kc-lb">結果</div>
+    <div class="kc-results">
+      ${kinds.map((k) => `<button type="button" class="kc-r" data-r="${esc(k)}">${esc(k)}</button>`).join("")}
+    </div>
+
+    <div class="kc-lb">最終ステータス（任意）</div>
+    <input type="text" class="kc-input" id="kcStatus" value="${esc(x["最終ステータス"] || "")}" placeholder="例：掘り起こし10月" />
+
+    <div class="kc-lb">説明（任意）</div>
+    <textarea class="kc-input" id="kcMemo" rows="3" placeholder="担当者は佐藤様・14時以降が良いとのこと"></textarea>
+
+    <div class="kc-modal-foot">
+      <button type="button" class="btn" id="kcSave">記録する</button>
+      <span class="rev-status" id="kcSaveSt"></span>
+    </div>`);
+
+  let picked = "";
+  m.el.querySelectorAll(".kc-r").forEach((b) =>
+    b.addEventListener("click", () => {
+      picked = b.dataset.r;
+      m.el.querySelectorAll(".kc-r").forEach((y) => y.classList.toggle("on", y === b));
+    }));
+
+  m.el.querySelector("#kcSave").addEventListener("click", async () => {
+    if (!picked) { say("kcSaveSt", "結果を選んでください", 4000); return; }
+    const btn = m.el.querySelector("#kcSave");
+    btn.disabled = true;
+    say("kcSaveSt", "記録しています…");
+    try {
+      const r = await fetch(`/api/calls/targets/${encodeURIComponent(id)}/record`, {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          result: picked,
+          memo: m.el.querySelector("#kcMemo").value,
+          status: m.el.querySelector("#kcStatus").value,
+        }),
+      });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.error || "記録できませんでした");
+      m.close();
+      say("clStatus", d.sf && d.sf.ok
+        ? "記録しました（Salesforceにも残しました）"
+        : `記録しました${d.sf && d.sf.reason ? `（SFへは残せません：${d.sf.reason}）` : ""}`, 8000);
+      loadLists();
+      loadStats();
+    } catch (e) {
+      say("kcSaveSt", "失敗：" + e.message, 8000);
+      btn.disabled = false;
+    }
+  });
 }
 
 // ───────── 今日の実績 ─────────
@@ -158,10 +230,10 @@ async function loadStats() {
     const d = await (await fetch(`/api/calls/stats?x=1${mine}`)).json();
     if (d.error) throw new Error(d.error);
     const s = d["合計"] || {};
-    const rate = s.コール ? ((s.アポ / s.コール) * 100).toFixed(1) : "0.0";
-    const touch = s.コール ? ((s.接触 / s.コール) * 100).toFixed(1) : "0.0";
+    const rate = s["コール"] ? ((s["アポ"] / s["コール"]) * 100).toFixed(1) : "0.0";
+    const touch = s["コール"] ? ((s["接触"] / s["コール"]) * 100).toFixed(1) : "0.0";
     box.innerHTML =
-      `<div class="cl-sum">コール ${s.コール || 0}　接触 ${s.接触 || 0}（${touch}%）　アポ ${s.アポ || 0}（${rate}%）</div>` +
+      `<div class="cl-sum">コール ${s["コール"] || 0}　接触 ${s["接触"] || 0}（${touch}%）　アポ ${s["アポ"] || 0}（${rate}%）</div>` +
       ((d.items || []).length
         ? `<table class="sh-table"><tr><th>誰</th><th>コール</th><th>接触</th><th>アポ</th></tr>` +
           d.items.map((x) => `<tr><td>${esc(x["誰"])}</td><td>${x["コール"]}</td><td>${x["接触"]}</td><td>${x["アポ"]}</td></tr>`).join("") +
@@ -203,7 +275,7 @@ document.addEventListener("click", (ev) => {
     const items = lines.map((l) => {
       const c = l.includes("\t") ? l.split("\t") : l.split(",");
       return { company: (c[0] || "").trim(), person: (c[1] || "").trim(), phone: (c[2] || "").trim() };
-    }).filter((x) => x.company || x.phone);
+    }).filter((y) => y.company || y.phone);
     if (!items.length) { say("clNewStatus", "貼り付けた中身が読めませんでした", 6000); return; }
     createList({ name: $("clNewName").value, items });
   }
@@ -213,11 +285,18 @@ document.addEventListener("click", (ev) => {
 if ($("clList")) {
   $("clList").addEventListener("change", () => {
     listId = Number($("clList").value) || 0;
-    loadNext();
-    loadLists();
+    loadTable();
   });
 }
 if ($("clMine")) $("clMine").addEventListener("change", loadStats);
+if ($("clHideDone")) $("clHideDone").addEventListener("change", render);
+if ($("clFind")) {
+  let timer = null;
+  $("clFind").addEventListener("input", () => {
+    clearTimeout(timer);
+    timer = setTimeout(loadTable, 250);
+  });
+}
 
 loadLists();
 loadStats();

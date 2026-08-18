@@ -10,7 +10,7 @@
     <link rel="manifest" href="/site.webmanifest" />
     <meta name="theme-color" content="#0d5b47" />
     <meta name="apple-mobile-web-app-title" content="kinbot" />
-    <link rel="stylesheet" href="style.css?v=20260818zo" />
+    <link rel="stylesheet" href="style.css?v=20260818zq" />
   </head>
   <body>
     <div class="app">
@@ -38,15 +38,17 @@
         </header>
 
         <main class="report-page kc-page">
-          <!-- かける画面。1件ずつ大きく出す。 -->
+          <!-- かける画面。リストを表で見て、そこから記録する。 -->
           <section class="card" id="call">
             <div class="cl-head">
               <label>リスト <select id="clList"></select></label>
               <span class="cl-prog" id="clProg"></span>
+              <label>探す <input type="text" id="clFind" placeholder="会社名・担当者・電話" style="width:200px" /></label>
+              <label class="ks-check"><input type="checkbox" id="clHideDone" checked /> 済みを隠す</label>
               <span class="rev-status" id="clStatus"></span>
             </div>
 
-            <div id="clTarget"><div class="empty-state">リストを選んでください。</div></div>
+            <div id="clTable"><div class="empty-state">リストを選んでください。</div></div>
           </section>
 
           <!-- 今日の実績 -->
@@ -83,7 +85,7 @@
         </main>
       </div>
     </div>
-    <script src="calls.js?v=20260818zo"></script>
-    <script src="nav.js?v=20260818zo"></script>
+    <script src="calls.js?v=20260818zq"></script>
+    <script src="nav.js?v=20260818zq"></script>
   </body>
 </html>

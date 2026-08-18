@@ -627,6 +627,12 @@ export async function initDb() {
   `);
   await sq(`CREATE INDEX IF NOT EXISTS ix_call_targets_list ON call_targets(list_id, done, sort_order);`);
   await sq(`CREATE INDEX IF NOT EXISTS ix_call_targets_who ON call_targets(assigned_to, done);`);
+  // Salesforceのリードの項目（ステージ＝レコードタイプ、最終ステータス＝リード状態）
+  await sq(`ALTER TABLE call_targets ADD COLUMN IF NOT EXISTS stage TEXT;`);
+  await sq(`ALTER TABLE call_targets ADD COLUMN IF NOT EXISTS status TEXT;`);
+  // SFのリードの状態を、そのまま持っておく（一覧に出すため）
+  await sq(`ALTER TABLE call_targets ADD COLUMN IF NOT EXISTS stage TEXT;`);
+  await sq(`ALTER TABLE call_targets ADD COLUMN IF NOT EXISTS status TEXT;`);
   await sq(`
     CREATE TABLE IF NOT EXISTS call_logs (
       id         SERIAL PRIMARY KEY,
@@ -3095,11 +3101,12 @@ export async function addCallTargets(listId, items = []) {
       const x = items[i] || {};
       await pool.query(
         `INSERT INTO call_targets
-           (list_id, lead_id, company, person, phone, email, industry, area, memo, assigned_to, sort_order)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
+           (list_id, lead_id, company, person, phone, email, industry, area, memo, assigned_to, sort_order, stage, status)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`,
         [listId, x.leadId || null, x.company || "", x.person || "", x.phone || "",
          x.email || "", x.industry || "", x.area || "", x.memo || "",
-         String(x.assignedTo || "").toLowerCase() || null, i]);
+         String(x.assignedTo || "").toLowerCase() || null, i,
+         x.stage || "", x.status || ""]);
       n++;
     }
     return n;
@@ -3122,6 +3129,66 @@ export async function listCallLists({ owner = "", includeClosed = false } = {}) 
       [String(owner || "").toLowerCase(), !!includeClosed]);
     return rows;
   } catch (e) { console.error("[db] listCallLists", e.message); return []; }
+}
+
+// リストの中身を、表として全部返す（SFのリードレポートのような見た目にする）
+export async function listCallTargets(listId, { q = "", limit = 500 } = {}) {
+  if (!pool || !listId) return [];
+  try {
+    const p = [listId];
+    let where = `t.list_id = $1`;
+    if (q) {
+      p.push(`%${String(q).replace(/[%_]/g, "")}%`);
+      where += ` AND (t.company ILIKE $${p.length} OR t.person ILIKE $${p.length}
+                      OR t.phone ILIKE $${p.length} OR t.email ILIKE $${p.length})`;
+    }
+    p.push(Math.max(1, Math.min(2000, limit)));
+    const { rows } = await pool.query(
+      `SELECT t.*,
+              (SELECT count(*) FROM call_logs l WHERE l.target_id = t.id) AS 履歴数,
+              (SELECT l.result FROM call_logs l WHERE l.target_id = t.id
+                ORDER BY l.at DESC LIMIT 1) AS 最終結果,
+              (SELECT l.at FROM call_logs l WHERE l.target_id = t.id
+                ORDER BY l.at DESC LIMIT 1) AS 最終日時
+         FROM call_targets t
+        WHERE ${where}
+        ORDER BY t.done, t.sort_order, t.id
+        LIMIT $${p.length}`, p);
+    return rows;
+  } catch (e) { console.error("[db] listCallTargets", e.message); return []; }
+}
+
+// 1件ぶんの情報（記録のモーダルで使う）
+export async function getCallTarget(id) {
+  if (!pool || !id) return null;
+  try {
+    const { rows } = await pool.query(`SELECT * FROM call_targets WHERE id = $1`, [id]);
+    return rows[0] || null;
+  } catch { return null; }
+}
+
+// ステージ・最終ステータスを書き換える
+export async function setCallTargetStatus(id, { stage, status } = {}) {
+  if (!pool || !id) return null;
+  const sets = [], vals = [id];
+  if (stage !== undefined) { vals.push(String(stage || "").slice(0, 60)); sets.push(`stage = $${vals.length}`); }
+  if (status !== undefined) { vals.push(String(status || "").slice(0, 120)); sets.push(`status = $${vals.length}`); }
+  if (!sets.length) return null;
+  try {
+    const { rows } = await pool.query(
+      `UPDATE call_targets SET ${sets.join(", ")} WHERE id = $1 RETURNING *`, vals);
+    return rows[0] || null;
+  } catch (e) { console.error("[db] setCallTargetStatus", e.message); return null; }
+}
+
+// 架電したあと、リードの状態を書き戻す
+export async function setTargetStatus(targetId, status) {
+  if (!pool || !targetId) return null;
+  try {
+    await pool.query(`UPDATE call_targets SET status = $2 WHERE id = $1`,
+      [targetId, String(status || "").slice(0, 80)]);
+    return true;
+  } catch { return null; }
 }
 
 // 次にかける1件を出す（自分に割り当てられたもの／割り当てなしも拾う）
