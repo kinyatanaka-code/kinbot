@@ -122,6 +122,7 @@ import {
   aposTakenInRange,
   aposMailPending,
   setNoReminder,
+  fixApoForReminder,
   recordSfUpdate,
   sfUpdatedMap,
   listWeekly,
@@ -3940,6 +3941,35 @@ app.get("/api/apo-mail/tomorrow", async (req, res) => {
       全件: all.length,
       items: mine,
     });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// リマインドに足りないところを補う（宛先・担当）
+app.post("/api/apo-mail/fix", async (req, res) => {
+  try {
+    const slug = String(req.body?.slug || "").trim();
+    if (!slug) return res.status(400).json({ error: "どのアポか分かりません" });
+    const patch = {};
+    if (req.body?.email !== undefined) {
+      const em = String(req.body.email || "").trim();
+      if (em && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(em)) {
+        return res.status(400).json({ error: "メールアドレスの形が違います" });
+      }
+      patch.email = em;
+    }
+    if (req.body?.owner !== undefined) patch.owner = String(req.body.owner || "").trim();
+    const r = await fixApoForReminder(slug, patch);
+    if (!r) return res.status(404).json({ error: "見つかりません" });
+    console.log(`[apo-mail] ${r.label} を直しました（${Object.keys(patch).join("・")}）by ${req.user}`);
+    res.json({ ok: true, item: { slug: r.slug, to: r.client_email || "", owner: r.current_owner || "" } });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// 送り先の候補（担当セールスの一覧）
+app.get("/api/apo-mail/reps", async (req, res) => {
+  try {
+    const list = await listClosers({ activeOnly: true }).catch(() => []);
+    res.json({ reps: list.map((c) => ({ email: c.email, name: c.name || c.email })) });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
@@ -10502,7 +10532,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-08-18h リマインドの日を選べる／チェックが戻る不具合を修正";
+const BUILD_TAG = "2026-08-18j リマインドの足りない部分をその場で直せる";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",

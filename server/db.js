@@ -2707,6 +2707,22 @@ export async function getSmartLinkByEvent(eventId) {
   const { rows } = await pool.query(`SELECT * FROM smart_links WHERE event_id=$1`, [eventId]);
   return rows[0] || null;
 }
+// リマインドに足りないところを、その場で補う。
+//   宛先（メール）と、担当セールスを入れられる。
+export async function fixApoForReminder(slug, { email, owner } = {}) {
+  if (!pool || !slug) return null;
+  const sets = [], vals = [slug];
+  if (email !== undefined) { vals.push(String(email || "").trim()); sets.push(`client_email = $${vals.length}`); }
+  if (owner !== undefined) { vals.push(String(owner || "").trim()); sets.push(`current_owner = $${vals.length}`); }
+  if (!sets.length) return null;
+  try {
+    const { rows } = await pool.query(
+      `UPDATE smart_links SET ${sets.join(", ")} WHERE slug = $1
+       RETURNING slug, label, client_email, current_owner`, vals);
+    return rows[0] || null;
+  } catch (e) { console.error("[db] fixApoForReminder", e.message); return null; }
+}
+
 // 前日リマインドを送る／送らないを切り替える
 export async function setNoReminder(slug, off) {
   if (!pool || !slug) return null;

@@ -2017,6 +2017,16 @@ async function loadTomorrowReminders() {
           <span class="rm-co">${escH(x.company || x.label || "")}</span>
           <span class="rm-to">${escH(x.to || "")}</span>
           <span class="rm-st${x.送る ? "" : " cc-warn"}">${escH(x["状態"] || "")}</span>
+          ${x["状態"] === "宛先がありません" || x["状態"] === "担当が決まっていません"
+            ? `<button type="button" class="rm-fix">直す</button>` : ""}
+        </div>
+        <div class="rm-fixbox" hidden>
+          ${x["状態"] === "宛先がありません"
+            ? `<label>宛先 <input type="email" class="rm-fix-mail" placeholder="tanaka@example.co.jp" value="${escH(x.to || "")}" /></label>` : ""}
+          ${x["状態"] === "担当が決まっていません"
+            ? `<label>担当 <select class="rm-fix-owner"><option value="">選んでください</option></select></label>` : ""}
+          <button type="button" class="btn rm-fix-save">入れる</button>
+          <span class="rm-fix-st"></span>
         </div>`).join("") +
       `</div>`;
 
@@ -2034,6 +2044,60 @@ async function loadTomorrowReminders() {
       const w = bar.querySelector(".rm-ngn");
       if (w) w.textContent = ng ? `送れないもの ${ng}件` : "";
     }
+
+    // 「直す」を押したら、その場で宛先や担当を入れられるようにする
+    bar.querySelectorAll(".rm-fix").forEach((b) =>
+      b.addEventListener("click", async () => {
+        const box = b.closest(".rm-row").nextElementSibling;
+        if (!box || !box.classList.contains("rm-fixbox")) return;
+        box.hidden = !box.hidden;
+        if (box.hidden) return;
+        // 担当の選択肢は、開いたときに読み込む
+        const sel = box.querySelector(".rm-fix-owner");
+        if (sel && sel.options.length <= 1) {
+          try {
+            const d = await (await fetch("/api/apo-mail/reps")).json();
+            for (const r of d.reps || []) {
+              const o = document.createElement("option");
+              o.value = r.email; o.textContent = r.name;
+              sel.appendChild(o);
+            }
+          } catch {}
+        }
+        const first = box.querySelector("input, select");
+        if (first) first.focus();
+      }));
+
+    bar.querySelectorAll(".rm-fix-save").forEach((b) =>
+      b.addEventListener("click", async () => {
+        const box = b.closest(".rm-fixbox");
+        const row = box.previousElementSibling;
+        const slug = row.dataset.slug;
+        const mail = box.querySelector(".rm-fix-mail");
+        const owner = box.querySelector(".rm-fix-owner");
+        const st = box.querySelector(".rm-fix-st");
+        const body = { slug };
+        if (mail) body.email = mail.value.trim();
+        if (owner) body.owner = owner.value;
+        if (mail && !body.email) { st.textContent = "宛先を入れてください"; return; }
+        if (owner && !body.owner) { st.textContent = "担当を選んでください"; return; }
+        b.disabled = true;
+        st.textContent = "入れています…";
+        try {
+          const r = await fetch("/api/apo-mail/fix", {
+            method: "POST", headers: { "content-type": "application/json" },
+            body: JSON.stringify(body),
+          });
+          const d = await r.json();
+          if (!r.ok) throw new Error(d.error || "入れられませんでした");
+          st.textContent = "入れました";
+          rmOpen = true;
+          setTimeout(() => loadTomorrowReminders(), 500);
+        } catch (e) {
+          st.textContent = "失敗：" + e.message;
+          b.disabled = false;
+        }
+      }));
 
     // チェックを外したら「送らない」、戻したら「送る」
     bar.querySelectorAll(".rm-send").forEach((el) =>
