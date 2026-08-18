@@ -445,11 +445,20 @@ export async function sendApoMail(link, kind, { url, repName, force = false, act
 // 「翌日ぶん」をまとめて送る。設定した時刻の1時間のあいだに1回だけ動く。
 // 明日リマインドを送る相手の一覧を返す（送らずに見るだけ）。
 // ホームに出したり、1時間前のお知らせに使う。
-export async function listTomorrowReminders() {
-  const nowJst = new Date(Date.now() + 9 * 3600 * 1000);
-  const y = nowJst.getUTCFullYear(), m = nowJst.getUTCMonth(), d = nowJst.getUTCDate();
-  const fromUtc = new Date(Date.UTC(y, m, d + 1, 0, 0, 0) - 9 * 3600 * 1000);
-  const toUtc = new Date(Date.UTC(y, m, d + 2, 0, 0, 0) - 9 * 3600 * 1000);
+// 日付を指定できる。省略すると「明日」。
+// その日の商談を全部返すので、リマインドの対象を選べる。
+export async function listTomorrowReminders(dateJst = "") {
+  let fromUtc, toUtc;
+  if (/^\d{4}-\d{2}-\d{2}$/.test(String(dateJst))) {
+    const [y2, m2, d2] = dateJst.split("-").map(Number);
+    fromUtc = new Date(Date.UTC(y2, m2 - 1, d2, 0, 0, 0) - 9 * 3600 * 1000);
+    toUtc = new Date(Date.UTC(y2, m2 - 1, d2 + 1, 0, 0, 0) - 9 * 3600 * 1000);
+  } else {
+    const nowJst = new Date(Date.now() + 9 * 3600 * 1000);
+    const y = nowJst.getUTCFullYear(), m = nowJst.getUTCMonth(), d = nowJst.getUTCDate();
+    fromUtc = new Date(Date.UTC(y, m, d + 1, 0, 0, 0) - 9 * 3600 * 1000);
+    toUtc = new Date(Date.UTC(y, m, d + 2, 0, 0, 0) - 9 * 3600 * 1000);
+  }
   const rows = await listApoReminderTargets(fromUtc.toISOString(), toUtc.toISOString(), { forList: true });
   return rows.map((r) => {
     // なぜ送られないのかを、そのまま添える

@@ -3920,17 +3920,24 @@ app.post("/api/mail-sent-check", async (req, res) => {
 app.get("/api/apo-mail/tomorrow", async (req, res) => {
   try {
     const cfg = await getApoMailConfig();
-    const all = await listTomorrowReminders();
-    // 自分のぶんだけにする（?all=1 で全員）
+    // 日付を指定できる（省略すると明日）。ほかの日のぶんも見て、対象に足せるように。
+    const all = await listTomorrowReminders(String(req.query.date || ""));
+    // 自分のぶんだけにする（?all=1 で全員）。
+    // 担当がまだ決まっていないものは、誰のぶんか分からないので必ず出す
+    // （そのままだと誰の画面にも出ず、気づけないため）。
     const me = String(req.user || "").toLowerCase();
     const mine = String(req.query.all || "") === "1"
       ? all
-      : all.filter((x) => String(x.owner || "").toLowerCase() === me);
+      : all.filter((x) => {
+          const o = String(x.owner || "").toLowerCase();
+          return !o || o === me;
+        });
     res.json({
       ok: true,
       自動送信: cfg.autoReminder !== false,
       送る時刻: `${cfg.reminderHour}:00`,
       件数: mine.length,
+      全件: all.length,
       items: mine,
     });
   } catch (e) { res.status(500).json({ error: e.message }); }
@@ -10495,7 +10502,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-08-18g リマインドの送信可否を選べる／アポ一覧の検索";
+const BUILD_TAG = "2026-08-18h リマインドの日を選べる／チェックが戻る不具合を修正";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",

@@ -1959,13 +1959,28 @@ function apoMeetingWhen(iso) {
 
 // ===== 明日リマインドを送る先 =====
 // 送る前に、宛先や日時が正しいかを確かめられるようにする。
+// いま見ているリマインドの条件（日付と、全員ぶんかどうか）
+let rmDate = "";      // 空＝明日
+let rmAll = false;
+let rmOpen = false;   // 一覧を開いたままにしておくため
+
+// 明日の日付（yyyy-mm-dd）
+function tomorrowStr() {
+  const j = new Date(Date.now() + 9 * 3600 * 1000 + 24 * 3600 * 1000);
+  return j.toISOString().slice(0, 10);
+}
+
 async function loadTomorrowReminders() {
   const bar = document.getElementById("rmBar");
   if (!bar) return;
   try {
-    const d = await (await fetch("/api/apo-mail/tomorrow")).json();
+    const q = new URLSearchParams();
+    if (rmDate) q.set("date", rmDate);
+    if (rmAll) q.set("all", "1");
+    const d = await (await fetch("/api/apo-mail/tomorrow?" + q.toString())).json();
     const items = d.items || [];
-    if (!items.length) { bar.hidden = true; bar.innerHTML = ""; return; }
+    // 日付を選んでいるときは、0件でも枠は出す（切り替えられるように）
+    if (!items.length && !rmDate && !rmAll) { bar.hidden = true; bar.innerHTML = ""; return; }
     // 日本時間で出す（見る人の端末の時差に左右されないように）
     const when = (iso) => {
       const x = new Date(iso);
@@ -1979,17 +1994,23 @@ async function loadTomorrowReminders() {
     bar.hidden = false;
     bar.innerHTML =
       `<button type="button" class="rm-head" id="rmToggle">` +
-      `<span class="rm-lb">明日のリマインド</span>` +
+      `<span class="rm-lb">${rmDate && rmDate !== tomorrowStr() ? escH(rmDate.slice(5).replace("-", "/")) + "のリマインド" : "明日のリマインド"}</span>` +
       `<span class="rm-n">${okCount}件</span>` +
       `<span class="rm-when">${escH(d["送る時刻"] || "")}に送ります</span>` +
-      (ngCount ? `<span class="cc-warn">送れないもの ${ngCount}件</span>` : "") +
+      `<span class="cc-warn rm-ngn">${ngCount ? `送れないもの ${ngCount}件` : ""}</span>` +
       (d["自動送信"] ? "" : `<span class="cc-warn">自動送信はOFFです</span>`) +
       `<span class="rm-arrow">▾</span></button>` +
-      `<div class="rm-list" id="rmList" hidden>` +
+      `<div class="rm-list" id="rmList"${rmOpen ? "" : " hidden"}>` +
+      `<div class="rm-tools">
+         <label>日 <input type="date" class="rm-date" value="${escH(rmDate || tomorrowStr())}" /></label>
+         <label class="ks-check"><input type="checkbox" class="rm-allchk"${rmAll ? " checked" : ""} /> 全員のぶん</label>
+         <span class="rm-hint">送る相手はチェックで選べます</span>
+       </div>` +
+      (items.length ? "" : `<div class="rm-empty">この日の商談はありません。</div>`) +
       items.map((x) => `
         <div class="rm-row${x.送る ? "" : " rm-ng"}" data-slug="${escH(x.slug)}">
-          <label class="rm-chk" title="チェックを外すと、この会社には送りません">
-            <input type="checkbox" class="rm-send"${x["送らない"] ? "" : " checked"}
+          <label class="rm-chk" title="${x["状態"] === "送信済み" ? "もう送りました" : "チェックを外すと、この会社には送りません"}">
+            <input type="checkbox" class="rm-send"${x.送る ? " checked" : ""}
               ${x["状態"] === "送信済み" ? " disabled" : ""} />
           </label>
           <span class="rm-time">${escH(when(x.start))}</span>
@@ -1998,6 +2019,21 @@ async function loadTomorrowReminders() {
           <span class="rm-st${x.送る ? "" : " cc-warn"}">${escH(x["状態"] || "")}</span>
         </div>`).join("") +
       `</div>`;
+
+    // 帯の件数を数え直す（開いたまま更新できるように）
+    function updateRmCount() {
+      const rows = [...bar.querySelectorAll(".rm-row")];
+      const ok = rows.filter((r) => {
+        const c = r.querySelector(".rm-send");
+        const st = (r.querySelector(".rm-st") || {}).textContent || "";
+        return c && c.checked && !c.disabled && st === "送ります";
+      }).length;
+      const ng = rows.length - ok;
+      const n = bar.querySelector(".rm-n");
+      if (n) n.textContent = `${ok}件`;
+      const w = bar.querySelector(".rm-ngn");
+      if (w) w.textContent = ng ? `送れないもの ${ng}件` : "";
+    }
 
     // チェックを外したら「送らない」、戻したら「送る」
     bar.querySelectorAll(".rm-send").forEach((el) =>
@@ -2012,17 +2048,43 @@ async function loadTomorrowReminders() {
             body: JSON.stringify({ slug, off }),
           });
           if (!r.ok) throw new Error("変えられませんでした");
-          loadTomorrowReminders();   // 件数と状態を出し直す
+          // 開いたままにしておきたいので、その場の表示だけ書き換える
+          const st = row.querySelector(".rm-st");
+          if (st) {
+            st.textContent = off ? "送らない" : "送ります";
+            st.classList.toggle("cc-warn", off);
+          }
+          row.classList.toggle("rm-ng", off);
+          el.disabled = false;
+          updateRmCount();
         } catch (e) {
           el.checked = !el.checked;
           el.disabled = false;
         }
       }));
     const t = document.getElementById("rmToggle");
-    if (t) t.addEventListener("click", () => {
-      const l = document.getElementById("rmList");
-      if (l) l.hidden = !l.hidden;
-      t.classList.toggle("open", l && !l.hidden);
+    if (t) {
+      t.classList.toggle("open", rmOpen);
+      t.addEventListener("click", () => {
+        const l = document.getElementById("rmList");
+        if (l) l.hidden = !l.hidden;
+        rmOpen = l && !l.hidden;
+        t.classList.toggle("open", rmOpen);
+      });
+    }
+
+    // 日を変える／全員のぶんを見る
+    const dateEl = bar.querySelector(".rm-date");
+    if (dateEl) dateEl.addEventListener("change", () => {
+      rmDate = dateEl.value || "";
+      rmOpen = true;
+      loadTomorrowReminders();
+    });
+    const allEl = bar.querySelector(".rm-allchk");
+    if (allEl) allEl.addEventListener("change", () => {
+      rmAll = allEl.checked;
+      rmOpen = true;
+      loadTomorrowReminders();
     });
   } catch { bar.hidden = true; }
 }
