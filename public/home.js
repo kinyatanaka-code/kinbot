@@ -2018,14 +2018,14 @@ async function loadTomorrowReminders() {
           <span class="rm-who">${escH(x["獲得者"] || "")}${x["担当"] ? `→${escH(x["担当"])}` : ""}</span>
           <span class="rm-to">${escH(x.to || "")}</span>
           <span class="rm-st${x.送る ? "" : " cc-warn"}">${escH(x["状態"] || "")}</span>
-          ${x["状態"] === "宛先がありません" || x["状態"] === "担当が決まっていません"
-            ? `<button type="button" class="rm-fix">直す</button>` : ""}
+          ${x["状態"] === "送信済み" ? "" : `<button type="button" class="rm-fix">直す</button>`}
         </div>
+        <!-- 宛先も担当も、いつでも直せるようにしておく -->
         <div class="rm-fixbox" hidden>
-          ${x["状態"] === "宛先がありません"
-            ? `<label>宛先 <input type="email" class="rm-fix-mail" placeholder="tanaka@example.co.jp" value="${escH(x.to || "")}" /></label>` : ""}
-          ${x["状態"] === "担当が決まっていません"
-            ? `<label>担当 <select class="rm-fix-owner"><option value="">選んでください</option></select></label>` : ""}
+          <label>宛先 <input type="email" class="rm-fix-mail" placeholder="tanaka@example.co.jp" value="${escH(x.to || "")}" /></label>
+          <label>担当 <select class="rm-fix-owner" data-now="${escH(x.owner || "")}">
+            <option value="">（決まっていません）</option>
+          </select></label>
           <button type="button" class="btn rm-fix-save">入れる</button>
           <span class="rm-fix-st"></span>
         </div>`).join("") +
@@ -2063,6 +2063,9 @@ async function loadTomorrowReminders() {
               o.value = r.email; o.textContent = r.name;
               sel.appendChild(o);
             }
+            // いまの担当を選んだ状態にする（変えたいところだけ直せる）
+            const now = sel.dataset.now || "";
+            if (now) sel.value = now;
           } catch {}
         }
         const first = box.querySelector("input, select");
@@ -2080,17 +2083,34 @@ async function loadTomorrowReminders() {
         const body = { slug };
         if (mail) body.email = mail.value.trim();
         if (owner) body.owner = owner.value;
-        if (mail && !body.email) { st.textContent = "宛先を入れてください"; return; }
-        if (owner && !body.owner) { st.textContent = "担当を選んでください"; return; }
+        // 宛先も担当も空のままなら、直すものがない
+        if (!body.email && !body.owner) {
+          st.textContent = "宛先か担当を入れてください";
+          return;
+        }
         b.disabled = true;
         st.textContent = "入れています…";
         try {
-          const r = await fetch("/api/apo-mail/fix", {
-            method: "POST", headers: { "content-type": "application/json" },
-            body: JSON.stringify(body),
-          });
-          const d = await r.json();
-          if (!r.ok) throw new Error(d.error || "入れられませんでした");
+          // 担当を変えるときは、ふだんの割り当てと同じ道を通す。
+          // （商談予定の招待を作り直し、確定メールも送るため）
+          const nowOwner = owner ? (owner.dataset.now || "") : "";
+          if (owner && body.owner && body.owner !== nowOwner) {
+            const r2 = await fetch(`/api/smart-links/${encodeURIComponent(slug)}/owner`, {
+              method: "PUT", headers: { "content-type": "application/json" },
+              body: JSON.stringify({ owner: body.owner }),
+            });
+            const d2 = await r2.json();
+            if (!r2.ok) throw new Error(d2.error || "担当を変えられませんでした");
+            delete body.owner;   // 担当はここで済んだので、残りだけ送る
+          }
+          if (body.email !== undefined) {
+            const r = await fetch("/api/apo-mail/fix", {
+              method: "POST", headers: { "content-type": "application/json" },
+              body: JSON.stringify(body),
+            });
+            const d = await r.json();
+            if (!r.ok) throw new Error(d.error || "入れられませんでした");
+          }
           st.textContent = "入れました";
           rmOpen = true;
           setTimeout(() => loadTomorrowReminders(), 500);
