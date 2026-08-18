@@ -4270,6 +4270,22 @@ app.get("/api/jump", async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+// 差し込みが効いているかを、その場で確かめる。
+// 実際に踏むURLの後ろを、そのまま貼って試せる。
+app.get("/api/jump/check", (req, res) => {
+  const v = viewerFromQuery(req.query || {});
+  res.json({
+    ok: true,
+    受け取った項目: Object.keys(req.query || {}),
+    読み取れたアドレス: v.email || "（読み取れませんでした）",
+    読み取れた名前: v.name || "（なし）",
+    hint: v.email
+      ? "この形なら、誰が開いたか記録されます。"
+      : "アドレスを読み取れません。?m=メールアドレス の形になっているか、" +
+        "差し込みタグ（%%email%%）が置き換わっているかをご確認ください。",
+  });
+});
+
 // 誰が開いたか
 app.get("/api/jump/:id/viewers", async (req, res) => {
   try {
@@ -4300,7 +4316,10 @@ app.get("/g/:slug", async (req, res) => {
       to = u.toString();
     } catch {}
 
-    console.log(`[転送URL] ${link.title} を開きました（${v.email || "名乗りなし"}）`);
+    // 何を受け取ったかをログに残す（誰が開いたか分からないときの手がかり）
+    const gotKeys = Object.keys(req.query || {}).join(",") || "なし";
+    console.log(`[転送URL] ${link.title} を開きました（${v.email || "名乗りなし"}／` +
+      `受け取った項目：${gotKeys}）`);
 
     // Google Chatへ知らせる。
     // 同じ人が何度も開いたときに毎回鳴らないよう、30分は1回だけにする。
@@ -11138,7 +11157,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-08-18v 調整URLが開かれたらGoogle Chatに知らせる";
+const BUILD_TAG = "2026-08-18w 差し込みが効いているかを確かめられるようにした";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
