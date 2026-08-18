@@ -187,7 +187,16 @@ function mailLine(mail, clientEmail) {
       ? `📝 下書き済　${mail.to || "-"}`
       : `✉️ 送信済　${mail.to || "-"}`;
   }
-  if (mail.skipped) return "✉️ メール未作成（自動作成OFF）";
+  // 作らなかったときは、その理由をそのまま出す。
+  // 以前はすべて「自動作成OFF」と出していて、本当の理由が分からなかった。
+  if (mail.skipped) {
+    const r = String(mail.reason || "").trim();
+    if (!r) return "✉️ メール未作成（アポ管理→メール設定で「担当割り当て時に確定メールを自動で用意する」を入れてください）";
+    // すでにできているものは「未作成」ではないので、そう書かない
+    if (/下書きを作成/.test(r)) return "📝 下書き済（前に作ったもの）";
+    if (/送信済/.test(r)) return "✉️ 送信済（前に送ったもの）";
+    return `✉️ メール未作成　${shortReason(r)}`;
+  }
   return `⚠️ *メールを作れません*　${shortReason(mail.reason)}`;
 }
 
