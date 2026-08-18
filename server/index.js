@@ -4962,6 +4962,21 @@ app.post("/api/calls/from-report", async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+// 架電の結果としてよく使われる言い方。説明の中から見つけるのに使う。
+// 長いものを先に置く（「担当者接触：お断り」より前に「担当者不在」を見ないように）
+const 既知の結果 = [
+  "担当者接触：アポ獲得", "担当者接触：営業フォロー", "担当者接触：お断り",
+  "担当者接触：セミナー予約", "現在使われていない", "受付ブロック",
+  "担当者不在", "コールのみ", "問い合わせ",
+];
+
+// 同じ失敗を何度も出さないための小さな道具
+let _lastFail = "";
+function failedOnce(e, n) {
+  const m = String((e && e.message) || e).slice(0, 200);
+  if (m !== _lastFail) { console.warn("[kincall] 活動の件数を数えられません:", m); _lastFail = m; }
+}
+
 // リストの中身を表で返す（SFのリードレポートのような一覧）
 app.get("/api/calls/targets", async (req, res) => {
   try {
@@ -4973,18 +4988,33 @@ app.get("/api/calls/targets", async (req, res) => {
     });
 
     // Salesforceに残っている活動の件数も数える（kincallの記録だけだと0に見えるため）
+    //
+    // SFアカウントの無い人（インターン生）でも数を見られるよう、
+    // 代わりに更新する人の連携を使う。
     const sfCount = new Map();
-    const ids = rows.map((r) => r.lead_id).filter(Boolean);
-    if (ids.length && salesforceConfigured() && (await sfConnected(req.user).catch(() => false))) {
-      try {
-        // 1件ずつ聞くと遅いので、まとめて数える
-        for (let i = 0; i < ids.length; i += 200) {
-          const part = ids.slice(i, i + 200).map((x) => `'${String(x).replace(/[^A-Za-z0-9]/g, "")}'`);
-          const d = await sfQuery(req.user,
+    const ids = [...new Set(rows.map((r) => r.lead_id).filter(Boolean))];
+    let 数える人 = req.user;
+    if (!(await sfConnected(数える人).catch(() => false))) {
+      const st = await getSettings().catch(() => ({}));
+      const 代理 = String(st.sfProxyUser || "").trim().toLowerCase();
+      if (代理 && (await sfConnected(代理).catch(() => false))) 数える人 = 代理;
+    }
+    if (ids.length && salesforceConfigured() && (await sfConnected(数える人).catch(() => false))) {
+      // 一度に長すぎる問い合わせはSalesforceに弾かれるので、小分けにする
+      const 束 = 80;
+      let 失敗 = 0;
+      for (let i = 0; i < ids.length; i += 束) {
+        const part = ids.slice(i, i + 束).map((x) => `'${String(x).replace(/[^A-Za-z0-9]/g, "")}'`);
+        try {
+          const d = await sfQuery(数える人,
             `SELECT WhoId, count(Id) n FROM Task WHERE WhoId IN (${part.join(",")}) GROUP BY WhoId`);
           for (const r of d.records || []) sfCount.set(r.WhoId, Number(r.n || 0));
+        } catch (e) {
+          failedOnce(e, ++失敗);
         }
-      } catch (e) { console.warn("[kincall] 活動の件数を数えられません:", e.message); }
+      }
+      if (失敗) console.warn(`[kincall] 活動の件数：${失敗}回ぶん数えられませんでした`);
+      console.log(`[kincall] 活動の件数を数えました：${sfCount.size}件ぶん（対象 ${ids.length}）`);
     }
     res.json({
       ok: true,
@@ -5015,7 +5045,10 @@ app.get("/api/calls/targets/:id/history", async (req, res) => {
     const rows = await callHistory(id, t.lead_id, 50);
     const items = rows.map((h) => ({
       結果: h.result, メモ: h.memo || "", 誰: h.caller || "", at: h.at, 元: "kincall",
+      sfId: h.sf_task_id || "",
     }));
+    // kincallから作ったSalesforceの活動は、こちらで出すので二重にしない
+    const 作ったID = new Set(items.map((x) => x.sfId).filter((v) => v && v !== "done"));
 
     // Salesforceに残っている架電の履歴も混ぜる（過去のやり取りはSFにある）
     let sfNote = "";
@@ -5023,15 +5056,22 @@ app.get("/api/calls/targets/:id/history", async (req, res) => {
       try {
         const acts = await leadActivities(req.user, t.lead_id, 50);
         for (const a of acts) {
-          // kincallから作ったものは二重に出さない
+          // kincallから作ったものは二重に出さない（活動のIDで見分ける）
+          if (作ったID.has(a.Id)) continue;
           const at = a.ActivityDate || (a.CreatedDate || "").slice(0, 10);
-          const already = items.some((x) =>
-            String(x.at || "").slice(0, 10) === String(at) &&
-            String(a.Subject || "").includes(String(x["結果"] || "")));
-          if (already) continue;
+          // 説明の中に書かれている結果を取り出す。
+          // 決まった言い方（受付ブロック・担当者接触：アポ獲得 など）を先に探し、
+              // 見つからなければ「結果：」の後ろを読む。
+          const desc = String(a.Description || "");
+          let 結果 = 既知の結果.find((w) => desc.includes(w)) || "";
+          if (!結果) {
+            const m1 = desc.match(/(?:コール結果|結果)\s*[:：]\s*([^\n]*?)(?=\s*[^\s:：]{2,10}\s*[:：]|\n|$)/);
+            if (m1) 結果 = m1[1].trim().slice(0, 40);
+          }
           items.push({
-            結果: String(a.Subject || "").replace(/^コール：/, "") || "活動",
-            メモ: String(a.Description || "").slice(0, 500),
+            件名: String(a.Subject || "").replace(/^コール：/, "") || "活動",
+            結果,
+            メモ: desc.slice(0, 500),
             誰: (a.Owner && a.Owner.Name) || "",
             at: at ? `${at}T00:00:00Z` : a.CreatedDate,
             元: "salesforce",
@@ -5100,7 +5140,7 @@ app.post("/api/calls/targets/:id/record", async (req, res) => {
 
     if (t.lead_id && salesforceConfigured() && (await sfConnected(sfUser).catch(() => false))) {
       try {
-        await createTask(sfUser, {
+        const made = await createTask(sfUser, {
           WhoId: t.lead_id,
           Subject: `コール：${result}`,
           Status: "完了", Type: "Call",
@@ -5117,7 +5157,10 @@ app.post("/api/calls/targets/:id/record", async (req, res) => {
         if (b.leadStatus) {
           await updateLead(sfUser, t.lead_id, { Status: String(b.leadStatus) }).catch(() => {});
         }
-        await markCallSynced(log && log.id, { taskId: "done" }).catch(() => {});
+        // 作った活動のIDを残す（履歴で二重に出さないために使う）
+        await markCallSynced(log && log.id, {
+          taskId: (made && (made.id || made.Id)) || "done",
+        }).catch(() => {});
         sf = { ok: true, 代理: 代理で更新 ? await displayNameOf(sfUser).catch(() => sfUser) : "" };
       } catch (e) {
         sf = { ok: false, reason: e.message };
@@ -11852,7 +11895,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-08-19l kincall：読み直さず記録・ステージ7つ・kincallだけの人";
+const BUILD_TAG = "2026-08-19m kincall：履歴の件数と結果・二重解消・kincallだけを保存できる";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",

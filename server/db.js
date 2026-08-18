@@ -649,6 +649,8 @@ export async function initDb() {
   `);
   await sq(`CREATE INDEX IF NOT EXISTS ix_call_logs_at ON call_logs(at DESC);`);
   await sq(`CREATE INDEX IF NOT EXISTS ix_call_logs_target ON call_logs(target_id, at DESC);`);
+  // Salesforce側の活動のID（二重に表示しないために使う）
+  await sq(`ALTER TABLE call_logs ADD COLUMN IF NOT EXISTS sf_task_id TEXT;`);
 
   // ===== Salesforceの更新の記録 =====
   // どの商談を、いつ、どのステージにしたか。
@@ -5005,7 +5007,8 @@ export async function knowledgeForKasasagi(limit = 40) {
 
 // ===== メンバー管理 =====
 // 役割: closer（クローザー）／inside（インサイド＝アポ獲得）／fallback（予備）
-export const MEMBER_ROLES = ["closer", "inside", "fallback"];
+// kincall だけ … kincall以外の画面に入れない人（インターン生など）
+export const MEMBER_ROLES = ["closer", "inside", "fallback", "kincall"];
 export const MEMBER_BUSINESSES = ["DOC", "MOCHICA"];
 
 function normRoles(v) {

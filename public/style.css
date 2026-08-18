@@ -5737,3 +5737,7 @@ input:focus, select:focus, textarea:focus, .sf-input:focus, .sf-select:focus, .s
 /* 記録した行を、少しだけ光らせる（読み直さなくても分かるように） */
 @keyframes kcJust { 0% { background: #d9f2e7; } 100% { background: transparent; } }
 .kc-table tr.kc-just td { animation: kcJust 1.6s ease-out; }
+
+/* 履歴：件名の横に結果を出す */
+.kc-hist-res { flex: none; font-size: 10.5px; font-weight: 700; color: #0d5b47;
+  background: #eaf7f2; border: 1px solid #cfeee2; border-radius: 999px; padding: 0 8px; }

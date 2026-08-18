@@ -40,7 +40,7 @@ async function loadLists() {
     const sel = $("clList");
     const keep = sel.value;
     sel.innerHTML = items.length
-      ? items.map((x) => `<option value="${x.id}">${esc(x.name)}（残り ${x["残り"]}）</option>`).join("")
+      ? items.map((x) => `<option value="${x.id}">${esc(x.name)}</option>`).join("")
       : `<option value="">まだリストがありません</option>`;
     if (keep && items.some((x) => String(x.id) === keep)) sel.value = keep;
     if (items.length) {
@@ -226,7 +226,8 @@ async function openHistory(id) {
             <div class="kc-hist-row">
               <div class="kc-hist-top">
                 <span class="kc-hist-at">${esc(when(h.at))}</span>
-                <span class="kc-hist-r">${esc(h["結果"])}</span>
+                <span class="kc-hist-r">${esc(h["件名"] || h["結果"] || "")}</span>
+                ${h["件名"] && h["結果"] ? `<span class="kc-hist-res">${esc(h["結果"])}</span>` : ""}
                 <span class="kc-hist-who">${esc(h["誰"] || "")}</span>
                 ${h["元"] === "salesforce" ? '<span class="kc-hist-sf">SF</span>' : ""}
               </div>
