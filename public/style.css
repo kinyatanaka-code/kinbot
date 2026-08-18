@@ -5696,3 +5696,31 @@ input:focus, select:focus, textarea:focus, .sf-input:focus, .sf-select:focus, .s
 .kc-table td { padding: 9px 12px; border-bottom: 1px solid var(--line); font-size: 12.5px; }
 .kc-table tr:last-child td { border-bottom: none; }
 .kc-table tbody tr:hover td, .kc-table tr:hover td { background: #f7fbf9; }
+
+/* kincallの表：横に収める（横スクロールしない） */
+.kc-table { table-layout: fixed; }
+.kc-table th.kc-th-s { width: 15%; }
+.kc-table th.kc-th-p { width: 8%; }
+.kc-table th.kc-th-t { width: 13%; }
+.kc-table th.kc-th-m { width: 18%; }
+.kc-table th.kc-th-h { width: 8%; }
+.kc-table th.kc-th-r { width: 8%; }
+.kc-table td { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.kc-table td.kc-co { font-weight: 700; }
+.kc-table .kc-mail { color: var(--muted); font-size: 11.5px; }
+
+/* 見出しのボタン（絞り込み・並べ替え） */
+.kc-th-b { border: none; background: transparent; color: #0d5b47; font-weight: 700;
+  font-size: 11.5px; font-family: inherit; cursor: pointer; padding: 0; }
+.kc-th-b:hover { text-decoration: underline; }
+.kc-th-b.on { background: #0d5b47; color: #fff; border-radius: 999px; padding: 1px 9px; }
+
+/* 絞り込みの窓 */
+.kc-flt-list { max-height: 320px; overflow-y: auto; }
+.kc-flt-row { display: flex; align-items: center; gap: 9px; padding: 7px 4px;
+  border-bottom: 1px solid var(--line); font-size: 12.5px; cursor: pointer; }
+.kc-flt-row:last-child { border-bottom: none; }
+.kc-flt-n { margin-left: auto; font-size: 11px; color: var(--muted); }
+
+.kc-hist-sf { flex: none; font-size: 9.5px; font-weight: 700; color: #0F6E56;
+  background: #eaf7f2; border: 1px solid #cfeee2; border-radius: 999px; padding: 0 6px; }

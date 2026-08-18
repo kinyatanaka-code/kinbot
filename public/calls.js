@@ -77,19 +77,81 @@ async function loadTable() {
   }
 }
 
+// 絞り込みと並べ替えの状態
+const filt = { stage: new Set(), status: new Set(), hist: "" };
+let sortBy = "", sortDesc = false;
+
+// いま出すぶんを決める
+function visibleRows() {
+  let list = rows.slice();
+  if (filt.stage.size) list = list.filter((x) => filt.stage.has(x["ステージ"] || ""));
+  if (filt.status.size) list = list.filter((x) => filt.status.has(x["最終ステータス"] || ""));
+  if (filt.hist === "none") list = list.filter((x) => !x["履歴数"]);
+  if (filt.hist === "some") list = list.filter((x) => x["履歴数"] > 0);
+  const q = ($("clFind") && $("clFind").value || "").trim().toLowerCase();
+  if (q) {
+    const norm = (v) => String(v || "").replace(/[\s　-]/g, "").toLowerCase();
+    list = list.filter((x) =>
+      [x["会社名"], x["担当者"], x["電話番号"], x["メール"]].some((f) => norm(f).includes(norm(q))));
+  }
+  if (sortBy) {
+    const key = { stage: "ステージ", company: "会社名", status: "最終ステータス", hist: "履歴数" }[sortBy];
+    list.sort((a, b) => {
+      const A = a[key], B = b[key];
+      const n = (typeof A === "number") ? A - B : String(A || "").localeCompare(String(B || ""), "ja");
+      return sortDesc ? -n : n;
+    });
+  }
+  return list;
+}
+
+// 絞り込みの窓を出す（チェックで選ぶ）
+function openFilter(which, btn) {
+  const key = which === "stage" ? "ステージ" : "最終ステータス";
+  const all = [...new Set(rows.map((x) => x[key] || "").filter(Boolean))].sort();
+  const cur = filt[which];
+  const inner =
+    `<div class="kc-flt-list">` +
+    all.map((v) => `<label class="kc-flt-row">
+       <input type="checkbox" value="${esc(v)}"${cur.size === 0 || cur.has(v) ? " checked" : ""} />
+       <span>${esc(v)}</span>
+       <span class="kc-flt-n">${rows.filter((x) => (x[key] || "") === v).length}</span>
+     </label>`).join("") + `</div>
+     <div class="kc-modal-foot">
+       <button type="button" class="btn" id="fltOk">この条件で見る</button>
+       <button type="button" class="btn ghost" id="fltAll">すべて</button>
+     </div>`;
+  const m = openModal(`${key}でしぼる`, inner);
+  m.el.querySelector("#fltOk").addEventListener("click", () => {
+    const picked = [...m.el.querySelectorAll("input:checked")].map((c) => c.value);
+    filt[which] = picked.length === all.length ? new Set() : new Set(picked);
+    m.close(); render();
+  });
+  m.el.querySelector("#fltAll").addEventListener("click", () => {
+    filt[which] = new Set(); m.close(); render();
+  });
+}
+
 function render() {
   const box = $("clTable");
-  const hide = $("clHideDone") && $("clHideDone").checked;
-  const list = hide ? rows.filter((x) => !x["済み"]) : rows;
+  const list = visibleRows();
+  const arrow = (k) => sortBy === k ? (sortDesc ? " ▾" : " ▴") : "";
+  const on = (k) => filt[k] && filt[k].size ? " on" : "";
   if (!list.length) {
-    box.innerHTML = `<div class="empty-state">${hide && rows.length ? "全部かけ終わりました。" : "該当がありません。"}</div>`;
+    box.innerHTML = `<div class="empty-state">${rows.length ? "この条件に当てはまるものがありません。" : "リストを選んでください。"}</div>`;
     return;
   }
   box.innerHTML =
     `<div class="kc-tablewrap"><table class="kc-table">
       <tr>
-        <th>ステージ</th><th>会社名</th><th>担当者</th><th>電話番号</th>
-        <th>メールアドレス</th><th>最終ステータス</th><th>履歴</th><th>記録</th>
+        <th class="kc-th-s"><button type="button" class="kc-th-b${on("stage")}" data-flt="stage">ステージ ▾</button></th>
+        <th><button type="button" class="kc-th-b" data-sort="company">会社名${arrow("company")}</button></th>
+        <th class="kc-th-p">担当者</th>
+        <th class="kc-th-t">電話番号</th>
+        <th class="kc-th-m">メールアドレス</th>
+        <th class="kc-th-s"><button type="button" class="kc-th-b${on("status")}" data-flt="status">最終ステータス ▾</button></th>
+        <th class="kc-th-h"><button type="button" class="kc-th-b${filt.hist ? " on" : ""}" data-hist="1">履歴${arrow("hist")}</button></th>
+        <th class="kc-th-r">記録</th>
       </tr>` +
     list.map((x) => `
       <tr class="${x["済み"] ? "kc-done" : ""}" data-id="${x.id}">
@@ -106,6 +168,23 @@ function render() {
         <td><button type="button" class="kc-btn kc-hist" data-id="${x.id}">${x["履歴数"] ? `${x["履歴数"]}回` : "なし"}</button></td>
         <td><button type="button" class="kc-btn kc-rec" data-id="${x.id}">記録</button></td>
       </tr>`).join("") + `</table></div>`;
+
+  // 見出しの絞り込み・並べ替え
+  box.querySelectorAll("[data-flt]").forEach((b) =>
+    b.addEventListener("click", () => openFilter(b.dataset.flt, b)));
+  box.querySelectorAll("[data-sort]").forEach((b) =>
+    b.addEventListener("click", () => {
+      if (sortBy === b.dataset.sort) sortDesc = !sortDesc;
+      else { sortBy = b.dataset.sort; sortDesc = false; }
+      render();
+    }));
+  const hb = box.querySelector("[data-hist]");
+  if (hb) hb.addEventListener("click", () => {
+    // 履歴は「なし → あり → 全部」で切り替える
+    filt.hist = filt.hist === "" ? "none" : filt.hist === "none" ? "some" : "";
+    if (!filt.hist) { sortBy = "hist"; sortDesc = !sortDesc; }
+    render();
+  });
 
   box.querySelectorAll(".kc-hist").forEach((b) =>
     b.addEventListener("click", () => openHistory(b.dataset.id)));
@@ -143,6 +222,7 @@ async function openHistory(id) {
     const items = d.items || [];
     m.el.querySelector(".kc-modal-body").innerHTML =
       `<div class="kc-modal-co">${esc(a["会社名"] || "")}${a["担当者"] ? `　${esc(a["担当者"])}` : ""}</div>` +
+      (d.note ? `<div class="note">${esc(d.note)}</div>` : "") +
       (items.length
         ? items.map((h) => `
             <div class="kc-hist-row">
@@ -150,6 +230,7 @@ async function openHistory(id) {
                 <span class="kc-hist-at">${esc(when(h.at))}</span>
                 <span class="kc-hist-r">${esc(h["結果"])}</span>
                 <span class="kc-hist-who">${esc(h["誰"] || "")}</span>
+                ${h["元"] === "salesforce" ? '<span class="kc-hist-sf">SF</span>' : ""}
               </div>
               ${h["メモ"] ? `<div class="kc-hist-m">${esc(h["メモ"])}</div>` : ""}
             </div>`).join("")
@@ -306,7 +387,7 @@ if ($("clList")) {
   });
 }
 if ($("clMine")) $("clMine").addEventListener("change", loadStats);
-if ($("clHideDone")) $("clHideDone").addEventListener("change", render);
+
 if ($("clFind")) {
   let timer = null;
   $("clFind").addEventListener("input", () => {
@@ -399,4 +480,11 @@ document.addEventListener("click", (ev) => {
   const t = ev.target && ev.target.closest ? ev.target.closest("button") : null;
   if (!t) return;
   if (t.id === "clSfFind") { ev.preventDefault(); sfFind(); }
+  if (t.id === "clReset") {
+    ev.preventDefault();
+    filt.stage = new Set(); filt.status = new Set(); filt.hist = "";
+    sortBy = ""; sortDesc = false;
+    if ($("clFind")) $("clFind").value = "";
+    render();
+  }
 });

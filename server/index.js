@@ -404,6 +404,8 @@ import {
   describeOpportunity,
   describeOpportunityLayout,
   describeTask,
+  leadActivities,
+  taskResultField,
   createTask,
   updateTask,
   deleteTask,
@@ -4944,10 +4946,46 @@ app.get("/api/calls/targets/:id/history", async (req, res) => {
     const t = await getCallTarget(id);
     if (!t) return res.status(404).json({ error: "見つかりません" });
     const rows = await callHistory(id, t.lead_id, 50);
+    const items = rows.map((h) => ({
+      結果: h.result, メモ: h.memo || "", 誰: h.caller || "", at: h.at, 元: "kincall",
+    }));
+
+    // Salesforceに残っている架電の履歴も混ぜる（過去のやり取りはSFにある）
+    let sfNote = "";
+    if (t.lead_id && salesforceConfigured() && (await sfConnected(req.user).catch(() => false))) {
+      try {
+        const acts = await leadActivities(req.user, t.lead_id, 50);
+        for (const a of acts) {
+          // kincallから作ったものは二重に出さない
+          const at = a.ActivityDate || (a.CreatedDate || "").slice(0, 10);
+          const already = items.some((x) =>
+            String(x.at || "").slice(0, 10) === String(at) &&
+            String(a.Subject || "").includes(String(x["結果"] || "")));
+          if (already) continue;
+          items.push({
+            結果: String(a.Subject || "").replace(/^コール：/, "") || "活動",
+            メモ: String(a.Description || "").slice(0, 500),
+            誰: (a.Owner && a.Owner.Name) || "",
+            at: at ? `${at}T00:00:00Z` : a.CreatedDate,
+            元: "salesforce",
+          });
+        }
+        if (!acts.length) sfNote = "Salesforceに活動履歴はありませんでした";
+      } catch (e) {
+        sfNote = `Salesforceの履歴を読めません（${e.message}）`;
+      }
+    } else if (!t.lead_id) {
+      sfNote = "この相手はSalesforceのリードと結びついていません";
+    }
+
+    // 新しい順に並べ直す
+    items.sort((a, b) => new Date(b.at).getTime() - new Date(a.at).getTime());
+
     res.json({
       ok: true,
       相手: { 会社名: t.company || "", 担当者: t.person || "", 電話番号: t.phone || "", メール: t.email || "" },
-      items: rows.map((h) => ({ 結果: h.result, メモ: h.memo || "", 誰: h.caller || "", at: h.at })),
+      note: sfNote,
+      items,
     });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
@@ -11725,7 +11763,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-08-19f レポートからkincallへ送る／一覧を全件・画面いっぱいに";
+const BUILD_TAG = "2026-08-19h kincall：横スクロール解消・絞り込み・SFの架電履歴";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
