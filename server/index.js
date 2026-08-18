@@ -3230,12 +3230,14 @@ app.post("/api/doc-links/shared", async (req, res) => {
       linkId: link.id,
       url: `${base}/d/${link.slug}`,
       // 配信システムごとの貼り方（そのままコピーして使える形）
+      // Pardot（Salesforce Account Engagement）を使っているので、先頭に置く。
+      // 会社名も一緒に送ると、一覧が読みやすくなる。
       貼り方: {
+        "Pardot（おすすめ）": `${base}/d/${link.slug}?m=%%email%%&n=%%account_name%%`,
+        "Pardot（アドレスだけ）": `${base}/d/${link.slug}?m=%%email%%`,
         "HubSpot": `${base}/d/${link.slug}?m={{ contact.email }}`,
-        "Salesforce Account Engagement（Pardot）": `${base}/d/${link.slug}?m=%%email%%`,
         "Mailchimp": `${base}/d/${link.slug}?m=*|EMAIL|*`,
-        "SATORI・ブラストメール など": `${base}/d/${link.slug}?m=%email%`,
-        "差し込みを使わない場合": `${base}/d/${link.slug}`,
+        "差し込みを使わない場合（誰が見たかは分かりません）": `${base}/d/${link.slug}`,
       },
     });
   } catch (e) { res.status(500).json({ error: e.message }); }

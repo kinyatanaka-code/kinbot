@@ -10,7 +10,7 @@
     <link rel="manifest" href="/site.webmanifest" />
     <meta name="theme-color" content="#0d5b47" />
     <meta name="apple-mobile-web-app-title" content="kinbot" />
-    <link rel="stylesheet" href="style.css?v=20260818l" />
+    <link rel="stylesheet" href="style.css?v=20260818m" />
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/tabler-icons/2.44.0/iconfont/tabler-icons.min.css" />
   </head>
   <body>
@@ -93,9 +93,13 @@
 
             <div class="set-card">
               <h3>メルマガ用の共通URL</h3>
-              <p class="note">全員に<b>同じURL</b>を送るときに使います。メルマガは1通ずつURLを変えられないためです。<br>
-              配信システムの<b>差し込みタグ</b>を後ろに付けると、送信時に各自のアドレスが埋め込まれ、<b>誰が見たかが分かります</b>。<br>
+              <p class="note"><b>Pardot（Salesforce Account Engagement）でメルマガを送るときに使います。</b>
+              メルマガは1通ずつURLを変えられないので、全員に同じURLを送ります。<br>
+              Pardotの<b>差し込みタグ</b>（<code>%%email%%</code>）を後ろに付けると、送信時に各自のアドレスが埋め込まれ、<b>誰が見たかが分かります</b>。<br>
               資料ごとに1本だけ作られます（何度押しても同じURLです）。</p>
+              <p class="note cc-warn"><b>Gmailでは使えません。</b>Gmailには差し込みの仕組みが無いため、
+              <code>%%email%%</code> がそのまま送られてしまい、誰が見たか分かりません。<br>
+              Gmailで送るときは、上の<b>「宛先ごとのURLを発行する」</b>をお使いください。</p>
               <div class="ap-cfg-row">
                 <label>資料 <select id="shDoc"></select></label>
                 <button class="btn" id="shMake">共通URLを出す</button>
@@ -149,7 +153,7 @@
         </main>
       </div>
     </div>
-    <script src="nav.js?v=20260818l"></script>
-    <script src="docs.js?v=20260818l"></script>
+    <script src="nav.js?v=20260818m"></script>
+    <script src="docs.js?v=20260818m"></script>
   </body>
 </html>
