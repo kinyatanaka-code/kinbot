@@ -155,6 +155,9 @@ import {
   addDocFile,
   listDocFiles,
   setDocShared,
+  getOrCreateSharedLink,
+  setViewerInfo,
+  listSharedViewers,
   getDocBytes,
   setDocActive,
   renameDocFile,
@@ -3141,15 +3144,99 @@ app.get("/d/:slug", async (req, res) => {
   res.sendFile("doc.html", { root: path.join(__dirname, "..", "public") });
 });
 
+// メルマガの差し込みタグから、開いた人の情報を取り出す。
+//
+// 配信システムによって書き方が違うので、よくある形をまとめて受ける。
+//   ?m=  ?email=  ?e=  … メールアドレス
+//   ?n=  ?name=        … 名前
+// 差し込みが働かなかったとき（{{email}} のまま届いたとき）は、無かったことにする。
+function viewerFromQuery(q) {
+  const pick = (...keys) => {
+    for (const k of keys) {
+      const v = String((q && q[k]) || "").trim();
+      if (!v) continue;
+      // 置き換えられていない差し込みタグは使わない
+      if (/[{}%\[\]|*]/.test(v)) continue;
+      return v;
+    }
+    return "";
+  };
+  const email = pick("m", "email", "e", "mail", "addr");
+  const name = pick("n", "name", "company", "co");
+  return {
+    email: /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) ? email : "",
+    name: name.slice(0, 80),
+  };
+}
+
 // ビューアーが最初に呼ぶ。閲覧を1件つくり、資料の情報を返す。
 app.post("/api/doc/:slug/open", async (req, res) => {
   try {
     const r = await openDocView(String(req.params.slug || ""), req);
     if (r.error) return res.status(404).json({ error: r.error });
+
+    // 共通URL（メルマガ用）のときは、URLの後ろから開いた人を受け取る
+    let viewer = null;
+    if (r.link.shared_link && r.view) {
+      const q = { ...(req.query || {}), ...(req.body || {}) };
+      const v = viewerFromQuery(q);
+      if (v.email || v.name) {
+        await setViewerInfo(r.view.id, v).catch(() => {});
+        viewer = v;
+      }
+    }
+
     res.json({
       ok: true, viewId: r.view ? r.view.id : null,
       name: fixMojibake(r.link.doc_name), filename: fixMojibake(r.link.filename || ""),
-      to: [r.link.company, r.link.contact].filter(Boolean).join(" "),
+      to: r.link.shared_link
+        ? (viewer && (viewer.name || viewer.email)) || ""
+        : [r.link.company, r.link.contact].filter(Boolean).join(" "),
+      共通URL: !!r.link.shared_link,
+    });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// 共通URLを、誰が開いたかの一覧
+app.get("/api/doc-links/:id/viewers", async (req, res) => {
+  try {
+    const rows = await listSharedViewers(parseInt(req.params.id, 10));
+    res.json({
+      ok: true,
+      人数: rows.length,
+      items: rows.map((r) => ({
+        相手: r["相手"],
+        名前: r["名前"] || "",
+        回数: Number(r["回数"] || 0),
+        秒: Number(r["秒"] || 0),
+        到達: Number(r["到達"] || 0),
+        最後: r["最後"],
+      })),
+    });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// メルマガ用の共通URLを1本用意する（すでにあれば使い回す）
+app.post("/api/doc-links/shared", async (req, res) => {
+  try {
+    const docId = parseInt(req.body?.docId, 10);
+    if (!docId) return res.status(400).json({ error: "資料を選んでください" });
+    const link = await getOrCreateSharedLink(docId, req.user);
+    if (!link) return res.status(500).json({ error: "作れませんでした" });
+    const base = String(PUBLIC_URL || "").replace(/\/+$/, "");
+    res.json({
+      ok: true,
+      slug: link.slug,
+      linkId: link.id,
+      url: `${base}/d/${link.slug}`,
+      // 配信システムごとの貼り方（そのままコピーして使える形）
+      貼り方: {
+        "HubSpot": `${base}/d/${link.slug}?m={{ contact.email }}`,
+        "Salesforce Account Engagement（Pardot）": `${base}/d/${link.slug}?m=%%email%%`,
+        "Mailchimp": `${base}/d/${link.slug}?m=*|EMAIL|*`,
+        "SATORI・ブラストメール など": `${base}/d/${link.slug}?m=%email%`,
+        "差し込みを使わない場合": `${base}/d/${link.slug}`,
+      },
     });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
@@ -10532,7 +10619,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-08-18j リマインドの足りない部分をその場で直せる";
+const BUILD_TAG = "2026-08-18l メルマガ用の共通URL（誰が見たか分かる）";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",

@@ -46,7 +46,7 @@ async function loadDocs() {
     baseUrl = d.base || location.origin;
 
     // 選択欄を埋める
-    for (const [id, withAll] of [["dkDoc", true], ["dsDoc", false], ["blDoc", false]]) {
+    for (const [id, withAll] of [["dkDoc", true], ["dsDoc", false], ["blDoc", false], ["shDoc", false]]) {
       const sel = $(id);
       if (!sel) continue;
       const cur = sel.value;
@@ -564,4 +564,92 @@ if ($("blFile")) {
     const tab = document.querySelector('[data-dtab="track"]');
     if (tab) tab.click();
   });
+}
+
+
+// ───────────────────────────────────────────────────────────
+// メルマガ用の共通URL
+//
+// 全員に同じURLを送る。誰が見たかは、配信システムの差し込みタグで分かる。
+// ───────────────────────────────────────────────────────────
+if ($("shMake")) {
+  $("shMake").addEventListener("click", async () => {
+    const docId = parseInt($("shDoc").value, 10);
+    const st = $("shStatus"), box = $("shBox");
+    if (!docId) { st.textContent = "資料を選んでください"; return; }
+    st.textContent = "用意しています…";
+    box.innerHTML = "";
+    try {
+      const r = await fetch("/api/doc-links/shared", {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ docId }),
+      });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.error || "作れませんでした");
+      st.textContent = "";
+      const ways = d["貼り方"] || {};
+      box.innerHTML =
+        `<div class="sh-box">
+           <div class="sh-lb">この資料の共通URL</div>
+           <div class="sh-url"><code>${esc(d.url)}</code>
+             <button type="button" class="btn ghost sh-copy" data-u="${esc(d.url)}">コピー</button></div>
+           <div class="sh-lb">配信システムに貼るときは、下のどれかを使ってください</div>
+           ${Object.entries(ways).map(([name, url]) => `
+             <div class="sh-row">
+               <span class="sh-name">${esc(name)}</span>
+               <code class="sh-code">${esc(url)}</code>
+               <button type="button" class="btn ghost sh-copy" data-u="${esc(url)}">コピー</button>
+             </div>`).join("")}
+           <p class="note">差し込みタグが働かなかった場合は、「名乗りなし」として数だけ記録します。<br>
+           開いた人の一覧は、下の「閲覧状況」で見られます。</p>
+           <button type="button" class="btn ghost" id="shWho" data-id="${esc(String(d.linkId || ""))}">誰が見たかを見る</button>
+           <div id="shWhoBox"></div>
+         </div>`;
+      box.querySelectorAll(".sh-copy").forEach((b) =>
+        b.addEventListener("click", () => {
+          navigator.clipboard.writeText(b.dataset.u)
+            .then(() => { b.textContent = "コピーしました"; setTimeout(() => (b.textContent = "コピー"), 2000); })
+            .catch(() => { b.textContent = "できませんでした"; });
+        }));
+      const who = $("shWho");
+      if (who) who.addEventListener("click", () => loadSharedViewers(d.slug));
+    } catch (e) {
+      st.textContent = "失敗：" + e.message;
+    }
+  });
+}
+
+// 共通URLを、誰が開いたか
+async function loadSharedViewers(slug) {
+  const box = $("shWhoBox");
+  if (!box) return;
+  box.innerHTML = "読み込んでいます…";
+  try {
+    const links = await (await fetch("/api/doc-links?limit=200")).json();
+    const hit = (links.links || []).find((x) => x.slug === slug);
+    if (!hit) { box.innerHTML = "まだ誰も開いていません。"; return; }
+    const d = await (await fetch(`/api/doc-links/${hit.id}/viewers`)).json();
+    const items = d.items || [];
+    if (!items.length) { box.innerHTML = "まだ誰も開いていません。"; return; }
+    // 日本時間で出す
+    const when = (v) => {
+      const x = new Date(v);
+      if (isNaN(x.getTime())) return "";
+      const j = new Date(x.getTime() + 9 * 3600 * 1000);
+      const p2 = (n) => String(n).padStart(2, "0");
+      return `${j.getUTCMonth() + 1}/${j.getUTCDate()} ${p2(j.getUTCHours())}:${p2(j.getUTCMinutes())}`;
+    };
+    box.innerHTML =
+      `<div class="note">${items.length}人が開きました</div>` +
+      `<table class="sh-table"><tr><th>相手</th><th>回数</th><th>滞在</th><th>到達</th><th>最後に見た</th></tr>` +
+      items.map((x) => `<tr>
+        <td>${esc(x["相手"])}${x["名前"] ? `<br><small>${esc(x["名前"])}</small>` : ""}</td>
+        <td>${x["回数"]}</td>
+        <td>${Math.round(x["秒"] / 6) / 10}分</td>
+        <td>${x["到達"] || "-"}</td>
+        <td>${esc(when(x["最後"]))}</td>
+      </tr>`).join("") + `</table>`;
+  } catch (e) {
+    box.innerHTML = "見られませんでした：" + esc(e.message);
+  }
 }

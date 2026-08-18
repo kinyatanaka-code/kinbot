@@ -5490,3 +5490,19 @@ input:focus, select:focus, textarea:focus, .sf-input:focus, .sf-select:focus, .s
   padding: 5px 9px; font-family: inherit; font-size: 12px; background: var(--panel); min-width: 200px; }
 .rm-fixbox .btn { padding: 5px 14px; font-size: 12px; }
 .rm-fix-st { font-size: 11px; color: #0F6E56; }
+
+/* メルマガ用の共通URL */
+.sh-box { margin-top: 10px; padding: 12px 14px; border: 1px solid var(--line);
+  border-radius: 12px; background: var(--panel-2); }
+.sh-lb { font-size: 11px; color: var(--muted); font-weight: 700; margin: 8px 0 4px; }
+.sh-url { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.sh-url code { font-size: 13px; color: #0d5b47; font-weight: 700; word-break: break-all; }
+.sh-row { display: flex; align-items: center; gap: 8px; padding: 5px 0;
+  border-bottom: 1px solid var(--line); flex-wrap: wrap; }
+.sh-row:last-of-type { border-bottom: none; }
+.sh-name { flex: 0 0 210px; font-size: 11.5px; color: var(--muted); }
+.sh-code { flex: 1; min-width: 200px; font-size: 11.5px; word-break: break-all; color: var(--ink); }
+.sh-copy { padding: 3px 10px; font-size: 11px; }
+.sh-table { border-collapse: collapse; margin-top: 8px; font-size: 12px; width: 100%; }
+.sh-table th, .sh-table td { border: 1px solid var(--line); padding: 5px 9px; text-align: left; }
+.sh-table th { background: #eaf7f2; color: #0d5b47; font-weight: 700; font-size: 11px; }

@@ -921,6 +921,9 @@ export async function initDb() {
   await sq(`CREATE INDEX IF NOT EXISTS ix_doc_views_link ON doc_views(link_id, started_at DESC);`);
   // 資料を閉じたかどうか。閉じた時点の滞在時間で通知するために使う。
   await sq(`ALTER TABLE doc_views ADD COLUMN IF NOT EXISTS ended BOOLEAN NOT NULL DEFAULT false;`);
+  // 共通URL（メルマガ用）で開いた人。差し込みタグから受け取る。
+  await sq(`ALTER TABLE doc_views ADD COLUMN IF NOT EXISTS viewer_email TEXT;`);
+  await sq(`ALTER TABLE doc_views ADD COLUMN IF NOT EXISTS viewer_name TEXT;`);
 
   // 開封（画像の読み込み）とリンクのクリック
   await sq(`
@@ -4052,6 +4055,58 @@ export async function clientEmailForCompany(company) {
 }
 
 // 資料を「自分だけ」「チームに共有」に切り替える
+// メルマガ用の「みんな共通のURL」を1本だけ用意する。
+// すでにあれば、それを使い回す（同じ資料に何本も作らない）。
+export async function getOrCreateSharedLink(docId, owner) {
+  if (!pool || !docId) return null;
+  try {
+    const { rows: found } = await pool.query(
+      `SELECT * FROM doc_links
+        WHERE doc_id = $1 AND shared_link = true AND NOT revoked
+        ORDER BY created_at LIMIT 1`, [docId]);
+    if (found[0]) return found[0];
+    const slug = Math.random().toString(36).slice(2, 10);
+    const { rows } = await pool.query(
+      `INSERT INTO doc_links (slug, doc_id, company, contact, email, owner, shared_link)
+       VALUES ($1,$2,'（メルマガ用の共通URL）','','',$3,true) RETURNING *`,
+      [slug, docId, owner || null]);
+    return rows[0] || null;
+  } catch (e) { console.error("[db] getOrCreateSharedLink", e.message); return null; }
+}
+
+// 共通URLで開いた人を記録する
+// 共通URLを、誰が開いたかの一覧
+export async function listSharedViewers(linkId, limit = 500) {
+  if (!pool || !linkId) return [];
+  try {
+    const { rows } = await pool.query(
+      `SELECT COALESCE(NULLIF(viewer_email,''), '（名乗りなし）') AS 相手,
+              max(viewer_name) AS 名前,
+              count(*) AS 回数,
+              sum(COALESCE(seconds,0)) AS 秒,
+              max(COALESCE(max_page,0)) AS 到達,
+              max(started_at) AS 最後
+         FROM doc_views
+        WHERE link_id = $1
+        GROUP BY 1
+        ORDER BY 最後 DESC
+        LIMIT $2`, [linkId, limit]);
+    return rows;
+  } catch (e) { console.error("[db] listSharedViewers", e.message); return []; }
+}
+
+export async function setViewerInfo(viewId, { email, name } = {}) {
+  if (!pool || !viewId) return null;
+  try {
+    await pool.query(
+      `UPDATE doc_views SET viewer_email = COALESCE(NULLIF($2,''), viewer_email),
+                            viewer_name  = COALESCE(NULLIF($3,''), viewer_name)
+        WHERE id = $1`,
+      [viewId, String(email || "").trim(), String(name || "").trim()]);
+    return true;
+  } catch (e) { console.error("[db] setViewerInfo", e.message); return null; }
+}
+
 export async function setDocShared(id, shared) {
   if (!pool || !id) return null;
   try {

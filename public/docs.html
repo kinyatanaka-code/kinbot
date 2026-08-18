@@ -10,7 +10,7 @@
     <link rel="manifest" href="/site.webmanifest" />
     <meta name="theme-color" content="#0d5b47" />
     <meta name="apple-mobile-web-app-title" content="kinbot" />
-    <link rel="stylesheet" href="style.css?v=20260818j" />
+    <link rel="stylesheet" href="style.css?v=20260818l" />
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/tabler-icons/2.44.0/iconfont/tabler-icons.min.css" />
   </head>
   <body>
@@ -92,6 +92,19 @@
             </div>
 
             <div class="set-card">
+              <h3>メルマガ用の共通URL</h3>
+              <p class="note">全員に<b>同じURL</b>を送るときに使います。メルマガは1通ずつURLを変えられないためです。<br>
+              配信システムの<b>差し込みタグ</b>を後ろに付けると、送信時に各自のアドレスが埋め込まれ、<b>誰が見たかが分かります</b>。<br>
+              資料ごとに1本だけ作られます（何度押しても同じURLです）。</p>
+              <div class="ap-cfg-row">
+                <label>資料 <select id="shDoc"></select></label>
+                <button class="btn" id="shMake">共通URLを出す</button>
+                <span class="rev-status" id="shStatus"></span>
+              </div>
+              <div id="shBox"></div>
+            </div>
+
+            <div class="set-card">
               <h3>名簿ファイルからまとめて発行する</h3>
               <p class="note">CSV・Excel（.xlsx / .xls）・タブ区切りのファイルを読み込んで、<b>数千件のURLを一度に発行</b>できます。<br>
               「会社名・担当者名・メール」の列を自動で見つけます（見出しが無くても、並び順から判断します）。<br>
@@ -136,7 +149,7 @@
         </main>
       </div>
     </div>
-    <script src="nav.js?v=20260818j"></script>
-    <script src="docs.js?v=20260818j"></script>
+    <script src="nav.js?v=20260818l"></script>
+    <script src="docs.js?v=20260818l"></script>
   </body>
 </html>

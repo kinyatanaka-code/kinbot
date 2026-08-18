@@ -157,7 +157,10 @@
   (async () => {
     if (!slug) { body.innerHTML = '<div class="msg">リンクが正しくありません。</div>'; return; }
     try {
-      const r = await fetch(`/api/doc/${encodeURIComponent(slug)}/open`, { method: "POST" });
+      // メルマガの差し込み（?m=… など）を、そのままサーバーへ渡す。
+      // 誰が開いたかを記録するために使う。
+      const qs = location.search || "";
+      const r = await fetch(`/api/doc/${encodeURIComponent(slug)}/open${qs}`, { method: "POST" });
       const d = await r.json();
       if (!r.ok) throw new Error(d.error || "開けませんでした");
       viewId = d.viewId;
