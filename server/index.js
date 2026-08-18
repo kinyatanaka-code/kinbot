@@ -488,7 +488,7 @@ async function isKincallOnly(email) {
   const k = String(email || "").toLowerCase();
   if (!k) return false;
   const hit = _kcOnly.get(k);
-  if (hit && Date.now() - hit.at < 5 * 60 * 1000) return hit.v;
+  if (hit && Date.now() - hit.at < 30 * 1000) return hit.v;
   let v = false;
   try {
     const list = await listMembers();
@@ -5008,7 +5008,11 @@ app.get("/api/calls/targets", async (req, res) => {
         try {
           const d = await sfQuery(数える人,
             `SELECT WhoId, count(Id) n FROM Task WHERE WhoId IN (${part.join(",")}) GROUP BY WhoId`);
-          for (const r of d.records || []) sfCount.set(r.WhoId, Number(r.n || 0));
+          for (const r of d.records || []) {
+            // Salesforceは、付けた名前（n）ではなく expr0 で返すことがある
+            const n = Number(r.n ?? r.expr0 ?? r.N ?? 0);
+            if (r.WhoId) sfCount.set(r.WhoId, n);
+          }
         } catch (e) {
           failedOnce(e, ++失敗);
         }
@@ -5159,7 +5163,8 @@ app.post("/api/calls/targets/:id/record", async (req, res) => {
         }
         // 作った活動のIDを残す（履歴で二重に出さないために使う）
         await markCallSynced(log && log.id, {
-          taskId: (made && (made.id || made.Id)) || "done",
+          // createTask は { id } か { taskId } を返す（作り方によって違う）
+          taskId: (made && (made.id || made.Id || made.taskId)) || "done",
         }).catch(() => {});
         sf = { ok: true, 代理: 代理で更新 ? await displayNameOf(sfUser).catch(() => sfUser) : "" };
       } catch (e) {
@@ -11895,7 +11900,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-08-19m kincall：履歴の件数と結果・二重解消・kincallだけを保存できる";
+const BUILD_TAG = "2026-08-19o kincall：二重の原因を直す・件数の数え方・役割の即時反映";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
@@ -15448,6 +15453,9 @@ app.get("/api/members", async (req, res) => {
 });
 
 app.put("/api/members", async (req, res) => {
+  // 役割を変えたら、覚えていた「kincallだけ」の判定を捨てる。
+  // （5分待たないと反映されない、という状態を防ぐ）
+  _kcOnly.clear();
   try {
     const list = Array.isArray(req.body?.members) ? req.body.members : [];
     // 同じメールアドレスが二重に入っていないか確認する

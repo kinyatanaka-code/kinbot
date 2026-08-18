@@ -3212,7 +3212,7 @@ export async function callHistory(targetId, leadId, limit = 5) {
   if (!pool) return [];
   try {
     const { rows } = await pool.query(
-      `SELECT result, memo, caller, at FROM call_logs
+      `SELECT result, memo, caller, at, sf_task_id FROM call_logs
         WHERE target_id = $1 OR ($2 <> '' AND lead_id = $2)
         ORDER BY at DESC LIMIT $3`,
       [targetId || 0, String(leadId || ""), limit]);
