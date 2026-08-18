@@ -10,7 +10,7 @@
     <link rel="manifest" href="/site.webmanifest" />
     <meta name="theme-color" content="#0d5b47" />
     <meta name="apple-mobile-web-app-title" content="kinbot" />
-    <link rel="stylesheet" href="style.css?v=20260818zc" />
+    <link rel="stylesheet" href="style.css?v=20260818zd" />
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/tabler-icons/2.44.0/iconfont/tabler-icons.min.css" />
   </head>
   <body>
@@ -191,6 +191,7 @@
                 <label class="ap-check"><input type="checkbox" id="mcAutoReminder" /> 商談前日にリマインドを自動で用意する</label>
                 <label>リマインド送信時刻 <select id="mcHour"></select> 時（JST）</label>
                 <label class="ks-check"><input type="checkbox" id="mcCopy" /> 自分にも控えを送る（Bcc）</label>
+                <label>案内から <input type="number" id="mcGap" value="20" min="0" max="72" style="width:60px" /> 時間はリマインドしない</label>
                 <label>1回あたりの送信上限 <input type="number" id="mcMax" min="1" max="500" style="width:80px" /> 通</label>
               </div>
               <div class="ap-cfg-row">
@@ -424,8 +425,8 @@
         </main>
       </div>
     </div>
-    <script src="product.js?v=20260818zc"></script>
-    <script src="apo.js?v=20260818zc"></script>
-    <script src="nav.js?v=20260818zc"></script>
+    <script src="product.js?v=20260818zd"></script>
+    <script src="apo.js?v=20260818zd"></script>
+    <script src="nav.js?v=20260818zd"></script>
   </body>
 </html>

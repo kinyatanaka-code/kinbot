@@ -11176,7 +11176,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-08-18zc 確定メールを作らなかった理由を、はっきり出す";
+const BUILD_TAG = "2026-08-18zd 今日取ったアポに、続けてリマインドを送らないようにした";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
@@ -15607,6 +15607,7 @@ app.put("/api/apo-mail-config", async (req, res) => {
     if (b.autoReminder !== undefined) patch.apoMailAutoReminder = !!b.autoReminder;
     if (b.reminderHour !== undefined) patch.apoMailReminderHour = Math.min(23, Math.max(0, parseInt(b.reminderHour, 10) || 0));
     if (b.copyToSelf !== undefined) patch.apoMailCopyToSelf = b.copyToSelf !== false;
+    if (b.remindGap !== undefined) patch.apoMailRemindGap = Math.min(72, Math.max(0, parseInt(b.remindGap, 10) || 0));
     if (b.companyName !== undefined) patch.apoMailCompanyName = String(b.companyName || "").slice(0, 100);
     if (b.confirmSubject !== undefined) patch.apoMailConfirmSubject = String(b.confirmSubject || "").slice(0, 300);
     if (b.confirmBody !== undefined) patch.apoMailConfirmBody = stripRetiredLines(String(b.confirmBody || "")).slice(0, 8000);

@@ -116,6 +116,9 @@ export async function getApoMailConfig() {
     // 送った本人にも控えを届ける（Bcc）。既定でON。
     // 送られたかどうかが自分の受信箱で分かるようにするため。
     copyToSelf: s.apoMailCopyToSelf !== false,
+    // 確定メールを送ってから、この時間はリマインドを出さない。
+    // 「今日アポを取って明日商談」で、案内とリマインドが続けて届くのを防ぐ。
+    remindGapHours: Number.isFinite(+s.apoMailRemindGap) ? Math.min(72, Math.max(0, +s.apoMailRemindGap)) : 20,
     companyName: String(s.apoMailCompanyName || "").trim() || "株式会社ネオキャリア",
     confirmSubject: String(s.apoMailConfirmSubject || "").trim() || DEFAULT_CONFIRM_SUBJECT,
     confirmBody: stripRetiredLines(String(s.apoMailConfirmBody || "").trim() || DEFAULT_CONFIRM_BODY),
@@ -459,11 +462,16 @@ export async function listTomorrowReminders(dateJst = "") {
     fromUtc = new Date(Date.UTC(y, m, d + 1, 0, 0, 0) - 9 * 3600 * 1000);
     toUtc = new Date(Date.UTC(y, m, d + 2, 0, 0, 0) - 9 * 3600 * 1000);
   }
-  const rows = await listApoReminderTargets(fromUtc.toISOString(), toUtc.toISOString(), { forList: true });
+  const cfg0 = await getApoMailConfig().catch(() => ({}));
+  const rows = await listApoReminderTargets(fromUtc.toISOString(), toUtc.toISOString(),
+    { forList: true, gapHours: cfg0.remindGapHours });
   return rows.map((r) => {
     // なぜ送られないのかを、そのまま添える
     let 状態 = "送ります";
     if (r.reminded) 状態 = "送信済み";
+    else if (r.no_reminder) 状態 = "送らない";
+    // 確定メールを送ったばかりなら、続けてリマインドを出さない
+    else if (r.just_confirmed) 状態 = "案内したばかり";
     else if (!r.client_email) 状態 = "宛先がありません";
     else if (!r.current_owner) 状態 = "担当が決まっていません";
     return {
@@ -493,7 +501,8 @@ export async function runReminderSweep({ joinUrl, repNameOf } = {}) {
   const fromUtc = new Date(Date.UTC(y, m, d + 1, 0, 0, 0) - 9 * 3600 * 1000);
   const toUtc = new Date(Date.UTC(y, m, d + 2, 0, 0, 0) - 9 * 3600 * 1000);
 
-  const targets = await listApoReminderTargets(fromUtc.toISOString(), toUtc.toISOString());
+  const targets = await listApoReminderTargets(fromUtc.toISOString(), toUtc.toISOString(),
+    { gapHours: cfg.remindGapHours });
   const results = [];
   let sent = 0;
   for (const link of targets) {

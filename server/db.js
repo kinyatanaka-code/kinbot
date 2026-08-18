@@ -5349,14 +5349,25 @@ export async function listGmailActions(owner, limit = 50) {
 //   forList = true … 画面に出す用。宛先が無いもの・送信済みのものも含めて全部返す
 //                     （「なぜ送られないのか」を見せるため）
 //   forList = false … 実際に送る用。宛先があり、まだ送っていないものだけ
-export async function listApoReminderTargets(fromISO, toISO, { forList = false } = {}) {
+// 確定メールを送ってから、まだ日が浅いアポは、リマインドを出さない。
+// 「今日アポを取って明日商談」のとき、案内とリマインドが続けて届いてしまうため。
+export const REMIND_GAP_HOURS = 20;
+
+export async function listApoReminderTargets(fromISO, toISO, { forList = false, gapHours } = {}) {
   if (!pool) return [];
   try {
+    const gap = Math.max(0, Math.min(72, Number(gapHours ?? REMIND_GAP_HOURS)));
     const cond = forList
       ? ""
       : `AND NOT COALESCE(s.no_reminder, false)
          AND COALESCE(s.current_owner,'') <> ''
          AND COALESCE(s.client_email,'') <> ''
+         -- 確定メールを送ったばかりのものは出さない（案内とリマインドが続けて届くため）
+         AND NOT EXISTS (
+               SELECT 1 FROM apo_mail_log c
+                WHERE c.slug = s.slug AND c.kind = 'confirm'
+                  AND c.status IN ('sent','draft')
+                  AND c.created_at > now() - interval '1 hour' * ${gap})
          AND NOT EXISTS (
                SELECT 1 FROM apo_mail_log l
                 WHERE l.slug = s.slug AND l.kind = 'reminder' AND l.status IN ('sent','draft'))`;
@@ -5364,7 +5375,11 @@ export async function listApoReminderTargets(fromISO, toISO, { forList = false }
       `SELECT s.*,
               EXISTS (SELECT 1 FROM apo_mail_log l
                        WHERE l.slug = s.slug AND l.kind = 'reminder'
-                         AND l.status IN ('sent','draft')) AS reminded
+                         AND l.status IN ('sent','draft')) AS reminded,
+              EXISTS (SELECT 1 FROM apo_mail_log c
+                       WHERE c.slug = s.slug AND c.kind = 'confirm'
+                         AND c.status IN ('sent','draft')
+                         AND c.created_at > now() - interval '1 hour' * ${gap}) AS just_confirmed
          FROM smart_links s
         WHERE s.start_time >= $1 AND s.start_time < $2
           AND NOT COALESCE(s.excluded, false)

@@ -1596,6 +1596,7 @@ async function loadMailCfg() {
     if ($("mcAutoReminder")) $("mcAutoReminder").checked = !!c.autoReminder;
     if (hourSel) hourSel.value = String(c.reminderHour);
     if ($("mcCopy")) $("mcCopy").checked = c.copyToSelf !== false;
+    if ($("mcGap")) $("mcGap").value = String(c.remindGapHours ?? 20);
     if ($("mcMax")) $("mcMax").value = c.maxPerRun;
     if ($("mcCompany")) $("mcCompany").value = c.companyName === "弊社" ? "" : c.companyName;
     if ($("mcCSubject")) $("mcCSubject").value = c.confirmSubject;
@@ -1623,6 +1624,7 @@ async function saveMailCfg() {
       autoReminder: $("mcAutoReminder").checked,
       reminderHour: $("mcHour").value,
       copyToSelf: $("mcCopy") ? $("mcCopy").checked : true,
+      remindGap: $("mcGap") ? $("mcGap").value : 20,
       maxPerRun: $("mcMax").value,
       companyName: $("mcCompany").value,
       confirmSubject: $("mcCSubject").value,
