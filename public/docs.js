@@ -16,6 +16,9 @@ document.addEventListener("click", (ev) => {
   const t = ev.target && ev.target.closest ? ev.target.closest("button") : null;
   if (!t) return;
   if (t.id === "shMake") { ev.preventDefault(); makeSharedLink(); }
+  if (t.id === "jpMakeShared") { ev.preventDefault(); jpCreate(true); }
+  if (t.id === "jpMakeOne") { ev.preventDefault(); jpCreate(false); }
+  if (t.id === "jpList") { ev.preventDefault(); jpLoadList(); }
 });
 
 function say(id, t, ms) {
@@ -663,3 +666,96 @@ async function loadSharedViewers(slug) {
     box.innerHTML = "見られませんでした：" + esc(e.message);
   }
 }
+
+
+// ───────────────────────────────────────────────────────────
+// 調整URLのトラッキング（外部のURLへ転送しつつ、誰が開いたかを記録）
+// ───────────────────────────────────────────────────────────
+async function jpCreate(shared) {
+  const st = $("jpStatus"), box = $("jpBox");
+  const url = ($("jpUrl") && $("jpUrl").value || "").trim();
+  if (!url) { if (st) st.textContent = "転送先のURLを入れてください"; return; }
+  if (st) st.textContent = "作っています…";
+  try {
+    const r = await fetch("/api/jump", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ title: $("jpTitle").value, targetUrl: url, shared }),
+    });
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.error || "作れませんでした");
+    if (st) st.textContent = "";
+    const ways = d["貼り方"];
+    box.innerHTML =
+      `<div class="sh-box">
+         <div class="sh-lb">${d["共通"] ? "Pardot用の共通URL" : "この1本のURL"}</div>
+         <div class="sh-url"><code>${esc(d.url)}</code>
+           <button type="button" class="btn ghost jp-copy" data-u="${esc(d.url)}">コピー</button></div>
+         <div class="sh-lb">転送先</div>
+         <div class="sh-code">${esc(d["転送先"])}</div>
+         ${ways ? `<div class="sh-lb">Pardotに貼るときは、こちらを使ってください</div>` +
+           Object.entries(ways).map(([k, u]) => `
+             <div class="sh-row">
+               <span class="sh-name">${esc(k)}</span>
+               <code class="sh-code">${esc(u)}</code>
+               <button type="button" class="btn ghost jp-copy" data-u="${esc(u)}">コピー</button>
+             </div>`).join("") : ""}
+       </div>`;
+    box.querySelectorAll(".jp-copy").forEach((b) =>
+      b.addEventListener("click", () => {
+        navigator.clipboard.writeText(b.dataset.u)
+          .then(() => { b.textContent = "コピーしました"; setTimeout(() => (b.textContent = "コピー"), 2000); })
+          .catch(() => { b.textContent = "できませんでした"; });
+      }));
+  } catch (e) { if (st) st.textContent = "失敗：" + e.message; }
+}
+
+async function jpLoadList() {
+  const box = $("jpListBox");
+  if (!box) return;
+  box.innerHTML = "読み込んでいます…";
+  try {
+    const d = await (await fetch("/api/jump")).json();
+    const items = d.items || [];
+    if (!items.length) { box.innerHTML = '<div class="note">まだありません。</div>'; return; }
+    box.innerHTML =
+      `<table class="sh-table"><tr><th>名前</th><th>kinbotのURL</th><th>開いた回数</th><th>人数</th><th></th></tr>` +
+      items.map((x) => `<tr>
+        <td>${esc(x.title)}${x["共通"] ? "（共通）" : ""}<br><small>${esc(x["転送先"])}</small></td>
+        <td><code style="font-size:11px">${esc(x.url)}</code></td>
+        <td>${x["閲覧"]}</td>
+        <td>${x["人数"]}</td>
+        <td><button type="button" class="btn ghost jp-who" data-id="${x.id}">誰が開いたか</button></td>
+      </tr>`).join("") + `</table><div id="jpWho"></div>`;
+    box.querySelectorAll(".jp-who").forEach((b) =>
+      b.addEventListener("click", () => jpViewers(b.dataset.id)));
+  } catch (e) { box.innerHTML = "読み込めませんでした：" + esc(e.message); }
+}
+
+async function jpViewers(id) {
+  const box = $("jpWho");
+  if (!box) return;
+  box.innerHTML = "読み込んでいます…";
+  try {
+    const d = await (await fetch(`/api/jump/${encodeURIComponent(id)}/viewers`)).json();
+    const items = d.items || [];
+    if (!items.length) { box.innerHTML = '<div class="note">まだ誰も開いていません。</div>'; return; }
+    const when = (v) => {
+      const x = new Date(v);
+      if (isNaN(x.getTime())) return "";
+      const j = new Date(x.getTime() + 9 * 3600 * 1000);
+      const p = (n) => String(n).padStart(2, "0");
+      return `${j.getUTCMonth() + 1}/${j.getUTCDate()} ${p(j.getUTCHours())}:${p(j.getUTCMinutes())}`;
+    };
+    box.innerHTML =
+      `<div class="note">${items.length}人が開きました</div>` +
+      `<table class="sh-table"><tr><th>相手</th><th>回数</th><th>はじめて</th><th>最後</th></tr>` +
+      items.map((x) => `<tr>
+        <td>${esc(x["相手"])}${x["名前"] ? `<br><small>${esc(x["名前"])}</small>` : ""}</td>
+        <td>${x["回数"]}</td>
+        <td>${esc(when(x["最初"]))}</td>
+        <td>${esc(when(x["最後"]))}</td>
+      </tr>`).join("") + `</table>`;
+  } catch (e) { box.innerHTML = "見られませんでした：" + esc(e.message); }
+}
+
+
