@@ -10,7 +10,7 @@
     <link rel="manifest" href="/site.webmanifest" />
     <meta name="theme-color" content="#0d5b47" />
     <meta name="apple-mobile-web-app-title" content="kinbot" />
-    <link rel="stylesheet" href="style.css?v=20260818r" />
+    <link rel="stylesheet" href="style.css?v=20260818s" />
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/tabler-icons/2.44.0/iconfont/tabler-icons.min.css" />
   </head>
   <body>
@@ -294,6 +294,27 @@
               </div>
               <div id="pushBox"></div>
 
+              <h4 class="ap-rot-h">日程調整ページ</h4>
+              <p class="note">お客様に<b>空いている時間から選んでもらうURL</b>を作れます。選ばれると、カレンダーに予定ができて、そのままアポ振り分けに乗ります。<br>
+              <b>Pardot用の共通URL</b>も作れます（差し込みタグを付けると、誰が見たか・誰が予約したかが分かります）。</p>
+              <div class="ap-cfg-row">
+                <label>ページの名前 <input type="text" id="bkTitle" placeholder="打ち合わせの日程調整" style="width:240px" /></label>
+                <label>1回 <input type="number" id="bkMin" value="30" min="15" max="180" step="15" style="width:70px" /> 分</label>
+                <label>何日先まで <input type="number" id="bkDays" value="14" min="1" max="60" style="width:70px" /> 日</label>
+                <label>時間帯 <input type="number" id="bkFrom" value="10" min="0" max="23" style="width:60px" /> 〜
+                  <input type="number" id="bkTo" value="19" min="1" max="23" style="width:60px" /> 時</label>
+              </div>
+              <div class="ap-cfg-actions">
+                <button class="btn" id="bkMakeShared">Pardot用の共通URLを作る</button>
+                <button class="btn ghost" id="bkMakeOne">この場で1本だけ作る</button>
+                <span class="rev-status" id="bkStatus"></span>
+              </div>
+              <div id="bkBox"></div>
+              <div class="ap-cfg-actions" style="margin-top:6px">
+                <button class="btn ghost" id="bkList">作ったページを見る</button>
+              </div>
+              <div id="bkListBox"></div>
+
               <h4 class="ap-rot-h">実績に数えない人</h4>
               <p class="note">ここに書いた人は、<b>アポの数にもコール進捗にも入りません</b>（ほかのチームのぶんが実績に混ざるのを防ぐため）。<br>
               ・その人が<b>招いた予定</b>は、アポとして取り込みません<br>
@@ -403,8 +424,8 @@
         </main>
       </div>
     </div>
-    <script src="product.js?v=20260818r"></script>
-    <script src="apo.js?v=20260818r"></script>
-    <script src="nav.js?v=20260818r"></script>
+    <script src="product.js?v=20260818s"></script>
+    <script src="apo.js?v=20260818s"></script>
+    <script src="nav.js?v=20260818s"></script>
   </body>
 </html>

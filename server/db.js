@@ -510,6 +510,44 @@ export async function initDb() {
   `);
   await sq(`CREATE INDEX IF NOT EXISTS idx_oauth_tokens_refresh ON oauth_tokens(refresh_token);`);
 
+  // ===== 日程調整ページ =====
+  // お客様に「空いている時間から選んでもらう」URL。
+  // 誰にも配れる共通URL（Pardot用）と、相手ごとのURLの両方を作れる。
+  await sq(`
+    CREATE TABLE IF NOT EXISTS book_pages (
+      id          SERIAL PRIMARY KEY,
+      slug        TEXT UNIQUE NOT NULL,
+      title       TEXT,
+      owner       TEXT,
+      shared_link BOOLEAN NOT NULL DEFAULT false,
+      company     TEXT,
+      person      TEXT,
+      email       TEXT,
+      minutes     INT NOT NULL DEFAULT 30,
+      days_ahead  INT NOT NULL DEFAULT 14,
+      from_hour   INT NOT NULL DEFAULT 10,
+      to_hour     INT NOT NULL DEFAULT 19,
+      note        TEXT,
+      closed      BOOLEAN NOT NULL DEFAULT false,
+      created_by  TEXT,
+      created_at  TIMESTAMPTZ DEFAULT now()
+    );
+  `);
+  // 開かれた記録（誰が見たか・予約まで進んだか）
+  await sq(`
+    CREATE TABLE IF NOT EXISTS book_views (
+      id         SERIAL PRIMARY KEY,
+      page_id    INT REFERENCES book_pages(id) ON DELETE CASCADE,
+      viewer_email TEXT,
+      viewer_name  TEXT,
+      booked     BOOLEAN NOT NULL DEFAULT false,
+      slot_at    TIMESTAMPTZ,
+      ua         TEXT,
+      at         TIMESTAMPTZ DEFAULT now()
+    );
+  `);
+  await sq(`CREATE INDEX IF NOT EXISTS ix_book_views_page ON book_views(page_id, at DESC);`);
+
   // ===== コールリスト（インターン生の架電） =====
   // どのリードに、誰が、いつかけて、どうだったか。
   // Salesforceへ送る前に、まずここに残す（通信が切れても消えないように）。
@@ -2786,6 +2824,98 @@ export async function setNoReminder(slug, off) {
        RETURNING slug, label, no_reminder`, [slug, !!off]);
     return rows[0] || null;
   } catch (e) { console.error("[db] setNoReminder", e.message); return null; }
+}
+
+// ===== 日程調整ページ =====
+
+// ページを作る（共通URLは資料と同じく、1つだけ使い回す）
+export async function createBookPage(x = {}) {
+  if (!pool) return null;
+  try {
+    if (x.shared) {
+      const { rows: found } = await pool.query(
+        `SELECT * FROM book_pages
+          WHERE owner = $1 AND shared_link = true AND NOT closed
+          ORDER BY created_at LIMIT 1`, [String(x.owner || "").toLowerCase()]);
+      if (found[0]) return found[0];
+    }
+    const slug = Math.random().toString(36).slice(2, 10);
+    const { rows } = await pool.query(
+      `INSERT INTO book_pages
+         (slug, title, owner, shared_link, company, person, email, minutes, days_ahead, from_hour, to_hour, note, created_by)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) RETURNING *`,
+      [slug, String(x.title || "打ち合わせの日程調整").slice(0, 120),
+       String(x.owner || "").toLowerCase(), !!x.shared,
+       x.company || "", x.person || "", x.email || "",
+       Math.min(180, Math.max(15, Number(x.minutes) || 30)),
+       Math.min(60, Math.max(1, Number(x.daysAhead) || 14)),
+       Math.min(23, Math.max(0, Number(x.fromHour) ?? 10)),
+       Math.min(23, Math.max(1, Number(x.toHour) ?? 19)),
+       String(x.note || "").slice(0, 500), x.createdBy || null]);
+    return rows[0] || null;
+  } catch (e) { console.error("[db] createBookPage", e.message); return null; }
+}
+
+export async function getBookPage(slug) {
+  if (!pool || !slug) return null;
+  try {
+    const { rows } = await pool.query(`SELECT * FROM book_pages WHERE slug = $1`, [slug]);
+    return rows[0] || null;
+  } catch { return null; }
+}
+
+export async function listBookPages(owner) {
+  if (!pool) return [];
+  try {
+    const { rows } = await pool.query(
+      `SELECT p.*,
+              (SELECT count(*) FROM book_views v WHERE v.page_id = p.id) AS 閲覧,
+              (SELECT count(*) FROM book_views v WHERE v.page_id = p.id AND v.booked) AS 予約
+         FROM book_pages p
+        WHERE ($1 = '' OR p.owner = $1)
+        ORDER BY p.created_at DESC LIMIT 50`, [String(owner || "").toLowerCase()]);
+    return rows;
+  } catch { return []; }
+}
+
+// 開かれたことを残す（誰が見たかは、Pardotの差し込みから受け取る）
+export async function recordBookView(pageId, { email, name, ua } = {}) {
+  if (!pool || !pageId) return null;
+  try {
+    const { rows } = await pool.query(
+      `INSERT INTO book_views (page_id, viewer_email, viewer_name, ua)
+       VALUES ($1,$2,$3,$4) RETURNING *`,
+      [pageId, String(email || "").trim() || null, String(name || "").trim() || null,
+       String(ua || "").slice(0, 200)]);
+    return rows[0] || null;
+  } catch (e) { console.error("[db] recordBookView", e.message); return null; }
+}
+
+// 予約されたことを残す
+export async function markBooked(viewId, slotAt) {
+  if (!pool || !viewId) return null;
+  try {
+    await pool.query(`UPDATE book_views SET booked = true, slot_at = $2 WHERE id = $1`,
+      [viewId, slotAt || null]);
+    return true;
+  } catch { return null; }
+}
+
+// 誰が見たか・誰が予約したかの一覧
+export async function listBookViewers(pageId, limit = 300) {
+  if (!pool || !pageId) return [];
+  try {
+    const { rows } = await pool.query(
+      `SELECT COALESCE(NULLIF(viewer_email,''), '（名乗りなし）') AS 相手,
+              max(viewer_name) AS 名前,
+              count(*)::int AS 回数,
+              bool_or(booked) AS 予約した,
+              max(slot_at) AS 予約日時,
+              max(at) AS 最後
+         FROM book_views WHERE page_id = $1
+        GROUP BY 1 ORDER BY 最後 DESC LIMIT $2`, [pageId, limit]);
+    return rows;
+  } catch { return []; }
 }
 
 // ===== コールリスト =====

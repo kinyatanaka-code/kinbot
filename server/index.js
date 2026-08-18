@@ -28,6 +28,7 @@ import { notifyAssigned, notifyMailDraft, notifyChat, notifyAll, notifyPerson, c
 import { note as devNote, errKey, buildMorningSummary, NOTE_KINDS, dropSimilar } from "./devnotes.js";
 import { askBot } from "./askbot.js";
 import { newJobId, getJob, cancelJob, runBulk, tableFromFile, tableFromText, rowsFromTable } from "./bulklinks.js";
+import { buildSlots, stillFree } from "./booking.js";
 import { checkLive, checkProcessSheet, checkLinks, buildProposal, notifyCheck } from "./selfcheck.js";
 import { UI_PAGES, nextPage, reviewPage, splitIdeas } from "./uireview.js";
 import { verifyChatRequest, readEvent, replyBody, parseCommand, helpText, jstDate, jstTime, INTENT_SYSTEM, guessIntent } from "./chatcmd.js";
@@ -121,6 +122,12 @@ import {
   aposInRange,
   aposTakenInRange,
   aposMailPending,
+  createBookPage,
+  getBookPage,
+  listBookPages,
+  recordBookView,
+  markBooked,
+  listBookViewers,
   createCallList,
   addCallTargets,
   listCallLists,
@@ -466,6 +473,8 @@ const OPEN_PATHS = new Set([
   "/api/kasasagi/face", "/kasasagi-face.html",
   // 送った資料のビューアー（受け取った人が開くので認証なし）
   "/doc.html",
+  // 日程調整ページ（お客様が開くので認証なし）
+  "/book.html",
   // Apps Scriptに貼るコード（画面から読むだけ）
   "/kinbot-sheet-writer.gs",
   "/.well-known/oauth-authorization-server", "/.well-known/oauth-protected-resource",
@@ -543,6 +552,9 @@ app.use(async (req, res, next) => {
     return next();
   }
   if (OPEN_PATHS.has(req.path) || req.path.startsWith("/j/")) return next();
+  // お客様が開くページ（日程調整）は、ログインなしで通す
+  if (/^\/b\/[A-Za-z0-9_-]+$/.test(req.path)) return next();
+  if (/^\/api\/booking\/[A-Za-z0-9_-]+(\/book)?$/.test(req.path)) return next();
   // 送った資料まわりは、受け取った相手が認証なしで開く
   //   /d/xxx  … 資料のビューアー
   //   /px/xxx … 開封計測の画像
@@ -568,7 +580,8 @@ app.use(async (req, res, next) => {
       return next();
     }
     // OAuthトークン形式なのに無効 → MCP等のAPIパスなら401を返し、それ以外はログイン画面へ
-    if (req.path.startsWith("/api/") || req.path === "/mcp") {
+
+  if (req.path.startsWith("/api/") || req.path === "/mcp") {
       return res.status(401).json({ error: "認証に失敗しました（トークンが無効です）" });
     }
   }
@@ -3147,6 +3160,11 @@ app.post("/api/sf-autolaunch/run-day", async (req, res) => {
 // ここから4つは、受け取った相手が開くため認証なしで動く。
 
 // 資料のビューアー
+// 日程調整ページ（お客様が開くURL）
+app.get("/b/:slug", (req, res) => {
+  res.sendFile(path.join(__dirname, "..", "public", "book.html"));
+});
+
 app.get("/d/:slug", async (req, res) => {
   const link = await getDocLink(String(req.params.slug || ""));
   if (!link) return res.status(404).send("この資料は見つかりませんでした。送り主にご確認ください。");
@@ -4146,6 +4164,162 @@ async function maybeNoticeBeforeReminder() {
     console.log(`[apo-mail] リマインドの予告を ${sent}人に送りました（対象 ${all.length}件）`);
   } catch (e) { console.warn("[apo-mail] リマインドの予告:", e.message); }
 }
+
+// ───────────────────────────────────────────────────────────
+// 日程調整ページ
+//
+// お客様に空き時間から選んでもらうURL。
+// Pardot用の共通URLも作れて、誰が見たか・誰が予約したかが分かる。
+// ───────────────────────────────────────────────────────────
+
+// 担当者のカレンダーの予定を取る（空き時間を出すため）
+async function busyOf(owner, days) {
+  const from = new Date().toISOString();
+  const to = new Date(Date.now() + (Number(days) + 1) * 86400000).toISOString();
+  try {
+    const evs = await listCalendarEvents(owner, "primary", { timeMin: from, timeMax: to });
+    return (evs || [])
+      .filter((e) => !e.allDay && e.start && e.end)
+      .map((e) => ({ start: e.start, end: e.end }));
+  } catch (e) {
+    console.warn(`[日程調整] カレンダーを読めません（${owner}）：${e.message}`);
+    return null;   // 読めないときは、空き時間を出さない（勝手に埋めない）
+  }
+}
+
+// ページを作る
+app.post("/api/booking/pages", async (req, res) => {
+  try {
+    const b = req.body || {};
+    const page = await createBookPage({
+      title: b.title, owner: req.user, shared: b.shared === true,
+      company: b.company, person: b.person, email: b.email,
+      minutes: b.minutes, daysAhead: b.daysAhead, fromHour: b.fromHour, toHour: b.toHour,
+      note: b.note, createdBy: req.user,
+    });
+    if (!page) return res.status(500).json({ error: "作れませんでした" });
+    const base = String(PUBLIC_URL || "").replace(/\/+$/, "");
+    const url = `${base}/b/${page.slug}`;
+    console.log(`[日程調整] ページを作りました：${page.title}（${page.shared_link ? "共通" : "個別"}）by ${req.user}`);
+    res.json({
+      ok: true, id: page.id, slug: page.slug, url, 共通: !!page.shared_link,
+      貼り方: page.shared_link ? {
+        "Pardot（おすすめ）": `${url}?m=%%email%%&n=%%account_name%%`,
+        "Pardot（アドレスだけ）": `${url}?m=%%email%%`,
+        "差し込みを使わない場合（誰が見たかは分かりません）": url,
+      } : null,
+    });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// ページの一覧
+app.get("/api/booking/pages", async (req, res) => {
+  try {
+    const rows = await listBookPages(String(req.query.all || "") === "1" ? "" : req.user);
+    const base = String(PUBLIC_URL || "").replace(/\/+$/, "");
+    res.json({
+      ok: true,
+      items: rows.map((r) => ({
+        id: r.id, slug: r.slug, title: r.title, url: `${base}/b/${r.slug}`,
+        共通: !!r.shared_link, 相手: [r.company, r.person].filter(Boolean).join(" "),
+        閲覧: Number(r["閲覧"] || 0), 予約: Number(r["予約"] || 0), closed: !!r.closed,
+      })),
+    });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// 誰が見たか・誰が予約したか
+app.get("/api/booking/pages/:id/viewers", async (req, res) => {
+  try {
+    const rows = await listBookViewers(parseInt(req.params.id, 10));
+    res.json({ ok: true, 人数: rows.length, items: rows });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// お客様が開いたとき（ログイン不要）
+app.get("/api/booking/:slug", async (req, res) => {
+  try {
+    const page = await getBookPage(String(req.params.slug || ""));
+    if (!page || page.closed) return res.status(404).json({ error: "このページは使えません" });
+
+    // 開いたことを残す（共通URLのときは、差し込みから相手を受け取る）
+    const v = viewerFromQuery(req.query || {});
+    const view = await recordBookView(page.id, {
+      email: v.email || page.email || "", name: v.name || page.company || "",
+      ua: req.get("user-agent") || "",
+    }).catch(() => null);
+
+    const busy = await busyOf(page.owner, page.days_ahead);
+    if (busy === null) {
+      return res.json({ ok: true, viewId: view ? view.id : null, title: page.title,
+        note: page.note || "", days: [], 読めません: true });
+    }
+    const days = buildSlots({
+      minutes: page.minutes, daysAhead: page.days_ahead,
+      fromHour: page.from_hour, toHour: page.to_hour, busy,
+    });
+    res.json({
+      ok: true, viewId: view ? view.id : null,
+      title: page.title, note: page.note || "", 分: page.minutes,
+      相手: [page.company, page.person].filter(Boolean).join(" ") || (v.name || ""),
+      days,
+    });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// お客様が時間を選んだとき（ログイン不要）
+app.post("/api/booking/:slug/book", async (req, res) => {
+  try {
+    const page = await getBookPage(String(req.params.slug || ""));
+    if (!page || page.closed) return res.status(404).json({ error: "このページは使えません" });
+    const at = String(req.body?.at || "");
+    const name = String(req.body?.name || "").trim();
+    const company = String(req.body?.company || "").trim();
+    const email = String(req.body?.email || "").trim();
+    if (!at) return res.status(400).json({ error: "時間を選んでください" });
+    if (!company || !name) return res.status(400).json({ error: "会社名とお名前を入れてください" });
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      return res.status(400).json({ error: "メールアドレスの形をご確認ください" });
+    }
+
+    // ほかの人に先を越されていないか、もう一度確かめる
+    const busy = await busyOf(page.owner, page.days_ahead);
+    if (busy === null) return res.status(500).json({ error: "いま予約できません。少し時間をおいてお試しください" });
+    if (!stillFree(at, page.minutes, busy)) {
+      return res.status(409).json({ error: "その時間は、ちょうど埋まってしまいました。別の時間をお選びください" });
+    }
+
+    // カレンダーに予定を作る（【初回】会社名/お名前様 の形にして、アポ振り分けに乗せる）
+    const start = new Date(at);
+    const end = new Date(start.getTime() + page.minutes * 60000);
+    const title = `【初回】${company}/${name}様`;
+    let ev = null;
+    try {
+      ev = await createCalendarEvent(page.owner, {
+        summary: title,
+        description: `kinbotの日程調整ページから予約されました。\nお客様：${company} ${name}様（${email}）`,
+        start: start.toISOString(), end: end.toISOString(),
+        guests: [email],
+      });
+    } catch (e) {
+      console.error("[日程調整] 予定を作れません:", e.message);
+      return res.status(500).json({ error: "予約できませんでした。お手数ですが、担当までご連絡ください" });
+    }
+
+    await markBooked(parseInt(req.body?.viewId, 10) || 0, start.toISOString()).catch(() => {});
+    console.log(`[日程調整] 予約が入りました：${title}（${at}）`);
+
+    // 担当者にも知らせる
+    notifyPerson(page.owner, [
+      "📅 *日程調整ページから予約が入りました*",
+      `　${title}`,
+      `🕐 ${start.toISOString().slice(0, 16).replace("T", " ")}（日本時間）`,
+      `✉️ ${email}`,
+    ].join("\n")).catch(() => {});
+
+    res.json({ ok: true, 予約: { at: start.toISOString(), 分: page.minutes } });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
 
 // ───────────────────────────────────────────────────────────
 // コールリスト（インターン生の架電）
@@ -10810,7 +10984,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-08-18r コールリスト（架電の記録をSalesforceへ）";
+const BUILD_TAG = "2026-08-18s 日程調整ページ（Pardot用の共通URL・閲覧の記録）";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",

@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="ja">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>日程のご調整</title>
+    <link rel="icon" href="/icon.svg" type="image/svg+xml" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <meta name="theme-color" content="#0d5b47" />
+    <style>
+      /* お客様が見る画面。kinbotの中とは別に、ここだけで完結させる。 */
+      :root { --line: #e3ece9; --ink: #1f2d2a; --muted: #6f8781; --panel: #fff; --panel2: #f5faf8; }
+      * { box-sizing: border-box; }
+      body { margin: 0; background: #eef5f2; color: var(--ink);
+        font-family: -apple-system, BlinkMacSystemFont, "Hiragino Sans", "Noto Sans JP", sans-serif;
+        line-height: 1.7; }
+      .wrap { max-width: 620px; margin: 0 auto; padding: 24px 16px 48px; }
+      .card { background: var(--panel); border: 1px solid var(--line);
+        border-radius: 16px; padding: 22px 20px; box-shadow: 0 2px 14px rgba(13,91,71,.06); }
+      .head { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; }
+      .head img { width: 40px; height: 40px; }
+      h1 { font-size: 18px; margin: 0; }
+      .sub { font-size: 12.5px; color: var(--muted); margin: 2px 0 0; }
+      .note { font-size: 13px; color: var(--muted); margin: 10px 0 0; }
+
+      .day { margin-top: 18px; }
+      .day-lb { font-size: 13.5px; font-weight: 700; color: #0d5b47; margin-bottom: 8px; }
+      .slots { display: grid; grid-template-columns: repeat(auto-fill, minmax(88px, 1fr)); gap: 8px; }
+      .slot { border: 1px solid var(--line); background: var(--panel); color: var(--ink);
+        border-radius: 10px; padding: 11px 6px; font-size: 14px; font-weight: 700;
+        font-family: inherit; cursor: pointer; }
+      .slot:hover { border-color: #9fe1cb; background: #f2fbf7; }
+      .slot.on { background: #0d5b47; border-color: #0d5b47; color: #fff; }
+
+      .form { margin-top: 18px; border-top: 1px solid var(--line); padding-top: 16px; }
+      .form[hidden] { display: none; }
+      .picked { font-size: 15px; font-weight: 700; color: #0d5b47; margin-bottom: 12px; }
+      label { display: block; font-size: 12px; color: var(--muted); margin-top: 10px; }
+      input { display: block; width: 100%; margin-top: 4px; padding: 11px 12px;
+        border: 1px solid var(--line); border-radius: 10px; font-size: 16px;
+        font-family: inherit; background: var(--panel); }
+      input:focus { outline: none; border-color: #1d9e75; }
+      .go { width: 100%; margin-top: 18px; border: none; background: #0d5b47; color: #fff;
+        border-radius: 12px; padding: 15px; font-size: 16px; font-weight: 700;
+        font-family: inherit; cursor: pointer; }
+      .go:hover { background: #1d9e75; }
+      .go:disabled { opacity: .5; cursor: default; }
+      .msg { margin-top: 12px; font-size: 13px; }
+      .msg.err { color: #A33C24; }
+      .done { text-align: center; padding: 26px 10px; }
+      .done h2 { font-size: 18px; color: #0d5b47; margin: 10px 0 6px; }
+      .foot { text-align: center; font-size: 11px; color: var(--muted); margin-top: 18px; }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <div class="card" id="card">
+        <div class="head">
+          <img src="/icon.svg" alt="" />
+          <div>
+            <h1 id="title">日程のご調整</h1>
+            <p class="sub" id="sub">ご都合のよい時間をお選びください</p>
+          </div>
+        </div>
+        <div id="body"><p class="note">読み込んでいます…</p></div>
+      </div>
+      <p class="foot">株式会社ネオキャリア</p>
+    </div>
+
+    <script>
+      const slug = location.pathname.split("/").filter(Boolean).pop();
+      const esc = (v) => String(v == null ? "" : v).replace(/[&<>"']/g, (c) =>
+        ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+      let viewId = null, picked = null, minutes = 30;
+
+      // 日本時間で「8月20日(木) 14:00」の形にする
+      function label(iso) {
+        const d = new Date(iso);
+        const j = new Date(d.getTime() + 9 * 3600 * 1000);
+        const w = "日月火水木金土"[j.getUTCDay()];
+        const p = (n) => String(n).padStart(2, "0");
+        return `${j.getUTCMonth() + 1}月${j.getUTCDate()}日(${w}) ${p(j.getUTCHours())}:${p(j.getUTCMinutes())}`;
+      }
+
+      async function load() {
+        const body = document.getElementById("body");
+        try {
+          // メルマガの差し込み（?m=…）も一緒に渡す
+          const r = await fetch(`/api/booking/${encodeURIComponent(slug)}${location.search}`);
+          const d = await r.json();
+          if (!r.ok) throw new Error(d.error || "開けませんでした");
+          viewId = d.viewId;
+          minutes = d["分"] || 30;
+          document.getElementById("title").textContent = d.title || "日程のご調整";
+          if (d["相手"]) document.getElementById("sub").textContent = `${d["相手"]} 様`;
+
+          if (d["読めません"]) {
+            body.innerHTML = `<p class="note">ただいま空き状況を確認できません。恐れ入りますが、時間をおいてお試しください。</p>`;
+            return;
+          }
+          const days = d.days || [];
+          if (!days.length) {
+            body.innerHTML = `<p class="note">申し訳ございません。ただいまご案内できる時間がございません。<br>担当までご連絡いただけますと幸いです。</p>`;
+            return;
+          }
+          body.innerHTML =
+            (d.note ? `<p class="note">${esc(d.note)}</p>` : "") +
+            days.map((x) => `
+              <div class="day">
+                <div class="day-lb">${esc(x["表示"])}</div>
+                <div class="slots">
+                  ${x.slots.map((s) => `<button type="button" class="slot" data-at="${esc(s.at)}">${esc(s["表示"])}</button>`).join("")}
+                </div>
+              </div>`).join("") +
+            `<div class="form" id="form" hidden>
+               <div class="picked" id="pickedLb"></div>
+               <label>会社名<input type="text" id="co" autocomplete="organization" /></label>
+               <label>お名前<input type="text" id="nm" autocomplete="name" /></label>
+               <label>メールアドレス<input type="email" id="em" autocomplete="email" /></label>
+               <button type="button" class="go" id="go">この日時で確定する</button>
+               <div class="msg" id="msg"></div>
+             </div>`;
+
+          body.querySelectorAll(".slot").forEach((b) =>
+            b.addEventListener("click", () => {
+              picked = b.dataset.at;
+              body.querySelectorAll(".slot").forEach((x) => x.classList.toggle("on", x === b));
+              document.getElementById("form").hidden = false;
+              document.getElementById("pickedLb").textContent = `${label(picked)}〜（${minutes}分）`;
+              document.getElementById("form").scrollIntoView({ behavior: "smooth", block: "center" });
+            }));
+          document.getElementById("go").addEventListener("click", book);
+        } catch (e) {
+          body.innerHTML = `<p class="note">開けませんでした：${esc(e.message)}</p>`;
+        }
+      }
+
+      async function book() {
+        const go = document.getElementById("go");
+        const msg = document.getElementById("msg");
+        const company = document.getElementById("co").value.trim();
+        const name = document.getElementById("nm").value.trim();
+        const email = document.getElementById("em").value.trim();
+        if (!company || !name || !email) { msg.className = "msg err"; msg.textContent = "会社名・お名前・メールアドレスをご入力ください。"; return; }
+        go.disabled = true;
+        msg.className = "msg";
+        msg.textContent = "確定しています…";
+        try {
+          const r = await fetch(`/api/booking/${encodeURIComponent(slug)}/book`, {
+            method: "POST", headers: { "content-type": "application/json" },
+            body: JSON.stringify({ at: picked, company, name, email, viewId }),
+          });
+          const d = await r.json();
+          if (!r.ok) throw new Error(d.error || "確定できませんでした");
+          document.getElementById("card").innerHTML = `
+            <div class="done">
+              <img src="/icon.svg" alt="" width="56" height="56" />
+              <h2>ご予約をお受けしました</h2>
+              <p>${esc(label(picked))}〜（${minutes}分）</p>
+              <p class="note">ご登録のメールアドレスに、ご案内をお送りします。<br>当日はどうぞよろしくお願いいたします。</p>
+            </div>`;
+        } catch (e) {
+          msg.className = "msg err";
+          msg.textContent = e.message;
+          go.disabled = false;
+          // 埋まってしまった場合は、空き状況を出し直す
+          if (/埋まって/.test(e.message)) setTimeout(load, 1500);
+        }
+      }
+
+      load();
+    </script>
+  </body>
+</html>

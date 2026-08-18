@@ -1879,3 +1879,106 @@ async function saveMailCfg() {
   });
   loadApo();
 })();
+
+
+// ───────────────────────────────────────────────────────────
+// 日程調整ページ
+// ───────────────────────────────────────────────────────────
+async function bkCreate(shared) {
+  const st = $("bkStatus"), box = $("bkBox");
+  if (st) st.textContent = "作っています…";
+  try {
+    const r = await fetch("/api/booking/pages", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        title: $("bkTitle").value, shared,
+        minutes: parseInt($("bkMin").value, 10),
+        daysAhead: parseInt($("bkDays").value, 10),
+        fromHour: parseInt($("bkFrom").value, 10),
+        toHour: parseInt($("bkTo").value, 10),
+      }),
+    });
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.error || "作れませんでした");
+    if (st) st.textContent = "";
+    const ways = d["貼り方"];
+    box.innerHTML =
+      `<div class="sh-box">
+         <div class="sh-lb">${d["共通"] ? "Pardot用の共通URL" : "この1本のURL"}</div>
+         <div class="sh-url"><code>${esc(d.url)}</code>
+           <button type="button" class="btn ghost bk-copy" data-u="${esc(d.url)}">コピー</button></div>
+         ${ways ? `<div class="sh-lb">Pardotに貼るときは、こちらを使ってください</div>` +
+           Object.entries(ways).map(([k, u]) => `
+             <div class="sh-row">
+               <span class="sh-name">${esc(k)}</span>
+               <code class="sh-code">${esc(u)}</code>
+               <button type="button" class="btn ghost bk-copy" data-u="${esc(u)}">コピー</button>
+             </div>`).join("") : ""}
+       </div>`;
+    box.querySelectorAll(".bk-copy").forEach((b) =>
+      b.addEventListener("click", () => {
+        navigator.clipboard.writeText(b.dataset.u)
+          .then(() => { b.textContent = "コピーしました"; setTimeout(() => (b.textContent = "コピー"), 2000); })
+          .catch(() => { b.textContent = "できませんでした"; });
+      }));
+  } catch (e) { if (st) st.textContent = "失敗：" + e.message; }
+}
+
+// 作ったページと、誰が見たか
+async function bkLoadList() {
+  const box = $("bkListBox");
+  if (!box) return;
+  box.innerHTML = "読み込んでいます…";
+  try {
+    const d = await (await fetch("/api/booking/pages")).json();
+    const items = d.items || [];
+    if (!items.length) { box.innerHTML = '<div class="note">まだページがありません。</div>'; return; }
+    box.innerHTML =
+      `<table class="sh-table"><tr><th>ページ</th><th>URL</th><th>閲覧</th><th>予約</th><th></th></tr>` +
+      items.map((x) => `<tr>
+        <td>${esc(x.title)}${x["共通"] ? "（共通）" : x["相手"] ? `<br><small>${esc(x["相手"])}</small>` : ""}</td>
+        <td><code style="font-size:11px">${esc(x.url)}</code></td>
+        <td>${x["閲覧"]}</td>
+        <td>${x["予約"]}</td>
+        <td><button type="button" class="btn ghost bk-who" data-id="${x.id}">誰が見たか</button></td>
+      </tr>`).join("") + `</table><div id="bkWho"></div>`;
+    box.querySelectorAll(".bk-who").forEach((b) =>
+      b.addEventListener("click", () => bkViewers(b.dataset.id)));
+  } catch (e) { box.innerHTML = "読み込めませんでした：" + esc(e.message); }
+}
+
+async function bkViewers(id) {
+  const box = $("bkWho");
+  if (!box) return;
+  box.innerHTML = "読み込んでいます…";
+  try {
+    const d = await (await fetch(`/api/booking/pages/${encodeURIComponent(id)}/viewers`)).json();
+    const items = d.items || [];
+    if (!items.length) { box.innerHTML = '<div class="note">まだ誰も開いていません。</div>'; return; }
+    const when = (v) => {
+      const x = new Date(v);
+      if (isNaN(x.getTime())) return "";
+      const j = new Date(x.getTime() + 9 * 3600 * 1000);
+      const p = (n) => String(n).padStart(2, "0");
+      return `${j.getUTCMonth() + 1}/${j.getUTCDate()} ${p(j.getUTCHours())}:${p(j.getUTCMinutes())}`;
+    };
+    box.innerHTML =
+      `<div class="note">${items.length}人が開きました</div>` +
+      `<table class="sh-table"><tr><th>相手</th><th>回数</th><th>予約</th><th>最後に見た</th></tr>` +
+      items.map((x) => `<tr>
+        <td>${esc(x["相手"])}${x["名前"] ? `<br><small>${esc(x["名前"])}</small>` : ""}</td>
+        <td>${x["回数"]}</td>
+        <td>${x["予約した"] ? esc(when(x["予約日時"])) : "-"}</td>
+        <td>${esc(when(x["最後"]))}</td>
+      </tr>`).join("") + `</table>`;
+  } catch (e) { box.innerHTML = "見られませんでした：" + esc(e.message); }
+}
+
+// 画面ぜんたいでクリックを受け止める（途中で止まっても押せるように）
+document.addEventListener("click", (ev) => {
+  const t = ev.target && ev.target.closest ? ev.target.closest("button") : null;
+  if (!t) return;
+  if (t.id === "bkMakeShared") { ev.preventDefault(); bkCreate(true); }
+  if (t.id === "bkMakeOne") { ev.preventDefault(); bkCreate(false); }
+  if (t.id === "bkList") { ev.preventDefault(); bkLoadList(); }
+});
