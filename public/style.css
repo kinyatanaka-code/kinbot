@@ -5510,3 +5510,8 @@ input:focus, select:focus, textarea:focus, .sf-input:focus, .sf-select:focus, .s
 /* いま動いている画面の版（右下に小さく） */
 .kb-ver { position: fixed; right: 6px; bottom: 4px; z-index: 8000;
   font-size: 9.5px; color: #b9c7c2; pointer-events: none; user-select: none; }
+
+/* 画面のエラー（押しても反応しないときの手がかり） */
+.kb-err { position: fixed; left: 8px; bottom: 8px; z-index: 9500; max-width: 60vw;
+  padding: 6px 10px; border-radius: 8px; background: #fdecea; border: 1px solid #f7d4cd;
+  color: #A33C24; font-size: 11px; cursor: pointer; }

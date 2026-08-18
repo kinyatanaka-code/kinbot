@@ -10,6 +10,14 @@ const esc = (v) =>
 let docsCache = [];
 let baseUrl = "";
 
+// 大事なボタンは、画面ぜんたいでクリックを受け止める。
+// 途中の処理でつまずいても「押しても反応しない」状態にならないようにするため。
+document.addEventListener("click", (ev) => {
+  const t = ev.target && ev.target.closest ? ev.target.closest("button") : null;
+  if (!t) return;
+  if (t.id === "shMake") { ev.preventDefault(); makeSharedLink(); }
+});
+
 function say(id, t, ms) {
   const e = $(id);
   if (!e) return;
@@ -572,8 +580,8 @@ if ($("blFile")) {
 //
 // 全員に同じURLを送る。誰が見たかは、配信システムの差し込みタグで分かる。
 // ───────────────────────────────────────────────────────────
-if ($("shMake")) {
-  $("shMake").addEventListener("click", async () => {
+async function makeSharedLink() {
+  {
     const docId = parseInt($("shDoc").value, 10);
     const st = $("shStatus"), box = $("shBox");
     // 押したことが必ず分かるようにする（無反応に見えないため）
@@ -618,7 +626,7 @@ if ($("shMake")) {
     } catch (e) {
       st.textContent = "失敗：" + e.message;
     }
-  });
+  }
 }
 
 // 共通URLを、誰が開いたか

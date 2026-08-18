@@ -1,3 +1,20 @@
+// 画面のどこかでつまずいたら、隅に小さく出す。
+// 黙って止まると「押しても反応しない」に見えるため。
+window.addEventListener("error", (e) => {
+  try {
+    let box = document.getElementById("kbErr");
+    if (!box) {
+      box = document.createElement("div");
+      box.id = "kbErr";
+      box.className = "kb-err";
+      box.title = "画面の処理でつまずきました。開発メモに残すと直せます。";
+      document.body.appendChild(box);
+      box.addEventListener("click", () => box.remove());
+    }
+    box.textContent = "画面のエラー：" + String((e && e.message) || e).slice(0, 120);
+  } catch {}
+});
+
 // いま動いている版を、画面の隅に小さく出す。
 // 「直したのに変わらない」ときに、古い画面を見ているかどうかが分かる。
 (function () {
@@ -17,7 +34,7 @@
 (function () {
   if (!document.querySelector('script[src$="kbchat.js"]')) {
     const sc = document.createElement("script");
-    sc.src = "kbchat.js?v=20260818n";
+    sc.src = "kbchat.js?v=20260818p";
     sc.defer = true;
     document.head.appendChild(sc);
   }

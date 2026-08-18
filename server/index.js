@@ -3222,7 +3222,13 @@ app.post("/api/doc-links/shared", async (req, res) => {
     const docId = parseInt(req.body?.docId, 10);
     if (!docId) return res.status(400).json({ error: "資料を選んでください" });
     const link = await getOrCreateSharedLink(docId, req.user);
-    if (!link) return res.status(500).json({ error: "作れませんでした" });
+    if (!link) {
+      // なぜ作れなかったのかを添える（黙って失敗すると原因が追えないため）
+      return res.status(500).json({
+        error: "共通URLを作れませんでした。データベースにつながっていないか、" +
+               "資料が見つかりません（サーバーのログをご確認ください）",
+      });
+    }
     const base = String(PUBLIC_URL || "").replace(/\/+$/, "");
     res.json({
       ok: true,
@@ -10621,7 +10627,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-08-18n 共通URL／画面の版を隅に表示";
+const BUILD_TAG = "2026-08-18o 共通URLのボタンを確実に動かす／エラーを画面に出す";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",

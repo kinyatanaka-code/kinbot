@@ -4071,7 +4071,22 @@ export async function getOrCreateSharedLink(docId, owner) {
        VALUES ($1,$2,'（メルマガ用の共通URL）','','',$3,true) RETURNING *`,
       [slug, docId, owner || null]);
     return rows[0] || null;
-  } catch (e) { console.error("[db] getOrCreateSharedLink", e.message); return null; }
+  } catch (e) {
+    // 列がまだ無いときは、その場で足してからもう一度試す
+    if (/shared_link/.test(e.message)) {
+      try {
+        await pool.query(`ALTER TABLE doc_links ADD COLUMN IF NOT EXISTS shared_link BOOLEAN NOT NULL DEFAULT false`);
+        const slug = Math.random().toString(36).slice(2, 10);
+        const { rows } = await pool.query(
+          `INSERT INTO doc_links (slug, doc_id, company, contact, email, owner, shared_link)
+           VALUES ($1,$2,'（メルマガ用の共通URL）','','',$3,true) RETURNING *`,
+          [slug, docId, owner || null]);
+        return rows[0] || null;
+      } catch (e2) { console.error("[db] getOrCreateSharedLink(再)", e2.message); return null; }
+    }
+    console.error("[db] getOrCreateSharedLink", e.message);
+    return null;
+  }
 }
 
 // 共通URLで開いた人を記録する
