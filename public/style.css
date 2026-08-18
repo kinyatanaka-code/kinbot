@@ -5506,3 +5506,7 @@ input:focus, select:focus, textarea:focus, .sf-input:focus, .sf-select:focus, .s
 .sh-table { border-collapse: collapse; margin-top: 8px; font-size: 12px; width: 100%; }
 .sh-table th, .sh-table td { border: 1px solid var(--line); padding: 5px 9px; text-align: left; }
 .sh-table th { background: #eaf7f2; color: #0d5b47; font-weight: 700; font-size: 11px; }
+
+/* いま動いている画面の版（右下に小さく） */
+.kb-ver { position: fixed; right: 6px; bottom: 4px; z-index: 8000;
+  font-size: 9.5px; color: #b9c7c2; pointer-events: none; user-select: none; }

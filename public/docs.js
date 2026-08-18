@@ -576,6 +576,8 @@ if ($("shMake")) {
   $("shMake").addEventListener("click", async () => {
     const docId = parseInt($("shDoc").value, 10);
     const st = $("shStatus"), box = $("shBox");
+    // 押したことが必ず分かるようにする（無反応に見えないため）
+    if (st) st.textContent = "…";
     if (!docId) { st.textContent = "資料を選んでください"; return; }
     st.textContent = "用意しています…";
     box.innerHTML = "";

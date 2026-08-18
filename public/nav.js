@@ -1,8 +1,23 @@
+// いま動いている版を、画面の隅に小さく出す。
+// 「直したのに変わらない」ときに、古い画面を見ているかどうかが分かる。
+(function () {
+  const ver = (document.querySelector('script[src*="?v="]') || {}).src || "";
+  const m = ver.match(/\?v=([\w.-]+)/);
+  if (!m) return;
+  document.addEventListener("DOMContentLoaded", () => {
+    const el = document.createElement("div");
+    el.className = "kb-ver";
+    el.textContent = "画面 " + m[1];
+    el.title = "この画面のバージョン。古いままなら、Cmd/Ctrl + Shift + R で読み込み直してください。";
+    document.body.appendChild(el);
+  });
+})();
+
 // ロボに話しかける窓を、どの画面でも使えるように読み込む
 (function () {
   if (!document.querySelector('script[src$="kbchat.js"]')) {
     const sc = document.createElement("script");
-    sc.src = "kbchat.js?v=20260818m";
+    sc.src = "kbchat.js?v=20260818n";
     sc.defer = true;
     document.head.appendChild(sc);
   }
