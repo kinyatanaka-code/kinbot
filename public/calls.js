@@ -337,6 +337,17 @@ function renderDock() {
     .kc-table td{overflow:visible;text-overflow:clip;white-space:nowrap;}
     .kc-table th{white-space:nowrap;}
     .kc-tablewrap{overflow-x:auto;}
+    /* リスト管理：カード一覧 */
+    .kc-lists-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:14px;margin-top:6px;}
+    .kc-list-card{position:relative;background:#fff;border:1.5px solid #e6ece9;border-radius:14px;padding:16px 16px 14px;cursor:pointer;transition:border-color .15s,box-shadow .15s,transform .12s;}
+    .kc-list-card:hover{border-color:#bfe0cf;box-shadow:0 8px 22px -12px rgba(33,122,84,.35);transform:translateY(-2px);}
+    .kc-list-del{position:absolute;top:10px;right:10px;width:26px;height:26px;border-radius:999px;border:none;background:transparent;color:#b6c3bc;font-size:13px;line-height:1;cursor:pointer;display:grid;place-items:center;transition:background .15s,color .15s;}
+    .kc-list-del:hover{background:#fbe9e9;color:#e05a5a;}
+    .kc-list-name{font-size:14px;font-weight:700;color:#1f2a26;line-height:1.45;padding-right:24px;margin-bottom:12px;}
+    .kc-list-meta{display:flex;flex-wrap:wrap;gap:6px;}
+    .kc-list-chip{font-size:11px;color:#5b7a6d;background:#f4f7f5;border-radius:6px;padding:3px 8px;}
+    .kc-list-chip.done{color:#217a54;background:#eaf5ef;}
+    .kc-list-chip.rest{color:#8a5a2b;background:#fbf3e8;}
   `;
   document.head.appendChild(s);
 })();
@@ -776,17 +787,64 @@ document.addEventListener("click", (ev) => {
 // リストの割り振り
 // ───────────────────────────────────────────────────────────
 async function asLoad() {
-  // リストの選び欄を用意する
-  const sel = $("asList");
-  if (!sel) return;
+  const box = $("asCards");
+  if (!box) return;
+  box.innerHTML = '<div class="note">読み込んでいます…</div>';
   try {
     const d = await (await fetch("/api/calls/lists")).json();
     const items = d.items || [];
-    sel.innerHTML = items.length
-      ? items.map((x) => `<option value="${x.id}">${esc(x.name)}</option>`).join("")
-      : `<option value="">まだリストがありません</option>`;
-    if (items.length) { asNow(); asWho(); dlFacets(); }
-  } catch (e) { say("asStatus", "読み込めませんでした：" + e.message, 8000); }
+    if (!items.length) {
+      box.innerHTML = '<div class="empty-state">まだリストがありません。kinbotのリードレポートから「kincallへ送る」で作成してください。</div>';
+      return;
+    }
+    box.innerHTML = items.map((x) => `
+      <div class="kc-list-card" data-id="${x.id}">
+        <button type="button" class="kc-list-del" data-del="${x.id}" aria-label="削除" title="削除">✕</button>
+        <div class="kc-list-name">${esc(x.name)}</div>
+        <div class="kc-list-meta">
+          <span class="kc-list-chip">全 ${x["全部"]}件</span>
+          <span class="kc-list-chip done">済 ${x["済み"]}件</span>
+          <span class="kc-list-chip rest">残 ${x["残り"]}件</span>
+        </div>
+      </div>`).join("");
+    box.querySelectorAll(".kc-list-card").forEach((c) =>
+      c.addEventListener("click", () => selectListAndCall(c.dataset.id)));
+    box.querySelectorAll(".kc-list-del").forEach((b) =>
+      b.addEventListener("click", (e) => { e.stopPropagation(); deleteListCard(b.dataset.del); }));
+  } catch (e) {
+    box.innerHTML = `<div class="note">読み込めませんでした：${esc(e.message)}</div>`;
+  }
+}
+
+// カードを押したら「かける」に移り、そのリストを選ぶ
+function selectListAndCall(id) {
+  const sel = $("clList");
+  if (sel) {
+    sel.value = String(id);
+    listId = Number(id) || 0;
+    loadTable();
+  }
+  // 「かける」画面に切り替える（再読み込みしない）
+  document.querySelectorAll(".kc-pane").forEach((el) => { el.hidden = el.dataset.p !== "call"; });
+  document.querySelectorAll(".kc-side .side-item").forEach((a) => {
+    a.classList.toggle("active", (a.getAttribute("href") || "") === "/kincall");
+  });
+  history.replaceState(null, "", "/kincall");
+}
+
+// カードの × で、そのリストを削除する
+async function deleteListCard(id) {
+  const card = document.querySelector(`.kc-list-card[data-id="${id}"]`);
+  const name = card ? ((card.querySelector(".kc-list-name") || {}).textContent || "") : "";
+  if (!confirm(`リスト「${name}」を、中身ごと消します。戻せません。よろしいですか？`)) return;
+  say("asStatus", "消しています…");
+  try {
+    const r = await fetch(`/api/calls/lists/${encodeURIComponent(id)}`, { method: "DELETE" });
+    if (!r.ok) throw new Error("消せませんでした");
+    say("asStatus", `「${name}」を消しました`, 8000);
+    asLoad();     // カードを描き直す
+    loadLists();  // 「かける」のリスト選び欄も更新する
+  } catch (e) { say("asStatus", "失敗：" + e.message, 8000); }
 }
 
 // いまの配り具合
