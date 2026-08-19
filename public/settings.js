@@ -2793,24 +2793,10 @@ async function loadChatTargets() {
 // Google Chatへの知らせ（まとめて設定）
 // ───────────────────────────────────────────────────────────
 async function ntLoad() {
-  if (!document.getElementById("ntKinds")) return;
+  if (!document.getElementById("ntTimers")) return;
   try {
     const d = await (await fetch("/api/notices")).json();
     if (d.error) throw new Error(d.error);
-
-    // できごとを知らせるもの
-    document.getElementById("ntKinds").innerHTML =
-      (d["種類"] || []).map((k) => `
-        <div class="nt-row">
-          <label class="ks-check">
-            ${k["入り切り"] === null
-              ? `<input type="checkbox" checked disabled />`
-              : `<input type="checkbox" class="nt-k" data-k="${mbEsc(k.key)}"${k["入り切り"] ? " checked" : ""} />`}
-            <b>${mbEsc(k["名前"])}</b>
-          </label>
-          <span class="nt-note">${mbEsc(k["説明"])}</span>
-          <span class="nt-to">${k["送り先の数"] ? `送り先 ${k["送り先の数"]}か所` : "送り先なし"}</span>
-        </div>`).join("");
 
     // 決まった時刻に流すもの
     document.getElementById("ntTimers").innerHTML =
@@ -2825,7 +2811,7 @@ async function ntLoad() {
         </div>`).join("");
 
   } catch (e) {
-    const b = document.getElementById("ntKinds");
+    const b = document.getElementById("ntTimers");
     if (b) b.innerHTML = `<div class="note">読み込めませんでした：${mbEsc(e.message)}</div>`;
   }
 }
