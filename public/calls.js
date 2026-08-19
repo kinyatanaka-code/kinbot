@@ -332,6 +332,11 @@ function renderDock() {
     .kc-chip-x{border:none;background:transparent;color:#b6c3bc;cursor:pointer;font-size:12px;flex:0 0 auto;}
     .kc-chip-x:hover{color:#e05a5a;}
     @media(max-width:720px){.kc-two{flex-direction:column;}.kc-two-l{border-right:none;border-bottom:1px solid #e6ece9;padding-right:0;padding-bottom:12px;max-height:40vh;}}
+    /* 表は内容にあわせて広げ、途中で切らずに全部見えるようにする（必要なら横スクロール） */
+    .kc-table{table-layout:auto;}
+    .kc-table td{overflow:visible;text-overflow:clip;white-space:nowrap;}
+    .kc-table th{white-space:nowrap;}
+    .kc-tablewrap{overflow-x:auto;}
   `;
   document.head.appendChild(s);
 })();
