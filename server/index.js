@@ -144,6 +144,7 @@ import {
   clearCallAssign,
   getCallTarget,
   setCallTargetStatus,
+  updateCallTargetFields,
   addCallTargets,
   listCallLists,
   nextCallTarget,
@@ -5428,6 +5429,70 @@ app.get("/api/calls/targets/:id/history", async (req, res) => {
       相手: { 会社名: t.company || "", 担当者: t.person || "", 電話番号: t.phone || "", メール: t.email || "" },
       note: sfNote,
       items,
+    });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// 会社名・担当者名・電話番号・メールアドレスを編集する。
+// ローカルの宛先を書き換え、Salesforceのリードにも同じ内容を反映する。
+app.post("/api/calls/targets/:id/edit", async (req, res) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    const t = await getCallTarget(id);
+    if (!t) return res.status(404).json({ error: "見つかりません" });
+
+    const b = req.body || {};
+    const company = b.company === undefined ? undefined : String(b.company || "").trim();
+    const person  = b.person  === undefined ? undefined : String(b.person  || "").trim();
+    const phone   = b.phone   === undefined ? undefined : String(b.phone   || "").trim();
+    const email   = b.email   === undefined ? undefined : String(b.email   || "").trim();
+
+    // まずローカルを更新
+    const row = await updateCallTargetFields(id, { company, person, phone, email });
+
+    // Salesforceのリードにも反映（つながっていて、リードと結びついているときだけ）
+    let sf = null;
+    if (t.lead_id && salesforceConfigured()) {
+      // 記録と同じく、自分がつながっていなければ代理の連携を使う
+      let sfUser = req.user;
+      if (!(await sfConnected(sfUser).catch(() => false))) {
+        const st = await getSettings().catch(() => ({}));
+        const 代理 = String(st.sfProxyUser || "").trim().toLowerCase();
+        if (代理 && (await sfConnected(代理).catch(() => false))) sfUser = 代理;
+      }
+      if (await sfConnected(sfUser).catch(() => false)) {
+        // 送るのは値が入っているものだけ。必須項目（会社名・担当者名）は空では送らない。
+        const fields = {};
+        if (company !== undefined && company !== "") fields.Company = company;
+        if (person  !== undefined && person  !== "") fields.LastName = person; // Lead.Name は LastName に入れる
+        if (phone   !== undefined) fields.Phone = phone;  // 電話・メールは空にできる
+        if (email   !== undefined) fields.Email = email;
+        try {
+          if (Object.keys(fields).length) {
+            await updateLead(sfUser, t.lead_id, fields);
+            sf = { ok: true };
+          } else {
+            sf = { ok: false, reason: "SFへ送る項目がありませんでした" };
+          }
+        } catch (e) {
+          sf = { ok: false, reason: e.message };
+        }
+      } else {
+        sf = { ok: false, reason: "Salesforceにつながっていません" };
+      }
+    } else if (!t.lead_id) {
+      sf = { ok: false, reason: "この相手はSalesforceのリードと結びついていません" };
+    }
+
+    res.json({
+      ok: true,
+      項目: {
+        会社名: (row && row.company) || company || "",
+        担当者: (row && row.person) || person || "",
+        電話番号: (row && row.phone) || phone || "",
+        メール: (row && row.email) || email || "",
+      },
+      sf,
     });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
@@ -12231,7 +12296,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-08-19zc kincall：履歴と記録を1つの窓にまとめ、記録は下に溜められるようにした";
+const BUILD_TAG = "2026-08-20a kincall：お客さま情報の編集（会社名・担当者・電話・メール）を追加し、Salesforceにも反映";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
