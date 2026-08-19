@@ -4099,6 +4099,89 @@ app.post("/api/mail-sent-check", async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+// アポについて「SFを立ち上げたか」「メールを送ったか」を、実データから見分ける。
+//
+// kinbotから操作したかどうかに関わらず、
+//   ・SF … 商談日の近くに、その会社のクロスの商談ができているか
+//   ・メール … その日に、その会社へメールを送っているか
+// を見て判定する。
+app.post("/api/apo/done-check", async (req, res) => {
+  try {
+    const list = Array.isArray(req.body?.items) ? req.body.items.slice(0, 60) : [];
+    if (!list.length) return res.json({ ok: true, results: {} });
+
+    // ── メール：その人が今日送ったぶんを1回だけ読む
+    const sent = await sentTodayFor(req.user).catch(() => []);
+
+    // ── SF：商談日の前後に作られたクロスの商談を、まとめて引く
+    const oppByCompany = new Map();
+    let 見る人 = req.user;
+    if (!(await sfConnected(見る人).catch(() => false))) {
+      const st = await getSettings().catch(() => ({}));
+      const 代理 = String(st.sfProxyUser || "").trim().toLowerCase();
+      if (代理 && (await sfConnected(代理).catch(() => false))) 見る人 = 代理;
+    }
+    if (salesforceConfigured() && (await sfConnected(見る人).catch(() => false))) {
+      try {
+        // 商談日の範囲を出す（前後30日ぶん見れば足りる）
+        const days = list.map((x) => String(x.start || "").slice(0, 10)).filter(Boolean).sort();
+        const from = days[0] || jstDate(-30);
+        const to = days[days.length - 1] || jstDate(30);
+        const d = await sfQuery(見る人,
+          `SELECT Id, Name, CloseDate, StageName, Account.Name, RecordType.Name ` +
+          `FROM Opportunity WHERE CloseDate >= ${from} AND CloseDate <= ${to} ` +
+          `ORDER BY CreatedDate DESC LIMIT 500`);
+        for (const o of d.records || []) {
+          const co = (o.Account && o.Account.Name) || o.Name || "";
+          const k = coreName(co);
+          if (!k) continue;
+          if (!oppByCompany.has(k)) oppByCompany.set(k, []);
+          oppByCompany.get(k).push({
+            id: o.Id, 名前: o.Name, 日: o.CloseDate,
+            種類: (o.RecordType && o.RecordType.Name) || "",
+          });
+        }
+      } catch (e) { console.warn("[アポ] SFの商談を読めません:", e.message); }
+    }
+
+    const results = {};
+    for (const x of list) {
+      const co = String(x.company || "");
+      const k = coreName(co);
+      const 商談日 = String(x.start || "").slice(0, 10);
+
+      // SF：商談日と近い（前後7日）クロスの商談があれば「立ち上げた」
+      let sf = null;
+      for (const o of oppByCompany.get(k) || []) {
+        if (!/クロス/.test(o.種類) && o.種類) continue;
+        const 差 = Math.abs(
+          (new Date(o.日).getTime() - new Date(商談日).getTime()) / 86400000);
+        if (差 <= 7) { sf = o; break; }
+      }
+
+      // メール：今日その会社へ送っているか
+      const mail = sentMatches(sent, { company: co, email: x.email });
+
+      results[String(x.slug || x.id)] = {
+        sf済み: !!sf,
+        sf: sf ? { id: sf.id, 名前: sf.名前, 日: sf.日 } : null,
+        メール済み: !!mail.ok,
+        メールの理由: mail.ok ? mail.why : "",
+      };
+    }
+    res.json({ ok: true, results, 送信済みの件数: sent.length });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// 会社名の「芯」を出す（法人格や記号の違いを無視して比べるため）
+function coreName(v) {
+  return String(v || "").normalize("NFKC")
+    .replace(/[\s　（）()・,、.。「」【】]/g, "")
+    .replace(/^(株式会社|有限会社|合同会社|一般社団法人|一般財団法人|社会福祉法人|医療法人|学校法人|社会医療法人)/, "")
+    .replace(/(株式会社|有限会社|合同会社)$/, "")
+    .toLowerCase();
+}
+
 // 明日リマインドを送る相手の一覧（ホームに出す）
 app.get("/api/apo-mail/tomorrow", async (req, res) => {
   try {
@@ -12050,7 +12133,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-08-19u kincall：記録しても消えない／履歴の件数を調べる";
+const BUILD_TAG = "2026-08-19v アポ割り振りを日ごとに平ら／SFとメールを実データで判定";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
@@ -15575,6 +15658,9 @@ app.put("/api/apo/rotation-config", async (req, res) => {
     if (b.scanOwner !== undefined) patch.apoScanOwner = String(b.scanOwner || "").trim();
     if (b.teamBalance !== undefined) {
       patch.apoTeamBalance = ["off", "total", "perHead", "perDay"].includes(b.teamBalance) ? b.teamBalance : "off";
+    }
+    if (b.dayBalance !== undefined) {
+      patch.apoDayBalance = b.dayBalance !== false;
     }
     if (b.balanceWindow !== undefined) patch.apoBalanceWindow = b.balanceWindow === "all" ? "all" : "month";
     if (b.fairnessStart !== undefined) {

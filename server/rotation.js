@@ -56,6 +56,9 @@ export async function getRotationConfig() {
     //   perDay  … 稼働1日あたりの件数が少ないチームを優先（停止期間を分母から除く）
     //             停止していた人・チームを、あとから優先して埋め合わせないのでこれが公平。
     teamBalance: ["off", "total", "perHead", "perDay"].includes(s.apoTeamBalance) ? s.apoTeamBalance : "off",
+    // その日の件数を平らにする（既定ON）。
+    // 少ない人から順に試すので、1日の終わりに件数がほぼ同じになる。
+    dayBalance: s.apoDayBalance !== false,
     // 稼働日を数える起点（未設定なら90日前から）
     fairnessStart: /^\d{4}-\d{2}-\d{2}$/.test(String(s.apoFairnessStart || "")) ? String(s.apoFairnessStart) : "",
     // 均等化を判断する期間（month=当月・all=通算）
@@ -124,6 +127,22 @@ export function teamScore(stat, mode) {
 //   teamBalance … "off" | "total" | "perHead"
 //   teamStats   … teamAssignStats() の結果（チーム名→件数・人数）
 //   teams       … team_rotation の行（active=false のチームは外す）
+// 今日の件数が少ない人を先に試す並びを作る。
+//
+// これまでは決まった順番で回していたので、空きが無くて飛ばされた人は
+// その日ずっと少ないまま、という偏りが出ていた。
+// 「今日いちばん少ない人」から順に見るようにすると、1日の中で平らになる。
+export function orderByToday(cands, todayCount = {}) {
+  const n = (c) => Number(todayCount[String(c.email || "").toLowerCase()] ?? 0);
+  return cands.slice().sort((a, b) => {
+    const na = n(a), nb = n(b);
+    if (na !== nb) return na - nb;                 // 今日が少ない人を先に
+    // 同じ件数なら、これまでの順番（ローテーション）に従う
+    if (a._rot !== b._rot) return (a._rot ?? 0) - (b._rot ?? 0);
+    return (a.sort_order ?? 0) - (b.sort_order ?? 0);
+  });
+}
+
 export function orderCandidates(closers, nextOrder, opts = {}) {
   const mode = opts.teamBalance || "off";
   const stats = {};
@@ -206,6 +225,9 @@ export async function pickCloser(link, { inviteOwner, closers = null, cfg = null
   const cands = orderCandidates(all, nextOrderFor(conf, biz), {
     teamBalance: conf.teamBalance, teamStats: ctx.teamStats, teams: ctx.teams,
   });
+  // ローテーション順を覚えておく（同じ件数のときに使う）
+  cands.forEach((c, i) => { c._rot = i; });
+
   if (!cands.length) {
     return { email: null, name: "",
       reason: biz ? `${biz}を担当するクローザーが登録されていません` : "有効なクローザーが登録されていません",
@@ -234,8 +256,22 @@ export async function pickCloser(link, { inviteOwner, closers = null, cfg = null
   }
 
   const day = jstDate(startISO);
+
+  // その日の件数を全員分数えて、少ない人から試す。
+  // 設定で「その日を平らにする」を切っているときは、これまでの順番のまま。
+  let order = cands;
+  if (conf.dayBalance !== false) {
+    const todayCount = {};
+    for (const c of cands) {
+      todayCount[String(c.email).toLowerCase()] = await countAssignedOnDate(c.email, day).catch(() => 0);
+    }
+    order = orderByToday(cands, todayCount);
+    // なぜその人になったかを言えるよう、件数を持たせる
+    for (const c of order) c._today = todayCount[String(c.email).toLowerCase()] ?? 0;
+  }
+
   const skipped = [];
-  for (const c of cands) {
+  for (const c of order) {
     // 1日の上限件数（設定していれば）
     if (c.daily_cap) {
       const n = await countAssignedOnDate(c.email, day);
@@ -255,7 +291,10 @@ export async function pickCloser(link, { inviteOwner, closers = null, cfg = null
       // 通常メンバーが全員埋まっていたので予備に回った
       why = `予備（通常メンバーが全員埋まっていたため）／${teamOf(c)}のアポ累計${st ? st.count : 0}件で最少`;
     } else {
-      why = c.priority ? "前回代打で飛ばされたため最優先" : "ローテーション順";
+      why = c.priority ? "前回代打で飛ばされたため最優先"
+        : (conf.dayBalance !== false && c._today !== undefined)
+          ? `今日${c._today}件でいちばん少ない`
+          : "ローテーション順";
       if (conf.teamBalance !== "off" && st) {
         if (conf.teamBalance === "perDay") {
           why += `／${st.team}が稼働1日あたり${st.perDay ?? 0}件で最少（稼働${st.personDays ?? 0}人日）`;

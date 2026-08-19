@@ -1834,6 +1834,8 @@ async function changeDate(next) {
   mailSentAsked = false;
   mailSentMap = {};
   sfDoneMap = {};
+  apoDoneAsked = false;
+  apoDone = {};
   selDate = next;
   weekBase = mondayOf(next);
   miniBase = next.slice(0, 7) + "-01";
@@ -2183,6 +2185,27 @@ let mailSentMap = {};
 let mailSentAsked = false;
 // Salesforceを更新済みの商談（ステージ変更・活動履歴の自動作成）
 let sfDoneMap = {};
+// アポごとの「SF立ち上げ済み」「メール送信済み」（実データから見分けたもの）
+let apoDone = {};
+let apoDoneAsked = false;
+
+// アポについて、SFとメールが済んでいるかを聞く
+async function checkApoDone(rows) {
+  const items = (rows || [])
+    .filter((x) => x.slug)
+    .map((x) => ({ slug: x.slug, company: x.company || "", email: x.clientEmail || "", start: x.start }));
+  if (!items.length) return;
+  try {
+    const r = await fetch("/api/apo/done-check", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ items }),
+    });
+    const d = await r.json();
+    if (d.error || !d.results) return;
+    apoDone = d.results;
+    renderMyApos();
+  } catch {}
+}
 
 // Salesforceを更新したかどうかを聞く
 async function checkSfUpdated(rows) {
@@ -2345,6 +2368,8 @@ async function loadMyApos() {
     if (d.error) throw new Error(d.error);
     myApos = d.items || [];
     renderMyApos();
+    // SFを立ち上げたか・メールを送ったかを、実データから見分ける（1回だけ）
+    if (!apoDoneAsked) { apoDoneAsked = true; checkApoDone(myApos); }
   } catch (e) {
     myApos = [];
     box.innerHTML = `<div class="home-empty home-empty-s">読み込めませんでした：${apoEsc(e.message)}</div>`;
@@ -2400,10 +2425,18 @@ function apoHomeCard(x) {
         ? (m.confirm.status === "sent" ? "送信済み" : "下書き作成済み")
         : (x.clientEmail ? "メールを作る" : "宛先が未登録");
       const acts =
-        hIcon("sf", launched ? "SFを開く" : "SF立ち上げ", `data-apo-sf="${apoEsc(x.slug)}"`,
-              launched ? "done" : "need") +
-        hIcon("mail", mailLabel, `data-apo-mail="${apoEsc(x.slug)}"${m.confirm ? " disabled" : ""}`,
-              m.confirm ? "done" : "need") +
+        hIcon("sf",
+          apoDone[x.slug] && apoDone[x.slug].sf済み
+            ? `SFを開く（${apoDone[x.slug].sf.名前 || "立ち上げ済み"}）`
+            : launched ? "SFを開く" : "SF立ち上げ",
+          `data-apo-sf="${apoEsc(x.slug)}"`,
+              (launched || (apoDone[x.slug] && apoDone[x.slug].sf済み)) ? "done" : "need") +
+        hIcon("mail",
+          apoDone[x.slug] && apoDone[x.slug].メール済み
+            ? `送信済み（${apoDone[x.slug].メールの理由}）`
+            : mailLabel,
+          `data-apo-mail="${apoEsc(x.slug)}"${m.confirm ? " disabled" : ""}`,
+          (m.confirm || (apoDone[x.slug] && apoDone[x.slug].メール済み)) ? "done" : "need") +
         hIcon("cal", "会議室", `href="${apoEsc(x.smartUrl)}" target="_blank" rel="noopener"`, "done", "a") +
         // テストで作ったアポを、その場で片付けられるようにする。
         // 実績・均等化・通知の数から外し、カレンダーの予定も消す。
