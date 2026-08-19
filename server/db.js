@@ -3292,6 +3292,22 @@ export async function setCallTargetStatus(id, { stage, status } = {}) {
   } catch (e) { console.error("[db] setCallTargetStatus", e.message); return null; }
 }
 
+// 会社名・担当者名・電話番号・メールアドレスを書き換える（編集モーダル用）
+export async function updateCallTargetFields(id, { company, person, phone, email } = {}) {
+  if (!pool || !id) return null;
+  const sets = [], vals = [id];
+  if (company !== undefined) { vals.push(String(company || "").slice(0, 200)); sets.push(`company = $${vals.length}`); }
+  if (person  !== undefined) { vals.push(String(person  || "").slice(0, 120)); sets.push(`person = $${vals.length}`); }
+  if (phone   !== undefined) { vals.push(String(phone   || "").slice(0, 60));  sets.push(`phone = $${vals.length}`); }
+  if (email   !== undefined) { vals.push(String(email   || "").slice(0, 200)); sets.push(`email = $${vals.length}`); }
+  if (!sets.length) return null;
+  try {
+    const { rows } = await pool.query(
+      `UPDATE call_targets SET ${sets.join(", ")} WHERE id = $1 RETURNING *`, vals);
+    return rows[0] || null;
+  } catch (e) { console.error("[db] updateCallTargetFields", e.message); return null; }
+}
+
 // 架電したあと、リードの状態を書き戻す
 export async function setTargetStatus(targetId, status) {
   if (!pool || !targetId) return null;
