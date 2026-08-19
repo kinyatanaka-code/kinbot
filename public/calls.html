@@ -10,7 +10,7 @@
     <link rel="manifest" href="/site.webmanifest" />
     <meta name="theme-color" content="#0d5b47" />
     <meta name="apple-mobile-web-app-title" content="kinbot" />
-    <link rel="stylesheet" href="style.css?v=20260820b" />
+    <link rel="stylesheet" href="style.css?v=20260820c" />
   </head>
   <body class="kc-body">
     <div class="app">
@@ -65,46 +65,10 @@
           <!-- リストの割り振り -->
           <section class="card kc-pane" data-p="lists" hidden>
             <h3 id="lists">リスト管理</h3>
-            <p class="note">リストの中身を見直したり、かける人へ配ったりできます。<br>
+            <p class="note">登録済みのリストを選ぶ・削除できます。カードを押すと「かける」に移り、右上の × で削除します。<br>
             <b>もとになるSalesforceのレポートは変わりません。</b>ここで消しても、Salesforce側のリードはそのまま残ります。</p>
-            <div class="ap-cfg-row">
-              <label>リスト <select id="asList"></select></label>
-              <button class="btn ghost" id="asReload">配り具合を見る</button>
-              <span class="rev-status" id="asStatus"></span>
-            </div>
-
-            <h4 class="ap-rot-h">いまの配り具合</h4>
-            <div id="asNow"></div>
-
-            <h4 class="ap-rot-h">中身をしぼって消す</h4>
-            <p class="note">かけ終わったステージや、もう追わない相手を、まとめて外せます。<br>
-            <b>選んだものが消えます</b>。消す前に件数を出すので、確かめてから実行してください。</p>
-            <div id="dlFacets"><div class="note">リストを選ぶと、中身の内訳が出ます。</div></div>
-            <div class="ap-cfg-row">
-              <label>履歴 <select id="dlHist">
-                <option value="">どちらでも</option>
-                <option value="none">履歴がないものだけ</option>
-                <option value="some">履歴があるものだけ</option>
-              </select></label>
-              <button class="btn ghost" id="dlCount">何件消えるか見る</button>
-              <button class="btn" id="dlGo">選んだものを消す</button>
-              <span class="rev-status" id="dlStatus"></span>
-            </div>
-
-            <h4 class="ap-rot-h">リストごと消す</h4>
-            <p class="note">中身もまとめて消えます。戻せません。</p>
-            <div class="ap-cfg-actions">
-              <button class="btn ghost" id="dlList">このリストを消す</button>
-            </div>
-
-            <h4 class="ap-rot-h">配る</h4>
-            <p class="note">かける人にチェックを入れて「配る」を押してください。</p>
-            <div id="asWho"></div>
-            <div class="ap-cfg-actions">
-              <label class="ks-check"><input type="checkbox" id="asRedo" /> すでに配ったぶんも配り直す</label>
-              <button class="btn" id="asGo">配る</button>
-              <button class="btn ghost" id="asClear">配ったものを全部戻す</button>
-            </div>
+            <div id="asCards" class="kc-lists-grid"><div class="note">読み込んでいます…</div></div>
+            <span class="rev-status" id="asStatus"></span>
           </section>
 
           <!-- リストを作る -->
@@ -139,7 +103,7 @@
         </main>
       </div>
     </div>
-    <script src="calls.js?v=20260820b"></script>
-    <script src="nav.js?v=20260820b"></script>
+    <script src="calls.js?v=20260820c"></script>
+    <script src="nav.js?v=20260820c"></script>
   </body>
 </html>
