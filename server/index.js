@@ -4349,14 +4349,17 @@ const NOTICE_KINDS = [
 ];
 
 // 決まった時刻に流すもの
+// 決まった時刻に流すもののうち、
+// 送り先ごとに選べないもの（本人あて・点検用など）だけをここに置く。
+// 送り先を選べるものは、送り先ごとのチェックで決める。
 const NOTICE_TIMERS = [
-  { key: "deployNews", 名前: "朝の「新しくなりました」", 説明: "前の営業日からの変更をまとめて",
+  { key: "deployNews", 名前: "朝の「新しくなりました」", 説明: "前の営業日からの変更をまとめて。送り先は下で選びます",
     既定: true, 時刻: { hour: "deployNewsHour", minute: "deployNewsMinute", 既定時: 8, 既定分: 30 } },
-  { key: "callProgress", 名前: "コール進捗", 説明: "平日11〜18時の毎正時", 既定: true },
-  { key: "eveningReminder", 名前: "夕方のやり残し", 説明: "平日18時半に本人だけへ", 既定: true },
-  { key: "weeklyRemind", 名前: "天気予報の声かけ", 説明: "月曜の朝と金曜の夕方", 既定: false },
-  { key: "devSummary", 名前: "開発メモのまとめ", 説明: "朝6時（既定はOFF）", 既定: false },
-  { key: "selfCheck", 名前: "自己点検", 説明: "30分おきに見張り、問題があれば", 既定: false },
+  { key: "callProgress", 名前: "コール進捗", 説明: "平日11〜18時の毎正時（チームのスペースへ）", 既定: true },
+  { key: "eveningReminder", 名前: "夕方のやり残し", 説明: "平日18時半に本人だけへ（1対1）", 既定: true },
+  { key: "weeklyRemind", 名前: "天気予報の声かけ", 説明: "月曜の朝と金曜の夕方（本人だけへ）", 既定: false },
+  { key: "devSummary", 名前: "開発メモのまとめ", 説明: "朝6時。点検用の送り先へ（既定はOFF）", 既定: false },
+  { key: "selfCheck", 名前: "自己点検", 説明: "30分おきに見張り、問題があれば点検用の送り先へ", 既定: false },
 ];
 
 app.get("/api/notices", async (req, res) => {
@@ -6787,7 +6790,7 @@ async function maybeSendDeployNews() {
       String(body).trim(),
       "",
       "うまく動かないときは、画面のロボを押して教えてください。",
-    ].join("\n"), "deploy");
+    ].join("\n"), "news");
     console.log(`[更新のお知らせ] ${rows.length}件をまとめて送りました`);
   } catch (e) { console.warn("[更新のお知らせ]", e.message); }
 }
@@ -6846,7 +6849,7 @@ async function maybeSendDeployNewsNow(rows) {
     "✨ *kinbotが新しくなりました*（お試し）",
     "",
     String(body).trim(),
-  ].join("\n"), "deploy");
+  ].join("\n"), "news");
 }
 
 // 数えない招待者の設定
@@ -12133,7 +12136,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-08-19w 知らせの設定から重複を外した";
+const BUILD_TAG = "2026-08-19x 朝のお知らせも送り先ごとに選べるようにした";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
