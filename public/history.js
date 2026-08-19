@@ -2066,9 +2066,9 @@ async function loadDetail(botId, openTab, opts = {}) {
 }
 
 // ===== 録画プレイヤー =====
-// iPhoneは動画のままだと、ホーム画面に戻ったり他のアプリを開いた時点で止まる仕様。
+// スマホ（iPhone・Android）は、動画のままだとホーム画面に戻ったり他アプリを開いた時点で止まりやすい。
 // そこで裏に回った瞬間に、同じファイルの音声へ自動で引き継いで再生を続ける。
-// kinbotに戻ってきたら、その位置から動画の再生を再開する。
+// kinbotに戻ってきたら、その位置から動画の再生を再開する。ボタン操作は不要。
 
 function setMediaSession(el, meeting) {
   if (!("mediaSession" in navigator)) return;
@@ -2298,6 +2298,13 @@ function isIOS() {
   return /iP(hone|ad|od)/.test(navigator.userAgent) ||
     (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
 }
+function isAndroid() {
+  return /Android/.test(navigator.userAgent);
+}
+// スマホ（iPhone / Android）かどうか。バックグラウンド音声の引き継ぎ対象。
+function isMobile() {
+  return isIOS() || isAndroid();
+}
 
 function setupRecordingPlayer(drec, d, meeting) {
   const url = d.url;
@@ -2385,9 +2392,11 @@ function setupRecordingPlayer(drec, d, meeting) {
   }
   setMediaSession(video, meeting);
 
-  // ---- 裏に回ったときに音声へ引き継ぐ（iPhoneのみ） ----
+  // ---- 裏に回ったときに音声へ引き継ぐ（iPhone / Android のスマホ） ----
+  // 直接ファイル（ドライブのmp4など）のときだけ。HLS配信中は音声だけの引き継ぎができないので、
+  // ドライブ保存が終わってmp4になってから効く。
   const nativeOk = !isHls || !!video.canPlayType("application/vnd.apple.mpegurl");
-  if (!isIOS() || !nativeOk) return;
+  if (!isMobile() || !nativeOk) return;
 
   bgAudio = document.createElement("audio");
   bgAudio.preload = "none";
