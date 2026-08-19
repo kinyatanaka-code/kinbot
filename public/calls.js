@@ -150,6 +150,7 @@ function render() {
         <th class="kc-th-s"><button type="button" class="kc-th-b${on("status")}" data-flt="status">最終ステータス ▾</button></th>
         <th class="kc-th-h"><button type="button" class="kc-th-b${filt.hist ? " on" : ""}" data-hist="1">履歴${arrow("hist")}</button></th>
         <th class="kc-th-r">記録</th>
+        <th class="kc-th-e">編集</th>
       </tr>` +
     list.map((x) => `
       <tr data-id="${x.id}">
@@ -163,6 +164,7 @@ function render() {
         <td>${x["最終ステータス"] ? esc(x["最終ステータス"]) : "-"}</td>
         <td><button type="button" class="kc-btn kc-hist" data-id="${x.id}">${x["履歴数"] ? `${x["履歴数"]}件` : "なし"}</button></td>
         <td><button type="button" class="kc-btn kc-rec" data-id="${x.id}">記録</button></td>
+        <td><button type="button" class="kc-btn kc-edit" data-id="${x.id}">編集</button></td>
       </tr>`).join("") + `</table></div>`;
 
   // 見出しの絞り込み・並べ替え
@@ -186,6 +188,8 @@ function render() {
     b.addEventListener("click", () => openTarget(b.dataset.id)));
   box.querySelectorAll(".kc-rec").forEach((b) =>
     b.addEventListener("click", () => openTarget(b.dataset.id)));
+  box.querySelectorAll(".kc-edit").forEach((b) =>
+    b.addEventListener("click", () => openEdit(b.dataset.id)));
 }
 
 // ───────── 窓（モーダル） ─────────
@@ -299,6 +303,12 @@ function renderDock() {
   s.id = "kc-combo-style";
   s.textContent = `
     .kc-modal-wide{max-width:920px;width:calc(100vw - 40px);}
+    .kc-modal-head{display:flex;align-items:center;gap:10px;}
+    .kc-modal-btns{margin-left:auto;display:inline-flex;gap:8px;align-items:center;}
+    .kc-modal-min,.kc-modal-x{border:1px solid #d7e5dd;background:#f4faf7;color:#0d5b47;width:32px;height:32px;border-radius:8px;line-height:1;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;font-size:16px;font-weight:700;padding:0;}
+    .kc-modal-min:hover{background:#e3f3ea;border-color:#1d9e75;}
+    .kc-modal-x{color:#b05a5a;background:#fbf1f1;border-color:#f0d7d7;}
+    .kc-modal-x:hover{background:#f7e2e2;border-color:#e0a3a3;color:#c0392b;}
     .kc-modal-btns{display:inline-flex;gap:4px;align-items:center;}
     .kc-modal-min{border:none;background:transparent;font-size:18px;line-height:1;cursor:pointer;color:#6b7c74;width:26px;height:26px;border-radius:6px;}
     .kc-modal-min:hover{background:#eef3f0;color:#0d5b47;}
@@ -479,6 +489,81 @@ function updateRow(x) {
   // 記録したことが分かるよう、少し光らせる
   tr.classList.add("kc-just");
   setTimeout(() => tr.classList.remove("kc-just"), 1600);
+}
+
+// 会社名・担当者・電話・メールの表示セルを書き換える（編集の反映用）
+function updateRowContact(x) {
+  const tr = document.querySelector(`.kc-table tr[data-id="${x.id}"]`);
+  if (!tr) return;
+  const td = tr.children;
+  if (td[1]) td[1].textContent = x["会社名"] || "";
+  if (td[2]) td[2].textContent = x["担当者"] || "";
+  if (td[3]) {
+    td[3].innerHTML = x["電話番号"]
+      ? `<a class="kc-tel" href="tel:${esc(telOf(x["電話番号"]))}">${esc(x["電話番号"])}</a>`
+      : `<span class="kc-none">なし</span>`;
+  }
+  if (td[4]) td[4].textContent = x["メール"] || "";
+  tr.classList.add("kc-just");
+  setTimeout(() => tr.classList.remove("kc-just"), 1600);
+}
+
+// 会社名・担当者名・電話番号・メールアドレスを直す窓。SFのリードにも反映する。
+function openEdit(id) {
+  const x = rows.find((r) => String(r.id) === String(id));
+  if (!x) return;
+  const m = openModal("お客さまの情報を直す", `
+    <div class="kc-edit">
+      <div class="kc-lb">会社名</div>
+      <input type="text" class="kc-input" id="edCompany" value="${esc(x["会社名"] || "")}" />
+      <div class="kc-lb">担当者名</div>
+      <input type="text" class="kc-input" id="edPerson" value="${esc(x["担当者"] || "")}" />
+      <div class="kc-lb">電話番号</div>
+      <input type="text" class="kc-input" id="edPhone" value="${esc(x["電話番号"] || "")}" />
+      <div class="kc-lb">メールアドレス</div>
+      <input type="text" class="kc-input" id="edEmail" value="${esc(x["メール"] || "")}" />
+      ${x.leadId
+        ? `<div class="note">保存すると、Salesforceのリードにも同じ内容が反映されます。</div>`
+        : `<div class="note cc-warn">この相手はSalesforceのリードと結びついていないため、Salesforceには反映されません。</div>`}
+      <div class="kc-modal-foot">
+        <button type="button" class="btn" id="edSave">保存する</button>
+        <span class="rev-status" id="edSaveSt"></span>
+      </div>
+    </div>`);
+
+  m.el.querySelector("#edSave").addEventListener("click", async () => {
+    const body = {
+      company: m.el.querySelector("#edCompany").value,
+      person:  m.el.querySelector("#edPerson").value,
+      phone:   m.el.querySelector("#edPhone").value,
+      email:   m.el.querySelector("#edEmail").value,
+    };
+    const btn = m.el.querySelector("#edSave");
+    btn.disabled = true;
+    say("edSaveSt", "保存しています…");
+    try {
+      const r = await fetch(`/api/calls/targets/${encodeURIComponent(id)}/edit`, {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.error || "保存できませんでした");
+      // 手元の行を書き換える（一覧は読み直さない）
+      x["会社名"] = (d.項目 && d.項目["会社名"]) ?? body.company;
+      x["担当者"] = (d.項目 && d.項目["担当者"]) ?? body.person;
+      x["電話番号"] = (d.項目 && d.項目["電話番号"]) ?? body.phone;
+      x["メール"] = (d.項目 && d.項目["メール"]) ?? body.email;
+      updateRowContact(x);
+      m.close();
+      const sfMsg = !d.sf ? ""
+        : d.sf.ok ? "（Salesforceにも反映しました）"
+        : `（Salesforceへは反映できません：${d.sf.reason || ""}）`;
+      say("clStatus", `保存しました${sfMsg}`, 8000);
+    } catch (e) {
+      say("edSaveSt", "失敗：" + e.message, 8000);
+      btn.disabled = false;
+    }
+  });
 }
 
 // ───────── 今日の実績 ─────────
