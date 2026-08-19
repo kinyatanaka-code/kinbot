@@ -3159,6 +3159,62 @@ export async function assignCallTargets(listId, emails = [], { onlyUnassigned = 
   } catch (e) { console.error("[db] assignCallTargets", e.message); return 0; }
 }
 
+// リストの中身を、条件に当てはまるものだけ消す。
+//   ステージ・最終ステータス・履歴の有無で選べる。
+export async function deleteCallTargets(listId, { stages = [], statuses = [], hist = "" } = {}) {
+  if (!pool || !listId) return 0;
+  try {
+    const p = [listId];
+    const w = ["list_id = $1"];
+    if (stages.length) { p.push(stages); w.push(`COALESCE(stage,'') = ANY($${p.length}::text[])`); }
+    if (statuses.length) { p.push(statuses); w.push(`COALESCE(status,'') = ANY($${p.length}::text[])`); }
+    if (hist === "none") w.push(`NOT EXISTS (SELECT 1 FROM call_logs l WHERE l.target_id = call_targets.id)`);
+    if (hist === "some") w.push(`EXISTS (SELECT 1 FROM call_logs l WHERE l.target_id = call_targets.id)`);
+    const { rowCount } = await pool.query(
+      `DELETE FROM call_targets WHERE ${w.join(" AND ")}`, p);
+    return rowCount || 0;
+  } catch (e) { console.error("[db] deleteCallTargets", e.message); return 0; }
+}
+
+// 消す前に、何件消えるかを数える
+export async function countCallTargets(listId, { stages = [], statuses = [], hist = "" } = {}) {
+  if (!pool || !listId) return 0;
+  try {
+    const p = [listId];
+    const w = ["list_id = $1"];
+    if (stages.length) { p.push(stages); w.push(`COALESCE(stage,'') = ANY($${p.length}::text[])`); }
+    if (statuses.length) { p.push(statuses); w.push(`COALESCE(status,'') = ANY($${p.length}::text[])`); }
+    if (hist === "none") w.push(`NOT EXISTS (SELECT 1 FROM call_logs l WHERE l.target_id = call_targets.id)`);
+    if (hist === "some") w.push(`EXISTS (SELECT 1 FROM call_logs l WHERE l.target_id = call_targets.id)`);
+    const { rows } = await pool.query(
+      `SELECT count(*)::int AS n FROM call_targets WHERE ${w.join(" AND ")}`, p);
+    return rows[0] ? rows[0].n : 0;
+  } catch { return 0; }
+}
+
+// リストそのものを消す（中身もまとめて消える）
+export async function deleteCallList(listId) {
+  if (!pool || !listId) return false;
+  try {
+    await pool.query(`DELETE FROM call_lists WHERE id = $1`, [listId]);
+    return true;
+  } catch (e) { console.error("[db] deleteCallList", e.message); return false; }
+}
+
+// リストの中身にある、ステージと最終ステータスの種類を数える
+export async function callListFacets(listId) {
+  if (!pool || !listId) return { stages: [], statuses: [] };
+  try {
+    const a = await pool.query(
+      `SELECT COALESCE(stage,'') AS v, count(*)::int AS n FROM call_targets
+        WHERE list_id = $1 GROUP BY 1 ORDER BY 1`, [listId]);
+    const b = await pool.query(
+      `SELECT COALESCE(status,'') AS v, count(*)::int AS n FROM call_targets
+        WHERE list_id = $1 GROUP BY 1 ORDER BY 1`, [listId]);
+    return { stages: a.rows, statuses: b.rows };
+  } catch { return { stages: [], statuses: [] }; }
+}
+
 // 誰に何件配ったか
 export async function callAssignCounts(listId) {
   if (!pool || !listId) return [];

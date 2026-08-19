@@ -136,6 +136,10 @@ import {
   createCallList,
   listCallTargets,
   assignCallTargets,
+  deleteCallTargets,
+  countCallTargets,
+  deleteCallList,
+  callListFacets,
   callAssignCounts,
   clearCallAssign,
   getCallTarget,
@@ -5105,6 +5109,64 @@ function failedOnce(e, n) {
   const m = String((e && e.message) || e).slice(0, 200);
   if (m !== _lastFail) { console.warn("[kincall] 活動の件数を数えられません:", m); _lastFail = m; }
 }
+
+// リストの中身の内訳（ステージ・最終ステータスの種類と件数）
+app.get("/api/calls/facets", async (req, res) => {
+  try {
+    const listId = parseInt(req.query.list, 10);
+    if (!listId) return res.status(400).json({ error: "リストを選んでください" });
+    const d = await callListFacets(listId);
+    res.json({
+      ok: true,
+      ステージ: d.stages.map((x) => ({ 値: x.v || "（なし）", 生: x.v, 件数: x.n })),
+      最終ステータス: d.statuses.map((x) => ({ 値: x.v || "（なし）", 生: x.v, 件数: x.n })),
+    });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// 条件に当てはまるものが何件あるか（消す前の下見）
+app.post("/api/calls/targets/count", async (req, res) => {
+  try {
+    const listId = parseInt(req.body?.listId, 10);
+    if (!listId) return res.status(400).json({ error: "リストを選んでください" });
+    const n = await countCallTargets(listId, {
+      stages: Array.isArray(req.body?.stages) ? req.body.stages : [],
+      statuses: Array.isArray(req.body?.statuses) ? req.body.statuses : [],
+      hist: String(req.body?.hist || ""),
+    });
+    res.json({ ok: true, 件数: n });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// 条件に当てはまるものを消す
+app.post("/api/calls/targets/delete", async (req, res) => {
+  try {
+    const listId = parseInt(req.body?.listId, 10);
+    if (!listId) return res.status(400).json({ error: "リストを選んでください" });
+    const cond = {
+      stages: Array.isArray(req.body?.stages) ? req.body.stages : [],
+      statuses: Array.isArray(req.body?.statuses) ? req.body.statuses : [],
+      hist: String(req.body?.hist || ""),
+    };
+    // 何も選んでいないときに全部消えないよう、必ず条件を求める
+    if (!cond.stages.length && !cond.statuses.length && !cond.hist) {
+      return res.status(400).json({ error: "消すものの条件を選んでください（全部消すときは、リストごと消してください）" });
+    }
+    const n = await deleteCallTargets(listId, cond);
+    console.log(`[kincall] リスト${listId}から${n}件を消しました by ${req.user}`);
+    res.json({ ok: true, 消した数: n });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// リストごと消す
+app.delete("/api/calls/lists/:id", async (req, res) => {
+  try {
+    const ok = await deleteCallList(parseInt(req.params.id, 10));
+    if (!ok) return res.status(500).json({ error: "消せませんでした" });
+    console.log(`[kincall] リスト${req.params.id}を消しました by ${req.user}`);
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
 
 // かける人の一覧（kincallを使う人）
 app.get("/api/calls/members", async (req, res) => {
@@ -12136,7 +12198,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-08-19x 朝のお知らせも送り先ごとに選べるようにした";
+const BUILD_TAG = "2026-08-19za kincallにリスト管理（しぼって消す・リストごと消す）";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",

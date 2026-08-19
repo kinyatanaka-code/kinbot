@@ -5756,3 +5756,14 @@ input:focus, select:focus, textarea:focus, .sf-input:focus, .sf-select:focus, .s
 .as-tag { font-size: 9.5px; font-weight: 700; color: #0F6E56; background: #eaf7f2;
   border: 1px solid #cfeee2; border-radius: 999px; padding: 0 7px; }
 .as-tag-i { color: #A8611A; background: #fff3e0; border-color: #f0dcc0; }
+
+/* リスト管理：中身をしぼって消す */
+.dl-facets { display: flex; gap: 18px; flex-wrap: wrap; margin: 6px 0 10px; }
+.dl-group { flex: 1 1 260px; min-width: 0; }
+.dl-lb { font-size: 11px; color: var(--muted); font-weight: 700; margin-bottom: 4px; }
+.dl-list { border: 1px solid var(--line); border-radius: 10px; overflow: hidden; max-height: 220px; overflow-y: auto; }
+.dl-row { display: flex; align-items: center; gap: 8px; padding: 7px 11px;
+  border-bottom: 1px solid var(--line); font-size: 12.5px; cursor: pointer; background: var(--panel); }
+.dl-row:last-child { border-bottom: none; }
+.dl-row:hover { background: #f7fbf9; }
+.dl-n { margin-left: auto; font-size: 11px; color: var(--muted); }

@@ -10,7 +10,7 @@
     <link rel="manifest" href="/site.webmanifest" />
     <meta name="theme-color" content="#0d5b47" />
     <meta name="apple-mobile-web-app-title" content="kinbot" />
-    <link rel="stylesheet" href="style.css?v=20260819y" />
+    <link rel="stylesheet" href="style.css?v=20260819za" />
   </head>
   <body class="kc-body">
     <div class="app">
@@ -23,8 +23,8 @@
           <span class="kc-side-ico"><svg viewBox="0 0 24 24" width="17" height="17"><path d="M6.6 4.5c-1 0-1.8.8-1.8 1.8 0 6.9 5.6 12.5 12.5 12.5 1 0 1.8-.8 1.8-1.8v-2.3c0-.9-.6-1.6-1.5-1.8l-2.3-.5c-.8-.2-1.6.2-2 .9l-.6 1a11 11 0 0 1-4.4-4.4l1-.6c.7-.4 1.1-1.2.9-2l-.5-2.3c-.2-.9-.9-1.5-1.8-1.5z"/></svg></span><span class="side-label">かける</span></a></div>
         <div class="side-wrap"><a class="side-item" href="/kincall?p=stats">
           <span class="kc-side-ico"><svg viewBox="0 0 24 24" width="17" height="17"><path d="M4 20h4V10H4zm6 0h4V4h-4zm6 0h4v-7h-4z"/></svg></span><span class="side-label">今日の実績</span></a></div>
-        <div class="side-wrap"><a class="side-item" href="/kincall?p=assign">
-          <span class="kc-side-ico"><svg viewBox="0 0 24 24" width="17" height="17"><path d="M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8zm0 2c-3.3 0-6 1.8-6 4v2h12v-2c0-2.2-2.7-4-6-4zm8-2 4 4-4 4v-3h-3v-2h3z"/></svg></span><span class="side-label">割り振り</span></a></div>
+        <div class="side-wrap"><a class="side-item" href="/kincall?p=lists">
+          <span class="kc-side-ico"><svg viewBox="0 0 24 24" width="17" height="17"><path d="M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8zm0 2c-3.3 0-6 1.8-6 4v2h12v-2c0-2.2-2.7-4-6-4zm8-2 4 4-4 4v-3h-3v-2h3z"/></svg></span><span class="side-label">リスト管理</span></a></div>
         <div class="side-sep"></div>
         <div class="side-wrap"><a class="side-item side-app" href="/home.html">
           <img class="side-app-ico" src="/icon.svg" alt="" /><span class="side-label">kinbot</span>
@@ -63,10 +63,10 @@
           </section>
 
           <!-- リストの割り振り -->
-          <section class="card kc-pane" data-p="assign" hidden>
-            <h3 id="assign">リストを割り振る</h3>
-            <p class="note">リストの中身を、かける人へ配ります。<b>上から順に代わりばんこ</b>に配るので、件数がほぼ同じになります。<br>
-            配られた人は、自分のぶんだけが「かける」に出ます。</p>
+          <section class="card kc-pane" data-p="lists" hidden>
+            <h3 id="lists">リスト管理</h3>
+            <p class="note">リストの中身を見直したり、かける人へ配ったりできます。<br>
+            <b>もとになるSalesforceのレポートは変わりません。</b>ここで消しても、Salesforce側のリードはそのまま残ります。</p>
             <div class="ap-cfg-row">
               <label>リスト <select id="asList"></select></label>
               <button class="btn ghost" id="asReload">配り具合を見る</button>
@@ -75,6 +75,27 @@
 
             <h4 class="ap-rot-h">いまの配り具合</h4>
             <div id="asNow"></div>
+
+            <h4 class="ap-rot-h">中身をしぼって消す</h4>
+            <p class="note">かけ終わったステージや、もう追わない相手を、まとめて外せます。<br>
+            <b>選んだものが消えます</b>。消す前に件数を出すので、確かめてから実行してください。</p>
+            <div id="dlFacets"><div class="note">リストを選ぶと、中身の内訳が出ます。</div></div>
+            <div class="ap-cfg-row">
+              <label>履歴 <select id="dlHist">
+                <option value="">どちらでも</option>
+                <option value="none">履歴がないものだけ</option>
+                <option value="some">履歴があるものだけ</option>
+              </select></label>
+              <button class="btn ghost" id="dlCount">何件消えるか見る</button>
+              <button class="btn" id="dlGo">選んだものを消す</button>
+              <span class="rev-status" id="dlStatus"></span>
+            </div>
+
+            <h4 class="ap-rot-h">リストごと消す</h4>
+            <p class="note">中身もまとめて消えます。戻せません。</p>
+            <div class="ap-cfg-actions">
+              <button class="btn ghost" id="dlList">このリストを消す</button>
+            </div>
 
             <h4 class="ap-rot-h">配る</h4>
             <p class="note">かける人にチェックを入れて「配る」を押してください。</p>
@@ -118,7 +139,7 @@
         </main>
       </div>
     </div>
-    <script src="calls.js?v=20260819y"></script>
-    <script src="nav.js?v=20260819y"></script>
+    <script src="calls.js?v=20260819za"></script>
+    <script src="nav.js?v=20260819za"></script>
   </body>
 </html>

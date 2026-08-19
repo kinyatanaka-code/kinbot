@@ -439,7 +439,7 @@ function showPane() {
     a.classList.toggle("active", mine);
   });
   if (p === "stats") loadStats();
-  if (p === "assign") asLoad();
+  if (p === "lists") asLoad();
 }
 
 // 「kincallだけ」の人には、kinbotへ戻る道を見せない
@@ -572,7 +572,7 @@ async function asLoad() {
     sel.innerHTML = items.length
       ? items.map((x) => `<option value="${x.id}">${esc(x.name)}</option>`).join("")
       : `<option value="">まだリストがありません</option>`;
-    if (items.length) { asNow(); asWho(); }
+    if (items.length) { asNow(); asWho(); dlFacets(); }
   } catch (e) { say("asStatus", "読み込めませんでした：" + e.message, 8000); }
 }
 
@@ -652,4 +652,109 @@ document.addEventListener("click", (ev) => {
 });
 document.addEventListener("change", (ev) => {
   if (ev.target && ev.target.id === "asList") { asNow(); }
+});
+
+
+// ───────────────────────────────────────────────────────────
+// リスト管理：中身をしぼって消す
+// ───────────────────────────────────────────────────────────
+async function dlFacets() {
+  const box = $("dlFacets");
+  const id = $("asList") && $("asList").value;
+  if (!box || !id) return;
+  box.innerHTML = "読み込んでいます…";
+  try {
+    const d = await (await fetch(`/api/calls/facets?list=${encodeURIComponent(id)}`)).json();
+    if (d.error) throw new Error(d.error);
+    const 並べる = (title, key, items) =>
+      `<div class="dl-group">
+         <div class="dl-lb">${title}</div>
+         <div class="dl-list">
+           ${(items || []).map((x) => `
+             <label class="dl-row">
+               <input type="checkbox" class="dl-${key}" value="${esc(x["生"] || "")}" />
+               <span>${esc(x["値"])}</span>
+               <span class="dl-n">${x["件数"]}</span>
+             </label>`).join("")}
+         </div>
+       </div>`;
+    box.innerHTML =
+      `<div class="dl-facets">` +
+      並べる("ステージ", "stage", d["ステージ"]) +
+      並べる("最終ステータス", "status", d["最終ステータス"]) +
+      `</div>`;
+  } catch (e) { box.innerHTML = `<div class="note">読み込めませんでした：${esc(e.message)}</div>`; }
+}
+
+function dlCond() {
+  return {
+    listId: Number($("asList").value),
+    stages: [...document.querySelectorAll(".dl-stage:checked")].map((c) => c.value),
+    statuses: [...document.querySelectorAll(".dl-status:checked")].map((c) => c.value),
+    hist: $("dlHist").value,
+  };
+}
+
+async function dlCount() {
+  say("dlStatus", "数えています…");
+  try {
+    const d = await (await fetch("/api/calls/targets/count", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify(dlCond()),
+    })).json();
+    if (d.error) throw new Error(d.error);
+    say("dlStatus", `この条件だと ${d["件数"]}件 消えます`, 10000);
+  } catch (e) { say("dlStatus", "失敗：" + e.message, 8000); }
+}
+
+async function dlDelete() {
+  const c = dlCond();
+  if (!c.stages.length && !c.statuses.length && !c.hist) {
+    say("dlStatus", "消すものの条件を選んでください", 6000);
+    return;
+  }
+  // 何件消えるかを先に出してから確かめる
+  let n = 0;
+  try {
+    const d = await (await fetch("/api/calls/targets/count", {
+      method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(c),
+    })).json();
+    n = d["件数"] || 0;
+  } catch {}
+  if (!n) { say("dlStatus", "この条件に当てはまるものがありません", 6000); return; }
+  if (!confirm(`${n}件を消します。戻せません。よろしいですか？`)) return;
+  say("dlStatus", "消しています…");
+  try {
+    const d = await (await fetch("/api/calls/targets/delete", {
+      method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(c),
+    })).json();
+    if (d.error) throw new Error(d.error);
+    say("dlStatus", `${d["消した数"]}件を消しました`, 10000);
+    dlFacets(); asNow(); loadLists();
+  } catch (e) { say("dlStatus", "失敗：" + e.message, 8000); }
+}
+
+async function dlDeleteList() {
+  const sel = $("asList");
+  const name = sel.options[sel.selectedIndex] ? sel.options[sel.selectedIndex].textContent : "";
+  if (!sel.value) return;
+  if (!confirm(`リスト「${name}」を、中身ごと消します。戻せません。よろしいですか？`)) return;
+  say("dlStatus", "消しています…");
+  try {
+    const r = await fetch(`/api/calls/lists/${encodeURIComponent(sel.value)}`, { method: "DELETE" });
+    if (!r.ok) throw new Error("消せませんでした");
+    say("dlStatus", `「${name}」を消しました`, 10000);
+    asLoad(); loadLists();
+  } catch (e) { say("dlStatus", "失敗：" + e.message, 8000); }
+}
+
+document.addEventListener("click", (ev) => {
+  const t = ev.target && ev.target.closest ? ev.target.closest("button") : null;
+  if (!t) return;
+  if (t.id === "dlCount") { ev.preventDefault(); dlCount(); }
+  if (t.id === "dlGo") { ev.preventDefault(); dlDelete(); }
+  if (t.id === "dlList") { ev.preventDefault(); dlDeleteList(); }
+});
+document.addEventListener("change", (ev) => {
+  if (ev.target && ev.target.id === "asList") dlFacets();
 });
