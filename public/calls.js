@@ -183,41 +183,45 @@ function render() {
   });
 
   box.querySelectorAll(".kc-hist").forEach((b) =>
-    b.addEventListener("click", () => openHistory(b.dataset.id)));
+    b.addEventListener("click", () => openTarget(b.dataset.id)));
   box.querySelectorAll(".kc-rec").forEach((b) =>
-    b.addEventListener("click", () => openRecord(b.dataset.id)));
+    b.addEventListener("click", () => openTarget(b.dataset.id)));
 }
 
 // ───────── 窓（モーダル） ─────────
-function openModal(title, inner) {
+function openModal(title, inner, opts = {}) {
   const back = document.createElement("div");
   back.className = "kc-modal-back";
+  const wide = opts.wide ? " kc-modal-wide" : "";
+  const minBtn = opts.onMinimize
+    ? '<button type="button" class="kc-modal-min" aria-label="小さくする" title="小さくする">—</button>'
+    : "";
   back.innerHTML =
-    `<div class="kc-modal">
+    `<div class="kc-modal${wide}">
        <div class="kc-modal-head"><b>${esc(title)}</b>
-         <button type="button" class="kc-modal-x" aria-label="閉じる">✕</button></div>
+         <span class="kc-modal-btns">${minBtn}<button type="button" class="kc-modal-x" aria-label="閉じる">✕</button></span></div>
        <div class="kc-modal-body">${inner}</div>
      </div>`;
   document.body.appendChild(back);
   const close = () => back.remove();
   back.querySelector(".kc-modal-x").addEventListener("click", close);
   back.addEventListener("click", (e) => { if (e.target === back) close(); });
+  const min = back.querySelector(".kc-modal-min");
+  if (min && opts.onMinimize) min.addEventListener("click", () => opts.onMinimize());
   document.addEventListener("keydown", function escKey(e) {
     if (e.key === "Escape") { close(); document.removeEventListener("keydown", escKey); }
   });
   return { el: back, close };
 }
 
-// 履歴の窓
-async function openHistory(id) {
-  const m = openModal("これまでのやり取り", '<div class="note">読み込んでいます…</div>');
+// これまでのやり取りを、指定した箱の中に描く（記録の窓の左側で使う）
+async function renderHistoryInto(box, id) {
+  if (!box) return;
   try {
     const d = await (await fetch(`/api/calls/targets/${encodeURIComponent(id)}/history`)).json();
     if (d.error) throw new Error(d.error);
-    const a = d["相手"] || {};
     const items = d.items || [];
-    m.el.querySelector(".kc-modal-body").innerHTML =
-      `<div class="kc-modal-co">${esc(a["会社名"] || "")}${a["担当者"] ? `　${esc(a["担当者"])}` : ""}</div>` +
+    box.innerHTML =
       (d.note ? `<div class="note">${esc(d.note)}</div>` : "") +
       (items.length
         ? items.map((h) => `
@@ -233,10 +237,94 @@ async function openHistory(id) {
             </div>`).join("")
         : `<div class="note">まだ記録がありません。</div>`);
   } catch (e) {
-    m.el.querySelector(".kc-modal-body").innerHTML =
-      `<div class="note">読み込めませんでした：${esc(e.message)}</div>`;
+    box.innerHTML = `<div class="note">読み込めませんでした：${esc(e.message)}</div>`;
   }
 }
+
+// ───────── ページ下部に溜まる記録カード（連続架電向き・リロードまで残る） ─────────
+let dockItems = [];
+function dockEl() {
+  let el = document.getElementById("kcDock");
+  if (!el) {
+    el = document.createElement("div");
+    el.id = "kcDock";
+    el.className = "kc-dock";
+    document.body.appendChild(el);
+  }
+  return el;
+}
+// 同じ相手の「記録中（下書き）」は1つにまとめる。「記録済み」は積み増していく。
+function dockUpsert(item) {
+  const i = dockItems.findIndex((d) => d.id === item.id && d.state === item.state);
+  if (i >= 0) dockItems[i] = { ...dockItems[i], ...item };
+  else dockItems.push({ ...item, key: Math.random().toString(36).slice(2) });
+  // 記録済みになったら、その相手の下書きは消す
+  if (item.state === "done") {
+    dockItems = dockItems.filter((d) => !(d.id === item.id && d.state === "draft"));
+  }
+  renderDock();
+}
+function dockRemove(key) { dockItems = dockItems.filter((d) => d.key !== key); renderDock(); }
+function renderDock() {
+  const el = dockEl();
+  if (!dockItems.length) { el.innerHTML = ""; el.classList.remove("on"); return; }
+  el.classList.add("on");
+  el.innerHTML =
+    `<div class="kc-dock-h"><span>記録 ${dockItems.length}</span>` +
+    `<button type="button" class="kc-dock-clear">全部消す</button></div>` +
+    `<div class="kc-dock-list">` +
+    dockItems.map((d) => `
+      <div class="kc-chip ${d.state}" data-key="${d.key}"${d.state === "draft" ? ` data-open="${esc(String(d.id))}"` : ""}>
+        <span class="kc-chip-co">${esc(d.company || "（名前なし）")}</span>
+        <span class="kc-chip-r">${esc(d.result || (d.state === "draft" ? "記録中" : ""))}</span>
+        <button type="button" class="kc-chip-x" data-x="${d.key}" aria-label="消す">✕</button>
+      </div>`).join("") +
+    `</div>`;
+  el.querySelectorAll(".kc-chip-x").forEach((b) =>
+    b.addEventListener("click", (e) => { e.stopPropagation(); dockRemove(b.dataset.x); }));
+  el.querySelectorAll(".kc-chip[data-open]").forEach((c) =>
+    c.addEventListener("click", () => {
+      const d = dockItems.find((z) => z.key === c.dataset.key);
+      dockRemove(c.dataset.key);
+      openTarget(c.dataset.open, d);
+    }));
+  const clr = el.querySelector(".kc-dock-clear");
+  if (clr) clr.addEventListener("click", () => { dockItems = []; renderDock(); });
+}
+
+// 統合モーダルとドックの見た目（1回だけ差し込む）
+(function injectKcComboStyle() {
+  if (document.getElementById("kc-combo-style")) return;
+  const s = document.createElement("style");
+  s.id = "kc-combo-style";
+  s.textContent = `
+    .kc-modal-wide{max-width:920px;width:calc(100vw - 40px);}
+    .kc-modal-btns{display:inline-flex;gap:4px;align-items:center;}
+    .kc-modal-min{border:none;background:transparent;font-size:18px;line-height:1;cursor:pointer;color:#6b7c74;width:26px;height:26px;border-radius:6px;}
+    .kc-modal-min:hover{background:#eef3f0;color:#0d5b47;}
+    .kc-two{display:flex;gap:16px;align-items:flex-start;}
+    .kc-two-l{flex:1 1 45%;min-width:0;border-right:1px solid #e6ece9;padding-right:14px;max-height:60vh;overflow:auto;}
+    .kc-two-r{flex:1 1 55%;min-width:0;}
+    .kc-two-h{font-weight:700;color:#0d5b47;margin-bottom:8px;font-size:13px;}
+    .kc-dock{position:fixed;right:16px;bottom:16px;z-index:60;width:280px;max-width:calc(100vw - 32px);background:#fff;border:1px solid #d7e5dd;border-radius:14px;box-shadow:0 14px 40px -16px rgba(13,91,71,.5);display:none;overflow:hidden;}
+    .kc-dock.on{display:block;}
+    .kc-dock-h{display:flex;align-items:center;justify-content:space-between;padding:9px 12px;background:#eaf5ef;color:#0d5b47;font-size:12px;font-weight:700;}
+    .kc-dock-clear{border:none;background:transparent;color:#5b7a6d;font-size:11px;cursor:pointer;}
+    .kc-dock-clear:hover{color:#0d5b47;text-decoration:underline;}
+    .kc-dock-list{max-height:40vh;overflow:auto;padding:8px;display:flex;flex-direction:column;gap:6px;}
+    .kc-chip{display:flex;align-items:center;gap:8px;padding:7px 9px;border-radius:9px;border:1px solid #e6ece9;background:#fff;font-size:12px;}
+    .kc-chip.draft{border-style:dashed;cursor:pointer;}
+    .kc-chip.draft:hover{border-color:#1d9e75;background:#f6fbf8;}
+    .kc-chip.done{border-color:#cbe7d8;background:#f4faf7;}
+    .kc-chip-co{font-weight:600;color:#1f2a26;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex:1 1 auto;min-width:0;}
+    .kc-chip-r{color:#217a54;white-space:nowrap;flex:0 0 auto;}
+    .kc-chip.draft .kc-chip-r{color:#8a9a92;}
+    .kc-chip-x{border:none;background:transparent;color:#b6c3bc;cursor:pointer;font-size:12px;flex:0 0 auto;}
+    .kc-chip-x:hover{color:#e05a5a;}
+    @media(max-width:720px){.kc-two{flex-direction:column;}.kc-two-l{border-right:none;border-bottom:1px solid #e6ece9;padding-right:0;padding-bottom:12px;max-height:40vh;}}
+  `;
+  document.head.appendChild(s);
+})();
 
 // 記録の窓
 // 架電の結果の選択肢（Salesforceから取ってくる）
@@ -250,7 +338,9 @@ async function loadPicks() {
   return kcPicks;
 }
 
-async function openRecord(id) {
+// 履歴と記録を1つの窓で見せる。左：これまでのやり取り／右：記録フォーム。
+// draft を渡すと、下書き（結果・メモ・状態）を復元して開く。
+async function openTarget(id, draft) {
   const x = rows.find((r) => String(r.id) === String(id));
   if (!x) return;
   // Salesforceの選択肢を使う（担当者不在・コールのみ・担当者接触：アポ獲得 など）
@@ -259,39 +349,70 @@ async function openRecord(id) {
     ? pk["活動の結果"].map((v) => v.label)
     : kinds;
   const 状態の選択肢 = (pk && pk["リードの状態"]) || [];
-  const m = openModal("記録する", `
-    <div class="kc-rec-top">
-      <div>
-        <div class="kc-modal-co">${esc(x["会社名"] || "")}${x["担当者"] ? `　${esc(x["担当者"])}` : ""}</div>
-        ${x["電話番号"] ? `<a class="kc-tel kc-tel-big" href="tel:${esc(telOf(x["電話番号"]))}">${esc(x["電話番号"])}</a>` : ""}
+  const 相手名 = `${x["会社名"] || ""}${x["担当者"] ? `　${x["担当者"]}` : ""}`;
+  const m = openModal(相手名 || "記録する", `
+    <div class="kc-two">
+      <div class="kc-two-l">
+        <div class="kc-two-h">これまでのやり取り</div>
+        <div id="kcHist"><div class="note">読み込んでいます…</div></div>
       </div>
-      <!-- いまのステージと、変えるところ -->
-      <div class="kc-rec-stage">
-        <div class="kc-lb">いまのステージ</div>
-        <div class="kc-stage-now">${esc(x["ステージ"] || "（なし）")}</div>
-        ${状態の選択肢.length
-          ? `<select class="kc-input kc-stage-sel" id="kcStatus">
-               <option value="">（変えない）</option>
-               ${状態の選択肢.map((v) => `<option value="${esc(v.value)}">${esc(v.label)}</option>`).join("")}
-             </select>`
-          : `<input type="text" class="kc-input kc-stage-sel" id="kcStatus" placeholder="変えるときだけ" />`}
+      <div class="kc-two-r">
+        <div class="kc-rec-top">
+          <div>
+            ${x["電話番号"] ? `<a class="kc-tel kc-tel-big" href="tel:${esc(telOf(x["電話番号"]))}">${esc(x["電話番号"])}</a>` : ""}
+          </div>
+          <!-- いまのステージと、変えるところ -->
+          <div class="kc-rec-stage">
+            <div class="kc-lb">いまのステージ</div>
+            <div class="kc-stage-now">${esc(x["ステージ"] || "（なし）")}</div>
+            ${状態の選択肢.length
+              ? `<select class="kc-input kc-stage-sel" id="kcStatus">
+                   <option value="">（変えない）</option>
+                   ${状態の選択肢.map((v) => `<option value="${esc(v.value)}">${esc(v.label)}</option>`).join("")}
+                 </select>`
+              : `<input type="text" class="kc-input kc-stage-sel" id="kcStatus" placeholder="変えるときだけ" />`}
+          </div>
+        </div>
+        ${x.leadId ? "" : `<div class="note cc-warn">この相手はSalesforceのリードと結びついていないため、活動履歴は残りません。</div>`}
+
+        <div class="kc-lb">結果</div>
+        <select class="kc-input" id="kcResult">
+          <option value="">選んでください</option>
+          ${結果の選択肢.map((k) => `<option value="${esc(k)}">${esc(k)}</option>`).join("")}
+        </select>
+
+        <div class="kc-lb">説明（任意）</div>
+        <textarea class="kc-input" id="kcMemo" rows="3" placeholder="担当者は佐藤様・14時以降が良いとのこと"></textarea>
+
+        <div class="kc-modal-foot">
+          <button type="button" class="btn" id="kcSave">記録する</button>
+          <span class="rev-status" id="kcSaveSt"></span>
+        </div>
       </div>
-    </div>
-    ${x.leadId ? "" : `<div class="note cc-warn">この相手はSalesforceのリードと結びついていないため、活動履歴は残りません。</div>`}
+    </div>`, {
+    wide: true,
+    // 「小さくする」＝下書きをページ下部のドックへ入れて、窓を閉じる
+    onMinimize: () => {
+      dockUpsert({
+        id, company: x["会社名"] || "", person: x["担当者"] || "",
+        result: (m.el.querySelector("#kcResult") || {}).value || "",
+        memo: (m.el.querySelector("#kcMemo") || {}).value || "",
+        status: (m.el.querySelector("#kcStatus") || {}).value || "",
+        state: "draft",
+      });
+      m.close();
+    },
+  });
 
-    <div class="kc-lb">結果</div>
-    <select class="kc-input" id="kcResult">
-      <option value="">選んでください</option>
-      ${結果の選択肢.map((k) => `<option value="${esc(k)}">${esc(k)}</option>`).join("")}
-    </select>
+  // 左側にこれまでのやり取りを読み込む
+  renderHistoryInto(m.el.querySelector("#kcHist"), id);
 
-    <div class="kc-lb">説明（任意）</div>
-    <textarea class="kc-input" id="kcMemo" rows="3" placeholder="担当者は佐藤様・14時以降が良いとのこと"></textarea>
-
-    <div class="kc-modal-foot">
-      <button type="button" class="btn" id="kcSave">記録する</button>
-      <span class="rev-status" id="kcSaveSt"></span>
-    </div>`);
+  // 下書きがあれば復元する
+  if (draft) {
+    const rs = m.el.querySelector("#kcResult"); if (rs && draft.result) rs.value = draft.result;
+    const mm = m.el.querySelector("#kcMemo"); if (mm && draft.memo) mm.value = draft.memo;
+    const ss = m.el.querySelector("#kcStatus"); if (ss && draft.status) ss.value = draft.status;
+  }
 
   const picked = () => (m.el.querySelector("#kcResult") || {}).value || "";
 
@@ -327,6 +448,8 @@ async function openRecord(id) {
       x["履歴数"] = Number(x["履歴数"] || 0) + 1;
       x["最終ステータス"] = 結果;
       updateRow(x);
+      // ページ下部のドックに、記録済みとして残す（連続架電で見返せるように）
+      dockUpsert({ id, company: x["会社名"] || "", person: x["担当者"] || "", result: 結果, state: "done" });
       m.close();
       const 代理 = d.sf && d.sf["代理"] ? `（${d.sf["代理"]}さんとして残しました）` : "";
       say("clStatus", d.sf && d.sf.ok
