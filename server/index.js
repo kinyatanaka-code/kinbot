@@ -5110,6 +5110,12 @@ function failedOnce(e, n) {
   if (m !== _lastFail) { console.warn("[kincall] 活動の件数を数えられません:", m); _lastFail = m; }
 }
 
+// SalesforceのIDは15桁と18桁が混在する（レポートのCSV取込は15桁、API取得は18桁）。
+// 先頭15桁がIDの実体なので、そこにそろえて突き合わせる。
+function id15(v) {
+  return String(v || "").replace(/[^A-Za-z0-9]/g, "").slice(0, 15);
+}
+
 // リストの中身の内訳（ステージ・最終ステータスの種類と件数）
 app.get("/api/calls/facets", async (req, res) => {
   try {
@@ -5253,8 +5259,18 @@ app.get("/api/calls/count-check", async (req, res) => {
     if (ids.length && つながっている) {
       try {
         const part = ids.slice(0, 5).map((x) => `'${String(x).replace(/[^A-Za-z0-9]/g, "")}'`);
-        const d = await sfQuery(数える人,
-          `SELECT WhoId, count(Id) n FROM Task WHERE WhoId IN (${part.join(",")}) GROUP BY WhoId`);
+        const inClause = `WhoId IN (${part.join(",")})`;
+        let d;
+        try {
+          // 実際の履歴列と同じく「架電だけ（Type='Call'）」で数える
+          d = await sfQuery(数える人,
+            `SELECT WhoId, count(Id) n FROM Task WHERE ${inClause} AND Type = 'Call' GROUP BY WhoId`);
+        } catch (e2) {
+          if (/No such column|INVALID_FIELD|Type/i.test(e2.message || "")) {
+            d = await sfQuery(数える人,
+              `SELECT WhoId, count(Id) n FROM Task WHERE ${inClause} GROUP BY WhoId`);
+          } else { throw e2; }
+        }
         生の答え = (d.records || []).slice(0, 5);
       } catch (e) { エラー = e.message; }
     }
@@ -5298,22 +5314,38 @@ app.get("/api/calls/targets", async (req, res) => {
       // 一度に長すぎる問い合わせはSalesforceに弾かれるので、小分けにする
       const 束 = 80;
       let 失敗 = 0;
+      // 「架電だけ」を数える条件。kincallは架電活動を Type='Call' で作っている。
+      // ※組織に Task.Type が無い場合は、この条件を外して全活動を数える（下でフォールバック）。
+      const 架電しぼり = "Type = 'Call'";
       for (let i = 0; i < ids.length; i += 束) {
         const part = ids.slice(i, i + 束).map((x) => `'${String(x).replace(/[^A-Za-z0-9]/g, "")}'`);
+        const inClause = `WhoId IN (${part.join(",")})`;
         try {
-          const d = await sfQuery(数える人,
-            `SELECT WhoId, count(Id) n FROM Task WHERE WhoId IN (${part.join(",")}) GROUP BY WhoId`);
+          let d;
+          try {
+            // まず架電だけで数える
+            d = await sfQuery(数える人,
+              `SELECT WhoId, count(Id) n FROM Task WHERE ${inClause} AND ${架電しぼり} GROUP BY WhoId`);
+          } catch (e) {
+            // Task.Type が無い組織では条件を外して全活動を数える
+            if (/No such column|INVALID_FIELD|Type/i.test(e.message || "")) {
+              d = await sfQuery(数える人,
+                `SELECT WhoId, count(Id) n FROM Task WHERE ${inClause} GROUP BY WhoId`);
+            } else { throw e; }
+          }
           for (const r of d.records || []) {
             // Salesforceは、付けた名前（n）ではなく expr0 で返すことがある
             const n = Number(r.n ?? r.expr0 ?? r.N ?? 0);
-            if (r.WhoId) sfCount.set(r.WhoId, n);
+            // 戻り値のWhoIdは18桁、手元のlead_idは15桁のことがある。
+            // 先頭15桁をキーにそろえて突き合わせる（15桁はSF IDの実体）。
+            if (r.WhoId) sfCount.set(id15(r.WhoId), n);
           }
         } catch (e) {
           failedOnce(e, ++失敗);
         }
       }
       if (失敗) console.warn(`[kincall] 活動の件数：${失敗}回ぶん数えられませんでした`);
-      console.log(`[kincall] 活動の件数を数えました：${sfCount.size}件ぶん（対象 ${ids.length}）`);
+      console.log(`[kincall] 架電の件数を数えました：${sfCount.size}件ぶん（対象 ${ids.length}）`);
     }
     res.json({
       ok: true,
@@ -5328,7 +5360,8 @@ app.get("/api/calls/targets", async (req, res) => {
         最終ステータス: r.status || "",
         // 履歴はSFのものを出すので、件数もSFの数に合わせる。
         // SFへまだ送れていないkinbotの記録があれば、それも足す。
-        履歴数: (sfCount.get(r.lead_id) || 0) + Number(r["未送信数"] || 0),
+        // lead_id が15桁でも18桁でも合うよう、先頭15桁で引く。
+        履歴数: (sfCount.get(id15(r.lead_id)) || 0) + Number(r["未送信数"] || 0),
         最終結果: r["最終結果"] || "",
         最終日時: r["最終日時"] || null,
         済み: !!r.done,
