@@ -2849,7 +2849,10 @@ async function initSfTab(account) {
             return;
           }
           const val = (el.value ?? "").trim();
-          if (orig !== undefined && val === orig) return; // 変更なしは送らない（既存値の再送防止）
+          // 失注理由（大・中・小）は、失注にするときにSF側の必須チェックで弾かれないよう、
+          // 変更が無くても値があれば必ず送る（同じ更新の中に含める）。
+          const isLoss = !!el.dataset.loss;
+          if (!isLoss && orig !== undefined && val === orig) return; // 変更なしは送らない（既存値の再送防止）
           if (val === "") { if (orig) fields[api] = null; return; } // 値を消した場合のみ空で更新
           const meta = types[api];
           if (meta && meta.updateable === false) return;
