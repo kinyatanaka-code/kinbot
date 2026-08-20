@@ -10,7 +10,7 @@
     <link rel="manifest" href="/site.webmanifest" />
     <meta name="theme-color" content="#0d5b47" />
     <meta name="apple-mobile-web-app-title" content="kinbot" />
-    <link rel="stylesheet" href="style.css?v=20260820n" />
+    <link rel="stylesheet" href="style.css?v=20260820o" />
   </head>
   <body class="kc-body">
     <div class="app">
@@ -22,7 +22,7 @@
         <div class="side-wrap"><a class="side-item active" href="/kincall">
           <span class="kc-side-ico"><svg viewBox="0 0 24 24" width="17" height="17"><path d="M6.6 4.5c-1 0-1.8.8-1.8 1.8 0 6.9 5.6 12.5 12.5 12.5 1 0 1.8-.8 1.8-1.8v-2.3c0-.9-.6-1.6-1.5-1.8l-2.3-.5c-.8-.2-1.6.2-2 .9l-.6 1a11 11 0 0 1-4.4-4.4l1-.6c.7-.4 1.1-1.2.9-2l-.5-2.3c-.2-.9-.9-1.5-1.8-1.5z"/></svg></span><span class="side-label">かける</span></a></div>
         <div class="side-wrap"><a class="side-item" href="/kincall?p=stats">
-          <span class="kc-side-ico"><svg viewBox="0 0 24 24" width="17" height="17"><path d="M4 20h4V10H4zm6 0h4V4h-4zm6 0h4v-7h-4z"/></svg></span><span class="side-label">今日の実績</span></a></div>
+          <span class="kc-side-ico"><svg viewBox="0 0 24 24" width="17" height="17"><path d="M4 20h4V10H4zm6 0h4V4h-4zm6 0h4v-7h-4z"/></svg></span><span class="side-label">実績</span></a></div>
         <div class="side-wrap"><a class="side-item" href="/kincall?p=lists">
           <span class="kc-side-ico"><svg viewBox="0 0 24 24" width="17" height="17"><path d="M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8zm0 2c-3.3 0-6 1.8-6 4v2h12v-2c0-2.2-2.7-4-6-4zm8-2 4 4-4 4v-3h-3v-2h3z"/></svg></span><span class="side-label">リスト管理</span></a></div>
         <div class="side-sep"></div>
@@ -52,12 +52,18 @@
             <div id="clTable"><div class="empty-state">リストを選んでください。</div></div>
           </section>
 
-          <!-- 今日の実績 -->
+          <!-- 実績（日・週・月） -->
           <section class="card kc-pane" data-p="stats" hidden>
-            <h3 id="stats">今日の実績</h3>
+            <h3 id="stats">実績</h3>
+            <div class="kc-period-tabs" id="stPeriod">
+              <button type="button" class="kc-ptab active" data-period="day">日</button>
+              <button type="button" class="kc-ptab" data-period="week">週</button>
+              <button type="button" class="kc-ptab" data-period="month">月</button>
+            </div>
             <div class="ap-cfg-actions">
               <label class="ks-check"><input type="checkbox" id="clMine" checked /> 自分のぶんだけ</label>
               <button class="btn ghost" id="clStatsReload">読み込み直す</button>
+              <span class="rev-status" id="stRange"></span>
             </div>
             <div id="clStats"></div>
           </section>
@@ -103,7 +109,7 @@
         </main>
       </div>
     </div>
-    <script src="calls.js?v=20260820n"></script>
-    <script src="nav.js?v=20260820n"></script>
+    <script src="calls.js?v=20260820o"></script>
+    <script src="nav.js?v=20260820o"></script>
   </body>
 </html>
