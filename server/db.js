@@ -510,6 +510,187 @@ export async function initDb() {
   `);
   await sq(`CREATE INDEX IF NOT EXISTS idx_oauth_tokens_refresh ON oauth_tokens(refresh_token);`);
 
+  // ===== 日程調整ページ =====
+  // お客様に「空いている時間から選んでもらう」URL。
+  // 誰にも配れる共通URL（Pardot用）と、相手ごとのURLの両方を作れる。
+  await sq(`
+    CREATE TABLE IF NOT EXISTS book_pages (
+      id          SERIAL PRIMARY KEY,
+      slug        TEXT UNIQUE NOT NULL,
+      title       TEXT,
+      owner       TEXT,
+      shared_link BOOLEAN NOT NULL DEFAULT false,
+      company     TEXT,
+      person      TEXT,
+      email       TEXT,
+      minutes     INT NOT NULL DEFAULT 30,
+      days_ahead  INT NOT NULL DEFAULT 14,
+      from_hour   INT NOT NULL DEFAULT 10,
+      to_hour     INT NOT NULL DEFAULT 19,
+      note        TEXT,
+      closed      BOOLEAN NOT NULL DEFAULT false,
+      created_by  TEXT,
+      created_at  TIMESTAMPTZ DEFAULT now()
+    );
+  `);
+  // 開かれた記録（誰が見たか・予約まで進んだか）
+  await sq(`
+    CREATE TABLE IF NOT EXISTS book_views (
+      id         SERIAL PRIMARY KEY,
+      page_id    INT REFERENCES book_pages(id) ON DELETE CASCADE,
+      viewer_email TEXT,
+      viewer_name  TEXT,
+      booked     BOOLEAN NOT NULL DEFAULT false,
+      slot_at    TIMESTAMPTZ,
+      ua         TEXT,
+      at         TIMESTAMPTZ DEFAULT now()
+    );
+  `);
+  await sq(`CREATE INDEX IF NOT EXISTS ix_book_views_page ON book_views(page_id, at DESC);`);
+
+  // ===== 更新の記録 =====
+  // kinbotが新しくなったときの内容を貯めておき、翌朝まとめて知らせる。
+  await sq(`
+    CREATE TABLE IF NOT EXISTS deploy_log (
+      id       SERIAL PRIMARY KEY,
+      message  TEXT,
+      commit   TEXT,
+      build    TEXT,
+      ok       BOOLEAN NOT NULL DEFAULT true,
+      at       TIMESTAMPTZ DEFAULT now()
+    );
+  `);
+  await sq(`CREATE INDEX IF NOT EXISTS ix_deploy_log_at ON deploy_log(at DESC);`);
+
+  // ===== 転送URL（外部の日程調整などを、記録してから転送する） =====
+  // レセプショニストなど、ほかのサービスのURLをそのまま使いたいときに、
+  // kinbotをいったん通すことで「誰が開いたか」を記録できるようにする。
+  await sq(`
+    CREATE TABLE IF NOT EXISTS jump_links (
+      id          SERIAL PRIMARY KEY,
+      slug        TEXT UNIQUE NOT NULL,
+      title       TEXT,
+      target_url  TEXT NOT NULL,
+      owner       TEXT,
+      shared_link BOOLEAN NOT NULL DEFAULT false,
+      company     TEXT,
+      person      TEXT,
+      email       TEXT,
+      closed      BOOLEAN NOT NULL DEFAULT false,
+      created_by  TEXT,
+      created_at  TIMESTAMPTZ DEFAULT now()
+    );
+  `);
+  await sq(`
+    CREATE TABLE IF NOT EXISTS jump_views (
+      id        SERIAL PRIMARY KEY,
+      link_id   INT REFERENCES jump_links(id) ON DELETE CASCADE,
+      viewer_email TEXT,
+      viewer_name  TEXT,
+      ua        TEXT,
+      at        TIMESTAMPTZ DEFAULT now()
+    );
+  `);
+  await sq(`CREATE INDEX IF NOT EXISTS ix_jump_views_link ON jump_views(link_id, at DESC);`);
+
+  // ===== コールリスト（インターン生の架電） =====
+  // どのリードに、誰が、いつかけて、どうだったか。
+  // Salesforceへ送る前に、まずここに残す（通信が切れても消えないように）。
+  await sq(`
+    CREATE TABLE IF NOT EXISTS call_lists (
+      id         SERIAL PRIMARY KEY,
+      name       TEXT NOT NULL,
+      owner      TEXT,
+      note       TEXT,
+      closed     BOOLEAN NOT NULL DEFAULT false,
+      created_by TEXT,
+      created_at TIMESTAMPTZ DEFAULT now()
+    );
+  `);
+  await sq(`
+    CREATE TABLE IF NOT EXISTS call_targets (
+      id          SERIAL PRIMARY KEY,
+      list_id     INT REFERENCES call_lists(id) ON DELETE CASCADE,
+      lead_id     TEXT,
+      company     TEXT,
+      person      TEXT,
+      phone       TEXT,
+      email       TEXT,
+      industry    TEXT,
+      area        TEXT,
+      memo        TEXT,
+      assigned_to TEXT,
+      done        BOOLEAN NOT NULL DEFAULT false,
+      sort_order  INT DEFAULT 0,
+      created_at  TIMESTAMPTZ DEFAULT now()
+    );
+  `);
+  await sq(`CREATE INDEX IF NOT EXISTS ix_call_targets_list ON call_targets(list_id, done, sort_order);`);
+  await sq(`CREATE INDEX IF NOT EXISTS ix_call_targets_who ON call_targets(assigned_to, done);`);
+  // Salesforceのリードの項目（ステージ＝レコードタイプ、最終ステータス＝リード状態）
+  await sq(`ALTER TABLE call_targets ADD COLUMN IF NOT EXISTS stage TEXT;`);
+  await sq(`ALTER TABLE call_targets ADD COLUMN IF NOT EXISTS status TEXT;`);
+  // SFのリードの状態を、そのまま持っておく（一覧に出すため）
+  await sq(`ALTER TABLE call_targets ADD COLUMN IF NOT EXISTS stage TEXT;`);
+  await sq(`ALTER TABLE call_targets ADD COLUMN IF NOT EXISTS status TEXT;`);
+  await sq(`
+    CREATE TABLE IF NOT EXISTS call_logs (
+      id         SERIAL PRIMARY KEY,
+      target_id  INT REFERENCES call_targets(id) ON DELETE CASCADE,
+      lead_id    TEXT,
+      company    TEXT,
+      result     TEXT NOT NULL,
+      memo       TEXT,
+      caller     TEXT,
+      sf_task_id TEXT,
+      sf_error   TEXT,
+      at         TIMESTAMPTZ DEFAULT now()
+    );
+  `);
+  await sq(`CREATE INDEX IF NOT EXISTS ix_call_logs_at ON call_logs(at DESC);`);
+  await sq(`CREATE INDEX IF NOT EXISTS ix_call_logs_target ON call_logs(target_id, at DESC);`);
+  // Salesforce側の活動のID（二重に表示しないために使う）
+  await sq(`ALTER TABLE call_logs ADD COLUMN IF NOT EXISTS sf_task_id TEXT;`);
+
+  // ===== Salesforceの更新の記録 =====
+  // どの商談を、いつ、どのステージにしたか。
+  // 「SF更新まだ」を正しく数えるために使う。
+  await sq(`
+    CREATE TABLE IF NOT EXISTS sf_updates (
+      id         SERIAL PRIMARY KEY,
+      bot_id     TEXT,
+      opp_id     TEXT,
+      stage      TEXT,
+      note       TEXT,
+      owner      TEXT,
+      at         TIMESTAMPTZ DEFAULT now()
+    );
+  `);
+  await sq(`CREATE INDEX IF NOT EXISTS ix_sf_updates_bot ON sf_updates(bot_id, at DESC);`);
+
+  // ===== 週のボード（ホワイトボードの代わり） =====
+  // 月曜の朝礼までに「テーマ・定量目標・具体的な施策」を書き、
+  // 金曜の終礼で「振り返り」を書く。1人1週で1枚。
+  await sq(`
+    CREATE TABLE IF NOT EXISTS weekly_board (
+      id          SERIAL PRIMARY KEY,
+      week_start  DATE NOT NULL,
+      member      TEXT NOT NULL,
+      member_name TEXT,
+      theme       TEXT,
+      targets     TEXT,
+      actions     TEXT,
+      review      TEXT,
+      updated_by  TEXT,
+      created_at  TIMESTAMPTZ DEFAULT now(),
+      updated_at  TIMESTAMPTZ DEFAULT now(),
+      UNIQUE (week_start, member)
+    );
+  `);
+  await sq(`CREATE INDEX IF NOT EXISTS ix_weekly_week ON weekly_board(week_start);`);
+  // 施策は「タスクのカード」で持つ。1つずつ、できた・できなかったと振り返りを書けるようにする。
+  await sq(`ALTER TABLE weekly_board ADD COLUMN IF NOT EXISTS items JSONB;`);
+
   // ===== 開発メモ（直したいこと・要望・自動で拾ったエラー） =====
   // 気づいたときにChatへ一言送るだけで溜まり、朝にまとめて届くようにする。
   await sq(`
@@ -528,6 +709,19 @@ export async function initDb() {
     );
   `);
   await sq(`CREATE INDEX IF NOT EXISTS ix_dev_notes_status ON dev_notes(status, last_at DESC);`);
+
+  // 見送った案の題名だけを覚えておく。
+  // 一覧からは消すが、同じ案がまた出てくるのを防ぐために使う。
+  await sq(`
+    CREATE TABLE IF NOT EXISTS dev_dismissed (
+      id      SERIAL PRIMARY KEY,
+      title   TEXT NOT NULL,
+      detail  TEXT,
+      kind    TEXT,
+      source  TEXT,
+      at      TIMESTAMPTZ DEFAULT now()
+    );
+  `);
 
   // ===== カレンダーで気づいたこと（同じ予定で何度も通知しないため） =====
   await sq(`
@@ -564,6 +758,8 @@ export async function initDb() {
     );
   `);
   await sq(`ALTER TABLE chat_targets ADD COLUMN IF NOT EXISTS on_deploy BOOLEAN NOT NULL DEFAULT true;`);
+  // 朝の「新しくなりました」も、送り先ごとに選べるようにする
+  await sq(`ALTER TABLE chat_targets ADD COLUMN IF NOT EXISTS on_news BOOLEAN NOT NULL DEFAULT true;`);
   await sq(`CREATE INDEX IF NOT EXISTS ix_calendar_watch_cal ON calendar_watch(calendar_id);`);
 
   // ===== スマートリンク（担当者切り替えに追随する共有Zoom URL） =====
@@ -621,6 +817,10 @@ export async function initDb() {
   await sq(`DROP INDEX IF EXISTS uq_apo_mail_sent;`);
   await sq(`CREATE UNIQUE INDEX IF NOT EXISTS uq_apo_mail_done ON apo_mail_log(slug, kind) WHERE status IN ('sent','draft');`);
   await sq(`CREATE INDEX IF NOT EXISTS ix_apo_mail_slug ON apo_mail_log(slug);`);
+  // 届かずに戻ってきた（跳ね返った）かどうか
+  await sq(`ALTER TABLE apo_mail_log ADD COLUMN IF NOT EXISTS bounced BOOLEAN NOT NULL DEFAULT false;`);
+  await sq(`ALTER TABLE apo_mail_log ADD COLUMN IF NOT EXISTS bounce_note TEXT;`);
+  await sq(`CREATE INDEX IF NOT EXISTS ix_apo_mail_at ON apo_mail_log(created_at DESC);`);
 
   // Gmail操作ログ：誰がどのスレッドをアーカイブ／ゴミ箱に入れたかを残す。
   // 元に戻すときの手がかりになり、チームで使う以上あとから追える状態にしておく。
@@ -721,6 +921,8 @@ export async function initDb() {
     }
   }
   await sq(`CREATE INDEX IF NOT EXISTS ix_smart_links_excluded ON smart_links(excluded) WHERE excluded;`);
+  // 前日リマインドを送らない、と決めたアポ。ホームから切り替えられる。
+  await sq(`ALTER TABLE smart_links ADD COLUMN IF NOT EXISTS no_reminder BOOLEAN NOT NULL DEFAULT false;`);
 
   // Google Chatの通知先。複数のスペースに送れるようにする。
   // 種類ごと（アポ割り振り／メール／資料の閲覧）にON・OFFを持つ。
@@ -827,6 +1029,9 @@ export async function initDb() {
       created_at  TIMESTAMPTZ DEFAULT now()
     );
   `);
+  // 資料は入れた人のものにする。チームに見せたいものだけ「共有」にする。
+  // 既定は共有（これまでの資料が急に見えなくなると困るため）。
+  await sq(`ALTER TABLE doc_files ADD COLUMN IF NOT EXISTS shared BOOLEAN NOT NULL DEFAULT true;`);
 
   // 宛先ごとに1本ずつURLを発行する。誰が見たかを特定するため。
   await sq(`
@@ -864,6 +1069,9 @@ export async function initDb() {
   await sq(`CREATE INDEX IF NOT EXISTS ix_doc_views_link ON doc_views(link_id, started_at DESC);`);
   // 資料を閉じたかどうか。閉じた時点の滞在時間で通知するために使う。
   await sq(`ALTER TABLE doc_views ADD COLUMN IF NOT EXISTS ended BOOLEAN NOT NULL DEFAULT false;`);
+  // 共通URL（メルマガ用）で開いた人。差し込みタグから受け取る。
+  await sq(`ALTER TABLE doc_views ADD COLUMN IF NOT EXISTS viewer_email TEXT;`);
+  await sq(`ALTER TABLE doc_views ADD COLUMN IF NOT EXISTS viewer_name TEXT;`);
 
   // 開封（画像の読み込み）とリンクのクリック
   await sq(`
@@ -1114,12 +1322,17 @@ export async function getAiLogsByIds(ids) {
 // 商談名から会社名を推定（案件のグルーピング用）。
 // 例: 「【新/ヒ】豊長自動車販売株式会社　秋山様」→「豊長自動車販売株式会社」
 export function companyFromTitle(title) {
-  let t = String(title || "").trim();
+  // 全角の記号は半角にそろえてから見る（／→/、：→: など）
+  let t = String(title || "").normalize("NFKC").trim();
   if (!t) return "(無題)";
   t = t.replace(/^[\s　・※•◆◇■□▶▷*\-–—✉⊠]+/u, "");           // 先頭記号
   t = t.replace(/[【\[［][^】\]］]*[】\]］]/gu, " ");              // 【…】[…]ラベル除去
-  t = t.replace(/[\s　/／|｜:：][^\s　/／|｜]{0,16}様(?:\s*[・,、][^\s　/／|｜]{0,16}様)*\s*$/u, ""); // 末尾 担当者様（複数可）
-  t = t.replace(/[^\s　/／|｜]{0,16}様\s*$/u, "");                 // 区切り無しの 末尾○○様
+  // 末尾の「担当者様」を落とす。
+  // 区切りは / ／ | ｜ : ： ・ 、 , と空白のどれでもよく、前後に空白があってもよい。
+  const SEP = "[\\s　/／|｜:：・、,]";
+  t = t.replace(new RegExp(`${SEP}+[^\\s　/／|｜:：・、,]{0,16}\\s*(?:様|さま|さん|殿)(?:\\s*[・,、]\\s*[^\\s　/／|｜]{0,16}\\s*(?:様|さま|さん|殿))*\\s*$`, "u"), "");
+  t = t.replace(/[^\s　/／|｜:：・、,]{0,16}\s*(?:様|さま|さん|殿)\s*$/u, "");   // 区切り無しの 末尾○○様
+  t = t.replace(/[\s　/／|｜:：・、,]+$/u, "");                                  // 区切りの名残
   t = t.replace(/\s+/g, " ").trim();
 
   // 会社名部分だけを抽出。日本の主要な法人形態を網羅し、
@@ -2645,6 +2858,617 @@ export async function getSmartLinkByEvent(eventId) {
   const { rows } = await pool.query(`SELECT * FROM smart_links WHERE event_id=$1`, [eventId]);
   return rows[0] || null;
 }
+// リマインドに足りないところを、その場で補う。
+//   宛先（メール）と、担当セールスを入れられる。
+export async function fixApoForReminder(slug, { email, owner } = {}) {
+  if (!pool || !slug) return null;
+  const sets = [], vals = [slug];
+  if (email !== undefined) { vals.push(String(email || "").trim()); sets.push(`client_email = $${vals.length}`); }
+  if (owner !== undefined) { vals.push(String(owner || "").trim()); sets.push(`current_owner = $${vals.length}`); }
+  if (!sets.length) return null;
+  try {
+    const { rows } = await pool.query(
+      `UPDATE smart_links SET ${sets.join(", ")} WHERE slug = $1
+       RETURNING slug, label, client_email, current_owner`, vals);
+    return rows[0] || null;
+  } catch (e) { console.error("[db] fixApoForReminder", e.message); return null; }
+}
+
+// 前日リマインドを送る／送らないを切り替える
+export async function setNoReminder(slug, off) {
+  if (!pool || !slug) return null;
+  try {
+    const { rows } = await pool.query(
+      `UPDATE smart_links SET no_reminder = $2 WHERE slug = $1
+       RETURNING slug, label, no_reminder`, [slug, !!off]);
+    return rows[0] || null;
+  } catch (e) { console.error("[db] setNoReminder", e.message); return null; }
+}
+
+// ===== 更新の記録 =====
+
+// 更新の内容を1件残す（同じ内容が続けて来たら足さない）
+export async function logDeploy({ message, commit, build, ok = true }) {
+  if (!pool) return null;
+  try {
+    const msg = String(message || "").split("\n")[0].slice(0, 300);
+    if (!msg) return null;
+    const { rows: last } = await pool.query(
+      `SELECT message FROM deploy_log ORDER BY at DESC LIMIT 1`);
+    if (last[0] && last[0].message === msg) return null;
+    const { rows } = await pool.query(
+      `INSERT INTO deploy_log (message, commit, build, ok) VALUES ($1,$2,$3,$4) RETURNING *`,
+      [msg, String(commit || "").slice(0, 40), String(build || "").slice(0, 120), !!ok]);
+    return rows[0] || null;
+  } catch (e) { console.error("[db] logDeploy", e.message); return null; }
+}
+
+// 前の営業日から今までの更新を取る。
+// 月曜の朝は、金曜の朝からの3日ぶんをまとめて出す。
+export async function deploysSince(hours) {
+  if (!pool) return [];
+  try {
+    const { rows } = await pool.query(
+      `SELECT * FROM deploy_log
+        WHERE at > now() - interval '1 hour' * $1
+        ORDER BY at`, [Math.max(1, Math.min(240, Number(hours) || 24))]);
+    return rows;
+  } catch { return []; }
+}
+
+// ===== 転送URL =====
+
+// 転送URLを作る（共通URLは、同じ行き先に1本だけ使い回す）
+export async function createJumpLink(x = {}) {
+  if (!pool) return null;
+  const url = String(x.targetUrl || "").trim();
+  if (!/^https?:\/\//.test(url)) return null;
+  try {
+    if (x.shared) {
+      const { rows: found } = await pool.query(
+        `SELECT * FROM jump_links
+          WHERE target_url = $1 AND shared_link = true AND NOT closed
+          ORDER BY created_at LIMIT 1`, [url]);
+      if (found[0]) return found[0];
+    }
+    const slug = Math.random().toString(36).slice(2, 10);
+    const { rows } = await pool.query(
+      `INSERT INTO jump_links (slug, title, target_url, owner, shared_link, company, person, email, created_by)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING *`,
+      [slug, String(x.title || "日程調整").slice(0, 120), url,
+       String(x.owner || "").toLowerCase(), !!x.shared,
+       x.company || "", x.person || "", x.email || "", x.createdBy || null]);
+    return rows[0] || null;
+  } catch (e) { console.error("[db] createJumpLink", e.message); return null; }
+}
+
+export async function getJumpLink(slug) {
+  if (!pool || !slug) return null;
+  try {
+    const { rows } = await pool.query(`SELECT * FROM jump_links WHERE slug = $1`, [slug]);
+    return rows[0] || null;
+  } catch { return null; }
+}
+
+export async function listJumpLinks(owner) {
+  if (!pool) return [];
+  try {
+    const { rows } = await pool.query(
+      `SELECT j.*,
+              (SELECT count(*) FROM jump_views v WHERE v.link_id = j.id) AS 閲覧,
+              (SELECT count(DISTINCT COALESCE(NULLIF(v.viewer_email,''),'-'))
+                 FROM jump_views v WHERE v.link_id = j.id) AS 人数
+         FROM jump_links j
+        WHERE ($1 = '' OR j.owner = $1)
+        ORDER BY j.created_at DESC LIMIT 50`, [String(owner || "").toLowerCase()]);
+    return rows;
+  } catch { return []; }
+}
+
+export async function recordJumpView(linkId, { email, name, ua } = {}) {
+  if (!pool || !linkId) return null;
+  try {
+    await pool.query(
+      `INSERT INTO jump_views (link_id, viewer_email, viewer_name, ua) VALUES ($1,$2,$3,$4)`,
+      [linkId, String(email || "").trim() || null, String(name || "").trim() || null,
+       String(ua || "").slice(0, 200)]);
+    return true;
+  } catch (e) { console.error("[db] recordJumpView", e.message); return null; }
+}
+
+export async function listJumpViewers(linkId, limit = 300) {
+  if (!pool || !linkId) return [];
+  try {
+    const { rows } = await pool.query(
+      `SELECT COALESCE(NULLIF(viewer_email,''), '（名乗りなし）') AS 相手,
+              max(viewer_name) AS 名前,
+              count(*)::int AS 回数,
+              min(at) AS 最初, max(at) AS 最後
+         FROM jump_views WHERE link_id = $1
+        GROUP BY 1 ORDER BY 最後 DESC LIMIT $2`, [linkId, limit]);
+    return rows;
+  } catch { return []; }
+}
+
+// ===== 日程調整ページ =====
+
+// ページを作る（共通URLは資料と同じく、1つだけ使い回す）
+export async function createBookPage(x = {}) {
+  if (!pool) return null;
+  try {
+    if (x.shared) {
+      const { rows: found } = await pool.query(
+        `SELECT * FROM book_pages
+          WHERE owner = $1 AND shared_link = true AND NOT closed
+          ORDER BY created_at LIMIT 1`, [String(x.owner || "").toLowerCase()]);
+      if (found[0]) return found[0];
+    }
+    const slug = Math.random().toString(36).slice(2, 10);
+    const { rows } = await pool.query(
+      `INSERT INTO book_pages
+         (slug, title, owner, shared_link, company, person, email, minutes, days_ahead, from_hour, to_hour, note, created_by)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) RETURNING *`,
+      [slug, String(x.title || "打ち合わせの日程調整").slice(0, 120),
+       String(x.owner || "").toLowerCase(), !!x.shared,
+       x.company || "", x.person || "", x.email || "",
+       Math.min(180, Math.max(15, Number(x.minutes) || 30)),
+       Math.min(60, Math.max(1, Number(x.daysAhead) || 14)),
+       Math.min(23, Math.max(0, Number(x.fromHour) ?? 10)),
+       Math.min(23, Math.max(1, Number(x.toHour) ?? 19)),
+       String(x.note || "").slice(0, 500), x.createdBy || null]);
+    return rows[0] || null;
+  } catch (e) { console.error("[db] createBookPage", e.message); return null; }
+}
+
+export async function getBookPage(slug) {
+  if (!pool || !slug) return null;
+  try {
+    const { rows } = await pool.query(`SELECT * FROM book_pages WHERE slug = $1`, [slug]);
+    return rows[0] || null;
+  } catch { return null; }
+}
+
+export async function listBookPages(owner) {
+  if (!pool) return [];
+  try {
+    const { rows } = await pool.query(
+      `SELECT p.*,
+              (SELECT count(*) FROM book_views v WHERE v.page_id = p.id) AS 閲覧,
+              (SELECT count(*) FROM book_views v WHERE v.page_id = p.id AND v.booked) AS 予約
+         FROM book_pages p
+        WHERE ($1 = '' OR p.owner = $1)
+        ORDER BY p.created_at DESC LIMIT 50`, [String(owner || "").toLowerCase()]);
+    return rows;
+  } catch { return []; }
+}
+
+// 開かれたことを残す（誰が見たかは、Pardotの差し込みから受け取る）
+export async function recordBookView(pageId, { email, name, ua } = {}) {
+  if (!pool || !pageId) return null;
+  try {
+    const { rows } = await pool.query(
+      `INSERT INTO book_views (page_id, viewer_email, viewer_name, ua)
+       VALUES ($1,$2,$3,$4) RETURNING *`,
+      [pageId, String(email || "").trim() || null, String(name || "").trim() || null,
+       String(ua || "").slice(0, 200)]);
+    return rows[0] || null;
+  } catch (e) { console.error("[db] recordBookView", e.message); return null; }
+}
+
+// 予約されたことを残す
+export async function markBooked(viewId, slotAt) {
+  if (!pool || !viewId) return null;
+  try {
+    await pool.query(`UPDATE book_views SET booked = true, slot_at = $2 WHERE id = $1`,
+      [viewId, slotAt || null]);
+    return true;
+  } catch { return null; }
+}
+
+// 誰が見たか・誰が予約したかの一覧
+export async function listBookViewers(pageId, limit = 300) {
+  if (!pool || !pageId) return [];
+  try {
+    const { rows } = await pool.query(
+      `SELECT COALESCE(NULLIF(viewer_email,''), '（名乗りなし）') AS 相手,
+              max(viewer_name) AS 名前,
+              count(*)::int AS 回数,
+              bool_or(booked) AS 予約した,
+              max(slot_at) AS 予約日時,
+              max(at) AS 最後
+         FROM book_views WHERE page_id = $1
+        GROUP BY 1 ORDER BY 最後 DESC LIMIT $2`, [pageId, limit]);
+    return rows;
+  } catch { return []; }
+}
+
+// ===== コールリスト =====
+
+// リストを作る
+export async function createCallList({ name, owner, note, createdBy }) {
+  if (!pool) return null;
+  try {
+    const { rows } = await pool.query(
+      `INSERT INTO call_lists (name, owner, note, created_by) VALUES ($1,$2,$3,$4) RETURNING *`,
+      [String(name || "コールリスト").slice(0, 120), owner || null,
+       String(note || "").slice(0, 300), createdBy || null]);
+    return rows[0] || null;
+  } catch (e) { console.error("[db] createCallList", e.message); return null; }
+}
+
+// リストに宛先を足す（何件でもまとめて）
+export async function addCallTargets(listId, items = []) {
+  if (!pool || !listId || !items.length) return 0;
+  try {
+    let n = 0;
+    for (let i = 0; i < items.length; i++) {
+      const x = items[i] || {};
+      await pool.query(
+        `INSERT INTO call_targets
+           (list_id, lead_id, company, person, phone, email, industry, area, memo, assigned_to, sort_order, stage, status)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`,
+        [listId, x.leadId || null, x.company || "", x.person || "", x.phone || "",
+         x.email || "", x.industry || "", x.area || "", x.memo || "",
+         String(x.assignedTo || "").toLowerCase() || null, i,
+         x.stage || "", x.status || ""]);
+      n++;
+    }
+    return n;
+  } catch (e) { console.error("[db] addCallTargets", e.message); return 0; }
+}
+
+// リストの一覧（残り件数つき）
+export async function listCallLists({ owner = "", includeClosed = false } = {}) {
+  if (!pool) return [];
+  try {
+    const { rows } = await pool.query(
+      `SELECT l.*,
+              (SELECT count(*) FROM call_targets t WHERE t.list_id = l.id) AS 全部,
+              (SELECT count(*) FROM call_targets t WHERE t.list_id = l.id AND t.done) AS 済み
+         FROM call_lists l
+        WHERE ($1 = '' OR l.owner = $1 OR EXISTS (
+                 SELECT 1 FROM call_targets t WHERE t.list_id = l.id AND t.assigned_to = $1))
+          AND ($2 OR NOT l.closed)
+        ORDER BY l.created_at DESC LIMIT 50`,
+      [String(owner || "").toLowerCase(), !!includeClosed]);
+    return rows;
+  } catch (e) { console.error("[db] listCallLists", e.message); return []; }
+}
+
+// リストの中身を、かける人へ配る。
+//   均等に配る（人数で割る）／まとめて一人に渡す、の両方ができる。
+export async function assignCallTargets(listId, emails = [], { onlyUnassigned = true } = {}) {
+  if (!pool || !listId) return 0;
+  const who = emails.map((x) => String(x || "").toLowerCase()).filter(Boolean);
+  if (!who.length) return 0;
+  try {
+    // まだ済んでいないものを、順番に並べて取る
+    const { rows } = await pool.query(
+      `SELECT id FROM call_targets
+        WHERE list_id = $1 AND NOT done
+          ${onlyUnassigned ? "AND assigned_to IS NULL" : ""}
+        ORDER BY sort_order, id`, [listId]);
+    let n = 0;
+    for (let i = 0; i < rows.length; i++) {
+      // 上から順に、かける人を代わりばんこに割り当てる
+      await pool.query(`UPDATE call_targets SET assigned_to = $2 WHERE id = $1`,
+        [rows[i].id, who[i % who.length]]);
+      n++;
+    }
+    return n;
+  } catch (e) { console.error("[db] assignCallTargets", e.message); return 0; }
+}
+
+// リストの中身を、条件に当てはまるものだけ消す。
+//   ステージ・最終ステータス・履歴の有無で選べる。
+export async function deleteCallTargets(listId, { stages = [], statuses = [], hist = "" } = {}) {
+  if (!pool || !listId) return 0;
+  try {
+    const p = [listId];
+    const w = ["list_id = $1"];
+    if (stages.length) { p.push(stages); w.push(`COALESCE(stage,'') = ANY($${p.length}::text[])`); }
+    if (statuses.length) { p.push(statuses); w.push(`COALESCE(status,'') = ANY($${p.length}::text[])`); }
+    if (hist === "none") w.push(`NOT EXISTS (SELECT 1 FROM call_logs l WHERE l.target_id = call_targets.id)`);
+    if (hist === "some") w.push(`EXISTS (SELECT 1 FROM call_logs l WHERE l.target_id = call_targets.id)`);
+    const { rowCount } = await pool.query(
+      `DELETE FROM call_targets WHERE ${w.join(" AND ")}`, p);
+    return rowCount || 0;
+  } catch (e) { console.error("[db] deleteCallTargets", e.message); return 0; }
+}
+
+// 消す前に、何件消えるかを数える
+export async function countCallTargets(listId, { stages = [], statuses = [], hist = "" } = {}) {
+  if (!pool || !listId) return 0;
+  try {
+    const p = [listId];
+    const w = ["list_id = $1"];
+    if (stages.length) { p.push(stages); w.push(`COALESCE(stage,'') = ANY($${p.length}::text[])`); }
+    if (statuses.length) { p.push(statuses); w.push(`COALESCE(status,'') = ANY($${p.length}::text[])`); }
+    if (hist === "none") w.push(`NOT EXISTS (SELECT 1 FROM call_logs l WHERE l.target_id = call_targets.id)`);
+    if (hist === "some") w.push(`EXISTS (SELECT 1 FROM call_logs l WHERE l.target_id = call_targets.id)`);
+    const { rows } = await pool.query(
+      `SELECT count(*)::int AS n FROM call_targets WHERE ${w.join(" AND ")}`, p);
+    return rows[0] ? rows[0].n : 0;
+  } catch { return 0; }
+}
+
+// リストそのものを消す（中身もまとめて消える）
+export async function deleteCallList(listId) {
+  if (!pool || !listId) return false;
+  try {
+    await pool.query(`DELETE FROM call_lists WHERE id = $1`, [listId]);
+    return true;
+  } catch (e) { console.error("[db] deleteCallList", e.message); return false; }
+}
+
+// リストの中身にある、ステージと最終ステータスの種類を数える
+export async function callListFacets(listId) {
+  if (!pool || !listId) return { stages: [], statuses: [] };
+  try {
+    const a = await pool.query(
+      `SELECT COALESCE(stage,'') AS v, count(*)::int AS n FROM call_targets
+        WHERE list_id = $1 GROUP BY 1 ORDER BY 1`, [listId]);
+    const b = await pool.query(
+      `SELECT COALESCE(status,'') AS v, count(*)::int AS n FROM call_targets
+        WHERE list_id = $1 GROUP BY 1 ORDER BY 1`, [listId]);
+    return { stages: a.rows, statuses: b.rows };
+  } catch { return { stages: [], statuses: [] }; }
+}
+
+// 誰に何件配ったか
+export async function callAssignCounts(listId) {
+  if (!pool || !listId) return [];
+  try {
+    const { rows } = await pool.query(
+      `SELECT COALESCE(assigned_to, '') AS 誰,
+              count(*)::int AS 全部,
+              count(*) FILTER (WHERE done)::int AS 済み
+         FROM call_targets WHERE list_id = $1
+        GROUP BY 1 ORDER BY 1`, [listId]);
+    return rows;
+  } catch { return []; }
+}
+
+// 配ったものを全部戻す
+export async function clearCallAssign(listId) {
+  if (!pool || !listId) return 0;
+  try {
+    const { rowCount } = await pool.query(
+      `UPDATE call_targets SET assigned_to = NULL WHERE list_id = $1 AND NOT done`, [listId]);
+    return rowCount || 0;
+  } catch { return 0; }
+}
+
+// リストの中身を、表として全部返す（SFのリードレポートのような見た目にする）
+export async function listCallTargets(listId, { q = "", limit = 500 } = {}) {
+  if (!pool || !listId) return [];
+  try {
+    const p = [listId];
+    let where = `t.list_id = $1`;
+    if (q) {
+      p.push(`%${String(q).replace(/[%_]/g, "")}%`);
+      where += ` AND (t.company ILIKE $${p.length} OR t.person ILIKE $${p.length}
+                      OR t.phone ILIKE $${p.length} OR t.email ILIKE $${p.length})`;
+    }
+    p.push(Math.max(1, Math.min(2000, limit)));
+    const { rows } = await pool.query(
+      `SELECT t.*,
+              (SELECT count(*) FROM call_logs l WHERE l.target_id = t.id) AS 履歴数,
+              -- Salesforceへまだ送れていないもの（履歴に出すぶん）
+              (SELECT count(*) FROM call_logs l
+                WHERE l.target_id = t.id AND l.sf_task_id IS NULL) AS 未送信数,
+              (SELECT l.result FROM call_logs l WHERE l.target_id = t.id
+                ORDER BY l.at DESC LIMIT 1) AS 最終結果,
+              (SELECT l.at FROM call_logs l WHERE l.target_id = t.id
+                ORDER BY l.at DESC LIMIT 1) AS 最終日時
+         FROM call_targets t
+        WHERE ${where}
+        ORDER BY t.done, t.sort_order, t.id
+        LIMIT $${p.length}`, p);
+    return rows;
+  } catch (e) { console.error("[db] listCallTargets", e.message); return []; }
+}
+
+// 1件ぶんの情報（記録のモーダルで使う）
+export async function getCallTarget(id) {
+  if (!pool || !id) return null;
+  try {
+    const { rows } = await pool.query(`SELECT * FROM call_targets WHERE id = $1`, [id]);
+    return rows[0] || null;
+  } catch { return null; }
+}
+
+// ステージ・最終ステータスを書き換える
+export async function setCallTargetStatus(id, { stage, status } = {}) {
+  if (!pool || !id) return null;
+  const sets = [], vals = [id];
+  if (stage !== undefined) { vals.push(String(stage || "").slice(0, 60)); sets.push(`stage = $${vals.length}`); }
+  if (status !== undefined) { vals.push(String(status || "").slice(0, 120)); sets.push(`status = $${vals.length}`); }
+  if (!sets.length) return null;
+  try {
+    const { rows } = await pool.query(
+      `UPDATE call_targets SET ${sets.join(", ")} WHERE id = $1 RETURNING *`, vals);
+    return rows[0] || null;
+  } catch (e) { console.error("[db] setCallTargetStatus", e.message); return null; }
+}
+
+// 会社名・担当者名・電話番号・メールアドレスを書き換える（編集モーダル用）
+export async function updateCallTargetFields(id, { company, person, phone, email } = {}) {
+  if (!pool || !id) return null;
+  const sets = [], vals = [id];
+  if (company !== undefined) { vals.push(String(company || "").slice(0, 200)); sets.push(`company = $${vals.length}`); }
+  if (person  !== undefined) { vals.push(String(person  || "").slice(0, 120)); sets.push(`person = $${vals.length}`); }
+  if (phone   !== undefined) { vals.push(String(phone   || "").slice(0, 60));  sets.push(`phone = $${vals.length}`); }
+  if (email   !== undefined) { vals.push(String(email   || "").slice(0, 200)); sets.push(`email = $${vals.length}`); }
+  if (!sets.length) return null;
+  try {
+    const { rows } = await pool.query(
+      `UPDATE call_targets SET ${sets.join(", ")} WHERE id = $1 RETURNING *`, vals);
+    return rows[0] || null;
+  } catch (e) { console.error("[db] updateCallTargetFields", e.message); return null; }
+}
+
+// 架電したあと、リードの状態を書き戻す
+export async function setTargetStatus(targetId, status) {
+  if (!pool || !targetId) return null;
+  try {
+    await pool.query(`UPDATE call_targets SET status = $2 WHERE id = $1`,
+      [targetId, String(status || "").slice(0, 80)]);
+    return true;
+  } catch { return null; }
+}
+
+// 次にかける1件を出す（自分に割り当てられたもの／割り当てなしも拾う）
+export async function nextCallTarget(listId, caller) {
+  if (!pool || !listId) return null;
+  try {
+    const { rows } = await pool.query(
+      `SELECT * FROM call_targets
+        WHERE list_id = $1 AND NOT done
+          AND (assigned_to IS NULL OR assigned_to = $2)
+        ORDER BY sort_order, id LIMIT 1`,
+      [listId, String(caller || "").toLowerCase()]);
+    return rows[0] || null;
+  } catch (e) { console.error("[db] nextCallTarget", e.message); return null; }
+}
+
+// その相手に、これまで何をしたか
+export async function callHistory(targetId, leadId, limit = 5) {
+  if (!pool) return [];
+  try {
+    const { rows } = await pool.query(
+      `SELECT result, memo, caller, at, sf_task_id FROM call_logs
+        WHERE target_id = $1 OR ($2 <> '' AND lead_id = $2)
+        ORDER BY at DESC LIMIT $3`,
+      [targetId || 0, String(leadId || ""), limit]);
+    return rows;
+  } catch { return []; }
+}
+
+// 架電の結果を残す
+export async function recordCall({ targetId, leadId, company, result, memo, caller }) {
+  if (!pool) return null;
+  try {
+    const { rows } = await pool.query(
+      `INSERT INTO call_logs (target_id, lead_id, company, result, memo, caller)
+       VALUES ($1,$2,$3,$4,$5,$6) RETURNING *`,
+      [targetId || null, leadId || null, company || "", result,
+       String(memo || "").slice(0, 1000), caller || null]);
+    // 記録しても「済み」にしない。
+    // 同じリストを何度も使い回すので、相手が消えたり並び順が変わったりしないようにする。
+    return rows[0] || null;
+  } catch (e) { console.error("[db] recordCall", e.message); return null; }
+}
+
+// Salesforceへ送れた／送れなかったを記録する
+export async function markCallSynced(logId, { taskId, error } = {}) {
+  if (!pool || !logId) return null;
+  try {
+    await pool.query(
+      `UPDATE call_logs SET sf_task_id = $2, sf_error = $3 WHERE id = $1`,
+      [logId, taskId || null, String(error || "").slice(0, 300) || null]);
+    return true;
+  } catch { return null; }
+}
+
+// まだSalesforceへ送れていないぶん
+export async function pendingCallLogs(limit = 50) {
+  if (!pool) return [];
+  try {
+    const { rows } = await pool.query(
+      `SELECT * FROM call_logs
+        WHERE sf_task_id IS NULL AND lead_id IS NOT NULL
+        ORDER BY at LIMIT $1`, [limit]);
+    return rows;
+  } catch { return []; }
+}
+
+// その日の結果を数える
+export async function callStats(dateJst, caller = "") {
+  if (!pool) return [];
+  try {
+    const { rows } = await pool.query(
+      `SELECT caller, result, count(*)::int AS n
+         FROM call_logs
+        WHERE (at AT TIME ZONE 'Asia/Tokyo')::date = $1::date
+          AND ($2 = '' OR caller = $2)
+        GROUP BY caller, result`,
+      [dateJst, String(caller || "").toLowerCase()]);
+    return rows;
+  } catch { return []; }
+}
+
+// ===== Salesforceの更新の記録 =====
+export async function recordSfUpdate({ botId, oppId, stage, note, owner }) {
+  if (!pool) return null;
+  try {
+    const { rows } = await pool.query(
+      `INSERT INTO sf_updates (bot_id, opp_id, stage, note, owner)
+       VALUES ($1,$2,$3,$4,$5) RETURNING *`,
+      [botId || null, oppId || null, stage || null, String(note || "").slice(0, 500), owner || null]);
+    return rows[0] || null;
+  } catch (e) { console.error("[db] recordSfUpdate", e.message); return null; }
+}
+
+// 指定した商談たちについて、SFを更新済みかどうかを返す
+export async function sfUpdatedMap(botIds = []) {
+  if (!pool || !botIds.length) return {};
+  try {
+    const { rows } = await pool.query(
+      `SELECT bot_id, max(at) AS at, max(stage) AS stage
+         FROM sf_updates WHERE bot_id = ANY($1::text[]) GROUP BY bot_id`,
+      [botIds]);
+    const out = {};
+    for (const r of rows) out[r.bot_id] = { at: r.at, stage: r.stage || "" };
+    return out;
+  } catch { return {}; }
+}
+
+// ===== 週のボード =====
+export async function listWeekly(weekStart) {
+  if (!pool) return [];
+  try {
+    const { rows } = await pool.query(
+      `SELECT * FROM weekly_board WHERE week_start = $1::date ORDER BY member_name, member`,
+      [weekStart]);
+    return rows;
+  } catch (e) { console.error("[db] listWeekly", e.message); return []; }
+}
+
+export async function saveWeekly({ weekStart, member, memberName, theme, targets, actions, review, items, updatedBy }) {
+  if (!pool || !weekStart || !member) return null;
+  try {
+    const { rows } = await pool.query(
+      `INSERT INTO weekly_board (week_start, member, member_name, theme, targets, actions, review, items, updated_by)
+       VALUES ($1::date,$2,$3,$4,$5,$6,$7,$8::jsonb,$9)
+       ON CONFLICT (week_start, member) DO UPDATE SET
+         member_name = COALESCE(EXCLUDED.member_name, weekly_board.member_name),
+         theme   = COALESCE(EXCLUDED.theme,   weekly_board.theme),
+         targets = COALESCE(EXCLUDED.targets, weekly_board.targets),
+         actions = COALESCE(EXCLUDED.actions, weekly_board.actions),
+         review  = COALESCE(EXCLUDED.review,  weekly_board.review),
+         items   = COALESCE(EXCLUDED.items,   weekly_board.items),
+         updated_by = EXCLUDED.updated_by,
+         updated_at = now()
+       RETURNING *`,
+      [weekStart, String(member).toLowerCase(), memberName || null,
+       theme ?? null, targets ?? null, actions ?? null, review ?? null,
+       items === undefined ? null : JSON.stringify(items || []), updatedBy || null]);
+    return rows[0] || null;
+  } catch (e) { console.error("[db] saveWeekly", e.message); return null; }
+}
+
+// 前の週の内容（次の週を書くときの参考に出す）
+export async function weeklyFor(weekStart, member) {
+  if (!pool) return null;
+  try {
+    const { rows } = await pool.query(
+      `SELECT * FROM weekly_board WHERE week_start = $1::date AND member = $2`,
+      [weekStart, String(member).toLowerCase()]);
+    return rows[0] || null;
+  } catch { return null; }
+}
+
 // ===== 開発メモ =====
 // 同じ内容は1件にまとめ、回数だけ増やす（同じエラーが並ばないように）
 export async function addDevNote({ key, kind = "request", title, detail = "", source = "", createdBy = "" }) {
@@ -2694,6 +3518,35 @@ export async function updateDevNote(id, patch = {}) {
       `UPDATE dev_notes SET ${cols.join(", ")} WHERE id = $${vals.length} RETURNING *`, vals);
     return rows[0] || null;
   } catch (e) { console.error("[db] updateDevNote", e.message); return null; }
+}
+
+// 見送る＝一覧から消す。ただし題名は覚えておく（同じ案がまた出ないように）。
+export async function dismissDevNote(id) {
+  if (!pool || !id) return 0;
+  try {
+    const { rows } = await pool.query(`SELECT * FROM dev_notes WHERE id = $1`, [id]);
+    const r = rows[0];
+    if (!r) return 0;
+    await pool.query(
+      `INSERT INTO dev_dismissed (title, detail, kind, source) VALUES ($1,$2,$3,$4)`,
+      [r.title, String(r.detail || "").slice(0, 500), r.kind, r.source]);
+    await pool.query(`DELETE FROM dev_notes WHERE id = $1`, [id]);
+    // 覚えておくのは新しい500件まで（増え続けないように）
+    await pool.query(
+      `DELETE FROM dev_dismissed WHERE id NOT IN (
+         SELECT id FROM dev_dismissed ORDER BY at DESC LIMIT 500)`);
+    return 1;
+  } catch (e) { console.error("[db] dismissDevNote", e.message); return 0; }
+}
+
+// 見送った案の題名（似ているかを調べるために使う）
+export async function listDismissed(limit = 500) {
+  if (!pool) return [];
+  try {
+    const { rows } = await pool.query(
+      `SELECT title, detail FROM dev_dismissed ORDER BY at DESC LIMIT $1`, [limit]);
+    return rows;
+  } catch { return []; }
 }
 
 export async function deleteDevNote(id) {
@@ -2891,9 +3744,10 @@ export async function setSmartLinkClient(slug, { email, name, source } = {}, for
 export async function myAssignedApos(owner, dateJst, mode = "day", limit = 200, setterName = "") {
   if (!pool || !owner) return [];
   try {
-    const cond = mode === "day"
-      ? `(start_time AT TIME ZONE 'Asia/Tokyo')::date = $2::date`
-      : `(start_time AT TIME ZONE 'Asia/Tokyo')::date >= $2::date`;
+    // 「自分のアポ」は、その日に“取った”アポを並べる（商談日ではない）。
+    // 何件取れたかを見る場所なので、日付はアポを取った日で数える。
+    const day = `(COALESCE(apo_at, created_at) AT TIME ZONE 'Asia/Tokyo')::date`;
+    const cond = mode === "day" ? `${day} = $2::date` : `${day} >= $2::date`;
     const nm = String(setterName || "").replace(/[\s　]/g, "");
     const { rows } = await pool.query(
       `SELECT *,
@@ -2908,7 +3762,7 @@ export async function myAssignedApos(owner, dateJst, mode = "day", limit = 200, 
             OR lower(COALESCE(setter_email,'')) = $1
             OR ($4 <> '' AND regexp_replace(COALESCE(setter,''), '[[:space:]　]', '', 'g') = $4)
           )
-        ORDER BY start_time
+        ORDER BY COALESCE(apo_at, created_at) DESC, start_time
         LIMIT $3`,
       [String(owner).toLowerCase(), dateJst, Math.max(1, Math.min(500, limit)), nm]);
     return rows;
@@ -3044,6 +3898,27 @@ export async function setSmartLinkBusiness(slug, business) {
   } catch (e) { console.error("[db] setSmartLinkBusiness", e.message); return null; }
 }
 
+// 今日のアポで、確定メールがまだ送れていないものを探す。
+// 18時半のお知らせに使う（送り忘れをその日のうちに気づけるように）。
+export async function aposMailPending(dateJst, limit = 200) {
+  if (!pool) return [];
+  try {
+    const { rows } = await pool.query(
+      `SELECT s.slug, s.label, s.setter, s.current_owner, s.start_time, s.client_email,
+              COALESCE(s.apo_at, s.created_at) AS taken_at
+         FROM smart_links s
+        WHERE (COALESCE(s.apo_at, s.created_at) AT TIME ZONE 'Asia/Tokyo')::date = $1::date
+          AND NOT COALESCE(s.excluded, false)
+          AND NOT EXISTS (
+            SELECT 1 FROM apo_mail_log m
+             WHERE m.slug = s.slug AND m.kind = 'confirm' AND m.status IN ('sent','draft')
+          )
+        ORDER BY taken_at
+        LIMIT $2`, [dateJst, limit]);
+    return rows;
+  } catch (e) { console.error("[db] aposMailPending", e.message); return []; }
+}
+
 export async function apoMailSentRow(slug, kind) {
   if (!pool || !slug) return null;
   try {
@@ -3052,6 +3927,44 @@ export async function apoMailSentRow(slug, kind) {
     );
     return rows[0] || null;
   } catch { return null; }
+}
+
+// 送ったメールの一覧（誰に・いつ・届いたか）
+export async function listApoMails({ from, to, kind = "", owner = "", limit = 300 } = {}) {
+  if (!pool) return [];
+  try {
+    const p = [];
+    const w = [];
+    if (from) { p.push(from); w.push(`(l.created_at AT TIME ZONE 'Asia/Tokyo')::date >= $${p.length}::date`); }
+    if (to) { p.push(to); w.push(`(l.created_at AT TIME ZONE 'Asia/Tokyo')::date <= $${p.length}::date`); }
+    if (kind) { p.push(kind); w.push(`l.kind = $${p.length}`); }
+    if (owner) { p.push(String(owner).toLowerCase()); w.push(`lower(l.from_owner) = $${p.length}`); }
+    p.push(Math.max(1, Math.min(1000, limit)));
+    const { rows } = await pool.query(
+      `SELECT l.*, s.label, s.start_time
+         FROM apo_mail_log l
+         LEFT JOIN smart_links s ON s.slug = l.slug
+        ${w.length ? "WHERE " + w.join(" AND ") : ""}
+        ORDER BY l.created_at DESC LIMIT $${p.length}`, p);
+    return rows;
+  } catch (e) { console.error("[db] listApoMails", e.message); return []; }
+}
+
+// 跳ね返りを記録する
+export async function markBounced(toEmail, note) {
+  if (!pool || !toEmail) return 0;
+  try {
+    // 直近2週間に、そのアドレスへ送ったものを跳ね返り扱いにする
+    const { rowCount } = await pool.query(
+      `UPDATE apo_mail_log
+          SET bounced = true, bounce_note = $2
+        WHERE lower(to_email) = lower($1)
+          AND status = 'sent'
+          AND created_at > now() - interval '14 days'
+          AND NOT bounced`,
+      [String(toEmail).trim(), String(note || "").slice(0, 200)]);
+    return rowCount || 0;
+  } catch (e) { console.error("[db] markBounced", e.message); return 0; }
 }
 
 export async function logApoMail({ slug, kind, toEmail, fromOwner, subject, status, error, messageId }) {
@@ -3427,6 +4340,7 @@ export async function updateChatTarget(id, patch) {
   if (!pool || !id) return null;
   const cols = { name: "name", webhookUrl: "webhook_url", spaceId: "space_id",
     onAssign: "on_assign", onMail: "on_mail", onDoc: "on_doc", onLaunch: "on_launch",
+    onNews: "on_news",
     onDeploy: "on_deploy", active: "active" };
   const sets = [], vals = [id];
   for (const [k, col] of Object.entries(cols)) {
@@ -3706,15 +4620,26 @@ export async function addDocFile({ name, filename, mime, buf, uploadedBy }) {
 }
 
 // 一覧では中身（bytes）を返さない。重いので。
-export async function listDocFiles() {
+// 資料の一覧。
+//   owner を渡すと「自分が入れたもの＋チームに共有されているもの」だけを返す。
+//   all=true なら全部（管理用）。
+export async function listDocFiles({ owner = "", all = false } = {}) {
   if (!pool) return [];
   try {
+    const p = [];
+    let where = "1=1";
+    if (owner && !all) {
+      p.push(String(owner).toLowerCase());
+      where = `(lower(COALESCE(f.uploaded_by,'')) = $${p.length} OR COALESCE(f.shared,true) = true)`;
+    }
     const { rows } = await pool.query(
-      `SELECT f.id, f.name, f.filename, f.mime, f.size, f.active, f.uploaded_by, f.created_at,
+      `SELECT f.id, f.name, f.filename, f.mime, f.size, f.active, f.uploaded_by, f.shared, f.created_at,
               (SELECT count(*) FROM doc_links l WHERE l.doc_id = f.id) AS links,
               (SELECT count(*) FROM doc_views v JOIN doc_links l ON l.id = v.link_id
                 WHERE l.doc_id = f.id) AS views
-         FROM doc_files f ORDER BY f.active DESC, f.created_at DESC`);
+         FROM doc_files f
+        WHERE ${where}
+        ORDER BY f.active DESC, f.created_at DESC`, p);
     return rows;
   } catch { return []; }
 }
@@ -3827,6 +4752,84 @@ export async function clientEmailForCompany(company) {
     }
   } catch {}
   return null;
+}
+
+// 資料を「自分だけ」「チームに共有」に切り替える
+// メルマガ用の「みんな共通のURL」を1本だけ用意する。
+// すでにあれば、それを使い回す（同じ資料に何本も作らない）。
+export async function getOrCreateSharedLink(docId, owner) {
+  if (!pool || !docId) return null;
+  try {
+    const { rows: found } = await pool.query(
+      `SELECT * FROM doc_links
+        WHERE doc_id = $1 AND shared_link = true AND NOT revoked
+        ORDER BY created_at LIMIT 1`, [docId]);
+    if (found[0]) return found[0];
+    const slug = Math.random().toString(36).slice(2, 10);
+    const { rows } = await pool.query(
+      `INSERT INTO doc_links (slug, doc_id, company, contact, email, owner, shared_link)
+       VALUES ($1,$2,'（メルマガ用の共通URL）','','',$3,true) RETURNING *`,
+      [slug, docId, owner || null]);
+    return rows[0] || null;
+  } catch (e) {
+    // 列がまだ無いときは、その場で足してからもう一度試す
+    if (/shared_link/.test(e.message)) {
+      try {
+        await pool.query(`ALTER TABLE doc_links ADD COLUMN IF NOT EXISTS shared_link BOOLEAN NOT NULL DEFAULT false`);
+        const slug = Math.random().toString(36).slice(2, 10);
+        const { rows } = await pool.query(
+          `INSERT INTO doc_links (slug, doc_id, company, contact, email, owner, shared_link)
+           VALUES ($1,$2,'（メルマガ用の共通URL）','','',$3,true) RETURNING *`,
+          [slug, docId, owner || null]);
+        return rows[0] || null;
+      } catch (e2) { console.error("[db] getOrCreateSharedLink(再)", e2.message); return null; }
+    }
+    console.error("[db] getOrCreateSharedLink", e.message);
+    return null;
+  }
+}
+
+// 共通URLで開いた人を記録する
+// 共通URLを、誰が開いたかの一覧
+export async function listSharedViewers(linkId, limit = 500) {
+  if (!pool || !linkId) return [];
+  try {
+    const { rows } = await pool.query(
+      `SELECT COALESCE(NULLIF(viewer_email,''), '（名乗りなし）') AS 相手,
+              max(viewer_name) AS 名前,
+              count(*) AS 回数,
+              sum(COALESCE(seconds,0)) AS 秒,
+              max(COALESCE(max_page,0)) AS 到達,
+              max(started_at) AS 最後
+         FROM doc_views
+        WHERE link_id = $1
+        GROUP BY 1
+        ORDER BY 最後 DESC
+        LIMIT $2`, [linkId, limit]);
+    return rows;
+  } catch (e) { console.error("[db] listSharedViewers", e.message); return []; }
+}
+
+export async function setViewerInfo(viewId, { email, name } = {}) {
+  if (!pool || !viewId) return null;
+  try {
+    await pool.query(
+      `UPDATE doc_views SET viewer_email = COALESCE(NULLIF($2,''), viewer_email),
+                            viewer_name  = COALESCE(NULLIF($3,''), viewer_name)
+        WHERE id = $1`,
+      [viewId, String(email || "").trim(), String(name || "").trim()]);
+    return true;
+  } catch (e) { console.error("[db] setViewerInfo", e.message); return null; }
+}
+
+export async function setDocShared(id, shared) {
+  if (!pool || !id) return null;
+  try {
+    const { rows } = await pool.query(
+      `UPDATE doc_files SET shared = $2 WHERE id = $1 RETURNING id, name, shared`,
+      [id, !!shared]);
+    return rows[0] || null;
+  } catch (e) { console.error("[db] setDocShared", e.message); return null; }
 }
 
 export async function listDocLinks({ docId = 0, onlyViewed = false, limit = 500 } = {}) {
@@ -4122,7 +5125,8 @@ export async function knowledgeForKasasagi(limit = 40) {
 
 // ===== メンバー管理 =====
 // 役割: closer（クローザー）／inside（インサイド＝アポ獲得）／fallback（予備）
-export const MEMBER_ROLES = ["closer", "inside", "fallback"];
+// kincall だけ … kincall以外の画面に入れない人（インターン生など）
+export const MEMBER_ROLES = ["closer", "inside", "fallback", "kincall"];
 export const MEMBER_BUSINESSES = ["DOC", "MOCHICA"];
 
 function normRoles(v) {
@@ -4616,17 +5620,45 @@ export async function listGmailActions(owner, limit = 50) {
 }
 
 // 前日リマインドの対象：指定の時間帯に商談があり、担当・宛先が揃っていて、まだ送っていないもの
-export async function listApoReminderTargets(fromISO, toISO) {
+// 前日リマインドの対象を取る。
+//   forList = true … 画面に出す用。宛先が無いもの・送信済みのものも含めて全部返す
+//                     （「なぜ送られないのか」を見せるため）
+//   forList = false … 実際に送る用。宛先があり、まだ送っていないものだけ
+// 確定メールを送ってから、まだ日が浅いアポは、リマインドを出さない。
+// 「今日アポを取って明日商談」のとき、案内とリマインドが続けて届いてしまうため。
+export const REMIND_GAP_HOURS = 20;
+
+export async function listApoReminderTargets(fromISO, toISO, { forList = false, gapHours } = {}) {
   if (!pool) return [];
   try {
+    const gap = Math.max(0, Math.min(72, Number(gapHours ?? REMIND_GAP_HOURS)));
+    const cond = forList
+      ? ""
+      : `AND NOT COALESCE(s.no_reminder, false)
+         AND COALESCE(s.current_owner,'') <> ''
+         AND COALESCE(s.client_email,'') <> ''
+         -- 確定メールを送ったばかりのものは出さない（案内とリマインドが続けて届くため）
+         AND NOT EXISTS (
+               SELECT 1 FROM apo_mail_log c
+                WHERE c.slug = s.slug AND c.kind = 'confirm'
+                  AND c.status IN ('sent','draft')
+                  AND c.created_at > now() - interval '1 hour' * ${gap})
+         AND NOT EXISTS (
+               SELECT 1 FROM apo_mail_log l
+                WHERE l.slug = s.slug AND l.kind = 'reminder' AND l.status IN ('sent','draft'))`;
     const { rows } = await pool.query(
-      `SELECT s.* FROM smart_links s
+      `SELECT s.*,
+              EXISTS (SELECT 1 FROM apo_mail_log l
+                       WHERE l.slug = s.slug AND l.kind = 'reminder'
+                         AND l.status IN ('sent','draft')) AS reminded,
+              EXISTS (SELECT 1 FROM apo_mail_log c
+                       WHERE c.slug = s.slug AND c.kind = 'confirm'
+                         AND c.status IN ('sent','draft')
+                         AND c.created_at > now() - interval '1 hour' * ${gap}) AS just_confirmed
+         FROM smart_links s
         WHERE s.start_time >= $1 AND s.start_time < $2
-          AND COALESCE(s.current_owner,'') <> ''
-          AND COALESCE(s.client_email,'') <> ''
-          AND NOT EXISTS (
-                SELECT 1 FROM apo_mail_log l
-                 WHERE l.slug = s.slug AND l.kind = 'reminder' AND l.status IN ('sent','draft'))
+          AND NOT COALESCE(s.excluded, false)
+          ${cond}
         ORDER BY s.start_time`,
       [fromISO, toISO]
     );

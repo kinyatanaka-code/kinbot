@@ -1000,17 +1000,23 @@ async function loadList() {
         '<div class="empty-state">まだ履歴がありません。商談を1件記録すると、ここに並びます。<br><small>（履歴の保存には DATABASE_URL の設定が必要です）</small></div>';
       return;
     }
-    // 営業担当（所有者）選択肢
+    // 営業担当（所有者）選択肢。
+    // 人数が増えると探しにくいので、商談の多い人を上に出し、件数も添える。
     const fOwner = document.getElementById("fOwner");
     const seen = new Map();
     for (const m of allMeetings) {
       const owner = (m.owner || "").trim();
-      if (owner && !seen.has(owner)) seen.set(owner, (m.owner_name || "").trim() || owner);
+      if (!owner) continue;
+      const label = (m.owner_name || "").trim() || owner;
+      const cur = seen.get(owner) || { label, n: 0 };
+      cur.n++;
+      seen.set(owner, cur);
     }
-    for (const [owner, label] of seen) {
+    const owners = [...seen.entries()].sort((a, b) => b[1].n - a[1].n);
+    for (const [owner, info] of owners) {
       const o = document.createElement("option");
       o.value = owner;
-      o.textContent = label;
+      o.textContent = `${info.label}（${info.n}件）`;
       fOwner.appendChild(o);
     }
     fOwner.addEventListener("change", () => { selectedAccount = null; renderList(); });
@@ -2060,9 +2066,9 @@ async function loadDetail(botId, openTab, opts = {}) {
 }
 
 // ===== 録画プレイヤー =====
-// iPhoneは動画のままだと、ホーム画面に戻ったり他のアプリを開いた時点で止まる仕様。
+// スマホ（iPhone・Android）は、動画のままだとホーム画面に戻ったり他アプリを開いた時点で止まりやすい。
 // そこで裏に回った瞬間に、同じファイルの音声へ自動で引き継いで再生を続ける。
-// kinbotに戻ってきたら、その位置から動画の再生を再開する。
+// kinbotに戻ってきたら、その位置から動画の再生を再開する。ボタン操作は不要。
 
 function setMediaSession(el, meeting) {
   if (!("mediaSession" in navigator)) return;
@@ -2292,6 +2298,13 @@ function isIOS() {
   return /iP(hone|ad|od)/.test(navigator.userAgent) ||
     (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
 }
+function isAndroid() {
+  return /Android/.test(navigator.userAgent);
+}
+// スマホ（iPhone / Android）かどうか。バックグラウンド音声の引き継ぎ対象。
+function isMobile() {
+  return isIOS() || isAndroid();
+}
 
 function setupRecordingPlayer(drec, d, meeting) {
   const url = d.url;
@@ -2309,8 +2322,10 @@ function setupRecordingPlayer(drec, d, meeting) {
     `<video class="rec-video" controls preload="metadata" playsinline autopictureinpicture></video>
      <div class="ch-wrap" id="chWrap"></div>
      <div class="rec-bar">
-       <span class="rec-hint">${d && d.source === "drive" ? "Googleドライブに保存した録画を再生しています。" : "ホーム画面に戻ったり、他のアプリを開いても音声は再生され続けます。"}</span>
-       ${d && d.source !== "drive" ? `<button type="button" class="rec-open" id="recToDrive">ドライブに保存</button>` : ""}
+       <span class="rec-hint">${d && d.source === "drive"
+         ? "Googleドライブの録画を再生しています。ホーム画面に戻っても音声は続きます。"
+         : "ドライブへの保存中です（書き出しが終わり次第、自動で切り替わります）。"}</span>
+       ${d && d.source !== "drive" ? `<button type="button" class="rec-open" id="recToDrive">いますぐドライブに保存</button>` : ""}
        <button type="button" class="rec-open" id="recShare">共有リンクを作る</button>
        ${d && d.driveLink ? `<a class="rec-open" href="${escapeHtml(d.driveLink)}" target="_blank" rel="noopener">ドライブで開く</a>` : ""}
        ${isHls ? "" : `<a class="rec-open" href="${escapeHtml(url)}" target="_blank" rel="noopener">別タブで開く</a>`}
@@ -2377,9 +2392,11 @@ function setupRecordingPlayer(drec, d, meeting) {
   }
   setMediaSession(video, meeting);
 
-  // ---- 裏に回ったときに音声へ引き継ぐ（iPhoneのみ） ----
+  // ---- 裏に回ったときに音声へ引き継ぐ（iPhone / Android のスマホ） ----
+  // 直接ファイル（ドライブのmp4など）のときだけ。HLS配信中は音声だけの引き継ぎができないので、
+  // ドライブ保存が終わってmp4になってから効く。
   const nativeOk = !isHls || !!video.canPlayType("application/vnd.apple.mpegurl");
-  if (!isIOS() || !nativeOk) return;
+  if (!isMobile() || !nativeOk) return;
 
   bgAudio = document.createElement("audio");
   bgAudio.preload = "none";

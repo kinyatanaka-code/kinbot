@@ -4,7 +4,13 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>kinbot アポ振り分け</title>
-    <link rel="stylesheet" href="style.css" />
+    <link rel="icon" href="/icon.svg" type="image/svg+xml" />
+    <link rel="icon" href="/favicon-32.png" sizes="32x32" type="image/png" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <link rel="manifest" href="/site.webmanifest" />
+    <meta name="theme-color" content="#0d5b47" />
+    <meta name="apple-mobile-web-app-title" content="kinbot" />
+    <link rel="stylesheet" href="style.css?v=20260819zb" />
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/tabler-icons/2.44.0/iconfont/tabler-icons.min.css" />
   </head>
   <body>
@@ -38,6 +44,7 @@
             <div class="rep-controls">
             <label>取得日 <input type="date" id="apCreated" /></label>
             <label>商談日 <input type="date" id="apStart" /></label>
+            <label>探す <input type="text" id="apFind" placeholder="会社名・担当者名・獲得者" style="width:200px" /></label>
             <button class="btn" id="apReload">表示</button>
             <button class="btn ghost" id="apClear">リセット</button>
             <span class="rev-status" id="apStatus"></span>
@@ -183,6 +190,8 @@
                 <label class="ap-check"><input type="checkbox" id="mcAutoConfirm" /> 担当割り当て時に確定メールを自動で用意する</label>
                 <label class="ap-check"><input type="checkbox" id="mcAutoReminder" /> 商談前日にリマインドを自動で用意する</label>
                 <label>リマインド送信時刻 <select id="mcHour"></select> 時（JST）</label>
+                <label class="ks-check"><input type="checkbox" id="mcCopy" /> 自分にも控えを送る（Bcc）</label>
+                <label>案内から <input type="number" id="mcGap" value="20" min="0" max="72" style="width:60px" /> 時間はリマインドしない</label>
                 <label>1回あたりの送信上限 <input type="number" id="mcMax" min="1" max="500" style="width:80px" /> 通</label>
               </div>
               <div class="ap-cfg-row">
@@ -190,13 +199,17 @@
               </div>
               <div class="ap-tags">
                 <div><b>お客様・商談</b> <code>{{会社名}}</code> <code>{{お客様名}}</code> <code>{{商談日時}}</code> <code>{{商談日}}</code> <code>{{商談時刻}}</code></div>
-                <div><b>アポ獲得者</b> <code>{{アポ獲得者}}</code> <code>{{アポ獲得者姓}}</code></div>
+                <div><b>アポ獲得者</b> <code>{{アポ獲得者}}</code> <code>{{アポ獲得者姓}}</code>
+                  <code>{{お礼の書き出し}}</code></div>
                 <div><b>担当セールス</b> <code>{{担当者名}}</code> <code>{{担当者姓}}</code>（自動）<code>{{担当者ローマ字}}</code> <code>{{担当者メール}}</code> <code>{{担当者電話}}</code> <code>{{部署}}</code> <code>{{ユニット}}</code></div>
                 <div><b>会議室</b> <code>{{ZoomURL}}</code>（スマートリンク）<code>{{担当者の会議室URL}}</code></div>
                 <div><b>自社</b> <code>{{自社名}}</code></div>
               </div>
               <p class="note"><code>{{担当者ローマ字}}</code><code>{{担当者電話}}</code><code>{{部署}}</code><code>{{ユニット}}</code>は <a href="settings.html#members">設定 → メンバー管理</a>の各メンバーの「署名」で設定します。<br>
               <code>{{担当者姓}}</code>は名前から自動で入ります。<br>
+              <code>{{お礼の書き出し}}</code>は、誰が取ったアポかで文が変わります。<br>
+              　・自分で取ったアポ → 「先ほどはお電話にご対応いただき、」<br>
+              　・ほかの人が取ったアポ → 「先ほどは弊社○○のお電話にご対応いただき、」<br>
               <b><code>{{ZoomURL}}</code>はkinbotのスマートリンクです。</b>担当が変わっても行き先が自動で切り替わるので、送ったあとに担当が代わってもメールを送り直す必要がありません。転送先は<a href="settings.html">設定 → 登録リンク</a>で各自が登録した会議室URLです。<br>
               担当者のZoom URLをそのまま載せたい場合は <code>{{担当者の会議室URL}}</code> が使えますが、<b>担当が変わると古いURLのままになります</b>。未設定の項目はその行ごと本文から消えます。</p>
               <div class="ap-tpl">
@@ -215,6 +228,43 @@
                 <button class="btn ghost" id="mcRunRemind">前日リマインドを今すぐ流す</button>
                 <span class="rev-status" id="mcStatus"></span>
               </div>
+
+              <h4 class="ap-rot-h">送ったメールの記録</h4>
+              <p class="note">いつ・誰に・どのメールを送ったかが見られます。<b>届かずに戻ってきたもの</b>には印が付きます（30分おきに自動で調べ、送った本人にも知らせます）。</p>
+              <div class="ap-cfg-actions">
+                <label>期間 <input type="date" id="mlFrom" /> 〜 <input type="date" id="mlTo" /></label>
+                <label>種類 <select id="mlKind">
+                  <option value="">すべて</option>
+                  <option value="confirm">確定メール</option>
+                  <option value="reminder">リマインド</option>
+                </select></label>
+                <label class="ks-check"><input type="checkbox" id="mlMine" /> 自分のぶんだけ</label>
+                <button class="btn" id="mlLoad">見る</button>
+                <button class="btn ghost" id="mlBounce">届かなかったものを調べる</button>
+                <span class="rev-status" id="mlStatus"></span>
+              </div>
+              <div id="mlBox"></div>
+
+              <h4 class="ap-rot-h">テストで送ってみる</h4>
+              <p class="note">架空のアポ（テスト株式会社／明日10時）で文面を作って送ります。<b>実際のアポには何も残りません</b>ので、何度でも試せます。<br>
+              送信元はあなたのGmailです。署名や会議室URLも、あなたの設定が入ります。</p>
+              <div class="ap-cfg-actions">
+                <label>宛先 <input type="text" id="mtTo" style="width:280px" /></label>
+                <label>種類
+                  <select id="mtKind" style="width:180px">
+                    <option value="confirm">アポ確定メール</option>
+                    <option value="reminder">前日リマインド</option>
+                  </select>
+                </label>
+                <label>獲得者 <input type="text" id="mtSetter" style="width:150px" placeholder="空＝自分で取った" /></label>
+              </div>
+              <div class="ap-cfg-actions">
+                <button class="btn ghost" id="mtDraft">下書きにする</button>
+                <button class="btn" id="mtSend">送る</button>
+                <span class="rev-status" id="mtStatus"></span>
+              </div>
+              <p class="note">「獲得者」を空にすると<b>自分で取ったアポ</b>の文面（先ほどはお電話にご対応いただき、）になります。名前を入れると<b>その人が取ったアポ</b>の文面になります。</p>
+              <div class="note" id="mtBox"></div>
             
             </div>
           </section>
@@ -261,6 +311,39 @@
               </div>
               <div id="pushBox"></div>
 
+              <h4 class="ap-rot-h">日程調整ページ（kinbotで作る場合）</h4>
+              <p class="note">お客様に<b>空いている時間から選んでもらうURL</b>を作れます。選ばれると、カレンダーに予定ができて、そのままアポ振り分けに乗ります。<br>
+              <b>Pardot用の共通URL</b>も作れます（差し込みタグを付けると、誰が見たか・誰が予約したかが分かります）。</p>
+              <div class="ap-cfg-row">
+                <label>ページの名前 <input type="text" id="bkTitle" placeholder="打ち合わせの日程調整" style="width:240px" /></label>
+                <label>1回 <input type="number" id="bkMin" value="30" min="15" max="180" step="15" style="width:70px" /> 分</label>
+                <label>何日先まで <input type="number" id="bkDays" value="14" min="1" max="60" style="width:70px" /> 日</label>
+                <label>時間帯 <input type="number" id="bkFrom" value="10" min="0" max="23" style="width:60px" /> 〜
+                  <input type="number" id="bkTo" value="19" min="1" max="23" style="width:60px" /> 時</label>
+              </div>
+              <div class="ap-cfg-actions">
+                <button class="btn" id="bkMakeShared">Pardot用の共通URLを作る</button>
+                <button class="btn ghost" id="bkMakeOne">この場で1本だけ作る</button>
+                <span class="rev-status" id="bkStatus"></span>
+              </div>
+              <div id="bkBox"></div>
+              <div class="ap-cfg-actions" style="margin-top:6px">
+                <button class="btn ghost" id="bkList">作ったページを見る</button>
+              </div>
+              <div id="bkListBox"></div>
+
+              <h4 class="ap-rot-h">実績に数えない人</h4>
+              <p class="note">ここに書いた人は、<b>アポの数にもコール進捗にも入りません</b>（ほかのチームのぶんが実績に混ざるのを防ぐため）。<br>
+              ・その人が<b>招いた予定</b>は、アポとして取り込みません<br>
+              ・その人が<b>取ったアポ</b>は数えません。ただし<b>予備として誰かに割り振られたら数えます</b><br>
+              ・コール進捗・プロセスシートにも出しません<br>
+              名前でもメールでも書けます。名前で書けば、ローマ字のメールアドレスも照らし合わせます。</p>
+              <div class="ap-cfg-actions">
+                <input type="text" id="siWords" style="flex:1 1 360px" placeholder="中澤,浦林" />
+                <button class="btn ghost" id="siSave">保存</button>
+                <span class="rev-status" id="siStatus"></span>
+              </div>
+
               <h4 class="ap-rot-h">テスト用のアポ</h4>
               <p class="note">下の言葉が予定名に入っていたら、<b>割り振り・メール・通知までは普通どおり</b>行い、そのあと<b>実績の数から外します</b>。動きを確かめたいときに使ってください。<br>
               1行または、（,）区切りで書きます。</p>
@@ -269,6 +352,21 @@
                 <button class="btn ghost" id="twSave">保存</button>
                 <span class="rev-status" id="twStatus"></span>
               </div>
+
+              <h4 class="ap-rot-h">夕方のお知らせ（本人だけに送る）</h4>
+              <p class="note">決めた時刻に、その日のうちに片づけたいものを<b>本人にだけ</b>1対1のチャットで知らせます。<br>
+              知らせる内容：<b>Salesforceの更新がまだ</b>／<b>立ち上げがまだ</b>／<b>確定メールがまだ</b><br>
+              チームのスペースには流しません（できていないことを人前に出さないため）。</p>
+              <div class="ap-cfg-actions">
+                <label class="ks-check"><input type="checkbox" id="evOn" /> 夕方に知らせる</label>
+                <label>時刻 <input type="number" id="evHour" min="0" max="23" style="width:60px" /> 時
+                  <input type="number" id="evMin" min="0" max="59" step="5" style="width:60px" /> 分</label>
+                <button class="btn ghost" id="evSave">保存</button>
+                <button class="btn ghost" id="evTest">いまの中身を見る</button>
+                <span class="rev-status" id="evStatus"></span>
+              </div>
+              <p class="note">1対1で送るには、その人が<b>Google Chatで kinbot に一度話しかけている</b>必要があります（「ヘルプ」と送るだけで大丈夫です）。まだの人には送れないので、その旨をお知らせします。</p>
+              <div class="note" id="evBox"></div>
 
               <h4 class="ap-rot-h">コール進捗のお知らせ</h4>
               <p class="note">平日の <b>指定した時間帯</b>、毎正時にその日の実績をGoogle Chatへ流します。<br>
@@ -281,7 +379,15 @@
                 <button class="btn ghost" id="crTest">いまの内容を見る</button>
                 <span class="rev-status" id="crStatus"></span>
               </div>
-              <p class="note"><b>目標はプロセスシートの「目標」列から自動で読みます</b>（稼働時間目標も読みます）。入力は要りません。<br>
+              <div class="ap-cfg-row">
+                <label>目標の出し方
+                  <select id="crGoalMode" style="width:300px">
+                    <option value="sheet">プロセスシートの「目標」列から読む</option>
+                    <option value="zero">目標は 0 で報告する（実績だけ）</option>
+                  </select>
+                </label>
+              </div>
+              <p class="note">既定は<b>シートから読む</b>です。その日の目標と稼働時間を読み、「あと何コール」まで出します。<br>
               シートが読めないときだけ、下に入れた目標を使います。1行に1人、<code>名前, コール数, アポ数</code>（例：<code>笹原, 60, 3</code>）。</p>
               <textarea id="crGoals" rows="4" style="width:100%" placeholder="（ふだんは空のままで大丈夫です）"></textarea>
               <div class="note" id="crBox"></div>
@@ -335,8 +441,8 @@
         </main>
       </div>
     </div>
-    <script src="product.js"></script>
-    <script src="apo.js"></script>
-    <script src="nav.js"></script>
+    <script src="product.js?v=20260819zb"></script>
+    <script src="apo.js?v=20260819zb"></script>
+    <script src="nav.js?v=20260819zb"></script>
   </body>
 </html>

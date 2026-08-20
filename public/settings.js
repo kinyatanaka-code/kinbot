@@ -148,7 +148,17 @@ async function loadLinks() {
     links = [];
   }
   renderLinks();
+  loadMyMeetingUrl();
 }
+// いまスマートリンクの行き先に選んでいるURL
+let myMeetingUrl = "";
+
+// URLの細かい違い（末尾のスラッシュや大文字小文字）を無視して比べる
+function sameUrl(a, b) {
+  const n = (v) => String(v || "").trim().replace(/\/+$/, "").toLowerCase();
+  return !!n(a) && n(a) === n(b);
+}
+
 function renderLinks() {
   const list = $("linkList");
   if (!links.length) {
@@ -157,16 +167,50 @@ function renderLinks() {
   }
   list.innerHTML = "";
   links.forEach((l, i) => {
+    const isMine = sameUrl(l.url, myMeetingUrl);
     const li = document.createElement("li");
-    li.innerHTML = `<span class="ln-name"></span><span class="ln-url"></span><button class="ln-del" data-i="${i}">削除</button>`;
+    li.innerHTML =
+      `<span class="ln-name"></span>` +
+      `<span class="ln-url"></span>` +
+      `<button class="ln-use${isMine ? " on" : ""}" data-i="${i}">${
+        isMine ? "スマートリンク" : "スマートリンクにする"}</button>` +
+      `<button class="ln-del" data-i="${i}">削除</button>`;
     li.querySelector(".ln-name").textContent = l.name;
     li.querySelector(".ln-url").textContent = l.url;
+
+    // このURLを自分のスマートリンクの行き先にする。
+    // アポで発行するURLは、担当になった人のここへ案内される。
+    li.querySelector(".ln-use").addEventListener("click", async () => {
+      if (isMine) {
+        if (!confirm("スマートリンクの指定を外しますか？\n（外すと、アポのURLから自分の部屋へ案内できなくなります）")) return;
+      }
+      const url = isMine ? "" : l.url;
+      try {
+        const r = await fetch("/api/my-zoom-link", {
+          method: "PUT", headers: { "content-type": "application/json" },
+          body: JSON.stringify({ url }),
+        });
+        if (!r.ok) throw new Error(((await r.json()) || {}).error || "変えられませんでした");
+        myMeetingUrl = url;
+        renderLinks();
+      } catch (e) { kbNotify("変えられませんでした: " + e.message); }
+    });
+
     li.querySelector(".ln-del").addEventListener("click", async () => {
       links.splice(i, 1);
       await saveLinks();
     });
     list.appendChild(li);
   });
+}
+
+// 自分のスマートリンクの行き先を読む
+async function loadMyMeetingUrl() {
+  try {
+    const d = await (await fetch("/api/my-zoom-link")).json();
+    myMeetingUrl = d.url || "";
+  } catch {}
+  renderLinks();
 }
 async function saveLinks() {
   try {
@@ -483,11 +527,12 @@ loadThanks();
       const name = item.dataset.tab;
       document.querySelectorAll(".set-pane").forEach((p) => (p.hidden = p.dataset.pane !== name));
       if (name === "members") { loadMembers(); loadApoOwner(); loadApoInvite(); }
-      if (name === "integrations") { loadChatConfig(); loadChatTargets(); }
+      if (name === "integrations") { loadChatConfig(); }
+      // 送り先の登録も「知らせ」に移したので、こちらで読み込む
+      if (name === "notices") { ntLoad(); loadChatConfig(); loadChatTargets(); }
       if (name === "knowledge") loadKnowledge();
       if (name === "ai") loadThanksPrompt();
       if (name === "integrations") showIntegGrid();
-      if (name === "smartlinks") initSmartLinks();
     });
   });
 })();
@@ -761,7 +806,8 @@ async function loadRecallStatus() {
 
 // ===== メンバー管理 =====
 // ここが唯一の登録元。保存すると closer_rotation / interns / rep_team_mapping へ同期される。
-const ROLE_LABEL = { closer: "クローザー", inside: "インサイド", fallback: "予備" };
+const ROLE_LABEL = { closer: "クローザー", inside: "インサイド", fallback: "予備",
+  kincall: "kincallだけ" };
 // 姓の自動判定（サーバー側と同じ規則）。表示用。
 const THREE_CHAR_SURNAMES = ["佐々木","長谷川","小野寺","久保田","佐久間","五十嵐","小早川","大河原",
   "宇佐美","小笠原","阿久津","長谷部","八木橋","宇都宮","喜多村","小田切","西園寺","早乙女"];
@@ -856,6 +902,7 @@ function mbRender() {
              <label>姓（自動判定：<b>${mbEsc(guessFamilyName(m.name))}</b>）<input class="mb-p" data-k="shortName" value="${mbEsc(p.shortName || "")}" placeholder="自動判定のままでよければ空欄" /></label>
              <label>ローマ字<input class="mb-p" data-k="nameRoman" value="${mbEsc(p.nameRoman || "")}" placeholder="Kinya Tanaka" /></label>
              <label>電話番号<input class="mb-p" data-k="phone" value="${mbEsc(p.phone || "")}" placeholder="080-0000-0000" /></label>
+             <label>メールアドレス<input class="mb-p" data-k="mail" value="${mbEsc(p.mail || "")}" placeholder="空欄ならログインのアドレスが入ります" /></label>
              <label>部署<input class="mb-p" data-k="dept" value="${mbEsc(p.dept || "")}" placeholder="事業統括本部 事業開発部" /></label>
              <label>ユニット・グループ<input class="mb-p" data-k="unit" value="${mbEsc(p.unit || "")}" placeholder="DOCユニット FSグループ" /></label>
            </div>
@@ -1966,6 +2013,8 @@ async function renderSmartLinkTable() {
     });
   });
 }
+// ※スマートリンクのタブは廃止しました（登録リンクの「商談用にする」に統合）。
+// 一覧が必要になったときのために、関数だけ残してあります。
 function initSmartLinks() {
   loadMyZoomLink();
   renderSmartLinkTable();
@@ -2330,9 +2379,16 @@ function initSmartLinks() {
       });
       const d = await r.json();
       if (!r.ok) throw new Error(d.error || "調査に失敗しました");
-      st.innerHTML = `未保存 ${d.total} 件のうち、先頭5件を調べました。`;
-      log.innerHTML = (d.probe || []).map((x) =>
-        `<div class="dm-log-line">${escD(x.date)} ${escD(x.title)}｜Recallの録画：${x.recall ? "あり" : "なし"}｜Muxの録画：${x.mux ? "あり" : "なし"}${x.error ? "｜" + escD(x.error) : ""}</div>`
+      st.innerHTML = `未保存 ${d.total} 件のうち、先頭5件を調べました。` +
+        (d.hint ? `<br><b>${escD(d.hint)}</b>` : "");
+      const head = d.folderOk === false
+        ? `<div class="dm-log-line" style="color:#A33C24">保存先のフォルダを作れません：${escD(d.folderErr || "")}<br>` +
+          `保存する人：${escD(d.uploader || "（不明）")}</div>`
+        : (d.folderOk ? `<div class="dm-log-line">保存先のフォルダは作れます（保存する人：${escD(d.uploader || "")}）</div>` : "");
+      log.innerHTML = head + (d.probe || []).map((x) =>
+        `<div class="dm-log-line">${x.can ? "保存できます" : "保存できません"}｜${escD(x.date)} ${escD(x.title)}` +
+        `｜Recallの録画：${x.recall ? "あり" : "なし"}｜Muxの録画：${x.mux ? "あり" : "なし"}` +
+        `${x.error ? "｜" + escD(x.error) : ""}</div>`
       ).join("");
     } catch (e) {
       st.textContent = "調査に失敗しました：" + e.message;
@@ -2559,6 +2615,7 @@ const CT_KINDS = [
   ["onDoc", "資料の閲覧"],
   ["onLaunch", "SF立ち上げ"],
   ["onDeploy", "kinbotの更新"],
+  ["onNews", "朝のお知らせ"],
 ];
 
 function ctSay(id, t, ms) {
@@ -2731,3 +2788,77 @@ async function loadChatTargets() {
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", go);
   else setTimeout(go, 0);
 })();
+
+
+// ───────────────────────────────────────────────────────────
+// Google Chatへの知らせ（まとめて設定）
+// ───────────────────────────────────────────────────────────
+async function ntLoad() {
+  if (!document.getElementById("ntTimers")) return;
+  try {
+    const d = await (await fetch("/api/notices")).json();
+    if (d.error) throw new Error(d.error);
+
+    // 決まった時刻に流すもの
+    document.getElementById("ntTimers").innerHTML =
+      (d["定期"] || []).map((t) => `
+        <div class="nt-row">
+          <label class="ks-check">
+            <input type="checkbox" class="nt-t" data-k="${mbEsc(t.key)}"${t["入り切り"] ? " checked" : ""} />
+            <b>${mbEsc(t["名前"])}</b>
+          </label>
+          <span class="nt-note">${mbEsc(t["説明"])}</span>
+          ${t["時刻"] ? `<input type="time" class="nt-time" data-k="${mbEsc(t.key)}" value="${mbEsc(t["時刻"])}" />` : ""}
+        </div>`).join("");
+
+  } catch (e) {
+    const b = document.getElementById("ntTimers");
+    if (b) b.innerHTML = `<div class="note">読み込めませんでした：${mbEsc(e.message)}</div>`;
+  }
+}
+
+async function ntSave() {
+  const st = document.getElementById("ntStatus");
+  if (st) st.textContent = "保存しています…";
+  try {
+    const body = {};
+    document.querySelectorAll(".nt-k, .nt-t").forEach((el) => { body[el.dataset.k] = el.checked; });
+    document.querySelectorAll(".nt-time").forEach((el) => { body[el.dataset.k + "Time"] = el.value; });
+    const r = await fetch("/api/notices", {
+      method: "PUT", headers: { "content-type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    if (!r.ok) throw new Error("保存できませんでした");
+    if (st) { st.textContent = "保存しました"; setTimeout(() => (st.textContent = ""), 4000); }
+  } catch (e) { if (st) st.textContent = "失敗：" + e.message; }
+}
+
+document.addEventListener("click", (ev) => {
+  const t = ev.target && ev.target.closest ? ev.target.closest("button") : null;
+  if (!t) return;
+  if (t.id === "ntSave") { ev.preventDefault(); ntSave(); }
+
+});
+
+
+// Salesforceを代わりに更新する人
+if (document.getElementById("sfProxy")) {
+  (async () => {
+    try {
+      const d = await (await fetch("/api/settings")).json();
+      document.getElementById("sfProxy").value = d.sfProxyUser || "";
+    } catch {}
+  })();
+  document.getElementById("sfProxySave").addEventListener("click", async () => {
+    const st = document.getElementById("sfProxySt");
+    st.textContent = "保存しています…";
+    try {
+      await fetch("/api/settings", {
+        method: "PUT", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ sfProxyUser: document.getElementById("sfProxy").value.trim() }),
+      });
+      st.textContent = "保存しました";
+      setTimeout(() => (st.textContent = ""), 4000);
+    } catch (e) { st.textContent = "失敗：" + e.message; }
+  });
+}

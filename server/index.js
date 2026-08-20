@@ -19,13 +19,16 @@ process.on("unhandledRejection", (e) => {
 
 import { pickCloser, commitAssignment, rotationStatus, setNextCloser,
          getRotationConfig, loadTeamContext, balanceRange, nextOrderFor } from "./rotation.js";
-import { sendApoMail, runReminderSweep, getApoMailConfig,
+import { sendApoMail, sendTestApoMail, runReminderSweep, listTomorrowReminders, getApoMailConfig,
          DEFAULT_CONFIRM_SUBJECT, DEFAULT_CONFIRM_BODY,
          DEFAULT_REMINDER_SUBJECT, DEFAULT_REMINDER_BODY, stripRetiredLines } from "./apomail.js";
 import { startKasasagi, getKasasagi, stopKasasagi, feedTranscript, kasasagiInfo,
          buildScript, buildReport, faceState, SLIDE_LABELS } from "./kasasagi.js";
-import { notifyAssigned, notifyMailDraft, notifyChat, notifyAll, chatWebhookUrl, chatInfo } from "./chat.js";
-import { note as devNote, errKey, buildMorningSummary, NOTE_KINDS } from "./devnotes.js";
+import { notifyAssigned, notifyMailDraft, notifyChat, notifyAll, notifyPerson, chatWebhookUrl, chatInfo } from "./chat.js";
+import { note as devNote, errKey, buildMorningSummary, NOTE_KINDS, dropSimilar } from "./devnotes.js";
+import { askBot } from "./askbot.js";
+import { newJobId, getJob, cancelJob, runBulk, tableFromFile, tableFromText, rowsFromTable } from "./bulklinks.js";
+import { buildSlots, stillFree } from "./booking.js";
 import { checkLive, checkProcessSheet, checkLinks, buildProposal, notifyCheck } from "./selfcheck.js";
 import { UI_PAGES, nextPage, reviewPage, splitIdeas } from "./uireview.js";
 import { verifyChatRequest, readEvent, replyBody, parseCommand, helpText, jstDate, jstTime, INTENT_SYSTEM, guessIntent } from "./chatcmd.js";
@@ -97,6 +100,8 @@ import {
   listDevNotes,
   updateDevNote,
   deleteDevNote,
+  dismissDevNote,
+  listDismissed,
   addDevNote,
   futureApos,
   excludeApo,
@@ -116,6 +121,49 @@ import {
   myAssignedApos,
   aposInRange,
   aposTakenInRange,
+  aposMailPending,
+  createJumpLink,
+  getJumpLink,
+  listJumpLinks,
+  recordJumpView,
+  listJumpViewers,
+  createBookPage,
+  getBookPage,
+  listBookPages,
+  recordBookView,
+  markBooked,
+  listBookViewers,
+  createCallList,
+  listCallTargets,
+  assignCallTargets,
+  deleteCallTargets,
+  countCallTargets,
+  deleteCallList,
+  callListFacets,
+  callAssignCounts,
+  clearCallAssign,
+  getCallTarget,
+  setCallTargetStatus,
+  updateCallTargetFields,
+  addCallTargets,
+  listCallLists,
+  nextCallTarget,
+  callHistory,
+  recordCall,
+  markCallSynced,
+  pendingCallLogs,
+  callStats,
+  setNoReminder,
+  fixApoForReminder,
+  listApoMails,
+  markBounced,
+  logDeploy,
+  deploysSince,
+  recordSfUpdate,
+  sfUpdatedMap,
+  listWeekly,
+  saveWeekly,
+  weeklyFor,
   displayNameOf,
   assignCounts,
   apoCountsBySetter,
@@ -142,6 +190,10 @@ import {
   pendingAutolaunch,
   addDocFile,
   listDocFiles,
+  setDocShared,
+  getOrCreateSharedLink,
+  setViewerInfo,
+  listSharedViewers,
   getDocBytes,
   setDocActive,
   renameDocFile,
@@ -298,6 +350,8 @@ import {
   driveGetContent,
   gmailReady,
   gmailSearchThreads,
+  gmailSentToday,
+  gmailFindBounces,
   gmailGetThread,
   gmailSend,
   gmailArchiveThread,
@@ -312,11 +366,11 @@ import {
   writeViaAppsScript, tokenScopes, getCalendarEvent } from "./google.js";
 import { startScheduler } from "./scheduler.js";
 import { muxConfigured, startVodUpload, waitVodPlayback, muxStorageSummary, listAssets, deleteAsset, findAssetByPlaybackId, enableMp4, mp4Url, readyMp4Name, getAsset } from "./mux.js";
-import { liveConfigured, createLiveStream, playbackUrl as livePlaybackUrl, liveInfo, liveStatus, relayMap, relayDestFor } from "./live.js";
+import { liveConfigured, createLiveStream, disableLiveStream, playbackUrl as livePlaybackUrl, liveInfo, liveStatus, cfCustomerCodeCheck, cleanupOldLiveInputs, relayMap, relayDestFor } from "./live.js";
 import { notionConfigured, notionStatus, createMeetingPage, createReportPage } from "./notion.js";
 import { pdfToText, urlToText, officeToText } from "./ingest.js";
 import { indexKnowledge, embeddingsAvailable, retrieve } from "./retrieval.js";
-import { readDocument, readerAvailable } from "./ai_read.js";
+import { readDocument, readerAvailable, readWhiteboard } from "./ai_read.js";
 import { mountMcpServer } from "./mcp.js";
 import { mountGptActions } from "./gpt_actions.js";
 import { mountOauthServer, oauthTokenUser } from "./oauth.js";
@@ -358,6 +412,8 @@ import {
   describeOpportunity,
   describeOpportunityLayout,
   describeTask,
+  leadActivities,
+  taskResultField,
   createTask,
   updateTask,
   deleteTask,
@@ -434,12 +490,40 @@ if (!PUBLIC_URL) {
 const app = express();
 
 // --- 個人アカウント認証（Cookieセッション） ---
+// その人が「kincallだけ」の役割かどうか
+const _kcOnly = new Map();
+async function isKincallOnly(email) {
+  const k = String(email || "").toLowerCase();
+  if (!k) return false;
+  const hit = _kcOnly.get(k);
+  if (hit && Date.now() - hit.at < 30 * 1000) return hit.v;
+  let v = false;
+  try {
+    const list = await listMembers();
+    const m = (list || []).find((x) => String(x.email || "").toLowerCase() === k);
+    v = !!(m && Array.isArray(m.roles) && m.roles.includes("kincall"));
+  } catch {}
+  _kcOnly.set(k, { at: Date.now(), v });
+  return v;
+}
+
+// kincallの人が使ってよい道
+function isKincallPath(p) {
+  return p === "/kincall" || p === "/calls.html" || p === "/calls.js" ||
+    p === "/kincall.svg" || p === "/style.css" || p === "/nav.js" || p === "/icon.svg" ||
+    p === "/api/me" || p === "/api/logout" ||
+    p.startsWith("/api/calls/") || p === "/api/calls" ||
+    /\.(css|svg|png|ico|webmanifest)$/.test(p);
+}
+
 const OPEN_PATHS = new Set([
   "/api/recall/webhook", "/api/zoom/webhook", "/api/login", "/api/register", "/api/auth-info",
   // 会議に映すページとその中身（Recallのブラウザから認証なしで読む）
   "/api/kasasagi/face", "/kasasagi-face.html",
   // 送った資料のビューアー（受け取った人が開くので認証なし）
   "/doc.html",
+  // 日程調整ページ（お客様が開くので認証なし）
+  "/book.html",
   // Apps Scriptに貼るコード（画面から読むだけ）
   "/kinbot-sheet-writer.gs",
   "/.well-known/oauth-authorization-server", "/.well-known/oauth-protected-resource",
@@ -452,6 +536,9 @@ const OPEN_PATHS = new Set([
   "/api/railway/deploy-hook",
   // Google Chatからの呼びかけ（Googleが直接叩く。証明はJWTで確かめる）
   "/api/chat/command",
+  // ライブ中継サーバーが「配信の宛先」を聞きに来る窓口。
+  // 中継サーバーはログインできないので、ここは合言葉（RELAY_SECRET）だけで通す。
+  "/api/live/relay-dest",
 ]);
 if (!authEnabled()) {
   console.warn("[警告] アカウント未設定。誰でも操作できます。公開時は DATABASE_URL を設定し登録制にしてください。");
@@ -468,18 +555,31 @@ const API_TOKENS = (() => {
     const s = part.trim();
     if (!s) continue;
     const i = s.indexOf(":");
-    const token = (i === -1 ? s : s.slice(0, i)).trim();
-    const owner = (i === -1 ? "" : s.slice(i + 1).trim()) || "admin";
+    // 値の前後に引用符が付いていても読めるようにする
+    const strip = (v) => String(v || "").trim().replace(/^["'`]+|["'`]+$/g, "").trim();
+    const token = strip(i === -1 ? s : s.slice(0, i));
+    const owner = strip(i === -1 ? "" : s.slice(i + 1)) || "admin";
     if (token) map.set(token, owner);
   }
   return map;
 })();
+// トークンの前後に紛れ込みがちなものを落とす。
+//   ・引用符（.env に KINBOT_TOKEN="kbt_..." と書くと値に " が入ることがある）
+//   ・空白や改行（コピーのときに付いてしまう）
+function tidyToken(v) {
+  return String(v || "").trim().replace(/^["'`]+|["'`]+$/g, "").trim();
+}
+
 function bearerToken(req) {
   const h = req.headers.authorization || req.headers.Authorization || "";
-  const m = /^Bearer\s+(.+)$/i.exec(String(h).trim());
-  if (m) return m[1].trim();
+  const raw = String(h).trim();
+  // Bearer を付け忘れても通す（トークンだけ送るツールがあるため）
+  const m = /^(?:Bearer|Token)\s+(.+)$/i.exec(raw);
+  if (m) return tidyToken(m[1]);
+  // ヘッダに何か入っていて、それが kbt_ で始まるならトークンとして扱う
+  if (/^["'`]*kbt_/.test(raw)) return tidyToken(raw);
   // ヘッダを付けにくいツール向けに ?token= でも受ける
-  if (req.query && req.query.token) return String(req.query.token).trim();
+  if (req.query && req.query.token) return tidyToken(req.query.token);
   return "";
 }
 function apiTokenUser(req) {
@@ -501,6 +601,11 @@ app.use(async (req, res, next) => {
     return next();
   }
   if (OPEN_PATHS.has(req.path) || req.path.startsWith("/j/")) return next();
+  // お客様が開くページ（日程調整）は、ログインなしで通す
+  if (/^\/b\/[A-Za-z0-9_-]+$/.test(req.path)) return next();
+  // 転送URL（お客様が踏むので認証なし）
+  if (/^\/g\/[A-Za-z0-9_-]+$/.test(req.path)) return next();
+  if (/^\/api\/booking\/[A-Za-z0-9_-]+(\/book)?$/.test(req.path)) return next();
   // 送った資料まわりは、受け取った相手が認証なしで開く
   //   /d/xxx  … 資料のビューアー
   //   /px/xxx … 開封計測の画像
@@ -526,7 +631,8 @@ app.use(async (req, res, next) => {
       return next();
     }
     // OAuthトークン形式なのに無効 → MCP等のAPIパスなら401を返し、それ以外はログイン画面へ
-    if (req.path.startsWith("/api/") || req.path === "/mcp") {
+
+  if (req.path.startsWith("/api/") || req.path === "/mcp") {
       return res.status(401).json({ error: "認証に失敗しました（トークンが無効です）" });
     }
   }
@@ -543,10 +649,44 @@ app.use(async (req, res, next) => {
     req.isAdmin = u.admin;
     // 代理ログイン中なら、元のアカウントを記録（監査ログや画面表示に使う）
     req.impersonatorFrom = getImpersonator(req);
+    // 「kincallだけ」の人かどうか（インターン生など）
+    req.kincallOnly = !u.admin && (await isKincallOnly(u.username).catch(() => false));
+    if (req.kincallOnly && !isKincallPath(req.path)) {
+      if (req.path.startsWith("/api/")) return res.status(403).json({ error: "この操作はできません" });
+      return res.redirect("/kincall");
+    }
     return next();
   }
-  if (req.path.startsWith("/api/") || req.path === "/mcp") return res.status(401).json({ error: "ログインが必要です" });
+  if (req.path.startsWith("/api/") || req.path === "/mcp") {
+    // なぜ通らなかったのかを添える（トークンそのものは出さない）。
+    // 「ログインが必要です」だけだと、原因が分からず切り分けができないため。
+    const raw = String(req.headers.authorization || "").trim();
+    const got = bearerToken(req);
+    let なぜ = "ログインしていません（Cookieもトークンもありません）";
+    if (raw || (req.query && req.query.token)) {
+      if (!got) {
+        なぜ = raw
+          ? "Authorizationヘッダの形が違います（Bearer のあとに半角スペース1つ＋トークン）"
+          : "トークンを読み取れませんでした";
+      } else if (!API_TOKENS.size) {
+        なぜ = "kinbot側にトークンが1つも登録されていません（RailwayのAPI_TOKENS）";
+      } else {
+        なぜ = `トークンが一致しません（送られた長さ ${got.length}文字／` +
+          `kinbot側に登録されているのは ${[...API_TOKENS.keys()].map((k) => k.length + "文字").join("・")}）`;
+      }
+    }
+    return res.status(401).json({ error: "ログインが必要です", なぜ });
+  }
   return res.redirect("/login.html");
+});
+
+// 画面のファイル（html/js/css）は、毎回新しいかどうかを確かめてもらう。
+// これをしないと、直したのに古い画面が出たままになる。
+app.use((req, res, next) => {
+  if (/\.(js|css|html)$/i.test(req.path) || req.path === "/") {
+    res.set("Cache-Control", "no-cache, must-revalidate");
+  }
+  next();
 });
 
 app.use(express.static(path.join(__dirname, "..", "public")));
@@ -619,6 +759,8 @@ app.get("/api/me", async (req, res) => {
     username: req.user || null,
     name,
     admin: !!req.isAdmin,
+    // 「kincallだけ」の人（インターン生など）
+    kincallOnly: !!req.kincallOnly,
     // 代理ログイン関連
     impersonating: !!impersonator,
     impersonator_email: impersonator,
@@ -1406,8 +1548,12 @@ async function driveFolderForMeeting(owner, m) {
 async function archiveRecordingSafe(botId) {
   if (process.env.DRIVE_AUTO_ARCHIVE === "0") return;
   try {
-    // 録画が用意できるまで少し待つ（Recall側の書き出し待ち）
-    for (let i = 0; i < 10; i++) {
+    // 録画が用意できるまで待つ。
+    // 商談が終わってすぐは、Recall側の書き出しが終わっていないことがある。
+    // 最初は数秒おきに見に行き、だんだん間隔を延ばす（できたらすぐ保存できるように）。
+    const waits = [0, 5, 10, 20, 30, 60, 60, 120, 120, 180, 300, 300];
+    for (let i = 0; i < waits.length; i++) {
+      if (waits[i]) await new Promise((r) => setTimeout(r, waits[i] * 1000));
       const m = await getMeeting(botId);
       if (!m) return;
       if (m.drive_file_id) return;
@@ -1444,8 +1590,8 @@ async function archiveRecordingSafe(botId) {
         }
         return;
       }
-      await new Promise((r) => setTimeout(r, 60000)); // 1分待って再挑戦（最大10分）
     }
+    console.warn(`[ドライブ保存] ${botId} は録画がまだ用意できません（あとで自動的に拾い直します）`);
   } catch (e) {
     const msg = String(e.message || "");
     if (/insufficient|scope|403/i.test(msg)) {
@@ -1565,10 +1711,10 @@ setInterval(async () => {
     const jst = new Date(Date.now() + 9 * 3600 * 1000);
     const from = new Date(jst.getTime() - days * 86400000).toISOString().slice(0, 10);
     const rows = await listMeetings({ isAdmin: true, from, limit: 500 });
-    const todo = rows.filter((m) => !m.drive_file_id).slice(0, 3); // 1回に3件まで
+    const todo = rows.filter((m) => !m.drive_file_id).slice(0, 5);
     for (const t of todo) {
-      // 直近5分以内の商談は、録画の書き出し待ちの可能性があるので飛ばす
-      if (Date.now() - new Date(t.created_at).getTime() < 5 * 60 * 1000) continue;
+      // 始まったばかりの商談（まだ録画中）は飛ばす
+      if (Date.now() - new Date(t.created_at).getTime() < 3 * 60 * 1000) continue;
       await archiveRecordingSafe(t.bot_id);
     }
   } catch (e) {
@@ -1576,7 +1722,7 @@ setInterval(async () => {
   } finally {
     _sweeping = false;
   }
-}, 30 * 60 * 1000); // 30分ごと
+}, 5 * 60 * 1000); // 5分ごと（保存もれをすぐ拾うため）
 
 // 長時間つけっぱなしのBotを見張って、自動で退出させる（課金の暴走を防ぐ）
 const BOT_MAX_HOURS = Math.max(1, Math.min(12, Number(process.env.BOT_MAX_HOURS || 4)));
@@ -1860,15 +2006,62 @@ app.get("/api/live/relay-check", async (req, res) => {
 
 // 中継サーバーが「この配信をどこへ送るか」を尋ねてくる窓口。
 // 合図は「live/kbxxxx」の形で来ることがあるので、最後の部分だけを見る。
+// 中継サーバーが宛先を聞きに来た記録（届いているかの確認用）。
+// 合言葉が違うときも記録する（気づけるように）。
+const relayAsks = [];
+
+// いまkinbotが持っている合言葉の「特徴」を返す。
+// 中身は出さず、長さと先頭・末尾だけ。中継サーバー側と見比べるために使う。
+app.get("/api/live/relay-secret", (req, res) => {
+  const tidy = (v) => String(v || "").trim().replace(/^["']|["']$/g, "");
+  const sec = tidy(process.env.RELAY_SECRET);
+  res.json({
+    合言葉: sec
+      ? { 長さ: sec.length, 先頭: sec.slice(0, 3), 末尾: sec.slice(-3) }
+      : "設定されていません",
+    中継サーバー: process.env.LIVE_RELAY_RTMP || "（未設定）",
+    kinbotが起動した時刻: START_TIME,
+    hint: "この『長さ・先頭・末尾』が、中継サーバー側の値と同じか見てください。" +
+      "違う場合は、環境変数を保存したあと、そのサービスを再デプロイしてください。" +
+      "（環境変数は、再デプロイして初めて反映されます）",
+  });
+});
+
+app.get("/api/live/relay-log", (req, res) => {
+  res.json({
+    items: relayAsks,
+    hint: relayAsks.length
+      ? "中継サーバーからの問い合わせが届いています。ここに記録があれば、Recall→中継までは通っています。"
+      : "中継サーバーからの問い合わせがまだありません。Recallから中継サーバーへ映像が届いていない可能性があります。",
+  });
+});
+
 app.get("/api/live/relay-dest", async (req, res) => {
-  const secret = process.env.RELAY_SECRET || "";
-  if (!secret || req.get("X-Relay-Secret") !== secret) {
-    console.warn("[live] 中継サーバーの合言葉が合いません");
+  // 合言葉は、前後の空白や引用符が混ざっても通るようにそろえて比べる。
+  // Railwayの環境変数に貼るとき、うっかり付いてしまうことが多いため。
+  const tidy = (v) => String(v || "").trim().replace(/^["']|["']$/g, "");
+  const secret = tidy(process.env.RELAY_SECRET);
+  const got = tidy(req.get("X-Relay-Secret"));
+  if (!secret || got !== secret) {
+    const why = !secret ? "kinbot側に RELAY_SECRET がありません"
+      : !got ? "中継サーバーが合言葉を送っていません"
+      // 中身は出さず、長さと先頭・末尾だけで見分けられるようにする
+      : `合言葉が一致しません（kinbot側 ${secret.length}文字「${secret.slice(0, 2)}…${secret.slice(-2)}」／` +
+        `中継側 ${got.length}文字「${got.slice(0, 2)}…${got.slice(-2)}」）`;
+    console.warn(`[live] 宛先を渡せません：${why}`);
+    relayAsks.unshift({ at: new Date().toISOString(), token: String(req.query.token || ""), found: false, why });
+    if (relayAsks.length > 20) relayAsks.length = 20;
+    devNote({
+      key: errKey("中継の合言葉", why), kind: "error",
+      title: `ライブ中継に宛先を渡せません：${why}`, source: "ライブ配信",
+    }).catch(() => {});
     return res.status(403).type("text/plain").send("");
   }
   const raw = String(req.query.token || "");
   const token = raw.split("/").filter(Boolean).pop()?.replace(/[^a-zA-Z0-9]/g, "") || "";
   const dest = await relayDestFor(token).catch(() => "");
+  relayAsks.unshift({ at: new Date().toISOString(), token: raw, found: !!dest });
+  if (relayAsks.length > 20) relayAsks.length = 20;
   if (!dest) {
     console.warn(`[live] 宛先が見つかりません（合図：${raw}）。配信枠が作られる前か、古い配信の可能性があります。`);
     return res.status(404).type("text/plain").send("");
@@ -2038,21 +2231,54 @@ app.post("/api/drive/migrate", async (req, res) => {
       return res.json(out2);
     }
 
-    // 調査モード：保存はせず、なぜ保存できないのかだけを返す
+    // 調査モード：保存はせず、なぜ保存できないのかだけを返す。
+    // 録画の有無だけでなく、「保存先フォルダを作れるか」まで見る。
+    // 保存できない原因は、ほとんどがGoogleの書き込み権限だから。
     if (b.probe) {
       const probe = [];
+      let folderOk = null, folderErr = "";
+      // フォルダは1回だけ確かめる（毎回作りに行かない）
+      try {
+        const one = (await getMeeting(targets[offset]?.bot_id)) || targets[offset];
+        if (one && uploader) {
+          await driveFolderForMeeting(uploader, one);
+          folderOk = true;
+        } else if (!uploader) {
+          folderOk = false; folderErr = "保存する人が分かりません（ログインし直してください）";
+        }
+      } catch (e) {
+        folderOk = false;
+        const msg = String(e.message || "");
+        folderErr = /insufficient|scope|403/i.test(msg)
+          ? "Googleの書き込み権限が足りません（設定→外部連携→Google連携をやり直してください）"
+          : msg.slice(0, 160);
+      }
+
       for (const t of targets.slice(offset, offset + Math.max(5, max))) {
         const m = (await getMeeting(t.bot_id)) || t;
-        const row = { title: m.title || m.bot_id, date: String(m.created_at).slice(0, 10), recall: false, mux: !!m.mux_playback_id, error: "" };
+        const row = {
+          title: m.title || m.bot_id, date: String(m.created_at).slice(0, 10),
+          recall: false, mux: !!m.mux_playback_id, error: "", can: false,
+        };
         try {
           const u = await getRecordingUrl(m.bot_id);
           row.recall = !!u;
         } catch (e) {
           row.error = String(e.message || "").slice(0, 140);
         }
+        // この商談は保存できる見込みがあるか
+        row.can = !!(folderOk && (row.recall || row.mux));
         probe.push(row);
       }
-      return res.json({ probe, total: targets.length, offset });
+      return res.json({
+        probe, total: targets.length, offset,
+        uploader, folderOk, folderErr,
+        hint: folderOk === false
+          ? folderErr
+          : (probe.some((x) => x.can)
+              ? "保存できる見込みです。「移行を始める」を押してください。"
+              : "録画そのものが見つかりません（Recallの保存期限切れ・Muxの書き出し待ちなど）"),
+      });
     }
     for (const t of part) {
       const m = (await getMeeting(t.bot_id)) || t;
@@ -2121,6 +2347,14 @@ app.post("/api/drive/migrate", async (req, res) => {
 
 // 進行中の商談のライブ配信が、実際に届いているか確認する
 app.get("/api/live/status", async (req, res) => {
+  // 商談IDを書かなかったときは、いちばん新しい「配信枠のある商談」を見る
+  if (!String(req.query.bot || "").trim()) {
+    try {
+      const rows = await listMeetings({ isAdmin: true, limit: 20, light: true });
+      const hit = (rows || []).find((m) => m.mux_playback_id);
+      if (hit) req.query.bot = hit.bot_id;
+    } catch {}
+  }
   try {
     res.set("Cache-Control", "no-store");
     const botId = String(req.query.bot || "").trim();
@@ -2157,15 +2391,50 @@ app.get("/api/live/status", async (req, res) => {
         });
       } catch { relayCheck = { ok: false, why: "LIVE_RELAY_RTMP の形式が正しくありません" }; }
     }
+    // 再生URLに実際につないでみて、見られる状態かを確かめる。
+    // 顧客コード（CF_STREAM_CUSTOMER_CODE）が違うと、配信は届いていても再生できない。
+    let playCheck = null;
+    const playUrl = liveId ? livePlaybackUrl(liveId) : null;
+    if (playUrl) {
+      try {
+        const r = await fetch(playUrl, { method: "GET", redirect: "follow" });
+        const body = r.ok ? (await r.text()).slice(0, 200) : "";
+        playCheck = {
+          url: playUrl.replace(/\/\/customer-[^.]+\./, "//customer-***."),
+          status: r.status,
+          ok: r.ok && /#EXTM3U/.test(body),
+          why: r.ok
+            ? (/#EXTM3U/.test(body) ? "再生できます" : "中身が動画の一覧ではありません")
+            : r.status === 404
+              ? "再生URLが見つかりません（顧客コードが違うか、まだ配信が始まっていません）"
+              : `再生URLが ${r.status} を返しました`,
+        };
+      } catch (e) {
+        playCheck = { ok: false, why: `再生URLにつながりません：${e.message}` };
+      }
+    }
+
+    // 再生できないときは、顧客コードが合っているかも調べる
+    let codeCheck = null;
+    if (liveId && playCheck && !playCheck.ok) {
+      codeCheck = await cfCustomerCodeCheck(liveId).catch(() => null);
+    }
+
     res.json({
       ...info,
       liveStreamId: liveId || null,
+      playCheck,
+      codeCheck,
       ...st,
       relay: raw ? "中継あり" : "中継なし（直接）",
       sentTo: mask(sentTo) || "（この商談には配信先が設定されていません）",
       sentToIsRelay: !!(raw && sentTo && sentTo.startsWith(raw)),
       relayCheck,
-      hint: st.why ? st.why
+      hint: codeCheck && codeCheck.合っているか === false ? codeCheck.直し方
+        : playCheck && playCheck.ok ? "映像が届いていて、再生もできます。"
+        : playCheck && !playCheck.ok && st.state === "connected"
+          ? `映像は届いていますが、再生できません：${playCheck.why}`
+        : st.why ? st.why
         : st.state === "connected" ? "映像が届いています。"
         : st.state === "disconnected" || st.state === "idle"
           ? "配信がまだ届いていません。ボットが入室してから30秒ほどかかります。数分たっても変わらない場合は、Recallから中継サーバーへ届いていない可能性があります（中継のログを確認してください）。"
@@ -2174,6 +2443,119 @@ app.get("/api/live/status", async (req, res) => {
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
+});
+
+// 配信枠を実際に1つ作ってみて、本当に使えるかを確かめる。
+// 設定が合っていても鍵の権限が足りないことがあるので、本番の商談を待たずに試せるようにする。
+// Cloudflareに残っている古い配信枠と録画を、いま片づける
+app.post("/api/live/cleanup", async (req, res) => {
+  try {
+    const hours = Math.max(0, Math.min(720, Number(req.body?.hours ?? 6)));
+    const r = await cleanupOldLiveInputs(hours);
+    res.json({ ok: true, ...r });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+app.get("/api/live/cleanup", async (req, res) => {
+  try {
+    const r = await cleanupOldLiveInputs(Math.max(0, Math.min(720, Number(req.query.hours ?? 6))));
+    res.json({ ok: true, ...r });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// 顧客コード（customer-xxxx）が合っているかだけを確かめる。
+// 商談を指定しなくてよいので、いつでも開ける。
+// 中で配信枠を1つ作って調べ、すぐ片づける。
+app.get("/api/live/code-check", async (req, res) => {
+  try {
+    if (!liveConfigured()) {
+      return res.json({ ok: false, why: "配信の設定がありません（CF_ACCOUNT_ID / CF_STREAM_TOKEN）" });
+    }
+    const st = await createLiveStream();
+    const check = await cfCustomerCodeCheck(st.liveStreamId).catch(() => null);
+    // 再生URLにもつないでみる（配信していないので中身は空でよい。404かどうかを見る）
+    let play = null;
+    const url = livePlaybackUrl(st.liveStreamId);
+    if (url) {
+      try {
+        const r = await fetch(url);
+        play = { status: r.status, why: r.status === 404
+          ? "再生URLが見つかりません（顧客コードが違う可能性が高いです）"
+          : "再生URLは見つかりました（配信中なら映ります）" };
+      } catch (e) { play = { why: `つながりません：${e.message}` }; }
+    }
+    try { await disableLiveStream(st.liveStreamId); } catch {}
+    res.json({
+      ok: !check || check.合っているか !== false,
+      顧客コード: check,
+      再生URL: play,
+      hint: check && check.合っているか === false
+        ? check.直し方
+        : "顧客コードは合っています。",
+    });
+  } catch (e) { res.json({ ok: false, why: e.message }); }
+});
+
+// ブラウザのURL欄からも試せるように、GETでも同じ動きにする
+app.get("/api/live/test", async (req, res) => liveTest(req, res));
+app.post("/api/live/test", async (req, res) => liveTest(req, res));
+
+async function liveTest(req, res) {
+  try {
+    if (!liveConfigured()) {
+      return res.json({ ok: false, reason: "配信の設定がありません（CF_ACCOUNT_ID / CF_STREAM_TOKEN）" });
+    }
+    const t0 = Date.now();
+    const st = await createLiveStream();
+    const ms = Date.now() - t0;
+    if (!st || !st.playbackId) {
+      return res.json({ ok: false, reason: "配信枠は作れましたが、再生用のIDが返ってきませんでした" });
+    }
+    // 試したぶんは片づける（残すと使われないまま増えるため）
+    let cleaned = false;
+    try { await disableLiveStream(st.liveStreamId); cleaned = true; } catch {}
+    console.log(`[live] 試しに配信枠を作りました（${ms}ms・片づけ${cleaned ? "済" : "できず"}）`);
+    res.json({
+      ok: true, ms, cleaned,
+      // 送り先は鍵が含まれるので、先頭だけ見せる
+      rtmp: String(st.rtmpUrl || "").slice(0, 40) + "…",
+      playbackId: st.playbackId,
+      note: "配信枠を作れました。次の録音からライブ映像が出ます。",
+    });
+  } catch (e) {
+    res.json({ ok: false, reason: e.message });
+  }
+}
+
+// Recall側が配信をどう扱っているかを見る（届かないときの切り分け）
+app.get("/api/live/bot-check", async (req, res) => {
+  try {
+    const botId = String(req.query.bot || "").trim();
+    if (!botId) return res.status(400).json({ error: "商談のID（bot）を指定してください" });
+    const bot = await getBot(botId);
+
+    // 配信先（RTMP）の設定が、ボットに入っているかを見る
+    const eps = bot?.recording_config?.realtime_endpoints || [];
+    const rtmp = eps.find((e) => e.type === "rtmp");
+    const flv = !!bot?.recording_config?.video_mixed_flv;
+
+    // 状態の移り変わり（入室できたか・録音できているか）
+    const changes = (bot.status_changes || []).map((c) => ({
+      code: c.code, at: c.created_at, message: c.message || c.sub_code || "",
+    }));
+
+    res.json({
+      ok: true,
+      配信先の設定: rtmp
+        ? String(rtmp.url || "").replace(/[^/]+$/, "***")
+        : "（入っていません＝この商談は配信されません）",
+      映像の書き出し: flv ? "あり" : "なし",
+      いまの状態: bot.status_changes?.slice(-1)[0]?.code || "不明",
+      状態の記録: changes.slice(-8),
+      hint: !rtmp
+        ? "配信先が入っていません。録音を開始したときに配信枠が作れていなかった可能性があります。"
+        : "配信先は入っています。ここまで来て映らない場合は、中継サーバーのログ（[relay] で始まる行）をご確認ください。",
+    });
+  } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 // ライブ配信が映らないときに、どこで止まっているかを1画面で確かめる
@@ -2241,8 +2623,11 @@ app.get("/api/live/diagnose", async (req, res) => {
     res.json({
       ok: steps.every((x) => x.ok),
       steps,
-      hint: "上から順に見て、×が付いたところが原因です。すべて○なのに映らない場合は、" +
-            "Recallから中継サーバーへ届いていない可能性があるので、中継サーバーのログをご確認ください。",
+      hint: steps.every((x) => x.ok)
+        ? "設定はそろっています。/api/live/test を実行すると、実際に配信枠を作れるか確かめられます。" +
+          "そのうえで録音を開始し直すと、ライブ映像が出ます（配信の送り先は入室時にしか決められないため、" +
+          "設定を直す前に始めた商談は配信できません）。"
+        : "×が付いたところが原因です。直したあと、録音を開始し直してください。",
     });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
@@ -2834,21 +3219,124 @@ app.post("/api/sf-autolaunch/run-day", async (req, res) => {
 // ここから4つは、受け取った相手が開くため認証なしで動く。
 
 // 資料のビューアー
+// kincall（架電ツール）の入り口。
+// インターン生はここだけを使うので、短いURLで開けるようにする。
+app.get("/kincall", (req, res) => {
+  res.sendFile(path.join(__dirname, "..", "public", "calls.html"));
+});
+
+// 日程調整ページ（お客様が開くURL）
+app.get("/b/:slug", (req, res) => {
+  res.sendFile(path.join(__dirname, "..", "public", "book.html"));
+});
+
 app.get("/d/:slug", async (req, res) => {
   const link = await getDocLink(String(req.params.slug || ""));
   if (!link) return res.status(404).send("この資料は見つかりませんでした。送り主にご確認ください。");
   res.sendFile("doc.html", { root: path.join(__dirname, "..", "public") });
 });
 
+// メルマガの差し込みタグから、開いた人の情報を取り出す。
+//
+// 配信システムによって書き方が違うので、よくある形をまとめて受ける。
+//   ?m=  ?email=  ?e=  … メールアドレス
+//   ?n=  ?name=        … 名前
+// 差し込みが働かなかったとき（{{email}} のまま届いたとき）は、無かったことにする。
+function viewerFromQuery(q) {
+  const pick = (...keys) => {
+    for (const k of keys) {
+      const v = String((q && q[k]) || "").trim();
+      if (!v) continue;
+      // 置き換えられていない差し込みタグは使わない
+      if (/[{}%\[\]|*]/.test(v)) continue;
+      return v;
+    }
+    return "";
+  };
+  const email = pick("m", "email", "e", "mail", "addr");
+  const name = pick("n", "name", "company", "co");
+  return {
+    email: /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) ? email : "",
+    name: name.slice(0, 80),
+  };
+}
+
 // ビューアーが最初に呼ぶ。閲覧を1件つくり、資料の情報を返す。
 app.post("/api/doc/:slug/open", async (req, res) => {
   try {
     const r = await openDocView(String(req.params.slug || ""), req);
     if (r.error) return res.status(404).json({ error: r.error });
+
+    // 共通URL（メルマガ用）のときは、URLの後ろから開いた人を受け取る
+    let viewer = null;
+    if (r.link.shared_link && r.view) {
+      const q = { ...(req.query || {}), ...(req.body || {}) };
+      const v = viewerFromQuery(q);
+      if (v.email || v.name) {
+        await setViewerInfo(r.view.id, v).catch(() => {});
+        viewer = v;
+      }
+    }
+
     res.json({
       ok: true, viewId: r.view ? r.view.id : null,
       name: fixMojibake(r.link.doc_name), filename: fixMojibake(r.link.filename || ""),
-      to: [r.link.company, r.link.contact].filter(Boolean).join(" "),
+      to: r.link.shared_link
+        ? (viewer && (viewer.name || viewer.email)) || ""
+        : [r.link.company, r.link.contact].filter(Boolean).join(" "),
+      共通URL: !!r.link.shared_link,
+    });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// 共通URLを、誰が開いたかの一覧
+app.get("/api/doc-links/:id/viewers", async (req, res) => {
+  try {
+    const rows = await listSharedViewers(parseInt(req.params.id, 10));
+    res.json({
+      ok: true,
+      人数: rows.length,
+      items: rows.map((r) => ({
+        相手: r["相手"],
+        名前: r["名前"] || "",
+        回数: Number(r["回数"] || 0),
+        秒: Number(r["秒"] || 0),
+        到達: Number(r["到達"] || 0),
+        最後: r["最後"],
+      })),
+    });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// メルマガ用の共通URLを1本用意する（すでにあれば使い回す）
+app.post("/api/doc-links/shared", async (req, res) => {
+  try {
+    const docId = parseInt(req.body?.docId, 10);
+    if (!docId) return res.status(400).json({ error: "資料を選んでください" });
+    const link = await getOrCreateSharedLink(docId, req.user);
+    if (!link) {
+      // なぜ作れなかったのかを添える（黙って失敗すると原因が追えないため）
+      return res.status(500).json({
+        error: "共通URLを作れませんでした。データベースにつながっていないか、" +
+               "資料が見つかりません（サーバーのログをご確認ください）",
+      });
+    }
+    const base = String(PUBLIC_URL || "").replace(/\/+$/, "");
+    res.json({
+      ok: true,
+      slug: link.slug,
+      linkId: link.id,
+      url: `${base}/d/${link.slug}`,
+      // 配信システムごとの貼り方（そのままコピーして使える形）
+      // Pardot（Salesforce Account Engagement）を使っているので、先頭に置く。
+      // 会社名も一緒に送ると、一覧が読みやすくなる。
+      貼り方: {
+        "Pardot（おすすめ）": `${base}/d/${link.slug}?m=%%email%%&n=%%account_name%%`,
+        "Pardot（アドレスだけ）": `${base}/d/${link.slug}?m=%%email%%`,
+        "HubSpot": `${base}/d/${link.slug}?m={{ contact.email }}`,
+        "Mailchimp": `${base}/d/${link.slug}?m=*|EMAIL|*`,
+        "差し込みを使わない場合（誰が見たかは分かりません）": `${base}/d/${link.slug}`,
+      },
     });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
@@ -2902,14 +3390,39 @@ app.get("/c/:slug", async (req, res) => {
 
 // ===== ここから下は社内向け（認証あり） =====
 
-// 資料の一覧
+// 資料の一覧。
+// 既定は「自分が入れたもの＋チームに共有されているもの」。
+// ?all=1 を付けると全部（誰の資料がいくつあるか見たいとき）。
 app.get("/api/docs", async (req, res) => {
   try {
+    const all = String(req.query.all || "") === "1";
+    const rows = await listDocFiles({ owner: req.user, all });
     // すでに文字化けして保存されているものも、表示のときに直す
-    const docs = (await listDocFiles()).map((d) => ({
-      ...d, name: fixMojibake(d.name), filename: fixMojibake(d.filename),
+    const docs = rows.map((d) => ({
+      ...d,
+      name: fixMojibake(d.name),
+      filename: fixMojibake(d.filename),
+      mine: String(d.uploaded_by || "").toLowerCase() === String(req.user || "").toLowerCase(),
     }));
-    res.json({ docs, base: PUBLIC_URL });
+    res.json({ docs, base: PUBLIC_URL, me: req.user || "" });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// 資料を「自分だけ」「チームに共有」で切り替える
+app.patch("/api/docs/:id/shared", async (req, res) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    const rows = await listDocFiles({ all: true });
+    const doc = rows.find((d) => d.id === id);
+    if (!doc) return res.status(404).json({ error: "見つかりません" });
+    // 入れた本人だけが切り替えられる（他の人の資料を勝手に隠さないため）
+    const mine = String(doc.uploaded_by || "").toLowerCase() === String(req.user || "").toLowerCase();
+    if (!mine && doc.uploaded_by) {
+      return res.status(403).json({ error: "この資料を入れた人だけが切り替えられます" });
+    }
+    const r = await setDocShared(id, req.body?.shared === true);
+    console.log(`[資料] ${doc.name} を${r && r.shared ? "チームに共有" : "自分だけ"}にしました by ${req.user}`);
+    res.json({ ok: true, item: r });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
@@ -3002,7 +3515,7 @@ app.post("/api/meetings/:id/doc-link/ensure", async (req, res) => {
     }
 
     // どの資料にするか。指定が無ければ、いちばん新しく登録された資料を使う。
-    const docs = await listDocFiles().catch(() => []);
+    const docs = await listDocFiles({ owner: req.user }).catch(() => []);
     if (!docs.length) {
       return res.json({ ok: true, created: false, company, links: [], reason: "登録されている資料がありません" });
     }
@@ -3036,6 +3549,91 @@ app.post("/api/doc-links", async (req, res) => {
       })),
     });
   } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// ───────────────────────────────────────────────────────────
+// 名簿ファイルから、資料URLをまとめて発行する
+//
+// ① 下見（/api/doc-links/preview）… ファイルを読んで、何件・どの列かを返す
+// ② 発行（/api/doc-links/bulk）  … 100件ずつ進める。進み具合は③で見る
+// ③ 進み具合（/api/doc-links/bulk/:id）
+// ───────────────────────────────────────────────────────────
+const listUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 20 * 1024 * 1024 } });
+
+// ① 下見。まだ発行しない。
+app.post("/api/doc-links/preview", listUpload.single("file"), async (req, res) => {
+  try {
+    let table = null, kind = "", sheetName = "", sheetCount = 0;
+    if (req.file && req.file.buffer) {
+      const r = tableFromFile(req.file.buffer, req.file.originalname || "");
+      table = r.table; kind = r.kind; sheetName = r.sheetName; sheetCount = r.sheetCount;
+    } else if (req.body && req.body.text) {
+      const r = tableFromText(req.body.text);
+      table = r.table; kind = r.kind;
+    } else {
+      return res.status(400).json({ error: "ファイルか、貼り付けた表がありません" });
+    }
+    const parsed = rowsFromTable(table);
+    res.json({
+      ok: true,
+      種類: kind,
+      シート: sheetName || "",
+      シート数: sheetCount || 0,
+      件数: parsed.items.length,
+      列: parsed.列,
+      見出しあり: parsed.見出しあり,
+      飛ばした: parsed.飛ばした,
+      // 最初の5件だけ見せる（間違った列を選んでいないか確かめる用）
+      先頭: parsed.items.slice(0, 5),
+      // 発行のときに送り返してもらう
+      items: parsed.items,
+    });
+  } catch (e) {
+    res.status(400).json({ error: `読み取れませんでした：${e.message}` });
+  }
+});
+
+// ② 発行を始める。すぐに受付番号を返し、あとは裏で進める。
+app.post("/api/doc-links/bulk", async (req, res) => {
+  try {
+    const docId = parseInt(req.body?.docId, 10);
+    if (!docId) return res.status(400).json({ error: "資料を選んでください" });
+    const items = Array.isArray(req.body?.items) ? req.body.items : [];
+    if (!items.length) return res.status(400).json({ error: "宛先がありません" });
+    if (items.length > 20000) return res.status(400).json({ error: "一度に発行できるのは20000件までです" });
+
+    const id = newJobId();
+    const owner = req.user;
+    await runBulk({
+      id, docId, items, owner,
+      addLinks: (part) => addDocLinks(docId, part, owner),
+    });
+    console.log(`[一括発行] 受け付けました：${items.length}件 by ${owner}`);
+    res.json({ ok: true, id, total: items.length });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// ③ 進み具合を返す
+app.get("/api/doc-links/bulk/:id", (req, res) => {
+  const j = getJob(req.params.id);
+  if (!j) return res.status(404).json({ error: "その受付番号は見つかりません" });
+  res.json({
+    ok: true,
+    状態: j.state === "running" ? "発行中" : j.state === "done" ? "終わりました" : "止めました",
+    state: j.state,
+    total: j.total,
+    done: j.done,
+    made: j.made,
+    failed: j.failed,
+    errors: j.errors,
+    経過秒: Math.round(((j.finishedAt || Date.now()) - j.startedAt) / 1000),
+  });
+});
+
+// 途中で止める
+app.post("/api/doc-links/bulk/:id/cancel", (req, res) => {
+  const ok = cancelJob(req.params.id);
+  res.json({ ok, note: ok ? "止めます（ここまでのぶんは残ります）" : "すでに終わっています" });
 });
 
 // 発行したリンクと、その閲覧状況
@@ -3289,14 +3887,23 @@ async function buildCallReport(sfUser) {
   const apoBy = new Map();
   for (const a of apos) {
     const k = String(a.setter || "").trim();
-    if (k) apoBy.set(k, (apoBy.get(k) || 0) + 1);
+    if (!k) continue;
+    // 数えない人が取ったアポは外す（予備として割り振られたものは数える）
+    if (isSkippedPerson(k) && !a.current_owner) continue;
+    apoBy.set(k, (apoBy.get(k) || 0) + 1);
   }
 
-  // 目標は、プロセスシートの「目標」列から読む。
-  // シートが読めないときだけ、設定に入れた目標を使う。
+  // 目標の出し方。
+  //   sheet … プロセスシートの「目標」列から読む（既定）
+  //   zero  … 目標は 0 として報告する（実績だけ見たいとき）
+  const goalMode = String(st.callGoalMode || "sheet") === "zero" ? "zero" : "sheet";
+
   let goals = {};
   let goalFrom = "";
-  try {
+  if (goalMode === "zero") {
+    goals = {};
+    goalFrom = "";
+  } else try {
     const sheetId = String(st.psSheetId || "").trim();
     const sheetName = String(st.psSheetName || "").trim();
     const owner = String(st.psOwner || sfUser || "").trim();
@@ -3311,7 +3918,7 @@ async function buildCallReport(sfUser) {
   } catch (e) {
     console.warn("[call-report] シートの目標を読めませんでした:", e.message);
   }
-  if (!Object.keys(goals).length) {
+  if (goalMode === "sheet" && !Object.keys(goals).length) {
     try { goals = JSON.parse(st.callGoals || "{}") || {}; } catch {}
     if (Object.keys(goals).length) goalFrom = "設定に入れた目標";
   }
@@ -3325,13 +3932,18 @@ async function buildCallReport(sfUser) {
   };
 
   // 名前をそろえて、SFの実績とkinbotのアポを1つにまとめる
+  // 数えない人（中澤・浦林など）は、コール進捗にも出さない
+  const skip = await loadSkipInviters().catch(() => []);
+
   const rows = new Map();
   for (const [who, days] of Object.entries(tallied)) {
     const t = days[md];
     if (!t) continue;
+    if (isSkippedPerson(who, skip)) continue;
     rows.set(who, { name: who, calls: t["コール"] || 0, contacts: t["接触"] || 0, apos: 0 });
   }
   for (const [who, n] of apoBy) {
+    if (isSkippedPerson(who, skip)) continue;
     const hit = [...rows.keys()].find((k) => k.replace(/[\s　]/g, "") === who.replace(/[\s　]/g, ""));
     if (hit) rows.get(hit).apos = n;
     else rows.set(who, { name: who, calls: 0, contacts: 0, apos: n });
@@ -3348,6 +3960,7 @@ async function buildCallReport(sfUser) {
 
   // 目標だけあって、まだ実績が0の人も出す（誰が止まっているか分かるように）
   for (const name of Object.keys(goals)) {
+    if (isSkippedPerson(name, skip)) continue;
     const hit = list.find((x) => {
       const a = x.name.replace(/[\s　]/g, ""), b = name.replace(/[\s　]/g, "");
       return a === b || a.startsWith(b) || b.startsWith(a);
@@ -3363,7 +3976,9 @@ async function buildCallReport(sfUser) {
   const lines = [
     `📞 *コール進捗（${hh}:00 時点）*`,
     `合計：${sum.calls}コール ／ 接触 ${sum.contacts} ／ アポ ${sum.apos}（アポ率 ${rate}%）` +
-      (goalSum.calls ? `\n🎯 目標：${goalSum.calls}コール / ${goalSum.apos}アポ（あと ${Math.max(0, goalSum.calls - sum.calls)}コール / ${Math.max(0, goalSum.apos - sum.apos)}アポ）` : ""),
+      (goalSum.calls
+        ? `\n🎯 目標：${goalSum.calls}コール / ${goalSum.apos}アポ（あと ${Math.max(0, goalSum.calls - sum.calls)}コール / ${Math.max(0, goalSum.apos - sum.apos)}アポ）`
+        : "\n🎯 目標：0（いまは目標なしで出しています）"),
     "",
   ];
   for (const x of list.sort((a, b) => b.calls - a.calls)) {
@@ -3409,6 +4024,1703 @@ async function maybeSendCallReport() {
   } catch (e) { console.warn("[call-report]", e.message); }
 }
 
+// Salesforceを更新済みの商談を返す（ホームの「SF更新まだ」の判定に使う）
+app.post("/api/sf-updated-check", async (req, res) => {
+  try {
+    const ids = Array.isArray(req.body?.botIds) ? req.body.botIds.slice(0, 100).map(String) : [];
+    if (!ids.length) return res.json({ ok: true, results: {} });
+    // kinbotから更新したぶん
+    const mine = await sfUpdatedMap(ids).catch(() => ({}));
+    // 商談の記録に、活動履歴を作った印があるものも「更新済み」とみなす
+    const results = {};
+    for (const id of ids) {
+      if (mine[id]) {
+        results[id] = { updated: true, stage: mine[id].stage || "", why: mine[id].stage ? "ステージを更新" : "自動で反映" };
+      }
+      // 記録が無ければ「まだ」とする
+    }
+    res.json({ ok: true, results });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// ───────────────────────────────────────────────────────────
+// 御礼メールを実際に送ったかを、Gmailの送信済みから見分ける
+//
+// kinbotで下書きを作っただけでは「送った」ことにならない。
+// その人が今日送ったメールの宛先・件名を見て、会社名かアドレスが
+// 一致していれば「送った」とみなす。
+// ───────────────────────────────────────────────────────────
+const _sentCache = new Map();   // owner → { at, items }
+
+async function sentTodayFor(owner) {
+  const key = String(owner || "").toLowerCase();
+  if (!key) return [];
+  const hit = _sentCache.get(key);
+  // 同じ人のぶんは2分だけ覚えておく（画面を開くたびにGmailを叩かないため）
+  if (hit && Date.now() - hit.at < 2 * 60 * 1000) return hit.items;
+  try {
+    const items = await gmailSentToday(key, { max: 60 });
+    _sentCache.set(key, { at: Date.now(), items });
+    return items;
+  } catch (e) {
+    console.warn(`[御礼メール] 送信済みを読めません（${key}）：${e.message}`);
+    _sentCache.set(key, { at: Date.now(), items: [] });
+    return [];
+  }
+}
+
+// 会社名やアドレスが、送ったメールの中にあるか
+function sentMatches(items, { company, email }) {
+  const norm = (v) => String(v || "").replace(/[\s　（）()・,、.。「」]/g, "").toLowerCase();
+  // 会社名は、法人格を外した「芯」で比べる（株式会社をつけ忘れても拾えるように）
+  const core = (v) => norm(v)
+    .replace(/^(株式会社|有限会社|合同会社|一般社団法人|社会福祉法人|医療法人|学校法人)/, "")
+    .replace(/(株式会社|有限会社|合同会社)$/, "");
+  const mail = String(email || "").trim().toLowerCase();
+  const cc = core(company);
+  for (const it of items) {
+    const to = String(it.to || "").toLowerCase();
+    if (mail && to.includes(mail)) return { ok: true, why: "宛先が一致", id: it.id };
+    if (cc && cc.length >= 2) {
+      const sub = core(it.subject);
+      if (sub.includes(cc)) return { ok: true, why: "件名に会社名", id: it.id };
+    }
+  }
+  return { ok: false };
+}
+
+// ホームから聞かれたら、今日の商談ぶんをまとめて返す
+app.post("/api/mail-sent-check", async (req, res) => {
+  try {
+    const list = Array.isArray(req.body?.items) ? req.body.items.slice(0, 60) : [];
+    if (!list.length) return res.json({ ok: true, results: {} });
+    const items = await sentTodayFor(req.user);
+    const results = {};
+    for (const x of list) {
+      const r = sentMatches(items, { company: x.company, email: x.email });
+      results[String(x.id)] = r.ok ? { sent: true, why: r.why } : { sent: false };
+    }
+    res.json({ ok: true, results, 送信済みの件数: items.length });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// アポについて「SFを立ち上げたか」「メールを送ったか」を、実データから見分ける。
+//
+// kinbotから操作したかどうかに関わらず、
+//   ・SF … 商談日の近くに、その会社のクロスの商談ができているか
+//   ・メール … その日に、その会社へメールを送っているか
+// を見て判定する。
+app.post("/api/apo/done-check", async (req, res) => {
+  try {
+    const list = Array.isArray(req.body?.items) ? req.body.items.slice(0, 60) : [];
+    if (!list.length) return res.json({ ok: true, results: {} });
+
+    // ── メール：その人が今日送ったぶんを1回だけ読む
+    const sent = await sentTodayFor(req.user).catch(() => []);
+
+    // ── SF：商談日の前後に作られたクロスの商談を、まとめて引く
+    const oppByCompany = new Map();
+    let 見る人 = req.user;
+    if (!(await sfConnected(見る人).catch(() => false))) {
+      const st = await getSettings().catch(() => ({}));
+      const 代理 = String(st.sfProxyUser || "").trim().toLowerCase();
+      if (代理 && (await sfConnected(代理).catch(() => false))) 見る人 = 代理;
+    }
+    if (salesforceConfigured() && (await sfConnected(見る人).catch(() => false))) {
+      try {
+        // 商談日の範囲を出す（前後30日ぶん見れば足りる）
+        const days = list.map((x) => String(x.start || "").slice(0, 10)).filter(Boolean).sort();
+        const from = days[0] || jstDate(-30);
+        const to = days[days.length - 1] || jstDate(30);
+        const d = await sfQuery(見る人,
+          `SELECT Id, Name, CloseDate, StageName, Account.Name, RecordType.Name ` +
+          `FROM Opportunity WHERE CloseDate >= ${from} AND CloseDate <= ${to} ` +
+          `ORDER BY CreatedDate DESC LIMIT 500`);
+        for (const o of d.records || []) {
+          const co = (o.Account && o.Account.Name) || o.Name || "";
+          const k = coreName(co);
+          if (!k) continue;
+          if (!oppByCompany.has(k)) oppByCompany.set(k, []);
+          oppByCompany.get(k).push({
+            id: o.Id, 名前: o.Name, 日: o.CloseDate,
+            種類: (o.RecordType && o.RecordType.Name) || "",
+          });
+        }
+      } catch (e) { console.warn("[アポ] SFの商談を読めません:", e.message); }
+    }
+
+    const results = {};
+    for (const x of list) {
+      const co = String(x.company || "");
+      const k = coreName(co);
+      const 商談日 = String(x.start || "").slice(0, 10);
+
+      // SF：商談日と近い（前後7日）クロスの商談があれば「立ち上げた」
+      let sf = null;
+      for (const o of oppByCompany.get(k) || []) {
+        if (!/クロス/.test(o.種類) && o.種類) continue;
+        const 差 = Math.abs(
+          (new Date(o.日).getTime() - new Date(商談日).getTime()) / 86400000);
+        if (差 <= 7) { sf = o; break; }
+      }
+
+      // メール：今日その会社へ送っているか
+      const mail = sentMatches(sent, { company: co, email: x.email });
+
+      results[String(x.slug || x.id)] = {
+        sf済み: !!sf,
+        sf: sf ? { id: sf.id, 名前: sf.名前, 日: sf.日 } : null,
+        メール済み: !!mail.ok,
+        メールの理由: mail.ok ? mail.why : "",
+      };
+    }
+    res.json({ ok: true, results, 送信済みの件数: sent.length });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// 会社名の「芯」を出す（法人格や記号の違いを無視して比べるため）
+function coreName(v) {
+  return String(v || "").normalize("NFKC")
+    .replace(/[\s　（）()・,、.。「」【】]/g, "")
+    .replace(/^(株式会社|有限会社|合同会社|一般社団法人|一般財団法人|社会福祉法人|医療法人|学校法人|社会医療法人)/, "")
+    .replace(/(株式会社|有限会社|合同会社)$/, "")
+    .toLowerCase();
+}
+
+// 明日リマインドを送る相手の一覧（ホームに出す）
+app.get("/api/apo-mail/tomorrow", async (req, res) => {
+  try {
+    const cfg = await getApoMailConfig();
+    // 日付を指定できる（省略すると明日）。ほかの日のぶんも見て、対象に足せるように。
+    const all = await listTomorrowReminders(String(req.query.date || ""));
+    // 自分のぶんだけにする（?all=1 で全員）。
+    // 担当がまだ決まっていないものは、誰のぶんか分からないので必ず出す
+    // （そのままだと誰の画面にも出ず、気づけないため）。
+    const me = String(req.user || "").toLowerCase();
+    const mine = String(req.query.all || "") === "1"
+      ? all
+      : all.filter((x) => {
+          const o = String(x.owner || "").toLowerCase();
+          return !o || o === me;
+        });
+    // 担当営業の名前を出す（メールアドレスのままだと分かりにくいため）
+    const names = new Map();
+    for (const x of mine) {
+      const k = String(x.owner || "").toLowerCase();
+      if (!k || names.has(k)) continue;
+      names.set(k, await displayNameOf(k).catch(() => k));
+    }
+
+    // 同じ会社・同じ時刻のものが複数あるときは、重なっていると分かるようにする
+    const seen = new Map();
+    for (const x of mine) {
+      const k = `${x.company}|${String(x.start).slice(0, 16)}`;
+      seen.set(k, (seen.get(k) || 0) + 1);
+    }
+
+    res.json({
+      ok: true,
+      自動送信: cfg.autoReminder !== false,
+      送る時刻: `${cfg.reminderHour}:00`,
+      件数: mine.length,
+      全件: all.length,
+      items: mine.map((x) => ({
+        ...x,
+        担当: names.get(String(x.owner || "").toLowerCase()) || "",
+        重なり: (seen.get(`${x.company}|${String(x.start).slice(0, 16)}`) || 1) > 1,
+      })),
+    });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// リマインドに足りないところを補う（宛先・担当）
+app.post("/api/apo-mail/fix", async (req, res) => {
+  try {
+    const slug = String(req.body?.slug || "").trim();
+    if (!slug) return res.status(400).json({ error: "どのアポか分かりません" });
+    const patch = {};
+    if (req.body?.email !== undefined) {
+      const em = String(req.body.email || "").trim();
+      if (em && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(em)) {
+        return res.status(400).json({ error: "メールアドレスの形が違います" });
+      }
+      patch.email = em;
+    }
+    if (req.body?.owner !== undefined) patch.owner = String(req.body.owner || "").trim();
+    const r = await fixApoForReminder(slug, patch);
+    if (!r) return res.status(404).json({ error: "見つかりません" });
+    console.log(`[apo-mail] ${r.label} を直しました（${Object.keys(patch).join("・")}）by ${req.user}`);
+    res.json({ ok: true, item: { slug: r.slug, to: r.client_email || "", owner: r.current_owner || "" } });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// 送り先の候補（担当セールスの一覧）
+app.get("/api/apo-mail/reps", async (req, res) => {
+  try {
+    const list = await listClosers({ activeOnly: true }).catch(() => []);
+    res.json({ reps: list.map((c) => ({ email: c.email, name: c.name || c.email })) });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// リマインドを送る／送らないを切り替える
+app.post("/api/apo-mail/reminder-off", async (req, res) => {
+  try {
+    const slug = String(req.body?.slug || "").trim();
+    if (!slug) return res.status(400).json({ error: "どのアポか分かりません" });
+    const off = req.body?.off === true;
+    const r = await setNoReminder(slug, off);
+    if (!r) return res.status(404).json({ error: "見つかりません" });
+    console.log(`[apo-mail] ${r.label}：リマインドを${off ? "送らない" : "送る"}にしました by ${req.user}`);
+    res.json({ ok: true, slug, off });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// 送る1時間前に、対象を本人へ知らせる。
+// 「これから送られる」と分かっていれば、間違いがあっても止められる。
+let lastRemindNoticeKey = "";
+async function maybeNoticeBeforeReminder() {
+  try {
+    const cfg = await getApoMailConfig();
+    if (cfg.autoReminder === false) return;
+    const now = new Date(Date.now() + 9 * 3600 * 1000);
+    const noticeHour = (Number(cfg.reminderHour) + 23) % 24;   // 1時間前
+    if (now.getUTCHours() !== noticeHour || now.getUTCMinutes() > 4) return;
+    const key = `${now.toISOString().slice(0, 10)}-${noticeHour}`;
+    if (lastRemindNoticeKey === key) return;
+    lastRemindNoticeKey = key;
+
+    const all = await listTomorrowReminders();
+    if (!all.length) return;
+
+    // 担当者ごとにまとめる（送れないものも一緒に知らせる）
+    const byOwner = new Map();
+    for (const x of all) {
+      const k = String(x.owner || "").toLowerCase();
+      if (!k) continue;
+      if (!byOwner.has(k)) byOwner.set(k, []);
+      byOwner.get(k).push(x);
+    }
+
+    let sent = 0;
+    for (const [owner, list] of byOwner) {
+      const name = await displayNameOf(owner).catch(() => "");
+      const ok = list.filter((x) => x.送る);
+      const ng = list.filter((x) => !x.送る && x["状態"] !== "送信済み");
+      if (!ok.length && !ng.length) continue;
+      const line = (x) => {
+        const t = String(x.start || "").slice(11, 16);
+        return `・${t}　${x.company || x.label}　${x.to || ""}`;
+      };
+      const text = [
+        `${name ? name + "さん、" : ""}あと1時間で、明日の商談のリマインドメールを送ります。`,
+        `（${cfg.reminderHour}:00 に自動で送ります）`,
+        "",
+        ok.length ? `📮 *送る先 ${ok.length}件*` : "📮 *送る先はありません*",
+        ...ok.slice(0, 20).map(line),
+        ok.length > 20 ? `…ほか${ok.length - 20}件` : "",
+        // 送れないものは、直せば間に合うので一緒に知らせる
+        ng.length ? "" : "",
+        ng.length ? `⚠️ *送れないもの ${ng.length}件*` : "",
+        ...ng.slice(0, 10).map((x) => `${line(x)}（${x["状態"]}）`),
+        "",
+        "宛先や日時が違うものがあれば、kinbotのホームから直してください。",
+      ].filter(Boolean).join("\n");
+      const r = await notifyPerson(owner, text);
+      if (r.ok) sent++;
+    }
+    console.log(`[apo-mail] リマインドの予告を ${sent}人に送りました（対象 ${all.length}件）`);
+  } catch (e) { console.warn("[apo-mail] リマインドの予告:", e.message); }
+}
+
+// ───────────────────────────────────────────────────────────
+// Google Chatへの知らせ（まとめて設定する）
+//
+// あちこちの画面に散らばっていた「知らせるかどうか」を、
+// 設定の1か所から入り切りできるようにする。
+// ───────────────────────────────────────────────────────────
+
+// 何を知らせるか。ここに足せば、画面にも自動で並ぶ。
+const NOTICE_KINDS = [
+  { key: "assign", 名前: "アポの割り振り", 説明: "アポが誰かに割り当てられたとき",
+    設定: null, 送り先: "on_assign" },
+  { key: "mail", 名前: "メールの下書き・送信", 説明: "確定メールやリマインドを用意したとき",
+    設定: null, 送り先: "on_mail" },
+  { key: "doc", 名前: "資料・URLの閲覧", 説明: "送った資料や日程調整URLが開かれたとき",
+    設定: "jumpNotify", 送り先: "on_doc" },
+  { key: "launch", 名前: "Salesforceの立ち上げ", 説明: "商談を立ち上げたとき・できなかったとき",
+    設定: null, 送り先: "on_launch" },
+  { key: "deploy", 名前: "kinbotの更新", 説明: "更新が終わったとき",
+    設定: "notifyDeploy", 送り先: "on_deploy" },
+];
+
+// 決まった時刻に流すもの
+// 決まった時刻に流すもののうち、
+// 送り先ごとに選べないもの（本人あて・点検用など）だけをここに置く。
+// 送り先を選べるものは、送り先ごとのチェックで決める。
+const NOTICE_TIMERS = [
+  { key: "deployNews", 名前: "朝の「新しくなりました」", 説明: "前の営業日からの変更をまとめて。送り先は下で選びます",
+    既定: true, 時刻: { hour: "deployNewsHour", minute: "deployNewsMinute", 既定時: 8, 既定分: 30 } },
+  { key: "callProgress", 名前: "コール進捗", 説明: "平日11〜18時の毎正時（チームのスペースへ）", 既定: true },
+  { key: "eveningReminder", 名前: "夕方のやり残し", 説明: "平日18時半に本人だけへ（1対1）", 既定: true },
+  { key: "weeklyRemind", 名前: "天気予報の声かけ", 説明: "月曜の朝と金曜の夕方（本人だけへ）", 既定: false },
+  { key: "devSummary", 名前: "開発メモのまとめ", 説明: "朝6時。点検用の送り先へ（既定はOFF）", 既定: false },
+  { key: "selfCheck", 名前: "自己点検", 説明: "30分おきに見張り、問題があれば点検用の送り先へ", 既定: false },
+];
+
+app.get("/api/notices", async (req, res) => {
+  try {
+    const st = await getSettings();
+    const targets = await listChatTargets().catch(() => []);
+    res.json({
+      ok: true,
+      // 種類ごとの送り先（どこに流すか）
+      種類: NOTICE_KINDS.map((k) => ({
+        key: k.key, 名前: k.名前, 説明: k.説明,
+        入り切り: k.設定 ? st[k.設定] !== false : null,
+        送り先の数: targets.filter((t) => t[k.送り先] && t.enabled !== false).length,
+      })),
+      // 時刻を決めて流すもの
+      定期: NOTICE_TIMERS.map((t) => ({
+        key: t.key, 名前: t.名前, 説明: t.説明,
+        入り切り: t.key === "devSummary" ? st[t.key] === true : st[t.key] !== false,
+        時刻: t.時刻
+          ? `${String(st[t.時刻.hour] ?? t.時刻.既定時).padStart(2, "0")}:${String(st[t.時刻.minute] ?? t.時刻.既定分).padStart(2, "0")}`
+          : null,
+      })),
+      送り先: targets.map((t) => ({
+        id: t.id, 名前: t.name || t.space_id || "（名前なし）", enabled: t.enabled !== false,
+      })),
+    });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.put("/api/notices", async (req, res) => {
+  try {
+    const b = req.body || {};
+    const patch = {};
+    // 種類ごと
+    for (const k of NOTICE_KINDS) {
+      if (k.設定 && b[k.key] !== undefined) patch[k.設定] = b[k.key] !== false;
+    }
+    // 定期のもの
+    for (const t of NOTICE_TIMERS) {
+      if (b[t.key] !== undefined) patch[t.key] = b[t.key] !== false;
+      if (t.時刻 && b[`${t.key}Time`]) {
+        const m = String(b[`${t.key}Time`]).match(/^(\d{1,2}):(\d{2})$/);
+        if (m) {
+          patch[t.時刻.hour] = Math.min(23, Math.max(0, Number(m[1])));
+          patch[t.時刻.minute] = Math.min(59, Math.max(0, Number(m[2])));
+        }
+      }
+    }
+    await saveSettings(patch);
+    console.log(`[知らせ] 設定を変えました（${Object.keys(patch).join("・")}）by ${req.user}`);
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// ───────────────────────────────────────────────────────────
+// 送ったメールの記録（届いたか・跳ね返ったか）
+// ───────────────────────────────────────────────────────────
+
+// 送ったメールの一覧。全メンバーぶんを見られる。
+app.get("/api/apo-mail/log", async (req, res) => {
+  try {
+    const q = req.query || {};
+    const rows = await listApoMails({
+      from: /^\d{4}-\d{2}-\d{2}$/.test(String(q.from || "")) ? q.from : jstDate(-6),
+      to: /^\d{4}-\d{2}-\d{2}$/.test(String(q.to || "")) ? q.to : jstDate(0),
+      kind: ["confirm", "reminder"].includes(String(q.kind || "")) ? q.kind : "",
+      owner: String(q.mine || "") === "1" ? req.user : "",
+      limit: 500,
+    });
+    const names = new Map();
+    for (const r of rows) {
+      const k = String(r.from_owner || "").toLowerCase();
+      if (!k || names.has(k)) continue;
+      names.set(k, await displayNameOf(k).catch(() => k));
+    }
+    const items = rows.map((r) => ({
+      slug: r.slug,
+      種類: r.kind === "reminder" ? "リマインド" : "確定メール",
+      会社: parseCompany(r.label || ""),
+      宛先: r.to_email || "",
+      送った人: names.get(String(r.from_owner || "").toLowerCase()) || r.from_owner || "",
+      状態: r.bounced ? "届きませんでした"
+        : r.status === "sent" ? "送信済み"
+        : r.status === "draft" ? "下書き"
+        : r.status === "error" ? "失敗" : r.status,
+      理由: r.bounced ? (r.bounce_note || "") : (r.error || ""),
+      at: r.created_at,
+      商談日: r.start_time || null,
+    }));
+    const 集計 = {
+      送信済み: items.filter((x) => x["状態"] === "送信済み").length,
+      下書き: items.filter((x) => x["状態"] === "下書き").length,
+      届きませんでした: items.filter((x) => x["状態"] === "届きませんでした").length,
+      失敗: items.filter((x) => x["状態"] === "失敗").length,
+    };
+    res.json({ ok: true, 集計, 件数: items.length, items });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// 予定名から会社名を取り出す（一覧に出すため）
+function parseCompany(label) {
+  return String(label || "").normalize("NFKC")
+    .replace(/【[^】]*】/g, "")
+    .split(/[\/｜|:：・、,]/)[0]
+    .replace(/[^\s　]{0,16}\s*(?:様|さま|さん|殿)\s*$/u, "")
+    .trim();
+}
+
+// 跳ね返りを探して、記録に印を付ける
+async function checkBounces(owner) {
+  try {
+    const found = await gmailFindBounces(owner, { days: 3, max: 20 });
+    let n = 0;
+    for (const b of found) {
+      const hit = await markBounced(b["宛先"], b["理由"]);
+      if (hit) {
+        n += hit;
+        // 送った本人に知らせる（気づかないと追客が止まるため）
+        notifyPerson(owner, [
+          "⚠️ *メールが届きませんでした*",
+          `✉️ ${b["宛先"]}`,
+          `📝 ${b["理由"]}`,
+          "宛先をご確認のうえ、必要なら送り直してください。",
+        ].join("\n")).catch(() => {});
+      }
+    }
+    if (n) console.log(`[apo-mail] 届かなかったメール ${n}件に印を付けました（${owner}）`);
+    return n;
+  } catch (e) {
+    console.warn(`[apo-mail] 跳ね返りを調べられません（${owner}）：${e.message}`);
+    return 0;
+  }
+}
+
+// いま調べる（画面から押したとき）
+app.post("/api/apo-mail/check-bounces", async (req, res) => {
+  try {
+    const n = await checkBounces(req.user);
+    res.json({ ok: true, 見つかった数: n });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// ───────────────────────────────────────────────────────────
+// 転送URL
+//
+// レセプショニストなど、ほかのサービスの日程調整URLをそのまま使いつつ、
+// 「誰が開いたか」を記録したいときに使う。
+// kinbotをいったん通してから、本来のURLへ送ります。
+// ───────────────────────────────────────────────────────────
+
+// 転送URLを作る
+app.post("/api/jump", async (req, res) => {
+  try {
+    const b = req.body || {};
+    const url = String(b.targetUrl || "").trim();
+    if (!/^https?:\/\//.test(url)) {
+      return res.status(400).json({ error: "転送先のURLを、http:// か https:// から入れてください" });
+    }
+    const link = await createJumpLink({
+      title: b.title, targetUrl: url, owner: req.user, shared: b.shared === true,
+      company: b.company, person: b.person, email: b.email, createdBy: req.user,
+    });
+    if (!link) return res.status(500).json({ error: "作れませんでした" });
+    const base = String(PUBLIC_URL || "").replace(/\/+$/, "");
+    const my = `${base}/g/${link.slug}`;
+    console.log(`[転送URL] 作りました：${link.title} → ${url}（${link.shared_link ? "共通" : "個別"}）by ${req.user}`);
+    res.json({
+      ok: true, id: link.id, slug: link.slug, url: my, 転送先: url, 共通: !!link.shared_link,
+      貼り方: link.shared_link ? {
+        "Pardot（おすすめ）": `${my}?m=%%email%%&n=%%account_name%%`,
+        "Pardot（アドレスだけ）": `${my}?m=%%email%%`,
+        "差し込みを使わない場合（誰が見たかは分かりません）": my,
+      } : null,
+    });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// 転送URLが開かれたことを知らせる。
+// 資料トラッキングと同じ形にそろえる。
+const _jumpNotified = new Map();
+async function notifyJumpView(link, v) {
+  // 設定でOFFにしていたら知らせない
+  const st = await getSettings().catch(() => ({}));
+  if (st.jumpNotify === false) return;
+
+  // 同じ相手・同じURLは30分に1回だけ知らせる（何度も鳴らさない）
+  const key = `${link.id}:${v.email || "-"}`;
+  const last = _jumpNotified.get(key) || 0;
+  if (Date.now() - last < 30 * 60 * 1000) return;
+  _jumpNotified.set(key, Date.now());
+  // 古い記録は片付ける
+  if (_jumpNotified.size > 500) {
+    for (const [k, t] of _jumpNotified) if (Date.now() - t > 3600 * 1000) _jumpNotified.delete(k);
+  }
+
+  const who = v.email || v.name || [link.company, link.person].filter(Boolean).join(" ") || "名乗りなし";
+  const rep = link.owner ? await displayNameOf(link.owner).catch(() => "") : "";
+  const lines = [
+    `📅 *日程調整のURLを開きました*　${who}`,
+    `🔗 ${link.title || "日程調整"}`,
+    v.name && v.name !== who ? `🏢 ${v.name}` : "",
+    rep ? `👤 ${rep}` : "",
+  ].filter(Boolean);
+  await notifyAll(lines.join("\n"), "doc");
+}
+
+// 通知の入り切り
+app.get("/api/jump/notify", async (req, res) => {
+  try {
+    const st = await getSettings();
+    res.json({ enabled: st.jumpNotify !== false });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.put("/api/jump/notify", async (req, res) => {
+  try {
+    const on = req.body?.enabled !== false;
+    await saveSettings({ jumpNotify: on });
+    console.log(`[転送URL] Chatへの通知を${on ? "ON" : "OFF"}にしました by ${req.user}`);
+    res.json({ ok: true, enabled: on });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// 作った転送URLの一覧
+app.get("/api/jump", async (req, res) => {
+  try {
+    const rows = await listJumpLinks(String(req.query.all || "") === "1" ? "" : req.user);
+    const base = String(PUBLIC_URL || "").replace(/\/+$/, "");
+    res.json({
+      ok: true,
+      items: rows.map((r) => ({
+        id: r.id, slug: r.slug, title: r.title, url: `${base}/g/${r.slug}`,
+        転送先: r.target_url, 共通: !!r.shared_link,
+        相手: [r.company, r.person].filter(Boolean).join(" "),
+        閲覧: Number(r["閲覧"] || 0), 人数: Number(r["人数"] || 0),
+      })),
+    });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// 差し込みが効いているかを、その場で確かめる。
+// 実際に踏むURLの後ろを、そのまま貼って試せる。
+app.get("/api/jump/check", (req, res) => {
+  const v = viewerFromQuery(req.query || {});
+  res.json({
+    ok: true,
+    受け取った項目: Object.keys(req.query || {}),
+    読み取れたアドレス: v.email || "（読み取れませんでした）",
+    読み取れた名前: v.name || "（なし）",
+    hint: v.email
+      ? "この形なら、誰が開いたか記録されます。"
+      : "アドレスを読み取れません。?m=メールアドレス の形になっているか、" +
+        "差し込みタグ（%%email%%）が置き換わっているかをご確認ください。",
+  });
+});
+
+// 誰が開いたか
+app.get("/api/jump/:id/viewers", async (req, res) => {
+  try {
+    const rows = await listJumpViewers(parseInt(req.params.id, 10));
+    res.json({ ok: true, 人数: rows.length, items: rows });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// お客様が踏んだとき。記録してから、本来のURLへ送る。
+app.get("/g/:slug", async (req, res) => {
+  try {
+    const link = await getJumpLink(String(req.params.slug || ""));
+    if (!link || link.closed) return res.status(404).send("このURLは使えません");
+
+    // 誰が開いたかを残す（共通URLのときは、差し込みから受け取る）
+    const v = viewerFromQuery(req.query || {});
+    await recordJumpView(link.id, {
+      email: v.email || link.email || "",
+      name: v.name || link.company || "",
+      ua: req.get("user-agent") || "",
+    }).catch(() => {});
+
+    // 転送先に、こちらで受け取った情報も渡す（相手側で使えることがあるため）
+    let to = link.target_url;
+    try {
+      const u = new URL(to);
+      if (v.email && !u.searchParams.get("email")) u.searchParams.set("email", v.email);
+      to = u.toString();
+    } catch {}
+
+    // 何を受け取ったかをログに残す（誰が開いたか分からないときの手がかり）
+    const gotKeys = Object.keys(req.query || {}).join(",") || "なし";
+    console.log(`[転送URL] ${link.title} を開きました（${v.email || "名乗りなし"}／` +
+      `受け取った項目：${gotKeys}）`);
+
+    // Google Chatへ知らせる。
+    // 同じ人が何度も開いたときに毎回鳴らないよう、30分は1回だけにする。
+    notifyJumpView(link, v).catch(() => {});
+    // 記録が終わってから送る。ブラウザには残さない（302）。
+    res.redirect(302, to);
+  } catch (e) {
+    console.error("[転送URL]", e.message);
+    res.status(500).send("いま開けません。恐れ入りますが、時間をおいてお試しください。");
+  }
+});
+
+// ───────────────────────────────────────────────────────────
+// 日程調整ページ
+//
+// お客様に空き時間から選んでもらうURL。
+// Pardot用の共通URLも作れて、誰が見たか・誰が予約したかが分かる。
+// ───────────────────────────────────────────────────────────
+
+// 担当者のカレンダーの予定を取る（空き時間を出すため）
+async function busyOf(owner, days) {
+  const from = new Date().toISOString();
+  const to = new Date(Date.now() + (Number(days) + 1) * 86400000).toISOString();
+  try {
+    const evs = await listCalendarEvents(owner, "primary", { timeMin: from, timeMax: to });
+    return (evs || [])
+      .filter((e) => !e.allDay && e.start && e.end)
+      .map((e) => ({ start: e.start, end: e.end }));
+  } catch (e) {
+    console.warn(`[日程調整] カレンダーを読めません（${owner}）：${e.message}`);
+    return null;   // 読めないときは、空き時間を出さない（勝手に埋めない）
+  }
+}
+
+// ページを作る
+app.post("/api/booking/pages", async (req, res) => {
+  try {
+    const b = req.body || {};
+    const page = await createBookPage({
+      title: b.title, owner: req.user, shared: b.shared === true,
+      company: b.company, person: b.person, email: b.email,
+      minutes: b.minutes, daysAhead: b.daysAhead, fromHour: b.fromHour, toHour: b.toHour,
+      note: b.note, createdBy: req.user,
+    });
+    if (!page) return res.status(500).json({ error: "作れませんでした" });
+    const base = String(PUBLIC_URL || "").replace(/\/+$/, "");
+    const url = `${base}/b/${page.slug}`;
+    console.log(`[日程調整] ページを作りました：${page.title}（${page.shared_link ? "共通" : "個別"}）by ${req.user}`);
+    res.json({
+      ok: true, id: page.id, slug: page.slug, url, 共通: !!page.shared_link,
+      貼り方: page.shared_link ? {
+        "Pardot（おすすめ）": `${url}?m=%%email%%&n=%%account_name%%`,
+        "Pardot（アドレスだけ）": `${url}?m=%%email%%`,
+        "差し込みを使わない場合（誰が見たかは分かりません）": url,
+      } : null,
+    });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// ページの一覧
+app.get("/api/booking/pages", async (req, res) => {
+  try {
+    const rows = await listBookPages(String(req.query.all || "") === "1" ? "" : req.user);
+    const base = String(PUBLIC_URL || "").replace(/\/+$/, "");
+    res.json({
+      ok: true,
+      items: rows.map((r) => ({
+        id: r.id, slug: r.slug, title: r.title, url: `${base}/b/${r.slug}`,
+        共通: !!r.shared_link, 相手: [r.company, r.person].filter(Boolean).join(" "),
+        閲覧: Number(r["閲覧"] || 0), 予約: Number(r["予約"] || 0), closed: !!r.closed,
+      })),
+    });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// 誰が見たか・誰が予約したか
+app.get("/api/booking/pages/:id/viewers", async (req, res) => {
+  try {
+    const rows = await listBookViewers(parseInt(req.params.id, 10));
+    res.json({ ok: true, 人数: rows.length, items: rows });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// お客様が開いたとき（ログイン不要）
+app.get("/api/booking/:slug", async (req, res) => {
+  try {
+    const page = await getBookPage(String(req.params.slug || ""));
+    if (!page || page.closed) return res.status(404).json({ error: "このページは使えません" });
+
+    // 開いたことを残す（共通URLのときは、差し込みから相手を受け取る）
+    const v = viewerFromQuery(req.query || {});
+    const view = await recordBookView(page.id, {
+      email: v.email || page.email || "", name: v.name || page.company || "",
+      ua: req.get("user-agent") || "",
+    }).catch(() => null);
+
+    // 開かれたことを知らせる（30分に1回だけ）
+    notifyJumpView(
+      { id: `book${page.id}`, title: page.title, company: page.company, person: page.person, owner: page.owner },
+      v
+    ).catch(() => {});
+
+    const busy = await busyOf(page.owner, page.days_ahead);
+    if (busy === null) {
+      return res.json({ ok: true, viewId: view ? view.id : null, title: page.title,
+        note: page.note || "", days: [], 読めません: true });
+    }
+    const days = buildSlots({
+      minutes: page.minutes, daysAhead: page.days_ahead,
+      fromHour: page.from_hour, toHour: page.to_hour, busy,
+    });
+    res.json({
+      ok: true, viewId: view ? view.id : null,
+      title: page.title, note: page.note || "", 分: page.minutes,
+      相手: [page.company, page.person].filter(Boolean).join(" ") || (v.name || ""),
+      days,
+    });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// お客様が時間を選んだとき（ログイン不要）
+app.post("/api/booking/:slug/book", async (req, res) => {
+  try {
+    const page = await getBookPage(String(req.params.slug || ""));
+    if (!page || page.closed) return res.status(404).json({ error: "このページは使えません" });
+    const at = String(req.body?.at || "");
+    const name = String(req.body?.name || "").trim();
+    const company = String(req.body?.company || "").trim();
+    const email = String(req.body?.email || "").trim();
+    if (!at) return res.status(400).json({ error: "時間を選んでください" });
+    if (!company || !name) return res.status(400).json({ error: "会社名とお名前を入れてください" });
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      return res.status(400).json({ error: "メールアドレスの形をご確認ください" });
+    }
+
+    // ほかの人に先を越されていないか、もう一度確かめる
+    const busy = await busyOf(page.owner, page.days_ahead);
+    if (busy === null) return res.status(500).json({ error: "いま予約できません。少し時間をおいてお試しください" });
+    if (!stillFree(at, page.minutes, busy)) {
+      return res.status(409).json({ error: "その時間は、ちょうど埋まってしまいました。別の時間をお選びください" });
+    }
+
+    // カレンダーに予定を作る（【初回】会社名/お名前様 の形にして、アポ振り分けに乗せる）
+    const start = new Date(at);
+    const end = new Date(start.getTime() + page.minutes * 60000);
+    const title = `【初回】${company}/${name}様`;
+    let ev = null;
+    try {
+      ev = await createCalendarEvent(page.owner, {
+        summary: title,
+        description: `kinbotの日程調整ページから予約されました。\nお客様：${company} ${name}様（${email}）`,
+        start: start.toISOString(), end: end.toISOString(),
+        guests: [email],
+      });
+    } catch (e) {
+      console.error("[日程調整] 予定を作れません:", e.message);
+      return res.status(500).json({ error: "予約できませんでした。お手数ですが、担当までご連絡ください" });
+    }
+
+    await markBooked(parseInt(req.body?.viewId, 10) || 0, start.toISOString()).catch(() => {});
+    console.log(`[日程調整] 予約が入りました：${title}（${at}）`);
+
+    // 担当者にも知らせる
+    notifyPerson(page.owner, [
+      "📅 *日程調整ページから予約が入りました*",
+      `　${title}`,
+      `🕐 ${start.toISOString().slice(0, 16).replace("T", " ")}（日本時間）`,
+      `✉️ ${email}`,
+    ].join("\n")).catch(() => {});
+
+    res.json({ ok: true, 予約: { at: start.toISOString(), 分: page.minutes } });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// ───────────────────────────────────────────────────────────
+// コールリスト（インターン生の架電）
+//
+// リードのリストを見ながら架電し、結果をSalesforceへ残す。
+// 通信が切れても消えないよう、まずkinbotに保存してから送る。
+// ───────────────────────────────────────────────────────────
+
+// 架電の結果。プロセスシートの数え方に合わせている。
+const CALL_RESULTS = [
+  { key: "アポ獲得", sf: "アポ獲得", 接触: true },
+  { key: "再コール", sf: "再コール", 接触: true },
+  { key: "担当者不在", sf: "担当者不在", 接触: true },
+  { key: "断り", sf: "断り", 接触: true },
+  { key: "不在", sf: "不在", 接触: false },
+  { key: "NG", sf: "NG（今後かけない）", 接触: false },
+];
+
+// リストの一覧
+app.get("/api/calls/lists", async (req, res) => {
+  try {
+    const rows = await listCallLists({
+      owner: req.user,
+      includeClosed: String(req.query.all || "") === "1",
+    });
+    res.json({
+      ok: true,
+      items: rows.map((r) => ({
+        id: r.id, name: r.name, note: r.note || "",
+        全部: Number(r["全部"] || 0), 済み: Number(r["済み"] || 0),
+        残り: Number(r["全部"] || 0) - Number(r["済み"] || 0),
+        closed: !!r.closed,
+      })),
+    });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// リストを作る（Salesforceのリードを検索して入れる／貼り付けからも作れる）
+app.post("/api/calls/lists", async (req, res) => {
+  try {
+    const b = req.body || {};
+    const name = String(b.name || "").trim() || `コールリスト ${jstDate(0)}`;
+    const list = await createCallList({ name, owner: req.user, note: b.note, createdBy: req.user });
+    if (!list) return res.status(500).json({ error: "リストを作れませんでした" });
+
+    let items = [];
+    if (Array.isArray(b.items) && b.items.length) {
+      // 貼り付け（会社名・担当者名・電話）から作る
+      items = b.items.slice(0, 5000);
+    } else if (b.fromSalesforce) {
+      // Salesforceのリードから作る
+      const found = await searchLeads(req.user, {
+        company: String(b.company || ""), person: "", limit: Math.min(200, Number(b.limit) || 50),
+      }).catch((e) => { throw new Error(`Salesforceから取れません：${e.message}`); });
+      items = (found || []).map((l) => ({
+        leadId: l.Id,
+        company: l.Company || "",
+        person: [l.LastName, l.FirstName].filter(Boolean).join(" "),
+        phone: l.Phone || l.MobilePhone || "",
+        email: l.Email || "",
+        industry: l.Industry || "",
+        area: l.State || l.City || "",
+      }));
+    }
+
+    // かける人へ順番に配る（指定があれば）
+    const who = (Array.isArray(b.assignTo) ? b.assignTo : []).map((x) => String(x).toLowerCase()).filter(Boolean);
+    if (who.length) items = items.map((x, i) => ({ ...x, assignedTo: who[i % who.length] }));
+
+    const n = await addCallTargets(list.id, items);
+    console.log(`[コール] リスト「${name}」を作りました（${n}件）by ${req.user}`);
+    res.json({ ok: true, id: list.id, name, 件数: n });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// 架電の結果に使う選択肢を、Salesforceから取ってくる。
+//
+// 「担当者不在」「コールのみ」「担当者接触：アポ獲得」など、
+// 組織ごとに決まっている値をそのまま使う。
+// 取れないときは、kinbotの決まった区分にする。
+let _callPicks = null;
+async function callPicklists(owner) {
+  if (_callPicks && Date.now() - _callPicks.at < 30 * 60 * 1000) return _callPicks.data;
+  const out = { 活動の結果: [], リードの状態: [], 元: "kinbot" };
+  try {
+    // 活動（Task）の結果。組織によって項目名が違うので、それらしいものを探す。
+    const td = await describeTask(owner);
+    const cand = (td.fields || []).filter((f) =>
+      f.type === "picklist" &&
+      /(status|result|subtype|type|活動|結果|区分)/i.test(`${f.name} ${f.label}`));
+    // いちばん選択肢が多いものを使う（結果の区分は数が多い）
+    const best = cand.sort((a, b) =>
+      (b.picklistValues || []).length - (a.picklistValues || []).length)[0];
+    if (best) {
+      out.活動の結果 = (best.picklistValues || [])
+        .filter((v) => v.active)
+        .map((v) => ({ value: v.value, label: v.label || v.value }));
+      out.項目 = best.name;
+      out.項目名 = best.label;
+      out.元 = "salesforce";
+    }
+  } catch (e) { console.warn("[kincall] 活動の選択肢を取れません:", e.message); }
+
+  try {
+    const desc = await describeObject(owner, "Lead");
+    const f = (desc.fields || []).find((x) => x.name === "Status");
+    const all = ((f && f.picklistValues) || [])
+      .filter((v) => v.active)
+      .map((v) => ({ value: v.value, label: v.label || v.value }));
+    // 実際に使うステージだけを、決めた順に出す
+    const 使う = ["01", "02", "03", "04", "89", "99", "05"];
+    const 並べた = 使う
+      .map((n) => all.find((v) => String(v.label).startsWith(n) || String(v.value).startsWith(n)))
+      .filter(Boolean);
+    out.リードの状態 = 並べた.length ? 並べた : all;
+  } catch (e) { console.warn("[kincall] リードの状態を取れません:", e.message); }
+
+  // 実際に使う結果だけに絞る。
+  // SFには使わない値もたくさん入っているので、架電で選ぶものだけを出す。
+  const 使うもの = [
+    "受付ブロック", "担当者不在", "担当者接触：お断り", "担当者接触：アポ獲得",
+    "担当者接触：営業フォロー", "現在使われていない", "コールのみ", "問い合わせ",
+  ];
+  const norm = (v) => String(v || "").replace(/[\s　:：]/g, "");
+  const 絞った = 使うもの
+    .map((w) => out.活動の結果.find((v) => norm(v.label) === norm(w) || norm(v.value) === norm(w))
+      || { value: w, label: w });
+  out.活動の結果 = 絞った;
+
+  if (!out.活動の結果.length) {
+    out.活動の結果 = CALL_RESULTS.map((x) => ({ value: x.key, label: x.key }));
+  }
+  _callPicks = { at: Date.now(), data: out };
+  return out;
+}
+
+app.get("/api/calls/picklists", async (req, res) => {
+  try {
+    if (String(req.query.refresh || "") === "1") _callPicks = null;
+    const d = await callPicklists(req.user);
+    res.json({ ok: true, ...d });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// Salesforceのリードを探して、その場でkincallに入れる
+app.post("/api/calls/from-leads", async (req, res) => {
+  try {
+    const b = req.body || {};
+    const listId = parseInt(b.listId, 10);
+    const found = await searchLeads(req.user, {
+      company: String(b.company || ""),
+      person: String(b.person || ""),
+      limit: Math.min(50, Number(b.limit) || 30),
+    });
+    const items = (found || []).map((l) => ({
+      leadId: l.Id,
+      company: l.Company || "",
+      person: [l.LastName, l.FirstName].filter(Boolean).join(" "),
+      phone: l.Phone || "",
+      email: l.Email || "",
+      industry: l.Title || "",
+      area: l.State || l.City || "",
+      stage: (l.RecordType && l.RecordType.Name) || "",
+      status: l.Status || "",
+    }));
+    // 見るだけ（まだ入れない）
+    if (!listId) return res.json({ ok: true, 件数: items.length, items });
+
+    const n = await addCallTargets(listId, items);
+    console.log(`[kincall] リードを${n}件入れました by ${req.user}`);
+    res.json({ ok: true, 入れた数: n });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// レポートの表を、そのままkincallのリストにする。
+// 列の名前から「会社名・担当者・電話・メール・ステージ・状態」を見つける。
+app.post("/api/calls/from-report", async (req, res) => {
+  try {
+    const b = req.body || {};
+    const cols = (b.columns || []).map((c) => String(c.label || c || ""));
+    const rows = Array.isArray(b.rows) ? b.rows : [];
+    if (!rows.length) return res.status(400).json({ error: "中身がありません" });
+
+    // 列の見つけ方。言い方の違いを吸収する。
+    const find = (...words) => {
+      const norm = (v) => String(v || "").replace(/[\s　_・]/g, "").toLowerCase();
+      for (const w of words) {
+        const i = cols.findIndex((c) => norm(c).includes(norm(w)));
+        if (i >= 0) return i;
+      }
+      return -1;
+    };
+    const ix = {
+      company: find("会社名", "会社", "company", "取引先"),
+      person: find("担当者名", "担当者", "姓", "名前", "氏名", "name"),
+      phone: find("電話", "phone", "tel"),
+      email: find("メール", "email", "mail"),
+      stage: find("リード状況", "リード 状況", "状況", "ステージ", "status"),
+      status: find("最終活動ステータス", "活動ステータス", "最終ステータス"),
+      leadId: find("リードid", "lead id", "レコードid", "id"),
+    };
+    if (ix.company < 0 && ix.phone < 0) {
+      return res.status(400).json({ error: "会社名か電話番号の列が見つかりません", 列: cols });
+    }
+
+    const at = (row, i) => (i >= 0 ? String(row[i] ?? "").trim() : "");
+    const items = rows.map((row) => ({
+      leadId: at(row, ix.leadId) || null,
+      company: at(row, ix.company),
+      person: at(row, ix.person),
+      phone: at(row, ix.phone),
+      email: at(row, ix.email),
+      // ステージは「リード状況」（01：新規・02：担当者未接触・04：ジャッジ など）
+      stage: at(row, ix.stage),
+      status: at(row, ix.status),
+    })).filter((x) => x.company || x.phone);
+
+    if (!items.length) return res.status(400).json({ error: "入れられる行がありませんでした" });
+
+    // レポートにはリードIDの列が無いことが多い。
+    // IDが無いとSalesforceの履歴とつながらないので、会社名と電話で照らし合わせて補う。
+    let 紐づけた = 0;
+    const 足りない = items.filter((x) => !x.leadId);
+    if (足りない.length && salesforceConfigured() && (await sfConnected(req.user).catch(() => false))) {
+      try {
+        // 会社名でまとめて引き当てる（80件ずつ）
+        for (let i = 0; i < 足りない.length; i += 80) {
+          const part = 足りない.slice(i, i + 80);
+          const names = part.map((x) => `'${String(x.company).replace(/['\\]/g, "")}'`).filter((v) => v.length > 2);
+          if (!names.length) continue;
+          const d = await sfQuery(req.user,
+            `SELECT Id, Company, Phone, MobilePhone FROM Lead ` +
+            `WHERE IsConverted = false AND Company IN (${names.join(",")}) LIMIT 500`);
+          const byName = new Map();
+          for (const r of d.records || []) {
+            const k = String(r.Company || "");
+            if (!byName.has(k)) byName.set(k, []);
+            byName.get(k).push(r);
+          }
+          const num = (v) => String(v || "").replace(/[^0-9]/g, "");
+          for (const x of part) {
+            const cand = byName.get(x.company) || [];
+            if (!cand.length) continue;
+            // 同じ会社が何件もあるときは、電話番号で決める
+            const hit = cand.length === 1 ? cand[0]
+              : cand.find((r) => num(r.Phone) === num(x.phone) || num(r.MobilePhone) === num(x.phone));
+            if (hit) { x.leadId = hit.Id; 紐づけた++; }
+          }
+        }
+      } catch (e) { console.warn("[kincall] リードの引き当てでつまずきました:", e.message); }
+    }
+    console.log(`[kincall] リードIDを${紐づけた}件つなぎました（列に無かったぶん ${足りない.length}）`);
+
+    const name = String(b.name || "").trim() || `リスト ${jstDate(0)}`;
+    const list = await createCallList({ name, owner: req.user, createdBy: req.user });
+    if (!list) return res.status(500).json({ error: "リストを作れませんでした" });
+    const n = await addCallTargets(list.id, items);
+    console.log(`[kincall] レポートから${n}件をリスト「${name}」に入れました by ${req.user}`);
+    res.json({
+      ok: true, id: list.id, name, 件数: n, 見つけた列: ix,
+      リードとつないだ数: 紐づけた,
+      note: 紐づけた < 足りない.length
+        ? `${足りない.length - 紐づけた}件は、Salesforceのリードと結びつけられませんでした（会社名が一致しないなど）`
+        : "",
+    });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// 架電の結果としてよく使われる言い方。説明の中から見つけるのに使う。
+// 長いものを先に置く（「担当者接触：お断り」より前に「担当者不在」を見ないように）
+const 既知の結果 = [
+  "担当者接触：アポ獲得", "担当者接触：営業フォロー", "担当者接触：お断り",
+  "担当者接触：セミナー予約", "現在使われていない", "受付ブロック",
+  "担当者不在", "コールのみ", "問い合わせ",
+];
+
+// 同じ失敗を何度も出さないための小さな道具
+let _lastFail = "";
+function failedOnce(e, n) {
+  const m = String((e && e.message) || e).slice(0, 200);
+  if (m !== _lastFail) { console.warn("[kincall] 活動の件数を数えられません:", m); _lastFail = m; }
+}
+
+// SalesforceのIDは15桁と18桁が混在する（レポートのCSV取込は15桁、API取得は18桁）。
+// 先頭15桁がIDの実体なので、そこにそろえて突き合わせる。
+function id15(v) {
+  return String(v || "").replace(/[^A-Za-z0-9]/g, "").slice(0, 15);
+}
+
+// リストの中身の内訳（ステージ・最終ステータスの種類と件数）
+app.get("/api/calls/facets", async (req, res) => {
+  try {
+    const listId = parseInt(req.query.list, 10);
+    if (!listId) return res.status(400).json({ error: "リストを選んでください" });
+    const d = await callListFacets(listId);
+    res.json({
+      ok: true,
+      ステージ: d.stages.map((x) => ({ 値: x.v || "（なし）", 生: x.v, 件数: x.n })),
+      最終ステータス: d.statuses.map((x) => ({ 値: x.v || "（なし）", 生: x.v, 件数: x.n })),
+    });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// 条件に当てはまるものが何件あるか（消す前の下見）
+app.post("/api/calls/targets/count", async (req, res) => {
+  try {
+    const listId = parseInt(req.body?.listId, 10);
+    if (!listId) return res.status(400).json({ error: "リストを選んでください" });
+    const n = await countCallTargets(listId, {
+      stages: Array.isArray(req.body?.stages) ? req.body.stages : [],
+      statuses: Array.isArray(req.body?.statuses) ? req.body.statuses : [],
+      hist: String(req.body?.hist || ""),
+    });
+    res.json({ ok: true, 件数: n });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// 条件に当てはまるものを消す
+app.post("/api/calls/targets/delete", async (req, res) => {
+  try {
+    const listId = parseInt(req.body?.listId, 10);
+    if (!listId) return res.status(400).json({ error: "リストを選んでください" });
+    const cond = {
+      stages: Array.isArray(req.body?.stages) ? req.body.stages : [],
+      statuses: Array.isArray(req.body?.statuses) ? req.body.statuses : [],
+      hist: String(req.body?.hist || ""),
+    };
+    // 何も選んでいないときに全部消えないよう、必ず条件を求める
+    if (!cond.stages.length && !cond.statuses.length && !cond.hist) {
+      return res.status(400).json({ error: "消すものの条件を選んでください（全部消すときは、リストごと消してください）" });
+    }
+    const n = await deleteCallTargets(listId, cond);
+    console.log(`[kincall] リスト${listId}から${n}件を消しました by ${req.user}`);
+    res.json({ ok: true, 消した数: n });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// リストごと消す
+app.delete("/api/calls/lists/:id", async (req, res) => {
+  try {
+    const ok = await deleteCallList(parseInt(req.params.id, 10));
+    if (!ok) return res.status(500).json({ error: "消せませんでした" });
+    console.log(`[kincall] リスト${req.params.id}を消しました by ${req.user}`);
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// かける人の一覧（kincallを使う人）
+app.get("/api/calls/members", async (req, res) => {
+  try {
+    const list = await listMembers().catch(() => []);
+    const items = (list || [])
+      .filter((m) => m.active !== false)
+      .map((m) => ({
+        email: m.email,
+        name: m.name || m.email,
+        // kincallだけの人（インターン生）が分かるようにする
+        kincallだけ: Array.isArray(m.roles) && m.roles.includes("kincall"),
+        インサイド: Array.isArray(m.roles) && m.roles.includes("inside"),
+      }))
+      // kincallだけの人を先に出す（よく使うため）
+      .sort((a, b) => (b.kincallだけ ? 1 : 0) - (a.kincallだけ ? 1 : 0));
+    res.json({ ok: true, items });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// 配り具合を見る
+app.get("/api/calls/assign", async (req, res) => {
+  try {
+    const listId = parseInt(req.query.list, 10);
+    if (!listId) return res.status(400).json({ error: "リストを選んでください" });
+    const rows = await callAssignCounts(listId);
+    const names = new Map();
+    for (const r of rows) {
+      const k = r["誰"];
+      if (!k || names.has(k)) continue;
+      names.set(k, await displayNameOf(k).catch(() => k));
+    }
+    res.json({
+      ok: true,
+      items: rows.map((r) => ({
+        email: r["誰"],
+        name: r["誰"] ? (names.get(r["誰"]) || r["誰"]) : "（まだ配っていない）",
+        全部: r["全部"], 済み: r["済み"], 残り: r["全部"] - r["済み"],
+      })),
+    });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// 配る
+app.post("/api/calls/assign", async (req, res) => {
+  try {
+    const listId = parseInt(req.body?.listId, 10);
+    if (!listId) return res.status(400).json({ error: "リストを選んでください" });
+    const who = Array.isArray(req.body?.emails) ? req.body.emails : [];
+    if (!who.length) return res.status(400).json({ error: "かける人を選んでください" });
+    // すでに配ったぶんも配り直すか
+    const 全部やり直す = req.body?.redo === true;
+    const n = await assignCallTargets(listId, who, { onlyUnassigned: !全部やり直す });
+    console.log(`[kincall] ${n}件を${who.length}人に配りました by ${req.user}`);
+    res.json({ ok: true, 配った数: n, 人数: who.length });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// 配ったものを戻す
+app.post("/api/calls/assign/clear", async (req, res) => {
+  try {
+    const listId = parseInt(req.body?.listId, 10);
+    if (!listId) return res.status(400).json({ error: "リストを選んでください" });
+    const n = await clearCallAssign(listId);
+    res.json({ ok: true, 戻した数: n });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// 履歴の件数が数えられているかを、その場で確かめる
+app.get("/api/calls/count-check", async (req, res) => {
+  try {
+    const listId = parseInt(req.query.list, 10);
+    const rows = await listCallTargets(listId || 0, { limit: 5 });
+    const ids = rows.map((r) => r.lead_id).filter(Boolean);
+    let 数える人 = req.user;
+    let 代理を使った = false;
+    if (!(await sfConnected(数える人).catch(() => false))) {
+      const st = await getSettings().catch(() => ({}));
+      const 代理 = String(st.sfProxyUser || "").trim().toLowerCase();
+      if (代理 && (await sfConnected(代理).catch(() => false))) { 数える人 = 代理; 代理を使った = true; }
+    }
+    const つながっている = await sfConnected(数える人).catch(() => false);
+    let 生の答え = null, エラー = "";
+    if (ids.length && つながっている) {
+      try {
+        const part = ids.slice(0, 5).map((x) => `'${String(x).replace(/[^A-Za-z0-9]/g, "")}'`);
+        const inClause = `WhoId IN (${part.join(",")})`;
+        let d;
+        try {
+          // 実際の履歴列と同じく「架電だけ（Type='Call'）」で数える
+          d = await sfQuery(数える人,
+            `SELECT WhoId, count(Id) n FROM Task WHERE ${inClause} AND Type = 'Call' GROUP BY WhoId`);
+        } catch (e2) {
+          if (/No such column|INVALID_FIELD|Type/i.test(e2.message || "")) {
+            d = await sfQuery(数える人,
+              `SELECT WhoId, count(Id) n FROM Task WHERE ${inClause} GROUP BY WhoId`);
+          } else { throw e2; }
+        }
+        生の答え = (d.records || []).slice(0, 5);
+      } catch (e) { エラー = e.message; }
+    }
+    res.json({
+      ok: true,
+      数える人, 代理を使った, つながっている,
+      リードのID: ids.slice(0, 5),
+      生の答え,
+      エラー,
+      hint: !ids.length ? "このリストにはSalesforceのリードIDが入っていません（貼り付けで作ったリストなど）"
+        : !つながっている ? "Salesforceにつながっていません。設定→動作設定で「代わりに更新する人」を決めてください"
+        : エラー ? "Salesforceからの答えでつまずいています（上のエラーを見てください）"
+        : 生の答え && 生の答え.length ? "数えられています" : "そのリードには活動履歴がありませんでした",
+    });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// リストの中身を表で返す（SFのリードレポートのような一覧）
+app.get("/api/calls/targets", async (req, res) => {
+  try {
+    const listId = parseInt(req.query.list, 10);
+    if (!listId) return res.status(400).json({ error: "リストを選んでください" });
+    const rows = await listCallTargets(listId, {
+      q: String(req.query.q || ""),
+      limit: Math.min(2000, parseInt(req.query.limit, 10) || 2000),
+    });
+
+    // Salesforceに残っている活動の件数も数える（kincallの記録だけだと0に見えるため）
+    //
+    // SFアカウントの無い人（インターン生）でも数を見られるよう、
+    // 代わりに更新する人の連携を使う。
+    const sfCount = new Map();
+    const ids = [...new Set(rows.map((r) => r.lead_id).filter(Boolean))];
+    let 数える人 = req.user;
+    if (!(await sfConnected(数える人).catch(() => false))) {
+      const st = await getSettings().catch(() => ({}));
+      const 代理 = String(st.sfProxyUser || "").trim().toLowerCase();
+      if (代理 && (await sfConnected(代理).catch(() => false))) 数える人 = 代理;
+    }
+    if (ids.length && salesforceConfigured() && (await sfConnected(数える人).catch(() => false))) {
+      // 一度に長すぎる問い合わせはSalesforceに弾かれるので、小分けにする
+      const 束 = 80;
+      let 失敗 = 0;
+      // 「架電だけ」を数える条件。kincallは架電活動を Type='Call' で作っている。
+      // ※組織に Task.Type が無い場合は、この条件を外して全活動を数える（下でフォールバック）。
+      const 架電しぼり = "Type = 'Call'";
+      for (let i = 0; i < ids.length; i += 束) {
+        const part = ids.slice(i, i + 束).map((x) => `'${String(x).replace(/[^A-Za-z0-9]/g, "")}'`);
+        const inClause = `WhoId IN (${part.join(",")})`;
+        try {
+          let d;
+          try {
+            // まず架電だけで数える
+            d = await sfQuery(数える人,
+              `SELECT WhoId, count(Id) n FROM Task WHERE ${inClause} AND ${架電しぼり} GROUP BY WhoId`);
+          } catch (e) {
+            // Task.Type が無い組織では条件を外して全活動を数える
+            if (/No such column|INVALID_FIELD|Type/i.test(e.message || "")) {
+              d = await sfQuery(数える人,
+                `SELECT WhoId, count(Id) n FROM Task WHERE ${inClause} GROUP BY WhoId`);
+            } else { throw e; }
+          }
+          for (const r of d.records || []) {
+            // Salesforceは、付けた名前（n）ではなく expr0 で返すことがある
+            const n = Number(r.n ?? r.expr0 ?? r.N ?? 0);
+            // 戻り値のWhoIdは18桁、手元のlead_idは15桁のことがある。
+            // 先頭15桁をキーにそろえて突き合わせる（15桁はSF IDの実体）。
+            if (r.WhoId) sfCount.set(id15(r.WhoId), n);
+          }
+        } catch (e) {
+          failedOnce(e, ++失敗);
+        }
+      }
+      if (失敗) console.warn(`[kincall] 活動の件数：${失敗}回ぶん数えられませんでした`);
+      console.log(`[kincall] 架電の件数を数えました：${sfCount.size}件ぶん（対象 ${ids.length}）`);
+    }
+    res.json({
+      ok: true,
+      件数: rows.length,
+      残り: rows.filter((r) => !r.done).length,
+      結果の種類: CALL_RESULTS.map((x) => x.key),
+      items: rows.map((r) => ({
+        id: r.id, leadId: r.lead_id || "",
+        ステージ: r.stage || "",
+        会社名: r.company || "", 担当者: r.person || "",
+        電話番号: r.phone || "", メール: r.email || "",
+        最終ステータス: r.status || "",
+        // 履歴はSFのものを出すので、件数もSFの数に合わせる。
+        // SFへまだ送れていないkinbotの記録があれば、それも足す。
+        // lead_id が15桁でも18桁でも合うよう、先頭15桁で引く。
+        履歴数: (sfCount.get(id15(r.lead_id)) || 0) + Number(r["未送信数"] || 0),
+        最終結果: r["最終結果"] || "",
+        最終日時: r["最終日時"] || null,
+        済み: !!r.done,
+      })),
+    });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// 1件の履歴（モーダルで出す）
+app.get("/api/calls/targets/:id/history", async (req, res) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    const t = await getCallTarget(id);
+    if (!t) return res.status(404).json({ error: "見つかりません" });
+    // 履歴はSalesforceに残っているものだけを出す。
+    // kinbot側の記録は、SFへ送れなかったものだけを出す（送れていれば同じものが二重になるため）。
+    const rows = await callHistory(id, t.lead_id, 50);
+    const items = rows
+      .filter((h) => !h.sf_task_id)   // SFへ残せたものは、SF側から出す
+      .map((h) => ({
+        結果: h.result, メモ: h.memo || "", 誰: h.caller || "", at: h.at,
+        元: "kinbot", まだ送れていない: true,
+      }));
+
+    // Salesforceに残っている架電の履歴も混ぜる（過去のやり取りはSFにある）
+    let sfNote = "";
+    if (t.lead_id && salesforceConfigured() && (await sfConnected(req.user).catch(() => false))) {
+      try {
+        const acts = await leadActivities(req.user, t.lead_id, 50);
+        for (const a of acts) {
+          // SFに残っているものは、すべて出す
+          const at = a.ActivityDate || (a.CreatedDate || "").slice(0, 10);
+          // 説明の中に書かれている結果を取り出す。
+          // 決まった言い方（受付ブロック・担当者接触：アポ獲得 など）を先に探し、
+              // 見つからなければ「結果：」の後ろを読む。
+          const desc = String(a.Description || "");
+          let 結果 = 既知の結果.find((w) => desc.includes(w)) || "";
+          if (!結果) {
+            const m1 = desc.match(/(?:コール結果|結果)\s*[:：]\s*([^\n]*?)(?=\s*[^\s:：]{2,10}\s*[:：]|\n|$)/);
+            if (m1) 結果 = m1[1].trim().slice(0, 40);
+          }
+          items.push({
+            件名: String(a.Subject || "").replace(/^コール：/, "") || "活動",
+            結果,
+            メモ: desc.slice(0, 500),
+            誰: (a.Owner && a.Owner.Name) || "",
+            at: at ? `${at}T00:00:00Z` : a.CreatedDate,
+            元: "salesforce",
+          });
+        }
+        if (!acts.length) sfNote = "Salesforceに活動履歴はありませんでした";
+      } catch (e) {
+        sfNote = `Salesforceの履歴を読めません（${e.message}）`;
+      }
+    } else if (!t.lead_id) {
+      sfNote = "この相手はSalesforceのリードと結びついていません";
+    }
+
+    // 新しい順に並べ直す
+    items.sort((a, b) => new Date(b.at).getTime() - new Date(a.at).getTime());
+
+    res.json({
+      ok: true,
+      相手: { 会社名: t.company || "", 担当者: t.person || "", 電話番号: t.phone || "", メール: t.email || "" },
+      note: sfNote,
+      items,
+    });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// 会社名・担当者名・電話番号・メールアドレスを編集する。
+// ローカルの宛先を書き換え、Salesforceのリードにも同じ内容を反映する。
+app.post("/api/calls/targets/:id/edit", async (req, res) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    const t = await getCallTarget(id);
+    if (!t) return res.status(404).json({ error: "見つかりません" });
+
+    const b = req.body || {};
+    const company = b.company === undefined ? undefined : String(b.company || "").trim();
+    const person  = b.person  === undefined ? undefined : String(b.person  || "").trim();
+    const phone   = b.phone   === undefined ? undefined : String(b.phone   || "").trim();
+    const email   = b.email   === undefined ? undefined : String(b.email   || "").trim();
+
+    // まずローカルを更新
+    const row = await updateCallTargetFields(id, { company, person, phone, email });
+
+    // Salesforceのリードにも反映（つながっていて、リードと結びついているときだけ）
+    let sf = null;
+    if (t.lead_id && salesforceConfigured()) {
+      // 記録と同じく、自分がつながっていなければ代理の連携を使う
+      let sfUser = req.user;
+      if (!(await sfConnected(sfUser).catch(() => false))) {
+        const st = await getSettings().catch(() => ({}));
+        const 代理 = String(st.sfProxyUser || "").trim().toLowerCase();
+        if (代理 && (await sfConnected(代理).catch(() => false))) sfUser = 代理;
+      }
+      if (await sfConnected(sfUser).catch(() => false)) {
+        // 送るのは値が入っているものだけ。必須項目（会社名・担当者名）は空では送らない。
+        const fields = {};
+        if (company !== undefined && company !== "") fields.Company = company;
+        if (person  !== undefined && person  !== "") fields.LastName = person; // Lead.Name は LastName に入れる
+        if (phone   !== undefined) fields.Phone = phone;  // 電話・メールは空にできる
+        if (email   !== undefined) fields.Email = email;
+        try {
+          if (Object.keys(fields).length) {
+            await updateLead(sfUser, t.lead_id, fields);
+            sf = { ok: true };
+          } else {
+            sf = { ok: false, reason: "SFへ送る項目がありませんでした" };
+          }
+        } catch (e) {
+          sf = { ok: false, reason: e.message };
+        }
+      } else {
+        sf = { ok: false, reason: "Salesforceにつながっていません" };
+      }
+    } else if (!t.lead_id) {
+      sf = { ok: false, reason: "この相手はSalesforceのリードと結びついていません" };
+    }
+
+    res.json({
+      ok: true,
+      項目: {
+        会社名: (row && row.company) || company || "",
+        担当者: (row && row.person) || person || "",
+        電話番号: (row && row.phone) || phone || "",
+        メール: (row && row.email) || email || "",
+      },
+      sf,
+    });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// 記録する（Salesforceの活動履歴と、リードの状態も更新する）
+app.post("/api/calls/targets/:id/record", async (req, res) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    const t = await getCallTarget(id);
+    if (!t) return res.status(404).json({ error: "見つかりません" });
+    const b = req.body || {};
+    const result = String(b.result || "").trim();
+    // 結果はSalesforceの選択肢をそのまま使うので、決め打ちで弾かない。
+    // （「担当者接触：アポ獲得」など、組織ごとに値が違うため）
+    if (!result) return res.status(400).json({ error: "結果を選んでください" });
+
+    // kinbotに残す
+    const log = await recordCall({
+      targetId: id, leadId: t.lead_id, company: t.company,
+      result, memo: String(b.memo || ""), caller: req.user,
+    });
+    // ステージ・最終ステータスも書き換える
+    if (b.stage !== undefined || b.status !== undefined) {
+      await setCallTargetStatus(id, { stage: b.stage, status: b.status }).catch(() => {});
+    }
+
+    // Salesforceへ（活動履歴＋リードの状態）
+    //
+    // インターン生などSalesforceのアカウントを持たない人のために、
+    // 「代わりに更新する人」を決めておける（設定→動作設定）。
+    // その場合、誰が記録したかは説明に残す。
+    let sf = { ok: false, reason: "" };
+    const st0 = await getSettings().catch(() => ({}));
+    const 代理 = String(st0.sfProxyUser || "").trim().toLowerCase();
+    let sfUser = req.user;
+    let 代理で更新 = false;
+    if (!(await sfConnected(req.user).catch(() => false)) && 代理) {
+      if (await sfConnected(代理).catch(() => false)) {
+        sfUser = 代理;
+        代理で更新 = true;
+      }
+    }
+    // 記録した本人の名前（説明に残す）
+    const 記録者 = await displayNameOf(req.user).catch(() => req.user);
+
+    if (t.lead_id && salesforceConfigured() && (await sfConnected(sfUser).catch(() => false))) {
+      try {
+        const made = await createTask(sfUser, {
+          WhoId: t.lead_id,
+          Subject: `コール：${result}`,
+          Status: "完了", Type: "Call",
+          ActivityDate: jstDate(0),
+          Description: [
+            `結果：${result}`,
+            b.memo ? `メモ：${b.memo}` : "",
+            b.status ? `リードの状態：${b.status}` : "",
+            // 誰がかけたかを必ず残す（代理で更新するときは特に大事）
+            `記録した人：${記録者}`,
+          ].filter(Boolean).join("\n"),
+        });
+        // リードの状態も直す（項目名は組織ごとに違うので、指定があるときだけ）
+        if (b.leadStatus) {
+          await updateLead(sfUser, t.lead_id, { Status: String(b.leadStatus) }).catch(() => {});
+        }
+        // 作った活動のIDを残す（履歴で二重に出さないために使う）
+        await markCallSynced(log && log.id, {
+          // createTask は { id } か { taskId } を返す（作り方によって違う）
+          taskId: (made && (made.id || made.Id || made.taskId)) || "done",
+        }).catch(() => {});
+        sf = { ok: true, 代理: 代理で更新 ? await displayNameOf(sfUser).catch(() => sfUser) : "" };
+      } catch (e) {
+        sf = { ok: false, reason: e.message };
+        await markCallSynced(log && log.id, { error: e.message }).catch(() => {});
+      }
+    } else if (!t.lead_id) {
+      sf = { ok: false, reason: "この相手はSalesforceのリードと結びついていません" };
+    }
+
+    res.json({ ok: true, sf });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// 次にかける1件
+app.get("/api/calls/next", async (req, res) => {
+  try {
+    const listId = parseInt(req.query.list, 10);
+    if (!listId) return res.status(400).json({ error: "リストを選んでください" });
+    const t = await nextCallTarget(listId, req.user);
+    if (!t) return res.json({ ok: true, done: true });
+    const past = await callHistory(t.id, t.lead_id, 5);
+    res.json({
+      ok: true,
+      done: false,
+      target: {
+        id: t.id, leadId: t.lead_id || "", company: t.company, person: t.person,
+        phone: t.phone, email: t.email, industry: t.industry, area: t.area, memo: t.memo || "",
+      },
+      履歴: past.map((h) => ({ 結果: h.result, メモ: h.memo || "", at: h.at, 誰: h.caller || "" })),
+      結果の種類: CALL_RESULTS.map((x) => x.key),
+    });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// 結果を記録する（そのあとSalesforceへ送る）
+app.post("/api/calls/record", async (req, res) => {
+  try {
+    const b = req.body || {};
+    const result = String(b.result || "").trim();
+    if (!CALL_RESULTS.some((x) => x.key === result)) {
+      return res.status(400).json({ error: "結果を選んでください" });
+    }
+    const log = await recordCall({
+      targetId: parseInt(b.targetId, 10) || null,
+      leadId: String(b.leadId || "") || null,
+      company: String(b.company || ""),
+      result,
+      memo: String(b.memo || ""),
+      caller: req.user,
+    });
+    if (!log) return res.status(500).json({ error: "記録できませんでした" });
+
+    // Salesforceへは、待たせずに裏で送る
+    syncCallToSf(log).catch(() => {});
+    res.json({ ok: true, id: log.id });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// 架電の記録をSalesforceへ送る（活動として残す）
+async function syncCallToSf(log) {
+  if (!log || !log.lead_id) return;
+  try {
+    if (!salesforceConfigured()) return;
+    const owner = log.caller;
+    if (!owner || !(await sfConnected(owner).catch(() => false))) return;
+    const r = CALL_RESULTS.find((x) => x.key === log.result);
+    const task = await createTask(owner, {
+      WhoId: log.lead_id,
+      Subject: `コール：${(r && r.sf) || log.result}`,
+      Status: "完了",
+      Type: "Call",
+      ActivityDate: new Date(log.at || Date.now()).toISOString().slice(0, 10),
+      Description: [`結果：${log.result}`, log.memo ? `メモ：${log.memo}` : ""].filter(Boolean).join("\n"),
+    });
+    await markCallSynced(log.id, { taskId: (task && (task.id || task.Id)) || "done" });
+    console.log(`[コール] Salesforceに残しました：${log.company}（${log.result}）`);
+  } catch (e) {
+    await markCallSynced(log.id, { error: e.message }).catch(() => {});
+    console.warn(`[コール] Salesforceへ送れませんでした：${e.message}`);
+  }
+}
+
+// 送れなかったぶんを、あとから送り直す（5分おき）
+async function retryCallSync() {
+  try {
+    const rows = await pendingCallLogs(30);
+    for (const log of rows) await syncCallToSf(log);
+  } catch {}
+}
+
+// その日の実績
+app.get("/api/calls/stats", async (req, res) => {
+  try {
+    const date = /^\d{4}-\d{2}-\d{2}$/.test(String(req.query.date || "")) ? req.query.date : jstDate(0);
+    const rows = await callStats(date, String(req.query.mine || "") === "1" ? req.user : "");
+    const by = new Map();
+    for (const r of rows) {
+      const k = r.caller || "（不明）";
+      if (!by.has(k)) by.set(k, { 誰: k, コール: 0, 接触: 0, アポ: 0 });
+      const o = by.get(k);
+      o.コール += r.n;
+      // Salesforceの選択肢をそのまま使うので、言葉で見分ける。
+      // 「担当者接触：アポ獲得」「担当者不在」「コールのみ」など。
+      const v = String(r.result || "");
+      const 接触した = /接触|アポ|再コール|断り|見送り/.test(v) && !/不在|コールのみ|NG/.test(v);
+      const アポ = /アポ獲得/.test(v);
+      if (接触した || アポ) o.接触 += r.n;
+      if (アポ) o.アポ += r.n;
+    }
+    const list = [...by.values()].sort((a, b) => b.コール - a.コール);
+    const sum = list.reduce((o, x) => ({
+      コール: o.コール + x.コール, 接触: o.接触 + x.接触, アポ: o.アポ + x.アポ,
+    }), { コール: 0, 接触: 0, アポ: 0 });
+    res.json({ ok: true, date, 合計: sum, items: list });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// ───────────────────────────────────────────────────────────
+// ロボに話しかける（画面の案内係）
+//
+// 「これどうやるの？」に答える。
+// 答えられないことと要望は、その場で開発メモに残す。
+// ───────────────────────────────────────────────────────────
+app.post("/api/ask-bot", async (req, res) => {
+  try {
+    const message = String(req.body?.message || "").slice(0, 1000);
+    const history = Array.isArray(req.body?.history) ? req.body.history.slice(-6) : [];
+    const r = await askBot({ message, history, callLLM: callLLMPublic });
+
+    let saved = null;
+    if (r.note) {
+      // 同じ内容が溜まらないよう、似ているものがあれば残さない
+      let seen = [];
+      try {
+        const notes = await listDevNotes({ limit: 300 });
+        const gone = await listDismissed(300).catch(() => []);
+        seen = notes.concat(gone).map((n) => ({ title: n.title, detail: "" }));
+      } catch {}
+      const fresh = dropSimilar([{ title: r.note.title, detail: message }], seen);
+      if (fresh.length) {
+        saved = await addDevNote({
+          key: `bot:${Date.now()}:${r.note.title}`.slice(0, 200),
+          kind: r.note.kind,
+          title: r.note.title,
+          detail: `聞かれたこと：${message}`,
+          source: "ロボに相談",
+          createdBy: req.user || "",
+        }).catch(() => null);
+        console.log(`[ロボ] 開発メモに残しました（${r.note.kind}）：${r.note.title}`);
+      } else {
+        console.log(`[ロボ] 同じ内容が既にあるので残しませんでした：${r.note.title}`);
+      }
+    }
+    res.json({ ok: true, answer: r.answer, noted: !!saved, note: r.note || null });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // ───────────────────────────────────────────────────────────
 // 開発メモ（直したいこと）
 // ───────────────────────────────────────────────────────────
@@ -3433,9 +5745,38 @@ app.post("/api/dev-notes", async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+// まとめて状態を変える（溜まった案を一度に片づけるため）
+app.post("/api/dev-notes/bulk", async (req, res) => {
+  try {
+    const b = req.body || {};
+    const status = String(b.status || "dropped");
+    const rows = await listDevNotes({ limit: 500 });
+    const target = rows.filter((r) => {
+      if (Array.isArray(b.ids) && b.ids.length) return b.ids.includes(r.id);
+      if (b.source && r.source !== b.source) return false;
+      if (b.kind && r.kind !== b.kind) return false;
+      if (b.onlyNew !== false && r.status === "done") return false;
+      if (b.all === true) return true;
+      return !!(b.source || b.kind);
+    });
+    for (const r of target) {
+      if (status === "dropped") await dismissDevNote(r.id).catch(() => {});
+      else await updateDevNote(r.id, { status }).catch(() => {});
+    }
+    console.log(`[開発メモ] ${target.length}件を${status === "dropped" ? "見送って消しました" : `「${status}」にしました`} by ${req.user}`);
+    res.json({ ok: true, changed: target.length });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 app.patch("/api/dev-notes/:id", async (req, res) => {
   try {
-    const r = await updateDevNote(parseInt(req.params.id, 10), req.body || {});
+    const id = parseInt(req.params.id, 10);
+    // 「見送り」は一覧から消す。題名は覚えておき、同じ案がまた出ないようにする。
+    if (String(req.body?.status || "") === "dropped") {
+      const n = await dismissDevNote(id);
+      return res.json({ ok: true, dismissed: n });
+    }
+    const r = await updateDevNote(id, req.body || {});
     res.json({ ok: true, item: r });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
@@ -3454,6 +5795,558 @@ app.post("/api/dev-notes/summary", async (req, res) => {
     if (r.empty) return res.json({ ok: true, empty: true, text: "未対応の開発メモはありません。" });
     if (req.body?.send === true) await notifyAll(r.text, "assign");
     res.json({ ok: true, ...r, sent: req.body?.send === true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// ───────────────────────────────────────────────────────────
+// 週のボード（ホワイトボードの代わり）
+//
+// 月曜の朝礼までに「テーマ・定量目標・具体的な施策」を書き、
+// 金曜の終礼で「振り返り」を書く。実績はkinbotが自動で添える。
+// ───────────────────────────────────────────────────────────
+
+// その日が入る週の月曜日を返す（日付は日本時間で考える）
+function weekStartOf(dateJst) {
+  const d = new Date((dateJst || jstDate(0)) + "T00:00:00Z");
+  const w = (d.getUTCDay() + 6) % 7;         // 月曜を0にする
+  d.setUTCDate(d.getUTCDate() - w);
+  return d.toISOString().slice(0, 10);
+}
+
+function addDays(dateStr, n) {
+  const d = new Date(dateStr + "T00:00:00Z");
+  d.setUTCDate(d.getUTCDate() + n);
+  return d.toISOString().slice(0, 10);
+}
+
+// ボードを書く人。
+// 全員ではなく、決めた人だけにする（人数が多いと見づらいため）。
+// 既定は 植野・江田・田中・森田。設定で変えられる。
+const WEEKLY_DEFAULT = ["植野", "江田", "田中", "森田"];
+
+async function weeklyMembers() {
+  const map = new Map();
+  for (const i of await listInterns().catch(() => [])) {
+    if (i.email) map.set(String(i.email).toLowerCase(), i.name || i.email);
+  }
+  for (const c of await listClosers({ activeOnly: true }).catch(() => [])) {
+    if (c.email) map.set(String(c.email).toLowerCase(), c.name || c.email);
+  }
+  const all = [...map.entries()].map(([email, name]) => ({ email, name }));
+
+  const st = await getSettings().catch(() => ({}));
+  const raw = st.weeklyMembers === undefined ? WEEKLY_DEFAULT.join(",") : String(st.weeklyMembers);
+  const want = raw.split(/[,、\n]/).map((x) => x.trim()).filter(Boolean);
+  if (!want.length) return all;   // 空にしたら全員
+
+  const norm = (v) => String(v || "").replace(/[\s　]/g, "").toLowerCase();
+  const picked = [];
+  for (const w of want) {
+    const k = norm(w);
+    // メールでも名前（一部でも）でも指定できる
+    const hit = all.find((m) => norm(m.email) === k || norm(m.name) === k) ||
+                all.find((m) => norm(m.name).startsWith(k) || k.startsWith(norm(m.name)));
+    if (hit && !picked.some((p) => p.email === hit.email)) picked.push(hit);
+  }
+  return picked.length ? picked : all;
+}
+
+// ホワイトボードの写真から、週のボードを埋める。
+// 読み取った結果をそのまま保存せず、いったん画面に出して人が直せるようにする。
+const boardUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 20 * 1024 * 1024 } });
+
+app.post("/api/weekly/from-photo", boardUpload.single("photo"), async (req, res) => {
+  try {
+    if (!readerAvailable()) {
+      return res.status(400).json({ error: "画像を読む設定（GEMINI_API_KEY）がありません" });
+    }
+    if (!req.file || !req.file.buffer) return res.status(400).json({ error: "写真がありません" });
+
+    const people = await readWhiteboard({
+      buffer: req.file.buffer,
+      mimeType: req.file.mimetype || "image/jpeg",
+    });
+
+    // 読み取った名前を、kinbotのメンバーに結びつける
+    const members = await weeklyMembers();
+    const norm = (v) => String(v || "").replace(/[\s　]/g, "");
+    const out = people.map((p) => {
+      const k = norm(p.name);
+      const hit = members.find((m) => norm(m.name) === k) ||
+                  members.find((m) => norm(m.name).startsWith(k) || k.startsWith(norm(m.name)));
+      return {
+        読み取った名前: p.name,
+        member: hit ? hit.email : "",
+        name: hit ? hit.name : "",
+        theme: p.theme, targets: p.targets, actions: p.actions,
+      };
+    });
+
+    const 見つからない = out.filter((x) => !x.member).map((x) => x.読み取った名前);
+    console.log(`[週のボード] 写真から ${out.length}人ぶん読み取りました` +
+      (見つからない.length ? `（結びつかない名前：${見つからない.join("、")}）` : ""));
+    res.json({
+      ok: true,
+      people: out,
+      見つからない,
+      note: "中身を確かめてから「この内容で入れる」を押してください。まだ保存していません。",
+    });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// 読み取った内容を、まとめて保存する
+app.post("/api/weekly/apply-photo", async (req, res) => {
+  try {
+    const week = weekStartOf(String(req.body?.week || "").slice(0, 10) || jstDate(0));
+    const list = Array.isArray(req.body?.people) ? req.body.people : [];
+    let saved = 0;
+    for (const p of list) {
+      const member = String(p.member || "").toLowerCase();
+      if (!member) continue;
+      const items = (Array.isArray(p.actions) ? p.actions : [])
+        .map((t, i) => ({ id: `p${i}`, text: String(t).slice(0, 200), done: false, review: "" }))
+        .filter((x) => x.text);
+      await saveWeekly({
+        weekStart: week, member, memberName: p.name || "",
+        theme: String(p.theme || "").slice(0, 200),
+        targets: String(p.targets || "").slice(0, 600),
+        items,
+        updatedBy: req.user || "",
+      });
+      saved++;
+    }
+    console.log(`[週のボード] 写真の内容を ${saved}人ぶん入れました by ${req.user}`);
+    res.json({ ok: true, saved });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// ───────────────────────────────────────────────────────────
+// ホームのツール置き場
+//
+// よく使うツールを、人ごとに並べておける。押すとその画面へ飛ぶ。
+// 「天気予報」は全員に必ず入れる（毎週みんなが使うため）。
+// ───────────────────────────────────────────────────────────
+const HOME_TOOLS = [
+  { id: "weekly", href: "weekly.html", label: "天気予報", always: true },
+  { id: "apo", href: "apo.html", label: "アポ振り分け" },
+  { id: "launch", href: "sf-launch.html", label: "商談立ち上げ" },
+  { id: "pending", href: "sf-launch.html?tab=pending", label: "立ち上げ待ち" },
+  { id: "process", href: "sf-launch.html?tab=process", label: "プロセスシート" },
+  { id: "docs", href: "docs.html", label: "資料トラッキング" },
+  { id: "history", href: "history.html", label: "商談履歴" },
+  { id: "report", label: "実績", href: "report.html" },
+  { id: "style", href: "style-analysis.html", label: "営業スタイル分析" },
+  { id: "deals", href: "deals.html", label: "案件" },
+  { id: "rec", href: "index.html", label: "レコーディング" },
+  { id: "kincall", href: "/kincall", label: "kincall" },
+  { id: "dev", href: "dev.html", label: "開発メモ" },
+];
+
+app.get("/api/home-tools", async (req, res) => {
+  try {
+    const s = await getUserSettings(req.user).catch(() => ({}));
+    const saved = Array.isArray(s.homeTools) ? s.homeTools : null;
+    // まだ選んでいない人は、よく使うものを最初から入れておく
+    const def = ["weekly", "apo", "launch", "docs"];
+    const ids = saved || def;
+    // 天気予報は必ず先頭に入れる
+    const list = ["weekly", ...ids.filter((x) => x !== "weekly")];
+    res.json({
+      選んでいるもの: list,
+      使えるもの: HOME_TOOLS,
+      tools: list.map((id) => HOME_TOOLS.find((t) => t.id === id)).filter(Boolean),
+    });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.put("/api/home-tools", async (req, res) => {
+  try {
+    const want = Array.isArray(req.body?.tools) ? req.body.tools : [];
+    const ok = want.map(String).filter((id) => HOME_TOOLS.some((t) => t.id === id));
+    // 天気予報は外せない（全員が使うため）
+    const list = ["weekly", ...ok.filter((x) => x !== "weekly")].slice(0, 8);
+    await saveUserSettings(req.user, { homeTools: list });
+    res.json({ ok: true, 選んでいるもの: list });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// 対象メンバーの設定
+app.get("/api/weekly/members", async (req, res) => {
+  try {
+    const st = await getSettings();
+    const list = await weeklyMembers();
+    res.json({
+      指定: st.weeklyMembers === undefined ? WEEKLY_DEFAULT.join(",") : String(st.weeklyMembers),
+      いまの対象: list.map((x) => x.name),
+      note: "名前かメールを、カンマ区切りで書きます。空にすると全員が出ます。",
+    });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.put("/api/weekly/members", async (req, res) => {
+  try {
+    await saveSettings({ weeklyMembers: String(req.body?.members ?? "").slice(0, 400) });
+    const list = await weeklyMembers();
+    res.json({ ok: true, いまの対象: list.map((x) => x.name) });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// その週の実績（アポを何件取ったか）を、名前ごとに数える
+async function weeklyResults(weekStart) {
+  const from = weekStart, to = addDays(weekStart, 6);
+  const rows = await aposTakenInRange({ from, to }).catch(() => []);
+  const by = new Map();
+  for (const r of rows) {
+    const k = String(r.setter || "").replace(/[\s　]/g, "");
+    if (!k) continue;
+    if (isSkippedPerson(k) && !r.current_owner) continue;
+    by.set(k, (by.get(k) || 0) + 1);
+  }
+  return by;
+}
+
+app.get("/api/weekly", async (req, res) => {
+  try {
+    const week = weekStartOf(String(req.query.week || "").slice(0, 10) || jstDate(0));
+    const [rows, members, results] = await Promise.all([
+      listWeekly(week),
+      weeklyMembers(),
+      weeklyResults(week),
+    ]);
+    const byMember = new Map(rows.map((r) => [String(r.member).toLowerCase(), r]));
+    const norm = (v) => String(v || "").replace(/[\s　]/g, "");
+
+    const items = members.map((m) => {
+      const r = byMember.get(m.email) || {};
+      // 名前が少し違っても実績を拾えるようにする
+      let got = results.get(norm(m.name));
+      if (got === undefined) {
+        for (const [k, v] of results) {
+          if (k.startsWith(norm(m.name)) || norm(m.name).startsWith(k)) { got = v; break; }
+        }
+      }
+      // 施策は「タスクのカード」。昔の書き方（1つの文章）で入っていたら、行ごとに分けて移す。
+      let items = Array.isArray(r.items) ? r.items : null;
+      if (!items) {
+        items = String(r.actions || "").split("\n").map((t) => t.trim()).filter(Boolean)
+          .map((t, i) => ({ id: `a${i}`, text: t, done: false, review: "" }));
+      }
+      return {
+        member: m.email, name: m.name,
+        theme: r.theme || "", targets: r.targets || "",
+        items,
+        review: r.review || "", updatedAt: r.updated_at || null,
+        apos: got || 0,
+        written: !!(r.theme || r.targets || items.length),
+        reviewed: !!(r.review || items.some((x) => x.review)),
+      };
+    });
+
+    // 一覧に無い人が書いていたら、その人も出す
+    for (const r of rows) {
+      if (items.some((x) => x.member === String(r.member).toLowerCase())) continue;
+      items.push({
+        member: r.member, name: r.member_name || r.member,
+        theme: r.theme || "", targets: r.targets || "",
+        items: Array.isArray(r.items) ? r.items : [],
+        review: r.review || "", updatedAt: r.updated_at, apos: 0,
+        written: !!(r.theme || r.targets), reviewed: !!r.review,
+      });
+    }
+
+    res.json({
+      week, weekEnd: addDays(week, 6),
+      thisWeek: weekStartOf(jstDate(0)),
+      me: req.user || "",
+      items,
+    });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.put("/api/weekly", async (req, res) => {
+  try {
+    const b = req.body || {};
+    const week = weekStartOf(String(b.week || "").slice(0, 10) || jstDate(0));
+    const member = String(b.member || req.user || "").toLowerCase();
+    if (!member) return res.status(400).json({ error: "誰のぶんかが分かりません" });
+    const cut = (v, n) => (v === undefined ? undefined : String(v).slice(0, n));
+    // 施策のカードを整える（多すぎ・長すぎを防ぐ）
+    let items;
+    if (Array.isArray(b.items)) {
+      items = b.items.slice(0, 20).map((x, i) => ({
+        id: String(x.id || `a${i}`).slice(0, 20),
+        text: String(x.text || "").slice(0, 200),
+        done: x.done === true,
+        review: String(x.review || "").slice(0, 500),
+      })).filter((x) => x.text || x.review);
+    }
+    const r = await saveWeekly({
+      weekStart: week, member,
+      memberName: b.name || "",
+      theme: cut(b.theme, 200), targets: cut(b.targets, 600),
+      actions: cut(b.actions, 1500), review: cut(b.review, 1500),
+      items,
+      updatedBy: req.user || "",
+    });
+    res.json({ ok: true, item: r });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// 先週の内容を写す（毎週ゼロから書かなくていいように）
+app.post("/api/weekly/copy-last", async (req, res) => {
+  try {
+    const week = weekStartOf(String(req.body?.week || "").slice(0, 10) || jstDate(0));
+    const member = String(req.body?.member || req.user || "").toLowerCase();
+    const last = await weeklyFor(addDays(week, -7), member);
+    if (!last) return res.json({ ok: false, reason: "先週のぶんがありません" });
+    const lastItems = Array.isArray(last.items) ? last.items : [];
+    const r = await saveWeekly({
+      weekStart: week, member, memberName: last.member_name,
+      theme: last.theme, targets: last.targets, actions: last.actions,
+      // 施策は写すが、できた・振り返りは持ち込まない
+      items: lastItems.map((x, i) => ({ id: `a${i}`, text: x.text || "", done: false, review: "" })),
+      review: "", updatedBy: req.user || "",
+    });
+    res.json({ ok: true, item: r });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// 書けていない人に、本人だけへ声をかける
+async function remindWeekly(kind) {
+  const week = weekStartOf(jstDate(0));
+  const rows = await listWeekly(week);
+  const members = await weeklyMembers();
+  const byMember = new Map(rows.map((r) => [String(r.member).toLowerCase(), r]));
+  const todo = members.filter((m) => {
+    const r = byMember.get(m.email) || {};
+    const hasItems = Array.isArray(r.items) && r.items.length > 0;
+    const reviewed = !!r.review || (Array.isArray(r.items) && r.items.some((x) => x.review));
+    return kind === "plan" ? !(r.theme || r.targets || hasItems) : !reviewed;
+  });
+  let sent = 0;
+  for (const m of todo) {
+    const text = kind === "plan"
+      ? [`${m.name}さん、おはようございます。`, "",
+         "今週のボードがまだ空です。朝礼までに書いてください。",
+         "・テーマ（やり切ること）", "・定量目標", "・具体的な施策", "",
+         "kinbotの「週のボード」から書けます。"].join("\n")
+      : [`${m.name}さん、お疲れさまです。`, "",
+         "今週の振り返りがまだです。終礼までに書いてください。",
+         "kinbotの「週のボード」から書けます（今週の実績も出ています）。"].join("\n");
+    const r = await notifyPerson(m.email, text);
+    if (r.ok) sent++;
+  }
+  console.log(`[週のボード] ${kind === "plan" ? "記入" : "振り返り"}のお願いを ${sent}人に送りました`);
+  return { sent, todo: todo.map((x) => x.name) };
+}
+
+let lastWeeklyKey = "";
+async function maybeRemindWeekly() {
+  try {
+    const st = await getSettings().catch(() => ({}));
+    if (st.weeklyRemind !== true) return;
+    const now = new Date(Date.now() + 9 * 3600 * 1000);
+    const day = now.getUTCDay(), h = now.getUTCHours(), m = now.getUTCMinutes();
+    if (m > 4) return;
+    // 月曜の朝＝記入のお願い、金曜の夕方＝振り返りのお願い
+    const planH = Number(st.weeklyPlanHour ?? 8);
+    const reviewH = Number(st.weeklyReviewHour ?? 17);
+    let kind = "";
+    if (day === 1 && h === planH) kind = "plan";
+    else if (day === 5 && h === reviewH) kind = "review";
+    if (!kind) return;
+    const key = `${now.toISOString().slice(0, 10)}-${kind}`;
+    if (lastWeeklyKey === key) return;
+    lastWeeklyKey = key;
+    await remindWeekly(kind);
+  } catch (e) { console.warn("[週のボード]", e.message); }
+}
+
+app.get("/api/weekly/remind", async (req, res) => {
+  try {
+    const st = await getSettings();
+    res.json({
+      enabled: st.weeklyRemind === true,
+      planHour: Number(st.weeklyPlanHour ?? 8),
+      reviewHour: Number(st.weeklyReviewHour ?? 17),
+    });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.put("/api/weekly/remind", async (req, res) => {
+  try {
+    const b = req.body || {};
+    const patch = {};
+    if (b.enabled !== undefined) patch.weeklyRemind = b.enabled === true;
+    if (b.planHour !== undefined) patch.weeklyPlanHour = Math.max(0, Math.min(23, parseInt(b.planHour, 10) || 8));
+    if (b.reviewHour !== undefined) patch.weeklyReviewHour = Math.max(0, Math.min(23, parseInt(b.reviewHour, 10) || 17));
+    await saveSettings(patch);
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.post("/api/weekly/remind/run", async (req, res) => {
+  try {
+    const r = await remindWeekly(req.body?.kind === "review" ? "review" : "plan");
+    res.json({ ok: true, ...r });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// ───────────────────────────────────────────────────────────
+// 夕方のお知らせ（既定18:30）
+//
+// その日のうちに片づけたいことを、本人にだけ1対1のチャットで知らせる。
+//   ・Salesforceを更新していない商談
+//   ・Salesforceを立ち上げられていないアポ
+//   ・確定メールを送っていないアポ
+// ★ チームのスペースには流さない（できていないことを人前に出さないため）。
+// ───────────────────────────────────────────────────────────
+let lastEveningKey = "";
+
+async function buildEveningReminders(dateJst) {
+  const today = dateJst || jstDate(0);
+  const byPerson = new Map();
+  const put = (email, kind, line) => {
+    const k = String(email || "").toLowerCase();
+    if (!k) return;
+    if (!byPerson.has(k)) byPerson.set(k, { sf: [], launch: [], mail: [] });
+    byPerson.get(k)[kind].push(line);
+  };
+
+  // 1. 今日の商談で、Salesforceをまだ更新していないもの
+  try {
+    const rows = await listMeetings({ isAdmin: true, from: today, to: today, light: true, limit: 300 });
+    for (const m of rows) {
+      if (m.sf_url) continue;
+      put(m.owner, "sf", `${String(m.created_at).slice(11, 16)} ${m.title || m.account || "(名前なし)"}`);
+    }
+  } catch (e) { console.warn("[夕方] 商談を読めません:", e.message); }
+
+  // 2. Salesforceを立ち上げられていないもの
+  try {
+    const rows = await listAutolaunch(60);
+    for (const r of rows) {
+      if (r.ok) continue;
+      put(r.owner || r.current_owner, "launch", `${r.company || r.slug}（${reasonText(r.reason, r.detail)}）`);
+    }
+  } catch (e) { console.warn("[夕方] 立ち上げを読めません:", e.message); }
+
+  // 3. 今日取ったアポで、確定メールを送っていないもの
+  try {
+    const rows = await aposMailPending(today, 200);
+    for (const r of rows) {
+      const when = r.start_time ? `${String(r.start_time).slice(5, 10)} ` : "";
+      put(r.current_owner, "mail",
+        `${when}${r.label || r.slug}${r.client_email ? "" : "（宛先が未登録）"}`);
+    }
+  } catch (e) { console.warn("[夕方] アポのメールを読めません:", e.message); }
+
+  return byPerson;
+}
+
+function eveningText(name, x) {
+  const sec = (title, list) => list.length
+    ? [`${title}（${list.length}件）`, ...list.slice(0, 10).map((l) => `・${l}`),
+       list.length > 10 ? `…ほか${list.length - 10}件` : ""].filter(Boolean).join("\n")
+    : "";
+  const body = [
+    sec("☁️ *Salesforceの更新がまだ*", x.sf),
+    sec("🚀 *Salesforceの立ち上げがまだ*", x.launch),
+    sec("✉️ *確定メールがまだ*", x.mail),
+  ].filter(Boolean).join("\n\n");
+  return [
+    `${name ? name + "さん、" : ""}お疲れさまです。今日のうちに片づけたいものです。`,
+    "",
+    body,
+    "",
+    "（このお知らせは、あなたにだけ送っています）",
+  ].join("\n");
+}
+
+async function maybeSendEvening() {
+  try {
+    const st = await getSettings().catch(() => ({}));
+    if (st.eveningReminder !== true) return;
+    const now = new Date(Date.now() + 9 * 3600 * 1000);
+    if (now.getUTCDay() === 0 || now.getUTCDay() === 6) return;   // 土日は送らない
+    const h = Number(st.eveningHour ?? 18), m = Number(st.eveningMinute ?? 30);
+    if (now.getUTCHours() !== h) return;
+    const mm = now.getUTCMinutes();
+    if (mm < m || mm > m + 4) return;
+    const key = `${now.toISOString().slice(0, 10)}-${h}-${m}`;
+    if (lastEveningKey === key) return;
+    lastEveningKey = key;
+
+    const byPerson = await buildEveningReminders();
+    let sent = 0, skipped = [];
+    for (const [email, x] of byPerson) {
+      if (!x.sf.length && !x.launch.length && !x.mail.length) continue;
+      const name = await displayNameOf(email).catch(() => "");
+      const r = await notifyPerson(email, eveningText(name, x));
+      if (r.ok) sent++;
+      else skipped.push(`${email}（${r.reason || ""}）`);
+    }
+    console.log(`[夕方] ${sent}人に送りました${skipped.length ? ` ／ 送れず：${skipped.join("、")}` : ""}`);
+
+    // 送れなかった人がいたら、点検用の場所にだけ知らせる（本人が話しかけないと送れないため）
+    if (skipped.length) {
+      const to = { url: String(st.selfCheckWebhook || "").trim(), space: String(st.selfCheckSpace || "").trim() };
+      if (to.url || to.space) {
+        await notifyCheck([
+          "📨 *夕方のお知らせを送れなかった人がいます*",
+          ...skipped.map((s) => `・${s}`),
+          "",
+          "その人がGoogle Chatで kinbot に一度話しかけると、送れるようになります（「ヘルプ」でOK）。",
+        ].join("\n"), to).catch(() => {});
+      }
+    }
+  } catch (e) { console.warn("[夕方]", e.message); }
+}
+
+// 設定と、その場で試す
+app.get("/api/evening-reminder", async (req, res) => {
+  try {
+    const st = await getSettings();
+    res.json({
+      enabled: st.eveningReminder === true,
+      hour: Number(st.eveningHour ?? 18),
+      minute: Number(st.eveningMinute ?? 30),
+      appReady: chatInfo().app ? chatInfo().app.configured : false,
+    });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.put("/api/evening-reminder", async (req, res) => {
+  try {
+    const b = req.body || {};
+    const patch = {};
+    if (b.enabled !== undefined) patch.eveningReminder = b.enabled === true;
+    if (b.hour !== undefined) patch.eveningHour = Math.max(0, Math.min(23, parseInt(b.hour, 10) || 18));
+    if (b.minute !== undefined) patch.eveningMinute = Math.max(0, Math.min(59, parseInt(b.minute, 10) || 30));
+    await saveSettings(patch);
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// いまの中身を見る（?send=1 で自分にだけ送ってみる）
+app.post("/api/evening-reminder/test", async (req, res) => {
+  try {
+    const byPerson = await buildEveningReminders(String(req.body?.date || "") || undefined);
+    const out = [];
+    for (const [email, x] of byPerson) {
+      if (!x.sf.length && !x.launch.length && !x.mail.length) continue;
+      const name = await displayNameOf(email).catch(() => "");
+      out.push({ email, name, sf: x.sf.length, launch: x.launch.length, mail: x.mail.length,
+                 text: eveningText(name, x) });
+    }
+    let sent = null;
+    if (req.body?.send === true) {
+      const me = out.find((o) => o.email === String(req.user || "").toLowerCase());
+      sent = me ? await notifyPerson(me.email, me.text) : { ok: false, reason: "あなた宛の分はありません" };
+    }
+    res.json({ ok: true, people: out, sent });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
@@ -3581,6 +6474,11 @@ async function maybeSelfCheck() {
     autoState.check.lastRun = new Date().toISOString();
     autoState.check.reason = bad.length ? `${bad.length}件の問題を見つけました` : "問題はありませんでした";
 
+    // Chatへの通知をまとめてOFFにしているときは送らない
+    if (st.devSummary !== true) {
+      autoState.check.reason += "（Chatへの通知はOFFです）";
+      return;
+    }
     // ★ 送り先は点検用の1か所だけ。チームのスペースには送らない。
     const to = { url: String(st.selfCheckWebhook || "").trim(), space: String(st.selfCheckSpace || "").trim() };
     if (!to.url && !to.space) {
@@ -3678,20 +6576,49 @@ async function runUiReview(fileWanted = "") {
     if (hit.length) extra = hit.map((n) => n.title).join(" ／ ");
   } catch {}
 
+  // 前に出した案を渡して、同じことを繰り返さないようにする。
+  // 見送りにしたものも含める（見送った案をまた出されると意味がないため）。
+  let already = [], allSeen = [];
+  try {
+    const notes = await listDevNotes({ limit: 500 });
+    const mine = notes.filter((n) => n.source === "画面の見直し");
+    already = mine
+      .filter((n) => String(n.title).startsWith(`${chosen.page.name}：`))
+      .map((n) => String(n.title).replace(`${chosen.page.name}：`, ""))
+      .slice(0, 40);
+    // 似ているかの判定には、すべての画面のぶんと、見送ったぶんを使う
+    allSeen = mine.map((n) => ({ title: n.title, detail: String(n.detail || "").slice(0, 120) }));
+    const gone = await listDismissed(500).catch(() => []);
+    allSeen = allSeen.concat(gone.map((g) => ({ title: g.title, detail: String(g.detail || "").slice(0, 120) })));
+    // AIに渡す一覧にも、見送ったものを混ぜる
+    already = already.concat(
+      gone.filter((g) => String(g.title).startsWith(`${chosen.page.name}：`))
+          .map((g) => String(g.title).replace(`${chosen.page.name}：`, ""))).slice(0, 60);
+  } catch {}
+
   const publicDir = path.join(__dirname, "..", "public");
-  const r = await reviewPage(publicDir, chosen.page, callLLMPublic, extra);
+  const r = await reviewPage(publicDir, chosen.page, callLLMPublic, extra, already);
   if (r.error) return { error: r.error, page: chosen.page.name };
 
-  // 1件ずつ開発メモに残す（同じ案は1件にまとまる）
-  const ideas = splitIdeas(r.text);
+  // 1件ずつ開発メモに残す。
+  // ただし、言い回しが違うだけで前と同じ内容のものは残さない。
+  const all = splitIdeas(r.text);
+  const ideas = dropSimilar(
+    all.map((x) => ({ ...x, title: `${chosen.page.name}：${x.title}` })),
+    allSeen);
+  const skipped = all.length - ideas.length;
   for (const it of ideas) {
     await devNote({
       key: `ui:${chosen.page.file}:${it.title}`.slice(0, 200), kind: "idea",
-      title: `${chosen.page.name}：${it.title}`, detail: it.detail, source: "画面の見直し",
+      title: it.title, detail: it.detail, source: "画面の見直し",
     }).catch(() => {});
   }
+  if (skipped) console.log(`[画面見直し] 前と同じ内容の案 ${skipped}件は残しませんでした`);
 
-  uiReviewLast = { at: new Date().toISOString(), page: chosen.page.name, file: chosen.page.file, text: r.text, count: ideas.length };
+  uiReviewLast = {
+    at: new Date().toISOString(), page: chosen.page.name, file: chosen.page.file,
+    text: r.text, count: ideas.length, skipped,
+  };
   return uiReviewLast;
 }
 
@@ -3720,6 +6647,10 @@ async function maybeUiReview() {
     autoState.ui.reason = `${r.page} の案を ${r.count}件 出しました`;
 
     // ★ 点検と同じ1か所にだけ送る
+    if (st.devSummary !== true) {
+      autoState.ui.reason += "（Chatへの通知はOFFです）";
+      return;
+    }
     const to = { url: String(st.selfCheckWebhook || "").trim(), space: String(st.selfCheckSpace || "").trim() };
     if (!to.url && !to.space) {
       autoState.ui.reason += "（知らせ先が未設定なので、画面で見るだけです）";
@@ -3856,16 +6787,30 @@ app.post("/api/dev-notes/advice", async (req, res) => {
 
     // 「1. 見出し」の形で区切って、1件ずつ開発メモに残す
     const blocks = text.split(/\n(?=\d+\.\s)/).map((x) => x.trim()).filter(Boolean);
+    // すでにある案（見送ったものも含む）と似ていたら残さない
+    let seen = [];
+    try {
+      const notes = await listDevNotes({ limit: 500 });
+      const gone = await listDismissed(500).catch(() => []);
+      seen = notes.concat(gone).map((n) => ({ title: n.title, detail: String(n.detail || "").slice(0, 120) }));
+    } catch {}
+    const cand = blocks.map((blk) => ({
+      title: (blk.split("\n")[0] || "").replace(/^\d+\.\s*/, "").trim(),
+      detail: blk.slice(0, 2000),
+    })).filter((x) => x.title);
+    const fresh = dropSimilar(cand, seen);
+
     let saved = 0;
-    for (const blk of blocks) {
-      const head = (blk.split("\n")[0] || "").replace(/^\d+\.\s*/, "").trim();
-      if (!head) continue;
+    for (const it of fresh) {
       await addDevNote({
-        key: `advice:${head}`.slice(0, 200), kind: "idea",
-        title: `提案：${head.slice(0, 120)}`, detail: blk.slice(0, 2000),
+        key: `advice:${it.title}`.slice(0, 200), kind: "idea",
+        title: `提案：${it.title.slice(0, 120)}`, detail: it.detail,
         source: "Claudeの提案", createdBy: "advisor",
       }).catch(() => {});
       saved++;
+    }
+    if (cand.length - fresh.length) {
+      console.log(`[提案] 前と同じ内容 ${cand.length - fresh.length}件は残しませんでした`);
     }
 
     const st = await getSettings().catch(() => ({}));
@@ -3903,12 +6848,32 @@ app.post("/api/dev-notes/night-report", async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-// 朝6時に、その日の開発メモをChatへ流す
+// 開発メモのChat通知（朝のまとめ・点検・画面の見直し）を、まとめて入り切りする
+app.get("/api/dev-notes/chat", async (req, res) => {
+  try {
+    const st = await getSettings();
+    // 既定はOFF（毎朝の「kinbotが新しくなりました」に置き換えたため）
+    res.json({ enabled: st.devSummary === true, hour: Number(st.devSummaryHour ?? 6) });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.put("/api/dev-notes/chat", async (req, res) => {
+  try {
+    const on = req.body?.enabled !== false;
+    await saveSettings({ devSummary: on });
+    console.log(`[dev-note] Chatへの通知を${on ? "ON" : "OFF"}にしました by ${req.user}`);
+    res.json({ ok: true, enabled: on });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// 朝の開発メモのまとめ。
+// いまは既定でOFF（更新のお知らせに置き換えたため）。
+// 見たい人だけ、開発メモの画面でONにできる。
 let lastDevSummaryDay = "";
 async function maybeSendDevSummary() {
   try {
     const st = await getSettings().catch(() => ({}));
-    if (st.devSummary === false) return;
+    if (st.devSummary !== true) return;   // 明示的にONにした人だけ
     const now = new Date(Date.now() + 9 * 3600 * 1000);
     const h = now.getUTCHours(), m = now.getUTCMinutes();
     const hour = Number(st.devSummaryHour ?? 6);
@@ -3922,6 +6887,150 @@ async function maybeSendDevSummary() {
     console.log(`[dev-note] 朝のまとめを送りました（${r.count}件）`);
   } catch (e) { console.warn("[dev-note]", e.message); }
 }
+
+// ───────────────────────────────────────────────────────────
+// 朝の「kinbotが新しくなりました」のお知らせ（既定 8:30）
+//
+// 前の営業日からの更新をまとめて出す。
+// 月曜は、金曜の朝からの3日ぶんをまとめる。
+// ───────────────────────────────────────────────────────────
+let lastDeployNewsDay = "";
+async function maybeSendDeployNews() {
+  try {
+    const st = await getSettings().catch(() => ({}));
+    if (st.deployNews === false) return;
+
+    const now = new Date(Date.now() + 9 * 3600 * 1000);
+    const h = now.getUTCHours(), m = now.getUTCMinutes();
+    const hour = Number(st.deployNewsHour ?? 8);
+    const min = Number(st.deployNewsMinute ?? 30);
+    // 指定の時刻から10分のあいだに1回だけ
+    // （サーバーが再起動していても、取りこぼしにくいように少し広く取る）
+    if (h !== hour || m < min || m > min + 9) return;
+    const w = now.getUTCDay();
+    if (w === 0 || w === 6) return;   // 土日は出さない
+
+    const day = now.toISOString().slice(0, 10);
+    if (lastDeployNewsDay === day) return;
+    lastDeployNewsDay = day;
+
+    // 月曜は金曜の朝から（3日ぶん）、それ以外は前日の朝から
+    const hours = w === 1 ? 72 : 24;
+    const rows = await deploysSince(hours);
+    if (!rows.length) {
+      console.log("[更新のお知らせ] 前の営業日から変わったところはありません");
+      return;
+    }
+
+    // 開発の言葉のままだと読みにくいので、AIに整えてもらう
+    let body = "";
+    try {
+      const list = rows.map((r) => `・${r.message}`).join("\n");
+      body = await callLLMPublic(
+        "あなたは、営業チームに『使い方が変わったところ』を伝える係です。",
+        `次はkinbotの更新の記録です。営業メンバー（開発者ではありません）に向けて、\n` +
+        `「何ができるようになったか」「どこが変わったか」を、やさしい日本語でまとめてください。\n\n` +
+        `決まり:\n` +
+        `- 使う人に関係することだけ。中の作りの話（DB・API・関数名など）は書かない\n` +
+        `- 1行につき1つ。「・」で始める。多くても6行\n` +
+        `- どこを開けば使えるかを、できるだけ書く（例：ホーム、ツール→天気予報）\n` +
+        `- 直しただけのものは「〜が直りました」と書く\n` +
+        `- 絵文字は使わない。見出しも要らない。箇条書きだけを返す\n\n` +
+        `【更新の記録】\n${list}`,
+        700
+      );
+    } catch {}
+    if (!body) body = rows.slice(0, 6).map((r) => `・${r.message}`).join("\n");
+
+    const 期間 = w === 1 ? "金曜から今朝まで" : "昨日から今朝まで";
+    await notifyAll([
+      "✨ *kinbotが新しくなりました*",
+      `（${期間}の変更 ${rows.length}件）`,
+      "",
+      String(body).trim(),
+      "",
+      "うまく動かないときは、画面のロボを押して教えてください。",
+    ].join("\n"), "news");
+    console.log(`[更新のお知らせ] ${rows.length}件をまとめて送りました`);
+  } catch (e) { console.warn("[更新のお知らせ]", e.message); }
+}
+
+// 設定（時刻・ON/OFF）
+app.get("/api/deploy/news", async (req, res) => {
+  try {
+    const st = await getSettings();
+    res.json({
+      enabled: st.deployNews !== false,
+      hour: Number(st.deployNewsHour ?? 8),
+      minute: Number(st.deployNewsMinute ?? 30),
+    });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.put("/api/deploy/news", async (req, res) => {
+  try {
+    const b = req.body || {};
+    const patch = {};
+    if (b.enabled !== undefined) patch.deployNews = b.enabled !== false;
+    if (b.hour !== undefined) patch.deployNewsHour = Math.min(23, Math.max(0, parseInt(b.hour, 10) || 0));
+    if (b.minute !== undefined) patch.deployNewsMinute = Math.min(59, Math.max(0, parseInt(b.minute, 10) || 0));
+    await saveSettings(patch);
+    console.log(`[更新のお知らせ] 設定を変えました by ${req.user}`);
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// いま試しに送る
+app.post("/api/deploy/news/test", async (req, res) => {
+  try {
+    lastDeployNewsDay = "";
+    const st = await getSettings().catch(() => ({}));
+    const now = new Date(Date.now() + 9 * 3600 * 1000);
+    // 時刻の縛りを外して、その場で作って送る
+    const rows = await deploysSince(now.getUTCDay() === 1 ? 72 : 24);
+    if (!rows.length) return res.json({ ok: true, 件数: 0, note: "前の営業日から変わったところはありません" });
+    await maybeSendDeployNewsNow(rows);
+    res.json({ ok: true, 件数: rows.length });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// 試し送り用（時刻を見ずに送る）
+async function maybeSendDeployNewsNow(rows) {
+  const list = rows.map((r) => `・${r.message}`).join("\n");
+  let body = "";
+  try {
+    body = await callLLMPublic(
+      "あなたは、営業チームに『使い方が変わったところ』を伝える係です。",
+      `次はkinbotの更新の記録です。営業メンバーに向けて、やさしい日本語で6行までにまとめてください。\n` +
+      `中の作りの話は書かない。絵文字は使わない。箇条書きだけ返す。\n\n${list}`, 700);
+  } catch {}
+  if (!body) body = rows.slice(0, 6).map((r) => `・${r.message}`).join("\n");
+  await notifyAll([
+    "✨ *kinbotが新しくなりました*（お試し）",
+    "",
+    String(body).trim(),
+  ].join("\n"), "news");
+}
+
+// 数えない招待者の設定
+app.get("/api/skip-inviters", async (req, res) => {
+  try {
+    const st = await getSettings();
+    res.json({
+      inviters: st.skipInviters === undefined ? SKIP_INVITERS_DEFAULT : String(st.skipInviters),
+      note: "ここに書いた人が招いた予定は、アポとして数えません。名前でもメールでも書けます。",
+    });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.put("/api/skip-inviters", async (req, res) => {
+  try {
+    await saveSettings({ skipInviters: String(req.body?.inviters ?? "").slice(0, 300) });
+    await loadSkipInviters().catch(() => {});
+    console.log(`[apo] 数えない招待者を更新 by ${req.user}`);
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
 
 // テスト用アポの見分け方（設定）
 app.get("/api/test-apo-words", async (req, res) => {
@@ -3954,6 +7063,7 @@ app.get("/api/call-report", async (req, res) => {
       from: Number(st.callReportFrom ?? 11),
       to: Number(st.callReportTo ?? 18),
       goals,
+      goalMode: String(st.callGoalMode || "sheet") === "zero" ? "zero" : "sheet",
       reportReady: !!st.psReportId,
       owner: st.psOwner || "",
     });
@@ -3968,6 +7078,7 @@ app.put("/api/call-report", async (req, res) => {
     if (b.from !== undefined) patch.callReportFrom = Math.min(23, Math.max(0, parseInt(b.from, 10) || 11));
     if (b.to !== undefined) patch.callReportTo = Math.min(23, Math.max(0, parseInt(b.to, 10) || 18));
     if (b.goals !== undefined) patch.callGoals = JSON.stringify(b.goals || {});
+    if (b.goalMode !== undefined) patch.callGoalMode = b.goalMode === "zero" ? "zero" : "sheet";
     await saveSettings(patch);
     console.log(`[call-report] 設定を更新 by ${req.user}`);
     res.json({ ok: true });
@@ -4128,9 +7239,17 @@ async function runProcessSheet(sfUser, opts = {}) {
   //    コールと接触はSFのレポートから。
   //    アポはkinbotの記録から（商談日が分かるので、期内・期外を正しく分けられる）。
   let tallied = tally(records, { fromISO: from, toISO: to });
+  // 数えない人は、コール・接触の行も作らない
+  {
+    const skip = await loadSkipInviters().catch(() => []);
+    for (const who of Object.keys(tallied)) if (isSkippedPerson(who, skip)) delete tallied[who];
+  }
   // 商談日が空のアポを、カレンダーから補ってから数える
   const fixed = await fillMissingMeetingDates().catch(() => ({ checked: 0, filled: 0, filledApoAt: 0, notes: [] }));
-  const apoRows = await apoCountsBySetter({ termFrom: from, termTo: to, mode: termMode }).catch(() => []);
+  let apoRows = await apoCountsBySetter({ termFrom: from, termTo: to, mode: termMode }).catch(() => []);
+  // 数えない人（中澤・浦林など）は、プロセスシートにも書かない
+  const skipPeople = await loadSkipInviters().catch(() => []);
+  apoRows = apoRows.filter((r) => !isSkippedPerson(r.setter, skipPeople));
   tallied = applyApoCounts(tallied, apoRows);
 
   // 3. シートの構造を読んで、書き込む場所を決める
@@ -5709,7 +8828,10 @@ app.post("/api/meetings/:id/extract", async (req, res) => {
     // 自動反映：設定がONで、SF連携済みのときだけ。応答はブロックせず裏で実行。
     try {
       const settings = await getUserSettings(req.user);
-      if (settings.sfAutoReflect && salesforceConfigured() && (await sfConnected(req.user))) {
+      // 既定でON。商談が終わって要約ができたら、活動履歴と空欄をSFへ自動で反映する。
+      // 止めたい人は 設定→動作設定 でOFFにできる。
+      const autoOn = settings.sfAutoReflect !== false;
+      if (autoOn && salesforceConfigured() && (await sfConnected(req.user))) {
         const meetingId = req.params.id;
         const user = req.user;
         (async () => {
@@ -7246,11 +10368,48 @@ app.put("/api/thanks-examples", async (req, res) => {
 // ラウンド別の例文とは別に、「初回向け」「価格の話が出たとき」のような
 // 場面ごとの型を持てるようにする。
 // ───────────────────────────────────────────────────────────
+// 自分のテンプレートと、チームに共有されているテンプレートを合わせて返す。
+// 自分のものは直せる。チームのものは、そのまま使えるが直せない。
 app.get("/api/mail-templates", async (req, res) => {
   try {
     const s = await getUserSettings(req.user);
-    const list = Array.isArray(s.mailTemplates) ? s.mailTemplates : [];
-    res.json({ templates: list });
+    const st = await getSettings().catch(() => ({}));
+    const sharedAll = Array.isArray(st.sharedMailTemplates) ? st.sharedMailTemplates : [];
+    const isShared = (id) => sharedAll.some((x) =>
+      String(x.id) === String(id) && String(x.owner || "").toLowerCase() === String(req.user || "").toLowerCase());
+
+    const mine = (Array.isArray(s.mailTemplates) ? s.mailTemplates : [])
+      .map((t) => ({ ...t, mine: true, shared: isShared(t.id) }));
+
+    const shared = sharedAll
+      // 自分が共有したものは、自分の一覧に二重に出さない
+      .filter((t) => String(t.owner || "").toLowerCase() !== String(req.user || "").toLowerCase())
+      .map((t) => ({ ...t, mine: false }));
+
+    res.json({ templates: [...mine, ...shared], me: req.user || "" });
+  } catch (e) { sfErrorResponse(res, e); }
+});
+
+// テンプレートをチームに共有する／やめる
+app.post("/api/mail-templates/share", async (req, res) => {
+  try {
+    const id = String(req.body?.id || "");
+    const on = req.body?.shared === true;
+    const s = await getUserSettings(req.user);
+    const mine = Array.isArray(s.mailTemplates) ? s.mailTemplates : [];
+    const t = mine.find((x) => String(x.id) === id);
+    if (!t) return res.status(404).json({ error: "自分のテンプレートに見つかりません" });
+
+    const st = await getSettings().catch(() => ({}));
+    const list = (Array.isArray(st.sharedMailTemplates) ? st.sharedMailTemplates : [])
+      .filter((x) => !(String(x.id) === id && String(x.owner || "").toLowerCase() === String(req.user).toLowerCase()));
+    if (on) {
+      const who = await displayNameOf(req.user).catch(() => "") || req.user;
+      list.push({ ...t, owner: req.user, ownerName: who, sharedAt: new Date().toISOString() });
+    }
+    await saveSettings({ sharedMailTemplates: list.slice(0, 60) });
+    console.log(`[メール] テンプレート「${t.name}」を${on ? "チームに共有" : "共有から外し"}ました by ${req.user}`);
+    res.json({ ok: true, shared: on });
   } catch (e) { sfErrorResponse(res, e); }
 });
 
@@ -7268,6 +10427,26 @@ app.put("/api/mail-templates", async (req, res) => {
       .filter((t) => t.name && t.body)
       .slice(0, 30);
     await saveUserSettings(req.user, { mailTemplates: list });
+
+    // 共有しているものは、共有側にも同じ中身を反映する（直したら共有先にも届くように）
+    try {
+      const st = await getSettings().catch(() => ({}));
+      const shared = Array.isArray(st.sharedMailTemplates) ? st.sharedMailTemplates : [];
+      let touched = false;
+      const next = shared.map((x) => {
+        if (String(x.owner || "").toLowerCase() !== String(req.user).toLowerCase()) return x;
+        const hit = list.find((t) => String(t.id) === String(x.id));
+        if (!hit) return x;
+        touched = true;
+        return { ...x, name: hit.name, subject: hit.subject, body: hit.body };
+      }).filter((x) => {
+        // 自分が消したテンプレートは、共有からも外す
+        if (String(x.owner || "").toLowerCase() !== String(req.user).toLowerCase()) return true;
+        return list.some((t) => String(t.id) === String(x.id));
+      });
+      if (touched || next.length !== shared.length) await saveSettings({ sharedMailTemplates: next });
+    } catch {}
+
     console.log(`[メール] テンプレートを保存 ${list.length}件 by ${req.user}`);
     res.json({ ok: true, count: list.length });
   } catch (e) { sfErrorResponse(res, e); }
@@ -7318,7 +10497,7 @@ app.get("/api/meetings/:id/thanks-context", async (req, res) => {
       try {
         const person = (() => {
           const t = String(m.title || "").replace(/【[^】]*】/g, " ");
-          const mm = t.match(/([一-龥ぁ-んァ-ヶa-zA-Z]{1,10})\s*(様|さま|さん)/);
+          const mm = t.match(/([^\s　/／|｜:：・、,]{1,20})\s*(?:様|さま|さん|殿)/);
           return mm ? mm[1] : "";
         })();
         const ready = await gmailReady(req.user).catch(() => ({ ok: false }));
@@ -7465,7 +10644,7 @@ app.get("/api/meetings/:id/gmail-threads", async (req, res) => {
     const company = (m.account || companyFromTitle(m.title || "") || "").trim();
     const person = (() => {
       const t = String(m.title || "").replace(/【[^】]*】/g, " ");
-      const mm = t.match(/([一-龥ぁ-んァ-ヶa-zA-Z]{1,10})\s*(様|さま|さん)/);
+      const mm = t.match(/([^\s　/／|｜:：・、,]{1,20})\s*(?:様|さま|さん|殿)/);
       return mm ? mm[1] : "";
     })();
     const asked = String(req.query.q || "").trim();
@@ -7508,7 +10687,7 @@ app.post("/api/meetings/:id/thanks-gmail-draft", async (req, res) => {
     const company = (m.account || companyFromTitle(m.title || "") || "").trim();
     const person = (() => {
       const t = String(m.title || "").replace(/【[^】]*】/g, " ");
-      const mm = t.match(/([一-龥ぁ-んァ-ヶa-zA-Z]{1,10})\s*(様|さま|さん)/);
+      const mm = t.match(/([^\s　/／|｜:：・、,]{1,20})\s*(?:様|さま|さん|殿)/);
       return mm ? mm[1] : "";
     })();
 
@@ -7694,6 +10873,9 @@ app.post("/api/gmail/send", async (req, res) => {
   try {
     const { to, subject, body, threadId, inReplyTo, references } = req.body || {};
     if (!to || !body) return res.status(400).json({ error: "宛先と本文が必要です" });
+    // 送った本人にも控えを届ける（Bccなのでお客様には見えない）。
+    // 自分の受信箱に残るので、ちゃんと送れたかが分かる。
+    const cfg = await getApoMailConfig().catch(() => ({ copyToSelf: true }));
     const result = await gmailSend(req.user, {
       to,
       subject: subject || "",
@@ -7701,6 +10883,7 @@ app.post("/api/gmail/send", async (req, res) => {
       threadId: threadId || null,
       inReplyTo: inReplyTo || null,
       references: references || null,
+      bcc: cfg.copyToSelf !== false ? req.user : "",
     });
     res.json({ ok: true, id: result.id, threadId: result.threadId });
   } catch (e) {
@@ -7859,14 +11042,35 @@ async function startBotSession(owner, meetingUrl, { title = "", repName = "", la
   let muxError = "";
   // ライブ配信は常に用意する（Cloudflareは見られた分だけの課金なので、流しっぱなしでも費用は増えません）
   // 止めたいときは LIVE_STREAM_ENABLED=0
-  if (process.env.LIVE_STREAM_ENABLED !== "0" && liveConfigured()) {
+  //
+  // ここで作れないと、あとから配信できない（Recallに渡す送り先は入室時にしか決められないため）。
+  // だから、作れなかったときは必ず理由を残す。
+  if (process.env.LIVE_STREAM_ENABLED === "0") {
+    muxError = "ライブ配信が止められています（LIVE_STREAM_ENABLED=0）";
+    console.warn("[live] " + muxError);
+  } else if (!liveConfigured()) {
+    const info = liveInfo();
+    muxError = info.provider === "cloudflare"
+      ? "配信の鍵がありません（CF_ACCOUNT_ID / CF_STREAM_TOKEN をRailwayに設定してください）"
+      : "配信の設定がありません（MUXの鍵を設定してください）";
+    console.warn("[live] " + muxError);
+  } else {
     try {
       mux = await createLiveStream();
-      if (!mux?.playbackId) muxError = "Muxから再生IDが取得できませんでした";
+      if (!mux?.playbackId) muxError = "配信枠は作れましたが、再生用のIDが返ってきませんでした";
+      else console.log(`[live] 配信枠を用意しました（${mux.playbackId}）`);
     } catch (e) {
       muxError = e.message;
-      console.error("[mux] createLiveStream", e.message);
+      console.error("[live] 配信枠を作れませんでした:", e.message);
     }
+  }
+  if (muxError) {
+    // 開発メモにも残す（あとで気づけるように）
+    devNote({
+      key: errKey("配信枠", muxError), kind: "error",
+      title: `ライブ配信の枠を作れません：${String(muxError).slice(0, 120)}`,
+      source: "ライブ配信",
+    }).catch(() => {});
   }
   // かささぎを使う商談は、喋れる作りのBotにして、スライドを映すページも渡す。
   // 「常にかささぎを使えるようにする」場合は KASASAGI_ALWAYS=1 を設定する。
@@ -8947,13 +12151,21 @@ app.get("/api/meetings/:id/recording", async (req, res) => {
   try {
     const m = await getMeeting(req.params.id);
     if (!m || !canAccess(m, req)) return res.json({ url: null });
-    // 1) Bot録画（Recall）があればそれを優先（mp4で確実に再生できる）
+    // 1) Googleドライブに保存できていれば、そこから再生する。
+    //    Recallの録画は保存期限で消えるので、残るドライブを先に見る。
+    if (m.drive_file_id) {
+      return res.json({
+        url: `/api/meetings/${encodeURIComponent(req.params.id)}/drive-video`,
+        source: "drive", driveLink: m.drive_link || "",
+      });
+    }
+    // 2) まだドライブに入っていなければ、Recallの録画で再生する（保存はこのあと動く）
     let recallUrl = null;
     try { recallUrl = await getRecordingUrl(req.params.id); } catch (e) { console.error("[recording] recall", e.message); }
-    if (recallUrl) return res.json({ url: recallUrl, source: "recall" });
-    // 2) Recallの保存期限が切れていても、Googleドライブに保存済みならそこから再生
-    if (m.drive_file_id) {
-      return res.json({ url: `/api/meetings/${encodeURIComponent(req.params.id)}/drive-video`, source: "drive", driveLink: m.drive_link || "" });
+    if (recallUrl) {
+      // 開いた人が待たなくていいよう、裏で保存を始めておく
+      archiveRecordingSafe(req.params.id).catch(() => {});
+      return res.json({ url: recallUrl, source: "recall" });
     }
     // 3) 無ければ Mux VOD（アップロード動画など）
     if (m.mux_playback_id) {
@@ -9084,17 +12296,28 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-08-15 重複予定の掃除／アポ取得日の記録／資料DL通知";
+const BUILD_TAG = "2026-08-20c kincall：リスト管理をカード化／録画のバックグラウンド再生をAndroidにも対応";
 const BUILD_FEATURES = [
-  "アポメール自動送付（確定＋前日リマインド）",
-  "お客様アドレスの自動取得",
-  "クローザーのローテーション自動割り振り",
-  "15分おきのカレンダー自動スキャン",
-  "Gmailのアーカイブ／ゴミ箱",
-  "DBスキーマの1文ずつ実行と診断",
-  "カレンダーの重複予定を探して消す（/api/apo/duplicate-events）",
-  "アポを取った日時の記録（プロセスシートの日付・期内期外の判定）",
-  "資料のダウンロード通知と、閲覧履歴の削除",
+  "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
+  "メールは返信を既定にし、本文のリンクを押せるようにした",
+  "SFはステージ変更・活動履歴の自動記録で「更新済み」と判定",
+  "御礼メールはGmailの送信済みを見て「送った」と判定",
+  "天気予報（週のテーマ・目標・施策と振り返り／写真から読み取り）",
+  "ホームによく使うツールを並べる（人ごとに選べる）",
+  "確定メールの書き出しを、自分で取ったアポかどうかで変える",
+  "アポメールをテストで送る（実際のアポには残らない）",
+  "中澤・浦林を実績から外す（予備として割り振られたぶんは数える）",
+  "リスケ・キャンセルの予定はアポに数えない",
+  "カレンダーから消した予定を、アポからも外す",
+  "夕方18時半に、やり残しを本人だけに知らせる",
+  "コール進捗のお知らせ（目標はプロセスシートから読む）",
+  "Google Chatから kinbot を動かす（自由な文で質問できる）",
+  "開発メモ・自己点検・画面の見直し（似た案は残さない）",
+  "資料とテンプレートを、メンバーごとに持てるようにした",
+  "録画はすぐGoogleドライブへ保存し、再生もドライブから",
+  "ライブ配信（録画者は見られない）",
+  "kinbot専用のアイコン（タブ・ホーム画面）",
+  "会社名と担当者名の区切りを、書き方が違っても読む",
 ];
 
 // 今動いているコードのバージョンを返す（ログイン不要で確認できる）
@@ -9381,7 +12604,10 @@ app.get("/api/salesforce/opportunity/:id", async (req, res) => {
 // SF商談を更新（Stage変更、NextStep等）
 app.patch("/api/salesforce/opportunity/:id", async (req, res) => {
   try {
-    const fields = req.body || {};
+    const fields = { ...(req.body || {}) };
+    // botId はkinbot側の記録に使うだけなので、Salesforceへは送らない
+    const fromBotId = String(fields.botId || "");
+    delete fields.botId;
     // 商談所有者を、更新した本人に付け替える（OwnerIdが指定されている場合はそちらを優先）
     let ownerChanged = false;
     if (fields.OwnerId === undefined) {
@@ -9402,6 +12628,18 @@ app.patch("/api/salesforce/opportunity/:id", async (req, res) => {
         throw e;
       }
     }
+    // kinbot側にも「更新した」ことを残す。
+    // ホームの「SF更新まだ」を、実際の更新にもとづいて数えるため。
+    if (fields.StageName) {
+      await recordSfUpdate({
+        botId: fromBotId || null,
+        oppId: req.params.id,
+        stage: fields.StageName,
+        note: "ステージを更新",
+        owner: req.user,
+      }).catch(() => {});
+    }
+
     // 更新内容をログとしてChatterに投稿
     const parts = [];
     if (fields.StageName) parts.push(`Stage → ${fields.StageName}`);
@@ -10695,6 +13933,17 @@ async function autofillMeetingToSf(user, meeting, url) {
   const filledCount =
     Object.keys(oppResult.filled || {}).length + Object.keys(accResult.filled || {}).length;
   const activityCreated = !!(task && task.created);
+  // 活動履歴を作れたら「SFを更新した」ものとして残す。
+  // 商談が終わったあと、これが自動で動くので、手で押さなくても済む。
+  if (activityCreated || filledCount) {
+    await recordSfUpdate({
+      botId: String(m.id),
+      oppId: recordId,
+      stage: "",
+      note: activityCreated ? "活動履歴を自動で作成" : `${filledCount}項目を自動で入力`,
+      owner: user,
+    }).catch(() => {});
+  }
   // 「得」の記録：実際に何かした反映のみカウント
   await recordSfStats(user, { filled: filledCount, activityCreated });
 
@@ -11083,7 +14332,7 @@ app.get("/api/salesforce/stats", async (req, res) => {
     const mk = new Date().toISOString().slice(0, 7);
     const month = (st.monthly && st.monthly[mk]) || { runs: 0, fieldsFilled: 0, activities: 0 };
     res.json({
-      autoReflect: !!settings.sfAutoReflect,
+      autoReflect: settings.sfAutoReflect !== false,
       total: { runs: st.runs || 0, fieldsFilled: st.fieldsFilled || 0, activities: st.activities || 0 },
       month: { key: mk, runs: month.runs || 0, fieldsFilled: month.fieldsFilled || 0, activities: month.activities || 0 },
     });
@@ -11344,6 +14593,76 @@ function apoTitleTag(title) {
   return APO_TAG_RE.test(t);
 }
 
+// この人たちが招いた予定は、アポとして数えない。
+//
+// 別のチームからの招待がクローザーのカレンダーに入ると、
+// それをアポとして拾ってしまい、実績がふくらむため。
+// 設定（skipInviters）で変えられる。名前でもメールでも書ける。
+// 名前だけ書いても、メールアドレス（ローマ字）で照らし合わせられるようにする。
+// 「中澤」と書けば nakazawa@… も見つかる。
+const NAME_ROMAJI = {
+  "中澤": ["nakazawa", "nakasawa"],
+  "浦林": ["urabayashi"],
+};
+const SKIP_INVITERS_DEFAULT = "中澤,浦林";
+let _skipInviters = null;
+
+async function loadSkipInviters() {
+  const st = await getSettings().catch(() => ({}));
+  const raw = st.skipInviters === undefined ? SKIP_INVITERS_DEFAULT : String(st.skipInviters);
+  _skipInviters = raw.split(/[,、\n]/).map((x) => x.trim()).filter(Boolean);
+  return _skipInviters;
+}
+
+// その予定が「数えない人」から来ているかを見る。
+// 招いた人（organizer）・作った人（creator）・参加者の名前を照らし合わせる。
+// 名前が「数えない人」に当てはまるか。
+// コール進捗やアポの集計でも使う（同じ設定を1か所で見るため）。
+function isSkippedPerson(name, list) {
+  const raw = (list || _skipInviters || SKIP_INVITERS_DEFAULT.split(","));
+  const t = String(name || "").replace(/[\s　]/g, "").toLowerCase();
+  if (!t) return false;
+  for (const w of raw) {
+    const k = String(w).replace(/[\s　]/g, "").toLowerCase();
+    if (!k) continue;
+    if (t.includes(k)) return true;
+    for (const r of NAME_ROMAJI[String(w).replace(/[\s　]/g, "")] || []) {
+      if (t.includes(r)) return true;
+    }
+  }
+  return false;
+}
+
+function invitedBySkipped(ev, list) {
+  const raw = (list || _skipInviters || SKIP_INVITERS_DEFAULT.split(","));
+  // 書かれた言葉に、ローマ字読みも足して照らし合わせる
+  const words = [];
+  for (const w of raw) {
+    const t = String(w).replace(/[\s　]/g, "").toLowerCase();
+    if (!t) continue;
+    words.push(t);
+    for (const r of NAME_ROMAJI[String(w).replace(/[\s　]/g, "")] || []) words.push(r);
+  }
+  if (!words.length) return "";
+  const hit = (v) => {
+    const t = String(v || "").replace(/[\s　]/g, "").toLowerCase();
+    if (!t) return "";
+    return words.find((w) => t.includes(w)) || "";
+  };
+  // 招いた人・作った人
+  for (const v of [ev.organizer, ev.organizerName, ev.creator, ev.creatorName]) {
+    const w = hit(v);
+    if (w) return w;
+  }
+  // 参加者のうち、招いた側になっている人
+  for (const a of ev.attendees || []) {
+    if (!a || !a.organizer) continue;
+    const w = hit(a.email) || hit(a.name);
+    if (w) return w;
+  }
+  return "";
+}
+
 // 予定名の先頭に「リスケ」「キャンセル」と書かれているかを見る。
 // 書かれていたら、その予定はアポとして数えない（数えると実績がふくらむため）。
 // 「リスケ済み」「キャンセル済」なども同じ扱いにする。
@@ -11437,6 +14756,9 @@ async function collectApoAppointments(scanOwner, opts = {}) {
     // 「リスケ」「キャンセル」と書かれた予定と、カレンダーで見つけた予定のIDを覚えておく
     const seenHeadStates = [];
     const seenEventIds = new Set();
+    // 数えない招待者の一覧（毎回の走査で読み直す）
+    const skipInviters = await loadSkipInviters().catch(() => []);
+    const skippedByInviter = [];
 
     for (const f of fetched) {
       const st = f.st;
@@ -11459,6 +14781,13 @@ async function collectApoAppointments(scanOwner, opts = {}) {
           console.log(`[apo-scan] kinbotが作った予定なので取り込みません：${String(ev.title || "").slice(0, 40)}`);
           continue;
         }
+        // 数えない人から招かれた予定は、アポとして拾わない
+        const by = invitedBySkipped(ev, skipInviters);
+        if (by) {
+          skippedByInviter.push({ title: ev.title, by });
+          continue;
+        }
+
         // 先頭に「リスケ」「キャンセル」と書かれた予定は、アポとして数えない。
         // 初めて見たときだけ、Chatに知らせる。
         const head = apoHeadState(ev.title);
@@ -11554,7 +14883,11 @@ async function collectApoAppointments(scanOwner, opts = {}) {
       }
     }
     items.sort((a, b) => String(a.start).localeCompare(String(b.start)));
-    return { items, errors, seenHeadStates, seenEventIds, full: !updatedMin };
+    if (skippedByInviter.length) {
+      console.log(`[apo-scan] 数えない人からの招待 ${skippedByInviter.length}件を外しました：` +
+        skippedByInviter.slice(0, 5).map((x) => `${x.by}／${String(x.title).slice(0, 30)}`).join("、"));
+    }
+    return { items, errors, seenHeadStates, seenEventIds, skippedByInviter, full: !updatedMin };
 }
 
 // テスト用のアポかどうか。
@@ -11754,6 +15087,10 @@ async function autoAssignOne(link, { inviteOwner, closers = null, cfg, teamCtx =
       repName: await repDisplayName(pick.email),
       actor,
     });
+  } else {
+    // 設定がOFFのときは、そうと分かるようにしておく（黙って作らないと原因が追えない）
+    mail = { ok: false, skipped: true, reason: "確定メールの自動用意がOFFです" };
+    console.log(`[apo-assign] ${link.slug}：確定メールは作りません（自動用意OFF）`);
   }
 
   // 自分で取ったアポは順番を進めないので、rotNext が無いことがある
@@ -11765,7 +15102,9 @@ async function autoAssignOne(link, { inviteOwner, closers = null, cfg, teamCtx =
   (async () => {
     const counts = await assignCounts(biz).catch(() => null);
     const st = await getSettings().catch(() => ({}));
-    const goal = parseInt(st?.apoMonthlyGoal, 10) || 0;
+    // アポの月間目標はまだ決まっていないので、通知には出さない。
+    // 決まったら、設定で apoShowGoal を true にすれば出るようになる。
+    const goal = st?.apoShowGoal === true ? (parseInt(st?.apoMonthlyGoal, 10) || 0) : 0;
     // Salesforceの立ち上げ。設定がONのときだけ実際に立ち上げ、
     // OFFのときは「立ち上げられるか」の判定だけ行う（コンバートは取り消せないため）。
     const runIt = st?.sfAutoLaunch === true;
@@ -11781,6 +15120,18 @@ async function autoAssignOne(link, { inviteOwner, closers = null, cfg, teamCtx =
       url: joinUrl(updated.slug), auto: actor !== "manual" && !String(actor || "").includes("@"),
       mail, clientEmail: updated.client_email, counts, goal, launch,
     });
+
+    // 下書きができたときは、担当者本人にも直接知らせる。
+    // チームのスペースの呼びかけは流れて見落とすことがあるため。
+    if (mail && mail.ok && mail.draft && pick.email) {
+      await notifyPerson(pick.email, [
+        "📝 *確定メールの下書きができています*",
+        `　${updated.label || ""}`,
+        `📅 ${String(updated.start_time || "").slice(5, 16).replace("T", " ")}　✉️ ${mail.to || "-"}`,
+        "",
+        "Gmailの下書きに入っています。中身を見て、送ってください。",
+      ].join("\n")).catch(() => {});
+    }
 
     // テスト用のアポは、通知まで普通どおり行ったあとで、数から外す。
     // 割り振りやメールの動きは確かめられるが、実績には残らない。
@@ -12032,6 +15383,8 @@ app.post("/api/railway/deploy-hook", async (req, res) => {
     const ng = /FAIL|CRASH|ERROR/.test(status);
     if (!ok && !ng) return;   // 途中経過は流さない
     const msg = String(b.deployment?.meta?.commitMessage || b.commitMessage || "").split("\n")[0];
+    // 翌朝まとめて知らせるために、内容を残しておく
+    if (ok && msg) await logDeploy({ message: msg, build: BUILD_TAG, ok: true }).catch(() => {});
     await notifyAll([
       ok ? "🚀 *kinbotの更新が終わりました*" : "⚠️ *kinbotの更新に失敗しました*",
       msg ? `📝 ${msg}` : "",
@@ -12150,6 +15503,10 @@ async function chatAnswer(intent, who) {
     let rows = taken
       ? await aposTakenInRange({ from, to, business: intent.business || "" }).catch(() => [])
       : await aposInRange({ from, to, business: intent.business || "" }).catch(() => []);
+    // 数えない人（中澤・浦林など）が取ったアポは外す。
+    // ただし、予備として誰かに割り振られたものは、チームのアポとして数える。
+    const skipList = await loadSkipInviters().catch(() => []);
+    rows = rows.filter((r) => !(isSkippedPerson(r.setter, skipList) && !r.current_owner));
     if (mine) {
       const myName = await displayNameOf(who).catch(() => "");
       rows = rows.filter((r) =>
@@ -12465,6 +15822,9 @@ app.put("/api/apo/rotation-config", async (req, res) => {
     if (b.teamBalance !== undefined) {
       patch.apoTeamBalance = ["off", "total", "perHead", "perDay"].includes(b.teamBalance) ? b.teamBalance : "off";
     }
+    if (b.dayBalance !== undefined) {
+      patch.apoDayBalance = b.dayBalance !== false;
+    }
     if (b.balanceWindow !== undefined) patch.apoBalanceWindow = b.balanceWindow === "all" ? "all" : "month";
     if (b.fairnessStart !== undefined) {
       const v = String(b.fairnessStart || "").trim();
@@ -12492,6 +15852,9 @@ app.get("/api/members", async (req, res) => {
 });
 
 app.put("/api/members", async (req, res) => {
+  // 役割を変えたら、覚えていた「kincallだけ」の判定を捨てる。
+  // （5分待たないと反映されない、という状態を防ぐ）
+  _kcOnly.clear();
   try {
     const list = Array.isArray(req.body?.members) ? req.body.members : [];
     // 同じメールアドレスが二重に入っていないか確認する
@@ -12623,6 +15986,8 @@ app.get("/api/apo/mine", async (req, res) => {
         slug: r.slug, title: r.label, setter: r.setter, business: r.business || "",
         // 自分で取ったアポか（一覧で見分けられるように）
         selfGot: r.self_got === true,
+        // アポを取った日時（一覧はこの日で並べている）
+        takenAt: r.apo_at || r.created_at || null,
         owner: r.current_owner || "",
         start: r.start_time, end: r.end_time,
         clientEmail: r.client_email || "",
@@ -13205,6 +16570,19 @@ app.put("/api/smart-links/:slug/owner", async (req, res) => {
     if (!existing) return res.status(404).json({ error: "リンクが見つかりません" });
     if (!req.isAdmin && existing.created_by !== req.user) return res.status(403).json({ error: "このリンクを操作する権限がありません" });
     const owner = req.body?.owner ? String(req.body.owner) : null;
+
+    // 「差し替えだけ」のとき（quiet）は、担当を書き換えるだけで何も動かさない。
+    // すでに案内が済んでいるアポの担当を、あとから直したいときに使う。
+    //   ・Google Chatへの通知を出さない
+    //   ・確定メールを送らない
+    //   ・商談予定の招待を作り直さない
+    // スマートリンクの行き先だけは、担当に合わせて自動で切り替わる。
+    if (req.body?.quiet === true) {
+      const only = await setSmartLinkOwner(req.params.slug, owner);
+      console.log(`[apo] ${req.params.slug} の担当を差し替えました（知らせません）by ${req.user}`);
+      return res.json({ ok: true, link: only, quiet: true });
+    }
+
     const link = await setSmartLinkOwner(req.params.slug, owner);
     // 担当が決まったら、商談予定を自動作成してクローザーを招待する（失敗しても割り当ては成功のまま返す）
     let invite = null, inviteError = null;
@@ -13251,7 +16629,7 @@ app.put("/api/smart-links/:slug/owner", async (req, res) => {
           setter: link.setter, reason: `${req.user} が選択`,
           url: joinUrl(link.slug), auto: false,
           mail, clientEmail: link.client_email,
-          counts, goal: parseInt(st?.apoMonthlyGoal, 10) || 0, launch,
+          counts, goal: st?.apoShowGoal === true ? (parseInt(st?.apoMonthlyGoal, 10) || 0) : 0, launch,
         });
         // テスト用のアポは、通知まで済ませたら数から外す
         await loadTestWords().catch(() => {});
@@ -13327,6 +16705,27 @@ app.get("/api/apo-mail-config", async (req, res) => {
     });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
+// テストメールを送る。
+// 架空のアポで文面を作って送るだけなので、実際のアポには何も残らない。
+app.post("/api/apo-mail/test", async (req, res) => {
+  try {
+    const b = req.body || {};
+    const to = String(b.to || req.user || "").trim();
+    const r = await sendTestApoMail({
+      kind: b.kind === "reminder" ? "reminder" : "confirm",
+      to,
+      // 送るのはログインしている本人のGmailから（署名や会議室URLも本人のもの）
+      owner: req.user,
+      draft: b.draft === true,
+      // 「ほかの人が取ったアポ」の文面を試したいときは、獲得者の名前を入れる
+      setter: String(b.setter || "").trim(),
+    });
+    if (!r.ok) return res.status(400).json(r);
+    console.log(`[apo-mail] テストメール（${b.kind || "confirm"}）を ${to} へ by ${req.user}`);
+    res.json(r);
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 app.put("/api/apo-mail-config", async (req, res) => {
   try {
     const b = req.body || {};
@@ -13335,6 +16734,8 @@ app.put("/api/apo-mail-config", async (req, res) => {
     if (b.autoConfirm !== undefined) patch.apoMailAutoConfirm = !!b.autoConfirm;
     if (b.autoReminder !== undefined) patch.apoMailAutoReminder = !!b.autoReminder;
     if (b.reminderHour !== undefined) patch.apoMailReminderHour = Math.min(23, Math.max(0, parseInt(b.reminderHour, 10) || 0));
+    if (b.copyToSelf !== undefined) patch.apoMailCopyToSelf = b.copyToSelf !== false;
+    if (b.remindGap !== undefined) patch.apoMailRemindGap = Math.min(72, Math.max(0, parseInt(b.remindGap, 10) || 0));
     if (b.companyName !== undefined) patch.apoMailCompanyName = String(b.companyName || "").slice(0, 100);
     if (b.confirmSubject !== undefined) patch.apoMailConfirmSubject = String(b.confirmSubject || "").slice(0, 300);
     if (b.confirmBody !== undefined) patch.apoMailConfirmBody = stripRetiredLines(String(b.confirmBody || "")).slice(0, 8000);
@@ -13604,8 +17005,30 @@ server.listen(PORT, async () => {
 
   // コール進捗のお知らせ（11時〜18時の毎正時）。毎分見て、その時刻になったら1回だけ流す。
   setInterval(() => { maybeSendCallReport().catch(() => {}); }, 60 * 1000);
+  // Cloudflareに残った古い配信枠と録画を片づける（保存料を増やさないため）
+  setInterval(() => { cleanupOldLiveInputs(6).catch(() => {}); }, 60 * 60 * 1000);
+
+  // 届かなかったメールがないかを、30分おきに調べる
+  setInterval(async () => {
+    try {
+      const rows = await listApoMails({ from: jstDate(-2), to: jstDate(0), limit: 300 }).catch(() => []);
+      const owners = [...new Set(rows.filter((r) => r.status === "sent")
+        .map((r) => String(r.from_owner || "").toLowerCase()).filter(Boolean))];
+      for (const o of owners.slice(0, 10)) await checkBounces(o);
+    } catch {}
+  }, 30 * 60 * 1000);
+
+  // 送れなかった架電の記録を、あとから送り直す
+  setInterval(() => { retryCallSync().catch(() => {}); }, 5 * 60 * 1000);
+
   // 朝の開発メモ（既定6時）
   setInterval(() => { maybeSendDevSummary().catch(() => {}); }, 60 * 1000);
+  // 朝の「kinbotが新しくなりました」
+  setInterval(() => { maybeSendDeployNews().catch(() => {}); }, 60 * 1000);
+  // 夕方のお知らせ（既定18:30）。本人にだけ1対1で送る。
+  setInterval(() => { maybeSendEvening().catch(() => {}); }, 60 * 1000);
+  // 週のボード（月曜の朝＝記入、金曜の夕方＝振り返り）
+  setInterval(() => { maybeRemindWeekly().catch(() => {}); }, 60 * 1000);
   // 自己点検（既定30分おき）。起動から3分たってから始める。
   setTimeout(() => {
     autoState.check.timer = true;
@@ -13673,6 +17096,8 @@ server.listen(PORT, async () => {
     } finally { reminderRunning = false; }
   };
   setInterval(() => { checkReminderSchedule().catch(() => {}); }, 60 * 1000);
+  // 送る1時間前に、対象を本人へ知らせる
+  setInterval(() => { maybeNoticeBeforeReminder().catch(() => {}); }, 60 * 1000);
 
   // アポの自動スキャン。
   //   ・短い間隔（既定1分）で「差分だけ」を見る → カレンダーに入れてすぐ反映される

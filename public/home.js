@@ -43,6 +43,8 @@ const HOME_ICONS = {
   tplsave: "M11 3h2v8h3.2L12 16.4 7.8 11H11zM4 17h16v3H4z",
   tpledit: "M3 17.3 14.1 6.2l3.7 3.7L6.7 21H3zM15.5 4.8l2-2a1.4 1.4 0 0 1 2 0l1.7 1.7a1.4 1.4 0 0 1 0 2l-2 2z",
   tpldel: "M9 3h6l1 2h4v2H4V5h4zM6 9h12l-1 12H7zm3 2v8h1.5v-8zm4.5 0v8H15v-8z",
+  // チームへ共有（人が3人）
+  tplshare: "M9 11a3 3 0 1 0 0-6 3 3 0 0 0 0 6zm0 1.5c-3 0-6 1.5-6 3.5V19h12v-3c0-2-3-3.5-6-3.5zM17.5 11a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5zm0 1.5c-.8 0-1.6.15-2.3.42 1.1.8 1.8 1.85 1.8 3.08V19H23v-2.6c0-1.7-2.5-2.9-5.5-2.9z",
 };
 
 // アイコンのボタンを1つ作る。
@@ -51,7 +53,7 @@ const HOME_ICONS = {
 const HOME_ICON_NAMES = {
   rec: "録音", sf: "SF", open: "開く", mail: "メール", cal: "会議室", trash: "外す", more: "その他",
   gen: "文面を作る", draft: "下書き", copy: "コピー", gmail: "Gmail", tpl: "テンプレ", doc: "資料URL",
-  tplin: "型を入れる", tpluse: "この型で作る", tplsave: "型を保存", tpledit: "型を直す", tpldel: "型を消す",
+  tplin: "型を入れる", tpluse: "この型で作る", tplsave: "型を保存", tpledit: "型を直す", tpldel: "型を消す", tplshare: "みんなへ",
 };
 
 function hIcon(kind, label, attrs = "", state = "", tag = "button") {
@@ -270,6 +272,12 @@ function render() {
   renderMini();
   lastRows = items;
   renderTodoBar(items);
+  // 今日の商談だけ、Gmailの送信済みと照らし合わせる（1回だけ聞く）
+  if (selDate === todayStr && !mailSentAsked) {
+    mailSentAsked = true;
+    checkMailSent(items);
+    checkSfUpdated(items);
+  }
 
   let html = "";
   if (window._calConnected === false) {
@@ -333,10 +341,16 @@ function render() {
         ? hIcon("rec", "録音済み（もう一度録る）", `data-rec="${escH(key)}"`, "done")
         : hIcon("rec", "録音する", `data-rec="${escH(key)}"`, "need")) +
       (m
-        ? hIcon("sf", "SFを更新", `data-sfedit="${escH(key)}"`, "need")
+        ? hIcon("sf",
+            sfDoneMap[m.bot_id] ? `SFを更新（済み：${sfDoneMap[m.bot_id]}）` : "SFを更新",
+            `data-sfedit="${escH(key)}"`,
+            sfDoneMap[m.bot_id] ? "done" : "need")
         : hIcon("sf", s.open ? "SF商談を閉じる" : "SF商談を選ぶ", `data-sf-open="${escH(key)}"`, "done")) +
       (m && m.bot_id
-        ? hIcon("mail", "御礼メール", `data-mail="${escH(m.bot_id)}" data-key="${escH(key)}"`, "need")
+        ? hIcon("mail",
+            mailSentMap[m.bot_id] ? `御礼メール（送信済み：${mailSentMap[m.bot_id]}）` : "御礼メール",
+            `data-mail="${escH(m.bot_id)}" data-key="${escH(key)}"`,
+            mailSentMap[m.bot_id] ? "done" : "need")
         : hIcon("mail", "御礼メール（商談の記録がまだありません）", `data-mail-none="${escH(key)}"`, "done")) +
       hIcon("open", openLabel, `href="${link}"`, "done", "a");
 
@@ -397,7 +411,9 @@ function renderMini() {
 function wireMailMode(box, botId, side) {
   // いま画面に出ている文面は、モードごとに覚えておく。
   // 行ったり来たりしても、書きかけの文面が消えないようにするため。
-  const ctx = { mode: "new", threadId: "", to: "", stash: { new: null, reply: null } };
+  // 送り方は「返信」を既定にする。
+  // やり取りが見つからなかったときだけ、新規作成に戻す。
+  const ctx = { mode: "reply", threadId: "", to: "", stash: { new: null, reply: null } };
   const su = () => box.querySelector(".home-mail-subj");
   const ta = () => box.querySelector(".home-mail-body");
   const list = box.querySelector(".mail-reply-list");
@@ -423,9 +439,34 @@ function wireMailMode(box, botId, side) {
     }
   };
 
-  // 過去のやり取りを探して一覧にする
+  // 開いたときに、返信の準備をしておく。
+  // やり取りが1件だけなら、それを自動で選んで返信の文面まで作る。
+  async function startAsReply() {
+    box.querySelectorAll(".mail-mode-b").forEach((b) => b.classList.toggle("on", b.dataset.mode === "reply"));
+    side.open("reply", "どのメールに返信しますか");
+    say("これまでのやり取りを探しています…");
+    const found = await loadThreads("");
+    if (!found) {
+      // やり取りが無いので、新規作成に戻す
+      ctx.mode = "new";
+      box.querySelectorAll(".mail-mode-b").forEach((b) => b.classList.toggle("on", b.dataset.mode === "new"));
+      if (side.current === "reply") side.close();
+      say("やり取りが見つからないので、新規作成にしました");
+      return;
+    }
+    // 1件だけなら、迷わないので自動で選ぶ
+    const btns = list.querySelectorAll(".mail-th");
+    if (btns.length === 1) {
+      await pickThread(btns[0]);
+    } else {
+      say("返信するメールを選んでください");
+    }
+  }
+
+  // 過去のやり取りを探して一覧にする。
+  // やり取りが見つかったかどうかを返す。
   async function loadThreads(q) {
-    if (!list) return;
+    if (!list) return false;
     loaded = true;
     list.innerHTML = '<div class="mail-reply-note">これまでのやり取りを探しています…</div>';
     try {
@@ -433,17 +474,17 @@ function wireMailMode(box, botId, side) {
       const d = await (await fetch(url)).json();
       if (d.needScope) {
         list.innerHTML = '<div class="mail-reply-note">Gmailの権限が足りません。<a class="home-sf-link" href="settings.html">設定</a>から連携し直してください。</div>';
-        return;
+        return false;
       }
       if (!d.connected) {
         list.innerHTML = '<div class="mail-reply-note">Googleが連携されていません。<a class="home-sf-link" href="settings.html">設定</a>から連携してください。</div>';
-        return;
+        return false;
       }
       const th = d.threads || [];
       if (qIn && !qIn.value) qIn.value = d.query || "";
       if (!th.length) {
         list.innerHTML = `<div class="mail-reply-note">「${escH(d.query || "")}」ではやり取りが見つかりませんでした。上の欄で別の言葉でも探せます。</div>`;
-        return;
+        return false;
       }
       list.innerHTML = th.map((t) => `
         <button type="button" class="mail-th" data-th="${escH(t.threadId)}" data-to="${escH(t.from || "")}">
@@ -454,8 +495,10 @@ function wireMailMode(box, botId, side) {
           <span class="mail-th-subj">${escH(t.subject || "（件名なし）")}</span>
           <span class="mail-th-snip">${escH((t.snippet || "").slice(0, 90))}</span>
         </button>`).join("");
+      return true;
     } catch (e) {
       list.innerHTML = `<div class="mail-reply-note">読み込みに失敗しました（${escH(e.message)}）</div>`;
+      return false;
     }
   }
 
@@ -500,6 +543,35 @@ function wireMailMode(box, botId, side) {
   if (qIn) qIn.addEventListener("keydown", (e) => {
     if (e.key === "Enter") { e.preventDefault(); loadThreads(qIn.value.trim()); }
   });
+
+  // 本文のURLを、押して開ける形で下に並べる。
+  // 文面に貼ったURLが正しいか、送る前に確かめられるようにする。
+  const linksBox = box.querySelector(".mail-links");
+  function showLinks() {
+    if (!linksBox) return;
+    const text = ta() ? ta().value : "";
+    // http/https で始まるものを拾う。末尾の句読点やカッコは外す。
+    // 全角のカッコや句読点は、URLの一部ではないので拾わない
+    const found = [...new Set((String(text).match(/https?:\/\/[^\s<>"'（）()【】「」、。]+/g) || [])
+      .map((u) => u.replace(/[.,:;]+$/, "")))];
+    if (!found.length) { linksBox.hidden = true; linksBox.innerHTML = ""; return; }
+    linksBox.hidden = false;
+    linksBox.innerHTML =
+      `<span class="mail-links-lb">本文のリンク（押すと開きます）</span>` +
+      found.map((u) => {
+        const kind = /\/j\//.test(u) ? "会議室" : /\/d\//.test(u) ? "資料" : "";
+        return `<a class="mail-link" href="${escH(u)}" target="_blank" rel="noopener">` +
+          (kind ? `<b>${kind}</b>` : "") +
+          `<span>${escH(u.length > 64 ? u.slice(0, 61) + "…" : u)}</span></a>`;
+      }).join("");
+  }
+  if (ta()) {
+    ta().addEventListener("input", showLinks);
+    showLinks();
+  }
+
+  // 開いたら、まず返信の準備をする（やり取りが無ければ新規作成に戻る）
+  startAsReply();
 
   return ctx;
 }
@@ -679,9 +751,17 @@ function wireMailTemplates(box, botId, tpls, side) {
   // 一覧（プルダウン）を作り直す。消したり名前を変えたあとに使う。
   const refreshSel = (keepId) => {
     if (!sel) return;
+    // 自分のものと、チームで共有されているものを分けて並べる
+    const mine = tpls.filter((t) => t.mine !== false);
+    const team = tpls.filter((t) => t.mine === false);
+    const opt = (t) => `<option value="${escH(t.id)}">${escH(t.name)}</option>`;
     sel.innerHTML =
       `<option value="">使わない（商談内容から作る）</option>` +
-      tpls.map((t) => `<option value="${escH(t.id)}">${escH(t.name)}</option>`).join("");
+      (mine.length ? `<optgroup label="自分の型">${mine.map(opt).join("")}</optgroup>` : "") +
+      (team.length
+        ? `<optgroup label="チームの型">${team.map((t) =>
+            `<option value="${escH(t.id)}">${escH(t.name)}（${escH(t.ownerName || t.owner || "")}）</option>`).join("")}</optgroup>`
+        : "");
     sel.value = tpls.some((t) => t.id === keepId) ? keepId : "";
     syncBtns();
   };
@@ -721,9 +801,45 @@ function wireMailTemplates(box, botId, tpls, side) {
     if (tName) tName.value = cur.name || "";
     if (tSubj) tSubj.value = cur.subject || "";
     if (tBody) tBody.value = cur.body || "";
-    tellT("");
+
+    // チームの型（他の人が共有したもの）は、そのまま使えるが直せない
+    const own = cur.mine !== false;
+    [tName, tSubj, tBody].forEach((el) => { if (el) el.readOnly = !own; });
+    const saveB = box.querySelector("[data-tple-save]");
+    const delB = box.querySelector("[data-tple-del]");
+    [saveB, delB].forEach((b) => { if (b) b.classList.toggle("hib-off", !own); });
+    const shareB = box.querySelector("[data-tple-share]");
+    if (shareB) {
+      shareB.hidden = !own;
+      shareB.classList.toggle("hib-need", cur.shared === true);
+      const nm = shareB.querySelector(".hib-name");
+      if (nm) nm.textContent = cur.shared === true ? "共有中" : "みんなへ";
+    }
+    tellT(own ? "" : `${cur.ownerName || cur.owner || "ほかの人"}が共有した型です（そのまま使えます）`, 8000);
     showTpl(true);
   };
+
+  // チームに共有する／やめる
+  const shareBtn = box.querySelector("[data-tple-share]");
+  if (shareBtn) shareBtn.addEventListener("click", async () => {
+    const cur = tpls.find((t) => t.id === editingId);
+    if (!cur || cur.mine === false) { tellT("自分の型だけ共有できます", 5000); return; }
+    const on = cur.shared !== true;
+    if (on && !confirm(`「${cur.name}」をチームのみんなが使えるようにします。よろしいですか？`)) return;
+    shareBtn.disabled = true;
+    tellT(on ? "共有しています…" : "共有を外しています…");
+    try {
+      const r = await fetch("/api/mail-templates/share", {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ id: cur.id, shared: on }),
+      });
+      if (!r.ok) throw new Error(((await r.json()) || {}).error || "できませんでした");
+      cur.shared = on;
+      openTplEditor(cur.id);
+      tellT(on ? "チームに共有しました" : "共有をやめました", 6000);
+    } catch (e) { tellT("失敗: " + e.message, 8000); }
+    finally { shareBtn.disabled = false; }
+  });
 
   // 型を選んだら、その中身を右の欄に出す（メールの文面はそのまま）。
   // 「使わない」に戻したら閉じる。
@@ -739,6 +855,10 @@ function wireMailTemplates(box, botId, tpls, side) {
   if (tSaveBtn) tSaveBtn.addEventListener("click", async () => {
     const cur = tpls.find((t) => t.id === editingId);
     if (!cur) { tellT("直す型が選ばれていません", 5000); return; }
+    if (cur.mine === false) {
+      tellT("これはほかの人が共有した型なので直せません。使うだけならそのままどうぞ", 8000);
+      return;
+    }
     const name = (tName ? tName.value : "").trim();
     const bodyText = (tBody ? tBody.value : "").trim();
     if (!name) { tellT("名前を入れてください", 5000); return; }
@@ -746,14 +866,18 @@ function wireMailTemplates(box, botId, tpls, side) {
     tSaveBtn.disabled = true;
     tellT("保存しています…");
     try {
-      const next = tpls.map((t) => (t.id === cur.id
-        ? { ...t, name, subject: (tSubj ? tSubj.value : "").trim(), body: bodyText } : t));
+      // 送るのは自分の型だけ。チームの型を混ぜると、他の人の型を自分のものとして持ってしまう。
+      const next = tpls
+        .filter((t) => t.mine !== false)
+        .map((t) => (t.id === cur.id
+          ? { ...t, name, subject: (tSubj ? tSubj.value : "").trim(), body: bodyText } : t));
       const r = await fetch("/api/mail-templates", {
         method: "PUT", headers: { "content-type": "application/json" },
         body: JSON.stringify({ templates: next }),
       });
       if (!r.ok) throw new Error(((await r.json()) || {}).error || "保存できませんでした");
-      tpls.length = 0; tpls.push(...next);
+      const team1 = tpls.filter((t) => t.mine === false);
+      tpls.length = 0; tpls.push(...next.map((t) => ({ ...t, mine: true })), ...team1);
       refreshSel(cur.id);
       tellT(`「${name}」を保存しました`, 6000);
     } catch (e) { tellT("失敗: " + e.message, 8000); }
@@ -765,17 +889,22 @@ function wireMailTemplates(box, botId, tpls, side) {
   if (tDelBtn) tDelBtn.addEventListener("click", async () => {
     const cur = tpls.find((t) => t.id === editingId);
     if (!cur) { tellT("消す型が選ばれていません", 5000); return; }
+    if (cur.mine === false) {
+      tellT("これはほかの人の型なので消せません", 6000);
+      return;
+    }
     if (!confirm(`テンプレート「${cur.name}」を消します。元には戻せません。よろしいですか。`)) return;
     tDelBtn.disabled = true;
     tellT("消しています…");
     try {
-      const next = tpls.filter((t) => t.id !== cur.id);
+      const next = tpls.filter((t) => t.mine !== false && t.id !== cur.id);
       const r = await fetch("/api/mail-templates", {
         method: "PUT", headers: { "content-type": "application/json" },
         body: JSON.stringify({ templates: next }),
       });
       if (!r.ok) throw new Error(((await r.json()) || {}).error || "消せませんでした");
-      tpls.length = 0; tpls.push(...next);
+      const team2 = tpls.filter((t) => t.mine === false);
+      tpls.length = 0; tpls.push(...next.map((t) => ({ ...t, mine: true })), ...team2);
       editingId = "";
       refreshSel("");
       showTpl(false);
@@ -802,8 +931,8 @@ function wireMailTemplates(box, botId, tpls, side) {
     saveBtn.disabled = true;
     say("保存しています…");
     try {
-      const saved = { id: "t" + Date.now(), name, subject: subj, body: bodyText };
-      const next = [...tpls, saved];
+      const saved = { id: "t" + Date.now(), name, subject: subj, body: bodyText, mine: true };
+      const next = [...tpls.filter((t) => t.mine !== false), saved];
       const r = await fetch("/api/mail-templates", {
         method: "PUT", headers: { "content-type": "application/json" },
         body: JSON.stringify({ templates: next }),
@@ -851,10 +980,14 @@ function hfRender(word) {
   if (clear) clear.hidden = !w;
   if (!w) { box.hidden = true; box.innerHTML = ""; return; }
 
-  // 空白や記号の違いは無視して探す
+  // 空白や記号の違いは無視して探す。
+  // 会社名だけでなく、営業担当の名前でも探せるようにする
+  // （「田中さんの商談どれだっけ」を、ここから引けるようにするため）。
   const norm = (v) => String(v || "").replace(/[\s　（）()・,、.。]/g, "").toLowerCase();
   const key = norm(w);
-  const hit = hfCompanies().filter((c) => norm(c.name).includes(key)).slice(0, 8);
+  const hit = hfCompanies()
+    .filter((c) => norm(c.name).includes(key) || norm(c.rep).includes(key))
+    .slice(0, 8);
 
   box.hidden = false;
   box.innerHTML = hit.length
@@ -922,9 +1055,11 @@ function renderTodoBar(rows) {
   let recLeft = 0, sfLeft = 0, mailLeft = 0;
   for (const it of rows || []) {
     if (it.rec) {
-      // 録音できている商談は、SF更新と御礼メールが残っていないかを見る
-      sfLeft++;
-      if (it.rec.bot_id) mailLeft++;
+      // 録音できている商談は、SF更新と御礼メールが残っていないかを見る。
+      // ステージを更新した、または活動履歴が自動で作られたものは数えない。
+      if (!sfDoneMap[it.rec.bot_id]) sfLeft++;
+      // 実際にGmailから送っていれば、御礼メールは済んだものとして数えない
+      if (it.rec.bot_id && !mailSentMap[it.rec.bot_id]) mailLeft++;
     } else if (it.ev && new Date(it.ev.start).getTime() < now) {
       // 時間が過ぎたのに録音が無いもの
       recLeft++;
@@ -1192,6 +1327,8 @@ async function openMail(botId, key) {
        <!-- 本文の右にアイコンを置く。下に置くと、長い文面のときに画面の外に出てしまうため。 -->
        <div class="mail-body-row">
          <label class="mail-lb mail-lb-body">本文<textarea class="home-mail-body" rows="16" placeholder="ここに文面を書きます。「文面を作る」を押すと、商談の内容からAIが下書きします。">${escH(body)}</textarea></label>
+         <!-- 本文に入っているURLを、押して開ける形で並べる（中身の確認用） -->
+         <div class="mail-links" hidden></div>
          <div class="mail-acts mail-acts-side">
            ${hIcon("gen", "商談の内容から文面を作る", `data-mail-gen="${escH(botId)}"`, "need")}
            ${hIcon("draft", "Gmailに下書きを作る", `data-gdraft="${escH(botId)}"`)}
@@ -1257,6 +1394,7 @@ async function openMail(botId, key) {
                </div>
                <div class="mail-acts">
                  ${hIcon("tplsave", "直した内容で、この型を上書きする", 'data-tple-save="1"')}
+                 ${hIcon("tplshare", "この型をチームのみんなが使えるようにする", 'data-tple-share="1"')}
                  ${hIcon("tpldel", "この型を消す", 'data-tple-del="1"')}
                </div>
                <div class="tple-st"></div>
@@ -1692,6 +1830,12 @@ async function loadCalendar() {
 }
 
 async function changeDate(next) {
+  // 日付が変わったら、送信済みの照合をやり直す
+  mailSentAsked = false;
+  mailSentMap = {};
+  sfDoneMap = {};
+  apoDoneAsked = false;
+  apoDone = {};
   selDate = next;
   weekBase = mondayOf(next);
   miniBase = next.slice(0, 7) + "-01";
@@ -1733,6 +1877,8 @@ async function load() {
 
 document.addEventListener("DOMContentLoaded", () => {
   selDate = loadPref();
+  loadHomeTools();
+  loadTomorrowReminders();
   $h("homeToggle").querySelectorAll(".home-tg").forEach((b) => {
     b.classList.toggle("active", b.dataset.scope === homeScope);
     b.addEventListener("click", () => {
@@ -1796,7 +1942,405 @@ document.addEventListener("DOMContentLoaded", () => {
 });
 
 // ───────────────────────────────────────────────────────────
-// 割り振られたアポ（自分が担当になった商談）
+// 商談がいつなのかを「8/20(水) 15:30」の形にする。
+// 今日なら「今日 15:30」、明日なら「明日 15:30」と書く。
+function apoMeetingWhen(iso) {
+  const d = new Date(iso);
+  if (!iso || isNaN(d.getTime())) return "日時未定";
+  // ほかの時刻表示と同じく、見ている人の時計に合わせる
+  const now = new Date();
+  const ymd = (x) => `${x.getFullYear()}-${x.getMonth()}-${x.getDate()}`;
+  const tomorrow = new Date(now.getTime() + 86400000);
+  const p = (n) => String(n).padStart(2, "0");
+  const hm = `${p(d.getHours())}:${p(d.getMinutes())}`;
+  if (ymd(d) === ymd(now)) return `今日 ${hm}`;
+  if (ymd(d) === ymd(tomorrow)) return `明日 ${hm}`;
+  const w = "日月火水木金土"[d.getDay()];
+  return `${d.getMonth() + 1}/${d.getDate()}(${w}) ${hm}`;
+}
+
+// ===== 明日リマインドを送る先 =====
+// 送る前に、宛先や日時が正しいかを確かめられるようにする。
+// いま見ているリマインドの条件（日付と、全員ぶんかどうか）
+let rmDate = "";      // 空＝明日
+let rmAll = false;
+let rmOpen = false;   // 一覧を開いたままにしておくため
+
+// 明日の日付（yyyy-mm-dd）
+function tomorrowStr() {
+  const j = new Date(Date.now() + 9 * 3600 * 1000 + 24 * 3600 * 1000);
+  return j.toISOString().slice(0, 10);
+}
+
+async function loadTomorrowReminders() {
+  const bar = document.getElementById("rmBar");
+  if (!bar) return;
+  try {
+    const q = new URLSearchParams();
+    if (rmDate) q.set("date", rmDate);
+    if (rmAll) q.set("all", "1");
+    const d = await (await fetch("/api/apo-mail/tomorrow?" + q.toString())).json();
+    const items = d.items || [];
+    // 日付を選んでいるときは、0件でも枠は出す（切り替えられるように）
+    if (!items.length && !rmDate && !rmAll) { bar.hidden = true; bar.innerHTML = ""; return; }
+    // 日本時間で出す（見る人の端末の時差に左右されないように）
+    const when = (iso) => {
+      const x = new Date(iso);
+      if (isNaN(x.getTime())) return "";
+      const j = new Date(x.getTime() + 9 * 3600 * 1000);
+      const p2 = (n) => String(n).padStart(2, "0");
+      return `${j.getUTCMonth() + 1}/${j.getUTCDate()} ${p2(j.getUTCHours())}:${p2(j.getUTCMinutes())}`;
+    };
+    const okCount = items.filter((x) => x.送る).length;
+    const ngCount = items.length - okCount;
+    bar.hidden = false;
+    bar.innerHTML =
+      `<button type="button" class="rm-head" id="rmToggle">` +
+      `<span class="rm-lb">${rmDate && rmDate !== tomorrowStr() ? escH(rmDate.slice(5).replace("-", "/")) + "のリマインド" : "明日のリマインド"}</span>` +
+      `<span class="rm-n">${okCount}件</span>` +
+      `<span class="rm-when">${escH(d["送る時刻"] || "")}に送ります</span>` +
+      `<span class="cc-warn rm-ngn">${ngCount ? `送れないもの ${ngCount}件` : ""}</span>` +
+      (d["自動送信"] ? "" : `<span class="cc-warn">自動送信はOFFです</span>`) +
+      `<span class="rm-arrow">▾</span></button>` +
+      `<div class="rm-list" id="rmList"${rmOpen ? "" : " hidden"}>` +
+      `<div class="rm-tools">
+         <label>日 <input type="date" class="rm-date" value="${escH(rmDate || tomorrowStr())}" /></label>
+         <label class="ks-check"><input type="checkbox" class="rm-allchk"${rmAll ? " checked" : ""} /> 全員のぶん</label>
+         <span class="rm-hint">送る相手はチェックで選べます</span>
+       </div>` +
+      (items.length ? "" : `<div class="rm-empty">この日の商談はありません。</div>`) +
+      items.map((x) => `
+        <div class="rm-row${x.送る ? "" : " rm-ng"}" data-slug="${escH(x.slug)}">
+          <label class="rm-chk" title="${x["状態"] === "送信済み" ? "もう送りました" : "チェックを外すと、この会社には送りません"}">
+            <input type="checkbox" class="rm-send"${x.送る ? " checked" : ""}
+              ${x["状態"] === "送信済み" ? " disabled" : ""} />
+          </label>
+          <span class="rm-time">${escH(when(x.start))}</span>
+          <span class="rm-co">${escH(x.company || x.label || "")}${x["重なり"] ? '<span class="rm-dup">重なり</span>' : ""}</span>
+          <span class="rm-who">${escH(x["獲得者"] || "")}${x["担当"] ? `→${escH(x["担当"])}` : ""}</span>
+          <span class="rm-to">${escH(x.to || "")}</span>
+          <span class="rm-st${x.送る ? "" : " cc-warn"}">${escH(x["状態"] || "")}</span>
+          ${x["状態"] === "送信済み" ? "" : `<button type="button" class="rm-fix">直す</button>`}
+        </div>
+        <!-- 宛先も担当も、いつでも直せるようにしておく -->
+        <div class="rm-fixbox" hidden>
+          <label>宛先 <input type="email" class="rm-fix-mail" placeholder="tanaka@example.co.jp" value="${escH(x.to || "")}" /></label>
+          <label>担当 <select class="rm-fix-owner" data-now="${escH(x.owner || "")}">
+            <option value="">（決まっていません）</option>
+          </select></label>
+          <button type="button" class="btn rm-fix-save">入れる</button>
+          <span class="rm-fix-st"></span>
+          <span class="rm-fix-note">担当を変えても、知らせやメールは出しません（会議室のURLだけ切り替わります）</span>
+        </div>`).join("") +
+      `</div>`;
+
+    // 帯の件数を数え直す（開いたまま更新できるように）
+    function updateRmCount() {
+      const rows = [...bar.querySelectorAll(".rm-row")];
+      const ok = rows.filter((r) => {
+        const c = r.querySelector(".rm-send");
+        const st = (r.querySelector(".rm-st") || {}).textContent || "";
+        return c && c.checked && !c.disabled && st === "送ります";
+      }).length;
+      const ng = rows.length - ok;
+      const n = bar.querySelector(".rm-n");
+      if (n) n.textContent = `${ok}件`;
+      const w = bar.querySelector(".rm-ngn");
+      if (w) w.textContent = ng ? `送れないもの ${ng}件` : "";
+    }
+
+    // 「直す」を押したら、その場で宛先や担当を入れられるようにする
+    bar.querySelectorAll(".rm-fix").forEach((b) =>
+      b.addEventListener("click", async () => {
+        const box = b.closest(".rm-row").nextElementSibling;
+        if (!box || !box.classList.contains("rm-fixbox")) return;
+        box.hidden = !box.hidden;
+        if (box.hidden) return;
+        // 担当の選択肢は、開いたときに読み込む
+        const sel = box.querySelector(".rm-fix-owner");
+        if (sel && sel.options.length <= 1) {
+          try {
+            const d = await (await fetch("/api/apo-mail/reps")).json();
+            for (const r of d.reps || []) {
+              const o = document.createElement("option");
+              o.value = r.email; o.textContent = r.name;
+              sel.appendChild(o);
+            }
+            // いまの担当を選んだ状態にする（変えたいところだけ直せる）
+            const now = sel.dataset.now || "";
+            if (now) sel.value = now;
+          } catch {}
+        }
+        const first = box.querySelector("input, select");
+        if (first) first.focus();
+      }));
+
+    bar.querySelectorAll(".rm-fix-save").forEach((b) =>
+      b.addEventListener("click", async () => {
+        const box = b.closest(".rm-fixbox");
+        const row = box.previousElementSibling;
+        const slug = row.dataset.slug;
+        const mail = box.querySelector(".rm-fix-mail");
+        const owner = box.querySelector(".rm-fix-owner");
+        const st = box.querySelector(".rm-fix-st");
+        const body = { slug };
+        if (mail) body.email = mail.value.trim();
+        if (owner) body.owner = owner.value;
+        // 宛先も担当も空のままなら、直すものがない
+        if (!body.email && !body.owner) {
+          st.textContent = "宛先か担当を入れてください";
+          return;
+        }
+        b.disabled = true;
+        st.textContent = "入れています…";
+        try {
+          // 担当の差し替えだけを行う。
+          // すでに案内が済んでいるアポなので、通知・確定メール・招待の作り直しはしない。
+          // （スマートリンクの行き先は、担当に合わせて自動で切り替わる）
+          const nowOwner = owner ? (owner.dataset.now || "") : "";
+          if (owner && body.owner && body.owner !== nowOwner) {
+            const r2 = await fetch(`/api/smart-links/${encodeURIComponent(slug)}/owner`, {
+              method: "PUT", headers: { "content-type": "application/json" },
+              body: JSON.stringify({ owner: body.owner, quiet: true }),
+            });
+            const d2 = await r2.json();
+            if (!r2.ok) throw new Error(d2.error || "担当を変えられませんでした");
+            delete body.owner;   // 担当はここで済んだので、残りだけ送る
+          }
+          if (body.email !== undefined) {
+            const r = await fetch("/api/apo-mail/fix", {
+              method: "POST", headers: { "content-type": "application/json" },
+              body: JSON.stringify(body),
+            });
+            const d = await r.json();
+            if (!r.ok) throw new Error(d.error || "入れられませんでした");
+          }
+          st.textContent = "入れました";
+          rmOpen = true;
+          setTimeout(() => loadTomorrowReminders(), 500);
+        } catch (e) {
+          st.textContent = "失敗：" + e.message;
+          b.disabled = false;
+        }
+      }));
+
+    // チェックを外したら「送らない」、戻したら「送る」
+    bar.querySelectorAll(".rm-send").forEach((el) =>
+      el.addEventListener("change", async () => {
+        const row = el.closest(".rm-row");
+        const slug = row.dataset.slug;
+        const off = !el.checked;
+        el.disabled = true;
+        try {
+          const r = await fetch("/api/apo-mail/reminder-off", {
+            method: "POST", headers: { "content-type": "application/json" },
+            body: JSON.stringify({ slug, off }),
+          });
+          if (!r.ok) throw new Error("変えられませんでした");
+          // 開いたままにしておきたいので、その場の表示だけ書き換える
+          const st = row.querySelector(".rm-st");
+          if (st) {
+            st.textContent = off ? "送らない" : "送ります";
+            st.classList.toggle("cc-warn", off);
+          }
+          row.classList.toggle("rm-ng", off);
+          el.disabled = false;
+          updateRmCount();
+        } catch (e) {
+          el.checked = !el.checked;
+          el.disabled = false;
+        }
+      }));
+    const t = document.getElementById("rmToggle");
+    if (t) {
+      t.classList.toggle("open", rmOpen);
+      t.addEventListener("click", () => {
+        const l = document.getElementById("rmList");
+        if (l) l.hidden = !l.hidden;
+        rmOpen = l && !l.hidden;
+        t.classList.toggle("open", rmOpen);
+      });
+    }
+
+    // 日を変える／全員のぶんを見る
+    const dateEl = bar.querySelector(".rm-date");
+    if (dateEl) dateEl.addEventListener("change", () => {
+      rmDate = dateEl.value || "";
+      rmOpen = true;
+      loadTomorrowReminders();
+    });
+    const allEl = bar.querySelector(".rm-allchk");
+    if (allEl) allEl.addEventListener("change", () => {
+      rmAll = allEl.checked;
+      rmOpen = true;
+      loadTomorrowReminders();
+    });
+  } catch { bar.hidden = true; }
+}
+
+// ===== 御礼メールを実際に送ったか =====
+// kinbotで下書きを作っただけでは「送った」ことにならない。
+// その人が今日送ったメールの宛先・件名と照らし合わせて、送ったものは数から外す。
+let mailSentMap = {};
+let mailSentAsked = false;
+// Salesforceを更新済みの商談（ステージ変更・活動履歴の自動作成）
+let sfDoneMap = {};
+// アポごとの「SF立ち上げ済み」「メール送信済み」（実データから見分けたもの）
+let apoDone = {};
+let apoDoneAsked = false;
+
+// アポについて、SFとメールが済んでいるかを聞く
+async function checkApoDone(rows) {
+  const items = (rows || [])
+    .filter((x) => x.slug)
+    .map((x) => ({ slug: x.slug, company: x.company || "", email: x.clientEmail || "", start: x.start }));
+  if (!items.length) return;
+  try {
+    const r = await fetch("/api/apo/done-check", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ items }),
+    });
+    const d = await r.json();
+    if (d.error || !d.results) return;
+    apoDone = d.results;
+    renderMyApos();
+  } catch {}
+}
+
+// Salesforceを更新したかどうかを聞く
+async function checkSfUpdated(rows) {
+  const botIds = (rows || []).filter((x) => x.rec && x.rec.bot_id).map((x) => x.rec.bot_id);
+  if (!botIds.length) return;
+  try {
+    const r = await fetch("/api/sf-updated-check", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ botIds }),
+    });
+    const d = await r.json();
+    if (d.error || !d.results) return;
+    const next = {};
+    for (const [id, v] of Object.entries(d.results)) if (v && v.updated) next[id] = v.why || true;
+    sfDoneMap = next;
+    render();
+  } catch {}
+}
+
+async function checkMailSent(rows) {
+  const items = [];
+  for (const it of rows || []) {
+    if (!it.rec || !it.rec.bot_id) continue;
+    items.push({
+      id: it.rec.bot_id,
+      company: (it.rec.account || "").trim() || companyOfTitle(it.rec.title || ""),
+      email: it.rec.client_email || "",
+    });
+  }
+  if (!items.length) return;
+  try {
+    const r = await fetch("/api/mail-sent-check", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ items }),
+    });
+    const d = await r.json();
+    if (d.error || !d.results) return;
+    const next = {};
+    for (const [id, v] of Object.entries(d.results)) if (v && v.sent) next[id] = v.why || true;
+    mailSentMap = next;
+    render();   // 帯とカードを描き直す
+  } catch {}
+}
+
+// 予定名から会社名を取り出す（サーバー側と同じ考え方）
+function companyOfTitle(t) {
+  return String(t || "").normalize("NFKC")
+    .replace(/【[^】]*】/g, "")
+    .split(/[\/｜|:：・、,]/)[0]
+    .replace(/[^\s　]{0,16}\s*(?:様|さま|さん|殿)\s*$/u, "")
+    .trim();
+}
+
+// ===== よく使うツール =====
+// ホームから、よく使う画面へすぐ飛べるようにする。
+// 並べるものは人ごとに選べる（天気予報は全員に必ず入る）。
+const TOOL_ICONS = {
+  weekly: "M4 5h16v3H4zm0 5h16v3H4zm0 5h10v3H4z",
+  apo: "M7 3v2H5a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-2V3h-2v2H9V3zm12 8v8H5v-8z",
+  launch: "M12 2l3 6 6 .9-4.5 4.2 1.1 6.1L12 16.9 6.4 19.2l1.1-6.1L3 8.9 9 8z",
+  pending: "M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zm1 5h-2v6l5 3 1-1.7-4-2.3z",
+  process: "M4 4h16v3H4zm0 5h16v3H4zm0 5h16v3H4zm0 5h9v2H4z",
+  docs: "M6 2h8l6 6v14H6zm7 1.5V9h5.5z",
+  history: "M13 3a9 9 0 1 0 8.5 12h-2.1A7 7 0 1 1 13 5v4l5-4.5L13 0z",
+  report: "M4 20h4V10H4zm6 0h4V4h-4zm6 0h4v-7h-4z",
+  style: "M12 3a9 9 0 1 0 9 9h-9z",
+  deals: "M3 6h18v3H3zm2 5h14v9H5zm4 3h6v2H9z",
+  rec: "M12 3a3 3 0 0 1 3 3v6a3 3 0 0 1-6 0V6a3 3 0 0 1 3-3zm7 9a7 7 0 0 1-6 6.9V22h-2v-3.1A7 7 0 0 1 5 12h2a5 5 0 0 0 10 0z",
+  kincall: "M6.6 4.5c-1 0-1.8.8-1.8 1.8 0 6.9 5.6 12.5 12.5 12.5 1 0 1.8-.8 1.8-1.8v-2.3c0-.9-.6-1.6-1.5-1.8l-2.3-.5c-.8-.2-1.6.2-2 .9l-.6 1a11 11 0 0 1-4.4-4.4l1-.6c.7-.4 1.1-1.2.9-2l-.5-2.3c-.2-.9-.9-1.5-1.8-1.5z",
+  dev: "M9 3h6l1 3h3v14H5V6h3zm3 6a4 4 0 1 0 0 8 4 4 0 0 0 0-8z",
+};
+
+async function loadHomeTools() {
+  const box = document.getElementById("homeTools");
+  if (!box) return;
+  try {
+    const d = await (await fetch("/api/home-tools")).json();
+    const tools = d.tools || [];
+    const svg = (id) =>
+      `<svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">` +
+      `<path d="${TOOL_ICONS[id] || TOOL_ICONS.weekly}"/></svg>`;
+    box.innerHTML =
+      tools.map((t) =>
+        `<a class="ht-item" href="${escH(t.href)}"><span class="ht-ico">${svg(t.id)}</span>` +
+        `<span class="ht-name">${escH(t.label)}</span></a>`).join("") +
+      `<button type="button" class="ht-item ht-edit" id="htEdit" title="並べるツールを選ぶ">` +
+      `<span class="ht-ico"><svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">` +
+      `<path d="M11 5h2v6h6v2h-6v6h-2v-6H5v-2h6z"/></svg></span>` +
+      `<span class="ht-name">えらぶ</span></button>`;
+    box.hidden = false;
+    const ed = document.getElementById("htEdit");
+    if (ed) ed.addEventListener("click", () => openToolPicker(d));
+  } catch { box.hidden = true; }
+}
+
+// 並べるツールを選ぶ画面
+function openToolPicker(d) {
+  const all = d["使えるもの"] || [];
+  const now = new Set(d["選んでいるもの"] || []);
+  const body =
+    `<p class="note">ホームに並べるものを選んでください（8つまで）。<br>` +
+    `天気予報は全員に必ず出るので、外せません。</p>` +
+    `<div class="ht-pick">` + all.map((t) =>
+      `<label class="ht-pick-item${t.always ? " fixed" : ""}">` +
+      `<input type="checkbox" value="${escH(t.id)}"${now.has(t.id) ? " checked" : ""}` +
+      `${t.always ? " checked disabled" : ""} />` +
+      `<span>${escH(t.label)}${t.always ? "（必ず出ます）" : ""}</span></label>`).join("") +
+    `</div>`;
+  const mo = openModal({
+    title: "ホームに並べるツール",
+    sub: "よく使うものだけを出して、すぐ開けるようにします",
+    inner: body + `<div class="ap-cfg-actions" style="margin-top:10px">` +
+      `<button class="btn" id="htSave">保存する</button>` +
+      `<span class="rev-status" id="htMsg"></span></div>`,
+    wide: false,
+  });
+  const box = mo.body;
+  box.querySelector("#htSave").addEventListener("click", async () => {
+    const picked = [...box.querySelectorAll(".ht-pick input:checked")].map((x) => x.value);
+    const msg = box.querySelector("#htMsg");
+    msg.textContent = "保存しています…";
+    try {
+      const r = await fetch("/api/home-tools", {
+        method: "PUT", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ tools: picked }),
+      });
+      if (!r.ok) throw new Error(((await r.json()) || {}).error || "保存できませんでした");
+      msg.textContent = "保存しました";
+      await loadHomeTools();
+      setTimeout(() => mo.close(), 700);
+    } catch (e) { msg.textContent = "失敗：" + e.message; }
+  });
+}
+
+// 自分のアポ（その日に取ったアポ）
 // メールが用意できているか、Salesforceを立ち上げたかがここで分かる。
 // ───────────────────────────────────────────────────────────
 function apoEsc(v) {
@@ -1824,6 +2368,8 @@ async function loadMyApos() {
     if (d.error) throw new Error(d.error);
     myApos = d.items || [];
     renderMyApos();
+    // SFを立ち上げたか・メールを送ったかを、実データから見分ける（1回だけ）
+    if (!apoDoneAsked) { apoDoneAsked = true; checkApoDone(myApos); }
   } catch (e) {
     myApos = [];
     box.innerHTML = `<div class="home-empty home-empty-s">読み込めませんでした：${apoEsc(e.message)}</div>`;
@@ -1879,10 +2425,18 @@ function apoHomeCard(x) {
         ? (m.confirm.status === "sent" ? "送信済み" : "下書き作成済み")
         : (x.clientEmail ? "メールを作る" : "宛先が未登録");
       const acts =
-        hIcon("sf", launched ? "SFを開く" : "SF立ち上げ", `data-apo-sf="${apoEsc(x.slug)}"`,
-              launched ? "done" : "need") +
-        hIcon("mail", mailLabel, `data-apo-mail="${apoEsc(x.slug)}"${m.confirm ? " disabled" : ""}`,
-              m.confirm ? "done" : "need") +
+        hIcon("sf",
+          apoDone[x.slug] && apoDone[x.slug].sf済み
+            ? `SFを開く（${apoDone[x.slug].sf.名前 || "立ち上げ済み"}）`
+            : launched ? "SFを開く" : "SF立ち上げ",
+          `data-apo-sf="${apoEsc(x.slug)}"`,
+              (launched || (apoDone[x.slug] && apoDone[x.slug].sf済み)) ? "done" : "need") +
+        hIcon("mail",
+          apoDone[x.slug] && apoDone[x.slug].メール済み
+            ? `送信済み（${apoDone[x.slug].メールの理由}）`
+            : mailLabel,
+          `data-apo-mail="${apoEsc(x.slug)}"${m.confirm ? " disabled" : ""}`,
+          (m.confirm || (apoDone[x.slug] && apoDone[x.slug].メール済み)) ? "done" : "need") +
         hIcon("cal", "会議室", `href="${apoEsc(x.smartUrl)}" target="_blank" rel="noopener"`, "done", "a") +
         // テストで作ったアポを、その場で片付けられるようにする。
         // 実績・均等化・通知の数から外し、カレンダーの予定も消す。
@@ -1890,7 +2444,10 @@ function apoHomeCard(x) {
 
       // 補足行。宛先が無い・立ち上げできない場合は、その理由を出す。
       const warn = !x.clientEmail ? '<span class="cc-warn">宛先が未登録</span>' : "";
+      // ここは「その日に取ったアポ」の一覧なので、商談がいつなのかを添える
+      const when = apoMeetingWhen(x.start);
       const meta = [
+        when ? `商談 ${apoEsc(when)}` : "",
         x.business ? apoEsc(x.business) : "",
         `獲得 ${apoEsc(x.setter || "-")}`,
         warn || (x.clientEmail ? apoEsc(x.clientEmail) : ""),
@@ -1898,7 +2455,7 @@ function apoHomeCard(x) {
 
       return `<div class="home-card home-line ap-home-card${needMail ? " home-card-plan" : ""}" data-card="${apoEsc(sfKey)}">
         <div class="hl-row">
-          <div class="hl-time">${apoEsc(apoTime(x.start))}</div>
+          <div class="hl-time">${apoEsc(apoTime(x.takenAt || x.start))}</div>
           <div class="hl-main">
             <div class="hl-title">${apoEsc(x.title || "")}</div>
             <div class="hl-meta">${x.selfGot ? '<span class="home-badge home-badge-self">自分で獲得</span>' : ""}${x.inviteEventId ? '<span class="home-badge home-badge-done">予定作成済</span>' : ""}${meta}</div>

@@ -4,7 +4,13 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>kinbot 資料トラッキング</title>
-    <link rel="stylesheet" href="style.css" />
+    <link rel="icon" href="/icon.svg" type="image/svg+xml" />
+    <link rel="icon" href="/favicon-32.png" sizes="32x32" type="image/png" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <link rel="manifest" href="/site.webmanifest" />
+    <meta name="theme-color" content="#0d5b47" />
+    <meta name="apple-mobile-web-app-title" content="kinbot" />
+    <link rel="stylesheet" href="style.css?v=20260819zb" />
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/tabler-icons/2.44.0/iconfont/tabler-icons.min.css" />
   </head>
   <body>
@@ -84,6 +90,77 @@
               </div>
               <div id="dsResult"></div>
             </div>
+
+            <div class="set-card">
+              <h3>メルマガ用の共通URL</h3>
+              <p class="note"><b>Pardot（Salesforce Account Engagement）でメルマガを送るときに使います。</b>
+              メルマガは1通ずつURLを変えられないので、全員に同じURLを送ります。<br>
+              Pardotの<b>差し込みタグ</b>（<code>%%email%%</code>）を後ろに付けると、送信時に各自のアドレスが埋め込まれ、<b>誰が見たかが分かります</b>。<br>
+              資料ごとに1本だけ作られます（何度押しても同じURLです）。</p>
+              <p class="note cc-warn"><b>Gmailでは使えません。</b>Gmailには差し込みの仕組みが無いため、
+              <code>%%email%%</code> がそのまま送られてしまい、誰が見たか分かりません。<br>
+              Gmailで送るときは、上の<b>「宛先ごとのURLを発行する」</b>をお使いください。</p>
+              <div class="ap-cfg-row">
+                <label>資料 <select id="shDoc"></select></label>
+                <button class="btn" id="shMake">共通URLを出す</button>
+                <span class="rev-status" id="shStatus"></span>
+              </div>
+              <div id="shBox"></div>
+            </div>
+
+            <div class="set-card">
+              <h3>調整URLのトラッキング</h3>
+              <p class="note">レセプショニストなど、<b>いま使っている日程調整のURLをそのまま</b>使いながら、<b>誰が開いたか</b>を記録できます。<br>
+              kinbotのURLをいったん通してから、本来のURLへ転送します（お客様には一瞬で切り替わります）。</p>
+              <div class="ap-cfg-row">
+                <label>名前 <input type="text" id="jpTitle" placeholder="60分の日程調整" style="width:200px" /></label>
+              </div>
+              <div class="ap-cfg-row">
+                <label style="flex:1 1 420px">転送先のURL
+                  <input type="text" id="jpUrl" placeholder="https://booking.receptionist.jp/xxxxxxxx/60min" style="width:100%" /></label>
+              </div>
+              <div class="ap-cfg-actions">
+                <label class="ks-check"><input type="checkbox" id="jpNotify" /> 開かれたらGoogle Chatに知らせる</label>
+                <button class="btn ghost" id="jpNotifySave">保存</button>
+                <span class="rev-status" id="jpNotifySt"></span>
+              </div>
+              <div class="ap-cfg-actions">
+                <button class="btn" id="jpMakeShared">Pardot用の共通URLを作る</button>
+                <button class="btn ghost" id="jpMakeOne">この場で1本だけ作る</button>
+                <span class="rev-status" id="jpStatus"></span>
+              </div>
+              <div id="jpBox"></div>
+              <div class="ap-cfg-actions" style="margin-top:6px">
+                <button class="btn ghost" id="jpList">作ったURLを見る</button>
+              </div>
+              <div id="jpListBox"></div>
+            </div>
+
+            <div class="set-card">
+              <h3>名簿ファイルからまとめて発行する</h3>
+              <p class="note">CSV・Excel（.xlsx / .xls）・タブ区切りのファイルを読み込んで、<b>数千件のURLを一度に発行</b>できます。<br>
+              「会社名・担当者名・メール」の列を自動で見つけます（見出しが無くても、並び順から判断します）。<br>
+              Googleスプレッドシートは、<b>ファイル → ダウンロード → CSV</b> で保存したものを読み込ませてください。</p>
+              <div class="ap-cfg-row">
+                <label>送る資料 <select id="blDoc"></select></label>
+              </div>
+              <div class="ap-cfg-actions">
+                <label class="btn ghost bl-file">
+                  名簿ファイルを選ぶ
+                  <input type="file" id="blFile" accept=".csv,.tsv,.txt,.xlsx,.xls" hidden />
+                </label>
+                <span class="rev-status" id="blStatus"></span>
+              </div>
+              <div id="blPreview"></div>
+              <div id="blProgress" hidden>
+                <div class="bl-bar"><div class="bl-bar-in" id="blBarIn"></div></div>
+                <div class="bl-prog-txt" id="blProgTxt"></div>
+                <div class="ap-cfg-actions">
+                  <button class="btn ghost" id="blCancel">止める</button>
+                  <button class="btn ghost" id="blOpenList" hidden>発行したURLを見る</button>
+                </div>
+              </div>
+            </div>
           </section>
 
           <!-- 資料 -->
@@ -104,7 +181,7 @@
         </main>
       </div>
     </div>
-    <script src="nav.js"></script>
-    <script src="docs.js"></script>
+    <script src="nav.js?v=20260819zb"></script>
+    <script src="docs.js?v=20260819zb"></script>
   </body>
 </html>

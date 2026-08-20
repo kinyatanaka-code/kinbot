@@ -5,6 +5,12 @@
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <meta name="robots" content="noindex, nofollow" />
 <title>資料</title>
+    <link rel="icon" href="/icon.svg" type="image/svg+xml" />
+    <link rel="icon" href="/favicon-32.png" sizes="32x32" type="image/png" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <link rel="manifest" href="/site.webmanifest" />
+    <meta name="theme-color" content="#0d5b47" />
+    <meta name="apple-mobile-web-app-title" content="kinbot" />
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
   :root { --ink: #12211d; --muted: #6b7f79; --line: #e2ebe7; --accent: #0f6e56; }
@@ -151,7 +157,10 @@
   (async () => {
     if (!slug) { body.innerHTML = '<div class="msg">リンクが正しくありません。</div>'; return; }
     try {
-      const r = await fetch(`/api/doc/${encodeURIComponent(slug)}/open`, { method: "POST" });
+      // メルマガの差し込み（?m=… など）を、そのままサーバーへ渡す。
+      // 誰が開いたかを記録するために使う。
+      const qs = location.search || "";
+      const r = await fetch(`/api/doc/${encodeURIComponent(slug)}/open${qs}`, { method: "POST" });
       const d = await r.json();
       if (!r.ok) throw new Error(d.error || "開けませんでした");
       viewId = d.viewId;

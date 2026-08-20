@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="ja">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>kincall</title>
+    <link rel="icon" href="/kincall.svg" type="image/svg+xml" />
+    <link rel="icon" href="/favicon-32.png" sizes="32x32" type="image/png" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <link rel="manifest" href="/site.webmanifest" />
+    <meta name="theme-color" content="#0d5b47" />
+    <meta name="apple-mobile-web-app-title" content="kinbot" />
+    <link rel="stylesheet" href="style.css?v=20260820c" />
+  </head>
+  <body class="kc-body">
+    <div class="app">
+      <!-- kincall のメニュー。架電に必要なものだけを並べる。 -->
+      <nav class="sidebar kc-side" data-kb-built="1">
+        <div class="side-brand kc-side-brand">
+          <img class="kc-side-logo" src="/kincall.svg" alt="" /><span>kincall</span>
+        </div>
+        <div class="side-wrap"><a class="side-item active" href="/kincall">
+          <span class="kc-side-ico"><svg viewBox="0 0 24 24" width="17" height="17"><path d="M6.6 4.5c-1 0-1.8.8-1.8 1.8 0 6.9 5.6 12.5 12.5 12.5 1 0 1.8-.8 1.8-1.8v-2.3c0-.9-.6-1.6-1.5-1.8l-2.3-.5c-.8-.2-1.6.2-2 .9l-.6 1a11 11 0 0 1-4.4-4.4l1-.6c.7-.4 1.1-1.2.9-2l-.5-2.3c-.2-.9-.9-1.5-1.8-1.5z"/></svg></span><span class="side-label">かける</span></a></div>
+        <div class="side-wrap"><a class="side-item" href="/kincall?p=stats">
+          <span class="kc-side-ico"><svg viewBox="0 0 24 24" width="17" height="17"><path d="M4 20h4V10H4zm6 0h4V4h-4zm6 0h4v-7h-4z"/></svg></span><span class="side-label">今日の実績</span></a></div>
+        <div class="side-wrap"><a class="side-item" href="/kincall?p=lists">
+          <span class="kc-side-ico"><svg viewBox="0 0 24 24" width="17" height="17"><path d="M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8zm0 2c-3.3 0-6 1.8-6 4v2h12v-2c0-2.2-2.7-4-6-4zm8-2 4 4-4 4v-3h-3v-2h3z"/></svg></span><span class="side-label">リスト管理</span></a></div>
+        <div class="side-sep"></div>
+        <div class="side-wrap"><a class="side-item side-app" href="/home.html">
+          <img class="side-app-ico" src="/icon.svg" alt="" /><span class="side-label">kinbot</span>
+          <span class="side-app-tag">戻る</span></a></div>
+        <div class="side-foot"><span id="who" class="who"></span><a href="#" id="logout" class="side-logout">ログアウト</a></div>
+      </nav>
+
+      <div class="main">
+        <header class="topbar">
+          <div class="brand kc-brand"><img class="kc-logo" src="/kincall.svg" alt="" /><span class="kc-name">kincall</span><span class="kc-sub">架電リスト</span></div>
+        </header>
+
+        <main class="report-page kc-page">
+          <!-- かける画面。リストを表で見て、そこから記録する。 -->
+          <section class="card kc-pane" data-p="call" id="call">
+            <div class="cl-head">
+              <label>リスト <select id="clList"></select></label>
+              <span class="cl-prog" id="clProg"></span>
+              <label>探す <input type="text" id="clFind" placeholder="会社名・担当者・電話" style="width:200px" /></label>
+              <button class="btn ghost" id="clReset">しぼり込みを外す</button>
+              <button class="btn ghost" id="clCheck" title="履歴の件数が出ないときに押してください">履歴の件数を調べる</button>
+              <span class="rev-status" id="clStatus"></span>
+            </div>
+
+            <div id="clTable"><div class="empty-state">リストを選んでください。</div></div>
+          </section>
+
+          <!-- 今日の実績 -->
+          <section class="card kc-pane" data-p="stats" hidden>
+            <h3 id="stats">今日の実績</h3>
+            <div class="ap-cfg-actions">
+              <label class="ks-check"><input type="checkbox" id="clMine" checked /> 自分のぶんだけ</label>
+              <button class="btn ghost" id="clStatsReload">読み込み直す</button>
+            </div>
+            <div id="clStats"></div>
+          </section>
+
+          <!-- リストの割り振り -->
+          <section class="card kc-pane" data-p="lists" hidden>
+            <h3 id="lists">リスト管理</h3>
+            <p class="note">登録済みのリストを選ぶ・削除できます。カードを押すと「かける」に移り、右上の × で削除します。<br>
+            <b>もとになるSalesforceのレポートは変わりません。</b>ここで消しても、Salesforce側のリードはそのまま残ります。</p>
+            <div id="asCards" class="kc-lists-grid"><div class="note">読み込んでいます…</div></div>
+            <span class="rev-status" id="asStatus"></span>
+          </section>
+
+          <!-- リストを作る -->
+          <section class="card kc-pane" data-p="new" hidden>
+            <h3 id="new">リストを作る（ふだんは使いません）</h3>
+            <p class="note">ふだんは、kinbotの<b>リードレポートから「kincallへ送る」</b>でリストを作ってください。<br>
+            この画面は、貼り付けや会社名の検索から作りたいときだけ使います。</p>
+            <p class="note">Salesforceのリードから作るか、Excelなどから貼り付けて作れます。<br>
+            貼り付けは1行1社で、<b>会社名・担当者名・電話番号</b>の順（タブまたはカンマ区切り）です。</p>
+            <div class="ap-cfg-row">
+              <label>リストの名前 <input type="text" id="clNewName" style="width:280px" /></label>
+            </div>
+            <h4 class="ap-rot-h">Salesforceのリードから入れる</h4>
+            <p class="note">会社名や担当者名で探して、<b>中身を見てから</b>リストに入れられます。<br>
+            ステージ（レコードタイプ）とリードの状態も、そのまま持ってきます。</p>
+            <div class="ap-cfg-row">
+              <label>会社名 <input type="text" id="clSfCompany" placeholder="製作所" style="width:180px" /></label>
+              <label>担当者名 <input type="text" id="clSfPerson" placeholder="（任意）" style="width:130px" /></label>
+              <label>件数 <input type="number" id="clSfLimit" value="30" min="1" max="50" style="width:70px" /></label>
+              <button class="btn ghost" id="clSfFind">探す</button>
+              <span class="rev-status" id="clSfStatus"></span>
+            </div>
+            <div id="clSfBox"></div>
+            <label class="mail-lb">貼り付けて作る
+              <textarea id="clPaste" rows="6" placeholder="株式会社サンプル製作所	佐藤	03-1234-5678"></textarea>
+            </label>
+            <div class="ap-cfg-actions">
+              <button class="btn" id="clFromPaste">貼り付けから作る</button>
+              <span class="rev-status" id="clNewStatus"></span>
+            </div>
+          </section>
+        </main>
+      </div>
+    </div>
+    <script src="calls.js?v=20260820c"></script>
+    <script src="nav.js?v=20260820c"></script>
+  </body>
+</html>

@@ -33,13 +33,37 @@ export const REASONS = {
   duplicate:     "Salesforceの重複ルールで止められました（同じ会社・担当者が既にあります）",
 };
 
-// 「【初回】株式会社ベルク／町田様」から会社名と担当者名を取り出す
+// 「【初回】株式会社ベルク／町田様」から会社名と担当者名を取り出す。
+//
+// 区切りの書き方は人によってまちまち。次のどれでも同じように読む。
+//   会社/担当様　会社／担当様　会社 / 担当様　会社|担当様
+//   会社 担当様　会社　担当様　会社:担当様　会社・担当様
+//   担当名のあとに空白があってもよい（「田崎 様」）
 export function parseTitle(title) {
-  let t = String(title || "").replace(/【[^】]*】/g, "").trim();
-  t = t.replace(/[／\/｜|]/g, " ").replace(/[\s　]+/g, " ").trim();
-  const m = t.match(/([^\s]{1,20}?)\s*(?:様|さま|さん)/);
+  // 全角の英数字や記号は半角にそろえる（／→/ になる）
+  let t = String(title || "").normalize("NFKC").replace(/【[^】]*】/g, "").trim();
+  // 区切りに使われる記号は、すべて同じ1つの区切りに置き換える
+  t = t.replace(/[\/｜|:：,、･・]+/g, " ").replace(/[\s　]+/g, " ").trim();
+  if (!t) return { company: "", person: "" };
+
+  // 「〜様」で終わるところを担当者名とみなす。
+  // 「田崎 様」のように間に空白があっても拾えるようにする。
+  const m = t.match(/([^\s]{1,20})\s*(?:様|さま|さん|殿)\s*$/) ||
+            t.match(/([^\s]{1,20})\s*(?:様|さま|さん|殿)/);
   const person = m ? m[1] : "";
-  let company = t.replace(/[^\s]*(?:様|さま|さん).*$/, "").trim();
+
+  let company = "";
+  if (m) {
+    // 担当者名より前を会社名とする
+    company = t.slice(0, m.index).trim();
+  }
+  if (!company) {
+    // 「様」が無いときは、区切りの前を会社名とする
+    const parts = t.split(" ").filter(Boolean);
+    company = parts.length > 1 && person ? parts.slice(0, -1).join(" ") : t;
+  }
+  // 会社名に区切りの名残が付いていたら落とす
+  company = company.replace(/[\s\/｜|:：,、･・]+$/, "").trim();
   if (!company && !person) company = t;
   return { company, person };
 }

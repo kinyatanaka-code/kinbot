@@ -1,3 +1,45 @@
+// 画面のどこかでつまずいたら、隅に小さく出す。
+// 黙って止まると「押しても反応しない」に見えるため。
+window.addEventListener("error", (e) => {
+  try {
+    let box = document.getElementById("kbErr");
+    if (!box) {
+      box = document.createElement("div");
+      box.id = "kbErr";
+      box.className = "kb-err";
+      box.title = "画面の処理でつまずきました。開発メモに残すと直せます。";
+      document.body.appendChild(box);
+      box.addEventListener("click", () => box.remove());
+    }
+    box.textContent = "画面のエラー：" + String((e && e.message) || e).slice(0, 120);
+  } catch {}
+});
+
+// いま動いている版を、画面の隅に小さく出す。
+// 「直したのに変わらない」ときに、古い画面を見ているかどうかが分かる。
+(function () {
+  const ver = (document.querySelector('script[src*="?v="]') || {}).src || "";
+  const m = ver.match(/\?v=([\w.-]+)/);
+  if (!m) return;
+  document.addEventListener("DOMContentLoaded", () => {
+    const el = document.createElement("div");
+    el.className = "kb-ver";
+    el.textContent = "画面 " + m[1];
+    el.title = "この画面のバージョン。古いままなら、Cmd/Ctrl + Shift + R で読み込み直してください。";
+    document.body.appendChild(el);
+  });
+})();
+
+// ロボに話しかける窓を、どの画面でも使えるように読み込む
+(function () {
+  if (!document.querySelector('script[src$="kbchat.js"]')) {
+    const sc = document.createElement("script");
+    sc.src = "kbchat.js?v=20260819zb";
+    sc.defer = true;
+    document.head.appendChild(sc);
+  }
+})();
+
 // ───────────────────────────────────────────────────────────
 // メニューの中身。パソコンのサイドバーもスマホのメニューも、ここから作る。
 // 増えすぎた項目を6つにまとめ、深いものはカーソルを合わせると出るようにした。
@@ -29,6 +71,7 @@ const KB_MENU = [
       { href: "sf-launch.html?tab=process", label: "プロセスシート", desc: "架電結果をシートに書き込む" },
       { href: "apo.html", label: "アポ振り分け", desc: "担当の自動割り振り・チーム実績" },
       { href: "docs.html", label: "資料トラッキング", desc: "送った資料の閲覧状況" },
+      { href: "weekly.html", label: "天気予報", desc: "今週のテーマ・目標・施策と、金曜の振り返り" },
       { href: "dev.html", label: "開発メモ", desc: "直したいこと・自動で拾ったエラー" },
     ],
   },
@@ -76,8 +119,19 @@ function kbBuildSidebar() {
       `<div class="side-sub"><div class="side-sub-head">${esc(m.label)}</div>${subs}</div></div>`;
   }).join("");
 
+  // 設定の下に、kincall（架電ツール）の入り口を置く。
+  // kinbotの機能とは別の道具なので、線で区切って分ける。
+  const kcOn = /^\/kincall/.test(location.pathname) ? " active" : "";
+  const apps =
+    `<div class="side-sep"></div>` +
+    `<a class="side-item side-app${kcOn}" href="/kincall">` +
+    `<img class="side-app-ico" src="/kincall.svg" alt="" />` +
+    `<span class="side-label">kincall</span>` +
+    // まだ試している最中なので「準備中」と出しておく
+    `<span class="side-app-tag kc-wip">準備中</span></a>`;
+
   const brand = nav.querySelector(".side-brand");
-  nav.innerHTML = (brand ? brand.outerHTML : "") + html + (foot ? foot.outerHTML : "");
+  nav.innerHTML = (brand ? brand.outerHTML : "") + html + apps + (foot ? foot.outerHTML : "");
 }
 
 // public/nav.js — サイドバーのユーザー表示とログアウト

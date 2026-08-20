@@ -4,7 +4,13 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>kinbot 提案資料</title>
-    <link rel="stylesheet" href="style.css" />
+    <link rel="icon" href="/icon.svg" type="image/svg+xml" />
+    <link rel="icon" href="/favicon-32.png" sizes="32x32" type="image/png" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <link rel="manifest" href="/site.webmanifest" />
+    <meta name="theme-color" content="#0d5b47" />
+    <meta name="apple-mobile-web-app-title" content="kinbot" />
+    <link rel="stylesheet" href="style.css?v=20260819zb" />
     <style>
       .pp-page { padding: 20px; max-width: 900px; }
       .pp-search-bar {
@@ -76,7 +82,7 @@
         </main>
       </div>
     </div>
-    <script src="nav.js" defer></script>
+    <script src="nav.js?v=20260819zb" defer></script>
     <script>
 const $ = id => document.getElementById(id);
 const esc = s => String(s==null?"":s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));

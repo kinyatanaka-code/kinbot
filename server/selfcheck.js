@@ -54,8 +54,10 @@ export function checkProcessSheet({ sheetId, sheetName, reportId, last, autoRun 
   const at = last && last.at ? new Date(last.at) : null;
   const hours = at ? (Date.now() - at.getTime()) / 3600000 : null;
   if (!at) {
-    out.push(item("sheet.last", "最後の書き込み", false, "まだ一度も動いていません",
-      "プロセスシートの画面で「試算」してから、実行してみる"));
+    out.push(item("sheet.last", "最後の書き込み", false,
+      "まだ一度も動いていません（設定は済んでいるので、あとは1回動かすだけです）",
+      "ツール→Salesforce→プロセスシートを開き、「試算」で中身を確かめてから「実行」を押す。" +
+      "1回動けば、あとは30分おきに自動で書き込みます"));
   } else if (last.ok === false) {
     out.push(item("sheet.last", "最後の書き込み", false,
       `失敗しています：${last.error || "理由不明"}`,

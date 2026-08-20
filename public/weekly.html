@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html lang="ja">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>kinbot 天気予報</title>
+    <link rel="icon" href="/icon.svg" type="image/svg+xml" />
+    <link rel="icon" href="/favicon-32.png" sizes="32x32" type="image/png" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <link rel="manifest" href="/site.webmanifest" />
+    <meta name="theme-color" content="#0d5b47" />
+    <meta name="apple-mobile-web-app-title" content="kinbot" />
+    <link rel="stylesheet" href="style.css?v=20260819zb" />
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/tabler-icons/2.44.0/iconfont/tabler-icons.min.css" />
+  </head>
+  <body>
+    <div class="app">
+      <nav class="sidebar">
+        <div class="side-brand"><span class="brand-mark"></span><span>kinbot</span></div>
+        <div class="side-foot"><span id="who" class="who"></span><a href="#" id="logout" class="side-logout">ログアウト</a></div>
+      </nav>
+
+      <div class="main">
+        <header class="topbar">
+          <div class="brand"><img class="topbar-bot" src="kinbot.svg" alt="" /><span class="brand-name">天気予報</span></div>
+        </header>
+
+        <main class="report-page">
+          <section class="card">
+            <div class="wb-head">
+              <div class="wb-nav">
+                <button class="btn ghost" id="wbPrev">← 前の週</button>
+                <span class="wb-range" id="wbRange">読み込み中…</span>
+                <button class="btn ghost" id="wbNext">次の週 →</button>
+                <button class="btn ghost" id="wbThis">今週</button>
+              </div>
+              <span class="rev-status" id="wbStatus"></span>
+            </div>
+            <p class="note">月曜の朝礼までに <b>テーマ・定量目標・具体的な施策</b> を書き、金曜の終礼で <b>振り返り</b> を書きます。<br>
+            その週に取ったアポの件数は、kinbotが自動で出します。書いたそばから保存されます。</p>
+            <div class="wb-photo">
+              <div class="ap-cfg-actions">
+                <label class="btn ghost wb-file">
+                  ホワイトボードの写真を選ぶ
+                  <input type="file" id="wbPhoto" accept="image/*" hidden />
+                </label>
+                <span class="rev-status" id="wbPhotoStatus"></span>
+              </div>
+              <p class="note">ホワイトボードを撮った写真から、テーマ・定量目標・施策を読み取って入れます。<br>
+              読み取ったあと、中身を確かめてから入れられます（すぐには保存しません）。手書きが読めなかったところは空になります。</p>
+              <div id="wbPhotoBox"></div>
+            </div>
+
+            <div id="wbList"><div class="empty-state">読み込み中…</div></div>
+          </section>
+
+          <section class="card">
+            <h3>書き忘れへの声かけ</h3>
+            <p class="note">まだ書けていない人に、<b>本人にだけ</b>1対1のチャットで声をかけます。<br>
+            月曜の朝は「テーマ・目標・施策」を、金曜の夕方は「振り返り」をお願いします。</p>
+            <div class="ap-cfg-actions">
+              <label>書く人 <input type="text" id="wbMembers" style="width:320px" placeholder="植野,江田,田中,森田" /></label>
+              <button class="btn ghost" id="wbMemSave">保存</button>
+              <span class="rev-status" id="wbMemStatus"></span>
+            </div>
+            <p class="note">名前かメールを、カンマ区切りで書きます。空にすると全員が出ます。</p>
+            <div class="ap-cfg-actions">
+              <label class="ks-check"><input type="checkbox" id="wrOn" /> 声をかける</label>
+              <label>月曜 <input type="number" id="wrPlan" min="0" max="23" style="width:60px" /> 時</label>
+              <label>金曜 <input type="number" id="wrReview" min="0" max="23" style="width:60px" /> 時</label>
+              <button class="btn ghost" id="wrSave">保存</button>
+              <button class="btn ghost" id="wrNow">いま声をかける（記入）</button>
+              <button class="btn ghost" id="wrNowR">いま声をかける（振り返り）</button>
+              <span class="rev-status" id="wrStatus"></span>
+            </div>
+          </section>
+        </main>
+      </div>
+    </div>
+    <script src="weekly.js?v=20260819zb"></script>
+    <script src="nav.js?v=20260819zb"></script>
+  </body>
+</html>

@@ -1,0 +1,71 @@
+# kinbot 変更チェック（push / PR のたびに動く安全網）
+#
+# これは「自動で直す」仕組みではありません。
+# 人が手で入れた変更（GitHubのWeb UIやトークンでのpush）や、PRのときに、
+# 「文法が壊れていないか」「サーバーがちゃんと起動するか」を自動で確かめます。
+#
+# いまの夜間開発・毎時開発は Claude の変更しか確かめていませんでした。
+# これを足すと、どんな入れ方をした変更でも、本番へ行く前に一度チェックが入ります。
+#
+# ★これを本当の「関所」にするには、Railway側の設定で
+#   「Wait for CI to pass before deploying（CIが通るまでデプロイしない）」を
+#   ONにしてください（Railway → プロジェクト → Settings → Deploy）。
+#   ONにすると、下のチェックが緑になったものだけが本番へ反映されます。
+
+name: 変更チェック（push / PR）
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "server/**"
+      - "public/**"
+      - "dev/smoke.mjs"
+      - "package.json"
+      - "package-lock.json"
+  pull_request:
+    branches: [main]
+
+# 同じブランチで新しいpushが来たら、古いチェックは止める
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: コードを取ってくる
+        uses: actions/checkout@v4
+
+      - name: Node.jsを用意する
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: 必要なものを入れる
+        run: npm install --omit=dev --no-audit --no-fund
+
+      - name: 文法を確かめる（server と dev）
+        run: |
+          fail=0
+          for f in $(find server dev -type f \( -name '*.js' -o -name '*.mjs' \)); do
+            node --check "$f" || { echo "文法エラー: $f"; fail=1; }
+          done
+          [ "$fail" = "0" ] || exit 1
+
+      - name: 画面のJSも文法を確かめる（public）
+        run: |
+          fail=0
+          for f in $(find public -type f -name '*.js'); do
+            node --check "$f" || { echo "文法エラー: $f"; fail=1; }
+          done
+          [ "$fail" = "0" ] || exit 1
+
+      - name: 本当に起動するか確かめる（smoke）
+        run: node dev/smoke.mjs

@@ -182,7 +182,7 @@ let ITEMS = [];
 function render() {
   const box = $("dnList");
   const showAll = $("dnAll").checked;
-  const list = showAll ? ITEMS : ITEMS.filter((x) => x.status !== "done" && x.status !== "dropped");
+  const list = showAll ? ITEMS : ITEMS.filter((x) => x.status !== "done");
   if (!list.length) {
     box.innerHTML = '<div class="empty-state">いまは何もありません。</div>';
     return;
@@ -201,8 +201,7 @@ function render() {
       <div class="dk-act">
         <button type="button" class="btn ghost dn-st" data-st="doing">やる</button>
         <button type="button" class="btn ghost dn-st" data-st="done">済み</button>
-        <button type="button" class="btn ghost dn-st" data-st="dropped">見送り</button>
-        <button type="button" class="btn ghost dn-del">削除</button>
+        <button type="button" class="btn ghost dn-drop">見送る（消す）</button>
       </div>
     </div>`).join("") + `</div>`;
 
@@ -215,11 +214,17 @@ function render() {
       });
       load();
     }));
-  box.querySelectorAll(".dn-del").forEach((b) =>
+  // 見送る＝一覧から消える。中身は覚えておくので、同じ案はもう出てこない。
+  box.querySelectorAll(".dn-drop").forEach((b) =>
     b.addEventListener("click", async () => {
       const row = b.closest(".dk-row");
-      if (!confirm("この項目を消します。よろしいですか？")) return;
-      await fetch(`/api/dev-notes/${row.dataset.id}`, { method: "DELETE" });
+      row.style.opacity = "0.4";
+      await fetch(`/api/dev-notes/${row.dataset.id}`, {
+        method: "PATCH", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ status: "dropped" }),
+      });
+      row.remove();
+      setStatus("dnStatus", "見送りました（同じ案はもう出ません）", 4000);
       load();
     }));
 }
@@ -270,6 +275,32 @@ $("dnAll").addEventListener("change", render);
 $("dnSummary").addEventListener("click", () => summary(false));
 $("dnSend").addEventListener("click", () => summary(true));
 
+// まとめて見送りにする（溜まりすぎた案を一度に片づける）
+async function bulkDrop(where, label) {
+  const n = ITEMS.filter((x) => x.status !== "done" &&
+    (where.source ? x.source === where.source : true) &&
+    (where.kind ? x.kind === where.kind : true)).length;
+  if (!n) { setStatus("dnStatus", "対象がありません", 4000); return; }
+  if (!confirm(`${label}を ${n}件、見送って一覧から消します。\n` +
+    `内容は覚えておくので、同じ案がまた出ることはありません。よろしいですか？`)) return;
+  setStatus("dnStatus", "片づけています…");
+  try {
+    const r = await fetch("/api/dev-notes/bulk", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ ...where, status: "dropped" }),
+    });
+    const d = await r.json();
+    if (d.error) throw new Error(d.error);
+    setStatus("dnStatus", `${d.changed}件を消しました（同じ案はもう出ません）`, 5000);
+    load();
+  } catch (e) { setStatus("dnStatus", "失敗：" + e.message, 6000); }
+}
+
+$("dnDropUi").addEventListener("click", () => bulkDrop({ source: "画面の見直し" }, "画面の見直しの案"));
+$("dnDropIdea").addEventListener("click", () => bulkDrop({ kind: "idea" }, "アイデア"));
+if ($("dnDropErr")) $("dnDropErr").addEventListener("click", () => bulkDrop({ kind: "error" }, "エラー"));
+if ($("dnDropAll")) $("dnDropAll").addEventListener("click", () => bulkDrop({ all: true }, "残っているもの全部"));
+
 // 未対応をまとめてコピー（そのままClaudeに貼れる形）
 $("dnCopy").addEventListener("click", () => {
   const list = ITEMS.filter((x) => x.status !== "done" && x.status !== "dropped");
@@ -280,6 +311,58 @@ $("dnCopy").addEventListener("click", () => {
     .then(() => setStatus("dnStatus", "コピーしました", 3000))
     .catch(() => setStatus("dnStatus", "コピーできませんでした", 4000));
 });
+
+// 開発メモのChat通知の入り切り
+if ($("dnChatOn")) {
+  (async () => {
+    try {
+      const d = await (await fetch("/api/dev-notes/chat")).json();
+      $("dnChatOn").checked = d.enabled !== false;
+    } catch {}
+  })();
+  $("dnChatSave").addEventListener("click", async () => {
+    setStatus("dnChatStatus", "保存しています…");
+    try {
+      await fetch("/api/dev-notes/chat", {
+        method: "PUT", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ enabled: $("dnChatOn").checked }),
+      });
+      setStatus("dnChatStatus", $("dnChatOn").checked ? "Chatへ送ります" : "Chatへは送りません", 4000);
+    } catch (e) { setStatus("dnChatStatus", "失敗：" + e.message, 6000); }
+  });
+}
+
+// 朝の「kinbotが新しくなりました」
+if ($("dpNewsOn")) {
+  (async () => {
+    try {
+      const d = await (await fetch("/api/deploy/news")).json();
+      $("dpNewsOn").checked = d.enabled !== false;
+      $("dpNewsH").value = String(d.hour ?? 8);
+      $("dpNewsM").value = String(d.minute ?? 30);
+    } catch {}
+  })();
+  $("dpNewsSave").addEventListener("click", async () => {
+    setStatus("dpNewsSt", "保存しています…");
+    try {
+      await fetch("/api/deploy/news", {
+        method: "PUT", headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          enabled: $("dpNewsOn").checked,
+          hour: $("dpNewsH").value, minute: $("dpNewsM").value,
+        }),
+      });
+      setStatus("dpNewsSt", "保存しました", 4000);
+    } catch (e) { setStatus("dpNewsSt", "失敗：" + e.message, 6000); }
+  });
+  $("dpNewsTest").addEventListener("click", async () => {
+    setStatus("dpNewsSt", "送っています…");
+    try {
+      const d = await (await fetch("/api/deploy/news/test", { method: "POST" })).json();
+      setStatus("dpNewsSt", d["件数"] ? `${d["件数"]}件をまとめて送りました` : (d.note || "変更はありませんでした"), 8000);
+    } catch (e) { setStatus("dpNewsSt", "失敗：" + e.message, 6000); }
+  });
+}
 
 if ($("aaRun")) {
   $("aaSave").addEventListener("click", aaSave);

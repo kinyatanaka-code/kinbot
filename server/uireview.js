@@ -46,6 +46,43 @@ async function readPage(publicDir, file, limit = 14000) {
   }
 }
 
+// その画面で使っている見た目の決まり（CSS）だけを取り出す。
+//
+// HTMLだけ渡すと、AIは「色分けがない」「押せると分からない」と誤解する。
+// 実際には選択中の色もホバーもCSSで作ってあるので、そこを一緒に見せる。
+export function classNamesIn(html) {
+  const set = new Set();
+  for (const m of String(html).matchAll(/class="([^"]+)"/g)) {
+    for (const c of m[1].split(/\s+/)) if (c && !/^\$/.test(c)) set.add(c);
+  }
+  return set;
+}
+
+export function relevantCss(css, classes, limit = 12000) {
+  const out = [];
+  // 「セレクタ { 中身 }」のかたまりに分ける（入れ子の @media は中身ごと拾う）
+  const re = /([^{}]+)\{([^{}]*)\}/g;
+  let m;
+  while ((m = re.exec(css))) {
+    const sel = m[1].trim();
+    if (!sel || sel.startsWith("@")) continue;
+    const used = sel.match(/\.([A-Za-z0-9_-]+)/g) || [];
+    if (!used.length) continue;
+    if (used.some((u) => classes.has(u.slice(1)))) {
+      out.push(`${sel} { ${m[2].trim().replace(/\s+/g, " ")} }`);
+    }
+    if (out.join("\n").length > limit) break;
+  }
+  return out.join("\n").slice(0, limit);
+}
+
+async function readCssFor(publicDir, html) {
+  try {
+    const css = await readFile(path.join(publicDir, "style.css"), "utf8");
+    return relevantCss(css, classNamesIn(html));
+  } catch { return ""; }
+}
+
 // 次に見る画面を決める（順番に回す）
 export function nextPage(index) {
   const i = Number.isFinite(index) ? index : 0;
@@ -53,10 +90,11 @@ export function nextPage(index) {
 }
 
 // 1つの画面について、使いやすさの案を作る
-export async function reviewPage(publicDir, page, callLLM, extra = "") {
+export async function reviewPage(publicDir, page, callLLM, extra = "", already = []) {
   const html = await readPage(publicDir, page.file);
   if (!html) return { error: `${page.file} を読めませんでした` };
   if (!callLLM) return { error: "AIが使えません" };
+  const css = await readCssFor(publicDir, html);
 
   const system =
     "あなたは業務システムの画面を見直す専門家です。日本の営業チームが毎日使う画面を、" +
@@ -64,10 +102,31 @@ export async function reviewPage(publicDir, page, callLLM, extra = "") {
     "この製品の決まり:\n" + DESIGN_RULES.map((x) => `- ${x}`).join("\n") + "\n\n" +
     "出し方の決まり:\n" +
     "- 日本語。むずかしい言葉を使わない。\n" +
+    "- **CSSを必ず読むこと。すでにできていることは提案しない。**\n" +
+    "    例：選択中の色・ホバー・カードの枠・影は、たいていCSSで作ってある。\n" +
+    "    HTMLに色の指定が無いからといって「色分けがない」と判断しない。\n" +
+    "- 「〜をカード型にする」だけの案は出さない。枠が増えるほど、1画面に入る情報が減って使いにくくなる。\n" +
+    "- 見た目の好みではなく、**使う人が実際に困ること**を直す案にする。\n" +
+    "    （押す場所が分からない／必要な情報が画面の外にある／操作の手数が多い、など）\n" +
     "- 実際に手を動かせる具体的な案だけ。「分かりやすくする」のような曖昧なものは書かない。\n" +
     "- 大きな作り替えは出さない。いまの作りのまま直せることに絞る。\n" +
-    "- 効果が大きい順に、ちょうど3件。\n" +
+    "- 効果が大きい順に、多くても3件。**思い当たらなければ「なし」とだけ書く。**\n" +
+    "    無理に3件ひねり出さないこと。的外れな案や、前と同じ案は、かえって邪魔になる。\n" +
+    "- 同じ画面について何度も見直しているので、たいていは「なし」が正しい答えです。\n" +
     "- 決まりに反する案（絵文字アイコン、色を増やす等）は出さない。\n" +
+    "\n【出してはいけない案】この形のものは、どんな言い方でも書かない:\n" +
+    "- 「ラベルにアイコンを付ける」「アイコンを消す」など、見た目の飾りの話\n" +
+    "- 「説明文を足す」「補足を出す」など、文章を増やすだけの話\n" +
+    "- 「ボタンの位置を変える」「並び順を変える」だけの話\n" +
+    "- 「保存したことを知らせる」「処理中と出す」など、たいてい既にできていること\n" +
+    "- 「確認ダイアログを出す」など、手数が増えるだけの話\n" +
+    "\n【出してよい案】次のどれかに当てはまるものだけ:\n" +
+    "- その画面で**やりたいことができない**（機能が無い・行き止まりになる）\n" +
+    "- **必要な情報が画面に出ていない**ので、別の画面を開かないと判断できない\n" +
+    "- 毎日くり返す操作に、**明らかに余計な手数**がある（3回以上のクリックが1回にできる等）\n" +
+    "- **間違えやすく、間違えると困る**（消える・送られる・戻せない）のに、止める仕組みが無い\n" +
+    "\n上のどれにも当てはまらないなら、必ず「なし」と書いてください。\n" +
+    "3件ひねり出すより、「なし」1つのほうがずっと価値があります。\n" +
     "- 次の形だけを書く。前置きや締めの言葉は書かない。\n" +
     "1. 見出し（20字以内）\n" +
     "   いま：〜\n" +
@@ -78,7 +137,14 @@ export async function reviewPage(publicDir, page, callLLM, extra = "") {
     `画面の名前：${page.name}（${page.file}）\n` +
     `この画面の役目：${page.role}\n` +
     (extra ? `いま困っていること：${extra}\n` : "") +
-    `\n画面の中身（HTML。scriptの中身は省略）:\n"""\n${html}\n"""\n`;
+    (already.length
+      ? `\n【前に出した案（${already.length}件）】\n${already.map((x) => `- ${x}`).join("\n")}\n` +
+        `この一覧と少しでも同じことを言う案は、絶対に出さないでください。` +
+        `言い方を変えただけのもの（例：「分かりやすく」→「明確に」、「配置」→「並び」）も同じ扱いです。\n` +
+        `新しく言えることが無ければ、「なし」とだけ書いてください。\n`
+      : "") +
+    `\n画面の中身（HTML。scriptの中身は省略）:\n"""\n${html}\n"""\n` +
+    `\nこの画面で使っている見た目の決まり（CSS。ここに書いてあることは、すでにできている）:\n"""\n${css}\n"""\n`;
 
   try {
     const text = await callLLM(system, user, 1400, { json: false });
@@ -88,15 +154,35 @@ export async function reviewPage(publicDir, page, callLLM, extra = "") {
   }
 }
 
-// 出てきた案を、1件ずつに切り分ける（開発メモに残すため）
+// 見た目の飾りだけの案は、受け取った側でも捨てる。
+// 何度言っても出てくるので、こちらで止める。
+const 使えない案 = [
+  /アイコン(を|に)?(付|つ|追加|化|削除|消)/,
+  /(説明|補足|注釈|ツールチップ|title属性)を?(足|追加|表示|付)/,
+  /(ボタン|欄|項目|リンク).{0,20}(配置|位置|並び|順番)/,
+  /(ボタン|欄|項目).{0,20}(移動させ|右隣|左隣|上の行|下の行)/,
+  /(保存|完了|成功|失敗).{0,10}(メッセージ|フィードバック|表示)/,
+  /(処理中|実行中|ローディング|スピナー|プログレスバー)/,
+  /確認(ダイアログ|画面)を?(出|表示|設|追加)/,
+  /カード(型|形式)に(する|まとめ)/,
+  /(色|カラー)を?(分け|変え|付)/,
+];
+
 export function splitIdeas(text) {
   const out = [];
+  // 「なし」と返ってきたら、案は無いものとして扱う
+  if (/^\s*(なし|特になし|ありません)\s*$/.test(String(text || ""))) return out;
   const blocks = String(text || "").split(/\n(?=\d+\.\s)/);
   for (const b of blocks) {
     const t = b.trim();
     if (!t) continue;
     const head = (t.split("\n")[0] || "").replace(/^\d+\.\s*/, "").trim();
     if (!head) continue;
+    // 見た目の飾りだけの案は残さない
+    if (使えない案.some((re) => re.test(t))) {
+      console.log(`[画面の見直し] 見た目だけの案なので捨てました：${head.slice(0, 40)}`);
+      continue;
+    }
     out.push({ title: head.slice(0, 120), detail: t.slice(0, 800) });
   }
   return out;

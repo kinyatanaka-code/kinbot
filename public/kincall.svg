@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" role="img" aria-label="kincall">
+  <!-- kincall のしるし。
+       kinbotのロボと並べても違和感がないよう、同じ丸みと緑で作る。
+       受話器のかたちに、電波が広がる線を添えた。 -->
+  <defs>
+    <linearGradient id="kcBody" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#5DCAA5"/>
+      <stop offset="1" stop-color="#1d9e75"/>
+    </linearGradient>
+  </defs>
+
+  <!-- 背景の角丸 -->
+  <rect x="2" y="2" width="60" height="60" rx="16" fill="#0d5b47"/>
+
+  <!-- 受話器 -->
+  <path d="M22.5 18.5c-2.2 0-4 1.8-4 4 0 12.4 10.6 23 23 23 2.2 0 4-1.8 4-4v-4.6c0-1.7-1.2-3.2-2.9-3.5l-4.6-.9c-1.5-.3-3 .4-3.8 1.7l-1.2 2c-4-2.1-7.3-5.4-9.4-9.4l2-1.2c1.3-.8 2-2.3 1.7-3.8l-.9-4.6c-.3-1.7-1.8-2.9-3.5-2.9z"
+        fill="url(#kcBody)"/>
+
+  <!-- 電波（3本） -->
+  <path d="M38 15.5c3.2 0 6 1.2 8.2 3.4" stroke="#9fe1cb" stroke-width="3" stroke-linecap="round" fill="none"/>
+  <path d="M38 22.5c1.5 0 2.9.6 3.9 1.6" stroke="#9fe1cb" stroke-width="3" stroke-linecap="round" fill="none"/>
+  <path d="M38 8.5c5.1 0 9.7 2.1 13.1 5.4" stroke="#5DCAA5" stroke-width="3" stroke-linecap="round" fill="none" opacity="0.55"/>
+</svg>

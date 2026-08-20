@@ -732,6 +732,38 @@ export async function fillEmptyFields(owner, sobject, id, proposed) {
 // SF側に用意したカスタム項目 kinbot_bot_id__c を使う。
 const KINBOT_TASK_KEY = process.env.SF_TASK_KEY_FIELD || "kinbot_bot_id__c";
 
+// リードに残っている活動（架電の履歴）を取ってくる。
+// 完了・未完了を問わず、新しい順に返す。
+export async function leadActivities(owner, leadId, limit = 50) {
+  if (!leadId) return [];
+  const id = String(leadId).replace(/[^A-Za-z0-9]/g, "");
+  // 組織によって項目が違うので、まず標準の項目だけで取る
+  const base = "Id, Subject, Status, ActivityDate, Description, CreatedDate, Owner.Name";
+  const soql =
+    `SELECT ${base} FROM Task WHERE WhoId = '${id}' ` +
+    `ORDER BY ActivityDate DESC NULLS LAST, CreatedDate DESC LIMIT ${Math.min(200, Number(limit) || 50)}`;
+  try {
+    const d = await sfQuery(owner, soql);
+    return d.records || [];
+  } catch (e) {
+    console.warn("[SF] 活動履歴を取れません:", e.message);
+    return [];
+  }
+}
+
+// 活動の「結果」が入っている項目を探す（組織ごとに名前が違う）
+export async function taskResultField(owner) {
+  try {
+    const td = await describeTask(owner);
+    const cand = (td.fields || []).filter((f) =>
+      f.type === "picklist" && (f.picklistValues || []).length >= 3 &&
+      /(status|result|subtype|活動|結果|区分)/i.test(`${f.name} ${f.label}`));
+    const best = cand.sort((a, b) =>
+      (b.picklistValues || []).length - (a.picklistValues || []).length)[0];
+    return best ? { name: best.name, label: best.label } : null;
+  } catch { return null; }
+}
+
 export async function findTaskByBotId(owner, botId) {
   if (!botId) return null;
   const escaped = String(botId).replace(/'/g, "\\'");

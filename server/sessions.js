@@ -97,8 +97,10 @@ class Session {
       type: "session",
       startedAt: this.startedAt,
       repName: this.repName || "",
+      // 録画している本人には、再生用のIDを渡さない。
+      // 同じ会議に出ているので見る必要がなく、音が二重に聞こえてしまうため。
       muxPlaybackId: isOwner ? "" : this.muxPlaybackId || "",
-      muxError: isOwner ? "" : this.muxError || "",
+      muxError: this.muxError || "",
       isOwner,
     });
     // 既存の文字起こしを再送（途中参加の画面用）

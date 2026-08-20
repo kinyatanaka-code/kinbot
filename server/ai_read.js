@@ -45,6 +45,52 @@ async function generate(parts) {
     .trim();
 }
 
+// ホワイトボードの写真から、週のボードの中身を読み取る。
+//
+// 手書きなので、読めない字は無理に埋めず空にする（間違ったまま入るほうが困るため）。
+// 返すのはJSONだけ。名前ごとに、テーマ・定量目標・施策（箇条書き）に分ける。
+const BOARD_INSTRUCTION = `あなたは、営業チームのホワイトボードの写真を読み取る担当です。
+写真には、担当者ごとの「テーマ（やり切ること）」「定量目標」「具体的な施策」が手書きで書かれています。
+読み取って、次のJSONだけを返してください（前置き・説明・コードフェンスは書かない）。
+
+{"people":[{"name":"担当者名","theme":"テーマ","targets":"定量目標","actions":["施策1","施策2"]}]}
+
+決まり:
+- 写真に書かれていることだけを使う。推測で補わない。
+- 読めない字は、その項目を空文字（施策なら省く）にする。少しでも自信が無ければ空にする。
+- 担当者名は、表の見出し（いちばん上の行）に書かれている名前をそのまま使う。
+- 「定量目標」は数字を含む行をそのまま書き写す。矢印（→）や単位もそのまま残す。
+- 「具体的な施策」は、箇条書きの1行を1つの施策として分ける。長い文はそのまま入れてよい。
+- 人数ぶんだけ people に入れる。空の列は入れない。`;
+
+export async function readWhiteboard({ buffer, mimeType = "image/jpeg" }) {
+  if (!GEMINI_KEY) throw new Error("画像を読む設定（GEMINI_API_KEY）がありません");
+  if (!buffer || !buffer.length) throw new Error("画像がありません");
+  const text = await generate([
+    { text: BOARD_INSTRUCTION },
+    { inline_data: { mime_type: mimeType, data: buffer.toString("base64") } },
+  ]);
+  const cleaned = String(text || "").replace(/```json|```/g, "").trim();
+  let data = null;
+  try {
+    data = JSON.parse(cleaned);
+  } catch {
+    // 前後に文が付いていることがあるので、いちばん外側の { } を取り出す
+    const m = cleaned.match(/\{[\s\S]*\}/);
+    if (m) { try { data = JSON.parse(m[0]); } catch {} }
+  }
+  if (!data || !Array.isArray(data.people)) throw new Error("写真から読み取れませんでした");
+  return data.people
+    .map((p) => ({
+      name: String(p.name || "").trim(),
+      theme: String(p.theme || "").trim(),
+      targets: String(p.targets || "").trim(),
+      actions: (Array.isArray(p.actions) ? p.actions : [])
+        .map((a) => String(a || "").trim()).filter(Boolean).slice(0, 20),
+    }))
+    .filter((p) => p.name);
+}
+
 // --- Gemini File API（大容量ファイル用：アップロード→参照して読解） ---
 async function uploadFile(buffer, mimeType, displayName) {
   const startRes = await fetch(`https://generativelanguage.googleapis.com/upload/v1beta/files?key=${GEMINI_KEY}`, {

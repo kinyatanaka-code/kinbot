@@ -564,6 +564,116 @@ function extractBody(payload) {
 }
 
 // 会社名などのクエリでスレッドを検索し、各スレッドの最新メッセージ概要を返す
+// その人が「今日送ったメール」の宛先と件名を、まとめて取ってくる。
+//
+// 御礼メールを実際に送ったかどうかを見分けるために使う。
+// 1回の呼び出しで全件まとめて取り、あとは会社名・アドレスの照合だけを行う。
+export async function gmailSentToday(owner, { max = 60 } = {}) {
+  const token = await accessToken(owner);
+  if (!token) throw new Error("Google未連携です");
+  // 日本時間の今日（Gmailの after: は端末の時差ではなくUTC基準なので、少し広めに取る）
+  const jst = new Date(Date.now() + 9 * 3600 * 1000);
+  const y = jst.getUTCFullYear(), m = jst.getUTCMonth() + 1, d = jst.getUTCDate();
+  const q = `in:sent after:${y}/${m}/${d}`;
+  const listRes = await fetch(
+    `https://gmail.googleapis.com/gmail/v1/users/me/messages?q=${encodeURIComponent(q)}&maxResults=${max}`,
+    { headers: { Authorization: `Bearer ${token}` } }
+  );
+  if (!listRes.ok) {
+    const t = await listRes.text();
+    const err = new Error(`Gmail検索 ${listRes.status}: ${t.slice(0, 200)}`);
+    if (listRes.status === 403 && /insufficient|scope|ACCESS_TOKEN_SCOPE/i.test(t)) err.needScope = true;
+    throw err;
+  }
+  const list = await listRes.json();
+  const ids = (list.messages || []).map((x) => x.id);
+  const out = [];
+  // 宛先と件名だけを読む（本文は読まないので速い）
+  for (const id of ids) {
+    try {
+      const r = await fetch(
+        `https://gmail.googleapis.com/gmail/v1/users/me/messages/${id}` +
+        `?format=metadata&metadataHeaders=To&metadataHeaders=Cc&metadataHeaders=Subject&metadataHeaders=Date`,
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+      if (!r.ok) continue;
+      const d2 = await r.json();
+      const h = {};
+      for (const x of (d2.payload && d2.payload.headers) || []) h[String(x.name).toLowerCase()] = x.value || "";
+      out.push({
+        id,
+        to: `${h.to || ""} ${h.cc || ""}`.trim(),
+        subject: h.subject || "",
+        at: Number(d2.internalDate || 0),
+      });
+    } catch {}
+  }
+  return out;
+}
+
+// 届かずに戻ってきたメール（バウンス）を探す。
+//
+// Gmailは、宛先が存在しないときなどに Mail Delivery Subsystem から通知が届く。
+// その本文に元の宛先が書かれているので、そこから「誰に届かなかったか」を取り出す。
+export async function gmailFindBounces(owner, { days = 3, max = 20 } = {}) {
+  const token = await accessToken(owner);
+  if (!token) throw new Error("Google未連携です");
+  const q = `newer_than:${Math.max(1, Math.min(30, days))}d ` +
+    `(from:mailer-daemon OR from:postmaster OR subject:"Undelivered" OR subject:"Delivery Status" ` +
+    `OR subject:"配信不能" OR subject:"Mail delivery failed")`;
+  const res = await fetch(
+    `https://gmail.googleapis.com/gmail/v1/users/me/messages?q=${encodeURIComponent(q)}&maxResults=${max}`,
+    { headers: { Authorization: `Bearer ${token}` } }
+  );
+  if (!res.ok) {
+    const t = await res.text();
+    const err = new Error(`Gmail検索 ${res.status}: ${t.slice(0, 200)}`);
+    if (res.status === 403 && /insufficient|scope/i.test(t)) err.needScope = true;
+    throw err;
+  }
+  const list = await res.json();
+  const out = [];
+  for (const m of list.messages || []) {
+    try {
+      const r = await fetch(
+        `https://gmail.googleapis.com/gmail/v1/users/me/messages/${m.id}?format=full`,
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+      if (!r.ok) continue;
+      const d = await r.json();
+      const text = collectText(d.payload) + " " + (d.snippet || "");
+      // 本文から、届かなかったアドレスを探す
+      const hits = [...new Set((text.match(/[\w.+-]+@[\w-]+\.[\w.-]+/g) || [])
+        .map((x) => x.toLowerCase())
+        .filter((x) => !/mailer-daemon|postmaster|googlemail|google\.com|noreply/.test(x)))];
+      // 自分のアドレスは除く
+      const me = (await getPrimaryEmail(owner).catch(() => "")) || "";
+      const bad = hits.filter((x) => x !== String(me).toLowerCase());
+      if (!bad.length) continue;
+      out.push({
+        id: m.id,
+        宛先: bad[0],
+        理由: /not exist|存在しない|550/.test(text) ? "宛先が存在しません"
+          : /full|容量/.test(text) ? "相手の受信箱がいっぱいです"
+          : "届きませんでした",
+        at: Number(d.internalDate || 0),
+      });
+    } catch {}
+  }
+  return out;
+}
+
+// 本文（入れ子になっていることがある）を1つの文字列にする
+function collectText(part) {
+  if (!part) return "";
+  let out = "";
+  if (part.body && part.body.data) {
+    try { out += Buffer.from(part.body.data, "base64").toString("utf8"); } catch {}
+  }
+  for (const p of part.parts || []) out += " " + collectText(p);
+  return out;
+}
+
 export async function gmailSearchThreads(owner, query, max = 6) {
   const token = await accessToken(owner);
   if (!token) throw new Error("Google未連携です");
@@ -642,10 +752,10 @@ export function parseEmailAddr(s) {
 }
 
 // 返信を送信する。threadIdを渡すと同じスレッドにぶら下がる。
-export async function gmailSend(owner, { to, subject, bodyText, threadId, inReplyTo, references }) {
+export async function gmailSend(owner, { to, subject, bodyText, threadId, inReplyTo, references, bcc, cc }) {
   const token = await accessToken(owner);
   if (!token) throw new Error("Google未連携です");
-  const raw = await buildRawMessage(owner, { to, subject, bodyText, inReplyTo, references });
+  const raw = await buildRawMessage(owner, { to, subject, bodyText, inReplyTo, references, bcc, cc });
   const payload = threadId ? { raw, threadId } : { raw };
   const res = await fetch("https://gmail.googleapis.com/gmail/v1/users/me/messages/send", {
     method: "POST",
@@ -670,10 +780,10 @@ export async function gmailSend(owner, { to, subject, bodyText, threadId, inRepl
 }
 
 // 返信を「下書き」としてGmailに保存する（送信はしない）。threadIdで同じスレッドにぶら下がる。
-export async function gmailCreateDraft(owner, { to, subject, bodyText, threadId, inReplyTo, references }) {
+export async function gmailCreateDraft(owner, { to, subject, bodyText, threadId, inReplyTo, references, bcc, cc }) {
   const token = await accessToken(owner);
   if (!token) throw new Error("Google未連携です");
-  const raw = await buildRawMessage(owner, { to, subject, bodyText, inReplyTo, references });
+  const raw = await buildRawMessage(owner, { to, subject, bodyText, inReplyTo, references, bcc, cc });
   const message = threadId ? { raw, threadId } : { raw };
   const res = await fetch("https://gmail.googleapis.com/gmail/v1/users/me/drafts", {
     method: "POST",
@@ -826,12 +936,15 @@ export async function gmailUntrashThread(owner, threadId) {
 }
 
 // RFC822形式のメッセージを組み立ててbase64url化（送信・下書きで共通）
-async function buildRawMessage(owner, { to, subject, bodyText, inReplyTo, references }) {
+async function buildRawMessage(owner, { to, subject, bodyText, inReplyTo, references, bcc, cc }) {
   const from = await getPrimaryEmail(owner);
   const enc = (s) => `=?UTF-8?B?${Buffer.from(String(s || "")).toString("base64")}?=`;
   const headers = [
     from ? `From: ${from}` : "",
     `To: ${to}`,
+    cc ? `Cc: ${cc}` : "",
+    // Bccは、お客様には見えない控え。送った本人の受信箱にも届く。
+    bcc ? `Bcc: ${bcc}` : "",
     `Subject: ${enc(subject)}`,
     "MIME-Version: 1.0",
     'Content-Type: text/plain; charset="UTF-8"',

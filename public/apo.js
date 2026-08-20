@@ -218,16 +218,31 @@ function apoCard(a, i) {
   </div>`;
 }
 
+// 探す欄の言葉で、アポを絞り込む。
+// 会社名・担当者名・獲得者・予定名・宛先のどれかに当たれば残す。
+function apoMatches(x, word) {
+  const w = String(word || "").replace(/[\s　]/g, "").toLowerCase();
+  if (!w) return true;
+  const norm = (v) => String(v || "").replace(/[\s　（）()・,、.。「」]/g, "").toLowerCase();
+  const fields = [x.title, x.label, x.company, x.person, x.setter, x.owner_name,
+                  x.current_owner, x.client_email, x.business];
+  return fields.some((f) => norm(f).includes(w));
+}
+
 function renderApo() {
   const body = $("apoBody");
-  const appts = apState.appts;
+  const word = ($("apFind") && $("apFind").value) || "";
+  const all = apState.appts || [];
+  const appts = word ? all.filter((x) => apoMatches(x, word)) : all;
   const errNote = (apState.errors || []).length
     ? '<p class="note cc-warn">一部のカレンダーを読めませんでした：' +
       apState.errors.map((e) => esc(e.setter) + "（" + esc(e.error) + "）").join("、") + '</p>'
     : "";
   if (!appts.length) {
-    body.innerHTML = '<div class="empty-state">該当するアポがありませんでした。取得日・商談日の指定を変えて［表示］を押すか、' +
-      '<a href="settings.html#members">設定 → メンバー管理</a>の登録内容とカレンダー共有をご確認ください。</div>' + errNote;
+    body.innerHTML = word
+      ? `<div class="empty-state">「${esc(word)}」に当てはまるアポはありませんでした（全${all.length}件のうち）。</div>` + errNote
+      : '<div class="empty-state">該当するアポがありませんでした。取得日・商談日の指定を変えて［表示］を押すか、' +
+        '<a href="settings.html#members">設定 → メンバー管理</a>の登録内容とカレンダー共有をご確認ください。</div>' + errNote;
     return;
   }
 
@@ -662,6 +677,26 @@ async function pushSetup() {
   finally { if (btn) btn.disabled = false; }
 }
 
+// アポとして数えない招待者
+async function loadSkipInviters() {
+  if (!$("siWords")) return;
+  try {
+    const d = await apiJson("/api/skip-inviters");
+    $("siWords").value = d.inviters || "";
+  } catch {}
+}
+async function saveSkipInviters() {
+  const st = $("siStatus");
+  if (st) st.textContent = "保存しています…";
+  try {
+    await apiJson("/api/skip-inviters", {
+      method: "PUT", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ inviters: $("siWords").value }),
+    });
+    if (st) { st.textContent = "保存しました"; setTimeout(() => (st.textContent = ""), 4000); }
+  } catch (e) { if (st) st.textContent = "失敗: " + e.message; }
+}
+
 // テスト用アポの見分け方
 async function loadTestWords() {
   if (!$("twWords")) return;
@@ -682,6 +717,63 @@ async function saveTestWords() {
   } catch (e) { if (st) st.textContent = "失敗: " + e.message; }
 }
 
+// 夕方のお知らせ（本人だけに送る）
+async function loadEvening() {
+  if (!$("evOn")) return;
+  try {
+    const d = await apiJson("/api/evening-reminder");
+    $("evOn").checked = !!d.enabled;
+    $("evHour").value = d.hour ?? 18;
+    $("evMin").value = d.minute ?? 30;
+    if (!d.appReady) {
+      $("evBox").innerHTML = '<span class="cc-warn">1対1で送るには、Chatアプリ（kinbot名義）の設定が必要です。' +
+        '設定→外部連携→Google Chat の「送信者名を『kinbot』にする」をご確認ください。</span>';
+    }
+  } catch (e) { $("evBox").textContent = "確認できませんでした：" + e.message; }
+}
+
+async function saveEvening() {
+  setStatusAp("evStatus", "保存しています…");
+  try {
+    await apiJson("/api/evening-reminder", {
+      method: "PUT", headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        enabled: $("evOn").checked,
+        hour: parseInt($("evHour").value, 10),
+        minute: parseInt($("evMin").value, 10),
+      }),
+    });
+    setStatusAp("evStatus", "保存しました", 4000);
+  } catch (e) { setStatusAp("evStatus", "失敗: " + e.message, 6000); }
+}
+
+async function testEvening() {
+  const box = $("evBox");
+  setStatusAp("evStatus", "見ています…");
+  try {
+    const d = await apiJson("/api/evening-reminder/test", {
+      method: "POST", headers: { "content-type": "application/json" }, body: "{}",
+    });
+    const people = d.people || [];
+    if (!people.length) {
+      box.innerHTML = "いま送るものはありません（やり残しなし）。";
+    } else {
+      box.innerHTML = `<b>${people.length}人</b>に送ることになります。<br>` +
+        people.map((p) =>
+          `・${esc(p.name || p.email)}：SF更新 ${p.sf} ／ 立ち上げ ${p.launch} ／ 確定メール ${p.mail}`).join("<br>");
+    }
+    setStatusAp("evStatus", "");
+  } catch (e) { setStatusAp("evStatus", "失敗: " + e.message, 6000); }
+}
+
+// 状態表示のちいさな共通処理
+function setStatusAp(id, t, ms) {
+  const e = $(id);
+  if (!e) return;
+  e.textContent = t || "";
+  if (ms) setTimeout(() => { if (e.textContent === t) e.textContent = ""; }, ms);
+}
+
 // コール進捗のお知らせ
 async function loadCallReport() {
   if (!$("crOn")) return;
@@ -690,6 +782,7 @@ async function loadCallReport() {
     $("crOn").checked = !!d.enabled;
     $("crFrom").value = d.from ?? 11;
     $("crTo").value = d.to ?? 18;
+    if ($("crGoalMode")) $("crGoalMode").value = d.goalMode || "zero";
     $("crGoals").value = Object.entries(d.goals || {})
       .map(([k, v]) => `${k}, ${v.calls || 0}, ${v.apos || 0}`).join("\n");
     if (!d.reportReady) {
@@ -721,6 +814,7 @@ async function saveCallReport() {
         from: parseInt($("crFrom").value, 10),
         to: parseInt($("crTo").value, 10),
         goals: parseGoals($("crGoals").value),
+        goalMode: $("crGoalMode") ? $("crGoalMode").value : undefined,
       }),
     });
     if (st) { st.textContent = "保存しました"; setTimeout(() => (st.textContent = ""), 4000); }
@@ -1501,6 +1595,8 @@ async function loadMailCfg() {
     if ($("mcAutoConfirm")) $("mcAutoConfirm").checked = !!c.autoConfirm;
     if ($("mcAutoReminder")) $("mcAutoReminder").checked = !!c.autoReminder;
     if (hourSel) hourSel.value = String(c.reminderHour);
+    if ($("mcCopy")) $("mcCopy").checked = c.copyToSelf !== false;
+    if ($("mcGap")) $("mcGap").value = String(c.remindGapHours ?? 20);
     if ($("mcMax")) $("mcMax").value = c.maxPerRun;
     if ($("mcCompany")) $("mcCompany").value = c.companyName === "弊社" ? "" : c.companyName;
     if ($("mcCSubject")) $("mcCSubject").value = c.confirmSubject;
@@ -1527,6 +1623,8 @@ async function saveMailCfg() {
       autoConfirm: $("mcAutoConfirm").checked,
       autoReminder: $("mcAutoReminder").checked,
       reminderHour: $("mcHour").value,
+      copyToSelf: $("mcCopy") ? $("mcCopy").checked : true,
+      remindGap: $("mcGap") ? $("mcGap").value : 20,
       maxPerRun: $("mcMax").value,
       companyName: $("mcCompany").value,
       confirmSubject: $("mcCSubject").value,
@@ -1547,6 +1645,44 @@ async function saveMailCfg() {
 
 (function () {
   if ($("mcSave")) $("mcSave").addEventListener("click", saveMailCfg);
+
+  // テストで送ってみる
+  if ($("mtSend")) {
+    // 宛先は、はじめは自分のアドレスを入れておく
+    (async () => {
+      try {
+        const me = await apiJson("/api/me");
+        if ($("mtTo") && !$("mtTo").value) $("mtTo").value = me.email || me.username || "";
+      } catch {}
+    })();
+    const runTest = async (draft) => {
+      const st = $("mtStatus"), box = $("mtBox");
+      st.textContent = draft ? "下書きを作っています…" : "送っています…";
+      if (box) box.textContent = "";
+      try {
+        const r = await fetch("/api/apo-mail/test", {
+          method: "POST", headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            to: $("mtTo").value, kind: $("mtKind").value,
+            setter: $("mtSetter").value, draft,
+          }),
+        });
+        const d = await r.json();
+        if (!r.ok || !d.ok) throw new Error(d.reason || d.error || "送れませんでした");
+        st.textContent = draft ? "下書きを作りました" : "送りました";
+        setTimeout(() => (st.textContent = ""), 6000);
+        if (box) {
+          box.innerHTML = `<b>件名</b> ${esc(d.subject)}<br>` +
+            (d.url ? `<a class="home-sf-link" href="${esc(d.url)}" target="_blank" rel="noopener">Gmailで開く</a><br>` : "") +
+            `<div class="mt-preview">${esc(d.bodyText || "").replace(/\n/g, "<br>")}</div>`;
+        }
+      } catch (e) {
+        st.textContent = "失敗：" + e.message;
+      }
+    };
+    $("mtSend").addEventListener("click", () => runTest(false));
+    if ($("mtDraft")) $("mtDraft").addEventListener("click", () => runTest(true));
+  }
   if ($("mcReset")) $("mcReset").addEventListener("click", () => {
     if (!mailDefaults) return;
     if (!confirm("件名と本文を初期文面に戻します。よろしいですか？（保存を押すまで反映されません）")) return;
@@ -1593,9 +1729,18 @@ async function saveMailCfg() {
     document.querySelectorAll("#siBox .si-chk").forEach((c) => { c.checked = false; }));
   if ($("verBox")) showVersion();
   if ($("depBox")) loadDeploy();
+  if ($("siWords")) {
+    loadSkipInviters();
+    $("siSave").addEventListener("click", saveSkipInviters);
+  }
   if ($("twWords")) {
     loadTestWords();
     $("twSave").addEventListener("click", saveTestWords);
+  }
+  if ($("evOn")) {
+    loadEvening();
+    $("evSave").addEventListener("click", saveEvening);
+    $("evTest").addEventListener("click", testEvening);
   }
   if ($("crOn")) {
     loadCallReport();
@@ -1711,10 +1856,201 @@ async function saveMailCfg() {
   });
   loadMailCfg();
   if ($("apReload")) $("apReload").addEventListener("click", loadApo);
+  // 探す欄は、打つたびにその場で絞り込む（読み込み直さないので速い）
+  if ($("apFind")) {
+    let t = null;
+    $("apFind").addEventListener("input", () => {
+      clearTimeout(t);
+      t = setTimeout(() => {
+        renderApo();
+        const st = $("apStatus");
+        const w = $("apFind").value.trim();
+        if (st) {
+          const all = (apState.appts || []).length;
+          const hit = w ? (apState.appts || []).filter((x) => apoMatches(x, w)).length : all;
+          st.textContent = w ? `${hit}件 / 全${all}件` : `${all}件`;
+        }
+      }, 150);
+    });
+  }
   if ($("apClear")) $("apClear").addEventListener("click", () => {
     if ($("apCreated")) $("apCreated").value = "";
     if ($("apStart")) $("apStart").value = "";
+    if ($("apFind")) $("apFind").value = "";
     loadApo();
   });
   loadApo();
 })();
+
+
+// ───────────────────────────────────────────────────────────
+// 日程調整ページ
+// ───────────────────────────────────────────────────────────
+async function bkCreate(shared) {
+  const st = $("bkStatus"), box = $("bkBox");
+  if (st) st.textContent = "作っています…";
+  try {
+    const r = await fetch("/api/booking/pages", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        title: $("bkTitle").value, shared,
+        minutes: parseInt($("bkMin").value, 10),
+        daysAhead: parseInt($("bkDays").value, 10),
+        fromHour: parseInt($("bkFrom").value, 10),
+        toHour: parseInt($("bkTo").value, 10),
+      }),
+    });
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.error || "作れませんでした");
+    if (st) st.textContent = "";
+    const ways = d["貼り方"];
+    box.innerHTML =
+      `<div class="sh-box">
+         <div class="sh-lb">${d["共通"] ? "Pardot用の共通URL" : "この1本のURL"}</div>
+         <div class="sh-url"><code>${esc(d.url)}</code>
+           <button type="button" class="btn ghost bk-copy" data-u="${esc(d.url)}">コピー</button></div>
+         ${ways ? `<div class="sh-lb">Pardotに貼るときは、こちらを使ってください</div>` +
+           Object.entries(ways).map(([k, u]) => `
+             <div class="sh-row">
+               <span class="sh-name">${esc(k)}</span>
+               <code class="sh-code">${esc(u)}</code>
+               <button type="button" class="btn ghost bk-copy" data-u="${esc(u)}">コピー</button>
+             </div>`).join("") : ""}
+       </div>`;
+    box.querySelectorAll(".bk-copy").forEach((b) =>
+      b.addEventListener("click", () => {
+        navigator.clipboard.writeText(b.dataset.u)
+          .then(() => { b.textContent = "コピーしました"; setTimeout(() => (b.textContent = "コピー"), 2000); })
+          .catch(() => { b.textContent = "できませんでした"; });
+      }));
+  } catch (e) { if (st) st.textContent = "失敗：" + e.message; }
+}
+
+// 作ったページと、誰が見たか
+async function bkLoadList() {
+  const box = $("bkListBox");
+  if (!box) return;
+  box.innerHTML = "読み込んでいます…";
+  try {
+    const d = await (await fetch("/api/booking/pages")).json();
+    const items = d.items || [];
+    if (!items.length) { box.innerHTML = '<div class="note">まだページがありません。</div>'; return; }
+    box.innerHTML =
+      `<table class="sh-table"><tr><th>ページ</th><th>URL</th><th>閲覧</th><th>予約</th><th></th></tr>` +
+      items.map((x) => `<tr>
+        <td>${esc(x.title)}${x["共通"] ? "（共通）" : x["相手"] ? `<br><small>${esc(x["相手"])}</small>` : ""}</td>
+        <td><code style="font-size:11px">${esc(x.url)}</code></td>
+        <td>${x["閲覧"]}</td>
+        <td>${x["予約"]}</td>
+        <td><button type="button" class="btn ghost bk-who" data-id="${x.id}">誰が見たか</button></td>
+      </tr>`).join("") + `</table><div id="bkWho"></div>`;
+    box.querySelectorAll(".bk-who").forEach((b) =>
+      b.addEventListener("click", () => bkViewers(b.dataset.id)));
+  } catch (e) { box.innerHTML = "読み込めませんでした：" + esc(e.message); }
+}
+
+async function bkViewers(id) {
+  const box = $("bkWho");
+  if (!box) return;
+  box.innerHTML = "読み込んでいます…";
+  try {
+    const d = await (await fetch(`/api/booking/pages/${encodeURIComponent(id)}/viewers`)).json();
+    const items = d.items || [];
+    if (!items.length) { box.innerHTML = '<div class="note">まだ誰も開いていません。</div>'; return; }
+    const when = (v) => {
+      const x = new Date(v);
+      if (isNaN(x.getTime())) return "";
+      const j = new Date(x.getTime() + 9 * 3600 * 1000);
+      const p = (n) => String(n).padStart(2, "0");
+      return `${j.getUTCMonth() + 1}/${j.getUTCDate()} ${p(j.getUTCHours())}:${p(j.getUTCMinutes())}`;
+    };
+    box.innerHTML =
+      `<div class="note">${items.length}人が開きました</div>` +
+      `<table class="sh-table"><tr><th>相手</th><th>回数</th><th>予約</th><th>最後に見た</th></tr>` +
+      items.map((x) => `<tr>
+        <td>${esc(x["相手"])}${x["名前"] ? `<br><small>${esc(x["名前"])}</small>` : ""}</td>
+        <td>${x["回数"]}</td>
+        <td>${x["予約した"] ? esc(when(x["予約日時"])) : "-"}</td>
+        <td>${esc(when(x["最後"]))}</td>
+      </tr>`).join("") + `</table>`;
+  } catch (e) { box.innerHTML = "見られませんでした：" + esc(e.message); }
+}
+
+// 画面ぜんたいでクリックを受け止める（途中で止まっても押せるように）
+document.addEventListener("click", (ev) => {
+  const t = ev.target && ev.target.closest ? ev.target.closest("button") : null;
+  if (!t) return;
+  if (t.id === "bkMakeShared") { ev.preventDefault(); bkCreate(true); }
+  if (t.id === "bkMakeOne") { ev.preventDefault(); bkCreate(false); }
+  if (t.id === "bkList") { ev.preventDefault(); bkLoadList(); }
+});
+
+
+
+
+// ───────────────────────────────────────────────────────────
+// 送ったメールの記録（届いたか・跳ね返ったか）
+// ───────────────────────────────────────────────────────────
+async function mlLoad() {
+  const box = $("mlBox"), st = $("mlStatus");
+  if (!box) return;
+  if (st) st.textContent = "読み込んでいます…";
+  try {
+    const q = new URLSearchParams();
+    if ($("mlFrom").value) q.set("from", $("mlFrom").value);
+    if ($("mlTo").value) q.set("to", $("mlTo").value);
+    if ($("mlKind").value) q.set("kind", $("mlKind").value);
+    if ($("mlMine").checked) q.set("mine", "1");
+    const d = await apiJson("/api/apo-mail/log?" + q.toString());
+    if (st) st.textContent = "";
+    const items = d.items || [];
+    const g = d["集計"] || {};
+    const when = (v) => {
+      const x = new Date(v);
+      if (isNaN(x.getTime())) return "";
+      const j = new Date(x.getTime() + 9 * 3600 * 1000);
+      const p = (n) => String(n).padStart(2, "0");
+      return `${j.getUTCMonth() + 1}/${j.getUTCDate()} ${p(j.getUTCHours())}:${p(j.getUTCMinutes())}`;
+    };
+    box.innerHTML =
+      `<div class="ml-sum">送信済み ${g["送信済み"] || 0}　下書き ${g["下書き"] || 0}` +
+      (g["届きませんでした"] ? `　<span class="cc-warn">届かなかった ${g["届きませんでした"]}</span>` : "") +
+      (g["失敗"] ? `　<span class="cc-warn">失敗 ${g["失敗"]}</span>` : "") + `</div>` +
+      (items.length
+        ? `<table class="sh-table"><tr><th>送った日時</th><th>種類</th><th>会社</th><th>宛先</th><th>送った人</th><th>状態</th></tr>` +
+          items.map((x) => `<tr class="${x["状態"] === "届きませんでした" || x["状態"] === "失敗" ? "ml-ng" : ""}">
+            <td>${esc(when(x.at))}</td>
+            <td>${esc(x["種類"])}</td>
+            <td>${esc(x["会社"] || "")}</td>
+            <td>${esc(x["宛先"] || "")}</td>
+            <td>${esc(x["送った人"] || "")}</td>
+            <td>${esc(x["状態"])}${x["理由"] ? `<br><small>${esc(x["理由"])}</small>` : ""}</td>
+          </tr>`).join("") + `</table>`
+        : `<div class="note">この期間に送ったメールはありません。</div>`);
+  } catch (e) { if (st) st.textContent = "失敗：" + e.message; }
+}
+
+async function mlCheckBounce() {
+  const st = $("mlStatus");
+  if (st) st.textContent = "調べています…（10秒ほどかかります）";
+  try {
+    const d = await apiJson("/api/apo-mail/check-bounces", { method: "POST" });
+    if (st) {
+      st.textContent = d["見つかった数"]
+        ? `届かなかったメールが ${d["見つかった数"]}件 見つかりました`
+        : "届かなかったメールはありませんでした";
+      setTimeout(() => (st.textContent = ""), 8000);
+    }
+    mlLoad();
+  } catch (e) { if (st) st.textContent = "失敗：" + e.message; }
+}
+
+if ($("mlLoad")) {
+  // はじめは直近7日
+  const today = new Date(Date.now() + 9 * 3600 * 1000).toISOString().slice(0, 10);
+  const ago = new Date(Date.now() + 9 * 3600 * 1000 - 6 * 86400000).toISOString().slice(0, 10);
+  if ($("mlFrom") && !$("mlFrom").value) $("mlFrom").value = ago;
+  if ($("mlTo") && !$("mlTo").value) $("mlTo").value = today;
+  $("mlLoad").addEventListener("click", mlLoad);
+  if ($("mlBounce")) $("mlBounce").addEventListener("click", mlCheckBounce);
+}

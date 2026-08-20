@@ -10,6 +10,18 @@ const esc = (v) =>
 let docsCache = [];
 let baseUrl = "";
 
+// 大事なボタンは、画面ぜんたいでクリックを受け止める。
+// 途中の処理でつまずいても「押しても反応しない」状態にならないようにするため。
+document.addEventListener("click", (ev) => {
+  const t = ev.target && ev.target.closest ? ev.target.closest("button") : null;
+  if (!t) return;
+  if (t.id === "shMake") { ev.preventDefault(); makeSharedLink(); }
+  if (t.id === "jpMakeShared") { ev.preventDefault(); jpCreate(true); }
+  if (t.id === "jpMakeOne") { ev.preventDefault(); jpCreate(false); }
+  if (t.id === "jpList") { ev.preventDefault(); jpLoadList(); }
+  if (t.id === "jpNotifySave") { ev.preventDefault(); jpSaveNotify(); }
+});
+
 function say(id, t, ms) {
   const e = $(id);
   if (!e) return;
@@ -46,7 +58,7 @@ async function loadDocs() {
     baseUrl = d.base || location.origin;
 
     // 選択欄を埋める
-    for (const [id, withAll] of [["dkDoc", true], ["dsDoc", false]]) {
+    for (const [id, withAll] of [["dkDoc", true], ["dsDoc", false], ["blDoc", false], ["shDoc", false]]) {
       const sel = $(id);
       if (!sel) continue;
       const cur = sel.value;
@@ -63,16 +75,43 @@ async function loadDocs() {
     box.innerHTML = `<div class="dk-list">` + docsCache.map((f) => `
       <div class="dk-row${f.active ? "" : " dk-off"}" data-id="${f.id}">
         <div class="dk-main">
-          <div class="dk-t">${esc(f.name)}</div>
+          <div class="dk-t">
+            ${f.mine
+              ? (f.shared === false
+                  ? '<span class="home-badge dn-kind df-own">自分だけ</span>'
+                  : '<span class="home-badge dn-kind df-share">チームに共有</span>')
+              : `<span class="home-badge dn-kind df-other">${esc(f.uploaded_by || "ほかの人")}</span>`}
+            ${esc(f.name)}
+          </div>
           <div class="dk-s">${esc(f.filename || "")}　${Math.round((f.size || 0) / 1024)}KB　
             発行 ${f.links}件／閲覧 ${f.views}件　${esc(fmtWhen(f.created_at))}</div>
         </div>
         <div class="dk-act">
-          <button type="button" class="btn ghost df-rename">名前を直す</button>
-          <button type="button" class="btn ghost df-toggle">${f.active ? "使わない" : "使う"}</button>
-          <button type="button" class="btn ghost df-del">削除</button>
+          ${f.mine ? `<button type="button" class="btn ghost df-share">${
+            f.shared === false ? "チームに共有する" : "自分だけにする"}</button>` : ""}
+          ${f.mine ? '<button type="button" class="btn ghost df-rename">名前を直す</button>' : ""}
+          ${f.mine ? `<button type="button" class="btn ghost df-toggle">${f.active ? "使わない" : "使う"}</button>` : ""}
+          ${f.mine ? '<button type="button" class="btn ghost df-del">削除</button>' : ""}
         </div>
       </div>`).join("") + `</div>`;
+
+    // 自分だけにする／チームに共有する
+    box.querySelectorAll(".df-share").forEach((b) =>
+      b.addEventListener("click", async () => {
+        const row = b.closest(".dk-row");
+        const f = docsCache.find((x) => String(x.id) === row.dataset.id);
+        const on = f && f.shared === false;
+        if (on && !confirm(`「${f.name}」を、チームのみんなが使えるようにします。よろしいですか？`)) return;
+        b.disabled = true;
+        try {
+          const r = await fetch(`/api/docs/${row.dataset.id}/shared`, {
+            method: "PATCH", headers: { "content-type": "application/json" },
+            body: JSON.stringify({ shared: !!on }),
+          });
+          if (!r.ok) throw new Error(((await r.json()) || {}).error || "変えられませんでした");
+          loadDocs();
+        } catch (e) { b.disabled = false; alert(e.message); }
+      }));
 
     box.querySelectorAll(".df-rename").forEach((b) =>
       b.addEventListener("click", async () => {
@@ -399,3 +438,352 @@ if ($("shSave")) {
 }
 
 loadSheetConfig();
+
+
+// ───────────────────────────────────────────────────────────
+// 名簿ファイルからまとめて発行する
+//
+// ① ファイルを選ぶ → 何件・どの列かを下見する（まだ発行しない）
+// ② 「この内容で発行する」を押したら、100件ずつ発行して進み具合を出す
+// ───────────────────────────────────────────────────────────
+let blItems = [];      // 下見で読み取った宛先
+let blJobId = "";      // いま発行中の受付番号
+let blTimer = null;
+
+function blSay(t, ms) {
+  const e = $("blStatus");
+  if (!e) return;
+  e.textContent = t || "";
+  if (ms) setTimeout(() => { if (e.textContent === t) e.textContent = ""; }, ms);
+}
+
+// ① 下見
+async function blPreview(file) {
+  if (!file) return;
+  blSay("ファイルを読んでいます…");
+  $("blPreview").innerHTML = "";
+  const fd = new FormData();
+  fd.append("file", file);
+  try {
+    const r = await fetch("/api/doc-links/preview", { method: "POST", body: fd });
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.error || "読み取れませんでした");
+    blItems = d.items || [];
+    const 列 = d["列"] || {};
+    const 先頭 = d["先頭"] || [];
+    const 飛ばした = d["飛ばした"] || [];
+    $("blPreview").innerHTML =
+      `<div class="bl-prev">` +
+      `<b>${d["件数"]}件</b> 読み取りました（${esc(d["種類"] || "")}` +
+      (d["シート"] ? `／シート「${esc(d["シート"])}」` : "") + `）<br>` +
+      `会社名：${esc(列["会社名"] || "")}　担当者名：${esc(列["担当者名"] || "")}　メール：${esc(列["メール"] || "")}` +
+      (d["見出しあり"] ? "（1行目は見出しとして飛ばしました）" : "（見出しは無いものとして読みました）") +
+      (飛ばした.length ? `<br><span class="bl-warn">${飛ばした.length}行は飛ばしました（メールの形が違うなど）</span>` : "") +
+      (先頭.length ? `<table><tr><th>会社名</th><th>担当者名</th><th>メール</th></tr>` +
+        先頭.map((x) => `<tr><td>${esc(x.company)}</td><td>${esc(x.name)}</td><td>${esc(x.email)}</td></tr>`).join("") +
+        `</table><span class="bl-prog-sub">先頭5件です。列がずれていないか確かめてください。</span>` : "") +
+      `</div>` +
+      `<div class="ap-cfg-actions">
+         <button class="btn" id="blGo">この内容で ${d["件数"]}件 発行する</button>
+         <button class="btn ghost" id="blClear">やめる</button>
+       </div>`;
+    blSay("");
+    $("blGo").addEventListener("click", blStart);
+    $("blClear").addEventListener("click", () => { blItems = []; $("blPreview").innerHTML = ""; });
+  } catch (e) {
+    blSay("失敗：" + e.message, 8000);
+  }
+}
+
+// ② 発行を始める
+async function blStart() {
+  const docId = parseInt($("blDoc").value, 10);
+  if (!docId) { blSay("送る資料を選んでください", 5000); return; }
+  if (!blItems.length) { blSay("先にファイルを選んでください", 5000); return; }
+  if (!confirm(`${blItems.length}件のURLを発行します。よろしいですか？\n（数千件だと1〜2分かかります）`)) return;
+
+  $("blPreview").innerHTML = "";
+  $("blProgress").hidden = false;
+  $("blOpenList").hidden = true;
+  blProg({ done: 0, total: blItems.length, made: 0, failed: 0, 状態: "発行中", 経過秒: 0 });
+  try {
+    const r = await fetch("/api/doc-links/bulk", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ docId, items: blItems }),
+    });
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.error || "始められませんでした");
+    blJobId = d.id;
+    blWatch();
+  } catch (e) {
+    blSay("失敗：" + e.message, 8000);
+    $("blProgress").hidden = true;
+  }
+}
+
+// 進み具合を出す
+function blProg(j) {
+  const pct = j.total ? Math.round((j.done / j.total) * 100) : 0;
+  $("blBarIn").style.width = pct + "%";
+  const nokori = j.done && j.経過秒 ? Math.max(0, Math.round((j.経過秒 / j.done) * (j.total - j.done))) : null;
+  $("blProgTxt").innerHTML =
+    `${esc(j["状態"] || "")}　${j.done} / ${j.total}件（${pct}%）` +
+    `<span class="bl-prog-sub">　発行 ${j.made}件` +
+    (j.failed ? ` ／ <span class="bl-warn">失敗 ${j.failed}件</span>` : "") +
+    (j.state === "running" && nokori !== null ? ` ／ あと ${nokori}秒ほど` : ` ／ ${j.経過秒}秒`) +
+    `</span>`;
+}
+
+// 1秒ごとに進み具合を聞く
+function blWatch() {
+  clearInterval(blTimer);
+  blTimer = setInterval(async () => {
+    if (!blJobId) return clearInterval(blTimer);
+    try {
+      const d = await (await fetch(`/api/doc-links/bulk/${encodeURIComponent(blJobId)}`)).json();
+      if (d.error) throw new Error(d.error);
+      blProg(d);
+      if (d.state !== "running") {
+        clearInterval(blTimer);
+        $("blCancel").hidden = true;
+        $("blOpenList").hidden = false;
+        blSay(d.state === "done" ? `${d.made}件のURLを発行しました` : `止めました（${d.made}件は発行済み）`, 12000);
+        loadLinks();   // 発行したURLの一覧を読み直す
+      }
+    } catch (e) {
+      clearInterval(blTimer);
+      blSay("進み具合を見られませんでした：" + e.message, 8000);
+    }
+  }, 1000);
+}
+
+if ($("blFile")) {
+  $("blFile").addEventListener("change", (e) => {
+    const f = e.target.files && e.target.files[0];
+    e.target.value = "";
+    blPreview(f);
+  });
+  $("blCancel").addEventListener("click", async () => {
+    if (!blJobId) return;
+    if (!confirm("発行を止めます。ここまでのぶんは残ります。よろしいですか？")) return;
+    try {
+      await fetch(`/api/doc-links/bulk/${encodeURIComponent(blJobId)}/cancel`, { method: "POST" });
+      blSay("止めています…");
+    } catch {}
+  });
+  $("blOpenList").addEventListener("click", () => {
+    // 閲覧状況のタブへ移る
+    const tab = document.querySelector('[data-dtab="track"]');
+    if (tab) tab.click();
+  });
+}
+
+
+// ───────────────────────────────────────────────────────────
+// メルマガ用の共通URL
+//
+// 全員に同じURLを送る。誰が見たかは、配信システムの差し込みタグで分かる。
+// ───────────────────────────────────────────────────────────
+async function makeSharedLink() {
+  {
+    const docId = parseInt($("shDoc").value, 10);
+    const st = $("shStatus"), box = $("shBox");
+    // 押したことが必ず分かるようにする（無反応に見えないため）
+    if (st) st.textContent = "…";
+    if (!docId) { st.textContent = "資料を選んでください"; return; }
+    st.textContent = "用意しています…";
+    box.innerHTML = "";
+    try {
+      const r = await fetch("/api/doc-links/shared", {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ docId }),
+      });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.error || "作れませんでした");
+      st.textContent = "";
+      const ways = d["貼り方"] || {};
+      box.innerHTML =
+        `<div class="sh-box">
+           <div class="sh-lb">この資料の共通URL</div>
+           <div class="sh-url"><code>${esc(d.url)}</code>
+             <button type="button" class="btn ghost sh-copy" data-u="${esc(d.url)}">コピー</button></div>
+           <div class="sh-lb">配信システムに貼るときは、下のどれかを使ってください</div>
+           ${Object.entries(ways).map(([name, url]) => `
+             <div class="sh-row">
+               <span class="sh-name">${esc(name)}</span>
+               <code class="sh-code">${esc(url)}</code>
+               <button type="button" class="btn ghost sh-copy" data-u="${esc(url)}">コピー</button>
+             </div>`).join("")}
+           <p class="note">差し込みタグが働かなかった場合は、「名乗りなし」として数だけ記録します。<br>
+           開いた人の一覧は、下の「閲覧状況」で見られます。</p>
+           <button type="button" class="btn ghost" id="shWho" data-id="${esc(String(d.linkId || ""))}">誰が見たかを見る</button>
+           <div id="shWhoBox"></div>
+         </div>`;
+      box.querySelectorAll(".sh-copy").forEach((b) =>
+        b.addEventListener("click", () => {
+          navigator.clipboard.writeText(b.dataset.u)
+            .then(() => { b.textContent = "コピーしました"; setTimeout(() => (b.textContent = "コピー"), 2000); })
+            .catch(() => { b.textContent = "できませんでした"; });
+        }));
+      const who = $("shWho");
+      if (who) who.addEventListener("click", () => loadSharedViewers(d.slug));
+    } catch (e) {
+      st.textContent = "失敗：" + e.message;
+    }
+  }
+}
+
+// 共通URLを、誰が開いたか
+async function loadSharedViewers(slug) {
+  const box = $("shWhoBox");
+  if (!box) return;
+  box.innerHTML = "読み込んでいます…";
+  try {
+    const links = await (await fetch("/api/doc-links?limit=200")).json();
+    const hit = (links.links || []).find((x) => x.slug === slug);
+    if (!hit) { box.innerHTML = "まだ誰も開いていません。"; return; }
+    const d = await (await fetch(`/api/doc-links/${hit.id}/viewers`)).json();
+    const items = d.items || [];
+    if (!items.length) { box.innerHTML = "まだ誰も開いていません。"; return; }
+    // 日本時間で出す
+    const when = (v) => {
+      const x = new Date(v);
+      if (isNaN(x.getTime())) return "";
+      const j = new Date(x.getTime() + 9 * 3600 * 1000);
+      const p2 = (n) => String(n).padStart(2, "0");
+      return `${j.getUTCMonth() + 1}/${j.getUTCDate()} ${p2(j.getUTCHours())}:${p2(j.getUTCMinutes())}`;
+    };
+    box.innerHTML =
+      `<div class="note">${items.length}人が開きました</div>` +
+      `<table class="sh-table"><tr><th>相手</th><th>回数</th><th>滞在</th><th>到達</th><th>最後に見た</th></tr>` +
+      items.map((x) => `<tr>
+        <td>${esc(x["相手"])}${x["名前"] ? `<br><small>${esc(x["名前"])}</small>` : ""}</td>
+        <td>${x["回数"]}</td>
+        <td>${Math.round(x["秒"] / 6) / 10}分</td>
+        <td>${x["到達"] || "-"}</td>
+        <td>${esc(when(x["最後"]))}</td>
+      </tr>`).join("") + `</table>`;
+  } catch (e) {
+    box.innerHTML = "見られませんでした：" + esc(e.message);
+  }
+}
+
+
+// ───────────────────────────────────────────────────────────
+// 調整URLのトラッキング（外部のURLへ転送しつつ、誰が開いたかを記録）
+// ───────────────────────────────────────────────────────────
+async function jpCreate(shared) {
+  const st = $("jpStatus"), box = $("jpBox");
+  const url = ($("jpUrl") && $("jpUrl").value || "").trim();
+  if (!url) { if (st) st.textContent = "転送先のURLを入れてください"; return; }
+  if (st) st.textContent = "作っています…";
+  try {
+    const r = await fetch("/api/jump", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ title: $("jpTitle").value, targetUrl: url, shared }),
+    });
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.error || "作れませんでした");
+    if (st) st.textContent = "";
+    const ways = d["貼り方"];
+    box.innerHTML =
+      `<div class="sh-box">
+         <div class="sh-lb">${d["共通"] ? "Pardot用の共通URL" : "この1本のURL"}</div>
+         <div class="sh-url"><code>${esc(d.url)}</code>
+           <button type="button" class="btn ghost jp-copy" data-u="${esc(d.url)}">コピー</button></div>
+         <div class="sh-lb">転送先</div>
+         <div class="sh-code">${esc(d["転送先"])}</div>
+         ${ways ? `<div class="sh-lb">Pardotに貼るときは、こちらを使ってください</div>` +
+           Object.entries(ways).map(([k, u]) => `
+             <div class="sh-row">
+               <span class="sh-name">${esc(k)}</span>
+               <code class="sh-code">${esc(u)}</code>
+               <button type="button" class="btn ghost jp-copy" data-u="${esc(u)}">コピー</button>
+             </div>`).join("") : ""}
+       </div>`;
+    box.querySelectorAll(".jp-copy").forEach((b) =>
+      b.addEventListener("click", () => {
+        navigator.clipboard.writeText(b.dataset.u)
+          .then(() => { b.textContent = "コピーしました"; setTimeout(() => (b.textContent = "コピー"), 2000); })
+          .catch(() => { b.textContent = "できませんでした"; });
+      }));
+  } catch (e) { if (st) st.textContent = "失敗：" + e.message; }
+}
+
+async function jpLoadList() {
+  const box = $("jpListBox");
+  if (!box) return;
+  box.innerHTML = "読み込んでいます…";
+  try {
+    const d = await (await fetch("/api/jump")).json();
+    const items = d.items || [];
+    if (!items.length) { box.innerHTML = '<div class="note">まだありません。</div>'; return; }
+    box.innerHTML =
+      `<table class="sh-table"><tr><th>名前</th><th>kinbotのURL</th><th>開いた回数</th><th>人数</th><th></th></tr>` +
+      items.map((x) => `<tr>
+        <td>${esc(x.title)}${x["共通"] ? "（共通）" : ""}<br><small>${esc(x["転送先"])}</small></td>
+        <td><code style="font-size:11px">${esc(x.url)}</code></td>
+        <td>${x["閲覧"]}</td>
+        <td>${x["人数"]}</td>
+        <td><button type="button" class="btn ghost jp-who" data-id="${x.id}">誰が開いたか</button></td>
+      </tr>`).join("") + `</table><div id="jpWho"></div>`;
+    box.querySelectorAll(".jp-who").forEach((b) =>
+      b.addEventListener("click", () => jpViewers(b.dataset.id)));
+  } catch (e) { box.innerHTML = "読み込めませんでした：" + esc(e.message); }
+}
+
+async function jpViewers(id) {
+  const box = $("jpWho");
+  if (!box) return;
+  box.innerHTML = "読み込んでいます…";
+  try {
+    const d = await (await fetch(`/api/jump/${encodeURIComponent(id)}/viewers`)).json();
+    const items = d.items || [];
+    if (!items.length) { box.innerHTML = '<div class="note">まだ誰も開いていません。</div>'; return; }
+    const when = (v) => {
+      const x = new Date(v);
+      if (isNaN(x.getTime())) return "";
+      const j = new Date(x.getTime() + 9 * 3600 * 1000);
+      const p = (n) => String(n).padStart(2, "0");
+      return `${j.getUTCMonth() + 1}/${j.getUTCDate()} ${p(j.getUTCHours())}:${p(j.getUTCMinutes())}`;
+    };
+    box.innerHTML =
+      `<div class="note">${items.length}人が開きました</div>` +
+      `<table class="sh-table"><tr><th>相手</th><th>回数</th><th>はじめて</th><th>最後</th></tr>` +
+      items.map((x) => `<tr>
+        <td>${esc(x["相手"])}${x["名前"] ? `<br><small>${esc(x["名前"])}</small>` : ""}</td>
+        <td>${x["回数"]}</td>
+        <td>${esc(when(x["最初"]))}</td>
+        <td>${esc(when(x["最後"]))}</td>
+      </tr>`).join("") + `</table>`;
+  } catch (e) { box.innerHTML = "見られませんでした：" + esc(e.message); }
+}
+
+
+
+
+// 開かれたときにChatへ知らせるかどうか
+async function jpLoadNotify() {
+  if (!$("jpNotify")) return;
+  try {
+    const d = await (await fetch("/api/jump/notify")).json();
+    $("jpNotify").checked = d.enabled !== false;
+  } catch {}
+}
+
+async function jpSaveNotify() {
+  const st = $("jpNotifySt");
+  if (st) st.textContent = "保存しています…";
+  try {
+    await fetch("/api/jump/notify", {
+      method: "PUT", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ enabled: $("jpNotify").checked }),
+    });
+    if (st) {
+      st.textContent = $("jpNotify").checked ? "知らせます" : "知らせません";
+      setTimeout(() => (st.textContent = ""), 4000);
+    }
+  } catch (e) { if (st) st.textContent = "失敗：" + e.message; }
+}
+
+jpLoadNotify();

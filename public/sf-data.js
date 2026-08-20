@@ -291,6 +291,7 @@ function srShowResult(d) {
          <div class="sr-sub">${rows.length}行${d.truncated ? "（2000行までの制限あり）" : ""}${rows.length > 500 ? " ・ 画面には500行まで表示" : ""}</div>
        </div>
        <div class="sr-actions">
+         <button class="btn" id="srToCall">kincallへ送る</button>
          <button class="btn ghost" id="srCsv">CSVで保存</button>
          ${d.id ? `<a class="btn ghost" href="${srEsc(d.instanceUrl)}/${srEsc(d.id)}" target="_blank" rel="noopener">Salesforceで開く</a>` : ""}
        </div>
@@ -786,3 +787,39 @@ if ($("psSave")) {
     psRun(false);
   });
 }
+
+
+// ───────────────────────────────────────────────────────────
+// 絞り込んだレポートを、そのまま kincall のリストにする
+// ───────────────────────────────────────────────────────────
+async function srToKincall() {
+  const d = _sr.current;
+  if (!d || !(d.rows || []).length) { alert("先にレポートを開いてください。"); return; }
+  const name = prompt("kincallのリスト名を入れてください。", d.name || "コールリスト");
+  if (!name) return;
+
+  const btn = document.getElementById("srToCall");
+  if (btn) { btn.disabled = true; btn.textContent = "送っています…"; }
+  try {
+    const r = await fetch("/api/calls/from-report", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ name, columns: d.columns || [], rows: d.rows || [] }),
+    });
+    const j = await r.json();
+    if (!r.ok) throw new Error(j.error || "送れませんでした");
+    if (btn) { btn.textContent = `${j["件数"]}件を送りました`; }
+    if (confirm(`「${j.name}」に${j["件数"]}件を入れました。\nkincallを開きますか？`)) {
+      location.href = "/kincall";
+    } else if (btn) {
+      btn.disabled = false; btn.textContent = "kincallへ送る";
+    }
+  } catch (e) {
+    alert("送れませんでした：" + e.message);
+    if (btn) { btn.disabled = false; btn.textContent = "kincallへ送る"; }
+  }
+}
+
+document.addEventListener("click", (ev) => {
+  const t = ev.target && ev.target.closest ? ev.target.closest("button") : null;
+  if (t && t.id === "srToCall") { ev.preventDefault(); srToKincall(); }
+});

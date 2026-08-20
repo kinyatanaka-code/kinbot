@@ -23,8 +23,8 @@ export const DEFAULT_CONFIRM_BODY = `{{会社名}}
 いつも大変お世話になっております。
 {{自社名}}の{{担当者姓}}でございます。
 
-先ほどは弊社{{アポ獲得者姓}}のお電話にご対応いただき、
-またお忙しい中お打ち合わせのお時間をいただき、
+{{お礼の書き出し}}
+またお打ち合わせのお時間をいただき、
 誠にありがとうございました。
 
 それでは、お打ち合わせの日程につきまして、
@@ -50,6 +50,7 @@ export const DEFAULT_CONFIRM_BODY = `{{会社名}}
 {{ユニット}}
 {{担当者名}}　/　{{担当者ローマ字}}
 Phone：{{担当者電話}}
+Mail：{{担当者メール}}
 ◇本社 〒160-0023
 東京都新宿区西新宿1-22-2 新宿サンエービル4階
 TEL：03-6756-0421　 FAX：03-5908-8385
@@ -80,6 +81,7 @@ export const DEFAULT_REMINDER_BODY = `{{会社名}}
 {{ユニット}}
 {{担当者名}}　/　{{担当者ローマ字}}
 Phone：{{担当者電話}}
+Mail：{{担当者メール}}
 ◇本社 〒160-0023
 東京都新宿区西新宿1-22-2 新宿サンエービル4階
 TEL：03-6756-0421　 FAX：03-5908-8385
@@ -108,7 +110,15 @@ export async function getApoMailConfig() {
     autoConfirm: s.apoMailAutoConfirm === true,
     autoReminder: s.apoMailAutoReminder === true,
     // リマインドを流す時刻（JST・0〜23）
-    reminderHour: Number.isFinite(+s.apoMailReminderHour) ? Math.min(23, Math.max(0, +s.apoMailReminderHour)) : 8,
+    // 前日リマインドを送る時刻。既定は前日の17時。
+    // 「明日の商談」を対象にするので、17時に送れば前日夕方の案内になる。
+    reminderHour: Number.isFinite(+s.apoMailReminderHour) ? Math.min(23, Math.max(0, +s.apoMailReminderHour)) : 17,
+    // 送った本人にも控えを届ける（Bcc）。既定でON。
+    // 送られたかどうかが自分の受信箱で分かるようにするため。
+    copyToSelf: s.apoMailCopyToSelf !== false,
+    // 確定メールを送ってから、この時間はリマインドを出さない。
+    // 「今日アポを取って明日商談」で、案内とリマインドが続けて届くのを防ぐ。
+    remindGapHours: Number.isFinite(+s.apoMailRemindGap) ? Math.min(72, Math.max(0, +s.apoMailRemindGap)) : 20,
     companyName: String(s.apoMailCompanyName || "").trim() || "株式会社ネオキャリア",
     confirmSubject: String(s.apoMailConfirmSubject || "").trim() || DEFAULT_CONFIRM_SUBJECT,
     confirmBody: stripRetiredLines(String(s.apoMailConfirmBody || "").trim() || DEFAULT_CONFIRM_BODY),
@@ -192,7 +202,14 @@ export function buildVars(link, { repName, repEmail, url, companyName, profile =
   const timeStr = t ? `${t.hh}:${t.mm}` : "";
   // お客様に案内するURLは kinbot のスマートリンク。
   // 担当が変わっても行き先が自動で切り替わるので、送信済みのメールを直す必要がない。
-  const smart = String(url || "").trim();
+  //
+  // 渡されなかったときは、このアポの合図から自分で組み立てる。
+  // （前日リマインドで空になり、担当者の直リンクが入ってしまうことがあったため）
+  let smart = String(url || "").trim();
+  if (!smart && link && link.slug) {
+    const base = String(process.env.PUBLIC_URL || "").replace(/\/+$/, "");
+    if (base) smart = `${base}/j/${link.slug}`;
+  }
   // 担当者本人の会議室URL（設定→登録リンク）。ミーティングIDの表示にだけ使う。
   const direct = String(zoomLink || "").trim();
   return {
@@ -204,6 +221,18 @@ export function buildVars(link, { repName, repEmail, url, companyName, profile =
     "ZoomURL": smart,
     "担当者の会議室URL": direct,
     "アポ獲得者姓": familyName(link.setter),
+    // 書き出しの1行。
+    //   自分で取ったアポ … 「先ほどはお電話ありがとうございました。」
+    //   ほかの人が取ったアポ … 「先ほどは弊社○○のお電話にご対応いただき、」
+    // 自分で電話した相手に「弊社○○の電話に」と書くと不自然なため。
+    "お礼の書き出し": (() => {
+      // 自分で取ったアポ、または獲得者が分からないときは、名前を出さない
+      const setter = familyName(link.setter);
+      if (!setter || selfAcquired(link, repName, repEmail)) {
+        return "先ほどはお電話にご対応いただき、";
+      }
+      return `先ほどは弊社${setter}のお電話にご対応いただき、`;
+    })(),
     "会社名": parts.company || "",
     "お客様名": String(link.client_name || "").trim() || parts.person || "ご担当者",
     "商談日時": t ? `${dateStr} ${timeStr}〜` : "",
@@ -211,11 +240,23 @@ export function buildVars(link, { repName, repEmail, url, companyName, profile =
     "商談時刻": timeStr,
     "URL": url || "",
     "担当者名": repName || "",
-    "担当者メール": repEmail || "",
+    // 署名に出すアドレス。メンバー管理で決めていればそれを使い、無ければログインのアドレス。
+    "担当者メール": String(profile.mail || profile.email || "").trim() || repEmail || "",
     "アポ獲得者": link.setter || "",
     "自社名": companyName || "弊社",
     "件名元": link.label || "",
   };
+}
+
+// このアポを、送る本人が自分で取ったかどうか。
+// メールアドレスで照合し、無ければ名前（表記ゆれを無視）で見る。
+function selfAcquired(link, repName, repEmail) {
+  const mail = (v) => String(v || "").trim().toLowerCase();
+  if (mail(link.setter_email) && mail(link.setter_email) === mail(repEmail)) return true;
+  const nm = (v) => String(v || "").replace(/[\s　]/g, "");
+  const a = nm(link.setter), b = nm(repName);
+  if (!a || !b) return false;
+  return a === b || a.startsWith(b) || b.startsWith(a);
 }
 
 // 差し込みが空だった行を片付ける。
@@ -269,6 +310,62 @@ export function render(tpl, vars) {
 // 戻り値: { ok, skipped, reason, subject, to }
 // 送れない理由（宛先なし・担当なし等）は例外ではなく skipped で返す。
 // 自動実行の途中で1件こけても全体を止めないため。
+// テスト送信。
+//
+// 架空のアポで文面を組み立てて、指定の宛先に送る（または下書きにする）。
+// 実際のアポの記録には何も残さないので、何度でも試せる。
+export async function sendTestApoMail({ kind = "confirm", to, owner, draft = false, setter = "" } = {}) {
+  const cfg = await getApoMailConfig();
+  const sendAs = String(owner || "").trim();
+  const dest = String(to || "").trim();
+  if (!sendAs) return { ok: false, reason: "送る人（Gmailの連携先）が分かりません" };
+  if (!dest) return { ok: false, reason: "宛先を入れてください" };
+
+  const profiles = await memberProfiles().catch(() => ({}));
+  const profile = profiles[sendAs] || {};
+  const us = await getUserSettings(sendAs).catch(() => ({}));
+  const zoomLink = (us && String(us.myZoomLink || "").trim()) || "";
+
+  // 明日の10時に商談がある、という想定の架空のアポ
+  const start = new Date(Date.now() + 24 * 3600 * 1000);
+  start.setHours(10, 0, 0, 0);
+  const fake = {
+    slug: "test",
+    label: "【初回】テスト株式会社/テスト様",
+    client_name: "テスト",
+    client_email: dest,
+    current_owner: sendAs,
+    // 空にすると「自分で取ったアポ」の書き方になる。名前を入れると相手が取った書き方になる。
+    setter: setter || "",
+    setter_email: setter ? "" : sendAs,
+    start_time: start.toISOString(),
+  };
+
+  const vars = buildVars(fake, {
+    repName: profile.name || sendAs,
+    repEmail: sendAs,
+    url: zoomLink || "https://example.zoom.us/j/0000000000",
+    companyName: cfg.companyName,
+    profile,
+    zoomLink,
+  });
+
+  const subjectTpl = kind === "reminder" ? cfg.reminderSubject : cfg.confirmSubject;
+  const bodyTpl = kind === "reminder" ? cfg.reminderBody : cfg.confirmBody;
+  const subject = "[テスト] " + render(subjectTpl, vars);
+  const bodyText = render(bodyTpl, vars);
+
+  try {
+    const r = draft
+      ? await gmailCreateDraft(sendAs, { to: dest, subject, bodyText })
+      : await gmailSend(sendAs, { to: dest, subject, bodyText });
+    console.log(`[apo-mail] テスト${draft ? "下書き" : "送信"}：${sendAs} → ${dest}（${kind}）`);
+    return { ok: true, draft, to: dest, from: sendAs, subject, bodyText, url: (r && r.url) || "" };
+  } catch (e) {
+    return { ok: false, reason: e.message, subject, bodyText };
+  }
+}
+
 export async function sendApoMail(link, kind, { url, repName, force = false, actor = "auto" } = {}) {
   if (!link || !link.slug) return { ok: false, skipped: true, reason: "リンクがありません" };
   const cfg = await getApoMailConfig();
@@ -305,7 +402,7 @@ export async function sendApoMail(link, kind, { url, repName, force = false, act
 
   // 差し込みが埋まらない項目があれば、送る前に気づけるようログに出す
   const body = kind === "reminder" ? cfg.reminderBody : cfg.confirmBody;
-  const missing = ["ZoomURL", "担当者の会議室URL", "担当者電話", "部署", "ユニット", "担当者ローマ字"]
+  const missing = ["ZoomURL", "担当者の会議室URL", "担当者電話", "担当者メール", "部署", "ユニット", "担当者ローマ字"]
     .filter((k) => body.includes(`{{${k}}}`) && !vars[k]);
   if (missing.length) {
     console.warn(`[apo-mail] ${owner} の設定が未入力のため空欄になります: ${missing.join("、")}` +
@@ -321,10 +418,13 @@ export async function sendApoMail(link, kind, { url, repName, force = false, act
   const bodyText = render(kind === "reminder" ? cfg.reminderBody : cfg.confirmBody, vars);
 
   const asDraft = cfg.deliverMode !== "send";
+  // 送るときは、自分にも控えを届ける（Bccなのでお客様には見えない）。
+  // 下書きのときは、自分で送る前に確認できるので付けない。
+  const bcc = !asDraft && cfg.copyToSelf ? owner : "";
   try {
     const r = asDraft
       ? await gmailCreateDraft(owner, { to, subject, bodyText })
-      : await gmailSend(owner, { to, subject, bodyText });
+      : await gmailSend(owner, { to, subject, bodyText, bcc });
     await logApoMail({
       slug: link.slug, kind, toEmail: to, fromOwner: owner,
       subject, status: asDraft ? "draft" : "sent",
@@ -346,6 +446,51 @@ export async function sendApoMail(link, kind, { url, repName, force = false, act
 
 // ===== 前日リマインドのスイープ =====
 // 「翌日ぶん」をまとめて送る。設定した時刻の1時間のあいだに1回だけ動く。
+// 明日リマインドを送る相手の一覧を返す（送らずに見るだけ）。
+// ホームに出したり、1時間前のお知らせに使う。
+// 日付を指定できる。省略すると「明日」。
+// その日の商談を全部返すので、リマインドの対象を選べる。
+export async function listTomorrowReminders(dateJst = "") {
+  let fromUtc, toUtc;
+  if (/^\d{4}-\d{2}-\d{2}$/.test(String(dateJst))) {
+    const [y2, m2, d2] = dateJst.split("-").map(Number);
+    fromUtc = new Date(Date.UTC(y2, m2 - 1, d2, 0, 0, 0) - 9 * 3600 * 1000);
+    toUtc = new Date(Date.UTC(y2, m2 - 1, d2 + 1, 0, 0, 0) - 9 * 3600 * 1000);
+  } else {
+    const nowJst = new Date(Date.now() + 9 * 3600 * 1000);
+    const y = nowJst.getUTCFullYear(), m = nowJst.getUTCMonth(), d = nowJst.getUTCDate();
+    fromUtc = new Date(Date.UTC(y, m, d + 1, 0, 0, 0) - 9 * 3600 * 1000);
+    toUtc = new Date(Date.UTC(y, m, d + 2, 0, 0, 0) - 9 * 3600 * 1000);
+  }
+  const cfg0 = await getApoMailConfig().catch(() => ({}));
+  const rows = await listApoReminderTargets(fromUtc.toISOString(), toUtc.toISOString(),
+    { forList: true, gapHours: cfg0.remindGapHours });
+  return rows.map((r) => {
+    // なぜ送られないのかを、そのまま添える
+    let 状態 = "送ります";
+    if (r.reminded) 状態 = "送信済み";
+    else if (r.no_reminder) 状態 = "送らない";
+    // 確定メールを送ったばかりなら、続けてリマインドを出さない
+    else if (r.just_confirmed) 状態 = "案内したばかり";
+    else if (!r.client_email) 状態 = "宛先がありません";
+    else if (!r.current_owner) 状態 = "担当が決まっていません";
+    return {
+      slug: r.slug,
+      label: r.label || "",
+      company: parseTitleParts(r.label || "").company || "",
+      person: parseTitleParts(r.label || "").person || "",
+      to: r.client_email || "",
+      owner: r.current_owner || "",
+      // どのカレンダーから取り込んだか（アポを取った人のカレンダー）
+      獲得者: r.setter || "",
+      獲得者メール: r.setter_email || "",
+      start: r.start_time,
+      状態,
+      送る: 状態 === "送ります",
+    };
+  });
+}
+
 export async function runReminderSweep({ joinUrl, repNameOf } = {}) {
   const cfg = await getApoMailConfig();
   if (!cfg.autoReminder) return { skipped: true, reason: "リマインド自動送信がOFFです" };
@@ -356,7 +501,8 @@ export async function runReminderSweep({ joinUrl, repNameOf } = {}) {
   const fromUtc = new Date(Date.UTC(y, m, d + 1, 0, 0, 0) - 9 * 3600 * 1000);
   const toUtc = new Date(Date.UTC(y, m, d + 2, 0, 0, 0) - 9 * 3600 * 1000);
 
-  const targets = await listApoReminderTargets(fromUtc.toISOString(), toUtc.toISOString());
+  const targets = await listApoReminderTargets(fromUtc.toISOString(), toUtc.toISOString(),
+    { gapHours: cfg.remindGapHours });
   const results = [];
   let sent = 0;
   for (const link of targets) {

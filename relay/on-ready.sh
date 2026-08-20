@@ -5,6 +5,10 @@ PATH_IN="$1"
 TOKEN=$(basename "$PATH_IN")
 echo "[relay] 配信を受け取りました: path=${PATH_IN} token=${TOKEN}"
 
+# 合言葉に前後の空白や引用符が混ざっていても通るようにそろえる
+RELAY_SECRET=$(printf '%s' "${RELAY_SECRET}" | tr -d '\r\n' | sed -E 's/^[[:space:]"'"'"']+//; s/[[:space:]"'"'"']+$//')
+KINBOT_URL=$(printf '%s' "${KINBOT_URL}" | tr -d '\r\n' | sed -E 's#/+$##')
+
 if [ -z "${KINBOT_URL}" ] || [ -z "${RELAY_SECRET}" ]; then
   echo "[relay] KINBOT_URL か RELAY_SECRET が未設定です。Railwayの Variables を確認してください。"
   exit 0
@@ -12,6 +16,13 @@ fi
 
 # kinbotに「この合図はどこへ送るのか」を尋ねる。
 # kinbotが起動中のことがあるので、少し待って何度か試す。
+# 使っている合言葉の特徴をログに出す（中身は出さない）。
+# kinbot側の /api/live/relay-secret と見比べると、食い違いがすぐ分かる。
+SEC_LEN=${#RELAY_SECRET}
+SEC_HEAD=$(printf '%s' "$RELAY_SECRET" | cut -c1-3)
+SEC_TAIL=$(printf '%s' "$RELAY_SECRET" | rev | cut -c1-3 | rev)
+echo "[relay] 合言葉：${SEC_LEN}文字（先頭 ${SEC_HEAD}／末尾 ${SEC_TAIL}）／宛先を尋ねる先：${KINBOT_URL}"
+
 DEST=""
 i=1
 while [ $i -le 5 ]; do
@@ -35,11 +46,23 @@ if [ -z "$DEST" ]; then
   exit 0
 fi
 
-echo "[relay] Cloudflareへ転送します（${TOKEN}）"
+# 送り先の形をログに残す（鍵は伏せる）
+DEST_HOST=$(echo "$DEST" | sed -E 's#^(rtmps?://[^/]+)/.*#\1#')
+echo "[relay] Cloudflareへ転送します（${TOKEN}）→ ${DEST_HOST}/…"
+
+# rtmps（暗号化）で送るときは、ffmpegがTLSに対応している必要がある。
+# 対応していないと、そのまま失敗するので、先に確かめて分かるようにする。
+case "$DEST" in
+  rtmps://*)
+    if ! ffmpeg -hide_banner -protocols 2>/dev/null | grep -q "^ *rtmps$"; then
+      echo "[relay] このffmpegは rtmps を扱えません。Dockerfileの ffmpeg を入れ直してください。"
+    fi
+    ;;
+esac
 
 # 映像・音声はそのまま流す（作り直さないのでCPUをほとんど使いません）。
 # 切れたときに分かるよう、終了コードを残します。
-ffmpeg -hide_banner -loglevel warning \
+ffmpeg -hide_banner -loglevel info \
   -rw_timeout 15000000 \
   -i "rtmp://127.0.0.1:1935/${PATH_IN}" \
   -c copy -f flv "$DEST"

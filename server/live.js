@@ -69,12 +69,22 @@ export async function createLiveStream() {
   if (liveProvider() === "mux") return await muxCreateLiveStream();
   if (!liveConfigured()) throw new Error("Cloudflare Streamの設定（CF_ACCOUNT_ID / CF_STREAM_TOKEN）がありません");
 
+  // 録画モードについて。
+  //   off       … 保存はしないが、そのぶんライブ再生用の動画も作られない（＝見られない）
+  //   automatic … ライブ再生ができる。ただしCloudflare側にも録画が残る
+  // ライブで見られることが目的なので automatic にし、
+  // 商談が終わったらCloudflare側の録画は消す（保存料を増やさないため）。
   const r = await cfFetch("/stream/live_inputs", {
     method: "POST",
     body: JSON.stringify({
       meta: { name: `kinbot ${new Date().toISOString().slice(0, 16)}` },
-      // 録画はGoogleドライブに残すので、Cloudflare側では作らない
-      recording: { mode: "off" },
+      recording: {
+        mode: "automatic",
+        // 配信が途切れてもすぐ終わりにしない（少しの回線切れで切断されないように）
+        timeoutSeconds: 30,
+        requireSignedURLs: false,
+        allowedOrigins: [],
+      },
     }),
   });
   const rtmps = r.rtmps || {};
@@ -119,11 +129,25 @@ export async function relayDestFor(token) {
   return "";
 }
 
-// 配信を止める（枠を片づける）
+// 配信を止める（枠を片づける）。
+// Cloudflare側に残った録画も消す。録画はGoogleドライブに保存しているので、
+// ここに残しておくと保存料だけがかかってしまう。
 export async function disableLiveStream(liveStreamId) {
   if (!liveStreamId) return;
   if (liveProvider() === "mux") return await muxDisableLiveStream(liveStreamId);
   try {
+    // 先に、この配信枠でできた録画を消す
+    try {
+      const list = await cfFetch(`/stream/live_inputs/${encodeURIComponent(liveStreamId)}/videos`);
+      const vids = Array.isArray(list) ? list : (list && list.result) || [];
+      for (const v of vids) {
+        if (!v || !v.uid) continue;
+        await cfFetch(`/stream/${encodeURIComponent(v.uid)}`, { method: "DELETE" }).catch(() => {});
+      }
+      if (vids.length) console.log(`[live] Cloudflareの録画 ${vids.length}件を片づけました`);
+    } catch (e) {
+      console.warn("[live] Cloudflareの録画を片づけられませんでした:", e.message);
+    }
     await cfFetch(`/stream/live_inputs/${encodeURIComponent(liveStreamId)}`, { method: "DELETE" });
   } catch (e) {
     console.warn("[live] Cloudflareの配信枠の片づけに失敗", e.message);
@@ -136,6 +160,66 @@ export function playbackUrl(playbackId) {
   if (liveProvider() === "mux") return muxPlaybackUrl(playbackId);
   if (!CF_CODE) return null; // 顧客コードが未設定だと再生URLを作れない
   return `https://customer-${CF_CODE}.cloudflarestream.com/${playbackId}/manifest/video.m3u8`;
+}
+
+// Cloudflareに残っている古い配信枠と録画を片づける。
+// 商談のたびに枠を作るので、消し忘れがあると溜まっていくため。
+export async function cleanupOldLiveInputs(hours = 6) {
+  if (liveProvider() !== "cloudflare" || !liveConfigured()) return { skipped: true };
+  const cut = Date.now() - hours * 3600 * 1000;
+  let removed = 0, videos = 0;
+  try {
+    const list = await cfFetch("/stream/live_inputs");
+    const inputs = Array.isArray(list) ? list : (list && list.liveInputs) || [];
+    for (const inp of inputs) {
+      const uid = inp && inp.uid;
+      if (!uid) continue;
+      // kinbotが作ったものだけ、古いものだけを消す
+      const name = String((inp.meta && inp.meta.name) || "");
+      if (!name.startsWith("kinbot ")) continue;
+      const at = new Date(inp.created || inp.modified || 0).getTime();
+      if (!at || at > cut) continue;
+      // まだ配信中なら触らない
+      const state = (inp.status && inp.status.current && inp.status.current.state) || "";
+      if (state === "connected") continue;
+      try {
+        const vl = await cfFetch(`/stream/live_inputs/${encodeURIComponent(uid)}/videos`);
+        const vids = Array.isArray(vl) ? vl : (vl && vl.result) || [];
+        for (const v of vids) {
+          if (v && v.uid) { await cfFetch(`/stream/${encodeURIComponent(v.uid)}`, { method: "DELETE" }).catch(() => {}); videos++; }
+        }
+      } catch {}
+      await cfFetch(`/stream/live_inputs/${encodeURIComponent(uid)}`, { method: "DELETE" }).catch(() => {});
+      removed++;
+    }
+  } catch (e) {
+    return { error: e.message };
+  }
+  if (removed || videos) console.log(`[live] 古い配信枠 ${removed}件・録画 ${videos}件を片づけました`);
+  return { removed, videos };
+}
+
+// Cloudflareが教えてくれる情報から、顧客コード（customer-xxxx）を確かめる。
+// 設定した顧客コードが違うと、配信は届いていても再生できないため。
+export async function cfCustomerCodeCheck(liveStreamId) {
+  if (liveProvider() !== "cloudflare" || !liveConfigured()) return null;
+  try {
+    const r = await cfFetch(`/stream/live_inputs/${encodeURIComponent(liveStreamId)}`);
+    // 返ってくるURL（webRTCの再生用など）に customer-xxxx が入っている
+    const text = JSON.stringify(r || {});
+    const m = text.match(/customer-([a-z0-9]+)\.cloudflarestream\.com/i);
+    const real = m ? m[1] : "";
+    return {
+      設定している顧客コード: CF_CODE || "（未設定）",
+      Cloudflareの顧客コード: real || "（分かりませんでした）",
+      合っているか: real ? (real === CF_CODE) : null,
+      直し方: real && real !== CF_CODE
+        ? `Railwayの CF_STREAM_CUSTOMER_CODE を「${real}」に直してください`
+        : "",
+    };
+  } catch (e) {
+    return { error: e.message };
+  }
 }
 
 // 配信が実際に届いているかを確認する（Cloudflareのみ）

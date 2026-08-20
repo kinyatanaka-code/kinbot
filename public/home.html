@@ -4,7 +4,13 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>kinbot ホーム</title>
-    <link rel="stylesheet" href="style.css" />
+    <link rel="icon" href="/icon.svg" type="image/svg+xml" />
+    <link rel="icon" href="/favicon-32.png" sizes="32x32" type="image/png" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <link rel="manifest" href="/site.webmanifest" />
+    <meta name="theme-color" content="#0d5b47" />
+    <meta name="apple-mobile-web-app-title" content="kinbot" />
+    <link rel="stylesheet" href="style.css?v=20260819zb" />
   </head>
   <body>
     <div class="app">
@@ -63,13 +69,19 @@
               <!-- 会社名で探す。商談履歴まで行かずに、ここから開ける。 -->
               <div class="home-find">
                 <svg viewBox="0 0 24 24" class="hf-ico" aria-hidden="true"><path d="M10 3a7 7 0 1 1-4.9 12L2 18.1 3.9 20l3.1-3.1A7 7 0 0 1 10 3zm0 2a5 5 0 1 0 0 10 5 5 0 0 0 0-10z"/></svg>
-                <input type="text" id="hfQ" placeholder="会社名で探す（例：ベルク）" autocomplete="off" />
+                <input type="text" id="hfQ" placeholder="会社名・営業担当で探す（例：ベルク、田中）" autocomplete="off" />
                 <button type="button" class="hf-clear" id="hfClear" hidden aria-label="消す">×</button>
                 <div class="hf-list" id="hfList" hidden></div>
               </div>
 
+              <!-- よく使うツール。押すとその画面へ移る。人ごとに選べる。 -->
+              <div class="home-tools" id="homeTools" hidden></div>
+
               <!-- し忘れを防ぐための帯。押すとその件だけに絞り込む。 -->
               <div class="todo-bar" id="todoBar" hidden></div>
+
+              <!-- 明日リマインドを送る先。送る前に、宛先や日時を確かめられる。 -->
+              <div class="rm-bar" id="rmBar" hidden></div>
               <div class="home-cols">
                 <section class="home-sec home-pane">
                   <div class="home-sec-head">
@@ -80,7 +92,7 @@
                 </section>
                 <section class="home-sec home-pane" id="homeApoSec">
                   <div class="home-sec-head">
-                    <span class="home-sec-title">自分のアポ</span>
+                    <span class="home-sec-title">自分のアポ</span><span class="home-sec-note">この日に取ったぶん</span>
                     <span class="home-sec-count" id="homeApoCount"></span>
                     <a class="home-sec-link" href="apo.html">一覧へ</a>
                   </div>
@@ -127,7 +139,7 @@
         </div>
       </div>
     </div>
-    <script src="home.js"></script>
-    <script src="nav.js"></script>
+    <script src="home.js?v=20260819zb"></script>
+    <script src="nav.js?v=20260819zb"></script>
   </body>
 </html>
