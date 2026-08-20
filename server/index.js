@@ -5187,8 +5187,9 @@ app.get("/api/calls/members", async (req, res) => {
   try {
     const list = await listMembers().catch(() => []);
     const meEmail = String(req.user || "").toLowerCase();
-    // 管理者は全員、それ以外は自分だけ
-    let base = (list || []).filter((m) => m.active !== false);
+    // リスト管理に出すのは「インサイド」のメンバーだけ
+    let base = (list || []).filter((m) => m.active !== false &&
+      Array.isArray(m.roles) && m.roles.includes("inside"));
     if (!req.isAdmin) base = base.filter((m) => String(m.email || "").toLowerCase() === meEmail);
     const items = [];
     for (const m of base) {
@@ -5677,7 +5678,6 @@ app.get("/api/calls/stats", async (req, res) => {
   try {
     const anchor = /^\d{4}-\d{2}-\d{2}$/.test(String(req.query.date || "")) ? req.query.date : jstDate(0);
     const period = ["day", "week", "month"].includes(String(req.query.period)) ? String(req.query.period) : "day";
-    const mine = String(req.query.mine || "") === "1" ? req.user : "";
 
     // 期間の開始〜終了（日本時間の暦日）を出す
     const pad = (n) => String(n).padStart(2, "0");
@@ -5698,15 +5698,22 @@ app.get("/api/calls/stats", async (req, res) => {
     }
     const from = ymd(fromD), to = ymd(toD);
 
+    // インサイドのメンバーだけを対象にする（合計＋メンバー別）。名前で出す。
+    const members = await listMembers().catch(() => []);
+    const inside = (members || []).filter((m) => Array.isArray(m.roles) && m.roles.includes("inside"));
+    const insideSet = new Set(inside.map((m) => String(m.email || "").toLowerCase()).filter(Boolean));
+    const nameOf = new Map(inside.map((m) => [String(m.email || "").toLowerCase(), m.name || m.email]));
+
     const rows = period === "day"
-      ? await callStats(from, mine)
-      : await callStatsRange(from, to, mine);
+      ? await callStats(from, "")
+      : await callStatsRange(from, to, "");
 
     const by = new Map();
     for (const r of rows) {
-      const k = r.caller || "（不明）";
-      if (!by.has(k)) by.set(k, { 誰: k, コール: 0, 接触: 0, アポ: 0 });
-      const o = by.get(k);
+      const email = String(r.caller || "").toLowerCase();
+      if (!insideSet.has(email)) continue; // インサイドの人だけ数える
+      if (!by.has(email)) by.set(email, { 誰: nameOf.get(email) || r.caller, コール: 0, 接触: 0, アポ: 0 });
+      const o = by.get(email);
       o.コール += r.n;
       const v = String(r.result || "");
       const 接触した = /接触|アポ|再コール|断り|見送り/.test(v) && !/不在|コールのみ|NG/.test(v);
@@ -12339,7 +12346,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-08-20p 再デプロイ（実績の日・週・月ほか最新反映の確認）";
+const BUILD_TAG = "2026-08-21a kincall：リスト管理はインサイドのみ／実績はインサイド全員（合計＋メンバー別）";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
