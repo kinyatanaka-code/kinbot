@@ -12297,7 +12297,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-08-20k ホーム：明日リマインドの帯を、0件でも常に表示するようにした";
+const BUILD_TAG = "2026-08-20l SF更新：失注理由（大項目）が入っているのに必要と出る不具合を修正（値があれば必ず送る）";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
