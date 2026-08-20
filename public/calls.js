@@ -600,8 +600,7 @@ async function loadStats() {
   const box = $("clStats");
   if (!box) return;
   try {
-    const mine = $("clMine") && $("clMine").checked ? "&mine=1" : "";
-    const d = await (await fetch(`/api/calls/stats?period=${encodeURIComponent(statsPeriod)}${mine}`)).json();
+    const d = await (await fetch(`/api/calls/stats?period=${encodeURIComponent(statsPeriod)}`)).json();
     if (d.error) throw new Error(d.error);
     // 期間の表示
     const rg = $("stRange");
