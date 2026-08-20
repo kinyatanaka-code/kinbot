@@ -3756,7 +3756,8 @@ function toCsv(rows) {
 app.get("/api/usage/summary.csv", async (req, res) => {
   try {
     const days = Math.max(1, Math.min(180, parseInt(req.query.days, 10) || 14));
-    const d = await usageSummary(days);
+    const owner = String(req.query.owner || "").trim();
+    const d = await usageSummary(days, owner);
     if (!d) return res.status(400).send("記録がありません");
 
     const jst = (v) => {
@@ -12296,7 +12297,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-08-20i ホーム：日付見出しを消して上詰め、左カラムを1画面に収まるサイズに";
+const BUILD_TAG = "2026-08-20j 利用状況：メンバーごとに絞って見られるようにした";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
@@ -13263,7 +13264,11 @@ app.get("/api/usage/summary", async (req, res) => {
   try {
     res.set("Cache-Control", "no-store");
     const days = Number(req.query.days) || 14;
-    const [sum, labels] = await Promise.all([usageSummary(days), usageLabels(Math.max(30, days))]);
+    const owner = String(req.query.owner || "").trim();
+    const [sum, labels] = await Promise.all([
+      usageSummary(days, owner),
+      usageLabels(Math.max(30, days), owner),
+    ]);
     res.json({ ...(sum || {}), labels });
   } catch (e) {
     res.status(500).json({ error: e.message });
