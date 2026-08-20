@@ -153,6 +153,7 @@ import {
   markCallSynced,
   pendingCallLogs,
   callStats,
+  callStatsRange,
   setNoReminder,
   fixApoForReminder,
   listApoMails,
@@ -5671,19 +5672,42 @@ async function retryCallSync() {
   } catch {}
 }
 
-// その日の実績
+// 実績（日・週・月で切り替えられる）
 app.get("/api/calls/stats", async (req, res) => {
   try {
-    const date = /^\d{4}-\d{2}-\d{2}$/.test(String(req.query.date || "")) ? req.query.date : jstDate(0);
-    const rows = await callStats(date, String(req.query.mine || "") === "1" ? req.user : "");
+    const anchor = /^\d{4}-\d{2}-\d{2}$/.test(String(req.query.date || "")) ? req.query.date : jstDate(0);
+    const period = ["day", "week", "month"].includes(String(req.query.period)) ? String(req.query.period) : "day";
+    const mine = String(req.query.mine || "") === "1" ? req.user : "";
+
+    // 期間の開始〜終了（日本時間の暦日）を出す
+    const pad = (n) => String(n).padStart(2, "0");
+    const ymd = (dt) => `${dt.getUTCFullYear()}-${pad(dt.getUTCMonth() + 1)}-${pad(dt.getUTCDate())}`;
+    const [ay, am, ad] = anchor.split("-").map(Number);
+    let fromD, toD;
+    if (period === "week") {
+      const base = new Date(Date.UTC(ay, am - 1, ad));
+      const off = (base.getUTCDay() + 6) % 7; // 月曜起点（月=0…日=6）
+      fromD = new Date(Date.UTC(ay, am - 1, ad - off));
+      toD = new Date(Date.UTC(ay, am - 1, ad - off + 6));
+    } else if (period === "month") {
+      fromD = new Date(Date.UTC(ay, am - 1, 1));
+      toD = new Date(Date.UTC(ay, am, 0)); // 当月の最終日
+    } else {
+      fromD = new Date(Date.UTC(ay, am - 1, ad));
+      toD = fromD;
+    }
+    const from = ymd(fromD), to = ymd(toD);
+
+    const rows = period === "day"
+      ? await callStats(from, mine)
+      : await callStatsRange(from, to, mine);
+
     const by = new Map();
     for (const r of rows) {
       const k = r.caller || "（不明）";
       if (!by.has(k)) by.set(k, { 誰: k, コール: 0, 接触: 0, アポ: 0 });
       const o = by.get(k);
       o.コール += r.n;
-      // Salesforceの選択肢をそのまま使うので、言葉で見分ける。
-      // 「担当者接触：アポ獲得」「担当者不在」「コールのみ」など。
       const v = String(r.result || "");
       const 接触した = /接触|アポ|再コール|断り|見送り/.test(v) && !/不在|コールのみ|NG/.test(v);
       const アポ = /アポ獲得/.test(v);
@@ -5694,7 +5718,7 @@ app.get("/api/calls/stats", async (req, res) => {
     const sum = list.reduce((o, x) => ({
       コール: o.コール + x.コール, 接触: o.接触 + x.接触, アポ: o.アポ + x.アポ,
     }), { コール: 0, 接触: 0, アポ: 0 });
-    res.json({ ok: true, date, 合計: sum, items: list });
+    res.json({ ok: true, period, date: anchor, from, to, 合計: sum, items: list });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
@@ -12315,7 +12339,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-08-20n kincall：リスト管理をメンバーのカード→そのメンバーのリスト、の2階層にした";
+const BUILD_TAG = "2026-08-20o kincall実績：日・週・月で切り替えて集計できるようにした";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
