@@ -20,6 +20,15 @@ document.addEventListener("click", (ev) => {
   if (t.id === "jpMakeOne") { ev.preventDefault(); jpCreate(false); }
   if (t.id === "jpList") { ev.preventDefault(); jpLoadList(); }
   if (t.id === "jpNotifySave") { ev.preventDefault(); jpSaveNotify(); }
+  if (t.id === "dkToggle") {
+    ev.preventDefault();
+    const list = $("dkList");
+    if (list) {
+      const hidden = list.style.display === "none";
+      list.style.display = hidden ? "" : "none";
+      t.textContent = hidden ? "一覧をしまう" : "一覧を表示";
+    }
+  }
 });
 
 function say(id, t, ms) {
@@ -57,13 +66,15 @@ async function loadDocs() {
     docsCache = d.docs || [];
     baseUrl = d.base || location.origin;
 
-    // 選択欄を埋める
-    for (const [id, withAll] of [["dkDoc", true], ["dsDoc", false], ["blDoc", false], ["shDoc", false]]) {
+    // 選択欄を埋める。
+    //   dkDoc（閲覧状況の絞り込み）は全体。
+    //   送る側（dsDoc/blDoc/shDoc）は「自分の資料だけ」にする（他の人が登録した資料は出さない）。
+    for (const [id, withAll, mineOnly] of [["dkDoc", true, false], ["dsDoc", false, true], ["blDoc", false, true], ["shDoc", false, true]]) {
       const sel = $(id);
       if (!sel) continue;
       const cur = sel.value;
       sel.innerHTML = withAll ? '<option value="">すべて</option>' : "";
-      for (const f of docsCache) if (f.active) sel.add(new Option(f.name, f.id));
+      for (const f of docsCache) if (f.active && (!mineOnly || f.mine)) sel.add(new Option(f.name, f.id));
       if (cur) sel.value = cur;
     }
 
