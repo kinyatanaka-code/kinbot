@@ -8,11 +8,30 @@
 //   KINBOT_TOKEN … kinbotの API_TOKENS に登録したトークン
 //   MAX_ITEMS    … 一度に扱う件数（既定3）
 
-import { writeFileSync } from "node:fs";
+import { appendFileSync, writeFileSync } from "node:fs";
 
 const URL_BASE = (process.env.KINBOT_URL || "").replace(/\/+$/, "");
 const TOKEN = process.env.KINBOT_TOKEN || "";
 const MAX = Math.max(1, Math.min(10, Number(process.env.MAX_ITEMS) || 3));
+
+// Actionsは、この言葉があるとClaudeを動かさずに終わる。
+// 読めなかったときも必ずこれを書く（読めていないのにClaudeを動かすと、
+// 何も分からないまま料金だけかかるため）。
+const STOP_WORD = "今夜やることはない";
+
+function summary(text) {
+  if (process.env.GITHUB_STEP_SUMMARY) {
+    appendFileSync(process.env.GITHUB_STEP_SUMMARY, text + "\n");
+  }
+}
+
+// 直せない事情で終わるとき。赤くして気づけるようにする。
+function stop(why) {
+  writeFileSync("dev/NIGHT_BRIEF.md", `# 今夜の作業\n\n${why}\n\n${STOP_WORD}。**何も変更せず終わること。**\n`);
+  summary(`## 今回やること\n\n**${why}**`);
+  console.error(why);
+  process.exit(1);
+}
 
 const KIND = { request: "要望", bug: "不具合", error: "エラー", gap: "できないこと", idea: "アイデア" };
 
@@ -30,9 +49,7 @@ function isRisky(t) {
 
 async function main() {
   if (!URL_BASE || !TOKEN) {
-    writeFileSync("dev/NIGHT_BRIEF.md", "# 今夜の作業\n\n設定（KINBOT_URL / KINBOT_TOKEN）がありません。何もしません。\n");
-    console.log("設定がないので終わります");
-    return;
+    stop("設定（KINBOT_URL / KINBOT_TOKEN）がありません。`dev/セットアップ手順.md` の3を見てください。");
   }
 
   const res = await fetch(`${URL_BASE}/api/dev-notes?status=new`, {
@@ -61,7 +78,7 @@ async function main() {
   ];
 
   if (!pick.length) {
-    lines.push("今夜やることはない。**何も変更せず終わること。**");
+    lines.push(`${STOP_WORD}。**何も変更せず終わること。**`);
   } else {
     pick.forEach((x, i) => {
       lines.push(`### ${i + 1}. [${KIND[x.kind] || x.kind}] ${x.title}`);
@@ -95,9 +112,17 @@ async function main() {
   writeFileSync("dev/NIGHT_BRIEF.md", lines.join("\n") + "\n");
   writeFileSync("dev/night-ids.json", JSON.stringify(pick.map((x) => x.id)));
   console.log(`今夜の対象：${pick.length}件 / 全部で ${all.length}件`);
+
+  summary([
+    "## 今回やること",
+    "",
+    `溜まっている「直したいこと」は ${all.length}件。そのうち ${pick.length}件をやります。`,
+    "",
+    ...pick.map((x) => `- [${KIND[x.kind] || x.kind}] ${x.title}（メモID ${x.id}）`),
+    ...(skipped.length ? ["", `手を付けないもの：${skipped.length}件（人の判断が要るため）`] : []),
+  ].join("\n"));
 }
 
 main().catch((e) => {
-  console.error("失敗:", e.message);
-  writeFileSync("dev/NIGHT_BRIEF.md", `# 今夜の作業\n\nkinbotから読めませんでした：${e.message}\n何もしないこと。\n`);
+  stop(`kinbotから読めませんでした：${e.message}`);
 });

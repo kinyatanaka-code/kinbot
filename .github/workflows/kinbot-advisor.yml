@@ -47,6 +47,24 @@ jobs:
       - name: 集めた材料を表示する
         run: cat dev/ADVISOR_INPUT.md
 
+      # 鍵が無いまま進むと、意味の分からないエラーで止まる。先に確かめて理由を出す。
+      - name: Anthropicの鍵があるかを確かめる
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: |
+          if [ -z "$ANTHROPIC_API_KEY" ]; then
+            {
+              echo "## 提案は出せませんでした"
+              echo ""
+              echo "**ANTHROPIC_API_KEY が設定されていません**"
+              echo ""
+              echo "GitHub → Settings → Secrets and variables → Actions → Secrets に"
+              echo "\`ANTHROPIC_API_KEY\` を登録してください（\`dev/セットアップ手順.md\` の1と3）。"
+            } >> $GITHUB_STEP_SUMMARY
+            echo "ANTHROPIC_API_KEY が設定されていません" >&2
+            exit 1
+          fi
+
       - name: Claude Code を入れる
         run: npm install -g @anthropic-ai/claude-code
 
