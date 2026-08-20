@@ -413,12 +413,13 @@ export async function rotationStatus(business = "") {
     config: cfg,
     closers: all.map((c) => {
       const d = days[c.email] || { days: 0, suspendedDays: 0 };
-      const cnt = byCloser[c.email] || 0;
+      // 予備（フォールバック）は割り振り数に数えない → 0で見せる
+      const cnt = c.fallback ? 0 : (byCloser[c.email] || 0);
       return { ...c, team: teamOf(c), fallback: !!c.fallback,
         baseline_count: c.baseline_count || 0, period_count: cnt,
         suspended: !!susp[c.email], suspend_reason: susp[c.email] || "",
         eligible_days: d.days, suspended_days: d.suspendedDays,
-        per_day: d.days ? +(cnt / d.days).toFixed(3) : null };
+        per_day: c.fallback ? null : (d.days ? +(cnt / d.days).toFixed(3) : null) };
     }),
     suspensions: suspList,
     teams, teamStats,
@@ -428,7 +429,7 @@ export async function rotationStatus(business = "") {
     order: cands.map((c) => ({
       email: c.email, name: c.name, team: teamOf(c), fallback: !!c.fallback,
       sort_order: c.sort_order, priority: c.priority,
-      assigned_count: c.assigned_count, period_count: byCloser[c.email] || 0, daily_cap: c.daily_cap,
+      assigned_count: c.assigned_count, period_count: c.fallback ? 0 : (byCloser[c.email] || 0), daily_cap: c.daily_cap,
     })),
     next: cands[0] ? { email: cands[0].email, name: cands[0].name, team: teamOf(cands[0]),
                        fallback: !!cands[0].fallback, priority: cands[0].priority } : null,
