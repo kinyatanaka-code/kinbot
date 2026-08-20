@@ -3398,6 +3398,22 @@ export async function callStats(dateJst, caller = "") {
   } catch { return []; }
 }
 
+// 期間（日・週・月）で数える。fromJst〜toJst（両端を含む）。
+export async function callStatsRange(fromJst, toJst, caller = "") {
+  if (!pool) return [];
+  try {
+    const { rows } = await pool.query(
+      `SELECT caller, result, count(*)::int AS n
+         FROM call_logs
+        WHERE (at AT TIME ZONE 'Asia/Tokyo')::date >= $1::date
+          AND (at AT TIME ZONE 'Asia/Tokyo')::date <= $2::date
+          AND ($3 = '' OR caller = $3)
+        GROUP BY caller, result`,
+      [fromJst, toJst, String(caller || "").toLowerCase()]);
+    return rows;
+  } catch { return []; }
+}
+
 // ===== Salesforceの更新の記録 =====
 export async function recordSfUpdate({ botId, oppId, stage, note, owner }) {
   if (!pool) return null;
