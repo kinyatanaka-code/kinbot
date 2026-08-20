@@ -450,6 +450,13 @@ export async function sendApoMail(link, kind, { url, repName, force = false, act
 // ホームに出したり、1時間前のお知らせに使う。
 // 日付を指定できる。省略すると「明日」。
 // その日の商談を全部返すので、リマインドの対象を選べる。
+// リマインドの対象日（既定）は、ふだんは翌日。ただし金曜だけは土日を飛ばして月曜にする。
+// （土曜・日曜にこの処理が動くときは、今まで通り翌日のまま）
+function reminderDayOffset(nowJst) {
+  // nowJst は「今 + 9時間」でJSTにずらした日時。getUTCDay() で日本時間の曜日が取れる（5=金）。
+  return nowJst.getUTCDay() === 5 ? 3 : 1;
+}
+
 export async function listTomorrowReminders(dateJst = "") {
   let fromUtc, toUtc;
   if (/^\d{4}-\d{2}-\d{2}$/.test(String(dateJst))) {
@@ -459,8 +466,9 @@ export async function listTomorrowReminders(dateJst = "") {
   } else {
     const nowJst = new Date(Date.now() + 9 * 3600 * 1000);
     const y = nowJst.getUTCFullYear(), m = nowJst.getUTCMonth(), d = nowJst.getUTCDate();
-    fromUtc = new Date(Date.UTC(y, m, d + 1, 0, 0, 0) - 9 * 3600 * 1000);
-    toUtc = new Date(Date.UTC(y, m, d + 2, 0, 0, 0) - 9 * 3600 * 1000);
+    const off = reminderDayOffset(nowJst); // 金曜は月曜（+3）、他は翌日（+1）
+    fromUtc = new Date(Date.UTC(y, m, d + off, 0, 0, 0) - 9 * 3600 * 1000);
+    toUtc = new Date(Date.UTC(y, m, d + off + 1, 0, 0, 0) - 9 * 3600 * 1000);
   }
   const cfg0 = await getApoMailConfig().catch(() => ({}));
   const rows = await listApoReminderTargets(fromUtc.toISOString(), toUtc.toISOString(),
@@ -495,11 +503,13 @@ export async function runReminderSweep({ joinUrl, repNameOf } = {}) {
   const cfg = await getApoMailConfig();
   if (!cfg.autoReminder) return { skipped: true, reason: "リマインド自動送信がOFFです" };
 
-  // 「明日」のJST 00:00〜24:00 をUTCの範囲に直す
+  // 送る対象の日のJST 00:00〜24:00 をUTCの範囲に直す。
+  // ふだんは「明日」。金曜だけは土日を飛ばして「月曜」を対象にする。
   const nowJst = new Date(Date.now() + 9 * 3600 * 1000);
   const y = nowJst.getUTCFullYear(), m = nowJst.getUTCMonth(), d = nowJst.getUTCDate();
-  const fromUtc = new Date(Date.UTC(y, m, d + 1, 0, 0, 0) - 9 * 3600 * 1000);
-  const toUtc = new Date(Date.UTC(y, m, d + 2, 0, 0, 0) - 9 * 3600 * 1000);
+  const off = reminderDayOffset(nowJst);
+  const fromUtc = new Date(Date.UTC(y, m, d + off, 0, 0, 0) - 9 * 3600 * 1000);
+  const toUtc = new Date(Date.UTC(y, m, d + off + 1, 0, 0, 0) - 9 * 3600 * 1000);
 
   const targets = await listApoReminderTargets(fromUtc.toISOString(), toUtc.toISOString(),
     { gapHours: cfg.remindGapHours });
