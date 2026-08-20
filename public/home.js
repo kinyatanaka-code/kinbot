@@ -1981,8 +1981,7 @@ async function loadTomorrowReminders() {
     if (rmAll) q.set("all", "1");
     const d = await (await fetch("/api/apo-mail/tomorrow?" + q.toString())).json();
     const items = d.items || [];
-    // 日付を選んでいるときは、0件でも枠は出す（切り替えられるように）
-    if (!items.length && !rmDate && !rmAll) { bar.hidden = true; bar.innerHTML = ""; return; }
+    // 0件でも枠は必ず出す（消えると分かりにくいため）。中身が無ければ下で空の案内を出す。
     // 日本時間で出す（見る人の端末の時差に左右されないように）
     const when = (iso) => {
       const x = new Date(iso);
