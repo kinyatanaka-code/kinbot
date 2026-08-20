@@ -826,7 +826,8 @@ function renderInternDash(body, d) {
 // CSVで保存する。ブラウザにそのまま落とさせるので、画面側の処理は最小限。
 function usageCsv() {
   const days = ($("ugDays") && $("ugDays").value) || "14";
-  location.href = "/api/usage/summary.csv?days=" + encodeURIComponent(days);
+  const owner = ($("ugOwner") && $("ugOwner").value) || "";
+  location.href = "/api/usage/summary.csv?days=" + encodeURIComponent(days) + (owner ? "&owner=" + encodeURIComponent(owner) : "");
 }
 
 const UG_FEATURES = [
@@ -851,13 +852,22 @@ async function loadUsage() {
   if (!box) return;
   box.innerHTML = '<div class="empty-state">読み込み中…</div>';
   const days = ($("ugDays") && $("ugDays").value) || 14;
+  const owner = ($("ugOwner") && $("ugOwner").value) || "";
   try {
-    const r = await fetch("/api/usage/summary?days=" + encodeURIComponent(days));
+    const r = await fetch("/api/usage/summary?days=" + encodeURIComponent(days) + (owner ? "&owner=" + encodeURIComponent(owner) : ""));
     const d = await r.json();
     if (!r.ok) throw new Error(d.error || "取得に失敗しました");
     const esc = (v) => String(v == null ? "" : v).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+    // メンバーの選択肢を用意する。選ぶ側は常に全員ぶん。選択中の人は保持する。
+    const ownerSel = $("ugOwner");
+    if (ownerSel && Array.isArray(d.byUser)) {
+      const cur = ownerSel.value;
+      ownerSel.innerHTML = ['<option value="">全員</option>']
+        .concat(d.byUser.map((u) => `<option value="${esc(u.owner)}">${esc(u.owner)}</option>`)).join("");
+      ownerSel.value = cur;
+    }
     const st = $("ugStatus");
-    if (st) st.textContent = `${(d.total && d.total.events) || 0}操作 / ${(d.total && d.total.users) || 0}人`;
+    if (st) st.textContent = (owner ? owner + "・" : "") + `${(d.total && d.total.events) || 0}操作` + (owner ? "" : ` / ${(d.total && d.total.users) || 0}人`);
 
     const bars = (rows, labelKey, valKey, max) => {
       const m = Math.max(1, ...rows.map((x) => Number(x[valKey]) || 0));
@@ -909,6 +919,8 @@ document.addEventListener("DOMContentLoaded", () => {
   if (b) b.addEventListener("click", loadUsage);
   const sel = $("ugDays");
   if (sel) sel.addEventListener("change", loadUsage);
+  const own = $("ugOwner");
+  if (own) own.addEventListener("change", loadUsage);
   const csv = $("ugCsv");
   if (csv) csv.addEventListener("click", usageCsv);
 });
