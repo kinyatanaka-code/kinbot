@@ -5502,12 +5502,16 @@ export async function teamAssignStats(fromISO, toISO, business = "") {
                COUNT(*)::int AS cnt
           FROM smart_links sl
           JOIN closer_rotation cr ON cr.email = sl.current_owner
-         WHERE COALESCE(sl.current_owner,'') <> '' AND NOT sl.excluded ${where} ${bizWhere}
+         -- 予備（フォールバック）に振られたアポは、均等化の件数に数えない。
+         -- 稼働人日（分母）も予備を除いているので、これで分子・分母がそろう。
+         WHERE COALESCE(sl.current_owner,'') <> '' AND NOT sl.excluded
+               AND NOT cr.fallback ${where} ${bizWhere}
          GROUP BY 1
       ), base AS (
         -- 過去の実績（取り込み分）。kinbotで配る前の件数も均等化に反映させる。
+        -- ここも予備（フォールバック）ぶんは数えない。
         SELECT COALESCE(NULLIF(TRIM(team), ''), '未設定') AS team,
-               COALESCE(SUM(baseline_count), 0)::int AS base
+               COALESCE(SUM(baseline_count) FILTER (WHERE NOT fallback), 0)::int AS base
           FROM closer_rotation ${bizMembers} GROUP BY 1
       ), days AS (
         -- 稼働人日：期間の日数から停止日数を引いた「配れた日数」の合計。
