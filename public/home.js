@@ -1966,10 +1966,17 @@ let rmDate = "";      // 空＝明日
 let rmAll = false;
 let rmOpen = false;   // 一覧を開いたままにしておくため
 
-// 明日の日付（yyyy-mm-dd）
+// リマインドの対象日（yyyy-mm-dd）。ふだんは翌日。金曜だけ土日を飛ばして月曜。
 function tomorrowStr() {
-  const j = new Date(Date.now() + 9 * 3600 * 1000 + 24 * 3600 * 1000);
-  return j.toISOString().slice(0, 10);
+  const j = new Date(Date.now() + 9 * 3600 * 1000);
+  const off = j.getUTCDay() === 5 ? 3 : 1; // 金曜→月曜（+3）、他→翌日（+1）
+  const t = new Date(j.getTime() + off * 24 * 3600 * 1000);
+  return t.toISOString().slice(0, 10);
+}
+// 既定のときの見出し。金曜は対象が月曜なので「月曜のリマインド」と出す。
+function defaultReminderLabel() {
+  const j = new Date(Date.now() + 9 * 3600 * 1000);
+  return j.getUTCDay() === 5 ? "月曜のリマインド" : "明日のリマインド";
 }
 
 async function loadTomorrowReminders() {
@@ -1995,7 +2002,7 @@ async function loadTomorrowReminders() {
     bar.hidden = false;
     bar.innerHTML =
       `<button type="button" class="rm-head" id="rmToggle">` +
-      `<span class="rm-lb">${rmDate && rmDate !== tomorrowStr() ? escH(rmDate.slice(5).replace("-", "/")) + "のリマインド" : "明日のリマインド"}</span>` +
+      `<span class="rm-lb">${rmDate && rmDate !== tomorrowStr() ? escH(rmDate.slice(5).replace("-", "/")) + "のリマインド" : defaultReminderLabel()}</span>` +
       `<span class="rm-n">${okCount}件</span>` +
       `<span class="rm-when">${escH(d["送る時刻"] || "")}に送ります</span>` +
       `<span class="cc-warn rm-ngn">${ngCount ? `送れないもの ${ngCount}件` : ""}</span>` +
