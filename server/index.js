@@ -4850,12 +4850,17 @@ const CALL_RESULTS = [
 // リストの一覧
 app.get("/api/calls/lists", async (req, res) => {
   try {
+    // メンバーを指定できる（管理者、または自分自身のときだけ有効）
+    const reqMember = String(req.query.member || "").trim().toLowerCase();
+    const meEmail = String(req.user || "").toLowerCase();
+    const owner = (reqMember && (req.isAdmin || reqMember === meEmail)) ? reqMember : req.user;
     const rows = await listCallLists({
-      owner: req.user,
+      owner,
       includeClosed: String(req.query.all || "") === "1",
     });
     res.json({
       ok: true,
+      member: owner,
       items: rows.map((r) => ({
         id: r.id, name: r.name, note: r.note || "",
         全部: Number(r["全部"] || 0), 済み: Number(r["済み"] || 0),
@@ -5176,22 +5181,35 @@ app.delete("/api/calls/lists/:id", async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-// かける人の一覧（kincallを使う人）
+// かける人の一覧（kincallを使う人）。各メンバーの持ちリスト数も返す。
 app.get("/api/calls/members", async (req, res) => {
   try {
     const list = await listMembers().catch(() => []);
-    const items = (list || [])
-      .filter((m) => m.active !== false)
-      .map((m) => ({
+    const meEmail = String(req.user || "").toLowerCase();
+    // 管理者は全員、それ以外は自分だけ
+    let base = (list || []).filter((m) => m.active !== false);
+    if (!req.isAdmin) base = base.filter((m) => String(m.email || "").toLowerCase() === meEmail);
+    const items = [];
+    for (const m of base) {
+      let リスト数 = 0, 全部 = 0, 残り = 0;
+      if (m.email) {
+        const lists = await listCallLists({ owner: String(m.email).toLowerCase(), includeClosed: false });
+        リスト数 = lists.length;
+        全部 = lists.reduce((s, l) => s + Number(l["全部"] || 0), 0);
+        const 済み = lists.reduce((s, l) => s + Number(l["済み"] || 0), 0);
+        残り = 全部 - 済み;
+      }
+      items.push({
         email: m.email,
         name: m.name || m.email,
-        // kincallだけの人（インターン生）が分かるようにする
         kincallだけ: Array.isArray(m.roles) && m.roles.includes("kincall"),
         インサイド: Array.isArray(m.roles) && m.roles.includes("inside"),
-      }))
-      // kincallだけの人を先に出す（よく使うため）
-      .sort((a, b) => (b.kincallだけ ? 1 : 0) - (a.kincallだけ ? 1 : 0));
-    res.json({ ok: true, items });
+        リスト数, 全部, 残り,
+      });
+    }
+    // リストを持っている人を先に、その中でkincallだけの人を優先
+    items.sort((a, b) => (b.リスト数 - a.リスト数) || ((b.kincallだけ ? 1 : 0) - (a.kincallだけ ? 1 : 0)));
+    res.json({ ok: true, items, isAdmin: !!req.isAdmin });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
@@ -12297,7 +12315,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-08-20m リマインド：金曜は土日を飛ばして月曜の商談を対象にした（表示・自動送信とも）";
+const BUILD_TAG = "2026-08-20n kincall：リスト管理をメンバーのカード→そのメンバーのリスト、の2階層にした";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
