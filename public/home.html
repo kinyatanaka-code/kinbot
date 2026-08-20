@@ -71,36 +71,9 @@
               </div>
             </div>
           </div>
-          <!-- 明日リマインドは3カラムの上に、横いっぱいで出す -->
-          <div class="rm-bar" id="rmBar" hidden></div>
           <div class="home-body hb3">
-            <!-- 左：やり残し → 今日の商談 -->
-            <div class="hb3-col">
-              <div class="todo-bar" id="todoBar" hidden></div>
-              <section class="home-sec home-pane">
-                <div class="home-sec-head">
-                  <span class="home-sec-title">今日の商談</span>
-                  <span class="home-sec-count" id="homeMtgCount"></span>
-                </div>
-                <div class="home-pane-body" id="homeList"><div class="home-empty">読み込み中…</div></div>
-              </section>
-            </div>
-
-            <!-- 中央：ツール（3×3の正方形）→ 自分のアポ -->
-            <div class="hb3-col">
-              <div class="home-tools" id="homeTools" hidden></div>
-              <section class="home-sec home-pane" id="homeApoSec">
-                <div class="home-sec-head">
-                  <span class="home-sec-title">自分のアポ</span><span class="home-sec-note">この日に取ったぶん</span>
-                  <span class="home-sec-count" id="homeApoCount"></span>
-                  <a class="home-sec-link" href="apo.html">一覧へ</a>
-                </div>
-                <div class="home-pane-body" id="homeApoList"></div>
-              </section>
-            </div>
-
-            <!-- 右：日付選択カレンダー → 温度感ランキング -->
-            <div class="hb3-col">
+            <!-- 左：カレンダー → やり残し → リマインド → ツール（3×3） -->
+            <div class="hb3-col hb3-left">
               <div class="home-panel home-panel-mini">
                 <div class="home-panel-h">
                   <button type="button" class="home-mini-arrow" id="miniPrev" aria-label="前の月">
@@ -113,44 +86,83 @@
                 </div>
                 <div class="home-mini" id="homeMini"></div>
               </div>
-              <div class="home-panel">
-                <div class="home-panel-h">
-                  <span>温度感ランキング</span>
-                  <div class="home-rank-tabs">
-                    <button type="button" class="home-rank-tab active" data-by="deal">商談</button>
-                    <button type="button" class="home-rank-tab" data-by="member">メンバー</button>
-                  </div>
+              <div class="todo-bar" id="todoBar" hidden></div>
+              <div class="rm-bar" id="rmBar" hidden></div>
+              <div class="home-tools" id="homeTools" hidden></div>
+            </div>
+
+            <!-- 中央：今日の商談 -->
+            <div class="hb3-col">
+              <section class="home-sec home-pane">
+                <div class="home-sec-head">
+                  <span class="home-sec-title">今日の商談</span>
+                  <span class="home-sec-count" id="homeMtgCount"></span>
                 </div>
-                <div class="home-rank-rounds">
-                  <button type="button" class="home-rank-round active" data-rank="score">温度感</button>
-                  <button type="button" class="home-rank-round" data-rank="swing">振れ幅</button>
-                  <button type="button" class="home-rank-round" data-rank="skill">進め方</button>
+                <div class="home-pane-body" id="homeList"><div class="home-empty">読み込み中…</div></div>
+              </section>
+            </div>
+
+            <!-- 右：自分のアポ -->
+            <div class="hb3-col">
+              <section class="home-sec home-pane" id="homeApoSec">
+                <div class="home-sec-head">
+                  <span class="home-sec-title">自分のアポ</span><span class="home-sec-note">この日に取ったぶん</span>
+                  <span class="home-sec-count" id="homeApoCount"></span>
+                  <a class="home-sec-link" href="apo.html">一覧へ</a>
                 </div>
-                <div class="home-rank-rounds">
-                  <button type="button" class="home-rank-round active" data-round="">全部</button>
-                  <button type="button" class="home-rank-round" data-round="1">1回目</button>
-                  <button type="button" class="home-rank-round" data-round="2">2回目</button>
-                  <button type="button" class="home-rank-round" data-round="3plus">3回目〜</button>
-                </div>
-                <div id="homeRank"><div class="home-panel-empty">読み込み中…</div></div>
-              </div>
+                <div class="home-pane-body" id="homeApoList"></div>
+              </section>
+            </div>
+          </div>
+
+          <!-- ランキングは撤去したが、home.jsが掴む要素は消せないので、隠して置いておく -->
+          <div id="rankHidden" style="display:none">
+            <div class="home-rank-tabs">
+              <button type="button" class="home-rank-tab active" data-by="deal">商談</button>
+              <button type="button" class="home-rank-tab" data-by="member">メンバー</button>
+            </div>
+            <div class="home-rank-rounds">
+              <button type="button" class="home-rank-round active" data-rank="score">温度感</button>
+              <button type="button" class="home-rank-round" data-rank="swing">振れ幅</button>
+              <button type="button" class="home-rank-round" data-rank="skill">進め方</button>
+            </div>
+            <div class="home-rank-rounds">
+              <button type="button" class="home-rank-round active" data-round="">全部</button>
+              <button type="button" class="home-rank-round" data-round="1">1回目</button>
+              <button type="button" class="home-rank-round" data-round="2">2回目</button>
+              <button type="button" class="home-rank-round" data-round="3plus">3回目〜</button>
             </div>
           </div>
 
           <style>
-            /* ホームを3カラムに。左=今日の商談 / 中央=ツール+自分のアポ / 右=カレンダー+ランキング */
-            .home-body.hb3 { display: grid; grid-template-columns: 1fr 1fr 340px; gap: 16px; align-items: start; }
-            .hb3-col { min-width: 0; display: flex; flex-direction: column; gap: 16px; }
+            /* ヘッダーの日付ナビ・週ナビ・自分/全員トグルは消す（左のカレンダーに一本化） */
+            .home-head-right { display: none !important; }
+            .home-head { padding-bottom: 6px; }
+
+            /* ホームを1画面に収める。縦スクロールは各リストの中だけ。 */
+            .home-body.hb3 {
+              display: grid; grid-template-columns: 280px 1fr 1fr; gap: 14px;
+              align-items: stretch; height: calc(100vh - 132px); min-height: 0;
+            }
+            .hb3-col { min-width: 0; min-height: 0; display: flex; flex-direction: column; gap: 12px; }
+            /* 商談・アポは枠の高さいっぱいで、中だけスクロール */
+            .hb3-col .home-pane { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+            .hb3-col .home-pane .home-pane-body { flex: 1; min-height: 0; overflow: auto; }
+            /* 左カラムは、はみ出たらここだけスクロール */
+            .hb3-left { overflow: auto; }
+
             /* ツールを3×3の正方形グリッドに */
-            .home-body.hb3 .home-tools { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin: 0; }
+            .home-body.hb3 .home-tools { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin: 0; }
             .home-body.hb3 .home-tools .ht-item {
               aspect-ratio: 1 / 1; flex-direction: column; justify-content: center; align-items: center;
-              gap: 8px; text-align: center; width: auto; height: auto; padding: 8px; border-radius: 14px;
+              gap: 6px; text-align: center; width: auto; height: auto; min-width: 0; padding: 6px; border-radius: 12px;
             }
-            .home-body.hb3 .home-tools .ht-name { font-size: 12px; line-height: 1.3; }
-            /* 画面が狭いときは縦積み */
+            .home-body.hb3 .home-tools .ht-name { font-size: 11px; line-height: 1.25; }
+
+            /* 画面が狭いときは縦積み（このときは高さ固定を解除） */
             @media (max-width: 1100px) {
-              .home-body.hb3 { grid-template-columns: 1fr; }
+              .home-body.hb3 { grid-template-columns: 1fr; height: auto; }
+              .hb3-col .home-pane .home-pane-body { max-height: 60vh; }
             }
           </style>
         </div>
