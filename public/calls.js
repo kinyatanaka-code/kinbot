@@ -348,6 +348,13 @@ function renderDock() {
     .kc-list-chip{font-size:11px;color:#5b7a6d;background:#f4f7f5;border-radius:6px;padding:3px 8px;}
     .kc-list-chip.done{color:#217a54;background:#eaf5ef;}
     .kc-list-chip.rest{color:#8a5a2b;background:#fbf3e8;}
+    /* メンバーカード（第1階層）と戻る */
+    .kc-mem-card .kc-list-name{display:flex;align-items:center;gap:8px;flex-wrap:wrap;}
+    .kc-mem-tag{font-size:10px;font-weight:600;color:#217a54;background:#eaf5ef;border-radius:5px;padding:2px 6px;}
+    .kc-mem-tag.i{color:#2b5a8a;background:#e8f0fb;}
+    .kc-mem-back{border:1px solid #e6ece9;background:#fff;color:#0d5b47;border-radius:9px;padding:7px 12px;font-size:12px;font-weight:600;cursor:pointer;margin-bottom:12px;}
+    .kc-mem-back:hover{background:#f4faf7;border-color:#1d9e75;}
+    .kc-mem-title{font-size:14px;font-weight:700;color:#1f2a26;margin-bottom:12px;}
   `;
   document.head.appendChild(s);
 })();
@@ -786,31 +793,67 @@ document.addEventListener("click", (ev) => {
 // ───────────────────────────────────────────────────────────
 // リストの割り振り
 // ───────────────────────────────────────────────────────────
+// 第1階層：メンバーのカード一覧
 async function asLoad() {
   const box = $("asCards");
   if (!box) return;
   box.innerHTML = '<div class="note">読み込んでいます…</div>';
   try {
-    const d = await (await fetch("/api/calls/lists")).json();
+    const d = await (await fetch("/api/calls/members")).json();
     const items = d.items || [];
     if (!items.length) {
-      box.innerHTML = '<div class="empty-state">まだリストがありません。kinbotのリードレポートから「kincallへ送る」で作成してください。</div>';
+      box.innerHTML = '<div class="empty-state">メンバーがいません。設定→メンバー管理で追加してください。</div>';
       return;
     }
-    box.innerHTML = items.map((x) => `
-      <div class="kc-list-card" data-id="${x.id}">
-        <button type="button" class="kc-list-del" data-del="${x.id}" aria-label="削除" title="削除">✕</button>
-        <div class="kc-list-name">${esc(x.name)}</div>
-        <div class="kc-list-meta">
-          <span class="kc-list-chip">全 ${x["全部"]}件</span>
-          <span class="kc-list-chip done">済 ${x["済み"]}件</span>
-          <span class="kc-list-chip rest">残 ${x["残り"]}件</span>
+    box.innerHTML = '<div class="kc-lists-grid">' + items.map((m) => `
+      <div class="kc-list-card kc-mem-card" data-email="${esc(m.email)}" data-name="${esc(m.name)}">
+        <div class="kc-list-name">${esc(m.name)}
+          ${m["kincallだけ"] ? '<span class="kc-mem-tag">kincallだけ</span>' : ""}
+          ${m["インサイド"] ? '<span class="kc-mem-tag i">インサイド</span>' : ""}
         </div>
-      </div>`).join("");
-    box.querySelectorAll(".kc-list-card").forEach((c) =>
-      c.addEventListener("click", () => selectListAndCall(c.dataset.id)));
-    box.querySelectorAll(".kc-list-del").forEach((b) =>
-      b.addEventListener("click", (e) => { e.stopPropagation(); deleteListCard(b.dataset.del); }));
+        <div class="kc-list-meta">
+          <span class="kc-list-chip">リスト ${m["リスト数"] || 0}</span>
+          <span class="kc-list-chip rest">残 ${m["残り"] || 0}件</span>
+        </div>
+      </div>`).join("") + '</div>';
+    box.querySelectorAll(".kc-mem-card").forEach((c) =>
+      c.addEventListener("click", () => asLoadMember(c.dataset.email, c.dataset.name)));
+  } catch (e) {
+    box.innerHTML = `<div class="note">読み込めませんでした：${esc(e.message)}</div>`;
+  }
+}
+
+// 第2階層：あるメンバーのリスト一覧（今までのカード表示）
+async function asLoadMember(email, name) {
+  const box = $("asCards");
+  if (!box) return;
+  box.innerHTML = '<div class="note">読み込んでいます…</div>';
+  try {
+    const d = await (await fetch("/api/calls/lists?member=" + encodeURIComponent(email))).json();
+    const items = d.items || [];
+    const head =
+      `<button type="button" class="kc-mem-back" id="asBack">← メンバー一覧へ戻る</button>` +
+      `<div class="kc-mem-title">${esc(name || email)} のリスト</div>`;
+    if (!items.length) {
+      box.innerHTML = head + '<div class="empty-state">このメンバーのリストはまだありません。</div>';
+    } else {
+      box.innerHTML = head + '<div class="kc-lists-grid">' + items.map((x) => `
+        <div class="kc-list-card" data-id="${x.id}">
+          <button type="button" class="kc-list-del" data-del="${x.id}" aria-label="削除" title="削除">✕</button>
+          <div class="kc-list-name">${esc(x.name)}</div>
+          <div class="kc-list-meta">
+            <span class="kc-list-chip">全 ${x["全部"]}件</span>
+            <span class="kc-list-chip done">済 ${x["済み"]}件</span>
+            <span class="kc-list-chip rest">残 ${x["残り"]}件</span>
+          </div>
+        </div>`).join("") + '</div>';
+      box.querySelectorAll(".kc-list-card").forEach((c) =>
+        c.addEventListener("click", () => selectListAndCall(c.dataset.id)));
+      box.querySelectorAll(".kc-list-del").forEach((b) =>
+        b.addEventListener("click", (e) => { e.stopPropagation(); deleteListCard(b.dataset.del, () => asLoadMember(email, name)); }));
+    }
+    const bk = $("asBack");
+    if (bk) bk.addEventListener("click", asLoad);
   } catch (e) {
     box.innerHTML = `<div class="note">読み込めませんでした：${esc(e.message)}</div>`;
   }
@@ -833,7 +876,7 @@ function selectListAndCall(id) {
 }
 
 // カードの × で、そのリストを削除する
-async function deleteListCard(id) {
+async function deleteListCard(id, after) {
   const card = document.querySelector(`.kc-list-card[data-id="${id}"]`);
   const name = card ? ((card.querySelector(".kc-list-name") || {}).textContent || "") : "";
   if (!confirm(`リスト「${name}」を、中身ごと消します。戻せません。よろしいですか？`)) return;
@@ -842,7 +885,7 @@ async function deleteListCard(id) {
     const r = await fetch(`/api/calls/lists/${encodeURIComponent(id)}`, { method: "DELETE" });
     if (!r.ok) throw new Error("消せませんでした");
     say("asStatus", `「${name}」を消しました`, 8000);
-    asLoad();     // カードを描き直す
+    (typeof after === "function" ? after : asLoad)();  // 元の画面を描き直す
     loadLists();  // 「かける」のリスト選び欄も更新する
   } catch (e) { say("asStatus", "失敗：" + e.message, 8000); }
 }
