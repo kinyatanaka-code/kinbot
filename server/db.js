@@ -6099,40 +6099,49 @@ export async function addUsageEvents(owner, events) {
   }
 }
 
-export async function usageSummary(days = 14) {
+export async function usageSummary(days = 14, owner = "") {
   if (!pool) return null;
   const d = Math.max(1, Math.min(180, Number(days) || 14));
   const since = `now() - make_interval(days => ${d})`;
-  const q = async (sql) => { try { return (await pool.query(sql)).rows; } catch { return []; } };
+  const own = String(owner || "").trim();
+  // ownerを指定したときだけ、その人に絞る。ユーザー入力なのでパラメータ化（$1）で安全に。
+  const oc = own ? " AND owner = $1" : "";
+  const op = own ? [own] : [];
+  const q = async (sql, params = []) => { try { return (await pool.query(sql, params)).rows; } catch { return []; } };
   const [byDay, byPage, topActions, byUser, total] = await Promise.all([
     q(`SELECT to_char(created_at AT TIME ZONE 'Asia/Tokyo','YYYY-MM-DD') AS day,
               COUNT(*) AS events, COUNT(DISTINCT owner) AS users
-         FROM usage_events WHERE created_at >= ${since}
-        GROUP BY 1 ORDER BY 1`),
+         FROM usage_events WHERE created_at >= ${since}${oc}
+        GROUP BY 1 ORDER BY 1`, op),
     q(`SELECT page, COUNT(*) FILTER (WHERE kind='page') AS views, COUNT(*) FILTER (WHERE kind='click') AS clicks
-         FROM usage_events WHERE created_at >= ${since}
-        GROUP BY page ORDER BY views DESC NULLS LAST, clicks DESC LIMIT 30`),
+         FROM usage_events WHERE created_at >= ${since}${oc}
+        GROUP BY page ORDER BY views DESC NULLS LAST, clicks DESC LIMIT 30`, op),
     q(`SELECT page, label, COUNT(*) AS n
-         FROM usage_events WHERE created_at >= ${since} AND kind='click' AND label <> ''
-        GROUP BY page, label ORDER BY n DESC LIMIT 40`),
+         FROM usage_events WHERE created_at >= ${since} AND kind='click' AND label <> ''${oc}
+        GROUP BY page, label ORDER BY n DESC LIMIT 40`, op),
+    // メンバー別（選ぶ側）は、絞り込みに関係なく常に全員を返す
     q(`SELECT owner, COUNT(*) AS events,
               COUNT(DISTINCT to_char(created_at AT TIME ZONE 'Asia/Tokyo','YYYY-MM-DD')) AS days,
               MAX(created_at) AS last_at
          FROM usage_events WHERE created_at >= ${since} AND owner <> ''
         GROUP BY owner ORDER BY events DESC LIMIT 50`),
-    q(`SELECT COUNT(*) AS events, COUNT(DISTINCT owner) AS users FROM usage_events WHERE created_at >= ${since}`),
+    q(`SELECT COUNT(*) AS events, COUNT(DISTINCT owner) AS users FROM usage_events WHERE created_at >= ${since}${oc}`, op),
   ]);
-  return { days: d, byDay, byPage, topActions, byUser, total: total[0] || { events: 0, users: 0 } };
+  return { days: d, owner: own, byDay, byPage, topActions, byUser, total: total[0] || { events: 0, users: 0 } };
 }
 
-// 使われていない機能を出すために、押された操作名の一覧を返す
-export async function usageLabels(days = 30) {
+// 使われていない機能を出すために、押された操作名の一覧を返す（ownerで絞れる）
+export async function usageLabels(days = 30, owner = "") {
   if (!pool) return [];
   const d = Math.max(1, Math.min(180, Number(days) || 30));
+  const own = String(owner || "").trim();
+  const oc = own ? " AND owner = $1" : "";
+  const op = own ? [own] : [];
   try {
     const { rows } = await pool.query(
       `SELECT DISTINCT label FROM usage_events
-        WHERE created_at >= now() - make_interval(days => ${d}) AND kind='click' AND label <> ''`
+        WHERE created_at >= now() - make_interval(days => ${d}) AND kind='click' AND label <> ''${oc}`,
+      op
     );
     return rows.map((r) => r.label);
   } catch { return []; }
