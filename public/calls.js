@@ -355,6 +355,11 @@ function renderDock() {
     .kc-mem-back{border:1px solid #e6ece9;background:#fff;color:#0d5b47;border-radius:9px;padding:7px 12px;font-size:12px;font-weight:600;cursor:pointer;margin-bottom:12px;}
     .kc-mem-back:hover{background:#f4faf7;border-color:#1d9e75;}
     .kc-mem-title{font-size:14px;font-weight:700;color:#1f2a26;margin-bottom:12px;}
+    /* 実績の 日/週/月 タブ */
+    .kc-period-tabs{display:inline-flex;gap:4px;background:#f4f7f5;border-radius:10px;padding:3px;margin-bottom:12px;}
+    .kc-ptab{border:none;background:transparent;color:#5b7a6d;font-size:13px;font-weight:600;padding:6px 16px;border-radius:8px;cursor:pointer;}
+    .kc-ptab.active{background:#1d9e75;color:#fff;}
+    .kc-ptab:not(.active):hover{background:#eaf5ef;color:#0d5b47;}
   `;
   document.head.appendChild(s);
 })();
@@ -589,14 +594,21 @@ function openEdit(id) {
   });
 }
 
-// ───────── 今日の実績 ─────────
+// ───────── 実績（日・週・月） ─────────
+let statsPeriod = "day";
 async function loadStats() {
   const box = $("clStats");
   if (!box) return;
   try {
     const mine = $("clMine") && $("clMine").checked ? "&mine=1" : "";
-    const d = await (await fetch(`/api/calls/stats?x=1${mine}`)).json();
+    const d = await (await fetch(`/api/calls/stats?period=${encodeURIComponent(statsPeriod)}${mine}`)).json();
     if (d.error) throw new Error(d.error);
+    // 期間の表示
+    const rg = $("stRange");
+    if (rg) {
+      const lbl = statsPeriod === "day" ? "日" : statsPeriod === "week" ? "週" : "月";
+      rg.textContent = d.from === d.to ? `${d.from}（${lbl}）` : `${d.from} 〜 ${d.to}（${lbl}）`;
+    }
     const s = d["合計"] || {};
     const rate = s["コール"] ? ((s["アポ"] / s["コール"]) * 100).toFixed(1) : "0.0";
     const touch = s["コール"] ? ((s["接触"] / s["コール"]) * 100).toFixed(1) : "0.0";
@@ -606,7 +618,7 @@ async function loadStats() {
         ? `<table class="sh-table"><tr><th>誰</th><th>コール</th><th>接触</th><th>アポ</th></tr>` +
           d.items.map((x) => `<tr><td>${esc(x["誰"])}</td><td>${x["コール"]}</td><td>${x["接触"]}</td><td>${x["アポ"]}</td></tr>`).join("") +
           `</table>`
-        : `<div class="note">まだ記録がありません。</div>`);
+        : `<div class="note">この期間の記録はまだありません。</div>`);
   } catch (e) { box.innerHTML = `<div class="note">読み込めませんでした：${esc(e.message)}</div>`; }
 }
 
@@ -650,6 +662,15 @@ if ($("clList")) {
   });
 }
 if ($("clMine")) $("clMine").addEventListener("change", loadStats);
+// 日・週・月の切り替え
+if ($("stPeriod")) {
+  $("stPeriod").querySelectorAll(".kc-ptab").forEach((b) =>
+    b.addEventListener("click", () => {
+      statsPeriod = b.dataset.period || "day";
+      $("stPeriod").querySelectorAll(".kc-ptab").forEach((x) => x.classList.toggle("active", x === b));
+      loadStats();
+    }));
+}
 
 if ($("clFind")) {
   let timer = null;
