@@ -137,14 +137,26 @@
           <style>
             /* ヘッダーの日付ナビ・週ナビ・自分/全員トグルは消す（左のカレンダーに一本化） */
             .home-head-right { display: none !important; }
-            .home-head { padding-bottom: 6px; }
+            /* 「今日（8月20日）」の見出し行を消して、その分だけ上に詰める */
+            .home-head { display: none; }
 
             /* ホームを1画面に収める。縦スクロールは各リストの中だけ。 */
             .home-body.hb3 {
-              display: grid; grid-template-columns: 280px 1fr 1fr; gap: 14px;
-              align-items: stretch; height: calc(100vh - 132px); min-height: 0;
+              display: grid; grid-template-columns: 260px 1fr 1fr; gap: 14px;
+              align-items: stretch; height: calc(100vh - 78px); min-height: 0;
             }
-            .hb3-col { min-width: 0; min-height: 0; display: flex; flex-direction: column; gap: 12px; }
+            .hb3-col { min-width: 0; min-height: 0; display: flex; flex-direction: column; gap: 10px; }
+
+            /* 左カラム（カレンダー・やり残し・リマインド・ツール）を全部1画面に収める */
+            .hb3-left { overflow: auto; }
+            .home-body.hb3 .home-panel-mini { padding: 8px 10px; }
+            .home-body.hb3 .home-mini-d { padding: 2px 0 3px; font-size: 11px; }
+            .home-body.hb3 .home-mini-w { margin-bottom: 2px; }
+            .home-body.hb3 .home-panel-h { margin-bottom: 4px; }
+            .home-body.hb3 .todo-bar { padding: 8px 10px; }
+            .home-body.hb3 .rm-bar { margin: 0; padding: 8px 10px; }
+            /* ツールは残りの高さいっぱいを使い、はみ出ない */
+            .home-body.hb3 .hb3-left .home-tools { flex: 1; min-height: 0; align-content: start; }
             /* 商談・アポは枠の高さいっぱいで、中だけスクロール */
             .hb3-col .home-pane { flex: 1; min-height: 0; display: flex; flex-direction: column; }
             .hb3-col .home-pane .home-pane-body { flex: 1; min-height: 0; overflow: auto; }
