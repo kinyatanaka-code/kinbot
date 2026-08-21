@@ -12434,7 +12434,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-08-21g 開発メモ：新しい要望が追加されたらGoogle Chatに通知";
+const BUILD_TAG = "2026-08-21h SF立ち上げ：会社名でサーバー一括検索にして高速化（カレンダー総当たりを廃止）";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
@@ -12988,6 +12988,60 @@ app.get("/api/calendar/created", async (req, res) => {
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
+});
+
+// 会社名から予定を一括で探す（SF立ち上げの高速化）。
+// 以前はブラウザが31日ぶんを1日ずつ順番に読んでいた。ここでサーバーが
+// 近い日から並列で探し、最初に一致した日の予定をまとめて返す。中身の判定は今までと同じ。
+app.get("/api/calendar/find-company", async (req, res) => {
+  try {
+    res.set("Cache-Control", "no-store");
+    const q = String(req.query.q || "").trim();
+    const anchor = /^\d{4}-\d{2}-\d{2}$/.test(String(req.query.date || "")) ? req.query.date : new Date(Date.now() + 9 * 3600 * 1000).toISOString().slice(0, 10);
+    const back = Math.min(60, Math.max(1, parseInt(req.query.back, 10) || 31));
+    if (!q) return res.status(400).json({ error: "会社名（探す言葉）を指定してください" });
+
+    let accounts = [];
+    try { accounts = await listGoogleAccounts(); } catch {}
+    if (!accounts.length) return res.json({ connected: false, found: false, events: [] });
+    const owners = accounts.slice(0, 30).map((a) => a.owner || a.google_email || "").filter(Boolean);
+
+    const norm = (t) => String(t || "").replace(/[\s　]/g, "");
+    const key = norm(q);
+    const base = new Date(anchor + "T00:00:00+09:00");
+    const days = [];
+    for (let i = 1; i <= back; i++) {
+      const d = new Date(base); d.setDate(d.getDate() - i);
+      days.push(d.toISOString().slice(0, 10));
+    }
+
+    const readDay = async (dateStr) => {
+      const byUid = new Map();
+      const CHUNK = Number(process.env.CAL_FETCH_CONCURRENCY || 6);
+      for (let i = 0; i < owners.length; i += CHUNK) {
+        const part = owners.slice(i, i + CHUNK);
+        const rs = await Promise.all(part.map(async (own) => {
+          try { return { own, evs: await listEventsCreatedOn(own, dateStr) }; } catch { return { own, evs: [] }; }
+        }));
+        for (const r of rs) for (const e of (r.evs || [])) {
+          const k = e.uid || (e.title + "@" + e.start);
+          if (!byUid.has(k)) byUid.set(k, { ...e, calendarOwner: r.own });
+        }
+      }
+      return [...byUid.values()];
+    };
+
+    const BATCH = 5;
+    for (let i = 0; i < days.length; i += BATCH) {
+      const part = days.slice(i, i + BATCH);
+      const results = await Promise.all(part.map(async (day) => ({ day, evs: await readDay(day) })));
+      for (const { day, evs } of results) {
+        const hit = evs.filter((e) => norm(e.title).includes(key) || key.includes(norm(e.title)));
+        if (hit.length) return res.json({ connected: true, found: true, date: day, count: owners.length, events: evs });
+      }
+    }
+    res.json({ connected: true, found: false, events: [] });
+  } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 // ===== SF立ち上げ（リードのコンバート） =====
