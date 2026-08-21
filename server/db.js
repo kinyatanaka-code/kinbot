@@ -4520,7 +4520,21 @@ export async function apoDetailBySetter({ termFrom, termTo, limit = 200, mode = 
   } catch (e) { console.error("[db] apoDetailBySetter", e.message); return []; }
 }
 
-export async function assignCounts(business = "") {
+// アポ集計の期間キー（この単位が変わると、手修正はリセットされる）
+export function apoPeriodKeys(now = new Date()) {
+  const j = new Date(now.getTime() + 9 * 3600 * 1000);
+  const pad = (n) => String(n).padStart(2, "0");
+  const y = j.getUTCFullYear(), m = j.getUTCMonth(), d = j.getUTCDate();
+  const today = `${y}-${pad(m + 1)}-${pad(d)}`;
+  const off = (j.getUTCDay() + 6) % 7; // 月曜起点
+  const wk = new Date(Date.UTC(y, m, d - off));
+  const week = `${wk.getUTCFullYear()}-${pad(wk.getUTCMonth() + 1)}-${pad(wk.getUTCDate())}`;
+  const month = `${y}-${pad(m + 1)}`;
+  return { today, week, month };
+}
+
+// 実数だけを数える（手修正を含まない）
+export async function assignCountsRaw(business = "") {
   if (!pool) return { today: 0, week: 0, month: 0 };
   try {
     const cond = business ? `AND s.business = $1` : "";
@@ -4532,14 +4546,32 @@ export async function assignCounts(business = "") {
           WHERE a.created_at >= ${from} AND NOT s.excluded ${cond}`, p);
       return rows[0]?.n || 0;
     };
-    // JSTの区切りで数える
     const [today, week, month] = await Promise.all([
       q("date_trunc('day',   now() AT TIME ZONE 'Asia/Tokyo') AT TIME ZONE 'Asia/Tokyo'"),
       q("date_trunc('week',  now() AT TIME ZONE 'Asia/Tokyo') AT TIME ZONE 'Asia/Tokyo'"),
       q("date_trunc('month', now() AT TIME ZONE 'Asia/Tokyo') AT TIME ZONE 'Asia/Tokyo'"),
     ]);
     return { today, week, month };
-  } catch (e) { console.error("[db] assignCounts", e.message); return { today: 0, week: 0, month: 0 }; }
+  } catch (e) { console.error("[db] assignCountsRaw", e.message); return { today: 0, week: 0, month: 0 }; }
+}
+
+// 通知や表示に使うカウント。実数に「手修正（調整値）」を足して返す。
+// 調整値は期間キーが今と一致するときだけ効く（期間が変われば実数に戻る）。
+export async function assignCounts(business = "") {
+  const raw = await assignCountsRaw(business);
+  try {
+    const st = await getSettings();
+    const adj = ((st.apoCountAdjust || {})[business]) || {};
+    const keys = apoPeriodKeys();
+    const out = {};
+    for (const per of ["today", "week", "month"]) {
+      let n = raw[per];
+      const a = adj[per];
+      if (a && a.key === keys[per]) n = Math.max(0, n + (Number(a.delta) || 0));
+      out[per] = n;
+    }
+    return out;
+  } catch { return raw; }
 }
 
 export async function saveAutolaunch(r) {
