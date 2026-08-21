@@ -4932,6 +4932,7 @@ app.get("/api/calls/lists", async (req, res) => {
     const rows = await listCallLists({
       owner,
       includeClosed: String(req.query.all || "") === "1",
+      ownerOnly: !!reqMember,   // メンバーを指定して見るときは、その人が作ったリストだけ
     });
     res.json({
       ok: true,
@@ -5275,7 +5276,7 @@ app.get("/api/calls/members", async (req, res) => {
     for (const m of base) {
       let リスト数 = 0, 全部 = 0, 残り = 0;
       if (m.email) {
-        const lists = await listCallLists({ owner: String(m.email).toLowerCase(), includeClosed: false }).catch(() => []);
+        const lists = await listCallLists({ owner: String(m.email).toLowerCase(), includeClosed: false, ownerOnly: true }).catch(() => []);
         リスト数 = lists.length;
         全部 = lists.reduce((s, l) => s + Number(l["全部"] || 0), 0);
         const 済み = lists.reduce((s, l) => s + Number(l["済み"] || 0), 0);
@@ -12447,7 +12448,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-08-21k kincall：リスト管理にメンバーが出ない不具合を修正（自分だけ絞り込みを廃止）";
+const BUILD_TAG = "2026-08-21l kincall：メンバーを名前だけの一覧に／他人のリストが混ざる表示を修正";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
