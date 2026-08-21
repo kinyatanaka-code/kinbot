@@ -234,6 +234,7 @@ import {
   deleteSuspension,
   suspendedNow,
   listMembers,
+  listInterns,
   saveMembers,
   deleteMember,
   syncMembersToLegacy,
@@ -5261,9 +5262,12 @@ app.get("/api/calls/members", async (req, res) => {
   try {
     const list = await listMembers().catch(() => []);
     const meEmail = String(req.user || "").toLowerCase();
-    // リスト管理に出すのは「インサイド」のメンバーだけ
-    let base = (list || []).filter((m) => m.active !== false &&
-      Array.isArray(m.roles) && m.roles.includes("inside"));
+    // 「インサイド」は、rolesに"inside"がある人か、internsテーブル（アポ獲得者マスタ）にいる人。
+    // どちらの持ち方でも拾えるようにして、登録しているのに出ない事故を防ぐ。
+    const interns = await listInterns().catch(() => []);
+    const internSet = new Set((interns || []).map((x) => String(x.email || "").toLowerCase()).filter(Boolean));
+    const isInside = (m) => (Array.isArray(m.roles) && m.roles.includes("inside")) || internSet.has(String(m.email || "").toLowerCase());
+    let base = (list || []).filter((m) => m.active !== false && isInside(m));
     if (!req.isAdmin) base = base.filter((m) => String(m.email || "").toLowerCase() === meEmail);
     const items = [];
     for (const m of base) {
@@ -5773,8 +5777,12 @@ app.get("/api/calls/stats", async (req, res) => {
     const from = ymd(fromD), to = ymd(toD);
 
     // インサイドのメンバーだけを対象にする（合計＋メンバー別）。名前で出す。
+    // 「インサイド」は roles の"inside" か interns（アポ獲得者マスタ）で判定する。
     const members = await listMembers().catch(() => []);
-    const inside = (members || []).filter((m) => Array.isArray(m.roles) && m.roles.includes("inside"));
+    const internsList = await listInterns().catch(() => []);
+    const internSet = new Set((internsList || []).map((x) => String(x.email || "").toLowerCase()).filter(Boolean));
+    const inside = (members || []).filter((m) =>
+      (Array.isArray(m.roles) && m.roles.includes("inside")) || internSet.has(String(m.email || "").toLowerCase()));
     const insideSet = new Set(inside.map((m) => String(m.email || "").toLowerCase()).filter(Boolean));
     const nameOf = new Map(inside.map((m) => [String(m.email || "").toLowerCase(), m.name || m.email]));
 
