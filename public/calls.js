@@ -231,7 +231,7 @@ async function renderHistoryInto(box, id) {
         ? items.map((h) => `
             <div class="kc-hist-row">
               <div class="kc-hist-top">
-                <span class="kc-hist-at">${esc(when(h.at))}</span>
+                <span class="kc-hist-at">${esc(h["日付のみ"] ? String(when(h.at)).replace(/\s*\d{1,2}:\d{2}$/, "") : when(h.at))}</span>
                 <span class="kc-hist-r">${esc(h["件名"] || h["結果"] || "")}</span>
                 ${h["件名"] && h["結果"] ? `<span class="kc-hist-res">${esc(h["結果"])}</span>` : ""}
                 <span class="kc-hist-who">${esc(h["誰"] || "")}</span>
