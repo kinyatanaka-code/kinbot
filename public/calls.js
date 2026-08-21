@@ -764,6 +764,10 @@ function showPane() {
       if (mk) mk.remove();
       const mkp = document.querySelector('[data-ls-pane="make"]');
       if (mkp) mkp.remove();
+      // 「＋ メンバーを足す」も出さない（隠した人が見えてしまうため）
+      window.kcNoAddMember = true;
+      const ac = document.getElementById("kcAddCard");
+      if (ac) ac.remove();
     }
   } catch {}
 })();
@@ -928,7 +932,7 @@ async function asLoad() {
           <button type="button" class="kc-mem-hide" data-hide="${esc(m.email)}" title="この人を隠す" aria-label="隠す">✕</button>
           <span class="kc-mem-name">${esc(m.name)}</span>
         </div>`).join("") +
-        (addable.length ? '<div class="kc-mem-card kc-mem-add" id="kcAddCard"><span class="kc-mem-name">＋ メンバーを足す</span></div>' : "") +
+        (addable.length && !window.kcNoAddMember ? '<div class="kc-mem-card kc-mem-add" id="kcAddCard"><span class="kc-mem-name">＋ メンバーを足す</span></div>' : "") +
       '</div>' +
       '<div class="kc-mem-pick" id="kcPick" hidden></div>' +
       (hiddenCount
