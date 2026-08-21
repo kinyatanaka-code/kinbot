@@ -362,9 +362,12 @@ function renderDock() {
     .kc-mem-restore:hover{background:#f4faf7;border-color:#1d9e75;}
     #asCards .kc-mem-card:hover{border-color:#bfe0cf;box-shadow:0 8px 20px -12px rgba(33,122,84,.35);transform:translateY(-2px);}
     .kc-mem-name{font-size:14px;font-weight:700;color:#1f2a26;line-height:1.35;}
-    .kc-mem-back{border:1px solid #e6ece9;background:#fff;color:#0d5b47;border-radius:9px;padding:7px 12px;font-size:12px;font-weight:600;cursor:pointer;margin-bottom:12px;}
-    .kc-mem-back:hover{background:#f4faf7;border-color:#1d9e75;}
-    .kc-mem-title{font-size:14px;font-weight:700;color:#1f2a26;margin-bottom:12px;}
+    #asCards .kc-mem-head{display:flex;align-items:center;gap:12px;margin-bottom:14px;}
+    #asCards .kc-mem-back{flex:0 0 auto;width:auto;min-height:0;height:auto;
+      border:1px solid #e6ece9;background:#fff;color:#0d5b47;border-radius:9px;
+      padding:6px 12px;font-size:12px;font-weight:600;line-height:1.2;cursor:pointer;margin:0;}
+    #asCards .kc-mem-back:hover{background:#f4faf7;border-color:#1d9e75;}
+    #asCards .kc-mem-title{font-size:14px;font-weight:700;color:#1f2a26;margin:0;}
     /* 実績の 日/週/月 タブ */
     .kc-period-tabs{display:inline-flex;gap:4px;background:#f4f7f5;border-radius:10px;padding:3px;margin-bottom:12px;}
     .kc-ptab{border:none;background:transparent;color:#5b7a6d;font-size:13px;font-weight:600;padding:6px 16px;border-radius:8px;cursor:pointer;}
@@ -884,8 +887,10 @@ async function asLoadMember(email, name) {
     const d = await (await fetch("/api/calls/lists?member=" + encodeURIComponent(email))).json();
     const items = d.items || [];
     const head =
-      `<button type="button" class="kc-mem-back" id="asBack">← メンバー一覧へ戻る</button>` +
-      `<div class="kc-mem-title">${esc(name || email)} のリスト</div>`;
+      `<div class="kc-mem-head">` +
+      `<button type="button" class="kc-mem-back" id="asBack">← 戻る</button>` +
+      `<span class="kc-mem-title">${esc(name || email)} のリスト</span>` +
+      `</div>`;
     if (!items.length) {
       box.innerHTML = head + '<div class="empty-state">このメンバーのリストはまだありません。</div>';
     } else {
