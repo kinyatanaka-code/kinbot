@@ -342,9 +342,12 @@ function renderDock() {
     .kc-table td{overflow:visible;text-overflow:clip;white-space:nowrap;}
     .kc-table td.kc-co,.kc-table th.kc-co{white-space:normal;word-break:break-word;min-width:220px;}
     .kc-tablewrap{overflow:auto;max-height:calc(100vh - 210px);}
+    .kc-tablewrap table{margin:0;}
     /* 「かける」の画面自体もはみ出さないようにする */
-    #call.kc-pane{display:flex;flex-direction:column;max-height:calc(100vh - 96px);}
-    #call.kc-pane > .kc-tablewrap{flex:1;min-height:0;}
+    /* 「かける」は1画面に収める。表の中だけが縦に動く。 */
+    #call.kc-pane{display:flex;flex-direction:column;height:calc(100vh - 96px);min-height:0;overflow:hidden;}
+    #call.kc-pane #clTable{flex:1;min-height:0;display:flex;flex-direction:column;}
+    #call.kc-pane #clTable > .kc-tablewrap{flex:1;min-height:0;max-height:none;}
     /* リスト管理：カード一覧 */
     .kc-lists-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:14px;margin-top:6px;}
     #asCards .kc-lists-grid-in{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:14px;width:100%;}
