@@ -5042,8 +5042,15 @@ app.post("/api/calls/from-csv", async (req, res) => {
       // CSVに架電日があれば、その日付でSalesforceに活動履歴を残す
       let 履歴 = "";
       const 架電日 = ymdOf(r.callDate);
-      const ステータス = String(r.status || "").trim();
-      const コメント = String(r.comment || "").trim();
+      const 生ステータス = String(r.status || "").trim();
+      // 決まった選択肢に当てはまるものだけを「最終ステータス」にする。
+      // それ以外（自由に書かれたひとこと）は、コメントとして扱う。
+      const そろえる = (v) => String(v || "").replace(/[\s　:：]/g, "");
+      const 選択肢 = 既知の結果.concat(["担当者接触ニーズなし", "担当者接触：ニーズなし"]);
+      const 当てはまる = 選択肢.find((w) => そろえる(w) === そろえる(生ステータス));
+      const ステータス = 当てはまる || "";
+      const コメント = [String(r.comment || "").trim(), 当てはまる ? "" : 生ステータス]
+        .filter(Boolean).join(" ／ ");
       if (!dryRun && 架電日 && leadId) {
         try {
           await createTask(sfUser, {
@@ -12752,7 +12759,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-08-22p かけるの表が1画面に収まらない不具合を修正";
+const BUILD_TAG = "2026-08-22q CSV取り込み：決まった選択肢以外はコメント扱いにした";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
