@@ -350,9 +350,16 @@ function renderDock() {
     .kc-list-chip.rest{color:#8a5a2b;background:#fbf3e8;}
     /* メンバーカード（第1階層）：名前だけ。全員が1画面に収まるようにする */
     .kc-mem-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px;}
-    .kc-mem-card{display:flex;align-items:center;justify-content:center;text-align:center;
-      min-height:54px;padding:10px 12px;background:#fff;border:1.5px solid #e6ece9;border-radius:12px;
+    .kc-mem-card{position:relative;display:flex;align-items:center;justify-content:center;text-align:center;
+      min-height:64px;padding:12px;background:#fff;border:1.5px solid #e6ece9;border-radius:12px;
       cursor:pointer;transition:border-color .15s,box-shadow .15s,transform .12s;}
+    .kc-mem-hide{position:absolute;top:5px;right:5px;width:22px;height:22px;border:none;background:transparent;
+      color:#c3cec8;font-size:12px;line-height:1;border-radius:999px;cursor:pointer;display:grid;place-items:center;opacity:0;transition:opacity .12s;}
+    .kc-mem-card:hover .kc-mem-hide{opacity:1;}
+    .kc-mem-hide:hover{background:#fbe9e9;color:#e05a5a;}
+    .kc-mem-foot{margin-top:12px;font-size:12px;color:#6b7c74;display:flex;align-items:center;gap:10px;}
+    .kc-mem-restore{border:1px solid #e6ece9;background:#fff;color:#0d5b47;border-radius:8px;padding:5px 10px;font-size:12px;font-weight:600;cursor:pointer;}
+    .kc-mem-restore:hover{background:#f4faf7;border-color:#1d9e75;}
     .kc-mem-card:hover{border-color:#bfe0cf;box-shadow:0 8px 20px -12px rgba(33,122,84,.35);transform:translateY(-2px);}
     .kc-mem-name{font-size:14px;font-weight:700;color:#1f2a26;line-height:1.35;}
     .kc-mem-back{border:1px solid #e6ece9;background:#fff;color:#0d5b47;border-radius:9px;padding:7px 12px;font-size:12px;font-weight:600;cursor:pointer;margin-bottom:12px;}
@@ -817,6 +824,15 @@ document.addEventListener("click", (ev) => {
 // リストの割り振り
 // ───────────────────────────────────────────────────────────
 // 第1階層：メンバーのカード一覧
+// 非表示にしたメンバー（この端末に覚えておく）
+function hiddenMembers() {
+  try { return new Set(JSON.parse(localStorage.getItem("kcHiddenMembers") || "[]")); }
+  catch { return new Set(); }
+}
+function saveHiddenMembers(set) {
+  try { localStorage.setItem("kcHiddenMembers", JSON.stringify([...set])); } catch {}
+}
+
 async function asLoad() {
   const box = $("asCards");
   if (!box) return;
@@ -828,12 +844,32 @@ async function asLoad() {
       box.innerHTML = '<div class="empty-state">メンバーがいません。設定→メンバー管理で追加してください。</div>';
       return;
     }
-    box.innerHTML = '<div class="kc-mem-grid">' + items.map((m) => `
-      <div class="kc-mem-card" data-email="${esc(m.email)}" data-name="${esc(m.name)}">
-        <span class="kc-mem-name">${esc(m.name)}</span>
-      </div>`).join("") + '</div>';
+    const hidden = hiddenMembers();
+    const shown = items.filter((m) => !hidden.has(String(m.email || "").toLowerCase()));
+    const hiddenCount = items.length - shown.length;
+
+    box.innerHTML =
+      '<div class="kc-mem-grid">' + shown.map((m) => `
+        <div class="kc-mem-card" data-email="${esc(m.email)}" data-name="${esc(m.name)}">
+          <button type="button" class="kc-mem-hide" data-hide="${esc(m.email)}" title="この人を隠す" aria-label="隠す">✕</button>
+          <span class="kc-mem-name">${esc(m.name)}</span>
+        </div>`).join("") + '</div>' +
+      (hiddenCount
+        ? `<div class="kc-mem-foot">${hiddenCount}人を隠しています<button type="button" class="kc-mem-restore" id="kcShowAll">すべて表示に戻す</button></div>`
+        : "");
+
     box.querySelectorAll(".kc-mem-card").forEach((c) =>
       c.addEventListener("click", () => asLoadMember(c.dataset.email, c.dataset.name)));
+    box.querySelectorAll(".kc-mem-hide").forEach((b) =>
+      b.addEventListener("click", (ev) => {
+        ev.stopPropagation();
+        const h = hiddenMembers();
+        h.add(String(b.dataset.hide || "").toLowerCase());
+        saveHiddenMembers(h);
+        asLoad();
+      }));
+    const all = $("kcShowAll");
+    if (all) all.addEventListener("click", () => { saveHiddenMembers(new Set()); asLoad(); });
   } catch (e) {
     box.innerHTML = `<div class="note">読み込めませんでした：${esc(e.message)}</div>`;
   }
