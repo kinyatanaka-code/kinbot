@@ -850,14 +850,3 @@ document.addEventListener("mouseover", (ev) => {
 }, true);
 
 
-// kincallのリード画面から呼ぶ入口。リード種別で初期化する。
-function srInitLeads() {
-  try {
-    if (typeof _sr === "undefined") return;
-    if (_sr.leadsReady) return;
-    _sr.leadsReady = true;
-    _sr.kind = "lead";
-    if (typeof srLoadList === "function") srLoadList();
-  } catch (e) { console.warn("[kincall] リードの初期化に失敗", e); }
-}
-window.srInitLeads = srInitLeads;
