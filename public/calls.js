@@ -378,6 +378,10 @@ function renderDock() {
       padding:6px 12px;font-size:12px;font-weight:600;line-height:1.2;cursor:pointer;margin:0;}
     #asCards .kc-mem-back:hover{background:#f4faf7;border-color:#1d9e75;}
     #asCards .kc-mem-title{font-size:14px;font-weight:700;color:#1f2a26;margin:0;}
+    .kc-split{display:flex;flex-direction:column;gap:14px;}
+    .kc-split-row{display:flex;align-items:center;gap:10px;flex-wrap:wrap;}
+    .kc-split-lb{font-size:12px;font-weight:600;color:#5b7a6d;min-width:110px;}
+    .kc-split-opts{display:flex;flex-wrap:wrap;gap:10px;flex:1;min-width:0;}
     /* 実績の 日/週/月 タブ */
     .kc-period-tabs{display:inline-flex;gap:4px;background:#f4f7f5;border-radius:10px;padding:3px;margin-bottom:12px;}
     .kc-ptab{border:none;background:transparent;color:#5b7a6d;font-size:13px;font-weight:600;padding:6px 16px;border-radius:8px;cursor:pointer;}
@@ -934,14 +938,10 @@ async function asLoadMember(email, name) {
         <div class="kc-list-card" data-id="${x.id}">
           <button type="button" class="kc-list-del" data-del="${x.id}" aria-label="削除" title="削除">✕</button>
           <div class="kc-list-name">${esc(x.name)}</div>
-          <div class="kc-list-meta">
-            <span class="kc-list-chip">全 ${x["全部"]}件</span>
-            <span class="kc-list-chip done">済 ${x["済み"]}件</span>
-            <span class="kc-list-chip rest">残 ${x["残り"]}件</span>
-          </div>
+          <div class="kc-list-meta"><span class="kc-list-chip">全 ${x["全部"]}件</span></div>
         </div>`).join("") + '</div>';
       box.querySelectorAll(".kc-list-card").forEach((c) =>
-        c.addEventListener("click", () => selectListAndCall(c.dataset.id)));
+        c.addEventListener("click", () => openSplit(c.dataset.id, (c.querySelector(".kc-list-name") || {}).textContent || "", email, name)));
       box.querySelectorAll(".kc-list-del").forEach((b) =>
         b.addEventListener("click", (e) => { e.stopPropagation(); deleteListCard(b.dataset.del, () => asLoadMember(email, name)); }));
     }
@@ -1165,3 +1165,71 @@ document.addEventListener("click", (ev) => {
 document.addEventListener("change", (ev) => {
   if (ev.target && ev.target.id === "asList") dlFacets();
 });
+
+// リストを押したときの絞り込み画面。条件に合うものを、自分のリストとして切り出す。
+async function openSplit(listId, listName, memberEmail, memberName) {
+  const box = $("asCards");
+  if (!box) return;
+  box.classList.remove("kc-lists-grid");
+  box.innerHTML = '<div class="note">読み込んでいます…</div>';
+  try {
+    const d = await (await fetch("/api/calls/targets?list=" + encodeURIComponent(listId))).json();
+    const rows = d.items || [];
+    const uniq = (key) => [...new Set(rows.map((r) => String(r[key] || "").trim()).filter(Boolean))].sort();
+    const stages = uniq("ステージ").length ? uniq("ステージ") : uniq("stage");
+    const statuses = uniq("最終ステータス").length ? uniq("最終ステータス") : uniq("status");
+
+    box.innerHTML =
+      `<div class="kc-mem-head">
+         <button type="button" class="kc-mem-back" id="spBack">← 戻る</button>
+         <span class="kc-mem-title">${esc(listName)}（${rows.length}件）から絞り込む</span>
+       </div>
+       <div class="kc-split">
+         <div class="kc-split-row"><label>探す <input type="text" id="spQ" placeholder="会社名・担当者・電話" /></label></div>
+         <div class="kc-split-row"><label class="ks-check"><input type="checkbox" id="spUndone" checked /> まだかけていないものだけ</label></div>
+         ${stages.length ? `<div class="kc-split-row"><div class="kc-split-lb">ステージ</div><div class="kc-split-opts">` +
+           stages.map((v) => `<label class="ks-check"><input type="checkbox" class="sp-stage" value="${esc(v)}" /> ${esc(v)}</label>`).join("") +
+           `</div></div>` : ""}
+         ${statuses.length ? `<div class="kc-split-row"><div class="kc-split-lb">最終ステータス</div><div class="kc-split-opts">` +
+           statuses.map((v) => `<label class="ks-check"><input type="checkbox" class="sp-status" value="${esc(v)}" /> ${esc(v)}</label>`).join("") +
+           `</div></div>` : ""}
+         <div class="kc-split-row"><label>新しいリストの名前 <input type="text" id="spName" style="min-width:280px" value="${esc(listName)}（絞り込み）" /></label></div>
+         <div class="kc-split-row">
+           <button class="btn" id="spMake">この条件で自分のリストを作る</button>
+           <button class="btn ghost" id="spOpen">このリストでかける</button>
+           <span class="rev-status" id="spStatus"></span>
+         </div>
+       </div>`;
+
+    const back = $("spBack");
+    if (back) back.addEventListener("click", () => asLoadMember(memberEmail, memberName));
+    const open = $("spOpen");
+    if (open) open.addEventListener("click", () => selectListAndCall(listId));
+
+    const make = $("spMake");
+    if (make) make.addEventListener("click", async () => {
+      const say = (m) => { const e = $("spStatus"); if (e) e.textContent = m || ""; };
+      const name = ($("spName") && $("spName").value.trim()) || "";
+      if (!name) { say("名前を入れてください"); return; }
+      say("作っています…");
+      try {
+        const body = {
+          list: listId, name,
+          q: ($("spQ") && $("spQ").value.trim()) || "",
+          onlyUndone: !!($("spUndone") && $("spUndone").checked),
+          stages: [...document.querySelectorAll(".sp-stage:checked")].map((x) => x.value),
+          statuses: [...document.querySelectorAll(".sp-status:checked")].map((x) => x.value),
+        };
+        const r = await fetch("/api/calls/lists/split", {
+          method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body),
+        });
+        const j = await r.json();
+        if (!r.ok) throw new Error(j.error || "作れませんでした");
+        say(`「${j.name}」を作りました（${j["件数"]}件）`);
+        loadLists();
+      } catch (e) { say("失敗：" + e.message); }
+    });
+  } catch (e) {
+    box.innerHTML = `<div class="note">読み込めませんでした：${esc(e.message)}</div>`;
+  }
+}
