@@ -738,7 +738,7 @@ export async function leadActivities(owner, leadId, limit = 50) {
   if (!leadId) return [];
   const id = String(leadId).replace(/[^A-Za-z0-9]/g, "");
   // 組織によって項目が違うので、まず標準の項目だけで取る
-  const base = "Id, Subject, Status, ActivityDate, Description, CreatedDate, Owner.Name";
+  const base = "Id, Subject, Status, ActivityDate, Description, CreatedDate, Owner.Name, TaskSubtype";
   const soql =
     `SELECT ${base} FROM Task WHERE WhoId = '${id}' ` +
     `ORDER BY ActivityDate DESC NULLS LAST, CreatedDate DESC LIMIT ${Math.min(200, Number(limit) || 50)}`;
