@@ -5400,8 +5400,10 @@ app.get("/api/calls/members", async (req, res) => {
       });
     }
     items.sort((a, b) => (b.リスト数 - a.リスト数) || ((b.kincallだけ ? 1 : 0) - (a.kincallだけ ? 1 : 0)));
-    // カードを自由に足せるように、在籍している人は全員を候補として返す
-    const 候補 = active.map((m) => ({ email: m.email, name: m.name || m.email }));
+    // カードを自由に足せるように、在籍している人を候補として返す。
+    // ただし「kincallだけ」の人には候補を出さない（隠した人が見えてしまうため）。
+    const meKincallOnly = await isKincallOnly(meEmail).catch(() => false);
+    const 候補 = meKincallOnly ? [] : active.map((m) => ({ email: m.email, name: m.name || m.email }));
     res.json({
       ok: true, items, 候補, isAdmin: !!req.isAdmin,
       debug: { 全メンバー: (list || []).length, 在籍: active.length, インサイド: active.filter(isInside).length, interns: internSet.size, me: meEmail },
@@ -12668,7 +12670,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-08-22h kincallだけの人にもリスト管理を見せる（リスト作成だけ非表示）";
+const BUILD_TAG = "2026-08-22i kincallだけの人には「メンバーを足す」を出さない";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
