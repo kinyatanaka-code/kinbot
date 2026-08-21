@@ -11619,6 +11619,28 @@ app.put("/api/settings", async (req, res) => {
   }
 });
 
+// Salesforceを代わりに更新する人（チーム共通の設定）
+app.get("/api/sf-proxy", async (req, res) => {
+  try {
+    const st = await getSettings().catch(() => ({}));
+    res.json({ ok: true, sfProxyUser: st.sfProxyUser || "" });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+app.put("/api/sf-proxy", async (req, res) => {
+  try {
+    const v = String((req.body && req.body.sfProxyUser) || "").trim().toLowerCase();
+    await saveSettings({ sfProxyUser: v });
+    const 連携 = v ? await sfConnected(v).catch(() => false) : false;
+    console.log(`[設定] 代わりに更新する人を「${v || "(なし)"}」にしました（連携：${連携 ? "あり" : "なし"}） by ${req.user}`);
+    res.json({
+      ok: true, sfProxyUser: v, 連携,
+      案内: !v ? "空にしました"
+        : 連携 ? "この人の連携でSalesforceを更新します"
+        : "保存しましたが、この人のSalesforce連携が見つかりません。kinbotにログインしているアドレスと同じか確かめてください",
+    });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 // 抜け漏れチェック項目（チーム共有）
 app.get("/api/check-items", async (req, res) => {
   try {
@@ -12533,7 +12555,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-08-22a 代わりに更新する人の状態を確かめられるようにした";
+const BUILD_TAG = "2026-08-22b 代わりに更新する人が保存できない不具合を修正（保存対象から外れていた）";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
