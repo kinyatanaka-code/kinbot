@@ -758,15 +758,12 @@ function showPane() {
     if (me && me.kincallOnly) {
       document.querySelectorAll(".kc-side .side-app, .kc-side .side-sep")
         .forEach((el) => el.remove());
-      // kincallだけの人には、リスト管理そのものを見せない
-      document.querySelectorAll('.kc-side .side-item[href*="p=lists"]').forEach((a) => {
-        const wrap = a.closest(".kc-side-item") || a.closest(".side-wrap");
-        if (wrap) wrap.remove(); else a.remove();
-      });
-      const lp = document.querySelector('.kc-pane[data-p="lists"]');
-      if (lp) lp.remove();
-      // いまリスト管理を開いていたら「かける」に戻す
-      if ((new URLSearchParams(location.search).get("p") || "") === "lists") location.href = "/kincall";
+      // リスト管理は見せる（メンバーカードを選んでリストを使えるように）。
+      // ただし「リスト作成」はSalesforceの中身が見えるので、kincallだけの人には出さない。
+      const mk = document.querySelector('.kc-ptab[data-ls="make"]');
+      if (mk) mk.remove();
+      const mkp = document.querySelector('[data-ls-pane="make"]');
+      if (mkp) mkp.remove();
     }
   } catch {}
 })();
