@@ -708,6 +708,7 @@ function showPane() {
   });
   if (p === "stats") loadStats();
   if (p === "lists") asLoad();
+  if (p === "leads" && typeof srInitLeads === "function") srInitLeads();
 }
 
 // 「kincallだけ」の人には、kinbotへ戻る道を見せない
@@ -717,6 +718,11 @@ function showPane() {
     if (me && me.kincallOnly) {
       document.querySelectorAll(".kc-side .side-app, .kc-side .side-sep")
         .forEach((el) => el.remove());
+      // リードはSalesforceの中身が見えるので、kincallだけの人には出さない
+      const ln = document.getElementById("kcLeadNav");
+      if (ln && ln.parentElement) ln.parentElement.remove();
+      const lp = document.querySelector('.kc-pane[data-p="leads"]');
+      if (lp) lp.remove();
     }
   } catch {}
 })();
