@@ -5531,10 +5531,18 @@ app.get("/api/calls/targets/:id/history", async (req, res) => {
       }));
 
     // Salesforceに残っている架電の履歴も混ぜる（過去のやり取りはSFにある）
+    // SFアカウントの無い人（インターン生など）でも読めるよう、
+    // つながっていなければ「代わりに更新する人」の連携を使う。
     let sfNote = "";
-    if (t.lead_id && salesforceConfigured() && (await sfConnected(req.user).catch(() => false))) {
+    let 読む人 = req.user;
+    if (!(await sfConnected(読む人).catch(() => false))) {
+      const stH = await getSettings().catch(() => ({}));
+      const 代理 = String(stH.sfProxyUser || "").trim().toLowerCase();
+      if (代理 && (await sfConnected(代理).catch(() => false))) 読む人 = 代理;
+    }
+    if (t.lead_id && salesforceConfigured() && (await sfConnected(読む人).catch(() => false))) {
       try {
-        const acts = await leadActivities(req.user, t.lead_id, 50);
+        const acts = await leadActivities(読む人, t.lead_id, 50);
         for (const a of acts) {
           // メール（メルマガなど）は出さず、電話の履歴だけにする
           const sub = String(a.Subject || "");
@@ -12493,7 +12501,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-08-21x kincall：履歴ボタンからは履歴だけを表示";
+const BUILD_TAG = "2026-08-21y SFアカウントが無い人でも、代わりに更新する人の連携で履歴を読めるようにした";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
