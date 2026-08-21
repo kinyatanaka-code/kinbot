@@ -5398,7 +5398,17 @@ app.get("/api/calls/members", async (req, res) => {
     const internSet = new Set((interns || []).map((x) => String(x.email || "").toLowerCase()).filter(Boolean));
     const isInside = (m) => (Array.isArray(m.roles) && m.roles.includes("inside")) || internSet.has(String(m.email || "").toLowerCase());
     const active = (list || []).filter((m) => m.active !== false);
-    let base = active.filter(isInside);
+    // みんな共通の並び（消した人・足した人）をここで反映する。
+    // 画面側で組み立てると、名簿を持たない人（kincallだけ）で欠けてしまうため。
+    const stView0 = await getSettings().catch(() => ({}));
+    const view0 = stView0.kincallMemberView || {};
+    const hiddenSet = new Set((view0.hidden || []).map((x) => String(x).toLowerCase()));
+    const extraSet = new Set((view0.extra || []).map((x) => String(x).toLowerCase()));
+    let base = active.filter((m) => {
+      const k = String(m.email || "").toLowerCase();
+      if (hiddenSet.has(k)) return false;          // 消した人は出さない
+      return isInside(m) || extraSet.has(k);       // インサイド、または足した人
+    });
     // 以前は管理者でないと「自分だけ」に絞っていたが、ログイン中のアドレスと
     // メンバー登録のアドレスが違うと全員消えてしまうため、その絞り込みはやめる。
     // （他の人のリストを開く・消すのは、リスト側で管理者かどうかを見て止めている）
@@ -12697,7 +12707,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-08-22l メンバーカードの並びを全員共通にした（サーバー保存）";
+const BUILD_TAG = "2026-08-22m 足したメンバーが他の人に出ない不具合を修正（並びをサーバーで確定）";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
