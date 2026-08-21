@@ -5834,6 +5834,7 @@ app.post("/api/ask-bot", async (req, res) => {
           source: "ロボに相談",
           createdBy: req.user || "",
         }).catch(() => null);
+        notifyNewDevNote(saved).catch(() => {});
         console.log(`[ロボ] 開発メモに残しました（${r.note.kind}）：${r.note.title}`);
       } else {
         console.log(`[ロボ] 同じ内容が既にあるので残しませんでした：${r.note.title}`);
@@ -5848,6 +5849,18 @@ app.post("/api/ask-bot", async (req, res) => {
 // ───────────────────────────────────────────────────────────
 // 開発メモ（直したいこと）
 // ───────────────────────────────────────────────────────────
+// 新しい要望が1件追加されたら、その内容をGoogle Chatに送る。
+// hits が1のときだけ＝本当に新規のときだけ通知する（重複追加では送らない）。
+async function notifyNewDevNote(note) {
+  try {
+    if (!note || Number(note.hits) > 1) return;
+    const kindLabel = { request: "要望", bug: "不具合", idea: "アイデア" }[note.kind] || note.kind || "メモ";
+    const who = note.created_by ? `（${note.created_by}）` : "";
+    const detail = note.detail ? `\n${String(note.detail).slice(0, 300)}` : "";
+    await notifyChat(`📝 開発メモに${kindLabel}が追加されました${who}\n・${note.title}${detail}`);
+  } catch (e) { console.warn("[開発メモ] 追加通知に失敗", e.message); }
+}
+
 app.get("/api/dev-notes", async (req, res) => {
   try {
     const rows = await listDevNotes({ status: String(req.query.status || ""), limit: 300 });
@@ -5865,6 +5878,7 @@ app.post("/api/dev-notes", async (req, res) => {
       kind: b.kind || "request", title, detail: String(b.detail || ""),
       source: "画面", createdBy: req.user || "",
     });
+    notifyNewDevNote(r).catch(() => {});
     res.json({ ok: true, item: r });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
@@ -12420,7 +12434,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-08-21f アポ：カウントを手修正したらチャットに通知";
+const BUILD_TAG = "2026-08-21g 開発メモ：新しい要望が追加されたらGoogle Chatに通知";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
