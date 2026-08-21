@@ -934,10 +934,7 @@ async function asLoad() {
         </div>`).join("") +
         (addable.length && !window.kcNoAddMember ? '<div class="kc-mem-card kc-mem-add" id="kcAddCard"><span class="kc-mem-name">＋ メンバーを足す</span></div>' : "") +
       '</div>' +
-      '<div class="kc-mem-pick" id="kcPick" hidden></div>' +
-      (hiddenCount
-        ? `<div class="kc-mem-foot">${hiddenCount}人を消しています<button type="button" class="kc-mem-restore" id="kcShowAll">元に戻す</button></div>`
-        : "");
+      '<div class="kc-mem-pick" id="kcPick" hidden></div>';
 
     // 「＋ メンバーを足す」でカードを増やせる
     const addCard = $("kcAddCard");
@@ -969,8 +966,7 @@ async function asLoad() {
         saveHiddenMembers(h);
         asLoad();
       }));
-    const all = $("kcShowAll");
-    if (all) all.addEventListener("click", () => { saveHiddenMembers(new Set()); asLoad(); });
+
   } catch (e) {
     box.innerHTML = `<div class="note">読み込めませんでした：${esc(e.message)}</div>`;
   }
