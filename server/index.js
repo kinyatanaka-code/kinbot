@@ -167,6 +167,8 @@ import {
   weeklyFor,
   displayNameOf,
   assignCounts,
+  assignCountsRaw,
+  apoPeriodKeys,
   apoCountsBySetter,
   apoDetailBySetter,
   apoMissingStart,
@@ -2762,6 +2764,40 @@ app.post("/api/apo/:slug/redo", async (req, res) => {
 });
 
 // 同じ予定から二重にできてしまったアポを片付ける
+// アポ通知のカウント（本日/今週/今月）の手修正。
+// 「修正後の数字」を起点にして、以降の新しいアポはそこに積み上がる。
+app.get("/api/apo/count-adjust", async (req, res) => {
+  try {
+    const business = String(req.query.business || "");
+    const [raw, effective] = await Promise.all([assignCountsRaw(business), assignCounts(business)]);
+    res.json({ ok: true, business, raw, effective });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.post("/api/apo/count-adjust", async (req, res) => {
+  try {
+    const b = req.body || {};
+    const business = String(b.business || "");
+    const raw = await assignCountsRaw(business);
+    const keys = apoPeriodKeys();
+    const st = await getSettings().catch(() => ({}));
+    const all = st.apoCountAdjust || {};
+    const cur = all[business] || {};
+    for (const per of ["today", "week", "month"]) {
+      const v = b[per];
+      if (v === undefined || v === null || v === "") continue; // 空欄はそのまま
+      const target = Math.max(0, parseInt(v, 10) || 0);
+      // 「目標 − 実数」を調整値として、いまの期間キーで保存
+      cur[per] = { key: keys[per], delta: target - raw[per] };
+    }
+    all[business] = cur;
+    await saveSettings({ apoCountAdjust: all });
+    const effective = await assignCounts(business);
+    console.log(`[apo] カウント手修正（${business || "全体"}）→ 本日${effective.today}/今週${effective.week}/今月${effective.month} by ${req.user}`);
+    res.json({ ok: true, effective });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 app.post("/api/apo/dedupe", async (req, res) => {
   try {
     const dryRun = req.body?.confirm !== true;
@@ -12369,7 +12405,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-08-21d アポ：集計から除外したら、取り消しと今の合計をチャットに通知";
+const BUILD_TAG = "2026-08-21e アポ通知カウントを手修正できるように（修正後の数字から積み上がる・ビジネス別）";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
