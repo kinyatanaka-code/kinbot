@@ -903,27 +903,15 @@ async function asLoad() {
       box.innerHTML = '<div class="empty-state">メンバーがいません。設定→メンバー管理で追加してください。</div>';
       return;
     }
-    // サーバーが持っている並び（みんな共通）を取り込む
+    // 並び（消した・足した）はサーバーが決めて返してくれる。全員が同じ並びになる。
     const v = d["表示"] || {};
     memberView = {
       hidden: new Set((v["消した"] || []).map((x) => String(x).toLowerCase())),
       extra: new Set((v["足した"] || []).map((x) => String(x).toLowerCase())),
     };
     const 変えられる = d["変えられる"] !== false;
-    const hidden = hiddenMembers();
-    const extra = extraMembers();
     const 候補 = d["候補"] || [];
-    const byEmail = new Map();
-    for (const m of items) {
-      const k = String(m.email || "").toLowerCase();
-      if (k) byEmail.set(k, m);
-    }
-    for (const c of 候補) {
-      const k = String(c.email || "").toLowerCase();
-      if (extra.has(k) && !byEmail.has(k)) byEmail.set(k, c);   // 自分で足した人
-    }
-    const shown = [...byEmail.values()].filter((m) => !hidden.has(String(m.email || "").toLowerCase()));
-    const hiddenCount = [...byEmail.keys()].filter((k) => hidden.has(k)).length;
+    const shown = items;
     const shownKeys = new Set(shown.map((m) => String(m.email || "").toLowerCase()));
     const addable = 候補.filter((c) => !shownKeys.has(String(c.email || "").toLowerCase()));
 
