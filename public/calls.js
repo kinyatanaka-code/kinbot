@@ -143,7 +143,7 @@ function render() {
     `<div class="kc-tablewrap"><table class="kc-table">
       <tr>
         <th class="kc-th-s"><button type="button" class="kc-th-b${on("stage")}" data-flt="stage">ステージ ▾</button></th>
-        <th><button type="button" class="kc-th-b" data-sort="company">会社名${arrow("company")}</button></th>
+        <th class="kc-co"><button type="button" class="kc-th-b" data-sort="company">会社名${arrow("company")}</button></th>
         <th class="kc-th-p">担当者</th>
         <th class="kc-th-t">電話番号</th>
         <th class="kc-th-m">メールアドレス</th>
@@ -333,10 +333,16 @@ function renderDock() {
     .kc-chip-x:hover{color:#e05a5a;}
     @media(max-width:720px){.kc-two{flex-direction:column;}.kc-two-l{border-right:none;border-bottom:1px solid #e6ece9;padding-right:0;padding-bottom:12px;max-height:40vh;}}
     /* 表は内容にあわせて広げ、途中で切らずに全部見えるようにする（必要なら横スクロール） */
-    .kc-table{table-layout:auto;}
+    /* 表は1画面に収める。縦は表の中だけスクロールし、見出しは残す。 */
+    .kc-table{table-layout:auto;width:100%;}
+    .kc-table th{white-space:nowrap;position:sticky;top:0;background:#fff;z-index:2;box-shadow:0 1px 0 #e6ece9;}
+    /* 会社名は省略せず全部出す。長ければ折り返す。 */
     .kc-table td{overflow:visible;text-overflow:clip;white-space:nowrap;}
-    .kc-table th{white-space:nowrap;}
-    .kc-tablewrap{overflow-x:auto;}
+    .kc-table td.kc-co,.kc-table th.kc-co{white-space:normal;word-break:break-word;min-width:220px;}
+    .kc-tablewrap{overflow:auto;max-height:calc(100vh - 210px);}
+    /* 「かける」の画面自体もはみ出さないようにする */
+    #call.kc-pane{display:flex;flex-direction:column;max-height:calc(100vh - 96px);}
+    #call.kc-pane > .kc-tablewrap{flex:1;min-height:0;}
     /* リスト管理：カード一覧 */
     .kc-lists-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:14px;margin-top:6px;}
     #asCards .kc-lists-grid-in{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:14px;width:100%;}
