@@ -4927,8 +4927,9 @@ app.get("/api/calls/lists", async (req, res) => {
   try {
     // メンバーを指定できる（管理者、または自分自身のときだけ有効）
     const reqMember = String(req.query.member || "").trim().toLowerCase();
-    const meEmail = String(req.user || "").toLowerCase();
-    const owner = (reqMember && (req.isAdmin || reqMember === meEmail)) ? reqMember : req.user;
+    // メンバーを指定されたら、その人のリストを出す。
+    // （以前は管理者でないと指定が無視され、自分のリストが出てしまっていた）
+    const owner = reqMember || req.user;
     const rows = await listCallLists({
       owner,
       includeClosed: String(req.query.all || "") === "1",
@@ -12448,7 +12449,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-08-21m kincall：メンバーカードを1人ずつ隠せるようにした";
+const BUILD_TAG = "2026-08-21n kincall：メンバーを横並びに／他人のリストが出る不具合を修正";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
