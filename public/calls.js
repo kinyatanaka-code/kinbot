@@ -348,10 +348,13 @@ function renderDock() {
     .kc-list-chip{font-size:11px;color:#5b7a6d;background:#f4f7f5;border-radius:6px;padding:3px 8px;}
     .kc-list-chip.done{color:#217a54;background:#eaf5ef;}
     .kc-list-chip.rest{color:#8a5a2b;background:#fbf3e8;}
-    /* メンバーカード（第1階層）と戻る */
-    .kc-mem-card .kc-list-name{display:flex;align-items:center;gap:8px;flex-wrap:wrap;}
-    .kc-mem-tag{font-size:10px;font-weight:600;color:#217a54;background:#eaf5ef;border-radius:5px;padding:2px 6px;}
-    .kc-mem-tag.i{color:#2b5a8a;background:#e8f0fb;}
+    /* メンバーカード（第1階層）：名前だけ。全員が1画面に収まるようにする */
+    .kc-mem-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px;}
+    .kc-mem-card{display:flex;align-items:center;justify-content:center;text-align:center;
+      min-height:54px;padding:10px 12px;background:#fff;border:1.5px solid #e6ece9;border-radius:12px;
+      cursor:pointer;transition:border-color .15s,box-shadow .15s,transform .12s;}
+    .kc-mem-card:hover{border-color:#bfe0cf;box-shadow:0 8px 20px -12px rgba(33,122,84,.35);transform:translateY(-2px);}
+    .kc-mem-name{font-size:14px;font-weight:700;color:#1f2a26;line-height:1.35;}
     .kc-mem-back{border:1px solid #e6ece9;background:#fff;color:#0d5b47;border-radius:9px;padding:7px 12px;font-size:12px;font-weight:600;cursor:pointer;margin-bottom:12px;}
     .kc-mem-back:hover{background:#f4faf7;border-color:#1d9e75;}
     .kc-mem-title{font-size:14px;font-weight:700;color:#1f2a26;margin-bottom:12px;}
@@ -825,16 +828,9 @@ async function asLoad() {
       box.innerHTML = '<div class="empty-state">メンバーがいません。設定→メンバー管理で追加してください。</div>';
       return;
     }
-    box.innerHTML = '<div class="kc-lists-grid">' + items.map((m) => `
-      <div class="kc-list-card kc-mem-card" data-email="${esc(m.email)}" data-name="${esc(m.name)}">
-        <div class="kc-list-name">${esc(m.name)}
-          ${m["kincallだけ"] ? '<span class="kc-mem-tag">kincallだけ</span>' : ""}
-          ${m["インサイド"] ? '<span class="kc-mem-tag i">インサイド</span>' : ""}
-        </div>
-        <div class="kc-list-meta">
-          <span class="kc-list-chip">リスト ${m["リスト数"] || 0}</span>
-          <span class="kc-list-chip rest">残 ${m["残り"] || 0}件</span>
-        </div>
+    box.innerHTML = '<div class="kc-mem-grid">' + items.map((m) => `
+      <div class="kc-mem-card" data-email="${esc(m.email)}" data-name="${esc(m.name)}">
+        <span class="kc-mem-name">${esc(m.name)}</span>
       </div>`).join("") + '</div>';
     box.querySelectorAll(".kc-mem-card").forEach((c) =>
       c.addEventListener("click", () => asLoadMember(c.dataset.email, c.dataset.name)));
