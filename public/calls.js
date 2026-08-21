@@ -185,7 +185,7 @@ function render() {
   });
 
   box.querySelectorAll(".kc-hist").forEach((b) =>
-    b.addEventListener("click", () => openTarget(b.dataset.id)));
+    b.addEventListener("click", () => openTarget(b.dataset.id, null, { histOnly: true })));
   box.querySelectorAll(".kc-rec").forEach((b) =>
     b.addEventListener("click", () => openTarget(b.dataset.id)));
   box.querySelectorAll(".kc-edit").forEach((b) =>
@@ -314,6 +314,8 @@ function renderDock() {
     .kc-modal-min:hover{background:#eef3f0;color:#0d5b47;}
     .kc-two{display:flex;gap:16px;align-items:flex-start;}
     .kc-two-l{flex:1 1 45%;min-width:0;border-right:1px solid #e6ece9;padding-right:14px;max-height:60vh;overflow:auto;}
+    .kc-two-histonly .kc-two-r{display:none;}
+    .kc-two-histonly .kc-two-l{flex:1 1 100%;border-right:none;padding-right:0;max-height:70vh;}
     .kc-two-r{flex:1 1 55%;min-width:0;}
     .kc-two-h{font-weight:700;color:#0d5b47;margin-bottom:8px;font-size:13px;}
     .kc-dock{position:fixed;right:16px;bottom:16px;z-index:60;width:280px;max-width:calc(100vw - 32px);background:#fff;border:1px solid #d7e5dd;border-radius:14px;box-shadow:0 14px 40px -16px rgba(13,91,71,.5);display:none;overflow:hidden;}
@@ -405,7 +407,8 @@ async function loadPicks() {
 
 // 履歴と記録を1つの窓で見せる。左：これまでのやり取り／右：記録フォーム。
 // draft を渡すと、下書き（結果・メモ・状態）を復元して開く。
-async function openTarget(id, draft) {
+async function openTarget(id, draft, opt) {
+  const histOnly = !!(opt && opt.histOnly);   // 履歴ボタンから開いたときは履歴だけ出す
   const x = rows.find((r) => String(r.id) === String(id));
   if (!x) return;
   // Salesforceの選択肢を使う（担当者不在・コールのみ・担当者接触：アポ獲得 など）
@@ -415,8 +418,8 @@ async function openTarget(id, draft) {
     : kinds;
   const 状態の選択肢 = (pk && pk["リードの状態"]) || [];
   const 相手名 = `${x["会社名"] || ""}${x["担当者"] ? `　${x["担当者"]}` : ""}`;
-  const m = openModal(相手名 || "記録する", `
-    <div class="kc-two">
+  const m = openModal(相手名 || (histOnly ? "これまでのやり取り" : "記録する"), `
+    <div class="kc-two${histOnly ? " kc-two-histonly" : ""}">
       <div class="kc-two-l">
         <div class="kc-two-h">これまでのやり取り</div>
         <div id="kcHist"><div class="note">読み込んでいます…</div></div>
