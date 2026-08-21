@@ -5656,6 +5656,27 @@ app.post("/api/calls/targets/:id/edit", async (req, res) => {
 });
 
 // 記録する（Salesforceの活動履歴と、リードの状態も更新する）
+// 「代わりに更新する人」がちゃんと使える状態か確かめる
+app.get("/api/sf-proxy/check", async (req, res) => {
+  try {
+    const st = await getSettings().catch(() => ({}));
+    const 代理 = String(st.sfProxyUser || "").trim().toLowerCase();
+    const me = String(req.user || "").toLowerCase();
+    const 自分 = await sfConnected(me).catch(() => false);
+    const 代理OK = 代理 ? await sfConnected(代理).catch(() => false) : false;
+    res.json({
+      ok: true,
+      自分: { email: me, 連携: 自分 },
+      代わりに更新する人: { email: 代理 || "", 連携: 代理OK },
+      使われる人: 自分 ? me : (代理OK ? 代理 : ""),
+      案内: 自分 ? "自分の連携で更新します"
+        : 代理OK ? `${代理} の連携で更新します`
+        : 代理 ? `「${代理}」の連携が見つかりません。その人がkinbotにログインしているアドレスと同じか確かめてください`
+        : "「代わりに更新する人」が決まっていません",
+    });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 app.post("/api/calls/targets/:id/record", async (req, res) => {
   try {
     const id = parseInt(req.params.id, 10);
@@ -5687,12 +5708,16 @@ app.post("/api/calls/targets/:id/record", async (req, res) => {
     const 代理 = String(st0.sfProxyUser || "").trim().toLowerCase();
     let sfUser = req.user;
     let 代理で更新 = false;
-    if (!(await sfConnected(req.user).catch(() => false)) && 代理) {
-      if (await sfConnected(代理).catch(() => false)) {
+    const 自分つながってる = await sfConnected(req.user).catch(() => false);
+    let 代理つながってる = false;
+    if (!自分つながってる && 代理) {
+      代理つながってる = await sfConnected(代理).catch(() => false);
+      if (代理つながってる) {
         sfUser = 代理;
         代理で更新 = true;
       }
     }
+    console.log(`[kincall] SF更新の相手：本人=${req.user}(${自分つながってる ? "連携あり" : "連携なし"}) 代理=${代理 || "未設定"}(${代理 ? (代理つながってる ? "連携あり" : "連携なし") : "-"}) → 使う人=${sfUser}`);
     // 記録した本人の名前（説明に残す）
     const 記録者 = await displayNameOf(req.user).catch(() => req.user);
 
@@ -5731,9 +5756,9 @@ app.post("/api/calls/targets/:id/record", async (req, res) => {
       sf = { ok: false, reason: "Salesforceの設定がされていません" };
     } else {
       // 自分も代理もつながっていない場合。原因が分かるように書き分ける。
-      sf = { ok: false, reason: 代理
-        ? `Salesforceにつながっていません（代わりに更新する人「${代理}」の連携も切れています）`
-        : "Salesforceにつながっていません（設定→動作設定で「代わりに更新する人」を決めてください）" };
+      sf = { ok: false, reason: !代理
+        ? "Salesforceにつながっていません（設定→動作設定で「代わりに更新する人」を決めてください）"
+        : `Salesforceにつながっていません（代わりに更新する人「${代理}」の連携が見つかりません。設定した文字列と、その人のログイン用アドレスが同じか確かめてください）` };
     }
 
     res.json({ ok: true, sf });
@@ -12508,7 +12533,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-08-21z SFへ残せないときの理由を画面に出すようにした";
+const BUILD_TAG = "2026-08-22a 代わりに更新する人の状態を確かめられるようにした";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
