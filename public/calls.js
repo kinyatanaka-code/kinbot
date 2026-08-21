@@ -349,18 +349,18 @@ function renderDock() {
     .kc-list-chip.done{color:#217a54;background:#eaf5ef;}
     .kc-list-chip.rest{color:#8a5a2b;background:#fbf3e8;}
     /* メンバーカード（第1階層）：名前だけ。全員が1画面に収まるようにする */
-    .kc-mem-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px;}
-    .kc-mem-card{position:relative;display:flex;align-items:center;justify-content:center;text-align:center;
+    #asCards .kc-mem-grid{display:grid !important;grid-template-columns:repeat(auto-fill,minmax(150px,1fr)) !important;gap:10px;width:100%;}
+    #asCards .kc-mem-card{position:relative;display:flex;align-items:center;justify-content:center;text-align:center;
       min-height:64px;padding:12px;background:#fff;border:1.5px solid #e6ece9;border-radius:12px;
       cursor:pointer;transition:border-color .15s,box-shadow .15s,transform .12s;}
     .kc-mem-hide{position:absolute;top:5px;right:5px;width:22px;height:22px;border:none;background:transparent;
       color:#c3cec8;font-size:12px;line-height:1;border-radius:999px;cursor:pointer;display:grid;place-items:center;opacity:0;transition:opacity .12s;}
-    .kc-mem-card:hover .kc-mem-hide{opacity:1;}
+    #asCards .kc-mem-card:hover .kc-mem-hide{opacity:1;}
     .kc-mem-hide:hover{background:#fbe9e9;color:#e05a5a;}
     .kc-mem-foot{margin-top:12px;font-size:12px;color:#6b7c74;display:flex;align-items:center;gap:10px;}
     .kc-mem-restore{border:1px solid #e6ece9;background:#fff;color:#0d5b47;border-radius:8px;padding:5px 10px;font-size:12px;font-weight:600;cursor:pointer;}
     .kc-mem-restore:hover{background:#f4faf7;border-color:#1d9e75;}
-    .kc-mem-card:hover{border-color:#bfe0cf;box-shadow:0 8px 20px -12px rgba(33,122,84,.35);transform:translateY(-2px);}
+    #asCards .kc-mem-card:hover{border-color:#bfe0cf;box-shadow:0 8px 20px -12px rgba(33,122,84,.35);transform:translateY(-2px);}
     .kc-mem-name{font-size:14px;font-weight:700;color:#1f2a26;line-height:1.35;}
     .kc-mem-back{border:1px solid #e6ece9;background:#fff;color:#0d5b47;border-radius:9px;padding:7px 12px;font-size:12px;font-weight:600;cursor:pointer;margin-bottom:12px;}
     .kc-mem-back:hover{background:#f4faf7;border-color:#1d9e75;}
