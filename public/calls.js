@@ -339,6 +339,7 @@ function renderDock() {
     .kc-tablewrap{overflow-x:auto;}
     /* リスト管理：カード一覧 */
     .kc-lists-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:14px;margin-top:6px;}
+    #asCards .kc-lists-grid-in{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:14px;width:100%;}
     .kc-list-card{position:relative;background:#fff;border:1.5px solid #e6ece9;border-radius:14px;padding:16px 16px 14px;cursor:pointer;transition:border-color .15s,box-shadow .15s,transform .12s;}
     .kc-list-card:hover{border-color:#bfe0cf;box-shadow:0 8px 22px -12px rgba(33,122,84,.35);transform:translateY(-2px);}
     .kc-list-del{position:absolute;top:10px;right:10px;width:26px;height:26px;border-radius:999px;border:none;background:transparent;color:#b6c3bc;font-size:13px;line-height:1;cursor:pointer;display:grid;place-items:center;transition:background .15s,color .15s;}
@@ -349,7 +350,10 @@ function renderDock() {
     .kc-list-chip.done{color:#217a54;background:#eaf5ef;}
     .kc-list-chip.rest{color:#8a5a2b;background:#fbf3e8;}
     /* メンバーカード（第1階層）：名前だけ。全員が1画面に収まるようにする */
-    #asCards .kc-mem-grid{display:grid !important;grid-template-columns:repeat(auto-fill,minmax(150px,1fr)) !important;gap:10px;width:100%;}
+    #asCards .kc-mem-grid{display:flex !important;flex-wrap:wrap;gap:12px;width:100%;}
+    #asCards .kc-mem-grid > .kc-mem-card{flex:0 0 calc(20% - 10px);max-width:calc(20% - 10px);}
+    @media (max-width:1100px){ #asCards .kc-mem-grid > .kc-mem-card{flex-basis:calc(25% - 9px);max-width:calc(25% - 9px);} }
+    @media (max-width:820px){ #asCards .kc-mem-grid > .kc-mem-card{flex-basis:calc(33.333% - 8px);max-width:calc(33.333% - 8px);} }
     #asCards .kc-mem-card{position:relative;display:flex;align-items:center;justify-content:center;text-align:center;
       min-height:64px;padding:12px;background:#fff;border:1.5px solid #e6ece9;border-radius:12px;
       cursor:pointer;transition:border-color .15s,box-shadow .15s,transform .12s;}
@@ -839,6 +843,7 @@ function saveHiddenMembers(set) {
 async function asLoad() {
   const box = $("asCards");
   if (!box) return;
+  box.classList.remove("kc-lists-grid");
   box.innerHTML = '<div class="note">読み込んでいます…</div>';
   try {
     const d = await (await fetch("/api/calls/members")).json();
@@ -851,6 +856,7 @@ async function asLoad() {
     const shown = items.filter((m) => !hidden.has(String(m.email || "").toLowerCase()));
     const hiddenCount = items.length - shown.length;
 
+    box.classList.remove("kc-lists-grid");   // 親が格子だと1列になるので外す
     box.innerHTML =
       '<div class="kc-mem-grid">' + shown.map((m) => `
         <div class="kc-mem-card" data-email="${esc(m.email)}" data-name="${esc(m.name)}">
@@ -886,6 +892,7 @@ async function asLoadMember(email, name) {
   try {
     const d = await (await fetch("/api/calls/lists?member=" + encodeURIComponent(email))).json();
     const items = d.items || [];
+    box.classList.remove("kc-lists-grid");
     const head =
       `<div class="kc-mem-head">` +
       `<button type="button" class="kc-mem-back" id="asBack">← 戻る</button>` +
@@ -894,7 +901,7 @@ async function asLoadMember(email, name) {
     if (!items.length) {
       box.innerHTML = head + '<div class="empty-state">このメンバーのリストはまだありません。</div>';
     } else {
-      box.innerHTML = head + '<div class="kc-lists-grid">' + items.map((x) => `
+      box.innerHTML = head + '<div class="kc-lists-grid kc-lists-grid-in">' + items.map((x) => `
         <div class="kc-list-card" data-id="${x.id}">
           <button type="button" class="kc-list-del" data-del="${x.id}" aria-label="削除" title="削除">✕</button>
           <div class="kc-list-name">${esc(x.name)}</div>
