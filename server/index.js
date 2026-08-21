@@ -4948,6 +4948,112 @@ app.get("/api/calls/lists", async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+// CSV（貼り付け）から、Salesforceのクロスリードと突き合わせてリストを作る。
+//   1) 会社名でクロスリードを探す → あればそのリードでリスト化
+//   2) 無ければ 会社名・電話番号・担当者名 で新しいクロスリードを作ってからリスト化
+//   3) 担当者名が無いときは、担当者名を「担当者」としてリードを作る
+app.post("/api/calls/from-csv", async (req, res) => {
+  try {
+    const b = req.body || {};
+    const name = String(b.name || "").trim() || `CSV（${jstDate(0)}）`;
+    const dryRun = !!b.dryRun;
+    const 行 = Array.isArray(b.rows) ? b.rows : [];
+    if (!行.length) return res.status(400).json({ error: "中身がありません" });
+
+    // 誰のSF連携を使うか（自分が無ければ代わりに更新する人）
+    let sfUser = req.user;
+    if (!(await sfConnected(sfUser).catch(() => false))) {
+      const st = await getSettings().catch(() => ({}));
+      const 代理 = String(st.sfProxyUser || "").trim().toLowerCase();
+      if (代理 && (await sfConnected(代理).catch(() => false))) sfUser = 代理;
+    }
+    if (!salesforceConfigured() || !(await sfConnected(sfUser).catch(() => false))) {
+      return res.status(400).json({ error: "Salesforceにつながっていません（設定→動作設定の「代わりに更新する人」もご確認ください）" });
+    }
+
+    const rtId = await crossLeadRecordTypeId(sfUser).catch(() => "");
+    const sq = (v) => String(v || "").replace(/'/g, "\\'");
+
+    const 結果 = [];
+    for (const r of 行) {
+      const company = String(r.company || "").trim();
+      const person = String(r.person || "").trim();
+      const phone = String(r.phone || "").trim();
+      const email = String(r.email || "").trim();
+      if (!company) { 結果.push({ company, 状態: "とばした", 理由: "会社名がありません" }); continue; }
+
+      // 1) 会社名でクロスリードを探す（表記ゆれを吸収して照合）
+      let leadId = "", 状態 = "";
+      try {
+        const key = normCompanyKey(company);
+        const 語 = company.replace(/株式会社|（株）|\(株\)|㈱|有限会社|社会福祉法人|学校法人|一般社団法人/g, "").trim().slice(0, 30);
+        const soql =
+          `SELECT Id, Company, LastName, Phone, IsConverted, RecordType.Name FROM Lead ` +
+          `WHERE IsConverted = false AND Company LIKE '%${sq(語)}%' LIMIT 50`;
+        const d = await sfQuery(sfUser, soql);
+        const cands = (d.records || []).filter((x) => normCompanyKey(x.Company) === key);
+        const cross = cands.find((x) => /クロス|cross/i.test(String((x.RecordType && x.RecordType.Name) || "")));
+        const hit = cross || cands[0];
+        if (hit) { leadId = hit.Id; 状態 = cross ? "見つかった（クロス）" : "見つかった"; }
+      } catch (e) {
+        結果.push({ company, 状態: "探せなかった", 理由: e.message }); continue;
+      }
+
+      // 2) 無ければ新しく作る
+      if (!leadId) {
+        if (dryRun) {
+          結果.push({ company, person: person || "担当者", phone, 状態: "新しく作る（予定）" });
+          continue;
+        }
+        try {
+          const fields = {
+            Company: company,
+            LastName: person || "担当者",   // 担当者名が無いときは「担当者」
+            ...(phone ? { Phone: phone } : {}),
+            ...(email ? { Email: email } : {}),
+            ...(rtId ? { RecordTypeId: rtId } : {}),
+          };
+          const made = await createLead(sfUser, fields);
+          leadId = made.id;
+          状態 = "新しく作った";
+        } catch (e) {
+          結果.push({ company, 状態: "作れなかった", 理由: e.message }); continue;
+        }
+      } else if (dryRun) {
+        結果.push({ company, 状態 }); continue;
+      }
+
+      結果.push({ company, person: person || "担当者", phone, leadId, 状態 });
+    }
+
+    if (dryRun) {
+      return res.json({
+        ok: true, 試算: true, 件数: 結果.length,
+        見つかった: 結果.filter((x) => String(x.状態).startsWith("見つかった")).length,
+        新しく作る: 結果.filter((x) => x.状態 === "新しく作る（予定）").length,
+        とばす: 結果.filter((x) => x.状態 === "とばした" || x.状態 === "探せなかった").length,
+        明細: 結果.slice(0, 200),
+      });
+    }
+
+    const 入れるもの = 結果.filter((x) => x.leadId);
+    if (!入れるもの.length) return res.status(400).json({ error: "リストに入れられるものがありませんでした", 明細: 結果.slice(0, 50) });
+
+    const list = await createCallList({ name, owner: String(b.member || "").trim().toLowerCase() || req.user, createdBy: req.user });
+    const n = await addCallTargets(list.id, 入れるもの.map((x) => ({
+      leadId: x.leadId, company: x.company, person: x.person, phone: x.phone,
+    })));
+    console.log(`[kincall] CSVからリスト「${name}」を作りました（${n}件／新規リード${結果.filter((x)=>x.状態==="新しく作った").length}件） by ${req.user}`);
+    res.json({
+      ok: true, id: list.id, name: list.name, 件数: n,
+      見つかった: 結果.filter((x) => String(x.状態).startsWith("見つかった")).length,
+      新しく作った: 結果.filter((x) => x.状態 === "新しく作った").length,
+      とばした: 結果.filter((x) => !x.leadId).length,
+      明細: 結果.slice(0, 200),
+    });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 // リストを作る（Salesforceのリードを検索して入れる／貼り付けからも作れる）
 app.post("/api/calls/lists", async (req, res) => {
   try {
@@ -12561,7 +12667,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-08-22d 記録後に最終ステータスが「-」になる不具合を修正";
+const BUILD_TAG = "2026-08-22e CSVから、クロスリードと突き合わせてリストを作れるようにした";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
