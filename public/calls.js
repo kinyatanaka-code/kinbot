@@ -929,14 +929,14 @@ async function asLoad() {
     box.innerHTML =
       '<div class="kc-mem-grid">' + shown.map((m) => `
         <div class="kc-mem-card" data-email="${esc(m.email)}" data-name="${esc(m.name)}">
-          <button type="button" class="kc-mem-hide" data-hide="${esc(m.email)}" title="この人を隠す" aria-label="隠す">✕</button>
+          <button type="button" class="kc-mem-hide" data-hide="${esc(m.email)}" title="このカードを消す" aria-label="消す">✕</button>
           <span class="kc-mem-name">${esc(m.name)}</span>
         </div>`).join("") +
         (addable.length && !window.kcNoAddMember ? '<div class="kc-mem-card kc-mem-add" id="kcAddCard"><span class="kc-mem-name">＋ メンバーを足す</span></div>' : "") +
       '</div>' +
       '<div class="kc-mem-pick" id="kcPick" hidden></div>' +
       (hiddenCount
-        ? `<div class="kc-mem-foot">${hiddenCount}人を隠しています<button type="button" class="kc-mem-restore" id="kcShowAll">すべて表示に戻す</button></div>`
+        ? `<div class="kc-mem-foot">${hiddenCount}人を消しています<button type="button" class="kc-mem-restore" id="kcShowAll">元に戻す</button></div>`
         : "");
 
     // 「＋ メンバーを足す」でカードを増やせる
