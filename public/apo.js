@@ -440,7 +440,7 @@ function setupTabs() {
     try { localStorage.setItem("apoTab", name); } catch {}
     // 設定タブを開いたときに最新値を読み直す
     if (name === "rot") loadRotation();
-    if (name === "team") loadTeamStats();
+    if (name === "team") { loadTeamStats(); loadCountAdjust(); }
     if (name === "sys") loadBuild();
   };
   tabs.forEach((t) => t.addEventListener("click", () => show(t.dataset.pane)));
@@ -468,6 +468,48 @@ async function loadBuild() {
 
 // ===== チーム実績タブ =====
 // チーム間の偏りと、チーム内の偏りの両方が見えるようにする。
+// アポ通知カウントの手修正パネル
+async function loadCountAdjust() {
+  const biz = $("caBiz");
+  if (!biz) return;
+  const say = (m) => { const e = $("caStatus"); if (e) e.textContent = m || ""; };
+  try {
+    const d = await (await fetch("/api/apo/count-adjust?business=" + encodeURIComponent(biz.value || ""))).json();
+    if (d.error) throw new Error(d.error);
+    const e = d.effective || {};
+    // いまの数字を初期値として入れておく（そのまま保存すれば現状維持）
+    if ($("caToday")) $("caToday").value = e.today ?? "";
+    if ($("caWeek")) $("caWeek").value = e.week ?? "";
+    if ($("caMonth")) $("caMonth").value = e.month ?? "";
+    say("");
+  } catch (err) { say("読み込めませんでした：" + err.message); }
+}
+
+(function wireCountAdjust() {
+  const save = document.getElementById("caSave");
+  const biz = document.getElementById("caBiz");
+  if (biz) biz.addEventListener("change", loadCountAdjust);
+  if (save) save.addEventListener("click", async () => {
+    const say = (m) => { const e = $("caStatus"); if (e) e.textContent = m || ""; };
+    say("保存しています…");
+    try {
+      const body = {
+        business: (biz && biz.value) || "",
+        today: $("caToday") ? $("caToday").value : "",
+        week: $("caWeek") ? $("caWeek").value : "",
+        month: $("caMonth") ? $("caMonth").value : "",
+      };
+      const r = await fetch("/api/apo/count-adjust", {
+        method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body),
+      });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.error || "保存できませんでした");
+      const e = d.effective || {};
+      say(`保存しました（本日 ${e.today} / 今週 ${e.week} / 今月 ${e.month}）`);
+    } catch (err) { say("失敗：" + err.message); }
+  });
+})();
+
 async function loadTeamStats() {
   const box = $("tsBody");
   if (!box) return;
