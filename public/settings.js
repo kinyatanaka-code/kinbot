@@ -2845,7 +2845,7 @@ document.addEventListener("click", (ev) => {
 if (document.getElementById("sfProxy")) {
   (async () => {
     try {
-      const d = await (await fetch("/api/settings")).json();
+      const d = await (await fetch("/api/sf-proxy")).json();
       document.getElementById("sfProxy").value = d.sfProxyUser || "";
     } catch {}
   })();
@@ -2853,12 +2853,15 @@ if (document.getElementById("sfProxy")) {
     const st = document.getElementById("sfProxySt");
     st.textContent = "保存しています…";
     try {
-      await fetch("/api/settings", {
+      const r = await fetch("/api/sf-proxy", {
         method: "PUT", headers: { "content-type": "application/json" },
         body: JSON.stringify({ sfProxyUser: document.getElementById("sfProxy").value.trim() }),
       });
-      st.textContent = "保存しました";
-      setTimeout(() => (st.textContent = ""), 4000);
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.error || "保存できませんでした");
+      document.getElementById("sfProxy").value = d.sfProxyUser || "";
+      st.textContent = d["案内"] || "保存しました";
+      setTimeout(() => (st.textContent = ""), 8000);
     } catch (e) { st.textContent = "失敗：" + e.message; }
   });
 }
