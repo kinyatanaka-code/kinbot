@@ -2824,7 +2824,30 @@ app.put("/api/smart-links/:slug/excluded", async (req, res) => {
     }
 
     console.log(`[apo] ${row.slug}（${row.label || "-"}）を集計から${on ? "外しました" : "戻しました"} by ${req.user}`);
-    res.json({ ok: true, excluded: row.excluded, calendar });
+
+    // 集計から外したときは、Google Chatに「取り消し」と今の正しい合計を流す。
+    let chat = "";
+    if (on) {
+      try {
+        const st = await getSettings().catch(() => ({}));
+        if (st.chatNotifyAssign !== false) {
+          const c = await assignCounts(link.business || "").catch(() => null);
+          const who = link.current_owner_name || link.current_owner || "";
+          const what = [link.label, link.client_name].filter(Boolean).join("／");
+          const body =
+            `↩️ アポを1件取り消しました` +
+            (what ? `：${what}` : "") +
+            (who ? `（${who}）` : "") +
+            (c ? `\n📊 本日 ${c.today} ／ 今週 ${c.week} ／ 今月 ${c.month}` : "");
+          await notifyChat(body);
+          chat = "チャットに通知しました";
+        }
+      } catch (e) {
+        console.warn("[apo] 取り消し通知に失敗", e.message);
+      }
+    }
+
+    res.json({ ok: true, excluded: row.excluded, calendar, chat });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
@@ -12346,7 +12369,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-08-21c 再デプロイ起動（Railway復旧時に最新を反映）";
+const BUILD_TAG = "2026-08-21d アポ：集計から除外したら、取り消しと今の合計をチャットに通知";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
