@@ -889,6 +889,14 @@ function hiddenMembers() {
 function saveHiddenMembers(set) {
   try { localStorage.setItem("kcHiddenMembers", JSON.stringify([...set])); } catch {}
 }
+// 自分で足したメンバー（この端末に覚えておく）
+function extraMembers() {
+  try { return new Set(JSON.parse(localStorage.getItem("kcExtraMembers") || "[]")); }
+  catch { return new Set(); }
+}
+function saveExtraMembers(set) {
+  try { localStorage.setItem("kcExtraMembers", JSON.stringify([...set])); } catch {}
+}
 
 async function asLoad() {
   const box = $("asCards");
