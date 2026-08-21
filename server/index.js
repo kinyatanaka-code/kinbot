@@ -4952,6 +4952,16 @@ app.get("/api/calls/lists", async (req, res) => {
 //   1) 会社名でクロスリードを探す → あればそのリードでリスト化
 //   2) 無ければ 会社名・電話番号・担当者名 で新しいクロスリードを作ってからリスト化
 //   3) 担当者名が無いときは、担当者名を「担当者」としてリードを作る
+// CSVの日付（2026/8/20・2026-08-20 など）を YYYY-MM-DD にそろえる
+function ymdOf(v) {
+  const t = String(v || "").trim();
+  if (!t) return "";
+  const m = t.match(/^(\d{4})[\/\-年.](\d{1,2})[\/\-月.](\d{1,2})/);
+  if (!m) return "";
+  const p = (n) => String(n).padStart(2, "0");
+  return `${m[1]}-${p(m[2])}-${p(m[3])}`;
+}
+
 app.post("/api/calls/from-csv", async (req, res) => {
   try {
     const b = req.body || {};
@@ -5002,7 +5012,8 @@ app.post("/api/calls/from-csv", async (req, res) => {
       // 2) 無ければ新しく作る
       if (!leadId) {
         if (dryRun) {
-          結果.push({ company, person: person || "担当者", phone, 状態: "新しく作る（予定）" });
+          結果.push({ company, person: person || "担当者", phone, 状態: "新しく作る（予定）",
+            架電日: ymdOf(r.callDate), 履歴: ymdOf(r.callDate) ? "履歴を残す（予定）" : "" });
           continue;
         }
         try {
@@ -5020,10 +5031,36 @@ app.post("/api/calls/from-csv", async (req, res) => {
           結果.push({ company, 状態: "作れなかった", 理由: e.message }); continue;
         }
       } else if (dryRun) {
-        結果.push({ company, 状態 }); continue;
+        結果.push({ company, person: person || "担当者", 状態,
+          架電日: ymdOf(r.callDate), 履歴: ymdOf(r.callDate) ? "履歴を残す（予定）" : "" });
+        continue;
       }
 
-      結果.push({ company, person: person || "担当者", phone, leadId, 状態 });
+      // CSVに架電日があれば、その日付でSalesforceに活動履歴を残す
+      let 履歴 = "";
+      const 架電日 = ymdOf(r.callDate);
+      const ステータス = String(r.status || "").trim();
+      const コメント = String(r.comment || "").trim();
+      if (!dryRun && 架電日 && leadId) {
+        try {
+          await createTask(sfUser, {
+            WhoId: leadId,
+            Subject: `コール：${ステータス || "架電"}`,
+            Status: "完了", Type: "Call",
+            ActivityDate: 架電日,
+            Description: [
+              ステータス ? `結果：${ステータス}` : "",
+              コメント ? `コメント：${コメント}` : "",
+              `CSVから取り込み（記録した人：${await displayNameOf(req.user).catch(() => req.user)}）`,
+            ].filter(Boolean).join("\n"),
+          });
+          履歴 = "履歴を残した";
+        } catch (e) { 履歴 = `履歴を残せなかった（${String(e.message).slice(0, 60)}）`; }
+      } else if (架電日 && dryRun) {
+        履歴 = "履歴を残す（予定）";
+      }
+
+      結果.push({ company, person: person || "担当者", phone, leadId, 状態, 架電日, ステータス, コメント, 履歴 });
     }
 
     if (dryRun) {
@@ -5042,6 +5079,7 @@ app.post("/api/calls/from-csv", async (req, res) => {
     const list = await createCallList({ name, owner: String(b.member || "").trim().toLowerCase() || req.user, createdBy: req.user });
     const n = await addCallTargets(list.id, 入れるもの.map((x) => ({
       leadId: x.leadId, company: x.company, person: x.person, phone: x.phone,
+      ...(x["ステータス"] ? { status: x["ステータス"] } : {}),
     })));
     console.log(`[kincall] CSVからリスト「${name}」を作りました（${n}件／新規リード${結果.filter((x)=>x.状態==="新しく作った").length}件） by ${req.user}`);
     res.json({
@@ -5049,6 +5087,7 @@ app.post("/api/calls/from-csv", async (req, res) => {
       見つかった: 結果.filter((x) => String(x.状態).startsWith("見つかった")).length,
       新しく作った: 結果.filter((x) => x.状態 === "新しく作った").length,
       とばした: 結果.filter((x) => !x.leadId).length,
+      履歴を残した: 結果.filter((x) => x["履歴"] === "履歴を残した").length,
       明細: 結果.slice(0, 200),
     });
   } catch (e) { res.status(500).json({ error: e.message }); }
@@ -12707,7 +12746,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-08-22m 足したメンバーが他の人に出ない不具合を修正（並びをサーバーで確定）";
+const BUILD_TAG = "2026-08-22n CSV取り込み：架電日・ステータス・コメントを読み、その日付でSFの履歴に残す";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
