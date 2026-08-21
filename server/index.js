@@ -12346,7 +12346,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-08-21b 資料：URL発行の送る資料を自分のものだけに／閲覧状況の一覧をしまえるように";
+const BUILD_TAG = "2026-08-21c 再デプロイ起動（Railway復旧時に最新を反映）";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
