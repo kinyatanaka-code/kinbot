@@ -708,8 +708,25 @@ function showPane() {
   });
   if (p === "stats") loadStats();
   if (p === "lists") asLoad();
-  if (p === "leads" && typeof srInitLeads === "function") srInitLeads();
 }
+
+// リスト管理の中のタブ（リスト管理／リスト作成）
+(function wireListTabs() {
+  const tabs = document.getElementById("lsTabs");
+  if (!tabs) return;
+  tabs.addEventListener("click", (ev) => {
+    const b = ev.target && ev.target.closest ? ev.target.closest(".kc-ptab") : null;
+    if (!b) return;
+    const name = b.dataset.ls || "manage";
+    tabs.querySelectorAll(".kc-ptab").forEach((x) => x.classList.toggle("active", x === b));
+    document.querySelectorAll("[data-ls-pane]").forEach((el) => {
+      el.hidden = el.dataset.lsPane !== name;
+    });
+    if (name === "manage") asLoad();
+    // リスト作成は、Salesforceのリード一覧をそのまま使う
+    if (name === "make" && typeof initSfReport === "function") initSfReport("lead");
+  });
+})();
 
 // 「kincallだけ」の人には、kinbotへ戻る道を見せない
 (async () => {
@@ -718,11 +735,11 @@ function showPane() {
     if (me && me.kincallOnly) {
       document.querySelectorAll(".kc-side .side-app, .kc-side .side-sep")
         .forEach((el) => el.remove());
-      // リードはSalesforceの中身が見えるので、kincallだけの人には出さない
-      const ln = document.getElementById("kcLeadNav");
-      if (ln && ln.parentElement) ln.parentElement.remove();
-      const lp = document.querySelector('.kc-pane[data-p="leads"]');
-      if (lp) lp.remove();
+      // リスト作成はSalesforceの中身が見えるので、kincallだけの人には出さない
+      const mk = document.querySelector('.kc-ptab[data-ls="make"]');
+      if (mk) mk.remove();
+      const mkp = document.querySelector('[data-ls-pane="make"]');
+      if (mkp) mkp.remove();
     }
   } catch {}
 })();
