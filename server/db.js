@@ -3118,16 +3118,21 @@ export async function addCallTargets(listId, items = []) {
 }
 
 // リストの一覧（残り件数つき）
-export async function listCallLists({ owner = "", includeClosed = false } = {}) {
+export async function listCallLists({ owner = "", includeClosed = false, ownerOnly = false } = {}) {
   if (!pool) return [];
   try {
+    // ownerOnly=true のときは「そのリストを作った人」だけで絞る。
+    // （中身を配られただけの人のカードに、他人のリストが出てしまうのを防ぐ）
+    const scope = ownerOnly
+      ? `($1 = '' OR l.owner = $1)`
+      : `($1 = '' OR l.owner = $1 OR EXISTS (
+             SELECT 1 FROM call_targets t WHERE t.list_id = l.id AND t.assigned_to = $1))`;
     const { rows } = await pool.query(
       `SELECT l.*,
               (SELECT count(*) FROM call_targets t WHERE t.list_id = l.id) AS 全部,
               (SELECT count(*) FROM call_targets t WHERE t.list_id = l.id AND t.done) AS 済み
          FROM call_lists l
-        WHERE ($1 = '' OR l.owner = $1 OR EXISTS (
-                 SELECT 1 FROM call_targets t WHERE t.list_id = l.id AND t.assigned_to = $1))
+        WHERE ${scope}
           AND ($2 OR NOT l.closed)
         ORDER BY l.created_at DESC LIMIT 50`,
       [String(owner || "").toLowerCase(), !!includeClosed]);
