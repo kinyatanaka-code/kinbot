@@ -5165,7 +5165,9 @@ app.post("/api/calls/from-report", async (req, res) => {
     console.log(`[kincall] リードIDを${紐づけた}件つなぎました（列に無かったぶん ${足りない.length}）`);
 
     const name = String(b.name || "").trim() || `リスト ${jstDate(0)}`;
-    const list = await createCallList({ name, owner: req.user, createdBy: req.user });
+    // 送り先のメンバーを選べる（指定がなければ自分のリストになる）
+    const toMember = String(b.member || "").trim().toLowerCase();
+    const list = await createCallList({ name, owner: toMember || req.user, createdBy: req.user });
     if (!list) return res.status(500).json({ error: "リストを作れませんでした" });
     const n = await addCallTargets(list.id, items);
     console.log(`[kincall] レポートから${n}件をリスト「${name}」に入れました by ${req.user}`);
@@ -12449,7 +12451,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-08-21p kincall：メンバーを横並び2段にした";
+const BUILD_TAG = "2026-08-21q kincallへ送る：送り先のメンバーを選べるようにした";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
