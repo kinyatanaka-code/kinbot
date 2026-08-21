@@ -10,7 +10,7 @@
     <link rel="manifest" href="/site.webmanifest" />
     <meta name="theme-color" content="#0d5b47" />
     <meta name="apple-mobile-web-app-title" content="kinbot" />
-    <link rel="stylesheet" href="style.css?v=20260821p" />
+    <link rel="stylesheet" href="style.css?v=20260821r" />
   </head>
   <body class="kc-body">
     <div class="app">
@@ -25,6 +25,8 @@
           <span class="kc-side-ico"><svg viewBox="0 0 24 24" width="17" height="17"><path d="M4 20h4V10H4zm6 0h4V4h-4zm6 0h4v-7h-4z"/></svg></span><span class="side-label">実績</span></a></div>
         <div class="side-wrap"><a class="side-item" href="/kincall?p=lists">
           <span class="kc-side-ico"><svg viewBox="0 0 24 24" width="17" height="17"><path d="M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8zm0 2c-3.3 0-6 1.8-6 4v2h12v-2c0-2.2-2.7-4-6-4zm8-2 4 4-4 4v-3h-3v-2h3z"/></svg></span><span class="side-label">リスト管理</span></a></div>
+        <div class="kc-side-item"><a class="side-item" href="#leads" data-kc="leads" id="kcLeadNav">
+          <span class="kc-side-ico"><svg viewBox="0 0 24 24" width="17" height="17"><path d="M4 5h16v2H4zm0 4h16v2H4zm0 4h10v2H4zm0 4h10v2H4zm12.5-1.5 1.8 1.8 3.2-3.2-1.4-1.4-1.8 1.8-.4-.4z"/></svg></span><span class="side-label">リード</span></a></div>
         <div class="side-sep"></div>
         <div class="side-wrap"><a class="side-item side-app" href="/home.html">
           <img class="side-app-ico" src="/icon.svg" alt="" /><span class="side-label">kinbot</span>
@@ -78,6 +80,24 @@
           </section>
 
           <!-- リストを作る -->
+          <!-- リード（kinbotから移設） -->
+          <section class="card kc-pane" data-p="leads" hidden>
+            <h3>リード</h3>
+            <p class="note">Salesforceのリードとレポートを見て、そのまま架電リストにできます。</p>
+            <div class="rep-controls">
+              <input type="text" id="srQ" class="sf-input" placeholder="名前で絞り込み" style="min-width:240px" />
+              <button class="btn ghost" id="srSearch">検索</button>
+              <span class="rev-status" id="srStatus"></span>
+            </div>
+            <div class="sr-wrap">
+              <div class="sr-list" id="srList"><div class="empty-state">読み込み中…</div></div>
+              <div class="sr-right">
+                <div class="sr-filters" id="srFilters"></div>
+                <div class="sr-view" id="srView"><div class="empty-state">左から選ぶと内容を表示します。</div></div>
+              </div>
+            </div>
+          </section>
+
           <section class="card kc-pane" data-p="new" hidden>
             <h3 id="new">リストを作る（ふだんは使いません）</h3>
             <p class="note">ふだんは、kinbotの<b>リードレポートから「kincallへ送る」</b>でリストを作ってください。<br>
@@ -109,7 +129,8 @@
         </main>
       </div>
     </div>
-    <script src="calls.js?v=20260821p"></script>
-    <script src="nav.js?v=20260821p"></script>
+    <script src="sf-data.js?v=20260821r"></script>
+    <script src="calls.js?v=20260821r"></script>
+    <script src="nav.js?v=20260821r"></script>
   </body>
 </html>
