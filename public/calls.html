@@ -10,7 +10,7 @@
     <link rel="manifest" href="/site.webmanifest" />
     <meta name="theme-color" content="#0d5b47" />
     <meta name="apple-mobile-web-app-title" content="kinbot" />
-    <link rel="stylesheet" href="style.css?v=20260822m" />
+    <link rel="stylesheet" href="style.css?v=20260822n" />
   </head>
   <body class="kc-body">
     <div class="app">
@@ -84,13 +84,14 @@
             <div class="ls-block" data-ls-pane="make" hidden>
               <div class="kc-csv">
                 <div class="kc-csv-h">CSVから作る（Salesforceのクロスリードと突き合わせ）</div>
-                <p class="note">CSVを選ぶか、下に貼り付けてください。1行1社で、<b>会社名・担当者名・電話番号・メール</b>の順（タブまたはカンマ区切り）。1行目が見出しでも大丈夫です。<br>
+                <p class="note">CSVを選ぶか、下に貼り付けてください。1行1社で、<b>会社名・担当者名・電話番号・メール</b>の順（タブまたはカンマ区切り）。<br>
+                1行目に見出しがあれば、<b>架電日・ステータス・最終活動コメント</b>も読み取ります。<b>架電日があれば、その日付でSalesforceの活動履歴に残します。</b><br>
                 会社名でSalesforceの<b>クロスリード</b>を探し、あればそのまま、無ければ<b>新しくクロスリードを作って</b>からリストにします。担当者名が空のときは「担当者」として作ります。</p>
                 <div class="ap-cfg-row">
                   <input type="file" id="csvFile" accept=".csv,text/csv" />
                   <label>リストの名前 <input type="text" id="csvName" style="min-width:240px" /></label>
                 </div>
-                <textarea id="csvText" rows="6" style="width:100%;box-sizing:border-box" placeholder="株式会社ベルク&#9;町田&#9;03-1234-5678&#10;合同会社サンライズ&#9;&#9;06-2222-3333"></textarea>
+                <textarea id="csvText" rows="6" style="width:100%;box-sizing:border-box" placeholder="会社名,担当者名,電話番号,メール,架電日,ステータス,最終活動コメント&#10;株式会社ベルク,町田,03-1234-5678,,2026/08/20,担当者不在,折り返し依頼"></textarea>
                 <div class="ap-cfg-row">
                   <button class="btn ghost" id="csvDry">まず試算する</button>
                   <button class="btn" id="csvRun">この内容でリストを作る</button>
@@ -148,8 +149,8 @@
         </main>
       </div>
     </div>
-    <script src="sf-data.js?v=20260822m"></script>
-    <script src="calls.js?v=20260822m"></script>
-    <script src="nav.js?v=20260822m"></script>
+    <script src="sf-data.js?v=20260822n"></script>
+    <script src="calls.js?v=20260822n"></script>
+    <script src="nav.js?v=20260822n"></script>
   </body>
 </html>
