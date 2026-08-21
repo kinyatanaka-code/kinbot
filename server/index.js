@@ -4992,9 +4992,12 @@ app.post("/api/calls/from-csv", async (req, res) => {
       const email = String(r.email || "").trim();
       if (!company) { 結果.push({ company, 状態: "とばした", 理由: "会社名がありません" }); continue; }
 
-      // 1) 会社名でクロスリードを探す（表記ゆれを吸収して照合）
-      let leadId = "", 状態 = "";
+      // 1) リードIDがCSVにあればそれを使う。無ければ会社名で探す。
+      let leadId = String(r.leadId || "").trim();
+      let 状態 = "";
+      if (leadId) { 状態 = "IDで指定"; }
       try {
+        if (leadId) throw { skip: true };
         const key = normCompanyKey(company);
         const 語 = company.replace(/株式会社|（株）|\(株\)|㈱|有限会社|社会福祉法人|学校法人|一般社団法人/g, "").trim().slice(0, 30);
         const soql =
@@ -5006,7 +5009,7 @@ app.post("/api/calls/from-csv", async (req, res) => {
         const hit = cross || cands[0];
         if (hit) { leadId = hit.Id; 状態 = cross ? "見つかった（クロス）" : "見つかった"; }
       } catch (e) {
-        結果.push({ company, 状態: "探せなかった", 理由: e.message }); continue;
+        if (!e || !e.skip) { 結果.push({ company, 状態: "探せなかった", 理由: e.message }); continue; }
       }
 
       // 2) 無ければ新しく作る
@@ -5076,7 +5079,10 @@ app.post("/api/calls/from-csv", async (req, res) => {
     const 入れるもの = 結果.filter((x) => x.leadId);
     if (!入れるもの.length) return res.status(400).json({ error: "リストに入れられるものがありませんでした", 明細: 結果.slice(0, 50) });
 
-    const list = await createCallList({ name, owner: String(b.member || "").trim().toLowerCase() || req.user, createdBy: req.user });
+    const 既存 = parseInt(b.listId, 10) || 0;
+    const list = 既存
+      ? { id: 既存, name }
+      : await createCallList({ name, owner: String(b.member || "").trim().toLowerCase() || req.user, createdBy: req.user });
     const n = await addCallTargets(list.id, 入れるもの.map((x) => ({
       leadId: x.leadId, company: x.company, person: x.person, phone: x.phone,
       ...(x["ステータス"] ? { status: x["ステータス"] } : {}),
@@ -12746,7 +12752,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-08-22n CSV取り込み：架電日・ステータス・コメントを読み、その日付でSFの履歴に残す";
+const BUILD_TAG = "2026-08-22o CSV取り込み：進み具合を表示し、少しずつ送って途中で切れないようにした";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
