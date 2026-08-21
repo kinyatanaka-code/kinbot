@@ -516,8 +516,10 @@ async function openTarget(id, draft, opt) {
       x["履歴数"] = Number(x["履歴数"] || 0) + 1;
       x["最終ステータス"] = 結果;
       updateRow(x);
-      // ページ下部のドックに、記録済みとして残す（連続架電で見返せるように）
-      dockUpsert({ id, company: x["会社名"] || "", person: x["担当者"] || "", result: 結果, state: "done" });
+      // 記録しただけでは下に残さない（「—」で最小化したときだけ残す）。
+      // もし最小化してあった同じ相手が残っていれば、それは消す。
+      dockItems = dockItems.filter((d) => d.id !== id);
+      renderDock();
       m.close();
       const 代理 = d.sf && d.sf["代理"] ? `（${d.sf["代理"]}さんとして残しました）` : "";
       say("clStatus", d.sf && d.sf.ok
