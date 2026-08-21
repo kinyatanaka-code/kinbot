@@ -10,7 +10,7 @@
     <link rel="manifest" href="/site.webmanifest" />
     <meta name="theme-color" content="#0d5b47" />
     <meta name="apple-mobile-web-app-title" content="kinbot" />
-    <link rel="stylesheet" href="style.css?v=20260819zb" />
+    <link rel="stylesheet" href="style.css?v=20260821e" />
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/tabler-icons/2.44.0/iconfont/tabler-icons.min.css" />
   </head>
   <body>
@@ -169,6 +169,25 @@
                 <span class="rev-status" id="tsStatus"></span>
               </div>
               <div id="tsBody"><div class="empty-state">読み込み中…</div></div>
+            </div>
+
+            <div class="ap-card">
+              <h3 class="ap-card-h">アポ通知のカウントを直す</h3>
+              <p class="note">アポ通知に出る「本日／今週／今月」の数字を、正しい数に直せます。<b>直した数字を起点に、以降の新しいアポが積み上がります。</b>期間（日・週・月）が変わると、また実数から数え直します。空欄の項目は変更しません。</p>
+              <div class="ap-cfg-row">
+                <label>ビジネス
+                  <select id="caBiz">
+                    <option value="">全体</option>
+                    <option value="DOC">DOC</option>
+                    <option value="MOCHICA">MOCHICA</option>
+                  </select>
+                </label>
+                <label>本日 <input type="number" id="caToday" min="0" style="width:80px" /></label>
+                <label>今週 <input type="number" id="caWeek" min="0" style="width:80px" /></label>
+                <label>今月 <input type="number" id="caMonth" min="0" style="width:80px" /></label>
+                <button class="btn" id="caSave">この数字にする</button>
+                <span class="rev-status" id="caStatus"></span>
+              </div>
             </div>
           </section>
 
@@ -441,8 +460,8 @@
         </main>
       </div>
     </div>
-    <script src="product.js?v=20260819zb"></script>
-    <script src="apo.js?v=20260819zb"></script>
-    <script src="nav.js?v=20260819zb"></script>
+    <script src="product.js?v=20260821e"></script>
+    <script src="apo.js?v=20260821e"></script>
+    <script src="nav.js?v=20260821e"></script>
   </body>
 </html>
