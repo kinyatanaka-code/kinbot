@@ -374,6 +374,12 @@ function renderDock() {
     .kc-mem-restore:hover{background:#f4faf7;border-color:#1d9e75;}
     #asCards .kc-mem-card:hover{border-color:#bfe0cf;box-shadow:0 8px 20px -12px rgba(33,122,84,.35);transform:translateY(-2px);}
     .kc-mem-name{font-size:14px;font-weight:700;color:#1f2a26;line-height:1.35;}
+    #asCards .kc-mem-add{border-style:dashed;}
+    #asCards .kc-mem-add .kc-mem-name{font-weight:600;color:#5b7a6d;}
+    .kc-mem-pick{margin-top:12px;padding:12px;border:1px solid #e6ece9;border-radius:12px;background:#fcfefe;display:flex;flex-wrap:wrap;gap:8px;align-items:center;}
+    .kc-mem-pick-h{width:100%;font-size:12px;font-weight:600;color:#5b7a6d;}
+    .kc-mem-pick-b{border:1px solid #e6ece9;background:#fff;color:#1f2a26;border-radius:9px;padding:7px 12px;font-size:13px;cursor:pointer;}
+    .kc-mem-pick-b:hover{border-color:#1d9e75;background:#f4faf7;}
     #asCards .kc-mem-head{display:flex;align-items:center;gap:12px;margin-bottom:14px;}
     #asCards .kc-mem-back{flex:0 0 auto;width:auto;min-height:0;height:auto;
       border:1px solid #e6ece9;background:#fff;color:#0d5b47;border-radius:9px;
@@ -752,11 +758,15 @@ function showPane() {
     if (me && me.kincallOnly) {
       document.querySelectorAll(".kc-side .side-app, .kc-side .side-sep")
         .forEach((el) => el.remove());
-      // リスト作成はSalesforceの中身が見えるので、kincallだけの人には出さない
-      const mk = document.querySelector('.kc-ptab[data-ls="make"]');
-      if (mk) mk.remove();
-      const mkp = document.querySelector('[data-ls-pane="make"]');
-      if (mkp) mkp.remove();
+      // kincallだけの人には、リスト管理そのものを見せない
+      document.querySelectorAll('.kc-side .side-item[href*="p=lists"]').forEach((a) => {
+        const wrap = a.closest(".kc-side-item") || a.closest(".side-wrap");
+        if (wrap) wrap.remove(); else a.remove();
+      });
+      const lp = document.querySelector('.kc-pane[data-p="lists"]');
+      if (lp) lp.remove();
+      // いまリスト管理を開いていたら「かける」に戻す
+      if ((new URLSearchParams(location.search).get("p") || "") === "lists") location.href = "/kincall";
     }
   } catch {}
 })();
@@ -893,8 +903,18 @@ async function asLoad() {
       return;
     }
     const hidden = hiddenMembers();
-    const shown = items.filter((m) => !hidden.has(String(m.email || "").toLowerCase()));
-    const hiddenCount = items.length - shown.length;
+    const extra = extraMembers();
+    const 候補 = d["候補"] || [];
+    const byEmail = new Map();
+    for (const m of items) byEmail.set(String(m.email || "").toLowerCase(), m);
+    for (const c of 候補) {
+      const k = String(c.email || "").toLowerCase();
+      if (extra.has(k) && !byEmail.has(k)) byEmail.set(k, c);   // 自分で足した人
+    }
+    const shown = [...byEmail.values()].filter((m) => !hidden.has(String(m.email || "").toLowerCase()));
+    const hiddenCount = [...byEmail.keys()].filter((k) => hidden.has(k)).length;
+    const shownKeys = new Set(shown.map((m) => String(m.email || "").toLowerCase()));
+    const addable = 候補.filter((c) => !shownKeys.has(String(c.email || "").toLowerCase()));
 
     box.classList.remove("kc-lists-grid");   // 親が格子だと1列になるので外す
     box.innerHTML =
@@ -902,13 +922,36 @@ async function asLoad() {
         <div class="kc-mem-card" data-email="${esc(m.email)}" data-name="${esc(m.name)}">
           <button type="button" class="kc-mem-hide" data-hide="${esc(m.email)}" title="この人を隠す" aria-label="隠す">✕</button>
           <span class="kc-mem-name">${esc(m.name)}</span>
-        </div>`).join("") + '</div>' +
+        </div>`).join("") +
+        (addable.length ? '<div class="kc-mem-card kc-mem-add" id="kcAddCard"><span class="kc-mem-name">＋ メンバーを足す</span></div>' : "") +
+      '</div>' +
+      '<div class="kc-mem-pick" id="kcPick" hidden></div>' +
       (hiddenCount
         ? `<div class="kc-mem-foot">${hiddenCount}人を隠しています<button type="button" class="kc-mem-restore" id="kcShowAll">すべて表示に戻す</button></div>`
         : "");
 
-    box.querySelectorAll(".kc-mem-card").forEach((c) =>
-      c.addEventListener("click", () => asLoadMember(c.dataset.email, c.dataset.name)));
+    // 「＋ メンバーを足す」でカードを増やせる
+    const addCard = $("kcAddCard");
+    if (addCard) addCard.addEventListener("click", (ev) => {
+      ev.stopPropagation();
+      const pick = $("kcPick");
+      if (!pick) return;
+      pick.hidden = false;
+      pick.innerHTML = '<div class="kc-mem-pick-h">足したい人を押してください</div>' +
+        addable.map((c) => `<button type="button" class="kc-mem-pick-b" data-add="${esc(c.email)}">${esc(c.name)}</button>`).join("");
+      pick.querySelectorAll("[data-add]").forEach((b) =>
+        b.addEventListener("click", () => {
+          const k = String(b.dataset.add || "").toLowerCase();
+          const ex = extraMembers(); ex.add(k); saveExtraMembers(ex);
+          const h = hiddenMembers(); h.delete(k); saveHiddenMembers(h);
+          asLoad();
+        }));
+    });
+
+    box.querySelectorAll(".kc-mem-card").forEach((c) => {
+      if (c.id === "kcAddCard") return;   // 「＋」は追加用なので開かない
+      c.addEventListener("click", () => asLoadMember(c.dataset.email, c.dataset.name));
+    });
     box.querySelectorAll(".kc-mem-hide").forEach((b) =>
       b.addEventListener("click", (ev) => {
         ev.stopPropagation();
