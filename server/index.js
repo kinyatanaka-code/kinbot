@@ -12668,7 +12668,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-08-22f kincall：kincallだけの人にリスト管理を出さない／メンバーカードを自由に足せるように";
+const BUILD_TAG = "2026-08-22g 修正：リスト管理が読み込めない不具合（関数の入れ忘れ）";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
