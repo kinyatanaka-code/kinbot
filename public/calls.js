@@ -1286,13 +1286,44 @@ async function openSplit(listId, listName, memberEmail, memberName) {
 function csvParse(text) {
   const out = [];
   const lines = String(text || "").split(/\r?\n/).filter((l) => l.trim());
-  for (let i = 0; i < lines.length; i++) {
-    const cols = lines[i].includes("\t") ? lines[i].split("\t") : lines[i].split(",");
-    const c = cols.map((v) => String(v || "").trim().replace(/^"|"$/g, ""));
-    // 1行目が見出しっぽければ飛ばす
-    if (i === 0 && /会社|company|担当|電話|phone|メール|mail/i.test(lines[0]) && !/\d{2,}/.test(c[2] || "")) continue;
-    if (!c[0]) continue;
-    out.push({ company: c[0], person: c[1] || "", phone: c[2] || "", email: c[3] || "" });
+  if (!lines.length) return out;
+  const split = (l) => (l.includes("\t") ? l.split("\t") : l.split(","))
+    .map((v) => String(v || "").trim().replace(/^"|"$/g, ""));
+
+  // 1行目が見出しかどうかを見る。見出しなら、列の名前で場所を覚える。
+  const head = split(lines[0]);
+  const 見出しっぽい = /会社|company|担当|電話|phone|メール|mail|架電|日付|ステータス|状況|コメント/i.test(lines[0])
+    && !/\d{3,}/.test(head.join(""));
+  const 場所 = { company: 0, person: 1, phone: 2, email: 3, callDate: -1, status: -1, comment: -1 };
+  if (見出しっぽい) {
+    const norm = (v) => String(v || "").replace(/[\s　_・]/g, "").toLowerCase();
+    const find = (...words) => head.findIndex((h) => words.some((w) => norm(h).includes(norm(w))));
+    const set = (key, ...words) => { const i = find(...words); if (i >= 0) 場所[key] = i; };
+    場所.company = -1; 場所.person = -1; 場所.phone = -1; 場所.email = -1;
+    set("company", "会社名", "会社", "company", "取引先");
+    set("person", "担当者名", "担当者", "氏名", "name");
+    set("phone", "電話", "phone", "tel");
+    set("email", "メール", "mail");
+    set("callDate", "架電日", "コール日", "活動日", "日付", "date");
+    set("status", "ステータス", "状況", "結果", "status");
+    set("comment", "最終活動コメント", "活動コメント", "コメント", "メモ", "comment", "memo");
+    if (場所.company < 0) 場所.company = 0;
+  }
+  const 取る = (c, i) => (i >= 0 && i < c.length ? c[i] : "");
+
+  for (let i = 見出しっぽい ? 1 : 0; i < lines.length; i++) {
+    const c = split(lines[i]);
+    const company = 取る(c, 場所.company);
+    if (!company) continue;
+    out.push({
+      company,
+      person: 取る(c, 場所.person),
+      phone: 取る(c, 場所.phone),
+      email: 取る(c, 場所.email),
+      callDate: 取る(c, 場所.callDate),
+      status: 取る(c, 場所.status),
+      comment: 取る(c, 場所.comment),
+    });
   }
   return out;
 }
@@ -1322,9 +1353,10 @@ async function csvSend(dryRun) {
     }
     const meisai = d["明細"] || [];
     if (out && meisai.length) {
-      out.innerHTML = '<table class="sh-table"><tr><th>会社名</th><th>担当者</th><th>状態</th></tr>' +
+      out.innerHTML = '<table class="sh-table"><tr><th>会社名</th><th>担当者</th><th>架電日</th><th>状態</th></tr>' +
         meisai.map((x) => `<tr><td>${esc(x.company || "")}</td><td>${esc(x.person || "")}</td>` +
-          `<td>${esc(x["状態"] || "")}${x["理由"] ? `（${esc(x["理由"])}）` : ""}</td></tr>`).join("") + "</table>";
+          `<td>${esc(x["架電日"] || "")}</td>` +
+          `<td>${esc(x["状態"] || "")}${x["履歴"] ? `／${esc(x["履歴"])}` : ""}${x["理由"] ? `（${esc(x["理由"])}）` : ""}</td></tr>`).join("") + "</table>";
     }
   } catch (e) { say("失敗：" + e.message); }
 }
