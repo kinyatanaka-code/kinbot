@@ -381,6 +381,8 @@ function renderDock() {
     #asCards .kc-mem-back:hover{background:#f4faf7;border-color:#1d9e75;}
     #asCards .kc-mem-title{font-size:14px;font-weight:700;color:#1f2a26;margin:0;}
     .kc-split{display:flex;flex-direction:column;gap:14px;}
+    .kc-csv{border:1px solid #e6ece9;border-radius:12px;padding:14px 16px;margin-bottom:18px;background:#fcfefe;}
+    .kc-csv-h{font-size:14px;font-weight:700;color:#0d5b47;margin-bottom:6px;}
     .kc-split-row{display:flex;align-items:center;gap:10px;flex-wrap:wrap;}
     .kc-split-lb{font-size:12px;font-weight:600;color:#5b7a6d;min-width:110px;}
     .kc-split-opts{display:flex;flex-wrap:wrap;gap:10px;flex:1;min-width:0;}
@@ -1238,3 +1240,70 @@ async function openSplit(listId, listName, memberEmail, memberName) {
     box.innerHTML = `<div class="note">読み込めませんでした：${esc(e.message)}</div>`;
   }
 }
+
+// ───────── CSVから作る（クロスリードと突き合わせ） ─────────
+// 1行1社で「会社名・担当者名・電話番号・メール」。見出し行があっても飛ばす。
+function csvParse(text) {
+  const out = [];
+  const lines = String(text || "").split(/\r?\n/).filter((l) => l.trim());
+  for (let i = 0; i < lines.length; i++) {
+    const cols = lines[i].includes("\t") ? lines[i].split("\t") : lines[i].split(",");
+    const c = cols.map((v) => String(v || "").trim().replace(/^"|"$/g, ""));
+    // 1行目が見出しっぽければ飛ばす
+    if (i === 0 && /会社|company|担当|電話|phone|メール|mail/i.test(lines[0]) && !/\d{2,}/.test(c[2] || "")) continue;
+    if (!c[0]) continue;
+    out.push({ company: c[0], person: c[1] || "", phone: c[2] || "", email: c[3] || "" });
+  }
+  return out;
+}
+
+async function csvSend(dryRun) {
+  const say = (m) => { const e = $("csvSt"); if (e) e.textContent = m || ""; };
+  const out = $("csvOut");
+  const rows = csvParse(($("csvText") && $("csvText").value) || "");
+  if (!rows.length) { say("中身が読めませんでした"); return; }
+  say(dryRun ? "試算しています…" : "作っています…（Salesforceを調べます）");
+  if (out) out.innerHTML = "";
+  try {
+    const r = await fetch("/api/calls/from-csv", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        name: ($("csvName") && $("csvName").value.trim()) || "",
+        rows, dryRun: !!dryRun,
+      }),
+    });
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.error || "できませんでした");
+    if (dryRun) {
+      say(`試算：${d["件数"]}件（見つかった ${d["見つかった"]}／新しく作る ${d["新しく作る"]}／とばす ${d["とばす"]}）`);
+    } else {
+      say(`「${d.name}」を作りました：${d["件数"]}件（見つかった ${d["見つかった"]}／新しく作った ${d["新しく作った"]}／とばした ${d["とばした"]}）`);
+      loadLists();
+    }
+    const meisai = d["明細"] || [];
+    if (out && meisai.length) {
+      out.innerHTML = '<table class="sh-table"><tr><th>会社名</th><th>担当者</th><th>状態</th></tr>' +
+        meisai.map((x) => `<tr><td>${esc(x.company || "")}</td><td>${esc(x.person || "")}</td>` +
+          `<td>${esc(x["状態"] || "")}${x["理由"] ? `（${esc(x["理由"])}）` : ""}</td></tr>`).join("") + "</table>";
+    }
+  } catch (e) { say("失敗：" + e.message); }
+}
+
+(function wireCsv() {
+  const f = document.getElementById("csvFile");
+  if (f) f.addEventListener("change", () => {
+    const file = f.files && f.files[0];
+    if (!file) return;
+    const rd = new FileReader();
+    rd.onload = () => {
+      if ($("csvText")) $("csvText").value = String(rd.result || "");
+      if ($("csvName") && !$("csvName").value.trim()) $("csvName").value = file.name.replace(/\.csv$/i, "");
+      const e = $("csvSt"); if (e) e.textContent = "読み込みました。中身を確かめてから進めてください。";
+    };
+    rd.readAsText(file, "UTF-8");
+  });
+  const dry = document.getElementById("csvDry");
+  if (dry) dry.addEventListener("click", () => csvSend(true));
+  const run = document.getElementById("csvRun");
+  if (run) run.addEventListener("click", () => csvSend(false));
+})();
