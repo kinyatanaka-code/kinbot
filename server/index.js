@@ -5727,6 +5727,13 @@ app.post("/api/calls/targets/:id/record", async (req, res) => {
       }
     } else if (!t.lead_id) {
       sf = { ok: false, reason: "この相手はSalesforceのリードと結びついていません" };
+    } else if (!salesforceConfigured()) {
+      sf = { ok: false, reason: "Salesforceの設定がされていません" };
+    } else {
+      // 自分も代理もつながっていない場合。原因が分かるように書き分ける。
+      sf = { ok: false, reason: 代理
+        ? `Salesforceにつながっていません（代わりに更新する人「${代理}」の連携も切れています）`
+        : "Salesforceにつながっていません（設定→動作設定で「代わりに更新する人」を決めてください）" };
     }
 
     res.json({ ok: true, sf });
@@ -12501,7 +12508,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-08-21y SFアカウントが無い人でも、代わりに更新する人の連携で履歴を読めるようにした";
+const BUILD_TAG = "2026-08-21z SFへ残せないときの理由を画面に出すようにした";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
