@@ -764,10 +764,6 @@ function showPane() {
       if (mk) mk.remove();
       const mkp = document.querySelector('[data-ls-pane="make"]');
       if (mkp) mkp.remove();
-      // 「＋ メンバーを足す」も出さない（隠した人が見えてしまうため）
-      window.kcNoAddMember = true;
-      const ac = document.getElementById("kcAddCard");
-      if (ac) ac.remove();
     }
   } catch {}
 })();
@@ -882,21 +878,17 @@ document.addEventListener("click", (ev) => {
 // リストの割り振り
 // ───────────────────────────────────────────────────────────
 // 第1階層：メンバーのカード一覧
-// 非表示にしたメンバー（この端末に覚えておく）
-function hiddenMembers() {
-  try { return new Set(JSON.parse(localStorage.getItem("kcHiddenMembers") || "[]")); }
-  catch { return new Set(); }
-}
-function saveHiddenMembers(set) {
-  try { localStorage.setItem("kcHiddenMembers", JSON.stringify([...set])); } catch {}
-}
-// 自分で足したメンバー（この端末に覚えておく）
-function extraMembers() {
-  try { return new Set(JSON.parse(localStorage.getItem("kcExtraMembers") || "[]")); }
-  catch { return new Set(); }
-}
-function saveExtraMembers(set) {
-  try { localStorage.setItem("kcExtraMembers", JSON.stringify([...set])); } catch {}
+// 消したメンバー／足したメンバーは、みんな同じ並びになるようサーバーに覚えておく
+let memberView = { hidden: new Set(), extra: new Set() };
+function hiddenMembers() { return memberView.hidden; }
+function extraMembers() { return memberView.extra; }
+async function saveMemberView() {
+  try {
+    await fetch("/api/calls/member-view", {
+      method: "PUT", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ "消した": [...memberView.hidden], "足した": [...memberView.extra] }),
+    });
+  } catch {}
 }
 
 async function asLoad() {
@@ -911,11 +903,21 @@ async function asLoad() {
       box.innerHTML = '<div class="empty-state">メンバーがいません。設定→メンバー管理で追加してください。</div>';
       return;
     }
+    // サーバーが持っている並び（みんな共通）を取り込む
+    const v = d["表示"] || {};
+    memberView = {
+      hidden: new Set((v["消した"] || []).map((x) => String(x).toLowerCase())),
+      extra: new Set((v["足した"] || []).map((x) => String(x).toLowerCase())),
+    };
+    const 変えられる = d["変えられる"] !== false;
     const hidden = hiddenMembers();
     const extra = extraMembers();
     const 候補 = d["候補"] || [];
     const byEmail = new Map();
-    for (const m of items) byEmail.set(String(m.email || "").toLowerCase(), m);
+    for (const m of items) {
+      const k = String(m.email || "").toLowerCase();
+      if (k) byEmail.set(k, m);
+    }
     for (const c of 候補) {
       const k = String(c.email || "").toLowerCase();
       if (extra.has(k) && !byEmail.has(k)) byEmail.set(k, c);   // 自分で足した人
@@ -929,10 +931,10 @@ async function asLoad() {
     box.innerHTML =
       '<div class="kc-mem-grid">' + shown.map((m) => `
         <div class="kc-mem-card" data-email="${esc(m.email)}" data-name="${esc(m.name)}">
-          <button type="button" class="kc-mem-hide" data-hide="${esc(m.email)}" title="このカードを消す" aria-label="消す">✕</button>
+          ${変えられる ? `<button type="button" class="kc-mem-hide" data-hide="${esc(m.email)}" title="このカードを消す" aria-label="消す">✕</button>` : ""}
           <span class="kc-mem-name">${esc(m.name)}</span>
         </div>`).join("") +
-        (addable.length && !window.kcNoAddMember ? '<div class="kc-mem-card kc-mem-add" id="kcAddCard"><span class="kc-mem-name">＋ メンバーを足す</span></div>' : "") +
+        (addable.length && 変えられる ? '<div class="kc-mem-card kc-mem-add" id="kcAddCard"><span class="kc-mem-name">＋ メンバーを足す</span></div>' : "") +
       '</div>' +
       '<div class="kc-mem-pick" id="kcPick" hidden></div>';
 
@@ -946,10 +948,11 @@ async function asLoad() {
       pick.innerHTML = '<div class="kc-mem-pick-h">足したい人を押してください</div>' +
         addable.map((c) => `<button type="button" class="kc-mem-pick-b" data-add="${esc(c.email)}">${esc(c.name)}</button>`).join("");
       pick.querySelectorAll("[data-add]").forEach((b) =>
-        b.addEventListener("click", () => {
+        b.addEventListener("click", async () => {
           const k = String(b.dataset.add || "").toLowerCase();
-          const ex = extraMembers(); ex.add(k); saveExtraMembers(ex);
-          const h = hiddenMembers(); h.delete(k); saveHiddenMembers(h);
+          memberView.extra.add(k);
+          memberView.hidden.delete(k);
+          await saveMemberView();
           asLoad();
         }));
     });
@@ -959,11 +962,12 @@ async function asLoad() {
       c.addEventListener("click", () => asLoadMember(c.dataset.email, c.dataset.name));
     });
     box.querySelectorAll(".kc-mem-hide").forEach((b) =>
-      b.addEventListener("click", (ev) => {
+      b.addEventListener("click", async (ev) => {
         ev.stopPropagation();
-        const h = hiddenMembers();
-        h.add(String(b.dataset.hide || "").toLowerCase());
-        saveHiddenMembers(h);
+        const k = String(b.dataset.hide || "").toLowerCase();
+        memberView.hidden.add(k);
+        memberView.extra.delete(k);
+        await saveMemberView();
         asLoad();
       }));
 
