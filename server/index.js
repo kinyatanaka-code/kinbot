@@ -2794,7 +2794,22 @@ app.post("/api/apo/count-adjust", async (req, res) => {
     await saveSettings({ apoCountAdjust: all });
     const effective = await assignCounts(business);
     console.log(`[apo] カウント手修正（${business || "全体"}）→ 本日${effective.today}/今週${effective.week}/今月${effective.month} by ${req.user}`);
-    res.json({ ok: true, effective });
+
+    // 直したことをGoogle Chatに通知する（アポ割り振り通知がONのときだけ）
+    let chat = "";
+    try {
+      const st2 = await getSettings().catch(() => ({}));
+      if (st2.chatNotifyAssign !== false) {
+        const bizLabel = business ? `【${business}】` : "";
+        await notifyChat(
+          `✏️ アポのカウントを直しました${bizLabel}\n` +
+          `📊 本日 ${effective.today} ／ 今週 ${effective.week} ／ 今月 ${effective.month}`
+        );
+        chat = "チャットに通知しました";
+      }
+    } catch (e) { console.warn("[apo] カウント修正の通知に失敗", e.message); }
+
+    res.json({ ok: true, effective, chat });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
@@ -12405,7 +12420,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-08-21e アポ通知カウントを手修正できるように（修正後の数字から積み上がる・ビジネス別）";
+const BUILD_TAG = "2026-08-21f アポ：カウントを手修正したらチャットに通知";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
