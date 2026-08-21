@@ -5398,6 +5398,41 @@ app.get("/api/calls/count-check", async (req, res) => {
 });
 
 // リストの中身を表で返す（SFのリードレポートのような一覧）
+// リストの中身を絞り込んで、自分のリストとして切り出す（元のリストはそのまま残る）
+app.post("/api/calls/lists/split", async (req, res) => {
+  try {
+    const b = req.body || {};
+    const listId = parseInt(b.list, 10);
+    const name = String(b.name || "").trim();
+    if (!listId) return res.status(400).json({ error: "元のリストを選んでください" });
+    if (!name) return res.status(400).json({ error: "新しいリストの名前を入れてください" });
+
+    const rows = await listCallTargets(listId, { q: String(b.q || ""), limit: 2000 });
+    const norm = (v) => String(v == null ? "" : v).trim();
+    const stages = (b.stages || []).map(norm).filter(Boolean);
+    const statuses = (b.statuses || []).map(norm).filter(Boolean);
+    const onlyUndone = !!b.onlyUndone;
+
+    const picked = rows.filter((r) => {
+      if (onlyUndone && r.done) return false;
+      if (stages.length && !stages.includes(norm(r.stage))) return false;
+      if (statuses.length && !statuses.includes(norm(r.status))) return false;
+      return true;
+    });
+    if (!picked.length) return res.status(400).json({ error: "この条件に合うものがありません" });
+
+    const list = await createCallList({ name, owner: req.user, createdBy: req.user });
+    const items = picked.map((r) => ({
+      leadId: r.lead_id, company: r.company, person: r.person, phone: r.phone,
+      email: r.email, industry: r.industry, area: r.area, memo: r.memo,
+      stage: r.stage, status: r.status,
+    }));
+    const n = await addCallTargets(list.id, items);
+    console.log(`[kincall] 絞り込みで新しいリスト「${name}」を作りました（${n}件） by ${req.user}`);
+    res.json({ ok: true, id: list.id, name: list.name, 件数: n });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 app.get("/api/calls/targets", async (req, res) => {
   try {
     const listId = parseInt(req.query.list, 10);
@@ -12451,7 +12486,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-08-21u kincall：かけるの表を1画面に収め、会社名は省略せず表示";
+const BUILD_TAG = "2026-08-21v kincall：リストを絞り込んで自分のリストを作れるようにした／済・残の表示を削除";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
