@@ -5693,10 +5693,16 @@ app.post("/api/calls/targets/:id/record", async (req, res) => {
       targetId: id, leadId: t.lead_id, company: t.company,
       result, memo: String(b.memo || ""), caller: req.user,
     });
-    // ステージ・最終ステータスも書き換える
-    if (b.stage !== undefined || b.status !== undefined) {
-      await setCallTargetStatus(id, { stage: b.stage, status: b.status }).catch(() => {});
-    }
+    // ステージと最終ステータスを書き換える。
+    // 最終ステータスは「いま記録した結果」を入れる（空で上書きしない）。
+    // ステージは、選ばれたときだけ変える。
+    const 次のステージ = (b.stage !== undefined && String(b.stage).trim() !== "") ? String(b.stage).trim()
+      : (b.leadStatus !== undefined && String(b.leadStatus).trim() !== "") ? String(b.leadStatus).trim()
+      : undefined;
+    await setCallTargetStatus(id, {
+      ...(次のステージ !== undefined ? { stage: 次のステージ } : {}),
+      status: result,
+    }).catch(() => {});
 
     // Salesforceへ（活動履歴＋リードの状態）
     //
@@ -12555,7 +12561,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-08-22c kincall：記録しただけでは下に残さず、最小化したときだけ残す";
+const BUILD_TAG = "2026-08-22d 記録後に最終ステータスが「-」になる不具合を修正";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
