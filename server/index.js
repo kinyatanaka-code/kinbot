@@ -5262,17 +5262,20 @@ app.get("/api/calls/members", async (req, res) => {
     const list = await listMembers().catch(() => []);
     const meEmail = String(req.user || "").toLowerCase();
     // 「インサイド」は、rolesに"inside"がある人か、internsテーブル（アポ獲得者マスタ）にいる人。
-    // どちらの持ち方でも拾えるようにして、登録しているのに出ない事故を防ぐ。
     const interns = await listInterns().catch(() => []);
     const internSet = new Set((interns || []).map((x) => String(x.email || "").toLowerCase()).filter(Boolean));
     const isInside = (m) => (Array.isArray(m.roles) && m.roles.includes("inside")) || internSet.has(String(m.email || "").toLowerCase());
-    let base = (list || []).filter((m) => m.active !== false && isInside(m));
-    if (!req.isAdmin) base = base.filter((m) => String(m.email || "").toLowerCase() === meEmail);
+    const active = (list || []).filter((m) => m.active !== false);
+    let base = active.filter(isInside);
+    // 以前は管理者でないと「自分だけ」に絞っていたが、ログイン中のアドレスと
+    // メンバー登録のアドレスが違うと全員消えてしまうため、その絞り込みはやめる。
+    // （他の人のリストを開く・消すのは、リスト側で管理者かどうかを見て止めている）
+    if (!base.length) base = active; // 役割が未設定でも空にはしない
     const items = [];
     for (const m of base) {
       let リスト数 = 0, 全部 = 0, 残り = 0;
       if (m.email) {
-        const lists = await listCallLists({ owner: String(m.email).toLowerCase(), includeClosed: false });
+        const lists = await listCallLists({ owner: String(m.email).toLowerCase(), includeClosed: false }).catch(() => []);
         リスト数 = lists.length;
         全部 = lists.reduce((s, l) => s + Number(l["全部"] || 0), 0);
         const 済み = lists.reduce((s, l) => s + Number(l["済み"] || 0), 0);
@@ -5282,13 +5285,16 @@ app.get("/api/calls/members", async (req, res) => {
         email: m.email,
         name: m.name || m.email,
         kincallだけ: Array.isArray(m.roles) && m.roles.includes("kincall"),
-        インサイド: Array.isArray(m.roles) && m.roles.includes("inside"),
+        インサイド: isInside(m),
         リスト数, 全部, 残り,
       });
     }
-    // リストを持っている人を先に、その中でkincallだけの人を優先
     items.sort((a, b) => (b.リスト数 - a.リスト数) || ((b.kincallだけ ? 1 : 0) - (a.kincallだけ ? 1 : 0)));
-    res.json({ ok: true, items, isAdmin: !!req.isAdmin });
+    res.json({
+      ok: true, items, isAdmin: !!req.isAdmin,
+      // 出ないときの手がかり
+      debug: { 全メンバー: (list || []).length, 在籍: active.length, インサイド: active.filter(isInside).length, interns: internSet.size, me: meEmail },
+    });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
@@ -12441,7 +12447,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-08-21j インサイド判定を修正（roles+interns両対応）／二重import不具合を修正";
+const BUILD_TAG = "2026-08-21k kincall：リスト管理にメンバーが出ない不具合を修正（自分だけ絞り込みを廃止）";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
