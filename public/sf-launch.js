@@ -822,33 +822,24 @@ let focusSearched = false;
 // 指定の予定を、前後の日から探す。
 // ホームからは商談日で開かれるが、この画面は「登録した日」で読むため。
 async function findEventAround(q) {
-  const norm = (t) => String(t || "").replace(/[\s　]/g, "");
-  const key = norm(q);
-  const base = new Date(selDateL + "T00:00:00+09:00");
-  // 直近1か月を、近い日から順に見る
-  const days = [];
-  for (let i = 1; i <= 31; i++) {
-    const d = new Date(base);
-    d.setDate(d.getDate() - i);
-    days.push(d.toISOString().slice(0, 10));
-  }
-  for (const day of days) {
-    try {
-      const r = await fetch("/api/calendar/created?date=" + encodeURIComponent(day));
-      const d = await r.json();
-      const evs = (d && d.events) || [];
-      const hit = evs.filter((e) => isTarget(e.title) &&
+  // 以前はブラウザが最大31日ぶんを1日ずつ順番に読んでいて遅かった。
+  // いまはサーバーに会社名で一括検索させて、1回で見つける。
+  try {
+    const r = await fetch("/api/calendar/find-company?q=" + encodeURIComponent(q) + "&date=" + encodeURIComponent(selDateL));
+    const d = await r.json();
+    if (d && d.found && Array.isArray(d.events)) {
+      selDateL = d.date;
+      dayEventsL = d.events;
+      memberCount = d.count || 0;
+      const norm = (t) => String(t || "").replace(/[\s　]/g, "");
+      const key = norm(q);
+      const hit = d.events.filter((e) => isTarget(e.title) &&
         (norm(e.title).includes(key) || key.includes(norm(e.title))));
-      if (hit.length) {
-        selDateL = day;
-        dayEventsL = evs;
-        memberCount = (d && d.count) || 0;
-        render();
-        checkLaunched(hit);
-        return;
-      }
-    } catch {}
-  }
+      render();
+      if (hit.length) checkLaunched(hit);
+      return;
+    }
+  } catch {}
   // 見つからなければ、そのまま「対象ではありません」を出す
   render();
 }
