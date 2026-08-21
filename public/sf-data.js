@@ -1,3 +1,4 @@
+{
 // sf-data.js — Salesforceのレポート／ダッシュボード／リードを表とグラフで見る
 const $ = (id) => document.getElementById(id);
 
@@ -850,3 +851,8 @@ document.addEventListener("mouseover", (ev) => {
 }, true);
 
 
+
+
+// kincallから使う入口だけ外に出す
+window.initSfReport = initSfReport;
+}
