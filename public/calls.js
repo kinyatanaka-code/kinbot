@@ -1285,34 +1285,52 @@ async function openSplit(listId, listName, memberEmail, memberName) {
 // 1行1社で「会社名・担当者名・電話番号・メール」。見出し行があっても飛ばす。
 function csvParse(text) {
   const out = [];
-  const lines = String(text || "").split(/\r?\n/).filter((l) => l.trim());
-  if (!lines.length) return out;
-  const split = (l) => (l.includes("\t") ? l.split("\t") : l.split(","))
-    .map((v) => String(v || "").trim().replace(/^"|"$/g, ""));
+  const src = String(text || "");
+  if (!src.trim()) return out;
 
-  // 1行目が見出しかどうかを見る。見出しなら、列の名前で場所を覚える。
-  const head = split(lines[0]);
-  const 見出しっぽい = /会社|company|担当|電話|phone|メール|mail|架電|日付|ステータス|状況|コメント/i.test(lines[0])
+  // 引用符の中のカンマ・改行も正しく扱う
+  function splitAll(t) {
+    const rows = []; let row = [], cell = "", q = false;
+    for (let i = 0; i < t.length; i++) {
+      const ch = t[i];
+      if (q) {
+        if (ch === '"') { if (t[i + 1] === '"') { cell += '"'; i++; } else q = false; }
+        else cell += ch;
+      } else if (ch === '"') q = true;
+      else if (ch === "," || ch === "\t") { row.push(cell); cell = ""; }
+      else if (ch === "\n") { row.push(cell); rows.push(row); row = []; cell = ""; }
+      else if (ch !== "\r") cell += ch;
+    }
+    row.push(cell); rows.push(row);
+    return rows.filter((r) => r.some((v) => String(v).trim()));
+  }
+
+  const rows = splitAll(src).map((r) => r.map((v) => String(v || "").trim()));
+  if (!rows.length) return out;
+
+  const head = rows[0];
+  const 見出しっぽい = /会社|company|担当|電話|phone|メール|mail|架電|日付|ステータス|状況|コメント|リード/i.test(head.join(","))
     && !/\d{3,}/.test(head.join(""));
-  const 場所 = { company: 0, person: 1, phone: 2, email: 3, callDate: -1, status: -1, comment: -1 };
+  const 場所 = { company: 0, person: 1, phone: 2, email: 3, callDate: -1, status: -1, comment: -1, leadId: -1 };
   if (見出しっぽい) {
-    const norm = (v) => String(v || "").replace(/[\s　_・]/g, "").toLowerCase();
+    const norm = (v) => String(v || "").replace(/[\s　_・\/]/g, "").toLowerCase();
     const find = (...words) => head.findIndex((h) => words.some((w) => norm(h).includes(norm(w))));
     const set = (key, ...words) => { const i = find(...words); if (i >= 0) 場所[key] = i; };
     場所.company = -1; 場所.person = -1; 場所.phone = -1; 場所.email = -1;
-    set("company", "会社名", "会社", "company", "取引先");
-    set("person", "担当者名", "担当者", "氏名", "name");
+    set("company", "会社名/取引先", "会社名", "会社", "取引先", "company");
+    set("person", "担当者名", "担当者", "姓", "氏名", "name");
     set("phone", "電話", "phone", "tel");
     set("email", "メール", "mail");
-    set("callDate", "架電日", "コール日", "活動日", "日付", "date");
-    set("status", "ステータス", "状況", "結果", "status");
-    set("comment", "最終活動コメント", "活動コメント", "コメント", "メモ", "comment", "memo");
+    set("leadId", "リードid", "leadid", "レコードid");
+    set("callDate", "最終活動日", "架電日", "コール日", "活動日", "日付");
+    set("status", "最終活動ステータス", "ステータス", "状況", "結果");
+    set("comment", "最終活動コメント", "活動コメント", "コメント", "メモ");
     if (場所.company < 0) 場所.company = 0;
   }
   const 取る = (c, i) => (i >= 0 && i < c.length ? c[i] : "");
 
-  for (let i = 見出しっぽい ? 1 : 0; i < lines.length; i++) {
-    const c = split(lines[i]);
+  for (let i = 見出しっぽい ? 1 : 0; i < rows.length; i++) {
+    const c = rows[i];
     const company = 取る(c, 場所.company);
     if (!company) continue;
     out.push({
@@ -1320,6 +1338,7 @@ function csvParse(text) {
       person: 取る(c, 場所.person),
       phone: 取る(c, 場所.phone),
       email: 取る(c, 場所.email),
+      leadId: 取る(c, 場所.leadId),
       callDate: 取る(c, 場所.callDate),
       status: 取る(c, 場所.status),
       comment: 取る(c, 場所.comment),
@@ -1333,32 +1352,64 @@ async function csvSend(dryRun) {
   const out = $("csvOut");
   const rows = csvParse(($("csvText") && $("csvText").value) || "");
   if (!rows.length) { say("中身が読めませんでした"); return; }
-  say(dryRun ? "試算しています…" : "作っています…（Salesforceを調べます）");
+
+  // 件数が多いと途中で切れるので、少しずつ送る。進み具合も出す。
+  const CHUNK = 20;
+  const 合計 = { 件数: 0, 見つかった: 0, 新しく作った: 0, とばした: 0, 履歴: 0 };
+  let listId = 0, listName = "";
+  const meisai = [];
+  const btns = [$("csvDry"), $("csvRun")].filter(Boolean);
+  btns.forEach((b) => (b.disabled = true));
   if (out) out.innerHTML = "";
+
   try {
-    const r = await fetch("/api/calls/from-csv", {
-      method: "POST", headers: { "content-type": "application/json" },
-      body: JSON.stringify({
-        name: ($("csvName") && $("csvName").value.trim()) || "",
-        rows, dryRun: !!dryRun,
-      }),
-    });
-    const d = await r.json();
-    if (!r.ok) throw new Error(d.error || "できませんでした");
+    for (let i = 0; i < rows.length; i += CHUNK) {
+      const part = rows.slice(i, i + CHUNK);
+      const 済み = Math.min(i + CHUNK, rows.length);
+      say(`${dryRun ? "試算" : "作成"}しています… ${済み} / ${rows.length}件` +
+          (合計.新しく作った ? `（新しく作った ${合計.新しく作った}）` : ""));
+
+      const r = await fetch("/api/calls/from-csv", {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          name: ($("csvName") && $("csvName").value.trim()) || "",
+          rows: part, dryRun: !!dryRun,
+          ...(listId ? { listId } : {}),
+        }),
+      });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(d.error || `途中で止まりました（${済み}件目まで）`);
+
+      if (!dryRun && !listId && d.id) { listId = d.id; listName = d.name || ""; }
+      合計.件数 += Number(d["件数"] || 0);
+      合計.見つかった += Number(d["見つかった"] || 0);
+      合計.新しく作った += Number(d["新しく作った"] || d["新しく作る"] || 0);
+      合計.とばした += Number(d["とばした"] || d["とばす"] || 0);
+      合計.履歴 += Number(d["履歴を残した"] || 0);
+      for (const x of (d["明細"] || [])) meisai.push(x);
+
+      // 途中経過も出しておく
+      if (out) {
+        out.innerHTML = '<table class="sh-table"><tr><th>会社名</th><th>担当者</th><th>架電日</th><th>状態</th></tr>' +
+          meisai.slice(0, 300).map((x) => `<tr><td>${esc(x.company || "")}</td><td>${esc(x.person || "")}</td>` +
+            `<td>${esc(x["架電日"] || "")}</td>` +
+            `<td>${esc(x["状態"] || "")}${x["履歴"] ? `／${esc(x["履歴"])}` : ""}${x["理由"] ? `（${esc(x["理由"])}）` : ""}</td></tr>`).join("") + "</table>";
+      }
+    }
+
     if (dryRun) {
-      say(`試算：${d["件数"]}件（見つかった ${d["見つかった"]}／新しく作る ${d["新しく作る"]}／とばす ${d["とばす"]}）`);
+      say(`試算おわり：${rows.length}件（見つかった ${合計.見つかった}／新しく作る ${合計.新しく作った}／とばす ${合計.とばした}）`);
     } else {
-      say(`「${d.name}」を作りました：${d["件数"]}件（見つかった ${d["見つかった"]}／新しく作った ${d["新しく作った"]}／とばした ${d["とばした"]}）`);
+      say(`「${listName}」を作りました：${合計.件数}件` +
+          `（見つかった ${合計.見つかった}／新しく作った ${合計.新しく作った}／とばした ${合計.とばした}` +
+          (合計.履歴 ? `／履歴 ${合計.履歴}件` : "") + "）");
       loadLists();
     }
-    const meisai = d["明細"] || [];
-    if (out && meisai.length) {
-      out.innerHTML = '<table class="sh-table"><tr><th>会社名</th><th>担当者</th><th>架電日</th><th>状態</th></tr>' +
-        meisai.map((x) => `<tr><td>${esc(x.company || "")}</td><td>${esc(x.person || "")}</td>` +
-          `<td>${esc(x["架電日"] || "")}</td>` +
-          `<td>${esc(x["状態"] || "")}${x["履歴"] ? `／${esc(x["履歴"])}` : ""}${x["理由"] ? `（${esc(x["理由"])}）` : ""}</td></tr>`).join("") + "</table>";
-    }
-  } catch (e) { say("失敗：" + e.message); }
+  } catch (e) {
+    say("失敗：" + e.message);
+  } finally {
+    btns.forEach((b) => (b.disabled = false));
+  }
 }
 
 (function wireCsv() {
