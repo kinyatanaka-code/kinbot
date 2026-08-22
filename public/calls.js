@@ -1773,9 +1773,11 @@ async function loadAnalysis() {
          </div>
          <div id="anOut"></div>
          <div class="an-clear">
-           <button type="button" class="kc-share-clear" id="anClear">テストで入れた記録を全部消す</button>
+           <button type="button" class="kc-share-clear" id="anSfList">Salesforceに書いた記録を見る</button>
+           <button type="button" class="kc-share-clear" id="anClear">kinbotの記録を全部消す</button>
            <span class="rev-status" id="anClearSt"></span>
          </div>
+         <div id="anSfOut"></div>
        </div>` +
       items.map((x) => {
         const 時最大 = Math.max(1, ...x["時間帯"].map((h) => h["コール"]));
@@ -1872,6 +1874,29 @@ document.addEventListener("click", (ev) => {
   if (t) { ev.preventDefault(); runMemoAnalysis(); }
   const dbtn = ev.target && ev.target.closest ? ev.target.closest(".an-days") : null;
   if (dbtn) { ev.preventDefault(); anDays = Number(dbtn.dataset.days) || 30; anFrom = ""; anTo = ""; loadAnalysis(); }
+  const sfb = ev.target && ev.target.closest ? ev.target.closest("#anSfList") : null;
+  if (sfb) {
+    ev.preventDefault();
+    const say = (m) => { const e = $("anClearSt"); if (e) e.textContent = m || ""; };
+    const out = $("anSfOut");
+    say("調べています…");
+    const q = (anFrom && anTo) ? `from=${encodeURIComponent(anFrom)}&to=${encodeURIComponent(anTo)}` : "";
+    fetch("/api/calls/sf-written?" + q).then((r) => r.json().then((d) => {
+      if (!r.ok) throw new Error(d.error || "調べられませんでした");
+      say(`${d.from} 〜 ${d.to}：${d["件数"]}件がSalesforceに書かれています`);
+      if (!out) return;
+      out.innerHTML = d["件数"]
+        ? `<div class="an-t">人ごと</div><table class="sh-table an-tb">${
+             d["人ごと"].map((x) => `<tr><td>${esc(x["誰"])}</td><td class="an-n">${x["件数"]}件</td></tr>`).join("")}</table>` +
+          `<div class="an-t">中身（最新500件まで）</div><div class="kc-tablewrap" style="max-height:40vh">` +
+          `<table class="sh-table an-tb"><tr><th>日時</th><th>誰</th><th>会社</th><th>結果</th><th>メモ</th></tr>` +
+          d.items.map((x) => `<tr><td>${esc(x["日時"])}</td><td>${esc(x["誰"])}</td><td>${esc(x["会社"])}</td>` +
+            `<td>${esc(x["結果"])}</td><td class="an-ex">${esc(x["メモ"])}</td></tr>`).join("") +
+          `</table></div><p class="note">ここは見るだけです。Salesforceの記録は消していません。</p>`
+        : `<p class="note">この期間に、kinbotからSalesforceへ書いた記録はありません。</p>`;
+    })).catch((e) => say("失敗：" + e.message));
+    return;
+  }
   const cl = ev.target && ev.target.closest ? ev.target.closest("#anClear") : null;
   if (cl) {
     ev.preventDefault();
