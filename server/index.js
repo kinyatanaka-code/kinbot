@@ -4953,6 +4953,19 @@ app.get("/api/calls/lists", async (req, res) => {
 //   2) 無ければ 会社名・電話番号・担当者名 で新しいクロスリードを作ってからリスト化
 //   3) 担当者名が無いときは、担当者名を「担当者」としてリードを作る
 // CSVの日付（2026/8/20・2026-08-20 など）を YYYY-MM-DD にそろえる
+// CSVの「最終活動ステータス」を、決まった選択肢とそれ以外に振り分ける。
+// 選択肢に無いひとことは、最終ステータスにせずコメントとして扱う。
+function 振り分け(r) {
+  const 生 = String((r && r.status) || "").trim();
+  const そろえる = (v) => String(v || "").replace(/[\s　:：]/g, "");
+  const 選択肢 = 既知の結果.concat(["担当者接触ニーズなし", "担当者接触：ニーズなし"]);
+  const 当てはまる = 選択肢.find((w) => そろえる(w) === そろえる(生));
+  return {
+    ステータス: 当てはまる || "",
+    コメント: [String((r && r.comment) || "").trim(), 当てはまる ? "" : 生].filter(Boolean).join(" ／ "),
+  };
+}
+
 function ymdOf(v) {
   const t = String(v || "").trim();
   if (!t) return "";
@@ -5016,7 +5029,8 @@ app.post("/api/calls/from-csv", async (req, res) => {
       if (!leadId) {
         if (dryRun) {
           結果.push({ company, person: person || "担当者", phone, 状態: "新しく作る（予定）",
-            架電日: ymdOf(r.callDate), 履歴: ymdOf(r.callDate) ? "履歴を残す（予定）" : "" });
+            架電日: ymdOf(r.callDate), 履歴: ymdOf(r.callDate) ? "履歴を残す（予定）" : "",
+            ...振り分け(r) });
           continue;
         }
         try {
@@ -5035,22 +5049,15 @@ app.post("/api/calls/from-csv", async (req, res) => {
         }
       } else if (dryRun) {
         結果.push({ company, person: person || "担当者", 状態,
-          架電日: ymdOf(r.callDate), 履歴: ymdOf(r.callDate) ? "履歴を残す（予定）" : "" });
+          架電日: ymdOf(r.callDate), 履歴: ymdOf(r.callDate) ? "履歴を残す（予定）" : "",
+          ...振り分け(r) });
         continue;
       }
 
       // CSVに架電日があれば、その日付でSalesforceに活動履歴を残す
       let 履歴 = "";
       const 架電日 = ymdOf(r.callDate);
-      const 生ステータス = String(r.status || "").trim();
-      // 決まった選択肢に当てはまるものだけを「最終ステータス」にする。
-      // それ以外（自由に書かれたひとこと）は、コメントとして扱う。
-      const そろえる = (v) => String(v || "").replace(/[\s　:：]/g, "");
-      const 選択肢 = 既知の結果.concat(["担当者接触ニーズなし", "担当者接触：ニーズなし"]);
-      const 当てはまる = 選択肢.find((w) => そろえる(w) === そろえる(生ステータス));
-      const ステータス = 当てはまる || "";
-      const コメント = [String(r.comment || "").trim(), 当てはまる ? "" : 生ステータス]
-        .filter(Boolean).join(" ／ ");
+      const { ステータス, コメント } = 振り分け(r);
       if (!dryRun && 架電日 && leadId) {
         try {
           await createTask(sfUser, {
@@ -12759,7 +12766,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-08-22q CSV取り込み：決まった選択肢以外はコメント扱いにした";
+const BUILD_TAG = "2026-08-22r CSV試算：最終ステータスとコメントも見えるようにした";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
