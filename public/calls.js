@@ -764,7 +764,11 @@ function showPane() {
     });
     if (name === "manage") asLoad();
     // リスト作成は、Salesforceのリード一覧をそのまま使う
-    if (name === "make" && typeof window.initSfReport === "function") window.initSfReport("lead");
+    if (name === "make") {
+      // 最初はSalesforceのレポートを出す
+      if (typeof window.initSfReport === "function") window.initSfReport("lead");
+      if (typeof srFillShare === "function") srFillShare();
+    }
   });
 })();
 
