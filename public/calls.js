@@ -418,6 +418,8 @@ function renderDock() {
     .kc-split-opts{display:flex;flex-wrap:wrap;gap:10px;flex:1;min-width:0;}
     /* 実績の 日/週/月 タブ */
     .an-range{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:12px;}
+    .an-range input[type=date]{border:1px solid #e6ece9;border-radius:8px;padding:5px 8px;font-size:13px;font-family:inherit;}
+    .an-sep{font-size:12px;color:#8a9a93;margin:0 2px;}
     .an-team{font-size:13px;font-weight:600;color:#0d5b47;background:#eaf5ef;border-radius:10px;padding:10px 14px;margin-bottom:14px;}
     .an-card{border:1px solid #e6ece9;border-radius:14px;padding:16px 18px;margin-bottom:16px;background:#fcfefe;}
     .an-h{font-size:15px;font-weight:700;color:#1f2a26;margin-bottom:12px;}
@@ -1717,13 +1719,17 @@ async function srFillShare() {
 }
 
 // ───────── メンバー別の分析 ─────────
-let anDays = 30;   // 分析する期間（日数）
+let anDays = 30;                 // 分析する期間（日数）
+let anFrom = "", anTo = "";      // 日付で直接選んだとき
 async function loadAnalysis() {
   const box = $("clStats");
   if (!box) return;
   box.innerHTML = '<div class="note">読み込んでいます…</div>';
   try {
-    const d = await (await fetch("/api/calls/analysis?days=" + encodeURIComponent(anDays))).json();
+    const q = (anFrom && anTo)
+      ? `from=${encodeURIComponent(anFrom)}&to=${encodeURIComponent(anTo)}`
+      : `days=${encodeURIComponent(anDays)}`;
+    const d = await (await fetch("/api/calls/analysis?" + q)).json();
     if (d.error) throw new Error(d.error);
     const rg = $("stRange");
     if (rg) rg.textContent = `${d.from} 〜 ${d.to}（直近${d["日数"]}日）`;
@@ -1742,7 +1748,12 @@ async function loadAnalysis() {
       `<div class="an-range">
          <span class="kc-share-lb">期間</span>
          ${[[7, "直近7日"], [14, "直近14日"], [30, "直近30日"], [60, "直近60日"], [90, "直近90日"], [180, "直近半年"]]
-           .map(([n, lb]) => `<button type="button" class="kc-share-b an-days${anDays === n ? " on" : ""}" data-days="${n}">${lb}</button>`).join("")}
+           .map(([n, lb]) => `<button type="button" class="kc-share-b an-days${(!anFrom && anDays === n) ? " on" : ""}" data-days="${n}">${lb}</button>`).join("")}
+         <span class="an-sep">または</span>
+         <input type="date" id="anFrom" value="${esc(anFrom || d.from || "")}" />
+         <span>〜</span>
+         <input type="date" id="anTo" value="${esc(anTo || d.to || "")}" />
+         <button type="button" class="kc-share-b${anFrom ? " on" : ""}" id="anApply">この期間で見る</button>
        </div>` +
       `<div class="an-team">チーム全体：コール ${t["コール"] || 0}／接触 ${t["接触"] || 0}（${t["接触率"] || 0}%）／アポ ${t["アポ"] || 0}（${t["アポ率"] || 0}%）</div>` +
       `<div class="an-card">
@@ -1822,7 +1833,10 @@ async function runMemoAnalysis() {
   try {
     const r = await fetch("/api/calls/memo-analysis", {
       method: "POST", headers: { "content-type": "application/json" },
-      body: JSON.stringify({ days: anDays, caller: ($("anWho") && $("anWho").value) || "" }),
+      body: JSON.stringify({
+        ...(anFrom && anTo ? { from: anFrom, to: anTo } : { days: anDays }),
+        caller: ($("anWho") && $("anWho").value) || "",
+      }),
     });
     const d = await r.json();
     if (!r.ok) throw new Error(d.error || "読めませんでした");
@@ -1847,5 +1861,12 @@ document.addEventListener("click", (ev) => {
   const t = ev.target && ev.target.closest ? ev.target.closest("#anRun") : null;
   if (t) { ev.preventDefault(); runMemoAnalysis(); }
   const dbtn = ev.target && ev.target.closest ? ev.target.closest(".an-days") : null;
-  if (dbtn) { ev.preventDefault(); anDays = Number(dbtn.dataset.days) || 30; loadAnalysis(); }
+  if (dbtn) { ev.preventDefault(); anDays = Number(dbtn.dataset.days) || 30; anFrom = ""; anTo = ""; loadAnalysis(); }
+  const ap = ev.target && ev.target.closest ? ev.target.closest("#anApply") : null;
+  if (ap) {
+    ev.preventDefault();
+    const f = ($("anFrom") && $("anFrom").value) || "", t = ($("anTo") && $("anTo").value) || "";
+    if (!f || !t) { const e = $("anSt"); if (e) e.textContent = "日付を両方えらんでください"; return; }
+    anFrom = f; anTo = t; loadAnalysis();
+  }
 });
