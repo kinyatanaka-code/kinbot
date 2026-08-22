@@ -159,6 +159,7 @@ import {
   callAnalysis,
   callMemos,
   clearCallLogs,
+  sfWrittenLogs,
   setNoReminder,
   fixApoForReminder,
   listApoMails,
@@ -6141,6 +6142,35 @@ async function retryCallSync() {
     for (const log of rows) await syncCallToSf(log);
   } catch {}
 }
+
+// kinbotがSalesforceに書き込んだ活動を「見るだけ」（削除はしない）
+app.get("/api/calls/sf-written", async (req, res) => {
+  try {
+    const pad = (n) => String(n).padStart(2, "0");
+    const ymd = (d) => `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}-${pad(d.getUTCDate())}`;
+    const nowJ = new Date(Date.now() + 9 * 3600 * 1000);
+    const ok日 = (v) => /^\d{4}-\d{2}-\d{2}$/.test(String(v || ""));
+    let from = ok日(req.query.from) ? String(req.query.from) : ymd(nowJ);
+    let to = ok日(req.query.to) ? String(req.query.to) : ymd(nowJ);
+    if (from > to) { const t = from; from = to; to = t; }
+
+    const rows = await sfWrittenLogs(from, to);
+    const 人 = {};
+    for (const r of rows) {
+      const k = r.caller || "（不明）";
+      人[k] = (人[k] || 0) + 1;
+    }
+    res.json({
+      ok: true, from, to, 件数: rows.length,
+      人ごと: Object.entries(人).map(([k, n]) => ({ 誰: k, 件数: n })).sort((a, b) => b.件数 - a.件数),
+      items: rows.map((r) => ({
+        日時: r["日時"], 誰: r.caller || "", 会社: r.company || "",
+        結果: r.result || "", メモ: String(r.memo || "").slice(0, 80),
+        SFのID: r.sf_task_id || "",
+      })),
+    });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
 
 // 架電記録を全部消す（テストで入れたぶんの片づけ用。戻せないので合言葉が要る）
 app.post("/api/calls/clear-logs", async (req, res) => {
@@ -13108,7 +13138,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-08-22al 分析は今日を初期表示に／テスト記録を全部消せるようにした";
+const BUILD_TAG = "2026-08-22am SFに書いた記録を見るだけの一覧を追加（削除はしない）";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
