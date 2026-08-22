@@ -6287,11 +6287,21 @@ app.get("/api/calls/stats-grid", async (req, res) => {
 
     // 並べる区切りを作る（新しいものが右）
     const 区切り = [];
+    // 日ごとのときは、土日を飛ばして平日だけを並べる
+    if (period === "day") {
+      let i = 0;
+      while (区切り.length < 本数 && i < 本数 * 3) {
+        const d = new Date(Date.UTC(y, m, d0 - i));
+        i++;
+        const w = d.getUTCDay();
+        if (w === 0 || w === 6) continue;   // 日曜・土曜はとばす
+        区切り.unshift({ key: ymd(d), 名前: `${d.getUTCMonth() + 1}/${d.getUTCDate()}`,
+          曜日: "日月火水木金土"[w], from: ymd(d), to: ymd(d) });
+      }
+    }
     for (let i = 本数 - 1; i >= 0; i--) {
       if (period === "day") {
-        const d = new Date(Date.UTC(y, m, d0 - i));
-        区切り.push({ key: ymd(d), 名前: `${d.getUTCMonth() + 1}/${d.getUTCDate()}`,
-          曜日: "日月火水木金土"[d.getUTCDay()], from: ymd(d), to: ymd(d) });
+        continue;   // 上で作った
       } else if (period === "week") {
         const off = (nowJ.getUTCDay() + 6) % 7;
         const s0 = new Date(Date.UTC(y, m, d0 - off - i * 7));
@@ -13068,7 +13078,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-08-22ai 実績：上に詰めた横長の表にし、いまの日・週・月の列を目立たせた";
+const BUILD_TAG = "2026-08-22ai 実績の日ごとは土日を除いて平日だけ並べる";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
