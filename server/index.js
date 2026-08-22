@@ -156,6 +156,7 @@ import {
   callStats,
   callStatsRange,
   callStatsByDay,
+  callAnalysis,
   setNoReminder,
   fixApoForReminder,
   listApoMails,
@@ -6138,6 +6139,87 @@ async function retryCallSync() {
     for (const log of rows) await syncCallToSf(log);
   } catch {}
 }
+
+// メンバー別の分析（全体像・内訳・時間帯・属性・推移）
+app.get("/api/calls/analysis", async (req, res) => {
+  try {
+    const 日数 = Math.min(180, Math.max(7, parseInt(req.query.days, 10) || 30));
+    const pad = (n) => String(n).padStart(2, "0");
+    const ymd = (d) => `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}-${pad(d.getUTCDate())}`;
+    const nowJ = new Date(Date.now() + 9 * 3600 * 1000);
+    const to = ymd(nowJ);
+    const from = ymd(new Date(nowJ.getTime() - (日数 - 1) * 86400000));
+
+    const members = await listMembers().catch(() => []);
+    const internsList = await listInterns().catch(() => []);
+    const internSet = new Set((internsList || []).map((x) => String(x.email || "").toLowerCase()).filter(Boolean));
+    const inside = (members || []).filter((mm) =>
+      (Array.isArray(mm.roles) && mm.roles.includes("inside")) || internSet.has(String(mm.email || "").toLowerCase()));
+    const nameOf = new Map(inside.map((mm) => [String(mm.email || "").toLowerCase(), mm.name || mm.email]));
+
+    const rows = await callAnalysis(from, to);
+    const 接触判定 = (v) => /接触|アポ|再コール|断り|見送り/.test(v) && !/不在|コールのみ|NG/.test(v);
+    const アポ判定 = (v) => /アポ獲得/.test(v);
+
+    const 空 = () => ({
+      コール: 0, 接触: 0, アポ: 0,
+      日: new Set(), 内訳: {}, 時間帯: {}, 業種: {}, ステージ: {}, 週: {},
+    });
+    const 表 = new Map();
+    for (const r of rows) {
+      const em = String(r.caller || "").toLowerCase();
+      if (!nameOf.has(em)) continue;
+      if (!表.has(em)) 表.set(em, 空());
+      const o = 表.get(em);
+      const v = String(r.result || "") || "（記録なし）";
+      const 接 = 接触判定(v), ア = アポ判定(v);
+      o.コール++; if (接 || ア) o.接触++; if (ア) o.アポ++;
+      o.日.add(r["日"]);
+      o.内訳[v] = (o.内訳[v] || 0) + 1;
+      const h = Number(r["時"]);
+      if (!o.時間帯[h]) o.時間帯[h] = { コール: 0, 接触: 0, アポ: 0 };
+      o.時間帯[h].コール++; if (接 || ア) o.時間帯[h].接触++; if (ア) o.時間帯[h].アポ++;
+      const 足す = (箱, key) => {
+        const k = String(key || "").trim() || "（未設定）";
+        if (!箱[k]) 箱[k] = { コール: 0, 接触: 0, アポ: 0 };
+        箱[k].コール++; if (接 || ア) 箱[k].接触++; if (ア) 箱[k].アポ++;
+      };
+      足す(o.業種, r.industry); 足す(o.ステージ, r.stage);
+      // 週（月曜はじまり）
+      const d = new Date(r["日"] + "T00:00:00Z");
+      const off = (d.getUTCDay() + 6) % 7;
+      const wk = ymd(new Date(d.getTime() - off * 86400000));
+      if (!o.週[wk]) o.週[wk] = { コール: 0, 接触: 0, アポ: 0 };
+      o.週[wk].コール++; if (接 || ア) o.週[wk].接触++; if (ア) o.週[wk].アポ++;
+    }
+
+    const 率 = (a, b) => (b ? +(a / b * 100).toFixed(1) : 0);
+    const 上位 = (箱, n = 8) => Object.entries(箱)
+      .sort((a, b) => b[1].コール - a[1].コール).slice(0, n)
+      .map(([k, v]) => ({ 名前: k, ...v, 接触率: 率(v.接触, v.コール), アポ率: 率(v.アポ, v.コール) }));
+
+    const items = [...表.entries()].map(([em, o]) => ({
+      誰: nameOf.get(em) || em,
+      コール: o.コール, 接触: o.接触, アポ: o.アポ,
+      接触率: 率(o.接触, o.コール), アポ率: 率(o.アポ, o.コール),
+      稼働日数: o.日.size,
+      "1日あたり": o.日.size ? +(o.コール / o.日.size).toFixed(1) : 0,
+      内訳: Object.entries(o.内訳).sort((a, b) => b[1] - a[1]).map(([k, n]) => ({ 名前: k, 件数: n, 割合: 率(n, o.コール) })),
+      時間帯: Object.entries(o.時間帯).sort((a, b) => Number(a[0]) - Number(b[0]))
+        .map(([h, v]) => ({ 時: Number(h), ...v, 接触率: 率(v.接触, v.コール) })),
+      業種: 上位(o.業種), ステージ: 上位(o.ステージ),
+      週: Object.entries(o.週).sort((a, b) => a[0] < b[0] ? -1 : 1)
+        .map(([k, v]) => ({ 週: k, ...v, 接触率: 率(v.接触, v.コール) })),
+    })).sort((a, b) => b.コール - a.コール);
+
+    const 合計 = items.reduce((a, x) => ({
+      コール: a.コール + x.コール, 接触: a.接触 + x.接触, アポ: a.アポ + x.アポ,
+    }), { コール: 0, 接触: 0, アポ: 0 });
+    const チーム = { ...合計, 接触率: 率(合計.接触, 合計.コール), アポ率: 率(合計.アポ, 合計.コール) };
+
+    res.json({ ok: true, from, to, 日数, items, チーム });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
 
 // 実績を並べて比べる（メンバー × 日付／週／月）
 app.get("/api/calls/stats-grid", async (req, res) => {
@@ -12930,7 +13012,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-08-22ae 実績：メンバー×日付の表で、日ごと・週ごと・月ごとに比べられるようにした";
+const BUILD_TAG = "2026-08-22af 実績にメンバー別の分析を追加（全体像・内訳・時間帯・属性・週の動き）";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
