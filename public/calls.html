@@ -10,7 +10,7 @@
     <link rel="manifest" href="/site.webmanifest" />
     <meta name="theme-color" content="#0d5b47" />
     <meta name="apple-mobile-web-app-title" content="kinbot" />
-    <link rel="stylesheet" href="style.css?v=20260822u" />
+    <link rel="stylesheet" href="style.css?v=20260822v" />
   </head>
   <body class="kc-body">
     <div class="app">
@@ -100,6 +100,15 @@
                   <div class="kc-share" id="csvShare"><span class="note">読み込んでいます…</span></div>
                 </div>
                 <textarea id="csvText" rows="6" style="width:100%;box-sizing:border-box" placeholder="会社名,担当者名,電話番号,メール,架電日,ステータス,最終活動コメント&#10;株式会社ベルク,町田,03-1234-5678,,2026/08/20,担当者不在,折り返し依頼"></textarea>
+                <div class="kc-share-box" id="csvFilterBox" hidden>
+                  <div class="kc-share-head">
+                    <span class="kc-share-lb">絞り込み</span>
+                    <span class="kc-share-hint" id="csvFilterHint"></span>
+                    <button type="button" class="kc-share-clear" id="csvFilterClear">すべて選ぶ</button>
+                  </div>
+                  <div class="kc-filter-row"><span class="kc-filter-lb">ステージ</span><div class="kc-share" id="csvStages"></div></div>
+                  <div class="kc-filter-row"><span class="kc-filter-lb">ステータス</span><div class="kc-share" id="csvStatuses"></div></div>
+                </div>
                 <div class="ap-cfg-row">
                   <button class="btn ghost" id="csvDry">まず試算する</button>
                   <button class="btn" id="csvRun">この内容でリストを作る</button>
@@ -157,8 +166,8 @@
         </main>
       </div>
     </div>
-    <script src="sf-data.js?v=20260822u"></script>
-    <script src="calls.js?v=20260822u"></script>
-    <script src="nav.js?v=20260822u"></script>
+    <script src="sf-data.js?v=20260822v"></script>
+    <script src="calls.js?v=20260822v"></script>
+    <script src="nav.js?v=20260822v"></script>
   </body>
 </html>
