@@ -808,6 +808,7 @@ async function srToKincall() {
       body: JSON.stringify({
         name, columns: d.columns || [], rows: d.rows || [],
         member: (document.getElementById("srToWho") || {}).value || "",
+        share: (window.kcShareMembers || []),
       }),
     });
     const j = await r.json();
