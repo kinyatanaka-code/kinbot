@@ -5248,7 +5248,14 @@ async function callPicklists(owner) {
 app.get("/api/calls/picklists", async (req, res) => {
   try {
     if (String(req.query.refresh || "") === "1") _callPicks = null;
-    const d = await callPicklists(req.user);
+    // SFアカウントの無い人でも選択肢を出せるよう、代わりに更新する人の連携を使う
+    let owner = req.user;
+    if (!(await sfConnected(owner).catch(() => false))) {
+      const st = await getSettings().catch(() => ({}));
+      const 代理 = String(st.sfProxyUser || "").trim().toLowerCase();
+      if (代理 && (await sfConnected(代理).catch(() => false))) owner = 代理;
+    }
+    const d = await callPicklists(owner);
     res.json({ ok: true, ...d });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
@@ -12823,7 +12830,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-08-22aa ステージの選択肢を番号順に自動でそろえた（リサイクル・アーカイブも含む）";
+const BUILD_TAG = "2026-08-22ab ステージがプルダウンで選べない不具合を修正（代理連携で選択肢を取得）";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
