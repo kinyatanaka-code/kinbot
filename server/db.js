@@ -6391,3 +6391,22 @@ export async function clearCallLogs() {
     return rowCount || 0;
   } catch (e) { console.error("[db] clearCallLogs", e.message); return 0; }
 }
+
+
+// kinbotがSalesforceに書き込んだ活動の一覧（消す前に確かめるため。読むだけ）
+export async function sfWrittenLogs(fromJst, toJst) {
+  if (!pool) return [];
+  try {
+    const { rows } = await pool.query(
+      `SELECT id, caller, company, result, memo, sf_task_id, lead_id,
+              to_char(at AT TIME ZONE 'Asia/Tokyo','YYYY-MM-DD HH24:MI') AS 日時
+         FROM call_logs
+        WHERE coalesce(sf_task_id,'') <> ''
+          AND (at AT TIME ZONE 'Asia/Tokyo')::date >= $1::date
+          AND (at AT TIME ZONE 'Asia/Tokyo')::date <= $2::date
+        ORDER BY at DESC
+        LIMIT 500`,
+      [fromJst, toJst]);
+    return rows;
+  } catch (e) { console.error("[db] sfWrittenLogs", e.message); return []; }
+}
