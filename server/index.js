@@ -157,6 +157,7 @@ import {
   callStatsRange,
   callStatsByDay,
   callAnalysis,
+  callMemos,
   setNoReminder,
   fixApoForReminder,
   listApoMails,
@@ -6140,6 +6141,58 @@ async function retryCallSync() {
   } catch {}
 }
 
+// コメントをAIに読ませて、どんな断られ方が多いかを調べる
+app.post("/api/calls/memo-analysis", async (req, res) => {
+  try {
+    const b = req.body || {};
+    const 日数 = Math.min(180, Math.max(7, parseInt(b.days, 10) || 30));
+    const 誰 = String(b.caller || "").trim().toLowerCase();
+    const pad = (n) => String(n).padStart(2, "0");
+    const ymd = (d) => `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}-${pad(d.getUTCDate())}`;
+    const nowJ = new Date(Date.now() + 9 * 3600 * 1000);
+    const to = ymd(nowJ);
+    const from = ymd(new Date(nowJ.getTime() - (日数 - 1) * 86400000));
+
+    const rows = await callMemos(from, to, 誰);
+    if (!rows.length) return res.json({ ok: true, 件数: 0, 分類: [], from, to });
+
+    // AIに渡す材料（長すぎないように切る）
+    const 材料 = rows.slice(0, 300).map((r, i) =>
+      `${i + 1}. [${r.result || "-"}] ${String(r.memo || "").slice(0, 160)}`).join("\n");
+
+    const sys = "あなたは法人向けインサイドセールスの記録を読む分析役です。" +
+      "架電メモから「断られ方・進まない理由」を意味ごとにまとめ、日本語のJSONだけを返します。" +
+      "説明文やコードブロックは書かないでください。";
+    const user =
+      "次は架電のメモです。どんな理由で断られている／進んでいないかを、意味の近いものでまとめてください。\n" +
+      "・多い順に最大10個まで\n" +
+      "・分類名は現場で使う短い日本語（例：既存ツールで足りている、採用予定がない、時期が合わない、決裁者に繋がらない、資料だけ希望）\n" +
+      "・件数は、その分類に当てはまるメモの数\n" +
+      "・例は実際のメモから2つまで、短く\n" +
+      "・最後に、件数が多い分類への打ち手を3つまで\n\n" +
+      "返す形：{\"分類\":[{\"名前\":\"\",\"件数\":0,\"例\":[\"\"]}],\"打ち手\":[\"\"]}\n\n" +
+      "メモ:\n" + 材料;
+
+    const raw = await callLLMPublic(sys, user, 1200, { json: true });
+    let out = {};
+    try {
+      const t = String(raw || "").replace(/```json|```/g, "").trim();
+      out = typeof raw === "object" && raw ? raw : JSON.parse(t);
+    } catch { out = {}; }
+
+    const 分類 = (out["分類"] || []).map((x) => ({
+      名前: String(x["名前"] || "").slice(0, 40),
+      件数: Number(x["件数"] || 0),
+      例: (x["例"] || []).slice(0, 2).map((v) => String(v).slice(0, 120)),
+    })).filter((x) => x.名前).sort((a, b) => b.件数 - a.件数);
+
+    res.json({
+      ok: true, from, to, 件数: rows.length, 読んだ数: Math.min(300, rows.length),
+      分類, 打ち手: (out["打ち手"] || []).slice(0, 3).map((v) => String(v).slice(0, 200)),
+    });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 // メンバー別の分析（全体像・内訳・時間帯・属性・推移）
 app.get("/api/calls/analysis", async (req, res) => {
   try {
@@ -6200,6 +6253,7 @@ app.get("/api/calls/analysis", async (req, res) => {
 
     const items = [...表.entries()].map(([em, o]) => ({
       誰: nameOf.get(em) || em,
+      メール: em,
       コール: o.コール, 接触: o.接触, アポ: o.アポ,
       接触率: 率(o.接触, o.コール), アポ率: 率(o.アポ, o.コール),
       稼働日数: o.日.size,
@@ -13012,7 +13066,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-08-22ag 実績：担当ごとにコール・接触・アポをまとめて表示";
+const BUILD_TAG = "2026-08-22ah コメントをAIに読ませて、断られ方を分類できるようにした";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
