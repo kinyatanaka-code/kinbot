@@ -1587,3 +1587,54 @@ function csvFilterRefresh() {
   const run = document.getElementById("csvRun");
   if (run) run.addEventListener("click", () => csvSend(false));
 })();
+
+// リスト作成の中の切り替え（CSVから作る／Salesforceのレポートから作る）
+(function wireMakeTabs() {
+  const tabs = document.getElementById("mkTabs");
+  if (!tabs) return;
+  tabs.addEventListener("click", (ev) => {
+    const b = ev.target && ev.target.closest ? ev.target.closest(".kc-ptab") : null;
+    if (!b) return;
+    const name = b.dataset.mk || "csv";
+    tabs.querySelectorAll(".kc-ptab").forEach((x) => x.classList.toggle("active", x === b));
+    document.querySelectorAll("[data-mk-pane]").forEach((el) => { el.hidden = el.dataset.mkPane !== name; });
+    if (name === "sf") {
+      if (typeof window.initSfReport === "function") window.initSfReport("lead");
+      srFillShare();
+    }
+  });
+})();
+
+// Salesforceレポートから作るときの「分ける人」
+function srShareSelected() {
+  return [...document.querySelectorAll("#srShare .kc-share-b.on")].map((b) => b.dataset.email);
+}
+function srShareRefresh() {
+  const n = srShareSelected().length;
+  const hint = $("srShareHint");
+  if (hint) hint.textContent = n ? `${n}人に順番に分けます` : "選ばないと、作った人のリストになります";
+  const clr = $("srShareClear");
+  if (clr) clr.hidden = !n;
+  // sf-data.js から読めるようにしておく
+  window.kcShareMembers = srShareSelected();
+}
+async function srFillShare() {
+  const box = $("srShare");
+  if (!box || box.dataset.filled) return;
+  try {
+    const d = await (await fetch("/api/calls/members")).json();
+    const items = (d && d.items) || [];
+    if (!items.length) { box.innerHTML = '<span class="note">メンバーがいません</span>'; return; }
+    box.innerHTML = items.map((m) =>
+      `<button type="button" class="kc-share-b" data-email="${esc(m.email)}">${esc(m.name)}</button>`).join("");
+    box.dataset.filled = "1";
+    box.querySelectorAll(".kc-share-b").forEach((b) =>
+      b.addEventListener("click", () => { b.classList.toggle("on"); srShareRefresh(); }));
+    const clr = $("srShareClear");
+    if (clr) clr.addEventListener("click", () => {
+      box.querySelectorAll(".kc-share-b.on").forEach((b) => b.classList.remove("on"));
+      srShareRefresh();
+    });
+    srShareRefresh();
+  } catch { box.innerHTML = '<span class="note">読み込めませんでした</span>'; }
+}
