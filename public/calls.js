@@ -392,6 +392,8 @@ function renderDock() {
     .kc-split{display:flex;flex-direction:column;gap:14px;}
     .kc-csv{border:1px solid #e6ece9;border-radius:12px;padding:14px 16px;margin-bottom:18px;background:#fcfefe;}
     .kc-csv-h{font-size:14px;font-weight:700;color:#0d5b47;margin-bottom:6px;}
+    .kc-share{display:flex;flex-wrap:wrap;gap:10px;align-items:center;flex:1;min-width:0;}
+    .kc-share-lb{font-size:12px;font-weight:600;color:#5b7a6d;}
     .kc-cmt{max-width:320px;white-space:normal;word-break:break-word;color:#5b7a6d;font-size:12px;}
     .kc-split-row{display:flex;align-items:center;gap:10px;flex-wrap:wrap;}
     .kc-split-lb{font-size:12px;font-weight:600;color:#5b7a6d;min-width:110px;}
@@ -1378,6 +1380,7 @@ async function csvSend(dryRun) {
         body: JSON.stringify({
           name: ($("csvName") && $("csvName").value.trim()) || "",
           rows: part, dryRun: !!dryRun,
+          share: [...document.querySelectorAll(".csv-share-b:checked")].map((x) => x.value),
           ...(listId ? { listId } : {}),
         }),
       });
@@ -1409,7 +1412,9 @@ async function csvSend(dryRun) {
     } else {
       say(`「${listName}」を作りました：${合計.件数}件` +
           `（見つかった ${合計.見つかった}／新しく作った ${合計.新しく作った}／とばした ${合計.とばした}` +
-          (合計.履歴 ? `／履歴 ${合計.履歴}件` : "") + "）");
+          (合計.履歴 ? `／履歴 ${合計.履歴}件` : "") + "）" +
+          (() => { const n = document.querySelectorAll(".csv-share-b:checked").length;
+                   return n ? `　${n}人に分けました` : ""; })());
       loadLists();
     }
   } catch (e) {
@@ -1419,7 +1424,23 @@ async function csvSend(dryRun) {
   }
 }
 
+// 分ける人の候補（チェックで選ぶ）
+async function csvFillShare() {
+  const box = $("csvShare");
+  if (!box || box.dataset.filled) return;
+  try {
+    const d = await (await fetch("/api/calls/members")).json();
+    const items = (d && d.items) || [];
+    if (!items.length) { box.innerHTML = '<span class="note">メンバーがいません</span>'; return; }
+    box.innerHTML = items.map((m) =>
+      `<label class="ks-check"><input type="checkbox" class="csv-share-b" value="${esc(m.email)}" /> ${esc(m.name)}</label>`
+    ).join("") + '<span class="note" id="csvShareNote">選ばないと、作った人のリストになります</span>';
+    box.dataset.filled = "1";
+  } catch { box.innerHTML = '<span class="note">読み込めませんでした</span>'; }
+}
+
 (function wireCsv() {
+  csvFillShare();
   const f = document.getElementById("csvFile");
   if (f) f.addEventListener("change", () => {
     const file = f.files && f.files[0];
