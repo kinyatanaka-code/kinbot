@@ -6145,13 +6145,20 @@ async function retryCallSync() {
 app.post("/api/calls/memo-analysis", async (req, res) => {
   try {
     const b = req.body || {};
-    const 日数 = Math.min(180, Math.max(7, parseInt(b.days, 10) || 30));
     const 誰 = String(b.caller || "").trim().toLowerCase();
     const pad = (n) => String(n).padStart(2, "0");
     const ymd = (d) => `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}-${pad(d.getUTCDate())}`;
     const nowJ = new Date(Date.now() + 9 * 3600 * 1000);
-    const to = ymd(nowJ);
-    const from = ymd(new Date(nowJ.getTime() - (日数 - 1) * 86400000));
+    const ok日 = (v) => /^\d{4}-\d{2}-\d{2}$/.test(String(v || ""));
+    let from, to;
+    if (ok日(b.from) && ok日(b.to)) {
+      from = String(b.from); to = String(b.to);
+      if (from > to) { const t = from; from = to; to = t; }
+    } else {
+      const 日数 = Math.min(365, Math.max(1, parseInt(b.days, 10) || 30));
+      to = ymd(nowJ);
+      from = ymd(new Date(nowJ.getTime() - (日数 - 1) * 86400000));
+    }
 
     const rows = await callMemos(from, to, 誰);
     if (!rows.length) return res.json({ ok: true, 件数: 0, 分類: [], from, to });
@@ -6196,12 +6203,21 @@ app.post("/api/calls/memo-analysis", async (req, res) => {
 // メンバー別の分析（全体像・内訳・時間帯・属性・推移）
 app.get("/api/calls/analysis", async (req, res) => {
   try {
-    const 日数 = Math.min(180, Math.max(7, parseInt(req.query.days, 10) || 30));
     const pad = (n) => String(n).padStart(2, "0");
     const ymd = (d) => `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}-${pad(d.getUTCDate())}`;
     const nowJ = new Date(Date.now() + 9 * 3600 * 1000);
-    const to = ymd(nowJ);
-    const from = ymd(new Date(nowJ.getTime() - (日数 - 1) * 86400000));
+    const ok日 = (v) => /^\d{4}-\d{2}-\d{2}$/.test(String(v || ""));
+    // 日付を直接もらえる。無ければ「直近◯日」で決める。
+    let from, to, 日数;
+    if (ok日(req.query.from) && ok日(req.query.to)) {
+      from = String(req.query.from); to = String(req.query.to);
+      if (from > to) { const t = from; from = to; to = t; }
+      日数 = Math.round((new Date(to + "T00:00:00Z") - new Date(from + "T00:00:00Z")) / 86400000) + 1;
+    } else {
+      日数 = Math.min(365, Math.max(1, parseInt(req.query.days, 10) || 30));
+      to = ymd(nowJ);
+      from = ymd(new Date(nowJ.getTime() - (日数 - 1) * 86400000));
+    }
 
     const members = await listMembers().catch(() => []);
     const internsList = await listInterns().catch(() => []);
@@ -13078,7 +13094,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-08-22aj 分析する期間を選べるようにした";
+const BUILD_TAG = "2026-08-22ak 分析の期間を日付でも選べるようにした";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
