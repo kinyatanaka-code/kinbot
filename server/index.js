@@ -6349,7 +6349,9 @@ app.get("/api/calls/stats-grid", async (req, res) => {
       コール: a.コール + x.値[i].コール, 接触: a.接触 + x.値[i].接触, アポ: a.アポ + x.値[i].アポ,
     }), { コール: 0, 接触: 0, アポ: 0 }));
 
-    res.json({ ok: true, period, 区切り, items, 合計 });
+    // いまの日（週・月）がどれかを教える
+    const 今 = 区切り.length ? 区切り[区切り.length - 1].key : "";
+    res.json({ ok: true, period, 区切り, items, 合計, 今 });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
@@ -13066,7 +13068,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-08-22ah コメントをAIに読ませて、断られ方を分類できるようにした";
+const BUILD_TAG = "2026-08-22ai 実績：上に詰めた横長の表にし、いまの日・週・月の列を目立たせた";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
