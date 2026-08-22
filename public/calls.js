@@ -1014,7 +1014,9 @@ async function asLoadMember(email, name) {
         <div class="kc-list-card" data-id="${x.id}">
           <button type="button" class="kc-list-del" data-del="${x.id}" aria-label="削除" title="削除">✕</button>
           <div class="kc-list-name">${esc(x.name)}</div>
-          <div class="kc-list-meta"><span class="kc-list-chip">全 ${x["全部"]}件</span></div>
+          <div class="kc-list-meta"><span class="kc-list-chip">全 ${x["全部"]}件</span>${
+            x["自分のぶん"] && x["自分のぶん"] !== x["全部"]
+              ? `<span class="kc-list-chip done">この人 ${x["自分のぶん"]}件</span>` : ""}</div>
         </div>`).join("") + '</div>';
       box.querySelectorAll(".kc-list-card").forEach((c) =>
         c.addEventListener("click", () => openSplit(c.dataset.id, (c.querySelector(".kc-list-name") || {}).textContent || "", email, name)));
