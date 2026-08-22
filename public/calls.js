@@ -438,8 +438,15 @@ function renderDock() {
     .an-ex{font-size:11px;color:#6b7c74;max-width:420px;white-space:normal;}
     .an-ul{margin:4px 0 0;padding-left:20px;font-size:12px;color:#1f2a26;}
     .an-ul li{margin-bottom:4px;}
-    .kc-g-block{margin-bottom:16px;border:1px solid #e6ece9;border-radius:12px;padding:12px 14px;background:#fcfefe;}
+    .kc-g-block{margin-bottom:10px;border:1px solid #e6ece9;border-radius:12px;padding:8px 12px;background:#fcfefe;}
+    .kc-g-block table{width:100%;}
+    .kc-g-title{font-size:13px;font-weight:700;color:#0d5b47;margin:0 0 4px;}
     .kc-g-team{background:#eaf5ef;border-color:#cfe6da;}
+    .kc-grid th,.kc-grid td{padding:3px 8px;}
+    .kc-g-now{background:#eaf5ef;}
+    .kc-grid th.kc-g-now{background:#1d9e75;color:#fff;border-radius:6px 6px 0 0;}
+    .kc-grid th.kc-g-now .kc-g-w{color:#dff2e8;}
+    .kc-grid td.kc-g-now{font-weight:700;color:#0d5b47;}
     .kc-g-apo td{font-weight:700;}
     .kc-g-tot{background:#f4f7f5;font-weight:700;}
     .kc-g-title{font-size:13px;font-weight:700;color:#0d5b47;margin-bottom:6px;}
@@ -703,53 +710,39 @@ async function loadStats() {
     const 区切り = d["区切り"] || [];
     const items = d.items || [];
     const 合計 = d["合計"] || [];
+    const 今 = d["今"] || "";
 
     const rg = $("stRange");
     if (rg) rg.textContent = 区切り.length
       ? `${区切り[0]["名前"]} 〜 ${区切り[区切り.length - 1]["名前"]}` : "";
 
+    const いま = (c) => (c.key === 今 ? " kc-g-now" : "");
     const 頭 = `<tr><th class="kc-g-name">　</th>` +
-      区切り.map((c) => `<th class="kc-g-h"><div>${esc(c["名前"])}</div>` +
+      区切り.map((c) => `<th class="kc-g-h${いま(c)}"><div>${esc(c["名前"])}</div>` +
         (c["曜日"] ? `<div class="kc-g-w">${esc(c["曜日"])}</div>` : "") + `</th>`).join("") +
       `<th class="kc-g-h kc-g-tot">合計</th></tr>`;
 
-    // 担当ごとに1つの表（コール・接触・アポの3行）
-    const 人の表 = (名前, 値) => {
-      const 行 = (lb, key, cls) => {
+    const 表 = (名前, 値, cls) => {
+      const 行 = (lb, key, rcls) => {
         const 計 = 値.reduce((a, v) => a + (v[key] || 0), 0);
-        return `<tr class="${cls || ""}"><td class="kc-g-name">${esc(lb)}</td>` +
-          値.map((v) => `<td class="kc-g-n">${v[key] || 0}</td>`).join("") +
+        return `<tr class="${rcls || ""}"><td class="kc-g-name">${esc(lb)}</td>` +
+          値.map((v, i) => `<td class="kc-g-n${いま(区切り[i])}">${v[key] || 0}</td>`).join("") +
           `<td class="kc-g-n kc-g-tot">${計}</td></tr>`;
       };
-      return `<div class="kc-g-block">
+      return `<div class="kc-g-block${cls || ""}">
         <div class="kc-g-title">${esc(名前)}</div>
-        <div class="kc-tablewrap"><table class="sh-table kc-grid">
+        <table class="sh-table kc-grid">
           ${頭}${行("コール", "コール")}${行("接触", "接触")}${行("アポ", "アポ", "kc-g-apo")}
-        </table></div>
+        </table>
       </div>`;
     };
 
-    const チーム行 = () => {
-      const 行 = (lb, key) => {
-        const 計 = 合計.reduce((a, v) => a + (v[key] || 0), 0);
-        return `<tr><td class="kc-g-name">${lb}</td>` +
-          合計.map((v) => `<td class="kc-g-n">${v[key] || 0}</td>`).join("") +
-          `<td class="kc-g-n kc-g-tot">${計}</td></tr>`;
-      };
-      return `<div class="kc-g-block kc-g-team">
-        <div class="kc-g-title">チーム合計</div>
-        <div class="kc-tablewrap"><table class="sh-table kc-grid">
-          ${頭}${行("コール", "コール")}${行("接触", "接触")}${行("アポ", "アポ")}
-        </table></div>
-      </div>`;
-    };
-
-    // 記録がある人を先に、無い人は最後にまとめる
     const ある = items.filter((x) => x["値"].some((v) => v.コール || v.接触 || v.アポ));
     const ない = items.filter((x) => !x["値"].some((v) => v.コール || v.接触 || v.アポ));
 
     box.innerHTML = items.length
-      ? チーム行() + ある.map((x) => 人の表(x["誰"], x["値"])).join("") +
+      ? 表("チーム合計", 合計, " kc-g-team") +
+        ある.map((x) => 表(x["誰"], x["値"])).join("") +
         (ない.length ? `<div class="note">この期間に記録がない人：${ない.map((x) => esc(x["誰"])).join("、")}</div>` : "")
       : `<div class="note">この期間の記録はまだありません。</div>`;
   } catch (e) { box.innerHTML = `<div class="note">読み込めませんでした：${esc(e.message)}</div>`; }
