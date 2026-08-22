@@ -1474,15 +1474,51 @@ async function csvFillShare() {
 
 // CSVの中身から、ステージ・ステータスの選択肢を作る
 let csvRowsCache = [];
-function csvBuildFilters() {
+let csvStageList = null;
+async function csvLoadStages() {
+  if (csvStageList) return csvStageList;
+  try {
+    const d = await (await fetch("/api/calls/picklists")).json();
+    csvStageList = ((d && d["リードの状態"]) || []).map((x) => x.label || x.value);
+  } catch { csvStageList = []; }
+  // CSVの書き方（01：新規／01:新規／新規）の違いを、SFの言い方にそろえる
+  const そろえる2 = (v) => String(v || "").replace(/[\s　:：]/g, "").toLowerCase();
+  window.csvNormStage = (v) => {
+    const t = String(v || "").trim();
+    if (!t) return "（空）";
+    const hit = (csvStageList || []).find((w) =>
+      そろえる2(w) === そろえる2(t) ||
+      そろえる2(w).startsWith(そろえる2(t)) ||
+      そろえる2(t).startsWith(そろえる2(w)));
+    return hit || t;
+  };
+  return csvStageList;
+}
+
+async function csvBuildFilters() {
   const box = $("csvFilterBox");
   if (!box) return;
+  await csvLoadStages();
   csvRowsCache = csvParse(($("csvText") && $("csvText").value) || "");
   if (!csvRowsCache.length) { box.hidden = true; return; }
+  // ステータスは決まった選択肢だけを見る。それ以外は「-（コメント扱い）」にまとめる。
+  const 決まった結果 = [
+    "受付ブロック", "担当者不在", "担当者接触：お断り", "担当者接触：アポ獲得",
+    "担当者接触：営業フォロー", "現在使われていない", "コールのみ", "問い合わせ",
+    "担当者接触ニーズなし",
+  ];
+  const そろえる = (v) => String(v || "").replace(/[\s　:：]/g, "");
+  window.csvNormStatus = (v) => {
+    const t = String(v || "").trim();
+    if (!t) return "（空）";
+    const hit = 決まった結果.find((w) => そろえる(w) === そろえる(t));
+    return hit || "-（コメント扱い）";
+  };
   const 数える = (key) => {
     const m = new Map();
     for (const r of csvRowsCache) {
-      const v = String(r[key] || "").trim() || "（空）";
+      const v = key === "status" ? window.csvNormStatus(r[key])
+        : (String(r[key] || "").trim() || "（空）");
       m.set(v, (m.get(v) || 0) + 1);
     }
     return [...m.entries()].sort((a, b) => b[1] - a[1]);
@@ -1490,13 +1526,18 @@ function csvBuildFilters() {
   const 出す = (id, key) => {
     const el = $(id);
     if (!el) return;
-    const list = 数える(key);
+    let list = 数える(key);
+    if (key === "stage") {
+      // SFの並び順にそろえる（01：新規 → 02：担当未接触 …）
+      const 順 = (v) => { const i = (csvStageList || []).indexOf(v); return i < 0 ? 999 : i; };
+      list = list.sort((a, b) => 順(a[0]) - 順(b[0]));
+    }
     el.innerHTML = list.map(([v, n]) =>
       `<button type="button" class="kc-share-b on" data-v="${esc(v)}">${esc(v)} <span class="kc-n">${n}</span></button>`).join("");
     el.querySelectorAll(".kc-share-b").forEach((b) =>
       b.addEventListener("click", () => { b.classList.toggle("on"); csvFilterRefresh(); }));
   };
-  出す("csvStages", "stage");
+  出す("csvStages", "stage");   // SFのリード状況にそろえる
   出す("csvStatuses", "status");
   box.hidden = false;
   csvFilterRefresh();
@@ -1506,9 +1547,9 @@ function csvPicked(id) {
 }
 function csvFiltered() {
   const st = csvPicked("csvStages"), su = csvPicked("csvStatuses");
-  return csvRowsCache.filter((r) =>
-    st.has(String(r.stage || "").trim() || "（空）") &&
-    su.has(String(r.status || "").trim() || "（空）"));
+  const 段 = (v) => (window.csvNormStage ? window.csvNormStage(v) : (String(v || "").trim() || "（空）"));
+  const 状 = (v) => (window.csvNormStatus ? window.csvNormStatus(v) : (String(v || "").trim() || "（空）"));
+  return csvRowsCache.filter((r) => st.has(段(r.stage)) && su.has(状(r.status)));
 }
 function csvFilterRefresh() {
   const hint = $("csvFilterHint");
