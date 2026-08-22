@@ -6359,3 +6359,23 @@ export async function callAnalysis(fromJst, toJst) {
     return rows;
   } catch (e) { console.error("[db] callAnalysis", e.message); return []; }
 }
+
+
+// 記録に書かれたコメントを取る（断られ方の分析用）
+export async function callMemos(fromJst, toJst, caller = "") {
+  if (!pool) return [];
+  try {
+    const { rows } = await pool.query(
+      `SELECT caller, result, memo, company,
+              to_char(at AT TIME ZONE 'Asia/Tokyo','YYYY-MM-DD') AS 日
+         FROM call_logs
+        WHERE (at AT TIME ZONE 'Asia/Tokyo')::date >= $1::date
+          AND (at AT TIME ZONE 'Asia/Tokyo')::date <= $2::date
+          AND coalesce(memo,'') <> ''
+          AND ($3 = '' OR lower(caller) = $3)
+        ORDER BY at DESC
+        LIMIT 600`,
+      [fromJst, toJst, String(caller || "").toLowerCase()]);
+    return rows;
+  } catch (e) { console.error("[db] callMemos", e.message); return []; }
+}
