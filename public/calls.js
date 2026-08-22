@@ -417,6 +417,24 @@ function renderDock() {
     .kc-split-lb{font-size:12px;font-weight:600;color:#5b7a6d;min-width:110px;}
     .kc-split-opts{display:flex;flex-wrap:wrap;gap:10px;flex:1;min-width:0;}
     /* 実績の 日/週/月 タブ */
+    .an-team{font-size:13px;font-weight:600;color:#0d5b47;background:#eaf5ef;border-radius:10px;padding:10px 14px;margin-bottom:14px;}
+    .an-card{border:1px solid #e6ece9;border-radius:14px;padding:16px 18px;margin-bottom:16px;background:#fcfefe;}
+    .an-h{font-size:15px;font-weight:700;color:#1f2a26;margin-bottom:12px;}
+    .an-kpi{display:flex;flex-wrap:wrap;gap:10px;margin-bottom:14px;}
+    .an-k{flex:1;min-width:96px;border:1px solid #e6ece9;border-radius:10px;padding:8px 10px;background:#fff;text-align:center;}
+    .an-kn{font-size:18px;font-weight:700;color:#0d5b47;font-variant-numeric:tabular-nums;}
+    .an-kl{font-size:11px;color:#6b7c74;margin-top:2px;}
+    .an-up{color:#217a54;font-weight:600;}
+    .an-down{color:#c2603f;font-weight:600;}
+    .an-eq{color:#8a9a93;}
+    .an-cols{display:flex;gap:16px;flex-wrap:wrap;margin-bottom:12px;}
+    .an-col{flex:1;min-width:260px;}
+    .an-t{font-size:12px;font-weight:700;color:#5b7a6d;margin:6px 0;}
+    .an-funnel{font-size:12px;color:#1f2a26;background:#f4f7f5;border-radius:8px;padding:6px 10px;margin-bottom:6px;}
+    .an-tb td,.an-tb th{padding:4px 8px;font-size:12px;}
+    .an-n{text-align:right;font-variant-numeric:tabular-nums;}
+    .an-bar{display:inline-block;width:70px;height:7px;background:#eef3f0;border-radius:4px;overflow:hidden;vertical-align:middle;}
+    .an-bar i{display:block;height:100%;background:#1d9e75;}
     .kc-g-block{margin-bottom:18px;}
     .kc-g-title{font-size:13px;font-weight:700;color:#0d5b47;margin-bottom:6px;}
     .kc-grid th,.kc-grid td{text-align:center;padding:6px 8px;white-space:nowrap;}
@@ -672,6 +690,7 @@ let statsPeriod = "day";
 async function loadStats() {
   const box = $("clStats");
   if (!box) return;
+  if (statsPeriod === "analysis") return loadAnalysis();
   try {
     const d = await (await fetch(`/api/calls/stats-grid?period=${encodeURIComponent(statsPeriod)}`)).json();
     if (d.error) throw new Error(d.error);
@@ -1672,4 +1691,82 @@ async function srFillShare() {
     });
     srShareRefresh();
   } catch { box.innerHTML = '<span class="note">読み込めませんでした</span>'; }
+}
+
+// ───────── メンバー別の分析 ─────────
+async function loadAnalysis() {
+  const box = $("clStats");
+  if (!box) return;
+  box.innerHTML = '<div class="note">読み込んでいます…</div>';
+  try {
+    const d = await (await fetch("/api/calls/analysis?days=30")).json();
+    if (d.error) throw new Error(d.error);
+    const rg = $("stRange");
+    if (rg) rg.textContent = `${d.from} 〜 ${d.to}（直近${d["日数"]}日）`;
+    const items = d.items || [];
+    const t = d["チーム"] || {};
+    if (!items.length) { box.innerHTML = '<div class="note">この期間の記録はまだありません。</div>'; return; }
+
+    const 差 = (a, b) => {
+      const v = +(a - b).toFixed(1);
+      if (!v) return '<span class="an-eq">±0</span>';
+      return `<span class="${v > 0 ? "an-up" : "an-down"}">${v > 0 ? "+" : ""}${v}</span>`;
+    };
+    const 棒 = (n, max) => `<span class="an-bar"><i style="width:${max ? Math.round(n / max * 100) : 0}%"></i></span>`;
+
+    box.innerHTML =
+      `<div class="an-team">チーム全体：コール ${t["コール"] || 0}／接触 ${t["接触"] || 0}（${t["接触率"] || 0}%）／アポ ${t["アポ"] || 0}（${t["アポ率"] || 0}%）</div>` +
+      items.map((x) => {
+        const 時最大 = Math.max(1, ...x["時間帯"].map((h) => h["コール"]));
+        return `
+        <div class="an-card">
+          <div class="an-h">${esc(x["誰"])}</div>
+
+          <div class="an-kpi">
+            <div class="an-k"><div class="an-kn">${x["コール"]}</div><div class="an-kl">コール</div></div>
+            <div class="an-k"><div class="an-kn">${x["接触率"]}%</div><div class="an-kl">接触率 ${差(x["接触率"], t["接触率"] || 0)}</div></div>
+            <div class="an-k"><div class="an-kn">${x["アポ率"]}%</div><div class="an-kl">アポ率 ${差(x["アポ率"], t["アポ率"] || 0)}</div></div>
+            <div class="an-k"><div class="an-kn">${x["稼働日数"]}日</div><div class="an-kl">かけた日</div></div>
+            <div class="an-k"><div class="an-kn">${x["1日あたり"]}</div><div class="an-kl">1日あたり</div></div>
+          </div>
+
+          <div class="an-cols">
+            <div class="an-col">
+              <div class="an-t">どこで落ちているか</div>
+              <div class="an-funnel">コール ${x["コール"]} → 接触 ${x["接触"]}（${x["接触率"]}%） → アポ ${x["アポ"]}（${x["アポ率"]}%）</div>
+              <table class="sh-table an-tb">${x["内訳"].slice(0, 8).map((r) =>
+                `<tr><td>${esc(r["名前"])}</td><td class="an-n">${r["件数"]}</td><td class="an-n">${r["割合"]}%</td></tr>`).join("")}</table>
+            </div>
+
+            <div class="an-col">
+              <div class="an-t">時間帯（何時が繋がるか）</div>
+              <table class="sh-table an-tb">${x["時間帯"].map((h) =>
+                `<tr><td>${h["時"]}時</td><td class="an-n">${h["コール"]}</td>` +
+                `<td>${棒(h["コール"], 時最大)}</td><td class="an-n">${h["接触率"]}%</td></tr>`).join("")}</table>
+            </div>
+          </div>
+
+          <div class="an-cols">
+            <div class="an-col">
+              <div class="an-t">相手のステージ別</div>
+              <table class="sh-table an-tb">${(x["ステージ"] || []).map((r) =>
+                `<tr><td>${esc(r["名前"])}</td><td class="an-n">${r["コール"]}</td><td class="an-n">${r["接触率"]}%</td><td class="an-n">アポ${r["アポ"]}</td></tr>`).join("") || "<tr><td>—</td></tr>"}</table>
+            </div>
+            <div class="an-col">
+              <div class="an-t">業種別</div>
+              <table class="sh-table an-tb">${(x["業種"] || []).map((r) =>
+                `<tr><td>${esc(r["名前"])}</td><td class="an-n">${r["コール"]}</td><td class="an-n">${r["接触率"]}%</td><td class="an-n">アポ${r["アポ"]}</td></tr>`).join("") || "<tr><td>—</td></tr>"}</table>
+            </div>
+          </div>
+
+          <div class="an-t">週ごとの動き</div>
+          <table class="sh-table an-tb">
+            <tr><th>週</th>${x["週"].map((w) => `<th class="an-n">${w["週"].slice(5).replace("-", "/")}</th>`).join("")}</tr>
+            <tr><td>コール</td>${x["週"].map((w) => `<td class="an-n">${w["コール"]}</td>`).join("")}</tr>
+            <tr><td>接触率</td>${x["週"].map((w) => `<td class="an-n">${w["接触率"]}%</td>`).join("")}</tr>
+            <tr><td>アポ</td>${x["週"].map((w) => `<td class="an-n">${w["アポ"]}</td>`).join("")}</tr>
+          </table>
+        </div>`;
+      }).join("");
+  } catch (e) { box.innerHTML = `<div class="note">読み込めませんでした：${esc(e.message)}</div>`; }
 }
