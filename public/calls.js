@@ -390,6 +390,13 @@ function renderDock() {
     #asCards .kc-mem-back:hover{background:#f4faf7;border-color:#1d9e75;}
     #asCards .kc-mem-title{font-size:14px;font-weight:700;color:#1f2a26;margin:0;}
     .kc-split{display:flex;flex-direction:column;gap:14px;}
+    /* リスト作成の画面を見やすくする */
+    [data-mk-pane="sf"] .sr-wrap{display:flex;gap:14px;align-items:flex-start;}
+    [data-mk-pane="sf"] .sr-list{flex:0 0 240px;max-height:52vh;overflow:auto;}
+    [data-mk-pane="sf"] .sr-right{flex:1;min-width:0;}
+    [data-mk-pane="sf"] .sr-filters{max-height:44vh;overflow:auto;}
+    [data-mk-pane="sf"] .sr-view{max-height:52vh;overflow:auto;}
+    [data-mk-pane="sf"] .sr-actions{display:flex;gap:8px;align-items:center;}
     .kc-csv{border:1px solid #e6ece9;border-radius:12px;padding:14px 16px;margin-bottom:18px;background:#fcfefe;}
     .kc-csv-h{font-size:14px;font-weight:700;color:#0d5b47;margin-bottom:6px;}
     .kc-share-box{border:1px solid #e6ece9;border-radius:10px;padding:10px 12px;margin:10px 0;background:#fff;}
