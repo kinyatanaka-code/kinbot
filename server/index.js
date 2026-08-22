@@ -5216,11 +5216,14 @@ async function callPicklists(owner) {
       .filter((v) => v.active)
       .map((v) => ({ value: v.value, label: v.label || v.value }));
     // 実際に使うステージだけを、決めた順に出す
-    const 使う = ["01", "02", "03", "04", "89", "99", "05"];
-    const 並べた = 使う
-      .map((n) => all.find((v) => String(v.label).startsWith(n) || String(v.value).startsWith(n)))
-      .filter(Boolean);
-    out.リードの状態 = 並べた.length ? 並べた : all;
+    // 「01：新規」のように番号が付いているものを、番号の小さい順に並べる。
+    // リサイクル・アーカイブなど番号が大きいものも、そのまま後ろに並ぶ。
+    const 番号 = (v) => {
+      const m = String(v.label || v.value).match(/^\s*0*(\d+)/);
+      return m ? Number(m[1]) : 9999;
+    };
+    const 番号付き = all.filter((v) => 番号(v) !== 9999).sort((a, b) => 番号(a) - 番号(b));
+    out.リードの状態 = 番号付き.length ? 番号付き : all;
   } catch (e) { console.warn("[kincall] リードの状態を取れません:", e.message); }
 
   // 実際に使う結果だけに絞る。
@@ -5480,6 +5483,24 @@ app.put("/api/calls/member-view", async (req, res) => {
     const v = { hidden: uniq(b["消した"]), extra: uniq(b["足した"]) };
     await saveSettings({ kincallMemberView: v });
     res.json({ ok: true, 消した: v.hidden, 足した: v.extra });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// Salesforceの「リード 状況」の選択肢をそのまま見る（番号と名前の確認用）
+app.get("/api/calls/lead-stages", async (req, res) => {
+  try {
+    let owner = req.user;
+    if (!(await sfConnected(owner).catch(() => false))) {
+      const st = await getSettings().catch(() => ({}));
+      const 代理 = String(st.sfProxyUser || "").trim().toLowerCase();
+      if (代理 && (await sfConnected(代理).catch(() => false))) owner = 代理;
+    }
+    const desc = await describeObject(owner, "Lead");
+    const f = (desc.fields || []).find((x) => x.name === "Status");
+    const all = ((f && f.picklistValues) || []).map((v) => ({
+      value: v.value, label: v.label || v.value, 使える: !!v.active,
+    }));
+    res.json({ ok: true, 件数: all.length, 選択肢: all });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
@@ -12802,7 +12823,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-08-22z リスト作成：送り先の選択を廃止し、ボタンを「リストを作る」に。画面を見やすく整理";
+const BUILD_TAG = "2026-08-22aa ステージの選択肢を番号順に自動でそろえた（リサイクル・アーカイブも含む）";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
