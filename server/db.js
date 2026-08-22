@@ -6379,3 +6379,15 @@ export async function callMemos(fromJst, toJst, caller = "") {
     return rows;
   } catch (e) { console.error("[db] callMemos", e.message); return []; }
 }
+
+
+// 架電記録を全件消す（テストで入れたぶんを片づけるため。戻せない）
+export async function clearCallLogs() {
+  if (!pool) return 0;
+  try {
+    const { rowCount } = await pool.query(`DELETE FROM call_logs`);
+    // 「済み」の印も戻す
+    await pool.query(`UPDATE call_targets SET done = false WHERE done = true`).catch(() => {});
+    return rowCount || 0;
+  } catch (e) { console.error("[db] clearCallLogs", e.message); return 0; }
+}
