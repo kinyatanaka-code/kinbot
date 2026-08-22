@@ -5112,9 +5112,21 @@ app.post("/api/calls/from-csv", async (req, res) => {
     const list = 既存
       ? { id: 既存, name }
       : await createCallList({ name, owner: String(b.member || "").trim().toLowerCase() || req.user, createdBy: req.user });
-    const n = await addCallTargets(list.id, 入れるもの.map((x) => ({
+    // 分ける人が指定されていれば、順番に均等に配る（kincallの担当だけ。SFは変えない）
+    const 分ける人 = (Array.isArray(b.share) ? b.share : [])
+      .map((x) => String(x || "").trim().toLowerCase()).filter(Boolean);
+    // 小分けで送られてくるので、続きから配れるように今の件数を数える
+    let 開始 = 0;
+    if (分ける人.length && 既存) {
+      try {
+        const now = await listCallTargets(既存, { limit: 5000 });
+        開始 = now.length;
+      } catch {}
+    }
+    const n = await addCallTargets(list.id, 入れるもの.map((x, i) => ({
       leadId: x.leadId, company: x.company, person: x.person, phone: x.phone,
       ...(x["ステータス"] ? { status: x["ステータス"] } : {}),
+      ...(分ける人.length ? { assignedTo: 分ける人[(開始 + i) % 分ける人.length] } : {}),
     })));
     console.log(`[kincall] CSVからリスト「${name}」を作りました（${n}件／新規リード${結果.filter((x)=>x.状態==="新しく作った").length}件） by ${req.user}`);
     res.json({
@@ -5123,6 +5135,7 @@ app.post("/api/calls/from-csv", async (req, res) => {
       新しく作った: 結果.filter((x) => x.状態 === "新しく作った").length,
       とばした: 結果.filter((x) => !x.leadId).length,
       履歴を残した: 結果.filter((x) => x["履歴"] === "履歴を残した").length,
+      分けた人数: 分ける人.length,
       明細: 結果.slice(0, 200),
     });
   } catch (e) { res.status(500).json({ error: e.message }); }
@@ -12781,7 +12794,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-08-22s CSV：クロスリードを優先し、他の種別しか無ければクロスを新規作成／種別を表示";
+const BUILD_TAG = "2026-08-22t CSVからリストを作るとき、選んだメンバーに均等に分けられるようにした";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
