@@ -3123,14 +3123,15 @@ export async function listCallLists({ owner = "", includeClosed = false, ownerOn
   try {
     // ownerOnly=true のときは「そのリストを作った人」だけで絞る。
     // （中身を配られただけの人のカードに、他人のリストが出てしまうのを防ぐ）
-    const scope = ownerOnly
-      ? `($1 = '' OR l.owner = $1)`
-      : `($1 = '' OR l.owner = $1 OR EXISTS (
+    // ownerOnly=true でも「自分に配られたぶんがあるリスト」は出す。
+    // （リストを作った人は別でも、分配された人のカードに出したいため）
+    const scope = `($1 = '' OR l.owner = $1 OR EXISTS (
              SELECT 1 FROM call_targets t WHERE t.list_id = l.id AND t.assigned_to = $1))`;
     const { rows } = await pool.query(
       `SELECT l.*,
               (SELECT count(*) FROM call_targets t WHERE t.list_id = l.id) AS 全部,
-              (SELECT count(*) FROM call_targets t WHERE t.list_id = l.id AND t.done) AS 済み
+              (SELECT count(*) FROM call_targets t WHERE t.list_id = l.id AND t.done) AS 済み,
+              (SELECT count(*) FROM call_targets t WHERE t.list_id = l.id AND t.assigned_to = $1) AS 自分のぶん
          FROM call_lists l
         WHERE ${scope}
           AND ($2 OR NOT l.closed)
