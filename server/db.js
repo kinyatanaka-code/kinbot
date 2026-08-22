@@ -6340,3 +6340,22 @@ export async function callStatsByDay(fromJst, toJst) {
     return rows;
   } catch (e) { console.error("[db] callStatsByDay", e.message); return []; }
 }
+
+
+// メンバー別の分析のもとになる記録を取る（相手の属性も一緒に）
+export async function callAnalysis(fromJst, toJst) {
+  if (!pool) return [];
+  try {
+    const { rows } = await pool.query(
+      `SELECT l.caller, l.result,
+              to_char(l.at AT TIME ZONE 'Asia/Tokyo','YYYY-MM-DD') AS 日,
+              EXTRACT(HOUR FROM (l.at AT TIME ZONE 'Asia/Tokyo'))::int AS 時,
+              t.industry, t.area, t.stage
+         FROM call_logs l
+         LEFT JOIN call_targets t ON t.id = l.target_id
+        WHERE (l.at AT TIME ZONE 'Asia/Tokyo')::date >= $1::date
+          AND (l.at AT TIME ZONE 'Asia/Tokyo')::date <= $2::date`,
+      [fromJst, toJst]);
+    return rows;
+  } catch (e) { console.error("[db] callAnalysis", e.message); return []; }
+}
