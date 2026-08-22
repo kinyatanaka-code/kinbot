@@ -6311,3 +6311,15 @@ export async function listSalesforceOwners() {
     return rows.map((r) => r.owner).filter(Boolean);
   } catch { return []; }
 }
+
+
+// 分けているリストから、その人に配られたぶんだけを取り除く
+export async function removeMyCallTargets(listId, email) {
+  if (!pool) return 0;
+  try {
+    const { rowCount } = await pool.query(
+      `DELETE FROM call_targets WHERE list_id = $1 AND lower(assigned_to) = $2`,
+      [listId, String(email || "").toLowerCase()]);
+    return rowCount || 0;
+  } catch (e) { console.error("[db] removeMyCallTargets", e.message); return 0; }
+}
