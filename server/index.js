@@ -5092,7 +5092,8 @@ app.post("/api/calls/from-csv", async (req, res) => {
         履歴 = "履歴を残す（予定）";
       }
 
-      結果.push({ company, person: person || "担当者", phone, leadId, 状態, リード種別, 架電日, ステータス, コメント, 履歴 });
+      結果.push({ company, person: person || "担当者", phone, leadId, 状態, リード種別, 架電日,
+        ステータス, ステージ: String(r.stage || "").trim(), コメント, 履歴 });
     }
 
     if (dryRun) {
@@ -5126,6 +5127,7 @@ app.post("/api/calls/from-csv", async (req, res) => {
     const n = await addCallTargets(list.id, 入れるもの.map((x, i) => ({
       leadId: x.leadId, company: x.company, person: x.person, phone: x.phone,
       ...(x["ステータス"] ? { status: x["ステータス"] } : {}),
+      ...(x["ステージ"] ? { stage: x["ステージ"] } : {}),
       ...(分ける人.length ? { assignedTo: 分ける人[(開始 + i) % 分ける人.length] } : {}),
     })));
     console.log(`[kincall] CSVからリスト「${name}」を作りました（${n}件／新規リード${結果.filter((x)=>x.状態==="新しく作った").length}件） by ${req.user}`);
@@ -12794,7 +12796,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-08-22u 分ける人の選び方を見やすくした";
+const BUILD_TAG = "2026-08-22v CSV：ステージ・ステータスで絞り込んでから振り分けられるようにした";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
