@@ -420,6 +420,7 @@ function renderDock() {
     .an-range{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:12px;}
     .an-range input[type=date]{border:1px solid #e6ece9;border-radius:8px;padding:5px 8px;font-size:13px;font-family:inherit;}
     .an-sep{font-size:12px;color:#8a9a93;margin:0 2px;}
+    .an-clear{margin-top:12px;padding-top:10px;border-top:1px solid #eef3f0;display:flex;gap:10px;align-items:center;}
     .an-team{font-size:13px;font-weight:600;color:#0d5b47;background:#eaf5ef;border-radius:10px;padding:10px 14px;margin-bottom:14px;}
     .an-card{border:1px solid #e6ece9;border-radius:14px;padding:16px 18px;margin-bottom:16px;background:#fcfefe;}
     .an-h{font-size:15px;font-weight:700;color:#1f2a26;margin-bottom:12px;}
@@ -1719,8 +1720,13 @@ async function srFillShare() {
 }
 
 // ───────── メンバー別の分析 ─────────
-let anDays = 30;                 // 分析する期間（日数）
-let anFrom = "", anTo = "";      // 日付で直接選んだとき
+// 分析する期間。はじめは「今日」を見る。
+function 今日JST() {
+  const j = new Date(Date.now() + 9 * 3600 * 1000);
+  return j.toISOString().slice(0, 10);
+}
+let anDays = 0;
+let anFrom = 今日JST(), anTo = 今日JST();
 async function loadAnalysis() {
   const box = $("clStats");
   if (!box) return;
@@ -1766,6 +1772,10 @@ async function loadAnalysis() {
            <span class="rev-status" id="anSt"></span>
          </div>
          <div id="anOut"></div>
+         <div class="an-clear">
+           <button type="button" class="kc-share-clear" id="anClear">テストで入れた記録を全部消す</button>
+           <span class="rev-status" id="anClearSt"></span>
+         </div>
        </div>` +
       items.map((x) => {
         const 時最大 = Math.max(1, ...x["時間帯"].map((h) => h["コール"]));
@@ -1862,6 +1872,24 @@ document.addEventListener("click", (ev) => {
   if (t) { ev.preventDefault(); runMemoAnalysis(); }
   const dbtn = ev.target && ev.target.closest ? ev.target.closest(".an-days") : null;
   if (dbtn) { ev.preventDefault(); anDays = Number(dbtn.dataset.days) || 30; anFrom = ""; anTo = ""; loadAnalysis(); }
+  const cl = ev.target && ev.target.closest ? ev.target.closest("#anClear") : null;
+  if (cl) {
+    ev.preventDefault();
+    const say = (m) => { const e = $("anClearSt"); if (e) e.textContent = m || ""; };
+    if (!confirm("架電記録を全部消します。実績も分析も0になり、元には戻せません。よろしいですか？")) return;
+    const w = prompt("本当に消す場合は「消します」と入れてください");
+    if (w !== "消します") { say("やめました"); return; }
+    say("消しています…");
+    fetch("/api/calls/clear-logs", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ confirm: w }),
+    }).then((r) => r.json().then((d) => {
+      if (!r.ok) throw new Error(d.error || "消せませんでした");
+      say(`${d["消した件数"]}件を消しました`);
+      loadAnalysis();
+    })).catch((e) => say("失敗：" + e.message));
+    return;
+  }
   const ap = ev.target && ev.target.closest ? ev.target.closest("#anApply") : null;
   if (ap) {
     ev.preventDefault();
