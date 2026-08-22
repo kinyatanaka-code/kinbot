@@ -417,6 +417,14 @@ function renderDock() {
     .kc-split-lb{font-size:12px;font-weight:600;color:#5b7a6d;min-width:110px;}
     .kc-split-opts{display:flex;flex-wrap:wrap;gap:10px;flex:1;min-width:0;}
     /* 実績の 日/週/月 タブ */
+    .kc-g-block{margin-bottom:18px;}
+    .kc-g-title{font-size:13px;font-weight:700;color:#0d5b47;margin-bottom:6px;}
+    .kc-grid th,.kc-grid td{text-align:center;padding:6px 8px;white-space:nowrap;}
+    .kc-grid .kc-g-name{text-align:left;font-weight:600;position:sticky;left:0;background:#fff;z-index:1;}
+    .kc-g-h{font-size:12px;line-height:1.2;}
+    .kc-g-w{font-size:10px;color:#8a9a93;font-weight:400;}
+    .kc-g-n{font-variant-numeric:tabular-nums;}
+    .kc-g-sum td{font-weight:700;background:#f4f7f5;}
     .kc-period-tabs{display:inline-flex;gap:4px;background:#f4f7f5;border-radius:10px;padding:3px;margin-bottom:12px;}
     .kc-ptab{border:none;background:transparent;color:#5b7a6d;font-size:13px;font-weight:600;padding:6px 16px;border-radius:8px;cursor:pointer;}
     .kc-ptab.active{background:#1d9e75;color:#fff;}
@@ -665,24 +673,37 @@ async function loadStats() {
   const box = $("clStats");
   if (!box) return;
   try {
-    const d = await (await fetch(`/api/calls/stats?period=${encodeURIComponent(statsPeriod)}`)).json();
+    const d = await (await fetch(`/api/calls/stats-grid?period=${encodeURIComponent(statsPeriod)}`)).json();
     if (d.error) throw new Error(d.error);
-    // 期間の表示
+    const 区切り = d["区切り"] || [];
+    const items = d.items || [];
+    const 合計 = d["合計"] || [];
+
     const rg = $("stRange");
-    if (rg) {
-      const lbl = statsPeriod === "day" ? "日" : statsPeriod === "week" ? "週" : "月";
-      rg.textContent = d.from === d.to ? `${d.from}（${lbl}）` : `${d.from} 〜 ${d.to}（${lbl}）`;
-    }
-    const s = d["合計"] || {};
-    const rate = s["コール"] ? ((s["アポ"] / s["コール"]) * 100).toFixed(1) : "0.0";
-    const touch = s["コール"] ? ((s["接触"] / s["コール"]) * 100).toFixed(1) : "0.0";
-    box.innerHTML =
-      `<div class="cl-sum">コール ${s["コール"] || 0}　接触 ${s["接触"] || 0}（${touch}%）　アポ ${s["アポ"] || 0}（${rate}%）</div>` +
-      ((d.items || []).length
-        ? `<table class="sh-table"><tr><th>誰</th><th>コール</th><th>接触</th><th>アポ</th></tr>` +
-          d.items.map((x) => `<tr><td>${esc(x["誰"])}</td><td>${x["コール"]}</td><td>${x["接触"]}</td><td>${x["アポ"]}</td></tr>`).join("") +
-          `</table>`
-        : `<div class="note">この期間の記録はまだありません。</div>`);
+    if (rg) rg.textContent = 区切り.length
+      ? `${区切り[0]["名前"]} 〜 ${区切り[区切り.length - 1]["名前"]}` : "";
+
+    // 見出し（日付／週／月）
+    const 頭 = `<tr><th class="kc-g-name">メンバー</th>` +
+      区切り.map((c) => `<th class="kc-g-h"><div>${esc(c["名前"])}</div>` +
+        (c["曜日"] ? `<div class="kc-g-w">${esc(c["曜日"])}</div>` : "") + `</th>`).join("") + `</tr>`;
+
+    // 見やすさのため、指標ごとに小さな表を3つ並べる
+    const 表 = (key, 見出し) => `
+      <div class="kc-g-block">
+        <div class="kc-g-title">${esc(見出し)}</div>
+        <div class="kc-tablewrap"><table class="sh-table kc-grid">
+          ${頭}
+          ${items.map((x) => `<tr><td class="kc-g-name">${esc(x["誰"])}</td>` +
+            x["値"].map((v) => `<td class="kc-g-n">${v[key] || 0}</td>`).join("") + `</tr>`).join("")}
+          <tr class="kc-g-sum"><td class="kc-g-name">合計</td>` +
+            合計.map((v) => `<td class="kc-g-n">${v[key] || 0}</td>`).join("") + `</tr>
+        </table></div>
+      </div>`;
+
+    box.innerHTML = items.length
+      ? 表("コール", "コール") + 表("接触", "接触") + 表("アポ", "アポ")
+      : `<div class="note">この期間の記録はまだありません。</div>`;
   } catch (e) { box.innerHTML = `<div class="note">読み込めませんでした：${esc(e.message)}</div>`; }
 }
 
