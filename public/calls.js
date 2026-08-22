@@ -392,6 +392,7 @@ function renderDock() {
     .kc-split{display:flex;flex-direction:column;gap:14px;}
     .kc-csv{border:1px solid #e6ece9;border-radius:12px;padding:14px 16px;margin-bottom:18px;background:#fcfefe;}
     .kc-csv-h{font-size:14px;font-weight:700;color:#0d5b47;margin-bottom:6px;}
+    .kc-cmt{max-width:320px;white-space:normal;word-break:break-word;color:#5b7a6d;font-size:12px;}
     .kc-split-row{display:flex;align-items:center;gap:10px;flex-wrap:wrap;}
     .kc-split-lb{font-size:12px;font-weight:600;color:#5b7a6d;min-width:110px;}
     .kc-split-opts{display:flex;flex-wrap:wrap;gap:10px;flex:1;min-width:0;}
@@ -1393,9 +1394,11 @@ async function csvSend(dryRun) {
 
       // 途中経過も出しておく
       if (out) {
-        out.innerHTML = '<table class="sh-table"><tr><th>会社名</th><th>担当者</th><th>架電日</th><th>状態</th></tr>' +
+        out.innerHTML = '<table class="sh-table"><tr><th>会社名</th><th>担当者</th><th>架電日</th><th>最終ステータス</th><th>コメント</th><th>状態</th></tr>' +
           meisai.slice(0, 300).map((x) => `<tr><td>${esc(x.company || "")}</td><td>${esc(x.person || "")}</td>` +
             `<td>${esc(x["架電日"] || "")}</td>` +
+            `<td>${esc(x["ステータス"] || "-")}</td>` +
+            `<td class="kc-cmt">${esc(x["コメント"] || "")}</td>` +
             `<td>${esc(x["状態"] || "")}${x["履歴"] ? `／${esc(x["履歴"])}` : ""}${x["理由"] ? `（${esc(x["理由"])}）` : ""}</td></tr>`).join("") + "</table>";
       }
     }
