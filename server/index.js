@@ -135,6 +135,7 @@ import {
   listBookViewers,
   createCallList,
   listCallTargets,
+  removeMyCallTargets,
   assignCallTargets,
   deleteCallTargets,
   countCallTargets,
@@ -654,7 +655,9 @@ app.use(async (req, res, next) => {
     req.impersonatorFrom = getImpersonator(req);
     // 「kincallだけ」の人かどうか（インターン生など）
     req.kincallOnly = !u.admin && (await isKincallOnly(u.username).catch(() => false));
-    if (req.kincallOnly && !isKincallPath(req.path)) {
+    // 代理ログイン中は、元のアカウントに戻る道を必ず開けておく
+    const 戻る道 = req.path === "/api/impersonate/stop" || req.path === "/api/me";
+    if (req.kincallOnly && !isKincallPath(req.path) && !戻る道) {
       if (req.path.startsWith("/api/")) return res.status(403).json({ error: "この操作はできません" });
       return res.redirect("/kincall");
     }
@@ -5466,9 +5469,25 @@ app.post("/api/calls/targets/delete", async (req, res) => {
 // リストごと消す
 app.delete("/api/calls/lists/:id", async (req, res) => {
   try {
-    const ok = await deleteCallList(parseInt(req.params.id, 10));
+    const id = parseInt(req.params.id, 10);
+    const me = String(req.user || "").toLowerCase();
+    // 何人かに分けているリストは、一人が消しても他の人のぶんは残す。
+    // 自分に配られたぶんだけを取り除き、誰も残っていなければリストごと消す。
+    const rows = await listCallTargets(id, { limit: 5000 }).catch(() => []);
+    const 配り先 = new Set(rows.map((r) => String(r.assigned_to || "").toLowerCase()).filter(Boolean));
+    const 分けている = 配り先.size > 1;
+
+    if (分けている && 配り先.has(me)) {
+      const 消した = await removeMyCallTargets(id, me).catch(() => 0);
+      const 残り = await listCallTargets(id, { limit: 5000 }).catch(() => []);
+      if (残り.length) {
+        console.log(`[kincall] リスト${id}から ${me} のぶん${消した}件を外しました（残り${残り.length}件）`);
+        return res.json({ ok: true, 自分のぶんだけ: true, 外した: 消した, 残り: 残り.length });
+      }
+    }
+    const ok = await deleteCallList(id);
     if (!ok) return res.status(500).json({ error: "消せませんでした" });
-    console.log(`[kincall] リスト${req.params.id}を消しました by ${req.user}`);
+    console.log(`[kincall] リスト${id}を消しました by ${req.user}`);
     res.json({ ok: true });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
@@ -12832,7 +12851,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-08-22ac 分配したリストが、配られた人のカードに出ない不具合を修正";
+const BUILD_TAG = "2026-08-22ad 分けたリストは自分のぶんだけ消えるように／kincallから元のアカウントに戻れるよう修正";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
