@@ -435,6 +435,9 @@ function renderDock() {
     .an-n{text-align:right;font-variant-numeric:tabular-nums;}
     .an-bar{display:inline-block;width:70px;height:7px;background:#eef3f0;border-radius:4px;overflow:hidden;vertical-align:middle;}
     .an-bar i{display:block;height:100%;background:#1d9e75;}
+    .an-ex{font-size:11px;color:#6b7c74;max-width:420px;white-space:normal;}
+    .an-ul{margin:4px 0 0;padding-left:20px;font-size:12px;color:#1f2a26;}
+    .an-ul li{margin-bottom:4px;}
     .kc-g-block{margin-bottom:16px;border:1px solid #e6ece9;border-radius:12px;padding:12px 14px;background:#fcfefe;}
     .kc-g-team{background:#eaf5ef;border-color:#cfe6da;}
     .kc-g-apo td{font-weight:700;}
@@ -1742,6 +1745,17 @@ async function loadAnalysis() {
 
     box.innerHTML =
       `<div class="an-team">チーム全体：コール ${t["コール"] || 0}／接触 ${t["接触"] || 0}（${t["接触率"] || 0}%）／アポ ${t["アポ"] || 0}（${t["アポ率"] || 0}%）</div>` +
+      `<div class="an-card">
+         <div class="an-h">コメントから、断られ方を調べる</div>
+         <p class="note">記録に書かれたコメントをAIが読んで、断られ方・進まない理由をまとめます。</p>
+         <div class="ap-cfg-row">
+           <label>だれの <select id="anWho"><option value="">全員</option>${
+             items.map((x) => `<option value="${esc(x["メール"] || "")}">${esc(x["誰"])}</option>`).join("")}</select></label>
+           <button class="btn" id="anRun">コメントを読ませる</button>
+           <span class="rev-status" id="anSt"></span>
+         </div>
+         <div id="anOut"></div>
+       </div>` +
       items.map((x) => {
         const 時最大 = Math.max(1, ...x["時間帯"].map((h) => h["コール"]));
         return `
@@ -1796,3 +1810,40 @@ async function loadAnalysis() {
       }).join("");
   } catch (e) { box.innerHTML = `<div class="note">読み込めませんでした：${esc(e.message)}</div>`; }
 }
+
+// コメントをAIに読ませて、断られ方をまとめる
+async function runMemoAnalysis() {
+  const say = (m) => { const e = $("anSt"); if (e) e.textContent = m || ""; };
+  const out = $("anOut");
+  const btn = $("anRun");
+  if (btn) btn.disabled = true;
+  say("コメントを読んでいます…（少し時間がかかります）");
+  if (out) out.innerHTML = "";
+  try {
+    const r = await fetch("/api/calls/memo-analysis", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ days: 30, caller: ($("anWho") && $("anWho").value) || "" }),
+    });
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.error || "読めませんでした");
+    if (!d["件数"]) { say("この期間にコメントの記録がありません"); return; }
+    say(`${d["件数"]}件のうち ${d["読んだ数"]}件を読みました`);
+    const 最大 = Math.max(1, ...(d["分類"] || []).map((x) => x["件数"]));
+    if (out) out.innerHTML =
+      `<table class="sh-table an-tb">` +
+      (d["分類"] || []).map((x) =>
+        `<tr><td>${esc(x["名前"])}</td><td class="an-n">${x["件数"]}</td>` +
+        `<td><span class="an-bar"><i style="width:${Math.round(x["件数"] / 最大 * 100)}%"></i></span></td>` +
+        `<td class="an-ex">${(x["例"] || []).map((v) => esc(v)).join("／")}</td></tr>`).join("") +
+      `</table>` +
+      ((d["打ち手"] || []).length
+        ? `<div class="an-t">打ち手の案</div><ul class="an-ul">${
+            d["打ち手"].map((v) => `<li>${esc(v)}</li>`).join("")}</ul>`
+        : "");
+  } catch (e) { say("失敗：" + e.message); }
+  finally { if (btn) btn.disabled = false; }
+}
+document.addEventListener("click", (ev) => {
+  const t = ev.target && ev.target.closest ? ev.target.closest("#anRun") : null;
+  if (t) { ev.preventDefault(); runMemoAnalysis(); }
+});
