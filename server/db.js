@@ -6323,3 +6323,20 @@ export async function removeMyCallTargets(listId, email) {
     return rowCount || 0;
   } catch (e) { console.error("[db] removeMyCallTargets", e.message); return 0; }
 }
+
+
+// 日ごと・人ごとに数える（実績を並べて比べるため）
+export async function callStatsByDay(fromJst, toJst) {
+  if (!pool) return [];
+  try {
+    const { rows } = await pool.query(
+      `SELECT to_char(at AT TIME ZONE 'Asia/Tokyo','YYYY-MM-DD') AS 日,
+              caller, result, count(*)::int AS n
+         FROM call_logs
+        WHERE (at AT TIME ZONE 'Asia/Tokyo')::date >= $1::date
+          AND (at AT TIME ZONE 'Asia/Tokyo')::date <= $2::date
+        GROUP BY 1, 2, 3`,
+      [fromJst, toJst]);
+    return rows;
+  } catch (e) { console.error("[db] callStatsByDay", e.message); return []; }
+}
