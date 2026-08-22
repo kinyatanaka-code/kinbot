@@ -399,6 +399,9 @@ function renderDock() {
     .kc-share-clear{margin-left:auto;border:1px solid #e6ece9;background:#fff;color:#5b7a6d;border-radius:8px;padding:4px 10px;font-size:12px;cursor:pointer;}
     .kc-share-clear:hover{border-color:#1d9e75;color:#0d5b47;}
     .kc-share{display:flex;flex-wrap:wrap;gap:8px;}
+    .kc-filter-row{display:flex;gap:10px;align-items:flex-start;margin-bottom:8px;}
+    .kc-filter-lb{font-size:12px;font-weight:600;color:#5b7a6d;min-width:74px;padding-top:6px;}
+    .kc-n{opacity:.75;font-size:11px;}
     .kc-share-b{border:1px solid #e6ece9;background:#fff;color:#1f2a26;border-radius:999px;padding:6px 14px;font-size:13px;cursor:pointer;transition:all .12s;}
     .kc-share-b:hover{border-color:#1d9e75;background:#f4faf7;}
     .kc-share-b.on{background:#1d9e75;border-color:#1d9e75;color:#fff;font-weight:600;}
@@ -1325,7 +1328,7 @@ function csvParse(text) {
   const head = rows[0];
   const 見出しっぽい = /会社|company|担当|電話|phone|メール|mail|架電|日付|ステータス|状況|コメント|リード/i.test(head.join(","))
     && !/\d{3,}/.test(head.join(""));
-  const 場所 = { company: 0, person: 1, phone: 2, email: 3, callDate: -1, status: -1, comment: -1, leadId: -1 };
+  const 場所 = { company: 0, person: 1, phone: 2, email: 3, callDate: -1, status: -1, comment: -1, leadId: -1, stage: -1 };
   if (見出しっぽい) {
     const norm = (v) => String(v || "").replace(/[\s　_・\/]/g, "").toLowerCase();
     const find = (...words) => head.findIndex((h) => words.some((w) => norm(h).includes(norm(w))));
@@ -1337,7 +1340,9 @@ function csvParse(text) {
     set("email", "メール", "mail");
     set("leadId", "リードid", "leadid", "レコードid");
     set("callDate", "最終活動日", "架電日", "コール日", "活動日", "日付");
-    set("status", "最終活動ステータス", "ステータス", "状況", "結果");
+    set("stage", "リード状況", "リードステータス", "ステージ");
+    set("status", "最終活動ステータス", "活動ステータス", "結果");
+    if (場所.status < 0) set("status", "ステータス");
     set("comment", "最終活動コメント", "活動コメント", "コメント", "メモ");
     if (場所.company < 0) 場所.company = 0;
   }
@@ -1355,6 +1360,7 @@ function csvParse(text) {
       leadId: 取る(c, 場所.leadId),
       callDate: 取る(c, 場所.callDate),
       status: 取る(c, 場所.status),
+      stage: 取る(c, 場所.stage),
       comment: 取る(c, 場所.comment),
     });
   }
@@ -1364,8 +1370,9 @@ function csvParse(text) {
 async function csvSend(dryRun) {
   const say = (m) => { const e = $("csvSt"); if (e) e.textContent = m || ""; };
   const out = $("csvOut");
-  const rows = csvParse(($("csvText") && $("csvText").value) || "");
-  if (!rows.length) { say("中身が読めませんでした"); return; }
+  const box = $("csvFilterBox");
+  const rows = (box && !box.hidden) ? csvFiltered() : csvParse(($("csvText") && $("csvText").value) || "");
+  if (!rows.length) { say("この条件に合うものがありません"); return; }
 
   // 件数が多いと途中で切れるので、少しずつ送る。進み具合も出す。
   const CHUNK = 20;
@@ -1465,8 +1472,62 @@ async function csvFillShare() {
   } catch { box.innerHTML = '<span class="note">読み込めませんでした</span>'; }
 }
 
+// CSVの中身から、ステージ・ステータスの選択肢を作る
+let csvRowsCache = [];
+function csvBuildFilters() {
+  const box = $("csvFilterBox");
+  if (!box) return;
+  csvRowsCache = csvParse(($("csvText") && $("csvText").value) || "");
+  if (!csvRowsCache.length) { box.hidden = true; return; }
+  const 数える = (key) => {
+    const m = new Map();
+    for (const r of csvRowsCache) {
+      const v = String(r[key] || "").trim() || "（空）";
+      m.set(v, (m.get(v) || 0) + 1);
+    }
+    return [...m.entries()].sort((a, b) => b[1] - a[1]);
+  };
+  const 出す = (id, key) => {
+    const el = $(id);
+    if (!el) return;
+    const list = 数える(key);
+    el.innerHTML = list.map(([v, n]) =>
+      `<button type="button" class="kc-share-b on" data-v="${esc(v)}">${esc(v)} <span class="kc-n">${n}</span></button>`).join("");
+    el.querySelectorAll(".kc-share-b").forEach((b) =>
+      b.addEventListener("click", () => { b.classList.toggle("on"); csvFilterRefresh(); }));
+  };
+  出す("csvStages", "stage");
+  出す("csvStatuses", "status");
+  box.hidden = false;
+  csvFilterRefresh();
+}
+function csvPicked(id) {
+  return new Set([...document.querySelectorAll(`#${id} .kc-share-b.on`)].map((b) => b.dataset.v));
+}
+function csvFiltered() {
+  const st = csvPicked("csvStages"), su = csvPicked("csvStatuses");
+  return csvRowsCache.filter((r) =>
+    st.has(String(r.stage || "").trim() || "（空）") &&
+    su.has(String(r.status || "").trim() || "（空）"));
+}
+function csvFilterRefresh() {
+  const hint = $("csvFilterHint");
+  if (hint) hint.textContent = `${csvFiltered().length} / ${csvRowsCache.length}件をリストにします`;
+}
+
 (function wireCsv() {
   csvFillShare();
+  const ta = document.getElementById("csvText");
+  if (ta) {
+    let t = 0;
+    ta.addEventListener("input", () => { clearTimeout(t); t = setTimeout(csvBuildFilters, 400); });
+  }
+  const fc = document.getElementById("csvFilterClear");
+  if (fc) fc.addEventListener("click", () => {
+    document.querySelectorAll("#csvStages .kc-share-b, #csvStatuses .kc-share-b")
+      .forEach((b) => b.classList.add("on"));
+    csvFilterRefresh();
+  });
   const f = document.getElementById("csvFile");
   if (f) f.addEventListener("change", () => {
     const file = f.files && f.files[0];
@@ -1476,6 +1537,7 @@ async function csvFillShare() {
       if ($("csvText")) $("csvText").value = String(rd.result || "");
       if ($("csvName") && !$("csvName").value.trim()) $("csvName").value = file.name.replace(/\.csv$/i, "");
       const e = $("csvSt"); if (e) e.textContent = "読み込みました。中身を確かめてから進めてください。";
+      csvBuildFilters();
     };
     rd.readAsText(file, "UTF-8");
   });
