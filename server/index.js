@@ -5363,11 +5363,17 @@ app.post("/api/calls/from-report", async (req, res) => {
     // 送り先のメンバーを選べる（指定がなければ自分のリストになる）
     const toMember = String(b.member || "").trim().toLowerCase();
     const list = await createCallList({ name, owner: toMember || req.user, createdBy: req.user });
+    // 分ける人が選ばれていれば、順番に均等に配る
+    const 分ける人R = (Array.isArray(b.share) ? b.share : [])
+      .map((x) => String(x || "").trim().toLowerCase()).filter(Boolean);
     if (!list) return res.status(500).json({ error: "リストを作れませんでした" });
-    const n = await addCallTargets(list.id, items);
-    console.log(`[kincall] レポートから${n}件をリスト「${name}」に入れました by ${req.user}`);
+    const n = await addCallTargets(list.id, 分ける人R.length
+      ? items.map((x, i) => ({ ...x, assignedTo: 分ける人R[i % 分ける人R.length] }))
+      : items);
+    console.log(`[kincall] レポートから${n}件をリスト「${name}」に入れました` +
+      (分ける人R.length ? `（${分ける人R.length}人に分けた）` : "") + ` by ${req.user}`);
     res.json({
-      ok: true, id: list.id, name, 件数: n, 見つけた列: ix,
+      ok: true, id: list.id, name, 件数: n, 見つけた列: ix, 分けた人数: 分ける人R.length,
       リードとつないだ数: 紐づけた,
       note: 紐づけた < 足りない.length
         ? `${足りない.length - 紐づけた}件は、Salesforceのリードと結びつけられませんでした（会社名が一致しないなど）`
@@ -12796,7 +12802,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-08-22w CSV絞り込み：ステータスは決まった項目だけ、ステージはSFの選択肢にそろえた";
+const BUILD_TAG = "2026-08-22x リスト作成をCSV／SFレポートの切り替えにし、SF側も複数メンバーに分配できるようにした";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
