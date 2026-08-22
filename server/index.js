@@ -4942,6 +4942,8 @@ app.get("/api/calls/lists", async (req, res) => {
         id: r.id, name: r.name, note: r.note || "",
         全部: Number(r["全部"] || 0), 済み: Number(r["済み"] || 0),
         残り: Number(r["全部"] || 0) - Number(r["済み"] || 0),
+        自分のぶん: Number(r["自分のぶん"] || 0),
+        作った人: r.owner || "",
         closed: !!r.closed,
       })),
     });
@@ -12830,7 +12832,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-08-22ab ステージがプルダウンで選べない不具合を修正（代理連携で選択肢を取得）";
+const BUILD_TAG = "2026-08-22ac 分配したリストが、配られた人のカードに出ない不具合を修正";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
