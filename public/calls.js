@@ -392,8 +392,16 @@ function renderDock() {
     .kc-split{display:flex;flex-direction:column;gap:14px;}
     .kc-csv{border:1px solid #e6ece9;border-radius:12px;padding:14px 16px;margin-bottom:18px;background:#fcfefe;}
     .kc-csv-h{font-size:14px;font-weight:700;color:#0d5b47;margin-bottom:6px;}
-    .kc-share{display:flex;flex-wrap:wrap;gap:10px;align-items:center;flex:1;min-width:0;}
-    .kc-share-lb{font-size:12px;font-weight:600;color:#5b7a6d;}
+    .kc-share-box{border:1px solid #e6ece9;border-radius:10px;padding:10px 12px;margin:10px 0;background:#fff;}
+    .kc-share-head{display:flex;align-items:center;gap:10px;margin-bottom:8px;}
+    .kc-share-lb{font-size:13px;font-weight:700;color:#0d5b47;}
+    .kc-share-hint{font-size:12px;color:#6b7c74;}
+    .kc-share-clear{margin-left:auto;border:1px solid #e6ece9;background:#fff;color:#5b7a6d;border-radius:8px;padding:4px 10px;font-size:12px;cursor:pointer;}
+    .kc-share-clear:hover{border-color:#1d9e75;color:#0d5b47;}
+    .kc-share{display:flex;flex-wrap:wrap;gap:8px;}
+    .kc-share-b{border:1px solid #e6ece9;background:#fff;color:#1f2a26;border-radius:999px;padding:6px 14px;font-size:13px;cursor:pointer;transition:all .12s;}
+    .kc-share-b:hover{border-color:#1d9e75;background:#f4faf7;}
+    .kc-share-b.on{background:#1d9e75;border-color:#1d9e75;color:#fff;font-weight:600;}
     .kc-cmt{max-width:320px;white-space:normal;word-break:break-word;color:#5b7a6d;font-size:12px;}
     .kc-split-row{display:flex;align-items:center;gap:10px;flex-wrap:wrap;}
     .kc-split-lb{font-size:12px;font-weight:600;color:#5b7a6d;min-width:110px;}
@@ -1380,7 +1388,7 @@ async function csvSend(dryRun) {
         body: JSON.stringify({
           name: ($("csvName") && $("csvName").value.trim()) || "",
           rows: part, dryRun: !!dryRun,
-          share: [...document.querySelectorAll(".csv-share-b:checked")].map((x) => x.value),
+          share: csvShareSelected(),
           ...(listId ? { listId } : {}),
         }),
       });
@@ -1413,8 +1421,7 @@ async function csvSend(dryRun) {
       say(`「${listName}」を作りました：${合計.件数}件` +
           `（見つかった ${合計.見つかった}／新しく作った ${合計.新しく作った}／とばした ${合計.とばした}` +
           (合計.履歴 ? `／履歴 ${合計.履歴}件` : "") + "）" +
-          (() => { const n = document.querySelectorAll(".csv-share-b:checked").length;
-                   return n ? `　${n}人に分けました` : ""; })());
+          (csvShareSelected().length ? `　${csvShareSelected().length}人に分けました` : ""));
       loadLists();
     }
   } catch (e) {
@@ -1425,6 +1432,17 @@ async function csvSend(dryRun) {
 }
 
 // 分ける人の候補（チェックで選ぶ）
+// 名前を押して選ぶ（押すと色が付く）
+function csvShareSelected() {
+  return [...document.querySelectorAll("#csvShare .kc-share-b.on")].map((b) => b.dataset.email);
+}
+function csvShareRefresh() {
+  const n = csvShareSelected().length;
+  const hint = $("csvShareHint");
+  if (hint) hint.textContent = n ? `${n}人に順番に分けます` : "選ばないと、作った人のリストになります";
+  const clr = $("csvShareClear");
+  if (clr) clr.hidden = !n;
+}
 async function csvFillShare() {
   const box = $("csvShare");
   if (!box || box.dataset.filled) return;
@@ -1433,9 +1451,17 @@ async function csvFillShare() {
     const items = (d && d.items) || [];
     if (!items.length) { box.innerHTML = '<span class="note">メンバーがいません</span>'; return; }
     box.innerHTML = items.map((m) =>
-      `<label class="ks-check"><input type="checkbox" class="csv-share-b" value="${esc(m.email)}" /> ${esc(m.name)}</label>`
-    ).join("") + '<span class="note" id="csvShareNote">選ばないと、作った人のリストになります</span>';
+      `<button type="button" class="kc-share-b" data-email="${esc(m.email)}">${esc(m.name)}</button>`
+    ).join("");
     box.dataset.filled = "1";
+    box.querySelectorAll(".kc-share-b").forEach((b) =>
+      b.addEventListener("click", () => { b.classList.toggle("on"); csvShareRefresh(); }));
+    const clr = $("csvShareClear");
+    if (clr) clr.addEventListener("click", () => {
+      box.querySelectorAll(".kc-share-b.on").forEach((b) => b.classList.remove("on"));
+      csvShareRefresh();
+    });
+    csvShareRefresh();
   } catch { box.innerHTML = '<span class="note">読み込めませんでした</span>'; }
 }
 
