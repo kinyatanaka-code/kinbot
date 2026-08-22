@@ -10,7 +10,7 @@
     <link rel="manifest" href="/site.webmanifest" />
     <meta name="theme-color" content="#0d5b47" />
     <meta name="apple-mobile-web-app-title" content="kinbot" />
-    <link rel="stylesheet" href="style.css?v=20260822x" />
+    <link rel="stylesheet" href="style.css?v=20260822y" />
   </head>
   <body class="kc-body">
     <div class="app">
@@ -83,10 +83,10 @@
 
             <div class="ls-block" data-ls-pane="make" hidden>
               <div class="kc-period-tabs" id="mkTabs">
-                <button type="button" class="kc-ptab active" data-mk="csv">CSVから作る</button>
-                <button type="button" class="kc-ptab" data-mk="sf">Salesforceのレポートから作る</button>
+                <button type="button" class="kc-ptab active" data-mk="sf">Salesforceのレポートから作る</button>
+                <button type="button" class="kc-ptab" data-mk="csv">CSVから作る</button>
               </div>
-              <div class="mk-block" data-mk-pane="csv">
+              <div class="mk-block" data-mk-pane="csv" hidden>
               <div class="kc-csv">
                 <div class="kc-csv-h">CSVから作る（Salesforceのクロスリードと突き合わせ）</div>
                 <p class="note">CSVを選ぶか、下に貼り付けてください。1行1社で、<b>会社名・担当者名・電話番号・メール</b>の順（タブまたはカンマ区切り）。<br>
@@ -123,7 +123,7 @@
               </div>
               </div>
 
-              <div class="mk-block" data-mk-pane="sf" hidden>
+              <div class="mk-block" data-mk-pane="sf">
               <p class="note">Salesforceのリードやレポートを開いて、<b>「kincallへ送る」</b>で架電リストを作ります。</p>
               <div class="kc-share-box">
                 <div class="kc-share-head">
@@ -182,8 +182,8 @@
         </main>
       </div>
     </div>
-    <script src="sf-data.js?v=20260822x"></script>
-    <script src="calls.js?v=20260822x"></script>
-    <script src="nav.js?v=20260822x"></script>
+    <script src="sf-data.js?v=20260822y"></script>
+    <script src="calls.js?v=20260822y"></script>
+    <script src="nav.js?v=20260822y"></script>
   </body>
 </html>
