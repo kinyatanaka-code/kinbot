@@ -155,6 +155,7 @@ import {
   pendingCallLogs,
   callStats,
   callStatsRange,
+  callStatsByDay,
   setNoReminder,
   fixApoForReminder,
   listApoMails,
@@ -6137,6 +6138,84 @@ async function retryCallSync() {
     for (const log of rows) await syncCallToSf(log);
   } catch {}
 }
+
+// 実績を並べて比べる（メンバー × 日付／週／月）
+app.get("/api/calls/stats-grid", async (req, res) => {
+  try {
+    const period = ["day", "week", "month"].includes(String(req.query.period)) ? String(req.query.period) : "day";
+    const 本数 = Math.min(26, Math.max(2, parseInt(req.query.span, 10) || (period === "day" ? 7 : period === "week" ? 8 : 6)));
+    const pad = (n) => String(n).padStart(2, "0");
+    const ymd = (d) => `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}-${pad(d.getUTCDate())}`;
+    const nowJ = new Date(Date.now() + 9 * 3600 * 1000);
+    const y = nowJ.getUTCFullYear(), m = nowJ.getUTCMonth(), d0 = nowJ.getUTCDate();
+
+    // 並べる区切りを作る（新しいものが右）
+    const 区切り = [];
+    for (let i = 本数 - 1; i >= 0; i--) {
+      if (period === "day") {
+        const d = new Date(Date.UTC(y, m, d0 - i));
+        区切り.push({ key: ymd(d), 名前: `${d.getUTCMonth() + 1}/${d.getUTCDate()}`,
+          曜日: "日月火水木金土"[d.getUTCDay()], from: ymd(d), to: ymd(d) });
+      } else if (period === "week") {
+        const off = (nowJ.getUTCDay() + 6) % 7;
+        const s0 = new Date(Date.UTC(y, m, d0 - off - i * 7));
+        const e0 = new Date(Date.UTC(y, m, d0 - off - i * 7 + 6));
+        区切り.push({ key: ymd(s0), 名前: `${s0.getUTCMonth() + 1}/${s0.getUTCDate()}週`, from: ymd(s0), to: ymd(e0) });
+      } else {
+        const s0 = new Date(Date.UTC(y, m - i, 1));
+        const e0 = new Date(Date.UTC(y, m - i + 1, 0));
+        区切り.push({ key: `${s0.getUTCFullYear()}-${pad(s0.getUTCMonth() + 1)}`,
+          名前: `${s0.getUTCMonth() + 1}月`, from: ymd(s0), to: ymd(e0) });
+      }
+    }
+
+    // インサイドのメンバーだけ
+    const members = await listMembers().catch(() => []);
+    const internsList = await listInterns().catch(() => []);
+    const internSet = new Set((internsList || []).map((x) => String(x.email || "").toLowerCase()).filter(Boolean));
+    const inside = (members || []).filter((mm) =>
+      (Array.isArray(mm.roles) && mm.roles.includes("inside")) || internSet.has(String(mm.email || "").toLowerCase()));
+    const nameOf = new Map(inside.map((mm) => [String(mm.email || "").toLowerCase(), mm.name || mm.email]));
+
+    const rows = await callStatsByDay(区切り[0].from, 区切り[区切り.length - 1].to);
+    const 属する = (日) => {
+      for (const c of 区切り) if (日 >= c.from && 日 <= c.to) return c.key;
+      return "";
+    };
+    const 表 = new Map();   // email -> key -> {コール,接触,アポ}
+    for (const r of rows) {
+      const em = String(r.caller || "").toLowerCase();
+      if (!nameOf.has(em)) continue;
+      const k = 属する(r["日"]);
+      if (!k) continue;
+      if (!表.has(em)) 表.set(em, {});
+      const o = 表.get(em);
+      if (!o[k]) o[k] = { コール: 0, 接触: 0, アポ: 0 };
+      o[k].コール += r.n;
+      const v = String(r.result || "");
+      const 接触した = /接触|アポ|再コール|断り|見送り/.test(v) && !/不在|コールのみ|NG/.test(v);
+      const アポ = /アポ獲得/.test(v);
+      if (接触した || アポ) o[k].接触 += r.n;
+      if (アポ) o[k].アポ += r.n;
+    }
+
+    const items = inside.map((mm) => {
+      const em = String(mm.email || "").toLowerCase();
+      const o = 表.get(em) || {};
+      return {
+        誰: nameOf.get(em) || mm.email,
+        値: 区切り.map((c) => o[c.key] || { コール: 0, 接触: 0, アポ: 0 }),
+      };
+    }).filter((x) => x.値.some((v) => v.コール || v.接触 || v.アポ) || true);
+
+    // 合計の行も作る
+    const 合計 = 区切り.map((c, i) => items.reduce((a, x) => ({
+      コール: a.コール + x.値[i].コール, 接触: a.接触 + x.値[i].接触, アポ: a.アポ + x.値[i].アポ,
+    }), { コール: 0, 接触: 0, アポ: 0 }));
+
+    res.json({ ok: true, period, 区切り, items, 合計 });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
 
 // 実績（日・週・月で切り替えられる）
 app.get("/api/calls/stats", async (req, res) => {
@@ -12851,7 +12930,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-08-22ad 分けたリストは自分のぶんだけ消えるように／kincallから元のアカウントに戻れるよう修正";
+const BUILD_TAG = "2026-08-22ae 実績：メンバー×日付の表で、日ごと・週ごと・月ごとに比べられるようにした";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
