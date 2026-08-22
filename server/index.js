@@ -158,6 +158,7 @@ import {
   callStatsByDay,
   callAnalysis,
   callMemos,
+  clearCallLogs,
   setNoReminder,
   fixApoForReminder,
   listApoMails,
@@ -6140,6 +6141,19 @@ async function retryCallSync() {
     for (const log of rows) await syncCallToSf(log);
   } catch {}
 }
+
+// 架電記録を全部消す（テストで入れたぶんの片づけ用。戻せないので合言葉が要る）
+app.post("/api/calls/clear-logs", async (req, res) => {
+  try {
+    if (!req.isAdmin) return res.status(403).json({ error: "この操作はできません" });
+    if (String((req.body || {}).confirm || "") !== "消します") {
+      return res.status(400).json({ error: "確認の言葉がちがいます" });
+    }
+    const n = await clearCallLogs();
+    console.log(`[kincall] 架電記録を全部消しました（${n}件） by ${req.user}`);
+    res.json({ ok: true, 消した件数: n });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
 
 // コメントをAIに読ませて、どんな断られ方が多いかを調べる
 app.post("/api/calls/memo-analysis", async (req, res) => {
@@ -13094,7 +13108,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-08-22ak 分析の期間を日付でも選べるようにした";
+const BUILD_TAG = "2026-08-22al 分析は今日を初期表示に／テスト記録を全部消せるようにした";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
