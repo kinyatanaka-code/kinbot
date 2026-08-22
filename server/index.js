@@ -5008,7 +5008,8 @@ app.post("/api/calls/from-csv", async (req, res) => {
       // 1) リードIDがCSVにあればそれを使う。無ければ会社名で探す。
       let leadId = String(r.leadId || "").trim();
       let 状態 = "";
-      if (leadId) { 状態 = "IDで指定"; }
+      let リード種別 = "";
+      if (leadId) { 状態 = "IDで指定"; リード種別 = "IDで指定"; }
       try {
         if (leadId) throw { skip: true };
         const key = normCompanyKey(company);
@@ -5018,9 +5019,17 @@ app.post("/api/calls/from-csv", async (req, res) => {
           `WHERE IsConverted = false AND Company LIKE '%${sq(語)}%' LIMIT 50`;
         const d = await sfQuery(sfUser, soql);
         const cands = (d.records || []).filter((x) => normCompanyKey(x.Company) === key);
-        const cross = cands.find((x) => /クロス|cross/i.test(String((x.RecordType && x.RecordType.Name) || "")));
-        const hit = cross || cands[0];
-        if (hit) { leadId = hit.Id; 状態 = cross ? "見つかった（クロス）" : "見つかった"; }
+        const 種別 = (x) => String((x.RecordType && x.RecordType.Name) || "");
+        const cross = cands.find((x) => /クロス|cross/i.test(種別(x)));
+        if (cross) {
+          // クロスリードがあれば、それを使う
+          leadId = cross.Id; 状態 = "見つかった（クロス）"; リード種別 = 種別(cross) || "クロス";
+        } else if (cands.length) {
+          // MOCHICAなど別の種別しか無いときは、そのリードは残したまま
+          // クロスリードを新しく作る（下の「無ければ作る」に進む）
+          リード種別 = 種別(cands[0]) || "別の種別";
+          状態 = `別の種別だけ（${リード種別}）`;
+        }
       } catch (e) {
         if (!e || !e.skip) { 結果.push({ company, 状態: "探せなかった", 理由: e.message }); continue; }
       }
@@ -5028,7 +5037,10 @@ app.post("/api/calls/from-csv", async (req, res) => {
       // 2) 無ければ新しく作る
       if (!leadId) {
         if (dryRun) {
-          結果.push({ company, person: person || "担当者", phone, 状態: "新しく作る（予定）",
+          結果.push({ company, person: person || "担当者", phone,
+            状態: リード種別 && !/クロス|IDで指定/.test(リード種別)
+              ? `クロスを新しく作る（${リード種別}は残す）` : "新しく作る（予定）",
+            リード種別: "クロス（新規）",
             架電日: ymdOf(r.callDate), 履歴: ymdOf(r.callDate) ? "履歴を残す（予定）" : "",
             ...振り分け(r) });
           continue;
@@ -5043,12 +5055,15 @@ app.post("/api/calls/from-csv", async (req, res) => {
           };
           const made = await createLead(sfUser, fields);
           leadId = made.id;
-          状態 = "新しく作った";
+          状態 = リード種別 && リード種別 !== "IDで指定" && !/クロス/.test(リード種別)
+            ? `クロスを新しく作った（${リード種別}は残す）`
+            : "新しく作った";
+          リード種別 = "クロス（新規）";
         } catch (e) {
           結果.push({ company, 状態: "作れなかった", 理由: e.message }); continue;
         }
       } else if (dryRun) {
-        結果.push({ company, person: person || "担当者", 状態,
+        結果.push({ company, person: person || "担当者", 状態, リード種別,
           架電日: ymdOf(r.callDate), 履歴: ymdOf(r.callDate) ? "履歴を残す（予定）" : "",
           ...振り分け(r) });
         continue;
@@ -5077,7 +5092,7 @@ app.post("/api/calls/from-csv", async (req, res) => {
         履歴 = "履歴を残す（予定）";
       }
 
-      結果.push({ company, person: person || "担当者", phone, leadId, 状態, 架電日, ステータス, コメント, 履歴 });
+      結果.push({ company, person: person || "担当者", phone, leadId, 状態, リード種別, 架電日, ステータス, コメント, 履歴 });
     }
 
     if (dryRun) {
@@ -12766,7 +12781,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-08-22r CSV試算：最終ステータスとコメントも見えるようにした";
+const BUILD_TAG = "2026-08-22s CSV：クロスリードを優先し、他の種別しか無ければクロスを新規作成／種別を表示";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
