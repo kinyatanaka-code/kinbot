@@ -292,8 +292,7 @@ function srShowResult(d) {
          <div class="sr-sub">${rows.length}行${d.truncated ? "（2000行までの制限あり）" : ""}${rows.length > 500 ? " ・ 画面には500行まで表示" : ""}</div>
        </div>
        <div class="sr-actions">
-         <select id="srToWho" title="送り先のメンバー"><option value="">自分に送る</option></select>
-         <button class="btn" id="srToCall">kincallへ送る</button>
+         <button class="btn" id="srToCall">リストを作る</button>
          <button class="btn ghost" id="srCsv">CSVで保存</button>
          ${d.id ? `<a class="btn ghost" href="${srEsc(d.instanceUrl)}/${srEsc(d.id)}" target="_blank" rel="noopener">Salesforceで開く</a>` : ""}
        </div>
@@ -807,49 +806,31 @@ async function srToKincall() {
       method: "POST", headers: { "content-type": "application/json" },
       body: JSON.stringify({
         name, columns: d.columns || [], rows: d.rows || [],
-        member: (document.getElementById("srToWho") || {}).value || "",
         share: (window.kcShareMembers || []),
       }),
     });
     const j = await r.json();
     if (!r.ok) throw new Error(j.error || "送れませんでした");
     if (btn) { btn.textContent = `${j["件数"]}件を送りました`; }
-    const whoSel = document.getElementById("srToWho");
-    const whoName = whoSel && whoSel.value ? (whoSel.options[whoSel.selectedIndex] || {}).text || "" : "自分";
-    if (confirm(`${whoName}の「${j.name}」に${j["件数"]}件を入れました。\nkincallを開きますか？`)) {
+    const 分けた = Number(j["分けた人数"] || 0);
+    if (confirm(`「${j.name}」に${j["件数"]}件を入れました。` +
+        (分けた ? `（${分けた}人に分けました）` : "") + `\nリストを見ますか？`)) {
       location.href = "/kincall";
     } else if (btn) {
-      btn.disabled = false; btn.textContent = "kincallへ送る";
+      btn.disabled = false; btn.textContent = "リストを作る";
     }
   } catch (e) {
     alert("送れませんでした：" + e.message);
-    if (btn) { btn.disabled = false; btn.textContent = "kincallへ送る"; }
+    if (btn) { btn.disabled = false; btn.textContent = "リストを作る"; }
   }
 }
 
-// 送り先メンバーの候補を用意する
-async function srFillMembers() {
-  const sel = document.getElementById("srToWho");
-  if (!sel || sel.dataset.filled) return;
-  try {
-    const d = await (await fetch("/api/calls/members")).json();
-    const items = (d && d.items) || [];
-    if (!items.length) return;
-    sel.innerHTML = '<option value="">自分に送る</option>' +
-      items.map((m) => `<option value="${srEsc(m.email)}">${srEsc(m.name)}に送る</option>`).join("");
-    sel.dataset.filled = "1";
-  } catch {}
-}
 
 document.addEventListener("click", (ev) => {
   const t = ev.target && ev.target.closest ? ev.target.closest("button") : null;
   if (t && t.id === "srToCall") { ev.preventDefault(); srToKincall(); }
 });
-// 表が出たタイミングで候補を用意する
-document.addEventListener("mouseover", (ev) => {
-  const t = ev.target && ev.target.closest ? ev.target.closest("#srToWho, #srToCall") : null;
-  if (t) srFillMembers();
-}, true);
+
 
 
 
