@@ -429,9 +429,10 @@ function renderDock() {
 // 架電の結果の選択肢（Salesforceから取ってくる）
 let kcPicks = null;
 async function loadPicks() {
-  if (kcPicks) return kcPicks;
+  // 前に取ったものが空っぽ（ステージが無い）なら、取り直す
+  if (kcPicks && ((kcPicks["リードの状態"] || []).length)) return kcPicks;
   try {
-    const d = await (await fetch("/api/calls/picklists")).json();
+    const d = await (await fetch("/api/calls/picklists?refresh=1")).json();
     if (!d.error) kcPicks = d;
   } catch {}
   return kcPicks;
@@ -465,7 +466,7 @@ async function openTarget(id, draft, opt) {
           <div class="kc-rec-stage">
             <div class="kc-lb">いまのステージ</div>
             <div class="kc-stage-now">${esc(x["ステージ"] || "（なし）")}</div>
-            ${状態の選択肢.length
+            ${true
               ? `<select class="kc-input kc-stage-sel" id="kcStatus">
                    <option value="">（変えない）</option>
                    ${状態の選択肢.map((v) => `<option value="${esc(v.value)}">${esc(v.label)}</option>`).join("")}
