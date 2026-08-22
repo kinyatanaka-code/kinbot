@@ -10,7 +10,7 @@
     <link rel="manifest" href="/site.webmanifest" />
     <meta name="theme-color" content="#0d5b47" />
     <meta name="apple-mobile-web-app-title" content="kinbot" />
-    <link rel="stylesheet" href="style.css?v=20260822s" />
+    <link rel="stylesheet" href="style.css?v=20260822t" />
   </head>
   <body class="kc-body">
     <div class="app">
@@ -91,6 +91,10 @@
                   <input type="file" id="csvFile" accept=".csv,text/csv" />
                   <label>リストの名前 <input type="text" id="csvName" style="min-width:240px" /></label>
                 </div>
+                <div class="ap-cfg-row">
+                  <span class="kc-share-lb">分ける人</span>
+                  <div class="kc-share" id="csvShare"><span class="note">読み込んでいます…</span></div>
+                </div>
                 <textarea id="csvText" rows="6" style="width:100%;box-sizing:border-box" placeholder="会社名,担当者名,電話番号,メール,架電日,ステータス,最終活動コメント&#10;株式会社ベルク,町田,03-1234-5678,,2026/08/20,担当者不在,折り返し依頼"></textarea>
                 <div class="ap-cfg-row">
                   <button class="btn ghost" id="csvDry">まず試算する</button>
@@ -149,8 +153,8 @@
         </main>
       </div>
     </div>
-    <script src="sf-data.js?v=20260822s"></script>
-    <script src="calls.js?v=20260822s"></script>
-    <script src="nav.js?v=20260822s"></script>
+    <script src="sf-data.js?v=20260822t"></script>
+    <script src="calls.js?v=20260822t"></script>
+    <script src="nav.js?v=20260822t"></script>
   </body>
 </html>
