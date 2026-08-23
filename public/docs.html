@@ -10,7 +10,7 @@
     <link rel="manifest" href="/site.webmanifest" />
     <meta name="theme-color" content="#0d5b47" />
     <meta name="apple-mobile-web-app-title" content="kinbot" />
-    <link rel="stylesheet" href="style.css?v=20260822ap" />
+    <link rel="stylesheet" href="style.css?v=20260822aq" />
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/tabler-icons/2.44.0/iconfont/tabler-icons.min.css" />
     <style>
     /* URL発行の設定と、発行ボタン（右端） */
@@ -47,13 +47,13 @@
         <header class="topbar"><div class="brand"><img class="topbar-bot" src="kinbot.svg" alt="" /><span class="brand-name">資料トラッキング</span></div></header>
         <main class="report-page">
           <div class="ap-tabs" role="tablist">
-            <button type="button" class="ap-tab active" data-dpane="track">閲覧状況</button>
-            <button type="button" class="ap-tab" data-dpane="send">URLを発行する</button>
+            <button type="button" class="ap-tab active" data-dpane="send">URLを発行する</button>
+            <button type="button" class="ap-tab" data-dpane="track">閲覧状況</button>
             <button type="button" class="ap-tab" data-dpane="files">資料</button>
           </div>
 
           <!-- 閲覧状況 -->
-          <section class="ap-pane" data-dpane="track">
+          <section class="ap-pane" data-dpane="track" hidden>
             <div class="set-card">
               <h3>閲覧状況</h3>
               <p class="note">送ったURLが開かれると、ここに滞在時間と到達ページが出ます。<b>20秒以上見られた時点でGoogle Chatへ通知</b>します。<br>
@@ -88,7 +88,7 @@
           </section>
 
           <!-- URLを発行する -->
-          <section class="ap-pane" data-dpane="send" hidden>
+          <section class="ap-pane" data-dpane="send">
             <div class="set-card">
               <h3>宛先ごとのURLを発行する</h3>
               <p class="note">宛先ごとに別のURLを作ります。<b>誰が見たかを区別するため、同じURLを使い回さないでください。</b><br>
@@ -214,7 +214,7 @@
         </main>
       </div>
     </div>
-    <script src="nav.js?v=20260822ap"></script>
-    <script src="docs.js?v=20260822ap"></script>
+    <script src="nav.js?v=20260822aq"></script>
+    <script src="docs.js?v=20260822aq"></script>
   </body>
 </html>
