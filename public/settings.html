@@ -10,7 +10,7 @@
     <link rel="manifest" href="/site.webmanifest" />
     <meta name="theme-color" content="#0d5b47" />
     <meta name="apple-mobile-web-app-title" content="kinbot" />
-    <link rel="stylesheet" href="style.css?v=20260822b" />
+    <link rel="stylesheet" href="style.css?v=20260823a" />
   </head>
   <body>
     <div class="app">
@@ -495,25 +495,17 @@ curl -H "Authorization: Bearer <span class="cc-tok">&lt;トークン&gt;</span>"
           <div class="set-pane" data-pane="notices" hidden>
             <div class="set-card">
               <h3>Google Chatへの知らせ</h3>
-              <p class="note">kinbotからGoogle Chatへ流す知らせを、この画面でまとめて設定できます。<br>
-              <b>上</b>で「流すかどうか・何時に流すか」を決め、<b>下の送り先</b>で「どのスペースへ流すか」を選びます。</p>
+              <p class="note">kinbotからGoogle Chatへ流す知らせを、送り先ごとのカードでまとめて設定できます。<br>
+              <b>カードを開く</b>と、その送り先に流す<b>種類</b>と、<b>決まった時刻に流す知らせ</b>を、その場で切り替えられます。</p>
 
-              <h4 class="ap-rot-h">決まった時刻に流す</h4>
-              <p class="note">毎日・毎週、決まった時刻に流れるものです。<b>入り切りと時刻</b>をここで決め、<b>どこへ送るか</b>は下の送り先で選びます。<br>
-              「夕方のやり残し」「天気予報の声かけ」は本人だけに届くので、送り先の指定はありません。</p>
-              <div id="ntTimers"></div>
-
-              <div class="ap-cfg-actions" style="margin-top:14px">
-                <button class="btn" id="ntSave">保存する</button>
-                <span class="rev-status" id="ntStatus"></span>
-              </div>
-
-              <h4 class="ap-rot-h">送り先（どこへ送るか）</h4>
-
-            <div class="set-card">
-              <p class="note">送り先はいくつでも登録できます。<b>種類ごとにON・OFF</b>を切り替えられるので、「チームには割り振りだけ、自分には全部」といった分け方ができます。<br>
-              <b>Webhookの作り方：</b>Google Chatで通知したいスペースを開き、スペース名 → <b>アプリと統合</b> → <b>Webhook を管理</b> → 「Webhookを追加」。名前を「kinbot」などにして作ると、URLが表示されます。</p>
               <div id="ctList"><div class="empty-state">読み込み中…</div></div>
+
+              <!-- 送り先が1つも無いときだけ、決まった時刻の知らせをここに出す -->
+              <div id="ntFallback" hidden>
+                <h4 class="ap-rot-h">決まった時刻に流す</h4>
+                <p class="note">送り先を登録すると、この設定は各カードの中に入ります。</p>
+                <div id="ntTimers"></div>
+              </div>
 
               <h4 class="ap-rot-h" style="margin-top:16px">通知先を追加する</h4>
               <div class="teams-add">
@@ -569,7 +561,6 @@ curl -H "Authorization: Bearer <span class="cc-tok">&lt;トークン&gt;</span>"
               <p class="note" id="chatAppState"></p>
 
               <p class="note">URLは他人に知られると誰でもスペースへ書き込めます。<b>共有しないでください。</b></p>
-            </div>
             </div>
           </div>
 
@@ -779,7 +770,7 @@ curl -H "Authorization: Bearer <span class="cc-tok">&lt;トークン&gt;</span>"
         </main>
       </div>
     </div>
-    <script src="settings.js?v=20260822b"></script>
+    <script src="settings.js?v=20260823a"></script>
       <script src="nav.js?v=20260822b"></script>
   </body>
 </html>

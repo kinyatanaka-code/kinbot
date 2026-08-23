@@ -529,7 +529,7 @@ loadThanks();
       if (name === "members") { loadMembers(); loadApoOwner(); loadApoInvite(); }
       if (name === "integrations") { loadChatConfig(); }
       // 送り先の登録も「知らせ」に移したので、こちらで読み込む
-      if (name === "notices") { ntLoad(); loadChatConfig(); loadChatTargets(); }
+      if (name === "notices") { loadChatConfig(); loadChatTargets(); }
       if (name === "knowledge") loadKnowledge();
       if (name === "ai") loadThanksPrompt();
       if (name === "integrations") showIntegGrid();
@@ -2625,38 +2625,135 @@ function ctSay(id, t, ms) {
   if (ms) setTimeout(() => { if (e.textContent === t) e.textContent = ""; }, ms);
 }
 
+const CT_ESC = (v) => String(v == null ? "" : v).replace(/[&<>"']/g,
+  (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+
+// 決まった時刻に流す（全体共通）。各カードの中に同じものを入れて、
+// どのカードからでも切り替えられるようにする。
+let CT_TIMERS = [];
+
+function ctChevron() {
+  return '<svg class="ct-chev" viewBox="0 0 20 20" width="14" height="14" aria-hidden="true">' +
+    '<path d="M6 8l4 4 4-4" fill="none" stroke="#1d9e75" stroke-width="2" ' +
+    'stroke-linecap="round" stroke-linejoin="round"/></svg>';
+}
+
+function ctTimersMarkup() {
+  return CT_TIMERS.map((t) => `
+    <div class="nt-row">
+      <label class="ks-check">
+        <input type="checkbox" class="nt-t" data-k="${CT_ESC(t.key)}"${t["入り切り"] ? " checked" : ""} />
+        <b>${CT_ESC(t["名前"])}</b>
+      </label>
+      <span class="nt-note">${CT_ESC(t["説明"])}</span>
+      ${t["時刻"] ? `<input type="time" class="nt-time" data-k="${CT_ESC(t.key)}" value="${CT_ESC(t["時刻"])}" />` : ""}
+    </div>`).join("");
+}
+
+// 種類のうちONのものを、たたんだときの見出しに1行でまとめる
+function ctKindSummary(t) {
+  const on = CT_KINDS.filter(([k]) => t[k]).map(([, label]) => label);
+  if (on.length === CT_KINDS.length) return "すべての種類";
+  if (!on.length) return "種類：オフ";
+  return on.join("・");
+}
+
+// 決まった時刻の設定を保存する。同じ設定が複数のカードに出ているので、
+// 保存後に画面のほかのコピーも合わせる。
+async function ctSaveTimer(patch, note) {
+  try {
+    const r = await fetch("/api/notices", {
+      method: "PUT", headers: { "content-type": "application/json" },
+      body: JSON.stringify(patch),
+    });
+    if (!r.ok) throw new Error("保存できませんでした");
+    for (const key of Object.keys(patch)) {
+      if (key.endsWith("Time")) {
+        const k = key.slice(0, -4);
+        document.querySelectorAll(`.nt-time[data-k="${k}"]`).forEach((el) => { el.value = patch[key]; });
+      } else {
+        document.querySelectorAll(`.nt-t[data-k="${key}"]`).forEach((el) => { el.checked = patch[key] !== false; });
+      }
+    }
+    if (note) { note.textContent = "保存しました"; setTimeout(() => { if (note.textContent === "保存しました") note.textContent = ""; }, 2500); }
+  } catch (e) { if (note) note.textContent = "失敗: " + e.message; }
+}
+
+function ctWireTimers(scope) {
+  scope.querySelectorAll(".nt-t").forEach((c) =>
+    c.addEventListener("change", () => {
+      const note = c.closest(".ct-body")?.querySelector(".ct-note")
+        || document.getElementById("ntStatus");
+      ctSaveTimer({ [c.dataset.k]: c.checked }, note);
+    })
+  );
+  scope.querySelectorAll(".nt-time").forEach((inp) =>
+    inp.addEventListener("change", () => {
+      if (!/^\d{1,2}:\d{2}$/.test(inp.value)) return;
+      const note = inp.closest(".ct-body")?.querySelector(".ct-note")
+        || document.getElementById("ntStatus");
+      ctSaveTimer({ [inp.dataset.k + "Time"]: inp.value }, note);
+    })
+  );
+}
+
 async function loadChatTargets() {
   const box = document.getElementById("ctList");
   if (!box) return;
+  const fallback = document.getElementById("ntFallback");
   try {
-    const d = await (await fetch("/api/chat-targets")).json();
-    const list = d.targets || [];
+    // 送り先と、決まった時刻の設定をまとめて取る
+    const [dc, dn] = await Promise.all([
+      fetch("/api/chat-targets").then((r) => r.json()),
+      fetch("/api/notices").then((r) => r.json()).catch(() => ({})),
+    ]);
+    CT_TIMERS = dn["定期"] || [];
+    const list = dc.targets || [];
+
+    // 送り先が無いときは、決まった時刻の設定だけを下に出す
     if (!list.length) {
       box.innerHTML = '<div class="empty-state">まだ通知先がありません。下の欄から追加してください。</div>';
+      if (fallback) {
+        fallback.hidden = false;
+        const nt = document.getElementById("ntTimers");
+        if (nt) { nt.innerHTML = ctTimersMarkup(); ctWireTimers(nt); }
+      }
       return;
     }
-    const esc = (v) => String(v == null ? "" : v).replace(/[&<>"']/g,
-      (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+    if (fallback) fallback.hidden = true;
+
     box.innerHTML = list.map((t) => `
       <div class="ct-row${t.active ? "" : " ct-off"}" data-id="${t.id}">
         <div class="ct-head">
-          <label class="ks-check ct-active"><input type="checkbox" class="ct-on" ${t.active ? "checked" : ""} /> <b>${esc(t.name)}</b></label>
-          <span class="ct-via">${esc(t.via)}</span>
+          <button type="button" class="ct-toggle" aria-label="開く・閉じる">${ctChevron()}</button>
+          <input type="checkbox" class="ct-on" title="この送り先を使う" ${t.active ? "checked" : ""} />
+          <b class="ct-name">${CT_ESC(t.name)}</b>
+          <span class="ct-via">${CT_ESC(t.via)}</span>
           <span class="ct-meta">送信 ${t.sentCount}件</span>
+          <span class="ct-sum">${CT_ESC(ctKindSummary(t))}</span>
           <div class="ct-act">
             <button type="button" class="btn ghost ct-test">テスト送信</button>
             <button type="button" class="btn ghost ct-del">削除</button>
           </div>
         </div>
-        <div class="ct-kinds">
-          ${CT_KINDS.map(([k, label]) =>
-            `<label class="ks-check"><input type="checkbox" class="ct-kind" data-k="${k}" ${t[k] ? "checked" : ""} /> ${label}</label>`).join("")}
+        <div class="ct-body" hidden>
+          <div class="ct-group">
+            <div class="ct-group-h">この送り先へ流す種類</div>
+            <div class="ct-kinds">
+              ${CT_KINDS.map(([k, label]) =>
+                `<label class="ks-check"><input type="checkbox" class="ct-kind" data-k="${k}" ${t[k] ? "checked" : ""} /> ${label}</label>`).join("")}
+            </div>
+          </div>
+          <div class="ct-group">
+            <div class="ct-group-h">決まった時刻に流す<span class="ct-group-sub">全体共通・どのカードから変えても、すべての送り先に反映されます</span></div>
+            <div class="ct-timers">${ctTimersMarkup()}</div>
+          </div>
+          ${t.lastError ? `<div class="ct-err">前回のエラー：${CT_ESC(t.lastError)}</div>` : ""}
+          <div class="ct-note"></div>
         </div>
-        ${t.lastError ? `<div class="ct-err">前回のエラー：${esc(t.lastError)}</div>` : ""}
-        <div class="ct-note"></div>
       </div>`).join("");
 
-    // ON・OFFの切り替え
+    // 種類・入り切りの保存（この送り先だけ）
     const save = async (row, patch) => {
       const note = row.querySelector(".ct-note");
       try {
@@ -2665,9 +2762,25 @@ async function loadChatTargets() {
           body: JSON.stringify(patch),
         });
         if (!r.ok) throw new Error(((await r.json()) || {}).error || "保存できませんでした");
-        if (note) { note.textContent = "保存しました"; setTimeout(() => (note.textContent = ""), 2500); }
+        if (note) { note.textContent = "保存しました"; setTimeout(() => { if (note.textContent === "保存しました") note.textContent = ""; }, 2500); }
       } catch (e) { if (note) note.textContent = "失敗: " + e.message; }
     };
+
+    // カードの開け閉め
+    const toggleCard = (row) => {
+      const body = row.querySelector(".ct-body");
+      if (!body) return;
+      const open = body.hidden;
+      body.hidden = !open;
+      row.classList.toggle("ct-open", open);
+    };
+    box.querySelectorAll(".ct-head").forEach((head) =>
+      head.addEventListener("click", (ev) => {
+        // チェックボックスやボタンを押したときは開け閉めしない
+        if (ev.target.closest("input, button.ct-test, button.ct-del")) return;
+        toggleCard(head.closest(".ct-row"));
+      })
+    );
 
     box.querySelectorAll(".ct-on").forEach((c) =>
       c.addEventListener("change", () => {
@@ -2680,12 +2793,19 @@ async function loadChatTargets() {
       c.addEventListener("change", () => {
         const row = c.closest(".ct-row");
         save(row, { [c.dataset.k]: c.checked });
+        const sum = row.querySelector(".ct-sum");
+        if (sum) {
+          const t = {};
+          row.querySelectorAll(".ct-kind").forEach((x) => { t[x.dataset.k] = x.checked; });
+          sum.textContent = ctKindSummary(t);
+        }
       })
     );
     box.querySelectorAll(".ct-test").forEach((b) =>
       b.addEventListener("click", async () => {
         const row = b.closest(".ct-row");
         const note = row.querySelector(".ct-note");
+        if (row.querySelector(".ct-body").hidden) toggleCard(row);
         b.disabled = true;
         if (note) note.textContent = "送信しています…";
         try {
@@ -2705,6 +2825,9 @@ async function loadChatTargets() {
         loadChatTargets();
       })
     );
+
+    // 各カードの中の「決まった時刻に流す」を配線
+    ctWireTimers(box);
   } catch (e) {
     box.innerHTML = '<div class="empty-state">読み込めませんでした。</div>';
   }

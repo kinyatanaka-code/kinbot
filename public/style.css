@@ -4671,6 +4671,8 @@ input:focus, select:focus, textarea:focus, .sf-input:focus, .sf-select:focus, .s
 .ct-row.ct-off { opacity: .55; background: var(--panel-2); }
 .ct-head { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
 .ct-active b { font-size: 13.5px; }
+.ct-name { font-size: 13.5px; }
+.ct-head .ct-on { flex: none; cursor: pointer; }
 .ct-via { font-size: 10.5px; font-weight: 700; color: #0d5b47; background: #e1f5ee;
   border: 1px solid #9fe1cb; border-radius: 999px; padding: 2px 9px; }
 .ct-meta { font-size: 11.5px; color: var(--muted); }
@@ -4679,6 +4681,24 @@ input:focus, select:focus, textarea:focus, .sf-input:focus, .sf-select:focus, .s
   padding-top: 9px; border-top: 1px dashed var(--line); font-size: 12.5px; }
 .ct-err { margin-top: 8px; font-size: 11.5px; color: #A33C24; }
 .ct-note { font-size: 11.5px; color: #0F6E56; margin-top: 6px; min-height: 15px; }
+/* たたむ・ひらく できる送り先カード */
+.ct-head { cursor: pointer; }
+.ct-toggle { background: none; border: 0; padding: 3px; margin: -3px 0 -3px -3px; cursor: pointer;
+  display: inline-flex; align-items: center; border-radius: 6px; flex: none; }
+.ct-toggle:hover { background: #eaf7f2; }
+.ct-chev { transition: transform .15s ease; }
+.ct-row.ct-open .ct-chev { transform: rotate(180deg); }
+.ct-sum { font-size: 11.5px; color: var(--muted); flex: 1 1 120px; min-width: 0;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ct-row.ct-open .ct-sum { display: none; }
+.ct-body { margin-top: 11px; padding-top: 11px; border-top: 1px dashed var(--line); }
+.ct-group { margin-top: 12px; }
+.ct-group:first-child { margin-top: 0; }
+.ct-group-h { font-size: 12px; font-weight: 700; color: #0F6E56; margin-bottom: 7px; }
+.ct-group-sub { font-weight: 400; font-size: 10.5px; color: var(--muted); margin-left: 8px; }
+.ct-body .ct-kinds { margin-top: 0; padding-top: 0; border-top: 0; }
+.ct-timers .nt-row { margin-bottom: 6px; }
+.ct-timers .nt-row:last-child { margin-bottom: 0; }
 /* 立ち上げ待ちの一覧 */
 .pd-badge { display: inline-flex; align-items: center; justify-content: center; min-width: 18px; height: 18px;
   margin-left: 7px; padding: 0 5px; border-radius: 999px; background: #C0563C; color: #fff;

@@ -8469,7 +8469,7 @@ app.get("/api/chat-targets", async (req, res) => {
         id: r.id, name: r.name,
         webhookUrl: r.webhook_url || "", spaceId: r.space_id || "",
         onAssign: r.on_assign, onMail: r.on_mail, onDoc: r.on_doc, onLaunch: r.on_launch,
-        onDeploy: r.on_deploy,
+        onDeploy: r.on_deploy, onNews: r.on_news,
         active: r.active, lastError: r.last_error || "", sentCount: r.sent_count,
         via: r.space_id ? "kinbot名義" : "Webhook",
       })),
@@ -8499,7 +8499,7 @@ app.put("/api/chat-targets/:id", async (req, res) => {
   try {
     const b = req.body || {};
     const patch = {};
-    for (const k of ["onAssign", "onMail", "onDoc", "onLaunch", "onDeploy", "active"]) {
+    for (const k of ["onAssign", "onMail", "onDoc", "onLaunch", "onDeploy", "onNews", "active"]) {
       if (b[k] !== undefined) patch[k] = b[k] !== false;
     }
     if (b.name !== undefined) patch.name = String(b.name).trim().slice(0, 80);
@@ -13235,7 +13235,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-08-22at 資料発行：読み取りプレビューの不具合を直し、見た目を整えた";
+const BUILD_TAG = "2026-08-23a 知らせ：送り先ごとにカード化。開くと種類と決まった時刻の知らせを一緒に操作できる。朝のお知らせの入り切りも直した";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
