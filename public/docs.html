@@ -10,7 +10,7 @@
     <link rel="manifest" href="/site.webmanifest" />
     <meta name="theme-color" content="#0d5b47" />
     <meta name="apple-mobile-web-app-title" content="kinbot" />
-    <link rel="stylesheet" href="style.css?v=20260822ar" />
+    <link rel="stylesheet" href="style.css?v=20260822as" />
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/tabler-icons/2.44.0/iconfont/tabler-icons.min.css" />
     <style>
     /* URL発行の設定と、発行ボタン（右端） */
@@ -23,6 +23,7 @@
       font-size:13px;font-family:inherit;background:#fff;min-width:150px;}
     .ds-f select:focus,.ds-f input:focus{outline:none;border-color:#1d9e75;}
     .ds-chk{display:flex;align-items:center;gap:6px;font-size:13px;color:#1f2a26;padding-bottom:7px;}
+    .ds-fill{margin:8px 0 2px;display:flex;gap:10px;align-items:center;}
     .ds-read{margin:6px 0 2px;font-size:12px;color:#5b7a6d;}
     .ds-read table{border-collapse:collapse;margin-top:6px;width:100%;max-width:640px;}
     .ds-read th,.ds-read td{border-bottom:1px solid #eef3f0;padding:4px 8px;text-align:left;font-size:12px;}
@@ -104,6 +105,10 @@
               <label class="ks-field">宛先（<b>会社名を1行ずつ</b>貼るだけでOK）
                 <textarea id="dsRows" rows="8" placeholder="株式会社ベルク&#10;合同会社サンライズ&#10;社会福祉法人あおぞら&#10;&#10;担当者やメールも入れたいときは、うしろに足してください（区切りは自由）&#10;株式会社ベルク　町田　machida@belc.example.jp"></textarea>
               </label>
+              <div class="ds-fill">
+                <button type="button" class="btn ghost" id="dsLookup">会社名から担当者・メールを探す</button>
+                <span class="rev-status" id="dsLookupSt"></span>
+              </div>
               <div class="ds-read" id="dsRead"></div>
               <div class="ap-cfg-actions">
                 <div class="ds-bar">
@@ -220,7 +225,7 @@
         </main>
       </div>
     </div>
-    <script src="nav.js?v=20260822ar"></script>
-    <script src="docs.js?v=20260822ar"></script>
+    <script src="nav.js?v=20260822as"></script>
+    <script src="docs.js?v=20260822as"></script>
   </body>
 </html>
