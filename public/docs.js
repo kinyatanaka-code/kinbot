@@ -845,3 +845,31 @@ async function dsLookupFill() {
   finally { if (btn) btn.disabled = false; }
 }
 if ($("dsLookup")) $("dsLookup").addEventListener("click", dsLookupFill);
+
+// 貼った内容を読み取って、発行前に確かめられるように見せる
+function dsShowRead() {
+  const box = document.getElementById("dsRead");
+  if (!box) return;
+  const rows = parseRows((document.getElementById("dsRows") || {}).value || "");
+  if (!rows.length) { box.innerHTML = ""; return; }
+  const 足りない = rows.filter((r) => !r.email).length;
+  box.innerHTML =
+    `<div class="ds-read-h">
+       <b>${rows.length}件</b>の宛先を読み取りました
+       ${足りない ? `<span class="ds-warn">メールが空：${足りない}件</span>` : '<span class="ds-ok">すべてメールあり</span>'}
+     </div>
+     <div class="ds-read-b"><table>
+       <tr><th style="width:44%">会社名</th><th style="width:20%">担当者</th><th>メール</th></tr>
+       ${rows.map((r) => `<tr>
+         <td>${esc(r.company)}</td>
+         <td class="${r.contact ? "" : "miss"}">${esc(r.contact) || "—"}</td>
+         <td class="${r.email ? "" : "miss"}">${esc(r.email) || "—"}</td>
+       </tr>`).join("")}
+     </table></div>`;
+}
+if (document.getElementById("dsRows")) {
+  let _t = 0;
+  document.getElementById("dsRows").addEventListener("input", () => {
+    clearTimeout(_t); _t = setTimeout(dsShowRead, 300);
+  });
+}
