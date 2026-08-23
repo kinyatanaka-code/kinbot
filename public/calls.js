@@ -1933,40 +1933,75 @@ document.addEventListener("click", (ev) => {
 (function kcTutorial() {
   const SEEN_KEY = "kctut_seen_v1";
 
-  // 案内する順番。sel＝光らせる場所、p＝どの画面か、ls＝リスト管理の中のどのタブか。
-  // need:true のものは、その場所が無ければ飛ばす（kincallだけの人など）。
-  const STEPS = [
-    { p: "call", sel: null,
+  // まだリストが割り振られていない人には、案内を変える。
+  function hasAnyList() {
+    const sel = document.getElementById("clList");
+    return !!sel && Array.from(sel.options).some((o) => o.value);
+  }
+  function canMakeList() {
+    // 「リスト作成」タブがある人＝自分で作れる（kincallだけの人には無い）
+    return !!document.querySelector('.kc-ptab[data-ls="make"]');
+  }
+
+  // 案内する順番を、そのときの状況に合わせて組み立てる。
+  // sel＝光らせる場所、p＝どの画面か、ls＝リスト管理の中のどのタブか。
+  function buildSteps() {
+    const hasList = hasAnyList();
+    const canMake = canMakeList();
+    const s = [];
+    s.push({ p: "call", sel: null,
       title: "kincallへようこそ",
-      body: "リストの管理から、電話の記録、実績まで。使う場所を順番に案内します。" },
-    { p: "call", sel: '.kc-side .side-item[href="/kincall"]',
+      body: "リストの用意から、電話の記録、実績まで。使う場所を順番に案内します。" });
+    s.push({ p: "call", sel: '.kc-side .side-item[href="/kincall"]',
       title: "かける",
-      body: "ふだんはここ。リストを選んで電話をかけ、結果をその場で記録します。" },
-    { p: "call", sel: "#clList",
-      title: "リストを選ぶ",
-      body: "まず、かけるリストをここで選びます。人ごと・目的ごとに切り替えられます。" },
-    { p: "call", sel: "#clFind",
-      title: "すばやく探す",
-      body: "会社名・担当者・電話番号で絞り込めます。かけ先が多いときに便利です。" },
-    { p: "call", sel: "#clTable",
-      title: "記録する",
-      body: "選んだリストがここに並びます。行を押すと、その相手の履歴を見て、結果を残せます。" },
-    { p: "stats", sel: "#stPeriod",
+      body: "ふだんはここ。リストを選んで電話をかけ、結果をその場で記録します。" });
+
+    if (hasList) {
+      s.push({ p: "call", sel: "#clList",
+        title: "リストを選ぶ",
+        body: "まず、かけるリストをここで選びます。人ごと・目的ごとに切り替えられます。" });
+      s.push({ p: "call", sel: "#clFind",
+        title: "すばやく探す",
+        body: "会社名・担当者・電話番号で絞り込めます。かけ先が多いときに便利です。" });
+      s.push({ p: "call", sel: "#clTable",
+        title: "記録する",
+        body: "選んだリストがここに並びます。行を押すと、その相手の履歴を見て、結果を残せます。" });
+    } else {
+      // 初めての人はまだリストが無い。どうやって用意するかを案内する。
+      s.push({ p: "call", sel: "#clList",
+        title: "まだリストがありません",
+        body: canMake
+          ? "はじめは、かけるリストが空です。次に出てくる「リスト管理」→「リスト作成」で用意します。作るとここに出て、選べるようになります。"
+          : "はじめは、かけるリストが空です。担当者があなたにリストを分けると、ここに出て、選べるようになります。それまでは待っていて大丈夫です。" });
+    }
+
+    s.push({ p: "stats", sel: "#stPeriod",
       title: "実績を見る",
-      body: "日ごと・週ごと・月ごとに、メンバーの実績を並べて比べられます。「メンバー別の分析」では、断られ方や時間帯まで見られます。" },
-    { p: "lists", sel: "#lsTabs", ls: "manage",
+      body: "日ごと・週ごと・月ごとに、メンバーの実績を並べて比べられます。「メンバー別の分析」では、断られ方や時間帯まで見られます。" });
+    s.push({ p: "lists", sel: "#lsTabs", ls: "manage",
       title: "リスト管理",
-      body: "メンバーを選ぶと、その人のリストを扱えます。カードを押すと「かける」に移ります。" },
-    { p: "lists", sel: "#mkTabs", ls: "make", need: true,
-      title: "リストを作る",
-      body: "Salesforceのレポートからか、CSVから、架電リストを作れます。" },
-    { p: "lists", sel: "#srShare", ls: "make", need: true,
-      title: "みんなで分ける",
-      body: "「分ける人」を選ぶと、選んだメンバーに均等に配れます。選ばなければ、作った人のリストになります。" },
-    { p: "call", sel: null,
+      body: hasList
+        ? "メンバーを選ぶと、その人のリストを扱えます。カードを押すと「かける」に移ります。"
+        : "ここでリストを用意します。メンバーを選ぶと、その人のリストを扱えます。" });
+
+    if (canMake) {
+      s.push({ p: "lists", sel: "#mkTabs", ls: "make",
+        title: "リストを作る",
+        body: "Salesforceのレポートからか、CSVから、架電リストを作れます。ここで作ると「かける」で選べるようになります。" });
+      s.push({ p: "lists", sel: "#srShare", ls: "make",
+        title: "みんなで分ける",
+        body: "「分ける人」を選ぶと、選んだメンバーに均等に配れます。選ばなければ、作った人のリストになります。" });
+    }
+
+    s.push({ p: "call", sel: null,
       title: "これで準備OK",
-      body: "迷ったら、右上の「使い方」からいつでもこの案内を開けます。" },
-  ];
+      body: hasList
+        ? "迷ったら、右上の「使い方」からいつでもこの案内を開けます。"
+        : (canMake
+            ? "まずは「リスト管理」→「リスト作成」でリストを用意しましょう。迷ったら、右上の「使い方」からもう一度見られます。"
+            : "リストが分けられると「かける」に出ます。迷ったら、右上の「使い方」からもう一度見られます。") });
+    return s;
+  }
 
   // 見た目（この画面だけに効くように、ここで入れる）
   if (!document.getElementById("kctut-style")) {
@@ -2124,12 +2159,8 @@ document.addEventListener("click", (ev) => {
   }
 
   function buildVisible() {
-    // 無い場所（kincallだけの人には見えないタブなど）は、飛ばす
-    visible = STEPS.filter((s) => {
-      if (!s.need) return true;
-      // 画面を仮に合わせてから、その場所があるか見る
-      return !!document.querySelector(s.sel) || !!document.querySelector(`.kc-ptab[data-ls="${s.ls}"]`);
-    });
+    // そのときの状況（リストの有無・作れるか）に合わせて組み立てる
+    visible = buildSteps();
   }
 
   function start(from) {
