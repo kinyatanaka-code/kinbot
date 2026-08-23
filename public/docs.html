@@ -10,7 +10,7 @@
     <link rel="manifest" href="/site.webmanifest" />
     <meta name="theme-color" content="#0d5b47" />
     <meta name="apple-mobile-web-app-title" content="kinbot" />
-    <link rel="stylesheet" href="style.css?v=20260821b" />
+    <link rel="stylesheet" href="style.css?v=20260822an" />
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/tabler-icons/2.44.0/iconfont/tabler-icons.min.css" />
   </head>
   <body>
@@ -86,7 +86,19 @@
                 <textarea id="dsRows" rows="8" placeholder="株式会社ベルク	町田	machida@belc.example.jp&#10;合同会社サンライズ	佐藤	sato@sunrise.example.jp"></textarea>
               </label>
               <div class="ap-cfg-actions">
-                <button class="btn" id="dsMake">URLを発行する</button>
+                <div class="ds-opt">
+                <label>公開の期限
+                  <select id="dsExpiry">
+                    <option value="0">なし</option>
+                    <option value="7">7日</option>
+                    <option value="14">14日</option>
+                    <option value="30">30日</option>
+                  </select>
+                </label>
+                <label>合言葉 <input type="text" id="dsPass" placeholder="入れると開く前に必要になります" style="min-width:220px" /></label>
+                <label class="ks-check"><input type="checkbox" id="dsAskName" /> 開く前にお名前とメールをうかがう</label>
+              </div>
+              <button class="btn" id="dsMake">URLを発行する</button>
                 <span class="rev-status" id="dsStatus"></span>
               </div>
               <div id="dsResult"></div>
@@ -182,7 +194,7 @@
         </main>
       </div>
     </div>
-    <script src="nav.js?v=20260821b"></script>
-    <script src="docs.js?v=20260821b"></script>
+    <script src="nav.js?v=20260822an"></script>
+    <script src="docs.js?v=20260822an"></script>
   </body>
 </html>
