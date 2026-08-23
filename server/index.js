@@ -8151,20 +8151,15 @@ async function fillMissingMeetingDates() {
   return { checked: rows.length, filled, filledApoAt, notes: notes.slice(0, 20) };
 }
 
-// インサイドメンバーそれぞれのカレンダーを読んで、日ごとの架電時間（時間）を出す。
-// owner のトークンで、共有された各メンバーのカレンダーを読む（共有が無ければ、その人はとばす）。
+// シートに載っている担当者ごとに、カレンダーから日ごとの架電時間（時間）を出す。
+// 本人がGoogle連携していれば本人の権限で、無ければ書き込むアカウントの権限で（共有されていれば）読む。
+// 予定が無い日は、10〜18時まるごと架電時間（8時間）になる。
 async function computeCallHoursByName(owner, layout, fromISO, toISO) {
   const byName = {};
   const notes = [];
   if (!fromISO || !toISO) return { byName, notes };
 
   const members = await listMembers().catch(() => []);
-  const internsList = await listInterns().catch(() => []);
-  const internSet = new Set((internsList || []).map((x) => String(x.email || "").toLowerCase()).filter(Boolean));
-  const inside = (members || []).filter((mm) =>
-    (Array.isArray(mm.roles) && mm.roles.includes("inside")) || internSet.has(String(mm.email || "").toLowerCase()));
-  // シートに載っている担当者だけにしぼる（読むカレンダーを減らす）
-  const onSheet = inside.filter((mm) => layout.people.some((p) => psSameName(p.name, mm.name || mm.email)));
   const skip = await loadSkipInviters().catch(() => []);
 
   const timeMin = new Date(`${fromISO}T00:00:00+09:00`).toISOString();
@@ -8174,19 +8169,27 @@ async function computeCallHoursByName(owner, layout, fromISO, toISO) {
     return Number.isFinite(t) ? new Date(t + 9 * 3600 * 1000).toISOString().slice(0, 10) : "";
   };
 
-  for (const mm of onSheet) {
-    const email = String(mm.email || "").trim();
-    const name = mm.name || email;
-    if (!email || isSkippedPerson(name, skip)) continue;
+  // シートの担当者を、そのままメンバー（メール）に対応づける（役割では絞らない）
+  for (const p of layout.people) {
+    if (isSkippedPerson(p.name, skip)) continue;
+    const mm = members.find((m) =>
+      psSameName(p.name, m.name || "") || psSameName(p.name, m.email || ""));
+    if (!mm || !String(mm.email || "").trim()) {
+      notes.push(`シートの「${p.name}」に対応するメンバー（メールアドレス）が見つかりませんでした`);
+      continue;
+    }
+    const email = String(mm.email).trim();
+
     let events = [];
     try {
-      // 本人がGoogle連携していれば本人の権限で、無ければ書き込むアカウントの権限で（共有されていれば）読む
       const r = await readPersonCalendar(owner, email, { timeMin, timeMax });
       events = r.evs || [];
     } catch (e) {
-      notes.push(`${name}のカレンダーを読めませんでした（本人のGoogle連携も、共有もありません）`);
+      notes.push(`${p.name}（${email}）のカレンダーを読めませんでした：${e.message}`);
       continue;
     }
+
+    // 予定を日ごとにまとめる
     const byDay = {};
     for (const ev of events) {
       if (ev.allDay) continue;
@@ -8194,12 +8197,14 @@ async function computeCallHoursByName(owner, layout, fromISO, toISO) {
       if (!dstr) continue;
       (byDay[dstr] = byDay[dstr] || []).push(ev);
     }
+    // シートに並んでいる各日について、範囲内なら架電時間を出す（予定が無い日は8時間）
     const md = {};
-    for (const [dstr, evs] of Object.entries(byDay)) {
-      const p = dstr.split("-");
-      md[`${+p[1]}/${+p[2]}`] = callHours(evs, dstr);
+    for (const dd of layout.dates) {
+      const iso = isoForMD(dd.m, dd.d, toISO);
+      if (!iso || iso < fromISO || iso > toISO) continue;
+      md[`${dd.m}/${dd.d}`] = callHours(byDay[iso] || [], iso);
     }
-    byName[name] = md;
+    byName[mm.name || email] = md;
   }
   return { byName, notes };
 }
@@ -13346,7 +13351,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-08-23p プロセスシート：架電時間を、各メンバー本人のGoogle連携カレンダーから読むようにした（連携があればそこから、無ければ共有経由）";
+const BUILD_TAG = "2026-08-23q プロセスシート：架電時間を、シートの担当者を役割で絞らずメンバーに対応づけて計算。予定が無い日は8時間、読めない人は確認画面に理由を出す";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
