@@ -803,3 +803,45 @@ async function jpSaveNotify() {
 }
 
 jpLoadNotify();
+
+// 会社名からSalesforceを引いて、担当者とメールを埋める
+async function dsLookupFill() {
+  const say = (m) => { const e = $("dsLookupSt"); if (e) e.textContent = m || ""; };
+  const ta = $("dsRows");
+  if (!ta) return;
+  const rows = parseRows(ta.value);
+  if (!rows.length) { say("先に会社名を貼ってください"); return; }
+  const btn = $("dsLookup");
+  if (btn) btn.disabled = true;
+  say(`${rows.length}件を探しています…`);
+  try {
+    // 30件ずつ調べる（多いと時間がかかるため）
+    const 埋めた = [];
+    for (let i = 0; i < rows.length; i += 30) {
+      const part = rows.slice(i, i + 30);
+      say(`探しています… ${Math.min(i + 30, rows.length)} / ${rows.length}件`);
+      const r = await fetch("/api/doc-links/lookup", {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ names: part.map((x) => x.company) }),
+      });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.error || "探せませんでした");
+      (d.items || []).forEach((found, k) => {
+        const もと = part[k] || {};
+        埋めた.push({
+          company: もと.company,
+          // すでに書いてあるものは、そのまま活かす
+          contact: もと.contact || found.contact || "",
+          email: もと.email || found.email || "",
+        });
+      });
+    }
+    // 貼り直す（1行1件、タブ区切り）
+    ta.value = 埋めた.map((x) => [x.company, x.contact, x.email].filter(Boolean).join("\t")).join("\n");
+    dsShowRead();
+    const 見つかった = 埋めた.filter((x) => x.email || x.contact).length;
+    say(`${見つかった} / ${埋めた.length}件が見つかりました`);
+  } catch (e) { say("失敗：" + e.message); }
+  finally { if (btn) btn.disabled = false; }
+}
+if ($("dsLookup")) $("dsLookup").addEventListener("click", dsLookupFill);
