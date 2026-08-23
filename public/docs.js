@@ -209,7 +209,12 @@ $("dsMake").addEventListener("click", async () => {
   try {
     const r = await fetch("/api/doc-links", {
       method: "POST", headers: { "content-type": "application/json" },
-      body: JSON.stringify({ docId, rows }),
+      body: JSON.stringify({
+        docId, rows,
+        expiry: ($("dsExpiry") && $("dsExpiry").value) || "0",
+        pass: ($("dsPass") && $("dsPass").value.trim()) || "",
+        askName: !!($("dsAskName") && $("dsAskName").checked),
+      }),
     });
     const d = await r.json();
     if (!r.ok) throw new Error(d.error || "発行できませんでした");
