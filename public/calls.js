@@ -1923,3 +1923,256 @@ document.addEventListener("click", (ev) => {
     anFrom = f; anTo = t; loadAnalysis();
   }
 });
+
+
+// ───────────────────────────────────────────────────────────
+// kincall の使い方ツアー
+// kinbotロボが、選ぶ場所まで案内して、その場で説明する。
+// 初めて開いた人には自動で出し、あとは右上の「使い方」からいつでも見られる。
+// ───────────────────────────────────────────────────────────
+(function kcTutorial() {
+  const SEEN_KEY = "kctut_seen_v1";
+
+  // 案内する順番。sel＝光らせる場所、p＝どの画面か、ls＝リスト管理の中のどのタブか。
+  // need:true のものは、その場所が無ければ飛ばす（kincallだけの人など）。
+  const STEPS = [
+    { p: "call", sel: null,
+      title: "kincallへようこそ",
+      body: "リストの管理から、電話の記録、実績まで。使う場所を順番に案内します。" },
+    { p: "call", sel: '.kc-side .side-item[href="/kincall"]',
+      title: "かける",
+      body: "ふだんはここ。リストを選んで電話をかけ、結果をその場で記録します。" },
+    { p: "call", sel: "#clList",
+      title: "リストを選ぶ",
+      body: "まず、かけるリストをここで選びます。人ごと・目的ごとに切り替えられます。" },
+    { p: "call", sel: "#clFind",
+      title: "すばやく探す",
+      body: "会社名・担当者・電話番号で絞り込めます。かけ先が多いときに便利です。" },
+    { p: "call", sel: "#clTable",
+      title: "記録する",
+      body: "選んだリストがここに並びます。行を押すと、その相手の履歴を見て、結果を残せます。" },
+    { p: "stats", sel: "#stPeriod",
+      title: "実績を見る",
+      body: "日ごと・週ごと・月ごとに、メンバーの実績を並べて比べられます。「メンバー別の分析」では、断られ方や時間帯まで見られます。" },
+    { p: "lists", sel: "#lsTabs", ls: "manage",
+      title: "リスト管理",
+      body: "メンバーを選ぶと、その人のリストを扱えます。カードを押すと「かける」に移ります。" },
+    { p: "lists", sel: "#mkTabs", ls: "make", need: true,
+      title: "リストを作る",
+      body: "Salesforceのレポートからか、CSVから、架電リストを作れます。" },
+    { p: "lists", sel: "#srShare", ls: "make", need: true,
+      title: "みんなで分ける",
+      body: "「分ける人」を選ぶと、選んだメンバーに均等に配れます。選ばなければ、作った人のリストになります。" },
+    { p: "call", sel: null,
+      title: "これで準備OK",
+      body: "迷ったら、右上の「使い方」からいつでもこの案内を開けます。" },
+  ];
+
+  // 見た目（この画面だけに効くように、ここで入れる）
+  if (!document.getElementById("kctut-style")) {
+    const st = document.createElement("style");
+    st.id = "kctut-style";
+    st.textContent = `
+      #kctut{position:fixed;inset:0;z-index:9998;display:none;}
+      #kctut.on{display:block;}
+      #kctut-hole{position:absolute;border-radius:12px;pointer-events:none;
+        box-shadow:0 0 0 9999px rgba(15,40,32,.55);outline:2px solid #5DCAA5;
+        transition:top .18s ease,left .18s ease,width .18s ease,height .18s ease;}
+      #kctut-pop{position:absolute;max-width:340px;width:calc(100vw - 32px);
+        background:#fff;border:1px solid #cdeee0;border-radius:16px;
+        box-shadow:0 14px 40px rgba(13,91,71,.28);padding:14px 16px 12px;
+        pointer-events:auto;box-sizing:border-box;}
+      #kctut-pop .kctut-top{display:flex;gap:11px;align-items:flex-start;}
+      #kctut-pop .kctut-ava{flex:none;width:52px;height:52px;border-radius:50%;
+        background:#eaf7f2;border:1px solid #cdeee0;padding:4px;box-sizing:border-box;}
+      #kctut-pop .kctut-ava img{width:100%;height:100%;display:block;}
+      #kctut-pop .kctut-ttl{font-size:14px;font-weight:700;color:#0d5b47;margin:2px 0 4px;}
+      #kctut-pop .kctut-body{font-size:12.5px;line-height:1.6;color:#2a4f43;}
+      #kctut-pop .kctut-foot{display:flex;align-items:center;gap:8px;margin-top:12px;}
+      #kctut-pop .kctut-step{font-size:11px;color:#7aa093;margin-right:auto;}
+      #kctut-pop .kctut-btn{font:inherit;font-size:12.5px;border-radius:9px;padding:6px 13px;
+        cursor:pointer;border:1px solid #1d9e75;background:#1d9e75;color:#fff;font-weight:700;}
+      #kctut-pop .kctut-btn.ghost{background:#fff;color:#0d5b47;border-color:#bfe6d7;font-weight:600;}
+      #kctut-pop .kctut-btn:disabled{opacity:.45;cursor:default;}
+      #kctut-pop .kctut-tail{position:absolute;width:14px;height:14px;background:#fff;
+        border:1px solid #cdeee0;transform:rotate(45deg);display:none;}
+      #kctut-pop.tail-up .kctut-tail{display:block;top:-8px;border-right:0;border-bottom:0;}
+      #kctut-pop.tail-down .kctut-tail{display:block;bottom:-8px;border-left:0;border-top:0;}
+      .kctut-help{display:inline-flex;align-items:center;gap:6px;margin-left:auto;
+        font:inherit;font-size:12.5px;color:#0d5b47;background:#eaf7f2;border:1px solid #bfe6d7;
+        border-radius:999px;padding:5px 12px;cursor:pointer;font-weight:600;}
+      .kctut-help:hover{background:#dcf1e8;}
+      .kctut-help svg{width:15px;height:15px;fill:none;stroke:#1d9e75;stroke-width:2;}
+    `;
+    document.head.appendChild(st);
+  }
+
+  // 右上に「使い方」ボタンを置く
+  (function addHelp() {
+    const bar = document.querySelector(".topbar");
+    if (!bar || bar.querySelector(".kctut-help")) return;
+    const b = document.createElement("button");
+    b.type = "button";
+    b.className = "kctut-help";
+    b.innerHTML = '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/>' +
+      '<path d="M9.5 9a2.5 2.5 0 1 1 3.6 2.2c-.7.4-1.1.9-1.1 1.8" stroke-linecap="round"/>' +
+      '<circle cx="12" cy="16.5" r="1" fill="#1d9e75" stroke="none"/></svg>使い方';
+    b.addEventListener("click", () => start(0));
+    bar.appendChild(b);
+  })();
+
+  // 土台
+  const root = document.createElement("div");
+  root.id = "kctut";
+  root.innerHTML =
+    '<div id="kctut-hole"></div>' +
+    '<div id="kctut-pop">' +
+      '<span class="kctut-tail"></span>' +
+      '<div class="kctut-top">' +
+        '<div class="kctut-ava"><img src="/kinbot-avatar-talk.svg" alt="kinbot" /></div>' +
+        '<div><div class="kctut-ttl"></div><div class="kctut-body"></div></div>' +
+      '</div>' +
+      '<div class="kctut-foot">' +
+        '<span class="kctut-step"></span>' +
+        '<button type="button" class="kctut-btn ghost" data-act="skip">とじる</button>' +
+        '<button type="button" class="kctut-btn ghost" data-act="back">戻る</button>' +
+        '<button type="button" class="kctut-btn" data-act="next">次へ</button>' +
+      '</div>' +
+    '</div>';
+  document.body.appendChild(root);
+
+  const hole = root.querySelector("#kctut-hole");
+  const pop = root.querySelector("#kctut-pop");
+  const elTtl = pop.querySelector(".kctut-ttl");
+  const elBody = pop.querySelector(".kctut-body");
+  const elStep = pop.querySelector(".kctut-step");
+  const btnBack = pop.querySelector('[data-act="back"]');
+  const btnNext = pop.querySelector('[data-act="next"]');
+  const tail = pop.querySelector(".kctut-tail");
+
+  let idx = 0;
+  let visible = [];   // 実際に見せる手順（無い場所は除く）
+
+  function switchTo(step) {
+    // 画面（かける／実績／リスト管理）を切り替える
+    try {
+      const url = step.p === "call" ? "/kincall" : `/kincall?p=${step.p}`;
+      history.replaceState(null, "", url);
+    } catch {}
+    if (typeof showPane === "function") showPane();
+    // リスト管理の中のタブ
+    if (step.ls) {
+      const tab = document.querySelector(`.kc-ptab[data-ls="${step.ls}"]`);
+      if (tab && !tab.classList.contains("active")) tab.click();
+    }
+  }
+
+  function place(step) {
+    const target = step.sel ? document.querySelector(step.sel) : null;
+    if (target) {
+      try { target.scrollIntoView({ block: "center", inline: "nearest" }); } catch {}
+    }
+    requestAnimationFrame(() => {
+      const vw = window.innerWidth, vh = window.innerHeight;
+      let rect = null;
+      if (target) {
+        const r = target.getBoundingClientRect();
+        if (r.width || r.height) rect = r;
+      }
+      if (rect) {
+        const pad = 6;
+        hole.style.display = "block";
+        hole.style.left = Math.max(2, rect.left - pad) + "px";
+        hole.style.top = Math.max(2, rect.top - pad) + "px";
+        hole.style.width = Math.min(vw - 4, rect.width + pad * 2) + "px";
+        hole.style.height = rect.height + pad * 2 + "px";
+      } else {
+        hole.style.display = "none";
+      }
+      // ふきだしの位置
+      const pw = pop.offsetWidth, ph = pop.offsetHeight, gap = 16;
+      pop.classList.remove("tail-up", "tail-down");
+      if (rect) {
+        let top;
+        if (rect.bottom + gap + ph <= vh) { top = rect.bottom + gap; pop.classList.add("tail-up"); }
+        else if (rect.top - gap - ph >= 0) { top = rect.top - gap - ph; pop.classList.add("tail-down"); }
+        else { top = Math.max(10, Math.min(vh - ph - 10, rect.top)); }
+        let left = rect.left + rect.width / 2 - pw / 2;
+        left = Math.max(12, Math.min(left, vw - pw - 12));
+        pop.style.top = top + "px";
+        pop.style.left = left + "px";
+        const center = Math.max(left + 16, Math.min(rect.left + rect.width / 2, left + pw - 16));
+        tail.style.left = center - left - 7 + "px";
+      } else {
+        pop.style.top = vh / 2 - ph / 2 + "px";
+        pop.style.left = Math.max(12, vw / 2 - pw / 2) + "px";
+      }
+    });
+  }
+
+  function render() {
+    const step = visible[idx];
+    if (!step) return finish();
+    switchTo(step);
+    elTtl.textContent = step.title;
+    elBody.textContent = step.body;
+    elStep.textContent = `${idx + 1} / ${visible.length}`;
+    btnBack.disabled = idx === 0;
+    btnNext.textContent = idx === visible.length - 1 ? "おわり" : "次へ";
+    // 画面の切り替え・読み込みが終わってから位置を測る
+    setTimeout(() => place(step), 60);
+  }
+
+  function buildVisible() {
+    // 無い場所（kincallだけの人には見えないタブなど）は、飛ばす
+    visible = STEPS.filter((s) => {
+      if (!s.need) return true;
+      // 画面を仮に合わせてから、その場所があるか見る
+      return !!document.querySelector(s.sel) || !!document.querySelector(`.kc-ptab[data-ls="${s.ls}"]`);
+    });
+  }
+
+  function start(from) {
+    buildVisible();
+    if (!visible.length) return;
+    idx = Math.max(0, Math.min(from || 0, visible.length - 1));
+    root.classList.add("on");
+    render();
+  }
+
+  function finish() {
+    root.classList.remove("on");
+    try { localStorage.setItem(SEEN_KEY, "1"); } catch {}
+    // かける画面に戻しておく
+    try { history.replaceState(null, "", "/kincall"); } catch {}
+    if (typeof showPane === "function") showPane();
+  }
+
+  pop.addEventListener("click", (ev) => {
+    const b = ev.target.closest("[data-act]");
+    if (!b) return;
+    const act = b.dataset.act;
+    if (act === "skip") return finish();
+    if (act === "back") { if (idx > 0) { idx--; render(); } return; }
+    if (act === "next") { if (idx < visible.length - 1) { idx++; render(); } else finish(); }
+  });
+
+  // 画面の大きさが変わったら、位置を測り直す
+  let rz;
+  window.addEventListener("resize", () => {
+    if (!root.classList.contains("on")) return;
+    clearTimeout(rz);
+    rz = setTimeout(() => place(visible[idx]), 120);
+  });
+  document.addEventListener("keydown", (ev) => {
+    if (!root.classList.contains("on")) return;
+    if (ev.key === "Escape") finish();
+    else if (ev.key === "ArrowRight") { if (idx < visible.length - 1) { idx++; render(); } }
+    else if (ev.key === "ArrowLeft") { if (idx > 0) { idx--; render(); } }
+  });
+
+  // 初めての人には自動で出す
+  let seen = "1";
+  try { seen = localStorage.getItem(SEEN_KEY); } catch {}
+  if (!seen) setTimeout(() => start(0), 900);
+})();
