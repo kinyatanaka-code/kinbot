@@ -2,6 +2,7 @@
 // 文字起こし・要約・分析を Postgres に保存する。
 // DATABASE_URL が無ければ自動で「保存なし（メモリのみ）」で動く（段階導入のため）。
 import pg from "pg";
+import crypto from "crypto";
 
 const DATABASE_URL = process.env.DATABASE_URL || "";
 let pool = null;
@@ -1069,6 +1070,17 @@ export async function initDb() {
   await sq(`CREATE INDEX IF NOT EXISTS ix_doc_views_link ON doc_views(link_id, started_at DESC);`);
   // 資料を閉じたかどうか。閉じた時点の滞在時間で通知するために使う。
   await sq(`ALTER TABLE doc_views ADD COLUMN IF NOT EXISTS ended BOOLEAN NOT NULL DEFAULT false;`);
+
+  // 送ったURLに、期限・合言葉・お名前確認を付けられるようにする。
+  //   expires_at … この日時をすぎたら開けない（空なら期限なし）
+  //   pass_hash  … 合言葉（そのままは保存せず、変換して持つ）
+  //   ask_name   … 開く前に、お名前とメールをうかがう
+  await sq(`ALTER TABLE doc_links ADD COLUMN IF NOT EXISTS expires_at TIMESTAMPTZ;`);
+  await sq(`ALTER TABLE doc_links ADD COLUMN IF NOT EXISTS pass_hash TEXT;`);
+  await sq(`ALTER TABLE doc_links ADD COLUMN IF NOT EXISTS ask_name BOOLEAN NOT NULL DEFAULT false;`);
+  // 見た人が名乗ってくれた内容
+  await sq(`ALTER TABLE doc_views ADD COLUMN IF NOT EXISTS viewer_name TEXT;`);
+  await sq(`ALTER TABLE doc_views ADD COLUMN IF NOT EXISTS viewer_email TEXT;`);
   // 共通URL（メルマガ用）で開いた人。差し込みタグから受け取る。
   await sq(`ALTER TABLE doc_views ADD COLUMN IF NOT EXISTS viewer_email TEXT;`);
   await sq(`ALTER TABLE doc_views ADD COLUMN IF NOT EXISTS viewer_name TEXT;`);
@@ -4723,21 +4735,52 @@ export async function deleteDocFile(id) {
 }
 
 // 宛先ごとのリンクをまとめて発行する
-export async function addDocLinks(docId, rows, owner) {
+export async function addDocLinks(docId, rows, owner, opt = {}) {
   if (!pool || !docId || !Array.isArray(rows) || !rows.length) return [];
   const out = [];
+  // 期限・合言葉・お名前確認（指定がなければ今まで通り）
+  const expires = opt.expiresAt || null;
+  const passHash = opt.pass ? hashPass(opt.pass) : null;
+  const askName = !!opt.askName;
   for (const r of rows) {
-    const slug = randomSlug(10);
+    const slug = randomSlug(12);   // 当てられにくいよう長めにする
     try {
       const { rows: ins } = await pool.query(
-        `INSERT INTO doc_links (slug, doc_id, company, contact, email, owner, note)
-         VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING *`,
+        `INSERT INTO doc_links (slug, doc_id, company, contact, email, owner, note,
+                                expires_at, pass_hash, ask_name)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING *`,
         [slug, docId, (r.company || "").slice(0, 200) || null, (r.contact || "").slice(0, 100) || null,
-         (r.email || "").slice(0, 200) || null, owner || null, (r.note || "").slice(0, 300) || null]);
+         (r.email || "").slice(0, 200) || null, owner || null, (r.note || "").slice(0, 300) || null,
+         expires, passHash, askName]);
       out.push(ins[0]);
     } catch (e) { console.error("[db] addDocLinks", e.message); }
   }
   return out;
+}
+
+// 合言葉はそのまま持たず、変換して保存する
+export function hashPass(pw) {
+  const salt = crypto.randomBytes(16).toString("hex");
+  const h = crypto.scryptSync(String(pw), salt, 32).toString("hex");
+  return `s1:${salt}:${h}`;
+}
+export function checkPass(pw, stored) {
+  try {
+    const [v, salt, h] = String(stored || "").split(":");
+    if (v !== "s1" || !salt || !h) return false;
+    const t = crypto.scryptSync(String(pw), salt, 32).toString("hex");
+    return crypto.timingSafeEqual(Buffer.from(t, "hex"), Buffer.from(h, "hex"));
+  } catch { return false; }
+}
+
+// 見た人が名乗ってくれた内容を控える
+export async function setViewerIdentity(viewId, name, email) {
+  if (!pool || !viewId) return false;
+  try {
+    await pool.query(`UPDATE doc_views SET viewer_name=$2, viewer_email=$3 WHERE id=$1`,
+      [viewId, String(name || "").slice(0, 100) || null, String(email || "").slice(0, 200) || null]);
+    return true;
+  } catch (e) { console.error("[db] setViewerIdentity", e.message); return false; }
 }
 
 function randomSlug(n = 10) {
