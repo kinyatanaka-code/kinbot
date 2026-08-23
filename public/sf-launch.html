@@ -129,6 +129,9 @@
               </div>
               <p class="note">「この日から書き込む」を入れると、その日以降だけを書き換えます（空なら、これまで通り期間の開始から）。<br>
               「0にする日」に入れた日は、<b>実績があっても0で書き込みます</b>（休みの日などに使います）。カンマや空白で区切って複数入れられます。</p>
+              <label class="ks-check" style="margin:6px 0 2px"><input type="checkbox" id="psHours" /> <b>稼働時間目標に、カレンダーから計算した架電時間を入れる</b></label>
+              <p class="note">各メンバーのカレンダーの10〜18時のうち、<b>【】・株式会社・〇〇様</b>が入った予定を商談時間として引き、<b>残りの空き時間とリスケ</b>を架電時間（時間）として、稼働時間目標の列に入れます。<br>
+              カレンダーは、書き込むアカウントに<b>共有</b>されている必要があります（読めない人はとばして、下に理由を出します）。</p>
             </div>
             <div class="ps-filters" id="psFilters"></div>
 
@@ -189,7 +192,7 @@
     </div>
     <script src="product.js?v=20260821t"></script>
     <script src="sf-launch.js?v=20260821t"></script>
-    <script src="sf-data.js?v=20260823h"></script>
+    <script src="sf-data.js?v=20260823m"></script>
     <script src="nav.js?v=20260823c"></script>
   </body>
 </html>

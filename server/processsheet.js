@@ -236,6 +236,81 @@ export function parseZeroDates(input) {
   return out;
 }
 
+// 月日（m/d）から、年を推測してISO日付にする。
+// シートの日付は年が無いので、期間の開始（base）の年を手がかりにする。
+export function isoForMD(m, d, base) {
+  if (!base) return "";
+  const y = +String(base).slice(0, 4);
+  const baseMonth = +String(base).slice(5, 7) || m;
+  const year = m < baseMonth ? y + 1 : y;
+  return `${year}-${String(m).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
+}
+
+// カレンダーから、その日の「架電時間」（時間・小数1桁）を出す。
+//   ・10時〜18時のうち、
+//     - 【】・株式会社・〇〇様 が入った予定 … 商談時間（架電時間から引く）
+//     - リスケ が入った予定・空き時間 … 架電時間（引かない）
+//   ・架電時間 ＝ (18-10)時間 − 商談時間
+export function callHours(events, dateJst, { startH = 10, endH = 18 } = {}) {
+  const winS = Date.parse(`${dateJst}T${String(startH).padStart(2, "0")}:00:00+09:00`);
+  const winE = Date.parse(`${dateJst}T${String(endH).padStart(2, "0")}:00:00+09:00`);
+  if (!Number.isFinite(winS) || !Number.isFinite(winE) || winE <= winS) return 0;
+  const winMin = (winE - winS) / 60000;
+
+  const isMeeting = (title) => {
+    const t = String(title || "");
+    if (/リスケ/.test(t)) return false;               // リスケは架電時間
+    return /[【】]/.test(t) || /株式会社/.test(t) || /様/.test(t);
+  };
+
+  const iv = [];
+  for (const ev of events || []) {
+    if (ev && ev.allDay) continue;                    // 終日予定は対象外
+    if (!isMeeting(ev.title)) continue;
+    const s = Date.parse(ev.start), e = Date.parse(ev.end);
+    if (!Number.isFinite(s) || !Number.isFinite(e)) continue;
+    const a = Math.max(s, winS), b = Math.min(e, winE);
+    if (b > a) iv.push([a, b]);
+  }
+  // 重なりをまとめて、商談時間の合計を出す（二重に引かないため）
+  iv.sort((x, y) => x[0] - y[0]);
+  let meetMs = 0, cs = null, ce = null;
+  for (const [a, b] of iv) {
+    if (cs === null) { cs = a; ce = b; }
+    else if (a > ce) { meetMs += ce - cs; cs = a; ce = b; }
+    else if (b > ce) ce = b;
+  }
+  if (cs !== null) meetMs += ce - cs;
+
+  const callMin = Math.max(0, winMin - meetMs / 60000);
+  return Math.round((callMin / 60) * 10) / 10;        // 時間・小数1桁
+}
+
+// 稼働時間目標（架電時間）を書き込む場所と値を作る。
+// hoursByName … 担当者名 → { "8/4": 6.5, ... }
+export function buildHoursUpdates(layout, hoursByName, { base = "", writeFrom = "", toISO = "", onlyDates = null } = {}) {
+  const updates = [];
+  for (const p of layout.people) {
+    const row = p.rows["コール"];
+    if (row == null) continue;   // 稼働時間目標は「コール」の行に置かれている
+    const key = Object.keys(hoursByName || {}).find((n) => sameName(p.name, n));
+    if (!key) continue;
+    const md = hoursByName[key] || {};
+    for (const d of layout.dates) {
+      if (!(d.hoursCol >= 0)) continue;
+      const mk = `${d.m}/${d.d}`;
+      if (onlyDates && !onlyDates.includes(mk)) continue;
+      const iso = isoForMD(d.m, d.d, base);
+      if (writeFrom && iso && iso < writeFrom) continue;
+      if (toISO && iso && iso > toISO) continue;      // 先の日付には書かない
+      const h = md[mk];
+      if (h == null) continue;
+      updates.push({ range: `${colName(d.hoursCol)}${row + 1}`, value: h, who: p.name, date: mk, metric: "稼働時間" });
+    }
+  }
+  return updates;
+}
+
 // 集計とシートの構造を突き合わせて、書き込む場所と値の一覧を作る
 export function buildUpdates(layout, tallied, { onlyDates = null, zeroFrom = "", zeroTo = "", writeFrom = "", zeroDates = [] } = {}) {
   const updates = [];
@@ -247,24 +322,12 @@ export function buildUpdates(layout, tallied, { onlyDates = null, zeroFrom = "",
   const ZERO = { "コール": 0, "接触": 0, "アポ（期内）": 0, "アポ（期外）": 0 };
   const inZeroRange = (d) => {
     if (!zeroFrom || !zeroTo) return false;
-    const y = +String(zeroFrom).slice(0, 4);
-    // 年をまたぐ場合に備えて、月で年を推測する
-    const year = d.m < +String(zeroFrom).slice(5, 7) ? y + 1 : y;
-    const iso = `${year}-${String(d.m).padStart(2, "0")}-${String(d.d).padStart(2, "0")}`;
+    const iso = isoForMD(d.m, d.d, zeroFrom);
     return iso >= zeroFrom && iso <= zeroTo;
   };
 
   // 「0にする日」（休みなど）。実績があっても0で書き込む。
   const zeroSet = new Set((zeroDates || []).map(String));
-  // 「この日から書き込む」の判定に使う、各列のISO日付。
-  const isoOf = (d) => {
-    const base = zeroFrom || writeFrom || "";
-    if (!base) return "";
-    const y = +String(base).slice(0, 4);
-    const baseMonth = +String(base).slice(5, 7) || d.m;
-    const year = d.m < baseMonth ? y + 1 : y;
-    return `${year}-${String(d.m).padStart(2, "0")}-${String(d.d).padStart(2, "0")}`;
-  };
 
   for (const p of layout.people) {
     // シートの担当者名に当てはまるSF側の名前を探す
@@ -274,7 +337,7 @@ export function buildUpdates(layout, tallied, { onlyDates = null, zeroFrom = "",
       const key = `${d.m}/${d.d}`;
       if (onlyDates && !onlyDates.includes(key)) continue;
       // 「この日から書き込む」より前の列は、触らない
-      if (writeFrom) { const iso = isoOf(d); if (iso && iso < writeFrom) continue; }
+      if (writeFrom) { const iso = isoForMD(d.m, d.d, zeroFrom || writeFrom); if (iso && iso < writeFrom) continue; }
       const forceZero = zeroSet.has(key);
       const t = forceZero ? ZERO : (tallied[sfName][key] || (inZeroRange(d) ? ZERO : null));
       if (!t) continue;

@@ -485,6 +485,7 @@ async function loadProcessSheet() {
     if (rb) { rb.checked = true; syncTermMode(); }
     if ($("psWriteFrom")) $("psWriteFrom").value = d.writeFrom || "";
     if ($("psZeroDates")) $("psZeroDates").value = d.zeroDates || "";
+    if ($("psHours")) $("psHours").checked = !!d.withHours;
     if ($("psAuto")) $("psAuto").checked = !!d.autoRun;
     if ($("psGasUrl")) $("psGasUrl").value = d.gasUrl || "";
     const gs = $("psGasState");
@@ -526,6 +527,7 @@ function psBody(dryRun) {
     termMode: termMode(),
     writeFrom: $("psWriteFrom") ? $("psWriteFrom").value : undefined,
     zeroDates: $("psZeroDates") ? $("psZeroDates").value : undefined,
+    withHours: $("psHours") ? $("psHours").checked : undefined,
     autoRun: $("psAuto") ? $("psAuto").checked : false,
     gasUrl: $("psGasUrl") ? $("psGasUrl").value : undefined,
     gasSecret: $("psGasSecret") ? $("psGasSecret").value : undefined,
@@ -673,6 +675,11 @@ async function psRun(dryRun) {
       `<br>` +
       `シートの担当者 ${(d.people || []).join("、")} ／ 数えられた人 ${(d.matched || []).join("、") || "なし"}</div>` +
       (d.skipped && d.skipped.length ? `<div class="ps-skip">${srEsc(d.skipped.join(" ／ "))}</div>` : "") +
+      (d.withHours
+        ? `<div class="ps-note">稼働時間目標に、カレンダーから計算した架電時間を入れます（10〜18時から商談時間を引いたもの）。` +
+          (d.hoursNotes && d.hoursNotes.length ? `<br><span class="ps-skip">${srEsc(d.hoursNotes.join(" ／ "))}</span>` : "") +
+          `</div>`
+        : "") +
       (d.apoFixed && d.apoFixed.checked
         ? `<div class="ps-note">日付が足りないアポ ${d.apoFixed.checked}件を調べ、` +
           `商談日 ${d.apoFixed.filled}件・アポ取得日 ${d.apoFixed.filledApoAt || 0}件をカレンダーから補いました。` +

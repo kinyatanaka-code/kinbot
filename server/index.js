@@ -338,7 +338,7 @@ import { resolveConfig, statusInfo } from "./config.js";
 import { callLLMPublic, analyzerInfo, analyzeMeeting, analyzeDeep, freeAnalyze, chatWithData, enrichCompany, lookupEmployeeCount, lookupCompanyBasics, generateThanks, THANKS_PROMPT, getCheckItems, getSummaryPrompt, getCustomPrompt, runCustomAnalysis, analyzeWinPatterns, classifyMeetingKind, extractFirstMeeting, extractReMeeting, buildBrief, extractFeatureCTags, enrichCompanyAttributes, generateFeatureCInsights, extractQaPairs, splitPhases } from "./analyzer.js";
 import { searchCompanies, getCompanyDetail, gbizConfigured } from "./gbizinfo.js";
 import { searchCompanyInfo, webLookupAvailable } from "./websearch.js";
-import { readLayout, readGoals, tally, buildUpdates, applyApoCounts, parseZeroDates, METRICS } from "./processsheet.js";
+import { readLayout, readGoals, tally, buildUpdates, applyApoCounts, parseZeroDates, callHours, buildHoursUpdates, sameName as psSameName, METRICS } from "./processsheet.js";
 import {
   googleConfigured,
   authUrl,
@@ -8043,6 +8043,7 @@ app.get("/api/process-sheet", async (req, res) => {
       termMode: st.psTermMode === "fixed" ? "fixed" : "auto",
       writeFrom: st.psWriteFrom || "",
       zeroDates: (String(st.psZeroDates ?? "").trim() || "8/21"),
+      withHours: st.psHours === true,
       autoRun: st.psAutoRun === true,
       filters: (() => { try { return JSON.parse(st.psFilters || "null"); } catch { return null; } })(),
       gasUrl: st.psGasUrl || "", gasSecretSet: !!st.psGasSecret,
@@ -8072,6 +8073,7 @@ app.put("/api/process-sheet", async (req, res) => {
     // 「この日から書き込む」「0にする日（休みなど）」
     if (b.writeFrom !== undefined) patch.psWriteFrom = String(b.writeFrom || "").slice(0, 10);
     if (b.zeroDates !== undefined) patch.psZeroDates = String(b.zeroDates || "").slice(0, 200);
+    if (b.withHours !== undefined) patch.psHours = b.withHours === true;
     if (b.autoRun !== undefined) patch.psAutoRun = b.autoRun === true;
     // Apps Script経由の書き込み（保護されたシート向け）
     if (b.gasUrl !== undefined) patch.psGasUrl = String(b.gasUrl || "").trim().slice(0, 300);
@@ -8149,6 +8151,58 @@ async function fillMissingMeetingDates() {
   return { checked: rows.length, filled, filledApoAt, notes: notes.slice(0, 20) };
 }
 
+// インサイドメンバーそれぞれのカレンダーを読んで、日ごとの架電時間（時間）を出す。
+// owner のトークンで、共有された各メンバーのカレンダーを読む（共有が無ければ、その人はとばす）。
+async function computeCallHoursByName(owner, layout, fromISO, toISO) {
+  const byName = {};
+  const notes = [];
+  if (!fromISO || !toISO) return { byName, notes };
+
+  const members = await listMembers().catch(() => []);
+  const internsList = await listInterns().catch(() => []);
+  const internSet = new Set((internsList || []).map((x) => String(x.email || "").toLowerCase()).filter(Boolean));
+  const inside = (members || []).filter((mm) =>
+    (Array.isArray(mm.roles) && mm.roles.includes("inside")) || internSet.has(String(mm.email || "").toLowerCase()));
+  // シートに載っている担当者だけにしぼる（読むカレンダーを減らす）
+  const onSheet = inside.filter((mm) => layout.people.some((p) => psSameName(p.name, mm.name || mm.email)));
+  const skip = await loadSkipInviters().catch(() => []);
+
+  const timeMin = new Date(`${fromISO}T00:00:00+09:00`).toISOString();
+  const timeMax = new Date(`${toISO}T23:59:59+09:00`).toISOString();
+  const jstDay = (iso) => {
+    const t = Date.parse(iso);
+    return Number.isFinite(t) ? new Date(t + 9 * 3600 * 1000).toISOString().slice(0, 10) : "";
+  };
+
+  for (const mm of onSheet) {
+    const email = String(mm.email || "").trim();
+    const name = mm.name || email;
+    if (!email || isSkippedPerson(name, skip)) continue;
+    let events = [];
+    try {
+      events = await listCalendarEvents(owner, email, { timeMin, timeMax });
+    } catch (e) {
+      notes.push(`${name}のカレンダーを読めませんでした（共有の設定を確認してください）`);
+      continue;
+    }
+    const byDay = {};
+    for (const ev of events) {
+      if (ev.allDay) continue;
+      const dstr = jstDay(ev.start);
+      if (!dstr) continue;
+      (byDay[dstr] = byDay[dstr] || []).push(ev);
+    }
+    const md = {};
+    for (const [dstr, evs] of Object.entries(byDay)) {
+      const p = dstr.split("-");
+      md[`${+p[1]}/${+p[2]}`] = callHours(evs, dstr);
+    }
+    byName[name] = md;
+  }
+  return { byName, notes };
+}
+
+
 // 実行の本体。画面からも、30分ごとの自動実行からも、ここを使う。
 async function runProcessSheet(sfUser, opts = {}) {
   const st = await getSettings();
@@ -8212,12 +8266,28 @@ async function runProcessSheet(sfUser, opts = {}) {
     onlyDates, zeroFrom: from, zeroTo, writeFrom, zeroDates,
   });
 
+  // 稼働時間目標（架電時間）を、カレンダーから計算して入れる（任意）。
+  // 10〜18時のうち、【】・株式会社・〇〇様の予定を商談時間として引き、残り（空き＋リスケ）を架電時間とする。
+  const withHours = opts.withHours !== undefined ? !!opts.withHours : (st.psHours === true);
+  let hoursNotes = [];
+  if (withHours) {
+    try {
+      const base = from || zeroTo;
+      const readFrom = writeFrom && writeFrom > base ? writeFrom : (base || zeroTo);
+      const r = await computeCallHoursByName(owner, layout, readFrom, zeroTo);
+      hoursNotes = r.notes;
+      const hUps = buildHoursUpdates(layout, r.byName, { base, writeFrom, toISO: zeroTo, onlyDates });
+      for (const u of hUps) updates.push(u);
+    } catch (e) { hoursNotes = ["架電時間の計算に失敗しました：" + e.message]; }
+  }
+
   if (dryRun) {
     return {
       ok: true, dryRun: true, rows: records.length,
       people: layout.people.map((p) => p.name),
       matched: Object.keys(tallied),
       updates: updates.slice(0, 400), count: updates.length, skipped,
+      withHours, hoursNotes,
       apoSource: apoRows.length
         ? `kinbotのアポ記録（Chatに流れたアポ）から ${apoRows.reduce((n, r) => n + (Number(r.in_term) || 0) + (Number(r.out_term) || 0), 0)}件`
         : "kinbotにアポの記録がありません",
@@ -13266,7 +13336,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-08-23k 0にする日：設定が空でも既定の8/21を効かせるよう直した（実績・プロセスシートとも8/21は0になる）";
+const BUILD_TAG = "2026-08-23m プロセスシート：稼働時間目標に、カレンダーから計算した架電時間（10〜18時から商談時間を引いたもの）を入れられるようにした";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
