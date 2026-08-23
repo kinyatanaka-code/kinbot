@@ -5055,6 +5055,22 @@ export async function markDocViewNotified(viewId) {
   try { await pool.query(`UPDATE doc_views SET notified=true WHERE id=$1`, [viewId]); } catch {}
 }
 
+// この宛先が、これまで何回この資料を見たか（今回を除く）と、
+// 前回いつ見たかを返す。通知の文言を変えるために使う。
+// 短すぎる閲覧（開いてすぐ閉じた分）は数えない。
+export async function priorDocViews(linkId, currentViewId, minSeconds = 20) {
+  if (!pool || !linkId) return { count: 0, lastAt: null };
+  try {
+    const { rows } = await pool.query(
+      `SELECT count(*)::int AS cnt,
+              max(COALESCE(last_at, started_at)) AS last_at
+         FROM doc_views
+        WHERE link_id = $1 AND id <> $2 AND seconds >= $3`,
+      [linkId, currentViewId || 0, Math.max(0, parseInt(minSeconds, 10) || 0)]);
+    return { count: rows[0]?.cnt || 0, lastAt: rows[0]?.last_at || null };
+  } catch (e) { console.error("[db] priorDocViews", e.message); return { count: 0, lastAt: null }; }
+}
+
 export async function addDocEvent(linkId, kind, { url, ua } = {}) {
   if (!pool || !linkId) return null;
   try {

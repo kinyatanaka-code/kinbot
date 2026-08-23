@@ -13,7 +13,7 @@
 import { createHash } from "node:crypto";
 import {
   getDocLink, startDocView, beatDocView, markDocViewNotified, addDocEvent,
-  endDocView, staleDocViews, getSettings, displayNameOf,
+  endDocView, staleDocViews, getSettings, displayNameOf, priorDocViews,
 } from "./db.js";
 import { appendSheetRow } from "./google.js";
 import { notifyChat, notifyAll } from "./chat.js";
@@ -58,6 +58,19 @@ export function fmtSeconds(sec) {
   return s % 60 ? `${m}分${s % 60}秒` : `${m}分`;
 }
 
+// 前回の閲覧からどれくらい経ったかを、やさしい日本語にする（「5日ぶり」など）
+export function gapText(from, to = new Date()) {
+  const ms = new Date(to).getTime() - new Date(from).getTime();
+  const min = Math.floor(ms / 60000);
+  if (min < 60) return `${Math.max(1, min)}分ぶり`;
+  const hr = Math.floor(min / 60);
+  if (hr < 24) return `${hr}時間ぶり`;
+  const day = Math.floor(hr / 24);
+  if (day < 14) return `${day}日ぶり`;
+  if (day < 60) return `${Math.floor(day / 7)}週間ぶり`;
+  return `${Math.floor(day / 30)}か月ぶり`;
+}
+
 // よく見られたページを上位から並べる
 export function topPages(pages, n = 3) {
   const e = Object.entries(pages || {})
@@ -73,11 +86,29 @@ export async function notifyDocView(link, view) {
   const who = [link.company, link.contact].filter(Boolean).join(" ") || link.email || "宛先不明";
   const rep = link.owner ? await displayNameOf(link.owner).catch(() => "") : "";
   const tp = topPages(view.pages);
-  // 行数を抑える。スマホのChatで折り返しが増えると読みづらいため。
   // 長く見ているほど脈があるので、ひと目で分かるようにする
   const hot = view.seconds >= 120 ? "🔥 " : "";
+
+  // この宛先が何回目に見たか・前回いつ見たか（短すぎる閲覧は数えない）
+  const hist = await priorDocViews(link.id, view.id, NOTIFY_MIN_SECONDS)
+    .catch(() => ({ count: 0, lastAt: null }));
+  const n = (hist.count || 0) + 1;              // 今回を含めた回数
+  const again = n >= 2;                          // 2回目以降か
+  const prev = hist.lastAt ? new Date(hist.lastAt) : null;
+  const days = prev ? Math.floor((Date.now() - prev.getTime()) / 86400000) : 0;
+  const longGap = !!prev && days >= 14;          // しばらく空いたら「久しぶり」
+
+  // 2回目以降は文言を変える。間が空いていたら久しぶりの一言を添える。
+  const title = again ? "また資料を見ています" : "資料を見ました";
+  const head = `👀 ${hot}*${title}*　${who}${again ? `（${n}回目）` : ""}`;
+  const gapLine = again && prev
+    ? `${longGap ? "🕰 お久しぶりです — " : "🔁 "}前回から${gapText(prev)}`
+    : "";
+
+  // 行数を抑える。スマホのChatで折り返しが増えると読みづらいため。
   const lines = [
-    `👀 ${hot}*資料を見ました*　${who}`,
+    head,
+    gapLine,
     `📄 ${fixMojibake(link.doc_name) || "-"}`,
     `⏱ ${fmtSeconds(view.seconds)}　📖 ${view.max_page ? `${view.max_page}ページまで` : "ページ不明"}`,
     tp ? `🔎 ${tp}` : "",
