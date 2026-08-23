@@ -6341,6 +6341,20 @@ app.post("/api/calls/memo-analysis", async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+// 「0にする日」（休みなど。プロセスシートと同じ設定）を、月日の集合で返す。
+// 実績の集計から、その日の記録を外すために使う。
+async function zeroDayMDSet() {
+  try {
+    const st = await getSettings();
+    const raw = st.psZeroDates !== undefined ? st.psZeroDates : "8/21";
+    return new Set(parseZeroDates(raw));
+  } catch { return new Set(); }
+}
+const mdKeyOf = (iso) => {
+  const m = String(iso || "").match(/^(\d{4})-(\d{2})-(\d{2})/);
+  return m ? `${+m[2]}/${+m[3]}` : "";
+};
+
 // メンバー別の分析（全体像・内訳・時間帯・属性・推移）
 app.get("/api/calls/analysis", async (req, res) => {
   try {
@@ -6368,6 +6382,7 @@ app.get("/api/calls/analysis", async (req, res) => {
     const nameOf = new Map(inside.map((mm) => [String(mm.email || "").toLowerCase(), mm.name || mm.email]));
 
     const rows = await callAnalysis(from, to);
+    const zeroSet = await zeroDayMDSet();
     const 接触判定 = (v) => /接触|アポ|再コール|断り|見送り/.test(v) && !/不在|コールのみ|NG/.test(v);
     const アポ判定 = (v) => /アポ獲得/.test(v);
 
@@ -6379,6 +6394,7 @@ app.get("/api/calls/analysis", async (req, res) => {
     for (const r of rows) {
       const em = String(r.caller || "").toLowerCase();
       if (!nameOf.has(em)) continue;
+      if (zeroSet.has(mdKeyOf(r["日"]))) continue;   // 0にする日は数えない
       if (!表.has(em)) 表.set(em, 空());
       const o = 表.get(em);
       const v = String(r.result || "") || "（記録なし）";
@@ -6481,6 +6497,7 @@ app.get("/api/calls/stats-grid", async (req, res) => {
     const nameOf = new Map(inside.map((mm) => [String(mm.email || "").toLowerCase(), mm.name || mm.email]));
 
     const rows = await callStatsByDay(区切り[0].from, 区切り[区切り.length - 1].to);
+    const zeroSet = await zeroDayMDSet();
     const 属する = (日) => {
       for (const c of 区切り) if (日 >= c.from && 日 <= c.to) return c.key;
       return "";
@@ -6489,6 +6506,7 @@ app.get("/api/calls/stats-grid", async (req, res) => {
     for (const r of rows) {
       const em = String(r.caller || "").toLowerCase();
       if (!nameOf.has(em)) continue;
+      if (zeroSet.has(mdKeyOf(r["日"]))) continue;   // 0にする日は数えない
       const k = 属する(r["日"]);
       if (!k) continue;
       if (!表.has(em)) 表.set(em, {});
@@ -13247,7 +13265,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-08-23h プロセスシート：「0にする日（休みなど。8/21を初期値）」と「この日から書き込む」を追加。指定日は実績があっても0で書く";
+const BUILD_TAG = "2026-08-23i kincall実績：「0にする日（8/21など）」を実績・メンバー別分析の集計からも外すようにした";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
