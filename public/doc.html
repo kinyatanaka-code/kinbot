@@ -37,6 +37,14 @@
   .msg { text-align: center; padding: 60px 20px; color: var(--muted); font-size: 13.5px; line-height: 2; }
   .fallback { width: 100%; height: 78vh; border: 1px solid var(--line); border-radius: 8px; background: #fff; }
   .note { text-align: center; font-size: 11.5px; color: var(--muted); padding: 18px 20px 0; line-height: 1.9; }
+  .gate{max-width:340px;margin:60px auto;text-align:center;}
+  .gate-h{font-size:15px;font-weight:700;margin-bottom:14px;color:#1f2a26;}
+  .gate input{display:block;width:100%;box-sizing:border-box;margin-bottom:10px;padding:10px 12px;
+    border:1px solid #dde5e1;border-radius:10px;font-size:15px;font-family:inherit;}
+  .gate-b{width:100%;padding:11px;border:none;border-radius:10px;background:#1d9e75;color:#fff;
+    font-size:15px;font-weight:600;cursor:pointer;font-family:inherit;}
+  .gate-b:hover{background:#178a65;}
+  .gate-e{color:#c2603f;font-size:13px;min-height:18px;margin-bottom:6px;}
 </style>
 </head>
 <body>
@@ -154,14 +162,73 @@
     setFoot("この環境ではページごとの表示に対応していないため、標準の表示で開いています。");
   }
 
+  // 合言葉やお名前をうかがう画面
+  function ゲート(見出し, 中身, ボタン, 送る) {
+    body.innerHTML =
+      `<div class="msg gate">
+         <div class="gate-h">${見出し}</div>
+         ${中身}
+         <div class="gate-e" id="gateErr"></div>
+         <button type="button" class="gate-b" id="gateGo">${ボタン}</button>
+       </div>`;
+    const go = document.getElementById("gateGo");
+    const run = () => 送る((m) => { const e = document.getElementById("gateErr"); if (e) e.textContent = m || ""; });
+    go.addEventListener("click", run);
+    body.querySelectorAll("input").forEach((i) =>
+      i.addEventListener("keydown", (ev) => { if (ev.key === "Enter") run(); }));
+    const first = body.querySelector("input"); if (first) first.focus();
+  }
+
   (async () => {
     if (!slug) { body.innerHTML = '<div class="msg">リンクが正しくありません。</div>'; return; }
+    let 合言葉 = "", お名前 = "", メール = "";
     try {
       // メルマガの差し込み（?m=… など）を、そのままサーバーへ渡す。
       // 誰が開いたかを記録するために使う。
       const qs = location.search || "";
-      const r = await fetch(`/api/doc/${encodeURIComponent(slug)}/open${qs}`, { method: "POST" });
-      const d = await r.json();
+      const 開く = () => fetch(`/api/doc/${encodeURIComponent(slug)}/open${qs}`, {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ pass: 合言葉, viewerName: お名前, viewerEmail: メール }),
+      });
+      let r = await 開く();
+      let d = await r.json();
+
+      // 期限切れ
+      if (r.status === 410) {
+        body.innerHTML = `<div class="msg">この資料は公開期間が終了しました。<br>お手数ですが、送り主にご連絡ください。</div>`;
+        const dl = $("dl"); if (dl) dl.style.display = "none";
+        return;
+      }
+      // 合言葉をうかがう
+      while (r.status === 401 && d["合言葉が必要"]) {
+        await new Promise((done) => ゲート(
+          "合言葉を入れてください",
+          '<input type="password" id="gPass" placeholder="合言葉" />',
+          "資料を見る",
+          async (err) => {
+            const v = (document.getElementById("gPass") || {}).value || "";
+            if (!v) { err("合言葉を入れてください"); return; }
+            合言葉 = v; done();
+          }));
+        r = await 開く(); d = await r.json();
+        if (r.status === 401 && d["合言葉が必要"]) continue;
+      }
+      // お名前をうかがう
+      while (r.status === 401 && d["お名前が必要"]) {
+        await new Promise((done) => ゲート(
+          "お名前をお聞かせください",
+          '<input type="text" id="gName" placeholder="お名前" />' +
+          '<input type="email" id="gMail" placeholder="メールアドレス" />',
+          "資料を見る",
+          async (err) => {
+            const n = (document.getElementById("gName") || {}).value.trim();
+            const m = (document.getElementById("gMail") || {}).value.trim();
+            if (!n || !m) { err("お名前とメールを入れてください"); return; }
+            お名前 = n; メール = m; done();
+          }));
+        r = await 開く(); d = await r.json();
+        if (r.status === 401 && d["お名前が必要"]) continue;
+      }
       if (!r.ok) throw new Error(d.error || "開けませんでした");
       viewId = d.viewId;
       $("title").textContent = d.name || "資料";
