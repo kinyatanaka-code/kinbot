@@ -8180,9 +8180,11 @@ async function computeCallHoursByName(owner, layout, fromISO, toISO) {
     if (!email || isSkippedPerson(name, skip)) continue;
     let events = [];
     try {
-      events = await listCalendarEvents(owner, email, { timeMin, timeMax });
+      // 本人がGoogle連携していれば本人の権限で、無ければ書き込むアカウントの権限で（共有されていれば）読む
+      const r = await readPersonCalendar(owner, email, { timeMin, timeMax });
+      events = r.evs || [];
     } catch (e) {
-      notes.push(`${name}のカレンダーを読めませんでした（共有の設定を確認してください）`);
+      notes.push(`${name}のカレンダーを読めませんでした（本人のGoogle連携も、共有もありません）`);
       continue;
     }
     const byDay = {};
@@ -13344,7 +13346,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-08-23o プロセスシート：架電時間のカレンダー読み取り範囲を、シートの最初の日付〜今日に広げた（過去日が0のままになる不具合を修正）";
+const BUILD_TAG = "2026-08-23p プロセスシート：架電時間を、各メンバー本人のGoogle連携カレンダーから読むようにした（連携があればそこから、無ければ共有経由）";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
