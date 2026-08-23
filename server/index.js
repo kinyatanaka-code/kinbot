@@ -3645,6 +3645,62 @@ app.post("/api/meetings/:id/doc-link/ensure", async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+// 会社名から、Salesforceで担当者とメールを探して埋める
+app.post("/api/doc-links/lookup", async (req, res) => {
+  try {
+    const names = (Array.isArray(req.body?.names) ? req.body.names : [])
+      .map((x) => String(x || "").trim()).filter(Boolean).slice(0, 60);
+    if (!names.length) return res.json({ ok: true, items: [] });
+
+    // 自分がつながっていなければ、代わりに更新する人の連携を使う
+    let owner = req.user;
+    if (!(await sfConnected(owner).catch(() => false))) {
+      const st = await getSettings().catch(() => ({}));
+      const 代理 = String(st.sfProxyUser || "").trim().toLowerCase();
+      if (代理 && (await sfConnected(代理).catch(() => false))) owner = 代理;
+    }
+    if (!salesforceConfigured() || !(await sfConnected(owner).catch(() => false))) {
+      return res.status(400).json({ error: "Salesforceにつながっていません" });
+    }
+
+    const sq = (v) => String(v || "").replace(/'/g, "\\'");
+    const items = [];
+    for (const name of names) {
+      const key = normCompanyKey(name);
+      const 語 = name.replace(/株式会社|（株）|\(株\)|㈱|有限会社|社会福祉法人|学校法人|一般社団法人|合同会社/g, "").trim().slice(0, 30);
+      let 担当者 = "", メール = "", 元 = "";
+      try {
+        // まずリードから（担当者名とメールが揃っていることが多い）
+        const d1 = await sfQuery(owner,
+          `SELECT Id, Company, LastName, FirstName, Email FROM Lead
+            WHERE IsConverted = false AND Company LIKE '%${sq(語)}%' LIMIT 30`);
+        const l = (d1.records || []).filter((x) => normCompanyKey(x.Company) === key);
+        const 良い = l.find((x) => x.Email) || l[0];
+        if (良い) {
+          担当者 = [良い.LastName, 良い.FirstName].filter(Boolean).join(" ").trim();
+          メール = 良い.Email || "";
+          元 = "リード";
+        }
+        // 見つからなければ取引先責任者から
+        if (!メール) {
+          const d2 = await sfQuery(owner,
+            `SELECT Id, Name, Email, Account.Name FROM Contact
+              WHERE Account.Name LIKE '%${sq(語)}%' LIMIT 30`);
+          const c = (d2.records || []).filter((x) => normCompanyKey(x.Account && x.Account.Name) === key);
+          const 良い2 = c.find((x) => x.Email) || c[0];
+          if (良い2) {
+            担当者 = 担当者 || String(良い2.Name || "").trim();
+            メール = メール || 良い2.Email || "";
+            元 = 元 || "取引先責任者";
+          }
+        }
+      } catch (e) { /* 1件失敗しても続ける */ }
+      items.push({ company: name, contact: 担当者, email: メール, 元 });
+    }
+    res.json({ ok: true, items, 見つかった: items.filter((x) => x.email || x.contact).length });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 app.post("/api/doc-links", async (req, res) => {
   try {
     const docId = parseInt(req.body?.docId, 10);
@@ -13179,7 +13235,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-08-22ar 資料URLの発行を、会社名を貼るだけでできるようにした";
+const BUILD_TAG = "2026-08-22as 会社名からSalesforceを引いて、担当者とメールを自動で埋められるようにした";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
