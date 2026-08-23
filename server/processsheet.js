@@ -119,6 +119,8 @@ export function readLayout(values) {
   for (let r = 0; r < values.length; r++) {
     const b = at(r, 1);
     if (!b) continue;
+    // 稼働時間目標は「稼働時間」という専用の行にある。担当者ごとに位置を覚えておく。
+    if (b === "稼働時間") { if (cur) cur.rows["稼働時間"] = r; continue; }
     if (METRICS.includes(b)) {
       if (cur) cur.rows[b] = r;
       continue;
@@ -148,7 +150,9 @@ export function readGoals(values, layout, m, d) {
     const calls = p.rows["コール"] >= 0 ? num(p.rows["コール"], day.goalCol) : 0;
     const apoIn = p.rows["アポ（期内）"] >= 0 ? num(p.rows["アポ（期内）"], day.goalCol) : 0;
     const apoOut = p.rows["アポ（期外）"] >= 0 ? num(p.rows["アポ（期外）"], day.goalCol) : 0;
-    const hours = day.hoursCol >= 0 && p.rows["コール"] >= 0 ? num(p.rows["コール"], day.hoursCol) : 0;
+    // 稼働時間目標は「稼働時間」の行。無ければ「コール」の行で読む。
+    const hoursRow = (p.rows["稼働時間"] != null) ? p.rows["稼働時間"] : p.rows["コール"];
+    const hours = day.hoursCol >= 0 && hoursRow != null ? num(hoursRow, day.hoursCol) : 0;
     if (calls || apoIn || apoOut || hours) {
       out[p.name] = { calls, apos: apoIn + apoOut, hours };
     }
@@ -291,8 +295,10 @@ export function callHours(events, dateJst, { startH = 10, endH = 18 } = {}) {
 export function buildHoursUpdates(layout, hoursByName, { base = "", writeFrom = "", toISO = "", onlyDates = null } = {}) {
   const updates = [];
   for (const p of layout.people) {
-    const row = p.rows["コール"];
-    if (row == null) continue;   // 稼働時間目標は「コール」の行に置かれている
+    // 稼働時間目標は「稼働時間」の行。無い古いレイアウトでは「コール」の行に入れる。
+    const row = (p.rows["稼働時間"] != null) ? p.rows["稼働時間"]
+      : (p.rows["コール"] != null ? p.rows["コール"] : null);
+    if (row == null) continue;
     const key = Object.keys(hoursByName || {}).find((n) => sameName(p.name, n));
     if (!key) continue;
     const md = hoursByName[key] || {};
