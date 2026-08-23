@@ -338,7 +338,7 @@ import { resolveConfig, statusInfo } from "./config.js";
 import { callLLMPublic, analyzerInfo, analyzeMeeting, analyzeDeep, freeAnalyze, chatWithData, enrichCompany, lookupEmployeeCount, lookupCompanyBasics, generateThanks, THANKS_PROMPT, getCheckItems, getSummaryPrompt, getCustomPrompt, runCustomAnalysis, analyzeWinPatterns, classifyMeetingKind, extractFirstMeeting, extractReMeeting, buildBrief, extractFeatureCTags, enrichCompanyAttributes, generateFeatureCInsights, extractQaPairs, splitPhases } from "./analyzer.js";
 import { searchCompanies, getCompanyDetail, gbizConfigured } from "./gbizinfo.js";
 import { searchCompanyInfo, webLookupAvailable } from "./websearch.js";
-import { readLayout, readGoals, tally, buildUpdates, applyApoCounts, parseZeroDates, callHours, buildHoursUpdates, sameName as psSameName, METRICS } from "./processsheet.js";
+import { readLayout, readGoals, tally, buildUpdates, applyApoCounts, parseZeroDates, callHours, buildHoursUpdates, isoForMD, sameName as psSameName, METRICS } from "./processsheet.js";
 import {
   googleConfigured,
   authUrl,
@@ -8272,12 +8272,20 @@ async function runProcessSheet(sfUser, opts = {}) {
   let hoursNotes = [];
   if (withHours) {
     try {
-      const base = from || zeroTo;
-      const readFrom = writeFrom && writeFrom > base ? writeFrom : (base || zeroTo);
+      const base = from || zeroTo;                 // 年の推測に使う
+      // シートに並んでいる日付の最初から今日まで、カレンダーを読む
+      const isos = layout.dates.map((d) => isoForMD(d.m, d.d, base)).filter(Boolean).sort();
+      let readFrom = isos[0] || base;
+      if (writeFrom && writeFrom > readFrom) readFrom = writeFrom;
+      if (readFrom > zeroTo) readFrom = zeroTo;
       const r = await computeCallHoursByName(owner, layout, readFrom, zeroTo);
       hoursNotes = r.notes;
       const hUps = buildHoursUpdates(layout, r.byName, { base, writeFrom, toISO: zeroTo, onlyDates });
       for (const u of hUps) updates.push(u);
+      if (!hUps.length) {
+        hoursNotes = hoursNotes.concat(
+          "架電時間を書き込める対象がありませんでした（カレンダーの共有、シート上の名前とメンバー名の一致、対象日の範囲を確認してください）");
+      }
     } catch (e) { hoursNotes = ["架電時間の計算に失敗しました：" + e.message]; }
   }
 
@@ -13336,7 +13344,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-08-23n プロセスシート：架電時間を「稼働時間」の行（稼働時間目標の列）に正しく書き込むよう直した";
+const BUILD_TAG = "2026-08-23o プロセスシート：架電時間のカレンダー読み取り範囲を、シートの最初の日付〜今日に広げた（過去日が0のままになる不具合を修正）";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
