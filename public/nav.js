@@ -126,9 +126,7 @@ function kbBuildSidebar() {
     `<div class="side-sep"></div>` +
     `<a class="side-item side-app${kcOn}" href="/kincall">` +
     `<img class="side-app-ico" src="/kincall.svg" alt="" />` +
-    `<span class="side-label">kincall</span>` +
-    // まだ試している最中なので「準備中」と出しておく
-    `<span class="side-app-tag kc-wip">準備中</span></a>`;
+    `<span class="side-label">kincall</span></a>`;
 
   const brand = nav.querySelector(".side-brand");
   nav.innerHTML = (brand ? brand.outerHTML : "") + html + apps + (foot ? foot.outerHTML : "");
