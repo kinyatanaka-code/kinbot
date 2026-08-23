@@ -10,7 +10,7 @@
     <link rel="manifest" href="/site.webmanifest" />
     <meta name="theme-color" content="#0d5b47" />
     <meta name="apple-mobile-web-app-title" content="kinbot" />
-    <link rel="stylesheet" href="style.css?v=20260822as" />
+    <link rel="stylesheet" href="style.css?v=20260822at" />
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/tabler-icons/2.44.0/iconfont/tabler-icons.min.css" />
     <style>
     /* URL発行の設定と、発行ボタン（右端） */
@@ -23,12 +23,21 @@
       font-size:13px;font-family:inherit;background:#fff;min-width:150px;}
     .ds-f select:focus,.ds-f input:focus{outline:none;border-color:#1d9e75;}
     .ds-chk{display:flex;align-items:center;gap:6px;font-size:13px;color:#1f2a26;padding-bottom:7px;}
-    .ds-fill{margin:8px 0 2px;display:flex;gap:10px;align-items:center;}
-    .ds-read{margin:6px 0 2px;font-size:12px;color:#5b7a6d;}
-    .ds-read table{border-collapse:collapse;margin-top:6px;width:100%;max-width:640px;}
-    .ds-read th,.ds-read td{border-bottom:1px solid #eef3f0;padding:4px 8px;text-align:left;font-size:12px;}
-    .ds-read th{color:#8a9a93;font-weight:600;}
-    .ds-read .miss{color:#b9c4be;}
+    .ds-fill{margin:10px 0;display:flex;gap:10px;align-items:center;flex-wrap:wrap;}
+    /* 読み取りプレビュー */
+    .ds-read:empty{display:none;}
+    .ds-read{margin:10px 0;border:1px solid #e6ece9;border-radius:12px;overflow:hidden;background:#fff;}
+    .ds-read-h{display:flex;align-items:center;gap:10px;flex-wrap:wrap;
+      padding:9px 14px;background:#f4f7f5;font-size:12.5px;color:#1f2a26;border-bottom:1px solid #e6ece9;}
+    .ds-ok{color:#217a54;background:#eaf5ef;border-radius:999px;padding:2px 10px;font-size:11px;font-weight:600;}
+    .ds-warn{color:#8a5a2b;background:#fbf3e8;border-radius:999px;padding:2px 10px;font-size:11px;font-weight:600;}
+    .ds-read-b{max-height:260px;overflow:auto;}
+    .ds-read table{border-collapse:collapse;width:100%;}
+    .ds-read th,.ds-read td{border-bottom:1px solid #f0f4f2;padding:7px 14px;text-align:left;font-size:12.5px;}
+    .ds-read th{color:#8a9a93;font-weight:600;font-size:11px;background:#fff;position:sticky;top:0;
+      box-shadow:0 1px 0 #eef3f0;}
+    .ds-read tr:last-child td{border-bottom:none;}
+    .ds-read .miss{color:#c3cec8;}
     .ds-go{display:flex;align-items:center;gap:10px;margin-left:auto;padding-bottom:1px;}
     @media (max-width:720px){ .ds-go{margin-left:0;width:100%;justify-content:flex-end;} }
   </style>
@@ -225,7 +234,7 @@
         </main>
       </div>
     </div>
-    <script src="nav.js?v=20260822as"></script>
-    <script src="docs.js?v=20260822as"></script>
+    <script src="nav.js?v=20260822at"></script>
+    <script src="docs.js?v=20260822at"></script>
   </body>
 </html>
