@@ -13265,7 +13265,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-08-23i kincall実績：「0にする日（8/21など）」を実績・メンバー別分析の集計からも外すようにした";
+const BUILD_TAG = "2026-08-23j kincall実績：メンバーごとにカード化して開閉できるようにし、コール→接触率・接触→アポ率・コール→アポ率を追加した";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",

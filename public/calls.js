@@ -464,6 +464,16 @@ function renderDock() {
     .kc-ptab{border:none;background:transparent;color:#5b7a6d;font-size:13px;font-weight:600;padding:6px 16px;border-radius:8px;cursor:pointer;}
     .kc-ptab.active{background:#1d9e75;color:#fff;}
     .kc-ptab:not(.active):hover{background:#eaf5ef;color:#0d5b47;}
+    .kc-g-title{display:flex;align-items:center;gap:8px;width:100%;text-align:left;background:none;border:0;cursor:pointer;padding:2px 0;margin:0 0 4px;font-family:inherit;font-size:13px;font-weight:700;color:#0d5b47;}
+    .kc-g-title:hover .kc-g-tname{color:#0b7a5e;}
+    .kc-g-chev{display:inline-flex;color:#1d9e75;transition:transform .15s ease;}
+    .kc-g-block.kc-g-collapsed .kc-g-chev{transform:rotate(-90deg);}
+    .kc-g-block.kc-g-collapsed .kc-g-body{display:none;}
+    .kc-g-tname{flex:none;color:#0d5b47;}
+    .kc-g-tsum{margin-left:auto;font-size:11px;font-weight:600;color:#5b7a6d;font-variant-numeric:tabular-nums;}
+    .kc-g-rate td{color:#0F6E56;background:#f6fbf9;font-variant-numeric:tabular-nums;}
+    .kc-g-rate .kc-g-name{color:#0F6E56;}
+    .kc-g-rate.kc-g-rate-top td{border-top:2px solid #d6efe2;}
   `;
   document.head.appendChild(s);
 })();
@@ -726,18 +736,41 @@ async function loadStats() {
         (c["曜日"] ? `<div class="kc-g-w">${esc(c["曜日"])}</div>` : "") + `</th>`).join("") +
       `<th class="kc-g-h kc-g-tot">合計</th></tr>`;
 
+    const chev = '<svg viewBox="0 0 20 20" width="13" height="13" aria-hidden="true">' +
+      '<path d="M6 8l4 4 4-4" fill="none" stroke="currentColor" stroke-width="2" ' +
+      'stroke-linecap="round" stroke-linejoin="round"/></svg>';
+    const pct = (a, b) => (b ? (a / b * 100).toFixed(1) + "%" : "—");
+
     const 表 = (名前, 値, cls) => {
-      const 行 = (lb, key, rcls) => {
-        const 計 = 値.reduce((a, v) => a + (v[key] || 0), 0);
-        return `<tr class="${rcls || ""}"><td class="kc-g-name">${esc(lb)}</td>` +
-          値.map((v, i) => `<td class="kc-g-n${いま(区切り[i])}">${v[key] || 0}</td>`).join("") +
-          `<td class="kc-g-n kc-g-tot">${計}</td></tr>`;
-      };
+      const 計 = (key) => 値.reduce((a, v) => a + (v[key] || 0), 0);
+      const 行 = (lb, key, rcls) =>
+        `<tr class="${rcls || ""}"><td class="kc-g-name">${esc(lb)}</td>` +
+        値.map((v, i) => `<td class="kc-g-n${いま(区切り[i])}">${v[key] || 0}</td>`).join("") +
+        `<td class="kc-g-n kc-g-tot">${計(key)}</td></tr>`;
+      // 率の行（分子an ÷ 分母bn）。0で割るところは「—」にする。
+      const 率行 = (lb, an, bn, top) =>
+        `<tr class="kc-g-rate${top ? " kc-g-rate-top" : ""}"><td class="kc-g-name">${esc(lb)}</td>` +
+        値.map((v, i) => `<td class="kc-g-n${いま(区切り[i])}">${pct(v[an] || 0, v[bn] || 0)}</td>`).join("") +
+        `<td class="kc-g-n kc-g-tot">${pct(計(an), 計(bn))}</td></tr>`;
+      const tc = 計("コール");
+      const sum = `コール ${tc}｜接触率 ${pct(計("接触"), tc)}｜アポ率 ${pct(計("アポ"), tc)}`;
       return `<div class="kc-g-block${cls || ""}">
-        <div class="kc-g-title">${esc(名前)}</div>
-        <table class="sh-table kc-grid">
-          ${頭}${行("コール", "コール")}${行("接触", "接触")}${行("アポ", "アポ", "kc-g-apo")}
-        </table>
+        <button type="button" class="kc-g-title" aria-expanded="true">
+          <span class="kc-g-chev">${chev}</span>
+          <span class="kc-g-tname">${esc(名前)}</span>
+          <span class="kc-g-tsum">${sum}</span>
+        </button>
+        <div class="kc-g-body">
+          <table class="sh-table kc-grid">
+            ${頭}
+            ${行("コール", "コール")}
+            ${行("接触", "接触")}
+            ${行("アポ", "アポ", "kc-g-apo")}
+            ${率行("コール→接触率", "接触", "コール", true)}
+            ${率行("接触→アポ率", "アポ", "接触")}
+            ${率行("コール→アポ率", "アポ", "コール")}
+          </table>
+        </div>
       </div>`;
     };
 
@@ -772,6 +805,15 @@ async function createList(body) {
 document.addEventListener("click", (ev) => {
   const t = ev.target && ev.target.closest ? ev.target.closest("button") : null;
   if (!t) return;
+  // 実績カードの見出しを押したら、たたむ・ひらく
+  if (t.classList.contains("kc-g-title")) {
+    const block = t.closest(".kc-g-block");
+    if (block) {
+      const collapsed = block.classList.toggle("kc-g-collapsed");
+      t.setAttribute("aria-expanded", collapsed ? "false" : "true");
+    }
+    return;
+  }
   if (t.id === "clFromPaste") {
     ev.preventDefault();
     const lines = String($("clPaste").value || "").split(/\r?\n/).filter((l) => l.trim());
