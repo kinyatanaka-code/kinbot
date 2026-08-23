@@ -1931,7 +1931,7 @@ document.addEventListener("click", (ev) => {
 // 初めて開いた人には自動で出し、あとは右上の「使い方」からいつでも見られる。
 // ───────────────────────────────────────────────────────────
 (function kcTutorial() {
-  const SEEN_KEY = "kctut_seen_v1";
+  const SEEN_KEY = "kctut_seen_v2";
 
   // まだリストが割り振られていない人には、案内を変える。
   function hasAnyList() {
