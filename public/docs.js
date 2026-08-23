@@ -589,7 +589,7 @@ if ($("blFile")) {
   });
   $("blOpenList").addEventListener("click", () => {
     // 閲覧状況のタブへ移る
-    const tab = document.querySelector('[data-dtab="track"]');
+    const tab = document.querySelector('[data-dpane="track"]');
     if (tab) tab.click();
   });
 }
