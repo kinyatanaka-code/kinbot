@@ -6346,7 +6346,8 @@ app.post("/api/calls/memo-analysis", async (req, res) => {
 async function zeroDayMDSet() {
   try {
     const st = await getSettings();
-    const raw = st.psZeroDates !== undefined ? st.psZeroDates : "8/21";
+    // 空・未設定のときは、既定として 8/21 を0にする（画面で別の日を入れれば置き換わる）
+    const raw = String(st.psZeroDates ?? "").trim() || "8/21";
     return new Set(parseZeroDates(raw));
   } catch { return new Set(); }
 }
@@ -8041,7 +8042,7 @@ app.get("/api/process-sheet", async (req, res) => {
       termFrom: st.psTermFrom || "", termTo: st.psTermTo || "",
       termMode: st.psTermMode === "fixed" ? "fixed" : "auto",
       writeFrom: st.psWriteFrom || "",
-      zeroDates: st.psZeroDates !== undefined ? st.psZeroDates : "8/21",
+      zeroDates: (String(st.psZeroDates ?? "").trim() || "8/21"),
       autoRun: st.psAutoRun === true,
       filters: (() => { try { return JSON.parse(st.psFilters || "null"); } catch { return null; } })(),
       gasUrl: st.psGasUrl || "", gasSecretSet: !!st.psGasSecret,
@@ -8165,10 +8166,10 @@ async function runProcessSheet(sfUser, opts = {}) {
   const onlyDates = Array.isArray(opts.dates) && opts.dates.length ? opts.dates : null;
   // 「この日から書き込む」（空なら期間の開始から）
   const writeFrom = String(opts.writeFrom ?? st.psWriteFrom ?? "").trim();
-  // 「0にする日」（休みなど）。未設定のときは 8/21 を初期値にする（画面で変えられる）。
-  const zeroDatesRaw = opts.zeroDates !== undefined
+  // 「0にする日」（休みなど）。空・未設定のときは 8/21 を既定にする（画面で変えられる）。
+  const zeroDatesRaw = (opts.zeroDates !== undefined && String(opts.zeroDates).trim() !== "")
     ? opts.zeroDates
-    : (st.psZeroDates !== undefined ? st.psZeroDates : "8/21");
+    : (String(st.psZeroDates ?? "").trim() || "8/21");
   const zeroDates = parseZeroDates(zeroDatesRaw);
 
   if (!sheetId) throw new Error("スプレッドシートを指定してください");
@@ -13265,7 +13266,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-08-23j kincall実績：メンバーごとにカード化して開閉できるようにし、コール→接触率・接触→アポ率・コール→アポ率を追加した";
+const BUILD_TAG = "2026-08-23k 0にする日：設定が空でも既定の8/21を効かせるよう直した（実績・プロセスシートとも8/21は0になる）";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
