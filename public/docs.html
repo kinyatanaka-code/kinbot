@@ -10,9 +10,23 @@
     <link rel="manifest" href="/site.webmanifest" />
     <meta name="theme-color" content="#0d5b47" />
     <meta name="apple-mobile-web-app-title" content="kinbot" />
-    <link rel="stylesheet" href="style.css?v=20260822an" />
+    <link rel="stylesheet" href="style.css?v=20260822ao" />
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/tabler-icons/2.44.0/iconfont/tabler-icons.min.css" />
-  </head>
+    <style>
+    /* URL発行の設定と、発行ボタン（右端） */
+    .ds-bar{display:flex;align-items:flex-end;gap:16px;flex-wrap:wrap;
+      border:1px solid #e6ece9;border-radius:12px;padding:12px 14px;margin:12px 0;background:#fcfefe;}
+    .ds-opt{display:flex;gap:14px;flex-wrap:wrap;align-items:flex-end;flex:1;min-width:0;}
+    .ds-f{display:flex;flex-direction:column;gap:4px;}
+    .ds-lb{font-size:11px;font-weight:600;color:#5b7a6d;}
+    .ds-f select,.ds-f input{border:1px solid #e6ece9;border-radius:9px;padding:7px 10px;
+      font-size:13px;font-family:inherit;background:#fff;min-width:150px;}
+    .ds-f select:focus,.ds-f input:focus{outline:none;border-color:#1d9e75;}
+    .ds-chk{display:flex;align-items:center;gap:6px;font-size:13px;color:#1f2a26;padding-bottom:7px;}
+    .ds-go{display:flex;align-items:center;gap:10px;margin-left:auto;padding-bottom:1px;}
+    @media (max-width:720px){ .ds-go{margin-left:0;width:100%;justify-content:flex-end;} }
+  </style>
+</head>
   <body>
     <div class="app">
       <nav class="sidebar">
@@ -86,21 +100,26 @@
                 <textarea id="dsRows" rows="8" placeholder="株式会社ベルク	町田	machida@belc.example.jp&#10;合同会社サンライズ	佐藤	sato@sunrise.example.jp"></textarea>
               </label>
               <div class="ap-cfg-actions">
-                <div class="ds-opt">
-                <label>公開の期限
-                  <select id="dsExpiry">
-                    <option value="0">なし</option>
-                    <option value="7">7日</option>
-                    <option value="14">14日</option>
-                    <option value="30">30日</option>
-                  </select>
-                </label>
-                <label>合言葉 <input type="text" id="dsPass" placeholder="入れると開く前に必要になります" style="min-width:220px" /></label>
-                <label class="ks-check"><input type="checkbox" id="dsAskName" /> 開く前にお名前とメールをうかがう</label>
-              </div>
-              <button class="btn" id="dsMake">URLを発行する</button>
-                <span class="rev-status" id="dsStatus"></span>
-              </div>
+                <div class="ds-bar">
+                  <div class="ds-opt">
+                    <label class="ds-f"><span class="ds-lb">公開の期限</span>
+                      <select id="dsExpiry">
+                        <option value="0">なし</option>
+                        <option value="7">7日</option>
+                        <option value="14">14日</option>
+                        <option value="30">30日</option>
+                      </select>
+                    </label>
+                    <label class="ds-f"><span class="ds-lb">合言葉</span>
+                      <input type="text" id="dsPass" placeholder="なくてもOK" />
+                    </label>
+                    <label class="ds-chk"><input type="checkbox" id="dsAskName" /> 開く前に名前とメールをきく</label>
+                  </div>
+                  <div class="ds-go">
+                    <span class="rev-status" id="dsStatus"></span>
+                    <button class="btn" id="dsMake">URLを発行する</button>
+                  </div>
+                </div>
               <div id="dsResult"></div>
             </div>
 
@@ -194,7 +213,7 @@
         </main>
       </div>
     </div>
-    <script src="nav.js?v=20260822an"></script>
-    <script src="docs.js?v=20260822an"></script>
+    <script src="nav.js?v=20260822ao"></script>
+    <script src="docs.js?v=20260822ao"></script>
   </body>
 </html>
