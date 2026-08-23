@@ -2033,6 +2033,29 @@ document.addEventListener("click", (ev) => {
         border:1px solid #cdeee0;transform:rotate(45deg);display:none;}
       #kctut-pop.tail-up .kctut-tail{display:block;top:-8px;border-right:0;border-bottom:0;}
       #kctut-pop.tail-down .kctut-tail{display:block;bottom:-8px;border-left:0;border-top:0;}
+      #kctut-pop .kctut-x{position:absolute;top:8px;right:9px;width:24px;height:24px;border:0;
+        background:none;cursor:pointer;color:#7aa093;font-size:18px;line-height:1;border-radius:6px;}
+      #kctut-pop .kctut-x:hover{background:#eef7f3;color:#0d5b47;}
+      #kctut-menu{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);
+        width:calc(100vw - 32px);max-width:360px;background:#fff;border:1px solid #cdeee0;
+        border-radius:16px;box-shadow:0 14px 40px rgba(13,91,71,.28);padding:16px;
+        box-sizing:border-box;pointer-events:auto;max-height:82vh;overflow:auto;}
+      #kctut-menu .kctut-mh{display:flex;align-items:flex-start;gap:11px;margin-bottom:12px;}
+      #kctut-menu .kctut-ava{flex:none;width:46px;height:46px;border-radius:50%;background:#eaf7f2;
+        border:1px solid #cdeee0;padding:4px;box-sizing:border-box;}
+      #kctut-menu .kctut-ava img{width:100%;height:100%;display:block;}
+      #kctut-menu .kctut-mt{font-size:14px;font-weight:700;color:#0d5b47;margin:2px 0 3px;}
+      #kctut-menu .kctut-ms{font-size:12px;color:#5c7f72;line-height:1.5;}
+      #kctut-menu .kctut-mlist{display:flex;flex-direction:column;gap:7px;}
+      #kctut-menu .kctut-mi{display:block;width:100%;text-align:left;font:inherit;font-size:13px;
+        color:#20463a;background:#f4fbf8;border:1px solid #d6efe2;
+        border-radius:10px;padding:10px 13px;cursor:pointer;font-weight:600;}
+      #kctut-menu .kctut-mi:hover{background:#e6f5ee;border-color:#9fe1cb;}
+      #kctut-menu .kctut-mi-all{background:#1d9e75;color:#fff;border-color:#1d9e75;}
+      #kctut-menu .kctut-mi-all:hover{background:#178a66;}
+      #kctut-menu .kctut-mfoot{margin-top:12px;text-align:right;}
+      #kctut-menu .kctut-mclose{font:inherit;font-size:12.5px;color:#0d5b47;background:#fff;
+        border:1px solid #bfe6d7;border-radius:9px;padding:6px 14px;cursor:pointer;font-weight:600;}
       .kctut-help{display:inline-flex;align-items:center;gap:6px;margin-left:auto;
         font:inherit;font-size:12.5px;color:#0d5b47;background:#eaf7f2;border:1px solid #bfe6d7;
         border-radius:999px;padding:5px 12px;cursor:pointer;font-weight:600;}
@@ -2052,7 +2075,7 @@ document.addEventListener("click", (ev) => {
     b.innerHTML = '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/>' +
       '<path d="M9.5 9a2.5 2.5 0 1 1 3.6 2.2c-.7.4-1.1.9-1.1 1.8" stroke-linecap="round"/>' +
       '<circle cx="12" cy="16.5" r="1" fill="#1d9e75" stroke="none"/></svg>使い方';
-    b.addEventListener("click", () => start(0));
+    b.addEventListener("click", () => openMenu());
     bar.appendChild(b);
   })();
 
@@ -2063,21 +2086,33 @@ document.addEventListener("click", (ev) => {
     '<div id="kctut-hole"></div>' +
     '<div id="kctut-pop">' +
       '<span class="kctut-tail"></span>' +
+      '<button type="button" class="kctut-x" data-act="skip" aria-label="とじる">×</button>' +
       '<div class="kctut-top">' +
         '<div class="kctut-ava"><img src="/kinbot-avatar-talk.svg" alt="kinbot" /></div>' +
         '<div><div class="kctut-ttl"></div><div class="kctut-body"></div></div>' +
       '</div>' +
       '<div class="kctut-foot">' +
         '<span class="kctut-step"></span>' +
-        '<button type="button" class="kctut-btn ghost" data-act="skip">とじる</button>' +
+        '<button type="button" class="kctut-btn ghost" data-act="menu">一覧</button>' +
         '<button type="button" class="kctut-btn ghost" data-act="back">戻る</button>' +
         '<button type="button" class="kctut-btn" data-act="next">次へ</button>' +
       '</div>' +
+    '</div>' +
+    '<div id="kctut-menu" hidden>' +
+      '<div class="kctut-mh">' +
+        '<div class="kctut-ava"><img src="/kinbot-avatar-talk.svg" alt="kinbot" /></div>' +
+        '<div><div class="kctut-mt">kincallの使い方</div>' +
+        '<div class="kctut-ms">見たい項目を選んでください。</div></div>' +
+      '</div>' +
+      '<div class="kctut-mlist"></div>' +
+      '<div class="kctut-mfoot"><button type="button" class="kctut-mclose">とじる</button></div>' +
     '</div>';
   document.body.appendChild(root);
 
   const hole = root.querySelector("#kctut-hole");
   const pop = root.querySelector("#kctut-pop");
+  const menuCard = root.querySelector("#kctut-menu");
+  const menuList = menuCard.querySelector(".kctut-mlist");
   const elTtl = pop.querySelector(".kctut-ttl");
   const elBody = pop.querySelector(".kctut-body");
   const elStep = pop.querySelector(".kctut-step");
@@ -2167,12 +2202,41 @@ document.addEventListener("click", (ev) => {
     buildVisible();
     if (!visible.length) return;
     idx = Math.max(0, Math.min(from || 0, visible.length - 1));
+    menuCard.hidden = true;
+    pop.style.display = "";
     root.classList.add("on");
     render();
   }
 
+  // 2回目以降は、見たい項目を選べるように一覧を出す
+  function openMenu() {
+    buildVisible();
+    if (!visible.length) return;
+    menuList.innerHTML = "";
+    const add = (label, cls, on) => {
+      const b = document.createElement("button");
+      b.type = "button";
+      b.className = "kctut-mi" + (cls ? " " + cls : "");
+      b.textContent = label;
+      b.addEventListener("click", on);
+      menuList.appendChild(b);
+    };
+    add("最初から通して見る", "kctut-mi-all", () => start(0));
+    // 導入・まとめ以外を、項目として並べる
+    visible.forEach((s, i) => {
+      if (i === 0 || i === visible.length - 1) return;
+      add(s.title, "", () => start(i));
+    });
+    pop.style.display = "none";
+    hole.style.display = "none";
+    menuCard.hidden = false;
+    root.classList.add("on");
+  }
+
   function finish() {
     root.classList.remove("on");
+    menuCard.hidden = true;
+    pop.style.display = "";
     try { localStorage.setItem(SEEN_KEY, "1"); } catch {}
     // かける画面に戻しておく
     try { history.replaceState(null, "", "/kincall"); } catch {}
@@ -2184,21 +2248,24 @@ document.addEventListener("click", (ev) => {
     if (!b) return;
     const act = b.dataset.act;
     if (act === "skip") return finish();
+    if (act === "menu") return openMenu();
     if (act === "back") { if (idx > 0) { idx--; render(); } return; }
     if (act === "next") { if (idx < visible.length - 1) { idx++; render(); } else finish(); }
   });
+  menuCard.querySelector(".kctut-mclose").addEventListener("click", finish);
 
   // 画面の大きさが変わったら、位置を測り直す
   let rz;
   window.addEventListener("resize", () => {
-    if (!root.classList.contains("on")) return;
+    if (!root.classList.contains("on") || !menuCard.hidden) return;
     clearTimeout(rz);
     rz = setTimeout(() => place(visible[idx]), 120);
   });
   document.addEventListener("keydown", (ev) => {
     if (!root.classList.contains("on")) return;
-    if (ev.key === "Escape") finish();
-    else if (ev.key === "ArrowRight") { if (idx < visible.length - 1) { idx++; render(); } }
+    if (ev.key === "Escape") return finish();
+    if (!menuCard.hidden) return;   // 一覧を出しているときは矢印で動かさない
+    if (ev.key === "ArrowRight") { if (idx < visible.length - 1) { idx++; render(); } }
     else if (ev.key === "ArrowLeft") { if (idx > 0) { idx--; render(); } }
   });
 
