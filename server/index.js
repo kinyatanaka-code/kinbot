@@ -212,6 +212,8 @@ import {
   docLinksForCompany,
   clientEmailForCompany,
   getDocLink,
+  setViewerIdentity,
+  checkPass,
   revokeDocLink,
   deleteDocLink,
   clearDocLinkHistory,
@@ -3316,6 +3318,10 @@ app.get("/b/:slug", (req, res) => {
 app.get("/d/:slug", async (req, res) => {
   const link = await getDocLink(String(req.params.slug || ""));
   if (!link) return res.status(404).send("この資料は見つかりませんでした。送り主にご確認ください。");
+  // 期限を過ぎていたら開けない（画面ではなくここで止める）
+  if (link.expires_at && new Date(link.expires_at).getTime() < Date.now()) {
+    return res.status(410).send("この資料は公開期間が終了しました。お手数ですが、送り主にご連絡ください。");
+  }
   res.sendFile("doc.html", { root: path.join(__dirname, "..", "public") });
 });
 
@@ -3347,8 +3353,33 @@ function viewerFromQuery(q) {
 // ビューアーが最初に呼ぶ。閲覧を1件つくり、資料の情報を返す。
 app.post("/api/doc/:slug/open", async (req, res) => {
   try {
+    // 先に、期限・合言葉・お名前確認をみる
+    const link0 = await getDocLink(String(req.params.slug || ""));
+    if (!link0) return res.status(404).json({ error: "この資料は見つかりませんでした" });
+    if (link0.expires_at && new Date(link0.expires_at).getTime() < Date.now()) {
+      return res.status(410).json({ error: "この資料は公開期間が終了しました", 期限切れ: true });
+    }
+    const b0 = req.body || {};
+    if (link0.pass_hash) {
+      const pw = String(b0.pass || "");
+      if (!pw) return res.status(401).json({ error: "合言葉を入れてください", 合言葉が必要: true });
+      if (!checkPass(pw, link0.pass_hash)) {
+        return res.status(401).json({ error: "合言葉がちがいます", 合言葉が必要: true });
+      }
+    }
+    if (link0.ask_name) {
+      const nm = String(b0.viewerName || "").trim();
+      const em = String(b0.viewerEmail || "").trim();
+      if (!nm || !em) return res.status(401).json({ error: "お名前とメールを入れてください", お名前が必要: true });
+    }
+
     const r = await openDocView(String(req.params.slug || ""), req);
     if (r.error) return res.status(404).json({ error: r.error });
+
+    // 名乗ってもらった内容を控える
+    if (link0.ask_name && r.view) {
+      await setViewerIdentity(r.view.id, b0.viewerName, b0.viewerEmail).catch(() => {});
+    }
 
     // 共通URL（メルマガ用）のときは、URLの後ろから開いた人を受け取る
     let viewer = null;
@@ -3621,7 +3652,17 @@ app.post("/api/doc-links", async (req, res) => {
     const rows = Array.isArray(req.body?.rows) ? req.body.rows : [];
     if (!rows.length) return res.status(400).json({ error: "宛先がありません" });
     if (rows.length > 1000) return res.status(400).json({ error: "一度に発行できるのは1000件までです" });
-    const made = await addDocLinks(docId, rows, req.user);
+    const b = req.body || {};
+    // 期限："0"=なし／"7"や"30"=その日数後／日付そのものもOK
+    let expiresAt = null;
+    const ex = String(b.expiry || "0");
+    if (/^\d{1,3}$/.test(ex) && ex !== "0") expiresAt = new Date(Date.now() + Number(ex) * 86400000);
+    else if (/^\d{4}-\d{2}-\d{2}/.test(ex)) expiresAt = new Date(ex);
+    const made = await addDocLinks(docId, rows, req.user, {
+      expiresAt,
+      pass: String(b.pass || "").trim() || null,
+      askName: !!b.askName,
+    });
     console.log(`[doc] リンクを${made.length}件発行 by ${req.user}`);
     res.json({
       ok: true,
@@ -13138,7 +13179,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-08-22am SFに書いた記録を見るだけの一覧を追加（削除はしない）";
+const BUILD_TAG = "2026-08-22an 資料URLに、公開の期限・合言葉・お名前確認を付けられるようにした";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
