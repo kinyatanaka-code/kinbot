@@ -55,12 +55,18 @@ export function parseMD(v) {
   return null;
 }
 
-// 名前をそろえて比べる（「植野 ひかり」と「植野」を同じ人とみなす）
+// 名前をそろえて比べる。
+//   ・シートは「苗字だけ」、kinbotは「フルネーム」のことがある。
+//     苗字はフルネームの先頭に来るので、一方が他方の先頭なら同じ人とみなす。
+//   ・スペース区切りの語（姓・名）どうしでも照合し、表記や順番のゆらぎに備える。
 export function sameName(sheetName, sfName) {
-  const norm = (v) => String(v || "").replace(/[\s　]/g, "");
+  const norm = (v) => String(v || "").replace(/[\s　]/g, "").toLowerCase();
   const a = norm(sheetName), b = norm(sfName);
   if (!a || !b) return false;
-  return b.startsWith(a) || a.startsWith(b) || a === b;
+  if (a === b || a.startsWith(b) || b.startsWith(a)) return true;
+  const toks = (v) => String(v || "").split(/[\s　]+/).map(norm).filter((x) => x.length >= 2);
+  const ta = toks(sheetName), tb = toks(sfName);
+  return ta.some((x) => tb.some((y) => x === y || x.startsWith(y) || y.startsWith(x)));
 }
 
 // シートの中身から、日付の列と担当者ごとの行を突き止める
