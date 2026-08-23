@@ -338,7 +338,7 @@ import { resolveConfig, statusInfo } from "./config.js";
 import { callLLMPublic, analyzerInfo, analyzeMeeting, analyzeDeep, freeAnalyze, chatWithData, enrichCompany, lookupEmployeeCount, lookupCompanyBasics, generateThanks, THANKS_PROMPT, getCheckItems, getSummaryPrompt, getCustomPrompt, runCustomAnalysis, analyzeWinPatterns, classifyMeetingKind, extractFirstMeeting, extractReMeeting, buildBrief, extractFeatureCTags, enrichCompanyAttributes, generateFeatureCInsights, extractQaPairs, splitPhases } from "./analyzer.js";
 import { searchCompanies, getCompanyDetail, gbizConfigured } from "./gbizinfo.js";
 import { searchCompanyInfo, webLookupAvailable } from "./websearch.js";
-import { readLayout, readGoals, tally, buildUpdates, applyApoCounts, METRICS } from "./processsheet.js";
+import { readLayout, readGoals, tally, buildUpdates, applyApoCounts, parseZeroDates, METRICS } from "./processsheet.js";
 import {
   googleConfigured,
   authUrl,
@@ -8022,6 +8022,8 @@ app.get("/api/process-sheet", async (req, res) => {
       reportId: st.psReportId || "", owner: st.psOwner || "",
       termFrom: st.psTermFrom || "", termTo: st.psTermTo || "",
       termMode: st.psTermMode === "fixed" ? "fixed" : "auto",
+      writeFrom: st.psWriteFrom || "",
+      zeroDates: st.psZeroDates !== undefined ? st.psZeroDates : "8/21",
       autoRun: st.psAutoRun === true,
       filters: (() => { try { return JSON.parse(st.psFilters || "null"); } catch { return null; } })(),
       gasUrl: st.psGasUrl || "", gasSecretSet: !!st.psGasSecret,
@@ -8048,6 +8050,9 @@ app.put("/api/process-sheet", async (req, res) => {
     if (b.termTo !== undefined) patch.psTermTo = String(b.termTo || "").slice(0, 10);
     // 期内・期外の分け方（auto＝アポ取得月と商談月が同じなら期内／fixed＝決めた期間）
     if (b.termMode !== undefined) patch.psTermMode = b.termMode === "auto" ? "auto" : "fixed";
+    // 「この日から書き込む」「0にする日（休みなど）」
+    if (b.writeFrom !== undefined) patch.psWriteFrom = String(b.writeFrom || "").slice(0, 10);
+    if (b.zeroDates !== undefined) patch.psZeroDates = String(b.zeroDates || "").slice(0, 200);
     if (b.autoRun !== undefined) patch.psAutoRun = b.autoRun === true;
     // Apps Script経由の書き込み（保護されたシート向け）
     if (b.gasUrl !== undefined) patch.psGasUrl = String(b.gasUrl || "").trim().slice(0, 300);
@@ -8140,6 +8145,13 @@ async function runProcessSheet(sfUser, opts = {}) {
   const termMode = String(opts.termMode || st.psTermMode || "fixed") === "auto" ? "auto" : "fixed";
   const dryRun = opts.dryRun !== false;
   const onlyDates = Array.isArray(opts.dates) && opts.dates.length ? opts.dates : null;
+  // 「この日から書き込む」（空なら期間の開始から）
+  const writeFrom = String(opts.writeFrom ?? st.psWriteFrom ?? "").trim();
+  // 「0にする日」（休みなど）。未設定のときは 8/21 を初期値にする（画面で変えられる）。
+  const zeroDatesRaw = opts.zeroDates !== undefined
+    ? opts.zeroDates
+    : (st.psZeroDates !== undefined ? st.psZeroDates : "8/21");
+  const zeroDates = parseZeroDates(zeroDatesRaw);
 
   if (!sheetId) throw new Error("スプレッドシートを指定してください");
   if (!sheetName) throw new Error("シート名を指定してください");
@@ -8178,7 +8190,7 @@ async function runProcessSheet(sfUser, opts = {}) {
   const todayJst = new Date(Date.now() + 9 * 3600 * 1000).toISOString().slice(0, 10);
   const zeroTo = to < todayJst ? to : todayJst;
   const { updates, skipped } = buildUpdates(layout, tallied, {
-    onlyDates, zeroFrom: from, zeroTo,
+    onlyDates, zeroFrom: from, zeroTo, writeFrom, zeroDates,
   });
 
   if (dryRun) {
@@ -13235,7 +13247,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-08-23g kincall：使い方ツアーの表示履歴をリセット。次に開いた人には全員、初回として自動で案内が出る";
+const BUILD_TAG = "2026-08-23h プロセスシート：「0にする日（休みなど。8/21を初期値）」と「この日から書き込む」を追加。指定日は実績があっても0で書く";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",

@@ -225,8 +225,19 @@ export function applyApoCounts(tallied, apoRows, { replace = true } = {}) {
   return out;
 }
 
+// 「8/21, 8/28」「2026-08-21」などを、"m/d" の配列にそろえる（休みの日など）
+export function parseZeroDates(input) {
+  const arr = Array.isArray(input) ? input : String(input || "").split(/[,\s、\u3000]+/);
+  const out = [];
+  for (const it of arr) {
+    const md = parseMD(it);
+    if (md) out.push(`${md.m}/${md.d}`);
+  }
+  return out;
+}
+
 // 集計とシートの構造を突き合わせて、書き込む場所と値の一覧を作る
-export function buildUpdates(layout, tallied, { onlyDates = null, zeroFrom = "", zeroTo = "" } = {}) {
+export function buildUpdates(layout, tallied, { onlyDates = null, zeroFrom = "", zeroTo = "", writeFrom = "", zeroDates = [] } = {}) {
   const updates = [];
   const skipped = [];
 
@@ -243,6 +254,18 @@ export function buildUpdates(layout, tallied, { onlyDates = null, zeroFrom = "",
     return iso >= zeroFrom && iso <= zeroTo;
   };
 
+  // 「0にする日」（休みなど）。実績があっても0で書き込む。
+  const zeroSet = new Set((zeroDates || []).map(String));
+  // 「この日から書き込む」の判定に使う、各列のISO日付。
+  const isoOf = (d) => {
+    const base = zeroFrom || writeFrom || "";
+    if (!base) return "";
+    const y = +String(base).slice(0, 4);
+    const baseMonth = +String(base).slice(5, 7) || d.m;
+    const year = d.m < baseMonth ? y + 1 : y;
+    return `${year}-${String(d.m).padStart(2, "0")}-${String(d.d).padStart(2, "0")}`;
+  };
+
   for (const p of layout.people) {
     // シートの担当者名に当てはまるSF側の名前を探す
     const sfName = Object.keys(tallied).find((n) => sameName(p.name, n));
@@ -250,7 +273,10 @@ export function buildUpdates(layout, tallied, { onlyDates = null, zeroFrom = "",
     for (const d of layout.dates) {
       const key = `${d.m}/${d.d}`;
       if (onlyDates && !onlyDates.includes(key)) continue;
-      const t = tallied[sfName][key] || (inZeroRange(d) ? ZERO : null);
+      // 「この日から書き込む」より前の列は、触らない
+      if (writeFrom) { const iso = isoOf(d); if (iso && iso < writeFrom) continue; }
+      const forceZero = zeroSet.has(key);
+      const t = forceZero ? ZERO : (tallied[sfName][key] || (inZeroRange(d) ? ZERO : null));
       if (!t) continue;
       for (const metric of METRICS) {
         const row = p.rows[metric];

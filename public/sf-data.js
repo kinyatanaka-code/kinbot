@@ -483,6 +483,8 @@ async function loadProcessSheet() {
     const want = d.termMode === "fixed" ? "fixed" : "auto";
     const rb = document.querySelector(`input[name="psTermMode"][value="${want}"]`);
     if (rb) { rb.checked = true; syncTermMode(); }
+    if ($("psWriteFrom")) $("psWriteFrom").value = d.writeFrom || "";
+    if ($("psZeroDates")) $("psZeroDates").value = d.zeroDates || "";
     if ($("psAuto")) $("psAuto").checked = !!d.autoRun;
     if ($("psGasUrl")) $("psGasUrl").value = d.gasUrl || "";
     const gs = $("psGasState");
@@ -522,6 +524,8 @@ function psBody(dryRun) {
     reportId: $("psReport").value, owner: $("psOwner").value,
     termFrom: $("psFrom").value, termTo: $("psTo").value,
     termMode: termMode(),
+    writeFrom: $("psWriteFrom") ? $("psWriteFrom").value : undefined,
+    zeroDates: $("psZeroDates") ? $("psZeroDates").value : undefined,
     autoRun: $("psAuto") ? $("psAuto").checked : false,
     gasUrl: $("psGasUrl") ? $("psGasUrl").value : undefined,
     gasSecret: $("psGasSecret") ? $("psGasSecret").value : undefined,

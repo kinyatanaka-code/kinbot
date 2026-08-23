@@ -123,6 +123,12 @@
                 </div>
                 <p class="note" id="psTermNote">商談日が分かっていないアポは、どちらの分け方でも「期外」に入ります。実行後の「アポの内訳」で、1件ずつの判定理由を確かめられます。</p>
               </div>
+              <div class="ps-when" style="display:flex;gap:16px;flex-wrap:wrap;margin-top:10px">
+                <label class="ps-lb">この日から書き込む<input type="date" id="psWriteFrom" /></label>
+                <label class="ps-lb">0にする日（休みなど）<input type="text" id="psZeroDates" placeholder="例：8/21, 8/28" /></label>
+              </div>
+              <p class="note">「この日から書き込む」を入れると、その日以降だけを書き換えます（空なら、これまで通り期間の開始から）。<br>
+              「0にする日」に入れた日は、<b>実績があっても0で書き込みます</b>（休みの日などに使います）。カンマや空白で区切って複数入れられます。</p>
             </div>
             <div class="ps-filters" id="psFilters"></div>
 
@@ -183,7 +189,7 @@
     </div>
     <script src="product.js?v=20260821t"></script>
     <script src="sf-launch.js?v=20260821t"></script>
-    <script src="sf-data.js?v=20260821t"></script>
+    <script src="sf-data.js?v=20260823h"></script>
     <script src="nav.js?v=20260823c"></script>
   </body>
 </html>
