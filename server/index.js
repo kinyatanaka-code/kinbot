@@ -5244,22 +5244,31 @@ app.post("/api/calls/from-csv", async (req, res) => {
       const 架電日 = ymdOf(r.callDate);
       const { ステータス, コメント } = 振り分け(r);
       if (!dryRun && leadId && (架電日 || ステータス || コメント)) {
+        const 日 = 架電日 || jstDate(0);
+        const subj = `コール：${ステータス || "架電"}`;
         try {
-          // 内容から決まるキー。同じCSVを取り込み直しても、同じ活動は二重に作らない。
-          const 内容キー = `csv|${leadId}|${架電日 || "-"}|${ステータス}|${コメント}`;
-          const botId = "kincall:" + crypto.createHash("sha1").update(内容キー).digest("hex").slice(0, 30);
-          const made = await createTaskIdempotent(sfUser, botId, {
-            WhoId: leadId,
-            Subject: `コール：${ステータス || "架電"}`,
-            Status: "完了", Type: "Call",
-            ActivityDate: 架電日 || jstDate(0),
-            Description: [
-              ステータス ? `結果：${ステータス}` : "",
-              コメント ? `コメント：${コメント}` : "",
-              `CSVから取り込み（記録した人：${await displayNameOf(req.user).catch(() => req.user)}）`,
-            ].filter(Boolean).join("\n"),
-          });
-          履歴 = made && made.created === false ? "既にあるので残しませんでした" : "履歴を残した";
+          // 同じ相手・同じ日・同じ結果の活動が既にあれば、作らない。
+          // 過去に作った分（重複防止キーを持たないものも含む）とも二重にしない。
+          const dup = await sfQuery(
+            sfUser,
+            `SELECT Id FROM Task WHERE WhoId='${sq(leadId)}' AND ActivityDate=${日} AND Subject='${sq(subj)}' LIMIT 1`
+          ).catch(() => ({ records: [] }));
+          if (dup.records && dup.records.length) {
+            履歴 = "既にあるので残しませんでした";
+          } else {
+            await createTask(sfUser, {
+              WhoId: leadId,
+              Subject: subj,
+              Status: "完了", Type: "Call",
+              ActivityDate: 日,
+              Description: [
+                ステータス ? `結果：${ステータス}` : "",
+                コメント ? `コメント：${コメント}` : "",
+                `CSVから取り込み（記録した人：${await displayNameOf(req.user).catch(() => req.user)}）`,
+              ].filter(Boolean).join("\n"),
+            });
+            履歴 = "履歴を残した";
+          }
         } catch (e) { 履歴 = `履歴を残せなかった（${String(e.message).slice(0, 60)}）`; }
       } else if ((架電日 || コメント || ステータス) && dryRun) {
         履歴 = "履歴を残す（予定）";
@@ -5341,6 +5350,7 @@ app.post("/api/calls/from-csv", async (req, res) => {
       新しく作った: 結果.filter((x) => x.状態 === "新しく作った").length,
       とばした: 結果.filter((x) => !x.leadId).length,
       履歴を残した: 結果.filter((x) => x["履歴"] === "履歴を残した").length,
+      履歴済み: 結果.filter((x) => x["履歴"] === "既にあるので残しませんでした").length,
       分けた人数: 分ける人.length,
       明細: 結果.slice(0, 200),
     });
@@ -13636,7 +13646,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-08-24e kincall：かける表の「現所有者」列を一番左に移動（行更新のインデックスも調整）";
+const BUILD_TAG = "2026-08-24f kincall CSV：活動履歴を内容（相手・日付・結果）で重複判定し、既にある分はSFに残さない（過去に作った分とも二重にしない）";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
