@@ -795,7 +795,7 @@ async function createList(body) {
     });
     const d = await r.json();
     if (!r.ok) throw new Error(d.error || "作れませんでした");
-    say("clNewStatus", `「${d.name}」を作りました（${d["件数"]}件）`, 8000);
+    say("clNewStatus", `「${d.name}」を作りました（${d["件数"]}件${d["重複除外"] ? `／重複を${d["重複除外"]}件外した` : ""}）`, 8000);
     if ($("clPaste")) $("clPaste").value = "";
     loadLists();
   } catch (e) { say("clNewStatus", "失敗：" + e.message, 10000); }
@@ -966,7 +966,7 @@ async function sfPut(box) {
     });
     const d = await r.json();
     if (!r.ok) throw new Error(d.error || "入れられませんでした");
-    say("clSfStatus", `「${d.name}」に${d["件数"]}件入れました`, 8000);
+    say("clSfStatus", `「${d.name}」に${d["件数"] ?? d["入れた数"]}件入れました${d["重複除外"] ? `（重複を${d["重複除外"]}件外した）` : ""}`, 8000);
     box.innerHTML = "";
     loadLists();
   } catch (e) { say("clSfStatus", "失敗：" + e.message, 8000); }
@@ -1411,7 +1411,7 @@ async function openSplit(listId, listName, memberEmail, memberName) {
         });
         const j = await r.json();
         if (!r.ok) throw new Error(j.error || "作れませんでした");
-        say(`「${j.name}」を作りました（${j["件数"]}件）`);
+        say(`「${j.name}」を作りました（${j["件数"]}件${j["重複除外"] ? `／重複を${j["重複除外"]}件外した` : ""}）`);
         loadLists();
       } catch (e) { say("失敗：" + e.message); }
     });
@@ -1498,7 +1498,7 @@ async function csvSend(dryRun) {
 
   // 件数が多いと途中で切れるので、少しずつ送る。進み具合も出す。
   const CHUNK = 20;
-  const 合計 = { 件数: 0, 見つかった: 0, 新しく作った: 0, とばした: 0, 履歴: 0 };
+  const 合計 = { 件数: 0, 見つかった: 0, 新しく作った: 0, とばした: 0, 履歴: 0, 重複除外: 0 };
   let listId = 0, listName = "";
   const meisai = [];
   const btns = [$("csvDry"), $("csvRun")].filter(Boolean);
@@ -1530,6 +1530,7 @@ async function csvSend(dryRun) {
       合計.新しく作った += Number(d["新しく作った"] || d["新しく作る"] || 0);
       合計.とばした += Number(d["とばした"] || d["とばす"] || 0);
       合計.履歴 += Number(d["履歴を残した"] || 0);
+      合計.重複除外 += Number(d["重複除外"] || 0);
       for (const x of (d["明細"] || [])) meisai.push(x);
 
       // 途中経過も出しておく
@@ -1549,7 +1550,8 @@ async function csvSend(dryRun) {
     } else {
       say(`「${listName}」を作りました：${合計.件数}件` +
           `（見つかった ${合計.見つかった}／新しく作った ${合計.新しく作った}／とばした ${合計.とばした}` +
-          (合計.履歴 ? `／履歴 ${合計.履歴}件` : "") + "）" +
+          (合計.履歴 ? `／履歴 ${合計.履歴}件` : "") +
+          (合計.重複除外 ? `／重複を${合計.重複除外}件外した` : "") + "）" +
           (csvShareSelected().length ? `　${csvShareSelected().length}人に分けました` : ""));
       loadLists();
     }

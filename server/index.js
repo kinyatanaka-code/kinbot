@@ -5231,15 +5231,17 @@ app.post("/api/calls/from-csv", async (req, res) => {
         開始 = now.length;
       } catch {}
     }
-    const n = await addCallTargets(list.id, 入れるもの.map((x, i) => ({
+    const 入れるリスト = 入れるもの.map((x, i) => ({
       leadId: x.leadId, company: x.company, person: x.person, phone: x.phone,
       ...(x["ステータス"] ? { status: x["ステータス"] } : {}),
       ...(x["ステージ"] ? { stage: x["ステージ"] } : {}),
       ...(分ける人.length ? { assignedTo: 分ける人[(開始 + i) % 分ける人.length] } : {}),
-    })));
-    console.log(`[kincall] CSVからリスト「${name}」を作りました（${n}件／新規リード${結果.filter((x)=>x.状態==="新しく作った").length}件） by ${req.user}`);
+    }));
+    const n = await addCallTargets(list.id, 入れるリスト, { dedupe: true });
+    const 重複除外 = 入れるリスト.length - n;
+    console.log(`[kincall] CSVからリスト「${name}」を作りました（${n}件／新規リード${結果.filter((x)=>x.状態==="新しく作った").length}件${重複除外 ? `／重複除外 ${重複除外}件` : ""}） by ${req.user}`);
     res.json({
-      ok: true, id: list.id, name: list.name, 件数: n,
+      ok: true, id: list.id, name: list.name, 件数: n, 重複除外,
       見つかった: 結果.filter((x) => String(x.状態).startsWith("見つかった")).length,
       新しく作った: 結果.filter((x) => x.状態 === "新しく作った").length,
       とばした: 結果.filter((x) => !x.leadId).length,
@@ -5282,9 +5284,10 @@ app.post("/api/calls/lists", async (req, res) => {
     const who = (Array.isArray(b.assignTo) ? b.assignTo : []).map((x) => String(x).toLowerCase()).filter(Boolean);
     if (who.length) items = items.map((x, i) => ({ ...x, assignedTo: who[i % who.length] }));
 
-    const n = await addCallTargets(list.id, items);
-    console.log(`[コール] リスト「${name}」を作りました（${n}件）by ${req.user}`);
-    res.json({ ok: true, id: list.id, name, 件数: n });
+    const n = await addCallTargets(list.id, items, { dedupe: true });
+    const 重複除外 = items.length - n;
+    console.log(`[コール] リスト「${name}」を作りました（${n}件${重複除外 ? `／重複除外 ${重複除外}件` : ""}）by ${req.user}`);
+    res.json({ ok: true, id: list.id, name, 件数: n, 重複除外 });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
@@ -5391,9 +5394,10 @@ app.post("/api/calls/from-leads", async (req, res) => {
     // 見るだけ（まだ入れない）
     if (!listId) return res.json({ ok: true, 件数: items.length, items });
 
-    const n = await addCallTargets(listId, items);
-    console.log(`[kincall] リードを${n}件入れました by ${req.user}`);
-    res.json({ ok: true, 入れた数: n });
+    const n = await addCallTargets(listId, items, { dedupe: true });
+    const 重複除外 = items.length - n;
+    console.log(`[kincall] リードを${n}件入れました${重複除外 ? `（重複除外 ${重複除外}件）` : ""} by ${req.user}`);
+    res.json({ ok: true, 入れた数: n, 重複除外 });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
@@ -5484,13 +5488,16 @@ app.post("/api/calls/from-report", async (req, res) => {
     const 分ける人R = (Array.isArray(b.share) ? b.share : [])
       .map((x) => String(x || "").trim().toLowerCase()).filter(Boolean);
     if (!list) return res.status(500).json({ error: "リストを作れませんでした" });
-    const n = await addCallTargets(list.id, 分ける人R.length
+    const 入れる = 分ける人R.length
       ? items.map((x, i) => ({ ...x, assignedTo: 分ける人R[i % 分ける人R.length] }))
-      : items);
+      : items;
+    const n = await addCallTargets(list.id, 入れる, { dedupe: true });
+    const 重複除外 = 入れる.length - n;
     console.log(`[kincall] レポートから${n}件をリスト「${name}」に入れました` +
-      (分ける人R.length ? `（${分ける人R.length}人に分けた）` : "") + ` by ${req.user}`);
+      (分ける人R.length ? `（${分ける人R.length}人に分けた）` : "") +
+      (重複除外 ? `／重複除外 ${重複除外}件` : "") + ` by ${req.user}`);
     res.json({
-      ok: true, id: list.id, name, 件数: n, 見つけた列: ix, 分けた人数: 分ける人R.length,
+      ok: true, id: list.id, name, 件数: n, 重複除外, 見つけた列: ix, 分けた人数: 分ける人R.length,
       リードとつないだ数: 紐づけた,
       note: 紐づけた < 足りない.length
         ? `${足りない.length - 紐づけた}件は、Salesforceのリードと結びつけられませんでした（会社名が一致しないなど）`
@@ -13376,7 +13383,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-08-23t 権限：中澤良太（ryota.nakazawa）に田中欽也と同じ権限（全アカウント閲覧の管理者＋他メンバーとして操作）を付与した";
+const BUILD_TAG = "2026-08-23u kincall：リスト取り込み時に、既にある未架電の架電先（他メンバー含む）と重複するものを外すようにした（外した件数も表示）";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",

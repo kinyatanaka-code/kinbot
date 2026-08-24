@@ -3109,21 +3109,48 @@ export async function createCallList({ name, owner, note, createdBy }) {
 }
 
 // リストに宛先を足す（何件でもまとめて）
-export async function addCallTargets(listId, items = []) {
+// 架電先が同じかどうかを見分けるためのカギ（リードID・電話・会社名）
+function callDedupeKeys(leadId, phone, company) {
+  const keys = [];
+  const lid = String(leadId || "").trim();
+  if (lid) keys.push("lead:" + lid);
+  const tel = String(phone || "").replace(/[^\d]/g, "");
+  if (tel.length >= 9) keys.push("tel:" + tel);
+  const co = String(company || "")
+    .replace(/[\s　]/g, "")
+    .replace(/(株式会社|（株）|\(株\)|㈱|有限会社|合同会社|一般社団法人|社会福祉法人|学校法人)/g, "")
+    .toLowerCase();
+  if (co) keys.push("co:" + co);
+  return keys;
+}
+
+export async function addCallTargets(listId, items = [], { dedupe = false } = {}) {
   if (!pool || !listId || !items.length) return 0;
   try {
-    let n = 0;
-    for (let i = 0; i < items.length; i++) {
-      const x = items[i] || {};
+    // 重複を外す場合、まだ架電していない既存の架電先をカギにして持っておく。
+    // これで、別のメンバーのリストに入っている先と重複しないようにする。
+    const seen = new Set();
+    if (dedupe) {
+      const { rows } = await pool.query(`SELECT lead_id, phone, company FROM call_targets WHERE done = false`);
+      for (const r of rows) for (const k of callDedupeKeys(r.lead_id, r.phone, r.company)) seen.add(k);
+    }
+    let n = 0, sort = 0;
+    for (const x0 of items) {
+      const x = x0 || {};
+      if (dedupe) {
+        const keys = callDedupeKeys(x.leadId, x.phone, x.company);
+        if (keys.length && keys.some((k) => seen.has(k))) continue;   // 既にある＝重複なので入れない
+        for (const k of keys) seen.add(k);                            // このリスト内の重複も外す
+      }
       await pool.query(
         `INSERT INTO call_targets
            (list_id, lead_id, company, person, phone, email, industry, area, memo, assigned_to, sort_order, stage, status)
          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`,
         [listId, x.leadId || null, x.company || "", x.person || "", x.phone || "",
          x.email || "", x.industry || "", x.area || "", x.memo || "",
-         String(x.assignedTo || "").toLowerCase() || null, i,
+         String(x.assignedTo || "").toLowerCase() || null, sort,
          x.stage || "", x.status || ""]);
-      n++;
+      n++; sort++;
     }
     return n;
   } catch (e) { console.error("[db] addCallTargets", e.message); return 0; }
