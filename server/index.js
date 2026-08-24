@@ -5101,6 +5101,8 @@ app.post("/api/calls/from-csv", async (req, res) => {
     const b = req.body || {};
     const name = String(b.name || "").trim() || `CSV（${jstDate(0)}）`;
     const dryRun = !!b.dryRun;
+    // SFを一切触らず、CSVの中身だけで架電リストを作るモード（メールが無い等でSF更新したくないとき）
+    const listOnly = !!b.listOnly;
     const 行 = Array.isArray(b.rows) ? b.rows : [];
     if (!行.length) return res.status(400).json({ error: "中身がありません" });
 
@@ -5111,8 +5113,53 @@ app.post("/api/calls/from-csv", async (req, res) => {
       const 代理 = String(st.sfProxyUser || "").trim().toLowerCase();
       if (代理 && (await sfConnected(代理).catch(() => false))) sfUser = 代理;
     }
-    if (!salesforceConfigured() || !(await sfConnected(sfUser).catch(() => false))) {
+    if (!listOnly && (!salesforceConfigured() || !(await sfConnected(sfUser).catch(() => false)))) {
       return res.status(400).json({ error: "Salesforceにつながっていません（設定→動作設定の「代わりに更新する人」もご確認ください）" });
+    }
+
+    // ── SFを触らず、CSVの中身だけでリストを作る ──
+    if (listOnly) {
+      const 結果 = [];
+      for (const r of 行) {
+        const company = String(r.company || "").trim();
+        if (!company) { 結果.push({ company, 状態: "とばした", 理由: "会社名がありません" }); continue; }
+        const { ステータス, コメント } = 振り分け(r);
+        結果.push({
+          company, person: String(r.person || "").trim() || "担当者", phone: String(r.phone || "").trim(),
+          leadId: "", 状態: "リストに追加", リード種別: "（SFなし）",
+          ステータス, ステージ: String(r.stage || "").trim(), コメント, 履歴: "",
+        });
+      }
+      if (dryRun) {
+        return res.json({
+          ok: true, 試算: true, listOnly: true, 件数: 結果.length,
+          見つかった: 0, 新しく作る: 0,
+          とばす: 結果.filter((x) => x.状態 === "とばした").length,
+          明細: 結果.slice(0, 200),
+        });
+      }
+      const 入れられる = 結果.filter((x) => x.company && x.状態 !== "とばした");
+      if (!入れられる.length) return res.status(400).json({ error: "リストに入れられるものがありませんでした" });
+      const 既存2 = parseInt(b.listId, 10) || 0;
+      const list2 = 既存2
+        ? { id: 既存2, name }
+        : await createCallList({ name, owner: String(b.member || "").trim().toLowerCase() || req.user, createdBy: req.user });
+      const 分ける人2 = (Array.isArray(b.share) ? b.share : []).map((x) => String(x || "").trim().toLowerCase()).filter(Boolean);
+      let 開始2 = 0;
+      if (分ける人2.length && 既存2) { try { 開始2 = (await listCallTargets(既存2, { limit: 5000 })).length; } catch {} }
+      const 入れるリスト2 = 入れられる.map((x, i) => ({
+        company: x.company, person: x.person, phone: x.phone,
+        status: x.ステータス, stage: x.ステージ, memo: x.コメント,
+        ...(分ける人2.length ? { assignedTo: 分ける人2[(開始2 + i) % 分ける人2.length] } : {}),
+      }));
+      const n2 = await addCallTargets(list2.id, 入れるリスト2, { dedupe: true });
+      const 重複除外2 = 入れるリスト2.length - n2;
+      console.log(`[kincall] CSVからリストだけ作りました（SF更新なし）「${name}」（${n2}件${重複除外2 ? `／重複除外 ${重複除外2}件` : ""}） by ${req.user}`);
+      return res.json({
+        ok: true, listOnly: true, id: list2.id, name: list2.name, 件数: n2, 重複除外: 重複除外2,
+        見つかった: 0, 新しく作った: 0, とばした: 結果.filter((x) => x.状態 === "とばした").length,
+        履歴を残した: 0, 分けた人数: 分ける人2.length, 明細: 結果.slice(0, 200),
+      });
     }
 
     const rtId = await crossLeadRecordTypeId(sfUser).catch(() => "");
@@ -13585,7 +13632,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-08-23za kincall：CSV試算で現所有者が空になる不具合を修正（既存リードの行にleadIdを持たせて所有者を引く）";
+const BUILD_TAG = "2026-08-24a kincall CSV：SFを更新せず、CSVの中身だけで架電リストに追加するモードを追加（メールが無いとき用）";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",

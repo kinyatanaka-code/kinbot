@@ -115,6 +115,8 @@
                   <div class="kc-filter-row"><span class="kc-filter-lb">ステージ</span><div class="kc-share" id="csvStages"></div></div>
                   <div class="kc-filter-row"><span class="kc-filter-lb">ステータス</span><div class="kc-share" id="csvStatuses"></div></div>
                 </div>
+                <label class="ks-check" style="margin:8px 0 2px"><input type="checkbox" id="csvListOnly" /> <b>Salesforceは更新せず、リストだけ作る（CSVのまま）</b></label>
+                <p class="note">メールが無いなどでSalesforceを触りたくないときに使います。オンにすると、リードの検索・作成も、活動履歴も、所有者の付け替えもせず、CSVの中身だけで架電リストに追加します（同じ架電先の重複除外はそのまま効きます）。</p>
                 <div class="ap-cfg-row">
                   <button class="btn ghost" id="csvDry">まず試算する</button>
                   <button class="btn" id="csvRun">この内容でリストを作る</button>
@@ -184,7 +186,7 @@
       </div>
     </div>
     <script src="sf-data.js?v=20260822am"></script>
-    <script src="calls.js?v=20260823z"></script>
+    <script src="calls.js?v=20260824a"></script>
     <script src="nav.js?v=20260823c"></script>
   </body>
 </html>

@@ -1527,6 +1527,7 @@ async function csvSend(dryRun) {
           name: ($("csvName") && $("csvName").value.trim()) || "",
           rows: part, dryRun: !!dryRun,
           share: csvShareSelected(),
+          ...(($("csvListOnly") && $("csvListOnly").checked) ? { listOnly: true } : {}),
           ...(listId ? { listId } : {}),
         }),
       });
@@ -1557,9 +1558,17 @@ async function csvSend(dryRun) {
     }
 
     if (dryRun) {
-      say(`試算おわり：${rows.length}件（見つかった ${合計.見つかった}／新しく作る ${合計.新しく作った}／とばす ${合計.とばした}）`);
+      const listOnly = $("csvListOnly") && $("csvListOnly").checked;
+      say(listOnly
+        ? `試算おわり：${rows.length}件（そのままリストに追加。とばす ${合計.とばした}）`
+        : `試算おわり：${rows.length}件（見つかった ${合計.見つかった}／新しく作る ${合計.新しく作った}／とばす ${合計.とばした}）`);
     } else {
-      say(`「${listName}」を作りました：${合計.件数}件` +
+      const listOnly = $("csvListOnly") && $("csvListOnly").checked;
+      say(listOnly
+        ? `「${listName}」を作りました：${合計.件数}件（SFは更新していません` +
+          (合計.重複除外 ? `／重複を${合計.重複除外}件外した` : "") + "）" +
+          (csvShareSelected().length ? `　${csvShareSelected().length}人に分けました` : "")
+        : `「${listName}」を作りました：${合計.件数}件` +
           `（見つかった ${合計.見つかった}／新しく作った ${合計.新しく作った}／とばした ${合計.とばした}` +
           (合計.履歴 ? `／履歴 ${合計.履歴}件` : "") +
           (合計.重複除外 ? `／重複を${合計.重複除外}件外した` : "") +
