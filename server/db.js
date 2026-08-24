@@ -3130,18 +3130,32 @@ export async function addCallTargets(listId, items = [], { dedupe = false } = {}
   try {
     // 重複を外す場合、まだ架電していない既存の架電先をカギにして持っておく。
     // これで、別のメンバーのリストに入っている先と重複しないようにする。
-    const seen = new Set();
+    const seen = new Map();   // カギ → 既存の架電先（無い＝バッチ内で新規に見たもの）
     if (dedupe) {
-      const { rows } = await pool.query(`SELECT lead_id, phone, company FROM call_targets WHERE done = false`);
-      for (const r of rows) for (const k of callDedupeKeys(r.lead_id, r.phone, r.company)) seen.add(k);
+      const { rows } = await pool.query(`SELECT id, lead_id, phone, company, email, person FROM call_targets WHERE done = false`);
+      for (const r of rows) for (const k of callDedupeKeys(r.lead_id, r.phone, r.company)) { if (!seen.has(k)) seen.set(k, r); }
     }
     let n = 0, sort = 0;
     for (const x0 of items) {
       const x = x0 || {};
       if (dedupe) {
         const keys = callDedupeKeys(x.leadId, x.phone, x.company);
-        if (keys.length && keys.some((k) => seen.has(k))) continue;   // 既にある＝重複なので入れない
-        for (const k of keys) seen.add(k);                            // このリスト内の重複も外す
+        const hit = keys.map((k) => seen.get(k)).find(Boolean);
+        if (hit) {
+          // 既にある＝重複なので入れない。ただし、既存側で空のメール・担当者があれば補う
+          // （同じCSVを入れ直したときに、メールだけ後から入る）。
+          if (hit.id) {
+            const 埋メール = !String(hit.email || "").trim() && String(x.email || "").trim() ? String(x.email).trim() : null;
+            const 埋担当 = !String(hit.person || "").trim() && String(x.person || "").trim() ? String(x.person).trim() : null;
+            if (埋メール || 埋担当) {
+              await pool.query(`UPDATE call_targets SET email = COALESCE($2, email), person = COALESCE($3, person) WHERE id = $1`,
+                [hit.id, 埋メール, 埋担当]);
+              hit.email = 埋メール || hit.email; hit.person = 埋担当 || hit.person;
+            }
+          }
+          continue;
+        }
+        for (const k of keys) if (!seen.has(k)) seen.set(k, { id: null });   // このリスト内の重複も外す
       }
       await pool.query(
         `INSERT INTO call_targets

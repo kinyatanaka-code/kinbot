@@ -5245,7 +5245,10 @@ app.post("/api/calls/from-csv", async (req, res) => {
       const { ステータス, コメント } = 振り分け(r);
       if (!dryRun && leadId && (架電日 || ステータス || コメント)) {
         try {
-          await createTask(sfUser, {
+          // 内容から決まるキー。同じCSVを取り込み直しても、同じ活動は二重に作らない。
+          const 内容キー = `csv|${leadId}|${架電日 || "-"}|${ステータス}|${コメント}`;
+          const botId = "kincall:" + crypto.createHash("sha1").update(内容キー).digest("hex").slice(0, 30);
+          const made = await createTaskIdempotent(sfUser, botId, {
             WhoId: leadId,
             Subject: `コール：${ステータス || "架電"}`,
             Status: "完了", Type: "Call",
@@ -5256,7 +5259,7 @@ app.post("/api/calls/from-csv", async (req, res) => {
               `CSVから取り込み（記録した人：${await displayNameOf(req.user).catch(() => req.user)}）`,
             ].filter(Boolean).join("\n"),
           });
-          履歴 = "履歴を残した";
+          履歴 = made && made.created === false ? "既にあるので残しませんでした" : "履歴を残した";
         } catch (e) { 履歴 = `履歴を残せなかった（${String(e.message).slice(0, 60)}）`; }
       } else if ((架電日 || コメント || ステータス) && dryRun) {
         履歴 = "履歴を残す（予定）";
@@ -13633,7 +13636,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-08-24b kincall CSV：メールアドレスを架電先に保存するよう修正（通常・リストだけモードとも）。表のメール列に出る";
+const BUILD_TAG = "2026-08-24c kincall CSV：同じ内容の活動履歴はSFに二重登録しない（内容キーで冪等化）。再取り込みで既存行の空メールを補う";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
