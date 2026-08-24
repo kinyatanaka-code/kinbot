@@ -5184,7 +5184,7 @@ app.post("/api/calls/from-csv", async (req, res) => {
           結果.push({ company, 状態: "作れなかった", 理由: e.message }); continue;
         }
       } else if (dryRun) {
-        結果.push({ company, person: person || "担当者", 状態, リード種別,
+        結果.push({ company, person: person || "担当者", leadId, 状態, リード種別,
           架電日: ymdOf(r.callDate), 履歴: ymdOf(r.callDate) ? "履歴を残す（予定）" : "",
           ...振り分け(r) });
         continue;
@@ -13585,7 +13585,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-08-23z kincall：現リード所有者を、かける表とCSVの試算に表示（取り込み時にSF所有者名を保存）";
+const BUILD_TAG = "2026-08-23za kincall：CSV試算で現所有者が空になる不具合を修正（既存リードの行にleadIdを持たせて所有者を引く）";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
