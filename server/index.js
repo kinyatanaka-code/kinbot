@@ -6289,22 +6289,26 @@ app.post("/api/calls/targets/:id/record", async (req, res) => {
         : `Salesforceにつながっていません（代わりに更新する人「${代理}」の連携が見つかりません。設定した文字列と、その人のログイン用アドレスが同じか確かめてください）` };
     }
 
-    // 次回架電日（ネクストアクション日）をSalesforceのリード項目に書く。
-    // 項目のAPI名は設定で指定（設定→Salesforceを代わりに更新する人 の欄）。
-    // これが更新されることで、「ネクストアクションが今日」のレポート／リストが翌日以降に切り替わる。
+    // ネクストアクション＝未完了の「活動予定」を1件作る（活動日＝次回架電日、活動種別＝設定値）。
+    // これが翌日以降「今日のネクストアクション」から外れ／その日が来たら出てくる、の元になる。
     const naDate = String(b.nextAction || "").trim();
     if (naDate && t.lead_id) {
-      const naField = String(st0.sfNextActionField || "").trim();
-      if (!naField) {
-        sf.nextActionNote = "次回架電日の項目が未設定です（設定→Salesforceで項目のAPI名を入れてください）";
-      } else if (!/^\d{4}-\d{2}-\d{2}$/.test(naDate)) {
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(naDate)) {
         sf.nextActionNote = "次回架電日の形式が正しくありません";
       } else if (await sfConnected(sfUser).catch(() => false)) {
+        const naType = String(st0.sfNextActionType || "").trim();  // 活動種別（任意）
         try {
-          await updateLead(sfUser, t.lead_id, { [naField]: naDate });
+          await createTask(sfUser, {
+            WhoId: t.lead_id,
+            Subject: "ネクストアクション（架電予定）",
+            ActivityDate: naDate,                       // 活動日
+            ...(naType ? { Type: naType } : {}),        // 活動種別
+            // Status は付けない＝未完了の「予定」にする
+            Description: `kincallから設定（記録した人：${記録者}）`,
+          });
           sf.nextAction = naDate;
-          console.log(`[kincall] 次回架電日を書きました lead=${t.lead_id} ${naField}=${naDate} by ${req.user}`);
-        } catch (e) { sf.nextActionNote = "次回架電日を書けませんでした：" + String(e.message).slice(0, 80); }
+          console.log(`[kincall] ネクストアクション（活動予定）を作成 lead=${t.lead_id} 活動日=${naDate}${naType ? ` 種別=${naType}` : ""} by ${req.user}`);
+        } catch (e) { sf.nextActionNote = "ネクストアクションを作れませんでした：" + String(e.message).slice(0, 80); }
       }
     }
 
@@ -12593,24 +12597,23 @@ app.put("/api/settings", async (req, res) => {
 app.get("/api/sf-proxy", async (req, res) => {
   try {
     const st = await getSettings().catch(() => ({}));
-    res.json({ ok: true, sfProxyUser: st.sfProxyUser || "", sfNextActionField: st.sfNextActionField || "" });
+    res.json({ ok: true, sfProxyUser: st.sfProxyUser || "", sfNextActionType: st.sfNextActionType || "" });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 app.put("/api/sf-proxy", async (req, res) => {
   try {
     const b = req.body || {};
     const patch = {};
-    let v = "";
-    if (b.sfProxyUser !== undefined) { v = String(b.sfProxyUser || "").trim().toLowerCase(); patch.sfProxyUser = v; }
-    // 次回架電日（ネクストアクション日）を書き込むリード項目のAPI名
-    if (b.sfNextActionField !== undefined) patch.sfNextActionField = String(b.sfNextActionField || "").trim();
+    if (b.sfProxyUser !== undefined) patch.sfProxyUser = String(b.sfProxyUser || "").trim().toLowerCase();
+    // ネクストアクションの活動予定に付ける活動種別（任意・組織ごとの値）
+    if (b.sfNextActionType !== undefined) patch.sfNextActionType = String(b.sfNextActionType || "").trim();
     await saveSettings(patch);
     const st = await getSettings().catch(() => ({}));
     const 連携 = st.sfProxyUser ? await sfConnected(st.sfProxyUser).catch(() => false) : false;
     if (b.sfProxyUser !== undefined) console.log(`[設定] 代わりに更新する人を「${st.sfProxyUser || "(なし)"}」にしました（連携：${連携 ? "あり" : "なし"}） by ${req.user}`);
-    if (b.sfNextActionField !== undefined) console.log(`[設定] 次回架電日の項目を「${st.sfNextActionField || "(なし)"}」にしました by ${req.user}`);
+    if (b.sfNextActionType !== undefined) console.log(`[設定] ネクストアクションの活動種別を「${st.sfNextActionType || "(なし)"}」にしました by ${req.user}`);
     res.json({
-      ok: true, sfProxyUser: st.sfProxyUser || "", sfNextActionField: st.sfNextActionField || "", 連携,
+      ok: true, sfProxyUser: st.sfProxyUser || "", sfNextActionType: st.sfNextActionType || "", 連携,
       案内: b.sfProxyUser === undefined ? "保存しました"
         : !st.sfProxyUser ? "空にしました"
         : 連携 ? "この人の連携でSalesforceを更新します"
@@ -13533,7 +13536,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-08-23w kincall：記録画面に「次回架電日（ネクストアクション）」を追加し、指定したSFリード項目へ書き込むようにした";
+const BUILD_TAG = "2026-08-23x kincall：ネクストアクションを「未完了の活動予定（活動日＋活動種別）」として作る形に変更。種別は設定で指定";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",

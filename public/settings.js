@@ -2970,7 +2970,7 @@ if (document.getElementById("sfProxy")) {
     try {
       const d = await (await fetch("/api/sf-proxy")).json();
       document.getElementById("sfProxy").value = d.sfProxyUser || "";
-      if (document.getElementById("sfNextField")) document.getElementById("sfNextField").value = d.sfNextActionField || "";
+      if (document.getElementById("sfNextType")) document.getElementById("sfNextType").value = d.sfNextActionType || "";
     } catch {}
   })();
   document.getElementById("sfProxySave").addEventListener("click", async () => {
@@ -2988,7 +2988,7 @@ if (document.getElementById("sfProxy")) {
       setTimeout(() => (st.textContent = ""), 8000);
     } catch (e) { st.textContent = "失敗：" + e.message; }
   });
-  // 次回架電日の項目（API名）
+  // ネクストアクションの活動種別
   if (document.getElementById("sfNextSave")) {
     document.getElementById("sfNextSave").addEventListener("click", async () => {
       const st = document.getElementById("sfNextSt");
@@ -2996,11 +2996,11 @@ if (document.getElementById("sfProxy")) {
       try {
         const r = await fetch("/api/sf-proxy", {
           method: "PUT", headers: { "content-type": "application/json" },
-          body: JSON.stringify({ sfNextActionField: document.getElementById("sfNextField").value.trim() }),
+          body: JSON.stringify({ sfNextActionType: document.getElementById("sfNextType").value.trim() }),
         });
         const d = await r.json();
         if (!r.ok) throw new Error(d.error || "保存できませんでした");
-        document.getElementById("sfNextField").value = d.sfNextActionField || "";
+        document.getElementById("sfNextType").value = d.sfNextActionType || "";
         st.textContent = "保存しました";
         setTimeout(() => (st.textContent = ""), 6000);
       } catch (e) { st.textContent = "失敗：" + e.message; }
