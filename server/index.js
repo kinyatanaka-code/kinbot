@@ -6289,6 +6289,25 @@ app.post("/api/calls/targets/:id/record", async (req, res) => {
         : `Salesforceにつながっていません（代わりに更新する人「${代理}」の連携が見つかりません。設定した文字列と、その人のログイン用アドレスが同じか確かめてください）` };
     }
 
+    // 次回架電日（ネクストアクション日）をSalesforceのリード項目に書く。
+    // 項目のAPI名は設定で指定（設定→Salesforceを代わりに更新する人 の欄）。
+    // これが更新されることで、「ネクストアクションが今日」のレポート／リストが翌日以降に切り替わる。
+    const naDate = String(b.nextAction || "").trim();
+    if (naDate && t.lead_id) {
+      const naField = String(st0.sfNextActionField || "").trim();
+      if (!naField) {
+        sf.nextActionNote = "次回架電日の項目が未設定です（設定→Salesforceで項目のAPI名を入れてください）";
+      } else if (!/^\d{4}-\d{2}-\d{2}$/.test(naDate)) {
+        sf.nextActionNote = "次回架電日の形式が正しくありません";
+      } else if (await sfConnected(sfUser).catch(() => false)) {
+        try {
+          await updateLead(sfUser, t.lead_id, { [naField]: naDate });
+          sf.nextAction = naDate;
+          console.log(`[kincall] 次回架電日を書きました lead=${t.lead_id} ${naField}=${naDate} by ${req.user}`);
+        } catch (e) { sf.nextActionNote = "次回架電日を書けませんでした：" + String(e.message).slice(0, 80); }
+      }
+    }
+
     res.json({ ok: true, sf });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
@@ -12574,18 +12593,26 @@ app.put("/api/settings", async (req, res) => {
 app.get("/api/sf-proxy", async (req, res) => {
   try {
     const st = await getSettings().catch(() => ({}));
-    res.json({ ok: true, sfProxyUser: st.sfProxyUser || "" });
+    res.json({ ok: true, sfProxyUser: st.sfProxyUser || "", sfNextActionField: st.sfNextActionField || "" });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 app.put("/api/sf-proxy", async (req, res) => {
   try {
-    const v = String((req.body && req.body.sfProxyUser) || "").trim().toLowerCase();
-    await saveSettings({ sfProxyUser: v });
-    const 連携 = v ? await sfConnected(v).catch(() => false) : false;
-    console.log(`[設定] 代わりに更新する人を「${v || "(なし)"}」にしました（連携：${連携 ? "あり" : "なし"}） by ${req.user}`);
+    const b = req.body || {};
+    const patch = {};
+    let v = "";
+    if (b.sfProxyUser !== undefined) { v = String(b.sfProxyUser || "").trim().toLowerCase(); patch.sfProxyUser = v; }
+    // 次回架電日（ネクストアクション日）を書き込むリード項目のAPI名
+    if (b.sfNextActionField !== undefined) patch.sfNextActionField = String(b.sfNextActionField || "").trim();
+    await saveSettings(patch);
+    const st = await getSettings().catch(() => ({}));
+    const 連携 = st.sfProxyUser ? await sfConnected(st.sfProxyUser).catch(() => false) : false;
+    if (b.sfProxyUser !== undefined) console.log(`[設定] 代わりに更新する人を「${st.sfProxyUser || "(なし)"}」にしました（連携：${連携 ? "あり" : "なし"}） by ${req.user}`);
+    if (b.sfNextActionField !== undefined) console.log(`[設定] 次回架電日の項目を「${st.sfNextActionField || "(なし)"}」にしました by ${req.user}`);
     res.json({
-      ok: true, sfProxyUser: v, 連携,
-      案内: !v ? "空にしました"
+      ok: true, sfProxyUser: st.sfProxyUser || "", sfNextActionField: st.sfNextActionField || "", 連携,
+      案内: b.sfProxyUser === undefined ? "保存しました"
+        : !st.sfProxyUser ? "空にしました"
         : 連携 ? "この人の連携でSalesforceを更新します"
         : "保存しましたが、この人のSalesforce連携が見つかりません。kinbotにログインしているアドレスと同じか確かめてください",
     });
@@ -13506,7 +13533,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-08-23v kincall：インサイドへ割り振る取り込みで、クローザー所有のリードを中澤良太の所有に付け替える（ジャッジは除外）";
+const BUILD_TAG = "2026-08-23w kincall：記録画面に「次回架電日（ネクストアクション）」を追加し、指定したSFリード項目へ書き込むようにした";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",

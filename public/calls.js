@@ -538,6 +538,9 @@ async function openTarget(id, draft, opt) {
         <div class="kc-lb">説明（任意）</div>
         <textarea class="kc-input" id="kcMemo" rows="3" placeholder="担当者は佐藤様・14時以降が良いとのこと"></textarea>
 
+        <div class="kc-lb">次回架電日（ネクストアクション・任意）</div>
+        <input type="date" class="kc-input" id="kcNext" />
+
         <div class="kc-modal-foot">
           <button type="button" class="btn" id="kcSave">記録する</button>
           <span class="rev-status" id="kcSaveSt"></span>
@@ -585,6 +588,8 @@ async function openTarget(id, draft, opt) {
           status: m.el.querySelector("#kcStatus").value,
           // Salesforceのリードの状態も、この値で書き換える
           leadStatus: m.el.querySelector("#kcStatus").value,
+          // 次回架電日（ネクストアクション日）。SFのリード項目に書く。
+          nextAction: (m.el.querySelector("#kcNext") || {}).value || "",
         }),
       });
       const d = await r.json();
@@ -608,9 +613,11 @@ async function openTarget(id, draft, opt) {
       renderDock();
       m.close();
       const 代理 = d.sf && d.sf["代理"] ? `（${d.sf["代理"]}さんとして残しました）` : "";
-      say("clStatus", d.sf && d.sf.ok
+      const 次回 = d.sf && d.sf.nextAction ? `　次回架電日=${d.sf.nextAction} をSFに書きました` : "";
+      const 次回注意 = d.sf && d.sf.nextActionNote ? `　※${d.sf.nextActionNote}` : "";
+      say("clStatus", (d.sf && d.sf.ok
         ? `記録しました${代理 || "（Salesforceにも残しました）"}`
-        : `記録しました${d.sf && d.sf.reason ? `（SFへは残せません：${d.sf.reason}）` : ""}`, 8000);
+        : `記録しました${d.sf && d.sf.reason ? `（SFへは残せません：${d.sf.reason}）` : ""}`) + 次回 + 次回注意, 8000);
       // 実績の数だけ、そっと更新する（一覧は読み直さない）
       loadStats();
     } catch (e) {

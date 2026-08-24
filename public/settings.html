@@ -65,6 +65,14 @@
                 <button class="btn ghost" id="sfProxySave">保存</button>
                 <span class="rev-status" id="sfProxySt"></span>
               </div>
+              <h4 class="ap-rot-h" style="margin-top:14px">次回架電日（ネクストアクション）</h4>
+              <p class="note">kincallの記録画面で「次回架電日」を入れると、ここで指定したリード項目に書き込みます。<br>
+              「ネクストアクションが今日」のレポート／リストを、翌日以降に自動で切り替えるために使います。<b>Salesforceの項目のAPI名</b>（例：<code>Next_Action_Date__c</code>）を入れてください。</p>
+              <div class="ap-cfg-row">
+                <label>次回架電日の項目（API名） <input type="text" id="sfNextField" placeholder="Next_Action_Date__c" style="width:280px" /></label>
+                <button class="btn ghost" id="sfNextSave">保存</button>
+                <span class="rev-status" id="sfNextSt"></span>
+              </div>
 </div>
             </div>
             <div class="set-card">
@@ -770,7 +778,7 @@ curl -H "Authorization: Bearer <span class="cc-tok">&lt;トークン&gt;</span>"
         </main>
       </div>
     </div>
-    <script src="settings.js?v=20260823a"></script>
+    <script src="settings.js?v=20260823w"></script>
       <script src="nav.js?v=20260823c"></script>
   </body>
 </html>
