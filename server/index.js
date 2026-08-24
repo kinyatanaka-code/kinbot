@@ -5239,9 +5239,26 @@ app.post("/api/calls/from-csv", async (req, res) => {
     }));
     const n = await addCallTargets(list.id, 入れるリスト, { dedupe: true });
     const 重複除外 = 入れるリスト.length - n;
-    console.log(`[kincall] CSVからリスト「${name}」を作りました（${n}件／新規リード${結果.filter((x)=>x.状態==="新しく作った").length}件${重複除外 ? `／重複除外 ${重複除外}件` : ""}） by ${req.user}`);
+
+    // クローザー所有のリードを、インサイドに割り振るぶんだけ中澤良太の所有へ変える（ジャッジは除く）
+    let 所有者変更 = 0, 所有者メモ = "";
+    try {
+      const insideSet = await insideEmailSet();
+      const listOwner = String(b.member || req.user).toLowerCase();
+      const insideLeadIds = 入れるリスト
+        .filter((x) => x.leadId && insideSet.has(String(x.assignedTo || listOwner).toLowerCase()))
+        .map((x) => x.leadId);
+      if (insideLeadIds.length) {
+        const r = await reassignCloserLeadsToProxy(sfUser, insideLeadIds);
+        所有者変更 = r.changed;
+        if (r.judge) 所有者メモ = `ジャッジ ${r.judge}件は所有者を変えていません`;
+        if (r.errors.length) 所有者メモ = (所有者メモ ? 所有者メモ + " ／ " : "") + r.errors.slice(0, 2).join(" ／ ");
+      }
+    } catch (e) { 所有者メモ = "所有者の付け替えでエラー：" + String(e.message).slice(0, 80); }
+
+    console.log(`[kincall] CSVからリスト「${name}」を作りました（${n}件／新規リード${結果.filter((x)=>x.状態==="新しく作った").length}件${重複除外 ? `／重複除外 ${重複除外}件` : ""}${所有者変更 ? `／所有者変更 ${所有者変更}件` : ""}） by ${req.user}`);
     res.json({
-      ok: true, id: list.id, name: list.name, 件数: n, 重複除外,
+      ok: true, id: list.id, name: list.name, 件数: n, 重複除外, 所有者変更, 所有者メモ,
       見つかった: 結果.filter((x) => String(x.状態).startsWith("見つかった")).length,
       新しく作った: 結果.filter((x) => x.状態 === "新しく作った").length,
       とばした: 結果.filter((x) => !x.leadId).length,
@@ -5286,8 +5303,24 @@ app.post("/api/calls/lists", async (req, res) => {
 
     const n = await addCallTargets(list.id, items, { dedupe: true });
     const 重複除外 = items.length - n;
-    console.log(`[コール] リスト「${name}」を作りました（${n}件${重複除外 ? `／重複除外 ${重複除外}件` : ""}）by ${req.user}`);
-    res.json({ ok: true, id: list.id, name, 件数: n, 重複除外 });
+
+    // クローザー所有のリードを、インサイドに割り振るぶんだけ中澤良太の所有へ変える（ジャッジは除く）
+    let 所有者変更 = 0, 所有者メモ = "";
+    try {
+      const insideSet = await insideEmailSet();
+      const insideLeadIds = items
+        .filter((x) => x.leadId && insideSet.has(String(x.assignedTo || req.user).toLowerCase()))
+        .map((x) => x.leadId);
+      if (insideLeadIds.length) {
+        const r = await reassignCloserLeadsToProxy(await pickSfUser(req.user), insideLeadIds);
+        所有者変更 = r.changed;
+        if (r.judge) 所有者メモ = `ジャッジ ${r.judge}件は所有者を変えていません`;
+        if (r.errors.length) 所有者メモ = (所有者メモ ? 所有者メモ + " ／ " : "") + r.errors.slice(0, 2).join(" ／ ");
+      }
+    } catch (e) { 所有者メモ = "所有者の付け替えでエラー：" + String(e.message).slice(0, 80); }
+
+    console.log(`[コール] リスト「${name}」を作りました（${n}件${重複除外 ? `／重複除外 ${重複除外}件` : ""}${所有者変更 ? `／所有者変更 ${所有者変更}件` : ""}）by ${req.user}`);
+    res.json({ ok: true, id: list.id, name, 件数: n, 重複除外, 所有者変更, 所有者メモ });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
@@ -5401,6 +5434,81 @@ app.post("/api/calls/from-leads", async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+// ===== 架電先リードの所有者付け替え =====
+// クローザーが所有しているリードを、インサイドに割り振るときに中澤良太の所有へ変える。
+// ・現在の所有者がクローザーのものだけが対象
+// ・リード状況が「ジャッジ」のものは変えない
+const NAKAZAWA_EMAIL = "ryota.nakazawa@neo-career.co.jp";
+
+// SF操作に使う連携アカウント（自分が未連携なら「代わりに更新する人」）
+async function pickSfUser(user) {
+  if (await sfConnected(user).catch(() => false)) return user;
+  const st = await getSettings().catch(() => ({}));
+  const 代理 = String(st.sfProxyUser || "").trim().toLowerCase();
+  if (代理 && (await sfConnected(代理).catch(() => false))) return 代理;
+  return user;
+}
+
+// インサイドのメンバーのメール一覧（roles に inside、または interns にいる人）
+async function insideEmailSet() {
+  const [members, interns] = await Promise.all([
+    listMembers().catch(() => []),
+    listInterns().catch(() => []),
+  ]);
+  const iset = new Set((interns || []).map((x) => String(x.email || "").toLowerCase()).filter(Boolean));
+  const s = new Set();
+  for (const m of members || []) {
+    const em = String(m.email || "").toLowerCase();
+    if (!em) continue;
+    if ((Array.isArray(m.roles) && m.roles.includes("inside")) || iset.has(em)) s.add(em);
+  }
+  return s;
+}
+
+// クローザー所有のリードを、中澤良太の所有に付け替える。
+// leadIds… インサイドに割り振るリードのIDだけを渡すこと。
+async function reassignCloserLeadsToProxy(sfUser, leadIds, { dryRun = false } = {}) {
+  const out = { changed: 0, judge: 0, notCloser: 0, already: 0, errors: [] };
+  const ids = [...new Set((leadIds || []).map((x) => String(x || "").trim()).filter(Boolean))];
+  if (!ids.length) return out;
+  if (!salesforceConfigured() || !(await sfConnected(sfUser).catch(() => false))) {
+    out.errors.push("Salesforceにつながっていないため、所有者は変更していません");
+    return out;
+  }
+  const members = await listMembers().catch(() => []);
+  const closerEmails = new Set(
+    (members || []).filter((m) => Array.isArray(m.roles) && m.roles.includes("closer"))
+      .map((m) => String(m.email || "").toLowerCase()).filter(Boolean));
+  if (!closerEmails.size) return out;   // クローザーがいなければ何もしない
+
+  const nakaId = await sfUserIdByEmail(sfUser, NAKAZAWA_EMAIL).catch(() => "");
+  if (!nakaId) { out.errors.push("中澤良太のSalesforceユーザーが見つかりません"); return out; }
+
+  const esc = (v) => String(v).replace(/[^a-zA-Z0-9]/g, "");
+  for (let i = 0; i < ids.length; i += 200) {
+    const chunk = ids.slice(i, i + 200);
+    const inList = chunk.map((x) => `'${esc(x)}'`).join(",");
+    let recs = [];
+    try {
+      const d = await sfQuery(sfUser, `SELECT Id, OwnerId, Owner.Email, Status FROM Lead WHERE Id IN (${inList})`);
+      recs = d.records || [];
+    } catch (e) { out.errors.push(`リードの所有者を取れません：${String(e.message).slice(0, 80)}`); continue; }
+    for (const r of recs) {
+      const ownerEmail = String((r.Owner && r.Owner.Email) || "").toLowerCase();
+      if (!closerEmails.has(ownerEmail)) { out.notCloser++; continue; }        // クローザー所有でない
+      if (/ジャッジ/.test(String(r.Status || ""))) { out.judge++; continue; }   // ジャッジは変えない
+      if (String(r.OwnerId) === String(nakaId)) { out.already++; continue; }    // すでに中澤
+      if (dryRun) { out.changed++; continue; }
+      try { await updateLead(sfUser, r.Id, { OwnerId: nakaId }); out.changed++; }
+      catch (e) { out.errors.push(`${r.Id} の所有者変更に失敗：${String(e.message).slice(0, 80)}`); }
+    }
+  }
+  if (!dryRun && out.changed) {
+    console.log(`[kincall] クローザー所有のリードを中澤良太に付け替え：${out.changed}件（ジャッジ除外 ${out.judge}）`);
+  }
+  return out;
+}
+
 // レポートの表を、そのままkincallのリストにする。
 // 列の名前から「会社名・担当者・電話・メール・ステージ・状態」を見つける。
 app.post("/api/calls/from-report", async (req, res) => {
@@ -5488,16 +5596,31 @@ app.post("/api/calls/from-report", async (req, res) => {
     const 分ける人R = (Array.isArray(b.share) ? b.share : [])
       .map((x) => String(x || "").trim().toLowerCase()).filter(Boolean);
     if (!list) return res.status(500).json({ error: "リストを作れませんでした" });
-    const 入れる = 分ける人R.length
-      ? items.map((x, i) => ({ ...x, assignedTo: 分ける人R[i % 分ける人R.length] }))
-      : items;
     const n = await addCallTargets(list.id, 入れる, { dedupe: true });
     const 重複除外 = 入れる.length - n;
+
+    // クローザー所有のリードを、インサイドに割り振るぶんだけ中澤良太の所有へ変える（ジャッジは除く）
+    let 所有者変更 = 0, 所有者メモ = "";
+    try {
+      const insideSet = await insideEmailSet();
+      const listOwner = String(toMember || req.user).toLowerCase();
+      const insideLeadIds = 入れる
+        .filter((x) => x.leadId && insideSet.has(String(x.assignedTo || listOwner).toLowerCase()))
+        .map((x) => x.leadId);
+      if (insideLeadIds.length) {
+        const r = await reassignCloserLeadsToProxy(await pickSfUser(req.user), insideLeadIds);
+        所有者変更 = r.changed;
+        if (r.judge) 所有者メモ = `ジャッジ ${r.judge}件は所有者を変えていません`;
+        if (r.errors.length) 所有者メモ = (所有者メモ ? 所有者メモ + " ／ " : "") + r.errors.slice(0, 2).join(" ／ ");
+      }
+    } catch (e) { 所有者メモ = "所有者の付け替えでエラー：" + String(e.message).slice(0, 80); }
+
     console.log(`[kincall] レポートから${n}件をリスト「${name}」に入れました` +
       (分ける人R.length ? `（${分ける人R.length}人に分けた）` : "") +
-      (重複除外 ? `／重複除外 ${重複除外}件` : "") + ` by ${req.user}`);
+      (重複除外 ? `／重複除外 ${重複除外}件` : "") +
+      (所有者変更 ? `／所有者変更 ${所有者変更}件` : "") + ` by ${req.user}`);
     res.json({
-      ok: true, id: list.id, name, 件数: n, 重複除外, 見つけた列: ix, 分けた人数: 分ける人R.length,
+      ok: true, id: list.id, name, 件数: n, 重複除外, 所有者変更, 所有者メモ, 見つけた列: ix, 分けた人数: 分ける人R.length,
       リードとつないだ数: 紐づけた,
       note: 紐づけた < 足りない.length
         ? `${足りない.length - 紐づけた}件は、Salesforceのリードと結びつけられませんでした（会社名が一致しないなど）`
@@ -13383,7 +13506,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-08-23u kincall：リスト取り込み時に、既にある未架電の架電先（他メンバー含む）と重複するものを外すようにした（外した件数も表示）";
+const BUILD_TAG = "2026-08-23v kincall：インサイドへ割り振る取り込みで、クローザー所有のリードを中澤良太の所有に付け替える（ジャッジは除外）";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
