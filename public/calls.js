@@ -142,6 +142,7 @@ function render() {
   box.innerHTML =
     `<div class="kc-tablewrap"><table class="kc-table">
       <tr>
+        <th class="kc-th-o">現所有者</th>
         <th class="kc-th-s"><button type="button" class="kc-th-b${on("stage")}" data-flt="stage">ステージ ▾</button></th>
         <th class="kc-co"><button type="button" class="kc-th-b" data-sort="company">会社名${arrow("company")}</button></th>
         <th class="kc-th-p">担当者</th>
@@ -151,10 +152,10 @@ function render() {
         <th class="kc-th-h"><button type="button" class="kc-th-b${filt.hist ? " on" : ""}" data-hist="1">履歴${arrow("hist")}</button></th>
         <th class="kc-th-r">記録</th>
         <th class="kc-th-e">編集</th>
-        <th class="kc-th-o">現所有者</th>
       </tr>` +
     list.map((x) => `
       <tr data-id="${x.id}">
+        <td class="kc-owner">${esc(x["所有者"] || "")}</td>
         <td>${esc(x["ステージ"] || "-")}</td>
         <td class="kc-co">${esc(x["会社名"] || "")}</td>
         <td>${esc(x["担当者"] || "")}</td>
@@ -166,7 +167,6 @@ function render() {
         <td><button type="button" class="kc-btn kc-hist" data-id="${x.id}">${x["履歴数"] ? `${x["履歴数"]}件` : "なし"}</button></td>
         <td><button type="button" class="kc-btn kc-rec" data-id="${x.id}">記録</button></td>
         <td><button type="button" class="kc-btn kc-edit" data-id="${x.id}">編集</button></td>
-        <td class="kc-owner">${esc(x["所有者"] || "")}</td>
       </tr>`).join("") + `</table></div>`;
 
   // 見出しの絞り込み・並べ替え
@@ -635,10 +635,10 @@ function updateRow(x) {
   const tr = document.querySelector(`.kc-table tr[data-id="${x.id}"]`);
   if (!tr) return;
   const td = tr.children;
-  if (td[0]) td[0].textContent = x["ステージ"] || "-";
-  if (td[5]) td[5].textContent = x["最終ステータス"] || "-";
-  if (td[6]) {
-    const b = td[6].querySelector("button");
+  if (td[1]) td[1].textContent = x["ステージ"] || "-";
+  if (td[6]) td[6].textContent = x["最終ステータス"] || "-";
+  if (td[7]) {
+    const b = td[7].querySelector("button");
     if (b) b.textContent = x["履歴数"] ? `${x["履歴数"]}件` : "なし";
   }
   // 記録したことが分かるよう、少し光らせる
@@ -651,14 +651,14 @@ function updateRowContact(x) {
   const tr = document.querySelector(`.kc-table tr[data-id="${x.id}"]`);
   if (!tr) return;
   const td = tr.children;
-  if (td[1]) td[1].textContent = x["会社名"] || "";
-  if (td[2]) td[2].textContent = x["担当者"] || "";
-  if (td[3]) {
-    td[3].innerHTML = x["電話番号"]
+  if (td[2]) td[2].textContent = x["会社名"] || "";
+  if (td[3]) td[3].textContent = x["担当者"] || "";
+  if (td[4]) {
+    td[4].innerHTML = x["電話番号"]
       ? `<a class="kc-tel" href="tel:${esc(telOf(x["電話番号"]))}">${esc(x["電話番号"])}</a>`
       : `<span class="kc-none">なし</span>`;
   }
-  if (td[4]) td[4].textContent = x["メール"] || "";
+  if (td[5]) td[5].textContent = x["メール"] || "";
   tr.classList.add("kc-just");
   setTimeout(() => tr.classList.remove("kc-just"), 1600);
 }
