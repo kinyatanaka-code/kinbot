@@ -628,6 +628,7 @@ export async function initDb() {
   `);
   await sq(`CREATE INDEX IF NOT EXISTS ix_call_targets_list ON call_targets(list_id, done, sort_order);`);
   await sq(`CREATE INDEX IF NOT EXISTS ix_call_targets_who ON call_targets(assigned_to, done);`);
+  await sq(`ALTER TABLE call_targets ADD COLUMN IF NOT EXISTS owner_name TEXT;`);
   // Salesforceのリードの項目（ステージ＝レコードタイプ、最終ステータス＝リード状態）
   await sq(`ALTER TABLE call_targets ADD COLUMN IF NOT EXISTS stage TEXT;`);
   await sq(`ALTER TABLE call_targets ADD COLUMN IF NOT EXISTS status TEXT;`);
@@ -3144,12 +3145,12 @@ export async function addCallTargets(listId, items = [], { dedupe = false } = {}
       }
       await pool.query(
         `INSERT INTO call_targets
-           (list_id, lead_id, company, person, phone, email, industry, area, memo, assigned_to, sort_order, stage, status)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`,
+           (list_id, lead_id, company, person, phone, email, industry, area, memo, assigned_to, sort_order, stage, status, owner_name)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)`,
         [listId, x.leadId || null, x.company || "", x.person || "", x.phone || "",
          x.email || "", x.industry || "", x.area || "", x.memo || "",
          String(x.assignedTo || "").toLowerCase() || null, sort,
-         x.stage || "", x.status || ""]);
+         x.stage || "", x.status || "", x.ownerName || ""]);
       n++; sort++;
     }
     return n;

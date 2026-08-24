@@ -147,6 +147,7 @@ function render() {
         <th class="kc-th-p">担当者</th>
         <th class="kc-th-t">電話番号</th>
         <th class="kc-th-m">メールアドレス</th>
+        <th class="kc-th-o">現所有者</th>
         <th class="kc-th-s"><button type="button" class="kc-th-b${on("status")}" data-flt="status">最終ステータス ▾</button></th>
         <th class="kc-th-h"><button type="button" class="kc-th-b${filt.hist ? " on" : ""}" data-hist="1">履歴${arrow("hist")}</button></th>
         <th class="kc-th-r">記録</th>
@@ -161,6 +162,7 @@ function render() {
           ? `<a class="kc-tel" href="tel:${esc(telOf(x["電話番号"]))}">${esc(x["電話番号"])}</a>`
           : `<span class="kc-none">なし</span>`}</td>
         <td class="kc-mail">${esc(x["メール"] || "")}</td>
+        <td class="kc-owner">${esc(x["所有者"] || "")}</td>
         <td>${x["最終ステータス"] ? esc(x["最終ステータス"]) : "-"}</td>
         <td><button type="button" class="kc-btn kc-hist" data-id="${x.id}">${x["履歴数"] ? `${x["履歴数"]}件` : "なし"}</button></td>
         <td><button type="button" class="kc-btn kc-rec" data-id="${x.id}">記録</button></td>
@@ -634,9 +636,9 @@ function updateRow(x) {
   if (!tr) return;
   const td = tr.children;
   if (td[0]) td[0].textContent = x["ステージ"] || "-";
-  if (td[5]) td[5].textContent = x["最終ステータス"] || "-";
-  if (td[6]) {
-    const b = td[6].querySelector("button");
+  if (td[6]) td[6].textContent = x["最終ステータス"] || "-";
+  if (td[7]) {
+    const b = td[7].querySelector("button");
     if (b) b.textContent = x["履歴数"] ? `${x["履歴数"]}件` : "なし";
   }
   // 記録したことが分かるよう、少し光らせる
@@ -1543,8 +1545,9 @@ async function csvSend(dryRun) {
 
       // 途中経過も出しておく
       if (out) {
-        out.innerHTML = '<table class="sh-table"><tr><th>会社名</th><th>担当者</th><th>リード</th><th>架電日</th><th>最終ステータス</th><th>コメント</th><th>状態</th></tr>' +
+        out.innerHTML = '<table class="sh-table"><tr><th>会社名</th><th>担当者</th><th>現所有者</th><th>リード</th><th>架電日</th><th>最終ステータス</th><th>コメント</th><th>状態</th></tr>' +
           meisai.slice(0, 300).map((x) => `<tr><td>${esc(x.company || "")}</td><td>${esc(x.person || "")}</td>` +
+            `<td>${esc(x["所有者"] || "")}</td>` +
             `<td>${esc(x["リード種別"] || "-")}</td>` +
             `<td>${esc(x["架電日"] || "")}</td>` +
             `<td>${esc(x["ステータス"] || "-")}</td>` +

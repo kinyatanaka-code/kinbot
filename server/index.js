@@ -5219,6 +5219,11 @@ app.post("/api/calls/from-csv", async (req, res) => {
     }
 
     if (dryRun) {
+      // 試算でも「現リード所有者」を出す
+      try {
+        const owners = await leadOwnerNames(sfUser, 結果.map((x) => x.leadId).filter(Boolean));
+        for (const x of 結果) if (x.leadId) x["所有者"] = owners.get(String(x.leadId)) || owners.get(String(x.leadId).slice(0, 15)) || "";
+      } catch {}
       return res.json({
         ok: true, 試算: true, 件数: 結果.length,
         見つかった: 結果.filter((x) => String(x.状態).startsWith("見つかった")).length,
@@ -5252,8 +5257,6 @@ app.post("/api/calls/from-csv", async (req, res) => {
       ...(x["ステージ"] ? { stage: x["ステージ"] } : {}),
       ...(分ける人.length ? { assignedTo: 分ける人[(開始 + i) % 分ける人.length] } : {}),
     }));
-    const n = await addCallTargets(list.id, 入れるリスト, { dedupe: true });
-    const 重複除外 = 入れるリスト.length - n;
 
     // クローザー所有のリードを、インサイドに割り振るぶんだけ中澤良太の所有へ変える（ジャッジは除く）
     let 所有者変更 = 0, 所有者メモ = "";
@@ -5270,6 +5273,15 @@ app.post("/api/calls/from-csv", async (req, res) => {
         if (r.errors.length) 所有者メモ = (所有者メモ ? 所有者メモ + " ／ " : "") + r.errors.slice(0, 2).join(" ／ ");
       }
     } catch (e) { 所有者メモ = "所有者の付け替えでエラー：" + String(e.message).slice(0, 80); }
+
+    // 付け替え後の「現在の所有者」を取って、リストに持たせる（かける表に出す）
+    try {
+      const owners = await leadOwnerNames(sfUser, 入れるリスト.map((x) => x.leadId));
+      for (const x of 入れるリスト) if (x.leadId) x.ownerName = owners.get(String(x.leadId)) || owners.get(String(x.leadId).slice(0, 15)) || "";
+    } catch {}
+
+    const n = await addCallTargets(list.id, 入れるリスト, { dedupe: true });
+    const 重複除外 = 入れるリスト.length - n;
 
     console.log(`[kincall] CSVからリスト「${name}」を作りました（${n}件／新規リード${結果.filter((x)=>x.状態==="新しく作った").length}件${重複除外 ? `／重複除外 ${重複除外}件` : ""}${所有者変更 ? `／所有者変更 ${所有者変更}件` : ""}） by ${req.user}`);
     res.json({
@@ -5522,6 +5534,27 @@ async function reassignCloserLeadsToProxy(sfUser, leadIds, { dryRun = false } = 
     console.log(`[kincall] クローザー所有のリードを中澤良太に付け替え：${out.changed}件（ジャッジ除外 ${out.judge}）`);
   }
   return out;
+}
+
+// リードの現在の所有者名をまとめて取る（leadId → 所有者名）
+async function leadOwnerNames(sfUser, leadIds) {
+  const map = new Map();
+  const ids = [...new Set((leadIds || []).map((x) => String(x || "").trim()).filter(Boolean))];
+  if (!ids.length) return map;
+  if (!salesforceConfigured() || !(await sfConnected(sfUser).catch(() => false))) return map;
+  const esc = (v) => String(v).replace(/[^a-zA-Z0-9]/g, "");
+  for (let i = 0; i < ids.length; i += 200) {
+    const inList = ids.slice(i, i + 200).map((x) => `'${esc(x)}'`).join(",");
+    try {
+      const d = await sfQuery(sfUser, `SELECT Id, Owner.Name FROM Lead WHERE Id IN (${inList})`);
+      for (const r of d.records || []) {
+        const nm = (r.Owner && r.Owner.Name) || "";
+        map.set(String(r.Id), nm);
+        map.set(String(r.Id).slice(0, 15), nm);   // 15桁でも引けるように
+      }
+    } catch {}
+  }
+  return map;
 }
 
 // レポートの表を、そのままkincallのリストにする。
@@ -6038,6 +6071,7 @@ app.get("/api/calls/targets", async (req, res) => {
         ステージ: r.stage || "",
         会社名: r.company || "", 担当者: r.person || "",
         電話番号: r.phone || "", メール: r.email || "",
+        所有者: r.owner_name || "",
         最終ステータス: r.status || "",
         // 履歴はSFのものを出すので、件数もSFの数に合わせる。
         // SFへまだ送れていないkinbotの記録があれば、それも足す。
@@ -13551,7 +13585,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-08-23y kincall CSV：架電ステータスをSFステータスに変換（アポ獲得→担当者接触：アポ獲得 等）。コメントは架電日が無くても履歴に残す";
+const BUILD_TAG = "2026-08-23z kincall：現リード所有者を、かける表とCSVの試算に表示（取り込み時にSF所有者名を保存）";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
