@@ -3261,6 +3261,17 @@ export async function deleteCallList(listId) {
   } catch (e) { console.error("[db] deleteCallList", e.message); return false; }
 }
 
+// リストの名前を変える
+export async function renameCallList(listId, name) {
+  if (!pool || !listId) return null;
+  try {
+    const { rows } = await pool.query(
+      `UPDATE call_lists SET name = $2 WHERE id = $1 RETURNING *`,
+      [listId, String(name || "").slice(0, 120)]);
+    return rows[0] || null;
+  } catch (e) { console.error("[db] renameCallList", e.message); return null; }
+}
+
 // リストの中身にある、ステージと最終ステータスの種類を数える
 export async function callListFacets(listId) {
   if (!pool || !listId) return { stages: [], statuses: [] };

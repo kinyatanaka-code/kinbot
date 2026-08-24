@@ -140,6 +140,7 @@ import {
   deleteCallTargets,
   countCallTargets,
   deleteCallList,
+  renameCallList,
   callListFacets,
   callAssignCounts,
   clearCallAssign,
@@ -5828,6 +5829,20 @@ app.post("/api/calls/targets/delete", async (req, res) => {
 });
 
 // リストごと消す
+// リストの名前を変える
+app.put("/api/calls/lists/:id/name", async (req, res) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    if (!id) return res.status(400).json({ error: "リストを選んでください" });
+    const name = String((req.body && req.body.name) || "").trim();
+    if (!name) return res.status(400).json({ error: "新しい名前を入れてください" });
+    const list = await renameCallList(id, name);
+    if (!list) return res.status(500).json({ error: "変えられませんでした" });
+    console.log(`[kincall] リスト${id}の名前を「${name}」に変えました by ${req.user}`);
+    res.json({ ok: true, id, name: list.name });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 app.delete("/api/calls/lists/:id", async (req, res) => {
   try {
     const id = parseInt(req.params.id, 10);
@@ -13721,7 +13736,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-08-24i kincall CSV：1回の取り込み内でも同じ会社・同じ結果・同じコメントの活動を二度作らない。失敗の内訳（作れず/探せず/履歴失敗と理由の例）を表示";
+const BUILD_TAG = "2026-08-24j kincall：リスト管理から、今のリストの名前を変えられるようにした";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",

@@ -1405,6 +1405,11 @@ async function openSplit(listId, listName, memberEmail, memberName) {
          <span class="kc-mem-title">${esc(listName)}（${rows.length}件）から絞り込む</span>
        </div>
        <div class="kc-split">
+         <div class="kc-split-row" style="border-bottom:1px solid #e6ece9;padding-bottom:10px;margin-bottom:6px">
+           <label>今のリストの名前 <input type="text" id="spRename" style="min-width:280px" value="${esc(listName)}" /></label>
+           <button class="btn ghost" id="spRenameBtn">名前を変える</button>
+           <span class="rev-status" id="spRenameSt"></span>
+         </div>
          <div class="kc-split-row"><label>探す <input type="text" id="spQ" placeholder="会社名・担当者・電話" /></label></div>
          <div class="kc-split-row"><label class="ks-check"><input type="checkbox" id="spUndone" checked /> まだかけていないものだけ</label></div>
          ${stages.length ? `<div class="kc-split-row"><div class="kc-split-lb">ステージ</div><div class="kc-split-opts">` +
@@ -1425,6 +1430,30 @@ async function openSplit(listId, listName, memberEmail, memberName) {
     if (back) back.addEventListener("click", () => asLoadMember(memberEmail, memberName));
     const open = $("spOpen");
     if (open) open.addEventListener("click", () => selectListAndCall(listId));
+
+    // 今のリストの名前を変える
+    const renameBtn = $("spRenameBtn");
+    if (renameBtn) renameBtn.addEventListener("click", async () => {
+      const st = $("spRenameSt");
+      const 新名 = ($("spRename") && $("spRename").value.trim()) || "";
+      if (!新名) { if (st) st.textContent = "名前を入れてください"; return; }
+      if (st) st.textContent = "変えています…";
+      try {
+        const r = await fetch(`/api/calls/lists/${encodeURIComponent(listId)}/name`, {
+          method: "PUT", headers: { "content-type": "application/json" },
+          body: JSON.stringify({ name: 新名 }),
+        });
+        const d = await r.json();
+        if (!r.ok) throw new Error(d.error || "変えられませんでした");
+        listName = d.name || 新名;
+        const title = document.querySelector(".kc-mem-title");
+        if (title) title.textContent = `${listName}（${rows.length}件）から絞り込む`;
+        const spN = $("spName"); if (spN) spN.value = `${listName}（絞り込み）`;
+        if (st) st.textContent = "変えました";
+        setTimeout(() => { if (st) st.textContent = ""; }, 5000);
+        loadLists();
+      } catch (e) { if (st) st.textContent = "失敗：" + e.message; }
+    });
 
     const make = $("spMake");
     if (make) make.addEventListener("click", async () => {
