@@ -6432,6 +6432,61 @@ app.post("/api/calls/targets/:id/record", async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+// リスト内のリードについて、CSV取り込みで二重になった活動履歴を整理する。
+// 説明の中身（結果・コメント）が同じものは1件だけ残し、残りを消す。
+// dryRun（既定）だと、消す件数を数えるだけ。
+app.post("/api/calls/lists/:id/dedupe-activities", async (req, res) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    if (!id) return res.status(400).json({ error: "リストを選んでください" });
+    const dryRun = !(req.body && req.body.dryRun === false);
+
+    const sfUser = await pickSfUser(req.user);
+    if (!salesforceConfigured() || !(await sfConnected(sfUser).catch(() => false))) {
+      return res.status(400).json({ error: "Salesforceにつながっていません" });
+    }
+
+    const targets = await listCallTargets(id, { limit: 5000 }).catch(() => []);
+    const leadIds = [...new Set(targets.map((t) => String(t.lead_id || "").trim()).filter(Boolean))];
+    const sq = (v) => String(v || "").replace(/'/g, "\\'");
+
+    let リード数 = 0, 重複 = 0, 消した = 0;
+    const errors = [];
+    for (const lead of leadIds) {
+      リード数++;
+      let recs = [];
+      try {
+        const q = await sfQuery(sfUser,
+          `SELECT Id, Description, CreatedDate FROM Task WHERE WhoId='${sq(lead)}' ORDER BY CreatedDate ASC LIMIT 200`);
+        recs = q.records || [];
+      } catch (e) { errors.push(`リード${lead}の活動を読めません：${String(e.message).slice(0, 50)}`); continue; }
+
+      // CSV由来だけをまとめ、説明の中身（「CSVから取り込み」より前＝結果・コメント）でグループ化
+      const groups = new Map();
+      for (const t of recs) {
+        const desc = String(t.Description || "");
+        if (!desc.includes("CSVから取り込み")) continue;
+        const key = desc.split("CSVから取り込み")[0].replace(/\s+/g, "").trim();
+        if (!groups.has(key)) groups.set(key, []);
+        groups.get(key).push(t);
+      }
+      for (const arr of groups.values()) {
+        if (arr.length <= 1) continue;
+        const 消す = arr.slice(1);   // 一番古い1件を残し、あとを消す
+        重複 += 消す.length;
+        if (!dryRun) {
+          for (const t of 消す) {
+            try { await deleteTask(sfUser, t.Id); 消した++; }
+            catch (e) { errors.push(`${t.Id}の削除に失敗：${String(e.message).slice(0, 50)}`); }
+          }
+        }
+      }
+    }
+    console.log(`[kincall] 活動履歴の重複整理 list=${id} リード${リード数} 重複${重複}${dryRun ? "（試算）" : ` 消した${消した}`} by ${req.user}`);
+    res.json({ ok: true, dryRun, リード数, 重複, 消した, errors: errors.slice(0, 10) });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 // 次にかける1件
 app.get("/api/calls/next", async (req, res) => {
   try {
@@ -13652,7 +13707,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-08-24g kincall CSV：活動履歴の重複判定を、件名や日付ではなく説明の中身（結果・コメント）で行うよう変更（SF側の件名書き換えや日付無し行でも二重にしない）";
+const BUILD_TAG = "2026-08-24h kincall：CSV取り込みで二重になった活動履歴を整理する機能を追加（かける画面のボタン。まず件数→確認→削除。各まとまりで1件残す）";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",

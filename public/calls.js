@@ -985,6 +985,31 @@ document.addEventListener("click", (ev) => {
   const t = ev.target && ev.target.closest ? ev.target.closest("button") : null;
   if (!t) return;
   if (t.id === "clSfFind") { ev.preventDefault(); sfFind(); }
+  if (t.id === "clDedup") {
+    ev.preventDefault();
+    (async () => {
+      if (!listId) { say("clStatus", "リストを選んでください", 4000); return; }
+      say("clStatus", "重複を調べています…");
+      try {
+        // まず件数を出す（消さない）
+        const pre = await (await fetch(`/api/calls/lists/${encodeURIComponent(listId)}/dedupe-activities`, {
+          method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ dryRun: true }),
+        })).json();
+        if (pre.error) throw new Error(pre.error);
+        if (!pre["重複"]) { say("clStatus", `重複した活動履歴はありませんでした（リード${pre["リード数"] || 0}件を確認）`, 8000); return; }
+        if (!confirm(`重複した活動履歴が ${pre["重複"]}件 見つかりました。\n各まとまりで一番古い1件は残し、Salesforceから ${pre["重複"]}件を削除します。よろしいですか？`)) {
+          say("clStatus", "やめました", 4000); return;
+        }
+        say("clStatus", "重複を整理しています…");
+        const d = await (await fetch(`/api/calls/lists/${encodeURIComponent(listId)}/dedupe-activities`, {
+          method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ dryRun: false }),
+        })).json();
+        if (d.error) throw new Error(d.error);
+        say("clStatus", `整理しました：${d["消した"] || 0}件を削除（リード${d["リード数"] || 0}件）`
+          + (d.errors && d.errors.length ? `／一部失敗 ${d.errors.length}件` : ""), 10000);
+      } catch (e) { say("clStatus", "できませんでした：" + e.message, 8000); }
+    })();
+  }
   if (t.id === "clCheck") {
     ev.preventDefault();
     (async () => {
