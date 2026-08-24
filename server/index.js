@@ -13636,7 +13636,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-08-24c kincall CSV：同じ内容の活動履歴はSFに二重登録しない（内容キーで冪等化）。再取り込みで既存行の空メールを補う";
+const BUILD_TAG = "2026-08-24d kincall：かける表の「現所有者」列を一番右（編集の右）に移動";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
