@@ -5167,6 +5167,8 @@ app.post("/api/calls/from-csv", async (req, res) => {
     const sq = (v) => String(v || "").replace(/'/g, "\\'");
 
     const 結果 = [];
+    // この取り込みの中で、同じ相手・同じ結果・同じコメントの活動を二度作らないための覚え書き
+    const 記録済み = new Set();
     for (const r of 行) {
       const company = String(r.company || "").trim();
       const person = String(r.person || "").trim();
@@ -5245,37 +5247,44 @@ app.post("/api/calls/from-csv", async (req, res) => {
       const { ステータス, コメント } = 振り分け(r);
       if (!dryRun && leadId && (架電日 || ステータス || コメント)) {
         const 日 = 架電日 || jstDate(0);
-        try {
-          // その相手の活動をまとめて読み、説明（結果・コメント）が同じものがあれば作らない。
-          // 件名はSalesforce側で「日付＋所有者」に書き換わることがあるので、件名や日付では判定しない。
-          const q = await sfQuery(
-            sfUser,
-            `SELECT Id, Description FROM Task WHERE WhoId='${sq(leadId)}' ORDER BY CreatedDate DESC LIMIT 200`
-          ).catch(() => ({ records: [] }));
-          const 同じがある = (q.records || []).some((t) => {
-            const desc = String(t.Description || "");
-            if (!desc.includes("CSVから取り込み")) return false;   // CSV由来だけを対象
-            const okStatus = ステータス ? desc.includes(`結果：${ステータス}`) : true;
-            const okComment = コメント ? desc.includes(`コメント：${コメント}`) : true;
-            return okStatus && okComment;
-          });
-          if (同じがある) {
-            履歴 = "既にあるので残しませんでした";
-          } else {
-            await createTask(sfUser, {
-              WhoId: leadId,
-              Subject: `コール：${ステータス || "架電"}`,
-              Status: "完了", Type: "Call",
-              ActivityDate: 日,
-              Description: [
-                ステータス ? `結果：${ステータス}` : "",
-                コメント ? `コメント：${コメント}` : "",
-                `CSVから取り込み（記録した人：${await displayNameOf(req.user).catch(() => req.user)}）`,
-              ].filter(Boolean).join("\n"),
+        const 記録キー = `${leadId}|${ステータス}|${コメント}`;
+        if (記録済み.has(記録キー)) {
+          // 同じ取り込みの中で、同じ相手に全く同じ内容を既に処理済み → 二度作らない
+          履歴 = "同じ内容なので残しませんでした";
+        } else {
+          記録済み.add(記録キー);
+          try {
+            // その相手の活動をまとめて読み、説明（結果・コメント）が同じものがあれば作らない。
+            // 件名はSalesforce側で「日付＋所有者」に書き換わることがあるので、件名や日付では判定しない。
+            const q = await sfQuery(
+              sfUser,
+              `SELECT Id, Description FROM Task WHERE WhoId='${sq(leadId)}' ORDER BY CreatedDate DESC LIMIT 200`
+            ).catch(() => ({ records: [] }));
+            const 同じがある = (q.records || []).some((t) => {
+              const desc = String(t.Description || "");
+              if (!desc.includes("CSVから取り込み")) return false;   // CSV由来だけを対象
+              const okStatus = ステータス ? desc.includes(`結果：${ステータス}`) : true;
+              const okComment = コメント ? desc.includes(`コメント：${コメント}`) : true;
+              return okStatus && okComment;
             });
-            履歴 = "履歴を残した";
-          }
-        } catch (e) { 履歴 = `履歴を残せなかった（${String(e.message).slice(0, 60)}）`; }
+            if (同じがある) {
+              履歴 = "既にあるので残しませんでした";
+            } else {
+              await createTask(sfUser, {
+                WhoId: leadId,
+                Subject: `コール：${ステータス || "架電"}`,
+                Status: "完了", Type: "Call",
+                ActivityDate: 日,
+                Description: [
+                  ステータス ? `結果：${ステータス}` : "",
+                  コメント ? `コメント：${コメント}` : "",
+                  `CSVから取り込み（記録した人：${await displayNameOf(req.user).catch(() => req.user)}）`,
+                ].filter(Boolean).join("\n"),
+              });
+              履歴 = "履歴を残した";
+            }
+          } catch (e) { 履歴 = `履歴を残せなかった（${String(e.message).slice(0, 60)}）`; }
+        }
       } else if ((架電日 || コメント || ステータス) && dryRun) {
         履歴 = "履歴を残す（予定）";
       }
@@ -5356,7 +5365,12 @@ app.post("/api/calls/from-csv", async (req, res) => {
       新しく作った: 結果.filter((x) => x.状態 === "新しく作った").length,
       とばした: 結果.filter((x) => !x.leadId).length,
       履歴を残した: 結果.filter((x) => x["履歴"] === "履歴を残した").length,
-      履歴済み: 結果.filter((x) => x["履歴"] === "既にあるので残しませんでした").length,
+      履歴済み: 結果.filter((x) => x["履歴"] === "既にあるので残しませんでした" || x["履歴"] === "同じ内容なので残しませんでした").length,
+      作れなかった: 結果.filter((x) => x.状態 === "作れなかった").length,
+      探せなかった: 結果.filter((x) => x.状態 === "探せなかった").length,
+      履歴失敗: 結果.filter((x) => String(x["履歴"] || "").startsWith("履歴を残せなかった")).length,
+      失敗理由: [...new Set(結果.filter((x) => x.理由 || String(x["履歴"] || "").startsWith("履歴を残せなかった"))
+        .map((x) => x.理由 || x["履歴"]))].slice(0, 8),
       分けた人数: 分ける人.length,
       明細: 結果.slice(0, 200),
     });
@@ -13707,7 +13721,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-08-24h kincall：CSV取り込みで二重になった活動履歴を整理する機能を追加（かける画面のボタン。まず件数→確認→削除。各まとまりで1件残す）";
+const BUILD_TAG = "2026-08-24i kincall CSV：1回の取り込み内でも同じ会社・同じ結果・同じコメントの活動を二度作らない。失敗の内訳（作れず/探せず/履歴失敗と理由の例）を表示";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
