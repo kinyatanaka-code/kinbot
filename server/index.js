@@ -5245,20 +5245,26 @@ app.post("/api/calls/from-csv", async (req, res) => {
       const { ステータス, コメント } = 振り分け(r);
       if (!dryRun && leadId && (架電日 || ステータス || コメント)) {
         const 日 = 架電日 || jstDate(0);
-        const subj = `コール：${ステータス || "架電"}`;
         try {
-          // 同じ相手・同じ日・同じ結果の活動が既にあれば、作らない。
-          // 過去に作った分（重複防止キーを持たないものも含む）とも二重にしない。
-          const dup = await sfQuery(
+          // その相手の活動をまとめて読み、説明（結果・コメント）が同じものがあれば作らない。
+          // 件名はSalesforce側で「日付＋所有者」に書き換わることがあるので、件名や日付では判定しない。
+          const q = await sfQuery(
             sfUser,
-            `SELECT Id FROM Task WHERE WhoId='${sq(leadId)}' AND ActivityDate=${日} AND Subject='${sq(subj)}' LIMIT 1`
+            `SELECT Id, Description FROM Task WHERE WhoId='${sq(leadId)}' ORDER BY CreatedDate DESC LIMIT 200`
           ).catch(() => ({ records: [] }));
-          if (dup.records && dup.records.length) {
+          const 同じがある = (q.records || []).some((t) => {
+            const desc = String(t.Description || "");
+            if (!desc.includes("CSVから取り込み")) return false;   // CSV由来だけを対象
+            const okStatus = ステータス ? desc.includes(`結果：${ステータス}`) : true;
+            const okComment = コメント ? desc.includes(`コメント：${コメント}`) : true;
+            return okStatus && okComment;
+          });
+          if (同じがある) {
             履歴 = "既にあるので残しませんでした";
           } else {
             await createTask(sfUser, {
               WhoId: leadId,
-              Subject: subj,
+              Subject: `コール：${ステータス || "架電"}`,
               Status: "完了", Type: "Call",
               ActivityDate: 日,
               Description: [
@@ -13646,7 +13652,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-08-24f kincall CSV：活動履歴を内容（相手・日付・結果）で重複判定し、既にある分はSFに残さない（過去に作った分とも二重にしない）";
+const BUILD_TAG = "2026-08-24g kincall CSV：活動履歴の重複判定を、件名や日付ではなく説明の中身（結果・コメント）で行うよう変更（SF側の件名書き換えや日付無し行でも二重にしない）";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
