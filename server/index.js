@@ -8044,6 +8044,7 @@ app.get("/api/process-sheet", async (req, res) => {
       writeFrom: st.psWriteFrom || "",
       zeroDates: (String(st.psZeroDates ?? "").trim() || "8/21"),
       withHours: st.psHours === true,
+      interns: st.psInterns === true,
       autoRun: st.psAutoRun === true,
       filters: (() => { try { return JSON.parse(st.psFilters || "null"); } catch { return null; } })(),
       gasUrl: st.psGasUrl || "", gasSecretSet: !!st.psGasSecret,
@@ -8074,6 +8075,7 @@ app.put("/api/process-sheet", async (req, res) => {
     if (b.writeFrom !== undefined) patch.psWriteFrom = String(b.writeFrom || "").slice(0, 10);
     if (b.zeroDates !== undefined) patch.psZeroDates = String(b.zeroDates || "").slice(0, 200);
     if (b.withHours !== undefined) patch.psHours = b.withHours === true;
+    if (b.interns !== undefined) patch.psInterns = b.interns === true;
     if (b.autoRun !== undefined) patch.psAutoRun = b.autoRun === true;
     // Apps Script経由の書き込み（保護されたシート向け）
     if (b.gasUrl !== undefined) patch.psGasUrl = String(b.gasUrl || "").trim().slice(0, 300);
@@ -8265,6 +8267,29 @@ async function runProcessSheet(sfUser, opts = {}) {
   const values = await readSheet(owner, sheetId, `${sheetName}!A1:DZ200`);
   const layout = readLayout(values);
   if (layout.error) throw new Error(layout.error);
+
+  // インターン生は自動入力しない（設定で「含める」を選んだときだけ入れる）
+  let internNote = "";
+  const includeInterns = opts.interns !== undefined ? !!opts.interns : (st.psInterns === true);
+  if (!includeInterns) {
+    const interns = await listInterns().catch(() => []);
+    const internEmails = new Set(interns.map((x) => String(x.email || "").toLowerCase()).filter(Boolean));
+    if (interns.length) {
+      const members = await listMembers().catch(() => []);
+      const isIntern = (name) => {
+        const mm = members.find((m) => psSameName(name, m.name || "") || psSameName(name, m.email || ""));
+        const em = mm && String(mm.email || "").toLowerCase();
+        if (em && internEmails.has(em)) return true;
+        return interns.some((it) => psSameName(name, it.name || ""));
+      };
+      const removed = layout.people.filter((p) => isIntern(p.name)).map((p) => p.name);
+      if (removed.length) {
+        layout.people = layout.people.filter((p) => !isIntern(p.name));
+        internNote = `インターン生は自動入力の対象外にしました：${removed.join("、")}`;
+      }
+    }
+  }
+
   // 実績が0の日も0で上書きする。範囲は「期間の開始〜今日」まで。
   // 先の日付まで0で埋めると、手で入れた予定の数字を消してしまうため。
   const todayJst = new Date(Date.now() + 9 * 3600 * 1000).toISOString().slice(0, 10);
@@ -8302,7 +8327,7 @@ async function runProcessSheet(sfUser, opts = {}) {
       people: layout.people.map((p) => p.name),
       matched: Object.keys(tallied),
       updates: updates.slice(0, 400), count: updates.length, skipped,
-      withHours, hoursNotes,
+      withHours, hoursNotes, internNote,
       apoSource: apoRows.length
         ? `kinbotのアポ記録（Chatに流れたアポ）から ${apoRows.reduce((n, r) => n + (Number(r.in_term) || 0) + (Number(r.out_term) || 0), 0)}件`
         : "kinbotにアポの記録がありません",
@@ -13351,7 +13376,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-08-23r プロセスシート：シートの苗字だけとkinbotのフルネームを対応づける名前照合を強化（姓・名の語ごとにも判定）";
+const BUILD_TAG = "2026-08-23s プロセスシート：インターン生は自動入力の対象外にした（チェックを入れたときだけ入れる。確認画面に除外した人を表示）";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",

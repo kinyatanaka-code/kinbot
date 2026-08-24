@@ -486,6 +486,7 @@ async function loadProcessSheet() {
     if ($("psWriteFrom")) $("psWriteFrom").value = d.writeFrom || "";
     if ($("psZeroDates")) $("psZeroDates").value = d.zeroDates || "";
     if ($("psHours")) $("psHours").checked = !!d.withHours;
+    if ($("psInterns")) $("psInterns").checked = !!d.interns;
     if ($("psAuto")) $("psAuto").checked = !!d.autoRun;
     if ($("psGasUrl")) $("psGasUrl").value = d.gasUrl || "";
     const gs = $("psGasState");
@@ -528,6 +529,7 @@ function psBody(dryRun) {
     writeFrom: $("psWriteFrom") ? $("psWriteFrom").value : undefined,
     zeroDates: $("psZeroDates") ? $("psZeroDates").value : undefined,
     withHours: $("psHours") ? $("psHours").checked : undefined,
+    interns: $("psInterns") ? $("psInterns").checked : undefined,
     autoRun: $("psAuto") ? $("psAuto").checked : false,
     gasUrl: $("psGasUrl") ? $("psGasUrl").value : undefined,
     gasSecret: $("psGasSecret") ? $("psGasSecret").value : undefined,
@@ -674,6 +676,7 @@ async function psRun(dryRun) {
       (d.apoInSf ? `（SFのレポートにもアポの印が ${d.apoInSf}件ありますが、商談日が無く期内・期外を分けられないため使っていません）` : "") +
       `<br>` +
       `シートの担当者 ${(d.people || []).join("、")} ／ 数えられた人 ${(d.matched || []).join("、") || "なし"}</div>` +
+      (d.internNote ? `<div class="ps-note">${srEsc(d.internNote)}</div>` : "") +
       (d.skipped && d.skipped.length ? `<div class="ps-skip">${srEsc(d.skipped.join(" ／ "))}</div>` : "") +
       (d.withHours
         ? `<div class="ps-note">稼働時間目標に、カレンダーから計算した架電時間を入れます（10〜18時から商談時間を引いたもの）。` +
