@@ -817,7 +817,7 @@ app.get("/api/auth-info", (req, res) => {
 });
 
 // ===== 代理ログイン（なりすまし） =====
-// 権限を持つのは kinya.tanaka@neo-career.co.jp のみ。他アカウントから呼んでも 403。
+// 権限を持つのは田中欽也と中澤良太のみ（同じ権限）。他アカウントから呼んでも 403。
 
 // 切り替え先の候補となるユーザー一覧
 app.get("/api/impersonate/users", async (req, res) => {
@@ -13376,7 +13376,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-08-23s プロセスシート：インターン生は自動入力の対象外にした（チェックを入れたときだけ入れる。確認画面に除外した人を表示）";
+const BUILD_TAG = "2026-08-23t 権限：中澤良太（ryota.nakazawa）に田中欽也と同じ権限（全アカウント閲覧の管理者＋他メンバーとして操作）を付与した";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",

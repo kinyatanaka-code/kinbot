@@ -34,6 +34,8 @@ const ADMINS = new Set(
   [
     ...(process.env.ADMIN_EMAILS || "").split(","),
     ...(process.env.ADMIN_USERS || "").split(","),
+    // コードで直接管理者にする人（ADMIN_EMAILS に足すのと同じ扱い）
+    "ryota.nakazawa@neo-career.co.jp",   // 中澤良太（田中欽也と同じ権限）
   ]
     .map((s) => s.trim())
     .filter(Boolean)
@@ -105,12 +107,15 @@ export function clearSessionCookie(res) {
 }
 
 // ===== 代理ログイン（なりすまし） =====
-// 田中欽也（このアカウントだけ）が、他のメンバーとしてログインできる特別機能。
+// 田中欽也と中澤良太（同じ権限）が、他のメンバーとしてログインできる特別機能。
 // セキュリティ上のリスクが大きいため、以下の制約を必ず守る。
-//  - 代理ログインできるのは kinya.tanaka@neo-career.co.jp だけ（ハードコード）
+//  - 代理ログインできるのは下の2アカウントだけ（ハードコード）
 //  - 元アカウントは kbt_imp Cookie に別途保持し、いつでも元に戻せる
 //  - すべての操作はサーバー側で監査ログに記録する
-const IMPERSONATOR_EMAILS = new Set(["kinya.tanaka@neo-career.co.jp"]);
+const IMPERSONATOR_EMAILS = new Set([
+  "kinya.tanaka@neo-career.co.jp",
+  "ryota.nakazawa@neo-career.co.jp",   // 中澤良太（田中欽也と同じ権限）
+]);
 const IMP_COOKIE = "kbt_imp";
 export function canImpersonate(email) {
   return IMPERSONATOR_EMAILS.has(String(email || "").trim().toLowerCase());
