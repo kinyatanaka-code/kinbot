@@ -5126,6 +5126,7 @@ app.post("/api/calls/from-csv", async (req, res) => {
         const { ステータス, コメント } = 振り分け(r);
         結果.push({
           company, person: String(r.person || "").trim() || "担当者", phone: String(r.phone || "").trim(),
+          email: String(r.email || "").trim(),
           leadId: "", 状態: "リストに追加", リード種別: "（SFなし）",
           ステータス, ステージ: String(r.stage || "").trim(), コメント, 履歴: "",
         });
@@ -5148,7 +5149,7 @@ app.post("/api/calls/from-csv", async (req, res) => {
       let 開始2 = 0;
       if (分ける人2.length && 既存2) { try { 開始2 = (await listCallTargets(既存2, { limit: 5000 })).length; } catch {} }
       const 入れるリスト2 = 入れられる.map((x, i) => ({
-        company: x.company, person: x.person, phone: x.phone,
+        company: x.company, person: x.person, phone: x.phone, email: x.email,
         status: x.ステータス, stage: x.ステージ, memo: x.コメント,
         ...(分ける人2.length ? { assignedTo: 分ける人2[(開始2 + i) % 分ける人2.length] } : {}),
       }));
@@ -5261,7 +5262,7 @@ app.post("/api/calls/from-csv", async (req, res) => {
         履歴 = "履歴を残す（予定）";
       }
 
-      結果.push({ company, person: person || "担当者", phone, leadId, 状態, リード種別, 架電日,
+      結果.push({ company, person: person || "担当者", phone, email, leadId, 状態, リード種別, 架電日,
         ステータス, ステージ: String(r.stage || "").trim(), コメント, 履歴 });
     }
 
@@ -5299,7 +5300,7 @@ app.post("/api/calls/from-csv", async (req, res) => {
       } catch {}
     }
     const 入れるリスト = 入れるもの.map((x, i) => ({
-      leadId: x.leadId, company: x.company, person: x.person, phone: x.phone,
+      leadId: x.leadId, company: x.company, person: x.person, phone: x.phone, email: x.email,
       ...(x["ステータス"] ? { status: x["ステータス"] } : {}),
       ...(x["ステージ"] ? { stage: x["ステージ"] } : {}),
       ...(分ける人.length ? { assignedTo: 分ける人[(開始 + i) % 分ける人.length] } : {}),
@@ -13632,7 +13633,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-08-24a kincall CSV：SFを更新せず、CSVの中身だけで架電リストに追加するモードを追加（メールが無いとき用）";
+const BUILD_TAG = "2026-08-24b kincall CSV：メールアドレスを架電先に保存するよう修正（通常・リストだけモードとも）。表のメール列に出る";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
