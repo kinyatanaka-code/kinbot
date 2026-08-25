@@ -91,6 +91,10 @@
               <div class="mk-block" data-mk-pane="csv" hidden>
               <div class="kc-csv">
                 <div class="kc-csv-h">CSVから作る（Salesforceのクロスリードと突き合わせ）</div>
+                <div class="kc-period-tabs" id="csvModeTabs" style="margin:6px 0 10px">
+                  <button type="button" class="kc-ptab active" data-csvmode="create">作成する</button>
+                  <button type="button" class="kc-ptab" data-csvmode="add">追加する</button>
+                </div>
                 <p class="note">CSVを選ぶか、下に貼り付けてください。1行1社で、<b>会社名・担当者名・電話番号・メール</b>の順（タブまたはカンマ区切り）。<br>
                 1行目に見出しがあれば、<b>架電日・ステータス・最終活動コメント</b>も読み取ります。<b>架電日があれば、その日付でSalesforceの活動履歴に残します。</b><br>
                 会社名でSalesforceの<b>クロスリード</b>を探し、あればそのまま、無ければ<b>新しくクロスリードを作って</b>からリストにします。担当者名が空のときは「担当者」として作ります。</p>
@@ -187,7 +191,7 @@
       </div>
     </div>
     <script src="sf-data.js?v=20260826c"></script>
-    <script src="calls.js?v=20260826d"></script>
+    <script src="calls.js?v=20260826e"></script>
     <script src="nav.js?v=20260823c"></script>
   </body>
 </html>

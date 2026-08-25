@@ -1100,6 +1100,7 @@ function showPane() {
 // 「kincallだけ」の人には、kinbotへ戻る道を見せない
 let iAmCloser = false;               // クローザー（管理者含む）＝リストを追加できる
 let appendTarget = null;             // {id, name}：既存リストに追加する先
+let csvAddMode = false;              // CSV：作成する(false)／追加する(true)
 (async () => {
   try {
     const me = await (await fetch("/api/me")).json();
@@ -1845,13 +1846,17 @@ async function csvSend(dryRun) {
   // メンバーごとの件数（ランダム）や、追加先リストが指定されていれば、行に割り付ける
   const plan = csvPlan();
   const usePlan = plan.length && plan.some((p) => p.count > 0 || p.listId);
+  if (csvAddMode) {
+    if (!plan.length) { say("追加する人を選んでください"); return; }
+    if (plan.some((p) => !p.listId)) { say("選んだ人それぞれの追加先リストを選んでください"); return; }
+  }
   if (usePlan) applyPlanToRows(rows, plan);
 
   // 件数が多いと途中で切れるので、少しずつ送る。進み具合も出す。
   const CHUNK = 20;
   const 合計 = { 件数: 0, 見つかった: 0, 新しく作った: 0, とばした: 0, 履歴: 0, 重複除外: 0, 所有者変更: 0, 履歴済み: 0, 作れなかった: 0, 探せなかった: 0, 履歴失敗: 0 };
   const 失敗理由 = new Set();
-  let listId = (appendTarget && appendTarget.id) || 0, listName = (appendTarget && appendTarget.name) || "";
+  let listId = (csvAddMode && plan[0] && plan[0].listId) || (appendTarget && appendTarget.id) || 0, listName = (appendTarget && appendTarget.name) || "";
   const meisai = [];
   const btns = [$("csvDry"), $("csvRun")].filter(Boolean);
   btns.forEach((b) => (b.disabled = true));
@@ -1973,7 +1978,7 @@ async function csvFillShare() {
     const d = await (await fetch("/api/calls/members")).json();
     const items = (d && d.items) || [];
     if (!items.length) { box.innerHTML = '<span class="note">メンバーがいません</span>'; return; }
-    const 追加モード = !!(appendTarget && appendTarget.id);
+    const 追加モード = csvAddMode || !!(appendTarget && appendTarget.id);
     box.innerHTML = items.map((m) =>
       `<div class="kc-plan-row" data-email="${esc(m.email)}">
          <button type="button" class="kc-share-b kc-plan-name">${esc(m.name)}</button>
@@ -2137,6 +2142,29 @@ function csvFilterRefresh() {
   if (dry) dry.addEventListener("click", () => csvSend(true));
   const run = document.getElementById("csvRun");
   if (run) run.addEventListener("click", () => csvSend(false));
+})();
+
+// CSV：作成する／追加する の切り替え
+(function wireCsvModeTabs() {
+  const tabs = document.getElementById("csvModeTabs");
+  if (!tabs) return;
+  tabs.addEventListener("click", (ev) => {
+    const b = ev.target && ev.target.closest ? ev.target.closest(".kc-ptab") : null;
+    if (!b) return;
+    csvAddMode = (b.dataset.csvmode === "add");
+    tabs.querySelectorAll(".kc-ptab").forEach((x) => x.classList.toggle("active", x === b));
+    // 分ける人の枠を作り直して、追加先リストの選択を出す／消す
+    const box = document.getElementById("csvShare");
+    if (box) { delete box.dataset.filled; box.innerHTML = '<span class="note">読み込んでいます…</span>'; }
+    csvFillShare();
+    const nameInput = document.getElementById("csvName");
+    if (nameInput && nameInput.closest("label")) nameInput.closest("label").style.opacity = csvAddMode ? ".4" : "";
+    const hint = document.getElementById("csvShareHint");
+    if (hint && csvAddMode) hint.textContent = "追加する人を選び、それぞれの追加先リストと件数を指定してください";
+    else if (hint) csvShareRefresh();
+    const runBtn = document.getElementById("csvRun");
+    if (runBtn) runBtn.textContent = csvAddMode ? "この内容で追加する" : "この内容でリストを作る";
+  });
 })();
 
 // リスト作成の中の切り替え（CSVから作る／Salesforceのレポートから作る）
