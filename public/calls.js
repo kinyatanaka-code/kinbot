@@ -251,61 +251,6 @@ async function renderHistoryInto(box, id) {
   }
 }
 
-// 履歴の「直す」を押したら、その行を編集フォームに差し替える
-document.addEventListener("click", async (ev) => {
-  const t = ev.target;
-  if (!t || !t.closest) return;
-  const editBtn = t.closest(".kc-hist-edit");
-  if (editBtn) {
-    const row = editBtn.closest(".kc-hist-row");
-    const box = row.closest("#kcHist") || row.parentElement;
-    const id = box && box._targetId;
-    const taskId = row.getAttribute("data-task") || "";
-    const logId = row.getAttribute("data-log") || "";
-    const result = row.getAttribute("data-result") || "";
-    const memo = row.getAttribute("data-memo") || "";
-    row.innerHTML = `
-      <div class="kc-lb">結果</div>
-      <select class="kc-input kc-he-result">
-        <option value="">（変えない）</option>
-        ${結果の選択肢.map((k) => `<option value="${esc(k)}"${k === result ? " selected" : ""}>${esc(k)}</option>`).join("")}
-      </select>
-      <div class="kc-lb">メモ</div>
-      <textarea class="kc-input kc-he-memo" rows="3">${esc(memo)}</textarea>
-      <div class="kc-modal-foot">
-        <button type="button" class="btn kc-he-save">直す</button>
-        <button type="button" class="btn ghost kc-he-cancel">やめる</button>
-        <span class="rev-status kc-he-st"></span>
-      </div>`;
-    row._ctx = { id, taskId, logId };
-    return;
-  }
-  if (t.closest(".kc-he-cancel")) {
-    const box = t.closest("#kcHist");
-    if (box && box._targetId) renderHistoryInto(box, box._targetId);
-    return;
-  }
-  if (t.closest(".kc-he-save")) {
-    const row = t.closest(".kc-hist-row");
-    const box = t.closest("#kcHist");
-    const ctx = (row && row._ctx) || {};
-    const result = (row.querySelector(".kc-he-result") || {}).value || "";
-    const memo = (row.querySelector(".kc-he-memo") || {}).value || "";
-    const st = row.querySelector(".kc-he-st");
-    if (st) st.textContent = "直しています…";
-    try {
-      const r = await fetch(`/api/calls/targets/${encodeURIComponent(ctx.id)}/history/edit`, {
-        method: "POST", headers: { "content-type": "application/json" },
-        body: JSON.stringify({ taskId: ctx.taskId || undefined, logId: ctx.logId || undefined, result, memo }),
-      });
-      const d = await r.json();
-      if (!r.ok) throw new Error(d.error || "直せませんでした");
-      if (box && box._targetId) renderHistoryInto(box, box._targetId);
-    } catch (e) { if (st) st.textContent = "失敗：" + e.message; }
-    return;
-  }
-});
-
 // ───────── ページ下部に溜まる記録カード（連続架電向き・リロードまで残る） ─────────
 let dockItems = [];
 function dockEl() {
@@ -628,7 +573,60 @@ async function openTarget(id, draft, opt) {
   });
 
   // 左側にこれまでのやり取りを読み込む
-  renderHistoryInto(m.el.querySelector("#kcHist"), id);
+  const histBox = m.el.querySelector("#kcHist");
+  renderHistoryInto(histBox, id);
+
+  // 履歴の「直す」→ その行を編集フォームに差し替えて、結果・メモを直す。
+  // モーダル内の箱に付ける（documentに付けると、モーダルが伝播を止めていて届かないため）。
+  if (histBox) histBox.addEventListener("click", async (ev) => {
+    const tt = ev.target;
+    if (!tt || !tt.closest) return;
+
+    const editBtn = tt.closest(".kc-hist-edit");
+    if (editBtn) {
+      const row = editBtn.closest(".kc-hist-row");
+      const cur = row.getAttribute("data-result") || "";
+      const memo = row.getAttribute("data-memo") || "";
+      row._ctx = { taskId: row.getAttribute("data-task") || "", logId: row.getAttribute("data-log") || "" };
+      row.innerHTML = `
+        <div class="kc-lb">結果</div>
+        <select class="kc-input kc-he-result">
+          <option value="">（変えない）</option>
+          ${結果の選択肢.map((k) => `<option value="${esc(k)}"${k === cur ? " selected" : ""}>${esc(k)}</option>`).join("")}
+        </select>
+        <div class="kc-lb">メモ</div>
+        <textarea class="kc-input kc-he-memo" rows="3">${esc(memo)}</textarea>
+        <div class="kc-modal-foot">
+          <button type="button" class="btn kc-he-save">直す</button>
+          <button type="button" class="btn ghost kc-he-cancel">やめる</button>
+          <span class="rev-status kc-he-st"></span>
+        </div>`;
+      return;
+    }
+
+    if (tt.closest(".kc-he-cancel")) { renderHistoryInto(histBox, id); return; }
+
+    const saveBtn = tt.closest(".kc-he-save");
+    if (saveBtn) {
+      const row = saveBtn.closest(".kc-hist-row");
+      const ctx = (row && row._ctx) || {};
+      const result = (row.querySelector(".kc-he-result") || {}).value || "";
+      const memo = (row.querySelector(".kc-he-memo") || {}).value || "";
+      const st = row.querySelector(".kc-he-st");
+      if (!result && !memo) { if (st) st.textContent = "結果かメモを入れてください"; return; }
+      if (st) st.textContent = "直しています…";
+      try {
+        const r = await fetch(`/api/calls/targets/${encodeURIComponent(id)}/history/edit`, {
+          method: "POST", headers: { "content-type": "application/json" },
+          body: JSON.stringify({ taskId: ctx.taskId || undefined, logId: ctx.logId || undefined, result, memo }),
+        });
+        const d = await r.json();
+        if (!r.ok) throw new Error(d.error || "直せませんでした");
+        renderHistoryInto(histBox, id);
+      } catch (e) { if (st) st.textContent = "失敗：" + e.message; }
+      return;
+    }
+  });
 
   // 「ステージだけ変える」：記録はせず、ステージ（リード状況）だけを変えてSFにも反映
   const stageOnly = m.el.querySelector("#kcStageOnly");

@@ -13843,7 +13843,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-08-25a kincall：架電履歴の1件を直せる（結果・メモ／SF活動・kinbot記録とも）ようにし、記録せずステージだけ変えられるようにした";
+const BUILD_TAG = "2026-08-25b kincall：履歴の「直す」が反応しない不具合を修正（編集処理をモーダル内に付け直し、結果の選択肢が見えずエラーで止まっていた）";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
