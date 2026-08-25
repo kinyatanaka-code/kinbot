@@ -483,6 +483,8 @@ function renderDock() {
     .kc-hist-edit{margin-left:auto;background:none;border:0;color:#1d9e75;font-size:11px;cursor:pointer;padding:0 2px;text-decoration:underline;}
     .kc-hist-edit:hover{color:#0b7a5e;}
     .kc-stage-only{margin-left:8px;font-size:12px;padding:4px 10px;}
+    .an-card-all{border:2px solid #1d9e75;background:#f6fbf9;}
+    .an-card-all .an-h{color:#0d5b47;}
   `;
   document.head.appendChild(s);
 })();
@@ -1967,45 +1969,17 @@ async function loadAnalysis() {
     };
     const 棒 = (n, max) => `<span class="an-bar"><i style="width:${max ? Math.round(n / max * 100) : 0}%"></i></span>`;
 
-    box.innerHTML =
-      `<div class="an-range">
-         <span class="kc-share-lb">期間</span>
-         ${[[7, "直近7日"], [14, "直近14日"], [30, "直近30日"], [60, "直近60日"], [90, "直近90日"], [180, "直近半年"]]
-           .map(([n, lb]) => `<button type="button" class="kc-share-b an-days${(!anFrom && anDays === n) ? " on" : ""}" data-days="${n}">${lb}</button>`).join("")}
-         <span class="an-sep">または</span>
-         <input type="date" id="anFrom" value="${esc(anFrom || d.from || "")}" />
-         <span>〜</span>
-         <input type="date" id="anTo" value="${esc(anTo || d.to || "")}" />
-         <button type="button" class="kc-share-b${anFrom ? " on" : ""}" id="anApply">この期間で見る</button>
-       </div>` +
-      `<div class="an-team">チーム全体：コール ${t["コール"] || 0}／接触 ${t["接触"] || 0}（${t["接触率"] || 0}%）／アポ ${t["アポ"] || 0}（${t["アポ率"] || 0}%）</div>` +
-      `<div class="an-card">
-         <div class="an-h">コメントから、断られ方を調べる</div>
-         <p class="note">記録に書かれたコメントをAIが読んで、断られ方・進まない理由をまとめます。</p>
-         <div class="ap-cfg-row">
-           <label>だれの <select id="anWho"><option value="">全員</option>${
-             items.map((x) => `<option value="${esc(x["メール"] || "")}">${esc(x["誰"])}</option>`).join("")}</select></label>
-           <button class="btn" id="anRun">コメントを読ませる</button>
-           <span class="rev-status" id="anSt"></span>
-         </div>
-         <div id="anOut"></div>
-         <div class="an-clear">
-           <button type="button" class="kc-share-clear" id="anSfList">Salesforceに書いた記録を見る</button>
-           <button type="button" class="kc-share-clear" id="anClear">kinbotの記録を全部消す</button>
-           <span class="rev-status" id="anClearSt"></span>
-         </div>
-         <div id="anSfOut"></div>
-       </div>` +
-      items.map((x) => {
-        const 時最大 = Math.max(1, ...x["時間帯"].map((h) => h["コール"]));
-        return `
-        <div class="an-card">
+    // 1人（またはインサイド全体）の分析カードを作る。showDiff=false のときは差の表示を出さない。
+    const anCard = (x, showDiff = true, all = false) => {
+      const 時最大 = Math.max(1, ...x["時間帯"].map((h) => h["コール"]));
+      return `
+        <div class="an-card${all ? " an-card-all" : ""}">
           <div class="an-h">${esc(x["誰"])}</div>
 
           <div class="an-kpi">
             <div class="an-k"><div class="an-kn">${x["コール"]}</div><div class="an-kl">コール</div></div>
-            <div class="an-k"><div class="an-kn">${x["接触率"]}%</div><div class="an-kl">接触率 ${差(x["接触率"], t["接触率"] || 0)}</div></div>
-            <div class="an-k"><div class="an-kn">${x["アポ率"]}%</div><div class="an-kl">アポ率 ${差(x["アポ率"], t["アポ率"] || 0)}</div></div>
+            <div class="an-k"><div class="an-kn">${x["接触率"]}%</div><div class="an-kl">接触率${showDiff ? " " + 差(x["接触率"], t["接触率"] || 0) : ""}</div></div>
+            <div class="an-k"><div class="an-kn">${x["アポ率"]}%</div><div class="an-kl">アポ率${showDiff ? " " + 差(x["アポ率"], t["アポ率"] || 0) : ""}</div></div>
             <div class="an-k"><div class="an-kn">${x["稼働日数"]}日</div><div class="an-kl">かけた日</div></div>
             <div class="an-k"><div class="an-kn">${x["1日あたり"]}</div><div class="an-kl">1日あたり</div></div>
           </div>
@@ -2047,7 +2021,39 @@ async function loadAnalysis() {
             <tr><td>アポ</td>${x["週"].map((w) => `<td class="an-n">${w["アポ"]}</td>`).join("")}</tr>
           </table>
         </div>`;
-      }).join("");
+    };
+
+    box.innerHTML =
+      `<div class="an-range">
+         <span class="kc-share-lb">期間</span>
+         ${[[7, "直近7日"], [14, "直近14日"], [30, "直近30日"], [60, "直近60日"], [90, "直近90日"], [180, "直近半年"]]
+           .map(([n, lb]) => `<button type="button" class="kc-share-b an-days${(!anFrom && anDays === n) ? " on" : ""}" data-days="${n}">${lb}</button>`).join("")}
+         <span class="an-sep">または</span>
+         <input type="date" id="anFrom" value="${esc(anFrom || d.from || "")}" />
+         <span>〜</span>
+         <input type="date" id="anTo" value="${esc(anTo || d.to || "")}" />
+         <button type="button" class="kc-share-b${anFrom ? " on" : ""}" id="anApply">この期間で見る</button>
+       </div>` +
+      `<div class="an-team">チーム全体：コール ${t["コール"] || 0}／接触 ${t["接触"] || 0}（${t["接触率"] || 0}%）／アポ ${t["アポ"] || 0}（${t["アポ率"] || 0}%）</div>` +
+      `<div class="an-card">
+         <div class="an-h">コメントから、断られ方を調べる</div>
+         <p class="note">記録に書かれたコメントをAIが読んで、断られ方・進まない理由をまとめます。</p>
+         <div class="ap-cfg-row">
+           <label>だれの <select id="anWho"><option value="">全員</option>${
+             items.map((x) => `<option value="${esc(x["メール"] || "")}">${esc(x["誰"])}</option>`).join("")}</select></label>
+           <button class="btn" id="anRun">コメントを読ませる</button>
+           <span class="rev-status" id="anSt"></span>
+         </div>
+         <div id="anOut"></div>
+         <div class="an-clear">
+           <button type="button" class="kc-share-clear" id="anSfList">Salesforceに書いた記録を見る</button>
+           <button type="button" class="kc-share-clear" id="anClear">kinbotの記録を全部消す</button>
+           <span class="rev-status" id="anClearSt"></span>
+         </div>
+         <div id="anSfOut"></div>
+       </div>` +
+      (d["全体"] ? anCard(d["全体"], false, true) : "") +
+      items.map((x) => anCard(x, true)).join("");
   } catch (e) { box.innerHTML = `<div class="note">読み込めませんでした：${esc(e.message)}</div>`; }
 }
 

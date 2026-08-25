@@ -6851,15 +6851,8 @@ app.get("/api/calls/analysis", async (req, res) => {
       コール: 0, 接触: 0, アポ: 0,
       日: new Set(), 内訳: {}, 時間帯: {}, 業種: {}, ステージ: {}, 週: {},
     });
-    const 表 = new Map();
-    for (const r of rows) {
-      const em = String(r.caller || "").toLowerCase();
-      if (!nameOf.has(em)) continue;
-      if (zeroSet.has(mdKeyOf(r["日"]))) continue;   // 0にする日は数えない
-      if (!表.has(em)) 表.set(em, 空());
-      const o = 表.get(em);
-      const v = String(r.result || "") || "（記録なし）";
-      const 接 = 接触判定(v), ア = アポ判定(v);
+    // 1件のコールを、指定した箱に足す（メンバー別・全体で共通に使う）
+    const applyRow = (o, v, 接, ア, r) => {
       o.コール++; if (接 || ア) o.接触++; if (ア) o.アポ++;
       o.日.add(r["日"]);
       o.内訳[v] = (o.内訳[v] || 0) + 1;
@@ -6878,6 +6871,20 @@ app.get("/api/calls/analysis", async (req, res) => {
       const wk = ymd(new Date(d.getTime() - off * 86400000));
       if (!o.週[wk]) o.週[wk] = { コール: 0, 接触: 0, アポ: 0 };
       o.週[wk].コール++; if (接 || ア) o.週[wk].接触++; if (ア) o.週[wk].アポ++;
+    };
+
+    const 全 = 空();   // インサイド全体（全員合算）
+    const 表 = new Map();
+    for (const r of rows) {
+      const em = String(r.caller || "").toLowerCase();
+      if (!nameOf.has(em)) continue;
+      if (zeroSet.has(mdKeyOf(r["日"]))) continue;   // 0にする日は数えない
+      if (!表.has(em)) 表.set(em, 空());
+      const o = 表.get(em);
+      const v = String(r.result || "") || "（記録なし）";
+      const 接 = 接触判定(v), ア = アポ判定(v);
+      applyRow(o, v, 接, ア, r);   // メンバー別
+      applyRow(全, v, 接, ア, r);   // インサイド全体
     }
 
     const 率 = (a, b) => (b ? +(a / b * 100).toFixed(1) : 0);
@@ -6885,9 +6892,9 @@ app.get("/api/calls/analysis", async (req, res) => {
       .sort((a, b) => b[1].コール - a[1].コール).slice(0, n)
       .map(([k, v]) => ({ 名前: k, ...v, 接触率: 率(v.接触, v.コール), アポ率: 率(v.アポ, v.コール) }));
 
-    const items = [...表.entries()].map(([em, o]) => ({
-      誰: nameOf.get(em) || em,
-      メール: em,
+    // 1つの箱を、画面に出す形（内訳・時間帯・業種・ステージ・週つき）にする
+    const 仕上げ = (誰, メール, o) => ({
+      誰, メール,
       コール: o.コール, 接触: o.接触, アポ: o.アポ,
       接触率: 率(o.接触, o.コール), アポ率: 率(o.アポ, o.コール),
       稼働日数: o.日.size,
@@ -6898,14 +6905,21 @@ app.get("/api/calls/analysis", async (req, res) => {
       業種: 上位(o.業種), ステージ: 上位(o.ステージ),
       週: Object.entries(o.週).sort((a, b) => a[0] < b[0] ? -1 : 1)
         .map(([k, v]) => ({ 週: k, ...v, 接触率: 率(v.接触, v.コール) })),
-    })).sort((a, b) => b.コール - a.コール);
+    });
+
+    const items = [...表.entries()]
+      .map(([em, o]) => 仕上げ(nameOf.get(em) || em, em, o))
+      .sort((a, b) => b.コール - a.コール);
 
     const 合計 = items.reduce((a, x) => ({
       コール: a.コール + x.コール, 接触: a.接触 + x.接触, アポ: a.アポ + x.アポ,
     }), { コール: 0, 接触: 0, アポ: 0 });
     const チーム = { ...合計, 接触率: 率(合計.接触, 合計.コール), アポ率: 率(合計.アポ, 合計.コール) };
 
-    res.json({ ok: true, from, to, 日数, items, チーム });
+    // インサイド全体の内訳（メンバー別と同じ形）
+    const 全体 = 仕上げ("インサイド全体", "", 全);
+
+    res.json({ ok: true, from, to, 日数, items, チーム, 全体 });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
@@ -13843,7 +13857,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-08-25b kincall：履歴の「直す」が反応しない不具合を修正（編集処理をモーダル内に付け直し、結果の選択肢が見えずエラーで止まっていた）";
+const BUILD_TAG = "2026-08-25c kincall分析：インサイド全体の分析（どこで落ちているか・時間帯・ステージ別・業種別・週推移）を、メンバー別の先頭に出すようにした";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
