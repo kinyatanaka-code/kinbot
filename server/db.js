@@ -3128,11 +3128,11 @@ function callDedupeKeys(leadId, phone, company) {
 export async function addCallTargets(listId, items = [], { dedupe = false } = {}) {
   if (!pool || !listId || !items.length) return 0;
   try {
-    // 重複を外す場合、まだ架電していない既存の架電先をカギにして持っておく。
-    // これで、別のメンバーのリストに入っている先と重複しないようにする。
+    // 重複を外す場合、これまで作ったkincallの全リスト（済み・未済みを問わず）の
+    // 架電先をカギにして持っておく。過去に一度でもどこかのリストに入れた先とは重複させない。
     const seen = new Map();   // カギ → 既存の架電先（無い＝バッチ内で新規に見たもの）
     if (dedupe) {
-      const { rows } = await pool.query(`SELECT id, lead_id, phone, company, email, person FROM call_targets WHERE done = false`);
+      const { rows } = await pool.query(`SELECT id, lead_id, phone, company, email, person FROM call_targets`);
       for (const r of rows) for (const k of callDedupeKeys(r.lead_id, r.phone, r.company)) { if (!seen.has(k)) seen.set(k, r); }
     }
     let n = 0, sort = 0;
