@@ -145,13 +145,19 @@ export function getImpersonator(req) {
 // --- 登録・ログイン ---
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
+// ドメイン制限（ALLOWED_EMAIL_DOMAIN）の例外。
+// ここに入れたメールは、ドメインが違っても登録・ログインできる。
+const ALLOWED_EXTRA_EMAILS = new Set([
+  "goldfly32@gmail.com",
+]);
+
 export async function registerUser({ email, password, displayName, code }) {
   email = String(email || "").trim().toLowerCase();
   if (!signupGateOk(code)) return { error: "登録コードが正しくありません" };
   if (!EMAIL_RE.test(email)) return { error: "メールアドレスの形式が正しくありません" };
   if (!password || String(password).length < 8) return { error: "パスワードは8文字以上にしてください" };
   const domain = process.env.ALLOWED_EMAIL_DOMAIN || "";
-  if (domain && !email.endsWith("@" + domain.replace(/^@/, ""))) {
+  if (domain && !email.endsWith("@" + domain.replace(/^@/, "")) && !ALLOWED_EXTRA_EMAILS.has(email)) {
     return { error: `登録できるのは @${domain.replace(/^@/, "")} のメールのみです` };
   }
   if (!dbEnabled()) return { error: "アカウント保存にはDB（DATABASE_URL）が必要です" };
