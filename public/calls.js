@@ -564,8 +564,10 @@ function renderDock() {
     .kc-qchip{border:1px solid #cfe0d9;background:#fff;color:#1f2a26;border-radius:999px;padding:7px 15px;font-size:13px;cursor:pointer;transition:all .12s;}
     .kc-qchip:hover{border-color:#1d9e75;background:#f4faf7;}
     .kc-qchip.on{background:#1d9e75;border-color:#1d9e75;color:#fff;font-weight:600;}
-    .kc-qchip-pick{color:#5b7a6d;border-style:dashed;}
     .kc-qclear{color:#a04040;border-color:#e6cccc;}
+    .kc-next-fine{display:flex;flex-wrap:wrap;gap:14px;align-items:center;margin:8px 0 4px;}
+    .kc-fine-lb{display:inline-flex;align-items:center;gap:8px;font-size:13px;color:#5b7a6d;}
+    .kc-fine-in{width:auto;flex:0 0 auto;}
   `;
   document.head.appendChild(s);
 })();
@@ -638,8 +640,6 @@ async function openTarget(id, draft, opt) {
           <button type="button" class="kc-qchip" data-qd="tomorrow">明日</button>
           <button type="button" class="kc-qchip" data-qd="nextmon">週明け</button>
           <button type="button" class="kc-qchip" data-qd="nextmonth">来月</button>
-          <button type="button" class="kc-qchip kc-qchip-pick" data-qd="pick">日付で選ぶ</button>
-          <input type="date" class="kc-input kc-qpick" id="kcNext" style="display:none;flex:0 0 auto" />
           <button type="button" class="kc-qchip kc-qclear" data-qd="clear" style="display:none">消す</button>
         </div>
         <div class="kc-lb" id="kcQuickTimeLb" style="display:none">何時ごろ？</div>
@@ -648,8 +648,10 @@ async function openTarget(id, draft, opt) {
           <button type="button" class="kc-qchip" data-qt="13:00">昼 13:00</button>
           <button type="button" class="kc-qchip" data-qt="15:00">午後 15:00</button>
           <button type="button" class="kc-qchip" data-qt="17:00">夕方 17:00</button>
-          <button type="button" class="kc-qchip kc-qchip-pick" data-qt="pick">時間で選ぶ</button>
-          <input type="time" class="kc-input kc-qpick" id="kcNextTime" style="display:none;flex:0 0 auto" step="900" />
+        </div>
+        <div class="kc-next-fine">
+          <label class="kc-fine-lb">日付 <input type="date" class="kc-input kc-fine-in" id="kcNext" /></label>
+          <label class="kc-fine-lb">時間 <input type="time" class="kc-input kc-fine-in" id="kcNextTime" step="900" /></label>
         </div>
         <div class="note" id="kcNextSummary" style="margin-top:4px"></div>
 
@@ -887,6 +889,7 @@ function wireQuickNext(m) {
   const summary = m.el.querySelector("#kcNextSummary");
   const clearBtn = m.el.querySelector('#kcQuickDate [data-qd="clear"]');
   if (!dateInput) return;
+  const dateBox = m.el.querySelector("#kcQuickDate");
 
   const refresh = () => {
     if (summary) summary.textContent = fmtNextSummary(dateInput.value, timeInput ? timeInput.value : "");
@@ -895,26 +898,23 @@ function wireQuickNext(m) {
     if (timeBox) timeBox.style.display = on ? "" : "none";
     if (clearBtn) clearBtn.style.display = on ? "" : "none";
   };
-  const light = (box, el) => box.querySelectorAll(".kc-qchip").forEach((b) => b.classList.toggle("on", b === el));
+  const light = (box, el) => box && box.querySelectorAll(".kc-qchip").forEach((b) => b.classList.toggle("on", b === el));
 
-  m.el.querySelectorAll('#kcQuickDate [data-qd]').forEach((b) => b.addEventListener("click", () => {
+  dateBox.querySelectorAll("[data-qd]").forEach((b) => b.addEventListener("click", () => {
     const k = b.dataset.qd;
-    if (k === "pick") { dateInput.style.display = ""; dateInput.showPicker && dateInput.showPicker(); return; }
-    if (k === "clear") { dateInput.value = ""; if (timeInput) timeInput.value = ""; dateInput.style.display = "none"; light(m.el.querySelector("#kcQuickDate"), null); refresh(); return; }
+    if (k === "clear") { dateInput.value = ""; if (timeInput) timeInput.value = ""; light(dateBox, null); light(timeBox, null); refresh(); return; }
     dateInput.value = quickNextDate(k);
-    light(m.el.querySelector("#kcQuickDate"), b);
+    light(dateBox, b);
     refresh();
   }));
-  dateInput.addEventListener("change", () => { light(m.el.querySelector("#kcQuickDate"), null); refresh(); });
+  dateInput.addEventListener("change", () => { light(dateBox, null); refresh(); });
 
   m.el.querySelectorAll('#kcQuickTime [data-qt]').forEach((b) => b.addEventListener("click", () => {
-    const v = b.dataset.qt;
-    if (v === "pick") { timeInput.style.display = ""; timeInput.showPicker && timeInput.showPicker(); return; }
-    if (timeInput) timeInput.value = v;
-    light(m.el.querySelector("#kcQuickTime"), b);
+    if (timeInput) timeInput.value = b.dataset.qt;
+    light(timeBox, b);
     refresh();
   }));
-  if (timeInput) timeInput.addEventListener("change", () => { light(m.el.querySelector("#kcQuickTime"), null); refresh(); });
+  if (timeInput) timeInput.addEventListener("change", () => { light(timeBox, null); refresh(); });
   refresh();
 }
 
