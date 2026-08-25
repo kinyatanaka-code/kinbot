@@ -6441,13 +6441,13 @@ app.post("/api/calls/targets/:id/record", async (req, res) => {
       if (!/^\d{4}-\d{2}-\d{2}$/.test(naDate)) {
         sf.nextActionNote = "次回架電日の形式が正しくありません";
       } else if (await sfConnected(sfUser).catch(() => false)) {
-        const naType = String(st0.sfNextActionType || "").trim();  // 活動種別（任意）
+        const naType = String(st0.sfNextActionType || "").trim() || "ネクストアクション";  // 活動種別（既定：ネクストアクション）
         try {
           await createTask(sfUser, {
             WhoId: t.lead_id,
             Subject: "ネクストアクション（架電予定）",
             ActivityDate: naDate,                       // 活動日
-            ...(naType ? { Type: naType } : {}),        // 活動種別
+            Type: naType,                               // 活動種別（既定：ネクストアクション）
             // Status は付けない＝未完了の「予定」にする
             Description: `kincallから設定（記録した人：${記録者}）`,
           });
@@ -13736,7 +13736,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-08-24j kincall：リスト管理から、今のリストの名前を変えられるようにした";
+const BUILD_TAG = "2026-08-24k kincall：ネクストアクションの活動予定の活動種別を、既定で「ネクストアクション」にした（設定で変更可）";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
