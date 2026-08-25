@@ -5175,10 +5175,11 @@ app.post("/api/calls/from-csv", async (req, res) => {
       const 入れられる = 結果.filter((x) => x.company && x.状態 !== "とばした");
       if (!入れられる.length) return res.status(400).json({ error: "リストに入れられるものがありませんでした" });
       const 既存2 = parseInt(b.listId, 10) || 0;
+      const 分ける人2 = (Array.isArray(b.share) ? b.share : []).map((x) => String(x || "").trim().toLowerCase()).filter(Boolean);
+      const listOwner2 = String(b.member || "").trim().toLowerCase() || 分ける人2[0] || req.user;
       const list2 = 既存2
         ? { id: 既存2, name }
-        : await createCallList({ name, owner: String(b.member || "").trim().toLowerCase() || req.user, createdBy: req.user });
-      const 分ける人2 = (Array.isArray(b.share) ? b.share : []).map((x) => String(x || "").trim().toLowerCase()).filter(Boolean);
+        : await createCallList({ name, owner: listOwner2, createdBy: req.user });
       let 開始2 = 0;
       if (分ける人2.length && 既存2) { try { 開始2 = (await listCallTargets(既存2, { limit: 5000 })).length; } catch {} }
       const 入れるリスト2 = 入れられる.map((x, i) => ({
@@ -5410,12 +5411,14 @@ app.post("/api/calls/from-csv", async (req, res) => {
     if (!入れるもの.length) return res.status(400).json({ error: "リストに入れられるものがありませんでした", 明細: 結果.slice(0, 50) });
 
     const 既存 = parseInt(b.listId, 10) || 0;
-    const list = 既存
-      ? { id: 既存, name }
-      : await createCallList({ name, owner: String(b.member || "").trim().toLowerCase() || req.user, createdBy: req.user });
     // 分ける人が指定されていれば、順番に均等に配る（kincallの担当だけ。SFは変えない）
     const 分ける人 = (Array.isArray(b.share) ? b.share : [])
       .map((x) => String(x || "").trim().toLowerCase()).filter(Boolean);
+    // 分配するときは、リストの持ち主も分ける人にする（作成者のカードに出さないため）。
+    const listOwner = String(b.member || "").trim().toLowerCase() || 分ける人[0] || req.user;
+    const list = 既存
+      ? { id: 既存, name }
+      : await createCallList({ name, owner: listOwner, createdBy: req.user });
     // 小分けで送られてくるので、続きから配れるように今の件数を数える
     let 開始 = 0;
     if (分ける人.length && 既存) {
@@ -5483,7 +5486,9 @@ app.post("/api/calls/lists", async (req, res) => {
   try {
     const b = req.body || {};
     const name = String(b.name || "").trim() || `コールリスト ${jstDate(0)}`;
-    const list = await createCallList({ name, owner: req.user, note: b.note, createdBy: req.user });
+    // 分配（assignTo）を指定したときは、持ち主も分ける人にする（作成者のカードに出さないため）
+    const who0 = (Array.isArray(b.assignTo) ? b.assignTo : []).map((x) => String(x).toLowerCase()).filter(Boolean);
+    const list = await createCallList({ name, owner: who0[0] || req.user, note: b.note, createdBy: req.user });
     if (!list) return res.status(500).json({ error: "リストを作れませんでした" });
 
     let items = [];
@@ -5507,7 +5512,7 @@ app.post("/api/calls/lists", async (req, res) => {
     }
 
     // かける人へ順番に配る（指定があれば）
-    const who = (Array.isArray(b.assignTo) ? b.assignTo : []).map((x) => String(x).toLowerCase()).filter(Boolean);
+    const who = who0;
     if (who.length) items = items.map((x, i) => ({ ...x, assignedTo: who[i % who.length] }));
 
     const n = await addCallTargets(list.id, items, { dedupe: true });
@@ -5821,10 +5826,11 @@ app.post("/api/calls/from-report", async (req, res) => {
     const name = String(b.name || "").trim() || `リスト ${jstDate(0)}`;
     // 送り先のメンバーを選べる（指定がなければ自分のリストになる）
     const toMember = String(b.member || "").trim().toLowerCase();
-    const list = await createCallList({ name, owner: toMember || req.user, createdBy: req.user });
     // 分ける人が選ばれていれば、順番に均等に配る
     const 分ける人R = (Array.isArray(b.share) ? b.share : [])
       .map((x) => String(x || "").trim().toLowerCase()).filter(Boolean);
+    // 分配するときは、持ち主も分ける人にする（作成者のカードに出さないため）
+    const list = await createCallList({ name, owner: toMember || 分ける人R[0] || req.user, createdBy: req.user });
     if (!list) return res.status(500).json({ error: "リストを作れませんでした" });
     const n = await addCallTargets(list.id, 入れる, { dedupe: true });
     const 重複除外 = 入れる.length - n;
@@ -14027,7 +14033,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-08-25m kincall：かける一覧の上に「かける先◯件／アポ獲得済み◯件」のサマリーと、アポ獲得を隠す/表示する切替を追加（アポ獲得済みは下にまとめる挙動は継続）";
+const BUILD_TAG = "2026-08-25n kincall：分配（分ける人）でリストを作るとき、持ち主を作成者ではなく分ける人にして、作成者のカードにリストが出ないようにした";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
