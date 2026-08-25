@@ -5487,21 +5487,16 @@ app.post("/api/calls/from-csv", async (req, res) => {
 
     // 「新しいリストにする」を選んだメンバーぶん、その人のリストを1つ作って振り分ける。
     // かたまり（chunk）ごとに毎回作らないよう、同じ名前・持ち主の直近のリストがあれば使い回す。
-    // 追加モード（addMode）では、新しいリストは絶対に作らない（既存リストへ入れるだけ）。
-    if (!b.addMode) {
-      try {
-        const newFor = [...new Set(入れるリスト.filter((x) => x.newListFor).map((x) => x.newListFor))];
-        for (const em of newFor) {
-          const nlName = `${name} - ${em}`;
-          let nl = await findRecentListByNameOwner(nlName, em).catch(() => null);
-          if (!nl) nl = await createCallList({ name: nlName, owner: em, createdBy: req.user });
-          if (nl) for (const x of 入れるリスト) if (x.newListFor === em) x._targetList = nl.id;
-        }
-      } catch (e) { console.warn("[kincall] 新しいリスト作成に失敗:", e.message); }
-    } else {
-      // 追加モードで万一 newListFor が来ても、新規は作らずベースの既存リストへ入れる
-      for (const x of 入れるリスト) if (x.newListFor) x._targetList = x.targetList || list.id;
-    }
+    // （これで、余りを受ける人に既存リストが無くても、新規リストを1つだけ作って入れられる）
+    try {
+      const newFor = [...new Set(入れるリスト.filter((x) => x.newListFor).map((x) => x.newListFor))];
+      for (const em of newFor) {
+        const nlName = `${name} - ${em}`;
+        let nl = await findRecentListByNameOwner(nlName, em).catch(() => null);
+        if (!nl) nl = await createCallList({ name: nlName, owner: em, createdBy: req.user });
+        if (nl) for (const x of 入れるリスト) if (x.newListFor === em) x._targetList = nl.id;
+      }
+    } catch (e) { console.warn("[kincall] 新しいリスト作成に失敗:", e.message); }
 
     // クローザー所有のリードを、インサイドに割り振るぶんだけ中澤良太の所有へ変える（ジャッジは除く）
     let 所有者変更 = 0, 所有者メモ = "";
@@ -14151,7 +14146,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-08-26l kincall：追加モードでは新しいリストを一切作らず、既存リストへ入れるだけにした（画面から「新しいリストにする」を外し、サーバ側でも二重ガード）";
+const BUILD_TAG = "2026-08-26m kincall：追加でも「新しいリストにする」を選べるように戻した（余りを受ける人に既存リストが無い場合のため。かたまり重複作成は修正済みで1つに使い回す）";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
