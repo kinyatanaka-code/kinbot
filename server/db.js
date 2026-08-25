@@ -635,6 +635,9 @@ export async function initDb() {
   // SFのリードの状態を、そのまま持っておく（一覧に出すため）
   await sq(`ALTER TABLE call_targets ADD COLUMN IF NOT EXISTS stage TEXT;`);
   await sq(`ALTER TABLE call_targets ADD COLUMN IF NOT EXISTS status TEXT;`);
+  // 次回の架電予定日時（記録時に残す）。この時刻が来たら、かける一覧で上に出す。
+  await sq(`ALTER TABLE call_targets ADD COLUMN IF NOT EXISTS next_call_at TIMESTAMPTZ;`);
+  await sq(`CREATE INDEX IF NOT EXISTS ix_call_targets_next ON call_targets(next_call_at) WHERE next_call_at IS NOT NULL;`);
   await sq(`
     CREATE TABLE IF NOT EXISTS call_logs (
       id         SERIAL PRIMARY KEY,
@@ -3096,6 +3099,17 @@ export async function listBookViewers(pageId, limit = 300) {
 }
 
 // ===== コールリスト =====
+
+// 次回の架電予定日時を残す（null で消す）
+export async function setCallTargetNextCall(id, iso) {
+  if (!pool || !id) return null;
+  try {
+    const { rows } = await pool.query(
+      `UPDATE call_targets SET next_call_at = $2 WHERE id = $1 RETURNING id, next_call_at`,
+      [id, iso || null]);
+    return rows[0] || null;
+  } catch (e) { console.error("[db] setCallTargetNextCall", e.message); return null; }
+}
 
 // リストを作る
 export async function createCallList({ name, owner, note, createdBy }) {

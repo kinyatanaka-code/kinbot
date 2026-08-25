@@ -148,6 +148,7 @@ import {
   clearCallAssign,
   getCallTarget,
   setCallTargetStatus,
+  setCallTargetNextCall,
   updateCallTargetFields,
   addCallTargets,
   listCallLists,
@@ -6394,6 +6395,7 @@ app.get("/api/calls/targets", async (req, res) => {
         履歴数: (sfCount.get(id15(r.lead_id)) || 0) + Number(r["未送信数"] || 0),
         最終結果: r["最終結果"] || "",
         最終日時: r["最終日時"] || null,
+        次回予定: r.next_call_at || null,
         済み: !!r.done,
       })),
     });
@@ -6852,6 +6854,16 @@ app.post("/api/calls/targets/:id/record", async (req, res) => {
         } catch (e) { sf.nextActionNote = "ネクストアクションを作れませんでした：" + String(e.message).slice(0, 80); }
       }
     }
+
+    // kincall側にも「次回の架電予定日時」を残す。かける一覧で、その時刻が来たら上に出す。
+    // 日付（nextAction）＋時間（nextTime "HH:MM"）から、日本時間の日時を作る。
+    let 予定 = null;
+    if (naDate && /^\d{4}-\d{2}-\d{2}$/.test(naDate)) {
+      const hm = String(b.nextTime || "").trim();
+      const t2 = /^\d{1,2}:\d{2}$/.test(hm) ? (hm.length === 4 ? "0" + hm : hm) : "09:00";
+      予定 = `${naDate}T${t2}:00+09:00`;
+    }
+    try { await setCallTargetNextCall(id, 予定); sf.nextCallAt = 予定; } catch {}
 
     res.json({ ok: true, sf });
   } catch (e) { res.status(500).json({ error: e.message }); }
@@ -14146,7 +14158,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-08-26m kincall：追加でも「新しいリストにする」を選べるように戻した（余りを受ける人に既存リストが無い場合のため。かたまり重複作成は修正済みで1つに使い回す）";
+const BUILD_TAG = "2026-08-26n kincall：記録で次回の架電日＋時間を残せるようにし、その時刻が来たら、かける一覧で上に優先表示（予定バッジ付き）するようにした";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",

@@ -101,15 +101,36 @@ function visibleRows() {
       return sortDesc ? -n : n;
     });
   }
-  // アポ獲得済みは、いつも一番下にまとめる（並べ替え・絞り込みのあとで寄せる）
+  // 並びの優先度：
+  //  1) 架電予定の時刻が来たもの（次回予定 <= 今）を、いちばん上に（予定が早い順）
+  //  2) ふつうの未対応
+  //  3) アポ獲得済みは、いつも一番下
+  const now = Date.now();
+  const due = (x) => {
+    const v = x["次回予定"]; if (!v) return 0;
+    const t = new Date(v).getTime();
+    return (!isNaN(t) && t <= now) ? t : 0;
+  };
   const 済 = list.filter((x) => isApoDone(x));
-  const 未 = list.filter((x) => !isApoDone(x));
-  return [...未, ...済];
+  const 未済 = list.filter((x) => !isApoDone(x));
+  const 予定来た = 未済.filter((x) => due(x)).sort((a, b) => due(a) - due(b));
+  const それ以外 = 未済.filter((x) => !due(x));
+  return [...予定来た, ...それ以外, ...済];
 }
 
 // アポ獲得済みかどうか（最終ステータスに「アポ獲得」が入っているか）
 function isApoDone(x) {
   return /アポ獲得/.test(String((x && x["最終ステータス"]) || ""));
+}
+
+// 次回架電の予定時刻が来ているか（来ていれば表示用の文言）
+function nextDueLabel(x) {
+  const v = x && x["次回予定"]; if (!v) return "";
+  const t = new Date(v).getTime(); if (isNaN(t)) return "";
+  const d = new Date(v);
+  const hhmm = `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+  const md = `${d.getMonth() + 1}/${d.getDate()}`;
+  return { due: t <= Date.now(), md, hhmm, iso: v };
 }
 
 // 絞り込みの窓を出す（チェックで選ぶ）
@@ -173,6 +194,7 @@ function render() {
       </tr>` +
     list.map((x, i) => {
       const 済 = isApoDone(x);
+      const 予定 = nextDueLabel(x);
       const 直前未済 = i > 0 && !isApoDone(list[i - 1]);
       const 区切り = (済 && (i === 0 || 直前未済))
         ? `<tr class="kc-apo-sep"><td colspan="11">アポ獲得済み（${list.filter(isApoDone).length}件）</td></tr>`
@@ -181,7 +203,8 @@ function render() {
       <tr data-id="${x.id}" class="${済 ? "kc-apo-done" : ""}">
         <td class="kc-owner">${esc(x["所有者"] || "")}</td>
         <td>${esc(x["ステージ"] || "-")}</td>
-        <td class="kc-co">${esc(x["会社名"] || "")}${済 ? ' <span class="kc-apo-badge">アポ獲得済み</span>' : ""}</td>
+        <td class="kc-co">${esc(x["会社名"] || "")}${済 ? ' <span class="kc-apo-badge">アポ獲得済み</span>' : ""}${
+          予定 ? ` <span class="kc-next-badge${予定.due ? " due" : ""}">${予定.due ? "架電予定 " : "予定 "}${esc(予定.md)} ${esc(予定.hhmm)}</span>` : ""}</td>
         <td>${esc(x["担当者"] || "")}</td>
         <td>${x["電話番号"]
           ? `<a class="kc-tel" href="tel:${esc(telOf(x["電話番号"]))}">${esc(x["電話番号"])}</a>`
@@ -535,6 +558,8 @@ function renderDock() {
     .kc-plan-row:not(.on) .kc-plan-n,.kc-plan-row:not(.on) .kc-plan-list{opacity:.4;}
     .kc-plan-rest{font-size:12px;color:#0d5b47;display:inline-flex;align-items:center;gap:4px;white-space:nowrap;}
     .kc-plan-row:not(.on) .kc-plan-rest{opacity:.4;}
+    .kc-next-badge{display:inline-block;margin-left:6px;padding:1px 8px;border-radius:10px;background:#eef3f1;color:#5b7a6d;font-size:11px;font-weight:700;vertical-align:middle;}
+    .kc-next-badge.due{background:#f0a020;color:#fff;}
   `;
   document.head.appendChild(s);
 })();
@@ -602,7 +627,11 @@ async function openTarget(id, draft, opt) {
         <textarea class="kc-input" id="kcMemo" rows="3" placeholder="担当者は佐藤様・14時以降が良いとのこと"></textarea>
 
         <div class="kc-lb">次回架電日（ネクストアクション・任意）</div>
-        <input type="date" class="kc-input" id="kcNext" />
+        <div style="display:flex;gap:8px;align-items:center">
+          <input type="date" class="kc-input" id="kcNext" style="flex:0 0 auto" />
+          <input type="time" class="kc-input" id="kcNextTime" style="flex:0 0 auto" step="900" />
+          <span class="note">時間まで入れると、その時刻が来たら、かける画面で上に出ます</span>
+        </div>
 
         <div class="kc-modal-foot">
           <button type="button" class="btn" id="kcSave">記録する</button>
@@ -731,6 +760,8 @@ async function openTarget(id, draft, opt) {
           leadStatus: m.el.querySelector("#kcStatus").value,
           // 次回架電日（ネクストアクション日）。SFのリード項目に書く。
           nextAction: (m.el.querySelector("#kcNext") || {}).value || "",
+          // 次回の架電時間（HH:MM）。kincallで予定日時として持ち、時刻が来たら上に出す。
+          nextTime: (m.el.querySelector("#kcNextTime") || {}).value || "",
         }),
       });
       const d = await r.json();
@@ -747,9 +778,10 @@ async function openTarget(id, draft, opt) {
       }
       x["履歴数"] = Number(x["履歴数"] || 0) + 1;
       x["最終ステータス"] = 結果;
+      if (d.sf && d.sf.nextCallAt) x["次回予定"] = d.sf.nextCallAt;
       updateRow(x);
-      // アポ獲得のときは、一覧を描き直して「アポ獲得済み」として下にまとめる
-      if (isApoDone(x)) render();
+      // アポ獲得、または次回予定を入れたときは、一覧を描き直して並びを整える
+      if (isApoDone(x) || (d.sf && d.sf.nextCallAt)) render();
       // 記録しただけでは下に残さない（「—」で最小化したときだけ残す）。
       // もし最小化してあった同じ相手が残っていれば、それは消す。
       dockItems = dockItems.filter((d) => d.id !== id);
