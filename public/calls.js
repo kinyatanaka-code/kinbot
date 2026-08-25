@@ -2134,6 +2134,15 @@ async function loadAnalysis() {
     const 棒 = (n, max) => `<span class="an-bar"><i style="width:${max ? Math.round(n / max * 100) : 0}%"></i></span>`;
 
     // 1人（またはインサイド全体）の分析カードを作る。showDiff=false のときは差の表示を出さない。
+    // 週の見出しを「MM/DD〜MM/DD（月〜金）」にする。渡ってくるのは月曜の日付。
+    const 週ラベル = (monday) => {
+      const m = new Date(String(monday) + "T00:00:00Z");
+      if (isNaN(m.getTime())) return String(monday || "").slice(5).replace("-", "/");
+      const fri = new Date(m.getTime() + 4 * 86400000);
+      const f = (dt) => `${String(dt.getUTCMonth() + 1).padStart(2, "0")}/${String(dt.getUTCDate()).padStart(2, "0")}`;
+      return `${f(m)}〜${f(fri)}`;
+    };
+
     const anCard = (x, showDiff = true, all = false) => {
       const 時最大 = Math.max(1, ...x["時間帯"].map((h) => h["コール"]));
       return `
@@ -2179,7 +2188,7 @@ async function loadAnalysis() {
 
           <div class="an-t">週ごとの動き</div>
           <table class="sh-table an-tb">
-            <tr><th>週</th>${x["週"].map((w) => `<th class="an-n">${w["週"].slice(5).replace("-", "/")}</th>`).join("")}</tr>
+            <tr><th>週</th>${x["週"].map((w) => `<th class="an-n">${週ラベル(w["週"])}</th>`).join("")}</tr>
             <tr><td>コール</td>${x["週"].map((w) => `<td class="an-n">${w["コール"]}</td>`).join("")}</tr>
             <tr><td>接触率</td>${x["週"].map((w) => `<td class="an-n">${w["接触率"]}%</td>`).join("")}</tr>
             <tr><td>アポ</td>${x["週"].map((w) => `<td class="an-n">${w["アポ"]}</td>`).join("")}</tr>
