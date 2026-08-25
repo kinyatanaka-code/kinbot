@@ -152,6 +152,7 @@ function render() {
         <th class="kc-th-h"><button type="button" class="kc-th-b${filt.hist ? " on" : ""}" data-hist="1">履歴${arrow("hist")}</button></th>
         <th class="kc-th-r">記録</th>
         <th class="kc-th-e">編集</th>
+        <th class="kc-th-d">資料送付</th>
       </tr>` +
     list.map((x) => `
       <tr data-id="${x.id}">
@@ -167,6 +168,7 @@ function render() {
         <td><button type="button" class="kc-btn kc-hist" data-id="${x.id}">${x["履歴数"] ? `${x["履歴数"]}件` : "なし"}</button></td>
         <td><button type="button" class="kc-btn kc-rec" data-id="${x.id}">記録</button></td>
         <td><button type="button" class="kc-btn kc-edit" data-id="${x.id}">編集</button></td>
+        <td><button type="button" class="kc-btn kc-doc" data-id="${x.id}">資料送付</button></td>
       </tr>`).join("") + `</table></div>`;
 
   // 見出しの絞り込み・並べ替え
@@ -192,6 +194,8 @@ function render() {
     b.addEventListener("click", () => openTarget(b.dataset.id)));
   box.querySelectorAll(".kc-edit").forEach((b) =>
     b.addEventListener("click", () => openEdit(b.dataset.id)));
+  box.querySelectorAll(".kc-doc").forEach((b) =>
+    b.addEventListener("click", () => openDocSend(b.dataset.id)));
 }
 
 // ───────── 窓（モーダル） ─────────
@@ -750,6 +754,67 @@ function updateRowContact(x) {
   if (td[5]) td[5].textContent = x["メール"] || "";
   tr.classList.add("kc-just");
   setTimeout(() => tr.classList.remove("kc-just"), 1600);
+}
+
+// トラッキング資料を送る。まずプレビューを出して、確認してから送信する。
+async function openDocSend(id) {
+  const x = rows.find((r) => String(r.id) === String(id));
+  const 相手名 = x ? [x["会社名"], x["担当者"]].filter(Boolean).join("　") : "";
+  const m = openModal(`資料送付${相手名 ? "：" + 相手名 : ""}`, `
+    <div class="kc-doc-send">
+      <div id="kcDocLoad" class="note">資料URLを用意しています…</div>
+      <div id="kcDocForm" style="display:none">
+        <div class="kc-lb">宛先（メール）</div>
+        <input type="email" class="kc-input" id="kcDocTo" />
+        <div class="kc-lb">件名</div>
+        <input type="text" class="kc-input" id="kcDocSub" />
+        <div class="kc-lb">本文（この内容で送られます。URLは本文内に入っています）</div>
+        <textarea class="kc-input" id="kcDocBody" rows="10"></textarea>
+        <div class="note" id="kcDocMeta"></div>
+        <div class="kc-modal-foot">
+          <button type="button" class="btn" id="kcDocSend">この内容で送る</button>
+          <span class="rev-status" id="kcDocSt"></span>
+        </div>
+      </div>
+    </div>`, { wide: true });
+
+  try {
+    const r = await fetch(`/api/calls/targets/${encodeURIComponent(id)}/doc/preview`, {
+      method: "POST", headers: { "content-type": "application/json" }, body: "{}",
+    });
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.error || "用意できませんでした");
+    m.el.querySelector("#kcDocLoad").style.display = "none";
+    m.el.querySelector("#kcDocForm").style.display = "";
+    m.el.querySelector("#kcDocTo").value = d.to || "";
+    m.el.querySelector("#kcDocSub").value = d.subject || "";
+    m.el.querySelector("#kcDocBody").value = d.body || "";
+    m.el.querySelector("#kcDocMeta").textContent =
+      `資料：${d.docName || "（既定の資料）"}　／　URL：${d.url || ""}` + (d.warn ? `　⚠${d.warn}` : "");
+  } catch (e) {
+    m.el.querySelector("#kcDocLoad").textContent = "用意できませんでした：" + e.message;
+    return;
+  }
+
+  m.el.querySelector("#kcDocSend").addEventListener("click", async () => {
+    const to = m.el.querySelector("#kcDocTo").value.trim();
+    const subject = m.el.querySelector("#kcDocSub").value.trim();
+    const body = m.el.querySelector("#kcDocBody").value;
+    const st = m.el.querySelector("#kcDocSt");
+    const btn = m.el.querySelector("#kcDocSend");
+    if (!to) { st.textContent = "宛先を入れてください"; return; }
+    btn.disabled = true; st.textContent = "送っています…";
+    try {
+      const r = await fetch(`/api/calls/targets/${encodeURIComponent(id)}/doc/send`, {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ to, subject, body }),
+      });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.error || "送れませんでした");
+      st.textContent = `${d.to} に送りました`;
+      setTimeout(() => m.close(), 1200);
+    } catch (e) { st.textContent = "失敗：" + e.message; btn.disabled = false; }
+  });
 }
 
 // 会社名・担当者名・電話番号・メールアドレスを直す窓。SFのリードにも反映する。

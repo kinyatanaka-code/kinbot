@@ -6338,6 +6338,107 @@ app.post("/api/calls/targets/:id/history/edit", async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+// ===== kincall：かける画面から、トラッキング資料を送る =====
+// 「資料送付」ボタン → プレビューを出す → 確認して送信、の2段。
+
+// 送る前のプレビューを作る。会社向けの資料URLを（無ければ）発行し、
+// 宛先・件名・本文（URL入り）を返す。
+app.post("/api/calls/targets/:id/doc/preview", async (req, res) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    const t = await getCallTarget(id);
+    if (!t) return res.status(404).json({ error: "見つかりません" });
+    const company = String(t.company || "").trim();
+    const person = String(t.person || "").trim();
+    const to = String(t.email || "").trim();
+    const base = String(process.env.PUBLIC_URL || "").replace(/\/+$/, "");
+    if (!base) return res.status(400).json({ error: "資料URLの土台（公開URL）が設定されていません" });
+
+    // 会社向けのトラッキング資料URL（無ければ1つ発行する）
+    let link = null, docName = "";
+    const have = await docLinksForCompany(company, 5).catch(() => []);
+    if (have.length) {
+      link = have[0];
+      docName = fixMojibake(have[0].doc_name || "");
+    } else {
+      const docs = await listDocFiles({ owner: req.user }).catch(() => []);
+      if (!docs.length) return res.status(400).json({ error: "登録されている資料がありません（先に資料を登録してください）" });
+      const wantId = parseInt(req.body?.docId, 10);
+      const doc = docs.find((d) => d.id === wantId) || docs[0];
+      const made = await addDocLinks(doc.id, [{ company, contact: person, email: to }], req.user);
+      link = (made || [])[0];
+      docName = fixMojibake(doc.name || "");
+    }
+    if (!link) return res.status(500).json({ error: "資料URLを発行できませんでした" });
+    const url = `${base}/d/${link.slug}`;
+
+    const 差出人 = await displayNameOf(req.user).catch(() => "");
+    const subject = `資料のご送付（${docName || "ご案内資料"}）`;
+    const body =
+      `${person ? person + "様" : "ご担当者様"}\n\n` +
+      `お世話になっております。${差出人 ? "\n" + 差出人 + "でございます。" : ""}\n\n` +
+      `先ほどお電話にてご案内した資料をお送りいたします。\n` +
+      `下記のURLよりご確認ください。\n\n` +
+      `${url}\n\n` +
+      `ご不明な点がございましたら、お気軽にご連絡ください。\n` +
+      `何卒よろしくお願いいたします。`;
+
+    res.json({
+      ok: true, to, company, person, subject, body, url, docName,
+      warn: to ? "" : "この相手のメールアドレスが登録されていません。宛先を入れてください。",
+    });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// プレビューで確認した内容で、実際にメールを送る（送信者のGmail連携を使う）。
+app.post("/api/calls/targets/:id/doc/send", async (req, res) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    const t = await getCallTarget(id);
+    if (!t) return res.status(404).json({ error: "見つかりません" });
+    const b = req.body || {};
+    const to = String(b.to || t.email || "").trim();
+    const subject = String(b.subject || "").trim();
+    const body = String(b.body || "");
+    if (!to) return res.status(400).json({ error: "宛先（メールアドレス）を入れてください" });
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(to)) return res.status(400).json({ error: "宛先のメールアドレスの形式が正しくありません" });
+    if (!subject || !body) return res.status(400).json({ error: "件名と本文を入れてください" });
+
+    if (!(await gcalConnected(req.user).catch(() => false))) {
+      return res.status(400).json({ error: "あなたのGoogle連携が必要です（設定→連携→Google）" });
+    }
+    try {
+      await gmailSend(req.user, { to, subject, bodyText: body });
+    } catch (e) {
+      return res.status(500).json({ error: e.needScope
+        ? "Gmailの送信権限がありません。設定→連携→Google連携で、連携解除→再連携し、Gmailの項目を許可してください。"
+        : "送信できませんでした：" + String(e.message).slice(0, 120) });
+    }
+
+    // 記録に「資料送付」を残す（履歴に出る）。SFにも活動履歴を残す。
+    const log = await recordCall({
+      targetId: id, leadId: t.lead_id, company: t.company,
+      result: "資料送付", memo: `資料URLを ${to} に送付（件名：${subject}）`, caller: req.user,
+    }).catch(() => null);
+    if (t.lead_id && salesforceConfigured()) {
+      const sfUser = await pickSfUser(req.user);
+      if (await sfConnected(sfUser).catch(() => false)) {
+        const 記録者 = await displayNameOf(req.user).catch(() => req.user);
+        try {
+          const made = await createTask(sfUser, {
+            WhoId: t.lead_id, Subject: "資料送付", Status: "完了", Type: "Email",
+            ActivityDate: jstDate(0),
+            Description: `資料URLを ${to} に送付\n件名：${subject}\n送った人：${記録者}`,
+          });
+          await markCallSynced(log && log.id, { taskId: (made && (made.id || made.Id)) || "done" }).catch(() => {});
+        } catch (e) { await markCallSynced(log && log.id, { error: e.message }).catch(() => {}); }
+      }
+    }
+    console.log(`[kincall] 資料を送付 target=${id} → ${to} by ${req.user}`);
+    res.json({ ok: true, to });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 // ステージ（リード状況）だけを変える。記録はしない。
 // ローカルの call_targets.stage を書き換え、Salesforceのリードの状態にも反映する。
 app.post("/api/calls/targets/:id/stage", async (req, res) => {
@@ -13857,7 +13958,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-08-25c kincall分析：インサイド全体の分析（どこで落ちているか・時間帯・ステージ別・業種別・週推移）を、メンバー別の先頭に出すようにした";
+const BUILD_TAG = "2026-08-25d kincall：かける画面に「資料送付」列を追加。ボタンでトラッキング資料URLを発行し、プレビュー確認のうえGmailで送信・履歴に記録するようにした";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
