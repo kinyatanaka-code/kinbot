@@ -5200,14 +5200,14 @@ app.post("/api/calls/from-csv", async (req, res) => {
     const sq = (v) => String(v || "").replace(/'/g, "\\'");
 
     // クロス商談が既に立ち上がっている会社は、新しくクロスリードを作らない。
-    // 約2ヶ月前後の商談日（CloseDate）で、レコードタイプが「クロス」の商談を持つ会社を集める。
+    // 初回商談日（CloseDate）が 2026-03-01 以降で、レコードタイプが「クロス」の商談を持つ会社を集める。
+    const CROSS_FROM = "2026-03-01";
     const crossOppCompanies = new Set();
     try {
       if (salesforceConfigured() && (await sfConnected(sfUser).catch(() => false))) {
-        const from = jstDate(-30), to = jstDate(120);
         const d = await sfQuery(sfUser,
           `SELECT Id, CloseDate, Account.Name, RecordType.Name FROM Opportunity ` +
-          `WHERE CloseDate >= ${from} AND CloseDate <= ${to} AND RecordType.Name LIKE '%クロス%' LIMIT 2000`);
+          `WHERE CloseDate >= ${CROSS_FROM} AND RecordType.Name LIKE '%クロス%' LIMIT 5000`);
         for (const o of d.records || []) {
           const co = (o.Account && o.Account.Name) || "";
           if (co) crossOppCompanies.add(normCompanyKey(co));
@@ -14025,7 +14025,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-08-25i kincall CSV：約2ヶ月前後の商談日でクロス商談が既にある会社は、新しくクロスリードを立ち上げないようにした（試算に件数表示）";
+const BUILD_TAG = "2026-08-25j kincall CSV：クロス商談の判定を「初回商談日（CloseDate）が2026-03-01以降」に変更。該当会社は新規クロスリードを作らない";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
