@@ -77,6 +77,7 @@ async function loadTable() {
 
 // 絞り込みと並べ替えの状態
 const filt = { stage: new Set(), status: new Set(), hist: "" };
+let hideApo = false;   // アポ獲得済みを隠しているか
 let sortBy = "", sortDesc = false;
 
 // いま出すぶんを決める
@@ -140,14 +141,22 @@ function openFilter(which, btn) {
 
 function render() {
   const box = $("clTable");
-  const list = visibleRows();
+  const fullList = visibleRows();
+  const list = hideApo ? fullList.filter((x) => !isApoDone(x)) : fullList;
   const arrow = (k) => sortBy === k ? (sortDesc ? " ▾" : " ▴") : "";
   const on = (k) => filt[k] && filt[k].size ? " on" : "";
-  if (!list.length) {
+  if (!fullList.length) {
     box.innerHTML = `<div class="empty-state">${rows.length ? "この条件に当てはまるものがありません。" : "リストを選んでください。"}</div>`;
     return;
   }
+  const apoN = fullList.filter(isApoDone).length;
   box.innerHTML =
+    `<div class="kc-summary">かける先 <b>${fullList.length - apoN}</b> 件` +
+    (apoN
+      ? `／<span class="kc-sum-apo">アポ獲得済み <b>${apoN}</b> 件</span>` +
+        `<button type="button" class="kc-sum-btn" id="kcHideApo">${hideApo ? "アポ獲得も表示" : "アポ獲得を隠す"}</button>`
+      : "") +
+    `</div>` +
     `<div class="kc-tablewrap"><table class="kc-table">
       <tr>
         <th class="kc-th-o">現所有者</th>
@@ -211,6 +220,8 @@ function render() {
     b.addEventListener("click", () => openEdit(b.dataset.id)));
   box.querySelectorAll(".kc-doc").forEach((b) =>
     b.addEventListener("click", () => openDocSend(b.dataset.id)));
+  const hideBtn = $("kcHideApo");
+  if (hideBtn) hideBtn.addEventListener("click", () => { hideApo = !hideApo; render(); });
 }
 
 // ───────── 窓（モーダル） ─────────
@@ -508,6 +519,11 @@ function renderDock() {
     .kc-apo-done .kc-co{color:#0d5b47;}
     .kc-apo-sep td{background:#e8f5ef;color:#0d5b47;font-weight:700;font-size:12px;padding:6px 10px;border-top:2px solid #1d9e75;}
     .kc-apo-badge{display:inline-block;margin-left:6px;padding:1px 7px;border-radius:10px;background:#1d9e75;color:#fff;font-size:11px;font-weight:700;vertical-align:middle;}
+    .kc-summary{display:flex;align-items:center;gap:10px;padding:8px 4px;font-size:13px;color:#0d5b47;}
+    .kc-summary b{font-size:15px;}
+    .kc-sum-apo{color:#0b7a5e;}
+    .kc-sum-btn{margin-left:4px;font-size:12px;padding:3px 10px;border:1px solid #1d9e75;border-radius:8px;background:#fff;color:#1d9e75;cursor:pointer;}
+    .kc-sum-btn:hover{background:#eaf5ef;}
   `;
   document.head.appendChild(s);
 })();
