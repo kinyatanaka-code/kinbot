@@ -20,7 +20,7 @@ import { freeBusy, isSlotFree } from "./google.js";
 import {
   getSettings, saveSettings,
   listClosers, markCloserAssigned, markCloserSkipped,
-  countAssignedOnDate, logAssign, clearCloserPriority,
+  countAssignedOnDate, countDistributedOnDate, logAssign, clearCloserPriority,
   listTeams, syncTeamsFromClosers, markTeamAssigned, markTeamsSkipped, clearTeamPriority, setTeamNext,
   teamAssignStats, closerAssignStats, suspendedNow, eligibleDays, listSuspensions,
 } from "./db.js";
@@ -256,14 +256,18 @@ export async function pickCloser(link, { inviteOwner, closers = null, cfg = null
   }
 
   const day = jstDate(startISO);
+  // 割り振りの平等は「配られた日（今日）」で見る。商談の開催日ではない。
+  const balanceDay = jstDate(new Date().toISOString());
 
-  // その日の件数を全員分数えて、少ない人から試す。
+  // その日に割り振られた件数を全員分数えて、少ない人から試す。
+  // 「配られた日」で数えるので、割り振ったのに0件のまま積み増す不具合は起きない。
+  // 自分で取ったアポは平等の計算に入れない（割り振りぶんだけ数える）。
   // 設定で「その日を平らにする」を切っているときは、これまでの順番のまま。
   let order = cands;
   if (conf.dayBalance !== false) {
     const todayCount = {};
     for (const c of cands) {
-      todayCount[String(c.email).toLowerCase()] = await countAssignedOnDate(c.email, day).catch(() => 0);
+      todayCount[String(c.email).toLowerCase()] = await countDistributedOnDate(c.email, balanceDay).catch(() => 0);
     }
     order = orderByToday(cands, todayCount);
     // なぜその人になったかを言えるよう、件数を持たせる

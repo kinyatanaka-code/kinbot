@@ -4199,6 +4199,25 @@ export async function countAssignedOnDate(email, jstDate) {
   } catch { return 0; }
 }
 
+// その日に「割り振られた」件数を数える（自分で取ったアポは含めない）。
+// 割り振りの平等は、商談の開催日（start_time）ではなく“配られた日”で見るのが正しい。
+// これまで start_time で数えていたため、先の日付の商談だと当日の配布数として増えず、
+// 同じ人が「今日0件」のまま何度も積み増される不具合が起きていた。
+export async function countDistributedOnDate(email, jstDate) {
+  if (!pool || !email) return 0;
+  try {
+    const { rows } = await pool.query(
+      `SELECT COUNT(DISTINCT slug)::int AS n FROM assign_log
+        WHERE assigned = $1
+          AND (created_at AT TIME ZONE 'Asia/Tokyo')::date = $2::date
+          AND COALESCE(reason,'') NOT LIKE '%自分で獲得%'
+          AND COALESCE(reason,'') NOT LIKE '%割り振りなし%'`,
+      [email, jstDate]
+    );
+    return rows[0] ? rows[0].n : 0;
+  } catch { return 0; }
+}
+
 // テストで作ったアポを、集計から外す／戻す
 // 複数のアポを、まとめて集計から外す／戻す
 // 同じカレンダー予定から作られた重複を片付ける。
