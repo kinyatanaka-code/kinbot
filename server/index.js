@@ -758,6 +758,16 @@ app.post("/api/logout", (req, res) => {
   clearSessionCookie(res);
   res.json({ ok: true });
 });
+// そのユーザーがクローザーか（リスト追加・確認・そうじの権限判定に使う）
+async function isCloserUser(email) {
+  try {
+    const members = await listMembers().catch(() => []);
+    return (members || []).some((m) =>
+      Array.isArray(m.roles) && m.roles.includes("closer") &&
+      String(m.email || "").toLowerCase() === String(email || "").toLowerCase());
+  } catch { return false; }
+}
+
 app.get("/api/me", async (req, res) => {
   let name = "";
   try {
@@ -6041,7 +6051,7 @@ app.delete("/api/calls/lists/:id", async (req, res) => {
 // まず dryRun:true で件数を確認してから、dryRun:false で消す。
 app.post("/api/calls/lists/cleanup", async (req, res) => {
   try {
-    if (!req.isAdmin) return res.status(403).json({ error: "管理者だけが使えます" });
+    if (!req.isAdmin && !(await isCloserUser(req.user))) return res.status(403).json({ error: "クローザー・管理者だけが使えます" });
     const b = req.body || {};
     const nameLike = String(b.nameLike || "").trim();
     if (!nameLike) return res.status(400).json({ error: "消す目印（名前の一部）を入れてください" });
@@ -6065,7 +6075,7 @@ app.post("/api/calls/lists/cleanup", async (req, res) => {
 // 「消えた」ように見えるリストが、実はDBに残っていないかを確認するために使う。
 app.get("/api/calls/lists/all", async (req, res) => {
   try {
-    if (!req.isAdmin) return res.status(403).json({ error: "管理者だけが使えます" });
+    if (!req.isAdmin && !(await isCloserUser(req.user))) return res.status(403).json({ error: "クローザー・管理者だけが使えます" });
     const like = String(req.query.nameLike || "").trim();
     const all = await findListsByNameSince(like || "%", 60 * 24 * 3650).catch(() => []);
     // findListsByNameSince は「名前の一部」で絞るので、空なら全部見えるように "%" を渡している
@@ -14135,7 +14145,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-08-26i kincall：全リストを確認できる管理者用の口を追加（消えたように見えるリストがDBに残っていないか調べる用）";
+const BUILD_TAG = "2026-08-26j kincall：全リスト確認・一括そうじの口を、管理者だけでなくクローザーでも使えるようにした";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
