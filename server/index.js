@@ -5160,7 +5160,8 @@ app.post("/api/calls/from-csv", async (req, res) => {
           company, person: String(r.person || "").trim() || "担当者", phone: String(r.phone || "").trim(),
           email: String(r.email || "").trim(),
           leadId: "", 状態: "リストに追加", リード種別: "（SFなし）",
-          ステータス, ステージ: String(r.stage || "").trim(), コメント, 履歴: "",
+          ステータス, ステージ: String(r.stage || "").trim(), コメント,
+          まとめ: String(r.history || "").trim(), 履歴: "",
         });
       }
       if (dryRun) {
@@ -5182,7 +5183,7 @@ app.post("/api/calls/from-csv", async (req, res) => {
       if (分ける人2.length && 既存2) { try { 開始2 = (await listCallTargets(既存2, { limit: 5000 })).length; } catch {} }
       const 入れるリスト2 = 入れられる.map((x, i) => ({
         company: x.company, person: x.person, phone: x.phone, email: x.email,
-        status: x.ステータス, stage: x.ステージ, memo: x.コメント,
+        status: x.ステータス, stage: x.ステージ, memo: x.まとめ || x.コメント,
         ...(分ける人2.length ? { assignedTo: 分ける人2[(開始2 + i) % 分ける人2.length] } : {}),
       }));
       const n2 = await addCallTargets(list2.id, 入れるリスト2, { dedupe: true });
@@ -5266,8 +5267,10 @@ app.post("/api/calls/from-csv", async (req, res) => {
           結果.push({ company, 状態: "作れなかった", 理由: e.message }); continue;
         }
       } else if (dryRun) {
+        const まとめ = String(r.history || "").trim();
         結果.push({ company, person: person || "担当者", leadId, 状態, リード種別,
           架電日: ymdOf(r.callDate), 履歴: ymdOf(r.callDate) ? "履歴を残す（予定）" : "",
+          まとめ, まとめ履歴: まとめ ? "まとめて残す（予定）" : "",
           ...振り分け(r) });
         continue;
       }
@@ -13997,7 +14000,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-08-25e kincall CSV：「コール結果1〜N：結果/コメント」形式に対応。G列までは従来どおりSF更新、H列以降は新しい順に1件へまとめて活動履歴・メモに残す";
+const BUILD_TAG = "2026-08-25f kincall CSV：試算の明細に「まとめ（H列以降・新しい順）」列を追加し、H列の履歴が入っているか取り込み前に確認できるようにした";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
