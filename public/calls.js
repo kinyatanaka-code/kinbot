@@ -1719,7 +1719,23 @@ function csvParse(text) {
     });
     callCols.sort((a, b) => b.n - a.n);   // 大きい番号（新しい）を上にする
   }
+  // 「最終活動コメント」列より後ろで、見出しが空の列は「続きのコメント欄」とみなし、
+  // すべて最終活動コメントにまとめる（コール結果のように見出しのある列は対象外）。
+  const commentTail = [];
+  if (見出しっぽい && 場所.comment >= 0) {
+    for (let idx = 場所.comment + 1; idx < head.length; idx++) {
+      if (String(head[idx] || "").trim() === "") commentTail.push(idx);
+    }
+  }
   const 取る = (c, i) => (i >= 0 && i < c.length ? c[i] : "");
+  // 最終活動コメント＋その後ろの続き欄を、1つのコメントにまとめる
+  const コメントまとめ = (c) => {
+    const parts = [];
+    const 主 = 取る(c, 場所.comment).trim();
+    if (主) parts.push(主);
+    for (const idx of commentTail) { const v = 取る(c, idx).trim(); if (v) parts.push(v); }
+    return parts.join("\n");
+  };
   // その行のコール結果1〜Nを、新しい順にまとめた1つの文字列にする
   const まとめる = (c) => {
     const parts = [];
@@ -1745,8 +1761,8 @@ function csvParse(text) {
       callDate: 取る(c, 場所.callDate),
       status: 取る(c, 場所.status),
       stage: 取る(c, 場所.stage),
-      comment: 取る(c, 場所.comment),
-      history: まとめる(c),   // H以降のコール結果を、新しい順にまとめたもの
+      comment: コメントまとめ(c),   // 最終活動コメント＋その後ろの続き欄をまとめたもの
+      history: まとめる(c),         // 「コール結果1〜N」形式のときの、新しい順のまとめ
     });
   }
   return out;
