@@ -4131,6 +4131,36 @@ async function buildCallReport(sfUser) {
     else rows.set(who, { name: who, calls: 0, contacts: 0, apos: n });
   }
 
+  // インターン生は、SF上では代理（中澤さんなど）名義で活動が入るため、
+  // SFレポートには本人名で出てこない。kincall自身の記録から、本人名で足す。
+  try {
+    const interns = await listInterns().catch(() => []);
+    if (interns.length) {
+      const stats = await callStats(today).catch(() => []);   // [{caller(メール), result, n}]
+      const 接触判定 = (v) => /接触|アポ|再コール|断り|見送り/.test(v) && !/不在|コールのみ|NG/.test(v);
+      const アポ判定 = (v) => /アポ獲得/.test(v);
+      const byEmail = new Map();
+      for (const s of stats || []) {
+        const em = String(s.caller || "").toLowerCase();
+        if (!em) continue;
+        const o = byEmail.get(em) || { calls: 0, contacts: 0, apos: 0 };
+        o.calls += s.n;
+        if (接触判定(s.result)) o.contacts += s.n;
+        if (アポ判定(s.result)) o.apos += s.n;
+        byEmail.set(em, o);
+      }
+      for (const it of interns) {
+        const em = String(it.email || "").toLowerCase();
+        const o = byEmail.get(em);
+        if (!o || !o.calls) continue;
+        const name = it.name || em;
+        const hit = [...rows.keys()].find((k) => k.replace(/[\s　]/g, "") === name.replace(/[\s　]/g, ""));
+        if (hit) rows.set(hit, { name: rows.get(hit).name, calls: o.calls, contacts: o.contacts, apos: o.apos });
+        else rows.set(name, { name, calls: o.calls, contacts: o.contacts, apos: o.apos });
+      }
+    }
+  } catch (e) { console.warn("[call-report] インターン分の取り込みに失敗:", e.message); }
+
   const list = [...rows.values()].sort((a, b) => b.calls - a.calls);
   const sum = list.reduce((o, x) => ({
     calls: o.calls + x.calls, contacts: o.contacts + x.contacts, apos: o.apos + x.apos,
@@ -13736,7 +13766,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-08-24l ログイン：goldfly32@gmail.com はドメイン制限の例外として登録・ログインできるようにした";
+const BUILD_TAG = "2026-08-24m コール進捗：インターン生は、kincallの架電結果を本人名で集計に反映するようにした（SFでは代理名義になり出てこないため）";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
