@@ -5225,6 +5225,16 @@ app.post("/api/calls/from-csv", async (req, res) => {
       const email = String(r.email || "").trim();
       if (!company) { 結果.push({ company, 状態: "とばした", 理由: "会社名がありません" }); continue; }
 
+      // クロス商談（初回商談日2026-03-01以降）が既にある会社は、アポ獲得済み扱い。
+      // リードの検索・作成もせず、リストにも入れない。見つかったことは明細に出す。
+      if (crossOppCompanies.has(normCompanyKey(company))) {
+        結果.push({ company, person: person || "担当者", phone,
+          状態: "クロス商談あり（アポ獲得済み）",
+          リード種別: "クロス商談あり", クロス商談: true,
+          架電日: ymdOf(r.callDate), ...振り分け(r) });
+        continue;
+      }
+
       // 1) リードIDがCSVにあればそれを使う。無ければ会社名で探す。
       let leadId = String(r.leadId || "").trim();
       let 状態 = "";
@@ -5256,14 +5266,6 @@ app.post("/api/calls/from-csv", async (req, res) => {
 
       // 2) 無ければ新しく作る
       if (!leadId) {
-        // クロス商談が既にある会社は、クロスリードを立ち上げない（アポ獲得済み扱い・リストにも入れない）
-        if (crossOppCompanies.has(normCompanyKey(company))) {
-          結果.push({ company, person: person || "担当者", phone,
-            状態: "クロス商談あり（クロスリードは作らない）",
-            リード種別: "クロス商談あり", 架電日: ymdOf(r.callDate),
-            ...振り分け(r) });
-          continue;
-        }
         if (dryRun) {
           結果.push({ company, person: person || "担当者", phone,
             状態: リード種別 && !/クロス|IDで指定/.test(リード種別)
@@ -14025,7 +14027,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-08-25k kincall CSV：最終活動コメント列より後ろの見出しなしの続き欄を、すべて最終活動コメントにまとめて読み取るようにした";
+const BUILD_TAG = "2026-08-25l kincall CSV：クロス商談あり（2026-03-01以降）を、既存リードが見つかった会社も含め全行で判定し、試算の明細に表示（アポ獲得済み扱いでリストには入れない）";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",

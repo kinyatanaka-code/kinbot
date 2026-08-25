@@ -1824,7 +1824,7 @@ async function csvSend(dryRun) {
       // 途中経過も出しておく
       if (out) {
         out.innerHTML = '<table class="sh-table"><tr><th>会社名</th><th>担当者</th><th>現所有者</th><th>リード</th><th>架電日</th><th>最終ステータス</th><th>コメント（G列）</th><th>まとめ（H列以降・新しい順）</th><th>状態</th></tr>' +
-          meisai.slice(0, 300).map((x) => `<tr><td>${esc(x.company || "")}</td><td>${esc(x.person || "")}</td>` +
+          meisai.slice(0, 300).map((x) => `<tr${x["クロス商談"] || String(x["状態"] || "").includes("クロス商談あり") ? ' style="background:#f2f8f5"' : ""}><td>${esc(x.company || "")}</td><td>${esc(x.person || "")}</td>` +
             `<td>${esc(x["所有者"] || "")}</td>` +
             `<td>${esc(x["リード種別"] || "-")}</td>` +
             `<td>${esc(x["架電日"] || "")}</td>` +
