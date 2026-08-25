@@ -1850,7 +1850,7 @@ async function csvSend(dryRun) {
   const usePlan = plan.length && plan.some((p) => p.count > 0 || p.listId);
   if (csvAddMode) {
     if (!plan.length) { say("追加する人を選んでください"); return; }
-    if (plan.some((p) => !p.listId && !p.newList)) { say("選んだ人それぞれの追加先を選んでください（既存リスト、または「新しいリストにする」）"); return; }
+    if (plan.some((p) => !p.listId)) { say("選んだ人それぞれの追加先リスト（既存）を選んでください。追加では新しいリストは作りません。"); return; }
   }
   if (usePlan) applyPlanToRows(rows, plan);
 
@@ -1877,6 +1877,7 @@ async function csvSend(dryRun) {
           name: ($("csvName") && $("csvName").value.trim()) || "",
           rows: part, dryRun: !!dryRun,
           share: csvShareSelected(),
+          ...(csvAddMode ? { addMode: true } : {}),
           ...(($("csvListOnly") && $("csvListOnly").checked) ? { listOnly: true } : {}),
           ...(listId ? { listId } : {}),
         }),
@@ -2009,8 +2010,12 @@ async function csvFillShare() {
           try {
             const dd = await (await fetch("/api/calls/lists?member=" + encodeURIComponent(row.dataset.email))).json();
             const lists = (dd && dd.items) || [];
-            sel.innerHTML = `<option value="">追加先を選ぶ…</option><option value="new">新しいリストにする</option>` +
-              lists.map((l) => `<option value="${l.id}">${esc(l.name)}（${l["全部"]}件）</option>`).join("");
+            // 追加のときは「新しいリストにする」は出さない（追加は既存リストへ入れるだけ）。
+            const 新規可 = !(csvAddMode || (appendTarget && appendTarget.id));
+            sel.innerHTML = `<option value="">追加先を選ぶ…</option>` +
+              (新規可 ? `<option value="new">新しいリストにする</option>` : "") +
+              lists.map((l) => `<option value="${l.id}">${esc(l.name)}（${l["全部"]}件）</option>`).join("") +
+              (lists.length ? "" : (新規可 ? "" : `<option value="" disabled>このメンバーのリストがありません</option>`));
           } catch { sel.innerHTML = `<option value="">読み込めませんでした</option>`; }
         }
         csvShareRefresh();
