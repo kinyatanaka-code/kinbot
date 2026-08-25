@@ -223,6 +223,7 @@ function openModal(title, inner, opts = {}) {
 // これまでのやり取りを、指定した箱の中に描く（記録の窓の左側で使う）
 async function renderHistoryInto(box, id) {
   if (!box) return;
+  box._targetId = id;
   try {
     const d = await (await fetch(`/api/calls/targets/${encodeURIComponent(id)}/history`)).json();
     if (d.error) throw new Error(d.error);
@@ -230,14 +231,17 @@ async function renderHistoryInto(box, id) {
     box.innerHTML =
       (d.note ? `<div class="note">${esc(d.note)}</div>` : "") +
       (items.length
-        ? items.map((h) => `
-            <div class="kc-hist-row">
+        ? items.map((h, i) => `
+            <div class="kc-hist-row" data-hi="${i}"
+                 data-task="${esc(h.taskId || "")}" data-log="${esc(h.logId || "")}"
+                 data-result="${esc(h["結果"] || "")}" data-memo="${esc(h["メモ"] || "")}">
               <div class="kc-hist-top">
                 <span class="kc-hist-at">${esc(h["日付のみ"] ? String(when(h.at)).replace(/\s*\d{1,2}:\d{2}$/, "") : when(h.at))}</span>
                 <span class="kc-hist-r">${esc(h["件名"] || h["結果"] || "")}</span>
                 ${h["件名"] && h["結果"] ? `<span class="kc-hist-res">${esc(h["結果"])}</span>` : ""}
                 <span class="kc-hist-who">${esc(h["誰"] || "")}</span>
                 ${h["元"] === "salesforce" ? '<span class="kc-hist-sf">SF</span>' : ""}
+                ${h["直せる"] ? '<button type="button" class="kc-hist-edit" data-hedit="1">直す</button>' : ""}
               </div>
               ${h["メモ"] ? `<div class="kc-hist-m">${esc(h["メモ"])}</div>` : ""}
             </div>`).join("")
@@ -246,6 +250,61 @@ async function renderHistoryInto(box, id) {
     box.innerHTML = `<div class="note">読み込めませんでした：${esc(e.message)}</div>`;
   }
 }
+
+// 履歴の「直す」を押したら、その行を編集フォームに差し替える
+document.addEventListener("click", async (ev) => {
+  const t = ev.target;
+  if (!t || !t.closest) return;
+  const editBtn = t.closest(".kc-hist-edit");
+  if (editBtn) {
+    const row = editBtn.closest(".kc-hist-row");
+    const box = row.closest("#kcHist") || row.parentElement;
+    const id = box && box._targetId;
+    const taskId = row.getAttribute("data-task") || "";
+    const logId = row.getAttribute("data-log") || "";
+    const result = row.getAttribute("data-result") || "";
+    const memo = row.getAttribute("data-memo") || "";
+    row.innerHTML = `
+      <div class="kc-lb">結果</div>
+      <select class="kc-input kc-he-result">
+        <option value="">（変えない）</option>
+        ${結果の選択肢.map((k) => `<option value="${esc(k)}"${k === result ? " selected" : ""}>${esc(k)}</option>`).join("")}
+      </select>
+      <div class="kc-lb">メモ</div>
+      <textarea class="kc-input kc-he-memo" rows="3">${esc(memo)}</textarea>
+      <div class="kc-modal-foot">
+        <button type="button" class="btn kc-he-save">直す</button>
+        <button type="button" class="btn ghost kc-he-cancel">やめる</button>
+        <span class="rev-status kc-he-st"></span>
+      </div>`;
+    row._ctx = { id, taskId, logId };
+    return;
+  }
+  if (t.closest(".kc-he-cancel")) {
+    const box = t.closest("#kcHist");
+    if (box && box._targetId) renderHistoryInto(box, box._targetId);
+    return;
+  }
+  if (t.closest(".kc-he-save")) {
+    const row = t.closest(".kc-hist-row");
+    const box = t.closest("#kcHist");
+    const ctx = (row && row._ctx) || {};
+    const result = (row.querySelector(".kc-he-result") || {}).value || "";
+    const memo = (row.querySelector(".kc-he-memo") || {}).value || "";
+    const st = row.querySelector(".kc-he-st");
+    if (st) st.textContent = "直しています…";
+    try {
+      const r = await fetch(`/api/calls/targets/${encodeURIComponent(ctx.id)}/history/edit`, {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ taskId: ctx.taskId || undefined, logId: ctx.logId || undefined, result, memo }),
+      });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.error || "直せませんでした");
+      if (box && box._targetId) renderHistoryInto(box, box._targetId);
+    } catch (e) { if (st) st.textContent = "失敗：" + e.message; }
+    return;
+  }
+});
 
 // ───────── ページ下部に溜まる記録カード（連続架電向き・リロードまで残る） ─────────
 let dockItems = [];
@@ -476,6 +535,9 @@ function renderDock() {
     .kc-g-rate td{color:#0F6E56;background:#f6fbf9;font-variant-numeric:tabular-nums;}
     .kc-g-rate .kc-g-name{color:#0F6E56;}
     .kc-g-rate.kc-g-rate-top td{border-top:2px solid #d6efe2;}
+    .kc-hist-edit{margin-left:auto;background:none;border:0;color:#1d9e75;font-size:11px;cursor:pointer;padding:0 2px;text-decoration:underline;}
+    .kc-hist-edit:hover{color:#0b7a5e;}
+    .kc-stage-only{margin-left:8px;font-size:12px;padding:4px 10px;}
   `;
   document.head.appendChild(s);
 })();
@@ -527,6 +589,8 @@ async function openTarget(id, draft, opt) {
                    ${状態の選択肢.map((v) => `<option value="${esc(v.value)}">${esc(v.label)}</option>`).join("")}
                  </select>`
               : `<input type="text" class="kc-input kc-stage-sel" id="kcStatus" placeholder="変えるときだけ" />`}
+            <button type="button" class="btn ghost kc-stage-only" id="kcStageOnly">ステージだけ変える</button>
+            <span class="rev-status" id="kcStageSt"></span>
           </div>
         </div>
         ${x.leadId ? "" : `<div class="note cc-warn">この相手はSalesforceのリードと結びついていないため、活動履歴は残りません。</div>`}
@@ -565,6 +629,31 @@ async function openTarget(id, draft, opt) {
 
   // 左側にこれまでのやり取りを読み込む
   renderHistoryInto(m.el.querySelector("#kcHist"), id);
+
+  // 「ステージだけ変える」：記録はせず、ステージ（リード状況）だけを変えてSFにも反映
+  const stageOnly = m.el.querySelector("#kcStageOnly");
+  if (stageOnly) stageOnly.addEventListener("click", async () => {
+    const sel = m.el.querySelector("#kcStatus");
+    const val = sel ? sel.value : "";
+    if (!val) { say("kcStageSt", "変えるステージを選んでください", 4000); return; }
+    stageOnly.disabled = true;
+    say("kcStageSt", "変えています…");
+    try {
+      const r = await fetch(`/api/calls/targets/${encodeURIComponent(id)}/stage`, {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ stage: val }),
+      });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.error || "変えられませんでした");
+      const lb = sel.tagName === "SELECT" ? (sel.options[sel.selectedIndex] || {}).textContent : val;
+      const now = m.el.querySelector(".kc-stage-now"); if (now) now.textContent = lb || val;
+      x["ステージ"] = val;
+      const rowCell = document.querySelector(`tr[data-id="${id}"] td:nth-child(2)`);
+      if (rowCell) rowCell.textContent = lb || val;
+      say("kcStageSt", d.sf && d.sf.ok ? "変えました（SFにも反映）" : `変えました${d.sf && d.sf.reason ? `（SFは未反映：${d.sf.reason}）` : ""}`, 6000);
+    } catch (e) { say("kcStageSt", "失敗：" + e.message, 6000); }
+    finally { stageOnly.disabled = false; }
+  });
 
   // 下書きがあれば復元する
   if (draft) {

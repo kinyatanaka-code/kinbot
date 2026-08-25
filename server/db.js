@@ -3431,6 +3431,30 @@ export async function recordCall({ targetId, leadId, company, result, memo, call
   } catch (e) { console.error("[db] recordCall", e.message); return null; }
 }
 
+// 1件の架電記録（ログ）を取る
+export async function getCallLog(logId) {
+  if (!pool || !logId) return null;
+  try {
+    const { rows } = await pool.query(`SELECT * FROM call_logs WHERE id = $1`, [logId]);
+    return rows[0] || null;
+  } catch { return null; }
+}
+
+// 架電記録（ログ）の結果・メモを直す
+export async function updateCallLog(logId, { result, memo } = {}) {
+  if (!pool || !logId) return null;
+  try {
+    const { rows } = await pool.query(
+      `UPDATE call_logs
+          SET result = COALESCE($2, result),
+              memo   = COALESCE($3, memo)
+        WHERE id = $1 RETURNING *`,
+      [logId, result === undefined ? null : String(result),
+       memo === undefined ? null : String(memo).slice(0, 1000)]);
+    return rows[0] || null;
+  } catch (e) { console.error("[db] updateCallLog", e.message); return null; }
+}
+
 // Salesforceへ送れた／送れなかったを記録する
 export async function markCallSynced(logId, { taskId, error } = {}) {
   if (!pool || !logId) return null;

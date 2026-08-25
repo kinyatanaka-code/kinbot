@@ -152,6 +152,7 @@ import {
   nextCallTarget,
   callHistory,
   recordCall,
+  updateCallLog,
   markCallSynced,
   pendingCallLogs,
   callStats,
@@ -6223,8 +6224,9 @@ app.get("/api/calls/targets/:id/history", async (req, res) => {
     const items = rows
       .filter((h) => !h.sf_task_id)   // SFへ残せたものは、SF側から出す
       .map((h) => ({
+        logId: h.id, sfTaskId: h.sf_task_id || "",
         結果: h.result, メモ: h.memo || "", 誰: h.caller || "", at: h.at,
-        元: "kinbot", まだ送れていない: true,
+        元: "kinbot", まだ送れていない: true, 直せる: true,
       }));
 
     // Salesforceに残っている架電の履歴も混ぜる（過去のやり取りはSFにある）
@@ -6257,6 +6259,7 @@ app.get("/api/calls/targets/:id/history", async (req, res) => {
             if (m1) 結果 = m1[1].trim().slice(0, 40);
           }
           items.push({
+            taskId: a.Id || "", 直せる: !!a.Id,
             件名: String(a.Subject || "").replace(/^コール：/, "") || "活動",
             結果,
             メモ: desc.slice(0, 500),
@@ -6285,6 +6288,80 @@ app.get("/api/calls/targets/:id/history", async (req, res) => {
       note: sfNote,
       items,
     });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// 架電履歴の1件を直す（結果・メモ）。
+//  ・SFの活動（taskId あり）… SalesforceのTaskの件名・説明を書き換える
+//  ・kinbotの記録（logId あり）… kinbot側のログを書き換える
+app.post("/api/calls/targets/:id/history/edit", async (req, res) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    const t = await getCallTarget(id);
+    if (!t) return res.status(404).json({ error: "見つかりません" });
+    const b = req.body || {};
+    const result = String(b.result || "").trim();
+    const memo = String(b.memo || "");
+    if (!result && !memo) return res.status(400).json({ error: "結果かメモを入れてください" });
+
+    const 記録者 = await displayNameOf(req.user).catch(() => req.user);
+
+    // SFの活動を直す
+    if (b.taskId) {
+      const sfUser = await pickSfUser(req.user);
+      if (!salesforceConfigured() || !(await sfConnected(sfUser).catch(() => false))) {
+        return res.status(400).json({ error: "Salesforceにつながっていません" });
+      }
+      const desc = [
+        result ? `結果：${result}` : "",
+        memo ? `メモ：${memo}` : "",
+        `修正：${記録者}（kincallから）`,
+      ].filter(Boolean).join("\n");
+      const fields = { Description: desc };
+      if (result) fields.Subject = `コール：${result}`;
+      try {
+        await updateTask(sfUser, String(b.taskId), fields);
+      } catch (e) { return res.status(500).json({ error: "Salesforceの活動を直せませんでした：" + String(e.message).slice(0, 120) }); }
+      console.log(`[kincall] 履歴（SF活動 ${b.taskId}）を直しました by ${req.user}`);
+      return res.json({ ok: true, 元: "salesforce" });
+    }
+
+    // kinbotの記録を直す
+    if (b.logId) {
+      const saved = await updateCallLog(parseInt(b.logId, 10), { result: result || undefined, memo });
+      if (!saved) return res.status(500).json({ error: "記録を直せませんでした" });
+      console.log(`[kincall] 履歴（kinbotログ ${b.logId}）を直しました by ${req.user}`);
+      return res.json({ ok: true, 元: "kinbot" });
+    }
+
+    return res.status(400).json({ error: "直す対象が分かりません" });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// ステージ（リード状況）だけを変える。記録はしない。
+// ローカルの call_targets.stage を書き換え、Salesforceのリードの状態にも反映する。
+app.post("/api/calls/targets/:id/stage", async (req, res) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    const t = await getCallTarget(id);
+    if (!t) return res.status(404).json({ error: "見つかりません" });
+    const stage = String((req.body && req.body.stage) || "").trim();
+    if (!stage) return res.status(400).json({ error: "ステージを選んでください" });
+
+    await setCallTargetStatus(id, { stage }).catch(() => {});
+
+    let sf = { ok: false, reason: "" };
+    if (t.lead_id && salesforceConfigured()) {
+      const sfUser = await pickSfUser(req.user);
+      if (await sfConnected(sfUser).catch(() => false)) {
+        try { await updateLead(sfUser, t.lead_id, { Status: stage }); sf = { ok: true }; }
+        catch (e) { sf = { ok: false, reason: String(e.message).slice(0, 120) }; }
+      } else { sf = { ok: false, reason: "Salesforceにつながっていません" }; }
+    } else if (!t.lead_id) {
+      sf = { ok: false, reason: "この相手はSalesforceのリードと結びついていません" };
+    }
+    console.log(`[kincall] ステージを「${stage}」に変更 target=${id}（SF：${sf.ok ? "反映" : sf.reason}） by ${req.user}`);
+    res.json({ ok: true, stage, sf });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
@@ -13766,7 +13843,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-08-24n アポ割り振り：当日の平準化を「その日に割り振られた件数」で数えるよう修正（商談開催日で数えて0件のまま積み増す不具合を解消。自分で取ったアポは除外）";
+const BUILD_TAG = "2026-08-25a kincall：架電履歴の1件を直せる（結果・メモ／SF活動・kinbot記録とも）ようにし、記録せずステージだけ変えられるようにした";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
