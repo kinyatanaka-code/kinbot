@@ -6061,6 +6061,21 @@ app.post("/api/calls/lists/cleanup", async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+// 調べる用：すべてのリストを、持ち主・絞り込みに関係なく出す（管理者のみ）。
+// 「消えた」ように見えるリストが、実はDBに残っていないかを確認するために使う。
+app.get("/api/calls/lists/all", async (req, res) => {
+  try {
+    if (!req.isAdmin) return res.status(403).json({ error: "管理者だけが使えます" });
+    const like = String(req.query.nameLike || "").trim();
+    const all = await findListsByNameSince(like || "%", 60 * 24 * 3650).catch(() => []);
+    // findListsByNameSince は「名前の一部」で絞るので、空なら全部見えるように "%" を渡している
+    res.json({
+      ok: true, 件数: all.length,
+      items: all.map((x) => ({ id: x.id, name: x.name, 持ち主: x.owner || "", 件数: Number(x["件数"] || 0), 作成: x.created_at })),
+    });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 // リスト管理に出すメンバーの並び（チーム共通。消した人・足した人を覚えておく）
 app.get("/api/calls/member-view", async (req, res) => {
   try {
@@ -14120,7 +14135,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-08-26h kincall：かたまり取り込みで「新しいリスト」が重複作成される不具合を修正（同名・同持ち主の直近リストを使い回す）。増えすぎたリストを名前＋直近で一括削除する管理者用そうじ口を追加";
+const BUILD_TAG = "2026-08-26i kincall：全リストを確認できる管理者用の口を追加（消えたように見えるリストがDBに残っていないか調べる用）";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
