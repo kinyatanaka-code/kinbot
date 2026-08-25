@@ -3189,7 +3189,7 @@ export async function listCallLists({ owner = "", includeClosed = false, ownerOn
          FROM call_lists l
         WHERE ${scope}
           AND ($2 OR NOT l.closed)
-        ORDER BY l.created_at DESC LIMIT 50`,
+        ORDER BY l.created_at DESC LIMIT 200`,
       [String(owner || "").toLowerCase(), !!includeClosed]);
     return rows;
   } catch (e) { console.error("[db] listCallLists", e.message); return []; }
