@@ -140,6 +140,8 @@ import {
   deleteCallTargets,
   countCallTargets,
   deleteCallList,
+  findListsByNameSince,
+  findRecentListByNameOwner,
   renameCallList,
   callListFacets,
   callAssignCounts,
@@ -5473,11 +5475,14 @@ app.post("/api/calls/from-csv", async (req, res) => {
       newListFor: x.newListFor || "",
     }));
 
-    // 「新しいリストにする」を選んだメンバーぶん、その人のリストを新規作成して振り分ける
+    // 「新しいリストにする」を選んだメンバーぶん、その人のリストを1つ作って振り分ける。
+    // かたまり（chunk）ごとに毎回作らないよう、同じ名前・持ち主の直近のリストがあれば使い回す。
     try {
       const newFor = [...new Set(入れるリスト.filter((x) => x.newListFor).map((x) => x.newListFor))];
       for (const em of newFor) {
-        const nl = await createCallList({ name: `${name} - ${em}`, owner: em, createdBy: req.user });
+        const nlName = `${name} - ${em}`;
+        let nl = await findRecentListByNameOwner(nlName, em).catch(() => null);
+        if (!nl) nl = await createCallList({ name: nlName, owner: em, createdBy: req.user });
         if (nl) for (const x of 入れるリスト) if (x.newListFor === em) x._targetList = nl.id;
       }
     } catch (e) { console.warn("[kincall] 新しいリスト作成に失敗:", e.message); }
@@ -6029,6 +6034,30 @@ app.delete("/api/calls/lists/:id", async (req, res) => {
     if (!ok) return res.status(500).json({ error: "消せませんでした" });
     console.log(`[kincall] リスト${id}を消しました by ${req.user}`);
     res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// 一括そうじ：名前の一部＋直近の作成で、増えすぎたリストをまとめて消す（管理者のみ）。
+// まず dryRun:true で件数を確認してから、dryRun:false で消す。
+app.post("/api/calls/lists/cleanup", async (req, res) => {
+  try {
+    if (!req.isAdmin) return res.status(403).json({ error: "管理者だけが使えます" });
+    const b = req.body || {};
+    const nameLike = String(b.nameLike || "").trim();
+    if (!nameLike) return res.status(400).json({ error: "消す目印（名前の一部）を入れてください" });
+    const sinceMinutes = Math.max(1, parseInt(b.sinceMinutes, 10) || 180);
+    const 対象 = await findListsByNameSince(nameLike, sinceMinutes);
+    if (b.dryRun) {
+      return res.json({
+        ok: true, dryRun: true, 件数: 対象.length,
+        合計リード: 対象.reduce((a, x) => a + Number(x["件数"] || 0), 0),
+        例: 対象.slice(0, 10).map((x) => ({ id: x.id, name: x.name, 件数: Number(x["件数"] || 0), 作成: x.created_at })),
+      });
+    }
+    let 消した = 0;
+    for (const x of 対象) { if (await deleteCallList(x.id)) 消した++; }
+    console.log(`[kincall] 一括そうじ：「${nameLike}」を含む直近${sinceMinutes}分のリスト ${消した}件を消しました by ${req.user}`);
+    res.json({ ok: true, 消した, 合計: 対象.length });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
@@ -14091,7 +14120,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-08-26g kincall CSV追加：メンバーごとに「kincallのみ（SF更新なし）」を選べるように。余りをkincallのみにすれば、大量でもSF処理を飛ばして一気に速く振り分け・保存できる";
+const BUILD_TAG = "2026-08-26h kincall：かたまり取り込みで「新しいリスト」が重複作成される不具合を修正（同名・同持ち主の直近リストを使い回す）。増えすぎたリストを名前＋直近で一括削除する管理者用そうじ口を追加";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",

@@ -3261,6 +3261,36 @@ export async function deleteCallList(listId) {
   } catch (e) { console.error("[db] deleteCallList", e.message); return false; }
 }
 
+// 名前の一部＋直近の作成時刻で、リストを探す（一括削除の下調べ用）
+export async function findListsByNameSince(nameLike, sinceMinutes = 180) {
+  if (!pool || !nameLike) return [];
+  try {
+    const { rows } = await pool.query(
+      `SELECT l.id, l.name, l.owner, l.created_at,
+              (SELECT count(*) FROM call_targets t WHERE t.list_id = l.id) AS 件数
+         FROM call_lists l
+        WHERE l.name ILIKE '%' || $1 || '%'
+          AND l.created_at > now() - ($2 || ' minutes')::interval
+        ORDER BY l.created_at DESC`,
+      [nameLike, String(Math.max(1, parseInt(sinceMinutes, 10) || 180))]);
+    return rows;
+  } catch (e) { console.error("[db] findListsByNameSince", e.message); return []; }
+}
+
+// 同じ名前・持ち主で、直近に作ったリストを返す（かたまり取り込みでの重複作成を防ぐ）
+export async function findRecentListByNameOwner(name, owner, sinceMinutes = 120) {
+  if (!pool || !name) return null;
+  try {
+    const { rows } = await pool.query(
+      `SELECT * FROM call_lists
+        WHERE name = $1 AND lower(coalesce(owner,'')) = lower($2)
+          AND created_at > now() - ($3 || ' minutes')::interval
+        ORDER BY created_at DESC LIMIT 1`,
+      [name, String(owner || ""), String(Math.max(1, parseInt(sinceMinutes, 10) || 120))]);
+    return rows[0] || null;
+  } catch (e) { console.error("[db] findRecentListByNameOwner", e.message); return null; }
+}
+
 // リストの名前を変える
 export async function renameCallList(listId, name) {
   if (!pool || !listId) return null;
