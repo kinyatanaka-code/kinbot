@@ -5321,8 +5321,45 @@ app.post("/api/calls/from-csv", async (req, res) => {
         履歴 = "履歴を残す（予定）";
       }
 
+      // H以降（コール結果1〜6）を、新しい順にまとめて1件の履歴として残す
+      const まとめ = String(r.history || "").trim();
+      let まとめ履歴 = "";
+      if (まとめ) {
+        if (dryRun) {
+          まとめ履歴 = "まとめて残す（予定）";
+        } else if (leadId) {
+          const キー = `${leadId}|まとめ|${まとめ}`;
+          if (記録済み.has(キー)) {
+            まとめ履歴 = "同じまとめがあるので残しませんでした";
+          } else {
+            記録済み.add(キー);
+            try {
+              const q2 = await sfQuery(
+                sfUser,
+                `SELECT Id, Description FROM Task WHERE WhoId='${sq(leadId)}' ORDER BY CreatedDate DESC LIMIT 200`
+              ).catch(() => ({ records: [] }));
+              const ある = (q2.records || []).some((t) =>
+                String(t.Description || "").includes("コール履歴（まとめ・新しい順）") &&
+                String(t.Description || "").includes(まとめ.slice(0, 40)));
+              if (ある) {
+                まとめ履歴 = "既にあるので残しませんでした";
+              } else {
+                await createTask(sfUser, {
+                  WhoId: leadId,
+                  Subject: "コール履歴（まとめ）",
+                  Status: "完了", Type: "Call",
+                  ActivityDate: jstDate(0),
+                  Description: `コール履歴（まとめ・新しい順）\n${まとめ}\nCSVから取り込み（記録した人：${await displayNameOf(req.user).catch(() => req.user)}）`,
+                });
+                まとめ履歴 = "まとめて残した";
+              }
+            } catch (e) { まとめ履歴 = `まとめを残せなかった（${String(e.message).slice(0, 60)}）`; }
+          }
+        }
+      }
+
       結果.push({ company, person: person || "担当者", phone, email, leadId, 状態, リード種別, 架電日,
-        ステータス, ステージ: String(r.stage || "").trim(), コメント, 履歴 });
+        ステータス, ステージ: String(r.stage || "").trim(), コメント, 履歴, まとめ, まとめ履歴 });
     }
 
     if (dryRun) {
@@ -5362,6 +5399,8 @@ app.post("/api/calls/from-csv", async (req, res) => {
       leadId: x.leadId, company: x.company, person: x.person, phone: x.phone, email: x.email,
       ...(x["ステータス"] ? { status: x["ステータス"] } : {}),
       ...(x["ステージ"] ? { stage: x["ステージ"] } : {}),
+      // かけるリストのメモに、H以降のまとめ（新しい順）を入れる。無ければ最終活動コメント。
+      ...((x["まとめ"] || x["コメント"]) ? { memo: x["まとめ"] || x["コメント"] } : {}),
       ...(分ける人.length ? { assignedTo: 分ける人[(開始 + i) % 分ける人.length] } : {}),
     }));
 
@@ -13958,7 +13997,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-08-25d kincall：かける画面に「資料送付」列を追加。ボタンでトラッキング資料URLを発行し、プレビュー確認のうえGmailで送信・履歴に記録するようにした";
+const BUILD_TAG = "2026-08-25e kincall CSV：「コール結果1〜N：結果/コメント」形式に対応。G列までは従来どおりSF更新、H列以降は新しい順に1件へまとめて活動履歴・メモに残す";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",

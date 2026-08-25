@@ -1685,7 +1685,31 @@ function csvParse(text) {
     set("comment", "最終活動コメント", "活動コメント", "コメント", "メモ");
     if (場所.company < 0) 場所.company = 0;
   }
+  // 「コール結果1：結果 / コール結果1：コメント」…の列を拾う。番号が大きいほど新しい履歴。
+  const callCols = [];
+  if (見出しっぽい) {
+    head.forEach((h, idx) => {
+      const m = String(h).match(/コール結果\s*(\d+)\s*[：:]\s*(結果|コメント)/);
+      if (!m) return;
+      const n = parseInt(m[1], 10);
+      let e = callCols.find((x) => x.n === n);
+      if (!e) { e = { n, r: -1, c: -1 }; callCols.push(e); }
+      if (m[2] === "結果") e.r = idx; else e.c = idx;
+    });
+    callCols.sort((a, b) => b.n - a.n);   // 大きい番号（新しい）を上にする
+  }
   const 取る = (c, i) => (i >= 0 && i < c.length ? c[i] : "");
+  // その行のコール結果1〜Nを、新しい順にまとめた1つの文字列にする
+  const まとめる = (c) => {
+    const parts = [];
+    for (const cc of callCols) {
+      const 結 = 取る(c, cc.r).trim();
+      const コ = 取る(c, cc.c).trim();
+      if (!結 && !コ) continue;
+      parts.push(結 ? (コ ? `${結}\n　${コ}` : 結) : `　${コ}`);
+    }
+    return parts.join("\n");
+  };
 
   for (let i = 見出しっぽい ? 1 : 0; i < rows.length; i++) {
     const c = rows[i];
@@ -1701,6 +1725,7 @@ function csvParse(text) {
       status: 取る(c, 場所.status),
       stage: 取る(c, 場所.stage),
       comment: 取る(c, 場所.comment),
+      history: まとめる(c),   // H以降のコール結果を、新しい順にまとめたもの
     });
   }
   return out;
