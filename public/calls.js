@@ -919,6 +919,57 @@ function wireQuickNext(m) {
 }
 
 
+async function openDocSettings() {
+  const m = openModal("資料送付設定", `
+    <div class="kc-doc-set">
+      <div class="note" id="kcDsLoad">読み込んでいます…</div>
+      <div id="kcDsForm" style="display:none">
+        <div class="kc-lb">既定の資料（トラッキングで送るもの）</div>
+        <select class="kc-input" id="kcDsDoc"></select>
+        <div class="kc-lb">メールの件名（テンプレ）</div>
+        <input type="text" class="kc-input" id="kcDsSub" />
+        <div class="kc-lb">メールの本文（テンプレ）</div>
+        <textarea class="kc-input" id="kcDsBody" rows="10"></textarea>
+        <div class="note">差し込みできる目印：{担当者}／{会社名}／{差出人}／{資料名}／{URL}（資料のトラッキングURL）</div>
+        <div class="kc-modal-foot">
+          <button type="button" class="btn" id="kcDsSave">保存する</button>
+          <span class="rev-status" id="kcDsSt"></span>
+        </div>
+      </div>
+    </div>`, { wide: true });
+
+  try {
+    const d = await (await fetch("/api/calls/doc-settings")).json();
+    if (!d.ok) throw new Error(d.error || "読み込めませんでした");
+    m.el.querySelector("#kcDsLoad").style.display = "none";
+    m.el.querySelector("#kcDsForm").style.display = "";
+    m.el.querySelector("#kcDsDoc").innerHTML =
+      `<option value="">いちばん新しい資料を使う</option>` +
+      (d.docs || []).map((x) => `<option value="${x.id}"${String(d.defaultDocId) === String(x.id) ? " selected" : ""}>${esc(x.name)}</option>`).join("");
+    m.el.querySelector("#kcDsSub").value = d.subject || "";
+    m.el.querySelector("#kcDsBody").value = d.body || "";
+  } catch (e) { m.el.querySelector("#kcDsLoad").textContent = "読み込めませんでした：" + e.message; return; }
+
+  m.el.querySelector("#kcDsSave").addEventListener("click", async () => {
+    const st = m.el.querySelector("#kcDsSt");
+    st.textContent = "保存しています…";
+    try {
+      const r = await fetch("/api/calls/doc-settings", {
+        method: "PUT", headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          subject: m.el.querySelector("#kcDsSub").value,
+          body: m.el.querySelector("#kcDsBody").value,
+          defaultDocId: m.el.querySelector("#kcDsDoc").value,
+        }),
+      });
+      const dd = await r.json();
+      if (!r.ok) throw new Error(dd.error || "保存できませんでした");
+      st.textContent = "保存しました";
+      setTimeout(() => m.close(), 900);
+    } catch (e) { st.textContent = "失敗：" + e.message; }
+  });
+}
+
 async function openDocSend(id) {
   const x = rows.find((r) => String(r.id) === String(id));
   const 相手名 = x ? [x["会社名"], x["担当者"]].filter(Boolean).join("　") : "";
@@ -1198,8 +1249,9 @@ function showPane() {
   tabs.addEventListener("click", (ev) => {
     const b = ev.target && ev.target.closest ? ev.target.closest(".kc-ptab") : null;
     if (!b) return;
+    if (b.id === "kcDocSettings") { openDocSettings(); return; }
     const name = b.dataset.ls || "manage";
-    tabs.querySelectorAll(".kc-ptab").forEach((x) => x.classList.toggle("active", x === b));
+    tabs.querySelectorAll(".kc-ptab").forEach((x) => x.classList.toggle("active", x === b && !!x.dataset.ls));
     document.querySelectorAll("[data-ls-pane]").forEach((el) => {
       el.hidden = el.dataset.lsPane !== name;
     });

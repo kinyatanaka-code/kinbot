@@ -6545,6 +6545,7 @@ app.post("/api/calls/targets/:id/doc/preview", async (req, res) => {
     if (!base) return res.status(400).json({ error: "資料URLの土台（公開URL）が設定されていません" });
 
     // 会社向けのトラッキング資料URL（無ければ1つ発行する）
+    const st = await getSettings().catch(() => ({}));
     let link = null, docName = "";
     const have = await docLinksForCompany(company, 5).catch(() => []);
     if (have.length) {
@@ -6553,7 +6554,7 @@ app.post("/api/calls/targets/:id/doc/preview", async (req, res) => {
     } else {
       const docs = await listDocFiles({ owner: req.user }).catch(() => []);
       if (!docs.length) return res.status(400).json({ error: "登録されている資料がありません（先に資料を登録してください）" });
-      const wantId = parseInt(req.body?.docId, 10);
+      const wantId = parseInt(req.body?.docId, 10) || parseInt(st.docDefaultId, 10) || 0;
       const doc = docs.find((d) => d.id === wantId) || docs[0];
       const made = await addDocLinks(doc.id, [{ company, contact: person, email: to }], req.user);
       link = (made || [])[0];
@@ -6563,20 +6564,59 @@ app.post("/api/calls/targets/:id/doc/preview", async (req, res) => {
     const url = `${base}/d/${link.slug}`;
 
     const 差出人 = await displayNameOf(req.user).catch(() => "");
-    const subject = `資料のご送付（${docName || "ご案内資料"}）`;
-    const body =
-      `${person ? person + "様" : "ご担当者様"}\n\n` +
-      `お世話になっております。${差出人 ? "\n" + 差出人 + "でございます。" : ""}\n\n` +
-      `先ほどお電話にてご案内した資料をお送りいたします。\n` +
-      `下記のURLよりご確認ください。\n\n` +
-      `${url}\n\n` +
-      `ご不明な点がございましたら、お気軽にご連絡ください。\n` +
-      `何卒よろしくお願いいたします。`;
+    // 差し込み：{担当者}{会社名}{差出人}{資料名}{URL}
+    const fill = (s) => String(s || "")
+      .replace(/\{担当者\}/g, person || "ご担当者")
+      .replace(/\{会社名\}/g, company)
+      .replace(/\{差出人\}/g, 差出人)
+      .replace(/\{資料名\}/g, docName || "ご案内資料")
+      .replace(/\{URL\}/g, url);
+    const 既定件名 = "資料のご送付（{資料名}）";
+    const 既定本文 =
+      "{担当者}様\n\n" +
+      "お世話になっております。\n" +
+      "先ほどお電話にてご案内した資料をお送りいたします。\n" +
+      "下記のURLよりご確認ください。\n\n" +
+      "{URL}\n\n" +
+      "ご不明な点がございましたら、お気軽にご連絡ください。\n" +
+      "何卒よろしくお願いいたします。";
+    const subject = fill(String(st.docSendSubject || 既定件名));
+    const body = fill(String(st.docSendBody || 既定本文));
 
     res.json({
       ok: true, to, company, person, subject, body, url, docName,
       warn: to ? "" : "この相手のメールアドレスが登録されていません。宛先を入れてください。",
     });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// 資料送付の設定（テンプレの件名・本文、既定の資料、トラッキングの有無）を読む
+app.get("/api/calls/doc-settings", async (req, res) => {
+  try {
+    const st = await getSettings().catch(() => ({}));
+    const docs = await listDocFiles({ owner: req.user }).catch(() => []);
+    res.json({
+      ok: true,
+      subject: st.docSendSubject || "資料のご送付（{資料名}）",
+      body: st.docSendBody ||
+        "{担当者}様\n\nお世話になっております。\n先ほどお電話にてご案内した資料をお送りいたします。\n下記のURLよりご確認ください。\n\n{URL}\n\nご不明な点がございましたら、お気軽にご連絡ください。\n何卒よろしくお願いいたします。",
+      defaultDocId: st.docDefaultId || "",
+      docs: (docs || []).map((d) => ({ id: d.id, name: fixMojibake(d.name || "") })),
+    });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// 資料送付の設定を保存（クローザー・管理者のみ）
+app.put("/api/calls/doc-settings", async (req, res) => {
+  try {
+    if (!req.isAdmin && !(await isCloserUser(req.user))) return res.status(403).json({ error: "クローザー・管理者だけが変えられます" });
+    const b = req.body || {};
+    const patch = {};
+    if (b.subject !== undefined) patch.docSendSubject = String(b.subject || "").slice(0, 300);
+    if (b.body !== undefined) patch.docSendBody = String(b.body || "").slice(0, 4000);
+    if (b.defaultDocId !== undefined) patch.docDefaultId = String(b.defaultDocId || "");
+    await saveSettings(patch);
+    res.json({ ok: true });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
@@ -14158,7 +14198,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-08-26p kincall：次回架電の日付・時間の入力を、ボタンのすぐ下に日付＋時間欄を常に並べる形にして見やすく操作しやすくした（カレンダー/時計が変な位置に出ないように）";
+const BUILD_TAG = "2026-08-26q kincall：「資料送付設定」メニューを追加。メール件名・本文のテンプレ（差し込み対応）と、トラッキングで送る既定の資料を設定でき、資料送付のプレビューに反映される";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
