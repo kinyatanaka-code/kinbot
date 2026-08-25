@@ -821,11 +821,13 @@ async function srToKincall() {
       body: JSON.stringify({
         name, columns: d.columns || [], rows: d.rows || [],
         share: (window.kcShareMembers || []),
+        ...(window.__kcAppend && window.__kcAppend.id ? { listId: window.__kcAppend.id } : {}),
       }),
     });
     const j = await r.json();
     if (!r.ok) throw new Error(j.error || "送れませんでした");
     if (btn) { btn.textContent = `${j["件数"]}件を送りました`; }
+    if (window.__kcAppend) { window.__kcAppend = null; if (typeof renderAppendBanner === "function") renderAppendBanner(); }
     const 分けた = Number(j["分けた人数"] || 0);
     if (confirm(`「${j.name}」に${j["件数"]}件を入れました。` +
         (分けた ? `（${分けた}人に分けました）` : "") + `\nリストを見ますか？`)) {

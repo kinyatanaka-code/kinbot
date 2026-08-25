@@ -524,6 +524,10 @@ function renderDock() {
     .kc-sum-apo{color:#0b7a5e;}
     .kc-sum-btn{margin-left:4px;font-size:12px;padding:3px 10px;border:1px solid #1d9e75;border-radius:8px;background:#fff;color:#1d9e75;cursor:pointer;}
     .kc-sum-btn:hover{background:#eaf5ef;}
+    .kc-append-bar{display:flex;align-items:center;gap:12px;background:#eaf6f0;border:1px solid #1d9e75;border-radius:10px;padding:10px 14px;margin-bottom:12px;color:#0d5b47;font-size:14px;}
+    .kc-append-bar b{font-size:15px;}
+    .kc-append-bar button{margin-left:auto;font-size:12px;padding:4px 12px;border:1px solid #cfe6db;border-radius:8px;background:#fff;color:#0d5b47;cursor:pointer;}
+    .kc-append-bar button:hover{background:#f2f8f5;}
   `;
   document.head.appendChild(s);
 })();
@@ -1089,9 +1093,12 @@ function showPane() {
 })();
 
 // 「kincallだけ」の人には、kinbotへ戻る道を見せない
+let iAmCloser = false;               // クローザー（管理者含む）＝リストを追加できる
+let appendTarget = null;             // {id, name}：既存リストに追加する先
 (async () => {
   try {
     const me = await (await fetch("/api/me")).json();
+    iAmCloser = !!(me && (me.closer || me.admin));
     if (me && me.kincallOnly) {
       document.querySelectorAll(".kc-side .side-app, .kc-side .side-sep")
         .forEach((el) => el.remove());
@@ -1327,6 +1334,40 @@ async function asLoad() {
 }
 
 // 第2階層：あるメンバーのリスト一覧（今までのカード表示）
+// このリストに追加する：リスト作成タブへ切り替えて、追加先を覚えておく。
+// SFレポート／CSVのどちらから読み込んでも、この既存リストに足す（全リスト重複除外・
+// クロス商談あり除外・ジャッジ以外は中澤所有への付け替え、はサーバ側でそのまま効く）。
+function goAppendToList(id, name) {
+  appendTarget = { id, name };
+  window.__kcAppend = { id, name };
+  const mk = document.querySelector('.kc-ptab[data-ls="make"]');
+  if (mk) mk.click();
+  renderAppendBanner();
+  const pane = document.querySelector('[data-ls-pane="make"]');
+  if (pane && pane.scrollIntoView) pane.scrollIntoView({ behavior: "smooth", block: "start" });
+}
+
+function renderAppendBanner() {
+  const pane = document.querySelector('[data-ls-pane="make"]');
+  if (!pane) return;
+  let bar = document.getElementById("kcAppendBar");
+  if (appendTarget) {
+    if (!bar) {
+      bar = document.createElement("div");
+      bar.id = "kcAppendBar";
+      bar.className = "kc-append-bar";
+      pane.insertBefore(bar, pane.firstChild);
+    }
+    bar.innerHTML =
+      `このリストに追加します：<b>${esc(appendTarget.name)}</b>` +
+      `<button type="button" id="kcAppendClear">やめる（新しいリストを作る）</button>`;
+    const c = document.getElementById("kcAppendClear");
+    if (c) c.onclick = () => { appendTarget = null; window.__kcAppend = null; renderAppendBanner(); };
+  } else if (bar) {
+    bar.remove();
+  }
+}
+
 async function asLoadMember(email, name) {
   const box = $("asCards");
   if (!box) return;
@@ -1594,6 +1635,7 @@ async function openSplit(listId, listName, memberEmail, memberName) {
       `<div class="kc-mem-head">
          <button type="button" class="kc-mem-back" id="spBack">← 戻る</button>
          <span class="kc-mem-title">${esc(listName)}（${rows.length}件）から絞り込む</span>
+         ${iAmCloser ? `<button type="button" class="btn" id="spAddMore" style="margin-left:auto">＋ このリストに追加</button>` : ""}
        </div>
        <div class="kc-split">
          <div class="kc-split-row" style="border-bottom:1px solid #e6ece9;padding-bottom:10px;margin-bottom:6px">
@@ -1621,6 +1663,10 @@ async function openSplit(listId, listName, memberEmail, memberName) {
     if (back) back.addEventListener("click", () => asLoadMember(memberEmail, memberName));
     const open = $("spOpen");
     if (open) open.addEventListener("click", () => selectListAndCall(listId));
+
+    // クローザー：このリストに、SFレポート／CSVから追加する（リスト作成タブを使う）
+    const addMore = $("spAddMore");
+    if (addMore) addMore.addEventListener("click", () => goAppendToList(listId, listName));
 
     // 今のリストの名前を変える
     const renameBtn = $("spRenameBtn");
@@ -1795,7 +1841,7 @@ async function csvSend(dryRun) {
   const CHUNK = 20;
   const 合計 = { 件数: 0, 見つかった: 0, 新しく作った: 0, とばした: 0, 履歴: 0, 重複除外: 0, 所有者変更: 0, 履歴済み: 0, 作れなかった: 0, 探せなかった: 0, 履歴失敗: 0 };
   const 失敗理由 = new Set();
-  let listId = 0, listName = "";
+  let listId = (appendTarget && appendTarget.id) || 0, listName = (appendTarget && appendTarget.name) || "";
   const meisai = [];
   const btns = [$("csvDry"), $("csvRun")].filter(Boolean);
   btns.forEach((b) => (b.disabled = true));
@@ -1872,8 +1918,10 @@ async function csvSend(dryRun) {
             ? `　失敗：${合計.作れなかった + 合計.探せなかった + 合計.履歴失敗}件（作れず ${合計.作れなかった}／探せず ${合計.探せなかった}／履歴失敗 ${合計.履歴失敗}）`
               + ([...失敗理由].length ? `　例：${[...失敗理由].slice(0, 3).join(" ／ ")}` : "")
             : "") +
-          (csvShareSelected().length ? `　${csvShareSelected().length}人に分けました` : ""));
+          (csvShareSelected().length ? `　${csvShareSelected().length}人に分けました` : "")
+        + (appendTarget ? `（「${appendTarget.name}」に追加しました）` : ""));
       loadLists();
+      if (appendTarget) { appendTarget = null; window.__kcAppend = null; renderAppendBanner(); }
     }
   } catch (e) {
     say("失敗：" + e.message);

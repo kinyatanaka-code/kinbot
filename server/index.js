@@ -770,12 +770,22 @@ app.get("/api/me", async (req, res) => {
       impersonatorName = (iu && iu.name) || "";
     } catch {}
   }
+  // クローザーかどうか（リストを追加できるのはクローザー・管理者だけにするため）
+  let closer = false;
+  try {
+    const members = await listMembers().catch(() => []);
+    closer = (members || []).some((m) =>
+      Array.isArray(m.roles) && m.roles.includes("closer") &&
+      String(m.email || "").toLowerCase() === String(req.user || "").toLowerCase());
+  } catch {}
   res.json({
     username: req.user || null,
     name,
     admin: !!req.isAdmin,
     // 「kincallだけ」の人（インターン生など）
     kincallOnly: !!req.kincallOnly,
+    // クローザー（リスト追加ができる）
+    closer: closer || !!req.isAdmin,
     // 代理ログイン関連
     impersonating: !!impersonator,
     impersonator_email: impersonator,
@@ -5830,7 +5840,10 @@ app.post("/api/calls/from-report", async (req, res) => {
     const 分ける人R = (Array.isArray(b.share) ? b.share : [])
       .map((x) => String(x || "").trim().toLowerCase()).filter(Boolean);
     // 分配するときは、持ち主も分ける人にする（作成者のカードに出さないため）
-    const list = await createCallList({ name, owner: toMember || 分ける人R[0] || req.user, createdBy: req.user });
+    const 既存R = parseInt(b.listId, 10) || 0;
+    const list = 既存R
+      ? { id: 既存R, name }
+      : await createCallList({ name, owner: toMember || 分ける人R[0] || req.user, createdBy: req.user });
     if (!list) return res.status(500).json({ error: "リストを作れませんでした" });
     const n = await addCallTargets(list.id, 入れる, { dedupe: true });
     const 重複除外 = 入れる.length - n;
@@ -14033,7 +14046,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-08-26b kincall分析：週ごとの動きの見出しを、月曜の1日だけでなく「MM/DD〜MM/DD（月〜金）」で表示するようにした";
+const BUILD_TAG = "2026-08-26c kincall：リスト詳細に「＋このリストに追加」（クローザー・管理者のみ）を追加。リスト作成タブでSFレポート/CSVを読み込み既存リストへ追加（全リスト重複除外・クロス商談除外・ジャッジ以外は中澤所有、はそのまま適用）";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
