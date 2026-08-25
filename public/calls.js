@@ -560,6 +560,12 @@ function renderDock() {
     .kc-plan-row:not(.on) .kc-plan-rest{opacity:.4;}
     .kc-next-badge{display:inline-block;margin-left:6px;padding:1px 8px;border-radius:10px;background:#eef3f1;color:#5b7a6d;font-size:11px;font-weight:700;vertical-align:middle;}
     .kc-next-badge.due{background:#f0a020;color:#fff;}
+    .kc-quick{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:2px 0 6px;}
+    .kc-qchip{border:1px solid #cfe0d9;background:#fff;color:#1f2a26;border-radius:999px;padding:7px 15px;font-size:13px;cursor:pointer;transition:all .12s;}
+    .kc-qchip:hover{border-color:#1d9e75;background:#f4faf7;}
+    .kc-qchip.on{background:#1d9e75;border-color:#1d9e75;color:#fff;font-weight:600;}
+    .kc-qchip-pick{color:#5b7a6d;border-style:dashed;}
+    .kc-qclear{color:#a04040;border-color:#e6cccc;}
   `;
   document.head.appendChild(s);
 })();
@@ -626,12 +632,26 @@ async function openTarget(id, draft, opt) {
         <div class="kc-lb">説明（任意）</div>
         <textarea class="kc-input" id="kcMemo" rows="3" placeholder="担当者は佐藤様・14時以降が良いとのこと"></textarea>
 
-        <div class="kc-lb">次回架電日（ネクストアクション・任意）</div>
-        <div style="display:flex;gap:8px;align-items:center">
-          <input type="date" class="kc-input" id="kcNext" style="flex:0 0 auto" />
-          <input type="time" class="kc-input" id="kcNextTime" style="flex:0 0 auto" step="900" />
-          <span class="note">時間まで入れると、その時刻が来たら、かける画面で上に出ます</span>
+        <div class="kc-lb">次回いつかける？（任意）</div>
+        <div class="kc-quick" id="kcQuickDate">
+          <button type="button" class="kc-qchip" data-qd="today">今日</button>
+          <button type="button" class="kc-qchip" data-qd="tomorrow">明日</button>
+          <button type="button" class="kc-qchip" data-qd="nextmon">週明け</button>
+          <button type="button" class="kc-qchip" data-qd="nextmonth">来月</button>
+          <button type="button" class="kc-qchip kc-qchip-pick" data-qd="pick">日付で選ぶ</button>
+          <input type="date" class="kc-input kc-qpick" id="kcNext" style="display:none;flex:0 0 auto" />
+          <button type="button" class="kc-qchip kc-qclear" data-qd="clear" style="display:none">消す</button>
         </div>
+        <div class="kc-lb" id="kcQuickTimeLb" style="display:none">何時ごろ？</div>
+        <div class="kc-quick" id="kcQuickTime" style="display:none">
+          <button type="button" class="kc-qchip" data-qt="10:00">午前 10:00</button>
+          <button type="button" class="kc-qchip" data-qt="13:00">昼 13:00</button>
+          <button type="button" class="kc-qchip" data-qt="15:00">午後 15:00</button>
+          <button type="button" class="kc-qchip" data-qt="17:00">夕方 17:00</button>
+          <button type="button" class="kc-qchip kc-qchip-pick" data-qt="pick">時間で選ぶ</button>
+          <input type="time" class="kc-input kc-qpick" id="kcNextTime" style="display:none;flex:0 0 auto" step="900" />
+        </div>
+        <div class="note" id="kcNextSummary" style="margin-top:4px"></div>
 
         <div class="kc-modal-foot">
           <button type="button" class="btn" id="kcSave">記録する</button>
@@ -743,6 +763,8 @@ async function openTarget(id, draft, opt) {
 
   const picked = () => (m.el.querySelector("#kcResult") || {}).value || "";
 
+  wireQuickNext(m);
+
   m.el.querySelector("#kcSave").addEventListener("click", async () => {
     const 結果 = picked();
     if (!結果) { say("kcSaveSt", "結果を選んでください", 4000); return; }
@@ -836,7 +858,67 @@ function updateRowContact(x) {
   setTimeout(() => tr.classList.remove("kc-just"), 1600);
 }
 
-// トラッキング資料を送る。まずプレビューを出して、確認してから送信する。
+// 「次回いつかける？」のクイック入力（今日・明日・週明け・来月＋時間ボタン）を動かす
+function quickNextDate(kind) {
+  const d = new Date(Date.now() + 9 * 3600 * 1000);   // 日本時間の「今」
+  const y = d.getUTCFullYear(), mo = d.getUTCMonth(), day = d.getUTCDate(), dow = d.getUTCDay();
+  let t;
+  if (kind === "today") t = new Date(Date.UTC(y, mo, day));
+  else if (kind === "tomorrow") t = new Date(Date.UTC(y, mo, day + 1));
+  else if (kind === "nextmon") { const add = ((8 - dow) % 7) || 7; t = new Date(Date.UTC(y, mo, day + add)); }
+  else if (kind === "nextmonth") t = new Date(Date.UTC(y, mo + 1, 1));
+  else return "";
+  return t.toISOString().slice(0, 10);
+}
+function fmtNextSummary(dateStr, timeStr) {
+  if (!dateStr) return "";
+  const d = new Date(dateStr + "T00:00:00Z");
+  if (isNaN(d.getTime())) return "";
+  const 曜 = ["日", "月", "火", "水", "木", "金", "土"][d.getUTCDay()];
+  const md = `${d.getUTCMonth() + 1}/${d.getUTCDate()}（${曜}）`;
+  const hm = /^\d{1,2}:\d{2}$/.test(timeStr || "") ? (timeStr.length === 4 ? "0" + timeStr : timeStr) : "";
+  return hm ? `${md} ${hm} になったら、かける画面で上に出ます` : `${md}（時間を入れると、その時刻に上に出ます）`;
+}
+function wireQuickNext(m) {
+  const dateInput = m.el.querySelector("#kcNext");
+  const timeInput = m.el.querySelector("#kcNextTime");
+  const timeLb = m.el.querySelector("#kcQuickTimeLb");
+  const timeBox = m.el.querySelector("#kcQuickTime");
+  const summary = m.el.querySelector("#kcNextSummary");
+  const clearBtn = m.el.querySelector('#kcQuickDate [data-qd="clear"]');
+  if (!dateInput) return;
+
+  const refresh = () => {
+    if (summary) summary.textContent = fmtNextSummary(dateInput.value, timeInput ? timeInput.value : "");
+    const on = !!dateInput.value;
+    if (timeLb) timeLb.style.display = on ? "" : "none";
+    if (timeBox) timeBox.style.display = on ? "" : "none";
+    if (clearBtn) clearBtn.style.display = on ? "" : "none";
+  };
+  const light = (box, el) => box.querySelectorAll(".kc-qchip").forEach((b) => b.classList.toggle("on", b === el));
+
+  m.el.querySelectorAll('#kcQuickDate [data-qd]').forEach((b) => b.addEventListener("click", () => {
+    const k = b.dataset.qd;
+    if (k === "pick") { dateInput.style.display = ""; dateInput.showPicker && dateInput.showPicker(); return; }
+    if (k === "clear") { dateInput.value = ""; if (timeInput) timeInput.value = ""; dateInput.style.display = "none"; light(m.el.querySelector("#kcQuickDate"), null); refresh(); return; }
+    dateInput.value = quickNextDate(k);
+    light(m.el.querySelector("#kcQuickDate"), b);
+    refresh();
+  }));
+  dateInput.addEventListener("change", () => { light(m.el.querySelector("#kcQuickDate"), null); refresh(); });
+
+  m.el.querySelectorAll('#kcQuickTime [data-qt]').forEach((b) => b.addEventListener("click", () => {
+    const v = b.dataset.qt;
+    if (v === "pick") { timeInput.style.display = ""; timeInput.showPicker && timeInput.showPicker(); return; }
+    if (timeInput) timeInput.value = v;
+    light(m.el.querySelector("#kcQuickTime"), b);
+    refresh();
+  }));
+  if (timeInput) timeInput.addEventListener("change", () => { light(m.el.querySelector("#kcQuickTime"), null); refresh(); });
+  refresh();
+}
+
+
 async function openDocSend(id) {
   const x = rows.find((r) => String(r.id) === String(id));
   const 相手名 = x ? [x["会社名"], x["担当者"]].filter(Boolean).join("　") : "";
