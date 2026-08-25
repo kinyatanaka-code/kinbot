@@ -5399,7 +5399,10 @@ app.post("/api/calls/from-csv", async (req, res) => {
       }
 
       結果.push({ company, person: person || "担当者", phone, email, leadId, 状態, リード種別, 架電日,
-        ステータス, ステージ: String(r.stage || "").trim(), コメント, 履歴, まとめ, まとめ履歴 });
+        ステータス, ステージ: String(r.stage || "").trim(), コメント, 履歴, まとめ, まとめ履歴,
+        // フロントで割り付けた「担当」と「追加先リスト」を尊重する（メンバーごとの件数・リスト指定）
+        assignedTo: String(r.assignedTo || "").trim().toLowerCase(),
+        targetList: parseInt(r.targetList, 10) || 0 });
     }
 
     if (dryRun) {
@@ -5443,7 +5446,11 @@ app.post("/api/calls/from-csv", async (req, res) => {
       ...(x["ステージ"] ? { stage: x["ステージ"] } : {}),
       // かけるリストのメモに、H以降のまとめ（新しい順）を入れる。無ければ最終活動コメント。
       ...((x["まとめ"] || x["コメント"]) ? { memo: x["まとめ"] || x["コメント"] } : {}),
-      ...(分ける人.length ? { assignedTo: 分ける人[(開始 + i) % 分ける人.length] } : {}),
+      // 担当：フロントで割り付けた人を優先。無ければ従来の均等割り。
+      ...(x.assignedTo ? { assignedTo: x.assignedTo }
+        : 分ける人.length ? { assignedTo: 分ける人[(開始 + i) % 分ける人.length] } : {}),
+      // 追加先リスト：フロントでメンバーごとに指定していればそのリストへ。無ければこのリスト。
+      _targetList: x.targetList || list.id,
     }));
 
     // クローザー所有のリードを、インサイドに割り振るぶんだけ中澤良太の所有へ変える（ジャッジは除く）
@@ -5468,7 +5475,15 @@ app.post("/api/calls/from-csv", async (req, res) => {
       for (const x of 入れるリスト) if (x.leadId) x.ownerName = owners.get(String(x.leadId)) || owners.get(String(x.leadId).slice(0, 15)) || "";
     } catch {}
 
-    const n = await addCallTargets(list.id, 入れるリスト, { dedupe: true });
+    // 追加先リストごとに分けて入れる（メンバーごとに別のリストへ振り分けられるように）。
+    const byList = new Map();
+    for (const x of 入れるリスト) {
+      const lid = x._targetList || list.id;
+      if (!byList.has(lid)) byList.set(lid, []);
+      byList.get(lid).push(x);
+    }
+    let n = 0;
+    for (const [lid, arr] of byList) n += await addCallTargets(lid, arr, { dedupe: true });
     const 重複除外 = 入れるリスト.length - n;
 
     console.log(`[kincall] CSVからリスト「${name}」を作りました（${n}件／新規リード${結果.filter((x)=>x.状態==="新しく作った").length}件${重複除外 ? `／重複除外 ${重複除外}件` : ""}${所有者変更 ? `／所有者変更 ${所有者変更}件` : ""}） by ${req.user}`);
@@ -14046,7 +14061,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-08-26c kincall：リスト詳細に「＋このリストに追加」（クローザー・管理者のみ）を追加。リスト作成タブでSFレポート/CSVを読み込み既存リストへ追加（全リスト重複除外・クロス商談除外・ジャッジ以外は中澤所有、はそのまま適用）";
+const BUILD_TAG = "2026-08-26d kincall：CSV取り込み／追加で、メンバーごとの件数（ランダム配分）と、追加時は各メンバーの追加先リストを指定できるようにした";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
