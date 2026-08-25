@@ -1798,6 +1798,7 @@ async function csvSend(dryRun) {
       合計.履歴済み = (合計.履歴済み || 0) + Number(d["履歴済み"] || 0);
       合計.重複除外 += Number(d["重複除外"] || 0);
       合計.所有者変更 += Number(d["所有者変更"] || 0);
+      合計.クロス商談あり = (合計.クロス商談あり || 0) + Number(d["クロス商談あり"] || 0);
       合計.作れなかった += Number(d["作れなかった"] || 0);
       合計.探せなかった += Number(d["探せなかった"] || 0);
       合計.履歴失敗 += Number(d["履歴失敗"] || 0);
@@ -1822,7 +1823,7 @@ async function csvSend(dryRun) {
       const listOnly = $("csvListOnly") && $("csvListOnly").checked;
       say(listOnly
         ? `試算おわり：${rows.length}件（そのままリストに追加。とばす ${合計.とばした}）`
-        : `試算おわり：${rows.length}件（見つかった ${合計.見つかった}／新しく作る ${合計.新しく作った}／とばす ${合計.とばした}）`);
+        : `試算おわり：${rows.length}件（見つかった ${合計.見つかった}／新しく作る ${合計.新しく作った}／とばす ${合計.とばした}${合計.クロス商談あり ? `／クロス商談あり ${合計.クロス商談あり}（クロスリード作らない）` : ""}）`);
     } else {
       const listOnly = $("csvListOnly") && $("csvListOnly").checked;
       say(listOnly

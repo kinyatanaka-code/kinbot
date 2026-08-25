@@ -5199,6 +5199,22 @@ app.post("/api/calls/from-csv", async (req, res) => {
     const rtId = await crossLeadRecordTypeId(sfUser).catch(() => "");
     const sq = (v) => String(v || "").replace(/'/g, "\\'");
 
+    // クロス商談が既に立ち上がっている会社は、新しくクロスリードを作らない。
+    // 約2ヶ月前後の商談日（CloseDate）で、レコードタイプが「クロス」の商談を持つ会社を集める。
+    const crossOppCompanies = new Set();
+    try {
+      if (salesforceConfigured() && (await sfConnected(sfUser).catch(() => false))) {
+        const from = jstDate(-30), to = jstDate(120);
+        const d = await sfQuery(sfUser,
+          `SELECT Id, CloseDate, Account.Name, RecordType.Name FROM Opportunity ` +
+          `WHERE CloseDate >= ${from} AND CloseDate <= ${to} AND RecordType.Name LIKE '%クロス%' LIMIT 2000`);
+        for (const o of d.records || []) {
+          const co = (o.Account && o.Account.Name) || "";
+          if (co) crossOppCompanies.add(normCompanyKey(co));
+        }
+      }
+    } catch (e) { console.warn("[kincall] クロス商談の確認に失敗:", e.message); }
+
     const 結果 = [];
     // この取り込みの中で、同じ相手・同じ結果・同じコメントの活動を二度作らないための覚え書き
     const 記録済み = new Set();
@@ -5240,6 +5256,14 @@ app.post("/api/calls/from-csv", async (req, res) => {
 
       // 2) 無ければ新しく作る
       if (!leadId) {
+        // クロス商談が既にある会社は、クロスリードを立ち上げない（アポ獲得済み扱い・リストにも入れない）
+        if (crossOppCompanies.has(normCompanyKey(company))) {
+          結果.push({ company, person: person || "担当者", phone,
+            状態: "クロス商談あり（クロスリードは作らない）",
+            リード種別: "クロス商談あり", 架電日: ymdOf(r.callDate),
+            ...振り分け(r) });
+          continue;
+        }
         if (dryRun) {
           結果.push({ company, person: person || "担当者", phone,
             状態: リード種別 && !/クロス|IDで指定/.test(リード種別)
@@ -5437,6 +5461,7 @@ app.post("/api/calls/from-csv", async (req, res) => {
       ok: true, id: list.id, name: list.name, 件数: n, 重複除外, 所有者変更, 所有者メモ,
       見つかった: 結果.filter((x) => String(x.状態).startsWith("見つかった")).length,
       新しく作った: 結果.filter((x) => x.状態 === "新しく作った").length,
+      クロス商談あり: 結果.filter((x) => String(x.状態 || "").includes("クロス商談あり")).length,
       とばした: 結果.filter((x) => !x.leadId).length,
       履歴を残した: 結果.filter((x) => x["履歴"] === "履歴を残した").length,
       履歴済み: 結果.filter((x) => x["履歴"] === "既にあるので残しませんでした" || x["履歴"] === "同じ内容なので残しませんでした").length,
@@ -14000,7 +14025,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-08-25h kincall：かける一覧でアポ獲得済み（最終ステータスにアポ獲得）を一番下にまとめ、区切りとバッジを表示。記録時に自動で下へ移動";
+const BUILD_TAG = "2026-08-25i kincall CSV：約2ヶ月前後の商談日でクロス商談が既にある会社は、新しくクロスリードを立ち上げないようにした（試算に件数表示）";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
