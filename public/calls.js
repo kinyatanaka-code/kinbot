@@ -100,7 +100,15 @@ function visibleRows() {
       return sortDesc ? -n : n;
     });
   }
-  return list;
+  // アポ獲得済みは、いつも一番下にまとめる（並べ替え・絞り込みのあとで寄せる）
+  const 済 = list.filter((x) => isApoDone(x));
+  const 未 = list.filter((x) => !isApoDone(x));
+  return [...未, ...済];
+}
+
+// アポ獲得済みかどうか（最終ステータスに「アポ獲得」が入っているか）
+function isApoDone(x) {
+  return /アポ獲得/.test(String((x && x["最終ステータス"]) || ""));
 }
 
 // 絞り込みの窓を出す（チェックで選ぶ）
@@ -154,11 +162,17 @@ function render() {
         <th class="kc-th-e">編集</th>
         <th class="kc-th-d">資料送付</th>
       </tr>` +
-    list.map((x) => `
-      <tr data-id="${x.id}">
+    list.map((x, i) => {
+      const 済 = isApoDone(x);
+      const 直前未済 = i > 0 && !isApoDone(list[i - 1]);
+      const 区切り = (済 && (i === 0 || 直前未済))
+        ? `<tr class="kc-apo-sep"><td colspan="11">アポ獲得済み（${list.filter(isApoDone).length}件）</td></tr>`
+        : "";
+      return 区切り + `
+      <tr data-id="${x.id}" class="${済 ? "kc-apo-done" : ""}">
         <td class="kc-owner">${esc(x["所有者"] || "")}</td>
         <td>${esc(x["ステージ"] || "-")}</td>
-        <td class="kc-co">${esc(x["会社名"] || "")}</td>
+        <td class="kc-co">${esc(x["会社名"] || "")}${済 ? ' <span class="kc-apo-badge">アポ獲得済み</span>' : ""}</td>
         <td>${esc(x["担当者"] || "")}</td>
         <td>${x["電話番号"]
           ? `<a class="kc-tel" href="tel:${esc(telOf(x["電話番号"]))}">${esc(x["電話番号"])}</a>`
@@ -169,7 +183,8 @@ function render() {
         <td><button type="button" class="kc-btn kc-rec" data-id="${x.id}">記録</button></td>
         <td><button type="button" class="kc-btn kc-edit" data-id="${x.id}">編集</button></td>
         <td><button type="button" class="kc-btn kc-doc" data-id="${x.id}">資料送付</button></td>
-      </tr>`).join("") + `</table></div>`;
+      </tr>`;
+    }).join("") + `</table></div>`;
 
   // 見出しの絞り込み・並べ替え
   box.querySelectorAll("[data-flt]").forEach((b) =>
@@ -489,6 +504,10 @@ function renderDock() {
     .kc-stage-only{margin-left:8px;font-size:12px;padding:4px 10px;}
     .an-card-all{border:2px solid #1d9e75;background:#f6fbf9;}
     .an-card-all .an-h{color:#0d5b47;}
+    .kc-apo-done{background:#f2f8f5;color:#5b7a6d;}
+    .kc-apo-done .kc-co{color:#0d5b47;}
+    .kc-apo-sep td{background:#e8f5ef;color:#0d5b47;font-weight:700;font-size:12px;padding:6px 10px;border-top:2px solid #1d9e75;}
+    .kc-apo-badge{display:inline-block;margin-left:6px;padding:1px 7px;border-radius:10px;background:#1d9e75;color:#fff;font-size:11px;font-weight:700;vertical-align:middle;}
   `;
   document.head.appendChild(s);
 })();
@@ -702,6 +721,8 @@ async function openTarget(id, draft, opt) {
       x["履歴数"] = Number(x["履歴数"] || 0) + 1;
       x["最終ステータス"] = 結果;
       updateRow(x);
+      // アポ獲得のときは、一覧を描き直して「アポ獲得済み」として下にまとめる
+      if (isApoDone(x)) render();
       // 記録しただけでは下に残さない（「—」で最小化したときだけ残す）。
       // もし最小化してあった同じ相手が残っていれば、それは消す。
       dockItems = dockItems.filter((d) => d.id !== id);

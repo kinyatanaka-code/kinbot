@@ -14000,7 +14000,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-08-25g kincall：リスト取り込みの重複除外を、これまで作った全リスト（済みも含む）と照合するようにした（過去にどこかのリストに入れた先は弾く）";
+const BUILD_TAG = "2026-08-25h kincall：かける一覧でアポ獲得済み（最終ステータスにアポ獲得）を一番下にまとめ、区切りとバッジを表示。記録時に自動で下へ移動";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
