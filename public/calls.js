@@ -1961,6 +1961,7 @@ function csvPlan() {
       listId: parseInt(v, 10) || 0,
       newList: v === "new",
       remainder: !!(r.querySelector(".kc-plan-rest-cb") && r.querySelector(".kc-plan-rest-cb").checked),
+      kincallOnly: !!(r.querySelector(".kc-plan-kc-cb") && r.querySelector(".kc-plan-kc-cb").checked),
     };
   });
 }
@@ -1992,6 +1993,7 @@ async function csvFillShare() {
          <input type="number" class="kc-plan-n" min="0" placeholder="件数" title="この人に配る件数（空なら均等）" />
          ${追加モード ? `<select class="kc-plan-list" title="この人のどのリストに追加するか"><option value="">追加先を選ぶ…</option></select>` : ""}
          ${追加モード ? `<label class="kc-plan-rest" title="件数を超えた余りを、この人に全部渡す"><input type="checkbox" class="kc-plan-rest-cb" /> 余り</label>` : ""}
+         ${追加モード ? `<label class="kc-plan-rest" title="SFを更新せず、kincallのリストだけに保存する（大量でも速い）"><input type="checkbox" class="kc-plan-kc-cb" /> kincallのみ</label>` : ""}
        </div>`
     ).join("");
     box.dataset.filled = "1";
@@ -2033,6 +2035,7 @@ function applyPlanToRows(rows, plan) {
     row.assignedTo = p.email;
     if (p.newList) { row.newListFor = p.email; row.targetList = 0; }
     else if (p.listId) { row.targetList = p.listId; }
+    if (p.kincallOnly) row.kincallOnly = true;
   };
   // まず、指定件数ぶんを各メンバーへ
   for (const p of plan) for (let k = 0; k < p.count && pos < idx.length; k++, pos++) tag(rows[idx[pos]], p);

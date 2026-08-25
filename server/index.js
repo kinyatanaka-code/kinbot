@@ -5246,6 +5246,23 @@ app.post("/api/calls/from-csv", async (req, res) => {
         continue;
       }
 
+      // kincallのみ（SF更新なし）：リードの検索・作成・活動履歴・所有者付け替えをすべて飛ばし、
+      // CSVの中身だけでリストに入れる。大量（余り）でも一気に速い。
+      if (r.kincallOnly) {
+        const { ステータス, コメント } = 振り分け(r);
+        結果.push({
+          company, person: person || "担当者", phone, email, leadId: "",
+          状態: "kincallのみ（SF更新なし）", リード種別: "（SFなし）",
+          架電日: ymdOf(r.callDate), ステータス, ステージ: String(r.stage || "").trim(),
+          コメント, まとめ: String(r.history || "").trim(),
+          kincallOnly: true,
+          assignedTo: String(r.assignedTo || "").trim().toLowerCase(),
+          targetList: parseInt(r.targetList, 10) || 0,
+          newListFor: String(r.newListFor || "").trim().toLowerCase(),
+        });
+        continue;
+      }
+
       // 1) リードIDがCSVにあればそれを使う。無ければ会社名で探す。
       let leadId = String(r.leadId || "").trim();
       let 状態 = "";
@@ -5422,7 +5439,7 @@ app.post("/api/calls/from-csv", async (req, res) => {
       });
     }
 
-    const 入れるもの = 結果.filter((x) => x.leadId);
+    const 入れるもの = 結果.filter((x) => x.leadId || x.kincallOnly);
     if (!入れるもの.length) return res.status(400).json({ error: "リストに入れられるものがありませんでした", 明細: 結果.slice(0, 50) });
 
     const 既存 = parseInt(b.listId, 10) || 0;
@@ -5504,6 +5521,7 @@ app.post("/api/calls/from-csv", async (req, res) => {
       見つかった: 結果.filter((x) => String(x.状態).startsWith("見つかった")).length,
       新しく作った: 結果.filter((x) => x.状態 === "新しく作った").length,
       クロス商談あり: 結果.filter((x) => String(x.状態 || "").includes("クロス商談あり")).length,
+      kincallのみ: 結果.filter((x) => x.kincallOnly).length,
       とばした: 結果.filter((x) => !x.leadId).length,
       履歴を残した: 結果.filter((x) => x["履歴"] === "履歴を残した").length,
       履歴済み: 結果.filter((x) => x["履歴"] === "既にあるので残しませんでした" || x["履歴"] === "同じ内容なので残しませんでした").length,
@@ -14073,7 +14091,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-08-26f kincall CSV追加：余りを渡すメンバーを選べるようにし、そのメンバーの追加先で「新しいリストにする」を選べば新規リストを作って入れるようにした";
+const BUILD_TAG = "2026-08-26g kincall CSV追加：メンバーごとに「kincallのみ（SF更新なし）」を選べるように。余りをkincallのみにすれば、大量でもSF処理を飛ばして一気に速く振り分け・保存できる";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
