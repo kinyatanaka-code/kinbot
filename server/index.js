@@ -5402,7 +5402,9 @@ app.post("/api/calls/from-csv", async (req, res) => {
         ステータス, ステージ: String(r.stage || "").trim(), コメント, 履歴, まとめ, まとめ履歴,
         // フロントで割り付けた「担当」と「追加先リスト」を尊重する（メンバーごとの件数・リスト指定）
         assignedTo: String(r.assignedTo || "").trim().toLowerCase(),
-        targetList: parseInt(r.targetList, 10) || 0 });
+        targetList: parseInt(r.targetList, 10) || 0,
+        // 「新しいリストにする」を選んだメンバーは、その人の新規リストへ入れる
+        newListFor: String(r.newListFor || "").trim().toLowerCase() });
     }
 
     if (dryRun) {
@@ -5451,7 +5453,17 @@ app.post("/api/calls/from-csv", async (req, res) => {
         : 分ける人.length ? { assignedTo: 分ける人[(開始 + i) % 分ける人.length] } : {}),
       // 追加先リスト：フロントでメンバーごとに指定していればそのリストへ。無ければこのリスト。
       _targetList: x.targetList || list.id,
+      newListFor: x.newListFor || "",
     }));
+
+    // 「新しいリストにする」を選んだメンバーぶん、その人のリストを新規作成して振り分ける
+    try {
+      const newFor = [...new Set(入れるリスト.filter((x) => x.newListFor).map((x) => x.newListFor))];
+      for (const em of newFor) {
+        const nl = await createCallList({ name: `${name} - ${em}`, owner: em, createdBy: req.user });
+        if (nl) for (const x of 入れるリスト) if (x.newListFor === em) x._targetList = nl.id;
+      }
+    } catch (e) { console.warn("[kincall] 新しいリスト作成に失敗:", e.message); }
 
     // クローザー所有のリードを、インサイドに割り振るぶんだけ中澤良太の所有へ変える（ジャッジは除く）
     let 所有者変更 = 0, 所有者メモ = "";
@@ -14061,7 +14073,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-08-26e kincall CSV：「作成する／追加する」タブを追加。追加を選ぶと、分ける人ごとにその人の所有リストを選べて、入力件数のリードをランダムに割り振る";
+const BUILD_TAG = "2026-08-26f kincall CSV追加：余りを渡すメンバーを選べるようにし、そのメンバーの追加先で「新しいリストにする」を選べば新規リストを作って入れるようにした";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",

@@ -533,6 +533,8 @@ function renderDock() {
     .kc-plan-n{width:80px;border:1px solid #e6ece9;border-radius:8px;padding:5px 8px;font-size:13px;font-family:inherit;}
     .kc-plan-list{border:1px solid #e6ece9;border-radius:8px;padding:5px 8px;font-size:13px;font-family:inherit;max-width:240px;}
     .kc-plan-row:not(.on) .kc-plan-n,.kc-plan-row:not(.on) .kc-plan-list{opacity:.4;}
+    .kc-plan-rest{font-size:12px;color:#0d5b47;display:inline-flex;align-items:center;gap:4px;white-space:nowrap;}
+    .kc-plan-row:not(.on) .kc-plan-rest{opacity:.4;}
   `;
   document.head.appendChild(s);
 })();
@@ -1848,7 +1850,7 @@ async function csvSend(dryRun) {
   const usePlan = plan.length && plan.some((p) => p.count > 0 || p.listId);
   if (csvAddMode) {
     if (!plan.length) { say("追加する人を選んでください"); return; }
-    if (plan.some((p) => !p.listId)) { say("選んだ人それぞれの追加先リストを選んでください"); return; }
+    if (plan.some((p) => !p.listId && !p.newList)) { say("選んだ人それぞれの追加先を選んでください（既存リスト、または「新しいリストにする」）"); return; }
   }
   if (usePlan) applyPlanToRows(rows, plan);
 
@@ -1856,7 +1858,7 @@ async function csvSend(dryRun) {
   const CHUNK = 20;
   const 合計 = { 件数: 0, 見つかった: 0, 新しく作った: 0, とばした: 0, 履歴: 0, 重複除外: 0, 所有者変更: 0, 履歴済み: 0, 作れなかった: 0, 探せなかった: 0, 履歴失敗: 0 };
   const 失敗理由 = new Set();
-  let listId = (csvAddMode && plan[0] && plan[0].listId) || (appendTarget && appendTarget.id) || 0, listName = (appendTarget && appendTarget.name) || "";
+  let listId = (csvAddMode ? ((plan.find((p) => p.listId) || {}).listId || 0) : 0) || (appendTarget && appendTarget.id) || 0, listName = (appendTarget && appendTarget.name) || "";
   const meisai = [];
   const btns = [$("csvDry"), $("csvRun")].filter(Boolean);
   btns.forEach((b) => (b.disabled = true));
@@ -1949,13 +1951,18 @@ async function csvSend(dryRun) {
 function csvShareSelected() {
   return [...document.querySelectorAll("#csvShare .kc-plan-row.on")].map((r) => r.dataset.email);
 }
-// メンバーごとの振り分けプラン：[{email, count, listId}]
+// メンバーごとの振り分けプラン：[{email, count, listId, newList, remainder}]
 function csvPlan() {
-  return [...document.querySelectorAll("#csvShare .kc-plan-row.on")].map((r) => ({
-    email: r.dataset.email,
-    count: Math.max(0, parseInt((r.querySelector(".kc-plan-n") || {}).value, 10) || 0),
-    listId: parseInt((r.querySelector(".kc-plan-list") || {}).value, 10) || 0,
-  }));
+  return [...document.querySelectorAll("#csvShare .kc-plan-row.on")].map((r) => {
+    const v = ((r.querySelector(".kc-plan-list") || {}).value) || "";
+    return {
+      email: r.dataset.email,
+      count: Math.max(0, parseInt((r.querySelector(".kc-plan-n") || {}).value, 10) || 0),
+      listId: parseInt(v, 10) || 0,
+      newList: v === "new",
+      remainder: !!(r.querySelector(".kc-plan-rest-cb") && r.querySelector(".kc-plan-rest-cb").checked),
+    };
+  });
 }
 function csvShareRefresh() {
   const sel = csvShareSelected();
@@ -1984,6 +1991,7 @@ async function csvFillShare() {
          <button type="button" class="kc-share-b kc-plan-name">${esc(m.name)}</button>
          <input type="number" class="kc-plan-n" min="0" placeholder="件数" title="この人に配る件数（空なら均等）" />
          ${追加モード ? `<select class="kc-plan-list" title="この人のどのリストに追加するか"><option value="">追加先を選ぶ…</option></select>` : ""}
+         ${追加モード ? `<label class="kc-plan-rest" title="件数を超えた余りを、この人に全部渡す"><input type="checkbox" class="kc-plan-rest-cb" /> 余り</label>` : ""}
        </div>`
     ).join("");
     box.dataset.filled = "1";
@@ -1999,7 +2007,7 @@ async function csvFillShare() {
           try {
             const dd = await (await fetch("/api/calls/lists?member=" + encodeURIComponent(row.dataset.email))).json();
             const lists = (dd && dd.items) || [];
-            sel.innerHTML = `<option value="">新しいリストにする</option>` +
+            sel.innerHTML = `<option value="">追加先を選ぶ…</option><option value="new">新しいリストにする</option>` +
               lists.map((l) => `<option value="${l.id}">${esc(l.name)}（${l["全部"]}件）</option>`).join("");
           } catch { sel.innerHTML = `<option value="">読み込めませんでした</option>`; }
         }
@@ -2021,11 +2029,18 @@ function applyPlanToRows(rows, plan) {
   const idx = rows.map((_, i) => i);
   for (let i = idx.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [idx[i], idx[j]] = [idx[j], idx[i]]; }
   let pos = 0;
-  const tag = (row, p) => { row.assignedTo = p.email; if (p.listId) row.targetList = p.listId; };
+  const tag = (row, p) => {
+    row.assignedTo = p.email;
+    if (p.newList) { row.newListFor = p.email; row.targetList = 0; }
+    else if (p.listId) { row.targetList = p.listId; }
+  };
+  // まず、指定件数ぶんを各メンバーへ
   for (const p of plan) for (let k = 0; k < p.count && pos < idx.length; k++, pos++) tag(rows[idx[pos]], p);
-  // 余りは、選んだ人へ順番に配る
+  // 余りは、「余り」に指定した人へ。指定が無ければ、選んだ人へ順番に。
+  const rest = plan.filter((p) => p.remainder);
+  const 配り先 = rest.length ? rest : plan;
   let r = 0;
-  while (pos < idx.length && plan.length) { tag(rows[idx[pos]], plan[r % plan.length]); pos++; r++; }
+  while (pos < idx.length && 配り先.length) { tag(rows[idx[pos]], 配り先[r % 配り先.length]); pos++; r++; }
 }
 
 // CSVの中身から、ステージ・ステータスの選択肢を作る
