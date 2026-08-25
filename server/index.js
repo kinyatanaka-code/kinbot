@@ -14033,7 +14033,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-08-25n kincall：分配（分ける人）でリストを作るとき、持ち主を作成者ではなく分ける人にして、作成者のカードにリストが出ないようにした";
+const BUILD_TAG = "2026-08-26a kincall分析：記録が無い期間だと期間ボタンごと消えて直近1日から動かせない不具合を修正（期間選択とチーム全体は常に表示）";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",

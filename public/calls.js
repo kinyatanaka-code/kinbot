@@ -2105,7 +2105,26 @@ async function loadAnalysis() {
     if (rg) rg.textContent = `${d.from} 〜 ${d.to}（直近${d["日数"]}日）`;
     const items = d.items || [];
     const t = d["チーム"] || {};
-    if (!items.length) { box.innerHTML = '<div class="note">この期間の記録はまだありません。</div>'; return; }
+
+    // 期間の選択とチーム全体は、記録が無くても必ず出す。
+    // （ここが出ないと期間を変えられず、直近1日から動かせなくなる）
+    const rangeHtml =
+      `<div class="an-range">
+         <span class="kc-share-lb">期間</span>
+         ${[[7, "直近7日"], [14, "直近14日"], [30, "直近30日"], [60, "直近60日"], [90, "直近90日"], [180, "直近半年"]]
+           .map(([n, lb]) => `<button type="button" class="kc-share-b an-days${(!anFrom && anDays === n) ? " on" : ""}" data-days="${n}">${lb}</button>`).join("")}
+         <span class="an-sep">または</span>
+         <input type="date" id="anFrom" value="${esc(anFrom || d.from || "")}" />
+         <span>〜</span>
+         <input type="date" id="anTo" value="${esc(anTo || d.to || "")}" />
+         <button type="button" class="kc-share-b${anFrom ? " on" : ""}" id="anApply">この期間で見る</button>
+       </div>`;
+    const teamHtml = `<div class="an-team">チーム全体：コール ${t["コール"] || 0}／接触 ${t["接触"] || 0}（${t["接触率"] || 0}%）／アポ ${t["アポ"] || 0}（${t["アポ率"] || 0}%）</div>`;
+
+    if (!items.length) {
+      box.innerHTML = rangeHtml + teamHtml + '<div class="note">この期間の記録はまだありません。期間を変えてみてください。</div>';
+      return;
+    }
 
     const 差 = (a, b) => {
       const v = +(a - b).toFixed(1);
@@ -2169,17 +2188,7 @@ async function loadAnalysis() {
     };
 
     box.innerHTML =
-      `<div class="an-range">
-         <span class="kc-share-lb">期間</span>
-         ${[[7, "直近7日"], [14, "直近14日"], [30, "直近30日"], [60, "直近60日"], [90, "直近90日"], [180, "直近半年"]]
-           .map(([n, lb]) => `<button type="button" class="kc-share-b an-days${(!anFrom && anDays === n) ? " on" : ""}" data-days="${n}">${lb}</button>`).join("")}
-         <span class="an-sep">または</span>
-         <input type="date" id="anFrom" value="${esc(anFrom || d.from || "")}" />
-         <span>〜</span>
-         <input type="date" id="anTo" value="${esc(anTo || d.to || "")}" />
-         <button type="button" class="kc-share-b${anFrom ? " on" : ""}" id="anApply">この期間で見る</button>
-       </div>` +
-      `<div class="an-team">チーム全体：コール ${t["コール"] || 0}／接触 ${t["接触"] || 0}（${t["接触率"] || 0}%）／アポ ${t["アポ"] || 0}（${t["アポ率"] || 0}%）</div>` +
+      rangeHtml + teamHtml +
       `<div class="an-card">
          <div class="an-h">コメントから、断られ方を調べる</div>
          <p class="note">記録に書かれたコメントをAIが読んで、断られ方・進まない理由をまとめます。</p>
