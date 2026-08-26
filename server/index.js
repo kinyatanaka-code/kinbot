@@ -6965,14 +6965,22 @@ app.post("/api/calls/targets/:id/record", async (req, res) => {
 
     if (t.lead_id && salesforceConfigured() && (await sfConnected(sfUser).catch(() => false))) {
       try {
+        const 今ISO = new Date().toISOString();
         const made = await createTask(sfUser, {
           WhoId: t.lead_id,
           Subject: `コール：${result}`,
-          Status: "完了", Type: "Call",
+          // 種別・状況は、この組織の正しい値を設定から使う（未設定なら従来どおり）。
+          // 値が選択肢に無いと自動で外れてカウントされないため、設定で合わせる。
+          Type: st0.sfCallType || "Call",
+          Status: st0.sfCallStatus || "完了",
+          // 電話のコールとして明確にする（TaskSubtype=Call）。無効なら自動で外れる。
+          ...(st0.sfCallSubtype !== false ? { TaskSubtype: "Call" } : {}),
           ActivityDate: jstDate(0),
+          // 完了日時（日付/時間）に記録時刻を入れる。レポートの「活動日時」がこれの場合に効く。
+          ...(st0.sfSetCompletedAt !== false ? { CompletedDateTime: 今ISO } : {}),
           // かけるからの記録には「活動日時」も入れる（CSV取り込みには入れない）。
           // 項目名は組織ごとに違うので、設定 sfActivityTimeField で指定。未対応項目は自動で外れる。
-          ...(st0.sfActivityTimeField ? { [String(st0.sfActivityTimeField)]: new Date().toISOString() } : {}),
+          ...(st0.sfActivityTimeField ? { [String(st0.sfActivityTimeField)]: 今ISO } : {}),
           Description: [
             `結果：${result}`,
             b.memo ? `メモ：${b.memo}` : "",
@@ -7151,12 +7159,17 @@ async function syncCallToSf(log) {
     const owner = log.caller;
     if (!owner || !(await sfConnected(owner).catch(() => false))) return;
     const r = CALL_RESULTS.find((x) => x.key === log.result);
+    const st0 = await getSettings().catch(() => ({}));
+    const 時刻 = new Date(log.at || Date.now()).toISOString();
     const task = await createTask(owner, {
       WhoId: log.lead_id,
       Subject: `コール：${(r && r.sf) || log.result}`,
-      Status: "完了",
-      Type: "Call",
-      ActivityDate: new Date(log.at || Date.now()).toISOString().slice(0, 10),
+      Type: st0.sfCallType || "Call",
+      Status: st0.sfCallStatus || "完了",
+      ...(st0.sfCallSubtype !== false ? { TaskSubtype: "Call" } : {}),
+      ActivityDate: 時刻.slice(0, 10),
+      ...(st0.sfSetCompletedAt !== false ? { CompletedDateTime: 時刻 } : {}),
+      ...(st0.sfActivityTimeField ? { [String(st0.sfActivityTimeField)]: 時刻 } : {}),
       Description: [`結果：${log.result}`, log.memo ? `メモ：${log.memo}` : ""].filter(Boolean).join("\n"),
     });
     await markCallSynced(log.id, { taskId: (task && (task.id || task.Id)) || "done" });
@@ -13393,7 +13406,8 @@ app.put("/api/settings", async (req, res) => {
 app.get("/api/sf-proxy", async (req, res) => {
   try {
     const st = await getSettings().catch(() => ({}));
-    res.json({ ok: true, sfProxyUser: st.sfProxyUser || "", sfNextActionType: st.sfNextActionType || "", sfActivityTimeField: st.sfActivityTimeField || "" });
+    res.json({ ok: true, sfProxyUser: st.sfProxyUser || "", sfNextActionType: st.sfNextActionType || "", sfActivityTimeField: st.sfActivityTimeField || "",
+      sfCallType: st.sfCallType || "", sfCallStatus: st.sfCallStatus || "", sfCallSubtype: st.sfCallSubtype !== false, sfSetCompletedAt: st.sfSetCompletedAt !== false });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 app.put("/api/sf-proxy", async (req, res) => {
@@ -13405,6 +13419,11 @@ app.put("/api/sf-proxy", async (req, res) => {
     if (b.sfNextActionType !== undefined) patch.sfNextActionType = String(b.sfNextActionType || "").trim();
     // かけるからの記録に入れる「活動日時」の項目API名（例：活動日時__c）。空なら入れない。
     if (b.sfActivityTimeField !== undefined) patch.sfActivityTimeField = String(b.sfActivityTimeField || "").trim();
+    // かけるからの記録の Task に入れる、この組織の正しい値
+    if (b.sfCallType !== undefined) patch.sfCallType = String(b.sfCallType || "").trim();          // 種別（例：電話）
+    if (b.sfCallStatus !== undefined) patch.sfCallStatus = String(b.sfCallStatus || "").trim();     // 状況（例：完了）
+    if (b.sfCallSubtype !== undefined) patch.sfCallSubtype = !!b.sfCallSubtype;                     // TaskSubtype=Call を付けるか
+    if (b.sfSetCompletedAt !== undefined) patch.sfSetCompletedAt = !!b.sfSetCompletedAt;            // 完了日時に記録時刻を入れるか
     await saveSettings(patch);
     const st = await getSettings().catch(() => ({}));
     const 連携 = st.sfProxyUser ? await sfConnected(st.sfProxyUser).catch(() => false) : false;
@@ -14334,7 +14353,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-08-27e kincall：かけるからの記録に入れる「活動日時」の項目API名を、設定（sfActivityTimeField）で保存・指定できるようにした";
+const BUILD_TAG = "2026-08-27f kincall：かけるからの記録のTaskに、組織の正しい種別(Type)/状況(Status)を設定で入れられるように。TaskSubtype=Callと完了日時(CompletedDateTime)も付与し、コールとしてカウントされるようにした";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
