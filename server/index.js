@@ -2896,6 +2896,34 @@ app.post("/api/apo/dedupe", async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+// 今日の商談カード用：会社名から、SFのクロス商談が立ち上げ済み（01：アポ獲得以上／受注）か、
+// かつ今日SFが更新されたか（LastActivityDateが今日）を調べる。
+app.post("/api/meetings/sf-check", async (req, res) => {
+  try {
+    const company = String(req.body?.company || "").trim();
+    if (!company) return res.status(400).json({ error: "会社名がありません" });
+    const sfUser = await pickSfUser(req.user);
+    if (!salesforceConfigured() || !(await sfConnected(sfUser).catch(() => false))) {
+      return res.status(400).json({ error: "Salesforceに接続できません" });
+    }
+    const today = jstDate(0);
+    let launched = false, updatedToday = false, stage = "", name = "";
+    try {
+      const d = await sfQuery(sfUser,
+        `SELECT Name, StageName, IsWon, IsClosed, LastActivityDate FROM Opportunity
+          WHERE RecordType.Name LIKE '%クロス%' AND Account.Name = '${company.replace(/'/g, "\\'")}'
+          ORDER BY CreatedDate DESC LIMIT 5`);
+      for (const o of d.records || []) {
+        const st = String(o.StageName || "");
+        const 立 = /アポ獲得/.test(st) || o.IsWon === true || (!o.IsClosed && st);
+        if (立 && !launched) { launched = true; stage = st; name = o.Name || ""; }
+        if (String(o.LastActivityDate || "") === today) updatedToday = true;
+      }
+    } catch (e) { console.warn("[sf-check]", e.message); }
+    res.json({ ok: true, company, launched, updatedToday, stage, name });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 // 会社名から、SFのクロス商談が「立ち上げ済み（01：アポ獲得 以上、または受注）」かをまとめて調べる。
 // 自分のアポ一覧で、立ち上げ済みの表示（アイコンを薄く／バッジ）に使う。SF確認アイコンでも使う。
 app.post("/api/apo/cross-status", async (req, res) => {
@@ -14551,7 +14579,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-08-28e kincall：「全てのリード」（仮想リスト）表示中は、選択チェック・他リストへの移動を出さない（どのリスト由来か不明なため移動不可）";
+const BUILD_TAG = "2026-08-28f 今日の商談：会社名の横に更新マークを追加。押すとSFが今日更新されたか（LastActivityDate）・商談が立ち上がっているか（クロス01：アポ獲得以上）を調べ、カードに表示＋済みならSFアイコンを薄く";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",

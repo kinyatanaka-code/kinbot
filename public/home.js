@@ -360,7 +360,7 @@ function render() {
       <div class="hl-row">
         <div class="hl-time">${escH(time)}</div>
         <div class="hl-main">
-          <div class="hl-title">${escH(title)}</div>
+          <div class="hl-title">${escH(title)}${company ? `<button type="button" class="hl-sfrefresh" data-sfrefresh="${escH(company)}" title="SFが今日更新されたか・商談が立ち上がっているかを調べる" style="margin-left:6px;border:none;background:transparent;cursor:pointer;vertical-align:-2px;padding:2px;color:#0d5b47;"><svg viewBox="0 0 16 16" width="14" height="14" fill="none"><path d="M13 8a5 5 0 1 1-1.6-3.7" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/><path d="M13.2 3v2.6h-2.6" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg></button>` : ""}</div>
           <div class="hl-meta"${summary ? ` title="${escH(summary)}"` : ""}>${badges}${meta}</div>
         </div>
         <div class="hl-acts">${acts}</div>
@@ -2432,6 +2432,42 @@ function applyApoCross(byCompany) {
     }
   });
 }
+
+// 今日の商談：会社名の横の更新マーク → SFが今日更新されたか・商談が立ち上がっているかを調べて反映
+document.addEventListener("click", (ev) => {
+  const btn = ev.target && ev.target.closest ? ev.target.closest("[data-sfrefresh]") : null;
+  if (!btn) return;
+  ev.preventDefault();
+  const company = btn.getAttribute("data-sfrefresh") || "";
+  if (!company) return;
+  const card = btn.closest(".home-card");
+  let line = card && card.querySelector(".hl-sfcheck");
+  if (card && !line) {
+    line = document.createElement("div");
+    line.className = "hl-sfcheck";
+    line.style.cssText = "font-size:12px;color:#0d5b47;margin-top:4px;";
+    const main = card.querySelector(".hl-main"); if (main) main.appendChild(line);
+  }
+  btn.classList.add("spin");
+  if (line) line.textContent = "SFを確認しています…";
+  (async () => {
+    try {
+      const d = await (await fetch("/api/meetings/sf-check", {
+        method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ company }),
+      })).json();
+      if (!d || d.error) throw new Error((d && d.error) || "確認できませんでした");
+      const 立 = d.launched ? `✓ 商談 立ち上げ済み（${d.stage || "アポ獲得以上"}${d.name ? "／" + d.name : ""}）` : "商談 未立ち上げ";
+      const 更 = d.updatedToday ? "／SF 今日更新済み" : "／SF 今日の更新なし";
+      if (line) line.textContent = 立 + 更;
+      // 立ち上げ済み・更新済みなら、SFアイコンを薄く（済み表示）にする
+      if (card && (d.launched || d.updatedToday)) {
+        const sfBtn = card.querySelector('[data-sfedit], [data-sf-open]');
+        if (sfBtn) { sfBtn.classList.remove("hib-need"); sfBtn.classList.add("hib-done"); }
+      }
+    } catch (e) { if (line) line.textContent = "確認できませんでした：" + e.message; }
+    finally { btn.classList.remove("spin"); }
+  })();
+});
 
 // SF確認アイコン：押すと、その会社のSFクロス商談の状態を調べて、その場に結果を出す
 document.addEventListener("click", (ev) => {
