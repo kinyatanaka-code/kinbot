@@ -324,30 +324,14 @@ function render() {
   if (tb) tb.style.visibility = selDateL === todayL ? "hidden" : "visible";
 
   let all = (dayEventsL || []).filter((e) => isTarget(e.title));
-  // 埋め込みで q が渡されたときは、その1件だけに絞る
+  // 埋め込みで q（会社名）が渡されたときは、カレンダーの予定は探さず、
+  // 最初から会社名で直接SFのリード（クロスリード）を探す。
   if (focusQ) {
-    const norm = (t) => String(t || "").replace(/[\s　]/g, "");
-    const key = norm(focusQ);
-    const hit = all.filter((e) => norm(e.title).includes(key) || key.includes(norm(e.title)));
-    if (hit.length) all = hit;
-    else if (!focusSearched) {
-      // この画面は「予定を登録した日」で読む。ホームから商談日で開かれると
-      // 見つからないので、前後の日も探しに行く。
-      focusSearched = true;
-      findEventAround(focusQ);
-      box.innerHTML = '<div class="home-empty">この予定を探しています…</div>';
-      return;
-    }
+    const co = companyOf(focusQ) || focusQ;
+    all = [{ id: "__q__:" + co, title: focusQ, start: null, __direct: true }];
   }
   renderOwnerFilter(all);
   let list = ownerFilter ? all.filter((e) => ownerFilter.has(creatorEmailOf(e))) : all;
-  // カレンダーの予定が見つからなくても、会社名から直接リードを探せるようにする。
-  // （商談のSF更新と同じく、会社名でリードを検索する）
-  if (focusQ && !list.length && focusSearched) {
-    const co = companyOf(focusQ) || focusQ;
-    list = [{ id: "__q__:" + co, title: focusQ, start: null, __direct: true }];
-    all = list;
-  }
   if (!list.length) {
     box.innerHTML = `<div class="home-empty">${
       focusQ ? "この予定はSalesforce立ち上げの対象ではありません（タイトルに【初回】【新/ヒ】が必要です）。"
