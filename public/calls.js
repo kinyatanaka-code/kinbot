@@ -1250,6 +1250,13 @@ function showPane() {
   if (p === "lists") asLoad();
 }
 
+// サイドメニューの「資料送付設定」→ モーダルを開く（ページ遷移はしない）
+(function wireSideDoc() {
+  const a = document.getElementById("kcSideDoc");
+  if (!a) return;
+  a.addEventListener("click", (ev) => { ev.preventDefault(); openDocSettings(); });
+})();
+
 // リスト管理の中のタブ（リスト管理／リスト作成）
 (function wireListTabs() {
   const tabs = document.getElementById("lsTabs");

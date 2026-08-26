@@ -14534,7 +14534,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-08-28b kincall：「全てのリード」を、持ち主のリスト＋自分に配られた架電先の両方を含めるよう拡大（配られただけの人でも出る）。all選択時に空になる不具合も修正";
+const BUILD_TAG = "2026-08-28c kincall：「資料送付設定」を、リスト管理内のタブから左サイドのメニュー項目に移動（押すと設定モーダルが開く）";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
