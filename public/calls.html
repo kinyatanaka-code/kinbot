@@ -44,13 +44,32 @@
               <label>リスト <select id="clList"></select></label>
               <span class="cl-prog" id="clProg"></span>
               <label>探す <input type="text" id="clFind" placeholder="会社名・担当者・電話" style="width:200px" /></label>
-              <button class="btn ghost" id="clReset">しぼり込みを外す</button>
-              <button class="btn ghost" id="clCheck" title="履歴の件数が出ないときに押してください">履歴の件数を調べる</button>
-              <button class="btn ghost" id="clDedup" title="CSV取り込みで二重に残った活動履歴を、各まとまりで1件だけ残して整理します">重複した活動履歴を整理</button>
-              <button class="btn ghost" id="clRefreshSf" title="このリストの各リードについて、Salesforceの最新の状態（最終ステータス・ステージ・所有者）とクロス商談の有無を読みに行って反映します">SFの状態を更新</button>
-              <button class="btn ghost" id="clLinkSf" title="リスト作成時にSalesforceを読み込まなかった（SF未連携の）架電先を、会社名でSFのリードに結びつけます。以後はSFの履歴が見られ、状態の更新もできます">SFと連携</button>
+              <div class="cl-tools">
+                <button class="cl-ico" id="clReset" title="しぼり込みを外す" aria-label="しぼり込みを外す">
+                  <svg viewBox="0 0 16 16" width="17" height="17" fill="none"><path d="M2.5 3.5h11l-4.2 5v3.6l-2.6 1.3V8.5L2.5 3.5z" stroke="#0d5b47" stroke-width="1.3" stroke-linejoin="round"/></svg>
+                </button>
+                <button class="cl-ico" id="clCheck" title="履歴の件数を調べる" aria-label="履歴の件数を調べる">
+                  <svg viewBox="0 0 16 16" width="17" height="17" fill="none"><circle cx="7" cy="7" r="4.2" stroke="#0d5b47" stroke-width="1.3"/><path d="M10.2 10.2 14 14" stroke="#0d5b47" stroke-width="1.3" stroke-linecap="round"/></svg>
+                </button>
+                <button class="cl-ico" id="clDedup" title="重複した活動履歴を整理" aria-label="重複した活動履歴を整理">
+                  <svg viewBox="0 0 16 16" width="17" height="17" fill="none"><rect x="5.5" y="5.5" width="8" height="8" rx="2" stroke="#0d5b47" stroke-width="1.3"/><path d="M10.5 5.5V4a1.5 1.5 0 0 0-1.5-1.5H4A1.5 1.5 0 0 0 2.5 4v5A1.5 1.5 0 0 0 4 10.5h1.5" stroke="#1d9e75" stroke-width="1.3" stroke-linecap="round"/></svg>
+                </button>
+                <button class="cl-ico" id="clRefreshSf" title="SFの状態を更新（最終ステータス・ステージ・所有者・クロス商談を反映）" aria-label="SFの状態を更新">
+                  <svg viewBox="0 0 16 16" width="17" height="17" fill="none"><path d="M13 8a5 5 0 1 1-1.6-3.7" stroke="#0d5b47" stroke-width="1.3" stroke-linecap="round"/><path d="M13.2 3v2.6h-2.6" stroke="#0d5b47" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                </button>
+                <button class="cl-ico" id="clLinkSf" title="SFと連携（未連携の架電先を会社名でリードに結びつけ、履歴・更新を使えるように）" aria-label="SFと連携">
+                  <svg viewBox="0 0 16 16" width="17" height="17" fill="none"><path d="M6.3 9.7 9.7 6.3" stroke="#0d5b47" stroke-width="1.3" stroke-linecap="round"/><path d="M8.8 4.6l.9-.9a2.4 2.4 0 0 1 3.4 3.4l-1 1" stroke="#0d5b47" stroke-width="1.3" stroke-linecap="round"/><path d="M7.2 11.4l-.9.9a2.4 2.4 0 0 1-3.4-3.4l1-1" stroke="#1d9e75" stroke-width="1.3" stroke-linecap="round"/></svg>
+                </button>
+              </div>
               <span class="rev-status" id="clStatus"></span>
             </div>
+            <style>
+              .cl-tools{display:inline-flex;gap:6px;margin-left:auto;align-items:center;}
+              .cl-ico{width:34px;height:34px;padding:0;display:inline-flex;align-items:center;justify-content:center;
+                      background:#fff;border:1.5px solid #e6ece9;border-radius:10px;cursor:pointer;transition:border-color .15s,background .15s,transform .1s;}
+              .cl-ico:hover{background:#eef7f2;border-color:#5DCAA5;transform:translateY(-1px);}
+              .cl-ico:active{transform:translateY(0);}
+            </style>
 
             <div id="clTable"><div class="empty-state">リストを選んでください。</div></div>
           </section>
