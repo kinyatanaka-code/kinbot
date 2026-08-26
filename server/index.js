@@ -3006,7 +3006,7 @@ async function fillLeadWebsite(user, lead, company) {
 // 1件を判定して、通れば立ち上げる
 // user      … Salesforceを操作するアカウント（SF連携ができている人）
 // ownerEmail… 商談の所有者にしたい人（＝アポを割り振られたクローザー）
-async function tryAutoLaunch(user, link, { dryRun = false, ownerEmail = "" } = {}) {
+async function tryAutoLaunch(user, link, { dryRun = false, ownerEmail = "", notify = true } = {}) {
   const base = { slug: link.slug, botId: link.bot_id || null, title: link.label };
   try {
     // すでに立ち上げ済みなら触らない
@@ -3185,7 +3185,7 @@ async function tryAutoLaunch(user, link, { dryRun = false, ownerEmail = "" } = {
                 stage: verified.StageName || "", filledUrl: site.filled ? site.url : "" };
     await saveAutolaunch(r);
     console.log(`[SF自動] 立ち上げ完了 ${j.company}／${j.person} → ${oppId}`);
-    notifyAll([
+    if (notify) notifyAll([
       "🚀 *SFの商談を自動で立ち上げました*",
       `　${verified.Name || `${j.company}_${j.person}`}`,
       `　${verified.StageName || ""}${verified.Owner && verified.Owner.Name ? " ・ " + verified.Owner.Name : ""}`,
@@ -14359,7 +14359,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-08-27i apo：メルマガのアポも、通常のアポと同じくSFの商談を立ち上げるようにした（クローザーへの割り振りはせず、Chat通知は初回のみ・SF立ち上げは冪等に実行）";
+const BUILD_TAG = "2026-08-27j apo：メルマガのアポのSF商談立ち上げについて、メルマガと分かる形で通知（成功＝🚀立ち上げました／失敗＝⚠️理由つきで初回のみ）するようにした";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
@@ -17071,13 +17071,31 @@ async function handleMailmaga(list, { actor = "" } = {}) {
         console.log(`[apo-scan] メルマガのアポとして知らせました：${String(ev.title).slice(0, 40)}`);
       }
     }
-    // SFの商談を立ち上げる（通常アポと同じ。未立ち上げのものだけ。冪等）
+    // SFの商談を立ち上げる（通常アポと同じ。未立ち上げのものだけ。冪等）。
+    // 立ち上げの通知は「メルマガ」と分かる形で、成功・失敗とも出す。
     if (op) {
       try {
         const link = await getSmartLinkByEvent(ev.id).catch(() => null);
         if (link) {
-          const r = await tryAutoLaunch(op, link, { ownerEmail: link.current_owner || "" }).catch(() => null);
-          if (r && r.ok && !r.skipped) console.log(`[apo-scan] メルマガのアポのSF商談を立ち上げました：${String(ev.title).slice(0, 40)}`);
+          const r = await tryAutoLaunch(op, link, { ownerEmail: link.current_owner || "", notify: false }).catch((e) => ({ ok: false, reason: "sf_error", detail: String(e.message || "") }));
+          if (r && r.ok && !r.skipped) {
+            await notifyAll([
+              "🚀 *メルマガの商談を自動で立ち上げました*",
+              `・${ev.title}`,
+            ].join("\n"), "launch").catch(() => {});
+            console.log(`[apo-scan] メルマガのアポのSF商談を立ち上げました：${String(ev.title).slice(0, 40)}`);
+          } else if (r && !r.ok) {
+            // 立ち上がらなかったときは、初回だけ理由を知らせる（毎スキャンで鳴らさない）
+            const firstFail = await noticeOnce(ev.id, "メルマガ立ち上げ不可", ev.title).catch(() => false);
+            if (firstFail) {
+              await notifyAll([
+                "⚠️ *メルマガの商談を立ち上げられませんでした*",
+                `・${ev.title}`,
+                `理由：${reasonText(r.reason, r.detail)}`,
+                "（条件が整えば、次のスキャンで自動的に立ち上げます）",
+              ].join("\n"), "launch").catch(() => {});
+            }
+          }
         }
       } catch (e) { console.warn("[apo-scan] メルマガSF立ち上げ:", e.message); }
     }
