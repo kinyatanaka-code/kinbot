@@ -3111,6 +3111,41 @@ export async function setCallTargetNextCall(id, iso) {
   } catch (e) { console.error("[db] setCallTargetNextCall", e.message); return null; }
 }
 
+// リストの架電先を、指定メンバーへランダムに割り振り直す（担当＝assigned_to を付け替える）。
+// plan: [{email, count}]（count 未指定は均等）。onlyPending=true で未架電だけが対象。
+export async function redistributeListTargets(listId, plan, { onlyPending = true } = {}) {
+  if (!pool || !listId) return { total: 0, byMember: {} };
+  const members = (plan || []).map((p) => String(p.email || "").trim().toLowerCase()).filter(Boolean);
+  if (!members.length) return { total: 0, byMember: {} };
+  const where = onlyPending ? "AND done = false" : "";
+  const { rows } = await pool.query(`SELECT id FROM call_targets WHERE list_id = $1 ${where}`, [listId]);
+  const ids = rows.map((r) => r.id);
+  // ランダムに並べ替え
+  for (let i = ids.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [ids[i], ids[j]] = [ids[j], ids[i]]; }
+  // 件数プランに従って割り付け（余りは選んだ人へ順番に）
+  const assign = new Map();   // email -> [ids]
+  for (const m of members) assign.set(m, []);
+  let pos = 0;
+  for (const p of plan) {
+    const em = String(p.email || "").trim().toLowerCase();
+    const c = Math.max(0, parseInt(p.count, 10) || 0);
+    for (let k = 0; k < c && pos < ids.length; k++, pos++) assign.get(em).push(ids[pos]);
+  }
+  let r = 0;
+  // 余りは、件数を入れていない人（＝残りを受ける人）へ順番に。全員に件数があれば全員へ順番に。
+  const 余り先 = plan.filter((p) => !(parseInt(p.count, 10) > 0)).map((p) => String(p.email || "").trim().toLowerCase());
+  const 配り先 = 余り先.length ? 余り先 : members;
+  while (pos < ids.length) { assign.get(配り先[r % 配り先.length]).push(ids[pos]); pos++; r++; }
+  // まとめて更新
+  const byMember = {};
+  for (const [em, arr] of assign) {
+    if (!arr.length) { byMember[em] = 0; continue; }
+    await pool.query(`UPDATE call_targets SET assigned_to = $2 WHERE id = ANY($1::int[])`, [arr, em]);
+    byMember[em] = arr.length;
+  }
+  return { total: ids.length, byMember };
+}
+
 // リストを作る
 export async function createCallList({ name, owner, note, createdBy }) {
   if (!pool) return null;

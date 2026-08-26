@@ -1508,6 +1508,58 @@ async function asLoad() {
 }
 
 // 第2階層：あるメンバーのリスト一覧（今までのカード表示）
+// リストの架電先を、他のメンバーへランダムに割り振り直す窓
+async function openRedistribute(listId, listName, backEmail, backName) {
+  const m = openModal(`他のメンバーに割り振る：${listName || ""}`, `
+    <div class="kc-redist">
+      <p class="note">このリストの未架電の架電先を、選んだメンバーへランダムに割り振り直します（担当が変わるだけで、メールや通知は飛びません）。件数を入れると人ごとの数を指定でき、余りは順番に配ります。</p>
+      <div class="kc-quick" id="kcRdMembers"><span class="note">メンバーを読み込んでいます…</span></div>
+      <label style="display:flex;align-items:center;gap:8px;font-size:13px;margin-top:8px">
+        <input type="checkbox" id="kcRdAll" /> 架電済みも含めて割り振り直す
+      </label>
+      <div class="kc-modal-foot">
+        <button type="button" class="btn" id="kcRdRun">この人たちに割り振る</button>
+        <span class="rev-status" id="kcRdSt"></span>
+      </div>
+    </div>`, { wide: true });
+
+  try {
+    const d = await (await fetch("/api/calls/members")).json();
+    const items = (d && d.items) || [];
+    m.el.querySelector("#kcRdMembers").innerHTML = items.map((x) =>
+      `<div class="kc-plan-row" data-email="${esc(x.email)}">
+         <button type="button" class="kc-share-b kc-plan-name">${esc(x.name)}</button>
+         <input type="number" class="kc-plan-n" min="0" placeholder="件数" />
+       </div>`).join("");
+    m.el.querySelectorAll("#kcRdMembers .kc-plan-row").forEach((row) => {
+      row.querySelector(".kc-plan-name").addEventListener("click", () => {
+        row.classList.toggle("on");
+        row.querySelector(".kc-plan-name").classList.toggle("on", row.classList.contains("on"));
+      });
+    });
+  } catch { m.el.querySelector("#kcRdMembers").innerHTML = '<span class="note">読み込めませんでした</span>'; }
+
+  m.el.querySelector("#kcRdRun").addEventListener("click", async () => {
+    const st = m.el.querySelector("#kcRdSt");
+    const rows2 = [...m.el.querySelectorAll("#kcRdMembers .kc-plan-row.on")].map((r) => ({
+      email: r.dataset.email, count: parseInt((r.querySelector(".kc-plan-n") || {}).value, 10) || 0,
+    }));
+    if (!rows2.length) { st.textContent = "割り振るメンバーを選んでください"; return; }
+    st.textContent = "割り振っています…";
+    try {
+      const r = await fetch(`/api/calls/lists/${encodeURIComponent(listId)}/redistribute`, {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ members: rows2, onlyPending: !m.el.querySelector("#kcRdAll").checked }),
+      });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.error || "割り振れませんでした");
+      const 内訳 = Object.entries(d.byMember || {}).map(([e, n]) => `${e.split("@")[0]} ${n}件`).join("／");
+      st.textContent = `計${d.total}件を割り振りました（${内訳}）`;
+      setTimeout(() => { m.close(); if (backEmail) asLoadMember(backEmail, backName); }, 1400);
+    } catch (e) { st.textContent = "失敗：" + e.message; }
+  });
+}
+
 // このリストに追加する：リスト作成タブへ切り替えて、追加先を覚えておく。
 // SFレポート／CSVのどちらから読み込んでも、この既存リストに足す（全リスト重複除外・
 // クロス商談あり除外・ジャッジ以外は中澤所有への付け替え、はサーバ側でそのまま効く）。
@@ -1809,7 +1861,8 @@ async function openSplit(listId, listName, memberEmail, memberName) {
       `<div class="kc-mem-head">
          <button type="button" class="kc-mem-back" id="spBack">← 戻る</button>
          <span class="kc-mem-title">${esc(listName)}（${rows.length}件）から絞り込む</span>
-         ${iAmCloser ? `<button type="button" class="btn" id="spAddMore" style="margin-left:auto">＋ このリストに追加</button>` : ""}
+         ${iAmCloser ? `<button type="button" class="btn kc-outline" id="spRedist" style="margin-left:auto">他のメンバーに割り振る</button>` : ""}
+         ${iAmCloser ? `<button type="button" class="btn" id="spAddMore"${iAmCloser ? ' style="margin-left:8px"' : ''}>＋ このリストに追加</button>` : ""}
        </div>
        <div class="kc-split">
          <div class="kc-split-row" style="border-bottom:1px solid #e6ece9;padding-bottom:10px;margin-bottom:6px">
@@ -1841,6 +1894,8 @@ async function openSplit(listId, listName, memberEmail, memberName) {
     // クローザー：このリストに、SFレポート／CSVから追加する（リスト作成タブを使う）
     const addMore = $("spAddMore");
     if (addMore) addMore.addEventListener("click", () => goAppendToList(listId, listName));
+    const redist = $("spRedist");
+    if (redist) redist.addEventListener("click", () => openRedistribute(listId, listName, memberEmail, memberName));
 
     // 今のリストの名前を変える
     const renameBtn = $("spRenameBtn");

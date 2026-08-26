@@ -142,6 +142,7 @@ import {
   deleteCallList,
   findListsByNameSince,
   findRecentListByNameOwner,
+  redistributeListTargets,
   renameCallList,
   callListFacets,
   callAssignCounts,
@@ -6046,6 +6047,25 @@ app.delete("/api/calls/lists/:id", async (req, res) => {
     if (!ok) return res.status(500).json({ error: "消せませんでした" });
     console.log(`[kincall] リスト${id}を消しました by ${req.user}`);
     res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// リストの架電先を、他のメンバーへランダムに割り振り直す（担当を付け替える）。
+app.post("/api/calls/lists/:id/redistribute", async (req, res) => {
+  try {
+    if (!req.isAdmin && !(await isCloserUser(req.user))) return res.status(403).json({ error: "クローザー・管理者だけが使えます" });
+    const id = parseInt(req.params.id, 10);
+    if (!id) return res.status(400).json({ error: "リストが指定されていません" });
+    const b = req.body || {};
+    const plan = (Array.isArray(b.members) ? b.members : [])
+      .map((x) => (typeof x === "string" ? { email: x } : x))
+      .map((p) => ({ email: String(p.email || "").trim().toLowerCase(), count: parseInt(p.count, 10) || 0 }))
+      .filter((p) => p.email);
+    if (!plan.length) return res.status(400).json({ error: "割り振るメンバーを選んでください" });
+    const onlyPending = b.onlyPending !== false;   // 既定は未架電だけ
+    const r = await redistributeListTargets(id, plan, { onlyPending });
+    console.log(`[kincall] リスト${id}を${plan.length}人へ再割り振り（計${r.total}件）by ${req.user}`);
+    res.json({ ok: true, ...r });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
@@ -14198,7 +14218,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-08-26q kincall：「資料送付設定」メニューを追加。メール件名・本文のテンプレ（差し込み対応）と、トラッキングで送る既定の資料を設定でき、資料送付のプレビューに反映される";
+const BUILD_TAG = "2026-08-26r kincall：リストの架電先を他のメンバーへランダムに割り振り直す機能を追加（担当の付け替えのみ・メール/通知は飛ばさない。件数指定・余りは指定なしの人へ）";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
