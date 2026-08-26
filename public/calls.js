@@ -63,6 +63,9 @@ function showProgress(x) {
 // ───────── 一覧（SFのリードレポートのような表） ─────────
 async function loadTable() {
   const box = $("clTable");
+  // ドロップダウンの現在値を優先（「全てのリード」= all を確実に扱う）
+  const selV = ($("clList") && $("clList").value) || "";
+  if (selV) listId = selV === "all" ? "all" : (Number(selV) || 0);
   if (!listId) { box.innerHTML = '<div class="empty-state">リストを選んでください。</div>'; return; }
   box.innerHTML = '<div class="empty-state">読み込んでいます…</div>';
   try {
