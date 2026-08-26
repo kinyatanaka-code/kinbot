@@ -1783,6 +1783,39 @@ setInterval(async () => {
   }
 }, 10 * 60 * 1000);
 
+// 商談（会議）が終わってから30分ほど経ったら、活動ToDo（活動種別＝商談・説明・状況）を
+// Salesforceへ自動で記録する。「商談から読み取る」を押さなくても済むようにする。
+// 冪等（createTaskIdempotent）なので、二重には作らない。
+const _autoShodanDone = new Set();
+setInterval(async () => {
+  try {
+    const jst = new Date(Date.now() + 9 * 3600 * 1000);
+    const from = new Date(jst.getTime() - 3 * 86400000).toISOString().slice(0, 10);
+    const rows = await listMeetings({ isAdmin: true, from, limit: 300 }).catch(() => []);
+    const now = Date.now();
+    const cand = (rows || []).filter((m) => {
+      const key = String(m.id || m.bot_id || "");
+      if (!m.sf_url || !key || _autoShodanDone.has(key)) return false;
+      const age = now - new Date(m.created_at).getTime();
+      return age >= 30 * 60 * 1000 && age <= 24 * 3600 * 1000;   // 30分〜24時間
+    });
+    for (const row of cand.slice(0, 5)) {
+      try {
+        const m = await getMeeting(row.bot_id);
+        if (!m) continue;
+        const s = m.summary || {};
+        const hasTr = Array.isArray(m.transcript) ? m.transcript.length : !!m.transcript;
+        if (!s.overview && !hasTr) continue;   // まだ要約・文字起こしが無い＝終わっていない
+        const owner = m.owner;
+        if (!owner || !(await sfConnected(owner).catch(() => false))) continue;
+        const r = await autofillMeetingToSf(owner, m, m.sf_url).catch(() => null);
+        _autoShodanDone.add(String(m.id || m.bot_id));
+        if (r && r.ok) console.log(`[商談自動記録] ${m.title || m.bot_id} をSFへ自動記録しました（活動種別＝商談）`);
+      } catch (e) { console.warn("[商談自動記録]", e.message); }
+    }
+  } catch (e) { console.error("[商談自動記録]", e.message); }
+}, 10 * 60 * 1000);
+
 // 一覧に出てこない商談（文字起こしが空）を調べる
 app.get("/api/meetings/hidden", async (req, res) => {
   try {
@@ -14359,7 +14392,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-08-27l SF自動入力：初回提案商品で「その他」はチェックしない。その他を除いた有効なプランがあればそれ、無ければエントリープランにする";
+const BUILD_TAG = "2026-08-27m 商談：会議終了30分後に、活動ToDo（活動種別＝商談・説明・状況）をSFへ自動記録するようにした（商談から読み取るを押さなくてもよい・冪等で二重記録なし）";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
@@ -16045,7 +16078,7 @@ async function autofillMeetingToSf(user, meeting, url) {
   const task = await createTaskIdempotent(user, String(m.id), {
     WhatId: recordId,
     Subject: `[kinbot] ${m.title || "商談"}（第${m.round || 1}回）`,
-    Type: "Meeting",
+    Type: "商談",
     Description: desc.slice(0, 30000),
     Status: "完了",
     ActivityDate: (m.meeting_date || new Date().toISOString()).slice(0, 10),
