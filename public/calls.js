@@ -1385,6 +1385,24 @@ document.addEventListener("click", (ev) => {
       } catch (e) { say("clStatus", "できませんでした：" + e.message, 8000); }
     })();
   }
+  if (t.id === "clRefreshSf") {
+    ev.preventDefault();
+    (async () => {
+      if (!listId) { say("clStatus", "リストを選んでください", 4000); return; }
+      if (!confirm("このリストの各リードについて、Salesforceの最新の状態（最終ステータス・ステージ・所有者）とクロス商談の有無を読みに行って、kincallに反映します。\nよろしいですか？")) return;
+      say("clStatus", "Salesforceの状態を読み込んでいます…");
+      try {
+        const d = await (await fetch(`/api/calls/lists/${encodeURIComponent(listId)}/refresh-sf`, {
+          method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({}),
+        })).json();
+        if (d.error) throw new Error(d.error);
+        say("clStatus", `SFの最新に反映しました：${d["反映"] || 0}件`
+          + (d["クロス商談あり"] ? `／クロス商談あり ${d["クロス商談あり"]}件（アポ獲得済みに移動）` : "")
+          + (d["SF未連携"] ? `／SF未連携 ${d["SF未連携"]}件（対象外）` : ""), 12000);
+        loadTable();
+      } catch (e) { say("clStatus", "できませんでした：" + e.message, 8000); }
+    })();
+  }
   if (t.id === "clCheck") {
     ev.preventDefault();
     (async () => {

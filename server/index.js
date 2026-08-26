@@ -6148,6 +6148,66 @@ app.delete("/api/calls/lists/:id", async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+// 今あるリストの各リードについて、Salesforceの最新の状態（最終ステータス・ステージ・所有者）と
+// クロス商談の有無を読みに行って、kincallの表示に反映する（「SFの状態を更新」ボタン）。
+app.post("/api/calls/lists/:id/refresh-sf", async (req, res) => {
+  try {
+    if (!req.isAdmin && !(await isCloserUser(req.user))) return res.status(403).json({ error: "クローザー・管理者だけが使えます" });
+    const id = parseInt(req.params.id, 10);
+    if (!id) return res.status(400).json({ error: "リストが指定されていません" });
+    const sfUser = await pickSfUser(req.user);
+    if (!salesforceConfigured() || !(await sfConnected(sfUser).catch(() => false))) {
+      return res.status(400).json({ error: "Salesforceに接続できません" });
+    }
+    const b = req.body || {};
+    const CROSS_FROM = /^\d{4}-\d{2}-\d{2}$/.test(String(b.crossFrom || "")) ? b.crossFrom : "2026-03-01";
+
+    const targets = await listCallTargets(id, { limit: 2000 }).catch(() => []);
+    const withLead = targets.filter((t) => t.lead_id);
+
+    // 1) リードの最新状態（状況・レコードタイプ・所有者名）をまとめて取得
+    const info = new Map();   // id15 -> {status, stage, owner}
+    for (let i = 0; i < withLead.length; i += 200) {
+      const chunk = withLead.slice(i, i + 200);
+      const inIds = chunk.map((t) => `'${id15(t.lead_id).replace(/[^A-Za-z0-9]/g, "")}'`).join(",");
+      if (!inIds) continue;
+      try {
+        const d = await sfQuery(sfUser, `SELECT Id, Status, RecordType.Name, Owner.Name, IsConverted FROM Lead WHERE Id IN (${inIds})`);
+        for (const r of d.records || []) {
+          info.set(id15(r.Id), {
+            status: r.Status || "",
+            stage: (r.RecordType && r.RecordType.Name) || "",
+            owner: (r.Owner && r.Owner.Name) || "",
+            converted: !!r.IsConverted,
+          });
+        }
+      } catch (e) { console.warn("[SF更新] lead取得", e.message); }
+    }
+
+    // 2) クロス商談（初回商談日 CROSS_FROM 以降・レコードタイプにクロス）がある会社を集める
+    const crossOpp = new Set();
+    try {
+      const d = await sfQuery(sfUser, `SELECT Account.Name, RecordType.Name FROM Opportunity WHERE CloseDate >= ${CROSS_FROM} AND RecordType.Name LIKE '%クロス%' LIMIT 5000`);
+      for (const o of d.records || []) { const co = (o.Account && o.Account.Name) || ""; if (co) crossOpp.add(normCompanyKey(co)); }
+    } catch (e) { console.warn("[SF更新] 商談取得", e.message); }
+
+    // 3) 各架電先を更新
+    let 反映 = 0, クロス化 = 0;
+    for (const t of withLead) {
+      const li = info.get(id15(t.lead_id)) || {};
+      let status = li.status || t.status || "";
+      const stage = li.stage || t.stage || "";
+      // クロス商談ありの会社は「アポ獲得済み（クロス商談）」にして、かける一覧では下にまとめる
+      if (crossOpp.has(normCompanyKey(t.company))) { status = "アポ獲得済み（クロス商談）"; クロス化++; }
+      await setCallTargetStatus(t.id, { stage, status }).catch(() => {});
+      if (li.owner) await setCallTargetLead(t.id, t.lead_id, { ownerName: li.owner }).catch(() => {});
+      反映++;
+    }
+    console.log(`[SF更新] リスト${id}：${反映}件をSF最新に反映（クロス商談あり ${クロス化}件）by ${req.user}`);
+    res.json({ ok: true, 対象: withLead.length, 反映, クロス商談あり: クロス化, SF未連携: targets.length - withLead.length });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 // 今あるリストの、SF未連携（lead_idなし）の架電先を、Salesforceに反映する。
 // 大量でも大丈夫なように、1回で少しずつ（既定20件）処理して残数を返す。フロントが繰り返し呼ぶ。
 app.post("/api/calls/lists/:id/to-sf", async (req, res) => {
@@ -14392,7 +14452,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-08-27m 商談：会議終了30分後に、活動ToDo（活動種別＝商談・説明・状況）をSFへ自動記録するようにした（商談から読み取るを押さなくてもよい・冪等で二重記録なし）";
+const BUILD_TAG = "2026-08-27n kincall：かける画面に「SFの状態を更新」を追加。リードの最終ステータス・ステージ・所有者をSFの最新に反映し、クロス商談がある会社はアポ獲得済みに移す";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
