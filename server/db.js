@@ -3484,12 +3484,23 @@ export async function listAllLeadsForMember(member, { q = "", limit = 2000 } = {
         WHERE ${where}
         ORDER BY t.done, t.next_call_at NULLS LAST, t.id
         LIMIT 5000`, p);
-    // 重複をまとめる（会社＋電話／リードで同じものは、最初の1件だけ残す）
+    // 重複をまとめる（本当に同じ架電先だけ）。
+    //   ・同じリード（lead_id）
+    //   ・または 会社＋電話 が一致
+    // 会社名だけの一致では潰さない（同じ会社の別担当・別番号は別件として残す）。
     const seen = new Set();
     const out = [];
+    const norm = (s) => String(s || "").replace(/[\s　]/g, "")
+      .replace(/(株式会社|（株）|\(株\)|㈱|有限会社|合同会社|一般社団法人|社会福祉法人|学校法人)/g, "").toLowerCase();
     for (const r of rows) {
-      const keys = callDedupeKeys(r.lead_id, r.phone, r.company);
-      if (keys.some((k) => seen.has(k))) continue;
+      const keys = [];
+      const lid = String(r.lead_id || "").trim();
+      if (lid) keys.push("lead:" + lid);
+      const tel = String(r.phone || "").replace(/[^\d]/g, "");
+      const co = norm(r.company);
+      if (tel.length >= 9 && co) keys.push("cp:" + co + "|" + tel);
+      // カギが1つも無い（リードも電話も無い）ものは、潰さずそのまま残す
+      if (keys.length && keys.some((k) => seen.has(k))) continue;
       for (const k of keys) seen.add(k);
       out.push(r);
       if (out.length >= Math.max(1, Math.min(2000, limit))) break;
