@@ -14359,7 +14359,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-08-27j apo：メルマガのアポのSF商談立ち上げについて、メルマガと分かる形で通知（成功＝🚀立ち上げました／失敗＝⚠️理由つきで初回のみ）するようにした";
+const BUILD_TAG = "2026-08-27k SF自動入力：初回提案商品が読み取れなかった（空／「その他」だけ）場合は、必ずエントリープランにチェックするようにした";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
@@ -16407,6 +16407,13 @@ app.post("/api/salesforce/field-suggest", async (req, res) => {
     for (const k of Object.keys(values)) {
       const v = values[k];
       if (v != null && String(v).trim() !== "") clean[k] = String(v).trim();
+    }
+    // 初回提案商品：読み取れなかった（空）／「その他」しか無い場合は、必ずエントリープランにする。
+    {
+      const K = "first_proposal_product__c";
+      const cur = String(clean[K] || "").trim();
+      const 有効 = cur.split(/[;；]/).map((s) => s.trim()).filter((s) => s && s !== "その他");
+      if (!有効.length) clean[K] = "エントリープラン";
     }
     res.json({ values: clean });
   } catch (e) {
