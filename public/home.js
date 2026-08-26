@@ -354,13 +354,14 @@ function render() {
             `data-mail="${escH(m.bot_id)}" data-key="${escH(key)}"`,
             mailSentMap[m.bot_id] ? "done" : "need")
         : hIcon("mail", "御礼メール（商談の記録がまだありません）", `data-mail-none="${escH(key)}"`, "done")) +
-      hIcon("open", openLabel, `href="${link}"`, "done", "a");
+      hIcon("open", openLabel, `href="${link}"`, "done", "a") +
+      (company ? hIcon("sfcheck", "SF確認（今日SFが更新されたか・商談が立ち上がっているか）", `data-sfrefresh="${escH(company)}"`, "") : "");
 
     return `<div class="home-row" style="--i:${idx}"><div class="home-card home-line${m ? " is-done" : ""}" data-card="${escH(key)}">
       <div class="hl-row">
         <div class="hl-time">${escH(time)}</div>
         <div class="hl-main">
-          <div class="hl-title">${escH(title)}${company ? `<button type="button" class="hl-sfrefresh" data-sfrefresh="${escH(company)}" title="SFが今日更新されたか・商談が立ち上がっているかを調べる" style="margin-left:6px;border:none;background:transparent;cursor:pointer;vertical-align:-2px;padding:2px;color:#0d5b47;"><svg viewBox="0 0 16 16" width="14" height="14" fill="none"><path d="M13 8a5 5 0 1 1-1.6-3.7" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/><path d="M13.2 3v2.6h-2.6" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg></button>` : ""}</div>
+          <div class="hl-title">${escH(title)}</div>
           <div class="hl-meta"${summary ? ` title="${escH(summary)}"` : ""}>${badges}${meta}</div>
         </div>
         <div class="hl-acts">${acts}</div>
