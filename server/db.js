@@ -3406,7 +3406,7 @@ export async function clearCallAssign(listId) {
 }
 
 // リストの中身を、表として全部返す（SFのリードレポートのような見た目にする）
-export async function listCallTargets(listId, { q = "", limit = 500 } = {}) {
+export async function listCallTargets(listId, { q = "", limit = 500, assignedTo = "" } = {}) {
   if (!pool || !listId) return [];
   try {
     const p = [listId];
@@ -3415,6 +3415,13 @@ export async function listCallTargets(listId, { q = "", limit = 500 } = {}) {
       p.push(`%${String(q).replace(/[%_]/g, "")}%`);
       where += ` AND (t.company ILIKE $${p.length} OR t.person ILIKE $${p.length}
                       OR t.phone ILIKE $${p.length} OR t.email ILIKE $${p.length})`;
+    }
+    // 担当で絞る場合：その人に割り振られたぶん＋まだ誰にも割り振られていないぶん（担当が付いた
+    // 他の人のぶんは出さない）。これで、割り振り済みのリストで全件が出てしまうのを防ぐ。
+    const who = String(assignedTo || "").trim().toLowerCase();
+    if (who) {
+      p.push(who);
+      where += ` AND (lower(coalesce(t.assigned_to,'')) = $${p.length} OR coalesce(t.assigned_to,'') = '')`;
     }
     p.push(Math.max(1, Math.min(2000, limit)));
     const { rows } = await pool.query(

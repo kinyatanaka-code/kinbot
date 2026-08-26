@@ -6456,6 +6456,7 @@ app.get("/api/calls/targets", async (req, res) => {
     const rows = await listCallTargets(listId, {
       q: String(req.query.q || ""),
       limit: Math.min(2000, parseInt(req.query.limit, 10) || 2000),
+      assignedTo: String(req.query.assignedTo || ""),
     });
 
     // Salesforceに残っている活動の件数も数える（kincallの記録だけだと0に見えるため）
@@ -14328,7 +14329,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-08-27a kincall：CSV取り込みで作る活動を Type=Other（コールに数えない）に変更。kincallの記録は Type=Call のままで、実際の架電だけがコールカウントされるようにした";
+const BUILD_TAG = "2026-08-27b kincall：メンバーのリストから「かける」を開いたとき、そのメンバーに割り振られたぶん（＋未割り振り）だけを出すようにした（他の人担当の分まで全件出てしまう不具合を修正）";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",

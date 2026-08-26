@@ -65,7 +65,8 @@ async function loadTable() {
   box.innerHTML = '<div class="empty-state">読み込んでいます…</div>';
   try {
     const q = $("clFind") && $("clFind").value.trim();
-    const d = await (await fetch(`/api/calls/targets?list=${listId}${q ? "&q=" + encodeURIComponent(q) : ""}`)).json();
+    const who = callAsMember ? "&assignedTo=" + encodeURIComponent(callAsMember) : "";
+    const d = await (await fetch(`/api/calls/targets?list=${listId}${q ? "&q=" + encodeURIComponent(q) : ""}${who}`)).json();
     if (d.error) throw new Error(d.error);
     kinds = d["結果の種類"] || [];
     rows = d.items || [];
@@ -1206,6 +1207,7 @@ document.addEventListener("click", (ev) => {
 if ($("clList")) {
   $("clList").addEventListener("change", () => {
     listId = Number($("clList").value) || 0;
+    callAsMember = "";   // ドロップダウンで選び直したら、担当の絞り込みは外す（全件表示）
     loadTable();
   });
 }
@@ -1269,6 +1271,7 @@ function showPane() {
 let iAmCloser = false;               // クローザー（管理者含む）＝リストを追加できる
 let appendTarget = null;             // {id, name}：既存リストに追加する先
 let csvAddMode = false;              // CSV：作成する(false)／追加する(true)
+let callAsMember = "";               // かける画面を、この担当の割り振りぶんだけで見る（空＝全部）
 (async () => {
   try {
     const me = await (await fetch("/api/me")).json();
@@ -1671,7 +1674,8 @@ async function asLoadMember(email, name) {
 }
 
 // カードを押したら「かける」に移り、そのリストを選ぶ
-function selectListAndCall(id) {
+function selectListAndCall(id, member) {
+  callAsMember = String(member || "").trim().toLowerCase();
   const sel = $("clList");
   if (sel) {
     sel.value = String(id);
@@ -1930,7 +1934,7 @@ async function openSplit(listId, listName, memberEmail, memberName) {
     const back = $("spBack");
     if (back) back.addEventListener("click", () => asLoadMember(memberEmail, memberName));
     const open = $("spOpen");
-    if (open) open.addEventListener("click", () => selectListAndCall(listId));
+    if (open) open.addEventListener("click", () => selectListAndCall(listId, memberEmail));
 
     // クローザー：このリストに、SFレポート／CSVから追加する（リスト作成タブを使う）
     const addMore = $("spAddMore");
