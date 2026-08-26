@@ -2895,6 +2895,43 @@ app.post("/api/apo/dedupe", async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+// 会社名から、SFのクロス商談が「立ち上げ済み（01：アポ獲得 以上、または受注）」かをまとめて調べる。
+// 自分のアポ一覧で、立ち上げ済みの表示（アイコンを薄く／バッジ）に使う。SF確認アイコンでも使う。
+app.post("/api/apo/cross-status", async (req, res) => {
+  try {
+    const companies = (Array.isArray(req.body?.companies) ? req.body.companies : [])
+      .map((c) => String(c || "").trim()).filter(Boolean).slice(0, 200);
+    if (!companies.length) return res.json({ ok: true, byCompany: {} });
+    const sfUser = await pickSfUser(req.user);
+    if (!salesforceConfigured() || !(await sfConnected(sfUser).catch(() => false))) {
+      return res.status(400).json({ error: "Salesforceに接続できません" });
+    }
+    // 会社ごとに、クロスのレコードタイプの商談を調べる。
+    // 立ち上げ済み ＝ ステージに「アポ獲得」を含む（01：アポ獲得 以上に上がっている）か、受注。
+    const byCompany = {};
+    for (const co of companies) byCompany[normCompanyKey(co)] = { launched: false, name: "", stage: "", company: co };
+    const names = companies.map((c) => `'${String(c).replace(/'/g, "\\'")}'`).join(",");
+    try {
+      const d = await sfQuery(sfUser,
+        `SELECT Account.Name, Name, StageName, IsWon, IsClosed FROM Opportunity
+          WHERE RecordType.Name LIKE '%クロス%' AND Account.Name IN (${names})
+          ORDER BY CreatedDate DESC LIMIT 2000`);
+      for (const o of d.records || []) {
+        const co = (o.Account && o.Account.Name) || "";
+        const k = normCompanyKey(co);
+        if (!(k in byCompany)) continue;
+        const stage = String(o.StageName || "");
+        // 「アポ獲得」を含むステージ（01：アポ獲得〜）または受注は立ち上げ済み。失注のみは除く。
+        const 立ち上げ = /アポ獲得/.test(stage) || o.IsWon === true || (!o.IsClosed && stage);
+        if (立ち上げ && !byCompany[k].launched) {
+          byCompany[k] = { launched: true, name: o.Name || "", stage, company: co };
+        }
+      }
+    } catch (e) { console.warn("[cross-status]", e.message); }
+    res.json({ ok: true, byCompany });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 // 複数のアポを、まとめて集計から外す。テストで作ったものを一度に片付けるため。
 app.put("/api/smart-links/excluded-many", async (req, res) => {
   try {
@@ -14497,7 +14534,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-08-27y SF立ち上げ：ホーム等からq（会社名）で開いたときは、カレンダー予定を探さず、最初から会社名で直接SFのリード（クロスリード）を探すようにした";
+const BUILD_TAG = "2026-08-27z 自分のアポ：会社名でSFのクロス商談が『01：アポ獲得』以上かを調べ、立ち上げ済みならSFアイコンを薄く＋「SF立ち上げ済み」バッジ。各カードに「SF確認」アイコンを追加（押すと状態を再確認して表示）";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",

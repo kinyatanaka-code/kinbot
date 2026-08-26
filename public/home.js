@@ -30,6 +30,7 @@ const HOME_ICONS = {
   cal:  "M7 2v2h10V2h2v2h3v18H2V4h3V2zm13 8H4v10h16zm-9 2v2H7v-2zm6 0v2h-4v-2z",
   trash: "M9 3h6l1 2h4v2H4V5h4zM6 9h12l-1 12H7zm3 2v8h1.5v-8zm4.5 0v8H15v-8z",
   more: "M5 10.3a1.7 1.7 0 1 0 0 3.4 1.7 1.7 0 0 0 0-3.4zm7 0a1.7 1.7 0 1 0 0 3.4 1.7 1.7 0 0 0 0-3.4zm7 0a1.7 1.7 0 1 0 0 3.4 1.7 1.7 0 0 0 0-3.4z",
+  sfcheck: "M10.5 3a7.5 7.5 0 1 0 4.55 13.46l4.24 4.25 1.42-1.42-4.25-4.24A7.5 7.5 0 0 0 10.5 3zm0 2a5.5 5.5 0 1 1 0 11 5.5 5.5 0 0 1 0-11zm-.7 7.9L6.8 9.9l1.2-1.2 1.8 1.8 3.4-3.4 1.2 1.2z",
   // 御礼メールの画面で使うもの
   gen: "M12 2.5l1.9 5.1 5.1 1.9-5.1 1.9L12 16.5l-1.9-5.1L5 9.5l5.1-1.9zM19 15l.9 2.4 2.4.9-2.4.9L19 21.6l-.9-2.4-2.4-.9 2.4-.9zM5.5 14l.7 1.9 1.9.7-1.9.7-.7 1.9-.7-1.9-1.9-.7 1.9-.7z",
   draft: "M2 21l20-9L2 3v7l13 2-13 2z",
@@ -52,6 +53,7 @@ const HOME_ICONS = {
 // アイコンの下に出す短い名前。長いと横に広がるので、2〜4文字にそろえる。
 const HOME_ICON_NAMES = {
   rec: "録音", sf: "SF", open: "開く", mail: "メール", cal: "会議室", trash: "外す", more: "その他",
+  sfcheck: "SF確認",
   gen: "文面を作る", draft: "下書き", copy: "コピー", gmail: "Gmail", tpl: "テンプレ", doc: "資料URL",
   tplin: "型を入れる", tpluse: "この型で作る", tplsave: "型を保存", tpledit: "型を直す", tpldel: "型を消す", tplshare: "みんなへ",
 };
@@ -2376,6 +2378,8 @@ async function loadMyApos() {
     renderMyApos();
     // SFを立ち上げたか・メールを送ったかを、実データから見分ける（1回だけ）
     if (!apoDoneAsked) { apoDoneAsked = true; checkApoDone(myApos); }
+    // 会社名でSFのクロス商談が立ち上がっているか調べて、立ち上げ済みの表示にする
+    checkApoCross(myApos);
   } catch (e) {
     myApos = [];
     box.innerHTML = `<div class="home-empty home-empty-s">読み込めませんでした：${apoEsc(e.message)}</div>`;
@@ -2383,6 +2387,85 @@ async function loadMyApos() {
 }
 
 // 手元の配列から描き直す（Salesforceのパネルを開いたときにも呼ぶ）
+let apoCrossAsked = false;
+// 会社名でSFのクロス商談が「立ち上げ済み（01：アポ獲得以上／受注）」かを調べ、
+// 立ち上げ済みのカードはSFアイコンを薄くし、「立ち上げ済み」バッジを付ける。
+async function checkApoCross(rows) {
+  const box = document.getElementById("homeApoList");
+  if (!box) return;
+  const companies = [...new Set((rows || []).map((x) => (x.company || companyOfTitle(x.title || "")).trim()).filter(Boolean))];
+  if (!companies.length) return;
+  try {
+    const d = await (await fetch("/api/apo/cross-status", {
+      method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ companies }),
+    })).json();
+    if (!d || !d.byCompany) return;
+    applyApoCross(d.byCompany);
+  } catch {}
+}
+function normCo(s) { return String(s || "").normalize("NFKC").replace(/[\s　]/g, "").replace(/(株式会社|有限会社|合同会社|\(株\)|（株）)/g, "").toLowerCase(); }
+function applyApoCross(byCompany) {
+  const box = document.getElementById("homeApoList");
+  if (!box) return;
+  const map = new Map();
+  for (const k of Object.keys(byCompany)) map.set(k, byCompany[k]);
+  box.querySelectorAll(".ap-home-card").forEach((card) => {
+    const co = card.getAttribute("data-company") || "";
+    // サーバーの正規化キーと突き合わせ（会社名そのもの／簡易正規化の両方で当てる）
+    let hit = null;
+    for (const [, v] of map) {
+      if (!v || !v.launched) continue;
+      if (normCo(v.company) === normCo(co)) { hit = v; break; }
+    }
+    if (!hit) return;
+    // SFアイコンを薄く（立ち上げ済み扱い）
+    const sfBtn = card.querySelector('[data-apo-sf]');
+    if (sfBtn) { sfBtn.classList.remove("hib-need"); sfBtn.classList.add("hib-done"); }
+    // バッジを付ける（重複しないように）
+    const meta = card.querySelector(".hl-meta");
+    if (meta && !meta.querySelector(".home-badge-sflaunched")) {
+      const b = document.createElement("span");
+      b.className = "home-badge home-badge-done home-badge-sflaunched";
+      b.textContent = "SF立ち上げ済み";
+      b.title = (hit.name ? hit.name + "／" : "") + (hit.stage || "");
+      meta.insertBefore(b, meta.firstChild);
+    }
+  });
+}
+
+// SF確認アイコン：押すと、その会社のSFクロス商談の状態を調べて、その場に結果を出す
+document.addEventListener("click", (ev) => {
+  const btn = ev.target && ev.target.closest ? ev.target.closest("[data-apo-sfcheck]") : null;
+  if (!btn) return;
+  ev.preventDefault();
+  const co = btn.getAttribute("data-apo-sfcheck") || "";
+  if (!co) return;
+  const card = btn.closest(".ap-home-card");
+  let line = card && card.querySelector(".hl-sfcheck");
+  if (card && !line) {
+    line = document.createElement("div");
+    line.className = "hl-sfcheck";
+    line.style.cssText = "font-size:12px;color:#0d5b47;margin-top:4px;";
+    const main = card.querySelector(".hl-main"); if (main) main.appendChild(line);
+  }
+  if (line) line.textContent = "SFを確認しています…";
+  (async () => {
+    try {
+      const d = await (await fetch("/api/apo/cross-status", {
+        method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ companies: [co] }),
+      })).json();
+      if (!d || !d.byCompany) throw new Error("確認できませんでした");
+      const v = Object.values(d.byCompany)[0] || { launched: false };
+      if (v.launched) {
+        if (line) line.textContent = `✓ SF立ち上げ済み（${v.stage || "アポ獲得以上"}${v.name ? "／" + v.name : ""}）`;
+        applyApoCross(d.byCompany);
+      } else {
+        if (line) line.textContent = "SFにクロス商談の立ち上げは見つかりませんでした（まだ未立ち上げ）";
+      }
+    } catch (e) { if (line) line.textContent = "確認できませんでした：" + e.message; }
+  })();
+});
+
 function renderMyApos() {
   const box = document.getElementById("homeApoList");
   const cnt = document.getElementById("homeApoCount");
@@ -2444,6 +2527,7 @@ function apoHomeCard(x) {
           `data-apo-mail="${apoEsc(x.slug)}"${m.confirm ? " disabled" : ""}`,
           (m.confirm || (apoDone[x.slug] && apoDone[x.slug].メール済み)) ? "done" : "need") +
         hIcon("cal", "会議室", `href="${apoEsc(x.smartUrl)}" target="_blank" rel="noopener"`, "done", "a") +
+        hIcon("sfcheck", "SFの状態を確認（クロス商談が立ち上がっているか）", `data-apo-sfcheck="${apoEsc(x.company || companyOfTitle(x.title))}" data-apo-slug="${apoEsc(x.slug)}"`, "") +
         // テストで作ったアポを、その場で片付けられるようにする。
         // 実績・均等化・通知の数から外し、カレンダーの予定も消す。
         `<span class="hl-more">${hIcon("trash", "テストとして外す", `data-apo-drop="${apoEsc(x.slug)}"`)}</span>`;
@@ -2459,7 +2543,7 @@ function apoHomeCard(x) {
         warn || (x.clientEmail ? apoEsc(x.clientEmail) : ""),
       ].filter(Boolean).join(" ・ ");
 
-      return `<div class="home-card home-line ap-home-card${needMail ? " home-card-plan" : ""}" data-card="${apoEsc(sfKey)}">
+      return `<div class="home-card home-line ap-home-card${needMail ? " home-card-plan" : ""}" data-card="${apoEsc(sfKey)}" data-company="${apoEsc(x.company || companyOfTitle(x.title))}" data-slug="${apoEsc(x.slug)}">
         <div class="hl-row">
           <div class="hl-time">${apoEsc(apoTime(x.takenAt || x.start))}</div>
           <div class="hl-main">
