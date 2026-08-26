@@ -5250,6 +5250,8 @@ app.post("/api/calls/from-csv", async (req, res) => {
     for (const r of 行) {
       const company = String(r.company || "").trim();
       const person = String(r.person || "").trim();
+      // 担当者名は苗字だけを使う（「山田 太郎」→「山田」）。空白が無ければそのまま。
+      const 姓 = (person.split(/[\s　]+/)[0] || person).trim();
       const phone = String(r.phone || "").trim();
       const email = String(r.email || "").trim();
       if (!company) { 結果.push({ company, 状態: "とばした", 理由: "会社名がありません" }); continue; }
@@ -5296,10 +5298,16 @@ app.post("/api/calls/from-csv", async (req, res) => {
         const d = await sfQuery(sfUser, soql);
         const cands = (d.records || []).filter((x) => normCompanyKey(x.Company) === key);
         const 種別 = (x) => String((x.RecordType && x.RecordType.Name) || "");
-        const cross = cands.find((x) => /クロス|cross/i.test(種別(x)));
-        if (cross) {
-          // クロスリードがあれば、それを使う
-          leadId = cross.Id; 状態 = "見つかった（クロス）"; リード種別 = 種別(cross) || "クロス";
+        const crossList = cands.filter((x) => /クロス|cross/i.test(種別(x)));
+        // まず、その担当者（苗字）のクロスリードを探す
+        const personCross = 姓 ? crossList.find((x) => String(x.LastName || "").includes(姓)) : null;
+        if (personCross) {
+          leadId = personCross.Id; 状態 = "見つかった（クロス）"; リード種別 = 種別(personCross) || "クロス";
+        } else if (crossList.length) {
+          // 担当者のリードは無いが、会社のクロスリードはある →
+          // 新しく作らず、その会社のクロスリードに「担当者名」を最終活動コメントとして残す
+          leadId = crossList[0].Id; 状態 = "会社のクロスに担当者名を記録"; リード種別 = "クロス（会社）";
+          r.__記録担当者名 = true;
         } else if (cands.length) {
           // MOCHICAなど別の種別しか無いときは、そのリードは残したまま
           // クロスリードを新しく作る（下の「無ければ作る」に進む）
@@ -5324,7 +5332,7 @@ app.post("/api/calls/from-csv", async (req, res) => {
         try {
           const fields = {
             Company: company,
-            LastName: person || "担当者",   // 担当者名が無いときは「担当者」
+            LastName: 姓 || person || "担当者",   // 担当者名は苗字だけ。無いときは「担当者」
             ...(phone ? { Phone: phone } : {}),
             ...(email ? { Email: email } : {}),
             ...(rtId ? { RecordTypeId: rtId } : {}),
@@ -5433,8 +5441,29 @@ app.post("/api/calls/from-csv", async (req, res) => {
         }
       }
 
+      // 担当者のリードは無く、会社のクロスリードを使ったとき →
+      // その会社のリードに「担当者名」を最終活動コメントとして1件残す。
+      let 担当者記録 = "";
+      if (!dryRun && leadId && r.__記録担当者名 && person) {
+        const キー3 = `${leadId}|担当者|${person}`;
+        if (!記録済み.has(キー3)) {
+          記録済み.add(キー3);
+          try {
+            await createTask(sfUser, {
+              WhoId: leadId, Subject: "担当者名", Status: "完了", Type: "Other",
+              ActivityDate: jstDate(0),
+              Description: `担当者：${person}\n（会社のクロスリードに担当者名を記録・CSVから取り込み）`,
+            });
+            担当者記録 = "担当者名を記録";
+          } catch (e) { 担当者記録 = `担当者名を残せなかった（${String(e.message).slice(0, 50)}）`; }
+        }
+      } else if (dryRun && r.__記録担当者名 && person) {
+        担当者記録 = "担当者名を記録（予定）";
+      }
+
       結果.push({ company, person: person || "担当者", phone, email, leadId, 状態, リード種別, 架電日,
         ステータス, ステージ: String(r.stage || "").trim(), コメント, 履歴, まとめ, まとめ履歴,
+        ...(担当者記録 ? { 担当者記録 } : {}),
         // フロントで割り付けた「担当」と「追加先リスト」を尊重する（メンバーごとの件数・リスト指定）
         assignedTo: String(r.assignedTo || "").trim().toLowerCase(),
         targetList: parseInt(r.targetList, 10) || 0,
@@ -14272,7 +14301,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-08-26w kincall CSV：クロス商談を見る初回商談日を、リスト作成時に指定できるようにした（既定2026-03-01。例：2025-08-01以降のクロス商談をアポ獲得済み扱いに）";
+const BUILD_TAG = "2026-08-26x kincall CSV：担当者名は苗字だけを使い、担当者のクロスリードが無くても会社のクロスリードがあれば、そこに担当者名を最終活動コメントとして残すようにした（新規リードは作らない）";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
