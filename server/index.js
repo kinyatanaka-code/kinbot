@@ -6063,8 +6063,8 @@ app.post("/api/calls/lists/:id/redistribute", async (req, res) => {
       .filter((p) => p.email);
     if (!plan.length) return res.status(400).json({ error: "割り振るメンバーを選んでください" });
     const onlyPending = b.onlyPending !== false;   // 既定は未架電だけ
-    const r = await redistributeListTargets(id, plan, { onlyPending });
-    console.log(`[kincall] リスト${id}を${plan.length}人へ再割り振り（計${r.total}件）by ${req.user}`);
+    const r = await redistributeListTargets(id, plan, { onlyPending, dryRun: !!b.dryRun });
+    if (!b.dryRun) console.log(`[kincall] リスト${id}を${plan.length}人へ再割り振り（計${r.total}件）by ${req.user}`);
     res.json({ ok: true, ...r });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
@@ -14218,7 +14218,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-08-26r kincall：リストの架電先を他のメンバーへランダムに割り振り直す機能を追加（担当の付け替えのみ・メール/通知は飛ばさない。件数指定・余りは指定なしの人へ）";
+const BUILD_TAG = "2026-08-26s kincall：割り振り直しに「まず試算する」を追加。付け替える前に、誰に何件になるかをプレビューで確認できるようにした";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",

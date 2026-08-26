@@ -1518,9 +1518,11 @@ async function openRedistribute(listId, listName, backEmail, backName) {
         <input type="checkbox" id="kcRdAll" /> 架電済みも含めて割り振り直す
       </label>
       <div class="kc-modal-foot">
+        <button type="button" class="btn kc-outline" id="kcRdDry">まず試算する</button>
         <button type="button" class="btn" id="kcRdRun">この人たちに割り振る</button>
         <span class="rev-status" id="kcRdSt"></span>
       </div>
+      <div id="kcRdPrev" class="note" style="margin-top:6px"></div>
     </div>`, { wide: true });
 
   try {
@@ -1539,25 +1541,34 @@ async function openRedistribute(listId, listName, backEmail, backName) {
     });
   } catch { m.el.querySelector("#kcRdMembers").innerHTML = '<span class="note">読み込めませんでした</span>'; }
 
-  m.el.querySelector("#kcRdRun").addEventListener("click", async () => {
+  const 実行 = async (dryRun) => {
     const st = m.el.querySelector("#kcRdSt");
     const rows2 = [...m.el.querySelectorAll("#kcRdMembers .kc-plan-row.on")].map((r) => ({
       email: r.dataset.email, count: parseInt((r.querySelector(".kc-plan-n") || {}).value, 10) || 0,
     }));
     if (!rows2.length) { st.textContent = "割り振るメンバーを選んでください"; return; }
-    st.textContent = "割り振っています…";
+    st.textContent = dryRun ? "試算しています…" : "割り振っています…";
     try {
       const r = await fetch(`/api/calls/lists/${encodeURIComponent(listId)}/redistribute`, {
         method: "POST", headers: { "content-type": "application/json" },
-        body: JSON.stringify({ members: rows2, onlyPending: !m.el.querySelector("#kcRdAll").checked }),
+        body: JSON.stringify({ members: rows2, onlyPending: !m.el.querySelector("#kcRdAll").checked, dryRun }),
       });
       const d = await r.json();
-      if (!r.ok) throw new Error(d.error || "割り振れませんでした");
-      const 内訳 = Object.entries(d.byMember || {}).map(([e, n]) => `${e.split("@")[0]} ${n}件`).join("／");
-      st.textContent = `計${d.total}件を割り振りました（${内訳}）`;
-      setTimeout(() => { m.close(); if (backEmail) asLoadMember(backEmail, backName); }, 1400);
+      if (!r.ok) throw new Error(d.error || "できませんでした");
+      const nameOf = (e) => e.split("@")[0];
+      const 内訳 = Object.entries(d.byMember || {}).map(([e, n]) => `${nameOf(e)} ${n}件`).join("／");
+      if (dryRun) {
+        st.textContent = "";
+        m.el.querySelector("#kcRdPrev").innerHTML =
+          `試算：対象 <b>${d.total}</b> 件をこう割り振ります → ${esc(内訳)}<br>よければ「この人たちに割り振る」を押してください。`;
+      } else {
+        st.textContent = `計${d.total}件を割り振りました（${内訳}）`;
+        setTimeout(() => { m.close(); if (backEmail) asLoadMember(backEmail, backName); }, 1400);
+      }
     } catch (e) { st.textContent = "失敗：" + e.message; }
-  });
+  };
+  m.el.querySelector("#kcRdDry").addEventListener("click", () => 実行(true));
+  m.el.querySelector("#kcRdRun").addEventListener("click", () => 実行(false));
 }
 
 // このリストに追加する：リスト作成タブへ切り替えて、追加先を覚えておく。
