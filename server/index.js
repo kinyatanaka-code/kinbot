@@ -14579,7 +14579,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-08-28g 今日の商談：SF確認アイコンを、右のアクション列（録音・SF・メール・開く）に追加してはっきり見えるようにした（押すとSF更新・商談立ち上げを調べて表示）";
+const BUILD_TAG = "2026-08-28h 全画面：コマンドパレット（Cmd/Ctrl+K）を追加。会社名で商談履歴へ、または各画面へ素早く移動できる（home/history/deals/kincall/apo/sf-launch/index/settings/analysisに搭載）";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
