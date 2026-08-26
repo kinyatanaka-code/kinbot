@@ -6198,6 +6198,24 @@ app.post("/api/calls/lists/:id/refresh-sf", async (req, res) => {
       for (const o of d.records || []) { const co = (o.Account && o.Account.Name) || ""; if (co) { const k = normCompanyKey(co); crossOpp.add(k); crossWon.add(k); } }
     } catch (e) { console.warn("[SF更新] クロス受注取得", e.message); }
 
+    // 2.5) リードごとの「最新のコール活動」の結果（最終架電結果）を取る。
+    // kincallの記録は Type='Call'・Subject「コール：担当者不在」等で作っているので、そこから拾う。
+    const lastCall = new Map();   // id15 -> 最終架電結果
+    for (let i = 0; i < withLead.length; i += 200) {
+      const chunk = withLead.slice(i, i + 200);
+      const inIds = chunk.map((t) => `'${id15(t.lead_id).replace(/[^A-Za-z0-9]/g, "")}'`).join(",");
+      if (!inIds) continue;
+      try {
+        const d = await sfQuery(sfUser, `SELECT WhoId, Subject, CallDisposition, CreatedDate FROM Task WHERE WhoId IN (${inIds}) AND Type = 'Call' ORDER BY CreatedDate DESC LIMIT 2000`);
+        for (const r of d.records || []) {
+          const k = id15(r.WhoId);
+          if (lastCall.has(k)) continue;   // 新しい順なので最初に来たものが最新
+          const res = String(r.Subject || "").replace(/^コール：/, "").trim() || String(r.CallDisposition || "").trim();
+          if (res) lastCall.set(k, res.slice(0, 120));
+        }
+      } catch (e) { console.warn("[SF更新] 最新コール取得", e.message); }
+    }
+
     // 3) 各架電先を更新
     //   ステージ列 ＝ リードの状況（NEW/担当者未接触/ジャッジ 等）← SFの最新に更新
     //   最終ステータス列 ＝ 最終架電結果（担当者不在 等）← kincallの記録を保持（触らない）
@@ -6207,9 +6225,11 @@ app.post("/api/calls/lists/:id/refresh-sf", async (req, res) => {
       const li = info.get(id15(t.lead_id)) || {};
       const stage = li.status || t.stage || "";           // ステージ列＝リードの状況
       const key = normCompanyKey(t.company);
-      let statusPatch = undefined;                         // 既定：最終ステータス（最終架電結果）は触らない
+      let statusPatch = undefined;                         // 既定：触らない
+      const 架電結果 = lastCall.get(id15(t.lead_id)) || "";
       if (crossWon.has(key)) { statusPatch = "アポ獲得済み（クロス受注）"; 受注除外++; クロス化++; }
       else if (crossOpp.has(key)) { statusPatch = "アポ獲得済み（クロス商談）"; クロス化++; }
+      else if (架電結果) { statusPatch = 架電結果; }        // 最終ステータス列＝最新のコール結果
       await setCallTargetStatus(t.id, statusPatch !== undefined ? { stage, status: statusPatch } : { stage }).catch(() => {});
       if (li.owner) await setCallTargetLead(t.id, t.lead_id, { ownerName: li.owner }).catch(() => {});
       反映++;
@@ -14463,7 +14483,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-08-27r kincall：SF状態更新でステージ列＝リードの状況のみ更新し、最終ステータス列＝最終架電結果（担当者不在等）は保持。クロス商談あり／受注のときだけ最終ステータスをアポ獲得済みに上書き";
+const BUILD_TAG = "2026-08-27s kincall：SF状態更新で、最終ステータス列に「最新のコール活動の結果（担当者不在等）」をSFから拾って反映するようにした。ステージ列はリードの状況。クロス時はアポ獲得済みに上書き";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
