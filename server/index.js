@@ -144,6 +144,7 @@ import {
   findListsByNameSince,
   findRecentListByNameOwner,
   redistributeListTargets,
+  moveCallTargets,
   listTargetsNeedingSf,
   countTargetsNeedingSf,
   setCallTargetLead,
@@ -6326,6 +6327,22 @@ app.post("/api/calls/lists/:id/to-sf", async (req, res) => {
 
     const 残り = await countTargetsNeedingSf(id);
     res.json({ ok: true, done: 残り === 0, 見つかった, 新しく作った: 作った, 失敗, 残り, 残り前 });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// 選んだ架電先を、別のリストへそのまま移す（既存リストへ移動・担当は移行先の持ち主に付け替え）。
+app.post("/api/calls/targets/move", async (req, res) => {
+  try {
+    if (!req.isAdmin && !(await isCloserUser(req.user))) return res.status(403).json({ error: "クローザー・管理者だけが使えます" });
+    const b = req.body || {};
+    const ids = (Array.isArray(b.ids) ? b.ids : []).map((x) => parseInt(x, 10)).filter(Boolean).slice(0, 5000);
+    const toListId = parseInt(b.toListId, 10) || 0;
+    if (!ids.length) return res.status(400).json({ error: "移す架電先を選んでください" });
+    if (!toListId) return res.status(400).json({ error: "移行先のリストを選んでください" });
+    const r = await moveCallTargets(ids, toListId);
+    if (r.error) return res.status(400).json({ error: r.error });
+    console.log(`[kincall] ${r.moved}件をリスト${toListId}へ移動 by ${req.user}`);
+    res.json({ ok: true, ...r });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
@@ -14534,7 +14551,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-08-28c kincall：「資料送付設定」を、リスト管理内のタブから左サイドのメニュー項目に移動（押すと設定モーダルが開く）";
+const BUILD_TAG = "2026-08-28d kincall：一覧でリードを選択（チェック）して、選んだぶんを既存の他リストへそのまま移す機能を追加（移動・担当は移行先の持ち主に付け替え）";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",

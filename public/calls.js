@@ -184,8 +184,14 @@ function render() {
         `<button type="button" class="kc-sum-btn" id="kcHideApo">${hideApo ? "アポ獲得も表示" : "アポ獲得を隠す"}</button>`
       : "") +
     `</div>` +
+    `<div class="kc-selbar" id="kcSelBar" hidden style="display:flex;align-items:center;gap:10px;padding:8px 4px;">
+       <span id="kcSelCount" style="font-size:13px;color:#0d5b47;font-weight:600;"></span>
+       <button type="button" class="btn" id="kcSelMove">選択したリードを他のリストへ移す</button>
+       <button type="button" class="btn kc-outline" id="kcSelClear">選択を外す</button>
+     </div>` +
     `<div class="kc-tablewrap"><table class="kc-table">
       <tr>
+        <th class="kc-th-c" style="width:28px"><input type="checkbox" id="kcSelAll" title="全部を選ぶ" /></th>
         <th class="kc-th-o">現所有者</th>
         <th class="kc-th-s"><button type="button" class="kc-th-b${on("stage")}" data-flt="stage">ステージ ▾</button></th>
         <th class="kc-co"><button type="button" class="kc-th-b" data-sort="company">会社名${arrow("company")}</button></th>
@@ -203,10 +209,11 @@ function render() {
       const 予定 = nextDueLabel(x);
       const 直前未済 = i > 0 && !isApoDone(list[i - 1]);
       const 区切り = (済 && (i === 0 || 直前未済))
-        ? `<tr class="kc-apo-sep"><td colspan="11">アポ獲得済み（${list.filter(isApoDone).length}件）</td></tr>`
+        ? `<tr class="kc-apo-sep"><td colspan="12">アポ獲得済み（${list.filter(isApoDone).length}件）</td></tr>`
         : "";
       return 区切り + `
       <tr data-id="${x.id}" class="${済 ? "kc-apo-done" : ""}">
+        <td><input type="checkbox" class="kc-sel" data-id="${x.id}"${selectedIds.has(String(x.id)) ? " checked" : ""} /></td>
         <td class="kc-owner">${esc(x["所有者"] || "")}</td>
         <td>${esc(x["ステージ"] || "-")}</td>
         <td class="kc-co">${esc(x["会社名"] || "")}${済 ? ' <span class="kc-apo-badge">アポ獲得済み</span>' : ""}${
@@ -249,6 +256,34 @@ function render() {
     b.addEventListener("click", () => openEdit(b.dataset.id)));
   box.querySelectorAll(".kc-doc").forEach((b) =>
     b.addEventListener("click", () => openDocSend(b.dataset.id)));
+
+  // 選択（チェック）の配線
+  const updateSelBar = () => {
+    const bar = $("kcSelBar"), cnt = $("kcSelCount");
+    if (!bar) return;
+    if (selectedIds.size) { bar.hidden = false; if (cnt) cnt.textContent = `${selectedIds.size}件を選択中`; }
+    else bar.hidden = true;
+    const all = $("kcSelAll");
+    if (all) { const boxes = box.querySelectorAll(".kc-sel"); all.checked = boxes.length > 0 && [...boxes].every((c) => c.checked); }
+  };
+  box.querySelectorAll(".kc-sel").forEach((c) =>
+    c.addEventListener("change", () => {
+      if (c.checked) selectedIds.add(String(c.dataset.id)); else selectedIds.delete(String(c.dataset.id));
+      updateSelBar();
+    }));
+  const selAll = $("kcSelAll");
+  if (selAll) selAll.addEventListener("change", () => {
+    box.querySelectorAll(".kc-sel").forEach((c) => {
+      c.checked = selAll.checked;
+      if (c.checked) selectedIds.add(String(c.dataset.id)); else selectedIds.delete(String(c.dataset.id));
+    });
+    updateSelBar();
+  });
+  const selMove = $("kcSelMove");
+  if (selMove) selMove.addEventListener("click", () => openMoveTargets([...selectedIds]));
+  const selClear = $("kcSelClear");
+  if (selClear) selClear.addEventListener("click", () => { selectedIds.clear(); box.querySelectorAll(".kc-sel").forEach((c) => (c.checked = false)); updateSelBar(); });
+  updateSelBar();
   const hideBtn = $("kcHideApo");
   if (hideBtn) hideBtn.addEventListener("click", () => { hideApo = !hideApo; render(); });
 }
@@ -1285,6 +1320,7 @@ let iAmCloser = false;               // クローザー（管理者含む）＝�
 let appendTarget = null;             // {id, name}：既存リストに追加する先
 let csvAddMode = false;              // CSV：作成する(false)／追加する(true)
 let callAsMember = "";               // かける画面を、この担当の割り振りぶんだけで見る（空＝全部）
+let selectedIds = new Set();          // 一覧で選択した架電先のid
 (async () => {
   try {
     const me = await (await fetch("/api/me")).json();
@@ -1596,6 +1632,50 @@ async function runToSf(listId, listName, btn) {
   } finally {
     setTimeout(() => { btn.disabled = false; btn.textContent = orig; }, 4000);
   }
+}
+
+// 選んだ架電先を、他の（既存の）リストへそのまま移す窓
+async function openMoveTargets(ids) {
+  const idList = (ids || []).map(String).filter(Boolean);
+  if (!idList.length) return;
+  const m = openModal(`選んだ ${idList.length}件 を他のリストへ移す`, `
+    <div class="kc-move">
+      <p class="note">選んだ架電先を、下で選んだ<b>既存のリスト</b>へそのまま移します（コピーではなく移動。元のリストからは外れます）。担当は、移行先リストの持ち主に付け替わります。</p>
+      <label style="display:block;font-size:13px;margin:6px 0">移行先のリスト
+        <select id="kcMoveList" style="display:block;width:100%;margin-top:4px;border:1px solid #e6ece9;border-radius:8px;padding:6px 8px;font-size:13px">
+          <option value="">読み込んでいます…</option>
+        </select>
+      </label>
+      <div class="kc-modal-foot">
+        <button type="button" class="btn" id="kcMoveRun">このリストへ移す</button>
+        <span class="rev-status" id="kcMoveSt"></span>
+      </div>
+    </div>`, { wide: true });
+  try {
+    const d = await (await fetch("/api/calls/lists/all")).json();
+    const lists = ((d && d.items) || []).filter((l) => String(l.id) !== String(listId));
+    const sel = m.el.querySelector("#kcMoveList");
+    sel.innerHTML = `<option value="">選んでください</option>` +
+      lists.map((l) => `<option value="${l.id}">${esc(l.name)}${l["持ち主"] ? "（" + esc(String(l["持ち主"]).split("@")[0]) + "）" : ""}${l["件数"] != null ? " ・" + l["件数"] + "件" : ""}</option>`).join("");
+  } catch { m.el.querySelector("#kcMoveList").innerHTML = `<option value="">読み込めませんでした</option>`; }
+
+  m.el.querySelector("#kcMoveRun").addEventListener("click", async () => {
+    const st = m.el.querySelector("#kcMoveSt");
+    const toListId = parseInt(m.el.querySelector("#kcMoveList").value, 10) || 0;
+    if (!toListId) { st.textContent = "移行先のリストを選んでください"; return; }
+    st.textContent = "移しています…";
+    try {
+      const r = await fetch("/api/calls/targets/move", {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ ids: idList, toListId }),
+      });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.error || "移せませんでした");
+      st.textContent = `${d.moved || 0}件を移しました`;
+      selectedIds.clear();
+      setTimeout(() => { m.close(); loadTable(); loadLists(); }, 1000);
+    } catch (e) { st.textContent = "失敗：" + e.message; }
+  });
 }
 
 // リストの架電先を、他のメンバーへランダムに割り振り直す窓

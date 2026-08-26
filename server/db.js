@@ -3305,6 +3305,23 @@ export async function assignCallTargets(listId, emails = [], { onlyUnassigned = 
 
 // リストの中身を、条件に当てはまるものだけ消す。
 //   ステージ・最終ステータス・履歴の有無で選べる。
+// 選んだ架電先を、別のリストへそのまま移す（コピーではなく移動）。
+// 担当（assigned_to）は、移行先リストの持ち主に付け替える。
+export async function moveCallTargets(ids = [], toListId) {
+  if (!pool || !toListId) return { moved: 0 };
+  const idList = [...new Set((ids || []).map((x) => parseInt(x, 10)).filter(Boolean))];
+  if (!idList.length) return { moved: 0 };
+  try {
+    const { rows: lr } = await pool.query(`SELECT owner FROM call_lists WHERE id = $1`, [toListId]);
+    if (!lr[0]) return { moved: 0, error: "移行先のリストが見つかりません" };
+    const owner = String(lr[0].owner || "").toLowerCase() || null;
+    const { rowCount } = await pool.query(
+      `UPDATE call_targets SET list_id = $2, assigned_to = $3 WHERE id = ANY($1::int[])`,
+      [idList, toListId, owner]);
+    return { moved: rowCount || 0 };
+  } catch (e) { console.error("[db] moveCallTargets", e.message); return { moved: 0, error: e.message }; }
+}
+
 export async function deleteCallTargets(listId, { stages = [], statuses = [], hist = "" } = {}) {
   if (!pool || !listId) return 0;
   try {
