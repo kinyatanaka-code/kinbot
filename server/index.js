@@ -14359,7 +14359,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-08-27h apo：メルマガ【…】のアポを、初めて見たときにChatへ通知するようにした（メルマガとして知らせ、コールのアポには数えない）";
+const BUILD_TAG = "2026-08-27i apo：メルマガのアポも、通常のアポと同じくSFの商談を立ち上げるようにした（クローザーへの割り振りはせず、Chat通知は初回のみ・SF立ち上げは冪等に実行）";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
@@ -16936,8 +16936,8 @@ async function collectApoAppointments(scanOwner, opts = {}) {
               mailmaga: true,
             });
           }
-          if (新規) seenMailmaga.push({ ev, setter: st.name });
-          continue;   // 割り振り・招待はしない
+          if (ml) seenMailmaga.push({ ev, setter: st.name, 新規 });
+          continue;   // クローザーへの割り振り・招待はしない（SF立ち上げは呼び出し側で行う）
         }
 
         // 取得日・商談日の指定があれば、それぞれ完全一致で絞る
@@ -17049,20 +17049,38 @@ function isTestApo(title, words) {
   return list.some((w) => t.includes(String(w).replace(/[\s　]/g, "").toLowerCase()));
 }
 
-// メルマガ由来のアポを、初めて見たときにChatへ知らせる（コールのアポには数えない）
-async function handleMailmaga(list) {
+// メルマガ由来のアポを、初めて見たときにChatへ知らせる（コールのアポには数えない）。
+// SFの商談立ち上げは、通常のアポと同じように行う（設定がONのとき・冪等）。
+async function handleMailmaga(list, { actor = "" } = {}) {
+  if (!list || !list.length) return;
+  const st = await getSettings().catch(() => ({}));
+  const op = st.sfAutoLaunch === true ? await sfOperator(actor).catch(() => "") : "";
   for (const x of list || []) {
     const ev = x.ev;
-    const first = await noticeOnce(ev.id, "メルマガ", ev.title).catch(() => false);
-    if (!first) continue;
-    const when = ev.start ? `${String(ev.start).slice(5, 10)} ${jstTime(ev.start)}` : "日時不明";
-    await notifyAll([
-      "📣 *メルマガのアポが入りました*",
-      `・${ev.title}`,
-      `📅 ${when}　👤 ${x.setter || "-"}`,
-      "（メルマガとして数えます。コールのアポには数えません）",
-    ].join("\n"), "assign").catch(() => {});
-    console.log(`[apo-scan] メルマガのアポとして知らせました：${String(ev.title).slice(0, 40)}`);
+    // 初めて見たときだけChatに知らせる
+    if (x.新規) {
+      const first = await noticeOnce(ev.id, "メルマガ", ev.title).catch(() => false);
+      if (first) {
+        const when = ev.start ? `${String(ev.start).slice(5, 10)} ${jstTime(ev.start)}` : "日時不明";
+        await notifyAll([
+          "📣 *メルマガのアポが入りました*",
+          `・${ev.title}`,
+          `📅 ${when}　👤 ${x.setter || "-"}`,
+          "（メルマガとして数えます。コールのアポには数えません）",
+        ].join("\n"), "assign").catch(() => {});
+        console.log(`[apo-scan] メルマガのアポとして知らせました：${String(ev.title).slice(0, 40)}`);
+      }
+    }
+    // SFの商談を立ち上げる（通常アポと同じ。未立ち上げのものだけ。冪等）
+    if (op) {
+      try {
+        const link = await getSmartLinkByEvent(ev.id).catch(() => null);
+        if (link) {
+          const r = await tryAutoLaunch(op, link, { ownerEmail: link.current_owner || "" }).catch(() => null);
+          if (r && r.ok && !r.skipped) console.log(`[apo-scan] メルマガのアポのSF商談を立ち上げました：${String(ev.title).slice(0, 40)}`);
+        }
+      } catch (e) { console.warn("[apo-scan] メルマガSF立ち上げ:", e.message); }
+    }
   }
 }
 
@@ -17327,8 +17345,8 @@ async function runApoAutoScan({ actor = "auto-scan", force = false, updatedMin =
   await loadTestWords().catch(() => {});
   // 「リスケ」「キャンセル」と書かれた予定を知らせ、数から外す
   await handleHeadStates(scan.seenHeadStates).catch((e) => console.warn("[apo-scan] リスケ判定:", e.message));
-  // メルマガのアポを、初めて見たときにChatへ知らせる
-  await handleMailmaga(scan.seenMailmaga).catch((e) => console.warn("[apo-scan] メルマガ通知:", e.message));
+  // メルマガのアポを、初めて見たときにChatへ知らせ、通常アポと同じくSF商談を立ち上げる
+  await handleMailmaga(scan.seenMailmaga, { actor }).catch((e) => console.warn("[apo-scan] メルマガ処理:", e.message));
   // カレンダーから消された予定を、kinbotの数からも外す（全期間を見たときだけ）
   await dropDeletedApos(scan).catch((e) => console.warn("[apo-scan] 削除の追随:", e.message));
 
