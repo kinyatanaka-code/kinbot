@@ -3444,6 +3444,37 @@ export async function getCallTarget(id) {
   } catch { return null; }
 }
 
+// SFにまだ結びついていない（lead_id が無い）架電先を、少しずつ取り出す
+export async function listTargetsNeedingSf(listId, { limit = 20 } = {}) {
+  if (!pool || !listId) return [];
+  try {
+    const { rows } = await pool.query(
+      `SELECT id, company, person, phone, email, status, stage
+         FROM call_targets
+        WHERE list_id = $1 AND (lead_id IS NULL OR lead_id = '')
+        ORDER BY id LIMIT $2`,
+      [listId, Math.max(1, parseInt(limit, 10) || 20)]);
+    return rows;
+  } catch (e) { console.error("[db] listTargetsNeedingSf", e.message); return []; }
+}
+export async function countTargetsNeedingSf(listId) {
+  if (!pool || !listId) return 0;
+  try {
+    const { rows } = await pool.query(
+      `SELECT count(*)::int AS n FROM call_targets WHERE list_id = $1 AND (lead_id IS NULL OR lead_id = '')`, [listId]);
+    return rows[0] ? rows[0].n : 0;
+  } catch { return 0; }
+}
+export async function setCallTargetLead(id, leadId, { ownerName } = {}) {
+  if (!pool || !id) return null;
+  try {
+    const { rows } = await pool.query(
+      `UPDATE call_targets SET lead_id = $2${ownerName !== undefined ? ", owner_name = $3" : ""} WHERE id = $1 RETURNING id`,
+      ownerName !== undefined ? [id, leadId || null, ownerName || ""] : [id, leadId || null]);
+    return rows[0] || null;
+  } catch (e) { console.error("[db] setCallTargetLead", e.message); return null; }
+}
+
 // ステージ・最終ステータスを書き換える
 export async function setCallTargetStatus(id, { stage, status } = {}) {
   if (!pool || !id) return null;

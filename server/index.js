@@ -143,6 +143,9 @@ import {
   findListsByNameSince,
   findRecentListByNameOwner,
   redistributeListTargets,
+  listTargetsNeedingSf,
+  countTargetsNeedingSf,
+  setCallTargetLead,
   renameCallList,
   callListFacets,
   callAssignCounts,
@@ -6047,6 +6050,56 @@ app.delete("/api/calls/lists/:id", async (req, res) => {
     if (!ok) return res.status(500).json({ error: "消せませんでした" });
     console.log(`[kincall] リスト${id}を消しました by ${req.user}`);
     res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// 今あるリストの、SF未連携（lead_idなし）の架電先を、Salesforceに反映する。
+// 大量でも大丈夫なように、1回で少しずつ（既定20件）処理して残数を返す。フロントが繰り返し呼ぶ。
+app.post("/api/calls/lists/:id/to-sf", async (req, res) => {
+  try {
+    if (!req.isAdmin && !(await isCloserUser(req.user))) return res.status(403).json({ error: "クローザー・管理者だけが使えます" });
+    const id = parseInt(req.params.id, 10);
+    if (!id) return res.status(400).json({ error: "リストが指定されていません" });
+    const sfUser = await pickSfUser(req.user);
+    if (!salesforceConfigured() || !(await sfConnected(sfUser).catch(() => false))) {
+      return res.status(400).json({ error: "Salesforceに接続できません" });
+    }
+    const limit = Math.min(30, Math.max(1, parseInt(req.body?.limit, 10) || 20));
+    const 残り前 = await countTargetsNeedingSf(id);
+    const targets = await listTargetsNeedingSf(id, { limit });
+    if (!targets.length) return res.json({ ok: true, done: true, 見つかった: 0, 新しく作った: 0, クロス商談あり: 0, 残り: 0 });
+
+    const rtId = await crossLeadRecordTypeId(sfUser).catch(() => "");
+
+    let 見つかった = 0, 作った = 0, 失敗 = 0;
+    const 新規リードIds = [];
+    for (const t of targets) {
+      const company = String(t.company || "").trim();
+      if (!company) { await setCallTargetLead(t.id, "SKIP").catch(() => {}); continue; }
+      try {
+        let leadId = "";
+        const found = await searchLeads(sfUser, company, { max: 1 }).catch(() => []);
+        if (found && found.length) { leadId = found[0].Id || found[0].id; 見つかった++; }
+        else {
+          const made = await createLead(sfUser, {
+            Company: company, LastName: String(t.person || "").trim() || "担当者",
+            Phone: String(t.phone || "").trim(), Email: String(t.email || "").trim(),
+            ...(rtId ? { RecordTypeId: rtId } : {}),
+          });
+          leadId = (made && (made.id || made.Id)) || "";
+          if (leadId) { 作った++; 新規リードIds.push(leadId); }
+        }
+        if (leadId) await setCallTargetLead(t.id, leadId);
+        else 失敗++;
+      } catch (e) { 失敗++; console.warn("[to-sf]", company, e.message); }
+    }
+    // クローザー所有リードを中澤さんへ（ジャッジ除く）
+    try {
+      if (新規リードIds.length) await reassignCloserLeadsToProxy(sfUser, 新規リードIds);
+    } catch {}
+
+    const 残り = await countTargetsNeedingSf(id);
+    res.json({ ok: true, done: 残り === 0, 見つかった, 新しく作った: 作った, 失敗, 残り, 残り前 });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
@@ -14218,7 +14271,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-08-26u kincall：割り振り直しで、入れた件数のぶんだけ移し、余りは元のリストに残すよう修正（余りを受ける人を別に選んだ場合のみその人へ）。残した件数も表示";
+const BUILD_TAG = "2026-08-26v kincall：今あるリストのSF未連携（kincallのみ）の架電先を、あとからSalesforceに反映（会社名で検索・無ければ作成して結びつけ）できる「SFに反映」を追加。大量でも少しずつ処理";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",

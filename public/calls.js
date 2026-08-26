@@ -1508,6 +1508,33 @@ async function asLoad() {
 }
 
 // 第2階層：あるメンバーのリスト一覧（今までのカード表示）
+// 今あるリストを、少しずつSalesforceに反映する（大量でも止まらないよう繰り返し呼ぶ）
+async function runToSf(listId, listName, btn) {
+  if (!confirm(`「${listName}」の中で、まだSalesforceに載っていない架電先を、SFに反映します。\n（会社名でクロスリードを探し、無ければ作って結びつけます）\nよろしいですか？`)) return;
+  const orig = btn.textContent;
+  btn.disabled = true;
+  let 見 = 0, 作 = 0, 失 = 0, 回 = 0;
+  try {
+    while (true) {
+      回++;
+      const r = await fetch(`/api/calls/lists/${encodeURIComponent(listId)}/to-sf`, {
+        method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ limit: 20 }),
+      });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.error || "反映できませんでした");
+      見 += d["見つかった"] || 0; 作 += d["新しく作った"] || 0; 失 += d["失敗"] || 0;
+      btn.textContent = `反映中… 残り${d["残り"]}件（見つかった${見}／作成${作}${失 ? `／失敗${失}` : ""}）`;
+      if (d.done || (d["残り前"] !== undefined && d["残り"] >= d["残り前"] && 回 > 1)) break;   // 進まなくなったら止める
+      if (回 > 2000) break;   // 念のための上限
+    }
+    btn.textContent = `SFに反映しました（見つかった${見}／作成${作}${失 ? `／失敗${失}` : ""}）`;
+  } catch (e) {
+    btn.textContent = "失敗：" + e.message;
+  } finally {
+    setTimeout(() => { btn.disabled = false; btn.textContent = orig; }, 4000);
+  }
+}
+
 // リストの架電先を、他のメンバーへランダムに割り振り直す窓
 async function openRedistribute(listId, listName, backEmail, backName) {
   const m = openModal(`他のメンバーに割り振る：${listName || ""}`, `
@@ -1874,7 +1901,8 @@ async function openSplit(listId, listName, memberEmail, memberName) {
       `<div class="kc-mem-head">
          <button type="button" class="kc-mem-back" id="spBack">← 戻る</button>
          <span class="kc-mem-title">${esc(listName)}（${rows.length}件）から絞り込む</span>
-         ${iAmCloser ? `<button type="button" class="btn kc-outline" id="spRedist" style="margin-left:auto">他のメンバーに割り振る</button>` : ""}
+         ${iAmCloser ? `<button type="button" class="btn kc-outline" id="spToSf" style="margin-left:auto">SFに反映</button>` : ""}
+         ${iAmCloser ? `<button type="button" class="btn kc-outline" id="spRedist"${iAmCloser ? ' style="margin-left:8px"' : ''}>他のメンバーに割り振る</button>` : ""}
          ${iAmCloser ? `<button type="button" class="btn" id="spAddMore"${iAmCloser ? ' style="margin-left:8px"' : ''}>＋ このリストに追加</button>` : ""}
        </div>
        <div class="kc-split">
@@ -1909,6 +1937,8 @@ async function openSplit(listId, listName, memberEmail, memberName) {
     if (addMore) addMore.addEventListener("click", () => goAppendToList(listId, listName));
     const redist = $("spRedist");
     if (redist) redist.addEventListener("click", () => openRedistribute(listId, listName, memberEmail, memberName));
+    const toSf = $("spToSf");
+    if (toSf) toSf.addEventListener("click", () => runToSf(listId, listName, toSf));
 
     // 今のリストの名前を変える
     const renameBtn = $("spRenameBtn");
