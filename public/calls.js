@@ -1385,6 +1385,35 @@ document.addEventListener("click", (ev) => {
       } catch (e) { say("clStatus", "できませんでした：" + e.message, 8000); }
     })();
   }
+  if (t.id === "clLinkSf") {
+    ev.preventDefault();
+    (async () => {
+      if (!listId) { say("clStatus", "リストを選んでください", 4000); return; }
+      if (!confirm("このリストで、まだSalesforceに結びついていない（作成時にSFを読み込まなかった）架電先を、会社名でSFのリードに結びつけます。\n続けてSFの最新状態も反映します。よろしいですか？")) return;
+      let 見 = 0, 作 = 0, 失 = 0, 回 = 0;
+      try {
+        while (true) {
+          回++;
+          const r = await fetch(`/api/calls/lists/${encodeURIComponent(listId)}/to-sf`, {
+            method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ limit: 20 }),
+          });
+          const d = await r.json();
+          if (!r.ok) throw new Error(d.error || "連携できませんでした");
+          見 += d["見つかった"] || 0; 作 += d["新しく作った"] || 0; 失 += d["失敗"] || 0;
+          say("clStatus", `SFと連携中… 残り${d["残り"]}件（結びつけ${見}／新規作成${作}${失 ? `／失敗${失}` : ""}）`);
+          if (d.done || 回 > 2000) break;
+        }
+        // 続けてSFの最新状態も反映
+        say("clStatus", "SFの状態を反映しています…");
+        const rf = await (await fetch(`/api/calls/lists/${encodeURIComponent(listId)}/refresh-sf`, {
+          method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({}),
+        })).json();
+        say("clStatus", `SFと連携しました（結びつけ${見}／新規作成${作}${失 ? `／失敗${失}` : ""}）`
+          + (rf && rf["反映"] ? `／状態を反映 ${rf["反映"]}件` : ""), 12000);
+        loadTable();
+      } catch (e) { say("clStatus", "できませんでした：" + e.message, 8000); }
+    })();
+  }
   if (t.id === "clRefreshSf") {
     ev.preventDefault();
     (async () => {

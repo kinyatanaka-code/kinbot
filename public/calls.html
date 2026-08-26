@@ -48,6 +48,7 @@
               <button class="btn ghost" id="clCheck" title="履歴の件数が出ないときに押してください">履歴の件数を調べる</button>
               <button class="btn ghost" id="clDedup" title="CSV取り込みで二重に残った活動履歴を、各まとまりで1件だけ残して整理します">重複した活動履歴を整理</button>
               <button class="btn ghost" id="clRefreshSf" title="このリストの各リードについて、Salesforceの最新の状態（最終ステータス・ステージ・所有者）とクロス商談の有無を読みに行って反映します">SFの状態を更新</button>
+              <button class="btn ghost" id="clLinkSf" title="リスト作成時にSalesforceを読み込まなかった（SF未連携の）架電先を、会社名でSFのリードに結びつけます。以後はSFの履歴が見られ、状態の更新もできます">SFと連携</button>
               <span class="rev-status" id="clStatus"></span>
             </div>
 
@@ -197,7 +198,7 @@
       </div>
     </div>
     <script src="sf-data.js?v=20260826c"></script>
-    <script src="calls.js?v=20260827d"></script>
+    <script src="calls.js?v=20260827e"></script>
     <script src="nav.js?v=20260823c"></script>
   </body>
 </html>
