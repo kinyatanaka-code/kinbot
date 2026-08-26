@@ -39,12 +39,14 @@ async function loadLists() {
     const items = d.items || [];
     const sel = $("clList");
     const keep = sel.value;
-    sel.innerHTML = items.length
+    const allOpt = `<option value="all">☆ 全てのリード（自分の全リストをまとめて）</option>`;
+    sel.innerHTML = allOpt + (items.length
       ? items.map((x) => `<option value="${x.id}">${esc(x.name)}</option>`).join("")
-      : `<option value="">まだリストがありません</option>`;
-    if (keep && items.some((x) => String(x.id) === keep)) sel.value = keep;
-    if (items.length) {
-      listId = Number(sel.value);
+      : "");
+    if (keep && (keep === "all" || items.some((x) => String(x.id) === keep))) sel.value = keep;
+    {
+      const v = sel.value;
+      listId = v === "all" ? "all" : (Number(v) || 0);
       showProgress(items.find((x) => x.id === listId));
       loadTable();
     }
@@ -65,8 +67,8 @@ async function loadTable() {
   box.innerHTML = '<div class="empty-state">読み込んでいます…</div>';
   try {
     const q = $("clFind") && $("clFind").value.trim();
-    const who = callAsMember ? "&assignedTo=" + encodeURIComponent(callAsMember) : "";
-    const d = await (await fetch(`/api/calls/targets?list=${listId}${q ? "&q=" + encodeURIComponent(q) : ""}${who}`)).json();
+    const who = (callAsMember && listId !== "all") ? "&assignedTo=" + encodeURIComponent(callAsMember) : "";
+    const d = await (await fetch(`/api/calls/targets?list=${encodeURIComponent(listId)}${q ? "&q=" + encodeURIComponent(q) : ""}${who}`)).json();
     if (d.error) throw new Error(d.error);
     kinds = d["結果の種類"] || [];
     rows = d.items || [];
@@ -1206,8 +1208,9 @@ document.addEventListener("click", (ev) => {
 
 if ($("clList")) {
   $("clList").addEventListener("change", () => {
-    listId = Number($("clList").value) || 0;
-    callAsMember = "";   // ドロップダウンで選び直したら、担当の絞り込みは外す（全件表示）
+    const v = $("clList").value;
+    listId = v === "all" ? "all" : (Number(v) || 0);
+    callAsMember = "";   // ドロップダウンで選び直したら、担当の絞り込みは外す
     loadTable();
   });
 }

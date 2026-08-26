@@ -135,6 +135,7 @@ import {
   listBookViewers,
   createCallList,
   listCallTargets,
+  listAllLeadsForMember,
   removeMyCallTargets,
   assignCallTargets,
   deleteCallTargets,
@@ -6582,13 +6583,25 @@ app.post("/api/calls/lists/split", async (req, res) => {
 
 app.get("/api/calls/targets", async (req, res) => {
   try {
-    const listId = parseInt(req.query.list, 10);
-    if (!listId) return res.status(400).json({ error: "リストを選んでください" });
-    const rows = await listCallTargets(listId, {
-      q: String(req.query.q || ""),
-      limit: Math.min(2000, parseInt(req.query.limit, 10) || 2000),
-      assignedTo: String(req.query.assignedTo || ""),
-    });
+    const listParam = String(req.query.list || "");
+    let rows;
+    if (listParam === "all") {
+      // 「全てのリード」：そのメンバーが持ち主の全リストをまとめた仮想リスト
+      const member = String(req.query.member || req.user || "").trim().toLowerCase();
+      if (!member) return res.status(400).json({ error: "メンバーを指定してください" });
+      rows = await listAllLeadsForMember(member, {
+        q: String(req.query.q || ""),
+        limit: Math.min(2000, parseInt(req.query.limit, 10) || 2000),
+      });
+    } else {
+      const listId = parseInt(listParam, 10);
+      if (!listId) return res.status(400).json({ error: "リストを選んでください" });
+      rows = await listCallTargets(listId, {
+        q: String(req.query.q || ""),
+        limit: Math.min(2000, parseInt(req.query.limit, 10) || 2000),
+        assignedTo: String(req.query.assignedTo || ""),
+      });
+    }
 
     // Salesforceに残っている活動の件数も数える（kincallの記録だけだと0に見えるため）
     //
@@ -14484,7 +14497,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-08-27w kincall：かける画面の上のボタン（しぼり込み解除・履歴件数・重複整理・SF状態更新・SF連携）を、右上にアイコンでまとめた（ホバーで説明）";
+const BUILD_TAG = "2026-08-27x kincall：リスト選択の先頭に「全てのリード」を固定追加。そのメンバーが持ち主の全リストをまとめて表示（重複は会社＋電話でまとめ・実体なしで元リストの増減/削除に自動追従）";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",

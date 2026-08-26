@@ -3461,6 +3461,43 @@ export async function listCallTargets(listId, { q = "", limit = 500, assignedTo 
   } catch (e) { console.error("[db] listCallTargets", e.message); return []; }
 }
 
+// 「全てのリード」用：そのメンバーが持ち主（作成者）の全リストの架電先を、まとめて返す。
+// 重複（同じ会社＋電話／同じリード）は1件にまとめる。実体のリストではなく、横断表示用。
+export async function listAllLeadsForMember(member, { q = "", limit = 2000 } = {}) {
+  if (!pool || !member) return [];
+  try {
+    const p = [String(member).toLowerCase()];
+    let where = `l.owner = $1 AND NOT l.closed`;
+    if (q) {
+      p.push(`%${String(q).replace(/[%_]/g, "")}%`);
+      where += ` AND (t.company ILIKE $${p.length} OR t.person ILIKE $${p.length}
+                      OR t.phone ILIKE $${p.length} OR t.email ILIKE $${p.length})`;
+    }
+    const { rows } = await pool.query(
+      `SELECT t.*,
+              (SELECT count(*) FROM call_logs cl WHERE cl.target_id = t.id) AS 履歴数,
+              (SELECT count(*) FROM call_logs cl WHERE cl.target_id = t.id AND cl.sf_task_id IS NULL) AS 未送信数,
+              (SELECT cl.result FROM call_logs cl WHERE cl.target_id = t.id ORDER BY cl.at DESC LIMIT 1) AS 最終結果,
+              (SELECT cl.at FROM call_logs cl WHERE cl.target_id = t.id ORDER BY cl.at DESC LIMIT 1) AS 最終日時
+         FROM call_targets t
+         JOIN call_lists l ON l.id = t.list_id
+        WHERE ${where}
+        ORDER BY t.done, t.next_call_at NULLS LAST, t.id
+        LIMIT 5000`, p);
+    // 重複をまとめる（会社＋電話／リードで同じものは、最初の1件だけ残す）
+    const seen = new Set();
+    const out = [];
+    for (const r of rows) {
+      const keys = callDedupeKeys(r.lead_id, r.phone, r.company);
+      if (keys.some((k) => seen.has(k))) continue;
+      for (const k of keys) seen.add(k);
+      out.push(r);
+      if (out.length >= Math.max(1, Math.min(2000, limit))) break;
+    }
+    return out;
+  } catch (e) { console.error("[db] listAllLeadsForMember", e.message); return []; }
+}
+
 // 1件ぶんの情報（記録のモーダルで使う）
 export async function getCallTarget(id) {
   if (!pool || !id) return null;
