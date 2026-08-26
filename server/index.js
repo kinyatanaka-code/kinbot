@@ -14359,7 +14359,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-08-27g kincall：CSV/SF反映で新規リードを作るときは、必ず Cross_lead のレコードタイプで作成（開発者名Cross_lead優先。取れないときは間違った種別で作らず中止）";
+const BUILD_TAG = "2026-08-27h apo：メルマガ【…】のアポを、初めて見たときにChatへ通知するようにした（メルマガとして知らせ、コールのアポには数えない）";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
@@ -16876,6 +16876,7 @@ async function collectApoAppointments(scanOwner, opts = {}) {
 
     // 「リスケ」「キャンセル」と書かれた予定と、カレンダーで見つけた予定のIDを覚えておく
     const seenHeadStates = [];
+    const seenMailmaga = [];   // 新しく見つけたメルマガのアポ（呼び出し側で通知）
     const seenEventIds = new Set();
     // 数えない招待者の一覧（毎回の走査で読み直す）
     const skipInviters = await loadSkipInviters().catch(() => []);
@@ -16924,6 +16925,7 @@ async function collectApoAppointments(scanOwner, opts = {}) {
         const isMailmaga = /^\s*メルマガ/.test(String(ev.title || "").normalize("NFKC"));
         if (isMailmaga) {
           let ml = await getSmartLinkByEvent(ev.id);
+          const 新規 = !ml;
           if (!ml) {
             let slug2;
             for (let k = 0; k < 6; k++) { slug2 = zoomLikeSlug(); if (!(await getSmartLink(slug2))) break; }
@@ -16934,6 +16936,7 @@ async function collectApoAppointments(scanOwner, opts = {}) {
               mailmaga: true,
             });
           }
+          if (新規) seenMailmaga.push({ ev, setter: st.name });
           continue;   // 割り振り・招待はしない
         }
 
@@ -17027,7 +17030,7 @@ async function collectApoAppointments(scanOwner, opts = {}) {
       console.log(`[apo-scan] 数えない人からの招待 ${skippedByInviter.length}件を外しました：` +
         skippedByInviter.slice(0, 5).map((x) => `${x.by}／${String(x.title).slice(0, 30)}`).join("、"));
     }
-    return { items, errors, seenHeadStates, seenEventIds, skippedByInviter, full: !updatedMin };
+    return { items, errors, seenHeadStates, seenMailmaga, seenEventIds, skippedByInviter, full: !updatedMin };
 }
 
 // テスト用のアポかどうか。
@@ -17044,6 +17047,23 @@ function isTestApo(title, words) {
   const t = String(title || "").normalize("NFKC").replace(/[\s　]/g, "").toLowerCase();
   const list = words || _testWords || ["テスト株式会社", "テスト様"];
   return list.some((w) => t.includes(String(w).replace(/[\s　]/g, "").toLowerCase()));
+}
+
+// メルマガ由来のアポを、初めて見たときにChatへ知らせる（コールのアポには数えない）
+async function handleMailmaga(list) {
+  for (const x of list || []) {
+    const ev = x.ev;
+    const first = await noticeOnce(ev.id, "メルマガ", ev.title).catch(() => false);
+    if (!first) continue;
+    const when = ev.start ? `${String(ev.start).slice(5, 10)} ${jstTime(ev.start)}` : "日時不明";
+    await notifyAll([
+      "📣 *メルマガのアポが入りました*",
+      `・${ev.title}`,
+      `📅 ${when}　👤 ${x.setter || "-"}`,
+      "（メルマガとして数えます。コールのアポには数えません）",
+    ].join("\n"), "assign").catch(() => {});
+    console.log(`[apo-scan] メルマガのアポとして知らせました：${String(ev.title).slice(0, 40)}`);
+  }
 }
 
 // 「リスケ」「キャンセル」と書かれた予定を知らせ、アポの数からも外す
@@ -17307,6 +17327,8 @@ async function runApoAutoScan({ actor = "auto-scan", force = false, updatedMin =
   await loadTestWords().catch(() => {});
   // 「リスケ」「キャンセル」と書かれた予定を知らせ、数から外す
   await handleHeadStates(scan.seenHeadStates).catch((e) => console.warn("[apo-scan] リスケ判定:", e.message));
+  // メルマガのアポを、初めて見たときにChatへ知らせる
+  await handleMailmaga(scan.seenMailmaga).catch((e) => console.warn("[apo-scan] メルマガ通知:", e.message));
   // カレンダーから消された予定を、kinbotの数からも外す（全期間を見たときだけ）
   await dropDeletedApos(scan).catch((e) => console.warn("[apo-scan] 削除の追随:", e.message));
 
