@@ -340,7 +340,14 @@ function render() {
     }
   }
   renderOwnerFilter(all);
-  const list = ownerFilter ? all.filter((e) => ownerFilter.has(creatorEmailOf(e))) : all;
+  let list = ownerFilter ? all.filter((e) => ownerFilter.has(creatorEmailOf(e))) : all;
+  // カレンダーの予定が見つからなくても、会社名から直接リードを探せるようにする。
+  // （商談のSF更新と同じく、会社名でリードを検索する）
+  if (focusQ && !list.length && focusSearched) {
+    const co = companyOf(focusQ) || focusQ;
+    list = [{ id: "__q__:" + co, title: focusQ, start: null, __direct: true }];
+    all = list;
+  }
   if (!list.length) {
     box.innerHTML = `<div class="home-empty">${
       focusQ ? "この予定はSalesforce立ち上げの対象ではありません（タイトルに【初回】【新/ヒ】が必要です）。"
@@ -923,9 +930,11 @@ document.addEventListener("DOMContentLoaded", async () => {
       s.open = !s.open;
       if (s.open && s.leads === null && !s.picked) {
         const ev = (dayEventsL || []).find((x) => (x.id || (x.title + "@" + x.start)) === key);
-        const title = ev ? ev.title : "";
+        let title = ev ? ev.title : "";
+        // カレンダー予定が無い「会社名から直接」のカードは、キーから会社名を使う
+        if (!ev && String(key).startsWith("__q__:")) title = String(key).slice("__q__:".length);
         s.evDate = ev && ev.start ? ymdL(new Date(ev.start)) : selDateL;
-        s.q = companyOf(title);
+        s.q = companyOf(title) || title;
         s.qp = personOf(title);
         render();
         searchLeads(key);
