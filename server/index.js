@@ -5357,12 +5357,17 @@ app.post("/api/calls/from-csv", async (req, res) => {
           continue;
         }
         try {
+          // Cross_lead のレコードタイプは必須。取れないときは、間違った種別で作らない。
+          if (!rtId) {
+            結果.push({ company, 状態: "作れなかった", 理由: "Cross_leadのレコードタイプが見つからないため中止（絶対にCross_leadで作るため）" });
+            continue;
+          }
           const fields = {
             Company: company,
             LastName: 姓 || person || "担当者",   // 担当者名は苗字だけ。無いときは「担当者」
             ...(phone ? { Phone: phone } : {}),
             ...(email ? { Email: email } : {}),
-            ...(rtId ? { RecordTypeId: rtId } : {}),
+            RecordTypeId: rtId,   // 必ず Cross_lead
           };
           const made = await createLead(sfUser, fields);
           leadId = made.id;
@@ -6138,10 +6143,11 @@ app.post("/api/calls/lists/:id/to-sf", async (req, res) => {
         const found = await searchLeads(sfUser, company, { max: 1 }).catch(() => []);
         if (found && found.length) { leadId = found[0].Id || found[0].id; 見つかった++; }
         else {
+          if (!rtId) { 失敗++; continue; }   // Cross_leadのレコードタイプが無ければ作らない
           const made = await createLead(sfUser, {
             Company: company, LastName: String(t.person || "").trim() || "担当者",
             Phone: String(t.phone || "").trim(), Email: String(t.email || "").trim(),
-            ...(rtId ? { RecordTypeId: rtId } : {}),
+            RecordTypeId: rtId,   // 必ず Cross_lead
           });
           leadId = (made && (made.id || made.Id)) || "";
           if (leadId) { 作った++; 新規リードIds.push(leadId); }
@@ -14353,7 +14359,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-08-27f kincall：かけるからの記録のTaskに、組織の正しい種別(Type)/状況(Status)を設定で入れられるように。TaskSubtype=Callと完了日時(CompletedDateTime)も付与し、コールとしてカウントされるようにした";
+const BUILD_TAG = "2026-08-27g kincall：CSV/SF反映で新規リードを作るときは、必ず Cross_lead のレコードタイプで作成（開発者名Cross_lead優先。取れないときは間違った種別で作らず中止）";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",

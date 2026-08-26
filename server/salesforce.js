@@ -228,6 +228,9 @@ export async function leadRecordTypes(owner) {
 // 「クロス」にあたるレコードタイプを選ぶ
 export async function crossLeadRecordTypeId(owner) {
   const list = await leadRecordTypes(owner);
+  // まず開発者名が完全に Cross_lead のものを最優先。無ければ「クロス/cross」を含むもの。
+  const exact = list.find((r) => String(r.dev || "").toLowerCase() === "cross_lead");
+  if (exact) return exact.id;
   const hit = list.find((r) => /クロス|cross/i.test(`${r.name} ${r.dev}`));
   return hit ? hit.id : "";
 }
