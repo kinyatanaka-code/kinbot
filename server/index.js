@@ -6243,7 +6243,8 @@ app.post("/api/calls/lists/:id/refresh-sf", async (req, res) => {
 // 大量でも大丈夫なように、1回で少しずつ（既定20件）処理して残数を返す。フロントが繰り返し呼ぶ。
 app.post("/api/calls/lists/:id/to-sf", async (req, res) => {
   try {
-    if (!req.isAdmin && !(await isCloserUser(req.user))) return res.status(403).json({ error: "クローザー・管理者だけが使えます" });
+    // SFと連携（未連携の架電先をリードに結びつける）は誰でもできる。
+    // SFアカウントの無い人は代理＝中澤良太の連携で動く。
     const id = parseInt(req.params.id, 10);
     if (!id) return res.status(400).json({ error: "リストが指定されていません" });
     const sfUser = await pickSfUser(req.user);
@@ -14483,7 +14484,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-08-27u kincall：かける画面に「SFと連携」ボタンを追加。作成時にSFを読み込まなかった架電先を会社名でリードに結びつけ→状態も反映し、以後は各行のSF履歴・更新が使えるようにした";
+const BUILD_TAG = "2026-08-27v kincall：「SFと連携」（未連携をリードに結びつける）を誰でも使えるようにした（SFアカウントの無い人は代理＝中澤良太の連携で動く）";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
