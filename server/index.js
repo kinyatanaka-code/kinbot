@@ -5414,8 +5414,8 @@ app.post("/api/calls/from-csv", async (req, res) => {
             } else {
               await createTask(sfUser, {
                 WhoId: leadId,
-                Subject: `コール：${ステータス || "架電"}`,
-                Status: "完了", Type: "Call",
+                Subject: `CSV取込：${ステータス || "架電履歴"}`,
+                Status: "完了", Type: "Other",
                 ActivityDate: 日,
                 Description: [
                   ステータス ? `結果：${ステータス}` : "",
@@ -5456,8 +5456,8 @@ app.post("/api/calls/from-csv", async (req, res) => {
               } else {
                 await createTask(sfUser, {
                   WhoId: leadId,
-                  Subject: "コール履歴（まとめ）",
-                  Status: "完了", Type: "Call",
+                  Subject: "CSV取込：コール履歴（まとめ）",
+                  Status: "完了", Type: "Other",
                   ActivityDate: jstDate(0),
                   Description: `コール履歴（まとめ・新しい順）\n${まとめ}\nCSVから取り込み（記録した人：${await displayNameOf(req.user).catch(() => req.user)}）`,
                 });
@@ -14328,7 +14328,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-08-26z kincall CSV：「架電履歴」列がある形式に対応。架電履歴以降の列（事業部・架電日・架電者など）を、ラベル付きで1つのコメントにまとめて読み取るようにした";
+const BUILD_TAG = "2026-08-27a kincall：CSV取り込みで作る活動を Type=Other（コールに数えない）に変更。kincallの記録は Type=Call のままで、実際の架電だけがコールカウントされるようにした";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
