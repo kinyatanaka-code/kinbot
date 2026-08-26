@@ -1512,7 +1512,7 @@ async function asLoad() {
 async function openRedistribute(listId, listName, backEmail, backName) {
   const m = openModal(`他のメンバーに割り振る：${listName || ""}`, `
     <div class="kc-redist">
-      <p class="note">このリストの未架電の架電先を、選んだメンバーごとの<b>別々の新しいリスト</b>に分けて移します。1人ずつ独立したリストになるので、片方を消しても他の人のリストは消えません。件数を入れると人ごとの数を指定でき、余りは件数を入れなかった人へ回します。</p>
+      <p class="note">このリストの未架電の架電先を、選んだメンバーごとの<b>別々の新しいリスト</b>に分けて移します。1人ずつ独立したリストになるので、片方を消しても他の人のリストは消えません。<b>入れた件数のぶんだけ</b>移り、余りは元のリストに残します（件数を入れなかった人がいれば、その人が余りを受け取ります）。</p>
       <div class="kc-quick" id="kcRdMembers"><span class="note">メンバーを読み込んでいます…</span></div>
       <label style="display:flex;align-items:center;gap:8px;font-size:13px;margin-top:8px">
         <input type="checkbox" id="kcRdAll" /> 架電済みも含めて割り振り直す
@@ -1562,10 +1562,10 @@ async function openRedistribute(listId, listName, backEmail, backName) {
       if (dryRun) {
         st.textContent = "";
         m.el.querySelector("#kcRdPrev").innerHTML =
-          `試算：対象 <b>${d.total}</b> 件を、メンバーごとの別々のリストに分けます → ${esc(内訳)}<br>よければ「この人たちに割り振る」を押してください。`;
+          `試算：${esc(内訳)}${d.残した ? `／元のリストに残す ${d.残した}件` : ""}<br>（対象 ${d.total}件中 ${d.割り振った}件を移します）よければ「この人たちに割り振る」を押してください。`;
       } else {
-        st.textContent = `計${d.total}件を、それぞれのリストに分けました（${内訳}）`;
-        setTimeout(() => { m.close(); if (backEmail) asLoadMember(backEmail, backName); }, 1600);
+        st.textContent = `${内訳}${d.残した ? `／元に残し ${d.残した}件` : ""} を分けました`;
+        setTimeout(() => { m.close(); if (backEmail) asLoadMember(backEmail, backName); }, 1800);
       }
     } catch (e) { st.textContent = "失敗：" + e.message; }
   };

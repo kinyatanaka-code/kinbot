@@ -3135,9 +3135,14 @@ export async function redistributeListTargets(listId, plan, { onlyPending = true
     for (let k = 0; k < c && pos < ids.length; k++, pos++) assign.get(em).push(ids[pos]);
   }
   let r = 0;
+  // 余りの扱い：
+  //  ・件数を入れなかった人がいれば、その人へ余りを回す（＝残りを受ける人）。
+  //  ・全員が件数を指定していれば、余りは配らず、元のリストにそのまま残す。
   const 余り先 = plan.filter((p) => !(parseInt(p.count, 10) > 0)).map((p) => String(p.email || "").trim().toLowerCase());
-  const 配り先 = 余り先.length ? 余り先 : members;
-  while (pos < ids.length) { assign.get(配り先[r % 配り先.length]).push(ids[pos]); pos++; r++; }
+  if (余り先.length) {
+    while (pos < ids.length) { assign.get(余り先[r % 余り先.length]).push(ids[pos]); pos++; r++; }
+  }
+  const 残す = ids.length - pos;   // どこにも割り振らず、元のリストに残る件数
 
   const { rows: lr } = await pool.query(`SELECT name FROM call_lists WHERE id=$1`, [listId]);
   const baseName = (lr[0] && lr[0].name) || "リスト";
@@ -3154,7 +3159,7 @@ export async function redistributeListTargets(listId, plan, { onlyPending = true
     await pool.query(`UPDATE call_targets SET list_id = $2, assigned_to = $3 WHERE id = ANY($1::int[])`, [arr, nl.id, em]);
     lists.push({ email: em, listId: nl.id, name: nl.name, count: arr.length });
   }
-  return { total: ids.length, byMember, lists, dryRun: !!dryRun };
+  return { total: ids.length, 割り振った: pos, 残した: 残す, byMember, lists, dryRun: !!dryRun };
 }
 
 // リストを作る
