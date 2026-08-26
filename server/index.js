@@ -3106,6 +3106,45 @@ async function fillLeadWebsite(user, lead, company) {
 // 1件を判定して、通れば立ち上げる
 // user      … Salesforceを操作するアカウント（SF連携ができている人）
 // ownerEmail… 商談の所有者にしたい人（＝アポを割り振られたクローザー）
+// 立ち上げを「なんとしても」成功させるための救済：
+// 会社のクロスリードが無ければ、gBizの会社情報（所在地・従業員数・URL）で埋めて新規作成する。
+// dryRun のときは作らず「作る前提」で返す。
+async function ensureCrossLead(user, company, person, { dryRun = false } = {}) {
+  const rtId = await crossLeadRecordTypeId(user).catch(() => "");
+  if (!rtId) return { ok: false, reason: "no_cross_recordtype" };
+  const 姓 = surnameOf(person) || person || "担当者";
+  // gBizで1社に確定できたら、その会社情報を使う
+  let info = {};
+  try {
+    if (gbizConfigured()) {
+      const hits = await searchCompanies(company, 5).catch(() => []);
+      // 完全一致（正規化）を優先。無ければ、1件だけヒットのときのみ採用（複数はあいまいなので使わない）
+      const exact = hits.find((h) => normCompanyKey(h.name) === normCompanyKey(company));
+      const pick = exact || (hits.length === 1 ? hits[0] : null);
+      if (pick && pick.corporate_number) {
+        const d = await getCompanyDetail(pick.corporate_number).catch(() => null);
+        if (d) info = d;
+      }
+    }
+  } catch {}
+  const fields = {
+    Company: company, LastName: 姓,
+    ...(rtId ? { RecordTypeId: rtId } : {}),
+    ...(info.company_url ? { Website: info.company_url } : {}),
+    ...(info.location ? { Street: String(info.location).slice(0, 255) } : {}),
+    ...(info.employees ? { NumberOfEmployees: parseInt(String(info.employees).replace(/[^\d]/g, ""), 10) || undefined } : {}),
+    Description: `kinbot：商談立ち上げのため自動作成（クロスリード）\n担当者：${person}${info.official_name ? `\n会社（gBiz）：${info.official_name}` : ""}`,
+  };
+  if (dryRun) return { ok: true, willCreate: true, company, person, filled: info, fields };
+  try {
+    const made = await createLead(user, fields);
+    const leadId = (made && (made.id || made.Id)) || "";
+    if (!leadId) return { ok: false, reason: "sf_error", detail: "リードを作れませんでした" };
+    try { await reassignCloserLeadsToProxy(user, [leadId]); } catch {}
+    return { ok: true, lead: { Id: leadId, Company: company, LastName: 姓, RecordType: { Name: "Cross_lead" } }, filled: info };
+  } catch (e) { return { ok: false, reason: "sf_error", detail: String(e.message).slice(0, 200) }; }
+}
+
 async function tryAutoLaunch(user, link, { dryRun = false, ownerEmail = "", notify = true } = {}) {
   const base = { slug: link.slug, botId: link.bot_id || null, title: link.label };
   try {
@@ -3123,7 +3162,27 @@ async function tryAutoLaunch(user, link, { dryRun = false, ownerEmail = "", noti
     }
 
     const leads = await searchLeads(user, { company, person: "" }).catch(() => []);
-    const j = judgeAutolaunch({ title: link.label, leads });
+    let j = judgeAutolaunch({ title: link.label, leads });
+    if (!j.ok && ["no_lead", "no_cross", "person_unmatch", "many_cross"].includes(j.reason)) {
+      // なんとしても立ち上げる：会社のクロスリードがあればそれを使い、無ければ作る。
+      const isCross = (l) => /クロス|cross/i.test(String((l.RecordType && l.RecordType.Name) || ""));
+      const crossList = (Array.isArray(leads) ? leads : []).filter((l) =>
+        isCross(l) && normCompanyKey(l.Company) === normCompanyKey(company));
+      if (crossList.length) {
+        // person_unmatch / many_cross / no_cross(別種別あり) → 会社のクロスを使う（新しい順に1件）
+        j = { ok: true, lead: crossList[0], company, person, rescued: "company_cross" };
+      } else {
+        // クロスが無い → 作る（gBizで会社情報を埋める）
+        const made = await ensureCrossLead(user, company, person, { dryRun });
+        if (made.ok) {
+          j = dryRun
+            ? { ok: true, lead: { Id: "__will_create__" }, company, person, rescued: "will_create" }
+            : { ok: true, lead: made.lead, company, person, rescued: "created" };
+        } else {
+          j = { ok: false, reason: made.reason || j.reason, company, person, detail: made.detail || j.detail };
+        }
+      }
+    }
     if (!j.ok) {
       const r = { ...base, ok: false, company: j.company, person: j.person, reason: j.reason, detail: j.detail || "" };
       if (!dryRun) await saveAutolaunch(r);
@@ -3131,6 +3190,9 @@ async function tryAutoLaunch(user, link, { dryRun = false, ownerEmail = "", noti
     }
 
     // URLの補完
+    if (dryRun && j.rescued === "will_create") {
+      return { ...base, ok: true, company, person, rescued: "will_create", dryRun: true };
+    }
     const site = await fillLeadWebsite(user, j.lead, j.company);
     if (!site.url) {
       const r = { ...base, ok: false, company: j.company, person: j.person,
@@ -14579,7 +14641,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-08-28h 全画面：コマンドパレット（Cmd/Ctrl+K）を追加。会社名で商談履歴へ、または各画面へ素早く移動できる（home/history/deals/kincall/apo/sf-launch/index/settings/analysisに搭載）";
+const BUILD_TAG = "2026-08-28i SF立ち上げ強化（第一段）：クロスリードが無ければ自動作成（gBizで所在地・従業員数・URLを補完）、会社のクロスがあれば担当者不一致でもそれで立ち上げ、複数候補は新しい1件を選ぶ。リード起因の失敗を大幅に減らす";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
