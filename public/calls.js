@@ -1512,7 +1512,7 @@ async function asLoad() {
 async function openRedistribute(listId, listName, backEmail, backName) {
   const m = openModal(`他のメンバーに割り振る：${listName || ""}`, `
     <div class="kc-redist">
-      <p class="note">このリストの未架電の架電先を、選んだメンバーへランダムに割り振り直します（担当が変わるだけで、メールや通知は飛びません）。件数を入れると人ごとの数を指定でき、余りは順番に配ります。</p>
+      <p class="note">このリストの未架電の架電先を、選んだメンバーごとの<b>別々の新しいリスト</b>に分けて移します。1人ずつ独立したリストになるので、片方を消しても他の人のリストは消えません。件数を入れると人ごとの数を指定でき、余りは件数を入れなかった人へ回します。</p>
       <div class="kc-quick" id="kcRdMembers"><span class="note">メンバーを読み込んでいます…</span></div>
       <label style="display:flex;align-items:center;gap:8px;font-size:13px;margin-top:8px">
         <input type="checkbox" id="kcRdAll" /> 架電済みも含めて割り振り直す
@@ -1529,7 +1529,7 @@ async function openRedistribute(listId, listName, backEmail, backName) {
     const d = await (await fetch("/api/calls/members")).json();
     const items = (d && d.items) || [];
     m.el.querySelector("#kcRdMembers").innerHTML = items.map((x) =>
-      `<div class="kc-plan-row" data-email="${esc(x.email)}">
+      `<div class="kc-plan-row" data-email="${esc(x.email)}" data-name="${esc(x.name)}">
          <button type="button" class="kc-share-b kc-plan-name">${esc(x.name)}</button>
          <input type="number" class="kc-plan-n" min="0" placeholder="件数" />
        </div>`).join("");
@@ -1543,8 +1543,10 @@ async function openRedistribute(listId, listName, backEmail, backName) {
 
   const 実行 = async (dryRun) => {
     const st = m.el.querySelector("#kcRdSt");
+    const base = String(listName || "リスト").split(" - ")[0];
     const rows2 = [...m.el.querySelectorAll("#kcRdMembers .kc-plan-row.on")].map((r) => ({
       email: r.dataset.email, count: parseInt((r.querySelector(".kc-plan-n") || {}).value, 10) || 0,
+      listName: `${base} - ${r.dataset.name || r.dataset.email.split("@")[0]}`,
     }));
     if (!rows2.length) { st.textContent = "割り振るメンバーを選んでください"; return; }
     st.textContent = dryRun ? "試算しています…" : "割り振っています…";
@@ -1560,10 +1562,10 @@ async function openRedistribute(listId, listName, backEmail, backName) {
       if (dryRun) {
         st.textContent = "";
         m.el.querySelector("#kcRdPrev").innerHTML =
-          `試算：対象 <b>${d.total}</b> 件をこう割り振ります → ${esc(内訳)}<br>よければ「この人たちに割り振る」を押してください。`;
+          `試算：対象 <b>${d.total}</b> 件を、メンバーごとの別々のリストに分けます → ${esc(内訳)}<br>よければ「この人たちに割り振る」を押してください。`;
       } else {
-        st.textContent = `計${d.total}件を割り振りました（${内訳}）`;
-        setTimeout(() => { m.close(); if (backEmail) asLoadMember(backEmail, backName); }, 1400);
+        st.textContent = `計${d.total}件を、それぞれのリストに分けました（${内訳}）`;
+        setTimeout(() => { m.close(); if (backEmail) asLoadMember(backEmail, backName); }, 1600);
       }
     } catch (e) { st.textContent = "失敗：" + e.message; }
   };

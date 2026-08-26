@@ -6059,7 +6059,7 @@ app.post("/api/calls/lists/:id/redistribute", async (req, res) => {
     const b = req.body || {};
     const plan = (Array.isArray(b.members) ? b.members : [])
       .map((x) => (typeof x === "string" ? { email: x } : x))
-      .map((p) => ({ email: String(p.email || "").trim().toLowerCase(), count: parseInt(p.count, 10) || 0 }))
+      .map((p) => ({ email: String(p.email || "").trim().toLowerCase(), count: parseInt(p.count, 10) || 0, listName: String(p.listName || "").slice(0, 200) }))
       .filter((p) => p.email);
     if (!plan.length) return res.status(400).json({ error: "割り振るメンバーを選んでください" });
     const onlyPending = b.onlyPending !== false;   // 既定は未架電だけ
@@ -14218,7 +14218,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-08-26s kincall：割り振り直しに「まず試算する」を追加。付け替える前に、誰に何件になるかをプレビューで確認できるようにした";
+const BUILD_TAG = "2026-08-26t kincall：割り振り直しを、メンバーごとの別々の新しいリストに分けて移す方式に変更。1人ずつ独立したリストになり、片方を消しても他は消えない";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",

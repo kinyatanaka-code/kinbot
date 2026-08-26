@@ -3113,18 +3113,21 @@ export async function setCallTargetNextCall(id, iso) {
 
 // リストの架電先を、指定メンバーへランダムに割り振り直す（担当＝assigned_to を付け替える）。
 // plan: [{email, count}]（count 未指定は均等）。onlyPending=true で未架電だけが対象。
+// リストの架電先を、メンバーごとの「別々の新しいリスト」に分けて移す。
+// これで、1人ずつ独立したリストになり、片方を消しても他の人のリストは消えない。
+// plan: [{email, count, listName}]（count 未指定は均等・余りは指定なしの人へ／listName はそのメンバーの新リスト名）
 export async function redistributeListTargets(listId, plan, { onlyPending = true, dryRun = false } = {}) {
-  if (!pool || !listId) return { total: 0, byMember: {} };
+  if (!pool || !listId) return { total: 0, byMember: {}, lists: [] };
   const members = (plan || []).map((p) => String(p.email || "").trim().toLowerCase()).filter(Boolean);
-  if (!members.length) return { total: 0, byMember: {} };
+  if (!members.length) return { total: 0, byMember: {}, lists: [] };
   const where = onlyPending ? "AND done = false" : "";
   const { rows } = await pool.query(`SELECT id FROM call_targets WHERE list_id = $1 ${where}`, [listId]);
   const ids = rows.map((r) => r.id);
-  // ランダムに並べ替え
   for (let i = ids.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [ids[i], ids[j]] = [ids[j], ids[i]]; }
-  // 件数プランに従って割り付け（余りは指定なしの人へ順番に）
-  const assign = new Map();   // email -> [ids]
-  for (const m of members) assign.set(m, []);
+
+  const assign = new Map();
+  const nameOf = new Map();
+  for (const p of plan) { const em = String(p.email || "").trim().toLowerCase(); assign.set(em, []); nameOf.set(em, String(p.listName || "").trim()); }
   let pos = 0;
   for (const p of plan) {
     const em = String(p.email || "").trim().toLowerCase();
@@ -3135,13 +3138,23 @@ export async function redistributeListTargets(listId, plan, { onlyPending = true
   const 余り先 = plan.filter((p) => !(parseInt(p.count, 10) > 0)).map((p) => String(p.email || "").trim().toLowerCase());
   const 配り先 = 余り先.length ? 余り先 : members;
   while (pos < ids.length) { assign.get(配り先[r % 配り先.length]).push(ids[pos]); pos++; r++; }
-  // 試算のときは、付け替えずに件数だけ返す
-  const byMember = {};
+
+  const { rows: lr } = await pool.query(`SELECT name FROM call_lists WHERE id=$1`, [listId]);
+  const baseName = (lr[0] && lr[0].name) || "リスト";
+
+  const byMember = {}; const lists = [];
   for (const [em, arr] of assign) {
-    if (!dryRun && arr.length) await pool.query(`UPDATE call_targets SET assigned_to = $2 WHERE id = ANY($1::int[])`, [arr, em]);
     byMember[em] = arr.length;
+    if (dryRun || !arr.length) continue;
+    const nm = nameOf.get(em) || `${String(baseName).split(" - ")[0]} - ${em}`;
+    let nl = await findRecentListByNameOwner(nm, em).catch(() => null);
+    if (!nl) nl = await createCallList({ name: nm, owner: em, createdBy: em });
+    if (!nl) continue;
+    // 別のリストへ移す（list_id を変え、担当もそのメンバーにする）
+    await pool.query(`UPDATE call_targets SET list_id = $2, assigned_to = $3 WHERE id = ANY($1::int[])`, [arr, nl.id, em]);
+    lists.push({ email: em, listId: nl.id, name: nl.name, count: arr.length });
   }
-  return { total: ids.length, byMember, dryRun: !!dryRun };
+  return { total: ids.length, byMember, lists, dryRun: !!dryRun };
 }
 
 // リストを作る
