@@ -6970,6 +6970,9 @@ app.post("/api/calls/targets/:id/record", async (req, res) => {
           Subject: `コール：${result}`,
           Status: "完了", Type: "Call",
           ActivityDate: jstDate(0),
+          // かけるからの記録には「活動日時」も入れる（CSV取り込みには入れない）。
+          // 項目名は組織ごとに違うので、設定 sfActivityTimeField で指定。未対応項目は自動で外れる。
+          ...(st0.sfActivityTimeField ? { [String(st0.sfActivityTimeField)]: new Date().toISOString() } : {}),
           Description: [
             `結果：${result}`,
             b.memo ? `メモ：${b.memo}` : "",
@@ -14329,7 +14332,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-08-27b kincall：メンバーのリストから「かける」を開いたとき、そのメンバーに割り振られたぶん（＋未割り振り）だけを出すようにした（他の人担当の分まで全件出てしまう不具合を修正）";
+const BUILD_TAG = "2026-08-27c kincall：かけるからの記録に「活動日時」を書き込めるようにした（設定sfActivityTimeFieldで項目指定・CSVには入れない）。活動作成が書き込めない項目を安全に外すよう頑丈化";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",

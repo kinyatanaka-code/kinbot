@@ -592,11 +592,25 @@ export async function createTask(owner, data) {
       }
     );
     if (res.ok) return res.json();
-    const text = (await res.text()).slice(0, 400);
+    const text = (await res.text()).slice(0, 600);
+    // 存在しない項目：No such column 'X'
     const m = text.match(/No such column '([^']+)' on sobject/i);
     if (res.status === 400 && m && Object.prototype.hasOwnProperty.call(payload, m[1])) {
       delete payload[m[1]]; // 存在しない項目を除いて再送
       continue;
+    }
+    // 書き込めない項目：INVALID_FIELD_FOR_INSERT_UPDATE などで fields:["X"] が返る
+    if (res.status === 400) {
+      let dropped = false;
+      try {
+        const arr = JSON.parse(text);
+        for (const e of (Array.isArray(arr) ? arr : [])) {
+          for (const f of (e && Array.isArray(e.fields) ? e.fields : [])) {
+            if (Object.prototype.hasOwnProperty.call(payload, f)) { delete payload[f]; dropped = true; }
+          }
+        }
+      } catch {}
+      if (dropped) continue;   // 書き込めない項目を外して再送
     }
     throw new Error(`SF task ${res.status}: ${text}`);
   }
