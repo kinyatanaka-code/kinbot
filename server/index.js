@@ -348,6 +348,7 @@ import {
 import { resolveConfig, statusInfo } from "./config.js";
 import { callLLMPublic, analyzerInfo, analyzeMeeting, analyzeDeep, freeAnalyze, chatWithData, enrichCompany, lookupEmployeeCount, lookupCompanyBasics, generateThanks, THANKS_PROMPT, getCheckItems, getSummaryPrompt, getCustomPrompt, runCustomAnalysis, analyzeWinPatterns, classifyMeetingKind, extractFirstMeeting, extractReMeeting, buildBrief, extractFeatureCTags, enrichCompanyAttributes, generateFeatureCInsights, extractQaPairs, splitPhases } from "./analyzer.js";
 import { searchCompanies, getCompanyDetail, gbizConfigured } from "./gbizinfo.js";
+import { enrichCompanyFromWeb, webSearchConfigured } from "./companyenrich.js";
 import { searchCompanyInfo, webLookupAvailable } from "./websearch.js";
 import { readLayout, readGoals, tally, buildUpdates, applyApoCounts, parseZeroDates, callHours, buildHoursUpdates, isoForMD, sameName as psSameName, METRICS } from "./processsheet.js";
 import {
@@ -3124,6 +3125,24 @@ async function ensureCrossLead(user, company, person, { dryRun = false } = {}) {
       if (pick && pick.corporate_number) {
         const d = await getCompanyDetail(pick.corporate_number).catch(() => null);
         if (d) info = d;
+      }
+    }
+  } catch {}
+  // gBizで住所・従業員数・URLが埋まらないときは、Web検索（Brave）で補う（キーが無ければ何もしない）
+  try {
+    const 住所 = info.location || "";
+    const 従業員 = info.employees || "";
+    const url = info.company_url || "";
+    if (webSearchConfigured() && (!住所 || !従業員 || !url)) {
+      const w = await enrichCompanyFromWeb(company).catch(() => ({}));
+      if (w && (w.address || w.employees || w.website)) {
+        info = {
+          official_name: info.official_name || w.official_name || "",
+          location: info.location || w.address || "",
+          employees: info.employees || (w.employees ? `${w.employees}名` : ""),
+          company_url: info.company_url || w.website || "",
+          _webPages: w.pages || [],
+        };
       }
     }
   } catch {}
@@ -14641,7 +14660,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-08-28i SF立ち上げ強化（第一段）：クロスリードが無ければ自動作成（gBizで所在地・従業員数・URLを補完）、会社のクロスがあれば担当者不一致でもそれで立ち上げ、複数候補は新しい1件を選ぶ。リード起因の失敗を大幅に減らす";
+const BUILD_TAG = "2026-08-28j SF立ち上げ強化：クロスリード作成時、gBizで住所・従業員数・URLが埋まらなければBrave Web検索で公式サイトを探し、会社概要から補う土台を追加（BRAVE_API_KEY未設定時はgBizのみ）";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
