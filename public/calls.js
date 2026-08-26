@@ -2062,8 +2062,21 @@ function csvParse(text) {
     }
   }
   const 取る = (c, i) => (i >= 0 && i < c.length ? c[i] : "");
+  // 「架電履歴」列があれば、そこから右の列を、見出しラベル付きで全部まとめてコメントにする。
+  const histStart = 見出しっぽい ? head.findIndex((h) => /架電履歴|架電メモ|コール履歴/.test(String(h || ""))) : -1;
   // 最終活動コメント＋その後ろの続き欄を、1つのコメントにまとめる
   const コメントまとめ = (c) => {
+    if (histStart >= 0) {
+      // 架電履歴以降を、ラベル付き（例「事業部：RI西」）でまとめる
+      const parts = [];
+      for (let idx = histStart; idx < head.length; idx++) {
+        const v = 取る(c, idx).trim();
+        if (!v) continue;
+        const lbl = String(head[idx] || "").trim();
+        parts.push(lbl ? `${lbl}：${v}` : v);
+      }
+      return parts.join("\n");
+    }
     const parts = [];
     const 主 = 取る(c, 場所.comment).trim();
     if (主) parts.push(主);
