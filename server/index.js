@@ -13393,7 +13393,7 @@ app.put("/api/settings", async (req, res) => {
 app.get("/api/sf-proxy", async (req, res) => {
   try {
     const st = await getSettings().catch(() => ({}));
-    res.json({ ok: true, sfProxyUser: st.sfProxyUser || "", sfNextActionType: st.sfNextActionType || "" });
+    res.json({ ok: true, sfProxyUser: st.sfProxyUser || "", sfNextActionType: st.sfNextActionType || "", sfActivityTimeField: st.sfActivityTimeField || "" });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 app.put("/api/sf-proxy", async (req, res) => {
@@ -13403,6 +13403,8 @@ app.put("/api/sf-proxy", async (req, res) => {
     if (b.sfProxyUser !== undefined) patch.sfProxyUser = String(b.sfProxyUser || "").trim().toLowerCase();
     // ネクストアクションの活動予定に付ける活動種別（任意・組織ごとの値）
     if (b.sfNextActionType !== undefined) patch.sfNextActionType = String(b.sfNextActionType || "").trim();
+    // かけるからの記録に入れる「活動日時」の項目API名（例：活動日時__c）。空なら入れない。
+    if (b.sfActivityTimeField !== undefined) patch.sfActivityTimeField = String(b.sfActivityTimeField || "").trim();
     await saveSettings(patch);
     const st = await getSettings().catch(() => ({}));
     const 連携 = st.sfProxyUser ? await sfConnected(st.sfProxyUser).catch(() => false) : false;
@@ -14332,7 +14334,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-08-27d kincall/apo：「メルマガ…」で始まるカレンダー予定を、メルマガ由来のアポとして印付け。コールのアポとしては割り振らない（担当を付けない）土台を追加";
+const BUILD_TAG = "2026-08-27e kincall：かけるからの記録に入れる「活動日時」の項目API名を、設定（sfActivityTimeField）で保存・指定できるようにした";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
