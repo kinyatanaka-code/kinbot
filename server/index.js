@@ -5228,8 +5228,9 @@ app.post("/api/calls/from-csv", async (req, res) => {
     const sq = (v) => String(v || "").replace(/'/g, "\\'");
 
     // クロス商談が既に立ち上がっている会社は、新しくクロスリードを作らない。
-    // 初回商談日（CloseDate）が 2026-03-01 以降で、レコードタイプが「クロス」の商談を持つ会社を集める。
-    const CROSS_FROM = "2026-03-01";
+    // 初回商談日（CloseDate）が指定日以降で、レコードタイプが「クロス」の商談を持つ会社を集める。
+    // 既定は 2026-03-01。取り込み時に crossFrom（YYYY-MM-DD）で変えられる。
+    const CROSS_FROM = /^\d{4}-\d{2}-\d{2}$/.test(String(b.crossFrom || "")) ? b.crossFrom : "2026-03-01";
     const crossOppCompanies = new Set();
     try {
       if (salesforceConfigured() && (await sfConnected(sfUser).catch(() => false))) {
@@ -14271,7 +14272,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-08-26v kincall：今あるリストのSF未連携（kincallのみ）の架電先を、あとからSalesforceに反映（会社名で検索・無ければ作成して結びつけ）できる「SFに反映」を追加。大量でも少しずつ処理";
+const BUILD_TAG = "2026-08-26w kincall CSV：クロス商談を見る初回商談日を、リスト作成時に指定できるようにした（既定2026-03-01。例：2025-08-01以降のクロス商談をアポ獲得済み扱いに）";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",

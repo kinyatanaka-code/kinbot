@@ -2142,6 +2142,7 @@ async function csvSend(dryRun) {
           rows: part, dryRun: !!dryRun,
           share: csvShareSelected(),
           ...(csvAddMode ? { addMode: true } : {}),
+          ...(($("csvCrossFrom") && $("csvCrossFrom").value) ? { crossFrom: $("csvCrossFrom").value } : {}),
           ...(($("csvListOnly") && $("csvListOnly").checked) ? { listOnly: true } : {}),
           ...(listId ? { listId } : {}),
         }),

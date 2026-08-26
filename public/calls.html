@@ -123,6 +123,10 @@
                 </div>
                 <label class="ks-check" style="margin:8px 0 2px"><input type="checkbox" id="csvListOnly" /> <b>Salesforceは更新せず、リストだけ作る（CSVのまま）</b></label>
                 <p class="note">メールが無いなどでSalesforceを触りたくないときに使います。オンにすると、リードの検索・作成も、活動履歴も、所有者の付け替えもせず、CSVの中身だけで架電リストに追加します（同じ架電先の重複除外はそのまま効きます）。</p>
+                <label class="ks-check" style="margin:8px 0 2px;display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+                  <span>クロス商談を見る初回商談日（この日以降のクロス商談がある会社はアポ獲得済み扱いにする）</span>
+                  <input type="date" id="csvCrossFrom" value="2026-03-01" style="border:1px solid #e6ece9;border-radius:8px;padding:5px 8px;font-size:13px;font-family:inherit" />
+                </label>
                 <div class="ap-cfg-row">
                   <button class="btn ghost" id="csvDry">まず試算する</button>
                   <button class="btn" id="csvRun">この内容でリストを作る</button>
@@ -192,7 +196,7 @@
       </div>
     </div>
     <script src="sf-data.js?v=20260826c"></script>
-    <script src="calls.js?v=20260826r"></script>
+    <script src="calls.js?v=20260826s"></script>
     <script src="nav.js?v=20260823c"></script>
   </body>
 </html>
