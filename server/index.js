@@ -6199,18 +6199,18 @@ app.post("/api/calls/lists/:id/refresh-sf", async (req, res) => {
     } catch (e) { console.warn("[SF更新] クロス受注取得", e.message); }
 
     // 3) 各架電先を更新
-    //   ステージ列 ＝ リードの状況（NEW/担当者未接触/ジャッジ 等）
-    //   最終ステータス列 ＝ リード種別（レコードタイプ：クロス(リード)/Mochica(リード) 等）
+    //   ステージ列 ＝ リードの状況（NEW/担当者未接触/ジャッジ 等）← SFの最新に更新
+    //   最終ステータス列 ＝ 最終架電結果（担当者不在 等）← kincallの記録を保持（触らない）
+    //   ただしクロス商談あり／クロス受注のときだけ、最終ステータスを「アポ獲得済み（…）」に上書き
     let 反映 = 0, クロス化 = 0, 受注除外 = 0;
     for (const t of withLead) {
       const li = info.get(id15(t.lead_id)) || {};
-      const stage = li.status || t.stage || "";           // ステージ列＝状況
-      let status = li.stage || t.status || "";             // 最終ステータス列＝リード種別
+      const stage = li.status || t.stage || "";           // ステージ列＝リードの状況
       const key = normCompanyKey(t.company);
-      // クロス受注（受注処理完了）は時期に関係なく外す。次いで、期間内のクロス商談も外す。
-      if (crossWon.has(key)) { status = "アポ獲得済み（クロス受注）"; 受注除外++; クロス化++; }
-      else if (crossOpp.has(key)) { status = "アポ獲得済み（クロス商談）"; クロス化++; }
-      await setCallTargetStatus(t.id, { stage, status }).catch(() => {});
+      let statusPatch = undefined;                         // 既定：最終ステータス（最終架電結果）は触らない
+      if (crossWon.has(key)) { statusPatch = "アポ獲得済み（クロス受注）"; 受注除外++; クロス化++; }
+      else if (crossOpp.has(key)) { statusPatch = "アポ獲得済み（クロス商談）"; クロス化++; }
+      await setCallTargetStatus(t.id, statusPatch !== undefined ? { stage, status: statusPatch } : { stage }).catch(() => {});
       if (li.owner) await setCallTargetLead(t.id, t.lead_id, { ownerName: li.owner }).catch(() => {});
       反映++;
     }
@@ -14463,7 +14463,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-08-27q kincall：SFの状態更新の列対応を修正。ステージ列＝リードの状況、最終ステータス列＝リード種別（レコードタイプ）に入れ替えた";
+const BUILD_TAG = "2026-08-27r kincall：SF状態更新でステージ列＝リードの状況のみ更新し、最終ステータス列＝最終架電結果（担当者不在等）は保持。クロス商談あり／受注のときだけ最終ステータスをアポ獲得済みに上書き";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
