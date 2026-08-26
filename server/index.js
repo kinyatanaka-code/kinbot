@@ -6152,7 +6152,7 @@ app.delete("/api/calls/lists/:id", async (req, res) => {
 // クロス商談の有無を読みに行って、kincallの表示に反映する（「SFの状態を更新」ボタン）。
 app.post("/api/calls/lists/:id/refresh-sf", async (req, res) => {
   try {
-    if (!req.isAdmin && !(await isCloserUser(req.user))) return res.status(403).json({ error: "クローザー・管理者だけが使えます" });
+    // SFの状態更新は誰でもできる（SFアカウントの無い人は代理＝中澤良太で読む）
     const id = parseInt(req.params.id, 10);
     if (!id) return res.status(400).json({ error: "リストが指定されていません" });
     const sfUser = await pickSfUser(req.user);
@@ -14452,7 +14452,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-08-27n kincall：かける画面に「SFの状態を更新」を追加。リードの最終ステータス・ステージ・所有者をSFの最新に反映し、クロス商談がある会社はアポ獲得済みに移す";
+const BUILD_TAG = "2026-08-27o kincall：「SFの状態を更新」を誰でも使えるようにした（SFアカウントの無い人は代理＝中澤良太の連携で読みに行く）";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
