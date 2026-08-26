@@ -14332,7 +14332,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-08-27c kincall：かけるからの記録に「活動日時」を書き込めるようにした（設定sfActivityTimeFieldで項目指定・CSVには入れない）。活動作成が書き込めない項目を安全に外すよう頑丈化";
+const BUILD_TAG = "2026-08-27d kincall/apo：「メルマガ…」で始まるカレンダー予定を、メルマガ由来のアポとして印付け。コールのアポとしては割り振らない（担当を付けない）土台を追加";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
@@ -16891,6 +16891,25 @@ async function collectApoAppointments(scanOwner, opts = {}) {
         }
         // タイトルが【新/ヒ】または【初回/】を含む予定だけ（全角半角問わず）
         if (!apoTitleTag(ev.title)) continue;
+
+        // 「メルマガ…」で始まる予定は、メルマガ由来のアポ。
+        // コールのアポとしては割り振らず（担当を付けず）、印だけ付けて残す（合計・メルマガ件数用）。
+        const isMailmaga = /^\s*メルマガ/.test(String(ev.title || "").normalize("NFKC"));
+        if (isMailmaga) {
+          let ml = await getSmartLinkByEvent(ev.id);
+          if (!ml) {
+            let slug2;
+            for (let k = 0; k < 6; k++) { slug2 = zoomLikeSlug(); if (!(await getSmartLink(slug2))) break; }
+            ml = await createSmartLink({
+              slug: slug2, label: ev.title, owner: null, createdBy: gcalOwner,
+              eventId: ev.id, setter: st.name, setterEmail: st.email,
+              startTime: ev.start, endTime: ev.end || null, apoAt: ev.created || null,
+              mailmaga: true,
+            });
+          }
+          continue;   // 割り振り・招待はしない
+        }
+
         // 取得日・商談日の指定があれば、それぞれ完全一致で絞る
         const createdDate = jstDateStr(ev.created);
         const startDate = jstDateStr(ev.start);

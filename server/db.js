@@ -888,6 +888,8 @@ export async function initDb() {
   await sq(`ALTER TABLE closer_rotation ADD COLUMN IF NOT EXISTS baseline_count INT NOT NULL DEFAULT 0;`);
   // そのアポがどちらの事業のものか（アポ獲得者の担当事業から決まる。画面で変更もできる）
   await sq(`ALTER TABLE smart_links ADD COLUMN IF NOT EXISTS business TEXT;`);
+  // メルマガ由来のアポ（タイトルが「メルマガ…」）。合計には数えるが、コールのアポには数えない。
+  await sq(`ALTER TABLE smart_links ADD COLUMN IF NOT EXISTS mailmaga BOOLEAN NOT NULL DEFAULT false;`);
   // どのチームに配ったかを割り振り履歴にも残す
   await sq(`ALTER TABLE assign_log ADD COLUMN IF NOT EXISTS team TEXT;`);
   // テストで作ったアポを、件数の集計から外すための印。
@@ -2816,7 +2818,7 @@ export async function deleteOauthToken(access_token) {
 }
 
 // ===== スマートリンク（担当者切り替えに追随する共有Zoom URL） =====
-export async function createSmartLink({ slug, label, owner, createdBy, eventId, setter, setterEmail, startTime, endTime, apoAt }) {
+export async function createSmartLink({ slug, label, owner, createdBy, eventId, setter, setterEmail, startTime, endTime, apoAt, mailmaga = false }) {
   if (!pool) return null;
   // 同じカレンダー予定からは1件しか作らない。
   // スキャンが重なっても、二重に登録されないようにする。
@@ -2837,12 +2839,12 @@ export async function createSmartLink({ slug, label, owner, createdBy, eventId, 
       }
     }
     const { rows } = await pool.query(
-      `INSERT INTO smart_links (slug, label, current_owner, created_by, event_id, setter, setter_email, start_time, end_time, apo_at)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
+      `INSERT INTO smart_links (slug, label, current_owner, created_by, event_id, setter, setter_email, start_time, end_time, apo_at, mailmaga)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
        ON CONFLICT (event_id) WHERE event_id IS NOT NULL DO NOTHING
        RETURNING *`,
       [slug, label || "", owner || null, createdBy || "", eventId, setter || null,
-       (setterEmail || "").toLowerCase() || null, startTime || null, endTime || null, apoAt || null]
+       (setterEmail || "").toLowerCase() || null, startTime || null, endTime || null, apoAt || null, !!mailmaga]
     );
     if (rows[0]) return rows[0];
     // すでにあった場合は、そちらを返す
@@ -2850,10 +2852,10 @@ export async function createSmartLink({ slug, label, owner, createdBy, eventId, 
     return cur[0] || null;
   }
   const { rows } = await pool.query(
-    `INSERT INTO smart_links (slug, label, current_owner, created_by, event_id, setter, setter_email, start_time, end_time, apo_at)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING *`,
+    `INSERT INTO smart_links (slug, label, current_owner, created_by, event_id, setter, setter_email, start_time, end_time, apo_at, mailmaga)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING *`,
     [slug, label || "", owner || null, createdBy || "", eventId || null, setter || null,
-     (setterEmail || "").toLowerCase() || null, startTime || null, endTime || null, apoAt || null]
+     (setterEmail || "").toLowerCase() || null, startTime || null, endTime || null, apoAt || null, !!mailmaga]
   );
   return rows[0];
 }
