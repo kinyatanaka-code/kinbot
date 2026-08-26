@@ -67,6 +67,7 @@ async function loadTable() {
   const selV = ($("clList") && $("clList").value) || "";
   if (selV) listId = selV === "all" ? "all" : (Number(selV) || 0);
   if (!listId) { box.innerHTML = '<div class="empty-state">リストを選んでください。</div>'; return; }
+  if (listId === "all") selectedIds.clear();   // 全てのリードでは移動不可（選択も持たない）
   box.innerHTML = '<div class="empty-state">読み込んでいます…</div>';
   try {
     const q = $("clFind") && $("clFind").value.trim();
@@ -184,14 +185,15 @@ function render() {
         `<button type="button" class="kc-sum-btn" id="kcHideApo">${hideApo ? "アポ獲得も表示" : "アポ獲得を隠す"}</button>`
       : "") +
     `</div>` +
-    `<div class="kc-selbar" id="kcSelBar" hidden style="display:flex;align-items:center;gap:10px;padding:8px 4px;">
+    ((listId !== "all")
+      ? `<div class="kc-selbar" id="kcSelBar" hidden style="display:flex;align-items:center;gap:10px;padding:8px 4px;">
        <span id="kcSelCount" style="font-size:13px;color:#0d5b47;font-weight:600;"></span>
        <button type="button" class="btn" id="kcSelMove">選択したリードを他のリストへ移す</button>
        <button type="button" class="btn kc-outline" id="kcSelClear">選択を外す</button>
-     </div>` +
+     </div>` : "") +
     `<div class="kc-tablewrap"><table class="kc-table">
       <tr>
-        <th class="kc-th-c" style="width:28px"><input type="checkbox" id="kcSelAll" title="全部を選ぶ" /></th>
+        ${listId !== "all" ? `<th class="kc-th-c" style="width:28px"><input type="checkbox" id="kcSelAll" title="全部を選ぶ" /></th>` : ""}
         <th class="kc-th-o">現所有者</th>
         <th class="kc-th-s"><button type="button" class="kc-th-b${on("stage")}" data-flt="stage">ステージ ▾</button></th>
         <th class="kc-co"><button type="button" class="kc-th-b" data-sort="company">会社名${arrow("company")}</button></th>
@@ -209,11 +211,11 @@ function render() {
       const 予定 = nextDueLabel(x);
       const 直前未済 = i > 0 && !isApoDone(list[i - 1]);
       const 区切り = (済 && (i === 0 || 直前未済))
-        ? `<tr class="kc-apo-sep"><td colspan="12">アポ獲得済み（${list.filter(isApoDone).length}件）</td></tr>`
+        ? `<tr class="kc-apo-sep"><td colspan="${listId !== "all" ? 12 : 11}">アポ獲得済み（${list.filter(isApoDone).length}件）</td></tr>`
         : "";
       return 区切り + `
       <tr data-id="${x.id}" class="${済 ? "kc-apo-done" : ""}">
-        <td><input type="checkbox" class="kc-sel" data-id="${x.id}"${selectedIds.has(String(x.id)) ? " checked" : ""} /></td>
+        ${listId !== "all" ? `<td><input type="checkbox" class="kc-sel" data-id="${x.id}"${selectedIds.has(String(x.id)) ? " checked" : ""} /></td>` : ""}
         <td class="kc-owner">${esc(x["所有者"] || "")}</td>
         <td>${esc(x["ステージ"] || "-")}</td>
         <td class="kc-co">${esc(x["会社名"] || "")}${済 ? ' <span class="kc-apo-badge">アポ獲得済み</span>' : ""}${
