@@ -6299,7 +6299,7 @@ app.post("/api/calls/lists/:id/redistribute", async (req, res) => {
     const b = req.body || {};
     const plan = (Array.isArray(b.members) ? b.members : [])
       .map((x) => (typeof x === "string" ? { email: x } : x))
-      .map((p) => ({ email: String(p.email || "").trim().toLowerCase(), count: parseInt(p.count, 10) || 0, listName: String(p.listName || "").slice(0, 200) }))
+      .map((p) => ({ email: String(p.email || "").trim().toLowerCase(), count: parseInt(p.count, 10) || 0, listName: String(p.listName || "").slice(0, 200), toListId: parseInt(p.toListId, 10) || 0 }))
       .filter((p) => p.email);
     if (!plan.length) return res.status(400).json({ error: "割り振るメンバーを選んでください" });
     const onlyPending = b.onlyPending !== false;   // 既定は未架電だけ
@@ -14483,7 +14483,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-08-27s kincall：SF状態更新で、最終ステータス列に「最新のコール活動の結果（担当者不在等）」をSFから拾って反映するようにした。ステージ列はリードの状況。クロス時はアポ獲得済みに上書き";
+const BUILD_TAG = "2026-08-27t kincall：他のメンバーに割り振るとき、その人のすでにあるリストを選んで割り振れるようにした（無ければ新規作成）。余りは元のリスト＝持ち主に残す";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",

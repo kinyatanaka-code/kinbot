@@ -3129,7 +3129,13 @@ export async function redistributeListTargets(listId, plan, { onlyPending = true
 
   const assign = new Map();
   const nameOf = new Map();
-  for (const p of plan) { const em = String(p.email || "").trim().toLowerCase(); assign.set(em, []); nameOf.set(em, String(p.listName || "").trim()); }
+  const targetOf = new Map();   // email -> 既存の追加先リストID（0なら新規）
+  for (const p of plan) {
+    const em = String(p.email || "").trim().toLowerCase();
+    assign.set(em, []);
+    nameOf.set(em, String(p.listName || "").trim());
+    targetOf.set(em, parseInt(p.toListId, 10) || 0);
+  }
   let pos = 0;
   for (const p of plan) {
     const em = String(p.email || "").trim().toLowerCase();
@@ -3153,13 +3159,24 @@ export async function redistributeListTargets(listId, plan, { onlyPending = true
   for (const [em, arr] of assign) {
     byMember[em] = arr.length;
     if (dryRun || !arr.length) continue;
-    const nm = nameOf.get(em) || `${String(baseName).split(" - ")[0]} - ${em}`;
-    let nl = await findRecentListByNameOwner(nm, em).catch(() => null);
-    if (!nl) nl = await createCallList({ name: nm, owner: em, createdBy: em });
-    if (!nl) continue;
+    let 先id = targetOf.get(em) || 0;
+    let 先name = "";
+    if (先id) {
+      // すでにあるリストへ移す
+      const { rows: er } = await pool.query(`SELECT name FROM call_lists WHERE id=$1`, [先id]);
+      if (!er[0]) 先id = 0; else 先name = er[0].name;
+    }
+    if (!先id) {
+      // 既存指定が無ければ、その人のリストを1つ作って（同名直近は使い回す）移す
+      const nm = nameOf.get(em) || `${String(baseName).split(" - ")[0]} - ${em}`;
+      let nl = await findRecentListByNameOwner(nm, em).catch(() => null);
+      if (!nl) nl = await createCallList({ name: nm, owner: em, createdBy: em });
+      if (!nl) continue;
+      先id = nl.id; 先name = nl.name;
+    }
     // 別のリストへ移す（list_id を変え、担当もそのメンバーにする）
-    await pool.query(`UPDATE call_targets SET list_id = $2, assigned_to = $3 WHERE id = ANY($1::int[])`, [arr, nl.id, em]);
-    lists.push({ email: em, listId: nl.id, name: nl.name, count: arr.length });
+    await pool.query(`UPDATE call_targets SET list_id = $2, assigned_to = $3 WHERE id = ANY($1::int[])`, [arr, 先id, em]);
+    lists.push({ email: em, listId: 先id, name: 先name, count: arr.length });
   }
   return { total: ids.length, 割り振った: pos, 残した: 残す, byMember, lists, dryRun: !!dryRun };
 }

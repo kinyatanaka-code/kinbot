@@ -1560,7 +1560,7 @@ async function runToSf(listId, listName, btn) {
 async function openRedistribute(listId, listName, backEmail, backName) {
   const m = openModal(`他のメンバーに割り振る：${listName || ""}`, `
     <div class="kc-redist">
-      <p class="note">このリストの未架電の架電先を、選んだメンバーごとの<b>別々の新しいリスト</b>に分けて移します。1人ずつ独立したリストになるので、片方を消しても他の人のリストは消えません。<b>入れた件数のぶんだけ</b>移り、余りは元のリストに残します（件数を入れなかった人がいれば、その人が余りを受け取ります）。</p>
+      <p class="note">このリストの未架電の架電先を、選んだメンバーの<b>すでにあるリスト</b>へ割り振ります（そのメンバーがリストを持っていなければ、新しいリストを作ります）。<b>入れた件数のぶんだけ</b>移り、余りは元のリスト（このリストの持ち主）に残します。件数を入れなかった人がいれば、その人が余りを受け取ります。</p>
       <div class="kc-quick" id="kcRdMembers"><span class="note">メンバーを読み込んでいます…</span></div>
       <label style="display:flex;align-items:center;gap:8px;font-size:13px;margin-top:8px">
         <input type="checkbox" id="kcRdAll" /> 架電済みも含めて割り振り直す
@@ -1580,11 +1580,22 @@ async function openRedistribute(listId, listName, backEmail, backName) {
       `<div class="kc-plan-row" data-email="${esc(x.email)}" data-name="${esc(x.name)}">
          <button type="button" class="kc-share-b kc-plan-name">${esc(x.name)}</button>
          <input type="number" class="kc-plan-n" min="0" placeholder="件数" />
+         <select class="kc-plan-list" title="この人のどのリストへ入れるか"><option value="">追加先を選ぶ…</option></select>
        </div>`).join("");
     m.el.querySelectorAll("#kcRdMembers .kc-plan-row").forEach((row) => {
-      row.querySelector(".kc-plan-name").addEventListener("click", () => {
+      row.querySelector(".kc-plan-name").addEventListener("click", async () => {
         row.classList.toggle("on");
         row.querySelector(".kc-plan-name").classList.toggle("on", row.classList.contains("on"));
+        const sel = row.querySelector(".kc-plan-list");
+        if (row.classList.contains("on") && sel && !sel.dataset.loaded) {
+          sel.dataset.loaded = "1";
+          try {
+            const dd = await (await fetch("/api/calls/lists?member=" + encodeURIComponent(row.dataset.email))).json();
+            const lists = (dd && dd.items) || [];
+            sel.innerHTML = `<option value="">新しいリストにする</option>` +
+              lists.map((l) => `<option value="${l.id}">${esc(l.name)}（${l["全部"]}件）</option>`).join("");
+          } catch { sel.innerHTML = `<option value="">新しいリストにする</option>`; }
+        }
       });
     });
   } catch { m.el.querySelector("#kcRdMembers").innerHTML = '<span class="note">読み込めませんでした</span>'; }
@@ -1594,6 +1605,7 @@ async function openRedistribute(listId, listName, backEmail, backName) {
     const base = String(listName || "リスト").split(" - ")[0];
     const rows2 = [...m.el.querySelectorAll("#kcRdMembers .kc-plan-row.on")].map((r) => ({
       email: r.dataset.email, count: parseInt((r.querySelector(".kc-plan-n") || {}).value, 10) || 0,
+      toListId: parseInt((r.querySelector(".kc-plan-list") || {}).value, 10) || 0,
       listName: `${base} - ${r.dataset.name || r.dataset.email.split("@")[0]}`,
     }));
     if (!rows2.length) { st.textContent = "割り振るメンバーを選んでください"; return; }
