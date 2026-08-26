@@ -6184,27 +6184,36 @@ app.post("/api/calls/lists/:id/refresh-sf", async (req, res) => {
       } catch (e) { console.warn("[SF更新] lead取得", e.message); }
     }
 
-    // 2) クロス商談（初回商談日 CROSS_FROM 以降・レコードタイプにクロス）がある会社を集める
+    // 2) クロス商談がある会社を集める。
+    //   (a) 初回商談日 CROSS_FROM 以降のクロス商談（アポ獲得済み扱い）
+    //   (b) 受注（受注処理完了）になっているクロス商談は、時期に関係なく外す
     const crossOpp = new Set();
     try {
       const d = await sfQuery(sfUser, `SELECT Account.Name, RecordType.Name FROM Opportunity WHERE CloseDate >= ${CROSS_FROM} AND RecordType.Name LIKE '%クロス%' LIMIT 5000`);
       for (const o of d.records || []) { const co = (o.Account && o.Account.Name) || ""; if (co) crossOpp.add(normCompanyKey(co)); }
     } catch (e) { console.warn("[SF更新] 商談取得", e.message); }
+    const crossWon = new Set();
+    try {
+      const d = await sfQuery(sfUser, `SELECT Account.Name FROM Opportunity WHERE RecordType.Name LIKE '%クロス%' AND IsWon = true LIMIT 5000`);
+      for (const o of d.records || []) { const co = (o.Account && o.Account.Name) || ""; if (co) { const k = normCompanyKey(co); crossOpp.add(k); crossWon.add(k); } }
+    } catch (e) { console.warn("[SF更新] クロス受注取得", e.message); }
 
     // 3) 各架電先を更新
-    let 反映 = 0, クロス化 = 0;
+    let 反映 = 0, クロス化 = 0, 受注除外 = 0;
     for (const t of withLead) {
       const li = info.get(id15(t.lead_id)) || {};
       let status = li.status || t.status || "";
       const stage = li.stage || t.stage || "";
-      // クロス商談ありの会社は「アポ獲得済み（クロス商談）」にして、かける一覧では下にまとめる
-      if (crossOpp.has(normCompanyKey(t.company))) { status = "アポ獲得済み（クロス商談）"; クロス化++; }
+      const key = normCompanyKey(t.company);
+      // クロス受注（受注処理完了）は時期に関係なく外す。次いで、期間内のクロス商談も外す。
+      if (crossWon.has(key)) { status = "アポ獲得済み（クロス受注）"; 受注除外++; クロス化++; }
+      else if (crossOpp.has(key)) { status = "アポ獲得済み（クロス商談）"; クロス化++; }
       await setCallTargetStatus(t.id, { stage, status }).catch(() => {});
       if (li.owner) await setCallTargetLead(t.id, t.lead_id, { ownerName: li.owner }).catch(() => {});
       反映++;
     }
-    console.log(`[SF更新] リスト${id}：${反映}件をSF最新に反映（クロス商談あり ${クロス化}件）by ${req.user}`);
-    res.json({ ok: true, 対象: withLead.length, 反映, クロス商談あり: クロス化, SF未連携: targets.length - withLead.length });
+    console.log(`[SF更新] リスト${id}：${反映}件をSF最新に反映（クロス商談あり ${クロス化}件・うちクロス受注 ${受注除外}件）by ${req.user}`);
+    res.json({ ok: true, 対象: withLead.length, 反映, クロス商談あり: クロス化, クロス受注: 受注除外, SF未連携: targets.length - withLead.length });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
@@ -14452,7 +14461,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-08-27o kincall：「SFの状態を更新」を誰でも使えるようにした（SFアカウントの無い人は代理＝中澤良太の連携で読みに行く）";
+const BUILD_TAG = "2026-08-27p kincall：SFの状態更新で、クロス受注（受注処理完了）になっている会社は時期に関係なくアポ獲得済みに外すようにした（IsWon=trueのクロス商談）";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
