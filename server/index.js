@@ -14854,7 +14854,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-01s 案件：SF更新モーダルの最初のタブを「ステージ・項目更新」にした（活動記録は自動更新されるため）";
+const BUILD_TAG = "2026-09-01t アポメール：メルマガのアポにも確定メールを自動送付するようにした（停止を解除。確定メール自動送信がONのときに冪等で送る）";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
@@ -17727,6 +17727,23 @@ async function handleMailmaga(list, { actor = "" } = {}) {
         }
       } catch (e) { console.warn("[apo-scan] メルマガSF立ち上げ:", e.message); }
     }
+    // メルマガのアポにも、確定メールを自動で送る（設定がONのときだけ。冪等で二重送信しない）
+    try {
+      const link = await getSmartLinkByEvent(ev.id).catch(() => null);
+      if (link && link.current_owner) {
+        const cfg = await getApoMailConfig().catch(() => null);
+        if (cfg && cfg.autoConfirm) {
+          const mr = await sendApoMail(link, "confirm", {
+            url: joinUrl(link.slug),
+            repName: await repDisplayName(link.current_owner),
+            actor,
+          }).catch(() => null);
+          if (mr && mr.ok && !mr.skipped) {
+            console.log(`[apo-scan] メルマガのアポに確定メールを送りました：${String(ev.title).slice(0, 40)}`);
+          }
+        }
+      }
+    } catch (e) { console.warn("[apo-scan] メルマガ確定メール:", e.message); }
   }
 }
 
