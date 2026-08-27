@@ -202,7 +202,6 @@ function render() {
     `<div class="kc-tablewrap"><table class="kc-table">
       <tr>
         ${listId !== "all" ? `<th class="kc-th-c" style="width:28px"><input type="checkbox" id="kcSelAll" title="全部を選ぶ" /></th>` : ""}
-        <th class="kc-th-o">現所有者</th>
         <th class="kc-th-s"><button type="button" class="kc-th-b${on("stage")}" data-flt="stage">ステージ ▾</button></th>
         <th class="kc-co"><button type="button" class="kc-th-b" data-sort="company">会社名${arrow("company")}</button></th>
         <th class="kc-th-p">担当者</th>
@@ -210,6 +209,7 @@ function render() {
         <th class="kc-th-m">メールアドレス</th>
         <th class="kc-th-s"><button type="button" class="kc-th-b${on("status")}" data-flt="status">最終ステータス ▾</button></th>
         <th class="kc-th-h"><button type="button" class="kc-th-b${filt.hist ? " on" : ""}" data-hist="1">履歴${arrow("hist")}</button></th>
+        <th class="kc-th-l">最終架電日</th>
         <th class="kc-th-r">記録</th>
         <th class="kc-th-e">編集</th>
         <th class="kc-th-d">資料送付</th>
@@ -230,8 +230,7 @@ function render() {
       return 区切り + かけ区切り + `
       <tr data-id="${x.id}" class="${済 ? "kc-apo-done" : ""}">
         ${listId !== "all" ? `<td><input type="checkbox" class="kc-sel" data-id="${x.id}"${selectedIds.has(String(x.id)) ? " checked" : ""} /></td>` : ""}
-        <td class="kc-owner">${esc(x["所有者"] || "")}</td>
-        <td>${esc(x["ステージ"] || "-")}</td>
+        <td class="kc-stage">${esc(x["ステージ"] || "-")}</td>
         <td class="kc-co">${esc(x["会社名"] || "")}${済 ? ' <span class="kc-apo-badge">アポ獲得済み</span>' : ""}${
           予定 ? ` <span class="kc-next-badge${予定.due ? " due" : ""}">${予定.due ? "架電予定 " : "予定 "}${esc(予定.md)} ${esc(予定.hhmm)}</span>` : ""}</td>
         <td>${esc(x["担当者"] || "")}</td>
@@ -239,8 +238,9 @@ function render() {
           ? `<a class="kc-tel" href="tel:${esc(telOf(x["電話番号"]))}">${esc(x["電話番号"])}</a>`
           : `<span class="kc-none">なし</span>`}</td>
         <td class="kc-mail">${esc(x["メール"] || "")}</td>
-        <td>${x["最終ステータス"] ? esc(x["最終ステータス"]) : "-"}</td>
+        <td class="kc-status">${x["最終ステータス"] ? esc(x["最終ステータス"]) : "-"}</td>
         <td><button type="button" class="kc-btn kc-hist" data-id="${x.id}">${x["履歴数"] ? `${x["履歴数"]}件` : "なし"}</button></td>
+        <td class="kc-lastcall">${esc(lastCallLabel(x["最終日時"]))}</td>
         <td><button type="button" class="kc-btn kc-rec" data-id="${x.id}">記録</button></td>
         <td><button type="button" class="kc-btn kc-edit" data-id="${x.id}">編集</button></td>
         <td><button type="button" class="kc-btn kc-doc" data-id="${x.id}">資料送付</button></td>
@@ -885,16 +885,21 @@ async function openTarget(id, draft, opt) {
 
 // 表の1行だけを書き換える。
 // 一覧ぜんたいを読み直さないので、しぼり込みや見ている場所がそのまま残る。
+// 最終架電日を「M/D」で短く表示する（無ければ空）
+function lastCallLabel(v) {
+  if (!v) return "";
+  const t = new Date(v);
+  if (isNaN(t.getTime())) return "";
+  return `${t.getMonth() + 1}/${t.getDate()}`;
+}
+
 function updateRow(x) {
   const tr = document.querySelector(`.kc-table tr[data-id="${x.id}"]`);
   if (!tr) return;
-  const td = tr.children;
-  if (td[1]) td[1].textContent = x["ステージ"] || "-";
-  if (td[6]) td[6].textContent = x["最終ステータス"] || "-";
-  if (td[7]) {
-    const b = td[7].querySelector("button");
-    if (b) b.textContent = x["履歴数"] ? `${x["履歴数"]}件` : "なし";
-  }
+  const stage = tr.querySelector(".kc-stage"); if (stage) stage.textContent = x["ステージ"] || "-";
+  const status = tr.querySelector(".kc-status"); if (status) status.textContent = x["最終ステータス"] || "-";
+  const hist = tr.querySelector(".kc-hist"); if (hist) hist.textContent = x["履歴数"] ? `${x["履歴数"]}件` : "なし";
+  const last = tr.querySelector(".kc-lastcall"); if (last) last.textContent = lastCallLabel(x["最終日時"]);
   // 記録したことが分かるよう、少し光らせる
   tr.classList.add("kc-just");
   setTimeout(() => tr.classList.remove("kc-just"), 1600);
@@ -904,15 +909,19 @@ function updateRow(x) {
 function updateRowContact(x) {
   const tr = document.querySelector(`.kc-table tr[data-id="${x.id}"]`);
   if (!tr) return;
-  const td = tr.children;
-  if (td[2]) td[2].textContent = x["会社名"] || "";
-  if (td[3]) td[3].textContent = x["担当者"] || "";
-  if (td[4]) {
-    td[4].innerHTML = x["電話番号"]
+  const co = tr.querySelector(".kc-co");
+  if (co) {
+    // 会社名セルはバッジ（アポ獲得済み・予定）も含むので、先頭のテキストだけ書き換える
+    if (co.firstChild && co.firstChild.nodeType === 3) co.firstChild.textContent = x["会社名"] || "";
+    else co.insertBefore(document.createTextNode(x["会社名"] || ""), co.firstChild);
+    const person = co.nextElementSibling;              // 担当者
+    if (person) person.textContent = x["担当者"] || "";
+    const tel = person && person.nextElementSibling;   // 電話番号
+    if (tel) tel.innerHTML = x["電話番号"]
       ? `<a class="kc-tel" href="tel:${esc(telOf(x["電話番号"]))}">${esc(x["電話番号"])}</a>`
       : `<span class="kc-none">なし</span>`;
   }
-  if (td[5]) td[5].textContent = x["メール"] || "";
+  const mail = tr.querySelector(".kc-mail"); if (mail) mail.textContent = x["メール"] || "";
   tr.classList.add("kc-just");
   setTimeout(() => tr.classList.remove("kc-just"), 1600);
 }
