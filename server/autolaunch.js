@@ -40,32 +40,43 @@ export const REASONS = {
 //   会社 担当様　会社　担当様　会社:担当様　会社・担当様
 //   担当名のあとに空白があってもよい（「田崎 様」）
 export function parseTitle(title) {
-  let t = String(title || "").normalize("NFKC").replace(/^\s*メルマガ\s*/, "")
-    .replace(/【[^】]*】/g, " ").replace(/[（(][^）)]*[）)]/g, " ").replace(/\s+/g, " ").trim();
-  if (!t) return { company: "", person: "" };
-  const CORP = /(株式会社|有限会社|合同会社|合資会社|㈱|\(株\)|（株）|一般社団法人|一般財団法人|公益社団法人|公益財団法人|医療法人|社会福祉法人|学校法人|協同組合|組合|財団法人|社団法人|Inc|Corp|LLC|Ltd)/i;
+  let s = String(title || "").normalize("NFKC").replace(/^\s*メルマガ\s*/, "");
+  const mi = s.lastIndexOf("】");        // 【初回】等の後を会社名側とする
+  if (mi >= 0) s = s.slice(mi + 1);
+  // （株）(株)㈱ などを正式名称に直してから解析する
+  s = s.replace(/[（(]\s*株\s*[）)]|㈱/g, "株式会社")
+       .replace(/[（(]\s*有\s*[）)]|㈲/g, "有限会社")
+       .replace(/[（(]\s*合\s*[）)]/g, "合同会社");
+  s = s.replace(/[（(][^）)]*[）)]/g, " ").replace(/\s+/g, " ").trim();
+  if (!s) return { company: "", person: "" };
+  const CORP = /(株式会社|有限会社|合同会社|合資会社|一般社団法人|一般財団法人|公益社団法人|公益財団法人|医療法人|社会福祉法人|学校法人|協同組合|組合|財団法人|社団法人|Inc|Corp|LLC|Ltd)/i;
   const HONtail = /\s*(様|さま|さん|殿|御中)\s*$/;
   let company = "", person = "";
-  // 「会社名／担当」の形（スラッシュ・縦棒）を最優先。会社名は区切りの前を丸ごと使う。
-  const slash = t.split(/[\/／|｜]/).map((s) => s.trim()).filter(Boolean);
+  const slash = s.split(/[\/／|｜]/).map((x) => x.trim()).filter(Boolean);
   if (slash.length >= 2) {
     company = slash.slice(0, -1).join(" ").trim();
     person = slash[slash.length - 1].replace(HONtail, "").trim();
   } else {
-    // スラッシュ無し：末尾のトークンを担当者候補にする（法人格を含む語は会社名とみなす）
-    const toks = t.split(/[\s]+/).filter(Boolean);
-    if (toks.length >= 2) {
-      const last = toks[toks.length - 1];
-      if (HONtail.test(last)) { person = last.replace(HONtail, ""); company = toks.slice(0, -1).join(" "); }
-      else if (!CORP.test(last)) { person = last; company = toks.slice(0, -1).join(" "); }
-      else { company = t; }
+    // 会社名＋担当者が連結している場合（例：アルスホーム株式会社杉原様）は法人格の直後で切る
+    const m = s.match(/(株式会社|有限会社|合同会社|合資会社|一般社団法人|一般財団法人|公益社団法人|公益財団法人|医療法人|社会福祉法人|学校法人|協同組合)/);
+    if (m && m.index > 0) {
+      const end = m.index + m[0].length;
+      company = s.slice(0, end).trim();
+      const rest = s.slice(end).trim();
+      person = rest ? rest.split(/[\s　]+/).pop().replace(HONtail, "") : "";
     } else {
-      company = t;
+      const toks = s.split(/[\s]+/).filter(Boolean);
+      if (toks.length >= 2) {
+        const last = toks[toks.length - 1];
+        if (HONtail.test(last)) { person = last.replace(HONtail, ""); company = toks.slice(0, -1).join(" "); }
+        else if (!CORP.test(last)) { person = last; company = toks.slice(0, -1).join(" "); }
+        else { company = s; }
+      } else { company = s; }
     }
   }
   company = company.replace(/[\s]/g, "").replace(/[\/｜|:：,、･・]+$/, "").trim();
   person = String(person || "").replace(/[^\p{L}\p{N}ー]/gu, "").trim();
-  if (!company && !person) company = t;
+  if (!company && !person) company = s;
   return { company, person };
 }
 

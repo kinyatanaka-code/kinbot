@@ -26,21 +26,42 @@ function stripTags(title) {
 }
 
 // 予定タイトルから会社名を取り出す
-function companyOf(title) {
-  let s = stripTags(title);
-  s = s.split(/[\/／|｜]/)[0];
-  const toks = s.split(/[\s　、,]+/).filter(Boolean);
-  let pick = toks.find((x) => CO_HINT_L.test(x)) || toks[0] || "";
-  return pick.replace(/(様|さま|さん|御中)$/u, "").trim();
+// タイトルを整える：先頭「メルマガ」を落とし、【】の後を使い、（株）等を正式名称に直す
+function normTitleL(title) {
+  let s = String(title || "").normalize("NFKC").replace(/^\s*メルマガ\s*/, "");
+  const mi = s.lastIndexOf("】");        // 【初回】等の後を会社名側とする
+  if (mi >= 0) s = s.slice(mi + 1);
+  s = s.replace(/[（(]\s*株\s*[）)]|㈱/g, "株式会社")
+       .replace(/[（(]\s*有\s*[）)]|㈲/g, "有限会社")
+       .replace(/[（(]\s*合\s*[）)]/g, "合同会社");
+  return s.replace(/[（(][^）)]*[）)]/g, " ").replace(/\s+/g, " ").trim();
 }
-// 予定タイトルから「〇〇様」の担当者名を取り出す
+const CORP_SPLIT = /(株式会社|有限会社|合同会社|合資会社|一般社団法人|一般財団法人|公益社団法人|公益財団法人|医療法人|社会福祉法人|学校法人|協同組合)/;
+function stripHonL(s) { return String(s || "").replace(/\s*(様|さま|さん|殿|御中)\s*$/u, "").trim(); }
+// 会社名と担当者を分ける（スラッシュ／法人格の位置／空白で判定）
+function splitCoPerson(title) {
+  const s = normTitleL(title);
+  const slash = s.split(/[\/／|｜]/).map((x) => x.trim()).filter(Boolean);
+  if (slash.length >= 2) return { company: slash.slice(0, -1).join(" ").trim(), person: stripHonL(slash[slash.length - 1]) };
+  // 会社名＋担当者が連結している場合（例：アルスホーム株式会社杉原様）は、法人格の直後で切る
+  const m = s.match(CORP_SPLIT);
+  if (m && m.index > 0) {
+    const end = m.index + m[0].length;
+    const company = s.slice(0, end).trim();
+    const rest = s.slice(end).trim();
+    const person = rest ? stripHonL(rest.split(/[\s　]+/).pop()) : "";
+    return { company, person };
+  }
+  const toks = s.split(/[\s　]+/).filter(Boolean);
+  if (toks.length >= 2) return { company: toks.slice(0, -1).join(" "), person: stripHonL(toks[toks.length - 1]) };
+  return { company: s, person: "" };
+}
+function companyOf(title) {
+  return splitCoPerson(title).company.replace(/[\s　]/g, "").replace(/(様|さま|さん|御中)$/u, "").trim();
+}
+// 予定タイトルから担当者名を取り出す（様が無くても）
 function personOf(title) {
-  const t = stripTags(title);
-  const m = t.match(/([一-龥ぁ-んァ-ヶa-zA-Z]{1,10})\s*(様|さま|さん)/);
-  if (m) return m[1];
-  const parts = t.split(/[\/／|｜]/);
-  if (parts.length > 1) return parts[1].replace(/(様|さま|さん|御中)/g, "").trim();
-  return "";
+  return String(splitCoPerson(title).person || "").replace(/[^\p{L}\p{N}ー]/gu, "").trim();
 }
 // 【初回】【新/ヒ】の判定。かっこ・スラッシュ・スペースは半角全角どちらでもOK。
 function isTarget(title) {
