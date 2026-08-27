@@ -249,9 +249,12 @@ function renderApo() {
   }
 
   // 商談日でグループにまとめる（ホームと同じ見せ方）
+  // data-i は必ず「全体リスト（apState.appts）での番号」にする。
+  // 検索でしぼり込むと並び番号がズレて、担当変更が別の企業に効いてしまうため。
   const groups = [];
   let last = null;
-  appts.forEach((a, i) => {
+  appts.forEach((a) => {
+    const i = all.indexOf(a);
     const key = String(a.start || "").slice(0, 10);
     if (!last || last.key !== key) { last = { key, label: fmtDay(a.start), items: [] }; groups.push(last); }
     last.items.push({ a, i });
