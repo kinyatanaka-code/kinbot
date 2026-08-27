@@ -1814,9 +1814,28 @@ setInterval(async () => {
         if (!s.overview && !hasTr) continue;   // まだ要約・文字起こしが無い＝終わっていない
         const owner = m.owner;
         if (!owner || !(await sfConnected(owner).catch(() => false))) continue;
-        const r = await autofillMeetingToSf(owner, m, m.sf_url).catch(() => null);
+        const r = await autofillMeetingToSf(owner, m, m.sf_url).catch((e) => ({ ok: false, error: e.message }));
         _autoShodanDone.add(String(m.id || m.bot_id));
         if (r && r.ok) console.log(`[商談自動記録] ${m.title || m.bot_id} をSFへ自動記録しました（活動種別＝商談）`);
+        // その商談の担当者の「kinbotとの個人チャット」に、SF記録の結果を知らせる。
+        try {
+          const title = m.title || "商談";
+          let msg = "";
+          if (r && r.ok && (r.shodanCreated || r.naCreated)) {
+            const parts = [];
+            if (r.shodanCreated) parts.push("商談の記録");
+            if (r.naCreated) parts.push(`ネクストアクション${r.nextDate ? "（" + r.nextDate + "）" : ""}`);
+            msg = `📝 SFに活動を記録しました\n　${title}\n・${parts.join("\n・")}`;
+          } else if (r && r.needLink) {
+            msg = `⚠️ SFに記録できませんでした\n　${title}\n（SF商談リンクが未設定です。商談にSFの商談を紐づけてください）`;
+          } else if (r && !r.ok) {
+            msg = `⚠️ SFに記録できませんでした\n　${title}\n（理由：${String(r.error || "不明").slice(0, 120)}）`;
+          }
+          if (msg) {
+            const pr = await notifyPerson(owner, msg).catch(() => ({ ok: false }));
+            if (!pr || !pr.ok) await notifyChat(msg).catch(() => {}); // 個人チャットに送れなければ通常チャットへ
+          }
+        } catch {}
       } catch (e) { console.warn("[商談自動記録]", e.message); }
     }
   } catch (e) { console.error("[商談自動記録]", e.message); }
@@ -14835,7 +14854,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-01q SF記録：商談後の自動記録を強化。商談から次回アクション種別・日を自動で読み取り、商談の記録とネクストアクションの記録を別々にSFへ自動作成し、記録できたらチャットに通知する（ボタンを押さなくてよい）";
+const BUILD_TAG = "2026-09-01r SF記録：商談後の自動記録の結果（記録できたか／できなかったか）を、その商談の担当者の『kinbotとの個人チャット』に通知するようにした（個人チャットに送れないときは通常チャットへ）";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
@@ -16665,20 +16684,11 @@ async function autofillMeetingToSf(user, meeting, url) {
   // 「得」の記録：実際に何かした反映のみカウント
   await recordSfStats(user, { filled: filledCount, activityCreated });
 
-  // SFに活動を記録したことを、指定のチャットに知らせる（商談後の自動記録の結果）
-  try {
-    const naCreated = !!(naTask && naTask.created);
-    if (activityCreated || naCreated) {
-      const parts = [];
-      if (activityCreated) parts.push("商談の記録");
-      if (naCreated) parts.push(`ネクストアクション${次回日 ? "（" + 次回日 + "）" : ""}`);
-      await notifyChat(
-        `📝 *SFに活動を記録しました（自動）*\n　${m.title || "商談"}\n・${parts.join("\n・")}`
-      ).catch(() => {});
-    }
-  } catch {}
-
-  return { ok: true, recordId, accountId, opportunity: oppResult, account: accResult, activity: task, nextAction: naTask };
+  return {
+    ok: true, recordId, accountId, opportunity: oppResult, account: accResult,
+    activity: task, nextAction: naTask, nextDate: 次回日,
+    shodanCreated: activityCreated, naCreated: !!(naTask && naTask.created),
+  };
 }
 
 // 「得を見える化」する統計を積み上げる。user_settings.sfStats に保存。
