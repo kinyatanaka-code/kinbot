@@ -421,7 +421,23 @@ export async function addOpportunityLineItem(owner, { opportunityId, pricebookEn
 }
 
 // 取引先責任者（Contact）を作成
-export async function createContact(owner, { accountId, lastName, firstName, title, email } = {}) {
+// 取引先（Account）を新規作成する。重複ルールで止められても allowSave で通す（アラート型なら通る）。
+export async function createAccount(owner, fields = {}, { allowDuplicate = false } = {}) {
+  const acc = await getAccess(owner);
+  if (!acc) throw new Error("Salesforce未連携です");
+  const body = {};
+  for (const [k, v] of Object.entries(fields)) if (v != null && v !== "") body[k] = v;
+  if (!body.Name) throw new Error("会社名がありません");
+  const headers = { Authorization: `Bearer ${acc.token}`, "content-type": "application/json" };
+  if (allowDuplicate) headers["Sforce-Duplicate-Rule-Header"] = "allowSave=true";
+  const res = await fetch(
+    `${acc.instanceUrl}/services/data/${API_VERSION}/sobjects/Account`,
+    { method: "POST", headers, body: JSON.stringify(body) });
+  if (!res.ok) throw new Error(`SF account ${res.status}: ${(await res.text()).slice(0, 300)}`);
+  return res.json();   // { id, success }
+}
+
+export async function createContact(owner, { accountId, lastName, firstName, title, email, phone, allowDuplicate = false } = {}) {
   const acc = await getAccess(owner);
   if (!acc) throw new Error("Salesforce未連携です");
   const body = { LastName: lastName || "（担当者）" };
@@ -429,11 +445,14 @@ export async function createContact(owner, { accountId, lastName, firstName, tit
   if (firstName) body.FirstName = firstName;
   if (title) body.Title = title;
   if (email) body.Email = email;
+  if (phone) body.Phone = phone;
+  const headers = { Authorization: `Bearer ${acc.token}`, "content-type": "application/json" };
+  if (allowDuplicate) headers["Sforce-Duplicate-Rule-Header"] = "allowSave=true";
   const res = await fetch(
     `${acc.instanceUrl}/services/data/${API_VERSION}/sobjects/Contact`,
     {
       method: "POST",
-      headers: { Authorization: `Bearer ${acc.token}`, "content-type": "application/json" },
+      headers,
       body: JSON.stringify(body),
     }
   );

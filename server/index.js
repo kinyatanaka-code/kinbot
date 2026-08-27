@@ -408,6 +408,7 @@ import {
   updateLead,
   convertLead,
   findAccountByName,
+  createAccount,
   ensureLeadApoDate,
   ensureLeadCampaignSource,
   ensureLeadFsNote,
@@ -3234,9 +3235,39 @@ async function convertLeadPreferExisting(user, convArgs, { company = "", person 
         console.log(`[SF立ち上げ] 重複のため既存の取引先に紐づけて結合します（${company}${contactId ? "／既存担当者" : ""}）`);
         return await convertLead(user, { ...convArgs, accountId: acc.Id, ...(contactId ? { contactId } : {}) });
       }
-    } catch (e2) { console.warn("[SF立ち上げ] 既存取引先への紐づけ失敗→重複許可で作成", e2.message); }
-    // (b) 紐づけできなければ、重複を許可して新規作成する
-    console.log(`[SF立ち上げ] 既存に紐づけできないため、重複を許可して新規作成します（${company}）`);
+    } catch (e2) { console.warn("[SF立ち上げ] 既存取引先への紐づけ失敗→自前で取引先を作成", e2.message); }
+    // (b) 自分で新しい取引先・取引先責任者を作り、それに紐づけてコンバートする。
+    //     自分で作ったレコードなので編集権限があり、コンバート時に新規レコードを作らないので
+    //     重複ルールにも当たりにくい。作成自体は allowSave で重複を許可する。
+    try {
+      const ld = await sfQuery(user,
+        `SELECT Id, Company, LastName, FirstName, Email, Phone, Website, Street, City, State, PostalCode, NumberOfEmployees, Title FROM Lead WHERE Id = '${String(convArgs.leadId).replace(/[^a-zA-Z0-9]/g, "")}'`)
+        .then((d) => d?.records?.[0]).catch(() => null);
+      const src = ld || {};
+      const accRes = await createAccount(user, {
+        Name: src.Company || company || "会社",
+        Phone: src.Phone || "", Website: src.Website || "",
+        BillingStreet: src.Street || "", BillingCity: src.City || "", BillingState: src.State || "",
+        BillingPostalCode: src.PostalCode || "",
+        NumberOfEmployees: src.NumberOfEmployees || undefined,
+      }, { allowDuplicate: true });
+      const accountId = accRes && (accRes.id || accRes.Id);
+      let contactId = "";
+      if (accountId) {
+        const coRes = await createContact(user, {
+          accountId, lastName: src.LastName || surnameOf(person) || person || "担当者",
+          firstName: src.FirstName || "", title: src.Title || "", email: src.Email || email || "",
+          phone: src.Phone || "", allowDuplicate: true,
+        }).catch(() => null);
+        contactId = coRes && (coRes.id || coRes.Id) || "";
+      }
+      if (accountId) {
+        console.log(`[SF立ち上げ] 自前で作った取引先に紐づけてコンバートします（${company}）`);
+        return await convertLead(user, { ...convArgs, accountId, ...(contactId ? { contactId } : {}) });
+      }
+    } catch (e3) { console.warn("[SF立ち上げ] 自前の取引先作成に失敗→最後に重複許可で試す", e3.message); }
+    // (c) 最後の手段：重複を許可して新規作成する（SOAP allowSave）
+    console.log(`[SF立ち上げ] 最後の手段として、重複を許可して新規作成します（${company}）`);
     return await convertLead(user, { ...convArgs, allowDuplicate: true });
   }
 }
@@ -14803,7 +14834,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-01k SF立ち上げ：重複エラーの判定を日本語「重複」やエラーコードでも検知するよう修正（英語duplwith以外で拾えずフォールバックが効かなかった不具合）。これで既存紐づけ→重複許可の切替が確実に動く";
+const BUILD_TAG = "2026-09-01l SF立ち上げ：重複で既存取引先に紐づけできない（編集権限なし）ときは、自分で新しい取引先・取引先責任者を作って（allowSaveで重複許可）それに紐づけてコンバートするようにした（案2）";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
