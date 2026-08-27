@@ -354,10 +354,9 @@ function render() {
             `data-mail="${escH(m.bot_id)}" data-key="${escH(key)}"`,
             mailSentMap[m.bot_id] ? "done" : "need")
         : hIcon("mail", "御礼メール（商談の記録がまだありません）", `data-mail-none="${escH(key)}"`, "done")) +
-      hIcon("open", openLabel, `href="${link}"`, "done", "a") +
-      (company ? hIcon("sfcheck", "SF確認（今日SFが更新されたか・商談が立ち上がっているか）", `data-sfrefresh="${escH(company)}"`, "") : "");
+      hIcon("open", openLabel, `href="${link}"`, "done", "a");
 
-    return `<div class="home-row" style="--i:${idx}"><div class="home-card home-line${m ? " is-done" : ""}" data-card="${escH(key)}">
+    return `<div class="home-row" style="--i:${idx}"><div class="home-card home-line${m ? " is-done" : ""}" data-card="${escH(key)}" data-company="${escH(company || "")}">
       <div class="hl-row">
         <div class="hl-time">${escH(time)}</div>
         <div class="hl-main">
@@ -2434,39 +2433,43 @@ function applyApoCross(byCompany) {
   });
 }
 
-// 今日の商談：会社名の横の更新マーク → SFが今日更新されたか・商談が立ち上がっているかを調べて反映
-document.addEventListener("click", (ev) => {
-  const btn = ev.target && ev.target.closest ? ev.target.closest("[data-sfrefresh]") : null;
-  if (!btn) return;
-  ev.preventDefault();
-  const company = btn.getAttribute("data-sfrefresh") || "";
-  if (!company) return;
-  const card = btn.closest(".home-card");
-  let line = card && card.querySelector(".hl-sfcheck");
-  if (card && !line) {
+// 今日の商談：ヘッダーの「SF確認」ボタン → 今日の商談すべてについて、
+// SFが今日更新されたか・商談が立ち上がっているかをまとめて調べて、各カードに反映する。
+async function checkSfForOneCard(card) {
+  const company = card.getAttribute("data-company") || "";
+  let line = card.querySelector(".hl-sfcheck");
+  if (!line) {
     line = document.createElement("div");
     line.className = "hl-sfcheck";
     line.style.cssText = "font-size:12px;color:#0d5b47;margin-top:4px;";
     const main = card.querySelector(".hl-main"); if (main) main.appendChild(line);
   }
-  btn.classList.add("spin");
-  if (line) line.textContent = "SFを確認しています…";
+  if (!company) { line.textContent = "会社名が取れませんでした"; return; }
+  line.textContent = "SFを確認しています…";
+  try {
+    const d = await (await fetch("/api/meetings/sf-check", {
+      method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ company }),
+    })).json();
+    if (!d || d.error) throw new Error((d && d.error) || "確認できませんでした");
+    const 立 = d.launched ? `✓ 商談 立ち上げ済み（${d.stage || "アポ獲得以上"}${d.name ? "／" + d.name : ""}）` : "商談 未立ち上げ";
+    const 更 = d.updatedToday ? "／SF 今日更新済み" : "／SF 今日の更新なし";
+    line.textContent = 立 + 更;
+    if (d.launched || d.updatedToday) {
+      const sfBtn = card.querySelector('[data-sfedit], [data-sf-open]');
+      if (sfBtn) { sfBtn.classList.remove("hib-need"); sfBtn.classList.add("hib-done"); }
+    }
+  } catch (e) { line.textContent = "確認できませんでした：" + e.message; }
+}
+document.addEventListener("click", (ev) => {
+  const btn = ev.target && ev.target.closest ? ev.target.closest("#homeSfCheckAll") : null;
+  if (!btn) return;
+  ev.preventDefault();
+  const cards = [...document.querySelectorAll("#homeList .home-card[data-company]")];
+  if (!cards.length) return;
+  btn.disabled = true; const before = btn.textContent; btn.textContent = "確認中…";
   (async () => {
-    try {
-      const d = await (await fetch("/api/meetings/sf-check", {
-        method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ company }),
-      })).json();
-      if (!d || d.error) throw new Error((d && d.error) || "確認できませんでした");
-      const 立 = d.launched ? `✓ 商談 立ち上げ済み（${d.stage || "アポ獲得以上"}${d.name ? "／" + d.name : ""}）` : "商談 未立ち上げ";
-      const 更 = d.updatedToday ? "／SF 今日更新済み" : "／SF 今日の更新なし";
-      if (line) line.textContent = 立 + 更;
-      // 立ち上げ済み・更新済みなら、SFアイコンを薄く（済み表示）にする
-      if (card && (d.launched || d.updatedToday)) {
-        const sfBtn = card.querySelector('[data-sfedit], [data-sf-open]');
-        if (sfBtn) { sfBtn.classList.remove("hib-need"); sfBtn.classList.add("hib-done"); }
-      }
-    } catch (e) { if (line) line.textContent = "確認できませんでした：" + e.message; }
-    finally { btn.classList.remove("spin"); }
+    for (const card of cards) { await checkSfForOneCard(card); }
+    btn.textContent = "確認しました"; setTimeout(() => { btn.textContent = before; btn.disabled = false; }, 2500);
   })();
 });
 
