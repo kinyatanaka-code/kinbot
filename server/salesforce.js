@@ -842,7 +842,16 @@ export async function searchLeads(owner, { company = "", person = "", limit = 20
   // 会社名があるときは会社名でしぼる。担当者名は「その会社の中」でさらに絞るときだけ使う。
   // （会社名と担当者名をORにすると、別の会社のリードまで出てしまうため）
   if (c) {
-    conds.push(`Company LIKE '%${c}%'`);
+    // 会社名は複数パターンで探す（全角/半角スペースでヒットしないことがあるため）。
+    //   ・そのまま　・スペース除去　・法人格を除いた核（例：エスエムオー）
+    const variants = new Set();
+    variants.add(c);
+    const noSpace = c.replace(/[\s　]/g, "");
+    if (noSpace) variants.add(noSpace);
+    const core = noSpace.replace(/(株式会社|有限会社|合同会社|合資会社|㈱|一般社団法人|一般財団法人|公益社団法人|公益財団法人|医療法人|社会福祉法人|学校法人|協同組合|組合)/g, "");
+    if (core && core.length >= 2) variants.add(core);
+    const ors = [...variants].filter(Boolean).map((v) => `Company LIKE '%${v}%'`);
+    conds.push(`(${ors.join(" OR ")})`);
     if (p) conds.push(`(LastName LIKE '%${p}%' OR Name LIKE '%${p}%')`);
   } else if (p) {
     conds.push(`(LastName LIKE '%${p}%' OR Name LIKE '%${p}%')`);
