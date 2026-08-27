@@ -980,7 +980,7 @@ function hfRender(word) {
   const clear = $h("hfClear");
   if (!box) return;
   const w = String(word || "").trim();
-  if (clear) clear.hidden = !w;
+  if (clear) clear.hidden = false;   // クリアボタンは常に表示する
   if (!w) { box.hidden = true; box.innerHTML = ""; return; }
 
   // 空白や記号の違いは無視して探す。
