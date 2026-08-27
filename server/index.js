@@ -6383,7 +6383,11 @@ app.post("/api/calls/lists/:id/refresh-sf", async (req, res) => {
       else if (架電結果) { statusPatch = 架電結果; }        // 最終ステータス列＝最新のコール結果
       else if (リード種別が残っている) { statusPatch = ""; } // 古いリード種別を消す（コール結果が無いので空に）
       await setCallTargetStatus(t.id, statusPatch !== undefined ? { stage, status: statusPatch } : { stage }).catch(() => {});
-      if (li.owner) await setCallTargetLead(t.id, t.lead_id, { ownerName: li.owner }).catch(() => {});
+      // SFで見つかったリードは、現所有者を必ず最新の値に入れ直す（古い誤った値＝ステータスが
+      // 現所有者に入っている等を上書きして直す。SFの所有者が取れなければ空にする）。
+      if (info.has(id15(t.lead_id))) {
+        await setCallTargetLead(t.id, t.lead_id, { ownerName: li.owner || "" }).catch(() => {});
+      }
       反映++;
     }
     console.log(`[SF更新] リスト${id}：${反映}件をSF最新に反映（クロス商談あり ${クロス化}件・うちクロス受注 ${受注除外}件）by ${req.user}`);
@@ -14715,7 +14719,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-08-28o アポメール：メルマガ由来のアポは自動メール送付（確定・リマインド）を停止した。手動送付だけ可（許可があるまで自動は出さない）";
+const BUILD_TAG = "2026-08-28p kincall：SF状態更新で、SFで見つかったリードは現所有者を必ず最新に入れ直すよう修正（現所有者にステータス等の誤った値が残っていたのを上書きで直す）";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
