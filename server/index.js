@@ -14750,7 +14750,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-08-28w SF：クロスリードを作るとき（立ち上げ時の自動作成・SF反映・CSV取り込み）、リードソースを「アウトバウンド」で作るようにした";
+const BUILD_TAG = "2026-08-28x アポ：担当者（担当営業）の変更を全メンバーができるようにした（これまでは管理者かリンク作成者のみ）";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
@@ -19165,7 +19165,7 @@ app.put("/api/smart-links/:slug/owner", async (req, res) => {
   try {
     const existing = await getSmartLink(req.params.slug);
     if (!existing) return res.status(404).json({ error: "リンクが見つかりません" });
-    if (!req.isAdmin && existing.created_by !== req.user) return res.status(403).json({ error: "このリンクを操作する権限がありません" });
+    // アポの担当者（担当営業）の変更は、全メンバーができる。
     const owner = req.body?.owner ? String(req.body.owner) : null;
 
     // 「差し替えだけ」のとき（quiet）は、担当を書き換えるだけで何も動かさない。
