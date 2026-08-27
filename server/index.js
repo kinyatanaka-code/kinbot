@@ -3177,6 +3177,7 @@ async function ensureCrossLead(user, company, person, { dryRun = false } = {}) {
   const fields = {
     Company: company, LastName: 姓,
     ...(rtId ? { RecordTypeId: rtId } : {}),
+    LeadSource: "アウトバウンド",
     ...(info.company_url ? { Website: info.company_url } : {}),
     ...(info.location ? { Street: String(info.location).slice(0, 255) } : {}),
     ...(info.employees ? { NumberOfEmployees: parseInt(String(info.employees).replace(/[^\d]/g, ""), 10) || undefined } : {}),
@@ -5577,6 +5578,7 @@ app.post("/api/calls/from-csv", async (req, res) => {
             ...(phone ? { Phone: phone } : {}),
             ...(email ? { Email: email } : {}),
             RecordTypeId: rtId,   // 必ず Cross_lead
+            LeadSource: "アウトバウンド",
           };
           const made = await createLead(sfUser, fields);
           leadId = made.id;
@@ -6508,6 +6510,7 @@ app.post("/api/calls/lists/:id/to-sf", async (req, res) => {
             Company: company, LastName: String(t.person || "").trim() || "担当者",
             Phone: String(t.phone || "").trim(), Email: String(t.email || "").trim(),
             RecordTypeId: rtId,   // 必ず Cross_lead
+            LeadSource: "アウトバウンド",
           });
           leadId = (made && (made.id || made.Id)) || "";
           if (leadId) { 作った++; 新規リードIds.push(leadId); }
@@ -14747,7 +14750,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-08-28v kincall：ステージ・最終ステータスの絞り込みに「（空欄・未入力）」の選択肢を追加。最終ステータスが「-」の企業も絞り込めるようにした";
+const BUILD_TAG = "2026-08-28w SF：クロスリードを作るとき（立ち上げ時の自動作成・SF反映・CSV取り込み）、リードソースを「アウトバウンド」で作るようにした";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
