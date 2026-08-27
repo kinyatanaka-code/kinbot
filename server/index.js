@@ -6082,9 +6082,11 @@ async function leadOwnerNames(sfUser, leadIds) {
   for (let i = 0; i < ids.length; i += 200) {
     const inList = ids.slice(i, i + 200).map((x) => `'${esc(x)}'`).join(",");
     try {
-      const d = await sfQuery(sfUser, `SELECT Id, Owner.Name FROM Lead WHERE Id IN (${inList})`);
+      const d = await sfQuery(sfUser, `SELECT Id, Owner.Name, OwnerId FROM Lead WHERE Id IN (${inList})`);
       for (const r of d.records || []) {
-        const nm = (r.Owner && r.Owner.Name) || "";
+        // ユーザー所有（005…）のときだけ名前を使う。キュー／グループ（00G…）は人でないので空にする。
+        const isUser = String(r.OwnerId || "").startsWith("005");
+        const nm = isUser ? ((r.Owner && r.Owner.Name) || "") : "";
         map.set(String(r.Id), nm);
         map.set(String(r.Id).slice(0, 15), nm);   // 15桁でも引けるように
       }
@@ -6350,12 +6352,16 @@ app.post("/api/calls/lists/:id/refresh-sf", async (req, res) => {
       const inIds = chunk.map((t) => `'${id15(t.lead_id).replace(/[^A-Za-z0-9]/g, "")}'`).join(",");
       if (!inIds) continue;
       try {
-        const d = await sfQuery(sfUser, `SELECT Id, Status, RecordType.Name, Owner.Name, IsConverted FROM Lead WHERE Id IN (${inIds})`);
+        const d = await sfQuery(sfUser, `SELECT Id, Status, RecordType.Name, Owner.Name, OwnerId, IsConverted FROM Lead WHERE Id IN (${inIds})`);
         for (const r of d.records || []) {
+          // 所有者がユーザー（IDが005で始まる）なら名前を使う。
+          // キュー／グループ（IDが00Gで始まる。ステージ名と同じ名前のことが多い）は、
+          // 人ではないので現所有者としては出さない（空にする）。
+          const isUser = String(r.OwnerId || "").startsWith("005");
           info.set(id15(r.Id), {
             status: r.Status || "",
             stage: (r.RecordType && r.RecordType.Name) || "",
-            owner: (r.Owner && r.Owner.Name) || "",
+            owner: isUser ? ((r.Owner && r.Owner.Name) || "") : "",
             converted: !!r.IsConverted,
           });
         }
@@ -14750,7 +14756,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-08-28z アポ：担当を変更したときの通知を「🔄 担当を変更しました」にし、件数（本日/今週/今月）は出さないようにした（新規アポとして数えない）";
+const BUILD_TAG = "2026-09-01a kincall：現所有者に「02：担当者未接触」等のステージ名が入る件を修正。SF上でリードがキュー（ステージ名のグループ）所有のときは、現所有者を空にする（ユーザー所有005のときだけ名前を出す）";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
