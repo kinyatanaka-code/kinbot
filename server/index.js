@@ -14750,7 +14750,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-08-28y アポ：検索でしぼり込んだ状態で担当者を変更すると、別の企業の担当が変わってしまう不具合を修正（行番号を全体リスト基準に統一）";
+const BUILD_TAG = "2026-08-28z アポ：担当を変更したときの通知を「🔄 担当を変更しました」にし、件数（本日/今週/今月）は出さないようにした（新規アポとして数えない）";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
@@ -19226,6 +19226,8 @@ app.put("/api/smart-links/:slug/owner", async (req, res) => {
           setter: link.setter, reason: `${req.user} が選択`,
           url: joinUrl(link.slug), auto: false,
           mail, clientEmail: link.client_email,
+          // すでに担当が付いていたアポの「変更」なら、件数に数えず「担当を変更しました」で知らせる
+          changed: !!(existing.current_owner && String(existing.current_owner).toLowerCase() !== String(owner).toLowerCase()),
           counts, goal: st?.apoShowGoal === true ? (parseInt(st?.apoMonthlyGoal, 10) || 0) : 0, launch,
         });
         // テスト用のアポは、通知まで済ませたら数から外す

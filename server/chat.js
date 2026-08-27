@@ -229,15 +229,17 @@ function shortReason(reason) {
 // アポを割り振ったときの通知。
 // 担当が決まると下書きも自動でできるため、メールの状況も同じ1通にまとめる。
 export async function notifyAssigned({
-  title, start, repName, setter, business, reason, url, auto, mail, clientEmail, counts, goal, launch,
+  title, start, repName, setter, business, reason, url, auto, mail, clientEmail, counts, goal, launch, changed,
 }) {
   try { const st = await getSettings(); if (st && st.chatNotifyAssign === false) return { ok: false, skipped: true }; } catch {}
   // スマホで一目で分かることを優先し、4〜5行に収める。
   // 会議室のURLは長く折り返すので載せない（kinbotの画面から開ける）。
   const lines = [
-    reason === "自分で獲得したアポ"
-      ? `✅ *自分で獲得したアポ*　${jstLabel(start)}`
-      : `✅ *アポ割り振り*${auto ? "" : "（手動）"}　${jstLabel(start)}`,
+    changed
+      ? `🔄 *担当を変更しました*　${jstLabel(start)}`
+      : reason === "自分で獲得したアポ"
+        ? `✅ *自分で獲得したアポ*　${jstLabel(start)}`
+        : `✅ *アポ割り振り*${auto ? "" : "（手動）"}　${jstLabel(start)}`,
     `　${title || "(予定名なし)"}`,
     `👤 ${[repName || "-",
       setter && String(setter).replace(/[\s　]/g, "") !== String(repName || "").replace(/[\s　]/g, "")
@@ -248,7 +250,8 @@ export async function notifyAssigned({
       ? `{呼びかけ} 確定メールの下書きができています。中身を見て送ってください。`
       : "",
     launchLine(launch),
-    counts
+    // 担当変更のときは件数を出さない（新規アポではないため）
+    (!changed && counts)
       ? `📊 本日 ${counts.today} / 今週 ${counts.week} / 今月 ${counts.month}` +
         (goal ? `（目標 ${goal}・あと ${Math.max(0, goal - counts.month)}）` : "")
       : "",
