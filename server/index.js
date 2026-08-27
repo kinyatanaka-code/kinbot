@@ -14835,7 +14835,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-01o SF記録：商談の活動には次回アクション（種別・日）を付けない・表示しないようにした（過去の活動の表示、商談から読み取り時の自動入力の両方）。ネクストアクションは別の記録として扱う";
+const BUILD_TAG = "2026-09-01p SF記録：活動が「商談」で次回アクションが入っているとき、記録時に自動で2つに分けてSFへ記録（商談＝活動種別＋説明・完了／ネクストアクション＝次回アクション種別・日・未着手）。過去の活動でも商談には次回アクションを出さない";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
@@ -16335,6 +16335,43 @@ app.post("/api/salesforce/task", async (req, res) => {
     // ActivityDate はSalesforce側で更新日として扱われるため、記録した日を入れる。
     // 次回アクションの日付は専用の項目に入る（フォーム側で指定）。
     if (!data.ActivityDate) data.ActivityDate = new Date(Date.now() + 9 * 3600 * 1000).toISOString().slice(0, 10);
+
+    // 活動種別が「商談」で、次回アクション（種別・日）が入っているときは、2つに分けて記録する：
+    //   ・商談の記録：活動種別（商談）と説明だけ。次回アクションは付けない。
+    //   ・ネクストアクション：次回アクション種別・日を、別のネクストアクションの活動として記録。
+    const fn = await taskFieldNames(req.user).catch(() => ({}));
+    const 活動種別値 = fn.actKind ? String(data[fn.actKind] || "") : "";
+    const 次回種別 = fn.nextKind ? data[fn.nextKind] : "";
+    const 次回日 = fn.nextDate ? data[fn.nextDate] : "";
+    const 分ける = 活動種別値 === "商談" && (次回種別 || 次回日);
+
+    if (分ける) {
+      // (1) 商談の記録（次回アクションは外す・完了で作る）
+      const shodan = { ...data };
+      if (fn.nextKind) delete shodan[fn.nextKind];
+      if (fn.nextDate) delete shodan[fn.nextDate];
+      shodan.Subject = shodan.Subject || "[kinbot] 商談";
+      const list = (fn.statusPicklist || []);
+      shodan.Status = list.find((v) => /^(完了|済|Completed|Closed)/i.test(String(v).trim())) || "完了";
+      const t1 = await createTask(req.user, shodan);
+      const t1id = t1 && (t1.id || t1.Id);
+      if (t1id) { try { await updateTask(req.user, t1id, shodan); } catch {} }
+
+      // (2) ネクストアクションの記録（活動種別＝ネクストアクション・次回アクション種別/日・未着手で作る）
+      const na = { WhatId: opportunityId, Subject: "[kinbot] ネクストアクション" };
+      if (fn.actKind) na[fn.actKind] = "ネクストアクション";
+      if (fn.nextKind && 次回種別) na[fn.nextKind] = 次回種別;
+      if (fn.nextDate && 次回日) na[fn.nextDate] = 次回日;
+      na.ActivityDate = 次回日 || data.ActivityDate;
+      na.Status = list.find((v) => /^(未着手|未完了|未対応|未実施|オープン|Not Started|Open)/i.test(String(v).trim())) ||
+                  list.find((v) => /^(未|Not|Open)/i.test(String(v).trim())) || "未着手";
+      const t2 = await createTask(req.user, na);
+      const t2id = t2 && (t2.id || t2.Id);
+      if (t2id) { try { await updateTask(req.user, t2id, na); } catch {} }
+
+      return res.json({ ok: true, task: t1, nextAction: t2, split: true });
+    }
+
     const task = await createTask(req.user, data); // 存在しない項目は自動で外して再送
     // 作成時に入らなかった項目（活動種別などのカスタム項目）を、後追いのupdateで確実に反映する
     const taskId = task && (task.id || task.Id);
