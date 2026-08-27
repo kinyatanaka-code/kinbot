@@ -3182,6 +3182,13 @@ async function ensureCrossLead(user, company, person, { dryRun = false, email = 
     } else if (url) {
       info.company_url = info.company_url || url;
     }
+    // 従業員数がまだ空なら、専用の従業員数リサーチで必ず補いにいく
+    if (!(info.employees && String(info.employees).replace(/[^\d]/g, ""))) {
+      try {
+        const emp = await lookupEmployeeCount(company, info.company_url || "");
+        if (emp && emp.found) info.employees = emp.employees;
+      } catch {}
+    }
   } catch {}
   const fields = {
     Company: company, LastName: 姓,
@@ -14775,7 +14782,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-01g SFリード検索：会社名を複数パターン（そのまま／スペース除去／法人格を除いた核）で同時に探すようにし、全角/半角スペースでヒットしない不具合を解消。担当者一致のリードがあればそれで立ち上げ";
+const BUILD_TAG = "2026-09-01h SF立ち上げ：会社情報の従業員数が空のとき、専用の従業員数リサーチ（求人サイト・gBiz・四季報等をGeminiで照合）で必ず補うようにした（会社検索フォーム・クロス自動作成の両方）";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
@@ -15595,6 +15602,14 @@ app.get("/api/company-lookup", async (req, res) => {
     if (!name) return res.status(400).json({ error: "会社名を指定してください" });
     if (!webLookupAvailable()) return res.json({ ok: false, reason: "検索の設定がありません" });
     const r = await searchCompanyInfo(name, { hintUrl: String(req.query.url || "") });
+    // 従業員数が取れなかったときは、専用の従業員数リサーチで必ず補いにいく
+    if (r && r.ok && !(r.employees && String(r.employees).replace(/[^\d]/g, ""))) {
+      try {
+        const hint = r.website || String(req.query.url || "");
+        const emp = await lookupEmployeeCount(name, hint);
+        if (emp && emp.found) r.employees = String(emp.employees).replace(/[^\d]/g, "") || r.employees;
+      } catch {}
+    }
     console.log(`[検索] ${name} → ${r.ok ? [r.website, r.phone, r.employees].filter(Boolean).join(" / ") : r.reason}`);
     res.json(r);
   } catch (e) { res.status(500).json({ error: e.message }); }
