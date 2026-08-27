@@ -3173,7 +3173,8 @@ async function ensureCrossLead(user, company, person, { dryRun = false, email = 
           official_name: info.official_name || g.official_name || "",
           location: info.location || g.location || "",
           employees: info.employees || g.employees || "",
-          company_url: info.company_url || url || "",
+          company_url: info.company_url || url || g.website || "",
+          phone: info.phone || g.phone || "",
         };
       } else if (url) {
         info.company_url = info.company_url || url;
@@ -3186,6 +3187,7 @@ async function ensureCrossLead(user, company, person, { dryRun = false, email = 
     Company: company, LastName: 姓,
     ...(rtId ? { RecordTypeId: rtId } : {}),
     LeadSource: "アウトバウンド",
+    ...(info.phone ? { Phone: String(info.phone).slice(0, 40) } : {}),
     ...(info.company_url ? { Website: info.company_url } : {}),
     ...(info.location ? { Street: String(info.location).slice(0, 255) } : {}),
     ...(info.employees ? { NumberOfEmployees: parseInt(String(info.employees).replace(/[^\d]/g, ""), 10) || undefined } : {}),
@@ -3225,8 +3227,15 @@ async function tryAutoLaunch(user, link, { dryRun = false, ownerEmail = "", noti
       const crossList = (Array.isArray(leads) ? leads : []).filter((l) =>
         isCross(l) && normCompanyKey(l.Company) === normCompanyKey(company));
       if (crossList.length) {
-        // person_unmatch / many_cross / no_cross(別種別あり) → 会社のクロスを使う（新しい順に1件）
-        j = { ok: true, lead: crossList[0], company, person, rescued: "company_cross" };
+        // 会社のクロスはあるが、担当者名が一致しない（別担当者名や「担当者」「採用担当」等）。
+        // → そのリードの担当者名を、カレンダーの担当者の苗字に置き換える（(a)方式）。
+        const chosen = crossList[0];
+        const 苗字 = surnameOf(person) || person || "";
+        if (!dryRun && 苗字 && String(chosen.LastName || "").trim() !== 苗字) {
+          try { await updateLead(user, id15(chosen.Id), { LastName: 苗字 }); chosen.LastName = 苗字; }
+          catch (e) { console.warn("[SF立ち上げ] 担当者名の置き換え失敗", e.message); }
+        }
+        j = { ok: true, lead: chosen, company, person, rescued: "company_cross" };
       } else {
         // クロスが無い → 作る。メールアドレスがあればドメインで会社情報の精度を上げる。
         const mail = String(link.client_email || "").trim()
@@ -14766,7 +14775,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-01e SF立ち上げ：会社名は「】の後」を使い、（株）→株式会社に変換。会社名＋担当者が連結（例：アルスホーム（株）杉原様）でも法人格で切り分け、会社名がメルマガ等になる不具合を解消";
+const BUILD_TAG = "2026-09-01f SF立ち上げ：クロス新規作成時に電話番号もgBiz/Geminiで埋める。会社のクロスはあるが担当者不一致のときは、そのリードの担当者名をカレンダーの苗字に置き換えて立ち上げる";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",

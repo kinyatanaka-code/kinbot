@@ -350,7 +350,7 @@ const COMPANY_EXTRACT_PROMPT = `あなたは情報抽出器です。渡された
 - 分からない項目は空文字 "" にする（推測やでっち上げは禁止）。
 - 値は簡潔・日本語。
 - 次のJSONのみを返す:
-{"official_name":"正式社名","industry":"業界","employees":"従業員数(例: 約320名)","hiring":"採用予定人数(例: 15名/年)","founded":"設立(例: 1998年)","location":"本社所在地","business":"事業内容(1〜2文)","note":"補足(任意)"}`;
+{"official_name":"正式社名","industry":"業界","employees":"従業員数(例: 約320名)","hiring":"採用予定人数(例: 15名/年)","founded":"設立(例: 1998年)","location":"本社所在地","phone":"代表電話番号(例: 03-1234-5678。分からなければ空)","website":"公式サイトURL(分かれば)","business":"事業内容(1〜2文)","note":"補足(任意)"}`;
 
 // 従業員数だけをWeb検索で特定する。gBizINFOに従業員数が無いときの補完用。
 // でっち上げを防ぐため「Webで確認できた場合のみ数値を返し、必ず出典URLを添える」ことを強制する。
@@ -459,7 +459,7 @@ export async function enrichCompany({ url, name, siteText }) {
   let research = "";
   try {
     research = await geminiGrounded(
-      `「${name || ""}」（${url ? "サイト: " + url : "公式サイトは不明"}）の会社概要を、複数のWeb検索結果を照合しながら調べてください。業界 / 従業員数 / 年間採用予定人数 / 設立年 / 本社所在地 / 事業内容 を、分かる範囲で正確に。正式な会社名も。公式サイトが見つかればそのURLも。`,
+      `「${name || ""}」（${url ? "サイト: " + url : "公式サイトは不明"}）の会社概要を、複数のWeb検索結果を照合しながら調べてください。業界 / 従業員数 / 年間採用予定人数 / 設立年 / 本社所在地 / 代表電話番号 / 事業内容 を、分かる範囲で正確に。正式な会社名も。公式サイトが見つかればそのURLも。`,
       siteText
     );
   } catch (e) {
@@ -480,6 +480,8 @@ export async function enrichCompany({ url, name, siteText }) {
     hiring: o.hiring || "",
     founded: o.founded || "",
     location: o.location || "",
+    phone: o.phone || "",
+    website: o.website || "",
     business: o.business || "",
     note: o.note || "",
   };
