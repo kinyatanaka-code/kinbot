@@ -3138,7 +3138,7 @@ async function fillLeadWebsite(user, lead, company) {
 // 立ち上げを「なんとしても」成功させるための救済：
 // 会社のクロスリードが無ければ、gBizの会社情報（所在地・従業員数・URL）で埋めて新規作成する。
 // dryRun のときは作らず「作る前提」で返す。
-async function ensureCrossLead(user, company, person, { dryRun = false } = {}) {
+async function ensureCrossLead(user, company, person, { dryRun = false, email = "" } = {}) {
   const rtId = await crossLeadRecordTypeId(user).catch(() => "");
   if (!rtId) return { ok: false, reason: "no_cross_recordtype" };
   const 姓 = surnameOf(person) || person || "担当者";
@@ -3156,22 +3156,30 @@ async function ensureCrossLead(user, company, person, { dryRun = false } = {}) {
       }
     }
   } catch {}
-  // gBizで住所・従業員数・URLが埋まらないときは、Web検索（Brave）で補う（キーが無ければ何もしない）
+  // gBizで住所・従業員数・URLが埋まらないときは、Gemini（Google検索連携）で補う。
+  //   ・メールアドレスがあれば、そのドメインを公式サイトとして渡す（精度が上がる）
+  //   ・確からしいものだけ入れる（Geminiが分からなければ空のまま）
   try {
     const 住所 = info.location || "";
     const 従業員 = info.employees || "";
-    const url = info.company_url || "";
-    if (webSearchConfigured() && (!住所 || !従業員 || !url)) {
-      const w = await enrichCompanyFromWeb(company).catch(() => ({}));
-      if (w && (w.address || w.employees || w.website)) {
+    let url = info.company_url || "";
+    const domain = String(email || "").split("@")[1] || "";
+    const 一般ドメイン = /^(gmail|yahoo|outlook|hotmail|icloud|docomo|ezweb|au|softbank|me)\./i.test(domain);
+    if (!url && domain && !一般ドメイン) url = "https://" + domain;   // メールのドメイン＝会社の公式サイト
+    if (!住所 || !従業員 || !info.company_url) {
+      const g = await enrichCompany({ url, name: company }).catch(() => ({}));
+      if (g) {
         info = {
-          official_name: info.official_name || w.official_name || "",
-          location: info.location || w.address || "",
-          employees: info.employees || (w.employees ? `${w.employees}名` : ""),
-          company_url: info.company_url || w.website || "",
-          _webPages: w.pages || [],
+          official_name: info.official_name || g.official_name || "",
+          location: info.location || g.location || "",
+          employees: info.employees || g.employees || "",
+          company_url: info.company_url || url || "",
         };
+      } else if (url) {
+        info.company_url = info.company_url || url;
       }
+    } else if (url) {
+      info.company_url = info.company_url || url;
     }
   } catch {}
   const fields = {
@@ -3181,7 +3189,7 @@ async function ensureCrossLead(user, company, person, { dryRun = false } = {}) {
     ...(info.company_url ? { Website: info.company_url } : {}),
     ...(info.location ? { Street: String(info.location).slice(0, 255) } : {}),
     ...(info.employees ? { NumberOfEmployees: parseInt(String(info.employees).replace(/[^\d]/g, ""), 10) || undefined } : {}),
-    Description: `kinbot：商談立ち上げのため自動作成（クロスリード）\n担当者：${person}${info.official_name ? `\n会社（gBiz）：${info.official_name}` : ""}`,
+    Description: `kinbot：商談立ち上げのため自動作成（クロスリード）\n担当者：${person}${info.official_name ? `\n会社：${info.official_name}` : ""}`,
   };
   if (dryRun) return { ok: true, willCreate: true, company, person, filled: info, fields };
   try {
@@ -3220,8 +3228,10 @@ async function tryAutoLaunch(user, link, { dryRun = false, ownerEmail = "", noti
         // person_unmatch / many_cross / no_cross(別種別あり) → 会社のクロスを使う（新しい順に1件）
         j = { ok: true, lead: crossList[0], company, person, rescued: "company_cross" };
       } else {
-        // クロスが無い → 作る（gBizで会社情報を埋める）
-        const made = await ensureCrossLead(user, company, person, { dryRun });
+        // クロスが無い → 作る。メールアドレスがあればドメインで会社情報の精度を上げる。
+        const mail = String(link.client_email || "").trim()
+          || String((Array.isArray(leads) ? leads.find((l) => l.Email) : null)?.Email || "").trim();
+        const made = await ensureCrossLead(user, company, person, { dryRun, email: mail });
         if (made.ok) {
           j = dryRun
             ? { ok: true, lead: { Id: "__will_create__" }, company, person, rescued: "will_create" }
@@ -14756,7 +14766,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-01c ホーム：今日の商談のSF確認を、各カードのアイコンから見出しの「SF確認」ボタン1つにまとめた（押すと全商談をまとめて確認）";
+const BUILD_TAG = "2026-09-01d SF立ち上げ：クロスリード作成時の会社情報補完を、Gemini（Google検索連携）に変更（Braveは使わない）。カレンダー/リードにメールがあればそのドメインを公式サイトとして使い精度を上げ、分からない項目は空のままにする";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
