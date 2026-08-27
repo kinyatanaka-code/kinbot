@@ -110,19 +110,24 @@ function visibleRows() {
   }
   // 並びの優先度：
   //  1) 架電予定の時刻が来たもの（次回予定 <= 今）を、いちばん上に（予定が早い順）
-  //  2) ふつうの未対応
-  //  3) アポ獲得済みは、いつも一番下
+  //  2) まだかけていない未対応
+  //  3) kincallでかけた（記録済み＝最終架電日時がある）ものは、下にまとめる（どこまでかけたか分かるように）
+  //  4) アポ獲得済みは、いつも一番下
   const now = Date.now();
   const due = (x) => {
     const v = x["次回予定"]; if (!v) return 0;
     const t = new Date(v).getTime();
     return (!isNaN(t) && t <= now) ? t : 0;
   };
+  const かけた = (x) => !!x["最終日時"];
   const 済 = list.filter((x) => isApoDone(x));
   const 未済 = list.filter((x) => !isApoDone(x));
   const 予定来た = 未済.filter((x) => due(x)).sort((a, b) => due(a) - due(b));
-  const それ以外 = 未済.filter((x) => !due(x));
-  return [...予定来た, ...それ以外, ...済];
+  const 残り = 未済.filter((x) => !due(x));
+  const まだ = 残り.filter((x) => !かけた(x));
+  const かけ済み = 残り.filter((x) => かけた(x))
+    .sort((a, b) => new Date(a["最終日時"]).getTime() - new Date(b["最終日時"]).getTime());
+  return [...予定来た, ...まだ, ...かけ済み, ...済];
 }
 
 // アポ獲得済みかどうか（最終ステータスに「アポ獲得」が入っているか）
@@ -209,11 +214,17 @@ function render() {
     list.map((x, i) => {
       const 済 = isApoDone(x);
       const 予定 = nextDueLabel(x);
+      const かけた = (r) => !!(r && r["最終日時"]) && !isApoDone(r) && !(r["次回予定"] && new Date(r["次回予定"]).getTime() <= Date.now());
+      const cols = listId !== "all" ? 12 : 11;
       const 直前未済 = i > 0 && !isApoDone(list[i - 1]);
       const 区切り = (済 && (i === 0 || 直前未済))
-        ? `<tr class="kc-apo-sep"><td colspan="${listId !== "all" ? 12 : 11}">アポ獲得済み（${list.filter(isApoDone).length}件）</td></tr>`
+        ? `<tr class="kc-apo-sep"><td colspan="${cols}">アポ獲得済み（${list.filter(isApoDone).length}件）</td></tr>`
         : "";
-      return 区切り + `
+      // かけた（記録済み）グループの先頭に、区切りを出す（どこまでかけたか分かるように）
+      const かけ区切り = (かけた(x) && (i === 0 || !かけた(list[i - 1])))
+        ? `<tr class="kc-apo-sep"><td colspan="${cols}">ここから下は、かけ済み（${list.filter(かけた).length}件）</td></tr>`
+        : "";
+      return 区切り + かけ区切り + `
       <tr data-id="${x.id}" class="${済 ? "kc-apo-done" : ""}">
         ${listId !== "all" ? `<td><input type="checkbox" class="kc-sel" data-id="${x.id}"${selectedIds.has(String(x.id)) ? " checked" : ""} /></td>` : ""}
         <td class="kc-owner">${esc(x["所有者"] || "")}</td>
