@@ -1333,15 +1333,15 @@ async function selectDeal(account) {
     `<div id="sfMatches"></div>` +
     `<div id="sfLinked" style="display:none"><div id="sfLinkedInfo" class="sf-linked-info"></div>` +
     `<div class="sf-field" id="sfReadMeetingWrap" style="display:none;margin:8px 0 4px"><label>読み取る商談（自動入力の元）</label><select id="sfReadMeeting" class="sf-select"></select></div>` +
-    `<div class="sf-subtabs" id="sfSubtabs"><button type="button" class="sf-subtab active" data-sftab="task">活動記録</button><button type="button" class="sf-subtab" data-sftab="stage">ステージ・項目更新</button></div>` +
-    `<div class="sf-subpanel" data-sfpanel="task">` +
+    `<div class="sf-subtabs" id="sfSubtabs"><button type="button" class="sf-subtab" data-sftab="task">活動記録</button><button type="button" class="sf-subtab active" data-sftab="stage">ステージ・項目更新</button></div>` +
+    `<div class="sf-subpanel" data-sfpanel="task" hidden>` +
     `<div class="sf-section-box"><div class="sf-section-title"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" style="vertical-align:-2px;margin-right:4px"><circle cx="8" cy="8" r="7" fill="#0d5b47"/><path d="M8 4v4l3 2" stroke="#fff" stroke-width="1.5" stroke-linecap="round"/></svg>活動を記録</div>` +
     `<div id="sfTaskFields"><div class="empty-state">項目を読み込み中…</div></div>` +
     `<div class="sf-autofill-row"><button type="button" class="btn btn-ghost" id="sfTaskReadBtn">商談から読み取る</button><span id="sfTaskReadSelWrap"></span><span class="sf-autofill-note" id="sfTaskReadNote">選んだ商談から活動種別・次回アクション・説明を埋めます</span></div>` +
     `<div class="sf-field" style="margin-top:8px"><button class="btn sf-btn-secondary" id="sfTaskBtn">活動を記録</button></div><div id="sfTaskMsg"></div></div>` +
     `<div class="sf-section-box"><div class="sf-section-title"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" style="vertical-align:-2px;margin-right:4px"><rect x="2" y="3" width="12" height="11" rx="1.5" fill="#0d5b47"/><rect x="4" y="6" width="8" height="1.3" rx=".5" fill="#5DCAA5"/><rect x="4" y="9" width="6" height="1.3" rx=".5" fill="#5DCAA5"/></svg>過去の活動</div><div id="sfTaskHistory"><div class="sf-ss-note">商談をリンクすると表示されます。</div></div></div>` +
     `</div>` +
-    `<div class="sf-subpanel" data-sfpanel="stage" hidden>` +
+    `<div class="sf-subpanel" data-sfpanel="stage">` +
     `<div class="sf-section-box"><div class="sf-section-title"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" style="vertical-align:-2px;margin-right:4px"><rect x="1" y="6" width="4" height="9" rx="1" fill="#0d5b47"/><rect x="6" y="3" width="4" height="12" rx="1" fill="#1d9e75"/><rect x="11" y="1" width="4" height="14" rx="1" fill="#5DCAA5"/></svg>ステージ・項目の更新</div>` +
     `<div id="sfStageFields"></div>` +
     `<div class="sf-field" style="margin-top:8px"><button class="btn" id="sfUpdateBtn">ステージ・項目を更新</button></div><div id="sfUpdateMsg"></div></div>` +
@@ -2628,7 +2628,7 @@ async function initSfTab(account) {
   matchesEl.innerHTML = "";
   linkedEl.style.display = "none";
 
-  // サブタブ（活動記録／ステージ更新）の切替。活動記録を既定表示。
+  // サブタブ（活動記録／ステージ更新）の切替。活動記録は自動更新されるので、既定はステージ・項目更新。
   const subtabs = $("sfSubtabs");
   if (subtabs) {
     subtabs.querySelectorAll(".sf-subtab").forEach((b) => {
