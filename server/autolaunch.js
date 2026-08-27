@@ -41,28 +41,32 @@ export const REASONS = {
 //   担当名のあとに空白があってもよい（「田崎 様」）
 export function parseTitle(title) {
   // 全角の英数字や記号は半角にそろえる（／→/ になる）
-  let t = String(title || "").normalize("NFKC").replace(/【[^】]*】/g, "").trim();
-  // 区切りに使われる記号は、すべて同じ1つの区切りに置き換える
-  t = t.replace(/[\/｜|:：,、･・]+/g, " ").replace(/[\s　]+/g, " ").trim();
+  let t = String(title || "").normalize("NFKC").replace(/^\s*メルマガ\s*/, "").replace(/【[^】]*】/g, " ").replace(/[（(][^）)]*[）)]/g, " ").trim();
+  t = t.replace(/\s+/g, " ").trim();
   if (!t) return { company: "", person: "" };
+  // 区切り（スラッシュ・縦棒・読点・中黒・空白）でトークンに分ける
+  const tokens = t.split(/[\/／|｜:：,、･・]+|\s+/).map((s) => s.trim()).filter(Boolean);
+  const CORP = /(株式会社|有限会社|合同会社|合資会社|㈱|\(株\)|（株）|一般社団法人|一般財団法人|公益社団法人|公益財団法人|医療法人|社会福祉法人|学校法人|協同組合|組合|財団法人|社団法人|Inc|Corp|LLC|Ltd)/i;
+  const HONtail = /\s*(様|さま|さん|殿|御中)\s*$/;
+  const HONonly = /^(様|さま|さん|殿|御中)$/;
 
-  // 「〜様」で終わるところを担当者名とみなす。
-  // 「田崎 様」のように間に空白があっても拾えるようにする。
-  const m = t.match(/([^\s]{1,20})\s*(?:様|さま|さん|殿)\s*$/) ||
-            t.match(/([^\s]{1,20})\s*(?:様|さま|さん|殿)/);
-  const person = m ? m[1] : "";
+  // 会社トークン：法人格を含むもの。無ければ最初のトークン。
+  let ci = tokens.findIndex((x) => CORP.test(x));
+  if (ci < 0) ci = 0;
+  let company = tokens[ci] || t;
 
-  let company = "";
-  if (m) {
-    // 担当者名より前を会社名とする
-    company = t.slice(0, m.index).trim();
+  // 担当者：敬称付き（または敬称だけのトークンの直前）を優先。無ければ会社の後ろの語。
+  let person = "";
+  for (let i = 0; i < tokens.length; i++) {
+    const tk = tokens[i];
+    if (HONonly.test(tk)) { if (i > 0 && !CORP.test(tokens[i - 1])) { person = tokens[i - 1]; break; } }
+    else if (HONtail.test(tk) && tk.replace(HONtail, "")) { person = tk.replace(HONtail, ""); break; }
   }
-  if (!company) {
-    // 「様」が無いときは、区切りの前を会社名とする
-    const parts = t.split(" ").filter(Boolean);
-    company = parts.length > 1 && person ? parts.slice(0, -1).join(" ") : t;
+  if (!person) {
+    for (let i = ci + 1; i < tokens.length; i++) {
+      if (tokens[i] && !CORP.test(tokens[i]) && !HONonly.test(tokens[i])) { person = tokens[i].replace(HONtail, ""); break; }
+    }
   }
-  // 会社名に区切りの名残が付いていたら落とす
   company = company.replace(/[\s\/｜|:：,、･・]+$/, "").trim();
   if (!company && !person) company = t;
   return { company, person };
