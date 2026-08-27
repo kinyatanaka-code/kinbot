@@ -371,8 +371,13 @@ export async function sendTestApoMail({ kind = "confirm", to, owner, draft = fal
   }
 }
 
-export async function sendApoMail(link, kind, { url, repName, force = false, actor = "auto" } = {}) {
+export async function sendApoMail(link, kind, { url, repName, force = false, actor = "auto", allowMailmaga = false } = {}) {
   if (!link || !link.slug) return { ok: false, skipped: true, reason: "リンクがありません" };
+  // メルマガ由来のアポは、当面「自動メール送付」を停止する（手動送付＝allowMailmaga のときだけ送る）。
+  const isMailmaga = !!(link.mailmaga === true || /^\s*メルマガ/.test(String(link.label || "").normalize("NFKC")));
+  if (isMailmaga && !allowMailmaga) {
+    return { ok: false, skipped: true, reason: "メルマガのアポは自動メール送付を停止中です（手動送付は可）" };
+  }
   const cfg = await getApoMailConfig();
   const owner = String(link.current_owner || "").trim();
   const to = String(link.client_email || "").trim();

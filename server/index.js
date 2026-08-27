@@ -14715,7 +14715,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-08-28n kincall：かける画面に「クロスリードに変更」を追加。今開いているリストのSF連携済みリードのうちクロス以外を、SFで Cross_lead に一括変更（試算→20件ずつ・既にクロスは触らない・クローザー/管理者のみ）";
+const BUILD_TAG = "2026-08-28o アポメール：メルマガ由来のアポは自動メール送付（確定・リマインド）を停止した。手動送付だけ可（許可があるまで自動は出さない）";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
@@ -19242,6 +19242,7 @@ app.post("/api/smart-links/:slug/mail", async (req, res) => {
       repName: await repDisplayName(link.current_owner),
       force,
       actor: req.user || "manual",
+      allowMailmaga: true,   // 手動送付は、メルマガのアポでも許可する
     });
     if (!r.ok) return res.status(r.skipped ? 409 : 400).json({ error: r.reason, ...r });
     // Google Chat へ通知
