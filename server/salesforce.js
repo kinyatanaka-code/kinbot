@@ -1103,7 +1103,16 @@ export async function convertLead(owner, { leadId, convertedStatus, opportunityN
       const r = await convertLeadSoap(acc, input);
       return { ...r, via: "soap" };
     }
-    throw new Error(`SF lead convert: ${raw}`);
+    const isDup = /duplicate/i.test(raw);
+    // 重複を「許可して作る」ときは、SOAPの allowSave（重複ルールを無視）で作成する
+    if (isDup && input.allowDuplicate) {
+      console.log("[SF立ち上げ] RESTで重複判定 → SOAP(allowSave)で重複を許可して作成します");
+      const r = await convertLeadSoap(acc, input);
+      return { ...r, via: "soap-dup" };
+    }
+    const err = new Error(`SF lead convert: ${raw}`);
+    if (isDup) err.duplicate = true;   // 呼び出し側が「既存に紐づけ／重複許可」に切り替えられるようにする
+    throw err;
   }
   const out = first.outputValues || {};
   const oppId = out.opportunityId || "";
