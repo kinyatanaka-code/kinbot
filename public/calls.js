@@ -90,8 +90,8 @@ let sortBy = "", sortDesc = false;
 // いま出すぶんを決める
 function visibleRows() {
   let list = rows.slice();
-  if (filt.stage.size) list = list.filter((x) => filt.stage.has(x["ステージ"] || ""));
-  if (filt.status.size) list = list.filter((x) => filt.status.has(x["最終ステータス"] || ""));
+  if (filt.stage.size) list = list.filter((x) => filt.stage.has((x["ステージ"] || "").trim()));
+  if (filt.status.size) list = list.filter((x) => filt.status.has((x["最終ステータス"] || "").trim()));
   if (filt.hist === "none") list = list.filter((x) => !x["履歴数"]);
   if (filt.hist === "some") list = list.filter((x) => x["履歴数"] > 0);
   const q = ($("clFind") && $("clFind").value || "").trim().toLowerCase();
@@ -148,14 +148,17 @@ function nextDueLabel(x) {
 // 絞り込みの窓を出す（チェックで選ぶ）
 function openFilter(which, btn) {
   const key = which === "stage" ? "ステージ" : "最終ステータス";
-  const all = [...new Set(rows.map((x) => x[key] || "").filter(Boolean))].sort();
+  const values = [...new Set(rows.map((x) => (x[key] || "").trim()).filter((v) => v !== ""))].sort();
+  const emptyN = rows.filter((x) => !(x[key] || "").trim()).length;
+  // 空欄（-）も選べるように、末尾に「（空欄）」を足す。値は "" を使う。
+  const options = emptyN ? [...values, ""] : values;
   const cur = filt[which];
   const inner =
     `<div class="kc-flt-list">` +
-    all.map((v) => `<label class="kc-flt-row">
+    options.map((v) => `<label class="kc-flt-row">
        <input type="checkbox" value="${esc(v)}"${cur.size === 0 || cur.has(v) ? " checked" : ""} />
-       <span>${esc(v)}</span>
-       <span class="kc-flt-n">${rows.filter((x) => (x[key] || "") === v).length}</span>
+       <span>${v === "" ? "（空欄・未入力）" : esc(v)}</span>
+       <span class="kc-flt-n">${v === "" ? emptyN : rows.filter((x) => (x[key] || "").trim() === v).length}</span>
      </label>`).join("") + `</div>
      <div class="kc-modal-foot">
        <button type="button" class="btn" id="fltOk">この条件で見る</button>
@@ -164,7 +167,7 @@ function openFilter(which, btn) {
   const m = openModal(`${key}でしぼる`, inner);
   m.el.querySelector("#fltOk").addEventListener("click", () => {
     const picked = [...m.el.querySelectorAll("input:checked")].map((c) => c.value);
-    filt[which] = picked.length === all.length ? new Set() : new Set(picked);
+    filt[which] = picked.length === options.length ? new Set() : new Set(picked);
     m.close(); render();
   });
   m.el.querySelector("#fltAll").addEventListener("click", () => {
