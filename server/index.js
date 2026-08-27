@@ -14835,7 +14835,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-01m 利用状況：SF立ち上げのエラー率（直近◯日の失敗/全件、失敗理由の内訳）を追加した";
+const BUILD_TAG = "2026-09-01n SF記録：商談の記録に次回アクション（ネクストアクション）を含めないようにした。商談の記録は商談要約のみ・次回アクションは別の記録として扱う";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
@@ -16517,12 +16517,10 @@ async function autofillMeetingToSf(user, meeting, url) {
   }
 
   // 3) 活動履歴（Task）を冪等作成
+  //   商談の記録には「次のアクション（ネクストアクション）」は含めない。
+  //   ネクストアクションは別の活動として記録する（商談の記録と分ける）。
   const s = m.summary || {};
-  const desc =
-    (s.overview || "") +
-    (Array.isArray(s.action_items) && s.action_items.length
-      ? "\n\n【次のアクション】\n・" + s.action_items.join("\n・")
-      : "");
+  const desc = String(s.overview || "");
   const task = await createTaskIdempotent(user, String(m.id), {
     WhatId: recordId,
     Subject: `[kinbot] ${m.title || "商談"}（第${m.round || 1}回）`,
