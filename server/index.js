@@ -6375,9 +6375,13 @@ app.post("/api/calls/lists/:id/refresh-sf", async (req, res) => {
       const key = normCompanyKey(t.company);
       let statusPatch = undefined;                         // 既定：触らない
       const 架電結果 = lastCall.get(id15(t.lead_id)) || "";
+      // 最終ステータスに、以前まちがって入った「リード種別（Mochica(リード)/クロス(リード)等）」が
+      // 残っている場合は、正しくないのでクリア対象にする。
+      const リード種別が残っている = /リード/.test(String(t.status || ""));
       if (crossWon.has(key)) { statusPatch = "アポ獲得済み（クロス受注）"; 受注除外++; クロス化++; }
       else if (crossOpp.has(key)) { statusPatch = "アポ獲得済み（クロス商談）"; クロス化++; }
       else if (架電結果) { statusPatch = 架電結果; }        // 最終ステータス列＝最新のコール結果
+      else if (リード種別が残っている) { statusPatch = ""; } // 古いリード種別を消す（コール結果が無いので空に）
       await setCallTargetStatus(t.id, statusPatch !== undefined ? { stage, status: statusPatch } : { stage }).catch(() => {});
       if (li.owner) await setCallTargetLead(t.id, t.lead_id, { ownerName: li.owner }).catch(() => {});
       反映++;
@@ -14660,7 +14664,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-08-28l アポ確定メール：メルマガのアポで会社名から先頭の「メルマガ」を除外（メルマガ【初回】以降を会社名に）。書き出しを『お忙しいところ弊社からのメールをご確認いただきありがとうございます。』に変更";
+const BUILD_TAG = "2026-08-28m kincall：SFの状態更新で、最終ステータスに残っていた古い「リード種別（Mochica/クロス(リード)）」をクリアするよう修正（コール結果があればそれ、無ければ空に）";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
