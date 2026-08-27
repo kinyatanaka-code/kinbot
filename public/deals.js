@@ -2731,13 +2731,25 @@ async function initSfTab(account) {
           if (el.tagName === "SELECT") { const opt = [...el.options].find((o) => o.value === v || o.textContent === v); if (opt) { el.value = opt.value; filled++; } }
           else if (el.type !== "checkbox") { el.value = v; filled++; }
         }
-        // 次回アクション日が読み取れなかったときは、商談日の1週間後を仮で入れる
-        const dEl = inputs.find((el) => el.type === "date" && /次回アクション日/.test((el.closest(".sf-field")?.querySelector("label")?.textContent) || ""));
-        if (dEl && !dEl.value) {
-          const base = new Date();
-          base.setDate(base.getDate() + 7);
-          dEl.value = `${base.getFullYear()}-${String(base.getMonth() + 1).padStart(2, "0")}-${String(base.getDate()).padStart(2, "0")}`;
-          filled++;
+        // 活動種別が「商談」のときは、次回アクション（種別・日）を付けない。
+        // 商談の記録には次回アクション日はいらない（ネクストアクションは別の記録にする）。
+        const labelOf = (el) => (el.closest(".sf-field")?.querySelector("label")?.textContent) || "";
+        const kindEl = inputs.find((el) => /活動種別/.test(labelOf(el)));
+        const isShodan = kindEl && (kindEl.value === "商談" ||
+          (kindEl.selectedOptions && kindEl.selectedOptions[0] && kindEl.selectedOptions[0].textContent === "商談"));
+        if (isShodan) {
+          inputs.forEach((el) => {
+            if (/次回アクション/.test(labelOf(el)) && el.type !== "checkbox") el.value = "";
+          });
+        } else {
+          // 商談以外で、次回アクション日が読み取れなかったときは、商談日の1週間後を仮で入れる
+          const dEl = inputs.find((el) => el.type === "date" && /次回アクション日/.test(labelOf(el)));
+          if (dEl && !dEl.value) {
+            const base = new Date();
+            base.setDate(base.getDate() + 7);
+            dEl.value = `${base.getFullYear()}-${String(base.getMonth() + 1).padStart(2, "0")}-${String(base.getDate()).padStart(2, "0")}`;
+            filled++;
+          }
         }
         if (note) note.textContent = `説明に要約を入れ、${filled}項目を読み取りました。確認・編集して記録してください。`;
       } catch (e) {
@@ -3717,8 +3729,8 @@ async function loadSfTaskHistory(oppId) {
       const nextDate = (t.nextDate || "").slice(0, 10);
       const late = nextDate && !t.isClosed && new Date(nextDate + "T23:59:59").getTime() < Date.now();
       // 次回アクションがある活動だけ、その行にチェックを出す。
-      // チェック＝この次回アクションが終わった（Salesforceの状況を「完了」にする）。
-      const hasNext = !!(t.nextKind || nextDate);
+      // ただし「商談」の活動には次回アクションを出さない（商談の記録に次回アクション日はいらない）。
+      const hasNext = !!(t.nextKind || nextDate) && String(t.actKind || "") !== "商談";
       const nextRow = hasNext
         ? `<label class="sf-task-row sf-task-nextrow${t.isClosed ? " sf-next-done" : ""}" title="チェックすると、この次回アクションを完了にします">
              <span class="sf-task-k">次回アクション</span>
