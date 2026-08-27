@@ -14660,7 +14660,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-08-28j SF立ち上げ強化：クロスリード作成時、gBizで住所・従業員数・URLが埋まらなければBrave Web検索で公式サイトを探し、会社概要から補う土台を追加（BRAVE_API_KEY未設定時はgBizのみ）";
+const BUILD_TAG = "2026-08-28k アポ確定メール：メルマガ【初回】（メルマガ由来）のアポは、書き出しを『お忙しいところメールにてご調整いただきありがとうございます。』にした";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",

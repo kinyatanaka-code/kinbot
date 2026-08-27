@@ -212,6 +212,8 @@ export function buildVars(link, { repName, repEmail, url, companyName, profile =
   }
   // 担当者本人の会議室URL（設定→登録リンク）。ミーティングIDの表示にだけ使う。
   const direct = String(zoomLink || "").trim();
+  // メルマガ由来のアポ（タイトルが「メルマガ…」／mailmagaフラグ）は、書き出しをメール調整のお礼にする。
+  const isMailmaga = !!(link && (link.mailmaga === true || /^\s*メルマガ/.test(String(link.label || "").normalize("NFKC"))));
   return {
     "担当者姓": String(profile.shortName || "").trim() || familyName(repName),
     "担当者ローマ字": String(profile.nameRoman || "").trim(),
@@ -226,6 +228,8 @@ export function buildVars(link, { repName, repEmail, url, companyName, profile =
     //   ほかの人が取ったアポ … 「先ほどは弊社○○のお電話にご対応いただき、」
     // 自分で電話した相手に「弊社○○の電話に」と書くと不自然なため。
     "お礼の書き出し": (() => {
+      // メルマガ由来のアポは、メールでの日程調整に対するお礼にする
+      if (isMailmaga) return "お忙しいところメールにてご調整いただきありがとうございます。";
       // 自分で取ったアポ、または獲得者が分からないときは、名前を出さない
       const setter = familyName(link.setter);
       if (!setter || selfAcquired(link, repName, repEmail)) {
