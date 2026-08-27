@@ -133,15 +133,39 @@ export async function getApoMailConfig() {
 // 予定タイトル「【新/ヒ】株式会社◯◯／田中様」から会社名と担当者名を取り出す
 export function parseTitleParts(title) {
   let t = String(title || "").normalize("NFKC");
-  t = t.replace(/^\s*メルマガ\s*/, "");   // 先頭の「メルマガ」は会社名に含めない（メルマガ【初回】以降を会社として判定）
+  t = t.replace(/^\s*メルマガ\s*/, "");   // 先頭の「メルマガ」は会社名に含めない
   t = t.replace(/【[^】]*】/g, " ").replace(/[（(][^）)]*[）)]/g, " ");
-  t = t.replace(/[\/／|｜]/g, " ").replace(/\s+/g, " ").trim();
+  t = t.replace(/\s+/g, " ").trim();
+  // 区切り（スラッシュ・縦棒・読点・中黒・空白）でトークンに分ける
+  const tokens = t.split(/[\/／|｜、,・]+|\s+/).map((s) => s.trim()).filter(Boolean);
+  const CORP = /(株式会社|有限会社|合同会社|合資会社|㈱|\(株\)|（株）|一般社団法人|一般財団法人|公益社団法人|公益財団法人|医療法人|社会福祉法人|学校法人|協同組合|組合|財団法人|社団法人|Inc|Corp|LLC|Ltd)/i;
+  const HONtail = /\s*(様|さま|さん|殿|御中)\s*$/;
+  const HONonly = /^(様|さま|さん|殿|御中)$/;
+  const clean = (s) => String(s || "").replace(/[^\p{L}\p{N}ー]/gu, "").trim();
+
+  // 会社トークン：法人格を含むもの。無ければ最初のトークン。
+  let ci = tokens.findIndex((x) => CORP.test(x));
+  if (ci < 0) ci = 0;
+  const company = (tokens[ci] || t).replace(/\s+/g, "");
+
+  // 担当者：
+  //  1) 敬称（様/さん/殿）が付いたトークン、または敬称だけのトークンの直前を優先
+  //  2) 無ければ、会社トークンの後ろにある最初のトークン（＝様が無くても担当者とみなす）
   let person = "";
-  const pm = t.match(/([^\s　]{1,12}?)\s*様/);
-  if (pm) person = pm[1].replace(/[^\p{L}\p{N}ー]/gu, "");
-  let company = t.replace(/[^\s]*様.*$/, "").trim();
-  if (!company) company = t;
-  return { company: company.replace(/\s+/g, ""), person };
+  for (let i = 0; i < tokens.length; i++) {
+    const tk = tokens[i];
+    if (HONonly.test(tk)) {                       // 「様」だけのトークン → 直前が担当者
+      if (i > 0 && !CORP.test(tokens[i - 1])) { person = tokens[i - 1]; break; }
+    } else if (HONtail.test(tk) && tk.replace(HONtail, "")) {  // 「枝光様」など
+      person = tk.replace(HONtail, ""); break;
+    }
+  }
+  if (!person) {
+    for (let i = ci + 1; i < tokens.length; i++) {
+      if (tokens[i] && !CORP.test(tokens[i]) && !HONonly.test(tokens[i])) { person = tokens[i].replace(HONtail, ""); break; }
+    }
+  }
+  return { company, person: clean(person) };
 }
 
 const WD = ["日", "月", "火", "水", "木", "金", "土"];
