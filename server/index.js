@@ -2821,6 +2821,34 @@ app.get("/api/apo/:slug/why", async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+// 通知だけを送り直す（メール・SF立ち上げはやり直さない）。
+// 能美のように、立ち上げ済み・メール済みで、Chatの割り振り通知だけ届かなかったとき用。
+app.post("/api/apo/:slug/renotify", async (req, res) => {
+  try {
+    const link = await getSmartLink(String(req.params.slug || ""));
+    if (!link) return res.status(404).json({ error: "見つかりません" });
+    const repName = await repDisplayName(link.current_owner).catch(() => link.current_owner || "");
+    const biz = link.business || "";
+    const counts = await assignCounts(biz).catch(() => null);
+    const st = await getSettings().catch(() => ({}));
+    const goal = st?.apoShowGoal === true ? (parseInt(st?.apoMonthlyGoal, 10) || 0) : 0;
+    // SF立ち上げは「やり直さず」、今の状態だけ調べて通知に載せる（dryRun）。
+    const op = await sfOperator(req.user).catch(() => "");
+    const launch = await (op
+      ? tryAutoLaunch(op, link, { dryRun: true, ownerEmail: link.current_owner })
+      : Promise.resolve({ ok: false, reason: "no_operator" }))
+      .then((r) => ({ ok: r.ok, dryRun: true, reasonText: r.ok ? "" : reasonText(r.reason, r.detail) }))
+      .catch(() => null);
+    const r = await notifyAssigned({
+      title: link.label, start: link.start_time, repName,
+      setter: link.setter, reason: "通知の再送", url: joinUrl(link.slug),
+      auto: false, mail: null, clientEmail: link.client_email, counts, goal, launch,
+    });
+    console.log(`[apo] ${link.slug} の割り振り通知だけ再送しました by ${req.user}`);
+    res.json({ ok: true, ...(r || {}) });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 // 処理済みの印を外して、もう一度やり直す（メール・SF立ち上げ・通知）
 app.post("/api/apo/:slug/redo", async (req, res) => {
   try {
@@ -14719,7 +14747,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-08-28r SF立ち上げ：予定名の担当者名を「様」が無くても読み取れるようにした（『商談の予定名から担当者名が読み取れません』で立ち上がらなかった不具合を解消）";
+const BUILD_TAG = "2026-08-28s アポ：Chatの割り振り通知だけを送り直す「通知だけ再送」を追加（メール・SF立ち上げはやり直さない）。能美のように立ち上げ・メール済みで通知だけ届かなかったとき用";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",

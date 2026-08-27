@@ -210,6 +210,8 @@ function apoCard(a, i) {
           <button class="btn ghost ap-copy" data-url="${esc(a.smart_url)}">コピー</button>
           <button class="btn ghost ap-exclude" data-slug="${esc(a.slug)}" data-on="${a.excluded ? "1" : "0"}"
             title="実績・均等化・通知の件数から外し、カレンダーの商談予定も消します">${a.excluded ? "集計に戻す" : "テストとして外す"}</button>
+          <button class="btn ghost ap-renotify" data-slug="${esc(a.slug)}"
+            title="Chatの割り振り通知だけを送り直します（メール・SF立ち上げはやり直しません）">通知だけ再送</button>
           <button class="btn ghost ap-why" data-slug="${esc(a.slug)}"
             title="メール・SF立ち上げ・通知がどこで止まっているかを調べます">調べる</button>
         </div>
@@ -383,6 +385,20 @@ function bindCardEvents(card) {
       if (d.calendar && !/消しました|ありませんでした/.test(d.calendar)) alert(d.calendar);
       load();
     } catch (e) { alert(e.message); ex.disabled = false; }
+  });
+
+  const renotify = q(".ap-renotify");
+  if (renotify) renotify.addEventListener("click", async () => {
+    renotify.disabled = true;
+    const before = renotify.textContent;
+    renotify.textContent = "再送しています…";
+    try {
+      const r = await fetch(`/api/apo/${encodeURIComponent(renotify.dataset.slug)}/renotify`, { method: "POST" });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.error || "できませんでした");
+      renotify.textContent = "再送しました";
+    } catch (e) { renotify.textContent = "失敗"; alert(e.message); }
+    setTimeout(() => { renotify.textContent = before; renotify.disabled = false; }, 2500);
   });
 
   const copy = q(".ap-copy");
