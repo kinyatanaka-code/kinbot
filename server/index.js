@@ -6391,6 +6391,57 @@ app.post("/api/calls/lists/:id/refresh-sf", async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+// 今開いているリストのリードを、Salesforce上で Cross_lead のレコードタイプに一括変更する。
+// 既にクロスのものは触らない。少しずつ（既定20件）処理して残数を返す。
+app.post("/api/calls/lists/:id/to-cross", async (req, res) => {
+  try {
+    if (!req.isAdmin && !(await isCloserUser(req.user))) return res.status(403).json({ error: "クローザー・管理者だけが使えます" });
+    const id = parseInt(req.params.id, 10);
+    if (!id) return res.status(400).json({ error: "リストが指定されていません" });
+    const sfUser = await pickSfUser(req.user);
+    if (!salesforceConfigured() || !(await sfConnected(sfUser).catch(() => false))) {
+      return res.status(400).json({ error: "Salesforceに接続できません" });
+    }
+    const rtId = await crossLeadRecordTypeId(sfUser).catch(() => "");
+    if (!rtId) return res.status(400).json({ error: "Cross_leadのレコードタイプが見つかりません" });
+    const dryRun = req.body?.dryRun === true;
+    const limit = Math.min(30, Math.max(1, parseInt(req.body?.limit, 10) || 20));
+
+    const targets = await listCallTargets(id, { limit: 2000 }).catch(() => []);
+    const leadIds = [...new Set(targets.map((t) => t.lead_id).filter(Boolean).map((v) => id15(v)))];
+    if (!leadIds.length) return res.json({ ok: true, done: true, 対象: 0, クロス以外: 0, 変更: 0, 残り: 0 });
+
+    // いまのレコードタイプを調べて、クロス以外のリードだけを対象にする
+    const 非クロス = [];
+    for (let i = 0; i < leadIds.length; i += 200) {
+      const inIds = leadIds.slice(i, i + 200).map((x) => `'${x.replace(/[^A-Za-z0-9]/g, "")}'`).join(",");
+      if (!inIds) continue;
+      try {
+        const d = await sfQuery(sfUser, `SELECT Id, RecordType.Name, IsConverted FROM Lead WHERE Id IN (${inIds})`);
+        for (const r of d.records || []) {
+          const rt = String((r.RecordType && r.RecordType.Name) || "");
+          if (r.IsConverted) continue;                 // 取引先化済みは触らない
+          if (!/クロス|cross/i.test(rt)) 非クロス.push(id15(r.Id));
+        }
+      } catch (e) { console.warn("[to-cross] describe", e.message); }
+    }
+
+    if (dryRun) {
+      return res.json({ ok: true, done: true, 対象: leadIds.length, クロス以外: 非クロス.length, 変更: 0, 残り: 非クロス.length, dryRun: true });
+    }
+
+    // この1回で処理するぶん（先頭 limit 件）だけ Cross_lead に変える
+    const batch = 非クロス.slice(0, limit);
+    let 変更 = 0, 失敗 = 0;
+    for (const lid of batch) {
+      try { await updateLead(sfUser, lid, { RecordTypeId: rtId }); 変更++; }
+      catch (e) { 失敗++; console.warn("[to-cross]", lid, e.message); }
+    }
+    const 残り = 非クロス.length - 変更;
+    res.json({ ok: true, done: 残り <= 0, 対象: leadIds.length, クロス以外: 非クロス.length, 変更, 失敗, 残り });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 // 今あるリストの、SF未連携（lead_idなし）の架電先を、Salesforceに反映する。
 // 大量でも大丈夫なように、1回で少しずつ（既定20件）処理して残数を返す。フロントが繰り返し呼ぶ。
 app.post("/api/calls/lists/:id/to-sf", async (req, res) => {
@@ -14664,7 +14715,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-08-28m kincall：SFの状態更新で、最終ステータスに残っていた古い「リード種別（Mochica/クロス(リード)）」をクリアするよう修正（コール結果があればそれ、無ければ空に）";
+const BUILD_TAG = "2026-08-28n kincall：かける画面に「クロスリードに変更」を追加。今開いているリストのSF連携済みリードのうちクロス以外を、SFで Cross_lead に一括変更（試算→20件ずつ・既にクロスは触らない・クローザー/管理者のみ）";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",

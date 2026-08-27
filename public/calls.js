@@ -1436,6 +1436,38 @@ document.addEventListener("click", (ev) => {
       } catch (e) { say("clStatus", "できませんでした：" + e.message, 8000); }
     })();
   }
+  if (t.id === "clToCross") {
+    ev.preventDefault();
+    (async () => {
+      if (!listId || listId === "all") { say("clStatus", "リストを選んでください（全てのリードでは実行できません）", 5000); return; }
+      say("clStatus", "対象を調べています…");
+      let 対象 = 0;
+      try {
+        const dry = await (await fetch(`/api/calls/lists/${encodeURIComponent(listId)}/to-cross`, {
+          method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ dryRun: true }),
+        })).json();
+        if (dry.error) throw new Error(dry.error);
+        対象 = dry["クロス以外"] || 0;
+      } catch (e) { say("clStatus", "調べられませんでした：" + e.message, 8000); return; }
+      if (!対象) { say("clStatus", "変更が必要なリードはありません（すべてクロス、またはSF未連携）", 6000); return; }
+      if (!confirm(`このリストのSF連携済みリードのうち、クロス以外の ${対象}件 を Salesforce で Cross_lead（クロスリード）に変更します。\n既にクロスのものは変更しません。\nこの操作はSFのデータを書き換えます（自動では元に戻せません）。\nよろしいですか？`)) { say("clStatus", ""); return; }
+      let 変更 = 0, 失敗 = 0, 回 = 0;
+      try {
+        while (true) {
+          回++;
+          const r = await fetch(`/api/calls/lists/${encodeURIComponent(listId)}/to-cross`, {
+            method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ limit: 20 }),
+          });
+          const d = await r.json();
+          if (!r.ok) throw new Error(d.error || "変更できませんでした");
+          変更 += d["変更"] || 0; 失敗 += d["失敗"] || 0;
+          say("clStatus", `クロスリードに変更中… ${変更}/${対象}件${失敗 ? `（失敗${失敗}）` : ""}`);
+          if (d.done || 回 > 500) break;
+        }
+        say("clStatus", `クロスリードに変更しました：${変更}件${失敗 ? `（失敗${失敗}）` : ""}`, 12000);
+      } catch (e) { say("clStatus", "できませんでした：" + e.message, 8000); }
+    })();
+  }
   if (t.id === "clLinkSf") {
     ev.preventDefault();
     (async () => {
