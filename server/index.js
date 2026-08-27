@@ -14835,7 +14835,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-01p SF記録：活動が「商談」で次回アクションが入っているとき、記録時に自動で2つに分けてSFへ記録（商談＝活動種別＋説明・完了／ネクストアクション＝次回アクション種別・日・未着手）。過去の活動でも商談には次回アクションを出さない";
+const BUILD_TAG = "2026-09-01q SF記録：商談後の自動記録を強化。商談から次回アクション種別・日を自動で読み取り、商談の記録とネクストアクションの記録を別々にSFへ自動作成し、記録できたらチャットに通知する（ボタンを押さなくてよい）";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
@@ -16512,6 +16512,55 @@ app.post("/api/meetings/:id/sf-candidates", async (req, res) => {
 // 空欄補完 + 活動履歴を「1商談ぶん」まとめて自動反映する。
 // 上書きは一切しない（空の項目だけ埋める）。活動履歴はbotId(=meeting id)で冪等。
 // endpoint と 自動反映(extract後) の両方から呼ぶ共通ヘルパー。
+// 商談の内容から、SF活動の項目値（活動種別・次回アクション種別・次回アクション日・説明など）を読み取る。
+// 商談後の自動記録で使う（「商談から読み取る」ボタンと同じ考え方）。
+async function extractSfTaskValues(m, fields) {
+  if (!m || !Array.isArray(fields) || !fields.length) return {};
+  let summary = "";
+  if (m.summary) summary = typeof m.summary === "string" ? m.summary : JSON.stringify(m.summary);
+  const trText = Array.isArray(m.transcript)
+    ? m.transcript.map((u) => `${(u && u.speaker && u.speaker.name) || "話者"}: ${(u && u.text) || ""}`).join("\n")
+    : String(m.transcript || "");
+  const mDate = m.created_at ? new Date(m.created_at) : new Date();
+  const ymdOf = (d) => new Date(d.getTime() + 9 * 3600 * 1000).toISOString().slice(0, 10);
+  const content =
+    `【商談実施日】${ymdOf(mDate)}\n【今日】${ymdOf(new Date())}\n\n` +
+    (summary ? "【要約】\n" + summary + "\n\n" : "") +
+    (m.note ? "【商談メモ】\n" + m.note + "\n\n" : "") +
+    "【文字起こし】\n" + trText;
+  if (!trText.trim() && !summary) return {};
+  const fieldLines = fields.map((f) => {
+    let line = `- ${f.label}（キー:${f.api}`;
+    if (f.type === "date" || f.type === "datetime") line += "・日付 YYYY-MM-DD";
+    if (Array.isArray(f.options) && f.options.length) line += "・選択肢:[" + f.options.join(" / ") + "] から選ぶ";
+    line += "）";
+    return line;
+  }).join("\n");
+  const prompt =
+    "あなたはSalesforceの商談項目を、商談の内容から埋めるアシスタントです。\n" +
+    "各項目について、商談の内容から読み取れる値を日本語で簡潔に記入してください。\n" +
+    "・読み取れない項目は空文字にする（推測で埋めない）。\n" +
+    "・日付は YYYY-MM-DD 形式。相対的な言い方は【商談実施日】を基準に実際の日付へ直す。\n" +
+    "・次回アクション日は、次回の打ち合わせ日や宿題の期限として話に出た日付を入れる。\n" +
+    "・次回アクション種別は、次に何をするか（再商談・電話・メールなど）を選択肢から選ぶ。\n" +
+    "・選択肢がある項目は、必ず選択肢の中から最も近いものを選ぶ。選択肢の文字列をそのまま返す。\n" +
+    "・出力はJSONオブジェクトのみ。キーは各項目の「キー」、値は記入する文字列。\n\n" +
+    "【項目】\n" + fieldLines;
+  const out = await runCustomAnalysis(String(content).slice(0, 40000), prompt);
+  let values = {};
+  try {
+    const txt = String(out || "").replace(/```json|```/g, "").trim();
+    const mm = txt.match(/\{[\s\S]*\}/);
+    values = mm ? JSON.parse(mm[0]) : {};
+  } catch { values = {}; }
+  const clean = {};
+  for (const k of Object.keys(values)) {
+    const v = values[k];
+    if (v != null && String(v).trim() !== "") clean[k] = String(v).trim();
+  }
+  return clean;
+}
+
 async function autofillMeetingToSf(user, meeting, url) {
   const m = meeting;
   const recordId = extractRecordId(url || m.sf_url || "");
@@ -16554,18 +16603,50 @@ async function autofillMeetingToSf(user, meeting, url) {
   }
 
   // 3) 活動履歴（Task）を冪等作成
-  //   商談の記録には「次のアクション（ネクストアクション）」は含めない。
-  //   ネクストアクションは別の活動として記録する（商談の記録と分ける）。
+  //   商談の記録には「次のアクション」は含めない。ネクストアクションは別の活動として記録する。
   const s = m.summary || {};
   const desc = String(s.overview || "");
-  const task = await createTaskIdempotent(user, String(m.id), {
+  // 活動種別・次回アクション種別・次回アクション日の項目名と選択肢を取る
+  const fn = await taskFieldNames(user).catch(() => ({}));
+  let nextKindOptions = [];
+  try {
+    const dtask = await describeTask(user).catch(() => null);
+    const nkf = (dtask && dtask.fields || []).find((f) => f.name === fn.nextKind);
+    nextKindOptions = (nkf && nkf.picklistValues || []).map((p) => p.label || p.value).filter(Boolean);
+  } catch {}
+  // 商談の内容から、次回アクション種別・日を読み取る
+  let ext = {};
+  try {
+    const flds = [];
+    if (fn.nextKind) flds.push({ label: "次回アクション種別", api: fn.nextKind, type: "picklist", options: nextKindOptions });
+    if (fn.nextDate) flds.push({ label: "次回アクション日", api: fn.nextDate, type: "date" });
+    if (flds.length) ext = await extractSfTaskValues(m, flds).catch(() => ({}));
+  } catch {}
+  const 次回種別 = fn.nextKind ? (ext[fn.nextKind] || "") : "";
+  const 次回日 = fn.nextDate ? (ext[fn.nextDate] || "") : "";
+
+  // (1) 商談の記録（活動種別＝商談・説明・完了。次回アクションは付けない）
+  const shodanFields = {
     WhatId: recordId,
     Subject: `[kinbot] ${m.title || "商談"}（第${m.round || 1}回）`,
     Type: "商談",
     Description: desc.slice(0, 30000),
     Status: "完了",
     ActivityDate: (m.meeting_date || new Date().toISOString()).slice(0, 10),
-  });
+  };
+  if (fn.actKind) shodanFields[fn.actKind] = "商談";   // 組織のカスタム「活動種別」にも商談を入れる
+  const task = await createTaskIdempotent(user, String(m.id), shodanFields);
+
+  // (2) ネクストアクションの記録（次回アクション種別・日があるときだけ、別の活動として作る）
+  let naTask = null;
+  if (次回種別 || 次回日) {
+    const naFields = { WhatId: recordId, Subject: `[kinbot] ネクストアクション`, Status: "未着手" };
+    if (fn.actKind) naFields[fn.actKind] = "ネクストアクション";
+    if (fn.nextKind && 次回種別) naFields[fn.nextKind] = 次回種別;
+    if (fn.nextDate && 次回日) naFields[fn.nextDate] = 次回日;
+    naFields.ActivityDate = 次回日 || shodanFields.ActivityDate;
+    naTask = await createTaskIdempotent(user, `${m.id}:na`, naFields).catch(() => null);
+  }
 
   const filledCount =
     Object.keys(oppResult.filled || {}).length + Object.keys(accResult.filled || {}).length;
@@ -16584,7 +16665,20 @@ async function autofillMeetingToSf(user, meeting, url) {
   // 「得」の記録：実際に何かした反映のみカウント
   await recordSfStats(user, { filled: filledCount, activityCreated });
 
-  return { ok: true, recordId, accountId, opportunity: oppResult, account: accResult, activity: task };
+  // SFに活動を記録したことを、指定のチャットに知らせる（商談後の自動記録の結果）
+  try {
+    const naCreated = !!(naTask && naTask.created);
+    if (activityCreated || naCreated) {
+      const parts = [];
+      if (activityCreated) parts.push("商談の記録");
+      if (naCreated) parts.push(`ネクストアクション${次回日 ? "（" + 次回日 + "）" : ""}`);
+      await notifyChat(
+        `📝 *SFに活動を記録しました（自動）*\n　${m.title || "商談"}\n・${parts.join("\n・")}`
+      ).catch(() => {});
+    }
+  } catch {}
+
+  return { ok: true, recordId, accountId, opportunity: oppResult, account: accResult, activity: task, nextAction: naTask };
 }
 
 // 「得を見える化」する統計を積み上げる。user_settings.sfStats に保存。
