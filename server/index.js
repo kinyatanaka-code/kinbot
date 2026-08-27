@@ -407,6 +407,7 @@ import {
   searchLeads,
   updateLead,
   convertLead,
+  findAccountByName,
   ensureLeadApoDate,
   ensureLeadCampaignSource,
   ensureLeadFsNote,
@@ -3210,8 +3211,37 @@ async function ensureCrossLead(user, company, person, { dryRun = false, email = 
   } catch (e) { return { ok: false, reason: "sf_error", detail: String(e.message).slice(0, 200) }; }
 }
 
-async function tryAutoLaunch(user, link, { dryRun = false, ownerEmail = "", notify = true } = {}) {
-  const base = { slug: link.slug, botId: link.bot_id || null, title: link.label };
+// コンバート時に重複ルールで止められたら、まず既存の取引先/取引先責任者に紐づけて結合し（重複を作らない）、
+// それも無理なら重複を許可して新規作成する。（(a)優先・(b)許可）
+async function convertLeadPreferExisting(user, convArgs, { company = "", person = "", email = "" } = {}) {
+  try {
+    return await convertLead(user, convArgs);
+  } catch (e) {
+    if (!e.duplicate) throw e;
+    // (a) 既存の取引先に紐づけて結合する
+    try {
+      const acc = await findAccountByName(user, company);
+      if (acc && acc.Id) {
+        let contactId = "";
+        try {
+          const cs = await listAccountContacts(user, acc.Id).catch(() => []);
+          const 姓 = surnameOf(person) || person || "";
+          const mail = String(email || "").trim().toLowerCase();
+          const hit = (mail && cs.find((c) => String(c.Email || "").toLowerCase() === mail)) ||
+                      (姓 && cs.find((c) => String(c.Name || "").includes(姓)));
+          if (hit) contactId = hit.Id;
+        } catch {}
+        console.log(`[SF立ち上げ] 重複のため既存の取引先に紐づけて結合します（${company}${contactId ? "／既存担当者" : ""}）`);
+        return await convertLead(user, { ...convArgs, accountId: acc.Id, ...(contactId ? { contactId } : {}) });
+      }
+    } catch (e2) { console.warn("[SF立ち上げ] 既存取引先への紐づけ失敗→重複許可で作成", e2.message); }
+    // (b) 紐づけできなければ、重複を許可して新規作成する
+    console.log(`[SF立ち上げ] 既存に紐づけできないため、重複を許可して新規作成します（${company}）`);
+    return await convertLead(user, { ...convArgs, allowDuplicate: true });
+  }
+}
+
+async function tryAutoLaunch(user, link, { dryRun = false, ownerEmail = "", notify = true } = {}) {  const base = { slug: link.slug, botId: link.bot_id || null, title: link.label };
   try {
     // すでに立ち上げ済みなら触らない
     const prev = await getAutolaunch(link.slug);
@@ -3369,16 +3399,7 @@ async function tryAutoLaunch(user, link, { dryRun = false, ownerEmail = "", noti
       ownerId,
     };
     let conv = null;
-    try {
-      conv = await convertLead(user, convArgs);
-    } catch (e) {
-      // 重複ルールで止められた場合は、そのまま通して新しく取引先と担当者を作る。
-      // 既存の取引先に紐づけるには、その取引先への編集権限が要る。
-      // 権限が無いと結局失敗するので、こちらのほうが確実に立ち上がる。
-      if (!e.duplicate) throw e;
-      console.log(`[SF自動] 重複と判定されましたが、新しく取引先と担当者を作ります（${j.company}）`);
-      conv = await convertLead(user, { ...convArgs, allowDuplicate: true });
-    }
+    conv = await convertLeadPreferExisting(user, convArgs, { company: j.company, person: j.person, email: String(j.lead.Email || "") });
     const oppId = (conv && (conv.opportunityId || conv.opportunity_id)) || "";
 
     // 「立ち上げました」と言う前に、Salesforceに商談ができているか必ず確かめる。
@@ -14782,7 +14803,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-01h SF立ち上げ：会社情報の従業員数が空のとき、専用の従業員数リサーチ（求人サイト・gBiz・四季報等をGeminiで照合）で必ず補うようにした（会社検索フォーム・クロス自動作成の両方）";
+const BUILD_TAG = "2026-09-01i SF立ち上げ：コンバートが重複で弾かれたら、まず既存の取引先/取引先責任者に紐づけて結合（重複を作らない）、それも無理なら重複を許可して新規作成する（(a)優先・(b)許可）。手動・自動の両方";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
@@ -16087,15 +16108,11 @@ app.post("/api/salesforce/leads/:id/convert", async (req, res) => {
       ownerId,
     };
     let r;
-    try {
-      r = await convertLead(req.user, convArgs);
-    } catch (e) {
-      // 重複ルールで止められたときは、そのまま通して新しく取引先と担当者を作る。
-      // 既存に紐づけるには、その取引先への編集権限が必要になるため。
-      if (!e.duplicate) throw e;
-      console.log("[SF立ち上げ] 重複と判定されましたが、新しく取引先と担当者を作ります");
-      r = await convertLead(req.user, { ...convArgs, allowDuplicate: true });
-    }
+    r = await convertLeadPreferExisting(req.user, convArgs, {
+      company: (snapshot && snapshot.Company) || b.company || "",
+      person: (snapshot && snapshot.LastName) || b.person || "",
+      email: (snapshot && snapshot.Email) || "",
+    });
 
     // コンバートで商談が作られなかった場合は、こちらで作る（立ち上げ漏れを防ぐ）
     let createdOpportunity = false;

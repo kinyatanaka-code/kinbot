@@ -1054,6 +1054,22 @@ export async function ensureLeadApoDate(owner, leadId, dateStr) {
   return { ok: true, filled: true, field, value: dateStr };
 }
 
+// 会社名から、既存の取引先（Account）を探す。スペース違い・法人格違いでも当たるよう複数パターンで探す。
+export async function findAccountByName(owner, name) {
+  const c = String(name || "").replace(/['\\%_]/g, "").trim();
+  if (!c) return null;
+  const noSpace = c.replace(/[\s　]/g, "");
+  const core = noSpace.replace(/(株式会社|有限会社|合同会社|合資会社|㈱|一般社団法人|一般財団法人|公益社団法人|公益財団法人|医療法人|社会福祉法人|学校法人|協同組合|組合)/g, "");
+  const vars = [...new Set([c, noSpace, core].filter((v) => v && v.length >= 2))];
+  const ors = vars.map((v) => `Name LIKE '%${v}%'`).join(" OR ");
+  try {
+    const d = await sfQuery(owner, `SELECT Id, Name FROM Account WHERE ${ors} ORDER BY LastModifiedDate DESC LIMIT 5`);
+    const recs = d.records || [];
+    const norm = (v) => String(v || "").replace(/[\s　（）()]/g, "");
+    return recs.find((a) => norm(a.Name) === norm(c)) || recs[0] || null;
+  } catch { return null; }
+}
+
 // リードをコンバートする（標準の convertLead アクションを使う）
 export async function convertLead(owner, { leadId, convertedStatus, opportunityName, accountId, contactId, ownerId, doNotCreateOpportunity, allowDuplicate }) {
   const acc = await getAccess(owner);
