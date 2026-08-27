@@ -133,6 +133,7 @@ export async function getApoMailConfig() {
 // 予定タイトル「【新/ヒ】株式会社◯◯／田中様」から会社名と担当者名を取り出す
 export function parseTitleParts(title) {
   let t = String(title || "").normalize("NFKC");
+  t = t.replace(/^\s*メルマガ\s*/, "");   // 先頭の「メルマガ」は会社名に含めない（メルマガ【初回】以降を会社として判定）
   t = t.replace(/【[^】]*】/g, " ").replace(/[（(][^）)]*[）)]/g, " ");
   t = t.replace(/[\/／|｜]/g, " ").replace(/\s+/g, " ").trim();
   let person = "";
@@ -229,7 +230,7 @@ export function buildVars(link, { repName, repEmail, url, companyName, profile =
     // 自分で電話した相手に「弊社○○の電話に」と書くと不自然なため。
     "お礼の書き出し": (() => {
       // メルマガ由来のアポは、メールでの日程調整に対するお礼にする
-      if (isMailmaga) return "お忙しいところメールにてご調整いただきありがとうございます。";
+      if (isMailmaga) return "お忙しいところ弊社からのメールをご確認いただきありがとうございます。";
       // 自分で取ったアポ、または獲得者が分からないときは、名前を出さない
       const setter = familyName(link.setter);
       if (!setter || selfAcquired(link, repName, repEmail)) {
