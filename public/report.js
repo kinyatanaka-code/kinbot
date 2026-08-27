@@ -847,6 +847,18 @@ const UG_FEATURES = [
   { page: "settings", label: "自社ナレッジ", name: "設定：自社ナレッジ" },
 ];
 
+// SF立ち上げの失敗理由コードを、分かりやすい日本語にする
+function reasonLabel(code) {
+  const map = {
+    no_lead: "リードが見つからない", no_cross: "クロスのリードがない",
+    person_unmatch: "担当者名が一致しない", many_cross: "クロスが複数あって絞れない",
+    no_person: "予定名から担当者名が読めない", missing_url: "URLが空", no_operator: "SF連携ユーザーがいない",
+    sf_error: "SFエラー", no_cross_recordtype: "クロスのレコードタイプが無い",
+    duplicate: "重複で弾かれた", "": "その他",
+  };
+  return map[String(code || "")] || String(code || "その他");
+}
+
 async function loadUsage() {
   const box = $("ugBody");
   if (!box) return;
@@ -884,7 +896,22 @@ async function loadUsage() {
     const usedSet = new Set((d.labels || []).map((x) => String(x)));
     const unused = UG_FEATURES.filter((f) => ![...usedSet].some((u) => u.includes(f.label)));
 
+    const sf = d.sfLaunch || { total: 0, ok: 0, error: 0, errorRate: 0, reasons: [] };
+    const sfBlock = sf.total
+      ? `<div class="sr-chart"><div class="sr-chart-h">SF立ち上げのエラー率（直近${esc(days)}日）</div>
+           <div style="display:flex;align-items:baseline;gap:12px;margin:2px 0 8px">
+             <span style="font-size:26px;font-weight:700;color:${sf.errorRate >= 20 ? "#c0392b" : "#0d5b47"}">${esc(sf.errorRate)}%</span>
+             <span style="font-size:12.5px;color:#7d968b">失敗 ${esc(sf.error)} / 全 ${esc(sf.total)}件（成功 ${esc(sf.ok)}）</span>
+           </div>` +
+          (sf.reasons && sf.reasons.length
+            ? `<div class="sr-chart-h" style="margin:0 0 4px">失敗の理由</div>` +
+              bars(sf.reasons.map((x) => ({ reason: reasonLabel(x.reason), n: x.n })), "reason", "n", 8)
+            : "") +
+          `</div>`
+      : `<div class="sr-chart"><div class="sr-chart-h">SF立ち上げのエラー率（直近${esc(days)}日）</div><div class="sr-chart-h" style="margin:0">この期間の立ち上げ記録はありません。</div></div>`;
+
     box.innerHTML =
+      sfBlock +
       `<div class="sr-chart"><div class="sr-chart-h">日ごとの利用（操作数 / 人数）</div>` +
       (d.byDay || []).map((x) => `
         <div class="sr-bar-row">

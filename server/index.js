@@ -312,6 +312,7 @@ import {
   addUsageEvents,
   usageSummary,
   usageLabels,
+  sfLaunchStats,
   listQaBank,
   qaBankBotIds,
   deleteQaBank,
@@ -14834,7 +14835,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-01l SF立ち上げ：重複で既存取引先に紐づけできない（編集権限なし）ときは、自分で新しい取引先・取引先責任者を作って（allowSaveで重複許可）それに紐づけてコンバートするようにした（案2）";
+const BUILD_TAG = "2026-09-01m 利用状況：SF立ち上げのエラー率（直近◯日の失敗/全件、失敗理由の内訳）を追加した";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
@@ -15864,11 +15865,12 @@ app.get("/api/usage/summary", async (req, res) => {
     res.set("Cache-Control", "no-store");
     const days = Number(req.query.days) || 14;
     const owner = String(req.query.owner || "").trim();
-    const [sum, labels] = await Promise.all([
+    const [sum, labels, sfLaunch] = await Promise.all([
       usageSummary(days, owner),
       usageLabels(Math.max(30, days), owner),
+      sfLaunchStats(days),
     ]);
-    res.json({ ...(sum || {}), labels });
+    res.json({ ...(sum || {}), labels, sfLaunch });
   } catch (e) {
     res.status(500).json({ error: e.message });
   }

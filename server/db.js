@@ -4951,6 +4951,33 @@ export async function pendingAutolaunch({ limit = 200, includeDone = false } = {
   } catch (e) { console.error("[db] pendingAutolaunch", e.message); return []; }
 }
 
+// SF立ち上げの成功・失敗を数えて、エラー率を出す（分析の利用状況に出す）。
+// 同じslugは最後の試行だけを見る（何度も試したものを二重に数えない）。
+export async function sfLaunchStats(days = 14) {
+  if (!pool) return { total: 0, ok: 0, error: 0, errorRate: 0, reasons: [] };
+  try {
+    const { rows } = await pool.query(
+      `WITH latest AS (
+         SELECT DISTINCT ON (slug) slug, ok, reason, tried_at
+         FROM sf_autolaunch
+         WHERE tried_at >= now() - ($1 || ' days')::interval
+         ORDER BY slug, tried_at DESC
+       )
+       SELECT ok, reason FROM latest`, [String(days)]);
+    const total = rows.length;
+    const ok = rows.filter((r) => r.ok).length;
+    const error = total - ok;
+    const reasonCount = {};
+    for (const r of rows) if (!r.ok) {
+      const k = String(r.reason || "その他");
+      reasonCount[k] = (reasonCount[k] || 0) + 1;
+    }
+    const reasons = Object.entries(reasonCount).sort((a, b) => b[1] - a[1])
+      .map(([reason, n]) => ({ reason, n }));
+    return { total, ok, error, errorRate: total ? Math.round((error / total) * 1000) / 10 : 0, reasons };
+  } catch (e) { console.error("[db] sfLaunchStats", e.message); return { total: 0, ok: 0, error: 0, errorRate: 0, reasons: [] }; }
+}
+
 export async function listAutolaunch(limit = 20) {
   if (!pool) return [];
   try {
