@@ -1936,6 +1936,60 @@ async function sweepMeetingSfRecords({ max = 8 } = {}) {
 globalThis.__kinbotSweepSf = sweepMeetingSfRecords;   // Chatの「SF記録を仕上げて」から呼べるように
 setInterval(() => { sweepMeetingSfRecords().catch((e) => console.error("[商談自動記録]", e.message)); }, 10 * 60 * 1000);
 
+// SFに紐づいていない（記録できていない）商談を探す。
+// 実際に終わった商談だけを対象にする（社内MTG・ユーザーフォロー、要約も文字起こしも無いものは除く）。
+async function findUnlinkedMeetings({ days = 7, verify = true, cap = 60 } = {}) {
+  const jst = new Date(Date.now() + 9 * 3600 * 1000);
+  const from = new Date(jst.getTime() - days * 86400000).toISOString().slice(0, 10);
+  const rows = await listMeetings({ isAdmin: true, from, limit: 500 }).catch(() => []);
+  const now = Date.now();
+  const base = (rows || []).filter((m) => {
+    if (m.sf_url) return false;                                   // 紐づけ済み
+    const age = now - new Date(m.created_at).getTime();
+    if (age < 30 * 60 * 1000) return false;                       // 終わったばかりは除く
+    if (/【\s*社内MTG\s*】|【\s*ユ\s*\/\s*フォ\s*】/.test(String(m.title || ""))) return false; // 商談以外は除く
+    return true;
+  }).slice(0, cap);
+  const out = [];
+  for (const m0 of base) {
+    if (verify) {
+      const m = await getMeeting(m0.bot_id).catch(() => null);
+      const s = (m && m.summary) || {};
+      const hasTr = m && (Array.isArray(m.transcript) ? m.transcript.length : !!m.transcript);
+      if (!s.overview && !hasTr) continue;   // 中身が無い＝実際には商談していない
+    }
+    out.push({ title: m0.title || "(名前なし)", owner: String(m0.owner || ""), at: m0.created_at, bot_id: m0.bot_id });
+  }
+  return out;
+}
+
+// SF未紐づけの商談を、担当者ごとにDMし、点検チャンネルにもまとめて知らせる。
+async function notifyUnlinkedMeetings() {
+  const list = await findUnlinkedMeetings({ days: 7 }).catch(() => []);
+  if (!list.length) return { count: 0 };
+  const fmtDay = (iso) => { const j = new Date(new Date(iso).getTime() + 9 * 3600 * 1000); return `${j.getUTCMonth() + 1}/${j.getUTCDate()}`; };
+  // 担当者ごとにまとめてDM
+  const byOwner = new Map();
+  for (const x of list) { if (!x.owner) continue; if (!byOwner.has(x.owner)) byOwner.set(x.owner, []); byOwner.get(x.owner).push(x); }
+  for (const [owner, items] of byOwner) {
+    const lines = items.slice(0, 20).map((x) => `・${fmtDay(x.at)} ${x.title}`);
+    const msg = [`📌 SFに紐づいていない商談が ${items.length}件 あります`, "SFの商談を紐づければ、活動ToDoを自動で記録します。", ...lines].join("\n");
+    await notifyPerson(owner, msg).catch(() => {});
+  }
+  // 点検チャンネルにも全体をまとめる
+  try {
+    const st = await getSettings().catch(() => ({}));
+    const to = { url: String(st.selfCheckWebhook || "").trim(), space: String(st.selfCheckSpace || "").trim() };
+    if (to.url || to.space) {
+      const lines = list.slice(0, 25).map((x) => `・${fmtDay(x.at)} ${x.title}${x.owner ? `（${x.owner}）` : ""}`);
+      await notifyCheck([`📌 *SF未紐づけの商談 ${list.length}件（過去7日）*`, "SFの商談を紐づけると自動で記録されます。", "", ...lines].join("\n"), to).catch(() => {});
+    }
+  } catch {}
+  console.log(`[SF未紐づけ] ${list.length}件を通知しました`);
+  return { count: list.length };
+}
+globalThis.__kinbotNotifyUnlinked = notifyUnlinkedMeetings;
+
 // 商談後のSF記録の取りこぼしを、今すぐまとめて仕上げる（手動）。
 app.post("/api/meetings/sf-autofill-sweep", async (req, res) => {
   try {
@@ -1943,6 +1997,15 @@ app.post("/api/meetings/sf-autofill-sweep", async (req, res) => {
     const stat = await sweepMeetingSfRecords({ max });
     console.log(`[商談自動記録] 手動で仕上げ by ${req.user}：${JSON.stringify(stat)}`);
     res.json({ ok: true, ...stat });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// SF未紐づけの商談の一覧（過去7日）。?notify=1 でその場で通知も送る。
+app.get("/api/meetings/sf-unlinked", async (req, res) => {
+  try {
+    const list = await findUnlinkedMeetings({ days: Math.max(1, Math.min(30, parseInt(req.query.days, 10) || 7)) });
+    if (String(req.query.notify || "") === "1") await notifyUnlinkedMeetings().catch(() => {});
+    res.json({ ok: true, 件数: list.length, items: list.map((x) => ({ title: x.title, owner: x.owner, at: x.at })) });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
@@ -15219,7 +15282,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-02v 商談後のSF活動記録を取りこぼしなく：失敗は「済み」にせず次の見回りで再試行、窓を広く（20分〜5日・過去7日走査）、上限到達時のみ1回通知。手動仕上げAPI（/api/meetings/sf-autofill-sweep）とChat「SF記録を仕上げて」を追加。前回：動かす時間帯を終日対応";
+const BUILD_TAG = "2026-09-02w SFに紐づいていない商談を毎日通知（既定18:00 JST、設定sfUnlinkedHour/sfUnlinkedNotify）。担当者へDM＋点検チャンネルへまとめ。Chat「未紐づけ」／API /api/meetings/sf-unlinked も追加。実際に終わった商談のみ対象（社内MTG等は除外）。前回：商談後SF記録の取りこぼし対策";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
@@ -18920,6 +18983,28 @@ app.post("/api/chat/command", async (req, res) => {
       return;
     }
 
+    // 未紐づけ：SFに紐づいていない商談を確認して返す。
+    if (cmd.kind === "unlinked") {
+      const st = await getSettings().catch(() => ({}));
+      if (typeof globalThis.__kinbotNotifyUnlinked !== "function") {
+        return reply(persona.say(st, "いまは調べられませんでした。少し待ってからお願いします。"));
+      }
+      reply(persona.say(st, "SFに紐づいていない商談を調べます。少し待ってください…"));
+      (async () => {
+        try {
+          const list = await findUnlinkedMeetings({ days: 7 });
+          const st2 = await getSettings().catch(() => st);
+          if (!list.length) { await notifyPerson(who, persona.say(st2, "SF未紐づけの商談はありません。きれいです。")).catch(() => {}); return; }
+          const fmt = (iso) => { const j = new Date(new Date(iso).getTime() + 9 * 3600 * 1000); return `${j.getUTCMonth() + 1}/${j.getUTCDate()}`; };
+          const lines = list.slice(0, 15).map((x) => `・${fmt(x.at)} ${x.title}${x.owner ? `（${x.owner}）` : ""}`);
+          await notifyPerson(who, persona.say(st2, [`SF未紐づけの商談が ${list.length}件 あります（過去7日）。SFの商談を紐づけると自動で記録します。`, ...lines].join("\n"))).catch(() => {});
+        } catch (e) {
+          await notifyPerson(who, persona.say(st, "調べられませんでした：" + e.message)).catch(() => {});
+        }
+      })();
+      return;
+    }
+
     // 直して：AI社員に開発を指示する（クローザー/管理者のみ）。
     //   1) 指示を開発メモに残す（一覧・追跡できる）
     //   2) 自動改善パイプライン（GitHub Actions）を今すぐ起動し、focus に指示文を渡す
@@ -20447,6 +20532,26 @@ server.listen(PORT, async () => {
     }
   };
   setInterval(checkInsightSchedule, 60 * 1000); // 毎分チェック
+
+  // SF未紐づけの商談を、毎日1回まとめて通知する（既定 18:00 JST）。
+  // 止めたいときは設定 sfUnlinkedNotify を false に、時刻は sfUnlinkedHour で変えられる。
+  let lastUnlinkedDay = "";
+  const checkUnlinkedSchedule = async () => {
+    try {
+      const st = await getSettings().catch(() => ({}));
+      if (st.sfUnlinkedNotify === false) return;
+      const hour = Math.max(0, Math.min(23, Number(st.sfUnlinkedHour ?? 18)));
+      const nowJst = new Date(Date.now() + 9 * 3600 * 1000);
+      const dateStr = nowJst.toISOString().slice(0, 10);
+      const h = nowJst.getUTCHours(), m = nowJst.getUTCMinutes();
+      if (h === hour && m < 5 && lastUnlinkedDay !== dateStr) {
+        lastUnlinkedDay = dateStr;
+        console.log(`[SF未紐づけ] 定時通知（${hour}:00 JST）を実行`);
+        await notifyUnlinkedMeetings().catch((e) => console.error("[SF未紐づけ]", e.message));
+      }
+    } catch (e) { console.error("[SF未紐づけ]", e.message); }
+  };
+  setInterval(checkUnlinkedSchedule, 60 * 1000); // 毎分チェック
 
   // コール進捗のお知らせ（11時〜18時の毎正時）。毎分見て、その時刻になったら1回だけ流す。
   setInterval(() => { maybeSendCallReport().catch(() => {}); }, 60 * 1000);
