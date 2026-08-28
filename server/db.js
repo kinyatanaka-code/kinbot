@@ -3558,12 +3558,14 @@ export async function countTargetsNeedingSf(listId) {
     return rows[0] ? rows[0].n : 0;
   } catch { return 0; }
 }
-export async function setCallTargetLead(id, leadId, { ownerName } = {}) {
+export async function setCallTargetLead(id, leadId, { ownerName, assignedTo } = {}) {
   if (!pool || !id) return null;
   try {
+    const sets = ["lead_id = $2"]; const vals = [id, leadId || null];
+    if (ownerName !== undefined) { vals.push(ownerName || ""); sets.push(`owner_name = $${vals.length}`); }
+    if (assignedTo !== undefined) { vals.push(assignedTo || null); sets.push(`assigned_to = $${vals.length}`); }
     const { rows } = await pool.query(
-      `UPDATE call_targets SET lead_id = $2${ownerName !== undefined ? ", owner_name = $3" : ""} WHERE id = $1 RETURNING id`,
-      ownerName !== undefined ? [id, leadId || null, ownerName || ""] : [id, leadId || null]);
+      `UPDATE call_targets SET ${sets.join(", ")} WHERE id = $1 RETURNING id`, vals);
     return rows[0] || null;
   } catch (e) { console.error("[db] setCallTargetLead", e.message); return null; }
 }

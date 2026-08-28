@@ -1550,13 +1550,16 @@ document.addEventListener("click", (ev) => {
     (async () => {
       if (!listId) { say("clStatus", "リストを選んでください", 4000); return; }
       if (!confirm("このリストの各リードについて、Salesforceの最新の状態（最終ステータス・ステージ・所有者）とクロス商談の有無を読みに行って、kincallに反映します。\nよろしいですか？")) return;
+      // SFの所有者を優先して、kincallの担当をSFのリード所有者に合わせるか
+      const preferSfOwner = confirm("あわせて、SFのリード所有者を優先しますか？\n\nOKを押すと、SF上のリード所有者に一致するメンバーへ、kincallの担当を合わせます（担当のバッティング解消）。\nキャンセルを押すと、担当は変えずに状態だけ反映します。");
       say("clStatus", "Salesforceの状態を読み込んでいます…");
       try {
         const d = await (await fetch(`/api/calls/lists/${encodeURIComponent(listId)}/refresh-sf`, {
-          method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({}),
+          method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ preferSfOwner }),
         })).json();
         if (d.error) throw new Error(d.error);
         say("clStatus", `SFの最新に反映しました：${d["反映"] || 0}件`
+          + (d["担当そろえ"] ? `／SF所有者に担当をそろえ ${d["担当そろえ"]}件` : "")
           + (d["クロス商談あり"] ? `／クロス商談あり ${d["クロス商談あり"]}件（アポ獲得済みに移動${d["クロス受注"] ? `・うち受注 ${d["クロス受注"]}件` : ""}）` : "")
           + (d["SF未連携"] ? `／SF未連携 ${d["SF未連携"]}件（対象外）` : ""), 12000);
         loadTable();

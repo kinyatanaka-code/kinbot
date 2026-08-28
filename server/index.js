@@ -6451,6 +6451,19 @@ app.post("/api/calls/lists/:id/refresh-sf", async (req, res) => {
     const b = req.body || {};
     const CROSS_FROM = /^\d{4}-\d{2}-\d{2}$/.test(String(b.crossFrom || "")) ? b.crossFrom : "2026-03-01";
 
+    // 「SFの所有者を優先」する設定。ONのとき、SFのリード所有者に一致するメンバーへ
+    // kincallの担当（assigned_to）を合わせる（担当のバッティング解消）。
+    const st0 = await getSettings().catch(() => ({}));
+    const sfOwnerPriority = (st0 && st0.sfOwnerPriority === true) || b.preferSfOwner === true;
+    let nameToEmail = new Map();
+    if (sfOwnerPriority) {
+      try {
+        const mem = await listMembers();
+        const norm = (s) => String(s || "").replace(/[\s　]/g, "").toLowerCase();
+        for (const m of mem) if (m.name && m.email) nameToEmail.set(norm(m.name), String(m.email).toLowerCase());
+      } catch {}
+    }
+
     const targets = await listCallTargets(id, { limit: 2000 }).catch(() => []);
     const withLead = targets.filter((t) => t.lead_id);
 
@@ -6513,7 +6526,7 @@ app.post("/api/calls/lists/:id/refresh-sf", async (req, res) => {
     //   ステージ列 ＝ リードの状況（NEW/担当者未接触/ジャッジ 等）← SFの最新に更新
     //   最終ステータス列 ＝ 最終架電結果（担当者不在 等）← kincallの記録を保持（触らない）
     //   ただしクロス商談あり／クロス受注のときだけ、最終ステータスを「アポ獲得済み（…）」に上書き
-    let 反映 = 0, クロス化 = 0, 受注除外 = 0;
+    let 反映 = 0, クロス化 = 0, 受注除外 = 0, 担当そろえ = 0;
     for (const t of withLead) {
       const li = info.get(id15(t.lead_id)) || {};
       const stage = li.status || t.stage || "";           // ステージ列＝リードの状況
@@ -6531,12 +6544,18 @@ app.post("/api/calls/lists/:id/refresh-sf", async (req, res) => {
       // SFで見つかったリードは、現所有者を必ず最新の値に入れ直す（古い誤った値＝ステータスが
       // 現所有者に入っている等を上書きして直す。SFの所有者が取れなければ空にする）。
       if (info.has(id15(t.lead_id))) {
-        await setCallTargetLead(t.id, t.lead_id, { ownerName: li.owner || "" }).catch(() => {});
+        const patch = { ownerName: li.owner || "" };
+        // SF所有者を優先：所有者名がメンバーに一致すれば、担当もそのメンバーに合わせる
+        if (sfOwnerPriority && li.owner) {
+          const em = nameToEmail.get(String(li.owner).replace(/[\s　]/g, "").toLowerCase());
+          if (em) { patch.assignedTo = em; if (em !== String(t.assigned_to || "").toLowerCase()) 担当そろえ++; }
+        }
+        await setCallTargetLead(t.id, t.lead_id, patch).catch(() => {});
       }
       反映++;
     }
-    console.log(`[SF更新] リスト${id}：${反映}件をSF最新に反映（クロス商談あり ${クロス化}件・うちクロス受注 ${受注除外}件）by ${req.user}`);
-    res.json({ ok: true, 対象: withLead.length, 反映, クロス商談あり: クロス化, クロス受注: 受注除外, SF未連携: targets.length - withLead.length });
+    console.log(`[SF更新] リスト${id}：${反映}件をSF最新に反映（クロス商談あり ${クロス化}件・うちクロス受注 ${受注除外}件${sfOwnerPriority ? `・SF所有者に担当をそろえ ${担当そろえ}件` : ""}）by ${req.user}`);
+    res.json({ ok: true, 対象: withLead.length, 反映, クロス商談あり: クロス化, クロス受注: 受注除外, 担当そろえ, SF未連携: targets.length - withLead.length });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
@@ -10201,6 +10220,18 @@ app.get("/api/chat-config", async (req, res) => {
       notifyMail: st.chatNotifyMail !== false,
       ...chatInfo(),
     });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// kincall：SFのリード所有者を優先するか（担当のバッティング解消）
+app.get("/api/calls/sf-owner-priority", async (req, res) => {
+  try { const st = await getSettings(); res.json({ enabled: st && st.sfOwnerPriority === true }); }
+  catch (e) { res.status(500).json({ error: e.message }); }
+});
+app.put("/api/calls/sf-owner-priority", async (req, res) => {
+  try {
+    await saveSettings({ sfOwnerPriority: req.body?.enabled === true });
+    res.json({ ok: true, enabled: req.body?.enabled === true });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
@@ -14904,7 +14935,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-02b 開発メモ：要望を「済み」にしたとき、要望者と田中欽也さんの個人チャットに『自動で開発しました』と通知するようにした（文面変更）";
+const BUILD_TAG = "2026-09-02c kincall：SF所有者を優先する動きを追加。SF更新時に確認でOKすると、SFのリード所有者に一致するメンバーへkincallの担当を合わせる（担当のバッティング解消）。設定でも常時ONにできる";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
