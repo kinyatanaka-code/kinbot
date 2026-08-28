@@ -5,7 +5,7 @@
 // 名前は kinbot の設定 aiName で変えられる（Chatで「名前を〇〇にして」でも変えられる）。
 // 未設定なら、環境変数 AI_NAME → 既定 "キンタ" の順に決める。
 
-const DEFAULT_NAME = (process.env.AI_NAME || "キツツキ").trim() || "キツツキ";
+const DEFAULT_NAME = (process.env.AI_NAME || "kinbot").trim() || "kinbot";
 
 // 設定オブジェクトから、AI社員の名前を取り出す。
 export function aiName(settings) {

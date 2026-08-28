@@ -15025,7 +15025,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-02f AI社員の可視化：ナビに「AI社員」ページを追加。名前を『キツツキ』に。画面でアバター・稼働状態・最近の仕事（自動改善/SF監査）・開発メモ件数・管理場所を表示し、自動改善ON/OFF・本番反映ON/OFF・稼働時間・改名をその場で操作可能（/api/ai/status・/api/ai/name）。前回：AI社員の人格とChat制御";
+const BUILD_TAG = "2026-09-02g AI社員の名前を『kinbot』に変更（既定名）。画面・Chat・自動改善の通知すべてに反映。前回：AI社員の可視化ページ追加";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
