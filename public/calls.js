@@ -240,7 +240,7 @@ function render() {
         ${listId !== "all" ? `<td><input type="checkbox" class="kc-sel" data-id="${x.id}"${selectedIds.has(String(x.id)) ? " checked" : ""} /></td>` : ""}
         <td class="kc-stage">${esc(x["ステージ"] || "-")}</td>
         <td class="kc-co">${esc(x["会社名"] || "")}${済 ? ' <span class="kc-apo-badge">アポ獲得済み</span>' : ""}${
-          予定 ? ` <span class="kc-next-badge${予定.due ? " due" : ""}">${予定.due ? "架電予定 " : "予定 "}${esc(予定.md)} ${esc(予定.hhmm)}</span>` : ""}</td>
+          予定 ? ` <span class="kc-next-badge${予定.due ? " due" : ""}">${予定.due ? "架電予定 " : "予定 "}${esc(予定.md)} ${esc(予定.hhmm)}<button type="button" class="kc-next-x" data-id="${x.id}" title="この架電予定を消す">×</button></span>` : ""}</td>
         <td>${esc(x["担当者"] || "")}</td>
         <td>${x["電話番号"]
           ? `<a class="kc-tel" href="tel:${esc(telOf(x["電話番号"]))}">${esc(x["電話番号"])}</a>`
@@ -280,6 +280,20 @@ function render() {
     b.addEventListener("click", () => openEdit(b.dataset.id)));
   box.querySelectorAll(".kc-doc").forEach((b) =>
     b.addEventListener("click", () => openDocSend(b.dataset.id)));
+  // 架電予定タグの × ：その予定を消す
+  box.querySelectorAll(".kc-next-x").forEach((b) =>
+    b.addEventListener("click", async (ev) => {
+      ev.stopPropagation();
+      const id = b.dataset.id;
+      b.disabled = true;
+      try {
+        const r = await fetch(`/api/calls/targets/${encodeURIComponent(id)}/clear-next`, { method: "POST" });
+        if (!r.ok) throw new Error();
+        const row = rows.find((x) => String(x.id) === String(id));
+        if (row) row["次回予定"] = null;   // 手元のデータからも消して、並びも直す
+        render();
+      } catch { b.disabled = false; }
+    }));
 
   // 選択（チェック）の配線
   const updateSelBar = () => {
@@ -625,6 +639,8 @@ function renderDock() {
     .kc-plan-row:not(.on) .kc-plan-rest{opacity:.4;}
     .kc-next-badge{display:inline-block;margin-left:6px;padding:1px 8px;border-radius:10px;background:#eef3f1;color:#5b7a6d;font-size:11px;font-weight:700;vertical-align:middle;}
     .kc-next-badge.due{background:#f0a020;color:#fff;}
+    .kc-next-x{margin-left:5px;border:0;background:transparent;color:inherit;font-size:12px;font-weight:700;cursor:pointer;padding:0 1px;line-height:1;opacity:.75;}
+    .kc-next-x:hover{opacity:1;}
     .kc-quick{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:2px 0 6px;}
     .kc-qchip{border:1px solid #cfe0d9;background:#fff;color:#1f2a26;border-radius:999px;padding:7px 15px;font-size:13px;cursor:pointer;transition:all .12s;}
     .kc-qchip:hover{border-color:#1d9e75;background:#f4faf7;}

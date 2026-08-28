@@ -7572,7 +7572,15 @@ app.post("/api/calls/targets/:id/record", async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-// リスト内のリードについて、CSV取り込みで二重になった活動履歴を整理する。
+// 架電予定（次回予定）を消す（かけ終わったら、その予定タグを消せるように）
+app.post("/api/calls/targets/:id/clear-next", async (req, res) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    if (!id) return res.status(400).json({ error: "IDがありません" });
+    await setCallTargetNextCall(id, null);
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
 // 説明の中身（結果・コメント）が同じものは1件だけ残し、残りを消す。
 // dryRun（既定）だと、消す件数を数えるだけ。
 app.post("/api/calls/lists/:id/dedupe-activities", async (req, res) => {
@@ -14874,7 +14882,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-01w リスト作成：試算で調べた会社ごとのSFリード検索結果を短時間おぼえておき、直後の「この内容で作る」では検索を省いて速くした";
+const BUILD_TAG = "2026-09-01x kincall：会社名の横の架電予定タグに×を付け、かけ終わったらその予定を消せるようにした";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
