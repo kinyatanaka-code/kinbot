@@ -15074,7 +15074,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-02k AI社員：Chatの「〇〇を直して」で自動改善パイプライン（GitHub Actions）をfocus付きで即起動し、night-briefがその指示を最優先で直す。指示は開発メモにも登録。起動には環境変数 GH_DISPATCH_TOKEN が必要（未設定は毎時0分の自動改善で着手）。本番反映は関所（CI・稼働時間・PR・ロールバック）を必ず通る。前回：記憶カード・Chatの記憶/レポート/監査";
+const BUILD_TAG = "2026-09-02l 自動改善の方針：アイデア（idea）の変更は本番に直接入れず必ずPRにする（guardで判定）。night-briefが着手メモの種類を書き出し、guardが読む。前回：Chatの「直して」で自動改善を即起動";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",

@@ -127,6 +127,8 @@ async function main() {
 
   writeFileSync("dev/NIGHT_BRIEF.md", lines.join("\n") + "\n");
   writeFileSync("dev/night-ids.json", JSON.stringify(pick.map((x) => x.id)));
+  // 着手するメモの種類も残す。guard.mjs が「アイデアはPRにする」を判定するのに使う。
+  writeFileSync("dev/night-kinds.json", JSON.stringify(pick.map((x) => x.kind)));
   console.log(`今夜の対象：${pick.length}件 / 全部で ${all.length}件`);
 
   summary([

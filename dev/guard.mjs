@@ -8,7 +8,7 @@
 //   ok=false … PRにする（理由つき）
 
 import { execSync } from "node:child_process";
-import { appendFileSync, writeFileSync } from "node:fs";
+import { appendFileSync, writeFileSync, readFileSync } from "node:fs";
 
 // 変えてはいけないところ（ここに触れていたら、必ず人が見る）
 const PROTECTED = [
@@ -81,6 +81,15 @@ function main() {
   for (const d of DANGER) {
     if (d.re.test(addedText)) reasons.push(`${d.why}が含まれている`);
   }
+
+  // アイデア（idea）の変更は、確実な不具合と違って人の判断が要る。
+  // 田中さんの方針で、アイデアを含むぶんは本番に直接入れず、必ずPRにする。
+  try {
+    const kinds = JSON.parse(readFileSync("dev/night-kinds.json", "utf8"));
+    if (Array.isArray(kinds) && kinds.includes("idea")) {
+      reasons.push("アイデアの変更は人が見る（PRにする）");
+    }
+  } catch { /* ファイルが無ければ、種類は問わない */ }
 
   const r = {
     ok: reasons.length === 0,
