@@ -10,7 +10,7 @@
     <link rel="manifest" href="/site.webmanifest" />
     <meta name="theme-color" content="#0d5b47" />
     <meta name="apple-mobile-web-app-title" content="kinbot" />
-    <link rel="stylesheet" href="style.css?v=20260902r" />
+    <link rel="stylesheet" href="style.css?v=20260902s" />
     <style>
       /* 1画面に収めるダッシュボード。ページ自体はスクロールせず、長いリストはカード内で送る。 */
       .ai-page{flex:1 1 auto;min-height:0;display:flex;flex-direction:column;gap:12px;
@@ -86,6 +86,11 @@
       .ai-sw.on::after{left:22px;}
       .ai-hours{display:flex;align-items:center;gap:6px;}
       .ai-hours input{width:48px;padding:4px 6px;border:1px solid #d7ded9;border-radius:8px;text-align:center;font-size:13px;}
+      .ai-hchips{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px;}
+      .ai-hchip{border:1px solid #d7ded9;background:#fff;color:#7d8c86;border-radius:999px;
+        padding:4px 10px;font-size:12px;font-weight:700;cursor:pointer;transition:all .12s;}
+      .ai-hchip.on{background:#1d9e75;border-color:#1d9e75;color:#fff;}
+      .ai-hchip:hover{border-color:#1d9e75;}
       .ai-chips{display:flex;flex-wrap:wrap;gap:6px;}
       .ai-chip{background:#eef7f3;color:#0d5b47;border-radius:999px;padding:3px 10px;font-size:11.5px;font-weight:600;}
       .ai-num{display:flex;gap:14px;flex-wrap:wrap;}
@@ -126,9 +131,9 @@
         </main>
       </div>
     </div>
-    <script src="product.js?v=20260902r"></script>
-    <script src="ai.js?v=20260902r"></script>
-    <script src="nav.js?v=20260902r"></script>
+    <script src="product.js?v=20260902s"></script>
+    <script src="ai.js?v=20260902s"></script>
+    <script src="nav.js?v=20260902s"></script>
     <script src="/cmdk.js?v=20260827a"></script>
   </body>
 </html>

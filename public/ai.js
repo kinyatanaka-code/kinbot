@@ -64,16 +64,17 @@ function fmtWhen(iso) {
 let STATE = null;
 let _bubbleTimer = null;
 
-// 次の自動改善の時刻（日本時間 9:30〜20:30 の決まった時刻）を文にする。
+// 次の自動改善の時刻を、田中さんが選んだ「動かす時刻(runHours)」から求めて文にする。
 function nextRunLabel(c) {
   if (!c || !c.autoImprove) return "";
-  const t = [[9, 30], [11, 30], [13, 30], [15, 30], [17, 30], [19, 30], [20, 30]];
+  const hours = (Array.isArray(c.runHours) && c.runHours.length ? c.runHours : [9, 11, 13, 15, 17, 19, 20])
+    .slice().sort((a, b) => a - b);
   const d = new Date(Date.now() + (new Date().getTimezoneOffset() * 60000) + 9 * 3600000); // JST
-  const cur = d.getHours() * 60 + d.getMinutes();
-  const nx = t.find(([h, m]) => h * 60 + m > cur);
-  const [h, m] = nx || t[0];
-  const hhmm = `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
-  return nx ? `次の自動改善は ${hhmm} です` : `次は 明日 ${hhmm} に動きます`;
+  const cur = d.getHours() + d.getMinutes() / 60;
+  const nx = hours.find((h) => h + 0.5 > cur);   // その時刻の:30
+  const h = nx != null ? nx : hours[0];
+  const hhmm = `${String(h).padStart(2, "0")}:30`;
+  return nx != null ? `次の自動改善は ${hhmm} です` : `次は 明日 ${hhmm} に動きます`;
 }
 
 // いま何をしているか（発言）の候補を、状態から組み立てる。順に吹き出しへ出す。
@@ -159,11 +160,11 @@ function render(d) {
           <div><div class="ai-ctl-t">本番へ自動反映</div><div class="ai-ctl-d">OFFなら本番に入れずPRにする</div></div>
           <button class="ai-sw ${c.autoApply ? "on" : ""}" id="swApply" aria-label="本番反映"></button>
         </div>
-        <div class="ai-ctl">
-          <div><div class="ai-ctl-t">本番に入れてよい時間帯</div><div class="ai-ctl-d">この外で直したものはPRになる</div></div>
-          <div class="ai-hours">
-            <input type="number" id="hFrom" min="0" max="24" value="${c.from}" /><span>〜</span>
-            <input type="number" id="hTo" min="0" max="24" value="${c.to}" /><span>時</span>
+        <div class="ai-ctl" style="display:block;">
+          <div><div class="ai-ctl-t">動かす時刻（この時刻の :30 に動きます）</div><div class="ai-ctl-d">タップで入り切り。田中さんが自由に選べます</div></div>
+          <div class="ai-hchips" id="aiRunHours">
+            ${[9,10,11,12,13,14,15,16,17,18,19,20].map((h) =>
+              `<button type="button" class="ai-hchip ${(c.runHours||[]).includes(h) ? "on" : ""}" data-h="${h}">${h}:30</button>`).join("")}
           </div>
         </div>
         <div class="ai-mini" id="aiCtlMsg">Chatでも操作可：「自動改善を止めて／動かして」「本番反映を止めて」「名前を〇〇にして」</div>
@@ -244,14 +245,16 @@ function wire() {
     putAuto({ autoApply: !STATE.control.autoApply },
       STATE.control.autoApply ? "本番反映を止めました（今後はPR）。" : "本番反映を動かしました。"));
 
-  const applyHours = () => {
-    const from = Math.max(0, Math.min(24, parseInt($("hFrom").value, 10) || 0));
-    const to = Math.max(0, Math.min(24, parseInt($("hTo").value, 10) || 24));
-    putAuto({ from, to }, `本番に入れてよい時間帯を ${from}〜${to}時 にしました。`);
-  };
-  ["hFrom", "hTo"].forEach((id) => {
-    const el = $(id);
-    if (el) el.addEventListener("change", applyHours);
+  // 動かす時刻（:30）のチップ。タップで入り切りし、まとめて保存する。
+  const chipBox = $("aiRunHours");
+  if (chipBox) chipBox.querySelectorAll(".ai-hchip").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      btn.classList.toggle("on");
+      const hours = [...chipBox.querySelectorAll(".ai-hchip.on")].map((b) => Number(b.dataset.h)).sort((a, z) => a - z);
+      putAuto({ runHours: hours }, hours.length
+        ? `動かす時刻を ${hours.map((h) => h + ":30").join("・")} にしました。`
+        : "動かす時刻をすべて外しました（このままだと動きません）。");
+    });
   });
 
   const rn = $("aiRename");
