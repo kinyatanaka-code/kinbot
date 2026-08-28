@@ -190,7 +190,7 @@ jobs:
         run: |
           git config user.name "kinbot"
           git config user.email "kinbot@neo-career.co.jp"
-          rm -f dev/GUARD.json dev/NIGHT_BRIEF.md dev/night-ids.json dev/night-kinds.json dev/ADVISOR_INPUT.md
+          rm -f dev/GUARD.json dev/NIGHT_BRIEF.md dev/ADVISOR_INPUT.md
           git add -A
           git commit -m "自動改善：開発メモの対応（$(date -u -d '+9 hours' '+%m/%d %H:%M')）"
           git push origin HEAD:main

@@ -23,12 +23,13 @@ async function main() {
   if (!BASE || !TOKEN) { console.log("設定がないので送りません"); return; }
 
   let body = {};
+  const noteIds = readJson("dev/night-ids.json") || [];
   if (kind === "advice") {
     const text = read("dev/ADVISOR_OUT.md");
     if (!text.trim()) { console.log("案が無いので送りません"); return; }
     body = { text, runUrl };
   } else if (kind === "night") {
-    body = { changed: process.env.CHANGED === "true", result: read("dev/NIGHT_RESULT.md").slice(0, 2000), runUrl };
+    body = { changed: process.env.CHANGED === "true", result: read("dev/NIGHT_RESULT.md").slice(0, 2000), runUrl, noteIds };
   } else {
     body = {
       applied: !!process.env.APPLIED_SHA,
@@ -36,6 +37,7 @@ async function main() {
       guard: readJson("dev/GUARD.json"),
       result: read("dev/NIGHT_RESULT.md").slice(0, 1500),
       runUrl,
+      noteIds,
     };
   }
 

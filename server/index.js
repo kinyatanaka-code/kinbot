@@ -9350,6 +9350,41 @@ app.put("/api/auto-apply", async (req, res) => {
 });
 
 // 自動改善の結果を受け取る（入れたか／PRにしたか）
+// 自動改善の結果メモ（NIGHT_RESULT.md）から「## 直したもの」のメモIDを取り出す。
+// 「手を付けなかったもの」のIDは拾わない（対応済みにしてしまわないため）。
+function parseFixedNoteIds(result) {
+  const text = String(result || "");
+  const start = text.search(/##\s*直したもの/);
+  if (start < 0) return [];
+  let seg = text.slice(start);
+  const end = seg.search(/##\s*手を?つけ|##\s*手を付け/);
+  if (end > 0) seg = seg.slice(0, end);
+  const ids = [];
+  const re = /メモ\s*ID[：:\s]*([0-9]+)/g;
+  let m;
+  while ((m = re.exec(seg))) ids.push(Number(m[1]));
+  return [...new Set(ids.filter(Boolean))];
+}
+
+// 直した開発メモを自動で片づける。本番反映できたぶんは「対応済み(done)」、
+// PR止まり（まだ本番に入っていない）は「対応中(doing)」にする。
+async function markNotesFromResult(b, { applied }) {
+  try {
+    let ids = parseFixedNoteIds(b.result);
+    // 結果から拾えないときは、着手したメモID（report.mjsが送る）で代替する。
+    if (!ids.length && Array.isArray(b.noteIds)) ids = b.noteIds.map(Number).filter(Boolean);
+    if (!ids.length) return 0;
+    const status = applied ? "done" : "doing";
+    let n = 0;
+    for (const id of [...new Set(ids)]) {
+      const r = await updateDevNote(id, { status }).catch(() => null);
+      if (r) n++;
+    }
+    if (n) console.log(`[自動改善] 開発メモ ${n}件を${applied ? "対応済み" : "対応中"}にしました`);
+    return n;
+  } catch (e) { console.warn("[自動改善] メモ更新", e.message); return 0; }
+}
+
 app.post("/api/dev-notes/applied", async (req, res) => {
   try {
     const b = req.body || {};
@@ -9380,7 +9415,15 @@ app.post("/api/dev-notes/applied", async (req, res) => {
       : (g.changed ? "直しましたが本番には入れず、確認待ち（PR）にしました" : "今回は変更なし"),
       { files: (g.files || []).slice(0, 6), lines: g.lines || 0 });
     console.log(`[自動改善] ${b.applied ? "本番に入れました" : "PRにしました"}`);
-    res.json({ ok: true });
+
+    // 直した開発メモを自動で片づける（本番反映＝対応済み、PR＝対応中）。「変更なし」は触らない。
+    let 片づけ = 0;
+    if (b.applied || (g && g.changed)) {
+      片づけ = await markNotesFromResult(b, { applied: !!b.applied });
+      if (片づけ) aiLog(b.applied ? "notes-done" : "notes-doing",
+        `開発メモ ${片づけ}件を${b.applied ? "対応済み" : "対応中"}にしました`);
+    }
+    res.json({ ok: true, 片づけ });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
@@ -9451,8 +9494,11 @@ app.post("/api/dev-notes/night-report", async (req, res) => {
       String(b.result || "").slice(0, 1500),
     ].filter(Boolean).join("\n");
     await notifyAll(text, "assign").catch(() => {});
+    // 夜間はPRを作る（本番へ直接は入れない）ので、直したメモは「対応中」にする。
+    let 片づけ = 0;
+    if (changed) 片づけ = await markNotesFromResult(b, { applied: false });
     console.log(`[night] 夜間開発の結果を受け取りました（変更${changed ? "あり" : "なし"}）`);
-    res.json({ ok: true });
+    res.json({ ok: true, 片づけ });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
@@ -15105,7 +15151,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-02o 自己点検の「自動での書き込み」を、実際に動く条件（自動がON＋書き込む人あり）で判定するようにした（動いていないのに「30分おきに動きます」と出ていた）。前回：プロセスシートの「最後の書き込み」を設定に残すようにした";
+const BUILD_TAG = "2026-09-02p 自動改善が直した開発メモを自動で片づける：本番反映できたものは「対応済み(done)」、PR止まりは「対応中(doing)」に。結果(NIGHT_RESULT.mdの『直したもの』のメモID)を基準にし、手を付けなかったものは触らない。前回：自己点検の自動書き込み判定を修正（自動改善による）";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
