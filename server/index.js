@@ -9270,8 +9270,7 @@ app.get("/api/ai/status", async (req, res) => {
     const h = now.getUTCHours();
     const from = Number(st.autoApplyFrom ?? 0), to = Number(st.autoApplyTo ?? 24);
     const inHours = from <= to ? (h >= from && h < to) : (h >= from || h < to);
-    const runHours = (Array.isArray(st.runHours) ? st.runHours : [9, 11, 13, 15, 17, 19, 20])
-      .map(Number).filter((n) => Number.isInteger(n) && n >= 0 && n <= 23);
+    const run = computeRunHours(st);
 
     // 開発メモの件数（未対応／対応中／済み、種別）
     const notes = await listDevNotes({ status: "", limit: 500 }).catch(() => []);
@@ -9289,7 +9288,7 @@ app.get("/api/ai/status", async (req, res) => {
         autoImprove: st.autoImprove === true,
         autoApply: st.autoApply === true,
         from, to, nowHour: h, inHours,
-        runHours, inRun: runHours.includes(h),
+        runFrom: run.from, runTo: run.to, runEvery: run.every, runHours: run.hours, inRun: run.hours.includes(h),
       },
       schedule: [
         { when: "毎時0分", what: "1時間ごとの自動改善", where: "GitHub Actions", detail: "安全なものは本番へ、危ういものはPR" },
@@ -9320,23 +9319,37 @@ app.put("/api/ai/name", async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+// 「動かす時間帯」＝開始時〜終了時（runEvery時間おき）から、実際に動く時刻の一覧を作る。
+// cronは毎時:30に起動する（UTC 23,0-12＝日本時間 8:30〜21:30）ので、その枠に収める。
+const RUN_ENV_FROM = 8, RUN_ENV_TO = 21;
+function computeRunHours(st) {
+  const clamp = (v, lo, hi, dflt) => {
+    const n = parseInt(v, 10);
+    return Number.isInteger(n) ? Math.max(lo, Math.min(hi, n)) : dflt;
+  };
+  const from = clamp(st && st.runFrom, RUN_ENV_FROM, RUN_ENV_TO, 9);
+  const to = clamp(st && st.runTo, RUN_ENV_FROM, RUN_ENV_TO, 21);
+  const every = clamp(st && st.runEvery, 1, 12, 2);
+  const hours = [];
+  for (let h = from; h <= to; h += every) if (h >= RUN_ENV_FROM && h <= RUN_ENV_TO) hours.push(h);
+  return { from, to, every, hours };
+}
+
 app.get("/api/auto-apply", async (req, res) => {
   try {
     const st = await getSettings();
     const now = new Date(Date.now() + 9 * 3600 * 1000);
     const h = now.getUTCHours();   // JSTの時
-    // 田中さんが選ぶ「動かす時刻」（その時刻の:30に動く）。既定は 9:30〜20:30 の2時間おき＋20:30。
-    const runHours = (Array.isArray(st.runHours) ? st.runHours : [9, 11, 13, 15, 17, 19, 20])
-      .map(Number).filter((n) => Number.isInteger(n) && n >= 0 && n <= 23);
-    const inRun = runHours.includes(h);
+    const run = computeRunHours(st);
+    const inRun = run.hours.includes(h);
     res.json({
-      // 選んだ時刻のとき「だけ」動く（設定ON かつ 今がその時刻）
+      // 選んだ時間帯のとき「だけ」動く（設定ON かつ 今がその時刻）
       enabled: st.autoImprove === true && inRun,
       improveOn: st.autoImprove === true,   // 設定そのもの（ON/OFF）
       inRun,                                // 今が「動かす時刻」か
-      // 直したものを本番へ入れてよいか（OFFならPRにする）
-      autoApply: st.autoApply === true,
-      runHours, nowHour: h,
+      autoApply: st.autoApply === true,     // 本番へ入れるか（OFFならPR）
+      runFrom: run.from, runTo: run.to, runEvery: run.every, runHours: run.hours,
+      nowHour: h,
     });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
@@ -9347,12 +9360,10 @@ app.put("/api/auto-apply", async (req, res) => {
     const patch = {};
     if (b.enabled !== undefined) patch.autoImprove = b.enabled === true;
     if (b.autoApply !== undefined) patch.autoApply = b.autoApply === true;
-    if (b.from !== undefined) patch.autoApplyFrom = Math.max(0, Math.min(24, parseInt(b.from, 10) || 0));
-    if (b.to !== undefined) patch.autoApplyTo = Math.max(0, Math.min(24, parseInt(b.to, 10) || 24));
-    if (Array.isArray(b.runHours)) {
-      patch.runHours = [...new Set(b.runHours.map((x) => parseInt(x, 10)).filter((n) => Number.isInteger(n) && n >= 0 && n <= 23))]
-        .sort((a, z) => a - z);
-    }
+    const clampH = (v, lo, hi) => Math.max(lo, Math.min(hi, parseInt(v, 10)));
+    if (b.runFrom !== undefined && Number.isInteger(parseInt(b.runFrom, 10))) patch.runFrom = clampH(b.runFrom, RUN_ENV_FROM, RUN_ENV_TO);
+    if (b.runTo !== undefined && Number.isInteger(parseInt(b.runTo, 10))) patch.runTo = clampH(b.runTo, RUN_ENV_FROM, RUN_ENV_TO);
+    if (b.runEvery !== undefined && Number.isInteger(parseInt(b.runEvery, 10))) patch.runEvery = clampH(b.runEvery, 1, 12);
     await saveSettings(patch);
     console.log(`[自動改善] 設定を更新 by ${req.user}: ${JSON.stringify(patch)}`);
     res.json({ ok: true });
@@ -15161,7 +15172,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-02s 自動改善の「動かす時刻」を田中さんが画面で調整できるように（AI社員→動かす時刻の:30チップ、runHours設定）。cronは毎時:30起動に固定し、実際に動くかはkinbotのrunHoursで判定。前回：アバターをデスクで働く場面に拡大";
+const BUILD_TAG = "2026-09-02t 自動改善の「動かす時間帯」を開始時〜終了時＋何時間おきで選べるように（AI社員画面。runFrom/runTo/runEveryから実行時刻を生成）。cronは毎時:30起動（JST8:30〜21:30の枠）、実行可否はkinbotで判定。前回：動かす時刻の画面調整";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",

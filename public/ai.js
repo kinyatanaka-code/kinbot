@@ -161,11 +161,14 @@ function render(d) {
           <button class="ai-sw ${c.autoApply ? "on" : ""}" id="swApply" aria-label="本番反映"></button>
         </div>
         <div class="ai-ctl" style="display:block;">
-          <div><div class="ai-ctl-t">動かす時刻（この時刻の :30 に動きます）</div><div class="ai-ctl-d">タップで入り切り。田中さんが自由に選べます</div></div>
-          <div class="ai-hchips" id="aiRunHours">
-            ${[9,10,11,12,13,14,15,16,17,18,19,20].map((h) =>
-              `<button type="button" class="ai-hchip ${(c.runHours||[]).includes(h) ? "on" : ""}" data-h="${h}">${h}:30</button>`).join("")}
+          <div><div class="ai-ctl-t">動かす時間帯（この時間の :30 に動きます）</div><div class="ai-ctl-d">開始〜終了と、何時間おきかを選べます</div></div>
+          <div class="ai-range">
+            <select id="runFrom">${[8,9,10,11,12,13,14,15,16,17,18,19,20,21].map((h)=>`<option value="${h}"${c.runFrom===h?" selected":""}>${h}時</option>`).join("")}</select>
+            <span>〜</span>
+            <select id="runTo">${[8,9,10,11,12,13,14,15,16,17,18,19,20,21].map((h)=>`<option value="${h}"${c.runTo===h?" selected":""}>${h}時</option>`).join("")}</select>
+            <select id="runEvery">${[1,2,3,4].map((n)=>`<option value="${n}"${c.runEvery===n?" selected":""}>${n}時間おき</option>`).join("")}</select>
           </div>
+          <div class="ai-mini" id="aiRunPreview">実行：${(c.runHours||[]).map((h)=>h+":30").join("・") || "（なし）"}</div>
         </div>
         <div class="ai-mini" id="aiCtlMsg">Chatでも操作可：「自動改善を止めて／動かして」「本番反映を止めて」「名前を〇〇にして」</div>
       </div>
@@ -245,16 +248,21 @@ function wire() {
     putAuto({ autoApply: !STATE.control.autoApply },
       STATE.control.autoApply ? "本番反映を止めました（今後はPR）。" : "本番反映を動かしました。"));
 
-  // 動かす時刻（:30）のチップ。タップで入り切りし、まとめて保存する。
-  const chipBox = $("aiRunHours");
-  if (chipBox) chipBox.querySelectorAll(".ai-hchip").forEach((btn) => {
-    btn.addEventListener("click", () => {
-      btn.classList.toggle("on");
-      const hours = [...chipBox.querySelectorAll(".ai-hchip.on")].map((b) => Number(b.dataset.h)).sort((a, z) => a - z);
-      putAuto({ runHours: hours }, hours.length
-        ? `動かす時刻を ${hours.map((h) => h + ":30").join("・")} にしました。`
-        : "動かす時刻をすべて外しました（このままだと動きません）。");
-    });
+  // 動かす時間帯（開始〜終了・何時間おき）。変更したら保存する。
+  const saveRange = () => {
+    const runFrom = Number($("runFrom").value);
+    const runTo = Number($("runTo").value);
+    const runEvery = Number($("runEvery").value);
+    if (runTo < runFrom) { $("aiCtlMsg").textContent = "終了は開始より後にしてください。"; return; }
+    // 実行時刻のプレビューを先に出す
+    const prev = [];
+    for (let h = runFrom; h <= runTo; h += runEvery) prev.push(h + ":30");
+    const pv = $("aiRunPreview"); if (pv) pv.textContent = "実行：" + (prev.join("・") || "（なし）");
+    putAuto({ runFrom, runTo, runEvery }, `動かす時間帯を ${runFrom}時〜${runTo}時（${runEvery}時間おき）にしました。`);
+  };
+  ["runFrom", "runTo", "runEvery"].forEach((id) => {
+    const el = $(id);
+    if (el) el.addEventListener("change", saveRange);
   });
 
   const rn = $("aiRename");
