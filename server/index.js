@@ -1847,57 +1847,104 @@ setInterval(async () => {
   }
 }, 10 * 60 * 1000);
 
-// 商談（会議）が終わってから30分ほど経ったら、活動ToDo（活動種別＝商談・説明・状況）を
-// Salesforceへ自動で記録する。「商談から読み取る」を押さなくても済むようにする。
-// 冪等（createTaskIdempotent）なので、二重には作らない。
-const _autoShodanDone = new Set();
-setInterval(async () => {
+// 商談（会議）が終わったら、活動ToDo（活動種別＝商談・説明・状況）をSalesforceへ自動記録する。
+// 「商談から読み取る」を押さなくても済むようにする。冪等（createTaskIdempotent）なので二重には作らない。
+//
+// 取りこぼしを無くすための工夫：
+//   ・失敗したものは「済み」にしない → 次の見回りで自動的にやり直す（一時的なSF失敗・連携切れに強い）。
+//   ・窓を広く（20分〜5日、過去7日を走査）→ 文字起こしが遅れて届いた／SF紐づけが後日でも拾える。
+//   ・何度やっても駄目なものは MAX_TRIES であきらめ、そのとき1回だけ担当者に知らせる。
+const _autoShodanDone = new Set();      // 記録できた（このプロセス内で成功済み）
+const _autoShodanTries = new Map();     // key -> 失敗した回数
+const _autoShodanGaveUp = new Set();    // あきらめ通知を出した
+const SHODAN_MAX_TRIES = 5;
+let _sfSweepRunning = false;
+
+// SF未記録の商談を見つけて、まとめて仕上げる。手動（エンドポイント）でも呼べる。
+async function sweepMeetingSfRecords({ max = 8 } = {}) {
+  if (_sfSweepRunning) return { skipped: true, reason: "処理中" };
+  _sfSweepRunning = true;
+  const stat = { 対象: 0, 記録した: 0, まだ: 0, 連携待ち: 0, 失敗: 0, あきらめ: 0, SF未紐づけ: 0 };
   try {
     const jst = new Date(Date.now() + 9 * 3600 * 1000);
-    const from = new Date(jst.getTime() - 3 * 86400000).toISOString().slice(0, 10);
-    const rows = await listMeetings({ isAdmin: true, from, limit: 300 }).catch(() => []);
+    const from = new Date(jst.getTime() - 7 * 86400000).toISOString().slice(0, 10);   // 過去7日
+    const rows = await listMeetings({ isAdmin: true, from, limit: 500 }).catch(() => []);
     const now = Date.now();
     const cand = (rows || []).filter((m) => {
       const key = String(m.id || m.bot_id || "");
-      if (!m.sf_url || !key || _autoShodanDone.has(key)) return false;
+      if (!key) return false;
       const age = now - new Date(m.created_at).getTime();
-      return age >= 30 * 60 * 1000 && age <= 24 * 3600 * 1000;   // 30分〜24時間
+      if (!(age >= 20 * 60 * 1000 && age <= 5 * 86400000)) return false;   // 20分〜5日
+      if (!m.sf_url) { stat.SF未紐づけ++; return false; }                   // 紐づけ待ち（記録できない）
+      if (_autoShodanDone.has(key)) return false;
+      if ((_autoShodanTries.get(key) || 0) >= SHODAN_MAX_TRIES) return false; // あきらめ済み
+      return true;
     });
-    for (const row of cand.slice(0, 5)) {
+    stat.対象 = cand.length;
+    for (const row of cand.slice(0, max)) {
+      const key = String(row.id || row.bot_id || "");
       try {
         const m = await getMeeting(row.bot_id);
         if (!m) continue;
         const s = m.summary || {};
         const hasTr = Array.isArray(m.transcript) ? m.transcript.length : !!m.transcript;
-        if (!s.overview && !hasTr) continue;   // まだ要約・文字起こしが無い＝終わっていない
+        if (!s.overview && !hasTr) { stat.まだ++; continue; }   // まだ要約・文字起こしが無い＝終わっていない（済みにしない）
         const owner = m.owner;
-        if (!owner || !(await sfConnected(owner).catch(() => false))) continue;
+        if (!owner || !(await sfConnected(owner).catch(() => false))) { stat.連携待ち++; continue; } // 連携待ち（済みにしない）
         const r = await autofillMeetingToSf(owner, m, m.sf_url).catch((e) => ({ ok: false, error: e.message }));
-        _autoShodanDone.add(String(m.id || m.bot_id));
-        if (r && r.ok) console.log(`[商談自動記録] ${m.title || m.bot_id} をSFへ自動記録しました（活動種別＝商談）`);
-        // その商談の担当者の「kinbotとの個人チャット」に、SF記録の結果を知らせる。
-        try {
-          const title = m.title || "商談";
-          let msg = "";
-          if (r && r.ok && (r.shodanCreated || r.naCreated)) {
+        if (r && r.ok) {
+          _autoShodanDone.add(key);
+          _autoShodanTries.delete(key);
+          stat.記録した++;
+          console.log(`[商談自動記録] ${m.title || m.bot_id} をSFへ自動記録しました（活動種別＝商談）`);
+          try {
             const parts = [];
             if (r.shodanCreated) parts.push("商談の記録");
             if (r.naCreated) parts.push(`ネクストアクション${r.nextDate ? "（" + r.nextDate + "）" : ""}`);
-            msg = `📝 SFに活動を記録しました\n　${title}\n・${parts.join("\n・")}`;
-          } else if (r && r.needLink) {
-            msg = `⚠️ SFに記録できませんでした\n　${title}\n（SF商談リンクが未設定です。商談にSFの商談を紐づけてください）`;
-          } else if (r && !r.ok) {
-            msg = `⚠️ SFに記録できませんでした\n　${title}\n（理由：${String(r.error || "不明").slice(0, 120)}）`;
-          }
-          if (msg) {
+            if (parts.length) {
+              const msg = `📝 SFに活動を記録しました\n　${m.title || "商談"}\n・${parts.join("\n・")}`;
+              const pr = await notifyPerson(owner, msg).catch(() => ({ ok: false }));
+              if (!pr || !pr.ok) await notifyChat(msg).catch(() => {});
+            }
+          } catch {}
+        } else {
+          const tries = (_autoShodanTries.get(key) || 0) + 1;
+          _autoShodanTries.set(key, tries);
+          stat.失敗++;
+          console.warn(`[商談自動記録] 失敗（${tries}/${SHODAN_MAX_TRIES}）：${m.title || key}：${String((r && r.error) || "不明").slice(0, 120)}`);
+          // 一時的な失敗では騒がない。上限に達したときだけ、1回だけ知らせる。
+          if (tries >= SHODAN_MAX_TRIES && !_autoShodanGaveUp.has(key)) {
+            _autoShodanGaveUp.add(key);
+            stat.あきらめ++;
+            const msg = `⚠️ 何度か試しましたが、SFに記録できませんでした\n　${m.title || "商談"}\n（理由：${String((r && r.error) || "不明").slice(0, 120)}）\n画面の「商談から読み取る」から手動でお願いします。`;
             const pr = await notifyPerson(owner, msg).catch(() => ({ ok: false }));
-            if (!pr || !pr.ok) await notifyChat(msg).catch(() => {}); // 個人チャットに送れなければ通常チャットへ
+            if (!pr || !pr.ok) await notifyChat(msg).catch(() => {});
           }
-        } catch {}
-      } catch (e) { console.warn("[商談自動記録]", e.message); }
+        }
+      } catch (e) {
+        _autoShodanTries.set(key, (_autoShodanTries.get(key) || 0) + 1);
+        console.warn("[商談自動記録]", e.message);
+      }
     }
-  } catch (e) { console.error("[商談自動記録]", e.message); }
-}, 10 * 60 * 1000);
+  } catch (e) {
+    console.error("[商談自動記録]", e.message);
+  } finally {
+    _sfSweepRunning = false;
+  }
+  return stat;
+}
+globalThis.__kinbotSweepSf = sweepMeetingSfRecords;   // Chatの「SF記録を仕上げて」から呼べるように
+setInterval(() => { sweepMeetingSfRecords().catch((e) => console.error("[商談自動記録]", e.message)); }, 10 * 60 * 1000);
+
+// 商談後のSF記録の取りこぼしを、今すぐまとめて仕上げる（手動）。
+app.post("/api/meetings/sf-autofill-sweep", async (req, res) => {
+  try {
+    const max = Math.max(1, Math.min(30, parseInt(req.body?.max, 10) || 12));
+    const stat = await sweepMeetingSfRecords({ max });
+    console.log(`[商談自動記録] 手動で仕上げ by ${req.user}：${JSON.stringify(stat)}`);
+    res.json({ ok: true, ...stat });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
 
 // 一覧に出てこない商談（文字起こしが空）を調べる
 app.get("/api/meetings/hidden", async (req, res) => {
@@ -15172,7 +15219,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-02u 自動改善の「動かす時間帯」を終日（0時〜24時）から選べるように拡張。cronを終日・毎時:30起動に（田中さんが動けない夜間なども回せる）。実行可否はkinbotのrunFrom/To/Everyで判定。前回：動かす時間帯の範囲選択";
+const BUILD_TAG = "2026-09-02v 商談後のSF活動記録を取りこぼしなく：失敗は「済み」にせず次の見回りで再試行、窓を広く（20分〜5日・過去7日走査）、上限到達時のみ1回通知。手動仕上げAPI（/api/meetings/sf-autofill-sweep）とChat「SF記録を仕上げて」を追加。前回：動かす時間帯を終日対応";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
@@ -18845,6 +18892,29 @@ app.post("/api/chat/command", async (req, res) => {
           await notifyPerson(who, msg).catch(() => {});
         } catch (e) {
           await notifyPerson(who, persona.say(st, "SF監査でつまずきました：" + e.message)).catch(() => {});
+        }
+      })();
+      return;
+    }
+
+    // SF記録の仕上げ：商談後の活動記録の取りこぼしをまとめて記録する。
+    if (cmd.kind === "sfrecord") {
+      const st = await getSettings().catch(() => ({}));
+      if (typeof globalThis.__kinbotSweepSf !== "function") {
+        return reply(persona.say(st, "いまは動かせませんでした。少し待ってからお願いします。"));
+      }
+      reply(persona.say(st, "商談後のSF記録の取りこぼしを仕上げます。終わったら結果を知らせます。"));
+      (async () => {
+        try {
+          const r = await globalThis.__kinbotSweepSf({ max: 20 });
+          const st2 = await getSettings().catch(() => st);
+          const 未紐づけ = r.SF未紐づけ ? `／SF未紐づけ ${r.SF未紐づけ}件（商談にSFを紐づけてください）` : "";
+          const msg = (r && !r.skipped)
+            ? persona.say(st2, `SF記録を仕上げました。記録 ${r.記録した || 0}件／連携待ち ${r.連携待ち || 0}／要約待ち ${r.まだ || 0}／失敗 ${r.失敗 || 0}${未紐づけ}`)
+            : persona.say(st2, "いまは別の記録処理が動いていました。少し後にもう一度お願いします。");
+          await notifyPerson(who, msg).catch(() => {});
+        } catch (e) {
+          await notifyPerson(who, persona.say(st, "SF記録でつまずきました：" + e.message)).catch(() => {});
         }
       })();
       return;
