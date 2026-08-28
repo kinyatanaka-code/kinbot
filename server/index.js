@@ -4523,26 +4523,17 @@ async function buildCallReport(sfUser) {
 
   const lines = [
     `📞 *コール進捗（${hh}:00 時点）*`,
-    `合計：${sum.calls}コール ／ 接触 ${sum.contacts} ／ アポ ${sum.apos}（アポ率 ${rate}%）` +
-      (goalSum.calls
-        ? `\n🎯 目標：${goalSum.calls}コール / ${goalSum.apos}アポ（あと ${Math.max(0, goalSum.calls - sum.calls)}コール / ${Math.max(0, goalSum.apos - sum.apos)}アポ）`
-        : "\n🎯 目標：0（いまは目標なしで出しています）"),
+    `合計：${sum.calls}コール ／ 接触 ${sum.contacts} ／ アポ ${sum.apos}（アポ率 ${rate}%）`,
     "",
   ];
   for (const x of list.sort((a, b) => b.calls - a.calls)) {
     const g = goalOf(x.name);
-    const gc = Number(g.calls) || 0, ga = Number(g.apos) || 0, gh = Number(g.hours) || 0;
+    const gh = Number(g.hours) || 0;
     const head = `・${x.name}${gh ? `（${gh}h）` : ""}`;
-    if (gc || ga) {
-      const pct = gc ? Math.round((x.calls / gc) * 100) : 0;
-      lines.push(`${head}　目標 ${gc}c / ${ga}アポ　→　実績 ${x.calls}c / ${x.apos}アポ` +
-        (gc ? `（${pct}%・あと ${Math.max(0, gc - x.calls)}c）` : ""));
-    } else {
-      lines.push(`${head}　実績 ${x.calls}c / ${x.apos}アポ`);
-    }
+    // 目標は一旦なしで、実績だけを出す（見やすさのため）
+    lines.push(`${head}　実績 ${x.calls}c / ${x.apos}アポ`);
   }
   if (!list.length) lines.push("（まだ実績がありません）");
-  if (goalFrom) lines.push("", `（目標は${goalFrom}から読みました）`);
 
   return { skipped: false, text: lines.join("\n"), summary: sum, rows: list };
 }
@@ -14882,7 +14873,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-01x kincall：会社名の横の架電予定タグに×を付け、かけ終わったらその予定を消せるようにした";
+const BUILD_TAG = "2026-09-01y コール進捗の通知：目標の表示を一旦なくし、実績だけを出すようにした（見やすさのため）";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
