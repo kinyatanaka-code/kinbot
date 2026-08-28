@@ -6439,9 +6439,129 @@ app.delete("/api/calls/lists/:id", async (req, res) => {
 
 // 今あるリストの各リードについて、Salesforceの最新の状態（最終ステータス・ステージ・所有者）と
 // クロス商談の有無を読みに行って、kincallの表示に反映する（「SFの状態を更新」ボタン）。
+// クロス商談の会社を、SFの状態で3つに仕分ける（全リスト共通で使い回すため、SFへは1回だけ問い合わせる）。
+//   受注（＝ユーザー：受注処理完了）… IsWon=true
+//   進行中（＝アポ獲得済み：クロス商談が立ち上がった）… オープン（未クローズ）
+//   直近失注 … クローズ済みかつ失注（IsClosed かつ IsWon=false）で、CloseDate が CROSS_FROM 以降
+// 会社名キー（normCompanyKey）の集合で返す。
+async function fetchCrossBuckets(sfUser, crossFrom) {
+  const 受注 = new Set();     // クロス受注（＝ユーザー）
+  const 進行中 = new Set();   // 立ち上がったクロス商談（＝アポ獲得済み）
+  const 失注 = new Set();     // 直近で失注したクロス商談
+  try {
+    // 受注は時期を問わず（ユーザーはずっとユーザー）／進行中はオープン／失注は CloseDate 以降だけ拾う。
+    const d = await sfQuery(sfUser,
+      `SELECT Account.Name, IsWon, IsClosed, CloseDate FROM Opportunity
+        WHERE RecordType.Name LIKE '%クロス%'
+          AND (IsWon = true OR IsClosed = false OR CloseDate >= ${crossFrom})
+        LIMIT 5000`);
+    for (const o of d.records || []) {
+      const co = (o.Account && o.Account.Name) || "";
+      if (!co) continue;
+      const k = normCompanyKey(co);
+      if (o.IsWon) { 受注.add(k); continue; }                 // 受注（ユーザー）
+      if (o.IsClosed === false) { 進行中.add(k); continue; }  // 進行中（アポ獲得）
+      // ここまで来たら IsClosed=true かつ IsWon=false ＝ 失注。CloseDate 以降だけ「直近失注」とする。
+      if (o.CloseDate && String(o.CloseDate) >= crossFrom) 失注.add(k);
+    }
+  } catch (e) { console.warn("[SF監査] クロス商談取得", e.message); }
+  return { 受注, 進行中, 失注 };
+}
+
+// 1つの架電リストを、SFの最新状態で監査して反映する。
+//   ステージ列 ＝ リードの状況（NEW/担当者未接触/ジャッジ 等）← SFの最新に更新
+//   最終ステータス列：
+//     ・クロス受注の会社 → 「ユーザー（クロス受注）」（既存顧客。かける対象から外す）
+//     ・クロス商談が立ち上がった会社 → 「アポ獲得済み（クロス商談）」
+//     ・直近で失注した会社 → 「失注（クロス失注）」（かける対象から外す。以前はアポ獲得に化けていた不具合を修正）
+//     ・いずれでもなければ 最新のコール結果を反映（触らない）
+//   buckets を渡さなければ内部で取得する（単発の手動更新用）。
+async function auditCallList(sfUser, listId, buckets, opts = {}) {
+  const crossFrom = /^\d{4}-\d{2}-\d{2}$/.test(String(opts.crossFrom || "")) ? opts.crossFrom : "2026-03-01";
+  if (!buckets) buckets = await fetchCrossBuckets(sfUser, crossFrom);
+  const { 受注, 進行中, 失注 } = buckets;
+
+  // 「SFの所有者を優先」：SFのリード所有者に一致するメンバーへ担当（assigned_to）を合わせる。
+  let nameToEmail = new Map();
+  if (opts.preferSfOwner) {
+    try {
+      const mem = await listMembers();
+      const norm = (s) => String(s || "").replace(/[\s　]/g, "").toLowerCase();
+      for (const m of mem) if (m.name && m.email) nameToEmail.set(norm(m.name), String(m.email).toLowerCase());
+    } catch {}
+  }
+
+  const targets = await listCallTargets(listId, { limit: 2000 }).catch(() => []);
+  const withLead = targets.filter((t) => t.lead_id);
+
+  // 1) リードの最新状態（状況・レコードタイプ・所有者名）
+  const info = new Map();
+  for (let i = 0; i < withLead.length; i += 200) {
+    const chunk = withLead.slice(i, i + 200);
+    const inIds = chunk.map((t) => `'${id15(t.lead_id).replace(/[^A-Za-z0-9]/g, "")}'`).join(",");
+    if (!inIds) continue;
+    try {
+      const d = await sfQuery(sfUser, `SELECT Id, Status, RecordType.Name, Owner.Name, OwnerId, IsConverted FROM Lead WHERE Id IN (${inIds})`);
+      for (const r of d.records || []) {
+        const isUser = String(r.OwnerId || "").startsWith("005");
+        info.set(id15(r.Id), {
+          status: r.Status || "",
+          stage: (r.RecordType && r.RecordType.Name) || "",
+          owner: isUser ? ((r.Owner && r.Owner.Name) || "") : "",
+          converted: !!r.IsConverted,
+        });
+      }
+    } catch (e) { console.warn("[SF監査] lead取得", e.message); }
+  }
+
+  // 2) リードごとの「最新のコール活動」の結果
+  const lastCall = new Map();
+  for (let i = 0; i < withLead.length; i += 200) {
+    const chunk = withLead.slice(i, i + 200);
+    const inIds = chunk.map((t) => `'${id15(t.lead_id).replace(/[^A-Za-z0-9]/g, "")}'`).join(",");
+    if (!inIds) continue;
+    try {
+      const d = await sfQuery(sfUser, `SELECT WhoId, Subject, CallDisposition, CreatedDate FROM Task WHERE WhoId IN (${inIds}) AND Type = 'Call' ORDER BY CreatedDate DESC LIMIT 2000`);
+      for (const r of d.records || []) {
+        const k = id15(r.WhoId);
+        if (lastCall.has(k)) continue;
+        const rr = String(r.Subject || "").replace(/^コール：/, "").trim() || String(r.CallDisposition || "").trim();
+        if (rr) lastCall.set(k, rr.slice(0, 120));
+      }
+    } catch (e) { console.warn("[SF監査] 最新コール取得", e.message); }
+  }
+
+  // 3) 各架電先を更新（優先順位：受注（ユーザー）＞ 進行中（アポ獲得）＞ 直近失注）
+  let 反映 = 0, ユーザー化 = 0, クロス化 = 0, 失注化 = 0, 担当そろえ = 0;
+  for (const t of withLead) {
+    const li = info.get(id15(t.lead_id)) || {};
+    const stage = li.status || t.stage || "";
+    const key = normCompanyKey(t.company);
+    let statusPatch = undefined;
+    const 架電結果 = lastCall.get(id15(t.lead_id)) || "";
+    const リード種別が残っている = /リード/.test(String(t.status || ""));
+    if (受注.has(key)) { statusPatch = "ユーザー（クロス受注）"; ユーザー化++; }
+    else if (進行中.has(key)) { statusPatch = "アポ獲得済み（クロス商談）"; クロス化++; }
+    else if (失注.has(key)) { statusPatch = "失注（クロス失注）"; 失注化++; }
+    else if (架電結果) { statusPatch = 架電結果; }
+    else if (リード種別が残っている) { statusPatch = ""; }
+    await setCallTargetStatus(t.id, statusPatch !== undefined ? { stage, status: statusPatch } : { stage }).catch(() => {});
+    if (info.has(id15(t.lead_id))) {
+      const patch = { ownerName: li.owner || "" };
+      if (opts.preferSfOwner && li.owner) {
+        const em = nameToEmail.get(String(li.owner).replace(/[\s　]/g, "").toLowerCase());
+        if (em) { patch.assignedTo = em; if (em !== String(t.assigned_to || "").toLowerCase()) 担当そろえ++; }
+      }
+      await setCallTargetLead(t.id, t.lead_id, patch).catch(() => {});
+    }
+    反映++;
+  }
+  return { 対象: withLead.length, 反映, ユーザー: ユーザー化, クロス商談あり: クロス化, 直近失注: 失注化, 担当そろえ, SF未連携: targets.length - withLead.length };
+}
+
 app.post("/api/calls/lists/:id/refresh-sf", async (req, res) => {
   try {
-    // SFの状態更新は誰でもできる（SFアカウントの無い人は代理＝中澤良太で読む）
+    // SFの状態更新は誰でもできる（SFアカウントの無い人は代理で読む）
     const id = parseInt(req.params.id, 10);
     if (!id) return res.status(400).json({ error: "リストが指定されていません" });
     const sfUser = await pickSfUser(req.user);
@@ -6450,112 +6570,11 @@ app.post("/api/calls/lists/:id/refresh-sf", async (req, res) => {
     }
     const b = req.body || {};
     const CROSS_FROM = /^\d{4}-\d{2}-\d{2}$/.test(String(b.crossFrom || "")) ? b.crossFrom : "2026-03-01";
-
-    // 「SFの所有者を優先」する設定。ONのとき、SFのリード所有者に一致するメンバーへ
-    // kincallの担当（assigned_to）を合わせる（担当のバッティング解消）。
     const st0 = await getSettings().catch(() => ({}));
-    const sfOwnerPriority = (st0 && st0.sfOwnerPriority === true) || b.preferSfOwner === true;
-    let nameToEmail = new Map();
-    if (sfOwnerPriority) {
-      try {
-        const mem = await listMembers();
-        const norm = (s) => String(s || "").replace(/[\s　]/g, "").toLowerCase();
-        for (const m of mem) if (m.name && m.email) nameToEmail.set(norm(m.name), String(m.email).toLowerCase());
-      } catch {}
-    }
-
-    const targets = await listCallTargets(id, { limit: 2000 }).catch(() => []);
-    const withLead = targets.filter((t) => t.lead_id);
-
-    // 1) リードの最新状態（状況・レコードタイプ・所有者名）をまとめて取得
-    const info = new Map();   // id15 -> {status, stage, owner}
-    for (let i = 0; i < withLead.length; i += 200) {
-      const chunk = withLead.slice(i, i + 200);
-      const inIds = chunk.map((t) => `'${id15(t.lead_id).replace(/[^A-Za-z0-9]/g, "")}'`).join(",");
-      if (!inIds) continue;
-      try {
-        const d = await sfQuery(sfUser, `SELECT Id, Status, RecordType.Name, Owner.Name, OwnerId, IsConverted FROM Lead WHERE Id IN (${inIds})`);
-        for (const r of d.records || []) {
-          // 所有者がユーザー（IDが005で始まる）なら名前を使う。
-          // キュー／グループ（IDが00Gで始まる。ステージ名と同じ名前のことが多い）は、
-          // 人ではないので現所有者としては出さない（空にする）。
-          const isUser = String(r.OwnerId || "").startsWith("005");
-          info.set(id15(r.Id), {
-            status: r.Status || "",
-            stage: (r.RecordType && r.RecordType.Name) || "",
-            owner: isUser ? ((r.Owner && r.Owner.Name) || "") : "",
-            converted: !!r.IsConverted,
-          });
-        }
-      } catch (e) { console.warn("[SF更新] lead取得", e.message); }
-    }
-
-    // 2) クロス商談がある会社を集める。
-    //   (a) 初回商談日 CROSS_FROM 以降のクロス商談（アポ獲得済み扱い）
-    //   (b) 受注（受注処理完了）になっているクロス商談は、時期に関係なく外す
-    const crossOpp = new Set();
-    try {
-      const d = await sfQuery(sfUser, `SELECT Account.Name, RecordType.Name FROM Opportunity WHERE CloseDate >= ${CROSS_FROM} AND RecordType.Name LIKE '%クロス%' LIMIT 5000`);
-      for (const o of d.records || []) { const co = (o.Account && o.Account.Name) || ""; if (co) crossOpp.add(normCompanyKey(co)); }
-    } catch (e) { console.warn("[SF更新] 商談取得", e.message); }
-    const crossWon = new Set();
-    try {
-      const d = await sfQuery(sfUser, `SELECT Account.Name FROM Opportunity WHERE RecordType.Name LIKE '%クロス%' AND IsWon = true LIMIT 5000`);
-      for (const o of d.records || []) { const co = (o.Account && o.Account.Name) || ""; if (co) { const k = normCompanyKey(co); crossOpp.add(k); crossWon.add(k); } }
-    } catch (e) { console.warn("[SF更新] クロス受注取得", e.message); }
-
-    // 2.5) リードごとの「最新のコール活動」の結果（最終架電結果）を取る。
-    // kincallの記録は Type='Call'・Subject「コール：担当者不在」等で作っているので、そこから拾う。
-    const lastCall = new Map();   // id15 -> 最終架電結果
-    for (let i = 0; i < withLead.length; i += 200) {
-      const chunk = withLead.slice(i, i + 200);
-      const inIds = chunk.map((t) => `'${id15(t.lead_id).replace(/[^A-Za-z0-9]/g, "")}'`).join(",");
-      if (!inIds) continue;
-      try {
-        const d = await sfQuery(sfUser, `SELECT WhoId, Subject, CallDisposition, CreatedDate FROM Task WHERE WhoId IN (${inIds}) AND Type = 'Call' ORDER BY CreatedDate DESC LIMIT 2000`);
-        for (const r of d.records || []) {
-          const k = id15(r.WhoId);
-          if (lastCall.has(k)) continue;   // 新しい順なので最初に来たものが最新
-          const res = String(r.Subject || "").replace(/^コール：/, "").trim() || String(r.CallDisposition || "").trim();
-          if (res) lastCall.set(k, res.slice(0, 120));
-        }
-      } catch (e) { console.warn("[SF更新] 最新コール取得", e.message); }
-    }
-
-    // 3) 各架電先を更新
-    //   ステージ列 ＝ リードの状況（NEW/担当者未接触/ジャッジ 等）← SFの最新に更新
-    //   最終ステータス列 ＝ 最終架電結果（担当者不在 等）← kincallの記録を保持（触らない）
-    //   ただしクロス商談あり／クロス受注のときだけ、最終ステータスを「アポ獲得済み（…）」に上書き
-    let 反映 = 0, クロス化 = 0, 受注除外 = 0, 担当そろえ = 0;
-    for (const t of withLead) {
-      const li = info.get(id15(t.lead_id)) || {};
-      const stage = li.status || t.stage || "";           // ステージ列＝リードの状況
-      const key = normCompanyKey(t.company);
-      let statusPatch = undefined;                         // 既定：触らない
-      const 架電結果 = lastCall.get(id15(t.lead_id)) || "";
-      // 最終ステータスに、以前まちがって入った「リード種別（Mochica(リード)/クロス(リード)等）」が
-      // 残っている場合は、正しくないのでクリア対象にする。
-      const リード種別が残っている = /リード/.test(String(t.status || ""));
-      if (crossWon.has(key)) { statusPatch = "アポ獲得済み（クロス受注）"; 受注除外++; クロス化++; }
-      else if (crossOpp.has(key)) { statusPatch = "アポ獲得済み（クロス商談）"; クロス化++; }
-      else if (架電結果) { statusPatch = 架電結果; }        // 最終ステータス列＝最新のコール結果
-      else if (リード種別が残っている) { statusPatch = ""; } // 古いリード種別を消す（コール結果が無いので空に）
-      await setCallTargetStatus(t.id, statusPatch !== undefined ? { stage, status: statusPatch } : { stage }).catch(() => {});
-      // SFで見つかったリードは、現所有者を必ず最新の値に入れ直す（古い誤った値＝ステータスが
-      // 現所有者に入っている等を上書きして直す。SFの所有者が取れなければ空にする）。
-      if (info.has(id15(t.lead_id))) {
-        const patch = { ownerName: li.owner || "" };
-        // SF所有者を優先：所有者名がメンバーに一致すれば、担当もそのメンバーに合わせる
-        if (sfOwnerPriority && li.owner) {
-          const em = nameToEmail.get(String(li.owner).replace(/[\s　]/g, "").toLowerCase());
-          if (em) { patch.assignedTo = em; if (em !== String(t.assigned_to || "").toLowerCase()) 担当そろえ++; }
-        }
-        await setCallTargetLead(t.id, t.lead_id, patch).catch(() => {});
-      }
-      反映++;
-    }
-    console.log(`[SF更新] リスト${id}：${反映}件をSF最新に反映（クロス商談あり ${クロス化}件・うちクロス受注 ${受注除外}件${sfOwnerPriority ? `・SF所有者に担当をそろえ ${担当そろえ}件` : ""}）by ${req.user}`);
-    res.json({ ok: true, 対象: withLead.length, 反映, クロス商談あり: クロス化, クロス受注: 受注除外, 担当そろえ, SF未連携: targets.length - withLead.length });
+    const preferSfOwner = (st0 && st0.sfOwnerPriority === true) || b.preferSfOwner === true;
+    const r = await auditCallList(sfUser, id, null, { crossFrom: CROSS_FROM, preferSfOwner });
+    console.log(`[SF更新] リスト${id}：${r.反映}件をSF最新に反映（ユーザー ${r.ユーザー}・クロス商談 ${r.クロス商談あり}・直近失注 ${r.直近失注}${preferSfOwner ? `・SF所有者に担当をそろえ ${r.担当そろえ}` : ""}）by ${req.user}`);
+    res.json({ ok: true, 対象: r.対象, 反映: r.反映, ユーザー: r.ユーザー, クロス商談あり: r.クロス商談あり, 直近失注: r.直近失注, 担当そろえ: r.担当そろえ, SF未連携: r.SF未連携 });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
@@ -14935,7 +14954,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-02c kincall：SF所有者を優先する動きを追加。SF更新時に確認でOKすると、SFのリード所有者に一致するメンバーへkincallの担当を合わせる（担当のバッティング解消）。設定でも常時ONにできる";
+const BUILD_TAG = "2026-09-02d kincall：全リストを常にSF監査。クロス受注→「ユーザー」表記、クロス商談立ち上げ→アポ獲得、直近失注→「失注」と正しく仕分け（以前は失注もアポ獲得に化けていた不具合を修正）。ユーザー・失注はかける対象外として下にまとめ表示。手動更新に加え30分ごとの自動監査（KINCALL_AUDIT_MIN）を追加";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
@@ -19909,6 +19928,45 @@ server.listen(PORT, async () => {
       .catch(() => {});
   setTimeout(cleanup, 60 * 1000);
   setInterval(cleanup, 6 * 60 * 60 * 1000);
+
+  // kincall：全リストをSFと定期的に照合（監査）する。手動の「SFの状態を更新」を押さなくても、
+  // クロス受注（＝ユーザー化）・クロス商談の立ち上がり（＝アポ獲得）・直近失注 を常に反映する。
+  // クロス商談の会社仕分けは組織全体で1回だけ取り、全リストで使い回す（SFへの問い合わせを増やしすぎない）。
+  const KINCALL_AUDIT_MIN = Math.max(5, Math.min(180, Number(process.env.KINCALL_AUDIT_MIN || 30)));
+  let _auditingCalls = false;
+  const auditAllCallLists = async () => {
+    if (_auditingCalls || !salesforceConfigured()) return;
+    _auditingCalls = true;
+    try {
+      // 監査に使うSFユーザー（代理＝設定のsfProxyUser優先、無ければ連携済みの誰か）を選ぶ。
+      const st = await getSettings().catch(() => ({}));
+      const proxy = String(st.sfProxyUser || "").trim().toLowerCase();
+      let sfUser = "";
+      if (proxy && (await sfConnected(proxy).catch(() => false))) sfUser = proxy;
+      else {
+        const owners = await listSalesforceOwners().catch(() => []);
+        for (const o of owners) { if (await sfConnected(o).catch(() => false)) { sfUser = o; break; } }
+      }
+      if (!sfUser) return;
+      const preferSfOwner = st && st.sfOwnerPriority === true;
+      const buckets = await fetchCrossBuckets(sfUser, "2026-03-01");   // 組織全体で1回だけ
+      const lists = await listCallLists({ owner: "", includeClosed: false }).catch(() => []);
+      let ユーザー = 0, クロス = 0, 失注 = 0;
+      for (const l of lists) {
+        try {
+          const r = await auditCallList(sfUser, l.id, buckets, { preferSfOwner });
+          ユーザー += r.ユーザー || 0; クロス += r.クロス商談あり || 0; 失注 += r.直近失注 || 0;
+        } catch (e) { console.warn(`[SF監査] リスト${l.id}`, e.message); }
+      }
+      console.log(`[SF監査] 全リスト（${lists.length}件）を監査：ユーザー ${ユーザー}・クロス商談 ${クロス}・直近失注 ${失注}`);
+    } catch (e) {
+      console.error("[SF監査]", e.message);
+    } finally {
+      _auditingCalls = false;
+    }
+  };
+  setTimeout(() => { auditAllCallLists().catch(() => {}); }, 90 * 1000);
+  setInterval(() => { auditAllCallLists().catch(() => {}); }, KINCALL_AUDIT_MIN * 60 * 1000);
 
   // インサイト自動分析：平日（月〜金）18:30 JST に全対象をまとめて分析する。
   // 1分ごとに現在のJST時刻をチェックし、その日にまだ実行していなければ発火する。

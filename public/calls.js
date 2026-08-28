@@ -128,8 +128,10 @@ function visibleRows() {
     return (!isNaN(t) && t <= now) ? t : 0;
   };
   const かけた = (x) => !!x["最終日時"];
-  const 済 = list.filter((x) => isApoDone(x));
-  const 未済 = list.filter((x) => !isApoDone(x));
+  // 済み（対象外）＝アポ獲得・ユーザー・失注。最下部にまとめる（アポ→ユーザー→失注の順）。
+  const rank = (x) => isApoDone(x) ? 0 : isUser(x) ? 1 : 2;
+  const 済 = list.filter(isDone).sort((a, b) => rank(a) - rank(b));
+  const 未済 = list.filter((x) => !isDone(x));
   const 予定来た = 未済.filter((x) => due(x)).sort((a, b) => due(a) - due(b));
   const 残り = 未済.filter((x) => !due(x));
   const まだ = 残り.filter((x) => !かけた(x));
@@ -138,9 +140,22 @@ function visibleRows() {
   return [...予定来た, ...まだ, ...かけ済み, ...済];
 }
 
-// アポ獲得済みかどうか（最終ステータスに「アポ獲得」が入っているか）
-function isApoDone(x) {
-  return /アポ獲得/.test(String((x && x["最終ステータス"]) || ""));
+// 最終ステータスの文字列
+function 状況(x) { return String((x && x["最終ステータス"]) || ""); }
+// ユーザー（クロス受注＝既存顧客）。かける対象から外す。
+function isUser(x) { return /ユーザー/.test(状況(x)); }
+// 直近失注（クロス失注）。かける対象から外す。
+function isLost(x) { return /失注/.test(状況(x)); }
+// アポ獲得済みかどうか（最終ステータスに「アポ獲得」が入っているか。ユーザーは除く）
+function isApoDone(x) { return /アポ獲得/.test(状況(x)) && !isUser(x); }
+// かける対象から外すもの（アポ獲得済み・ユーザー・失注）。まとめて下に沈める／隠せる。
+function isDone(x) { return isApoDone(x) || isUser(x) || isLost(x); }
+// 行のバッジ（会社名の右）
+function doneBadge(x) {
+  if (isUser(x)) return ' <span class="kc-user-badge">ユーザー</span>';
+  if (isLost(x)) return ' <span class="kc-lost-badge">失注</span>';
+  if (isApoDone(x)) return ' <span class="kc-apo-badge">アポ獲得済み</span>';
+  return "";
 }
 
 // 次回架電の予定時刻が来ているか（来ていれば表示用の文言）
@@ -186,7 +201,7 @@ function openFilter(which, btn) {
 function render() {
   const box = $("clTable");
   const fullList = visibleRows();
-  const list = hideApo ? fullList.filter((x) => !isApoDone(x)) : fullList;
+  const list = hideApo ? fullList.filter((x) => !isDone(x)) : fullList;
   const arrow = (k) => sortBy === k ? (sortDesc ? " ▾" : " ▴") : "";
   const on = (k) => filt[k] && filt[k].size ? " on" : "";
   if (!fullList.length) {
@@ -194,11 +209,19 @@ function render() {
     return;
   }
   const apoN = fullList.filter(isApoDone).length;
+  const userN = fullList.filter(isUser).length;
+  const lostN = fullList.filter(isLost).length;
+  const doneN = apoN + userN + lostN;
+  const 内訳 = [
+    apoN ? `<span class="kc-sum-apo">アポ獲得済み <b>${apoN}</b></span>` : "",
+    userN ? `<span class="kc-sum-user">ユーザー <b>${userN}</b></span>` : "",
+    lostN ? `<span class="kc-sum-lost">失注 <b>${lostN}</b></span>` : "",
+  ].filter(Boolean).join("／");
   box.innerHTML =
-    `<div class="kc-summary">かける先 <b>${fullList.length - apoN}</b> 件` +
-    (apoN
-      ? `／<span class="kc-sum-apo">アポ獲得済み <b>${apoN}</b> 件</span>` +
-        `<button type="button" class="kc-sum-btn" id="kcHideApo">${hideApo ? "アポ獲得も表示" : "アポ獲得を隠す"}</button>`
+    `<div class="kc-summary">かける先 <b>${fullList.length - doneN}</b> 件` +
+    (doneN
+      ? `／${内訳}` +
+        `<button type="button" class="kc-sum-btn" id="kcHideApo">${hideApo ? "対象外も表示" : "対象外を隠す"}</button>`
       : "") +
     `</div>` +
     ((listId !== "all")
@@ -223,13 +246,13 @@ function render() {
         <th class="kc-th-d">資料送付</th>
       </tr>` +
     list.map((x, i) => {
-      const 済 = isApoDone(x);
+      const 済 = isDone(x);
       const 予定 = nextDueLabel(x);
-      const かけた = (r) => !!(r && r["最終日時"]) && !isApoDone(r) && !(r["次回予定"] && new Date(r["次回予定"]).getTime() <= Date.now());
+      const かけた = (r) => !!(r && r["最終日時"]) && !isDone(r) && !(r["次回予定"] && new Date(r["次回予定"]).getTime() <= Date.now());
       const cols = listId !== "all" ? 12 : 11;
-      const 直前未済 = i > 0 && !isApoDone(list[i - 1]);
+      const 直前未済 = i > 0 && !isDone(list[i - 1]);
       const 区切り = (済 && (i === 0 || 直前未済))
-        ? `<tr class="kc-apo-sep"><td colspan="${cols}">アポ獲得済み（${list.filter(isApoDone).length}件）</td></tr>`
+        ? `<tr class="kc-apo-sep"><td colspan="${cols}">ここから下は、かける対象外（アポ獲得・ユーザー・失注）（${list.filter(isDone).length}件）</td></tr>`
         : "";
       // かけた（記録済み）グループの先頭に、区切りを出す（どこまでかけたか分かるように）
       const かけ区切り = (かけた(x) && (i === 0 || !かけた(list[i - 1])))
@@ -239,7 +262,7 @@ function render() {
       <tr data-id="${x.id}" class="${済 ? "kc-apo-done" : ""}">
         ${listId !== "all" ? `<td><input type="checkbox" class="kc-sel" data-id="${x.id}"${selectedIds.has(String(x.id)) ? " checked" : ""} /></td>` : ""}
         <td class="kc-stage">${esc(x["ステージ"] || "-")}</td>
-        <td class="kc-co">${esc(x["会社名"] || "")}${済 ? ' <span class="kc-apo-badge">アポ獲得済み</span>' : ""}${
+        <td class="kc-co">${esc(x["会社名"] || "")}${doneBadge(x)}${
           予定 ? ` <span class="kc-next-badge${予定.due ? " due" : ""}">${予定.due ? "架電予定 " : "予定 "}${esc(予定.md)} ${esc(予定.hhmm)}<button type="button" class="kc-next-x" data-id="${x.id}" title="この架電予定を消す">×</button></span>` : ""}</td>
         <td>${esc(x["担当者"] || "")}</td>
         <td>${x["電話番号"]
@@ -621,6 +644,10 @@ function renderDock() {
     .kc-apo-done .kc-co{color:#0d5b47;}
     .kc-apo-sep td{background:#e8f5ef;color:#0d5b47;font-weight:700;font-size:12px;padding:6px 10px;border-top:2px solid #1d9e75;}
     .kc-apo-badge{display:inline-block;margin-left:6px;padding:1px 7px;border-radius:10px;background:#1d9e75;color:#fff;font-size:11px;font-weight:700;vertical-align:middle;}
+    .kc-user-badge{display:inline-block;margin-left:6px;padding:1px 7px;border-radius:10px;background:#0d5b47;color:#fff;font-size:11px;font-weight:700;vertical-align:middle;}
+    .kc-lost-badge{display:inline-block;margin-left:6px;padding:1px 7px;border-radius:10px;background:#e9edeb;color:#6b7a74;font-size:11px;font-weight:700;vertical-align:middle;}
+    .kc-sum-user{color:#0d5b47;}
+    .kc-sum-lost{color:#8a9691;}
     .kc-summary{display:flex;align-items:center;gap:10px;padding:8px 4px;font-size:13px;color:#0d5b47;}
     .kc-summary b{font-size:15px;}
     .kc-sum-apo{color:#0b7a5e;}
@@ -1560,7 +1587,9 @@ document.addEventListener("click", (ev) => {
         if (d.error) throw new Error(d.error);
         say("clStatus", `SFの最新に反映しました：${d["反映"] || 0}件`
           + (d["担当そろえ"] ? `／SF所有者に担当をそろえ ${d["担当そろえ"]}件` : "")
-          + (d["クロス商談あり"] ? `／クロス商談あり ${d["クロス商談あり"]}件（アポ獲得済みに移動${d["クロス受注"] ? `・うち受注 ${d["クロス受注"]}件` : ""}）` : "")
+          + (d["ユーザー"] ? `／ユーザー ${d["ユーザー"]}件（クロス受注→対象外）` : "")
+          + (d["クロス商談あり"] ? `／クロス商談 ${d["クロス商談あり"]}件（アポ獲得済み）` : "")
+          + (d["直近失注"] ? `／直近失注 ${d["直近失注"]}件（対象外）` : "")
           + (d["SF未連携"] ? `／SF未連携 ${d["SF未連携"]}件（対象外）` : ""), 12000);
         loadTable();
       } catch (e) { say("clStatus", "できませんでした：" + e.message, 8000); }
