@@ -15025,7 +15025,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-02g AI社員の名前を『kinbot』に変更（既定名）。画面・Chat・自動改善の通知すべてに反映。前回：AI社員の可視化ページ追加";
+const BUILD_TAG = "2026-09-02h AI社員の入り口を、左メニューのkincallの下へ移動（スマホのメニューでは最下部）。名前は『kinbot』。前回：AI社員の可視化ページ";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",

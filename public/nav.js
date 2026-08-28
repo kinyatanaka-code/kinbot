@@ -34,7 +34,7 @@ window.addEventListener("error", (e) => {
 (function () {
   if (!document.querySelector('script[src$="kbchat.js"]')) {
     const sc = document.createElement("script");
-    sc.src = "kbchat.js?v=20260902f";
+    sc.src = "kbchat.js?v=20260902h";
     sc.defer = true;
     document.head.appendChild(sc);
   }
@@ -46,7 +46,6 @@ window.addEventListener("error", (e) => {
 // ───────────────────────────────────────────────────────────
 const KB_MENU = [
   { href: "home.html", label: "ホーム", ico: "ico-home" },
-  { href: "ai.html", label: "AI社員", ico: "ico-ai" },
   { href: "index.html", label: "レコーディング", ico: "ico-rec" },
   {
     href: "history.html", label: "商談履歴", ico: "ico-hist",
@@ -123,11 +122,15 @@ function kbBuildSidebar() {
   // 設定の下に、kincall（架電ツール）の入り口を置く。
   // kinbotの機能とは別の道具なので、線で区切って分ける。
   const kcOn = /^\/kincall/.test(location.pathname) ? " active" : "";
+  const aiOn = /ai\.html/.test(here) ? " active" : "";
   const apps =
     `<div class="side-sep"></div>` +
     `<a class="side-item side-app${kcOn}" href="/kincall">` +
     `<img class="side-app-ico" src="/kincall.svg" alt="" />` +
-    `<span class="side-label">kincall</span></a>`;
+    `<span class="side-label">kincall</span></a>` +
+    `<a class="side-item${aiOn}" href="ai.html">` +
+    `<span class="side-ico ico-ai"></span>` +
+    `<span class="side-label">AI社員</span></a>`;
 
   const brand = nav.querySelector(".side-brand");
   nav.innerHTML = (brand ? brand.outerHTML : "") + html + apps + (foot ? foot.outerHTML : "");
@@ -417,6 +420,8 @@ window.kbSheet = function (html) {
     if (m.subs) for (const x of m.subs) items.push({ href: x.href, label: x.label, ico: m.ico });
     else items.push({ href: m.href, label: m.label, ico: m.ico });
   }
+  // kinbotの機能とは別に、AI社員をいちばん下に置く（サイドバーのkincallの下に合わせる）
+  items.push({ href: "ai.html", label: "AI社員", ico: "ico-ai" });
 
   const open = () => {
     if (document.querySelector(".kb-menu")) return;
