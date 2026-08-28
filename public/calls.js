@@ -8,6 +8,13 @@ const esc = (v) => String(v == null ? "" : v).replace(/[&<>"']/g, (c) =>
   ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 
 let listId = 0;
+// 選んでいたリストを覚えておき、画面を切り替えてもリロードしても同じリストに戻す
+function savedListId() {
+  try { return localStorage.getItem("kincall_list") || ""; } catch { return ""; }
+}
+function rememberListId(v) {
+  try { if (v || v === 0) localStorage.setItem("kincall_list", String(v)); } catch {}
+}
 let rows = [];
 let kinds = [];
 
@@ -38,7 +45,7 @@ async function loadLists() {
     const d = await (await fetch("/api/calls/lists")).json();
     const items = d.items || [];
     const sel = $("clList");
-    const keep = sel.value;
+    const keep = sel.value || savedListId();   // リロード時は、前回選んでいたリストに戻す
     const allOpt = `<option value="all">☆ 全てのリード（自分の全リストをまとめて）</option>`;
     sel.innerHTML = allOpt + (items.length
       ? items.map((x) => `<option value="${x.id}">${esc(x.name)}</option>`).join("")
@@ -47,6 +54,7 @@ async function loadLists() {
     {
       const v = sel.value;
       listId = v === "all" ? "all" : (Number(v) || 0);
+      rememberListId(v);
       showProgress(items.find((x) => x.id === listId));
       loadTable();
     }
@@ -1273,6 +1281,7 @@ if ($("clList")) {
   $("clList").addEventListener("change", () => {
     const v = $("clList").value;
     listId = v === "all" ? "all" : (Number(v) || 0);
+    rememberListId(v);   // 選んだリストを覚える
     callAsMember = "";   // ドロップダウンで選び直したら、担当の絞り込みは外す
     loadTable();
   });
@@ -1889,6 +1898,7 @@ function selectListAndCall(id, member) {
   if (sel) {
     sel.value = String(id);
     listId = Number(id) || 0;
+    rememberListId(id);   // 選んだリストを覚える
     loadTable();
   }
   // 「かける」画面に切り替える（再読み込みしない）
