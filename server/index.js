@@ -8149,15 +8149,24 @@ app.get("/api/dev-notes", async (req, res) => {
 });
 
 // 開発メモ（要望）が「完了」になったら、その要望を出した人の個人チャットに知らせる。
+// あわせて、開発を見ている田中欽也さんにも知らせる（本人が出した要望なら二重には送らない）。
 async function notifyDevNoteDone(note) {
   try {
     if (!note) return;
-    const who = String(note.created_by || "").trim();
-    if (!who || !/@/.test(who)) return;   // 誰が出したか分かるものだけ
     const kindLabel = { request: "要望", bug: "不具合", idea: "アイデア" }[note.kind] || "メモ";
-    const msg = `✅ ご要望の対応が完了しました\n・${note.title || ""}\n（種別：${kindLabel}）`;
-    const pr = await notifyPerson(who, msg).catch(() => ({ ok: false }));
-    if (!pr || !pr.ok) console.log(`[開発メモ] 完了通知を個人チャットに送れませんでした（${who}）：${(pr && pr.reason) || ""}`);
+    const who = String(note.created_by || "").trim();
+    const owner = "kinya.tanaka@neo-career.co.jp";
+    const targets = new Set();
+    if (who && /@/.test(who)) targets.add(who.toLowerCase());
+    targets.add(owner);   // 田中欽也さんには必ず送る
+    for (const to of targets) {
+      const mine = to === owner && who.toLowerCase() !== owner;
+      const msg = mine
+        ? `✅ 開発メモの対応が完了しました\n・${note.title || ""}\n（種別：${kindLabel}／要望者：${who || "不明"}）`
+        : `✅ ご要望の対応が完了しました\n・${note.title || ""}\n（種別：${kindLabel}）`;
+      const pr = await notifyPerson(to, msg).catch(() => ({ ok: false }));
+      if (!pr || !pr.ok) console.log(`[開発メモ] 完了通知を個人チャットに送れませんでした（${to}）：${(pr && pr.reason) || ""}`);
+    }
   } catch (e) { console.warn("[開発メモ] 完了通知に失敗", e.message); }
 }
 
@@ -14891,7 +14900,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-01z アポメール：リマインドの件名・本文が実際は翌日でないのに『明日』になる不具合を修正（金曜→月曜は『月曜日』等に）。開発メモ：要望が完了になったら、出した人の個人チャットに通知するようにした";
+const BUILD_TAG = "2026-09-02a 開発メモ：要望が完了したとき、出した人に加えて田中欽也さんの個人チャットにも通知するようにした（本人が出した要望なら二重には送らない）";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
