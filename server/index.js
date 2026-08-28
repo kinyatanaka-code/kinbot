@@ -5490,6 +5490,22 @@ function ymdOf(v) {
   return `${m[1]}-${p(m[2])}-${p(m[3])}`;
 }
 
+// from-csv：会社ごとのリード検索結果を短時間おぼえておく（試算→作成で同じ検索を繰り返さないため）
+const _leadSearchCache = new Map();  // key: "user|companyKey" → { at, cands }
+const LEAD_SEARCH_TTL = 10 * 60 * 1000;
+function leadSearchCacheGet(user, key) {
+  const e = _leadSearchCache.get(`${user}|${key}`);
+  if (e && Date.now() - e.at < LEAD_SEARCH_TTL) return e.cands;
+  return null;
+}
+function leadSearchCacheSet(user, key, cands) {
+  _leadSearchCache.set(`${user}|${key}`, { at: Date.now(), cands });
+  if (_leadSearchCache.size > 5000) {   // 増えすぎたら古いものから捨てる
+    const cutoff = Date.now() - LEAD_SEARCH_TTL;
+    for (const [k, v] of _leadSearchCache) if (v.at < cutoff) _leadSearchCache.delete(k);
+  }
+}
+
 app.post("/api/calls/from-csv", async (req, res) => {
   try {
     const b = req.body || {};
@@ -5626,12 +5642,16 @@ app.post("/api/calls/from-csv", async (req, res) => {
       try {
         if (leadId) throw { skip: true };
         const key = normCompanyKey(company);
-        const 語 = company.replace(/株式会社|（株）|\(株\)|㈱|有限会社|社会福祉法人|学校法人|一般社団法人/g, "").trim().slice(0, 30);
-        const soql =
-          `SELECT Id, Company, LastName, Phone, IsConverted, RecordType.Name FROM Lead ` +
-          `WHERE IsConverted = false AND Company LIKE '%${sq(語)}%' LIMIT 50`;
-        const d = await sfQuery(sfUser, soql);
-        const cands = (d.records || []).filter((x) => normCompanyKey(x.Company) === key);
+        let cands = leadSearchCacheGet(sfUser, key);
+        if (!cands) {
+          const 語 = company.replace(/株式会社|（株）|\(株\)|㈱|有限会社|社会福祉法人|学校法人|一般社団法人/g, "").trim().slice(0, 30);
+          const soql =
+            `SELECT Id, Company, LastName, Phone, IsConverted, RecordType.Name FROM Lead ` +
+            `WHERE IsConverted = false AND Company LIKE '%${sq(語)}%' LIMIT 50`;
+          const d = await sfQuery(sfUser, soql);
+          cands = (d.records || []).filter((x) => normCompanyKey(x.Company) === key);
+          leadSearchCacheSet(sfUser, key, cands);   // 試算で調べた結果を、直後の作成でも使い回して速くする
+        }
         const 種別 = (x) => String((x.RecordType && x.RecordType.Name) || "");
         const crossList = cands.filter((x) => /クロス|cross/i.test(種別(x)));
         // まず、その担当者（苗字）のクロスリードを探す
@@ -14854,7 +14874,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-01v kincall：選んでいたリストを覚えて、画面を切り替えてもリロードしても同じリストに戻すようにした";
+const BUILD_TAG = "2026-09-01w リスト作成：試算で調べた会社ごとのSFリード検索結果を短時間おぼえておき、直後の「この内容で作る」では検索を省いて速くした";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
