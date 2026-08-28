@@ -8162,8 +8162,8 @@ async function notifyDevNoteDone(note) {
     for (const to of targets) {
       const mine = to === owner && who.toLowerCase() !== owner;
       const msg = mine
-        ? `✅ 開発メモの対応が完了しました\n・${note.title || ""}\n（種別：${kindLabel}／要望者：${who || "不明"}）`
-        : `✅ ご要望の対応が完了しました\n・${note.title || ""}\n（種別：${kindLabel}）`;
+        ? `🤖 自動で開発しました\n・${note.title || ""}\n（種別：${kindLabel}／要望者：${who || "不明"}）`
+        : `🤖 いただいたご要望を自動で開発しました\n・${note.title || ""}\n（種別：${kindLabel}）`;
       const pr = await notifyPerson(to, msg).catch(() => ({ ok: false }));
       if (!pr || !pr.ok) console.log(`[開発メモ] 完了通知を個人チャットに送れませんでした（${to}）：${(pr && pr.reason) || ""}`);
     }
@@ -14904,7 +14904,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-02b 開発メモ：要望を「済み」にしたとき、要望者と田中さんの個人チャットに加えて、みんなが見る通常のチャットにも『開発しました』と自動で流すようにした";
+const BUILD_TAG = "2026-09-02b 開発メモ：要望を「済み」にしたとき、要望者と田中欽也さんの個人チャットに『自動で開発しました』と通知するようにした（文面変更）";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
