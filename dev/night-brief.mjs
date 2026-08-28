@@ -13,6 +13,8 @@ import { appendFileSync, writeFileSync } from "node:fs";
 const URL_BASE = (process.env.KINBOT_URL || "").replace(/\/+$/, "");
 const TOKEN = process.env.KINBOT_TOKEN || "";
 const MAX = Math.max(1, Math.min(10, Number(process.env.MAX_ITEMS) || 3));
+// Chatの「〇〇を直して」から渡ってくる指示。あれば、これを最優先で直す。
+const FOCUS = String(process.env.FOCUS || "").trim();
 
 // Actionsは、この言葉があるとClaudeを動かさずに終わる。
 // 読めなかったときも必ずこれを書く（読めていないのにClaudeを動かすと、
@@ -71,17 +73,31 @@ async function main() {
   const lines = [
     "# 今夜の作業",
     "",
-    `kinbotに溜まっている「直したいこと」は ${all.length}件。そのうち ${pick.length}件を今夜やる。`,
+    FOCUS
+      ? `田中さんからChatで指示がありました。まずこれを最優先で直す。ほかに ${pick.length}件。`
+      : `kinbotに溜まっている「直したいこと」は ${all.length}件。そのうち ${pick.length}件を今夜やる。`,
     "",
     "## やること",
     "",
   ];
 
-  if (!pick.length) {
+  // Chatの「直して」で渡された指示は、いちばん上に置いて最優先で直す。
+  let no = 0;
+  if (FOCUS) {
+    no++;
+    lines.push(`### ${no}. [指示] ${FOCUS}`);
+    lines.push("");
+    lines.push("- 出どころ：Chatの「直して」（田中さんの直接の指示）");
+    lines.push("- これを最優先で対応する。内容が大きい・危ういときは、できる範囲で安全にPRにする。");
+    lines.push("");
+  }
+
+  if (!pick.length && !FOCUS) {
     lines.push(`${STOP_WORD}。**何も変更せず終わること。**`);
   } else {
-    pick.forEach((x, i) => {
-      lines.push(`### ${i + 1}. [${KIND[x.kind] || x.kind}] ${x.title}`);
+    pick.forEach((x) => {
+      no++;
+      lines.push(`### ${no}. [${KIND[x.kind] || x.kind}] ${x.title}`);
       lines.push("");
       lines.push(`- メモID：${x.id}`);
       lines.push(`- 起きた回数：${x.hits}`);

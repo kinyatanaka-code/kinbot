@@ -43,6 +43,32 @@ function aiLog(kind, text, extra) {
   if (_aiActivity.length > 40) _aiActivity.length = 40;
 }
 
+// GitHub Actions のワークフローを今すぐ起動する（Chatの「直して」から使う）。
+// 起動用トークン（GH_DISPATCH_TOKEN、Actions書き込み権限）が未設定なら needsToken を返す。
+// ★起動しても本番反映は既存の関所（CI・稼働時間・危ういものはPR・ロールバック）をそのまま通る。
+async function dispatchGithubWorkflow(workflow, inputs) {
+  const token = process.env.GH_DISPATCH_TOKEN || process.env.GITHUB_DISPATCH_TOKEN || "";
+  if (!token) return { needsToken: true };
+  const repo = process.env.KINBOT_REPO || "kinyatanaka-code/kinbot";
+  const ref = process.env.KINBOT_BRANCH || "main";
+  try {
+    const res = await fetch(`https://api.github.com/repos/${repo}/actions/workflows/${workflow}/dispatches`, {
+      method: "POST",
+      headers: {
+        authorization: `Bearer ${token}`,
+        accept: "application/vnd.github+json",
+        "content-type": "application/json",
+        "user-agent": "kinbot",
+        "x-github-api-version": "2022-11-28",
+      },
+      body: JSON.stringify({ ref, inputs: inputs || {} }),
+    });
+    if (res.status === 204) return { ok: true };
+    const t = await res.text().catch(() => "");
+    return { error: `GitHub ${res.status} ${String(t).slice(0, 140)}` };
+  } catch (e) { return { error: e.message }; }
+}
+
 // AI社員の「記憶」（dev/kinbot-memory.md）を読み、決定・指示のログを取り出す。
 // ファイルはデプロイに含まれるので、本番でもそのまま読める。30秒だけキャッシュする。
 let _memCache = { at: 0, log: [], head: "" };
@@ -15048,7 +15074,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-02j AI社員画面に「覚えていること（記憶の要約）」カードを追加。ChatにAI社員コマンド追加：記憶（決めごと・指示）・レポート（状況まとめ）・監査（SF監査を今すぐ実行し結果を通知）。前回：AI社員画面の1画面化と記憶ファイル新設";
+const BUILD_TAG = "2026-09-02k AI社員：Chatの「〇〇を直して」で自動改善パイプライン（GitHub Actions）をfocus付きで即起動し、night-briefがその指示を最優先で直す。指示は開発メモにも登録。起動には環境変数 GH_DISPATCH_TOKEN が必要（未設定は毎時0分の自動改善で着手）。本番反映は関所（CI・稼働時間・PR・ロールバック）を必ず通る。前回：記憶カード・Chatの記憶/レポート/監査";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
@@ -18724,6 +18750,51 @@ app.post("/api/chat/command", async (req, res) => {
         }
       })();
       return;
+    }
+
+    // 直して：AI社員に開発を指示する（クローザー/管理者のみ）。
+    //   1) 指示を開発メモに残す（一覧・追跡できる）
+    //   2) 自動改善パイプライン（GitHub Actions）を今すぐ起動し、focus に指示文を渡す
+    //   ※起動しても本番反映は関所（CI・稼働時間・危ういものはPR・ロールバック）を通る。
+    if (cmd.kind === "fix") {
+      const admin = !!who && (process.env.ADMIN_EMAILS || "").split(",").map((x) => x.trim()).includes(who);
+      const canControl = admin || (who ? await isCloserUser(who).catch(() => false) : false);
+      const st = await getSettings().catch(() => ({}));
+      if (!canControl) return reply(persona.say(st, "開発の指示ができるのは、クローザーか管理者だけにしています。"));
+
+      const inst = String(cmd.text || "").slice(0, 500);
+      if (inst) {
+        await addDevNote({
+          key: `chat-fix:${who}:${inst}`.slice(0, 200), kind: "request",
+          title: inst, detail: `Chatで「直して」と指示（${who}）`, source: "Chat（直して）", createdBy: who,
+        }).catch(() => {});
+        aiLog("fix-order", `指示：${inst}`);
+      }
+
+      // 自動改善が止まっているときは、起動しても関所で止まる。先に知らせる。
+      if (st.autoImprove !== true) {
+        return reply(persona.say(st, inst
+          ? `「${inst}」を開発メモに登録しました。ただ今は自動改善を止めているので、すぐには動けません。「自動改善を動かして」でONにすれば着手します。`
+          : "いま自動改善を止めています。「自動改善を動かして」でONにしてください。"));
+      }
+
+      // パイプラインを今すぐ起動（focus に指示文を渡す）
+      const r = await dispatchGithubWorkflow("kinbot-hourly.yml", {
+        max_items: inst ? "1" : "2",
+        force_pr: "no",
+        focus: inst,
+      });
+      if (r.ok) {
+        return reply(persona.say(st, inst
+          ? `承知しました。「${inst}」に取りかかります。自動改善を今すぐ起動しました。仕上がったら、この後お知らせします（危ういものは念のためPRにします）。`
+          : "自動改善を今すぐ起動しました。溜まっている開発メモから、安全なものを順に直します。"));
+      }
+      if (r.needsToken) {
+        return reply(persona.say(st, inst
+          ? `「${inst}」を開発メモに登録しました。次の自動改善（毎時0分）で着手します。\n※Chatから今すぐ起動するには、GitHubのActions起動トークン（環境変数 GH_DISPATCH_TOKEN）の設定が要ります。`
+          : "今すぐ起動する設定（GH_DISPATCH_TOKEN）がまだありません。毎時0分の自動改善で動きます。"));
+      }
+      return reply(persona.say(st, `${inst ? `「${inst}」は開発メモに残しました。` : ""}今すぐ起動でつまずきました：${r.error}。毎時0分の自動改善で着手します。`));
     }
 
     // 名付け：AI社員の名前を変える（田中さん＝クローザー/管理者のみ）。

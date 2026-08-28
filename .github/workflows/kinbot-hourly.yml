@@ -22,6 +22,10 @@ on:
         description: "本番に入れず、必ずPRにする（yes/no）"
         required: false
         default: "no"
+      focus:
+        description: "この指示を最優先で直す（Chatの「直して」から渡される。空でよい）"
+        required: false
+        default: ""
 
 permissions:
   contents: write
@@ -62,6 +66,7 @@ jobs:
           KINBOT_URL: ${{ vars.KINBOT_URL || 'https://kinbot-production-225f.up.railway.app' }}
           KINBOT_TOKEN: ${{ secrets.KINBOT_TOKEN }}
           MAX_ITEMS: ${{ github.event.inputs.max_items || '2' }}
+          FOCUS: ${{ github.event.inputs.focus || '' }}
         run: node dev/night-brief.mjs
 
       - name: 指示を表示する
