@@ -8944,8 +8944,9 @@ async function runSelfCheck() {
 
   // 2. プロセスシート
   try {
-    let last = null;
-    try { last = JSON.parse(st.psLast || "null"); } catch {}
+    // 設定に残した記録を見る。まだ残っていなければ、いま動いている本体の記録を使う
+    let last = parseProcessSheetLast(st.psLast);
+    if (!last || !last.at) last = processSheetStatus();
     checks.push(...checkProcessSheet({
       sheetId: st.psSheetId, sheetName: st.psSheetName, reportId: st.psReportId,
       last, autoRun: st.psAutoRun,
@@ -10058,7 +10059,13 @@ async function runProcessSheet(sfUser, opts = {}) {
 app.post("/api/process-sheet/run", async (req, res) => {
   try {
     const r = await runProcessSheet(req.user, req.body || {});
-    if (!r.dryRun) console.log(`[プロセスシート] ${r.count}箇所を更新しました by ${req.user}`);
+    if (!r.dryRun) {
+      console.log(`[プロセスシート] ${r.count}箇所を更新しました by ${req.user}`);
+      // 手で「実行」を押したぶんも、書き込んだ記録として残す。
+      // 残していなかったため、押しても自己点検は「まだ一度も動いていません」のままだった。
+      // （失敗したときは画面にそのまま出るので、ここでは成功したときだけ残す）
+      rememberProcessSheetRun({ at: new Date().toISOString(), ok: true, count: r.count, error: "" });
+    }
     res.json(r);
   } catch (e) {
     console.error("[プロセスシート]", e.message);
@@ -10147,6 +10154,30 @@ app.post("/api/process-sheet/permission", async (req, res) => {
 let psLast = { at: null, ok: false, count: 0, error: "" };
 function processSheetStatus() { return psLast; }
 
+// 「最後に書き込んだ結果」は、設定にも残しておく。
+// メモリだけに置いていたころは、再起動のたびに消えてしまい、
+// 実際は毎日書けているのに自己点検が「まだ一度も動いていません」と言い続けていた。
+function rememberProcessSheetRun(v) {
+  psLast = v;
+  saveSettings({ psLast: JSON.stringify(v) })
+    .catch((e) => console.warn("[プロセスシート] 実行の記録を保存できませんでした", e.message));
+}
+
+// 設定に残っている記録を読む（文字で入っていても、そのままの形で入っていても読めるように）
+function parseProcessSheetLast(v) {
+  if (!v) return null;
+  try { return typeof v === "string" ? JSON.parse(v) : v; } catch { return null; }
+}
+
+// 起動したときに、前回の記録をメモリへ戻す
+async function restoreProcessSheetLast() {
+  try {
+    const st = await getSettings();
+    const v = parseProcessSheetLast(st.psLast);
+    if (v && v.at && !psLast.at) psLast = v;
+  } catch {}
+}
+
 function inWorkingHours() {
   const now = new Date(Date.now() + 9 * 3600 * 1000);   // JST
   const day = now.getUTCDay();                          // 0=日
@@ -10165,10 +10196,10 @@ async function processSheetTick() {
     if (!user) return;
 
     const r = await runProcessSheet(user, { dryRun: false });
-    psLast = { at: new Date().toISOString(), ok: true, count: r.count, error: "" };
+    rememberProcessSheetRun({ at: new Date().toISOString(), ok: true, count: r.count, error: "" });
     console.log(`[プロセスシート] 自動更新：${r.count}箇所`);
   } catch (e) {
-    psLast = { at: new Date().toISOString(), ok: false, count: 0, error: e.message };
+    rememberProcessSheetRun({ at: new Date().toISOString(), ok: false, count: 0, error: e.message });
     console.warn("[プロセスシート] 自動更新に失敗", e.message);
   }
 }
@@ -15074,7 +15105,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-02m 自動改善のスケジュールを毎時→日本時間9:30〜20:30の2時間おき＋20:30に変更（9:30/11:30/13:30/15:30/17:30/19:30/20:30）。前回：アイデアの変更は必ずPR";
+const BUILD_TAG = "2026-09-02n プロセスシートの「最後の書き込み」を設定に残すようにした（再起動や手動実行のあとも消えず、自己点検が「まだ一度も動いていません」と誤って言わなくなる）。前回：自動改善のスケジュールを9:30〜20:30の2時間おき＋20:30に変更";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
@@ -20183,6 +20214,8 @@ app.delete("/api/proposals/:id", async (req, res) => {
 
 server.listen(PORT, async () => {
   await initDb().catch((e) => console.error("[db] init失敗", e.message));
+  // プロセスシートの「最後の書き込み」を設定から戻す（再起動で未実行に見えないように）
+  restoreProcessSheetLast().catch(() => {});
 
   // 更新（デプロイ）が終わったことをGoogle Chatに知らせる。
   // Railwayは新しい中身で入れ替えて起動し直すので、この起動＝更新の完了になる。
