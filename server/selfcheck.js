@@ -39,7 +39,7 @@ export function checkLive({ info, relayUrl, relaySecret, relayCount, reach }) {
 }
 
 // プロセスシートが動いているか
-export function checkProcessSheet({ sheetId, sheetName, reportId, last, autoRun }) {
+export function checkProcessSheet({ sheetId, sheetName, reportId, last, autoRun, owner }) {
   const out = [];
   const ready = !!(sheetId && sheetName && reportId);
   out.push(item("sheet.config", "プロセスシートの設定", ready,
@@ -47,9 +47,17 @@ export function checkProcessSheet({ sheetId, sheetName, reportId, last, autoRun 
     "SF連携→プロセスシートで、3つとも入っているか見る"));
   if (!ready) return out;
 
-  out.push(item("sheet.auto", "自動での書き込み", autoRun !== false,
-    autoRun !== false ? "30分おきに動きます" : "自動がOFFです（手で押したときだけ動きます）",
-    "自動にするなら、プロセスシートの画面で「自動で書き込む」をONにする"));
+  // 30分ごとの自動書き込みは「自動がONで、書き込む人（Salesforceの担当）が決まっている」ときだけ動く。
+  // ここが「OFFでなければ動く」判定だったころは、実際は一度も動いていないのに
+  // 「30分おきに動きます」と出てしまい、なぜ書き込まれないのかが分からなかった。
+  const autoOn = autoRun === true && !!String(owner || "").trim();
+  out.push(item("sheet.auto", "自動での書き込み", autoOn,
+    autoOn ? "30分おきに動きます"
+      : autoRun !== true ? "自動がOFFです（手で押したときだけ動きます）"
+        : "書き込む人（Salesforceの担当）が未設定なので、自動では動きません",
+    autoRun !== true
+      ? "自動にするなら、プロセスシートの画面で「自動で書き込む」をONにする"
+      : "プロセスシートの画面で、書き込む人（Salesforceの担当）を選ぶ"));
 
   const at = last && last.at ? new Date(last.at) : null;
   const hours = at ? (Date.now() - at.getTime()) / 3600000 : null;

@@ -8949,7 +8949,7 @@ async function runSelfCheck() {
     if (!last || !last.at) last = processSheetStatus();
     checks.push(...checkProcessSheet({
       sheetId: st.psSheetId, sheetName: st.psSheetName, reportId: st.psReportId,
-      last, autoRun: st.psAutoRun,
+      last, autoRun: st.psAutoRun, owner: st.psOwner,
     }));
   } catch (e) { console.warn("[点検] シート:", e.message); }
 
@@ -15105,7 +15105,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-02n プロセスシートの「最後の書き込み」を設定に残すようにした（再起動や手動実行のあとも消えず、自己点検が「まだ一度も動いていません」と誤って言わなくなる）。前回：自動改善のスケジュールを9:30〜20:30の2時間おき＋20:30に変更";
+const BUILD_TAG = "2026-09-02o 自己点検の「自動での書き込み」を、実際に動く条件（自動がON＋書き込む人あり）で判定するようにした（動いていないのに「30分おきに動きます」と出ていた）。前回：プロセスシートの「最後の書き込み」を設定に残すようにした";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
