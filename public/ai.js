@@ -63,12 +63,10 @@ function render(d) {
           <span class="ai-name">${esc(d.name)}</span>
           <button class="ai-rename" id="aiRename">名前を変える</button>
         </div>
-        <div class="ai-role">kinbotのAI社員。エラー修正・要望対応・通知・SF監査を担当します。</div>
-        <span class="ai-live"><span class="ai-dot ${稼働中 ? "" : "off"}"></span>${稼働中 ? "稼働中" : "休止中"}</span>
+        <div class="ai-say">${esc(d.name)}です。${esc(状態文)}。</div>
       </div>
+      <span class="ai-live"><span class="ai-dot ${稼働中 ? "" : "off"}"></span>${稼働中 ? "稼働中" : "休止中"}</span>
     </div>
-
-    <div class="ai-saytxt">${esc(d.name)}です。${esc(状態文)}。</div>
 
     <div class="ai-grid">
       <div class="ai-card">
@@ -88,7 +86,7 @@ function render(d) {
             <input type="number" id="hTo" min="0" max="24" value="${c.to}" /><span>時</span>
           </div>
         </div>
-        <div class="ai-note" id="aiCtlMsg"></div>
+        <div class="ai-mini" id="aiCtlMsg">Chatでも操作可：「自動改善を止めて／動かして」「本番反映を止めて」「名前を〇〇にして」</div>
       </div>
 
       <div class="ai-card">
@@ -98,14 +96,14 @@ function render(d) {
           <div><b>${notes.doing || 0}</b><span class="u">対応中</span></div>
           <div><b>${notes.done || 0}</b><span class="u">済み</span></div>
         </div>
-        <div class="ai-chips" style="margin-top:14px;">
+        <div class="ai-chips" style="margin-top:12px;">
           <span class="ai-chip">エラー ${notes.error || 0}</span>
           <span class="ai-chip">バグ ${notes.bug || 0}</span>
           <span class="ai-chip">要望 ${notes.request || 0}</span>
           <span class="ai-chip">アイデア ${notes.idea || 0}</span>
         </div>
-        <div class="ai-note">${sa
-          ? `SF監査：${fmtWhen(sa.at)} に全${sa.lists}リストを確認（ユーザー化 ${sa.ユーザー}・クロス商談 ${sa.クロス}・直近失注 ${sa.失注}）`
+        <div class="ai-mini">${sa
+          ? `SF監査：${fmtWhen(sa.at)} に全${sa.lists}リスト確認（ユーザー化 ${sa.ユーザー}・クロス商談 ${sa.クロス}・直近失注 ${sa.失注}）`
           : "SF監査：まだ実行記録がありません（30分ごとに自動で回ります）"}</div>
       </div>
 
@@ -116,7 +114,7 @@ function render(d) {
             `<tr><td class="w">${esc(s.when)}<div class="ww">${esc(s.where)}</div></td>
              <td><b>${esc(s.what)}</b><div class="ww">${esc(s.detail)}</div></td></tr>`).join("")}
         </tbody></table>
-        <div class="ai-chips" style="margin-top:12px;">
+        <div class="ai-chips" style="margin-top:10px;">
           ${(d.safety || []).map((x) => `<span class="ai-chip">${esc(x)}</span>`).join("")}
         </div>
       </div>
@@ -128,10 +126,6 @@ function render(d) {
               `<li><span class="k ${esc(a.kind)}"></span><div>${esc(a.text)}${a.files && a.files.length ? `<div class="at">${esc(a.files.join("、"))}（${a.lines || 0}行）</div>` : ""}<div class="at">${fmtWhen(a.at)}</div></div></li>`).join("")}</ul>`
           : `<div class="ai-empty">まだ記録がありません。自動改善やSF監査が動くと、ここに出ます。</div>`}
       </div>
-    </div>
-
-    <div class="ai-note">
-      Chatでも操作できます：「自動」で状態、「自動改善を止めて／動かして」「本番反映を止めて」「名前を〇〇にして」。
     </div>`;
 
   wire();

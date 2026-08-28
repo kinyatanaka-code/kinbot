@@ -10,55 +10,66 @@
     <link rel="manifest" href="/site.webmanifest" />
     <meta name="theme-color" content="#0d5b47" />
     <meta name="apple-mobile-web-app-title" content="kinbot" />
-    <link rel="stylesheet" href="style.css?v=20260902h" />
+    <link rel="stylesheet" href="style.css?v=20260902i" />
     <style>
-      .ai-page{max-width:960px;margin:0 auto;padding:20px 16px 60px;}
-      .ai-hero{display:flex;gap:18px;align-items:center;background:linear-gradient(135deg,#0d5b47,#1d9e75);border-radius:20px;padding:22px 22px;color:#fff;box-shadow:0 6px 24px rgba(13,91,71,.18);}
-      .ai-ava{flex:0 0 auto;width:92px;height:92px;background:rgba(255,255,255,.14);border-radius:22px;display:flex;align-items:center;justify-content:center;}
-      .ai-ava svg{width:66px;height:66px;}
+      /* 1画面に収めるダッシュボード。ページ自体はスクロールせず、長いリストはカード内で送る。 */
+      .ai-page{flex:1 1 auto;min-height:0;display:flex;flex-direction:column;gap:12px;
+        padding:14px 16px;overflow:hidden;max-width:1120px;width:100%;margin:0 auto;}
+      .ai-hero{flex:0 0 auto;display:flex;gap:16px;align-items:center;
+        background:linear-gradient(135deg,#0d5b47,#1d9e75);border-radius:16px;padding:14px 18px;color:#fff;
+        box-shadow:0 5px 20px rgba(13,91,71,.16);}
+      .ai-ava{flex:0 0 auto;width:62px;height:62px;background:rgba(255,255,255,.14);border-radius:16px;
+        display:flex;align-items:center;justify-content:center;}
+      .ai-ava svg{width:46px;height:46px;}
       .ai-id{flex:1 1 auto;min-width:0;}
       .ai-name-row{display:flex;align-items:center;gap:10px;flex-wrap:wrap;}
-      .ai-name{font-size:26px;font-weight:800;letter-spacing:.02em;}
+      .ai-name{font-size:22px;font-weight:800;letter-spacing:.02em;}
       .ai-rename{background:rgba(255,255,255,.18);border:0;color:#fff;font-size:12px;border-radius:999px;padding:4px 12px;cursor:pointer;}
       .ai-rename:hover{background:rgba(255,255,255,.28);}
-      .ai-role{font-size:13px;opacity:.9;margin-top:4px;}
-      .ai-live{display:inline-flex;align-items:center;gap:7px;margin-top:10px;background:rgba(255,255,255,.16);border-radius:999px;padding:5px 12px;font-size:12.5px;font-weight:700;}
+      .ai-say{font-size:12.5px;opacity:.95;margin-top:4px;line-height:1.5;}
+      .ai-live{display:inline-flex;align-items:center;gap:7px;background:rgba(255,255,255,.16);border-radius:999px;
+        padding:4px 11px;font-size:12px;font-weight:700;flex:0 0 auto;}
       .ai-dot{width:9px;height:9px;border-radius:50%;background:#bdf5df;box-shadow:0 0 0 0 rgba(189,245,223,.7);animation:aipulse 2s infinite;}
       .ai-dot.off{background:#e3b7b7;animation:none;box-shadow:none;}
       @keyframes aipulse{0%{box-shadow:0 0 0 0 rgba(189,245,223,.7);}70%{box-shadow:0 0 0 8px rgba(189,245,223,0);}100%{box-shadow:0 0 0 0 rgba(189,245,223,0);}}
-      .ai-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:18px;}
-      @media (max-width:720px){.ai-grid{grid-template-columns:1fr;}.ai-hero{flex-direction:column;text-align:center;}}
-      .ai-card{background:#fff;border:1px solid #e6ede9;border-radius:16px;padding:16px 18px;}
-      .ai-card h3{margin:0 0 12px;font-size:14px;color:#0d5b47;font-weight:800;display:flex;align-items:center;gap:8px;}
-      .ai-ctl{display:flex;align-items:center;justify-content:space-between;padding:9px 0;border-bottom:1px dashed #eef2f0;}
-      .ai-ctl:last-child{border-bottom:0;}
-      .ai-ctl-t{font-size:13.5px;color:#20302b;}
-      .ai-ctl-d{font-size:11.5px;color:#7d8c86;margin-top:2px;}
-      .ai-sw{position:relative;width:46px;height:26px;flex:0 0 auto;border:0;border-radius:999px;background:#d7ded9;cursor:pointer;transition:background .18s;}
+      .ai-grid{flex:1 1 auto;min-height:0;display:grid;grid-template-columns:1fr 1fr;grid-template-rows:1fr 1fr;gap:12px;}
+      .ai-card{background:#fff;border:1px solid #e6ede9;border-radius:14px;padding:12px 15px;overflow:auto;min-height:0;display:flex;flex-direction:column;}
+      .ai-card h3{margin:0 0 9px;font-size:13px;color:#0d5b47;font-weight:800;flex:0 0 auto;}
+      .ai-ctl{display:flex;align-items:center;justify-content:space-between;padding:7px 0;border-bottom:1px dashed #eef2f0;}
+      .ai-ctl:last-of-type{border-bottom:0;}
+      .ai-ctl-t{font-size:13px;color:#20302b;}
+      .ai-ctl-d{font-size:11px;color:#7d8c86;margin-top:2px;}
+      .ai-sw{position:relative;width:44px;height:25px;flex:0 0 auto;border:0;border-radius:999px;background:#d7ded9;cursor:pointer;transition:background .18s;}
       .ai-sw.on{background:#1d9e75;}
-      .ai-sw::after{content:"";position:absolute;top:3px;left:3px;width:20px;height:20px;border-radius:50%;background:#fff;transition:left .18s;}
-      .ai-sw.on::after{left:23px;}
+      .ai-sw::after{content:"";position:absolute;top:3px;left:3px;width:19px;height:19px;border-radius:50%;background:#fff;transition:left .18s;}
+      .ai-sw.on::after{left:22px;}
       .ai-hours{display:flex;align-items:center;gap:6px;}
-      .ai-hours input{width:52px;padding:5px 6px;border:1px solid #d7ded9;border-radius:8px;text-align:center;font-size:13px;}
-      .ai-chips{display:flex;flex-wrap:wrap;gap:7px;}
-      .ai-chip{background:#eef7f3;color:#0d5b47;border-radius:999px;padding:4px 11px;font-size:12px;font-weight:600;}
+      .ai-hours input{width:48px;padding:4px 6px;border:1px solid #d7ded9;border-radius:8px;text-align:center;font-size:13px;}
+      .ai-chips{display:flex;flex-wrap:wrap;gap:6px;}
+      .ai-chip{background:#eef7f3;color:#0d5b47;border-radius:999px;padding:3px 10px;font-size:11.5px;font-weight:600;}
       .ai-num{display:flex;gap:14px;flex-wrap:wrap;}
-      .ai-num b{font-size:22px;color:#0d5b47;}
-      .ai-num .u{font-size:11.5px;color:#7d8c86;display:block;}
-      .ai-sched{width:100%;border-collapse:collapse;font-size:12.5px;}
-      .ai-sched td{padding:7px 6px;border-bottom:1px solid #f0f4f2;vertical-align:top;}
+      .ai-num b{font-size:20px;color:#0d5b47;}
+      .ai-num .u{font-size:11px;color:#7d8c86;display:block;}
+      .ai-sched{width:100%;border-collapse:collapse;font-size:12px;}
+      .ai-sched td{padding:5px 6px;border-bottom:1px solid #f0f4f2;vertical-align:top;}
       .ai-sched .w{color:#0d5b47;font-weight:700;white-space:nowrap;}
-      .ai-sched .ww{color:#8a9691;font-size:11px;}
+      .ai-sched .ww{color:#8a9691;font-size:10.5px;}
       .ai-feed{list-style:none;margin:0;padding:0;}
-      .ai-feed li{display:flex;gap:10px;padding:9px 0;border-bottom:1px solid #f0f4f2;font-size:13px;}
+      .ai-feed li{display:flex;gap:9px;padding:7px 0;border-bottom:1px solid #f0f4f2;font-size:12.5px;}
       .ai-feed li:last-child{border-bottom:0;}
-      .ai-feed .k{flex:0 0 auto;width:8px;height:8px;border-radius:50%;margin-top:6px;background:#1d9e75;}
+      .ai-feed .k{flex:0 0 auto;width:8px;height:8px;border-radius:50%;margin-top:5px;background:#1d9e75;}
       .ai-feed .k.fix-pr,.ai-feed .k.fix-none{background:#c9a24b;}
       .ai-feed .k.sf-audit{background:#0d5b47;}
-      .ai-feed .at{color:#9aa8a2;font-size:11px;margin-top:2px;}
-      .ai-empty{color:#9aa8a2;font-size:13px;padding:6px 0;}
-      .ai-note{font-size:12px;color:#7d8c86;margin-top:10px;line-height:1.6;}
-      .ai-saytxt{font-size:13px;color:#20302b;background:#f4f9f7;border-radius:12px;padding:10px 12px;margin-top:12px;line-height:1.6;}
+      .ai-feed .at{color:#9aa8a2;font-size:10.5px;margin-top:2px;}
+      .ai-empty{color:#9aa8a2;font-size:12.5px;padding:4px 0;}
+      .ai-mini{font-size:11px;color:#7d8c86;margin-top:8px;line-height:1.5;flex:0 0 auto;}
+      /* せまい画面（スマホ）は、無理に1画面へ詰めず、ふつうに縦へ流す */
+      @media (max-width:760px){
+        .ai-page{overflow:auto;height:auto;}
+        .ai-grid{grid-template-columns:1fr;grid-template-rows:none;}
+        .ai-card{overflow:visible;}
+        .ai-hero{flex-direction:column;text-align:center;}
+      }
     </style>
   </head>
   <body>
@@ -74,9 +85,9 @@
         </main>
       </div>
     </div>
-    <script src="product.js?v=20260902h"></script>
-    <script src="ai.js?v=20260902h"></script>
-    <script src="nav.js?v=20260902h"></script>
+    <script src="product.js?v=20260902i"></script>
+    <script src="ai.js?v=20260902i"></script>
+    <script src="nav.js?v=20260902i"></script>
     <script src="/cmdk.js?v=20260827a"></script>
   </body>
 </html>
