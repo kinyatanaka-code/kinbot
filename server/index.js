@@ -42,6 +42,28 @@ function aiLog(kind, text, extra) {
   _aiActivity.unshift({ at: new Date().toISOString(), kind, text: String(text || "").slice(0, 300), ...(extra || {}) });
   if (_aiActivity.length > 40) _aiActivity.length = 40;
 }
+
+// AI社員の「記憶」（dev/kinbot-memory.md）を読み、決定・指示のログを取り出す。
+// ファイルはデプロイに含まれるので、本番でもそのまま読める。30秒だけキャッシュする。
+let _memCache = { at: 0, log: [], head: "" };
+function readMemory() {
+  if (Date.now() - _memCache.at < 30000) return _memCache;
+  try {
+    const p = path.join(__dirname, "..", "dev", "kinbot-memory.md");
+    const raw = fs.readFileSync(p, "utf8");
+    // 「## 決定・指示のログ」以降の箇条書き（- で始まる行）を新しい順で拾う
+    const idx = raw.indexOf("決定・指示のログ");
+    const body = idx >= 0 ? raw.slice(idx) : raw;
+    const log = body.split("\n")
+      .map((l) => l.trim())
+      .filter((l) => l.startsWith("- "))
+      .map((l) => l.replace(/^- /, "").trim());
+    _memCache = { at: Date.now(), log, head: "" };
+  } catch (e) {
+    _memCache = { at: Date.now(), log: [], head: "", error: e.message };
+  }
+  return _memCache;
+}
 import { normalizeSpace } from "./chatapp.js";
 import { judge as judgeAutolaunch, reasonText, parseTitle as parseLaunchTitle } from "./autolaunch.js";
 import { fixMojibake } from "./docs.js";
@@ -9249,6 +9271,7 @@ app.get("/api/ai/status", async (req, res) => {
       notes: cnt,
       lastSfAudit: _lastSfAudit,
       activity: _aiActivity.slice(0, 20),
+      memory: readMemory().log.slice(0, 6),
     });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
@@ -15025,7 +15048,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-02i AI社員画面を1画面に収まるダッシュボードへ（長いリストはカード内スクロール）。AI社員の『記憶』(dev/kinbot-memory.md)を新設し、CLAUDE.md経由で自動改善・提案のClaudeが必ず読む（プロジェクトの経緯・田中さんの指示を踏まえて動く）。前回：AI社員の入り口をkincallの下へ";
+const BUILD_TAG = "2026-09-02j AI社員画面に「覚えていること（記憶の要約）」カードを追加。ChatにAI社員コマンド追加：記憶（決めごと・指示）・レポート（状況まとめ）・監査（SF監査を今すぐ実行し結果を通知）。前回：AI社員画面の1画面化と記憶ファイル新設";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
@@ -18653,6 +18676,56 @@ app.post("/api/chat/command", async (req, res) => {
       return reply(persona.say(st, body, persona.nameHint(st)));
     }
 
+    // 記憶：このプロジェクトで覚えていること（決定・指示のログ）を返す。
+    if (cmd.kind === "memory") {
+      const st = await getSettings().catch(() => ({}));
+      const mem = readMemory();
+      if (!mem.log.length) return reply(persona.say(st, "まだ記憶がありません。決めごとや指示があれば覚えていきます。"));
+      const lines = mem.log.slice(0, 8).map((l) => `・${l}`);
+      return reply(persona.say(st, ["これまでに覚えていることです（新しい順）。", ...lines].join("\n")));
+    }
+
+    // レポート：いまの状況をまとめて返す（状態・仕事・SF監査・最近の動き）。
+    if (cmd.kind === "report") {
+      const st = await getSettings().catch(() => ({}));
+      const notes = await listDevNotes({ status: "", limit: 500 }).catch(() => []);
+      const c = { new: 0, error: 0, bug: 0, request: 0 };
+      for (const n of notes) { if (c[n.status] !== undefined) c[n.status]++; if (c[n.kind] !== undefined) c[n.kind]++; }
+      const sa = _lastSfAudit;
+      const 改善 = st.autoImprove === true, 本番 = st.autoApply === true;
+      const recent = _aiActivity.slice(0, 3).map((a) => `・${a.text}`);
+      const body = [
+        `自動改善：${改善 ? "稼働中" : "休止中"}／本番反映：${本番 ? "する" : "PRにする"}`,
+        `開発メモ：未対応 ${c.new}（エラー ${c.error}・バグ ${c.bug}・要望 ${c.request}）`,
+        sa ? `SF監査：直近 ${sa.ユーザー ? `ユーザー化 ${sa.ユーザー}・` : ""}クロス商談 ${sa.クロス}・直近失注 ${sa.失注}（全${sa.lists}リスト）`
+           : "SF監査：まだ実行記録がありません",
+        recent.length ? "最近やったこと：\n" + recent.join("\n") : "最近やったこと：まだありません",
+      ].join("\n");
+      return reply(persona.say(st, body));
+    }
+
+    // 監査：SF監査を今すぐ実行して、結果を知らせる（少し待ってから返す）。
+    if (cmd.kind === "audit") {
+      const st = await getSettings().catch(() => ({}));
+      if (typeof globalThis.__kinbotAuditAll !== "function") {
+        return reply(persona.say(st, "いまは監査を動かせませんでした。少し待ってからもう一度お願いします。"));
+      }
+      reply(persona.say(st, "SF監査を始めます。全リストをSFと照合します。終わったら知らせます。"));
+      (async () => {
+        try {
+          const r = await globalThis.__kinbotAuditAll();
+          const st2 = await getSettings().catch(() => st);
+          const msg = (r && r.ok)
+            ? persona.say(st2, `SF監査おわりました。全${r.lists}リスト：ユーザー化 ${r.ユーザー}・クロス商談 ${r.クロス}・直近失注 ${r.失注}。`)
+            : persona.say(st2, `SF監査できませんでした：${(r && (r.reason || r.error)) || "不明"}`);
+          await notifyPerson(who, msg).catch(() => {});
+        } catch (e) {
+          await notifyPerson(who, persona.say(st, "SF監査でつまずきました：" + e.message)).catch(() => {});
+        }
+      })();
+      return;
+    }
+
     // 名付け：AI社員の名前を変える（田中さん＝クローザー/管理者のみ）。
     if (cmd.kind === "naming") {
       const admin = !!who && (process.env.ADMIN_EMAILS || "").split(",").map((x) => x.trim()).includes(who);
@@ -20073,7 +20146,8 @@ server.listen(PORT, async () => {
   const KINCALL_AUDIT_MIN = Math.max(5, Math.min(180, Number(process.env.KINCALL_AUDIT_MIN || 30)));
   let _auditingCalls = false;
   const auditAllCallLists = async () => {
-    if (_auditingCalls || !salesforceConfigured()) return;
+    if (_auditingCalls) return { skipped: true, reason: "すでに監査中です" };
+    if (!salesforceConfigured()) return { skipped: true, reason: "Salesforceが設定されていません" };
     _auditingCalls = true;
     try {
       // 監査に使うSFユーザー（代理＝設定のsfProxyUser優先、無ければ連携済みの誰か）を選ぶ。
@@ -20085,7 +20159,7 @@ server.listen(PORT, async () => {
         const owners = await listSalesforceOwners().catch(() => []);
         for (const o of owners) { if (await sfConnected(o).catch(() => false)) { sfUser = o; break; } }
       }
-      if (!sfUser) return;
+      if (!sfUser) return { skipped: true, reason: "SFに接続できるユーザーがいません" };
       const preferSfOwner = st && st.sfOwnerPriority === true;
       const buckets = await fetchCrossBuckets(sfUser, "2026-03-01");   // 組織全体で1回だけ
       const lists = await listCallLists({ owner: "", includeClosed: false }).catch(() => []);
@@ -20101,12 +20175,15 @@ server.listen(PORT, async () => {
       if (ユーザー || クロス || 失注) {
         aiLog("sf-audit", `SF監査：ユーザー化 ${ユーザー}・クロス商談 ${クロス}・直近失注 ${失注}（全${lists.length}リスト）`);
       }
+      return { ok: true, lists: lists.length, ユーザー, クロス, 失注 };
     } catch (e) {
       console.error("[SF監査]", e.message);
+      return { error: e.message };
     } finally {
       _auditingCalls = false;
     }
   };
+  globalThis.__kinbotAuditAll = auditAllCallLists;   // Chatの「監査」から今すぐ回せるように
   setTimeout(() => { auditAllCallLists().catch(() => {}); }, 90 * 1000);
   setInterval(() => { auditAllCallLists().catch(() => {}); }, KINCALL_AUDIT_MIN * 60 * 1000);
 

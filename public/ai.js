@@ -126,6 +126,13 @@ function render(d) {
               `<li><span class="k ${esc(a.kind)}"></span><div>${esc(a.text)}${a.files && a.files.length ? `<div class="at">${esc(a.files.join("、"))}（${a.lines || 0}行）</div>` : ""}<div class="at">${fmtWhen(a.at)}</div></div></li>`).join("")}</ul>`
           : `<div class="ai-empty">まだ記録がありません。自動改善やSF監査が動くと、ここに出ます。</div>`}
       </div>
+
+      <div class="ai-card ai-mem">
+        <h3>覚えていること（このプロジェクトの決めごと・指示）</h3>
+        ${(d.memory && d.memory.length)
+          ? `<ul>${d.memory.map((m) => `<li>${esc(m)}</li>`).join("")}</ul>`
+          : `<div class="ai-empty">まだ記憶がありません。決めごとや指示があると、ここに残ります。</div>`}
+      </div>
     </div>`;
 
   wire();

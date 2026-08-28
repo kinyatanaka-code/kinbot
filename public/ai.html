@@ -10,7 +10,7 @@
     <link rel="manifest" href="/site.webmanifest" />
     <meta name="theme-color" content="#0d5b47" />
     <meta name="apple-mobile-web-app-title" content="kinbot" />
-    <link rel="stylesheet" href="style.css?v=20260902i" />
+    <link rel="stylesheet" href="style.css?v=20260902j" />
     <style>
       /* 1画面に収めるダッシュボード。ページ自体はスクロールせず、長いリストはカード内で送る。 */
       .ai-page{flex:1 1 auto;min-height:0;display:flex;flex-direction:column;gap:12px;
@@ -32,7 +32,11 @@
       .ai-dot{width:9px;height:9px;border-radius:50%;background:#bdf5df;box-shadow:0 0 0 0 rgba(189,245,223,.7);animation:aipulse 2s infinite;}
       .ai-dot.off{background:#e3b7b7;animation:none;box-shadow:none;}
       @keyframes aipulse{0%{box-shadow:0 0 0 0 rgba(189,245,223,.7);}70%{box-shadow:0 0 0 8px rgba(189,245,223,0);}100%{box-shadow:0 0 0 0 rgba(189,245,223,0);}}
-      .ai-grid{flex:1 1 auto;min-height:0;display:grid;grid-template-columns:1fr 1fr;grid-template-rows:1fr 1fr;gap:12px;}
+      .ai-grid{flex:1 1 auto;min-height:0;display:grid;grid-template-columns:1fr 1fr;grid-template-rows:1fr 1fr auto;gap:12px;}
+      .ai-mem{grid-column:1 / -1;max-height:132px;}
+      .ai-mem ul{list-style:none;margin:0;padding:0;}
+      .ai-mem li{font-size:12px;color:#33463f;padding:4px 0;border-bottom:1px solid #f0f4f2;line-height:1.5;}
+      .ai-mem li:last-child{border-bottom:0;}
       .ai-card{background:#fff;border:1px solid #e6ede9;border-radius:14px;padding:12px 15px;overflow:auto;min-height:0;display:flex;flex-direction:column;}
       .ai-card h3{margin:0 0 9px;font-size:13px;color:#0d5b47;font-weight:800;flex:0 0 auto;}
       .ai-ctl{display:flex;align-items:center;justify-content:space-between;padding:7px 0;border-bottom:1px dashed #eef2f0;}
@@ -85,9 +89,9 @@
         </main>
       </div>
     </div>
-    <script src="product.js?v=20260902i"></script>
-    <script src="ai.js?v=20260902i"></script>
-    <script src="nav.js?v=20260902i"></script>
+    <script src="product.js?v=20260902j"></script>
+    <script src="ai.js?v=20260902j"></script>
+    <script src="nav.js?v=20260902j"></script>
     <script src="/cmdk.js?v=20260827a"></script>
   </body>
 </html>
