@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html lang="ja">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>kinbot AI社員</title>
+    <link rel="icon" href="/icon.svg" type="image/svg+xml" />
+    <link rel="icon" href="/favicon-32.png" sizes="32x32" type="image/png" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <link rel="manifest" href="/site.webmanifest" />
+    <meta name="theme-color" content="#0d5b47" />
+    <meta name="apple-mobile-web-app-title" content="kinbot" />
+    <link rel="stylesheet" href="style.css?v=20260902f" />
+    <style>
+      .ai-page{max-width:960px;margin:0 auto;padding:20px 16px 60px;}
+      .ai-hero{display:flex;gap:18px;align-items:center;background:linear-gradient(135deg,#0d5b47,#1d9e75);border-radius:20px;padding:22px 22px;color:#fff;box-shadow:0 6px 24px rgba(13,91,71,.18);}
+      .ai-ava{flex:0 0 auto;width:92px;height:92px;background:rgba(255,255,255,.14);border-radius:22px;display:flex;align-items:center;justify-content:center;}
+      .ai-ava svg{width:66px;height:66px;}
+      .ai-id{flex:1 1 auto;min-width:0;}
+      .ai-name-row{display:flex;align-items:center;gap:10px;flex-wrap:wrap;}
+      .ai-name{font-size:26px;font-weight:800;letter-spacing:.02em;}
+      .ai-rename{background:rgba(255,255,255,.18);border:0;color:#fff;font-size:12px;border-radius:999px;padding:4px 12px;cursor:pointer;}
+      .ai-rename:hover{background:rgba(255,255,255,.28);}
+      .ai-role{font-size:13px;opacity:.9;margin-top:4px;}
+      .ai-live{display:inline-flex;align-items:center;gap:7px;margin-top:10px;background:rgba(255,255,255,.16);border-radius:999px;padding:5px 12px;font-size:12.5px;font-weight:700;}
+      .ai-dot{width:9px;height:9px;border-radius:50%;background:#bdf5df;box-shadow:0 0 0 0 rgba(189,245,223,.7);animation:aipulse 2s infinite;}
+      .ai-dot.off{background:#e3b7b7;animation:none;box-shadow:none;}
+      @keyframes aipulse{0%{box-shadow:0 0 0 0 rgba(189,245,223,.7);}70%{box-shadow:0 0 0 8px rgba(189,245,223,0);}100%{box-shadow:0 0 0 0 rgba(189,245,223,0);}}
+      .ai-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:18px;}
+      @media (max-width:720px){.ai-grid{grid-template-columns:1fr;}.ai-hero{flex-direction:column;text-align:center;}}
+      .ai-card{background:#fff;border:1px solid #e6ede9;border-radius:16px;padding:16px 18px;}
+      .ai-card h3{margin:0 0 12px;font-size:14px;color:#0d5b47;font-weight:800;display:flex;align-items:center;gap:8px;}
+      .ai-ctl{display:flex;align-items:center;justify-content:space-between;padding:9px 0;border-bottom:1px dashed #eef2f0;}
+      .ai-ctl:last-child{border-bottom:0;}
+      .ai-ctl-t{font-size:13.5px;color:#20302b;}
+      .ai-ctl-d{font-size:11.5px;color:#7d8c86;margin-top:2px;}
+      .ai-sw{position:relative;width:46px;height:26px;flex:0 0 auto;border:0;border-radius:999px;background:#d7ded9;cursor:pointer;transition:background .18s;}
+      .ai-sw.on{background:#1d9e75;}
+      .ai-sw::after{content:"";position:absolute;top:3px;left:3px;width:20px;height:20px;border-radius:50%;background:#fff;transition:left .18s;}
+      .ai-sw.on::after{left:23px;}
+      .ai-hours{display:flex;align-items:center;gap:6px;}
+      .ai-hours input{width:52px;padding:5px 6px;border:1px solid #d7ded9;border-radius:8px;text-align:center;font-size:13px;}
+      .ai-chips{display:flex;flex-wrap:wrap;gap:7px;}
+      .ai-chip{background:#eef7f3;color:#0d5b47;border-radius:999px;padding:4px 11px;font-size:12px;font-weight:600;}
+      .ai-num{display:flex;gap:14px;flex-wrap:wrap;}
+      .ai-num b{font-size:22px;color:#0d5b47;}
+      .ai-num .u{font-size:11.5px;color:#7d8c86;display:block;}
+      .ai-sched{width:100%;border-collapse:collapse;font-size:12.5px;}
+      .ai-sched td{padding:7px 6px;border-bottom:1px solid #f0f4f2;vertical-align:top;}
+      .ai-sched .w{color:#0d5b47;font-weight:700;white-space:nowrap;}
+      .ai-sched .ww{color:#8a9691;font-size:11px;}
+      .ai-feed{list-style:none;margin:0;padding:0;}
+      .ai-feed li{display:flex;gap:10px;padding:9px 0;border-bottom:1px solid #f0f4f2;font-size:13px;}
+      .ai-feed li:last-child{border-bottom:0;}
+      .ai-feed .k{flex:0 0 auto;width:8px;height:8px;border-radius:50%;margin-top:6px;background:#1d9e75;}
+      .ai-feed .k.fix-pr,.ai-feed .k.fix-none{background:#c9a24b;}
+      .ai-feed .k.sf-audit{background:#0d5b47;}
+      .ai-feed .at{color:#9aa8a2;font-size:11px;margin-top:2px;}
+      .ai-empty{color:#9aa8a2;font-size:13px;padding:6px 0;}
+      .ai-note{font-size:12px;color:#7d8c86;margin-top:10px;line-height:1.6;}
+      .ai-saytxt{font-size:13px;color:#20302b;background:#f4f9f7;border-radius:12px;padding:10px 12px;margin-top:12px;line-height:1.6;}
+    </style>
+  </head>
+  <body>
+    <div class="app">
+      <nav class="sidebar">
+        <div class="side-brand"><span class="brand-mark"></span><span>kinbot</span></div>
+        <div class="side-foot"><span id="who" class="who"></span><a href="#" id="logout" class="side-logout">ログアウト</a></div>
+      </nav>
+      <div class="main">
+        <header class="topbar"><div class="brand"><img class="topbar-bot" src="kinbot.svg" alt="" /><span class="brand-name">AI社員</span></div></header>
+        <main class="ai-page" id="aiPage">
+          <div class="ai-empty" id="aiLoading">読み込んでいます…</div>
+        </main>
+      </div>
+    </div>
+    <script src="product.js?v=20260902f"></script>
+    <script src="ai.js?v=20260902f"></script>
+    <script src="nav.js?v=20260902f"></script>
+    <script src="/cmdk.js?v=20260827a"></script>
+  </body>
+</html>

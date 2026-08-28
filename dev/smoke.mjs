@@ -6,8 +6,8 @@
 import { spawn } from "node:child_process";
 
 const PORT = 8199;
-const PAGES = ["/login.html", "/home.html", "/apo.html", "/docs.html", "/sf-launch.html", "/dev.html"];
-const APIS = ["/api/version", "/api/dev-notes", "/api/self-check", "/api/ui-review", "/api/call-report"];
+const PAGES = ["/login.html", "/home.html", "/apo.html", "/docs.html", "/sf-launch.html", "/dev.html", "/ai.html"];
+const APIS = ["/api/version", "/api/dev-notes", "/api/self-check", "/api/ui-review", "/api/call-report", "/api/ai/status"];
 
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 

@@ -33,6 +33,15 @@ import { checkLive, checkProcessSheet, checkLinks, buildProposal, notifyCheck } 
 import { UI_PAGES, nextPage, reviewPage, splitIdeas } from "./uireview.js";
 import { verifyChatRequest, readEvent, replyBody, parseCommand, helpText, jstDate, jstTime, INTENT_SYSTEM, guessIntent } from "./chatcmd.js";
 import * as persona from "./persona.js";
+
+// AI社員（キツツキ）の可視化用に、最近の仕事を覚えておく。
+// 再起動で消える軽い記録（DBは使わない）。画面の「最近やったこと」に出す。
+let _lastSfAudit = null;                 // { at, lists, ユーザー, クロス, 失注 }
+const _aiActivity = [];                  // 直近の出来事（新しい順）
+function aiLog(kind, text, extra) {
+  _aiActivity.unshift({ at: new Date().toISOString(), kind, text: String(text || "").slice(0, 300), ...(extra || {}) });
+  if (_aiActivity.length > 40) _aiActivity.length = 40;
+}
 import { normalizeSpace } from "./chatapp.js";
 import { judge as judgeAutolaunch, reasonText, parseTitle as parseLaunchTitle } from "./autolaunch.js";
 import { fixMojibake } from "./docs.js";
@@ -9203,6 +9212,61 @@ app.post("/api/ui-review/run", async (req, res) => {
 // 1時間ごとの自動改善が、本番へ入れてよいかどうかをここで決めます。
 // おかしくなったら、まずここをOFFにすれば止まります。
 // ───────────────────────────────────────────────────────────
+
+// AI社員（キツツキ）の可視化：名前・自動化の状態・最近の仕事をまとめて返す。
+app.get("/api/ai/status", async (req, res) => {
+  try {
+    const st = await getSettings().catch(() => ({}));
+    const now = new Date(Date.now() + 9 * 3600 * 1000);
+    const h = now.getUTCHours();
+    const from = Number(st.autoApplyFrom ?? 0), to = Number(st.autoApplyTo ?? 24);
+    const inHours = from <= to ? (h >= from && h < to) : (h >= from || h < to);
+
+    // 開発メモの件数（未対応／対応中／済み、種別）
+    const notes = await listDevNotes({ status: "", limit: 500 }).catch(() => []);
+    const cnt = { new: 0, doing: 0, done: 0, error: 0, request: 0, bug: 0, idea: 0, gap: 0 };
+    for (const n of notes) {
+      if (cnt[n.status] !== undefined) cnt[n.status]++;
+      if (cnt[n.kind] !== undefined) cnt[n.kind]++;
+    }
+
+    res.json({
+      ok: true,
+      name: persona.aiName(st),
+      namedByUser: !persona.isDefaultName(st),
+      control: {
+        autoImprove: st.autoImprove === true,
+        autoApply: st.autoApply === true,
+        from, to, nowHour: h, inHours,
+      },
+      schedule: [
+        { when: "毎時0分", what: "1時間ごとの自動改善", where: "GitHub Actions", detail: "安全なものは本番へ、危ういものはPR" },
+        { when: "毎日3:00", what: "夜間開発", where: "GitHub Actions", detail: "まとめて直してPR。朝に確認" },
+        { when: "平日9/12/15/18/21時", what: "定期提案", where: "GitHub Actions", detail: "案を出すだけ（コードは変えない）" },
+        { when: "30分ごと", what: "SF監査", where: "kinbot本体", detail: "全リストをSFと照合（クロス受注・失注など）" },
+      ],
+      safety: ["CI（構文＋smoke）", "危ういものはPR", "稼働時間の外はPR", "巻き戻し（Actionsのロールバック）"],
+      notes: cnt,
+      lastSfAudit: _lastSfAudit,
+      activity: _aiActivity.slice(0, 20),
+    });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// AI社員の改名（クローザー/管理者のみ）。
+app.put("/api/ai/name", async (req, res) => {
+  try {
+    const admin = !!req.isAdmin || (process.env.ADMIN_EMAILS || "").split(",").map((x) => x.trim()).includes(req.user);
+    const canControl = admin || (await isCloserUser(req.user).catch(() => false));
+    if (!canControl) return res.status(403).json({ error: "クローザー・管理者だけが変えられます" });
+    const name = String(req.body?.name || "").replace(/[「」『』"'`]/g, "").trim().slice(0, 20);
+    if (!name) return res.status(400).json({ error: "名前を入れてください" });
+    await saveSettings({ aiName: name });
+    console.log(`[AI社員] 改名 by ${req.user}: ${name}`);
+    res.json({ ok: true, name });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 app.get("/api/auto-apply", async (req, res) => {
   try {
     const st = await getSettings();
@@ -9261,6 +9325,10 @@ app.post("/api/dev-notes/applied", async (req, res) => {
     const st = await getSettings().catch(() => ({}));
     const to = { url: String(st.selfCheckWebhook || "").trim(), space: String(st.selfCheckSpace || "").trim() };
     if (to.url || to.space) await notifyCheck(text, to).catch(() => {});
+    aiLog(b.applied ? "fix-applied" : (g.changed ? "fix-pr" : "fix-none"),
+      b.applied ? `自動で直して本番に入れました${b.sha ? `（${String(b.sha).slice(0, 7)}）` : ""}`
+      : (g.changed ? "直しましたが本番には入れず、確認待ち（PR）にしました" : "今回は変更なし"),
+      { files: (g.files || []).slice(0, 6), lines: g.lines || 0 });
     console.log(`[自動改善] ${b.applied ? "本番に入れました" : "PRにしました"}`);
     res.json({ ok: true });
   } catch (e) { res.status(500).json({ error: e.message }); }
@@ -14957,7 +15025,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-02e AI社員：kinbotの自動化に人格（既定名キンタ／改名可）を持たせ、Google Chatから制御できるように。『自動』で状態と管理場所を回答、『自動改善を止めて／動かして』『本番反映を止めて』『稼働時間 9〜18』『名前を〇〇にして』に対応（クローザー/管理者のみ制御可）。自動改善の通知もAI社員名義に。前回：kincallの全リストSF監査（クロス受注→ユーザー・直近失注の除外）";
+const BUILD_TAG = "2026-09-02f AI社員の可視化：ナビに「AI社員」ページを追加。名前を『キツツキ』に。画面でアバター・稼働状態・最近の仕事（自動改善/SF監査）・開発メモ件数・管理場所を表示し、自動改善ON/OFF・本番反映ON/OFF・稼働時間・改名をその場で操作可能（/api/ai/status・/api/ai/name）。前回：AI社員の人格とChat制御";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
@@ -20029,6 +20097,10 @@ server.listen(PORT, async () => {
         } catch (e) { console.warn(`[SF監査] リスト${l.id}`, e.message); }
       }
       console.log(`[SF監査] 全リスト（${lists.length}件）を監査：ユーザー ${ユーザー}・クロス商談 ${クロス}・直近失注 ${失注}`);
+      _lastSfAudit = { at: new Date().toISOString(), lists: lists.length, ユーザー, クロス, 失注 };
+      if (ユーザー || クロス || 失注) {
+        aiLog("sf-audit", `SF監査：ユーザー化 ${ユーザー}・クロス商談 ${クロス}・直近失注 ${失注}（全${lists.length}リスト）`);
+      }
     } catch (e) {
       console.error("[SF監査]", e.message);
     } finally {

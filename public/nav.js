@@ -34,7 +34,7 @@ window.addEventListener("error", (e) => {
 (function () {
   if (!document.querySelector('script[src$="kbchat.js"]')) {
     const sc = document.createElement("script");
-    sc.src = "kbchat.js?v=20260902d";
+    sc.src = "kbchat.js?v=20260902f";
     sc.defer = true;
     document.head.appendChild(sc);
   }
@@ -46,6 +46,7 @@ window.addEventListener("error", (e) => {
 // ───────────────────────────────────────────────────────────
 const KB_MENU = [
   { href: "home.html", label: "ホーム", ico: "ico-home" },
+  { href: "ai.html", label: "AI社員", ico: "ico-ai" },
   { href: "index.html", label: "レコーディング", ico: "ico-rec" },
   {
     href: "history.html", label: "商談履歴", ico: "ico-hist",
