@@ -6,29 +6,49 @@ const $ = (id) => document.getElementById(id);
 const esc = (v) => String(v == null ? "" : v).replace(/[&<>"']/g,
   (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 
-// キツツキのアバター（kinbotの緑トンマナ）。
-// 頭を <g class="kt-head"> にまとめて「つつく」動きに、目は開き/閉じの2種、右上に Zzz を用意。
-// 稼働中／休止中の切り替えはCSS（.ai-ava.working / .ai-ava.sleeping）で行う。
+// キツツキが自分のデスクで働いている場面（kinbotの緑トンマナ）。
+// 稼働中は頭がキーを打つように「つつく」、休止中は目を閉じてZzz。CSSで切り替える。
 const KITSUTSUKI_SVG = `
-<svg viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+<svg viewBox="0 0 130 96" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
   <g class="kt-body">
-    <ellipse cx="30" cy="38" rx="15" ry="17" fill="#5DCAA5"/>
-    <path d="M30 21c9 0 15 6 15 15 0 4-1 7-3 10-3-1-6-4-7-8-1-5 1-11-5-17z" fill="#1d9e75"/>
-    <path d="M40 46c3 2 5 5 5 9-3 0-6-2-8-5z" fill="#0d5b47"/>
-    <path d="M26 55l2 5M33 55l2 5" stroke="#c9a24b" stroke-width="2.4" stroke-linecap="round"/>
+    <ellipse cx="50" cy="54" rx="18" ry="21" fill="#5DCAA5"/>
+    <path d="M50 34c10 0 16 8 16 17 0 6-2 10-4 13-3-2-6-6-7-12-1-6 2-13-5-18z" fill="#1d9e75"/>
   </g>
   <g class="kt-head">
-    <circle cx="27" cy="20" r="12" fill="#0d5b47"/>
-    <path d="M17 15c-2-2-2-5 1-6l6 3-3 6c-2 0-3-1-4-3z" fill="#c9a24b"/>
-    <path d="M27 8c1-3 4-4 6-2-1 2-3 3-6 2z" fill="#e05a4b"/>
-    <circle class="kt-eye-open" cx="30" cy="19" r="3.4" fill="#fff"/>
-    <circle class="kt-eye-open" cx="31" cy="19" r="1.7" fill="#0d5b47"/>
-    <path class="kt-eye-shut" d="M27 19.5q3 2.5 6 0" stroke="#eaf6f1" stroke-width="1.8" fill="none" stroke-linecap="round"/>
+    <circle cx="48" cy="30" r="14" fill="#0d5b47"/>
+    <path d="M46 6c1-3 4-4 6-2-1 3-3 4-6 2z" fill="#e05a4b"/>
+    <path d="M40 10c1-2 3-2 4 0l1 4-4 1c-1-1-2-3-1-5z" fill="#c9a24b"/>
+    <path d="M59 30l11 6-11 5c-2-3-2-8 0-11z" fill="#c9a24b"/>
+    <circle class="kt-eye-open" cx="53" cy="27" r="3.6" fill="#fff"/>
+    <circle class="kt-eye-open" cx="54" cy="27" r="1.8" fill="#0d5b47"/>
+    <path class="kt-eye-shut" d="M50 28q3.2 2.6 6.4 0" stroke="#eaf6f1" stroke-width="1.9" fill="none" stroke-linecap="round"/>
+  </g>
+  <g class="kt-desk">
+    <rect x="4" y="72" width="122" height="9" rx="3" fill="#b98a3e"/>
+    <rect x="4" y="72" width="122" height="2.6" rx="1.3" fill="#d0a154"/>
+    <rect x="9" y="81" width="112" height="8" fill="#8f6a2e"/>
+    <rect x="16" y="89" width="6" height="7" rx="1.5" fill="#7a5a27"/>
+    <rect x="108" y="89" width="6" height="7" rx="1.5" fill="#7a5a27"/>
+  </g>
+  <g class="kt-laptop">
+    <rect x="74" y="50" width="30" height="20" rx="2.5" fill="#0d5b47"/>
+    <rect class="kt-screen" x="77" y="53" width="24" height="14" rx="1.5" fill="#5DCAA5"/>
+    <rect x="70" y="69" width="38" height="4" rx="2" fill="#124e3f"/>
+  </g>
+  <g class="kt-coffee">
+    <path class="kt-steam" d="M20 60c-1.4-2 1-3.4 0-5.4" stroke="#eaf6f1" stroke-width="1.5" fill="none" stroke-linecap="round"/>
+    <rect x="15" y="63" width="11" height="9" rx="2" fill="#eef7f3"/>
+    <path d="M26 65c3.2 0 3.2 4.4 0 4.4" stroke="#eef7f3" stroke-width="1.8" fill="none"/>
+  </g>
+  <g class="kt-plant">
+    <rect x="110" y="62" width="11" height="10" rx="1.6" fill="#8f6a2e"/>
+    <path d="M115.5 62c-3.2-3-2.4-7.4 0-9.6 2.2 2.2 3.2 6.4 0 9.6z" fill="#1d9e75"/>
+    <path d="M115.5 62c3.2-2 6.6-1 7.6 1.2-2.2 2.2-6.4 2-7.6-1.2z" fill="#5DCAA5"/>
   </g>
   <g class="kt-zzz" aria-hidden="true">
-    <text x="44" y="16" font-size="9" fill="#ffffff" font-family="sans-serif">z</text>
-    <text x="50" y="11" font-size="7" fill="#ffffff" font-family="sans-serif">z</text>
-    <text x="55" y="7"  font-size="5" fill="#ffffff" font-family="sans-serif">z</text>
+    <text x="64" y="16" font-size="10" fill="#ffffff" font-family="sans-serif">z</text>
+    <text x="71" y="10" font-size="8" fill="#ffffff" font-family="sans-serif">z</text>
+    <text x="77" y="5" font-size="6" fill="#ffffff" font-family="sans-serif">z</text>
   </g>
 </svg>`;
 

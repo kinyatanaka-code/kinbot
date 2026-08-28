@@ -10,7 +10,7 @@
     <link rel="manifest" href="/site.webmanifest" />
     <meta name="theme-color" content="#0d5b47" />
     <meta name="apple-mobile-web-app-title" content="kinbot" />
-    <link rel="stylesheet" href="style.css?v=20260902q" />
+    <link rel="stylesheet" href="style.css?v=20260902r" />
     <style>
       /* 1画面に収めるダッシュボード。ページ自体はスクロールせず、長いリストはカード内で送る。 */
       .ai-page{flex:1 1 auto;min-height:0;display:flex;flex-direction:column;gap:12px;
@@ -18,28 +18,37 @@
       .ai-hero{flex:0 0 auto;display:flex;gap:16px;align-items:center;
         background:linear-gradient(135deg,#0d5b47,#1d9e75);border-radius:16px;padding:14px 18px;color:#fff;
         box-shadow:0 5px 20px rgba(13,91,71,.16);}
-      .ai-ava{flex:0 0 auto;width:62px;height:62px;background:rgba(255,255,255,.14);border-radius:16px;
+      .ai-hero{flex:0 0 auto;display:flex;gap:16px;align-items:center;
+        background:linear-gradient(135deg,#0d5b47,#1d9e75);border-radius:16px;padding:12px 18px;color:#fff;
+        box-shadow:0 5px 20px rgba(13,91,71,.16);}
+      .ai-ava{flex:0 0 auto;width:150px;height:104px;background:rgba(255,255,255,.12);border-radius:16px;
         display:flex;align-items:center;justify-content:center;overflow:visible;}
-      .ai-ava svg{width:46px;height:46px;overflow:visible;}
+      .ai-ava svg{width:140px;height:98px;overflow:visible;}
       /* SVGの部品ごとの初期状態 */
-      .kt-head{transform-box:fill-box;transform-origin:62% 92%;}
+      .kt-head{transform-box:fill-box;transform-origin:50% 96%;}
       .kt-eye-shut{display:none;}
       .kt-zzz{opacity:0;}
-      /* 稼働中：コツコツつつく＋体が軽く弾む（仕事している感じ） */
-      .ai-ava.working svg{animation:kt-bob 1.6s ease-in-out infinite;}
-      .ai-ava.working .kt-head{animation:kt-peck 1.6s ease-in-out infinite;}
-      @keyframes kt-peck{0%,55%,100%{transform:rotate(0)}62%{transform:rotate(15deg)}70%{transform:rotate(0)}78%{transform:rotate(15deg)}86%{transform:rotate(0)}}
-      @keyframes kt-bob{0%,100%{transform:translateY(0)}50%{transform:translateY(-1.5px)}}
-      /* 休止中：目を閉じて、頭を下げ、Zzzが浮かぶ（寝ている感じ） */
+      .kt-steam{opacity:0;}
+      /* 稼働中：キーを打つように頭がつつく＋体が軽く弾む。画面が光り、湯気が立つ。 */
+      .ai-ava.working svg{animation:kt-bob 1.7s ease-in-out infinite;}
+      .ai-ava.working .kt-head{animation:kt-peck 1.7s ease-in-out infinite;}
+      .ai-ava.working .kt-screen{animation:kt-screen 2.4s ease-in-out infinite;transform-box:fill-box;}
+      .ai-ava.working .kt-steam{animation:kt-steam 2.6s ease-in-out infinite;}
+      @keyframes kt-peck{0%,52%,100%{transform:rotate(0)}60%{transform:rotate(13deg)}68%{transform:rotate(0)}76%{transform:rotate(13deg)}84%{transform:rotate(0)}}
+      @keyframes kt-bob{0%,100%{transform:translateY(0)}50%{transform:translateY(-2px)}}
+      @keyframes kt-screen{0%,100%{opacity:.75}50%{opacity:1}}
+      @keyframes kt-steam{0%{opacity:0;transform:translateY(2px)}35%{opacity:.85}100%{opacity:0;transform:translateY(-6px)}}
+      /* 休止中：目を閉じ、頭を机へ傾け、Zzzが浮かぶ。ゆっくり呼吸。 */
       .ai-ava.sleeping .kt-eye-open{display:none;}
       .ai-ava.sleeping .kt-eye-shut{display:block;}
-      .ai-ava.sleeping .kt-head{transform:rotate(7deg);}
-      .ai-ava.sleeping .kt-body{animation:kt-breathe 3.4s ease-in-out infinite;transform-box:fill-box;transform-origin:50% 100%;}
-      .ai-ava.sleeping .kt-zzz{animation:kt-zzz 3.4s ease-in-out infinite;}
+      .ai-ava.sleeping .kt-head{transform:rotate(12deg);}
+      .ai-ava.sleeping .kt-body{animation:kt-breathe 3.6s ease-in-out infinite;transform-box:fill-box;transform-origin:50% 100%;}
+      .ai-ava.sleeping .kt-zzz{animation:kt-zzz 3.6s ease-in-out infinite;}
       @keyframes kt-breathe{0%,100%{transform:scale(1)}50%{transform:scale(1.04)}}
-      @keyframes kt-zzz{0%{opacity:0;transform:translateY(2px)}30%{opacity:.9}100%{opacity:0;transform:translateY(-6px)}}
+      @keyframes kt-zzz{0%{opacity:0;transform:translateY(2px)}30%{opacity:.9}100%{opacity:0;transform:translateY(-7px)}}
       @media (prefers-reduced-motion: reduce){
-        .ai-ava.working svg,.ai-ava.working .kt-head,.ai-ava.sleeping .kt-body,.ai-ava.sleeping .kt-zzz{animation:none;}
+        .ai-ava.working svg,.ai-ava.working .kt-head,.ai-ava.working .kt-screen,.ai-ava.working .kt-steam,
+        .ai-ava.sleeping .kt-body,.ai-ava.sleeping .kt-zzz{animation:none;}
       }
       /* 発言の吹き出し（キツツキが左から話しかけている感じ） */
       .ai-bubble{position:relative;display:inline-block;max-width:100%;margin-top:6px;
@@ -117,9 +126,9 @@
         </main>
       </div>
     </div>
-    <script src="product.js?v=20260902q"></script>
-    <script src="ai.js?v=20260902q"></script>
-    <script src="nav.js?v=20260902q"></script>
+    <script src="product.js?v=20260902r"></script>
+    <script src="ai.js?v=20260902r"></script>
+    <script src="nav.js?v=20260902r"></script>
     <script src="/cmdk.js?v=20260827a"></script>
   </body>
 </html>
