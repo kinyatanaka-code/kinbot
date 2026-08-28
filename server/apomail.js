@@ -56,14 +56,14 @@ Mail：{{担当者メール}}
 TEL：03-6756-0421　 FAX：03-5908-8385
 ■━━━━━━━━━━━━━━━━━━━━━━━━━■`;
 
-export const DEFAULT_REMINDER_SUBJECT = "【リマインド】明日{{商談時刻}}〜 お打ち合わせのご案内（{{自社名}}）";
+export const DEFAULT_REMINDER_SUBJECT = "【リマインド】{{商談いつ}}{{商談時刻}}〜 お打ち合わせのご案内（{{自社名}}）";
 export const DEFAULT_REMINDER_BODY = `{{会社名}}
 {{お客様名}}様
 
 いつも大変お世話になっております。
 {{自社名}}の{{担当者姓}}でございます。
 
-明日のお打ち合わせにつきまして、あらためてご案内いたします。
+{{商談いつ}}のお打ち合わせにつきまして、あらためてご案内いたします。
 
 【日時】{{商談日時}}
 【形式】Web会議（Zoom）
@@ -267,6 +267,22 @@ export function buildVars(link, { repName, repEmail, url, companyName, profile =
     "商談日時": t ? `${dateStr} ${timeStr}〜` : "",
     "商談日": dateStr,
     "商談時刻": timeStr,
+    // 商談が「いつ」か。実際に翌日なら「明日」、翌々日なら「明後日」、それ以外は曜日（例：月曜日）。
+    // 金曜に月曜のリマインドを送るとき、件名が「明日」になってしまうのを直すために使う。
+    "商談いつ": (() => {
+      if (!t) return "";
+      const startD = new Date(link.start_time);
+      if (isNaN(startD.getTime())) return "";
+      const toJst = (d) => new Date(d.getTime() + 9 * 3600 * 1000);
+      const jn = toJst(new Date()), js = toJst(startD);
+      const d0 = Date.UTC(jn.getUTCFullYear(), jn.getUTCMonth(), jn.getUTCDate());
+      const d1 = Date.UTC(js.getUTCFullYear(), js.getUTCMonth(), js.getUTCDate());
+      const diff = Math.round((d1 - d0) / 86400000);
+      if (diff === 0) return "本日";
+      if (diff === 1) return "明日";
+      if (diff === 2) return "明後日";
+      return `${t.wd}曜日`;
+    })(),
     "URL": url || "",
     "担当者名": repName || "",
     // 署名に出すアドレス。メンバー管理で決めていればそれを使い、無ければログインのアドレス。
@@ -443,8 +459,17 @@ export async function sendApoMail(link, kind, { url, repName, force = false, act
     console.warn(`[apo-mail] ${owner} が「設定→登録リンク」に会議室URLを登録していません。` +
       `このままだとスマートリンクを開いてもお客様が入室できません。`);
   }
-  const subject = render(kind === "reminder" ? cfg.reminderSubject : cfg.confirmSubject, vars);
-  const bodyText = render(kind === "reminder" ? cfg.reminderBody : cfg.confirmBody, vars);
+  let subject = render(kind === "reminder" ? cfg.reminderSubject : cfg.confirmSubject, vars);
+  let bodyText = render(kind === "reminder" ? cfg.reminderBody : cfg.confirmBody, vars);
+  // リマインドで、実際は「明日」ではないのにテンプレートに「明日」が直書きされている場合は、正しい表記に直す。
+  // （金曜に月曜のリマインドを送ると件名が「明日」になってしまう不具合の保険）
+  if (kind === "reminder") {
+    const when = String(vars["商談いつ"] || "").trim();
+    if (when && when !== "明日") {
+      subject = subject.replace(/明日/g, when);
+      bodyText = bodyText.replace(/明日/g, when);
+    }
+  }
 
   const asDraft = cfg.deliverMode !== "send";
   // 送るときは、自分にも控えを届ける（Bccなのでお客様には見えない）。

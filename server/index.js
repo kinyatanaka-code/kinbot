@@ -8148,6 +8148,19 @@ app.get("/api/dev-notes", async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+// 開発メモ（要望）が「完了」になったら、その要望を出した人の個人チャットに知らせる。
+async function notifyDevNoteDone(note) {
+  try {
+    if (!note) return;
+    const who = String(note.created_by || "").trim();
+    if (!who || !/@/.test(who)) return;   // 誰が出したか分かるものだけ
+    const kindLabel = { request: "要望", bug: "不具合", idea: "アイデア" }[note.kind] || "メモ";
+    const msg = `✅ ご要望の対応が完了しました\n・${note.title || ""}\n（種別：${kindLabel}）`;
+    const pr = await notifyPerson(who, msg).catch(() => ({ ok: false }));
+    if (!pr || !pr.ok) console.log(`[開発メモ] 完了通知を個人チャットに送れませんでした（${who}）：${(pr && pr.reason) || ""}`);
+  } catch (e) { console.warn("[開発メモ] 完了通知に失敗", e.message); }
+}
+
 app.post("/api/dev-notes", async (req, res) => {
   try {
     const b = req.body || {};
@@ -8179,7 +8192,10 @@ app.post("/api/dev-notes/bulk", async (req, res) => {
     });
     for (const r of target) {
       if (status === "dropped") await dismissDevNote(r.id).catch(() => {});
-      else await updateDevNote(r.id, { status }).catch(() => {});
+      else {
+        await updateDevNote(r.id, { status }).catch(() => {});
+        if (status === "done") notifyDevNoteDone(r).catch(() => {});   // 完了なら出した人に通知
+      }
     }
     console.log(`[開発メモ] ${target.length}件を${status === "dropped" ? "見送って消しました" : `「${status}」にしました`} by ${req.user}`);
     res.json({ ok: true, changed: target.length });
@@ -8195,6 +8211,8 @@ app.patch("/api/dev-notes/:id", async (req, res) => {
       return res.json({ ok: true, dismissed: n });
     }
     const r = await updateDevNote(id, req.body || {});
+    // 「完了」にしたら、その要望を出した人の個人チャットに知らせる
+    if (String(req.body?.status || "") === "done" && r) notifyDevNoteDone(r).catch(() => {});
     res.json({ ok: true, item: r });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
@@ -14873,7 +14891,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-01y コール進捗の通知：目標の表示を一旦なくし、実績だけを出すようにした（見やすさのため）";
+const BUILD_TAG = "2026-09-01z アポメール：リマインドの件名・本文が実際は翌日でないのに『明日』になる不具合を修正（金曜→月曜は『月曜日』等に）。開発メモ：要望が完了になったら、出した人の個人チャットに通知するようにした";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
