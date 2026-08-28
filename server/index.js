@@ -32,6 +32,7 @@ import { buildSlots, stillFree } from "./booking.js";
 import { checkLive, checkProcessSheet, checkLinks, buildProposal, notifyCheck } from "./selfcheck.js";
 import { UI_PAGES, nextPage, reviewPage, splitIdeas } from "./uireview.js";
 import { verifyChatRequest, readEvent, replyBody, parseCommand, helpText, jstDate, jstTime, INTENT_SYSTEM, guessIntent } from "./chatcmd.js";
+import * as persona from "./persona.js";
 import { normalizeSpace } from "./chatapp.js";
 import { judge as judgeAutolaunch, reasonText, parseTitle as parseLaunchTitle } from "./autolaunch.js";
 import { fixMojibake } from "./docs.js";
@@ -9239,9 +9240,11 @@ app.post("/api/dev-notes/applied", async (req, res) => {
   try {
     const b = req.body || {};
     const g = b.guard || {};
+    const _st = await getSettings().catch(() => ({}));
+    const _me = persona.aiName(_st);
     const head = b.applied
-      ? "🤖 *自動で直して、本番に入れました*"
-      : (g.changed ? "🤖 *直しましたが、本番には入れていません*" : "🤖 *今回は変更なし*");
+      ? `🤖 *${_me}です。自動で直して、本番に入れました*`
+      : (g.changed ? `🤖 *${_me}です。直しましたが、本番には入れていません*` : `🤖 *${_me}です。今回は変更なし*`);
     const why = !b.applied && g.changed && Array.isArray(g.reasons) ? `理由：${g.reasons.join(" / ")}` : "";
     const text = [
       head,
@@ -14954,7 +14957,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-02d kincall：全リストを常にSF監査。クロス受注→「ユーザー」表記、クロス商談立ち上げ→アポ獲得、直近失注→「失注」と正しく仕分け（以前は失注もアポ獲得に化けていた不具合を修正）。ユーザー・失注はかける対象外として下にまとめ表示。手動更新に加え30分ごとの自動監査（KINCALL_AUDIT_MIN）を追加";
+const BUILD_TAG = "2026-09-02e AI社員：kinbotの自動化に人格（既定名キンタ／改名可）を持たせ、Google Chatから制御できるように。『自動』で状態と管理場所を回答、『自動改善を止めて／動かして』『本番反映を止めて』『稼働時間 9〜18』『名前を〇〇にして』に対応（クローザー/管理者のみ制御可）。自動改善の通知もAI社員名義に。前回：kincallの全リストSF監査（クロス受注→ユーザー・直近失注の除外）";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
@@ -18554,6 +18557,73 @@ app.post("/api/chat/command", async (req, res) => {
     console.log(`[chat-cmd] ${who || "不明"}「${text}」→ ${cmd.kind}`);
 
     if (cmd.kind === "help") return reply(helpText());
+
+    // ── AI社員（自動化）まわり ──────────────────────────────
+    // 状態を見る：いまの自動化の状態と、どこで動いているか（管理場所）を答える。
+    if (cmd.kind === "auto") {
+      const st = await getSettings().catch(() => ({}));
+      const now = new Date(Date.now() + 9 * 3600 * 1000);
+      const h = now.getUTCHours();
+      const from = Number(st.autoApplyFrom ?? 0), to = Number(st.autoApplyTo ?? 24);
+      const inHours = from <= to ? (h >= from && h < to) : (h >= from || h < to);
+      const 改善 = st.autoImprove === true;
+      const 本番 = st.autoApply === true;
+      const body = [
+        "いまの自動化はこうなっています。",
+        `・自動でコードを直す：${改善 ? "動いています" : "止めています"}`,
+        `・直したものを本番へ入れる：${本番 ? `入れます（${from}〜${to}時のあいだ${inHours ? "・いまは時間内" : "・いまは時間外なのでPRにします"}）` : "入れず、PRにして田中さんの確認を待ちます"}`,
+        "",
+        "どこで動いているか：",
+        "・毎時0分：GitHub Actions「1時間ごとの自動改善」（安全なものは本番へ、危ういものはPR）",
+        "・毎日3:00：GitHub Actions「夜間開発」（まとめて直してPR、朝に確認）",
+        "・平日9/12/15/18/21時：GitHub Actions「定期提案」（案を出すだけ）",
+        "・30分ごと：kinbot本体で全リストのSF監査",
+        "直す元ネタ＝開発メモ、安全網＝CI（構文＋smoke）・PR・巻き戻し（Actionsのロールバック）。",
+        "",
+        "ここで頼めること：『自動改善を止めて／動かして』『本番反映を止めて』『稼働時間 9〜18』",
+      ].join("\n");
+      return reply(persona.say(st, body, persona.nameHint(st)));
+    }
+
+    // 名付け：AI社員の名前を変える（田中さん＝クローザー/管理者のみ）。
+    if (cmd.kind === "naming") {
+      const admin = !!who && (process.env.ADMIN_EMAILS || "").split(",").map((x) => x.trim()).includes(who);
+      const canControl = admin || (who ? await isCloserUser(who).catch(() => false) : false);
+      const st = await getSettings().catch(() => ({}));
+      if (!canControl) return reply(persona.say(st, "名前を変えられるのは、クローザーか管理者だけにしています。"));
+      await saveSettings({ aiName: cmd.name.slice(0, 20) });
+      const st2 = await getSettings().catch(() => ({ aiName: cmd.name }));
+      return reply(persona.say(st2, `これから「${persona.aiName(st2)}」として働きます。よろしくお願いします。`));
+    }
+
+    // 制御：自動改善のON/OFF・本番反映のON/OFF・稼働時間（田中さん＝クローザー/管理者のみ）。
+    if (cmd.kind === "autoctl") {
+      const admin = !!who && (process.env.ADMIN_EMAILS || "").split(",").map((x) => x.trim()).includes(who);
+      const canControl = admin || (who ? await isCloserUser(who).catch(() => false) : false);
+      const st = await getSettings().catch(() => ({}));
+      if (!canControl) return reply(persona.say(st, "自動化を止めたり動かしたりできるのは、クローザーか管理者だけにしています。"));
+      if (cmd.action === "hours") {
+        const f = Math.max(0, Math.min(24, cmd.from || 0)), t2 = Math.max(0, Math.min(24, cmd.to || 24));
+        await saveSettings({ autoApplyFrom: f, autoApplyTo: t2 });
+        const st2 = await getSettings().catch(() => st);
+        return reply(persona.say(st2, `本番に入れてよい時間帯を ${f}〜${t2}時 にしました。この時間の外で直したものはPRにして、確認をお待ちします。`));
+      }
+      const off = cmd.action === "off";
+      if (cmd.target === "improve") {
+        await saveSettings({ autoImprove: !off });
+        const st2 = await getSettings().catch(() => st);
+        return reply(persona.say(st2, off
+          ? "自動でコードを直す動きを止めました。次に『動かして』と言われるまで、勝手には直しません（監視・通知は続けます）。"
+          : "自動でコードを直す動きを再開しました。溜まっている開発メモから、安全なものを順に直していきます。"));
+      }
+      // target === "apply"
+      await saveSettings({ autoApply: !off });
+      const st2 = await getSettings().catch(() => st);
+      return reply(persona.say(st2, off
+        ? "本番への自動反映を止めました。直したものは本番に入れず、PRにして田中さんの確認をお待ちします。"
+        : "本番への自動反映を再開しました。安全なものは、稼働時間内なら本番へ入れます。"));
+    }
+    // ─────────────────────────────────────────────────────
 
     // 「要望 〜」「バグ 〜」を、その場で開発メモに残す
     if (cmd.kind === "note") {
