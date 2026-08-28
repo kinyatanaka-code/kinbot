@@ -9320,15 +9320,15 @@ app.put("/api/ai/name", async (req, res) => {
 });
 
 // 「動かす時間帯」＝開始時〜終了時（runEvery時間おき）から、実際に動く時刻の一覧を作る。
-// cronは毎時:30に起動する（UTC 23,0-12＝日本時間 8:30〜21:30）ので、その枠に収める。
-const RUN_ENV_FROM = 8, RUN_ENV_TO = 21;
+// cronは終日、毎時:30に起動するので、0〜24時のどこでも選べる（終了24時は「翌0時の手前まで」）。
+const RUN_ENV_FROM = 0, RUN_ENV_TO = 23;
 function computeRunHours(st) {
   const clamp = (v, lo, hi, dflt) => {
     const n = parseInt(v, 10);
     return Number.isInteger(n) ? Math.max(lo, Math.min(hi, n)) : dflt;
   };
-  const from = clamp(st && st.runFrom, RUN_ENV_FROM, RUN_ENV_TO, 9);
-  const to = clamp(st && st.runTo, RUN_ENV_FROM, RUN_ENV_TO, 21);
+  const from = clamp(st && st.runFrom, 0, 23, 9);
+  const to = clamp(st && st.runTo, 0, 24, 21);
   const every = clamp(st && st.runEvery, 1, 12, 2);
   const hours = [];
   for (let h = from; h <= to; h += every) if (h >= RUN_ENV_FROM && h <= RUN_ENV_TO) hours.push(h);
@@ -9361,8 +9361,8 @@ app.put("/api/auto-apply", async (req, res) => {
     if (b.enabled !== undefined) patch.autoImprove = b.enabled === true;
     if (b.autoApply !== undefined) patch.autoApply = b.autoApply === true;
     const clampH = (v, lo, hi) => Math.max(lo, Math.min(hi, parseInt(v, 10)));
-    if (b.runFrom !== undefined && Number.isInteger(parseInt(b.runFrom, 10))) patch.runFrom = clampH(b.runFrom, RUN_ENV_FROM, RUN_ENV_TO);
-    if (b.runTo !== undefined && Number.isInteger(parseInt(b.runTo, 10))) patch.runTo = clampH(b.runTo, RUN_ENV_FROM, RUN_ENV_TO);
+    if (b.runFrom !== undefined && Number.isInteger(parseInt(b.runFrom, 10))) patch.runFrom = clampH(b.runFrom, 0, 23);
+    if (b.runTo !== undefined && Number.isInteger(parseInt(b.runTo, 10))) patch.runTo = clampH(b.runTo, 0, 24);
     if (b.runEvery !== undefined && Number.isInteger(parseInt(b.runEvery, 10))) patch.runEvery = clampH(b.runEvery, 1, 12);
     await saveSettings(patch);
     console.log(`[自動改善] 設定を更新 by ${req.user}: ${JSON.stringify(patch)}`);
@@ -15172,7 +15172,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-02t 自動改善の「動かす時間帯」を開始時〜終了時＋何時間おきで選べるように（AI社員画面。runFrom/runTo/runEveryから実行時刻を生成）。cronは毎時:30起動（JST8:30〜21:30の枠）、実行可否はkinbotで判定。前回：動かす時刻の画面調整";
+const BUILD_TAG = "2026-09-02u 自動改善の「動かす時間帯」を終日（0時〜24時）から選べるように拡張。cronを終日・毎時:30起動に（田中さんが動けない夜間なども回せる）。実行可否はkinbotのrunFrom/To/Everyで判定。前回：動かす時間帯の範囲選択";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",

@@ -163,10 +163,10 @@ function render(d) {
         <div class="ai-ctl" style="display:block;">
           <div><div class="ai-ctl-t">動かす時間帯（この時間の :30 に動きます）</div><div class="ai-ctl-d">開始〜終了と、何時間おきかを選べます</div></div>
           <div class="ai-range">
-            <select id="runFrom">${[8,9,10,11,12,13,14,15,16,17,18,19,20,21].map((h)=>`<option value="${h}"${c.runFrom===h?" selected":""}>${h}時</option>`).join("")}</select>
+            <select id="runFrom">${Array.from({length:24},(_,h)=>h).map((h)=>`<option value="${h}"${c.runFrom===h?" selected":""}>${h}時</option>`).join("")}</select>
             <span>〜</span>
-            <select id="runTo">${[8,9,10,11,12,13,14,15,16,17,18,19,20,21].map((h)=>`<option value="${h}"${c.runTo===h?" selected":""}>${h}時</option>`).join("")}</select>
-            <select id="runEvery">${[1,2,3,4].map((n)=>`<option value="${n}"${c.runEvery===n?" selected":""}>${n}時間おき</option>`).join("")}</select>
+            <select id="runTo">${Array.from({length:24},(_,i)=>i+1).map((h)=>`<option value="${h}"${c.runTo===h?" selected":""}>${h}時</option>`).join("")}</select>
+            <select id="runEvery">${[1,2,3,4,6].map((n)=>`<option value="${n}"${c.runEvery===n?" selected":""}>${n}時間おき</option>`).join("")}</select>
           </div>
           <div class="ai-mini" id="aiRunPreview">実行：${(c.runHours||[]).map((h)=>h+":30").join("・") || "（なし）"}</div>
         </div>
@@ -256,7 +256,7 @@ function wire() {
     if (runTo < runFrom) { $("aiCtlMsg").textContent = "終了は開始より後にしてください。"; return; }
     // 実行時刻のプレビューを先に出す
     const prev = [];
-    for (let h = runFrom; h <= runTo; h += runEvery) prev.push(h + ":30");
+    for (let h = runFrom; h <= runTo; h += runEvery) if (h <= 23) prev.push(h + ":30");
     const pv = $("aiRunPreview"); if (pv) pv.textContent = "実行：" + (prev.join("・") || "（なし）");
     putAuto({ runFrom, runTo, runEvery }, `動かす時間帯を ${runFrom}時〜${runTo}時（${runEvery}時間おき）にしました。`);
   };
