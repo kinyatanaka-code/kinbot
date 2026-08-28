@@ -6,18 +6,30 @@ const $ = (id) => document.getElementById(id);
 const esc = (v) => String(v == null ? "" : v).replace(/[&<>"']/g,
   (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 
-// キツツキのアバター（kinbotの緑トンマナ。丸みのあるシンプルなSVG）
+// キツツキのアバター（kinbotの緑トンマナ）。
+// 頭を <g class="kt-head"> にまとめて「つつく」動きに、目は開き/閉じの2種、右上に Zzz を用意。
+// 稼働中／休止中の切り替えはCSS（.ai-ava.working / .ai-ava.sleeping）で行う。
 const KITSUTSUKI_SVG = `
 <svg viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
-  <ellipse cx="30" cy="38" rx="15" ry="17" fill="#5DCAA5"/>
-  <path d="M30 21c9 0 15 6 15 15 0 4-1 7-3 10-3-1-6-4-7-8-1-5 1-11-5-17z" fill="#1d9e75"/>
-  <circle cx="27" cy="20" r="12" fill="#0d5b47"/>
-  <path d="M17 15c-2-2-2-5 1-6l6 3-3 6c-2 0-3-1-4-3z" fill="#c9a24b"/>
-  <path d="M27 8c1-3 4-4 6-2-1 2-3 3-6 2z" fill="#e05a4b"/>
-  <circle cx="30" cy="19" r="3.4" fill="#fff"/>
-  <circle cx="31" cy="19" r="1.7" fill="#0d5b47"/>
-  <path d="M40 46c3 2 5 5 5 9-3 0-6-2-8-5z" fill="#0d5b47"/>
-  <path d="M26 55l2 5M33 55l2 5" stroke="#c9a24b" stroke-width="2.4" stroke-linecap="round"/>
+  <g class="kt-body">
+    <ellipse cx="30" cy="38" rx="15" ry="17" fill="#5DCAA5"/>
+    <path d="M30 21c9 0 15 6 15 15 0 4-1 7-3 10-3-1-6-4-7-8-1-5 1-11-5-17z" fill="#1d9e75"/>
+    <path d="M40 46c3 2 5 5 5 9-3 0-6-2-8-5z" fill="#0d5b47"/>
+    <path d="M26 55l2 5M33 55l2 5" stroke="#c9a24b" stroke-width="2.4" stroke-linecap="round"/>
+  </g>
+  <g class="kt-head">
+    <circle cx="27" cy="20" r="12" fill="#0d5b47"/>
+    <path d="M17 15c-2-2-2-5 1-6l6 3-3 6c-2 0-3-1-4-3z" fill="#c9a24b"/>
+    <path d="M27 8c1-3 4-4 6-2-1 2-3 3-6 2z" fill="#e05a4b"/>
+    <circle class="kt-eye-open" cx="30" cy="19" r="3.4" fill="#fff"/>
+    <circle class="kt-eye-open" cx="31" cy="19" r="1.7" fill="#0d5b47"/>
+    <path class="kt-eye-shut" d="M27 19.5q3 2.5 6 0" stroke="#eaf6f1" stroke-width="1.8" fill="none" stroke-linecap="round"/>
+  </g>
+  <g class="kt-zzz" aria-hidden="true">
+    <text x="44" y="16" font-size="9" fill="#ffffff" font-family="sans-serif">z</text>
+    <text x="50" y="11" font-size="7" fill="#ffffff" font-family="sans-serif">z</text>
+    <text x="55" y="7"  font-size="5" fill="#ffffff" font-family="sans-serif">z</text>
+  </g>
 </svg>`;
 
 function fmtWhen(iso) {
@@ -30,6 +42,53 @@ function fmtWhen(iso) {
 }
 
 let STATE = null;
+let _bubbleTimer = null;
+
+// 次の自動改善の時刻（日本時間 9:30〜20:30 の決まった時刻）を文にする。
+function nextRunLabel(c) {
+  if (!c || !c.autoImprove) return "";
+  const t = [[9, 30], [11, 30], [13, 30], [15, 30], [17, 30], [19, 30], [20, 30]];
+  const d = new Date(Date.now() + (new Date().getTimezoneOffset() * 60000) + 9 * 3600000); // JST
+  const cur = d.getHours() * 60 + d.getMinutes();
+  const nx = t.find(([h, m]) => h * 60 + m > cur);
+  const [h, m] = nx || t[0];
+  const hhmm = `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
+  return nx ? `次の自動改善は ${hhmm} です` : `次は 明日 ${hhmm} に動きます`;
+}
+
+// いま何をしているか（発言）の候補を、状態から組み立てる。順に吹き出しへ出す。
+function buildSayLines(d) {
+  const c = d.control || {};
+  if (!c.autoImprove) {
+    return ["すこし休憩中です… zzz", "呼ばれたら、すぐ動きます", "「動かして」で起こしてください"];
+  }
+  const act = d.activity || [];
+  const n = d.notes || {};
+  const lines = [];
+  const order = act.find((a) => a.kind === "fix-order");
+  if (order) lines.push(`「${String(order.text).replace(/^指示：/, "")}」に取りかかっています`);
+  const done = act.find((a) => a.kind === "fix-applied" || a.kind === "fix-pr" || a.kind === "notes-done");
+  if (done) lines.push(`さっき ${String(done.text)}`);
+  lines.push((n.new || 0) > 0 ? `未対応の開発メモを ${n.new}件、順に片づけています` : "開発メモはひと段落。次の出番を待っています");
+  lines.push("SFの様子も気にかけています");
+  const nr = nextRunLabel(c);
+  if (nr) lines.push(nr);
+  lines.push(c.autoApply ? "直したものは本番へ入れます" : "直したものはPRにして確認を待ちます");
+  return lines.filter(Boolean);
+}
+
+// 吹き出しの文を、一定間隔で切り替える（発言している感じ）。
+function startBubble(lines) {
+  if (_bubbleTimer) { clearInterval(_bubbleTimer); _bubbleTimer = null; }
+  const el = $("aiBubbleText");
+  if (!el || !lines || lines.length <= 1) return;
+  let i = 0;
+  _bubbleTimer = setInterval(() => {
+    i = (i + 1) % lines.length;
+    el.style.opacity = "0";
+    setTimeout(() => { el.textContent = lines[i]; el.style.opacity = "1"; }, 220);
+  }, 3800);
+}
 
 async function load() {
   try {
@@ -54,16 +113,17 @@ function render(d) {
   const feed = (d.activity || []);
   const notes = d.notes || {};
   const sa = d.lastSfAudit;
+  const sayLines = buildSayLines(d);
 
   $("aiPage").innerHTML = `
     <div class="ai-hero">
-      <div class="ai-ava">${KITSUTSUKI_SVG}</div>
+      <div class="ai-ava ${稼働中 ? "working" : "sleeping"}">${KITSUTSUKI_SVG}</div>
       <div class="ai-id">
         <div class="ai-name-row">
           <span class="ai-name">${esc(d.name)}</span>
           <button class="ai-rename" id="aiRename">名前を変える</button>
         </div>
-        <div class="ai-say">${esc(d.name)}です。${esc(状態文)}。</div>
+        <div class="ai-bubble" id="aiBubble"><span id="aiBubbleText">${esc(sayLines[0] || "")}</span></div>
       </div>
       <span class="ai-live"><span class="ai-dot ${稼働中 ? "" : "off"}"></span>${稼働中 ? "稼働中" : "休止中"}</span>
     </div>
@@ -136,6 +196,7 @@ function render(d) {
     </div>`;
 
   wire();
+  startBubble(sayLines);
 }
 
 async function putAuto(patch, msg) {
