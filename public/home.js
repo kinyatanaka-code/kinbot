@@ -2568,20 +2568,41 @@ async function loadMyApos() {
 
 // 手元の配列から描き直す（Salesforceのパネルを開いたときにも呼ぶ）
 let apoCrossAsked = false;
-// 会社名でSFのクロス商談が「立ち上げ済み（01：アポ獲得以上／受注）」かを調べ、
-// 立ち上げ済みのカードはSFアイコンを薄くし、「立ち上げ済み」バッジを付ける。
+// アポごとにSF商談のひも付け状態を調べ、立ち上げ済みならアイコンを薄く＋バッジを付ける。
+// ひも付いていれば会社名検索をせずIDで直接見る（表記ゆれに強い）。
 async function checkApoCross(rows) {
   const box = document.getElementById("homeApoList");
   if (!box) return;
-  const companies = [...new Set((rows || []).map((x) => (x.company || companyOfTitle(x.title || "")).trim()).filter(Boolean))];
-  if (!companies.length) return;
+  const slugs = [...new Set((rows || []).map((x) => x.slug).filter(Boolean))];
+  if (!slugs.length) return;
   try {
-    const d = await (await fetch("/api/apo/cross-status", {
-      method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ companies }),
+    const d = await (await fetch("/api/apo/sf-status", {
+      method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ slugs }),
     })).json();
-    if (!d || !d.byCompany) return;
-    applyApoCross(d.byCompany);
+    if (!d || !d.bySlug) return;
+    applyApoStatus(d.bySlug);
   } catch {}
+}
+
+// slugごとの状態を各カードに反映する
+function applyApoStatus(bySlug) {
+  const box = document.getElementById("homeApoList");
+  if (!box) return;
+  box.querySelectorAll(".ap-home-card").forEach((card) => {
+    const slug = card.getAttribute("data-slug") || "";
+    const v = bySlug[slug];
+    if (!v || !v.launched) return;
+    const sfBtn = card.querySelector('[data-apo-sf]');
+    if (sfBtn) { sfBtn.classList.remove("hib-need"); sfBtn.classList.add("hib-done"); }
+    const meta = card.querySelector(".hl-meta");
+    if (meta && !meta.querySelector(".home-badge-sflaunched")) {
+      const b = document.createElement("span");
+      b.className = "home-badge home-badge-done home-badge-sflaunched";
+      b.textContent = "SF立ち上げ済み";
+      b.title = (v.name ? v.name + "／" : "") + (v.stage || "");
+      meta.insertBefore(b, meta.firstChild);
+    }
+  });
 }
 function normCo(s) { return String(s || "").normalize("NFKC").replace(/[\s　]/g, "").replace(/(株式会社|有限会社|合同会社|\(株\)|（株）)/g, "").toLowerCase(); }
 function applyApoCross(byCompany) {
@@ -2671,19 +2692,62 @@ document.addEventListener("click", (ev) => {
   if (line) line.textContent = "SFを確認しています…";
   (async () => {
     try {
-      const d = await (await fetch("/api/apo/cross-status", {
-        method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ companies: [co] }),
+      const slug = btn.getAttribute("data-apo-slug") || "";
+      const d = await (await fetch("/api/apo/sf-status", {
+        method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ slugs: [slug] }),
       })).json();
-      if (!d || !d.byCompany) throw new Error("確認できませんでした");
-      const v = Object.values(d.byCompany)[0] || { launched: false };
+      const v = (d && d.bySlug && d.bySlug[slug]) || { launched: false };
       if (v.launched) {
-        if (line) line.textContent = `✓ SF立ち上げ済み（${v.stage || "アポ獲得以上"}${v.name ? "／" + v.name : ""}）`;
-        applyApoCross(d.byCompany);
+        if (line) line.innerHTML = `✓ SF立ち上げ済み（${apoEsc(v.stage || "アポ獲得以上")}${v.name ? "／" + apoEsc(v.name) : ""}）${v.linked ? ' <a href="#" class="apo-sf-relink" data-slug="' + apoEsc(slug) + '" data-co="' + apoEsc(co) + '">別の商談にひも付ける</a>' : ""}`;
+        applyApoStatus({ [slug]: v });
       } else {
-        if (line) line.textContent = "SFにクロス商談の立ち上げは見つかりませんでした（まだ未立ち上げ）";
+        // 見つからない → 手動でひも付ける導線を出す
+        if (line) line.innerHTML = `SF商談が見つかりませんでした。<a href="#" class="apo-sf-link" data-slug="${apoEsc(slug)}" data-co="${apoEsc(co)}">この商談をひも付ける</a>`;
       }
     } catch (e) { if (line) line.textContent = "確認できませんでした：" + e.message; }
   })();
+});
+
+// 「ひも付ける」→ その会社のクロス商談の候補を出して、人が選ぶ
+document.addEventListener("click", async (ev) => {
+  const a = ev.target && ev.target.closest ? ev.target.closest(".apo-sf-link, .apo-sf-relink") : null;
+  if (!a) return;
+  ev.preventDefault();
+  const slug = a.dataset.slug;
+  const co = a.dataset.co || "";
+  const card = a.closest(".ap-home-card");
+  let line = card && card.querySelector(".hl-sfcheck");
+  if (line) line.textContent = "SFの商談を探しています…";
+  try {
+    const q = co ? ("?company=" + encodeURIComponent(co)) : "";
+    const d = await (await fetch(`/api/apo/${encodeURIComponent(slug)}/sf-candidates${q}`)).json();
+    const items = (d && d.items) || [];
+    if (!items.length) { if (line) line.textContent = "候補のクロス商談が見つかりませんでした。SFで商談を作成してから、もう一度お試しください。"; return; }
+    const rows = items.map((o) =>
+      `<button type="button" class="apo-sf-pick" data-slug="${apoEsc(slug)}" data-opp="${apoEsc(o.id)}" style="display:block;width:100%;text-align:left;border:1px solid #e6ece9;background:#fff;border-radius:8px;padding:6px 8px;margin:3px 0;font-size:12px;cursor:pointer;">` +
+      `${apoEsc(o.name || "(名称なし)")}<br><span style="color:#7d8c86">${apoEsc(o.account || "")}${o.stage ? " ・ " + apoEsc(o.stage) : ""}${o.closed ? "（クローズ）" : ""}</span></button>`).join("");
+    if (line) line.innerHTML = `<div style="margin-top:4px">ひも付けるSF商談を選んでください：</div>${rows}`;
+  } catch (e) { if (line) line.textContent = "候補を取得できませんでした：" + e.message; }
+});
+
+// 候補を選んだら、その商談をひも付ける
+document.addEventListener("click", async (ev) => {
+  const b = ev.target && ev.target.closest ? ev.target.closest(".apo-sf-pick") : null;
+  if (!b) return;
+  ev.preventDefault();
+  const slug = b.dataset.slug, oppId = b.dataset.opp;
+  const card = b.closest(".ap-home-card");
+  let line = card && card.querySelector(".hl-sfcheck");
+  if (line) line.textContent = "ひも付けています…";
+  try {
+    const r = await fetch(`/api/apo/${encodeURIComponent(slug)}/sf-link`, {
+      method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ oppId }),
+    });
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(d.error || "ひも付けに失敗しました");
+    if (line) line.innerHTML = `✓ ひも付けました（${apoEsc(d.stage || "")}${d.name ? "／" + apoEsc(d.name) : ""}）`;
+    applyApoStatus({ [slug]: { launched: true, name: d.name || "", stage: d.stage || "", linked: true } });
+  } catch (e) { if (line) line.textContent = "ひも付けできませんでした：" + e.message; }
 });
 
 function renderMyApos() {

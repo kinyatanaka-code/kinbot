@@ -262,6 +262,9 @@ import {
   dedupeSmartLinksByEvent,
   saveAutolaunch,
   getAutolaunch,
+  setApoOppLink,
+  clearApoOppLink,
+  refreshApoOppMeta,
   autolaunchForSlugs,
   autolaunchByCompanies,
   listAutolaunch,
@@ -3192,6 +3195,140 @@ app.post("/api/apo/cross-status", async (req, res) => {
       }
     } catch (e) { console.warn("[cross-status]", e.message); }
     res.json({ ok: true, byCompany });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// クロス商談が「立ち上げ済み」かの判定（会社名検索・ID直参照で共通に使う）
+function oppLaunched(o) {
+  const stage = String((o && o.StageName) || "");
+  return /アポ獲得/.test(stage) || (o && o.IsWon === true) || (o && !o.IsClosed && !!stage);
+}
+
+// アポ（予定）ごとに、ひも付いたSF商談があればそのIDで直接状態を見る。
+// 無ければ会社名（複数パターンLIKE）で探し、見つかったらIDをひも付ける（以後は検索しない）。
+app.post("/api/apo/sf-status", async (req, res) => {
+  try {
+    const slugs = (Array.isArray(req.body?.slugs) ? req.body.slugs : [])
+      .map((s) => String(s || "").trim()).filter(Boolean).slice(0, 200);
+    if (!slugs.length) return res.json({ ok: true, bySlug: {} });
+    const sfUser = await pickSfUser(req.user);
+    if (!salesforceConfigured() || !(await sfConnected(sfUser).catch(() => false))) {
+      return res.status(400).json({ error: "Salesforceに接続できません" });
+    }
+    const bySlug = {}, links = {}, companies = {};
+    for (const slug of slugs) {
+      const link = await getSmartLink(slug).catch(() => null);
+      companies[slug] = link ? (companyFromTitle(link.label || "") || link.company || "") : "";
+      const al = await getAutolaunch(slug).catch(() => null);
+      links[slug] = al && al.opp_id ? al : null;
+      bySlug[slug] = { launched: false, name: "", stage: "", oppId: "", linked: false };
+    }
+    // 1) ひも付け済みは、まとめてIDで直接参照
+    const linkedIds = [...new Set(Object.values(links).filter(Boolean).map((a) => a.opp_id))];
+    const oppById = {};
+    if (linkedIds.length) {
+      const idList = linkedIds.map((id) => `'${String(id).replace(/'/g, "\\'")}'`).join(",");
+      try {
+        const d = await sfQuery(sfUser, `SELECT Id, Name, StageName, IsWon, IsClosed FROM Opportunity WHERE Id IN (${idList})`);
+        for (const o of d.records || []) oppById[o.Id] = o;
+      } catch (e) { console.warn("[sf-status id]", e.message); }
+    }
+    const needCompany = [];
+    for (const slug of slugs) {
+      const al = links[slug];
+      if (al && oppById[al.opp_id]) {
+        const o = oppById[al.opp_id];
+        bySlug[slug] = { launched: oppLaunched(o), name: o.Name || al.opp_name || "", stage: o.StageName || al.opp_stage || "", oppId: al.opp_id, linked: true };
+        refreshApoOppMeta(slug, { name: o.Name || "", stage: o.StageName || "" }).catch(() => {});
+      } else {
+        needCompany.push(slug);   // 未ひも付け or IDが消えている → 会社名で探す
+      }
+    }
+    // 2) 未ひも付けは会社名で探し、立ち上げ済みが見つかればIDをひも付け（バックフィル）
+    if (needCompany.length) {
+      const esc = (v) => String(v).replace(/'/g, "\\'");
+      const likeOrs = [];
+      for (const slug of needCompany) {
+        const co = companies[slug]; if (!co) continue;
+        const noSpace = String(co).replace(/[\s　]/g, "");
+        const core = noSpace.replace(/(株式会社|有限会社|合同会社|合資会社|㈱|（株）|\(株\)|一般社団法人|一般財団法人|公益社団法人|公益財団法人|医療法人|社会福祉法人|学校法人|協同組合|組合)/g, "");
+        for (const v of new Set([String(co).trim(), noSpace, core].filter((s) => s && s.length >= 2))) likeOrs.push(`Account.Name LIKE '%${esc(v)}%'`);
+      }
+      if (likeOrs.length) {
+        try {
+          const d = await sfQuery(sfUser,
+            `SELECT Id, Account.Name, Name, StageName, IsWon, IsClosed FROM Opportunity
+              WHERE RecordType.Name LIKE '%クロス%' AND (${likeOrs.join(" OR ")})
+              ORDER BY CreatedDate DESC LIMIT 2000`);
+          const byKey = {};
+          for (const o of d.records || []) {
+            const k = normCompanyKey((o.Account && o.Account.Name) || "");
+            if (!byKey[k]) byKey[k] = o;
+            else if (oppLaunched(o) && !oppLaunched(byKey[k])) byKey[k] = o;
+          }
+          for (const slug of needCompany) {
+            const o = byKey[normCompanyKey(companies[slug] || "")];
+            if (!o) continue;
+            bySlug[slug] = { launched: oppLaunched(o), name: o.Name || "", stage: o.StageName || "", oppId: o.Id, linked: oppLaunched(o) };
+            if (oppLaunched(o)) setApoOppLink(slug, { oppId: o.Id, name: o.Name || "", stage: o.StageName || "", by: "backfill" }).catch(() => {});
+          }
+        } catch (e) { console.warn("[sf-status company]", e.message); }
+      }
+    }
+    res.json({ ok: true, bySlug });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// 手動ひも付け用：この会社のクロス商談の候補を返す（人が選ぶ）
+app.get("/api/apo/:slug/sf-candidates", async (req, res) => {
+  try {
+    const slug = String(req.params.slug || "");
+    const link = await getSmartLink(slug).catch(() => null);
+    const co = String(req.query.company || "").trim() || (link ? (companyFromTitle(link.label || "") || link.company || "") : "");
+    const sfUser = await pickSfUser(req.user);
+    if (!salesforceConfigured() || !(await sfConnected(sfUser).catch(() => false))) {
+      return res.status(400).json({ error: "Salesforceに接続できません" });
+    }
+    if (!co) return res.json({ ok: true, company: "", items: [] });
+    const esc = (v) => String(v).replace(/'/g, "\\'");
+    const noSpace = co.replace(/[\s　]/g, "");
+    const core = noSpace.replace(/(株式会社|有限会社|合同会社|合資会社|㈱|（株）|\(株\)|一般社団法人|一般財団法人|公益社団法人|公益財団法人|医療法人|社会福祉法人|学校法人|協同組合|組合)/g, "");
+    const ors = [...new Set([co, noSpace, core].filter((s) => s && s.length >= 2))].map((v) => `Account.Name LIKE '%${esc(v)}%'`);
+    const d = await sfQuery(sfUser,
+      `SELECT Id, Account.Name, Name, StageName, IsWon, IsClosed, CreatedDate FROM Opportunity
+        WHERE RecordType.Name LIKE '%クロス%' AND (${ors.join(" OR ")})
+        ORDER BY CreatedDate DESC LIMIT 30`);
+    const items = (d.records || []).map((o) => ({
+      id: o.Id, name: o.Name || "", stage: o.StageName || "",
+      account: (o.Account && o.Account.Name) || "", closed: !!o.IsClosed, won: !!o.IsWon,
+    }));
+    res.json({ ok: true, company: co, items });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// 手動ひも付けを保存／解除する
+app.post("/api/apo/:slug/sf-link", async (req, res) => {
+  try {
+    const slug = String(req.params.slug || "");
+    const oppId = req.body?.oppId ? String(req.body.oppId).trim() : "";
+    if (!oppId) { await clearApoOppLink(slug); console.log(`[apo-link] ${slug} のひも付けを外しました by ${req.user}`); return res.json({ ok: true, linked: false }); }
+    const sfUser = await pickSfUser(req.user);
+    if (!salesforceConfigured() || !(await sfConnected(sfUser).catch(() => false))) {
+      return res.status(400).json({ error: "Salesforceに接続できません" });
+    }
+    let name = "", stage = "";
+    try {
+      const d = await sfQuery(sfUser, `SELECT Id, Name, StageName FROM Opportunity WHERE Id='${oppId.replace(/'/g, "\\'")}'`);
+      const o = (d.records || [])[0]; if (o) { name = o.Name || ""; stage = o.StageName || ""; }
+    } catch {}
+    const link = await getSmartLink(slug).catch(() => null);
+    await setApoOppLink(slug, {
+      oppId, name, stage, by: req.user,
+      botId: link?.bot_id || null, title: link?.label || null,
+      company: link ? (companyFromTitle(link.label || "") || link.company || "") : null,
+    });
+    console.log(`[apo-link] ${slug} を SF商談 ${oppId} にひも付け by ${req.user}`);
+    res.json({ ok: true, linked: true, name, stage, oppId });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
@@ -15314,7 +15451,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-02as SF確認（クロス商談の立ち上げ判定）の会社名照合を改善：SFの取引先名とアポの会社名が表記ゆれ（株式会社の有無・スペース等）で完全一致せず「未立ち上げ」と誤表示していた。完全一致(IN)→複数パターンLIKE（そのまま/スペース除去/法人格除いた核）で取得し、正規化キーで厳密に突き合わせ。前回：自分のアポの操作列統一";
+const BUILD_TAG = "2026-09-02at 予定（アポ）⇄SF商談(Opportunity)を1対1でひも付け（クロス商談のみ）。sf_autolaunch.opp_id を正のリンクとして使い、SF確認はまずIDで直接ステージ参照→無ければ会社名(複数パターンLIKE)で探し、立ち上げ済みが見つかればIDをひも付け（バックフィル）。未ひも付け時はSF確認から候補を検索して手動ひも付け（/sf-candidates,/sf-link）。自動立ち上げ時のopp_idは従来どおり保存＝自動リンク。前回：クロス商談の会社名照合改善";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",

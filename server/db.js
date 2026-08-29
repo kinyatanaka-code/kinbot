@@ -1129,6 +1129,10 @@ export async function initDb() {
   `);
 
   // かささぎが言ってはいけない語を止めた記録（週次の点検用）
+  await sq(`ALTER TABLE sf_autolaunch ADD COLUMN IF NOT EXISTS opp_name TEXT;`);
+  await sq(`ALTER TABLE sf_autolaunch ADD COLUMN IF NOT EXISTS opp_stage TEXT;`);
+  await sq(`ALTER TABLE sf_autolaunch ADD COLUMN IF NOT EXISTS linked_at TIMESTAMPTZ;`);
+  await sq(`ALTER TABLE sf_autolaunch ADD COLUMN IF NOT EXISTS linked_by TEXT;`);
   await sq(`
     CREATE TABLE IF NOT EXISTS kasasagi_blocked (
       id         BIGSERIAL PRIMARY KEY,
@@ -4961,6 +4965,41 @@ export async function getAutolaunch(slug) {
     const { rows } = await pool.query(`SELECT * FROM sf_autolaunch WHERE slug=$1`, [slug]);
     return rows[0] || null;
   } catch { return null; }
+}
+
+// 予定（アポ）に、立ち上げたSF商談（Opportunity）をひも付ける。以後は会社名検索をせず、このIDで直接見る。
+export async function setApoOppLink(slug, { oppId, name = "", stage = "", by = "", botId = null, title = null, company = null } = {}) {
+  if (!pool || !slug || !oppId) return null;
+  try {
+    const { rows } = await pool.query(
+      `INSERT INTO sf_autolaunch (slug, bot_id, title, company, ok, reason, opp_id, opp_name, opp_stage, linked_at, linked_by, tried_at)
+       VALUES ($1,$2,$3,$4,true,'linked',$5,$6,$7, now(), $8, now())
+       ON CONFLICT (slug) DO UPDATE SET
+         ok=true, opp_id=$5, opp_name=$6, opp_stage=$7, linked_at=now(), linked_by=$8,
+         bot_id=COALESCE($2, sf_autolaunch.bot_id),
+         title=COALESCE($3, sf_autolaunch.title),
+         company=COALESCE($4, sf_autolaunch.company)
+       RETURNING *`,
+      [slug, botId, title, company, oppId, name || null, stage || null, by || null]);
+    return rows[0];
+  } catch (e) { console.error("[db] setApoOppLink", e.message); return null; }
+}
+
+// ひも付けを外す（IDだけ消す。会社名検索のフォールバックに戻る）
+export async function clearApoOppLink(slug) {
+  if (!pool || !slug) return;
+  try {
+    await pool.query(`UPDATE sf_autolaunch SET opp_id=NULL, opp_name=NULL, opp_stage=NULL, linked_at=NULL WHERE slug=$1`, [slug]);
+  } catch (e) { console.error("[db] clearApoOppLink", e.message); }
+}
+
+// 立ち上げたときに分かったステージ名などを、ひも付けに反映（表示を最新に保つ）
+export async function refreshApoOppMeta(slug, { name = "", stage = "" } = {}) {
+  if (!pool || !slug) return;
+  try {
+    await pool.query(`UPDATE sf_autolaunch SET opp_name=COALESCE($2, opp_name), opp_stage=COALESCE($3, opp_stage) WHERE slug=$1`,
+      [slug, name || null, stage || null]);
+  } catch {}
 }
 
 // 会社名から、kinbotが立ち上げた記録を引く。
