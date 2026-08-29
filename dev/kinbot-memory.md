@@ -41,6 +41,8 @@ kincall（架電リスト）という別ツールも同じ画面群の中にあ�
 
 ## 決定・指示のログ（新しいものを上に足す）
 
+- 2026-09-02 ひも付けたら検索せず直接SF更新できるようにした。ホームのSFアイコンは、カードにひも付いたSF商談ID(homeItems.oppId)があれば openSfEdit(key, oppId) → deals.html?...&view=salesforce&opp=<id> でその商談を直接開く（会社名検索・商談選択が不要）。商談カードは m.sf_url から oppIdFromUrl で、予定カードは e.apoOppId から判定（/api/calendar/today が smartLinksByEventIds の sf_autolaunch 結合で opp_id を返す）。ひも付いていない予定/商談は従来どおり検索パネル。ひも付け直後は homeItems[key].oppId を即セットしてその場で直接更新に切替。deals.js は既に window._kbOppId=?opp= に対応。
+
 - 2026-09-02 ホームの「今日の商談」カードからもSF商談をひも付けられるようにした。既存のSFパネル（sfPanelHtml：会社名で商談検索→選択）は選ぶだけで保存していなかったので、選択状態に「この商談にひも付ける」ボタン(data-sf-link)を追加。商談(bot_idあり)は新エンドポイント POST /api/meetings/:id/sf-link（opp_idからURLを作り setMeetingSfUrl で保存＝以後のSF記録はこのIDに直接書く）。予定(bot_idなし)は planSlugForKey でアポのslugを引いて POST /api/apo/:slug/sf-link に流す。ひも付け後は s.done 表示。meeting picker自体は全レコードタイプを表示（人が選ぶ）＝手動は任意、AUTOひも付けはクロスのみのまま。
 
 - 2026-09-02 商談後のSF記録・更新も完全にID方式へ（会社名検索に頼らない）。autofillMeetingToSf は recordId を ①m.sf_url ②resolveMeetingOpp(bot_idでautolaunch→会社名核でautolaunch) の順で解決し、解決したら setMeetingSfUrl で商談のsf_urlにも保存（次回から直参照、SF/DB検索なし）。resolveMeetingOpp/persistMeetingOpp を追加、DB関数 autolaunchByBotId / autolaunchLinkedByCompany を追加（どちらもopp_id保持行のみ）。sweepMeetingSfRecords は sf_url 無しでも候補に含め解決を試みる（除外をやめた）、autofillが needLink（未ひも付け）を返したら失敗扱いにせず SF未紐づけ として次回リトライ（あきらめカウントしない）。手動リード変換(/api/salesforce/leads/:id/convert)で body.slug があれば oppId をその場でひも付け。slug無しの手動立ち上げは SF確認/一覧のバックフィルで拾う。対象はクロス商談のみ。

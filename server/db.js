@@ -2376,9 +2376,10 @@ export async function smartLinksByEventIds(ids) {
   if (!pool || !Array.isArray(ids) || !ids.length) return [];
   try {
     const r = await pool.query(
-      `SELECT slug, current_owner, event_id, invite_event_id
-         FROM smart_links
-        WHERE event_id = ANY($1::text[]) OR invite_event_id = ANY($1::text[])`, [ids]);
+      `SELECT s.slug, s.current_owner, s.event_id, s.invite_event_id, a.opp_id
+         FROM smart_links s
+         LEFT JOIN sf_autolaunch a ON a.slug = s.slug
+        WHERE s.event_id = ANY($1::text[]) OR s.invite_event_id = ANY($1::text[])`, [ids]);
     return r.rows || [];
   } catch (e) { console.error("[db] smartLinksByEventIds", e.message); return []; }
 }

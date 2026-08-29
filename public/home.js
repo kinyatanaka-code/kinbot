@@ -186,6 +186,13 @@ function sfOf(key) {
   return sfState[key];
 }
 
+// SalesforceのURL（や素のID）から Opportunity ID を取り出す
+function oppIdFromUrl(u) {
+  const s = String(u || "");
+  const m = s.match(/\/([a-zA-Z0-9]{15,18})(?:\/|\?|$)/) || s.match(/[?&]id=([a-zA-Z0-9]{15,18})/) || s.match(/^([a-zA-Z0-9]{15,18})$/);
+  return m ? m[1] : "";
+}
+
 // 予定カードのキーから、ひも付いているアポ（smart-link）のslugを引く
 function planSlugForKey(key) {
   const e = (dayEvents || []).find((x) => (x.id || (x.title + "@" + x.start)) === key);
@@ -354,7 +361,9 @@ function render() {
     const summary = (m && m.summary && m.summary.overview) ? String(m.summary.overview).slice(0, 90) + "…" : "";
     const openLabel = m ? "商談を開く" : "会社を開く";
     const link = m && m.bot_id ? "history.html?m=" + encodeURIComponent(m.bot_id) : "history.html?company=" + enc;
-    homeItems[key] = { title, time, company, done: !!m, link, openLabel, botId: (m && m.bot_id) || "" };
+    // ひも付いたSF商談ID（商談はsf_urlから、予定はアポのopp_id）。あれば検索せず直接SF更新を開ける。
+    const linkedOpp = (m ? oppIdFromUrl(m.sf_url) : (e && e.apoOppId) || "") || "";
+    homeItems[key] = { title, time, company, done: !!m, link, openLabel, botId: (m && m.bot_id) || "", oppId: linkedOpp };
     // 1行1商談。操作は小さなアイコンにして、押すとモーダルが開く。
     // やることが残っているものだけ色を付けるので、見れば次の一手が分かる。
     // 並びは 録音 → SF → メール → 開く。4つとも必ず出す。
@@ -367,10 +376,12 @@ function render() {
         : hIcon("rec", "録音する", `data-rec="${escH(key)}"`, "need")) +
       (m
         ? hIcon("sf",
-            sfDoneMap[m.bot_id] ? `SFを更新（済み：${sfDoneMap[m.bot_id]}）` : "SFを更新",
+            linkedOpp ? "SFを更新（ひも付け済み）" : (sfDoneMap[m.bot_id] ? `SFを更新（済み：${sfDoneMap[m.bot_id]}）` : "SFを更新"),
             `data-sfedit="${escH(key)}"`,
-            sfDoneMap[m.bot_id] ? "done" : "need")
-        : hIcon("sf", s.open ? "SF商談を閉じる" : "SF商談を選ぶ", `data-sf-open="${escH(key)}"`, "done")) +
+            (linkedOpp || sfDoneMap[m.bot_id]) ? "done" : "need")
+        : (linkedOpp
+            ? hIcon("sf", "SFを更新（ひも付け済み）", `data-sfedit="${escH(key)}"`, "done")
+            : hIcon("sf", s.open ? "SF商談を閉じる" : "SF商談を選ぶ", `data-sf-open="${escH(key)}"`, "done"))) +
       (m && m.bot_id
         ? hIcon("mail",
             mailSentMap[m.bot_id] ? `御礼メール（送信済み：${mailSentMap[m.bot_id]}）` : "御礼メール",
@@ -1596,11 +1607,12 @@ function openModal({ title, sub, inner, wide = true }) {
 
 // SF更新を開く。狭いパネルだと読めないので、画面中央の大きなモーダルで開く。
 // 上に「次回アクション」（kinbot側のやることリスト）、下にSalesforceの画面を並べる。
-function openSfEdit(key) {
+function openSfEdit(key, oppId) {
   const it = homeItems[key];
   if (!it) return;
   const company = it.company || it.title || "";
-  const src = `deals.html?company=${encodeURIComponent(company)}&embed=1&view=salesforce`;
+  const opp = oppId || it.oppId || "";
+  const src = `deals.html?company=${encodeURIComponent(company)}&embed=1&view=salesforce${opp ? "&opp=" + encodeURIComponent(opp) : ""}`;
   openModal({
     title: company || "Salesforce 更新",
     sub: it.title || "",
@@ -1773,6 +1785,8 @@ function wireListBox(box) {
           if (!r.ok) throw new Error(d.error || "ひも付けに失敗しました");
           s.loading = false;
           s.done = `ひも付けました：${(s.picked && s.picked.Name) || ""}`;
+          // このカードを「ひも付け済み」にして、次からは検索せず直接SF更新を開けるようにする
+          if (homeItems[key]) homeItems[key].oppId = oppId;
           renderBoth();
         } catch (e) { s.loading = false; s.error = e.message; renderBoth(); }
       })();
