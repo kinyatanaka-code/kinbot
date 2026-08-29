@@ -41,6 +41,8 @@ kincall（架電リスト）という別ツールも同じ画面群の中にあ�
 
 ## 決定・指示のログ（新しいものを上に足す）
 
+- 2026-09-02 今日の商談の「予定」段階でも担当を割り当てられるようにした。予定はカレンダーのイベントで、担当はアポ(smart-link)側が持つ。/api/apo/pickup（その日の全アポ）を取り、予定ID(eventId/invite_event_id)→{slug,owner}の対応表(planApoMap)を作成。予定行がアポに対応していれば担当セレクト(.plan-rep-mini)を出し、/api/smart-links/:slug/owner に PUT して担当を変更（既存のアポ担当変更を再利用＝カレンダー招待・その人のアポ一覧に反映）。loadCalendarでキャッシュ有無に関わらず対応表を読み込み、変更後は planApoMap更新→render＋loadMyApos。純粋なカレンダー予定（アポ紐づけ無し）にはセレクトを出さない。
+
 - 2026-09-02 明日のリマインドのモーダルが、検索の×やカレンダー等の下に潜って上部が押せない不具合を修正。原因：.main>* に z-index:1 が付き .home-wrap（モーダルの親）が z-index1 のスタッキング文脈、一方 .topbar は z-index2 なので、モーダルの z-index を上げても topbar の下に潜っていた。対策：描画後に #rmModal を document.body 直下へ移動（最前面）。モーダル内の配線は scope=rmModal から探すよう変更し、再描画時に古い #rmModal を remove。
 - 2026-09-02 今日の商談でも担当を選べるようにした。商談カード（bot_idあり）に担当セレクト(.mtg-rep-mini)を表示、/api/meetings/:id/meta に owner をPUTして更新。allMeetingsのownerを更新してrender→homeScope=mineなら担当を外した商談は自分の画面から消え、選んだ担当の画面に出る。担当候補は loadHomeRepsOnce（/api/smart-links/reps）で先読みし、読み込めたらrender/renderMyAposを描き直す。repOptionsHomeは候補に無い現担当も選択肢に残す。
 

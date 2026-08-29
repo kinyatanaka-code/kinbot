@@ -329,6 +329,11 @@ function render() {
       ownerSel = `<div class="hl-owner">担当：<select class="mtg-rep-mini" data-bot="${escH(m.bot_id || "")}">${repOptionsHome(m.owner || "")}</select></div>`;
     }
     else if (e) {
+      // 予定がアポ（smart-link）に対応していれば、その場で担当を割り当てられる
+      const pa = planApoMap[e.id];
+      if (pa && pa.slug) {
+        ownerSel = `<div class="hl-owner">担当：<select class="plan-rep-mini" data-slug="${escH(pa.slug)}">${repOptionsHome(pa.owner || "")}</select></div>`;
+      }
       // 1行なので短く。詳しい案内は印（バッジ）で足りる。
       meta = window._autoJoin && !e.hasUrl ? "URLなし（自動入室されません）" : "";
     }
@@ -1807,10 +1812,28 @@ function openCardSheet(key) {
   });
 }
 
+let planApoMap = {};   // カレンダー予定ID → { slug, owner }（予定の担当割り当て用）
+
+// その日のアポ（割り振り画面と同じデータ）を取り、予定ID→アポ(slug,担当)の対応表を作る。
+async function loadDayApoMap(date) {
+  try {
+    const d = await (await fetch("/api/apo/pickup?start=" + encodeURIComponent(date))).json();
+    const aps = d.appointments || d.items || [];
+    const map = {};
+    for (const a of aps) {
+      const evid = a.eventId || a.inviteEventId || a.invite_event_id || "";
+      if (evid) map[evid] = { slug: a.slug, owner: a.owner || a.current_owner || "" };
+    }
+    planApoMap = map;
+  } catch { planApoMap = {}; }
+}
+
 async function loadCalendar() {
   if (calCache[selDate]) {
     dayEvents = calCache[selDate].events;
     window._calConnected = calCache[selDate].connected;
+    await loadDayApoMap(selDate).catch(() => {});
+    await loadHomeRepsOnce().catch(() => {});
     return;
   }
   const target = selDate;
@@ -1827,6 +1850,8 @@ async function loadCalendar() {
     if (target !== selDate) return; // 連打で日付が変わっていたら破棄
     dayEvents = events;
     window._calConnected = connected;
+    await loadDayApoMap(target).catch(() => {});
+    await loadHomeRepsOnce().catch(() => {});
   } catch {
     if (target !== selDate) return;
     dayEvents = [];
@@ -2404,6 +2429,30 @@ async function loadHomeRepsOnce() {
   }
   return _repsLoading;
 }
+
+// 予定（まだ商談していない今日の商談）で担当を変えたら、対応するアポの担当を更新する。
+document.addEventListener("change", async (ev) => {
+  const sel = ev.target && ev.target.closest ? ev.target.closest(".plan-rep-mini") : null;
+  if (!sel) return;
+  const slug = sel.dataset.slug;
+  const owner = sel.value || null;
+  if (!slug) return;
+  sel.disabled = true;
+  try {
+    const r = await fetch(`/api/smart-links/${encodeURIComponent(slug)}/owner`, {
+      method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ owner }),
+    });
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(d.error || "変更に失敗しました");
+    // 対応表を更新して描き直す（選んだ担当の画面＝その人のアポ/予定に出る）
+    for (const k of Object.keys(planApoMap)) { if (planApoMap[k].slug === slug) planApoMap[k].owner = owner || ""; }
+    render();
+    loadMyApos();
+  } catch (e) {
+    alert("担当を変えられませんでした：" + e.message);
+    sel.disabled = false;
+  }
+});
 
 // 今日の商談で担当を変えたら、その商談の担当を更新する（選んだ人の画面に出るようになる）。
 document.addEventListener("change", async (ev) => {
