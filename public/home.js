@@ -2746,13 +2746,14 @@ function apoHomeCard(x) {
             : mailLabel,
           `data-apo-mail="${apoEsc(x.slug)}"${m.confirm ? " disabled" : ""}`,
           (m.confirm || (apoDone[x.slug] && apoDone[x.slug].メール済み)) ? "done" : "need") +
-        hIcon("cal", "会議室", `href="${apoEsc(x.smartUrl)}" target="_blank" rel="noopener"`, "done", "a") +
-        hIcon("sfcheck", "SFの状態を確認（クロス商談が立ち上がっているか）", `data-apo-sfcheck="${apoEsc(x.company || companyOfTitle(x.title))}" data-apo-slug="${apoEsc(x.slug)}"`, "") +
-        // 担当変更・外すは「その他」にまとめる（表示は主要4つまで）
-        `<span class="hl-more">` +
-          hIcon("owner", "担当を変える", `data-owner-toggle="${apoEsc(sfKey)}"`, "done") +
-          hIcon("trash", "テストとして外す", `data-apo-drop="${apoEsc(x.slug)}"`) +
-        `</span>`;
+        // 担当変更は表示。会議室・SF確認・外すは「その他」に入れ、その他にカーソルを合わせた時だけ出す。
+        hIcon("owner", "担当を変える", `data-owner-toggle="${apoEsc(sfKey)}"`, "done") +
+        `<span class="hl-moregrp">${hIcon("more", "会議室・SF確認・外す", `data-more-toggle="${apoEsc(sfKey)}"`, "")}` +
+          `<span class="hl-morex">` +
+            hIcon("cal", "会議室", `href="${apoEsc(x.smartUrl)}" target="_blank" rel="noopener"`, "done", "a") +
+            hIcon("sfcheck", "SFの状態を確認（クロス商談が立ち上がっているか）", `data-apo-sfcheck="${apoEsc(x.company || companyOfTitle(x.title))}" data-apo-slug="${apoEsc(x.slug)}"`, "") +
+            hIcon("trash", "テストとして外す", `data-apo-drop="${apoEsc(x.slug)}"`) +
+          `</span></span>`;
 
       // 補足行。宛先が無い・立ち上げできない場合は、その理由を出す。
       const warn = !x.clientEmail ? '<span class="cc-warn">宛先が未登録</span>' : "";
