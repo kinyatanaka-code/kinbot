@@ -3162,11 +3162,22 @@ app.post("/api/apo/cross-status", async (req, res) => {
     // 立ち上げ済み ＝ ステージに「アポ獲得」を含む（01：アポ獲得 以上に上がっている）か、受注。
     const byCompany = {};
     for (const co of companies) byCompany[normCompanyKey(co)] = { launched: false, name: "", stage: "", company: co };
-    const names = companies.map((c) => `'${String(c).replace(/'/g, "\\'")}'`).join(",");
+    // 会社名は表記ゆれ（株式会社の有無・全角半角スペース等）で完全一致しないことが多い。
+    // そのまま／スペース除去／法人格を除いた核 の複数パターンで LIKE 検索し、
+    // 取得後に正規化キー（normCompanyKey）で厳密に突き合わせる（誤検出を防ぐ）。
+    const esc = (v) => String(v).replace(/'/g, "\\'");
+    const likeOrs = [];
+    for (const co of companies) {
+      const noSpace = String(co).replace(/[\s　]/g, "");
+      const core = noSpace.replace(/(株式会社|有限会社|合同会社|合資会社|㈱|（株）|\(株\)|一般社団法人|一般財団法人|公益社団法人|公益財団法人|医療法人|社会福祉法人|学校法人|協同組合|組合)/g, "");
+      const vs = new Set([String(co).trim(), noSpace, core].filter((s) => s && s.length >= 2));
+      for (const v of vs) likeOrs.push(`Account.Name LIKE '%${esc(v)}%'`);
+    }
+    if (!likeOrs.length) return res.json({ ok: true, byCompany });
     try {
       const d = await sfQuery(sfUser,
         `SELECT Account.Name, Name, StageName, IsWon, IsClosed FROM Opportunity
-          WHERE RecordType.Name LIKE '%クロス%' AND Account.Name IN (${names})
+          WHERE RecordType.Name LIKE '%クロス%' AND (${likeOrs.join(" OR ")})
           ORDER BY CreatedDate DESC LIMIT 2000`);
       for (const o of d.records || []) {
         const co = (o.Account && o.Account.Name) || "";
@@ -15303,7 +15314,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-02ar 自分のアポの操作列を今日の商談と同じ方式に：SF・メール・担当変更を表示、会議室・SF確認・外すは「その他」に入れ、その他にカーソルを合わせた（スマホは常時／タップで）ときだけ出す。前回：設定ラベル＋今日の商談のその他まとめ";
+const BUILD_TAG = "2026-09-02as SF確認（クロス商談の立ち上げ判定）の会社名照合を改善：SFの取引先名とアポの会社名が表記ゆれ（株式会社の有無・スペース等）で完全一致せず「未立ち上げ」と誤表示していた。完全一致(IN)→複数パターンLIKE（そのまま/スペース除去/法人格除いた核）で取得し、正規化キーで厳密に突き合わせ。前回：自分のアポの操作列統一";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
