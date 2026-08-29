@@ -600,11 +600,13 @@ table.bant td:first-child { color: var(--muted); width: 80px; }
   display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .side-foot .who { display: block; flex: 1 1 auto; min-width: 0; font-size: 12px; color: #c9c4b8;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-/* アカウント名の横の「設定」歯車 */
-.side-foot-set { flex: 0 0 auto; display: inline-flex; align-items: center; justify-content: center;
-  width: 28px; height: 28px; border-radius: 8px; color: #9aa39d; text-decoration: none; }
-.side-foot-set:hover { background: rgba(255,255,255,.10); color: #fff; }
-.side-foot-set .side-ico { width: 18px; height: 18px; background-color: currentColor; }
+/* アカウント名の横の「設定」（歯車＋文字） */
+.side-foot-set { flex: 0 0 auto; display: inline-flex; align-items: center; justify-content: center; gap: 5px;
+  height: 26px; padding: 0 9px; border-radius: 8px; color: #b9d8cf; text-decoration: none;
+  border: 1px solid rgba(255,255,255,.14); font-size: 11.5px; }
+.side-foot-set:hover { background: rgba(255,255,255,.10); color: #fff; border-color: rgba(255,255,255,.28); }
+.side-foot-set .side-ico { width: 15px; height: 15px; background-color: currentColor; }
+.side-foot-set-label { line-height: 1; }
 .side-logout { flex: 1 1 100%; font-size: 12px; color: #9aa39d; text-decoration: none; margin-top: 4px; }
 .side-logout:hover { color: #fff; text-decoration: underline; }
 
@@ -4968,6 +4970,12 @@ input:focus, select:focus, textarea:focus, .sf-input:focus, .sf-select:focus, .s
   display: inline-flex; align-items: center; gap: 4px; flex: none; }
 .home-line:hover .hl-more, .home-line:focus-within .hl-more { max-width: 130px; opacity: 1; }
 @media (max-width: 900px) { .hl-more { max-width: 130px; opacity: 1; } }
+/* 「その他」グループ：その他アイコンにカーソルを合わせた時だけ、担当変更・開くが出る */
+.hl-moregrp { display: inline-flex; align-items: center; }
+.hl-morex { max-width: 0; overflow: hidden; opacity: 0; transition: max-width .16s ease, opacity .16s ease;
+  display: inline-flex; align-items: center; gap: 4px; flex: none; }
+.hl-moregrp:hover .hl-morex, .hl-moregrp:focus-within .hl-morex, .hl-moregrp.open .hl-morex { max-width: 150px; opacity: 1; }
+@media (max-width: 900px) { .hl-morex { max-width: 150px; opacity: 1; } }
 /* アイコンと、その下の短い名前をひと組にする */
 .hib { display: flex; flex-direction: column; align-items: center; gap: 2px;
   background: transparent; border: 0; padding: 0; cursor: pointer;

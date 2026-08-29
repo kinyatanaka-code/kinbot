@@ -41,6 +41,8 @@ kincall（架電リスト）という別ツールも同じ画面群の中にあ�
 
 ## 決定・指示のログ（新しいものを上に足す）
 
+- 2026-09-02 (1)フッターの設定入口を歯車のみ→「歯車＋設定」のラベル付き小ボタン(.side-foot-set)にして分かりやすくした。(2)今日の商談の操作列で「開く」を常時表示せず、担当変更・開くを「その他」(more/三点アイコン)にまとめた。その他アイコン(.hl-moregrp)にホバー、またはタップ(.open)で .hl-morex が開き、担当変更と開くが出る（スマホは常時表示）。表示は 録音/SF/メール/その他 の4つ。
+
 - 2026-09-02 【方針】ホーム画面の担当変更は「通知もメールも出さない」。/api/smart-links/:slug/owner は通常呼び出しだと Google Chat通知(notifyAssigned)・確定メール自動送信(sendApoMail、autoConfirm時)・商談予定の招待作成(createApoInvite) が走る。quiet:true を付けると担当の差し替えのみ（何も送らない・招待も作り直さない）。ホームの予定(plan-rep-mini)・アポ(apo-rep-mini)の担当変更を quiet:true に変更。今日の商談の商談済みは /api/meetings/:id/meta のため元々無音。アポ割り振り画面(apo.js)は初回割り当て用に従来どおり通知・メールを出す（quietなし）。
 
 - 2026-09-02 今日の商談の「予定」でも担当変更を確実にできるようにした（従来は商談済みのみ／予定はクライアント側のイベントID突き合わせが不安定で出ないことがあった）。/api/calendar/today で各予定に、その予定を作ったアポ(smart-link)の slug・担当(current_owner)を付けて返す（新DB関数 smartLinksByEventIds＝event_id と invite_event_id の両方で照合）。予定行は e.apoSlug/e.apoOwner を優先使用（無ければ従来の planApoMap で補完）、担当変更は /api/smart-links/:slug/owner＝アポ割り振りと同じ仕組み。変更後は planApoMap と dayEvents.apoOwner を更新して再描画＋loadMyApos。アポに紐づかない純粋なカレンダー予定は担当対象外（アポが無いため）。

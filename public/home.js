@@ -368,8 +368,9 @@ function render() {
             `data-mail="${escH(m.bot_id)}" data-key="${escH(key)}"`,
             mailSentMap[m.bot_id] ? "done" : "need")
         : hIcon("mail", "御礼メール（商談の記録がまだありません）", `data-mail-none="${escH(key)}"`, "done")) +
-      hIcon("open", openLabel, `href="${link}"`, "done", "a") +
-      (ownerToggle ? `<span class="hl-more">${ownerToggle}</span>` : "");
+      // 「その他」にカーソルを合わせると、担当変更と開くが出てくる
+      `<span class="hl-moregrp">${hIcon("more", "担当変更・開く", `data-more-toggle="${escH(key)}"`, "")}` +
+        `<span class="hl-morex">${ownerToggle}${hIcon("open", openLabel, `href="${link}"`, "done", "a")}</span></span>`;
 
     return `<div class="home-row" style="--i:${idx}"><div class="home-card home-line${m ? " is-done" : ""}" data-card="${escH(key)}" data-company="${escH(company || "")}">
       <div class="hl-row">
@@ -2435,6 +2436,15 @@ async function loadHomeRepsOnce() {
   }
   return _repsLoading;
 }
+
+// 「その他」アイコンを押したら、担当変更・開くの表示を開閉する（タッチ端末向け）。
+document.addEventListener("click", (ev) => {
+  const btn = ev.target && ev.target.closest ? ev.target.closest("[data-more-toggle]") : null;
+  if (!btn) return;
+  ev.preventDefault();
+  const grp = btn.closest(".hl-moregrp");
+  if (grp) grp.classList.toggle("open");
+});
 
 // 担当アイコンを押したら、そのカードの担当プルダウンを開閉する。
 document.addEventListener("click", (ev) => {

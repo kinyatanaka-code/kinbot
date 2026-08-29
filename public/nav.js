@@ -34,7 +34,7 @@ window.addEventListener("error", (e) => {
 (function () {
   if (!document.querySelector('script[src$="kbchat.js"]')) {
     const sc = document.createElement("script");
-    sc.src = "kbchat.js?v=20260902ap";
+    sc.src = "kbchat.js?v=20260902aq";
     sc.defer = true;
     document.head.appendChild(sc);
   }
@@ -153,7 +153,7 @@ function kbBuildSidebar() {
         set.href = "settings.html";
         set.title = "設定";
         set.setAttribute("aria-label", "設定");
-        set.innerHTML = '<span class="side-ico ico-set"></span>';
+        set.innerHTML = '<span class="side-ico ico-set"></span><span class="side-foot-set-label">設定</span>';
         who.insertAdjacentElement("afterend", set);
       }
     }
