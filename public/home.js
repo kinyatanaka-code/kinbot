@@ -2297,7 +2297,7 @@ async function loadHomeTools() {
       `<path d="${TOOL_ICONS[id] || TOOL_ICONS.weekly}"/></svg>`;
     box.innerHTML =
       tools.map((t) =>
-        `<a class="ht-item" href="${escH(t.href)}"><span class="ht-ico">${svg(t.id)}</span>` +
+        `<a class="ht-item" href="${escH(t.href)}" title="${escH(t.label)}"><span class="ht-ico">${svg(t.id)}</span>` +
         `<span class="ht-name">${escH(t.label)}</span></a>`).join("") +
       `<button type="button" class="ht-item ht-edit" id="htEdit" title="並べるツールを選ぶ">` +
       `<span class="ht-ico"><svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">` +
@@ -2363,11 +2363,48 @@ function apoTime(iso) {
 }
 
 let myApos = [];
+let homeReps = [];   // 担当変更の候補（/api/smart-links/reps）
+
+// アポ一覧で担当を変えたら、その場でSF側へ反映する（1回だけ配線）。
+document.addEventListener("change", async (ev) => {
+  const sel = ev.target && ev.target.closest ? ev.target.closest(".apo-rep-mini") : null;
+  if (!sel) return;
+  const slug = sel.dataset.slug;
+  const owner = sel.value || null;
+  sel.disabled = true;
+  try {
+    const r = await fetch(`/api/smart-links/${encodeURIComponent(slug)}/owner`, {
+      method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ owner }),
+    });
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(d.error || "変更に失敗しました");
+    // 手元のデータも更新して、担当バッジ等の表示を合わせる
+    const a = myApos.find((x) => x.slug === slug);
+    if (a) a.owner = owner || "";
+    await loadMyApos();
+  } catch (e) {
+    alert("担当を変えられませんでした：" + e.message);
+    sel.disabled = false;
+  }
+});
+
+// 担当変更のプルダウン。現在の担当を選択済みにする。
+function repOptionsHome(cur) {
+  let o = '<option value="">担当未定</option>';
+  for (const r of homeReps) {
+    const em = r.email || "";
+    o += `<option value="${apoEsc(em)}"${em === cur ? " selected" : ""}>${apoEsc(r.name || em)}</option>`;
+  }
+  return o;
+}
 
 async function loadMyApos() {
   const box = document.getElementById("homeApoList");
   if (!box) return;
   box.innerHTML = '<div class="home-empty">読み込み中…</div>';
+  if (!homeReps.length) {
+    try { const r = await (await fetch("/api/smart-links/reps")).json(); homeReps = Array.isArray(r) ? r : []; } catch {}
+  }
   try {
     const q = new URLSearchParams({ date: selDate || todayStr });
     // 動作確認用：?many=1 で件数を増やせる（本番では無視される）
@@ -2590,6 +2627,7 @@ function apoHomeCard(x) {
             <div class="hl-title">${apoEsc(x.title || "")}</div>
             <div class="hl-meta">${x.selfGot ? '<span class="home-badge home-badge-self">自分で獲得</span>' : ""}${x.inviteEventId ? '<span class="home-badge home-badge-done">予定作成済</span>' : ""}${meta}</div>
             ${launchLine(x)}
+            <div class="hl-owner">担当：<select class="apo-rep-mini" data-slug="${apoEsc(x.slug)}" title="担当を変える">${repOptionsHome(x.owner)}</select></div>
           </div>
           <div class="hl-acts">${acts}</div>
         </div>

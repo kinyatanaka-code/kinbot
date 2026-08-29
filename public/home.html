@@ -10,7 +10,7 @@
     <link rel="manifest" href="/site.webmanifest" />
     <meta name="theme-color" content="#0d5b47" />
     <meta name="apple-mobile-web-app-title" content="kinbot" />
-    <link rel="stylesheet" href="style.css?v=20260902ab" />
+    <link rel="stylesheet" href="style.css?v=20260902ac" />
   </head>
   <body>
     <div class="app">
@@ -32,10 +32,14 @@
         <header class="topbar">
           <div class="brand"><img class="topbar-bot" src="kinbot.svg" alt="" /><span class="brand-name">ホーム</span></div>
           <!-- 会社名で探す。「ホーム」の隣に置く。商談履歴まで行かずにここから開ける。 -->
-          <div class="home-find" style="margin-bottom:0;width:min(420px,42vw)">
-            <input type="text" id="hfQ" placeholder="会社名・営業担当で探す（例：ベルク、田中）" autocomplete="off" />
-            <button type="button" class="hf-clear" id="hfClear" aria-label="消す">×</button>
-            <div class="hf-list" id="hfList" hidden></div>
+          <div class="home-topright" style="display:flex;align-items:center;gap:10px;margin-left:auto;min-width:0;">
+            <div class="home-find" style="margin-bottom:0;width:min(420px,42vw)">
+              <input type="text" id="hfQ" placeholder="会社名・営業担当で探す（例：ベルク、田中）" autocomplete="off" />
+              <button type="button" class="hf-clear" id="hfClear" aria-label="消す">×</button>
+              <div class="hf-list" id="hfList" hidden></div>
+            </div>
+            <!-- ツールのアイコン。検索のすぐ右横に並べる（アイコンのみ・名前はマウスで表示） -->
+            <div class="home-tools home-tools-bar" id="homeTools" hidden></div>
           </div>
         </header>
         <div class="home-wrap">
@@ -87,7 +91,6 @@
               </div>
               <div class="todo-bar" id="todoBar" hidden></div>
               <div class="rm-bar" id="rmBar" hidden></div>
-              <div class="home-tools" id="homeTools" hidden></div>
             </div>
 
             <!-- 中央：今日の商談 -->
@@ -96,7 +99,6 @@
                 <div class="home-sec-head">
                   <span class="home-sec-title">今日の商談</span>
                   <span class="home-sec-count" id="homeMtgCount"></span>
-                  <button type="button" id="homeSfCheckAll" class="home-mini-btn" title="今日の商談すべてについて、SFが今日更新されたか・商談が立ち上がっているかをまとめて確認します" style="margin-left:auto;border:1px solid #e6ece9;background:#fff;border-radius:8px;padding:4px 10px;font-size:12px;color:#0d5b47;cursor:pointer;">SF確認</button>
                 </div>
                 <div class="home-pane-body" id="homeList"><div class="home-empty">読み込み中…</div></div>
               </section>
@@ -180,8 +182,8 @@
         </div>
       </div>
     </div>
-    <script src="home.js?v=20260902ab"></script>
-    <script src="nav.js?v=20260902ab"></script>
+    <script src="home.js?v=20260902ac"></script>
+    <script src="nav.js?v=20260902ac"></script>
     <script src="/cmdk.js?v=20260827a"></script>
 </body>
 </html>
