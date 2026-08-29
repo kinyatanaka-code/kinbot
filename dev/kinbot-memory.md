@@ -41,6 +41,8 @@ kincall（架電リスト）という別ツールも同じ画面群の中にあ�
 
 ## 決定・指示のログ（新しいものを上に足す）
 
+- 2026-09-02 「設定」を左メニューの機能一覧(KB_MENU)から削除し、下部フッターのアカウント名の横に歯車アイコン(.side-foot-set→settings.html)として移設。nav.jsのwho描画ブロックで動的に挿入（全ページ共通）。.side-footをflex横並びにし、名前の横に歯車、ログアウトは下段(flex-basis100%)。スマホは side-foot 非表示のため、モバイルメニュー(items.push)に設定を追加して入口を確保。
+
 - 2026-09-02 担当変更UIを「常時プルダウン」から「担当アイコン方式」に変更。今日の商談・自分のアポの各カードのアクション列に人型の担当アイコン(hIcon owner)を置き、押すとそのカードの担当プルダウン(.hl-owner)が開く（既定は display:none、.open で表示）。委譲クリックで [data-owner-toggle] を検知し closest(.home-card)内の .hl-owner を開閉。商談(mtg-rep-mini)・予定(plan-rep-mini)・アポ(apo-rep-mini)の3種に対応。既存の担当変更ハンドラ（PUT）はそのまま。
 
 - 2026-09-02 今日の商談の「予定」段階でも担当を割り当てられるようにした。予定はカレンダーのイベントで、担当はアポ(smart-link)側が持つ。/api/apo/pickup（その日の全アポ）を取り、予定ID(eventId/invite_event_id)→{slug,owner}の対応表(planApoMap)を作成。予定行がアポに対応していれば担当セレクト(.plan-rep-mini)を出し、/api/smart-links/:slug/owner に PUT して担当を変更（既存のアポ担当変更を再利用＝カレンダー招待・その人のアポ一覧に反映）。loadCalendarでキャッシュ有無に関わらず対応表を読み込み、変更後は planApoMap更新→render＋loadMyApos。純粋なカレンダー予定（アポ紐づけ無し）にはセレクトを出さない。

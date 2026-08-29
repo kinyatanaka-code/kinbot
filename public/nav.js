@@ -34,7 +34,7 @@ window.addEventListener("error", (e) => {
 (function () {
   if (!document.querySelector('script[src$="kbchat.js"]')) {
     const sc = document.createElement("script");
-    sc.src = "kbchat.js?v=20260902ak";
+    sc.src = "kbchat.js?v=20260902al";
     sc.defer = true;
     document.head.appendChild(sc);
   }
@@ -70,15 +70,6 @@ const KB_MENU = [
       { href: "docs.html", label: "資料トラッキング", desc: "送った資料の閲覧状況" },
       { href: "weekly.html", label: "天気予報", desc: "今週のテーマ・目標・施策と、金曜の振り返り" },
       { href: "dev.html", label: "開発メモ", desc: "直したいこと・自動で拾ったエラー" },
-    ],
-  },
-  {
-    href: "settings.html", label: "設定", ico: "ico-set",
-    subs: [
-      { href: "settings.html", label: "動作設定", desc: "録音・要約・自動入室" },
-      { href: "settings.html?tab=integrations", label: "外部連携", desc: "Google・Salesforce・Chat通知" },
-      { href: "settings.html?tab=members", label: "メンバー管理", desc: "クローザー・インサイドの登録" },
-      { href: "settings.html?tab=ai", label: "AIの設定", desc: "自社ナレッジ・プロンプト" },
     ],
   },
 ];
@@ -154,6 +145,16 @@ function kbBuildSidebar() {
         av.setAttribute("aria-hidden", "true");
         av.textContent = String(name).trim().charAt(0).toUpperCase();
         foot.insertBefore(av, who);
+      }
+      // アカウント名の横に「設定」への入口（歯車）を置く
+      if (foot && !foot.querySelector(".side-foot-set")) {
+        const set = document.createElement("a");
+        set.className = "side-foot-set";
+        set.href = "settings.html";
+        set.title = "設定";
+        set.setAttribute("aria-label", "設定");
+        set.innerHTML = '<span class="side-ico ico-set"></span>';
+        who.insertAdjacentElement("afterend", set);
       }
     }
   } catch {}
@@ -424,6 +425,8 @@ window.kbSheet = function (html) {
   // kinbotの機能とは別に、Salesforce と AI社員を下に置く（サイドバーのkincallの下に合わせる）
   items.push({ href: "sf-launch.html", label: "Salesforce", ico: "ico-sf" });
   items.push({ href: "ai.html", label: "AI社員", ico: "ico-ai" });
+  // 設定は一覧から外してアカウント名の横に移したが、スマホでは入口が要るのでここに足す
+  items.push({ href: "settings.html", label: "設定", ico: "ico-set" });
 
   const open = () => {
     if (document.querySelector(".kb-menu")) return;

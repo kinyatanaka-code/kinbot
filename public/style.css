@@ -596,9 +596,16 @@ table.bant td:first-child { color: var(--muted); width: 80px; }
 .login-card .btn { width: 100%; margin-top: 4px; }
 .login-err { color: #b4453a; font-size: 12.5px; margin-top: 12px; }
 
-.side-foot { margin-top: auto; padding: 12px 12px 4px; border-top: 1px solid rgba(255,255,255,0.08); }
-.side-foot .who { display: block; font-size: 12px; color: #c9c4b8; margin-bottom: 6px; }
-.side-logout { font-size: 12px; color: #9aa39d; text-decoration: none; }
+.side-foot { margin-top: auto; padding: 12px 12px 4px; border-top: 1px solid rgba(255,255,255,0.08);
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.side-foot .who { display: block; flex: 1 1 auto; min-width: 0; font-size: 12px; color: #c9c4b8;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* アカウント名の横の「設定」歯車 */
+.side-foot-set { flex: 0 0 auto; display: inline-flex; align-items: center; justify-content: center;
+  width: 28px; height: 28px; border-radius: 8px; color: #9aa39d; text-decoration: none; }
+.side-foot-set:hover { background: rgba(255,255,255,.10); color: #fff; }
+.side-foot-set .side-ico { width: 18px; height: 18px; background-color: currentColor; }
+.side-logout { flex: 1 1 100%; font-size: 12px; color: #9aa39d; text-decoration: none; margin-top: 4px; }
 .side-logout:hover { color: #fff; text-decoration: underline; }
 
 .login-alt { font-size: 12.5px; color: var(--muted); margin-top: 14px; }
