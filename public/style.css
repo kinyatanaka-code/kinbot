@@ -5301,6 +5301,18 @@ input:focus, select:focus, textarea:focus, .sf-input:focus, .sf-select:focus, .s
 
 /* ===== ホームのツール置き場 ===== */
 .home-tools { display: flex; gap: 8px; flex-wrap: wrap; margin: 0 0 12px; }
+/* 明日のリマインド：詳細はモーダルで開く */
+.rm-modal { position: fixed; inset: 0; z-index: 1000; display: flex; align-items: center; justify-content: center; padding: 16px; }
+.rm-modal[hidden] { display: none; }
+.rm-modal-backdrop { position: absolute; inset: 0; background: rgba(15, 40, 32, .38); }
+.rm-modal-card { position: relative; background: #fff; border-radius: 16px; width: min(760px, 94vw);
+  max-height: 86vh; display: flex; flex-direction: column; box-shadow: 0 20px 60px rgba(0,0,0,.25); overflow: hidden; }
+.rm-modal-head { display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  padding: 14px 18px; border-bottom: 1px solid #eef2f0; font-size: 15px; color: #0d5b47; }
+.rm-modal-x { border: 0; background: #f2f6f4; width: 30px; height: 30px; border-radius: 8px; font-size: 18px;
+  color: #5b6b64; cursor: pointer; line-height: 1; }
+.rm-modal-x:hover { background: #e6efe9; }
+.rm-modal-card .rm-list { padding: 14px 18px; overflow: auto; }
 /* アポ一覧の担当変更セレクト */
 .hl-owner { margin-top: 4px; font-size: 12px; color: #7d8c86; display: flex; align-items: center; gap: 6px; }
 .hl-owner .apo-rep-mini { font-size: 12px; padding: 3px 6px; border: 1px solid #d7ded9; border-radius: 8px; background: #fff; color: #20302b; max-width: 160px; }

@@ -2002,15 +2002,20 @@ async function loadTomorrowReminders() {
     const okCount = items.filter((x) => x.送る).length;
     const ngCount = items.length - okCount;
     bar.hidden = false;
+    const rmLabel = rmDate && rmDate !== tomorrowStr() ? escH(rmDate.slice(5).replace("-", "/")) + "のリマインド" : defaultReminderLabel();
     bar.innerHTML =
       `<button type="button" class="rm-head" id="rmToggle">` +
-      `<span class="rm-lb">${rmDate && rmDate !== tomorrowStr() ? escH(rmDate.slice(5).replace("-", "/")) + "のリマインド" : defaultReminderLabel()}</span>` +
+      `<span class="rm-lb">${rmLabel}</span>` +
       `<span class="rm-n">${okCount}件</span>` +
       `<span class="rm-when">${escH(d["送る時刻"] || "")}に送ります</span>` +
       `<span class="cc-warn rm-ngn">${ngCount ? `送れないもの ${ngCount}件` : ""}</span>` +
       (d["自動送信"] ? "" : `<span class="cc-warn">自動送信はOFFです</span>`) +
       `<span class="rm-arrow">▾</span></button>` +
-      `<div class="rm-list" id="rmList"${rmOpen ? "" : " hidden"}>` +
+      `<div class="rm-modal" id="rmModal"${rmOpen ? "" : " hidden"}>` +
+      `<div class="rm-modal-backdrop" data-rm-close></div>` +
+      `<div class="rm-modal-card">` +
+      `<div class="rm-modal-head"><b>${rmLabel}</b><button type="button" class="rm-modal-x" data-rm-close aria-label="閉じる">×</button></div>` +
+      `<div class="rm-list" id="rmList">` +
       `<div class="rm-tools">
          <label>日 <input type="date" class="rm-date" value="${escH(rmDate || tomorrowStr())}" /></label>
          <label class="ks-check"><input type="checkbox" class="rm-allchk"${rmAll ? " checked" : ""} /> 全員のぶん</label>
@@ -2040,7 +2045,7 @@ async function loadTomorrowReminders() {
           <span class="rm-fix-st"></span>
           <span class="rm-fix-note">担当を変えても、知らせやメールは出しません（会議室のURLだけ切り替わります）</span>
         </div>`).join("") +
-      `</div>`;
+      `</div></div></div>`;
 
     // 帯の件数を数え直す（開いたまま更新できるように）
     function updateRmCount() {
@@ -2160,14 +2165,20 @@ async function loadTomorrowReminders() {
         }
       }));
     const t = document.getElementById("rmToggle");
+    const rmModal = document.getElementById("rmModal");
+    const closeRm = () => { if (rmModal) rmModal.hidden = true; rmOpen = false; if (t) t.classList.remove("open"); };
     if (t) {
       t.classList.toggle("open", rmOpen);
       t.addEventListener("click", () => {
-        const l = document.getElementById("rmList");
-        if (l) l.hidden = !l.hidden;
-        rmOpen = l && !l.hidden;
-        t.classList.toggle("open", rmOpen);
+        if (rmModal) rmModal.hidden = false;
+        rmOpen = true;
+        t.classList.add("open");
       });
+    }
+    bar.querySelectorAll("[data-rm-close]").forEach((el) => el.addEventListener("click", closeRm));
+    if (rmModal && !rmModal._escBound) {
+      rmModal._escBound = true;
+      document.addEventListener("keydown", (e) => { if (e.key === "Escape" && rmModal && !rmModal.hidden) closeRm(); });
     }
 
     // 日を変える／全員のぶんを見る
