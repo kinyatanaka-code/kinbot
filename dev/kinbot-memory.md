@@ -41,6 +41,8 @@ kincall（架電リスト）という別ツールも同じ画面群の中にあ�
 
 ## 決定・指示のログ（新しいものを上に足す）
 
+- 2026-09-02 レコーディング画面（index.html）から「かささぎ」を消した（田中さん指示）。削除：入室カードの「かささぎ（AIが説明する）を使う」チェック(joinKasasagi)、同意文の「かささぎを使う場合は…」の一文、右側の案内(ks-hint)、ライブの「かささぎ」タブ(data-pane=kasasagi のボタン)。かささぎpane本体（data-pane=kasasagi の中身）はタブ削除で到達不可＋hiddenのため残置で無害。app.js は joinKasasagi を `|| {}` でガードして参照しているので要素削除でも壊れない。バックエンド/APIのかささぎ機能は温存（UIだけ非表示）。
+
 - 2026-09-02 ひも付けたら検索せず直接SF更新できるようにした。ホームのSFアイコンは、カードにひも付いたSF商談ID(homeItems.oppId)があれば openSfEdit(key, oppId) → deals.html?...&view=salesforce&opp=<id> でその商談を直接開く（会社名検索・商談選択が不要）。商談カードは m.sf_url から oppIdFromUrl で、予定カードは e.apoOppId から判定（/api/calendar/today が smartLinksByEventIds の sf_autolaunch 結合で opp_id を返す）。ひも付いていない予定/商談は従来どおり検索パネル。ひも付け直後は homeItems[key].oppId を即セットしてその場で直接更新に切替。deals.js は既に window._kbOppId=?opp= に対応。
 
 - 2026-09-02 ホームの「今日の商談」カードからもSF商談をひも付けられるようにした。既存のSFパネル（sfPanelHtml：会社名で商談検索→選択）は選ぶだけで保存していなかったので、選択状態に「この商談にひも付ける」ボタン(data-sf-link)を追加。商談(bot_idあり)は新エンドポイント POST /api/meetings/:id/sf-link（opp_idからURLを作り setMeetingSfUrl で保存＝以後のSF記録はこのIDに直接書く）。予定(bot_idなし)は planSlugForKey でアポのslugを引いて POST /api/apo/:slug/sf-link に流す。ひも付け後は s.done 表示。meeting picker自体は全レコードタイプを表示（人が選ぶ）＝手動は任意、AUTOひも付けはクロスのみのまま。

@@ -15470,7 +15470,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-02aw 紐付けたら検索せず直接SF更新：ホームのSFアイコンは、ひも付いたSF商談があれば deals.html?view=salesforce&opp=<id> でその商談を直接開く（会社名検索なし）。商談はsf_url、予定はapoOppId（calendar/todayがsf_autolaunch結合で返す）から判定。ひも付け直後もその場で有効化。前回：今日の商談カードからのSFひも付け";
+const BUILD_TAG = "2026-09-02ax レコーディング画面から「かささぎ」を非表示に：入室カードのかささぎ利用チェックと同意文のかささぎ文、右側の案内、ライブの「かささぎ」タブを削除（joinKasasagi参照はapp.js側でガード済み）。前回：紐付けたら直接SF更新";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",

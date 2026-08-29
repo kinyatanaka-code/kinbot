@@ -10,7 +10,7 @@
     <link rel="manifest" href="/site.webmanifest" />
     <meta name="theme-color" content="#0d5b47" />
     <meta name="apple-mobile-web-app-title" content="kinbot" />
-    <link rel="stylesheet" href="style.css?v=20260902aw" />
+    <link rel="stylesheet" href="style.css?v=20260902ax" />
   </head>
   <body>
     <div class="app">
@@ -64,9 +64,7 @@
                 <select id="linkSelect" class="link-select"><option value="">会議リンクを選ぶ…（登録リンク / 予定のリンク）</option></select>
                 <input id="meetingUrl" type="url" placeholder="会議のURL（Zoom / Meet / Teams）" />
                 <button class="btn big" id="joinBtn">Botを入室させる</button>
-                <label class="ks-check join-ks"><input type="checkbox" id="joinKasasagi" /> かささぎ（AIが説明する）を使う</label>
-                <p class="join-consent">Botが参加者として入室します。<strong>相手に録音・記録の同意</strong>を得てください。<br>
-                かささぎを使う場合は、<strong>AIが応対することも必ず伝えて</strong>ください。</p>
+                <p class="join-consent">Botが参加者として入室します。<strong>相手に録音・記録の同意</strong>を得てください。</p>
               </div>
               <div class="join-card upload-card" data-mrec="file" data-recpanel="file" hidden>
                 <h2 class="join-title">ファイルから記録</h2>
@@ -84,8 +82,6 @@
             <div class="active-block" data-mrec="live">
               <h2 class="active-title with-bot">進行中の商談（ライブ）</h2>
               <div class="active-list" id="activeList"><div class="empty-state">いま進行中の商談はありません。</div></div>
-
-              <p class="note ks-hint">かささぎ（AIが商談で説明する）は、上の進行中の商談を開いて「かささぎ」タブから操作します。</p>
             </div>
           </div>
         </div>
@@ -128,7 +124,6 @@
             <button class="live-tab active" data-pane="transcript">文字起こし</button>
             <button class="live-tab" data-pane="ai">AI</button>
             <button class="live-tab" data-pane="note">メモ</button>
-            <button class="live-tab" data-pane="kasasagi">かささぎ</button>
           </div>
 
           <div class="live-pane" data-pane="video" hidden>
@@ -259,7 +254,7 @@
       </div>
     </div>
     <script src="https://cdn.jsdelivr.net/npm/hls.js@1"></script>
-    <script src="app.js?v=20260902aw"></script>
+    <script src="app.js?v=20260902ax"></script>
     <script>
       (function () {
         const tabs = document.getElementById("recTabs");
@@ -281,7 +276,7 @@
         }
       })();
     </script>
-    <script src="nav.js?v=20260902aw"></script>
+    <script src="nav.js?v=20260902ax"></script>
     <script src="/cmdk.js?v=20260827a"></script>
 </body>
 </html>
