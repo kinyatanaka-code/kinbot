@@ -34,7 +34,7 @@ window.addEventListener("error", (e) => {
 (function () {
   if (!document.querySelector('script[src$="kbchat.js"]')) {
     const sc = document.createElement("script");
-    sc.src = "kbchat.js?v=20260902af";
+    sc.src = "kbchat.js?v=20260902ah";
     sc.defer = true;
     document.head.appendChild(sc);
   }
@@ -123,13 +123,13 @@ function kbBuildSidebar() {
   const sfOn = /sf-launch\.html/.test(here) ? " active" : "";
   const apps =
     `<div class="side-sep"></div>` +
-    `<a class="side-item side-app${kcOn}" href="/kincall">` +
+    `<a class="side-item side-app side-hi${kcOn}" href="/kincall">` +
     `<img class="side-app-ico" src="/kincall.svg" alt="" />` +
     `<span class="side-label">kincall</span></a>` +
-    `<a class="side-item${sfOn}" href="sf-launch.html">` +
+    `<a class="side-item side-hi${sfOn}" href="sf-launch.html">` +
     `<span class="side-ico ico-sf"></span>` +
     `<span class="side-label">Salesforce</span></a>` +
-    `<a class="side-item${aiOn}" href="ai.html">` +
+    `<a class="side-item side-hi${aiOn}" href="ai.html">` +
     `<span class="side-ico ico-ai"></span>` +
     `<span class="side-label">AI社員</span></a>`;
 
