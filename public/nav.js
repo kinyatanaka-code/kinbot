@@ -34,7 +34,7 @@ window.addEventListener("error", (e) => {
 (function () {
   if (!document.querySelector('script[src$="kbchat.js"]')) {
     const sc = document.createElement("script");
-    sc.src = "kbchat.js?v=20260902ae";
+    sc.src = "kbchat.js?v=20260902af";
     sc.defer = true;
     document.head.appendChild(sc);
   }
@@ -64,11 +64,8 @@ const KB_MENU = [
     ],
   },
   {
-    href: "sf-launch.html", label: "ツール", ico: "ico-tool",
+    href: "apo.html", label: "ツール", ico: "ico-tool",
     subs: [
-      { href: "sf-launch.html", label: "商談立ち上げ", desc: "リードを探してコンバートする" },
-      { href: "sf-launch.html?tab=pending", label: "立ち上げ待ち", desc: "自動で立ち上がらなかったもの" },
-      { href: "sf-launch.html?tab=process", label: "プロセスシート", desc: "架電結果をシートに書き込む" },
       { href: "apo.html", label: "アポ振り分け", desc: "担当の自動割り振り・チーム実績" },
       { href: "docs.html", label: "資料トラッキング", desc: "送った資料の閲覧状況" },
       { href: "weekly.html", label: "天気予報", desc: "今週のテーマ・目標・施策と、金曜の振り返り" },
@@ -123,11 +120,15 @@ function kbBuildSidebar() {
   // kinbotの機能とは別の道具なので、線で区切って分ける。
   const kcOn = /^\/kincall/.test(location.pathname) ? " active" : "";
   const aiOn = /ai\.html/.test(here) ? " active" : "";
+  const sfOn = /sf-launch\.html/.test(here) ? " active" : "";
   const apps =
     `<div class="side-sep"></div>` +
     `<a class="side-item side-app${kcOn}" href="/kincall">` +
     `<img class="side-app-ico" src="/kincall.svg" alt="" />` +
     `<span class="side-label">kincall</span></a>` +
+    `<a class="side-item${sfOn}" href="sf-launch.html">` +
+    `<span class="side-ico ico-sf"></span>` +
+    `<span class="side-label">Salesforce</span></a>` +
     `<a class="side-item${aiOn}" href="ai.html">` +
     `<span class="side-ico ico-ai"></span>` +
     `<span class="side-label">AI社員</span></a>`;
@@ -420,7 +421,8 @@ window.kbSheet = function (html) {
     if (m.subs) for (const x of m.subs) items.push({ href: x.href, label: x.label, ico: m.ico });
     else items.push({ href: m.href, label: m.label, ico: m.ico });
   }
-  // kinbotの機能とは別に、AI社員をいちばん下に置く（サイドバーのkincallの下に合わせる）
+  // kinbotの機能とは別に、Salesforce と AI社員を下に置く（サイドバーのkincallの下に合わせる）
+  items.push({ href: "sf-launch.html", label: "Salesforce", ico: "ico-sf" });
   items.push({ href: "ai.html", label: "AI社員", ico: "ico-ai" });
 
   const open = () => {
