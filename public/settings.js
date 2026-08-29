@@ -2701,7 +2701,6 @@ function ctWireTimers(scope) {
 async function loadChatTargets() {
   const box = document.getElementById("ctList");
   if (!box) return;
-  const fallback = document.getElementById("ntFallback");
   try {
     // 送り先と、決まった時刻の設定をまとめて取る
     const [dc, dn] = await Promise.all([
@@ -2711,17 +2710,15 @@ async function loadChatTargets() {
     CT_TIMERS = dn["定期"] || [];
     const list = dc.targets || [];
 
-    // 送り先が無いときは、決まった時刻の設定だけを下に出す
+    // 「決まった時刻に流す」は全体共通。カードの有無に関わらず、1か所（下の共通欄）に出す。
+    const ntBox = document.getElementById("ntTimers");
+    if (ntBox) { ntBox.innerHTML = ctTimersMarkup(); ctWireTimers(ntBox); }
+
+    // 送り先が無いときは、カード一覧に案内だけ出す（タイマーは上の共通欄にある）
     if (!list.length) {
       box.innerHTML = '<div class="empty-state">まだ通知先がありません。下の欄から追加してください。</div>';
-      if (fallback) {
-        fallback.hidden = false;
-        const nt = document.getElementById("ntTimers");
-        if (nt) { nt.innerHTML = ctTimersMarkup(); ctWireTimers(nt); }
-      }
       return;
     }
-    if (fallback) fallback.hidden = true;
 
     box.innerHTML = list.map((t) => `
       <div class="ct-row${t.active ? "" : " ct-off"}" data-id="${t.id}">
@@ -2744,10 +2741,6 @@ async function loadChatTargets() {
               ${CT_KINDS.map(([k, label]) =>
                 `<label class="ks-check"><input type="checkbox" class="ct-kind" data-k="${k}" ${t[k] ? "checked" : ""} /> ${label}</label>`).join("")}
             </div>
-          </div>
-          <div class="ct-group">
-            <div class="ct-group-h">決まった時刻に流す<span class="ct-group-sub">全体共通・どのカードから変えても、すべての送り先に反映されます</span></div>
-            <div class="ct-timers">${ctTimersMarkup()}</div>
           </div>
           ${t.lastError ? `<div class="ct-err">前回のエラー：${CT_ESC(t.lastError)}</div>` : ""}
           <div class="ct-note"></div>
@@ -2827,8 +2820,6 @@ async function loadChatTargets() {
       })
     );
 
-    // 各カードの中の「決まった時刻に流す」を配線
-    ctWireTimers(box);
   } catch (e) {
     box.innerHTML = '<div class="empty-state">読み込めませんでした。</div>';
   }
