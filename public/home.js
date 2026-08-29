@@ -375,7 +375,7 @@ function render() {
       <div class="hl-row">
         <div class="hl-time">${escH(time)}</div>
         <div class="hl-main">
-          <div class="hl-title">${escH(title)}</div>
+          <div class="hl-title" title="${escH(title)}">${escH(title)}</div>
           <div class="hl-meta"${summary ? ` title="${escH(summary)}"` : ""}>${badges}${meta}</div>
           ${ownerSel}
         </div>
@@ -2757,7 +2757,7 @@ function apoHomeCard(x) {
         <div class="hl-row">
           <div class="hl-time">${apoEsc(apoTime(x.takenAt || x.start))}</div>
           <div class="hl-main">
-            <div class="hl-title">${apoEsc(x.title || "")}</div>
+            <div class="hl-title" title="${apoEsc(x.title || "")}">${apoEsc(x.title || "")}</div>
             <div class="hl-meta">${x.selfGot ? '<span class="home-badge home-badge-self">自分で獲得</span>' : ""}${x.inviteEventId ? '<span class="home-badge home-badge-done">予定作成済</span>' : ""}${meta}</div>
             ${launchLine(x)}
             <div class="hl-owner" data-owner-box="${apoEsc(sfKey)}"><span>担当：</span><select class="apo-rep-mini" data-slug="${apoEsc(x.slug)}" title="担当を変える">${repOptionsHome(x.owner)}</select></div>
