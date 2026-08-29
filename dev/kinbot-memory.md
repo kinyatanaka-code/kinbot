@@ -41,6 +41,8 @@ kincall（架電リスト）という別ツールも同じ画面群の中にあ�
 
 ## 決定・指示のログ（新しいものを上に足す）
 
+- 2026-09-02 設定「決まった時刻に流す」タイマーのチェックが効かない不整合を修正。原因：(1)「コール進捗」はUIが callProgress を保存するのにジョブは st.callReport を見ていた（キー不一致で無効）。(2) 夕方のやり残し/自己点検/開発メモのまとめ等は明示ON（=== true）のみ動く既定OFFなのに、GETの初期表示が !== false（未設定でもON表示）で表示と動作がズレていた。対策：NOTICE_TIMERSのコール進捗キーを callReport に統一、eveningReminderの既定をfalseに、GETの入り切り表示を「未設定なら各タイマーの既定、設定済みならその値」に変更（ジョブの動作と一致）。
+
 - 2026-09-02 夜間開発の「朝の開発通知」を、指定したGoogle Chatだけに送れるようにした。通知種類「開発（朝の通知）」を新設（chat_targets.on_dev、既定OFF）。設定→Google Chat通知先で、送りたいチャットの「開発」をONにする（そのチャットの Webhook かスペースを登録して選ぶ）。night-report は notifyAll(text,"dev") で送り、開発ONの宛先が無ければ従来どおり（assign）へフォールバック。
 
 - 2026-09-02 【重要・不具合修正】商談後のSF自動記録が同じ企業に重複していた。原因：冪等判定が Salesforce のカスタム項目 kinbot_bot_id__c 依存で、この項目が組織に無いと findTaskByBotId が常に「無し」を返し毎回新規作成していた＋「記録済み」がメモリ（_autoShodanDone）だけで、Railway再デプロイのたびに過去7日分を再記録していた（窓拡大で悪化）。対策：meetings.sf_recorded_at（DB）に記録済みを永続化し、SF項目の有無・再起動に関係なく二度と自動記録しない。setMeetingSfRecorded、listMeetingsに列追加、sweepで sf_recorded_at を除外・成功時に保存。既存の紐づけ済み商談（作成1日より前）は起動時に一度だけ記録済みとみなし、過去分の再記録を停止。※SF上に既に出来てしまった重複は別途手動削除が必要（自動削除はしない）。根本解決としてはSF側に kinbot_bot_id__c を作るのが望ましい（SDG）。

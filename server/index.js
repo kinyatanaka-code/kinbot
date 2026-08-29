@@ -5070,8 +5070,8 @@ const NOTICE_KINDS = [
 const NOTICE_TIMERS = [
   { key: "deployNews", 名前: "朝の「新しくなりました」", 説明: "前の営業日からの変更をまとめて。送り先は下で選びます",
     既定: true, 時刻: { hour: "deployNewsHour", minute: "deployNewsMinute", 既定時: 8, 既定分: 30 } },
-  { key: "callProgress", 名前: "コール進捗", 説明: "平日11〜18時の毎正時（チームのスペースへ）", 既定: true },
-  { key: "eveningReminder", 名前: "夕方のやり残し", 説明: "平日18時半に本人だけへ（1対1）", 既定: true },
+  { key: "callReport", 名前: "コール進捗", 説明: "平日11〜18時の毎正時（チームのスペースへ）", 既定: false },
+  { key: "eveningReminder", 名前: "夕方のやり残し", 説明: "平日18時半に本人だけへ（1対1）", 既定: false },
   { key: "weeklyRemind", 名前: "天気予報の声かけ", 説明: "月曜の朝と金曜の夕方（本人だけへ）", 既定: false },
   { key: "devSummary", 名前: "開発メモのまとめ", 説明: "朝6時。点検用の送り先へ（既定はOFF）", 既定: false },
   { key: "selfCheck", 名前: "自己点検", 説明: "30分おきに見張り、問題があれば点検用の送り先へ", 既定: false },
@@ -5089,10 +5089,10 @@ app.get("/api/notices", async (req, res) => {
         入り切り: k.設定 ? st[k.設定] !== false : null,
         送り先の数: targets.filter((t) => t[k.送り先] && t.enabled !== false).length,
       })),
-      // 時刻を決めて流すもの
+      // 時刻を決めて流すもの。未設定のときは各タイマーの既定に合わせる（ジョブの動作と一致させる）。
       定期: NOTICE_TIMERS.map((t) => ({
         key: t.key, 名前: t.名前, 説明: t.説明,
-        入り切り: t.key === "devSummary" ? st[t.key] === true : st[t.key] !== false,
+        入り切り: st[t.key] === undefined ? (t.既定 === true) : (st[t.key] !== false),
         時刻: t.時刻
           ? `${String(st[t.時刻.hour] ?? t.時刻.既定時).padStart(2, "0")}:${String(st[t.時刻.minute] ?? t.時刻.既定分).padStart(2, "0")}`
           : null,
@@ -15287,7 +15287,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-02z 夜間開発の朝の通知を、指定したGoogle Chatだけに送れるように。通知種類「開発（朝の通知）」を追加（chat_targets.on_dev、既定OFF）。設定の通知先で開発をONにしたチャットへ送る（未設定時は従来どおり）。前回：商談後SF記録の重複を根絶";
+const BUILD_TAG = "2026-09-02aa 通知タイマーのチェックが効かない不整合を修正：コール進捗のキーをジョブと同じ callReport に統一（従来 callProgress で無効だった）、夕方のやり残しの既定をOFFに修正、初期ON/OFF表示を各タイマーの既定（実際の動作）に一致させた。前回：朝の開発通知を指定チャットへ";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
