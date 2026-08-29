@@ -15303,7 +15303,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-02ao 今日の商談の「予定」でも担当変更を確実に：/api/calendar/today が各予定に紐づくアポ(smart-link)の slug・担当を付けて返す（smartLinksByEventIds＝event_id/invite_event_idで照合）。予定行はこれを使い、アポ割り振りと同じ仕組み（smart-linkの担当）で担当を変更・反映。前回：操作アイコンを4つ＋その他";
+const BUILD_TAG = "2026-09-02ap ホームの担当変更（今日の商談の予定・自分のアポ）を無音(quiet:true)に：Google Chat通知・確定メール自動送信・商談予定の招待作成を行わず、担当の差し替えのみ。商談済みは元々meta更新で無音。アポ割り振り画面は従来どおり通知・メールを出す。前回：予定の担当変更を確実に";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",

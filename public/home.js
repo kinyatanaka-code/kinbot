@@ -2458,7 +2458,7 @@ document.addEventListener("change", async (ev) => {
   sel.disabled = true;
   try {
     const r = await fetch(`/api/smart-links/${encodeURIComponent(slug)}/owner`, {
-      method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ owner }),
+      method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ owner, quiet: true }),
     });
     const d = await r.json().catch(() => ({}));
     if (!r.ok) throw new Error(d.error || "変更に失敗しました");
@@ -2506,7 +2506,7 @@ document.addEventListener("change", async (ev) => {
   sel.disabled = true;
   try {
     const r = await fetch(`/api/smart-links/${encodeURIComponent(slug)}/owner`, {
-      method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ owner }),
+      method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ owner, quiet: true }),
     });
     const d = await r.json().catch(() => ({}));
     if (!r.ok) throw new Error(d.error || "変更に失敗しました");
