@@ -985,6 +985,21 @@ app.put("/api/meetings/:id/meta", async (req, res) => {
   }
 });
 
+// 商談（meeting）に、選んだSF商談(Opportunity)をひも付ける。以後のSF記録はこのIDに直接書く。
+app.post("/api/meetings/:id/sf-link", async (req, res) => {
+  try {
+    const botId = String(req.params.id || "");
+    const oppId = req.body?.oppId ? String(req.body.oppId).trim() : "";
+    if (!botId) return res.status(400).json({ error: "商談IDが必要です" });
+    if (!oppId) { await setMeetingSfUrl(botId, null); return res.json({ ok: true, linked: false }); }
+    let url = String(oppId);
+    try { const info = await sfInfo(req.user).catch(() => null); const base = (info?.instanceUrl || "").replace(/\/+$/, ""); if (base) url = `${base}/lightning/r/Opportunity/${oppId}/view`; } catch {}
+    await setMeetingSfUrl(botId, url);
+    console.log(`[meeting-link] ${botId} を SF商談 ${oppId} にひも付け by ${req.user}`);
+    res.json({ ok: true, linked: true, oppId, url });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 // 商談を削除（owner本人 or 管理者）
 app.delete("/api/meetings/:id", async (req, res) => {
   try {
@@ -15455,7 +15470,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-02au 商談後のSF記録もID方式に：autofillMeetingToSf が sf_url 未設定でも、予定にひも付いたSF商談ID(sf_autolaunch.opp_id)を bot_id/会社名(核)から解決して使い、商談のsf_urlにも保存（次回から直参照）。sweepは sf_url 無しでも解決を試み、未ひも付けは失敗扱いにせず再試行。手動リード変換でslug付きなら即ひも付け。前回：予定⇄SF商談ひも付けの導入";
+const BUILD_TAG = "2026-09-02av ホームの今日の商談カードからもSF商談をひも付け可能に：SFパネルで商談を選び「この商談にひも付ける」で保存。商談は /api/meetings/:id/sf-link（sf_url保存）、予定はアポのslugで /api/apo/:slug/sf-link。以後のSF記録はそのIDに直接書く。前回：商談後SF記録のID方式化";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",

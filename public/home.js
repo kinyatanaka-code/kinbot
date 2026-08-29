@@ -186,6 +186,14 @@ function sfOf(key) {
   return sfState[key];
 }
 
+// 予定カードのキーから、ひも付いているアポ（smart-link）のslugを引く
+function planSlugForKey(key) {
+  const e = (dayEvents || []).find((x) => (x.id || (x.title + "@" + x.start)) === key);
+  if (e && e.apoSlug) return e.apoSlug;
+  if (planApoMap[key] && planApoMap[key].slug) return planApoMap[key].slug;
+  return "";
+}
+
 function sfPanelHtml(key, ev) {
   const s = sfOf(key);
   if (!s.open) return "";
@@ -201,11 +209,12 @@ function sfPanelHtml(key, ev) {
       </div>
       ${s.error ? `<div class="home-sf-err">${escH(s.error)}</div>` : ""}
       <div class="home-sf-row">
+        <button class="btn home-sf-mini" data-sf-link="${escH(key)}" data-sf-id="${escH(p.Id || "")}" type="button"${s.loading ? " disabled" : ""}>${s.loading ? "ひも付け中…" : "この商談にひも付ける"}</button>
         <button class="btn home-sf-lose" data-sf-lose="${escH(key)}" type="button"${s.loading ? " disabled" : ""}>${s.loading ? "更新中…" : "リスケ失注"}</button>
         <a class="btn sf-btn-secondary home-sf-mini" href="history.html?company=${encodeURIComponent(companyFromTitle(ev.title) || ev.title || "")}&sf=update&opp=${encodeURIComponent(p.Id || "")}">SF更新</a>
         <button class="btn sf-btn-secondary home-sf-mini" data-sf-reset="${escH(key)}" type="button">別商談を選ぶ</button>
       </div>
-      <div class="home-sf-note">ステージを「失注」、失注理由を「ニーズ・優先度不足 ／ 初回商談リスケ」、理由詳細を「リスケ」、失注日と失注後次回アクション日を今日の日付で登録し、商談所有者を自分に変更します。</div>`;
+      <div class="home-sf-note">「ひも付ける」を押すと、この商談のSF記録は選んだ商談に直接書き込みます（以後は毎回探しません）。<br>「リスケ失注」はステージを失注等に更新します。</div>`;
   } else {
     const rows = s.records;
     let listHtml = "";
@@ -1738,6 +1747,35 @@ function wireListBox(box) {
       s.picked = (s.records || []).find((r) => r.Id === pick.dataset.sfId) || null;
       s.error = "";
       renderBoth();
+      return;
+    }
+    const sflink = ev.target.closest("[data-sf-link]");
+    if (sflink) {
+      const key = sflink.dataset.sfLink, oppId = sflink.dataset.sfId;
+      const it = homeItems[key] || {};
+      const s = sfOf(key);
+      s.loading = true; s.error = ""; renderBoth();
+      (async () => {
+        try {
+          let r;
+          if (it.botId) {
+            r = await fetch(`/api/meetings/${encodeURIComponent(it.botId)}/sf-link`, {
+              method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ oppId }),
+            });
+          } else {
+            const slug = planSlugForKey(key);
+            if (!slug) throw new Error("この予定はアポにひも付いていないため、ここでは紐付けられません（アポ側でお願いします）");
+            r = await fetch(`/api/apo/${encodeURIComponent(slug)}/sf-link`, {
+              method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ oppId }),
+            });
+          }
+          const d = await r.json().catch(() => ({}));
+          if (!r.ok) throw new Error(d.error || "ひも付けに失敗しました");
+          s.loading = false;
+          s.done = `ひも付けました：${(s.picked && s.picked.Name) || ""}`;
+          renderBoth();
+        } catch (e) { s.loading = false; s.error = e.message; renderBoth(); }
+      })();
       return;
     }
     const reset = ev.target.closest("[data-sf-reset]");
