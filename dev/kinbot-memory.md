@@ -41,6 +41,9 @@ kincall（架電リスト）という別ツールも同じ画面群の中にあ�
 
 ## 決定・指示のログ（新しいものを上に足す）
 
+- 2026-09-02 明日のリマインドのモーダルが、検索の×やカレンダー等の下に潜って上部が押せない不具合を修正。原因：.main>* に z-index:1 が付き .home-wrap（モーダルの親）が z-index1 のスタッキング文脈、一方 .topbar は z-index2 なので、モーダルの z-index を上げても topbar の下に潜っていた。対策：描画後に #rmModal を document.body 直下へ移動（最前面）。モーダル内の配線は scope=rmModal から探すよう変更し、再描画時に古い #rmModal を remove。
+- 2026-09-02 今日の商談でも担当を選べるようにした。商談カード（bot_idあり）に担当セレクト(.mtg-rep-mini)を表示、/api/meetings/:id/meta に owner をPUTして更新。allMeetingsのownerを更新してrender→homeScope=mineなら担当を外した商談は自分の画面から消え、選んだ担当の画面に出る。担当候補は loadHomeRepsOnce（/api/smart-links/reps）で先読みし、読み込めたらrender/renderMyAposを描き直す。repOptionsHomeは候補に無い現担当も選択肢に残す。
+
 - 2026-09-02 左メニュー下部のアプリ（kincall / Salesforce / AI社員）を目立たせた。3つに共通クラス .side-hi を付与し、緑グローのカード風＋ほんのり点滅（sideHiGlow、3つを0/0.5/1秒ずらして波打つ）、ホバー・選択で強調。side-icoは currentColor なので文字色を明るくしてアイコンも発光。prefers-reduced-motionでは点滅停止（静的グロー）。スマホ下部バーでは装飾を外し色だけ強調。
 
 - 2026-09-02 【重要・不具合修正】文字起こしが途中で切れる。原因：文字起こしはメモリ上のセッション(sessions.js)に貯め、DBへは定期解析時か会議終了時のみ保存。セッションは再作成時にDBの既存文字起こしを読み込まないため、会議中にRailwayが再デプロイ（今日は多数push）で再起動→新セッションが空から始まり、次の保存で前半を上書きして消えていた。対策：webhookでセッション再作成時に getMeeting の transcript を seedTranscript で引き継ぐ（_seededで一度だけ・既存を前にconcatして先着イベントと競合しても取りこぼさない・lastAnalyzedLenを引き継ぎ後の長さにして再解析コストを出さない）。加えて onFinal で 12秒デバウンスの scheduleSave を追加し小まめに保存、dispose でタイマー解除。重要な商談中の連続デプロイは避けるのが安全。真の未取得（Recallのreal-time取りこぼし）は別問題。

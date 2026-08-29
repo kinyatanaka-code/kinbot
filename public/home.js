@@ -323,7 +323,11 @@ function render() {
     }
     // 補足行
     let meta = "";
-    if (m) meta = `担当：${escH(repOf(m))}`;
+    let ownerSel = "";
+    if (m) {
+      meta = "";
+      ownerSel = `<div class="hl-owner">担当：<select class="mtg-rep-mini" data-bot="${escH(m.bot_id || "")}">${repOptionsHome(m.owner || "")}</select></div>`;
+    }
     else if (e) {
       // 1行なので短く。詳しい案内は印（バッジ）で足りる。
       meta = window._autoJoin && !e.hasUrl ? "URLなし（自動入室されません）" : "";
@@ -362,6 +366,7 @@ function render() {
         <div class="hl-main">
           <div class="hl-title">${escH(title)}</div>
           <div class="hl-meta"${summary ? ` title="${escH(summary)}"` : ""}>${badges}${meta}</div>
+          ${ownerSel}
         </div>
         <div class="hl-acts">${acts}</div>
       </div>
@@ -1984,6 +1989,9 @@ function defaultReminderLabel() {
 async function loadTomorrowReminders() {
   const bar = document.getElementById("rmBar");
   if (!bar) return;
+  // 前回body直下へ出したモーダルが残っていれば片づける（重複防止）
+  const stray = document.getElementById("rmModal");
+  if (stray) stray.remove();
   try {
     const q = new URLSearchParams();
     if (rmDate) q.set("date", rmDate);
@@ -2049,7 +2057,7 @@ async function loadTomorrowReminders() {
 
     // 帯の件数を数え直す（開いたまま更新できるように）
     function updateRmCount() {
-      const rows = [...bar.querySelectorAll(".rm-row")];
+      const rows = [...(rmModalEl ? rmModalEl.querySelectorAll(".rm-row") : [])];
       const ok = rows.filter((r) => {
         const c = r.querySelector(".rm-send");
         const st = (r.querySelector(".rm-st") || {}).textContent || "";
@@ -2062,8 +2070,14 @@ async function loadTomorrowReminders() {
       if (w) w.textContent = ng ? `送れないもの ${ng}件` : "";
     }
 
+    // スタッキングの都合（.home-wrapがz-index:1でtopbarより下）で、
+    // モーダルは body 直下へ出す。これで検索の×や上部に潜らず、最前面に出る。
+    const rmModalEl = document.getElementById("rmModal");
+    if (rmModalEl) document.body.appendChild(rmModalEl);
+    const scope = rmModalEl || bar;   // モーダル内の要素はここから探す
+
     // 「直す」を押したら、その場で宛先や担当を入れられるようにする
-    bar.querySelectorAll(".rm-fix").forEach((b) =>
+    scope.querySelectorAll(".rm-fix").forEach((b) =>
       b.addEventListener("click", async () => {
         const box = b.closest(".rm-row").nextElementSibling;
         if (!box || !box.classList.contains("rm-fixbox")) return;
@@ -2088,7 +2102,7 @@ async function loadTomorrowReminders() {
         if (first) first.focus();
       }));
 
-    bar.querySelectorAll(".rm-fix-save").forEach((b) =>
+    scope.querySelectorAll(".rm-fix-save").forEach((b) =>
       b.addEventListener("click", async () => {
         const box = b.closest(".rm-fixbox");
         const row = box.previousElementSibling;
@@ -2138,7 +2152,7 @@ async function loadTomorrowReminders() {
       }));
 
     // チェックを外したら「送らない」、戻したら「送る」
-    bar.querySelectorAll(".rm-send").forEach((el) =>
+    scope.querySelectorAll(".rm-send").forEach((el) =>
       el.addEventListener("change", async () => {
         const row = el.closest(".rm-row");
         const slug = row.dataset.slug;
@@ -2175,20 +2189,20 @@ async function loadTomorrowReminders() {
         t.classList.add("open");
       });
     }
-    bar.querySelectorAll("[data-rm-close]").forEach((el) => el.addEventListener("click", closeRm));
+    scope.querySelectorAll("[data-rm-close]").forEach((el) => el.addEventListener("click", closeRm));
     if (rmModal && !rmModal._escBound) {
       rmModal._escBound = true;
       document.addEventListener("keydown", (e) => { if (e.key === "Escape" && rmModal && !rmModal.hidden) closeRm(); });
     }
 
     // 日を変える／全員のぶんを見る
-    const dateEl = bar.querySelector(".rm-date");
+    const dateEl = scope.querySelector(".rm-date");
     if (dateEl) dateEl.addEventListener("change", () => {
       rmDate = dateEl.value || "";
       rmOpen = true;
       loadTomorrowReminders();
     });
-    const allEl = bar.querySelector(".rm-allchk");
+    const allEl = scope.querySelector(".rm-allchk");
     if (allEl) allEl.addEventListener("change", () => {
       rmAll = allEl.checked;
       rmOpen = true;
@@ -2375,6 +2389,45 @@ function apoTime(iso) {
 
 let myApos = [];
 let homeReps = [];   // 担当変更の候補（/api/smart-links/reps）
+let _repsLoading = null;
+
+// 担当候補を一度だけ読み込む。読み込めたら、今出ている担当プルダウンを描き直す。
+async function loadHomeRepsOnce() {
+  if (homeReps.length) return homeReps;
+  if (!_repsLoading) {
+    _repsLoading = (async () => {
+      try { const r = await (await fetch("/api/smart-links/reps")).json(); homeReps = Array.isArray(r) ? r : []; } catch {}
+      try { render(); } catch {}
+      try { renderMyApos(); } catch {}
+      return homeReps;
+    })();
+  }
+  return _repsLoading;
+}
+
+// 今日の商談で担当を変えたら、その商談の担当を更新する（選んだ人の画面に出るようになる）。
+document.addEventListener("change", async (ev) => {
+  const sel = ev.target && ev.target.closest ? ev.target.closest(".mtg-rep-mini") : null;
+  if (!sel) return;
+  const bot = sel.dataset.bot;
+  const owner = sel.value || "";
+  if (!bot) return;
+  sel.disabled = true;
+  try {
+    const r = await fetch(`/api/meetings/${encodeURIComponent(bot)}/meta`, {
+      method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ owner }),
+    });
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(d.error || "変更に失敗しました");
+    // 手元のデータも合わせて、今日の商談を描き直す（担当が変わると、その人の画面に出る）
+    const rec = (allMeetings || []).find((x) => x.bot_id === bot);
+    if (rec) rec.owner = owner;
+    render();
+  } catch (e) {
+    alert("担当を変えられませんでした：" + e.message);
+    sel.disabled = false;
+  }
+});
 
 // アポ一覧で担当を変えたら、その場でSF側へ反映する（1回だけ配線）。
 document.addEventListener("change", async (ev) => {
@@ -2399,13 +2452,16 @@ document.addEventListener("change", async (ev) => {
   }
 });
 
-// 担当変更のプルダウン。現在の担当を選択済みにする。
+// 担当変更のプルダウン。現在の担当を選択済みにする。名前が候補に無くても現状は残す。
 function repOptionsHome(cur) {
   let o = '<option value="">担当未定</option>';
+  let has = false;
   for (const r of homeReps) {
     const em = r.email || "";
+    if (em === cur) has = true;
     o += `<option value="${apoEsc(em)}"${em === cur ? " selected" : ""}>${apoEsc(r.name || em)}</option>`;
   }
+  if (cur && !has) o += `<option value="${apoEsc(cur)}" selected>${apoEsc(cur)}</option>`;
   return o;
 }
 
@@ -2413,9 +2469,7 @@ async function loadMyApos() {
   const box = document.getElementById("homeApoList");
   if (!box) return;
   box.innerHTML = '<div class="home-empty">読み込み中…</div>';
-  if (!homeReps.length) {
-    try { const r = await (await fetch("/api/smart-links/reps")).json(); homeReps = Array.isArray(r) ? r : []; } catch {}
-  }
+  await loadHomeRepsOnce();
   try {
     const q = new URLSearchParams({ date: selDate || todayStr });
     // 動作確認用：?many=1 で件数を増やせる（本番では無視される）
