@@ -45,7 +45,8 @@ const HOME_ICONS = {
   tpledit: "M3 17.3 14.1 6.2l3.7 3.7L6.7 21H3zM15.5 4.8l2-2a1.4 1.4 0 0 1 2 0l1.7 1.7a1.4 1.4 0 0 1 0 2l-2 2z",
   tpldel: "M9 3h6l1 2h4v2H4V5h4zM6 9h12l-1 12H7zm3 2v8h1.5v-8zm4.5 0v8H15v-8z",
   // チームへ共有（人が3人）
-  tplshare: "M9 11a3 3 0 1 0 0-6 3 3 0 0 0 0 6zm0 1.5c-3 0-6 1.5-6 3.5V19h12v-3c0-2-3-3.5-6-3.5zM17.5 11a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5zm0 1.5c-.8 0-1.6.15-2.3.42 1.1.8 1.8 1.85 1.8 3.08V19H23v-2.6c0-1.7-2.5-2.9-5.5-2.9z",
+  // 担当を変える（人＋歯車っぽい人型）
+  owner: "M12 4a3.2 3.2 0 1 0 0 6.4A3.2 3.2 0 0 0 12 4zm-7 15c0-3 3.1-4.6 7-4.6s7 1.6 7 4.6v1H5z",
 };
 
 // アイコンのボタンを1つ作る。
@@ -56,6 +57,7 @@ const HOME_ICON_NAMES = {
   sfcheck: "SF確認",
   gen: "文面を作る", draft: "下書き", copy: "コピー", gmail: "Gmail", tpl: "テンプレ", doc: "資料URL",
   tplin: "型を入れる", tpluse: "この型で作る", tplsave: "型を保存", tpledit: "型を直す", tpldel: "型を消す", tplshare: "みんなへ",
+  owner: "担当",
 };
 
 function hIcon(kind, label, attrs = "", state = "", tag = "button") {
@@ -324,15 +326,18 @@ function render() {
     // 補足行
     let meta = "";
     let ownerSel = "";
+    let ownerToggle = "";   // 担当アイコン（押すとプルダウンが開く）
     if (m) {
       meta = "";
-      ownerSel = `<div class="hl-owner">担当：<select class="mtg-rep-mini" data-bot="${escH(m.bot_id || "")}">${repOptionsHome(m.owner || "")}</select></div>`;
+      ownerSel = `<div class="hl-owner" data-owner-box="${escH(key)}"><span>担当：</span><select class="mtg-rep-mini" data-bot="${escH(m.bot_id || "")}">${repOptionsHome(m.owner || "")}</select></div>`;
+      ownerToggle = hIcon("owner", "担当を変える", `data-owner-toggle="${escH(key)}"`, "done");
     }
     else if (e) {
       // 予定がアポ（smart-link）に対応していれば、その場で担当を割り当てられる
       const pa = planApoMap[e.id];
       if (pa && pa.slug) {
-        ownerSel = `<div class="hl-owner">担当：<select class="plan-rep-mini" data-slug="${escH(pa.slug)}">${repOptionsHome(pa.owner || "")}</select></div>`;
+        ownerSel = `<div class="hl-owner" data-owner-box="${escH(key)}"><span>担当：</span><select class="plan-rep-mini" data-slug="${escH(pa.slug)}">${repOptionsHome(pa.owner || "")}</select></div>`;
+        ownerToggle = hIcon("owner", "担当を割り当てる", `data-owner-toggle="${escH(key)}"`, "done");
       }
       // 1行なので短く。詳しい案内は印（バッジ）で足りる。
       meta = window._autoJoin && !e.hasUrl ? "URLなし（自動入室されません）" : "";
@@ -363,6 +368,7 @@ function render() {
             `data-mail="${escH(m.bot_id)}" data-key="${escH(key)}"`,
             mailSentMap[m.bot_id] ? "done" : "need")
         : hIcon("mail", "御礼メール（商談の記録がまだありません）", `data-mail-none="${escH(key)}"`, "done")) +
+      ownerToggle +
       hIcon("open", openLabel, `href="${link}"`, "done", "a");
 
     return `<div class="home-row" style="--i:${idx}"><div class="home-card home-line${m ? " is-done" : ""}" data-card="${escH(key)}" data-company="${escH(company || "")}">
@@ -2430,6 +2436,18 @@ async function loadHomeRepsOnce() {
   return _repsLoading;
 }
 
+// 担当アイコンを押したら、そのカードの担当プルダウンを開閉する。
+document.addEventListener("click", (ev) => {
+  const btn = ev.target && ev.target.closest ? ev.target.closest("[data-owner-toggle]") : null;
+  if (!btn) return;
+  ev.preventDefault();
+  const card = btn.closest(".home-card");
+  const box = card && card.querySelector(".hl-owner");
+  if (!box) return;
+  const open = box.classList.toggle("open");
+  if (open) { const s = box.querySelector("select"); if (s) s.focus(); }
+});
+
 // 予定（まだ商談していない今日の商談）で担当を変えたら、対応するアポの担当を更新する。
 document.addEventListener("change", async (ev) => {
   const sel = ev.target && ev.target.closest ? ev.target.closest(".plan-rep-mini") : null;
@@ -2718,6 +2736,7 @@ function apoHomeCard(x) {
           `data-apo-mail="${apoEsc(x.slug)}"${m.confirm ? " disabled" : ""}`,
           (m.confirm || (apoDone[x.slug] && apoDone[x.slug].メール済み)) ? "done" : "need") +
         hIcon("cal", "会議室", `href="${apoEsc(x.smartUrl)}" target="_blank" rel="noopener"`, "done", "a") +
+        hIcon("owner", "担当を変える", `data-owner-toggle="${apoEsc(sfKey)}"`, "done") +
         hIcon("sfcheck", "SFの状態を確認（クロス商談が立ち上がっているか）", `data-apo-sfcheck="${apoEsc(x.company || companyOfTitle(x.title))}" data-apo-slug="${apoEsc(x.slug)}"`, "") +
         // テストで作ったアポを、その場で片付けられるようにする。
         // 実績・均等化・通知の数から外し、カレンダーの予定も消す。
@@ -2741,7 +2760,7 @@ function apoHomeCard(x) {
             <div class="hl-title">${apoEsc(x.title || "")}</div>
             <div class="hl-meta">${x.selfGot ? '<span class="home-badge home-badge-self">自分で獲得</span>' : ""}${x.inviteEventId ? '<span class="home-badge home-badge-done">予定作成済</span>' : ""}${meta}</div>
             ${launchLine(x)}
-            <div class="hl-owner">担当：<select class="apo-rep-mini" data-slug="${apoEsc(x.slug)}" title="担当を変える">${repOptionsHome(x.owner)}</select></div>
+            <div class="hl-owner" data-owner-box="${apoEsc(sfKey)}"><span>担当：</span><select class="apo-rep-mini" data-slug="${apoEsc(x.slug)}" title="担当を変える">${repOptionsHome(x.owner)}</select></div>
           </div>
           <div class="hl-acts">${acts}</div>
         </div>

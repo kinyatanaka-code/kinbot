@@ -5313,8 +5313,9 @@ input:focus, select:focus, textarea:focus, .sf-input:focus, .sf-select:focus, .s
   color: #5b6b64; cursor: pointer; line-height: 1; }
 .rm-modal-x:hover { background: #e6efe9; }
 .rm-modal-card .rm-list { padding: 14px 18px; overflow: auto; }
-/* アポ一覧の担当変更セレクト */
-.hl-owner { margin-top: 4px; font-size: 12px; color: #7d8c86; display: flex; align-items: center; gap: 6px; }
+/* アポ一覧の担当変更セレクト（普段は隠し、担当アイコンを押すと開く） */
+.hl-owner { display: none; margin-top: 4px; font-size: 12px; color: #7d8c86; align-items: center; gap: 6px; }
+.hl-owner.open { display: flex; }
 .hl-owner .apo-rep-mini, .hl-owner .mtg-rep-mini, .hl-owner .plan-rep-mini { font-size: 12px; padding: 3px 6px; border: 1px solid #d7ded9; border-radius: 8px; background: #fff; color: #20302b; max-width: 160px; }
 /* 検索の右横に置くツール：アイコン＋名前の小タイルを横並び。何のアイコンか分かる。 */
 .home-tools-bar { flex-wrap: nowrap; margin: 0; overflow-x: auto; max-width: 54vw; gap: 6px; }

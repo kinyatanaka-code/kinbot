@@ -41,6 +41,8 @@ kincall（架電リスト）という別ツールも同じ画面群の中にあ�
 
 ## 決定・指示のログ（新しいものを上に足す）
 
+- 2026-09-02 担当変更UIを「常時プルダウン」から「担当アイコン方式」に変更。今日の商談・自分のアポの各カードのアクション列に人型の担当アイコン(hIcon owner)を置き、押すとそのカードの担当プルダウン(.hl-owner)が開く（既定は display:none、.open で表示）。委譲クリックで [data-owner-toggle] を検知し closest(.home-card)内の .hl-owner を開閉。商談(mtg-rep-mini)・予定(plan-rep-mini)・アポ(apo-rep-mini)の3種に対応。既存の担当変更ハンドラ（PUT）はそのまま。
+
 - 2026-09-02 今日の商談の「予定」段階でも担当を割り当てられるようにした。予定はカレンダーのイベントで、担当はアポ(smart-link)側が持つ。/api/apo/pickup（その日の全アポ）を取り、予定ID(eventId/invite_event_id)→{slug,owner}の対応表(planApoMap)を作成。予定行がアポに対応していれば担当セレクト(.plan-rep-mini)を出し、/api/smart-links/:slug/owner に PUT して担当を変更（既存のアポ担当変更を再利用＝カレンダー招待・その人のアポ一覧に反映）。loadCalendarでキャッシュ有無に関わらず対応表を読み込み、変更後は planApoMap更新→render＋loadMyApos。純粋なカレンダー予定（アポ紐づけ無し）にはセレクトを出さない。
 
 - 2026-09-02 明日のリマインドのモーダルが、検索の×やカレンダー等の下に潜って上部が押せない不具合を修正。原因：.main>* に z-index:1 が付き .home-wrap（モーダルの親）が z-index1 のスタッキング文脈、一方 .topbar は z-index2 なので、モーダルの z-index を上げても topbar の下に潜っていた。対策：描画後に #rmModal を document.body 直下へ移動（最前面）。モーダル内の配線は scope=rmModal から探すよう変更し、再描画時に古い #rmModal を remove。
