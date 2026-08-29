@@ -334,7 +334,7 @@ function render() {
     }
     else if (e) {
       // 予定がアポ（smart-link）に対応していれば、その場で担当を割り当てられる
-      const pa = planApoMap[e.id];
+      const pa = (e.apoSlug ? { slug: e.apoSlug, owner: e.apoOwner || "" } : planApoMap[e.id]);
       if (pa && pa.slug) {
         ownerSel = `<div class="hl-owner" data-owner-box="${escH(key)}"><span>担当：</span><select class="plan-rep-mini" data-slug="${escH(pa.slug)}">${repOptionsHome(pa.owner || "")}</select></div>`;
         ownerToggle = hIcon("owner", "担当を割り当てる", `data-owner-toggle="${escH(key)}"`, "done");
@@ -2462,8 +2462,9 @@ document.addEventListener("change", async (ev) => {
     });
     const d = await r.json().catch(() => ({}));
     if (!r.ok) throw new Error(d.error || "変更に失敗しました");
-    // 対応表を更新して描き直す（選んだ担当の画面＝その人のアポ/予定に出る）
+    // 対応表と、カレンダー予定に付けたアポ担当を更新して描き直す（選んだ担当のアポ/予定に出る）
     for (const k of Object.keys(planApoMap)) { if (planApoMap[k].slug === slug) planApoMap[k].owner = owner || ""; }
+    for (const evx of (dayEvents || [])) { if (evx.apoSlug === slug) evx.apoOwner = owner || ""; }
     render();
     loadMyApos();
   } catch (e) {

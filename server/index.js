@@ -394,6 +394,7 @@ import {
   createMeeting,
   setMeetingSfUrl,
   setMeetingSfRecorded,
+  smartLinksByEventIds,
   listKnowledge,
   addKnowledge,
   updateKnowledge,
@@ -14250,6 +14251,20 @@ app.get("/api/calendar/today", async (req, res) => {
       const ms = new Date(e.start).getTime();
       return ms >= start.getTime() && ms <= end.getTime();
     });
+    // 各予定に、その予定を作ったアポ（smart-link）の slug・担当 を付ける（担当変更に使う）
+    try {
+      const ids = timed.map((e) => e.id).filter(Boolean);
+      const links = await smartLinksByEventIds(ids);
+      const byId = new Map();
+      for (const l of links) {
+        if (l.event_id) byId.set(l.event_id, l);
+        if (l.invite_event_id) byId.set(l.invite_event_id, l);
+      }
+      for (const e of timed) {
+        const l = byId.get(e.id);
+        if (l) { e.apoSlug = l.slug; e.apoOwner = l.current_owner || ""; }
+      }
+    } catch {}
     res.json({ connected: true, date: dateStr, autoJoin: CALENDAR_AUTO_JOIN, events: timed });
   } catch (e) {
     res.status(500).json({ error: e.message });
@@ -15288,7 +15303,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-02an カードの操作アイコンを主要4つまでに戻し、担当（アポは担当＋外す）は「その他」(hl-more、ホバー/スマホで表示)にまとめた。hl-moreを複数アイコン対応（max-width+opacity）に。前回：カードのタイトルを2行表示";
+const BUILD_TAG = "2026-09-02ao 今日の商談の「予定」でも担当変更を確実に：/api/calendar/today が各予定に紐づくアポ(smart-link)の slug・担当を付けて返す（smartLinksByEventIds＝event_id/invite_event_idで照合）。予定行はこれを使い、アポ割り振りと同じ仕組み（smart-linkの担当）で担当を変更・反映。前回：操作アイコンを4つ＋その他";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",

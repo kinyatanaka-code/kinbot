@@ -2366,6 +2366,19 @@ export async function setMeetingSfRecorded(botId, at) {
   }
 }
 
+// カレンダー予定ID群から、その予定に紐づくアポ（smart-link）を引く。
+// event_id（アポ作成元）と invite_event_id（作成した商談予定）の両方で照合する。
+export async function smartLinksByEventIds(ids) {
+  if (!pool || !Array.isArray(ids) || !ids.length) return [];
+  try {
+    const r = await pool.query(
+      `SELECT slug, current_owner, event_id, invite_event_id
+         FROM smart_links
+        WHERE event_id = ANY($1::text[]) OR invite_event_id = ANY($1::text[])`, [ids]);
+    return r.rows || [];
+  } catch (e) { console.error("[db] smartLinksByEventIds", e.message); return []; }
+}
+
 // ---- 自社ナレッジ（チーム共有） ----
 export async function listKnowledge() {
   if (!pool) return [];

@@ -41,6 +41,8 @@ kincall（架電リスト）という別ツールも同じ画面群の中にあ�
 
 ## 決定・指示のログ（新しいものを上に足す）
 
+- 2026-09-02 今日の商談の「予定」でも担当変更を確実にできるようにした（従来は商談済みのみ／予定はクライアント側のイベントID突き合わせが不安定で出ないことがあった）。/api/calendar/today で各予定に、その予定を作ったアポ(smart-link)の slug・担当(current_owner)を付けて返す（新DB関数 smartLinksByEventIds＝event_id と invite_event_id の両方で照合）。予定行は e.apoSlug/e.apoOwner を優先使用（無ければ従来の planApoMap で補完）、担当変更は /api/smart-links/:slug/owner＝アポ割り振りと同じ仕組み。変更後は planApoMap と dayEvents.apoOwner を更新して再描画＋loadMyApos。アポに紐づかない純粋なカレンダー予定は担当対象外（アポが無いため）。
+
 - 2026-09-02 カードの操作アイコンを主要4つまでに戻し、増えたぶんは「その他」にまとめた。今日の商談＝録音/SF/メール/開く の4つ、担当は hl-more（ホバーで開く、スマホは常時表示）へ。アポ＝SF/メール/会議室/SF確認 の4つ、担当と外すは hl-more へ。hl-more は複数アイコン対応に変更（width固定→max-width+opacity、最大130px）。
 
 - 2026-09-02 今日の商談・自分のアポのカードで、会社名/予定名(.hl-title)が1行省略(…)で切れて読めなかったのを、2行折り返し(-webkit-line-clamp:2, white-space:normal)で見えるように変更。長い名前はホバーで全文が出るよう title 属性も付与（render・apoHomeCard両方）。担当アイコン追加で操作列が広がりタイトル幅が狭くなっていた影響も緩和。
