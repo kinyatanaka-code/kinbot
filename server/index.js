@@ -393,6 +393,7 @@ import {
   setMeetingStatus,
   createMeeting,
   setMeetingSfUrl,
+  setMeetingSfRecorded,
   listKnowledge,
   addKnowledge,
   updateKnowledge,
@@ -1873,6 +1874,7 @@ async function sweepMeetingSfRecords({ max = 8 } = {}) {
     const cand = (rows || []).filter((m) => {
       const key = String(m.id || m.bot_id || "");
       if (!key) return false;
+      if (m.sf_recorded_at) return false;                 // DBで記録済み＝二度と自動記録しない（再起動しても効く）
       const age = now - new Date(m.created_at).getTime();
       if (!(age >= 20 * 60 * 1000 && age <= 5 * 86400000)) return false;   // 20分〜5日
       if (!m.sf_url) { stat.SF未紐づけ++; return false; }                   // 紐づけ待ち（記録できない）
@@ -1895,6 +1897,7 @@ async function sweepMeetingSfRecords({ max = 8 } = {}) {
         if (r && r.ok) {
           _autoShodanDone.add(key);
           _autoShodanTries.delete(key);
+          await setMeetingSfRecorded(m.bot_id, new Date()).catch(() => {});   // DBに「記録済み」を残す（重複の根絶）
           stat.記録した++;
           console.log(`[商談自動記録] ${m.title || m.bot_id} をSFへ自動記録しました（活動種別＝商談）`);
           try {
@@ -15282,7 +15285,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-02x 自動改善の対象からアイデア(idea)を除外。エラー・要望・できないこと(gap)・バグだけを自動で直す（優先順：バグ→エラー→できないこと→要望）。アイデアはChatの「直して」で明示指定したときのみ対応。前回：SF未紐づけの毎日通知";
+const BUILD_TAG = "2026-09-02y 商談後SF記録の重複を根絶：記録済みをDB(meetings.sf_recorded_at)で持ち、SFカスタム項目の有無や再デプロイに関係なく二度と自動記録しない。既存の紐づけ済み商談(1日より前)は初回に記録済みとみなし過去分の再記録を停止。前回：自動改善からアイデア除外";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",

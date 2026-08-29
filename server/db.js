@@ -95,6 +95,11 @@ export async function initDb() {
   await sq(`ALTER TABLE meetings ADD COLUMN IF NOT EXISTS deal_kind TEXT;`);
   await sq(`ALTER TABLE meetings ADD COLUMN IF NOT EXISTS status TEXT;`);
   await sq(`ALTER TABLE meetings ADD COLUMN IF NOT EXISTS mux_playback_id TEXT;`);
+  await sq(`ALTER TABLE meetings ADD COLUMN IF NOT EXISTS sf_recorded_at TIMESTAMPTZ;`);
+  // 既存のSF紐づけ済み商談（1日より前）は「記録済み」とみなす一度きりの目印。
+  // これまで重複記録していたぶんを、これ以上増やさないため（過去分の再記録を止める）。
+  await sq(`UPDATE meetings SET sf_recorded_at = now()
+            WHERE sf_recorded_at IS NULL AND sf_url IS NOT NULL AND created_at < now() - interval '1 day';`).catch(() => {});
   await sq(`ALTER TABLE meetings ADD COLUMN IF NOT EXISTS custom_analysis TEXT;`);
   await sq(`ALTER TABLE meetings ADD COLUMN IF NOT EXISTS ai_log JSONB;`);
   await sq(`ALTER TABLE meetings ADD COLUMN IF NOT EXISTS metrics JSONB;`);
@@ -1293,12 +1298,12 @@ export async function listMeetings({ owner, isAdmin, from, to, limit, light } = 
     ? `m.bot_id, m.meeting_url, m.rep_name, m.title, m.owner,
        m.round_no, m.phase, m.status, m.created_at, m.updated_at,
        jsonb_build_object('overview', m.summary->'overview') AS summary,
-       m.sf_url, m.drive_file_id, m.mux_playback_id,
+       m.sf_url, m.sf_recorded_at, m.drive_file_id, m.mux_playback_id,
        COALESCE(m.account,'') AS account, m.category, m.deal_kind,
        m.apo_setter, u.name AS owner_name`
     : `m.bot_id, m.meeting_url, m.rep_name, m.title, m.owner,
        m.round_no, m.phase, m.status, m.created_at, m.updated_at, m.summary, m.analysis, m.note,
-       m.metrics, m.sf_url, m.drive_file_id, m.drive_link, m.mux_playback_id,
+       m.metrics, m.sf_url, m.sf_recorded_at, m.drive_file_id, m.drive_link, m.mux_playback_id,
        COALESCE(m.account,'') AS account, m.category, m.deal_kind,
        m.apo_setter, u.name AS owner_name`;
   const base = `SELECT ${cols} FROM meetings m LEFT JOIN users u ON u.email = m.owner`;
@@ -2347,6 +2352,16 @@ export async function setMeetingSfUrl(botId, url) {
     await pool.query(`UPDATE meetings SET sf_url=$2, updated_at=now() WHERE bot_id=$1`, [botId, url || null]);
   } catch (e) {
     console.error("[db] setMeetingSfUrl", e.message);
+  }
+}
+
+// 商談後のSF活動記録が済んだ印。once記録したら二度と自動記録しない（重複防止）。
+export async function setMeetingSfRecorded(botId, at) {
+  if (!pool) return;
+  try {
+    await pool.query(`UPDATE meetings SET sf_recorded_at=$2 WHERE bot_id=$1`, [botId, at || new Date()]);
+  } catch (e) {
+    console.error("[db] setMeetingSfRecorded", e.message);
   }
 }
 
