@@ -1418,6 +1418,33 @@ let selectedIds = new Set();          // 一覧で選択した架電先のid
 showPane();
 loadLists();
 
+// SFの所有者を優先（担当のバッティング解消）。
+// ONにすると、SF監査（30分ごと・手動の「SFの状態を更新」）で、SFのリード所有者に
+// 一致するメンバーへkincallの担当を自動でそろえる（設定は sfOwnerPriority に保存）。
+(function wireSfOwnerPref() {
+  const cb = document.getElementById("clSfOwnerPref");
+  if (!cb) return;
+  fetch("/api/calls/sf-owner-priority")
+    .then((r) => r.json())
+    .then((d) => { cb.checked = !!(d && d.enabled); })
+    .catch(() => {});
+  cb.addEventListener("change", async () => {
+    try {
+      const d = await (await fetch("/api/calls/sf-owner-priority", {
+        method: "PUT", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ enabled: cb.checked }),
+      })).json();
+      if (d && d.error) throw new Error(d.error);
+      say("clStatus", cb.checked
+        ? "SFの所有者を優先します（SF監査でkincallの担当をSFのリード所有者に自動でそろえます）"
+        : "SFの所有者の優先をやめました（担当は変えず、状態だけ反映します）", 7000);
+    } catch (e) {
+      cb.checked = !cb.checked;   // 保存に失敗したら見た目を元に戻す
+      say("clStatus", "設定を保存できませんでした：" + e.message, 7000);
+    }
+  });
+})();
+
 
 // ───────── Salesforceのリードから入れる ─────────
 let sfFound = [];
