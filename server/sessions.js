@@ -131,8 +131,30 @@ class Session {
     const u = { speaker, text, ts: Date.now() };
     if (typeof off === "number" && isFinite(off)) u.off = off; // 録画の先頭からの秒数
     this.utterances.push(u);
+    this.scheduleSave();   // 小まめにDBへ保存（再起動で途中が消えないように）
     this.broadcast({ type: "final", speaker, text, ts: u.ts });
     this.maybeAnswer(speaker, text); // 顧客の質問ならその場で回答案を出す
+  }
+
+  // 既存の文字起こし（DB）をセッションに引き継ぐ。
+  // 会議中の再デプロイ後に新しいセッションが空から始まって前半を上書きするのを防ぐ。
+  // 引き継ぎは一度だけ。再作成直後に新しい発言が先に入っても消えないよう、既存を前に結合する。
+  seedTranscript(utts) {
+    if (this._seeded) return;
+    this._seeded = true;
+    if (Array.isArray(utts) && utts.length) {
+      this.utterances = utts.concat(this.utterances);
+      this.lastAnalyzedLen = this.transcriptText().length; // 引き継ぎ分は再解析しない（費用を無駄にしない）
+    }
+  }
+
+  // 少し待ってからまとめてDBへ保存する（連続する確定発言でDB書き込みを増やしすぎない）。
+  scheduleSave() {
+    if (this._saveTimer) return;
+    this._saveTimer = setTimeout(() => {
+      this._saveTimer = null;
+      try { saveMeeting(this.botId, { transcript: this.utterances }); } catch {}
+    }, 12000);
   }
 
   // 顧客からの質問かどうか
@@ -293,6 +315,7 @@ class Session {
     this.broadcast({ type: "ended", ts: Date.now() });
     if (this.timer) clearInterval(this.timer);
     this.timer = null;
+    if (this._saveTimer) { clearTimeout(this._saveTimer); this._saveTimer = null; }
     this.maybeAnalyze();
     // 最終状態を保存（分析待ちでも文字起こしは残す）
     saveMeeting(this.botId, {

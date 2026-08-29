@@ -14913,7 +14913,7 @@ app.post("/api/recall/webhook", (req, res) => {
         if (!s) {
           s = createSession(ev.botId, {}); // 予約Bot等：受信時に遅延作成
           // DBの商談行（予約時に作成済み）から商談名・所有者を補完。
-          // 空ならカレンダーの予定タイトルと主催者から補う。
+          // 会議中の再デプロイに備え、既にある文字起こしを引き継いで、前半を上書きで消さないようにする。
           try {
             let m = await getMeeting(ev.botId);
             if (!m || BAD_TITLE(m.title) || !String(m.rep_name || "").trim()) {
@@ -14921,6 +14921,7 @@ app.post("/api/recall/webhook", (req, res) => {
               m = await getMeeting(ev.botId);
             }
             if (m) {
+              if (Array.isArray(m.transcript) && m.transcript.length) s.seedTranscript(m.transcript);
               s.enrich({
                 title: m.title || "",
                 owner: m.owner || "",
@@ -15287,7 +15288,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-02af 左メニューに独立した「Salesforce」入口を追加（kincallの下・アプリ群、sf-launch.html）。ツール配下のSF3項目（商談立ち上げ・立ち上げ待ち・プロセスシート）は撤去し、SFページ内タブへ集約。ツールの入口はアポ振り分けに。前回：明日のリマインドのモーダル化";
+const BUILD_TAG = "2026-09-02ag 文字起こしが途中で切れる不具合を修正：会議中の再デプロイでメモリ上のセッションが消え、再作成後に空から始まって前半をDBに上書きしていた。対策＝セッション再作成時にDBの既存文字起こしを引き継ぎ（既存を前に結合・一度だけ）、確定発言ごとに小まめ保存（12秒デバウンス）。前回：Salesforce入口をkincallの下へ";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
