@@ -41,6 +41,8 @@ kincall（架電リスト）という別ツールも同じ画面群の中にあ�
 
 ## 決定・指示のログ（新しいものを上に足す）
 
+- 2026-09-02 kincallの「かける」画面に「SFの所有者を優先」チェックボックス(#clSfOwnerPref)を追加（メモID728・727対応）。バックエンドの設定 sfOwnerPriority と GET/PUT /api/calls/sf-owner-priority、SF監査(auditCallList の preferSfOwner／30分ごと自動＋手動「SFの状態を更新」)は既に実装済みだったが、ON/OFFを切り替える画面が無かったため、既存エンドポイントにUIを配線しただけ（server側ロジックは変更なし、BUILD_TAGのみ更新）。ONにするとSFのリード所有者に一致するメンバーへkincallの担当(assigned_to)を自動でそろえる＝担当のバッティング解消。メモID751（「開発メモの内容」＝Chatで「直して」だけで具体要件なし）は仕様不明のため未着手。
+
 - 2026-09-02 レコーディング画面（index.html）から「かささぎ」を消した（田中さん指示）。削除：入室カードの「かささぎ（AIが説明する）を使う」チェック(joinKasasagi)、同意文の「かささぎを使う場合は…」の一文、右側の案内(ks-hint)、ライブの「かささぎ」タブ(data-pane=kasasagi のボタン)。かささぎpane本体（data-pane=kasasagi の中身）はタブ削除で到達不可＋hiddenのため残置で無害。app.js は joinKasasagi を `|| {}` でガードして参照しているので要素削除でも壊れない。バックエンド/APIのかささぎ機能は温存（UIだけ非表示）。
 
 - 2026-09-02 ひも付けたら検索せず直接SF更新できるようにした。ホームのSFアイコンは、カードにひも付いたSF商談ID(homeItems.oppId)があれば openSfEdit(key, oppId) → deals.html?...&view=salesforce&opp=<id> でその商談を直接開く（会社名検索・商談選択が不要）。商談カードは m.sf_url から oppIdFromUrl で、予定カードは e.apoOppId から判定（/api/calendar/today が smartLinksByEventIds の sf_autolaunch 結合で opp_id を返す）。ひも付いていない予定/商談は従来どおり検索パネル。ひも付け直後は homeItems[key].oppId を即セットしてその場で直接更新に切替。deals.js は既に window._kbOppId=?opp= に対応。
