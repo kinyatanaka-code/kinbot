@@ -4964,13 +4964,10 @@ input:focus, select:focus, textarea:focus, .sf-input:focus, .sf-select:focus, .s
 .hl-acts { display: flex; gap: 4px; align-items: center; flex: none; }
 /* 「外す」は普段は場所を取らない。行にカーソルを合わせたときだけ出す。
    ふだんは会社名の幅を広く使いたいので。 */
-.hl-more { width: 0; overflow: hidden; transition: width .14s ease;
-  display: inline-flex; flex: none; }
-/* 隠している間は中身も見えないようにする（枠からはみ出して見えるのを防ぐ） */
-.hl-more > .hib { visibility: hidden; }
-.home-line:hover .hl-more > .hib, .home-line:focus-within .hl-more > .hib { visibility: visible; }
-.home-line:hover .hl-more, .home-line:focus-within .hl-more { width: 42px; }
-@media (max-width: 900px) { .hl-more { width: 42px; } }
+.hl-more { max-width: 0; overflow: hidden; opacity: 0; transition: max-width .16s ease, opacity .16s ease;
+  display: inline-flex; align-items: center; gap: 4px; flex: none; }
+.home-line:hover .hl-more, .home-line:focus-within .hl-more { max-width: 130px; opacity: 1; }
+@media (max-width: 900px) { .hl-more { max-width: 130px; opacity: 1; } }
 /* アイコンと、その下の短い名前をひと組にする */
 .hib { display: flex; flex-direction: column; align-items: center; gap: 2px;
   background: transparent; border: 0; padding: 0; cursor: pointer;

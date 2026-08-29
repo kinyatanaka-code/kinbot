@@ -368,8 +368,8 @@ function render() {
             `data-mail="${escH(m.bot_id)}" data-key="${escH(key)}"`,
             mailSentMap[m.bot_id] ? "done" : "need")
         : hIcon("mail", "御礼メール（商談の記録がまだありません）", `data-mail-none="${escH(key)}"`, "done")) +
-      ownerToggle +
-      hIcon("open", openLabel, `href="${link}"`, "done", "a");
+      hIcon("open", openLabel, `href="${link}"`, "done", "a") +
+      (ownerToggle ? `<span class="hl-more">${ownerToggle}</span>` : "");
 
     return `<div class="home-row" style="--i:${idx}"><div class="home-card home-line${m ? " is-done" : ""}" data-card="${escH(key)}" data-company="${escH(company || "")}">
       <div class="hl-row">
@@ -2736,11 +2736,12 @@ function apoHomeCard(x) {
           `data-apo-mail="${apoEsc(x.slug)}"${m.confirm ? " disabled" : ""}`,
           (m.confirm || (apoDone[x.slug] && apoDone[x.slug].メール済み)) ? "done" : "need") +
         hIcon("cal", "会議室", `href="${apoEsc(x.smartUrl)}" target="_blank" rel="noopener"`, "done", "a") +
-        hIcon("owner", "担当を変える", `data-owner-toggle="${apoEsc(sfKey)}"`, "done") +
         hIcon("sfcheck", "SFの状態を確認（クロス商談が立ち上がっているか）", `data-apo-sfcheck="${apoEsc(x.company || companyOfTitle(x.title))}" data-apo-slug="${apoEsc(x.slug)}"`, "") +
-        // テストで作ったアポを、その場で片付けられるようにする。
-        // 実績・均等化・通知の数から外し、カレンダーの予定も消す。
-        `<span class="hl-more">${hIcon("trash", "テストとして外す", `data-apo-drop="${apoEsc(x.slug)}"`)}</span>`;
+        // 担当変更・外すは「その他」にまとめる（表示は主要4つまで）
+        `<span class="hl-more">` +
+          hIcon("owner", "担当を変える", `data-owner-toggle="${apoEsc(sfKey)}"`, "done") +
+          hIcon("trash", "テストとして外す", `data-apo-drop="${apoEsc(x.slug)}"`) +
+        `</span>`;
 
       // 補足行。宛先が無い・立ち上げできない場合は、その理由を出す。
       const warn = !x.clientEmail ? '<span class="cc-warn">宛先が未登録</span>' : "";
