@@ -9788,16 +9788,24 @@ app.post("/api/dev-notes/night-report", async (req, res) => {
   try {
     const b = req.body || {};
     const changed = b.changed === true;
-    const text = [
-      changed ? "🌙 *夜のうちに直してみました*" : "🌙 *夜間開発：今夜は変更なし*",
-      changed ? "内容を見て、よければPRをマージしてください。" : "",
-      b.runUrl ? `🔗 ${b.runUrl}` : "",
-      "",
-      String(b.result || "").slice(0, 1500),
-    ].filter(Boolean).join("\n");
-    // 「開発（朝の通知）」をONにしたチャットへ送る。まだ設定が無ければ従来どおり（アサインの宛先）へ。
-    const r = await notifyAll(text, "dev").catch(() => ({ ok: false, skipped: true }));
-    if (!r || r.skipped) await notifyAll(text, "assign").catch(() => {});
+    // 長文の結果から「直したもの」の見出し（メモID・内容）だけを抜き出して、短くまとめる。
+    const items = [];
+    const src = String(b.result || "");
+    const rx = /メモID[:：]\s*(\d+)\s*[\/／]\s*内容[:：]\s*([^\n]+)/g;
+    let mm;
+    while ((mm = rx.exec(src)) && items.length < 12) items.push(`・[メモ${mm[1]}] ${mm[2].trim()}`);
+    const lines = [];
+    if (changed) {
+      lines.push(`🌙 夜のうちに直しました${items.length ? `（${items.length}件）` : ""}`);
+      if (items.length) lines.push(...items);
+      lines.push("内容を見て、よければPRをマージしてください。");
+      if (b.runUrl) lines.push(`🔗 ${b.runUrl}`);
+    } else {
+      lines.push("🌙 夜間開発：今夜は変更なし");
+    }
+    const text = lines.join("\n");
+    // 「開発（朝の通知）」をONにしたチャットだけに送る（他所へは流さない）。
+    await notifyAll(text, "dev").catch(() => {});
     // 夜間はPRを作る（本番へ直接は入れない）ので、直したメモは「対応中」にする。
     let 片づけ = 0;
     if (changed) 片づけ = await markNotesFromResult(b, { applied: false });
@@ -15470,7 +15478,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-02ax レコーディング画面から「かささぎ」を非表示に：入室カードのかささぎ利用チェックと同意文のかささぎ文、右側の案内、ライブの「かささぎ」タブを削除（joinKasasagi参照はapp.js側でガード済み）。前回：紐付けたら直接SF更新";
+const BUILD_TAG = "2026-09-02ay 夜間開発の朝の通知を短文化（直したメモの見出し＝メモID・内容だけを最大12件＋PRリンク。ファイル一覧・直し方の長文は載せない）。宛先はassignフォールバックを廃止し「開発（朝の通知）」ONのチャットだけに送る（DOC Team等への漏れを止める）。前回：請求書PDF作成";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
