@@ -262,6 +262,8 @@ import {
   dedupeSmartLinksByEvent,
   saveAutolaunch,
   getAutolaunch,
+  autolaunchByBotId,
+  autolaunchLinkedByCompany,
   setApoOppLink,
   clearApoOppLink,
   refreshApoOppMeta,
@@ -1881,7 +1883,7 @@ async function sweepMeetingSfRecords({ max = 8 } = {}) {
       if (m.sf_recorded_at) return false;                 // DBで記録済み＝二度と自動記録しない（再起動しても効く）
       const age = now - new Date(m.created_at).getTime();
       if (!(age >= 20 * 60 * 1000 && age <= 5 * 86400000)) return false;   // 20分〜5日
-      if (!m.sf_url) { stat.SF未紐づけ++; return false; }                   // 紐づけ待ち（記録できない）
+      // sf_urlが無くても、予定にひも付いたSF商談IDから解決できることがあるので、ここでは弾かない
       if (_autoShodanDone.has(key)) return false;
       if ((_autoShodanTries.get(key) || 0) >= SHODAN_MAX_TRIES) return false; // あきらめ済み
       return true;
@@ -1914,6 +1916,8 @@ async function sweepMeetingSfRecords({ max = 8 } = {}) {
               if (!pr || !pr.ok) await notifyChat(msg).catch(() => {});
             }
           } catch {}
+        } else if (r && r.needLink) {
+          stat.SF未紐づけ++;   // まだSF商談にひも付いていない（次回リトライ、あきらめ扱いにしない）
         } else {
           const tries = (_autoShodanTries.get(key) || 0) + 1;
           _autoShodanTries.set(key, tries);
@@ -15451,7 +15455,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-02at 予定（アポ）⇄SF商談(Opportunity)を1対1でひも付け（クロス商談のみ）。sf_autolaunch.opp_id を正のリンクとして使い、SF確認はまずIDで直接ステージ参照→無ければ会社名(複数パターンLIKE)で探し、立ち上げ済みが見つかればIDをひも付け（バックフィル）。未ひも付け時はSF確認から候補を検索して手動ひも付け（/sf-candidates,/sf-link）。自動立ち上げ時のopp_idは従来どおり保存＝自動リンク。前回：クロス商談の会社名照合改善";
+const BUILD_TAG = "2026-09-02au 商談後のSF記録もID方式に：autofillMeetingToSf が sf_url 未設定でも、予定にひも付いたSF商談ID(sf_autolaunch.opp_id)を bot_id/会社名(核)から解決して使い、商談のsf_urlにも保存（次回から直参照）。sweepは sf_url 無しでも解決を試み、未ひも付けは失敗扱いにせず再試行。手動リード変換でslug付きなら即ひも付け。前回：予定⇄SF商談ひも付けの導入";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
@@ -16817,6 +16821,10 @@ app.post("/api/salesforce/leads/:id/convert", async (req, res) => {
       }
     }
     console.log(`[SF立ち上げ] 経路=${r.via || "rest"} 商談=${oppId || "なし"}${createdOpportunity ? "（kinbotが作成）" : ""}`);
+    // アポ（予定）の文脈で立ち上げたなら、その場でSF商談をひも付ける（以後は探さない）
+    if (oppId && b.slug) {
+      try { await setApoOppLink(String(b.slug), { oppId, by: req.user }); console.log(`[apo-link] 立ち上げ時に ${b.slug} を ${oppId} にひも付け`); } catch {}
+    }
     res.json({ ...r, opportunityId: oppId || null, createdOpportunity, via: r.via || "rest" });
   } catch (e) {
     sfErrorResponse(res, e);
@@ -17177,9 +17185,45 @@ async function extractSfTaskValues(m, fields) {
   return clean;
 }
 
+// 商談(meeting)にひも付いたSF商談(Opportunity)のIDを解決する。
+// ①商談のsf_url ②bot_idでひも付いたautolaunch ③会社名でひも付いたautolaunch の順。
+// 見つかったら商談のsf_urlにも保存して、次回から直接参照にする（探さない）。
+async function resolveMeetingOpp(user, m) {
+  const direct = extractRecordId(m.sf_url || "");
+  if (direct) return direct;
+  // ②bot_id
+  try {
+    const al = await autolaunchByBotId(m.bot_id);
+    if (al && al.opp_id) { await persistMeetingOpp(user, m, al.opp_id); return al.opp_id; }
+  } catch {}
+  // ③会社名（核）で橋渡し（ひも付いたIDを持つアポから）
+  try {
+    const co = companyFromTitle(m.title || "") || m.account || "";
+    const core = String(co).replace(/[\s　]/g, "").replace(/(株式会社|有限会社|合同会社|合資会社|㈱|（株）|\(株\)|一般社団法人|一般財団法人|公益社団法人|公益財団法人|医療法人|社会福祉法人|学校法人|協同組合|組合)/g, "");
+    if (core.length >= 2) {
+      const rows = await autolaunchLinkedByCompany(core);
+      const hit = (rows || []).find((r) => normCompanyKey(r.company || "") === normCompanyKey(co)) || (rows || [])[0];
+      if (hit && hit.opp_id) { await persistMeetingOpp(user, m, hit.opp_id); return hit.opp_id; }
+    }
+  } catch {}
+  return null;
+}
+
+// 解決したopp_idを、商談のsf_urlに保存する（URLが作れればURL、無理なら素のID）。
+async function persistMeetingOpp(user, m, oppId) {
+  try {
+    let url = String(oppId);
+    try { const info = await sfInfo(user).catch(() => null); const base = (info?.instanceUrl || "").replace(/\/+$/, ""); if (base) url = `${base}/lightning/r/Opportunity/${oppId}/view`; } catch {}
+    await setMeetingSfUrl(m.bot_id, url).catch(() => {});
+    m.sf_url = url;
+  } catch {}
+}
+
 async function autofillMeetingToSf(user, meeting, url) {
   const m = meeting;
-  const recordId = extractRecordId(url || m.sf_url || "");
+  let recordId = extractRecordId(url || m.sf_url || "");
+  // sf_urlが無い/取れないときは、予定にひも付いたSF商談IDから解決する（会社名検索に頼らない）
+  if (!recordId) recordId = await resolveMeetingOpp(user, m);
   if (!recordId) return { ok: false, needLink: true };
 
   const settings = await getUserSettings(user);

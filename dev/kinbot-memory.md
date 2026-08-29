@@ -41,6 +41,8 @@ kincall（架電リスト）という別ツールも同じ画面群の中にあ�
 
 ## 決定・指示のログ（新しいものを上に足す）
 
+- 2026-09-02 商談後のSF記録・更新も完全にID方式へ（会社名検索に頼らない）。autofillMeetingToSf は recordId を ①m.sf_url ②resolveMeetingOpp(bot_idでautolaunch→会社名核でautolaunch) の順で解決し、解決したら setMeetingSfUrl で商談のsf_urlにも保存（次回から直参照、SF/DB検索なし）。resolveMeetingOpp/persistMeetingOpp を追加、DB関数 autolaunchByBotId / autolaunchLinkedByCompany を追加（どちらもopp_id保持行のみ）。sweepMeetingSfRecords は sf_url 無しでも候補に含め解決を試みる（除外をやめた）、autofillが needLink（未ひも付け）を返したら失敗扱いにせず SF未紐づけ として次回リトライ（あきらめカウントしない）。手動リード変換(/api/salesforce/leads/:id/convert)で body.slug があれば oppId をその場でひも付け。slug無しの手動立ち上げは SF確認/一覧のバックフィルで拾う。対象はクロス商談のみ。
+
 - 2026-09-02 【設計・実装】予定（アポ）とSF商談(Opportunity)を1対1でひも付ける方式を導入（対象はクロス商談のみ、田中さん確認済み）。目的：商談後のSF更新・SF確認で毎回会社名検索して当てにいく方式（表記ゆれで外れる）をやめ、ひも付いたIDで直接見る。実装：sf_autolaunch に opp_name/opp_stage/linked_at/linked_by を追加し、opp_id を「正のリンク」として使う。DB関数 setApoOppLink/clearApoOppLink/refreshApoOppMeta を追加。エンドポイント：POST /api/apo/sf-status {slugs}（①ひも付け済みはID一括参照 ②未ひも付けは会社名複数パターンLIKEで探し、立ち上げ済みが見つかればIDをバックフィル保存）、GET /api/apo/:slug/sf-candidates（会社のクロス商談候補一覧＝手動ひも付け用）、POST /api/apo/:slug/sf-link {oppId|null}（手動ひも付け／解除）。クライアント：自分のアポの bulk確認と単発SF確認を slug(ID方式)に切替（applyApoStatus）。SF確認で未検出時は「この商談をひも付ける」→候補選択→リンク。立ち上げ済みなら「別の商談にひも付ける」。自動立ち上げ(tryAutoLaunch)成功時の opp_id 保存は従来どおり＝自動リンク。※手動launch（sf-launchページ）での明示保存は未対応だが、次回SF確認/bulkのバックフィルで拾える。旧 /api/apo/cross-status と applyApoCross は残置（今日の商談側は会社名ベースのまま）。
 
 - 2026-09-02 SF確認（/api/apo/cross-status、クロス商談の立ち上げ判定）で「立ち上げたのに未立ち上げ」と出る不具合を改善。原因：SFの Account.Name とアポのタイトル由来の会社名が表記ゆれ（株式会社の有無・全角半角スペース等）で完全一致(Account.Name IN)せず、該当商談が取得できていなかった。対策：searchLeads同様に会社名の複数パターン（そのまま/スペース除去/法人格を除いた核）で Account.Name LIKE のOR検索に変更し、取得後は normCompanyKey で厳密一致のみを立ち上げ済みとする（誤検出防止）。※なお、立ち上げた商談がクロス以外のレコードタイプの場合や、SF反映直後のタイミングでは、なお見つからないことがある（その場合は再度SF確認を押す）。

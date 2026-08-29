@@ -4967,6 +4967,29 @@ export async function getAutolaunch(slug) {
   } catch { return null; }
 }
 
+// 商談(bot_id)にひも付いたSF商談(opp_id)を引く。
+export async function autolaunchByBotId(botId) {
+  if (!pool || !botId) return null;
+  try {
+    const { rows } = await pool.query(
+      `SELECT * FROM sf_autolaunch WHERE bot_id=$1 AND opp_id IS NOT NULL ORDER BY linked_at DESC NULLS LAST, tried_at DESC LIMIT 1`, [botId]);
+    return rows[0] || null;
+  } catch { return null; }
+}
+
+// 会社名から、ひも付いたSF商談(opp_id)を引く（bot_idで引けないときの橋渡し）。
+// coreは法人格・スペースを除いた核。ILIKEで拾い、呼び出し側で厳密一致を確認する。
+export async function autolaunchLinkedByCompany(core) {
+  if (!pool || !core || String(core).length < 2) return [];
+  try {
+    const { rows } = await pool.query(
+      `SELECT slug, company, opp_id, opp_name, opp_stage FROM sf_autolaunch
+        WHERE opp_id IS NOT NULL AND company ILIKE '%'||$1||'%'
+        ORDER BY linked_at DESC NULLS LAST, tried_at DESC LIMIT 20`, [String(core)]);
+    return rows;
+  } catch { return []; }
+}
+
 // 予定（アポ）に、立ち上げたSF商談（Opportunity）をひも付ける。以後は会社名検索をせず、このIDで直接見る。
 export async function setApoOppLink(slug, { oppId, name = "", stage = "", by = "", botId = null, title = null, company = null } = {}) {
   if (!pool || !slug || !oppId) return null;
