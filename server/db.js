@@ -770,6 +770,7 @@ export async function initDb() {
   await sq(`ALTER TABLE chat_targets ADD COLUMN IF NOT EXISTS on_deploy BOOLEAN NOT NULL DEFAULT true;`);
   // 朝の「新しくなりました」も、送り先ごとに選べるようにする
   await sq(`ALTER TABLE chat_targets ADD COLUMN IF NOT EXISTS on_news BOOLEAN NOT NULL DEFAULT true;`);
+  await sq(`ALTER TABLE chat_targets ADD COLUMN IF NOT EXISTS on_dev BOOLEAN NOT NULL DEFAULT false;`);
   await sq(`CREATE INDEX IF NOT EXISTS ix_calendar_watch_cal ON calendar_watch(calendar_id);`);
 
   // ===== スマートリンク（担当者切り替えに追随する共有Zoom URL） =====
@@ -4707,6 +4708,7 @@ export async function updateChatTarget(id, patch) {
   const cols = { name: "name", webhookUrl: "webhook_url", spaceId: "space_id",
     onAssign: "on_assign", onMail: "on_mail", onDoc: "on_doc", onLaunch: "on_launch",
     onNews: "on_news",
+    onDev: "on_dev",
     onDeploy: "on_deploy", active: "active" };
   const sets = [], vals = [id];
   for (const [k, col] of Object.entries(cols)) {

@@ -9627,7 +9627,9 @@ app.post("/api/dev-notes/night-report", async (req, res) => {
       "",
       String(b.result || "").slice(0, 1500),
     ].filter(Boolean).join("\n");
-    await notifyAll(text, "assign").catch(() => {});
+    // 「開発（朝の通知）」をONにしたチャットへ送る。まだ設定が無ければ従来どおり（アサインの宛先）へ。
+    const r = await notifyAll(text, "dev").catch(() => ({ ok: false, skipped: true }));
+    if (!r || r.skipped) await notifyAll(text, "assign").catch(() => {});
     // 夜間はPRを作る（本番へ直接は入れない）ので、直したメモは「対応中」にする。
     let 片づけ = 0;
     if (changed) 片づけ = await markNotesFromResult(b, { applied: false });
@@ -10492,7 +10494,7 @@ app.get("/api/chat-targets", async (req, res) => {
         id: r.id, name: r.name,
         webhookUrl: r.webhook_url || "", spaceId: r.space_id || "",
         onAssign: r.on_assign, onMail: r.on_mail, onDoc: r.on_doc, onLaunch: r.on_launch,
-        onDeploy: r.on_deploy, onNews: r.on_news,
+        onDeploy: r.on_deploy, onNews: r.on_news, onDev: r.on_dev,
         active: r.active, lastError: r.last_error || "", sentCount: r.sent_count,
         via: r.space_id ? "kinbot名義" : "Webhook",
       })),
@@ -15285,7 +15287,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-02y 商談後SF記録の重複を根絶：記録済みをDB(meetings.sf_recorded_at)で持ち、SFカスタム項目の有無や再デプロイに関係なく二度と自動記録しない。既存の紐づけ済み商談(1日より前)は初回に記録済みとみなし過去分の再記録を停止。前回：自動改善からアイデア除外";
+const BUILD_TAG = "2026-09-02z 夜間開発の朝の通知を、指定したGoogle Chatだけに送れるように。通知種類「開発（朝の通知）」を追加（chat_targets.on_dev、既定OFF）。設定の通知先で開発をONにしたチャットへ送る（未設定時は従来どおり）。前回：商談後SF記録の重複を根絶";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
