@@ -61,14 +61,15 @@ async function main() {
   const data = await res.json();
   const all = data.items || [];
 
-  // 多く起きているもの・不具合を先に。危ないものは外す。
-  const rank = { bug: 0, error: 1, gap: 2, request: 3, idea: 4 };
+  // 多く起きているもの・不具合を先に。アイデアは自動では直さない（田中さんの方針）。危ないものは外す。
+  const rank = { bug: 0, error: 1, gap: 2, request: 3 };
   const pick = all
+    .filter((x) => x.kind !== "idea")   // アイデアは対象外（エラー・要望・できないこと・バグだけ直す）
     .filter((x) => !isRisky(`${x.title} ${x.detail || ""}`))
     .sort((a, b) => (rank[a.kind] ?? 9) - (rank[b.kind] ?? 9) || b.hits - a.hits)
     .slice(0, MAX);
 
-  const skipped = all.filter((x) => isRisky(`${x.title} ${x.detail || ""}`));
+  const skipped = all.filter((x) => x.kind !== "idea" && isRisky(`${x.title} ${x.detail || ""}`));
 
   const lines = [
     "# 今夜の作業",
