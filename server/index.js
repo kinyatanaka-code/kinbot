@@ -225,6 +225,7 @@ import {
   callStats,
   callStatsRange,
   callStatsByDay,
+  apoWonCallsInRange,
   callStatsByList,
   callAnalysis,
   callMemos,
@@ -8423,19 +8424,32 @@ app.get("/api/calls/stats-grid", async (req, res) => {
       for (const c of cand) if (c && byEmail.has(c)) return c;
       return emailOfName(a.setter) || (byEmail.has(String(a.current_owner || "").toLowerCase()) ? String(a.current_owner).toLowerCase() : "") || emailOfName(a.current_owner) || "";
     };
+    // 会社名 → 商談日（アポ一覧の start_time）。インサイドの実獲得の内/外判定に使う。
+    const companyMeet = new Map();
+    for (const a of apos) {
+      const k = normCompanyKey(companyFromTitle(a.label || "") || "");
+      const md = toYmd(a.start_time);
+      if (k && md && !companyMeet.has(k)) companyMeet.set(k, md);
+    }
+    // セールスは「アポ一覧の setter（＝商談主催者＝セールス）」で内/外の比率だけ出す（件数はSFレポート）。
     for (const a of apos) {
       const em = setterEmail(a);
-      const p = byEmail.get(em); if (!p) continue;
+      const p = byEmail.get(em); if (!p || p.role !== "sales") continue;
       const i = idxOf(属する(toYmd(a.taken_at))); if (i < 0) continue;
-      const md = toYmd(a.start_time);
-      const 内 = isInFor(区切り[i] && 区切り[i].key, md);   // 月ごとはその列の月の範囲で判定
-      if (p.role === "inside") {
-        const cell = ensure(em)[i];
-        if (内) cell.アポ内 += 1; else cell.アポ外 += 1;
-      } else if (p.role === "sales") {
-        if (!salesRatio.has(em)) salesRatio.set(em, 区切り.map(() => ({ in: 0, total: 0 })));
-        const r = salesRatio.get(em)[i]; r.total += 1; if (内) r.in += 1;
-      }
+      const 内 = isInFor(区切り[i] && 区切り[i].key, toYmd(a.start_time));
+      if (!salesRatio.has(em)) salesRatio.set(em, 区切り.map(() => ({ in: 0, total: 0 })));
+      const r = salesRatio.get(em)[i]; r.total += 1; if (内) r.in += 1;
+    }
+    // インサイドのアポは「kincallで実際にアポ獲得した件（かけた人＝インサイド）」で数える。
+    // （アポ一覧の setter は商談主催者＝セールスになり実態と合わないため）。商談日は会社名で引く。
+    const wonCalls = await apoWonCallsInRange(spanFrom, spanTo).catch(() => []);
+    for (const w of wonCalls) {
+      const em = String(w.caller || "").toLowerCase();
+      const p = byEmail.get(em); if (!p || p.role !== "inside") continue;
+      const i = idxOf(属する(w["日"])); if (i < 0) continue;
+      const md = companyMeet.get(normCompanyKey(w.company || "")) || "";
+      const cell = ensure(em)[i];
+      if (isInFor(区切り[i] && 区切り[i].key, md)) cell.アポ内 += 1; else cell.アポ外 += 1;
     }
 
     // セールス：SFレポート（コール・接触・アポ内外）。コール進捗と同じレポートを使う。
@@ -8513,51 +8527,6 @@ app.put("/api/calls/apo-window", async (req, res) => {
     await saveSettings(patch);
     console.log(`[実績] アポ内外の基準を更新 by ${req.user}`);
     res.json({ ok: true });
-  } catch (e) { res.status(500).json({ error: e.message }); }
-});
-
-// 【点検用・一時】インサイドのアポが0になる原因を見るための確認API。
-// 期間内のアポ一覧の setter/setter_email/current_owner と、メンバー突合の結果を返す。
-app.get("/api/calls/_apodiag", async (req, res) => {
-  try {
-    if (!req.isAdmin && !(await isCloserUser(req.user))) return res.status(403).json({ error: "権限なし" });
-    const pad = (n) => String(n).padStart(2, "0");
-    const ymd = (d) => `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}-${pad(d.getUTCDate())}`;
-    const nowJ = new Date(Date.now() + 9 * 3600 * 1000);
-    const from = String(req.query.from || ymd(new Date(nowJ.getTime() - 13 * 86400000)));
-    const to = String(req.query.to || ymd(nowJ));
-    const members = await listMembers().catch(() => []);
-    const interns = await listInterns().catch(() => []);
-    const internSet = new Set((interns || []).map((x) => String(x.email || "").toLowerCase()));
-    const roleOf = (mm) => {
-      const roles = Array.isArray(mm.roles) ? mm.roles : [];
-      if (roles.includes("closer")) return "sales";
-      if (roles.includes("inside") || internSet.has(String(mm.email || "").toLowerCase())) return "inside";
-      return "";
-    };
-    const people = (members || []).map((mm) => ({ email: String(mm.email || "").toLowerCase(), name: mm.name || mm.email, role: roleOf(mm) }));
-    const byEmail = new Map(people.map((p) => [p.email, p]));
-    const nameToEmail = new Map(people.map((p) => [String(p.name || "").replace(/[\s　]/g, ""), p.email]));
-    const emailOfName = (nm) => nameToEmail.get(String(nm || "").replace(/[\s　]/g, "")) || "";
-    const apos = await aposTakenInRange({ from, to, limit: 300 }).catch(() => []);
-    const resolve = (a) => {
-      const cand = [a.setter_email, a.setter].map((v) => String(v || "").toLowerCase());
-      for (const c of cand) if (c && byEmail.has(c)) return { em: c, how: "直接" };
-      const en = emailOfName(a.setter); if (en) return { em: en, how: "名前" };
-      const co = String(a.current_owner || "").toLowerCase();
-      if (byEmail.has(co)) return { em: co, how: "現担当メール" };
-      const en2 = emailOfName(a.current_owner); if (en2) return { em: en2, how: "現担当名前" };
-      return { em: "", how: "未一致" };
-    };
-    let matched = 0, unmatched = 0;
-    const sample = apos.slice(0, 40).map((a) => {
-      const r = resolve(a);
-      if (r.em) matched++; else unmatched++;
-      return { setter: a.setter, setter_email: a.setter_email, current_owner: a.current_owner, taken: String(a.taken_at).slice(0, 10), 商談日: a.start_time ? String(a.start_time).slice(0, 10) : "", 突合: r.how, role: r.em ? (byEmail.get(r.em) || {}).role : "" };
-    });
-    res.json({ from, to, アポ件数: apos.length, 突合できた: matched, できない: unmatched,
-      メンバー: people.map((p) => ({ name: p.name, email: p.email, role: p.role })),
-      sample });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
@@ -15741,7 +15710,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-03r AI社員を「組織」ビューに：CEO(キツツキ)の下に 社内支援AI／開発AI を置き、各配下の自動化ジョブ（通知・SF記録・SF監査・アポ割り振り・立ち上げ・メール・リマインド・カレンダー・SF未紐づけ・コール進捗・実績／自動改善・本番反映・夜間開発・定期提案・朝の開発通知）と状態(ON/OFF/常時)を棚卸しカタログとして表示。API GET /api/ai/org。前回：スマホメニューにkincall";
+const BUILD_TAG = "2026-09-03s 実績：インサイドのアポが0になる不具合を解消。原因＝アポ一覧の setter が『商談カレンダーの主催者＝セールス』で埋まり、実獲得のインサイドが setter に入っていなかった。対策＝インサイドのアポは kincall架電ログ(result~アポ獲得, かけた人=インサイド)で数え、内/外は会社名でアポ一覧の商談日(start_time)に引き当てて判定。セールスは従来どおり(件数SFレポート、内/外はアポ一覧setter比率)。点検API(_apodiag)は撤去。前回：AI社員の組織ビュー";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",

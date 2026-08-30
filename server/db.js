@@ -6838,6 +6838,24 @@ export async function callStatsByDay(fromJst, toJst) {
 }
 
 
+// kincallの架電ログで「アポ獲得」になった件を、かけた人・会社名つきで取る（インサイドの実獲得を数えるため）。
+export async function apoWonCallsInRange(fromJst, toJst) {
+  if (!pool) return [];
+  try {
+    const { rows } = await pool.query(
+      `SELECT l.caller,
+              to_char(l.at AT TIME ZONE 'Asia/Tokyo','YYYY-MM-DD') AS 日,
+              COALESCE(t.company,'') AS company
+         FROM call_logs l
+         LEFT JOIN call_targets t ON t.id = l.target_id
+        WHERE l.result ~ 'アポ獲得'
+          AND (l.at AT TIME ZONE 'Asia/Tokyo')::date >= $1::date
+          AND (l.at AT TIME ZONE 'Asia/Tokyo')::date <= $2::date`,
+      [fromJst, toJst]);
+    return rows;
+  } catch (e) { console.error("[db] apoWonCallsInRange", e.message); return []; }
+}
+
 // リスト別の集計のもと（リスト×担当×結果ごとの件数）。実績の「リスト別」で使う。
 export async function callStatsByList(fromJst, toJst) {
   if (!pool) return [];
