@@ -41,6 +41,8 @@ kincall（架電リスト）という別ツールも同じ画面群の中にあ�
 
 ## 決定・指示のログ（新しいものを上に足す）
 
+- 2026-09-03 アポをカレンダー予定基準にした直後、実績/プロセスシートのアポが全部0になった不具合を修正。点検(_apodiag2)で判定は正常(104件中98件が対象)と確認→原因は日付型：aposTakenInRange の taken_at/start_time は timestamptz＝JSのDate。toYmd は "YYYY-MM-DD"文字列前提の正規表現で、Date を String化した "Mon Aug 17 2026..." を解釈できず空→属する()で列が無く全件 continue で脱落＝0。対策：ymdJst(v)=new Date(v)→JST(+9h)→YYYY-MM-DD を導入し、computeStatsGrid と runProcessSheet のアポ集計(taken_at/start_time)に使用。担当突合も setterEmail を「現担当メール(current_owner)→setter_email→setter名→emailOfName」の順に強化。点検API _apodiag2 撤去。
+
 - 2026-09-03 アポの件数の数え方を「アポ一覧（カレンダー予定＝smart_links）」に統一（田中さん確定）。対象＝タイトルに【初回】または【新/ヒ】を含む予定のみ。除外＝「メルマガ」を含む（メルマガ【初回】等）＋その他タイトル（【2回目】【ユ/フォ】等）。判定は isApoCountableTitle（/メルマガ/なら除外、/【初回】/ か /【新[/／]ヒ】/）。担当は実獲得者に寄せる（A）：会社名(companyFromTitle→normCompanyKey)で kincallのアポ獲得ログ(apoWonCalls, caller)に突き合わせ→無ければ setter/current_owner（クローザー）。内/外は予定の商談日 start_time（実績=isInFor、プロセスシート=termMode fixed/auto）。SF/kincallのアポ“件数”は使わない（コール/接触はセールス=SFレポート＋kincall・インサイド=kincallのまま）。computeStatsGrid と runProcessSheet 両方を差し替え（SFブロックのアポ按分と旧applyApoCounts/インサイドwonCallsアポを撤去）。※本番シートはお試し(dryRun)で件数確認してから。タイトル表記ゆれは実データで要微調整。
 
 - 2026-09-03 セールス(クローザー)の実績を「kincall＋SFレポートの単純合算」に変更（田中さん合意・役割で記録先が分かれ二重計上なし）。実績(computeStatsGrid)：架電ログのコール/接触ループと kincall実獲得(apoWonCalls)のアポループを inside限定から全メンバー対象に（role!=="inside" のcontinueを外す）＝セールスにも kincall を加算。SFレポートのコール/接触/アポは従来どおりセールスに加算されるので結果 sales＝kincall＋SF、inside＝kincall。プロセスシート(runProcessSheet)の合算ブロックも insideName を全メンバーに拡張＝セールスにも kincall を加算（SF/kinbotアポ記録は別途加算のまま）。※SFレポートIDはセールスのSFぶんの取得元として引き続き必要（合算に足す一方）。要：お試し(dryRun)で件数確認。

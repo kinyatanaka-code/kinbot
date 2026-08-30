@@ -8426,9 +8426,14 @@ async function computeStatsGrid(periodIn, spanIn) {
     // 見つからなければ現担当（setter/current_owner＝クローザー）に付ける。内/外は予定の商談日(start_time)。
     const apos = await aposTakenInRange({ from: spanFrom, to: spanTo, limit: 5000 }).catch(() => []);
     const setterEmail = (a) => {
-      const cand = [a.setter_email, a.setter].map((v) => String(v || "").toLowerCase());
-      for (const c of cand) if (c && byEmail.has(c)) return c;
-      return emailOfName(a.setter) || (byEmail.has(String(a.current_owner || "").toLowerCase()) ? String(a.current_owner).toLowerCase() : "") || emailOfName(a.current_owner) || "";
+      // 現担当メール(current_owner)→setter_email→setter名→現担当名 の順で、実績メンバーに一致するものを返す
+      const co = String(a.current_owner || "").toLowerCase();
+      if (byEmail.has(co)) return co;
+      const se = String(a.setter_email || "").toLowerCase();
+      if (byEmail.has(se)) return se;
+      const sn = String(a.setter || "").toLowerCase();
+      if (byEmail.has(sn)) return sn;
+      return emailOfName(a.setter) || emailOfName(a.current_owner) || "";
     };
     // 会社名 → 実獲得者（kincallでアポ獲得した人）。実獲得者に寄せるために使う。
     const wonCalls = await apoWonCallsInRange(spanFrom, spanTo).catch(() => []);
@@ -8438,15 +8443,16 @@ async function computeStatsGrid(periodIn, spanIn) {
       if (!byEmail.has(em)) continue;
       const k = normCompanyKey(w.company || ""); if (k && !companyToWinner.has(k)) companyToWinner.set(k, em);
     }
+    const ymdJst = (v) => { if (!v) return ""; const d = new Date(v); if (isNaN(d.getTime())) return toYmd(v); const j = new Date(d.getTime() + 9 * 3600000); return `${j.getUTCFullYear()}-${pad(j.getUTCMonth() + 1)}-${pad(j.getUTCDate())}`; };
     for (const a of apos) {
       if (!isApoCountableTitle(a.label)) continue;   // 【初回】【新/ヒ】のみ・メルマガ除外
       const co = companyFromTitle(a.label || "") || "";
       let em = companyToWinner.get(normCompanyKey(co)) || "";   // 実獲得者（インサイド）に寄せる
       if (!em) em = setterEmail(a);                              // 無ければ現担当（クローザー）
       const p = byEmail.get(em); if (!p) continue;
-      const i = idxOf(属する(toYmd(a.taken_at))); if (i < 0) continue;
+      const i = idxOf(属する(ymdJst(a.taken_at))); if (i < 0) continue;
       const cell = ensure(em)[i];
-      if (isInFor(区切り[i] && 区切り[i].key, toYmd(a.start_time))) cell.アポ内 += 1; else cell.アポ外 += 1;
+      if (isInFor(区切り[i] && 区切り[i].key, ymdJst(a.start_time))) cell.アポ内 += 1; else cell.アポ外 += 1;
     }
 
     // セールス：SFレポート（コール・接触・アポ内外）。コール進捗と同じレポートを使う。
@@ -8581,28 +8587,6 @@ app.put("/api/calls/apo-window", async (req, res) => {
     await saveSettings(patch);
     console.log(`[実績] アポ内外の基準を更新 by ${req.user}`);
     res.json({ ok: true });
-  } catch (e) { res.status(500).json({ error: e.message }); }
-});
-
-// 【点検用・一時】アポが0になる原因調査：期間内のアポ一覧のタイトルと、判定/担当突合の結果を返す。
-app.get("/api/calls/_apodiag2", async (req, res) => {
-  try {
-    if (!req.isAdmin && !(await isCloserUser(req.user))) return res.status(403).json({ error: "権限なし" });
-    const pad = (n) => String(n).padStart(2, "0");
-    const ymd = (d) => `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}-${pad(d.getUTCDate())}`;
-    const nowJ = new Date(Date.now() + 9 * 3600 * 1000);
-    const from = String(req.query.from || ymd(new Date(nowJ.getTime() - 13 * 86400000)));
-    const to = String(req.query.to || ymd(nowJ));
-    const apos = await aposTakenInRange({ from, to, limit: 300 }).catch(() => []);
-    let 数える = 0;
-    const sample = apos.slice(0, 40).map((a) => ({
-      title: a.label, taken: String(a.taken_at).slice(0, 10),
-      商談日: a.start_time ? String(a.start_time).slice(0, 10) : "",
-      setter: a.setter, setter_email: a.setter_email, current_owner: a.current_owner,
-      数える: isApoCountableTitle(a.label),
-    }));
-    for (const a of apos) if (isApoCountableTitle(a.label)) 数える++;
-    res.json({ from, to, アポ一覧件数: apos.length, 数える件数: 数える, sample });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
@@ -10633,17 +10617,19 @@ async function runProcessSheet(sfUser, opts = {}) {
     const email2name = new Map(membersB.map((mm) => [String(mm.email || "").toLowerCase(), mm.name || mm.email]));
     const companyToWinner = new Map();
     for (const w of wonCalls) { const em = String(w.caller || "").toLowerCase(); if (!email2name.has(em)) continue; const k = normCompanyKey(w.company || ""); if (k && !companyToWinner.has(k)) companyToWinner.set(k, em); }
+    const ymdJst = (v) => { if (!v) return ""; const dd = new Date(v); if (isNaN(dd.getTime())) return String(v).slice(0, 10); const j = new Date(dd.getTime() + 9 * 3600000); const p2 = (n) => String(n).padStart(2, "0"); return `${j.getUTCFullYear()}-${p2(j.getUTCMonth() + 1)}-${p2(j.getUTCDate())}`; };
     for (const a of aposB) {
       if (!isApoCountableTitle(a.label)) continue;
       const co = companyFromTitle(a.label || "") || "";
       let em = companyToWinner.get(normCompanyKey(co)) || "";
       let name = em ? email2name.get(em) : "";
-      if (!name) name = String(a.setter || "").trim() || (a.current_owner ? (email2name.get(String(a.current_owner).toLowerCase()) || "") : "");
+      if (!name) name = (a.current_owner ? (email2name.get(String(a.current_owner).toLowerCase()) || "") : "") || String(a.setter || "").trim();
       if (!name) continue;
-      const key = mdKey(String(a.taken_at).slice(0, 10)); if (!key) continue;
-      const md = a.start_time ? String(a.start_time).slice(0, 10) : "";
+      const takenY = ymdJst(a.taken_at);
+      const key = mdKey(takenY); if (!key) continue;
+      const md = ymdJst(a.start_time);
       const c = ensureT(name, key);
-      if (inTerm(md, String(a.taken_at).slice(0, 10))) c["アポ（期内）"] += 1; else c["アポ（期外）"] += 1;
+      if (inTerm(md, takenY)) c["アポ（期内）"] += 1; else c["アポ（期外）"] += 1;
     }
   } catch (e) { console.warn("[プロセスシート] インサイド合算に失敗:", e.message); }
 
@@ -15833,7 +15819,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-03z 【点検用・一時】GET /api/calls/_apodiag2 追加：アポが0の原因調査（期間内アポ一覧のタイトル・商談日・setter/現担当と、isApoCountableTitle 判定件数）。前回：アポをカレンダー予定基準に統一";
+const BUILD_TAG = "2026-09-03aa 実績/プロセスシートのアポが全部0になる不具合を修正。原因＝アポ一覧の taken_at/start_time は Date型で、toYmd(\"Mon Aug 17\"形式)が解釈できず空→列に載らず全件脱落。対策＝ymdJst(new Date→JSTのYYYY-MM-DD)で変換して集計。あわせて担当突合を 現担当メール→setter_email→setter名→名前 の順に強化。点検API(_apodiag2)撤去。前回：アポをカレンダー予定基準に統一";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
