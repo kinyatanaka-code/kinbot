@@ -41,6 +41,8 @@ kincall（架電リスト）という別ツールも同じ画面群の中にあ�
 
 ## 決定・指示のログ（新しいものを上に足す）
 
+- 2026-09-03 実績「設定・管理」タブのプロセスシート管理を編集可能に。反映先スプレッドシート(共有URL または ID→サーバがsheetId抽出)・シート名(タブ)・SFレポートID・実行するSFユーザー(email)を入力して「反映先・設定を保存」（PUT /api/process-sheet {sheetId,sheetName,reportId,owner}）。状態表示（最後の実行）・自動実行ON/OFF・今すぐ実行/お試し(dryRun)は従来どおり。
+
 - 2026-09-03 実績に「設定・管理」タブを追加（田中さん指示）。中身：(1)アポの「期間内/期間外」の基準（設定画面から移設・実績に集約。/api/calls/apo-window の mode/days/月別範囲）、(2)プロセスシートの管理＝状態表示（シート名・レポート有無・実行SFユーザー・最後の実行）＋自動実行ON/OFF（PUT /api/process-sheet {autoRun}）＋「今すぐ実行」/「お試し(dryRun)」（POST /api/process-sheet/run）。calls.jsに loadAdmin() を追加（statsPeriod="admin"）。設定画面(settings.html)のアポ基準カードは削除（settings.jsのIIFEは要素が無ければ早期returnで無害なので残置）。全体/個別トグルは admin でも無効(dim)。
 
 - 2026-09-03 実績を「全項目まとめて1ファイルCSV」で書き出せるようにした（田中さん指示）。対象：グループ全体/セールス全体/インサイド全体/各メンバー/各リスト（＋担当内訳）を、日次・週次・月次まとめて、率(コール→接触/接触→アポ/コール→アポ)も含む。列＝粒度,区分,対象,指標,期間キー,期間名,値。UTF-8 BOM(ExcelでそのままひらけるCRLF)。実装：stats-grid と stats-by-list の中身を computeStatsGrid(period,span)/computeListStats(period,from,to) に関数化し、薄いハンドラ＋CSVエンドポイント GET /api/calls/stats.csv で3粒度ぶん回して生成。実績UIに「CSVで全部書き出す」ボタン(clStatsCsv)。

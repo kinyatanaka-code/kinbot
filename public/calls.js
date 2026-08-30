@@ -1428,11 +1428,22 @@ async function loadAdmin() {
 
         <div class="kc-adcard">
           <h3>プロセスシートの管理</h3>
-          <p class="note">SFレポートを読み取って、架電結果をプロセスシートに書き込む処理です。</p>
-          <div class="kc-adrow"><span class="kc-adk">シート</span><span>${esc(ps.sheetName || "(未設定)")}</span></div>
-          <div class="kc-adrow"><span class="kc-adk">SFレポート</span><span>${ps.reportId ? "設定済み" : "(未設定)"}</span></div>
-          <div class="kc-adrow"><span class="kc-adk">実行するSFユーザー</span><span>${esc(ps.owner || "(未設定)")}</span></div>
-          <div class="kc-adrow"><span class="kc-adk">最後の実行</span><span id="psLast">${lastTxt}</span></div>
+          <p class="note">SFレポートを読み取って、架電結果を「反映先のプロセスシート」に書き込みます。反映先やレポートはここで設定できます。</p>
+          <label class="field"><span>反映先スプレッドシート</span>
+            <input id="psSheet" type="text" placeholder="Googleスプレッドシートの共有URL または ID" value="${esc(ps.sheetId || "")}" />
+          </label>
+          <label class="field"><span>シート名（タブ）</span>
+            <input id="psSheetName" type="text" placeholder="例：8月アポ管理" value="${esc(ps.sheetName || "")}" />
+          </label>
+          <label class="field"><span>SFレポートID</span>
+            <input id="psReport" type="text" placeholder="例：00OIR000..." value="${esc(ps.reportId || "")}" />
+          </label>
+          <label class="field"><span>実行するSFユーザー</span>
+            <input id="psOwner" type="text" placeholder="例：kinya.tanaka@neo-career.co.jp" value="${esc(ps.owner || "")}" />
+          </label>
+          <div class="modal-actions"><button class="btn" id="psSave" type="button">反映先・設定を保存</button><span class="saved" id="psSaveMsg" hidden>保存しました</span></div>
+
+          <div class="kc-adrow" style="margin-top:8px"><span class="kc-adk">最後の実行</span><span id="psLast">${lastTxt}</span></div>
           <div class="kc-adrow"><span class="kc-adk">自動実行</span>
             <label class="ks-check"><input type="checkbox" id="psAuto" ${ps.autoRun ? "checked" : ""} /> ${ps.autoRun ? "ON（間隔ごとに自動で書き込み）" : "OFF"}</label>
           </div>
@@ -1474,6 +1485,19 @@ async function loadAdmin() {
     });
 
     // --- プロセスシートの配線 ---
+    $("psSave").addEventListener("click", async () => {
+      const body = {
+        sheetId: $("psSheet").value.trim(),
+        sheetName: $("psSheetName").value.trim(),
+        reportId: $("psReport").value.trim(),
+        owner: $("psOwner").value.trim(),
+      };
+      try {
+        const r = await fetch("/api/process-sheet", { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+        if (!r.ok) throw new Error((await r.json()).error || "保存できません");
+        const m = $("psSaveMsg"); m.hidden = false; setTimeout(() => (m.hidden = true), 3000);
+      } catch (e) { alert("保存できませんでした：" + e.message); }
+    });
     $("psAuto").addEventListener("change", async (e) => {
       try {
         const r = await fetch("/api/process-sheet", { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ autoRun: e.target.checked }) });
