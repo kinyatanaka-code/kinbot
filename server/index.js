@@ -8591,6 +8591,49 @@ app.put("/api/calls/apo-window", async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+// 【点検用・一時】プロセスの実施数を検証：ある人の「実際の商談記録数」と「設定/実施」の内訳を返す。
+app.get("/api/calls/_procdiag", async (req, res) => {
+  try {
+    if (!req.isAdmin && !(await isCloserUser(req.user))) return res.status(403).json({ error: "権限なし" });
+    const pad = (n) => String(n).padStart(2, "0");
+    const nowJ = new Date(Date.now() + 9 * 3600 * 1000);
+    const who = String(req.query.who || req.user || "").toLowerCase();
+    const monthQ = /^\d{4}-\d{2}$/.test(String(req.query.month || "")) ? String(req.query.month) : `${nowJ.getUTCFullYear()}-${pad(nowJ.getUTCMonth() + 1)}`;
+    const [Y, M] = monthQ.split("-").map((x) => parseInt(x, 10));
+    const st = await getSettings().catch(() => ({}));
+    let monthWin = {}; try { monthWin = JSON.parse(st.apoMonthWindows || "{}") || {}; } catch {}
+    let from, to;
+    if (monthWin[monthQ] && monthWin[monthQ].from && monthWin[monthQ].to) { from = monthWin[monthQ].from; to = monthWin[monthQ].to; }
+    else { const last = new Date(Date.UTC(Y, M, 0)); from = `${Y}-${pad(M)}-01`; to = `${last.getUTCFullYear()}-${pad(last.getUTCMonth() + 1)}-${pad(last.getUTCDate())}`; }
+    const ymdJst = (v) => { if (!v) return ""; const d = new Date(v); if (isNaN(d.getTime())) return String(v).slice(0, 10); const j = new Date(d.getTime() + 9 * 3600000); return `${j.getUTCFullYear()}-${pad(j.getUTCMonth() + 1)}-${pad(j.getUTCDate())}`; };
+    const 対象タイトル = (t) => { const s = String(t || ""); return /【\s*初回\s*】/.test(s) || /【\s*新\s*[\/／]\s*ヒ\s*】/.test(s) || /メルマガ/.test(s); };
+
+    // その人が実施した商談記録（owner=who、録音あり）
+    const meetings = await listMeetings({ isAdmin: true, from, to, limit: 2000, light: true }).catch(() => []);
+    const mine = meetings.filter((m) => String(m.owner || "").toLowerCase() === who);
+    const doneSet = new Set();
+    for (const m of meetings) { const co = normCompanyKey(companyFromTitle(m.title || "") || m.account || ""); const day = ymdJst(m.created_at); if (co && day) doneSet.add(`${co}|${day}`); }
+
+    // その人が担当(current_owner)の設定アポと、実施突合の結果
+    const apos = (await aposByMeetingDate(from, to).catch(() => [])).filter((a) => 対象タイトル(a.label) && String(a.current_owner || "").toLowerCase() === who);
+    let 実施 = 0;
+    const aposSample = apos.map((a) => {
+      const key = `${normCompanyKey(companyFromTitle(a.label || "") || "")}|${ymdJst(a.start_time)}`;
+      const hit = doneSet.has(key); if (hit) 実施++;
+      return { title: a.label, 商談日: ymdJst(a.start_time), 突合: hit };
+    });
+
+    res.json({
+      who, month: monthQ, from, to,
+      実際の商談記録数_owner一致: mine.length,
+      設定数_current_owner一致: apos.length,
+      実施数_突合成立: 実施,
+      商談記録の例: mine.slice(0, 25).map((m) => ({ title: m.title, 記録日: ymdJst(m.created_at), account: m.account })),
+      設定アポの例: aposSample.slice(0, 25),
+    });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 // 【点検用・一時】設定数の重複を確認：会社名×商談日で複数ある予定を洗い出す。
 app.get("/api/calls/_apodup", async (req, res) => {
   try {
@@ -15971,7 +16014,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-04e 【点検用・一時】GET /api/calls/_apodup 追加：設定数の重複確認（会社名×商談日で複数ある対象予定を洗い出し、総数/ユニーク数/ダブり件数/重複グループ例を返す）。?month=YYYY-MM。前回：プロセス週→日展開";
+const BUILD_TAG = "2026-09-04f 【点検用・一時】GET /api/calls/_procdiag 追加：実施数の検証（?who=email&month=）。その人の実際の商談記録数(owner一致)・設定数(current_owner一致)・実施数(突合成立)と、商談記録/設定アポの例（会社名・日付・突合可否）を返す。前回：重複確認API";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
