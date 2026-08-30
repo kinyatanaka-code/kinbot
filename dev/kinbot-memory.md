@@ -41,6 +41,8 @@ kincall（架電リスト）という別ツールも同じ画面群の中にあ�
 
 ## 決定・指示のログ（新しいものを上に足す）
 
+- 2026-09-04 AI社員新デザインの表示崩れを修正。原因：main.ai-pageがビューポート固定のflex column(overflow:hidden)で、子カードがflex-shrinkして縦に潰れ重なった。対策：main.ai-pageを display:block/overflow:auto/height:auto の通常フロー＋スクロールに、.ceo-card/.dept-grid/.ai-cols-sub を flex:0 0 auto。加えて「覚えていること」に /api/ai/status の d.memory（＝kinbot-memory.md の開発ログ）がそのまま漏れていたため、最近やったこと/覚えていることの下段ごと撤去（モック準拠）。開発関連の履歴は開発AIカードの「見る・操作する」内(対応中/最近直したこと)に残す。
+
 - 2026-09-04 AI社員ページを新デザインに刷新（田中さん承認モック準拠：俺→キツツキ(CEO)→社内支援AI/開発AI、話しかけやすく・各AIの状態が見える）。構成：上部にCEOカード＝既存の机キツツキSVG(KITSUTSUKI_SVG)を主役に緑グラデ帯、名前＋CEOバッジ＋改名、指示入力欄(/api/ai/task)＋クイック指示ボタン(今日の状況/開発を止めて/アポ割り振り確認)＋ミニチャット。下に2枚の部門カード：社内支援AI/開発AI（アイコンSVG・稼働中バッジ・サマリ数字[社内支援=仕事数/ON常時数, 開発=対応中/次の改善時刻(nextRunLabelから抽出)]・主要ジョブのON/OFF/常時チップ・「この部門を見る・操作する」で more を開閉）。開発AIカードに自動改善(swImprove=autoImprove)/本番反映(swApply=autoApply)のスイッチと稼働時間(runFrom/To/Every)を配置。データは /api/ai/org のdepts.jobs＋/api/ai/status。旧hero/3カラム/どこで動く表は撤去（最近やったこと/覚えていることは下に残置）。orgHtmlは未使用（残置無害）。画像は既存SVG流用。
 
 - 2026-09-04 プロセスの集計から土日を除外（田中さん指示）。商談日(start_time／商談記録のcreated_at)が土曜/日曜のアポ・商談記録をカウントしない。isWeekend(ymd) を追加し、buildDone/buildDoneOwner（実施の集合/Map）、countRange（設定ユニーク）、月ごとuniqSet構築、招待owner(inviteOwner)構築に適用。日ごと展開(grain=day)は土日の行を出さない。週の範囲表示(from〜to)は月〜週境界のままだが集計は平日のみ。

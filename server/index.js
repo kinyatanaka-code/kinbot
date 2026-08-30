@@ -15994,7 +15994,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-04l AI社員ページを新デザインに刷新（承認モック準拠）：上部にキツツキ(CEO)カード（既存SVGを主役・緑グラデ帯・名前/CEO・指示入力欄＋クイック指示ボタン＋ミニチャット）、下に社内支援AI/開発AIの要約カード（アイコン＋稼働中バッジ＋サマリ数字＋主要ジョブのON/OFF/常時＋「この部門を見る・操作する」で詳細開閉）。開発AIカードで自動改善/本番反映のON/OFFと稼働時間を操作。/api/ai/org のジョブを表示。前回：プロセス土日除外";
+const BUILD_TAG = "2026-09-04m AI社員新デザインの潰れを修正：main.ai-pageを通常フロー(display:block/overflow:auto/height:auto)にし、CEOカード・部門グリッドをflex:0 0 auto（縦潰れ・重なり防止）。内部の開発メモが漏れていた「覚えていること/最近やったこと」下段を撤去（モック準拠）。前回：AI社員新デザイン";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",

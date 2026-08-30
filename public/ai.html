@@ -10,7 +10,7 @@
     <link rel="manifest" href="/site.webmanifest" />
     <meta name="theme-color" content="#0d5b47" />
     <meta name="apple-mobile-web-app-title" content="kinbot" />
-    <link rel="stylesheet" href="style.css?v=20260904l" />
+    <link rel="stylesheet" href="style.css?v=20260904m" />
     <style>
       /* 1画面に収めるダッシュボード。ページ自体はスクロールせず、長いリストはカード内で送る。 */
       .ai-page{flex:1 1 auto;min-height:0;display:flex;flex-direction:column;gap:12px;
@@ -172,6 +172,9 @@
       .dept-btn{width:100%;margin-top:10px;background:#f2f8f5;border:1px solid #dfeae5;color:#0d5b47;border-radius:10px;padding:9px;font-size:13px;font-weight:700;cursor:pointer;}
       .dept-btn:hover{background:#e6f2ec;}
       @media (max-width:900px){ .dept-grid{grid-template-columns:1fr;} .ceo-card{flex-direction:column;} .ceo-ava{width:100%;height:120px;} }
+      /* 新デザインはビューポート固定をやめ、通常フロー＋スクロールにする（潰れ防止） */
+      main.ai-page{display:block;overflow:auto;height:auto;min-height:0;flex:0 1 auto;}
+      .ceo-card,.dept-grid,.ai-cols-sub{flex:0 0 auto;}
       /* 組織カタログ（CEO→社内支援AI/開発AI） */
       .ai-org{flex:0 0 auto;background:#fff;border:1px solid #e6ede9;border-radius:14px;padding:12px 14px;margin-bottom:4px;}
       .ai-org-h{font-size:12.5px;color:#0d5b47;font-weight:700;margin-bottom:10px;}
@@ -245,9 +248,9 @@
         </main>
       </div>
     </div>
-    <script src="product.js?v=20260904l"></script>
-    <script src="ai.js?v=20260904l"></script>
-    <script src="nav.js?v=20260904l"></script>
+    <script src="product.js?v=20260904m"></script>
+    <script src="ai.js?v=20260904m"></script>
+    <script src="nav.js?v=20260904m"></script>
     <script src="/cmdk.js?v=20260827a"></script>
   </body>
 </html>

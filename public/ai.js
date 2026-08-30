@@ -272,22 +272,6 @@ function render(d) {
         </div>
         <button class="dept-btn" data-dept="dev">この部門を見る・操作する</button>
       </div>
-    </div>
-
-    <div class="ai-cols ai-cols-sub">
-      <div class="ai-col">
-        <h3>最近やったこと</h3>
-        ${feed.length
-          ? `<ul class="ai-feed">${feed.slice(0,8).map((a) =>
-              `<li><span class="k ${esc(a.kind)}"></span><div>${esc(a.text)}<div class="at">${fmtWhen(a.at)}</div></div></li>`).join("")}</ul>`
-          : `<div class="ai-empty">まだ記録がありません。</div>`}
-      </div>
-      <div class="ai-col ai-mem">
-        <h3>覚えていること</h3>
-        ${(d.memory && d.memory.length)
-          ? `<ul>${d.memory.slice(0,10).map((m) => `<li>${esc(m)}</li>`).join("")}</ul>`
-          : `<div class="ai-empty">まだ記憶がありません。</div>`}
-      </div>
     </div>`;
 
   wire();
