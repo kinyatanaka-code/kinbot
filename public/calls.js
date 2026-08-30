@@ -625,6 +625,8 @@ function renderDock() {
     .kc-ptab{border:none;background:transparent;color:#5b7a6d;font-size:13px;font-weight:600;padding:6px 16px;border-radius:8px;cursor:pointer;}
     .kc-ptab.active{background:#1d9e75;color:#fff;}
     .kc-ptab:not(.active):hover{background:#eaf5ef;color:#0d5b47;}
+    .kc-g-sec{font-size:13px;font-weight:800;color:#0d5b47;margin:14px 2px 6px;border-left:3px solid #1d9e75;padding-left:8px;}
+    .kc-g-sub td{color:#7d8c86;font-size:11.5px;}
     .kc-g-title{display:flex;align-items:center;gap:8px;width:100%;text-align:left;background:none;border:0;cursor:pointer;padding:2px 0;margin:0 0 4px;font-family:inherit;font-size:13px;font-weight:700;color:#0d5b47;}
     .kc-g-title:hover .kc-g-tname{color:#0b7a5e;}
     .kc-g-chev{display:inline-flex;color:#1d9e75;transition:transform .15s ease;}
@@ -1207,6 +1209,10 @@ function openEdit(id) {
 
 // ───────── 実績（日・週・月） ─────────
 let statsPeriod = "day";
+let statsScope = "all";   // all=全体（グループ/セールス/インサイド）, each=個別（メンバー全員）
+let apoMode = "both";     // both/in/out（アポ獲得の期間内・期間外）
+function pickApo(v) { return apoMode === "in" ? (v.アポ内 || 0) : apoMode === "out" ? (v.アポ外 || 0) : ((v.アポ内 || 0) + (v.アポ外 || 0)); }
+
 async function loadStats() {
   const box = $("clStats");
   if (!box) return;
@@ -1215,38 +1221,40 @@ async function loadStats() {
     const d = await (await fetch(`/api/calls/stats-grid?period=${encodeURIComponent(statsPeriod)}`)).json();
     if (d.error) throw new Error(d.error);
     const 区切り = d["区切り"] || [];
-    const items = d.items || [];
-    const 合計 = d["合計"] || [];
+    const members = d.members || [];
+    const totals = d.totals || { group: [], sales: [], inside: [] };
     const 今 = d["今"] || "";
 
     const rg = $("stRange");
-    if (rg) rg.textContent = 区切り.length
-      ? `${区切り[0]["名前"]} 〜 ${区切り[区切り.length - 1]["名前"]}` : "";
+    if (rg) rg.textContent = 区切り.length ? `${区切り[0]["名前"]} 〜 ${区切り[区切り.length - 1]["名前"]}` : "";
 
-    const いま = (c) => (c.key === 今 ? " kc-g-now" : "");
+    const いま = (c) => (c && c.key === 今 ? " kc-g-now" : "");
     const 頭 = `<tr><th class="kc-g-name">　</th>` +
       区切り.map((c) => `<th class="kc-g-h${いま(c)}"><div>${esc(c["名前"])}</div>` +
         (c["曜日"] ? `<div class="kc-g-w">${esc(c["曜日"])}</div>` : "") + `</th>`).join("") +
       `<th class="kc-g-h kc-g-tot">合計</th></tr>`;
-
-    const chev = '<svg viewBox="0 0 20 20" width="13" height="13" aria-hidden="true">' +
-      '<path d="M6 8l4 4 4-4" fill="none" stroke="currentColor" stroke-width="2" ' +
-      'stroke-linecap="round" stroke-linejoin="round"/></svg>';
+    const chev = '<svg viewBox="0 0 20 20" width="13" height="13" aria-hidden="true"><path d="M6 8l4 4 4-4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>';
     const pct = (a, b) => (b ? (a / b * 100).toFixed(1) + "%" : "—");
+    const apoLabel = apoMode === "in" ? "アポ（期間内）" : apoMode === "out" ? "アポ（期間外）" : "アポ";
 
-    const 表 = (名前, 値, cls) => {
+    const 表 = (名前, 値0, cls) => {
+      // 値0 は {コール,接触,アポ内,アポ外}。表示用に アポ を apoMode で決める。
+      const 値 = 値0.map((v) => ({ コール: v.コール || 0, 接触: v.接触 || 0, アポ: pickApo(v), アポ内: v.アポ内 || 0, アポ外: v.アポ外 || 0 }));
       const 計 = (key) => 値.reduce((a, v) => a + (v[key] || 0), 0);
       const 行 = (lb, key, rcls) =>
         `<tr class="${rcls || ""}"><td class="kc-g-name">${esc(lb)}</td>` +
         値.map((v, i) => `<td class="kc-g-n${いま(区切り[i])}">${v[key] || 0}</td>`).join("") +
         `<td class="kc-g-n kc-g-tot">${計(key)}</td></tr>`;
-      // 率の行（分子an ÷ 分母bn）。0で割るところは「—」にする。
       const 率行 = (lb, an, bn, top) =>
         `<tr class="kc-g-rate${top ? " kc-g-rate-top" : ""}"><td class="kc-g-name">${esc(lb)}</td>` +
         値.map((v, i) => `<td class="kc-g-n${いま(区切り[i])}">${pct(v[an] || 0, v[bn] || 0)}</td>`).join("") +
         `<td class="kc-g-n kc-g-tot">${pct(計(an), 計(bn))}</td></tr>`;
       const tc = 計("コール");
       const sum = `コール ${tc}｜接触率 ${pct(計("接触"), tc)}｜アポ率 ${pct(計("アポ"), tc)}`;
+      const apoRows = 行(apoLabel, "アポ", "kc-g-apo") +
+        (apoMode === "both" ? `<tr class="kc-g-sub"><td class="kc-g-name">└ 期間内 / 期間外</td>` +
+          値.map((v, i) => `<td class="kc-g-n${いま(区切り[i])}">${v.アポ内} / ${v.アポ外}</td>`).join("") +
+          `<td class="kc-g-n kc-g-tot">${計("アポ内")} / ${計("アポ外")}</td></tr>` : "");
       return `<div class="kc-g-block${cls || ""}">
         <button type="button" class="kc-g-title" aria-expanded="true">
           <span class="kc-g-chev">${chev}</span>
@@ -1258,7 +1266,7 @@ async function loadStats() {
             ${頭}
             ${行("コール", "コール")}
             ${行("接触", "接触")}
-            ${行("アポ", "アポ", "kc-g-apo")}
+            ${apoRows}
             ${率行("コール→接触率", "接触", "コール", true)}
             ${率行("接触→アポ率", "アポ", "接触")}
             ${率行("コール→アポ率", "アポ", "コール")}
@@ -1267,14 +1275,26 @@ async function loadStats() {
       </div>`;
     };
 
-    const ある = items.filter((x) => x["値"].some((v) => v.コール || v.接触 || v.アポ));
-    const ない = items.filter((x) => !x["値"].some((v) => v.コール || v.接触 || v.アポ));
-
-    box.innerHTML = items.length
-      ? 表("チーム合計", 合計, " kc-g-team") +
-        ある.map((x) => 表(x["誰"], x["値"])).join("") +
-        (ない.length ? `<div class="note">この期間に記録がない人：${ない.map((x) => esc(x["誰"])).join("、")}</div>` : "")
-      : `<div class="note">この期間の記録はまだありません。</div>`;
+    if (statsScope === "all") {
+      box.innerHTML =
+        表("グループ全体", totals.group || [], " kc-g-team") +
+        表("セールス全体", totals.sales || [], " kc-g-team") +
+        表("インサイド全体", totals.inside || [], " kc-g-team") +
+        (d.sfError ? `<div class="note">${esc(d.sfError)}</div>` : "");
+    } else {
+      const has = (x) => x["値"].some((v) => v.コール || v.接触 || v.アポ内 || v.アポ外);
+      const sales = members.filter((x) => x.role === "sales");
+      const inside = members.filter((x) => x.role === "inside");
+      const sec = (title, arr) => {
+        const ある = arr.filter(has), ない = arr.filter((x) => !has(x));
+        if (!arr.length) return "";
+        return `<div class="kc-g-sec">${esc(title)}</div>` +
+          ある.map((x) => 表(x["誰"], x["値"])).join("") +
+          (ない.length ? `<div class="note">この期間に記録がない人：${ない.map((x) => esc(x["誰"])).join("、")}</div>` : "");
+      };
+      box.innerHTML = (sec("セールス", sales) + sec("インサイド", inside)) || `<div class="note">メンバーがいません。</div>`;
+      if (d.sfError) box.innerHTML += `<div class="note">${esc(d.sfError)}</div>`;
+    }
   } catch (e) { box.innerHTML = `<div class="note">読み込めませんでした：${esc(e.message)}</div>`; }
 }
 
@@ -1336,6 +1356,25 @@ if ($("stPeriod")) {
     b.addEventListener("click", () => {
       statsPeriod = b.dataset.period || "day";
       $("stPeriod").querySelectorAll(".kc-ptab").forEach((x) => x.classList.toggle("active", x === b));
+      // メンバー別の分析のときは、全体/個別・アポトグルは効かない
+      const off = statsPeriod === "analysis";
+      ["stScope", "stApo"].forEach((id) => { const e = $(id); if (e) e.style.opacity = off ? "0.4" : "1"; });
+      loadStats();
+    }));
+}
+if ($("stScope")) {
+  $("stScope").querySelectorAll(".kc-ptab").forEach((b) =>
+    b.addEventListener("click", () => {
+      statsScope = b.dataset.scope || "all";
+      $("stScope").querySelectorAll(".kc-ptab").forEach((x) => x.classList.toggle("active", x === b));
+      loadStats();
+    }));
+}
+if ($("stApo")) {
+  $("stApo").querySelectorAll(".kc-ptab").forEach((b) =>
+    b.addEventListener("click", () => {
+      apoMode = b.dataset.apo || "both";
+      $("stApo").querySelectorAll(".kc-ptab").forEach((x) => x.classList.toggle("active", x === b));
       loadStats();
     }));
 }

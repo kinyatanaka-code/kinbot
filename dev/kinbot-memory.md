@@ -41,6 +41,8 @@ kincall（架電リスト）という別ツールも同じ画面群の中にあ�
 
 ## 決定・指示のログ（新しいものを上に足す）
 
+- 2026-09-03 kincall「実績」を全体/個別タブ＋アポ内外に拡張（田中さん要件）。定義：グループ全体＝セールス＋インサイド、セールス＝closer、インサイド＝inside/インターン。セールスも架電するので列は共通（コール/接触/アポ）。データ源：インサイド＝架電ログ(callStatsByDay)、セールス＝SFレポート（コール進捗と同じ psReportId を runReport+toRecords＝コール/接触/アポ/商談日）。アポ獲得の期間内/外＝商談日が表示期間内か（セールス=SFの商談日 meetingDate、インサイド=アポ記録 start_time）。/api/calls/stats-grid を拡張し members(role別,値=コール/接触/アポ内/アポ外) と totals(group/sales/inside) を返す（旧 items/合計 も残置）。画面：実績に「全体/個別」タブと「アポ獲得：期間内/期間外/両方」トグルを追加。全体はグループ/セールス/インサイドの3表、個別はセールス→インサイドの順にメンバー全員。※SFレポートの列判定は pickCol の日本語ラベル依存・日付フォーマットは toYmd で吸収。SF未設定時はセールスが空になり sfError を表示。要実データ検証（列名・商談日項目・owner→メンバー突合）。
+
 - 2026-09-03 AI社員ページの上部にあった小さなロボ帯（topbarの kinbot.svg＋「AI社員」＋「押すと相談できます」）を撤去し、緑のキツツキヘッダー(.ai-hero)を最上部に出す形にした。実装：ai.htmlのtopbarから brand を空に。CSSでデスクトップは .topbar{display:none}、スマホ(≤760px)はメニューボタン(kb-menu-btnはnav.jsがtopbarへ append)のため .topbar を表示。AI社員ページのみの変更。
 
 - 2026-09-02 AI社員ページを手書きラフに沿って刷新。ヘッダー：左＝アバター（キツツキ）＋名前＋改名、右＝「AIが動く」ON/OFF（大スイッチ＝master、実体はautoImprove）＋稼働時間帯（runFrom/To/Every）＋「直したら本番へ反映」（autoApply、小スイッチ）。本体3カラム：完了タスク（dev-notes status=done）／進行中タスク（対応中doingを上・未対応newを下）／タスク依頼チャット。チャットは POST /api/ai/task（クローザー/管理者限定）＝入力を開発メモに登録し、自動改善ONなら dispatchGithubWorkflow で即着手（Chatの「直して」と同じ）。下段に従来の 最近やったこと／どこで動いているか＋SF監査／覚えていること を小さく残置。load()は /api/ai/status と /api/dev-notes を並行取得しstatus別に分割。

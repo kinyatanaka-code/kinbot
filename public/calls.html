@@ -10,7 +10,7 @@
     <link rel="manifest" href="/site.webmanifest" />
     <meta name="theme-color" content="#0d5b47" />
     <meta name="apple-mobile-web-app-title" content="kinbot" />
-    <link rel="stylesheet" href="style.css?v=20260903a" />
+    <link rel="stylesheet" href="style.css?v=20260903b" />
   </head>
   <body class="kc-body">
     <div class="app">
@@ -88,8 +88,18 @@
               <button type="button" class="kc-ptab" data-period="month">月ごと</button>
               <button type="button" class="kc-ptab" data-period="analysis">メンバー別の分析</button>
             </div>
+            <div class="kc-period-tabs" id="stScope">
+              <button type="button" class="kc-ptab active" data-scope="all">全体</button>
+              <button type="button" class="kc-ptab" data-scope="each">個別</button>
+            </div>
+            <div class="kc-period-tabs" id="stApo">
+              <span class="note" style="margin:0 8px 0 0;align-self:center;">アポ獲得</span>
+              <button type="button" class="kc-ptab active" data-apo="both">期間内＋外</button>
+              <button type="button" class="kc-ptab" data-apo="in">期間内</button>
+              <button type="button" class="kc-ptab" data-apo="out">期間外</button>
+            </div>
             <div class="ap-cfg-actions">
-              <span class="note" style="margin:0">インサイドメンバー全員の実績を並べて比べます</span>
+              <span class="note" style="margin:0">全体：グループ／セールス／インサイド、個別：メンバー全員（セールスはSFの実績）</span>
               <button class="btn ghost" id="clStatsReload">読み込み直す</button>
               <span class="rev-status" id="stRange"></span>
             </div>
@@ -220,9 +230,9 @@
         </main>
       </div>
     </div>
-    <script src="sf-data.js?v=20260903a"></script>
-    <script src="calls.js?v=20260903a"></script>
-    <script src="nav.js?v=20260903a"></script>
+    <script src="sf-data.js?v=20260903b"></script>
+    <script src="calls.js?v=20260903b"></script>
+    <script src="nav.js?v=20260903b"></script>
     <script src="/cmdk.js?v=20260827a"></script>
 </body>
 </html>

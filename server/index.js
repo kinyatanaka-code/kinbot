@@ -8318,24 +8318,19 @@ app.get("/api/calls/stats-grid", async (req, res) => {
     const nowJ = new Date(Date.now() + 9 * 3600 * 1000);
     const y = nowJ.getUTCFullYear(), m = nowJ.getUTCMonth(), d0 = nowJ.getUTCDate();
 
-    // 並べる区切りを作る（新しいものが右）
     const 区切り = [];
-    // 日ごとのときは、土日を飛ばして平日だけを並べる
     if (period === "day") {
       let i = 0;
       while (区切り.length < 本数 && i < 本数 * 3) {
-        const d = new Date(Date.UTC(y, m, d0 - i));
-        i++;
+        const d = new Date(Date.UTC(y, m, d0 - i)); i++;
         const w = d.getUTCDay();
-        if (w === 0 || w === 6) continue;   // 日曜・土曜はとばす
-        区切り.unshift({ key: ymd(d), 名前: `${d.getUTCMonth() + 1}/${d.getUTCDate()}`,
-          曜日: "日月火水木金土"[w], from: ymd(d), to: ymd(d) });
+        if (w === 0 || w === 6) continue;
+        区切り.unshift({ key: ymd(d), 名前: `${d.getUTCMonth() + 1}/${d.getUTCDate()}`, 曜日: "日月火水木金土"[w], from: ymd(d), to: ymd(d) });
       }
     }
     for (let i = 本数 - 1; i >= 0; i--) {
-      if (period === "day") {
-        continue;   // 上で作った
-      } else if (period === "week") {
+      if (period === "day") continue;
+      else if (period === "week") {
         const off = (nowJ.getUTCDay() + 6) % 7;
         const s0 = new Date(Date.UTC(y, m, d0 - off - i * 7));
         const e0 = new Date(Date.UTC(y, m, d0 - off - i * 7 + 6));
@@ -8343,60 +8338,101 @@ app.get("/api/calls/stats-grid", async (req, res) => {
       } else {
         const s0 = new Date(Date.UTC(y, m - i, 1));
         const e0 = new Date(Date.UTC(y, m - i + 1, 0));
-        区切り.push({ key: `${s0.getUTCFullYear()}-${pad(s0.getUTCMonth() + 1)}`,
-          名前: `${s0.getUTCMonth() + 1}月`, from: ymd(s0), to: ymd(e0) });
+        区切り.push({ key: `${s0.getUTCFullYear()}-${pad(s0.getUTCMonth() + 1)}`, 名前: `${s0.getUTCMonth() + 1}月`, from: ymd(s0), to: ymd(e0) });
       }
     }
 
-    // インサイドのメンバーだけ
+    const spanFrom = 区切り[0].from, spanTo = 区切り[区切り.length - 1].to;
+    const 属する = (日) => { for (const c of 区切り) if (日 >= c.from && 日 <= c.to) return c.key; return ""; };
+    const idxOf = (key) => 区切り.findIndex((c) => c.key === key);
+    const inSpan = (d) => d && d >= spanFrom && d <= spanTo;
+    const blank = () => 区切り.map(() => ({ コール: 0, 接触: 0, アポ内: 0, アポ外: 0 }));
+    const toYmd = (v) => { const s = String(v || ""); const mm = s.match(/(\d{4})[-/年.](\d{1,2})[-/月.](\d{1,2})/); return mm ? `${mm[1]}-${pad(mm[2])}-${pad(mm[3])}` : ""; };
+    const num = (v) => { const n = Number(String(v == null ? "" : v).replace(/[^\d.-]/g, "")); return isFinite(n) ? n : 0; };
+    const truthyNum = (v) => { if (typeof v === "number") return v; const n = num(v); if (n) return n; return v === true || String(v) === "1" || /true|済|有|✓|◯|○/.test(String(v || "")) ? 1 : 0; };
+
+    // メンバーと役割（closer=セールス、inside/インターン=インサイド）
     const members = await listMembers().catch(() => []);
     const internsList = await listInterns().catch(() => []);
     const internSet = new Set((internsList || []).map((x) => String(x.email || "").toLowerCase()).filter(Boolean));
-    const inside = (members || []).filter((mm) =>
-      (Array.isArray(mm.roles) && mm.roles.includes("inside")) || internSet.has(String(mm.email || "").toLowerCase()));
-    const nameOf = new Map(inside.map((mm) => [String(mm.email || "").toLowerCase(), mm.name || mm.email]));
-
-    const rows = await callStatsByDay(区切り[0].from, 区切り[区切り.length - 1].to);
-    const zeroSet = await zeroDayMDSet();
-    const 属する = (日) => {
-      for (const c of 区切り) if (日 >= c.from && 日 <= c.to) return c.key;
+    const roleOf = (mm) => {
+      const roles = Array.isArray(mm.roles) ? mm.roles : [];
+      if (roles.includes("closer")) return "sales";
+      if (roles.includes("inside") || internSet.has(String(mm.email || "").toLowerCase())) return "inside";
       return "";
     };
-    const 表 = new Map();   // email -> key -> {コール,接触,アポ}
+    const people = (members || []).map((mm) => ({ email: String(mm.email || "").toLowerCase(), name: mm.name || mm.email, role: roleOf(mm) }))
+      .filter((p) => p.email && (p.role === "sales" || p.role === "inside"));
+    const byEmail = new Map(people.map((p) => [p.email, p]));
+    const nameToEmail = new Map(people.map((p) => [String(p.name || "").replace(/[\s　]/g, ""), p.email]));
+    const emailOfName = (nm) => nameToEmail.get(String(nm || "").replace(/[\s　]/g, "")) || "";
+    const grid = new Map();
+    const ensure = (em) => { if (!grid.has(em)) grid.set(em, blank()); return grid.get(em); };
+
+    // インサイド：架電ログ（コール・接触）
+    const zeroSet = await zeroDayMDSet();
+    const rows = await callStatsByDay(spanFrom, spanTo).catch(() => []);
     for (const r of rows) {
       const em = String(r.caller || "").toLowerCase();
-      if (!nameOf.has(em)) continue;
-      if (zeroSet.has(mdKeyOf(r["日"]))) continue;   // 0にする日は数えない
-      const k = 属する(r["日"]);
-      if (!k) continue;
-      if (!表.has(em)) 表.set(em, {});
-      const o = 表.get(em);
-      if (!o[k]) o[k] = { コール: 0, 接触: 0, アポ: 0 };
-      o[k].コール += r.n;
+      const p = byEmail.get(em); if (!p || p.role !== "inside") continue;
+      if (zeroSet.has(mdKeyOf(r["日"]))) continue;
+      const i = idxOf(属する(r["日"])); if (i < 0) continue;
+      const cell = ensure(em)[i];
+      cell.コール += r.n;
       const v = String(r.result || "");
-      const 接触した = /接触|アポ|再コール|断り|見送り/.test(v) && !/不在|コールのみ|NG/.test(v);
-      const アポ = /アポ獲得/.test(v);
-      if (接触した || アポ) o[k].接触 += r.n;
-      if (アポ) o[k].アポ += r.n;
+      if (/接触|アポ|再コール|断り|見送り/.test(v) && !/不在|コールのみ|NG/.test(v)) cell.接触 += r.n;
     }
 
-    const items = inside.map((mm) => {
-      const em = String(mm.email || "").toLowerCase();
-      const o = 表.get(em) || {};
-      return {
-        誰: nameOf.get(em) || mm.email,
-        値: 区切り.map((c) => o[c.key] || { コール: 0, 接触: 0, アポ: 0 }),
-      };
-    }).filter((x) => x.値.some((v) => v.コール || v.接触 || v.アポ) || true);
+    // インサイドのアポ内/外：kinbotのアポ記録（アポ獲得日の列に入れ、商談日が表示期間内なら内・外なら外）
+    const apos = await aposTakenInRange({ from: spanFrom, to: spanTo, limit: 5000 }).catch(() => []);
+    for (const a of apos) {
+      let em = String(a.current_owner || "").toLowerCase();
+      if (!byEmail.has(em)) em = emailOfName(a.setter) || emailOfName(a.current_owner) || "";
+      const p = byEmail.get(em); if (!p || p.role !== "inside") continue;
+      const i = idxOf(属する(toYmd(a.taken_at))); if (i < 0) continue;
+      const md = toYmd(a.start_time);
+      const cell = ensure(em)[i];
+      if (md && inSpan(md)) cell.アポ内 += 1; else cell.アポ外 += 1;
+    }
 
-    // 合計の行も作る
-    const 合計 = 区切り.map((c, i) => items.reduce((a, x) => ({
-      コール: a.コール + x.値[i].コール, 接触: a.接触 + x.値[i].接触, アポ: a.アポ + x.値[i].アポ,
-    }), { コール: 0, 接触: 0, アポ: 0 }));
+    // セールス：SFレポート（コール・接触・アポ内外）。コール進捗と同じレポートを使う。
+    let sfError = "";
+    try {
+      const st = await getSettings();
+      const reportId = String(st.psReportId || "").trim();
+      const sfUser = String(st.psOwner || "").trim();
+      if (reportId && sfUser && people.some((p) => p.role === "sales")) {
+        let saved = null; try { saved = JSON.parse(st.psFilters || "null"); } catch {}
+        const report = await runReport(sfUser, reportId, saved);
+        const recs = toRecords(report);
+        for (const rec of recs) {
+          let em = String(rec.owner || "").toLowerCase();
+          if (!byEmail.has(em)) em = emailOfName(rec.owner) || "";
+          const p = byEmail.get(em); if (!p || p.role !== "sales") continue;
+          const i = idxOf(属する(toYmd(rec.date))); if (i < 0) continue;
+          const cell = ensure(em)[i];
+          cell.コール += truthyNum(rec.called);
+          cell.接触 += truthyNum(rec.contacted);
+          const ap = truthyNum(rec.appointed);
+          if (ap > 0) { const md = toYmd(rec.meetingDate); if (md && inSpan(md)) cell.アポ内 += ap; else cell.アポ外 += ap; }
+        }
+      } else if (!reportId) sfError = "SFレポート未設定（セールスの実績は空になります）";
+    } catch (e) { sfError = "SFレポートを読めませんでした：" + e.message; console.warn("[実績]", sfError); }
 
-    // いまの日（週・月）がどれかを教える
+    const membersOut = people.map((p) => ({ 誰: p.name, email: p.email, role: p.role, 値: grid.get(p.email) || blank() }));
+    const sumArr = (arr) => 区切り.map((c, i) => arr.reduce((a, x) => ({
+      コール: a.コール + x.値[i].コール, 接触: a.接触 + x.値[i].接触, アポ内: a.アポ内 + x.値[i].アポ内, アポ外: a.アポ外 + x.値[i].アポ外,
+    }), { コール: 0, 接触: 0, アポ内: 0, アポ外: 0 }));
+    const salesM = membersOut.filter((x) => x.role === "sales");
+    const insideM = membersOut.filter((x) => x.role === "inside");
+    const totals = { sales: sumArr(salesM), inside: sumArr(insideM), group: sumArr(membersOut) };
+
+    // 後方互換（旧UI）：inside のみ items/合計、アポ=内+外
+    const items = insideM.map((x) => ({ 誰: x.誰, 値: x.値.map((v) => ({ コール: v.コール, 接触: v.接触, アポ: v.アポ内 + v.アポ外 })) }));
+    const 合計 = totals.inside.map((v) => ({ コール: v.コール, 接触: v.接触, アポ: v.アポ内 + v.アポ外 }));
+
     const 今 = 区切り.length ? 区切り[区切り.length - 1].key : "";
-    res.json({ ok: true, period, 区切り, items, 合計, 今 });
+    res.json({ ok: true, period, 区切り, 今, members: membersOut, totals, sfError, items, 合計 });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
@@ -15503,7 +15539,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-03a AI社員ページの上部の小ロボ帯(topbar)を撤去し、緑のキツツキヘッダーを最上部に表示。デスクトップはtopbar非表示、スマホはメニューボタン用に器だけ残す。前回：AI社員ページ刷新";
+const BUILD_TAG = "2026-09-03b kincall実績を全体/個別＋アポ内外に拡張。全体＝グループ/セールス/インサイド、個別＝メンバー全員（セールスはSFレポート＝コール進捗と同じrunReport/toRecordsから、ISは架電ログ）。日/週/月。アポ獲得は商談日(セールス=SF商談日, IS=アポ記録start_time)で期間内/外に分割し内/外/両方で切替。stats-gridを拡張（members/totals/アポ内外、旧items/合計も残置）。前回：AI社員ヘッダー";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
