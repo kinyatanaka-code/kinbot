@@ -8360,6 +8360,22 @@ app.get("/api/calls/stats-grid", async (req, res) => {
       if (apoMode2 === "days") return d >= todayJ && d <= winTo;
       return d >= spanFrom && d <= spanTo;
     };
+    // 月ごと表示のときは、各列（その月）の設定範囲で内/外を判定する（無ければ月初〜月末）。
+    let monthWin = {};
+    try { monthWin = JSON.parse(stCfg.apoMonthWindows || "{}") || {}; } catch { monthWin = {}; }
+    const monthRange = (key) => {
+      const w = monthWin[key];
+      if (w && w.from && w.to) return [w.from, w.to];
+      const [Y, M] = String(key).split("-").map((x) => parseInt(x, 10));
+      if (!Y || !M) return [spanFrom, spanTo];
+      const last = new Date(Date.UTC(Y, M, 0));
+      return [`${Y}-${pad(M)}-01`, `${last.getUTCFullYear()}-${pad(last.getUTCMonth() + 1)}-${pad(last.getUTCDate())}`];
+    };
+    const isInFor = (colKey, md) => {
+      if (!md) return true;
+      if (period === "month") { const [f, t] = monthRange(colKey); return md >= f && md <= t; }
+      return inSpan(md);
+    };
     const blank = () => 区切り.map(() => ({ コール: 0, 接触: 0, アポ内: 0, アポ外: 0 }));
     const toYmd = (v) => { const s = String(v || ""); const mm = s.match(/(\d{4})[-/年.](\d{1,2})[-/月.](\d{1,2})/); return mm ? `${mm[1]}-${pad(mm[2])}-${pad(mm[3])}` : ""; };
     const num = (v) => { const n = Number(String(v == null ? "" : v).replace(/[^\d.-]/g, "")); return isFinite(n) ? n : 0; };
@@ -8412,7 +8428,7 @@ app.get("/api/calls/stats-grid", async (req, res) => {
       const p = byEmail.get(em); if (!p) continue;
       const i = idxOf(属する(toYmd(a.taken_at))); if (i < 0) continue;
       const md = toYmd(a.start_time);
-      const 内 = (!md || inSpan(md));   // 商談日が分からなければ期間内に寄せる
+      const 内 = isInFor(区切り[i] && 区切り[i].key, md);   // 月ごとはその列の月の範囲で判定
       if (p.role === "inside") {
         const cell = ensure(em)[i];
         if (内) cell.アポ内 += 1; else cell.アポ外 += 1;
@@ -8473,16 +8489,30 @@ app.get("/api/calls/stats-grid", async (req, res) => {
 app.get("/api/calls/apo-window", async (req, res) => {
   try {
     const st = await getSettings().catch(() => ({}));
-    res.json({ ok: true, mode: String(st.apoInWindowMode || "span") === "days" ? "days" : "span", days: Math.max(0, Math.min(365, Number(st.apoInWindowDays ?? 14))) });
+    let months = {};
+    try { months = JSON.parse(st.apoMonthWindows || "{}") || {}; } catch {}
+    res.json({ ok: true, mode: String(st.apoInWindowMode || "span") === "days" ? "days" : "span", days: Math.max(0, Math.min(365, Number(st.apoInWindowDays ?? 14))), months });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 app.put("/api/calls/apo-window", async (req, res) => {
   try {
-    const mode = String(req.body?.mode || "span") === "days" ? "days" : "span";
-    const days = Math.max(0, Math.min(365, parseInt(req.body?.days, 10) || 14));
-    await saveSettings({ apoInWindowMode: mode, apoInWindowDays: days });
-    console.log(`[実績] アポ内外の基準を ${mode}${mode === "days" ? `（${days}日）` : ""} にしました by ${req.user}`);
-    res.json({ ok: true, mode, days });
+    const patch = {};
+    if ("mode" in (req.body || {})) patch.apoInWindowMode = String(req.body.mode) === "days" ? "days" : "span";
+    if ("days" in (req.body || {})) patch.apoInWindowDays = Math.max(0, Math.min(365, parseInt(req.body.days, 10) || 14));
+    if ("months" in (req.body || {})) {
+      // { "2026-08": {from:"2026-08-10", to:"2026-09-04"}, ... } を掃除して保存
+      const out = {};
+      const m = req.body.months || {};
+      for (const k of Object.keys(m)) {
+        if (!/^\d{4}-\d{2}$/.test(k)) continue;
+        const f = String(m[k]?.from || ""), t = String(m[k]?.to || "");
+        if (/^\d{4}-\d{2}-\d{2}$/.test(f) && /^\d{4}-\d{2}-\d{2}$/.test(t) && f <= t) out[k] = { from: f, to: t };
+      }
+      patch.apoMonthWindows = JSON.stringify(out);
+    }
+    await saveSettings(patch);
+    console.log(`[実績] アポ内外の基準を更新 by ${req.user}`);
+    res.json({ ok: true });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
@@ -15674,7 +15704,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-03n 【点検用・一時】GET /api/calls/_apodiag を追加。インサイドのアポ0の原因調査：期間内のアポ一覧(smart_links)の setter/setter_email/current_owner とメンバー突合の結果・件数を返す。前回：実績にリスト別タブ";
+const BUILD_TAG = "2026-09-03o 実績「月ごと」の期間内を、各月ごとに日付範囲で設定可能に（例：8月=8/10〜9/4）。設定 apoMonthWindows(JSON) を追加、/api/calls/apo-window で保存/取得。実績は月ごと表示のとき、各列の月の設定範囲（無ければ月初〜末日）で内/外を判定（isInFor）。設定画面に月ごとの範囲入力欄を追加。前回：リスト別＋点検API";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",

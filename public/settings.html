@@ -10,7 +10,7 @@
     <link rel="manifest" href="/site.webmanifest" />
     <meta name="theme-color" content="#0d5b47" />
     <meta name="apple-mobile-web-app-title" content="kinbot" />
-    <link rel="stylesheet" href="style.css?v=20260903m" />
+    <link rel="stylesheet" href="style.css?v=20260903o" />
   </head>
   <body>
     <div class="app">
@@ -64,6 +64,15 @@
               <div class="modal-actions">
                 <button class="btn" id="apoWinSave">保存</button>
                 <span class="saved" id="apoWinMsg" hidden>保存しました</span>
+              </div>
+
+              <h4 class="ap-rot-h" style="margin-top:16px">月ごとの「期間内」の範囲（月ごと表示のとき）</h4>
+              <p class="note">実績を「月ごと」で見るとき、各月の“期間内”を日付で指定できます（例：8月＝8/10〜9/4）。設定しない月は「その月の1日〜末日」になります。土日などの隙間・重なりはそのままでOKです。</p>
+              <div id="apoMonthRows"></div>
+              <div class="modal-actions">
+                <button class="btn ghost" id="apoMonthAdd" type="button">＋ 月を追加</button>
+                <button class="btn" id="apoMonthSave" type="button">月ごとの範囲を保存</button>
+                <span class="saved" id="apoMonthMsg" hidden>保存しました</span>
               </div>
             </div>
 
@@ -798,8 +807,8 @@ curl -H "Authorization: Bearer <span class="cc-tok">&lt;トークン&gt;</span>"
         </main>
       </div>
     </div>
-    <script src="settings.js?v=20260903m"></script>
-      <script src="nav.js?v=20260903m"></script>
+    <script src="settings.js?v=20260903o"></script>
+      <script src="nav.js?v=20260903o"></script>
     <script src="/cmdk.js?v=20260827a"></script>
 </body>
 </html>

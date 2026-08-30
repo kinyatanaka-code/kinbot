@@ -3007,17 +3007,44 @@ if (document.getElementById("sfProxy")) {
   const daysRow = document.getElementById("apoWinDaysRow");
   const saveBtn = document.getElementById("apoWinSave");
   const msg = document.getElementById("apoWinMsg");
+  const monthWrap = document.getElementById("apoMonthRows");
+  const monthAdd = document.getElementById("apoMonthAdd");
+  const monthSave = document.getElementById("apoMonthSave");
+  const monthMsg = document.getElementById("apoMonthMsg");
   if (!modeEl || !daysEl || !saveBtn) return;
   const syncRow = () => { if (daysRow) daysRow.style.display = modeEl.value === "days" ? "" : "none"; };
+
+  const monthRow = (key, from, to) => {
+    const div = document.createElement("div");
+    div.className = "apo-month-row";
+    div.style.cssText = "display:flex;gap:8px;align-items:center;margin:4px 0;flex-wrap:wrap;";
+    div.innerHTML =
+      `<input type="month" class="am-key" value="${key || ""}" style="width:130px" /> ：` +
+      `<input type="date" class="am-from" value="${from || ""}" /> <span>〜</span> ` +
+      `<input type="date" class="am-to" value="${to || ""}" /> ` +
+      `<button type="button" class="btn ghost am-del" style="padding:4px 10px">削除</button>`;
+    div.querySelector(".am-del").addEventListener("click", () => div.remove());
+    return div;
+  };
+
   (async () => {
     try {
       const d = await (await fetch("/api/calls/apo-window")).json();
       modeEl.value = d.mode === "days" ? "days" : "span";
       daysEl.value = d.days != null ? d.days : 14;
+      const months = d.months || {};
+      const keys = Object.keys(months).sort();
+      if (monthWrap) {
+        monthWrap.innerHTML = "";
+        if (!keys.length) monthWrap.appendChild(monthRow("", "", ""));
+        else keys.forEach((k) => monthWrap.appendChild(monthRow(k, months[k].from, months[k].to)));
+      }
     } catch {}
     syncRow();
   })();
   modeEl.addEventListener("change", syncRow);
+  if (monthAdd && monthWrap) monthAdd.addEventListener("click", () => monthWrap.appendChild(monthRow("", "", "")));
+
   saveBtn.addEventListener("click", async () => {
     saveBtn.disabled = true;
     try {
@@ -3030,5 +3057,25 @@ if (document.getElementById("sfProxy")) {
       if (msg) { msg.hidden = false; setTimeout(() => (msg.hidden = true), 4000); }
     } catch (e) { alert("保存できませんでした：" + e.message); }
     finally { saveBtn.disabled = false; }
+  });
+
+  if (monthSave && monthWrap) monthSave.addEventListener("click", async () => {
+    const months = {};
+    monthWrap.querySelectorAll(".apo-month-row").forEach((row) => {
+      const key = row.querySelector(".am-key").value;   // "YYYY-MM"
+      const from = row.querySelector(".am-from").value;
+      const to = row.querySelector(".am-to").value;
+      if (/^\d{4}-\d{2}$/.test(key) && from && to) months[key] = { from, to };
+    });
+    monthSave.disabled = true;
+    try {
+      const r = await fetch("/api/calls/apo-window", {
+        method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ months }),
+      });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.error || "保存できませんでした");
+      if (monthMsg) { monthMsg.hidden = false; setTimeout(() => (monthMsg.hidden = true), 4000); }
+    } catch (e) { alert("保存できませんでした：" + e.message); }
+    finally { monthSave.disabled = false; }
   });
 })();
