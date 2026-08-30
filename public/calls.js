@@ -1299,8 +1299,8 @@ function renderStats(d) {
         ${率行("接触→アポ率", "アポ", "接触")}
         ${率行("コール→アポ率", "アポ", "コール")}
       </table>`;
-    return `<div class="kc-g-block${cls || ""}">
-      <button type="button" class="kc-g-title" aria-expanded="true">
+    return `<div class="kc-g-block${cls || ""}${o.collapsed ? " kc-g-collapsed" : ""}">
+      <button type="button" class="kc-g-title" aria-expanded="${o.collapsed ? "false" : "true"}">
         <span class="kc-g-chev">${chev}</span>
         <span class="kc-g-tname">${esc(名前)}</span>
         <span class="kc-g-tsum">${sum}</span>
@@ -1324,7 +1324,7 @@ function renderStats(d) {
       if (!arr.length) return "";
       const ある = arr.filter(has), ない = arr.filter((x) => !has(x));
       const inner = 表("＜チーム合計＞", 合計値 || [], " kc-g-team") +
-        ある.map((x) => 表(x["誰"], x["値"], " kc-mem")).join("");
+        ある.map((x) => 表(x["誰"], x["値"], " kc-mem", { collapsed: true })).join("");
       return `<div class="kc-bigcard">
         <div class="kc-bigcard-h">${esc(title)}<span class="kc-bigcard-c">${arr.length}名</span></div>
         <div class="kc-bigcard-body">${inner}</div>
