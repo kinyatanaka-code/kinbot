@@ -1215,8 +1215,6 @@ function openEdit(id) {
 // ───────── 実績（日・週・月） ─────────
 let statsPeriod = "day";
 let statsScope = "all";   // all=全体（グループ/セールス/インサイド）, each=個別（メンバー全員）
-let apoMode = "both";     // both/in/out（アポ獲得の期間内・期間外）
-function pickApo(v) { return apoMode === "in" ? (v.アポ内 || 0) : apoMode === "out" ? (v.アポ外 || 0) : ((v.アポ内 || 0) + (v.アポ外 || 0)); }
 
 async function loadStats() {
   const box = $("clStats");
@@ -1240,11 +1238,10 @@ async function loadStats() {
       `<th class="kc-g-h kc-g-tot">合計</th></tr>`;
     const chev = '<svg viewBox="0 0 20 20" width="13" height="13" aria-hidden="true"><path d="M6 8l4 4 4-4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>';
     const pct = (a, b) => (b ? (a / b * 100).toFixed(1) + "%" : "—");
-    const apoLabel = apoMode === "in" ? "アポ（期間内）" : apoMode === "out" ? "アポ（期間外）" : "アポ";
 
     const 表 = (名前, 値0, cls) => {
-      // 値0 は {コール,接触,アポ内,アポ外}。表示用に アポ を apoMode で決める。
-      const 値 = 値0.map((v) => ({ コール: v.コール || 0, 接触: v.接触 || 0, アポ: pickApo(v), アポ内: v.アポ内 || 0, アポ外: v.アポ外 || 0 }));
+      // 値0 は {コール,接触,アポ内,アポ外}。アポ合計＝内＋外。
+      const 値 = 値0.map((v) => ({ コール: v.コール || 0, 接触: v.接触 || 0, アポ内: v.アポ内 || 0, アポ外: v.アポ外 || 0, アポ: (v.アポ内 || 0) + (v.アポ外 || 0) }));
       const 計 = (key) => 値.reduce((a, v) => a + (v[key] || 0), 0);
       const 行 = (lb, key, rcls) =>
         `<tr class="${rcls || ""}"><td class="kc-g-name">${esc(lb)}</td>` +
@@ -1256,10 +1253,6 @@ async function loadStats() {
         `<td class="kc-g-n kc-g-tot">${pct(計(an), 計(bn))}</td></tr>`;
       const tc = 計("コール");
       const sum = `コール ${tc}｜接触率 ${pct(計("接触"), tc)}｜アポ率 ${pct(計("アポ"), tc)}`;
-      const apoRows = 行(apoLabel, "アポ", "kc-g-apo") +
-        (apoMode === "both" ? `<tr class="kc-g-sub"><td class="kc-g-name">└ 期間内 / 期間外</td>` +
-          値.map((v, i) => `<td class="kc-g-n${いま(区切り[i])}">${v.アポ内} / ${v.アポ外}</td>`).join("") +
-          `<td class="kc-g-n kc-g-tot">${計("アポ内")} / ${計("アポ外")}</td></tr>` : "");
       return `<div class="kc-g-block${cls || ""}">
         <button type="button" class="kc-g-title" aria-expanded="true">
           <span class="kc-g-chev">${chev}</span>
@@ -1271,7 +1264,8 @@ async function loadStats() {
             ${頭}
             ${行("コール", "コール")}
             ${行("接触", "接触")}
-            ${apoRows}
+            ${行("アポ（期間内）", "アポ内", "kc-g-apo")}
+            ${行("アポ（期間外）", "アポ外")}
             ${率行("コール→接触率", "接触", "コール", true)}
             ${率行("接触→アポ率", "アポ", "接触")}
             ${率行("コール→アポ率", "アポ", "コール")}
@@ -1361,9 +1355,9 @@ if ($("stPeriod")) {
     b.addEventListener("click", () => {
       statsPeriod = b.dataset.period || "day";
       $("stPeriod").querySelectorAll(".kc-ptab").forEach((x) => x.classList.toggle("active", x === b));
-      // メンバー別の分析のときは、全体/個別・アポトグルは効かない
+      // メンバー別の分析のときは、全体/個別は効かない
       const off = statsPeriod === "analysis";
-      ["stScope", "stApo"].forEach((id) => { const e = $(id); if (e) e.style.opacity = off ? "0.4" : "1"; });
+      const sc = $("stScope"); if (sc) sc.style.opacity = off ? "0.4" : "1";
       loadStats();
     }));
 }
@@ -1372,14 +1366,6 @@ if ($("stScope")) {
     b.addEventListener("click", () => {
       statsScope = b.dataset.scope || "all";
       $("stScope").querySelectorAll(".kc-ptab").forEach((x) => x.classList.toggle("active", x === b));
-      loadStats();
-    }));
-}
-if ($("stApo")) {
-  $("stApo").querySelectorAll(".kc-ptab").forEach((b) =>
-    b.addEventListener("click", () => {
-      apoMode = b.dataset.apo || "both";
-      $("stApo").querySelectorAll(".kc-ptab").forEach((x) => x.classList.toggle("active", x === b));
       loadStats();
     }));
 }

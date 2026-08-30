@@ -4687,7 +4687,7 @@ function toRecords(report) {
     called: pickCol(cols, "架電数", "架電"),
     contacted: pickCol(cols, "接触済", "接触"),
     appointed: pickCol(cols, "アポ獲得", "アポ"),
-    meeting: pickCol(cols, "商談日", "初回訪問", "面談日"),
+    meeting: pickCol(cols, "商談日", "初回商談日", "初回訪問", "面談日", "訪問日", "アポ日", "実施日", "商談予定日", "面談予定日", "商談実施日"),
   };
   const missing = ["date", "called"].filter((k) => at[k] < 0);
   if (missing.length) {
@@ -8392,7 +8392,8 @@ app.get("/api/calls/stats-grid", async (req, res) => {
       const i = idxOf(属する(toYmd(a.taken_at))); if (i < 0) continue;
       const md = toYmd(a.start_time);
       const cell = ensure(em)[i];
-      if (md && inSpan(md)) cell.アポ内 += 1; else cell.アポ外 += 1;
+      // 商談日が分かれば期間内/外で判定。分からない（空）ときは期間内に入れる（全部外に落ちるのを防ぐ）。
+      if (!md || inSpan(md)) cell.アポ内 += 1; else cell.アポ外 += 1;
     }
 
     // セールス：SFレポート（コール・接触・アポ内外）。コール進捗と同じレポートを使う。
@@ -8414,7 +8415,7 @@ app.get("/api/calls/stats-grid", async (req, res) => {
           cell.コール += truthyNum(rec.called);
           cell.接触 += truthyNum(rec.contacted);
           const ap = truthyNum(rec.appointed);
-          if (ap > 0) { const md = toYmd(rec.meetingDate); if (md && inSpan(md)) cell.アポ内 += ap; else cell.アポ外 += ap; }
+          if (ap > 0) { const md = toYmd(rec.meetingDate); if (!md || inSpan(md)) cell.アポ内 += ap; else cell.アポ外 += ap; }
         }
       } else if (!reportId) sfError = "SFレポート未設定（セールスの実績は空になります）";
     } catch (e) { sfError = "SFレポートを読めませんでした：" + e.message; console.warn("[実績]", sfError); }
@@ -15539,7 +15540,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-03d 実績タブの段組みを明確化：上段＝全体/個別＋アポ獲得トグル（横並び）、下段＝日ごと/週ごと/月ごと/メンバー別。前回：ヘッダーを実績に切替";
+const BUILD_TAG = "2026-09-03e 実績：アポ獲得トグルを廃止し、アポ行を常に「期間内」「期間外」の2行で表示。全部が期間外になる問題を緩和：商談日が空のとき（列が拾えない/未設定）は期間内に寄せる。セールスの商談日列の判定語を拡充（商談日/初回商談日/面談日/訪問日/実施日/商談予定日等）。前回：実績タブの段組み";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
