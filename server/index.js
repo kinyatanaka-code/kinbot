@@ -8383,17 +8383,28 @@ app.get("/api/calls/stats-grid", async (req, res) => {
       if (/接触|アポ|再コール|断り|見送り/.test(v) && !/不在|コールのみ|NG/.test(v)) cell.接触 += r.n;
     }
 
-    // インサイドのアポ内/外：kinbotのアポ記録（アポ獲得日の列に入れ、商談日が表示期間内なら内・外なら外）
+    // アポの内/外は「アポ一覧（smart-link）の商談日 start_time＝カレンダー」で判定する（獲得者 setter 基準）。
+    // インサイドはアポ一覧をそのまま件数化。セールスは件数はSFレポート、内/外の比率だけここで出して後で按分する。
     const apos = await aposTakenInRange({ from: spanFrom, to: spanTo, limit: 5000 }).catch(() => []);
+    const salesRatio = new Map();   // email -> [{in,total} per 区切り]
+    const setterEmail = (a) => {
+      let em = String(a.setter || "").toLowerCase();
+      if (byEmail.has(em)) return em;
+      return emailOfName(a.setter) || "";
+    };
     for (const a of apos) {
-      let em = String(a.current_owner || "").toLowerCase();
-      if (!byEmail.has(em)) em = emailOfName(a.setter) || emailOfName(a.current_owner) || "";
-      const p = byEmail.get(em); if (!p || p.role !== "inside") continue;
+      const em = setterEmail(a);
+      const p = byEmail.get(em); if (!p) continue;
       const i = idxOf(属する(toYmd(a.taken_at))); if (i < 0) continue;
       const md = toYmd(a.start_time);
-      const cell = ensure(em)[i];
-      // 商談日が分かれば期間内/外で判定。分からない（空）ときは期間内に入れる（全部外に落ちるのを防ぐ）。
-      if (!md || inSpan(md)) cell.アポ内 += 1; else cell.アポ外 += 1;
+      const 内 = (!md || inSpan(md));   // 商談日が分からなければ期間内に寄せる
+      if (p.role === "inside") {
+        const cell = ensure(em)[i];
+        if (内) cell.アポ内 += 1; else cell.アポ外 += 1;
+      } else if (p.role === "sales") {
+        if (!salesRatio.has(em)) salesRatio.set(em, 区切り.map(() => ({ in: 0, total: 0 })));
+        const r = salesRatio.get(em)[i]; r.total += 1; if (内) r.in += 1;
+      }
     }
 
     // セールス：SFレポート（コール・接触・アポ内外）。コール進捗と同じレポートを使う。
@@ -8415,7 +8426,13 @@ app.get("/api/calls/stats-grid", async (req, res) => {
           cell.コール += truthyNum(rec.called);
           cell.接触 += truthyNum(rec.contacted);
           const ap = truthyNum(rec.appointed);
-          if (ap > 0) { const md = toYmd(rec.meetingDate); if (!md || inSpan(md)) cell.アポ内 += ap; else cell.アポ外 += ap; }
+          if (ap > 0) {
+            // 件数はSFレポート。内/外はアポ一覧（カレンダー商談日）の比率で按分。引き当て無しは期間内。
+            const rr = (salesRatio.get(em) || [])[i];
+            const ratioIn = rr && rr.total ? rr.in / rr.total : 1;
+            const inN = Math.round(ap * ratioIn);
+            cell.アポ内 += inN; cell.アポ外 += (ap - inN);
+          }
         }
       } else if (!reportId) sfError = "SFレポート未設定（セールスの実績は空になります）";
     } catch (e) { sfError = "SFレポートを読めませんでした：" + e.message; console.warn("[実績]", sfError); }
@@ -15540,7 +15557,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-03e 実績：アポ獲得トグルを廃止し、アポ行を常に「期間内」「期間外」の2行で表示。全部が期間外になる問題を緩和：商談日が空のとき（列が拾えない/未設定）は期間内に寄せる。セールスの商談日列の判定語を拡充（商談日/初回商談日/面談日/訪問日/実施日/商談予定日等）。前回：実績タブの段組み";
+const BUILD_TAG = "2026-09-03f 実績のアポ内/外を、アポ一覧（smart-linkのstart_time＝カレンダー商談日）で判定（獲得者setter基準）。案A：セールスのアポ件数はSFレポートのまま、内/外の比率だけ同setterのアポ一覧の商談日から出して按分（引き当て無し＝期間内）。インサイドはアポ一覧をsetter基準で件数化し内/外。前回：アポトグル廃止・全部期間外の緩和";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
