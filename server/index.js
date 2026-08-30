@@ -8591,6 +8591,43 @@ app.put("/api/calls/apo-window", async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+// 【点検用・一時】設定数の重複を確認：会社名×商談日で複数ある予定を洗い出す。
+app.get("/api/calls/_apodup", async (req, res) => {
+  try {
+    if (!req.isAdmin && !(await isCloserUser(req.user))) return res.status(403).json({ error: "権限なし" });
+    const pad = (n) => String(n).padStart(2, "0");
+    const nowJ = new Date(Date.now() + 9 * 3600 * 1000);
+    const monthQ = /^\d{4}-\d{2}$/.test(String(req.query.month || "")) ? String(req.query.month) : `${nowJ.getUTCFullYear()}-${pad(nowJ.getUTCMonth() + 1)}`;
+    const [Y, M] = monthQ.split("-").map((x) => parseInt(x, 10));
+    const st = await getSettings().catch(() => ({}));
+    let monthWin = {}; try { monthWin = JSON.parse(st.apoMonthWindows || "{}") || {}; } catch {}
+    let from, to;
+    if (monthWin[monthQ] && monthWin[monthQ].from && monthWin[monthQ].to) { from = monthWin[monthQ].from; to = monthWin[monthQ].to; }
+    else { const last = new Date(Date.UTC(Y, M, 0)); from = `${Y}-${pad(M)}-01`; to = `${last.getUTCFullYear()}-${pad(last.getUTCMonth() + 1)}-${pad(last.getUTCDate())}`; }
+    const ymdJst = (v) => { if (!v) return ""; const d = new Date(v); if (isNaN(d.getTime())) return String(v).slice(0, 10); const j = new Date(d.getTime() + 9 * 3600000); return `${j.getUTCFullYear()}-${pad(j.getUTCMonth() + 1)}-${pad(j.getUTCDate())}`; };
+    const 対象タイトル = (t) => { const s = String(t || ""); return /【\s*初回\s*】/.test(s) || /【\s*新\s*[\/／]\s*ヒ\s*】/.test(s) || /メルマガ/.test(s); };
+    const apos = (await aposByMeetingDate(from, to).catch(() => [])).filter((a) => 対象タイトル(a.label));
+    const groups = new Map();  // 会社|商談日 -> [予定...]
+    for (const a of apos) {
+      const co = normCompanyKey(companyFromTitle(a.label || "") || "");
+      const md = ymdJst(a.start_time);
+      const k = `${co}|${md}`;
+      if (!groups.has(k)) groups.set(k, []);
+      groups.get(k).push({ slug: a.slug, title: a.label, 商談日: md, current_owner: a.current_owner, setter: a.setter });
+    }
+    const dupGroups = [...groups.entries()].filter(([, v]) => v.length > 1);
+    const 重複でダブっている件数 = dupGroups.reduce((n, [, v]) => n + (v.length - 1), 0);
+    res.json({
+      month: monthQ, from, to,
+      対象予定の総数: apos.length,
+      ユニーク件数_会社x商談日: groups.size,
+      重複でダブっている件数,
+      重複グループ数: dupGroups.length,
+      重複の例: dupGroups.slice(0, 20).map(([k, v]) => ({ キー: k, 件数: v.length, 予定: v.map((x) => ({ title: x.title, current_owner: x.current_owner, setter: x.setter })) })),
+    });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 // プロセス：クローザーごとの、その月の「設定数（アポ予定）」と「実施数（記録あり商談）」。
 // grain=week のときは、全体（合計）の週ごとを返す。
 app.get("/api/calls/process", async (req, res) => {
@@ -15934,7 +15971,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-04d プロセス週ごと：週の行をクリックすると日ごと（各日の設定数/実施数/実施率）に展開。/api/calls/process?grain=day&from=&to= を追加（週のfrom〜toを1日ずつ全体合計）。前回：プロセス案B・週の月指定";
+const BUILD_TAG = "2026-09-04e 【点検用・一時】GET /api/calls/_apodup 追加：設定数の重複確認（会社名×商談日で複数ある対象予定を洗い出し、総数/ユニーク数/ダブり件数/重複グループ例を返す）。?month=YYYY-MM。前回：プロセス週→日展開";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
