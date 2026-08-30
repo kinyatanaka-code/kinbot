@@ -8607,28 +8607,27 @@ app.get("/api/calls/process", async (req, res) => {
     const closers = new Map();
     for (const mm of members) { const em = String(mm.email || "").toLowerCase(); if ((Array.isArray(mm.roles) && mm.roles.includes("closer")) && em) closers.set(em, mm.name || mm.email); }
 
-    // 記録あり商談（実施）を、初回タイトルに限定して 会社名|商談日 → 実施した人(owner) のMapにする。
-    // 実施＝実際に商談した記録（録音/文字起こしあり）。担当＝その記録の owner（＝実施した人）。
+    // 記録あり商談（実施の突合用）：初回タイトルの録音あり商談を 会社名|商談日 の集合にする。
     const buildDone = async (from, to) => {
       const meetings = await listMeetings({ isAdmin: true, from, to, limit: 2000, light: true }).catch(() => []);
-      const map = new Map();  // 会社|商談日 -> owner(email)
+      const set = new Set();
       for (const m of meetings) {
         if (!対象タイトル(m.title || "")) continue;
         const co = normCompanyKey(companyFromTitle(m.title || "") || m.account || "");
         const day = ymdJst(m.created_at);
-        if (!co || !day) continue;
-        const k = `${co}|${day}`;
-        if (!map.has(k)) map.set(k, String(m.owner || "").toLowerCase());
+        if (co && day) set.add(`${co}|${day}`);
       }
-      return map;
+      return set;
     };
-    // 1区切りぶんの「全体合計 設定/実施」。設定＝会社×商談日でユニークな初回商談、実施＝記録のある初回商談（ユニーク）。
+    // 1区切りぶんの「全体合計 設定/実施」。設定＝会社×商談日でユニークな初回商談、実施＝そのうち記録があるもの（内数）。
     const countRange = async (from, to) => {
       const done = await buildDone(from, to);
       const apos = await aposByMeetingDate(from, to).catch(() => []);
       const uniq = new Set();
       for (const a of apos) { if (!対象タイトル(a.label)) continue; uniq.add(`${normCompanyKey(companyFromTitle(a.label || "") || "")}|${ymdJst(a.start_time)}`); }
-      return { 設定: uniq.size, 実施: done.size };
+      let 設定 = 0, 実施 = 0;
+      for (const key of uniq) { 設定 += 1; if (done.has(key)) 実施 += 1; }
+      return { 設定, 実施 };
     };
     // 月の範囲を決める（設定・管理の月ごと範囲があればそれ、無ければ暦の月）
     const monthRange = (mkey) => {
@@ -8697,20 +8696,71 @@ app.get("/api/calls/process", async (req, res) => {
     }
     const stat = new Map();
     const ensure = (b) => { if (!stat.has(b)) stat.set(b, { 設定: 0, 実施: 0 }); return stat.get(b); };
-    // 設定数：予定の担当ごと
-    for (const owner of uniqSet.values()) { ensure(closers.has(owner) ? owner : "__other__").設定 += 1; }
-    // 実施数：商談記録の担当（実施した人）ごと
-    for (const owner of done.values()) { ensure(closers.has(owner) ? owner : "__other__").実施 += 1; }
+    for (const [key, owner] of uniqSet) {
+      const bucket = closers.has(owner) ? owner : "__other__";
+      const s = ensure(bucket); s.設定 += 1;
+      if (done.has(key)) s.実施 += 1;   // 設定の内数（記録あり）
+    }
     const items = [...closers.entries()].map(([em, name]) => {
       const s = stat.get(em) || { 設定: 0, 実施: 0 };
       return { 誰: name, email: em, 設定数: s.設定, 実施数: s.実施, 実施率: s.設定 ? (s.実施 / s.設定 * 100).toFixed(1) + "%" : "—" };
-    }).sort((a, b) => (b.設定数 + b.実施数) - (a.設定数 + a.実施数));
+    }).sort((a, b) => b.設定数 - a.設定数);
     const other = stat.get("__other__");
     if (other && (other.設定 || other.実施)) {
       items.push({ 誰: "その他（インサイド・未定）", email: "", 設定数: other.設定, 実施数: other.実施, 実施率: other.設定 ? (other.実施 / other.設定 * 100).toFixed(1) + "%" : "—" });
     }
-    const 合計 = { 設定数: uniqSet.size, 実施数: done.size };
+    const 合計 = items.reduce((a, x) => ({ 設定数: a.設定数 + x.設定数, 実施数: a.実施数 + x.実施数 }), { 設定数: 0, 実施数: 0 });
     res.json({ ok: true, grain: "month", month, from, to, items, 合計: { ...合計, 実施率: 合計.設定数 ? (合計.実施数 / 合計.設定数 * 100).toFixed(1) + "%" : "—" } });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// 【点検用・一時】設定数の担当割り当てを確認：初回商談(会社×商談日ユニーク)を current_owner でどう振り分けているか。
+app.get("/api/calls/_setdiag", async (req, res) => {
+  try {
+    if (!req.isAdmin && !(await isCloserUser(req.user))) return res.status(403).json({ error: "権限なし" });
+    const pad = (n) => String(n).padStart(2, "0");
+    const nowJ = new Date(Date.now() + 9 * 3600 * 1000);
+    const monthQ = /^\d{4}-\d{2}$/.test(String(req.query.month || "")) ? String(req.query.month) : `${nowJ.getUTCFullYear()}-${pad(nowJ.getUTCMonth() + 1)}`;
+    const [Y, M] = monthQ.split("-").map((x) => parseInt(x, 10));
+    const st = await getSettings().catch(() => ({}));
+    let monthWin = {}; try { monthWin = JSON.parse(st.apoMonthWindows || "{}") || {}; } catch {}
+    let from, to;
+    if (monthWin[monthQ] && monthWin[monthQ].from && monthWin[monthQ].to) { from = monthWin[monthQ].from; to = monthWin[monthQ].to; }
+    else { const last = new Date(Date.UTC(Y, M, 0)); from = `${Y}-${pad(M)}-01`; to = `${last.getUTCFullYear()}-${pad(last.getUTCMonth() + 1)}-${pad(last.getUTCDate())}`; }
+    const ymdJst = (v) => { if (!v) return ""; const d = new Date(v); if (isNaN(d.getTime())) return String(v).slice(0, 10); const j = new Date(d.getTime() + 9 * 3600000); return `${j.getUTCFullYear()}-${pad(j.getUTCMonth() + 1)}-${pad(j.getUTCDate())}`; };
+    const 対象タイトル = (t) => { const s = String(t || ""); return /【\s*初回\s*】/.test(s) || /【\s*新\s*[\/／]\s*ヒ\s*】/.test(s) || /メルマガ/.test(s); };
+    const members = await listMembers().catch(() => []);
+    const roleOfEmail = new Map();
+    const nameOfEmail = new Map();
+    for (const mm of members) { const em = String(mm.email || "").toLowerCase(); if (!em) continue; nameOfEmail.set(em, mm.name || em); const roles = Array.isArray(mm.roles) ? mm.roles : []; roleOfEmail.set(em, roles.includes("closer") ? "closer" : (roles.includes("inside") ? "inside" : "")); }
+
+    const apos = (await aposByMeetingDate(from, to).catch(() => [])).filter((a) => 対象タイトル(a.label));
+    // 会社×商談日でユニーク（先勝ち。owner候補も残す）
+    const uniq = new Map();  // key -> {owners:Set, sample}
+    for (const a of apos) {
+      const key = `${normCompanyKey(companyFromTitle(a.label || "") || "")}|${ymdJst(a.start_time)}`;
+      const em = String(a.current_owner || "").toLowerCase();
+      if (!uniq.has(key)) uniq.set(key, { owners: new Set(), title: a.label, 商談日: ymdJst(a.start_time) });
+      uniq.get(key).owners.add(em);
+    }
+    const byBucket = {};   // クローザー名/インサイド/未定 -> 件数
+    const 未割当サンプル = [];
+    for (const [, v] of uniq) {
+      // 代表owner：クローザーがいればそれ、無ければ最初
+      let rep = "";
+      for (const o of v.owners) if (roleOfEmail.get(o) === "closer") { rep = o; break; }
+      if (!rep) rep = [...v.owners][0] || "";
+      let label;
+      if (roleOfEmail.get(rep) === "closer") label = nameOfEmail.get(rep) || rep;
+      else if (!rep) label = "未定（担当なし）";
+      else if (roleOfEmail.get(rep) === "inside") label = "インサイド";
+      else label = "その他";
+      byBucket[label] = (byBucket[label] || 0) + 1;
+      if ((label === "未定（担当なし）" || label === "インサイド" || label === "その他") && 未割当サンプル.length < 30) {
+        未割当サンプル.push({ title: v.title, 商談日: v.商談日, owners: [...v.owners] });
+      }
+    }
+    res.json({ month: monthQ, from, to, ユニーク初回商談数: uniq.size, 振り分け: byBucket, クローザーでない例: 未割当サンプル });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
@@ -15943,7 +15993,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-04h プロセス：クローザー別の実施数を「実際に実施した商談（商談記録の owner＝本人）」基準に変更。設定＝会社名×商談日でユニークな初回商談（担当current_ownerで割当）、実施＝初回タイトルの記録あり商談を owner ごとに（buildDone＝初回タイトル限定・会社|商談日→ownerのMap、会社×商談日でユニーク）。全体合計＝設定はユニークapo数、実施は記録ある初回商談のユニーク数（＝行の合算）。週/日も同基準。※設定と実施で担当基準が違うため実施率が100%超もあり得る。前回：初回商談のユニーク化";
+const BUILD_TAG = "2026-09-04i プロセス：実施数を設定の内数に戻す（会社×商談日でユニークな初回商談のうち記録があるもの＝実施≤設定）＋【点検用・一時】/api/calls/_setdiag：初回商談のユニーク数と、代表担当(current_owner、クローザー優先)による振り分け内訳（クローザー名/インサイド/未定）とクローザーでない例を返す。前回：実施を記録owner基準にした版";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
