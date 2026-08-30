@@ -9770,6 +9770,43 @@ app.post("/api/ui-review/run", async (req, res) => {
 // ───────────────────────────────────────────────────────────
 
 // AI社員（キツツキ）の可視化：名前・自動化の状態・最近の仕事をまとめて返す。
+// AI社員の「組織」＝キツツキ(CEO)の下に、社内支援AI／開発AI。各配下の自動化ジョブと状態を返す。
+app.get("/api/ai/org", async (req, res) => {
+  try {
+    const st = await getSettings().catch(() => ({}));
+    const on = (v) => (v === true ? "on" : v === false ? "off" : "always");
+    const runFrom = Number(st.runFrom ?? 0), runTo = Number(st.runTo ?? 24), runEvery = Number(st.runEvery ?? 1);
+    const 支援 = [
+      { name: "通知", trigger: "できごと・時刻に応じて", state: "always", detail: "アポ割り振り・メール・資料閲覧・SF立ち上げ・kinbot更新・朝のお知らせ・開発 などをGoogle Chatへ" },
+      { name: "SF自動記録", trigger: "商談後・10分ごとに見回り", state: "always", detail: "商談の活動（商談/説明/ネクストアクション）をSFへ記録。取りこぼしは再試行。重複はDBの印で防止" },
+      { name: "SF監査", trigger: "30分ごと", state: "always", detail: "全kincallリストをSFと照合し、ユーザー化・アポ獲得済み・失注に整理" },
+      { name: "アポ割り振り", trigger: "アポ獲得時／スキャン時", state: "always", detail: "担当の自動割り当て・均等化。招待作成は設定で切替", extra: `招待: ${st.apoAutoInvite === false ? "OFF" : "ON"}` },
+      { name: "SF立ち上げ", trigger: "アポ確定後（自動）", state: "always", detail: "クロス商談をSFで自動立ち上げ。立ち上がらなかったものは『立ち上げ待ち』へ" },
+      { name: "メール送付", trigger: "アポ確定・商談後", state: "always", detail: "アポ確定メール／御礼メール。BCC控え・跳ね返り検知つき" },
+      { name: "リマインド送付", trigger: "毎日 決めた時刻", state: "always", detail: "明日の商談リマインドを送る相手ごとに送付" },
+      { name: "カレンダー監査", trigger: "定期スキャン", state: "always", detail: "予定スキャン・招待整合・自動入室（設定時）" },
+      { name: "SF未紐づけ通知", trigger: `毎日 ${Math.max(0, Math.min(23, Number(st.sfUnlinkedHour ?? 18)))}時`, state: on(st.sfUnlinkedNotify !== false), detail: "SFに紐づいていない商談を担当へ知らせる" },
+      { name: "コール進捗通知", trigger: "平日11〜18時の毎正時", state: on(st.callReport === true), detail: "kincallの架電進捗をチームへ" },
+      { name: "実績集計", trigger: "画面を開いたとき", state: "always", detail: "コール/接触/アポ、リスト別、全体/個別の集計" },
+    ];
+    const 開発 = [
+      { name: "コードを自動で直す", trigger: `動かす時間帯 ${runFrom}〜${runTo}時（${runEvery}時間おき）`, state: on(st.autoImprove === true), detail: "開発メモのエラー・要望・できないこと・バグを直す（アイデアは対象外）" },
+      { name: "本番へ自動反映", trigger: "直したとき", state: on(st.autoApply === true), detail: "OFFなら本番へ入れずPRにして確認を待つ" },
+      { name: "夜間開発", trigger: "毎日 3:00", state: "always", detail: "溜まった開発メモをまとめて直し、PRにして朝の確認へ" },
+      { name: "定期提案", trigger: "平日 9/12/15/18/21時", state: "always", detail: "状態とコードを見て『次はこれ』を開発メモに提案（コードは変えない）" },
+      { name: "朝の開発通知", trigger: "朝", state: on(st.devSummary === true), detail: "夜間開発の結果を、開発をONにしたチャットへ短くまとめて送る" },
+    ];
+    res.json({
+      ok: true,
+      ceo: { name: st.botName || "キツツキ", role: "CEO", working: st.autoImprove === true },
+      depts: [
+        { key: "support", name: "社内支援AI", desc: "通知・SF記録・監査・アポ割り振り・立ち上げ・メール・リマインド・カレンダー・kincall実績", jobs: 支援 },
+        { key: "dev", name: "開発AI", desc: "エラー・バグ・要望への修正（自動改善／夜間開発／提案）", jobs: 開発 },
+      ],
+    });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 app.get("/api/ai/status", async (req, res) => {
   try {
     const st = await getSettings().catch(() => ({}));
@@ -15704,7 +15741,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-03q スマホのメニューにkincallが無く入れなかったのを修正（モバイルメニューに kincall を追加：kincall→Salesforce→AI社員→設定）。ico-phoneアイコン追加。前回：kincallスマホ対応";
+const BUILD_TAG = "2026-09-03r AI社員を「組織」ビューに：CEO(キツツキ)の下に 社内支援AI／開発AI を置き、各配下の自動化ジョブ（通知・SF記録・SF監査・アポ割り振り・立ち上げ・メール・リマインド・カレンダー・SF未紐づけ・コール進捗・実績／自動改善・本番反映・夜間開発・定期提案・朝の開発通知）と状態(ON/OFF/常時)を棚卸しカタログとして表示。API GET /api/ai/org。前回：スマホメニューにkincall";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",

@@ -113,9 +113,10 @@ function startBubble(lines) {
 
 async function load() {
   try {
-    const [d, dn] = await Promise.all([
+    const [d, dn, org] = await Promise.all([
       (await fetch("/api/ai/status")).json(),
       (await fetch("/api/dev-notes")).json().catch(() => ({ items: [] })),
+      (await fetch("/api/ai/org")).json().catch(() => null),
     ]);
     if (d.error) throw new Error(d.error);
     const items = (dn && dn.items) || [];
@@ -124,12 +125,37 @@ async function load() {
       doing: items.filter((x) => x.status === "doing"),
       new: items.filter((x) => x.status === "new" || !x.status),
     };
+    d.org = org && org.ok ? org : null;
     STATE = d;
     render(d);
   } catch (e) {
     $("aiPage").innerHTML = `<div class="ai-empty">読み込めませんでした：${esc(e.message)}</div>`;
   }
 }
+
+function orgHtml(org) {
+  if (!org || !org.depts) return "";
+  const chip = (s) => s === "on" ? `<span class="ai-jstate on">ON</span>`
+    : s === "off" ? `<span class="ai-jstate off">OFF</span>`
+    : `<span class="ai-jstate always">常時</span>`;
+  const dept = (D) => `
+    <div class="ai-dept">
+      <div class="ai-dept-h"><span class="ai-dept-name">${esc(D.name)}</span><span class="ai-dept-c">${D.jobs.length}</span></div>
+      <div class="ai-dept-d">${esc(D.desc || "")}</div>
+      <ul class="ai-jobs">
+        ${D.jobs.map((j) => `<li class="ai-job">
+          <div class="ai-job-top">${chip(j.state)}<span class="ai-job-name">${esc(j.name)}</span><span class="ai-job-trg">${esc(j.trigger || "")}</span>${j.extra ? `<span class="ai-job-ex">${esc(j.extra)}</span>` : ""}</div>
+          <div class="ai-job-d">${esc(j.detail || "")}</div>
+        </li>`).join("")}
+      </ul>
+    </div>`;
+  return `<div class="ai-org">
+    <div class="ai-org-h">組織：わたし(キツツキ・CEO)が、下の2つのAIに指示・連携しています。あなたの決めごとは、上のチャットから伝えてください。</div>
+    <div class="ai-org-cols">${org.depts.map(dept).join("")}</div>
+  </div>`;
+}
+
+function orgHtml_unused() { return ""; }
 
 const KIND_LABEL = { error: "エラー", bug: "バグ", gap: "できないこと", request: "要望", idea: "アイデア" };
 function noteLi(n) {
@@ -181,6 +207,8 @@ function render(d) {
       </div>
     </div>
     <div class="ai-ctlmsg" id="aiCtlMsg"></div>
+
+    ${orgHtml(d.org)}
 
     <div class="ai-cols">
       <div class="ai-col">

@@ -10,7 +10,7 @@
     <link rel="manifest" href="/site.webmanifest" />
     <meta name="theme-color" content="#0d5b47" />
     <meta name="apple-mobile-web-app-title" content="kinbot" />
-    <link rel="stylesheet" href="style.css?v=20260903q" />
+    <link rel="stylesheet" href="style.css?v=20260903r" />
     <style>
       /* 1画面に収めるダッシュボード。ページ自体はスクロールせず、長いリストはカード内で送る。 */
       .ai-page{flex:1 1 auto;min-height:0;display:flex;flex-direction:column;gap:12px;
@@ -121,6 +121,28 @@
       .ai-send:hover{background:#0a4a3a;}
       @media (max-width: 1000px){ .ai-cols{grid-template-columns:1fr;} .ai-head-ctl{flex-wrap:wrap;} }
       .ai-page{overflow:auto;}
+      /* 組織カタログ（CEO→社内支援AI/開発AI） */
+      .ai-org{flex:0 0 auto;background:#fff;border:1px solid #e6ede9;border-radius:14px;padding:12px 14px;margin-bottom:4px;}
+      .ai-org-h{font-size:12.5px;color:#0d5b47;font-weight:700;margin-bottom:10px;}
+      .ai-org-cols{display:grid;grid-template-columns:1fr 1fr;gap:12px;}
+      .ai-dept{border:1px solid #e6ede9;border-radius:12px;padding:10px 12px;background:#fbfefd;}
+      .ai-dept-h{display:flex;align-items:center;gap:8px;}
+      .ai-dept-name{font-size:14px;font-weight:800;color:#0d5b47;}
+      .ai-dept-c{font-size:11px;color:#7d8c86;background:#eef5f1;border-radius:8px;padding:1px 7px;}
+      .ai-dept-d{font-size:11px;color:#7d8c86;margin:2px 0 8px;}
+      .ai-jobs{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:7px;}
+      .ai-job{border-top:1px solid #eef3f0;padding-top:7px;}
+      .ai-job:first-child{border-top:0;padding-top:0;}
+      .ai-job-top{display:flex;align-items:center;gap:8px;flex-wrap:wrap;}
+      .ai-job-name{font-size:12.5px;font-weight:700;color:#20302b;}
+      .ai-job-trg{font-size:11px;color:#7d8c86;}
+      .ai-job-ex{font-size:10.5px;color:#0d5b47;background:#e8f5ef;border-radius:6px;padding:1px 6px;}
+      .ai-job-d{font-size:11px;color:#889;margin-top:2px;line-height:1.4;}
+      .ai-jstate{font-size:10px;font-weight:800;border-radius:6px;padding:2px 7px;flex:0 0 auto;}
+      .ai-jstate.on{background:#e6f7ef;color:#1d9e75;}
+      .ai-jstate.off{background:#f2f2f2;color:#9aa39d;}
+      .ai-jstate.always{background:#eef2ff;color:#5b6be0;}
+      @media (max-width:1000px){ .ai-org-cols{grid-template-columns:1fr;} }
       .ai-cols{min-height:340px;}
       /* AI社員ページ：上部の小ロボ帯(topbar)は消して、緑のキツツキヘッダーを最上部に出す。
          スマホはメニューボタンがtopbar内なので、そこだけ表示する。 */
@@ -172,9 +194,9 @@
         </main>
       </div>
     </div>
-    <script src="product.js?v=20260903q"></script>
-    <script src="ai.js?v=20260903q"></script>
-    <script src="nav.js?v=20260903q"></script>
+    <script src="product.js?v=20260903r"></script>
+    <script src="ai.js?v=20260903r"></script>
+    <script src="nav.js?v=20260903r"></script>
     <script src="/cmdk.js?v=20260827a"></script>
   </body>
 </html>

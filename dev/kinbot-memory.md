@@ -41,6 +41,8 @@ kincall（架電リスト）という別ツールも同じ画面群の中にあ�
 
 ## 決定・指示のログ（新しいものを上に足す）
 
+- 2026-09-03 AI社員を「組織」ビューに再構成（田中さん構想：オーナー＝田中さん、CEO＝キツツキ、その下に部門AI。まずは2部門：社内支援AI／開発AI。kincall(架電系)は当面 社内支援AI に含める。分かりにくくなったら後で分割）。第一歩＝自動化の棚卸しカタログ：GET /api/ai/org が ceo＋depts[{社内支援AI, 開発AI}]＋各配下ジョブ{name,trigger(頻度),state(on/off/always),detail} を返す（stateは設定から：autoImprove/autoApply/callReport/sfUnlinkedNotify/devSummary 等はON/OFF、他は常時）。ai.jsに orgHtml で組織カタログを描画（.ai-org、社内支援AI/開発AIの2カード＋ジョブ一覧＋状態チップ）。既存のCEOチャット(タスク依頼=/api/ai/task)＝指示の場、完了/進行中タスク＝開発AIの仕事。今後：CEO指示を各部門ジョブ設定に反映（半自動）、報告(朝/週次)の部門別統一、必要なら部門AIを判断AI化・kincall AIを分割。
+
 - 2026-09-03 kincallがスマホで見えない問題を修正。原因：標準モバイルCSSは .sidebar を下部バーに畳むが、kincallは各ナビ項目が .side-wrap で包まれており下部バーのflexが崩れて非表示状態に。対策：calls.jsに @media(max-width:760px) で .kc-side .side-wrap{display:contents} を追加し項目を下部バーの直接の子に。あわせて広い表/グリッド/タブを横スクロール可、カードは1列、日付セルはnowrap。※「全機能スマホ対応」は範囲が広く、他ページ(home/apo/sf-launch/report等)のモバイル最適化は順次対応の必要あり（要優先度確認）。
 
 - 2026-09-03 実績「月ごと」表示の期間内を、各月ごとに日付範囲で手設定できるようにした（田中さん指示・例：8月=8/10〜9/4、9月=9/7〜10/2。隙間/重なりOK＝土日など。列は月単位のまま、内/外の判定にだけ範囲を使う。未設定月は月初〜末日）。設定 apoMonthWindows（JSON: {"YYYY-MM":{from,to}}）を追加、/api/calls/apo-window の GET/PUT が months を扱う。実績側 stats-grid に isInFor(colKey,md) を追加：period==="month" のときは各列(区切り.key="YYYY-MM")の範囲で判定、それ以外は従来の inSpan(span/days)。インサイドは直接、セールスは salesRatio(isInForで算出)で按分。設定画面に月ごとの範囲入力（month＋開始日/終了日、追加/削除、月ごと保存）を追加。日/週は従来どおり。
