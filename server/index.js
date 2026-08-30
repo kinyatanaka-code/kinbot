@@ -838,6 +838,10 @@ app.post("/api/logout", (req, res) => {
   res.json({ ok: true });
 });
 // そのユーザーがクローザーか（リスト追加・確認・そうじの権限判定に使う）
+// AI社員を操作できるのはオーナー（田中さん）だけ。表示は誰でも、操作はオーナー/管理者のみ。
+function aiOwnerEmail() { return String(process.env.AI_OWNER_EMAIL || "kinya.tanaka@neo-career.co.jp").toLowerCase(); }
+function isAiOwner(req) { return !!req.isAdmin || String(req.user || "").toLowerCase() === aiOwnerEmail(); }
+
 async function isCloserUser(email) {
   try {
     const members = await listMembers().catch(() => []);
@@ -8976,9 +8980,56 @@ app.post("/api/dev-notes", async (req, res) => {
 
 // AI社員ページのチャットからタスクを依頼する（Chatの「直して」と同じことを画面から）。
 // 開発メモに登録し、自動改善がONなら今すぐ着手（起動）する。
+// キツツキ（CEO）と会話する。現状データを踏まえて理解・応答・報告する。GeminiかClaudeを選べる。
+app.post("/api/ai/chat", async (req, res) => {
+  try {
+    if (!isAiOwner(req)) return res.status(403).json({ error: "権限がありません" });
+    const text = String(req.body?.text || "").trim();
+    if (!text) return res.status(400).json({ error: "内容を書いてください" });
+    const provider = String(req.body?.provider || "gemini") === "claude" ? "anthropic" : "gemini";
+    const history = Array.isArray(req.body?.history) ? req.body.history.slice(-8) : [];
+
+    // ---- 現状データを集める（CEOとして報告できるように） ----
+    const st = await getSettings().catch(() => ({}));
+    const notes = await listDevNotes({ status: "", limit: 500 }).catch(() => []);
+    const cnt = { new: 0, doing: 0, done: 0 };
+    for (const n of notes) if (cnt[n.status] !== undefined) cnt[n.status]++;
+    const doingList = notes.filter((n) => n.status === "doing").slice(0, 8).map((n) => n.title);
+    const doneList = notes.filter((n) => n.status === "done").slice(0, 6).map((n) => n.title);
+    const runF = Number(st.runFrom ?? 0), runT = Number(st.runTo ?? 24), runE = Number(st.runEvery ?? 1);
+    const 状況 = [
+      `【開発AI】コードを自動で直す：${st.autoImprove === true ? "ON" : "OFF"}／本番へ自動反映：${st.autoApply === true ? "ON" : "OFF"}／稼働時間：${runF}〜${runT}時（${runE}時間おき）`,
+      `対応中の開発：${cnt.doing}件${doingList.length ? "（" + doingList.join("、") + "）" : ""}`,
+      `最近直した開発：${doneList.length ? doneList.join("、") : "なし"}`,
+      `未対応の開発メモ：${cnt.new}件`,
+      `【社内支援AI】SF未紐づけ通知：${st.sfUnlinkedNotify === false ? "OFF" : "ON"}／コール進捗通知：${st.callReport === true ? "ON" : "OFF"}／朝の開発通知：${st.devSummary === true ? "ON" : "OFF"}／SF監査：30分ごと・SF自動記録：10分ごと・アポ割り振り/立ち上げ/メール/リマインド/カレンダー監査：常時`,
+    ].join("\n");
+
+    const sys =
+      "あなたは「キツツキ」。田中さん専属のAI社員のCEOです。あなたの下に『社内支援AI』（通知・SF記録・監査・アポ割り振り・立ち上げ・メール・リマインド・カレンダー・kincall実績）と『開発AI』（エラー・バグ・要望の修正＝自動改善・夜間開発）がいて、あなたが束ねています。\n" +
+      "田中さんの言葉をよく理解し、CEOとして誠実に・具体的に・日本語で答えてください。定型文や一辺倒な返答は禁止。相手の意図（質問・相談・指示・雑談）を汲んで、必要なら現状を要約して報告し、次の一手を短く提案します。分からないことは正直に言い、憶測で断定しない。\n" +
+      "『今日の状況』『現状を教えて』等の求めには、下の状況データをもとに、要点を箇条書きで簡潔にまとめて報告してください（数字と、止まっている点、次にやるとよいこと）。\n" +
+      "実際の操作（ON/OFF切替やデプロイ）はこの会話では行いません。操作が必要なら『画面のスイッチで切り替えられます』と案内してください。\n\n" +
+      "=== いまの社内の状況 ===\n" + 状況;
+    const convo = history.map((h) => `${h.who === "me" ? "田中さん" : "キツツキ"}：${h.text}`).join("\n");
+    const user = (convo ? convo + "\n" : "") + `田中さん：${text}\nキツツキ：`;
+
+    let reply = "";
+    try {
+      reply = String(await callLLMPublic(sys, user, 700, { provider, fallback: true }) || "").trim();
+    } catch (e) {
+      return res.json({ ok: true, reply: `いま考えがまとまりませんでした（${e.message}）。もう一度お願いできますか。`, provider });
+    }
+    if (!reply) reply = "うまく言葉にできませんでした。もう一度、別の言い方で教えてください。";
+    aiLog("chat", `会話：${text.slice(0, 60)}`);
+    res.json({ ok: true, reply, provider: provider === "anthropic" ? "claude" : "gemini" });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// キツツキ（CEO）と会話する ここまで
 app.post("/api/ai/task", async (req, res) => {
   try {
-    if (!req.isAdmin && !(await isCloserUser(req.user))) return res.status(403).json({ error: "クローザー・管理者だけが使えます" });
+    if (!isAiOwner(req)) return res.status(403).json({ error: "権限がありません" });
     const text = String(req.body?.text || "").trim();
     if (!text) return res.status(400).json({ error: "内容を書いてください" });
     const kind = /(バグ|不具合|エラー|落ちる|動かない|直らない)/.test(text) ? "bug" : "request";
@@ -10059,8 +10110,8 @@ app.get("/api/ai/status", async (req, res) => {
 // AI社員の改名（クローザー/管理者のみ）。
 app.put("/api/ai/name", async (req, res) => {
   try {
-    const admin = !!req.isAdmin || (process.env.ADMIN_EMAILS || "").split(",").map((x) => x.trim()).includes(req.user);
-    const canControl = admin || (await isCloserUser(req.user).catch(() => false));
+    if (!isAiOwner(req)) return res.status(403).json({ error: "権限がありません" });
+    const canControl = true;
     if (!canControl) return res.status(403).json({ error: "クローザー・管理者だけが変えられます" });
     const name = String(req.body?.name || "").replace(/[「」『』"'`]/g, "").trim().slice(0, 20);
     if (!name) return res.status(400).json({ error: "名前を入れてください" });
@@ -10107,6 +10158,7 @@ app.get("/api/auto-apply", async (req, res) => {
 
 app.put("/api/auto-apply", async (req, res) => {
   try {
+    if (!isAiOwner(req)) return res.status(403).json({ error: "権限がありません" });
     const b = req.body || {};
     const patch = {};
     if (b.enabled !== undefined) patch.autoImprove = b.enabled === true;
@@ -15994,7 +16046,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-04n AI社員のCEO指示欄を改行可能に：inputをtextareaにし、Enter=送信・Shift+Enter=改行（IME変換中は送らない）、入力に応じて高さ自動伸縮(最大140px)。送信後に高さリセット。前回：新デザインの潰れ修正";
+const BUILD_TAG = "2026-09-04o AI社員：キツツキを会話AI化（POST /api/ai/chat、現状データ＝開発AI/社内支援AIの稼働・対応中/最近直した・監査等を渡し、CEOとして理解・報告・提案。定型文廃止）。頭脳をGemini/Claudeで選択(callLLMPublicのprovider)。AI社員の操作はオーナー(AI_OWNER_EMAIL=既定 kinya.tanaka)または管理者のみ＝isAiOwner。/api/ai/chat・/api/ai/task・/api/ai/name・/api/auto-apply をオーナー限定に（非オーナーは403「権限がありません」表示）。前回：チャット改行対応";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",

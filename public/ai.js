@@ -220,6 +220,12 @@ function render(d) {
           <button class="ai-q" data-q="今日の状況を教えて">今日の状況を教えて</button>
           <button class="ai-q" data-q="開発を止めて">開発を止めて</button>
           <button class="ai-q" data-q="アポ割り振りを確認">アポ割り振りを確認</button>
+          <span class="ceo-llm"><span>頭脳</span>
+            <select id="aiProvider">
+              <option value="gemini">Gemini</option>
+              <option value="claude">Claude</option>
+            </select>
+          </span>
         </div>
         <div class="ai-ctlmsg" id="aiCtlMsg"></div>
         <div class="ai-chat mini" id="aiChat"></div>
@@ -320,26 +326,30 @@ function wire() {
     if (el) el.addEventListener("change", saveRange);
   });
 
-  // タスク依頼（チャット）
+  // タスク依頼（会話）
   const send = async () => {
     const inp = $("aiTaskInput");
     const text = (inp && inp.value || "").trim();
     if (!text) return;
     CHAT.push({ who: "me", text });
-    CHAT.push({ who: "ai", text: "受け取りました…" });
+    CHAT.push({ who: "ai", text: "考えています…" });
     const chat = $("aiChat"); if (chat) { chat.innerHTML = chatHtml(); chat.scrollTop = chat.scrollHeight; }
     if (inp) { inp.value = ""; inp.style.height = "auto"; inp.focus(); }
+    const provider = (document.getElementById("aiProvider") || {}).value || "gemini";
+    const history = CHAT.slice(0, -2).slice(-8);   // 直近の履歴（今回の2件は除く）
     try {
-      const d = await (await fetch("/api/ai/task", {
-        method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ text }),
-      })).json();
-      CHAT[CHAT.length - 1] = { who: "ai", text: d.error ? ("できませんでした：" + d.error) : (d.reply || "受け付けました。") };
+      const r = await fetch("/api/ai/chat", {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ text, provider, history }),
+      });
+      const d = await r.json();
+      if (r.status === 403) CHAT[CHAT.length - 1] = { who: "ai", text: "権限がありません（このAI社員を操作できるのはオーナーだけです）。" };
+      else if (!r.ok) CHAT[CHAT.length - 1] = { who: "ai", text: "うまくいきませんでした：" + (d.error || "") };
+      else CHAT[CHAT.length - 1] = { who: "ai", text: d.reply || "…" };
     } catch (e) {
       CHAT[CHAT.length - 1] = { who: "ai", text: "送れませんでした：" + e.message };
     }
     const chat2 = $("aiChat"); if (chat2) { chat2.innerHTML = chatHtml(); chat2.scrollTop = chat2.scrollHeight; }
-    // 依頼はメモに入るので、一覧を更新（少し待ってから）
-    setTimeout(load, 1200);
   };
   const sb = $("aiTaskSend"); if (sb) sb.addEventListener("click", send);
   const ti = $("aiTaskInput");
