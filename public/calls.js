@@ -627,6 +627,11 @@ function renderDock() {
     .kc-ptab:not(.active):hover{background:#eaf5ef;color:#0d5b47;}
     .kc-g-sec{font-size:13px;font-weight:800;color:#0d5b47;margin:14px 2px 6px;border-left:3px solid #1d9e75;padding-left:8px;}
     .kc-g-sub td{color:#7d8c86;font-size:11.5px;}
+    /* 実績タブの段組み：上段＝全体/個別＋アポ、下段＝日週月 */
+    .kc-st-row{display:flex;gap:16px;align-items:center;flex-wrap:wrap;margin-bottom:6px;}
+    .kc-st-row .kc-period-tabs{margin-bottom:0;}
+    #stPeriod{margin-top:2px;}
+    @media (max-width:640px){ .kc-st-row{gap:8px;} }
     .kc-g-title{display:flex;align-items:center;gap:8px;width:100%;text-align:left;background:none;border:0;cursor:pointer;padding:2px 0;margin:0 0 4px;font-family:inherit;font-size:13px;font-weight:700;color:#0d5b47;}
     .kc-g-title:hover .kc-g-tname{color:#0b7a5e;}
     .kc-g-chev{display:inline-flex;color:#1d9e75;transition:transform .15s ease;}
