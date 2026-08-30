@@ -8566,6 +8566,31 @@ app.post("/api/dev-notes", async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+// AI社員ページのチャットからタスクを依頼する（Chatの「直して」と同じことを画面から）。
+// 開発メモに登録し、自動改善がONなら今すぐ着手（起動）する。
+app.post("/api/ai/task", async (req, res) => {
+  try {
+    if (!req.isAdmin && !(await isCloserUser(req.user))) return res.status(403).json({ error: "クローザー・管理者だけが使えます" });
+    const text = String(req.body?.text || "").trim();
+    if (!text) return res.status(400).json({ error: "内容を書いてください" });
+    const kind = /(バグ|不具合|エラー|落ちる|動かない|直らない)/.test(text) ? "bug" : "request";
+    await addDevNote({
+      key: `ai-task:${Date.now()}:${text}`.slice(0, 200),
+      kind, title: text.slice(0, 200), detail: "",
+      source: "AI社員チャット", createdBy: req.user || "",
+    }).catch(() => null);
+    aiLog("task", `依頼：${text}`);
+    const st = await getSettings().catch(() => ({}));
+    if (st.autoImprove !== true) {
+      return res.json({ ok: true, dispatched: false, reply: `「${text}」を受け取り、やることリストに入れました。ただ今はAIを止めているので、上の「AIが動く」をONにすると着手します。` });
+    }
+    const r = await dispatchGithubWorkflow("kinbot-hourly.yml", { max_items: "1", force_pr: "no", focus: text }).catch(() => ({ ok: false }));
+    if (r && r.ok) return res.json({ ok: true, dispatched: true, reply: `承知しました。「${text}」に今から取りかかります。仕上がったらお知らせします（危ういものは念のためPRにします）。` });
+    if (r && r.needsToken) return res.json({ ok: true, dispatched: false, reply: `「${text}」をやることリストに入れました。次の自動改善（毎時）で着手します。※今すぐ起動するには起動トークン（GH_DISPATCH_TOKEN）の設定が要ります。` });
+    return res.json({ ok: true, dispatched: false, reply: `「${text}」はやることリストに入れました。次の自動改善で着手します。` });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 // まとめて状態を変える（溜まった案を一度に片づけるため）
 app.post("/api/dev-notes/bulk", async (req, res) => {
   try {
@@ -15478,7 +15503,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-02ay 夜間開発の朝の通知を短文化（直したメモの見出し＝メモID・内容だけを最大12件＋PRリンク。ファイル一覧・直し方の長文は載せない）。宛先はassignフォールバックを廃止し「開発（朝の通知）」ONのチャットだけに送る（DOC Team等への漏れを止める）。前回：請求書PDF作成";
+const BUILD_TAG = "2026-09-02az AI社員ページを刷新（手書きラフに準拠）：ヘッダー＝アバター＋改名／「AIが動く」ON/OFF（master=autoImprove）＋稼働時間帯＋本番反映。3カラム＝完了タスク（済み）／進行中タスク（対応中を上・未対応を下）／タスク依頼チャット。チャットは POST /api/ai/task で開発メモ登録＋自動改善ONなら即着手（=直して）。前回：夜間通知を短文化＆宛先限定";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",

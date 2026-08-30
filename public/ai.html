@@ -10,7 +10,7 @@
     <link rel="manifest" href="/site.webmanifest" />
     <meta name="theme-color" content="#0d5b47" />
     <meta name="apple-mobile-web-app-title" content="kinbot" />
-    <link rel="stylesheet" href="style.css?v=20260902ax" />
+    <link rel="stylesheet" href="style.css?v=20260902az" />
     <style>
       /* 1画面に収めるダッシュボード。ページ自体はスクロールせず、長いリストはカード内で送る。 */
       .ai-page{flex:1 1 auto;min-height:0;display:flex;flex-direction:column;gap:12px;
@@ -84,6 +84,44 @@
       .ai-sw.on{background:#1d9e75;}
       .ai-sw::after{content:"";position:absolute;top:3px;left:3px;width:19px;height:19px;border-radius:50%;background:#fff;transition:left .18s;}
       .ai-sw.on::after{left:22px;}
+      /* ===== 新レイアウト ===== */
+      .ai-head-ctl{margin-left:auto;display:flex;gap:18px;align-items:center;flex:0 0 auto;}
+      .ai-master{display:flex;flex-direction:column;align-items:center;gap:5px;}
+      .ai-master-t{font-size:12px;color:#0d5b47;font-weight:800;}
+      .ai-master-s{font-size:11px;color:#1d9e75;font-weight:700;}
+      .ai-master-s.off{color:#9aa39d;}
+      .ai-sw.big{width:60px;height:32px;}
+      .ai-sw.big::after{width:26px;height:26px;}
+      .ai-sw.big.on::after{left:31px;}
+      .ai-time{display:flex;flex-direction:column;gap:6px;}
+      .ai-time-t{font-size:11px;color:#7d8c86;}
+      .ai-apply{display:flex;align-items:center;gap:8px;font-size:11px;color:#7d8c86;margin-top:2px;}
+      .ai-ctlmsg{flex:0 0 auto;font-size:12px;color:#1d9e75;min-height:16px;margin-top:-4px;}
+      .ai-cols{flex:1 1 auto;min-height:0;display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;}
+      .ai-cols-sub{flex:0 0 auto;min-height:0;}
+      .ai-col{background:#fff;border:1px solid #e6ede9;border-radius:14px;padding:12px 14px;display:flex;flex-direction:column;min-height:0;overflow:auto;}
+      .ai-col h3{margin:0 0 10px;font-size:14px;color:#0d5b47;font-weight:800;flex:0 0 auto;}
+      .ai-cnt{font-size:12px;color:#7d8c86;font-weight:700;margin-left:4px;}
+      .ai-subh{font-size:12px;color:#0d5b47;font-weight:800;margin:2px 0 6px;border-left:3px solid #1d9e75;padding-left:7px;}
+      .ai-tasks{list-style:none;margin:0 0 4px;padding:0;display:flex;flex-direction:column;gap:6px;}
+      .ai-task{display:flex;gap:8px;align-items:flex-start;font-size:12.5px;color:#20302b;line-height:1.4;}
+      .ai-task-k{flex:0 0 auto;font-size:10px;font-weight:700;color:#0d5b47;background:#e8f5ef;border-radius:6px;padding:2px 6px;margin-top:1px;}
+      .ai-k-bug{background:#fdecea;color:#c0392b;} .ai-k-error{background:#fdecea;color:#c0392b;}
+      .ai-k-idea{background:#eef;color:#5b5be0;} .ai-k-request{background:#e8f5ef;color:#0d5b47;}
+      .ai-task-t{flex:1 1 auto;min-width:0;}
+      /* 依頼チャット */
+      .ai-chatcol{background:#f7fbf9;}
+      .ai-chat{flex:1 1 auto;min-height:120px;overflow:auto;display:flex;flex-direction:column;gap:8px;padding:2px;}
+      .ai-msg{max-width:88%;padding:8px 11px;border-radius:12px;font-size:12.5px;line-height:1.5;white-space:pre-wrap;word-break:break-word;}
+      .ai-msg.ai{align-self:flex-start;background:#fff;border:1px solid #e6ede9;color:#20302b;}
+      .ai-msg.me{align-self:flex-end;background:#1d9e75;color:#fff;}
+      .ai-chat-input{flex:0 0 auto;display:flex;gap:8px;margin-top:10px;}
+      .ai-chat-input input{flex:1 1 auto;min-width:0;border:1px solid #d7ded9;border-radius:10px;padding:9px 12px;font-size:13px;}
+      .ai-send{flex:0 0 auto;border:0;background:#0d5b47;color:#fff;border-radius:10px;padding:0 16px;font-size:13px;font-weight:700;cursor:pointer;}
+      .ai-send:hover{background:#0a4a3a;}
+      @media (max-width: 1000px){ .ai-cols{grid-template-columns:1fr;} .ai-head-ctl{flex-wrap:wrap;} }
+      .ai-page{overflow:auto;}
+      .ai-cols{min-height:340px;}
       .ai-hours{display:flex;align-items:center;gap:6px;}
       .ai-hours input{width:48px;padding:4px 6px;border:1px solid #d7ded9;border-radius:8px;text-align:center;font-size:13px;}
       .ai-range{display:flex;align-items:center;gap:7px;margin-top:8px;flex-wrap:wrap;}
@@ -129,9 +167,9 @@
         </main>
       </div>
     </div>
-    <script src="product.js?v=20260902ax"></script>
-    <script src="ai.js?v=20260902ax"></script>
-    <script src="nav.js?v=20260902ax"></script>
+    <script src="product.js?v=20260902az"></script>
+    <script src="ai.js?v=20260902az"></script>
+    <script src="nav.js?v=20260902az"></script>
     <script src="/cmdk.js?v=20260827a"></script>
   </body>
 </html>

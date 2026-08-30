@@ -113,8 +113,17 @@ function startBubble(lines) {
 
 async function load() {
   try {
-    const d = await (await fetch("/api/ai/status")).json();
+    const [d, dn] = await Promise.all([
+      (await fetch("/api/ai/status")).json(),
+      (await fetch("/api/dev-notes")).json().catch(() => ({ items: [] })),
+    ]);
     if (d.error) throw new Error(d.error);
+    const items = (dn && dn.items) || [];
+    d.noteItems = {
+      done: items.filter((x) => x.status === "done"),
+      doing: items.filter((x) => x.status === "doing"),
+      new: items.filter((x) => x.status === "new" || !x.status),
+    };
     STATE = d;
     render(d);
   } catch (e) {
@@ -122,17 +131,24 @@ async function load() {
   }
 }
 
+const KIND_LABEL = { error: "エラー", bug: "バグ", gap: "できないこと", request: "要望", idea: "アイデア" };
+function noteLi(n) {
+  const k = KIND_LABEL[n.kind] || "メモ";
+  return `<li class="ai-task"><span class="ai-task-k ai-k-${esc(n.kind || "")}">${esc(k)}</span><span class="ai-task-t">${esc(n.title || "")}</span></li>`;
+}
+
+// 依頼チャットの履歴（この画面を開いている間だけ保持）
+let CHAT = [{ who: "ai", text: "やってほしいことを書いて送ってください。例：「〇〇の画面のボタンを大きくして」「△△のバグを直して」" }];
+function chatHtml() {
+  return CHAT.map((m) =>
+    `<div class="ai-msg ${m.who === "me" ? "me" : "ai"}">${esc(m.text)}</div>`).join("");
+}
+
 function render(d) {
   const c = d.control || {};
   const 稼働中 = c.autoImprove;
-  const 状態文 = !稼働中
-    ? "いまは休んでいます（自動でコードは直しません。監視とSF監査は続けています）"
-    : (c.autoApply
-      ? (c.inHours ? "稼働中。直したものは本番へ入れます" : `稼働中。いまは時間外（${c.from}〜${c.to}時の外）なので、直してもPRにします`)
-      : "稼働中。直したものは本番に入れず、PRにして確認を待ちます");
-
+  const ni = d.noteItems || { done: [], doing: [], new: [] };
   const feed = (d.activity || []);
-  const notes = d.notes || {};
   const sa = d.lastSfAudit;
   const sayLines = buildSayLines(d);
 
@@ -146,81 +162,78 @@ function render(d) {
         </div>
         <div class="ai-bubble" id="aiBubble"><span id="aiBubbleText">${esc(sayLines[0] || "")}</span></div>
       </div>
-      <span class="ai-live"><span class="ai-dot ${稼働中 ? "" : "off"}"></span>${稼働中 ? "稼働中" : "休止中"}</span>
-    </div>
-
-    <div class="ai-grid">
-      <div class="ai-card">
-        <h3>できること・止める／動かす</h3>
-        <div class="ai-ctl">
-          <div><div class="ai-ctl-t">自動でコードを直す</div><div class="ai-ctl-d">開発メモから安全なものを順に直す</div></div>
-          <button class="ai-sw ${c.autoImprove ? "on" : ""}" id="swImprove" aria-label="自動改善"></button>
+      <div class="ai-head-ctl">
+        <div class="ai-master">
+          <div class="ai-master-t">AIが動く</div>
+          <button class="ai-sw big ${c.autoImprove ? "on" : ""}" id="swImprove" aria-label="AIが動く"></button>
+          <div class="ai-master-s ${稼働中 ? "" : "off"}">${稼働中 ? "稼働中" : "休止中"}</div>
         </div>
-        <div class="ai-ctl">
-          <div><div class="ai-ctl-t">本番へ自動反映</div><div class="ai-ctl-d">OFFなら本番に入れずPRにする</div></div>
-          <button class="ai-sw ${c.autoApply ? "on" : ""}" id="swApply" aria-label="本番反映"></button>
-        </div>
-        <div class="ai-ctl" style="display:block;">
-          <div><div class="ai-ctl-t">動かす時間帯（この時間の :30 に動きます）</div><div class="ai-ctl-d">開始〜終了と、何時間おきかを選べます</div></div>
+        <div class="ai-time">
+          <div class="ai-time-t">稼働時間（:30に動きます）</div>
           <div class="ai-range">
             <select id="runFrom">${Array.from({length:24},(_,h)=>h).map((h)=>`<option value="${h}"${c.runFrom===h?" selected":""}>${h}時</option>`).join("")}</select>
             <span>〜</span>
             <select id="runTo">${Array.from({length:24},(_,i)=>i+1).map((h)=>`<option value="${h}"${c.runTo===h?" selected":""}>${h}時</option>`).join("")}</select>
             <select id="runEvery">${[1,2,3,4,6].map((n)=>`<option value="${n}"${c.runEvery===n?" selected":""}>${n}時間おき</option>`).join("")}</select>
           </div>
-          <div class="ai-mini" id="aiRunPreview">実行：${(c.runHours||[]).map((h)=>h+":30").join("・") || "（なし）"}</div>
+          <label class="ai-apply"><span>直したら本番へ反映</span><button class="ai-sw ${c.autoApply ? "on" : ""}" id="swApply" aria-label="本番反映"></button></label>
         </div>
-        <div class="ai-mini" id="aiCtlMsg">Chatでも操作可：「自動改善を止めて／動かして」「本番反映を止めて」「名前を〇〇にして」</div>
       </div>
+    </div>
+    <div class="ai-ctlmsg" id="aiCtlMsg"></div>
 
-      <div class="ai-card">
-        <h3>いま抱えている仕事（開発メモ）</h3>
-        <div class="ai-num">
-          <div><b>${notes.new || 0}</b><span class="u">未対応</span></div>
-          <div><b>${notes.doing || 0}</b><span class="u">対応中</span></div>
-          <div><b>${notes.done || 0}</b><span class="u">済み</span></div>
-        </div>
-        <div class="ai-chips" style="margin-top:12px;">
-          <span class="ai-chip">エラー ${notes.error || 0}</span>
-          <span class="ai-chip">バグ ${notes.bug || 0}</span>
-          <span class="ai-chip">要望 ${notes.request || 0}</span>
-          <span class="ai-chip">アイデア ${notes.idea || 0}</span>
-        </div>
-        <div class="ai-mini">${sa
-          ? `SF監査：${fmtWhen(sa.at)} に全${sa.lists}リスト確認（ユーザー化 ${sa.ユーザー}・クロス商談 ${sa.クロス}・直近失注 ${sa.失注}）`
-          : "SF監査：まだ実行記録がありません（30分ごとに自動で回ります）"}</div>
+    <div class="ai-cols">
+      <div class="ai-col">
+        <h3>完了タスク <span class="ai-cnt">${ni.done.length}</span></h3>
+        ${ni.done.length ? `<ul class="ai-tasks">${ni.done.slice(0,50).map(noteLi).join("")}</ul>` : `<div class="ai-empty">まだありません。</div>`}
       </div>
+      <div class="ai-col">
+        <h3>進行中タスク</h3>
+        <div class="ai-subh">対応中 <span class="ai-cnt">${ni.doing.length}</span></div>
+        ${ni.doing.length ? `<ul class="ai-tasks">${ni.doing.slice(0,50).map(noteLi).join("")}</ul>` : `<div class="ai-empty">なし</div>`}
+        <div class="ai-subh" style="margin-top:12px;">未対応 <span class="ai-cnt">${ni.new.length}</span></div>
+        ${ni.new.length ? `<ul class="ai-tasks">${ni.new.slice(0,50).map(noteLi).join("")}</ul>` : `<div class="ai-empty">なし</div>`}
+      </div>
+      <div class="ai-col ai-chatcol">
+        <h3>タスク依頼</h3>
+        <div class="ai-chat" id="aiChat">${chatHtml()}</div>
+        <div class="ai-chat-input">
+          <input type="text" id="aiTaskInput" placeholder="やってほしいことを書く…" autocomplete="off" />
+          <button id="aiTaskSend" class="ai-send">送る</button>
+        </div>
+      </div>
+    </div>
 
-      <div class="ai-card">
+    <div class="ai-cols ai-cols-sub">
+      <div class="ai-col">
+        <h3>最近やったこと</h3>
+        ${feed.length
+          ? `<ul class="ai-feed">${feed.slice(0,10).map((a) =>
+              `<li><span class="k ${esc(a.kind)}"></span><div>${esc(a.text)}<div class="at">${fmtWhen(a.at)}</div></div></li>`).join("")}</ul>`
+          : `<div class="ai-empty">まだ記録がありません。</div>`}
+      </div>
+      <div class="ai-col">
         <h3>どこで動いているか</h3>
         <table class="ai-sched"><tbody>
           ${(d.schedule || []).map((s) =>
             `<tr><td class="w">${esc(s.when)}<div class="ww">${esc(s.where)}</div></td>
              <td><b>${esc(s.what)}</b><div class="ww">${esc(s.detail)}</div></td></tr>`).join("")}
         </tbody></table>
-        <div class="ai-chips" style="margin-top:10px;">
-          ${(d.safety || []).map((x) => `<span class="ai-chip">${esc(x)}</span>`).join("")}
-        </div>
+        <div class="ai-mini">${sa
+          ? `SF監査：${fmtWhen(sa.at)}（ユーザー化 ${sa.ユーザー}・クロス ${sa.クロス}・失注 ${sa.失注}）`
+          : "SF監査：30分ごとに自動で回ります"}</div>
       </div>
-
-      <div class="ai-card">
-        <h3>最近やったこと</h3>
-        ${feed.length
-          ? `<ul class="ai-feed">${feed.map((a) =>
-              `<li><span class="k ${esc(a.kind)}"></span><div>${esc(a.text)}${a.files && a.files.length ? `<div class="at">${esc(a.files.join("、"))}（${a.lines || 0}行）</div>` : ""}<div class="at">${fmtWhen(a.at)}</div></div></li>`).join("")}</ul>`
-          : `<div class="ai-empty">まだ記録がありません。自動改善やSF監査が動くと、ここに出ます。</div>`}
-      </div>
-
-      <div class="ai-card ai-mem">
-        <h3>覚えていること（このプロジェクトの決めごと・指示）</h3>
+      <div class="ai-col ai-mem">
+        <h3>覚えていること</h3>
         ${(d.memory && d.memory.length)
-          ? `<ul>${d.memory.map((m) => `<li>${esc(m)}</li>`).join("")}</ul>`
-          : `<div class="ai-empty">まだ記憶がありません。決めごとや指示があると、ここに残ります。</div>`}
+          ? `<ul>${d.memory.slice(0,12).map((m) => `<li>${esc(m)}</li>`).join("")}</ul>`
+          : `<div class="ai-empty">まだ記憶がありません。</div>`}
       </div>
     </div>`;
 
   wire();
   startBubble(sayLines);
+  const chat = $("aiChat"); if (chat) chat.scrollTop = chat.scrollHeight;
 }
 
 async function putAuto(patch, msg) {
@@ -242,7 +255,7 @@ function wire() {
   const swI = $("swImprove");
   if (swI) swI.addEventListener("click", () =>
     putAuto({ enabled: !STATE.control.autoImprove },
-      STATE.control.autoImprove ? "自動改善を止めました。" : "自動改善を動かしました。"));
+      STATE.control.autoImprove ? "AIを止めました（自動では動きません）。" : "AIを動かしました。"));
   const swA = $("swApply");
   if (swA) swA.addEventListener("click", () =>
     putAuto({ autoApply: !STATE.control.autoApply },
@@ -253,17 +266,41 @@ function wire() {
     const runFrom = Number($("runFrom").value);
     const runTo = Number($("runTo").value);
     const runEvery = Number($("runEvery").value);
-    if (runTo < runFrom) { $("aiCtlMsg").textContent = "終了は開始より後にしてください。"; return; }
-    // 実行時刻のプレビューを先に出す
-    const prev = [];
-    for (let h = runFrom; h <= runTo; h += runEvery) if (h <= 23) prev.push(h + ":30");
-    const pv = $("aiRunPreview"); if (pv) pv.textContent = "実行：" + (prev.join("・") || "（なし）");
+    if (runTo < runFrom) { const m = $("aiCtlMsg"); if (m) m.textContent = "終了は開始より後にしてください。"; return; }
+    const pv = $("aiRunPreview"); if (pv) {
+      const prev = []; for (let h = runFrom; h <= runTo; h += runEvery) if (h <= 23) prev.push(h + ":30");
+      pv.textContent = "実行：" + (prev.join("・") || "（なし）");
+    }
     putAuto({ runFrom, runTo, runEvery }, `動かす時間帯を ${runFrom}時〜${runTo}時（${runEvery}時間おき）にしました。`);
   };
   ["runFrom", "runTo", "runEvery"].forEach((id) => {
     const el = $(id);
     if (el) el.addEventListener("change", saveRange);
   });
+
+  // タスク依頼（チャット）
+  const send = async () => {
+    const inp = $("aiTaskInput");
+    const text = (inp && inp.value || "").trim();
+    if (!text) return;
+    CHAT.push({ who: "me", text });
+    CHAT.push({ who: "ai", text: "受け取りました…" });
+    const chat = $("aiChat"); if (chat) { chat.innerHTML = chatHtml(); chat.scrollTop = chat.scrollHeight; }
+    if (inp) { inp.value = ""; inp.focus(); }
+    try {
+      const d = await (await fetch("/api/ai/task", {
+        method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ text }),
+      })).json();
+      CHAT[CHAT.length - 1] = { who: "ai", text: d.error ? ("できませんでした：" + d.error) : (d.reply || "受け付けました。") };
+    } catch (e) {
+      CHAT[CHAT.length - 1] = { who: "ai", text: "送れませんでした：" + e.message };
+    }
+    const chat2 = $("aiChat"); if (chat2) { chat2.innerHTML = chatHtml(); chat2.scrollTop = chat2.scrollHeight; }
+    // 依頼はメモに入るので、一覧を更新（少し待ってから）
+    setTimeout(load, 1200);
+  };
+  const sb = $("aiTaskSend"); if (sb) sb.addEventListener("click", send);
+  const ti = $("aiTaskInput"); if (ti) ti.addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); send(); } });
 
   const rn = $("aiRename");
   if (rn) rn.addEventListener("click", async () => {
