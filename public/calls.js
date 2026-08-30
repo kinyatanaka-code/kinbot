@@ -627,6 +627,13 @@ function renderDock() {
     .kc-ptab:not(.active):hover{background:#eaf5ef;color:#0d5b47;}
     .kc-g-sec{font-size:13px;font-weight:800;color:#0d5b47;margin:14px 2px 6px;border-left:3px solid #1d9e75;padding-left:8px;}
     .kc-g-sub td{color:#7d8c86;font-size:11.5px;}
+    /* 個別：メンバーごとのカード（幅が広いと2枚並ぶ） */
+    .kc-cardgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(560px,1fr));gap:14px;margin-bottom:8px;}
+    .kc-g-card{background:#fff;border:1px solid #e6ece9;border-radius:14px;box-shadow:0 2px 10px rgba(13,91,71,.06);padding:12px 14px;}
+    .kc-g-card .kc-g-title{font-size:14px;font-weight:800;}
+    .kc-g-card .kc-g-tsum{color:#7d8c86;font-weight:600;}
+    .kc-g-card .kc-g-body{overflow-x:auto;}
+    @media (max-width:640px){ .kc-cardgrid{grid-template-columns:1fr;} }
     /* 実績タブの段組み：上段＝全体/個別＋アポ、下段＝日週月 */
     .kc-st-row{display:flex;gap:16px;align-items:center;flex-wrap:wrap;margin-bottom:6px;}
     .kc-st-row .kc-period-tabs{margin-bottom:0;}
@@ -1288,7 +1295,7 @@ async function loadStats() {
         const ある = arr.filter(has), ない = arr.filter((x) => !has(x));
         if (!arr.length) return "";
         return `<div class="kc-g-sec">${esc(title)}</div>` +
-          ある.map((x) => 表(x["誰"], x["値"])).join("") +
+          `<div class="kc-cardgrid">${ある.map((x) => 表(x["誰"], x["値"], " kc-g-card")).join("")}</div>` +
           (ない.length ? `<div class="note">この期間に記録がない人：${ない.map((x) => esc(x["誰"])).join("、")}</div>` : "");
       };
       box.innerHTML = (sec("セールス", sales) + sec("インサイド", inside)) || `<div class="note">メンバーがいません。</div>`;
