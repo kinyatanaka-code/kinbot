@@ -634,6 +634,16 @@ function renderDock() {
     .kc-g-card .kc-g-tsum{color:#7d8c86;font-weight:600;}
     .kc-g-card .kc-g-body{overflow-x:auto;}
     @media (max-width:640px){ .kc-cardgrid{grid-template-columns:1fr;} }
+    /* 案A：セールス/インサイドの大カード。中に合計＋各メンバーの表を並べる */
+    .kc-bigwrap{display:grid;grid-template-columns:repeat(auto-fit,minmax(600px,1fr));gap:16px;}
+    .kc-bigcard{background:#fff;border:1px solid #dfeae5;border-radius:16px;box-shadow:0 3px 14px rgba(13,91,71,.07);padding:14px 16px;}
+    .kc-bigcard-h{font-size:15px;font-weight:800;color:#0d5b47;border-left:4px solid #1d9e75;padding-left:10px;margin-bottom:10px;display:flex;align-items:center;gap:8px;}
+    .kc-bigcard-c{font-size:12px;font-weight:600;color:#7d8c86;}
+    .kc-bigcard-body{overflow-x:auto;}
+    .kc-bigcard .kc-g-block{background:#fbfefd;}
+    .kc-bigcard .kc-g-block.kc-mem{background:#fff;border-color:#eef3f0;}
+    .kc-bigcard .kc-g-block.kc-g-team{background:#eaf5ef;border-color:#cfe6da;}
+    @media (max-width:900px){ .kc-bigwrap{grid-template-columns:1fr;} }
     /* 実績タブの段組み：上段＝全体/個別＋アポ、下段＝日週月 */
     .kc-st-row{display:flex;gap:16px;align-items:center;flex-wrap:wrap;margin-bottom:6px;}
     .kc-st-row .kc-period-tabs{margin-bottom:0;}
@@ -1221,87 +1231,113 @@ function openEdit(id) {
 
 // ───────── 実績（日・週・月） ─────────
 let statsPeriod = "day";
-let statsScope = "all";   // all=全体（グループ/セールス/インサイド）, each=個別（メンバー全員）
+let statsScope = "all";   // all=全体（グループ/セールス/インサイド）, each=個別（案A：セールス/インサイドの大カード）
+const _statsCache = {};   // period -> data（切替を速くするためキャッシュ）
 
-async function loadStats() {
+// データ取得（ネットワーク）。キャッシュがあれば使い、無ければ取りに行く。
+async function fetchStats(force) {
+  if (!force && _statsCache[statsPeriod]) return _statsCache[statsPeriod];
+  const d = await (await fetch(`/api/calls/stats-grid?period=${encodeURIComponent(statsPeriod)}`)).json();
+  if (d.error) throw new Error(d.error);
+  _statsCache[statsPeriod] = d;
+  return d;
+}
+
+async function loadStats(force) {
   const box = $("clStats");
   if (!box) return;
   if (statsPeriod === "analysis") return loadAnalysis();
   try {
-    const d = await (await fetch(`/api/calls/stats-grid?period=${encodeURIComponent(statsPeriod)}`)).json();
-    if (d.error) throw new Error(d.error);
-    const 区切り = d["区切り"] || [];
-    const members = d.members || [];
-    const totals = d.totals || { group: [], sales: [], inside: [] };
-    const 今 = d["今"] || "";
+    if (force || !_statsCache[statsPeriod]) box.innerHTML = `<div class="note">読み込んでいます…</div>`;
+    const d = await fetchStats(force);
+    renderStats(d);
+  } catch (e) { box.innerHTML = `<div class="note">読み込めませんでした：${esc(e.message)}</div>`; }
+}
 
-    const rg = $("stRange");
-    if (rg) rg.textContent = 区切り.length ? `${区切り[0]["名前"]} 〜 ${区切り[区切り.length - 1]["名前"]}` : "";
+// 描画（ネットワークなし＝全体/個別の切替はここだけで即反映）
+function renderStats(d) {
+  const box = $("clStats");
+  if (!box) return;
+  const 区切り = d["区切り"] || [];
+  const members = d.members || [];
+  const totals = d.totals || { group: [], sales: [], inside: [] };
+  const 今 = d["今"] || "";
 
-    const いま = (c) => (c && c.key === 今 ? " kc-g-now" : "");
-    const 頭 = `<tr><th class="kc-g-name">　</th>` +
-      区切り.map((c) => `<th class="kc-g-h${いま(c)}"><div>${esc(c["名前"])}</div>` +
-        (c["曜日"] ? `<div class="kc-g-w">${esc(c["曜日"])}</div>` : "") + `</th>`).join("") +
-      `<th class="kc-g-h kc-g-tot">合計</th></tr>`;
-    const chev = '<svg viewBox="0 0 20 20" width="13" height="13" aria-hidden="true"><path d="M6 8l4 4 4-4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>';
-    const pct = (a, b) => (b ? (a / b * 100).toFixed(1) + "%" : "—");
+  const rg = $("stRange");
+  if (rg) rg.textContent = 区切り.length ? `${区切り[0]["名前"]} 〜 ${区切り[区切り.length - 1]["名前"]}` : "";
 
-    const 表 = (名前, 値0, cls) => {
-      // 値0 は {コール,接触,アポ内,アポ外}。アポ合計＝内＋外。
-      const 値 = 値0.map((v) => ({ コール: v.コール || 0, 接触: v.接触 || 0, アポ内: v.アポ内 || 0, アポ外: v.アポ外 || 0, アポ: (v.アポ内 || 0) + (v.アポ外 || 0) }));
-      const 計 = (key) => 値.reduce((a, v) => a + (v[key] || 0), 0);
-      const 行 = (lb, key, rcls) =>
-        `<tr class="${rcls || ""}"><td class="kc-g-name">${esc(lb)}</td>` +
-        値.map((v, i) => `<td class="kc-g-n${いま(区切り[i])}">${v[key] || 0}</td>`).join("") +
-        `<td class="kc-g-n kc-g-tot">${計(key)}</td></tr>`;
-      const 率行 = (lb, an, bn, top) =>
-        `<tr class="kc-g-rate${top ? " kc-g-rate-top" : ""}"><td class="kc-g-name">${esc(lb)}</td>` +
-        値.map((v, i) => `<td class="kc-g-n${いま(区切り[i])}">${pct(v[an] || 0, v[bn] || 0)}</td>`).join("") +
-        `<td class="kc-g-n kc-g-tot">${pct(計(an), 計(bn))}</td></tr>`;
-      const tc = 計("コール");
-      const sum = `コール ${tc}｜接触率 ${pct(計("接触"), tc)}｜アポ率 ${pct(計("アポ"), tc)}`;
-      return `<div class="kc-g-block${cls || ""}">
-        <button type="button" class="kc-g-title" aria-expanded="true">
-          <span class="kc-g-chev">${chev}</span>
-          <span class="kc-g-tname">${esc(名前)}</span>
-          <span class="kc-g-tsum">${sum}</span>
-        </button>
-        <div class="kc-g-body">
-          <table class="sh-table kc-grid">
-            ${頭}
-            ${行("コール", "コール")}
-            ${行("接触", "接触")}
-            ${行("アポ（期間内）", "アポ内", "kc-g-apo")}
-            ${行("アポ（期間外）", "アポ外")}
-            ${率行("コール→接触率", "接触", "コール", true)}
-            ${率行("接触→アポ率", "アポ", "接触")}
-            ${率行("コール→アポ率", "アポ", "コール")}
-          </table>
-        </div>
+  const いま = (c) => (c && c.key === 今 ? " kc-g-now" : "");
+  const 頭 = `<tr><th class="kc-g-name">　</th>` +
+    区切り.map((c) => `<th class="kc-g-h${いま(c)}"><div>${esc(c["名前"])}</div>` +
+      (c["曜日"] ? `<div class="kc-g-w">${esc(c["曜日"])}</div>` : "") + `</th>`).join("") +
+    `<th class="kc-g-h kc-g-tot">合計</th></tr>`;
+  const chev = '<svg viewBox="0 0 20 20" width="13" height="13" aria-hidden="true"><path d="M6 8l4 4 4-4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+  const pct = (a, b) => (b ? (a / b * 100).toFixed(1) + "%" : "—");
+
+  // 1つの表（コール/接触/アポ内外＋率）。head=false のときは日付見出しを出さない（大カード内の2人目以降用）。
+  const 表 = (名前, 値0, cls, opt) => {
+    const o = opt || {};
+    const 値 = 値0.map((v) => ({ コール: v.コール || 0, 接触: v.接触 || 0, アポ内: v.アポ内 || 0, アポ外: v.アポ外 || 0, アポ: (v.アポ内 || 0) + (v.アポ外 || 0) }));
+    const 計 = (key) => 値.reduce((a, v) => a + (v[key] || 0), 0);
+    const 行 = (lb, key, rcls) =>
+      `<tr class="${rcls || ""}"><td class="kc-g-name">${esc(lb)}</td>` +
+      値.map((v, i) => `<td class="kc-g-n${いま(区切り[i])}">${v[key] || 0}</td>`).join("") +
+      `<td class="kc-g-n kc-g-tot">${計(key)}</td></tr>`;
+    const 率行 = (lb, an, bn, top) =>
+      `<tr class="kc-g-rate${top ? " kc-g-rate-top" : ""}"><td class="kc-g-name">${esc(lb)}</td>` +
+      値.map((v, i) => `<td class="kc-g-n${いま(区切り[i])}">${pct(v[an] || 0, v[bn] || 0)}</td>`).join("") +
+      `<td class="kc-g-n kc-g-tot">${pct(計(an), 計(bn))}</td></tr>`;
+    const tc = 計("コール");
+    const sum = `コール ${tc}｜接触率 ${pct(計("接触"), tc)}｜アポ率 ${pct(計("アポ"), tc)}`;
+    const table = `<table class="sh-table kc-grid">
+        ${o.head === false ? "" : 頭}
+        ${行("コール", "コール")}
+        ${行("接触", "接触")}
+        ${行("アポ（期間内）", "アポ内", "kc-g-apo")}
+        ${行("アポ（期間外）", "アポ外")}
+        ${率行("コール→接触率", "接触", "コール", true)}
+        ${率行("接触→アポ率", "アポ", "接触")}
+        ${率行("コール→アポ率", "アポ", "コール")}
+      </table>`;
+    return `<div class="kc-g-block${cls || ""}">
+      <button type="button" class="kc-g-title" aria-expanded="true">
+        <span class="kc-g-chev">${chev}</span>
+        <span class="kc-g-tname">${esc(名前)}</span>
+        <span class="kc-g-tsum">${sum}</span>
+      </button>
+      <div class="kc-g-body">${table}</div>
+    </div>`;
+  };
+
+  if (statsScope === "all") {
+    box.innerHTML =
+      表("グループ全体", totals.group || [], " kc-g-team") +
+      表("セールス全体", totals.sales || [], " kc-g-team") +
+      表("インサイド全体", totals.inside || [], " kc-g-team") +
+      (d.sfError ? `<div class="note">${esc(d.sfError)}</div>` : "");
+  } else {
+    // 案A：セールスの大カード／インサイドの大カード。各カードの中に、合計＋各メンバーの表を並べる。
+    const has = (x) => x["値"].some((v) => v.コール || v.接触 || v.アポ内 || v.アポ外);
+    const sales = members.filter((x) => x.role === "sales");
+    const inside = members.filter((x) => x.role === "inside");
+    const 大カード = (title, arr, 合計値) => {
+      if (!arr.length) return "";
+      const ある = arr.filter(has), ない = arr.filter((x) => !has(x));
+      const inner = 表("＜チーム合計＞", 合計値 || [], " kc-g-team") +
+        ある.map((x) => 表(x["誰"], x["値"], " kc-mem")).join("");
+      return `<div class="kc-bigcard">
+        <div class="kc-bigcard-h">${esc(title)}<span class="kc-bigcard-c">${arr.length}名</span></div>
+        <div class="kc-bigcard-body">${inner}</div>
+        ${ない.length ? `<div class="note">この期間に記録がない人：${ない.map((x) => esc(x["誰"])).join("、")}</div>` : ""}
       </div>`;
     };
-
-    if (statsScope === "all") {
-      box.innerHTML =
-        表("グループ全体", totals.group || [], " kc-g-team") +
-        表("セールス全体", totals.sales || [], " kc-g-team") +
-        表("インサイド全体", totals.inside || [], " kc-g-team") +
-        (d.sfError ? `<div class="note">${esc(d.sfError)}</div>` : "");
-    } else {
-      const has = (x) => x["値"].some((v) => v.コール || v.接触 || v.アポ内 || v.アポ外);
-      const sales = members.filter((x) => x.role === "sales");
-      const inside = members.filter((x) => x.role === "inside");
-      const sec = (title, arr) => {
-        const ある = arr.filter(has), ない = arr.filter((x) => !has(x));
-        if (!arr.length) return "";
-        return `<div class="kc-g-sec">${esc(title)}</div>` +
-          `<div class="kc-cardgrid">${ある.map((x) => 表(x["誰"], x["値"], " kc-g-card")).join("")}</div>` +
-          (ない.length ? `<div class="note">この期間に記録がない人：${ない.map((x) => esc(x["誰"])).join("、")}</div>` : "");
-      };
-      box.innerHTML = (sec("セールス", sales) + sec("インサイド", inside)) || `<div class="note">メンバーがいません。</div>`;
-      if (d.sfError) box.innerHTML += `<div class="note">${esc(d.sfError)}</div>`;
-    }
-  } catch (e) { box.innerHTML = `<div class="note">読み込めませんでした：${esc(e.message)}</div>`; }
+    box.innerHTML =
+      `<div class="kc-bigwrap">` +
+        大カード("セールス", sales, totals.sales) +
+        大カード("インサイド", inside, totals.inside) +
+      `</div>` +
+      (d.sfError ? `<div class="note">${esc(d.sfError)}</div>` : "");
+  }
 }
 
 // ───────── リストを作る ─────────
@@ -1343,7 +1379,7 @@ document.addEventListener("click", (ev) => {
     if (!items.length) { say("clNewStatus", "貼り付けた中身が読めませんでした", 6000); return; }
     createList({ name: $("clNewName").value, items });
   }
-  if (t.id === "clStatsReload") { ev.preventDefault(); loadStats(); }
+  if (t.id === "clStatsReload") { ev.preventDefault(); loadStats(true); }
 });
 
 if ($("clList")) {
@@ -1373,7 +1409,8 @@ if ($("stScope")) {
     b.addEventListener("click", () => {
       statsScope = b.dataset.scope || "all";
       $("stScope").querySelectorAll(".kc-ptab").forEach((x) => x.classList.toggle("active", x === b));
-      loadStats();
+      // 取得済みなら再取得せず即描画（切替を速く）。無ければ取りに行く。
+      if (_statsCache[statsPeriod]) renderStats(_statsCache[statsPeriod]); else loadStats();
     }));
 }
 

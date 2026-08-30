@@ -41,6 +41,8 @@ kincall（架電リスト）という別ツールも同じ画面群の中にあ�
 
 ## 決定・指示のログ（新しいものを上に足す）
 
+- 2026-09-03 実績：全体/個別・日週月の切替が重かったのを高速化。loadStatsを fetchStats(キャッシュ:_statsCache[period]) と renderStats(描画) に分離。全体/個別トグルは再取得せず renderStats のみ（即時）。期間タブはキャッシュ利用、「読み込み直す」で force 再取得。個別を案Aに変更：セールス/インサイドの大カード2枚(.kc-bigcard)に、各チーム合計(kc-g-team)＋各メンバー表(kc-mem)を内包（.kc-bigwrapで横並び）。
+
 - 2026-09-03 実績のアポ「期間内/外」の基準を設定画面から変えられるようにした。設定：apoInWindowMode（span=表示期間内・既定／days=今日から◯日以内）と apoInWindowDays（◯日、既定14）。API：/api/calls/apo-window（GET/PUT、saveSettings）。実績側 stats-grid の inSpan が設定連動（days時は商談日が todayJ〜today+◯日 なら内）。商談日不明は内に寄せる（従来どおり）。UI：設定→動作設定タブに「アポの『期間内/期間外』の基準」カード（基準セレクト＋◯日入力、settings.jsで load/save、days選択時のみ日数行を表示）。
 
 - 2026-09-03 実績のアポ内/外を「アポ一覧（smart-linkのstart_time＝カレンダーの商談予定日）」で判定するように変更（田中さん指示：プロセスシートと同じSFレポート＋商談日はカレンダーから／案A・獲得者setter基準）。インサイド：アポ一覧を setter 基準で件数化し、start_time で内/外（空＝期間内）。セールス：件数はSFレポートのまま、内/外の比率だけ同 setter のアポ一覧の商談日から算出して按分（該当アポ一覧が無ければ期間内）。setterのメール/氏名を members に突合。※setterが会員名と一致しないと引き当たらない点は実データで要確認。将来：会社名(label)×担当での厳密突合や、按分でなく1件ずつ突合も可能。
