@@ -6843,7 +6843,7 @@ export async function aposByMeetingDate(fromJst, toJst) {
   if (!pool) return [];
   try {
     const { rows } = await pool.query(
-      `SELECT slug, label, setter, setter_email, current_owner, start_time,
+      `SELECT slug, label, setter, setter_email, current_owner, invite_event_owner, start_time,
               COALESCE(apo_at, created_at) AS taken_at
          FROM smart_links
         WHERE start_time IS NOT NULL
