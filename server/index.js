@@ -15994,7 +15994,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-04m AI社員新デザインの潰れを修正：main.ai-pageを通常フロー(display:block/overflow:auto/height:auto)にし、CEOカード・部門グリッドをflex:0 0 auto（縦潰れ・重なり防止）。内部の開発メモが漏れていた「覚えていること/最近やったこと」下段を撤去（モック準拠）。前回：AI社員新デザイン";
+const BUILD_TAG = "2026-09-04n AI社員のCEO指示欄を改行可能に：inputをtextareaにし、Enter=送信・Shift+Enter=改行（IME変換中は送らない）、入力に応じて高さ自動伸縮(最大140px)。送信後に高さリセット。前回：新デザインの潰れ修正";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",

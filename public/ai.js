@@ -213,7 +213,7 @@ function render(d) {
         </div>
         <p class="ceo-sub">あなたの決めごとを伝えると、下の2つのAIに指示・連携します。</p>
         <div class="ceo-input">
-          <input type="text" id="aiTaskInput" placeholder="例：SF未紐づけ通知を止めて / 実績のバグを直して" autocomplete="off" />
+          <textarea id="aiTaskInput" rows="1" placeholder="例：SF未紐づけ通知を止めて / 実績のバグを直して（Shift+Enterで改行）" autocomplete="off"></textarea>
           <button id="aiTaskSend" class="ai-send">送る</button>
         </div>
         <div class="ceo-quick">
@@ -328,7 +328,7 @@ function wire() {
     CHAT.push({ who: "me", text });
     CHAT.push({ who: "ai", text: "受け取りました…" });
     const chat = $("aiChat"); if (chat) { chat.innerHTML = chatHtml(); chat.scrollTop = chat.scrollHeight; }
-    if (inp) { inp.value = ""; inp.focus(); }
+    if (inp) { inp.value = ""; inp.style.height = "auto"; inp.focus(); }
     try {
       const d = await (await fetch("/api/ai/task", {
         method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ text }),
@@ -342,7 +342,14 @@ function wire() {
     setTimeout(load, 1200);
   };
   const sb = $("aiTaskSend"); if (sb) sb.addEventListener("click", send);
-  const ti = $("aiTaskInput"); if (ti) ti.addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); send(); } });
+  const ti = $("aiTaskInput");
+  if (ti) {
+    const grow = () => { ti.style.height = "auto"; ti.style.height = Math.min(140, ti.scrollHeight) + "px"; };
+    ti.addEventListener("input", grow);
+    ti.addEventListener("keydown", (e) => {
+      if (e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); send(); }
+    });
+  }
   // クイック指示ボタン：入力欄に入れて送る
   document.querySelectorAll(".ai-q").forEach((b) => b.addEventListener("click", () => {
     const inp = $("aiTaskInput"); if (inp) { inp.value = b.dataset.q || ""; }
