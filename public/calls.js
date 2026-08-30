@@ -1379,22 +1379,41 @@ function renderStats(d) {
   }
 }
 
-// ───────── プロセス（クローザー×月の 設定数/実施数/実施率） ─────────
+// ───────── プロセス（クローザー×月／全体×週） ─────────
 let processMonth = "";
+let processGrain = "month";   // month=クローザー別・月ごと / week=全体・週ごと
 async function loadProcess() {
   const box = $("clStats");
   if (!box) return;
   box.innerHTML = `<div class="note">読み込んでいます…</div>`;
   try {
-    const q = processMonth ? ("?month=" + encodeURIComponent(processMonth)) : "";
-    const d = await (await fetch("/api/calls/process" + q)).json();
+    const params = new URLSearchParams({ grain: processGrain });
+    if (processGrain === "month" && processMonth) params.set("month", processMonth);
+    const d = await (await fetch("/api/calls/process?" + params.toString())).json();
     if (d.error) throw new Error(d.error);
-    processMonth = d.month;
-    const rg = $("stRange"); if (rg) rg.textContent = d.from && d.to ? `${d.from} 〜 ${d.to}（商談日）` : "";
-    const rows = (d.items || []).map((x) =>
-      `<tr><td class="kc-g-name">${esc(x["誰"])}</td><td class="kc-g-n">${x["設定数"]}</td><td class="kc-g-n">${x["実施数"]}</td><td class="kc-g-n">${esc(x["実施率"])}</td></tr>`).join("");
-    box.innerHTML = `
-      <div class="kc-proc">
+    const rg = $("stRange");
+    const toggle = `<div class="kc-period-tabs" style="margin:0 0 10px;">
+        <button type="button" class="kc-ptab ${processGrain === "month" ? "active" : ""}" data-pg="month">月ごと（クローザー別）</button>
+        <button type="button" class="kc-ptab ${processGrain === "week" ? "active" : ""}" data-pg="week">週ごと（全体）</button>
+      </div>`;
+
+    if (d.grain === "week") {
+      if (rg) rg.textContent = "全体・週ごと（商談日ベース）";
+      const rows = (d.items || []).map((w) =>
+        `<tr><td class="kc-g-name">${esc(w["名前"])}<div class="ww">${esc(w.from)}〜${esc(w.to)}</div></td><td class="kc-g-n">${w["設定数"]}</td><td class="kc-g-n">${w["実施数"]}</td><td class="kc-g-n">${esc(w["実施率"])}</td></tr>`).join("");
+      box.innerHTML = `<div class="kc-proc">${toggle}
+        <div class="note" style="margin-bottom:8px">商談予定（【初回】【新/ヒ】・メルマガ含む）の「設定数」と、記録のある商談の「実施数」を、全体（合計）で週ごとに。</div>
+        <table class="sh-table kc-grid">
+          <tr><th class="kc-g-name">週</th><th class="kc-g-h">設定数</th><th class="kc-g-h">実施数</th><th class="kc-g-h">実施率</th></tr>
+          ${rows || `<tr><td class="kc-g-name" colspan="4">データがありません。</td></tr>`}
+          <tr class="kc-g-team"><td class="kc-g-name">合計</td><td class="kc-g-n">${d["合計"]["設定数"]}</td><td class="kc-g-n">${d["合計"]["実施数"]}</td><td class="kc-g-n">${esc(d["合計"]["実施率"])}</td></tr>
+        </table></div>`;
+    } else {
+      processMonth = d.month;
+      if (rg) rg.textContent = d.from && d.to ? `${d.from} 〜 ${d.to}（商談日）` : "";
+      const rows = (d.items || []).map((x) =>
+        `<tr><td class="kc-g-name">${esc(x["誰"])}</td><td class="kc-g-n">${x["設定数"]}</td><td class="kc-g-n">${x["実施数"]}</td><td class="kc-g-n">${esc(x["実施率"])}</td></tr>`).join("");
+      box.innerHTML = `<div class="kc-proc">${toggle}
         <div class="kc-proc-head">
           <label>月：<input type="month" id="procMonth" value="${esc(d.month || "")}" /></label>
           <span class="note">商談予定（【初回】【新/ヒ】・メルマガ含む）の「設定数」と、記録のある商談の「実施数」。担当＝クローザー（現担当）。月の範囲：${esc(d.from)}〜${esc(d.to)}</span>
@@ -1403,10 +1422,11 @@ async function loadProcess() {
           <tr><th class="kc-g-name">クローザー</th><th class="kc-g-h">設定数</th><th class="kc-g-h">実施数</th><th class="kc-g-h">実施率</th></tr>
           ${rows || `<tr><td class="kc-g-name" colspan="4">この月のデータはありません。</td></tr>`}
           <tr class="kc-g-team"><td class="kc-g-name">合計</td><td class="kc-g-n">${d["合計"]["設定数"]}</td><td class="kc-g-n">${d["合計"]["実施数"]}</td><td class="kc-g-n">${esc(d["合計"]["実施率"])}</td></tr>
-        </table>
-      </div>`;
-    const mEl = $("procMonth");
-    if (mEl) mEl.addEventListener("change", () => { processMonth = mEl.value; loadProcess(); });
+        </table></div>`;
+      const mEl = $("procMonth");
+      if (mEl) mEl.addEventListener("change", () => { processMonth = mEl.value; loadProcess(); });
+    }
+    box.querySelectorAll("[data-pg]").forEach((b) => b.addEventListener("click", () => { processGrain = b.dataset.pg; loadProcess(); }));
   } catch (e) { box.innerHTML = `<div class="note">読み込めませんでした：${esc(e.message)}</div>`; }
 }
 
