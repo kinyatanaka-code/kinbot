@@ -225,6 +225,7 @@ import {
   callStats,
   callStatsRange,
   callStatsByDay,
+  callStatsByList,
   callAnalysis,
   callMemos,
   clearCallLogs,
@@ -8485,6 +8486,46 @@ app.put("/api/calls/apo-window", async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+// リスト別の実績（kincall架電ログ基準）。表示期間の各リストのコール/接触/アポと率。
+app.get("/api/calls/stats-by-list", async (req, res) => {
+  try {
+    const pad = (n) => String(n).padStart(2, "0");
+    const ymd = (d) => `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}-${pad(d.getUTCDate())}`;
+    const nowJ = new Date(Date.now() + 9 * 3600 * 1000);
+    let from = String(req.query.from || ""), to = String(req.query.to || "");
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(from) || !/^\d{4}-\d{2}-\d{2}$/.test(to)) {
+      const period = String(req.query.period || "day");
+      const y = nowJ.getUTCFullYear(), m = nowJ.getUTCMonth(), d0 = nowJ.getUTCDate();
+      if (period === "month") { from = ymd(new Date(Date.UTC(y, m - 5, 1))); to = ymd(new Date(Date.UTC(y, m + 1, 0))); }
+      else if (period === "week") { const off = (nowJ.getUTCDay() + 6) % 7; from = ymd(new Date(Date.UTC(y, m, d0 - off - 7 * 7))); to = ymd(new Date(Date.UTC(y, m, d0 - off + 6))); }
+      else { from = ymd(new Date(Date.UTC(y, m, d0 - 13))); to = ymd(new Date(Date.UTC(y, m, d0))); }
+    }
+    const rows = await callStatsByList(from, to).catch(() => []);
+    const 接触した = (v) => /接触|アポ|再コール|断り|見送り/.test(v) && !/不在|コールのみ|NG/.test(v);
+    const アポ = (v) => /アポ獲得/.test(v);
+    const lists = new Map();
+    for (const r of rows) {
+      const id = r.list_id;
+      if (!lists.has(id)) lists.set(id, { list_id: id, list_name: r.list_name || `リスト${id}`, assigned_to: r.assigned_to || "", コール: 0, 接触: 0, アポ: 0, 担当: {} });
+      const L = lists.get(id);
+      L.コール += r.n; if (接触した(r.result)) L.接触 += r.n; if (アポ(r.result)) L.アポ += r.n;
+      const who = String(r.caller || "").toLowerCase();
+      if (who) {
+        if (!L.担当[who]) L.担当[who] = { who, コール: 0, 接触: 0, アポ: 0 };
+        L.担当[who].コール += r.n; if (接触した(r.result)) L.担当[who].接触 += r.n; if (アポ(r.result)) L.担当[who].アポ += r.n;
+      }
+    }
+    const members = await listMembers().catch(() => []);
+    const nm = new Map((members || []).map((mm) => [String(mm.email || "").toLowerCase(), mm.name || mm.email]));
+    const items = [...lists.values()].map((L) => ({
+      list_id: L.list_id, list_name: L.list_name, assigned_to: L.assigned_to,
+      コール: L.コール, 接触: L.接触, アポ: L.アポ,
+      担当: Object.values(L.担当).map((x) => ({ 誰: nm.get(x.who) || x.who, コール: x.コール, 接触: x.接触, アポ: x.アポ })).sort((a, b) => b.コール - a.コール),
+    })).sort((a, b) => b.コール - a.コール);
+    res.json({ ok: true, from, to, items });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 // 実績（日・週・月で切り替えられる）
 app.get("/api/calls/stats", async (req, res) => {
   try {
@@ -15588,7 +15629,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-03l 実績・個別：セールス/インサイド大カード内の各メンバー表を既定で折りたたみ表示（チーム合計は開いたまま）。見出しクリックで開閉。前回：全体/個別の高速化＋案A大カード";
+const BUILD_TAG = "2026-09-03m 実績に「リスト別」タブを追加（kincall架電ログ基準）。call_logs→call_targets→call_lists でリスト別にコール/接触/アポ・率を集計、担当内訳つきカードで表示。API GET /api/calls/stats-by-list（period/from-to）。DB callStatsByList。SFのTask分析(CreatedDate=時間帯/Description=コメント)は次段で追加予定。前回：個別カードの折りたたみ";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",

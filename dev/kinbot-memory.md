@@ -41,6 +41,8 @@ kincall（架電リスト）という別ツールも同じ画面群の中にあ�
 
 ## 決定・指示のログ（新しいものを上に足す）
 
+- 2026-09-03 実績に「リスト別」タブを追加（kincall架電ログ基準／田中さん要望）。call_logs→call_targets→call_lists を JOIN してリスト別にコール/接触/アポと率を集計、担当(caller)内訳つきのカードで表示。DB: callStatsByList(from,to)。API: GET /api/calls/stats-by-list（?period=day/week/month か ?from&to、返り値 items[{list_id,list_name,コール,接触,アポ,担当[]}]）。UI: stPeriodに「リスト別」ボタン、loadListStats、.kc-listcard/.kc-listgrid。全体/個別トグルはリスト別・分析時は無効(dim)。次段：クローザーの実績・分析を SF+kincall 合算に。SFのTaskを CreatedDate=時間帯・Description=コメント で読み、時間帯/コメント分析に反映（SF由来は「SF」表記）。架電Taskの区別は要確認だったが未確定→実装時に TaskSubtype=Call 等で仮置き予定。
+
 - 2026-09-03 実績：全体/個別・日週月の切替が重かったのを高速化。loadStatsを fetchStats(キャッシュ:_statsCache[period]) と renderStats(描画) に分離。全体/個別トグルは再取得せず renderStats のみ（即時）。期間タブはキャッシュ利用、「読み込み直す」で force 再取得。個別を案Aに変更：セールス/インサイドの大カード2枚(.kc-bigcard)に、各チーム合計(kc-g-team)＋各メンバー表(kc-mem)を内包（.kc-bigwrapで横並び）。
 
 - 2026-09-03 実績のアポ「期間内/外」の基準を設定画面から変えられるようにした。設定：apoInWindowMode（span=表示期間内・既定／days=今日から◯日以内）と apoInWindowDays（◯日、既定14）。API：/api/calls/apo-window（GET/PUT、saveSettings）。実績側 stats-grid の inSpan が設定連動（days時は商談日が todayJ〜today+◯日 なら内）。商談日不明は内に寄せる（従来どおり）。UI：設定→動作設定タブに「アポの『期間内/期間外』の基準」カード（基準セレクト＋◯日入力、settings.jsで load/save、days選択時のみ日数行を表示）。

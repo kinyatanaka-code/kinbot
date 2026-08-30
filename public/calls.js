@@ -644,6 +644,12 @@ function renderDock() {
     .kc-bigcard .kc-g-block.kc-mem{background:#fff;border-color:#eef3f0;}
     .kc-bigcard .kc-g-block.kc-g-team{background:#eaf5ef;border-color:#cfe6da;}
     @media (max-width:900px){ .kc-bigwrap{grid-template-columns:1fr;} }
+    /* リスト別 */
+    .kc-listgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(420px,1fr));gap:12px;}
+    .kc-listcard{background:#fff;border:1px solid #e6ece9;border-radius:14px;box-shadow:0 2px 10px rgba(13,91,71,.06);padding:12px 14px;overflow-x:auto;}
+    .kc-listcard-h{font-size:14px;font-weight:800;color:#0d5b47;margin-bottom:8px;display:flex;flex-direction:column;gap:2px;}
+    .kc-listcard-sum{font-size:11.5px;font-weight:600;color:#7d8c86;}
+    @media (max-width:640px){ .kc-listgrid{grid-template-columns:1fr;} }
     /* 実績タブの段組み：上段＝全体/個別＋アポ、下段＝日週月 */
     .kc-st-row{display:flex;gap:16px;align-items:center;flex-wrap:wrap;margin-bottom:6px;}
     .kc-st-row .kc-period-tabs{margin-bottom:0;}
@@ -1247,6 +1253,7 @@ async function loadStats(force) {
   const box = $("clStats");
   if (!box) return;
   if (statsPeriod === "analysis") return loadAnalysis();
+  if (statsPeriod === "list") return loadListStats();
   try {
     if (force || !_statsCache[statsPeriod]) box.innerHTML = `<div class="note">読み込んでいます…</div>`;
     const d = await fetchStats(force);
@@ -1340,6 +1347,34 @@ function renderStats(d) {
   }
 }
 
+// ───────── リスト別の実績（kincall架電ログ基準） ─────────
+async function loadListStats() {
+  const box = $("clStats");
+  if (!box) return;
+  box.innerHTML = `<div class="note">読み込んでいます…</div>`;
+  try {
+    // 日/週/月の期間指定に合わせる（既定は直近2週間相当）
+    const per = ["day", "week", "month"].includes(statsPeriod) ? statsPeriod : "day";
+    const d = await (await fetch(`/api/calls/stats-by-list?period=${encodeURIComponent(per)}`)).json();
+    if (d.error) throw new Error(d.error);
+    const rg = $("stRange"); if (rg) rg.textContent = d.from && d.to ? `${d.from} 〜 ${d.to}` : "";
+    const items = d.items || [];
+    if (!items.length) { box.innerHTML = `<div class="note">この期間に、リストへの架電記録はありません。</div>`; return; }
+    const pct = (a, b) => (b ? (a / b * 100).toFixed(1) + "%" : "—");
+    const card = (L) => {
+      const 担当 = (L["担当"] || []).map((m) =>
+        `<tr><td class="kc-g-name">${esc(m["誰"])}</td><td class="kc-g-n">${m["コール"]}</td><td class="kc-g-n">${m["接触"]}（${pct(m["接触"], m["コール"])}）</td><td class="kc-g-n">${m["アポ"]}（${pct(m["アポ"], m["コール"])}）</td></tr>`).join("");
+      return `<div class="kc-listcard">
+        <div class="kc-listcard-h">${esc(L.list_name)}
+          <span class="kc-listcard-sum">コール ${L["コール"]}｜接触 ${L["接触"]}（${pct(L["接触"], L["コール"])}）｜アポ ${L["アポ"]}（${pct(L["アポ"], L["コール"])}）</span>
+        </div>
+        ${担当 ? `<table class="sh-table kc-grid"><tr><th class="kc-g-name">担当</th><th class="kc-g-h">コール</th><th class="kc-g-h">接触</th><th class="kc-g-h">アポ</th></tr>${担当}</table>` : ""}
+      </div>`;
+    };
+    box.innerHTML = `<div class="kc-listgrid">${items.map(card).join("")}</div>`;
+  } catch (e) { box.innerHTML = `<div class="note">読み込めませんでした：${esc(e.message)}</div>`; }
+}
+
 // ───────── リストを作る ─────────
 async function createList(body) {
   say("clNewStatus", "作っています…");
@@ -1398,8 +1433,8 @@ if ($("stPeriod")) {
     b.addEventListener("click", () => {
       statsPeriod = b.dataset.period || "day";
       $("stPeriod").querySelectorAll(".kc-ptab").forEach((x) => x.classList.toggle("active", x === b));
-      // メンバー別の分析のときは、全体/個別は効かない
-      const off = statsPeriod === "analysis";
+      // リスト別・メンバー別の分析のときは、全体/個別は効かない
+      const off = statsPeriod === "analysis" || statsPeriod === "list";
       const sc = $("stScope"); if (sc) sc.style.opacity = off ? "0.4" : "1";
       loadStats();
     }));

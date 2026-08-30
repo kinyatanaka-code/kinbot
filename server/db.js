@@ -6838,6 +6838,24 @@ export async function callStatsByDay(fromJst, toJst) {
 }
 
 
+// リスト別の集計のもと（リスト×担当×結果ごとの件数）。実績の「リスト別」で使う。
+export async function callStatsByList(fromJst, toJst) {
+  if (!pool) return [];
+  try {
+    const { rows } = await pool.query(
+      `SELECT cl.id AS list_id, cl.name AS list_name, cl.assigned_to AS assigned_to,
+              l.caller, l.result, count(*)::int AS n
+         FROM call_logs l
+         JOIN call_targets t ON t.id = l.target_id
+         JOIN call_lists cl  ON cl.id = t.list_id
+        WHERE (l.at AT TIME ZONE 'Asia/Tokyo')::date >= $1::date
+          AND (l.at AT TIME ZONE 'Asia/Tokyo')::date <= $2::date
+        GROUP BY cl.id, cl.name, cl.assigned_to, l.caller, l.result`,
+      [fromJst, toJst]);
+    return rows;
+  } catch (e) { console.error("[db] callStatsByList", e.message); return []; }
+}
+
 // メンバー別の分析のもとになる記録を取る（相手の属性も一緒に）
 export async function callAnalysis(fromJst, toJst) {
   if (!pool) return [];
