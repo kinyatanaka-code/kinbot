@@ -8486,6 +8486,51 @@ app.put("/api/calls/apo-window", async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+// 【点検用・一時】インサイドのアポが0になる原因を見るための確認API。
+// 期間内のアポ一覧の setter/setter_email/current_owner と、メンバー突合の結果を返す。
+app.get("/api/calls/_apodiag", async (req, res) => {
+  try {
+    if (!req.isAdmin && !(await isCloserUser(req.user))) return res.status(403).json({ error: "権限なし" });
+    const pad = (n) => String(n).padStart(2, "0");
+    const ymd = (d) => `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}-${pad(d.getUTCDate())}`;
+    const nowJ = new Date(Date.now() + 9 * 3600 * 1000);
+    const from = String(req.query.from || ymd(new Date(nowJ.getTime() - 13 * 86400000)));
+    const to = String(req.query.to || ymd(nowJ));
+    const members = await listMembers().catch(() => []);
+    const interns = await listInterns().catch(() => []);
+    const internSet = new Set((interns || []).map((x) => String(x.email || "").toLowerCase()));
+    const roleOf = (mm) => {
+      const roles = Array.isArray(mm.roles) ? mm.roles : [];
+      if (roles.includes("closer")) return "sales";
+      if (roles.includes("inside") || internSet.has(String(mm.email || "").toLowerCase())) return "inside";
+      return "";
+    };
+    const people = (members || []).map((mm) => ({ email: String(mm.email || "").toLowerCase(), name: mm.name || mm.email, role: roleOf(mm) }));
+    const byEmail = new Map(people.map((p) => [p.email, p]));
+    const nameToEmail = new Map(people.map((p) => [String(p.name || "").replace(/[\s　]/g, ""), p.email]));
+    const emailOfName = (nm) => nameToEmail.get(String(nm || "").replace(/[\s　]/g, "")) || "";
+    const apos = await aposTakenInRange({ from, to, limit: 300 }).catch(() => []);
+    const resolve = (a) => {
+      const cand = [a.setter_email, a.setter].map((v) => String(v || "").toLowerCase());
+      for (const c of cand) if (c && byEmail.has(c)) return { em: c, how: "直接" };
+      const en = emailOfName(a.setter); if (en) return { em: en, how: "名前" };
+      const co = String(a.current_owner || "").toLowerCase();
+      if (byEmail.has(co)) return { em: co, how: "現担当メール" };
+      const en2 = emailOfName(a.current_owner); if (en2) return { em: en2, how: "現担当名前" };
+      return { em: "", how: "未一致" };
+    };
+    let matched = 0, unmatched = 0;
+    const sample = apos.slice(0, 40).map((a) => {
+      const r = resolve(a);
+      if (r.em) matched++; else unmatched++;
+      return { setter: a.setter, setter_email: a.setter_email, current_owner: a.current_owner, taken: String(a.taken_at).slice(0, 10), 商談日: a.start_time ? String(a.start_time).slice(0, 10) : "", 突合: r.how, role: r.em ? (byEmail.get(r.em) || {}).role : "" };
+    });
+    res.json({ from, to, アポ件数: apos.length, 突合できた: matched, できない: unmatched,
+      メンバー: people.map((p) => ({ name: p.name, email: p.email, role: p.role })),
+      sample });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 // リスト別の実績（kincall架電ログ基準）。表示期間の各リストのコール/接触/アポと率。
 app.get("/api/calls/stats-by-list", async (req, res) => {
   try {
@@ -15629,7 +15674,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-03m 実績に「リスト別」タブを追加（kincall架電ログ基準）。call_logs→call_targets→call_lists でリスト別にコール/接触/アポ・率を集計、担当内訳つきカードで表示。API GET /api/calls/stats-by-list（period/from-to）。DB callStatsByList。SFのTask分析(CreatedDate=時間帯/Description=コメント)は次段で追加予定。前回：個別カードの折りたたみ";
+const BUILD_TAG = "2026-09-03n 【点検用・一時】GET /api/calls/_apodiag を追加。インサイドのアポ0の原因調査：期間内のアポ一覧(smart_links)の setter/setter_email/current_owner とメンバー突合の結果・件数を返す。前回：実績にリスト別タブ";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
