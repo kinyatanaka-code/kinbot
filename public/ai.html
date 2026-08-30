@@ -10,7 +10,7 @@
     <link rel="manifest" href="/site.webmanifest" />
     <meta name="theme-color" content="#0d5b47" />
     <meta name="apple-mobile-web-app-title" content="kinbot" />
-    <link rel="stylesheet" href="style.css?v=20260904o" />
+    <link rel="stylesheet" href="style.css?v=20260904p" />
     <style>
       /* 1画面に収めるダッシュボード。ページ自体はスクロールせず、長いリストはカード内で送る。 */
       .ai-page{flex:1 1 auto;min-height:0;display:flex;flex-direction:column;gap:12px;
@@ -34,6 +34,12 @@
       .ai-ava.working .kt-head{animation:kt-peck 1.7s ease-in-out infinite;}
       .ai-ava.working .kt-screen{animation:kt-screen 2.4s ease-in-out infinite;transform-box:fill-box;}
       .ai-ava.working .kt-steam{animation:kt-steam 2.6s ease-in-out infinite;}
+      .ceo-ava.working svg{animation:kt-bob 1.7s ease-in-out infinite;}
+      .ceo-ava.working .kt-head{animation:kt-peck 1.7s ease-in-out infinite;}
+      .ceo-ava.working .kt-screen{animation:kt-screen 2.4s ease-in-out infinite;transform-box:fill-box;}
+      .ceo-ava.working .kt-steam{animation:kt-steam 2.6s ease-in-out infinite;}
+      .ceo-ava.sleeping .kt-eye-open{display:none;}
+      .ceo-ava.sleeping .kt-eye-shut{display:block;}
       @keyframes kt-peck{0%,52%,100%{transform:rotate(0)}60%{transform:rotate(13deg)}68%{transform:rotate(0)}76%{transform:rotate(13deg)}84%{transform:rotate(0)}}
       @keyframes kt-bob{0%,100%{transform:translateY(0)}50%{transform:translateY(-2px)}}
       @keyframes kt-screen{0%,100%{opacity:.75}50%{opacity:1}}
@@ -251,9 +257,9 @@
         </main>
       </div>
     </div>
-    <script src="product.js?v=20260904o"></script>
-    <script src="ai.js?v=20260904o"></script>
-    <script src="nav.js?v=20260904o"></script>
+    <script src="product.js?v=20260904p"></script>
+    <script src="ai.js?v=20260904p"></script>
+    <script src="nav.js?v=20260904p"></script>
     <script src="/cmdk.js?v=20260827a"></script>
   </body>
 </html>

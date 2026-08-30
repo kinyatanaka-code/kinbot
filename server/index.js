@@ -16046,7 +16046,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-04o AI社員：キツツキを会話AI化（POST /api/ai/chat、現状データ＝開発AI/社内支援AIの稼働・対応中/最近直した・監査等を渡し、CEOとして理解・報告・提案。定型文廃止）。頭脳をGemini/Claudeで選択(callLLMPublicのprovider)。AI社員の操作はオーナー(AI_OWNER_EMAIL=既定 kinya.tanaka)または管理者のみ＝isAiOwner。/api/ai/chat・/api/ai/task・/api/ai/name・/api/auto-apply をオーナー限定に（非オーナーは403「権限がありません」表示）。前回：チャット改行対応";
+const BUILD_TAG = "2026-09-04p キツツキのアニメーションを復活：新デザインでアバターのクラスを .ceo-ava にしたため .ai-ava.working のアニメが当たらず止まっていた。.ceo-ava.working/.sleeping にも kt-bob/kt-peck/kt-screen/kt-steam と目パチCSSを適用（稼働中＝自動改善ONで動く）。前回：会話AI化＋オーナー限定";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
