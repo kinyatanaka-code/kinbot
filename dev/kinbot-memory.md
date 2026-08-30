@@ -41,6 +41,8 @@ kincall（架電リスト）という別ツールも同じ画面群の中にあ�
 
 ## 決定・指示のログ（新しいものを上に足す）
 
+- 2026-09-03 AI社員ページの上部にあった小さなロボ帯（topbarの kinbot.svg＋「AI社員」＋「押すと相談できます」）を撤去し、緑のキツツキヘッダー(.ai-hero)を最上部に出す形にした。実装：ai.htmlのtopbarから brand を空に。CSSでデスクトップは .topbar{display:none}、スマホ(≤760px)はメニューボタン(kb-menu-btnはnav.jsがtopbarへ append)のため .topbar を表示。AI社員ページのみの変更。
+
 - 2026-09-02 AI社員ページを手書きラフに沿って刷新。ヘッダー：左＝アバター（キツツキ）＋名前＋改名、右＝「AIが動く」ON/OFF（大スイッチ＝master、実体はautoImprove）＋稼働時間帯（runFrom/To/Every）＋「直したら本番へ反映」（autoApply、小スイッチ）。本体3カラム：完了タスク（dev-notes status=done）／進行中タスク（対応中doingを上・未対応newを下）／タスク依頼チャット。チャットは POST /api/ai/task（クローザー/管理者限定）＝入力を開発メモに登録し、自動改善ONなら dispatchGithubWorkflow で即着手（Chatの「直して」と同じ）。下段に従来の 最近やったこと／どこで動いているか＋SF監査／覚えていること を小さく残置。load()は /api/ai/status と /api/dev-notes を並行取得しstatus別に分割。
 
 - 2026-09-02 夜間開発の朝の通知が DOC Team に届いていた＆長文で分かりにくい問題を修正。原因：night-report が「開発(dev)」の宛先が無いと assign にフォールバックしていた（DOC Teamがassign対象で漏れていた）＋本文にNIGHT_RESULT.md全文(1500字)を載せていた。対策：(1)assignフォールバックを廃止し notifyAll(text,"dev") だけに（＝「開発（朝の通知）」ONのチャットにのみ送る）。(2)本文は「直したもの」から メモID・内容 の行だけを正規表現で抽出し最大12件＋PRリンクの短い形に（変えたファイル・直し方の長文は載せない）。※田中さんは「テスト」チャットだけに送りたい → 設定→Google Chat通知先で テスト の「開発（朝の通知）」をON、DOC Team等はOFFにする運用。

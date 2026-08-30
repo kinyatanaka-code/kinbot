@@ -15503,7 +15503,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-02az AI社員ページを刷新（手書きラフに準拠）：ヘッダー＝アバター＋改名／「AIが動く」ON/OFF（master=autoImprove）＋稼働時間帯＋本番反映。3カラム＝完了タスク（済み）／進行中タスク（対応中を上・未対応を下）／タスク依頼チャット。チャットは POST /api/ai/task で開発メモ登録＋自動改善ONなら即着手（=直して）。前回：夜間通知を短文化＆宛先限定";
+const BUILD_TAG = "2026-09-03a AI社員ページの上部の小ロボ帯(topbar)を撤去し、緑のキツツキヘッダーを最上部に表示。デスクトップはtopbar非表示、スマホはメニューボタン用に器だけ残す。前回：AI社員ページ刷新";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",

@@ -10,7 +10,7 @@
     <link rel="manifest" href="/site.webmanifest" />
     <meta name="theme-color" content="#0d5b47" />
     <meta name="apple-mobile-web-app-title" content="kinbot" />
-    <link rel="stylesheet" href="style.css?v=20260902az" />
+    <link rel="stylesheet" href="style.css?v=20260903a" />
     <style>
       /* 1画面に収めるダッシュボード。ページ自体はスクロールせず、長いリストはカード内で送る。 */
       .ai-page{flex:1 1 auto;min-height:0;display:flex;flex-direction:column;gap:12px;
@@ -122,6 +122,11 @@
       @media (max-width: 1000px){ .ai-cols{grid-template-columns:1fr;} .ai-head-ctl{flex-wrap:wrap;} }
       .ai-page{overflow:auto;}
       .ai-cols{min-height:340px;}
+      /* AI社員ページ：上部の小ロボ帯(topbar)は消して、緑のキツツキヘッダーを最上部に出す。
+         スマホはメニューボタンがtopbar内なので、そこだけ表示する。 */
+      .topbar{display:none;}
+      @media (max-width:760px){ .topbar{display:flex;min-height:44px;justify-content:flex-end;align-items:center;padding:6px 10px;} }
+      .ai-page{padding-top:4px;}
       .ai-hours{display:flex;align-items:center;gap:6px;}
       .ai-hours input{width:48px;padding:4px 6px;border:1px solid #d7ded9;border-radius:8px;text-align:center;font-size:13px;}
       .ai-range{display:flex;align-items:center;gap:7px;margin-top:8px;flex-wrap:wrap;}
@@ -161,15 +166,15 @@
         <div class="side-foot"><span id="who" class="who"></span><a href="#" id="logout" class="side-logout">ログアウト</a></div>
       </nav>
       <div class="main">
-        <header class="topbar"><div class="brand"><img class="topbar-bot" src="kinbot.svg" alt="" /><span class="brand-name">AI社員</span></div></header>
+        <header class="topbar"></header>
         <main class="ai-page" id="aiPage">
           <div class="ai-empty" id="aiLoading">読み込んでいます…</div>
         </main>
       </div>
     </div>
-    <script src="product.js?v=20260902az"></script>
-    <script src="ai.js?v=20260902az"></script>
-    <script src="nav.js?v=20260902az"></script>
+    <script src="product.js?v=20260903a"></script>
+    <script src="ai.js?v=20260903a"></script>
+    <script src="nav.js?v=20260903a"></script>
     <script src="/cmdk.js?v=20260827a"></script>
   </body>
 </html>
