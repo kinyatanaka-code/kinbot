@@ -41,6 +41,8 @@ kincall（架電リスト）という別ツールも同じ画面群の中にあ�
 
 ## 決定・指示のログ（新しいものを上に足す）
 
+- 2026-09-04 AI社員ページを新デザインに刷新（田中さん承認モック準拠：俺→キツツキ(CEO)→社内支援AI/開発AI、話しかけやすく・各AIの状態が見える）。構成：上部にCEOカード＝既存の机キツツキSVG(KITSUTSUKI_SVG)を主役に緑グラデ帯、名前＋CEOバッジ＋改名、指示入力欄(/api/ai/task)＋クイック指示ボタン(今日の状況/開発を止めて/アポ割り振り確認)＋ミニチャット。下に2枚の部門カード：社内支援AI/開発AI（アイコンSVG・稼働中バッジ・サマリ数字[社内支援=仕事数/ON常時数, 開発=対応中/次の改善時刻(nextRunLabelから抽出)]・主要ジョブのON/OFF/常時チップ・「この部門を見る・操作する」で more を開閉）。開発AIカードに自動改善(swImprove=autoImprove)/本番反映(swApply=autoApply)のスイッチと稼働時間(runFrom/To/Every)を配置。データは /api/ai/org のdepts.jobs＋/api/ai/status。旧hero/3カラム/どこで動く表は撤去（最近やったこと/覚えていることは下に残置）。orgHtmlは未使用（残置無害）。画像は既存SVG流用。
+
 - 2026-09-04 プロセスの集計から土日を除外（田中さん指示）。商談日(start_time／商談記録のcreated_at)が土曜/日曜のアポ・商談記録をカウントしない。isWeekend(ymd) を追加し、buildDone/buildDoneOwner（実施の集合/Map）、countRange（設定ユニーク）、月ごとuniqSet構築、招待owner(inviteOwner)構築に適用。日ごと展開(grain=day)は土日の行を出さない。週の範囲表示(from〜to)は月〜週境界のままだが集計は平日のみ。
 
 - 2026-09-04 プロセス月ごと：設定数の拾い漏れ（current_owner が空/インサイドのまま）を解消。_setdiagで確認＝104件中 未定12/インサイド10 は current_owner 未割当。対策：会社×商談日でユニーク化した初回商談の担当を current_owner(クローザー・実施専任除く)→記録owner(doneOwner)→招待主催者(invite_event_owner)→未定 の順で補完。aposByMeetingDate に invite_event_owner を追加。中澤良太は 2026-08 のみ「実施専任」（案A・8月限定）：設定数=0、実施数=記録の担当(owner)が中澤の件数。中澤 current_owner のアポは中澤に数えず本来の担当へ再割り当て。buildDoneOwner(会社|商談日→owner) 追加、buildDone(集合)は実施の内数判定に使用。点検API _setdiag/_apodup/_procdiag は撤去。※週/日(countRange)は全体のユニーク設定/内数実施のまま（実施専任の月限定除外は月ごと表のみ）。実施専任フラグは一般化せず中澤×8月をコードに固定。

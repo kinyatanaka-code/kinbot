@@ -163,12 +163,19 @@ function noteLi(n) {
   return `<li class="ai-task"><span class="ai-task-k ai-k-${esc(n.kind || "")}">${esc(k)}</span><span class="ai-task-t">${esc(n.title || "")}</span></li>`;
 }
 
-// 依頼チャットの履歴（この画面を開いている間だけ保持）
-let CHAT = [{ who: "ai", text: "やってほしいことを書いて送ってください。例：「〇〇の画面のボタンを大きくして」「△△のバグを直して」" }];
+const ICON_SUP = `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 13a8 8 0 0 1 16 0"/><rect x="2.5" y="13" width="3.5" height="6" rx="1.5"/><rect x="18" y="13" width="3.5" height="6" rx="1.5"/><path d="M20 19a3 3 0 0 1-3 3h-2"/></svg>`;
+const ICON_DEV = `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M8 8l-4 4 4 4"/><path d="M16 8l4 4-4 4"/><path d="M13 6l-2 12"/></svg>`;
+
+// 依頼チャットの履歴（この画面を開いている間だけ保持）。既定は空。
+let CHAT = [];
 function chatHtml() {
   return CHAT.map((m) =>
     `<div class="ai-msg ${m.who === "me" ? "me" : "ai"}">${esc(m.text)}</div>`).join("");
 }
+
+const 状態チップ = (s) => s === "on" ? `<span class="ai-st on">ON</span>`
+  : s === "off" ? `<span class="ai-st off">OFF</span>`
+  : `<span class="ai-st always">常時</span>`;
 
 function render(d) {
   const c = d.control || {};
@@ -176,59 +183,94 @@ function render(d) {
   const ni = d.noteItems || { done: [], doing: [], new: [] };
   const feed = (d.activity || []);
   const sa = d.lastSfAudit;
-  const sayLines = buildSayLines(d);
+  const org = d.org || { depts: [] };
+  const dept = (key) => (org.depts || []).find((x) => x.key === key) || { name: key, desc: "", jobs: [] };
+  const support = dept("support"), dev = dept("dev");
+  const onCount = (jobs) => jobs.filter((j) => j.state === "on" || j.state === "always").length;
+
+  const jobRow = (j, right) =>
+    `<div class="ai-jrow"><span class="ai-jn">${esc(j.name)}<span class="ai-jt">${esc(j.trigger || "")}</span></span>${right || 状態チップ(j.state)}</div>`;
+
+  // 社内支援AI：先頭3ジョブを要約に、残りは詳細に
+  const supTop = support.jobs.slice(0, 3).map((j) => jobRow(j)).join("");
+  const supRest = support.jobs.slice(3).map((j) => jobRow(j)).join("");
+  // 開発AI：コードを自動で直す＝スイッチ、本番反映＝スイッチ、他はそのまま
+  const devSwitches =
+    `<div class="ai-jrow"><span class="ai-jn">コードを自動で直す<span class="ai-jt">動かす時間帯 ${c.runFrom ?? 0}〜${c.runTo ?? 24}時</span></span>` +
+    `<button class="ai-sw ${c.autoImprove ? "on" : ""}" id="swImprove" aria-label="コードを自動で直す"></button></div>` +
+    `<div class="ai-jrow"><span class="ai-jn">本番へ自動反映<span class="ai-jt">OFFならPRにする</span></span>` +
+    `<button class="ai-sw ${c.autoApply ? "on" : ""}" id="swApply" aria-label="本番へ自動反映"></button></div>`;
+  const devRest = dev.jobs.filter((j) => !/コードを自動で直す|本番へ自動反映/.test(j.name)).map((j) => jobRow(j)).join("");
 
   $("aiPage").innerHTML = `
-    <div class="ai-hero">
-      <div class="ai-ava ${稼働中 ? "working" : "sleeping"}">${KITSUTSUKI_SVG}</div>
-      <div class="ai-id">
-        <div class="ai-name-row">
-          <span class="ai-name">${esc(d.name)}</span>
+    <div class="ceo-card">
+      <div class="ceo-ava ${稼働中 ? "working" : "sleeping"}">${KITSUTSUKI_SVG}</div>
+      <div class="ceo-main">
+        <div class="ceo-top">
+          <span class="ceo-name">${esc(d.name)}</span>
+          <span class="ceo-badge">CEO</span>
           <button class="ai-rename" id="aiRename">名前を変える</button>
         </div>
-        <div class="ai-bubble" id="aiBubble"><span id="aiBubbleText">${esc(sayLines[0] || "")}</span></div>
-      </div>
-      <div class="ai-head-ctl">
-        <div class="ai-master">
-          <div class="ai-master-t">AIが動く</div>
-          <button class="ai-sw big ${c.autoImprove ? "on" : ""}" id="swImprove" aria-label="AIが動く"></button>
-          <div class="ai-master-s ${稼働中 ? "" : "off"}">${稼働中 ? "稼働中" : "休止中"}</div>
-        </div>
-        <div class="ai-time">
-          <div class="ai-time-t">稼働時間（:30に動きます）</div>
-          <div class="ai-range">
-            <select id="runFrom">${Array.from({length:24},(_,h)=>h).map((h)=>`<option value="${h}"${c.runFrom===h?" selected":""}>${h}時</option>`).join("")}</select>
-            <span>〜</span>
-            <select id="runTo">${Array.from({length:24},(_,i)=>i+1).map((h)=>`<option value="${h}"${c.runTo===h?" selected":""}>${h}時</option>`).join("")}</select>
-            <select id="runEvery">${[1,2,3,4,6].map((n)=>`<option value="${n}"${c.runEvery===n?" selected":""}>${n}時間おき</option>`).join("")}</select>
-          </div>
-          <label class="ai-apply"><span>直したら本番へ反映</span><button class="ai-sw ${c.autoApply ? "on" : ""}" id="swApply" aria-label="本番反映"></button></label>
-        </div>
-      </div>
-    </div>
-    <div class="ai-ctlmsg" id="aiCtlMsg"></div>
-
-    ${orgHtml(d.org)}
-
-    <div class="ai-cols">
-      <div class="ai-col">
-        <h3>完了タスク <span class="ai-cnt">${ni.done.length}</span></h3>
-        ${ni.done.length ? `<ul class="ai-tasks">${ni.done.slice(0,50).map(noteLi).join("")}</ul>` : `<div class="ai-empty">まだありません。</div>`}
-      </div>
-      <div class="ai-col">
-        <h3>進行中タスク</h3>
-        <div class="ai-subh">対応中 <span class="ai-cnt">${ni.doing.length}</span></div>
-        ${ni.doing.length ? `<ul class="ai-tasks">${ni.doing.slice(0,50).map(noteLi).join("")}</ul>` : `<div class="ai-empty">なし</div>`}
-        <div class="ai-subh" style="margin-top:12px;">未対応 <span class="ai-cnt">${ni.new.length}</span></div>
-        ${ni.new.length ? `<ul class="ai-tasks">${ni.new.slice(0,50).map(noteLi).join("")}</ul>` : `<div class="ai-empty">なし</div>`}
-      </div>
-      <div class="ai-col ai-chatcol">
-        <h3>タスク依頼</h3>
-        <div class="ai-chat" id="aiChat">${chatHtml()}</div>
-        <div class="ai-chat-input">
-          <input type="text" id="aiTaskInput" placeholder="やってほしいことを書く…" autocomplete="off" />
+        <p class="ceo-sub">あなたの決めごとを伝えると、下の2つのAIに指示・連携します。</p>
+        <div class="ceo-input">
+          <input type="text" id="aiTaskInput" placeholder="例：SF未紐づけ通知を止めて / 実績のバグを直して" autocomplete="off" />
           <button id="aiTaskSend" class="ai-send">送る</button>
         </div>
+        <div class="ceo-quick">
+          <button class="ai-q" data-q="今日の状況を教えて">今日の状況を教えて</button>
+          <button class="ai-q" data-q="開発を止めて">開発を止めて</button>
+          <button class="ai-q" data-q="アポ割り振りを確認">アポ割り振りを確認</button>
+        </div>
+        <div class="ai-ctlmsg" id="aiCtlMsg"></div>
+        <div class="ai-chat mini" id="aiChat"></div>
+      </div>
+    </div>
+
+    <div class="dept-grid">
+      <div class="dept-card">
+        <div class="dept-head">
+          <span class="dept-ico sup">${ICON_SUP}</span>
+          <span class="dept-name">社内支援AI</span>
+          <span class="dept-badge">稼働中</span>
+        </div>
+        <p class="dept-desc">${esc(support.desc || "通知・SF記録・監査・アポ・実績など")}</p>
+        <div class="dept-stats">
+          <div class="dept-stat"><b>${support.jobs.length}</b><span>動いている仕事</span></div>
+          <div class="dept-stat"><b>${onCount(support.jobs)}</b><span>ON・常時</span></div>
+        </div>
+        <div class="dept-jobs">${supTop}</div>
+        <div class="dept-more" id="more-support" hidden>${supRest}</div>
+        <button class="dept-btn" data-dept="support">この部門を見る・操作する</button>
+      </div>
+
+      <div class="dept-card">
+        <div class="dept-head">
+          <span class="dept-ico dev">${ICON_DEV}</span>
+          <span class="dept-name">開発AI</span>
+          <span class="dept-badge ${稼働中 ? "" : "off"}">${稼働中 ? "稼働中" : "休止中"}</span>
+        </div>
+        <p class="dept-desc">${esc(dev.desc || "エラー・バグ・要望への修正")}</p>
+        <div class="dept-stats">
+          <div class="dept-stat"><b>${ni.doing.length}</b><span>対応中</span></div>
+          <div class="dept-stat"><b>${(nextRunLabel(c).match(/\d{1,2}:\d{2}/) || [c.autoImprove ? "—" : "休止中"])[0]}</b><span>次の改善</span></div>
+        </div>
+        <div class="dept-jobs">${devSwitches}</div>
+        <div class="dept-more" id="more-dev" hidden>
+          ${devRest}
+          <div class="ai-jrow" style="align-items:center;"><span class="ai-jn">稼働時間<span class="ai-jt">この時間の :30 に動きます</span></span>
+            <span class="ai-range">
+              <select id="runFrom">${Array.from({length:24},(_,h)=>h).map((h)=>`<option value="${h}"${c.runFrom===h?" selected":""}>${h}時</option>`).join("")}</select>
+              <span>〜</span>
+              <select id="runTo">${Array.from({length:24},(_,i)=>i+1).map((h)=>`<option value="${h}"${c.runTo===h?" selected":""}>${h}時</option>`).join("")}</select>
+              <select id="runEvery">${[1,2,3,4,6].map((n)=>`<option value="${n}"${c.runEvery===n?" selected":""}>${n}時間おき</option>`).join("")}</select>
+            </span>
+          </div>
+          <div class="ai-subh" style="margin-top:6px;">対応中の仕事</div>
+          ${ni.doing.length ? `<ul class="ai-tasks">${ni.doing.slice(0,20).map(noteLi).join("")}</ul>` : `<div class="ai-empty">なし</div>`}
+          <div class="ai-subh" style="margin-top:8px;">最近直したこと</div>
+          ${ni.done.length ? `<ul class="ai-tasks">${ni.done.slice(0,10).map(noteLi).join("")}</ul>` : `<div class="ai-empty">まだありません。</div>`}
+        </div>
+        <button class="dept-btn" data-dept="dev">この部門を見る・操作する</button>
       </div>
     </div>
 
@@ -236,32 +278,20 @@ function render(d) {
       <div class="ai-col">
         <h3>最近やったこと</h3>
         ${feed.length
-          ? `<ul class="ai-feed">${feed.slice(0,10).map((a) =>
+          ? `<ul class="ai-feed">${feed.slice(0,8).map((a) =>
               `<li><span class="k ${esc(a.kind)}"></span><div>${esc(a.text)}<div class="at">${fmtWhen(a.at)}</div></div></li>`).join("")}</ul>`
           : `<div class="ai-empty">まだ記録がありません。</div>`}
-      </div>
-      <div class="ai-col">
-        <h3>どこで動いているか</h3>
-        <table class="ai-sched"><tbody>
-          ${(d.schedule || []).map((s) =>
-            `<tr><td class="w">${esc(s.when)}<div class="ww">${esc(s.where)}</div></td>
-             <td><b>${esc(s.what)}</b><div class="ww">${esc(s.detail)}</div></td></tr>`).join("")}
-        </tbody></table>
-        <div class="ai-mini">${sa
-          ? `SF監査：${fmtWhen(sa.at)}（ユーザー化 ${sa.ユーザー}・クロス ${sa.クロス}・失注 ${sa.失注}）`
-          : "SF監査：30分ごとに自動で回ります"}</div>
       </div>
       <div class="ai-col ai-mem">
         <h3>覚えていること</h3>
         ${(d.memory && d.memory.length)
-          ? `<ul>${d.memory.slice(0,12).map((m) => `<li>${esc(m)}</li>`).join("")}</ul>`
+          ? `<ul>${d.memory.slice(0,10).map((m) => `<li>${esc(m)}</li>`).join("")}</ul>`
           : `<div class="ai-empty">まだ記憶がありません。</div>`}
       </div>
     </div>`;
 
   wire();
-  startBubble(sayLines);
-  const chat = $("aiChat"); if (chat) chat.scrollTop = chat.scrollHeight;
+  const chat = $("aiChat"); if (chat) { chat.innerHTML = chatHtml(); chat.scrollTop = chat.scrollHeight; }
 }
 
 async function putAuto(patch, msg) {
@@ -329,6 +359,16 @@ function wire() {
   };
   const sb = $("aiTaskSend"); if (sb) sb.addEventListener("click", send);
   const ti = $("aiTaskInput"); if (ti) ti.addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); send(); } });
+  // クイック指示ボタン：入力欄に入れて送る
+  document.querySelectorAll(".ai-q").forEach((b) => b.addEventListener("click", () => {
+    const inp = $("aiTaskInput"); if (inp) { inp.value = b.dataset.q || ""; }
+    send();
+  }));
+  // 部門の「見る・操作する」で詳細を開閉
+  document.querySelectorAll(".dept-btn").forEach((b) => b.addEventListener("click", () => {
+    const more = $("more-" + b.dataset.dept);
+    if (more) { const open = !more.hidden; more.hidden = open; b.textContent = open ? "この部門を見る・操作する" : "とじる"; }
+  }));
 
   const rn = $("aiRename");
   if (rn) rn.addEventListener("click", async () => {
