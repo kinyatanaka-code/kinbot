@@ -8602,6 +8602,7 @@ app.get("/api/calls/process", async (req, res) => {
     const st = await getSettings().catch(() => ({}));
 
     const ymdJst = (v) => { if (!v) return ""; const d = new Date(v); if (isNaN(d.getTime())) return String(v).slice(0, 10); const j = new Date(d.getTime() + 9 * 3600000); return `${j.getUTCFullYear()}-${pad(j.getUTCMonth() + 1)}-${pad(j.getUTCDate())}`; };
+    const isWeekend = (ymd) => { if (!/^\d{4}-\d{2}-\d{2}$/.test(String(ymd))) return false; const d = new Date(ymd + "T00:00:00Z"); const w = d.getUTCDay(); return w === 0 || w === 6; };
     const 対象タイトル = (t) => { const s = String(t || ""); return /【\s*初回\s*】/.test(s) || /【\s*新\s*[\/／]\s*ヒ\s*】/.test(s) || /メルマガ/.test(s); };
     const members = await listMembers().catch(() => []);
     const closers = new Map();
@@ -8615,7 +8616,7 @@ app.get("/api/calls/process", async (req, res) => {
         if (!対象タイトル(m.title || "")) continue;
         const co = normCompanyKey(companyFromTitle(m.title || "") || m.account || "");
         const day = ymdJst(m.created_at);
-        if (co && day) set.add(`${co}|${day}`);
+        if (co && day && !isWeekend(day)) set.add(`${co}|${day}`);
       }
       return set;
     };
@@ -8627,7 +8628,7 @@ app.get("/api/calls/process", async (req, res) => {
         if (!対象タイトル(m.title || "")) continue;
         const co = normCompanyKey(companyFromTitle(m.title || "") || m.account || "");
         const day = ymdJst(m.created_at);
-        if (!co || !day) continue;
+        if (!co || !day || isWeekend(day)) continue;
         const k = `${co}|${day}`;
         if (!map.has(k)) map.set(k, String(m.owner || "").toLowerCase());
       }
@@ -8638,7 +8639,7 @@ app.get("/api/calls/process", async (req, res) => {
       const done = await buildDone(from, to);
       const apos = await aposByMeetingDate(from, to).catch(() => []);
       const uniq = new Set();
-      for (const a of apos) { if (!対象タイトル(a.label)) continue; uniq.add(`${normCompanyKey(companyFromTitle(a.label || "") || "")}|${ymdJst(a.start_time)}`); }
+      for (const a of apos) { if (!対象タイトル(a.label)) continue; const md = ymdJst(a.start_time); if (isWeekend(md)) continue; uniq.add(`${normCompanyKey(companyFromTitle(a.label || "") || "")}|${md}`); }
       let 設定 = 0, 実施 = 0;
       for (const key of uniq) { 設定 += 1; if (done.has(key)) 実施 += 1; }
       return { 設定, 実施 };
@@ -8660,9 +8661,11 @@ app.get("/api/calls/process", async (req, res) => {
       let cur = new Date(f + "T00:00:00Z"); const end = new Date(t + "T00:00:00Z");
       const w = "日月火水木金土";
       while (cur.getTime() <= end.getTime()) {
+        const wday = cur.getUTCDay();
+        if (wday === 0 || wday === 6) { cur = new Date(cur.getTime() + 86400000); continue; }   // 土日は除く
         const day = ymdOf(cur);
         const c = await countRange(day, day);
-        items.push({ 名前: `${cur.getUTCMonth() + 1}/${cur.getUTCDate()}`, 曜日: w[cur.getUTCDay()], from: day, to: day, 設定数: c.設定, 実施数: c.実施, 実施率: c.設定 ? (c.実施 / c.設定 * 100).toFixed(1) + "%" : "—" });
+        items.push({ 名前: `${cur.getUTCMonth() + 1}/${cur.getUTCDate()}`, 曜日: w[wday], from: day, to: day, 設定数: c.設定, 実施数: c.実施, 実施率: c.設定 ? (c.実施 / c.設定 * 100).toFixed(1) + "%" : "—" });
         cur = new Date(cur.getTime() + 86400000);
       }
       const 合計 = items.reduce((a, x) => ({ 設定数: a.設定数 + x.設定数, 実施数: a.実施数 + x.実施数 }), { 設定数: 0, 実施数: 0 });
@@ -8711,7 +8714,8 @@ app.get("/api/calls/process", async (req, res) => {
     const uniqSet = new Map();  // 会社|商談日 -> owner
     for (const a of apos) {
       if (!対象タイトル(a.label)) continue;
-      const key = `${normCompanyKey(companyFromTitle(a.label || "") || "")}|${ymdJst(a.start_time)}`;
+      const md = ymdJst(a.start_time); if (isWeekend(md)) continue;
+      const key = `${normCompanyKey(companyFromTitle(a.label || "") || "")}|${md}`;
       const co = String(a.current_owner || "").toLowerCase();
       // 候補owner：current_ownerがクローザーで実施専任でないならそれ。無ければ後で補完。
       const cand = (closers.has(co) && !実施専任.has(co)) ? co : "";
@@ -8722,7 +8726,8 @@ app.get("/api/calls/process", async (req, res) => {
     // 担当が決まらなかった（空）ものを、記録owner→招待主催者 で補完
     const inviteOwner = new Map();
     for (const a of apos) {
-      const key = `${normCompanyKey(companyFromTitle(a.label || "") || "")}|${ymdJst(a.start_time)}`;
+      const md = ymdJst(a.start_time); if (isWeekend(md)) continue;
+      const key = `${normCompanyKey(companyFromTitle(a.label || "") || "")}|${md}`;
       const io = String(a.invite_event_owner || "").toLowerCase();
       if (io && !inviteOwner.has(key)) inviteOwner.set(key, io);
     }
@@ -15989,7 +15994,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-04j プロセス月ごと：設定数の担当をcurrent_owner(クローザー)→記録owner→招待主催者(invite_event_owner)→未定 の順で補完（未定/インサイド落ちを解消）。中澤良太は2026-08のみ実施専任＝設定0・実施は記録owner一致の件数（案A）。中澤current_ownerのアポは本来の担当へ再割り当て。aposByMeetingDateにinvite_event_owner追加、buildDoneOwner追加。点検API_setdiag撤去。前回：実施を内数に戻す";
+const BUILD_TAG = "2026-09-04k プロセスの集計から土日を除外（商談日が土/日のアポ・商談記録をカウントしない）。isWeekend を追加し buildDone/buildDoneOwner/countRange/月ごとuniqSet/招待owner の各集計と、日ごと展開（土日行を出さない）に適用。前回：担当補完＋中澤の8月実施専任";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",

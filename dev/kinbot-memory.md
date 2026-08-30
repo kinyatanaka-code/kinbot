@@ -41,6 +41,8 @@ kincall（架電リスト）という別ツールも同じ画面群の中にあ�
 
 ## 決定・指示のログ（新しいものを上に足す）
 
+- 2026-09-04 プロセスの集計から土日を除外（田中さん指示）。商談日(start_time／商談記録のcreated_at)が土曜/日曜のアポ・商談記録をカウントしない。isWeekend(ymd) を追加し、buildDone/buildDoneOwner（実施の集合/Map）、countRange（設定ユニーク）、月ごとuniqSet構築、招待owner(inviteOwner)構築に適用。日ごと展開(grain=day)は土日の行を出さない。週の範囲表示(from〜to)は月〜週境界のままだが集計は平日のみ。
+
 - 2026-09-04 プロセス月ごと：設定数の拾い漏れ（current_owner が空/インサイドのまま）を解消。_setdiagで確認＝104件中 未定12/インサイド10 は current_owner 未割当。対策：会社×商談日でユニーク化した初回商談の担当を current_owner(クローザー・実施専任除く)→記録owner(doneOwner)→招待主催者(invite_event_owner)→未定 の順で補完。aposByMeetingDate に invite_event_owner を追加。中澤良太は 2026-08 のみ「実施専任」（案A・8月限定）：設定数=0、実施数=記録の担当(owner)が中澤の件数。中澤 current_owner のアポは中澤に数えず本来の担当へ再割り当て。buildDoneOwner(会社|商談日→owner) 追加、buildDone(集合)は実施の内数判定に使用。点検API _setdiag/_apodup/_procdiag は撤去。※週/日(countRange)は全体のユニーク設定/内数実施のまま（実施専任の月限定除外は月ごと表のみ）。実施専任フラグは一般化せず中澤×8月をコードに固定。
 
 - 2026-09-04 プロセスのクローザー別「実施数」を『実際に実施した商談（＝商談記録の owner が本人）』基準に変更（田中さん確定）。実装：buildDone(from,to)＝初回タイトル(対象タイトル)限定＋録音ありの商談を 会社名|商談日→owner のMap（会社×商談日でユニーク）に。月ごと：設定数＝会社×商談日でユニークな初回商談を担当(current_owner、クローザー優先)ごと、実施数＝done Map の owner ごと。合計＝設定はユニークapo数、実施は done.size。全体(週/日)の実施も done.size（記録ある初回商談のユニーク）。※設定は予定担当・実施は記録担当なので基準が異なり、個人の実施率が100%超になることがある（仕様）。会社名×商談日での突合はズレたら invite_event_id/bot_id 直リンクに強化する方針は継続。
