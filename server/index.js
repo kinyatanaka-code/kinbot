@@ -16224,7 +16224,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-04u AI社員デプロイ連動（案1）：GitHub側でマージ（デプロイ）したPRを、キツツキが自動で拾って紐づく開発メモを対応済みに連動（マージ権限不要＝読み取りのみ）。syncMergedPrs（closed&mergedを走査→本文のメモIDをupdateDevNote done、処理済PRは settings.deployedPrsSeen に印、notify時はdev通知）。5分ごとの定期実行＋/api/ai/prs 冒頭でも実行（報告時に即反映、respに synced 件数）。UIのデプロイボタンは『GitHubでデプロイ（マージ）』リンクに（権限不要でGitHubでマージ→自動連動）。前回：デプロイ失敗理由の詳細化";
+const BUILD_TAG = "2026-09-04v 夜間開発PR #3・#2 の内容を本番反映（このチャットでpush）。#3＝kincall「かける」ヘッダーに『SFの所有者を優先』チェックボックス(#clSfOwnerPref)を追加し /api/calls/sf-owner-priority に配線（SF監査でSFリード所有者に担当をそろえバッティング解消）。#2＝chatcmd.jsのparseCommandで『開発メモを見せて/内容を送って』等の文も一覧表示に。AI社員：デプロイ(マージ)ボタンを撤去し、PR報告は確認・DL・進捗に振り切り（実デプロイはこのチャットで実施）。前回：デプロイ連動(案1)";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",

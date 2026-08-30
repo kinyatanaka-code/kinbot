@@ -194,7 +194,10 @@ export function parseCommand(text) {
                       バグ: "bug", 不具合: "bug", メモ: "idea", アイデア: "idea" };
     return { kind: "note", noteKind: kindMap[memo[1]] || "request", text: memo[2].trim() };
   }
-  if (/^(開発メモ|要件|開発)$/.test(flat)) return { kind: "notes" };
+  // 溜まっている開発メモを見せる。「開発メモ」の一語だけでなく、
+  // 「開発メモを見せて」「開発メモの内容をここで送って」のような文でも受け取れるようにする。
+  // ※「要望 〜」など“メモを残す”指示は上で先に処理済みなので、ここに来るのは“見たい”意図。
+  if (/^(開発メモ|要件|開発)$/.test(flat) || /(開発メモ|要件メモ|要望メモ)/.test(flat)) return { kind: "notes" };
 
   // ── AI社員（自動化）まわり。長文になりがちなので、長文ゲートより前に見る ──
   // 改名：「名前を〇〇にして」「名前は〇〇」「〇〇って呼んで」。

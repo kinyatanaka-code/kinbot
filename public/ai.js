@@ -208,7 +208,7 @@ async function runPrReport() {
     if (d.synced) setTimeout(load, 600);   // 対応中の件数を更新
     if (list) {
       const dlrow = `<div class="pr-dl"><button class="pr-b" data-dl="md">MDでダウンロード</button><button class="pr-b" data-dl="txt">テキストでダウンロード</button></div>
-        <div class="ai-empty" style="margin:4px 0 0">「GitHubでデプロイ（マージ）」でマージすると、キツツキが自動で対応済みに連動します（数分以内、または「PRを報告する」で即反映）。</div>`;
+        <div class="ai-empty" style="margin:4px 0 0">内容の確認・ダウンロード用です。実際のデプロイ（本番反映）は開発チャットで行います。</div>`;
       list.innerHTML = dlrow + (d.prs || []).map((p) => {
         const files = (p.files || []).slice(0, 12).map((f) => `<div class="pr-f">${esc(f.name)} <span>+${f.add}/-${f.del}</span></div>`).join("");
         const badge = p.state === "merged" ? `<span class="pr-badge merged">デプロイ済み</span>` : `<span class="pr-badge open">オープン</span>`;
@@ -219,7 +219,6 @@ async function runPrReport() {
           <div class="pr-ops">
             <button class="pr-b" data-act="diff">差分を見る</button>
             <a class="pr-b" href="${esc(p.url)}" target="_blank" rel="noopener">GitHubで開く</a>
-            ${p.state === "open" ? `<a class="pr-b deploy" href="${esc(p.url)}" target="_blank" rel="noopener">GitHubでデプロイ（マージ）</a>` : ""}
           </div>
           <pre class="pr-diff" hidden></pre>
         </div>`;

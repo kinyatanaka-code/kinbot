@@ -3741,3 +3741,25 @@ document.addEventListener("click", (ev) => {
   try { seen = localStorage.getItem(SEEN_KEY); } catch {}
   if (!seen) setTimeout(() => start(0), 900);
 })();
+
+// SFの所有者を優先（担当のバッティング解消）。ONにするとSF監査でSFのリード所有者に担当をそろえる。
+(function wireSfOwnerPref() {
+  const cb = document.getElementById("clSfOwnerPref");
+  if (!cb) return;
+  fetch("/api/calls/sf-owner-priority").then((r) => r.json())
+    .then((d) => { cb.checked = !!(d && d.enabled); }).catch(() => {});
+  cb.addEventListener("change", async () => {
+    try {
+      const d = await (await fetch("/api/calls/sf-owner-priority", {
+        method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ enabled: cb.checked }),
+      })).json();
+      if (d && d.error) throw new Error(d.error);
+      if (typeof say === "function") say("clStatus", cb.checked
+        ? "SFの所有者を優先します（SF監査でkincallの担当をSFのリード所有者に自動でそろえます）"
+        : "SFの所有者の優先をやめました（担当は変えず、状態だけ反映します）", 7000);
+    } catch (e) {
+      cb.checked = !cb.checked;
+      if (typeof say === "function") say("clStatus", "設定を保存できませんでした：" + e.message, 7000);
+    }
+  });
+})();
