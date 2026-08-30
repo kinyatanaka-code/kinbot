@@ -10,7 +10,7 @@
     <link rel="manifest" href="/site.webmanifest" />
     <meta name="theme-color" content="#0d5b47" />
     <meta name="apple-mobile-web-app-title" content="kinbot" />
-    <link rel="stylesheet" href="style.css?v=20260903b" />
+    <link rel="stylesheet" href="style.css?v=20260903c" />
   </head>
   <body class="kc-body">
     <div class="app">
@@ -82,15 +82,15 @@
           <!-- 実績（日・週・月） -->
           <section class="card kc-pane" data-p="stats" hidden>
             <h3 id="stats">実績</h3>
+            <div class="kc-period-tabs" id="stScope">
+              <button type="button" class="kc-ptab active" data-scope="all">全体</button>
+              <button type="button" class="kc-ptab" data-scope="each">個別</button>
+            </div>
             <div class="kc-period-tabs" id="stPeriod">
               <button type="button" class="kc-ptab active" data-period="day">日ごと</button>
               <button type="button" class="kc-ptab" data-period="week">週ごと</button>
               <button type="button" class="kc-ptab" data-period="month">月ごと</button>
               <button type="button" class="kc-ptab" data-period="analysis">メンバー別の分析</button>
-            </div>
-            <div class="kc-period-tabs" id="stScope">
-              <button type="button" class="kc-ptab active" data-scope="all">全体</button>
-              <button type="button" class="kc-ptab" data-scope="each">個別</button>
             </div>
             <div class="kc-period-tabs" id="stApo">
               <span class="note" style="margin:0 8px 0 0;align-self:center;">アポ獲得</span>
@@ -230,9 +230,9 @@
         </main>
       </div>
     </div>
-    <script src="sf-data.js?v=20260903b"></script>
-    <script src="calls.js?v=20260903b"></script>
-    <script src="nav.js?v=20260903b"></script>
+    <script src="sf-data.js?v=20260903c"></script>
+    <script src="calls.js?v=20260903c"></script>
+    <script src="nav.js?v=20260903c"></script>
     <script src="/cmdk.js?v=20260827a"></script>
 </body>
 </html>

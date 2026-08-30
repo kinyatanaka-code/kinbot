@@ -1397,6 +1397,10 @@ function showPane() {
     const mine = href.includes("p=" + p) || (p === "call" && href === "/kincall");
     a.classList.toggle("active", mine);
   });
+  // ヘッダーの表示を、いま開いているページに合わせる
+  const 名前 = { call: ["kincall", "架電リスト"], stats: ["実績", ""], lists: ["リスト管理", ""] }[p] || ["kincall", ""];
+  const nm = document.querySelector(".kc-name"); if (nm) nm.textContent = 名前[0];
+  const sub = document.querySelector(".kc-sub"); if (sub) { sub.textContent = 名前[1]; sub.style.display = 名前[1] ? "" : "none"; }
   if (p === "stats") loadStats();
   if (p === "lists") asLoad();
 }

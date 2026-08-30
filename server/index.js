@@ -15539,7 +15539,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-03b kincall実績を全体/個別＋アポ内外に拡張。全体＝グループ/セールス/インサイド、個別＝メンバー全員（セールスはSFレポート＝コール進捗と同じrunReport/toRecordsから、ISは架電ログ）。日/週/月。アポ獲得は商談日(セールス=SF商談日, IS=アポ記録start_time)で期間内/外に分割し内/外/両方で切替。stats-gridを拡張（members/totals/アポ内外、旧items/合計も残置）。前回：AI社員ヘッダー";
+const BUILD_TAG = "2026-09-03c kincallヘッダーを現在ページ名に切替（実績のとき「実績」表示）。実績のタブ順を 全体/個別（上）→ 日/週/月・メンバー別（下）→ アポ内外 に並べ替え。前回：実績を全体/個別＋アポ内外に拡張";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
