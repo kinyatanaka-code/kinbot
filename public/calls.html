@@ -10,7 +10,7 @@
     <link rel="manifest" href="/site.webmanifest" />
     <meta name="theme-color" content="#0d5b47" />
     <meta name="apple-mobile-web-app-title" content="kinbot" />
-    <link rel="stylesheet" href="style.css?v=20260903v" />
+    <link rel="stylesheet" href="style.css?v=20260904a" />
   </head>
   <body class="kc-body">
     <div class="app">
@@ -82,7 +82,12 @@
           <!-- 実績（日・週・月） -->
           <section class="card kc-pane" data-p="stats" hidden>
             <span id="stats" class="sr-anchor" aria-hidden="true"></span>
-            <div class="kc-st-row">
+            <div class="kc-period-tabs" id="stTop" style="margin-bottom:10px;">
+              <button type="button" class="kc-ptab active" data-top="jisseki">実績</button>
+              <button type="button" class="kc-ptab" data-top="admin">設定・管理</button>
+              <button type="button" class="kc-ptab" data-top="process">プロセス</button>
+            </div>
+            <div class="kc-st-row" id="stScopeWrap">
               <div class="kc-period-tabs" id="stScope">
                 <button type="button" class="kc-ptab active" data-scope="all">全体</button>
                 <button type="button" class="kc-ptab" data-scope="each">個別</button>
@@ -94,7 +99,6 @@
               <button type="button" class="kc-ptab" data-period="month">月ごと</button>
               <button type="button" class="kc-ptab" data-period="list">リスト別</button>
               <button type="button" class="kc-ptab" data-period="analysis">メンバー別の分析</button>
-              <button type="button" class="kc-ptab" data-period="admin">設定・管理</button>
             </div>
             <div class="ap-cfg-actions">
               <span class="note" style="margin:0">全体：グループ／セールス／インサイド、個別：メンバー全員（セールスはSFの実績）</span>
@@ -229,9 +233,9 @@
         </main>
       </div>
     </div>
-    <script src="sf-data.js?v=20260903v"></script>
-    <script src="calls.js?v=20260903v"></script>
-    <script src="nav.js?v=20260903v"></script>
+    <script src="sf-data.js?v=20260904a"></script>
+    <script src="calls.js?v=20260904a"></script>
+    <script src="nav.js?v=20260904a"></script>
     <script src="/cmdk.js?v=20260827a"></script>
 </body>
 </html>

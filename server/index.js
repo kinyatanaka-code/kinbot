@@ -225,6 +225,7 @@ import {
   callStats,
   callStatsRange,
   callStatsByDay,
+  aposByMeetingDate,
   apoWonCallsInRange,
   callStatsByList,
   callAnalysis,
@@ -8590,6 +8591,62 @@ app.put("/api/calls/apo-window", async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+// プロセス：クローザーごとの、その月の「設定数（アポ予定）」と「実施数（記録あり商談）」。
+// 設定数＝そのクローザー(current_owner)宛の商談予定（【初回】【新/ヒ】＋メルマガ）で、商談日がその月の範囲。
+// 実施数＝そのうち、kinbotに商談の記録（録音/文字起こし）があるもの（会社名＋商談日で突き合わせ）。
+// 月の範囲＝設定・管理の「月ごとの期間内の範囲」があればそれ、無ければ暦の月。
+app.get("/api/calls/process", async (req, res) => {
+  try {
+    const pad = (n) => String(n).padStart(2, "0");
+    const nowJ = new Date(Date.now() + 9 * 3600 * 1000);
+    let month = String(req.query.month || "");
+    if (!/^\d{4}-\d{2}$/.test(month)) month = `${nowJ.getUTCFullYear()}-${pad(nowJ.getUTCMonth() + 1)}`;
+    const [Y, M] = month.split("-").map((x) => parseInt(x, 10));
+    const st = await getSettings().catch(() => ({}));
+    let monthWin = {}; try { monthWin = JSON.parse(st.apoMonthWindows || "{}") || {}; } catch {}
+    let from, to;
+    if (monthWin[month] && monthWin[month].from && monthWin[month].to) { from = monthWin[month].from; to = monthWin[month].to; }
+    else { const last = new Date(Date.UTC(Y, M, 0)); from = `${Y}-${pad(M)}-01`; to = `${last.getUTCFullYear()}-${pad(last.getUTCMonth() + 1)}-${pad(last.getUTCDate())}`; }
+
+    const ymdJst = (v) => { if (!v) return ""; const d = new Date(v); if (isNaN(d.getTime())) return String(v).slice(0, 10); const j = new Date(d.getTime() + 9 * 3600000); return `${j.getUTCFullYear()}-${pad(j.getUTCMonth() + 1)}-${pad(j.getUTCDate())}`; };
+    const 対象タイトル = (t) => { const s = String(t || ""); return /【\s*初回\s*】/.test(s) || /【\s*新\s*[\/／]\s*ヒ\s*】/.test(s) || /メルマガ/.test(s); };
+
+    // クローザー（sales）一覧
+    const members = await listMembers().catch(() => []);
+    const closers = new Map();  // email -> name
+    for (const mm of members) {
+      const em = String(mm.email || "").toLowerCase();
+      if ((Array.isArray(mm.roles) && mm.roles.includes("closer")) && em) closers.set(em, mm.name || mm.email);
+    }
+    // 記録あり商談（実施）の集合：会社名|商談日
+    const meetings = await listMeetings({ isAdmin: true, from, to, limit: 1000, light: true }).catch(() => []);
+    const doneSet = new Set();
+    for (const m of meetings) {
+      const co = normCompanyKey(companyFromTitle(m.title || "") || m.account || "");
+      const day = ymdJst(m.created_at);
+      if (co && day) doneSet.add(`${co}|${day}`);
+    }
+    // アポ予定（商談日が月の範囲）
+    const apos = await aposByMeetingDate(from, to).catch(() => []);
+    const stat = new Map();  // email -> {設定:0, 実施:0}
+    const ensure = (em) => { if (!stat.has(em)) stat.set(em, { 設定: 0, 実施: 0 }); return stat.get(em); };
+    for (const a of apos) {
+      if (!対象タイトル(a.label)) continue;
+      const em = String(a.current_owner || "").toLowerCase();
+      if (!closers.has(em)) continue;   // クローザーのみ（現担当基準）
+      const s = ensure(em); s.設定 += 1;
+      const key = `${normCompanyKey(companyFromTitle(a.label || "") || "")}|${ymdJst(a.start_time)}`;
+      if (doneSet.has(key)) s.実施 += 1;
+    }
+    const items = [...closers.entries()].map(([em, name]) => {
+      const s = stat.get(em) || { 設定: 0, 実施: 0 };
+      return { 誰: name, email: em, 設定数: s.設定, 実施数: s.実施, 実施率: s.設定 ? (s.実施 / s.設定 * 100).toFixed(1) + "%" : "—" };
+    }).sort((a, b) => b.設定数 - a.設定数);
+    const 合計 = items.reduce((a, x) => ({ 設定数: a.設定数 + x.設定数, 実施数: a.実施数 + x.実施数 }), { 設定数: 0, 実施数: 0 });
+    res.json({ ok: true, month, from, to, items, 合計: { ...合計, 実施率: 合計.設定数 ? (合計.実施数 / 合計.設定数 * 100).toFixed(1) + "%" : "—" } });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 // リスト別の実績（kincall架電ログ基準）。表示期間の各リストのコール/接触/アポと率。
 async function computeListStats(periodIn, fromIn, toIn) {
     const pad = (n) => String(n).padStart(2, "0");
@@ -15819,7 +15876,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-03aa 実績/プロセスシートのアポが全部0になる不具合を修正。原因＝アポ一覧の taken_at/start_time は Date型で、toYmd(\"Mon Aug 17\"形式)が解釈できず空→列に載らず全件脱落。対策＝ymdJst(new Date→JSTのYYYY-MM-DD)で変換して集計。あわせて担当突合を 現担当メール→setter_email→setter名→名前 の順に強化。点検API(_apodiag2)撤去。前回：アポをカレンダー予定基準に統一";
+const BUILD_TAG = "2026-09-04a 実績を2階層タブに：上段トップ（実績/設定・管理/プロセス）、実績内だけ全体個別＋日/週/月/リスト別/分析。設定・管理は下段から外しトップへ。プロセスタブ新設：クローザー×月の 設定数（current_owner宛の商談予定＝【初回】【新/ヒ】＋メルマガ、商談日が月範囲）／実施数（記録ありの商談を会社名＋商談日で突合）／実施率。月範囲は設定・管理の月ごと範囲を優先。API GET /api/calls/process、DB aposByMeetingDate。前回：アポ0(日付型)修正";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",

@@ -41,6 +41,8 @@ kincall（架電リスト）という別ツールも同じ画面群の中にあ�
 
 ## 決定・指示のログ（新しいものを上に足す）
 
+- 2026-09-04 実績を2階層タブに再構成（田中さん指示）。上段トップタブ #stTop：実績／設定・管理／プロセス。実績を選んだときだけ 全体/個別(stScopeWrap)＋日/週/月/リスト別/メンバー別の分析(stPeriod) を表示。設定・管理は period から外しトップタブへ（loadAdmin）。新規「プロセス」タブ（loadProcess）：クローザー×月で 設定数／実施数／実施率。定義：設定数＝そのクローザー(current_owner)宛の商談予定で、タイトルが【初回】【新/ヒ】＋メルマガ含む（実績のアポ判定と違いメルマガも数える）かつ商談日(start_time)が月の範囲。実施数＝そのうち記録のある商談（listMeetings＝transcriptあり）を 会社名(normCompanyKey)＋商談日(YMD) で突合。実施率＝実施/設定。月の範囲＝設定・管理の月ごと範囲(apoMonthWindows[YYYY-MM])を優先、無ければ暦月。担当＝現担当(クローザー)。API：GET /api/calls/process?month=YYYY-MM（items[{誰,設定数,実施数,実施率}]＋合計）。DB：aposByMeetingDate(from,to)＝start_time範囲でsmart_links。UI：月ピッカーつき表、合計行。
+
 - 2026-09-03 アポをカレンダー予定基準にした直後、実績/プロセスシートのアポが全部0になった不具合を修正。点検(_apodiag2)で判定は正常(104件中98件が対象)と確認→原因は日付型：aposTakenInRange の taken_at/start_time は timestamptz＝JSのDate。toYmd は "YYYY-MM-DD"文字列前提の正規表現で、Date を String化した "Mon Aug 17 2026..." を解釈できず空→属する()で列が無く全件 continue で脱落＝0。対策：ymdJst(v)=new Date(v)→JST(+9h)→YYYY-MM-DD を導入し、computeStatsGrid と runProcessSheet のアポ集計(taken_at/start_time)に使用。担当突合も setterEmail を「現担当メール(current_owner)→setter_email→setter名→emailOfName」の順に強化。点検API _apodiag2 撤去。
 
 - 2026-09-03 アポの件数の数え方を「アポ一覧（カレンダー予定＝smart_links）」に統一（田中さん確定）。対象＝タイトルに【初回】または【新/ヒ】を含む予定のみ。除外＝「メルマガ」を含む（メルマガ【初回】等）＋その他タイトル（【2回目】【ユ/フォ】等）。判定は isApoCountableTitle（/メルマガ/なら除外、/【初回】/ か /【新[/／]ヒ】/）。担当は実獲得者に寄せる（A）：会社名(companyFromTitle→normCompanyKey)で kincallのアポ獲得ログ(apoWonCalls, caller)に突き合わせ→無ければ setter/current_owner（クローザー）。内/外は予定の商談日 start_time（実績=isInFor、プロセスシート=termMode fixed/auto）。SF/kincallのアポ“件数”は使わない（コール/接触はセールス=SFレポート＋kincall・インサイド=kincallのまま）。computeStatsGrid と runProcessSheet 両方を差し替え（SFブロックのアポ按分と旧applyApoCounts/インサイドwonCallsアポを撤去）。※本番シートはお試し(dryRun)で件数確認してから。タイトル表記ゆれは実データで要微調整。

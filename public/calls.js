@@ -658,6 +658,10 @@ function renderDock() {
     .kc-adrow:first-of-type{border-top:0;}
     .kc-adk{flex:0 0 130px;color:#7d8c86;font-size:12px;}
     @media (max-width:900px){ .kc-admin{grid-template-columns:1fr;} }
+    /* プロセス */
+    .kc-proc{background:#fff;border:1px solid #e6ece9;border-radius:14px;padding:14px 16px;box-shadow:0 2px 10px rgba(13,91,71,.05);overflow-x:auto;}
+    .kc-proc-head{display:flex;gap:14px;align-items:center;flex-wrap:wrap;margin-bottom:10px;}
+    .kc-proc-head input[type=month]{border:1px solid #d7ded9;border-radius:8px;padding:6px 8px;}
     /* 実績タブの段組み：上段＝全体/個別＋アポ、下段＝日週月 */
     .kc-st-row{display:flex;gap:16px;align-items:center;flex-wrap:wrap;margin-bottom:6px;}
     .kc-st-row .kc-period-tabs{margin-bottom:0;}
@@ -1282,7 +1286,6 @@ async function loadStats(force) {
   if (!box) return;
   if (statsPeriod === "analysis") return loadAnalysis();
   if (statsPeriod === "list") return loadListStats();
-  if (statsPeriod === "admin") return loadAdmin();
   try {
     if (force || !_statsCache[statsPeriod]) box.innerHTML = `<div class="note">読み込んでいます…</div>`;
     const d = await fetchStats(force);
@@ -1374,6 +1377,37 @@ function renderStats(d) {
       `</div>` +
       (d.sfError ? `<div class="note">${esc(d.sfError)}</div>` : "");
   }
+}
+
+// ───────── プロセス（クローザー×月の 設定数/実施数/実施率） ─────────
+let processMonth = "";
+async function loadProcess() {
+  const box = $("clStats");
+  if (!box) return;
+  box.innerHTML = `<div class="note">読み込んでいます…</div>`;
+  try {
+    const q = processMonth ? ("?month=" + encodeURIComponent(processMonth)) : "";
+    const d = await (await fetch("/api/calls/process" + q)).json();
+    if (d.error) throw new Error(d.error);
+    processMonth = d.month;
+    const rg = $("stRange"); if (rg) rg.textContent = d.from && d.to ? `${d.from} 〜 ${d.to}（商談日）` : "";
+    const rows = (d.items || []).map((x) =>
+      `<tr><td class="kc-g-name">${esc(x["誰"])}</td><td class="kc-g-n">${x["設定数"]}</td><td class="kc-g-n">${x["実施数"]}</td><td class="kc-g-n">${esc(x["実施率"])}</td></tr>`).join("");
+    box.innerHTML = `
+      <div class="kc-proc">
+        <div class="kc-proc-head">
+          <label>月：<input type="month" id="procMonth" value="${esc(d.month || "")}" /></label>
+          <span class="note">商談予定（【初回】【新/ヒ】・メルマガ含む）の「設定数」と、記録のある商談の「実施数」。担当＝クローザー（現担当）。月の範囲：${esc(d.from)}〜${esc(d.to)}</span>
+        </div>
+        <table class="sh-table kc-grid">
+          <tr><th class="kc-g-name">クローザー</th><th class="kc-g-h">設定数</th><th class="kc-g-h">実施数</th><th class="kc-g-h">実施率</th></tr>
+          ${rows || `<tr><td class="kc-g-name" colspan="4">この月のデータはありません。</td></tr>`}
+          <tr class="kc-g-team"><td class="kc-g-name">合計</td><td class="kc-g-n">${d["合計"]["設定数"]}</td><td class="kc-g-n">${d["合計"]["実施数"]}</td><td class="kc-g-n">${esc(d["合計"]["実施率"])}</td></tr>
+        </table>
+      </div>`;
+    const mEl = $("procMonth");
+    if (mEl) mEl.addEventListener("change", () => { processMonth = mEl.value; loadProcess(); });
+  } catch (e) { box.innerHTML = `<div class="note">読み込めませんでした：${esc(e.message)}</div>`; }
 }
 
 // ───────── 設定・管理（アポ基準＋プロセスシート管理） ─────────
@@ -1611,6 +1645,22 @@ if ($("stPeriod")) {
       loadStats();
     }));
 }
+let statsTop = "jisseki";   // jisseki / admin / process
+if ($("stTop")) {
+  $("stTop").querySelectorAll(".kc-ptab").forEach((b) =>
+    b.addEventListener("click", () => {
+      statsTop = b.dataset.top || "jisseki";
+      $("stTop").querySelectorAll(".kc-ptab").forEach((x) => x.classList.toggle("active", x === b));
+      const showJisseki = statsTop === "jisseki";
+      const sw = $("stScopeWrap"), sp = $("stPeriod");
+      if (sw) sw.style.display = showJisseki ? "" : "none";
+      if (sp) sp.style.display = showJisseki ? "" : "none";
+      if (statsTop === "admin") loadAdmin();
+      else if (statsTop === "process") loadProcess();
+      else loadStats();
+    }));
+}
+
 if ($("stScope")) {
   $("stScope").querySelectorAll(".kc-ptab").forEach((b) =>
     b.addEventListener("click", () => {

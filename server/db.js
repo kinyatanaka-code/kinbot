@@ -6838,6 +6838,23 @@ export async function callStatsByDay(fromJst, toJst) {
 }
 
 
+// 商談日（start_time）が範囲内のアポ予定（smart_link）を引く。プロセス（設定数/実施数）で使う。
+export async function aposByMeetingDate(fromJst, toJst) {
+  if (!pool) return [];
+  try {
+    const { rows } = await pool.query(
+      `SELECT slug, label, setter, setter_email, current_owner, start_time,
+              COALESCE(apo_at, created_at) AS taken_at
+         FROM smart_links
+        WHERE start_time IS NOT NULL
+          AND NOT COALESCE(excluded,false)
+          AND (start_time AT TIME ZONE 'Asia/Tokyo')::date >= $1::date
+          AND (start_time AT TIME ZONE 'Asia/Tokyo')::date <= $2::date
+        ORDER BY start_time`, [fromJst, toJst]);
+    return rows;
+  } catch (e) { console.error("[db] aposByMeetingDate", e.message); return []; }
+}
+
 // kincallの架電ログで「アポ獲得」になった件を、かけた人・会社名つきで取る（インサイドの実獲得を数えるため）。
 export async function apoWonCallsInRange(fromJst, toJst) {
   if (!pool) return [];
