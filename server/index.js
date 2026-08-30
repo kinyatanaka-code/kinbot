@@ -9062,9 +9062,30 @@ app.post("/api/ai/pr/:num/merge", async (req, res) => {
     let body = "";
     try { const pr = await gh(`/pulls/${num}`); if (pr.ok) body = String((await pr.json()).body || ""); } catch {}
     const ids = [...new Set((body.match(/メモID[:：]\s*(\d+)/g) || []).map((m) => parseInt(m.replace(/\D/g, ""), 10)).filter(Boolean))];
-    const mr = await gh(`/pulls/${num}/merge`, { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ merge_method: "squash" }) });
-    const md = await mr.json().catch(() => ({}));
-    if (!mr.ok || !md.merged) return res.status(400).json({ error: md.message || `マージできませんでした（HTTP ${mr.status}）` });
+    // 事前に、マージ可能かとブランチ状態を確認
+    let 状態 = "";
+    try { const pr = await gh(`/pulls/${num}`); if (pr.ok) { const j = await pr.json(); 状態 = j.mergeable_state || ""; } } catch {}
+    // squash → merge → rebase の順で試す（リポジトリで許可されている方式に当たるまで）
+    const methods = ["squash", "merge", "rebase"];
+    let last = { status: 0, message: "" };
+    let mergedOk = false;
+    for (const m of methods) {
+      const mr = await gh(`/pulls/${num}/merge`, { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ merge_method: m }) });
+      const jd = await mr.json().catch(() => ({}));
+      if (mr.ok && jd.merged) { mergedOk = true; break; }
+      last = { status: mr.status, message: jd.message || "" };
+      // 方式が許可されていない(405/422)以外の失敗は、方式を変えても直らないので中断
+      if (!(mr.status === 405 || mr.status === 422)) break;
+    }
+    if (!mergedOk) {
+      let hint = "";
+      if (last.status === 403) hint = "トークンにマージ権限がありません（Contents と Pull requests への書き込み権限が要ります）。";
+      else if (last.status === 401) hint = "トークンが無効です。";
+      else if (last.status === 404) hint = "PRが見つからないか、リポジトリへの権限がありません。";
+      else if (/not mergeable|conflict/i.test(last.message) || 状態 === "dirty") hint = "コンフリクトなどでマージできません（要手動解消）。";
+      else if (/required status|blocked|review/i.test(last.message) || 状態 === "blocked") hint = "ブランチ保護（レビュー必須やチェック待ち）でブロックされています。";
+      return res.status(400).json({ error: `デプロイできませんでした：${last.message || "HTTP " + last.status}${hint ? "／" + hint : ""}`, status: last.status, mergeable_state: 状態 });
+    }
     let 片づけ = 0;
     for (const id of ids) { try { await updateDevNote(id, { status: "done" }); 片づけ++; } catch {} }
     aiLog("deploy", `PR#${req.params.num} をデプロイ（対応済み ${片づけ}件）`);
@@ -16173,7 +16194,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-04s AI社員PR機能を拡張＋デプロイ＋進捗。GET /api/ai/prs（mode=summary/detail・mergedDays＝直近デプロイ済み含む・各PRの変更ファイル・md/txt）。GET /api/ai/pr/:n/diff（コード差分）。POST /api/ai/pr/:n/merge（オーナー限定・本番反映＝squashマージ→本文のメモIDを対応済みに、案B）。GET /api/ai/progress（直近Actions実行の状態＋現在ステップで『今なにをしているか』）。会話は action=pr-report を返しフロントでPR報告起動。開発AIカード：サマリ/詳細・デプロイ済み含むトグル、PR一覧（変更ファイル・差分を見る・デプロイ確認ダイアログ）、進捗バナー（12秒ごと）。前回：PR報告MD";
+const BUILD_TAG = "2026-09-04t デプロイ(マージ)の失敗理由を詳細化：事前にmergeable_state確認、squash→merge→rebaseでフォールバック（405/422時のみ方式変更）、失敗時はHTTPステータス＋GitHubのmessage＋原因ヒント（403=マージ権限なし/401=無効/404=権限or未検出/conflict=手動解消/blocked=ブランチ保護）を返す。前回：PR拡張＋デプロイ＋進捗";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
