@@ -8980,36 +8980,124 @@ app.post("/api/dev-notes", async (req, res) => {
 
 // AI社員ページのチャットからタスクを依頼する（Chatの「直して」と同じことを画面から）。
 // 開発メモに登録し、自動改善がONなら今すぐ着手（起動）する。
-// キツツキ（CEO）から、開発AIが作ったPR（プルリクエスト）を報告する。MD文面も返す（ダウンロード用）。
+// GitHub共通：トークンとリポジトリ、フェッチ
+function ghToken() { return process.env.GH_DISPATCH_TOKEN || process.env.GITHUB_DISPATCH_TOKEN || process.env.GITHUB_TOKEN || ""; }
+function ghRepo() { return process.env.KINBOT_REPO || "kinyatanaka-code/kinbot"; }
+async function gh(pathOrUrl, opt = {}) {
+  const token = ghToken();
+  const url = pathOrUrl.startsWith("http") ? pathOrUrl : `https://api.github.com/repos/${ghRepo()}${pathOrUrl}`;
+  return fetch(url, { ...opt, headers: { authorization: `Bearer ${token}`, accept: "application/vnd.github+json", "user-agent": "kinbot", ...(opt.headers || {}) } });
+}
+
+// キツツキ（CEO）から、開発AIが作ったPR（プルリクエスト）を報告する。MD/テキストで返す（ダウンロード用）。
+// query: mode=summary|detail（既定detail）、mergedDays=直近マージ済みも含める日数（既定7、0で含めない）
 app.get("/api/ai/prs", async (req, res) => {
   try {
     if (!isAiOwner(req)) return res.status(403).json({ error: "権限がありません" });
-    const token = process.env.GH_DISPATCH_TOKEN || process.env.GITHUB_DISPATCH_TOKEN || process.env.GITHUB_TOKEN || "";
-    const repo = process.env.KINBOT_REPO || "kinyatanaka-code/kinbot";
-    if (!token) return res.json({ ok: true, prs: [], md: "# 開発AIのPR報告\n\n（GitHubのトークンが未設定のため、PRを読み取れません）", note: "GitHubトークン未設定" });
-    const r = await fetch(`https://api.github.com/repos/${repo}/pulls?state=open&per_page=30&sort=created&direction=desc`, {
-      headers: { authorization: `Bearer ${token}`, accept: "application/vnd.github+json", "user-agent": "kinbot" },
-    });
-    if (!r.ok) return res.json({ ok: true, prs: [], md: `# 開発AIのPR報告\n\n（GitHubからPRを取得できませんでした：HTTP ${r.status}）` });
-    const arr = await r.json();
-    const prs = (Array.isArray(arr) ? arr : []).map((p) => ({
-      number: p.number, title: p.title, url: p.html_url,
-      created: p.created_at ? String(p.created_at).slice(0, 10) : "",
-      draft: !!p.draft, body: String(p.body || "").trim(),
-    }));
+    if (!ghToken()) return res.json({ ok: true, prs: [], md: "# 開発AIのPR報告\n\n（GitHubのトークンが未設定のため、PRを読み取れません）", txt: "GitHubのトークンが未設定です。", note: "GitHubトークン未設定" });
+    const mode = String(req.query.mode || "detail") === "summary" ? "summary" : "detail";
+    const mergedDays = Math.max(0, Math.min(90, parseInt(req.query.mergedDays, 10) || 7));
+
+    const openR = await gh(`/pulls?state=open&per_page=30&sort=created&direction=desc`);
+    if (!openR.ok) return res.json({ ok: true, prs: [], md: `# 開発AIのPR報告\n\n（GitHubからPRを取得できませんでした：HTTP ${openR.status}）`, txt: "" });
+    let list = (await openR.json()).map((p) => ({ ...p, _state: "open" }));
+    if (mergedDays > 0) {
+      const closedR = await gh(`/pulls?state=closed&per_page=30&sort=updated&direction=desc`);
+      if (closedR.ok) {
+        const since = Date.now() - mergedDays * 86400000;
+        const merged = (await closedR.json()).filter((p) => p.merged_at && new Date(p.merged_at).getTime() >= since).map((p) => ({ ...p, _state: "merged" }));
+        list = list.concat(merged);
+      }
+    }
+    // 各PRの変更ファイル
+    const prs = [];
+    for (const p of list.slice(0, 20)) {
+      let files = [];
+      try { const fr = await gh(`/pulls/${p.number}/files?per_page=100`); if (fr.ok) files = (await fr.json()).map((f) => ({ name: f.filename, add: f.additions, del: f.deletions, status: f.status })); } catch {}
+      let summary = "";
+      if (mode === "summary") {
+        try {
+          const sys = "あなたは開発リード。PRのタイトルと説明から、何をしたPRかを日本語で1〜2文に要約する。JSONやコードで囲まず本文だけ。";
+          summary = String(await callLLMPublic(sys, `タイトル：${p.title}\n説明：\n${String(p.body || "").slice(0, 3000)}`, 160, { fallback: true }) || "").trim();
+        } catch {}
+      }
+      prs.push({ number: p.number, title: p.title, url: p.html_url, created: p.created_at ? String(p.created_at).slice(0, 10) : "",
+        state: p._state, draft: !!p.draft, body: String(p.body || "").trim(), files, summary });
+    }
     const now = new Date(Date.now() + 9 * 3600 * 1000).toISOString().slice(0, 16).replace("T", " ");
-    const md = [`# 開発AI（キツツキ）からのPR報告`, ``, `作成: ${now}　リポジトリ: ${repo}　オープンなPR: ${prs.length}件`, ``]
-      .concat(prs.length ? prs.flatMap((p) => [
-        `## #${p.number} ${p.title}${p.draft ? "（下書き）" : ""}`,
-        `- 作成日: ${p.created || "—"}`,
-        `- URL: ${p.url}`,
-        p.body ? `\n${p.body}\n` : `\n（説明なし）\n`,
-        `---`,
-      ]) : ["いま確認できるオープンなPRはありません。"])
-      .join("\n");
-    res.json({ ok: true, prs, md, count: prs.length });
+    const openN = prs.filter((p) => p.state === "open").length, mergedN = prs.filter((p) => p.state === "merged").length;
+    const block = (p) => {
+      const badge = p.state === "merged" ? "（デプロイ済み）" : p.draft ? "（下書き）" : "";
+      const filesLine = p.files.length ? p.files.map((f) => `  - ${f.name}（+${f.add}/-${f.del}）`).join("\n") : "  - （変更ファイル情報なし）";
+      const bodyPart = mode === "summary" ? (p.summary || "（要約なし）") : (p.body || "（説明なし）");
+      return [`## #${p.number} ${p.title}${badge}`, `- 作成日: ${p.created || "—"}`, `- URL: ${p.url}`, `- 変更ファイル:`, filesLine, ``, bodyPart, `---`].join("\n");
+    };
+    const md = [`# 開発AI（キツツキ）からのPR報告（${mode === "summary" ? "サマリ" : "詳細"}）`, ``,
+      `作成: ${now}　リポジトリ: ${ghRepo()}　オープン ${openN}件・直近デプロイ済み ${mergedN}件`, ``]
+      .concat(prs.length ? prs.map(block) : ["いま報告できるPRはありません。"]).join("\n");
+    const txt = md.replace(/^#+\s*/gm, "").replace(/^-\s*/gm, "・");
+    res.json({ ok: true, prs, md, txt, count: prs.length, openN, mergedN, mode });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
+
+// PRの差分（コード）を返す
+app.get("/api/ai/pr/:num/diff", async (req, res) => {
+  try {
+    if (!isAiOwner(req)) return res.status(403).json({ error: "権限がありません" });
+    if (!ghToken()) return res.status(400).json({ error: "GitHubトークン未設定" });
+    const r = await gh(`/pulls/${encodeURIComponent(req.params.num)}`, { headers: { accept: "application/vnd.github.v3.diff" } });
+    if (!r.ok) return res.status(400).json({ error: `差分を取得できません（HTTP ${r.status}）` });
+    const diff = await r.text();
+    res.json({ ok: true, diff: diff.slice(0, 60000) });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// PRをマージ（デプロイ＝本番反映）。成功したら、紐づく開発メモを対応済みにする。
+app.post("/api/ai/pr/:num/merge", async (req, res) => {
+  try {
+    if (!isAiOwner(req)) return res.status(403).json({ error: "権限がありません" });
+    if (!ghToken()) return res.status(400).json({ error: "GitHubトークン未設定" });
+    const num = encodeURIComponent(req.params.num);
+    // 本文からメモIDを拾う（対応済みにするため）
+    let body = "";
+    try { const pr = await gh(`/pulls/${num}`); if (pr.ok) body = String((await pr.json()).body || ""); } catch {}
+    const ids = [...new Set((body.match(/メモID[:：]\s*(\d+)/g) || []).map((m) => parseInt(m.replace(/\D/g, ""), 10)).filter(Boolean))];
+    const mr = await gh(`/pulls/${num}/merge`, { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ merge_method: "squash" }) });
+    const md = await mr.json().catch(() => ({}));
+    if (!mr.ok || !md.merged) return res.status(400).json({ error: md.message || `マージできませんでした（HTTP ${mr.status}）` });
+    let 片づけ = 0;
+    for (const id of ids) { try { await updateDevNote(id, { status: "done" }); 片づけ++; } catch {} }
+    aiLog("deploy", `PR#${req.params.num} をデプロイ（対応済み ${片づけ}件）`);
+    res.json({ ok: true, merged: true, notes: 片づけ, reply: `PR #${req.params.num} を本番へ反映（デプロイ）しました。紐づく開発メモ ${片づけ}件を「対応済み」にしました。` });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// 開発の進捗（いま何をしているか）：直近のActions実行の状態＋最新PR
+app.get("/api/ai/progress", async (req, res) => {
+  try {
+    if (!ghToken()) return res.json({ ok: true, phase: "idle", text: "（GitHubトークン未設定）" });
+    const runR = await gh(`/actions/runs?per_page=1`);
+    let run = null;
+    if (runR.ok) { const j = await runR.json(); run = (j.workflow_runs || [])[0] || null; }
+    let step = "";
+    if (run && run.status === "in_progress") {
+      try {
+        const jr = await gh(`/actions/runs/${run.id}/jobs`);
+        if (jr.ok) { const jobs = (await jr.json()).jobs || []; const cur = jobs.find((j) => j.status === "in_progress"); if (cur) { const s = (cur.steps || []).find((x) => x.status === "in_progress"); step = s ? s.name : cur.name; } }
+      } catch {}
+    }
+    const phase = run ? (run.status === "in_progress" ? "running" : (run.conclusion || run.status)) : "idle";
+    const when = run && run.updated_at ? new Date(run.updated_at).toLocaleString("ja-JP") : "";
+    const text = run
+      ? (phase === "running" ? `いま開発AIが作業中です：${run.name || "自動改善"}${step ? "／" + step : ""}`
+        : phase === "success" ? `直近の作業は完了しました（${run.name || "自動改善"}・${when}）`
+        : phase === "failure" ? `直近の作業は失敗しました（${run.name || "自動改善"}・${when}）。ログを確認してください。`
+        : `直近の作業：${run.name || ""}（${phase}・${when}）`)
+      : "いまは動いていません。";
+    res.json({ ok: true, phase, text, runUrl: run ? run.html_url : "", name: run ? run.name : "" });
+  } catch (e) { res.json({ ok: true, phase: "idle", text: "進捗を取得できませんでした" }); }
+});
+
 
 // キツツキ（CEO）と会話する。現状データを踏まえて理解・応答・報告する。GeminiかClaudeを選べる。
 app.post("/api/ai/chat", async (req, res) => {
@@ -9059,7 +9147,9 @@ app.post("/api/ai/chat", async (req, res) => {
       try { const o = JSON.parse(reply); const v = o.response ?? o.reply ?? o.text ?? o.message ?? o.answer; if (typeof v === "string" && v.trim()) reply = v.trim(); } catch {}
     }
     aiLog("chat", `会話：${text.slice(0, 60)}`);
-    res.json({ ok: true, reply, provider: provider === "anthropic" ? "claude" : "gemini" });
+    // 「PRを報告して」等はフロントでPR報告フローを起動する
+    const action = /(pr|ｐｒ|プルリク|プルリクエスト).{0,6}(報告|見せ|教え|出し|ダウンロード)|開発.*報告して/i.test(text) ? "pr-report" : "";
+    res.json({ ok: true, reply, provider: provider === "anthropic" ? "claude" : "gemini", action });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
@@ -16083,7 +16173,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-04r AI社員：開発AI(キツツキ)が作ったPRを報告＋MDダウンロード。GET /api/ai/prs（オーナー限定）＝GitHubのオープンPR一覧(kinyatanaka-code/kinbot, GH_DISPATCH_TOKEN/GITHUB_TOKEN)を取得し、番号/タイトル/URL/作成日/本文を prs と、まとめた md（ダウンロード用）で返す。開発AIカードに「PRを報告・ダウンロード」ボタン：チャットに件数と一覧を出し、md を .md でダウンロード。トークン未設定時はその旨。前回：未対応表示＋JSON整形";
+const BUILD_TAG = "2026-09-04s AI社員PR機能を拡張＋デプロイ＋進捗。GET /api/ai/prs（mode=summary/detail・mergedDays＝直近デプロイ済み含む・各PRの変更ファイル・md/txt）。GET /api/ai/pr/:n/diff（コード差分）。POST /api/ai/pr/:n/merge（オーナー限定・本番反映＝squashマージ→本文のメモIDを対応済みに、案B）。GET /api/ai/progress（直近Actions実行の状態＋現在ステップで『今なにをしているか』）。会話は action=pr-report を返しフロントでPR報告起動。開発AIカード：サマリ/詳細・デプロイ済み含むトグル、PR一覧（変更ファイル・差分を見る・デプロイ確認ダイアログ）、進捗バナー（12秒ごと）。前回：PR報告MD";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",

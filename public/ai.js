@@ -177,6 +177,84 @@ const 状態チップ = (s) => s === "on" ? `<span class="ai-st on">ON</span>`
   : s === "off" ? `<span class="ai-st off">OFF</span>`
   : `<span class="ai-st always">常時</span>`;
 
+function dlFile(name, text, mime) {
+  const blob = new Blob([text], { type: (mime || "text/plain") + ";charset=utf-8" });
+  const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = name;
+  document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+}
+async function loadProgress() {
+  const box = $("devProgress"); if (!box) return;
+  try {
+    const d = await (await fetch("/api/ai/progress")).json();
+    if (!d || !d.text) { box.textContent = ""; return; }
+    const cls = d.phase === "running" ? "run" : d.phase === "failure" ? "fail" : d.phase === "success" ? "ok" : "";
+    box.className = "dev-progress " + cls;
+    box.innerHTML = `<span class="dot"></span>${esc(d.text)}` + (d.runUrl ? ` <a href="${esc(d.runUrl)}" target="_blank" rel="noopener">ログ</a>` : "");
+  } catch { box.textContent = ""; }
+}
+async function runPrReport() {
+  const prb = $("prReport"); const list = $("prList");
+  const mode = (document.querySelector('input[name="prmode"]:checked') || {}).value || "detail";
+  const merged = ($("prMerged") || {}).checked ? 7 : 0;
+  if (prb) { prb.disabled = true; prb.textContent = "PRを確認中…"; }
+  try {
+    const r = await fetch(`/api/ai/prs?mode=${mode}&mergedDays=${merged}`);
+    const d = await r.json();
+    if (r.status === 403) { if (list) list.innerHTML = `<div class="ai-empty">権限がありません。</div>`; return; }
+    if (!r.ok) throw new Error(d.error || "取得できませんでした");
+    const head = d.count ? `PRは ${d.openN}件がオープン中、直近デプロイ済みが ${d.mergedN}件です。` : "いま報告できるPRはありません。";
+    CHAT.push({ who: "ai", text: [head].concat((d.prs || []).slice(0, 8).map((p) => `・#${p.number} ${p.title}${p.state === "merged" ? "（デプロイ済み）" : ""}`)).join("\n") });
+    const chat = $("aiChat"); if (chat) { chat.innerHTML = chatHtml(); chat.scrollTop = chat.scrollHeight; }
+    if (list) {
+      const dlrow = `<div class="pr-dl"><button class="pr-b" data-dl="md">MDでダウンロード</button><button class="pr-b" data-dl="txt">テキストでダウンロード</button></div>`;
+      list.innerHTML = dlrow + (d.prs || []).map((p) => {
+        const files = (p.files || []).slice(0, 12).map((f) => `<div class="pr-f">${esc(f.name)} <span>+${f.add}/-${f.del}</span></div>`).join("");
+        const badge = p.state === "merged" ? `<span class="pr-badge merged">デプロイ済み</span>` : `<span class="pr-badge open">オープン</span>`;
+        return `<div class="pr-item" data-num="${p.number}">
+          <div class="pr-h">#${p.number} ${esc(p.title)} ${badge}</div>
+          <div class="pr-sum">${esc(p.summary || (p.body ? p.body.slice(0,120) : ""))}</div>
+          <div class="pr-files">${files || "（変更ファイル情報なし）"}</div>
+          <div class="pr-ops">
+            <button class="pr-b" data-act="diff">差分を見る</button>
+            <a class="pr-b" href="${esc(p.url)}" target="_blank" rel="noopener">GitHubで開く</a>
+            ${p.state === "open" ? `<button class="pr-b deploy" data-act="deploy">デプロイ（本番反映）</button>` : ""}
+          </div>
+          <pre class="pr-diff" hidden></pre>
+        </div>`;
+      }).join("");
+      list.querySelectorAll("[data-dl]").forEach((b) => b.addEventListener("click", () => {
+        const stamp = new Date().toISOString().slice(0, 10);
+        if (b.dataset.dl === "md") dlFile(`PR報告_${stamp}.md`, d.md || "", "text/markdown");
+        else dlFile(`PR報告_${stamp}.txt`, d.txt || d.md || "", "text/plain");
+      }));
+      list.querySelectorAll(".pr-item").forEach((it) => {
+        const num = it.dataset.num;
+        const diffBtn = it.querySelector('[data-act="diff"]');
+        if (diffBtn) diffBtn.addEventListener("click", async () => {
+          const pre = it.querySelector(".pr-diff");
+          if (!pre.hidden) { pre.hidden = true; return; }
+          pre.hidden = false; pre.textContent = "差分を読み込み中…";
+          try { const dd = await (await fetch(`/api/ai/pr/${num}/diff`)).json(); pre.textContent = dd.diff || dd.error || "（差分なし）"; }
+          catch (err) { pre.textContent = "差分を取得できませんでした：" + err.message; }
+        });
+        const depBtn = it.querySelector('[data-act="deploy"]');
+        if (depBtn) depBtn.addEventListener("click", async (e) => {
+          if (!confirm(`PR #${num} を本番へ反映（デプロイ＝マージ）します。よろしいですか？`)) return;
+          e.target.disabled = true; e.target.textContent = "デプロイ中…";
+          try {
+            const dd = await (await fetch(`/api/ai/pr/${num}/merge`, { method: "POST", headers: { "content-type": "application/json" }, body: "{}" })).json();
+            if (dd.error) throw new Error(dd.error);
+            CHAT.push({ who: "ai", text: dd.reply || `PR #${num} をデプロイしました。` });
+            const c = $("aiChat"); if (c) { c.innerHTML = chatHtml(); c.scrollTop = c.scrollHeight; }
+            setTimeout(load, 800);
+          } catch (err) { alert("デプロイできませんでした：" + err.message); e.target.disabled = false; e.target.textContent = "デプロイ（本番反映）"; }
+        });
+      });
+    }
+  } catch (e) { if (list) list.innerHTML = `<div class="ai-empty">できませんでした：${esc(e.message)}</div>`; }
+  finally { if (prb) { prb.disabled = false; prb.textContent = "PRを報告する"; } }
+}
+
 function render(d) {
   const c = d.control || {};
   const 稼働中 = c.autoImprove;
@@ -262,7 +340,16 @@ function render(d) {
           <div class="dept-stat"><b>${(nextRunLabel(c).match(/\d{1,2}:\d{2}/) || [c.autoImprove ? "—" : "休止中"])[0]}</b><span>次の改善</span></div>
         </div>
         <div class="dept-jobs">${devSwitches}</div>
-        <div class="dept-actions"><button class="dept-mini" id="prReport">PRを報告・ダウンロード</button></div>
+        <div class="dev-progress" id="devProgress"></div>
+        <div class="dept-actions">
+          <div class="pr-opt">
+            <label><input type="radio" name="prmode" value="detail" checked> 詳細</label>
+            <label><input type="radio" name="prmode" value="summary"> サマリ</label>
+            <label><input type="checkbox" id="prMerged" checked> 直近デプロイ済みも</label>
+          </div>
+          <button class="dept-mini" id="prReport">PRを報告する</button>
+          <div class="pr-list" id="prList"></div>
+        </div>
         <div class="dept-more" id="more-dev" hidden>
           ${devRest}
           <div class="ai-jrow" style="align-items:center;"><span class="ai-jn">稼働時間<span class="ai-jt">この時間の :30 に動きます</span></span>
@@ -348,6 +435,7 @@ function wire() {
       if (r.status === 403) CHAT[CHAT.length - 1] = { who: "ai", text: "権限がありません（このAI社員を操作できるのはオーナーだけです）。" };
       else if (!r.ok) CHAT[CHAT.length - 1] = { who: "ai", text: "うまくいきませんでした：" + (d.error || "") };
       else CHAT[CHAT.length - 1] = { who: "ai", text: d.reply || "…" };
+      if (d.action === "pr-report") { const chatX = $("aiChat"); if (chatX) { chatX.innerHTML = chatHtml(); } setTimeout(runPrReport, 200); }
     } catch (e) {
       CHAT[CHAT.length - 1] = { who: "ai", text: "送れませんでした：" + e.message };
     }
@@ -372,33 +460,13 @@ function wire() {
     const more = $("more-" + b.dataset.dept);
     if (more) { const open = !more.hidden; more.hidden = open; b.textContent = open ? "この部門を見る・操作する" : "とじる"; }
   }));
-  // PRを報告・ダウンロード
+  // PRを報告（一覧表示＋差分＋デプロイ＋md/txtダウンロード）
   const prb = $("prReport");
-  if (prb) prb.addEventListener("click", async () => {
-    prb.disabled = true; const old = prb.textContent; prb.textContent = "PRを確認中…";
-    try {
-      const r = await fetch("/api/ai/prs");
-      const d = await r.json();
-      if (r.status === 403) { alert("権限がありません（オーナーだけがPRを報告できます）。"); return; }
-      if (!r.ok) throw new Error(d.error || "取得できませんでした");
-      // チャットに要約を出す
-      const 件 = d.count || (d.prs || []).length;
-      const head = 件 ? `いま開いているPRは ${件}件です。内容をMDにまとめてダウンロードします。` : "いま開いているPRはありません。";
-      const lines = (d.prs || []).slice(0, 8).map((p) => `・#${p.number} ${p.title}`);
-      CHAT.push({ who: "ai", text: [head].concat(lines).join("\n") });
-      const chat = $("aiChat"); if (chat) { chat.innerHTML = chatHtml(); chat.scrollTop = chat.scrollHeight; }
-      // MDダウンロード
-      if (d.md) {
-        const blob = new Blob([d.md], { type: "text/markdown;charset=utf-8" });
-        const a = document.createElement("a");
-        a.href = URL.createObjectURL(blob);
-        a.download = `PR報告_${new Date().toISOString().slice(0,10)}.md`;
-        document.body.appendChild(a); a.click(); a.remove();
-        setTimeout(() => URL.revokeObjectURL(a.href), 4000);
-      }
-    } catch (e) { alert("できませんでした：" + e.message); }
-    finally { prb.disabled = false; prb.textContent = old; }
-  });
+  if (prb) prb.addEventListener("click", () => runPrReport());
+  // 進捗を定期取得
+  loadProgress();
+  if (window.__aiProgTimer) clearInterval(window.__aiProgTimer);
+  window.__aiProgTimer = setInterval(loadProgress, 12000);
 
   const rn = $("aiRename");
   if (rn) rn.addEventListener("click", async () => {
