@@ -34,7 +34,7 @@ window.addEventListener("error", (e) => {
 (function () {
   if (!document.querySelector('script[src$="kbchat.js"]')) {
     const sc = document.createElement("script");
-    sc.src = "kbchat.js?v=20260903p";
+    sc.src = "kbchat.js?v=20260903q";
     sc.defer = true;
     document.head.appendChild(sc);
   }
@@ -422,7 +422,8 @@ window.kbSheet = function (html) {
     if (m.subs) for (const x of m.subs) items.push({ href: x.href, label: x.label, ico: m.ico });
     else items.push({ href: m.href, label: m.label, ico: m.ico });
   }
-  // kinbotの機能とは別に、Salesforce と AI社員を下に置く（サイドバーのkincallの下に合わせる）
+  // kinbotの機能とは別に、kincall・Salesforce・AI社員を下に置く（サイドバーの並びに合わせる）
+  items.push({ href: "/kincall", label: "kincall", ico: "ico-phone" });
   items.push({ href: "sf-launch.html", label: "Salesforce", ico: "ico-sf" });
   items.push({ href: "ai.html", label: "AI社員", ico: "ico-ai" });
   // 設定は一覧から外してアカウント名の横に移したが、スマホでは入口が要るのでここに足す
