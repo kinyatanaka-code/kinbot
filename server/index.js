@@ -8311,6 +8311,14 @@ app.get("/api/calls/analysis", async (req, res) => {
 });
 
 // 実績を並べて比べる（メンバー × 日付／週／月）
+// アポとして数える予定か（カレンダーのタイトルで判定）。
+// 数える：【初回】または【新/ヒ】を含む。数えない：「メルマガ」を含む、それ以外のタイトル。
+function isApoCountableTitle(title) {
+  const t = String(title || "");
+  if (/メルマガ/.test(t)) return false;
+  return /【\s*初回\s*】/.test(t) || /【\s*新\s*[\/／]\s*ヒ\s*】/.test(t);
+}
+
 async function computeStatsGrid(periodIn, spanIn) {
     const period = ["day", "week", "month"].includes(String(periodIn)) ? String(periodIn) : "day";
     const 本数 = Math.min(26, Math.max(2, parseInt(spanIn, 10) || (period === "day" ? 7 : period === "week" ? 8 : 6)));
@@ -8413,42 +8421,32 @@ async function computeStatsGrid(periodIn, spanIn) {
       if (/接触|アポ|再コール|断り|見送り/.test(v) && !/不在|コールのみ|NG/.test(v)) cell.接触 += r.n;
     }
 
-    // アポの内/外は「アポ一覧（smart-link）の商談日 start_time＝カレンダー」で判定する（獲得者 setter 基準）。
-    // インサイドはアポ一覧をそのまま件数化。セールスは件数はSFレポート、内/外の比率だけここで出して後で按分する。
+    // ---- アポ件数は「アポ一覧（カレンダー予定）」で数える（【初回】【新/ヒ】のみ・メルマガ除外） ----
+    // 担当は「実獲得者」に寄せる（A）：会社名で kincall のアポ獲得ログ(caller)に突き合わせ、
+    // 見つからなければ現担当（setter/current_owner＝クローザー）に付ける。内/外は予定の商談日(start_time)。
     const apos = await aposTakenInRange({ from: spanFrom, to: spanTo, limit: 5000 }).catch(() => []);
-    const salesRatio = new Map();   // email -> [{in,total} per 区切り]
     const setterEmail = (a) => {
-      // 獲得者：まずメール(setter_email)、無ければ名前(setter)、それでも無ければ現担当のメール/名前で引く
       const cand = [a.setter_email, a.setter].map((v) => String(v || "").toLowerCase());
       for (const c of cand) if (c && byEmail.has(c)) return c;
       return emailOfName(a.setter) || (byEmail.has(String(a.current_owner || "").toLowerCase()) ? String(a.current_owner).toLowerCase() : "") || emailOfName(a.current_owner) || "";
     };
-    // 会社名 → 商談日（アポ一覧の start_time）。インサイドの実獲得の内/外判定に使う。
-    const companyMeet = new Map();
-    for (const a of apos) {
-      const k = normCompanyKey(companyFromTitle(a.label || "") || "");
-      const md = toYmd(a.start_time);
-      if (k && md && !companyMeet.has(k)) companyMeet.set(k, md);
-    }
-    // セールスは「アポ一覧の setter（＝商談主催者＝セールス）」で内/外の比率だけ出す（件数はSFレポート）。
-    for (const a of apos) {
-      const em = setterEmail(a);
-      const p = byEmail.get(em); if (!p || p.role !== "sales") continue;
-      const i = idxOf(属する(toYmd(a.taken_at))); if (i < 0) continue;
-      const 内 = isInFor(区切り[i] && 区切り[i].key, toYmd(a.start_time));
-      if (!salesRatio.has(em)) salesRatio.set(em, 区切り.map(() => ({ in: 0, total: 0 })));
-      const r = salesRatio.get(em)[i]; r.total += 1; if (内) r.in += 1;
-    }
-    // kincallで実際にアポ獲得した件（かけた人）を数える。インサイドはこれが本体、
-    // セールスは SFレポートのアポに「kincallで取ったぶん」を足す（合算）。商談日は会社名で引く。
+    // 会社名 → 実獲得者（kincallでアポ獲得した人）。実獲得者に寄せるために使う。
     const wonCalls = await apoWonCallsInRange(spanFrom, spanTo).catch(() => []);
+    const companyToWinner = new Map();
     for (const w of wonCalls) {
       const em = String(w.caller || "").toLowerCase();
-      const p = byEmail.get(em); if (!p) continue;   // インサイド＋セールス両方
-      const i = idxOf(属する(w["日"])); if (i < 0) continue;
-      const md = companyMeet.get(normCompanyKey(w.company || "")) || "";
+      if (!byEmail.has(em)) continue;
+      const k = normCompanyKey(w.company || ""); if (k && !companyToWinner.has(k)) companyToWinner.set(k, em);
+    }
+    for (const a of apos) {
+      if (!isApoCountableTitle(a.label)) continue;   // 【初回】【新/ヒ】のみ・メルマガ除外
+      const co = companyFromTitle(a.label || "") || "";
+      let em = companyToWinner.get(normCompanyKey(co)) || "";   // 実獲得者（インサイド）に寄せる
+      if (!em) em = setterEmail(a);                              // 無ければ現担当（クローザー）
+      const p = byEmail.get(em); if (!p) continue;
+      const i = idxOf(属する(toYmd(a.taken_at))); if (i < 0) continue;
       const cell = ensure(em)[i];
-      if (isInFor(区切り[i] && 区切り[i].key, md)) cell.アポ内 += 1; else cell.アポ外 += 1;
+      if (isInFor(区切り[i] && 区切り[i].key, toYmd(a.start_time))) cell.アポ内 += 1; else cell.アポ外 += 1;
     }
 
     // セールス：SFレポート（コール・接触・アポ内外）。コール進捗と同じレポートを使う。
@@ -8469,14 +8467,7 @@ async function computeStatsGrid(periodIn, spanIn) {
           const cell = ensure(em)[i];
           cell.コール += truthyNum(rec.called);
           cell.接触 += truthyNum(rec.contacted);
-          const ap = truthyNum(rec.appointed);
-          if (ap > 0) {
-            // 件数はSFレポート。内/外はアポ一覧（カレンダー商談日）の比率で按分。引き当て無しは期間内。
-            const rr = (salesRatio.get(em) || [])[i];
-            const ratioIn = rr && rr.total ? rr.in / rr.total : 1;
-            const inN = Math.round(ap * ratioIn);
-            cell.アポ内 += inN; cell.アポ外 += (ap - inN);
-          }
+          // アポはSFレポートから数えない（アポ一覧＝カレンダー予定で数える）。
         }
       } else if (!reportId) sfError = "SFレポート未設定（セールスの実績は空になります）";
     } catch (e) { sfError = "SFレポートを読めませんでした：" + e.message; console.warn("[実績]", sfError); }
@@ -10589,7 +10580,8 @@ async function runProcessSheet(sfUser, opts = {}) {
   // 数えない人（中澤・浦林など）は、プロセスシートにも書かない
   const skipPeople = await loadSkipInviters().catch(() => []);
   apoRows = apoRows.filter((r) => !isSkippedPerson(r.setter, skipPeople));
-  tallied = applyApoCounts(tallied, apoRows);
+  // アポはこの後「アポ一覧（カレンダー予定）」で数え直すので、ここでは tallied に適用しない。
+  // （apoRows は下の内訳表示用に残す）
 
   // B案：インサイド（kincall）の実績も足す（セールス＝SFレポート、インサイド＝kincall架電ログ）。
   // これで「実績（合算）」と同じ内容をプロセスシートに書ける（SFレポートの再取り込みは不要）。
@@ -10614,15 +10606,22 @@ async function runProcessSheet(sfUser, opts = {}) {
     }
     const wonCalls = await apoWonCallsInRange(from, to).catch(() => []);
     const aposB = await aposTakenInRange({ from, to, limit: 5000 }).catch(() => []);
-    const companyMeet = new Map();
-    for (const a of aposB) { const k = normCompanyKey(companyFromTitle(a.label || "") || ""); const md = a.start_time ? String(a.start_time).slice(0, 10) : ""; if (k && md && !companyMeet.has(k)) companyMeet.set(k, md); }
     const inTerm = (md, apoYmd) => { if (!md) return true; if (termMode === "auto") return md.slice(0, 7) === String(apoYmd).slice(0, 7); return md >= from && md <= to; };
-    for (const w of wonCalls) {
-      const name = insideName.get(String(w.caller || "").toLowerCase()); if (!name) continue;
-      const key = mdKey(w["日"]); if (!key) continue;
-      const md = companyMeet.get(normCompanyKey(w.company || "")) || "";
+    // アポ件数は「アポ一覧（カレンダー予定）」で数える（【初回】【新/ヒ】のみ・メルマガ除外）。獲得者に寄せる。
+    const email2name = new Map(membersB.map((mm) => [String(mm.email || "").toLowerCase(), mm.name || mm.email]));
+    const companyToWinner = new Map();
+    for (const w of wonCalls) { const em = String(w.caller || "").toLowerCase(); if (!email2name.has(em)) continue; const k = normCompanyKey(w.company || ""); if (k && !companyToWinner.has(k)) companyToWinner.set(k, em); }
+    for (const a of aposB) {
+      if (!isApoCountableTitle(a.label)) continue;
+      const co = companyFromTitle(a.label || "") || "";
+      let em = companyToWinner.get(normCompanyKey(co)) || "";
+      let name = em ? email2name.get(em) : "";
+      if (!name) name = String(a.setter || "").trim() || (a.current_owner ? (email2name.get(String(a.current_owner).toLowerCase()) || "") : "");
+      if (!name) continue;
+      const key = mdKey(String(a.taken_at).slice(0, 10)); if (!key) continue;
+      const md = a.start_time ? String(a.start_time).slice(0, 10) : "";
       const c = ensureT(name, key);
-      if (inTerm(md, w["日"])) c["アポ（期内）"] += 1; else c["アポ（期外）"] += 1;
+      if (inTerm(md, String(a.taken_at).slice(0, 10))) c["アポ（期内）"] += 1; else c["アポ（期外）"] += 1;
     }
   } catch (e) { console.warn("[プロセスシート] インサイド合算に失敗:", e.message); }
 
@@ -15812,7 +15811,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-03x セールス(クローザー)の実績を kincall＋SF の単純合算に。実績(computeStatsGrid)の架電ログ(コール/接触)とkincall実獲得(アポ)をinside限定から全メンバーに拡張＝セールスにもkincallを加算（SFレポートぶんは従来どおり加算＝合算）。プロセスシートの合算ブロックも全メンバー対象に（セールスにもkincallを加算）。役割で記録先が分かれ二重計上なしの前提。前回：プロセスシートを実績ベースに";
+const BUILD_TAG = "2026-09-03y アポの数え方を「アポ一覧（カレンダー予定）」に統一。isApoCountableTitle＝【初回】または【新/ヒ】を含む予定のみ数え、メルマガ（メルマガ【初回】等）や他タイトル（2回目/ユ/フォ等）は除外。担当は実獲得者に寄せる（会社名でkincallのアポ獲得caller→無ければsetter/current_owner）。内/外は予定の商談日start_time。SF/kincallのアポ件数は使わない（コール/接触はセールス=SF+kincall・インサイド=kincallのまま）。実績・プロセスシート両方に適用。前回：セールスのkincall+SF合算";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",

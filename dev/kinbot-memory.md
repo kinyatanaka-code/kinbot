@@ -41,6 +41,8 @@ kincall（架電リスト）という別ツールも同じ画面群の中にあ�
 
 ## 決定・指示のログ（新しいものを上に足す）
 
+- 2026-09-03 アポの件数の数え方を「アポ一覧（カレンダー予定＝smart_links）」に統一（田中さん確定）。対象＝タイトルに【初回】または【新/ヒ】を含む予定のみ。除外＝「メルマガ」を含む（メルマガ【初回】等）＋その他タイトル（【2回目】【ユ/フォ】等）。判定は isApoCountableTitle（/メルマガ/なら除外、/【初回】/ か /【新[/／]ヒ】/）。担当は実獲得者に寄せる（A）：会社名(companyFromTitle→normCompanyKey)で kincallのアポ獲得ログ(apoWonCalls, caller)に突き合わせ→無ければ setter/current_owner（クローザー）。内/外は予定の商談日 start_time（実績=isInFor、プロセスシート=termMode fixed/auto）。SF/kincallのアポ“件数”は使わない（コール/接触はセールス=SFレポート＋kincall・インサイド=kincallのまま）。computeStatsGrid と runProcessSheet 両方を差し替え（SFブロックのアポ按分と旧applyApoCounts/インサイドwonCallsアポを撤去）。※本番シートはお試し(dryRun)で件数確認してから。タイトル表記ゆれは実データで要微調整。
+
 - 2026-09-03 セールス(クローザー)の実績を「kincall＋SFレポートの単純合算」に変更（田中さん合意・役割で記録先が分かれ二重計上なし）。実績(computeStatsGrid)：架電ログのコール/接触ループと kincall実獲得(apoWonCalls)のアポループを inside限定から全メンバー対象に（role!=="inside" のcontinueを外す）＝セールスにも kincall を加算。SFレポートのコール/接触/アポは従来どおりセールスに加算されるので結果 sales＝kincall＋SF、inside＝kincall。プロセスシート(runProcessSheet)の合算ブロックも insideName を全メンバーに拡張＝セールスにも kincall を加算（SF/kinbotアポ記録は別途加算のまま）。※SFレポートIDはセールスのSFぶんの取得元として引き続き必要（合算に足す一方）。要：お試し(dryRun)で件数確認。
 
 - 2026-09-03 プロセスシートの書き込みを「実績（合算）ベース」に変更（B案：セールス＋インサイド両方の行に書く／田中さん合意）。従来：SFレポート直読み＋kinbotアポ記録(setter=クローザー)。追加：runProcessSheet で tallied（担当名→"M/D"→{コール,接触,アポ（期内/期外）}）に、インサイド（inside/インターン）の kincall 実績を合算＝コール/接触は callStatsByDay(caller=inside)、アポは apoWonCallsInRange(result~アポ獲得, caller=inside) を会社名(call_targets.company)→アポ一覧(smart_links label)の商談日 start_time に normCompanyKey で引き当て、期内/期外は termMode(fixed=from..to / auto=アポ月==商談月)で判定（商談日不明は期内）。インターン除外の既定を反転（psInterns!==falseで含める）。シートの列/行対応(readLayout/buildUpdates)は流用。SFレポートの二重取り込みは不要（実績と同じ数え方）。要注意：本番スプレッドシートに書くのでお試し(dryRun)で件数確認してから実行。
