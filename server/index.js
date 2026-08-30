@@ -8980,6 +8980,34 @@ app.post("/api/dev-notes", async (req, res) => {
 
 // AI社員ページのチャットからタスクを依頼する（Chatの「直して」と同じことを画面から）。
 // 開発メモに登録し、自動改善がONなら今すぐ着手（起動）する。
+// GitHubでマージ（デプロイ）済みのPRを拾い、紐づく開発メモを「対応済み」に連動させる（案1）。
+// マージ権限は不要（読み取りだけ）。既に処理したPRは印を残して二度処理しない。
+async function syncMergedPrs({ days = 14, notify = false } = {}) {
+  if (!ghToken()) return { done: 0, prs: [] };
+  const st = await getSettings().catch(() => ({}));
+  let seen = {}; try { seen = JSON.parse(st.deployedPrsSeen || "{}") || {}; } catch {}
+  const r = await gh(`/pulls?state=closed&per_page=30&sort=updated&direction=desc`).catch(() => null);
+  if (!r || !r.ok) return { done: 0, prs: [] };
+  const since = Date.now() - days * 86400000;
+  const merged = (await r.json()).filter((p) => p.merged_at && new Date(p.merged_at).getTime() >= since);
+  let done = 0; const 反映 = [];
+  for (const p of merged) {
+    if (seen[p.number]) continue;                       // 処理済みのPRは飛ばす
+    const ids = [...new Set((String(p.body || "").match(/メモID[:：]\s*(\d+)/g) || []).map((m) => parseInt(m.replace(/\D/g, ""), 10)).filter(Boolean))];
+    let n = 0;
+    for (const id of ids) { try { await updateDevNote(id, { status: "done" }); n++; } catch {} }
+    seen[p.number] = { at: p.merged_at, notes: n };
+    done += n;
+    反映.push({ number: p.number, title: p.title, notes: n });
+  }
+  await saveSettings({ deployedPrsSeen: JSON.stringify(seen) }).catch(() => {});
+  if (notify && 反映.some((x) => x.notes > 0)) {
+    const text = "🚀 デプロイ済みを反映しました\n" + 反映.filter((x) => x.notes > 0).map((x) => `・PR #${x.number} ${x.title}（対応済み ${x.notes}件）`).join("\n");
+    await notifyAll(text, "dev").catch(() => {});
+  }
+  return { done, prs: 反映 };
+}
+
 // GitHub共通：トークンとリポジトリ、フェッチ
 function ghToken() { return process.env.GH_DISPATCH_TOKEN || process.env.GITHUB_DISPATCH_TOKEN || process.env.GITHUB_TOKEN || ""; }
 function ghRepo() { return process.env.KINBOT_REPO || "kinyatanaka-code/kinbot"; }
@@ -8995,6 +9023,8 @@ app.get("/api/ai/prs", async (req, res) => {
   try {
     if (!isAiOwner(req)) return res.status(403).json({ error: "権限がありません" });
     if (!ghToken()) return res.json({ ok: true, prs: [], md: "# 開発AIのPR報告\n\n（GitHubのトークンが未設定のため、PRを読み取れません）", txt: "GitHubのトークンが未設定です。", note: "GitHubトークン未設定" });
+    // GitHubでマージ（デプロイ）済みを、開発メモの「対応済み」に連動（案1）
+    const synced = await syncMergedPrs({ notify: false }).catch(() => ({ done: 0 }));
     const mode = String(req.query.mode || "detail") === "summary" ? "summary" : "detail";
     const mergedDays = Math.max(0, Math.min(90, parseInt(req.query.mergedDays, 10) || 7));
 
@@ -9036,7 +9066,7 @@ app.get("/api/ai/prs", async (req, res) => {
       `作成: ${now}　リポジトリ: ${ghRepo()}　オープン ${openN}件・直近デプロイ済み ${mergedN}件`, ``]
       .concat(prs.length ? prs.map(block) : ["いま報告できるPRはありません。"]).join("\n");
     const txt = md.replace(/^#+\s*/gm, "").replace(/^-\s*/gm, "・");
-    res.json({ ok: true, prs, md, txt, count: prs.length, openN, mergedN, mode });
+    res.json({ ok: true, prs, md, txt, count: prs.length, openN, mergedN, mode, synced: synced.done || 0 });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
@@ -16194,7 +16224,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-04t デプロイ(マージ)の失敗理由を詳細化：事前にmergeable_state確認、squash→merge→rebaseでフォールバック（405/422時のみ方式変更）、失敗時はHTTPステータス＋GitHubのmessage＋原因ヒント（403=マージ権限なし/401=無効/404=権限or未検出/conflict=手動解消/blocked=ブランチ保護）を返す。前回：PR拡張＋デプロイ＋進捗";
+const BUILD_TAG = "2026-09-04u AI社員デプロイ連動（案1）：GitHub側でマージ（デプロイ）したPRを、キツツキが自動で拾って紐づく開発メモを対応済みに連動（マージ権限不要＝読み取りのみ）。syncMergedPrs（closed&mergedを走査→本文のメモIDをupdateDevNote done、処理済PRは settings.deployedPrsSeen に印、notify時はdev通知）。5分ごとの定期実行＋/api/ai/prs 冒頭でも実行（報告時に即反映、respに synced 件数）。UIのデプロイボタンは『GitHubでデプロイ（マージ）』リンクに（権限不要でGitHubでマージ→自動連動）。前回：デプロイ失敗理由の詳細化";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
@@ -21527,6 +21557,8 @@ server.listen(PORT, async () => {
   setInterval(() => { maybeSendDevSummary().catch(() => {}); }, 60 * 1000);
   // 朝の「kinbotが新しくなりました」
   setInterval(() => { maybeSendDeployNews().catch(() => {}); }, 60 * 1000);
+  // GitHubでマージ（デプロイ）済みを、開発メモの対応済みに連動（案1・5分ごと）
+  setInterval(() => { syncMergedPrs({ notify: true }).catch(() => {}); }, 5 * 60 * 1000);
   // 夕方のお知らせ（既定18:30）。本人にだけ1対1で送る。
   setInterval(() => { maybeSendEvening().catch(() => {}); }, 60 * 1000);
   // 週のボード（月曜の朝＝記入、金曜の夕方＝振り返り）

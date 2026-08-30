@@ -202,11 +202,13 @@ async function runPrReport() {
     const d = await r.json();
     if (r.status === 403) { if (list) list.innerHTML = `<div class="ai-empty">権限がありません。</div>`; return; }
     if (!r.ok) throw new Error(d.error || "取得できませんでした");
-    const head = d.count ? `PRは ${d.openN}件がオープン中、直近デプロイ済みが ${d.mergedN}件です。` : "いま報告できるPRはありません。";
+    const head = d.count ? `PRは ${d.openN}件がオープン中、直近デプロイ済みが ${d.mergedN}件です。` + (d.synced ? `（デプロイ済みを反映：対応済み ${d.synced}件）` : "") : "いま報告できるPRはありません。";
     CHAT.push({ who: "ai", text: [head].concat((d.prs || []).slice(0, 8).map((p) => `・#${p.number} ${p.title}${p.state === "merged" ? "（デプロイ済み）" : ""}`)).join("\n") });
     const chat = $("aiChat"); if (chat) { chat.innerHTML = chatHtml(); chat.scrollTop = chat.scrollHeight; }
+    if (d.synced) setTimeout(load, 600);   // 対応中の件数を更新
     if (list) {
-      const dlrow = `<div class="pr-dl"><button class="pr-b" data-dl="md">MDでダウンロード</button><button class="pr-b" data-dl="txt">テキストでダウンロード</button></div>`;
+      const dlrow = `<div class="pr-dl"><button class="pr-b" data-dl="md">MDでダウンロード</button><button class="pr-b" data-dl="txt">テキストでダウンロード</button></div>
+        <div class="ai-empty" style="margin:4px 0 0">「GitHubでデプロイ（マージ）」でマージすると、キツツキが自動で対応済みに連動します（数分以内、または「PRを報告する」で即反映）。</div>`;
       list.innerHTML = dlrow + (d.prs || []).map((p) => {
         const files = (p.files || []).slice(0, 12).map((f) => `<div class="pr-f">${esc(f.name)} <span>+${f.add}/-${f.del}</span></div>`).join("");
         const badge = p.state === "merged" ? `<span class="pr-badge merged">デプロイ済み</span>` : `<span class="pr-badge open">オープン</span>`;
@@ -217,7 +219,7 @@ async function runPrReport() {
           <div class="pr-ops">
             <button class="pr-b" data-act="diff">差分を見る</button>
             <a class="pr-b" href="${esc(p.url)}" target="_blank" rel="noopener">GitHubで開く</a>
-            ${p.state === "open" ? `<button class="pr-b deploy" data-act="deploy">デプロイ（本番反映）</button>` : ""}
+            ${p.state === "open" ? `<a class="pr-b deploy" href="${esc(p.url)}" target="_blank" rel="noopener">GitHubでデプロイ（マージ）</a>` : ""}
           </div>
           <pre class="pr-diff" hidden></pre>
         </div>`;
