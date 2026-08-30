@@ -41,6 +41,8 @@ kincall（架電リスト）という別ツールも同じ画面群の中にあ�
 
 ## 決定・指示のログ（新しいものを上に足す）
 
+- 2026-09-03 kincallがスマホで見えない問題を修正。原因：標準モバイルCSSは .sidebar を下部バーに畳むが、kincallは各ナビ項目が .side-wrap で包まれており下部バーのflexが崩れて非表示状態に。対策：calls.jsに @media(max-width:760px) で .kc-side .side-wrap{display:contents} を追加し項目を下部バーの直接の子に。あわせて広い表/グリッド/タブを横スクロール可、カードは1列、日付セルはnowrap。※「全機能スマホ対応」は範囲が広く、他ページ(home/apo/sf-launch/report等)のモバイル最適化は順次対応の必要あり（要優先度確認）。
+
 - 2026-09-03 実績「月ごと」表示の期間内を、各月ごとに日付範囲で手設定できるようにした（田中さん指示・例：8月=8/10〜9/4、9月=9/7〜10/2。隙間/重なりOK＝土日など。列は月単位のまま、内/外の判定にだけ範囲を使う。未設定月は月初〜末日）。設定 apoMonthWindows（JSON: {"YYYY-MM":{from,to}}）を追加、/api/calls/apo-window の GET/PUT が months を扱う。実績側 stats-grid に isInFor(colKey,md) を追加：period==="month" のときは各列(区切り.key="YYYY-MM")の範囲で判定、それ以外は従来の inSpan(span/days)。インサイドは直接、セールスは salesRatio(isInForで算出)で按分。設定画面に月ごとの範囲入力（month＋開始日/終了日、追加/削除、月ごと保存）を追加。日/週は従来どおり。
 
 - 2026-09-03 実績に「リスト別」タブを追加（kincall架電ログ基準／田中さん要望）。call_logs→call_targets→call_lists を JOIN してリスト別にコール/接触/アポと率を集計、担当(caller)内訳つきのカードで表示。DB: callStatsByList(from,to)。API: GET /api/calls/stats-by-list（?period=day/week/month か ?from&to、返り値 items[{list_id,list_name,コール,接触,アポ,担当[]}]）。UI: stPeriodに「リスト別」ボタン、loadListStats、.kc-listcard/.kc-listgrid。全体/個別トグルはリスト別・分析時は無効(dim)。次段：クローザーの実績・分析を SF+kincall 合算に。SFのTaskを CreatedDate=時間帯・Description=コメント で読み、時間帯/コメント分析に反映（SF由来は「SF」表記）。架電Taskの区別は要確認だったが未確定→実装時に TaskSubtype=Call 等で仮置き予定。

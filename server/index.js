@@ -15704,7 +15704,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-03o 実績「月ごと」の期間内を、各月ごとに日付範囲で設定可能に（例：8月=8/10〜9/4）。設定 apoMonthWindows(JSON) を追加、/api/calls/apo-window で保存/取得。実績は月ごと表示のとき、各列の月の設定範囲（無ければ月初〜末日）で内/外を判定（isInFor）。設定画面に月ごとの範囲入力欄を追加。前回：リスト別＋点検API";
+const BUILD_TAG = "2026-09-03p kincallをスマホ対応：左サイドバーが下部バーに畳むとき .side-wrap(display:contents)で項目が並ぶよう修正（スマホでkincallが見えない問題）。広い表/グリッド/タブを横スクロール可に、カードは1列。前回：月ごとの期間内範囲設定";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",

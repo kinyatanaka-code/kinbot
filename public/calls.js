@@ -655,6 +655,26 @@ function renderDock() {
     .kc-st-row .kc-period-tabs{margin-bottom:0;}
     #stPeriod{margin-top:2px;}
     @media (max-width:640px){ .kc-st-row{gap:8px;} }
+    /* ===== スマホ対応（kincall） ===== */
+    @media (max-width:760px){
+      /* 左サイドバーを下部バーに畳むとき、各項目が .side-wrap で包まれていて崩れるのを直す */
+      .kc-side .side-wrap{ display:contents; }
+      .kc-side .side-app-tag{ display:none; }
+      .kc-side .side-app-ico{ width:19px; height:19px; }
+      .kc-side-brand{ display:none; }
+      .main{ min-width:0; }
+      .topbar{ position:sticky; top:0; z-index:30; }
+      .kc-brand .kc-sub{ display:none; }
+      /* 広い表・グリッドは横スクロールにして見えるように */
+      #clStats, .kc-tablewrap, .kc-two, .an-wrap{ overflow-x:auto; -webkit-overflow-scrolling:touch; }
+      .kc-cardgrid, .kc-bigwrap, .kc-listgrid{ grid-template-columns:1fr; }
+      .kc-bigcard, .kc-listcard, .kc-g-card{ overflow-x:auto; }
+      /* タブ類は横スクロールで全部触れるように */
+      .kc-period-tabs, .kc-st-row{ overflow-x:auto; -webkit-overflow-scrolling:touch; flex-wrap:nowrap; }
+      .kc-ptab{ flex:0 0 auto; }
+      /* 実績の日付列が詰まりすぎないように最小幅 */
+      .kc-grid th, .kc-grid td{ white-space:nowrap; }
+    }
     .kc-g-title{display:flex;align-items:center;gap:8px;width:100%;text-align:left;background:none;border:0;cursor:pointer;padding:2px 0;margin:0 0 4px;font-family:inherit;font-size:13px;font-weight:700;color:#0d5b47;}
     .kc-g-title:hover .kc-g-tname{color:#0b7a5e;}
     .kc-g-chev{display:inline-flex;color:#1d9e75;transition:transform .15s ease;}
