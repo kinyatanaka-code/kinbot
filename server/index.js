@@ -8614,47 +8614,54 @@ app.get("/api/calls/process", async (req, res) => {
       for (const m of meetings) { const co = normCompanyKey(companyFromTitle(m.title || "") || m.account || ""); const day = ymdJst(m.created_at); if (co && day) set.add(`${co}|${day}`); }
       return set;
     };
-    // 1区切りぶんの「全体合計 設定/実施」を数える
+    // 1区切りぶんの「全体合計 設定/実施」を数える（担当で絞らない＝インサイド獲得も含む）
     const countRange = async (from, to) => {
       const doneSet = await buildDoneSet(from, to);
       const apos = await aposByMeetingDate(from, to).catch(() => []);
       let 設定 = 0, 実施 = 0;
       for (const a of apos) {
         if (!対象タイトル(a.label)) continue;
-        const em = String(a.current_owner || "").toLowerCase();
-        if (!closers.has(em)) continue;   // クローザー担当のみ
         設定 += 1;
         const key = `${normCompanyKey(companyFromTitle(a.label || "") || "")}|${ymdJst(a.start_time)}`;
         if (doneSet.has(key)) 実施 += 1;
       }
       return { 設定, 実施 };
     };
+    // 月の範囲を決める（設定・管理の月ごと範囲があればそれ、無ければ暦の月）
+    const monthRange = (mkey) => {
+      const [Yy, Mm] = mkey.split("-").map((x) => parseInt(x, 10));
+      let monthWin = {}; try { monthWin = JSON.parse(st.apoMonthWindows || "{}") || {}; } catch {}
+      if (monthWin[mkey] && monthWin[mkey].from && monthWin[mkey].to) return [monthWin[mkey].from, monthWin[mkey].to];
+      const last = new Date(Date.UTC(Yy, Mm, 0));
+      return [`${Yy}-${pad(Mm)}-01`, `${last.getUTCFullYear()}-${pad(last.getUTCMonth() + 1)}-${pad(last.getUTCDate())}`];
+    };
 
     if (grain === "week") {
-      // 直近8週（月曜〜日曜）の全体合計を返す
-      const 本数 = Math.min(12, Math.max(2, parseInt(req.query.span, 10) || 8));
-      const y = nowJ.getUTCFullYear(), m = nowJ.getUTCMonth(), d0 = nowJ.getUTCDate();
-      const off = (nowJ.getUTCDay() + 6) % 7;
+      // 選んだ月の範囲を、週（月〜日）に分けて全体合計を出す
+      let month = String(req.query.month || "");
+      if (!/^\d{4}-\d{2}$/.test(month)) month = `${nowJ.getUTCFullYear()}-${pad(nowJ.getUTCMonth() + 1)}`;
+      const [mFrom, mTo] = monthRange(month);
+      const toD = (s) => new Date(s + "T00:00:00Z");
+      const start0 = toD(mFrom); const off0 = (start0.getUTCDay() + 6) % 7; // その週の月曜へ
       const weeks = [];
-      for (let i = 本数 - 1; i >= 0; i--) {
-        const s0 = new Date(Date.UTC(y, m, d0 - off - i * 7));
-        const e0 = new Date(Date.UTC(y, m, d0 - off - i * 7 + 6));
-        weeks.push({ from: ymdOf(s0), to: ymdOf(e0), 名前: `${s0.getUTCMonth() + 1}/${s0.getUTCDate()}週` });
+      let cur = new Date(start0.getTime() - off0 * 86400000);
+      const endD = toD(mTo);
+      while (cur.getTime() <= endD.getTime()) {
+        const ws = ymdOf(cur), we = ymdOf(new Date(cur.getTime() + 6 * 86400000));
+        const cf = ws < mFrom ? mFrom : ws, ct = we > mTo ? mTo : we;   // 月の範囲でクリップ
+        weeks.push({ from: cf, to: ct, 名前: `${Number(cf.slice(5, 7))}/${Number(cf.slice(8, 10))}週` });
+        cur = new Date(cur.getTime() + 7 * 86400000);
       }
       const items = [];
       for (const w of weeks) { const c = await countRange(w.from, w.to); items.push({ ...w, 設定数: c.設定, 実施数: c.実施, 実施率: c.設定 ? (c.実施 / c.設定 * 100).toFixed(1) + "%" : "—" }); }
       const 合計 = items.reduce((a, x) => ({ 設定数: a.設定数 + x.設定数, 実施数: a.実施数 + x.実施数 }), { 設定数: 0, 実施数: 0 });
-      return res.json({ ok: true, grain: "week", items, 合計: { ...合計, 実施率: 合計.設定数 ? (合計.実施数 / 合計.設定数 * 100).toFixed(1) + "%" : "—" } });
+      return res.json({ ok: true, grain: "week", month, from: mFrom, to: mTo, items, 合計: { ...合計, 実施率: 合計.設定数 ? (合計.実施数 / 合計.設定数 * 100).toFixed(1) + "%" : "—" } });
     }
 
-    // grain=month（従来：クローザー別）
+    // grain=month（クローザー別＋その他）
     let month = String(req.query.month || "");
     if (!/^\d{4}-\d{2}$/.test(month)) month = `${nowJ.getUTCFullYear()}-${pad(nowJ.getUTCMonth() + 1)}`;
-    const [Y, M] = month.split("-").map((x) => parseInt(x, 10));
-    let monthWin = {}; try { monthWin = JSON.parse(st.apoMonthWindows || "{}") || {}; } catch {}
-    let from, to;
-    if (monthWin[month] && monthWin[month].from && monthWin[month].to) { from = monthWin[month].from; to = monthWin[month].to; }
-    else { const last = new Date(Date.UTC(Y, M, 0)); from = `${Y}-${pad(M)}-01`; to = `${last.getUTCFullYear()}-${pad(last.getUTCMonth() + 1)}-${pad(last.getUTCDate())}`; }
+    const [from, to] = monthRange(month);
 
     const doneSet = await buildDoneSet(from, to);
     const apos = await aposByMeetingDate(from, to).catch(() => []);
@@ -8663,8 +8670,8 @@ app.get("/api/calls/process", async (req, res) => {
     for (const a of apos) {
       if (!対象タイトル(a.label)) continue;
       const em = String(a.current_owner || "").toLowerCase();
-      if (!closers.has(em)) continue;
-      const s = ensure(em); s.設定 += 1;
+      const bucket = closers.has(em) ? em : "__other__";   // クローザー以外（インサイド/未定）はまとめる
+      const s = ensure(bucket); s.設定 += 1;
       const key = `${normCompanyKey(companyFromTitle(a.label || "") || "")}|${ymdJst(a.start_time)}`;
       if (doneSet.has(key)) s.実施 += 1;
     }
@@ -8672,6 +8679,10 @@ app.get("/api/calls/process", async (req, res) => {
       const s = stat.get(em) || { 設定: 0, 実施: 0 };
       return { 誰: name, email: em, 設定数: s.設定, 実施数: s.実施, 実施率: s.設定 ? (s.実施 / s.設定 * 100).toFixed(1) + "%" : "—" };
     }).sort((a, b) => b.設定数 - a.設定数);
+    const other = stat.get("__other__");
+    if (other && (other.設定 || other.実施)) {
+      items.push({ 誰: "その他（インサイド・未定）", email: "", 設定数: other.設定, 実施数: other.実施, 実施率: other.設定 ? (other.実施 / other.設定 * 100).toFixed(1) + "%" : "—" });
+    }
     const 合計 = items.reduce((a, x) => ({ 設定数: a.設定数 + x.設定数, 実施数: a.実施数 + x.実施数 }), { 設定数: 0, 実施数: 0 });
     res.json({ ok: true, grain: "month", month, from, to, items, 合計: { ...合計, 実施率: 合計.設定数 ? (合計.実施数 / 合計.設定数 * 100).toFixed(1) + "%" : "—" } });
   } catch (e) { res.status(500).json({ error: e.message }); }
@@ -15906,7 +15917,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-04b プロセスに「週ごと（全体）」を追加。/api/calls/process?grain=week で直近8週の全体合計の 設定数/実施数/実施率 を返す（クローザー担当ぶんの合算、商談日ベース、週=月〜日）。UIに 月ごと（クローザー別）/週ごと（全体）トグル。前回：プロセスタブ新設";
+const BUILD_TAG = "2026-09-04c プロセス（案B）：設定数を担当で絞らず全対象アポで数える（インサイド獲得も反映）。月ごとは非クローザー（インサイド/未定）を「その他（インサイド・未定）」行にまとめて表示。週ごとは月指定で、その月の各週（月〜日・月範囲でクリップ）の全体合計を表示＋月ピッカー。月範囲は設定・管理の月ごと範囲優先。前回：プロセス週ごと追加";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
