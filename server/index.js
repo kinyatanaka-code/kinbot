@@ -8404,7 +8404,7 @@ async function computeStatsGrid(periodIn, spanIn) {
     const rows = await callStatsByDay(spanFrom, spanTo).catch(() => []);
     for (const r of rows) {
       const em = String(r.caller || "").toLowerCase();
-      const p = byEmail.get(em); if (!p || p.role !== "inside") continue;
+      const p = byEmail.get(em); if (!p) continue;   // インサイド＋セールス両方に足す（kincall＋SFの合算）
       if (zeroSet.has(mdKeyOf(r["日"]))) continue;
       const i = idxOf(属する(r["日"])); if (i < 0) continue;
       const cell = ensure(em)[i];
@@ -8439,12 +8439,12 @@ async function computeStatsGrid(periodIn, spanIn) {
       if (!salesRatio.has(em)) salesRatio.set(em, 区切り.map(() => ({ in: 0, total: 0 })));
       const r = salesRatio.get(em)[i]; r.total += 1; if (内) r.in += 1;
     }
-    // インサイドのアポは「kincallで実際にアポ獲得した件（かけた人＝インサイド）」で数える。
-    // （アポ一覧の setter は商談主催者＝セールスになり実態と合わないため）。商談日は会社名で引く。
+    // kincallで実際にアポ獲得した件（かけた人）を数える。インサイドはこれが本体、
+    // セールスは SFレポートのアポに「kincallで取ったぶん」を足す（合算）。商談日は会社名で引く。
     const wonCalls = await apoWonCallsInRange(spanFrom, spanTo).catch(() => []);
     for (const w of wonCalls) {
       const em = String(w.caller || "").toLowerCase();
-      const p = byEmail.get(em); if (!p || p.role !== "inside") continue;
+      const p = byEmail.get(em); if (!p) continue;   // インサイド＋セールス両方
       const i = idxOf(属する(w["日"])); if (i < 0) continue;
       const md = companyMeet.get(normCompanyKey(w.company || "")) || "";
       const cell = ensure(em)[i];
@@ -10600,8 +10600,8 @@ async function runProcessSheet(sfUser, opts = {}) {
     const insideName = new Map();
     for (const mm of membersB) {
       const em = String(mm.email || "").toLowerCase();
-      const roles = Array.isArray(mm.roles) ? mm.roles : [];
-      if ((roles.includes("inside") || internSetB.has(em)) && em) insideName.set(em, mm.name || mm.email);
+      // セールス＋インサイド両方に kincall のぶんを足す（合算）。SF/kinbot記録は別途加算済み。
+      if (em) insideName.set(em, mm.name || mm.email);
     }
     const mdKey = (ymd) => { const p = String(ymd).split("-"); return p.length === 3 ? `${Number(p[1])}/${Number(p[2])}` : ""; };
     const ensureT = (name, key) => { if (!tallied[name]) tallied[name] = {}; if (!tallied[name][key]) tallied[name][key] = { "コール": 0, "接触": 0, "アポ（期内）": 0, "アポ（期外）": 0 }; return tallied[name][key]; };
@@ -15812,7 +15812,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-03w プロセスシートの書き込みを実績（合算）ベースに（B案）。セールス＝SFレポート（従来）＋インサイド＝kincall架電ログ（コール/接触＝call_logs、アポ＝result~アポ獲得を会社名でアポ一覧の商談日に引き当て期内/期外）を tallied に合算。インサイド（インターン）を既定で含める（psInterns=falseのみ除外）。シートの列/行対応は流用。SFレポートの二重取り込み不要。※お試し(dryRun)で件数確認してから実行推奨。前回：プロセスシート反映先の設定化";
+const BUILD_TAG = "2026-09-03x セールス(クローザー)の実績を kincall＋SF の単純合算に。実績(computeStatsGrid)の架電ログ(コール/接触)とkincall実獲得(アポ)をinside限定から全メンバーに拡張＝セールスにもkincallを加算（SFレポートぶんは従来どおり加算＝合算）。プロセスシートの合算ブロックも全メンバー対象に（セールスにもkincallを加算）。役割で記録先が分かれ二重計上なしの前提。前回：プロセスシートを実績ベースに";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",

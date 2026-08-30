@@ -41,6 +41,8 @@ kincall（架電リスト）という別ツールも同じ画面群の中にあ�
 
 ## 決定・指示のログ（新しいものを上に足す）
 
+- 2026-09-03 セールス(クローザー)の実績を「kincall＋SFレポートの単純合算」に変更（田中さん合意・役割で記録先が分かれ二重計上なし）。実績(computeStatsGrid)：架電ログのコール/接触ループと kincall実獲得(apoWonCalls)のアポループを inside限定から全メンバー対象に（role!=="inside" のcontinueを外す）＝セールスにも kincall を加算。SFレポートのコール/接触/アポは従来どおりセールスに加算されるので結果 sales＝kincall＋SF、inside＝kincall。プロセスシート(runProcessSheet)の合算ブロックも insideName を全メンバーに拡張＝セールスにも kincall を加算（SF/kinbotアポ記録は別途加算のまま）。※SFレポートIDはセールスのSFぶんの取得元として引き続き必要（合算に足す一方）。要：お試し(dryRun)で件数確認。
+
 - 2026-09-03 プロセスシートの書き込みを「実績（合算）ベース」に変更（B案：セールス＋インサイド両方の行に書く／田中さん合意）。従来：SFレポート直読み＋kinbotアポ記録(setter=クローザー)。追加：runProcessSheet で tallied（担当名→"M/D"→{コール,接触,アポ（期内/期外）}）に、インサイド（inside/インターン）の kincall 実績を合算＝コール/接触は callStatsByDay(caller=inside)、アポは apoWonCallsInRange(result~アポ獲得, caller=inside) を会社名(call_targets.company)→アポ一覧(smart_links label)の商談日 start_time に normCompanyKey で引き当て、期内/期外は termMode(fixed=from..to / auto=アポ月==商談月)で判定（商談日不明は期内）。インターン除外の既定を反転（psInterns!==falseで含める）。シートの列/行対応(readLayout/buildUpdates)は流用。SFレポートの二重取り込みは不要（実績と同じ数え方）。要注意：本番スプレッドシートに書くのでお試し(dryRun)で件数確認してから実行。
 
 - 2026-09-03 実績「設定・管理」タブのプロセスシート管理を編集可能に。反映先スプレッドシート(共有URL または ID→サーバがsheetId抽出)・シート名(タブ)・SFレポートID・実行するSFユーザー(email)を入力して「反映先・設定を保存」（PUT /api/process-sheet {sheetId,sheetName,reportId,owner}）。状態表示（最後の実行）・自動実行ON/OFF・今すぐ実行/お試し(dryRun)は従来どおり。
