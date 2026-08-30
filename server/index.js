@@ -15776,7 +15776,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-03t 実績を全項目まとめて1ファイルCSVで書き出し可能に（グループ/セールス/インサイド/各メンバー/各リストを 日次・週次・月次、率も含む、UTF-8 BOM）。stats-grid/stats-by-list を computeStatsGrid/computeListStats に関数化して流用。GET /api/calls/stats.csv、実績に「CSVで全部書き出す」ボタン。前回：インサイドのアポを実獲得で集計";
+const BUILD_TAG = "2026-09-03u 実績に「設定・管理」タブを追加：アポの期間内/外の基準（設定画面から移設・集約）＋プロセスシート管理（状態表示・自動実行ON/OFF・今すぐ実行/お試し）。設定画面のアポ基準カードは削除。前回：実績の全項目CSV書き出し";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",

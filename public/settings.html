@@ -10,7 +10,7 @@
     <link rel="manifest" href="/site.webmanifest" />
     <meta name="theme-color" content="#0d5b47" />
     <meta name="apple-mobile-web-app-title" content="kinbot" />
-    <link rel="stylesheet" href="style.css?v=20260903t" />
+    <link rel="stylesheet" href="style.css?v=20260903u" />
   </head>
   <body>
     <div class="app">
@@ -49,33 +49,6 @@
           <div class="set-body">
 
           <div class="set-pane" data-pane="general">
-            <div class="set-card">
-              <h3>アポの「期間内 / 期間外」の基準</h3>
-              <p class="note">実績のアポ獲得を、商談日（アポ一覧＝カレンダーの商談予定日）を見て「期間内 / 期間外」に分けます。その“境目”をここで決めます。</p>
-              <label class="field"><span>基準</span>
-                <select id="apoWinMode">
-                  <option value="span">表示期間内（実績で表示している期間に商談があれば「内」）</option>
-                  <option value="days">今日から◯日以内（商談日が今日〜◯日先までなら「内」）</option>
-                </select>
-              </label>
-              <label class="field" id="apoWinDaysRow"><span>◯日以内</span>
-                <input id="apoWinDays" type="number" min="0" max="365" step="1" style="width:90px" /> <span class="note" style="margin:0 0 0 6px;">日</span>
-              </label>
-              <div class="modal-actions">
-                <button class="btn" id="apoWinSave">保存</button>
-                <span class="saved" id="apoWinMsg" hidden>保存しました</span>
-              </div>
-
-              <h4 class="ap-rot-h" style="margin-top:16px">月ごとの「期間内」の範囲（月ごと表示のとき）</h4>
-              <p class="note">実績を「月ごと」で見るとき、各月の“期間内”を日付で指定できます（例：8月＝8/10〜9/4）。設定しない月は「その月の1日〜末日」になります。土日などの隙間・重なりはそのままでOKです。</p>
-              <div id="apoMonthRows"></div>
-              <div class="modal-actions">
-                <button class="btn ghost" id="apoMonthAdd" type="button">＋ 月を追加</button>
-                <button class="btn" id="apoMonthSave" type="button">月ごとの範囲を保存</button>
-                <span class="saved" id="apoMonthMsg" hidden>保存しました</span>
-              </div>
-            </div>
-
             <div class="set-card">
               <h3>インサイト自動分析</h3>
               <p class="note">実績の「インサイト」（勝ち／負けパターン）は、<b>平日（月〜金）18:30 に全対象（全体・各チーム・各個人）を自動で分析</b>します。翌朝には最新の結果が見られます。今すぐ全部を分析したい場合は下のボタンを押してください（商談数により数分かかります）。</p>
@@ -807,8 +780,8 @@ curl -H "Authorization: Bearer <span class="cc-tok">&lt;トークン&gt;</span>"
         </main>
       </div>
     </div>
-    <script src="settings.js?v=20260903t"></script>
-      <script src="nav.js?v=20260903t"></script>
+    <script src="settings.js?v=20260903u"></script>
+      <script src="nav.js?v=20260903u"></script>
     <script src="/cmdk.js?v=20260827a"></script>
 </body>
 </html>

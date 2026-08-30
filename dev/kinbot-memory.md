@@ -41,6 +41,8 @@ kincall（架電リスト）という別ツールも同じ画面群の中にあ�
 
 ## 決定・指示のログ（新しいものを上に足す）
 
+- 2026-09-03 実績に「設定・管理」タブを追加（田中さん指示）。中身：(1)アポの「期間内/期間外」の基準（設定画面から移設・実績に集約。/api/calls/apo-window の mode/days/月別範囲）、(2)プロセスシートの管理＝状態表示（シート名・レポート有無・実行SFユーザー・最後の実行）＋自動実行ON/OFF（PUT /api/process-sheet {autoRun}）＋「今すぐ実行」/「お試し(dryRun)」（POST /api/process-sheet/run）。calls.jsに loadAdmin() を追加（statsPeriod="admin"）。設定画面(settings.html)のアポ基準カードは削除（settings.jsのIIFEは要素が無ければ早期returnで無害なので残置）。全体/個別トグルは admin でも無効(dim)。
+
 - 2026-09-03 実績を「全項目まとめて1ファイルCSV」で書き出せるようにした（田中さん指示）。対象：グループ全体/セールス全体/インサイド全体/各メンバー/各リスト（＋担当内訳）を、日次・週次・月次まとめて、率(コール→接触/接触→アポ/コール→アポ)も含む。列＝粒度,区分,対象,指標,期間キー,期間名,値。UTF-8 BOM(ExcelでそのままひらけるCRLF)。実装：stats-grid と stats-by-list の中身を computeStatsGrid(period,span)/computeListStats(period,from,to) に関数化し、薄いハンドラ＋CSVエンドポイント GET /api/calls/stats.csv で3粒度ぶん回して生成。実績UIに「CSVで全部書き出す」ボタン(clStatsCsv)。
 
 - 2026-09-03 実績：インサイドのアポが全部0だった不具合を解消（案B＝実態に合わせる）。診断(_apodiag)で判明：アポ一覧(smart_links)の setter/setter_email は本来「アポ獲得者(インサイド)のメール」の想定だが、実際は collectApoAppointments が『商談カレンダー予定の主催者（＝クローザー）』の email を setter に入れており、アポの獲得者がほぼ sales になっていた（だからsetter基準ではインサイド0）。対策：インサイドのアポは kincallの架電ログ（call_logs.result ~ 'アポ獲得'、かけた人 caller = インサイド）で数える（新DB関数 apoWonCallsInRange＝caller/日/company を返す）。内/外は会社名(call_targets.company)を normCompanyKey で smart_links(label→会社名)の商談日 start_time に引き当てて isInFor で判定（引き当て無しは期間内）。セールスは従来どおり（件数=SFレポート、内/外比率=アポ一覧setter＝主催者=セールスのstart_time）。点検API _apodiag は撤去。※将来の本筋：アポ作成時に setter を主催者ではなく実獲得者（招待のcreator/kincall/apo確定メール送信者）で入れる。

@@ -650,6 +650,14 @@ function renderDock() {
     .kc-listcard-h{font-size:14px;font-weight:800;color:#0d5b47;margin-bottom:8px;display:flex;flex-direction:column;gap:2px;}
     .kc-listcard-sum{font-size:11.5px;font-weight:600;color:#7d8c86;}
     @media (max-width:640px){ .kc-listgrid{grid-template-columns:1fr;} }
+    /* 設定・管理タブ */
+    .kc-admin{display:grid;grid-template-columns:1fr 1fr;gap:14px;}
+    .kc-adcard{background:#fff;border:1px solid #e6ece9;border-radius:14px;padding:14px 16px;box-shadow:0 2px 10px rgba(13,91,71,.05);}
+    .kc-adcard h3{margin:0 0 6px;font-size:15px;color:#0d5b47;font-weight:800;}
+    .kc-adrow{display:flex;gap:10px;align-items:center;font-size:13px;padding:5px 0;border-top:1px solid #f0f4f2;}
+    .kc-adrow:first-of-type{border-top:0;}
+    .kc-adk{flex:0 0 130px;color:#7d8c86;font-size:12px;}
+    @media (max-width:900px){ .kc-admin{grid-template-columns:1fr;} }
     /* 実績タブの段組み：上段＝全体/個別＋アポ、下段＝日週月 */
     .kc-st-row{display:flex;gap:16px;align-items:center;flex-wrap:wrap;margin-bottom:6px;}
     .kc-st-row .kc-period-tabs{margin-bottom:0;}
@@ -1274,6 +1282,7 @@ async function loadStats(force) {
   if (!box) return;
   if (statsPeriod === "analysis") return loadAnalysis();
   if (statsPeriod === "list") return loadListStats();
+  if (statsPeriod === "admin") return loadAdmin();
   try {
     if (force || !_statsCache[statsPeriod]) box.innerHTML = `<div class="note">読み込んでいます…</div>`;
     const d = await fetchStats(force);
@@ -1367,6 +1376,125 @@ function renderStats(d) {
   }
 }
 
+// ───────── 設定・管理（アポ基準＋プロセスシート管理） ─────────
+async function loadAdmin() {
+  const box = $("clStats");
+  if (!box) return;
+  box.innerHTML = `<div class="note">読み込んでいます…</div>`;
+  try {
+    const [aw, ps] = await Promise.all([
+      (await fetch("/api/calls/apo-window")).json().catch(() => ({})),
+      (await fetch("/api/process-sheet")).json().catch(() => ({})),
+    ]);
+    const months = (aw && aw.months) || {};
+    const mrow = (k, f, t) =>
+      `<div class="apo-month-row" style="display:flex;gap:8px;align-items:center;margin:4px 0;flex-wrap:wrap;">
+        <input type="month" class="am-key" value="${k || ""}" style="width:130px" /> ：
+        <input type="date" class="am-from" value="${f || ""}" /> <span>〜</span>
+        <input type="date" class="am-to" value="${t || ""}" />
+        <button type="button" class="btn ghost am-del" style="padding:4px 10px">削除</button>
+      </div>`;
+    const mkeys = Object.keys(months).sort();
+    const last = (ps && ps.last) || null;
+    const lastTxt = last && last.at
+      ? `${new Date(last.at).toLocaleString("ja-JP")}・${last.ok ? `${last.count ?? 0}箇所を更新` : "失敗"}${last.error ? "（" + esc(last.error) + "）" : ""}`
+      : "まだ一度も実行されていません";
+
+    box.innerHTML = `
+      <div class="kc-admin">
+        <div class="kc-adcard">
+          <h3>アポの「期間内 / 期間外」の基準</h3>
+          <p class="note">実績のアポ獲得を、商談日（アポ一覧＝カレンダーの商談予定日）で「期間内 / 期間外」に分けます。その境目をここで決めます。</p>
+          <label class="field"><span>基準</span>
+            <select id="awMode">
+              <option value="span">表示期間内（表示している期間に商談があれば「内」）</option>
+              <option value="days">今日から◯日以内（商談日が今日〜◯日先までなら「内」）</option>
+            </select>
+          </label>
+          <label class="field" id="awDaysRow"><span>◯日以内</span>
+            <input id="awDays" type="number" min="0" max="365" step="1" style="width:90px" /> <span class="note" style="margin:0 0 0 6px;">日</span>
+          </label>
+          <div class="modal-actions"><button class="btn" id="awSave">保存</button><span class="saved" id="awMsg" hidden>保存しました</span></div>
+
+          <h4 class="ap-rot-h" style="margin-top:14px">月ごとの「期間内」の範囲（月ごと表示のとき）</h4>
+          <p class="note">「月ごと」で見るとき、各月の“期間内”を日付で指定できます（例：8月＝8/10〜9/4）。設定しない月は「その月の1日〜末日」。</p>
+          <div id="awMonths">${mkeys.length ? mkeys.map((k) => mrow(k, months[k].from, months[k].to)).join("") : mrow("", "", "")}</div>
+          <div class="modal-actions">
+            <button class="btn ghost" id="awMonthAdd" type="button">＋ 月を追加</button>
+            <button class="btn" id="awMonthSave" type="button">月ごとの範囲を保存</button>
+            <span class="saved" id="awMonthMsg" hidden>保存しました</span>
+          </div>
+        </div>
+
+        <div class="kc-adcard">
+          <h3>プロセスシートの管理</h3>
+          <p class="note">SFレポートを読み取って、架電結果をプロセスシートに書き込む処理です。</p>
+          <div class="kc-adrow"><span class="kc-adk">シート</span><span>${esc(ps.sheetName || "(未設定)")}</span></div>
+          <div class="kc-adrow"><span class="kc-adk">SFレポート</span><span>${ps.reportId ? "設定済み" : "(未設定)"}</span></div>
+          <div class="kc-adrow"><span class="kc-adk">実行するSFユーザー</span><span>${esc(ps.owner || "(未設定)")}</span></div>
+          <div class="kc-adrow"><span class="kc-adk">最後の実行</span><span id="psLast">${lastTxt}</span></div>
+          <div class="kc-adrow"><span class="kc-adk">自動実行</span>
+            <label class="ks-check"><input type="checkbox" id="psAuto" ${ps.autoRun ? "checked" : ""} /> ${ps.autoRun ? "ON（間隔ごとに自動で書き込み）" : "OFF"}</label>
+          </div>
+          <div class="modal-actions">
+            <button class="btn" id="psRun" type="button">今すぐ実行</button>
+            <button class="btn ghost" id="psDry" type="button">お試し（書き込まず件数だけ）</button>
+            <span class="saved" id="psMsg" hidden></span>
+          </div>
+          <div class="note" id="psResult" style="margin-top:6px"></div>
+        </div>
+      </div>`;
+
+    // --- アポ基準の配線 ---
+    const modeEl = $("awMode"), daysEl = $("awDays"), daysRow = $("awDaysRow");
+    modeEl.value = aw.mode === "days" ? "days" : "span";
+    daysEl.value = aw.days != null ? aw.days : 14;
+    const syncRow = () => { daysRow.style.display = modeEl.value === "days" ? "" : "none"; };
+    syncRow(); modeEl.addEventListener("change", syncRow);
+    $("awSave").addEventListener("click", async () => {
+      try {
+        const r = await fetch("/api/calls/apo-window", { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ mode: modeEl.value, days: parseInt(daysEl.value, 10) || 14 }) });
+        if (!r.ok) throw new Error((await r.json()).error || "保存できません");
+        const m = $("awMsg"); m.hidden = false; setTimeout(() => (m.hidden = true), 3000);
+      } catch (e) { alert("保存できませんでした：" + e.message); }
+    });
+    $("awMonthAdd").addEventListener("click", () => { const d = document.createElement("div"); d.innerHTML = mrow("", "", ""); $("awMonths").appendChild(d.firstElementChild); });
+    box.addEventListener("click", (ev) => { const b = ev.target.closest && ev.target.closest(".am-del"); if (b) b.closest(".apo-month-row").remove(); });
+    $("awMonthSave").addEventListener("click", async () => {
+      const ms = {};
+      $("awMonths").querySelectorAll(".apo-month-row").forEach((row) => {
+        const key = row.querySelector(".am-key").value, f = row.querySelector(".am-from").value, t = row.querySelector(".am-to").value;
+        if (/^\d{4}-\d{2}$/.test(key) && f && t) ms[key] = { from: f, to: t };
+      });
+      try {
+        const r = await fetch("/api/calls/apo-window", { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ months: ms }) });
+        if (!r.ok) throw new Error((await r.json()).error || "保存できません");
+        const m = $("awMonthMsg"); m.hidden = false; setTimeout(() => (m.hidden = true), 3000);
+      } catch (e) { alert("保存できませんでした：" + e.message); }
+    });
+
+    // --- プロセスシートの配線 ---
+    $("psAuto").addEventListener("change", async (e) => {
+      try {
+        const r = await fetch("/api/process-sheet", { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ autoRun: e.target.checked }) });
+        if (!r.ok) throw new Error((await r.json()).error || "変更できません");
+      } catch (err) { alert("変更できませんでした：" + err.message); e.target.checked = !e.target.checked; }
+    });
+    const runPs = async (dry) => {
+      const rs = $("psResult"); rs.textContent = dry ? "お試し中…" : "実行中…";
+      try {
+        const r = await fetch("/api/process-sheet/run", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ dryRun: dry }) });
+        const d = await r.json();
+        if (!r.ok) throw new Error(d.error || "実行に失敗しました");
+        rs.textContent = dry ? `お試し：${d.count ?? 0}箇所が対象です（まだ書き込んでいません）` : `完了：${d.count ?? 0}箇所を更新しました`;
+        if (!dry) { const pl = $("psLast"); if (pl) pl.textContent = `${new Date().toLocaleString("ja-JP")}・${d.count ?? 0}箇所を更新`; }
+      } catch (e) { rs.textContent = "失敗：" + e.message; }
+    };
+    $("psRun").addEventListener("click", () => runPs(false));
+    $("psDry").addEventListener("click", () => runPs(true));
+  } catch (e) { box.innerHTML = `<div class="note">読み込めませんでした：${esc(e.message)}</div>`; }
+}
+
 // ───────── リスト別の実績（kincall架電ログ基準） ─────────
 async function loadListStats() {
   const box = $("clStats");
@@ -1453,8 +1581,8 @@ if ($("stPeriod")) {
     b.addEventListener("click", () => {
       statsPeriod = b.dataset.period || "day";
       $("stPeriod").querySelectorAll(".kc-ptab").forEach((x) => x.classList.toggle("active", x === b));
-      // リスト別・メンバー別の分析のときは、全体/個別は効かない
-      const off = statsPeriod === "analysis" || statsPeriod === "list";
+      // リスト別・メンバー別の分析・設定管理のときは、全体/個別は効かない
+      const off = statsPeriod === "analysis" || statsPeriod === "list" || statsPeriod === "admin";
       const sc = $("stScope"); if (sc) sc.style.opacity = off ? "0.4" : "1";
       loadStats();
     }));
