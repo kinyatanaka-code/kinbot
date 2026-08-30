@@ -9009,7 +9009,8 @@ app.post("/api/ai/chat", async (req, res) => {
       "あなたは「キツツキ」。田中さん専属のAI社員のCEOです。あなたの下に『社内支援AI』（通知・SF記録・監査・アポ割り振り・立ち上げ・メール・リマインド・カレンダー・kincall実績）と『開発AI』（エラー・バグ・要望の修正＝自動改善・夜間開発）がいて、あなたが束ねています。\n" +
       "田中さんの言葉をよく理解し、CEOとして誠実に・具体的に・日本語で答えてください。定型文や一辺倒な返答は禁止。相手の意図（質問・相談・指示・雑談）を汲んで、必要なら現状を要約して報告し、次の一手を短く提案します。分からないことは正直に言い、憶測で断定しない。\n" +
       "『今日の状況』『現状を教えて』等の求めには、下の状況データをもとに、要点を箇条書きで簡潔にまとめて報告してください（数字と、止まっている点、次にやるとよいこと）。\n" +
-      "実際の操作（ON/OFF切替やデプロイ）はこの会話では行いません。操作が必要なら『画面のスイッチで切り替えられます』と案内してください。\n\n" +
+      "実際の操作（ON/OFF切替やデプロイ）はこの会話では行いません。操作が必要なら『画面のスイッチで切り替えられます』と案内してください。\n" +
+      "返事はJSONやコードブロックで囲まず、そのまま日本語の文章だけで書いてください。\n\n" +
       "=== いまの社内の状況 ===\n" + 状況;
     const convo = history.map((h) => `${h.who === "me" ? "田中さん" : "キツツキ"}：${h.text}`).join("\n");
     const user = (convo ? convo + "\n" : "") + `田中さん：${text}\nキツツキ：`;
@@ -9021,6 +9022,11 @@ app.post("/api/ai/chat", async (req, res) => {
       return res.json({ ok: true, reply: `いま考えがまとまりませんでした（${e.message}）。もう一度お願いできますか。`, provider });
     }
     if (!reply) reply = "うまく言葉にできませんでした。もう一度、別の言い方で教えてください。";
+    // まれにLLMが {"response":"..."} 形式やコードフェンスで返すので、中の文だけにする
+    reply = reply.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/i, "").trim();
+    if (/^\{[\s\S]*\}$/.test(reply)) {
+      try { const o = JSON.parse(reply); const v = o.response ?? o.reply ?? o.text ?? o.message ?? o.answer; if (typeof v === "string" && v.trim()) reply = v.trim(); } catch {}
+    }
     aiLog("chat", `会話：${text.slice(0, 60)}`);
     res.json({ ok: true, reply, provider: provider === "anthropic" ? "claude" : "gemini" });
   } catch (e) { res.status(500).json({ error: e.message }); }
@@ -16046,7 +16052,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-04p キツツキのアニメーションを復活：新デザインでアバターのクラスを .ceo-ava にしたため .ai-ava.working のアニメが当たらず止まっていた。.ceo-ava.working/.sleeping にも kt-bob/kt-peck/kt-screen/kt-steam と目パチCSSを適用（稼働中＝自動改善ONで動く）。前回：会話AI化＋オーナー限定";
+const BUILD_TAG = "2026-09-04q AI社員：開発AIのサマリに「未対応」件数を追加（対応中/未対応/次の改善の3枠）。キツツキ会話の返答が {\"response\":..} 等のJSON/コードフェンスで出る場合に中の文だけ抽出、プロンプトにも『JSON/コードで囲まず日本語の文で』を明記。前回：会話AI化＋オーナー限定";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",

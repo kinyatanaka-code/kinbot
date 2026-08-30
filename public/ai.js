@@ -258,6 +258,7 @@ function render(d) {
         <p class="dept-desc">${esc(dev.desc || "エラー・バグ・要望への修正")}</p>
         <div class="dept-stats">
           <div class="dept-stat"><b>${ni.doing.length}</b><span>対応中</span></div>
+          <div class="dept-stat"><b>${ni.new.length}</b><span>未対応</span></div>
           <div class="dept-stat"><b>${(nextRunLabel(c).match(/\d{1,2}:\d{2}/) || [c.autoImprove ? "—" : "休止中"])[0]}</b><span>次の改善</span></div>
         </div>
         <div class="dept-jobs">${devSwitches}</div>
