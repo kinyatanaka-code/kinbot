@@ -262,6 +262,7 @@ function render(d) {
           <div class="dept-stat"><b>${(nextRunLabel(c).match(/\d{1,2}:\d{2}/) || [c.autoImprove ? "—" : "休止中"])[0]}</b><span>次の改善</span></div>
         </div>
         <div class="dept-jobs">${devSwitches}</div>
+        <div class="dept-actions"><button class="dept-mini" id="prReport">PRを報告・ダウンロード</button></div>
         <div class="dept-more" id="more-dev" hidden>
           ${devRest}
           <div class="ai-jrow" style="align-items:center;"><span class="ai-jn">稼働時間<span class="ai-jt">この時間の :30 に動きます</span></span>
@@ -371,6 +372,33 @@ function wire() {
     const more = $("more-" + b.dataset.dept);
     if (more) { const open = !more.hidden; more.hidden = open; b.textContent = open ? "この部門を見る・操作する" : "とじる"; }
   }));
+  // PRを報告・ダウンロード
+  const prb = $("prReport");
+  if (prb) prb.addEventListener("click", async () => {
+    prb.disabled = true; const old = prb.textContent; prb.textContent = "PRを確認中…";
+    try {
+      const r = await fetch("/api/ai/prs");
+      const d = await r.json();
+      if (r.status === 403) { alert("権限がありません（オーナーだけがPRを報告できます）。"); return; }
+      if (!r.ok) throw new Error(d.error || "取得できませんでした");
+      // チャットに要約を出す
+      const 件 = d.count || (d.prs || []).length;
+      const head = 件 ? `いま開いているPRは ${件}件です。内容をMDにまとめてダウンロードします。` : "いま開いているPRはありません。";
+      const lines = (d.prs || []).slice(0, 8).map((p) => `・#${p.number} ${p.title}`);
+      CHAT.push({ who: "ai", text: [head].concat(lines).join("\n") });
+      const chat = $("aiChat"); if (chat) { chat.innerHTML = chatHtml(); chat.scrollTop = chat.scrollHeight; }
+      // MDダウンロード
+      if (d.md) {
+        const blob = new Blob([d.md], { type: "text/markdown;charset=utf-8" });
+        const a = document.createElement("a");
+        a.href = URL.createObjectURL(blob);
+        a.download = `PR報告_${new Date().toISOString().slice(0,10)}.md`;
+        document.body.appendChild(a); a.click(); a.remove();
+        setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+      }
+    } catch (e) { alert("できませんでした：" + e.message); }
+    finally { prb.disabled = false; prb.textContent = old; }
+  });
 
   const rn = $("aiRename");
   if (rn) rn.addEventListener("click", async () => {

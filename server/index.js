@@ -8980,6 +8980,37 @@ app.post("/api/dev-notes", async (req, res) => {
 
 // AI社員ページのチャットからタスクを依頼する（Chatの「直して」と同じことを画面から）。
 // 開発メモに登録し、自動改善がONなら今すぐ着手（起動）する。
+// キツツキ（CEO）から、開発AIが作ったPR（プルリクエスト）を報告する。MD文面も返す（ダウンロード用）。
+app.get("/api/ai/prs", async (req, res) => {
+  try {
+    if (!isAiOwner(req)) return res.status(403).json({ error: "権限がありません" });
+    const token = process.env.GH_DISPATCH_TOKEN || process.env.GITHUB_DISPATCH_TOKEN || process.env.GITHUB_TOKEN || "";
+    const repo = process.env.KINBOT_REPO || "kinyatanaka-code/kinbot";
+    if (!token) return res.json({ ok: true, prs: [], md: "# 開発AIのPR報告\n\n（GitHubのトークンが未設定のため、PRを読み取れません）", note: "GitHubトークン未設定" });
+    const r = await fetch(`https://api.github.com/repos/${repo}/pulls?state=open&per_page=30&sort=created&direction=desc`, {
+      headers: { authorization: `Bearer ${token}`, accept: "application/vnd.github+json", "user-agent": "kinbot" },
+    });
+    if (!r.ok) return res.json({ ok: true, prs: [], md: `# 開発AIのPR報告\n\n（GitHubからPRを取得できませんでした：HTTP ${r.status}）` });
+    const arr = await r.json();
+    const prs = (Array.isArray(arr) ? arr : []).map((p) => ({
+      number: p.number, title: p.title, url: p.html_url,
+      created: p.created_at ? String(p.created_at).slice(0, 10) : "",
+      draft: !!p.draft, body: String(p.body || "").trim(),
+    }));
+    const now = new Date(Date.now() + 9 * 3600 * 1000).toISOString().slice(0, 16).replace("T", " ");
+    const md = [`# 開発AI（キツツキ）からのPR報告`, ``, `作成: ${now}　リポジトリ: ${repo}　オープンなPR: ${prs.length}件`, ``]
+      .concat(prs.length ? prs.flatMap((p) => [
+        `## #${p.number} ${p.title}${p.draft ? "（下書き）" : ""}`,
+        `- 作成日: ${p.created || "—"}`,
+        `- URL: ${p.url}`,
+        p.body ? `\n${p.body}\n` : `\n（説明なし）\n`,
+        `---`,
+      ]) : ["いま確認できるオープンなPRはありません。"])
+      .join("\n");
+    res.json({ ok: true, prs, md, count: prs.length });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 // キツツキ（CEO）と会話する。現状データを踏まえて理解・応答・報告する。GeminiかClaudeを選べる。
 app.post("/api/ai/chat", async (req, res) => {
   try {
@@ -16052,7 +16083,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-04q AI社員：開発AIのサマリに「未対応」件数を追加（対応中/未対応/次の改善の3枠）。キツツキ会話の返答が {\"response\":..} 等のJSON/コードフェンスで出る場合に中の文だけ抽出、プロンプトにも『JSON/コードで囲まず日本語の文で』を明記。前回：会話AI化＋オーナー限定";
+const BUILD_TAG = "2026-09-04r AI社員：開発AI(キツツキ)が作ったPRを報告＋MDダウンロード。GET /api/ai/prs（オーナー限定）＝GitHubのオープンPR一覧(kinyatanaka-code/kinbot, GH_DISPATCH_TOKEN/GITHUB_TOKEN)を取得し、番号/タイトル/URL/作成日/本文を prs と、まとめた md（ダウンロード用）で返す。開発AIカードに「PRを報告・ダウンロード」ボタン：チャットに件数と一覧を出し、md を .md でダウンロード。トークン未設定時はその旨。前回：未対応表示＋JSON整形";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",

@@ -41,6 +41,8 @@ kincall（架電リスト）という別ツールも同じ画面群の中にあ�
 
 ## 決定・指示のログ（新しいものを上に足す）
 
+- 2026-09-04 AI社員：開発AI(キツツキ)が作ったPRを報告し、MD/テキストでダウンロードできるように（田中さん指示）。GET /api/ai/prs（isAiOwner限定）＝GitHub REST GET /repos/kinyatanaka-code/kinbot/pulls?state=open を GH_DISPATCH_TOKEN(なければGITHUB_TOKEN)で取得し、{prs[{number,title,url,created,draft,body}], md, count} を返す。md は「開発AIからのPR報告」＋各PRの見出し/作成日/URL/本文。トークン未設定/取得失敗時はその旨をmdに。UI：開発AIカードに「PRを報告・ダウンロード」ボタン(#prReport)。押すとチャットに件数＋#番号タイトル一覧を出し、md を PR報告_YYYY-MM-DD.md でBlobダウンロード。403は権限メッセージ。
+
 - 2026-09-04 AI社員：開発AIカードのサマリに「未対応」件数を追加（対応中/未対応/次の改善の3枠、未対応＝dev-notes status=new の件数）。キツツキ会話(/api/ai/chat)の返答が {"response":".."} 形式やコードフェンスで表示される問題に対応：サーバで ```json フェンス除去＋JSONなら response/reply/text/message/answer を抽出して中の文だけに。system プロンプトにも「JSONやコードで囲まず日本語の文だけで」を明記。
 
 - 2026-09-04 AI社員のキツツキを「会話AI化＋CEOレポート＋オーナー限定」に（田中さん指示：会話にならない/一辺倒/報告不足、Gemini・Claude選択可、操作は俺だけ・他は権限なし表示）。実装：POST /api/ai/chat＝現状データ（開発AIのautoImprove/autoApply/稼働時間・対応中/最近直した/未対応件数、社内支援AIの各通知ON/OFF・監査/記録の頻度）をsystemに渡し、callLLMPublic(sys,user,700,{provider,fallback})で応答。providerは gemini / claude(=anthropic)。history直近8件を会話に含める。定型文廃止・CEOとして要約報告・次の一手を提案・操作は画面で案内。権限：isAiOwner(req)=req.isAdmin||req.user===AI_OWNER_EMAIL(既定 kinya.tanaka@neo-career.co.jp)。/api/ai/chat・/api/ai/task・/api/ai/name・/api/auto-apply をオーナー限定（非オーナーは403「権限がありません」）。UI：ceo-inputのsendを/api/ai/chatへ、Gemini/Claude切替select(#aiProvider)追加、403は「権限がありません」をチャットに表示。※LLM鍵（GEMINI/ANTHROPIC）が要る。操作の自動実行はまだ無し（会話＋報告＋画面操作案内）。
