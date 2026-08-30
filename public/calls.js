@@ -662,6 +662,9 @@ function renderDock() {
     .kc-proc{background:#fff;border:1px solid #e6ece9;border-radius:14px;padding:14px 16px;box-shadow:0 2px 10px rgba(13,91,71,.05);overflow-x:auto;}
     .kc-proc-head{display:flex;gap:14px;align-items:center;flex-wrap:wrap;margin-bottom:10px;}
     .kc-proc-head input[type=month]{border:1px solid #d7ded9;border-radius:8px;padding:6px 8px;}
+    .proc-week:hover{background:#f2f8f5;}
+    .proc-caret{display:inline-block;width:12px;color:#1d9e75;}
+    .proc-day td{background:#fbfefd;font-size:12px;}
     /* 実績タブの段組み：上段＝全体/個別＋アポ、下段＝日週月 */
     .kc-st-row{display:flex;gap:16px;align-items:center;flex-wrap:wrap;margin-bottom:6px;}
     .kc-st-row .kc-period-tabs{margin-bottom:0;}
@@ -1402,14 +1405,32 @@ async function loadProcess() {
     if (d.grain === "week") {
       if (rg) rg.textContent = d.from && d.to ? `${d.from} 〜 ${d.to}（商談日）` : "";
       const rows = (d.items || []).map((w) =>
-        `<tr><td class="kc-g-name">${esc(w["名前"])}<div class="ww">${esc(w.from)}〜${esc(w.to)}</div></td><td class="kc-g-n">${w["設定数"]}</td><td class="kc-g-n">${w["実施数"]}</td><td class="kc-g-n">${esc(w["実施率"])}</td></tr>`).join("");
+        `<tr class="proc-week" data-from="${esc(w.from)}" data-to="${esc(w.to)}" style="cursor:pointer">` +
+        `<td class="kc-g-name"><span class="proc-caret">▸</span> ${esc(w["名前"])}<div class="ww">${esc(w.from)}〜${esc(w.to)}</div></td>` +
+        `<td class="kc-g-n">${w["設定数"]}</td><td class="kc-g-n">${w["実施数"]}</td><td class="kc-g-n">${esc(w["実施率"])}</td></tr>`).join("");
       box.innerHTML = `<div class="kc-proc">${toggle}
-        <div class="kc-proc-head">${monthPicker}<span class="note">その月の各週の全体合計（インサイド獲得も含む・商談日ベース）。範囲：${esc(d.from)}〜${esc(d.to)}</span></div>
-        <table class="sh-table kc-grid">
+        <div class="kc-proc-head">${monthPicker}<span class="note">その月の各週の全体合計（インサイド獲得も含む・商談日ベース）。週の行を押すと日ごとに開きます。範囲：${esc(d.from)}〜${esc(d.to)}</span></div>
+        <table class="sh-table kc-grid" id="procWeekTable">
           <tr><th class="kc-g-name">週</th><th class="kc-g-h">設定数</th><th class="kc-g-h">実施数</th><th class="kc-g-h">実施率</th></tr>
           ${rows || `<tr><td class="kc-g-name" colspan="4">データがありません。</td></tr>`}
           <tr class="kc-g-team"><td class="kc-g-name">合計</td><td class="kc-g-n">${d["合計"]["設定数"]}</td><td class="kc-g-n">${d["合計"]["実施数"]}</td><td class="kc-g-n">${esc(d["合計"]["実施率"])}</td></tr>
         </table></div>`;
+      // 週の行クリックで日ごとを開閉
+      box.querySelectorAll(".proc-week").forEach((tr) => tr.addEventListener("click", async () => {
+        const open = tr.getAttribute("data-open") === "1";
+        // すでに開いていたら閉じる（差し込んだ日行を消す）
+        let nx = tr.nextElementSibling;
+        while (nx && nx.classList.contains("proc-day")) { const rm = nx; nx = nx.nextElementSibling; rm.remove(); }
+        const caret = tr.querySelector(".proc-caret");
+        if (open) { tr.setAttribute("data-open", "0"); if (caret) caret.textContent = "▸"; return; }
+        tr.setAttribute("data-open", "1"); if (caret) caret.textContent = "▾";
+        try {
+          const dd = await (await fetch(`/api/calls/process?grain=day&from=${encodeURIComponent(tr.dataset.from)}&to=${encodeURIComponent(tr.dataset.to)}`)).json();
+          const frag = (dd.items || []).map((x) =>
+            `<tr class="proc-day"><td class="kc-g-name" style="padding-left:22px;color:#5b7a6d">${esc(x["名前"])}（${esc(x["曜日"])}）</td><td class="kc-g-n">${x["設定数"]}</td><td class="kc-g-n">${x["実施数"]}</td><td class="kc-g-n">${esc(x["実施率"])}</td></tr>`).join("");
+          tr.insertAdjacentHTML("afterend", frag);
+        } catch (e) { tr.insertAdjacentHTML("afterend", `<tr class="proc-day"><td colspan="4" class="kc-g-name">読み込めませんでした</td></tr>`); }
+      }));
     } else {
       if (rg) rg.textContent = d.from && d.to ? `${d.from} 〜 ${d.to}（商談日）` : "";
       const rows = (d.items || []).map((x) =>

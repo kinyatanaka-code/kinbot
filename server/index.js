@@ -8597,7 +8597,7 @@ app.get("/api/calls/process", async (req, res) => {
   try {
     const pad = (n) => String(n).padStart(2, "0");
     const nowJ = new Date(Date.now() + 9 * 3600 * 1000);
-    const grain = String(req.query.grain || "month") === "week" ? "week" : "month";
+    const grain = ["week", "day"].includes(String(req.query.grain)) ? String(req.query.grain) : "month";
     const ymdOf = (d) => `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}-${pad(d.getUTCDate())}`;
     const st = await getSettings().catch(() => ({}));
 
@@ -8635,6 +8635,23 @@ app.get("/api/calls/process", async (req, res) => {
       const last = new Date(Date.UTC(Yy, Mm, 0));
       return [`${Yy}-${pad(Mm)}-01`, `${last.getUTCFullYear()}-${pad(last.getUTCMonth() + 1)}-${pad(last.getUTCDate())}`];
     };
+
+    if (grain === "day") {
+      // 指定した from〜to を1日ずつ全体合計で返す（週の行を開いたとき用）
+      const f = String(req.query.from || ""), t = String(req.query.to || "");
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(f) || !/^\d{4}-\d{2}-\d{2}$/.test(t)) return res.status(400).json({ error: "from/to を指定してください" });
+      const items = [];
+      let cur = new Date(f + "T00:00:00Z"); const end = new Date(t + "T00:00:00Z");
+      const w = "日月火水木金土";
+      while (cur.getTime() <= end.getTime()) {
+        const day = ymdOf(cur);
+        const c = await countRange(day, day);
+        items.push({ 名前: `${cur.getUTCMonth() + 1}/${cur.getUTCDate()}`, 曜日: w[cur.getUTCDay()], from: day, to: day, 設定数: c.設定, 実施数: c.実施, 実施率: c.設定 ? (c.実施 / c.設定 * 100).toFixed(1) + "%" : "—" });
+        cur = new Date(cur.getTime() + 86400000);
+      }
+      const 合計 = items.reduce((a, x) => ({ 設定数: a.設定数 + x.設定数, 実施数: a.実施数 + x.実施数 }), { 設定数: 0, 実施数: 0 });
+      return res.json({ ok: true, grain: "day", from: f, to: t, items, 合計: { ...合計, 実施率: 合計.設定数 ? (合計.実施数 / 合計.設定数 * 100).toFixed(1) + "%" : "—" } });
+    }
 
     if (grain === "week") {
       // 選んだ月の範囲を、週（月〜日）に分けて全体合計を出す
@@ -15917,7 +15934,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-04c プロセス（案B）：設定数を担当で絞らず全対象アポで数える（インサイド獲得も反映）。月ごとは非クローザー（インサイド/未定）を「その他（インサイド・未定）」行にまとめて表示。週ごとは月指定で、その月の各週（月〜日・月範囲でクリップ）の全体合計を表示＋月ピッカー。月範囲は設定・管理の月ごと範囲優先。前回：プロセス週ごと追加";
+const BUILD_TAG = "2026-09-04d プロセス週ごと：週の行をクリックすると日ごと（各日の設定数/実施数/実施率）に展開。/api/calls/process?grain=day&from=&to= を追加（週のfrom〜toを1日ずつ全体合計）。前回：プロセス案B・週の月指定";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
