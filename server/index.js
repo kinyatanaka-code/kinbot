@@ -9070,6 +9070,22 @@ app.get("/api/ai/prs", async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+// PRに紐づく開発メモを対応済みにする（オーナー限定）。ids指定 or PR番号から本文のメモIDを拾う。
+app.post("/api/ai/mark-done", async (req, res) => {
+  try {
+    if (!isAiOwner(req)) return res.status(403).json({ error: "権限がありません" });
+    let ids = Array.isArray(req.body?.ids) ? req.body.ids.map((x) => parseInt(x, 10)).filter(Boolean) : [];
+    if (!ids.length && req.body?.pr && ghToken()) {
+      try { const pr = await gh(`/pulls/${encodeURIComponent(req.body.pr)}`); if (pr.ok) { const b = String((await pr.json()).body || ""); ids = [...new Set((b.match(/メモID[:：]\s*(\d+)/g) || []).map((m) => parseInt(m.replace(/\D/g, ""), 10)).filter(Boolean))]; } } catch {}
+    }
+    ids = [...new Set(ids)];
+    if (!ids.length) return res.status(400).json({ error: "対応済みにするメモIDが見つかりませんでした" });
+    let n = 0; for (const id of ids) { try { await updateDevNote(id, { status: "done" }); n++; } catch {} }
+    aiLog("markdone", `対応済みに更新：${ids.join(",")}`);
+    res.json({ ok: true, ids, done: n, reply: `開発メモ ${n}件（${ids.join("、")}）を「対応済み」にしました。` });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 // PRの差分（コード）を返す
 app.get("/api/ai/pr/:num/diff", async (req, res) => {
   try {
@@ -16224,7 +16240,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-04v 夜間開発PR #3・#2 の内容を本番反映（このチャットでpush）。#3＝kincall「かける」ヘッダーに『SFの所有者を優先』チェックボックス(#clSfOwnerPref)を追加し /api/calls/sf-owner-priority に配線（SF監査でSFリード所有者に担当をそろえバッティング解消）。#2＝chatcmd.jsのparseCommandで『開発メモを見せて/内容を送って』等の文も一覧表示に。AI社員：デプロイ(マージ)ボタンを撤去し、PR報告は確認・DL・進捗に振り切り（実デプロイはこのチャットで実施）。前回：デプロイ連動(案1)";
+const BUILD_TAG = "2026-09-04w AI社員PR一覧に「このPRを対応済みにする」ボタン（オーナー限定）。POST /api/ai/mark-done {ids[] または pr:番号}＝PR本文のメモIDを拾って updateDevNote done。クリックで対応中を減らせる（マージ権限不要）。前回：PR#3/#2反映＋デプロイボタン撤去";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",

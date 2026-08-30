@@ -219,6 +219,7 @@ async function runPrReport() {
           <div class="pr-ops">
             <button class="pr-b" data-act="diff">差分を見る</button>
             <a class="pr-b" href="${esc(p.url)}" target="_blank" rel="noopener">GitHubで開く</a>
+            <button class="pr-b done" data-act="done">このPRを対応済みにする</button>
           </div>
           <pre class="pr-diff" hidden></pre>
         </div>`;
@@ -238,17 +239,17 @@ async function runPrReport() {
           try { const dd = await (await fetch(`/api/ai/pr/${num}/diff`)).json(); pre.textContent = dd.diff || dd.error || "（差分なし）"; }
           catch (err) { pre.textContent = "差分を取得できませんでした：" + err.message; }
         });
-        const depBtn = it.querySelector('[data-act="deploy"]');
-        if (depBtn) depBtn.addEventListener("click", async (e) => {
-          if (!confirm(`PR #${num} を本番へ反映（デプロイ＝マージ）します。よろしいですか？`)) return;
-          e.target.disabled = true; e.target.textContent = "デプロイ中…";
+        const doneBtn = it.querySelector('[data-act="done"]');
+        if (doneBtn) doneBtn.addEventListener("click", async (e) => {
+          e.target.disabled = true; const t = e.target.textContent; e.target.textContent = "更新中…";
           try {
-            const dd = await (await fetch(`/api/ai/pr/${num}/merge`, { method: "POST", headers: { "content-type": "application/json" }, body: "{}" })).json();
+            const dd = await (await fetch("/api/ai/mark-done", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ pr: num }) })).json();
             if (dd.error) throw new Error(dd.error);
-            CHAT.push({ who: "ai", text: dd.reply || `PR #${num} をデプロイしました。` });
+            CHAT.push({ who: "ai", text: dd.reply || `PR #${num} の開発メモを対応済みにしました。` });
             const c = $("aiChat"); if (c) { c.innerHTML = chatHtml(); c.scrollTop = c.scrollHeight; }
-            setTimeout(load, 800);
-          } catch (err) { alert("デプロイできませんでした：" + err.message); e.target.disabled = false; e.target.textContent = "デプロイ（本番反映）"; }
+            e.target.textContent = "対応済みにしました";
+            setTimeout(load, 700);
+          } catch (err) { alert("できませんでした：" + err.message); e.target.disabled = false; e.target.textContent = t; }
         });
       });
     }

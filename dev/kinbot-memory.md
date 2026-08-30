@@ -41,6 +41,8 @@ kincall（架電リスト）という別ツールも同じ画面群の中にあ�
 
 ## 決定・指示のログ（新しいものを上に足す）
 
+- 2026-09-04 AI社員のPR一覧に「このPRを対応済みにする」ボタン（案1）。POST /api/ai/mark-done（isAiOwner限定、{ids:[..]} か {pr:番号}→本文のメモID抽出）＝updateDevNote(id,{status:'done'})。クリックでそのPRの紐づく開発メモを対応済みに（マージ権限不要）。#3/#2をこのチャットで反映済みなので、田中さんがこのボタンで 728/727・749/750 を対応済みにできる（本番DBはRailway側なので実更新は反映後にボタン押下で実施）。旧deployボタン配線は撤去。
+
 - 2026-09-04 夜間開発のPR #3・#2 を、このClaudeチャットで本番反映（GitHubマージではなく手動適用→push＝実デプロイはこのチャットで行う運用に確定）。#3：kincall「かける」ヘッダーの「探す」隣に『SFの所有者を優先』チェックボックス(#clSfOwnerPref)＋.cl-sfown CSS＋calls.jsに wireSfOwnerPref()（/api/calls/sf-owner-priority を読み書き。ONでSF監査時にSFリード所有者へ担当を自動でそろえバッティング解消）。#2：server/chatcmd.js の parseCommand で /(開発メモ|要件メモ|要望メモ)/ を含む文も kind:notes（『開発メモを見せて』等に対応）。PRブランチpr2/pr3はローカルで確認後削除。AI社員：PRの「GitHubでデプロイ（マージ）」ボタンを撤去（田中さん指示 i）、PR報告は確認・DL・差分・進捗に振り切り、案内文も「実デプロイは開発チャットで行う」に変更。※GitHub上のPR #3/#2 自体はopenのまま（内容は反映済み）。deployedPrsSeen 連動(案1)の仕組みは残置。
 
 - 2026-09-04 AI社員デプロイを案1（GitHubでマージ→チャット連動）に。理由：チャットからのマージは GH_DISPATCH_TOKEN にマージ権限が無く「Resource not accessible by personal access token」で失敗（Contents/Pull requests のWriteが必要）。案1は読み取りだけで実現：syncMergedPrs({days=14,notify})＝closed&merged_at最近のPRを走査し、未処理(settings.deployedPrsSeen)なら本文の「メモID:NNN」を updateDevNote(id,{status:'done'})で対応済みに、印を保存、notify時はdev通知。きっかけ＝5分ごとの定期＋/api/ai/prs 冒頭でも実行（報告時に即反映・respに synced 件数、UIで対応中を再読込）。UIの『デプロイ（本番反映）』ボタンは『GitHubでデプロイ（マージ）』リンクに変更（GitHubでマージ→自動で対応済み連動、権限不要）。案内文も追加。※チャットからのマージ実行(案2)にしたい場合はトークンにContents/PR Write権限が必要。
