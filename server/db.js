@@ -4166,7 +4166,7 @@ export async function aposTakenInRange({ from, to, business = "", limit = 1000 }
     if (business) { p.push(business); where += ` AND business = $${p.length}`; }
     p.push(Math.max(1, Math.min(2000, limit)));
     const { rows } = await pool.query(
-      `SELECT slug, label, setter, current_owner, business, start_time,
+      `SELECT slug, label, setter, setter_email, current_owner, business, start_time,
               COALESCE(apo_at, created_at) AS taken_at
          FROM smart_links
         WHERE ${where}

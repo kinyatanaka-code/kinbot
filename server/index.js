@@ -8388,9 +8388,10 @@ app.get("/api/calls/stats-grid", async (req, res) => {
     const apos = await aposTakenInRange({ from: spanFrom, to: spanTo, limit: 5000 }).catch(() => []);
     const salesRatio = new Map();   // email -> [{in,total} per 区切り]
     const setterEmail = (a) => {
-      let em = String(a.setter || "").toLowerCase();
-      if (byEmail.has(em)) return em;
-      return emailOfName(a.setter) || "";
+      // 獲得者：まずメール(setter_email)、無ければ名前(setter)、それでも無ければ現担当のメール/名前で引く
+      const cand = [a.setter_email, a.setter].map((v) => String(v || "").toLowerCase());
+      for (const c of cand) if (c && byEmail.has(c)) return c;
+      return emailOfName(a.setter) || (byEmail.has(String(a.current_owner || "").toLowerCase()) ? String(a.current_owner).toLowerCase() : "") || emailOfName(a.current_owner) || "";
     };
     for (const a of apos) {
       const em = setterEmail(a);
@@ -15557,7 +15558,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-03h 実績の個別表示をメンバーごとにカード化（.kc-g-card＝白背景・影・角丸）し、レスポンシブなカードグリッド(.kc-cardgrid、広いと2枚並び)で配置。テーブルは狭いとカード内で横スクロール。前回：本文の重複「実績」見出しを削除";
+const BUILD_TAG = "2026-09-03i 実績：インサイドのアポが0になる不具合を修正。原因＝アポ一覧の獲得者突合が名前(setter)のみで、コール/接触はメール一致なのにアポは名前不一致で0だった。対策＝aposTakenInRangeが setter_email も返し、実績側は 獲得者=メール(setter_email)→名前(setter)→最終手段で現担当 の順で突合。前回：個別のカード化";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
