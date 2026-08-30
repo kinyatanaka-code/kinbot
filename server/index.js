@@ -8311,10 +8311,9 @@ app.get("/api/calls/analysis", async (req, res) => {
 });
 
 // 実績を並べて比べる（メンバー × 日付／週／月）
-app.get("/api/calls/stats-grid", async (req, res) => {
-  try {
-    const period = ["day", "week", "month"].includes(String(req.query.period)) ? String(req.query.period) : "day";
-    const 本数 = Math.min(26, Math.max(2, parseInt(req.query.span, 10) || (period === "day" ? 7 : period === "week" ? 8 : 6)));
+async function computeStatsGrid(periodIn, spanIn) {
+    const period = ["day", "week", "month"].includes(String(periodIn)) ? String(periodIn) : "day";
+    const 本数 = Math.min(26, Math.max(2, parseInt(spanIn, 10) || (period === "day" ? 7 : period === "week" ? 8 : 6)));
     const pad = (n) => String(n).padStart(2, "0");
     const ymd = (d) => `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}-${pad(d.getUTCDate())}`;
     const nowJ = new Date(Date.now() + 9 * 3600 * 1000);
@@ -8495,7 +8494,71 @@ app.get("/api/calls/stats-grid", async (req, res) => {
     const 合計 = totals.inside.map((v) => ({ コール: v.コール, 接触: v.接触, アポ: v.アポ内 + v.アポ外 }));
 
     const 今 = 区切り.length ? 区切り[区切り.length - 1].key : "";
-    res.json({ ok: true, period, 区切り, 今, members: membersOut, totals, sfError, items, 合計 });
+    return { period, 区切り, 今, members: membersOut, totals, sfError, items, 合計 };
+}
+
+app.get("/api/calls/stats-grid", async (req, res) => {
+  try { res.json({ ok: true, ...(await computeStatsGrid(req.query.period, req.query.span)) }); }
+  catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// 実績の全項目を一括でCSV（グループ/セールス/インサイド/各メンバー/各リストを、日次・週次・月次まとめて）。
+app.get("/api/calls/stats.csv", async (req, res) => {
+  try {
+    const q = (v) => { const s = String(v == null ? "" : v); return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s; };
+    const pct = (a, b) => (b ? (a / b * 100).toFixed(1) + "%" : "");
+    const periodName = { day: "日次", week: "週次", month: "月次" };
+    const out = [];
+    out.push(["粒度", "区分", "対象", "指標", "期間キー", "期間名", "値"].join(","));
+
+    for (const period of ["day", "week", "month"]) {
+      // ---- コール系（グループ/セールス/インサイド/各メンバー） ----
+      const g = await computeStatsGrid(period).catch(() => null);
+      if (g) {
+        const cols = g["区切り"] || [];
+        const rowsOf = (対象, 区分, 値) => {
+          const V = (値 || []).map((v) => ({ コール: v.コール || 0, 接触: v.接触 || 0, アポ内: v.アポ内 || 0, アポ外: v.アポ外 || 0, アポ: (v.アポ内 || 0) + (v.アポ外 || 0) }));
+          const sum = (k) => V.reduce((a, v) => a + (v[k] || 0), 0);
+          const put = (指標, get) => {
+            cols.forEach((c, i) => out.push([periodName[period], 区分, 対象, 指標, c.key, c["名前"], get(V[i])].map(q).join(",")));
+            out.push([periodName[period], 区分, 対象, 指標, "合計", "合計", get({ コール: sum("コール"), 接触: sum("接触"), アポ内: sum("アポ内"), アポ外: sum("アポ外"), アポ: sum("アポ") })].map(q).join(","));
+          };
+          put("コール", (v) => v.コール);
+          put("接触", (v) => v.接触);
+          put("アポ(期間内)", (v) => v.アポ内);
+          put("アポ(期間外)", (v) => v.アポ外);
+          put("コール→接触率", (v) => pct(v.接触, v.コール));
+          put("接触→アポ率", (v) => pct(v.アポ, v.接触));
+          put("コール→アポ率", (v) => pct(v.アポ, v.コール));
+        };
+        rowsOf("グループ全体", "全体", g.totals.group);
+        rowsOf("セールス全体", "全体", g.totals.sales);
+        rowsOf("インサイド全体", "全体", g.totals.inside);
+        for (const mmb of g.members || []) rowsOf(mmb["誰"], mmb.role === "sales" ? "個別(セールス)" : "個別(インサイド)", mmb["値"]);
+      }
+      // ---- リスト別（合計＋担当内訳） ----
+      const L = await computeListStats(period).catch(() => null);
+      if (L) {
+        for (const li of L.items || []) {
+          const base = ["リスト別", period, `${L.from}〜${L.to}`, li.list_name];
+          const push = (対象, 区分, コール, 接触, アポ) => {
+            out.push([periodName[period], 区分, 対象, "コール", period, `${L.from}〜${L.to}`, コール].map(q).join(","));
+            out.push([periodName[period], 区分, 対象, "接触", period, `${L.from}〜${L.to}`, 接触].map(q).join(","));
+            out.push([periodName[period], 区分, 対象, "アポ", period, `${L.from}〜${L.to}`, アポ].map(q).join(","));
+            out.push([periodName[period], 区分, 対象, "接触率", period, `${L.from}〜${L.to}`, pct(接触, コール)].map(q).join(","));
+            out.push([periodName[period], 区分, 対象, "アポ率", period, `${L.from}〜${L.to}`, pct(アポ, コール)].map(q).join(","));
+          };
+          push(li.list_name, "リスト別", li["コール"], li["接触"], li["アポ"]);
+          for (const t of li["担当"] || []) push(`${li.list_name} / ${t["誰"]}`, "リスト別(担当)", t["コール"], t["接触"], t["アポ"]);
+        }
+      }
+    }
+
+    const csv = "\uFEFF" + out.join("\r\n");   // ExcelでそのままひらけるUTF-8 BOM
+    const stamp = new Date(Date.now() + 9 * 3600 * 1000).toISOString().slice(0, 10);
+    res.setHeader("Content-Type", "text/csv; charset=utf-8");
+    res.setHeader("Content-Disposition", `attachment; filename="kincall_jisseki_${stamp}.csv"`);
+    res.send(csv);
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
@@ -8531,14 +8594,13 @@ app.put("/api/calls/apo-window", async (req, res) => {
 });
 
 // リスト別の実績（kincall架電ログ基準）。表示期間の各リストのコール/接触/アポと率。
-app.get("/api/calls/stats-by-list", async (req, res) => {
-  try {
+async function computeListStats(periodIn, fromIn, toIn) {
     const pad = (n) => String(n).padStart(2, "0");
     const ymd = (d) => `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}-${pad(d.getUTCDate())}`;
     const nowJ = new Date(Date.now() + 9 * 3600 * 1000);
-    let from = String(req.query.from || ""), to = String(req.query.to || "");
+    let from = String(fromIn || ""), to = String(toIn || "");
     if (!/^\d{4}-\d{2}-\d{2}$/.test(from) || !/^\d{4}-\d{2}-\d{2}$/.test(to)) {
-      const period = String(req.query.period || "day");
+      const period = String(periodIn || "day");
       const y = nowJ.getUTCFullYear(), m = nowJ.getUTCMonth(), d0 = nowJ.getUTCDate();
       if (period === "month") { from = ymd(new Date(Date.UTC(y, m - 5, 1))); to = ymd(new Date(Date.UTC(y, m + 1, 0))); }
       else if (period === "week") { const off = (nowJ.getUTCDay() + 6) % 7; from = ymd(new Date(Date.UTC(y, m, d0 - off - 7 * 7))); to = ymd(new Date(Date.UTC(y, m, d0 - off + 6))); }
@@ -8566,8 +8628,12 @@ app.get("/api/calls/stats-by-list", async (req, res) => {
       コール: L.コール, 接触: L.接触, アポ: L.アポ,
       担当: Object.values(L.担当).map((x) => ({ 誰: nm.get(x.who) || x.who, コール: x.コール, 接触: x.接触, アポ: x.アポ })).sort((a, b) => b.コール - a.コール),
     })).sort((a, b) => b.コール - a.コール);
-    res.json({ ok: true, from, to, items });
-  } catch (e) { res.status(500).json({ error: e.message }); }
+    return { from, to, items };
+}
+
+app.get("/api/calls/stats-by-list", async (req, res) => {
+  try { res.json({ ok: true, ...(await computeListStats(req.query.period, req.query.from, req.query.to)) }); }
+  catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 // 実績（日・週・月で切り替えられる）
@@ -15710,7 +15776,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-03s 実績：インサイドのアポが0になる不具合を解消。原因＝アポ一覧の setter が『商談カレンダーの主催者＝セールス』で埋まり、実獲得のインサイドが setter に入っていなかった。対策＝インサイドのアポは kincall架電ログ(result~アポ獲得, かけた人=インサイド)で数え、内/外は会社名でアポ一覧の商談日(start_time)に引き当てて判定。セールスは従来どおり(件数SFレポート、内/外はアポ一覧setter比率)。点検API(_apodiag)は撤去。前回：AI社員の組織ビュー";
+const BUILD_TAG = "2026-09-03t 実績を全項目まとめて1ファイルCSVで書き出し可能に（グループ/セールス/インサイド/各メンバー/各リストを 日次・週次・月次、率も含む、UTF-8 BOM）。stats-grid/stats-by-list を computeStatsGrid/computeListStats に関数化して流用。GET /api/calls/stats.csv、実績に「CSVで全部書き出す」ボタン。前回：インサイドのアポを実獲得で集計";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",

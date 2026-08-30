@@ -10,7 +10,7 @@
     <link rel="manifest" href="/site.webmanifest" />
     <meta name="theme-color" content="#0d5b47" />
     <meta name="apple-mobile-web-app-title" content="kinbot" />
-    <link rel="stylesheet" href="style.css?v=20260903r" />
+    <link rel="stylesheet" href="style.css?v=20260903t" />
   </head>
   <body class="kc-body">
     <div class="app">
@@ -98,6 +98,7 @@
             <div class="ap-cfg-actions">
               <span class="note" style="margin:0">全体：グループ／セールス／インサイド、個別：メンバー全員（セールスはSFの実績）</span>
               <button class="btn ghost" id="clStatsReload">読み込み直す</button>
+              <a class="btn ghost" id="clStatsCsv" href="/api/calls/stats.csv">CSVで全部書き出す</a>
               <span class="rev-status" id="stRange"></span>
             </div>
             <div id="clStats"></div>
@@ -227,9 +228,9 @@
         </main>
       </div>
     </div>
-    <script src="sf-data.js?v=20260903r"></script>
-    <script src="calls.js?v=20260903r"></script>
-    <script src="nav.js?v=20260903r"></script>
+    <script src="sf-data.js?v=20260903t"></script>
+    <script src="calls.js?v=20260903t"></script>
+    <script src="nav.js?v=20260903t"></script>
     <script src="/cmdk.js?v=20260827a"></script>
 </body>
 </html>
