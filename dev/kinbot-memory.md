@@ -41,6 +41,8 @@ kincall（架電リスト）という別ツールも同じ画面群の中にあ�
 
 ## 決定・指示のログ（新しいものを上に足す）
 
+- 2026-09-03 プロセスシートの書き込みを「実績（合算）ベース」に変更（B案：セールス＋インサイド両方の行に書く／田中さん合意）。従来：SFレポート直読み＋kinbotアポ記録(setter=クローザー)。追加：runProcessSheet で tallied（担当名→"M/D"→{コール,接触,アポ（期内/期外）}）に、インサイド（inside/インターン）の kincall 実績を合算＝コール/接触は callStatsByDay(caller=inside)、アポは apoWonCallsInRange(result~アポ獲得, caller=inside) を会社名(call_targets.company)→アポ一覧(smart_links label)の商談日 start_time に normCompanyKey で引き当て、期内/期外は termMode(fixed=from..to / auto=アポ月==商談月)で判定（商談日不明は期内）。インターン除外の既定を反転（psInterns!==falseで含める）。シートの列/行対応(readLayout/buildUpdates)は流用。SFレポートの二重取り込みは不要（実績と同じ数え方）。要注意：本番スプレッドシートに書くのでお試し(dryRun)で件数確認してから実行。
+
 - 2026-09-03 実績「設定・管理」タブのプロセスシート管理を編集可能に。反映先スプレッドシート(共有URL または ID→サーバがsheetId抽出)・シート名(タブ)・SFレポートID・実行するSFユーザー(email)を入力して「反映先・設定を保存」（PUT /api/process-sheet {sheetId,sheetName,reportId,owner}）。状態表示（最後の実行）・自動実行ON/OFF・今すぐ実行/お試し(dryRun)は従来どおり。
 
 - 2026-09-03 実績に「設定・管理」タブを追加（田中さん指示）。中身：(1)アポの「期間内/期間外」の基準（設定画面から移設・実績に集約。/api/calls/apo-window の mode/days/月別範囲）、(2)プロセスシートの管理＝状態表示（シート名・レポート有無・実行SFユーザー・最後の実行）＋自動実行ON/OFF（PUT /api/process-sheet {autoRun}）＋「今すぐ実行」/「お試し(dryRun)」（POST /api/process-sheet/run）。calls.jsに loadAdmin() を追加（statsPeriod="admin"）。設定画面(settings.html)のアポ基準カードは削除（settings.jsのIIFEは要素が無ければ早期returnで無害なので残置）。全体/個別トグルは admin でも無効(dim)。

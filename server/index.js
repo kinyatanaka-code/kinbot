@@ -10591,6 +10591,41 @@ async function runProcessSheet(sfUser, opts = {}) {
   apoRows = apoRows.filter((r) => !isSkippedPerson(r.setter, skipPeople));
   tallied = applyApoCounts(tallied, apoRows);
 
+  // B案：インサイド（kincall）の実績も足す（セールス＝SFレポート、インサイド＝kincall架電ログ）。
+  // これで「実績（合算）」と同じ内容をプロセスシートに書ける（SFレポートの再取り込みは不要）。
+  try {
+    const membersB = await listMembers().catch(() => []);
+    const internsB = await listInterns().catch(() => []);
+    const internSetB = new Set((internsB || []).map((x) => String(x.email || "").toLowerCase()));
+    const insideName = new Map();
+    for (const mm of membersB) {
+      const em = String(mm.email || "").toLowerCase();
+      const roles = Array.isArray(mm.roles) ? mm.roles : [];
+      if ((roles.includes("inside") || internSetB.has(em)) && em) insideName.set(em, mm.name || mm.email);
+    }
+    const mdKey = (ymd) => { const p = String(ymd).split("-"); return p.length === 3 ? `${Number(p[1])}/${Number(p[2])}` : ""; };
+    const ensureT = (name, key) => { if (!tallied[name]) tallied[name] = {}; if (!tallied[name][key]) tallied[name][key] = { "コール": 0, "接触": 0, "アポ（期内）": 0, "アポ（期外）": 0 }; return tallied[name][key]; };
+    const 接触した = (v) => /接触|アポ|再コール|断り|見送り/.test(v) && !/不在|コールのみ|NG/.test(v);
+    const callRows = await callStatsByDay(from, to).catch(() => []);
+    for (const r of callRows) {
+      const name = insideName.get(String(r.caller || "").toLowerCase()); if (!name) continue;
+      const key = mdKey(r["日"]); if (!key) continue;
+      const c = ensureT(name, key); c["コール"] += r.n; if (接触した(String(r.result || ""))) c["接触"] += r.n;
+    }
+    const wonCalls = await apoWonCallsInRange(from, to).catch(() => []);
+    const aposB = await aposTakenInRange({ from, to, limit: 5000 }).catch(() => []);
+    const companyMeet = new Map();
+    for (const a of aposB) { const k = normCompanyKey(companyFromTitle(a.label || "") || ""); const md = a.start_time ? String(a.start_time).slice(0, 10) : ""; if (k && md && !companyMeet.has(k)) companyMeet.set(k, md); }
+    const inTerm = (md, apoYmd) => { if (!md) return true; if (termMode === "auto") return md.slice(0, 7) === String(apoYmd).slice(0, 7); return md >= from && md <= to; };
+    for (const w of wonCalls) {
+      const name = insideName.get(String(w.caller || "").toLowerCase()); if (!name) continue;
+      const key = mdKey(w["日"]); if (!key) continue;
+      const md = companyMeet.get(normCompanyKey(w.company || "")) || "";
+      const c = ensureT(name, key);
+      if (inTerm(md, w["日"])) c["アポ（期内）"] += 1; else c["アポ（期外）"] += 1;
+    }
+  } catch (e) { console.warn("[プロセスシート] インサイド合算に失敗:", e.message); }
+
   // 3. シートの構造を読んで、書き込む場所を決める
   const values = await readSheet(owner, sheetId, `${sheetName}!A1:DZ200`);
   const layout = readLayout(values);
@@ -10598,7 +10633,8 @@ async function runProcessSheet(sfUser, opts = {}) {
 
   // インターン生は自動入力しない（設定で「含める」を選んだときだけ入れる）
   let internNote = "";
-  const includeInterns = opts.interns !== undefined ? !!opts.interns : (st.psInterns === true);
+  // B案：インサイド（インターン）も既定で書き込む。psInterns を false にしたときだけ除外。
+  const includeInterns = opts.interns !== undefined ? !!opts.interns : (st.psInterns !== false);
   if (!includeInterns) {
     const interns = await listInterns().catch(() => []);
     const internEmails = new Set(interns.map((x) => String(x.email || "").toLowerCase()).filter(Boolean));
@@ -15776,7 +15812,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-03v 実績・設定管理のプロセスシート管理を編集可能に：反映先スプレッドシート(URL/ID)・シート名(タブ)・SFレポートID・実行SFユーザーを入力して保存（PUT /api/process-sheet）。状態表示・自動ON/OFF・今すぐ実行/お試しは従来どおり。前回：設定管理タブ追加";
+const BUILD_TAG = "2026-09-03w プロセスシートの書き込みを実績（合算）ベースに（B案）。セールス＝SFレポート（従来）＋インサイド＝kincall架電ログ（コール/接触＝call_logs、アポ＝result~アポ獲得を会社名でアポ一覧の商談日に引き当て期内/期外）を tallied に合算。インサイド（インターン）を既定で含める（psInterns=falseのみ除外）。シートの列/行対応は流用。SFレポートの二重取り込み不要。※お試し(dryRun)で件数確認してから実行推奨。前回：プロセスシート反映先の設定化";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
