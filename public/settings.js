@@ -2999,3 +2999,36 @@ if (document.getElementById("sfProxy")) {
     });
   }
 }
+
+// ===== アポの「期間内 / 期間外」の基準 =====
+(function apoWindowSetting() {
+  const modeEl = document.getElementById("apoWinMode");
+  const daysEl = document.getElementById("apoWinDays");
+  const daysRow = document.getElementById("apoWinDaysRow");
+  const saveBtn = document.getElementById("apoWinSave");
+  const msg = document.getElementById("apoWinMsg");
+  if (!modeEl || !daysEl || !saveBtn) return;
+  const syncRow = () => { if (daysRow) daysRow.style.display = modeEl.value === "days" ? "" : "none"; };
+  (async () => {
+    try {
+      const d = await (await fetch("/api/calls/apo-window")).json();
+      modeEl.value = d.mode === "days" ? "days" : "span";
+      daysEl.value = d.days != null ? d.days : 14;
+    } catch {}
+    syncRow();
+  })();
+  modeEl.addEventListener("change", syncRow);
+  saveBtn.addEventListener("click", async () => {
+    saveBtn.disabled = true;
+    try {
+      const r = await fetch("/api/calls/apo-window", {
+        method: "PUT", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ mode: modeEl.value, days: parseInt(daysEl.value, 10) || 14 }),
+      });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.error || "保存できませんでした");
+      if (msg) { msg.hidden = false; setTimeout(() => (msg.hidden = true), 4000); }
+    } catch (e) { alert("保存できませんでした：" + e.message); }
+    finally { saveBtn.disabled = false; }
+  });
+})();

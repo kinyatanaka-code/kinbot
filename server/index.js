@@ -8345,7 +8345,20 @@ app.get("/api/calls/stats-grid", async (req, res) => {
     const spanFrom = 区切り[0].from, spanTo = 区切り[区切り.length - 1].to;
     const 属する = (日) => { for (const c of 区切り) if (日 >= c.from && 日 <= c.to) return c.key; return ""; };
     const idxOf = (key) => 区切り.findIndex((c) => c.key === key);
-    const inSpan = (d) => d && d >= spanFrom && d <= spanTo;
+    // アポの「期間内」の基準（設定で切替）。
+    //   span … 表示している期間の中に商談日があれば内（既定・今まで）
+    //   days … 今日から apoInWindowDays 日以内に商談日があれば内
+    const stCfg = await getSettings().catch(() => ({}));
+    const apoMode2 = String(stCfg.apoInWindowMode || "span") === "days" ? "days" : "span";
+    const apoDays = Math.max(0, Math.min(365, Number(stCfg.apoInWindowDays ?? 14)));
+    const todayJ = new Date(Date.now() + 9 * 3600 * 1000).toISOString().slice(0, 10);
+    const plusDays = (ymd0, n) => { const d = new Date(ymd0 + "T00:00:00Z"); d.setUTCDate(d.getUTCDate() + n); return d.toISOString().slice(0, 10); };
+    const winTo = plusDays(todayJ, apoDays);
+    const inSpan = (d) => {
+      if (!d) return true;   // 商談日が分からないものは内に寄せる
+      if (apoMode2 === "days") return d >= todayJ && d <= winTo;
+      return d >= spanFrom && d <= spanTo;
+    };
     const blank = () => 区切り.map(() => ({ コール: 0, 接触: 0, アポ内: 0, アポ外: 0 }));
     const toYmd = (v) => { const s = String(v || ""); const mm = s.match(/(\d{4})[-/年.](\d{1,2})[-/月.](\d{1,2})/); return mm ? `${mm[1]}-${pad(mm[2])}-${pad(mm[3])}` : ""; };
     const num = (v) => { const n = Number(String(v == null ? "" : v).replace(/[^\d.-]/g, "")); return isFinite(n) ? n : 0; };
@@ -8452,6 +8465,23 @@ app.get("/api/calls/stats-grid", async (req, res) => {
 
     const 今 = 区切り.length ? 区切り[区切り.length - 1].key : "";
     res.json({ ok: true, period, 区切り, 今, members: membersOut, totals, sfError, items, 合計 });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// 実績のアポ「期間内/外」の基準（表示期間内 or 今日から◯日以内）
+app.get("/api/calls/apo-window", async (req, res) => {
+  try {
+    const st = await getSettings().catch(() => ({}));
+    res.json({ ok: true, mode: String(st.apoInWindowMode || "span") === "days" ? "days" : "span", days: Math.max(0, Math.min(365, Number(st.apoInWindowDays ?? 14))) });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+app.put("/api/calls/apo-window", async (req, res) => {
+  try {
+    const mode = String(req.body?.mode || "span") === "days" ? "days" : "span";
+    const days = Math.max(0, Math.min(365, parseInt(req.body?.days, 10) || 14));
+    await saveSettings({ apoInWindowMode: mode, apoInWindowDays: days });
+    console.log(`[実績] アポ内外の基準を ${mode}${mode === "days" ? `（${days}日）` : ""} にしました by ${req.user}`);
+    res.json({ ok: true, mode, days });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
@@ -15558,7 +15588,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-03i 実績：インサイドのアポが0になる不具合を修正。原因＝アポ一覧の獲得者突合が名前(setter)のみで、コール/接触はメール一致なのにアポは名前不一致で0だった。対策＝aposTakenInRangeが setter_email も返し、実績側は 獲得者=メール(setter_email)→名前(setter)→最終手段で現担当 の順で突合。前回：個別のカード化";
+const BUILD_TAG = "2026-09-03j 設定に「アポの期間内/外の基準」を追加：表示期間内（既定）／今日から◯日以内（日数指定）を選択可。/api/calls/apo-window(GET/PUT)で保存し、実績のstats-gridのinSpanが設定連動（days時は商談日が今日〜今日+◯日なら内）。商談日不明は内に寄せる。前回：インサイドのアポ突合修正";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
