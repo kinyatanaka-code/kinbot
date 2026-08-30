@@ -8584,6 +8584,28 @@ app.put("/api/calls/apo-window", async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+// 【点検用・一時】アポが0になる原因調査：期間内のアポ一覧のタイトルと、判定/担当突合の結果を返す。
+app.get("/api/calls/_apodiag2", async (req, res) => {
+  try {
+    if (!req.isAdmin && !(await isCloserUser(req.user))) return res.status(403).json({ error: "権限なし" });
+    const pad = (n) => String(n).padStart(2, "0");
+    const ymd = (d) => `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}-${pad(d.getUTCDate())}`;
+    const nowJ = new Date(Date.now() + 9 * 3600 * 1000);
+    const from = String(req.query.from || ymd(new Date(nowJ.getTime() - 13 * 86400000)));
+    const to = String(req.query.to || ymd(nowJ));
+    const apos = await aposTakenInRange({ from, to, limit: 300 }).catch(() => []);
+    let 数える = 0;
+    const sample = apos.slice(0, 40).map((a) => ({
+      title: a.label, taken: String(a.taken_at).slice(0, 10),
+      商談日: a.start_time ? String(a.start_time).slice(0, 10) : "",
+      setter: a.setter, setter_email: a.setter_email, current_owner: a.current_owner,
+      数える: isApoCountableTitle(a.label),
+    }));
+    for (const a of apos) if (isApoCountableTitle(a.label)) 数える++;
+    res.json({ from, to, アポ一覧件数: apos.length, 数える件数: 数える, sample });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 // リスト別の実績（kincall架電ログ基準）。表示期間の各リストのコール/接触/アポと率。
 async function computeListStats(periodIn, fromIn, toIn) {
     const pad = (n) => String(n).padStart(2, "0");
@@ -15811,7 +15833,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-03y アポの数え方を「アポ一覧（カレンダー予定）」に統一。isApoCountableTitle＝【初回】または【新/ヒ】を含む予定のみ数え、メルマガ（メルマガ【初回】等）や他タイトル（2回目/ユ/フォ等）は除外。担当は実獲得者に寄せる（会社名でkincallのアポ獲得caller→無ければsetter/current_owner）。内/外は予定の商談日start_time。SF/kincallのアポ件数は使わない（コール/接触はセールス=SF+kincall・インサイド=kincallのまま）。実績・プロセスシート両方に適用。前回：セールスのkincall+SF合算";
+const BUILD_TAG = "2026-09-03z 【点検用・一時】GET /api/calls/_apodiag2 追加：アポが0の原因調査（期間内アポ一覧のタイトル・商談日・setter/現担当と、isApoCountableTitle 判定件数）。前回：アポをカレンダー予定基準に統一";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
