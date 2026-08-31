@@ -4834,8 +4834,30 @@ async function buildCallReport(sfUser) {
     for (const [em, o] of kc) addRow(nameByEmail.get(em) || em, o.calls, o.contacts, 0);
   } catch (e) { console.warn("[call-report] kincall分の合算に失敗:", e.message); }
 
-  // 3) アポは「今日のアポ一覧（smart-link）の獲得者(setter)」で数える（＝正しい獲得者）。
-  for (const [who, n] of apoBy) addRow(who, 0, 0, n);
+  // 3) アポは「実際に獲得した人」で数える（担当は後から変わるので使わない）。
+  //    アポ一覧の1件ずつについて、会社名でkincallの「アポ獲得」記録に当たれば、その押した人＝獲得者。
+  //    当たらなければ、アポ一覧の setter を獲得者として使う（クローザーの自己獲得など）。
+  try {
+    const members2 = await listMembers().catch(() => []);
+    const nameByEmail2 = new Map((members2 || []).map((m) => [String(m.email || "").toLowerCase(), m.name || m.email]));
+    const won = await apoWonCallsInRange(today, today).catch(() => []);   // [{caller, 日, company}]
+    const winnerByCompany = new Map();
+    for (const w of won) {
+      const k = normCompanyKey(w.company || ""); if (!k) continue;
+      if (!winnerByCompany.has(k)) winnerByCompany.set(k, String(w.caller || "").toLowerCase());
+    }
+    for (const a of apos) {
+      const setter = String(a.setter || "").trim();
+      if (isSkippedPerson(setter, skip) && !a.current_owner) continue;
+      const co = normCompanyKey(companyFromTitle(a.label || "") || "");
+      const em = co ? winnerByCompany.get(co) : "";
+      const 獲得者 = (em && nameByEmail2.get(em)) || setter;
+      addRow(獲得者, 0, 0, 1);
+    }
+  } catch (e) {
+    console.warn("[call-report] アポの獲得者の判定に失敗:", e.message);
+    for (const [who, n] of apoBy) addRow(who, 0, 0, n);
+  }
 
   const list = [...rows.values()].sort((a, b) => b.calls - a.calls);
   const sum = list.reduce((o, x) => ({
@@ -16317,7 +16339,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-04zf コール進捗の送信先を選べるように修正。既にチェックボックスUI(#crTargets)とAPIのtargetIds対応はあったが、一覧の取り出しが tg.items で実APIの tg.targets と不一致のため送信先が表示されていなかった→ tg.targets を読むよう修正。重複追加していたselect UIは削除。選ばなければ従来どおり「いつもの送信先」。前回：手動送信APIの重複解消";
+const BUILD_TAG = "2026-09-04zg コール進捗のアポを「実際の獲得者」で数えるよう修正（中村のアポが消えた件）。運用：獲得者(中村等)と担当(田中→森田に変更)は別物、担当変更でsetterが実獲得者と一致しない。修正：今日のアポ一覧1件ずつについて、会社名(normCompanyKey)でkincallの「アポ獲得」記録(apoWonCallsInRange today)に当たれば その押した人=獲得者、当たらなければ setter を獲得者として1件ずつ加算。これで中村の獲得は消えず、植野の自己獲得も数えられ、担当変更の影響も受けない。コール/接触はSF＋kincall合算のまま。前回：送信先選択の修正";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
