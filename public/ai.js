@@ -200,7 +200,9 @@ async function loadSfStatus() {
       <div id="crTargets" class="cr-targets">読み込んでいます…</div>
       <div class="modal-actions" style="margin-top:8px;flex-wrap:wrap;gap:8px;">
         <button class="btn" id="sendCallReport" type="button">コール進捗を今すぐ送る</button>
+        <button class="pr-b" id="restoreApos" type="button">除外されたアポを戻す（テスト以外）</button>
         <span class="saved" id="sendCallMsg" hidden></span>
+        <span class="ai-mini" id="restoreMsg"></span>
       </div>`;
     // 送信先の一覧（選ばなければ、いつもの送信先へ）
     try {
@@ -211,6 +213,18 @@ async function loadSfStatus() {
         ? list.map((x) => `<label class="cr-t"><input type="checkbox" class="cr-cb" value="${esc(String(x.id))}"> ${esc(x.name || x.space_id || ("#" + x.id))}</label>`).join("")
         : `<span class="ai-mini">（登録された送信先がありません。いつもの送信先へ送ります）</span>`;
     } catch { const box2 = $("crTargets"); if (box2) box2.innerHTML = `<span class="ai-mini">送信先を読み込めませんでした（いつもの送信先へ送ります）</span>`; }
+    const rb = $("restoreApos");
+    if (rb) rb.addEventListener("click", async () => {
+      if (!confirm("集計から外れているアポのうち、テスト以外を集計に戻します。よろしいですか？")) return;
+      rb.disabled = true; const rm = $("restoreMsg"); if (rm) rm.textContent = "戻しています…";
+      try {
+        const r = await fetch("/api/apo/excluded/restore-real", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ days: 60 }) });
+        const d = await r.json();
+        if (!r.ok) throw new Error(d.error || "戻せませんでした");
+        if (rm) rm.textContent = `${d["戻した件数"]}件を集計に戻しました（テスト ${d["残した件数"]}件はそのまま）`;
+      } catch (e) { if (rm) rm.textContent = "失敗：" + e.message; }
+      finally { rb.disabled = false; }
+    });
     const scr = $("sendCallReport");
     if (scr) scr.addEventListener("click", async () => {
       scr.disabled = true; const t = scr.textContent; scr.textContent = "送信中…";

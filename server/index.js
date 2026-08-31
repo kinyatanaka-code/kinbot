@@ -8627,6 +8627,28 @@ app.get("/api/apo/excluded", async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+// テスト以外の除外アポを、まとめて集計に戻す（本物のアポだけ復帰）
+app.post("/api/apo/excluded/restore-real", async (req, res) => {
+  try {
+    if (!isAiOwner(req)) return res.status(403).json({ error: "権限がありません" });
+    const days = Math.max(1, Math.min(180, parseInt(req.body?.days, 10) || 60));
+    const rows = await listExcludedApos(days, 500).catch(() => []);
+    // テスト用とみなすもの（会社名に テスト／田中株式会社／株式会社田中 を含む）は戻さない
+    const isTest = (label) => {
+      const t = String(label || "").normalize("NFKC").replace(/[\s　]/g, "");
+      return /テスト/.test(t) || /田中株式会社/.test(t) || /株式会社田中/.test(t);
+    };
+    const 対象 = rows.filter((r) => !isTest(r.label));
+    let n = 0; const 戻した = [];
+    for (const r of 対象) {
+      const ok = await setApoExcluded(r.slug, false).catch(() => null);
+      if (ok) { n++; 戻した.push(r.label || r.slug); }
+    }
+    console.log(`[apo] テスト以外の除外アポ ${n}件を集計に戻しました`);
+    res.json({ ok: true, 戻した件数: n, 残した件数: rows.length - 対象.length, 戻した: 戻した.slice(0, 60) });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 // 外れているアポをまとめて集計に戻す（理由で絞れる）
 app.post("/api/apo/excluded/restore", async (req, res) => {
   try {
@@ -16432,7 +16454,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-04zm 集計除外の「理由」を記録・表示するように（勝手に外れる原因の追跡用）。smart_links に excluded_reason 列を追加（自動マイグレーション）、excludeApo/setApoExcluded で理由を保存（人の操作は「人が操作」）。アポ一覧APIは excludedReason を返し、アポ画面のバッジに理由を表示。前回：カレンダー消滅での自動除外を停止＋重複除去";
+const BUILD_TAG = "2026-09-04zn 除外アポの一括復帰。原因確定：除外59件の「外れた日時」が商談日とほぼ一致＝商談日を迎えるとカレンダー予定が消えたと判定され自動除外されていた（本物のアポが次々消えていた）。自動除外は停止済み。今回：POST /api/apo/excluded/restore-real（オーナー限定・テスト以外＝会社名に テスト/田中株式会社/株式会社田中 を含まないものを一括で集計に戻す）＋AI社員のSF状況に「除外されたアポを戻す（テスト以外）」ボタン。GET /api/apo/excluded（理由つき一覧）も追加済み。前回：除外理由の記録";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
