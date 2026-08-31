@@ -11505,6 +11505,7 @@ async function runProcessSheet(sfUser, opts = {}) {
   const term = resolveProcessSheetTerm(st, opts);
   const from = term.from;
   const to = term.to;
+  const warnings = [];   // 画面に見せる注意（ログにだけ出すと原因が追えないため）
   // 期内・期外の分け方。
   //   auto  … アポを取った月と商談の月が同じなら期内（毎月の設定変更が要らない）
   //   fixed … 下で指定した期間に商談日が入っていれば期内
@@ -11593,7 +11594,7 @@ async function runProcessSheet(sfUser, opts = {}) {
       const c = ensureT(name, key);
       if (inTerm(md, takenY)) c["アポ（期内）"] += 1; else c["アポ（期外）"] += 1;
     }
-  } catch (e) { console.warn("[プロセスシート] インサイド合算に失敗:", e.message); }
+  } catch (e) { console.warn("[プロセスシート] インサイド合算に失敗:", e.message); warnings.push("kincall分の合算に失敗しました：" + e.message); }
 
   // 3. シートの構造を読んで、書き込む場所を決める
   const values = await readSheet(owner, sheetId, `${sheetName}!A1:DZ200`);
@@ -11696,6 +11697,7 @@ async function runProcessSheet(sfUser, opts = {}) {
       })(),
       // 判定に使った期間・分け方も返す（ずれていないか確かめられるように）
       termUsed: { from, to, mode: termMode, source: term.source },
+      warnings,
     };
   }
 
@@ -11706,10 +11708,10 @@ async function runProcessSheet(sfUser, opts = {}) {
   try {
     if (gasUrl) {
       const r = await writeViaAppsScript(gasUrl, gasSecret, { sheetName, cells: updates });
-      return { ok: true, updated: r.updated, count: updates.length, skipped, via: "gas", termUsed: { from, to, mode: termMode, source: term.source } };
+      return { ok: true, updated: r.updated, count: updates.length, skipped, via: "gas", termUsed: { from, to, mode: termMode, source: term.source }, warnings };
     }
     const r = await updateSheetCells(owner, sheetId, sheetName, updates);
-    return { ok: true, updated: r.updated, count: updates.length, skipped, via: "google", termUsed: { from, to, mode: termMode, source: term.source } };
+    return { ok: true, updated: r.updated, count: updates.length, skipped, via: "google", termUsed: { from, to, mode: termMode, source: term.source }, warnings };
   } catch (e) {
     // どのセルに書こうとしたかを添える（原因を調べるときに使う）
     e.firstRange = updates[0] ? updates[0].range : "";
@@ -16781,7 +16783,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-04zx プロセスシートに実績が入らない不具合の本修正：実績画面の「今すぐ実行／お試し」は期間を送らず、旧設定の固定期間（8月）のまま集計していたため、8/31以降の kincall 架電・アポが入らなかった。期間を「今日を含む月ごとの範囲」から自動で決めるように（指定＞月ごとの範囲＞旧固定期間＞今月）。月ごとの範囲を使うときは期内判定もその範囲（fixed）。実行結果に使った期間・実績の無い担当者・スキップ理由を表示。前回(zw)：項目行ラベルの括弧ゆれ吸収（localStorageに開始日/終了日を記憶し、ページを切り替えても保たれる。既定に戻すで消去）。＋【点検用・一時】GET /api/calls/_stagediag：SFクロス商談のStageNameごとの件数と、KPI/MID/案件化/受注の判定結果を返す（KPIが出ない原因＝ステージ名の表記確認用）。前回：リスト一覧にgroup_idを追加";
+const BUILD_TAG = "2026-09-04zy プロセスシート「お試し」の内訳表示：担当者×日ごとに書く値（コール/接触/アポ内外/稼働）、シートの担当者一覧、集計に出た名前、実績が見つからない担当者、スキップ理由、kincall合算の失敗（従来はログのみ）を画面に出す。原因を画面だけで追えるように。前回(zx)：プロセスシートに実績が入らない不具合の本修正：実績画面の「今すぐ実行／お試し」は期間を送らず、旧設定の固定期間（8月）のまま集計していたため、8/31以降の kincall 架電・アポが入らなかった。期間を「今日を含む月ごとの範囲」から自動で決めるように（指定＞月ごとの範囲＞旧固定期間＞今月）。月ごとの範囲を使うときは期内判定もその範囲（fixed）。実行結果に使った期間・実績の無い担当者・スキップ理由を表示。前回(zw)：項目行ラベルの括弧ゆれ吸収（localStorageに開始日/終了日を記憶し、ページを切り替えても保たれる。既定に戻すで消去）。＋【点検用・一時】GET /api/calls/_stagediag：SFクロス商談のStageNameごとの件数と、KPI/MID/案件化/受注の判定結果を返す（KPIが出ない原因＝ステージ名の表記確認用）。前回：リスト一覧にgroup_idを追加";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",

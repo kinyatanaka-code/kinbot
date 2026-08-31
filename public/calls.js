@@ -1558,6 +1558,7 @@ async function loadAdmin() {
             <span class="saved" id="psMsg" hidden></span>
           </div>
           <div class="note" id="psResult" style="margin-top:6px"></div>
+          <div id="psDetail" style="margin-top:6px;font-size:12px;line-height:1.6"></div>
         </div>
       </div>`;
 
@@ -1617,16 +1618,40 @@ async function loadAdmin() {
         if (!r.ok) throw new Error(d.error || "実行に失敗しました");
         const tu = d.termUsed || {};
         const termTxt = tu.from && tu.to ? `　期間 ${tu.from}〜${tu.to}（${tu.source || ""}）` : "";
-        const skipTxt = Array.isArray(d.skipped) && d.skipped.length ? `　スキップ：${d.skipped.slice(0, 5).join("／")}` : "";
-        if (dry) {
-          const ppl = Array.isArray(d.people) ? d.people : [];
-          const mt = Array.isArray(d.matched) ? d.matched : [];
-          const sameN = (a, b) => { const x = String(a).replace(/[\s　]/g, ""), y = String(b).replace(/[\s　]/g, ""); return x === y || x.startsWith(y) || y.startsWith(x); };
-          const miss = ppl.filter((p) => !mt.some((m) => sameN(p, m)));
-          const missTxt = miss.length ? `　実績が見つからない担当者：${miss.join("、")}` : "";
-          rs.textContent = `お試し：${d.count ?? 0}箇所が対象です（まだ書き込んでいません）${termTxt}${missTxt}${skipTxt}`;
-        } else {
-          rs.textContent = `完了：${d.count ?? 0}箇所を更新しました${termTxt}${skipTxt}`;
+        rs.textContent = dry
+          ? `お試し：${d.count ?? 0}箇所が対象です（まだ書き込んでいません）${termTxt}`
+          : `完了：${d.count ?? 0}箇所を更新しました${termTxt}`;
+        // 内訳（誰の・どの日に・何を書くか）。原因を画面だけで追えるようにする。
+        const det = $("psDetail");
+        if (det) {
+          const parts = [];
+          const warns = Array.isArray(d.warnings) ? d.warnings : [];
+          if (warns.length) parts.push(`<div style="color:#b45309">注意：${warns.map(esc).join("／")}</div>`);
+          const sk = Array.isArray(d.skipped) ? d.skipped : [];
+          if (sk.length) parts.push(`<div>スキップ：${esc(sk.slice(0, 8).join("／"))}${sk.length > 8 ? `…他${sk.length - 8}件` : ""}</div>`);
+          if (dry) {
+            const ppl = Array.isArray(d.people) ? d.people : [];
+            const mt = Array.isArray(d.matched) ? d.matched : [];
+            const sameN = (x, y) => { const a2 = String(x).replace(/[\s　]/g, ""), b2 = String(y).replace(/[\s　]/g, ""); return a2 === b2 || a2.startsWith(b2) || b2.startsWith(a2); };
+            const miss = ppl.filter((p) => !mt.some((m) => sameN(p, m)));
+            parts.push(`<div>シートの担当者（${ppl.length}）：${esc(ppl.join("、"))}</div>`);
+            parts.push(`<div>集計に出てきた名前（${mt.length}）：${esc(mt.join("、"))}</div>`);
+            if (miss.length) parts.push(`<div style="color:#b45309">実績が見つからない担当者：${esc(miss.join("、"))}</div>`);
+            const ups = Array.isArray(d.updates) ? d.updates : [];
+            if (ups.length) {
+              const by = new Map();
+              for (const u of ups) { const k = `${u.who}｜${u.date}`; if (!by.has(k)) by.set(k, {}); by.get(k)[u.metric] = u.value; }
+              const lines = [...by.entries()].map(([k, v]) => {
+                const [who, date] = k.split("｜");
+                const cell = (m) => (v[m] === undefined ? "-" : v[m]);
+                return `<tr><td>${esc(who)}</td><td>${esc(date)}</td><td>${cell("コール")}</td><td>${cell("接触")}</td><td>${cell("アポ（期内）")}</td><td>${cell("アポ（期外）")}</td><td>${cell("稼働時間")}</td></tr>`;
+              });
+              parts.push(`<table class="tbl" style="margin-top:4px"><thead><tr><th>担当者</th><th>日</th><th>コール</th><th>接触</th><th>アポ内</th><th>アポ外</th><th>稼働</th></tr></thead><tbody>${lines.join("")}</tbody></table>`);
+            } else {
+              parts.push(`<div>書き込む内容がありません。</div>`);
+            }
+          }
+          det.innerHTML = parts.join("");
         }
         if (!dry) { const pl = $("psLast"); if (pl) pl.textContent = `${new Date().toLocaleString("ja-JP")}・${d.count ?? 0}箇所を更新`; }
       } catch (e) { rs.textContent = "失敗：" + e.message; }
