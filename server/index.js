@@ -8932,6 +8932,28 @@ app.get("/api/calls/process", async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+// 【点検用・一時】リスト別に出ない原因を見る：今日のコールが、リストに紐づいているか
+app.get("/api/calls/_listdiag", async (req, res) => {
+  try {
+    if (!isAiOwner(req)) return res.status(403).json({ error: "権限がありません" });
+    const day = String(req.query.day || jstDate(0));
+    const all = await callStatsByDay(day, day).catch(() => []);      // リスト関係なく全部
+    const inList = await callStatsByList(day, day).catch(() => []);  // リストに紐づくものだけ
+    const sum = (rows) => rows.reduce((a, r) => a + (r.n || 0), 0);
+    const byCaller = new Map();
+    for (const r of all) { const k = String(r.caller || "").toLowerCase(); byCaller.set(k, (byCaller.get(k) || 0) + r.n); }
+    const byCallerInList = new Map();
+    for (const r of inList) { const k = String(r.caller || "").toLowerCase(); byCallerInList.set(k, (byCallerInList.get(k) || 0) + r.n); }
+    const members = await listMembers().catch(() => []);
+    const nm = new Map((members || []).map((m) => [String(m.email || "").toLowerCase(), m.name || m.email]));
+    const 人ごと = [...byCaller.entries()].map(([em, n]) => ({
+      誰: nm.get(em) || em, 全コール: n, リストに紐づくコール: byCallerInList.get(em) || 0,
+    })).sort((a, b) => b.全コール - a.全コール);
+    const リスト = [...new Map(inList.map((r) => [r.list_id, r.list_name])).entries()].map(([id, name]) => ({ id, name }));
+    res.json({ day, 全コール: sum(all), リストに紐づくコール: sum(inList), 人ごと, 出ているリスト: リスト });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 // リスト別のファネル（コール→接触→アポ→実施→案件化→KPI→MID→受注）。
 // 案件化=02：有効商談 / KPI=03：担当者合意 / MID=04：企画決定者合意 / 受注=受注処理完了。
 app.get("/api/calls/list-funnel", async (req, res) => {
