@@ -41,6 +41,8 @@ kincall（架電リスト）という別ツールも同じ画面群の中にあ�
 
 ## 決定・指示のログ（新しいものを上に足す）
 
+- 2026-09-04 kincall履歴のバグを調査・修正（田中さん：履歴がバグってる、今直したい）。見つけた不具合：(1)db.js callHistory の SELECT に id が無いのに /api/calls/targets/:id/history が logId:h.id を使用→kinbot側履歴の logId が空で「直す」/識別が不能。→ id を SELECT に追加。(2)履歴の items.sort が new Date(b.at) 前提で、at が null/不正だと NaN→並び順崩壊。→ ts(v)=Number.isFinite? : 0 で堅牢化。(3)同一架電が kinbot側(sf_task_id無し)とSF活動の両方で二重表示され得る→ 誰|結果|分バケツ で重複除去(uniq)。注意：一覧の「履歴数」バッジ＝call_logs WHERE target_id=t.id（同一相手へのkincall記録回数）で、履歴パネル（未送信kinbot＋SF活動、callHistoryは target_id OR lead_id）とは測る対象が違い件数がズレることがある（仕様差。バッジをパネルと一致させたい場合は別途要相談）。※症状の詳細（どの履歴がどうおかしいか）は田中さんに要確認、上記3点は客観的バグとして修正済み。
+
 - 2026-09-04 キツツキ（AI社員）にSF自動更新の状況パネルを追加（田中さん要望：今日1件しか記録されず不安→一目で確認したい）。GET /api/ai/sf-status（isAiOwner限定）：今日のSF記録（listMeetingsからsf_recorded_atが本日・社内MTG除外）・取りこぼし待ち（要約/文字起こし/metricsありで作成30分超だがsf_recorded_at無し）・未紐づけ（findUnlinkedMeetings days=7）・立ち上げ待ち＋失敗理由（listAutolaunch(60)の未完/エラー）・SF監査（_lastSfAudit）。UI：社内支援AIの「この部門を見る・操作する」内に「SFの状況（今日）」タイル（今日のSF記録/取りこぼし待ち/未紐づけ/立ち上げ待ち、0でなければ警告色）＋監査＋立ち上がらなかった理由。loadSfStatus()は部門を開いたとき取得。※Claude API切れはSF自動更新（記録/監査/割り振り/立ち上げ＝LLM不要）に影響なし。要約/ネクストアクション等のAI部分のみLLM(主Gemini)。取りこぼしが長く残る場合は要確認の目安表示。
 
 - 2026-09-04 自動改善を一旦停止（田中さん指示・Claudeのクレジット切れで kinbot-hourly が毎時失敗していたため）。GitHub Actions の schedule(cron) をコメントアウト：kinbot-hourly.yml（"30 * * * *"）・kinbot-night.yml（"0 18 * * *"）・kinbot-advisor.yml（"0 0,3,6,9,12 * * 1-5"）。いずれも先頭に「# schedule: 一旦停止…」と「# - cron:」を付与、workflow_dispatch(手動)は残す。復活時は # を外す。※これらはClaude Code＋ANTHROPIC_API_KEY を使う。アプリ側『コードを自動で直す』(autoImprove)もOFF運用推奨（AI社員画面の開発AIカードのスイッチ）。金のかからない自動改善は、無料枠LLM(Gemini free / Groq free)に向ける＋頻度を落とす、が現実解（別途要望あれば対応）。

@@ -7496,14 +7496,27 @@ app.get("/api/calls/targets/:id/history", async (req, res) => {
       sfNote = "この相手はSalesforceのリードと結びついていません";
     }
 
-    // 新しい順に並べ直す
-    items.sort((a, b) => new Date(b.at).getTime() - new Date(a.at).getTime());
+    // 同じ架電が「kinbot側」と「SF側」で二重に出るのを防ぐ（同じ人・同じ結果・ほぼ同時刻はまとめる）
+    const seen = new Set();
+    const uniq = [];
+    for (const h of items) {
+      const tm = new Date(h.at || 0).getTime();
+      const bucket = Number.isFinite(tm) ? Math.round(tm / 60000) : 0;   // 1分単位
+      const key = `${String(h["誰"] || "").toLowerCase()}|${String(h["結果"] || "")}|${bucket}`;
+      if (h["結果"] && seen.has(key)) continue;   // 結果が同じで同時刻のものは1件に
+      if (h["結果"]) seen.add(key);
+      uniq.push(h);
+    }
+
+    // 新しい順に並べ直す（日付が空/不正でも壊れないようにする）
+    const ts = (v) => { const n = new Date(v || 0).getTime(); return Number.isFinite(n) ? n : 0; };
+    uniq.sort((a, b) => ts(b.at) - ts(a.at));
 
     res.json({
       ok: true,
       相手: { 会社名: t.company || "", 担当者: t.person || "", 電話番号: t.phone || "", メール: t.email || "" },
       note: sfNote,
-      items,
+      items: uniq,
     });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
@@ -16292,7 +16305,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-04za キツツキ社内支援AIカードに「SFの状況（今日）」を追加。GET /api/ai/sf-status（オーナー限定）＝今日のSF記録件数(sf_recorded_atが本日)・取りこぼし待ち(要約/文字起こしありで終了30分超だが未記録)・未紐づけ(findUnlinkedMeetings)・立ち上げ待ち＋失敗理由(listAutolaunch)・SF監査(_lastSfAudit)。UIは社内支援AIの「見る・操作する」内にタイル＋監査＋失敗理由。取りこぼし/未紐づけ/立ち上げ待ちが0でなければ警告色。前回：自動改善停止";
+const BUILD_TAG = "2026-09-04zb kincall履歴のバグ修正。(1)callHistory が id を SELECT しておらず履歴APIの logId:h.id が空→kinbot側履歴の識別/「直す」が効かない不具合を修正（idを取得）。(2)履歴の並び替えが new Date(null)等でNaNになり順序が崩れるのを堅牢化（ts()で0扱い）。(3)同じ架電が kinbot側とSF側で二重表示されるのを、誰×結果×分単位でまとめて重複除去。※一覧の「履歴数」バッジ(=target_idのcall_logs件数)と履歴パネル(未送信kinbot＋SF活動、lead_idも含む)は測る対象が違い数が異なることがある（要ならバッジ定義を合わせる）。前回：SF状況パネル";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
