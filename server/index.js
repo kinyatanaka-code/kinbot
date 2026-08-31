@@ -4856,10 +4856,14 @@ async function buildCallReport(sfUser) {
       const k = normCompanyKey(w.company || ""); if (!k) continue;
       if (!winnerByCompany.has(k)) winnerByCompany.set(k, String(w.caller || "").toLowerCase());
     }
+    const 数えた2 = new Set();   // 同じ予定は1回だけ
     for (const a of apos) {
       const setter = String(a.setter || "").trim();
       if (isSkippedPerson(setter, skip) && !a.current_owner) continue;
       const co = normCompanyKey(companyFromTitle(a.label || "") || "");
+      const uk = `${co}|${a.start_time ? String(a.start_time).slice(0, 10) : ""}`;
+      if (数えた2.has(uk)) continue;
+      数えた2.add(uk);
       const em = co ? winnerByCompany.get(co) : "";
       const 獲得者 = (em && nameByEmail2.get(em)) || setter;
       addRow(獲得者, 0, 0, 1);
@@ -8509,9 +8513,13 @@ async function computeStatsGrid(periodIn, spanIn) {
       const k = normCompanyKey(w.company || ""); if (k && !companyToWinner.has(k)) companyToWinner.set(k, em);
     }
     const ymdJst = (v) => { if (!v) return ""; const d = new Date(v); if (isNaN(d.getTime())) return toYmd(v); const j = new Date(d.getTime() + 9 * 3600000); return `${j.getUTCFullYear()}-${pad(j.getUTCMonth() + 1)}-${pad(j.getUTCDate())}`; };
+    const 数えた = new Set();   // 同じ予定（会社×商談日）は1回だけ数える
     for (const a of apos) {
       if (!isApoCountableTitle(a.label)) continue;   // 【初回】【新/ヒ】のみ・メルマガ除外
       const co = companyFromTitle(a.label || "") || "";
+      const uk = `${normCompanyKey(co)}|${ymdJst(a.start_time)}`;
+      if (数えた.has(uk)) continue;                  // 予定の作り直しなどで重複しても二重に数えない
+      数えた.add(uk);
       let em = companyToWinner.get(normCompanyKey(co)) || "";   // 実獲得者（インサイド）に寄せる
       if (!em) em = setterEmail(a);                              // 無ければ現担当（クローザー）
       const p = byEmail.get(em); if (!p) continue;
@@ -16395,7 +16403,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-04zk 中村のアポが実績に出ない原因＝そのアポ（ヒューレックス）が「集計から除外」されていたため。ホーム画面には外す導線しかなく戻せなかったので、除外中のアポに「集計に戻す」ボタン(data-apo-undrop→PUT /api/smart-links/:slug/excluded {excluded:false})を追加＋undoアイコン。アポ画面(apo.js)の切替は元から正常。前回：アポを獲得者(setter)優先で数える";
+const BUILD_TAG = "2026-09-04zl 確実に数えるための修正（田中さん方針）。(1)カレンダーから予定が消えても自動で集計除外しない（dropDeletedApos は検出のみ・ログだけ。予定の作り直し/移動/Zoom転送での誤除外＝アポが0になる問題を根絶）。人が「テストとして外す」か予定名に「リスケ/キャンセル」がある場合のみ除外（後者の自動除外は維持＝アポ獲得ではないため）。(2)同じ予定を二重に数えないよう、実績・コール進捗のアポ集計に 会社名×商談日 の重複除去を追加。前回：ホームに集計に戻すを追加";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
@@ -19370,13 +19378,13 @@ async function dropDeletedApos(scan) {
       } catch {}
     }
     if (!gone) continue;
-    // 予定が消えたときは、静かに数から外すだけにする（通知はしない）。
-    // 消したこと自体は本人が分かっているので、Chatに流すと数が増えて邪魔になるため。
-    await excludeApo(r.slug, "カレンダーから消えたため").catch(() => {});
+    // 【方針】取ったアポは数え続ける。カレンダーの予定が消えても自動では外さない。
+    // （予定の作り直し・移動・Zoom転送などで消えたと誤判定し、実績が欠けるのを防ぐため）
+    // 本当に無くなったアポは、人が「テストとして外す」か、予定名に「リスケ/キャンセル」と書けば外れる。
     n++;
-    console.log(`[apo-scan] カレンダーから消えたので外しました：${r.label || r.slug}（${String(r.start_time).slice(0, 10)}）`);
+    console.log(`[apo-scan] カレンダーから消えていますが、数には残します：${r.label || r.slug}（${String(r.start_time).slice(0, 10)}）`);
   }
-  if (n) console.log(`[apo-scan] カレンダーから消えたアポ ${n}件を数から外しました`);
+  if (n) console.log(`[apo-scan] カレンダーから消えたアポ ${n}件（数には残しています）`);
   return n;
 }
 
