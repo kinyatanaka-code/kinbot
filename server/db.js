@@ -6893,6 +6893,19 @@ export async function apoWonCallsInRange(fromJst, toJst) {
   } catch (e) { console.error("[db] apoWonCallsInRange", e.message); return []; }
 }
 
+// リストごとの会社名（案件化・移行率の集計に使う）
+export async function listCompaniesByList() {
+  if (!pool) return [];
+  try {
+    const { rows } = await pool.query(
+      `SELECT cl.id AS list_id, cl.name AS list_name, t.company
+         FROM call_targets t
+         JOIN call_lists cl ON cl.id = t.list_id
+        WHERE COALESCE(t.company,'') <> ''`);
+    return rows;
+  } catch (e) { console.error("[db] listCompaniesByList", e.message); return []; }
+}
+
 // リスト別の集計のもと（リスト×担当×結果ごとの件数）。実績の「リスト別」で使う。
 export async function callStatsByList(fromJst, toJst) {
   if (!pool) return [];

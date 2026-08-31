@@ -228,6 +228,7 @@ import {
   aposByMeetingDate,
   apoWonCallsInRange,
   callStatsByList,
+  listCompaniesByList,
   callAnalysis,
   callMemos,
   clearCallLogs,
@@ -8931,6 +8932,72 @@ app.get("/api/calls/process", async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+// リスト別のファネル（コール→接触→アポ→実施→案件化→KPI→MID→受注）。
+// 案件化=02：有効商談 / KPI=03：担当者合意 / MID=04：企画決定者合意 / 受注=受注処理完了。
+app.get("/api/calls/list-funnel", async (req, res) => {
+  try {
+    const period = String(req.query.period || "month");
+    const base = await computeListStats(period, req.query.from, req.query.to);
+    const rows = await listCompaniesByList().catch(() => []);
+    // リスト → 会社キーの集合
+    const byList = new Map();
+    for (const r of rows) {
+      const k = normCompanyKey(r.company || ""); if (!k) continue;
+      if (!byList.has(r.list_id)) byList.set(r.list_id, { name: r.list_name, keys: new Set() });
+      byList.get(r.list_id).keys.add(k);
+    }
+    // SFのクロス商談を取ってきて、会社キー → ステージ にする
+    const st = await getSettings().catch(() => ({}));
+    const sfUser = String(st.psOwner || "").trim();
+    const stageOf = new Map();
+    if (sfUser) {
+      try {
+        const d = await sfQuery(sfUser,
+          `SELECT Account.Name, StageName, IsWon, IsClosed FROM Opportunity
+            WHERE RecordType.Name LIKE '%クロス%' ORDER BY CreatedDate DESC LIMIT 5000`);
+        for (const o of d.records || []) {
+          const k = normCompanyKey((o.Account && o.Account.Name) || ""); if (!k) continue;
+          const stage = String(o.StageName || "");
+          const cur = stageOf.get(k);
+          // より進んだステージを採用（受注＞04＞03＞02＞01）
+          const rank = (s) => /受注処理完了/.test(s) ? 5 : /04/.test(s) ? 4 : /03/.test(s) ? 3 : /02/.test(s) ? 2 : /01/.test(s) ? 1 : 0;
+          if (!cur || rank(stage) > rank(cur)) stageOf.set(k, stage);
+        }
+      } catch (e) { console.warn("[list-funnel] SF取得:", e.message); }
+    }
+    // 商談の実施（記録あり）の会社キー
+    const 実施キー = new Set();
+    try {
+      const ms = await listMeetings({ isAdmin: true, from: base.from, to: base.to, limit: 2000, light: true }).catch(() => []);
+      for (const m of ms) { const k = normCompanyKey(companyFromTitle(m.title || "") || m.account || ""); if (k) 実施キー.add(k); }
+    } catch {}
+
+    const items = (base.items || []).map((L) => {
+      const set = (byList.get(L.list_id) || { keys: new Set() }).keys;
+      let 実施 = 0, 案件化 = 0, kpi = 0, mid = 0, 受注 = 0;
+      for (const k of set) {
+        if (実施キー.has(k)) 実施++;
+        const s = stageOf.get(k) || "";
+        if (!s) continue;
+        if (/受注処理完了/.test(s)) { 受注++; mid++; kpi++; 案件化++; }
+        else if (/04/.test(s)) { mid++; kpi++; 案件化++; }
+        else if (/03/.test(s)) { kpi++; 案件化++; }
+        else if (/02/.test(s)) { 案件化++; }
+      }
+      const pct = (a, b) => (b ? (a / b * 100).toFixed(1) + "%" : "—");
+      return {
+        list_id: L.list_id, list_name: L.list_name,
+        コール: L["コール"], 接触: L["接触"], アポ: L["アポ"],
+        実施, 案件化, KPI: kpi, MID: mid, 受注,
+        接触率: pct(L["接触"], L["コール"]), アポ率: pct(L["アポ"], L["コール"]),
+        実施率: pct(実施, L["アポ"]), 案件化率: pct(案件化, L["アポ"]),
+        KPI率: pct(kpi, 案件化), MID率: pct(mid, kpi), 受注率: pct(受注, 案件化),
+      };
+    });
+    res.json({ ok: true, from: base.from, to: base.to, items });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 // リスト別の実績（kincall架電ログ基準）。表示期間の各リストのコール/接触/アポと率。
 async function computeListStats(periodIn, fromIn, toIn) {
     const pad = (n) => String(n).padStart(2, "0");
@@ -16454,7 +16521,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-04zn 除外アポの一括復帰。原因確定：除外59件の「外れた日時」が商談日とほぼ一致＝商談日を迎えるとカレンダー予定が消えたと判定され自動除外されていた（本物のアポが次々消えていた）。自動除外は停止済み。今回：POST /api/apo/excluded/restore-real（オーナー限定・テスト以外＝会社名に テスト/田中株式会社/株式会社田中 を含まないものを一括で集計に戻す）＋AI社員のSF状況に「除外されたアポを戻す（テスト以外）」ボタン。GET /api/apo/excluded（理由つき一覧）も追加済み。前回：除外理由の記録";
+const BUILD_TAG = "2026-09-04zo kincallのリスト別ダッシュボードを改善：リストごとのファネル（コール→接触→アポ→実施→案件化→KPI→MID→受注）と各移行率を表示。定義（田中さん）：案件化=SFステージ02：有効商談／KPI=03：担当者合意／MID=04：企画決定者合意／受注=受注処理完了。GET /api/calls/list-funnel＝computeListStatsにSFクロス商談のStageName（会社名キーで最も進んだステージを採用）と商談記録（実施）を突合。DB listCompaniesByList（リスト→会社名）。UIはリスト別カードを8ステップのファネル表示に。前回：除外アポの一括復帰";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",

@@ -649,6 +649,11 @@ function renderDock() {
     .kc-listcard{background:#fff;border:1px solid #e6ece9;border-radius:14px;box-shadow:0 2px 10px rgba(13,91,71,.06);padding:12px 14px;overflow-x:auto;}
     .kc-listcard-h{font-size:14px;font-weight:800;color:#0d5b47;margin-bottom:8px;display:flex;flex-direction:column;gap:2px;}
     .kc-listcard-sum{font-size:11.5px;font-weight:600;color:#7d8c86;}
+    .fn-row{display:flex;gap:6px;align-items:stretch;overflow-x:auto;padding:2px 0;}
+    .fn-step{flex:1 0 78px;background:#f6faf8;border-radius:10px;padding:8px 6px;text-align:center;position:relative;}
+    .fn-step b{display:block;font-size:18px;font-weight:800;color:#20302b;}
+    .fn-step span{display:block;font-size:10.5px;color:#7d8c86;}
+    .fn-step i{display:block;font-size:10.5px;color:#1d9e75;font-style:normal;font-weight:700;min-height:14px;}
     @media (max-width:640px){ .kc-listgrid{grid-template-columns:1fr;} }
     /* 設定・管理タブ */
     .kc-admin{display:grid;grid-template-columns:1fr 1fr;gap:14px;}
@@ -1602,20 +1607,28 @@ async function loadListStats() {
   try {
     // 日/週/月の期間指定に合わせる（既定は直近2週間相当）
     const per = ["day", "week", "month"].includes(statsPeriod) ? statsPeriod : "day";
-    const d = await (await fetch(`/api/calls/stats-by-list?period=${encodeURIComponent(per)}`)).json();
+    const d = await (await fetch(`/api/calls/list-funnel?period=${encodeURIComponent(per)}`)).json();
     if (d.error) throw new Error(d.error);
     const rg = $("stRange"); if (rg) rg.textContent = d.from && d.to ? `${d.from} 〜 ${d.to}` : "";
     const items = d.items || [];
     if (!items.length) { box.innerHTML = `<div class="note">この期間に、リストへの架電記録はありません。</div>`; return; }
     const pct = (a, b) => (b ? (a / b * 100).toFixed(1) + "%" : "—");
     const card = (L) => {
-      const 担当 = (L["担当"] || []).map((m) =>
-        `<tr><td class="kc-g-name">${esc(m["誰"])}</td><td class="kc-g-n">${m["コール"]}</td><td class="kc-g-n">${m["接触"]}（${pct(m["接触"], m["コール"])}）</td><td class="kc-g-n">${m["アポ"]}（${pct(m["アポ"], m["コール"])}）</td></tr>`).join("");
+      const step = (名, 数, 率) => `<div class="fn-step"><b>${数}</b><span>${esc(名)}</span><i>${esc(率 || "")}</i></div>`;
       return `<div class="kc-listcard">
         <div class="kc-listcard-h">${esc(L.list_name)}
-          <span class="kc-listcard-sum">コール ${L["コール"]}｜接触 ${L["接触"]}（${pct(L["接触"], L["コール"])}）｜アポ ${L["アポ"]}（${pct(L["アポ"], L["コール"])}）</span>
+          <span class="kc-listcard-sum">コール ${L["コール"]}｜接触率 ${esc(L["接触率"])}｜アポ率 ${esc(L["アポ率"])}｜案件化率 ${esc(L["案件化率"])}</span>
         </div>
-        ${担当 ? `<table class="sh-table kc-grid"><tr><th class="kc-g-name">担当</th><th class="kc-g-h">コール</th><th class="kc-g-h">接触</th><th class="kc-g-h">アポ</th></tr>${担当}</table>` : ""}
+        <div class="fn-row">
+          ${step("コール", L["コール"], "")}
+          ${step("接触", L["接触"], L["接触率"])}
+          ${step("アポ", L["アポ"], L["アポ率"])}
+          ${step("実施", L["実施"], L["実施率"])}
+          ${step("案件化", L["案件化"], L["案件化率"])}
+          ${step("KPI", L["KPI"], L["KPI率"])}
+          ${step("MID", L["MID"], L["MID率"])}
+          ${step("受注", L["受注"], L["受注率"])}
+        </div>
       </div>`;
     };
     box.innerHTML = `<div class="kc-listgrid">${items.map(card).join("")}</div>`;
