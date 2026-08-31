@@ -654,6 +654,16 @@ function renderDock() {
     .fn-step b{display:block;font-size:18px;font-weight:800;color:#20302b;}
     .fn-step span{display:block;font-size:10.5px;color:#7d8c86;}
     .fn-step i{display:block;font-size:10.5px;color:#1d9e75;font-style:normal;font-weight:700;min-height:14px;}
+    .kc-grp-box{margin-top:18px;padding-top:14px;border-top:1px solid #eef3f0;}
+    .kc-grp-h{font-size:13px;font-weight:800;color:#0d5b47;margin-bottom:8px;}
+    .kc-grp-list{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:6px;}
+    .kc-grp-chip{display:inline-flex;align-items:center;gap:6px;background:#f2f8f5;border:1px solid #dfeae5;border-radius:999px;padding:5px 10px;font-size:12.5px;color:#0d5b47;}
+    .kc-grp-chip i{font-style:normal;font-size:11px;color:#7d8c86;background:#fff;border-radius:999px;padding:1px 7px;}
+    .kc-grp-chip button{border:0;background:transparent;cursor:pointer;color:#7d8c86;font-size:12px;padding:0 2px;}
+    .kc-grp-chip button:hover{color:#0d5b47;}
+    .kc-grp-add{border:1px dashed #cfe0d8;background:#fff;color:#0d5b47;border-radius:999px;padding:5px 12px;font-size:12.5px;cursor:pointer;}
+    .kc-list-grp{margin-top:6px;}
+    .kc-list-grp select{width:100%;border:1px solid #e2eae6;border-radius:8px;padding:4px 6px;font-size:11.5px;color:#20302b;background:#fff;}
     @media (max-width:640px){ .kc-listgrid{grid-template-columns:1fr;} }
     /* 設定・管理タブ */
     .kc-admin{display:grid;grid-template-columns:1fr 1fr;gap:14px;}
@@ -1607,16 +1617,16 @@ async function loadListStats() {
   try {
     // 日/週/月の期間指定に合わせる（既定は直近2週間相当）
     const per = ["day", "week", "month"].includes(statsPeriod) ? statsPeriod : "day";
-    const d = await (await fetch(`/api/calls/list-funnel?period=${encodeURIComponent(per)}`)).json();
+    const d = await (await fetch(`/api/calls/group-funnel?period=${encodeURIComponent(per)}`)).json();
     if (d.error) throw new Error(d.error);
     const rg = $("stRange"); if (rg) rg.textContent = d.from && d.to ? `${d.from} 〜 ${d.to}` : "";
     const items = d.items || [];
-    if (!items.length) { box.innerHTML = `<div class="note">この期間に、リストへの架電記録はありません。</div>`; return; }
+    if (!items.length) { box.innerHTML = `<div class="note">グループがまだありません。リスト管理でグループを作り、各リストに割り当ててください。</div>`; return; }
     const pct = (a, b) => (b ? (a / b * 100).toFixed(1) + "%" : "—");
     const card = (L) => {
       const step = (名, 数, 率) => `<div class="fn-step"><b>${数}</b><span>${esc(名)}</span><i>${esc(率 || "")}</i></div>`;
       return `<div class="kc-listcard">
-        <div class="kc-listcard-h">${esc(L.list_name)}
+        <div class="kc-listcard-h">${esc(L.group_name)}<span class="kc-listcard-sum">リスト ${L["リスト数"] || 0}件</span>
           <span class="kc-listcard-sum">コール ${L["コール"]}｜接触率 ${esc(L["接触率"])}｜アポ率 ${esc(L["アポ率"])}｜案件化率 ${esc(L["案件化率"])}</span>
         </div>
         <div class="fn-row">
@@ -2069,7 +2079,9 @@ async function asLoad() {
         </div>`).join("") +
         (addable.length && 変えられる ? '<div class="kc-mem-card kc-mem-add" id="kcAddCard"><span class="kc-mem-name">＋ メンバーを足す</span></div>' : "") +
       '</div>' +
-      '<div class="kc-mem-pick" id="kcPick" hidden></div>';
+      '<div class="kc-mem-pick" id="kcPick" hidden></div>' +
+      '<div class="kc-grp-box" id="kcGrpBox"></div>';
+    renderGroups();
 
     // 「＋ メンバーを足す」でカードを増やせる
     const addCard = $("kcAddCard");
@@ -2292,7 +2304,45 @@ function renderAppendBanner() {
   }
 }
 
+// リストのグループ（中途リスト・新卒リストなど）を作る・直す・消す
+async function renderGroups() {
+  const box = document.getElementById("kcGrpBox"); if (!box) return;
+  await loadGroups();
+  box.innerHTML =
+    '<div class="kc-grp-h">リストのグループ</div>' +
+    '<div class="kc-grp-list">' +
+    GROUPS.map((g) => `<span class="kc-grp-chip" data-id="${g.id}">${esc(g.name)}<i>${g["リスト数"] || 0}</i>` +
+      `<button type="button" class="kc-grp-ren" data-id="${g.id}" title="名前を変える">✎</button>` +
+      `<button type="button" class="kc-grp-del" data-id="${g.id}" title="消す">✕</button></span>`).join("") +
+    '<button type="button" class="kc-grp-add" id="kcGrpAdd">＋ グループを作る</button>' +
+    '</div>' +
+    '<div class="note">グループを作って、各リストのカードで選ぶと、実績がグループごとにまとまります。</div>';
+  const add = document.getElementById("kcGrpAdd");
+  if (add) add.addEventListener("click", async () => {
+    const name = prompt("グループの名前（例：中途リスト／新卒リスト）");
+    if (!name) return;
+    await fetch("/api/calls/groups", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ name }) });
+    renderGroups();
+  });
+  box.querySelectorAll(".kc-grp-ren").forEach((b) => b.addEventListener("click", async () => {
+    const cur = GROUPS.find((g) => String(g.id) === b.dataset.id);
+    const name = prompt("新しい名前", cur ? cur.name : ""); if (!name) return;
+    await fetch(`/api/calls/groups/${b.dataset.id}`, { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ name }) });
+    renderGroups();
+  }));
+  box.querySelectorAll(".kc-grp-del").forEach((b) => b.addEventListener("click", async () => {
+    if (!confirm("このグループを消します（リストは残ります）。よろしいですか？")) return;
+    await fetch(`/api/calls/groups/${b.dataset.id}`, { method: "DELETE" });
+    renderGroups();
+  }));
+}
+
+let GROUPS = [];
+async function loadGroups() {
+  try { const d = await (await fetch("/api/calls/groups")).json(); GROUPS = d.items || []; } catch { GROUPS = []; }
+}
 async function asLoadMember(email, name) {
+  await loadGroups();
   const box = $("asCards");
   if (!box) return;
   box.innerHTML = '<div class="note">読み込んでいます…</div>';
@@ -2315,7 +2365,21 @@ async function asLoadMember(email, name) {
           <div class="kc-list-meta"><span class="kc-list-chip">全 ${x["全部"]}件</span>${
             x["自分のぶん"] && x["自分のぶん"] !== x["全部"]
               ? `<span class="kc-list-chip done">この人 ${x["自分のぶん"]}件</span>` : ""}</div>
+          <div class="kc-list-grp" onclick="event.stopPropagation()">
+            <select class="kc-grp-sel" data-list="${x.id}"><option value="">グループなし</option>${
+              GROUPS.map((g) => `<option value="${g.id}"${String(x.group_id || "") === String(g.id) ? " selected" : ""}>${esc(g.name)}</option>`).join("")}</select>
+          </div>
         </div>`).join("") + '</div>';
+      box.querySelectorAll(".kc-grp-sel").forEach((sel) => sel.addEventListener("change", async () => {
+        try {
+          const r = await fetch(`/api/calls/lists/${sel.dataset.list}/group`, {
+            method: "PUT", headers: { "content-type": "application/json" },
+            body: JSON.stringify({ groupId: sel.value ? Number(sel.value) : null }),
+          });
+          if (!r.ok) throw new Error((await r.json()).error || "変えられませんでした");
+          say("clStatus", "グループを変えました", 4000);
+        } catch (e) { alert("できませんでした：" + e.message); }
+      }));
       box.querySelectorAll(".kc-list-card").forEach((c) =>
         c.addEventListener("click", () => openSplit(c.dataset.id, (c.querySelector(".kc-list-name") || {}).textContent || "", email, name)));
       box.querySelectorAll(".kc-list-del").forEach((b) =>

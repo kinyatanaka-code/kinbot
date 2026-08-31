@@ -229,6 +229,13 @@ import {
   apoWonCallsInRange,
   callStatsByList,
   listCompaniesByList,
+  listGroups,
+  addGroup,
+  renameGroup,
+  deleteGroup,
+  setListGroup,
+  callStatsByGroup,
+  companiesByGroup,
   callAnalysis,
   callMemos,
   clearCallLogs,
@@ -8954,6 +8961,113 @@ app.get("/api/calls/_listdiag", async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+// ===== リストのグループ（中途リスト・新卒リストなど） =====
+app.get("/api/calls/groups", async (req, res) => {
+  try { res.json({ ok: true, items: await listGroups() }); }
+  catch (e) { res.status(500).json({ error: e.message }); }
+});
+app.post("/api/calls/groups", async (req, res) => {
+  try {
+    const name = String(req.body?.name || "").trim();
+    if (!name) return res.status(400).json({ error: "名前を入れてください" });
+    res.json({ ok: true, group: await addGroup(name) });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+app.put("/api/calls/groups/:id", async (req, res) => {
+  try { res.json({ ok: true, group: await renameGroup(parseInt(req.params.id, 10), req.body?.name) }); }
+  catch (e) { res.status(500).json({ error: e.message }); }
+});
+app.delete("/api/calls/groups/:id", async (req, res) => {
+  try { res.json({ ok: await deleteGroup(parseInt(req.params.id, 10)) }); }
+  catch (e) { res.status(500).json({ error: e.message }); }
+});
+// リストにグループを割り当てる
+app.put("/api/calls/lists/:id/group", async (req, res) => {
+  try {
+    const gid = req.body?.groupId ? parseInt(req.body.groupId, 10) : null;
+    res.json({ ok: true, list: await setListGroup(parseInt(req.params.id, 10), gid) });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// グループ別のファネル（コール→接触→アポ→実施→案件化→KPI→MID→受注）
+app.get("/api/calls/group-funnel", async (req, res) => {
+  try {
+    const pad = (n) => String(n).padStart(2, "0");
+    const ymd = (d) => `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}-${pad(d.getUTCDate())}`;
+    const nowJ = new Date(Date.now() + 9 * 3600 * 1000);
+    let from = String(req.query.from || ""), to = String(req.query.to || "");
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(from) || !/^\d{4}-\d{2}-\d{2}$/.test(to)) {
+      const period = String(req.query.period || "month");
+      const y = nowJ.getUTCFullYear(), m = nowJ.getUTCMonth(), d0 = nowJ.getUTCDate();
+      if (period === "month") { from = ymd(new Date(Date.UTC(y, m - 5, 1))); to = ymd(new Date(Date.UTC(y, m + 1, 0))); }
+      else if (period === "week") { const off = (nowJ.getUTCDay() + 6) % 7; from = ymd(new Date(Date.UTC(y, m, d0 - off - 7 * 7))); to = ymd(new Date(Date.UTC(y, m, d0 - off + 6))); }
+      else { from = ymd(new Date(Date.UTC(y, m, d0 - 13))); to = ymd(new Date(Date.UTC(y, m, d0))); }
+    }
+    const rows = await callStatsByGroup(from, to).catch(() => []);
+    const アポ判定 = (v) => /アポ獲得/.test(v);
+    const g = new Map();
+    for (const r of rows) {
+      if (!g.has(r.group_id)) g.set(r.group_id, { group_id: r.group_id, group_name: r.group_name, コール: 0, 接触: 0, アポ: 0 });
+      const o = g.get(r.group_id);
+      o.コール += r.n; if (isContacted(r.result)) o.接触 += r.n; if (アポ判定(r.result)) o.アポ += r.n;
+    }
+    // 会社名 → グループ、そしてSFステージ・商談記録で 実施/案件化/KPI/MID/受注 を数える
+    const comp = await companiesByGroup().catch(() => []);
+    const keysByGroup = new Map();
+    for (const c of comp) {
+      const k = normCompanyKey(c.company || ""); if (!k) continue;
+      if (!keysByGroup.has(c.group_id)) keysByGroup.set(c.group_id, { name: c.group_name, keys: new Set() });
+      keysByGroup.get(c.group_id).keys.add(k);
+    }
+    const st = await getSettings().catch(() => ({}));
+    const sfUser = String(st.psOwner || "").trim();
+    const stageOf = new Map();
+    if (sfUser) {
+      try {
+        const d = await sfQuery(sfUser,
+          `SELECT Account.Name, StageName FROM Opportunity
+            WHERE RecordType.Name LIKE '%クロス%' ORDER BY CreatedDate DESC LIMIT 5000`);
+        const rank = (s) => /受注処理完了/.test(s) ? 5 : /04/.test(s) ? 4 : /03/.test(s) ? 3 : /02/.test(s) ? 2 : /01/.test(s) ? 1 : 0;
+        for (const o of d.records || []) {
+          const k = normCompanyKey((o.Account && o.Account.Name) || ""); if (!k) continue;
+          const stage = String(o.StageName || "");
+          const cur = stageOf.get(k);
+          if (!cur || rank(stage) > rank(cur)) stageOf.set(k, stage);
+        }
+      } catch (e) { console.warn("[group-funnel] SF:", e.message); }
+    }
+    const 実施キー = new Set();
+    try {
+      const ms = await listMeetings({ isAdmin: true, from, to, limit: 2000, light: true }).catch(() => []);
+      for (const m of ms) { const k = normCompanyKey(companyFromTitle(m.title || "") || m.account || ""); if (k) 実施キー.add(k); }
+    } catch {}
+    const pct = (a, b) => (b ? (a / b * 100).toFixed(1) + "%" : "—");
+    const items = [];
+    const groups = await listGroups().catch(() => []);
+    for (const gr of groups) {
+      const o = g.get(gr.id) || { group_id: gr.id, group_name: gr.name, コール: 0, 接触: 0, アポ: 0 };
+      const set = (keysByGroup.get(gr.id) || { keys: new Set() }).keys;
+      let 実施 = 0, 案件化 = 0, kpi = 0, mid = 0, 受注 = 0;
+      for (const k of set) {
+        if (実施キー.has(k)) 実施++;
+        const sname = stageOf.get(k) || ""; if (!sname) continue;
+        if (/受注処理完了/.test(sname)) { 受注++; mid++; kpi++; 案件化++; }
+        else if (/04/.test(sname)) { mid++; kpi++; 案件化++; }
+        else if (/03/.test(sname)) { kpi++; 案件化++; }
+        else if (/02/.test(sname)) { 案件化++; }
+      }
+      items.push({
+        group_id: gr.id, group_name: gr.name, リスト数: gr["リスト数"],
+        コール: o.コール, 接触: o.接触, アポ: o.アポ, 実施, 案件化, KPI: kpi, MID: mid, 受注,
+        接触率: pct(o.接触, o.コール), アポ率: pct(o.アポ, o.コール),
+        実施率: pct(実施, o.アポ), 案件化率: pct(案件化, o.アポ),
+        KPI率: pct(kpi, 案件化), MID率: pct(mid, kpi), 受注率: pct(受注, 案件化),
+      });
+    }
+    res.json({ ok: true, from, to, items });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 // リスト別のファネル（コール→接触→アポ→実施→案件化→KPI→MID→受注）。
 // 案件化=02：有効商談 / KPI=03：担当者合意 / MID=04：企画決定者合意 / 受注=受注処理完了。
 app.get("/api/calls/list-funnel", async (req, res) => {
@@ -16543,7 +16657,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-04zo kincallのリスト別ダッシュボードを改善：リストごとのファネル（コール→接触→アポ→実施→案件化→KPI→MID→受注）と各移行率を表示。定義（田中さん）：案件化=SFステージ02：有効商談／KPI=03：担当者合意／MID=04：企画決定者合意／受注=受注処理完了。GET /api/calls/list-funnel＝computeListStatsにSFクロス商談のStageName（会社名キーで最も進んだステージを採用）と商談記録（実施）を突合。DB listCompaniesByList（リスト→会社名）。UIはリスト別カードを8ステップのファネル表示に。前回：除外アポの一括復帰";
+const BUILD_TAG = "2026-09-04zp リストのグループ機能を追加（中途リスト/新卒リスト等）。DB：call_list_groups＋call_lists.group_id（自動マイグレーション）、listGroups/addGroup/renameGroup/deleteGroup/setListGroup/callStatsByGroup/companiesByGroup。API：/api/calls/groups（GET/POST/PUT/DELETE）、/api/calls/lists/:id/group（割当）、/api/calls/group-funnel（グループ別のコール→接触→アポ→実施→案件化→KPI→MID→受注と各率。案件化=02有効商談/KPI=03担当者合意/MID=04企画決定者合意/受注=受注処理完了）。UI：リスト管理にグループの作成・改名・削除、各リストカードにグループ選択。実績「リスト別」はグループ単位の集計に変更。前回：リスト別ファネル";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",

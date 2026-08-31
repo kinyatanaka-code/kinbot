@@ -613,6 +613,16 @@ export async function initDb() {
       created_at TIMESTAMPTZ DEFAULT now()
     );
   `);
+  // リストのグループ（中途リスト・新卒リスト など）
+  await sq(`
+    CREATE TABLE IF NOT EXISTS call_list_groups (
+      id         SERIAL PRIMARY KEY,
+      name       TEXT NOT NULL,
+      created_at TIMESTAMPTZ DEFAULT now()
+    );
+  `);
+  await sq(`ALTER TABLE call_lists ADD COLUMN IF NOT EXISTS group_id INTEGER;`);
+
   await sq(`
     CREATE TABLE IF NOT EXISTS call_targets (
       id          SERIAL PRIMARY KEY,
@@ -3301,6 +3311,7 @@ export async function listCallLists({ owner = "", includeClosed = false, ownerOn
              SELECT 1 FROM call_targets t WHERE t.list_id = l.id AND t.assigned_to = $1))`;
     const { rows } = await pool.query(
       `SELECT l.*,
+              (SELECT g.name FROM call_list_groups g WHERE g.id = l.group_id) AS group_name,
               (SELECT count(*) FROM call_targets t WHERE t.list_id = l.id) AS 全部,
               (SELECT count(*) FROM call_targets t WHERE t.list_id = l.id AND t.done) AS 済み,
               (SELECT count(*) FROM call_targets t WHERE t.list_id = l.id AND t.assigned_to = $1) AS 自分のぶん
@@ -6891,6 +6902,80 @@ export async function apoWonCallsInRange(fromJst, toJst) {
       [fromJst, toJst]);
     return rows;
   } catch (e) { console.error("[db] apoWonCallsInRange", e.message); return []; }
+}
+
+// ===== リストのグループ（中途リスト・新卒リストなど） =====
+export async function listGroups() {
+  if (!pool) return [];
+  try {
+    const { rows } = await pool.query(
+      `SELECT g.id, g.name,
+              (SELECT count(*) FROM call_lists l WHERE l.group_id = g.id)::int AS リスト数
+         FROM call_list_groups g ORDER BY g.id`);
+    return rows;
+  } catch (e) { console.error("[db] listGroups", e.message); return []; }
+}
+export async function addGroup(name) {
+  if (!pool || !name) return null;
+  try {
+    const { rows } = await pool.query(
+      `INSERT INTO call_list_groups (name) VALUES ($1) RETURNING id, name`, [String(name).trim()]);
+    return rows[0] || null;
+  } catch (e) { console.error("[db] addGroup", e.message); return null; }
+}
+export async function renameGroup(id, name) {
+  if (!pool || !id) return null;
+  try {
+    const { rows } = await pool.query(
+      `UPDATE call_list_groups SET name=$2 WHERE id=$1 RETURNING id, name`, [id, String(name || "").trim()]);
+    return rows[0] || null;
+  } catch (e) { console.error("[db] renameGroup", e.message); return null; }
+}
+export async function deleteGroup(id) {
+  if (!pool || !id) return false;
+  try {
+    await pool.query(`UPDATE call_lists SET group_id = NULL WHERE group_id = $1`, [id]);
+    await pool.query(`DELETE FROM call_list_groups WHERE id = $1`, [id]);
+    return true;
+  } catch (e) { console.error("[db] deleteGroup", e.message); return false; }
+}
+export async function setListGroup(listId, groupId) {
+  if (!pool || !listId) return null;
+  try {
+    const { rows } = await pool.query(
+      `UPDATE call_lists SET group_id=$2 WHERE id=$1 RETURNING id, name, group_id`,
+      [listId, groupId || null]);
+    return rows[0] || null;
+  } catch (e) { console.error("[db] setListGroup", e.message); return null; }
+}
+// グループ別の集計のもと（グループ×結果ごとの件数）
+export async function callStatsByGroup(fromJst, toJst) {
+  if (!pool) return [];
+  try {
+    const { rows } = await pool.query(
+      `SELECT g.id AS group_id, g.name AS group_name, l.result, count(*)::int AS n
+         FROM call_logs l
+         JOIN call_targets t ON t.id = l.target_id
+         JOIN call_lists cl  ON cl.id = t.list_id
+         JOIN call_list_groups g ON g.id = cl.group_id
+        WHERE (l.at AT TIME ZONE 'Asia/Tokyo')::date >= $1::date
+          AND (l.at AT TIME ZONE 'Asia/Tokyo')::date <= $2::date
+        GROUP BY g.id, g.name, l.result`, [fromJst, toJst]);
+    return rows;
+  } catch (e) { console.error("[db] callStatsByGroup", e.message); return []; }
+}
+// グループごとの会社名（案件化などの突合に使う）
+export async function companiesByGroup() {
+  if (!pool) return [];
+  try {
+    const { rows } = await pool.query(
+      `SELECT g.id AS group_id, g.name AS group_name, t.company
+         FROM call_targets t
+         JOIN call_lists cl ON cl.id = t.list_id
+         JOIN call_list_groups g ON g.id = cl.group_id
+        WHERE COALESCE(t.company,'') <> ''`);
+    return rows;
+  } catch (e) { console.error("[db] companiesByGroup", e.message); return []; }
 }
 
 // リストごとの会社名（案件化・移行率の集計に使う）
