@@ -654,6 +654,13 @@ function renderDock() {
     .fn-step b{display:block;font-size:18px;font-weight:800;color:#20302b;}
     .fn-step span{display:block;font-size:10.5px;color:#7d8c86;}
     .fn-step i{display:block;font-size:10.5px;color:#1d9e75;font-style:normal;font-weight:700;min-height:14px;}
+    .st-chip{display:inline-block;font-size:10.5px;font-weight:700;border-radius:6px;padding:2px 7px;}
+    .st-chip.none{background:#f4f5f4;color:#9aa39d;}
+    .st-chip.apo{background:#eef2ff;color:#5b6be0;}
+    .st-chip.ok{background:#e6f7ef;color:#1d9e75;}
+    .st-chip.kpi{background:#e3f2fd;color:#1976d2;}
+    .st-chip.mid{background:#fff3e0;color:#e65100;}
+    .st-chip.won{background:#0d5b47;color:#fff;}
     .kc-grp-box{margin-top:18px;padding-top:14px;border-top:1px solid #eef3f0;}
     .kc-grp-h{font-size:13px;font-weight:800;color:#0d5b47;margin-bottom:8px;}
     .kc-grp-list{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:6px;}
@@ -1630,7 +1637,7 @@ async function loadListStats() {
     const pct = (a, b) => (b ? (a / b * 100).toFixed(1) + "%" : "—");
     const card = (L) => {
       const step = (名, 数, 率) => `<div class="fn-step"><b>${数}</b><span>${esc(名)}</span><i>${esc(率 || "")}</i></div>`;
-      return `<div class="kc-listcard">
+      return `<div class="kc-listcard grp-card" data-gid="${L.group_id}" style="cursor:pointer">
         <div class="kc-listcard-h">${esc(L.group_name)}<span class="kc-listcard-sum">リスト ${L["リスト数"] || 0}件</span>
           <span class="kc-listcard-sum">コール ${L["コール"]}｜接触率 ${esc(L["接触率"])}｜アポ率 ${esc(L["アポ率"])}｜案件化率 ${esc(L["案件化率"])}</span>
         </div>
@@ -1646,7 +1653,43 @@ async function loadListStats() {
         </div>
       </div>`;
     };
-    box.innerHTML = `<div class="kc-listgrid">${items.map(card).join("")}</div>`;
+    box.innerHTML = `<div class="kc-listgrid">${items.map(card).join("")}</div><div id="grpDetail"></div>`;
+    box.querySelectorAll(".grp-card").forEach((c) => c.addEventListener("click", () => openGroupDetail(c.dataset.gid, c)));
+  } catch (e) { box.innerHTML = `<div class="note">読み込めませんでした：${esc(e.message)}</div>`; }
+}
+
+// グループの内訳（リストごと＋会社ごとのSFステージ）
+async function openGroupDetail(gid, card) {
+  const box = document.getElementById("grpDetail"); if (!box) return;
+  if (box.dataset.open === String(gid)) { box.innerHTML = ""; box.dataset.open = ""; return; }
+  box.dataset.open = String(gid);
+  box.innerHTML = `<div class="note">内訳を読み込んでいます…</div>`;
+  try {
+    const d = await (await fetch(`/api/calls/group-detail/${encodeURIComponent(gid)}`)).json();
+    if (d.error) throw new Error(d.error);
+    const name = card ? (card.querySelector(".kc-listcard-h") || {}).textContent || "" : "";
+    const lists = (d.lists || []).map((L) =>
+      `<tr><td class="kc-g-name">${esc(L.list_name)}</td><td class="kc-g-n">${L["コール"]}</td><td class="kc-g-n">${L["接触"]}（${esc(L["接触率"])}）</td><td class="kc-g-n">${L["アポ"]}（${esc(L["アポ率"])}）</td></tr>`).join("");
+    const stageChip = (s2) => {
+      const cls = /受注処理完了/.test(s2) ? "won" : /04/.test(s2) ? "mid" : /03/.test(s2) ? "kpi" : /02/.test(s2) ? "ok" : /01/.test(s2) ? "apo" : "none";
+      return `<span class="st-chip ${cls}">${esc(s2)}</span>`;
+    };
+    const comps = (d.companies || []).map((c) =>
+      `<tr><td class="kc-g-name">${esc(c["会社"])}<div class="ww">${esc(c["リスト"])}</div></td>` +
+      `<td class="kc-g-n">${c["コール数"]}</td>` +
+      `<td class="kc-g-n">${esc(c["最終結果"] || "—")}<div class="ww">${esc(c["最終日時"] || "")}</div></td>` +
+      `<td class="kc-g-n">${c["実施"] ? "実施済み" : "—"}</td>` +
+      `<td class="kc-g-n">${stageChip(c["SFステージ"])}</td></tr>`).join("");
+    box.innerHTML = `
+      <div class="kc-listcard" style="margin-top:12px">
+        <div class="kc-listcard-h">${esc(name)} の内訳<span class="kc-listcard-sum">${esc(d.from)}〜${esc(d.to)}</span></div>
+        <div class="ai-subh">リストごと</div>
+        <table class="sh-table kc-grid"><tr><th class="kc-g-name">リスト</th><th class="kc-g-h">コール</th><th class="kc-g-h">接触</th><th class="kc-g-h">アポ</th></tr>${lists || `<tr><td colspan="4" class="kc-g-name">この期間の架電はありません。</td></tr>`}</table>
+        <div class="ai-subh" style="margin-top:10px">会社ごと（SFのステージ）</div>
+        <div style="max-height:420px;overflow:auto">
+        <table class="sh-table kc-grid"><tr><th class="kc-g-name">会社</th><th class="kc-g-h">コール</th><th class="kc-g-h">最終結果</th><th class="kc-g-h">商談</th><th class="kc-g-h">SFステージ</th></tr>${comps || `<tr><td colspan="5" class="kc-g-name">対象がありません。</td></tr>`}</table>
+        </div>
+      </div>`;
   } catch (e) { box.innerHTML = `<div class="note">読み込めませんでした：${esc(e.message)}</div>`; }
 }
 

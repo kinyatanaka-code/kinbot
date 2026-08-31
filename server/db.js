@@ -6965,6 +6965,33 @@ export async function callStatsByGroup(fromJst, toJst) {
     return rows;
   } catch (e) { console.error("[db] callStatsByGroup", e.message); return []; }
 }
+// あるグループの中を見る：リストごとの件数と、会社ごとの最終結果
+export async function groupBreakdown(groupId, fromJst, toJst) {
+  if (!pool || !groupId) return { lists: [], companies: [] };
+  try {
+    const { rows: lists } = await pool.query(
+      `SELECT cl.id AS list_id, cl.name AS list_name, l.result, count(*)::int AS n
+         FROM call_logs l
+         JOIN call_targets t ON t.id = l.target_id
+         JOIN call_lists cl  ON cl.id = t.list_id
+        WHERE cl.group_id = $1
+          AND (l.at AT TIME ZONE 'Asia/Tokyo')::date >= $2::date
+          AND (l.at AT TIME ZONE 'Asia/Tokyo')::date <= $3::date
+        GROUP BY cl.id, cl.name, l.result`, [groupId, fromJst, toJst]);
+    const { rows: companies } = await pool.query(
+      `SELECT cl.name AS list_name, t.company, t.person,
+              (SELECT cl2.result FROM call_logs cl2 WHERE cl2.target_id = t.id ORDER BY cl2.at DESC LIMIT 1) AS 最終結果,
+              (SELECT cl2.at FROM call_logs cl2 WHERE cl2.target_id = t.id ORDER BY cl2.at DESC LIMIT 1) AS 最終日時,
+              (SELECT count(*) FROM call_logs cl2 WHERE cl2.target_id = t.id)::int AS コール数
+         FROM call_targets t
+         JOIN call_lists cl ON cl.id = t.list_id
+        WHERE cl.group_id = $1 AND COALESCE(t.company,'') <> ''
+        ORDER BY cl.name, t.company
+        LIMIT 500`, [groupId]);
+    return { lists, companies };
+  } catch (e) { console.error("[db] groupBreakdown", e.message); return { lists: [], companies: [] }; }
+}
+
 // グループごとの会社名（案件化などの突合に使う）
 export async function companiesByGroup() {
   if (!pool) return [];

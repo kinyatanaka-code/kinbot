@@ -236,6 +236,7 @@ import {
   setListGroup,
   callStatsByGroup,
   companiesByGroup,
+  groupBreakdown,
   callAnalysis,
   callMemos,
   clearCallLogs,
@@ -8989,6 +8990,69 @@ app.put("/api/calls/lists/:id/group", async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+// グループの内訳：リストごとの数字と、会社ごとの最終結果＋SFステージ
+app.get("/api/calls/group-detail/:id", async (req, res) => {
+  try {
+    const pad = (n) => String(n).padStart(2, "0");
+    const ymd = (d) => `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}-${pad(d.getUTCDate())}`;
+    const nowJ = new Date(Date.now() + 9 * 3600 * 1000);
+    let from = String(req.query.from || ""), to = String(req.query.to || "");
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(from) || !/^\d{4}-\d{2}-\d{2}$/.test(to)) {
+      const y = nowJ.getUTCFullYear(), m = nowJ.getUTCMonth();
+      from = ymd(new Date(Date.UTC(y, m - 5, 1))); to = ymd(new Date(Date.UTC(y, m + 1, 0)));
+    }
+    const gid = parseInt(req.params.id, 10);
+    const d = await groupBreakdown(gid, from, to).catch(() => ({ lists: [], companies: [] }));
+
+    // リストごとに集計
+    const アポ判定 = (v) => /アポ獲得/.test(v);
+    const lm = new Map();
+    for (const r of d.lists) {
+      if (!lm.has(r.list_id)) lm.set(r.list_id, { list_id: r.list_id, list_name: r.list_name, コール: 0, 接触: 0, アポ: 0 });
+      const o = lm.get(r.list_id);
+      o.コール += r.n; if (isContacted(r.result)) o.接触 += r.n; if (アポ判定(r.result)) o.アポ += r.n;
+    }
+    // SFステージ（会社名で引く）
+    const st = await getSettings().catch(() => ({}));
+    const sfUser = String(st.psOwner || "").trim();
+    const stageOf = new Map();
+    if (sfUser) {
+      try {
+        const q = await sfQuery(sfUser,
+          `SELECT Account.Name, StageName FROM Opportunity
+            WHERE RecordType.Name LIKE '%クロス%' ORDER BY CreatedDate DESC LIMIT 5000`);
+        const rank = (x) => /受注処理完了/.test(x) ? 5 : /04/.test(x) ? 4 : /03/.test(x) ? 3 : /02/.test(x) ? 2 : /01/.test(x) ? 1 : 0;
+        for (const o of q.records || []) {
+          const k = normCompanyKey((o.Account && o.Account.Name) || ""); if (!k) continue;
+          const sname = String(o.StageName || ""); const cur = stageOf.get(k);
+          if (!cur || rank(sname) > rank(cur)) stageOf.set(k, sname);
+        }
+      } catch (e) { console.warn("[group-detail] SF:", e.message); }
+    }
+    // 商談の記録（実施）
+    const 実施キー = new Set();
+    try {
+      const ms = await listMeetings({ isAdmin: true, from, to, limit: 2000, light: true }).catch(() => []);
+      for (const m of ms) { const k = normCompanyKey(companyFromTitle(m.title || "") || m.account || ""); if (k) 実施キー.add(k); }
+    } catch {}
+
+    const pct = (a, b) => (b ? (a / b * 100).toFixed(1) + "%" : "—");
+    const lists = [...lm.values()].map((o) => ({ ...o, 接触率: pct(o.接触, o.コール), アポ率: pct(o.アポ, o.コール) }))
+      .sort((a, b) => b.コール - a.コール);
+    const companies = (d.companies || []).map((c) => {
+      const k = normCompanyKey(c.company || "");
+      return {
+        リスト: c.list_name, 会社: c.company, 担当者: c.person || "",
+        コール数: c["コール数"], 最終結果: c["最終結果"] || "",
+        最終日時: c["最終日時"] ? String(c["最終日時"]).slice(0, 10) : "",
+        SFステージ: stageOf.get(k) || "（SFに商談なし）",
+        実施: 実施キー.has(k),
+      };
+    }).filter((c) => c.コール数 > 0 || c.SFステージ !== "（SFに商談なし）");
+    res.json({ ok: true, from, to, lists, companies });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 // グループ別のファネル（コール→接触→アポ→実施→案件化→KPI→MID→受注）
 app.get("/api/calls/group-funnel", async (req, res) => {
   try {
@@ -16657,7 +16721,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-04zq リストのグループが一目で分かるように改善。リストカードにグループ名バッジを常時表示（未設定は「グループ未設定」とグレー表示）、選択変更で即バッジも更新。グループ一覧はチップにリスト数＋カーソルでリスト名、下に「グループ名：入っているリスト」の内訳を表示（listGroupsがリスト名も返す）。前回：リストのグループ機能を追加";
+const BUILD_TAG = "2026-09-04zr グループ実績をクリックで内訳表示。GET /api/calls/group-detail/:id＝そのグループのリストごとの コール/接触/アポ（率つき）＋会社ごとの コール数/最終結果/最終日時/商談実施の有無/SFステージ（会社名でクロス商談を引き、最も進んだステージ）。UI：実績リスト別のグループカードをクリックで内訳パネルを開閉、SFステージは色チップ（01アポ/02有効商談/03担当者合意/04企画決定者合意/受注処理完了）。前回：グループ表示の見える化";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
