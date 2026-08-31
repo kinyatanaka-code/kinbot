@@ -842,6 +842,16 @@ app.post("/api/logout", (req, res) => {
 function aiOwnerEmail() { return String(process.env.AI_OWNER_EMAIL || "kinya.tanaka@neo-career.co.jp").toLowerCase(); }
 function isAiOwner(req) { return !!req.isAdmin || String(req.user || "").toLowerCase() === aiOwnerEmail(); }
 
+// 架電の結果が「担当者と話せた（接触）」かどうか。
+// 実際の選択肢：受付ブロック／担当者不在／担当者接触：お断り／担当者接触：アポ獲得／
+//   担当者接触：営業フォロー／現在使われていない／コールのみ／問い合わせ／担当者接触ニーズなし／資料送付
+// 担当者と話せたもの＝接触（問い合わせ・資料送付も担当者と話した結果なので接触に含める）。
+function isContacted(v) {
+  const t = String(v || "");
+  if (/不在|コールのみ|受付ブロック|現在使われていない|NG/.test(t)) return false;
+  return /接触|アポ|再コール|断り|見送り|問い合わせ|資料送付/.test(t);
+}
+
 async function isCloserUser(email) {
   try {
     const members = await listMembers().catch(() => []);
@@ -4823,7 +4833,7 @@ async function buildCallReport(sfUser) {
     const members = await listMembers().catch(() => []);
     const nameByEmail = new Map((members || []).map((m) => [String(m.email || "").toLowerCase(), m.name || m.email]));
     const stats = await callStats(today).catch(() => []);   // [{caller(メール), result, n}]
-    const 接触判定 = (v) => /接触|アポ|再コール|断り|見送り/.test(v) && !/不在|コールのみ|NG/.test(v);
+    const 接触判定 = (v) => isContacted(v);
     const kc = new Map();
     for (const s of stats || []) {
       const em = String(s.caller || "").toLowerCase(); if (!em) continue;
@@ -8283,7 +8293,7 @@ app.get("/api/calls/analysis", async (req, res) => {
 
     const rows = await callAnalysis(from, to);
     const zeroSet = await zeroDayMDSet();
-    const 接触判定 = (v) => /接触|アポ|再コール|断り|見送り/.test(v) && !/不在|コールのみ|NG/.test(v);
+    const 接触判定 = (v) => isContacted(v);
     const アポ判定 = (v) => /アポ獲得/.test(v);
 
     const 空 = () => ({
@@ -8470,7 +8480,7 @@ async function computeStatsGrid(periodIn, spanIn) {
       const cell = ensure(em)[i];
       cell.コール += r.n;
       const v = String(r.result || "");
-      if (/接触|アポ|再コール|断り|見送り/.test(v) && !/不在|コールのみ|NG/.test(v)) cell.接触 += r.n;
+      if (isContacted(v)) cell.接触 += r.n;
     }
 
     // ---- アポ件数は「アポ一覧（カレンダー予定）」で数える（【初回】【新/ヒ】のみ・メルマガ除外） ----
@@ -8552,7 +8562,7 @@ app.get("/api/calls/_contactdiag", async (req, res) => {
     if (!isAiOwner(req)) return res.status(403).json({ error: "権限がありません" });
     const from = String(req.query.from || jstDate(-6)), to = String(req.query.to || jstDate(0));
     const rows = await callStatsByDay(from, to).catch(() => []);
-    const 接触判定 = (v) => /接触|アポ|再コール|断り|見送り/.test(v) && !/不在|コールのみ|NG/.test(v);
+    const 接触判定 = (v) => isContacted(v);
     const byResult = new Map();
     for (const r of rows) {
       const v = String(r.result || "（空）");
@@ -8850,7 +8860,7 @@ async function computeListStats(periodIn, fromIn, toIn) {
       else { from = ymd(new Date(Date.UTC(y, m, d0 - 13))); to = ymd(new Date(Date.UTC(y, m, d0))); }
     }
     const rows = await callStatsByList(from, to).catch(() => []);
-    const 接触した = (v) => /接触|アポ|再コール|断り|見送り/.test(v) && !/不在|コールのみ|NG/.test(v);
+    const 接触した = (v) => isContacted(v);
     const アポ = (v) => /アポ獲得/.test(v);
     const lists = new Map();
     for (const r of rows) {
@@ -8926,7 +8936,7 @@ app.get("/api/calls/stats", async (req, res) => {
       const o = by.get(email);
       o.コール += r.n;
       const v = String(r.result || "");
-      const 接触した = /接触|アポ|再コール|断り|見送り/.test(v) && !/不在|コールのみ|NG/.test(v);
+      const 接触した = isContacted(v);
       const アポ = /アポ獲得/.test(v);
       if (接触した || アポ) o.接触 += r.n;
       if (アポ) o.アポ += r.n;
@@ -11143,7 +11153,7 @@ async function runProcessSheet(sfUser, opts = {}) {
     }
     const mdKey = (ymd) => { const p = String(ymd).split("-"); return p.length === 3 ? `${Number(p[1])}/${Number(p[2])}` : ""; };
     const ensureT = (name, key) => { if (!tallied[name]) tallied[name] = {}; if (!tallied[name][key]) tallied[name][key] = { "コール": 0, "接触": 0, "アポ（期内）": 0, "アポ（期外）": 0 }; return tallied[name][key]; };
-    const 接触した = (v) => /接触|アポ|再コール|断り|見送り/.test(v) && !/不在|コールのみ|NG/.test(v);
+    const 接触した = (v) => isContacted(v);
     const callRows = await callStatsByDay(from, to).catch(() => []);
     for (const r of callRows) {
       const name = insideName.get(String(r.caller || "").toLowerCase()); if (!name) continue;
@@ -16359,7 +16369,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-04zh 【点検用・一時】GET /api/calls/_contactdiag：kincallの結果ごとの件数と接触判定の結果を返す（接触が拾えていない原因調査）。前回：コール進捗のアポを実獲得者で数える";
+const BUILD_TAG = "2026-09-04zi 接触が拾えていない不具合を修正。点検(_contactdiag)で判明：kincallの結果「問い合わせ」(15件)「資料送付」(1件)が接触扱いfalseで漏れていた。共通関数 isContacted(v) を新設し、除外＝不在/コールのみ/受付ブロック/現在使われていない/NG、接触＝接触|アポ|再コール|断り|見送り|問い合わせ|資料送付 に統一。実績(computeStatsGrid)・リスト別・分析・コール進捗・プロセスシート合算など7箇所の接触判定を共通関数に置換。前回：点検API追加";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
