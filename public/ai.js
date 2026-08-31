@@ -195,7 +195,19 @@ async function loadSfStatus() {
       </div>
       <div class="ai-mini">${sa ? `SF監査：${fmtWhen(sa.at)}（全${sa["リスト"]}リスト・ユーザー化 ${sa["ユーザー化"]}・クロス ${sa["クロス"]}・失注 ${sa["失注"]}）` : "SF監査：まだ実行記録がありません（30分ごとに回ります）"}</div>
       ${(d["直近の失敗理由"] || []).length ? `<div class="ai-subh" style="margin-top:8px;">立ち上がらなかった理由</div><ul class="ai-tasks">${d["直近の失敗理由"].map((x) => `<li class="ai-task"><span class="ai-task-t">${esc(x.company || "")}：${esc(x["理由"])}</span></li>`).join("")}</ul>` : ""}
-      <div class="ai-mini" style="margin-top:6px;">${取りこぼし警告 ? "取りこぼしが残っています（10分ごとの見回りで拾われます。長く残るなら要確認）。" : "取りこぼしはありません。順調です。"}</div>`;
+      <div class="ai-mini" style="margin-top:6px;">${取りこぼし警告 ? "取りこぼしが残っています（10分ごとの見回りで拾われます。長く残るなら要確認）。" : "取りこぼしはありません。順調です。"}</div>
+      <div class="modal-actions" style="margin-top:8px;"><button class="btn" id="sendCallReport" type="button">コール進捗を今すぐ送る</button><span class="saved" id="sendCallMsg" hidden></span></div>`;
+    const scr = $("sendCallReport");
+    if (scr) scr.addEventListener("click", async () => {
+      scr.disabled = true; const t = scr.textContent; scr.textContent = "送信中…";
+      try {
+        const r = await fetch("/api/ai/call-report/send", { method: "POST", headers: { "content-type": "application/json" }, body: "{}" });
+        const d = await r.json();
+        if (!r.ok) throw new Error(d.error || "送信できませんでした");
+        const m = $("sendCallMsg"); if (m) { m.textContent = "送信しました"; m.hidden = false; }
+      } catch (e) { alert("送信できませんでした：" + e.message); }
+      finally { scr.disabled = false; scr.textContent = t; }
+    });
   } catch (e) { box.innerHTML = `<div class="ai-empty">読み込めませんでした：${esc(e.message)}</div>`; }
 }
 

@@ -4878,6 +4878,20 @@ async function buildCallReport(sfUser) {
   return { skipped: false, text: lines.join("\n"), summary: sum, rows: list };
 }
 
+// コール進捗を今すぐ送る（オーナー限定・テスト送信）。時間帯の制限を無視して即送信。
+app.post("/api/ai/call-report/send", async (req, res) => {
+  try {
+    if (!isAiOwner(req)) return res.status(403).json({ error: "権限がありません" });
+    const st = await getSettings().catch(() => ({}));
+    const sfUser = String(st.psOwner || "").trim();
+    const r = await buildCallReport(sfUser);
+    if (r.skipped) return res.status(400).json({ error: r.reason || "コール進捗を作れませんでした" });
+    const where = req.body && req.body.self ? "self" : "assign";   // self=自分のチャットだけ / 既定=いつもの送信先
+    await notifyAll(r.text, where).catch(() => {});
+    res.json({ ok: true, reply: "コール進捗を送信しました。", summary: r.summary, text: r.text });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 // 決まった時刻になったら流す（1時間に1回だけ）
 async function maybeSendCallReport() {
   try {
@@ -16299,7 +16313,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-04zd コール進捗のアポの数え方を修正。田中さん確認：アポ獲得者はアポ一覧(smart-link)のsetter（例=植野）が正しく、kincallでアポ獲得を押した人(caller=中村/加藤等)ではない。前版でアポをkincall callerで数えていたのを、獲得者(setter=apoBy: aposTakenInRange(today) by setter)で数えるよう修正。コール/接触はSFレポート＋kincallの合算のまま。SFレポートのアポは二重計上防止のため加算しない（アポはsetterのみ）。前回：コール進捗を全員合算";
+const BUILD_TAG = "2026-09-04ze コール進捗の手動送信を整理（/api/ai/call-report/send が重複していたため1つに統合。オーナー限定・body.self=trueで自分のチャットのみ、既定はいつもの送信先）。AI社員のSF状況パネルの「コール進捗を今すぐ送る」から実行可。前回：アポを獲得者(setter)基準に修正";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
