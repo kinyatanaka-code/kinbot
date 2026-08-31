@@ -654,6 +654,8 @@ function renderDock() {
     .fn-step b{display:block;font-size:18px;font-weight:800;color:#20302b;}
     .fn-step span{display:block;font-size:10.5px;color:#7d8c86;}
     .fn-step i{display:block;font-size:10.5px;color:#1d9e75;font-style:normal;font-weight:700;min-height:14px;}
+    .kc-fn-range{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:10px;font-size:12px;color:#5b7a6d;}
+    .kc-fn-range input[type=date]{border:1px solid #d7ded9;border-radius:8px;padding:5px 8px;font-size:12px;}
     .st-chip{display:inline-block;font-size:10.5px;font-weight:700;border-radius:6px;padding:2px 7px;}
     .st-chip.none{background:#f4f5f4;color:#9aa39d;}
     .st-chip.apo{background:#eef2ff;color:#5b6be0;}
@@ -1622,14 +1624,18 @@ async function loadAdmin() {
 }
 
 // ───────── リスト別の実績（kincall架電ログ基準） ─────────
+let LIST_FROM = "", LIST_TO = "";
 async function loadListStats() {
   const box = $("clStats");
   if (!box) return;
   box.innerHTML = `<div class="note">読み込んでいます…</div>`;
   try {
-    // 日/週/月の期間指定に合わせる（既定は直近2週間相当）
+    // 期間：入力があればその範囲、無ければ日/週/月の既定
     const per = ["day", "week", "month"].includes(statsPeriod) ? statsPeriod : "day";
-    const d = await (await fetch(`/api/calls/group-funnel?period=${encodeURIComponent(per)}`)).json();
+    const q = (LIST_FROM && LIST_TO)
+      ? `from=${encodeURIComponent(LIST_FROM)}&to=${encodeURIComponent(LIST_TO)}`
+      : `period=${encodeURIComponent(per)}`;
+    const d = await (await fetch(`/api/calls/group-funnel?${q}`)).json();
     if (d.error) throw new Error(d.error);
     const rg = $("stRange"); if (rg) rg.textContent = d.from && d.to ? `${d.from} 〜 ${d.to}` : "";
     const items = d.items || [];
@@ -1653,7 +1659,20 @@ async function loadListStats() {
         </div>
       </div>`;
     };
-    box.innerHTML = `<div class="kc-listgrid">${items.map(card).join("")}</div><div id="grpDetail"></div>`;
+    const 期間欄 = `<div class="kc-fn-range">
+        <label>期間 <input type="date" id="lfFrom" value="${esc(LIST_FROM || d.from || "")}" /></label>
+        <span>〜</span>
+        <label><input type="date" id="lfTo" value="${esc(LIST_TO || d.to || "")}" /></label>
+        <button class="pr-b" id="lfApply" type="button">この期間で見る</button>
+        <button class="pr-b" id="lfClear" type="button">既定に戻す</button>
+      </div>`;
+    box.innerHTML = 期間欄 + `<div class="kc-listgrid">${items.map(card).join("")}</div><div id="grpDetail"></div>`;
+    const ap = $("lfApply"); if (ap) ap.addEventListener("click", () => {
+      const f = ($("lfFrom") || {}).value, t = ($("lfTo") || {}).value;
+      if (!f || !t) { alert("開始日と終了日を入れてください"); return; }
+      LIST_FROM = f; LIST_TO = t; loadListStats();
+    });
+    const cl = $("lfClear"); if (cl) cl.addEventListener("click", () => { LIST_FROM = ""; LIST_TO = ""; loadListStats(); });
     box.querySelectorAll(".grp-card").forEach((c) => c.addEventListener("click", () => openGroupDetail(c.dataset.gid, c)));
   } catch (e) { box.innerHTML = `<div class="note">読み込めませんでした：${esc(e.message)}</div>`; }
 }
@@ -1665,7 +1684,8 @@ async function openGroupDetail(gid, card) {
   box.dataset.open = String(gid);
   box.innerHTML = `<div class="note">内訳を読み込んでいます…</div>`;
   try {
-    const d = await (await fetch(`/api/calls/group-detail/${encodeURIComponent(gid)}`)).json();
+    const qq = (LIST_FROM && LIST_TO) ? `?from=${encodeURIComponent(LIST_FROM)}&to=${encodeURIComponent(LIST_TO)}` : "";
+    const d = await (await fetch(`/api/calls/group-detail/${encodeURIComponent(gid)}${qq}`)).json();
     if (d.error) throw new Error(d.error);
     const name = card ? (card.querySelector(".kc-listcard-h") || {}).textContent || "" : "";
     const lists = (d.lists || []).map((L) =>
