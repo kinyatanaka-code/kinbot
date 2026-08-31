@@ -9008,7 +9008,55 @@ async function syncMergedPrs({ days = 14, notify = false } = {}) {
   return { done, prs: 反映 };
 }
 
-// GitHub共通：トークンとリポジトリ、フェッチ
+// SFの自動更新の状況（オーナー限定）：今日のSF記録・取りこぼし待ち・未紐づけ・立ち上げ待ち・SF監査・直近の失敗理由。
+app.get("/api/ai/sf-status", async (req, res) => {
+  try {
+    if (!isAiOwner(req)) return res.status(403).json({ error: "権限がありません" });
+    const pad = (n) => String(n).padStart(2, "0");
+    const nowJ = new Date(Date.now() + 9 * 3600 * 1000);
+    const today = `${nowJ.getUTCFullYear()}-${pad(nowJ.getUTCMonth() + 1)}-${pad(nowJ.getUTCDate())}`;
+    const ymdJst = (v) => { if (!v) return ""; const d = new Date(v); if (isNaN(d.getTime())) return ""; const j = new Date(d.getTime() + 9 * 3600000); return `${j.getUTCFullYear()}-${pad(j.getUTCMonth() + 1)}-${pad(j.getUTCDate())}`; };
+
+    // 直近の商談（当日ぶんを含む範囲）
+    const rows = await listMeetings({ isAdmin: true, from: new Date(Date.now() - 2 * 86400000).toISOString(), limit: 500 }).catch(() => []);
+    const 内部 = (t) => /社内|MTG|ミーティング|定例|1on1|研修/i.test(String(t || ""));
+    const 記録対象 = rows.filter((m) => !内部(m.title));
+    const 今日記録 = 記録対象.filter((m) => ymdJst(m.sf_recorded_at) === today).length;
+    // 取りこぼし待ち：記録されるべき（要約/文字起こしあり・終了して時間が経った）のに sf_recorded_at が無い
+    const 取りこぼし = 記録対象.filter((m) => !m.sf_recorded_at && (m.transcript || m.summary || m.metrics) &&
+      (Date.now() - new Date(m.created_at || m.at || Date.now()).getTime() > 30 * 60000)).length;
+
+    // 未紐づけ
+    let 未紐づけ = 0; try { 未紐づけ = (await findUnlinkedMeetings({ days: 7 })).length; } catch {}
+    // 立ち上げ待ち＋失敗理由（直近のSF失敗の代わり）
+    let 立ち上げ待ち = 0; const 失敗理由 = [];
+    try {
+      const al = await listAutolaunch(60);
+      for (const r of al) {
+        const st = String(r.status || r.state || "").toLowerCase();
+        const err = r.error || r.reason || r.note || "";
+        if (/wait|pending|待ち|未|error|失敗|ng/i.test(st) || (err && !/done|ok|成功|受注|完了/i.test(st))) {
+          立ち上げ待ち++;
+          if (err && 失敗理由.length < 8) 失敗理由.push({ company: r.company || r.name || r.company_name || "", 理由: String(err).slice(0, 120), at: ymdJst(r.updated_at || r.created_at) });
+        }
+      }
+    } catch {}
+
+    const sa = _lastSfAudit;
+    res.json({
+      ok: true, today,
+      今日のSF記録: 今日記録,
+      取りこぼし待ち: 取りこぼし,
+      未紐づけ,
+      立ち上げ待ち,
+      SF監査: sa ? { at: sa.at, リスト: sa.lists, ユーザー化: sa.ユーザー, クロス: sa.クロス, 失注: sa.失注 } : null,
+      直近の失敗理由: 失敗理由,
+    });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// SFの自動更新の状況 ここまで
+
 function ghToken() { return process.env.GH_DISPATCH_TOKEN || process.env.GITHUB_DISPATCH_TOKEN || process.env.GITHUB_TOKEN || ""; }
 function ghRepo() { return process.env.KINBOT_REPO || "kinyatanaka-code/kinbot"; }
 async function gh(pathOrUrl, opt = {}) {
@@ -16244,7 +16292,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-04y 自動改善を一旦停止（Claudeのクレジット切れで毎時失敗のため）。GitHub Actionsの schedule(cron) をコメントアウト：kinbot-hourly（毎時:30）・kinbot-night（毎日3:00）・kinbot-advisor（平日提案）。workflow_dispatch(手動)は残す。復活時は各ymlの # schedule と # - cron の # を外す。あわせてアプリ側の『コードを自動で直す』もOFF運用推奨。前回：進捗の失敗工程表示";
+const BUILD_TAG = "2026-09-04za キツツキ社内支援AIカードに「SFの状況（今日）」を追加。GET /api/ai/sf-status（オーナー限定）＝今日のSF記録件数(sf_recorded_atが本日)・取りこぼし待ち(要約/文字起こしありで終了30分超だが未記録)・未紐づけ(findUnlinkedMeetings)・立ち上げ待ち＋失敗理由(listAutolaunch)・SF監査(_lastSfAudit)。UIは社内支援AIの「見る・操作する」内にタイル＋監査＋失敗理由。取りこぼし/未紐づけ/立ち上げ待ちが0でなければ警告色。前回：自動改善停止";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",

@@ -177,6 +177,28 @@ const 状態チップ = (s) => s === "on" ? `<span class="ai-st on">ON</span>`
   : s === "off" ? `<span class="ai-st off">OFF</span>`
   : `<span class="ai-st always">常時</span>`;
 
+async function loadSfStatus() {
+  const box = $("sfStatus"); if (!box) return;
+  box.textContent = "読み込んでいます…";
+  try {
+    const d = await (await fetch("/api/ai/sf-status")).json();
+    if (d.error) { box.innerHTML = `<div class="ai-empty">${esc(d.error)}</div>`; return; }
+    const 取りこぼし警告 = d["取りこぼし待ち"] > 0;
+    const tile = (label, val, warn) => `<div class="sf-tile ${warn ? "warn" : ""}"><b>${val}</b><span>${esc(label)}</span></div>`;
+    const sa = d["SF監査"];
+    box.innerHTML = `
+      <div class="sf-tiles">
+        ${tile("今日のSF記録", d["今日のSF記録"] ?? 0)}
+        ${tile("取りこぼし待ち", d["取りこぼし待ち"] ?? 0, 取りこぼし警告)}
+        ${tile("未紐づけ", d["未紐づけ"] ?? 0, (d["未紐づけ"] || 0) > 0)}
+        ${tile("立ち上げ待ち", d["立ち上げ待ち"] ?? 0, (d["立ち上げ待ち"] || 0) > 0)}
+      </div>
+      <div class="ai-mini">${sa ? `SF監査：${fmtWhen(sa.at)}（全${sa["リスト"]}リスト・ユーザー化 ${sa["ユーザー化"]}・クロス ${sa["クロス"]}・失注 ${sa["失注"]}）` : "SF監査：まだ実行記録がありません（30分ごとに回ります）"}</div>
+      ${(d["直近の失敗理由"] || []).length ? `<div class="ai-subh" style="margin-top:8px;">立ち上がらなかった理由</div><ul class="ai-tasks">${d["直近の失敗理由"].map((x) => `<li class="ai-task"><span class="ai-task-t">${esc(x.company || "")}：${esc(x["理由"])}</span></li>`).join("")}</ul>` : ""}
+      <div class="ai-mini" style="margin-top:6px;">${取りこぼし警告 ? "取りこぼしが残っています（10分ごとの見回りで拾われます。長く残るなら要確認）。" : "取りこぼしはありません。順調です。"}</div>`;
+  } catch (e) { box.innerHTML = `<div class="ai-empty">読み込めませんでした：${esc(e.message)}</div>`; }
+}
+
 function dlFile(name, text, mime) {
   const blob = new Blob([text], { type: (mime || "text/plain") + ";charset=utf-8" });
   const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = name;
@@ -325,7 +347,11 @@ function render(d) {
           <div class="dept-stat"><b>${onCount(support.jobs)}</b><span>ON・常時</span></div>
         </div>
         <div class="dept-jobs">${supTop}</div>
-        <div class="dept-more" id="more-support" hidden>${supRest}</div>
+        <div class="dept-more" id="more-support" hidden>
+          ${supRest}
+          <div class="ai-subh" style="margin-top:8px;">SFの状況（今日）</div>
+          <div id="sfStatus" class="sf-status">読み込んでいます…</div>
+        </div>
         <button class="dept-btn" data-dept="support">この部門を見る・操作する</button>
       </div>
 
@@ -460,7 +486,8 @@ function wire() {
   // 部門の「見る・操作する」で詳細を開閉
   document.querySelectorAll(".dept-btn").forEach((b) => b.addEventListener("click", () => {
     const more = $("more-" + b.dataset.dept);
-    if (more) { const open = !more.hidden; more.hidden = open; b.textContent = open ? "この部門を見る・操作する" : "とじる"; }
+    if (more) { const open = !more.hidden; more.hidden = open; b.textContent = open ? "この部門を見る・操作する" : "とじる";
+      if (!open && b.dataset.dept === "support") loadSfStatus(); }
   }));
   // PRを報告（一覧表示＋差分＋デプロイ＋md/txtダウンロード）
   const prb = $("prReport");

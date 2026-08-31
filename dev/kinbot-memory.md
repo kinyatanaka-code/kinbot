@@ -41,6 +41,8 @@ kincall（架電リスト）という別ツールも同じ画面群の中にあ�
 
 ## 決定・指示のログ（新しいものを上に足す）
 
+- 2026-09-04 キツツキ（AI社員）にSF自動更新の状況パネルを追加（田中さん要望：今日1件しか記録されず不安→一目で確認したい）。GET /api/ai/sf-status（isAiOwner限定）：今日のSF記録（listMeetingsからsf_recorded_atが本日・社内MTG除外）・取りこぼし待ち（要約/文字起こし/metricsありで作成30分超だがsf_recorded_at無し）・未紐づけ（findUnlinkedMeetings days=7）・立ち上げ待ち＋失敗理由（listAutolaunch(60)の未完/エラー）・SF監査（_lastSfAudit）。UI：社内支援AIの「この部門を見る・操作する」内に「SFの状況（今日）」タイル（今日のSF記録/取りこぼし待ち/未紐づけ/立ち上げ待ち、0でなければ警告色）＋監査＋立ち上がらなかった理由。loadSfStatus()は部門を開いたとき取得。※Claude API切れはSF自動更新（記録/監査/割り振り/立ち上げ＝LLM不要）に影響なし。要約/ネクストアクション等のAI部分のみLLM(主Gemini)。取りこぼしが長く残る場合は要確認の目安表示。
+
 - 2026-09-04 自動改善を一旦停止（田中さん指示・Claudeのクレジット切れで kinbot-hourly が毎時失敗していたため）。GitHub Actions の schedule(cron) をコメントアウト：kinbot-hourly.yml（"30 * * * *"）・kinbot-night.yml（"0 18 * * *"）・kinbot-advisor.yml（"0 0,3,6,9,12 * * 1-5"）。いずれも先頭に「# schedule: 一旦停止…」と「# - cron:」を付与、workflow_dispatch(手動)は残す。復活時は # を外す。※これらはClaude Code＋ANTHROPIC_API_KEY を使う。アプリ側『コードを自動で直す』(autoImprove)もOFF運用推奨（AI社員画面の開発AIカードのスイッチ）。金のかからない自動改善は、無料枠LLM(Gemini free / Groq free)に向ける＋頻度を落とす、が現実解（別途要望あれば対応）。
 
 - 2026-09-04 AI社員のPR一覧に「このPRを対応済みにする」ボタン（案1）。POST /api/ai/mark-done（isAiOwner限定、{ids:[..]} か {pr:番号}→本文のメモID抽出）＝updateDevNote(id,{status:'done'})。クリックでそのPRの紐づく開発メモを対応済みに（マージ権限不要）。#3/#2をこのチャットで反映済みなので、田中さんがこのボタンで 728/727・749/750 を対応済みにできる（本番DBはRailway側なので実更新は反映後にボタン押下で実施）。旧deployボタン配線は撤去。
