@@ -8546,6 +8546,26 @@ async function computeStatsGrid(periodIn, spanIn) {
     return { period, 区切り, 今, members: membersOut, totals, sfError, items, 合計 };
 }
 
+// 【点検用・一時】接触が拾えているかを見る：kincallの結果ごとの件数と、接触判定の結果。
+app.get("/api/calls/_contactdiag", async (req, res) => {
+  try {
+    if (!isAiOwner(req)) return res.status(403).json({ error: "権限がありません" });
+    const from = String(req.query.from || jstDate(-6)), to = String(req.query.to || jstDate(0));
+    const rows = await callStatsByDay(from, to).catch(() => []);
+    const 接触判定 = (v) => /接触|アポ|再コール|断り|見送り/.test(v) && !/不在|コールのみ|NG/.test(v);
+    const byResult = new Map();
+    for (const r of rows) {
+      const v = String(r.result || "（空）");
+      const o = byResult.get(v) || { 件数: 0, 接触扱い: 接触判定(v) };
+      o.件数 += r.n; byResult.set(v, o);
+    }
+    const list = [...byResult.entries()].map(([結果, o]) => ({ 結果, 件数: o.件数, 接触扱い: o.接触扱い })).sort((a, b) => b.件数 - a.件数);
+    const 合計 = list.reduce((a, x) => a + x.件数, 0);
+    const 接触計 = list.filter((x) => x.接触扱い).reduce((a, x) => a + x.件数, 0);
+    res.json({ from, to, コール合計: 合計, 接触合計: 接触計, 結果の内訳: list });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 app.get("/api/calls/stats-grid", async (req, res) => {
   try { res.json({ ok: true, ...(await computeStatsGrid(req.query.period, req.query.span)) }); }
   catch (e) { res.status(500).json({ error: e.message }); }
