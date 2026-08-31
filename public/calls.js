@@ -661,8 +661,13 @@ function renderDock() {
     .kc-grp-chip i{font-style:normal;font-size:11px;color:#7d8c86;background:#fff;border-radius:999px;padding:1px 7px;}
     .kc-grp-chip button{border:0;background:transparent;cursor:pointer;color:#7d8c86;font-size:12px;padding:0 2px;}
     .kc-grp-chip button:hover{color:#0d5b47;}
+    .kc-grp-detail{margin-top:6px;display:flex;flex-direction:column;gap:3px;}
+    .kc-grp-line{font-size:11.5px;color:#5b7a6d;}
+    .kc-grp-line b{color:#0d5b47;}
     .kc-grp-add{border:1px dashed #cfe0d8;background:#fff;color:#0d5b47;border-radius:999px;padding:5px 12px;font-size:12.5px;cursor:pointer;}
     .kc-list-grp{margin-top:6px;}
+    .kc-list-chip.grp{background:#e6f7ef;color:#0d5b47;border-color:#cfe6da;font-weight:700;}
+    .kc-list-chip.nogrp{background:#f4f5f4;color:#9aa39d;}
     .kc-list-grp select{width:100%;border:1px solid #e2eae6;border-radius:8px;padding:4px 6px;font-size:11.5px;color:#20302b;background:#fff;}
     @media (max-width:640px){ .kc-listgrid{grid-template-columns:1fr;} }
     /* 設定・管理タブ */
@@ -2311,12 +2316,16 @@ async function renderGroups() {
   box.innerHTML =
     '<div class="kc-grp-h">リストのグループ</div>' +
     '<div class="kc-grp-list">' +
-    GROUPS.map((g) => `<span class="kc-grp-chip" data-id="${g.id}">${esc(g.name)}<i>${g["リスト数"] || 0}</i>` +
+    GROUPS.map((g) => `<span class="kc-grp-chip" data-id="${g.id}" title="${esc(g["リスト名"] || "まだリストが入っていません")}">${esc(g.name)}<i>${g["リスト数"] || 0}</i>` +
       `<button type="button" class="kc-grp-ren" data-id="${g.id}" title="名前を変える">✎</button>` +
       `<button type="button" class="kc-grp-del" data-id="${g.id}" title="消す">✕</button></span>`).join("") +
     '<button type="button" class="kc-grp-add" id="kcGrpAdd">＋ グループを作る</button>' +
     '</div>' +
-    '<div class="note">グループを作って、各リストのカードで選ぶと、実績がグループごとにまとまります。</div>';
+    '<div class="note">グループを作って、各リストのカードで選ぶと、実績がグループごとにまとまります。数字は入っているリストの数（カーソルを合わせるとリスト名が出ます）。</div>' +
+    (GROUPS.some((g) => (g["リスト数"] || 0) > 0)
+      ? '<div class="kc-grp-detail">' + GROUPS.filter((g) => (g["リスト数"] || 0) > 0).map((g) =>
+          `<div class="kc-grp-line"><b>${esc(g.name)}</b>：${esc(g["リスト名"] || "")}</div>`).join("") + '</div>'
+      : "");
   const add = document.getElementById("kcGrpAdd");
   if (add) add.addEventListener("click", async () => {
     const name = prompt("グループの名前（例：中途リスト／新卒リスト）");
@@ -2365,6 +2374,9 @@ async function asLoadMember(email, name) {
           <div class="kc-list-meta"><span class="kc-list-chip">全 ${x["全部"]}件</span>${
             x["自分のぶん"] && x["自分のぶん"] !== x["全部"]
               ? `<span class="kc-list-chip done">この人 ${x["自分のぶん"]}件</span>` : ""}</div>
+          <div class="kc-list-meta">${x.group_name
+            ? `<span class="kc-list-chip grp">${esc(x.group_name)}</span>`
+            : `<span class="kc-list-chip nogrp">グループ未設定</span>`}</div>
           <div class="kc-list-grp" onclick="event.stopPropagation()">
             <select class="kc-grp-sel" data-list="${x.id}"><option value="">グループなし</option>${
               GROUPS.map((g) => `<option value="${g.id}"${String(x.group_id || "") === String(g.id) ? " selected" : ""}>${esc(g.name)}</option>`).join("")}</select>
@@ -2378,6 +2390,13 @@ async function asLoadMember(email, name) {
           });
           if (!r.ok) throw new Error((await r.json()).error || "変えられませんでした");
           say("clStatus", "グループを変えました", 4000);
+          const card = sel.closest(".kc-list-card");
+          const chip = card ? card.querySelector(".kc-list-chip.grp, .kc-list-chip.nogrp") : null;
+          if (chip) {
+            const g = GROUPS.find((x2) => String(x2.id) === sel.value);
+            chip.textContent = g ? g.name : "グループ未設定";
+            chip.className = "kc-list-chip " + (g ? "grp" : "nogrp");
+          }
         } catch (e) { alert("できませんでした：" + e.message); }
       }));
       box.querySelectorAll(".kc-list-card").forEach((c) =>

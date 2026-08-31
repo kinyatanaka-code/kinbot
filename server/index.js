@@ -16657,7 +16657,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-04zp リストのグループ機能を追加（中途リスト/新卒リスト等）。DB：call_list_groups＋call_lists.group_id（自動マイグレーション）、listGroups/addGroup/renameGroup/deleteGroup/setListGroup/callStatsByGroup/companiesByGroup。API：/api/calls/groups（GET/POST/PUT/DELETE）、/api/calls/lists/:id/group（割当）、/api/calls/group-funnel（グループ別のコール→接触→アポ→実施→案件化→KPI→MID→受注と各率。案件化=02有効商談/KPI=03担当者合意/MID=04企画決定者合意/受注=受注処理完了）。UI：リスト管理にグループの作成・改名・削除、各リストカードにグループ選択。実績「リスト別」はグループ単位の集計に変更。前回：リスト別ファネル";
+const BUILD_TAG = "2026-09-04zq リストのグループが一目で分かるように改善。リストカードにグループ名バッジを常時表示（未設定は「グループ未設定」とグレー表示）、選択変更で即バッジも更新。グループ一覧はチップにリスト数＋カーソルでリスト名、下に「グループ名：入っているリスト」の内訳を表示（listGroupsがリスト名も返す）。前回：リストのグループ機能を追加";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",

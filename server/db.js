@@ -6910,7 +6910,8 @@ export async function listGroups() {
   try {
     const { rows } = await pool.query(
       `SELECT g.id, g.name,
-              (SELECT count(*) FROM call_lists l WHERE l.group_id = g.id)::int AS リスト数
+              (SELECT count(*) FROM call_lists l WHERE l.group_id = g.id)::int AS リスト数,
+              (SELECT string_agg(l.name, '、' ORDER BY l.id) FROM call_lists l WHERE l.group_id = g.id) AS リスト名
          FROM call_list_groups g ORDER BY g.id`);
     return rows;
   } catch (e) { console.error("[db] listGroups", e.message); return []; }
