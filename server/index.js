@@ -9154,14 +9154,18 @@ app.get("/api/ai/progress", async (req, res) => {
       } catch {}
     }
     const phase = run ? (run.status === "in_progress" ? "running" : (run.conclusion || run.status)) : "idle";
+    let failStep = "";
+    if (run && run.conclusion === "failure") {
+      try { const jr = await gh(`/actions/runs/${run.id}/jobs`); if (jr.ok) { const jobs = (await jr.json()).jobs || []; for (const j of jobs) { const s = (j.steps || []).find((x) => x.conclusion === "failure"); if (s) { failStep = s.name; break; } } } } catch {}
+    }
     const when = run && run.updated_at ? new Date(run.updated_at).toLocaleString("ja-JP") : "";
     const text = run
       ? (phase === "running" ? `いま開発AIが作業中です：${run.name || "自動改善"}${step ? "／" + step : ""}`
         : phase === "success" ? `直近の作業は完了しました（${run.name || "自動改善"}・${when}）`
-        : phase === "failure" ? `直近の作業は失敗しました（${run.name || "自動改善"}・${when}）。ログを確認してください。`
+        : phase === "failure" ? `直近の作業は失敗しました（${run.name || "自動改善"}・${when}）${failStep ? "／失敗した工程：" + failStep : ""}。ログを確認してください。`
         : `直近の作業：${run.name || ""}（${phase}・${when}）`)
       : "いまは動いていません。";
-    res.json({ ok: true, phase, text, runUrl: run ? run.html_url : "", name: run ? run.name : "" });
+    res.json({ ok: true, phase, text, runUrl: run ? run.html_url : "", name: run ? run.name : "", failStep });
   } catch (e) { res.json({ ok: true, phase: "idle", text: "進捗を取得できませんでした" }); }
 });
 
@@ -16240,7 +16244,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-04w AI社員PR一覧に「このPRを対応済みにする」ボタン（オーナー限定）。POST /api/ai/mark-done {ids[] または pr:番号}＝PR本文のメモIDを拾って updateDevNote done。クリックで対応中を減らせる（マージ権限不要）。前回：PR#3/#2反映＋デプロイボタン撤去";
+const BUILD_TAG = "2026-09-04x 進捗バナー：直近Actionsが失敗のとき、失敗した工程（ジョブのfailステップ名）も表示（failStep）。原因切り分け用。前回：PR対応済みボタン";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
