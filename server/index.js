@@ -11471,6 +11471,30 @@ async function computeCallHoursByName(owner, layout, fromISO, toISO) {
 }
 
 
+// プロセスシートに使う期間を決める。
+//   1) 画面で指定があればそれ
+//   2) 実績画面の「月ごとの範囲」（apoMonthWindows）のうち、今日を含むもの（複数なら新しい月）
+//   3) 旧設定の固定期間（psTermFrom/psTermTo）
+//   4) 今日の暦月
+// 理由：実績画面の「今すぐ実行」は期間を送らないため、旧設定の8月期間のままだと
+// 8/31以降の kincall 架電・アポが集計に入らず、シートに実績が入らなかった。
+function resolveProcessSheetTerm(st, opts = {}) {
+  const pick = (v) => String(v || "").trim().slice(0, 10);
+  if (pick(opts.termFrom) && pick(opts.termTo)) return { from: pick(opts.termFrom), to: pick(opts.termTo), source: "指定" };
+  const today = new Date(Date.now() + 9 * 3600 * 1000).toISOString().slice(0, 10);
+  let win = {};
+  try { win = JSON.parse(st.apoMonthWindows || "{}") || {}; } catch { win = {}; }
+  const hit = Object.keys(win)
+    .filter((k) => win[k] && win[k].from && win[k].to && today >= win[k].from && today <= win[k].to)
+    .sort().pop();
+  if (hit) return { from: pick(win[hit].from), to: pick(win[hit].to), source: `月ごとの範囲（${hit}）` };
+  if (pick(st.psTermFrom) && pick(st.psTermTo)) return { from: pick(st.psTermFrom), to: pick(st.psTermTo), source: "固定期間の設定" };
+  const [Y, M] = today.split("-").map((x) => parseInt(x, 10));
+  const last = new Date(Date.UTC(Y, M, 0)).getUTCDate();
+  const p2 = (n) => String(n).padStart(2, "0");
+  return { from: `${Y}-${p2(M)}-01`, to: `${Y}-${p2(M)}-${p2(last)}`, source: "今月" };
+}
+
 // 実行の本体。画面からも、30分ごとの自動実行からも、ここを使う。
 async function runProcessSheet(sfUser, opts = {}) {
   const st = await getSettings();
@@ -11478,12 +11502,16 @@ async function runProcessSheet(sfUser, opts = {}) {
   const sheetName = String(opts.sheetName || st.psSheetName || "").trim();
   const reportId = String(opts.reportId || st.psReportId || "").trim();
   const owner = String(opts.owner || st.psOwner || sfUser || "").trim();
-  const from = String(opts.termFrom || st.psTermFrom || "").trim();
-  const to = String(opts.termTo || st.psTermTo || "").trim();
+  const term = resolveProcessSheetTerm(st, opts);
+  const from = term.from;
+  const to = term.to;
   // 期内・期外の分け方。
   //   auto  … アポを取った月と商談の月が同じなら期内（毎月の設定変更が要らない）
   //   fixed … 下で指定した期間に商談日が入っていれば期内
-  const termMode = String(opts.termMode || st.psTermMode || "fixed") === "auto" ? "auto" : "fixed";
+  // 月ごとの範囲を使うときは、その範囲をそのまま期内とする（fixed）。
+  const termMode = /^月ごとの範囲/.test(term.source)
+    ? "fixed"
+    : (String(opts.termMode || st.psTermMode || "fixed") === "auto" ? "auto" : "fixed");
   const dryRun = opts.dryRun !== false;
   const onlyDates = Array.isArray(opts.dates) && opts.dates.length ? opts.dates : null;
   // 「この日から書き込む」（空なら期間の開始から）
@@ -11667,7 +11695,7 @@ async function runProcessSheet(sfUser, opts = {}) {
           .sort((a, b) => (b.inTerm + b.outTerm) - (a.inTerm + a.outTerm));
       })(),
       // 判定に使った期間・分け方も返す（ずれていないか確かめられるように）
-      termUsed: { from, to, mode: termMode },
+      termUsed: { from, to, mode: termMode, source: term.source },
     };
   }
 
@@ -11678,10 +11706,10 @@ async function runProcessSheet(sfUser, opts = {}) {
   try {
     if (gasUrl) {
       const r = await writeViaAppsScript(gasUrl, gasSecret, { sheetName, cells: updates });
-      return { ok: true, updated: r.updated, count: updates.length, skipped, via: "gas" };
+      return { ok: true, updated: r.updated, count: updates.length, skipped, via: "gas", termUsed: { from, to, mode: termMode, source: term.source } };
     }
     const r = await updateSheetCells(owner, sheetId, sheetName, updates);
-    return { ok: true, updated: r.updated, count: updates.length, skipped, via: "google" };
+    return { ok: true, updated: r.updated, count: updates.length, skipped, via: "google", termUsed: { from, to, mode: termMode, source: term.source } };
   } catch (e) {
     // どのセルに書こうとしたかを添える（原因を調べるときに使う）
     e.firstRange = updates[0] ? updates[0].range : "";
@@ -16753,7 +16781,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-04zw プロセスシートにアポが入らない不具合を修正：項目行ラベルの照合で括弧の全角半角・空白のゆれを吸収（例「アポ(期内)」「アポ （期外）」も「アポ（期内）/（期外）」と同じ行として拾う）。従来はコール・接触のラベルは一致して書けても、アポ行が担当者名と誤認され rows が空になり書き込まれなかった。前回：リスト別実績の期間を保存（localStorageに開始日/終了日を記憶し、ページを切り替えても保たれる。既定に戻すで消去）。＋【点検用・一時】GET /api/calls/_stagediag：SFクロス商談のStageNameごとの件数と、KPI/MID/案件化/受注の判定結果を返す（KPIが出ない原因＝ステージ名の表記確認用）。前回：リスト一覧にgroup_idを追加";
+const BUILD_TAG = "2026-09-04zx プロセスシートに実績が入らない不具合の本修正：実績画面の「今すぐ実行／お試し」は期間を送らず、旧設定の固定期間（8月）のまま集計していたため、8/31以降の kincall 架電・アポが入らなかった。期間を「今日を含む月ごとの範囲」から自動で決めるように（指定＞月ごとの範囲＞旧固定期間＞今月）。月ごとの範囲を使うときは期内判定もその範囲（fixed）。実行結果に使った期間・実績の無い担当者・スキップ理由を表示。前回(zw)：項目行ラベルの括弧ゆれ吸収（localStorageに開始日/終了日を記憶し、ページを切り替えても保たれる。既定に戻すで消去）。＋【点検用・一時】GET /api/calls/_stagediag：SFクロス商談のStageNameごとの件数と、KPI/MID/案件化/受注の判定結果を返す（KPIが出ない原因＝ステージ名の表記確認用）。前回：リスト一覧にgroup_idを追加";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",

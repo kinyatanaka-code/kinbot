@@ -1615,7 +1615,19 @@ async function loadAdmin() {
         const r = await fetch("/api/process-sheet/run", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ dryRun: dry }) });
         const d = await r.json();
         if (!r.ok) throw new Error(d.error || "実行に失敗しました");
-        rs.textContent = dry ? `お試し：${d.count ?? 0}箇所が対象です（まだ書き込んでいません）` : `完了：${d.count ?? 0}箇所を更新しました`;
+        const tu = d.termUsed || {};
+        const termTxt = tu.from && tu.to ? `　期間 ${tu.from}〜${tu.to}（${tu.source || ""}）` : "";
+        const skipTxt = Array.isArray(d.skipped) && d.skipped.length ? `　スキップ：${d.skipped.slice(0, 5).join("／")}` : "";
+        if (dry) {
+          const ppl = Array.isArray(d.people) ? d.people : [];
+          const mt = Array.isArray(d.matched) ? d.matched : [];
+          const sameN = (a, b) => { const x = String(a).replace(/[\s　]/g, ""), y = String(b).replace(/[\s　]/g, ""); return x === y || x.startsWith(y) || y.startsWith(x); };
+          const miss = ppl.filter((p) => !mt.some((m) => sameN(p, m)));
+          const missTxt = miss.length ? `　実績が見つからない担当者：${miss.join("、")}` : "";
+          rs.textContent = `お試し：${d.count ?? 0}箇所が対象です（まだ書き込んでいません）${termTxt}${missTxt}${skipTxt}`;
+        } else {
+          rs.textContent = `完了：${d.count ?? 0}箇所を更新しました${termTxt}${skipTxt}`;
+        }
         if (!dry) { const pl = $("psLast"); if (pl) pl.textContent = `${new Date().toLocaleString("ja-JP")}・${d.count ?? 0}箇所を更新`; }
       } catch (e) { rs.textContent = "失敗：" + e.message; }
     };
