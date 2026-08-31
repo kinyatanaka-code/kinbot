@@ -41,6 +41,8 @@ kincall（架電リスト）という別ツールも同じ画面群の中にあ�
 
 ## 決定・指示のログ（新しいものを上に足す）
 
+- 2026-09-04 コール進捗のアポの数え方を修正（田中さん確認：アポ獲得者はアポ一覧(smart-link)のsetterが正＝例ヘラマンタイトンは植野が獲得。kincallで「アポ獲得」を押した人 caller=中村/加藤等ではない）。前版(zc)でアポをkincall callerで数えたのが誤り→獲得者(setter)基準に修正。buildCallReport：(1)SFレポートtallyからコール/接触のみ addRow（アポは足さない＝二重防止）、(2)kincall callStats(today) からコール/接触のみ addRow、(3)アポは apoBy（aposTakenInRange(today) を setter で集計、数えない人skip）で addRow。コール/接触＝SF＋kincall合算は維持、アポ＝setter(獲得者)のみ。※実績画面のアポ定義（カレンダー初回商談ユニーク・meeting owner等）とは別物だが、コール進捗の“今日の速報アポ”は setter基準で田中さんの認識と一致。要：反映後に植野等のアポが正しく付くか確認。
+
 - 2026-09-04 コール進捗通知（buildCallReport）を「全員合算（SFレポート＋kincall記録）」に変更（田中さん指示：クローザーはkincallもSFも記録、インサイドはkincallのみ→全員合算で正しい数字）。従来はSFレポート(tally)＋kinbotアポ記録(apoBy=aposTakenInRange)＋インターンのkincall(callStats)だけで、クローザーのkincall架電が入っていなかった。修正：rowsを norm名キーで合算し、(1)SFレポートの名前ごと今日ぶん（コール/接触/アポ期内+期外）、(2)callStats(today)のkincall（caller メール→listMembersのname）のコール/接触/アポ獲得、を addRow で加算。isSkippedPerson(skip=loadSkipInviters)で中澤・浦林等を除外（SF上のインターン代理名義もここで落ちる＝二重防止）。インサイドはSF=0なので二重にならない。旧apoBy(aposTakenInRange)は未使用化。これで実績画面(セールス=SF+kincall/インサイド=kincall)とコール進捗通知の数え方が一致。
 
 - 2026-09-04 kincall履歴のバグを調査・修正（田中さん：履歴がバグってる、今直したい）。見つけた不具合：(1)db.js callHistory の SELECT に id が無いのに /api/calls/targets/:id/history が logId:h.id を使用→kinbot側履歴の logId が空で「直す」/識別が不能。→ id を SELECT に追加。(2)履歴の items.sort が new Date(b.at) 前提で、at が null/不正だと NaN→並び順崩壊。→ ts(v)=Number.isFinite? : 0 で堅牢化。(3)同一架電が kinbot側(sf_task_id無し)とSF活動の両方で二重表示され得る→ 誰|結果|分バケツ で重複除去(uniq)。注意：一覧の「履歴数」バッジ＝call_logs WHERE target_id=t.id（同一相手へのkincall記録回数）で、履歴パネル（未送信kinbot＋SF活動、callHistoryは target_id OR lead_id）とは測る対象が違い件数がズレることがある（仕様差。バッジをパネルと一致させたい場合は別途要相談）。※症状の詳細（どの履歴がどうおかしいか）は田中さんに要確認、上記3点は客観的バグとして修正済み。

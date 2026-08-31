@@ -4812,27 +4812,30 @@ async function buildCallReport(sfUser) {
     cur.calls += c || 0; cur.contacts += ct || 0; cur.apos += ap || 0;
     rows.set(key, cur);
   };
-  // 1) SFレポート（名前ごと・今日）
+  // 1) SFレポート（名前ごと・今日）：コール・接触だけ足す（アポは下の3で獲得者=setterで数える）
   for (const [who, days] of Object.entries(tallied)) {
     const t = days[md]; if (!t) continue;
-    addRow(who, t["コール"] || 0, t["接触"] || 0, (t["アポ（期内）"] || 0) + (t["アポ（期外）"] || 0));
+    addRow(who, t["コール"] || 0, t["接触"] || 0, 0);
   }
-  // 2) kincallの記録（今日）：かけた人(メール)→メンバー名 で足す
+  // 2) kincallの記録（今日）：かけた人(メール)→メンバー名 で「コール・接触」を足す。
+  //    ※アポは kincallのcaller ではなく、アポ一覧(smart-link)の獲得者(setter)で数える（下の3で加算）。
   try {
     const members = await listMembers().catch(() => []);
     const nameByEmail = new Map((members || []).map((m) => [String(m.email || "").toLowerCase(), m.name || m.email]));
     const stats = await callStats(today).catch(() => []);   // [{caller(メール), result, n}]
     const 接触判定 = (v) => /接触|アポ|再コール|断り|見送り/.test(v) && !/不在|コールのみ|NG/.test(v);
-    const アポ判定 = (v) => /アポ獲得/.test(v);
     const kc = new Map();
     for (const s of stats || []) {
       const em = String(s.caller || "").toLowerCase(); if (!em) continue;
-      const o = kc.get(em) || { calls: 0, contacts: 0, apos: 0 };
-      o.calls += s.n; if (接触判定(s.result)) o.contacts += s.n; if (アポ判定(s.result)) o.apos += s.n;
+      const o = kc.get(em) || { calls: 0, contacts: 0 };
+      o.calls += s.n; if (接触判定(s.result)) o.contacts += s.n;
       kc.set(em, o);
     }
-    for (const [em, o] of kc) addRow(nameByEmail.get(em) || em, o.calls, o.contacts, o.apos);
+    for (const [em, o] of kc) addRow(nameByEmail.get(em) || em, o.calls, o.contacts, 0);
   } catch (e) { console.warn("[call-report] kincall分の合算に失敗:", e.message); }
+
+  // 3) アポは「今日のアポ一覧（smart-link）の獲得者(setter)」で数える（＝正しい獲得者）。
+  for (const [who, n] of apoBy) addRow(who, 0, 0, n);
 
   const list = [...rows.values()].sort((a, b) => b.calls - a.calls);
   const sum = list.reduce((o, x) => ({
@@ -16296,7 +16299,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-04zc コール進捗通知を全員合算に（SFレポート＋kincall記録）。従来はSFレポート＋kinbotアポ記録＋インターンkincallだけでクローザーのkincall架電が抜けていた。修正：tally(SFレポート:名前ごとのコール/接触/アポ期内外)に、callStats(today)のkincall(caller→メンバー名)のコール/接触/アポ獲得を addRowで加算。中澤/浦林等はskipで除外（SFのインターン代理名義もそこで落ちる）。インサイド=kincallのみ(SF=0)で二重にならない、クローザー=両方合算。実績画面と数え方が揃う。前回：kincall履歴のバグ修正";
+const BUILD_TAG = "2026-09-04zd コール進捗のアポの数え方を修正。田中さん確認：アポ獲得者はアポ一覧(smart-link)のsetter（例=植野）が正しく、kincallでアポ獲得を押した人(caller=中村/加藤等)ではない。前版でアポをkincall callerで数えていたのを、獲得者(setter=apoBy: aposTakenInRange(today) by setter)で数えるよう修正。コール/接触はSFレポート＋kincallの合算のまま。SFレポートのアポは二重計上防止のため加算しない（アポはsetterのみ）。前回：コール進捗を全員合算";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
