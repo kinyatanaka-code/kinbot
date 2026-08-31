@@ -41,6 +41,8 @@ kincall（架電リスト）という別ツールも同じ画面群の中にあ�
 
 ## 決定・指示のログ（新しいものを上に足す）
 
+- 2026-09-04 コール進捗通知（buildCallReport）を「全員合算（SFレポート＋kincall記録）」に変更（田中さん指示：クローザーはkincallもSFも記録、インサイドはkincallのみ→全員合算で正しい数字）。従来はSFレポート(tally)＋kinbotアポ記録(apoBy=aposTakenInRange)＋インターンのkincall(callStats)だけで、クローザーのkincall架電が入っていなかった。修正：rowsを norm名キーで合算し、(1)SFレポートの名前ごと今日ぶん（コール/接触/アポ期内+期外）、(2)callStats(today)のkincall（caller メール→listMembersのname）のコール/接触/アポ獲得、を addRow で加算。isSkippedPerson(skip=loadSkipInviters)で中澤・浦林等を除外（SF上のインターン代理名義もここで落ちる＝二重防止）。インサイドはSF=0なので二重にならない。旧apoBy(aposTakenInRange)は未使用化。これで実績画面(セールス=SF+kincall/インサイド=kincall)とコール進捗通知の数え方が一致。
+
 - 2026-09-04 kincall履歴のバグを調査・修正（田中さん：履歴がバグってる、今直したい）。見つけた不具合：(1)db.js callHistory の SELECT に id が無いのに /api/calls/targets/:id/history が logId:h.id を使用→kinbot側履歴の logId が空で「直す」/識別が不能。→ id を SELECT に追加。(2)履歴の items.sort が new Date(b.at) 前提で、at が null/不正だと NaN→並び順崩壊。→ ts(v)=Number.isFinite? : 0 で堅牢化。(3)同一架電が kinbot側(sf_task_id無し)とSF活動の両方で二重表示され得る→ 誰|結果|分バケツ で重複除去(uniq)。注意：一覧の「履歴数」バッジ＝call_logs WHERE target_id=t.id（同一相手へのkincall記録回数）で、履歴パネル（未送信kinbot＋SF活動、callHistoryは target_id OR lead_id）とは測る対象が違い件数がズレることがある（仕様差。バッジをパネルと一致させたい場合は別途要相談）。※症状の詳細（どの履歴がどうおかしいか）は田中さんに要確認、上記3点は客観的バグとして修正済み。
 
 - 2026-09-04 キツツキ（AI社員）にSF自動更新の状況パネルを追加（田中さん要望：今日1件しか記録されず不安→一目で確認したい）。GET /api/ai/sf-status（isAiOwner限定）：今日のSF記録（listMeetingsからsf_recorded_atが本日・社内MTG除外）・取りこぼし待ち（要約/文字起こし/metricsありで作成30分超だがsf_recorded_at無し）・未紐づけ（findUnlinkedMeetings days=7）・立ち上げ待ち＋失敗理由（listAutolaunch(60)の未完/エラー）・SF監査（_lastSfAudit）。UI：社内支援AIの「この部門を見る・操作する」内に「SFの状況（今日）」タイル（今日のSF記録/取りこぼし待ち/未紐づけ/立ち上げ待ち、0でなければ警告色）＋監査＋立ち上がらなかった理由。loadSfStatus()は部門を開いたとき取得。※Claude API切れはSF自動更新（記録/監査/割り振り/立ち上げ＝LLM不要）に影響なし。要約/ネクストアクション等のAI部分のみLLM(主Gemini)。取りこぼしが長く残る場合は要確認の目安表示。

@@ -4799,49 +4799,40 @@ async function buildCallReport(sfUser) {
   // 数えない人（中澤・浦林など）は、コール進捗にも出さない
   const skip = await loadSkipInviters().catch(() => []);
 
-  const rows = new Map();
+  // 全員を「SFレポート ＋ kincallの記録」で合算する。
+  //   クローザー：SFにもkincallにも記録がある → 両方を足す。
+  //   インサイド：kincallにしか記録がない（SFには本人名で出ない） → kincallぶんだけ。
+  //   ※数えない人（中澤・浦林など）は除外。SF上のインターン代理名義もここで落ちる。
+  const norm = (s) => String(s || "").replace(/[\s　]/g, "");
+  const rows = new Map();   // 正規化名 -> {name, calls, contacts, apos}
+  const addRow = (name, c, ct, ap) => {
+    if (!name || isSkippedPerson(name, skip)) return;
+    const key = norm(name);
+    const cur = rows.get(key) || { name, calls: 0, contacts: 0, apos: 0 };
+    cur.calls += c || 0; cur.contacts += ct || 0; cur.apos += ap || 0;
+    rows.set(key, cur);
+  };
+  // 1) SFレポート（名前ごと・今日）
   for (const [who, days] of Object.entries(tallied)) {
-    const t = days[md];
-    if (!t) continue;
-    if (isSkippedPerson(who, skip)) continue;
-    rows.set(who, { name: who, calls: t["コール"] || 0, contacts: t["接触"] || 0, apos: 0 });
+    const t = days[md]; if (!t) continue;
+    addRow(who, t["コール"] || 0, t["接触"] || 0, (t["アポ（期内）"] || 0) + (t["アポ（期外）"] || 0));
   }
-  for (const [who, n] of apoBy) {
-    if (isSkippedPerson(who, skip)) continue;
-    const hit = [...rows.keys()].find((k) => k.replace(/[\s　]/g, "") === who.replace(/[\s　]/g, ""));
-    if (hit) rows.get(hit).apos = n;
-    else rows.set(who, { name: who, calls: 0, contacts: 0, apos: n });
-  }
-
-  // インターン生は、SF上では代理（中澤さんなど）名義で活動が入るため、
-  // SFレポートには本人名で出てこない。kincall自身の記録から、本人名で足す。
+  // 2) kincallの記録（今日）：かけた人(メール)→メンバー名 で足す
   try {
-    const interns = await listInterns().catch(() => []);
-    if (interns.length) {
-      const stats = await callStats(today).catch(() => []);   // [{caller(メール), result, n}]
-      const 接触判定 = (v) => /接触|アポ|再コール|断り|見送り/.test(v) && !/不在|コールのみ|NG/.test(v);
-      const アポ判定 = (v) => /アポ獲得/.test(v);
-      const byEmail = new Map();
-      for (const s of stats || []) {
-        const em = String(s.caller || "").toLowerCase();
-        if (!em) continue;
-        const o = byEmail.get(em) || { calls: 0, contacts: 0, apos: 0 };
-        o.calls += s.n;
-        if (接触判定(s.result)) o.contacts += s.n;
-        if (アポ判定(s.result)) o.apos += s.n;
-        byEmail.set(em, o);
-      }
-      for (const it of interns) {
-        const em = String(it.email || "").toLowerCase();
-        const o = byEmail.get(em);
-        if (!o || !o.calls) continue;
-        const name = it.name || em;
-        const hit = [...rows.keys()].find((k) => k.replace(/[\s　]/g, "") === name.replace(/[\s　]/g, ""));
-        if (hit) rows.set(hit, { name: rows.get(hit).name, calls: o.calls, contacts: o.contacts, apos: o.apos });
-        else rows.set(name, { name, calls: o.calls, contacts: o.contacts, apos: o.apos });
-      }
+    const members = await listMembers().catch(() => []);
+    const nameByEmail = new Map((members || []).map((m) => [String(m.email || "").toLowerCase(), m.name || m.email]));
+    const stats = await callStats(today).catch(() => []);   // [{caller(メール), result, n}]
+    const 接触判定 = (v) => /接触|アポ|再コール|断り|見送り/.test(v) && !/不在|コールのみ|NG/.test(v);
+    const アポ判定 = (v) => /アポ獲得/.test(v);
+    const kc = new Map();
+    for (const s of stats || []) {
+      const em = String(s.caller || "").toLowerCase(); if (!em) continue;
+      const o = kc.get(em) || { calls: 0, contacts: 0, apos: 0 };
+      o.calls += s.n; if (接触判定(s.result)) o.contacts += s.n; if (アポ判定(s.result)) o.apos += s.n;
+      kc.set(em, o);
     }
-  } catch (e) { console.warn("[call-report] インターン分の取り込みに失敗:", e.message); }
+    for (const [em, o] of kc) addRow(nameByEmail.get(em) || em, o.calls, o.contacts, o.apos);
+  } catch (e) { console.warn("[call-report] kincall分の合算に失敗:", e.message); }
 
   const list = [...rows.values()].sort((a, b) => b.calls - a.calls);
   const sum = list.reduce((o, x) => ({
@@ -16305,7 +16296,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-04zb kincall履歴のバグ修正。(1)callHistory が id を SELECT しておらず履歴APIの logId:h.id が空→kinbot側履歴の識別/「直す」が効かない不具合を修正（idを取得）。(2)履歴の並び替えが new Date(null)等でNaNになり順序が崩れるのを堅牢化（ts()で0扱い）。(3)同じ架電が kinbot側とSF側で二重表示されるのを、誰×結果×分単位でまとめて重複除去。※一覧の「履歴数」バッジ(=target_idのcall_logs件数)と履歴パネル(未送信kinbot＋SF活動、lead_idも含む)は測る対象が違い数が異なることがある（要ならバッジ定義を合わせる）。前回：SF状況パネル";
+const BUILD_TAG = "2026-09-04zc コール進捗通知を全員合算に（SFレポート＋kincall記録）。従来はSFレポート＋kinbotアポ記録＋インターンkincallだけでクローザーのkincall架電が抜けていた。修正：tally(SFレポート:名前ごとのコール/接触/アポ期内外)に、callStats(today)のkincall(caller→メンバー名)のコール/接触/アポ獲得を addRowで加算。中澤/浦林等はskipで除外（SFのインターン代理名義もそこで落ちる）。インサイド=kincallのみ(SF=0)で二重にならない、クローザー=両方合算。実績画面と数え方が揃う。前回：kincall履歴のバグ修正";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
