@@ -656,6 +656,7 @@ function renderDock() {
     .fn-step i{display:block;font-size:10.5px;color:#1d9e75;font-style:normal;font-weight:700;min-height:14px;}
     .kc-fn-range{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:10px;font-size:12px;color:#5b7a6d;}
     .kc-fn-range input[type=date]{border:1px solid #d7ded9;border-radius:8px;padding:5px 8px;font-size:12px;}
+    .apo-row td{background:#fbfefd;}
     .st-chip{display:inline-block;font-size:10.5px;font-weight:700;border-radius:6px;padding:2px 7px;}
     .st-chip.none{background:#f4f5f4;color:#9aa39d;}
     .st-chip.apo{background:#eef2ff;color:#5b6be0;}
@@ -1695,7 +1696,7 @@ async function openGroupDetail(gid, card) {
       return `<span class="st-chip ${cls}">${esc(s2)}</span>`;
     };
     const comps = (d.companies || []).map((c) =>
-      `<tr><td class="kc-g-name">${esc(c["会社"])}<div class="ww">${esc(c["リスト"])}</div></td>` +
+      `<tr${c["この期間のアポ"] ? ' class="apo-row"' : ""}><td class="kc-g-name">${esc(c["会社"])}${c["この期間のアポ"] ? ' <span class="st-chip apo">アポ</span>' : ""}<div class="ww">${esc(c["リスト"])}</div></td>` +
       `<td class="kc-g-n">${c["コール数"]}</td>` +
       `<td class="kc-g-n">${esc(c["最終結果"] || "—")}<div class="ww">${esc(c["最終日時"] || "")}</div></td>` +
       `<td class="kc-g-n">${c["実施"] ? "実施済み" : "—"}</td>` +

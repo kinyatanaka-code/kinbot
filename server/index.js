@@ -237,6 +237,7 @@ import {
   callStatsByGroup,
   companiesByGroup,
   groupBreakdown,
+  apoCompaniesByGroup,
   callAnalysis,
   callMemos,
   clearCallLogs,
@@ -9039,6 +9040,12 @@ app.get("/api/calls/group-detail/:id", async (req, res) => {
     const pct = (a, b) => (b ? (a / b * 100).toFixed(1) + "%" : "—");
     const lists = [...lm.values()].map((o) => ({ ...o, 接触率: pct(o.接触, o.コール), アポ率: pct(o.アポ, o.コール) }))
       .sort((a, b) => b.コール - a.コール);
+    // その期間にアポになった会社（ファネルの母数）を印として持つ
+    const apoSet = new Set();
+    try {
+      const ac = await apoCompaniesByGroup(from, to).catch(() => []);
+      for (const c of ac) if (String(c.group_id) === String(gid)) apoSet.add(normCompanyKey(c.company || ""));
+    } catch {}
     const companies = (d.companies || []).map((c) => {
       const k = normCompanyKey(c.company || "");
       return {
@@ -9047,6 +9054,7 @@ app.get("/api/calls/group-detail/:id", async (req, res) => {
         最終日時: c["最終日時"] ? String(c["最終日時"]).slice(0, 10) : "",
         SFステージ: stageOf.get(k) || "（SFに商談なし）",
         実施: 実施キー.has(k),
+        この期間のアポ: apoSet.has(k),
       };
     }).filter((c) => c.コール数 > 0 || c.SFステージ !== "（SFに商談なし）");
     res.json({ ok: true, from, to, lists, companies });
@@ -9075,10 +9083,11 @@ app.get("/api/calls/group-funnel", async (req, res) => {
       const o = g.get(r.group_id);
       o.コール += r.n; if (isContacted(r.result)) o.接触 += r.n; if (アポ判定(r.result)) o.アポ += r.n;
     }
-    // 会社名 → グループ、そしてSFステージ・商談記録で 実施/案件化/KPI/MID/受注 を数える
-    const comp = await companiesByGroup().catch(() => []);
+    // 【案A】実施・案件化以降は「その期間に取ったアポの内数」で数える。
+    // そのため母数は「その期間にアポ獲得になった会社」だけにする。
+    const apoComp = await apoCompaniesByGroup(from, to).catch(() => []);
     const keysByGroup = new Map();
-    for (const c of comp) {
+    for (const c of apoComp) {
       const k = normCompanyKey(c.company || ""); if (!k) continue;
       if (!keysByGroup.has(c.group_id)) keysByGroup.set(c.group_id, { name: c.group_name, keys: new Set() });
       keysByGroup.get(c.group_id).keys.add(k);
@@ -16721,7 +16730,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-04zs リスト別（グループ）のファネルに期間指定を追加。画面上部に「期間 開始日〜終了日」＋『この期間で見る』『既定に戻す』。指定時は /api/calls/group-funnel?from&to を使い、内訳(group-detail)も同じ期間で開く。8/24以降のような任意期間で案件化率・移行率を確認できる。前回：グループ内訳の表示";
+const BUILD_TAG = "2026-09-04zt グループのファネルを案Aに統一：実施・案件化・KPI・MID・受注を「その期間に取ったアポの内数」で数える（アポ13なのに実施14になる矛盾を解消。必ず 実施≤アポ）。母数は apoCompaniesByGroup(from,to)＝期間内に result~アポ獲得 になった会社のみ（従来はリストの全会社を見ていた）。内訳(group-detail)にも『この期間のアポ』印を付け、会社行を強調。前回：リスト別ファネルの期間指定";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",

@@ -6965,6 +6965,26 @@ export async function callStatsByGroup(fromJst, toJst) {
     return rows;
   } catch (e) { console.error("[db] callStatsByGroup", e.message); return []; }
 }
+// その期間に「アポ獲得」になった会社を、グループごとに返す（ファネルの母数にする）
+export async function apoCompaniesByGroup(fromJst, toJst) {
+  if (!pool) return [];
+  try {
+    const { rows } = await pool.query(
+      `SELECT g.id AS group_id, g.name AS group_name, t.company,
+              min((l.at AT TIME ZONE 'Asia/Tokyo')::date) AS apo_date
+         FROM call_logs l
+         JOIN call_targets t ON t.id = l.target_id
+         JOIN call_lists cl  ON cl.id = t.list_id
+         JOIN call_list_groups g ON g.id = cl.group_id
+        WHERE l.result ~ 'アポ獲得'
+          AND COALESCE(t.company,'') <> ''
+          AND (l.at AT TIME ZONE 'Asia/Tokyo')::date >= $1::date
+          AND (l.at AT TIME ZONE 'Asia/Tokyo')::date <= $2::date
+        GROUP BY g.id, g.name, t.company`, [fromJst, toJst]);
+    return rows;
+  } catch (e) { console.error("[db] apoCompaniesByGroup", e.message); return []; }
+}
+
 // あるグループの中を見る：リストごとの件数と、会社ごとの最終結果
 export async function groupBreakdown(groupId, fromJst, toJst) {
   if (!pool || !groupId) return { lists: [], companies: [] };
