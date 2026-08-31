@@ -23,6 +23,7 @@ const homeItems = {}; // カードの中身（スマホのシート表示用）
 
 // 行の操作に使う小さなアイコン。名前は吹き出しで出す。
 const HOME_ICONS = {
+  undo: "M9 14l-4-4 4-4M5 10h8a4 4 0 0 1 0 8h-3",
   rec:  "M12 3a3 3 0 0 1 3 3v6a3 3 0 0 1-6 0V6a3 3 0 0 1 3-3zm7 9a7 7 0 0 1-6 6.9V22h-2v-3.1A7 7 0 0 1 5 12h2a5 5 0 0 0 10 0z",
   sf:   "M10.3 7.2a3.1 3.1 0 0 1 5.2.9 2.6 2.6 0 0 1 1.1-.2 2.7 2.7 0 0 1 2.6 2.2 2.5 2.5 0 0 1 1.8 2.4 2.6 2.6 0 0 1-2.6 2.6H7.6a3.8 3.8 0 0 1-3.8-3.8 3.8 3.8 0 0 1 3.8-3.8c.4 0 .9.1 1.3.3a3.1 3.1 0 0 1 1.4-.6z",
   open: "M4 4h7v2H6v12h12v-5h2v7H4zm9 0h7v7h-2V7.4l-8.3 8.3-1.4-1.4L16.6 6H13z",
@@ -1720,6 +1721,11 @@ function wireListBox(box) {
       return;
     }
     // テストで作ったアポを、集計から外してカレンダーの予定も消す
+    const undropBtn = ev.target.closest("[data-apo-undrop]");
+    if (undropBtn) {
+      apoUndropTest(undropBtn);
+      return;
+    }
     const dropBtn = ev.target.closest("[data-apo-drop]");
     if (dropBtn) {
       apoDropTest(dropBtn);
@@ -2868,7 +2874,9 @@ function apoHomeCard(x) {
           `<span class="hl-morex">` +
             hIcon("cal", "会議室", `href="${apoEsc(x.smartUrl)}" target="_blank" rel="noopener"`, "done", "a") +
             hIcon("sfcheck", "SFの状態を確認（クロス商談が立ち上がっているか）", `data-apo-sfcheck="${apoEsc(x.company || companyOfTitle(x.title))}" data-apo-slug="${apoEsc(x.slug)}"`, "") +
-            hIcon("trash", "テストとして外す", `data-apo-drop="${apoEsc(x.slug)}"`) +
+            (x.excluded
+              ? hIcon("undo", "集計に戻す", `data-apo-undrop="${apoEsc(x.slug)}"`)
+              : hIcon("trash", "テストとして外す", `data-apo-drop="${apoEsc(x.slug)}"`)) +
           `</span></span>`;
 
       // 補足行。宛先が無い・立ち上げできない場合は、その理由を出す。
@@ -2895,6 +2903,21 @@ function apoHomeCard(x) {
         </div>
       </div>`;
   })(x);
+}
+
+// 集計から外したアポを、集計に戻す。
+async function apoUndropTest(btn) {
+  const slug = btn.dataset.apoUndrop;
+  btn.disabled = true;
+  try {
+    const r = await fetch(`/api/smart-links/${encodeURIComponent(slug)}/excluded`, {
+      method: "PUT", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ excluded: false }),
+    });
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(d.error || "戻せませんでした");
+    location.reload();
+  } catch (e) { alert("戻せませんでした：" + e.message); btn.disabled = false; }
 }
 
 // テストで作ったアポを片付ける。

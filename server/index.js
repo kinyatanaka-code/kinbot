@@ -16395,7 +16395,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-04zj 実績のアポが獲得者に付かない不具合を修正（中村のアポが消える件）。点検(_apowho)で判明：アポ一覧のsetterには正しい獲得者（栗林/飯島/加藤/田中等）が入っており、current_ownerだけが担当変更で変わる。しかしsetterEmail()が current_owner を最優先で返していたため、獲得者ではなく担当に付いていた。修正：会社名でkincall獲得者→setter_email→setter(名前)→最後にcurrent_owner の順に変更（獲得者優先）。前回：接触判定の共通化";
+const BUILD_TAG = "2026-09-04zk 中村のアポが実績に出ない原因＝そのアポ（ヒューレックス）が「集計から除外」されていたため。ホーム画面には外す導線しかなく戻せなかったので、除外中のアポに「集計に戻す」ボタン(data-apo-undrop→PUT /api/smart-links/:slug/excluded {excluded:false})を追加＋undoアイコン。アポ画面(apo.js)の切替は元から正常。前回：アポを獲得者(setter)優先で数える";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
