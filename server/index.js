@@ -16339,7 +16339,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-04zg コール進捗のアポを「実際の獲得者」で数えるよう修正（中村のアポが消えた件）。運用：獲得者(中村等)と担当(田中→森田に変更)は別物、担当変更でsetterが実獲得者と一致しない。修正：今日のアポ一覧1件ずつについて、会社名(normCompanyKey)でkincallの「アポ獲得」記録(apoWonCallsInRange today)に当たれば その押した人=獲得者、当たらなければ setter を獲得者として1件ずつ加算。これで中村の獲得は消えず、植野の自己獲得も数えられ、担当変更の影響も受けない。コール/接触はSF＋kincall合算のまま。前回：送信先選択の修正";
+const BUILD_TAG = "2026-09-04zh 【点検用・一時】GET /api/calls/_contactdiag：kincallの結果ごとの件数と接触判定の結果を返す（接触が拾えていない原因調査）。前回：コール進捗のアポを実獲得者で数える";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
