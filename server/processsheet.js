@@ -55,6 +55,16 @@ export function parseMD(v) {
   return null;
 }
 
+// 項目行のラベルを、括弧の全角半角・空白のゆれを無視して比べるための正規化。
+//   例：「アポ(期内)」「アポ （期内）」も「アポ（期内）」と同じ項目として扱う。
+//   これをしないと、シート側が半角括弧のとき項目行を担当者名と取り違え、
+//   アポの行が見つからず、実績が書き込まれない。
+export function normLabel(v) {
+  return String(v || "")
+    .replace(/[（）]/g, (c) => (c === "（" ? "(" : ")"))
+    .replace(/[\s　]/g, "");
+}
+
 // 名前をそろえて比べる。
 //   ・シートは「苗字だけ」、kinbotは「フルネーム」のことがある。
 //     苗字はフルネームの先頭に来るので、一方が他方の先頭なら同じ人とみなす。
@@ -125,13 +135,16 @@ export function readLayout(values) {
   for (let r = 0; r < values.length; r++) {
     const b = at(r, 1);
     if (!b) continue;
+    const nb = normLabel(b);
     // 稼働時間目標は「稼働時間」という専用の行にある。担当者ごとに位置を覚えておく。
-    if (b === "稼働時間") { if (cur) cur.rows["稼働時間"] = r; continue; }
-    if (METRICS.includes(b)) {
-      if (cur) cur.rows[b] = r;
+    if (nb === normLabel("稼働時間")) { if (cur) cur.rows["稼働時間"] = r; continue; }
+    // 括弧の全角半角・空白がゆれても、同じ項目として拾う（キーは正規の文言に寄せる）。
+    const mk = METRICS.find((m) => normLabel(m) === nb);
+    if (mk) {
+      if (cur) cur.rows[mk] = r;
       continue;
     }
-    if (NOT_PERSON.includes(b)) continue;   // 項目の行。担当者ではない。
+    if (NOT_PERSON.some((w) => normLabel(w) === nb)) continue;   // 項目の行。担当者ではない。
     // それ以外＝担当者名
     cur = { name: b, row: r, rows: {} };
     people.push(cur);
