@@ -16403,7 +16403,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-04zl 確実に数えるための修正（田中さん方針）。(1)カレンダーから予定が消えても自動で集計除外しない（dropDeletedApos は検出のみ・ログだけ。予定の作り直し/移動/Zoom転送での誤除外＝アポが0になる問題を根絶）。人が「テストとして外す」か予定名に「リスケ/キャンセル」がある場合のみ除外（後者の自動除外は維持＝アポ獲得ではないため）。(2)同じ予定を二重に数えないよう、実績・コール進捗のアポ集計に 会社名×商談日 の重複除去を追加。前回：ホームに集計に戻すを追加";
+const BUILD_TAG = "2026-09-04zm 集計除外の「理由」を記録・表示するように（勝手に外れる原因の追跡用）。smart_links に excluded_reason 列を追加（自動マイグレーション）、excludeApo/setApoExcluded で理由を保存（人の操作は「人が操作」）。アポ一覧APIは excludedReason を返し、アポ画面のバッジに理由を表示。前回：カレンダー消滅での自動除外を停止＋重複除去";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
@@ -19234,6 +19234,7 @@ async function collectApoAppointments(scanOwner, opts = {}) {
           business: link.business || "",
           auto_assigned_at: link.auto_assigned_at || null,
           excluded: !!link.excluded,
+          excludedReason: link.excluded_reason || "",
           // クローザー自身のカレンダーで見つけたアポ。
           // 割り振りは要らないが、メール・SF立ち上げ・通知は必要。
           selfAcquired: !!st.isCloser || !!link.current_owner,

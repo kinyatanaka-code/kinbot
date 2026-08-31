@@ -3956,9 +3956,11 @@ export async function futureApos(fromJst, limit = 500) {
 export async function excludeApo(slug, reason = "") {
   if (!pool || !slug) return null;
   try {
+    // なぜ外れたのかを後から追えるよう、理由も残す
+    await sq(`ALTER TABLE smart_links ADD COLUMN IF NOT EXISTS excluded_reason TEXT;`).catch(() => {});
     const { rows } = await pool.query(
-      `UPDATE smart_links SET excluded = true, updated_at = now()
-        WHERE slug = $1 RETURNING slug, label, setter, current_owner, start_time`, [slug]);
+      `UPDATE smart_links SET excluded = true, excluded_reason = $2, updated_at = now()
+        WHERE slug = $1 RETURNING slug, label, setter, current_owner, start_time`, [slug, String(reason || "")]);
     if (rows[0]) console.log(`[apo] 数から外しました ${rows[0].label || slug}（${reason}）`);
     return rows[0] || null;
   } catch (e) { console.error("[db] excludeApo", e.message); return null; }
@@ -4570,12 +4572,13 @@ export async function setApoExcludedMany(slugs, excluded) {
   } catch (e) { console.error("[db] setApoExcludedMany", e.message); return 0; }
 }
 
-export async function setApoExcluded(slug, excluded) {
+export async function setApoExcluded(slug, excluded, reason = "") {
   if (!pool || !slug) return null;
   try {
+    await sq(`ALTER TABLE smart_links ADD COLUMN IF NOT EXISTS excluded_reason TEXT;`).catch(() => {});
     const { rows } = await pool.query(
-      `UPDATE smart_links SET excluded=$2 WHERE slug=$1 RETURNING slug, label, excluded`,
-      [slug, !!excluded]);
+      `UPDATE smart_links SET excluded=$2, excluded_reason=$3 WHERE slug=$1 RETURNING slug, label, excluded, excluded_reason`,
+      [slug, !!excluded, excluded ? String(reason || "人が操作") : ""]);
     return rows[0] || null;
   } catch (e) { console.error("[db] setApoExcluded", e.message); return null; }
 }

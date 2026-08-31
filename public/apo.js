@@ -158,7 +158,7 @@ function apoCard(a, i) {
     ? '<span class="home-badge home-badge-done">担当決定</span>'
     : '<span class="home-badge home-badge-plan">担当未定</span>';
   if (a.business) badges += `<span class="ap-biz-badge ap-biz-${esc(a.business)}">${esc(a.business)}</span>`;
-  if (a.excluded) badges += `<span class="ap-badge ap-excluded">集計から除外</span>`;
+  if (a.excluded) badges += `<span class="ap-badge ap-excluded" title="${esc(a.excludedReason || a.excluded_reason || "理由の記録なし")}">集計から除外${(a.excludedReason || a.excluded_reason) ? "（" + esc(a.excludedReason || a.excluded_reason) + "）" : ""}</span>`;
 
   // メールの状態
   const mailChip = (label, st) => {
