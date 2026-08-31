@@ -8992,6 +8992,28 @@ app.put("/api/calls/lists/:id/group", async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+// 【点検用・一時】SFのクロス商談に、実際どんなステージ名が入っているかを見る
+app.get("/api/calls/_stagediag", async (req, res) => {
+  try {
+    if (!isAiOwner(req)) return res.status(403).json({ error: "権限がありません" });
+    const st = await getSettings().catch(() => ({}));
+    const sfUser = String(st.psOwner || "").trim();
+    if (!sfUser) return res.status(400).json({ error: "SFの実行ユーザー(psOwner)が未設定です" });
+    const q = await sfQuery(sfUser,
+      `SELECT StageName, COUNT(Id) n FROM Opportunity
+        WHERE RecordType.Name LIKE '%クロス%' GROUP BY StageName ORDER BY COUNT(Id) DESC`);
+    const rows = (q.records || []).map((r) => ({
+      ステージ名: r.StageName, 件数: r.n,
+      判定: /受注処理完了/.test(String(r.StageName || "")) ? "受注"
+        : /04/.test(String(r.StageName || "")) ? "MID"
+        : /03/.test(String(r.StageName || "")) ? "KPI"
+        : /02/.test(String(r.StageName || "")) ? "案件化"
+        : /01/.test(String(r.StageName || "")) ? "アポ" : "（対象外）",
+    }));
+    res.json({ ok: true, ステージ一覧: rows });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 // グループの内訳：リストごとの数字と、会社ごとの最終結果＋SFステージ
 app.get("/api/calls/group-detail/:id", async (req, res) => {
   try {
@@ -16731,7 +16753,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-04zu リストのグループが再表示時に「グループなし」に見える不具合を修正。原因：保存はできていたが /api/calls/lists の返却が項目を絞っており group_id / group_name を含めていなかったため、ページを開き直すと未設定に見えていた。返却に group_id・group_name を追加。前回：グループファネルを案Aに";
+const BUILD_TAG = "2026-09-04zv リスト別実績の期間を保存（localStorageに開始日/終了日を記憶し、ページを切り替えても保たれる。既定に戻すで消去）。＋【点検用・一時】GET /api/calls/_stagediag：SFクロス商談のStageNameごとの件数と、KPI/MID/案件化/受注の判定結果を返す（KPIが出ない原因＝ステージ名の表記確認用）。前回：リスト一覧にgroup_idを追加";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",

@@ -1626,6 +1626,7 @@ async function loadAdmin() {
 
 // ───────── リスト別の実績（kincall架電ログ基準） ─────────
 let LIST_FROM = "", LIST_TO = "";
+try { LIST_FROM = localStorage.getItem("kcListFrom") || ""; LIST_TO = localStorage.getItem("kcListTo") || ""; } catch {}
 async function loadListStats() {
   const box = $("clStats");
   if (!box) return;
@@ -1671,9 +1672,15 @@ async function loadListStats() {
     const ap = $("lfApply"); if (ap) ap.addEventListener("click", () => {
       const f = ($("lfFrom") || {}).value, t = ($("lfTo") || {}).value;
       if (!f || !t) { alert("開始日と終了日を入れてください"); return; }
-      LIST_FROM = f; LIST_TO = t; loadListStats();
+      LIST_FROM = f; LIST_TO = t;
+      try { localStorage.setItem("kcListFrom", f); localStorage.setItem("kcListTo", t); } catch {}
+      loadListStats();
     });
-    const cl = $("lfClear"); if (cl) cl.addEventListener("click", () => { LIST_FROM = ""; LIST_TO = ""; loadListStats(); });
+    const cl = $("lfClear"); if (cl) cl.addEventListener("click", () => {
+      LIST_FROM = ""; LIST_TO = "";
+      try { localStorage.removeItem("kcListFrom"); localStorage.removeItem("kcListTo"); } catch {}
+      loadListStats();
+    });
     box.querySelectorAll(".grp-card").forEach((c) => c.addEventListener("click", () => openGroupDetail(c.dataset.gid, c)));
   } catch (e) { box.innerHTML = `<div class="note">読み込めませんでした：${esc(e.message)}</div>`; }
 }
