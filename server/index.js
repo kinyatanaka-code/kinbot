@@ -5835,6 +5835,7 @@ app.get("/api/calls/lists", async (req, res) => {
       member: owner,
       items: rows.map((r) => ({
         id: r.id, name: r.name, note: r.note || "",
+        group_id: r.group_id || null, group_name: r.group_name || "",
         全部: Number(r["全部"] || 0), 済み: Number(r["済み"] || 0),
         残り: Number(r["全部"] || 0) - Number(r["済み"] || 0),
         自分のぶん: Number(r["自分のぶん"] || 0),
@@ -16730,7 +16731,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-04zt グループのファネルを案Aに統一：実施・案件化・KPI・MID・受注を「その期間に取ったアポの内数」で数える（アポ13なのに実施14になる矛盾を解消。必ず 実施≤アポ）。母数は apoCompaniesByGroup(from,to)＝期間内に result~アポ獲得 になった会社のみ（従来はリストの全会社を見ていた）。内訳(group-detail)にも『この期間のアポ』印を付け、会社行を強調。前回：リスト別ファネルの期間指定";
+const BUILD_TAG = "2026-09-04zu リストのグループが再表示時に「グループなし」に見える不具合を修正。原因：保存はできていたが /api/calls/lists の返却が項目を絞っており group_id / group_name を含めていなかったため、ページを開き直すと未設定に見えていた。返却に group_id・group_name を追加。前回：グループファネルを案Aに";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
