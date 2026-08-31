@@ -337,7 +337,7 @@ export function buildHoursUpdates(layout, hoursByName, { base = "", writeFrom = 
 }
 
 // 集計とシートの構造を突き合わせて、書き込む場所と値の一覧を作る
-export function buildUpdates(layout, tallied, { onlyDates = null, zeroFrom = "", zeroTo = "", writeFrom = "", zeroDates = [] } = {}) {
+export function buildUpdates(layout, tallied, { onlyDates = null, zeroFrom = "", zeroTo = "", writeFrom = "", zeroDates = [], force = false } = {}) {
   const updates = [];
   const skipped = [];
 
@@ -366,12 +366,20 @@ export function buildUpdates(layout, tallied, { onlyDates = null, zeroFrom = "",
       const forceZero = zeroSet.has(key);
       const t = forceZero ? ZERO : (tallied[sfName][key] || (inZeroRange(d) ? ZERO : null));
       if (!t) continue;
+      // 過去の日かどうか（zeroTo＝今日）。過去日は0で上書きしない（その日に書いた実績を、
+      // 翌日以降の再実行で消さないため。SFレポートは相対日付で過去日を再現できず、
+      // アポだけのエントリがコール/接触を0で塗り替える事故が起きていた）。
+      const isoOf = isoForMD(d.m, d.d, zeroFrom || writeFrom || "");
+      const isPast = !!zeroTo && !!isoOf && isoOf < zeroTo;
       for (const metric of METRICS) {
         const row = p.rows[metric];
         if (row == null) { skipped.push(`${p.name}の「${metric}」の行がありません`); continue; }
+        const val = t[metric];
+        // 当日・休み指定日・強制上書きは常に書く。過去日で0（または空）は書かない。
+        if (!force && !forceZero && !val && isPast) continue;
         updates.push({
           range: `${colName(d.col)}${row + 1}`,
-          value: t[metric],
+          value: val,
           who: p.name, date: key, metric,
         });
       }

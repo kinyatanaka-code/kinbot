@@ -1649,6 +1649,14 @@ async function loadAdmin() {
             parts.push(`<div>シートの担当者（${ppl.length}）：${esc(ppl.join("、"))}</div>`);
             parts.push(`<div>集計に出てきた名前（${mt.length}）：${esc(mt.join("、"))}</div>`);
             if (miss.length) parts.push(`<div style="color:#b45309">実績が見つからない担当者：${esc(miss.join("、"))}</div>`);
+            const tbp = Array.isArray(d.talliedByPerson) ? d.talliedByPerson : [];
+            const tbpLines = tbp.map((x) => {
+              const days = Object.entries(x.days || {});
+              if (!days.length) return `<div>${esc(x.name)}：集計に実績なし</div>`;
+              const ds = days.map(([dk, v]) => `${esc(dk)}[コール${v.コール}/接触${v.接触}/内${v.内}/外${v.外}]`).join("　");
+              return `<div>${esc(x.name)}：${ds}</div>`;
+            });
+            if (tbpLines.length) parts.push(`<div style="margin-top:4px">集計の生値（担当者ごと・実績のある日だけ）：</div>${tbpLines.join("")}`);
             const ups = Array.isArray(d.updates) ? d.updates : [];
             if (ups.length) {
               const by = new Map();
