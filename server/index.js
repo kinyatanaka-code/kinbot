@@ -8576,6 +8576,29 @@ app.get("/api/calls/_contactdiag", async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+// 【点検用・一時】実績のアポの獲得者引き当てを見る
+app.get("/api/calls/_apowho", async (req, res) => {
+  try {
+    if (!isAiOwner(req)) return res.status(403).json({ error: "権限がありません" });
+    const from = String(req.query.from || jstDate(-10)), to = String(req.query.to || jstDate(0));
+    const pad = (n) => String(n).padStart(2, "0");
+    const ymdJst = (v) => { if (!v) return ""; const d = new Date(v); if (isNaN(d.getTime())) return ""; const j = new Date(d.getTime() + 9 * 3600000); return `${j.getUTCFullYear()}-${pad(j.getUTCMonth() + 1)}-${pad(j.getUTCDate())}`; };
+    const apos = (await aposTakenInRange({ from, to, limit: 500 }).catch(() => [])).filter((a) => isApoCountableTitle(a.label));
+    const won = await apoWonCallsInRange(from, to).catch(() => []);
+    const members = await listMembers().catch(() => []);
+    const nameByEmail = new Map((members || []).map((m) => [String(m.email || "").toLowerCase(), m.name || m.email]));
+    const w2 = new Map();
+    for (const w of won) { const k = normCompanyKey(w.company || ""); if (k && !w2.has(k)) w2.set(k, String(w.caller || "").toLowerCase()); }
+    const rows = apos.map((a) => {
+      const co = companyFromTitle(a.label || "") || "";
+      const k = normCompanyKey(co);
+      const em = w2.get(k) || "";
+      return { title: a.label, 会社: co, キー: k, kincall獲得者: em ? (nameByEmail.get(em) || em) : "(なし)", setter: a.setter, current_owner: a.current_owner, 取得日: ymdJst(a.taken_at), 商談日: ymdJst(a.start_time) };
+    });
+    res.json({ from, to, アポ件数: rows.length, kincall獲得ログ件数: won.length, kincallの会社キー: [...w2.keys()].slice(0, 30), rows: rows.slice(0, 40) });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 app.get("/api/calls/stats-grid", async (req, res) => {
   try { res.json({ ok: true, ...(await computeStatsGrid(req.query.period, req.query.span)) }); }
   catch (e) { res.status(500).json({ error: e.message }); }
