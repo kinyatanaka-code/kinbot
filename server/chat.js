@@ -110,6 +110,22 @@ export async function notifyAll(text, kind = "", { mentionName = "" } = {}) {
 
 // その人だけに送る（1対1のチャット）。
 // チームのスペースには流さないので、個人あてのお知らせに使う。
+// 指定した通知先（chat_targetsのid）だけに送る。テスト送信や送信先を選びたいときに使う。
+export async function notifyTargets(text, ids = []) {
+  const t = String(text || "").trim();
+  if (!t) return { ok: false, skipped: true, reason: "本文が空です" };
+  const want = new Set((ids || []).map((x) => String(x)));
+  const targets = (await listChatTargets({ onlyActive: true }).catch(() => []))
+    .filter((x) => want.has(String(x.id)));
+  if (!targets.length) return { ok: false, skipped: true, reason: "送信先が見つかりません" };
+  let sent = 0;
+  for (const tg of targets) {
+    try { await sendTo(tg, await fillMention(t, tg, "")); sent++; markChatTarget(tg.id, { ok: true }).catch(() => {}); }
+    catch (e) { markChatTarget(tg.id, { ok: false, error: e.message }).catch(() => {}); }
+  }
+  return { ok: sent > 0, sent };
+}
+
 export async function notifyPerson(email, text) {
   if (!chatAppConfigured()) {
     return { ok: false, skipped: true, reason: "Chatアプリ（kinbot名義）が設定されていません" };

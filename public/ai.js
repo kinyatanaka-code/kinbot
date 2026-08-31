@@ -196,12 +196,27 @@ async function loadSfStatus() {
       <div class="ai-mini">${sa ? `SF監査：${fmtWhen(sa.at)}（全${sa["リスト"]}リスト・ユーザー化 ${sa["ユーザー化"]}・クロス ${sa["クロス"]}・失注 ${sa["失注"]}）` : "SF監査：まだ実行記録がありません（30分ごとに回ります）"}</div>
       ${(d["直近の失敗理由"] || []).length ? `<div class="ai-subh" style="margin-top:8px;">立ち上がらなかった理由</div><ul class="ai-tasks">${d["直近の失敗理由"].map((x) => `<li class="ai-task"><span class="ai-task-t">${esc(x.company || "")}：${esc(x["理由"])}</span></li>`).join("")}</ul>` : ""}
       <div class="ai-mini" style="margin-top:6px;">${取りこぼし警告 ? "取りこぼしが残っています（10分ごとの見回りで拾われます。長く残るなら要確認）。" : "取りこぼしはありません。順調です。"}</div>
-      <div class="modal-actions" style="margin-top:8px;"><button class="btn" id="sendCallReport" type="button">コール進捗を今すぐ送る</button><span class="saved" id="sendCallMsg" hidden></span></div>`;
+      <div class="ai-subh" style="margin-top:10px;">コール進捗の送信先</div>
+      <div id="crTargets" class="cr-targets">読み込んでいます…</div>
+      <div class="modal-actions" style="margin-top:8px;flex-wrap:wrap;gap:8px;">
+        <button class="btn" id="sendCallReport" type="button">コール進捗を今すぐ送る</button>
+        <span class="saved" id="sendCallMsg" hidden></span>
+      </div>`;
+    // 送信先の一覧（選ばなければ、いつもの送信先へ）
+    try {
+      const tg = await (await fetch("/api/chat-targets")).json();
+      const list = (tg.targets || tg.items || tg.rows || []).filter((x) => x && x.id);
+      const box2 = $("crTargets");
+      if (box2) box2.innerHTML = list.length
+        ? list.map((x) => `<label class="cr-t"><input type="checkbox" class="cr-cb" value="${esc(String(x.id))}"> ${esc(x.name || x.space_id || ("#" + x.id))}</label>`).join("")
+        : `<span class="ai-mini">（登録された送信先がありません。いつもの送信先へ送ります）</span>`;
+    } catch { const box2 = $("crTargets"); if (box2) box2.innerHTML = `<span class="ai-mini">送信先を読み込めませんでした（いつもの送信先へ送ります）</span>`; }
     const scr = $("sendCallReport");
     if (scr) scr.addEventListener("click", async () => {
       scr.disabled = true; const t = scr.textContent; scr.textContent = "送信中…";
       try {
-        const r = await fetch("/api/ai/call-report/send", { method: "POST", headers: { "content-type": "application/json" }, body: "{}" });
+        const picked = [...document.querySelectorAll(".cr-cb:checked")].map((x) => x.value);
+        const r = await fetch("/api/ai/call-report/send", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ targetIds: picked }) });
         const d = await r.json();
         if (!r.ok) throw new Error(d.error || "送信できませんでした");
         const m = $("sendCallMsg"); if (m) { m.textContent = "送信しました"; m.hidden = false; }

@@ -24,7 +24,7 @@ import { sendApoMail, sendTestApoMail, runReminderSweep, listTomorrowReminders, 
          DEFAULT_REMINDER_SUBJECT, DEFAULT_REMINDER_BODY, stripRetiredLines } from "./apomail.js";
 import { startKasasagi, getKasasagi, stopKasasagi, feedTranscript, kasasagiInfo,
          buildScript, buildReport, faceState, SLIDE_LABELS } from "./kasasagi.js";
-import { notifyAssigned, notifyMailDraft, notifyChat, notifyAll, notifyPerson, chatWebhookUrl, chatInfo } from "./chat.js";
+import { notifyAssigned, notifyMailDraft, notifyChat, notifyAll, notifyPerson, notifyTargets, chatWebhookUrl, chatInfo } from "./chat.js";
 import { note as devNote, errKey, buildMorningSummary, NOTE_KINDS, dropSimilar } from "./devnotes.js";
 import { askBot } from "./askbot.js";
 import { newJobId, getJob, cancelJob, runBulk, tableFromFile, tableFromText, rowsFromTable } from "./bulklinks.js";
@@ -4886,8 +4886,12 @@ app.post("/api/ai/call-report/send", async (req, res) => {
     const sfUser = String(st.psOwner || "").trim();
     const r = await buildCallReport(sfUser);
     if (r.skipped) return res.status(400).json({ error: r.reason || "コール進捗を作れませんでした" });
-    const where = req.body && req.body.self ? "self" : "assign";   // self=自分のチャットだけ / 既定=いつもの送信先
-    await notifyAll(r.text, where).catch(() => {});
+    const ids = Array.isArray(req.body?.targetIds) ? req.body.targetIds : [];
+    if (ids.length) await notifyTargets(r.text, ids).catch(() => {});
+    else {
+      const where = req.body && req.body.self ? "self" : "assign";   // self=自分のチャットだけ / 既定=いつもの送信先
+      await notifyAll(r.text, where).catch(() => {});
+    }
     res.json({ ok: true, reply: "コール進捗を送信しました。", summary: r.summary, text: r.text });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
@@ -16313,7 +16317,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-04ze コール進捗の手動送信を整理（/api/ai/call-report/send が重複していたため1つに統合。オーナー限定・body.self=trueで自分のチャットのみ、既定はいつもの送信先）。AI社員のSF状況パネルの「コール進捗を今すぐ送る」から実行可。前回：アポを獲得者(setter)基準に修正";
+const BUILD_TAG = "2026-09-04zf コール進捗の送信先を選べるように修正。既にチェックボックスUI(#crTargets)とAPIのtargetIds対応はあったが、一覧の取り出しが tg.items で実APIの tg.targets と不一致のため送信先が表示されていなかった→ tg.targets を読むよう修正。重複追加していたselect UIは削除。選ばなければ従来どおり「いつもの送信先」。前回：手動送信APIの重複解消";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
