@@ -11,9 +11,9 @@
 name: 夜間開発（Claude Code）
 
 on:
-  schedule:
+  # schedule:  # 一旦停止（Claudeのクレジット切れのため。復活時は先頭の # を外す）
     # 毎日 日本時間 3:00（UTC 18:00）
-    - cron: "0 18 * * *"
+    # - cron: "0 18 * * *"
   workflow_dispatch:      # 手動でも動かせる
     inputs:
       max_items:

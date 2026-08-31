@@ -16244,7 +16244,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-04x 進捗バナー：直近Actionsが失敗のとき、失敗した工程（ジョブのfailステップ名）も表示（failStep）。原因切り分け用。前回：PR対応済みボタン";
+const BUILD_TAG = "2026-09-04y 自動改善を一旦停止（Claudeのクレジット切れで毎時失敗のため）。GitHub Actionsの schedule(cron) をコメントアウト：kinbot-hourly（毎時:30）・kinbot-night（毎日3:00）・kinbot-advisor（平日提案）。workflow_dispatch(手動)は残す。復活時は各ymlの # schedule と # - cron の # を外す。あわせてアプリ側の『コードを自動で直す』もOFF運用推奨。前回：進捗の失敗工程表示";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",

@@ -41,6 +41,8 @@ kincall（架電リスト）という別ツールも同じ画面群の中にあ�
 
 ## 決定・指示のログ（新しいものを上に足す）
 
+- 2026-09-04 自動改善を一旦停止（田中さん指示・Claudeのクレジット切れで kinbot-hourly が毎時失敗していたため）。GitHub Actions の schedule(cron) をコメントアウト：kinbot-hourly.yml（"30 * * * *"）・kinbot-night.yml（"0 18 * * *"）・kinbot-advisor.yml（"0 0,3,6,9,12 * * 1-5"）。いずれも先頭に「# schedule: 一旦停止…」と「# - cron:」を付与、workflow_dispatch(手動)は残す。復活時は # を外す。※これらはClaude Code＋ANTHROPIC_API_KEY を使う。アプリ側『コードを自動で直す』(autoImprove)もOFF運用推奨（AI社員画面の開発AIカードのスイッチ）。金のかからない自動改善は、無料枠LLM(Gemini free / Groq free)に向ける＋頻度を落とす、が現実解（別途要望あれば対応）。
+
 - 2026-09-04 AI社員のPR一覧に「このPRを対応済みにする」ボタン（案1）。POST /api/ai/mark-done（isAiOwner限定、{ids:[..]} か {pr:番号}→本文のメモID抽出）＝updateDevNote(id,{status:'done'})。クリックでそのPRの紐づく開発メモを対応済みに（マージ権限不要）。#3/#2をこのチャットで反映済みなので、田中さんがこのボタンで 728/727・749/750 を対応済みにできる（本番DBはRailway側なので実更新は反映後にボタン押下で実施）。旧deployボタン配線は撤去。
 
 - 2026-09-04 夜間開発のPR #3・#2 を、このClaudeチャットで本番反映（GitHubマージではなく手動適用→push＝実デプロイはこのチャットで行う運用に確定）。#3：kincall「かける」ヘッダーの「探す」隣に『SFの所有者を優先』チェックボックス(#clSfOwnerPref)＋.cl-sfown CSS＋calls.jsに wireSfOwnerPref()（/api/calls/sf-owner-priority を読み書き。ONでSF監査時にSFリード所有者へ担当を自動でそろえバッティング解消）。#2：server/chatcmd.js の parseCommand で /(開発メモ|要件メモ|要望メモ)/ を含む文も kind:notes（『開発メモを見せて』等に対応）。PRブランチpr2/pr3はローカルで確認後削除。AI社員：PRの「GitHubでデプロイ（マージ）」ボタンを撤去（田中さん指示 i）、PR報告は確認・DL・差分・進捗に振り切り、案内文も「実デプロイは開発チャットで行う」に変更。※GitHub上のPR #3/#2 自体はopenのまま（内容は反映済み）。deployedPrsSeen 連動(案1)の仕組みは残置。

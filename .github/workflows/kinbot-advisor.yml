@@ -11,9 +11,9 @@
 name: 定期提案（Claude）
 
 on:
-  schedule:
+  # schedule:  # 一旦停止（Claudeのクレジット切れのため。復活時は先頭の # を外す）
     # 日本時間の 9時 / 12時 / 15時 / 18時 / 21時（UTCで指定）
-    - cron: "0 0,3,6,9,12 * * 1-5"
+    # - cron: "0 0,3,6,9,12 * * 1-5"
   workflow_dispatch:
     inputs:
       focus:
