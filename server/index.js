@@ -11565,7 +11565,11 @@ async function runProcessSheet(sfUser, opts = {}) {
       if (em) insideName.set(em, mm.name || mm.email);
     }
     const mdKey = (ymd) => { const p = String(ymd).split("-"); return p.length === 3 ? `${Number(p[1])}/${Number(p[2])}` : ""; };
-    const ensureT = (name, key) => { if (!tallied[name]) tallied[name] = {}; if (!tallied[name][key]) tallied[name][key] = { "コール": 0, "接触": 0, "アポ（期内）": 0, "アポ（期外）": 0 }; return tallied[name][key]; };
+    // 同じ人が SFレポート側では「植野 ひかり」、kincall側では「植野ひかり」のように
+    // 表記が割れると、別キーになって値が分散し、シートには片方しか書かれない。
+    // 既に tallied にいる同一人物のキーがあれば、そこへ足す（applyApoCounts と同じ考え方）。
+    const canonKey = (name) => Object.keys(tallied).find((n) => psSameName(n, name)) || name;
+    const ensureT = (name, key) => { const who = canonKey(name); if (!tallied[who]) tallied[who] = {}; if (!tallied[who][key]) tallied[who][key] = { "コール": 0, "接触": 0, "アポ（期内）": 0, "アポ（期外）": 0 }; return tallied[who][key]; };
     const 接触した = (v) => isContacted(v);
     const callRows = await callStatsByDay(from, to).catch(() => []);
     for (const r of callRows) {
@@ -11601,10 +11605,13 @@ async function runProcessSheet(sfUser, opts = {}) {
   const layout = readLayout(values);
   if (layout.error) throw new Error(layout.error);
 
-  // インターン生は自動入力しない（設定で「含める」を選んだときだけ入れる）
+  // インターン生の扱い。
+  // 既定は「含める（シートに行がある人は全員書く）」。
+  // 除外するのは、実行時に明示的に interns:false が渡されたときだけ（sf連携画面のチェックを外して実行）。
+  // ※保存済み設定 psInterns だけでは除外しない。過去に false のまま残り、シートに行がある
+  //   インサイド（飯島・中村ほか）が黙って書かれない事故が起きていたため。
   let internNote = "";
-  // B案：インサイド（インターン）も既定で書き込む。psInterns を false にしたときだけ除外。
-  const includeInterns = opts.interns !== undefined ? !!opts.interns : (st.psInterns !== false);
+  const includeInterns = opts.interns === false ? false : true;
   if (!includeInterns) {
     const interns = await listInterns().catch(() => []);
     const internEmails = new Set(interns.map((x) => String(x.email || "").toLowerCase()).filter(Boolean));
@@ -16783,7 +16790,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-04zy プロセスシート「お試し」の内訳表示：担当者×日ごとに書く値（コール/接触/アポ内外/稼働）、シートの担当者一覧、集計に出た名前、実績が見つからない担当者、スキップ理由、kincall合算の失敗（従来はログのみ）を画面に出す。原因を画面だけで追えるように。前回(zx)：プロセスシートに実績が入らない不具合の本修正：実績画面の「今すぐ実行／お試し」は期間を送らず、旧設定の固定期間（8月）のまま集計していたため、8/31以降の kincall 架電・アポが入らなかった。期間を「今日を含む月ごとの範囲」から自動で決めるように（指定＞月ごとの範囲＞旧固定期間＞今月）。月ごとの範囲を使うときは期内判定もその範囲（fixed）。実行結果に使った期間・実績の無い担当者・スキップ理由を表示。前回(zw)：項目行ラベルの括弧ゆれ吸収（localStorageに開始日/終了日を記憶し、ページを切り替えても保たれる。既定に戻すで消去）。＋【点検用・一時】GET /api/calls/_stagediag：SFクロス商談のStageNameごとの件数と、KPI/MID/案件化/受注の判定結果を返す（KPIが出ない原因＝ステージ名の表記確認用）。前回：リスト一覧にgroup_idを追加";
+const BUILD_TAG = "2026-09-04zz プロセスシートに一部の人（飯島・加藤・中村ほかkincallインサイド）が入らない不具合を修正。原因：readLayoutはシート担当者11人を正しく検出していたが、後段の「インターン除外」が保存設定 psInterns=false のまま効き、シートに行がある6人を黙って除外していた（お試し内訳で「シートの担当者(5)」しか出ず判明）。修正1：除外の既定を「含める」に（実行時に明示 interns:false を渡したときだけ除外。保存設定だけでは除外しない）。修正2：SF側「植野 ひかり」とkincall側「植野ひかり」が別キーで値が分散していたのを、既存の同一人物キー(psSameName)へ合流させて合算。修正3：お試し内訳に除外された人(internNote)を表示。前回(zy)：プロセスシート「お試し」の内訳表示：担当者×日ごとに書く値（コール/接触/アポ内外/稼働）、シートの担当者一覧、集計に出た名前、実績が見つからない担当者、スキップ理由、kincall合算の失敗（従来はログのみ）を画面に出す。原因を画面だけで追えるように。前回(zx)：プロセスシートに実績が入らない不具合の本修正：実績画面の「今すぐ実行／お試し」は期間を送らず、旧設定の固定期間（8月）のまま集計していたため、8/31以降の kincall 架電・アポが入らなかった。期間を「今日を含む月ごとの範囲」から自動で決めるように（指定＞月ごとの範囲＞旧固定期間＞今月）。月ごとの範囲を使うときは期内判定もその範囲（fixed）。実行結果に使った期間・実績の無い担当者・スキップ理由を表示。前回(zw)：項目行ラベルの括弧ゆれ吸収（localStorageに開始日/終了日を記憶し、ページを切り替えても保たれる。既定に戻すで消去）。＋【点検用・一時】GET /api/calls/_stagediag：SFクロス商談のStageNameごとの件数と、KPI/MID/案件化/受注の判定結果を返す（KPIが出ない原因＝ステージ名の表記確認用）。前回：リスト一覧にgroup_idを追加";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",

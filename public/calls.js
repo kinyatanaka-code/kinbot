@@ -1627,6 +1627,7 @@ async function loadAdmin() {
           const parts = [];
           const warns = Array.isArray(d.warnings) ? d.warnings : [];
           if (warns.length) parts.push(`<div style="color:#b45309">注意：${warns.map(esc).join("／")}</div>`);
+          if (d.internNote) parts.push(`<div style="color:#b45309">${esc(d.internNote)}</div>`);
           const sk = Array.isArray(d.skipped) ? d.skipped : [];
           if (sk.length) parts.push(`<div>スキップ：${esc(sk.slice(0, 8).join("／"))}${sk.length > 8 ? `…他${sk.length - 8}件` : ""}</div>`);
           if (dry) {
