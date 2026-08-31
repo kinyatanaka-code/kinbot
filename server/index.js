@@ -8488,14 +8488,17 @@ async function computeStatsGrid(periodIn, spanIn) {
     // 見つからなければ現担当（setter/current_owner＝クローザー）に付ける。内/外は予定の商談日(start_time)。
     const apos = await aposTakenInRange({ from: spanFrom, to: spanTo, limit: 5000 }).catch(() => []);
     const setterEmail = (a) => {
-      // 現担当メール(current_owner)→setter_email→setter名→現担当名 の順で、実績メンバーに一致するものを返す
-      const co = String(a.current_owner || "").toLowerCase();
-      if (byEmail.has(co)) return co;
+      // 獲得者を優先：setter_email → setter(名前) → 最後に現担当(current_owner)。
+      // ※担当は割り振り・担当変更で変わるので、獲得者の判定には最後に使う。
       const se = String(a.setter_email || "").toLowerCase();
       if (byEmail.has(se)) return se;
       const sn = String(a.setter || "").toLowerCase();
       if (byEmail.has(sn)) return sn;
-      return emailOfName(a.setter) || emailOfName(a.current_owner) || "";
+      const byName = emailOfName(a.setter);
+      if (byName) return byName;
+      const co = String(a.current_owner || "").toLowerCase();
+      if (byEmail.has(co)) return co;
+      return emailOfName(a.current_owner) || "";
     };
     // 会社名 → 実獲得者（kincallでアポ獲得した人）。実獲得者に寄せるために使う。
     const wonCalls = await apoWonCallsInRange(spanFrom, spanTo).catch(() => []);
@@ -16392,7 +16395,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-04zi 接触が拾えていない不具合を修正。点検(_contactdiag)で判明：kincallの結果「問い合わせ」(15件)「資料送付」(1件)が接触扱いfalseで漏れていた。共通関数 isContacted(v) を新設し、除外＝不在/コールのみ/受付ブロック/現在使われていない/NG、接触＝接触|アポ|再コール|断り|見送り|問い合わせ|資料送付 に統一。実績(computeStatsGrid)・リスト別・分析・コール進捗・プロセスシート合算など7箇所の接触判定を共通関数に置換。前回：点検API追加";
+const BUILD_TAG = "2026-09-04zj 実績のアポが獲得者に付かない不具合を修正（中村のアポが消える件）。点検(_apowho)で判明：アポ一覧のsetterには正しい獲得者（栗林/飯島/加藤/田中等）が入っており、current_ownerだけが担当変更で変わる。しかしsetterEmail()が current_owner を最優先で返していたため、獲得者ではなく担当に付いていた。修正：会社名でkincall獲得者→setter_email→setter(名前)→最後にcurrent_owner の順に変更（獲得者優先）。前回：接触判定の共通化";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
