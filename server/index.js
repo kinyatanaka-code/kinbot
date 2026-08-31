@@ -11662,12 +11662,55 @@ async function runProcessSheet(sfUser, opts = {}) {
     } catch (e) { hoursNotes = ["架電時間の計算に失敗しました：" + e.message]; }
   }
 
+  // ── 手入力を守る書き込み ──
+  // kinbotが前回書いた値（影の記録）と、いまのシートの値を比べる。
+  //   ・一致 → kinbotが書いたまま人が触っていない → 最新の実績に更新する。
+  //   ・不一致 → 人が直した → そのセルは触らない（据え置き）。
+  //   ・記録が無い（初回） → 基準づくりのため書く（次回から守る）。
+  // 「実績で強制上書き」(force) のときは、記録に関係なく全部を実績で上書きする。
+  const force = opts.force === true;
+  const sheetSig = `${sheetId}|${sheetName}`;
+  let shadowWrap = {};
+  try { shadowWrap = JSON.parse(st.psShadow || "{}") || {}; } catch { shadowWrap = {}; }
+  const shadow = (shadowWrap && shadowWrap.sig === sheetSig && shadowWrap.cells && typeof shadowWrap.cells === "object")
+    ? shadowWrap.cells : {};   // シートが変わったら記録は使わない（別シートの値を持ち込まない）
+  const parseA1 = (a1) => {
+    const m = String(a1 || "").match(/^([A-Z]+)(\d+)$/);
+    if (!m) return null;
+    let c = 0; for (const ch of m[1]) c = c * 26 + (ch.charCodeAt(0) - 64);
+    return { r: Number(m[2]) - 1, c: c - 1 };
+  };
+  const curAt = (a1) => { const p = parseA1(a1); if (!p) return ""; return (values[p.r] || [])[p.c] ?? ""; };
+  const sameCell = (a, b) => {
+    const na = String(a ?? "").trim(), nb = String(b ?? "").trim();
+    if (na === nb) return true;
+    const fa = Number(na), fb = Number(nb);
+    return na !== "" && nb !== "" && Number.isFinite(fa) && Number.isFinite(fb) && fa === fb;
+  };
+  const writeCells = [];
+  const protectedCells = [];
+  for (const u of updates) {
+    const prev = shadow[u.range];
+    const keep = !force && prev !== undefined && !sameCell(curAt(u.range), prev);
+    if (keep) protectedCells.push({ who: u.who, date: u.date, metric: u.metric, current: String(curAt(u.range) ?? "").trim(), want: u.value });
+    else writeCells.push(u);
+  }
+  // 実際に書いたセルを影の記録に残す（守る対象を次回に引き継ぐ）。据え置いたセルの記録は変えない。
+  const saveShadow = async (written) => {
+    const cells = { ...shadow };
+    for (const u of written) cells[u.range] = u.value;
+    await saveSettings({ psShadow: JSON.stringify({ sig: sheetSig, cells }) }).catch(() => {});
+  };
+
   if (dryRun) {
     return {
       ok: true, dryRun: true, rows: records.length,
       people: layout.people.map((p) => p.name),
       matched: Object.keys(tallied),
-      updates: updates.slice(0, 400), count: updates.length, skipped,
+      updates: updates.slice(0, 400), count: writeCells.length, candidates: updates.length, skipped,
+      protectedCount: protectedCells.length,
+      protectedCells: protectedCells.slice(0, 100),
+      forced: force,
       withHours, hoursNotes, internNote,
       apoSource: apoRows.length
         ? `kinbotのアポ記録（Chatに流れたアポ）から ${apoRows.reduce((n, r) => n + (Number(r.in_term) || 0) + (Number(r.out_term) || 0), 0)}件`
@@ -11714,14 +11757,16 @@ async function runProcessSheet(sfUser, opts = {}) {
   const gasSecret = String(opts.gasSecret || st.psGasSecret || "");
   try {
     if (gasUrl) {
-      const r = await writeViaAppsScript(gasUrl, gasSecret, { sheetName, cells: updates });
-      return { ok: true, updated: r.updated, count: updates.length, skipped, via: "gas", termUsed: { from, to, mode: termMode, source: term.source }, warnings };
+      const r = await writeViaAppsScript(gasUrl, gasSecret, { sheetName, cells: writeCells });
+      await saveShadow(writeCells);
+      return { ok: true, updated: r.updated, count: writeCells.length, protectedCount: protectedCells.length, forced: force, skipped, via: "gas", termUsed: { from, to, mode: termMode, source: term.source }, warnings };
     }
-    const r = await updateSheetCells(owner, sheetId, sheetName, updates);
-    return { ok: true, updated: r.updated, count: updates.length, skipped, via: "google", termUsed: { from, to, mode: termMode, source: term.source }, warnings };
+    const r = await updateSheetCells(owner, sheetId, sheetName, writeCells);
+    await saveShadow(writeCells);
+    return { ok: true, updated: r.updated, count: writeCells.length, protectedCount: protectedCells.length, forced: force, skipped, via: "google", termUsed: { from, to, mode: termMode, source: term.source }, warnings };
   } catch (e) {
     // どのセルに書こうとしたかを添える（原因を調べるときに使う）
-    e.firstRange = updates[0] ? updates[0].range : "";
+    e.firstRange = writeCells[0] ? writeCells[0].range : "";
     throw e;
   }
 }
@@ -16790,7 +16835,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-04zz プロセスシートに一部の人（飯島・加藤・中村ほかkincallインサイド）が入らない不具合を修正。原因：readLayoutはシート担当者11人を正しく検出していたが、後段の「インターン除外」が保存設定 psInterns=false のまま効き、シートに行がある6人を黙って除外していた（お試し内訳で「シートの担当者(5)」しか出ず判明）。修正1：除外の既定を「含める」に（実行時に明示 interns:false を渡したときだけ除外。保存設定だけでは除外しない）。修正2：SF側「植野 ひかり」とkincall側「植野ひかり」が別キーで値が分散していたのを、既存の同一人物キー(psSameName)へ合流させて合算。修正3：お試し内訳に除外された人(internNote)を表示。前回(zy)：プロセスシート「お試し」の内訳表示：担当者×日ごとに書く値（コール/接触/アポ内外/稼働）、シートの担当者一覧、集計に出た名前、実績が見つからない担当者、スキップ理由、kincall合算の失敗（従来はログのみ）を画面に出す。原因を画面だけで追えるように。前回(zx)：プロセスシートに実績が入らない不具合の本修正：実績画面の「今すぐ実行／お試し」は期間を送らず、旧設定の固定期間（8月）のまま集計していたため、8/31以降の kincall 架電・アポが入らなかった。期間を「今日を含む月ごとの範囲」から自動で決めるように（指定＞月ごとの範囲＞旧固定期間＞今月）。月ごとの範囲を使うときは期内判定もその範囲（fixed）。実行結果に使った期間・実績の無い担当者・スキップ理由を表示。前回(zw)：項目行ラベルの括弧ゆれ吸収（localStorageに開始日/終了日を記憶し、ページを切り替えても保たれる。既定に戻すで消去）。＋【点検用・一時】GET /api/calls/_stagediag：SFクロス商談のStageNameごとの件数と、KPI/MID/案件化/受注の判定結果を返す（KPIが出ない原因＝ステージ名の表記確認用）。前回：リスト一覧にgroup_idを追加";
+const BUILD_TAG = "2026-09-04aa プロセスシート：手入力を守る書き込みを実装（引き継ぎメモの合意事項）。kinbotが前回書いた値を settings.psShadow に {sig:sheetId|sheetName, cells:{A1範囲:値}} で記録。実行時、シートの現在値が記録と一致するセルだけ最新の実績に更新し、違うセル（人が手入力）は据え置く。記録が無い初回は基準づくりのため書く。シートが変わると記録は使わない。書いたセルのみ記録を更新（据え置きセルの記録は保持）。実績画面に「実績で強制上書き」ボタン（確認つき・記録を無視して全上書き）。お試し/実行の結果に据え置き件数・据え置いたセル一覧を表示。前回(zz)：プロセスシートに一部の人（飯島・加藤・中村ほかkincallインサイド）が入らない不具合を修正。原因：readLayoutはシート担当者11人を正しく検出していたが、後段の「インターン除外」が保存設定 psInterns=false のまま効き、シートに行がある6人を黙って除外していた（お試し内訳で「シートの担当者(5)」しか出ず判明）。修正1：除外の既定を「含める」に（実行時に明示 interns:false を渡したときだけ除外。保存設定だけでは除外しない）。修正2：SF側「植野 ひかり」とkincall側「植野ひかり」が別キーで値が分散していたのを、既存の同一人物キー(psSameName)へ合流させて合算。修正3：お試し内訳に除外された人(internNote)を表示。前回(zy)：プロセスシート「お試し」の内訳表示：担当者×日ごとに書く値（コール/接触/アポ内外/稼働）、シートの担当者一覧、集計に出た名前、実績が見つからない担当者、スキップ理由、kincall合算の失敗（従来はログのみ）を画面に出す。原因を画面だけで追えるように。前回(zx)：プロセスシートに実績が入らない不具合の本修正：実績画面の「今すぐ実行／お試し」は期間を送らず、旧設定の固定期間（8月）のまま集計していたため、8/31以降の kincall 架電・アポが入らなかった。期間を「今日を含む月ごとの範囲」から自動で決めるように（指定＞月ごとの範囲＞旧固定期間＞今月）。月ごとの範囲を使うときは期内判定もその範囲（fixed）。実行結果に使った期間・実績の無い担当者・スキップ理由を表示。前回(zw)：項目行ラベルの括弧ゆれ吸収（localStorageに開始日/終了日を記憶し、ページを切り替えても保たれる。既定に戻すで消去）。＋【点検用・一時】GET /api/calls/_stagediag：SFクロス商談のStageNameごとの件数と、KPI/MID/案件化/受注の判定結果を返す（KPIが出ない原因＝ステージ名の表記確認用）。前回：リスト一覧にgroup_idを追加";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",

@@ -1555,8 +1555,10 @@ async function loadAdmin() {
           <div class="modal-actions">
             <button class="btn" id="psRun" type="button">今すぐ実行</button>
             <button class="btn ghost" id="psDry" type="button">お試し（書き込まず件数だけ）</button>
+            <button class="btn ghost" id="psForce" type="button">実績で強制上書き</button>
             <span class="saved" id="psMsg" hidden></span>
           </div>
+          <p class="note" style="margin:2px 0 0">通常の実行は、人が手で直したセルは上書きしません（kinbotが前回書いた値のままのセルだけ最新の実績に更新）。「強制上書き」は手入力も含めて実績で置き換えます。</p>
           <div class="note" id="psResult" style="margin-top:6px"></div>
           <div id="psDetail" style="margin-top:6px;font-size:12px;line-height:1.6"></div>
         </div>
@@ -1610,17 +1612,19 @@ async function loadAdmin() {
         if (!r.ok) throw new Error((await r.json()).error || "変更できません");
       } catch (err) { alert("変更できませんでした：" + err.message); e.target.checked = !e.target.checked; }
     });
-    const runPs = async (dry) => {
-      const rs = $("psResult"); rs.textContent = dry ? "お試し中…" : "実行中…";
+    const runPs = async (dry, force) => {
+      const rs = $("psResult"); rs.textContent = dry ? "お試し中…" : (force ? "強制上書き中…" : "実行中…");
       try {
-        const r = await fetch("/api/process-sheet/run", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ dryRun: dry }) });
+        const r = await fetch("/api/process-sheet/run", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ dryRun: dry, force: !!force }) });
         const d = await r.json();
         if (!r.ok) throw new Error(d.error || "実行に失敗しました");
         const tu = d.termUsed || {};
         const termTxt = tu.from && tu.to ? `　期間 ${tu.from}〜${tu.to}（${tu.source || ""}）` : "";
+        const prot = Number(d.protectedCount || 0);
+        const protTxt = prot ? `　手入力を尊重して据え置き ${prot}箇所` : "";
         rs.textContent = dry
-          ? `お試し：${d.count ?? 0}箇所が対象です（まだ書き込んでいません）${termTxt}`
-          : `完了：${d.count ?? 0}箇所を更新しました${termTxt}`;
+          ? `お試し：${d.count ?? 0}箇所を更新予定（まだ書き込んでいません）${protTxt}${termTxt}`
+          : `完了：${d.count ?? 0}箇所を更新しました${d.forced ? "（強制上書き）" : protTxt}${termTxt}`;
         // 内訳（誰の・どの日に・何を書くか）。原因を画面だけで追えるようにする。
         const det = $("psDetail");
         if (det) {
@@ -1630,6 +1634,13 @@ async function loadAdmin() {
           if (d.internNote) parts.push(`<div style="color:#b45309">${esc(d.internNote)}</div>`);
           const sk = Array.isArray(d.skipped) ? d.skipped : [];
           if (sk.length) parts.push(`<div>スキップ：${esc(sk.slice(0, 8).join("／"))}${sk.length > 8 ? `…他${sk.length - 8}件` : ""}</div>`);
+          const pc = Array.isArray(d.protectedCells) ? d.protectedCells : [];
+          if (pc.length) {
+            const rows = pc.slice(0, 30).map((c) =>
+              `<tr><td>${esc(c.who)}</td><td>${esc(c.date)}</td><td>${esc(c.metric)}</td><td>${esc(c.current)}</td><td>${esc(c.want)}</td></tr>`).join("");
+            parts.push(`<div style="margin-top:4px">手入力とみなして据え置いたセル（${pc.length}）：</div>` +
+              `<table class="tbl"><thead><tr><th>担当者</th><th>日</th><th>項目</th><th>今の値(手入力)</th><th>実績</th></tr></thead><tbody>${rows}</tbody></table>`);
+          }
           if (dry) {
             const ppl = Array.isArray(d.people) ? d.people : [];
             const mt = Array.isArray(d.matched) ? d.matched : [];
@@ -1657,8 +1668,11 @@ async function loadAdmin() {
         if (!dry) { const pl = $("psLast"); if (pl) pl.textContent = `${new Date().toLocaleString("ja-JP")}・${d.count ?? 0}箇所を更新`; }
       } catch (e) { rs.textContent = "失敗：" + e.message; }
     };
-    $("psRun").addEventListener("click", () => runPs(false));
-    $("psDry").addEventListener("click", () => runPs(true));
+    $("psRun").addEventListener("click", () => runPs(false, false));
+    $("psDry").addEventListener("click", () => runPs(true, false));
+    if ($("psForce")) $("psForce").addEventListener("click", () => {
+      if (confirm("手入力したセルも含めて、実績で上書きします。よろしいですか？")) runPs(false, true);
+    });
   } catch (e) { box.innerHTML = `<div class="note">読み込めませんでした：${esc(e.message)}</div>`; }
 }
 
