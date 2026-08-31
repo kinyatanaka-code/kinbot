@@ -261,6 +261,7 @@ import {
   updateChatTarget,
   deleteChatTarget,
   setApoExcluded,
+  listExcludedApos,
   setApoExcludedMany,
   dedupeSmartLinksByEvent,
   saveAutolaunch,
@@ -8607,6 +8608,34 @@ app.get("/api/calls/_apowho", async (req, res) => {
       return { title: a.label, 会社: co, キー: k, kincall獲得者: em ? (nameByEmail.get(em) || em) : "(なし)", setter: a.setter, current_owner: a.current_owner, 取得日: ymdJst(a.taken_at), 商談日: ymdJst(a.start_time) };
     });
     res.json({ from, to, アポ件数: rows.length, kincall獲得ログ件数: won.length, kincallの会社キー: [...w2.keys()].slice(0, 30), rows: rows.slice(0, 40) });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// 集計から外れているアポの一覧（理由つき）。まとめて戻すこともできる。
+app.get("/api/apo/excluded", async (req, res) => {
+  try {
+    if (!isAiOwner(req)) return res.status(403).json({ error: "権限がありません" });
+    const days = Math.max(1, Math.min(180, parseInt(req.query.days, 10) || 30));
+    const rows = await listExcludedApos(days, 200).catch(() => []);
+    res.json({ ok: true, 件数: rows.length, items: rows.map((r) => ({
+      slug: r.slug, 会社: r.label, 獲得者: r.setter, 担当: r.current_owner,
+      商談日: r.start_time ? String(r.start_time).slice(0, 10) : "",
+      取得日: r.taken_at ? String(r.taken_at).slice(0, 10) : "",
+      外れた理由: r.excluded_reason || "（記録なし・古い除外）",
+      外れた日時: r.updated_at ? String(r.updated_at).slice(0, 16).replace("T", " ") : "",
+    })) });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// 外れているアポをまとめて集計に戻す（理由で絞れる）
+app.post("/api/apo/excluded/restore", async (req, res) => {
+  try {
+    if (!isAiOwner(req)) return res.status(403).json({ error: "権限がありません" });
+    const slugs = Array.isArray(req.body?.slugs) ? req.body.slugs : [];
+    if (!slugs.length) return res.status(400).json({ error: "戻すアポを選んでください" });
+    let n = 0;
+    for (const sl of slugs) { const r = await setApoExcluded(String(sl), false).catch(() => null); if (r) n++; }
+    res.json({ ok: true, 戻した件数: n });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 

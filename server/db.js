@@ -4572,6 +4572,23 @@ export async function setApoExcludedMany(slugs, excluded) {
   } catch (e) { console.error("[db] setApoExcludedMany", e.message); return 0; }
 }
 
+// 集計から外れているアポの一覧（理由つき）。なぜ外れたのかを追うため。
+export async function listExcludedApos(days = 30, limit = 200) {
+  if (!pool) return [];
+  try {
+    await sq(`ALTER TABLE smart_links ADD COLUMN IF NOT EXISTS excluded_reason TEXT;`).catch(() => {});
+    const { rows } = await pool.query(
+      `SELECT slug, label, setter, setter_email, current_owner, start_time, excluded_reason,
+              COALESCE(apo_at, created_at) AS taken_at, updated_at
+         FROM smart_links
+        WHERE COALESCE(excluded,false) = true
+          AND COALESCE(apo_at, created_at) >= now() - ($1 || ' days')::interval
+        ORDER BY updated_at DESC NULLS LAST
+        LIMIT $2`, [String(days), limit]);
+    return rows;
+  } catch (e) { console.error("[db] listExcludedApos", e.message); return []; }
+}
+
 export async function setApoExcluded(slug, excluded, reason = "") {
   if (!pool || !slug) return null;
   try {
