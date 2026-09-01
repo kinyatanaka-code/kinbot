@@ -902,6 +902,7 @@ async function callOnce(provider, system, user, maxTokens, json = true, schema =
 
 // Groq / Cerebras / OpenRouter / OpenAI など OpenAI互換エンドポイント共通
 async function callOpenAICompat(system, user, maxTokens, { base, key, model, name }, json = true) {
+  key = String(key || "").trim();   // 貼り付け時の前後空白・改行を落とす（混入すると401になる）
   if (!key) throw new Error(`${name} のAPIキーが未設定です`);
   const res = await fetchWithTimeout(`${base.replace(/\/$/, "")}/chat/completions`, {
     method: "POST",
