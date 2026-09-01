@@ -1466,8 +1466,8 @@ function dashCard(c, big) {
   return `<div class="kc-dcard${big ? " kc-dcard-big" : ""}" data-subj="${esc(c.key)}" data-label="${esc(c.label)}">
     <div class="kc-dname">${esc(c.label)}</div>
     <div class="kc-drow">
-      <div class="kc-dcol"><div class="kc-dlb">目標</div><div class="kc-d-num">${c.goal}</div></div>
-      <div class="kc-dcol"><div class="kc-dlb">アポ実績</div><div class="kc-d-act">${c.actual}</div></div>
+      <div class="kc-dcol"><div class="kc-dlb">目標</div><div class="kc-d-act">${c.goal}</div></div>
+      <div class="kc-dcol"><div class="kc-dlb">実績</div><div class="kc-d-act">${c.actual}</div></div>
       <div class="kc-dcol"><div class="kc-dlb">差分</div><div class="kc-d-diff ${dcls}">${dtxt}</div></div>
     </div>
   </div>`;
@@ -1548,17 +1548,22 @@ function dashDetailTable(cols, vals, now, subject, dailyGoals, period, body) {
   return `<div class="kc-tablewrap"><table class="sh-table kc-grid">${head}${goalRow}${row("アポ", "アポ")}${row("コール", "コール")}${row("接触", "接触")}${rate("接触→アポ率", "アポ", "接触")}${rate("コール→アポ率", "アポ", "コール")}</table></div>` +
     (period !== "day" ? `<p class="note" style="margin-top:6px">目標は日次で入力します（日次タブに切り替えてください）。週次・月次は日次目標の合計です。</p>` : "");
 }
-// 目標入力欄（日次）の保存を配線
+// 目標入力欄（日次）の保存を配線（入力ごとに再読み込みしない）
 function bindGoalInputs(scope, subject, reload) {
   scope.querySelectorAll(".kc-goal-cell").forEach((inp) => {
     inp.addEventListener("change", async () => {
+      const tr = inp.closest("tr.kc-g-goal");
+      if (tr) {
+        const s = [...tr.querySelectorAll(".kc-goal-cell")].reduce((a, x) => a + (Number(x.value) || 0), 0);
+        const tot = tr.querySelector(".kc-g-tot"); if (tot) tot.textContent = s;
+      }
       try {
         await fetch("/api/calls/apo-goals", {
           method: "PUT", headers: { "content-type": "application/json" },
           body: JSON.stringify({ subject, date: inp.dataset.date, value: Number(inp.value) || 0 }),
         });
-        if (typeof loadDash === "function") loadDash();   // ダッシュボードの月次合計も更新
-      } catch (e) { alert("目標を保存できませんでした：" + e.message); }
+        if (typeof _statsGoals === "object") for (const k in _statsGoals) delete _statsGoals[k];   // 実績タブは取り直す
+      } catch (e) { inp.style.borderColor = "#e24b4a"; }
     });
   });
 }
@@ -1696,16 +1701,25 @@ function renderStats(d) {
       `</div>` +
       (d.sfError ? `<div class="note">${esc(d.sfError)}</div>` : "");
   }
-  // 目標入力（日次のみ）の保存
+  // 目標入力（日次のみ）の保存。まとめて編集できるよう、入力ごとに再読み込みしない。
+  // 保存はその場で送り、合計セルだけその場で更新する。
   box.querySelectorAll(".kc-goal-cell").forEach((inp) => {
     inp.addEventListener("change", async () => {
+      const subj = inp.dataset.subj, date = inp.dataset.date, val = Number(inp.value) || 0;
+      // ローカル反映（合計セルと、記憶しているキャッシュ）
+      const tr = inp.closest("tr.kc-g-goal");
+      if (tr) {
+        const s = [...tr.querySelectorAll(".kc-goal-cell")].reduce((a, x) => a + (Number(x.value) || 0), 0);
+        const tot = tr.querySelector(".kc-g-tot"); if (tot) tot.textContent = s;
+      }
+      if (_statsGoals[statsPeriod]) { (_statsGoals[statsPeriod][subj] = _statsGoals[statsPeriod][subj] || {})[date] = val; }
+      for (const k in _statsGoals) if (k !== statsPeriod) delete _statsGoals[k];   // 週/月は取り直す
       try {
         await fetch("/api/calls/apo-goals", {
           method: "PUT", headers: { "content-type": "application/json" },
-          body: JSON.stringify({ subject: inp.dataset.subj, date: inp.dataset.date, value: Number(inp.value) || 0 }),
+          body: JSON.stringify({ subject: subj, date, value: val }),
         });
-        loadStats(true);   // 合計を更新
-      } catch (e) { alert("目標を保存できませんでした：" + e.message); }
+      } catch (e) { inp.style.borderColor = "#e24b4a"; }
     });
   });
 }
