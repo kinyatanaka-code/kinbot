@@ -512,6 +512,27 @@ loadThanks();
 (function () {
   const menu = document.getElementById("setMenu");
   if (!menu) return;
+
+  // kincallのみの人は、自分の設定（外部連携＝Google・アカウント・登録リンク）だけ開ける。
+  // 管理者向けのタブ・カードは隠す。
+  fetch("/api/me").then((r) => r.json()).then((me) => {
+    if (!me || !me.kincallOnly) return;
+    const allow = new Set(["integrations", "account", "links"]);
+    menu.querySelectorAll(".set-menu-item").forEach((t) => {
+      if (!allow.has(t.dataset.tab)) t.hidden = true;
+    });
+    // 外部連携カードはGoogle（カレンダー/Gmail）だけ残す
+    document.querySelectorAll("#integGrid .integ-card").forEach((c) => {
+      if (c.dataset.integ !== "calendar") c.hidden = true;
+    });
+    // 最初に開くタブを、開けるものにする
+    const active = menu.querySelector(".set-menu-item.active");
+    if (!active || active.hidden) {
+      const first = menu.querySelector('.set-menu-item[data-tab="integrations"]');
+      if (first) first.click();
+    }
+  }).catch(() => {});
+
   // 他の画面から settings.html#members のように来たとき、そのタブを開く
   const openFromHash = () => {
     const want = (location.hash || "").replace("#", "");

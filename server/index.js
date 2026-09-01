@@ -626,6 +626,15 @@ function isKincallPath(p) {
     /\.(css|svg|png|ico|webmanifest)$/.test(p);
 }
 
+// kincallのみの人でも、自分の設定（Google連携・アカウント・登録リンク）は開けるようにする。
+// 管理者向けの設定（メンバー・プロンプト・ナレッジ・全体設定・SF等）は開放しない。
+function isKincallSelfSettingPath(p) {
+  return p === "/settings.html" ||
+    p === "/auth/google" || p === "/auth/google/callback" ||
+    p === "/api/calendar/status" || p === "/api/calendar/disconnect" ||
+    p === "/api/my-zoom-link" || p === "/api/links";
+}
+
 const OPEN_PATHS = new Set([
   "/api/recall/webhook", "/api/zoom/webhook", "/api/login", "/api/register", "/api/auth-info",
   // 会議に映すページとその中身（Recallのブラウザから認証なしで読む）
@@ -763,7 +772,7 @@ app.use(async (req, res, next) => {
     req.kincallOnly = !u.admin && (await isKincallOnly(u.username).catch(() => false));
     // 代理ログイン中は、元のアカウントに戻る道を必ず開けておく
     const 戻る道 = req.path === "/api/impersonate/stop" || req.path === "/api/me";
-    if (req.kincallOnly && !isKincallPath(req.path) && !戻る道) {
+    if (req.kincallOnly && !isKincallPath(req.path) && !isKincallSelfSettingPath(req.path) && !戻る道) {
       if (req.path.startsWith("/api/")) return res.status(403).json({ error: "この操作はできません" });
       return res.redirect("/kincall");
     }
@@ -16965,7 +16974,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-04am kincallメンバーも自分のGoogleを各自で連携できるように（要望：田中さん）。メンバー管理に各メンバーのGoogle連携状況＋『Google連携リンク』を追加。管理者がリンクを本人に送る→本人が開いて自分のGoogleで連携（kinbotログイン不要）。/auth/google が ?as=署名トークン に対応し本人として保存、連携リンク経由は成功ページ表示。安全のため連携リンクはログイン用と別用途トークン（gconnect|）にしてログインには使えないようにした。前回(al)：gBiz取り込みの会社名補完。";
+const BUILD_TAG = "2026-09-04an kincallのみのメンバーが設定を開けない問題を修正（要望：田中さん）。従来 kincallOnly は isKincallPath 以外→/kincallへリダイレクトで settings.html が開けなかった。自分用だけ開放：isKincallSelfSettingPath（/settings.html・/auth/google(+callback)・/api/calendar/status・/api/calendar/disconnect・/api/my-zoom-link・/api/links）をゲートで許可。settings.js は me.kincallOnly のときタブを 外部連携/アカウント/登録リンク に絞り、外部連携カードはGoogle(calendar)だけ表示。管理系(メンバー/ナレッジ/プロンプト/全体設定/SF等)は非開放のまま。前回(am)：メンバーGoogle連携リンク。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
