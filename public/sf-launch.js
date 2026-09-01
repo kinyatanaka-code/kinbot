@@ -615,6 +615,17 @@ function lookupHtml(f, attr, initText, initId) {
 async function fillFromGbiz(key, companyName, number) {
   const card = document.querySelector(`[data-ev="${cssEscL(key)}"]`);
   if (!card) return;
+  companyName = String(companyName || "").trim();
+  // 会社名が空のとき（この画面に会社名の入力欄が無い等）は、
+  // フォームの会社名欄→予定タイトルの順で会社名を補う。番号指定のときはそのまま。
+  if (!companyName && !number) {
+    const nameEl = card.querySelector('[data-newapi="Company"]') || card.querySelector('[data-api="Company"]');
+    if (nameEl && nameEl.value) companyName = String(nameEl.value).trim();
+    if (!companyName) {
+      const t = card.querySelector(".home-card-title");
+      companyName = companyOf(t ? t.textContent : "") || "";
+    }
+  }
   const note = card.querySelector(".ln-gbiz-note");
   if (note) note.textContent = "gBizINFOを検索中…";
   try {
@@ -1035,7 +1046,7 @@ document.addEventListener("DOMContentLoaded", async () => {
     if (gb) {
       const key = gb.dataset.lnGbiz;
       const card = document.querySelector(`[data-ev="${cssEscL(key)}"]`);
-      const nameEl = card && card.querySelector('[data-newapi="Company"]');
+      const nameEl = card && (card.querySelector('[data-newapi="Company"]') || card.querySelector('[data-api="Company"]'));
       fillFromGbiz(key, nameEl ? nameEl.value : "", "");
       return;
     }

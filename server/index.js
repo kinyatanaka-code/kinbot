@@ -16944,7 +16944,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-04ak アポ自動割り振りで誰にも割り振れなかったとき、Google Chatに『⚠️割り振りできませんでした』を通知（従来はログのみで黙って落ちていた）。要望：田中さん。chat.js notifyAssignFailed（予定名・日時・獲得者・理由・試して不可だった人・手動対応の案内）、autoAssignOneの!pick.emailブランチで送信。自動スキャンは繰り返すので同一アポは20時間に1回まで(settings.apoFailNotifiedでdedup・3日で掃除)、手動は毎回通知。chatNotifyAssign=falseなら出さない。前回(aj)：Groqモデル選択をプルダウンに。前回(ai)：Groqモデル画面切替。";
+const BUILD_TAG = "2026-09-04al SF立ち上げの「会社情報を取り込む（gBizINFO・既存データ）」が『会社名を指定してください』で失敗する不具合を修正。原因：会社名を [data-newapi=Company] 入力欄からしか取っておらず、その欄が無い/空のフォームでは空文字で /api/gbiz/company?name= に投げていた。修正：fillFromGbiz入口で会社名が空かつ番号未指定なら [data-newapi/ data-api=Company]→予定タイトル(companyOf)の順で補完。クリックハンドラも新旧キー両対応。前回(ak)：割り振り失敗通知。前回(aj)：Groqモデル選択UI。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
