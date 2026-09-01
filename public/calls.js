@@ -310,7 +310,7 @@ function render() {
         <th class="kc-th-t">電話番号</th>
         <th class="kc-th-m">メールアドレス</th>
         <th class="kc-th-s"><button type="button" class="kc-th-b${on("status")}" data-flt="status">最終ステータス ▾</button></th>
-        ${rcols.map((k) => `<th class="kc-th-rc">${esc(k)}</th>`).join("")}
+        ${rcols.map((k) => `<th class="kc-th-rc" draggable="true" data-rck="${esc(k)}" title="ドラッグで並べ替え">${esc(k)}</th>`).join("")}
         <th class="kc-th-h"><button type="button" class="kc-th-b${filt.hist ? " on" : ""}" data-hist="1">履歴${arrow("hist")}</button></th>
         <th class="kc-th-l">最終架電日</th>
         <th class="kc-th-r">記録</th>
@@ -425,6 +425,27 @@ function render() {
   updateSelBar();
   const hideBtn = $("kcHideApo");
   if (hideBtn) hideBtn.addEventListener("click", () => { hideApo = !hideApo; render(); });
+
+  // 追加列の見出しを、ドラッグでエクセルのように並べ替える
+  let dragKey = null;
+  box.querySelectorAll("th.kc-th-rc[draggable]").forEach((th) => {
+    th.addEventListener("dragstart", (e) => {
+      dragKey = th.dataset.rck;
+      th.classList.add("kc-th-drag");
+      try { e.dataTransfer.effectAllowed = "move"; e.dataTransfer.setData("text/plain", dragKey); } catch {}
+    });
+    th.addEventListener("dragend", () => { th.classList.remove("kc-th-drag"); box.querySelectorAll(".kc-th-over").forEach((el) => el.classList.remove("kc-th-over")); });
+    th.addEventListener("dragover", (e) => { e.preventDefault(); try { e.dataTransfer.dropEffect = "move"; } catch {} th.classList.add("kc-th-over"); });
+    th.addEventListener("dragleave", () => th.classList.remove("kc-th-over"));
+    th.addEventListener("drop", (e) => {
+      e.preventDefault();
+      const from = dragKey || (e.dataTransfer && e.dataTransfer.getData("text/plain"));
+      const to = th.dataset.rck;
+      th.classList.remove("kc-th-over");
+      if (from && to && from !== to) moveExtraCol(from, to);
+    });
+  });
+
   const rcBtn = $("kcRcCols");
   if (rcBtn) rcBtn.addEventListener("click", () => {
     const allKeys = extraKeysOf(visibleRows());
@@ -433,45 +454,44 @@ function render() {
     const hidden = new Set((cfg && Array.isArray(cfg.hidden)) ? cfg.hidden : []);
     let order = (cfg && Array.isArray(cfg.order)) ? cfg.order.filter((k) => allKeys.includes(k)) : [];
     for (const k of allKeys) if (!order.includes(k)) order.push(k);
-    const drawRows = () => order.map((k, i) =>
-      `<div class="kc-colrow" data-k="${esc(k)}" style="display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:0.5px solid #eef2f0">
-         <input type="checkbox" class="kc-colshow"${hidden.has(k) ? "" : " checked"}/>
-         <span style="flex:1;font-size:13px">${esc(k)}</span>
-         <button type="button" class="btn ghost kc-colup" data-i="${i}" title="上へ"${i === 0 ? " disabled" : ""}>↑</button>
-         <button type="button" class="btn ghost kc-coldn" data-i="${i}" title="下へ"${i === order.length - 1 ? " disabled" : ""}>↓</button>
-       </div>`).join("");
     const inner =
-      `<p class="note" style="margin:0 0 8px">かける一覧に出す列を選び、↑↓で並び順を変えられます（この端末に保存）。</p>` +
-      `<div id="kcColList">${drawRows()}</div>` +
+      `<p class="note" style="margin:0 0 8px">かける一覧に出す列を選べます（この端末に保存）。並び順は、一覧の見出しをドラッグして変えられます。</p>` +
+      `<div style="max-height:50vh;overflow:auto">` +
+      order.map((k) =>
+        `<label class="ks-check" style="display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:0.5px solid #eef2f0">
+           <input type="checkbox" class="kc-colshow" value="${esc(k)}"${hidden.has(k) ? "" : " checked"}/>
+           <span style="flex:1;font-size:13px">${esc(k)}</span>
+         </label>`).join("") +
+      `</div>` +
       `<div class="modal-actions" style="margin-top:12px"><button type="button" class="btn" id="kcColSave">保存</button>` +
       `<button type="button" class="btn ghost" id="kcColReset">既定に戻す</button></div>`;
     const m = openModal("列を選ぶ", inner);
-    const listEl = m.el.querySelector("#kcColList");
-    const rerender = () => {
-      // 現在のチェック状態を order 準拠で hidden に反映してから描き直す
-      listEl.innerHTML = drawRows();
-      bind();
-    };
-    const bind = () => {
-      listEl.querySelectorAll(".kc-colshow").forEach((c, i) => c.addEventListener("change", () => {
-        const k = order[i]; if (c.checked) hidden.delete(k); else hidden.add(k);
-      }));
-      listEl.querySelectorAll(".kc-colup").forEach((b) => b.addEventListener("click", () => {
-        const i = Number(b.dataset.i); if (i > 0) { [order[i - 1], order[i]] = [order[i], order[i - 1]]; rerender(); }
-      }));
-      listEl.querySelectorAll(".kc-coldn").forEach((b) => b.addEventListener("click", () => {
-        const i = Number(b.dataset.i); if (i < order.length - 1) { [order[i + 1], order[i]] = [order[i], order[i + 1]]; rerender(); }
-      }));
-    };
-    bind();
     m.el.querySelector("#kcColSave").addEventListener("click", () => {
-      saveExtraCols(order, [...hidden]); m.close(); render();
+      const boxes = [...m.el.querySelectorAll(".kc-colshow")];
+      const hid = order.filter((k, i) => boxes[i] && !boxes[i].checked);
+      saveExtraCols(order, hid); m.close(); render();
     });
     m.el.querySelector("#kcColReset").addEventListener("click", () => {
       try { localStorage.removeItem("kcExtraCols"); } catch {}
       m.close(); render();
     });
   });
+}
+
+// 追加列 from を、to の位置へ移動して保存・再描画する（保存された並び順を編集）
+function moveExtraCol(from, to) {
+  const allKeys = extraKeysOf(visibleRows());
+  let cfg = null;
+  try { cfg = JSON.parse(localStorage.getItem("kcExtraCols") || "null"); } catch {}
+  const hidden = (cfg && Array.isArray(cfg.hidden)) ? cfg.hidden : [];
+  let order = (cfg && Array.isArray(cfg.order)) ? cfg.order.filter((k) => allKeys.includes(k)) : [];
+  for (const k of allKeys) if (!order.includes(k)) order.push(k);
+  const fi = order.indexOf(from), ti = order.indexOf(to);
+  if (fi < 0 || ti < 0) return;
+  order.splice(fi, 1);
+  order.splice(order.indexOf(to) + (fi < ti ? 1 : 0), 0, from);
+  saveExtraCols(order, hidden);
+  render();
 }
 
 // ───────── 窓（モーダル） ─────────

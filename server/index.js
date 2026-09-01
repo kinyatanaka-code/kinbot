@@ -17042,7 +17042,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-04au 読み込んだCSVの列をそのまま かける一覧の列にできるように（要望：田中さん）。call_targetsにextra JSONBを追加し、CSVからのリスト作成(from-csv listOnly/主経路)で標準以外の列を丸ごと保存（csvParseが_extraを抽出→addCallTargetsがextra保存）。targets APIは items[].追加 を返し、会社名一致の求人情報(既存分)は不足列の補完に使う。かける一覧は追加列を動的に表示し、『列を選ぶ』で表示ON/OFFと↑↓の並べ替え（端末保存）。掲載終了日等は期限で色分け。『求人情報を取り込む』ボタンは撤去（列はリストのCSVから入るため不要）。前回(at)：####等を空表示。";
+const BUILD_TAG = "2026-09-04av 追加列の並べ替えを、一覧の見出しをドラッグするエクセル風UIに（要望：田中さん）。列見出し(th.kc-th-rc)を draggable にし dragstart/dragover/drop で moveExtraCol→localStorage kcExtraColsのorderを更新。『列を選ぶ』モーダルは表示ON/OFFのチェックボックスのみに簡素化（↑↓は廃止）。ドラッグ中/ドロップ先のスタイル追加。前回(au)：CSVの列をそのまま一覧の列に。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
