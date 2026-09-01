@@ -423,6 +423,7 @@ import {
   listKbFolders,
   addKbFolder,
   deleteKbFolder,
+  getGoogleToken,
   insertProposalFile,
   listProposalFiles,
   deleteProposalFile,
@@ -549,6 +550,8 @@ import {
   getDisplayName,
   makeToken,
   verifyToken,
+  makeConnectToken,
+  verifyConnectToken,
   hashPassword,
   verifyPassword,
   canImpersonate,
@@ -16863,15 +16866,33 @@ function googleRedirectUri() {
 app.get("/auth/google", (req, res) => {
   if (!googleConfigured()) return res.status(500).send("GOOGLE_CLIENT_ID/SECRET が未設定です");
   if (!PUBLIC_URL) return res.status(500).send("PUBLIC_URL が未設定です");
-  // state にログイン中ユーザー（署名済み）を載せ、コールバックで誰の連携か判別
-  const state = makeToken(req.user || "");
+  // ふつうは「ログイン中の本人」が連携する。
+  // メンバー連携リンク（?as=署名トークン）で開いたときは、そのメンバー本人として連携する。
+  //   → 本人がkinbotにログインしていなくても、自分のGoogleをつなげる。
+  const asEmail = req.query.as ? verifyConnectToken(String(req.query.as)) : "";
+  const owner = asEmail || req.user || "";
+  if (!owner) return res.status(400).send("だれの連携か分かりません。ログインするか、連携リンクから開いてください。");
+  // 連携リンク経由のときは印（C|）を付け、コールバックで成功ページを出す（設定画面に飛ばさない）。
+  const state = makeToken(asEmail ? `C|${owner}` : owner);
   res.redirect(authUrl(googleRedirectUri(), state));
 });
 app.get("/auth/google/callback", async (req, res) => {
   try {
-    const owner = verifyToken(req.query.state || "");
-    if (!owner) return res.status(400).send("セッションが無効です。ログインし直してください。");
+    const raw = verifyToken(req.query.state || "");
+    if (!raw) return res.status(400).send("セッションが無効です。ログインし直してください。");
+    const viaLink = raw.startsWith("C|");
+    const owner = viaLink ? raw.slice(2) : raw;
     await exchangeCode(req.query.code, googleRedirectUri(), owner);
+    if (viaLink) {
+      // 連携リンクから来た人はログインしていないので、設定画面ではなく成功の案内を出す。
+      res.set("content-type", "text/html; charset=utf-8");
+      return res.send(`<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">` +
+        `<div style="font-family:system-ui,'Hiragino Kaku Gothic ProN',sans-serif;max-width:520px;margin:64px auto;padding:0 20px;text-align:center;color:#0d5b47">` +
+        `<div style="font-size:44px">✅</div>` +
+        `<h2 style="margin:12px 0 6px">Google連携が完了しました</h2>` +
+        `<p style="color:#333">${owner.replace(/[<>&]/g, "")} として連携しました。この画面は閉じて大丈夫です。</p>` +
+        `</div>`);
+    }
     res.redirect("/settings.html");
   } catch (e) {
     console.error("[google]", e.message);
@@ -16944,7 +16965,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-04al SF立ち上げの「会社情報を取り込む（gBizINFO・既存データ）」が『会社名を指定してください』で失敗する不具合を修正。原因：会社名を [data-newapi=Company] 入力欄からしか取っておらず、その欄が無い/空のフォームでは空文字で /api/gbiz/company?name= に投げていた。修正：fillFromGbiz入口で会社名が空かつ番号未指定なら [data-newapi/ data-api=Company]→予定タイトル(companyOf)の順で補完。クリックハンドラも新旧キー両対応。前回(ak)：割り振り失敗通知。前回(aj)：Groqモデル選択UI。";
+const BUILD_TAG = "2026-09-04am kincallメンバーも自分のGoogleを各自で連携できるように（要望：田中さん）。メンバー管理に各メンバーのGoogle連携状況＋『Google連携リンク』を追加。管理者がリンクを本人に送る→本人が開いて自分のGoogleで連携（kinbotログイン不要）。/auth/google が ?as=署名トークン に対応し本人として保存、連携リンク経由は成功ページ表示。安全のため連携リンクはログイン用と別用途トークン（gconnect|）にしてログインには使えないようにした。前回(al)：gBiz取り込みの会社名補完。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
@@ -21056,6 +21077,28 @@ app.get("/api/members", async (req, res) => {
       roles: MEMBER_ROLES, businesses: MEMBER_BUSINESSES,
       labels: { closer: "クローザー", inside: "インサイド", fallback: "予備" },
     });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// メンバーごとのGoogle連携状況と、本人がつなぐための連携リンク（管理者だけが発行できる）。
+// 本人はこのリンクを開いて自分のGoogleでつなぐ（kinbotへのログインは不要）。
+app.get("/api/members/google-links", async (req, res) => {
+  try {
+    if (!req.isAdmin && !isAdmin(req.user)) return res.status(403).json({ error: "管理者だけが使えます" });
+    if (!PUBLIC_URL) return res.status(500).json({ error: "PUBLIC_URL が未設定です" });
+    const members = await listMembers();
+    const rows = [];
+    for (const m of members) {
+      const email = String(m.email || "").trim().toLowerCase();
+      if (!email) continue;
+      let connected = false, gmail = "";
+      try { const t = await getGoogleToken(email); connected = !!(t && t.refresh_token); gmail = (t && t.gmail) || ""; } catch {}
+      rows.push({
+        email, name: m.name || "", connected, gmail,
+        link: `${PUBLIC_URL}/auth/google?as=${encodeURIComponent(makeConnectToken(email))}`,
+      });
+    }
+    res.json({ ok: true, members: rows });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 

@@ -92,8 +92,19 @@ function readCookie(req, name) {
 }
 export function getUser(req) {
   const id = verifyToken(readCookie(req, COOKIE_NAME));
-  if (!id) return null;
+  if (!id || id.includes("|")) return null;   // 用途つきトークン（連携リンク等）はログインに使わせない
   return { username: id, admin: isAdmin(id) };
+}
+
+// Google連携リンク用の署名トークン。ログインCookie（makeToken）と使い回すと
+// なりすましできてしまうため、用途を「gconnect|」で分けて、ログインには使えないようにする。
+export function makeConnectToken(email) {
+  return makeToken("gconnect|" + String(email || "").trim().toLowerCase());
+}
+export function verifyConnectToken(t) {
+  const v = verifyToken(t);
+  if (!v || !v.startsWith("gconnect|")) return null;
+  return v.slice("gconnect|".length);
 }
 export function setSessionCookie(res, id) {
   const token = makeToken(id);

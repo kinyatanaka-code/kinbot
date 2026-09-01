@@ -845,6 +845,12 @@ async function loadMembers() {
     }));
     mbState.candidates = d.candidates || [];
     mbState.teams = d.teams || [];
+    // 各メンバーのGoogle連携状況と連携リンク（管理者のみ取得可）。取れなくても続行。
+    mbState.gLinks = {};
+    try {
+      const g = await (await fetch("/api/members/google-links")).json();
+      if (g && g.ok) for (const r of (g.members || [])) mbState.gLinks[r.email] = r;
+    } catch {}
     mbRender();
   } catch (e) {
     box.innerHTML = `<p class="note cc-warn">読み込めませんでした：${mbEsc(e.message)}</p>`;
@@ -893,6 +899,8 @@ function mbRender() {
            <label class="mb-chk">1日上限 <input type="number" class="mb-cap" min="1" max="20" placeholder="なし" value="${m.daily_cap || ""}" /> 件</label>
            <label class="mb-chk"><input type="checkbox" class="mb-active" ${m.active === false ? "" : "checked"} /> 在籍中</label>
            <button type="button" class="btn ghost mb-sig">署名</button>
+           <button type="button" class="btn ghost mb-gcopy">Google連携リンク</button>
+           <span class="mb-gstatus note">${(mbState.gLinks && mbState.gLinks[String(m.email || "").trim().toLowerCase()] || {}).connected ? "🟢 Google連携済み" : "⚪ Google未連携"}</span>
            <button type="button" class="btn ghost mb-del">外す</button>
          </div>
          <div class="mb-sigbox" hidden>
@@ -912,6 +920,21 @@ function mbRender() {
       q(".mb-sig").addEventListener("click", () => {
         const box = q(".mb-sigbox");
         box.hidden = !box.hidden;
+      });
+      const gcopy = q(".mb-gcopy");
+      if (gcopy) gcopy.addEventListener("click", async () => {
+        const email = String(m.email || "").trim().toLowerCase();
+        const info = mbState.gLinks && mbState.gLinks[email];
+        if (!info || !info.link) { alert("連携リンクを取得できませんでした。先に保存してから、もう一度開いてください。"); return; }
+        try {
+          await navigator.clipboard.writeText(info.link);
+          const old = gcopy.textContent;
+          gcopy.textContent = "コピーしました";
+          setTimeout(() => (gcopy.textContent = old), 1500);
+        } catch {
+          // クリップboードが使えないときは、そのまま表示して手でコピーしてもらう
+          prompt("このリンクを本人に送ってください（本人が開いて自分のGoogleで連携します）", info.link);
+        }
       });
       row.querySelectorAll(".mb-p").forEach((el) => el.addEventListener("input", (e) => {
         m.profile = m.profile || {};
