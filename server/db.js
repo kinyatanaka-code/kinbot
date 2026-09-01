@@ -3167,7 +3167,13 @@ export async function redistributeListTargets(listId, plan, { onlyPending = true
   const members = (plan || []).map((p) => String(p.email || "").trim().toLowerCase()).filter(Boolean);
   if (!members.length) return { total: 0, byMember: {}, lists: [] };
   const where = onlyPending ? "AND done = false" : "";
-  const { rows } = await pool.query(`SELECT id FROM call_targets WHERE list_id = $1 ${where}`, [listId]);
+  // Salesforceで「ジャッジ」（リード状況＝stageに「ジャッジ」を含む）のリードは、別担当に割り振らない。
+  // 対象から外し、元のリスト・今の担当のまま残す（要望：植野）。
+  const { rows } = await pool.query(
+    `SELECT id FROM call_targets WHERE list_id = $1 ${where} AND COALESCE(stage,'') NOT ILIKE '%ジャッジ%'`, [listId]);
+  const { rows: jr } = await pool.query(
+    `SELECT count(*)::int AS n FROM call_targets WHERE list_id = $1 ${where} AND COALESCE(stage,'') ILIKE '%ジャッジ%'`, [listId]);
+  const judgeKept = jr[0] ? jr[0].n : 0;
   const ids = rows.map((r) => r.id);
   for (let i = ids.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [ids[i], ids[j]] = [ids[j], ids[i]]; }
 
@@ -3222,7 +3228,7 @@ export async function redistributeListTargets(listId, plan, { onlyPending = true
     await pool.query(`UPDATE call_targets SET list_id = $2, assigned_to = $3 WHERE id = ANY($1::int[])`, [arr, 先id, em]);
     lists.push({ email: em, listId: 先id, name: 先name, count: arr.length });
   }
-  return { total: ids.length, 割り振った: pos, 残した: 残す, byMember, lists, dryRun: !!dryRun };
+  return { total: ids.length, 割り振った: pos, 残した: 残す, ジャッジ除外: judgeKept, byMember, lists, dryRun: !!dryRun };
 }
 
 // リストを作る
@@ -3327,16 +3333,22 @@ export async function listCallLists({ owner = "", includeClosed = false, ownerOn
 // リストの中身を、かける人へ配る。
 //   均等に配る（人数で割る）／まとめて一人に渡す、の両方ができる。
 export async function assignCallTargets(listId, emails = [], { onlyUnassigned = true } = {}) {
-  if (!pool || !listId) return 0;
+  if (!pool || !listId) return { assigned: 0, judgeKept: 0 };
   const who = emails.map((x) => String(x || "").toLowerCase()).filter(Boolean);
-  if (!who.length) return 0;
+  if (!who.length) return { assigned: 0, judgeKept: 0 };
   try {
-    // まだ済んでいないものを、順番に並べて取る
+    // まだ済んでいないものを、順番に並べて取る。
+    // Salesforceで「ジャッジ」のリード（stageに「ジャッジ」を含む）は、別担当に配らない（要望：植野）。
     const { rows } = await pool.query(
       `SELECT id FROM call_targets
         WHERE list_id = $1 AND NOT done
+          AND COALESCE(stage,'') NOT ILIKE '%ジャッジ%'
           ${onlyUnassigned ? "AND assigned_to IS NULL" : ""}
         ORDER BY sort_order, id`, [listId]);
+    const { rows: jr } = await pool.query(
+      `SELECT count(*)::int AS n FROM call_targets
+        WHERE list_id = $1 AND NOT done AND COALESCE(stage,'') ILIKE '%ジャッジ%'
+          ${onlyUnassigned ? "AND assigned_to IS NULL" : ""}`, [listId]);
     let n = 0;
     for (let i = 0; i < rows.length; i++) {
       // 上から順に、かける人を代わりばんこに割り当てる
@@ -3344,8 +3356,8 @@ export async function assignCallTargets(listId, emails = [], { onlyUnassigned = 
         [rows[i].id, who[i % who.length]]);
       n++;
     }
-    return n;
-  } catch (e) { console.error("[db] assignCallTargets", e.message); return 0; }
+    return { assigned: n, judgeKept: jr[0] ? jr[0].n : 0 };
+  } catch (e) { console.error("[db] assignCallTargets", e.message); return { assigned: 0, judgeKept: 0 }; }
 }
 
 // リストの中身を、条件に当てはまるものだけ消す。

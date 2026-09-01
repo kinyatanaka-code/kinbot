@@ -2431,12 +2431,13 @@ async function openRedistribute(listId, listName, backEmail, backName) {
       if (!r.ok) throw new Error(d.error || "できませんでした");
       const nameOf = (e) => e.split("@")[0];
       const 内訳 = Object.entries(d.byMember || {}).map(([e, n]) => `${nameOf(e)} ${n}件`).join("／");
+      const jTxt = d["ジャッジ除外"] ? `／ジャッジ ${d["ジャッジ除外"]}件は移しません` : "";
       if (dryRun) {
         st.textContent = "";
         m.el.querySelector("#kcRdPrev").innerHTML =
-          `試算：${esc(内訳)}${d.残した ? `／元のリストに残す ${d.残した}件` : ""}<br>（対象 ${d.total}件中 ${d.割り振った}件を移します）よければ「この人たちに割り振る」を押してください。`;
+          `試算：${esc(内訳)}${d.残した ? `／元のリストに残す ${d.残した}件` : ""}${esc(jTxt)}<br>（対象 ${d.total}件中 ${d.割り振った}件を移します）よければ「この人たちに割り振る」を押してください。`;
       } else {
-        st.textContent = `${内訳}${d.残した ? `／元に残し ${d.残した}件` : ""} を分けました`;
+        st.textContent = `${内訳}${d.残した ? `／元に残し ${d.残した}件` : ""}${jTxt} を分けました`;
         setTimeout(() => { m.close(); if (backEmail) asLoadMember(backEmail, backName); }, 1800);
       }
     } catch (e) { st.textContent = "失敗：" + e.message; }
@@ -2676,7 +2677,7 @@ async function asAssign(clear) {
       body: JSON.stringify({ listId: Number(id), emails, redo: $("asRedo").checked }),
     })).json();
     if (d.error) throw new Error(d.error);
-    say("asStatus", `${d["配った数"]}件を${d["人数"]}人に配りました`, 8000);
+    say("asStatus", `${d["配った数"]}件を${d["人数"]}人に配りました${d["ジャッジ除外"] ? `（ジャッジ ${d["ジャッジ除外"]}件は配っていません）` : ""}`, 8000);
     asNow();
   } catch (e) { say("asStatus", "失敗：" + e.message, 8000); }
 }
