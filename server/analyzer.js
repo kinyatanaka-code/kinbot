@@ -1227,7 +1227,7 @@ export async function generateThanks({ round, examples, summaryText, repName, cu
 async function getJudgeProviderSetting() {
   try {
     const s = await getSettings();
-    if (s && (s.judgeProvider === "anthropic" || s.judgeProvider === "gemini")) return s.judgeProvider;
+    if (s && ["anthropic", "gemini", "groq"].includes(s.judgeProvider)) return s.judgeProvider;
   } catch {}
   return "";
 }
@@ -1236,7 +1236,7 @@ async function getJudgeProviderSetting() {
 // 既定はGemini。Claudeを使いたい場合は判定画面のモデル選択（judgeProvider）でClaudeを選ぶ。
 async function extractLLMOpts(extra = {}, forceProvider) {
   // forceProvider が指定されれば最優先
-  const forced = forceProvider === "anthropic" || forceProvider === "gemini" ? forceProvider : "";
+  const forced = ["anthropic", "gemini", "groq"].includes(forceProvider) ? forceProvider : "";
   const sel = forced || (await getJudgeProviderSetting()); // "anthropic"|"gemini"|""
   const provider = sel || "gemini"; // 既定はGemini（Anthropicのクレジット不足でも動くように）
   const model = provider === "anthropic"
