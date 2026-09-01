@@ -9713,7 +9713,10 @@ app.post("/api/ai/chat", async (req, res) => {
     if (!isAiOwner(req)) return res.status(403).json({ error: "権限がありません" });
     const text = String(req.body?.text || "").trim();
     if (!text) return res.status(400).json({ error: "内容を書いてください" });
-    const provider = String(req.body?.provider || "gemini") === "claude" ? "anthropic" : "gemini";
+    // 頭脳（LLM）の選択：gemini / claude(=anthropic) / groq
+    const pmap = { claude: "anthropic", anthropic: "anthropic", gemini: "gemini", groq: "groq" };
+    const provider = pmap[String(req.body?.provider || "gemini").toLowerCase()] || "gemini";
+    const providerLabel = provider === "anthropic" ? "claude" : provider;   // 画面に返す表示名
     const history = Array.isArray(req.body?.history) ? req.body.history.slice(-8) : [];
 
     // ---- 現状データを集める（CEOとして報告できるように） ----
@@ -9746,7 +9749,7 @@ app.post("/api/ai/chat", async (req, res) => {
     try {
       reply = String(await callLLMPublic(sys, user, 700, { provider, fallback: true }) || "").trim();
     } catch (e) {
-      return res.json({ ok: true, reply: `いま考えがまとまりませんでした（${e.message}）。もう一度お願いできますか。`, provider });
+      return res.json({ ok: true, reply: `いま考えがまとまりませんでした（${e.message}）。もう一度お願いできますか。`, provider: providerLabel });
     }
     if (!reply) reply = "うまく言葉にできませんでした。もう一度、別の言い方で教えてください。";
     // まれにLLMが {"response":"..."} 形式やコードフェンスで返すので、中の文だけにする
@@ -9757,11 +9760,50 @@ app.post("/api/ai/chat", async (req, res) => {
     aiLog("chat", `会話：${text.slice(0, 60)}`);
     // 「PRを報告して」等はフロントでPR報告フローを起動する
     const action = /(pr|ｐｒ|プルリク|プルリクエスト).{0,6}(報告|見せ|教え|出し|ダウンロード)|開発.*報告して/i.test(text) ? "pr-report" : "";
-    res.json({ ok: true, reply, provider: provider === "anthropic" ? "claude" : "gemini", action });
+    res.json({ ok: true, reply, provider: providerLabel, action });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 // キツツキ（CEO）と会話する ここまで
+
+// 頭脳（LLM）の接続状況：どのプロバイダのAPIキーが入っているか（Railwayの環境変数を確認できる）。
+app.get("/api/ai/llm-status", async (req, res) => {
+  try {
+    if (!isAiOwner(req)) return res.status(403).json({ error: "権限がありません" });
+    res.json({
+      ok: true,
+      default: (process.env.LLM_PROVIDER || "gemini").toLowerCase(),
+      providers: {
+        gemini: !!process.env.GEMINI_API_KEY,
+        claude: !!process.env.ANTHROPIC_API_KEY,
+        groq: !!process.env.GROQ_API_KEY,
+        openai: !!process.env.OPENAI_API_KEY,
+      },
+      groqModel: process.env.GROQ_MODEL || "llama-3.3-70b-versatile",
+    });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// 頭脳（LLM）の接続テスト：選んだプロバイダに軽く1回だけ投げて、つながるか確かめる。
+// フォールバックは使わない（そのプロバイダ自身の疎通を見るため）。
+app.post("/api/ai/llm-test", async (req, res) => {
+  try {
+    if (!isAiOwner(req)) return res.status(403).json({ error: "権限がありません" });
+    const pmap = { claude: "anthropic", anthropic: "anthropic", gemini: "gemini", groq: "groq", openai: "openai" };
+    const provider = pmap[String(req.body?.provider || "").toLowerCase()] || (process.env.LLM_PROVIDER || "gemini").toLowerCase();
+    const label = provider === "anthropic" ? "claude" : provider;
+    const t0 = Date.now();
+    try {
+      const reply = String(await callLLMPublic(
+        "あなたは接続テストの応答役です。", "『OK』とだけ短く返してください。", 20,
+        { provider, json: false, fallback: false }) || "").trim();
+      res.json({ ok: true, provider: label, ms: Date.now() - t0, reply: reply.slice(0, 80) });
+    } catch (e) {
+      res.json({ ok: false, provider: label, error: e.message });
+    }
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 app.post("/api/ai/task", async (req, res) => {
   try {
     if (!isAiOwner(req)) return res.status(403).json({ error: "権限がありません" });
@@ -16874,7 +16916,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-04ae 実績画面のプロセスシート管理パネルに「詳細設定」を追加（要望：田中さん・2枚目の画面でいじれるように）。期間の決め方(auto/fixed)＋固定期間(from/to)、この日から書き込む、休み(0で書く日)、稼働時間目標も入れる、Apps Script URL/合言葉 を、既存の PUT /api/process-sheet に保存（SF連携画面と共通の設定）。SFレポートの絞り込み条件は複雑なためSF連携画面のまま（パネルに案内文）。前回(ad)：kincall：Salesforceで「ジャッジ」のリード（stage＝リード状況に「ジャッジ」を含む）は、割り振り（配る・再割り振り）で別担当に割り当てないように（要望：植野）。assignCallTargets と redistributeListTargets の対象SELECTから stage ILIKE %ジャッジ% を除外し、元の担当・元リストのまま残す。除外件数を返し、配る／再割り振りの結果表示に「ジャッジ◯件は配っていません」を出す。前回(ac)：kincall履歴が1社に他社の記録まで積み重なる不具合を修正（飯島リスト等）。根本原因：SF紐づけ /api/calls/lists/:id/to-sf の searchLeads(sfUser, company, {max:1}) が引数取り違え＝第2引数は{company}オブジェクトが正なのに文字列を渡し、会社名フィルタが外れて WHERE IsConverted=false ORDER BY CreatedDate DESC の最新リードが全ターゲットに付与→全員が同じlead_idを共有→履歴モーダル(leadActivities WhoId=lead_id/callHistory lead_id一致)が他社の活動を総取り。修正：searchLeads(sfUser,{company,limit:1})。さらに壊れたデータ用に修復機能：POST /api/calls/lists/:id/relink-reset（dryRun=同一lead_idが2社以上に付く重複を一覧／apply=そのlead_idを空に戻す）＋リスト画面に「紐づけの修復」ボタン（重複検出→確認→リセット→会社名で付け直し）。過去のcall_logsは触らない。前回(ab)：プロセスシート：日付が翌日に変わると過去日のコール/接触が0で消える不具合を修正。原因＝アポ加算で過去日(8/31)のtalliedエントリが作られ、buildUpdatesが全項目を書くためコール/接触0が実績を塗り替えていた（SFレポートは相対日付で過去日を再現できない）。修正：buildUpdatesで過去日(zeroTo=今日 より前)の0/空は書かない＝その日に書いた実績を翌日以降の再実行で消さない。当日は0も書く（時間で増える）。休み指定日・強制上書きは従来どおり全書き。お試しに『集計の生値（担当者ごと）』を追加し、書込ロジックと切り離してコール数の出所を確認できるように。前回(aa)：プロセスシート：手入力を守る書き込みを実装（引き継ぎメモの合意事項）。kinbotが前回書いた値を settings.psShadow に {sig:sheetId|sheetName, cells:{A1範囲:値}} で記録。実行時、シートの現在値が記録と一致するセルだけ最新の実績に更新し、違うセル（人が手入力）は据え置く。記録が無い初回は基準づくりのため書く。シートが変わると記録は使わない。書いたセルのみ記録を更新（据え置きセルの記録は保持）。実績画面に「実績で強制上書き」ボタン（確認つき・記録を無視して全上書き）。お試し/実行の結果に据え置き件数・据え置いたセル一覧を表示。前回(zz)：プロセスシートに一部の人（飯島・加藤・中村ほかkincallインサイド）が入らない不具合を修正。原因：readLayoutはシート担当者11人を正しく検出していたが、後段の「インターン除外」が保存設定 psInterns=false のまま効き、シートに行がある6人を黙って除外していた（お試し内訳で「シートの担当者(5)」しか出ず判明）。修正1：除外の既定を「含める」に（実行時に明示 interns:false を渡したときだけ除外。保存設定だけでは除外しない）。修正2：SF側「植野 ひかり」とkincall側「植野ひかり」が別キーで値が分散していたのを、既存の同一人物キー(psSameName)へ合流させて合算。修正3：お試し内訳に除外された人(internNote)を表示。前回(zy)：プロセスシート「お試し」の内訳表示：担当者×日ごとに書く値（コール/接触/アポ内外/稼働）、シートの担当者一覧、集計に出た名前、実績が見つからない担当者、スキップ理由、kincall合算の失敗（従来はログのみ）を画面に出す。原因を画面だけで追えるように。前回(zx)：プロセスシートに実績が入らない不具合の本修正：実績画面の「今すぐ実行／お試し」は期間を送らず、旧設定の固定期間（8月）のまま集計していたため、8/31以降の kincall 架電・アポが入らなかった。期間を「今日を含む月ごとの範囲」から自動で決めるように（指定＞月ごとの範囲＞旧固定期間＞今月）。月ごとの範囲を使うときは期内判定もその範囲（fixed）。実行結果に使った期間・実績の無い担当者・スキップ理由を表示。前回(zw)：項目行ラベルの括弧ゆれ吸収（localStorageに開始日/終了日を記憶し、ページを切り替えても保たれる。既定に戻すで消去）。＋【点検用・一時】GET /api/calls/_stagediag：SFクロス商談のStageNameごとの件数と、KPI/MID/案件化/受注の判定結果を返す（KPIが出ない原因＝ステージ名の表記確認用）。前回：リスト一覧にgroup_idを追加";
+const BUILD_TAG = "2026-09-04af Groqを頭脳(LLM)として使えるように接続。LLM層(callLLM/callOpenAICompat)は元々groq対応済み(api.groq.com/openai/v1・GROQ_API_KEY・GROQ_MODEL既定llama-3.3-70b-versatile)。今回：(1)AI社員チャット/api/ai/chatのprovider振り分けにgroqを追加(claude→anthropic/gemini/groq)、返り値のprovider表示を統一。(2)AI画面の頭脳セレクトにGroqを追加。(3)接続確認：GET /api/ai/llm-status(各プロバイダのキー有無・既定・groqModel)、POST /api/ai/llm-test(選んだプロバイダに1回投げfallback無しで疎通確認)、AI画面に「接続確認」ボタン。GROQ_API_KEYはRailwayの環境変数に設定済み前提。前回(ae)：実績画面のプロセスシート管理パネルに「詳細設定」を追加（要望：田中さん・2枚目の画面でいじれるように）。期間の決め方(auto/fixed)＋固定期間(from/to)、この日から書き込む、休み(0で書く日)、稼働時間目標も入れる、Apps Script URL/合言葉 を、既存の PUT /api/process-sheet に保存（SF連携画面と共通の設定）。SFレポートの絞り込み条件は複雑なためSF連携画面のまま（パネルに案内文）。前回(ad)：kincall：Salesforceで「ジャッジ」のリード（stage＝リード状況に「ジャッジ」を含む）は、割り振り（配る・再割り振り）で別担当に割り当てないように（要望：植野）。assignCallTargets と redistributeListTargets の対象SELECTから stage ILIKE %ジャッジ% を除外し、元の担当・元リストのまま残す。除外件数を返し、配る／再割り振りの結果表示に「ジャッジ◯件は配っていません」を出す。前回(ac)：kincall履歴が1社に他社の記録まで積み重なる不具合を修正（飯島リスト等）。根本原因：SF紐づけ /api/calls/lists/:id/to-sf の searchLeads(sfUser, company, {max:1}) が引数取り違え＝第2引数は{company}オブジェクトが正なのに文字列を渡し、会社名フィルタが外れて WHERE IsConverted=false ORDER BY CreatedDate DESC の最新リードが全ターゲットに付与→全員が同じlead_idを共有→履歴モーダル(leadActivities WhoId=lead_id/callHistory lead_id一致)が他社の活動を総取り。修正：searchLeads(sfUser,{company,limit:1})。さらに壊れたデータ用に修復機能：POST /api/calls/lists/:id/relink-reset（dryRun=同一lead_idが2社以上に付く重複を一覧／apply=そのlead_idを空に戻す）＋リスト画面に「紐づけの修復」ボタン（重複検出→確認→リセット→会社名で付け直し）。過去のcall_logsは触らない。前回(ab)：プロセスシート：日付が翌日に変わると過去日のコール/接触が0で消える不具合を修正。原因＝アポ加算で過去日(8/31)のtalliedエントリが作られ、buildUpdatesが全項目を書くためコール/接触0が実績を塗り替えていた（SFレポートは相対日付で過去日を再現できない）。修正：buildUpdatesで過去日(zeroTo=今日 より前)の0/空は書かない＝その日に書いた実績を翌日以降の再実行で消さない。当日は0も書く（時間で増える）。休み指定日・強制上書きは従来どおり全書き。お試しに『集計の生値（担当者ごと）』を追加し、書込ロジックと切り離してコール数の出所を確認できるように。前回(aa)：プロセスシート：手入力を守る書き込みを実装（引き継ぎメモの合意事項）。kinbotが前回書いた値を settings.psShadow に {sig:sheetId|sheetName, cells:{A1範囲:値}} で記録。実行時、シートの現在値が記録と一致するセルだけ最新の実績に更新し、違うセル（人が手入力）は据え置く。記録が無い初回は基準づくりのため書く。シートが変わると記録は使わない。書いたセルのみ記録を更新（据え置きセルの記録は保持）。実績画面に「実績で強制上書き」ボタン（確認つき・記録を無視して全上書き）。お試し/実行の結果に据え置き件数・据え置いたセル一覧を表示。前回(zz)：プロセスシートに一部の人（飯島・加藤・中村ほかkincallインサイド）が入らない不具合を修正。原因：readLayoutはシート担当者11人を正しく検出していたが、後段の「インターン除外」が保存設定 psInterns=false のまま効き、シートに行がある6人を黙って除外していた（お試し内訳で「シートの担当者(5)」しか出ず判明）。修正1：除外の既定を「含める」に（実行時に明示 interns:false を渡したときだけ除外。保存設定だけでは除外しない）。修正2：SF側「植野 ひかり」とkincall側「植野ひかり」が別キーで値が分散していたのを、既存の同一人物キー(psSameName)へ合流させて合算。修正3：お試し内訳に除外された人(internNote)を表示。前回(zy)：プロセスシート「お試し」の内訳表示：担当者×日ごとに書く値（コール/接触/アポ内外/稼働）、シートの担当者一覧、集計に出た名前、実績が見つからない担当者、スキップ理由、kincall合算の失敗（従来はログのみ）を画面に出す。原因を画面だけで追えるように。前回(zx)：プロセスシートに実績が入らない不具合の本修正：実績画面の「今すぐ実行／お試し」は期間を送らず、旧設定の固定期間（8月）のまま集計していたため、8/31以降の kincall 架電・アポが入らなかった。期間を「今日を含む月ごとの範囲」から自動で決めるように（指定＞月ごとの範囲＞旧固定期間＞今月）。月ごとの範囲を使うときは期内判定もその範囲（fixed）。実行結果に使った期間・実績の無い担当者・スキップ理由を表示。前回(zw)：項目行ラベルの括弧ゆれ吸収（localStorageに開始日/終了日を記憶し、ページを切り替えても保たれる。既定に戻すで消去）。＋【点検用・一時】GET /api/calls/_stagediag：SFクロス商談のStageNameごとの件数と、KPI/MID/案件化/受注の判定結果を返す（KPIが出ない原因＝ステージ名の表記確認用）。前回：リスト一覧にgroup_idを追加";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",

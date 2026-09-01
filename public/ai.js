@@ -367,7 +367,9 @@ function render(d) {
             <select id="aiProvider">
               <option value="gemini">Gemini</option>
               <option value="claude">Claude</option>
+              <option value="groq">Groq</option>
             </select>
+            <button class="ai-q" id="aiLlmTest" type="button" title="選んだ頭脳に軽く1回だけ投げて、つながるか確かめます">接続確認</button>
           </span>
         </div>
         <div class="ai-ctlmsg" id="aiCtlMsg"></div>
@@ -519,11 +521,30 @@ function wire() {
       if (e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); send(); }
     });
   }
-  // クイック指示ボタン：入力欄に入れて送る
-  document.querySelectorAll(".ai-q").forEach((b) => b.addEventListener("click", () => {
-    const inp = $("aiTaskInput"); if (inp) { inp.value = b.dataset.q || ""; }
-    send();
-  }));
+  // クイック指示ボタン：入力欄に入れて送る（接続確認ボタンは除く）
+  document.querySelectorAll(".ai-q").forEach((b) => {
+    if (b.id === "aiLlmTest") return;
+    b.addEventListener("click", () => {
+      const inp = $("aiTaskInput"); if (inp) { inp.value = b.dataset.q || ""; }
+      send();
+    });
+  });
+  // 頭脳（LLM）の接続確認：選んだプロバイダに軽く投げて、つながるか確かめる
+  const llmTestBtn = $("aiLlmTest");
+  if (llmTestBtn) llmTestBtn.addEventListener("click", async () => {
+    const provider = (document.getElementById("aiProvider") || {}).value || "gemini";
+    const name = provider === "claude" ? "Claude" : provider === "groq" ? "Groq" : "Gemini";
+    const box = $("aiCtlMsg");
+    if (box) box.textContent = `${name} に接続確認中…`;
+    try {
+      const d = await (await fetch("/api/ai/llm-test", {
+        method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ provider }),
+      })).json();
+      if (box) box.textContent = d.ok
+        ? `${name} につながりました（${d.ms}ms／応答：${d.reply || "OK"}）`
+        : `${name} につながりません：${d.error || "不明なエラー"}`;
+    } catch (e) { if (box) box.textContent = `${name} の確認に失敗：${e.message}`; }
+  });
   // 部門の「見る・操作する」で詳細を開閉
   document.querySelectorAll(".dept-btn").forEach((b) => b.addEventListener("click", () => {
     const more = $("more-" + b.dataset.dept);
