@@ -310,12 +310,12 @@ function render() {
         <th class="kc-th-t">電話番号</th>
         <th class="kc-th-m">メールアドレス</th>
         <th class="kc-th-s"><button type="button" class="kc-th-b${on("status")}" data-flt="status">最終ステータス ▾</button></th>
-        ${rcols.map((k) => `<th class="kc-th-rc" draggable="true" data-rck="${esc(k)}" title="ドラッグで並べ替え">${esc(k)}</th>`).join("")}
         <th class="kc-th-h"><button type="button" class="kc-th-b${filt.hist ? " on" : ""}" data-hist="1">履歴${arrow("hist")}</button></th>
         <th class="kc-th-l">最終架電日</th>
         <th class="kc-th-r">記録</th>
         <th class="kc-th-e">編集</th>
         <th class="kc-th-d">資料送付</th>
+        ${rcols.map((k) => `<th class="kc-th-rc" draggable="true" data-rck="${esc(k)}" title="ドラッグで並べ替え">${esc(k)}</th>`).join("")}
       </tr>` +
     list.map((x, i) => {
       const 済 = isDone(x);
@@ -342,17 +342,17 @@ function render() {
           : `<span class="kc-none">なし</span>`}</td>
         <td class="kc-mail">${esc(x["メール"] || "")}</td>
         <td class="kc-status">${x["最終ステータス"] ? esc(x["最終ステータス"]) : "-"}</td>
+        <td><button type="button" class="kc-btn kc-hist" data-id="${x.id}">${x["履歴数"] ? `${x["履歴数"]}件` : "なし"}</button></td>
+        <td class="kc-lastcall">${esc(lastCallLabel(x["最終日時"]))}</td>
+        <td><button type="button" class="kc-btn kc-rec" data-id="${x.id}">記録</button></td>
+        <td><button type="button" class="kc-btn kc-edit" data-id="${x.id}">編集</button></td>
+        <td><button type="button" class="kc-btn kc-doc" data-id="${x.id}">資料送付</button></td>
         ${rcols.map((k) => {
           const e = rowExtra(x);
           const v = cleanRecruitVal(e && e[k]);
           const cls = RECRUIT_DATE_KEYS.has(k) ? deadlineClass(v) : "";
           return `<td class="kc-rc${cls ? " " + cls : ""}">${v ? esc(v) : '<span class="kc-none">—</span>'}</td>`;
         }).join("")}
-        <td><button type="button" class="kc-btn kc-hist" data-id="${x.id}">${x["履歴数"] ? `${x["履歴数"]}件` : "なし"}</button></td>
-        <td class="kc-lastcall">${esc(lastCallLabel(x["最終日時"]))}</td>
-        <td><button type="button" class="kc-btn kc-rec" data-id="${x.id}">記録</button></td>
-        <td><button type="button" class="kc-btn kc-edit" data-id="${x.id}">編集</button></td>
-        <td><button type="button" class="kc-btn kc-doc" data-id="${x.id}">資料送付</button></td>
       </tr>`;
     }).join("") + `</table></div>`;
 
@@ -1500,9 +1500,9 @@ function renderDash(d) {
       const de = card.querySelector(".kc-d-diff");
       if (de) { const df = actual - goal; de.textContent = df > 0 ? `+${df}` : `${df}`; de.className = "kc-d-diff " + (df > 0 ? "kc-d-plus" : df < 0 ? "kc-d-minus" : "kc-d-zero"); }
       try {
-        await fetch("/api/calls/apo-goals-month", {
+        await fetch("/api/calls/apo-goals", {
           method: "PUT", headers: { "content-type": "application/json" },
-          body: JSON.stringify({ subject, month: d.periodKey, metric: "アポ", value: goal }),
+          body: JSON.stringify({ subject, period: "month", periodKey: d.periodKey, metric: "アポ", value: goal }),
         });
         if (typeof _statsGoals === "object") for (const k in _statsGoals) delete _statsGoals[k];
       } catch (err) { inp.style.borderColor = "#e24b4a"; }
@@ -1536,13 +1536,17 @@ async function openDashDetail(subject, label) {
       if (isTeam) { vals = (d.totals || {})[subject]; }
       else { const mm = members.find((x) => String(x.email || x.誰).toLowerCase() === subject); vals = mm && mm.値; }
       const memberEmails = [subject];   // 目標は本人／チーム自身の目標（subject）で見る
-      // 日次目標（範囲）
-      let dg = {};
+      // 目標は「その期間・そのキー」で取る（配分・合計はしない）
+      let subjGoals = {};
       if (cols.length) {
-        try { const g = await (await fetch(`/api/calls/apo-goals-range?from=${encodeURIComponent(cols[0].from)}&to=${encodeURIComponent(cols[cols.length - 1].to)}`)).json(); dg = g.goals || {}; } catch {}
+        try {
+          const keys = cols.map((c) => c.key).join(",");
+          const g = await (await fetch(`/api/calls/apo-goals-cells?period=${encodeURIComponent(p)}&keys=${encodeURIComponent(keys)}`)).json();
+          subjGoals = (g.goals && g.goals[subject]) || {};
+        } catch {}
       }
       body.innerHTML = vals
-        ? ddTable(cols, vals, d.今, subject, isTeam, memberEmails, dg, p)
+        ? ddTable(cols, vals, d.今, subject, isTeam, subjGoals, p)
         : `<div class="note">この対象のデータがありません。</div>`;
       bindGoalInputs(body, subject, load);
     } catch (e) { body.innerHTML = `<div class="note">読み込めませんでした：${esc(e.message)}</div>`; }
@@ -1552,34 +1556,19 @@ async function openDashDetail(subject, label) {
   }));
   load();
 }
-// 目標カウント：subject（本人）または team のメンバー合計。period=day はその日、week/month は範囲合計。
-function goalCount(emails, dg, metric, bucket, period) {
-  let s = 0;
-  for (const em of emails) {
-    const days = dg[em] || {};
-    if (period === "day") s += Number((days[bucket.key] || {})[metric] || 0);
-    else for (const [dt, mm] of Object.entries(days)) if (dt >= bucket.from && dt <= bucket.to) s += Number((mm || {})[metric] || 0);
-  }
-  return s;
-}
-function ddTable(cols, vals, now, subject, isTeam, emails, dg, period) {
+function ddTable(cols, vals, now, subject, isTeam, subjGoals, period) {
   const V = vals.map((v) => ({ コール: v.コール || 0, 接触: v.接触 || 0, アポ: (v.アポ内 || 0) + (v.アポ外 || 0) }));
   const nowCls = (c) => (c.key === now ? " kc-g-now" : "");
   const pct = (a, b) => (b ? (a / b * 100).toFixed(1) + "%" : "—");
-  const editable = !isTeam && period === "day" && iAmRedistributor;
-  // 目標カウント（バケット×項目）
-  const G = cols.map((c) => ({
-    コール: goalCount(emails, dg, "コール", c, period),
-    接触: goalCount(emails, dg, "接触", c, period),
-    アポ: goalCount(emails, dg, "アポ", c, period),
-  }));
-  // 見出し：日付（2列ぶん）＋ その下に 目標｜実績
+  const editable = !isTeam && iAmRedistributor;   // 個人は各期間で編集可。チームはダッシュボードで。
+  const g1 = (c, metric) => Number((subjGoals[c.key] || {})[metric] || 0);
+  const G = cols.map((c) => ({ コール: g1(c, "コール"), 接触: g1(c, "接触"), アポ: g1(c, "アポ") }));
   const h1 = `<tr><th class="kc-g-name" rowspan="2">　</th>${cols.map((c) => `<th class="kc-g-h${nowCls(c)}" colspan="2">${esc(c["名前"])}${c["曜日"] ? `<span class="kc-g-w">${esc(c["曜日"])}</span>` : ""}</th>`).join("")}</tr>`;
   const h2 = `<tr>${cols.map((c) => `<th class="kc-g-h kc-g-sub${nowCls(c)}">目標</th><th class="kc-g-h kc-g-sub${nowCls(c)}">実績</th>`).join("")}</tr>`;
   const cntRow = (lb, k) => `<tr><td class="kc-g-name">${lb}</td>${cols.map((c, i) => {
     const g = G[i][k];
     const goalCell = editable
-      ? `<td class="kc-g-n${nowCls(c)}"><input type="number" class="kc-goal kc-goal-cell" data-subj="${esc(subject)}" data-date="${esc(c.key)}" data-metric="${lb}" value="${g}" min="0"/></td>`
+      ? `<td class="kc-g-n${nowCls(c)}"><input type="number" class="kc-goal kc-goal-cell" data-subj="${esc(subject)}" data-period="${esc(period)}" data-date="${esc(c.key)}" data-metric="${lb}" value="${g}" min="0"/></td>`
       : `<td class="kc-g-n${nowCls(c)}">${g}</td>`;
     return goalCell + `<td class="kc-g-n${nowCls(c)}">${V[i][k]}</td>`;
   }).join("")}</tr>`;
@@ -1592,8 +1581,7 @@ function ddTable(cols, vals, now, subject, isTeam, emails, dg, period) {
     ${cntRow("コール", "コール")}${cntRow("接触", "接触")}${cntRow("アポ", "アポ")}
     ${rateRow("コール→接触率", "接触", "コール")}${rateRow("接触→アポ率", "アポ", "接触")}${rateRow("コール→アポ率", "アポ", "コール")}</table>`;
   return `<div class="kc-tablewrap">${table}</div>` +
-    (isTeam ? `<p class="note" style="margin-top:6px">実績はメンバーの合計です。目標はダッシュボードで設定します。</p>`
-      : (period !== "day" ? `<p class="note" style="margin-top:6px">目標の入力は日次だけです。週次・月次は日次の合計です。</p>` : ""));
+    (isTeam ? `<p class="note" style="margin-top:6px">実績はメンバーの合計です。目標はダッシュボードで設定します。</p>` : "");
 }
 // 目標入力欄（日次）の保存を配線（項目つき・入力ごとに再読み込みしない）
 function bindGoalInputs(scope, subject, reload) {
@@ -1602,9 +1590,10 @@ function bindGoalInputs(scope, subject, reload) {
       try {
         await fetch("/api/calls/apo-goals", {
           method: "PUT", headers: { "content-type": "application/json" },
-          body: JSON.stringify({ subject, date: inp.dataset.date, metric: inp.dataset.metric || "アポ", value: Number(inp.value) || 0 }),
+          body: JSON.stringify({ subject: inp.dataset.subj, period: inp.dataset.period, periodKey: inp.dataset.date, metric: inp.dataset.metric || "アポ", value: Number(inp.value) || 0 }),
         });
         if (typeof _statsGoals === "object") for (const k in _statsGoals) delete _statsGoals[k];
+        if (typeof loadDash === "function") loadDash();
       } catch (e) { inp.style.borderColor = "#e24b4a"; }
     });
   });
@@ -1633,11 +1622,12 @@ async function loadStats(force) {
   try {
     if (force || !_statsCache[statsPeriod]) box.innerHTML = `<div class="note">読み込んでいます…</div>`;
     const d = await fetchStats(force);
-    // 日次目標を範囲で取得（目標行の表示・入力に使う）
+    // 目標を「その期間・そのキー」で取得（配分・合計はしない）
     try {
       const cols = d["区切り"] || [];
       if (cols.length && (force || !_statsGoals[statsPeriod])) {
-        const g = await (await fetch(`/api/calls/apo-goals-range?from=${encodeURIComponent(cols[0].from)}&to=${encodeURIComponent(cols[cols.length - 1].to)}`)).json();
+        const keys = cols.map((c) => c.key).join(",");
+        const g = await (await fetch(`/api/calls/apo-goals-cells?period=${encodeURIComponent(statsPeriod)}&keys=${encodeURIComponent(keys)}`)).json();
         _statsGoals[statsPeriod] = g.goals || {};
       }
     } catch {}
@@ -1666,19 +1656,19 @@ function renderStats(d) {
   const withRole = members.filter((m) => !nameHas(m.誰, EXCLUDE_NAMES))
     .map((m) => ({ email: String(m.email || m.誰).toLowerCase(), role: nameHas(m.誰, SALES_NAMES) ? "sales" : m.role, 誰: m.誰, 値: m.値 }));
   const teamEmails = (team) => team === "group" ? withRole.map((x) => x.email) : withRole.filter((x) => x.role === team).map((x) => x.email);
-  const block = (title, vals, subject, isTeam, emails, collapsed) =>
+  const block = (title, vals, subject, isTeam, collapsed) =>
     `<div class="kc-g-block${isTeam ? " kc-g-team" : " kc-mem"}${collapsed ? " kc-g-collapsed" : ""}">
       <button type="button" class="kc-g-title" aria-expanded="${collapsed ? "false" : "true"}">
         <span class="kc-g-chev">${chev}</span><span class="kc-g-tname">${esc(title)}</span>
       </button>
-      <div class="kc-g-body">${ddTable(区切り, vals || [], 今, subject, isTeam, emails, goals, statsPeriod)}</div>
+      <div class="kc-g-body">${ddTable(区切り, vals || [], 今, subject, isTeam, goals[subject] || {}, statsPeriod)}</div>
     </div>`;
 
   if (statsScope === "all") {
     box.innerHTML =
-      block("グループ全体", totals.group, "group", true, ["group"]) +
-      block("セールス全体", totals.sales, "sales", true, ["sales"]) +
-      block("インサイド全体", totals.inside, "inside", true, ["inside"]) +
+      block("グループ全体", totals.group, "group", true) +
+      block("セールス全体", totals.sales, "sales", true) +
+      block("インサイド全体", totals.inside, "inside", true) +
       (d.sfError ? `<div class="note">${esc(d.sfError)}</div>` : "");
   } else {
     const has = (x) => (x["値"] || []).some((v) => v.コール || v.接触 || v.アポ内 || v.アポ外);
@@ -1687,8 +1677,8 @@ function renderStats(d) {
     const 大カード = (title, arr, 合計値, teamKey) => {
       if (!arr.length) return "";
       const ある = arr.filter(has), ない = arr.filter((x) => !has(x));
-      const inner = block("＜チーム合計＞", 合計値, teamKey, true, [teamKey]) +
-        ある.map((x) => block(x["誰"], x["値"], x.email, false, [x.email], true)).join("");
+      const inner = block("＜チーム合計＞", 合計値, teamKey, true) +
+        ある.map((x) => block(x["誰"], x["値"], x.email, false, true)).join("");
       return `<div class="kc-bigcard">
         <div class="kc-bigcard-h">${esc(title)}<span class="kc-bigcard-c">${arr.length}名</span></div>
         <div class="kc-bigcard-body">${inner}</div>

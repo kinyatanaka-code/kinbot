@@ -2707,6 +2707,23 @@ export async function getApoGoalsInRange(from, to) {
   } catch (e) { console.error("[db] getApoGoalsInRange", e.message); return {}; }
 }
 
+// 指定した期間(day/week/month)とキーの集合で目標を引く。返り値 { subject: { key: { metric: goal } } }。
+export async function getApoGoalsByKeys(period, keys = []) {
+  if (!pool || !period || !keys.length) return {};
+  try {
+    const { rows } = await pool.query(
+      `SELECT subject, period_key, metric, goal FROM apo_goals WHERE period=$1 AND period_key = ANY($2)`,
+      [period, keys]);
+    const out = {};
+    for (const r of rows) {
+      const s = (out[r.subject] = out[r.subject] || {});
+      const k = (s[r.period_key] = s[r.period_key] || {});
+      k[r.metric || "アポ"] = Number(r.goal) || 0;
+    }
+    return out;
+  } catch (e) { console.error("[db] getApoGoalsByKeys", e.message); return {}; }
+}
+
 // 会社名から既存dealを探す（正規化キー一致）。無ければ作成。
 export async function resolveDeal({ companyName, owner, team, firstMeetingDate }) {
   if (!pool) return null;
