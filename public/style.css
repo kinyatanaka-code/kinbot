@@ -5688,6 +5688,16 @@ input:focus, select:focus, textarea:focus, .sf-input:focus, .sf-select:focus, .s
 .kc-table tr:hover td { background: #f7fbf9; }
 .kc-table .kc-co { font-weight: 700; color: var(--ink); }
 .kc-table .kc-mail { color: var(--muted); font-size: 11.5px; }
+/* 会社名（と左の列）を、右へスクロールしても見えるよう固定する */
+.kc-table .kc-fx-check, .kc-table .kc-fx-stage, .kc-table .kc-fx-co { position: sticky; background: #fff; z-index: 2; }
+.kc-table th.kc-fx-check, .kc-table th.kc-fx-stage, .kc-table th.kc-fx-co { background: #eaf7f2; z-index: 3; }
+.kc-table .kc-fx-check { left: 0; width: 28px; }
+.kc-table .kc-fx-stage { left: 0; width: 64px; }
+.kc-table.kc-has-check .kc-fx-stage { left: 28px; }
+.kc-table .kc-fx-co { left: 64px; width: 210px; max-width: 210px; white-space: normal; box-shadow: 2px 0 0 var(--line); }
+.kc-table.kc-has-check .kc-fx-co { left: 92px; }
+.kc-table tr:hover .kc-fx-check, .kc-table tr:hover .kc-fx-stage, .kc-table tr:hover .kc-fx-co { background: #f7fbf9; }
+.kc-table .kc-apo-done .kc-fx-check, .kc-table .kc-apo-done .kc-fx-stage, .kc-table .kc-apo-done .kc-fx-co { background: var(--panel-2); }
 .kc-done td { background: var(--panel-2); color: var(--muted); }
 .kc-tel { color: #0d5b47; font-weight: 700; text-decoration: none; font-size: 13.5px; }
 .kc-tel:hover { text-decoration: underline; }

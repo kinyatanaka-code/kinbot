@@ -301,11 +301,11 @@ function render() {
        <button type="button" class="btn" id="kcSelMove">選択したリードを他のリストへ移す</button>
        <button type="button" class="btn kc-outline" id="kcSelClear">選択を外す</button>
      </div>` : "") +
-    `<div class="kc-tablewrap"><table class="kc-table">
+    `<div class="kc-tablewrap"><table class="kc-table${listId !== "all" ? " kc-has-check" : ""}">
       <tr>
-        ${listId !== "all" ? `<th class="kc-th-c" style="width:28px"><input type="checkbox" id="kcSelAll" title="全部を選ぶ" /></th>` : ""}
-        <th class="kc-th-s"><button type="button" class="kc-th-b${on("stage")}" data-flt="stage">ステージ ▾</button></th>
-        <th class="kc-co"><button type="button" class="kc-th-b" data-sort="company">会社名${arrow("company")}</button></th>
+        ${listId !== "all" ? `<th class="kc-th-c kc-fx-check" style="width:28px"><input type="checkbox" id="kcSelAll" title="全部を選ぶ" /></th>` : ""}
+        <th class="kc-th-s kc-fx-stage"><button type="button" class="kc-th-b${on("stage")}" data-flt="stage">ステージ ▾</button></th>
+        <th class="kc-co kc-fx-co"><button type="button" class="kc-th-b" data-sort="company">会社名${arrow("company")}</button></th>
         <th class="kc-th-p">担当者</th>
         <th class="kc-th-t">電話番号</th>
         <th class="kc-th-m">メールアドレス</th>
@@ -332,9 +332,9 @@ function render() {
         : "";
       return 区切り + かけ区切り + `
       <tr data-id="${x.id}" class="${済 ? "kc-apo-done" : ""}">
-        ${listId !== "all" ? `<td><input type="checkbox" class="kc-sel" data-id="${x.id}"${selectedIds.has(String(x.id)) ? " checked" : ""} /></td>` : ""}
-        <td class="kc-stage">${esc(x["ステージ"] || "-")}</td>
-        <td class="kc-co">${esc(x["会社名"] || "")}${doneBadge(x)}${
+        ${listId !== "all" ? `<td class="kc-fx-check"><input type="checkbox" class="kc-sel" data-id="${x.id}"${selectedIds.has(String(x.id)) ? " checked" : ""} /></td>` : ""}
+        <td class="kc-stage kc-fx-stage">${esc(x["ステージ"] || "-")}</td>
+        <td class="kc-co kc-fx-co">${esc(x["会社名"] || "")}${doneBadge(x)}${
           予定 ? ` <span class="kc-next-badge${予定.due ? " due" : ""}">${予定.due ? "架電予定 " : "予定 "}${esc(予定.md)} ${esc(予定.hhmm)}<button type="button" class="kc-next-x" data-id="${x.id}" title="この架電予定を消す">×</button></span>` : ""}</td>
         <td>${esc(x["担当者"] || "")}</td>
         <td>${x["電話番号"]
