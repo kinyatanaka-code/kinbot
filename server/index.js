@@ -886,6 +886,17 @@ async function isCloserUser(email) {
   } catch { return false; }
 }
 
+// リストを他メンバーへ割り振れる人（インサイド担当も含める）。
+// クローザー・管理者に加えて、リスト配布を担うインサイド（例：中澤さん）も対象。
+async function canRedistribute(req) {
+  if (req.isAdmin) return true;
+  try {
+    const members = await listMembers().catch(() => []);
+    const me = (members || []).find((m) => String(m.email || "").toLowerCase() === String(req.user || "").toLowerCase());
+    return !!(me && Array.isArray(me.roles) && (me.roles.includes("closer") || me.roles.includes("inside")));
+  } catch { return false; }
+}
+
 app.get("/api/me", async (req, res) => {
   let name = "";
   try {
@@ -916,6 +927,8 @@ app.get("/api/me", async (req, res) => {
     kincallOnly: !!req.kincallOnly,
     // クローザー（リスト追加ができる）
     closer: closer || !!req.isAdmin,
+    // リストを他メンバーへ割り振れる人（クローザー・管理者＋インサイド担当）
+    canRedistribute: await canRedistribute(req).catch(() => (closer || !!req.isAdmin)),
     // 代理ログイン関連
     impersonating: !!impersonator,
     impersonator_email: impersonator,
@@ -7146,7 +7159,7 @@ app.post("/api/calls/targets/move", async (req, res) => {
 // リストの架電先を、他のメンバーへランダムに割り振り直す（担当を付け替える）。
 app.post("/api/calls/lists/:id/redistribute", async (req, res) => {
   try {
-    if (!req.isAdmin && !(await isCloserUser(req.user))) return res.status(403).json({ error: "クローザー・管理者だけが使えます" });
+    if (!(await canRedistribute(req))) return res.status(403).json({ error: "クローザー・インサイド・管理者だけが使えます" });
     const id = parseInt(req.params.id, 10);
     if (!id) return res.status(400).json({ error: "リストが指定されていません" });
     const b = req.body || {};
@@ -16974,7 +16987,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-04an kincallのみのメンバーが設定を開けない問題を修正（要望：田中さん）。従来 kincallOnly は isKincallPath 以外→/kincallへリダイレクトで settings.html が開けなかった。自分用だけ開放：isKincallSelfSettingPath（/settings.html・/auth/google(+callback)・/api/calendar/status・/api/calendar/disconnect・/api/my-zoom-link・/api/links）をゲートで許可。settings.js は me.kincallOnly のときタブを 外部連携/アカウント/登録リンク に絞り、外部連携カードはGoogle(calendar)だけ表示。管理系(メンバー/ナレッジ/プロンプト/全体設定/SF等)は非開放のまま。前回(am)：メンバーGoogle連携リンク。";
+const BUILD_TAG = "2026-09-04ao リストを他メンバーに割り振る（他のメンバーに割り振る）を、クローザー・管理者に加えてインサイド担当も使えるように（要望：田中さん・中澤さん等が割り振れなくなっていた）。判定 canRedistribute(req)=admin||roles includes closer/inside。/api/me に canRedistribute を追加、redistributeエンドポイントの許可を canRedistribute に、calls.js は iAmRedistributor で spRedist ボタンを表示。SFに反映・追加は従来どおりクローザー/管理者のみ。前回(an)：kincallのみのメンバーが設定を開けるように。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",

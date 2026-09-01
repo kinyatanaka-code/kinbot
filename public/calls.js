@@ -1970,6 +1970,7 @@ function showPane() {
 
 // 「kincallだけ」の人には、kinbotへ戻る道を見せない
 let iAmCloser = false;               // クローザー（管理者含む）＝リストを追加できる
+let iAmRedistributor = false;        // 他メンバーへ割り振れる（クローザー・管理者＋インサイド）
 let appendTarget = null;             // {id, name}：既存リストに追加する先
 let csvAddMode = false;              // CSV：作成する(false)／追加する(true)
 let callAsMember = "";               // かける画面を、この担当の割り振りぶんだけで見る（空＝全部）
@@ -1978,6 +1979,7 @@ let selectedIds = new Set();          // 一覧で選択した架電先のid
   try {
     const me = await (await fetch("/api/me")).json();
     iAmCloser = !!(me && (me.closer || me.admin));
+    iAmRedistributor = !!(me && (me.canRedistribute || me.closer || me.admin));
     if (me && me.kincallOnly) {
       document.querySelectorAll(".kc-side .side-app, .kc-side .side-sep")
         .forEach((el) => el.remove());
@@ -2857,7 +2859,7 @@ async function openSplit(listId, listName, memberEmail, memberName) {
          <button type="button" class="kc-mem-back" id="spBack">← 戻る</button>
          <span class="kc-mem-title">${esc(listName)}（${rows.length}件）から絞り込む</span>
          ${iAmCloser ? `<button type="button" class="btn kc-outline" id="spToSf" style="margin-left:auto">SFに反映</button>` : ""}
-         ${iAmCloser ? `<button type="button" class="btn kc-outline" id="spRedist"${iAmCloser ? ' style="margin-left:8px"' : ''}>他のメンバーに割り振る</button>` : ""}
+         ${iAmRedistributor ? `<button type="button" class="btn kc-outline" id="spRedist" style="margin-left:8px">他のメンバーに割り振る</button>` : ""}
          ${iAmCloser ? `<button type="button" class="btn" id="spAddMore"${iAmCloser ? ' style="margin-left:8px"' : ''}>＋ このリストに追加</button>` : ""}
        </div>
        <div class="kc-split">
