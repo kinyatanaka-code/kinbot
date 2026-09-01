@@ -1548,6 +1548,28 @@ async function loadAdmin() {
           </label>
           <div class="modal-actions"><button class="btn" id="psSave" type="button">反映先・設定を保存</button><span class="saved" id="psSaveMsg" hidden>保存しました</span></div>
 
+          <details class="kc-advanced" style="margin-top:8px">
+            <summary style="cursor:pointer;color:#0d5b47;font-weight:600">詳細設定（期間・書き込み・稼働時間・Apps Script）</summary>
+            <div style="margin-top:8px">
+              <label class="field"><span>期間の決め方</span>
+                <select id="psTermMode">
+                  <option value="auto">自動（アポを取った月と商談の月が同じなら期内）</option>
+                  <option value="fixed">決めた期間で（下の固定期間、または「月ごとの範囲」）</option>
+                </select>
+              </label>
+              <div id="psFixedRow" hidden>
+                <label class="field"><span>固定期間（開始）</span><input id="psFrom" type="date" value="${esc(ps.termFrom || "")}" /></label>
+                <label class="field"><span>固定期間（終了）</span><input id="psTo" type="date" value="${esc(ps.termTo || "")}" /></label>
+              </div>
+              <label class="field"><span>この日から書き込む</span><input id="psWriteFrom" type="date" value="${esc(ps.writeFrom || "")}" /></label>
+              <label class="field"><span>休み（この日は0で書く）</span><input id="psZeroDates" type="text" placeholder="例：8/21, 8/22" value="${esc(ps.zeroDates || "")}" /></label>
+              <label class="ks-check" style="margin:4px 0"><input type="checkbox" id="psHours" ${ps.withHours ? "checked" : ""} /> 稼働時間目標もカレンダーから入れる</label>
+              <label class="field"><span>Apps Script URL（保護シート用・任意）</span><input id="psGasUrl" type="text" placeholder="https://script.google.com/…/exec" value="${esc(ps.gasUrl || "")}" /></label>
+              <label class="field"><span>合言葉</span><input id="psGasSecret" type="password" placeholder="${ps.gasSecretSet ? "保存済み（変えるときだけ入力）" : "未設定"}" /></label>
+              <p class="note" style="margin:2px 0 0">SFレポートの絞り込み条件は「SF連携」画面で設定します。ここで保存した設定は両方の画面で共通です。</p>
+            </div>
+          </details>
+
           <div class="kc-adrow" style="margin-top:8px"><span class="kc-adk">最後の実行</span><span id="psLast">${lastTxt}</span></div>
           <div class="kc-adrow"><span class="kc-adk">自動実行</span>
             <label class="ks-check"><input type="checkbox" id="psAuto" ${ps.autoRun ? "checked" : ""} /> ${ps.autoRun ? "ON（間隔ごとに自動で書き込み）" : "OFF"}</label>
@@ -1593,6 +1615,15 @@ async function loadAdmin() {
     });
 
     // --- プロセスシートの配線 ---
+    // 詳細設定：期間の決め方の初期値と、固定期間の表示切替。
+    const psTermModeEl = $("psTermMode");
+    if (psTermModeEl) {
+      psTermModeEl.value = ps.termMode === "fixed" ? "fixed" : "auto";
+      const syncFixed = () => { const r = $("psFixedRow"); if (r) r.hidden = psTermModeEl.value !== "fixed"; };
+      syncFixed();
+      psTermModeEl.addEventListener("change", syncFixed);
+    }
+    const psVal = (id) => { const el = $(id); return el ? el.value.trim() : undefined; };
     $("psSave").addEventListener("click", async () => {
       const body = {
         sheetId: $("psSheet").value.trim(),
@@ -1600,10 +1631,20 @@ async function loadAdmin() {
         reportId: $("psReport").value.trim(),
         owner: $("psOwner").value.trim(),
       };
+      // 詳細設定（ある項目だけ送る）
+      if (psTermModeEl) body.termMode = psTermModeEl.value === "fixed" ? "fixed" : "auto";
+      if ($("psFrom")) body.termFrom = psVal("psFrom");
+      if ($("psTo")) body.termTo = psVal("psTo");
+      if ($("psWriteFrom")) body.writeFrom = psVal("psWriteFrom");
+      if ($("psZeroDates")) body.zeroDates = psVal("psZeroDates");
+      if ($("psHours")) body.withHours = $("psHours").checked;
+      if ($("psGasUrl")) body.gasUrl = psVal("psGasUrl");
+      if ($("psGasSecret") && $("psGasSecret").value.trim()) body.gasSecret = $("psGasSecret").value.trim();
       try {
         const r = await fetch("/api/process-sheet", { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
         if (!r.ok) throw new Error((await r.json()).error || "保存できません");
         const m = $("psSaveMsg"); m.hidden = false; setTimeout(() => (m.hidden = true), 3000);
+        const gsEl = $("psGasSecret"); if (gsEl) { gsEl.value = ""; if (body.gasSecret) gsEl.placeholder = "保存済み（変えるときだけ入力）"; }
       } catch (e) { alert("保存できませんでした：" + e.message); }
     });
     $("psAuto").addEventListener("change", async (e) => {
