@@ -218,6 +218,9 @@ import {
   listCallLists,
   nextCallTarget,
   callHistory,
+  upsertRecruitInfo,
+  getRecruitByCompanies,
+  recruitInfoCount,
   leadDupInList,
   clearBadLeadsInList,
   recordCall,
@@ -7528,12 +7531,7 @@ app.get("/api/calls/targets", async (req, res) => {
       if (失敗) console.warn(`[kincall] 活動の件数：${失敗}回ぶん数えられませんでした`);
       console.log(`[kincall] 架電の件数を数えました：${sfCount.size}件ぶん（対象 ${ids.length}）`);
     }
-    res.json({
-      ok: true,
-      件数: rows.length,
-      残り: rows.filter((r) => !r.done).length,
-      結果の種類: CALL_RESULTS.map((x) => x.key),
-      items: rows.map((r) => ({
+    const items = rows.map((r) => ({
         id: r.id, leadId: r.lead_id || "",
         ステージ: r.stage || "",
         会社名: r.company || "", 担当者: r.person || "",
@@ -7548,9 +7546,46 @@ app.get("/api/calls/targets", async (req, res) => {
         最終日時: r["最終日時"] || null,
         次回予定: r.next_call_at || null,
         済み: !!r.done,
-      })),
+    }));
+    // 会社名で求人情報（取り込み済みなら）を付ける。データがある行にだけ「求人」が入る。
+    let recruitFound = false;
+    try {
+      const map = await getRecruitByCompanies(items.map((x) => x.会社名));
+      if (Object.keys(map).length) {
+        for (const x of items) {
+          const d = map[normCompanyKey(x.会社名)];
+          if (d && Object.keys(d).length) { x.求人 = d; recruitFound = true; }
+        }
+      }
+    } catch (e) { console.warn("[calls/targets] 求人情報の付与に失敗", e.message); }
+    res.json({
+      ok: true,
+      件数: rows.length,
+      残り: rows.filter((r) => !r.done).length,
+      結果の種類: CALL_RESULTS.map((x) => x.key),
+      求人あり: recruitFound,
+      items,
     });
   } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// 求人情報の取り込み（CSV/スプレッドシートの行を会社名で紐づけて保存）。
+// body: { rows: [{ company, data:{媒体記載業種,採用人数,掲載終了日,...} }] }
+app.post("/api/calls/recruit/import", async (req, res) => {
+  try {
+    if (!(await canRedistribute(req))) return res.status(403).json({ error: "クローザー・インサイド・管理者だけが使えます" });
+    const rows = Array.isArray(req.body && req.body.rows) ? req.body.rows : [];
+    if (!rows.length) return res.status(400).json({ error: "取り込むデータがありません" });
+    const r = await upsertRecruitInfo(rows.slice(0, 20000));
+    const total = await recruitInfoCount();
+    res.json({ ok: true, 保存: r.saved, スキップ: r.skipped, 合計: total });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// 求人情報の登録件数（取り込み済みかどうかの確認用）
+app.get("/api/calls/recruit/status", async (req, res) => {
+  try { res.json({ ok: true, 件数: await recruitInfoCount() }); }
+  catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 // 1件の履歴（モーダルで出す）
@@ -16998,7 +17033,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-04ar SF活動記録の失敗表示を改善：Salesforceの入力規則/フロー由来のエラー（FIELD_CUSTOM_VALIDATION_EXCEPTION／CANNOT_EXECUTE_FLOW_TRIGGER）を、生の長文でなく短い案内（不足項目名＋SF管理者へ確認）に整形。今回のケースは商談の入力規則『受失注理由が必須』にフロー（商談回数・更新回数）が引っかかったもので、原因はSF設定側。前回(aq)：活動記録の説明フォールバック。";
+const BUILD_TAG = "2026-09-04as kincallのかける一覧に求人情報の追加カラムを実装（案2）。CSVを会社名で各架電先に紐づけて表示。DB recruit_info(company_key正規化,data JSONB)＋upsert/get/count、POST /api/calls/recruit/import・GET /status。/api/calls/targets は会社名でrecruitを付与し items[].求人＋求人あり を返す。calls.js：求人ありの時だけ最終ステータスの右に列（既定=業種/採用人数/掲載終了日）、『求人の列を選ぶ』で表示列を選択(localStorage)、掲載終了日/doda掲載終了日は期限が近いと色分け（3日以内/過去=赤・14日以内=橙）。ツールバーに『求人情報を取り込む』(CSV貼付/ファイル)。前回(ar)：SF活動記録エラーの整形。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",

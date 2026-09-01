@@ -198,6 +198,51 @@ function openFilter(which, btn) {
   });
 }
 
+// ===== 求人情報の追加カラム（このリストに求人データがある時だけ出す）=====
+// [キー, 見出し]。既定で出すのは先頭3つ（業種・採用人数・掲載終了日）。
+const RECRUIT_COLS = [
+  ["媒体記載業種", "業種"],
+  ["採用人数", "採用人数"],
+  ["掲載終了日", "掲載終了日"],
+  ["掲載開始日", "掲載開始日"],
+  ["資本金", "資本金"],
+  ["フロッグ標準職種大分類", "職種大分類"],
+  ["フロッグ標準業種", "標準業種"],
+  ["勤務地都道府県", "都道府県"],
+  ["勤務地市区町村", "市区町村"],
+  ["勤務地住所", "勤務地住所"],
+  ["doda掲載開始日", "doda開始"],
+  ["doda掲載終了日", "doda終了"],
+];
+const RECRUIT_DEFAULT = ["媒体記載業種", "採用人数", "掲載終了日"];
+const RECRUIT_DATE_KEYS = new Set(["掲載終了日", "doda掲載終了日"]);   // 期限が近いと色を変える列
+function recruitCols() {
+  let saved = null;
+  try { saved = JSON.parse(localStorage.getItem("kcRecruitCols") || "null"); } catch {}
+  const keys = Array.isArray(saved) && saved.length ? saved : RECRUIT_DEFAULT;
+  return RECRUIT_COLS.filter(([k]) => keys.includes(k));
+}
+function setRecruitCols(keys) {
+  try { localStorage.setItem("kcRecruitCols", JSON.stringify(keys)); } catch {}
+}
+// 掲載終了日などの「あと何日で切れるか」で色を返す。切れている/近い=赤、まもなく=橙。
+function deadlineClass(v) {
+  const d = parseDateLoose(v);
+  if (!d) return "";
+  const days = Math.floor((d.getTime() - Date.now()) / 86400000);
+  if (days <= 3) return "kc-rc-red";
+  if (days <= 14) return "kc-rc-amber";
+  return "";
+}
+function parseDateLoose(v) {
+  const s = String(v || "").trim();
+  if (!s) return null;
+  const m = s.match(/(\d{4})[\/\-.年](\d{1,2})[\/\-.月](\d{1,2})/);
+  if (m) return new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
+  const t = Date.parse(s);
+  return isNaN(t) ? null : new Date(t);
+}
+
 function render() {
   const box = $("clTable");
   const fullList = visibleRows();
@@ -217,12 +262,16 @@ function render() {
     userN ? `<span class="kc-sum-user">ユーザー <b>${userN}</b></span>` : "",
     lostN ? `<span class="kc-sum-lost">失注 <b>${lostN}</b></span>` : "",
   ].filter(Boolean).join("／");
+  // 求人情報が付いている行があるか（このリストだけ追加カラムを出す）
+  const rcols = fullList.some((x) => x.求人) ? recruitCols() : [];
+  const hasRecruit = rcols.length > 0;
   box.innerHTML =
     `<div class="kc-summary">かける先 <b>${fullList.length - doneN}</b> 件` +
     (doneN
       ? `／${内訳}` +
         `<button type="button" class="kc-sum-btn" id="kcHideApo">${hideApo ? "対象外も表示" : "対象外を隠す"}</button>`
       : "") +
+    (hasRecruit ? `<button type="button" class="kc-sum-btn" id="kcRcCols">求人の列を選ぶ</button>` : "") +
     `</div>` +
     ((listId !== "all")
       ? `<div class="kc-selbar" id="kcSelBar" hidden style="display:flex;align-items:center;gap:10px;padding:8px 4px;">
@@ -239,6 +288,7 @@ function render() {
         <th class="kc-th-t">電話番号</th>
         <th class="kc-th-m">メールアドレス</th>
         <th class="kc-th-s"><button type="button" class="kc-th-b${on("status")}" data-flt="status">最終ステータス ▾</button></th>
+        ${rcols.map(([, label]) => `<th class="kc-th-rc">${esc(label)}</th>`).join("")}
         <th class="kc-th-h"><button type="button" class="kc-th-b${filt.hist ? " on" : ""}" data-hist="1">履歴${arrow("hist")}</button></th>
         <th class="kc-th-l">最終架電日</th>
         <th class="kc-th-r">記録</th>
@@ -249,7 +299,7 @@ function render() {
       const 済 = isDone(x);
       const 予定 = nextDueLabel(x);
       const かけた = (r) => !!(r && r["最終日時"]) && !isDone(r) && !(r["次回予定"] && new Date(r["次回予定"]).getTime() <= Date.now());
-      const cols = listId !== "all" ? 12 : 11;
+      const cols = (listId !== "all" ? 12 : 11) + rcols.length;
       const 直前未済 = i > 0 && !isDone(list[i - 1]);
       const 区切り = (済 && (i === 0 || 直前未済))
         ? `<tr class="kc-apo-sep"><td colspan="${cols}">ここから下は、かける対象外（アポ獲得・ユーザー・失注）（${list.filter(isDone).length}件）</td></tr>`
@@ -270,6 +320,11 @@ function render() {
           : `<span class="kc-none">なし</span>`}</td>
         <td class="kc-mail">${esc(x["メール"] || "")}</td>
         <td class="kc-status">${x["最終ステータス"] ? esc(x["最終ステータス"]) : "-"}</td>
+        ${rcols.map(([k]) => {
+          const v = (x.求人 && x.求人[k] != null) ? String(x.求人[k]) : "";
+          const cls = RECRUIT_DATE_KEYS.has(k) ? deadlineClass(v) : "";
+          return `<td class="kc-rc${cls ? " " + cls : ""}">${v ? esc(v) : '<span class="kc-none">—</span>'}</td>`;
+        }).join("")}
         <td><button type="button" class="kc-btn kc-hist" data-id="${x.id}">${x["履歴数"] ? `${x["履歴数"]}件` : "なし"}</button></td>
         <td class="kc-lastcall">${esc(lastCallLabel(x["最終日時"]))}</td>
         <td><button type="button" class="kc-btn kc-rec" data-id="${x.id}">記録</button></td>
@@ -347,6 +402,26 @@ function render() {
   updateSelBar();
   const hideBtn = $("kcHideApo");
   if (hideBtn) hideBtn.addEventListener("click", () => { hideApo = !hideApo; render(); });
+  const rcBtn = $("kcRcCols");
+  if (rcBtn) rcBtn.addEventListener("click", () => {
+    const cur = new Set(recruitCols().map(([k]) => k));
+    const inner =
+      `<p class="note" style="margin:0 0 10px">かける一覧に出す求人の列を選べます（この端末に保存されます）。</p>` +
+      `<div style="display:grid;grid-template-columns:1fr 1fr;gap:6px 16px">` +
+      RECRUIT_COLS.map(([k, label]) =>
+        `<label class="ks-check"><input type="checkbox" class="kc-rccol" value="${esc(k)}"${cur.has(k) ? " checked" : ""}/> ${esc(label)}</label>`).join("") +
+      `</div>` +
+      `<div class="modal-actions" style="margin-top:12px"><button type="button" class="btn" id="kcRcSave">保存</button>` +
+      `<button type="button" class="btn ghost" id="kcRcReset">既定に戻す</button></div>`;
+    const m = openModal("求人の列を選ぶ", inner);
+    m.el.querySelector("#kcRcSave").addEventListener("click", () => {
+      const keys = [...m.el.querySelectorAll(".kc-rccol:checked")].map((c) => c.value);
+      setRecruitCols(keys); m.close(); render();
+    });
+    m.el.querySelector("#kcRcReset").addEventListener("click", () => {
+      setRecruitCols(RECRUIT_DEFAULT); m.close(); render();
+    });
+  });
 }
 
 // ───────── 窓（モーダル） ─────────
@@ -2121,6 +2196,10 @@ document.addEventListener("click", (ev) => {
       } catch (e) { say("clStatus", "できませんでした：" + e.message, 8000); }
     })();
   }
+  if (t.id === "clRecruit") {
+    ev.preventDefault();
+    openRecruitImport();
+  }
   if (t.id === "clFixLinks") {
     ev.preventDefault();
     (async () => {
@@ -2951,6 +3030,72 @@ async function openSplit(listId, listName, memberEmail, memberName) {
 
 // ───────── CSVから作る（クロスリードと突き合わせ） ─────────
 // 1行1社で「会社名・担当者名・電話番号・メール」。見出し行があっても飛ばす。
+// 求人CSV：1行目を見出しとして、会社名で紐づける行の配列に変換する
+function recruitCsvRows(text) {
+  const src = String(text || "");
+  const rows = []; let row = [], cell = "", q = false;
+  for (let i = 0; i < src.length; i++) {
+    const ch = src[i];
+    if (q) { if (ch === '"') { if (src[i + 1] === '"') { cell += '"'; i++; } else q = false; } else cell += ch; }
+    else if (ch === '"') q = true;
+    else if (ch === "," || ch === "\t") { row.push(cell); cell = ""; }
+    else if (ch === "\n") { row.push(cell); rows.push(row); row = []; cell = ""; }
+    else if (ch !== "\r") cell += ch;
+  }
+  row.push(cell); rows.push(row);
+  const cells = rows.map((r) => r.map((v) => String(v || "").trim())).filter((r) => r.some((v) => v));
+  if (cells.length < 2) return { rows: [], head: [] };
+  const head = cells[0];
+  let ci = head.findIndex((h) => /企業名|会社名|会社|company/i.test(h));
+  if (ci < 0) ci = 0;
+  const out = [];
+  for (let r = 1; r < cells.length; r++) {
+    const line = cells[r];
+    const company = String(line[ci] || "").trim();
+    if (!company) continue;
+    const data = {};
+    for (let c = 0; c < head.length; c++) {
+      const key = head[c]; const val = (line[c] || "").trim();
+      if (!key || c === ci || !val) continue;
+      data[key] = val;
+    }
+    out.push({ company, data });
+  }
+  return { rows: out, head };
+}
+
+function openRecruitImport() {
+  const inner =
+    `<p class="note" style="margin:0 0 10px">求人情報のCSV（1行目が見出し）を貼り付けるか、ファイルを選んでください。会社名（企業名）で各架電先に紐づけ、かける一覧に列で表示します。もとの見出しをそのまま列名として使います。</p>` +
+    `<input type="file" id="rcFile" accept=".csv,text/csv" style="margin-bottom:8px" />` +
+    `<textarea id="rcText" placeholder="企業名,担当者名,電話番号,Email,資本金,…,採用人数,掲載終了日" style="width:100%;height:160px;font-size:12px;font-family:monospace"></textarea>` +
+    `<div class="modal-actions" style="margin-top:10px"><button type="button" class="btn" id="rcImport">取り込む</button>` +
+    `<span class="note" id="rcMsg" style="margin-left:8px"></span></div>`;
+  const m = openModal("求人情報を取り込む", inner);
+  const fileEl = m.el.querySelector("#rcFile");
+  const textEl = m.el.querySelector("#rcText");
+  fileEl.addEventListener("change", () => {
+    const f = fileEl.files && fileEl.files[0]; if (!f) return;
+    const rd = new FileReader();
+    rd.onload = () => { textEl.value = String(rd.result || ""); };
+    rd.readAsText(f);
+  });
+  m.el.querySelector("#rcImport").addEventListener("click", async () => {
+    const msg = m.el.querySelector("#rcMsg");
+    const parsed = recruitCsvRows(textEl.value);
+    if (!parsed.rows.length) { msg.textContent = "会社名の入った行が見つかりませんでした。"; return; }
+    msg.textContent = `${parsed.rows.length}件を取り込み中…`;
+    try {
+      const d = await (await fetch("/api/calls/recruit/import", {
+        method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ rows: parsed.rows }),
+      })).json();
+      if (!d.ok) throw new Error(d.error || "取り込めませんでした");
+      msg.textContent = `取り込みました：保存 ${d["保存"]}件${d["スキップ"] ? `／スキップ ${d["スキップ"]}件` : ""}（合計 ${d["合計"]}件）`;
+      setTimeout(() => { m.close(); loadTable(); }, 1200);
+    } catch (e) { msg.textContent = "できませんでした：" + e.message; }
+  });
+}
+
 function csvParse(text) {
   const out = [];
   const src = String(text || "");

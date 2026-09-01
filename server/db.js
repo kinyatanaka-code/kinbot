@@ -653,6 +653,13 @@ export async function initDb() {
   // 次回の架電予定日時（記録時に残す）。この時刻が来たら、かける一覧で上に出す。
   await sq(`ALTER TABLE call_targets ADD COLUMN IF NOT EXISTS next_call_at TIMESTAMPTZ;`);
   await sq(`CREATE INDEX IF NOT EXISTS ix_call_targets_next ON call_targets(next_call_at) WHERE next_call_at IS NOT NULL;`);
+  // 求人情報（会社名で架電先に紐づける外部データ）
+  await sq(`CREATE TABLE IF NOT EXISTS recruit_info (
+    company_key TEXT PRIMARY KEY,
+    company     TEXT,
+    data        JSONB NOT NULL DEFAULT '{}'::jsonb,
+    updated_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+  );`);
   await sq(`
     CREATE TABLE IF NOT EXISTS call_logs (
       id         SERIAL PRIMARY KEY,
@@ -2583,6 +2590,62 @@ export function normCompanyKey(name) {
     .replace(/様$/u, "")
     .trim()
     .toLowerCase();
+}
+
+// ===== 求人情報（kincallの架電先に、会社名で紐づける外部データ）=====
+// CSV/スプレッドシートから取り込み、会社名の正規化キーで各架電先に付ける。
+// data は {資本金, 媒体記載業種, 採用人数, 掲載終了日, ...} を丸ごと入れるJSONB。
+export async function ensureRecruitTable() {
+  if (!pool) return;
+  try {
+    await pool.query(`CREATE TABLE IF NOT EXISTS recruit_info (
+      company_key TEXT PRIMARY KEY,
+      company TEXT,
+      data JSONB NOT NULL DEFAULT '{}'::jsonb,
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    )`);
+  } catch (e) { console.error("[db] ensureRecruitTable", e.message); }
+}
+
+// 取り込み（会社名の正規化キーでupsert）。rows=[{company, data}]
+export async function upsertRecruitInfo(rows = []) {
+  if (!pool || !Array.isArray(rows) || !rows.length) return { saved: 0, skipped: 0 };
+  await ensureRecruitTable();
+  let saved = 0, skipped = 0;
+  for (const r of rows) {
+    const company = String((r && r.company) || "").trim();
+    const key = normCompanyKey(company);
+    if (!key) { skipped++; continue; }
+    try {
+      await pool.query(
+        `INSERT INTO recruit_info (company_key, company, data, updated_at)
+         VALUES ($1,$2,$3,now())
+         ON CONFLICT (company_key) DO UPDATE SET company=EXCLUDED.company, data=EXCLUDED.data, updated_at=now()`,
+        [key, company, JSON.stringify(r.data || {})]);
+      saved++;
+    } catch (e) { console.error("[db] upsertRecruitInfo", e.message); skipped++; }
+  }
+  return { saved, skipped };
+}
+
+// 会社名の配列から、正規化キーで求人情報をまとめて引く。返り値: { 正規化キー: data }
+export async function getRecruitByCompanies(companies = []) {
+  if (!pool || !companies.length) return {};
+  const keys = [...new Set(companies.map((c) => normCompanyKey(c)).filter(Boolean))];
+  if (!keys.length) return {};
+  try {
+    const { rows } = await pool.query(
+      `SELECT company_key, data FROM recruit_info WHERE company_key = ANY($1)`, [keys]);
+    const out = {};
+    for (const r of rows) out[r.company_key] = r.data || {};
+    return out;
+  } catch (e) { console.error("[db] getRecruitByCompanies", e.message); return {}; }
+}
+
+export async function recruitInfoCount() {
+  if (!pool) return 0;
+  try { await ensureRecruitTable(); const { rows } = await pool.query(`SELECT count(*)::int n FROM recruit_info`); return rows[0] ? rows[0].n : 0; }
+  catch { return 0; }
 }
 
 // 会社名から既存dealを探す（正規化キー一致）。無ければ作成。
