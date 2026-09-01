@@ -8518,12 +8518,12 @@ async function computeStatsGrid(periodIn, spanIn) {
 
     const 区切り = [];
     if (period === "day") {
-      let i = 0;
-      while (区切り.length < 本数 && i < 本数 * 3) {
-        const d = new Date(Date.UTC(y, m, d0 - i)); i++;
+      // 今週の月〜金だけを出す（土日は集計から除外）。
+      const off = (nowJ.getUTCDay() + 6) % 7;   // 月曜からの経過日数
+      for (let k = 0; k < 5; k++) {
+        const d = new Date(Date.UTC(y, m, d0 - off + k));
         const w = d.getUTCDay();
-        if (w === 0 || w === 6) continue;
-        区切り.unshift({ key: ymd(d), 名前: `${d.getUTCMonth() + 1}/${d.getUTCDate()}`, 曜日: "日月火水木金土"[w], from: ymd(d), to: ymd(d) });
+        区切り.push({ key: ymd(d), 名前: `${d.getUTCMonth() + 1}/${d.getUTCDate()}`, 曜日: "日月火水木金土"[w], from: ymd(d), to: ymd(d) });
       }
     }
     for (let i = 本数 - 1; i >= 0; i--) {
@@ -8801,7 +8801,7 @@ app.get("/api/calls/apo-dashboard", async (req, res) => {
     // アポ目標だけ合計（ダッシュボードはアポのみ）。日次の各日の metric='アポ' を足す。
     const apoGoalOf = (key) => Object.values(daily[key] || {}).reduce((a, day) => a + (Number((day || {})["アポ"]) || 0), 0);
     const salesNames = String(process.env.DASH_SALES_NAMES || "田中欽也").split(",").map((s) => s.trim()).filter(Boolean);
-    const excludeNames = String(process.env.DASH_EXCLUDE_NAMES || "中澤,浦林,森田,笹原").split(",").map((s) => s.trim()).filter(Boolean);
+    const excludeNames = String(process.env.DASH_EXCLUDE_NAMES || "中澤,浦林,森田,笹原,迫間").split(",").map((s) => s.trim()).filter(Boolean);
     const nameHas = (name, toks) => toks.some((t) => String(name || "").includes(t));
     const apoArr = (arr) => (arr && arr[i]) ? (Number(arr[i].アポ内 || 0) + Number(arr[i].アポ外 || 0)) : 0;
     // 個別（除外・田中付替え）
@@ -17144,7 +17144,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-04bd グループ・セールス・インサイドもダッシュボードで目標を手動設定できるように（要望：田中さん）。チーム目標＝そのチーム自身の手入力（月次→平日に日次配分、subject=group/sales/inside）、実績＝メンバー合計、差分＝実績−目標。apo-goals-monthのチーム拒否を解除。モーダル/実績のチームも目標はチーム自身(subject)の値を表示（実績はメンバー合計）。前回(bc)：ダッシュボード個人編集＋実績=モーダル。";
+const BUILD_TAG = "2026-09-04be ダッシュボード調整（田中さん）：迫間美羽をダッシュボードから除外（DASH_EXCLUDE_NAMESとクライアントEXCLUDE_NAMESに迫間追加）。日次(computeStatsGrid period=day)を今週の月〜金の5日固定に（従来は直近7平日で週跨ぎ）。モーダル/実績の日次見出しに曜日を表示。実績タブは既存の日次/週次/月次トグルで期間ごとに目標・実績を表示（ddTable）、目標はDB保存で永続。前回(bd)：チームもダッシュボードで目標手動設定。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",

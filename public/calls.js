@@ -1521,7 +1521,7 @@ async function openDashDetail(subject, label) {
      </div><div id="ddBody"><div class="note">読み込んでいます…</div></div>`;
   const m = openModal(`${label} ・ 内訳`, inner, { wide: true });
   let p = "day";   // 最初は日次
-  const SALES_NAMES = ["田中欽也"], EXCLUDE_NAMES = ["中澤", "浦林", "森田", "笹原"];
+  const SALES_NAMES = ["田中欽也"], EXCLUDE_NAMES = ["中澤", "浦林", "森田", "笹原", "迫間"];
   const nameHas = (n, ts) => ts.some((t) => String(n || "").includes(t));
   const load = async () => {
     const body = m.el.querySelector("#ddBody");
@@ -1574,7 +1574,7 @@ function ddTable(cols, vals, now, subject, isTeam, emails, dg, period) {
     アポ: goalCount(emails, dg, "アポ", c, period),
   }));
   // 見出し：日付（2列ぶん）＋ その下に 目標｜実績
-  const h1 = `<tr><th class="kc-g-name" rowspan="2">　</th>${cols.map((c) => `<th class="kc-g-h${nowCls(c)}" colspan="2">${esc(c["名前"])}</th>`).join("")}</tr>`;
+  const h1 = `<tr><th class="kc-g-name" rowspan="2">　</th>${cols.map((c) => `<th class="kc-g-h${nowCls(c)}" colspan="2">${esc(c["名前"])}${c["曜日"] ? `<span class="kc-g-w">${esc(c["曜日"])}</span>` : ""}</th>`).join("")}</tr>`;
   const h2 = `<tr>${cols.map((c) => `<th class="kc-g-h kc-g-sub${nowCls(c)}">目標</th><th class="kc-g-h kc-g-sub${nowCls(c)}">実績</th>`).join("")}</tr>`;
   const cntRow = (lb, k) => `<tr><td class="kc-g-name">${lb}</td>${cols.map((c, i) => {
     const g = G[i][k];
@@ -1661,7 +1661,7 @@ function renderStats(d) {
   const chev = '<svg viewBox="0 0 20 20" width="13" height="13" aria-hidden="true"><path d="M6 8l4 4 4-4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>';
 
   // モーダルと同じ内容（日付ごとに 目標|実績、行はコール/接触/アポ/3率）を、各対象で描く。
-  const SALES_NAMES = ["田中欽也"], EXCLUDE_NAMES = ["中澤", "浦林", "森田", "笹原"];
+  const SALES_NAMES = ["田中欽也"], EXCLUDE_NAMES = ["中澤", "浦林", "森田", "笹原", "迫間"];
   const nameHas = (n, ts) => ts.some((t) => String(n || "").includes(t));
   const withRole = members.filter((m) => !nameHas(m.誰, EXCLUDE_NAMES))
     .map((m) => ({ email: String(m.email || m.誰).toLowerCase(), role: nameHas(m.誰, SALES_NAMES) ? "sales" : m.role, 誰: m.誰, 値: m.値 }));
