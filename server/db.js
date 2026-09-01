@@ -672,6 +672,10 @@ export async function initDb() {
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     PRIMARY KEY (subject, period, period_key)
   );`);
+  // 目標を項目（コール/接触/アポ）別に持てるように metric 列を足し、主キーに含める。
+  await sq(`ALTER TABLE apo_goals ADD COLUMN IF NOT EXISTS metric TEXT NOT NULL DEFAULT 'アポ';`);
+  await sq(`ALTER TABLE apo_goals DROP CONSTRAINT IF EXISTS apo_goals_pkey;`);
+  await sq(`ALTER TABLE apo_goals ADD PRIMARY KEY (subject, period, period_key, metric);`);
   await sq(`
     CREATE TABLE IF NOT EXISTS call_logs (
       id         SERIAL PRIMARY KEY,
@@ -2671,28 +2675,34 @@ export async function getApoGoals(period, periodKey) {
     return out;
   } catch (e) { console.error("[db] getApoGoals", e.message); return {}; }
 }
-export async function setApoGoal(subject, period, periodKey, goal) {
+export async function setApoGoal(subject, period, periodKey, metricOrGoal, goalMaybe) {
+  // 後方互換：4引数(subject,period,periodKey,goal)と5引数(…,metric,goal)の両対応
+  let metric = "アポ", goal = metricOrGoal;
+  if (goalMaybe !== undefined) { metric = String(metricOrGoal || "アポ"); goal = goalMaybe; }
   if (!pool || !subject || !period || !periodKey) return false;
   try {
     await pool.query(
-      `INSERT INTO apo_goals (subject, period, period_key, goal, updated_at)
-       VALUES ($1,$2,$3,$4,now())
-       ON CONFLICT (subject, period, period_key) DO UPDATE SET goal=EXCLUDED.goal, updated_at=now()`,
-      [subject, period, periodKey, Math.max(0, parseInt(goal, 10) || 0)]);
+      `INSERT INTO apo_goals (subject, period, period_key, metric, goal, updated_at)
+       VALUES ($1,$2,$3,$4,$5,now())
+       ON CONFLICT (subject, period, period_key, metric) DO UPDATE SET goal=EXCLUDED.goal, updated_at=now()`,
+      [subject, period, periodKey, metric, Math.max(0, parseInt(goal, 10) || 0)]);
     return true;
   } catch (e) { console.error("[db] setApoGoal", e.message); return false; }
 }
 
-// 日次目標を期間で取る。返り値 { subject: { "YYYY-MM-DD": goal } }。
-// 週次・月次はこれを日付で合計して表示する（目標の入力は日次だけ）。
+// 日次目標を期間で取る。返り値 { subject: { "YYYY-MM-DD": { metric: goal } } }。
 export async function getApoGoalsInRange(from, to) {
   if (!pool || !from || !to) return {};
   try {
     const { rows } = await pool.query(
-      `SELECT subject, period_key, goal FROM apo_goals
+      `SELECT subject, period_key, metric, goal FROM apo_goals
         WHERE period='day' AND period_key BETWEEN $1 AND $2`, [from, to]);
     const out = {};
-    for (const r of rows) { (out[r.subject] = out[r.subject] || {})[r.period_key] = Number(r.goal) || 0; }
+    for (const r of rows) {
+      const s = (out[r.subject] = out[r.subject] || {});
+      const d = (s[r.period_key] = s[r.period_key] || {});
+      d[r.metric || "アポ"] = Number(r.goal) || 0;
+    }
     return out;
   } catch (e) { console.error("[db] getApoGoalsInRange", e.message); return {}; }
 }

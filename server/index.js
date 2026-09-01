@@ -8798,28 +8798,32 @@ app.get("/api/calls/apo-dashboard", async (req, res) => {
     const bucket = (g.区切り && g.区切り[i]) ? g.区切り[i] : null;
     // その月に含まれる日次目標を合計して、subjectごとの月次目標にする
     const daily = bucket ? await getApoGoalsInRange(bucket.from, bucket.to) : {};
-    const goalOf = (key) => Object.values(daily[key] || {}).reduce((a, b) => a + (Number(b) || 0), 0);
+    // アポ目標だけ合計（ダッシュボードはアポのみ）。日次の各日の metric='アポ' を足す。
+    const apoGoalOf = (key) => Object.values(daily[key] || {}).reduce((a, day) => a + (Number((day || {})["アポ"]) || 0), 0);
     const salesNames = String(process.env.DASH_SALES_NAMES || "田中欽也").split(",").map((s) => s.trim()).filter(Boolean);
     const excludeNames = String(process.env.DASH_EXCLUDE_NAMES || "中澤,浦林,森田,笹原").split(",").map((s) => s.trim()).filter(Boolean);
     const nameHas = (name, toks) => toks.some((t) => String(name || "").includes(t));
     const apoArr = (arr) => (arr && arr[i]) ? (Number(arr[i].アポ内 || 0) + Number(arr[i].アポ外 || 0)) : 0;
-    const build = (key, label, role, actual) => {
-      const goal = goalOf(key);
-      return { key, label, role, actual, goal, diff: actual - goal };
-    };
+    // 個別（除外・田中付替え）
     const persons = (g.members || [])
       .filter((m) => !nameHas(m.誰, excludeNames))
       .map((m) => {
         const role = nameHas(m.誰, salesNames) ? "sales" : m.role;
-        return build(String(m.email || m.誰).toLowerCase(), m.誰, role, apoArr(m.値));
+        const key = String(m.email || m.誰).toLowerCase();
+        const actual = apoArr(m.値);
+        const goal = apoGoalOf(key);
+        return { key, label: m.誰, role, actual, goal, diff: actual - goal };
       });
     const salesP = persons.filter((p) => p.role === "sales");
     const insideP = persons.filter((p) => p.role === "inside");
-    const sum = (arr) => arr.reduce((a, p) => a + p.actual, 0);
+    // チームは入力しない：実績も目標も、カードに出すメンバーの合計にする
+    const sumA = (arr) => arr.reduce((a, p) => a + p.actual, 0);
+    const sumG = (arr) => arr.reduce((a, p) => a + p.goal, 0);
+    const team = (key, label, arr) => ({ key, label, role: "team", actual: sumA(arr), goal: sumG(arr), diff: sumA(arr) - sumG(arr) });
     const teams = [
-      build("group", "グループ（全体）", "team", sum(persons)),
-      build("sales", "セールス", "team", sum(salesP)),
-      build("inside", "インサイド", "team", sum(insideP)),
+      team("group", "グループ（全体）", persons),
+      team("sales", "セールス", salesP),
+      team("inside", "インサイド", insideP),
     ];
     res.json({
       ok: true, period, periodKey: g.今 || "",
@@ -8839,15 +8843,18 @@ app.get("/api/calls/apo-goals-range", async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-// アポ目標の保存（日次のみ手入力）。subject＝group/sales/inside またはメンバーのメール、date＝YYYY-MM-DD。
+// アポ目標の保存（日次のみ手入力）。subject＝メンバーのメール、date＝YYYY-MM-DD、metric＝コール/接触/アポ。
 app.put("/api/calls/apo-goals", async (req, res) => {
   try {
     if (!(await canRedistribute(req))) return res.status(403).json({ error: "クローザー・インサイド・管理者だけが使えます" });
     const b = req.body || {};
     const subject = String(b.subject || "").trim().toLowerCase();
     const date = String(b.date || b.periodKey || "").slice(0, 10);
+    const metric = ["コール", "接触", "アポ"].includes(String(b.metric)) ? String(b.metric) : "アポ";
+    // チーム（group/sales/inside）は入力しない
+    if (["group", "sales", "inside"].includes(subject)) return res.status(400).json({ error: "チームの目標は入力できません（メンバーの合計です）" });
     if (!subject || !/^\d{4}-\d{2}-\d{2}$/.test(date)) return res.status(400).json({ error: "subject と date（YYYY-MM-DD）が必要です" });
-    await setApoGoal(subject, "day", date, b.value);
+    await setApoGoal(subject, "day", date, metric, b.value);
     res.json({ ok: true });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
@@ -17109,7 +17116,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-04az ダッシュボード微修正（田中さん）：目標をまとめて編集できるように、目標入力の保存で毎回の再読み込みをやめ、合計セルだけその場更新＋他期間の目標キャッシュ無効化（フォーカスが飛ばず連続入力可）。カードの表記『アポ実績』→『実績』。ダッシュボードの目標は実績と同じ大きさの数字（読み取り、月内日次合計）。目標の入力は実績タブ日次・モーダル日次で行う。前回(ay)：日次目標＋週月合計。";
+const BUILD_TAG = "2026-09-04ba モーダル/目標の作り直し（田中さん）：内訳モーダルは日次を最初に表示。レイアウトを、日付ごとに目標|実績の2列＋行はコール/接触/アポ/コール→接触率/接触→アポ率/コール→アポ率に。目標はコール/接触/アポを日次で入力（個人のみ）、率の目標は目標カウントから計算。グループ・セールス・インサイドは目標入力せずメンバー合計を表示（実績も目標も合計）。目標は項目(metric)別に保存（apo_goalsにmetric列＋PK拡張）。実績グリッドの目標行は撤去しモーダルに集約。前回(az)：目標の連続入力。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
