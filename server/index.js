@@ -877,7 +877,18 @@ function isContacted(v) {
   return /接触|アポ|再コール|断り|見送り|問い合わせ|資料送付/.test(t);
 }
 
+// 田中欽也（オーナー）は、メンバーの役割に「クローザー」が無くても、クローザー権限を持つ。
+// 追加したい人がいれば環境変数 ALWAYS_CLOSER_EMAILS（カンマ区切り）でも足せる。
+const ALWAYS_CLOSER = new Set(
+  ["kinya.tanaka@neo-career.co.jp", ...String(process.env.ALWAYS_CLOSER_EMAILS || "").split(",")]
+    .map((s) => s.trim().toLowerCase()).filter(Boolean)
+);
+function isAlwaysCloser(email) {
+  return ALWAYS_CLOSER.has(String(email || "").trim().toLowerCase());
+}
+
 async function isCloserUser(email) {
+  if (isAlwaysCloser(email)) return true;
   try {
     const members = await listMembers().catch(() => []);
     return (members || []).some((m) =>
@@ -889,7 +900,7 @@ async function isCloserUser(email) {
 // リストを他メンバーへ割り振れる人（インサイド担当も含める）。
 // クローザー・管理者に加えて、リスト配布を担うインサイド（例：中澤さん）も対象。
 async function canRedistribute(req) {
-  if (req.isAdmin) return true;
+  if (req.isAdmin || isAlwaysCloser(req.user)) return true;
   try {
     const members = await listMembers().catch(() => []);
     const me = (members || []).find((m) => String(m.email || "").toLowerCase() === String(req.user || "").toLowerCase());
@@ -926,7 +937,7 @@ app.get("/api/me", async (req, res) => {
     // 「kincallだけ」の人（インターン生など）
     kincallOnly: !!req.kincallOnly,
     // クローザー（リスト追加ができる）
-    closer: closer || !!req.isAdmin,
+    closer: closer || !!req.isAdmin || isAlwaysCloser(req.user),
     // リストを他メンバーへ割り振れる人（クローザー・管理者＋インサイド担当）
     canRedistribute: await canRedistribute(req).catch(() => (closer || !!req.isAdmin)),
     // 代理ログイン関連
@@ -16987,7 +16998,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-04ao リストを他メンバーに割り振る（他のメンバーに割り振る）を、クローザー・管理者に加えてインサイド担当も使えるように（要望：田中さん・中澤さん等が割り振れなくなっていた）。判定 canRedistribute(req)=admin||roles includes closer/inside。/api/me に canRedistribute を追加、redistributeエンドポイントの許可を canRedistribute に、calls.js は iAmRedistributor で spRedist ボタンを表示。SFに反映・追加は従来どおりクローザー/管理者のみ。前回(an)：kincallのみのメンバーが設定を開けるように。";
+const BUILD_TAG = "2026-09-04ap 田中欽也（オーナー）は、メンバーの役割にクローザーが無くてもクローザー権限を持つように（要望：田中さん）。ALWAYS_CLOSER（既定 kinya.tanaka@neo-career.co.jp・環境変数 ALWAYS_CLOSER_EMAILS で追加可）を isCloserUser／/api/me の closer／canRedistribute に反映。前回(ao)：割り振りをインサイドにも開放。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
