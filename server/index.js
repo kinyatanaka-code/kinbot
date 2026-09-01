@@ -24,7 +24,7 @@ import { sendApoMail, sendTestApoMail, runReminderSweep, listTomorrowReminders, 
          DEFAULT_REMINDER_SUBJECT, DEFAULT_REMINDER_BODY, stripRetiredLines } from "./apomail.js";
 import { startKasasagi, getKasasagi, stopKasasagi, feedTranscript, kasasagiInfo,
          buildScript, buildReport, faceState, SLIDE_LABELS } from "./kasasagi.js";
-import { notifyAssigned, notifyMailDraft, notifyChat, notifyAll, notifyPerson, notifyTargets, chatWebhookUrl, chatInfo } from "./chat.js";
+import { notifyAssigned, notifyAssignFailed, notifyMailDraft, notifyChat, notifyAll, notifyPerson, notifyTargets, chatWebhookUrl, chatInfo } from "./chat.js";
 import { note as devNote, errKey, buildMorningSummary, NOTE_KINDS, dropSimilar } from "./devnotes.js";
 import { askBot } from "./askbot.js";
 import { newJobId, getJob, cancelJob, runBulk, tableFromFile, tableFromText, rowsFromTable } from "./bulklinks.js";
@@ -16944,7 +16944,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-04aj Groqモデル選択のUI改善：datalistは既存文字で候補が絞られ選べなかったため、クリックで選べる<select>プルダウンに変更（[一覧]で使えるモデルを流し込み→選択で手入力欄に反映→保存）。手入力も可。前回(ai)：Groqモデルを画面から切替可能に（resolveGroqModel設定優先・groq-models一覧・groq-model保存）。前回(ah)：Groqキーtrim。";
+const BUILD_TAG = "2026-09-04ak アポ自動割り振りで誰にも割り振れなかったとき、Google Chatに『⚠️割り振りできませんでした』を通知（従来はログのみで黙って落ちていた）。要望：田中さん。chat.js notifyAssignFailed（予定名・日時・獲得者・理由・試して不可だった人・手動対応の案内）、autoAssignOneの!pick.emailブランチで送信。自動スキャンは繰り返すので同一アポは20時間に1回まで(settings.apoFailNotifiedでdedup・3日で掃除)、手動は毎回通知。chatNotifyAssign=falseなら出さない。前回(aj)：Groqモデル選択をプルダウンに。前回(ai)：Groqモデル画面切替。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
@@ -20005,6 +20005,23 @@ async function selfAcquired(link, biz) {
   } catch { return null; }
 }
 
+// 同じアポの「割り振れませんでした」通知を、短時間に何度も出さないための重複防止。
+// スキャンは繰り返し走るので、都度通知するとスペースが荒れる。20時間に1回までにする。
+async function shouldNotifyAssignFail(slug) {
+  try {
+    const st = await getSettings();
+    const map = (st && st.apoFailNotified) || {};
+    const now = Date.now();
+    const last = map[slug] ? Date.parse(map[slug]) : 0;
+    if (last && now - last < 20 * 3600 * 1000) return false;
+    const pruned = {};
+    for (const [k, v] of Object.entries(map)) { if (now - Date.parse(v) < 3 * 24 * 3600 * 1000) pruned[k] = v; }
+    pruned[slug] = new Date().toISOString();
+    await saveSettings({ apoFailNotified: pruned });
+    return true;
+  } catch { return true; }   // 設定が読めなくても、黙って落とさず通知は出す
+}
+
 async function autoAssignOne(link, { inviteOwner, closers = null, cfg, teamCtx = null, actor = "auto" }) {
   // 事業ごとに候補が違うので、アポの事業に合わせて毎回引き直す
   const biz = String(link.business || "").trim();
@@ -20018,6 +20035,16 @@ async function autoAssignOne(link, { inviteOwner, closers = null, cfg, teamCtx =
   if (!pick.email) {
     // 割り当てられなかった理由も残す（あとで画面から見て手動対応する）
     await logAssign({ slug: link.slug, assigned: null, reason: pick.reason, skipped: pick.skipped, actor });
+    // 誰にも割り振れなかったことを、Google Chat にも知らせる（黙って落とさない）。
+    // スキャンは繰り返し走るので、同じアポは20時間に1回までにする。通知失敗でも処理は止めない。
+    const auto = actor !== "manual" && !String(actor || "").includes("@");
+    // 自動スキャンは繰り返し走るので20時間に1回まで。手動は毎回知らせる。
+    if (auto ? await shouldNotifyAssignFail(link.slug) : true) {
+      notifyAssignFailed({
+        title: link.label, start: link.start_time, setter: link.setter,
+        reason: pick.reason, skipped: pick.skipped, auto,
+      }).catch(() => {});
+    }
     return { ok: false, reason: pick.reason, skipped: pick.skipped };
   }
 

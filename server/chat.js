@@ -277,6 +277,25 @@ export async function notifyAssigned({
   return notifyAll(lines.join("\n"), "assign", { mentionName: repName || "" });
 }
 
+// 誰にも割り振れなかったときの通知（手動対応をうながす）
+export async function notifyAssignFailed({ title, start, setter, reason, skipped = [], auto = true }) {
+  try { const st = await getSettings(); if (st && st.chatNotifyAssign === false) return { ok: false, skipped: true }; } catch {}
+  // 試したけれど無理だった人を、短くまとめる（多すぎるときは丸める）。
+  const who = (Array.isArray(skipped) ? skipped : [])
+    .map((s) => (s && (s.name || s.email)) ? `${s.name || s.email}（${s.reason || "不可"}）` : "")
+    .filter(Boolean);
+  const whoLine = who.length ? `　試した人：${who.slice(0, 6).join(" ／ ")}${who.length > 6 ? ` ほか${who.length - 6}人` : ""}` : "";
+  const lines = [
+    `⚠️ *割り振りできませんでした*${auto ? "" : "（手動）"}　${jstLabel(start)}`,
+    `　${title || "(予定名なし)"}`,
+    setter ? `👤 獲得 ${setter}` : "",
+    `理由：${reason || "割り当てできる人がいませんでした"}`,
+    whoLine,
+    "kinbotの画面から手動で割り振ってください。",
+  ].filter(Boolean);
+  return notifyAll(lines.join("\n"), "assign", {});
+}
+
 // 確定メールの下書きを作ったときの通知
 // 割り振りとは別に、あとからメールだけ作り直したときの通知
 export async function notifyMailDraft({ title, start, repName, to, draft, subject }) {
