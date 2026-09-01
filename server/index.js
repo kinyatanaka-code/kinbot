@@ -221,6 +221,8 @@ import {
   upsertRecruitInfo,
   getRecruitByCompanies,
   recruitInfoCount,
+  getApoGoals,
+  setApoGoal,
   leadDupInList,
   clearBadLeadsInList,
   recordCall,
@@ -8785,6 +8787,51 @@ app.get("/api/calls/stats-grid", async (req, res) => {
   catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+// アポのダッシュボード（チーム3＋メンバー個別の、目標・実績・差分）。
+// period=day/week/month。実績は stats-grid の「今」バケットのアポ（内＋外）を使う。
+app.get("/api/calls/apo-dashboard", async (req, res) => {
+  try {
+    const period = ["day", "week", "month"].includes(String(req.query.period)) ? String(req.query.period) : "month";
+    const g = await computeStatsGrid(period, req.query.span);
+    const idx = (g.区切り || []).findIndex((c) => c.key === g.今);
+    const i = idx >= 0 ? idx : (g.区切り || []).length - 1;
+    const apoOf = (arr) => (arr && arr[i]) ? (Number(arr[i].アポ内 || 0) + Number(arr[i].アポ外 || 0)) : 0;
+    const goals = await getApoGoals(period, g.今 || "");
+    const mk = (key, label, role, arr) => {
+      const actual = apoOf(arr);
+      const goal = Number(goals[key] || 0);
+      return { key, label, role, actual, goal, diff: actual - goal, hasGoal: goals[key] !== undefined };
+    };
+    const teams = [
+      mk("group", "グループ（全体）", "team", (g.totals || {}).group),
+      mk("sales", "セールス", "team", (g.totals || {}).sales),
+      mk("inside", "インサイド", "team", (g.totals || {}).inside),
+    ];
+    const persons = (g.members || []).map((m) => mk(String(m.email || m.誰).toLowerCase(), m.誰, m.role, m.値));
+    res.json({
+      ok: true, period, periodKey: g.今 || "",
+      periodLabel: (g.区切り && g.区切り[i]) ? g.区切り[i].名前 : "",
+      teams,
+      sales: persons.filter((p) => p.role === "sales"),
+      inside: persons.filter((p) => p.role === "inside"),
+    });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// アポ目標の保存（手入力）。subject＝group/sales/inside またはメンバーのメール。
+app.put("/api/calls/apo-goals", async (req, res) => {
+  try {
+    if (!(await canRedistribute(req))) return res.status(403).json({ error: "クローザー・インサイド・管理者だけが使えます" });
+    const b = req.body || {};
+    const subject = String(b.subject || "").trim().toLowerCase();
+    const period = ["day", "week", "month"].includes(String(b.period)) ? String(b.period) : "";
+    const periodKey = String(b.periodKey || "").trim();
+    if (!subject || !period || !periodKey) return res.status(400).json({ error: "subject/period/periodKey が必要です" });
+    await setApoGoal(subject, period, periodKey, b.value);
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 // 実績の全項目を一括でCSV（グループ/セールス/インサイド/各メンバー/各リストを、日次・週次・月次まとめて）。
 app.get("/api/calls/stats.csv", async (req, res) => {
   try {
@@ -17042,7 +17089,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-04av 追加列の並べ替えを、一覧の見出しをドラッグするエクセル風UIに（要望：田中さん）。列見出し(th.kc-th-rc)を draggable にし dragstart/dragover/drop で moveExtraCol→localStorage kcExtraColsのorderを更新。『列を選ぶ』モーダルは表示ON/OFFのチェックボックスのみに簡素化（↑↓は廃止）。ドラッグ中/ドロップ先のスタイル追加。前回(au)：CSVの列をそのまま一覧の列に。";
+const BUILD_TAG = "2026-09-04aw 実績にダッシュボードタブを実装（アポの目標・実績・差分／要望：田中さん）。チーム3（グループ/セールス/インサイド）＋メンバー個別カード。並びは目標(左・手入力)→アポ実績(右)→差分。目標は day/week/month それぞれ手入力可（チーム目標も手入力・自動合計しない）。実績は stats-grid の今バケットのアポ内＋外。カードクリックで日次/週次/月次の内訳モーダル。DB apo_goals(subject,period,period_key,goal)、API GET /api/calls/apo-dashboard・PUT /api/calls/apo-goals。前回(av)：列見出しドラッグ並べ替え。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",

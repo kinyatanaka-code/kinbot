@@ -1445,6 +1445,104 @@ function openEdit(id) {
   });
 }
 
+// ───────── ダッシュボード（アポの目標・実績・差分） ─────────
+let dashPeriod = "month";   // day / week / month
+let _dashData = null;
+async function loadDash() {
+  const box = $("clDash");
+  if (!box) return;
+  box.innerHTML = `<div class="note">読み込んでいます…</div>`;
+  try {
+    const d = await (await fetch(`/api/calls/apo-dashboard?period=${encodeURIComponent(dashPeriod)}`)).json();
+    if (d.error) throw new Error(d.error);
+    _dashData = d;
+    const rg = $("dashRange"); if (rg) rg.textContent = d.periodLabel ? `対象：${d.periodLabel}` : "";
+    renderDash(d);
+  } catch (e) { box.innerHTML = `<div class="note">読み込めませんでした：${esc(e.message)}</div>`; }
+}
+function dashCard(c, big) {
+  const diff = c.diff;
+  const dcls = diff > 0 ? "kc-d-plus" : diff < 0 ? "kc-d-minus" : "kc-d-zero";
+  const dtxt = diff > 0 ? `+${diff}` : `${diff}`;
+  const canEdit = iAmRedistributor;
+  const goalCell = canEdit
+    ? `<input type="number" class="kc-goal" data-subj="${esc(c.key)}" value="${c.goal}" min="0" />`
+    : `<span class="kc-d-num">${c.goal}</span>`;
+  return `<div class="kc-dcard${big ? " kc-dcard-big" : ""}" data-subj="${esc(c.key)}" data-label="${esc(c.label)}">
+    <div class="kc-dname">${esc(c.label)}</div>
+    <div class="kc-drow">
+      <div class="kc-dcol"><div class="kc-dlb">目標</div>${goalCell}</div>
+      <div class="kc-dcol"><div class="kc-dlb">アポ実績</div><div class="kc-d-act">${c.actual}</div></div>
+      <div class="kc-dcol"><div class="kc-dlb">差分</div><div class="kc-d-diff ${dcls}">${dtxt}</div></div>
+    </div>
+  </div>`;
+}
+function renderDash(d) {
+  const box = $("clDash");
+  const teams = (d.teams || []).map((c) => dashCard(c, true)).join("");
+  const sales = (d.sales || []).map((c) => dashCard(c, false)).join("");
+  const inside = (d.inside || []).map((c) => dashCard(c, false)).join("");
+  box.innerHTML =
+    `<div class="kc-dgrid kc-dteams">${teams}</div>` +
+    (sales ? `<div class="kc-dsub">セールス</div><div class="kc-dgrid">${sales}</div>` : "") +
+    (inside ? `<div class="kc-dsub">インサイド</div><div class="kc-dgrid">${inside}</div>` : "") +
+    `<p class="note" style="margin-top:10px">目標は手入力（この期間ぶん）。差分は 実績−目標。カードをクリックすると内訳が出ます。</p>`;
+  // 目標の保存（入力を離れたとき）
+  box.querySelectorAll(".kc-goal").forEach((inp) => {
+    inp.addEventListener("click", (e) => e.stopPropagation());
+    inp.addEventListener("change", async () => {
+      const subject = inp.dataset.subj;
+      try {
+        await fetch("/api/calls/apo-goals", {
+          method: "PUT", headers: { "content-type": "application/json" },
+          body: JSON.stringify({ subject, period: d.period, periodKey: d.periodKey, value: Number(inp.value) || 0 }),
+        });
+        loadDash();   // 差分を再計算
+      } catch (e) { alert("目標を保存できませんでした：" + e.message); }
+    });
+  });
+  // カードクリックで、その対象の内訳（日次/週次/月次で見られる）モーダル
+  box.querySelectorAll(".kc-dcard").forEach((card) => card.addEventListener("click", () =>
+    openDashDetail(card.dataset.subj, card.dataset.label)));
+}
+async function openDashDetail(subject, label) {
+  const inner =
+    `<div class="kc-period-tabs" id="ddPeriod" style="margin-bottom:8px">
+       <button type="button" class="kc-ptab" data-dp="day">日次</button>
+       <button type="button" class="kc-ptab" data-dp="week">週次</button>
+       <button type="button" class="kc-ptab active" data-dp="month">月次</button>
+     </div><div id="ddBody"><div class="note">読み込んでいます…</div></div>`;
+  const m = openModal(`${label} ・ 内訳`, inner, { wide: true });
+  let p = "month";
+  const load = async () => {
+    const body = m.el.querySelector("#ddBody");
+    body.innerHTML = `<div class="note">読み込んでいます…</div>`;
+    try {
+      const d = await (await fetch(`/api/calls/stats-grid?period=${encodeURIComponent(p)}`)).json();
+      if (d.error) throw new Error(d.error);
+      // 対象の値配列を取り出す
+      let vals = null;
+      if (subject === "group" || subject === "sales" || subject === "inside") vals = (d.totals || {})[subject];
+      else { const mm = (d.members || []).find((x) => String(x.email || x.誰).toLowerCase() === subject); vals = mm && mm.値; }
+      body.innerHTML = vals ? dashDetailTable(d.区切り || [], vals, d.今) : `<div class="note">この対象のデータがありません。</div>`;
+    } catch (e) { body.innerHTML = `<div class="note">読み込めませんでした：${esc(e.message)}</div>`; }
+  };
+  m.el.querySelectorAll("#ddPeriod .kc-ptab").forEach((b) => b.addEventListener("click", () => {
+    p = b.dataset.dp; m.el.querySelectorAll("#ddPeriod .kc-ptab").forEach((x) => x.classList.toggle("active", x === b)); load();
+  }));
+  load();
+}
+function dashDetailTable(cols, vals, now) {
+  const V = vals.map((v) => ({ コール: v.コール || 0, 接触: v.接触 || 0, アポ: (v.アポ内 || 0) + (v.アポ外 || 0) }));
+  const sum = (k) => V.reduce((a, v) => a + v[k], 0);
+  const pct = (a, b) => (b ? (a / b * 100).toFixed(1) + "%" : "—");
+  const nowCls = (c) => (c.key === now ? " kc-g-now" : "");
+  const head = `<tr><th class="kc-g-name">　</th>${cols.map((c) => `<th class="kc-g-h${nowCls(c)}">${esc(c["名前"])}</th>`).join("")}<th class="kc-g-h kc-g-tot">合計</th></tr>`;
+  const row = (lb, k) => `<tr><td class="kc-g-name">${lb}</td>${V.map((v, i) => `<td class="kc-g-n${nowCls(cols[i])}">${v[k]}</td>`).join("")}<td class="kc-g-n kc-g-tot">${sum(k)}</td></tr>`;
+  const rate = (lb, an, bn) => `<tr class="kc-g-rate"><td class="kc-g-name">${lb}</td>${V.map((v, i) => `<td class="kc-g-n${nowCls(cols[i])}">${pct(v[an], v[bn])}</td>`).join("")}<td class="kc-g-n kc-g-tot">${pct(sum(an), sum(bn))}</td></tr>`;
+  return `<div class="kc-tablewrap"><table class="sh-table kc-grid">${head}${row("コール", "コール")}${row("接触", "接触")}${row("アポ", "アポ")}${rate("接触→アポ率", "アポ", "接触")}${rate("コール→アポ率", "アポ", "コール")}</table></div>`;
+}
+
 // ───────── 実績（日・週・月） ─────────
 let statsPeriod = "day";
 let statsScope = "all";   // all=全体（グループ/セールス/インサイド）, each=個別（案A：セールス/インサイドの大カード）
@@ -2031,19 +2129,31 @@ if ($("stPeriod")) {
       loadStats();
     }));
 }
-let statsTop = "jisseki";   // jisseki / admin / process
+let statsTop = "dash";   // dash / jisseki / admin / process
 if ($("stTop")) {
   $("stTop").querySelectorAll(".kc-ptab").forEach((b) =>
     b.addEventListener("click", () => {
       statsTop = b.dataset.top || "jisseki";
       $("stTop").querySelectorAll(".kc-ptab").forEach((x) => x.classList.toggle("active", x === b));
       const showJisseki = statsTop === "jisseki";
-      const sw = $("stScopeWrap"), sp = $("stPeriod");
+      const isDash = statsTop === "dash";
+      const sw = $("stScopeWrap"), sp = $("stPeriod"), jw = $("clJissekiWrap"), dw = $("clDashWrap");
       if (sw) sw.style.display = showJisseki ? "" : "none";
       if (sp) sp.style.display = showJisseki ? "" : "none";
-      if (statsTop === "admin") loadAdmin();
+      if (jw) jw.hidden = !showJisseki;
+      if (dw) dw.hidden = !isDash;
+      if (isDash) loadDash();
+      else if (statsTop === "admin") loadAdmin();
       else if (statsTop === "process") loadProcess();
       else loadStats();
+    }));
+}
+if ($("dashPeriod")) {
+  $("dashPeriod").querySelectorAll(".kc-ptab").forEach((b) =>
+    b.addEventListener("click", () => {
+      dashPeriod = b.dataset.dp || "month";
+      $("dashPeriod").querySelectorAll(".kc-ptab").forEach((x) => x.classList.toggle("active", x === b));
+      loadDash();
     }));
 }
 
@@ -2079,7 +2189,7 @@ function showPane() {
   const 名前 = { call: ["kincall", "架電リスト"], stats: ["実績", ""], lists: ["リスト管理", ""] }[p] || ["kincall", ""];
   const nm = document.querySelector(".kc-name"); if (nm) nm.textContent = 名前[0];
   const sub = document.querySelector(".kc-sub"); if (sub) { sub.textContent = 名前[1]; sub.style.display = 名前[1] ? "" : "none"; }
-  if (p === "stats") loadStats();
+  if (p === "stats") { if (statsTop === "dash") loadDash(); else loadStats(); }
   if (p === "lists") asLoad();
 }
 

@@ -662,6 +662,16 @@ export async function initDb() {
     data        JSONB NOT NULL DEFAULT '{}'::jsonb,
     updated_at  TIMESTAMPTZ NOT NULL DEFAULT now()
   );`);
+  // アポの目標（ダッシュボード用）。subject＝group/sales/inside またはメンバーのメール、
+  // period＝day/week/month、period_key＝その期間のキー（例 2026-09-01 / 2026-09 / 週の開始日）。
+  await sq(`CREATE TABLE IF NOT EXISTS apo_goals (
+    subject    TEXT NOT NULL,
+    period     TEXT NOT NULL,
+    period_key TEXT NOT NULL,
+    goal       INT  NOT NULL DEFAULT 0,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    PRIMARY KEY (subject, period, period_key)
+  );`);
   await sq(`
     CREATE TABLE IF NOT EXISTS call_logs (
       id         SERIAL PRIMARY KEY,
@@ -2648,6 +2658,29 @@ export async function recruitInfoCount() {
   if (!pool) return 0;
   try { await ensureRecruitTable(); const { rows } = await pool.query(`SELECT count(*)::int n FROM recruit_info`); return rows[0] ? rows[0].n : 0; }
   catch { return 0; }
+}
+
+// アポ目標：ある期間(period,periodKey)の全subjectの目標を { subject: goal } で返す
+export async function getApoGoals(period, periodKey) {
+  if (!pool) return {};
+  try {
+    const { rows } = await pool.query(
+      `SELECT subject, goal FROM apo_goals WHERE period=$1 AND period_key=$2`, [period, periodKey]);
+    const out = {};
+    for (const r of rows) out[r.subject] = Number(r.goal) || 0;
+    return out;
+  } catch (e) { console.error("[db] getApoGoals", e.message); return {}; }
+}
+export async function setApoGoal(subject, period, periodKey, goal) {
+  if (!pool || !subject || !period || !periodKey) return false;
+  try {
+    await pool.query(
+      `INSERT INTO apo_goals (subject, period, period_key, goal, updated_at)
+       VALUES ($1,$2,$3,$4,now())
+       ON CONFLICT (subject, period, period_key) DO UPDATE SET goal=EXCLUDED.goal, updated_at=now()`,
+      [subject, period, periodKey, Math.max(0, parseInt(goal, 10) || 0)]);
+    return true;
+  } catch (e) { console.error("[db] setApoGoal", e.message); return false; }
 }
 
 // 会社名から既存dealを探す（正規化キー一致）。無ければ作成。

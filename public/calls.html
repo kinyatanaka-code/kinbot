@@ -10,7 +10,7 @@
     <link rel="manifest" href="/site.webmanifest" />
     <meta name="theme-color" content="#0d5b47" />
     <meta name="apple-mobile-web-app-title" content="kinbot" />
-    <link rel="stylesheet" href="style.css?v=20260904av" />
+    <link rel="stylesheet" href="style.css?v=20260904aw" />
   </head>
   <body class="kc-body">
     <div class="app">
@@ -75,6 +75,23 @@
               <span class="rev-status" id="clStatus"></span>
             </div>
             <style>
+              .kc-dgrid{display:flex;flex-wrap:wrap;gap:10px;margin-bottom:6px;}
+              .kc-dteams{margin-bottom:14px;}
+              .kc-dcard{flex:1 1 140px;min-width:140px;background:#fff;border:0.5px solid #e6ece9;border-radius:12px;padding:10px 12px;cursor:pointer;transition:border-color .12s,transform .1s;}
+              .kc-dcard:hover{border-color:#5DCAA5;transform:translateY(-1px);}
+              .kc-dcard-big{flex:1 1 210px;min-width:210px;}
+              .kc-dname{font-size:13px;font-weight:600;color:#0d5b47;margin-bottom:8px;}
+              .kc-drow{display:flex;gap:10px;}
+              .kc-dcol{flex:1;}
+              .kc-dlb{font-size:11px;color:#8a938c;}
+              .kc-d-act{font-size:22px;font-weight:600;color:#1f2d28;line-height:1.2;}
+              .kc-dcard-big .kc-d-act{font-size:26px;}
+              .kc-d-num{font-size:16px;color:#1f2d28;}
+              .kc-d-diff{font-size:16px;font-weight:600;}
+              .kc-dcard-big .kc-d-diff{font-size:18px;}
+              .kc-d-plus{color:#1d9e75;} .kc-d-minus{color:#a32d2d;} .kc-d-zero{color:#8a938c;}
+              .kc-goal{width:52px;height:26px;font-size:14px;text-align:center;border:1px solid #cfe0d8;border-radius:6px;padding:0 2px;}
+              .kc-dsub{font-size:12px;font-weight:600;color:#5f6b64;margin:6px 0;}
               .kc-rc{font-size:12px;color:#2c3a35;white-space:nowrap;}
               .kc-th-rc{font-size:11px;color:#7b8a84;font-weight:600;white-space:nowrap;cursor:grab;}
               .kc-th-rc.kc-th-drag{opacity:.5;}
@@ -97,10 +114,21 @@
           <section class="card kc-pane" data-p="stats" hidden>
             <span id="stats" class="sr-anchor" aria-hidden="true"></span>
             <div class="kc-period-tabs" id="stTop" style="margin-bottom:10px;">
-              <button type="button" class="kc-ptab active" data-top="jisseki">実績</button>
+              <button type="button" class="kc-ptab active" data-top="dash">ダッシュボード</button>
+              <button type="button" class="kc-ptab" data-top="jisseki">実績</button>
               <button type="button" class="kc-ptab" data-top="admin">設定・管理</button>
               <button type="button" class="kc-ptab" data-top="process">プロセス</button>
             </div>
+            <div id="clDashWrap">
+              <div class="kc-period-tabs" id="dashPeriod" style="margin-bottom:10px;">
+                <button type="button" class="kc-ptab" data-dp="day">日次</button>
+                <button type="button" class="kc-ptab" data-dp="week">週次</button>
+                <button type="button" class="kc-ptab active" data-dp="month">月次</button>
+                <span class="rev-status" id="dashRange" style="margin-left:10px"></span>
+              </div>
+              <div id="clDash"></div>
+            </div>
+            <div id="clJissekiWrap" hidden>
             <div class="kc-st-row" id="stScopeWrap">
               <div class="kc-period-tabs" id="stScope">
                 <button type="button" class="kc-ptab active" data-scope="all">全体</button>
@@ -121,6 +149,7 @@
               <span class="rev-status" id="stRange"></span>
             </div>
             <div id="clStats"></div>
+            </div>
           </section>
 
           <!-- リストの割り振り -->
@@ -247,9 +276,9 @@
         </main>
       </div>
     </div>
-    <script src="sf-data.js?v=20260904av"></script>
-    <script src="calls.js?v=20260904av"></script>
-    <script src="nav.js?v=20260904av"></script>
+    <script src="sf-data.js?v=20260904aw"></script>
+    <script src="calls.js?v=20260904aw"></script>
+    <script src="nav.js?v=20260904aw"></script>
     <script src="/cmdk.js?v=20260827a"></script>
 </body>
 </html>
