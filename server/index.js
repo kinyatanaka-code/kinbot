@@ -17033,7 +17033,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-04as kincallのかける一覧に求人情報の追加カラムを実装（案2）。CSVを会社名で各架電先に紐づけて表示。DB recruit_info(company_key正規化,data JSONB)＋upsert/get/count、POST /api/calls/recruit/import・GET /status。/api/calls/targets は会社名でrecruitを付与し items[].求人＋求人あり を返す。calls.js：求人ありの時だけ最終ステータスの右に列（既定=業種/採用人数/掲載終了日）、『求人の列を選ぶ』で表示列を選択(localStorage)、掲載終了日/doda掲載終了日は期限が近いと色分け（3日以内/過去=赤・14日以内=橙）。ツールバーに『求人情報を取り込む』(CSV貼付/ファイル)。前回(ar)：SF活動記録エラーの整形。";
+const BUILD_TAG = "2026-09-04at 求人カラムの改善：取り込み値の ######## や #N/A 等（スプレッドシートの狭い列表示・エラー値）を空（—）扱いに（cleanRecruitVal）。サマリに『求人 N件に紐づけ』を表示し、会社名の紐づき状況が分かるように。根本：掲載開始/終了日が######になるのは元CSVに######が入っているため（列を広げるかCSVでダウンロードして取り込み直しが必要）。前回(as)：求人カラム追加。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",

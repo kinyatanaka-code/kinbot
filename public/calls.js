@@ -242,6 +242,14 @@ function parseDateLoose(v) {
   const t = Date.parse(s);
   return isNaN(t) ? null : new Date(t);
 }
+// 取り込み時に混ざる無効値（列が狭くて「####」表示になったもの、#N/A 等）は空扱いにする。
+function cleanRecruitVal(v) {
+  const s = String(v == null ? "" : v).trim();
+  if (!s) return "";
+  if (/^#+$/.test(s)) return "";                       // ########（列が狭い表示）
+  if (/^#(N\/A|REF!|VALUE!|DIV\/0!|NAME\?|NULL!)$/i.test(s)) return "";
+  return s;
+}
 
 function render() {
   const box = $("clTable");
@@ -263,6 +271,7 @@ function render() {
     lostN ? `<span class="kc-sum-lost">失注 <b>${lostN}</b></span>` : "",
   ].filter(Boolean).join("／");
   // 求人情報が付いている行があるか（このリストだけ追加カラムを出す）
+  const rcMatched = fullList.filter((x) => x.求人).length;
   const rcols = fullList.some((x) => x.求人) ? recruitCols() : [];
   const hasRecruit = rcols.length > 0;
   box.innerHTML =
@@ -271,7 +280,7 @@ function render() {
       ? `／${内訳}` +
         `<button type="button" class="kc-sum-btn" id="kcHideApo">${hideApo ? "対象外も表示" : "対象外を隠す"}</button>`
       : "") +
-    (hasRecruit ? `<button type="button" class="kc-sum-btn" id="kcRcCols">求人の列を選ぶ</button>` : "") +
+    (hasRecruit ? `／<span class="kc-sum-user">求人 <b>${rcMatched}</b>件に紐づけ</span><button type="button" class="kc-sum-btn" id="kcRcCols">求人の列を選ぶ</button>` : "") +
     `</div>` +
     ((listId !== "all")
       ? `<div class="kc-selbar" id="kcSelBar" hidden style="display:flex;align-items:center;gap:10px;padding:8px 4px;">
@@ -321,7 +330,7 @@ function render() {
         <td class="kc-mail">${esc(x["メール"] || "")}</td>
         <td class="kc-status">${x["最終ステータス"] ? esc(x["最終ステータス"]) : "-"}</td>
         ${rcols.map(([k]) => {
-          const v = (x.求人 && x.求人[k] != null) ? String(x.求人[k]) : "";
+          const v = cleanRecruitVal(x.求人 && x.求人[k]);
           const cls = RECRUIT_DATE_KEYS.has(k) ? deadlineClass(v) : "";
           return `<td class="kc-rc${cls ? " " + cls : ""}">${v ? esc(v) : '<span class="kc-none">—</span>'}</td>`;
         }).join("")}
