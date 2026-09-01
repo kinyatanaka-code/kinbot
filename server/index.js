@@ -5978,6 +5978,7 @@ app.post("/api/calls/from-csv", async (req, res) => {
           leadId: "", 状態: "リストに追加", リード種別: "（SFなし）",
           ステータス, ステージ: String(r.stage || "").trim(), コメント,
           まとめ: String(r.history || "").trim(), 履歴: "",
+          _extra: (r._extra && typeof r._extra === "object") ? r._extra : null,
         });
       }
       if (dryRun) {
@@ -6001,6 +6002,7 @@ app.post("/api/calls/from-csv", async (req, res) => {
       const 入れるリスト2 = 入れられる.map((x, i) => ({
         company: x.company, person: x.person, phone: x.phone, email: x.email,
         status: x.ステータス, stage: x.ステージ, memo: x.まとめ || x.コメント,
+        extra: x._extra || null,
         ...(分ける人2.length ? { assignedTo: 分ける人2[(開始2 + i) % 分ける人2.length] } : {}),
       }));
       const n2 = await addCallTargets(list2.id, 入れるリスト2, { dedupe: true });
@@ -6267,7 +6269,8 @@ app.post("/api/calls/from-csv", async (req, res) => {
         assignedTo: String(r.assignedTo || "").trim().toLowerCase(),
         targetList: parseInt(r.targetList, 10) || 0,
         // 「新しいリストにする」を選んだメンバーは、その人の新規リストへ入れる
-        newListFor: String(r.newListFor || "").trim().toLowerCase() });
+        newListFor: String(r.newListFor || "").trim().toLowerCase(),
+        _extra: (r._extra && typeof r._extra === "object") ? r._extra : null });
     }
 
     if (dryRun) {
@@ -6307,6 +6310,7 @@ app.post("/api/calls/from-csv", async (req, res) => {
     }
     const 入れるリスト = 入れるもの.map((x, i) => ({
       leadId: x.leadId, company: x.company, person: x.person, phone: x.phone, email: x.email,
+      extra: x._extra || null,
       ...(x["ステータス"] ? { status: x["ステータス"] } : {}),
       ...(x["ステージ"] ? { stage: x["ステージ"] } : {}),
       // かけるリストのメモに、H以降のまとめ（新しい順）を入れる。無ければ最終活動コメント。
@@ -7546,15 +7550,20 @@ app.get("/api/calls/targets", async (req, res) => {
         最終日時: r["最終日時"] || null,
         次回予定: r.next_call_at || null,
         済み: !!r.done,
+        追加: (r.extra && typeof r.extra === "object") ? r.extra : null,
     }));
     // 会社名で求人情報（取り込み済みなら）を付ける。データがある行にだけ「求人」が入る。
-    let recruitFound = false;
+    let recruitFound = items.some((x) => x.追加 && Object.keys(x.追加).length);
     try {
       const map = await getRecruitByCompanies(items.map((x) => x.会社名));
       if (Object.keys(map).length) {
         for (const x of items) {
           const d = map[normCompanyKey(x.会社名)];
-          if (d && Object.keys(d).length) { x.求人 = d; recruitFound = true; }
+          if (d && Object.keys(d).length) {
+            // CSV由来の列(追加)を優先し、会社名一致の求人情報で足りない列を補う
+            x.追加 = { ...(d || {}), ...(x.追加 || {}) };
+            recruitFound = true;
+          }
         }
       }
     } catch (e) { console.warn("[calls/targets] 求人情報の付与に失敗", e.message); }
@@ -17033,7 +17042,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-04at 求人カラムの改善：取り込み値の ######## や #N/A 等（スプレッドシートの狭い列表示・エラー値）を空（—）扱いに（cleanRecruitVal）。サマリに『求人 N件に紐づけ』を表示し、会社名の紐づき状況が分かるように。根本：掲載開始/終了日が######になるのは元CSVに######が入っているため（列を広げるかCSVでダウンロードして取り込み直しが必要）。前回(as)：求人カラム追加。";
+const BUILD_TAG = "2026-09-04au 読み込んだCSVの列をそのまま かける一覧の列にできるように（要望：田中さん）。call_targetsにextra JSONBを追加し、CSVからのリスト作成(from-csv listOnly/主経路)で標準以外の列を丸ごと保存（csvParseが_extraを抽出→addCallTargetsがextra保存）。targets APIは items[].追加 を返し、会社名一致の求人情報(既存分)は不足列の補完に使う。かける一覧は追加列を動的に表示し、『列を選ぶ』で表示ON/OFFと↑↓の並べ替え（端末保存）。掲載終了日等は期限で色分け。『求人情報を取り込む』ボタンは撤去（列はリストのCSVから入るため不要）。前回(at)：####等を空表示。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",

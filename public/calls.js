@@ -198,32 +198,44 @@ function openFilter(which, btn) {
   });
 }
 
-// ===== 求人情報の追加カラム（このリストに求人データがある時だけ出す）=====
-// [キー, 見出し]。既定で出すのは先頭3つ（業種・採用人数・掲載終了日）。
-const RECRUIT_COLS = [
-  ["媒体記載業種", "業種"],
-  ["採用人数", "採用人数"],
-  ["掲載終了日", "掲載終了日"],
-  ["掲載開始日", "掲載開始日"],
-  ["資本金", "資本金"],
-  ["フロッグ標準職種大分類", "職種大分類"],
-  ["フロッグ標準業種", "標準業種"],
-  ["勤務地都道府県", "都道府県"],
-  ["勤務地市区町村", "市区町村"],
-  ["勤務地住所", "勤務地住所"],
-  ["doda掲載開始日", "doda開始"],
-  ["doda掲載終了日", "doda終了"],
-];
-const RECRUIT_DEFAULT = ["媒体記載業種", "採用人数", "掲載終了日"];
+// ===== 追加カラム（読み込んだCSVの列を、そのまま一覧に出す）=====
+// x.追加（CSV由来）や x.求人（会社名で紐づけた分）のキーを、そのまま列にする。
+// 列の表示・並び順は「列を選ぶ」から自由に変えられる（この端末に保存）。
 const RECRUIT_DATE_KEYS = new Set(["掲載終了日", "doda掲載終了日"]);   // 期限が近いと色を変える列
-function recruitCols() {
-  let saved = null;
-  try { saved = JSON.parse(localStorage.getItem("kcRecruitCols") || "null"); } catch {}
-  const keys = Array.isArray(saved) && saved.length ? saved : RECRUIT_DEFAULT;
-  return RECRUIT_COLS.filter(([k]) => keys.includes(k));
+function rowExtra(x) {
+  const a = (x && x.追加 && typeof x.追加 === "object") ? x.追加 : null;
+  const b = (x && x.求人 && typeof x.求人 === "object") ? x.求人 : null;
+  if (a && b) return { ...b, ...a };
+  return a || b || null;
 }
-function setRecruitCols(keys) {
-  try { localStorage.setItem("kcRecruitCols", JSON.stringify(keys)); } catch {}
+// リスト内に出てくる追加列の見出しを、出てきた順にすべて集める
+function extraKeysOf(list) {
+  const keys = [];
+  const seen = new Set();
+  for (const x of list) {
+    const e = rowExtra(x);
+    if (!e) continue;
+    for (const k of Object.keys(e)) {
+      const v = cleanRecruitVal(e[k]);
+      if (!v) continue;
+      if (!seen.has(k)) { seen.add(k); keys.push(k); }
+    }
+  }
+  return keys;
+}
+// いま出す列（保存された表示・並びを反映。新しく増えた列は末尾に足す）
+function extraCols(allKeys) {
+  let cfg = null;
+  try { cfg = JSON.parse(localStorage.getItem("kcExtraCols") || "null"); } catch {}
+  const order = (cfg && Array.isArray(cfg.order)) ? cfg.order : [];
+  const hidden = new Set((cfg && Array.isArray(cfg.hidden)) ? cfg.hidden : []);
+  const ordered = [];
+  for (const k of order) if (allKeys.includes(k)) ordered.push(k);
+  for (const k of allKeys) if (!ordered.includes(k)) ordered.push(k);   // 新しい列は末尾へ
+  return ordered.filter((k) => !hidden.has(k));
+}
+function saveExtraCols(order, hidden) {
+  try { localStorage.setItem("kcExtraCols", JSON.stringify({ order, hidden })); } catch {}
 }
 // 掲載終了日などの「あと何日で切れるか」で色を返す。切れている/近い=赤、まもなく=橙。
 function deadlineClass(v) {
@@ -270,9 +282,10 @@ function render() {
     userN ? `<span class="kc-sum-user">ユーザー <b>${userN}</b></span>` : "",
     lostN ? `<span class="kc-sum-lost">失注 <b>${lostN}</b></span>` : "",
   ].filter(Boolean).join("／");
-  // 求人情報が付いている行があるか（このリストだけ追加カラムを出す）
-  const rcMatched = fullList.filter((x) => x.求人).length;
-  const rcols = fullList.some((x) => x.求人) ? recruitCols() : [];
+  // 読み込んだCSVの列（追加カラム）。データがある行があるリストだけ出す。
+  const rcMatched = fullList.filter((x) => rowExtra(x)).length;
+  const allKeys = extraKeysOf(fullList);
+  const rcols = allKeys.length ? extraCols(allKeys) : [];
   const hasRecruit = rcols.length > 0;
   box.innerHTML =
     `<div class="kc-summary">かける先 <b>${fullList.length - doneN}</b> 件` +
@@ -280,7 +293,7 @@ function render() {
       ? `／${内訳}` +
         `<button type="button" class="kc-sum-btn" id="kcHideApo">${hideApo ? "対象外も表示" : "対象外を隠す"}</button>`
       : "") +
-    (hasRecruit ? `／<span class="kc-sum-user">求人 <b>${rcMatched}</b>件に紐づけ</span><button type="button" class="kc-sum-btn" id="kcRcCols">求人の列を選ぶ</button>` : "") +
+    (allKeys.length ? `／<span class="kc-sum-user">列データ <b>${rcMatched}</b>件</span><button type="button" class="kc-sum-btn" id="kcRcCols">列を選ぶ</button>` : "") +
     `</div>` +
     ((listId !== "all")
       ? `<div class="kc-selbar" id="kcSelBar" hidden style="display:flex;align-items:center;gap:10px;padding:8px 4px;">
@@ -297,7 +310,7 @@ function render() {
         <th class="kc-th-t">電話番号</th>
         <th class="kc-th-m">メールアドレス</th>
         <th class="kc-th-s"><button type="button" class="kc-th-b${on("status")}" data-flt="status">最終ステータス ▾</button></th>
-        ${rcols.map(([, label]) => `<th class="kc-th-rc">${esc(label)}</th>`).join("")}
+        ${rcols.map((k) => `<th class="kc-th-rc">${esc(k)}</th>`).join("")}
         <th class="kc-th-h"><button type="button" class="kc-th-b${filt.hist ? " on" : ""}" data-hist="1">履歴${arrow("hist")}</button></th>
         <th class="kc-th-l">最終架電日</th>
         <th class="kc-th-r">記録</th>
@@ -329,8 +342,9 @@ function render() {
           : `<span class="kc-none">なし</span>`}</td>
         <td class="kc-mail">${esc(x["メール"] || "")}</td>
         <td class="kc-status">${x["最終ステータス"] ? esc(x["最終ステータス"]) : "-"}</td>
-        ${rcols.map(([k]) => {
-          const v = cleanRecruitVal(x.求人 && x.求人[k]);
+        ${rcols.map((k) => {
+          const e = rowExtra(x);
+          const v = cleanRecruitVal(e && e[k]);
           const cls = RECRUIT_DATE_KEYS.has(k) ? deadlineClass(v) : "";
           return `<td class="kc-rc${cls ? " " + cls : ""}">${v ? esc(v) : '<span class="kc-none">—</span>'}</td>`;
         }).join("")}
@@ -413,22 +427,49 @@ function render() {
   if (hideBtn) hideBtn.addEventListener("click", () => { hideApo = !hideApo; render(); });
   const rcBtn = $("kcRcCols");
   if (rcBtn) rcBtn.addEventListener("click", () => {
-    const cur = new Set(recruitCols().map(([k]) => k));
+    const allKeys = extraKeysOf(visibleRows());
+    let cfg = null;
+    try { cfg = JSON.parse(localStorage.getItem("kcExtraCols") || "null"); } catch {}
+    const hidden = new Set((cfg && Array.isArray(cfg.hidden)) ? cfg.hidden : []);
+    let order = (cfg && Array.isArray(cfg.order)) ? cfg.order.filter((k) => allKeys.includes(k)) : [];
+    for (const k of allKeys) if (!order.includes(k)) order.push(k);
+    const drawRows = () => order.map((k, i) =>
+      `<div class="kc-colrow" data-k="${esc(k)}" style="display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:0.5px solid #eef2f0">
+         <input type="checkbox" class="kc-colshow"${hidden.has(k) ? "" : " checked"}/>
+         <span style="flex:1;font-size:13px">${esc(k)}</span>
+         <button type="button" class="btn ghost kc-colup" data-i="${i}" title="上へ"${i === 0 ? " disabled" : ""}>↑</button>
+         <button type="button" class="btn ghost kc-coldn" data-i="${i}" title="下へ"${i === order.length - 1 ? " disabled" : ""}>↓</button>
+       </div>`).join("");
     const inner =
-      `<p class="note" style="margin:0 0 10px">かける一覧に出す求人の列を選べます（この端末に保存されます）。</p>` +
-      `<div style="display:grid;grid-template-columns:1fr 1fr;gap:6px 16px">` +
-      RECRUIT_COLS.map(([k, label]) =>
-        `<label class="ks-check"><input type="checkbox" class="kc-rccol" value="${esc(k)}"${cur.has(k) ? " checked" : ""}/> ${esc(label)}</label>`).join("") +
-      `</div>` +
-      `<div class="modal-actions" style="margin-top:12px"><button type="button" class="btn" id="kcRcSave">保存</button>` +
-      `<button type="button" class="btn ghost" id="kcRcReset">既定に戻す</button></div>`;
-    const m = openModal("求人の列を選ぶ", inner);
-    m.el.querySelector("#kcRcSave").addEventListener("click", () => {
-      const keys = [...m.el.querySelectorAll(".kc-rccol:checked")].map((c) => c.value);
-      setRecruitCols(keys); m.close(); render();
+      `<p class="note" style="margin:0 0 8px">かける一覧に出す列を選び、↑↓で並び順を変えられます（この端末に保存）。</p>` +
+      `<div id="kcColList">${drawRows()}</div>` +
+      `<div class="modal-actions" style="margin-top:12px"><button type="button" class="btn" id="kcColSave">保存</button>` +
+      `<button type="button" class="btn ghost" id="kcColReset">既定に戻す</button></div>`;
+    const m = openModal("列を選ぶ", inner);
+    const listEl = m.el.querySelector("#kcColList");
+    const rerender = () => {
+      // 現在のチェック状態を order 準拠で hidden に反映してから描き直す
+      listEl.innerHTML = drawRows();
+      bind();
+    };
+    const bind = () => {
+      listEl.querySelectorAll(".kc-colshow").forEach((c, i) => c.addEventListener("change", () => {
+        const k = order[i]; if (c.checked) hidden.delete(k); else hidden.add(k);
+      }));
+      listEl.querySelectorAll(".kc-colup").forEach((b) => b.addEventListener("click", () => {
+        const i = Number(b.dataset.i); if (i > 0) { [order[i - 1], order[i]] = [order[i], order[i - 1]]; rerender(); }
+      }));
+      listEl.querySelectorAll(".kc-coldn").forEach((b) => b.addEventListener("click", () => {
+        const i = Number(b.dataset.i); if (i < order.length - 1) { [order[i + 1], order[i]] = [order[i], order[i + 1]]; rerender(); }
+      }));
+    };
+    bind();
+    m.el.querySelector("#kcColSave").addEventListener("click", () => {
+      saveExtraCols(order, [...hidden]); m.close(); render();
     });
-    m.el.querySelector("#kcRcReset").addEventListener("click", () => {
-      setRecruitCols(RECRUIT_DEFAULT); m.close(); render();
+    m.el.querySelector("#kcColReset").addEventListener("click", () => {
+      try { localStorage.removeItem("kcExtraCols"); } catch {}
+      m.close(); render();
     });
   });
 }
@@ -2205,10 +2246,6 @@ document.addEventListener("click", (ev) => {
       } catch (e) { say("clStatus", "できませんでした：" + e.message, 8000); }
     })();
   }
-  if (t.id === "clRecruit") {
-    ev.preventDefault();
-    openRecruitImport();
-  }
   if (t.id === "clFixLinks") {
     ev.preventDefault();
     (async () => {
@@ -3206,6 +3243,25 @@ function csvParse(text) {
     return parts.join("\n");
   };
 
+  // 標準の項目に割り当てなかった列を「_extra」として、見出し名をキーに丸ごと持つ。
+  // （かける一覧で自由に列として出せるようにするため）
+  const usedCols = new Set([場所.company, 場所.person, 場所.phone, 場所.email, 場所.leadId,
+    場所.callDate, 場所.status, 場所.stage, 場所.comment].filter((i) => i >= 0));
+  for (const idx of commentTail) usedCols.add(idx);
+  for (const cc of callCols) { if (cc.r >= 0) usedCols.add(cc.r); if (cc.c >= 0) usedCols.add(cc.c); }
+  if (histStart >= 0) for (let idx = histStart; idx < head.length; idx++) usedCols.add(idx);
+  const extraOf = (c) => {
+    if (!見出しっぽい) return {};
+    const o = {};
+    for (let idx = 0; idx < head.length; idx++) {
+      if (usedCols.has(idx)) continue;
+      const key = String(head[idx] || "").trim();
+      const val = 取る(c, idx).trim();
+      if (key && val) o[key] = val;
+    }
+    return o;
+  };
+
   for (let i = 見出しっぽい ? 1 : 0; i < rows.length; i++) {
     const c = rows[i];
     const company = 取る(c, 場所.company);
@@ -3221,6 +3277,7 @@ function csvParse(text) {
       stage: 取る(c, 場所.stage),
       comment: コメントまとめ(c),   // 最終活動コメント＋その後ろの続き欄をまとめたもの
       history: まとめる(c),         // 「コール結果1〜N」形式のときの、新しい順のまとめ
+      _extra: extraOf(c),           // 標準以外の列（見出し名→値）
     });
   }
   return out;
