@@ -41,6 +41,8 @@ kincall（架電リスト）という別ツールも同じ画面群の中にあ�
 
 ## 決定・指示のログ（新しいものを上に足す）
 
+- 2026-09-04 Groqモデル選択UI：一覧14件は取れたが datalist だと入力欄に既存値(llama-3.3-70b-versatile)が入っていて候補が絞り込まれ選べなかった。修正(aj)：ai.js のGroqモデル行を <select id=aiGroqSelect> のクリック選択に変更。[一覧]=groq-models取得→selectにoption流し込み(現行値をselected)、select change で手入力#aiGroqModelに反映、[保存]=手入力 or select値をPUT /api/ai/groq-model。手入力欄も併設。※現行の保存値 llama-3.3-70b-versatile は無効なので一覧から有効モデルを選び直す想定。
+
 - 2026-09-04 Groq接続確認：401解消後、今度は404 model_not_found（`llama-3.3-70b-versatile` が存在しない/アクセス権なし）。＝キーはOK、モデル名が現状のGroqに無い。Groqはモデルを入れ替えるため、Railway再デプロイ無しでUIから切替できるように実装(ai)。analyzer.js：resolveGroqModel(explicit)＝explicit→設定groqModel(20sキャッシュ・clearGroqModelCacheで無効化)→env GROQ_MODEL→既定 の順。callOnce(groq)は model:await resolveGroqModel(model)。index.js：GET /api/ai/groq-models（GROQ_API_KEYで https://api.groq.com/openai/v1/models を引き、生成用idを整列して返す）、PUT /api/ai/groq-model（settings.groqModelに保存・キャッシュclear・saveSettings）、llm-statusのgroqModelもresolveGroqModelに。UI(ai.js)：頭脳=Groq選択時のみ表示する『Groqモデル』行（input#aiGroqModel＋datalist#aiGroqList、[一覧]=groq-models取得、[保存]=groq-model PUT）。.ai-qのクイック送信ループから aiLlmTest/aiGroqList2/aiGroqSave を除外。田中さん操作：AI画面で頭脳Groq→[一覧]で使えるモデルを見て入力→[保存]→[接続確認]。有効なGroqモデル名は console.groq.com/docs/models 準拠（例 llama-3.1-8b-instant 等、時期により変動）。
 
 - 2026-09-04 Groq接続確認の結果：401 Invalid API Key（invalid_api_key）。＝接続テストはGroqに到達しており、コードは正常。原因はRailwayの環境変数 GROQ_API_KEY の値が無効（誤り・失効・プレースホルダ・前後空白/改行/引用符の混入・変数名違い等）。対策(ah)：analyzer.js callOpenAICompat で key=String(key).trim() を追加（貼り付け時の空白/改行混入による401を防止）。恒久対応は田中さん側：console.groq.com/keys の正しいキー(gsk_で始まる)をRailwayの GROQ_API_KEY に設定（引用符で囲まない・前後空白なし・変数名は厳密に GROQ_API_KEY）→サービス再デプロイ/再起動で反映→AI画面の接続確認で再テスト。Claude環境からRailwayへは到達不可のためキー設定・確認は田中さん。

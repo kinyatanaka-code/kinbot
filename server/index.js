@@ -16944,7 +16944,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-04ai Groqのモデルを画面から切替可能に（404 model_not_found 対策）。Railway再デプロイ不要：設定 groqModel を優先し resolveGroqModel(設定→GROQ_MODEL→既定)。GET /api/ai/groq-models（キーで使えるモデル一覧）、PUT /api/ai/groq-model（保存）。AI画面：Groq選択時に『Groqモデル』入力＋一覧(datalist)＋保存。前回(ah)：Groqキーtrimで401混入防止。前回(ag)：判定/分析のプロバイダもGemini/Claude/Groq3択に。前回(af)：Groq接続＋接続確認。";
+const BUILD_TAG = "2026-09-04aj Groqモデル選択のUI改善：datalistは既存文字で候補が絞られ選べなかったため、クリックで選べる<select>プルダウンに変更（[一覧]で使えるモデルを流し込み→選択で手入力欄に反映→保存）。手入力も可。前回(ai)：Groqモデルを画面から切替可能に（resolveGroqModel設定優先・groq-models一覧・groq-model保存）。前回(ah)：Groqキーtrim。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
