@@ -16998,7 +16998,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-04ap 田中欽也（オーナー）は、メンバーの役割にクローザーが無くてもクローザー権限を持つように（要望：田中さん）。ALWAYS_CLOSER（既定 kinya.tanaka@neo-career.co.jp・環境変数 ALWAYS_CLOSER_EMAILS で追加可）を isCloserUser／/api/me の closer／canRedistribute に反映。前回(ao)：割り振りをインサイドにも開放。";
+const BUILD_TAG = "2026-09-04aq SF活動記録「商談から読み取る」で説明に要約が入らない件の緩和：要約(summary)が空でも、深掘り分析(analysis: recap/open_items/concerns/focus)から説明を組み立てるフォールバックを追加。要約も分析も無いときは通知を正直に（『まだ要約が無いため説明は空』）。根本は要約未生成（分析用LLMの不調＝Groq設定の可能性）。前回(ap)：田中さんを常時クローザーに。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",

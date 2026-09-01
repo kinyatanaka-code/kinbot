@@ -2026,6 +2026,25 @@ function buildActivityComment(latestMeeting) {
     if (lines.length) parts.push(lines.join("\n").trim());
   }
 
+  // 2.5) 要約が空なら、深掘り分析（recap/open_items/concerns/focus）から組み立てる。
+  //      商談直後の要約生成が失敗・未実施でも、分析があれば説明に入れられるように。
+  if (!parts.length && m.analysis && typeof m.analysis === "object") {
+    const a = m.analysis;
+    const lines = [];
+    const sec2 = (label, items) => {
+      if (Array.isArray(items) && items.length) {
+        lines.push("■" + label);
+        items.forEach((i) => lines.push("・" + (typeof i === "string" ? i : (i && (i.text || i.q || i.title)) || "")));
+        lines.push("");
+      }
+    };
+    sec2("要点", a.recap);
+    sec2("残っている宿題", a.open_items);
+    sec2("相手の懸念", a.concerns);
+    sec2("次回の論点", a.focus);
+    if (lines.length) parts.push(lines.join("\n").trim());
+  }
+
   // 3) 商談メモ（手入力・ヒアリング内容）があれば続けて入れる
   if (m.note && String(m.note).trim()) parts.push(String(m.note).trim());
 
@@ -2741,7 +2760,11 @@ async function initSfTab(account) {
           dEl.value = `${base.getFullYear()}-${String(base.getMonth() + 1).padStart(2, "0")}-${String(base.getDate()).padStart(2, "0")}`;
           filled++;
         }
-        if (note) note.textContent = `説明に要約を入れ、${filled}項目を読み取りました。確認・編集して記録してください。`;
+        const descEl2 = inputs.find((el) => isDesc(el));
+        const hasDesc = !!(descEl2 && String(descEl2.value || "").trim());
+        if (note) note.textContent = hasDesc
+          ? `説明に要約を入れ、${filled}項目を読み取りました。確認・編集して記録してください。`
+          : `${filled}項目を読み取りました。※この商談はまだ要約が無いため、説明は空です（要点は手入力してください）。`;
       } catch (e) {
         if (note) note.textContent = "読み取りに失敗しました：" + e.message;
       } finally {
