@@ -2078,6 +2078,45 @@ document.addEventListener("click", (ev) => {
       } catch (e) { say("clStatus", "できませんでした：" + e.message, 8000); }
     })();
   }
+  if (t.id === "clFixLinks") {
+    ev.preventDefault();
+    (async () => {
+      if (!listId) { say("clStatus", "リストを選んでください", 4000); return; }
+      say("clStatus", "紐づけの誤りを調べています…");
+      try {
+        const pre = await (await fetch(`/api/calls/lists/${encodeURIComponent(listId)}/relink-reset`, {
+          method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ apply: false }),
+        })).json();
+        if (!pre.ok) throw new Error(pre.error || "調べられませんでした");
+        if (!pre["対象件数"]) { say("clStatus", "誤った紐づけは見つかりませんでした", 8000); return; }
+        const 例 = (pre["内訳"] || []).slice(0, 3)
+          .map((d) => `${(d["会社例"] || []).slice(0, 3).join("・")} ほか（${d["件数"]}件が同じリード）`).join("\n");
+        if (!confirm(`1つのリードが複数の会社に付いている誤りが見つかりました。\n重複リード ${pre["重複リード"]}件／付け直す架電先 ${pre["対象件数"]}件。\n\n${例}\n\nこれらの紐づけを一旦外し、会社名で付け直します（過去の記録は消えません）。よろしいですか？`)) {
+          say("clStatus", "やめました", 4000); return;
+        }
+        say("clStatus", "誤った紐づけを外しています…");
+        const r = await (await fetch(`/api/calls/lists/${encodeURIComponent(listId)}/relink-reset`, {
+          method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ apply: true }),
+        })).json();
+        if (!r.ok) throw new Error(r.error || "外せませんでした");
+        // 続けて会社名で正しく付け直す
+        say("clStatus", `外しました（${r["リセット"]}件）。会社名で付け直しています…`);
+        let 見 = 0, 作 = 0, 失 = 0, 回 = 0;
+        while (true) {
+          回++;
+          const d = await (await fetch(`/api/calls/lists/${encodeURIComponent(listId)}/to-sf`, {
+            method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ limit: 20 }),
+          })).json();
+          if (!d || d.error) throw new Error((d && d.error) || "付け直せませんでした");
+          見 += d["見つかった"] || 0; 作 += d["新しく作った"] || 0; 失 += d["失敗"] || 0;
+          say("clStatus", `付け直し中… 残り${d["残り"]}件（結びつけ${見}／新規作成${作}${失 ? `／失敗${失}` : ""}）`);
+          if (d.done || 回 > 2000) break;
+        }
+        say("clStatus", `修復しました（外した${r["リセット"]}件→結びつけ${見}／新規作成${作}${失 ? `／失敗${失}` : ""}）`, 12000);
+        loadTable();
+      } catch (e) { say("clStatus", "できませんでした：" + e.message, 8000); }
+    })();
+  }
   if (t.id === "clLinkSf") {
     ev.preventDefault();
     (async () => {

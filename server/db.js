@@ -3697,6 +3697,47 @@ export async function recordCall({ targetId, leadId, company, result, memo, call
   } catch (e) { console.error("[db] recordCall", e.message); return null; }
 }
 
+// リスト内で、1つの lead_id が「異なる会社名」の複数ターゲットに付いているものを探す。
+// これは誤った紐づけ（会社名検索が外れて最新リードが全件に付いた等）の目印。
+// 同じ会社の別担当が同じリードを共有するのは正常なので、会社名が2種類以上のものだけ返す。
+export async function leadDupInList(listId) {
+  if (!pool || !listId) return [];
+  try {
+    const { rows } = await pool.query(
+      `SELECT lead_id,
+              count(*)::int AS targets,
+              count(DISTINCT company)::int AS companies,
+              (array_agg(DISTINCT company))[1:5] AS sample
+         FROM call_targets
+        WHERE list_id = $1 AND lead_id IS NOT NULL AND lead_id <> '' AND lead_id <> 'SKIP'
+        GROUP BY lead_id
+       HAVING count(DISTINCT company) >= 2
+        ORDER BY count(*) DESC`,
+      [listId]);
+    return rows;
+  } catch (e) { console.error("[db] leadDupInList", e.message); return []; }
+}
+
+// 上の「誤った紐づけ」に該当するターゲットの lead_id を空に戻す（会社名で紐づけ直せるように）。
+// 記録済みの call_logs は触らない（過去ログはそのまま、履歴は target_id で残る）。
+export async function clearBadLeadsInList(listId) {
+  if (!pool || !listId) return { cleared: 0, leads: 0 };
+  try {
+    const { rows } = await pool.query(
+      `WITH bad AS (
+         SELECT lead_id FROM call_targets
+          WHERE list_id = $1 AND lead_id IS NOT NULL AND lead_id <> '' AND lead_id <> 'SKIP'
+          GROUP BY lead_id HAVING count(DISTINCT company) >= 2
+       )
+       UPDATE call_targets t SET lead_id = NULL
+        WHERE t.list_id = $1 AND t.lead_id IN (SELECT lead_id FROM bad)
+       RETURNING t.id`,
+      [listId]);
+    const leads = new Set();
+    return { cleared: rows.length, leads: leads.size };
+  } catch (e) { console.error("[db] clearBadLeadsInList", e.message); return { cleared: 0, leads: 0 }; }
+}
+
 // 1件の架電記録（ログ）を取る
 export async function getCallLog(logId) {
   if (!pool || !logId) return null;

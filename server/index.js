@@ -218,6 +218,8 @@ import {
   listCallLists,
   nextCallTarget,
   callHistory,
+  leadDupInList,
+  clearBadLeadsInList,
   recordCall,
   updateCallLog,
   markCallSynced,
@@ -7061,7 +7063,9 @@ app.post("/api/calls/lists/:id/to-sf", async (req, res) => {
       if (!company) { await setCallTargetLead(t.id, "SKIP").catch(() => {}); continue; }
       try {
         let leadId = "";
-        const found = await searchLeads(sfUser, company, { max: 1 }).catch(() => []);
+        // 会社名で絞って探す。第2引数はオブジェクト（{company}）でないと会社名フィルタが
+        // 外れ、組織の最新リードが全件に付いてしまう（履歴が1社に積み重なる原因だった）。
+        const found = await searchLeads(sfUser, { company, limit: 1 }).catch(() => []);
         if (found && found.length) { leadId = found[0].Id || found[0].id; 見つかった++; }
         else {
           if (!rtId) { 失敗++; continue; }   // Cross_leadのレコードタイプが無ければ作らない
@@ -7085,6 +7089,29 @@ app.post("/api/calls/lists/:id/to-sf", async (req, res) => {
 
     const 残り = await countTargetsNeedingSf(id);
     res.json({ ok: true, done: 残り === 0, 見つかった, 新しく作った: 作った, 失敗, 残り, 残り前 });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// 誤った紐づけ（1つのlead_idが複数会社に付いている）を点検・リセットする。
+// dryRun（既定）：該当リードと会社の一覧を返すだけ。apply=true：該当ターゲットのlead_idを空に戻す。
+// リセット後に「SFと連携」をやり直すと、会社名で正しいリードに付け直せる。
+app.post("/api/calls/lists/:id/relink-reset", async (req, res) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    if (!id) return res.status(400).json({ error: "リストが指定されていません" });
+    const dups = await leadDupInList(id);
+    const 対象件数 = dups.reduce((n, d) => n + (Number(d.targets) || 0), 0);
+    if (!req.body || req.body.apply !== true) {
+      return res.json({
+        ok: true, dryRun: true,
+        重複リード: dups.length, 対象件数,
+        内訳: dups.slice(0, 20).map((d) => ({
+          leadId: d.lead_id, 会社数: d.companies, 件数: d.targets, 会社例: d.sample || [],
+        })),
+      });
+    }
+    const r = await clearBadLeadsInList(id);
+    res.json({ ok: true, dryRun: false, リセット: r.cleared, 重複リード: dups.length });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
@@ -16846,7 +16873,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-04ab プロセスシート：日付が翌日に変わると過去日のコール/接触が0で消える不具合を修正。原因＝アポ加算で過去日(8/31)のtalliedエントリが作られ、buildUpdatesが全項目を書くためコール/接触0が実績を塗り替えていた（SFレポートは相対日付で過去日を再現できない）。修正：buildUpdatesで過去日(zeroTo=今日 より前)の0/空は書かない＝その日に書いた実績を翌日以降の再実行で消さない。当日は0も書く（時間で増える）。休み指定日・強制上書きは従来どおり全書き。お試しに『集計の生値（担当者ごと）』を追加し、書込ロジックと切り離してコール数の出所を確認できるように。前回(aa)：プロセスシート：手入力を守る書き込みを実装（引き継ぎメモの合意事項）。kinbotが前回書いた値を settings.psShadow に {sig:sheetId|sheetName, cells:{A1範囲:値}} で記録。実行時、シートの現在値が記録と一致するセルだけ最新の実績に更新し、違うセル（人が手入力）は据え置く。記録が無い初回は基準づくりのため書く。シートが変わると記録は使わない。書いたセルのみ記録を更新（据え置きセルの記録は保持）。実績画面に「実績で強制上書き」ボタン（確認つき・記録を無視して全上書き）。お試し/実行の結果に据え置き件数・据え置いたセル一覧を表示。前回(zz)：プロセスシートに一部の人（飯島・加藤・中村ほかkincallインサイド）が入らない不具合を修正。原因：readLayoutはシート担当者11人を正しく検出していたが、後段の「インターン除外」が保存設定 psInterns=false のまま効き、シートに行がある6人を黙って除外していた（お試し内訳で「シートの担当者(5)」しか出ず判明）。修正1：除外の既定を「含める」に（実行時に明示 interns:false を渡したときだけ除外。保存設定だけでは除外しない）。修正2：SF側「植野 ひかり」とkincall側「植野ひかり」が別キーで値が分散していたのを、既存の同一人物キー(psSameName)へ合流させて合算。修正3：お試し内訳に除外された人(internNote)を表示。前回(zy)：プロセスシート「お試し」の内訳表示：担当者×日ごとに書く値（コール/接触/アポ内外/稼働）、シートの担当者一覧、集計に出た名前、実績が見つからない担当者、スキップ理由、kincall合算の失敗（従来はログのみ）を画面に出す。原因を画面だけで追えるように。前回(zx)：プロセスシートに実績が入らない不具合の本修正：実績画面の「今すぐ実行／お試し」は期間を送らず、旧設定の固定期間（8月）のまま集計していたため、8/31以降の kincall 架電・アポが入らなかった。期間を「今日を含む月ごとの範囲」から自動で決めるように（指定＞月ごとの範囲＞旧固定期間＞今月）。月ごとの範囲を使うときは期内判定もその範囲（fixed）。実行結果に使った期間・実績の無い担当者・スキップ理由を表示。前回(zw)：項目行ラベルの括弧ゆれ吸収（localStorageに開始日/終了日を記憶し、ページを切り替えても保たれる。既定に戻すで消去）。＋【点検用・一時】GET /api/calls/_stagediag：SFクロス商談のStageNameごとの件数と、KPI/MID/案件化/受注の判定結果を返す（KPIが出ない原因＝ステージ名の表記確認用）。前回：リスト一覧にgroup_idを追加";
+const BUILD_TAG = "2026-09-04ac kincall履歴が1社に他社の記録まで積み重なる不具合を修正（飯島リスト等）。根本原因：SF紐づけ /api/calls/lists/:id/to-sf の searchLeads(sfUser, company, {max:1}) が引数取り違え＝第2引数は{company}オブジェクトが正なのに文字列を渡し、会社名フィルタが外れて WHERE IsConverted=false ORDER BY CreatedDate DESC の最新リードが全ターゲットに付与→全員が同じlead_idを共有→履歴モーダル(leadActivities WhoId=lead_id/callHistory lead_id一致)が他社の活動を総取り。修正：searchLeads(sfUser,{company,limit:1})。さらに壊れたデータ用に修復機能：POST /api/calls/lists/:id/relink-reset（dryRun=同一lead_idが2社以上に付く重複を一覧／apply=そのlead_idを空に戻す）＋リスト画面に「紐づけの修復」ボタン（重複検出→確認→リセット→会社名で付け直し）。過去のcall_logsは触らない。前回(ab)：プロセスシート：日付が翌日に変わると過去日のコール/接触が0で消える不具合を修正。原因＝アポ加算で過去日(8/31)のtalliedエントリが作られ、buildUpdatesが全項目を書くためコール/接触0が実績を塗り替えていた（SFレポートは相対日付で過去日を再現できない）。修正：buildUpdatesで過去日(zeroTo=今日 より前)の0/空は書かない＝その日に書いた実績を翌日以降の再実行で消さない。当日は0も書く（時間で増える）。休み指定日・強制上書きは従来どおり全書き。お試しに『集計の生値（担当者ごと）』を追加し、書込ロジックと切り離してコール数の出所を確認できるように。前回(aa)：プロセスシート：手入力を守る書き込みを実装（引き継ぎメモの合意事項）。kinbotが前回書いた値を settings.psShadow に {sig:sheetId|sheetName, cells:{A1範囲:値}} で記録。実行時、シートの現在値が記録と一致するセルだけ最新の実績に更新し、違うセル（人が手入力）は据え置く。記録が無い初回は基準づくりのため書く。シートが変わると記録は使わない。書いたセルのみ記録を更新（据え置きセルの記録は保持）。実績画面に「実績で強制上書き」ボタン（確認つき・記録を無視して全上書き）。お試し/実行の結果に据え置き件数・据え置いたセル一覧を表示。前回(zz)：プロセスシートに一部の人（飯島・加藤・中村ほかkincallインサイド）が入らない不具合を修正。原因：readLayoutはシート担当者11人を正しく検出していたが、後段の「インターン除外」が保存設定 psInterns=false のまま効き、シートに行がある6人を黙って除外していた（お試し内訳で「シートの担当者(5)」しか出ず判明）。修正1：除外の既定を「含める」に（実行時に明示 interns:false を渡したときだけ除外。保存設定だけでは除外しない）。修正2：SF側「植野 ひかり」とkincall側「植野ひかり」が別キーで値が分散していたのを、既存の同一人物キー(psSameName)へ合流させて合算。修正3：お試し内訳に除外された人(internNote)を表示。前回(zy)：プロセスシート「お試し」の内訳表示：担当者×日ごとに書く値（コール/接触/アポ内外/稼働）、シートの担当者一覧、集計に出た名前、実績が見つからない担当者、スキップ理由、kincall合算の失敗（従来はログのみ）を画面に出す。原因を画面だけで追えるように。前回(zx)：プロセスシートに実績が入らない不具合の本修正：実績画面の「今すぐ実行／お試し」は期間を送らず、旧設定の固定期間（8月）のまま集計していたため、8/31以降の kincall 架電・アポが入らなかった。期間を「今日を含む月ごとの範囲」から自動で決めるように（指定＞月ごとの範囲＞旧固定期間＞今月）。月ごとの範囲を使うときは期内判定もその範囲（fixed）。実行結果に使った期間・実績の無い担当者・スキップ理由を表示。前回(zw)：項目行ラベルの括弧ゆれ吸収（localStorageに開始日/終了日を記憶し、ページを切り替えても保たれる。既定に戻すで消去）。＋【点検用・一時】GET /api/calls/_stagediag：SFクロス商談のStageNameごとの件数と、KPI/MID/案件化/受注の判定結果を返す（KPIが出ない原因＝ステージ名の表記確認用）。前回：リスト一覧にgroup_idを追加";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
