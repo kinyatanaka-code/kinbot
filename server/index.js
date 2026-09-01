@@ -8851,11 +8851,41 @@ app.put("/api/calls/apo-goals", async (req, res) => {
     const subject = String(b.subject || "").trim().toLowerCase();
     const date = String(b.date || b.periodKey || "").slice(0, 10);
     const metric = ["コール", "接触", "アポ"].includes(String(b.metric)) ? String(b.metric) : "アポ";
-    // チーム（group/sales/inside）は入力しない
     if (["group", "sales", "inside"].includes(subject)) return res.status(400).json({ error: "チームの目標は入力できません（メンバーの合計です）" });
     if (!subject || !/^\d{4}-\d{2}-\d{2}$/.test(date)) return res.status(400).json({ error: "subject と date（YYYY-MM-DD）が必要です" });
     await setApoGoal(subject, "day", date, metric, b.value);
     res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// ダッシュボードで月次目標を直接入力したとき：その月の平日に、日次目標として均等配分する。
+// （月次目標＝日次目標の合計、という前提を保つため）
+app.put("/api/calls/apo-goals-month", async (req, res) => {
+  try {
+    if (!(await canRedistribute(req))) return res.status(403).json({ error: "クローザー・インサイド・管理者だけが使えます" });
+    const b = req.body || {};
+    const subject = String(b.subject || "").trim().toLowerCase();
+    const month = String(b.month || "").slice(0, 7);   // YYYY-MM
+    const metric = ["コール", "接触", "アポ"].includes(String(b.metric)) ? String(b.metric) : "アポ";
+    const value = Math.max(0, parseInt(b.value, 10) || 0);
+    if (["group", "sales", "inside"].includes(subject)) return res.status(400).json({ error: "チームの目標は入力できません（メンバーの合計です）" });
+    if (!subject || !/^\d{4}-\d{2}$/.test(month)) return res.status(400).json({ error: "subject と month（YYYY-MM）が必要です" });
+    const [y, mo] = month.split("-").map((x) => parseInt(x, 10));
+    const last = new Date(Date.UTC(y, mo, 0)).getUTCDate();
+    const p2 = (n) => String(n).padStart(2, "0");
+    const weekdays = [];
+    for (let d = 1; d <= last; d++) { const wd = new Date(Date.UTC(y, mo - 1, d)).getUTCDay(); if (wd >= 1 && wd <= 5) weekdays.push(d); }
+    const n = weekdays.length || 1;
+    const base = Math.floor(value / n);
+    let rem = value - base * n;
+    // 月内の全日に日次目標を設定（平日に配分、それ以外は0）
+    for (let d = 1; d <= last; d++) {
+      const date = `${month}-${p2(d)}`;
+      const isWd = weekdays.includes(d);
+      const g = isWd ? base + (rem-- > 0 ? 1 : 0) : 0;
+      await setApoGoal(subject, "day", date, metric, g);
+    }
+    res.json({ ok: true, 平日数: n, 合計: value });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
@@ -17116,7 +17146,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-04bb かける一覧で会社名列（と左のチェック・ステージ列）を横スクロールで固定表示に（要望：田中さん）。資料送付など右端まで横スクロールしても会社名が見える。position:stickyで左固定＋固定セルに背景。前回(ba)：内訳モーダル作り直し。";
+const BUILD_TAG = "2026-09-04bc ダッシュボード/実績の目標まわり調整（田中さん）：(1)ダッシュボードのカードで目標を直接変更可（個人＝月次入力→その月の平日に日次目標として均等配分。チームはメンバー合計で入力不可）。(2)モーダルの週次/月次は日次目標の合計（実装済み）。(3)実績タブの中身をモーダルと同じddTable（日付ごとに目標|実績、行コール/接触/アポ+3率）に統一。PUT /api/calls/apo-goals-month で月次目標を平日配分。前回(bb)：会社名列の固定。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",

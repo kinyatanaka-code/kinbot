@@ -1463,10 +1463,15 @@ function dashCard(c, big) {
   const diff = c.diff;
   const dcls = diff > 0 ? "kc-d-plus" : diff < 0 ? "kc-d-minus" : "kc-d-zero";
   const dtxt = diff > 0 ? `+${diff}` : `${diff}`;
+  // チームは目標入力不可（メンバー合計）。個人は月次目標を直接編集（その月の平日に配分）。
+  const editable = c.role !== "team" && iAmRedistributor;
+  const goalCell = editable
+    ? `<input type="number" class="kc-goal kc-dgoal" data-subj="${esc(c.key)}" value="${c.goal}" min="0" />`
+    : `<div class="kc-d-act">${c.goal}</div>`;
   return `<div class="kc-dcard${big ? " kc-dcard-big" : ""}" data-subj="${esc(c.key)}" data-label="${esc(c.label)}">
     <div class="kc-dname">${esc(c.label)}</div>
     <div class="kc-drow">
-      <div class="kc-dcol"><div class="kc-dlb">目標</div><div class="kc-d-act">${c.goal}</div></div>
+      <div class="kc-dcol"><div class="kc-dlb">目標</div>${goalCell}</div>
       <div class="kc-dcol"><div class="kc-dlb">実績</div><div class="kc-d-act">${c.actual}</div></div>
       <div class="kc-dcol"><div class="kc-dlb">差分</div><div class="kc-d-diff ${dcls}">${dtxt}</div></div>
     </div>
@@ -1481,7 +1486,28 @@ function renderDash(d) {
     `<div class="kc-dgrid kc-dteams">${teams}</div>` +
     (sales ? `<div class="kc-dsub">セールス</div><div class="kc-dgrid">${sales}</div>` : "") +
     (inside ? `<div class="kc-dsub">インサイド</div><div class="kc-dgrid">${inside}</div>` : "") +
-    `<p class="note" style="margin-top:10px">目標は日次で入力（実績タブ、またはカードを開いた内訳の日次）。月次目標＝その月の日次目標の合計。差分は 実績−目標。カードをクリックすると内訳が出ます。</p>`;
+    `<p class="note" style="margin-top:10px">目標はここで直接（月次）変更できます（入力するとその月の平日に配分されます）。グループ・セールス・インサイドはメンバーの合計です。差分は 実績−目標。カードをクリックすると内訳（日次）が出ます。</p>`;
+  // 目標の直接編集（月次→平日に配分）。入力欄クリックはカードの内訳を開かないように。
+  box.querySelectorAll(".kc-dgoal").forEach((inp) => {
+    inp.addEventListener("click", (e) => e.stopPropagation());
+    inp.addEventListener("change", async (e) => {
+      e.stopPropagation();
+      const subject = inp.dataset.subj;
+      const card = inp.closest(".kc-dcard");
+      const actual = Number((card.querySelector(".kc-dcol:nth-child(2) .kc-d-act") || {}).textContent || 0);
+      const goal = Number(inp.value) || 0;
+      // 差分をその場で更新
+      const de = card.querySelector(".kc-d-diff");
+      if (de) { const df = actual - goal; de.textContent = df > 0 ? `+${df}` : `${df}`; de.className = "kc-d-diff " + (df > 0 ? "kc-d-plus" : df < 0 ? "kc-d-minus" : "kc-d-zero"); }
+      try {
+        await fetch("/api/calls/apo-goals-month", {
+          method: "PUT", headers: { "content-type": "application/json" },
+          body: JSON.stringify({ subject, month: d.periodKey, metric: "アポ", value: goal }),
+        });
+        if (typeof _statsGoals === "object") for (const k in _statsGoals) delete _statsGoals[k];
+      } catch (err) { inp.style.borderColor = "#e24b4a"; }
+    });
+  });
   box.querySelectorAll(".kc-dcard").forEach((card) => card.addEventListener("click", () =>
     openDashDetail(card.dataset.subj, card.dataset.label)));
 }
@@ -1639,68 +1665,37 @@ function renderStats(d) {
   const rg = $("stRange");
   if (rg) rg.textContent = 区切り.length ? `${区切り[0]["名前"]} 〜 ${区切り[区切り.length - 1]["名前"]}` : "";
 
-  const いま = (c) => (c && c.key === 今 ? " kc-g-now" : "");
-  const 頭 = `<tr><th class="kc-g-name">　</th>` +
-    区切り.map((c) => `<th class="kc-g-h${いま(c)}"><div>${esc(c["名前"])}</div>` +
-      (c["曜日"] ? `<div class="kc-g-w">${esc(c["曜日"])}</div>` : "") + `</th>`).join("") +
-    `<th class="kc-g-h kc-g-tot">合計</th></tr>`;
   const chev = '<svg viewBox="0 0 20 20" width="13" height="13" aria-hidden="true"><path d="M6 8l4 4 4-4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>';
-  const pct = (a, b) => (b ? (a / b * 100).toFixed(1) + "%" : "—");
 
-  // 1つの表（コール/接触/アポ内外＋率）。head=false のときは日付見出しを出さない（大カード内の2人目以降用）。
-  const 表 = (名前, 値0, cls, opt, subjKey) => {
-    const o = opt || {};
-    const 値 = 値0.map((v) => ({ コール: v.コール || 0, 接触: v.接触 || 0, アポ内: v.アポ内 || 0, アポ外: v.アポ外 || 0, アポ: (v.アポ内 || 0) + (v.アポ外 || 0) }));
-    const 計 = (key) => 値.reduce((a, v) => a + (v[key] || 0), 0);
-    const 行 = (lb, key, rcls) =>
-      `<tr class="${rcls || ""}"><td class="kc-g-name">${esc(lb)}</td>` +
-      値.map((v, i) => `<td class="kc-g-n${いま(区切り[i])}">${v[key] || 0}</td>`).join("") +
-      `<td class="kc-g-n kc-g-tot">${計(key)}</td></tr>`;
-    const 率行 = (lb, an, bn, top) =>
-      `<tr class="kc-g-rate${top ? " kc-g-rate-top" : ""}"><td class="kc-g-name">${esc(lb)}</td>` +
-      値.map((v, i) => `<td class="kc-g-n${いま(区切り[i])}">${pct(v[an] || 0, v[bn] || 0)}</td>`).join("") +
-      `<td class="kc-g-n kc-g-tot">${pct(計(an), 計(bn))}</td></tr>`;
-    // アポ目標の入力・表示は、カードを開いた内訳モーダル（日次）で行う。
-    let 目標行 = "";
-    const tc = 計("コール");
-    const sum = `コール ${tc}｜接触率 ${pct(計("接触"), tc)}｜アポ率 ${pct(計("アポ"), tc)}`;
-    const table = `<table class="sh-table kc-grid">
-        ${o.head === false ? "" : 頭}
-        ${目標行}
-        ${行("コール", "コール")}
-        ${行("接触", "接触")}
-        ${行("アポ（期間内）", "アポ内", "kc-g-apo")}
-        ${行("アポ（期間外）", "アポ外")}
-        ${率行("コール→接触率", "接触", "コール", true)}
-        ${率行("接触→アポ率", "アポ", "接触")}
-        ${率行("コール→アポ率", "アポ", "コール")}
-      </table>`;
-    return `<div class="kc-g-block${cls || ""}${o.collapsed ? " kc-g-collapsed" : ""}">
-      <button type="button" class="kc-g-title" aria-expanded="${o.collapsed ? "false" : "true"}">
-        <span class="kc-g-chev">${chev}</span>
-        <span class="kc-g-tname">${esc(名前)}</span>
-        <span class="kc-g-tsum">${sum}</span>
+  // モーダルと同じ内容（日付ごとに 目標|実績、行はコール/接触/アポ/3率）を、各対象で描く。
+  const SALES_NAMES = ["田中欽也"], EXCLUDE_NAMES = ["中澤", "浦林", "森田", "笹原"];
+  const nameHas = (n, ts) => ts.some((t) => String(n || "").includes(t));
+  const withRole = members.filter((m) => !nameHas(m.誰, EXCLUDE_NAMES))
+    .map((m) => ({ email: String(m.email || m.誰).toLowerCase(), role: nameHas(m.誰, SALES_NAMES) ? "sales" : m.role, 誰: m.誰, 値: m.値 }));
+  const teamEmails = (team) => team === "group" ? withRole.map((x) => x.email) : withRole.filter((x) => x.role === team).map((x) => x.email);
+  const block = (title, vals, subject, isTeam, emails, collapsed) =>
+    `<div class="kc-g-block${isTeam ? " kc-g-team" : " kc-mem"}${collapsed ? " kc-g-collapsed" : ""}">
+      <button type="button" class="kc-g-title" aria-expanded="${collapsed ? "false" : "true"}">
+        <span class="kc-g-chev">${chev}</span><span class="kc-g-tname">${esc(title)}</span>
       </button>
-      <div class="kc-g-body">${table}</div>
+      <div class="kc-g-body">${ddTable(区切り, vals || [], 今, subject, isTeam, emails, goals, statsPeriod)}</div>
     </div>`;
-  };
 
   if (statsScope === "all") {
     box.innerHTML =
-      表("グループ全体", totals.group || [], " kc-g-team", {}, "group") +
-      表("セールス全体", totals.sales || [], " kc-g-team", {}, "sales") +
-      表("インサイド全体", totals.inside || [], " kc-g-team", {}, "inside") +
+      block("グループ全体", totals.group, "group", true, teamEmails("group")) +
+      block("セールス全体", totals.sales, "sales", true, teamEmails("sales")) +
+      block("インサイド全体", totals.inside, "inside", true, teamEmails("inside")) +
       (d.sfError ? `<div class="note">${esc(d.sfError)}</div>` : "");
   } else {
-    // 案A：セールスの大カード／インサイドの大カード。各カードの中に、合計＋各メンバーの表を並べる。
-    const has = (x) => x["値"].some((v) => v.コール || v.接触 || v.アポ内 || v.アポ外);
-    const sales = members.filter((x) => x.role === "sales");
-    const inside = members.filter((x) => x.role === "inside");
+    const has = (x) => (x["値"] || []).some((v) => v.コール || v.接触 || v.アポ内 || v.アポ外);
+    const sales = withRole.filter((x) => x.role === "sales");
+    const inside = withRole.filter((x) => x.role === "inside");
     const 大カード = (title, arr, 合計値, teamKey) => {
       if (!arr.length) return "";
       const ある = arr.filter(has), ない = arr.filter((x) => !has(x));
-      const inner = 表("＜チーム合計＞", 合計値 || [], " kc-g-team", {}, teamKey) +
-        ある.map((x) => 表(x["誰"], x["値"], " kc-mem", { collapsed: true }, String(x.email || x["誰"]).toLowerCase())).join("");
+      const inner = block("＜チーム合計＞", 合計値, teamKey, true, arr.map((x) => x.email)) +
+        ある.map((x) => block(x["誰"], x["値"], x.email, false, [x.email], true)).join("");
       return `<div class="kc-bigcard">
         <div class="kc-bigcard-h">${esc(title)}<span class="kc-bigcard-c">${arr.length}名</span></div>
         <div class="kc-bigcard-body">${inner}</div>
@@ -1714,6 +1709,11 @@ function renderStats(d) {
       `</div>` +
       (d.sfError ? `<div class="note">${esc(d.sfError)}</div>` : "");
   }
+  // 目標入力（個人・日次）の保存
+  box.querySelectorAll(".kc-g-body").forEach((bd) => {
+    const inp0 = bd.querySelector(".kc-goal-cell");
+    if (inp0) bindGoalInputs(bd, inp0.dataset.subj, () => loadStats(true));
+  });
 }
 
 // ───────── プロセス（クローザー×月／全体×週） ─────────
