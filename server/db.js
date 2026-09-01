@@ -2683,6 +2683,20 @@ export async function setApoGoal(subject, period, periodKey, goal) {
   } catch (e) { console.error("[db] setApoGoal", e.message); return false; }
 }
 
+// 日次目標を期間で取る。返り値 { subject: { "YYYY-MM-DD": goal } }。
+// 週次・月次はこれを日付で合計して表示する（目標の入力は日次だけ）。
+export async function getApoGoalsInRange(from, to) {
+  if (!pool || !from || !to) return {};
+  try {
+    const { rows } = await pool.query(
+      `SELECT subject, period_key, goal FROM apo_goals
+        WHERE period='day' AND period_key BETWEEN $1 AND $2`, [from, to]);
+    const out = {};
+    for (const r of rows) { (out[r.subject] = out[r.subject] || {})[r.period_key] = Number(r.goal) || 0; }
+    return out;
+  } catch (e) { console.error("[db] getApoGoalsInRange", e.message); return {}; }
+}
+
 // 会社名から既存dealを探す（正規化キー一致）。無ければ作成。
 export async function resolveDeal({ companyName, owner, team, firstMeetingDate }) {
   if (!pool) return null;

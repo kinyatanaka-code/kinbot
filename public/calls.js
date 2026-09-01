@@ -1445,18 +1445,17 @@ function openEdit(id) {
   });
 }
 
-// ───────── ダッシュボード（アポの目標・実績・差分） ─────────
-let dashPeriod = "month";   // day / week / month
+// ───────── ダッシュボード（アポの目標・実績・差分／月次のみ） ─────────
 let _dashData = null;
 async function loadDash() {
   const box = $("clDash");
   if (!box) return;
   box.innerHTML = `<div class="note">読み込んでいます…</div>`;
   try {
-    const d = await (await fetch(`/api/calls/apo-dashboard?period=${encodeURIComponent(dashPeriod)}`)).json();
+    const d = await (await fetch(`/api/calls/apo-dashboard`)).json();
     if (d.error) throw new Error(d.error);
     _dashData = d;
-    const rg = $("dashRange"); if (rg) rg.textContent = d.periodLabel ? `対象：${d.periodLabel}` : "";
+    const rg = $("dashRange"); if (rg) rg.textContent = d.periodLabel ? `対象：${d.periodLabel}（月次）` : "";
     renderDash(d);
   } catch (e) { box.innerHTML = `<div class="note">読み込めませんでした：${esc(e.message)}</div>`; }
 }
@@ -1464,14 +1463,10 @@ function dashCard(c, big) {
   const diff = c.diff;
   const dcls = diff > 0 ? "kc-d-plus" : diff < 0 ? "kc-d-minus" : "kc-d-zero";
   const dtxt = diff > 0 ? `+${diff}` : `${diff}`;
-  const canEdit = iAmRedistributor;
-  const goalCell = canEdit
-    ? `<input type="number" class="kc-goal" data-subj="${esc(c.key)}" value="${c.goal}" min="0" />`
-    : `<span class="kc-d-num">${c.goal}</span>`;
   return `<div class="kc-dcard${big ? " kc-dcard-big" : ""}" data-subj="${esc(c.key)}" data-label="${esc(c.label)}">
     <div class="kc-dname">${esc(c.label)}</div>
     <div class="kc-drow">
-      <div class="kc-dcol"><div class="kc-dlb">目標</div>${goalCell}</div>
+      <div class="kc-dcol"><div class="kc-dlb">目標</div><div class="kc-d-num">${c.goal}</div></div>
       <div class="kc-dcol"><div class="kc-dlb">アポ実績</div><div class="kc-d-act">${c.actual}</div></div>
       <div class="kc-dcol"><div class="kc-dlb">差分</div><div class="kc-d-diff ${dcls}">${dtxt}</div></div>
     </div>
@@ -1486,22 +1481,7 @@ function renderDash(d) {
     `<div class="kc-dgrid kc-dteams">${teams}</div>` +
     (sales ? `<div class="kc-dsub">セールス</div><div class="kc-dgrid">${sales}</div>` : "") +
     (inside ? `<div class="kc-dsub">インサイド</div><div class="kc-dgrid">${inside}</div>` : "") +
-    `<p class="note" style="margin-top:10px">目標は手入力（この期間ぶん）。差分は 実績−目標。カードをクリックすると内訳が出ます。</p>`;
-  // 目標の保存（入力を離れたとき）
-  box.querySelectorAll(".kc-goal").forEach((inp) => {
-    inp.addEventListener("click", (e) => e.stopPropagation());
-    inp.addEventListener("change", async () => {
-      const subject = inp.dataset.subj;
-      try {
-        await fetch("/api/calls/apo-goals", {
-          method: "PUT", headers: { "content-type": "application/json" },
-          body: JSON.stringify({ subject, period: d.period, periodKey: d.periodKey, value: Number(inp.value) || 0 }),
-        });
-        loadDash();   // 差分を再計算
-      } catch (e) { alert("目標を保存できませんでした：" + e.message); }
-    });
-  });
-  // カードクリックで、その対象の内訳（日次/週次/月次で見られる）モーダル
+    `<p class="note" style="margin-top:10px">目標は日次で入力（実績タブ、またはカードを開いた内訳の日次）。月次目標＝その月の日次目標の合計。差分は 実績−目標。カードをクリックすると内訳が出ます。</p>`;
   box.querySelectorAll(".kc-dcard").forEach((card) => card.addEventListener("click", () =>
     openDashDetail(card.dataset.subj, card.dataset.label)));
 }
@@ -1520,11 +1500,20 @@ async function openDashDetail(subject, label) {
     try {
       const d = await (await fetch(`/api/calls/stats-grid?period=${encodeURIComponent(p)}`)).json();
       if (d.error) throw new Error(d.error);
-      // 対象の値配列を取り出す
       let vals = null;
       if (subject === "group" || subject === "sales" || subject === "inside") vals = (d.totals || {})[subject];
       else { const mm = (d.members || []).find((x) => String(x.email || x.誰).toLowerCase() === subject); vals = mm && mm.値; }
-      body.innerHTML = vals ? dashDetailTable(d.区切り || [], vals, d.今) : `<div class="note">この対象のデータがありません。</div>`;
+      const cols = d.区切り || [];
+      // 目標（日次）を範囲で取得して、バケットごとに合計する
+      let dailyGoals = {};
+      if (cols.length) {
+        try {
+          const g = await (await fetch(`/api/calls/apo-goals-range?from=${encodeURIComponent(cols[0].from)}&to=${encodeURIComponent(cols[cols.length - 1].to)}`)).json();
+          dailyGoals = (g.goals && g.goals[subject]) || {};
+        } catch {}
+      }
+      body.innerHTML = vals ? dashDetailTable(cols, vals, d.今, subject, dailyGoals, p, body) : `<div class="note">この対象のデータがありません。</div>`;
+      bindGoalInputs(body, subject, load);
     } catch (e) { body.innerHTML = `<div class="note">読み込めませんでした：${esc(e.message)}</div>`; }
   };
   m.el.querySelectorAll("#ddPeriod .kc-ptab").forEach((b) => b.addEventListener("click", () => {
@@ -1532,7 +1521,13 @@ async function openDashDetail(subject, label) {
   }));
   load();
 }
-function dashDetailTable(cols, vals, now) {
+// バケット[from,to]の日次目標合計
+function sumGoals(dailyGoals, from, to) {
+  let s = 0;
+  for (const [d, v] of Object.entries(dailyGoals || {})) if (d >= from && d <= to) s += Number(v) || 0;
+  return s;
+}
+function dashDetailTable(cols, vals, now, subject, dailyGoals, period, body) {
   const V = vals.map((v) => ({ コール: v.コール || 0, 接触: v.接触 || 0, アポ: (v.アポ内 || 0) + (v.アポ外 || 0) }));
   const sum = (k) => V.reduce((a, v) => a + v[k], 0);
   const pct = (a, b) => (b ? (a / b * 100).toFixed(1) + "%" : "—");
@@ -1540,13 +1535,39 @@ function dashDetailTable(cols, vals, now) {
   const head = `<tr><th class="kc-g-name">　</th>${cols.map((c) => `<th class="kc-g-h${nowCls(c)}">${esc(c["名前"])}</th>`).join("")}<th class="kc-g-h kc-g-tot">合計</th></tr>`;
   const row = (lb, k) => `<tr><td class="kc-g-name">${lb}</td>${V.map((v, i) => `<td class="kc-g-n${nowCls(cols[i])}">${v[k]}</td>`).join("")}<td class="kc-g-n kc-g-tot">${sum(k)}</td></tr>`;
   const rate = (lb, an, bn) => `<tr class="kc-g-rate"><td class="kc-g-name">${lb}</td>${V.map((v, i) => `<td class="kc-g-n${nowCls(cols[i])}">${pct(v[an], v[bn])}</td>`).join("")}<td class="kc-g-n kc-g-tot">${pct(sum(an), sum(bn))}</td></tr>`;
-  return `<div class="kc-tablewrap"><table class="sh-table kc-grid">${head}${row("コール", "コール")}${row("接触", "接触")}${row("アポ", "アポ")}${rate("接触→アポ率", "アポ", "接触")}${rate("コール→アポ率", "アポ", "コール")}</table></div>`;
+  // 目標行：日次は入力欄、週次・月次はその期間の日次合計（読み取り）
+  const canEdit = iAmRedistributor && period === "day";
+  let goalTot = 0;
+  const goalCells = cols.map((c) => {
+    const g = period === "day" ? (Number(dailyGoals[c.key] || 0)) : sumGoals(dailyGoals, c.from, c.to);
+    goalTot += g;
+    if (canEdit) return `<td class="kc-g-n${nowCls(c)}"><input type="number" class="kc-goal kc-goal-cell" data-date="${esc(c.key)}" value="${g}" min="0" /></td>`;
+    return `<td class="kc-g-n${nowCls(c)}">${g}</td>`;
+  }).join("");
+  const goalRow = `<tr class="kc-g-goal"><td class="kc-g-name">アポ目標</td>${goalCells}<td class="kc-g-n kc-g-tot">${goalTot}</td></tr>`;
+  return `<div class="kc-tablewrap"><table class="sh-table kc-grid">${head}${goalRow}${row("アポ", "アポ")}${row("コール", "コール")}${row("接触", "接触")}${rate("接触→アポ率", "アポ", "接触")}${rate("コール→アポ率", "アポ", "コール")}</table></div>` +
+    (period !== "day" ? `<p class="note" style="margin-top:6px">目標は日次で入力します（日次タブに切り替えてください）。週次・月次は日次目標の合計です。</p>` : "");
+}
+// 目標入力欄（日次）の保存を配線
+function bindGoalInputs(scope, subject, reload) {
+  scope.querySelectorAll(".kc-goal-cell").forEach((inp) => {
+    inp.addEventListener("change", async () => {
+      try {
+        await fetch("/api/calls/apo-goals", {
+          method: "PUT", headers: { "content-type": "application/json" },
+          body: JSON.stringify({ subject, date: inp.dataset.date, value: Number(inp.value) || 0 }),
+        });
+        if (typeof loadDash === "function") loadDash();   // ダッシュボードの月次合計も更新
+      } catch (e) { alert("目標を保存できませんでした：" + e.message); }
+    });
+  });
 }
 
 // ───────── 実績（日・週・月） ─────────
 let statsPeriod = "day";
 let statsScope = "all";   // all=全体（グループ/セールス/インサイド）, each=個別（案A：セールス/インサイドの大カード）
 const _statsCache = {};   // period -> data（切替を速くするためキャッシュ）
+const _statsGoals = {};   // period -> { subject: { date: goal } }（日次目標）
 
 // データ取得（ネットワーク）。キャッシュがあれば使い、無ければ取りに行く。
 async function fetchStats(force) {
@@ -1565,6 +1586,14 @@ async function loadStats(force) {
   try {
     if (force || !_statsCache[statsPeriod]) box.innerHTML = `<div class="note">読み込んでいます…</div>`;
     const d = await fetchStats(force);
+    // 日次目標を範囲で取得（目標行の表示・入力に使う）
+    try {
+      const cols = d["区切り"] || [];
+      if (cols.length && (force || !_statsGoals[statsPeriod])) {
+        const g = await (await fetch(`/api/calls/apo-goals-range?from=${encodeURIComponent(cols[0].from)}&to=${encodeURIComponent(cols[cols.length - 1].to)}`)).json();
+        _statsGoals[statsPeriod] = g.goals || {};
+      }
+    } catch {}
     renderStats(d);
   } catch (e) { box.innerHTML = `<div class="note">読み込めませんでした：${esc(e.message)}</div>`; }
 }
@@ -1577,6 +1606,7 @@ function renderStats(d) {
   const members = d.members || [];
   const totals = d.totals || { group: [], sales: [], inside: [] };
   const 今 = d["今"] || "";
+  const goals = _statsGoals[statsPeriod] || {};   // 日次目標 { subject: { date: goal } }
 
   const rg = $("stRange");
   if (rg) rg.textContent = 区切り.length ? `${区切り[0]["名前"]} 〜 ${区切り[区切り.length - 1]["名前"]}` : "";
@@ -1590,7 +1620,7 @@ function renderStats(d) {
   const pct = (a, b) => (b ? (a / b * 100).toFixed(1) + "%" : "—");
 
   // 1つの表（コール/接触/アポ内外＋率）。head=false のときは日付見出しを出さない（大カード内の2人目以降用）。
-  const 表 = (名前, 値0, cls, opt) => {
+  const 表 = (名前, 値0, cls, opt, subjKey) => {
     const o = opt || {};
     const 値 = 値0.map((v) => ({ コール: v.コール || 0, 接触: v.接触 || 0, アポ内: v.アポ内 || 0, アポ外: v.アポ外 || 0, アポ: (v.アポ内 || 0) + (v.アポ外 || 0) }));
     const 計 = (key) => 値.reduce((a, v) => a + (v[key] || 0), 0);
@@ -1602,10 +1632,23 @@ function renderStats(d) {
       `<tr class="kc-g-rate${top ? " kc-g-rate-top" : ""}"><td class="kc-g-name">${esc(lb)}</td>` +
       値.map((v, i) => `<td class="kc-g-n${いま(区切り[i])}">${pct(v[an] || 0, v[bn] || 0)}</td>`).join("") +
       `<td class="kc-g-n kc-g-tot">${pct(計(an), 計(bn))}</td></tr>`;
+    // アポ目標の行（subjKeyがあるとき）：日次は入力欄、週次・月次はその期間の日次合計（読み取り）
+    let 目標行 = "";
+    if (subjKey) {
+      const dg = goals[subjKey] || {};
+      const g1 = (c) => (statsPeriod === "day" ? (Number(dg[c.key] || 0)) : sumGoals(dg, c.from, c.to));
+      const editable = statsPeriod === "day" && iAmRedistributor;
+      const gtot = 区切り.reduce((a, c) => a + g1(c), 0);
+      const cells = 区切り.map((c) => editable
+        ? `<td class="kc-g-n${いま(c)}"><input type="number" class="kc-goal kc-goal-cell" data-subj="${esc(subjKey)}" data-date="${esc(c.key)}" value="${g1(c)}" min="0"/></td>`
+        : `<td class="kc-g-n${いま(c)}">${g1(c)}</td>`).join("");
+      目標行 = `<tr class="kc-g-goal"><td class="kc-g-name">アポ目標</td>${cells}<td class="kc-g-n kc-g-tot">${gtot}</td></tr>`;
+    }
     const tc = 計("コール");
     const sum = `コール ${tc}｜接触率 ${pct(計("接触"), tc)}｜アポ率 ${pct(計("アポ"), tc)}`;
     const table = `<table class="sh-table kc-grid">
         ${o.head === false ? "" : 頭}
+        ${目標行}
         ${行("コール", "コール")}
         ${行("接触", "接触")}
         ${行("アポ（期間内）", "アポ内", "kc-g-apo")}
@@ -1626,20 +1669,20 @@ function renderStats(d) {
 
   if (statsScope === "all") {
     box.innerHTML =
-      表("グループ全体", totals.group || [], " kc-g-team") +
-      表("セールス全体", totals.sales || [], " kc-g-team") +
-      表("インサイド全体", totals.inside || [], " kc-g-team") +
+      表("グループ全体", totals.group || [], " kc-g-team", {}, "group") +
+      表("セールス全体", totals.sales || [], " kc-g-team", {}, "sales") +
+      表("インサイド全体", totals.inside || [], " kc-g-team", {}, "inside") +
       (d.sfError ? `<div class="note">${esc(d.sfError)}</div>` : "");
   } else {
     // 案A：セールスの大カード／インサイドの大カード。各カードの中に、合計＋各メンバーの表を並べる。
     const has = (x) => x["値"].some((v) => v.コール || v.接触 || v.アポ内 || v.アポ外);
     const sales = members.filter((x) => x.role === "sales");
     const inside = members.filter((x) => x.role === "inside");
-    const 大カード = (title, arr, 合計値) => {
+    const 大カード = (title, arr, 合計値, teamKey) => {
       if (!arr.length) return "";
       const ある = arr.filter(has), ない = arr.filter((x) => !has(x));
-      const inner = 表("＜チーム合計＞", 合計値 || [], " kc-g-team") +
-        ある.map((x) => 表(x["誰"], x["値"], " kc-mem", { collapsed: true })).join("");
+      const inner = 表("＜チーム合計＞", 合計値 || [], " kc-g-team", {}, teamKey) +
+        ある.map((x) => 表(x["誰"], x["値"], " kc-mem", { collapsed: true }, String(x.email || x["誰"]).toLowerCase())).join("");
       return `<div class="kc-bigcard">
         <div class="kc-bigcard-h">${esc(title)}<span class="kc-bigcard-c">${arr.length}名</span></div>
         <div class="kc-bigcard-body">${inner}</div>
@@ -1648,11 +1691,23 @@ function renderStats(d) {
     };
     box.innerHTML =
       `<div class="kc-bigwrap">` +
-        大カード("セールス", sales, totals.sales) +
-        大カード("インサイド", inside, totals.inside) +
+        大カード("セールス", sales, totals.sales, "sales") +
+        大カード("インサイド", inside, totals.inside, "inside") +
       `</div>` +
       (d.sfError ? `<div class="note">${esc(d.sfError)}</div>` : "");
   }
+  // 目標入力（日次のみ）の保存
+  box.querySelectorAll(".kc-goal-cell").forEach((inp) => {
+    inp.addEventListener("change", async () => {
+      try {
+        await fetch("/api/calls/apo-goals", {
+          method: "PUT", headers: { "content-type": "application/json" },
+          body: JSON.stringify({ subject: inp.dataset.subj, date: inp.dataset.date, value: Number(inp.value) || 0 }),
+        });
+        loadStats(true);   // 合計を更新
+      } catch (e) { alert("目標を保存できませんでした：" + e.message); }
+    });
+  });
 }
 
 // ───────── プロセス（クローザー×月／全体×週） ─────────
@@ -2148,15 +2203,6 @@ if ($("stTop")) {
       else loadStats();
     }));
 }
-if ($("dashPeriod")) {
-  $("dashPeriod").querySelectorAll(".kc-ptab").forEach((b) =>
-    b.addEventListener("click", () => {
-      dashPeriod = b.dataset.dp || "month";
-      $("dashPeriod").querySelectorAll(".kc-ptab").forEach((x) => x.classList.toggle("active", x === b));
-      loadDash();
-    }));
-}
-
 if ($("stScope")) {
   $("stScope").querySelectorAll(".kc-ptab").forEach((b) =>
     b.addEventListener("click", () => {

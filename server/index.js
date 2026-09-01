@@ -222,6 +222,7 @@ import {
   getRecruitByCompanies,
   recruitInfoCount,
   getApoGoals,
+  getApoGoalsInRange,
   setApoGoal,
   leadDupInList,
   clearBadLeadsInList,
@@ -8787,26 +8788,25 @@ app.get("/api/calls/stats-grid", async (req, res) => {
   catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-// アポのダッシュボード（チーム3＋メンバー個別の、目標・実績・差分）。
-// period=day/week/month。実績は stats-grid の「今」バケットのアポ（内＋外）を使う。
+// アポのダッシュボード（月次のみ）。目標は日次目標を月内で合計したもの。
 app.get("/api/calls/apo-dashboard", async (req, res) => {
   try {
-    const period = ["day", "week", "month"].includes(String(req.query.period)) ? String(req.query.period) : "month";
+    const period = "month";   // ダッシュボードは月次だけ
     const g = await computeStatsGrid(period, req.query.span);
     const idx = (g.区切り || []).findIndex((c) => c.key === g.今);
     const i = idx >= 0 ? idx : (g.区切り || []).length - 1;
-    const goals = await getApoGoals(period, g.今 || "");
-    // ダッシュボードに出す人の調整（環境変数で上書き可）。
-    //   ・田中欽也はセールス扱い。中澤・浦林・森田・笹原はダッシュボードに出さない（コール担当でない等）。
+    const bucket = (g.区切り && g.区切り[i]) ? g.区切り[i] : null;
+    // その月に含まれる日次目標を合計して、subjectごとの月次目標にする
+    const daily = bucket ? await getApoGoalsInRange(bucket.from, bucket.to) : {};
+    const goalOf = (key) => Object.values(daily[key] || {}).reduce((a, b) => a + (Number(b) || 0), 0);
     const salesNames = String(process.env.DASH_SALES_NAMES || "田中欽也").split(",").map((s) => s.trim()).filter(Boolean);
     const excludeNames = String(process.env.DASH_EXCLUDE_NAMES || "中澤,浦林,森田,笹原").split(",").map((s) => s.trim()).filter(Boolean);
     const nameHas = (name, toks) => toks.some((t) => String(name || "").includes(t));
     const apoArr = (arr) => (arr && arr[i]) ? (Number(arr[i].アポ内 || 0) + Number(arr[i].アポ外 || 0)) : 0;
     const build = (key, label, role, actual) => {
-      const goal = Number(goals[key] || 0);
-      return { key, label, role, actual, goal, diff: actual - goal, hasGoal: goals[key] !== undefined };
+      const goal = goalOf(key);
+      return { key, label, role, actual, goal, diff: actual - goal };
     };
-    // 個別カード（除外を外し、田中はセールスに寄せる）
     const persons = (g.members || [])
       .filter((m) => !nameHas(m.誰, excludeNames))
       .map((m) => {
@@ -8815,7 +8815,6 @@ app.get("/api/calls/apo-dashboard", async (req, res) => {
       });
     const salesP = persons.filter((p) => p.role === "sales");
     const insideP = persons.filter((p) => p.role === "inside");
-    // チームの実績は、カードに出す人の合計にそろえる（除外・田中の付け替えを反映）
     const sum = (arr) => arr.reduce((a, p) => a + p.actual, 0);
     const teams = [
       build("group", "グループ（全体）", "team", sum(persons)),
@@ -8824,24 +8823,31 @@ app.get("/api/calls/apo-dashboard", async (req, res) => {
     ];
     res.json({
       ok: true, period, periodKey: g.今 || "",
-      periodLabel: (g.区切り && g.区切り[i]) ? g.区切り[i].名前 : "",
-      teams,
-      sales: salesP,
-      inside: insideP,
+      periodLabel: bucket ? bucket.名前 : "",
+      teams, sales: salesP, inside: insideP,
     });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-// アポ目標の保存（手入力）。subject＝group/sales/inside またはメンバーのメール。
+// 日次目標を期間で取る（実績グリッド・モーダルの目標行が、日次入力＋週月合計を出すため）
+app.get("/api/calls/apo-goals-range", async (req, res) => {
+  try {
+    const from = String(req.query.from || "").slice(0, 10);
+    const to = String(req.query.to || "").slice(0, 10);
+    if (!from || !to) return res.status(400).json({ error: "from/to が必要です" });
+    res.json({ ok: true, goals: await getApoGoalsInRange(from, to) });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// アポ目標の保存（日次のみ手入力）。subject＝group/sales/inside またはメンバーのメール、date＝YYYY-MM-DD。
 app.put("/api/calls/apo-goals", async (req, res) => {
   try {
     if (!(await canRedistribute(req))) return res.status(403).json({ error: "クローザー・インサイド・管理者だけが使えます" });
     const b = req.body || {};
     const subject = String(b.subject || "").trim().toLowerCase();
-    const period = ["day", "week", "month"].includes(String(b.period)) ? String(b.period) : "";
-    const periodKey = String(b.periodKey || "").trim();
-    if (!subject || !period || !periodKey) return res.status(400).json({ error: "subject/period/periodKey が必要です" });
-    await setApoGoal(subject, period, periodKey, b.value);
+    const date = String(b.date || b.periodKey || "").slice(0, 10);
+    if (!subject || !/^\d{4}-\d{2}-\d{2}$/.test(date)) return res.status(400).json({ error: "subject と date（YYYY-MM-DD）が必要です" });
+    await setApoGoal(subject, "day", date, b.value);
     res.json({ ok: true });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
@@ -17103,7 +17109,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-04ax ダッシュボード調整（田中さん）：田中欽也はセールス扱い、中澤・浦林・森田・笹原はダッシュボードに出さない、個別カードは全員同じ大きさで左詰め表示。apo-dashboardで DASH_SALES_NAMES(既定 田中欽也)/DASH_EXCLUDE_NAMES(既定 中澤,浦林,森田,笹原) により付け替え・除外し、チーム実績はカードに出す人の合計で再集計。CSSでカードを固定幅(個別168px/チーム224px)に。前回(aw)：ダッシュボード実装。";
+const BUILD_TAG = "2026-09-04ay ダッシュボード/目標の仕様変更（田中さん）：目標は日次だけ手入力、週次・月次は日次の合計を表示。ダッシュボードは月次のみ（トグル廃止・カードの目標は月内日次合計の読み取り）。実績タブの各表に『アポ目標』行を追加（日次＝入力欄、週次/月次＝合計の読み取り）。ダッシュボードのモーダル（日/週/月）でも日次目標を編集可・週月は合計表示。apo_goalsは period=day のみ運用。GET /api/calls/apo-goals-range(from,to)、PUT /api/calls/apo-goals{subject,date,value}、apo-dashboardは月次固定で月内日次合計を目標に。前回(ax)：田中セールス・除外・カード統一。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
