@@ -1463,8 +1463,8 @@ function dashCard(c, big) {
   const diff = c.diff;
   const dcls = diff > 0 ? "kc-d-plus" : diff < 0 ? "kc-d-minus" : "kc-d-zero";
   const dtxt = diff > 0 ? `+${diff}` : `${diff}`;
-  // チームは目標入力不可（メンバー合計）。個人は月次目標を直接編集（その月の平日に配分）。
-  const editable = c.role !== "team" && iAmRedistributor;
+  // ダッシュボードでは、チームも個人も目標を直接（月次）変更できる。
+  const editable = iAmRedistributor;
   const goalCell = editable
     ? `<input type="number" class="kc-goal kc-dgoal" data-subj="${esc(c.key)}" value="${c.goal}" min="0" />`
     : `<div class="kc-d-act">${c.goal}</div>`;
@@ -1486,7 +1486,7 @@ function renderDash(d) {
     `<div class="kc-dgrid kc-dteams">${teams}</div>` +
     (sales ? `<div class="kc-dsub">セールス</div><div class="kc-dgrid">${sales}</div>` : "") +
     (inside ? `<div class="kc-dsub">インサイド</div><div class="kc-dgrid">${inside}</div>` : "") +
-    `<p class="note" style="margin-top:10px">目標はここで直接（月次）変更できます（入力するとその月の平日に配分されます）。グループ・セールス・インサイドはメンバーの合計です。差分は 実績−目標。カードをクリックすると内訳（日次）が出ます。</p>`;
+    `<p class="note" style="margin-top:10px">目標はここで直接（月次）変更できます（入力するとその月の平日に配分されます）。グループ・セールス・インサイドも手動で設定でき、実績はメンバーの合計です。差分は 実績−目標。カードをクリックすると内訳（日次）が出ます。</p>`;
   // 目標の直接編集（月次→平日に配分）。入力欄クリックはカードの内訳を開かないように。
   box.querySelectorAll(".kc-dgoal").forEach((inp) => {
     inp.addEventListener("click", (e) => e.stopPropagation());
@@ -1532,17 +1532,10 @@ async function openDashDetail(subject, label) {
       const cols = d.区切り || [];
       const members = d.members || [];
       // 対象の実績（バケットごとのコール/接触/アポ）
-      let vals = null, memberEmails = [];
-      if (isTeam) {
-        vals = (d.totals || {})[subject];
-        const inc = members.filter((mm) => !nameHas(mm.誰, EXCLUDE_NAMES))
-          .map((mm) => ({ email: String(mm.email || mm.誰).toLowerCase(), role: nameHas(mm.誰, SALES_NAMES) ? "sales" : mm.role }));
-        memberEmails = subject === "group" ? inc.map((x) => x.email) : inc.filter((x) => x.role === subject).map((x) => x.email);
-      } else {
-        const mm = members.find((x) => String(x.email || x.誰).toLowerCase() === subject);
-        vals = mm && mm.値;
-        memberEmails = [subject];
-      }
+      let vals = null;
+      if (isTeam) { vals = (d.totals || {})[subject]; }
+      else { const mm = members.find((x) => String(x.email || x.誰).toLowerCase() === subject); vals = mm && mm.値; }
+      const memberEmails = [subject];   // 目標は本人／チーム自身の目標（subject）で見る
       // 日次目標（範囲）
       let dg = {};
       if (cols.length) {
@@ -1599,7 +1592,7 @@ function ddTable(cols, vals, now, subject, isTeam, emails, dg, period) {
     ${cntRow("コール", "コール")}${cntRow("接触", "接触")}${cntRow("アポ", "アポ")}
     ${rateRow("コール→接触率", "接触", "コール")}${rateRow("接触→アポ率", "アポ", "接触")}${rateRow("コール→アポ率", "アポ", "コール")}</table>`;
   return `<div class="kc-tablewrap">${table}</div>` +
-    (isTeam ? `<p class="note" style="margin-top:6px">グループ・セールス・インサイドは、メンバーの合計です（目標は各メンバーで入力）。</p>`
+    (isTeam ? `<p class="note" style="margin-top:6px">実績はメンバーの合計です。目標はダッシュボードで設定します。</p>`
       : (period !== "day" ? `<p class="note" style="margin-top:6px">目標の入力は日次だけです。週次・月次は日次の合計です。</p>` : ""));
 }
 // 目標入力欄（日次）の保存を配線（項目つき・入力ごとに再読み込みしない）
@@ -1683,9 +1676,9 @@ function renderStats(d) {
 
   if (statsScope === "all") {
     box.innerHTML =
-      block("グループ全体", totals.group, "group", true, teamEmails("group")) +
-      block("セールス全体", totals.sales, "sales", true, teamEmails("sales")) +
-      block("インサイド全体", totals.inside, "inside", true, teamEmails("inside")) +
+      block("グループ全体", totals.group, "group", true, ["group"]) +
+      block("セールス全体", totals.sales, "sales", true, ["sales"]) +
+      block("インサイド全体", totals.inside, "inside", true, ["inside"]) +
       (d.sfError ? `<div class="note">${esc(d.sfError)}</div>` : "");
   } else {
     const has = (x) => (x["値"] || []).some((v) => v.コール || v.接触 || v.アポ内 || v.アポ外);
@@ -1694,7 +1687,7 @@ function renderStats(d) {
     const 大カード = (title, arr, 合計値, teamKey) => {
       if (!arr.length) return "";
       const ある = arr.filter(has), ない = arr.filter((x) => !has(x));
-      const inner = block("＜チーム合計＞", 合計値, teamKey, true, arr.map((x) => x.email)) +
+      const inner = block("＜チーム合計＞", 合計値, teamKey, true, [teamKey]) +
         ある.map((x) => block(x["誰"], x["値"], x.email, false, [x.email], true)).join("");
       return `<div class="kc-bigcard">
         <div class="kc-bigcard-h">${esc(title)}<span class="kc-bigcard-c">${arr.length}名</span></div>

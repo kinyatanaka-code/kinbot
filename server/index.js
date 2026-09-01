@@ -8816,10 +8816,9 @@ app.get("/api/calls/apo-dashboard", async (req, res) => {
       });
     const salesP = persons.filter((p) => p.role === "sales");
     const insideP = persons.filter((p) => p.role === "inside");
-    // チームは入力しない：実績も目標も、カードに出すメンバーの合計にする
+    // チーム：目標はそのチーム自身の手入力（apoGoalOf(teamKey)）、実績はメンバー合計。
     const sumA = (arr) => arr.reduce((a, p) => a + p.actual, 0);
-    const sumG = (arr) => arr.reduce((a, p) => a + p.goal, 0);
-    const team = (key, label, arr) => ({ key, label, role: "team", actual: sumA(arr), goal: sumG(arr), diff: sumA(arr) - sumG(arr) });
+    const team = (key, label, arr) => { const actual = sumA(arr), goal = apoGoalOf(key); return { key, label, role: "team", actual, goal, diff: actual - goal }; };
     const teams = [
       team("group", "グループ（全体）", persons),
       team("sales", "セールス", salesP),
@@ -8868,7 +8867,6 @@ app.put("/api/calls/apo-goals-month", async (req, res) => {
     const month = String(b.month || "").slice(0, 7);   // YYYY-MM
     const metric = ["コール", "接触", "アポ"].includes(String(b.metric)) ? String(b.metric) : "アポ";
     const value = Math.max(0, parseInt(b.value, 10) || 0);
-    if (["group", "sales", "inside"].includes(subject)) return res.status(400).json({ error: "チームの目標は入力できません（メンバーの合計です）" });
     if (!subject || !/^\d{4}-\d{2}$/.test(month)) return res.status(400).json({ error: "subject と month（YYYY-MM）が必要です" });
     const [y, mo] = month.split("-").map((x) => parseInt(x, 10));
     const last = new Date(Date.UTC(y, mo, 0)).getUTCDate();
@@ -17146,7 +17144,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-04bc ダッシュボード/実績の目標まわり調整（田中さん）：(1)ダッシュボードのカードで目標を直接変更可（個人＝月次入力→その月の平日に日次目標として均等配分。チームはメンバー合計で入力不可）。(2)モーダルの週次/月次は日次目標の合計（実装済み）。(3)実績タブの中身をモーダルと同じddTable（日付ごとに目標|実績、行コール/接触/アポ+3率）に統一。PUT /api/calls/apo-goals-month で月次目標を平日配分。前回(bb)：会社名列の固定。";
+const BUILD_TAG = "2026-09-04bd グループ・セールス・インサイドもダッシュボードで目標を手動設定できるように（要望：田中さん）。チーム目標＝そのチーム自身の手入力（月次→平日に日次配分、subject=group/sales/inside）、実績＝メンバー合計、差分＝実績−目標。apo-goals-monthのチーム拒否を解除。モーダル/実績のチームも目標はチーム自身(subject)の値を表示（実績はメンバー合計）。前回(bc)：ダッシュボード個人編集＋実績=モーダル。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
