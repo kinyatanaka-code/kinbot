@@ -371,6 +371,12 @@ function render(d) {
             </select>
             <button class="ai-q" id="aiLlmTest" type="button" title="選んだ頭脳に軽く1回だけ投げて、つながるか確かめます">接続確認</button>
           </span>
+          <span class="ceo-llm" id="aiGroqRow" hidden><span>Groqモデル</span>
+            <input id="aiGroqModel" list="aiGroqList" placeholder="例：llama-3.1-8b-instant" style="width:200px" />
+            <datalist id="aiGroqList"></datalist>
+            <button class="ai-q" id="aiGroqList2" type="button" title="このキーで使えるモデルを取得">一覧</button>
+            <button class="ai-q" id="aiGroqSave" type="button">保存</button>
+          </span>
         </div>
         <div class="ai-ctlmsg" id="aiCtlMsg"></div>
         <div class="ai-chat mini" id="aiChat"></div>
@@ -523,7 +529,7 @@ function wire() {
   }
   // クイック指示ボタン：入力欄に入れて送る（接続確認ボタンは除く）
   document.querySelectorAll(".ai-q").forEach((b) => {
-    if (b.id === "aiLlmTest") return;
+    if (b.id === "aiLlmTest" || b.id === "aiGroqList2" || b.id === "aiGroqSave") return;
     b.addEventListener("click", () => {
       const inp = $("aiTaskInput"); if (inp) { inp.value = b.dataset.q || ""; }
       send();
@@ -544,6 +550,38 @@ function wire() {
         ? `${name} につながりました（${d.ms}ms／応答：${d.reply || "OK"}）`
         : `${name} につながりません：${d.error || "不明なエラー"}`;
     } catch (e) { if (box) box.textContent = `${name} の確認に失敗：${e.message}`; }
+  });
+  // Groqを選んだときだけ「Groqモデル」の行を出す
+  const provSel = $("aiProvider"), groqRow = $("aiGroqRow");
+  const syncGroqRow = () => { if (groqRow) groqRow.hidden = (provSel && provSel.value) !== "groq"; };
+  if (provSel) { provSel.addEventListener("change", syncGroqRow); syncGroqRow(); }
+  // 現在のGroqモデルを表示
+  fetch("/api/ai/llm-status").then((r) => r.json()).then((d) => {
+    if (d && d.groqModel && $("aiGroqModel")) $("aiGroqModel").value = d.groqModel;
+  }).catch(() => {});
+  // 使えるモデルの一覧を取得してdatalistに入れる
+  const gl = $("aiGroqList2");
+  if (gl) gl.addEventListener("click", async () => {
+    const box = $("aiCtlMsg"); if (box) box.textContent = "Groqのモデル一覧を取得中…";
+    try {
+      const d = await (await fetch("/api/ai/groq-models")).json();
+      if (!d.ok) { if (box) box.textContent = "一覧を取れません：" + (d.error || ""); return; }
+      const dl = $("aiGroqList");
+      if (dl) dl.innerHTML = (d.models || []).map((m) => `<option value="${m}"></option>`).join("");
+      if (box) box.textContent = `使えるモデル ${(d.models || []).length}件（入力欄の候補から選べます）`;
+    } catch (e) { if (box) box.textContent = "一覧の取得に失敗：" + e.message; }
+  });
+  // Groqモデルを保存
+  const gs = $("aiGroqSave");
+  if (gs) gs.addEventListener("click", async () => {
+    const box = $("aiCtlMsg");
+    const model = ($("aiGroqModel") && $("aiGroqModel").value || "").trim();
+    try {
+      const d = await (await fetch("/api/ai/groq-model", {
+        method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ model }),
+      })).json();
+      if (box) box.textContent = d.ok ? `Groqモデルを「${d.model}」にしました。接続確認で試せます。` : ("保存できません：" + (d.error || ""));
+    } catch (e) { if (box) box.textContent = "保存に失敗：" + e.message; }
   });
   // 部門の「見る・操作する」で詳細を開閉
   document.querySelectorAll(".dept-btn").forEach((b) => b.addEventListener("click", () => {

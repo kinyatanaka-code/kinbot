@@ -138,7 +138,7 @@ export function analyzerInfo() {
 function modelFor() {
   if (PROVIDER === "anthropic") return process.env.ANALYZER_MODEL || "claude-sonnet-4-6";
   if (PROVIDER === "ollama") return process.env.OLLAMA_MODEL || "qwen2.5";
-  if (PROVIDER === "groq") return process.env.GROQ_MODEL || "llama-3.3-70b-versatile";
+  if (PROVIDER === "groq") return process.env.GROQ_MODEL || "llama-3.3-70b-versatile";   // 設定はresolveGroqModelで反映
   if (PROVIDER === "openai") return process.env.OPENAI_MODEL || "gpt-4o-mini";
   return process.env.GEMINI_MODEL || "gemini-2.5-flash-lite";
 }
@@ -823,6 +823,21 @@ function fallbackProvider(current = PROVIDER) {
   return "";
 }
 
+// Groqのモデルは入れ替わりが早いので、画面から設定(groqModel)で変えられるようにする。
+// 設定 → 環境変数 GROQ_MODEL → 既定 の順。設定は少しの間だけキャッシュする。
+let _groqModelCache = { at: 0, val: "" };
+async function groqModelSetting() {
+  if (Date.now() - _groqModelCache.at < 20000) return _groqModelCache.val;
+  let val = "";
+  try { const s = await getSettings(); val = String((s && s.groqModel) || "").trim(); } catch {}
+  _groqModelCache = { at: Date.now(), val };
+  return val;
+}
+export function clearGroqModelCache() { _groqModelCache = { at: 0, val: "" }; }
+export async function resolveGroqModel(explicit) {
+  return String(explicit || "").trim() || (await groqModelSetting()) || process.env.GROQ_MODEL || "llama-3.3-70b-versatile";
+}
+
 // 他のモジュールからも同じ設定でAIを呼べるようにする（かささぎ等）
 export async function callLLMPublic(system, user, maxTokens = 800, opts = {}) {
   return callLLM(system, user, maxTokens, opts);
@@ -887,7 +902,7 @@ async function callOnce(provider, system, user, maxTokens, json = true, schema =
     return callOpenAICompat(system, user, maxTokens, {
       base: "https://api.groq.com/openai/v1",
       key: process.env.GROQ_API_KEY,
-      model: model || process.env.GROQ_MODEL || "llama-3.3-70b-versatile",
+      model: await resolveGroqModel(model),
       name: "Groq",
     }, json);
   if (provider === "openai")
