@@ -16998,7 +16998,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-04aq SF活動記録「商談から読み取る」で説明に要約が入らない件の緩和：要約(summary)が空でも、深掘り分析(analysis: recap/open_items/concerns/focus)から説明を組み立てるフォールバックを追加。要約も分析も無いときは通知を正直に（『まだ要約が無いため説明は空』）。根本は要約未生成（分析用LLMの不調＝Groq設定の可能性）。前回(ap)：田中さんを常時クローザーに。";
+const BUILD_TAG = "2026-09-04ar SF活動記録の失敗表示を改善：Salesforceの入力規則/フロー由来のエラー（FIELD_CUSTOM_VALIDATION_EXCEPTION／CANNOT_EXECUTE_FLOW_TRIGGER）を、生の長文でなく短い案内（不足項目名＋SF管理者へ確認）に整形。今回のケースは商談の入力規則『受失注理由が必須』にフロー（商談回数・更新回数）が引っかかったもので、原因はSF設定側。前回(aq)：活動記録の説明フォールバック。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
@@ -17265,8 +17265,20 @@ function sfErrorResponse(res, e) {
   const isReauth = e.sfReauth || /expired|invalid_grant/.test(msg);
   if (sessionErr || isReauth) clearSfTokenCache(); // 次回は取り直す
   const status = isReauth ? 401 : 500;
+  // Salesforce側の入力規則・フローで止まったときは、生の長文ではなく短い案内にする。
+  let friendly = "";
+  if (/FIELD_CUSTOM_VALIDATION_EXCEPTION|CANNOT_EXECUTE_FLOW_TRIGGER|VALIDATION/i.test(msg)) {
+    // 「〇〇を入力してください」の部分だけ拾う
+    const m = msg.match(/([^:「]*?)を入力してください/);
+    const 項目 = m ? m[1].replace(/["'。、\s]/g, "").slice(-30) : "";
+    const flow = /CANNOT_EXECUTE_FLOW_TRIGGER/i.test(msg) ? "（Salesforceのフローが関連レコードを更新しようとしています）" : "";
+    friendly = `Salesforceの入力規則で保存できませんでした${flow}。` +
+      (項目 ? `不足している項目：「${項目}」。` : "") +
+      `進行中の商談でこの項目が必須になっていないか、SF管理者（SDG）にご確認ください。`;
+  }
   res.status(status).json({
-    error: e.message,
+    error: friendly || e.message,
+    sfDetail: friendly ? e.message : undefined,   // 詳細は必要なときだけ
     sfReauth: isReauth,
   });
 }
