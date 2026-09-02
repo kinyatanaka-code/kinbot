@@ -327,28 +327,55 @@ export async function buildBrief({ company, meetings }) {
   };
 }
 
-// 会社の営業時間を、Web検索（Gemini grounding）で調べる。
-// Googleビジネス（Places）に載っていない会社の補完用。曜日ごとの開始・終了をJSONで返させ、
-// Placesと同じ periods 形式（day: 0=日〜6=土, hour, minute）に変換する。見つからなければ found:false。
+// 会社サイト等のHTMLを取ってきて、営業時間が載っていそうな本文テキストにする。
+async function fetchSiteText(url, { max = 6000 } = {}) {
+  try {
+    const u = String(url || "").trim();
+    if (!/^https?:\/\//i.test(u)) return "";
+    const res = await fetchWithTimeout(u, { headers: { "user-agent": "Mozilla/5.0 (kinbot)" } }, "site").catch(() => null);
+    if (!res || !res.ok) return "";
+    const html = await res.text().catch(() => "");
+    const txt = String(html)
+      .replace(/<script[\s\S]*?<\/script>/gi, " ")
+      .replace(/<style[\s\S]*?<\/style>/gi, " ")
+      .replace(/<[^>]+>/g, " ")
+      .replace(/&nbsp;|&amp;|&lt;|&gt;/g, " ")
+      .replace(/[ \t]+/g, " ")
+      .replace(/\s*\n\s*/g, "\n")
+      .trim();
+    // 「営業時間・受付時間・定休日」の周辺を優先して抜く
+    const m = txt.match(/(.{0,400}(?:営業時間|受付時間|定休日|OPEN|CLOSE|平日|土日).{0,400})/i);
+    return (m ? m[1] + "\n" : "") + txt.slice(0, max);
+  } catch { return ""; }
+}
+
+// 会社の営業時間を、複数ソース（Web検索→公式サイト読み取り）で調べる。
+// Placesに載っていない会社の補完用。曜日ごとの開始・終了をJSONで返させ、Places形式 periods に変換。
 export async function lookupBusinessHours(companyName, hint = "") {
   const name = String(companyName || "").trim();
   if (!name) return { found: false };
-  let research = "";
+  // 1) Web検索（公式サイト・Googleビジネス・iタウンページ・エキテン等を照合。公式サイトURLも返させる）
+  let research = "", site = "";
   try {
     research = await geminiGrounded(
       `「${name}」${hint ? "（" + hint + "）" : ""}の営業時間（曜日ごとの開始・終了時刻）と定休日を調べてください。` +
-      `「${name} 営業時間」で検索し、公式サイト・Googleビジネス情報・求人ページ等を照合してください。` +
-      `確認できたソースのURLを挙げ、確認できない曜日は空にしてください。憶測で作らないこと。`,
+      `「${name} 営業時間」で検索し、公式サイト・Googleビジネス情報・iタウンページ・エキテン・求人ページなど複数のソースを照合してください。` +
+      `わかれば公式サイトのURLも「公式サイト: https://...」の形で1つ挙げてください。` +
+      `確認できたソースのURLを挙げ、確認できない曜日は空に。憶測で作らないこと。`,
       ""
     );
-  } catch (e) { console.warn("[hours-lookup] grounding失敗", e.message); return { found: false }; }
-  // 研究結果から曜日ごとの時刻をJSON化する
+  } catch (e) { console.warn("[hours-lookup] grounding失敗", e.message); }
+  // 2) 公式サイトのURLがあれば本文を読んで、営業時間の根拠を補強する
+  const urlM = String(research).match(/https?:\/\/[^\s"'）)]+/);
+  if (urlM) { site = await fetchSiteText(urlM[0]).catch(() => ""); }
+  // 3) 検索結果＋サイト本文から、曜日ごとの時刻をJSON化する
   let obj = null;
   try {
-    const sys = `次のテキストから会社の営業時間を抽出し、JSONのみを返す。分からない曜日は含めない。24時間営業はopen"00:00"close"24:00"。憶測禁止。
+    const sys = `次のテキスト（Web検索結果＋公式サイト本文）から会社の営業時間を抽出し、JSONのみを返す。分からない曜日は含めない。24時間営業はopen"00:00"close"24:00"。憶測禁止。
 形式: {"found":true/false,"weekly":[{"day":"月","open":"09:00","close":"18:00"}...],"note":"定休日など","source":"確認したURL"}
-day は 日 月 火 水 木 金 土 のいずれか。時刻は "HH:MM"。営業時間がどこにも無ければ found:false。`;
-    const txt = await callLLM(sys, `テキスト:\n"""\n${String(research).slice(0, 6000)}\n"""`, 700, { json: true }).catch(() => "");
+day は 日 月 火 水 木 金 土 のいずれか。時刻は "HH:MM"。営業時間がどこにも無ければ found:false。定休日はweeklyに含めない（その曜日を書かない）。`;
+    const material = `【Web検索結果】\n${String(research).slice(0, 5000)}\n\n【公式サイト本文】\n${String(site).slice(0, 4000)}`;
+    const txt = await callLLM(sys, material, 800, { json: true }).catch(() => "");
     obj = JSON.parse(String(txt).replace(/```json|```/g, "").trim());
   } catch { obj = null; }
   if (!obj || !obj.found || !Array.isArray(obj.weekly) || !obj.weekly.length) return { found: false, note: (obj && obj.note) || "" };
