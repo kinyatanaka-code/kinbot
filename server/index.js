@@ -205,6 +205,7 @@ import {
   moveCallTargets,
   sweepStageLists,
   getCallListName,
+  recentCallLogs,
   listStageTargets,
   cleanupPhysicalStageLists,
   listTargetsNeedingSf,
@@ -8020,6 +8021,49 @@ app.get("/api/calls/_apodiag", async (req, res) => {
     const mine = target ? rows.filter((r) => nameL(r.計上先) === target || nameL(r.setter_email) === target || nameL(r.setter).includes(target) || nameL(r.獲得者kincall) === target) : rows;
     res.json({ ok: true, from, to, 件数: rows.length, 対象email: target, 対象の件数: mine.length, 対象のアポ: mine.slice(0, 60), 計上されないアポ: rows.filter((r) => !r.数える).slice(0, 30) });
   } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// kincallの架電記録・実績をAIチャットで分析する（商談分析チャットと同じ仕組み）。
+app.post("/api/calls/chat", async (req, res) => {
+  try {
+    const b = req.body || {};
+    if (!Array.isArray(b.messages) || !b.messages.length) return res.status(400).json({ error: "メッセージがありません" });
+    const now = new Date(Date.now() + 9 * 3600 * 1000);
+    const monthStart = `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, "0")}-01`;
+    const today = `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, "0")}-${String(now.getUTCDate()).padStart(2, "0")}`;
+    const from = String(b.from || monthStart).slice(0, 10);
+    const to = String(b.to || today).slice(0, 10);
+    const caller = String(b.caller || "").trim().toLowerCase();
+
+    // 実績（月次の人別コール/接触/アポ）
+    let statsText = "";
+    try {
+      const g = await computeStatsGrid("month");
+      const i = (g.区切り || []).findIndex((c) => c.key === g.今);
+      const idx = i >= 0 ? i : (g.区切り || []).length - 1;
+      const one = (arr) => arr && arr[idx] ? arr[idx] : { コール: 0, 接触: 0, アポ内: 0, アポ外: 0 };
+      const t = one((g.totals || {}).group);
+      statsText = `【今月の実績（全体）】コール ${t.コール}／接触 ${t.接触}／アポ ${t.アポ内 + t.アポ外}\n` +
+        (g.members || []).map((m) => { const v = one(m.値); return `・${m.誰}：コール ${v.コール}／接触 ${v.接触}／アポ ${v.アポ内 + v.アポ外}`; }).join("\n");
+    } catch {}
+
+    // 架電記録（会社・結果・メモ）
+    const logs = await recentCallLogs({ from, to, caller, limit: 500 }).catch(() => []);
+    const logText = logs.map((l) => {
+      const d = l.at ? new Date(l.at) : null;
+      const dt = d ? `${d.getUTCMonth() + 1}/${d.getUTCDate()}` : "";
+      return `${dt} ${l.company || ""}${l.person ? "／" + l.person : ""}｜${l.result || ""}${l.memo ? "｜メモ：" + String(l.memo).slice(0, 200) : ""}（${(l.caller || "").split("@")[0]}）`;
+    }).join("\n");
+
+    const material =
+      `期間：${from} 〜 ${to}${caller ? `／対象：${caller}` : "／対象：全員"}\n\n` +
+      statsText + "\n\n" +
+      `【架電記録（新しい順・最大500件）】\n${logText || "（記録なし）"}`;
+
+    const trimmed = b.messages.slice(-12).map((m) => ({ role: m.role === "assistant" ? "assistant" : "user", content: m.content }));
+    const reply = await chatWithData({ messages: trimmed, material: material.slice(0, 24000), web: !!b.web });
+    res.json({ ok: true, reply, 件数: logs.length });
+  } catch (e) { console.error("[calls/chat]", e.message); res.status(502).json({ error: e.message }); }
 });
 
 // 記録する（Salesforceの活動履歴と、リードの状態も更新する）
@@ -17177,7 +17221,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-04bp 中村宗太郎のアポが計上されない件の切り分け用に点検API GET /api/calls/_apodiag?email=&from=&to= を追加（期間内のアポ一覧・数える対象か・獲得者(kincall)/setter/current_owner・計上先を返す）。アポ計上ロジック自体（isApoCountableTitle=【初回/フロッグ】対応済み、獲得者→setter紐づけ）は変更なし。前回(bo)：担当者ふりがな。";
+const BUILD_TAG = "2026-09-04bq kincallにもAIチャット分析を追加（要望：田中さん）。商談分析チャット(/api/chat→chatWithData)と同じ仕組みで、架電記録・実績を材料にAIに質問できる。POST /api/calls/chat：今月の人別コール/接触/アポ(computeStatsGrid)＋recentCallLogs(会社/結果/メモ/かけた人)を材料化→chatWithDataで回答。かけるツールバーに『AIチャットで分析』ボタン＋モーダル(履歴つきチャット)。前回(bp)：アポ計上の点検API。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",

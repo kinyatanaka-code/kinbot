@@ -2418,6 +2418,10 @@ document.addEventListener("click", (ev) => {
       } catch (e) { say("clStatus", "できませんでした：" + e.message, 8000); }
     })();
   }
+  if (t.id === "clAiChat") {
+    ev.preventDefault();
+    openAiChat();
+  }
   if (t.id === "clFixLinks") {
     ev.preventDefault();
     (async () => {
@@ -2925,6 +2929,46 @@ async function asLoadMember(email, name) {
   } catch (e) {
     box.innerHTML = `<div class="note">読み込めませんでした：${esc(e.message)}</div>`;
   }
+}
+
+// 架電記録・実績をAIチャットで分析する
+function openAiChat() {
+  const inner =
+    `<p class="note" style="margin:0 0 8px">今月の架電記録と実績をAIが読んで答えます。例：「接触率が低い人と、その原因になりそうなメモの傾向は？」「お断りの多い理由は？」「アポにつながった会話の共通点は？」</p>` +
+    `<div id="aiChatLog" style="max-height:44vh;overflow:auto;border:0.5px solid #e6ece9;border-radius:10px;padding:10px;background:#fff;font-size:13px;line-height:1.7"></div>` +
+    `<div style="display:flex;gap:8px;margin-top:10px">` +
+    `<textarea id="aiChatInput" rows="2" placeholder="架電記録について質問する…" style="flex:1;resize:vertical;font-size:13px"></textarea>` +
+    `<button type="button" class="btn" id="aiChatSend">送る</button></div>`;
+  const m = openModal("AIチャットで分析（架電記録）", inner, { wide: true });
+  const log = m.el.querySelector("#aiChatLog");
+  const input = m.el.querySelector("#aiChatInput");
+  const history = [];
+  const add = (role, text) => {
+    const who = role === "user" ? "あなた" : "AI";
+    const color = role === "user" ? "#0d5b47" : "#2c3a35";
+    const div = document.createElement("div");
+    div.style.cssText = "margin:6px 0;white-space:pre-wrap";
+    div.innerHTML = `<b style="color:${color}">${who}</b>：${esc(text).replace(/\n/g, "<br>")}`;
+    log.appendChild(div); log.scrollTop = log.scrollHeight;
+    return div;
+  };
+  const send = async () => {
+    const q = input.value.trim(); if (!q) return;
+    input.value = ""; add("user", q); history.push({ role: "user", content: q });
+    const wait = add("assistant", "考えています…");
+    try {
+      const d = await (await fetch("/api/calls/chat", {
+        method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ messages: history }),
+      })).json();
+      if (!d.ok) throw new Error(d.error || "答えられませんでした");
+      wait.innerHTML = `<b style="color:#2c3a35">AI</b>：${esc(d.reply || "").replace(/\n/g, "<br>")}`;
+      history.push({ role: "assistant", content: d.reply || "" });
+    } catch (e) { wait.innerHTML = `<b style="color:#a32d2d">AI</b>：答えられませんでした（${esc(e.message)}）`; }
+    log.scrollTop = log.scrollHeight;
+  };
+  m.el.querySelector("#aiChatSend").addEventListener("click", send);
+  input.addEventListener("keydown", (e) => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) { e.preventDefault(); send(); } });
+  input.focus();
 }
 
 // アーカイブ／リサイクルのカードを押したら、「かける」に移って、そのまとめビューを開く

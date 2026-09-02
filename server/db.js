@@ -3559,6 +3559,26 @@ export async function cleanupPhysicalStageLists() {
   return { deleted, moved };
 }
 
+// 架電記録を新しい順で取る（AIチャット分析用）。会社名・結果・メモ・かけた人を含む。
+export async function recentCallLogs({ from = "", to = "", caller = "", limit = 400 } = {}) {
+  if (!pool) return [];
+  try {
+    const p = [];
+    let where = "1=1";
+    if (from) { p.push(from); where += ` AND (l.at AT TIME ZONE 'Asia/Tokyo')::date >= $${p.length}::date`; }
+    if (to) { p.push(to); where += ` AND (l.at AT TIME ZONE 'Asia/Tokyo')::date <= $${p.length}::date`; }
+    if (caller) { p.push(String(caller).toLowerCase()); where += ` AND lower(l.caller) = $${p.length}`; }
+    p.push(Math.max(1, Math.min(2000, limit)));
+    const { rows } = await pool.query(
+      `SELECT l.at, l.result, l.memo, l.caller, t.company, t.person, t.stage
+         FROM call_logs l LEFT JOIN call_targets t ON t.id = l.target_id
+        WHERE ${where}
+        ORDER BY l.at DESC
+        LIMIT $${p.length}`, p);
+    return rows;
+  } catch (e) { console.error("[db] recentCallLogs", e.message); return []; }
+}
+
 // リストの名前だけを取る（軽量）
 export async function getCallListName(listId) {
   if (!pool || !listId) return "";
