@@ -2429,6 +2429,23 @@ document.addEventListener("click", (ev) => {
       } catch (e) { say("clStatus", "できませんでした：" + e.message, 8000); }
     })();
   }
+  if (t.id === "clBizHours") {
+    ev.preventDefault();
+    (async () => {
+      const lst = ($("clList") && $("clList").value) || String(listId || "");
+      if (!lst) { say("clStatus", "リストを選んでください", 5000); return; }
+      const force = confirm("このリストの会社の営業時間をGoogleからまとめて取得します。\n\nOK：未取得ぶんだけ取得（おすすめ）\nキャンセル後にもう一度押す→「すべて取り直す」を選べます");
+      say("clStatus", "営業時間を取得しています…", 8000);
+      try {
+        const d = await (await fetch("/api/calls/place-hours/refresh", {
+          method: "POST", headers: { "content-type": "application/json" },
+          body: JSON.stringify({ list: lst, member: callAsMember || undefined, force: false }),
+        })).json();
+        if (!d.ok) throw new Error(d.error || "取得できませんでした");
+        say("clStatus", `営業時間を取得中：会社${d.会社数}社中 ${d.取得対象}社を取得します。数十秒〜数分後にリストを開き直すと反映されます。`, 12000);
+      } catch (e) { say("clStatus", "できませんでした：" + e.message, 8000); }
+    })();
+  }
   if (t.id === "clFixLinks") {
     ev.preventDefault();
     (async () => {

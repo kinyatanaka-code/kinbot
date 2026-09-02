@@ -8096,6 +8096,28 @@ async function fetchPlaceHoursBatch(companies, items = []) {
   }
 }
 
+// 営業時間の一括取得：表示中のリスト（またはメンバーの全リード）の会社を、まとめてGoogleから取ってキャッシュする。
+app.post("/api/calls/place-hours/refresh", async (req, res) => {
+  try {
+    if (!placesEnabled()) return res.status(400).json({ error: "Google PlacesのAPIキーが設定されていません（GOOGLE_PLACES_API_KEY）" });
+    const b = req.body || {};
+    const listParam = String(b.list || "");
+    let rows = [];
+    if (listParam === "all") rows = await listAllLeadsForMember(String(b.member || req.user || "").toLowerCase(), { limit: 5000 }).catch(() => []);
+    else if (listParam === "archive" || listParam === "recycle") rows = await listStageTargets(listParam === "archive" ? "アーカイブ" : "リサイクル", { limit: 5000 }).catch(() => []);
+    else if (/^\d+$/.test(listParam)) rows = await listCallTargets(parseInt(listParam, 10), { limit: 5000 }).catch(() => []);
+    else return res.status(400).json({ error: "リストを指定してください" });
+
+    const items = rows.map((r) => ({ 会社名: r.company || "", 電話番号: r.phone || "" })).filter((x) => x.会社名);
+    const companies = [...new Set(items.map((x) => x.会社名))];
+    const force = !!b.force;
+    const targets = force ? companies : await placeHoursMissing(companies, force ? 0 : 30);
+    // 裏で順に取得（画面は待たせない）。件数だけ先に返す。
+    fetchPlaceHoursBatch(targets, items).catch(() => {});
+    res.json({ ok: true, 会社数: companies.length, 取得対象: targets.length, メモ: "裏で順に取得しています。数十秒〜数分で反映されます。もう一度リストを開くと反映されます。" });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 // kincallの架電記録・実績をAIチャットで分析する（商談分析チャットと同じ仕組み）。
 app.post("/api/calls/chat", async (req, res) => {
   try {
@@ -17294,7 +17316,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-04bz2 かける一覧に各社の営業中(緑)/営業時間外(赤)を表示＋営業時間外を下に沈める（Google Places API New・place_hoursキャッシュ・裏取り）。前回(by)：リスケ失注ボタン復活。";
+const BUILD_TAG = "2026-09-04ca 営業時間の一括取得ボタンを追加（要望：田中さん）。かけるツールバーの#clBizHoursで POST /api/calls/place-hours/refresh を呼び、表示中リスト(list/all/archive/recycle)の会社の営業時間をGoogleからまとめて取得しキャッシュ（未取得分・force指定で全取り直し）。前回(bz2)：営業中/営業時間外の表示。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",

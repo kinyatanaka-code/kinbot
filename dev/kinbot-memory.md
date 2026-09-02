@@ -41,6 +41,8 @@ kincall（架電リスト）という別ツールも同じ画面群の中にあ�
 
 ## 決定・指示のログ（新しいものを上に足す）
 
+- 2026-09-04 要望（田中さん）：営業時間の一括取得ボタン。実装(ca)：POST /api/calls/place-hours/refresh {list,member,force}＝list(数値/all/archive/recycle)から会社を集め、force時は全社・通常はplaceHoursMissing(30日)で未取得のみを fetchPlaceHoursBatch(items付き=電話も渡す)で裏取り、会社数/取得対象を即返す。calls.html ツールバーに #clBizHours（時計アイコン）。calls.js ハンドラ：現在の clList 値をlistに、callAsMemberをmemberに、confirm後にPOST→sayでステータス（会社N社中M社取得・数十秒〜数分で反映・開き直しで反映）。placesEnabled無しは400。※裏取りは250ms間隔・_placeFetchingで多重防止。node --check/smoke OK。要：田中さんがリストを開いてボタン→少し待って開き直すと全社に営業中/営業時間外が付くか確認。
+
 - 2026-09-04 要望（田中さん）：録音できていない商談予定をリスケ失注1ボタンでできる機能が消えている。状況：ホーム(home.js)の予定カードには『リスケ失注』(sfLose→POST /api/salesforce/opportunity/:id/lose)があるが、リスケ【初回】…の予定を開くと deals.js の『kinbotに商談履歴がありません→商談を検索』モーダル(wireSoloSearch)に来て、そこには『この案件を更新する』しか無く1ボタン失注が無かった。修正(by)：wireSoloSearch の検索結果カードに『リスケ失注にする』ボタンを追加し、home.jsと同じ /api/salesforce/opportunity/{Id}/lose を呼ぶ（confirm→失注ステージ＆初回商談リスケ理由、結果メッセージ表示、成功で『失注済み』無効化）。既存の『この案件を更新する』も残す。node --check/smoke OK。※loseエンドポイント既存(17644)。要：田中さんが該当予定→商談を検索→リスケ失注にするで1発失注できるか確認。
 
 - 2026-09-04 バグ報告（田中さん）：SF未紐づけの通知が来ない。原因：notifyUnlinkedMeetings は毎日18:00JST(sfUnlinkedHour/既定18)に1回だけ、担当者notifyPerson(DM)＋selfCheckチャンネルのみ。DM未設定/点検チャンネル(selfCheckWebhook/space)未設定だと可視化されず、また当日18時前だと未実行。改善(bx)：(1)担当者DM失敗時に notifyChat(メインGoogle Chat)へフォールバック。(2)per-ownerとは別に、全体まとめ(list.slice0..25)を必ず notifyChat でメインChatに投稿＝DOC Teamで見える。今すぐ実行導線：GET /api/meetings/sf-unlinked（一覧JSON）、?notify=1 で notifyUnlinkedMeetings 即時実行。定時は毎分 checkUnlinkedSchedule が h===sfUnlinkedHour&&m<5 で1回/日。時刻変更 sfUnlinkedHour、停止 sfUnlinkedNotify=false。要：田中さんに『通知は18:00の1日1回・メインChatにも出すようにした・今すぐは /api/meetings/sf-unlinked?notify=1』と案内。node --check/smoke OK。公開アセット変更なしで版更新不要。
