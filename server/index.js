@@ -205,6 +205,8 @@ import {
   moveCallTargets,
   sweepStageLists,
   getCallListName,
+  listStageTargets,
+  cleanupPhysicalStageLists,
   listTargetsNeedingSf,
   countTargetsNeedingSf,
   setCallTargetLead,
@@ -7030,11 +7032,8 @@ app.post("/api/calls/lists/:id/refresh-sf", async (req, res) => {
     const st0 = await getSettings().catch(() => ({}));
     const preferSfOwner = (st0 && st0.sfOwnerPriority === true) || b.preferSfOwner === true;
     const r = await auditCallList(sfUser, id, null, { crossFrom: CROSS_FROM, preferSfOwner });
-    // ステージが「アーカイブ」「リサイクル」になったものは、専用リストへ自動で移す。
-    let moved = {};
-    try { moved = await sweepStageLists(id); } catch {}
     console.log(`[SF更新] リスト${id}：${r.反映}件をSF最新に反映（ユーザー ${r.ユーザー}・クロス商談 ${r.クロス商談あり}・直近失注 ${r.直近失注}${preferSfOwner ? `・SF所有者に担当をそろえ ${r.担当そろえ}` : ""}）by ${req.user}`);
-    res.json({ ok: true, 対象: r.対象, 反映: r.反映, ユーザー: r.ユーザー, クロス商談あり: r.クロス商談あり, 直近失注: r.直近失注, 担当そろえ: r.担当そろえ, SF未連携: r.SF未連携, アーカイブ移動: moved["アーカイブ"] || 0, リサイクル移動: moved["リサイクル"] || 0 });
+    res.json({ ok: true, 対象: r.対象, 反映: r.反映, ユーザー: r.ユーザー, クロス商談あり: r.クロス商談あり, 直近失注: r.直近失注, 担当そろえ: r.担当そろえ, SF未連携: r.SF未連携 });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
@@ -7476,14 +7475,15 @@ app.post("/api/calls/lists/split", async (req, res) => {
 app.get("/api/calls/targets", async (req, res) => {
   try {
     const listParam = String(req.query.list || "");
-    // アーカイブ/リサイクルになった架電先を専用リストへ移す（表示前に掃引）。
-    // 特定リストならそのリスト、全体表示なら全体を対象に。
-    try {
-      const lid = /^\d+$/.test(listParam) ? parseInt(listParam, 10) : null;
-      await sweepStageLists(lid);
-    } catch {}
     let rows;
-    if (listParam === "all") {
+    if (listParam === "archive" || listParam === "recycle") {
+      // アーカイブ／リサイクルのカード：ステージで横断して集める（どのリストにあっても）
+      const kw = listParam === "archive" ? "アーカイブ" : "リサイクル";
+      rows = await listStageTargets(kw, {
+        q: String(req.query.q || ""),
+        limit: Math.min(3000, parseInt(req.query.limit, 10) || 3000),
+      });
+    } else if (listParam === "all") {
       // 「全てのリード」：そのメンバーが持ち主の全リストをまとめた仮想リスト
       const member = String(req.query.member || req.user || "").trim().toLowerCase();
       if (!member) return res.status(400).json({ error: "メンバーを指定してください" });
@@ -7502,12 +7502,8 @@ app.get("/api/calls/targets", async (req, res) => {
     }
 
     // かける一覧では、ステージが「ユーザー／失注／アーカイブ／リサイクル」のものは出さない。
-    // ただしアーカイブ／リサイクルのリストを開いているときは、その中身を出す。
-    let 開いているリスト名 = "";
-    if (/^\d+$/.test(listParam)) {
-      try { 開いているリスト名 = await getCallListName(parseInt(listParam, 10)); } catch {}
-    }
-    if (開いているリスト名 !== "アーカイブ" && 開いているリスト名 !== "リサイクル") {
+    // ただしアーカイブ／リサイクルのカード（仮想ビュー）を開いているときは、その中身を出す。
+    if (listParam !== "archive" && listParam !== "recycle") {
       const 隠すステージ = /ユーザー|失注|アーカイブ|リサイクル/;
       rows = rows.filter((r) => !隠すステージ.test(String(r.stage || "")));
     }
@@ -7914,11 +7910,7 @@ app.post("/api/calls/targets/:id/stage", async (req, res) => {
     if (!stage) return res.status(400).json({ error: "ステージを選んでください" });
 
     await setCallTargetStatus(id, { stage }).catch(() => {});
-    // アーカイブ/リサイクルになったら専用リストへ移す
-    let movedTo = "";
-    if (/アーカイブ|リサイクル/.test(stage)) {
-      try { await sweepStageLists(t.list_id); movedTo = /アーカイブ/.test(stage) ? "アーカイブ" : "リサイクル"; } catch {}
-    }
+    const movedTo = "";
 
     let sf = { ok: false, reason: "" };
     if (t.lead_id && salesforceConfigured()) {
@@ -8047,10 +8039,6 @@ app.post("/api/calls/targets/:id/record", async (req, res) => {
       ...(次のステージ !== undefined ? { stage: 次のステージ } : {}),
       status: result,
     }).catch(() => {});
-    // 記録でステージが「アーカイブ」「リサイクル」になったら、専用リストへ移す
-    if (次のステージ !== undefined && /アーカイブ|リサイクル/.test(次のステージ)) {
-      try { await sweepStageLists(t.list_id); } catch {}
-    }
 
     // Salesforceへ（活動履歴＋リードの状態）
     //
@@ -17150,7 +17138,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-04bj かける一覧で、ステージ（リード状況）が ユーザー/失注/アーカイブ/リサイクル の架電先を全リストで非表示に（要望：田中さん）。/api/calls/targets で rows を r.stage が /ユーザー|失注|アーカイブ|リサイクル/ に一致するものを除外。ただしアーカイブ/リサイクルのリスト自体を開いているときはその中身を表示。アーカイブ/リサイクルは専用リストへ移動（bg/bi）。前回(bi)：アーカイブ/リサイクル移動を既存分にも。";
+const BUILD_TAG = "2026-09-04bk アーカイブ/リサイクルを『物理リスト』から『カード（ステージ横断のまとめビュー）』に変更（要望：田中さん）。専用リストへの移動(sweep)を廃止＝架電先は元のリストのまま。リスト管理にアーカイブ/リサイクルのカードを追加、押すと かける画面で list=archive/recycle の仮想ビュー（stageで横断集約）を開く。かける一覧のドロップダウンにも アーカイブ/リサイクル（まとめ）を追加。以前作った物理リスト(アーカイブ/リサイクル owner無し)は起動時 cleanupPhysicalStageLists で中身を元の担当のリストへ戻してから削除（cascade削除を回避）。ステージ=ユーザー/失注/アーカイブ/リサイクル の通常非表示は維持（仮想ビューは除外）。前回(bj)：ステージ非表示。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
@@ -22406,7 +22394,7 @@ app.delete("/api/proposals/:id", async (req, res) => {
 server.listen(PORT, async () => {
   await initDb().catch((e) => console.error("[db] init失敗", e.message));
   // 既にステージがアーカイブ/リサイクルの架電先を、専用リストへ一度まとめて移す。
-  sweepStageLists().then((r) => { if ((r["アーカイブ"] || 0) + (r["リサイクル"] || 0)) console.log(`[kincall] 起動時の整理：アーカイブ${r["アーカイブ"] || 0}／リサイクル${r["リサイクル"] || 0}件を専用リストへ`); }).catch(() => {});
+  cleanupPhysicalStageLists().then((r) => { if ((r.deleted || 0) + (r.moved || 0)) console.log(`[kincall] 旧アーカイブ/リサイクルリストを整理：${r.deleted}件削除・${r.moved}件を元の持ち主のリストへ`); }).catch(() => {});
   // プロセスシートの「最後の書き込み」を設定から戻す（再起動で未実行に見えないように）
   restoreProcessSheetLast().catch(() => {});
 

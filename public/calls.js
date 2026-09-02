@@ -47,13 +47,14 @@ async function loadLists() {
     const sel = $("clList");
     const keep = sel.value || savedListId();   // リロード時は、前回選んでいたリストに戻す
     const allOpt = `<option value="all">☆ 全てのリード（自分の全リストをまとめて）</option>`;
+    const specialOpt = `<option value="archive">🗄 アーカイブ（まとめ）</option><option value="recycle">♻ リサイクル（まとめ）</option>`;
     sel.innerHTML = allOpt + (items.length
       ? items.map((x) => `<option value="${x.id}">${esc(x.name)}</option>`).join("")
-      : "");
-    if (keep && (keep === "all" || items.some((x) => String(x.id) === keep))) sel.value = keep;
+      : "") + specialOpt;
+    if (keep && (["all", "archive", "recycle"].includes(keep) || items.some((x) => String(x.id) === keep))) sel.value = keep;
     {
       const v = sel.value;
-      listId = v === "all" ? "all" : (Number(v) || 0);
+      listId = ["all", "archive", "recycle"].includes(v) ? v : (Number(v) || 0);
       rememberListId(v);
       showProgress(items.find((x) => x.id === listId));
       loadTable();
@@ -73,9 +74,9 @@ async function loadTable() {
   const box = $("clTable");
   // ドロップダウンの現在値を優先（「全てのリード」= all を確実に扱う）
   const selV = ($("clList") && $("clList").value) || "";
-  if (selV) listId = selV === "all" ? "all" : (Number(selV) || 0);
+  if (selV) listId = ["all", "archive", "recycle"].includes(selV) ? selV : (Number(selV) || 0);
   if (!listId) { box.innerHTML = '<div class="empty-state">リストを選んでください。</div>'; return; }
-  if (listId === "all") selectedIds.clear();   // 全てのリードでは移動不可（選択も持たない）
+  if (listId === "all" || listId === "archive" || listId === "recycle") selectedIds.clear();
   box.innerHTML = '<div class="empty-state">読み込んでいます…</div>';
   try {
     const q = $("clFind") && $("clFind").value.trim();
@@ -685,6 +686,8 @@ function renderDock() {
     .kc-mem-name{font-size:14px;font-weight:700;color:#1f2a26;line-height:1.35;}
     #asCards .kc-mem-add{border-style:dashed;}
     #asCards .kc-mem-add .kc-mem-name{font-weight:600;color:#5b7a6d;}
+    #asCards .kc-mem-special{background:#f4faf7;border-color:#cfe6db;}
+    #asCards .kc-mem-special .kc-mem-name{font-weight:600;color:#0d5b47;}
     .kc-mem-pick{margin-top:12px;padding:12px;border:1px solid #e6ece9;border-radius:12px;background:#fcfefe;display:flex;flex-wrap:wrap;gap:8px;align-items:center;}
     .kc-mem-pick-h{width:100%;font-size:12px;font-weight:600;color:#5b7a6d;}
     .kc-mem-pick-b{border:1px solid #e6ece9;background:#fff;color:#1f2a26;border-radius:9px;padding:7px 12px;font-size:13px;cursor:pointer;}
@@ -2586,6 +2589,8 @@ async function asLoad() {
           <span class="kc-mem-name">${esc(m.name)}</span>
         </div>`).join("") +
         (addable.length && 変えられる ? '<div class="kc-mem-card kc-mem-add" id="kcAddCard"><span class="kc-mem-name">＋ メンバーを足す</span></div>' : "") +
+        '<div class="kc-mem-card kc-mem-special" data-special="archive"><span class="kc-mem-name">🗄 アーカイブ</span></div>' +
+        '<div class="kc-mem-card kc-mem-special" data-special="recycle"><span class="kc-mem-name">♻ リサイクル</span></div>' +
       '</div>' +
       '<div class="kc-mem-pick" id="kcPick" hidden></div>' +
       '<div class="kc-grp-box" id="kcGrpBox"></div>';
@@ -2612,8 +2617,11 @@ async function asLoad() {
 
     box.querySelectorAll(".kc-mem-card").forEach((c) => {
       if (c.id === "kcAddCard") return;   // 「＋」は追加用なので開かない
+      if (c.dataset.special) return;      // アーカイブ/リサイクルは下で個別に配線
       c.addEventListener("click", () => asLoadMember(c.dataset.email, c.dataset.name));
     });
+    box.querySelectorAll(".kc-mem-special").forEach((c) =>
+      c.addEventListener("click", () => openStageCard(c.dataset.special, c.dataset.special === "archive" ? "アーカイブ" : "リサイクル")));
     box.querySelectorAll(".kc-mem-hide").forEach((b) =>
       b.addEventListener("click", async (ev) => {
         ev.stopPropagation();
@@ -2913,6 +2921,26 @@ async function asLoadMember(email, name) {
   } catch (e) {
     box.innerHTML = `<div class="note">読み込めませんでした：${esc(e.message)}</div>`;
   }
+}
+
+// アーカイブ／リサイクルのカードを押したら、「かける」に移って、そのまとめビューを開く
+function openStageCard(kind, label) {
+  callAsMember = "";
+  const sel = $("clList");
+  if (sel) {
+    if (!sel.querySelector(`option[value="${kind}"]`)) {
+      const o = document.createElement("option"); o.value = kind; o.textContent = label; sel.appendChild(o);
+    }
+    sel.value = kind;
+    listId = kind;
+    rememberListId(kind);
+    loadTable();
+  }
+  document.querySelectorAll(".kc-pane").forEach((el) => { el.hidden = el.dataset.p !== "call"; });
+  document.querySelectorAll(".kc-side .side-item").forEach((a) => {
+    a.classList.toggle("active", (a.getAttribute("href") || "") === "/kincall");
+  });
+  history.replaceState(null, "", "/kincall");
 }
 
 // カードを押したら「かける」に移り、そのリストを選ぶ

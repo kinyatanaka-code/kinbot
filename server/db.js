@@ -3507,6 +3507,56 @@ export async function sweepStageLists(listId = null) {
 
 // ステージ（リード状況）が…（上の sweepStageLists）
 
+// ステージ（リード状況）で横断して架電先を集める（アーカイブ/リサイクルのカード用）。
+export async function listStageTargets(keyword, { q = "", limit = 2000 } = {}) {
+  if (!pool || !keyword) return [];
+  try {
+    const p = [`%${keyword}%`];
+    let where = `COALESCE(t.stage,'') ILIKE $1`;
+    if (q) {
+      p.push(`%${String(q).replace(/[%_]/g, "")}%`);
+      where += ` AND (t.company ILIKE $${p.length} OR t.person ILIKE $${p.length}
+                      OR t.phone ILIKE $${p.length} OR t.email ILIKE $${p.length})`;
+    }
+    p.push(Math.max(1, Math.min(3000, limit)));
+    const { rows } = await pool.query(
+      `SELECT t.*,
+              (SELECT count(*) FROM call_logs l WHERE l.target_id = t.id) AS 履歴数,
+              (SELECT count(*) FROM call_logs l WHERE l.target_id = t.id AND l.sf_task_id IS NULL) AS 未送信数,
+              (SELECT l.result FROM call_logs l WHERE l.target_id = t.id ORDER BY l.at DESC LIMIT 1) AS 最終結果,
+              (SELECT l.at FROM call_logs l WHERE l.target_id = t.id ORDER BY l.at DESC LIMIT 1) AS 最終日時
+         FROM call_targets t
+        WHERE ${where}
+        ORDER BY t.id DESC
+        LIMIT $${p.length}`, p);
+    return rows;
+  } catch (e) { console.error("[db] listStageTargets", e.message); return []; }
+}
+
+// 以前つくってしまった物理リスト「アーカイブ」「リサイクル」（owner無し）を安全に消す。
+// 中身の架電先は消さず、担当が持つ別リストへ戻してから、空になったリストを消す。
+export async function cleanupPhysicalStageLists() {
+  if (!pool) return { deleted: 0, moved: 0 };
+  let deleted = 0, moved = 0;
+  try {
+    const { rows: lists } = await pool.query(
+      `SELECT id FROM call_lists WHERE name IN ('アーカイブ','リサイクル') AND owner IS NULL`);
+    for (const L of lists) {
+      const { rows: ts } = await pool.query(`SELECT id, assigned_to FROM call_targets WHERE list_id=$1`, [L.id]);
+      for (const t of ts) {
+        const owner = String(t.assigned_to || "").toLowerCase();
+        const { rows: dl } = await pool.query(
+          `SELECT id FROM call_lists WHERE lower(coalesce(owner,''))=$1 AND id<>$2
+             AND name NOT IN ('アーカイブ','リサイクル') ORDER BY created_at DESC LIMIT 1`, [owner, L.id]);
+        if (dl[0]) { await pool.query(`UPDATE call_targets SET list_id=$1 WHERE id=$2`, [dl[0].id, t.id]); moved++; }
+      }
+      const { rows: cnt } = await pool.query(`SELECT count(*)::int n FROM call_targets WHERE list_id=$1`, [L.id]);
+      if (cnt[0] && cnt[0].n === 0) { await pool.query(`DELETE FROM call_lists WHERE id=$1`, [L.id]); deleted++; }
+    }
+  } catch (e) { console.error("[db] cleanupPhysicalStageLists", e.message); }
+  return { deleted, moved };
+}
+
 // リストの名前だけを取る（軽量）
 export async function getCallListName(listId) {
   if (!pool || !listId) return "";
