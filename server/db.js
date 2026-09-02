@@ -708,6 +708,9 @@ export async function initDb() {
   await sq(`CREATE INDEX IF NOT EXISTS ix_call_logs_target ON call_logs(target_id, at DESC);`);
   // Salesforce側の活動のID（二重に表示しないために使う）
   await sq(`ALTER TABLE call_logs ADD COLUMN IF NOT EXISTS sf_task_id TEXT;`);
+  // Zoom Phoneの通話ID（履歴の重複取り込み防止）
+  await sq(`ALTER TABLE call_logs ADD COLUMN IF NOT EXISTS zoom_call_id TEXT;`);
+  await sq(`CREATE UNIQUE INDEX IF NOT EXISTS ux_call_logs_zoom ON call_logs(zoom_call_id) WHERE zoom_call_id IS NOT NULL;`);
 
   // ===== Salesforceの更新の記録 =====
   // どの商談を、いつ、どのステージにしたか。
@@ -2786,6 +2789,36 @@ export async function placeHoursMissing(companies = [], staleDays = 30, { onlyNo
     const skip = new Set(rows.map((r) => r.company_key));
     return keys.filter((k) => !skip.has(k)).map((k) => map[k]);
   } catch (e) { console.error("[db] placeHoursMissing", e.message); return keys.map((k) => map[k]); }
+}
+
+// 電話番号（数字だけで比較）で架電先を探す。かけた人の担当ぶんを優先。
+export async function findCallTargetByPhone(phone, { caller = "" } = {}) {
+  if (!pool) return null;
+  const digits = String(phone || "").replace(/\D/g, "");
+  if (digits.length < 6) return null;
+  const last9 = digits.slice(-9);   // 国番号や市外局番のゆれを吸収して末尾で照合
+  try {
+    const { rows } = await pool.query(
+      `SELECT id, lead_id, company, assigned_to, phone
+         FROM call_targets
+        WHERE regexp_replace(coalesce(phone,''), '\\D', '', 'g') LIKE '%' || $1
+        ORDER BY (lower(coalesce(assigned_to,'')) = lower($2)) DESC, id DESC
+        LIMIT 1`, [last9, String(caller || "").toLowerCase()]);
+    return rows[0] || null;
+  } catch (e) { console.error("[db] findCallTargetByPhone", e.message); return null; }
+}
+
+// Zoom Phoneの通話を、kincallの架電記録として入れる（zoom_call_idで重複防止）。
+export async function addZoomCallLog({ zoomCallId, targetId, leadId = "", company = "", result, memo = "", caller = "", at = null }) {
+  if (!pool || !zoomCallId || !targetId || !result) return { ok: false };
+  try {
+    const { rowCount } = await pool.query(
+      `INSERT INTO call_logs (target_id, lead_id, company, result, memo, caller, zoom_call_id, at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7, COALESCE($8, now()))
+       ON CONFLICT (zoom_call_id) WHERE zoom_call_id IS NOT NULL DO NOTHING`,
+      [targetId, leadId || null, company || "", result, memo || "", caller || "", zoomCallId, at]);
+    return { ok: true, inserted: rowCount > 0 };
+  } catch (e) { console.error("[db] addZoomCallLog", e.message); return { ok: false, error: e.message }; }
 }
 
 // 会社名から既存dealを探す（正規化キー一致）。無ければ作成。

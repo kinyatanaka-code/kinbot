@@ -26,6 +26,7 @@ import { startKasasagi, getKasasagi, stopKasasagi, feedTranscript, kasasagiInfo,
          buildScript, buildReport, faceState, SLIDE_LABELS } from "./kasasagi.js";
 import { notifyAssigned, notifyAssignFailed, notifyMailDraft, notifyChat, notifyAll, notifyPerson, notifyTargets, chatWebhookUrl, chatInfo } from "./chat.js";
 import { placesEnabled, fetchPlaceHours, openState } from "./places.js";
+import { zoomPhoneConfigured, zoomPhonePing, zoomPhoneUsers, zoomPhoneCallHistory, zoomResultToKincall } from "./zoomphone.js";
 import { note as devNote, errKey, buildMorningSummary, NOTE_KINDS, dropSimilar } from "./devnotes.js";
 import { askBot } from "./askbot.js";
 import { newJobId, getJob, cancelJob, runBulk, tableFromFile, tableFromText, rowsFromTable } from "./bulklinks.js";
@@ -210,6 +211,8 @@ import {
   upsertPlaceHours,
   placeHoursMissing,
   recentCallLogs,
+  findCallTargetByPhone,
+  addZoomCallLog,
   listStageTargets,
   cleanupPhysicalStageLists,
   listTargetsNeedingSf,
@@ -8154,6 +8157,58 @@ app.post("/api/calls/place-hours/refresh", async (req, res) => {
 app.get("/api/calls/place-hours/status", (req, res) => {
   res.json({ ok: true, ...placeProgress() });
 });
+
+// ===== Zoom Phone 連携（Click to Call ＋ 通話履歴の取り込み）=====
+// 状態確認：資格情報が入っているか・接続できるか
+app.get("/api/zoom-phone/status", async (req, res) => {
+  try {
+    if (!zoomPhoneConfigured()) return res.json({ ok: true, 設定済み: false });
+    const st = await getSettings().catch(() => ({}));
+    const ping = await zoomPhonePing().catch((e) => ({ ok: false, error: e.message }));
+    res.json({ ok: true, 設定済み: true, 接続: ping.ok, error: ping.error || "", clickToCall: st.zoomClickToCall !== false });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// Zoomの通話履歴を取り込んで、kincallの架電記録に紐づける（電話番号で照合）。
+async function syncZoomCallHistory({ hours = 26 } = {}) {
+  if (!zoomPhoneConfigured()) return { skipped: true };
+  const now = new Date(Date.now() + 9 * 3600 * 1000);
+  const to = now.toISOString().slice(0, 10);
+  const from = new Date(now.getTime() - hours * 3600 * 1000).toISOString().slice(0, 10);
+  const users = await zoomPhoneUsers().catch(() => ({}));
+  const idToEmail = {};
+  for (const [email, u] of Object.entries(users)) idToEmail[u.id] = email;
+  const calls = await zoomPhoneCallHistory({ from, to, max: 500 }).catch(() => []);
+  let 追加 = 0, 照合なし = 0;
+  for (const c of calls) {
+    if (!c.id || !c.number) continue;
+    const caller = c.ownerEmail || idToEmail[c.ownerId] || "";
+    const t = await findCallTargetByPhone(c.number, { caller }).catch(() => null);
+    if (!t) { 照合なし++; continue; }
+    const result = zoomResultToKincall(c.result, c.duration);
+    const memo = `Zoom Phone（${c.direction === "inbound" ? "着信" : "発信"}${c.duration ? "・通話" + Math.round(c.duration) + "秒" : ""}）`;
+    const r = await addZoomCallLog({ zoomCallId: `zoom:${c.id}`, targetId: t.id, leadId: t.lead_id || "", company: t.company || "", result, memo, caller, at: c.at });
+    if (r.ok && r.inserted) 追加++;
+  }
+  console.log(`[zoom-phone] 履歴取り込み：${追加}件を記録（${from}〜${to}・照合なし${照合なし}）`);
+  return { 追加, 照合なし, 対象期間: `${from}〜${to}`, 件数: calls.length };
+}
+app.post("/api/zoom-phone/sync", async (req, res) => {
+  try {
+    if (!zoomPhoneConfigured()) return res.status(400).json({ error: "Zoomの資格情報が未設定です（Railwayの環境変数）" });
+    const r = await syncZoomCallHistory({ hours: Math.max(1, Math.min(720, parseInt(req.body?.hours, 10) || 26)) });
+    res.json({ ok: true, ...r });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+// 定期同期（15分ごと）。設定 zoomAutoSync=false で止められる。
+setInterval(async () => {
+  try {
+    if (!zoomPhoneConfigured()) return;
+    const st = await getSettings().catch(() => ({}));
+    if (st.zoomAutoSync === false) return;
+    await syncZoomCallHistory({ hours: 3 }).catch(() => {});
+  } catch {}
+}, 15 * 60 * 1000);
 
 // kincallの架電記録・実績をAIチャットで分析する（商談分析チャットと同じ仕組み）。
 app.post("/api/calls/chat", async (req, res) => {
@@ -17354,7 +17409,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-04cj ダッシュボードを週次/月次に切替可能に＋グループ等の目標をメンバー合計に（要望：田中さん）。apo-dashboardがperiod=week/month対応、チームの目標＝メンバーのアポ目標合計。ダッシュボードに週次/月次タブ、個人カードは表示中の期間で目標編集、チームは合計で読み取り。内訳モーダル・実績タブのチームもコール/接触/アポ目標をメンバー合計に。前回(ci)：断り理由タグ差し替え。";
+const BUILD_TAG = "2026-09-04ck Zoom Phone連携の土台（要望：田中さん）。Click to Call（電話リンクをzoomphonecall://でZoom発信）＋Zoom通話履歴の自動取り込み。zoomphone.js（S2S OAuth・call_history・phone users）、/api/zoom-phone/status・/sync、15分ごと自動同期、電話番号でターゲット照合しzoom_call_idで重複防止して記録。要 ZOOM_ACCOUNT_ID/CLIENT_ID/CLIENT_SECRET。前回(cj)：ダッシュボード週次・チーム目標合計。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",

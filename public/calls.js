@@ -29,6 +29,15 @@ function say(id, t, ms) {
 function telOf(v) {
   return String(v || "").normalize("NFKC").replace(/[^0-9+]/g, "");
 }
+// 電話リンクのhref。Zoom Phone連携がONならZoomで発信、そうでなければ端末の電話アプリ。
+let _zoomCall = false;   // /api/zoom-phone/status で更新
+function callHref(v) {
+  const num = telOf(v);
+  return _zoomCall ? `zoomphonecall://${num}` : `tel:${num}`;
+}
+(async () => {
+  try { const z = await (await fetch("/api/zoom-phone/status")).json(); _zoomCall = !!(z && z.設定済み && z.接続 && z.clickToCall !== false); } catch {}
+})();
 
 // 日本時間で「8/12 14:30」の形にする
 function when(v) {
@@ -356,7 +365,7 @@ function render() {
           予定 ? ` <span class="kc-next-badge${予定.due ? " due" : ""}">${予定.due ? "架電予定 " : "予定 "}${esc(予定.md)} ${esc(予定.hhmm)}<button type="button" class="kc-next-x" data-id="${x.id}" title="この架電予定を消す">×</button></span>` : ""}</td>
         <td class="kc-person">${x["ふりがな"] ? `<span class="kc-kana">${esc(x["ふりがな"])}</span>` : ""}<span class="kc-pname">${esc(x["担当者"] || "")}</span></td>
         <td>${x["電話番号"]
-          ? `<a class="kc-tel" href="tel:${esc(telOf(x["電話番号"]))}">${esc(x["電話番号"])}</a>`
+          ? `<a class="kc-tel" href="${callHref(x["電話番号"])}">${esc(x["電話番号"])}</a>`
           : `<span class="kc-none">なし</span>`}</td>
         <td class="kc-mail">${esc(x["メール"] || "")}</td>
         <td class="kc-status">${x["最終ステータス"] ? esc(x["最終ステータス"]) : "-"}</td>
@@ -980,7 +989,7 @@ async function openTarget(id, draft, opt) {
       <div class="kc-two-r">
         <div class="kc-rec-top">
           <div>
-            ${x["電話番号"] ? `<a class="kc-tel kc-tel-big" href="tel:${esc(telOf(x["電話番号"]))}">${esc(x["電話番号"])}</a>` : ""}
+            ${x["電話番号"] ? `<a class="kc-tel kc-tel-big" href="${callHref(x["電話番号"])}">${esc(x["電話番号"])}</a>` : ""}
           </div>
           <!-- いまのステージと、変えるところ -->
           <div class="kc-rec-stage">
@@ -1267,7 +1276,7 @@ function updateRowContact(x) {
     if (person) person.innerHTML = (x["ふりがな"] ? `<span class="kc-kana">${esc(x["ふりがな"])}</span>` : "") + `<span class="kc-pname">${esc(x["担当者"] || "")}</span>`;
     const tel = person && person.nextElementSibling;   // 電話番号
     if (tel) tel.innerHTML = x["電話番号"]
-      ? `<a class="kc-tel" href="tel:${esc(telOf(x["電話番号"]))}">${esc(x["電話番号"])}</a>`
+      ? `<a class="kc-tel" href="${callHref(x["電話番号"])}">${esc(x["電話番号"])}</a>`
       : `<span class="kc-none">なし</span>`;
   }
   const mail = tr.querySelector(".kc-mail"); if (mail) mail.textContent = x["メール"] || "";
