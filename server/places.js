@@ -26,6 +26,7 @@ export async function fetchPlaceHours(company, { phone = "", area = "" } = {}) {
     });
     if (!res.ok) {
       const t = await res.text().catch(() => "");
+      if (res.status === 429 || /RESOURCE_EXHAUSTED|rateLimit|quota/i.test(String(t))) return { rateLimited: true };
       console.warn("[places] 取得失敗", res.status, String(t).slice(0, 200));
       return null;   // エラーはキャッシュしない（次回リトライ）
     }

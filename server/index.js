@@ -7643,7 +7643,7 @@ app.get("/api/calls/targets", async (req, res) => {
         }
         // 未取得の会社を、裏でまとめて取ってキャッシュする（画面表示は待たせない）。
         const missing = await placeHoursMissing(companies, 30);
-        if (missing.length) fetchPlaceHoursBatch(missing.slice(0, 15), items).catch(() => {});
+        if (missing.length) fetchPlaceHoursBatch(missing.slice(0, 25), items).catch(() => {});
       } catch (e) { console.warn("[calls/targets] 営業時間の付与に失敗", e.message); }
     }
     res.json({
@@ -8079,21 +8079,35 @@ app.get("/api/calls/_apodiag", async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-// 未取得の会社の営業時間を、Googleから順に取ってキャッシュする（1社ずつ・少し間隔）。
+// 未取得の会社の営業時間を、Googleから順に取ってキャッシュする（進捗を記録・レート制限は待って再試行）。
 let _placeFetching = new Set();
+let _placeProgress = { running: false, done: 0, ok: 0, total: 0, updatedAt: 0 };
+function placeProgress() { return { ..._placeProgress, fetching: _placeFetching.size }; }
 async function fetchPlaceHoursBatch(companies, items = []) {
-  const phoneOf = {}; const areaOf = {};
-  for (const x of items) { const c = x && x.会社名; if (c && !phoneOf[c]) { phoneOf[c] = x.電話番号 || ""; areaOf[c] = ""; } }
+  const phoneOf = {};
+  for (const x of items) { const c = x && x.会社名; if (c && !phoneOf[c]) phoneOf[c] = x.電話番号 || ""; }
+  // 進捗（同時に走っても合算で見えるように加算する）
+  _placeProgress.running = true;
+  _placeProgress.total += companies.length;
+  _placeProgress.updatedAt = Date.now();
   for (const company of companies) {
-    if (_placeFetching.has(normCompanyKey(company))) continue;
-    _placeFetching.add(normCompanyKey(company));
+    const k = normCompanyKey(company);
+    if (_placeFetching.has(k)) { _placeProgress.done++; continue; }
+    _placeFetching.add(k);
     try {
-      const h = await fetchPlaceHours(company, { phone: phoneOf[company] || "", area: areaOf[company] || "" });
-      if (h) await upsertPlaceHours(company, h);   // null（通信エラー）はキャッシュしない＝次回リトライ
+      let h = null;
+      for (let attempt = 0; attempt < 4; attempt++) {   // レート制限は数回まで待って再試行
+        h = await fetchPlaceHours(company, { phone: phoneOf[company] || "" });
+        if (!h || !h.rateLimited) break;
+        await new Promise((r) => setTimeout(r, 3000 + attempt * 2000));   // 3s,5s,7s… 待つ
+      }
+      if (h && !h.rateLimited) { await upsertPlaceHours(company, h); _placeProgress.ok++; }
+      // null（通信エラー）や rateLimited のままはキャッシュしない＝次回リトライ
     } catch (e) { console.warn("[places] batch", company, e.message); }
-    finally { _placeFetching.delete(normCompanyKey(company)); }
-    await new Promise((r) => setTimeout(r, 250));   // 連続呼び出しの間隔
+    finally { _placeFetching.delete(k); _placeProgress.done++; _placeProgress.updatedAt = Date.now(); }
+    await new Promise((r) => setTimeout(r, 200));   // 連続呼び出しの間隔
   }
+  if (_placeProgress.done >= _placeProgress.total) _placeProgress.running = false;
 }
 
 // 営業時間の一括取得：表示中のリスト（またはメンバーの全リード）の会社を、まとめてGoogleから取ってキャッシュする。
@@ -8112,10 +8126,16 @@ app.post("/api/calls/place-hours/refresh", async (req, res) => {
     const companies = [...new Set(items.map((x) => x.会社名))];
     const force = !!b.force;
     const targets = force ? companies : await placeHoursMissing(companies, force ? 0 : 30);
-    // 裏で順に取得（画面は待たせない）。件数だけ先に返す。
+    // 進捗をリセットしてから裏で取得（画面はステータスをポーリングして表示）。
+    _placeProgress = { running: true, done: 0, ok: 0, total: 0, updatedAt: Date.now() };
     fetchPlaceHoursBatch(targets, items).catch(() => {});
-    res.json({ ok: true, 会社数: companies.length, 取得対象: targets.length, メモ: "裏で順に取得しています。数十秒〜数分で反映されます。もう一度リストを開くと反映されます。" });
+    res.json({ ok: true, 会社数: companies.length, 取得対象: targets.length, メモ: "取得を始めました。進み具合は画面のステータスに出ます。" });
   } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// 営業時間の取得の進み具合（ポーリング用）
+app.get("/api/calls/place-hours/status", (req, res) => {
+  res.json({ ok: true, ...placeProgress() });
 });
 
 // kincallの架電記録・実績をAIチャットで分析する（商談分析チャットと同じ仕組み）。
@@ -17316,7 +17336,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-04cb かけるツールバーの8アイコンを『操作 ▾』ドロップダウン1つに集約（要望：田中さん・見づらい）。表示/Salesforce/データ・整理でグループ化しテキスト表示。各ボタンはidを保持し既存の委譲ハンドラで動作。前回(ca)：営業時間の一括取得ボタン。";
+const BUILD_TAG = "2026-09-04cc 営業時間の一括取得が途中で止まる件を改善（要望：田中さん）。進捗(_placeProgress: done/ok/total/running)を保持し GET /api/calls/place-hours/status で公開。ボタン押下後は2秒ごとにポーリングして『取得中 X/Y社』を表示し、完了で一覧を自動更新。Googleのレート制限(429/RESOURCE_EXHAUSTED)は3〜7秒待って最大4回リトライ（スキップせず取り切る）。自動裏取りは15→25社/回。前回(cb)：ツールバーをメニュー化。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",

@@ -2445,15 +2445,28 @@ document.addEventListener("click", (ev) => {
     (async () => {
       const lst = ($("clList") && $("clList").value) || String(listId || "");
       if (!lst) { say("clStatus", "リストを選んでください", 5000); return; }
-      const force = confirm("このリストの会社の営業時間をGoogleからまとめて取得します。\n\nOK：未取得ぶんだけ取得（おすすめ）\nキャンセル後にもう一度押す→「すべて取り直す」を選べます");
-      say("clStatus", "営業時間を取得しています…", 8000);
+      if (!confirm("このリストの会社の営業時間をGoogleからまとめて取得します。よろしいですか？（未取得ぶんだけ取得します）")) return;
+      say("clStatus", "営業時間を取得しています…", 60000);
       try {
         const d = await (await fetch("/api/calls/place-hours/refresh", {
           method: "POST", headers: { "content-type": "application/json" },
           body: JSON.stringify({ list: lst, member: callAsMember || undefined, force: false }),
         })).json();
         if (!d.ok) throw new Error(d.error || "取得できませんでした");
-        say("clStatus", `営業時間を取得中：会社${d.会社数}社中 ${d.取得対象}社を取得します。数十秒〜数分後にリストを開き直すと反映されます。`, 12000);
+        if (!d.取得対象) { say("clStatus", "営業時間は取得済みです（新しく取るものはありませんでした）", 6000); return; }
+        // 進み具合をポーリングして表示。完了したら一覧を更新して反映。
+        let stopped = 0;
+        const poll = async () => {
+          try {
+            const s = await (await fetch("/api/calls/place-hours/status")).json();
+            const done = s.done || 0, total = s.total || d.取得対象;
+            say("clStatus", `営業時間を取得中… ${Math.min(done, total)}/${total}社`, 60000);
+            if (!s.running && done >= total) { say("clStatus", `営業時間の取得が完了しました（${s.ok || done}社）。表示を更新します。`, 8000); loadTable(); return; }
+            if (++stopped > 300) { say("clStatus", "取得に時間がかかっています。少し待ってからリストを開き直してください。", 10000); return; }
+            setTimeout(poll, 2000);
+          } catch { setTimeout(poll, 3000); }
+        };
+        poll();
       } catch (e) { say("clStatus", "できませんでした：" + e.message, 8000); }
     })();
   }
