@@ -445,7 +445,7 @@ import {
   deleteProposalFile,
 } from "./db.js";
 import { resolveConfig, statusInfo } from "./config.js";
-import { callLLMPublic, analyzerInfo, resolveGroqModel, clearGroqModelCache, analyzeMeeting, analyzeDeep, freeAnalyze, chatWithData, enrichCompany, lookupEmployeeCount, lookupCompanyBasics, generateThanks, THANKS_PROMPT, getCheckItems, getSummaryPrompt, getCustomPrompt, runCustomAnalysis, analyzeWinPatterns, classifyMeetingKind, extractFirstMeeting, extractReMeeting, buildBrief, extractFeatureCTags, enrichCompanyAttributes, generateFeatureCInsights, extractQaPairs, splitPhases } from "./analyzer.js";
+import { callLLMPublic, analyzerInfo, resolveGroqModel, clearGroqModelCache, analyzeMeeting, analyzeDeep, freeAnalyze, chatWithData, enrichCompany, lookupEmployeeCount, lookupBusinessHours, lookupCompanyBasics, generateThanks, THANKS_PROMPT, getCheckItems, getSummaryPrompt, getCustomPrompt, runCustomAnalysis, analyzeWinPatterns, classifyMeetingKind, extractFirstMeeting, extractReMeeting, buildBrief, extractFeatureCTags, enrichCompanyAttributes, generateFeatureCInsights, extractQaPairs, splitPhases } from "./analyzer.js";
 import { searchCompanies, getCompanyDetail, gbizConfigured } from "./gbizinfo.js";
 import { enrichCompanyFromWeb, webSearchConfigured } from "./companyenrich.js";
 import { searchCompanyInfo, webLookupAvailable } from "./websearch.js";
@@ -7639,7 +7639,7 @@ app.get("/api/calls/targets", async (req, res) => {
         const hmap = await getPlaceHoursByCompanies(companies);
         for (const x of items) {
           const h = hmap[normCompanyKey(x.会社名)];
-          if (h) x.営業 = { 状態: openState(h.periods, h.business_status), 説明: (h.weekday_desc || []).join(" / ") };
+          if (h) x.営業 = { 状態: openState(h.periods, h.business_status), 説明: (h.weekday_desc || []).join(" / "), 出典: h.source || "" };
         }
         // 未取得の会社を、裏でまとめて取ってキャッシュする（画面表示は待たせない）。
         const missing = await placeHoursMissing(companies, 30);
@@ -8108,7 +8108,15 @@ async function fetchPlaceHoursBatch(companies, items = []) {
         if (!h || !h.rateLimited) break;
         await new Promise((r) => setTimeout(r, 3000 + attempt * 2000));   // 3s,5s,7s… 待つ
       }
-      if (h && !h.rateLimited) { await upsertPlaceHours(company, h); _placeProgress.ok++; }
+      if (h && !h.rateLimited && h.found) {
+        await upsertPlaceHours(company, { ...h, source: h.source || "place" }); _placeProgress.ok++;
+      } else if (h && !h.rateLimited) {
+        // Places（Googleビジネス）に営業時間が無い会社は、Geminiのウェブ検索で補完する。
+        let ai = null;
+        try { ai = await lookupBusinessHours(company, addrOf[company] || ""); } catch (e) { console.warn("[places] ai補完", company, e.message); }
+        if (ai && ai.found) { await upsertPlaceHours(company, { ...ai, source: "ai" }); _placeProgress.ok++; }
+        else await upsertPlaceHours(company, { found: false, periods: [], weekday_desc: [], business_status: (h && h.business_status) || "", source: "place" });   // 不明として記録
+      }
       // null（通信エラー）や rateLimited のままはキャッシュしない＝次回リトライ
     } catch (e) { console.warn("[places] batch", company, e.message); }
     finally { _placeFetching.delete(k); _placeProgress.done++; _placeProgress.updatedAt = Date.now(); }

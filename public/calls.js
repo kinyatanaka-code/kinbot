@@ -164,9 +164,11 @@ function doneBadge(x) {
 function bizState(x) { return (x && x["営業"] && x["営業"]["状態"]) || ""; }
 function bizBadge(x) {
   const st = bizState(x);
-  const desc = (x && x["営業"] && x["営業"]["説明"]) ? ` title="${esc(x["営業"]["説明"])}"` : "";
-  if (st === "open") return `<span class="kc-biz kc-biz-open"${desc}>営業中</span>`;
-  if (st === "closed") return `<span class="kc-biz kc-biz-closed"${desc}>営業時間外</span>`;
+  const ai = (x && x["営業"] && x["営業"]["出典"]) === "ai";
+  const tag = ai ? "<span class=\"kc-biz-ai\">AI</span>" : "";
+  const desc = (x && x["営業"] && x["営業"]["説明"]) ? ` title="${esc(x["営業"]["説明"])}${ai ? "（AIがWeb検索で取得）" : ""}"` : (ai ? ' title="AIがWeb検索で取得"' : "");
+  if (st === "open") return `<span class="kc-biz kc-biz-open"${desc}>営業中${tag}</span>`;
+  if (st === "closed") return `<span class="kc-biz kc-biz-closed"${desc}>営業時間外${tag}</span>`;
   if (st === "unknown") return `<span class="kc-biz kc-biz-unknown">不明</span>`;   // 取得したが営業時間の掲載なし
   return "";   // 未取得は出さない
 }

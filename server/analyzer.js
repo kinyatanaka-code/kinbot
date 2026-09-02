@@ -327,7 +327,47 @@ export async function buildBrief({ company, meetings }) {
   };
 }
 
-// 企業サイト＋Web検索から会社概要を取得（A+B / 2段階で確実にJSON化）
+// 会社の営業時間を、Web検索（Gemini grounding）で調べる。
+// Googleビジネス（Places）に載っていない会社の補完用。曜日ごとの開始・終了をJSONで返させ、
+// Placesと同じ periods 形式（day: 0=日〜6=土, hour, minute）に変換する。見つからなければ found:false。
+export async function lookupBusinessHours(companyName, hint = "") {
+  const name = String(companyName || "").trim();
+  if (!name) return { found: false };
+  let research = "";
+  try {
+    research = await geminiGrounded(
+      `「${name}」${hint ? "（" + hint + "）" : ""}の営業時間（曜日ごとの開始・終了時刻）と定休日を調べてください。` +
+      `「${name} 営業時間」で検索し、公式サイト・Googleビジネス情報・求人ページ等を照合してください。` +
+      `確認できたソースのURLを挙げ、確認できない曜日は空にしてください。憶測で作らないこと。`,
+      ""
+    );
+  } catch (e) { console.warn("[hours-lookup] grounding失敗", e.message); return { found: false }; }
+  // 研究結果から曜日ごとの時刻をJSON化する
+  let obj = null;
+  try {
+    const sys = `次のテキストから会社の営業時間を抽出し、JSONのみを返す。分からない曜日は含めない。24時間営業はopen"00:00"close"24:00"。憶測禁止。
+形式: {"found":true/false,"weekly":[{"day":"月","open":"09:00","close":"18:00"}...],"note":"定休日など","source":"確認したURL"}
+day は 日 月 火 水 木 金 土 のいずれか。時刻は "HH:MM"。営業時間がどこにも無ければ found:false。`;
+    const txt = await callLLM(sys, `テキスト:\n"""\n${String(research).slice(0, 6000)}\n"""`, 700, { json: true }).catch(() => "");
+    obj = JSON.parse(String(txt).replace(/```json|```/g, "").trim());
+  } catch { obj = null; }
+  if (!obj || !obj.found || !Array.isArray(obj.weekly) || !obj.weekly.length) return { found: false, note: (obj && obj.note) || "" };
+  const dayNo = { "日": 0, "月": 1, "火": 2, "水": 3, "木": 4, "金": 5, "土": 6 };
+  const hm = (s) => { const m = String(s || "").match(/(\d{1,2}):(\d{2})/); return m ? { hour: Math.min(24, parseInt(m[1], 10)), minute: parseInt(m[2], 10) } : null; };
+  const periods = [];
+  const desc = [];
+  for (const w of obj.weekly) {
+    const d = dayNo[String(w.day || "").trim()];
+    const o = hm(w.open), c = hm(w.close);
+    if (d === undefined || !o || !c) continue;
+    periods.push({ open: { day: d, hour: o.hour, minute: o.minute }, close: { day: d, hour: c.hour === 24 ? 23 : c.hour, minute: c.hour === 24 ? 59 : c.minute } });
+    desc.push(`${w.day}: ${w.open}〜${w.close}`);
+  }
+  if (!periods.length) return { found: false, note: obj.note || "" };
+  return { found: true, periods, weekday_desc: desc, business_status: "OPERATIONAL", source: "ai", note: obj.note || "" };
+}
+
+// 会社サイト＋Web検索から会社概要を取得（A+B / 2段階で確実にJSON化）
 async function geminiGrounded(question, siteText) {
   const key = process.env.GEMINI_API_KEY;
   if (!key) throw new Error("GEMINI_API_KEY 未設定");

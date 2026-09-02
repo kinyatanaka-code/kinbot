@@ -675,6 +675,7 @@ export async function initDb() {
     found       BOOLEAN DEFAULT false,
     updated_at  TIMESTAMPTZ NOT NULL DEFAULT now()
   );`);
+  await sq(`ALTER TABLE place_hours ADD COLUMN IF NOT EXISTS source TEXT;`);   // place（Googleビジネス）/ ai（Gemini検索）
   // アポの目標（ダッシュボード用）。subject＝group/sales/inside またはメンバーのメール、
   // period＝day/week/month、period_key＝その期間のキー（例 2026-09-01 / 2026-09 / 週の開始日）。
   await sq(`CREATE TABLE IF NOT EXISTS apo_goals (
@@ -2744,10 +2745,10 @@ export async function getPlaceHoursByCompanies(companies = []) {
   if (!keys.length) return {};
   try {
     const { rows } = await pool.query(
-      `SELECT company_key, periods, weekday_desc, business_status, found, updated_at
+      `SELECT company_key, periods, weekday_desc, business_status, found, source, updated_at
          FROM place_hours WHERE company_key = ANY($1)`, [keys]);
     const out = {};
-    for (const r of rows) out[r.company_key] = { periods: r.periods || [], weekday_desc: r.weekday_desc || [], business_status: r.business_status || "", found: !!r.found, updated_at: r.updated_at };
+    for (const r of rows) out[r.company_key] = { periods: r.periods || [], weekday_desc: r.weekday_desc || [], business_status: r.business_status || "", found: !!r.found, source: r.source || "", updated_at: r.updated_at };
     return out;
   } catch (e) { console.error("[db] getPlaceHoursByCompanies", e.message); return {}; }
 }
@@ -2757,13 +2758,13 @@ export async function upsertPlaceHours(company, data = {}) {
   if (!key) return false;
   try {
     await pool.query(
-      `INSERT INTO place_hours (company_key, company, place_id, periods, weekday_desc, business_status, found, updated_at)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,now())
+      `INSERT INTO place_hours (company_key, company, place_id, periods, weekday_desc, business_status, found, source, updated_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,now())
        ON CONFLICT (company_key) DO UPDATE SET company=EXCLUDED.company, place_id=EXCLUDED.place_id,
          periods=EXCLUDED.periods, weekday_desc=EXCLUDED.weekday_desc, business_status=EXCLUDED.business_status,
-         found=EXCLUDED.found, updated_at=now()`,
+         found=EXCLUDED.found, source=EXCLUDED.source, updated_at=now()`,
       [key, company, data.place_id || null, JSON.stringify(data.periods || []),
-       JSON.stringify(data.weekday_desc || []), data.business_status || "", !!data.found]);
+       JSON.stringify(data.weekday_desc || []), data.business_status || "", !!data.found, data.source || ""]);
     return true;
   } catch (e) { console.error("[db] upsertPlaceHours", e.message); return false; }
 }
