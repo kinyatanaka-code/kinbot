@@ -8602,7 +8602,14 @@ async function computeStatsGrid(periodIn, spanIn) {
     const members = await listMembers().catch(() => []);
     const internsList = await listInterns().catch(() => []);
     const internSet = new Set((internsList || []).map((x) => String(x.email || "").toLowerCase()).filter(Boolean));
+    // ダッシュボードと同じ扱い：田中欽也はセールス、中澤/浦林/森田/笹原/迫間は集計から外す。
+    const _salesNames = String(process.env.DASH_SALES_NAMES || "田中欽也").split(",").map((x) => x.trim()).filter(Boolean);
+    const _excludeNames = String(process.env.DASH_EXCLUDE_NAMES || "中澤,浦林,森田,笹原,迫間").split(",").map((x) => x.trim()).filter(Boolean);
+    const _nameHas = (name, toks) => toks.some((t) => String(name || "").includes(t));
     const roleOf = (mm) => {
+      const nm = mm.name || mm.email || "";
+      if (_nameHas(nm, _excludeNames)) return "";        // 実績・ダッシュボードから外す
+      if (_nameHas(nm, _salesNames)) return "sales";     // 田中欽也はセールス
       const roles = Array.isArray(mm.roles) ? mm.roles : [];
       if (roles.includes("closer")) return "sales";
       if (roles.includes("inside") || internSet.has(String(mm.email || "").toLowerCase())) return "inside";
@@ -17138,7 +17145,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-04bk アーカイブ/リサイクルを『物理リスト』から『カード（ステージ横断のまとめビュー）』に変更（要望：田中さん）。専用リストへの移動(sweep)を廃止＝架電先は元のリストのまま。リスト管理にアーカイブ/リサイクルのカードを追加、押すと かける画面で list=archive/recycle の仮想ビュー（stageで横断集約）を開く。かける一覧のドロップダウンにも アーカイブ/リサイクル（まとめ）を追加。以前作った物理リスト(アーカイブ/リサイクル owner無し)は起動時 cleanupPhysicalStageLists で中身を元の担当のリストへ戻してから削除（cascade削除を回避）。ステージ=ユーザー/失注/アーカイブ/リサイクル の通常非表示は維持（仮想ビューは除外）。前回(bj)：ステージ非表示。";
+const BUILD_TAG = "2026-09-04bl 実績集計で田中欽也をセールスとしてカウント（要望：田中さん）。computeStatsGridのroleOfを、DASH_SALES_NAMES(既定 田中欽也)はsales・DASH_EXCLUDE_NAMES(中澤/浦林/森田/笹原/迫間)は集計除外に。これで実績タブのセールス・チーム合計に田中の実績が入り、ダッシュボードと集計が一致。前回(bk)：アーカイブ/リサイクルをカード化。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
