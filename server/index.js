@@ -8525,7 +8525,8 @@ app.get("/api/calls/analysis", async (req, res) => {
 function isApoCountableTitle(title) {
   const t = String(title || "");
   if (/メルマガ/.test(t)) return false;
-  return /【\s*初回\s*】/.test(t) || /【\s*新\s*[\/／]\s*ヒ\s*】/.test(t);
+  // 【初回】【初回/フロッグ】【初回/コールド】【初回/過去失注】… と 【新/ヒ】系を、初回アポとして数える。
+  return /【[^】]*初回[^】]*】/.test(t) || /【\s*新\s*[\/／]\s*ヒ\s*】/.test(t);
 }
 
 async function computeStatsGrid(periodIn, spanIn) {
@@ -17145,7 +17146,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-04bl 実績集計で田中欽也をセールスとしてカウント（要望：田中さん）。computeStatsGridのroleOfを、DASH_SALES_NAMES(既定 田中欽也)はsales・DASH_EXCLUDE_NAMES(中澤/浦林/森田/笹原/迫間)は集計除外に。これで実績タブのセールス・チーム合計に田中の実績が入り、ダッシュボードと集計が一致。前回(bk)：アーカイブ/リサイクルをカード化。";
+const BUILD_TAG = "2026-09-04bm 初回アポカウントに【初回/フロッグ】等を含める（要望：田中さん）。isApoCountableTitle の 初回判定を /【\\s*初回\\s*】/（初回直後に】）から /【[^】]*初回[^】]*】/ に広げ、【初回/フロッグ】【初回/コールド】【初回/過去失注】等も初回アポとして数える。メルマガ・再商談・n回目は従来どおり除外。前回(bl)：田中をセールス集計。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
