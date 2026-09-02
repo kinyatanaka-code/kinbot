@@ -1967,18 +1967,18 @@ async function sweepMeetingSfRecords({ max = 8 } = {}) {
   const stat = { 対象: 0, 記録した: 0, まだ: 0, 連携待ち: 0, 失敗: 0, あきらめ: 0, SF未紐づけ: 0 };
   try {
     const jst = new Date(Date.now() + 9 * 3600 * 1000);
-    const from = new Date(jst.getTime() - 7 * 86400000).toISOString().slice(0, 10);   // 過去7日
-    const rows = await listMeetings({ isAdmin: true, from, limit: 500 }).catch(() => []);
+    const from = new Date(jst.getTime() - 31 * 86400000).toISOString().slice(0, 10);   // 過去31日（取りこぼし防止）
+    const rows = await listMeetings({ isAdmin: true, from, limit: 800 }).catch(() => []);
     const now = Date.now();
     const cand = (rows || []).filter((m) => {
       const key = String(m.id || m.bot_id || "");
       if (!key) return false;
       if (m.sf_recorded_at) return false;                 // DBで記録済み＝二度と自動記録しない（再起動しても効く）
       const age = now - new Date(m.created_at).getTime();
-      if (!(age >= 40 * 60 * 1000 && age <= 5 * 86400000)) return false;   // 40分〜5日（要約が出るまで少し待つ）
+      if (!(age >= 40 * 60 * 1000 && age <= 31 * 86400000)) return false;   // 40分〜31日
       // sf_urlが無くても、予定にひも付いたSF商談IDから解決できることがあるので、ここでは弾かない
       if (_autoShodanDone.has(key)) return false;
-      if ((_autoShodanTries.get(key) || 0) >= SHODAN_MAX_TRIES) return false; // あきらめ済み
+      // ※あきらめても候補から外さない：連携や紐づけが後から整えば記録できるよう、ずっとリトライする（通知は1回だけ）。
       return true;
     });
     stat.対象 = cand.length;
@@ -1987,9 +1987,25 @@ async function sweepMeetingSfRecords({ max = 8 } = {}) {
       try {
         const m = await getMeeting(row.bot_id);
         if (!m) continue;
-        const s = m.summary || {};
-        const hasSummary = !!(s.overview || (s.key_points || []).length || (s.action_items || []).length || (s.customer_concerns || []).length || s.formatted);
-        if (!hasSummary) { stat.まだ++; continue; }   // 要約待ち（済みにしない＝次の見回りでやり直す。空記録を防ぐ）
+        let s = m.summary || {};
+        let hasSummary = !!(s.overview || (s.key_points || []).length || (s.action_items || []).length || (s.customer_concerns || []).length || s.formatted);
+        // 要約が出ないまま時間が経ったら、文字起こしからその場で要約を作って記録する（記録漏れを無くす）。
+        if (!hasSummary) {
+          const hasTr = Array.isArray(m.transcript) ? m.transcript.length : !!m.transcript;
+          const age = now - new Date(m.created_at).getTime();
+          if (hasTr && age >= 60 * 60 * 1000) {
+            try {
+              const text = (Array.isArray(m.transcript) ? m.transcript.map((u) => `${(u.speaker && u.speaker.name) || ""}: ${u.text || ""}`).join("\n") : String(m.transcript || "")).slice(-12000);
+              const speakers = [...new Set((Array.isArray(m.transcript) ? m.transcript : []).map((u) => u.speaker && u.speaker.name).filter(Boolean))];
+              const dateStr = new Date(m.created_at).toLocaleString("ja-JP", { timeZone: "Asia/Tokyo", year: "numeric", month: "long", day: "numeric", hour: "2-digit", minute: "2-digit" });
+              const rev = await analyzeMeeting({ transcript: text, repName: m.rep_name || m.owner_name || "", dateStr, speakers });
+              if (rev && rev.summary) { await saveAnalysis(m.bot_id, rev).catch(() => {}); s = rev.summary; m.summary = s; }
+              hasSummary = !!(s.overview || (s.key_points || []).length || (s.action_items || []).length || (s.customer_concerns || []).length || s.formatted);
+              if (hasSummary) console.log(`[商談自動記録] 要約が無かったので生成しました：${m.title || m.bot_id}`);
+            } catch (e) { console.warn(`[商談自動記録] 要約生成に失敗：${m.title || key}：${e.message}`); }
+          }
+        }
+        if (!hasSummary) { stat.まだ++; continue; }   // まだ要約が無い（文字起こしも無い等）＝次の見回りでやり直す
         const owner = m.owner;
         if (!owner || !(await sfConnected(owner).catch(() => false))) { stat.連携待ち++; continue; } // 連携待ち（済みにしない）
         const r = await autofillMeetingToSf(owner, m, m.sf_url).catch((e) => ({ ok: false, error: e.message }));
@@ -17221,7 +17237,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-04bu 商談の自動SF記録が空で入る不具合を修正（要望：田中さん）。従来は『要約も文字起こしも無い時だけ待つ』で、文字起こしはあるが要約が未生成の状態で記録し説明が空になっていた。修正：要約(overview/要点/宿題/懸念/formattedのいずれか)ができるまで自動記録しない（できるまで見回りでリトライ）。説明本文も概要だけでなく要点・合意・宿題・懸念を含めて作成。最短待ちを20分→40分に。前回(bt)：架電MCPコネクタ分離。";
+const BUILD_TAG = "2026-09-04bv 商談の自動SF記録の記録率を上げる（要望：田中さん：100%に）。(1)走査を過去7日→31日、対象を40分〜5日→40分〜31日に拡大。(2)5回失敗であきらめて候補から外す→やめて、ずっとリトライ（連携/紐づけが後で整えば記録・通知は1回だけ）。(3)要約が60分以上出ないまま文字起こしがある場合は analyzeMeeting でその場生成→saveAnalysis→記録（記録漏れ防止）。要約が無いまま空記録はしない(bu)。※SF未連携/未紐づけは連携・紐づけが要る。前回(bu)：空記録の修正。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
