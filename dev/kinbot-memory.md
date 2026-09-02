@@ -41,6 +41,8 @@ kincall（架電リスト）という別ツールも同じ画面群の中にあ�
 
 ## 決定・指示のログ（新しいものを上に足す）
 
+- 2026-09-04 要望（田中さん）：断り理由タグを次の7つに差し替え：採用充足している/費用かけれない/予算のタイミングじゃない/ネオ担当から連絡して欲しい/今は採用していない/忙しい/冒頭NG。実装(ci)：public/calls.js 記録モーダルの 断り理由 配列を上記に変更（お断り選択時にチップ表示→押すとメモ追記）。不在文言・番号状態チップは据え置き。node --check/smoke OK。
+
 - 2026-09-04 バグ（田中さん）：営業時間取得ボタンが『取得済みです』になる。原因：既定が placeHoursMissing(30)（found問わず30日以内キャッシュ済みはスキップ）＝前回不明(found=false)もスキップ→取得対象0。修正(cg)：既定を placeHoursMissing(30,{onlyNotFound:true})＝found=true(営業時間あり)のみスキップ、未取得＋found=false を取得対象に。retryフラグ廃止、確認1回に簡素化（body {list,member} のみ）。force(全取り直し)は残置。→ボタン1回で不明の会社がPlaces多段＋Gemini補完で取り直される。node --check/smoke OK。※genuinely見つからない会社は毎回再取得＝Gemini費用が都度かかる点は許容（押した時のみ）。頻繁に押すなら found=false も数日キャッシュする案あり。
 
 - 2026-09-04 要望（田中さん）：Google検索/AI概要には営業時間が出るのに Places で不明になる（＝Googleビジネス未登録のBtoB）。Geminiでも拾って補完。実装(cf)：analyzer.js lookupBusinessHours(companyName,hint)＝geminiGrounded(google_search)で『会社名 営業時間』を調べ、callLLM(json)で {found,weekly:[{day,open,close}],note,source} を抽出→曜日(日0..土6)・HH:MMを Places形式 periods[{open:{day,hour,minute},close:{...}}] に変換（24:00→23:59）。見つからねば found:false。index.js fetchPlaceHoursBatch：Places(多段)で found なら source='place' 保存、not-found(rateLimitedでない)なら lookupBusinessHours→ai foundなら source='ai' 保存、それも無ければ found:false(source place)で不明記録。/api/calls/targets の 営業 に 出典:h.source を追加。calls.js bizBadge：出典==='ai' のとき『営業中/営業時間外』に小さく AI（.kc-biz-ai 上付き薄字）＋title『AIがWeb検索で取得』。db place_hours に source列（ALTER）＋get/upsertでsource入出力。calls.html CSS .kc-biz-ai。※AI補完はGemini web検索＋LLMで1社数秒＝not-foundの会社のみ・キャッシュ。既に found:false でキャッシュ済みの会社は『取れなかった会社も取り直す(retry=onlyNotFound)』でAI補完が走る。node --check/smoke OK。※精度はAI依存＝AIタグで明示。
