@@ -17221,7 +17221,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-04bq kincallにもAIチャット分析を追加（要望：田中さん）。商談分析チャット(/api/chat→chatWithData)と同じ仕組みで、架電記録・実績を材料にAIに質問できる。POST /api/calls/chat：今月の人別コール/接触/アポ(computeStatsGrid)＋recentCallLogs(会社/結果/メモ/かけた人)を材料化→chatWithDataで回答。かけるツールバーに『AIチャットで分析』ボタン＋モーダル(履歴つきチャット)。前回(bp)：アポ計上の点検API。";
+const BUILD_TAG = "2026-09-04br kinbot MCPコネクタに架電分析ツールを追加（要望：田中さん）。Claude.aiのコネクタから架電記録を分析できるよう、mcp.jsのTOOLSに list_call_logs（会社/担当/結果/メモ/かけた人/ステージ/日時）・list_call_stats（日×人×結果の件数）・list_apo_appointments（獲得者/現担当/会社/商談予定日/取得日）を追加。callToolに各実装（recentCallLogs/callStatsByDay/aposTakenInRange＋名前表示補正）。前回(bq)：kincall内蔵AIチャット（今回はコネクタ版が本命）。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",

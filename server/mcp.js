@@ -17,6 +17,9 @@ import {
   listActionItems,
   listDealStatuses,
   normCompanyKey,
+  recentCallLogs,
+  callStatsByDay,
+  aposTakenInRange,
 } from "./db.js";
 
 const SERVER_INFO = { name: "kinbot", version: "1.0.0" };
@@ -126,6 +129,41 @@ const TOOLS = [
         company_name: { type: "string", description: "会社名（完全名でなくても、部分一致で近い会社を探す）" },
       },
       required: ["company_name"],
+    },
+  },
+  {
+    name: "list_call_logs",
+    description: "kincall（架電ツール）の架電記録を新しい順で取得する。1件ずつ、会社名・担当者・結果（お断り/担当者不在/アポ獲得 等）・メモ（架電時のトーク内容メモ）・かけた人・ステージ・日時を返す。架電の傾向分析（お断り理由、接触できない時間帯、アポにつながる会話の共通点、担当者ごとのメモの質など）に使う。",
+    inputSchema: {
+      type: "object",
+      properties: {
+        from: { type: "string", description: "開始日 YYYY-MM-DD（任意・省略で今月1日）" },
+        to: { type: "string", description: "終了日 YYYY-MM-DD（任意・省略で今日）" },
+        caller: { type: "string", description: "かけた人のメールアドレスで絞り込み（任意）" },
+        limit: { type: "number", description: "最大件数（任意・既定500・最大2000）" },
+      },
+    },
+  },
+  {
+    name: "list_call_stats",
+    description: "kincallの架電実績を、日×かけた人×結果 の件数で取得する。期間内のコール数・接触・アポ獲得などを、人ごと日ごとに集計するのに使う（コール数、接触率、アポ率、担当者比較など）。",
+    inputSchema: {
+      type: "object",
+      properties: {
+        from: { type: "string", description: "開始日 YYYY-MM-DD（任意・省略で今月1日）" },
+        to: { type: "string", description: "終了日 YYYY-MM-DD（任意・省略で今日）" },
+      },
+    },
+  },
+  {
+    name: "list_apo_appointments",
+    description: "kincall/カレンダー由来のアポ予定（初回商談）を期間で取得する。獲得者(setter)・現担当・会社名・商談予定日・取得日を返す。アポの獲得傾向・担当者別のアポ数などの分析に使う。",
+    inputSchema: {
+      type: "object",
+      properties: {
+        from: { type: "string", description: "取得日の開始 YYYY-MM-DD（任意・省略で今月1日）" },
+        to: { type: "string", description: "取得日の終了 YYYY-MM-DD（任意・省略で今日）" },
+      },
     },
   },
 ];
@@ -254,6 +292,42 @@ export async function callTool(name, args, req) {
         customer_concerns: concerns,
         meetings: matched.map((m) => ({ bot_id: m.bot_id, title: m.title, created_at: m.created_at, owner: m.owner })),
       };
+    }
+    case "list_call_logs": {
+      const now = new Date(Date.now() + 9 * 3600 * 1000);
+      const mFrom = `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, "0")}-01`;
+      const mTo = `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, "0")}-${String(now.getUTCDate()).padStart(2, "0")}`;
+      const rows = await recentCallLogs({
+        from: (args && args.from) || mFrom,
+        to: (args && args.to) || mTo,
+        caller: isAdmin ? (args && args.caller) || "" : req.user,
+        limit: (args && args.limit) || 500,
+      });
+      const nameMap = await buildNameMap();
+      return rows.map((r) => ({
+        日時: r.at, 会社: r.company || "", 担当者: r.person || "", ステージ: r.stage || "",
+        結果: r.result || "", メモ: r.memo || "", かけた人: resolveDisplayName(r.caller, nameMap),
+      }));
+    }
+    case "list_call_stats": {
+      const now = new Date(Date.now() + 9 * 3600 * 1000);
+      const mFrom = `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, "0")}-01`;
+      const mTo = `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, "0")}-${String(now.getUTCDate()).padStart(2, "0")}`;
+      const rows = await callStatsByDay((args && args.from) || mFrom, (args && args.to) || mTo);
+      const nameMap = await buildNameMap();
+      return rows.map((r) => ({ 日: r["日"], かけた人: resolveDisplayName(r.caller, nameMap), 結果: r.result, 件数: r.n }));
+    }
+    case "list_apo_appointments": {
+      const now = new Date(Date.now() + 9 * 3600 * 1000);
+      const mFrom = `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, "0")}-01`;
+      const mTo = `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, "0")}-${String(now.getUTCDate()).padStart(2, "0")}`;
+      const rows = await aposTakenInRange({ from: (args && args.from) || mFrom, to: (args && args.to) || mTo, limit: 3000 });
+      const nameMap = await buildNameMap();
+      return rows.map((a) => ({
+        商談名: a.label || "", 会社: (a.label || "").replace(/^【[^】]*】/, "").split("/")[0] || "",
+        獲得者: resolveDisplayName(a.setter_email || a.setter, nameMap), 現担当: resolveDisplayName(a.current_owner, nameMap),
+        商談予定日: a.start_time, 取得日: a.taken_at,
+      }));
     }
     default:
       throw new Error(`不明なツール: ${name}`);
