@@ -2445,12 +2445,17 @@ document.addEventListener("click", (ev) => {
     (async () => {
       const lst = ($("clList") && $("clList").value) || String(listId || "");
       if (!lst) { say("clStatus", "リストを選んでください", 5000); return; }
-      if (!confirm("このリストの会社の営業時間をGoogleからまとめて取得します。よろしいですか？（未取得ぶんだけ取得します）")) return;
+      // OK＝未取得ぶんだけ／キャンセル→さらに確認で「取れなかった分も取り直す」
+      let retry = false;
+      if (!confirm("このリストの会社の営業時間をGoogleから取得します。\n\nOK：まだ取っていない会社だけ取得\nキャンセル：次に『取れなかった会社も取り直す』か選べます")) {
+        if (!confirm("営業時間が取れなかった会社を、住所や電話でもう一度取り直しますか？\n（前回見つからなかった会社に、より正確な当て方で再挑戦します）")) return;
+        retry = true;
+      }
       say("clStatus", "営業時間を取得しています…", 60000);
       try {
         const d = await (await fetch("/api/calls/place-hours/refresh", {
           method: "POST", headers: { "content-type": "application/json" },
-          body: JSON.stringify({ list: lst, member: callAsMember || undefined, force: false }),
+          body: JSON.stringify({ list: lst, member: callAsMember || undefined, retry }),
         })).json();
         if (!d.ok) throw new Error(d.error || "取得できませんでした");
         if (!d.取得対象) { say("clStatus", "営業時間は取得済みです（新しく取るものはありませんでした）", 6000); return; }

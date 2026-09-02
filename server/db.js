@@ -2768,19 +2768,22 @@ export async function upsertPlaceHours(company, data = {}) {
   } catch (e) { console.error("[db] upsertPlaceHours", e.message); return false; }
 }
 // まだ取得していない/古い（既定30日）会社キーを返す。company配列から絞る。
-export async function placeHoursMissing(companies = [], staleDays = 30) {
+export async function placeHoursMissing(companies = [], staleDays = 30, { onlyNotFound = false } = {}) {
   if (!pool || !companies.length) return [];
   const map = {};   // key -> company（元の表記）
   for (const c of companies) { const k = normCompanyKey(c); if (k && !map[k]) map[k] = c; }
   const keys = Object.keys(map);
   if (!keys.length) return [];
   try {
+    // onlyNotFound=true：営業時間が取れた(found=true)ものは対象外にし、未取得＋取れなかった分を取り直す。
+    const cond = onlyNotFound
+      ? `updated_at > now() - ($2 || ' days')::interval AND found = true`
+      : `updated_at > now() - ($2 || ' days')::interval`;
     const { rows } = await pool.query(
-      `SELECT company_key FROM place_hours
-        WHERE company_key = ANY($1) AND updated_at > now() - ($2 || ' days')::interval`,
+      `SELECT company_key FROM place_hours WHERE company_key = ANY($1) AND ${cond}`,
       [keys, String(staleDays)]);
-    const fresh = new Set(rows.map((r) => r.company_key));
-    return keys.filter((k) => !fresh.has(k)).map((k) => map[k]);
+    const skip = new Set(rows.map((r) => r.company_key));
+    return keys.filter((k) => !skip.has(k)).map((k) => map[k]);
   } catch (e) { console.error("[db] placeHoursMissing", e.message); return keys.map((k) => map[k]); }
 }
 

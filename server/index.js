@@ -8084,8 +8084,15 @@ let _placeFetching = new Set();
 let _placeProgress = { running: false, done: 0, ok: 0, total: 0, updatedAt: 0 };
 function placeProgress() { return { ..._placeProgress, fetching: _placeFetching.size }; }
 async function fetchPlaceHoursBatch(companies, items = []) {
-  const phoneOf = {};
-  for (const x of items) { const c = x && x.会社名; if (c && !phoneOf[c]) phoneOf[c] = x.電話番号 || ""; }
+  const phoneOf = {}, addrOf = {};
+  for (const x of items) {
+    const c = x && x.会社名; if (!c || phoneOf[c] !== undefined) continue;
+    phoneOf[c] = x.電話番号 || "";
+    // フロッグ等の列（追加/求人）に住所があれば使う
+    const e = (x.追加 && typeof x.追加 === "object") ? x.追加 : ((x.求人 && typeof x.求人 === "object") ? x.求人 : {});
+    const pref = e["勤務地都道府県"] || "", city = e["勤務地市区町村"] || "", ad = e["勤務地住所"] || "";
+    addrOf[c] = [pref, city, ad].map((s) => String(s || "").trim()).filter(Boolean).join("");
+  }
   // 進捗（同時に走っても合算で見えるように加算する）
   _placeProgress.running = true;
   _placeProgress.total += companies.length;
@@ -8097,7 +8104,7 @@ async function fetchPlaceHoursBatch(companies, items = []) {
     try {
       let h = null;
       for (let attempt = 0; attempt < 4; attempt++) {   // レート制限は数回まで待って再試行
-        h = await fetchPlaceHours(company, { phone: phoneOf[company] || "" });
+        h = await fetchPlaceHours(company, { phone: phoneOf[company] || "", address: addrOf[company] || "" });
         if (!h || !h.rateLimited) break;
         await new Promise((r) => setTimeout(r, 3000 + attempt * 2000));   // 3s,5s,7s… 待つ
       }
@@ -8122,10 +8129,13 @@ app.post("/api/calls/place-hours/refresh", async (req, res) => {
     else if (/^\d+$/.test(listParam)) rows = await listCallTargets(parseInt(listParam, 10), { limit: 5000 }).catch(() => []);
     else return res.status(400).json({ error: "リストを指定してください" });
 
-    const items = rows.map((r) => ({ 会社名: r.company || "", 電話番号: r.phone || "" })).filter((x) => x.会社名);
+    const items = rows.map((r) => ({ 会社名: r.company || "", 電話番号: r.phone || "", 追加: (r.extra && typeof r.extra === "object") ? r.extra : null })).filter((x) => x.会社名);
     const companies = [...new Set(items.map((x) => x.会社名))];
     const force = !!b.force;
-    const targets = force ? companies : await placeHoursMissing(companies, force ? 0 : 30);
+    const retry = !!b.retry;   // 営業時間が取れなかった会社だけ、多段検索で取り直す
+    const targets = force ? companies
+      : retry ? await placeHoursMissing(companies, 3650, { onlyNotFound: true })
+      : await placeHoursMissing(companies, 30);
     // 進捗をリセットしてから裏で取得（画面はステータスをポーリングして表示）。
     _placeProgress = { running: true, done: 0, ok: 0, total: 0, updatedAt: Date.now() };
     fetchPlaceHoursBatch(targets, items).catch(() => {});
