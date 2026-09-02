@@ -2592,7 +2592,11 @@ function wireSoloSearch() {
         <div class="sf-match" data-id="${esc(x.Id)}" data-name="${esc(x.Name || "")}">
           <div class="sf-match-name">${esc(x.Name || "(名称なし)")}</div>
           <div class="sf-match-meta">${esc(x.StageName || "")}${x.Account && x.Account.Name ? " ・ " + esc(x.Account.Name) : ""}${x.CloseDate ? " ・ " + esc(x.CloseDate) : ""}</div>
-          <button type="button" class="btn sf-solo-pick">この案件を更新する</button>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:6px">
+            <button type="button" class="btn sf-solo-pick">この案件を更新する</button>
+            <button type="button" class="btn ghost sf-solo-lose">リスケ失注にする</button>
+          </div>
+          <div class="sf-solo-msg" style="font-size:12px;margin-top:4px"></div>
         </div>`).join("");
 
       list.querySelectorAll(".sf-solo-pick").forEach((b) =>
@@ -2601,6 +2605,25 @@ function wireSoloSearch() {
           // 選んだ案件を、そのままSalesforceの更新画面で開く
           sfLinkedOpp = { Id: row.dataset.id, Name: row.dataset.name };
           openSfForOpportunity(row.dataset.id, row.dataset.name);
+        })
+      );
+      // 録音できていない商談予定を、ボタン一つで失注（初回商談リスケ）にする
+      list.querySelectorAll(".sf-solo-lose").forEach((b) =>
+        b.addEventListener("click", async () => {
+          const row = b.closest(".sf-match");
+          const msg = row.querySelector(".sf-solo-msg");
+          if (!confirm(`「${row.dataset.name}」を「初回商談リスケ」の理由で失注にします。よろしいですか？`)) return;
+          b.disabled = true; msg.textContent = "更新しています…"; msg.style.color = "#5b7a6d";
+          try {
+            const rr = await fetch("/api/salesforce/opportunity/" + encodeURIComponent(row.dataset.id) + "/lose", {
+              method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({}),
+            });
+            const dd = await rr.json().catch(() => ({}));
+            if (!rr.ok) throw new Error((dd.sfReauth || /未連携/.test(dd.error || "")) ? "Salesforceの再連携が必要です（設定から連携し直してください）" : (dd.error || "更新に失敗しました"));
+            msg.textContent = `失注にしました（ステージ：${dd.stage || "失注"} ／ 理由：初回商談リスケ${dd.ownerChanged ? " ／ 所有者を自分に変更" : ""}）`;
+            msg.style.color = "#0d5b47";
+            b.textContent = "失注済み"; b.disabled = true;
+          } catch (e) { msg.textContent = "できませんでした：" + e.message; msg.style.color = "#a32d2d"; b.disabled = false; }
         })
       );
     } catch (e) {

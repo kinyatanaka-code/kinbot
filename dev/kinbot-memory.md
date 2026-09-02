@@ -41,6 +41,8 @@ kincall（架電リスト）という別ツールも同じ画面群の中にあ�
 
 ## 決定・指示のログ（新しいものを上に足す）
 
+- 2026-09-04 要望（田中さん）：録音できていない商談予定をリスケ失注1ボタンでできる機能が消えている。状況：ホーム(home.js)の予定カードには『リスケ失注』(sfLose→POST /api/salesforce/opportunity/:id/lose)があるが、リスケ【初回】…の予定を開くと deals.js の『kinbotに商談履歴がありません→商談を検索』モーダル(wireSoloSearch)に来て、そこには『この案件を更新する』しか無く1ボタン失注が無かった。修正(by)：wireSoloSearch の検索結果カードに『リスケ失注にする』ボタンを追加し、home.jsと同じ /api/salesforce/opportunity/{Id}/lose を呼ぶ（confirm→失注ステージ＆初回商談リスケ理由、結果メッセージ表示、成功で『失注済み』無効化）。既存の『この案件を更新する』も残す。node --check/smoke OK。※loseエンドポイント既存(17644)。要：田中さんが該当予定→商談を検索→リスケ失注にするで1発失注できるか確認。
+
 - 2026-09-04 バグ報告（田中さん）：SF未紐づけの通知が来ない。原因：notifyUnlinkedMeetings は毎日18:00JST(sfUnlinkedHour/既定18)に1回だけ、担当者notifyPerson(DM)＋selfCheckチャンネルのみ。DM未設定/点検チャンネル(selfCheckWebhook/space)未設定だと可視化されず、また当日18時前だと未実行。改善(bx)：(1)担当者DM失敗時に notifyChat(メインGoogle Chat)へフォールバック。(2)per-ownerとは別に、全体まとめ(list.slice0..25)を必ず notifyChat でメインChatに投稿＝DOC Teamで見える。今すぐ実行導線：GET /api/meetings/sf-unlinked（一覧JSON）、?notify=1 で notifyUnlinkedMeetings 即時実行。定時は毎分 checkUnlinkedSchedule が h===sfUnlinkedHour&&m<5 で1回/日。時刻変更 sfUnlinkedHour、停止 sfUnlinkedNotify=false。要：田中さんに『通知は18:00の1日1回・メインChatにも出すようにした・今すぐは /api/meetings/sf-unlinked?notify=1』と案内。node --check/smoke OK。公開アセット変更なしで版更新不要。
 
 - 2026-09-04 要望（田中さん）：過去の商談の自動記録は今はしなくてよい、明日から。実装(bw)：sweepMeetingSfRecords に開始日ガード。settings.shodanAutoStart（ISO）を読み、未設定なら『明日0時JST』を計算して saveSettings で保存・ログ。候補フィルタで new Date(m.created_at) < 開始ms を除外＝開始日より前(＝過去分)は自動記録しない。bvで31日走査＋あきらめず＋要約フォールバックにしたが、開始日ガードで過去分の一括記録を回避。手動『商談から読み取る』は従来どおりいつでも可。※開始日を変えたい/今日から/特定日からにしたい場合は settings.shodanAutoStart を書き換えるだけ。node --check/smoke OK・明日0時JST(9/3 00:00)計算確認。公開アセット変更なしで版更新不要。
