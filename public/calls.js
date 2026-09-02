@@ -167,7 +167,8 @@ function bizBadge(x) {
   const desc = (x && x["営業"] && x["営業"]["説明"]) ? ` title="${esc(x["営業"]["説明"])}"` : "";
   if (st === "open") return `<span class="kc-biz kc-biz-open"${desc}>営業中</span>`;
   if (st === "closed") return `<span class="kc-biz kc-biz-closed"${desc}>営業時間外</span>`;
-  return "";   // unknown は出さない
+  if (st === "unknown") return `<span class="kc-biz kc-biz-unknown">不明</span>`;   // 取得したが営業時間の掲載なし
+  return "";   // 未取得は出さない
 }
 
 // 次回架電の予定時刻が来ているか（来ていれば表示用の文言）

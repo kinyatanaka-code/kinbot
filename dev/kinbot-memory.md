@@ -41,6 +41,8 @@ kincall（架電リスト）という別ツールも同じ画面群の中にあ�
 
 ## 決定・指示のログ（新しいものを上に足す）
 
+- 2026-09-04 要望（田中さん）：営業時間が取れなかった会社を『不明』と薄く出す。実装(ce)：/api/calls/targets は取得済みで営業時間なし＝openState→'unknown' を既に返している。calls.js bizBadge に unknown→<span.kc-biz-unknown>不明</span> を追加（未取得=キャッシュ無しは営業フィールド自体が無く非表示のまま）。calls.html CSS .kc-biz-unknown（薄グレー #f1f3f2/文字#a6afaa）。並べ替え：closedRankはclosedのみ1で沈める＝不明は沈めない。node --check/smoke OK。※『不明』は Google に営業時間の掲載が無い（BtoB等）＝取得はできている状態。
+
 - 2026-09-04 バグ（田中さん）：営業時間の一括取得が途中までしか調べられず、取得ステータスが途中で消えて止まる。原因：①リスト表示の自動裏取りが15社/回、②一括ボタンの進捗がsayトースト(12秒)で消える＝進捗不明、③Googleのレート制限(429)でfetchPlaceHours→null＝以降スキップ。修正(cc)：places.js fetchPlaceHours が429/RESOURCE_EXHAUSTED時 {rateLimited:true} を返す。index.js fetchPlaceHoursBatch を進捗保持(_placeProgress{running,done,ok,total,updatedAt})＋レート制限は 3s,5s,7s… 最大4回リトライ（取り切る）、間隔200ms。GET /api/calls/place-hours/status で placeProgress() 公開。POST place-hours/refresh は _placeProgress をリセットしてから起動。自動裏取り missing.slice(0,15)→25。calls.js clBizHours：confirm→refresh→2秒ごとに /status をポーリングし『取得中 X/Y社』を60秒トーストで更新、!running&&done>=total で『完了(ok社)』＋loadTable()自動更新（最大~10分でタイムアウト案内）。取得済みなら『取得済み』。node --check/smoke OK・/status疎通。※レート制限が厳しい場合は間隔を延ばす/日次分割も可。
 
 - 2026-09-04 要望（田中さん）：かけるツールバーのアイコンが多く見づらい→まとめたい。実装(cb)：cl-ico 8個（clReset/clCheck/clDedup/clRefreshSf/clLinkSf/clToCross/clBizHours/clFixLinks）を廃止し、『操作 ▾』(#clMenuBtn)＋ドロップダウン(#clMenuList)に集約。グループ＝表示(しぼり込みを外す)/Salesforce(SFの状態を更新・SFと連携する・クロスリードに変更・紐づけの修復)/データ・整理(営業時間を取得・履歴の件数を調べる・重複した活動履歴を整理)。各itemは元のidを保持＝既存の委譲クリックハンドラ(closest('button')でid判定)がそのまま実行。追加リスナー：#clMenuBtnでopen/close(aria-expanded)、.cl-menu-item選択で閉じる、外側クリックで閉じる。calls.html CSS .cl-menu*(白カード・影・グループ見出し・hover)。node --check/smoke OK。※アイコンは無くなりテキストで分かりやすく。よく使うものを常時ボタンで出す等の要望あれば個別対応可。
