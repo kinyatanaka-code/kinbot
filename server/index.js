@@ -2109,8 +2109,14 @@ async function notifyUnlinkedMeetings() {
   for (const [owner, items] of byOwner) {
     const lines = items.slice(0, 20).map((x) => `・${fmtDay(x.at)} ${x.title}`);
     const msg = [`📌 SFに紐づいていない商談が ${items.length}件 あります`, "SFの商談を紐づければ、活動ToDoを自動で記録します。", ...lines].join("\n");
-    await notifyPerson(owner, msg).catch(() => {});
+    const pr = await notifyPerson(owner, msg).catch(() => ({ ok: false }));
+    if (!pr || !pr.ok) await notifyChat(msg).catch(() => {});   // DMが届かなければメインChatへ
   }
+  // メインのGoogle Chat（みんなが見るところ）にも、全体をまとめて出す。
+  try {
+    const lines = list.slice(0, 25).map((x) => `・${fmtDay(x.at)} ${x.title}${x.owner ? `（${String(x.owner).split("@")[0]}）` : ""}`);
+    await notifyChat([`📌 SFに紐づいていない商談が ${list.length}件あります（過去7日）`, "SFの商談を紐づけると、活動ToDoを自動で記録します。", "", ...lines].join("\n")).catch(() => {});
+  } catch {}
   // 点検チャンネルにも全体をまとめる
   try {
     const st = await getSettings().catch(() => ({}));
@@ -17252,7 +17258,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-04bw 商談自動SF記録に開始日を追加（要望：田中さん：過去分は自動記録せず明日から）。settings.shodanAutoStart（未設定なら明日0時JSTを自動保存）より前に作られた商談は自動記録の対象外に。過去分は手動『商談から読み取る』でいつでも可。前回(bv)：記録率向上（あきらめず/31日/要約フォールバック生成）。";
+const BUILD_TAG = "2026-09-04bx SF未紐づけ通知が見えない件を改善（要望：田中さん）。従来は毎日18:00JSTに担当者DM＋点検チャンネルのみ→DM不達/点検チャンネル未設定だと見えなかった。担当者DMが届かなければメインGoogle Chatへフォールバック、さらに全体まとめを必ずメインChatにも投稿。今すぐ見るには GET /api/meetings/sf-unlinked（一覧）・?notify=1（今すぐ通知）。前回(bw)：自動記録の開始日。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
