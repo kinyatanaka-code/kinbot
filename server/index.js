@@ -7560,7 +7560,7 @@ app.get("/api/calls/targets", async (req, res) => {
     const items = rows.map((r) => ({
         id: r.id, leadId: r.lead_id || "",
         ステージ: r.stage || "",
-        会社名: r.company || "", 担当者: r.person || "",
+        会社名: r.company || "", 担当者: r.person || "", ふりがな: r.person_kana || "",
         電話番号: r.phone || "", メール: r.email || "",
         所有者: r.owner_name || "",
         最終ステータス: r.status || "",
@@ -7938,11 +7938,12 @@ app.post("/api/calls/targets/:id/edit", async (req, res) => {
     const b = req.body || {};
     const company = b.company === undefined ? undefined : String(b.company || "").trim();
     const person  = b.person  === undefined ? undefined : String(b.person  || "").trim();
+    const kana    = b.kana    === undefined ? undefined : String(b.kana    || "").trim();
     const phone   = b.phone   === undefined ? undefined : String(b.phone   || "").trim();
     const email   = b.email   === undefined ? undefined : String(b.email   || "").trim();
 
-    // まずローカルを更新
-    const row = await updateCallTargetFields(id, { company, person, phone, email });
+    // まずローカルを更新（ふりがなはkincall内だけ・SFには送らない）
+    const row = await updateCallTargetFields(id, { company, person, kana, phone, email });
 
     // Salesforceのリードにも反映（つながっていて、リードと結びついているときだけ）
     let sf = null;
@@ -7983,6 +7984,7 @@ app.post("/api/calls/targets/:id/edit", async (req, res) => {
       項目: {
         会社名: (row && row.company) || company || "",
         担当者: (row && row.person) || person || "",
+        ふりがな: (row && row.person_kana) || kana || "",
         電話番号: (row && row.phone) || phone || "",
         メール: (row && row.email) || email || "",
       },
@@ -17146,7 +17148,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-04bn アポ割り振り/初回商談判定でも【初回/フロッグ】等を初回として拾う（要望：田中さん）。APO_TAG_RE（アポスキャン collectApoAppointmentsのapoTitleTag）を /【\\s*(?:新|初回|ヒ)(?:…)?】/ から /【\\s*(?:新|初回|ヒ)[^】]*】/ に広げ、先頭が新/初回/ヒなら後続(/フロッグ等)があっても拾う。roundFromTitle(種別判定)は既に初回扱いで整合。前回(bm)：isApoCountableTitleに【初回/…】。";
+const BUILD_TAG = "2026-09-04bo かける一覧で担当者名の上にふりがなを表示・編集可能に（要望：田中さん）。call_targets に person_kana 列を追加、編集モーダルに『ふりがな』欄、/api/calls/targets/:id/edit で kana 保存（SFには送らずkincall内のみ）、担当者セルに小さくふりがな→名前を表示。前回(bn)：アポ割り振りも【初回/フロッグ】を初回に。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",

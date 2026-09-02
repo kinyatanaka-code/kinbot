@@ -41,6 +41,8 @@ kincall（架電リスト）という別ツールも同じ画面群の中にあ�
 
 ## 決定・指示のログ（新しいものを上に足す）
 
+- 2026-09-04 要望（田中さん）：かける一覧で担当者名の上にふりがなを表示、編集も可に。実装(bo)：db call_targets に person_kana TEXT 追加（マイグレーション）。updateCallTargetFields に kana(person_kana) を追加。/api/calls/targets/:id/edit で b.kana を受け kana 保存（SFには送らない＝kincall内のみ、Lead更新は company/person/phone/email のみ）、応答項目に ふりがな。/api/calls/targets の items に ふりがな:r.person_kana。calls.js：担当者セルを <td.kc-person><span.kc-kana>ふりがな</span><span.kc-pname>名前</span> に、編集モーダルに #edKana 欄追加・保存body.kana送信・手元行x[ふりがな]更新、updateRowContactで担当者セルをinnerHTML更新。calls.html CSS .kc-person .kc-kana(10px薄字ブロック)/.kc-pname。node --check/smoke OK。※ふりがなはCSV取り込みでは未設定（手入力）。SFに反映しない。
+
 - 2026-09-04 要望（田中さん）：アポ割り振りの初回商談判定も【初回/フロッグ】があっても【初回】のように割り振ってほしい。原因：アポスキャン collectApoAppointments の apoTitleTag が使う APO_TAG_RE=/【\\s*(?:新|初回|ヒ)(?:\\s*[/／、,・]\\s*(?:新|初回|ヒ)?)?\\s*】/ は『初回』の後は 新/初回/ヒ か 】 しか許さず、【初回/フロッグ】(/の後にフロッグ)を弾いていた→アポとして拾われず割り振り対象外。修正(bn)：APO_TAG_RE=/【\\s*(?:新|初回|ヒ)[^】]*】/＝先頭が新/初回/ヒなら後ろに/フロッグ等が付いても一致。単体：【初回/フロッグ】【初回/コールド】【初回商談】【新/ヒ】true、【再商談】【2回目/】false。roundFromTitle(meeting_kind)は元々初回扱いで整合。isApoCountableTitle(bm)も同方向。※これでカレンダーの【初回/フロッグ】予定がアポスキャンで拾われ、pickCloser経由で割り振り対象に。node --check/smoke OK。公開アセット変更なしで版更新不要。
 
 - 2026-09-04 要望（田中さん）：【初回/フロッグ】も初回アポカウントできるように。原因：isApoCountableTitle(プロセスシート/コール進捗のアポ集計)が /【\\s*初回\\s*】/＝『初回』直後に】のみ一致で、【初回/フロッグ】(初回の後に/フロッグ)を弾いていた。roundFromTitle(種別判定)は既に /【[^】]*初回[^】]*】/ で初回扱い＝ズレていた。修正(bm)：isApoCountableTitle を /【[^】]*初回[^】]*】/ || 【新/ヒ】 に。→【初回/フロッグ】【初回/コールド】【初回/過去失注】等も初回アポ計上。メルマガ除外・再商談/n回目は非該当のまま。単体：【初回/フロッグ】true・再商談/メルマガ/2回目false 確認。node --check/smoke OK。公開アセット変更なしで版更新不要。※過去分の集計は再読み込み/再計算で反映。

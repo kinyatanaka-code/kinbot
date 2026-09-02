@@ -646,6 +646,8 @@ export async function initDb() {
   await sq(`ALTER TABLE call_targets ADD COLUMN IF NOT EXISTS owner_name TEXT;`);
   // CSVの元の列を丸ごと持っておく（かける一覧で自由に列として出せるように）
   await sq(`ALTER TABLE call_targets ADD COLUMN IF NOT EXISTS extra JSONB;`);
+  // 担当者名のふりがな（かける一覧で名前の上に出す・編集可）
+  await sq(`ALTER TABLE call_targets ADD COLUMN IF NOT EXISTS person_kana TEXT;`);
   // Salesforceのリードの項目（ステージ＝レコードタイプ、最終ステータス＝リード状態）
   await sq(`ALTER TABLE call_targets ADD COLUMN IF NOT EXISTS stage TEXT;`);
   await sq(`ALTER TABLE call_targets ADD COLUMN IF NOT EXISTS status TEXT;`);
@@ -3876,11 +3878,12 @@ export async function setCallTargetStatus(id, { stage, status } = {}) {
 }
 
 // 会社名・担当者名・電話番号・メールアドレスを書き換える（編集モーダル用）
-export async function updateCallTargetFields(id, { company, person, phone, email } = {}) {
+export async function updateCallTargetFields(id, { company, person, kana, phone, email } = {}) {
   if (!pool || !id) return null;
   const sets = [], vals = [id];
   if (company !== undefined) { vals.push(String(company || "").slice(0, 200)); sets.push(`company = $${vals.length}`); }
   if (person  !== undefined) { vals.push(String(person  || "").slice(0, 120)); sets.push(`person = $${vals.length}`); }
+  if (kana    !== undefined) { vals.push(String(kana    || "").slice(0, 120)); sets.push(`person_kana = $${vals.length}`); }
   if (phone   !== undefined) { vals.push(String(phone   || "").slice(0, 60));  sets.push(`phone = $${vals.length}`); }
   if (email   !== undefined) { vals.push(String(email   || "").slice(0, 200)); sets.push(`email = $${vals.length}`); }
   if (!sets.length) return null;

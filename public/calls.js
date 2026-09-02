@@ -337,7 +337,7 @@ function render() {
         <td class="kc-stage kc-fx-stage">${esc(x["ステージ"] || "-")}</td>
         <td class="kc-co kc-fx-co">${esc(x["会社名"] || "")}${doneBadge(x)}${
           予定 ? ` <span class="kc-next-badge${予定.due ? " due" : ""}">${予定.due ? "架電予定 " : "予定 "}${esc(予定.md)} ${esc(予定.hhmm)}<button type="button" class="kc-next-x" data-id="${x.id}" title="この架電予定を消す">×</button></span>` : ""}</td>
-        <td>${esc(x["担当者"] || "")}</td>
+        <td class="kc-person">${x["ふりがな"] ? `<span class="kc-kana">${esc(x["ふりがな"])}</span>` : ""}<span class="kc-pname">${esc(x["担当者"] || "")}</span></td>
         <td>${x["電話番号"]
           ? `<a class="kc-tel" href="tel:${esc(telOf(x["電話番号"]))}">${esc(x["電話番号"])}</a>`
           : `<span class="kc-none">なし</span>`}</td>
@@ -1209,7 +1209,7 @@ function updateRowContact(x) {
     if (co.firstChild && co.firstChild.nodeType === 3) co.firstChild.textContent = x["会社名"] || "";
     else co.insertBefore(document.createTextNode(x["会社名"] || ""), co.firstChild);
     const person = co.nextElementSibling;              // 担当者
-    if (person) person.textContent = x["担当者"] || "";
+    if (person) person.innerHTML = (x["ふりがな"] ? `<span class="kc-kana">${esc(x["ふりがな"])}</span>` : "") + `<span class="kc-pname">${esc(x["担当者"] || "")}</span>`;
     const tel = person && person.nextElementSibling;   // 電話番号
     if (tel) tel.innerHTML = x["電話番号"]
       ? `<a class="kc-tel" href="tel:${esc(telOf(x["電話番号"]))}">${esc(x["電話番号"])}</a>`
@@ -1400,6 +1400,8 @@ function openEdit(id) {
       <input type="text" class="kc-input" id="edCompany" value="${esc(x["会社名"] || "")}" />
       <div class="kc-lb">担当者名</div>
       <input type="text" class="kc-input" id="edPerson" value="${esc(x["担当者"] || "")}" />
+      <div class="kc-lb">ふりがな</div>
+      <input type="text" class="kc-input" id="edKana" value="${esc(x["ふりがな"] || "")}" placeholder="たとえば：たなか きんや" />
       <div class="kc-lb">電話番号</div>
       <input type="text" class="kc-input" id="edPhone" value="${esc(x["電話番号"] || "")}" />
       <div class="kc-lb">メールアドレス</div>
@@ -1417,6 +1419,7 @@ function openEdit(id) {
     const body = {
       company: m.el.querySelector("#edCompany").value,
       person:  m.el.querySelector("#edPerson").value,
+      kana:    m.el.querySelector("#edKana").value,
       phone:   m.el.querySelector("#edPhone").value,
       email:   m.el.querySelector("#edEmail").value,
     };
@@ -1433,6 +1436,7 @@ function openEdit(id) {
       // 手元の行を書き換える（一覧は読み直さない）
       x["会社名"] = (d.項目 && d.項目["会社名"]) ?? body.company;
       x["担当者"] = (d.項目 && d.項目["担当者"]) ?? body.person;
+      x["ふりがな"] = (d.項目 && d.項目["ふりがな"]) ?? body.kana;
       x["電話番号"] = (d.項目 && d.項目["電話番号"]) ?? body.phone;
       x["メール"] = (d.項目 && d.項目["メール"]) ?? body.email;
       updateRowContact(x);
