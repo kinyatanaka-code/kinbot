@@ -8140,10 +8140,9 @@ app.post("/api/calls/place-hours/refresh", async (req, res) => {
     const items = rows.map((r) => ({ 会社名: r.company || "", 電話番号: r.phone || "", 追加: (r.extra && typeof r.extra === "object") ? r.extra : null })).filter((x) => x.会社名);
     const companies = [...new Set(items.map((x) => x.会社名))];
     const force = !!b.force;
-    const retry = !!b.retry;   // 営業時間が取れなかった会社だけ、多段検索で取り直す
-    const targets = force ? companies
-      : retry ? await placeHoursMissing(companies, 3650, { onlyNotFound: true })
-      : await placeHoursMissing(companies, 30);
+    // 既定：営業時間がまだ無い会社（未取得＋前回『不明』だった会社）をまとめて取得する。
+    // force：営業時間がある会社も含めて全部取り直す。
+    const targets = force ? companies : await placeHoursMissing(companies, 30, { onlyNotFound: true });
     // 進捗をリセットしてから裏で取得（画面はステータスをポーリングして表示）。
     _placeProgress = { running: true, done: 0, ok: 0, total: 0, updatedAt: Date.now() };
     fetchPlaceHoursBatch(targets, items).catch(() => {});
