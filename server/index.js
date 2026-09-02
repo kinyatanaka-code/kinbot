@@ -7475,6 +7475,12 @@ app.post("/api/calls/lists/split", async (req, res) => {
 app.get("/api/calls/targets", async (req, res) => {
   try {
     const listParam = String(req.query.list || "");
+    // アーカイブ/リサイクルになった架電先を専用リストへ移す（表示前に掃引）。
+    // 特定リストならそのリスト、全体表示なら全体を対象に。
+    try {
+      const lid = /^\d+$/.test(listParam) ? parseInt(listParam, 10) : null;
+      await sweepStageLists(lid);
+    } catch {}
     let rows;
     if (listParam === "all") {
       // 「全てのリード」：そのメンバーが持ち主の全リストをまとめた仮想リスト
@@ -17132,7 +17138,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-04bh 割り振り失敗通知を『同じアポにつき1回だけ』に（要望：田中さん）。shouldNotifyAssignFailを、20時間ごと再通知→一度でも通知済みなら二度と出さないに変更（記録は30日で掃除）。自動・手動どちらも重複防止を通す。前回(bg)：ステージでアーカイブ/リサイクルへ自動移動。";
+const BUILD_TAG = "2026-09-04bi アーカイブ/リサイクル自動移動が既存分に効かない不具合を修正。従来はステージが変わった瞬間(refresh-sf/記録/手動)しか掃引せず、既にアーカイブのものが残っていた。(1)起動時に一度 sweepStageLists() で既存を全体掃引。(2)/api/calls/targets 表示時にも sweepStageLists(list) で掃引（開けば移る）。(3)対象がある時だけ専用リストを作る（空リストを作らない）。前回(bh)：割り振り失敗通知を1回だけに。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
@@ -22387,6 +22393,8 @@ app.delete("/api/proposals/:id", async (req, res) => {
 
 server.listen(PORT, async () => {
   await initDb().catch((e) => console.error("[db] init失敗", e.message));
+  // 既にステージがアーカイブ/リサイクルの架電先を、専用リストへ一度まとめて移す。
+  sweepStageLists().then((r) => { if ((r["アーカイブ"] || 0) + (r["リサイクル"] || 0)) console.log(`[kincall] 起動時の整理：アーカイブ${r["アーカイブ"] || 0}／リサイクル${r["リサイクル"] || 0}件を専用リストへ`); }).catch(() => {});
   // プロセスシートの「最後の書き込み」を設定から戻す（再起動で未実行に見えないように）
   restoreProcessSheetLast().catch(() => {});
 

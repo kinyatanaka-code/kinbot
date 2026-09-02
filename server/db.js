@@ -3485,6 +3485,14 @@ export async function sweepStageLists(listId = null) {
   const lid = listId ? parseInt(listId, 10) : null;
   for (const [kw, name] of [["アーカイブ", "アーカイブ"], ["リサイクル", "リサイクル"]]) {
     try {
+      // まず対象があるか確認（無ければ空リストを作らない）
+      const chkParams = [`%${kw}%`, name];
+      let chkSql = `SELECT 1 FROM call_targets WHERE COALESCE(stage,'') ILIKE $1
+                      AND list_id NOT IN (SELECT id FROM call_lists WHERE name=$2 AND owner IS NULL)`;
+      if (lid) { chkParams.push(lid); chkSql += ` AND list_id = $3`; }
+      chkSql += ` LIMIT 1`;
+      const chk = await pool.query(chkSql, chkParams);
+      if (!chk.rows.length) { out[name] = 0; continue; }
       const dest = await ensure(name);
       if (!dest) { out[name] = 0; continue; }
       const params = [dest, `%${kw}%`];
