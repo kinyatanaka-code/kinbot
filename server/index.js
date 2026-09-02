@@ -17146,7 +17146,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-04bm 初回アポカウントに【初回/フロッグ】等を含める（要望：田中さん）。isApoCountableTitle の 初回判定を /【\\s*初回\\s*】/（初回直後に】）から /【[^】]*初回[^】]*】/ に広げ、【初回/フロッグ】【初回/コールド】【初回/過去失注】等も初回アポとして数える。メルマガ・再商談・n回目は従来どおり除外。前回(bl)：田中をセールス集計。";
+const BUILD_TAG = "2026-09-04bn アポ割り振り/初回商談判定でも【初回/フロッグ】等を初回として拾う（要望：田中さん）。APO_TAG_RE（アポスキャン collectApoAppointmentsのapoTitleTag）を /【\\s*(?:新|初回|ヒ)(?:…)?】/ から /【\\s*(?:新|初回|ヒ)[^】]*】/ に広げ、先頭が新/初回/ヒなら後続(/フロッグ等)があっても拾う。roundFromTitle(種別判定)は既に初回扱いで整合。前回(bm)：isApoCountableTitleに【初回/…】。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
@@ -19678,9 +19678,9 @@ async function isWrongClientEmail(email) {
 }
 
 // 取り込み対象のタイトルか判定する。
-// 【新/ヒ】【初回/】【初回】【新】【ヒ】のように、スラッシュの有無や
-// 記号のゆれ（全角半角・全角スラッシュ・空白）に関係なく拾う。
-const APO_TAG_RE = /【\s*(?:新|初回|ヒ)(?:\s*[\/／、,・]\s*(?:新|初回|ヒ)?)?\s*】/;
+// 【新/ヒ】【初回/】【初回】【新】【ヒ】【初回/フロッグ】【初回/コールド】のように、
+// 先頭が「新・初回・ヒ」なら、その後ろに /フロッグ 等が付いていても拾う（全角半角・記号ゆれOK）。
+const APO_TAG_RE = /【\s*(?:新|初回|ヒ)[^】]*】/;
 function apoTitleTag(title) {
   const t = String(title || "").normalize("NFKC");
   return APO_TAG_RE.test(t);

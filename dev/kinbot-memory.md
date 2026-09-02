@@ -41,6 +41,8 @@ kincall（架電リスト）という別ツールも同じ画面群の中にあ�
 
 ## 決定・指示のログ（新しいものを上に足す）
 
+- 2026-09-04 要望（田中さん）：アポ割り振りの初回商談判定も【初回/フロッグ】があっても【初回】のように割り振ってほしい。原因：アポスキャン collectApoAppointments の apoTitleTag が使う APO_TAG_RE=/【\\s*(?:新|初回|ヒ)(?:\\s*[/／、,・]\\s*(?:新|初回|ヒ)?)?\\s*】/ は『初回』の後は 新/初回/ヒ か 】 しか許さず、【初回/フロッグ】(/の後にフロッグ)を弾いていた→アポとして拾われず割り振り対象外。修正(bn)：APO_TAG_RE=/【\\s*(?:新|初回|ヒ)[^】]*】/＝先頭が新/初回/ヒなら後ろに/フロッグ等が付いても一致。単体：【初回/フロッグ】【初回/コールド】【初回商談】【新/ヒ】true、【再商談】【2回目/】false。roundFromTitle(meeting_kind)は元々初回扱いで整合。isApoCountableTitle(bm)も同方向。※これでカレンダーの【初回/フロッグ】予定がアポスキャンで拾われ、pickCloser経由で割り振り対象に。node --check/smoke OK。公開アセット変更なしで版更新不要。
+
 - 2026-09-04 要望（田中さん）：【初回/フロッグ】も初回アポカウントできるように。原因：isApoCountableTitle(プロセスシート/コール進捗のアポ集計)が /【\\s*初回\\s*】/＝『初回』直後に】のみ一致で、【初回/フロッグ】(初回の後に/フロッグ)を弾いていた。roundFromTitle(種別判定)は既に /【[^】]*初回[^】]*】/ で初回扱い＝ズレていた。修正(bm)：isApoCountableTitle を /【[^】]*初回[^】]*】/ || 【新/ヒ】 に。→【初回/フロッグ】【初回/コールド】【初回/過去失注】等も初回アポ計上。メルマガ除外・再商談/n回目は非該当のまま。単体：【初回/フロッグ】true・再商談/メルマガ/2回目false 確認。node --check/smoke OK。公開アセット変更なしで版更新不要。※過去分の集計は再読み込み/再計算で反映。
 
 - 2026-09-04 要望（田中さん）：田中欽也をセールスとして実績カウント。原因：実績タブのチーム合計(totals.sales/inside)はサーバのcomputeStatsGrid roleOf(closer→sales/inside→inside)で集計され、田中はinside扱い→セールス合計に入らず（個別カードはクライアントwithRoleで田中→sales表示だが合計はサーバ）。修正(bl)：computeStatsGrid roleOf 冒頭で _nameHas(name,_excludeNames=DASH_EXCLUDE_NAMES 既定 中澤/浦林/森田/笹原/迫間)→role''(集計除外)、_nameHas(name,_salesNames=DASH_SALES_NAMES 既定 田中欽也)→'sales'、以降 closer→sales/inside・intern→inside。→totals.sales に田中の実績が入り、除外メンバーはtotals/個別から外れダッシュボードと一致。※computeStatsGridはstats-grid/apo-dashboard/stats.csv共通なので全体で統一。node --check/smoke OK。公開アセット変更なしで版更新不要。
