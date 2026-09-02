@@ -9028,15 +9028,15 @@ app.get("/api/calls/stats-grid", async (req, res) => {
 // アポのダッシュボード（月次のみ）。目標は日次目標を月内で合計したもの。
 app.get("/api/calls/apo-dashboard", async (req, res) => {
   try {
-    const period = "month";   // ダッシュボードは月次だけ
+    const period = ["week", "month"].includes(String(req.query.period)) ? String(req.query.period) : "month";
     const g = await computeStatsGrid(period, req.query.span);
     const idx = (g.区切り || []).findIndex((c) => c.key === g.今);
     const i = idx >= 0 ? idx : (g.区切り || []).length - 1;
     const bucket = (g.区切り && g.区切り[i]) ? g.区切り[i] : null;
-    // 月次目標は「その月の月次目標（手入力）」を直接使う（日次への配分はしない）。
-    const monthKey = g.今 || "";
-    const mg = await getApoGoalsByKeys("month", [monthKey]);
-    const goalOf = (key) => Number((((mg[key] || {})[monthKey] || {})["アポ"]) || 0);
+    // その期間の目標（手入力）を直接使う。個人は本人の目標、チームはメンバー合計。
+    const periodKey = g.今 || "";
+    const mg = await getApoGoalsByKeys(period, [periodKey]);
+    const goalOf = (key) => Number((((mg[key] || {})[periodKey] || {})["アポ"]) || 0);
     const salesNames = String(process.env.DASH_SALES_NAMES || "田中欽也").split(",").map((s) => s.trim()).filter(Boolean);
     const excludeNames = String(process.env.DASH_EXCLUDE_NAMES || "中澤,浦林,森田,笹原,迫間").split(",").map((s) => s.trim()).filter(Boolean);
     const nameHas = (name, toks) => toks.some((t) => String(name || "").includes(t));
@@ -9053,9 +9053,10 @@ app.get("/api/calls/apo-dashboard", async (req, res) => {
       });
     const salesP = persons.filter((p) => p.role === "sales");
     const insideP = persons.filter((p) => p.role === "inside");
-    // チーム：目標はそのチーム自身の手入力（その月の月次目標）、実績はメンバー合計。
+    // チーム：実績も目標も、メンバーの合計にする。
     const sumA = (arr) => arr.reduce((a, p) => a + p.actual, 0);
-    const team = (key, label, arr) => { const actual = sumA(arr), goal = goalOf(key); return { key, label, role: "team", actual, goal, diff: actual - goal }; };
+    const sumG = (arr) => arr.reduce((a, p) => a + p.goal, 0);
+    const team = (key, label, arr) => { const actual = sumA(arr), goal = sumG(arr); return { key, label, role: "team", actual, goal, diff: actual - goal }; };
     const teams = [
       team("group", "グループ（全体）", persons),
       team("sales", "セールス", salesP),
@@ -17353,7 +17354,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-04ch 記録モーダルに理由チップ（お断り→断り理由／担当者不在→終日不在・席外し・来客中・打合せ中・戻り不明等／番号系→番号状態）を追加し押すとメモに追記、使われていない番号は自動でフラグ化（【使われていない番号】をメモに付与＋バッジ＋対象外で下に沈める）。cd〜cg：営業時間(多段検索・Gemini補完・不明表示・一括取得の既定修正)。";
+const BUILD_TAG = "2026-09-04cj ダッシュボードを週次/月次に切替可能に＋グループ等の目標をメンバー合計に（要望：田中さん）。apo-dashboardがperiod=week/month対応、チームの目標＝メンバーのアポ目標合計。ダッシュボードに週次/月次タブ、個人カードは表示中の期間で目標編集、チームは合計で読み取り。内訳モーダル・実績タブのチームもコール/接触/アポ目標をメンバー合計に。前回(ci)：断り理由タグ差し替え。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",

@@ -41,6 +41,8 @@ kincall（架電リスト）という別ツールも同じ画面群の中にあ�
 
 ## 決定・指示のログ（新しいものを上に足す）
 
+- 2026-09-04 要望（田中さん）：kincall実績ダッシュボードを週次に切替可能に／グループ等でコール・接触・アポ目標が合計されない。実装(cj)：(1)apo-dashboard period=week/month対応（computeStatsGrid(period)）、periodKey=g.今、目標は getApoGoalsByKeys(period,[periodKey])。チーム＝メンバーのアポ目標合計(sumG)＝手動team目標を廃止しメンバー合計に。dashCardは role!=='team'かつ権限でアポ目標を表示中periodで編集(PUT period=d.period)、チームは合計read-only。renderDashに週次/月次タブ(#dashPeriod, let dashPeriod)。(2)内訳モーダル openDashDetail：チームは subjGoals をメンバーemail合計（コール/接触/アポを bucket×metricで加算）に、個人は本人goals。(3)実績タブ renderStats：teamGoals(team)=メンバー合計を作り goalsOf(subject,isTeam) で block に渡す＝チームのコール/接触/アポ目標も合計。※これで『グループ/セールス/インサイドで目標が合計されない』を解消。週次のアポ目標は週キー(週開始日)で保存された個人目標の合計。疎通week/month 200・smoke OK。
+
 - 2026-09-04 要望（田中さん）：断り理由タグを次の7つに差し替え：採用充足している/費用かけれない/予算のタイミングじゃない/ネオ担当から連絡して欲しい/今は採用していない/忙しい/冒頭NG。実装(ci)：public/calls.js 記録モーダルの 断り理由 配列を上記に変更（お断り選択時にチップ表示→押すとメモ追記）。不在文言・番号状態チップは据え置き。node --check/smoke OK。
 
 - 2026-09-04 バグ（田中さん）：営業時間取得ボタンが『取得済みです』になる。原因：既定が placeHoursMissing(30)（found問わず30日以内キャッシュ済みはスキップ）＝前回不明(found=false)もスキップ→取得対象0。修正(cg)：既定を placeHoursMissing(30,{onlyNotFound:true})＝found=true(営業時間あり)のみスキップ、未取得＋found=false を取得対象に。retryフラグ廃止、確認1回に簡素化（body {list,member} のみ）。force(全取り直し)は残置。→ボタン1回で不明の会社がPlaces多段＋Gemini補完で取り直される。node --check/smoke OK。※genuinely見つからない会社は毎回再取得＝Gemini費用が都度かかる点は許容（押した時のみ）。頻繁に押すなら found=false も数日キャッシュする案あり。
