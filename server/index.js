@@ -17294,7 +17294,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-04by 録音できていない商談予定を、SF案件検索モーダルからも『リスケ失注』1ボタンでできるように（要望：田中さん）。deals.js の『商談履歴がありません→商談を検索』結果に、home.jsと同じ /api/salesforce/opportunity/:id/lose（初回商談リスケ理由で失注）を呼ぶボタンを追加。前回(bx)：SF未紐づけ通知をメインChatにも。";
+const BUILD_TAG = "2026-09-04bz2 かける一覧に各社の営業中(緑)/営業時間外(赤)を表示＋営業時間外を下に沈める（Google Places API New・place_hoursキャッシュ・裏取り）。前回(by)：リスケ失注ボタン復活。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
