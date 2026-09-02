@@ -2368,6 +2368,17 @@ async function sfPut(box) {
   } catch (e) { say("clSfStatus", "失敗：" + e.message, 8000); }
 }
 
+// 「操作 ▾」メニューの開閉。項目のハンドラは下の委譲リスナーがidで実行する。
+document.addEventListener("click", (ev) => {
+  const menu = document.getElementById("clMenuList");
+  if (!menu) return;
+  const btn = ev.target.closest && ev.target.closest("#clMenuBtn");
+  if (btn) { menu.hidden = !menu.hidden; btn.setAttribute("aria-expanded", String(!menu.hidden)); return; }
+  const item = ev.target.closest && ev.target.closest(".cl-menu-item");
+  if (item) { menu.hidden = true; return; }                 // 項目を選んだら閉じる
+  if (!(ev.target.closest && ev.target.closest("#clMenuList"))) menu.hidden = true;   // 外側で閉じる
+});
+
 document.addEventListener("click", (ev) => {
   const t = ev.target && ev.target.closest ? ev.target.closest("button") : null;
   if (!t) return;

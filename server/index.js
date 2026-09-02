@@ -17316,7 +17316,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-04ca 営業時間の一括取得ボタンを追加（要望：田中さん）。かけるツールバーの#clBizHoursで POST /api/calls/place-hours/refresh を呼び、表示中リスト(list/all/archive/recycle)の会社の営業時間をGoogleからまとめて取得しキャッシュ（未取得分・force指定で全取り直し）。前回(bz2)：営業中/営業時間外の表示。";
+const BUILD_TAG = "2026-09-04cb かけるツールバーの8アイコンを『操作 ▾』ドロップダウン1つに集約（要望：田中さん・見づらい）。表示/Salesforce/データ・整理でグループ化しテキスト表示。各ボタンはidを保持し既存の委譲ハンドラで動作。前回(ca)：営業時間の一括取得ボタン。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",

@@ -41,6 +41,8 @@ kincall（架電リスト）という別ツールも同じ画面群の中にあ�
 
 ## 決定・指示のログ（新しいものを上に足す）
 
+- 2026-09-04 要望（田中さん）：かけるツールバーのアイコンが多く見づらい→まとめたい。実装(cb)：cl-ico 8個（clReset/clCheck/clDedup/clRefreshSf/clLinkSf/clToCross/clBizHours/clFixLinks）を廃止し、『操作 ▾』(#clMenuBtn)＋ドロップダウン(#clMenuList)に集約。グループ＝表示(しぼり込みを外す)/Salesforce(SFの状態を更新・SFと連携する・クロスリードに変更・紐づけの修復)/データ・整理(営業時間を取得・履歴の件数を調べる・重複した活動履歴を整理)。各itemは元のidを保持＝既存の委譲クリックハンドラ(closest('button')でid判定)がそのまま実行。追加リスナー：#clMenuBtnでopen/close(aria-expanded)、.cl-menu-item選択で閉じる、外側クリックで閉じる。calls.html CSS .cl-menu*(白カード・影・グループ見出し・hover)。node --check/smoke OK。※アイコンは無くなりテキストで分かりやすく。よく使うものを常時ボタンで出す等の要望あれば個別対応可。
+
 - 2026-09-04 要望（田中さん）：営業時間の一括取得ボタン。実装(ca)：POST /api/calls/place-hours/refresh {list,member,force}＝list(数値/all/archive/recycle)から会社を集め、force時は全社・通常はplaceHoursMissing(30日)で未取得のみを fetchPlaceHoursBatch(items付き=電話も渡す)で裏取り、会社数/取得対象を即返す。calls.html ツールバーに #clBizHours（時計アイコン）。calls.js ハンドラ：現在の clList 値をlistに、callAsMemberをmemberに、confirm後にPOST→sayでステータス（会社N社中M社取得・数十秒〜数分で反映・開き直しで反映）。placesEnabled無しは400。※裏取りは250ms間隔・_placeFetchingで多重防止。node --check/smoke OK。要：田中さんがリストを開いてボタン→少し待って開き直すと全社に営業中/営業時間外が付くか確認。
 
 - 2026-09-04 要望（田中さん）：録音できていない商談予定をリスケ失注1ボタンでできる機能が消えている。状況：ホーム(home.js)の予定カードには『リスケ失注』(sfLose→POST /api/salesforce/opportunity/:id/lose)があるが、リスケ【初回】…の予定を開くと deals.js の『kinbotに商談履歴がありません→商談を検索』モーダル(wireSoloSearch)に来て、そこには『この案件を更新する』しか無く1ボタン失注が無かった。修正(by)：wireSoloSearch の検索結果カードに『リスケ失注にする』ボタンを追加し、home.jsと同じ /api/salesforce/opportunity/{Id}/lose を呼ぶ（confirm→失注ステージ＆初回商談リスケ理由、結果メッセージ表示、成功で『失注済み』無効化）。既存の『この案件を更新する』も残す。node --check/smoke OK。※loseエンドポイント既存(17644)。要：田中さんが該当予定→商談を検索→リスケ失注にするで1発失注できるか確認。

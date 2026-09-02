@@ -10,7 +10,7 @@
     <link rel="manifest" href="/site.webmanifest" />
     <meta name="theme-color" content="#0d5b47" />
     <meta name="apple-mobile-web-app-title" content="kinbot" />
-    <link rel="stylesheet" href="style.css?v=20260904ca" />
+    <link rel="stylesheet" href="style.css?v=20260904cb" />
   </head>
   <body class="kc-body">
     <div class="app">
@@ -50,30 +50,22 @@
                 <input type="checkbox" id="clSfOwnerPref" /> SFの所有者を優先
               </label>
               <div class="cl-tools">
-                <button class="cl-ico" id="clReset" title="しぼり込みを外す" aria-label="しぼり込みを外す">
-                  <svg viewBox="0 0 16 16" width="17" height="17" fill="none"><path d="M2.5 3.5h11l-4.2 5v3.6l-2.6 1.3V8.5L2.5 3.5z" stroke="#0d5b47" stroke-width="1.3" stroke-linejoin="round"/></svg>
-                </button>
-                <button class="cl-ico" id="clCheck" title="履歴の件数を調べる" aria-label="履歴の件数を調べる">
-                  <svg viewBox="0 0 16 16" width="17" height="17" fill="none"><circle cx="7" cy="7" r="4.2" stroke="#0d5b47" stroke-width="1.3"/><path d="M10.2 10.2 14 14" stroke="#0d5b47" stroke-width="1.3" stroke-linecap="round"/></svg>
-                </button>
-                <button class="cl-ico" id="clDedup" title="重複した活動履歴を整理" aria-label="重複した活動履歴を整理">
-                  <svg viewBox="0 0 16 16" width="17" height="17" fill="none"><rect x="5.5" y="5.5" width="8" height="8" rx="2" stroke="#0d5b47" stroke-width="1.3"/><path d="M10.5 5.5V4a1.5 1.5 0 0 0-1.5-1.5H4A1.5 1.5 0 0 0 2.5 4v5A1.5 1.5 0 0 0 4 10.5h1.5" stroke="#1d9e75" stroke-width="1.3" stroke-linecap="round"/></svg>
-                </button>
-                <button class="cl-ico" id="clRefreshSf" title="SFの状態を更新（最終ステータス・ステージ・所有者・クロス商談を反映）" aria-label="SFの状態を更新">
-                  <svg viewBox="0 0 16 16" width="17" height="17" fill="none"><path d="M13 8a5 5 0 1 1-1.6-3.7" stroke="#0d5b47" stroke-width="1.3" stroke-linecap="round"/><path d="M13.2 3v2.6h-2.6" stroke="#0d5b47" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/></svg>
-                </button>
-                <button class="cl-ico" id="clLinkSf" title="SFと連携（未連携の架電先を会社名でリードに結びつけ、履歴・更新を使えるように）" aria-label="SFと連携">
-                  <svg viewBox="0 0 16 16" width="17" height="17" fill="none"><path d="M6.3 9.7 9.7 6.3" stroke="#0d5b47" stroke-width="1.3" stroke-linecap="round"/><path d="M8.8 4.6l.9-.9a2.4 2.4 0 0 1 3.4 3.4l-1 1" stroke="#0d5b47" stroke-width="1.3" stroke-linecap="round"/><path d="M7.2 11.4l-.9.9a2.4 2.4 0 0 1-3.4-3.4l1-1" stroke="#1d9e75" stroke-width="1.3" stroke-linecap="round"/></svg>
-                </button>
-                <button class="cl-ico" id="clToCross" title="このリストのSF連携済みリードを、Salesforceで Cross_lead（クロスリード）に変更する（既にクロスは触りません）" aria-label="クロスリードに変更">
-                  <svg viewBox="0 0 16 16" width="17" height="17" fill="none"><path d="M8 2.2 13.8 8 8 13.8 2.2 8 8 2.2z" stroke="#0d5b47" stroke-width="1.3" stroke-linejoin="round"/><path d="M5.7 8l1.6 1.6L10.4 6.5" stroke="#1d9e75" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/></svg>
-                </button>
-                <button class="cl-ico" id="clBizHours" title="このリストの会社の営業時間をGoogleからまとめて取得（営業中/営業時間外の表示に使います）" aria-label="営業時間を取得">
-                  <svg viewBox="0 0 16 16" width="17" height="17" fill="none"><circle cx="8" cy="8" r="5.5" stroke="#0d5b47" stroke-width="1.3"/><path d="M8 5v3l2 1.3" stroke="#1d9e75" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/></svg>
-                </button>
-                <button class="cl-ico" id="clFixLinks" title="紐づけの修復（1つのリードが複数の会社に付いてしまった誤りを見つけて外し、会社名で付け直せるようにする）" aria-label="紐づけの修復">
-                  <svg viewBox="0 0 16 16" width="17" height="17" fill="none"><path d="M8 2.5a5.5 5.5 0 1 0 5.5 5.5" stroke="#0d5b47" stroke-width="1.3" stroke-linecap="round"/><path d="M8 5v3.2l2 1.2" stroke="#1d9e75" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/><path d="M11 2l1.6 1.6M14 2l-1.6 1.6" stroke="#e0663a" stroke-width="1.3" stroke-linecap="round"/></svg>
-                </button>
+                <div class="cl-menu">
+                  <button type="button" class="cl-menu-btn" id="clMenuBtn" aria-haspopup="true" aria-expanded="false">操作 ▾</button>
+                  <div class="cl-menu-list" id="clMenuList" hidden role="menu">
+                    <div class="cl-menu-group">表示</div>
+                    <button type="button" class="cl-menu-item" id="clReset">しぼり込みを外す</button>
+                    <div class="cl-menu-group">Salesforce</div>
+                    <button type="button" class="cl-menu-item" id="clRefreshSf">SFの状態を更新</button>
+                    <button type="button" class="cl-menu-item" id="clLinkSf">SFと連携する</button>
+                    <button type="button" class="cl-menu-item" id="clToCross">クロスリードに変更</button>
+                    <button type="button" class="cl-menu-item" id="clFixLinks">紐づけの修復</button>
+                    <div class="cl-menu-group">データ・整理</div>
+                    <button type="button" class="cl-menu-item" id="clBizHours">営業時間を取得</button>
+                    <button type="button" class="cl-menu-item" id="clCheck">履歴の件数を調べる</button>
+                    <button type="button" class="cl-menu-item" id="clDedup">重複した活動履歴を整理</button>
+                  </div>
+                </div>
               </div>
               <span class="rev-status" id="clStatus"></span>
             </div>
@@ -112,6 +104,13 @@
               .kc-rc.kc-rc-red{color:#a32d2d;font-weight:600;}
               .kc-rc.kc-rc-amber{color:#854f0b;font-weight:600;}
               .cl-tools{display:inline-flex;gap:6px;margin-left:auto;align-items:center;}
+              .cl-menu{position:relative;}
+              .cl-menu-btn{background:#fff;border:1.5px solid #e6ece9;border-radius:10px;padding:7px 14px;font-size:13px;color:#0d5b47;font-weight:600;cursor:pointer;transition:border-color .15s,background .15s;}
+              .cl-menu-btn:hover{background:#eef7f2;border-color:#5DCAA5;}
+              .cl-menu-list{position:absolute;right:0;top:calc(100% + 6px);z-index:40;background:#fff;border:1px solid #e6ece9;border-radius:12px;box-shadow:0 8px 24px rgba(13,91,71,.12);padding:6px;min-width:220px;}
+              .cl-menu-group{font-size:11px;color:#8a938c;font-weight:600;padding:8px 10px 3px;}
+              .cl-menu-item{display:block;width:100%;text-align:left;background:none;border:none;border-radius:8px;padding:8px 10px;font-size:13px;color:#2c3a35;cursor:pointer;}
+              .cl-menu-item:hover{background:#eef7f2;color:#0d5b47;}
               .cl-sfown{display:inline-flex;gap:5px;align-items:center;font-size:12px;color:#0d5b47;white-space:nowrap;cursor:pointer;user-select:none;}
               .cl-sfown input{cursor:pointer;}
               .cl-ico{width:34px;height:34px;padding:0;display:inline-flex;align-items:center;justify-content:center;
@@ -284,9 +283,9 @@
         </main>
       </div>
     </div>
-    <script src="sf-data.js?v=20260904ca"></script>
-    <script src="calls.js?v=20260904ca"></script>
-    <script src="nav.js?v=20260904ca"></script>
+    <script src="sf-data.js?v=20260904cb"></script>
+    <script src="calls.js?v=20260904cb"></script>
+    <script src="nav.js?v=20260904cb"></script>
     <script src="/cmdk.js?v=20260827a"></script>
 </body>
 </html>
