@@ -41,6 +41,8 @@ kincall（架電リスト）という別ツールも同じ画面群の中にあ�
 
 ## 決定・指示のログ（新しいものを上に足す）
 
+- 2026-09-04 要望（田中さん）：過去の商談の自動記録は今はしなくてよい、明日から。実装(bw)：sweepMeetingSfRecords に開始日ガード。settings.shodanAutoStart（ISO）を読み、未設定なら『明日0時JST』を計算して saveSettings で保存・ログ。候補フィルタで new Date(m.created_at) < 開始ms を除外＝開始日より前(＝過去分)は自動記録しない。bvで31日走査＋あきらめず＋要約フォールバックにしたが、開始日ガードで過去分の一括記録を回避。手動『商談から読み取る』は従来どおりいつでも可。※開始日を変えたい/今日から/特定日からにしたい場合は settings.shodanAutoStart を書き換えるだけ。node --check/smoke OK・明日0時JST(9/3 00:00)計算確認。公開アセット変更なしで版更新不要。
+
 - 2026-09-04 要望（田中さん）：商談自動SF記録の記録率を100%にしたい。sweepMeetingSfRecords改修(bv)：(1)取りこぼし防止＝listMeetings from 過去7日→31日、候補 age 40分〜5日→40分〜31日、limit500→800。(2)恒久あきらめ廃止＝候補フィルタから `tries>=MAX_TRIES return false` を削除（SHODAN_MAX_TRIESは通知の閾値としては残す＝5回で1回だけ通知、以後もリトライ継続）。→SF連携待ち/未紐づけが後で整えば記録される。(3)要約フォールバック生成＝要約(overview/key_points/action_items/customer_concerns/formatted)が無く、文字起こしあり＆age≥60分なら analyzeMeeting({transcript,repName,dateStr,speakers})→saveAnalysis(bot_id,rev)で要約を作ってから記録。生成失敗はwarnして次回。空要約のままは記録しない(bu維持)。説明本文は要約全体(bu)。※本当に記録できないのは『SF未連携』『SFの商談に未紐づけ』のみ＝担当のSF連携/商談紐づけが要る。要：田中さんに、連携・紐づけができていれば要約生成→記録まで自動で入るはず、と案内。node --check/smoke OK。公開アセット変更なしで版更新不要。
 
 - 2026-09-04 バグ（田中さん）：商談の自動SF活動記録が空で入る。原因：sweepMeetingSfRecords の待ち条件 `if(!s.overview && !hasTr)` が『要約も文字起こしも無い時だけ待つ』＝文字起こしはあるが要約(overview)未生成の状態でも記録に進み、autofillMeetingToSf の desc=s.overview が空→空の活動。修正(bu)：(1)hasSummary=(overview||key_points||action_items||customer_concerns||formatted のいずれか)。無ければ stat.まだ++ で continue（済みにせず次の見回りでリトライ＝要約ができてから記録）。(2)autofillMeetingToSf の説明を要約全体で作成：概要＋■要点/■合意事項/■宿題・次アクション/■相手の懸念（配列を箇条書き）、空なら従来のoverviewフォールバック。(3)候補の最短経過を 20分→40分（要約生成の猶予）。sweep自体は10分ごと。※要約が生成されるかは分析用LLM(既定Gemini)依存。要約が出れば自動で記録される。1時間などにしたい場合は40分の数値を変えるだけ。node --check/smoke OK。公開アセット変更なしで版更新不要。

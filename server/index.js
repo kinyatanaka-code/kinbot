@@ -1967,13 +1967,28 @@ async function sweepMeetingSfRecords({ max = 8 } = {}) {
   const stat = { 対象: 0, 記録した: 0, まだ: 0, 連携待ち: 0, 失敗: 0, あきらめ: 0, SF未紐づけ: 0 };
   try {
     const jst = new Date(Date.now() + 9 * 3600 * 1000);
-    const from = new Date(jst.getTime() - 31 * 86400000).toISOString().slice(0, 10);   // 過去31日（取りこぼし防止）
+    // 自動記録の開始日：これより前に作られた商談は自動記録しない（過去分の一括記録を避ける）。
+    // 未設定なら「明日(JST)の0時」を開始日として保存する。手動記録（商談から読み取る）はいつでも可。
+    let 開始 = "";
+    try {
+      const stA = await getSettings().catch(() => ({}));
+      開始 = String(stA.shodanAutoStart || "");
+      if (!開始) {
+        const tomo = new Date(Date.UTC(jst.getUTCFullYear(), jst.getUTCMonth(), jst.getUTCDate() + 1, 0, 0, 0) - 9 * 3600 * 1000);
+        開始 = tomo.toISOString();
+        await saveSettings({ shodanAutoStart: 開始 }).catch(() => {});
+        console.log(`[商談自動記録] 自動記録の開始日を ${開始}（明日0時JST）に設定しました。過去分は自動記録しません。`);
+      }
+    } catch {}
+    const 開始ms = 開始 ? new Date(開始).getTime() : 0;
+    const from = new Date(jst.getTime() - 31 * 86400000).toISOString().slice(0, 10);   // 過去31日（開始日以降のみ対象）
     const rows = await listMeetings({ isAdmin: true, from, limit: 800 }).catch(() => []);
     const now = Date.now();
     const cand = (rows || []).filter((m) => {
       const key = String(m.id || m.bot_id || "");
       if (!key) return false;
       if (m.sf_recorded_at) return false;                 // DBで記録済み＝二度と自動記録しない（再起動しても効く）
+      if (開始ms && new Date(m.created_at).getTime() < 開始ms) return false;   // 開始日より前の商談は対象外（過去分）
       const age = now - new Date(m.created_at).getTime();
       if (!(age >= 40 * 60 * 1000 && age <= 31 * 86400000)) return false;   // 40分〜31日
       // sf_urlが無くても、予定にひも付いたSF商談IDから解決できることがあるので、ここでは弾かない
@@ -17237,7 +17252,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-04bv 商談の自動SF記録の記録率を上げる（要望：田中さん：100%に）。(1)走査を過去7日→31日、対象を40分〜5日→40分〜31日に拡大。(2)5回失敗であきらめて候補から外す→やめて、ずっとリトライ（連携/紐づけが後で整えば記録・通知は1回だけ）。(3)要約が60分以上出ないまま文字起こしがある場合は analyzeMeeting でその場生成→saveAnalysis→記録（記録漏れ防止）。要約が無いまま空記録はしない(bu)。※SF未連携/未紐づけは連携・紐づけが要る。前回(bu)：空記録の修正。";
+const BUILD_TAG = "2026-09-04bw 商談自動SF記録に開始日を追加（要望：田中さん：過去分は自動記録せず明日から）。settings.shodanAutoStart（未設定なら明日0時JSTを自動保存）より前に作られた商談は自動記録の対象外に。過去分は手動『商談から読み取る』でいつでも可。前回(bv)：記録率向上（あきらめず/31日/要約フォールバック生成）。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
