@@ -664,6 +664,17 @@ export async function initDb() {
     data        JSONB NOT NULL DEFAULT '{}'::jsonb,
     updated_at  TIMESTAMPTZ NOT NULL DEFAULT now()
   );`);
+  // 各社の営業時間（Google Placesから取得してキャッシュ）。会社名の正規化キーで持つ。
+  await sq(`CREATE TABLE IF NOT EXISTS place_hours (
+    company_key TEXT PRIMARY KEY,
+    company     TEXT,
+    place_id    TEXT,
+    periods     JSONB,
+    weekday_desc JSONB,
+    business_status TEXT,
+    found       BOOLEAN DEFAULT false,
+    updated_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+  );`);
   // アポの目標（ダッシュボード用）。subject＝group/sales/inside またはメンバーのメール、
   // period＝day/week/month、period_key＝その期間のキー（例 2026-09-01 / 2026-09 / 週の開始日）。
   await sq(`CREATE TABLE IF NOT EXISTS apo_goals (
@@ -2724,6 +2735,53 @@ export async function getApoGoalsByKeys(period, keys = []) {
     }
     return out;
   } catch (e) { console.error("[db] getApoGoalsByKeys", e.message); return {}; }
+}
+
+// 営業時間キャッシュ：会社名の正規化キーで引く。返り値 { key: {periods, weekday_desc, business_status, found} }
+export async function getPlaceHoursByCompanies(companies = []) {
+  if (!pool || !companies.length) return {};
+  const keys = [...new Set(companies.map((c) => normCompanyKey(c)).filter(Boolean))];
+  if (!keys.length) return {};
+  try {
+    const { rows } = await pool.query(
+      `SELECT company_key, periods, weekday_desc, business_status, found, updated_at
+         FROM place_hours WHERE company_key = ANY($1)`, [keys]);
+    const out = {};
+    for (const r of rows) out[r.company_key] = { periods: r.periods || [], weekday_desc: r.weekday_desc || [], business_status: r.business_status || "", found: !!r.found, updated_at: r.updated_at };
+    return out;
+  } catch (e) { console.error("[db] getPlaceHoursByCompanies", e.message); return {}; }
+}
+export async function upsertPlaceHours(company, data = {}) {
+  if (!pool) return false;
+  const key = normCompanyKey(company);
+  if (!key) return false;
+  try {
+    await pool.query(
+      `INSERT INTO place_hours (company_key, company, place_id, periods, weekday_desc, business_status, found, updated_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,now())
+       ON CONFLICT (company_key) DO UPDATE SET company=EXCLUDED.company, place_id=EXCLUDED.place_id,
+         periods=EXCLUDED.periods, weekday_desc=EXCLUDED.weekday_desc, business_status=EXCLUDED.business_status,
+         found=EXCLUDED.found, updated_at=now()`,
+      [key, company, data.place_id || null, JSON.stringify(data.periods || []),
+       JSON.stringify(data.weekday_desc || []), data.business_status || "", !!data.found]);
+    return true;
+  } catch (e) { console.error("[db] upsertPlaceHours", e.message); return false; }
+}
+// まだ取得していない/古い（既定30日）会社キーを返す。company配列から絞る。
+export async function placeHoursMissing(companies = [], staleDays = 30) {
+  if (!pool || !companies.length) return [];
+  const map = {};   // key -> company（元の表記）
+  for (const c of companies) { const k = normCompanyKey(c); if (k && !map[k]) map[k] = c; }
+  const keys = Object.keys(map);
+  if (!keys.length) return [];
+  try {
+    const { rows } = await pool.query(
+      `SELECT company_key FROM place_hours
+        WHERE company_key = ANY($1) AND updated_at > now() - ($2 || ' days')::interval`,
+      [keys, String(staleDays)]);
+    const fresh = new Set(rows.map((r) => r.company_key));
+    return keys.filter((k) => !fresh.has(k)).map((k) => map[k]);
+  } catch (e) { console.error("[db] placeHoursMissing", e.message); return keys.map((k) => map[k]); }
 }
 
 // 会社名から既存dealを探す（正規化キー一致）。無ければ作成。

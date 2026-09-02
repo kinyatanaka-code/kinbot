@@ -25,6 +25,7 @@ import { sendApoMail, sendTestApoMail, runReminderSweep, listTomorrowReminders, 
 import { startKasasagi, getKasasagi, stopKasasagi, feedTranscript, kasasagiInfo,
          buildScript, buildReport, faceState, SLIDE_LABELS } from "./kasasagi.js";
 import { notifyAssigned, notifyAssignFailed, notifyMailDraft, notifyChat, notifyAll, notifyPerson, notifyTargets, chatWebhookUrl, chatInfo } from "./chat.js";
+import { placesEnabled, fetchPlaceHours, openState } from "./places.js";
 import { note as devNote, errKey, buildMorningSummary, NOTE_KINDS, dropSimilar } from "./devnotes.js";
 import { askBot } from "./askbot.js";
 import { newJobId, getJob, cancelJob, runBulk, tableFromFile, tableFromText, rowsFromTable } from "./bulklinks.js";
@@ -205,6 +206,9 @@ import {
   moveCallTargets,
   sweepStageLists,
   getCallListName,
+  getPlaceHoursByCompanies,
+  upsertPlaceHours,
+  placeHoursMissing,
   recentCallLogs,
   listStageTargets,
   cleanupPhysicalStageLists,
@@ -7627,6 +7631,21 @@ app.get("/api/calls/targets", async (req, res) => {
         }
       }
     } catch (e) { console.warn("[calls/targets] 求人情報の付与に失敗", e.message); }
+
+    // 各社の営業時間（Googleキャッシュ）から、営業中/営業時間外を付ける。
+    if (placesEnabled()) {
+      try {
+        const companies = [...new Set(items.map((x) => x.会社名).filter(Boolean))];
+        const hmap = await getPlaceHoursByCompanies(companies);
+        for (const x of items) {
+          const h = hmap[normCompanyKey(x.会社名)];
+          if (h) x.営業 = { 状態: openState(h.periods, h.business_status), 説明: (h.weekday_desc || []).join(" / ") };
+        }
+        // 未取得の会社を、裏でまとめて取ってキャッシュする（画面表示は待たせない）。
+        const missing = await placeHoursMissing(companies, 30);
+        if (missing.length) fetchPlaceHoursBatch(missing.slice(0, 15), items).catch(() => {});
+      } catch (e) { console.warn("[calls/targets] 営業時間の付与に失敗", e.message); }
+    }
     res.json({
       ok: true,
       件数: rows.length,
@@ -8059,6 +8078,23 @@ app.get("/api/calls/_apodiag", async (req, res) => {
     res.json({ ok: true, from, to, 件数: rows.length, 対象email: target, 対象の件数: mine.length, 対象のアポ: mine.slice(0, 60), 計上されないアポ: rows.filter((r) => !r.数える).slice(0, 30) });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
+
+// 未取得の会社の営業時間を、Googleから順に取ってキャッシュする（1社ずつ・少し間隔）。
+let _placeFetching = new Set();
+async function fetchPlaceHoursBatch(companies, items = []) {
+  const phoneOf = {}; const areaOf = {};
+  for (const x of items) { const c = x && x.会社名; if (c && !phoneOf[c]) { phoneOf[c] = x.電話番号 || ""; areaOf[c] = ""; } }
+  for (const company of companies) {
+    if (_placeFetching.has(normCompanyKey(company))) continue;
+    _placeFetching.add(normCompanyKey(company));
+    try {
+      const h = await fetchPlaceHours(company, { phone: phoneOf[company] || "", area: areaOf[company] || "" });
+      if (h) await upsertPlaceHours(company, h);   // null（通信エラー）はキャッシュしない＝次回リトライ
+    } catch (e) { console.warn("[places] batch", company, e.message); }
+    finally { _placeFetching.delete(normCompanyKey(company)); }
+    await new Promise((r) => setTimeout(r, 250));   // 連続呼び出しの間隔
+  }
+}
 
 // kincallの架電記録・実績をAIチャットで分析する（商談分析チャットと同じ仕組み）。
 app.post("/api/calls/chat", async (req, res) => {

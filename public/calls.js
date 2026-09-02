@@ -129,15 +129,17 @@ function visibleRows() {
     return (!isNaN(t) && t <= now) ? t : 0;
   };
   const かけた = (x) => !!x["最終日時"];
+  // 営業時間外は下に沈める（営業中・不明→営業時間外の順）。
+  const closedRank = (x) => (bizState(x) === "closed" ? 1 : 0);
   // 済み（対象外）＝アポ獲得・ユーザー・失注。最下部にまとめる（アポ→ユーザー→失注の順）。
   const rank = (x) => isApoDone(x) ? 0 : isUser(x) ? 1 : 2;
   const 済 = list.filter(isDone).sort((a, b) => rank(a) - rank(b));
   const 未済 = list.filter((x) => !isDone(x));
   const 予定来た = 未済.filter((x) => due(x)).sort((a, b) => due(a) - due(b));
   const 残り = 未済.filter((x) => !due(x));
-  const まだ = 残り.filter((x) => !かけた(x));
+  const まだ = 残り.filter((x) => !かけた(x)).sort((a, b) => closedRank(a) - closedRank(b));
   const かけ済み = 残り.filter((x) => かけた(x))
-    .sort((a, b) => new Date(a["最終日時"]).getTime() - new Date(b["最終日時"]).getTime());
+    .sort((a, b) => closedRank(a) - closedRank(b) || new Date(a["最終日時"]).getTime() - new Date(b["最終日時"]).getTime());
   return [...予定来た, ...まだ, ...かけ済み, ...済];
 }
 
@@ -157,6 +159,15 @@ function doneBadge(x) {
   if (isLost(x)) return ' <span class="kc-lost-badge">失注</span>';
   if (isApoDone(x)) return ' <span class="kc-apo-badge">アポ獲得済み</span>';
   return "";
+}
+// 営業中/営業時間外（Googleの営業時間から）。会社名の下に小さく出す。
+function bizState(x) { return (x && x["営業"] && x["営業"]["状態"]) || ""; }
+function bizBadge(x) {
+  const st = bizState(x);
+  const desc = (x && x["営業"] && x["営業"]["説明"]) ? ` title="${esc(x["営業"]["説明"])}"` : "";
+  if (st === "open") return `<span class="kc-biz kc-biz-open"${desc}>営業中</span>`;
+  if (st === "closed") return `<span class="kc-biz kc-biz-closed"${desc}>営業時間外</span>`;
+  return "";   // unknown は出さない
 }
 
 // 次回架電の予定時刻が来ているか（来ていれば表示用の文言）
@@ -335,7 +346,7 @@ function render() {
       <tr data-id="${x.id}" class="${済 ? "kc-apo-done" : ""}">
         ${listId !== "all" ? `<td class="kc-fx-check"><input type="checkbox" class="kc-sel" data-id="${x.id}"${selectedIds.has(String(x.id)) ? " checked" : ""} /></td>` : ""}
         <td class="kc-stage kc-fx-stage">${esc(x["ステージ"] || "-")}</td>
-        <td class="kc-co kc-fx-co">${esc(x["会社名"] || "")}${doneBadge(x)}${
+        <td class="kc-co kc-fx-co">${esc(x["会社名"] || "")}${doneBadge(x)}${bizBadge(x)}${
           予定 ? ` <span class="kc-next-badge${予定.due ? " due" : ""}">${予定.due ? "架電予定 " : "予定 "}${esc(予定.md)} ${esc(予定.hhmm)}<button type="button" class="kc-next-x" data-id="${x.id}" title="この架電予定を消す">×</button></span>` : ""}</td>
         <td class="kc-person">${x["ふりがな"] ? `<span class="kc-kana">${esc(x["ふりがな"])}</span>` : ""}<span class="kc-pname">${esc(x["担当者"] || "")}</span></td>
         <td>${x["電話番号"]
