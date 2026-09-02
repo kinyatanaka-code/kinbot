@@ -7993,6 +7993,35 @@ app.post("/api/calls/targets/:id/edit", async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+// 【点検用・一時】アポが誰に計上されるかを見る。email を渡すと、その人に紐づくアポと、
+// 計上対象か（初回タイトルか）・獲得者/setter の解決結果・期内/期外 を返す。原因調査用。
+app.get("/api/calls/_apodiag", async (req, res) => {
+  try {
+    const target = String(req.query.email || "").trim().toLowerCase();
+    const now = new Date(Date.now() + 9 * 3600 * 1000);
+    const from = String(req.query.from || `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, "0")}-01`);
+    const to = String(req.query.to || `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, "0")}-31`);
+    const apos = await aposTakenInRange({ from, to, limit: 3000 }).catch(() => []);
+    const won = await apoWonCallsInRange(from, to).catch(() => []);
+    const companyToWinner = new Map();
+    for (const w of won) { const k = normCompanyKey(w.company || ""); if (k && !companyToWinner.has(k)) companyToWinner.set(k, String(w.caller || "").toLowerCase()); }
+    const nameL = (v) => String(v || "").toLowerCase();
+    const rows = apos.map((a) => {
+      const co = companyFromTitle(a.label || "") || "";
+      const winner = companyToWinner.get(normCompanyKey(co)) || "";
+      const setter = nameL(a.setter_email) || nameL(a.setter) || nameL(a.current_owner);
+      const em = winner || setter;
+      return {
+        label: a.label, 会社: co, 数える: isApoCountableTitle(a.label),
+        獲得者kincall: winner || "", setter: a.setter || "", setter_email: a.setter_email || "", current_owner: a.current_owner || "",
+        計上先: em, taken_at: a.taken_at, start_time: a.start_time,
+      };
+    });
+    const mine = target ? rows.filter((r) => nameL(r.計上先) === target || nameL(r.setter_email) === target || nameL(r.setter).includes(target) || nameL(r.獲得者kincall) === target) : rows;
+    res.json({ ok: true, from, to, 件数: rows.length, 対象email: target, 対象の件数: mine.length, 対象のアポ: mine.slice(0, 60), 計上されないアポ: rows.filter((r) => !r.数える).slice(0, 30) });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 // 記録する（Salesforceの活動履歴と、リードの状態も更新する）
 // 「代わりに更新する人」がちゃんと使える状態か確かめる
 app.get("/api/sf-proxy/check", async (req, res) => {
@@ -17148,7 +17177,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-04bo かける一覧で担当者名の上にふりがなを表示・編集可能に（要望：田中さん）。call_targets に person_kana 列を追加、編集モーダルに『ふりがな』欄、/api/calls/targets/:id/edit で kana 保存（SFには送らずkincall内のみ）、担当者セルに小さくふりがな→名前を表示。前回(bn)：アポ割り振りも【初回/フロッグ】を初回に。";
+const BUILD_TAG = "2026-09-04bp 中村宗太郎のアポが計上されない件の切り分け用に点検API GET /api/calls/_apodiag?email=&from=&to= を追加（期間内のアポ一覧・数える対象か・獲得者(kincall)/setter/current_owner・計上先を返す）。アポ計上ロジック自体（isApoCountableTitle=【初回/フロッグ】対応済み、獲得者→setter紐づけ）は変更なし。前回(bo)：担当者ふりがな。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
