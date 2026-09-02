@@ -41,6 +41,8 @@ kincall（架電リスト）という別ツールも同じ画面群の中にあ�
 
 ## 決定・指示のログ（新しいものを上に足す）
 
+- 2026-09-04 バグ/要望（田中さん）：kinbotコネクタで架電分析を頼んだら商談分析(次アポ/設定率/平均closing/懸念)になった＝Claudeが商談ツール(get_deal_events)を使った。→架電専用コネクタを分けたい。対応(bt)：server/mcp.js を分割。TOOLS＝商談/案件6（list_deals..get_account_detail）、CALL_TOOLS＝架電3（list_call_logs/list_call_stats/list_apo_appointments）。handleRpc(body,req,{tools,serverInfo})にパラメータ化、mountMcpServerで mount('/mcp',{TOOLS,kinbot}) と mount('/kincall/mcp',{CALL_TOOLS,{name:kincall}})。callToolは全ツール名を処理(共有)。index.js 認証ミドルウェアの `req.path === "/mcp"` 2箇所を `|| req.path === "/kincall/mcp"` に。ローカル確認：/mcp=商談6、/kincall/mcp=架電3、initialize serverInfo.name=kincall。要：田中さんが Claude.aiで新コネクタ『kincall』を https://kinbot-production-225f.up.railway.app/kincall/mcp として追加→架電分析はそのコネクタで（kinbotコネクタは商談用）。node --check/smoke OK。公開アセット変更なしで版更新不要。
+
 - 2026-09-04 要望（田中さん）：画面内チャット不要（分析はMCPコネクタで）。対応(bs)：calls.html の #clAiChat ボタン、calls.js の clAiChatハンドラと openAiChat モーダル関数を削除（残参照0）。/api/calls/chat エンドポイントは残置（未使用・無害、不要なら後で削除可）。架電分析は MCP の list_call_logs/list_call_stats/list_apo_appointments（br）で実施。node --check/smoke OK。
 
 - 2026-09-04 要望（田中さん）：（bqの内蔵チャットではなく）Claude.aiのMCPコネクタで連携して架電分析したい。実装(br)：server/mcp.js の TOOLS に架電ツール3つを追加＋callTool実装。list_call_logs(from/to/caller/limit)→recentCallLogs→{日時,会社,担当者,ステージ,結果,メモ,かけた人(名前表示)}。list_call_stats(from/to)→callStatsByDay→{日,かけた人,結果,件数}。list_apo_appointments(from/to)→aposTakenInRange→{商談名,会社,獲得者,現担当,商談予定日,取得日}。既定期間は今月1日〜今日。非管理者はcaller=req.userに固定。名前表示は既存 buildNameMap/resolveDisplayName。gpt_actions.js(REST版)も同callToolを使うので同時に使える。MCP tools/list に list_call_logs/list_call_stats/list_apo_appointments が出ることをローカル確認、list_call_logs呼び出し200。※コネクタは既存 https://kinbot-…/mcp のまま（Claude.aiのkinbotコネクタで新ツールが自動的に見える）。node --check/smoke OK。公開アセット変更なしで版更新不要。

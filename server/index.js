@@ -763,7 +763,7 @@ app.use(async (req, res, next) => {
     }
     // OAuthトークン形式なのに無効 → MCP等のAPIパスなら401を返し、それ以外はログイン画面へ
 
-  if (req.path.startsWith("/api/") || req.path === "/mcp") {
+  if (req.path.startsWith("/api/") || req.path === "/mcp" || req.path === "/kincall/mcp") {
       return res.status(401).json({ error: "認証に失敗しました（トークンが無効です）" });
     }
   }
@@ -790,7 +790,7 @@ app.use(async (req, res, next) => {
     }
     return next();
   }
-  if (req.path.startsWith("/api/") || req.path === "/mcp") {
+  if (req.path.startsWith("/api/") || req.path === "/mcp" || req.path === "/kincall/mcp") {
     // なぜ通らなかったのかを添える（トークンそのものは出さない）。
     // 「ログインが必要です」だけだと、原因が分からず切り分けができないため。
     const raw = String(req.headers.authorization || "").trim();
@@ -17221,7 +17221,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-04bs kincall画面内のAIチャットを撤去（要望：田中さん・分析はMCPコネクタで行う）。かけるツールバーの#clAiChatボタン・openAiChatモーダル・ハンドラを削除。/api/calls/chatエンドポイントは残置（未使用・無害）。架電分析ツールはMCP（list_call_logs/list_call_stats/list_apo_appointments）で提供。前回(br)：MCPに架電分析ツール追加。";
+const BUILD_TAG = "2026-09-04bt 架電専用のMCPコネクタを分離（要望：田中さん）。kinbotコネクタ(/mcp)＝商談・案件6ツールのみ、新設 kincallコネクタ(/kincall/mcp)＝架電3ツール(list_call_logs/list_call_stats/list_apo_appointments)のみ・serverInfo name=kincall。混在で商談ツールが使われて架電分析にならなかった問題を解消。認証ミドルウェアも /kincall/mcp を対象に。前回(bs)：画面内チャット撤去。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",

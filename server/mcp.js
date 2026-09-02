@@ -131,6 +131,11 @@ const TOOLS = [
       required: ["company_name"],
     },
   },
+
+];
+
+// 架電（kincall）専用ツール。別コネクタ /kincall/mcp で出す（商談ツールと混ざらないように）。
+const CALL_TOOLS = [
   {
     name: "list_call_logs",
     description: "kincall（架電ツール）の架電記録を新しい順で取得する。1件ずつ、会社名・担当者・結果（お断り/担当者不在/アポ獲得 等）・メモ（架電時のトーク内容メモ）・かけた人・ステージ・日時を返す。架電の傾向分析（お断り理由、接触できない時間帯、アポにつながる会話の共通点、担当者ごとのメモの質など）に使う。",
@@ -335,7 +340,9 @@ export async function callTool(name, args, req) {
 }
 
 // ---- JSON-RPC ハンドラ ----
-async function handleRpc(body, req) {
+async function handleRpc(body, req, opts = {}) {
+  const tools = opts.tools || TOOLS;
+  const serverInfo = opts.serverInfo || SERVER_INFO;
   const { id, method, params } = body || {};
   const ok = (result) => ({ jsonrpc: "2.0", id, result });
   const err = (code, message) => ({ jsonrpc: "2.0", id, error: { code, message } });
@@ -345,14 +352,14 @@ async function handleRpc(body, req) {
       return ok({
         protocolVersion: PROTOCOL_VERSION,
         capabilities: { tools: {} },
-        serverInfo: SERVER_INFO,
+        serverInfo,
       });
     }
     if (method === "notifications/initialized") {
       return null; // 通知には応答不要
     }
     if (method === "tools/list") {
-      return ok({ tools: TOOLS });
+      return ok({ tools });
     }
     if (method === "tools/call") {
       const name = params && params.name;
@@ -376,33 +383,40 @@ async function handleRpc(body, req) {
 
 // Expressにマウントする関数
 export function mountMcpServer(app) {
-  app.post("/mcp", async (req, res) => {
-    const body = req.body;
-    try {
-      if (Array.isArray(body)) {
-        const results = [];
-        for (const item of body) {
-          const r = await handleRpc(item, req);
-          if (r) results.push(r);
+  const KINCALL_INFO = { name: "kincall", version: "1.0.0" };
+  // 1つのMCPエンドポイントを作る（tools＝出すツール、serverInfo＝名前）
+  const mount = (path, opts) => {
+    app.post(path, async (req, res) => {
+      const body = req.body;
+      try {
+        if (Array.isArray(body)) {
+          const results = [];
+          for (const item of body) {
+            const r = await handleRpc(item, req, opts);
+            if (r) results.push(r);
+          }
+          if (!results.length) return res.status(202).end();
+          return res.json(results.length === 1 ? results[0] : results);
         }
-        if (!results.length) return res.status(202).end();
-        return res.json(results.length === 1 ? results[0] : results);
+        const result = await handleRpc(body, req, opts);
+        if (!result) return res.status(202).end(); // 通知
+        res.json(result);
+      } catch (e) {
+        console.error("[mcp]", e.message);
+        res.status(500).json({ jsonrpc: "2.0", id: body && body.id, error: { code: -32603, message: e.message } });
       }
-      const result = await handleRpc(body, req);
-      if (!result) return res.status(202).end(); // 通知
-      res.json(result);
-    } catch (e) {
-      console.error("[mcp]", e.message);
-      res.status(500).json({ jsonrpc: "2.0", id: body && body.id, error: { code: -32603, message: e.message } });
-    }
-  });
-  // 一部クライアントはGETでの疎通確認やSSE接続を試みるため、404ではなく明示的に返す
-  app.get("/mcp", (req, res) => {
-    try {
-      res.status(200).json({ name: SERVER_INFO.name, protocol: "mcp", transport: "streamable-http" });
-    } catch (e) {
-      console.error("[mcp] GET failed", e && e.stack ? e.stack : e);
-      res.status(500).end();
-    }
-  });
+    });
+    app.get(path, (req, res) => {
+      try {
+        res.status(200).json({ name: (opts.serverInfo || SERVER_INFO).name, protocol: "mcp", transport: "streamable-http" });
+      } catch (e) {
+        console.error("[mcp] GET failed", e && e.stack ? e.stack : e);
+        res.status(500).end();
+      }
+    });
+  };
+  // kinbot（商談・案件）＝これまでどおり /mcp
+  mount("/mcp", { tools: TOOLS, serverInfo: SERVER_INFO });
+  // kincall（架電）＝架電ツールだけの別コネクタ /kincall/mcp
+  mount("/kincall/mcp", { tools: CALL_TOOLS, serverInfo: KINCALL_INFO });
 }
