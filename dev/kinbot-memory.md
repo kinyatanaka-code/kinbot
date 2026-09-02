@@ -41,6 +41,8 @@ kincall（架電リスト）という別ツールも同じ画面群の中にあ�
 
 ## 決定・指示のログ（新しいものを上に足す）
 
+- 2026-09-04 バグ（田中さん）：商談の自動SF活動記録が空で入る。原因：sweepMeetingSfRecords の待ち条件 `if(!s.overview && !hasTr)` が『要約も文字起こしも無い時だけ待つ』＝文字起こしはあるが要約(overview)未生成の状態でも記録に進み、autofillMeetingToSf の desc=s.overview が空→空の活動。修正(bu)：(1)hasSummary=(overview||key_points||action_items||customer_concerns||formatted のいずれか)。無ければ stat.まだ++ で continue（済みにせず次の見回りでリトライ＝要約ができてから記録）。(2)autofillMeetingToSf の説明を要約全体で作成：概要＋■要点/■合意事項/■宿題・次アクション/■相手の懸念（配列を箇条書き）、空なら従来のoverviewフォールバック。(3)候補の最短経過を 20分→40分（要約生成の猶予）。sweep自体は10分ごと。※要約が生成されるかは分析用LLM(既定Gemini)依存。要約が出れば自動で記録される。1時間などにしたい場合は40分の数値を変えるだけ。node --check/smoke OK。公開アセット変更なしで版更新不要。
+
 - 2026-09-04 バグ/要望（田中さん）：kinbotコネクタで架電分析を頼んだら商談分析(次アポ/設定率/平均closing/懸念)になった＝Claudeが商談ツール(get_deal_events)を使った。→架電専用コネクタを分けたい。対応(bt)：server/mcp.js を分割。TOOLS＝商談/案件6（list_deals..get_account_detail）、CALL_TOOLS＝架電3（list_call_logs/list_call_stats/list_apo_appointments）。handleRpc(body,req,{tools,serverInfo})にパラメータ化、mountMcpServerで mount('/mcp',{TOOLS,kinbot}) と mount('/kincall/mcp',{CALL_TOOLS,{name:kincall}})。callToolは全ツール名を処理(共有)。index.js 認証ミドルウェアの `req.path === "/mcp"` 2箇所を `|| req.path === "/kincall/mcp"` に。ローカル確認：/mcp=商談6、/kincall/mcp=架電3、initialize serverInfo.name=kincall。要：田中さんが Claude.aiで新コネクタ『kincall』を https://kinbot-production-225f.up.railway.app/kincall/mcp として追加→架電分析はそのコネクタで（kinbotコネクタは商談用）。node --check/smoke OK。公開アセット変更なしで版更新不要。
 
 - 2026-09-04 要望（田中さん）：画面内チャット不要（分析はMCPコネクタで）。対応(bs)：calls.html の #clAiChat ボタン、calls.js の clAiChatハンドラと openAiChat モーダル関数を削除（残参照0）。/api/calls/chat エンドポイントは残置（未使用・無害、不要なら後で削除可）。架電分析は MCP の list_call_logs/list_call_stats/list_apo_appointments（br）で実施。node --check/smoke OK。

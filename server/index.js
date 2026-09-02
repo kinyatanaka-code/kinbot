@@ -1975,7 +1975,7 @@ async function sweepMeetingSfRecords({ max = 8 } = {}) {
       if (!key) return false;
       if (m.sf_recorded_at) return false;                 // DBで記録済み＝二度と自動記録しない（再起動しても効く）
       const age = now - new Date(m.created_at).getTime();
-      if (!(age >= 20 * 60 * 1000 && age <= 5 * 86400000)) return false;   // 20分〜5日
+      if (!(age >= 40 * 60 * 1000 && age <= 5 * 86400000)) return false;   // 40分〜5日（要約が出るまで少し待つ）
       // sf_urlが無くても、予定にひも付いたSF商談IDから解決できることがあるので、ここでは弾かない
       if (_autoShodanDone.has(key)) return false;
       if ((_autoShodanTries.get(key) || 0) >= SHODAN_MAX_TRIES) return false; // あきらめ済み
@@ -1988,8 +1988,8 @@ async function sweepMeetingSfRecords({ max = 8 } = {}) {
         const m = await getMeeting(row.bot_id);
         if (!m) continue;
         const s = m.summary || {};
-        const hasTr = Array.isArray(m.transcript) ? m.transcript.length : !!m.transcript;
-        if (!s.overview && !hasTr) { stat.まだ++; continue; }   // まだ要約・文字起こしが無い＝終わっていない（済みにしない）
+        const hasSummary = !!(s.overview || (s.key_points || []).length || (s.action_items || []).length || (s.customer_concerns || []).length || s.formatted);
+        if (!hasSummary) { stat.まだ++; continue; }   // 要約待ち（済みにしない＝次の見回りでやり直す。空記録を防ぐ）
         const owner = m.owner;
         if (!owner || !(await sfConnected(owner).catch(() => false))) { stat.連携待ち++; continue; } // 連携待ち（済みにしない）
         const r = await autofillMeetingToSf(owner, m, m.sf_url).catch((e) => ({ ok: false, error: e.message }));
@@ -17221,7 +17221,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-04bt 架電専用のMCPコネクタを分離（要望：田中さん）。kinbotコネクタ(/mcp)＝商談・案件6ツールのみ、新設 kincallコネクタ(/kincall/mcp)＝架電3ツール(list_call_logs/list_call_stats/list_apo_appointments)のみ・serverInfo name=kincall。混在で商談ツールが使われて架電分析にならなかった問題を解消。認証ミドルウェアも /kincall/mcp を対象に。前回(bs)：画面内チャット撤去。";
+const BUILD_TAG = "2026-09-04bu 商談の自動SF記録が空で入る不具合を修正（要望：田中さん）。従来は『要約も文字起こしも無い時だけ待つ』で、文字起こしはあるが要約が未生成の状態で記録し説明が空になっていた。修正：要約(overview/要点/宿題/懸念/formattedのいずれか)ができるまで自動記録しない（できるまで見回りでリトライ）。説明本文も概要だけでなく要点・合意・宿題・懸念を含めて作成。最短待ちを20分→40分に。前回(bt)：架電MCPコネクタ分離。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
@@ -19043,7 +19043,15 @@ async function autofillMeetingToSf(user, meeting, url) {
   // 3) 活動履歴（Task）を冪等作成
   //   商談の記録には「次のアクション」は含めない。ネクストアクションは別の活動として記録する。
   const s = m.summary || {};
-  const desc = String(s.overview || "");
+  // 説明は要約全体で作る（概要＋要点＋合意事項＋相手の懸念）。概要だけだと薄いため。
+  const 説明部品 = [];
+  if (s.overview) 説明部品.push(String(s.overview).trim());
+  const 節 = (見出し, arr) => { if (Array.isArray(arr) && arr.length) 説明部品.push(`■${見出し}\n` + arr.map((x) => `・${typeof x === "string" ? x : (x && (x.text || x.title)) || ""}`).join("\n")); };
+  節("要点", s.key_points);
+  節("合意事項", s.agreements);
+  節("宿題・次アクション", s.action_items);
+  節("相手の懸念", s.customer_concerns);
+  const desc = 説明部品.join("\n\n").trim() || String(s.overview || "");
   // 活動種別・次回アクション種別・次回アクション日の項目名と選択肢を取る
   const fn = await taskFieldNames(user).catch(() => ({}));
   let nextKindOptions = [];
