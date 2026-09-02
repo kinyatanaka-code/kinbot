@@ -152,9 +152,12 @@ function isLost(x) { return /失注/.test(状況(x)); }
 // アポ獲得済みかどうか（最終ステータスに「アポ獲得」が入っているか。ユーザーは除く）
 function isApoDone(x) { return /アポ獲得/.test(状況(x)) && !isUser(x); }
 // かける対象から外すもの（アポ獲得済み・ユーザー・失注）。まとめて下に沈める／隠せる。
-function isDone(x) { return isApoDone(x) || isUser(x) || isLost(x); }
+// 使われていない番号（不通・現アナ・欠番）。かける対象から外して自動でフラグ化する。
+function isDeadNumber(x) { return /使われて|使わない|現在使わ|現アナ|欠番|不通|【使われていない番号】/.test(状況(x)); }
+function isDone(x) { return isApoDone(x) || isUser(x) || isLost(x) || isDeadNumber(x); }
 // 行のバッジ（会社名の右）
 function doneBadge(x) {
+  if (isDeadNumber(x)) return ' <span class="kc-dead-badge">使われていない番号</span>';
   if (isUser(x)) return ' <span class="kc-user-badge">ユーザー</span>';
   if (isLost(x)) return ' <span class="kc-lost-badge">失注</span>';
   if (isApoDone(x)) return ' <span class="kc-apo-badge">アポ獲得済み</span>';
@@ -903,6 +906,11 @@ function renderDock() {
     .kc-apo-badge{display:inline-block;margin-left:6px;padding:1px 7px;border-radius:10px;background:#1d9e75;color:#fff;font-size:11px;font-weight:700;vertical-align:middle;}
     .kc-user-badge{display:inline-block;margin-left:6px;padding:1px 7px;border-radius:10px;background:#0d5b47;color:#fff;font-size:11px;font-weight:700;vertical-align:middle;}
     .kc-lost-badge{display:inline-block;margin-left:6px;padding:1px 7px;border-radius:10px;background:#e9edeb;color:#6b7a74;font-size:11px;font-weight:700;vertical-align:middle;}
+    .kc-dead-badge{display:inline-block;margin-left:6px;padding:1px 7px;border-radius:10px;background:#fbe7e6;color:#a32d2d;font-size:11px;font-weight:700;vertical-align:middle;}
+    .kc-reason{margin:6px 0 2px;}
+    .kc-reason-chips{display:flex;flex-wrap:wrap;gap:6px;}
+    .kc-reason-chip{border:1px solid #cfe0d9;background:#fff;color:#1f2a26;border-radius:999px;padding:5px 12px;font-size:12px;cursor:pointer;transition:all .12s;}
+    .kc-reason-chip:hover{background:#eef7f2;border-color:#5DCAA5;}
     .kc-sum-user{color:#0d5b47;}
     .kc-sum-lost{color:#8a9691;}
     .kc-summary{display:flex;align-items:center;gap:10px;padding:8px 4px;font-size:13px;color:#0d5b47;}
@@ -995,6 +1003,7 @@ async function openTarget(id, draft, opt) {
           <option value="">選んでください</option>
           ${結果の選択肢.map((k) => `<option value="${esc(k)}">${esc(k)}</option>`).join("")}
         </select>
+        <div class="kc-reason" id="kcReason" hidden></div>
 
         <div class="kc-lb">説明（任意）</div>
         <textarea class="kc-input" id="kcMemo" rows="3" placeholder="担当者は佐藤様・14時以降が良いとのこと"></textarea>
@@ -1129,6 +1138,38 @@ async function openTarget(id, draft, opt) {
   }
 
   const picked = () => (m.el.querySelector("#kcResult") || {}).value || "";
+
+  // 結果に応じて理由チップを出す。チップを押すとメモに追記される。
+  const 断り理由 = ["予算・費用が合わない", "ニーズがない", "他社導入済み", "時期尚早・検討中", "決裁権がない", "資料だけ希望", "情報提供は不要", "一律お断り", "着信拒否・今後不要"];
+  const 不在文言 = ["終日不在", "席を外している", "来客中", "打ち合わせ中", "戻り時間不明", "外出中", "電話中"];
+  const 不通文言 = ["現在使われていない番号", "アナウンスが流れる", "欠番"];
+  const memoEl = () => m.el.querySelector("#kcMemo");
+  const appendMemo = (text) => {
+    const el = memoEl(); if (!el) return;
+    const cur = String(el.value || "").trim();
+    if (cur.split(/[、,\n]/).map((s) => s.trim()).includes(text)) return;   // 同じものは足さない
+    el.value = cur ? `${cur}、${text}` : text;
+  };
+  const reasonBox = m.el.querySelector("#kcReason");
+  const drawReason = () => {
+    if (!reasonBox) return;
+    const v = picked();
+    let title = "", chips = [];
+    if (/お断り|断り/.test(v)) { title = "断り理由（押すとメモに追加）"; chips = 断り理由; }
+    else if (/不在/.test(v)) { title = "不在の状況（押すとメモに追加）"; chips = 不在文言; }
+    else if (/使わ|現アナ|アナ|欠番|不通/.test(v)) { title = "番号の状態（押すとメモに追加）"; chips = 不通文言; }
+    if (!chips.length) { reasonBox.hidden = true; reasonBox.innerHTML = ""; return; }
+    reasonBox.hidden = false;
+    reasonBox.innerHTML = `<div class="kc-lb">${esc(title)}</div><div class="kc-reason-chips">` +
+      chips.map((c) => `<button type="button" class="kc-reason-chip">${esc(c)}</button>`).join("") + `</div>`;
+    reasonBox.querySelectorAll(".kc-reason-chip").forEach((b) =>
+      b.addEventListener("click", () => appendMemo(b.textContent)));
+    // 使われていない番号は、メモに自動でフラグを付ける
+    if (/使わ|現アナ|欠番|不通/.test(v)) appendMemo("【使われていない番号】");
+  };
+  const resultSel = m.el.querySelector("#kcResult");
+  if (resultSel) resultSel.addEventListener("change", drawReason);
+  drawReason();
 
   wireQuickNext(m);
 
