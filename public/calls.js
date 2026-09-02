@@ -1518,17 +1518,15 @@ function openEdit(id) {
 
 // ───────── ダッシュボード（アポの目標・実績・差分／月次のみ） ─────────
 let _dashData = null;
-let dashPeriod = "month";   // week / month
 async function loadDash() {
   const box = $("clDash");
   if (!box) return;
   box.innerHTML = `<div class="note">読み込んでいます…</div>`;
   try {
-    const d = await (await fetch(`/api/calls/apo-dashboard?period=${encodeURIComponent(dashPeriod)}`)).json();
+    const d = await (await fetch(`/api/calls/apo-dashboard`)).json();
     if (d.error) throw new Error(d.error);
     _dashData = d;
-    const label = dashPeriod === "week" ? "週次" : "月次";
-    const rg = $("dashRange"); if (rg) rg.textContent = d.periodLabel ? `対象：${d.periodLabel}（${label}）` : "";
+    const rg = $("dashRange"); if (rg) rg.textContent = d.periodLabel ? `対象：${d.periodLabel}（月次）` : "";
     renderDash(d);
   } catch (e) { box.innerHTML = `<div class="note">読み込めませんでした：${esc(e.message)}</div>`; }
 }
@@ -1536,8 +1534,8 @@ function dashCard(c, big) {
   const diff = c.diff;
   const dcls = diff > 0 ? "kc-d-plus" : diff < 0 ? "kc-d-minus" : "kc-d-zero";
   const dtxt = diff > 0 ? `+${diff}` : `${diff}`;
-  // 個人は目標を直接編集できる。チームはメンバー合計なので読み取り。
-  const editable = iAmRedistributor && c.role !== "team";
+  // ダッシュボードでは、チームも個人も目標を直接（月次）変更できる。
+  const editable = iAmRedistributor;
   const goalCell = editable
     ? `<input type="number" class="kc-goal kc-dgoal" data-subj="${esc(c.key)}" value="${c.goal}" min="0" />`
     : `<div class="kc-d-act">${c.goal}</div>`;
@@ -1556,18 +1554,11 @@ function renderDash(d) {
   const sales = (d.sales || []).map((c) => dashCard(c, false)).join("");
   const inside = (d.inside || []).map((c) => dashCard(c, false)).join("");
   box.innerHTML =
-    `<div class="kc-period-tabs" id="dashPeriod" style="margin-bottom:12px">
-       <button type="button" class="kc-ptab${dashPeriod === "week" ? " active" : ""}" data-dp="week">週次</button>
-       <button type="button" class="kc-ptab${dashPeriod === "month" ? " active" : ""}" data-dp="month">月次</button>
-     </div>` +
     `<div class="kc-dgrid kc-dteams">${teams}</div>` +
     (sales ? `<div class="kc-dsub">セールス</div><div class="kc-dgrid">${sales}</div>` : "") +
     (inside ? `<div class="kc-dsub">インサイド</div><div class="kc-dgrid">${inside}</div>` : "") +
-    `<p class="note" style="margin-top:10px">個人の目標はここで直接（${dashPeriod === "week" ? "週次" : "月次"}）変更できます。グループ・セールス・インサイドは、メンバーの目標・実績の合計です。差分は 実績−目標。カードをクリックすると内訳が出ます。</p>`;
-  box.querySelectorAll("#dashPeriod .kc-ptab").forEach((b) => b.addEventListener("click", () => {
-    dashPeriod = b.dataset.dp || "month"; loadDash();
-  }));
-  // 個人の目標の直接編集（表示中の期間で保存）。
+    `<p class="note" style="margin-top:10px">目標はここで直接（月次）変更できます（入力するとその月の平日に配分されます）。グループ・セールス・インサイドも手動で設定でき、実績はメンバーの合計です。差分は 実績−目標。カードをクリックすると内訳（日次）が出ます。</p>`;
+  // 目標の直接編集（月次→平日に配分）。入力欄クリックはカードの内訳を開かないように。
   box.querySelectorAll(".kc-dgoal").forEach((inp) => {
     inp.addEventListener("click", (e) => e.stopPropagation());
     inp.addEventListener("change", async (e) => {
@@ -1576,15 +1567,15 @@ function renderDash(d) {
       const card = inp.closest(".kc-dcard");
       const actual = Number((card.querySelector(".kc-dcol:nth-child(2) .kc-d-act") || {}).textContent || 0);
       const goal = Number(inp.value) || 0;
+      // 差分をその場で更新
       const de = card.querySelector(".kc-d-diff");
       if (de) { const df = actual - goal; de.textContent = df > 0 ? `+${df}` : `${df}`; de.className = "kc-d-diff " + (df > 0 ? "kc-d-plus" : df < 0 ? "kc-d-minus" : "kc-d-zero"); }
       try {
         await fetch("/api/calls/apo-goals", {
           method: "PUT", headers: { "content-type": "application/json" },
-          body: JSON.stringify({ subject, period: d.period, periodKey: d.periodKey, metric: "アポ", value: goal }),
+          body: JSON.stringify({ subject, period: "month", periodKey: d.periodKey, metric: "アポ", value: goal }),
         });
         if (typeof _statsGoals === "object") for (const k in _statsGoals) delete _statsGoals[k];
-        loadDash();   // チーム合計に反映
       } catch (err) { inp.style.borderColor = "#e24b4a"; }
     });
   });
@@ -1615,25 +1606,14 @@ async function openDashDetail(subject, label) {
       let vals = null;
       if (isTeam) { vals = (d.totals || {})[subject]; }
       else { const mm = members.find((x) => String(x.email || x.誰).toLowerCase() === subject); vals = mm && mm.値; }
-      // 目標：個人は本人の目標、チームはメンバーの合計（コール/接触/アポ）。
+      const memberEmails = [subject];   // 目標は本人／チーム自身の目標（subject）で見る
+      // 目標は「その期間・そのキー」で取る（配分・合計はしない）
       let subjGoals = {};
       if (cols.length) {
         try {
           const keys = cols.map((c) => c.key).join(",");
           const g = await (await fetch(`/api/calls/apo-goals-cells?period=${encodeURIComponent(p)}&keys=${encodeURIComponent(keys)}`)).json();
-          const goals = (g && g.goals) || {};
-          if (isTeam) {
-            const withRole = members.filter((mm) => !nameHas(mm.誰, EXCLUDE_NAMES))
-              .map((mm) => ({ email: String(mm.email || mm.誰).toLowerCase(), role: nameHas(mm.誰, SALES_NAMES) ? "sales" : mm.role }));
-            const emails = subject === "group" ? withRole.map((x) => x.email) : withRole.filter((x) => x.role === subject).map((x) => x.email);
-            for (const c of cols) {
-              const agg = {};
-              for (const em of emails) { const mm = (goals[em] || {})[c.key] || {}; for (const met of ["コール", "接触", "アポ"]) agg[met] = (agg[met] || 0) + (Number(mm[met]) || 0); }
-              subjGoals[c.key] = agg;
-            }
-          } else {
-            subjGoals = goals[subject] || {};
-          }
+          subjGoals = (g.goals && g.goals[subject]) || {};
         } catch {}
       }
       body.innerHTML = vals
@@ -1747,24 +1727,12 @@ function renderStats(d) {
   const withRole = members.filter((m) => !nameHas(m.誰, EXCLUDE_NAMES))
     .map((m) => ({ email: String(m.email || m.誰).toLowerCase(), role: nameHas(m.誰, SALES_NAMES) ? "sales" : m.role, 誰: m.誰, 値: m.値 }));
   const teamEmails = (team) => team === "group" ? withRole.map((x) => x.email) : withRole.filter((x) => x.role === team).map((x) => x.email);
-  // チームは goals をメンバー合計にする。個人は本人の goals。
-  const teamGoals = (team) => {
-    const emails = teamEmails(team);
-    const out = {};
-    for (const c of 区切り) {
-      const agg = {};
-      for (const em of emails) { const mm = (goals[em] || {})[c.key] || {}; for (const met of ["コール", "接触", "アポ"]) agg[met] = (agg[met] || 0) + (Number(mm[met]) || 0); }
-      out[c.key] = agg;
-    }
-    return out;
-  };
-  const goalsOf = (subject, isTeam) => isTeam ? teamGoals(subject) : (goals[subject] || {});
   const block = (title, vals, subject, isTeam, collapsed) =>
     `<div class="kc-g-block${isTeam ? " kc-g-team" : " kc-mem"}${collapsed ? " kc-g-collapsed" : ""}">
       <button type="button" class="kc-g-title" aria-expanded="${collapsed ? "false" : "true"}">
         <span class="kc-g-chev">${chev}</span><span class="kc-g-tname">${esc(title)}</span>
       </button>
-      <div class="kc-g-body">${ddTable(区切り, vals || [], 今, subject, isTeam, goalsOf(subject, isTeam), statsPeriod)}</div>
+      <div class="kc-g-body">${ddTable(区切り, vals || [], 今, subject, isTeam, goals[subject] || {}, statsPeriod)}</div>
     </div>`;
 
   if (statsScope === "all") {

@@ -9083,15 +9083,15 @@ app.get("/api/calls/stats-grid", async (req, res) => {
 // アポのダッシュボード（月次のみ）。目標は日次目標を月内で合計したもの。
 app.get("/api/calls/apo-dashboard", async (req, res) => {
   try {
-    const period = ["week", "month"].includes(String(req.query.period)) ? String(req.query.period) : "month";
+    const period = "month";   // ダッシュボードは月次だけ
     const g = await computeStatsGrid(period, req.query.span);
     const idx = (g.区切り || []).findIndex((c) => c.key === g.今);
     const i = idx >= 0 ? idx : (g.区切り || []).length - 1;
     const bucket = (g.区切り && g.区切り[i]) ? g.区切り[i] : null;
-    // その期間の目標（手入力）を直接使う。個人は本人の目標、チームはメンバー合計。
-    const periodKey = g.今 || "";
-    const mg = await getApoGoalsByKeys(period, [periodKey]);
-    const goalOf = (key) => Number((((mg[key] || {})[periodKey] || {})["アポ"]) || 0);
+    // 月次目標は「その月の月次目標（手入力）」を直接使う（日次への配分はしない）。
+    const monthKey = g.今 || "";
+    const mg = await getApoGoalsByKeys("month", [monthKey]);
+    const goalOf = (key) => Number((((mg[key] || {})[monthKey] || {})["アポ"]) || 0);
     const salesNames = String(process.env.DASH_SALES_NAMES || "田中欽也").split(",").map((s) => s.trim()).filter(Boolean);
     const excludeNames = String(process.env.DASH_EXCLUDE_NAMES || "中澤,浦林,森田,笹原,迫間").split(",").map((s) => s.trim()).filter(Boolean);
     const nameHas = (name, toks) => toks.some((t) => String(name || "").includes(t));
@@ -9108,10 +9108,9 @@ app.get("/api/calls/apo-dashboard", async (req, res) => {
       });
     const salesP = persons.filter((p) => p.role === "sales");
     const insideP = persons.filter((p) => p.role === "inside");
-    // チーム：実績も目標も、メンバーの合計にする。
+    // チーム：目標はそのチーム自身の手入力（その月の月次目標）、実績はメンバー合計。
     const sumA = (arr) => arr.reduce((a, p) => a + p.actual, 0);
-    const sumG = (arr) => arr.reduce((a, p) => a + p.goal, 0);
-    const team = (key, label, arr) => { const actual = sumA(arr), goal = sumG(arr); return { key, label, role: "team", actual, goal, diff: actual - goal }; };
+    const team = (key, label, arr) => { const actual = sumA(arr), goal = goalOf(key); return { key, label, role: "team", actual, goal, diff: actual - goal }; };
     const teams = [
       team("group", "グループ（全体）", persons),
       team("sales", "セールス", salesP),
@@ -17409,7 +17408,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-04cl 営業時間の取得率向上：Places→Gemini検索(公式サイト/Googleビジネス/iタウンページ/エキテン等を照合)→見つかった公式サイト本文を実際に読んで営業時間を抽出、の多段に。lookupBusinessHoursをサイト本文読み取り付きに強化＋fetchSiteText追加。前回(ck)：Zoom Phone連携の土台。";
+const BUILD_TAG = "2026-09-04cm ダッシュボードを月次固定に戻す（週次化・チーム目標のメンバー合計化で目標が0になり崩れたため元に戻す・要望：田中さん）。営業時間の多段取得(cl)・Zoom Phone土台(ck)は維持。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
