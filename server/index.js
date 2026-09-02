@@ -17132,7 +17132,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-04bg リスト管理：ステージ（リード状況）が「アーカイブ」「リサイクル」になった架電先を、共有の専用リスト（同名・owner無し）へ自動で移す（要望：田中さん）。db.sweepStageListsで stage ILIKE %アーカイブ%/%リサイクル% を専用リストへ移動（担当は残す）。refresh-sf後・手動ステージ変更後・記録でステージ変更後にsweep。listCallListsで アーカイブ/リサイクル は名前で常時表示。前回(bf)：今日色付け・目標配分廃止・求人列移動。";
+const BUILD_TAG = "2026-09-04bh 割り振り失敗通知を『同じアポにつき1回だけ』に（要望：田中さん）。shouldNotifyAssignFailを、20時間ごと再通知→一度でも通知済みなら二度と出さないに変更（記録は30日で掃除）。自動・手動どちらも重複防止を通す。前回(bg)：ステージでアーカイブ/リサイクルへ自動移動。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
@@ -20205,21 +20205,21 @@ async function selfAcquired(link, biz) {
   } catch { return null; }
 }
 
-// 同じアポの「割り振れませんでした」通知を、短時間に何度も出さないための重複防止。
-// スキャンは繰り返し走るので、都度通知するとスペースが荒れる。20時間に1回までにする。
+// 同じアポの「割り振れませんでした」通知は、1回だけにする。
+// スキャンは繰り返し走るので、都度通知するとスペースが荒れる。
 async function shouldNotifyAssignFail(slug) {
   try {
     const st = await getSettings();
     const map = (st && st.apoFailNotified) || {};
     const now = Date.now();
-    const last = map[slug] ? Date.parse(map[slug]) : 0;
-    if (last && now - last < 20 * 3600 * 1000) return false;
+    if (map[slug]) return false;   // 一度通知したアポは、もう出さない
+    // 記録を残す。ふるくなったもの（30日以上前＝商談日を過ぎたもの）は掃除する。
     const pruned = {};
-    for (const [k, v] of Object.entries(map)) { if (now - Date.parse(v) < 3 * 24 * 3600 * 1000) pruned[k] = v; }
+    for (const [k, v] of Object.entries(map)) { if (now - Date.parse(v) < 30 * 24 * 3600 * 1000) pruned[k] = v; }
     pruned[slug] = new Date().toISOString();
     await saveSettings({ apoFailNotified: pruned });
     return true;
-  } catch { return true; }   // 設定が読めなくても、黙って落とさず通知は出す
+  } catch { return true; }   // 設定が読めなくても、黙って落とさず1回は出す
 }
 
 async function autoAssignOne(link, { inviteOwner, closers = null, cfg, teamCtx = null, actor = "auto" }) {
@@ -20236,10 +20236,9 @@ async function autoAssignOne(link, { inviteOwner, closers = null, cfg, teamCtx =
     // 割り当てられなかった理由も残す（あとで画面から見て手動対応する）
     await logAssign({ slug: link.slug, assigned: null, reason: pick.reason, skipped: pick.skipped, actor });
     // 誰にも割り振れなかったことを、Google Chat にも知らせる（黙って落とさない）。
-    // スキャンは繰り返し走るので、同じアポは20時間に1回までにする。通知失敗でも処理は止めない。
+    // 同じアポは1回だけ（自動スキャンは繰り返し走るため）。通知失敗でも処理は止めない。
     const auto = actor !== "manual" && !String(actor || "").includes("@");
-    // 自動スキャンは繰り返し走るので20時間に1回まで。手動は毎回知らせる。
-    if (auto ? await shouldNotifyAssignFail(link.slug) : true) {
+    if (await shouldNotifyAssignFail(link.slug)) {
       notifyAssignFailed({
         title: link.label, start: link.start_time, setter: link.setter,
         reason: pick.reason, skipped: pick.skipped, auto,
