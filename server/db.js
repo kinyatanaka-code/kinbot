@@ -3453,7 +3453,7 @@ export async function listCallLists({ owner = "", includeClosed = false, ownerOn
     // （中身を配られただけの人のカードに、他人のリストが出てしまうのを防ぐ）
     // ownerOnly=true でも「自分に配られたぶんがあるリスト」は出す。
     // （リストを作った人は別でも、分配された人のカードに出したいため）
-    const scope = `($1 = '' OR l.owner = $1 OR EXISTS (
+    const scope = `($1 = '' OR l.owner = $1 OR l.name IN ('アーカイブ', 'リサイクル') OR EXISTS (
              SELECT 1 FROM call_targets t WHERE t.list_id = l.id AND t.assigned_to = $1))`;
     const { rows } = await pool.query(
       `SELECT l.*,
@@ -3469,6 +3469,35 @@ export async function listCallLists({ owner = "", includeClosed = false, ownerOn
     return rows;
   } catch (e) { console.error("[db] listCallLists", e.message); return []; }
 }
+
+// ステージ（リード状況）が「アーカイブ」「リサイクル」になった架電先を、
+// 共有の専用リスト（同名・owner無し）へ移す。担当(assigned_to)はそのまま残す。
+// listId を渡すとそのリスト内だけ、省略で全体を対象にする。
+export async function sweepStageLists(listId = null) {
+  if (!pool) return {};
+  const out = {};
+  const ensure = async (name) => {
+    const { rows } = await pool.query(`SELECT id FROM call_lists WHERE name=$1 AND owner IS NULL ORDER BY id LIMIT 1`, [name]);
+    if (rows[0]) return rows[0].id;
+    const { rows: ir } = await pool.query(`INSERT INTO call_lists (name, owner, created_by) VALUES ($1, NULL, 'system') RETURNING id`, [name]);
+    return ir[0] ? ir[0].id : null;
+  };
+  const lid = listId ? parseInt(listId, 10) : null;
+  for (const [kw, name] of [["アーカイブ", "アーカイブ"], ["リサイクル", "リサイクル"]]) {
+    try {
+      const dest = await ensure(name);
+      if (!dest) { out[name] = 0; continue; }
+      const params = [dest, `%${kw}%`];
+      let sql = `UPDATE call_targets SET list_id = $1 WHERE COALESCE(stage,'') ILIKE $2 AND list_id <> $1`;
+      if (lid) { params.push(lid); sql += ` AND list_id = $3`; }
+      const { rowCount } = await pool.query(sql, params);
+      out[name] = rowCount || 0;
+    } catch (e) { console.error("[db] sweepStageLists", name, e.message); out[name] = 0; }
+  }
+  return out;
+}
+
+// ステージ（リード状況）が…（上の sweepStageLists）
 
 // リストの中身を、かける人へ配る。
 //   均等に配る（人数で割る）／まとめて一人に渡す、の両方ができる。

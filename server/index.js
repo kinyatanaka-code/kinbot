@@ -203,6 +203,7 @@ import {
   findRecentListByNameOwner,
   redistributeListTargets,
   moveCallTargets,
+  sweepStageLists,
   listTargetsNeedingSf,
   countTargetsNeedingSf,
   setCallTargetLead,
@@ -7028,8 +7029,11 @@ app.post("/api/calls/lists/:id/refresh-sf", async (req, res) => {
     const st0 = await getSettings().catch(() => ({}));
     const preferSfOwner = (st0 && st0.sfOwnerPriority === true) || b.preferSfOwner === true;
     const r = await auditCallList(sfUser, id, null, { crossFrom: CROSS_FROM, preferSfOwner });
+    // ステージが「アーカイブ」「リサイクル」になったものは、専用リストへ自動で移す。
+    let moved = {};
+    try { moved = await sweepStageLists(id); } catch {}
     console.log(`[SF更新] リスト${id}：${r.反映}件をSF最新に反映（ユーザー ${r.ユーザー}・クロス商談 ${r.クロス商談あり}・直近失注 ${r.直近失注}${preferSfOwner ? `・SF所有者に担当をそろえ ${r.担当そろえ}` : ""}）by ${req.user}`);
-    res.json({ ok: true, 対象: r.対象, 反映: r.反映, ユーザー: r.ユーザー, クロス商談あり: r.クロス商談あり, 直近失注: r.直近失注, 担当そろえ: r.担当そろえ, SF未連携: r.SF未連携 });
+    res.json({ ok: true, 対象: r.対象, 反映: r.反映, ユーザー: r.ユーザー, クロス商談あり: r.クロス商談あり, 直近失注: r.直近失注, 担当そろえ: r.担当そろえ, SF未連携: r.SF未連携, アーカイブ移動: moved["アーカイブ"] || 0, リサイクル移動: moved["リサイクル"] || 0 });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
@@ -7892,6 +7896,11 @@ app.post("/api/calls/targets/:id/stage", async (req, res) => {
     if (!stage) return res.status(400).json({ error: "ステージを選んでください" });
 
     await setCallTargetStatus(id, { stage }).catch(() => {});
+    // アーカイブ/リサイクルになったら専用リストへ移す
+    let movedTo = "";
+    if (/アーカイブ|リサイクル/.test(stage)) {
+      try { await sweepStageLists(t.list_id); movedTo = /アーカイブ/.test(stage) ? "アーカイブ" : "リサイクル"; } catch {}
+    }
 
     let sf = { ok: false, reason: "" };
     if (t.lead_id && salesforceConfigured()) {
@@ -7903,8 +7912,8 @@ app.post("/api/calls/targets/:id/stage", async (req, res) => {
     } else if (!t.lead_id) {
       sf = { ok: false, reason: "この相手はSalesforceのリードと結びついていません" };
     }
-    console.log(`[kincall] ステージを「${stage}」に変更 target=${id}（SF：${sf.ok ? "反映" : sf.reason}） by ${req.user}`);
-    res.json({ ok: true, stage, sf });
+    console.log(`[kincall] ステージを「${stage}」に変更 target=${id}（SF：${sf.ok ? "反映" : sf.reason}${movedTo ? `・${movedTo}リストへ移動` : ""}） by ${req.user}`);
+    res.json({ ok: true, stage, sf, movedTo });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
@@ -8020,6 +8029,10 @@ app.post("/api/calls/targets/:id/record", async (req, res) => {
       ...(次のステージ !== undefined ? { stage: 次のステージ } : {}),
       status: result,
     }).catch(() => {});
+    // 記録でステージが「アーカイブ」「リサイクル」になったら、専用リストへ移す
+    if (次のステージ !== undefined && /アーカイブ|リサイクル/.test(次のステージ)) {
+      try { await sweepStageLists(t.list_id); } catch {}
+    }
 
     // Salesforceへ（活動履歴＋リードの状態）
     //
@@ -17119,7 +17132,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-04bf 実績/目標の3点修正（田中さん）：(1)今日の色付けを修正（computeStatsGridの今を最後のバケットでなく今日を含むバケットに）。(2)目標が勝手に入力される（月次→平日配分）のを廃止。目標は入れた期間(day/week/month)のキーにそのまま保存＝配分も合計もしない。apo-goals-month撤去、apo-goalsを{subject,period,periodKey,metric,value}に、apo-goals-cells(period,keys)追加、ダッシュボードは月次目標を直接保存/表示、実績/モーダルはその期間のキーの目標を表示・個人は各期間で編集可・チームは読み取り。(3)かける一覧の求人列を資料送付の後ろに移動。前回(be)：迫間除外・日次月〜金。";
+const BUILD_TAG = "2026-09-04bg リスト管理：ステージ（リード状況）が「アーカイブ」「リサイクル」になった架電先を、共有の専用リスト（同名・owner無し）へ自動で移す（要望：田中さん）。db.sweepStageListsで stage ILIKE %アーカイブ%/%リサイクル% を専用リストへ移動（担当は残す）。refresh-sf後・手動ステージ変更後・記録でステージ変更後にsweep。listCallListsで アーカイブ/リサイクル は名前で常時表示。前回(bf)：今日色付け・目標配分廃止・求人列移動。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
