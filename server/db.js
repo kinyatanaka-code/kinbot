@@ -3507,6 +3507,13 @@ export async function sweepStageLists(listId = null) {
 
 // ステージ（リード状況）が…（上の sweepStageLists）
 
+// リストの名前だけを取る（軽量）
+export async function getCallListName(listId) {
+  if (!pool || !listId) return "";
+  try { const { rows } = await pool.query(`SELECT name FROM call_lists WHERE id=$1`, [listId]); return rows[0] ? String(rows[0].name || "") : ""; }
+  catch { return ""; }
+}
+
 // リストの中身を、かける人へ配る。
 //   均等に配る（人数で割る）／まとめて一人に渡す、の両方ができる。
 export async function assignCallTargets(listId, emails = [], { onlyUnassigned = true } = {}) {

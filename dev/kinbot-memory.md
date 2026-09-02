@@ -41,6 +41,8 @@ kincall（架電リスト）という別ツールも同じ画面群の中にあ�
 
 ## 決定・指示のログ（新しいものを上に足す）
 
+- 2026-09-04 要望（田中さん）：全リストで ステージ=ユーザー/失注/アーカイブ/リサイクル は表示させない。アーカイブ/リサイクルはそれぞれのリストへ移動。実装(bj)：/api/calls/targets で rows 取得後、開いているリスト名(getCallListName)が『アーカイブ』『リサイクル』でなければ r.stage が /ユーザー|失注|アーカイブ|リサイクル/ に一致する行を filter除外（allビューも除外）。→かける先件数・一覧から消える。db.getCallListName(listId) 追加。アーカイブ/リサイクルの移動は bg(ステージ変更時)＋bi(起動時/リスト表示時sweep)で実施済み＝元リストから消え専用リストへ。※ユーザー/失注はステージ判定で非表示のみ（移動先リストは無し）。最終ステータス基準のisUser/isLost/対象外を隠す(client)は別概念で従来どおり。node --check/smoke OK。公開アセット変更なしで版更新不要。
+
 - 2026-09-04 バグ（田中さん）：アーカイブ/リサイクルのリストが作られず、移動もしない（例 株式会社オーパストランスポート ステージ=アーカイブ が高橋のリストに残存）。原因：bgの掃引はステージ変更の瞬間(refresh-sf/記録/手動stage)だけで、既にアーカイブになっていた既存分が取り残される。sweepのSQL自体は正常(call_lists定義OK)。修正(bi)：(1)server.listen起動時に sweepStageLists()（全体・一度）で既存アーカイブ/リサイクルを専用リストへ。(2)GET /api/calls/targets 冒頭で sweepStageLists(list指定はそのリスト/allは全体) を実行＝リストを開けば移る＆専用リストが作られる。(3)db.sweepStageLists を事前チェック付きに：stage ILIKE %kw% かつ同名専用リスト以外の対象が『ある時だけ』ensure(作成)＋UPDATE移動＝空のリサイクル等を作らない。listCallListsは前回 name IN('アーカイブ','リサイクル') で常時表示済み。要：田中さんがそのリストを開き直す（or再デプロイ起動）でオーパスがアーカイブリストへ移りリストが出るか確認。node --check/smoke OK。
 
 - 2026-09-04 要望（田中さん）：『割り振りできませんでした』通知は1回だけでよい（自動スキャンで複数回来ていた）。実装(bh)：shouldNotifyAssignFail(slug) を『20時間に1回』→『一度でも settings.apoFailNotified に記録があれば二度と出さない（map[slug]あれば false）』に。記録は30日以上前のものだけ掃除（商談日を過ぎた分の掃除・mapの肥大化防止）。呼び出しも auto? shouldNotify : true（手動は毎回）を廃止し、自動・手動とも if(await shouldNotifyAssignFail(slug)) に統一＝同一アポ(link.slug)につき通知は1回きり。※手動で再挑戦しても同アポは再通知しない。node --check/smoke OK。公開アセット変更なしで版更新不要。

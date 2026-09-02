@@ -204,6 +204,7 @@ import {
   redistributeListTargets,
   moveCallTargets,
   sweepStageLists,
+  getCallListName,
   listTargetsNeedingSf,
   countTargetsNeedingSf,
   setCallTargetLead,
@@ -7498,6 +7499,17 @@ app.get("/api/calls/targets", async (req, res) => {
         limit: Math.min(2000, parseInt(req.query.limit, 10) || 2000),
         assignedTo: String(req.query.assignedTo || ""),
       });
+    }
+
+    // かける一覧では、ステージが「ユーザー／失注／アーカイブ／リサイクル」のものは出さない。
+    // ただしアーカイブ／リサイクルのリストを開いているときは、その中身を出す。
+    let 開いているリスト名 = "";
+    if (/^\d+$/.test(listParam)) {
+      try { 開いているリスト名 = await getCallListName(parseInt(listParam, 10)); } catch {}
+    }
+    if (開いているリスト名 !== "アーカイブ" && 開いているリスト名 !== "リサイクル") {
+      const 隠すステージ = /ユーザー|失注|アーカイブ|リサイクル/;
+      rows = rows.filter((r) => !隠すステージ.test(String(r.stage || "")));
     }
 
     // Salesforceに残っている活動の件数も数える（kincallの記録だけだと0に見えるため）
@@ -17138,7 +17150,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-04bi アーカイブ/リサイクル自動移動が既存分に効かない不具合を修正。従来はステージが変わった瞬間(refresh-sf/記録/手動)しか掃引せず、既にアーカイブのものが残っていた。(1)起動時に一度 sweepStageLists() で既存を全体掃引。(2)/api/calls/targets 表示時にも sweepStageLists(list) で掃引（開けば移る）。(3)対象がある時だけ専用リストを作る（空リストを作らない）。前回(bh)：割り振り失敗通知を1回だけに。";
+const BUILD_TAG = "2026-09-04bj かける一覧で、ステージ（リード状況）が ユーザー/失注/アーカイブ/リサイクル の架電先を全リストで非表示に（要望：田中さん）。/api/calls/targets で rows を r.stage が /ユーザー|失注|アーカイブ|リサイクル/ に一致するものを除外。ただしアーカイブ/リサイクルのリスト自体を開いているときはその中身を表示。アーカイブ/リサイクルは専用リストへ移動（bg/bi）。前回(bi)：アーカイブ/リサイクル移動を既存分にも。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
