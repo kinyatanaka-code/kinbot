@@ -7565,7 +7565,9 @@ app.get("/api/calls/targets", async (req, res) => {
       const 代理 = String(st.sfProxyUser || "").trim().toLowerCase();
       if (代理 && (await sfConnected(代理).catch(() => false))) 数える人 = 代理;
     }
-    if (ids.length && salesforceConfigured() && (await sfConnected(数える人).catch(() => false))) {
+    const sf接続 = salesforceConfigured() && (await sfConnected(数える人).catch(() => false));
+    let sf数えた = false;
+    if (ids.length && sf接続) {
       // 一度に長すぎる問い合わせはSalesforceに弾かれるので、小分けにする
       const 束 = 80;
       let 失敗 = 0;
@@ -7601,6 +7603,7 @@ app.get("/api/calls/targets", async (req, res) => {
       }
       if (失敗) console.warn(`[kincall] 活動の件数：${失敗}回ぶん数えられませんでした`);
       console.log(`[kincall] 架電の件数を数えました：${sfCount.size}件ぶん（対象 ${ids.length}）`);
+      sf数えた = 失敗 < Math.ceil(ids.length / 80);   // 全部失敗でなければ数えられた扱い
     }
     const items = rows.map((r) => ({
         id: r.id, leadId: r.lead_id || "",
@@ -7655,6 +7658,7 @@ app.get("/api/calls/targets", async (req, res) => {
       残り: rows.filter((r) => !r.done).length,
       結果の種類: CALL_RESULTS.map((x) => x.key),
       求人あり: recruitFound,
+      SF未接続: (ids.length > 0 && !sf数えた),   // 履歴(SF活動件数)が数えられなかった＝再連携が必要
       items,
     });
   } catch (e) { res.status(500).json({ error: e.message }); }
@@ -17408,7 +17412,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-04cm ダッシュボードを月次固定に戻す（週次化・チーム目標のメンバー合計化で目標が0になり崩れたため元に戻す・要望：田中さん）。営業時間の多段取得(cl)・Zoom Phone土台(ck)は維持。";
+const BUILD_TAG = "2026-09-04cn かける一覧の履歴(SF活動件数)が全リストで『なし』になる件：SFに接続できていないと件数が数えられず全部0になる仕組みのため、応答にSF未接続フラグを追加し、一覧上部に『Salesforceに接続できていないため履歴が表示できません（履歴は消えていない・再連携してください）』の注意を表示。前回(cm)：ダッシュボードを元に戻す。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",

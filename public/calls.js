@@ -94,6 +94,7 @@ async function loadTable() {
     if (d.error) throw new Error(d.error);
     kinds = d["結果の種類"] || [];
     rows = d.items || [];
+    _sfDisconnected = !!d["SF未接続"];
     render();
   } catch (e) {
     box.innerHTML = `<div class="empty-state">読み込めませんでした：${esc(e.message)}</div>`;
@@ -103,6 +104,7 @@ async function loadTable() {
 // 絞り込みと並べ替えの状態
 const filt = { stage: new Set(), status: new Set(), hist: "" };
 let hideApo = false;   // アポ獲得済みを隠しているか
+let _sfDisconnected = false;   // SFに接続できず履歴件数が数えられなかった
 let sortBy = "", sortDesc = false;
 
 // いま出すぶんを決める
@@ -315,6 +317,7 @@ function render() {
   const rcols = allKeys.length ? extraCols(allKeys) : [];
   const hasRecruit = rcols.length > 0;
   box.innerHTML =
+    (_sfDisconnected ? `<div class="kc-sfwarn">Salesforceに接続できていないため、履歴（SFの活動件数）が表示できません。履歴が消えたわけではありません。設定 → Salesforce連携で再連携してください。</div>` : "") +
     `<div class="kc-summary">かける先 <b>${fullList.length - doneN}</b> 件` +
     (doneN
       ? `／${内訳}` +
