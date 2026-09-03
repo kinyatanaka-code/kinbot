@@ -8938,26 +8938,34 @@ async function computeStatsGrid(periodIn, spanIn) {
     };
     // 会社名 → 実獲得者（kincallでアポ獲得した人）。実獲得者に寄せるために使う。
     const wonCalls = await apoWonCallsInRange(spanFrom, spanTo).catch(() => []);
-    const companyToWinner = new Map();
+    const wonByCompanyDay = new Map();   // 会社|取得日 -> 獲得者
+    const wonByCompany = new Map();       // 会社 -> 獲得者（フォールバック・最初の人）
     for (const w of wonCalls) {
       const em = String(w.caller || "").toLowerCase();
       if (!byEmail.has(em)) continue;
-      const k = normCompanyKey(w.company || ""); if (k && !companyToWinner.has(k)) companyToWinner.set(k, em);
+      const k = normCompanyKey(w.company || ""); if (!k) continue;
+      const day = ymdJst(w["日"] || w.date || w.at || "");
+      if (day) wonByCompanyDay.set(`${k}|${day}`, em);
+      if (!wonByCompany.has(k)) wonByCompany.set(k, em);
     }
     const ymdJst = (v) => { if (!v) return ""; const d = new Date(v); if (isNaN(d.getTime())) return toYmd(v); const j = new Date(d.getTime() + 9 * 3600000); return `${j.getUTCFullYear()}-${pad(j.getUTCMonth() + 1)}-${pad(j.getUTCDate())}`; };
-    const 数えた = new Set();   // 同じ予定（会社×商談日）は1回だけ数える
+    const 数えた = new Set();   // 同じ予定（会社×商談日×計上先）は1回だけ数える
     for (const a of apos) {
       if (!isApoCountableTitle(a.label)) continue;   // 【初回】【新/ヒ】のみ・メルマガ除外
       const co = companyFromTitle(a.label || "") || "";
-      const uk = `${normCompanyKey(co)}|${ymdJst(a.start_time)}`;
-      if (数えた.has(uk)) continue;                  // 予定の作り直しなどで重複しても二重に数えない
-      数えた.add(uk);
-      let em = companyToWinner.get(normCompanyKey(co)) || "";   // 実獲得者（インサイド）に寄せる
+      const cok = normCompanyKey(co);
+      const 商談日 = ymdJst(a.start_time);
+      const 取得日 = ymdJst(a.taken_at);
+      // 計上先：会社×取得日の獲得者 → 会社の獲得者 → setter/現担当 の順
+      let em = wonByCompanyDay.get(`${cok}|${取得日}`) || wonByCompany.get(cok) || "";
       if (!em) em = setterEmail(a);                              // 無ければ現担当（クローザー）
       const p = byEmail.get(em); if (!p) continue;
-      const i = idxOf(属する(ymdJst(a.taken_at))); if (i < 0) continue;
+      const uk = `${cok}|${商談日}|${em}`;
+      if (数えた.has(uk)) continue;                  // 予定の作り直し等で二重に数えない（人が違えば別々に数える）
+      数えた.add(uk);
+      const i = idxOf(属する(取得日)); if (i < 0) continue;
       const cell = ensure(em)[i];
-      if (isInFor(区切り[i] && 区切り[i].key, ymdJst(a.start_time))) cell.アポ内 += 1; else cell.アポ外 += 1;
+      if (isInFor(区切り[i] && 区切り[i].key, 商談日)) cell.アポ内 += 1; else cell.アポ外 += 1;
     }
 
     // セールス：SFレポート（コール・接触・アポ内外）。コール進捗と同じレポートを使う。
@@ -12146,17 +12154,24 @@ async function runProcessSheet(sfUser, opts = {}) {
     const inTerm = (md, apoYmd) => { if (!md) return true; if (termMode === "auto") return md.slice(0, 7) === String(apoYmd).slice(0, 7); return md >= from && md <= to; };
     // アポ件数は「アポ一覧（カレンダー予定）」で数える（【初回】【新/ヒ】のみ・メルマガ除外）。獲得者に寄せる。
     const email2name = new Map(membersB.map((mm) => [String(mm.email || "").toLowerCase(), mm.name || mm.email]));
-    const companyToWinner = new Map();
-    for (const w of wonCalls) { const em = String(w.caller || "").toLowerCase(); if (!email2name.has(em)) continue; const k = normCompanyKey(w.company || ""); if (k && !companyToWinner.has(k)) companyToWinner.set(k, em); }
     const ymdJst = (v) => { if (!v) return ""; const dd = new Date(v); if (isNaN(dd.getTime())) return String(v).slice(0, 10); const j = new Date(dd.getTime() + 9 * 3600000); const p2 = (n) => String(n).padStart(2, "0"); return `${j.getUTCFullYear()}-${p2(j.getUTCMonth() + 1)}-${p2(j.getUTCDate())}`; };
+    const wonByCompanyDay = new Map(); const wonByCompany = new Map();
+    for (const w of wonCalls) {
+      const em = String(w.caller || "").toLowerCase(); if (!email2name.has(em)) continue;
+      const k = normCompanyKey(w.company || ""); if (!k) continue;
+      const day = ymdJst(w["日"] || w.date || w.at || "");
+      if (day) wonByCompanyDay.set(`${k}|${day}`, em);
+      if (!wonByCompany.has(k)) wonByCompany.set(k, em);
+    }
     for (const a of aposB) {
       if (!isApoCountableTitle(a.label)) continue;
       const co = companyFromTitle(a.label || "") || "";
-      let em = companyToWinner.get(normCompanyKey(co)) || "";
+      const cok = normCompanyKey(co);
+      const takenY = ymdJst(a.taken_at);
+      let em = wonByCompanyDay.get(`${cok}|${takenY}`) || wonByCompany.get(cok) || "";
       let name = em ? email2name.get(em) : "";
       if (!name) name = (a.current_owner ? (email2name.get(String(a.current_owner).toLowerCase()) || "") : "") || String(a.setter || "").trim();
       if (!name) continue;
-      const takenY = ymdJst(a.taken_at);
       const key = mdKey(takenY); if (!key) continue;
       const md = ymdJst(a.start_time);
       const c = ensureT(name, key);
@@ -17427,7 +17442,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-04cq 中村宗太郎のアポ0の切り分け強化：点検API _apodiag に、対象のkincallアポ獲得数と、その会社にカレンダーの初回商談予定があるかを追加。アポ計上はカレンダー初回商談を獲得者/setterに紐づける仕組みなので、カレンダー予定が無い/計上先が別人/名前ズレ を判別できる。前回(cp)：田中綾を除外。";
+const BUILD_TAG = "2026-09-04cr 月次でアポ件数が落ちる不具合を修正（例：今月2件が1件・要望：田中さん）。アポの獲得者への紐づけを『会社で最初の人固定』→『会社×取得日』に（期間を長く取ったとき別の人に化けるのを防止）。重複排除も会社×商談日×計上先に（人が違えば別々に数える）。実績(computeStatsGrid)・コール進捗の両方を修正。前回(cq)：中村アポ0の点検API強化。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
