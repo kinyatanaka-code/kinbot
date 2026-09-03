@@ -8296,25 +8296,36 @@ app.get("/api/calls/slot-suggest", async (req, res) => {
     }
     if (!fb) return res.json({ ok: true, 候補: [], reason: "カレンダーの空きを取得できませんでした（Google連携をご確認ください）" });
 
-    // 平日10-18時の1時間枠を作る（日本時間）。今より後だけ。
+    // 平日10-18時の1時間枠を作る（日本時間）。翌営業日以降だけ（今日は出さない）。
     const slots = [];
     const startHour = 10, endHour = 18;
+    const nowJ = new Date(now.getTime() + 9 * 3600000);
+    const todayKey = `${nowJ.getUTCFullYear()}-${nowJ.getUTCMonth()}-${nowJ.getUTCDate()}`;
     for (let d = 0; d < 14; d++) {
       const base = new Date(now.getTime() + d * 86400000);
       const j = new Date(base.getTime() + 9 * 3600000);
       const wd = j.getUTCDay(); if (wd === 0 || wd === 6) continue;   // 土日除く
+      const dayKey = `${j.getUTCFullYear()}-${j.getUTCMonth()}-${j.getUTCDate()}`;
+      if (dayKey === todayKey) continue;                              // 今日は出さない（翌営業日以降）
       const y = j.getUTCFullYear(), mo = j.getUTCMonth(), da = j.getUTCDate();
       for (let h = startHour; h < endHour; h++) {
         const startISO = new Date(Date.UTC(y, mo, da, h - 9, 0, 0)).toISOString();
         const endISO = new Date(Date.UTC(y, mo, da, h - 9 + 1, 0, 0)).toISOString();
-        if (new Date(startISO).getTime() <= now.getTime()) continue;   // 過去/直近すぎは除く
         const 空き = [];
         for (const m of members) { const r = isSlotFree(fb, m.email, startISO, endISO, 0); if (r && r.free) 空き.push(m.name); }
         slots.push({ startISO, 空き人数: 空き.length, 空いている人: 空き });
       }
     }
-    // 直近順（早い枠を優先）。同じ日時なら空いている人数が多い方を上に。
-    slots.sort((a, b) => (new Date(a.startISO) - new Date(b.startISO)) || (b.空き人数 - a.空き人数));
+    // 並び：まず「3人以上空き」を優先、その中では直近を上に（同じ日時なら人数が多い方）。
+    // 3人以上が無ければ、残り（2人以下）を直近順で。
+    const 目安 = Math.min(3, members.length);
+    slots.sort((a, b) => {
+      const ga = a.空き人数 >= 目安 ? 1 : 0, gb = b.空き人数 >= 目安 ? 1 : 0;
+      if (ga !== gb) return gb - ga;                                   // 3人以上のグループを上に
+      const dt = new Date(a.startISO) - new Date(b.startISO);         // その中で直近
+      if (dt !== 0) return dt;
+      return b.空き人数 - a.空き人数;                                  // 同じ日時なら人数が多い方
+    });
     const 候補 = slots.filter((s) => s.空き人数 > 0).slice(0, 6).map((s) => {
       const j = new Date(new Date(s.startISO).getTime() + 9 * 3600000);
       return {
@@ -17507,7 +17518,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-04cy 日程候補のおすすめを『空き人数が多い順』→『直近の日程優先』に変更（要望：田中さん）。slot-suggestの並びを startISO昇順(直近)→同時刻なら空き人数desc に。一番上(最も近い枠)がおすすめ。前回(cx)：候補パネルの文字を濃く。";
+const BUILD_TAG = "2026-09-04cz 日程候補：翌営業日以降のみ・クローザー3人以上空きの枠を優先し、その中で直近を上に（要望：田中さん）。今日は出さない、3人以上空き→直近→同時刻なら人数多い順、無ければ2人以下を直近順。前回：候補パネルの見やすさ・直近優先。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
