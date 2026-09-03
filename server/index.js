@@ -8082,7 +8082,22 @@ app.get("/api/calls/_apodiag", async (req, res) => {
       };
     });
     const mine = target ? rows.filter((r) => nameL(r.計上先) === target || nameL(r.setter_email) === target || nameL(r.setter).includes(target) || nameL(r.獲得者kincall) === target) : rows;
-    res.json({ ok: true, from, to, 件数: rows.length, 対象email: target, 対象の件数: mine.length, 対象のアポ: mine.slice(0, 60), 計上されないアポ: rows.filter((r) => !r.数える).slice(0, 30) });
+    // 中村さん等：kincallで「アポ獲得」を押した回数（会社）と、それがカレンダーの初回商談予定と一致しているか
+    const apoCompanies = new Set(rows.map((r) => normCompanyKey(r.会社)).filter(Boolean));
+    const wonMine = target
+      ? won.filter((w) => nameL(w.caller) === target || nameL(w.caller).includes(target) || String(w.caller || "").split("@")[0].includes(target))
+      : [];
+    const wonList = wonMine.map((w) => ({
+      会社: w.company || "", 日: w.日 || w.date || "", かけた人: w.caller || "",
+      カレンダー予定あり: apoCompanies.has(normCompanyKey(w.company || "")),
+    }));
+    res.json({
+      ok: true, from, to, 件数: rows.length, 対象: target,
+      対象のアポ_計上先が対象: mine.length, 対象のアポ: mine.slice(0, 60),
+      対象のkincallアポ獲得数: wonMine.length,
+      対象のkincallアポ獲得: wonList.slice(0, 60),
+      計上されないアポ_タイトル対象外: rows.filter((r) => !r.数える).slice(0, 20),
+    });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
