@@ -17507,7 +17507,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-04cw 記録モーダルの右にクローザーの空き日程を提案するパネルを追加（要望：田中さん）。GET /api/calls/slot-suggest＝クローザー(田中欽也除く)のGoogleカレンダーfreeBusyで、直近2週間・平日10-18時・1時間枠を、空いている人数が多い順→直近順で最大6件。候補を押すと次回日時(#kcNext/#kcNextTime)に入る。前回(cv)：ymdJst初期化前アクセス修正。";
+const BUILD_TAG = "2026-09-04cx 日程候補パネルの文字を濃く見やすく（要望：田中さん・薄くて見づらい）。日時を濃色太字、空き人数・対象・サブ文言のグレーを濃く、枠線・おすすめ背景も強調。前回(cw)：日程候補パネル追加。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",

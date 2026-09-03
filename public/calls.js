@@ -923,17 +923,17 @@ function renderDock() {
     .kc-reason-chips{display:flex;flex-wrap:wrap;gap:6px;}
     .kc-reason-chip{border:1px solid #cfe0d9;background:#fff;color:#1f2a26;border-radius:999px;padding:5px 12px;font-size:12px;cursor:pointer;transition:all .12s;}
     .kc-reason-chip:hover{background:#eef7f2;border-color:#5DCAA5;}
-    .kc-slotpanel{position:fixed;top:80px;right:24px;width:280px;max-height:78vh;overflow:auto;background:#fff;border:1px solid #e6ece9;border-radius:14px;box-shadow:0 10px 30px rgba(13,91,71,.14);z-index:1200;padding:14px;}
+    .kc-slotpanel{position:fixed;top:80px;right:24px;width:280px;max-height:78vh;overflow:auto;background:#fff;border:1px solid #d5e3dd;border-radius:14px;box-shadow:0 10px 30px rgba(13,91,71,.16);z-index:1200;padding:14px;}
     .kc-slot-h{font-weight:700;color:#0d5b47;font-size:14px;margin-bottom:10px;}
-    .kc-slot-sub{font-weight:400;color:#8a938c;font-size:11px;}
-    .kc-slot-tgt{font-size:11px;color:#6b7a74;margin-bottom:8px;}
-    .kc-slot-item{display:block;width:100%;text-align:left;border:1px solid #e6ece9;background:#fff;border-radius:10px;padding:9px 11px;margin-bottom:8px;cursor:pointer;transition:all .12s;}
-    .kc-slot-item:hover{border-color:#5DCAA5;background:#f4faf7;}
-    .kc-slot-item.best{border-color:#1d9e75;background:#eef7f2;}
+    .kc-slot-sub{font-weight:500;color:#5b7a6d;font-size:11px;}
+    .kc-slot-tgt{font-size:11px;color:#5b7a6d;margin-bottom:8px;}
+    .kc-slot-item{display:block;width:100%;text-align:left;border:1.5px solid #cfe0d9;background:#fff;border-radius:10px;padding:10px 12px;margin-bottom:8px;cursor:pointer;transition:all .12s;}
+    .kc-slot-item:hover{border-color:#1d9e75;background:#f4faf7;}
+    .kc-slot-item.best{border-color:#1d9e75;background:#eaf7f1;}
     .kc-slot-item.picked{border-color:#0d5b47;box-shadow:0 0 0 2px #5DCAA5 inset;}
-    .kc-slot-when{font-weight:600;color:#1f2a26;font-size:13px;}
+    .kc-slot-when{font-weight:700;color:#12241d;font-size:14px;}
     .kc-slot-badge{background:#1d9e75;color:#fff;font-size:10px;font-weight:700;padding:1px 6px;border-radius:8px;margin-left:4px;}
-    .kc-slot-free{font-size:11px;color:#5b7a6d;margin-top:3px;}
+    .kc-slot-free{font-size:12px;color:#2c3a35;margin-top:4px;}
     @media (max-width:900px){ .kc-slotpanel{position:static;width:auto;max-height:none;margin:10px 0;box-shadow:none;} }
     .kc-sum-user{color:#0d5b47;}
     .kc-sum-lost{color:#8a9691;}

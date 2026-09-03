@@ -41,6 +41,8 @@ kincall（架電リスト）という別ツールも同じ画面群の中にあ�
 
 ## 決定・指示のログ（新しいものを上に足す）
 
+- 2026-09-04 要望（田中さん）：候補日を明るく（濃く）表示。対応(cx)：.kc-slot-when 色 #1f2a26→#12241d・14px太字、.kc-slot-free #5b7a6d→#2c3a35・12px、.kc-slot-sub/.kc-slot-tgt グレーを#5b7a6dに、枠線1.5px #cfe0d9、best背景#eaf7f1・hover枠#1d9e75。node--check/smoke OK。
+
 - 2026-09-04 要望（田中さん）：記録モーダルの右に、セールス(田中欽也除く)の空き日程を5つ候補で出す。1時間枠・平日営業時間・直近2週間・空いている人数が多い順＋直近順。対象＝アポ割り振りクローザー(植野/江田/中澤/浦林(予備)等、特に植野江田中澤)。実装(cw)：GET /api/calls/slot-suggest＝listClosers(activeOnly)から田中欽也/田中綾を除外→emails、freeBusy(owner=req.user→対象email→calendarOwnerの順で連携ある人, timeMin=now, timeMax=+14d)、平日10-18時の1時間枠(JST, 過去除く)ごとに isSlotFree で空き人数カウント→空き人数desc→startISO asc で上位6、{date,time,md,曜日,空き人数,対象人数,空いている人}。カレンダー読めない相手は空き扱いにしない(勝手に埋めない)。client openSlotPanel(m)＝記録モーダル(openTarget)後に固定パネル(.kc-slotpanel 右上)を出し候補描画、先頭にbest/おすすめ、クリックで #kcNext/#kcNextTime に date/time セット＋changeイベント。MutationObserverでモーダル(m.el)がDOMから消えたらパネル除去。CSS .kc-slot*（900px以下はstatic）。freeBusy/isSlotFree を index に import。slot-suggest 200/smoke OK。※対象はclosr_rotation active。owner全員未連携なら候補空+reason。枠長/時間帯は10-18・60分固定（要調整なら定数変更）。
 
 - 2026-09-04 バグ（田中さん）：実績画面が『読み込めませんでした：Cannot access ymdJst before initialization』。原因：cr(アポ紐づけを会社×取得日に)で computeStatsGrid に wonByCompanyDay ループを追加したが、その中で ymdJst を使用（8947）しているのに const ymdJst の定義が後(8951)＝TDZ(一時的死角)で初期化前アクセス例外→computeStatsGridを使う実績/ダッシュボード/プロセス全滅。修正(cv)：ymdJst の定義を wonCalls/wonByCompanyDay ループの前へ移動。コール進捗側(12164)は元々定義が先で問題なし。stats-grid/apo-dashboard/group-funnel 200・smoke OK。教訓：constはブロック内で定義前に使うとTDZ。追加ロジックは既存定義の位置に注意。
