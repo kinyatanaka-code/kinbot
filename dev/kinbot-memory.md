@@ -41,6 +41,8 @@ kincall（架電リスト）という別ツールも同じ画面群の中にあ�
 
 ## 決定・指示のログ（新しいものを上に足す）
 
+- 2026-09-04 報告（田中さん）：リスト別(プロセス)画面で案件化・KPI・MID・受注が全部0/—。原因：/api/calls/group-funnel の 案件化/KPI/MID/受注 は SFのOpportunity(クロス商談)StageName(01/02案件化/03KPI/04MID/受注処理完了) から stageOf を作って数える。psOwner(SFレポート担当)のSF未連携/トークン失効で sfQuery が例外→stageOfが空→全部0。実施はkinbot商談(listMeetings)由来なので独立(少しは出る)。＝先日の履歴消失と同じSF未接続。対応(cs)：group-funnelで sfステージ取得=(sfQuery成功) を持ち、応答に SF未接続=!sfステージ取得。calls.js loadListStats で d.SF未接続 のとき kc-sfwarn『Salesforceに接続できていないため案件化・KPIが出せません（データは消えていない・再連携を）』を先頭表示。※恒久対処は psOwner のSF再連携（設定→Salesforce連携）。node--check/smoke OK。
+
 - 2026-09-04 バグ（田中さん）：中村さん今月アポ2件なのに月次は1件（日次では両方見える）。原因：アポ計上の獲得者紐づけ companyToWinner が『会社→最初にアポ獲得した人』固定で、月次のように期間(span)を長く取ると wonCalls が増え、同じ会社の別の人（先勝ち）に化けて中村さんのアポが落ちる。加えて重複排除 数えた が 会社×商談日 のみで、別々のアポも同一視し得た。修正(cr)：(1)computeStatsGrid(実績/ダッシュボード)：companyToWinner を wonByCompanyDay(会社|取得日→獲得者)＋wonByCompany(会社→最初,フォールバック)に。計上先 em = wonByCompanyDay[会社|取得日] ‖ wonByCompany[会社] ‖ setterEmail。重複排除キーを 会社|商談日|計上先 に（人が違えば別々に数える）。(2)コール進捗(12157付近)も同様に wonByCompanyDay/wonByCompany で会社×取得日紐づけに（takenYを先に算出）。単一獲得者の会社は従来と同結果＝安全、複数獲得者の会社だけ取得日で正しく振り分け。dashboard/stats-grid 200・smoke OK。要：田中さんに月次で中村アポが2件になるか確認依頼。※点検 _apodiag は残置(cq)。
 
 - 2026-09-04 要望（田中さん）：コール進捗から田中綾さんを消す（コール担当でない管理者=SDG）。実装(cp)：設定skipInvitersを壊さず必ず外すため MANDATORY_SKIP=[中澤,浦林,森田,笹原,迫間,田中綾] を loadSkipInviters で設定値に合流（_skipInviters=Set(settings+MANDATORY)）→コール進捗(isSkippedPerson)から田中綾除外。ダッシュボード/実績は roleOf(8874)と apo-dashboard(9100)の _excludeNames/excludeNames に『田中綾』を必ず合流（DASH_EXCLUDE_NAMES envに関わらず）。判定は部分一致だがフルネーム『田中綾』なので田中欽也には当たらない（確認済み：田中綾=除外true/田中欽也=false）。node--check/smoke OK。※skipInviters設定UIは残置（そちらに田中綾を足してもよいが、コード側で恒久除外にした）。

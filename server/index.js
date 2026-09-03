@@ -9619,6 +9619,7 @@ app.get("/api/calls/group-funnel", async (req, res) => {
     const st = await getSettings().catch(() => ({}));
     const sfUser = String(st.psOwner || "").trim();
     const stageOf = new Map();
+    let sfステージ取得 = false;
     if (sfUser) {
       try {
         const d = await sfQuery(sfUser,
@@ -9631,6 +9632,7 @@ app.get("/api/calls/group-funnel", async (req, res) => {
           const cur = stageOf.get(k);
           if (!cur || rank(stage) > rank(cur)) stageOf.set(k, stage);
         }
+        sfステージ取得 = true;
       } catch (e) { console.warn("[group-funnel] SF:", e.message); }
     }
     const 実施キー = new Set();
@@ -9661,7 +9663,7 @@ app.get("/api/calls/group-funnel", async (req, res) => {
         KPI率: pct(kpi, 案件化), MID率: pct(mid, kpi), 受注率: pct(受注, 案件化),
       });
     }
-    res.json({ ok: true, from, to, items });
+    res.json({ ok: true, from, to, items, SF未接続: !sfステージ取得 });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
@@ -17442,7 +17444,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-04cr 月次でアポ件数が落ちる不具合を修正（例：今月2件が1件・要望：田中さん）。アポの獲得者への紐づけを『会社で最初の人固定』→『会社×取得日』に（期間を長く取ったとき別の人に化けるのを防止）。重複排除も会社×商談日×計上先に（人が違えば別々に数える）。実績(computeStatsGrid)・コール進捗の両方を修正。前回(cq)：中村アポ0の点検API強化。";
+const BUILD_TAG = "2026-09-04cs リスト別(プロセス)で案件化・KPI・MID・受注が全部0になる件：これらはSFのクロス商談ステージ(02案件化/03KPI/04MID)から数えるため、SF未接続だと出せない。group-funnel応答にSF未接続フラグを追加し、画面に『Salesforceに接続できていないため案件化・KPIが出せません（再連携を）』の注意を表示。前回(cr)：月次アポ件数の紐づけ修正。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",

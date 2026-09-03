@@ -2102,8 +2102,9 @@ async function loadListStats() {
     const d = await (await fetch(`/api/calls/group-funnel?${q}`)).json();
     if (d.error) throw new Error(d.error);
     const rg = $("stRange"); if (rg) rg.textContent = d.from && d.to ? `${d.from} 〜 ${d.to}` : "";
+    const sfwarn = d["SF未接続"] ? `<div class="kc-sfwarn">Salesforceに接続できていないため、案件化・KPI・MID・受注が出せません（SFのクロス商談ステージから数えます）。データが消えたわけではありません。設定 → Salesforce連携で再連携してください。</div>` : "";
     const items = d.items || [];
-    if (!items.length) { box.innerHTML = `<div class="note">グループがまだありません。リスト管理でグループを作り、各リストに割り当ててください。</div>`; return; }
+    if (!items.length) { box.innerHTML = sfwarn + `<div class="note">グループがまだありません。リスト管理でグループを作り、各リストに割り当ててください。</div>`; return; }
     const pct = (a, b) => (b ? (a / b * 100).toFixed(1) + "%" : "—");
     const card = (L) => {
       const step = (名, 数, 率) => `<div class="fn-step"><b>${数}</b><span>${esc(名)}</span><i>${esc(率 || "")}</i></div>`;
@@ -2130,7 +2131,7 @@ async function loadListStats() {
         <button class="pr-b" id="lfApply" type="button">この期間で見る</button>
         <button class="pr-b" id="lfClear" type="button">既定に戻す</button>
       </div>`;
-    box.innerHTML = 期間欄 + `<div class="kc-listgrid">${items.map(card).join("")}</div><div id="grpDetail"></div>`;
+    box.innerHTML = sfwarn + 期間欄 + `<div class="kc-listgrid">${items.map(card).join("")}</div><div id="grpDetail"></div>`;
     const ap = $("lfApply"); if (ap) ap.addEventListener("click", () => {
       const f = ($("lfFrom") || {}).value, t = ($("lfTo") || {}).value;
       if (!f || !t) { alert("開始日と終了日を入れてください"); return; }
