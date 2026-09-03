@@ -8937,6 +8937,7 @@ async function computeStatsGrid(periodIn, spanIn) {
       return emailOfName(a.current_owner) || "";
     };
     // 会社名 → 実獲得者（kincallでアポ獲得した人）。実獲得者に寄せるために使う。
+    const ymdJst = (v) => { if (!v) return ""; const d = new Date(v); if (isNaN(d.getTime())) return toYmd(v); const j = new Date(d.getTime() + 9 * 3600000); return `${j.getUTCFullYear()}-${pad(j.getUTCMonth() + 1)}-${pad(j.getUTCDate())}`; };
     const wonCalls = await apoWonCallsInRange(spanFrom, spanTo).catch(() => []);
     const wonByCompanyDay = new Map();   // 会社|取得日 -> 獲得者
     const wonByCompany = new Map();       // 会社 -> 獲得者（フォールバック・最初の人）
@@ -8948,7 +8949,6 @@ async function computeStatsGrid(periodIn, spanIn) {
       if (day) wonByCompanyDay.set(`${k}|${day}`, em);
       if (!wonByCompany.has(k)) wonByCompany.set(k, em);
     }
-    const ymdJst = (v) => { if (!v) return ""; const d = new Date(v); if (isNaN(d.getTime())) return toYmd(v); const j = new Date(d.getTime() + 9 * 3600000); return `${j.getUTCFullYear()}-${pad(j.getUTCMonth() + 1)}-${pad(j.getUTCDate())}`; };
     const 数えた = new Set();   // 同じ予定（会社×商談日×計上先）は1回だけ数える
     for (const a of apos) {
       if (!isApoCountableTitle(a.label)) continue;   // 【初回】【新/ヒ】のみ・メルマガ除外
@@ -17449,7 +17449,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-04cu リスト別(プロセス)の実施が少なすぎる件：アポは期間内でも商談(実施)は期間後に行われるため取りこぼしていた。実施の商談対象を『期間開始以降（上限なし）』に広げ、会社照合をタイトルとaccountの両方に。実施キー3か所を修正。前回(ct)：リスト別を田中欽也SFで数える。";
+const BUILD_TAG = "2026-09-04cv 実績が『Cannot access ymdJst before initialization』で読めない不具合を修正（crのアポ紐づけ変更で computeStatsGrid の wonByCompanyDay ループが ymdJst 定義前に使用していた＝TDZ）。ymdJst の定義をループ前に移動。実績/ダッシュボード/プロセス復旧。前回：実施の取りこぼし修正・田中欽也SFで数える。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
