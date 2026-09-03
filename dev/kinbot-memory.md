@@ -41,6 +41,8 @@ kincall（架電リスト）という別ツールも同じ画面群の中にあ�
 
 ## 決定・指示のログ（新しいものを上に足す）
 
+- 2026-09-04 要望（田中さん）：リスト別(プロセス)の案件化・KPIは田中欽也のSFアカウントで数える。実装(ct)：group-funnel の sfUser を LIST_SF_OWNER(env, 既定 kinya.tanaka@neo-career.co.jp) が sfConnected なら田中さん、切れていれば従来 psOwner にフォールバック。→田中さんのSF連携が生きていれば、psOwnerの連携状況に依らずリスト別の案件化・KPIが田中さんアカウントで取れる。※他画面(実績のセールスSFレポート等)は従来どおりpsOwner。要：田中さん本人のSF連携(設定→Salesforce連携)が繋がっていること。node--check/smoke OK。公開アセット変更なしで版更新不要。
+
 - 2026-09-04 報告（田中さん）：リスト別(プロセス)画面で案件化・KPI・MID・受注が全部0/—。原因：/api/calls/group-funnel の 案件化/KPI/MID/受注 は SFのOpportunity(クロス商談)StageName(01/02案件化/03KPI/04MID/受注処理完了) から stageOf を作って数える。psOwner(SFレポート担当)のSF未連携/トークン失効で sfQuery が例外→stageOfが空→全部0。実施はkinbot商談(listMeetings)由来なので独立(少しは出る)。＝先日の履歴消失と同じSF未接続。対応(cs)：group-funnelで sfステージ取得=(sfQuery成功) を持ち、応答に SF未接続=!sfステージ取得。calls.js loadListStats で d.SF未接続 のとき kc-sfwarn『Salesforceに接続できていないため案件化・KPIが出せません（データは消えていない・再連携を）』を先頭表示。※恒久対処は psOwner のSF再連携（設定→Salesforce連携）。node--check/smoke OK。
 
 - 2026-09-04 バグ（田中さん）：中村さん今月アポ2件なのに月次は1件（日次では両方見える）。原因：アポ計上の獲得者紐づけ companyToWinner が『会社→最初にアポ獲得した人』固定で、月次のように期間(span)を長く取ると wonCalls が増え、同じ会社の別の人（先勝ち）に化けて中村さんのアポが落ちる。加えて重複排除 数えた が 会社×商談日 のみで、別々のアポも同一視し得た。修正(cr)：(1)computeStatsGrid(実績/ダッシュボード)：companyToWinner を wonByCompanyDay(会社|取得日→獲得者)＋wonByCompany(会社→最初,フォールバック)に。計上先 em = wonByCompanyDay[会社|取得日] ‖ wonByCompany[会社] ‖ setterEmail。重複排除キーを 会社|商談日|計上先 に（人が違えば別々に数える）。(2)コール進捗(12157付近)も同様に wonByCompanyDay/wonByCompany で会社×取得日紐づけに（takenYを先に算出）。単一獲得者の会社は従来と同結果＝安全、複数獲得者の会社だけ取得日で正しく振り分け。dashboard/stats-grid 200・smoke OK。要：田中さんに月次で中村アポが2件になるか確認依頼。※点検 _apodiag は残置(cq)。

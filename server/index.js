@@ -9617,7 +9617,12 @@ app.get("/api/calls/group-funnel", async (req, res) => {
       keysByGroup.get(c.group_id).keys.add(k);
     }
     const st = await getSettings().catch(() => ({}));
-    const sfUser = String(st.psOwner || "").trim();
+    // リスト別（プロセス）の案件化・KPIは、田中欽也さんのSFアカウントで数える。
+    // 田中さんの連携が切れているときだけ、従来の担当（psOwner）にフォールバックする。
+    const TANAKA_SF = String(process.env.LIST_SF_OWNER || "kinya.tanaka@neo-career.co.jp").trim().toLowerCase();
+    const sfUser = (TANAKA_SF && (await sfConnected(TANAKA_SF).catch(() => false)))
+      ? TANAKA_SF
+      : String(st.psOwner || "").trim();
     const stageOf = new Map();
     let sfステージ取得 = false;
     if (sfUser) {
@@ -17444,7 +17449,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-04cs リスト別(プロセス)で案件化・KPI・MID・受注が全部0になる件：これらはSFのクロス商談ステージ(02案件化/03KPI/04MID)から数えるため、SF未接続だと出せない。group-funnel応答にSF未接続フラグを追加し、画面に『Salesforceに接続できていないため案件化・KPIが出せません（再連携を）』の注意を表示。前回(cr)：月次アポ件数の紐づけ修正。";
+const BUILD_TAG = "2026-09-04ct リスト別(プロセス)の案件化・KPI等を、田中欽也さんのSFアカウントで数えるように（要望：田中さん）。group-funnelのSF問い合わせ担当を LIST_SF_OWNER(既定 kinya.tanaka@neo-career.co.jp)に。田中さんの連携が切れているときのみ従来のpsOwnerにフォールバック。前回(cs)：リスト別のSF未接続を可視化。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
