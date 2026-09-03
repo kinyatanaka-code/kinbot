@@ -9557,8 +9557,8 @@ app.get("/api/calls/group-detail/:id", async (req, res) => {
     // 商談の記録（実施）
     const 実施キー = new Set();
     try {
-      const ms = await listMeetings({ isAdmin: true, from, to, limit: 2000, light: true }).catch(() => []);
-      for (const m of ms) { const k = normCompanyKey(companyFromTitle(m.title || "") || m.account || ""); if (k) 実施キー.add(k); }
+      const ms = await listMeetings({ isAdmin: true, from, limit: 4000, light: true }).catch(() => []);
+      for (const m of ms) { const k1 = normCompanyKey(companyFromTitle(m.title || "") || ""); const k2 = normCompanyKey(m.account || ""); if (k1) 実施キー.add(k1); if (k2) 実施キー.add(k2); }
     } catch {}
 
     const pct = (a, b) => (b ? (a / b * 100).toFixed(1) + "%" : "—");
@@ -9642,8 +9642,8 @@ app.get("/api/calls/group-funnel", async (req, res) => {
     }
     const 実施キー = new Set();
     try {
-      const ms = await listMeetings({ isAdmin: true, from, to, limit: 2000, light: true }).catch(() => []);
-      for (const m of ms) { const k = normCompanyKey(companyFromTitle(m.title || "") || m.account || ""); if (k) 実施キー.add(k); }
+      const ms = await listMeetings({ isAdmin: true, from, limit: 4000, light: true }).catch(() => []);
+      for (const m of ms) { const k1 = normCompanyKey(companyFromTitle(m.title || "") || ""); const k2 = normCompanyKey(m.account || ""); if (k1) 実施キー.add(k1); if (k2) 実施キー.add(k2); }
     } catch {}
     const pct = (a, b) => (b ? (a / b * 100).toFixed(1) + "%" : "—");
     const items = [];
@@ -9708,8 +9708,8 @@ app.get("/api/calls/list-funnel", async (req, res) => {
     // 商談の実施（記録あり）の会社キー
     const 実施キー = new Set();
     try {
-      const ms = await listMeetings({ isAdmin: true, from: base.from, to: base.to, limit: 2000, light: true }).catch(() => []);
-      for (const m of ms) { const k = normCompanyKey(companyFromTitle(m.title || "") || m.account || ""); if (k) 実施キー.add(k); }
+      const ms = await listMeetings({ isAdmin: true, from: base.from, limit: 4000, light: true }).catch(() => []);
+      for (const m of ms) { const k1 = normCompanyKey(companyFromTitle(m.title || "") || ""); const k2 = normCompanyKey(m.account || ""); if (k1) 実施キー.add(k1); if (k2) 実施キー.add(k2); }
     } catch {}
 
     const items = (base.items || []).map((L) => {
@@ -17449,7 +17449,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-04ct リスト別(プロセス)の案件化・KPI等を、田中欽也さんのSFアカウントで数えるように（要望：田中さん）。group-funnelのSF問い合わせ担当を LIST_SF_OWNER(既定 kinya.tanaka@neo-career.co.jp)に。田中さんの連携が切れているときのみ従来のpsOwnerにフォールバック。前回(cs)：リスト別のSF未接続を可視化。";
+const BUILD_TAG = "2026-09-04cu リスト別(プロセス)の実施が少なすぎる件：アポは期間内でも商談(実施)は期間後に行われるため取りこぼしていた。実施の商談対象を『期間開始以降（上限なし）』に広げ、会社照合をタイトルとaccountの両方に。実施キー3か所を修正。前回(ct)：リスト別を田中欽也SFで数える。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",

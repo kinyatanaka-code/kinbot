@@ -41,6 +41,8 @@ kincall（架電リスト）という別ツールも同じ画面群の中にあ�
 
 ## 決定・指示のログ（新しいものを上に足す）
 
+- 2026-09-04 バグ（田中さん）：リスト別(プロセス)の実施が1件など少なすぎる。原因：実施はkinbot商談(listMeetings)の会社を、その期間のアポ会社(keysByGroup)と正規化会社名で突き合わせて数えるが、listMeetingsを {from,to}＝アポと同じ期間に絞っていたため、アポは9月でも商談(実施)が期間後(10月等)に行われた分を取りこぼしていた。加えて会社照合が companyFromTitle(title)||account の一方のみ。修正(cu)：実施キーを {from, 上限なし(to削除), limit4000} に広げ（アポ後の商談も拾う）、会社キーを title由来(k1)とaccount由来(k2)の両方addに。3か所（group-funnel/リスト別/グループ内内訳 base.from版含む）を統一修正。group-funnel 200/smoke OK。※実施はSFではなくkinbot商談＝SF未接続とは無関係。まだ合わなければ会社名の表記ゆれ(法人格以外の差)を要調査（実施diagを足す案）。
+
 - 2026-09-04 要望（田中さん）：リスト別(プロセス)の案件化・KPIは田中欽也のSFアカウントで数える。実装(ct)：group-funnel の sfUser を LIST_SF_OWNER(env, 既定 kinya.tanaka@neo-career.co.jp) が sfConnected なら田中さん、切れていれば従来 psOwner にフォールバック。→田中さんのSF連携が生きていれば、psOwnerの連携状況に依らずリスト別の案件化・KPIが田中さんアカウントで取れる。※他画面(実績のセールスSFレポート等)は従来どおりpsOwner。要：田中さん本人のSF連携(設定→Salesforce連携)が繋がっていること。node--check/smoke OK。公開アセット変更なしで版更新不要。
 
 - 2026-09-04 報告（田中さん）：リスト別(プロセス)画面で案件化・KPI・MID・受注が全部0/—。原因：/api/calls/group-funnel の 案件化/KPI/MID/受注 は SFのOpportunity(クロス商談)StageName(01/02案件化/03KPI/04MID/受注処理完了) から stageOf を作って数える。psOwner(SFレポート担当)のSF未連携/トークン失効で sfQuery が例外→stageOfが空→全部0。実施はkinbot商談(listMeetings)由来なので独立(少しは出る)。＝先日の履歴消失と同じSF未接続。対応(cs)：group-funnelで sfステージ取得=(sfQuery成功) を持ち、応答に SF未接続=!sfステージ取得。calls.js loadListStats で d.SF未接続 のとき kc-sfwarn『Salesforceに接続できていないため案件化・KPIが出せません（データは消えていない・再連携を）』を先頭表示。※恒久対処は psOwner のSF再連携（設定→Salesforce連携）。node--check/smoke OK。
