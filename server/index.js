@@ -17412,7 +17412,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-04cn かける一覧の履歴(SF活動件数)が全リストで『なし』になる件：SFに接続できていないと件数が数えられず全部0になる仕組みのため、応答にSF未接続フラグを追加し、一覧上部に『Salesforceに接続できていないため履歴が表示できません（履歴は消えていない・再連携してください）』の注意を表示。前回(cm)：ダッシュボードを元に戻す。";
+const BUILD_TAG = "2026-09-04co SF連携の『retry your request / unknown_error』一時エラーを自動リトライ（要望：田中さん・連携失敗）。トークン発行POSTを共通化(postSfToken)し、一時エラー(5xx/retry your request/unknown_error/server_error等)は0.8s→2s→3.2sで最大3〜4回やり直す。初回連携(exchangeCode)・更新(refresh)の両方に適用。前回(cn)：SF未接続の可視化。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",

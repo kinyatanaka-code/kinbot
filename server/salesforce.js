@@ -55,7 +55,29 @@ export function authUrl(redirectUri, state, codeChallenge) {
   return `${LOGIN_URL}/services/oauth2/authorize?${p}`;
 }
 
-export async function exchangeCode(code, redirectUri, owner, codeVerifier) {
+// Salesforceのトークン発行POST。「retry your request」等の一時エラーは、少し待って数回やり直す。
+// Salesforce公式もこのエラーは再試行を推奨している（unknown_error / server_error 等）。
+async function postSfToken(form, { tries = 4 } = {}) {
+  let last = null;
+  for (let i = 0; i < tries; i++) {
+    const res = await fetch(`${LOGIN_URL}/services/oauth2/token`, {
+      method: "POST",
+      headers: { "content-type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams(form),
+    });
+    if (res.ok) return { ok: true, data: await res.json() };
+    const body = (await res.text()).slice(0, 300);
+    last = { status: res.status, body };
+    // 一時的なエラーだけ再試行（retry your request / unknown_error / server_error / 500系）
+    const transient = res.status >= 500 || /retry your request|unknown_error|server_error|temporarily|try again/i.test(body);
+    if (!transient) break;
+    await new Promise((r) => setTimeout(r, 800 + i * 1200));   // 0.8s,2s,3.2s…
+  }
+  return { ok: false, ...last };
+}
+
+export function exchangeCode(code, redirectUri, owner, codeVerifier) { return _exchangeCode(code, redirectUri, owner, codeVerifier); }
+async function _exchangeCode(code, redirectUri, owner, codeVerifier) {
   const form = {
     grant_type: "authorization_code",
     code,
@@ -64,17 +86,12 @@ export async function exchangeCode(code, redirectUri, owner, codeVerifier) {
     redirect_uri: redirectUri,
   };
   if (codeVerifier) form.code_verifier = codeVerifier;
-  const res = await fetch(`${LOGIN_URL}/services/oauth2/token`, {
-    method: "POST",
-    headers: { "content-type": "application/x-www-form-urlencoded" },
-    body: new URLSearchParams(form),
-  });
-  if (!res.ok) {
-    const body = (await res.text()).slice(0, 200);
-    await logSfDiag("exchangeCode(初回連携)", body);
-    throw new Error(`SF token ${res.status}: ${body}`);
+  const r = await postSfToken(form, { tries: 4 });
+  if (!r.ok) {
+    await logSfDiag("exchangeCode(初回連携)", r.body || "");
+    throw new Error(`SF token ${r.status}: ${r.body}`);
   }
-  const data = await res.json();
+  const data = r.data;
   await saveSalesforceToken(owner, {
     refreshToken: data.refresh_token || null,
     instanceUrl: data.instance_url || null,
@@ -158,25 +175,20 @@ async function refreshAccess(owner) {
     e.sfReauth = true;
     throw e;
   }
-  const res = await fetch(`${LOGIN_URL}/services/oauth2/token`, {
-    method: "POST",
-    headers: { "content-type": "application/x-www-form-urlencoded" },
-    body: new URLSearchParams({
-      grant_type: "refresh_token",
-      client_id: CLIENT_ID,
-      client_secret: CLIENT_SECRET,
-      refresh_token: row.refresh_token,
-    }),
-  });
-  if (!res.ok) {
+  const r = await postSfToken({
+    grant_type: "refresh_token",
+    client_id: CLIENT_ID,
+    client_secret: CLIENT_SECRET,
+    refresh_token: row.refresh_token,
+  }, { tries: 3 });
+  if (!r.ok) {
     _sfTokenCache.delete(owner);
-    const errText = (await res.text()).slice(0, 200);
-    await logSfDiag("refresh(トークン更新)", errText);
-    const err = new Error(`SF refresh ${res.status}: ${errText}`);
+    await logSfDiag("refresh(トークン更新)", r.body || "");
+    const err = new Error(`SF refresh ${r.status}: ${r.body}`);
     err.sfReauth = true; // フロントで再認証UIを出すためのフラグ
     throw err;
   }
-  const data = await res.json();
+  const data = r.data;
   const instanceUrl = data.instance_url || row.instance_url;
   // リフレッシュトークンのローテーション対応：更新時に新しい refresh_token が返ってきたら保存する。
   // これをしないと、ローテーション設定の組織では古いトークンが無効化され、次回更新で失敗して再ログインになる。
