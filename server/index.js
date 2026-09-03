@@ -8316,17 +8316,10 @@ app.get("/api/calls/slot-suggest", async (req, res) => {
         slots.push({ startISO, 空き人数: 空き.length, 空いている人: 空き });
       }
     }
-    // 並び：まず「3人以上空き」を優先、その中では直近を上に（同じ日時なら人数が多い方）。
-    // 3人以上が無ければ、残り（2人以下）を直近順で。
-    const 目安 = Math.min(3, members.length);
-    slots.sort((a, b) => {
-      const ga = a.空き人数 >= 目安 ? 1 : 0, gb = b.空き人数 >= 目安 ? 1 : 0;
-      if (ga !== gb) return gb - ga;                                   // 3人以上のグループを上に
-      const dt = new Date(a.startISO) - new Date(b.startISO);         // その中で直近
-      if (dt !== 0) return dt;
-      return b.空き人数 - a.空き人数;                                  // 同じ日時なら人数が多い方
-    });
-    const 候補 = slots.filter((s) => s.空き人数 > 0).slice(0, 6).map((s) => {
+    // 並び：翌営業日以降を直近順（早い枠＝午前も含めて上）。同じ日時なら空いている人数が多い方を上に。
+    // 1人でも空いていれば候補に出す。
+    slots.sort((a, b) => (new Date(a.startISO) - new Date(b.startISO)) || (b.空き人数 - a.空き人数));
+    const 候補 = slots.filter((s) => s.空き人数 > 0).slice(0, 10).map((s) => {
       const j = new Date(new Date(s.startISO).getTime() + 9 * 3600000);
       return {
         startISO: s.startISO,
@@ -17518,7 +17511,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-04da 日程候補パネルが暗く見える件を修正（要望：田中さん）。モーダルの暗幕(.kc-modal-back z-index9200)より後ろにいて沈んでいたので、パネルのz-indexを9300に上げ暗幕より前面に・不透明の白・影を強めて記録モーダルと同じ明るさに。前回(cz)：翌営業日以降3人空き優先。";
+const BUILD_TAG = "2026-09-04db 日程候補：1人でも空いていれば出す＋午前も出るように（要望：田中さん）。3人以上優先の並びをやめ、翌営業日以降を直近順(同時刻は人数多い順)に。候補6→10件。前回(da)：候補パネルを明るく。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
