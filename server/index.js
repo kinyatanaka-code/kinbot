@@ -8316,9 +8316,16 @@ app.get("/api/calls/slot-suggest", async (req, res) => {
         slots.push({ startISO, 空き人数: 空き.length, 空いている人: 空き });
       }
     }
-    // 並び：翌営業日以降を直近順（早い枠＝午前も含めて上）。同じ日時なら空いている人数が多い方を上に。
-    // 1人でも空いていれば候補に出す。
-    slots.sort((a, b) => (new Date(a.startISO) - new Date(b.startISO)) || (b.空き人数 - a.空き人数));
+    // 並び：直近を基本にしつつ、空いている人数が多い枠を少し前に出す（ゆるい重み付け）。
+    // スコア = 近さ(日数が近いほど小) − 人数ボーナス。人数1人につき約0.35日ぶん前に出す＝
+    // 「1〜2日先でも人数が1〜2人多い枠」は上がるが、何日も先の枠が人数だけで上に来ることはない。
+    const 開始0 = now.getTime();
+    const score = (s) => {
+      const 日先 = (new Date(s.startISO).getTime() - 開始0) / 86400000;   // 何日先か
+      const 時 = new Date(s.startISO).getUTCHours();                        // 午前を少しだけ優遇（同点対策）
+      return 日先 - s.空き人数 * 0.35 + 時 * 0.001;
+    };
+    slots.sort((a, b) => (score(a) - score(b)) || (b.空き人数 - a.空き人数) || (new Date(a.startISO) - new Date(b.startISO)));
     const 候補 = slots.filter((s) => s.空き人数 > 0).slice(0, 10).map((s) => {
       const j = new Date(new Date(s.startISO).getTime() + 9 * 3600000);
       return {
@@ -17511,7 +17518,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-04db 日程候補：1人でも空いていれば出す＋午前も出るように（要望：田中さん）。3人以上優先の並びをやめ、翌営業日以降を直近順(同時刻は人数多い順)に。候補6→10件。前回(da)：候補パネルを明るく。";
+const BUILD_TAG = "2026-09-04dc 日程候補：人数の多い枠を少し優先しつつ午前も出す（要望：田中さん）。スコア=何日先 − 空き人数*0.35 + 時*0.001 で昇順（近くて人数多い枠が上・遠い枠は人数だけでは上げない・午前を微優遇）。1人空きも候補、翌営業日以降・10件。前回(db)：1人空きでも出す。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
