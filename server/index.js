@@ -17427,7 +17427,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-04cp 田中綾さんをコール進捗・ダッシュボード・実績の集計/通知から除外（要望：田中さん）。設定skipInvitersに関わらず必ず外すMANDATORY_SKIPに田中綾を追加、DASH_EXCLUDE_NAMESにも必ず田中綾を合流。フルネーム一致なので田中欽也には当たらない。前回(co)：SF連携の一時エラーを自動リトライ。";
+const BUILD_TAG = "2026-09-04cq 中村宗太郎のアポ0の切り分け強化：点検API _apodiag に、対象のkincallアポ獲得数と、その会社にカレンダーの初回商談予定があるかを追加。アポ計上はカレンダー初回商談を獲得者/setterに紐づける仕組みなので、カレンダー予定が無い/計上先が別人/名前ズレ を判別できる。前回(cp)：田中綾を除外。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
