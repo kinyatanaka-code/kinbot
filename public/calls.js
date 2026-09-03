@@ -923,6 +923,18 @@ function renderDock() {
     .kc-reason-chips{display:flex;flex-wrap:wrap;gap:6px;}
     .kc-reason-chip{border:1px solid #cfe0d9;background:#fff;color:#1f2a26;border-radius:999px;padding:5px 12px;font-size:12px;cursor:pointer;transition:all .12s;}
     .kc-reason-chip:hover{background:#eef7f2;border-color:#5DCAA5;}
+    .kc-slotpanel{position:fixed;top:80px;right:24px;width:280px;max-height:78vh;overflow:auto;background:#fff;border:1px solid #e6ece9;border-radius:14px;box-shadow:0 10px 30px rgba(13,91,71,.14);z-index:1200;padding:14px;}
+    .kc-slot-h{font-weight:700;color:#0d5b47;font-size:14px;margin-bottom:10px;}
+    .kc-slot-sub{font-weight:400;color:#8a938c;font-size:11px;}
+    .kc-slot-tgt{font-size:11px;color:#6b7a74;margin-bottom:8px;}
+    .kc-slot-item{display:block;width:100%;text-align:left;border:1px solid #e6ece9;background:#fff;border-radius:10px;padding:9px 11px;margin-bottom:8px;cursor:pointer;transition:all .12s;}
+    .kc-slot-item:hover{border-color:#5DCAA5;background:#f4faf7;}
+    .kc-slot-item.best{border-color:#1d9e75;background:#eef7f2;}
+    .kc-slot-item.picked{border-color:#0d5b47;box-shadow:0 0 0 2px #5DCAA5 inset;}
+    .kc-slot-when{font-weight:600;color:#1f2a26;font-size:13px;}
+    .kc-slot-badge{background:#1d9e75;color:#fff;font-size:10px;font-weight:700;padding:1px 6px;border-radius:8px;margin-left:4px;}
+    .kc-slot-free{font-size:11px;color:#5b7a6d;margin-top:3px;}
+    @media (max-width:900px){ .kc-slotpanel{position:static;width:auto;max-height:none;margin:10px 0;box-shadow:none;} }
     .kc-sum-user{color:#0d5b47;}
     .kc-sum-lost{color:#8a9691;}
     .kc-summary{display:flex;align-items:center;gap:10px;padding:8px 4px;font-size:13px;color:#0d5b47;}
@@ -1184,6 +1196,7 @@ async function openTarget(id, draft, opt) {
   drawReason();
 
   wireQuickNext(m);
+  openSlotPanel(m);
 
   m.el.querySelector("#kcSave").addEventListener("click", async () => {
     const 結果 = picked();
@@ -1287,6 +1300,41 @@ function updateRowContact(x) {
   setTimeout(() => tr.classList.remove("kc-just"), 1600);
 }
 
+// 記録モーダルの右に、クローザーの空き枠の候補を出すパネル
+function openSlotPanel(m) {
+  document.querySelectorAll(".kc-slotpanel").forEach((el) => el.remove());
+  const panel = document.createElement("div");
+  panel.className = "kc-slotpanel";
+  panel.innerHTML = `<div class="kc-slot-h">おすすめの日程<br><span class="kc-slot-sub">クローザーの空き（直近2週間・1時間枠）</span></div><div class="kc-slot-body"><div class="note">空きを調べています…</div></div>`;
+  document.body.appendChild(panel);
+  const body = panel.querySelector(".kc-slot-body");
+  // モーダルが閉じたらパネルも消す
+  const obs = new MutationObserver(() => { if (!document.body.contains(m.el)) { panel.remove(); obs.disconnect(); } });
+  obs.observe(document.body, { childList: true, subtree: true });
+
+  (async () => {
+    try {
+      const d = await (await fetch("/api/calls/slot-suggest")).json();
+      if (!d.ok) throw new Error(d.error || "取得できませんでした");
+      const cs = d.候補 || [];
+      if (!cs.length) { body.innerHTML = `<div class="note">${esc(d.reason || "空いている枠が見つかりませんでした")}</div>`; return; }
+      body.innerHTML =
+        `<div class="kc-slot-tgt">対象：${esc((d.対象 || []).join("・"))}</div>` +
+        cs.map((c, i) => `
+          <button type="button" class="kc-slot-item${i === 0 ? " best" : ""}" data-date="${esc(c.date)}" data-time="${esc(c.time)}">
+            <div class="kc-slot-when">${esc(c.md)}（${esc(c.曜日)}） ${esc(c.time)}${i === 0 ? ' <span class="kc-slot-badge">おすすめ</span>' : ""}</div>
+            <div class="kc-slot-free">${c.空き人数}/${c.対象人数}人 空き${c.空いている人 && c.空いている人.length ? "：" + esc(c.空いている人.join("・")) : ""}</div>
+          </button>`).join("");
+      body.querySelectorAll(".kc-slot-item").forEach((b) => b.addEventListener("click", () => {
+        const dt = m.el.querySelector("#kcNext"); const tm = m.el.querySelector("#kcNextTime");
+        if (dt) { dt.value = b.dataset.date; dt.dispatchEvent(new Event("change", { bubbles: true })); }
+        if (tm) { tm.value = b.dataset.time; tm.dispatchEvent(new Event("change", { bubbles: true })); }
+        body.querySelectorAll(".kc-slot-item").forEach((x) => x.classList.remove("picked"));
+        b.classList.add("picked");
+      }));
+    } catch (e) { body.innerHTML = `<div class="note">空きを取得できませんでした：${esc(e.message)}</div>`; }
+  })();
+}
 // 「次回いつかける？」のクイック入力（今日・明日・週明け・来月＋時間ボタン）を動かす
 function quickNextDate(kind) {
   const d = new Date(Date.now() + 9 * 3600 * 1000);   // 日本時間の「今」

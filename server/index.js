@@ -488,7 +488,7 @@ import {
   gmailDeleteDraft,
   parseEmailAddr, driveEnsureFolder, driveUploadFromUrl, driveShareDomain, driveStream, driveFindCompanyFiles, driveShareAnyone, driveEnsurePath, driveMoveFile, driveListChildren, driveTrash,
   appendSheetRow, checkSheet, readSheet, updateSheetCells, diagnoseSheet,
-  writeViaAppsScript, tokenScopes, getCalendarEvent } from "./google.js";
+  writeViaAppsScript, tokenScopes, getCalendarEvent, freeBusy, isSlotFree } from "./google.js";
 import { startScheduler } from "./scheduler.js";
 import { muxConfigured, startVodUpload, waitVodPlayback, muxStorageSummary, listAssets, deleteAsset, findAssetByPlaybackId, enableMp4, mp4Url, readyMp4Name, getAsset } from "./mux.js";
 import { liveConfigured, createLiveStream, disableLiveStream, playbackUrl as livePlaybackUrl, liveInfo, liveStatus, cfCustomerCodeCheck, cleanupOldLiveInputs, relayMap, relayDestFor } from "./live.js";
@@ -8270,6 +8270,64 @@ app.post("/api/calls/chat", async (req, res) => {
     const reply = await chatWithData({ messages: trimmed, material: material.slice(0, 24000), web: !!b.web });
     res.json({ ok: true, reply, 件数: logs.length });
   } catch (e) { console.error("[calls/chat]", e.message); res.status(502).json({ error: e.message }); }
+});
+
+// 記録モーダル用：これから2週間で、クローザー（田中欽也除く）が空いている枠を提案する。
+// 1枠1時間・平日10-18時・空いている人数が多い順→直近順で最大6件。
+app.get("/api/calls/slot-suggest", async (req, res) => {
+  try {
+    const closers = await listClosers({ activeOnly: true }).catch(() => []);
+    const isTanaka = (x) => /田中欽也/.test(String(x.name || "")) || /kinya\.tanaka/i.test(String(x.email || ""));
+    const members = closers
+      .filter((x) => x.email && !isTanaka(x) && !/田中綾/.test(String(x.name || "")))
+      .map((x) => ({ email: String(x.email).toLowerCase(), name: x.name || x.email }));
+    if (!members.length) return res.json({ ok: true, 候補: [], reason: "対象のクローザーがいません" });
+    const emails = members.map((m) => m.email);
+
+    // 空きを問い合わせる人（Google連携済み）。自分→対象メンバー→設定の順に試す。
+    const st = await getSettings().catch(() => ({}));
+    const candOwners = [String(req.user || "").toLowerCase(), ...emails, String(st.calendarOwner || "").toLowerCase()].filter(Boolean);
+    const now = new Date();
+    const timeMin = now.toISOString();
+    const timeMax = new Date(now.getTime() + 14 * 86400000).toISOString();
+    let fb = null, usedOwner = "";
+    for (const o of [...new Set(candOwners)]) {
+      try { fb = await freeBusy(o, emails, timeMin, timeMax); usedOwner = o; break; } catch (e) { /* 次の人で試す */ }
+    }
+    if (!fb) return res.json({ ok: true, 候補: [], reason: "カレンダーの空きを取得できませんでした（Google連携をご確認ください）" });
+
+    // 平日10-18時の1時間枠を作る（日本時間）。今より後だけ。
+    const slots = [];
+    const startHour = 10, endHour = 18;
+    for (let d = 0; d < 14; d++) {
+      const base = new Date(now.getTime() + d * 86400000);
+      const j = new Date(base.getTime() + 9 * 3600000);
+      const wd = j.getUTCDay(); if (wd === 0 || wd === 6) continue;   // 土日除く
+      const y = j.getUTCFullYear(), mo = j.getUTCMonth(), da = j.getUTCDate();
+      for (let h = startHour; h < endHour; h++) {
+        const startISO = new Date(Date.UTC(y, mo, da, h - 9, 0, 0)).toISOString();
+        const endISO = new Date(Date.UTC(y, mo, da, h - 9 + 1, 0, 0)).toISOString();
+        if (new Date(startISO).getTime() <= now.getTime()) continue;   // 過去/直近すぎは除く
+        const 空き = [];
+        for (const m of members) { const r = isSlotFree(fb, m.email, startISO, endISO, 0); if (r && r.free) 空き.push(m.name); }
+        slots.push({ startISO, 空き人数: 空き.length, 空いている人: 空き });
+      }
+    }
+    // 空いている人数が多い順 → 直近順
+    slots.sort((a, b) => (b.空き人数 - a.空き人数) || (new Date(a.startISO) - new Date(b.startISO)));
+    const 候補 = slots.filter((s) => s.空き人数 > 0).slice(0, 6).map((s) => {
+      const j = new Date(new Date(s.startISO).getTime() + 9 * 3600000);
+      return {
+        startISO: s.startISO,
+        date: `${j.getUTCFullYear()}-${String(j.getUTCMonth() + 1).padStart(2, "0")}-${String(j.getUTCDate()).padStart(2, "0")}`,
+        time: `${String(j.getUTCHours()).padStart(2, "0")}:${String(j.getUTCMinutes()).padStart(2, "0")}`,
+        md: `${j.getUTCMonth() + 1}/${j.getUTCDate()}`,
+        曜日: ["日", "月", "火", "水", "木", "金", "土"][j.getUTCDay()],
+        空き人数: s.空き人数, 対象人数: members.length, 空いている人: s.空いている人,
+      };
+    });
+    res.json({ ok: true, 候補, 対象: members.map((m) => m.name) });
+  } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 // 記録する（Salesforceの活動履歴と、リードの状態も更新する）
@@ -17449,7 +17507,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-04cv 実績が『Cannot access ymdJst before initialization』で読めない不具合を修正（crのアポ紐づけ変更で computeStatsGrid の wonByCompanyDay ループが ymdJst 定義前に使用していた＝TDZ）。ymdJst の定義をループ前に移動。実績/ダッシュボード/プロセス復旧。前回：実施の取りこぼし修正・田中欽也SFで数える。";
+const BUILD_TAG = "2026-09-04cw 記録モーダルの右にクローザーの空き日程を提案するパネルを追加（要望：田中さん）。GET /api/calls/slot-suggest＝クローザー(田中欽也除く)のGoogleカレンダーfreeBusyで、直近2週間・平日10-18時・1時間枠を、空いている人数が多い順→直近順で最大6件。候補を押すと次回日時(#kcNext/#kcNextTime)に入る。前回(cv)：ymdJst初期化前アクセス修正。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
