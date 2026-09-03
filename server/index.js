@@ -8313,8 +8313,8 @@ app.get("/api/calls/slot-suggest", async (req, res) => {
         slots.push({ startISO, 空き人数: 空き.length, 空いている人: 空き });
       }
     }
-    // 空いている人数が多い順 → 直近順
-    slots.sort((a, b) => (b.空き人数 - a.空き人数) || (new Date(a.startISO) - new Date(b.startISO)));
+    // 直近順（早い枠を優先）。同じ日時なら空いている人数が多い方を上に。
+    slots.sort((a, b) => (new Date(a.startISO) - new Date(b.startISO)) || (b.空き人数 - a.空き人数));
     const 候補 = slots.filter((s) => s.空き人数 > 0).slice(0, 6).map((s) => {
       const j = new Date(new Date(s.startISO).getTime() + 9 * 3600000);
       return {
@@ -17507,7 +17507,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-04cx 日程候補パネルの文字を濃く見やすく（要望：田中さん・薄くて見づらい）。日時を濃色太字、空き人数・対象・サブ文言のグレーを濃く、枠線・おすすめ背景も強調。前回(cw)：日程候補パネル追加。";
+const BUILD_TAG = "2026-09-04cy 日程候補のおすすめを『空き人数が多い順』→『直近の日程優先』に変更（要望：田中さん）。slot-suggestの並びを startISO昇順(直近)→同時刻なら空き人数desc に。一番上(最も近い枠)がおすすめ。前回(cx)：候補パネルの文字を濃く。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
