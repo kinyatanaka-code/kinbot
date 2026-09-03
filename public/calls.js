@@ -936,6 +936,22 @@ function renderDock() {
     .kc-slot-free{font-size:12px;color:#2c3a35;margin-top:5px;}
     .kc-slot-wk{font-size:11px;font-weight:700;color:#0d5b47;background:#eef7f2;border-radius:6px;padding:3px 8px;margin:4px 0 8px;display:inline-block;}
     .kc-slot-ampm{font-size:11px;font-weight:700;color:#1d9e75;}
+    /* 獲得インセンティブ（表彰状ふうの金色） */
+    .kc-inc{margin:6px 0 8px;padding:8px 10px;border-radius:10px;text-align:center;
+      background:linear-gradient(135deg,#fdf6e3 0%,#f7e7b6 45%,#fdf6e3 100%);
+      border:1.5px solid #e0c469;box-shadow:inset 0 0 0 1px #fffdf6;}
+    .kc-inc-lb{font-size:10px;font-weight:700;color:#8a6d1f;letter-spacing:.04em;}
+    .kc-inc-rank{margin-left:5px;font-size:10px;color:#7a5c10;}
+    .kc-inc-yen{font-size:20px;font-weight:800;color:#7a5c10;line-height:1.25;text-shadow:0 1px 0 #fffdf6;}
+    .kc-inc-sub{font-size:10px;color:#8a7a4a;}
+    .kc-inc.rank1{background:linear-gradient(135deg,#fff8dc 0%,#f0cf6b 45%,#fff8dc 100%);border-color:#d4af37;}
+    .kc-inc.rank2{background:linear-gradient(135deg,#fafafa 0%,#dfe3e6 45%,#fafafa 100%);border-color:#b9c0c6;}
+    .kc-inc.rank2 .kc-inc-yen,.kc-inc.rank2 .kc-inc-lb{color:#5d666d;}
+    .kc-inc.rank3{background:linear-gradient(135deg,#fdf0e6 0%,#e8c19a 45%,#fdf0e6 100%);border-color:#c68642;}
+    .kc-inc.rank3 .kc-inc-yen,.kc-inc.rank3 .kc-inc-lb{color:#7d4f22;}
+    .kc-dcard.rank1{border-color:#d4af37;box-shadow:0 6px 18px -8px rgba(212,175,55,.7);}
+    .kc-dcard.rank2{border-color:#b9c0c6;}
+    .kc-dcard.rank3{border-color:#c68642;}
     @media (max-width:900px){ .kc-slotpanel{position:static;width:auto;max-height:none;margin:10px 0;box-shadow:none;} }
     .kc-sum-user{color:#0d5b47;}
     .kc-sum-lost{color:#8a9691;}
@@ -1597,8 +1613,18 @@ function dashCard(c, big) {
   const goalCell = editable
     ? `<input type="number" class="kc-goal kc-dgoal" data-subj="${esc(c.key)}" value="${c.goal}" min="0" />`
     : `<div class="kc-d-act">${c.goal}</div>`;
-  return `<div class="kc-dcard${big ? " kc-dcard-big" : ""}" data-subj="${esc(c.key)}" data-label="${esc(c.label)}">
+  // インサイド（インターン生）：獲得インセンティブを表彰状ふうに上に出す
+  const rankCls = c.順位 === 1 ? " rank1" : c.順位 === 2 ? " rank2" : c.順位 === 3 ? " rank3" : "";
+  const medal = c.順位 === 1 ? "🥇" : c.順位 === 2 ? "🥈" : c.順位 === 3 ? "🥉" : "";
+  const inc = (c.インセンティブ !== undefined)
+    ? `<div class="kc-inc${rankCls}">
+         <div class="kc-inc-lb">獲得インセンティブ${c.順位 ? `<span class="kc-inc-rank">${medal} ${c.順位}位</span>` : ""}</div>
+         <div class="kc-inc-yen">¥${Number(c.インセンティブ || 0).toLocaleString()}</div>
+         <div class="kc-inc-sub">実施 ${c.実施 || 0}件 × ¥1,000</div>
+       </div>` : "";
+  return `<div class="kc-dcard${big ? " kc-dcard-big" : ""}${rankCls}" data-subj="${esc(c.key)}" data-label="${esc(c.label)}">
     <div class="kc-dname">${esc(c.label)}</div>
+    ${inc}
     <div class="kc-drow">
       <div class="kc-dcol"><div class="kc-dlb">目標</div>${goalCell}</div>
       <div class="kc-dcol"><div class="kc-dlb">実績</div><div class="kc-d-act">${c.actual}</div></div>

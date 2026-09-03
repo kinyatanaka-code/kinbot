@@ -9231,6 +9231,31 @@ app.get("/api/calls/apo-dashboard", async (req, res) => {
       team("sales", "セールス", salesP),
       team("inside", "インサイド", insideP),
     ];
+
+    // インサイド（インターン生）のインセンティブ：9月からの3か月（9〜11月）の「実施」数 × 1,000円。
+    // 実施＝アポが商談として実施された数。商談の apo_setter（アポ獲得者）で人ごとに数える。
+    try {
+      const incFrom = String(process.env.INCENTIVE_FROM || "2026-09-01").slice(0, 10);
+      const f = new Date(`${incFrom}T00:00:00Z`);
+      const incTo = new Date(Date.UTC(f.getUTCFullYear(), f.getUTCMonth() + 3, 0)).toISOString().slice(0, 10);   // 3か月後の末日
+      const ms = await listMeetings({ isAdmin: true, from: incFrom, to: incTo, limit: 5000, light: true }).catch(() => []);
+      const 実施数 = new Map();   // 正規化名 -> 件数
+      const norm = (s) => String(s || "").replace(/[\s　]/g, "");
+      for (const m of ms) {
+        const setter = norm(m.apo_setter || "");
+        if (!setter) continue;
+        実施数.set(setter, (実施数.get(setter) || 0) + 1);
+      }
+      for (const p of insideP) {
+        const n = 実施数.get(norm(p.label)) || 0;
+        p.実施 = n;
+        p.インセンティブ = n * 1000;
+      }
+      // インセンティブの上位3人に順位を付ける（同額は同順位にしない・多い順）
+      [...insideP].sort((a, b) => (b.インセンティブ || 0) - (a.インセンティブ || 0))
+        .forEach((p, i) => { if (i < 3 && (p.インセンティブ || 0) > 0) p.順位 = i + 1; });
+    } catch (e) { console.warn("[apo-dashboard] インセンティブ計算", e.message); }
+
     res.json({
       ok: true, period, periodKey: g.今 || "",
       periodLabel: bucket ? bucket.名前 : "",
@@ -17537,7 +17562,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-04dd 日程候補を『週ごとに3日×午前・午後』に（要望：田中さん）。1週目・2週目それぞれから空きの良い3日（最大空き人数→直近）を選び、各日の午前(10-12時台)・午後(13-17時台)で一番空いている枠を1つずつ提示（最大12件）。パネルに1週目/2週目の見出しと午前/午後を表示。翌営業日以降・1人空きも対象。前回(dc)：人数を少し優先しつつ午前も出す。";
+const BUILD_TAG = "2026-09-04de ダッシュボードのインサイド（インターン生）カードに獲得インセンティブを表彰状ふう金色で表示（要望：田中さん）。金額＝9月からの3か月（既定2026-09-01〜11月末）の実施数×¥1,000。実施は商談のapo_setter（アポ獲得者）で人ごとに集計。上位3人は金・銀・銅で強調（メダルと順位）。下段の目標/実績/差分は従来どおり。前回(dd)：日程候補を週×3日×午前午後に。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",

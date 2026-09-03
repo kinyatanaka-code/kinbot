@@ -10,7 +10,7 @@
     <link rel="manifest" href="/site.webmanifest" />
     <meta name="theme-color" content="#0d5b47" />
     <meta name="apple-mobile-web-app-title" content="kinbot" />
-    <link rel="stylesheet" href="style.css?v=20260904dd" />
+    <link rel="stylesheet" href="style.css?v=20260904de" />
   </head>
   <body class="kc-body">
     <div class="app">
@@ -74,6 +74,8 @@
               .kc-dteams{margin-bottom:14px;}
               .kc-dcard{flex:0 0 168px;width:168px;box-sizing:border-box;background:#fff;border:0.5px solid #e6ece9;border-radius:12px;padding:10px 12px;cursor:pointer;transition:border-color .12s,transform .1s;}
               .kc-dcard:hover{border-color:#5DCAA5;transform:translateY(-1px);}
+              /* インセンティブ表示のあるカード（インサイド）は少し広めに */
+              .kc-dcard:has(.kc-inc){flex-basis:196px;width:196px;}
               .kc-dcard-big{flex:0 0 224px;width:224px;}
               .kc-dname{font-size:13px;font-weight:600;color:#0d5b47;margin-bottom:8px;}
               .kc-drow{display:flex;gap:10px;}
@@ -286,9 +288,9 @@
         </main>
       </div>
     </div>
-    <script src="sf-data.js?v=20260904dd"></script>
-    <script src="calls.js?v=20260904dd"></script>
-    <script src="nav.js?v=20260904dd"></script>
+    <script src="sf-data.js?v=20260904de"></script>
+    <script src="calls.js?v=20260904de"></script>
+    <script src="nav.js?v=20260904de"></script>
     <script src="/cmdk.js?v=20260827a"></script>
 </body>
 </html>
