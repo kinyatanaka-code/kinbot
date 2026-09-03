@@ -934,6 +934,8 @@ function renderDock() {
     .kc-slot-when{font-weight:700;color:#12241d;font-size:15px;}
     .kc-slot-badge{background:#1d9e75;color:#fff;font-size:10px;font-weight:700;padding:1px 6px;border-radius:8px;margin-left:4px;}
     .kc-slot-free{font-size:12px;color:#2c3a35;margin-top:5px;}
+    .kc-slot-wk{font-size:11px;font-weight:700;color:#0d5b47;background:#eef7f2;border-radius:6px;padding:3px 8px;margin:4px 0 8px;display:inline-block;}
+    .kc-slot-ampm{font-size:11px;font-weight:700;color:#1d9e75;}
     @media (max-width:900px){ .kc-slotpanel{position:static;width:auto;max-height:none;margin:10px 0;box-shadow:none;} }
     .kc-sum-user{color:#0d5b47;}
     .kc-sum-lost{color:#8a9691;}
@@ -1318,13 +1320,18 @@ function openSlotPanel(m) {
       if (!d.ok) throw new Error(d.error || "取得できませんでした");
       const cs = d.候補 || [];
       if (!cs.length) { body.innerHTML = `<div class="note">${esc(d.reason || "空いている枠が見つかりませんでした")}</div>`; return; }
-      body.innerHTML =
-        `<div class="kc-slot-tgt">対象：${esc((d.対象 || []).join("・"))}</div>` +
-        cs.map((c, i) => `
-          <button type="button" class="kc-slot-item${i === 0 ? " best" : ""}" data-date="${esc(c.date)}" data-time="${esc(c.time)}">
-            <div class="kc-slot-when">${esc(c.md)}（${esc(c.曜日)}） ${esc(c.time)}${i === 0 ? ' <span class="kc-slot-badge">おすすめ</span>' : ""}</div>
+      let html = `<div class="kc-slot-tgt">対象：${esc((d.対象 || []).join("・"))}</div>`;
+      let 前週 = 0, best = true;
+      for (const c of cs) {
+        if (c.週 !== 前週) { html += `<div class="kc-slot-wk">${c.週 === 1 ? "1週目" : "2週目"}</div>`; 前週 = c.週; }
+        html += `
+          <button type="button" class="kc-slot-item${best ? " best" : ""}" data-date="${esc(c.date)}" data-time="${esc(c.time)}">
+            <div class="kc-slot-when">${esc(c.md)}（${esc(c.曜日)}） <span class="kc-slot-ampm">${esc(c.帯 || "")}</span> ${esc(c.time)}${best ? ' <span class="kc-slot-badge">おすすめ</span>' : ""}</div>
             <div class="kc-slot-free">${c.空き人数}/${c.対象人数}人 空き${c.空いている人 && c.空いている人.length ? "：" + esc(c.空いている人.join("・")) : ""}</div>
-          </button>`).join("");
+          </button>`;
+        best = false;
+      }
+      body.innerHTML = html;
       body.querySelectorAll(".kc-slot-item").forEach((b) => b.addEventListener("click", () => {
         const dt = m.el.querySelector("#kcNext"); const tm = m.el.querySelector("#kcNextTime");
         if (dt) { dt.value = b.dataset.date; dt.dispatchEvent(new Event("change", { bubbles: true })); }

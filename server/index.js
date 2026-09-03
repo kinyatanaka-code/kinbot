@@ -8297,10 +8297,11 @@ app.get("/api/calls/slot-suggest", async (req, res) => {
     if (!fb) return res.json({ ok: true, 候補: [], reason: "カレンダーの空きを取得できませんでした（Google連携をご確認ください）" });
 
     // 平日10-18時の1時間枠を作る（日本時間）。翌営業日以降だけ（今日は出さない）。
-    const slots = [];
+    // 1週目・2週目それぞれから、空きの良い日を3日ずつ選び、各日の「午前の代表枠」「午後の代表枠」を出す。
     const startHour = 10, endHour = 18;
     const nowJ = new Date(now.getTime() + 9 * 3600000);
     const todayKey = `${nowJ.getUTCFullYear()}-${nowJ.getUTCMonth()}-${nowJ.getUTCDate()}`;
+    const byDay = new Map();   // dayKey -> { week, slots:[{startISO,hour,空き人数,空いている人}] }
     for (let d = 0; d < 14; d++) {
       const base = new Date(now.getTime() + d * 86400000);
       const j = new Date(base.getTime() + 9 * 3600000);
@@ -8308,32 +8309,50 @@ app.get("/api/calls/slot-suggest", async (req, res) => {
       const dayKey = `${j.getUTCFullYear()}-${j.getUTCMonth()}-${j.getUTCDate()}`;
       if (dayKey === todayKey) continue;                              // 今日は出さない（翌営業日以降）
       const y = j.getUTCFullYear(), mo = j.getUTCMonth(), da = j.getUTCDate();
+      const week = d < 7 ? 1 : 2;                                     // 1週目 / 2週目
+      const daySlots = [];
       for (let h = startHour; h < endHour; h++) {
         const startISO = new Date(Date.UTC(y, mo, da, h - 9, 0, 0)).toISOString();
         const endISO = new Date(Date.UTC(y, mo, da, h - 9 + 1, 0, 0)).toISOString();
         const 空き = [];
         for (const m of members) { const r = isSlotFree(fb, m.email, startISO, endISO, 0); if (r && r.free) 空き.push(m.name); }
-        slots.push({ startISO, 空き人数: 空き.length, 空いている人: 空き });
+        daySlots.push({ startISO, hour: h, 空き人数: 空き.length, 空いている人: 空き });
       }
+      byDay.set(dayKey, { week, ymd: [y, mo, da], daySlots });
     }
-    // 並び：直近を基本にしつつ、空いている人数が多い枠を少し前に出す（ゆるい重み付け）。
-    // スコア = 近さ(日数が近いほど小) − 人数ボーナス。人数1人につき約0.35日ぶん前に出す＝
-    // 「1〜2日先でも人数が1〜2人多い枠」は上がるが、何日も先の枠が人数だけで上に来ることはない。
-    const 開始0 = now.getTime();
-    const score = (s) => {
-      const 日先 = (new Date(s.startISO).getTime() - 開始0) / 86400000;   // 何日先か
-      const 時 = new Date(s.startISO).getUTCHours();                        // 午前を少しだけ優遇（同点対策）
-      return 日先 - s.空き人数 * 0.35 + 時 * 0.001;
-    };
-    slots.sort((a, b) => (score(a) - score(b)) || (b.空き人数 - a.空き人数) || (new Date(a.startISO) - new Date(b.startISO)));
-    const 候補 = slots.filter((s) => s.空き人数 > 0).slice(0, 10).map((s) => {
+    // 各日の空きの良さ＝その日の枠の最大空き人数（同点は直近）。週ごとに上位3日を選ぶ。
+    const 日配列 = [...byDay.entries()].map(([k, v]) => {
+      const 最大 = v.daySlots.reduce((mx, s) => Math.max(mx, s.空き人数), 0);
+      return { k, week: v.week, 最大, ymd: v.ymd, daySlots: v.daySlots, firstISO: v.daySlots[0] && v.daySlots[0].startISO };
+    }).filter((x) => x.最大 > 0);
+    const pickWeek = (w) => 日配列.filter((x) => x.week === w)
+      .sort((a, b) => (b.最大 - a.最大) || (new Date(a.firstISO) - new Date(b.firstISO)))
+      .slice(0, 3)
+      .sort((a, b) => new Date(a.firstISO) - new Date(b.firstISO));   // 表示は日付順
+    const 選ばれた日 = [...pickWeek(1), ...pickWeek(2)];
+    // 各日について、午前(10-12時台)と午後(13-17時台)の「一番空いている枠（同点は早い方）」を代表に。
+    const bestIn = (arr, cond) => arr.filter((s) => cond(s.hour) && s.空き人数 > 0)
+      .sort((a, b) => (b.空き人数 - a.空き人数) || (a.hour - b.hour))[0] || null;
+    const slots = [];
+    for (const day of 選ばれた日) {
+      const am = bestIn(day.daySlots, (h) => h < 12);
+      const pm = bestIn(day.daySlots, (h) => h >= 13);
+      if (am) slots.push(am);
+      if (pm) slots.push(pm);
+    }
+    // 表示は日付・時間の順（週→日→午前午後）
+    slots.sort((a, b) => new Date(a.startISO) - new Date(b.startISO));
+    const 候補 = slots.filter((s) => s.空き人数 > 0).slice(0, 12).map((s) => {
       const j = new Date(new Date(s.startISO).getTime() + 9 * 3600000);
+      const 週 = (new Date(s.startISO).getTime() - now.getTime()) < 7 * 86400000 ? 1 : 2;
       return {
         startISO: s.startISO,
         date: `${j.getUTCFullYear()}-${String(j.getUTCMonth() + 1).padStart(2, "0")}-${String(j.getUTCDate()).padStart(2, "0")}`,
         time: `${String(j.getUTCHours()).padStart(2, "0")}:${String(j.getUTCMinutes()).padStart(2, "0")}`,
         md: `${j.getUTCMonth() + 1}/${j.getUTCDate()}`,
         曜日: ["日", "月", "火", "水", "木", "金", "土"][j.getUTCDay()],
+        帯: j.getUTCHours() < 12 ? "午前" : "午後",
+        週: 週,
         空き人数: s.空き人数, 対象人数: members.length, 空いている人: s.空いている人,
       };
     });
@@ -17518,7 +17537,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-04dc 日程候補：人数の多い枠を少し優先しつつ午前も出す（要望：田中さん）。スコア=何日先 − 空き人数*0.35 + 時*0.001 で昇順（近くて人数多い枠が上・遠い枠は人数だけでは上げない・午前を微優遇）。1人空きも候補、翌営業日以降・10件。前回(db)：1人空きでも出す。";
+const BUILD_TAG = "2026-09-04dd 日程候補を『週ごとに3日×午前・午後』に（要望：田中さん）。1週目・2週目それぞれから空きの良い3日（最大空き人数→直近）を選び、各日の午前(10-12時台)・午後(13-17時台)で一番空いている枠を1つずつ提示（最大12件）。パネルに1週目/2週目の見出しと午前/午後を表示。翌営業日以降・1人空きも対象。前回(dc)：人数を少し優先しつつ午前も出す。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
