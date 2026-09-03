@@ -8871,7 +8871,7 @@ async function computeStatsGrid(periodIn, spanIn) {
     const internSet = new Set((internsList || []).map((x) => String(x.email || "").toLowerCase()).filter(Boolean));
     // ダッシュボードと同じ扱い：田中欽也はセールス、中澤/浦林/森田/笹原/迫間は集計から外す。
     const _salesNames = String(process.env.DASH_SALES_NAMES || "田中欽也").split(",").map((x) => x.trim()).filter(Boolean);
-    const _excludeNames = String(process.env.DASH_EXCLUDE_NAMES || "中澤,浦林,森田,笹原,迫間").split(",").map((x) => x.trim()).filter(Boolean);
+    const _excludeNames = [...new Set([...String(process.env.DASH_EXCLUDE_NAMES || "中澤,浦林,森田,笹原,迫間").split(",").map((x) => x.trim()).filter(Boolean), "田中綾"])];
     const _nameHas = (name, toks) => toks.some((t) => String(name || "").includes(t));
     const roleOf = (mm) => {
       const nm = mm.name || mm.email || "";
@@ -9097,7 +9097,7 @@ app.get("/api/calls/apo-dashboard", async (req, res) => {
     const mg = await getApoGoalsByKeys("month", [monthKey]);
     const goalOf = (key) => Number((((mg[key] || {})[monthKey] || {})["アポ"]) || 0);
     const salesNames = String(process.env.DASH_SALES_NAMES || "田中欽也").split(",").map((s) => s.trim()).filter(Boolean);
-    const excludeNames = String(process.env.DASH_EXCLUDE_NAMES || "中澤,浦林,森田,笹原,迫間").split(",").map((s) => s.trim()).filter(Boolean);
+    const excludeNames = [...new Set([...String(process.env.DASH_EXCLUDE_NAMES || "中澤,浦林,森田,笹原,迫間").split(",").map((s) => s.trim()).filter(Boolean), "田中綾"])];
     const nameHas = (name, toks) => toks.some((t) => String(name || "").includes(t));
     const apoArr = (arr) => (arr && arr[i]) ? (Number(arr[i].アポ内 || 0) + Number(arr[i].アポ外 || 0)) : 0;
     // 個別（除外・田中付替え）
@@ -17412,7 +17412,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-04co SF連携の『retry your request / unknown_error』一時エラーを自動リトライ（要望：田中さん・連携失敗）。トークン発行POSTを共通化(postSfToken)し、一時エラー(5xx/retry your request/unknown_error/server_error等)は0.8s→2s→3.2sで最大3〜4回やり直す。初回連携(exchangeCode)・更新(refresh)の両方に適用。前回(cn)：SF未接続の可視化。";
+const BUILD_TAG = "2026-09-04cp 田中綾さんをコール進捗・ダッシュボード・実績の集計/通知から除外（要望：田中さん）。設定skipInvitersに関わらず必ず外すMANDATORY_SKIPに田中綾を追加、DASH_EXCLUDE_NAMESにも必ず田中綾を合流。フルネーム一致なので田中欽也には当たらない。前回(co)：SF連携の一時エラーを自動リトライ。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
@@ -19974,10 +19974,13 @@ const NAME_ROMAJI = {
 const SKIP_INVITERS_DEFAULT = "中澤,浦林";
 let _skipInviters = null;
 
+// 設定に関わらず、必ず集計・通知から外す人（コール担当でない管理者など）。
+const MANDATORY_SKIP = ["中澤", "浦林", "森田", "笹原", "迫間", "田中綾"];
 async function loadSkipInviters() {
   const st = await getSettings().catch(() => ({}));
   const raw = st.skipInviters === undefined ? SKIP_INVITERS_DEFAULT : String(st.skipInviters);
-  _skipInviters = raw.split(/[,、\n]/).map((x) => x.trim()).filter(Boolean);
+  const fromSettings = raw.split(/[,、\n]/).map((x) => x.trim()).filter(Boolean);
+  _skipInviters = [...new Set([...fromSettings, ...MANDATORY_SKIP])];
   return _skipInviters;
 }
 
