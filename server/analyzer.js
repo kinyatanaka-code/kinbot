@@ -184,14 +184,33 @@ export async function analyzeMeeting({ transcript, repName, dateStr, speakers })
   if (dateStr) ctx.push(`日時: ${dateStr}`);
   if (speakers && speakers.length) ctx.push(`参加者（話者名）: ${speakers.join("、")}`);
   ctx.push(`自社の営業担当: ${repName || "（未指定）"}`);
-  const know = await knowledgeBlock(String(transcript || "").slice(-3000));
+  const 全文 = String(transcript || "");
+  // 長い商談は、そのまま渡すと出力が上限で切れてしまう。
+  // 先に前半・後半…に分けて「話の要点」を作り、それをもとに最終の要約を作る。
+  let 素材 = 全文;
+  const 上限 = 24000;
+  if (全文.length > 上限) {
+    const 塊 = [];
+    for (let i = 0; i < 全文.length; i += 12000) 塊.push(全文.slice(i, i + 12000));
+    const 要点 = [];
+    for (let i = 0; i < 塊.length && i < 6; i++) {
+      const t = await callLLM(
+        "あなたは商談の記録係です。渡された部分の内容を、後で要約に使えるように、話の流れが分かる箇条書きでまとめてください。JSONではなく文章で返してください。省略しすぎないこと。",
+        `商談の文字起こし（${i + 1}/${Math.min(塊.length, 6)}）:\n"""\n${塊[i]}\n"""`,
+        1200, { json: false }
+      ).catch(() => "");
+      if (t) 要点.push(`【${i + 1}つ目】\n${t}`);
+    }
+    if (要点.length) 素材 = 要点.join("\n\n") + `\n\n（※長い商談のため、上のまとめをもとに要約してください）`;
+  }
+  const know = await knowledgeBlock(素材.slice(-3000));
   const user =
     ctx.join("\n") +
     know +
     summaryInstructionBlock(await getSummaryPrompt()) +
-    `\n\n商談の文字起こし:\n"""\n${transcript}\n"""\n\n` +
+    `\n\n商談の文字起こし:\n"""\n${素材}\n"""\n\n` +
     `この商談を、指定テンプレートの要約と営業フィードバックとして JSON で返してください。話された情報だけを使ってください。改善提案は自社ナレッジを踏まえて。`;
-  const text = await callLLM(REVIEW_PROMPT, user, 2400);
+  const text = await callLLM(REVIEW_PROMPT, user, 4000);
   const o = parseJson(text);
   return { summary: o.summary || {}, feedback: o.feedback || {} };
 }
@@ -980,7 +999,14 @@ async function groqModelSetting() {
 }
 export function clearGroqModelCache() { _groqModelCache = { at: 0, val: "" }; }
 export async function resolveGroqModel(explicit) {
-  return String(explicit || "").trim() || (await groqModelSetting()) || process.env.GROQ_MODEL || "llama-3.3-70b-versatile";
+  const 選択 = String(explicit || "").trim() || (await groqModelSetting()) || process.env.GROQ_MODEL || "llama-3.3-70b-versatile";
+  // whisper系は文字起こし専用なので、要約・分析には使えない（選ばれていても別のモデルにする）
+  if (/whisper|orpheus|prompt-guard|tts/i.test(選択)) {
+    console.warn(`[groq] ${選択} は文章づくりに使えないので、別のモデルを使います`);
+    return process.env.GROQ_MODEL && !/whisper|orpheus|prompt-guard|tts/i.test(process.env.GROQ_MODEL)
+      ? process.env.GROQ_MODEL : "llama-3.3-70b-versatile";
+  }
+  return 選択;
 }
 
 // 他のモジュールからも同じ設定でAIを呼べるようにする（かささぎ等）

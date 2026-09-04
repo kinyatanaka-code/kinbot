@@ -41,6 +41,8 @@ kincall（架電リスト）という別ツールも同じ画面群の中にあ�
 
 ## 決定・指示のログ（新しいものを上に足す）
 
+- 2026-09-04 バグ（田中さん）：26分商談の要約で『gemini: 応答が出力上限で途中で切れました(MAX_TOKENS) / フォールバック(groq): Groq 400 whisper-large-v3-turbo does not support chat completions』→設定変更後は『json_validate_failed』。原因：(1)analyzeMeeting が長い文字起こしをそのまま渡し maxTokens 2400 で切れる (2)設定のgroqModelに文字起こし専用の whisper-large-v3-turbo が選ばれており、フォールバックのchat completionsで400、その後もJSON生成が不安定。修正(ek)：(1)analyzeMeeting＝全文が24000字超なら12000字ずつに分割し各塊を callLLM(json:false, 1200) で『話の要点』に要約（最大6塊）→その要点を素材に最終要約、最終の maxTokens を 2400→4000 に。knowledgeBlock も素材ベース。(2)resolveGroqModel で /whisper|orpheus|prompt-guard|tts/ のモデルが選ばれていたら警告ログを出して llama-3.3-70b-versatile（or 環境変数の妥当なモデル）にすり替え＝文章生成に使わない。判定を単体確認。node--check/smoke OK。※Groq設定は openai/gpt-oss-20b 等に変えるのが望ましい旨を田中さんに案内。
+
 - 2026-09-04 バグ（田中さん）：『文字起こしを作る』が 404 This model models/gemini-2.0-flash is no longer available（gemini-3.6-flashを使えとの案内）。原因：ebで transcribeAudio の既定モデルを gemini-2.0-flash にしていたが提供終了。他機能は gemini-2.5-flash 系を使用。修正(ej)：transcribeAudio の既定を model||GEMINI_TRANSCRIBE_MODEL||GEMINI_READ_MODEL||'gemini-2.5-flash' に。さらに候補配列[使うモデル, gemini-2.5-flash, gemini-flash-latest]で順に試し、404 or /not found|no longer available|not supported/ の場合のみ次を試すフォールバックを実装（それ以外のエラーは即中断）。重複していた旧エラー処理を削除。※将来モデルが変わっても自動で追随、必要なら env GEMINI_TRANSCRIBE_MODEL で明示指定可。node--check/smoke OK。
 
 - 2026-09-04 要望（田中さん）：後から文字起こしできるように。実装(ei)：history.js の商談ヘッダーに #transcribeBtn『文字起こしを作る』を追加（.dactions先頭、要約・FB生成の前）。文字起こしが既にある商談では hidden。クリックで POST /api/meetings/{botId}/transcribe（eg で追加済み：getMediaForTranscript→transcribeAudio→saveMeeting）を呼び、『作っています…（数分かかります）』→成功で『できました（N件）』表示後 reload、失敗は alert で理由表示。※録画のみで取り込んだ商談（imported_at）に対して使う想定。Deepgram復旧後の新規商談は自動で文字起こしされる。node--check/smoke OK。
