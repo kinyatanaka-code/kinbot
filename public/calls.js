@@ -943,6 +943,8 @@ function renderDock() {
     .kc-inc-lb{font-size:9.5px;font-weight:700;color:#8a6d1f;letter-spacing:.02em;line-height:1.3;}
     .kc-inc-rank{margin-left:5px;font-size:10px;color:#7a5c10;}
     .kc-inc-yen{font-size:20px;font-weight:800;color:#7a5c10;line-height:1.25;text-shadow:0 1px 0 #fffdf6;}
+    .kc-inc-laurel{font-size:14px;opacity:.85;vertical-align:middle;margin:0 3px;display:inline-block;}
+    .kc-inc-laurel.flip{transform:scaleX(-1);}
     .kc-inc-sub{font-size:10px;color:#8a7a4a;}
     .kc-inc.rank1{background:linear-gradient(135deg,#fff8dc 0%,#f0cf6b 45%,#fff8dc 100%);border-color:#d4af37;}
     .kc-inc.rank2{background:linear-gradient(135deg,#fafafa 0%,#dfe3e6 45%,#fafafa 100%);border-color:#b9c0c6;}
@@ -1615,11 +1617,13 @@ function dashCard(c, big) {
     : `<div class="kc-d-act">${c.goal}</div>`;
   // インサイド（インターン生）：獲得見込みインセンティブを表彰状ふうに上に出す
   const rankCls = c.順位 === 1 ? " rank1" : c.順位 === 2 ? " rank2" : c.順位 === 3 ? " rank3" : "";
-  const medal = c.順位 === 1 ? "🥇" : c.順位 === 2 ? "🥈" : c.順位 === 3 ? "🥉" : "";
+  const 冠 = c.順位 ? `<span class="kc-inc-laurel">🌿</span>` : "";
+  const 冠右 = c.順位 ? `<span class="kc-inc-laurel flip">🌿</span>` : "";
+  const 順位表記 = c.順位 ? `${c.順位}位${c.タイ ? "タイ" : ""}` : "";
   const inc = (c.インセンティブ !== undefined)
     ? `<div class="kc-inc${rankCls}">
-         <div class="kc-inc-lb">獲得見込みインセンティブ${c.順位 ? `<span class="kc-inc-rank">${medal} ${c.順位}位</span>` : ""}</div>
-         <div class="kc-inc-yen">¥${Number(c.インセンティブ || 0).toLocaleString()}</div>
+         <div class="kc-inc-lb">獲得見込みインセンティブ${c.順位 ? `<span class="kc-inc-rank">${esc(順位表記)}</span>` : ""}</div>
+         <div class="kc-inc-yen">${冠}¥${Number(c.インセンティブ || 0).toLocaleString()}${冠右}</div>
          <div class="kc-inc-sub">実施 ${c.実施 || 0}件 × ¥1,000</div>
        </div>` : "";
   return `<div class="kc-dcard${big ? " kc-dcard-big" : ""}${rankCls}" data-subj="${esc(c.key)}" data-label="${esc(c.label)}">
