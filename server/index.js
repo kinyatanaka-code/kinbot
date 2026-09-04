@@ -8611,6 +8611,7 @@ async function importFromRecall(req, res) {
         });
         await saveMeeting(botId, { transcript: tr });
         const 確認 = await getMeeting(botId).catch(() => null);
+        console.log(`[取り込み] ${確認 ? "OK" : "NG"} ${title}（${方法}・${tr.length}件）`);
         結果.push({
           botId, 状態: 確認 ? "取り込みました" : "保存できませんでした",
           商談名: title, 開始: started, 文字起こし: tr.length + "件", 方法, 担当: owner,
@@ -17889,7 +17890,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-04ed 実データで確認：audio_mixedはnull、video_mixedにS3のdownload_urlがある形だったため、動画から文字起こしを作る経路で復旧できることを確認。動画は重いので1回2件ずつ（ボタンは自動で繰り返し）に調整、処理サイズをログに出すようにした。前回(ec)：動画フォールバックとGeminiアップロード対応。";
+const BUILD_TAG = "2026-09-04ee 録音の取り込みの進み具合を分かりやすく（要望：田中さん）。ボタンの下に一覧を出し、1件ずつ『商談名・成功/失敗・作成方法（動画からAIで作成など）・文字起こし件数』を表示、上部に『完了◯件／できなかったもの◯件』を随時更新。サーバログにも1件ごとの結果を出力。前回(ed)：動画からの文字起こし経路の確認。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",

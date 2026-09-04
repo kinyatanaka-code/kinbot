@@ -952,6 +952,16 @@ function renderDock() {
     .kc-reason-wrap:hover .kc-reason-x{display:block;}
     .kc-reason-add{border:1px dashed #cfe0d9;background:#fff;color:#0d5b47;border-radius:999px;padding:5px 12px;font-size:12px;cursor:pointer;font-weight:600;}
     .kc-reason-add:hover{background:#eef7f2;border-color:#5DCAA5;}
+    .kc-imp-log{margin:-8px 0 16px;border:1px solid #e6ece9;border-radius:10px;overflow:hidden;}
+    .kc-imp-head{background:#eef7f2;color:#0d5b47;font-weight:700;font-size:12px;padding:8px 12px;}
+    .kc-imp-list{max-height:220px;overflow:auto;background:#fff;}
+    .kc-imp-row{display:flex;gap:8px;align-items:baseline;padding:6px 12px;border-top:1px solid #f0f4f2;font-size:12px;}
+    .kc-imp-mark{width:14px;font-weight:800;}
+    .kc-imp-row.ok .kc-imp-mark{color:#1d9e75;}
+    .kc-imp-row.ng .kc-imp-mark{color:#a32d2d;}
+    .kc-imp-row.skip .kc-imp-mark{color:#a6afaa;}
+    .kc-imp-name{font-weight:600;color:#1f2a26;flex:0 0 auto;max-width:40%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+    .kc-imp-st{color:#5b7a6d;}
     .kc-slotpanel{position:fixed;top:80px;right:24px;width:280px;max-height:78vh;overflow:auto;background:#ffffff;opacity:1;border:1px solid #d5e3dd;border-radius:14px;box-shadow:0 18px 48px rgba(20,40,30,.28);z-index:9300;padding:16px;}
     .kc-slot-h{font-weight:700;color:#0d5b47;font-size:15px;margin-bottom:10px;}
     .kc-slot-sub{font-weight:500;color:#5b7a6d;font-size:11px;}
@@ -2172,23 +2182,45 @@ async function loadAdmin() {
     const ib = $("kcImportRec");
     if (ib) ib.addEventListener("click", async () => {
       ib.disabled = true;
-      let 合計 = 0, 失敗 = [];
+      const st = $("kcImportSt");
+      const box = document.createElement("div");
+      box.className = "kc-imp-log";
+      box.innerHTML = `<div class="kc-imp-head">取り込みを始めます…</div><div class="kc-imp-list"></div>`;
+      ib.closest("div").after(box);
+      const head = box.querySelector(".kc-imp-head");
+      const list = box.querySelector(".kc-imp-list");
+      let 成功 = 0, 失敗 = 0, 済 = 0;
+      const 追記 = (r) => {
+        const ok = /取り込みました/.test(r.状態);
+        const skip = /取り込み済み/.test(r.状態);
+        if (ok) 成功++; else if (skip) 済++; else 失敗++;
+        const li = document.createElement("div");
+        li.className = "kc-imp-row " + (ok ? "ok" : skip ? "skip" : "ng");
+        li.innerHTML = `<span class="kc-imp-mark">${ok ? "✓" : skip ? "－" : "×"}</span>` +
+          `<span class="kc-imp-name">${esc(r.商談名 || r.botId || "")}</span>` +
+          `<span class="kc-imp-st">${esc(r.状態 || "")}${r.方法 ? `（${esc(r.方法)}）` : ""}${r.文字起こし ? `・${esc(r.文字起こし)}` : ""}</span>`;
+        list.appendChild(li);
+        list.scrollTop = list.scrollHeight;
+      };
       try {
-        for (let round = 0; round < 15; round++) {   // 2件ずつ、最大30件まで
-          say("kcImportSt", `取り込んでいます…（${合計}件おわり／音声から文字起こしを作るため時間がかかります）`, 600000);
+        for (let round = 0; round < 15; round++) {
+          head.textContent = `取り込み中… 完了 ${成功}件／できなかったもの ${失敗}件（動画から文字起こしを作るため1件あたり数分かかります）`;
           const d = await (await fetch("/api/meetings/import-from-recall", {
             method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ hours: 48, max: 2 }),
           })).json();
           if (d.error) throw new Error(d.error);
           const rs = d.結果 || [];
-          const ok = rs.filter((r) => /取り込みました/.test(r.状態)).length;
-          合計 += ok;
-          失敗 = rs.filter((r) => !/取り込みました|取り込み済み/.test(r.状態));
-          if (!rs.length || ok === 0) break;   // もう取り込むものが無い
+          rs.forEach(追記);
+          if (!rs.length) { head.textContent = `取り込むものはありませんでした（完了 ${成功}件）`; break; }
+          if (!rs.some((r) => /取り込みました/.test(r.状態))) { head.textContent = `終わりました：完了 ${成功}件／できなかったもの ${失敗}件`; break; }
+          if (round === 14) head.textContent = `いったんここまで：完了 ${成功}件（続きはもう一度押してください）`;
         }
-        say("kcImportSt", `${合計}件を取り込みました${失敗.length ? `（できなかったもの ${失敗.length}件：${esc(失敗[0].状態 || "")}）` : ""}`, 20000);
-      } catch (e) { say("kcImportSt", "できませんでした：" + e.message, 12000); }
-      finally { ib.disabled = false; }
+        if (!/終わり|ここまで|ありませんでした/.test(head.textContent)) head.textContent = `終わりました：完了 ${成功}件／できなかったもの ${失敗}件`;
+        if (st) say("kcImportSt", `完了 ${成功}件${失敗 ? `／できなかったもの ${失敗}件` : ""}`, 20000);
+      } catch (e) {
+        head.textContent = "できませんでした：" + e.message;
+        if (st) say("kcImportSt", "できませんでした：" + e.message, 12000);
+      } finally { ib.disabled = false; }
     });
 
     // --- アポ獲得者の照合 ---
