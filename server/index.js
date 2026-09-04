@@ -3232,6 +3232,32 @@ app.post("/api/apo/:slug/reschedule", async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+// 【点検用】指定した日時で、いま誰に割り振られるか・誰がなぜ飛ばされるかを試す（実際には割り振らない）。
+// 例：/api/apo/_pickdiag?start=2026-09-10T14:00&business=DOC
+app.get("/api/apo/_pickdiag", async (req, res) => {
+  try {
+    const s = String(req.query.start || "");
+    const startISO = s ? new Date(/Z$/.test(s) ? s : `${s}:00+09:00`).toISOString() : new Date(Date.now() + 86400000).toISOString();
+    if (isNaN(new Date(startISO).getTime())) return res.status(400).json({ error: "startが正しくありません（例 2026-09-10T14:00）" });
+    const business = String(req.query.business || "");
+    const inviteOwner = String(req.query.owner || req.user || "").toLowerCase();
+    const fake = { slug: "_diag", label: "【初回】点検", start_time: startISO, business };
+    const pick = await pickCloser(fake, { inviteOwner, business });
+    const status = await rotationStatus(business).catch(() => ({}));
+    res.json({
+      ok: true, 日時: startISO, 事業: business || "(指定なし)",
+      選ばれる人: pick.email || "(なし)", 理由: pick.why || pick.reason || "",
+      飛ばされた人: pick.skipped || [],
+      候補の状況: (status.closers || []).map((c) => ({
+        名前: c.name, email: c.email, チーム: c.team, 予備: !!c.fallback, 停止中: !!c.suspended,
+        停止理由: c.suspend_reason || "", 期間内の割り振り: c.period_count, 稼働日数: c.eligible_days,
+        一日あたり: c.per_day, 上限: c.daily_cap || null, 有効: c.active !== false,
+      })),
+      設定: { チーム均等化: (status.config || {}).teamBalance, 当日均等化: (status.config || {}).dayBalance },
+    });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 // 処理済みの印を外して、もう一度やり直す（メール・SF立ち上げ・通知）
 app.post("/api/apo/:slug/redo", async (req, res) => {
   try {
@@ -17634,7 +17660,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-04dk アポ一覧で商談の日時を変更できるように（要望：田中さん）。POST /api/apo/:slug/reschedule ＝ smart_links.start_time を更新し、カレンダーの予定も同じ日時へ動かす（patchCalendarEvent）。通知は『日程を変更しました（変更前→変更後）』のみ担当者へ（届かなければチームへ）。リマインドは前日判定なので変更後の日時で自動的に送られる。アポカードに『日程変更』ボタン。前回(dj)：ヘッダーに今日の架電結果。";
+const BUILD_TAG = "2026-09-04dl アポの日程変更を使いやすく（要望：田中さん）。promptをやめ、日付・時刻ピッカー＋時刻クイックボタン付きのモーダルに（現在の日時を初期表示）。あわせて中村…中澤さんに割り振られない件の切り分け用に GET /api/apo/_pickdiag?start=&business= を追加＝指定日時で誰が選ばれるか・誰がなぜ飛ばされたか・各人の割り振り数/稼働日数/上限/停止・均等化設定を返す（実際には割り振らない）。前回(dk)：アポ日程変更の追加。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",

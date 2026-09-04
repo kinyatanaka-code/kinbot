@@ -407,31 +407,67 @@ function bindCardEvents(card) {
   });
 
   const resched = q(".ap-resched");
-  if (resched) resched.addEventListener("click", async () => {
+  if (resched) resched.addEventListener("click", () => {
     const cur = resched.dataset.start ? new Date(resched.dataset.start) : null;
     const p2 = (n) => String(n).padStart(2, "0");
-    let 既定 = "";
+    let d0 = "", t0 = "";
     if (cur && !isNaN(cur.getTime())) {
       const j = new Date(cur.getTime() + 9 * 3600000);
-      既定 = `${j.getUTCFullYear()}-${p2(j.getUTCMonth() + 1)}-${p2(j.getUTCDate())} ${p2(j.getUTCHours())}:${p2(j.getUTCMinutes())}`;
+      d0 = `${j.getUTCFullYear()}-${p2(j.getUTCMonth() + 1)}-${p2(j.getUTCDate())}`;
+      t0 = `${p2(j.getUTCHours())}:${p2(j.getUTCMinutes())}`;
     }
-    const inp = prompt(`「${resched.dataset.label || ""}」の新しい日時を入れてください。\n形式：YYYY-MM-DD HH:MM（日本時間）\n\n※日程変更のお知らせだけ送ります。リマインドは変更後の日時で送ります。`, 既定);
-    if (!inp) return;
-    const m = String(inp).trim().match(/^(\d{4})-(\d{1,2})-(\d{1,2})[ T](\d{1,2}):(\d{2})$/);
-    if (!m) { alert("日時の形式が正しくありません（例：2026-09-10 14:00）"); return; }
-    const iso = new Date(Date.UTC(+m[1], +m[2] - 1, +m[3], +m[4] - 9, +m[5])).toISOString();
-    resched.disabled = true;
-    const before = resched.textContent;
-    resched.textContent = "変更しています…";
-    try {
-      const r = await fetch(`/api/apo/${encodeURIComponent(resched.dataset.slug)}/reschedule`, {
-        method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ start: iso }),
-      });
-      const d = await r.json();
-      if (!r.ok) throw new Error(d.error || "できませんでした");
-      resched.textContent = "変更しました";
-      setTimeout(() => location.reload(), 900);
-    } catch (e) { resched.textContent = "失敗"; alert(e.message); resched.disabled = false; setTimeout(() => { resched.textContent = before; }, 2500); }
+    const back = document.createElement("div");
+    back.className = "ap-rs-back";
+    back.innerHTML = `
+      <div class="ap-rs-modal">
+        <div class="ap-rs-h">日程を変更</div>
+        <div class="ap-rs-name">${esc(resched.dataset.label || "")}</div>
+        <div class="ap-rs-now">いまの日時：${esc(d0 && t0 ? `${d0} ${t0}` : "未設定")}</div>
+        <div class="ap-rs-row">
+          <label>日付 <input type="date" id="apRsDate" value="${esc(d0)}"></label>
+          <label>時間 <input type="time" id="apRsTime" step="900" value="${esc(t0)}"></label>
+        </div>
+        <div class="ap-rs-quick">
+          <button type="button" class="btn ghost" data-q="10:00">10:00</button>
+          <button type="button" class="btn ghost" data-q="11:00">11:00</button>
+          <button type="button" class="btn ghost" data-q="13:00">13:00</button>
+          <button type="button" class="btn ghost" data-q="14:00">14:00</button>
+          <button type="button" class="btn ghost" data-q="15:00">15:00</button>
+          <button type="button" class="btn ghost" data-q="16:00">16:00</button>
+          <button type="button" class="btn ghost" data-q="17:00">17:00</button>
+        </div>
+        <p class="ap-rs-note">日程変更のお知らせだけ送ります。リマインドは変更後の日時で送ります。</p>
+        <div class="ap-rs-foot">
+          <button type="button" class="btn" id="apRsOk">変更する</button>
+          <button type="button" class="btn ghost" id="apRsCancel">やめる</button>
+          <span class="ap-rs-st" id="apRsSt"></span>
+        </div>
+      </div>`;
+    document.body.appendChild(back);
+    const close = () => back.remove();
+    back.addEventListener("click", (ev) => { if (ev.target === back) close(); });
+    back.querySelector("#apRsCancel").addEventListener("click", close);
+    back.querySelectorAll(".ap-rs-quick .btn").forEach((b) =>
+      b.addEventListener("click", () => { back.querySelector("#apRsTime").value = b.dataset.q; }));
+    back.querySelector("#apRsOk").addEventListener("click", async () => {
+      const dv = back.querySelector("#apRsDate").value;
+      const tv = back.querySelector("#apRsTime").value;
+      const st = back.querySelector("#apRsSt");
+      if (!dv || !tv) { st.textContent = "日付と時間を入れてください"; return; }
+      const [y, mo, da] = dv.split("-").map(Number);
+      const [hh, mi] = tv.split(":").map(Number);
+      const iso = new Date(Date.UTC(y, mo - 1, da, hh - 9, mi)).toISOString();
+      st.textContent = "変更しています…";
+      try {
+        const r = await fetch(`/api/apo/${encodeURIComponent(resched.dataset.slug)}/reschedule`, {
+          method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ start: iso }),
+        });
+        const d = await r.json();
+        if (!r.ok) throw new Error(d.error || "できませんでした");
+        st.textContent = "変更しました";
+        setTimeout(() => location.reload(), 700);
+      } catch (e) { st.textContent = "失敗：" + e.message; }
+    });
   });
 
   const copy = q(".ap-copy");

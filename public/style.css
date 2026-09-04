@@ -855,6 +855,21 @@ label.iv-row { cursor: pointer; }
 .ap-card .home-card-actions select { width: 100%; padding: 7px 9px; border: 1px solid var(--line);
   border-radius: 9px; font-size: 12.5px; font-family: inherit; background: #fff; }
 .ap-card-links { display: flex; gap: 6px; }
+
+/* アポの日程変更モーダル */
+.ap-rs-back { position: fixed; inset: 0; z-index: 9400; background: rgba(15,40,34,.4); display: flex; align-items: center; justify-content: center; padding: 16px; }
+.ap-rs-modal { background: #fff; border-radius: 14px; box-shadow: 0 18px 48px rgba(20,40,30,.3); padding: 18px 20px; width: 380px; max-width: 100%; }
+.ap-rs-h { font-weight: 700; color: #0d5b47; font-size: 16px; margin-bottom: 6px; }
+.ap-rs-name { font-size: 13px; color: #2c3a35; margin-bottom: 4px; }
+.ap-rs-now { font-size: 12px; color: #5b7a6d; margin-bottom: 12px; }
+.ap-rs-row { display: flex; gap: 12px; flex-wrap: wrap; }
+.ap-rs-row label { font-size: 12px; color: #5b7a6d; display: flex; align-items: center; gap: 6px; }
+.ap-rs-row input { font-size: 14px; padding: 7px 9px; border: 1.5px solid #cfe0d9; border-radius: 8px; }
+.ap-rs-quick { display: flex; flex-wrap: wrap; gap: 6px; margin: 10px 0 4px; }
+.ap-rs-quick .btn { padding: 5px 10px; font-size: 12px; }
+.ap-rs-note { font-size: 11px; color: #5b7a6d; margin: 8px 0 12px; }
+.ap-rs-foot { display: flex; align-items: center; gap: 10px; }
+.ap-rs-st { font-size: 12px; color: #5b7a6d; }
 .ap-card-links .btn { flex: 1; text-align: center; text-decoration: none; }
 
 @media (max-width: 820px) {
