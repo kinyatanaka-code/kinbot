@@ -41,6 +41,8 @@ kincall（架電リスト）という別ツールも同じ画面群の中にあ�
 
 ## 決定・指示のログ（新しいものを上に足す）
 
+- 2026-09-04 質問（田中さん）：今日商談実施されているはずなのにインセンティブの実施が増えない。整理：実施は apo-dashboard で listMeetings(INCENTIVE_FROM〜3か月末, light) を取り m.apo_setter(アポ獲得者名) 別にカウント＝(a)商談がkinbotに取り込まれている(Recall録音→meetings登録、終了直後は未反映) (b)その商談に apo_setter が紐づいている の両方が必要。付いていない商談は誰にも計上されない。日付は created_at 基準。切り分け(dr)：GET /api/calls/_jisshidiag?from=&to= を追加＝期間・今日・商談の数・アポ獲得者あり/なし件数・人別の実施数・今日の商談一覧(商談/日/アポ獲得者/担当)・獲得者が付いていない商談30件 を返す。要：田中さんに実行してもらい『今日の商談が入っているか』『apo_setterが(なし)になっていないか』を確認→(a)なら取り込み待ち、(b)ならアポ獲得者の紐づけ（判定画面で設定 or 自動紐づけの改善）が必要。jisshidiag 200/smoke OK。
+
 - 2026-09-04 要望（田中さん）：しぼり込みモーダルに『すべて外す』／絞り込みがページを変えても戻らないように。実装(dq)：calls.js openFilter に #fltNone『すべて外す』（チェックを全解除するだけ＝そのまま選び直せる。決定は『この条件で見る』）。永続化：saveFilt()＝localStorage kcFilt に {stage,status,hist} を保存し、fltOk・fltAll・履歴トグル・『しぼり込みを外す』の各操作で保存。filt定義直後に localStorage から復元（Set/文字列に戻す）。→リスト切替・画面移動・再読み込みでも条件が残る。node--check/smoke OK。※端末ごとの保存。全解除して『この条件で見る』を押すと0件表示になる点は仕様（『すべて』で解除）。
 
 - 2026-09-04 要望（田中さん）：記録の担当者不在・断りで出るボタン（理由チップ）を、そのモーダルで＋から自由に追加できるように。実装(dp)：server REASON_DEFAULTS{断り/不在/番号}＋GET /api/calls/reason-chips（settings.reasonChipsを既定にフォールバックして返す）、PUT /api/calls/reason-chips {kind, add|remove}（40字/40件上限・重複除去・saveSettings）。client calls.js：_reasonChips に取得結果をキャッシュ、drawReason を async 化し kind(断り/不在/番号)でチップ描画。各チップを .kc-reason-wrap で包み hover時に × (.kc-reason-x) を出して削除、末尾に『＋ 追加』(.kc-reason-add)→promptで文言入力→PUT add→再描画。番号系の自動【使われていない番号】付与は維持。CSS .kc-reason-wrap/.kc-reason-x/.kc-reason-add 追加。GET/PUT 200・smoke OK。※チップはチーム共有（settings保存）。個人ごとにしたい場合は別途キー分け要。

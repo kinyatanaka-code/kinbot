@@ -8488,6 +8488,34 @@ app.put("/api/calls/reason-chips", async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+// 【点検用】インセンティブの「実施」がなぜ増えないかを見る。
+// 期間内の商談を、アポ獲得者(apo_setter)が付いているものと付いていないものに分けて返す。
+app.get("/api/calls/_jisshidiag", async (req, res) => {
+  try {
+    const incFrom = String(req.query.from || process.env.INCENTIVE_FROM || "2026-09-01").slice(0, 10);
+    const f = new Date(`${incFrom}T00:00:00Z`);
+    const incTo = String(req.query.to || new Date(Date.UTC(f.getUTCFullYear(), f.getUTCMonth() + 3, 0)).toISOString().slice(0, 10));
+    const ms = await listMeetings({ isAdmin: true, from: incFrom, to: incTo, limit: 5000, light: true }).catch(() => []);
+    const j = (v) => { if (!v) return ""; const d = new Date(v); if (isNaN(d.getTime())) return String(v).slice(0, 10); const x = new Date(d.getTime() + 9 * 3600000); const p = (n) => String(n).padStart(2, "0"); return `${x.getUTCFullYear()}-${p(x.getUTCMonth() + 1)}-${p(x.getUTCDate())}`; };
+    const nowJ = new Date(Date.now() + 9 * 3600000);
+    const p2 = (n) => String(n).padStart(2, "0");
+    const today = `${nowJ.getUTCFullYear()}-${p2(nowJ.getUTCMonth() + 1)}-${p2(nowJ.getUTCDate())}`;
+    const 件 = (m) => ({ 商談: m.title || "", 日: j(m.created_at), アポ獲得者: m.apo_setter || "(なし)", 担当: m.rep_name || m.owner || "" });
+    const 付いている = ms.filter((m) => m.apo_setter).map(件);
+    const 付いていない = ms.filter((m) => !m.apo_setter).map(件);
+    const 人別 = {};
+    for (const m of ms) { const k = String(m.apo_setter || "(なし)").replace(/[\s　]/g, ""); 人別[k] = (人別[k] || 0) + 1; }
+    res.json({
+      ok: true, 期間: `${incFrom} 〜 ${incTo}`, 今日: today,
+      商談の数: ms.length,
+      アポ獲得者あり: 付いている.length, アポ獲得者なし: 付いていない.length,
+      人別の実施数: 人別,
+      今日の商談: ms.filter((m) => j(m.created_at) === today).map(件),
+      獲得者が付いていない商談: 付いていない.slice(0, 30),
+    });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 // 記録する（Salesforceの活動履歴と、リードの状態も更新する）
 // 「代わりに更新する人」がちゃんと使える状態か確かめる
 app.get("/api/sf-proxy/check", async (req, res) => {
@@ -17697,7 +17725,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-04dq しぼり込みに『すべて外す』ボタンを追加＋しぼり込みがページ移動で戻らないように（要望：田中さん）。ステータス/ステージ/履歴の条件をこの端末に保存し、開き直しても続く。前回(dp)：理由チップの追加・削除。";
+const BUILD_TAG = "2026-09-04dr インセンティブの『実施』が増えない件の切り分け用に点検API GET /api/calls/_jisshidiag を追加。期間内の商談数・アポ獲得者(apo_setter)ありなし・人別の実施数・今日の商談・獲得者が付いていない商談を返す。実施はkinbotに商談が取り込まれ、かつアポ獲得者が紐づいたときに数える仕組み。前回(dq)：しぼり込みの保存とすべて外す。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
