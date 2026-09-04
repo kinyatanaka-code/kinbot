@@ -212,6 +212,8 @@ function apoCard(a, i) {
             title="実績・均等化・通知の件数から外し、カレンダーの商談予定も消します">${a.excluded ? "集計に戻す" : "テストとして外す"}</button>
           <button class="btn ghost ap-renotify" data-slug="${esc(a.slug)}"
             title="Chatの割り振り通知だけを送り直します（メール・SF立ち上げはやり直しません）">通知だけ再送</button>
+          <button class="btn ghost ap-resched" data-slug="${esc(a.slug)}" data-start="${esc(a.start_time || "")}" data-label="${esc(a.label || "")}"
+            title="商談の日時を変えます。日程変更のお知らせだけ送り、リマインドは変更後の日時で送ります">日程変更</button>
           <button class="btn ghost ap-why" data-slug="${esc(a.slug)}"
             title="メール・SF立ち上げ・通知がどこで止まっているかを調べます">調べる</button>
         </div>
@@ -402,6 +404,34 @@ function bindCardEvents(card) {
       renotify.textContent = "再送しました";
     } catch (e) { renotify.textContent = "失敗"; alert(e.message); }
     setTimeout(() => { renotify.textContent = before; renotify.disabled = false; }, 2500);
+  });
+
+  const resched = q(".ap-resched");
+  if (resched) resched.addEventListener("click", async () => {
+    const cur = resched.dataset.start ? new Date(resched.dataset.start) : null;
+    const p2 = (n) => String(n).padStart(2, "0");
+    let 既定 = "";
+    if (cur && !isNaN(cur.getTime())) {
+      const j = new Date(cur.getTime() + 9 * 3600000);
+      既定 = `${j.getUTCFullYear()}-${p2(j.getUTCMonth() + 1)}-${p2(j.getUTCDate())} ${p2(j.getUTCHours())}:${p2(j.getUTCMinutes())}`;
+    }
+    const inp = prompt(`「${resched.dataset.label || ""}」の新しい日時を入れてください。\n形式：YYYY-MM-DD HH:MM（日本時間）\n\n※日程変更のお知らせだけ送ります。リマインドは変更後の日時で送ります。`, 既定);
+    if (!inp) return;
+    const m = String(inp).trim().match(/^(\d{4})-(\d{1,2})-(\d{1,2})[ T](\d{1,2}):(\d{2})$/);
+    if (!m) { alert("日時の形式が正しくありません（例：2026-09-10 14:00）"); return; }
+    const iso = new Date(Date.UTC(+m[1], +m[2] - 1, +m[3], +m[4] - 9, +m[5])).toISOString();
+    resched.disabled = true;
+    const before = resched.textContent;
+    resched.textContent = "変更しています…";
+    try {
+      const r = await fetch(`/api/apo/${encodeURIComponent(resched.dataset.slug)}/reschedule`, {
+        method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ start: iso }),
+      });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.error || "できませんでした");
+      resched.textContent = "変更しました";
+      setTimeout(() => location.reload(), 900);
+    } catch (e) { resched.textContent = "失敗"; alert(e.message); resched.disabled = false; setTimeout(() => { resched.textContent = before; }, 2500); }
   });
 
   const copy = q(".ap-copy");

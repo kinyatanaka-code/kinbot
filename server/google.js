@@ -1447,6 +1447,22 @@ export async function getCalendarEvent(owner, eventId, calendarId = "primary") {
            organizer: d.organizer?.email || "" };
 }
 
+// 予定の一部（日時など）を書き換える。日程変更で使う。
+export async function patchCalendarEvent(owner, eventId, patch = {}, calendarId = "primary") {
+  const token = await accessToken(owner);
+  const res = await fetch(
+    `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(calendarId)}` +
+    `/events/${encodeURIComponent(eventId)}?sendUpdates=none`,
+    {
+      method: "PATCH",
+      headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+      body: JSON.stringify(patch),
+    }
+  );
+  if (!res.ok) throw new Error(`予定の書き換え ${res.status}`);
+  return await res.json();
+}
+
 // いまのトークンに、どの権限が付いているかを確かめる。
 // スプレッドシートの権限が無いと、読めるのに書けない状態になる。
 export async function tokenScopes(owner) {

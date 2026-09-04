@@ -265,6 +265,7 @@ import {
   sfWrittenLogs,
   setNoReminder,
   fixApoForReminder,
+  updateApoStartTime,
   listApoMails,
   markBounced,
   logDeploy,
@@ -488,7 +489,7 @@ import {
   gmailDeleteDraft,
   parseEmailAddr, driveEnsureFolder, driveUploadFromUrl, driveShareDomain, driveStream, driveFindCompanyFiles, driveShareAnyone, driveEnsurePath, driveMoveFile, driveListChildren, driveTrash,
   appendSheetRow, checkSheet, readSheet, updateSheetCells, diagnoseSheet,
-  writeViaAppsScript, tokenScopes, getCalendarEvent, freeBusy, isSlotFree } from "./google.js";
+  writeViaAppsScript, tokenScopes, getCalendarEvent, freeBusy, isSlotFree, patchCalendarEvent } from "./google.js";
 import { startScheduler } from "./scheduler.js";
 import { muxConfigured, startVodUpload, waitVodPlayback, muxStorageSummary, listAssets, deleteAsset, findAssetByPlaybackId, enableMp4, mp4Url, readyMp4Name, getAsset } from "./mux.js";
 import { liveConfigured, createLiveStream, disableLiveStream, playbackUrl as livePlaybackUrl, liveInfo, liveStatus, cfCustomerCodeCheck, cleanupOldLiveInputs, relayMap, relayDestFor } from "./live.js";
@@ -3184,6 +3185,50 @@ app.post("/api/apo/:slug/renotify", async (req, res) => {
     });
     console.log(`[apo] ${link.slug} の割り振り通知だけ再送しました by ${req.user}`);
     res.json({ ok: true, ...(r || {}) });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// アポ（商談）の日時を変える。カレンダーの予定も動かし、「日程変更しました」だけ知らせる。
+// リマインドは、変えたあとの日時をもとに送られる（前日リマインドの対象が自動で変わる）。
+app.post("/api/apo/:slug/reschedule", async (req, res) => {
+  try {
+    const slug = String(req.params.slug || "");
+    const before = await getSmartLink(slug);
+    if (!before) return res.status(404).json({ error: "見つかりません" });
+    const startISO = new Date(String(req.body?.start || "")).toISOString();
+    if (isNaN(new Date(startISO).getTime())) return res.status(400).json({ error: "日時が正しくありません" });
+
+    const link = await updateApoStartTime(slug, startISO);
+    if (!link) return res.status(500).json({ error: "日時を変えられませんでした" });
+
+    // カレンダーの予定も動かす（できたときだけ・失敗しても記録は変わったまま）
+    let カレンダー = "";
+    try {
+      const owner = link.invite_event_owner || link.current_owner || req.user;
+      const evId = link.invite_event_id || link.event_id;
+      if (owner && evId) {
+        const 分 = 60;
+        const endISO = new Date(new Date(startISO).getTime() + 分 * 60000).toISOString();
+        await patchCalendarEvent(owner, evId, { start: { dateTime: startISO, timeZone: "Asia/Tokyo" }, end: { dateTime: endISO, timeZone: "Asia/Tokyo" } });
+        カレンダー = "カレンダーの予定も動かしました";
+      }
+    } catch (e) { カレンダー = `カレンダーは動かせませんでした（${e.message}）`; }
+
+    const fmt = (v) => { const d = new Date(v); if (isNaN(d.getTime())) return ""; const j = new Date(d.getTime() + 9 * 3600000); const p2 = (n) => String(n).padStart(2, "0"); const w = ["日", "月", "火", "水", "木", "金", "土"][j.getUTCDay()]; return `${j.getUTCMonth() + 1}/${j.getUTCDate()}(${w}) ${p2(j.getUTCHours())}:${p2(j.getUTCMinutes())}`; };
+    const repName = await repDisplayName(link.current_owner).catch(() => link.current_owner || "");
+    const msg = [
+      `🗓 日程を変更しました`,
+      `${link.label || ""}`,
+      `${fmt(before.start_time)} → ${fmt(startISO)}`,
+      repName ? `担当：${repName}` : "",
+      `※リマインドは、変更後の日時で送ります。`,
+    ].filter(Boolean).join("\n");
+    // 担当者へ（届かなければチームのスペースへ）
+    const pr = await notifyPerson(link.current_owner, msg).catch(() => ({ ok: false }));
+    if (!pr || !pr.ok) await notifyChat(msg).catch(() => {});
+
+    console.log(`[apo] ${slug} の日程を変更：${before.start_time} → ${startISO} by ${req.user}`);
+    res.json({ ok: true, start: startISO, 前: before.start_time, カレンダー });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
@@ -17589,7 +17634,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-04dj かける画面のヘッダーに今日の架電結果（コール／接触／アポ）を表示（要望：田中さん）。GET /api/calls/my-today で自分（代理操作中はその人）の当日の件数を返し、一覧の読み込み時と記録のたびに更新。前回(di)：kincallコネクタにリスト現状分析ツール。";
+const BUILD_TAG = "2026-09-04dk アポ一覧で商談の日時を変更できるように（要望：田中さん）。POST /api/apo/:slug/reschedule ＝ smart_links.start_time を更新し、カレンダーの予定も同じ日時へ動かす（patchCalendarEvent）。通知は『日程を変更しました（変更前→変更後）』のみ担当者へ（届かなければチームへ）。リマインドは前日判定なので変更後の日時で自動的に送られる。アポカードに『日程変更』ボタン。前回(dj)：ヘッダーに今日の架電結果。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",

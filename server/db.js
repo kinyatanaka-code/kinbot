@@ -3172,6 +3172,18 @@ export async function fixApoForReminder(slug, { email, owner } = {}) {
   } catch (e) { console.error("[db] fixApoForReminder", e.message); return null; }
 }
 
+// アポ（商談）の日時を変える。リマインドは新しい日時を基準に送られる。
+export async function updateApoStartTime(slug, startISO) {
+  if (!pool || !slug || !startISO) return null;
+  try {
+    const { rows } = await pool.query(
+      `UPDATE smart_links SET start_time = $2, updated_at = now() WHERE slug = $1
+       RETURNING slug, label, start_time, client_email, current_owner, setter, setter_email, event_id, invite_event_id, invite_event_owner`,
+      [slug, startISO]);
+    return rows[0] || null;
+  } catch (e) { console.error("[db] updateApoStartTime", e.message); return null; }
+}
+
 // 前日リマインドを送る／送らないを切り替える
 export async function setNoReminder(slug, off) {
   if (!pool || !slug) return null;
