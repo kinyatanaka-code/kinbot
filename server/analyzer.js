@@ -349,6 +349,48 @@ async function fetchSiteText(url, { max = 6000 } = {}) {
   } catch { return ""; }
 }
 
+// 音声（mp3/m4a等）から文字起こしを作る。Recallの文字起こしが失敗したときの作り直し用。
+// 返り値：[{ speaker:{name}, text }]（話者は「話者1/話者2」のように分ける）
+export async function transcribeAudio(audioUrl, { mimeType = "audio/mpeg", model = "gemini-2.0-flash" } = {}) {
+  const key = String(process.env.GEMINI_API_KEY || "").trim();
+  if (!key) throw new Error("GEMINI_API_KEY が未設定です");
+  const res0 = await fetch(audioUrl);
+  if (!res0.ok) throw new Error(`音声の取得に失敗 ${res0.status}`);
+  const buf = Buffer.from(await res0.arrayBuffer());
+  const 上限 = 18 * 1024 * 1024;   // 大きすぎるとAPIに載らないので上限を設ける
+  if (buf.length > 上限) throw new Error(`音声が大きすぎます（${Math.round(buf.length / 1024 / 1024)}MB）`);
+  const b64 = buf.toString("base64");
+  const prompt =
+    "この音声は日本語の商談です。全部を文字起こししてください。\n" +
+    "・話者が変わるごとに行を分け、行頭に「話者1：」「話者2：」のように付けてください。\n" +
+    "・要約や省略はせず、話した内容をそのまま書いてください。\n" +
+    "・聞き取れないところは（聞き取れず）と書いてください。";
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${key}`;
+  const res = await fetch(url, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      contents: [{ parts: [{ text: prompt }, { inline_data: { mime_type: mimeType, data: b64 } }] }],
+      generationConfig: { temperature: 0, maxOutputTokens: 8192 },
+    }),
+  });
+  if (!res.ok) {
+    const t = await res.text().catch(() => "");
+    throw new Error(`文字起こしに失敗 ${res.status}: ${t.slice(0, 200)}`);
+  }
+  const d = await res.json().catch(() => ({}));
+  const text = (d?.candidates?.[0]?.content?.parts || []).map((p) => p.text || "").join("");
+  const out = [];
+  for (const line of String(text).split(/\r?\n/)) {
+    const s = line.trim();
+    if (!s) continue;
+    const m = s.match(/^([^：:]{1,20})[：:]\s*(.+)$/);
+    if (m) out.push({ speaker: { name: m[1].trim() }, text: m[2].trim() });
+    else out.push({ speaker: { name: "" }, text: s });
+  }
+  return out;
+}
+
 // 会社の営業時間を、複数ソース（Web検索→公式サイト読み取り）で調べる。
 // Placesに載っていない会社の補完用。曜日ごとの開始・終了をJSONで返させ、Places形式 periods に変換。
 export async function lookupBusinessHours(companyName, hint = "") {

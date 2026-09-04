@@ -396,6 +396,27 @@ export async function listRecentBots({ hours = 48, limit = 60 } = {}) {
   });
 }
 
+/** Botの音声(mixed audio)のダウンロードURLを探す（文字起こしを作り直すのに使う） */
+export async function getAudioUrl(botId) {
+  const data = await getBot(botId).catch(() => null);
+  const recs = Array.isArray(data?.recordings) ? data.recordings : [];
+  for (const r of recs) {
+    const ms = r?.media_shortcuts || {};
+    const am = ms.audio_mixed || ms.audio_mixed_mp3 || ms.audio || null;
+    const url = am?.data?.download_url || am?.download_url;
+    if (typeof url === "string" && /^https?:\/\//.test(url)) return url;
+  }
+  // どこかに audio のURLがあれば拾う
+  let found = "";
+  (function walk(o, path) {
+    if (found || o == null) return;
+    if (typeof o === "string") { if (/^https?:\/\//.test(o) && /audio/i.test(path) && /download_url/i.test(path)) found = o; return; }
+    if (typeof o !== "object") return;
+    for (const k of Object.keys(o)) walk(o[k], path ? `${path}.${k}` : k);
+  })(data, "");
+  return found;
+}
+
 /** Botの応答から録画(動画)URLを最善努力で探す（スキーマ差異に強く） */
 export async function getRecordingUrl(botId) {
   const data = await getBot(botId);

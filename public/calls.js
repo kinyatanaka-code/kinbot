@@ -2171,15 +2171,22 @@ async function loadAdmin() {
     // --- 録音から商談を取り込む ---
     const ib = $("kcImportRec");
     if (ib) ib.addEventListener("click", async () => {
-      ib.disabled = true; say("kcImportSt", "取り込んでいます…（少し時間がかかります）", 120000);
+      ib.disabled = true;
+      let 合計 = 0, 失敗 = [];
       try {
-        const d = await (await fetch("/api/meetings/import-from-recall", {
-          method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ hours: 48 }),
-        })).json();
-        if (d.error) throw new Error(d.error);
-        const ok = (d.結果 || []).filter((r) => /取り込みました/.test(r.状態)).length;
-        const ng = (d.結果 || []).filter((r) => !/取り込みました|取り込み済み/.test(r.状態));
-        say("kcImportSt", `${ok}件を取り込みました${ng.length ? `（できなかったもの ${ng.length}件）` : ""}`, 15000);
+        for (let round = 0; round < 8; round++) {   // 5件ずつ、最大40件まで
+          say("kcImportSt", `取り込んでいます…（${合計}件おわり／音声から文字起こしを作るため時間がかかります）`, 600000);
+          const d = await (await fetch("/api/meetings/import-from-recall", {
+            method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ hours: 48, max: 5 }),
+          })).json();
+          if (d.error) throw new Error(d.error);
+          const rs = d.結果 || [];
+          const ok = rs.filter((r) => /取り込みました/.test(r.状態)).length;
+          合計 += ok;
+          失敗 = rs.filter((r) => !/取り込みました|取り込み済み/.test(r.状態));
+          if (!rs.length || ok === 0) break;   // もう取り込むものが無い
+        }
+        say("kcImportSt", `${合計}件を取り込みました${失敗.length ? `（できなかったもの ${失敗.length}件：${esc(失敗[0].状態 || "")}）` : ""}`, 20000);
       } catch (e) { say("kcImportSt", "できませんでした：" + e.message, 12000); }
       finally { ib.disabled = false; }
     });

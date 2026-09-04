@@ -98,7 +98,7 @@ import { fixMojibake } from "./docs.js";
 import { openDocView, beatDocViewAndNotify, recordOpen, recordClick, recordDownload, sweepStaleViews,
          PIXEL, docUrl, pixelUrl, clickUrl, fmtSeconds, topPages } from "./docs.js";
 import { transcribeFile, transcriberAvailable } from "./transcribe.js";
-import { createBot, leaveBot, parseTranscriptEvent, parseChatEvent, outputAudio, getRecordingUrl, getBot, getBotTranscript, listRecentBots, recallConnectionInfo, getRecallUsage, getLastRecallCreate } from "./recall.js";
+import { createBot, leaveBot, parseTranscriptEvent, parseChatEvent, outputAudio, getRecordingUrl, getBot, getBotTranscript, getAudioUrl, listRecentBots, recallConnectionInfo, getRecallUsage, getLastRecallCreate } from "./recall.js";
 import { createSession, getSession, removeSession, listActiveSessions, setOnMeetingFinalized } from "./sessions.js";
 import { scoreTranscript } from "./temperature.js";
 import { buildChapters } from "./chapters.js";
@@ -449,7 +449,7 @@ import {
   deleteProposalFile,
 } from "./db.js";
 import { resolveConfig, statusInfo } from "./config.js";
-import { callLLMPublic, analyzerInfo, resolveGroqModel, clearGroqModelCache, analyzeMeeting, analyzeDeep, freeAnalyze, chatWithData, enrichCompany, lookupEmployeeCount, lookupBusinessHours, lookupCompanyBasics, generateThanks, THANKS_PROMPT, getCheckItems, getSummaryPrompt, getCustomPrompt, runCustomAnalysis, analyzeWinPatterns, classifyMeetingKind, extractFirstMeeting, extractReMeeting, buildBrief, extractFeatureCTags, enrichCompanyAttributes, generateFeatureCInsights, extractQaPairs, splitPhases } from "./analyzer.js";
+import { callLLMPublic, analyzerInfo, resolveGroqModel, clearGroqModelCache, analyzeMeeting, analyzeDeep, freeAnalyze, chatWithData, enrichCompany, lookupEmployeeCount, lookupBusinessHours, transcribeAudio, lookupCompanyBasics, generateThanks, THANKS_PROMPT, getCheckItems, getSummaryPrompt, getCustomPrompt, runCustomAnalysis, analyzeWinPatterns, classifyMeetingKind, extractFirstMeeting, extractReMeeting, buildBrief, extractFeatureCTags, enrichCompanyAttributes, generateFeatureCInsights, extractQaPairs, splitPhases } from "./analyzer.js";
 import { searchCompanies, getCompanyDetail, gbizConfigured } from "./gbizinfo.js";
 import { enrichCompanyFromWeb, webSearchConfigured } from "./companyenrich.js";
 import { searchCompanyInfo, webLookupAvailable } from "./websearch.js";
@@ -8583,7 +8583,7 @@ async function importFromRecall(req, res) {
       }
     }
     const 結果 = [];
-    for (const botId of ids.slice(0, 30)) {
+    for (const botId of ids.slice(0, Math.max(1, Math.min(30, parseInt(b.max, 10) || 5)))) {   // 音声からの文字起こしは時間がかかるので既定5件ずつ
       try {
         const already = await getMeeting(botId).catch(() => null);
         if (already && (already.title || already.transcript)) { 結果.push({ botId, 状態: "すでに取り込み済み" }); continue; }
@@ -8591,8 +8591,19 @@ async function importFromRecall(req, res) {
         // 商談名：Zoomの会議名 → カレンダー予定名 → 会議ID の順で拾う
         const title = bot?.meeting_metadata?.title || bot?.meeting_metadata?.zoom?.topic || bot?.bot_name || String(bot?.meeting_url?.meeting_id || "") || `商談 ${String(botId).slice(0, 8)}`;
         const started = bot?.recordings?.[0]?.started_at || bot?.join_at || bot?.created_at || new Date().toISOString();
-        const tr = await getBotTranscript(botId).catch((e) => { throw new Error("文字起こしの取得に失敗：" + e.message); });
-        if (!tr.length) { 結果.push({ botId, 状態: "文字起こしがまだありません（Recall側の準備待ちかもしれません）", 商談名: title }); continue; }
+        const tr0 = await getBotTranscript(botId).catch(() => []);
+        let tr = tr0;
+        let 方法 = "Recallの文字起こし";
+        if (!tr.length) {
+          // Recall側の文字起こしが失敗している場合は、音声からAIで作り直す
+          const au = await getAudioUrl(botId).catch(() => "");
+          if (!au) { 結果.push({ botId, 状態: "文字起こしも音声も見つかりません", 商談名: title }); continue; }
+          try {
+            tr = await transcribeAudio(au);
+            方法 = "音声からAIで作成";
+          } catch (e) { 結果.push({ botId, 状態: "音声からの文字起こしに失敗：" + e.message, 商談名: title }); continue; }
+        }
+        if (!tr.length) { 結果.push({ botId, 状態: "文字起こしを作れませんでした", 商談名: title }); continue; }
         const owner = String(b.owner || req.user || "").toLowerCase();
         await createMeeting(botId, {
           meetingUrl: String(bot?.meeting_url?.meeting_id || ""),
@@ -8602,7 +8613,7 @@ async function importFromRecall(req, res) {
         const 確認 = await getMeeting(botId).catch(() => null);
         結果.push({
           botId, 状態: 確認 ? "取り込みました" : "保存できませんでした",
-          商談名: title, 開始: started, 文字起こし: tr.length + "件", 担当: owner,
+          商談名: title, 開始: started, 文字起こし: tr.length + "件", 方法, 担当: owner,
         });
       } catch (e) { 結果.push({ botId, 状態: "できませんでした：" + e.message }); }
     }
@@ -17876,7 +17887,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-04ea 録音の文字起こしが取れない件：取得方法を新旧のRecall APIに対応（recordings内のtranscript URL／パス名にtranscriptを含むURLの探索／/bot/{id}/transcript/／/transcript/?recording_id= の4経路）。あわせて GET /api/meetings/_botdiag?botId= でbotの中身（recordingsのmedia_shortcutsやURL一覧）を確認できるようにした。前回(dz)：取り込みの実行時エラー修正。";
+const BUILD_TAG = "2026-09-04eb 文字起こしがRecall側で失敗していた商談を、音声から作り直して復旧できるように（要望：田中さん）。取り込み時に文字起こしが無ければ音声(audio_mixed)をGeminiに渡して日本語の文字起こしを生成し商談として保存。録画はRecordingのURLをそのまま再生に使う。ボタンは5件ずつ繰り返して全件取り込む。前回(ea)：文字起こし取得の多経路対応と点検API。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
