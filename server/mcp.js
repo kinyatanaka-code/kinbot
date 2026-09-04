@@ -20,6 +20,7 @@ import {
   recentCallLogs,
   callStatsByDay,
   aposTakenInRange,
+  callListOverview,
 } from "./db.js";
 
 const SERVER_INFO = { name: "kinbot", version: "1.0.0" };
@@ -168,6 +169,16 @@ const CALL_TOOLS = [
       properties: {
         from: { type: "string", description: "取得日の開始 YYYY-MM-DD（任意・省略で今月1日）" },
         to: { type: "string", description: "取得日の終了 YYYY-MM-DD（任意・省略で今日）" },
+      },
+    },
+  },
+  {
+    name: "list_call_lists_overview",
+    description: "kincallの全リスト（架電リスト）の現状をまとめて取得する。リストごとに、件数・架電済み・未架電・進捗率・アポ獲得数・お断り/不在の件数・アーカイブ/リサイクル件数・担当人数、さらに担当別の件数と架電済み数、ステージ内訳を返す。どのリストが進んでいないか、どのリストがアポにつながっているか、担当ごとの偏りなど『リストの現状分析』に使う。",
+    inputSchema: {
+      type: "object",
+      properties: {
+        limit: { type: "number", description: "取得するリスト数（任意・既定60・最大200）" },
       },
     },
   },
@@ -321,6 +332,15 @@ export async function callTool(name, args, req) {
       const rows = await callStatsByDay((args && args.from) || mFrom, (args && args.to) || mTo);
       const nameMap = await buildNameMap();
       return rows.map((r) => ({ 日: r["日"], かけた人: resolveDisplayName(r.caller, nameMap), 結果: r.result, 件数: r.n }));
+    }
+    case "list_call_lists_overview": {
+      const rows = await callListOverview({ limit: (args && args.limit) || 60 });
+      const nameMap = await buildNameMap();
+      return rows.map((r) => ({
+        ...r,
+        作成者: resolveDisplayName(r.作成者, nameMap),
+        担当別: (r.担当別 || []).map((o) => ({ ...o, 担当: resolveDisplayName(o.担当, nameMap) })),
+      }));
     }
     case "list_apo_appointments": {
       const now = new Date(Date.now() + 9 * 3600 * 1000);

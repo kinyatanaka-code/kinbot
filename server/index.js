@@ -17569,7 +17569,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-04dh 獲得見込みインセンティブの月桂冠を、絵文字から金色SVG（表彰状ふうの葉の枝）に差し替え（要望：田中さん・画像イメージ）。金額を左右から挟み、順位で色を金/銀/銅に。前回(dg)：同額は1位タイ・月桂冠追加。";
+const BUILD_TAG = "2026-09-04di kincallコネクタで全リストの現状を分析できるように（要望：田中さん）。MCPツール list_call_lists_overview を追加＝リストごとに件数/架電済み/未架電/進捗率/アポ獲得/お断り/不在/アーカイブ/リサイクル/担当人数＋担当別(件数・架電済み)＋ステージ内訳を返す。db.callListOverview追加。前回(dh)：月桂冠SVG。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",

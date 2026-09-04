@@ -3674,6 +3674,53 @@ export async function recentCallLogs({ from = "", to = "", caller = "", limit = 
   } catch (e) { console.error("[db] recentCallLogs", e.message); return []; }
 }
 
+// 全リストの現状をまとめて集計する（コネクタでの分析用）。
+// リストごとに、件数・架電済み/未架電・アポ獲得・ステージ内訳・結果内訳・担当別の件数を返す。
+export async function callListOverview({ limit = 60 } = {}) {
+  if (!pool) return [];
+  try {
+    const { rows: lists } = await pool.query(
+      `SELECT l.id, l.name, l.owner, l.created_at,
+              (SELECT count(*) FROM call_targets t WHERE t.list_id = l.id) AS 件数
+         FROM call_lists l
+        WHERE COALESCE(l.closed,false) = false
+        ORDER BY l.created_at DESC
+        LIMIT $1`, [Math.max(1, Math.min(200, limit))]);
+    const out = [];
+    for (const L of lists) {
+      const { rows: agg } = await pool.query(
+        `SELECT
+           count(*)::int AS 件数,
+           count(*) FILTER (WHERE EXISTS (SELECT 1 FROM call_logs cl WHERE cl.target_id = t.id))::int AS 架電済み,
+           count(*) FILTER (WHERE COALESCE(t.status,'') ILIKE '%アポ獲得%')::int AS アポ獲得,
+           count(*) FILTER (WHERE COALESCE(t.stage,'') ILIKE '%アーカイブ%')::int AS アーカイブ,
+           count(*) FILTER (WHERE COALESCE(t.stage,'') ILIKE '%リサイクル%')::int AS リサイクル,
+           count(*) FILTER (WHERE COALESCE(t.status,'') ILIKE '%お断り%')::int AS お断り,
+           count(*) FILTER (WHERE COALESCE(t.status,'') ILIKE '%不在%')::int AS 不在,
+           count(DISTINCT t.assigned_to)::int AS 担当人数
+         FROM call_targets t WHERE t.list_id = $1`, [L.id]);
+      const { rows: byOwner } = await pool.query(
+        `SELECT COALESCE(NULLIF(t.assigned_to,''),'(未割当)') AS 担当, count(*)::int AS 件数,
+                count(*) FILTER (WHERE EXISTS (SELECT 1 FROM call_logs cl WHERE cl.target_id = t.id))::int AS 架電済み
+           FROM call_targets t WHERE t.list_id = $1 GROUP BY 1 ORDER BY 2 DESC LIMIT 12`, [L.id]);
+      const { rows: byStage } = await pool.query(
+        `SELECT COALESCE(NULLIF(t.stage,''),'(なし)') AS ステージ, count(*)::int AS 件数
+           FROM call_targets t WHERE t.list_id = $1 GROUP BY 1 ORDER BY 2 DESC LIMIT 12`, [L.id]);
+      const a = agg[0] || {};
+      out.push({
+        リスト: L.name, id: L.id, 作成者: L.owner || "", 作成日: L.created_at,
+        件数: a.件数 || 0, 架電済み: a.架電済み || 0, 未架電: (a.件数 || 0) - (a.架電済み || 0),
+        アポ獲得: a.アポ獲得 || 0, お断り: a.お断り || 0, 不在: a.不在 || 0,
+        アーカイブ: a.アーカイブ || 0, リサイクル: a.リサイクル || 0,
+        担当人数: a.担当人数 || 0,
+        進捗率: (a.件数 ? Math.round((a.架電済み / a.件数) * 1000) / 10 : 0),
+        担当別: byOwner, ステージ内訳: byStage,
+      });
+    }
+    return out;
+  } catch (e) { console.error("[db] callListOverview", e.message); return []; }
+}
+
 // リストの名前だけを取る（軽量）
 export async function getCallListName(listId) {
   if (!pool || !listId) return "";

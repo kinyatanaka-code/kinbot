@@ -41,6 +41,8 @@ kincall（架電リスト）という別ツールも同じ画面群の中にあ�
 
 ## 決定・指示のログ（新しいものを上に足す）
 
+- 2026-09-04 要望（田中さん）：kincallコネクタで全リストの現状を分析したい。実装(di)：db.callListOverview({limit})＝closed=falseのcall_listsを新しい順に取り、各リストで件数/架電済み(call_logs存在)/未架電/アポ獲得(status ILIKE %アポ獲得%)/お断り/不在/アーカイブ・リサイクル(stage)/担当人数/進捗率、担当別(assigned_to別の件数・架電済み 上位12)、ステージ内訳(上位12)を集計。server/mcp.js CALL_TOOLS に list_call_lists_overview を追加＋callToolケース（作成者・担当別の担当名を resolveDisplayName で表示名化）。kincallコネクタ(/kincall/mcp)のツールは list_call_logs / list_call_stats / list_apo_appointments / list_call_lists_overview の4つに。tools/list・呼び出し200確認、smoke OK。※Claude.aiのkincallコネクタで『どのリストが進んでいない？』『アポ率の高いリストは？』等が聞ける。
+
 - 2026-09-04 要望（田中さん・月桂冠画像）：草の冠を画像イメージの月桂冠に。対応(dh)：dashCard の laurel(flip) で金色SVG(viewBox 0 0 40 64, 20x32, currentColor, 主枝＋葉8枚)を生成し、金額を左右から挟む（右は .flip で scaleX(-1)）。.kc-inc-yen を flex(center,gap2)に、.kc-laurel 色 #c9a34e、rank1 #d4af37 / rank2 #9aa2a8 / rank3 #c68642。Playwrightでレンダリング確認済み。node--check/smoke OK。※さらに本物の意匠に寄せる場合は葉の枚数/曲率を調整、または画像アセット化も可。
 
 - 2026-09-04 要望（田中さん）：同じ金額なら1位タイに、草の冠(月桂冠)も付ける。実装(dg)：apo-dashboard の順位付けを『金額のユニーク値を降順3段階(金額順)→indexOf+1で順位』に変更＝同額は同順位。同額が2人以上なら p.タイ=true。client dashCard：順位表記を『◯位』/『◯位タイ』、メダル絵文字をやめ .kc-inc-laurel（🌿, 右は flip で反転）で金額を左右から挟む。CSS .kc-inc-laurel(14px,opacity.85)/.flip(scaleX(-1))。rank1/2/3の金銀銅背景・枠は維持。単体確認：4000/4000→1位タイ、2000→2位、1000→3位、0→無し。node--check/smoke OK。
