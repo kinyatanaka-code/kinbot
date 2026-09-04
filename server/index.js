@@ -26,6 +26,7 @@ import { startKasasagi, getKasasagi, stopKasasagi, feedTranscript, kasasagiInfo,
          buildScript, buildReport, faceState, SLIDE_LABELS } from "./kasasagi.js";
 import { notifyAssigned, notifyAssignFailed, notifyMailDraft, notifyChat, notifyAll, notifyPerson, notifyTargets, chatWebhookUrl, chatInfo } from "./chat.js";
 import { placesEnabled, fetchPlaceHours, openState } from "./places.js";
+import { deepgramReady, transcribeUrl } from "./deepgram.js";
 import { zoomPhoneConfigured, zoomPhonePing, zoomPhoneUsers, zoomPhoneCallHistory, zoomResultToKincall } from "./zoomphone.js";
 import { note as devNote, errKey, buildMorningSummary, NOTE_KINDS, dropSimilar } from "./devnotes.js";
 import { askBot } from "./askbot.js";
@@ -8605,8 +8606,10 @@ async function importFromRecall(req, res) {
           const media = await getMediaForTranscript(botId).catch(() => null);
           if (media && media.url) {
             try {
-              tr = await transcribeAudio(media.url, { mimeType: media.mimeType });
-              方法 = `${media.kind}からAIで作成`;
+              if (deepgramReady()) {
+                try { tr = await transcribeUrl(media.url); if (tr.length) 方法 = "Deepgram"; } catch (e) { console.warn("[取り込み] Deepgram失敗：" + e.message); }
+              }
+              if (!tr.length) { tr = await transcribeAudio(media.url, { mimeType: media.mimeType }); 方法 = `${media.kind}からAIで作成`; }
             } catch (e) { 方法 = "文字起こしなし"; 補足 = `${media.kind}からの文字起こしに失敗：${e.message}`; }
           } else { 方法 = "文字起こしなし"; 補足 = "音声・動画が見つかりません"; }
         }
@@ -8692,11 +8695,27 @@ app.post("/api/meetings/:botId/transcribe", async (req, res) => {
     _trJobs.set(botId, { state: "doing", message: `${media.kind}から文字起こしを作っています…`, at: Date.now() });
     (async () => {
       try {
-        const tr = await transcribeAudio(media.url, { mimeType: media.mimeType });
+        let tr = [];
+        let 方法 = "";
+        // まずDeepgram（URLをそのまま渡せるので速い・話者も分かれる）
+        if (deepgramReady()) {
+          try {
+            tr = await transcribeUrl(media.url);
+            if (tr.length) 方法 = "Deepgram";
+          } catch (e) {
+            console.warn(`[文字起こし] Deepgramで失敗：${e.message}（AIで作り直します）`);
+            _trJobs.set(botId, { state: "doing", message: "Deepgramが使えないため、AIで作っています…", at: Date.now() });
+          }
+        }
+        // ダメならGemini（録画・音声を渡して作る）
+        if (!tr.length) {
+          tr = await transcribeAudio(media.url, { mimeType: media.mimeType });
+          方法 = `${media.kind}からAIで作成`;
+        }
         if (!tr.length) throw new Error("文字起こしを作れませんでした");
         await saveMeeting(botId, { transcript: tr });
-        _trJobs.set(botId, { state: "done", message: `できました（${tr.length}件）`, 件数: tr.length, 方法: `${media.kind}からAIで作成`, at: Date.now() });
-        console.log(`[文字起こし] 完成：${botId}（${tr.length}件）`);
+        _trJobs.set(botId, { state: "done", message: `できました（${tr.length}件）`, 件数: tr.length, 方法, at: Date.now() });
+        console.log(`[文字起こし] 完成：${botId}（${tr.length}件・${方法}）`);
       } catch (e) {
         _trJobs.set(botId, { state: "error", message: e.message, at: Date.now() });
         console.warn(`[文字起こし] 失敗：${botId}：${e.message}`);
@@ -17942,7 +17961,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-04eq 文字起こしの『アップロードに失敗（502）』を改善。大きい動画を一度に送る方式は途中で切られやすいため、Google推奨の手順（受け口をもらってから本体を送る）に変更し、失敗しても最大3回まで自動で再試行するようにした。失敗時はGoogleからの理由も表示。前回(ep)：文字起こしの非同期実行。";
+const BUILD_TAG = "2026-09-04er 文字起こしをDeepgramで行えるようにした（要望：田中さん）。録画・音声のURLをそのままDeepgramに渡すので、大きい動画をアップロードし直す必要がなく、502も起きない。話者も分かれる。Deepgramが使えないときだけ従来のAI（Gemini）で作る。要 DEEPGRAM_API_KEY。前回(eq)：アップロード方式の改善。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
