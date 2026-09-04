@@ -3103,6 +3103,26 @@ export async function createSmartLink({ slug, label, owner, createdBy, eventId, 
   // 同じカレンダー予定からは1件しか作らない。
   // スキャンが重なっても、二重に登録されないようにする。
   if (eventId) {
+    // まず「同じ予定ID」で探す。kinbot側で日程変更した場合、開始時刻は変わっているので
+    // 予定名＋時刻では見つからず、二重にアポができてしまう（＝変更が戻ったように見える）。
+    {
+      const { rows: byId } = await pool.query(
+        `SELECT * FROM smart_links WHERE event_id = $1 AND NOT COALESCE(excluded,false) LIMIT 1`, [eventId]);
+      if (byId[0]) {
+        // カレンダー側で日時が動いていれば、その日時に合わせる。
+        // ただし kinbot 側で手動変更したもの（start_time_manual あり）は上書きしない
+        // ＝せっかく変えた日程が、スキャンで元に戻ってしまうのを防ぐ。
+        const 手動 = byId[0].start_time_manual ? true : false;
+        if (!手動 && startTime && String(byId[0].start_time) !== String(startTime)) {
+          try {
+            await pool.query(`UPDATE smart_links SET start_time=$2, end_time=COALESCE($3, end_time), updated_at=now() WHERE slug=$1`,
+              [byId[0].slug, startTime, endTime || null]);
+            byId[0].start_time = startTime;
+          } catch {}
+        }
+        return byId[0];
+      }
+    }
     // 同じ予定名・同じ開始時刻のアポが既にあれば、それを使う。
     // 予定を作り直すとIDが変わるため、IDだけでは重複を防げない。
     if (label && startTime) {
@@ -3116,6 +3136,18 @@ export async function createSmartLink({ slug, label, owner, createdBy, eventId, 
           try { await pool.query(`UPDATE smart_links SET event_id=$2 WHERE slug=$1`, [same[0].slug, eventId]); } catch {}
         }
         return same[0];
+      }
+      // 手動で日程変更したアポは、時刻が一致しないので上では見つからない。
+      // 同じ予定名で「手動変更済み」のものがあれば、それを使う（作り直しで二重にしない）。
+      const { rows: man } = await pool.query(
+        `SELECT * FROM smart_links
+          WHERE label = $1 AND start_time_manual IS NOT NULL AND NOT COALESCE(excluded,false)
+          ORDER BY start_time_manual DESC LIMIT 1`, [label]);
+      if (man[0]) {
+        if (man[0].event_id !== eventId) {
+          try { await pool.query(`UPDATE smart_links SET event_id=$2 WHERE slug=$1`, [man[0].slug, eventId]); } catch {}
+        }
+        return man[0];
       }
     }
     const { rows } = await pool.query(
@@ -3176,8 +3208,9 @@ export async function fixApoForReminder(slug, { email, owner } = {}) {
 export async function updateApoStartTime(slug, startISO) {
   if (!pool || !slug || !startISO) return null;
   try {
+    await pool.query(`ALTER TABLE smart_links ADD COLUMN IF NOT EXISTS start_time_manual TIMESTAMPTZ;`).catch(() => {});
     const { rows } = await pool.query(
-      `UPDATE smart_links SET start_time = $2, updated_at = now() WHERE slug = $1
+      `UPDATE smart_links SET start_time = $2, start_time_manual = now(), updated_at = now() WHERE slug = $1
        RETURNING slug, label, start_time, client_email, current_owner, setter, setter_email, event_id, invite_event_id, invite_event_owner`,
       [slug, startISO]);
     return rows[0] || null;
