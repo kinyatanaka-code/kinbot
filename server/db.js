@@ -842,6 +842,8 @@ export async function initDb() {
   // 名前だけだと表記ゆれで外れ、同じ商談の予定がもう1つ作られてしまう。
   await sq(`ALTER TABLE smart_links ADD COLUMN IF NOT EXISTS setter_email TEXT;`);
   await sq(`ALTER TABLE smart_links ADD COLUMN IF NOT EXISTS start_time TIMESTAMPTZ;`);
+  // kinbotの画面で日程変更したときの印（カレンダーのスキャンで元の日時に戻さないため）
+  await sq(`ALTER TABLE smart_links ADD COLUMN IF NOT EXISTS start_time_manual TIMESTAMPTZ;`);
   // アポを取った日時（カレンダー予定を作った時刻）。
   // created_at はkinbotが拾った時刻なので、実際にアポを取った日とずれる。
   // プロセスシートは「アポを取った日」の列に入れるため、こちらを使う。
@@ -3139,16 +3141,18 @@ export async function createSmartLink({ slug, label, owner, createdBy, eventId, 
       }
       // 手動で日程変更したアポは、時刻が一致しないので上では見つからない。
       // 同じ予定名で「手動変更済み」のものがあれば、それを使う（作り直しで二重にしない）。
-      const { rows: man } = await pool.query(
-        `SELECT * FROM smart_links
-          WHERE label = $1 AND start_time_manual IS NOT NULL AND NOT COALESCE(excluded,false)
-          ORDER BY start_time_manual DESC LIMIT 1`, [label]);
-      if (man[0]) {
-        if (man[0].event_id !== eventId) {
-          try { await pool.query(`UPDATE smart_links SET event_id=$2 WHERE slug=$1`, [man[0].slug, eventId]); } catch {}
+      try {
+        const { rows: man } = await pool.query(
+          `SELECT * FROM smart_links
+            WHERE label = $1 AND start_time_manual IS NOT NULL AND NOT COALESCE(excluded,false)
+            ORDER BY start_time_manual DESC LIMIT 1`, [label]);
+        if (man[0]) {
+          if (man[0].event_id !== eventId) {
+            try { await pool.query(`UPDATE smart_links SET event_id=$2 WHERE slug=$1`, [man[0].slug, eventId]); } catch {}
+          }
+          return man[0];
         }
-        return man[0];
-      }
+      } catch { /* 列がまだ無い環境では気にしない */ }
     }
     const { rows } = await pool.query(
       `INSERT INTO smart_links (slug, label, current_owner, created_by, event_id, setter, setter_email, start_time, end_time, apo_at, mailmaga)

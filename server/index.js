@@ -17660,7 +17660,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-04dm 日程変更が元に戻る不具合を修正（要望：田中さん）。createSmartLinkの重複判定が『予定名＋開始時刻』だけだったため、日程を変えるとカレンダースキャンが同じ予定を別アポとして作り直し、元の日時のまま復活していた。(1)まず予定IDで既存アポを探して再利用（2)手動で変えたアポ(start_time_manual)はスキャンの日時で上書きしない(3)予定IDが変わった場合も同名の手動変更済みアポを再利用。前回(dl)：日程変更UI改善と割り振り診断。";
+const BUILD_TAG = "2026-09-04dn アポ一覧が column start_time_manual does not exist で落ちる不具合を修正。dmで追加した手動日程変更の印を、起動時マイグレーション（ALTER TABLE smart_links ADD COLUMN IF NOT EXISTS start_time_manual）で必ず作るようにし、列が無い環境でも参照側が落ちないよう保護。前回(dm)：日程変更が元に戻る不具合の修正。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
