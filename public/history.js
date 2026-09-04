@@ -1088,10 +1088,7 @@ async function loadDetail(botId, openTab, opts = {}) {
           <div class="cal-panel" id="calPanelH" hidden></div>
         </div>
         <div class="dactions">
-          <button class="btn" id="allGenBtn" title="文字起こしを作って、そのまま要約・FBまで作ります">文字起こし＋要約</button>
-          <button class="btn ghost" id="transcribeBtn" title="録画・音声から文字起こしを作ります（文字起こしが無いときに使います）">文字起こしを作る</button>
-          <button class="btn" id="genBtn">要約・FB生成</button>
-          <button class="btn" id="deepBtn">分析を生成</button>
+          <button class="btn" id="allGenBtn" title="録画から、文字起こし・要約・分析までまとめて作ります">録画読み取り</button>
           <button class="btn" id="notionBtn">Notionに送る</button>
           <button class="btn danger" id="delBtn">削除</button>
         </div>
@@ -1987,6 +1984,7 @@ async function loadDetail(botId, openTab, opts = {}) {
 
     // 分析（スコア・BANT等）を生成
     const deepBtn = hdetail.querySelector("#deepBtn");
+    if (deepBtn) {
     if (tr.length === 0) deepBtn.disabled = true;
     deepBtn.addEventListener("click", async () => {
       deepBtn.disabled = true;
@@ -2006,6 +2004,7 @@ async function loadDetail(botId, openTab, opts = {}) {
         deepBtn.textContent = orig;
       }
     });
+    }
 
     // 次の一手（ライブ中の記録）
     const dm = hdetail.querySelector("#dmoves");
@@ -2062,6 +2061,14 @@ async function loadDetail(botId, openTab, opts = {}) {
         const d2 = await r2.json();
         if (!r2.ok) throw new Error("要約：" + (d2.error || "できませんでした"));
         進捗("sum", "要約・フィードバックができました", "ok");
+        // 3) 分析
+        進捗("deep", "分析を作っています…", "doing");
+        try {
+          const r3 = await fetch(`/api/meetings/${encodeURIComponent(botId)}/deep-analyze`, { method: "POST" });
+          const d3 = await r3.json();
+          if (!r3.ok) throw new Error(d3.error || "できませんでした");
+          進捗("deep", "分析ができました", "ok");
+        } catch (e) { 進捗("deep", "分析はできませんでした（" + e.message + "）", "ng"); }
         進捗("done", "できあがりました。画面を更新します。", "ok");
         setTimeout(() => location.reload(), 1200);
       } catch (e) {
@@ -2096,6 +2103,7 @@ async function loadDetail(botId, openTab, opts = {}) {
     }
 
     const genBtn = hdetail.querySelector("#genBtn");
+    if (genBtn) {
     if (tr.length === 0) genBtn.disabled = true;
     genBtn.addEventListener("click", async () => {
       genBtn.disabled = true;
@@ -2119,6 +2127,7 @@ async function loadDetail(botId, openTab, opts = {}) {
         genBtn.textContent = orig;
       }
     });
+    }
 
     // 文字起こし
     const dt = hdetail.querySelector("#dtrans");

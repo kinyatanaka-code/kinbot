@@ -41,6 +41,8 @@ kincall（架電リスト）という別ツールも同じ画面群の中にあ�
 
 ## 決定・指示のログ（新しいものを上に足す）
 
+- 2026-09-04 要望（田中さん）：文字起こし・要約・分析は1つのボタン『録画読み取り』に。実装(eo)：.dactions を [録画読み取り(#allGenBtn) / Notionに送る / 削除] に整理し、#transcribeBtn・#genBtn・#deepBtn のHTMLを削除。allGenBtn の処理を (1)文字起こし（無い or 作り直し確認でOK時、force送信）(2)POST /analyze で要約・FB (3)POST /deep-analyze で分析（失敗しても続行し×表示）(4)完了→reload に拡張し、各段階を #genProgress に✓/…/×で表示。削除したボタンの既存リスナー（deepBtn/genBtn/trBtn）は if (btn) { … } で囲み、要素が無くても落ちないように（末尾の閉じ括弧も追加）。node--check/smoke OK。
+
 - 2026-09-04 バグ（田中さん）：文字起こしが 400 FAILED_PRECONDITION『The File ... is not in an ACTIVE state and usage is not allowed.』。原因：transcribeAudio の Files API アップロード後の待機ループが甘く、(a)state取得URLの組み立てが不正確 (b)`!sd?.state` で break していたため未取得時に即抜け (c)最大20回でも待ち不足、の結果 PROCESSING のまま generateContent を呼んでいた。修正(en)：ud.file.name（例 files/abc）を使って `v1beta/{name}?key=` を3秒間隔で最大60回(=3分)ポーリングし、state==='ACTIVE' になるまで待つ。FAILEDは即エラー、時間切れも明示エラー。5回ごとに『準備中… STATE（N秒）』をログ。さらに generateContent が /not in an ACTIVE state|FAILED_PRECONDITION/ を返した場合は10秒待って同じモデルで1回だけ再試行。node--check/smoke OK。
 
 - 2026-09-04 要望（田中さん）：文字起こしを再実行したい。実装(em)：POST /api/meetings/:botId/transcribe に force（body.force===true or ?force=1）を追加＝既存の文字起こしがあっても作り直して saveMeeting で上書き（既定は従来どおりスキップ）。history.js：#transcribeBtn は文字起こしがある場合ラベルを『文字起こしを作り直す』にし、confirm『いまの文字起こしを消して作り直します』→force:true でPOST（hiddenをやめ常時表示）。#allGenBtn（文字起こし＋要約）も、文字起こしがある場合に confirm で『OK=文字起こしから作り直す／キャンセル=いまの文字起こしで要約だけ』を選べるようにし、選択に応じて force を送る。進捗表示は既存のまま。node--check/smoke OK。
