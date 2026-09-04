@@ -311,6 +311,42 @@ export async function getBot(botId) {
   return res.json();
 }
 
+/** Botの文字起こしを取る（取り込み直し用）。[{speaker:{name}, text, start}] の形にそろえる */
+export async function getBotTranscript(botId) {
+  const data = await getBot(botId).catch(() => null);
+  // v1.11：recordings[].media_shortcuts.transcript.data.download_url からJSONを取る
+  const recs = Array.isArray(data?.recordings) ? data.recordings : [];
+  let url = "";
+  for (const r of recs) {
+    const t = (r?.media_shortcuts || {}).transcript;
+    const u = t?.data?.download_url;
+    if (typeof u === "string" && /^https?:\/\//.test(u)) { url = u; break; }
+  }
+  let raw = null;
+  if (url) {
+    const res = await fetch(url).catch(() => null);
+    if (res && res.ok) raw = await res.json().catch(() => null);
+  }
+  if (!raw) {
+    // 旧エンドポイントも試す
+    const res = await fetch(`${BASE}/bot/${botId}/transcript/`, { headers: headers() }).catch(() => null);
+    if (res && res.ok) raw = await res.json().catch(() => null);
+  }
+  if (!raw) return [];
+  const out = [];
+  const push = (name, text, start) => { const t = String(text || "").trim(); if (t) out.push({ speaker: { name: name || "" }, text: t, start: start ?? null }); };
+  const arr = Array.isArray(raw) ? raw : (Array.isArray(raw.transcript) ? raw.transcript : []);
+  for (const seg of arr) {
+    const name = seg?.participant?.name || seg?.speaker || seg?.speaker_name || "";
+    if (Array.isArray(seg?.words) && seg.words.length) {
+      push(name, seg.words.map((w) => w.text ?? w.word ?? "").join(""), seg.words[0]?.start_timestamp?.relative ?? seg.words[0]?.start_time);
+    } else {
+      push(name, seg?.text ?? seg?.transcript ?? "", seg?.start_time ?? seg?.start_timestamp?.relative);
+    }
+  }
+  return out;
+}
+
 /** Botの応答から録画(動画)URLを最善努力で探す（スキーマ差異に強く） */
 export async function getRecordingUrl(botId) {
   const data = await getBot(botId);

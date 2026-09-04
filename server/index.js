@@ -98,7 +98,7 @@ import { fixMojibake } from "./docs.js";
 import { openDocView, beatDocViewAndNotify, recordOpen, recordClick, recordDownload, sweepStaleViews,
          PIXEL, docUrl, pixelUrl, clickUrl, fmtSeconds, topPages } from "./docs.js";
 import { transcribeFile, transcriberAvailable } from "./transcribe.js";
-import { createBot, leaveBot, parseTranscriptEvent, parseChatEvent, outputAudio, getRecordingUrl, getBot, recallConnectionInfo, getRecallUsage, getLastRecallCreate } from "./recall.js";
+import { createBot, leaveBot, parseTranscriptEvent, parseChatEvent, outputAudio, getRecordingUrl, getBot, getBotTranscript, recallConnectionInfo, getRecallUsage, getLastRecallCreate } from "./recall.js";
 import { createSession, getSession, removeSession, listActiveSessions, setOnMeetingFinalized } from "./sessions.js";
 import { scoreTranscript } from "./temperature.js";
 import { buildChapters } from "./chapters.js";
@@ -8555,6 +8555,33 @@ app.get("/api/meetings/_todaydiag", async (req, res) => {
       今日の商談数: 商談.length, 今日の商談: 商談,
       メモ: "商談は『セッションが終了して閉じられた』ときに記録されます。進行中のまま残っていると、まだ商談になりません。",
     });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// Recallに残っている録音から、商談を取り込み直す。
+// webhookが届かず商談になっていない通話を、あとから記録に落とすために使う。
+// POST /api/meetings/import-from-recall { botIds:["..."], hours:24 }
+app.post("/api/meetings/import-from-recall", async (req, res) => {
+  try {
+    const b = req.body || {};
+    let ids = Array.isArray(b.botIds) ? b.botIds.map((x) => String(x).trim()).filter(Boolean) : [];
+    const 結果 = [];
+    for (const botId of ids.slice(0, 30)) {
+      try {
+        const already = await getMeeting(botId).catch(() => null);
+        if (already && (already.title || already.transcript)) { 結果.push({ botId, 状態: "すでに取り込み済み" }); continue; }
+        const bot = await getBot(botId);
+        const title = bot?.meeting_metadata?.title || bot?.meeting_url?.meeting_id || "";
+        const started = bot?.recordings?.[0]?.started_at || bot?.join_at || bot?.created_at || new Date().toISOString();
+        const tr = await getBotTranscript(botId).catch(() => []);
+        if (!tr.length) { 結果.push({ botId, 状態: "文字起こしがまだありません", 商談名: title }); continue; }
+        await createMeeting(botId, { meetingUrl: (bot?.meeting_url?.meeting_id ? String(bot.meeting_url.meeting_id) : ""), repName: "", title, owner: String(b.owner || req.user || "").toLowerCase(), muxPlaybackId: null });
+        await saveMeeting(botId, { transcript: tr });
+        // 要約・分析はこのあと自動記録の見回りで作られる（要約が無ければ生成して記録する仕組み）
+        結果.push({ botId, 状態: "取り込みました", 商談名: title, 開始: started, 文字起こし: tr.length + "件" });
+      } catch (e) { 結果.push({ botId, 状態: "できませんでした：" + e.message }); }
+    }
+    res.json({ ok: true, 件数: 結果.length, 結果 });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
@@ -17794,7 +17821,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-04dv 今日の商談が記録されない件の切り分け用に点検API GET /api/meetings/_todaydiag を追加。進行中（未クローズ）セッション・そのRecall側のBot状態と経過・今日の商談一覧（取り込み時刻/獲得者/担当/bot）を返す。商談はセッション終了時に記録されるため、進行中のまま残っていると商談にならない。前回(du)：設定・管理タブの表示修正。";
+const BUILD_TAG = "2026-09-04dw 今日の商談が記録されない件：Recall側には録音が残っている（Done）が kinbot に商談として入っていないため、録音から取り込み直せるようにした。POST /api/meetings/import-from-recall {botIds:[]} ＝Bot IDを指定して Recall から文字起こしを取得し商談として保存（既に取り込み済みはスキップ）。recall.getBotTranscript を追加。前回(dv)：今日の商談の点検API。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
