@@ -105,6 +105,11 @@ async function loadTable() {
 
 // 絞り込みと並べ替えの状態
 const filt = { stage: new Set(), status: new Set(), hist: "" };
+try { const _f = JSON.parse(localStorage.getItem("kcFilt") || "{}");
+  if (Array.isArray(_f.stage)) filt.stage = new Set(_f.stage);
+  if (Array.isArray(_f.status)) filt.status = new Set(_f.status);
+  if (typeof _f.hist === "string") filt.hist = _f.hist;
+} catch {}
 let hideApo = false;   // アポ獲得済みを隠しているか
 let _sfDisconnected = false;   // SFに接続できず履歴件数が数えられなかった
 let _reasonChips = null;       // 記録モーダルの理由チップ（サーバから取得）
@@ -217,17 +222,31 @@ function openFilter(which, btn) {
      </label>`).join("") + `</div>
      <div class="kc-modal-foot">
        <button type="button" class="btn" id="fltOk">この条件で見る</button>
+       <button type="button" class="btn ghost" id="fltNone">すべて外す</button>
        <button type="button" class="btn ghost" id="fltAll">すべて</button>
      </div>`;
   const m = openModal(`${key}でしぼる`, inner);
   m.el.querySelector("#fltOk").addEventListener("click", () => {
     const picked = [...m.el.querySelectorAll("input:checked")].map((c) => c.value);
     filt[which] = picked.length === options.length ? new Set() : new Set(picked);
-    m.close(); render();
+    saveFilt(); m.close(); render();
+  });
+  // すべて外す：チェックを全部はずす（押しただけでは絞り込みは変えず、選び直せる）
+  m.el.querySelector("#fltNone").addEventListener("click", () => {
+    m.el.querySelectorAll(".kc-flt-list input").forEach((c) => { c.checked = false; });
   });
   m.el.querySelector("#fltAll").addEventListener("click", () => {
-    filt[which] = new Set(); m.close(); render();
+    filt[which] = new Set(); saveFilt(); m.close(); render();
   });
+}
+
+// しぼり込みを、この端末に覚えておく（ページを移動しても戻らないように）
+function saveFilt() {
+  try {
+    localStorage.setItem("kcFilt", JSON.stringify({
+      stage: [...filt.stage], status: [...filt.status], hist: filt.hist || "",
+    }));
+  } catch {}
 }
 
 // ===== 追加カラム（読み込んだCSVの列を、そのまま一覧に出す）=====
@@ -402,6 +421,7 @@ function render() {
   if (hb) hb.addEventListener("click", () => {
     // 履歴は「なし → あり → 全部」で切り替える
     filt.hist = filt.hist === "" ? "none" : filt.hist === "none" ? "some" : "";
+    saveFilt();
     if (!filt.hist) { sortBy = "hist"; sortDesc = !sortDesc; }
     render();
   });
@@ -2805,6 +2825,7 @@ document.addEventListener("click", (ev) => {
   if (t.id === "clReset") {
     ev.preventDefault();
     filt.stage = new Set(); filt.status = new Set(); filt.hist = "";
+    saveFilt();
     sortBy = ""; sortDesc = false;
     if ($("clFind")) $("clFind").value = "";
     render();

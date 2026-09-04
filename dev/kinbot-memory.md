@@ -41,6 +41,8 @@ kincall（架電リスト）という別ツールも同じ画面群の中にあ�
 
 ## 決定・指示のログ（新しいものを上に足す）
 
+- 2026-09-04 要望（田中さん）：しぼり込みモーダルに『すべて外す』／絞り込みがページを変えても戻らないように。実装(dq)：calls.js openFilter に #fltNone『すべて外す』（チェックを全解除するだけ＝そのまま選び直せる。決定は『この条件で見る』）。永続化：saveFilt()＝localStorage kcFilt に {stage,status,hist} を保存し、fltOk・fltAll・履歴トグル・『しぼり込みを外す』の各操作で保存。filt定義直後に localStorage から復元（Set/文字列に戻す）。→リスト切替・画面移動・再読み込みでも条件が残る。node--check/smoke OK。※端末ごとの保存。全解除して『この条件で見る』を押すと0件表示になる点は仕様（『すべて』で解除）。
+
 - 2026-09-04 要望（田中さん）：記録の担当者不在・断りで出るボタン（理由チップ）を、そのモーダルで＋から自由に追加できるように。実装(dp)：server REASON_DEFAULTS{断り/不在/番号}＋GET /api/calls/reason-chips（settings.reasonChipsを既定にフォールバックして返す）、PUT /api/calls/reason-chips {kind, add|remove}（40字/40件上限・重複除去・saveSettings）。client calls.js：_reasonChips に取得結果をキャッシュ、drawReason を async 化し kind(断り/不在/番号)でチップ描画。各チップを .kc-reason-wrap で包み hover時に × (.kc-reason-x) を出して削除、末尾に『＋ 追加』(.kc-reason-add)→promptで文言入力→PUT add→再描画。番号系の自動【使われていない番号】付与は維持。CSS .kc-reason-wrap/.kc-reason-x/.kc-reason-add 追加。GET/PUT 200・smoke OK。※チップはチーム共有（settings保存）。個人ごとにしたい場合は別途キー分け要。
 
 - 2026-09-04 要望（田中さん）：資料トラッキングの『資料』タブで『使わない』にしたものは一覧に出さない（資料自体は見られるまま）。実装(do)：public/docs.js に let showUnusedDocs=false。一覧描画で 表示分＝showUnusedDocs? 全件 : f.active のみ。使わない件数があれば .df-unused-bar に『使わない資料も見る（N件）／隠す（N件）』トグル(#dfToggleUnused)を出し、押すと showUnusedDocs 反転→loadDocs()。全部が使わない状態のときは空メッセージ＋トグルのみ表示。既存の『使わない』ボタン(df-toggle)はPUT後 loadDocs() なので押すとすぐ一覧から消える。style.css .df-unused-bar 追加。※発行済みURL・閲覧記録・URL発行タブのプルダウン(activeのみ)は従来どおり。node--check/smoke OK。
