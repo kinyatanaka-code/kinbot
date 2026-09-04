@@ -942,9 +942,13 @@ function renderDock() {
       border:1.5px solid #e0c469;box-shadow:inset 0 0 0 1px #fffdf6;}
     .kc-inc-lb{font-size:9.5px;font-weight:700;color:#8a6d1f;letter-spacing:.02em;line-height:1.3;}
     .kc-inc-rank{margin-left:5px;font-size:10px;color:#7a5c10;}
-    .kc-inc-yen{font-size:20px;font-weight:800;color:#7a5c10;line-height:1.25;text-shadow:0 1px 0 #fffdf6;}
-    .kc-inc-laurel{font-size:14px;opacity:.85;vertical-align:middle;margin:0 3px;display:inline-block;}
-    .kc-inc-laurel.flip{transform:scaleX(-1);}
+    .kc-inc-yen{font-size:20px;font-weight:800;color:#7a5c10;line-height:1.25;text-shadow:0 1px 0 #fffdf6;display:flex;align-items:center;justify-content:center;gap:2px;}
+    .kc-inc-num{display:inline-block;}
+    .kc-laurel{color:#c9a34e;flex:0 0 auto;}
+    .kc-laurel.flip{transform:scaleX(-1);}
+    .kc-inc.rank1 .kc-laurel{color:#d4af37;}
+    .kc-inc.rank2 .kc-laurel{color:#9aa2a8;}
+    .kc-inc.rank3 .kc-laurel{color:#c68642;}
     .kc-inc-sub{font-size:10px;color:#8a7a4a;}
     .kc-inc.rank1{background:linear-gradient(135deg,#fff8dc 0%,#f0cf6b 45%,#fff8dc 100%);border-color:#d4af37;}
     .kc-inc.rank2{background:linear-gradient(135deg,#fafafa 0%,#dfe3e6 45%,#fafafa 100%);border-color:#b9c0c6;}
@@ -1617,13 +1621,27 @@ function dashCard(c, big) {
     : `<div class="kc-d-act">${c.goal}</div>`;
   // インサイド（インターン生）：獲得見込みインセンティブを表彰状ふうに上に出す
   const rankCls = c.順位 === 1 ? " rank1" : c.順位 === 2 ? " rank2" : c.順位 === 3 ? " rank3" : "";
-  const 冠 = c.順位 ? `<span class="kc-inc-laurel">🌿</span>` : "";
-  const 冠右 = c.順位 ? `<span class="kc-inc-laurel flip">🌿</span>` : "";
+  // 月桂冠（表彰状ふう）。左枝を描き、右は反転して使う。
+  const laurel = (flip) => `<svg class="kc-laurel${flip ? " flip" : ""}" viewBox="0 0 40 64" width="20" height="32" aria-hidden="true">
+      <g fill="currentColor">
+        <path d="M31 62c-9-3-16-10-19-19C9 33 10 22 16 13c1 6 0 12-2 18-3 9-2 18 5 25l12 6z" opacity=".95"/>
+        <path d="M16 12c-5 2-8 7-8 12 5 0 9-3 11-7 1-2 0-4-3-5z"/>
+        <path d="M12 24c-5 1-9 5-10 10 5 1 10-1 12-5 1-2 1-4-2-5z"/>
+        <path d="M11 37c-5 0-9 3-11 8 5 2 10 1 13-3 1-2 1-4-2-5z"/>
+        <path d="M14 49c-4 1-7 5-8 9 5 1 9-1 11-5 1-2 0-4-3-4z"/>
+        <path d="M20 9c-2-4-6-7-11-8 0 5 2 9 6 11 2 1 4 0 5-3z"/>
+        <path d="M17 20c-1-4-5-8-10-9 0 5 2 9 6 11 2 1 4 0 4-2z"/>
+        <path d="M16 33c-2-4-6-7-11-8 0 5 2 9 6 11 3 1 5 0 5-3z"/>
+        <path d="M18 45c-2-4-6-6-11-7 1 5 3 8 7 10 2 1 4 0 4-3z"/>
+      </g>
+    </svg>`;
+  const 冠 = c.順位 ? laurel(false) : "";
+  const 冠右 = c.順位 ? laurel(true) : "";
   const 順位表記 = c.順位 ? `${c.順位}位${c.タイ ? "タイ" : ""}` : "";
   const inc = (c.インセンティブ !== undefined)
     ? `<div class="kc-inc${rankCls}">
          <div class="kc-inc-lb">獲得見込みインセンティブ${c.順位 ? `<span class="kc-inc-rank">${esc(順位表記)}</span>` : ""}</div>
-         <div class="kc-inc-yen">${冠}¥${Number(c.インセンティブ || 0).toLocaleString()}${冠右}</div>
+         <div class="kc-inc-yen">${冠}<span class="kc-inc-num">¥${Number(c.インセンティブ || 0).toLocaleString()}</span>${冠右}</div>
          <div class="kc-inc-sub">実施 ${c.実施 || 0}件 × ¥1,000</div>
        </div>` : "";
   return `<div class="kc-dcard${big ? " kc-dcard-big" : ""}${rankCls}" data-subj="${esc(c.key)}" data-label="${esc(c.label)}">
