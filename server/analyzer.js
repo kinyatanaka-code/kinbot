@@ -210,7 +210,9 @@ export async function analyzeMeeting({ transcript, repName, dateStr, speakers })
     summaryInstructionBlock(await getSummaryPrompt()) +
     `\n\n商談の文字起こし:\n"""\n${素材}\n"""\n\n` +
     `この商談を、指定テンプレートの要約と営業フィードバックとして JSON で返してください。話された情報だけを使ってください。改善提案は自社ナレッジを踏まえて。`;
-  const text = await callLLM(REVIEW_PROMPT, user, 4000);
+  // 要約＋フィードバックのJSONは項目が多く、テンプレ次第で4000では途中切れ(MAX_TOKENS)する。
+  // Geminiで完了させて控え(Groq=小さいTPM)に落とさないよう、出力枠を広めに取る。
+  const text = await callLLM(REVIEW_PROMPT, user, 8000);
   const o = parseJson(text);
   return { summary: o.summary || {}, feedback: o.feedback || {} };
 }
@@ -1216,6 +1218,13 @@ async function callGemini(system, user, maxTokens, json = true, schema = null, m
     genConfig.responseMimeType = "application/json";
     // スキーマが渡されていれば必須項目つきで強制（next_action/riskの省略などを防ぐ）
     if (schema) genConfig.responseSchema = toGeminiSchema(schema);
+    // gemini-2.5-flash 系は「思考」が既定オンで、思考トークンが maxOutputTokens を消費し
+    // 出力が途中で切れる(MAX_TOKENS)ことがある。要約・段階分け・フェーズ判定などの構造化JSON抽出では
+    // 思考は不要なので、2.5-flash 系に限り思考を止めて出力枠を確保する。
+    // （flash-lite は既定オフなので実質無変化、pro等は正規表現に該当せず対象外＝thinkingBudget:0非対応モデルを壊さない）
+    if (/2\.5-flash/i.test(model)) {
+      genConfig.thinkingConfig = { thinkingBudget: 0 };
+    }
   }
   const res = await fetchWithTimeout(url, {
     method: "POST",

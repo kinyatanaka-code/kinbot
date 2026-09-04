@@ -17981,7 +17981,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-04et 段階を作り直す（チャプター）が失敗する件を修正。段階分けの出力上限を1200→4000に引き上げ、Geminiが途中で切れる（MAX_TOKENS）のを防止。あわせてフォールバックの再試行を、429等の『約N秒後に再試行』の指示に従って待つように改善（上限20秒）。前回(es)：録画表示とDeepgram整形。";
+const BUILD_TAG = "2026-09-04eu 要約が『gemini MAX_TOKENS ／ Groq 413（入力13187>TPM8000）』で失敗する件を修正。要約の出力枠を4000→8000に引き上げ。加えて構造化JSON抽出では gemini-2.5-flash 系の『思考』を止め（thinkingBudget:0）、思考が出力枠を食って途中切れするのを根絶（flash-liteは無変化・pro等は対象外）。これでGeminiが完了し小TPMのGroqに落とさない。前回(et)：段階分けの出力枠と429待機。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
