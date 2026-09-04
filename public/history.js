@@ -1088,6 +1088,7 @@ async function loadDetail(botId, openTab, opts = {}) {
           <div class="cal-panel" id="calPanelH" hidden></div>
         </div>
         <div class="dactions">
+          <button class="btn ghost" id="transcribeBtn" title="録画・音声から文字起こしを作ります（文字起こしが無いときに使います）">文字起こしを作る</button>
           <button class="btn" id="genBtn">要約・FB生成</button>
           <button class="btn" id="deepBtn">分析を生成</button>
           <button class="btn" id="notionBtn">Notionに送る</button>
@@ -2014,6 +2015,27 @@ async function loadDetail(botId, openTab, opts = {}) {
     renderAiLogInto(hdetail.querySelector("#dailog"), Array.isArray(m.ai_log) ? m.ai_log : []);
 
     // 文字起こしから 要約＋営業フィードバック を生成
+    // 文字起こしを後から作る（録画・音声から）
+    const trBtn = hdetail.querySelector("#transcribeBtn");
+    if (trBtn) {
+      if (tr.length > 0) trBtn.hidden = true;   // すでに文字起こしがあれば出さない
+      trBtn.addEventListener("click", async () => {
+        trBtn.disabled = true;
+        const orig = trBtn.textContent;
+        trBtn.textContent = "作っています…（数分かかります）";
+        try {
+          const r = await fetch(`/api/meetings/${encodeURIComponent(botId)}/transcribe`, { method: "POST" });
+          const d = await r.json();
+          if (!r.ok) throw new Error(d.error || "作れませんでした");
+          trBtn.textContent = d.件数 ? `できました（${d.件数}件）` : (d.状態 || "できました");
+          setTimeout(() => location.reload(), 1200);
+        } catch (e) {
+          alert("文字起こしを作れませんでした：" + e.message);
+          trBtn.disabled = false; trBtn.textContent = orig;
+        }
+      });
+    }
+
     const genBtn = hdetail.querySelector("#genBtn");
     if (tr.length === 0) genBtn.disabled = true;
     genBtn.addEventListener("click", async () => {
