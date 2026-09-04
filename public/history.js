@@ -2844,3 +2844,49 @@ loadList().then(() => {
   await window.kbProduct.loadMap();
   window.kbProduct.mount(() => { try { renderList(); } catch {} });
 })();
+
+// ───────── 録音から商談を取り込む（Recallに録音はあるが履歴に出ていないもの）─────────
+(function () {
+  const btn = document.getElementById("importRecBtn");
+  const box = document.getElementById("importRecLog");
+  if (!btn || !box) return;
+  const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+  btn.addEventListener("click", async () => {
+    btn.disabled = true;
+    box.hidden = false;
+    box.className = "imp-log";
+    box.innerHTML = `<div class="imp-head">取り込みを始めます…</div><div class="imp-list"></div>`;
+    const head = box.querySelector(".imp-head");
+    const list = box.querySelector(".imp-list");
+    let 成功 = 0, 失敗 = 0;
+    const 追記 = (r) => {
+      const ok = /取り込みました/.test(r.状態);
+      const skip = /取り込み済み/.test(r.状態);
+      if (ok) 成功++; else if (!skip) 失敗++;
+      const li = document.createElement("div");
+      li.className = "imp-row " + (ok ? "ok" : skip ? "skip" : "ng");
+      li.innerHTML = `<span class="imp-mark">${ok ? "✓" : skip ? "－" : "×"}</span>` +
+        `<span class="imp-name">${esc(r.商談名 || r.botId || "")}</span>` +
+        `<span class="imp-st">${esc(r.状態 || "")}${r.方法 ? `（${esc(r.方法)}）` : ""}${r.補足 ? `／${esc(r.補足)}` : ""}</span>`;
+      list.appendChild(li); list.scrollTop = list.scrollHeight;
+    };
+    try {
+      for (let round = 0; round < 15; round++) {
+        head.textContent = `取り込み中… 完了 ${成功}件${失敗 ? `／できなかったもの ${失敗}件` : ""}`;
+        const res = await fetch("/api/meetings/import-from-recall", {
+          method: "POST", headers: { "content-type": "application/json" },
+          body: JSON.stringify({ hours: 48, max: 2, skipTranscribe: true }),
+        });
+        const d = await res.json();
+        if (d.error) throw new Error(d.error);
+        const rs = d.結果 || [];
+        rs.forEach(追記);
+        if (!rs.length || !rs.some((r) => /取り込みました/.test(r.状態))) break;
+      }
+      head.textContent = `終わりました：完了 ${成功}件${失敗 ? `／できなかったもの ${失敗}件` : ""}。一覧を更新します。`;
+      setTimeout(() => location.reload(), 1200);
+    } catch (e) {
+      head.textContent = "できませんでした：" + e.message;
+    } finally { btn.disabled = false; }
+  });
+})();

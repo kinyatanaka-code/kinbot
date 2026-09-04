@@ -41,6 +41,8 @@ kincall（架電リスト）という別ツールも同じ画面群の中にあ�
 
 ## 決定・指示のログ（新しいものを上に足す）
 
+- 2026-09-04 要望（田中さん）：取り込みボタンはkincallでなくkinbot（商談履歴）に置く／取り急ぎ動画を履歴に入れて、文字起こしは後から。実装(eg)：(1)calls.js/calls.htmlの取り込みUI(#kcImportRec・配線)を撤去。(2)history.html のフィルタ操作列に『録音から取り込む』(#importRecBtn)＋#importRecLog を追加、history.js に配線（2件ずつ最大15ラウンド、✓/×/－の一覧＋『完了N件』ヘッダ、終了後 location.reload）。(3)サーバ import-from-recall に skipTranscribe オプション＝文字起こしが無くても transcribeAudio を呼ばず『録画のみ（文字起こしは後で）』として登録（imported_atで履歴に出る）。履歴側からは skipTranscribe:true で呼ぶので取り込みが速い。(4)あとから作る用 POST /api/meetings/:botId/transcribe＝getMediaForTranscript→transcribeAudio→saveMeeting。style.css .imp-* 追加。node--check/smoke OK。
+
 - 2026-09-04 要望（田中さん）：取り込んだものは商談名なしでも全部 商談履歴に出してほしい。原因：db.listMeetings の条件が hasTranscript＝transcriptが非空の商談のみ表示だったため、文字起こしを作れなかった取り込み分は履歴に出なかった（商談名の有無ではなく文字起こしの有無が原因）。実装(ef)：meetings に imported_at TIMESTAMPTZ を追加（録音から手で取り込んだ印）。listMeetings の条件を (transcript非空 OR imported_at IS NOT NULL) に。db.markMeetingImported(botId) 追加。import-from-recall：文字起こしが作れなくても createMeeting→(trがあれば)saveMeeting→markMeetingImported を必ず実行し、結果に 方法(『動画からAIで作成』/『文字起こしなし』)と 補足(失敗理由) を返す。取り込み済み判定も imported_at or transcript で行う。→録画は残っているので、文字起こしが無くても履歴に出て再生・後から要約生成が可能。node--check/smoke OK。
 
 - 2026-09-04 情報（田中さん）：文字起こし失敗の原因は Deepgram のクレジット切れだった（補充済み）。→今後の商談は通常どおり自動で文字起こしされる。過去の失敗分は動画からAIで作り直して復旧。改善(ee)：取り込みの進捗表示を強化＝ボタン下に .kc-imp-log（ヘッダ＋スクロール一覧）を生成し、2件ずつのラウンドごとに結果を追記。各行に ✓/×/－ と商談名・状態・方法（動画からAIで作成）・文字起こし件数を表示、ヘッダは『取り込み中… 完了N件／できなかったものM件』を随時更新、終了時は『終わりました：完了N件／…』。サーバも console.log(`[取り込み] OK/NG title（方法・N件）`)。CSS .kc-imp-*。※Deepgram復旧後は failed が出なくなるはずだが、再発検知（transcript.status=failed→自動で動画から作り直し）は未実装＝必要なら追加。node--check/smoke OK。

@@ -8597,7 +8597,10 @@ async function importFromRecall(req, res) {
         let tr = tr0;
         let 方法 = "Recallの文字起こし";
         let 補足 = "";
-        if (!tr.length) {
+        if (!tr.length && b.skipTranscribe) {
+          // まずは録画だけ履歴に入れる（文字起こしは後から作る）
+          方法 = "録画のみ（文字起こしは後で）";
+        } else if (!tr.length) {
           // Recall側の文字起こしが失敗している場合は、音声（無ければ動画）からAIで作り直す
           const media = await getMediaForTranscript(botId).catch(() => null);
           if (media && media.url) {
@@ -8656,6 +8659,22 @@ app.get("/api/meetings/_botdiag", async (req, res) => {
       URLらしきもの: urls.slice(0, 40),
       直下のキー: Object.keys(bot || {}),
     });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// 取り込み済みの商談に、あとから文字起こしを作る（録画・音声から）。
+app.post("/api/meetings/:botId/transcribe", async (req, res) => {
+  try {
+    const botId = String(req.params.botId || "");
+    const m = await getMeeting(botId).catch(() => null);
+    if (!m) return res.status(404).json({ error: "この商談は見つかりません" });
+    if (Array.isArray(m.transcript) && m.transcript.length) return res.json({ ok: true, 状態: "すでに文字起こしがあります" });
+    const media = await getMediaForTranscript(botId).catch(() => null);
+    if (!media || !media.url) return res.status(400).json({ error: "録画・音声が見つかりません" });
+    const tr = await transcribeAudio(media.url, { mimeType: media.mimeType });
+    if (!tr.length) return res.status(502).json({ error: "文字起こしを作れませんでした" });
+    await saveMeeting(botId, { transcript: tr });
+    res.json({ ok: true, 状態: "作りました", 件数: tr.length, 方法: `${media.kind}からAIで作成` });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
@@ -17895,7 +17914,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-04ef 取り込んだ録音は、文字起こしが作れなくても商談履歴に必ず出るように（要望：田中さん）。商談一覧は『文字起こしがある商談だけ』表示していたため、取り込みに失敗すると履歴に出なかった。meetings に imported_at（録音から取り込んだ印）を追加し、印があるものは文字起こしが無くても一覧に表示。取り込み処理も、文字起こしを作れなかった場合でも商談として登録して印を付ける（結果に理由を表示）。前回(ee)：取り込み進捗の表示。";
+const BUILD_TAG = "2026-09-04eg 録音の取り込みボタンを kincall から kinbot の商談履歴へ移動（要望：田中さん）。まず録画だけを履歴に入れる（文字起こしは後回し）ようにし、あとから作れる POST /api/meetings/:botId/transcribe を追加。商談履歴の絞り込み欄に『録音から取り込む』＋進捗一覧を表示。前回(ef)：文字起こしが無くても履歴に出す。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",

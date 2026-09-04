@@ -2082,13 +2082,6 @@ async function loadAdmin() {
         </div>
 
         <div class="kc-adcard">
-          <h3>録音から商談を取り込む</h3>
-          <p class="note">録音はできているのに商談履歴に出ていないものを、Recallの録音からまとめて取り込みます（直近2日ぶん）。取り込み済みのものは飛ばします。</p>
-          <div style="display:flex;gap:8px;align-items:center;margin-bottom:16px">
-            <button type="button" class="btn" id="kcImportRec">取り込み漏れを取り込む</button>
-            <span class="rev-status" id="kcImportSt"></span>
-          </div>
-
           <h3>アポ獲得者の照合</h3>
           <p class="note">商談に「アポ獲得者」を紐づけます。これが付くと、インセンティブの「実施」に数えられます。ふだんは毎日自動で走りますが、すぐ反映したいときはここから実行してください。</p>
           <div style="display:flex;gap:8px;align-items:center;margin-bottom:16px">
@@ -2176,51 +2169,6 @@ async function loadAdmin() {
         if (!r.ok) throw new Error((await r.json()).error || "保存できません");
         const m = $("awMonthMsg"); m.hidden = false; setTimeout(() => (m.hidden = true), 3000);
       } catch (e) { alert("保存できませんでした：" + e.message); }
-    });
-
-    // --- 録音から商談を取り込む ---
-    const ib = $("kcImportRec");
-    if (ib) ib.addEventListener("click", async () => {
-      ib.disabled = true;
-      const st = $("kcImportSt");
-      const box = document.createElement("div");
-      box.className = "kc-imp-log";
-      box.innerHTML = `<div class="kc-imp-head">取り込みを始めます…</div><div class="kc-imp-list"></div>`;
-      ib.closest("div").after(box);
-      const head = box.querySelector(".kc-imp-head");
-      const list = box.querySelector(".kc-imp-list");
-      let 成功 = 0, 失敗 = 0, 済 = 0;
-      const 追記 = (r) => {
-        const ok = /取り込みました/.test(r.状態);
-        const skip = /取り込み済み/.test(r.状態);
-        if (ok) 成功++; else if (skip) 済++; else 失敗++;
-        const li = document.createElement("div");
-        li.className = "kc-imp-row " + (ok ? "ok" : skip ? "skip" : "ng");
-        li.innerHTML = `<span class="kc-imp-mark">${ok ? "✓" : skip ? "－" : "×"}</span>` +
-          `<span class="kc-imp-name">${esc(r.商談名 || r.botId || "")}</span>` +
-          `<span class="kc-imp-st">${esc(r.状態 || "")}${r.方法 ? `（${esc(r.方法)}）` : ""}${r.文字起こし ? `・${esc(r.文字起こし)}` : ""}</span>`;
-        list.appendChild(li);
-        list.scrollTop = list.scrollHeight;
-      };
-      try {
-        for (let round = 0; round < 15; round++) {
-          head.textContent = `取り込み中… 完了 ${成功}件／できなかったもの ${失敗}件（動画から文字起こしを作るため1件あたり数分かかります）`;
-          const d = await (await fetch("/api/meetings/import-from-recall", {
-            method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ hours: 48, max: 2 }),
-          })).json();
-          if (d.error) throw new Error(d.error);
-          const rs = d.結果 || [];
-          rs.forEach(追記);
-          if (!rs.length) { head.textContent = `取り込むものはありませんでした（完了 ${成功}件）`; break; }
-          if (!rs.some((r) => /取り込みました/.test(r.状態))) { head.textContent = `終わりました：完了 ${成功}件／できなかったもの ${失敗}件`; break; }
-          if (round === 14) head.textContent = `いったんここまで：完了 ${成功}件（続きはもう一度押してください）`;
-        }
-        if (!/終わり|ここまで|ありませんでした/.test(head.textContent)) head.textContent = `終わりました：完了 ${成功}件／できなかったもの ${失敗}件`;
-        if (st) say("kcImportSt", `完了 ${成功}件${失敗 ? `／できなかったもの ${失敗}件` : ""}`, 20000);
-      } catch (e) {
-        head.textContent = "できませんでした：" + e.message;
-        if (st) say("kcImportSt", "できませんでした：" + e.message, 12000);
-      } finally { ib.disabled = false; }
     });
 
     // --- アポ獲得者の照合 ---

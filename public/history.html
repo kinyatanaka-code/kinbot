@@ -10,7 +10,7 @@
     <link rel="manifest" href="/site.webmanifest" />
     <meta name="theme-color" content="#0d5b47" />
     <meta name="apple-mobile-web-app-title" content="kinbot" />
-    <link rel="stylesheet" href="style.css?v=20260904ef" />
+    <link rel="stylesheet" href="style.css?v=20260904eg" />
   </head>
   <body>
     <div class="app">
@@ -45,10 +45,12 @@
           <label class="hdate"><input type="date" id="fDateTo" /></label>
           <button class="btn ghost hsearch-clear" id="fClear" type="button">クリア</button>
           <div class="hfilter-actions">
+            <button class="btn ghost" id="importRecBtn" title="録音はできているのに履歴に出ていない商談を、Recallの録音から取り込みます（直近2日ぶん）">録音から取り込む</button>
             <button class="btn" id="bulkNotionBtn">絞り込みをNotionに一括送信</button>
             <span class="bulk-status" id="bulkNotionStatus"></span>
           </div>
         </div>
+        <div id="importRecLog" hidden></div>
         <main class="history">
           <aside class="hlist" id="hlist"><div class="empty-state">読み込み中…</div></aside>
           <section class="hdetail" id="hdetail">
@@ -58,10 +60,10 @@
       </div>
     </div>
     <script src="https://cdn.jsdelivr.net/npm/hls.js@1"></script>
-    <script src="product.js?v=20260904ef"></script>
-    <script src="temperature.js?v=20260904ef"></script>
-    <script src="history.js?v=20260904ef"></script>
-      <script src="nav.js?v=20260904ef"></script>
+    <script src="product.js?v=20260904eg"></script>
+    <script src="temperature.js?v=20260904eg"></script>
+    <script src="history.js?v=20260904eg"></script>
+      <script src="nav.js?v=20260904eg"></script>
     <script src="/cmdk.js?v=20260827a"></script>
 </body>
 </html>
