@@ -8,6 +8,7 @@ const esc = (v) =>
     ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 
 let docsCache = [];
+let showUnusedDocs = false;   // 「使わない」にした資料も一覧に出すか
 let baseUrl = "";
 
 // 大事なボタンは、画面ぜんたいでクリックを受け止める。
@@ -83,7 +84,20 @@ async function loadDocs() {
       box.innerHTML = '<div class="empty-state">まだ資料がありません。上の欄からPDFを登録してください。</div>';
       return;
     }
-    box.innerHTML = `<div class="dk-list">` + docsCache.map((f) => `
+    // 「使わない」にした資料は、この一覧では隠す（資料自体は残り、発行済みURLからは開けます）。
+    const 使わない数 = docsCache.filter((f) => !f.active).length;
+    const 表示分 = showUnusedDocs ? docsCache : docsCache.filter((f) => f.active);
+    const トグル = 使わない数
+      ? `<div class="df-unused-bar"><button type="button" class="btn ghost" id="dfToggleUnused">${
+          showUnusedDocs ? `使わない資料を隠す（${使わない数}件）` : `使わない資料も見る（${使わない数}件）`}</button></div>`
+      : "";
+    if (!表示分.length) {
+      box.innerHTML = トグル + '<div class="empty-state">使っている資料がありません。「使わない資料も見る」から戻せます。</div>';
+      const t0 = $("dfToggleUnused");
+      if (t0) t0.addEventListener("click", () => { showUnusedDocs = !showUnusedDocs; loadDocs(); });
+      return;
+    }
+    box.innerHTML = トグル + `<div class="dk-list">` + 表示分.map((f) => `
       <div class="dk-row${f.active ? "" : " dk-off"}" data-id="${f.id}">
         <div class="dk-main">
           <div class="dk-t">
@@ -105,6 +119,10 @@ async function loadDocs() {
           ${f.mine ? '<button type="button" class="btn ghost df-del">削除</button>' : ""}
         </div>
       </div>`).join("") + `</div>`;
+
+    // 「使わない資料も見る／隠す」
+    const tg = $("dfToggleUnused");
+    if (tg) tg.addEventListener("click", () => { showUnusedDocs = !showUnusedDocs; loadDocs(); });
 
     // 自分だけにする／チームに共有する
     box.querySelectorAll(".df-share").forEach((b) =>

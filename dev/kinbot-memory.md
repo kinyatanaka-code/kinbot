@@ -41,6 +41,8 @@ kincall（架電リスト）という別ツールも同じ画面群の中にあ�
 
 ## 決定・指示のログ（新しいものを上に足す）
 
+- 2026-09-04 要望（田中さん）：資料トラッキングの『資料』タブで『使わない』にしたものは一覧に出さない（資料自体は見られるまま）。実装(do)：public/docs.js に let showUnusedDocs=false。一覧描画で 表示分＝showUnusedDocs? 全件 : f.active のみ。使わない件数があれば .df-unused-bar に『使わない資料も見る（N件）／隠す（N件）』トグル(#dfToggleUnused)を出し、押すと showUnusedDocs 反転→loadDocs()。全部が使わない状態のときは空メッセージ＋トグルのみ表示。既存の『使わない』ボタン(df-toggle)はPUT後 loadDocs() なので押すとすぐ一覧から消える。style.css .df-unused-bar 追加。※発行済みURL・閲覧記録・URL発行タブのプルダウン(activeのみ)は従来どおり。node--check/smoke OK。
+
 - 2026-09-04 バグ（田中さん）：アポ振り分け画面が『column "start_time_manual" does not exist』。原因：dmで start_time_manual を createSmartLink のSELECT/WHEREで参照したが、列追加を updateApoStartTime 内(=日程変更時)にしか置いておらず、未実行の環境では列が無いままクエリが失敗。修正(dn)：initDb のsmart_linksマイグレーション(start_timeの直後)に ALTER TABLE smart_links ADD COLUMN IF NOT EXISTS start_time_manual TIMESTAMPTZ を追加。加えて label＋手動変更検索を try/catch で包み、列が無い環境でも落ちないように（byId[0].start_time_manual は SELECT * なので undefined で安全）。/api/smart-links 200・apo/excluded 正常。node--check/smoke OK。教訓：新列を使うクエリを足すときは、必ず initDb のマイグレーションに先に追加する。
 
 - 2026-09-04 バグ（田中さん）：アポの日程変更をしたのに元に戻る（リセット）。原因：createSmartLink の既存判定が eventId ありでも『label＋start_time 一致』のみ→kinbotで日時を変えると一致しなくなり、カレンダースキャンが同じ予定を新規アポとして作成（ON CONFLICT(event_id)は…実際は別行が作られ得る/または元アポが残り旧日時で見える）＝変更が戻ったように見える。修正(dm)：db.createSmartLink 冒頭で (a) event_id 一致の既存アポを探して返す（カレンダー側で動いた場合はその日時に追随）。(b) ただし start_time_manual がある＝kinbotで手動変更したアポは上書きしない。(c) label一致・時刻不一致でも start_time_manual IS NOT NULL の同名アポがあれば再利用しevent_idを付け替え（予定作り直し対策）。db.updateApoStartTime は start_time_manual=now() を立てる（列は ALTER TABLE IF NOT EXISTS で自動追加）。→日程変更後にスキャンが走っても戻らない。node--check/smoke/起動OK。※既に二重に出来ているアポがあれば手動で『テストとして外す』等で整理が必要。

@@ -17660,7 +17660,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-04dn アポ一覧が column start_time_manual does not exist で落ちる不具合を修正。dmで追加した手動日程変更の印を、起動時マイグレーション（ALTER TABLE smart_links ADD COLUMN IF NOT EXISTS start_time_manual）で必ず作るようにし、列が無い環境でも参照側が落ちないよう保護。前回(dm)：日程変更が元に戻る不具合の修正。";
+const BUILD_TAG = "2026-09-04do 資料トラッキング：『使わない』にした資料を資料一覧から隠す（要望：田中さん）。資料自体は残り、発行済みURLからは開ける。件数つきの『使わない資料も見る／隠す』トグルで表示を切り替えられる。前回(dn)：start_time_manual列エラーの修正。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
