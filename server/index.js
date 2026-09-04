@@ -8451,6 +8451,43 @@ app.get("/api/calls/my-today", async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+// 記録モーダルの理由チップ（断り理由・不在の状況・番号の状態）。みんなで共有する。
+const REASON_DEFAULTS = {
+  断り: ["採用充足している", "費用かけれない", "予算のタイミングじゃない", "ネオ担当から連絡して欲しい", "今は採用していない", "忙しい", "冒頭NG"],
+  不在: ["終日不在", "席を外している", "来客中", "打ち合わせ中", "戻り時間不明", "外出中", "電話中"],
+  番号: ["現在使われていない番号", "アナウンスが流れる", "欠番"],
+};
+app.get("/api/calls/reason-chips", async (req, res) => {
+  try {
+    const st = await getSettings().catch(() => ({}));
+    const saved = st.reasonChips || {};
+    const out = {};
+    for (const k of Object.keys(REASON_DEFAULTS)) out[k] = Array.isArray(saved[k]) && saved[k].length ? saved[k] : REASON_DEFAULTS[k];
+    res.json({ ok: true, chips: out });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+app.put("/api/calls/reason-chips", async (req, res) => {
+  try {
+    const b = req.body || {};
+    const 種類 = String(b.kind || "");
+    if (!REASON_DEFAULTS[種類]) return res.status(400).json({ error: "種類が正しくありません" });
+    const st = await getSettings().catch(() => ({}));
+    const saved = { ...(st.reasonChips || {}) };
+    const いま = Array.isArray(saved[種類]) && saved[種類].length ? saved[種類] : REASON_DEFAULTS[種類];
+    let 次;
+    if (b.add) {
+      const v = String(b.add).trim().slice(0, 40);
+      if (!v) return res.status(400).json({ error: "文言を入れてください" });
+      次 = [...new Set([...いま, v])];
+    } else if (b.remove) {
+      次 = いま.filter((x) => x !== String(b.remove));
+    } else return res.status(400).json({ error: "add か remove が必要です" });
+    saved[種類] = 次.slice(0, 40);
+    await saveSettings({ reasonChips: saved });
+    res.json({ ok: true, chips: 次 });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 // 記録する（Salesforceの活動履歴と、リードの状態も更新する）
 // 「代わりに更新する人」がちゃんと使える状態か確かめる
 app.get("/api/sf-proxy/check", async (req, res) => {
@@ -17660,7 +17697,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-04do 資料トラッキング：『使わない』にした資料を資料一覧から隠す（要望：田中さん）。資料自体は残り、発行済みURLからは開ける。件数つきの『使わない資料も見る／隠す』トグルで表示を切り替えられる。前回(dn)：start_time_manual列エラーの修正。";
+const BUILD_TAG = "2026-09-04dp 記録モーダルの理由チップ（断り理由・不在の状況・番号の状態）を、その場で＋から追加・×で削除できるように（要望：田中さん）。GET/PUT /api/calls/reason-chips で設定に保存しチーム全体で共有、次回以降も出る。既定値は従来のまま。前回(do)：使わない資料を一覧から隠す。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",

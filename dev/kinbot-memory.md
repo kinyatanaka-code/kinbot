@@ -41,6 +41,8 @@ kincall（架電リスト）という別ツールも同じ画面群の中にあ�
 
 ## 決定・指示のログ（新しいものを上に足す）
 
+- 2026-09-04 要望（田中さん）：記録の担当者不在・断りで出るボタン（理由チップ）を、そのモーダルで＋から自由に追加できるように。実装(dp)：server REASON_DEFAULTS{断り/不在/番号}＋GET /api/calls/reason-chips（settings.reasonChipsを既定にフォールバックして返す）、PUT /api/calls/reason-chips {kind, add|remove}（40字/40件上限・重複除去・saveSettings）。client calls.js：_reasonChips に取得結果をキャッシュ、drawReason を async 化し kind(断り/不在/番号)でチップ描画。各チップを .kc-reason-wrap で包み hover時に × (.kc-reason-x) を出して削除、末尾に『＋ 追加』(.kc-reason-add)→promptで文言入力→PUT add→再描画。番号系の自動【使われていない番号】付与は維持。CSS .kc-reason-wrap/.kc-reason-x/.kc-reason-add 追加。GET/PUT 200・smoke OK。※チップはチーム共有（settings保存）。個人ごとにしたい場合は別途キー分け要。
+
 - 2026-09-04 要望（田中さん）：資料トラッキングの『資料』タブで『使わない』にしたものは一覧に出さない（資料自体は見られるまま）。実装(do)：public/docs.js に let showUnusedDocs=false。一覧描画で 表示分＝showUnusedDocs? 全件 : f.active のみ。使わない件数があれば .df-unused-bar に『使わない資料も見る（N件）／隠す（N件）』トグル(#dfToggleUnused)を出し、押すと showUnusedDocs 反転→loadDocs()。全部が使わない状態のときは空メッセージ＋トグルのみ表示。既存の『使わない』ボタン(df-toggle)はPUT後 loadDocs() なので押すとすぐ一覧から消える。style.css .df-unused-bar 追加。※発行済みURL・閲覧記録・URL発行タブのプルダウン(activeのみ)は従来どおり。node--check/smoke OK。
 
 - 2026-09-04 バグ（田中さん）：アポ振り分け画面が『column "start_time_manual" does not exist』。原因：dmで start_time_manual を createSmartLink のSELECT/WHEREで参照したが、列追加を updateApoStartTime 内(=日程変更時)にしか置いておらず、未実行の環境では列が無いままクエリが失敗。修正(dn)：initDb のsmart_linksマイグレーション(start_timeの直後)に ALTER TABLE smart_links ADD COLUMN IF NOT EXISTS start_time_manual TIMESTAMPTZ を追加。加えて label＋手動変更検索を try/catch で包み、列が無い環境でも落ちないように（byId[0].start_time_manual は SELECT * なので undefined で安全）。/api/smart-links 200・apo/excluded 正常。node--check/smoke OK。教訓：新列を使うクエリを足すときは、必ず initDb のマイグレーションに先に追加する。

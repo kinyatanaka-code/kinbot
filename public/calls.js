@@ -107,6 +107,7 @@ async function loadTable() {
 const filt = { stage: new Set(), status: new Set(), hist: "" };
 let hideApo = false;   // アポ獲得済みを隠しているか
 let _sfDisconnected = false;   // SFに接続できず履歴件数が数えられなかった
+let _reasonChips = null;       // 記録モーダルの理由チップ（サーバから取得）
 let sortBy = "", sortDesc = false;
 
 // いま出すぶんを決める
@@ -925,6 +926,12 @@ function renderDock() {
     .kc-reason-chips{display:flex;flex-wrap:wrap;gap:6px;}
     .kc-reason-chip{border:1px solid #cfe0d9;background:#fff;color:#1f2a26;border-radius:999px;padding:5px 12px;font-size:12px;cursor:pointer;transition:all .12s;}
     .kc-reason-chip:hover{background:#eef7f2;border-color:#5DCAA5;}
+    .kc-reason-wrap{position:relative;display:inline-flex;align-items:center;}
+    .kc-reason-wrap .kc-reason-x{display:none;position:absolute;top:-6px;right:-6px;width:16px;height:16px;line-height:14px;
+      border-radius:50%;border:1px solid #e0c9c7;background:#fff;color:#a32d2d;font-size:11px;cursor:pointer;padding:0;text-align:center;}
+    .kc-reason-wrap:hover .kc-reason-x{display:block;}
+    .kc-reason-add{border:1px dashed #cfe0d9;background:#fff;color:#0d5b47;border-radius:999px;padding:5px 12px;font-size:12px;cursor:pointer;font-weight:600;}
+    .kc-reason-add:hover{background:#eef7f2;border-color:#5DCAA5;}
     .kc-slotpanel{position:fixed;top:80px;right:24px;width:280px;max-height:78vh;overflow:auto;background:#ffffff;opacity:1;border:1px solid #d5e3dd;border-radius:14px;box-shadow:0 18px 48px rgba(20,40,30,.28);z-index:9300;padding:16px;}
     .kc-slot-h{font-weight:700;color:#0d5b47;font-size:15px;margin-bottom:10px;}
     .kc-slot-sub{font-weight:500;color:#5b7a6d;font-size:11px;}
@@ -1190,9 +1197,6 @@ async function openTarget(id, draft, opt) {
   const picked = () => (m.el.querySelector("#kcResult") || {}).value || "";
 
   // 結果に応じて理由チップを出す。チップを押すとメモに追記される。
-  const 断り理由 = ["採用充足している", "費用かけれない", "予算のタイミングじゃない", "ネオ担当から連絡して欲しい", "今は採用していない", "忙しい", "冒頭NG"];
-  const 不在文言 = ["終日不在", "席を外している", "来客中", "打ち合わせ中", "戻り時間不明", "外出中", "電話中"];
-  const 不通文言 = ["現在使われていない番号", "アナウンスが流れる", "欠番"];
   const memoEl = () => m.el.querySelector("#kcMemo");
   const appendMemo = (text) => {
     const el = memoEl(); if (!el) return;
@@ -1201,21 +1205,54 @@ async function openTarget(id, draft, opt) {
     el.value = cur ? `${cur}、${text}` : text;
   };
   const reasonBox = m.el.querySelector("#kcReason");
-  const drawReason = () => {
+  const drawReason = async () => {
     if (!reasonBox) return;
     const v = picked();
-    let title = "", chips = [];
-    if (/お断り|断り/.test(v)) { title = "断り理由（押すとメモに追加）"; chips = 断り理由; }
-    else if (/不在/.test(v)) { title = "不在の状況（押すとメモに追加）"; chips = 不在文言; }
-    else if (/使わ|現アナ|アナ|欠番|不通/.test(v)) { title = "番号の状態（押すとメモに追加）"; chips = 不通文言; }
-    if (!chips.length) { reasonBox.hidden = true; reasonBox.innerHTML = ""; return; }
+    let title = "", kind = "";
+    if (/お断り|断り/.test(v)) { title = "断り理由（押すとメモに追加）"; kind = "断り"; }
+    else if (/不在/.test(v)) { title = "不在の状況（押すとメモに追加）"; kind = "不在"; }
+    else if (/使わ|現アナ|アナ|欠番|不通/.test(v)) { title = "番号の状態（押すとメモに追加）"; kind = "番号"; }
+    if (!kind) { reasonBox.hidden = true; reasonBox.innerHTML = ""; return; }
+    if (!_reasonChips) {
+      try { const d = await (await fetch("/api/calls/reason-chips")).json(); _reasonChips = (d && d.chips) || {}; } catch { _reasonChips = {}; }
+    }
+    const chips = (_reasonChips && _reasonChips[kind]) || [];
     reasonBox.hidden = false;
     reasonBox.innerHTML = `<div class="kc-lb">${esc(title)}</div><div class="kc-reason-chips">` +
-      chips.map((c) => `<button type="button" class="kc-reason-chip">${esc(c)}</button>`).join("") + `</div>`;
+      chips.map((c) => `<span class="kc-reason-wrap"><button type="button" class="kc-reason-chip">${esc(c)}</button><button type="button" class="kc-reason-x" data-del="${esc(c)}" title="この文言を消す">×</button></span>`).join("") +
+      `<button type="button" class="kc-reason-add" title="よく使う文言を足す">＋ 追加</button></div>`;
     reasonBox.querySelectorAll(".kc-reason-chip").forEach((b) =>
       b.addEventListener("click", () => appendMemo(b.textContent)));
+    // ＋：その場で文言を足す（みんなで共有・次回からも出る）
+    const addBtn = reasonBox.querySelector(".kc-reason-add");
+    if (addBtn) addBtn.addEventListener("click", async () => {
+      const v2 = prompt("よく使う文言を足します（例：担当者が退職）");
+      if (!v2 || !v2.trim()) return;
+      try {
+        const d = await (await fetch("/api/calls/reason-chips", {
+          method: "PUT", headers: { "content-type": "application/json" },
+          body: JSON.stringify({ kind, add: v2.trim() }),
+        })).json();
+        if (!d.ok) throw new Error(d.error || "足せませんでした");
+        _reasonChips[kind] = d.chips;
+        drawReason();
+      } catch (e) { alert(e.message); }
+    });
+    // ×：いらない文言を消す
+    reasonBox.querySelectorAll(".kc-reason-x").forEach((b) => b.addEventListener("click", async () => {
+      if (!confirm(`「${b.dataset.del}」を消します。よろしいですか？`)) return;
+      try {
+        const d = await (await fetch("/api/calls/reason-chips", {
+          method: "PUT", headers: { "content-type": "application/json" },
+          body: JSON.stringify({ kind, remove: b.dataset.del }),
+        })).json();
+        if (!d.ok) throw new Error(d.error || "消せませんでした");
+        _reasonChips[kind] = d.chips;
+        drawReason();
+      } catch (e) { alert(e.message); }
+    }));
     // 使われていない番号は、メモに自動でフラグを付ける
-    if (/使わ|現アナ|欠番|不通/.test(v)) appendMemo("【使われていない番号】");
+    if (kind === "番号") appendMemo("【使われていない番号】");
   };
   const resultSel = m.el.querySelector("#kcResult");
   if (resultSel) resultSel.addEventListener("change", drawReason);
