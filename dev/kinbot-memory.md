@@ -41,6 +41,8 @@ kincall（架電リスト）という別ツールも同じ画面群の中にあ�
 
 ## 決定・指示のログ（新しいものを上に足す）
 
+- 2026-09-04 要望（田中さん）：取り込んだものは商談名なしでも全部 商談履歴に出してほしい。原因：db.listMeetings の条件が hasTranscript＝transcriptが非空の商談のみ表示だったため、文字起こしを作れなかった取り込み分は履歴に出なかった（商談名の有無ではなく文字起こしの有無が原因）。実装(ef)：meetings に imported_at TIMESTAMPTZ を追加（録音から手で取り込んだ印）。listMeetings の条件を (transcript非空 OR imported_at IS NOT NULL) に。db.markMeetingImported(botId) 追加。import-from-recall：文字起こしが作れなくても createMeeting→(trがあれば)saveMeeting→markMeetingImported を必ず実行し、結果に 方法(『動画からAIで作成』/『文字起こしなし』)と 補足(失敗理由) を返す。取り込み済み判定も imported_at or transcript で行う。→録画は残っているので、文字起こしが無くても履歴に出て再生・後から要約生成が可能。node--check/smoke OK。
+
 - 2026-09-04 情報（田中さん）：文字起こし失敗の原因は Deepgram のクレジット切れだった（補充済み）。→今後の商談は通常どおり自動で文字起こしされる。過去の失敗分は動画からAIで作り直して復旧。改善(ee)：取り込みの進捗表示を強化＝ボタン下に .kc-imp-log（ヘッダ＋スクロール一覧）を生成し、2件ずつのラウンドごとに結果を追記。各行に ✓/×/－ と商談名・状態・方法（動画からAIで作成）・文字起こし件数を表示、ヘッダは『取り込み中… 完了N件／できなかったものM件』を随時更新、終了時は『終わりました：完了N件／…』。サーバも console.log(`[取り込み] OK/NG title（方法・N件）`)。CSS .kc-imp-*。※Deepgram復旧後は failed が出なくなるはずだが、再発検知（transcript.status=failed→自動で動画から作り直し）は未実装＝必要なら追加。node--check/smoke OK。
 
 - 2026-09-04 実データ確認（田中さん）：_botdiag で audio_mixed:null、video_mixed:{status:done, data.download_url: S3のvideo.mp4(署名付き), format:mp4}、transcript:{status:failed, download_url:null} を確認。＝音声は存在せず動画のみ→ecの動画フォールバックが正しい経路。ローカルで同形JSONに対して pick(audio)→無し→pick(video_mixed) で動画URLを取得できることを検証済み。調整(ed)：動画は数十MBで処理が重いため import-from-recall の1回あたり既定を5→2件、クライアントのループを8回→15回（2件ずつ最大30件）に変更。transcribeAudio 冒頭で『[文字起こし] video/mp4 NMB を処理します』をログ出力（詰まり調査用）。要：再デプロイ後に『取り込み漏れを取り込む』を実行（1件あたり動画DL＋Gemini処理で数分かかる想定）。node--check/smoke OK。

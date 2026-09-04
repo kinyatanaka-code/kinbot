@@ -109,6 +109,8 @@ export async function initDb() {
   await sq(`ALTER TABLE meetings ADD COLUMN IF NOT EXISTS account TEXT;`);
   await sq(`ALTER TABLE meetings ADD COLUMN IF NOT EXISTS note TEXT;`);
   await sq(`ALTER TABLE meetings ADD COLUMN IF NOT EXISTS apo_setter TEXT;`);
+  // 録音から手で取り込んだ印（文字起こしが作れなくても履歴に出すため）
+  await sq(`ALTER TABLE meetings ADD COLUMN IF NOT EXISTS imported_at TIMESTAMPTZ;`);
   await sq(`
     CREATE TABLE IF NOT EXISTS accounts (
       key TEXT PRIMARY KEY,
@@ -1364,8 +1366,9 @@ export async function listMeetings({ owner, isAdmin, from, to, limit, light } = 
        COALESCE(m.account,'') AS account, m.category, m.deal_kind,
        m.apo_setter, u.name AS owner_name`;
   const base = `SELECT ${cols} FROM meetings m LEFT JOIN users u ON u.email = m.owner`;
-  // 文字起こしが無い（空配列/NULL）の商談は履歴に残さない
-  const hasTranscript = `(jsonb_typeof(m.transcript)='array' AND jsonb_array_length(m.transcript) > 0)`;
+  // 文字起こしが無い（空配列/NULL）の商談は履歴に残さない。
+  // ただし、録音から手で取り込んだもの（imported_at あり）は、文字起こしが作れなくても履歴に出す。
+  const hasTranscript = `((jsonb_typeof(m.transcript)='array' AND jsonb_array_length(m.transcript) > 0) OR m.imported_at IS NOT NULL)`;
   const conds = [hasTranscript];
   const vals = [];
   if (!isAdmin && owner) {
@@ -1797,6 +1800,13 @@ export async function upsertIntern(email, name) {
 export async function deleteIntern(email) {
   if (!pool || !email) return;
   try { await pool.query(`DELETE FROM interns WHERE email=$1`, [String(email).trim().toLowerCase()]); } catch {}
+}
+
+// 録音から取り込んだ印を付ける（履歴に必ず出すため）
+export async function markMeetingImported(botId) {
+  if (!pool || !botId) return;
+  try { await pool.query(`UPDATE meetings SET imported_at=now(), updated_at=now() WHERE bot_id=$1`, [botId]); }
+  catch (e) { console.error("[db] markMeetingImported", e.message); }
 }
 
 // 商談にアポ獲得者（インターン名）を記録する

@@ -422,6 +422,7 @@ import {
   getUserSettings,
   saveUserSettings,
   saveMeeting,
+  markMeetingImported,
   listAutoJoin,
   recentMeetingUrls,
   findAutoJoinByMeetingId,
@@ -8586,7 +8587,8 @@ async function importFromRecall(req, res) {
     for (const botId of ids.slice(0, Math.max(1, Math.min(30, parseInt(b.max, 10) || 2)))) {   // 音声からの文字起こしは時間がかかるので既定5件ずつ
       try {
         const already = await getMeeting(botId).catch(() => null);
-        if (already && (already.title || already.transcript)) { 結果.push({ botId, 状態: "すでに取り込み済み" }); continue; }
+        const 済み = already && (already.imported_at || (Array.isArray(already.transcript) && already.transcript.length));
+        if (済み) { 結果.push({ botId, 状態: "すでに取り込み済み", 商談名: already.title || "" }); continue; }
         const bot = await getBot(botId);
         // 商談名：Zoomの会議名 → カレンダー予定名 → 会議ID の順で拾う
         const title = bot?.meeting_metadata?.title || bot?.meeting_metadata?.zoom?.topic || bot?.bot_name || String(bot?.meeting_url?.meeting_id || "") || `商談 ${String(botId).slice(0, 8)}`;
@@ -8594,27 +8596,30 @@ async function importFromRecall(req, res) {
         const tr0 = await getBotTranscript(botId).catch(() => []);
         let tr = tr0;
         let 方法 = "Recallの文字起こし";
+        let 補足 = "";
         if (!tr.length) {
           // Recall側の文字起こしが失敗している場合は、音声（無ければ動画）からAIで作り直す
           const media = await getMediaForTranscript(botId).catch(() => null);
-          if (!media || !media.url) { 結果.push({ botId, 状態: "文字起こしも音声・動画も見つかりません", 商談名: title }); continue; }
-          try {
-            tr = await transcribeAudio(media.url, { mimeType: media.mimeType });
-            方法 = `${media.kind}からAIで作成`;
-          } catch (e) { 結果.push({ botId, 状態: `${media.kind}からの文字起こしに失敗：${e.message}`, 商談名: title }); continue; }
+          if (media && media.url) {
+            try {
+              tr = await transcribeAudio(media.url, { mimeType: media.mimeType });
+              方法 = `${media.kind}からAIで作成`;
+            } catch (e) { 方法 = "文字起こしなし"; 補足 = `${media.kind}からの文字起こしに失敗：${e.message}`; }
+          } else { 方法 = "文字起こしなし"; 補足 = "音声・動画が見つかりません"; }
         }
-        if (!tr.length) { 結果.push({ botId, 状態: "文字起こしを作れませんでした", 商談名: title }); continue; }
+        // 文字起こしが作れなくても、録画は残っているので商談としては履歴に出す
         const owner = String(b.owner || req.user || "").toLowerCase();
         await createMeeting(botId, {
           meetingUrl: String(bot?.meeting_url?.meeting_id || ""),
           repName: "", title, owner, muxPlaybackId: null,
         });
-        await saveMeeting(botId, { transcript: tr });
+        if (tr.length) await saveMeeting(botId, { transcript: tr });
+        await markMeetingImported(botId);
         const 確認 = await getMeeting(botId).catch(() => null);
         console.log(`[取り込み] ${確認 ? "OK" : "NG"} ${title}（${方法}・${tr.length}件）`);
         結果.push({
           botId, 状態: 確認 ? "取り込みました" : "保存できませんでした",
-          商談名: title, 開始: started, 文字起こし: tr.length + "件", 方法, 担当: owner,
+          商談名: title, 開始: started, 文字起こし: tr.length ? tr.length + "件" : "なし", 方法, 補足, 担当: owner,
         });
       } catch (e) { 結果.push({ botId, 状態: "できませんでした：" + e.message }); }
     }
@@ -17890,7 +17895,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-04ee 録音の取り込みの進み具合を分かりやすく（要望：田中さん）。ボタンの下に一覧を出し、1件ずつ『商談名・成功/失敗・作成方法（動画からAIで作成など）・文字起こし件数』を表示、上部に『完了◯件／できなかったもの◯件』を随時更新。サーバログにも1件ごとの結果を出力。前回(ed)：動画からの文字起こし経路の確認。";
+const BUILD_TAG = "2026-09-04ef 取り込んだ録音は、文字起こしが作れなくても商談履歴に必ず出るように（要望：田中さん）。商談一覧は『文字起こしがある商談だけ』表示していたため、取り込みに失敗すると履歴に出なかった。meetings に imported_at（録音から取り込んだ印）を追加し、印があるものは文字起こしが無くても一覧に表示。取り込み処理も、文字起こしを作れなかった場合でも商談として登録して印を付ける（結果に理由を表示）。前回(ee)：取り込み進捗の表示。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
