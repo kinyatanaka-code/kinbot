@@ -41,6 +41,8 @@ kincall（架電リスト）という別ツールも同じ画面群の中にあ�
 
 ## 決定・指示のログ（新しいものを上に足す）
 
+- 2026-09-04 原因特定＆対処（田中さん）：インセンティブの実施が増えない → _jisshidiag の結果、商談は取り込まれているが apo_setter が未設定（期間44件中『アポ獲得者なし』29件、今日の3件も全て(なし)）。setMeetingApoSetter を呼ぶのは /api/interns/match（カレンダー照合）だけで、手動実行しないと永久に付かない状態だった。実装(ds)：(1)自動照合＝5分ごとのタイマーで、JST時刻が internMatchHours(既定 19,23) かつ分<10、同時間帯に未実行なら、内部HTTP(127.0.0.1:PORT, x-internal:1)で POST /api/interns/match {from:45日前,to:今日} を実行。settings.internMatchAuto=false で停止。(2)認証ミドルウェアに内部呼び出しの例外（未ログイン＋x-internal:1＋ローカルIP → req.user='system', isAdmin=true）。(3)kincall 設定・管理に『アポ獲得者の照合／いま照合する』(#kcMatchNow)を追加＝直近45日を照合し『N件に付けました（未照合M件）』表示＋loadDash()。※照合は apoCalendarOwner(代表者)のGoogle連携経由。未照合が残る場合は商談名と予定名の表記ゆれ（apoNameMatch）が原因なので、そこは別途調整。node--check/smoke OK。
+
 - 2026-09-04 質問（田中さん）：今日商談実施されているはずなのにインセンティブの実施が増えない。整理：実施は apo-dashboard で listMeetings(INCENTIVE_FROM〜3か月末, light) を取り m.apo_setter(アポ獲得者名) 別にカウント＝(a)商談がkinbotに取り込まれている(Recall録音→meetings登録、終了直後は未反映) (b)その商談に apo_setter が紐づいている の両方が必要。付いていない商談は誰にも計上されない。日付は created_at 基準。切り分け(dr)：GET /api/calls/_jisshidiag?from=&to= を追加＝期間・今日・商談の数・アポ獲得者あり/なし件数・人別の実施数・今日の商談一覧(商談/日/アポ獲得者/担当)・獲得者が付いていない商談30件 を返す。要：田中さんに実行してもらい『今日の商談が入っているか』『apo_setterが(なし)になっていないか』を確認→(a)なら取り込み待ち、(b)ならアポ獲得者の紐づけ（判定画面で設定 or 自動紐づけの改善）が必要。jisshidiag 200/smoke OK。
 
 - 2026-09-04 要望（田中さん）：しぼり込みモーダルに『すべて外す』／絞り込みがページを変えても戻らないように。実装(dq)：calls.js openFilter に #fltNone『すべて外す』（チェックを全解除するだけ＝そのまま選び直せる。決定は『この条件で見る』）。永続化：saveFilt()＝localStorage kcFilt に {stage,status,hist} を保存し、fltOk・fltAll・履歴トグル・『しぼり込みを外す』の各操作で保存。filt定義直後に localStorage から復元（Set/文字列に戻す）。→リスト切替・画面移動・再読み込みでも条件が残る。node--check/smoke OK。※端末ごとの保存。全解除して『この条件で見る』を押すと0件表示になる点は仕様（『すべて』で解除）。

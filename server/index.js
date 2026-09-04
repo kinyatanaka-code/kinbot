@@ -783,6 +783,15 @@ app.use(async (req, res, next) => {
     return next();
   }
   const u = getUser(req);
+  // サーバ自身が動かす定時処理（同じサーバの中からの呼び出し）は、そのまま通す。
+  if (!u && req.headers["x-internal"] === "1") {
+    const ip = String(req.ip || req.socket?.remoteAddress || "");
+    if (/127\.0\.0\.1|::1|::ffff:127\.0\.0\.1/.test(ip)) {
+      req.user = "system";
+      req.isAdmin = true;
+      return next();
+    }
+  }
   if (u) {
     req.user = u.username;
     req.isAdmin = u.admin;
@@ -13917,6 +13926,33 @@ app.post("/api/interns/match", async (req, res) => {
   }
 });
 
+// アポ獲得者（インターン）の照合を、定時に自動で走らせる。
+// これをしないと商談に「アポ獲得者」が付かず、実施の数（インセンティブ）が増えない。
+// 既定は毎日 19時台（JST）と 23時台。設定 internMatchAuto=false で止められる。
+let _lastInternMatch = "";
+setInterval(async () => {
+  try {
+    const st = await getSettings().catch(() => ({}));
+    if (st.internMatchAuto === false) return;
+    const nowJ = new Date(Date.now() + 9 * 3600000);
+    const h = nowJ.getUTCHours(), m = nowJ.getUTCMinutes();
+    const 時刻 = String(st.internMatchHours || "19,23").split(",").map((x) => parseInt(x, 10)).filter((n) => n >= 0 && n <= 23);
+    if (!時刻.includes(h) || m >= 10) return;                    // 指定時の最初の10分だけ
+    const key = `${nowJ.toISOString().slice(0, 10)}:${h}`;
+    if (_lastInternMatch === key) return;                        // 同じ時間に二度やらない
+    _lastInternMatch = key;
+    const to = nowJ.toISOString().slice(0, 10);
+    const from = new Date(nowJ.getTime() - 45 * 86400000).toISOString().slice(0, 10);
+    const r = await fetch(`http://127.0.0.1:${PORT}/api/interns/match`, {
+      method: "POST",
+      headers: { "content-type": "application/json", "x-internal": "1" },
+      body: JSON.stringify({ from, to }),
+    }).catch(() => null);
+    const d = r ? await r.json().catch(() => ({})) : {};
+    if (d && d.matched !== undefined) console.log(`[interns/match] 自動照合：${d.matched}件にアポ獲得者を付けました（未照合 ${d.unmatched}）`);
+  } catch (e) { console.warn("[interns/match] 自動照合", e.message); }
+}, 5 * 60 * 1000);
+
 // カレンダー照合の代表者（この人のGoogle連携を経由して全員が照合できる）
 app.get("/api/apo-calendar-owner", async (req, res) => {
   try {
@@ -17725,7 +17761,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-04dr インセンティブの『実施』が増えない件の切り分け用に点検API GET /api/calls/_jisshidiag を追加。期間内の商談数・アポ獲得者(apo_setter)ありなし・人別の実施数・今日の商談・獲得者が付いていない商談を返す。実施はkinbotに商談が取り込まれ、かつアポ獲得者が紐づいたときに数える仕組み。前回(dq)：しぼり込みの保存とすべて外す。";
+const BUILD_TAG = "2026-09-04ds 実施が増えない原因＝商談に『アポ獲得者』が付いていない（44件中29件が未設定）ため。対処：アポ獲得者の照合を自動化（毎日19時台・23時台に直近45日を自動照合、internMatchAuto=falseで停止、internMatchHoursで時刻変更）＋kincallの設定・管理に『いま照合する』ボタンを追加。サーバ内部からの定時実行は認証免除（127.0.0.1＋x-internalヘッダ）。前回(dr)：実施の点検API。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",

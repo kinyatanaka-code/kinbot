@@ -2072,6 +2072,13 @@ async function loadAdmin() {
         </div>
 
         <div class="kc-adcard">
+          <h3>アポ獲得者の照合</h3>
+          <p class="note">商談に「アポ獲得者」を紐づけます。これが付くと、インセンティブの「実施」に数えられます。ふだんは毎日自動で走りますが、すぐ反映したいときはここから実行してください。</p>
+          <div style="display:flex;gap:8px;align-items:center;margin-bottom:16px">
+            <button type="button" class="btn" id="kcMatchNow">いま照合する</button>
+            <span class="rev-status" id="kcMatchSt"></span>
+          </div>
+
           <h3>プロセスシートの管理</h3>
           <p class="note">SFレポートを読み取って、架電結果を「反映先のプロセスシート」に書き込みます。反映先やレポートはここで設定できます。</p>
           <label class="field"><span>反映先スプレッドシート</span>
@@ -2152,6 +2159,24 @@ async function loadAdmin() {
         if (!r.ok) throw new Error((await r.json()).error || "保存できません");
         const m = $("awMonthMsg"); m.hidden = false; setTimeout(() => (m.hidden = true), 3000);
       } catch (e) { alert("保存できませんでした：" + e.message); }
+    });
+
+    // --- アポ獲得者の照合 ---
+    const mb = $("kcMatchNow");
+    if (mb) mb.addEventListener("click", async () => {
+      mb.disabled = true; say("kcMatchSt", "照合しています…", 60000);
+      try {
+        const now = new Date(Date.now() + 9 * 3600000);
+        const to = now.toISOString().slice(0, 10);
+        const from = new Date(now.getTime() - 45 * 86400000).toISOString().slice(0, 10);
+        const d = await (await fetch("/api/interns/match", {
+          method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ from, to }),
+        })).json();
+        if (d.error) throw new Error(d.error);
+        say("kcMatchSt", `照合しました：${d.matched ?? 0}件にアポ獲得者を付けました（未照合 ${d.unmatched ?? 0}件）`, 12000);
+        loadDash();
+      } catch (e) { say("kcMatchSt", "できませんでした：" + e.message, 10000); }
+      finally { mb.disabled = false; }
     });
 
     // --- プロセスシートの配線 ---
