@@ -98,7 +98,7 @@ import { fixMojibake } from "./docs.js";
 import { openDocView, beatDocViewAndNotify, recordOpen, recordClick, recordDownload, sweepStaleViews,
          PIXEL, docUrl, pixelUrl, clickUrl, fmtSeconds, topPages } from "./docs.js";
 import { transcribeFile, transcriberAvailable } from "./transcribe.js";
-import { createBot, leaveBot, parseTranscriptEvent, parseChatEvent, outputAudio, getRecordingUrl, getBot, getBotTranscript, recallConnectionInfo, getRecallUsage, getLastRecallCreate } from "./recall.js";
+import { createBot, leaveBot, parseTranscriptEvent, parseChatEvent, outputAudio, getRecordingUrl, getBot, getBotTranscript, listRecentBots, recallConnectionInfo, getRecallUsage, getLastRecallCreate } from "./recall.js";
 import { createSession, getSession, removeSession, listActiveSessions, setOnMeetingFinalized } from "./sessions.js";
 import { scoreTranscript } from "./temperature.js";
 import { buildChapters } from "./chapters.js";
@@ -8565,6 +8565,17 @@ app.post("/api/meetings/import-from-recall", async (req, res) => {
   try {
     const b = req.body || {};
     let ids = Array.isArray(b.botIds) ? b.botIds.map((x) => String(x).trim()).filter(Boolean) : [];
+    // 指定が無ければ、最近のRecall録音のうち「まだ商談になっていないもの」を自動で探す
+    if (!ids.length) {
+      const hours = Math.max(1, Math.min(720, parseInt(b.hours, 10) || 48));
+      const bots = await listRecentBots({ hours, limit: 80 }).catch(() => []);
+      for (const bt of bots) {
+        if (!bt.id || !/done|recording_done|call_ended/i.test(String(bt.status))) continue;
+        const已 = await getMeeting(bt.id).catch(() => null);
+        if (已 && (已.title || 已.transcript)) continue;
+        ids.push(bt.id);
+      }
+    }
     const 結果 = [];
     for (const botId of ids.slice(0, 30)) {
       try {
@@ -17821,7 +17832,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-04dw 今日の商談が記録されない件：Recall側には録音が残っている（Done）が kinbot に商談として入っていないため、録音から取り込み直せるようにした。POST /api/meetings/import-from-recall {botIds:[]} ＝Bot IDを指定して Recall から文字起こしを取得し商談として保存（既に取り込み済みはスキップ）。recall.getBotTranscript を追加。前回(dv)：今日の商談の点検API。";
+const BUILD_TAG = "2026-09-04dx 録音から商談を取り込み直す導線を画面に追加（要望：田中さん・今日の商談が記録されない）。設定・管理の『取り込み漏れを取り込む』で、直近48時間のRecall録音のうち商談になっていないものを自動で見つけて取り込む（recall.listRecentBots追加。botIds指定も可）。前回(dw)：取り込みAPIの追加。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",

@@ -347,6 +347,28 @@ export async function getBotTranscript(botId) {
   return out;
 }
 
+/** 最近のBot一覧を取る（取り込み漏れを見つけるために使う） */
+export async function listRecentBots({ hours = 48, limit = 60 } = {}) {
+  if (!API_KEY) throw new Error("RECALL_API_KEY が未設定です");
+  const since = new Date(Date.now() - hours * 3600000).toISOString();
+  const url = `${BASE}/bot/?created_at__gte=${encodeURIComponent(since)}&limit=${limit}`;
+  const res = await fetch(url, { headers: headers() });
+  if (!res.ok) throw new Error(`Recall list bots ${res.status}`);
+  const d = await res.json().catch(() => ({}));
+  const arr = Array.isArray(d) ? d : (d.results || []);
+  return arr.map((b) => {
+    const ch = Array.isArray(b.status_changes) ? b.status_changes : [];
+    const rec = Array.isArray(b.recordings) ? b.recordings[0] : null;
+    return {
+      id: b.id,
+      title: b?.meeting_metadata?.title || "",
+      created_at: b.created_at || "",
+      started_at: rec?.started_at || b.join_at || b.created_at || "",
+      status: (ch.length ? ch[ch.length - 1].code : b?.status?.code) || "",
+    };
+  });
+}
+
 /** Botの応答から録画(動画)URLを最善努力で探す（スキーマ差異に強く） */
 export async function getRecordingUrl(botId) {
   const data = await getBot(botId);

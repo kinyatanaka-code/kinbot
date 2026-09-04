@@ -2072,6 +2072,13 @@ async function loadAdmin() {
         </div>
 
         <div class="kc-adcard">
+          <h3>録音から商談を取り込む</h3>
+          <p class="note">録音はできているのに商談履歴に出ていないものを、Recallの録音からまとめて取り込みます（直近2日ぶん）。取り込み済みのものは飛ばします。</p>
+          <div style="display:flex;gap:8px;align-items:center;margin-bottom:16px">
+            <button type="button" class="btn" id="kcImportRec">取り込み漏れを取り込む</button>
+            <span class="rev-status" id="kcImportSt"></span>
+          </div>
+
           <h3>アポ獲得者の照合</h3>
           <p class="note">商談に「アポ獲得者」を紐づけます。これが付くと、インセンティブの「実施」に数えられます。ふだんは毎日自動で走りますが、すぐ反映したいときはここから実行してください。</p>
           <div style="display:flex;gap:8px;align-items:center;margin-bottom:16px">
@@ -2159,6 +2166,22 @@ async function loadAdmin() {
         if (!r.ok) throw new Error((await r.json()).error || "保存できません");
         const m = $("awMonthMsg"); m.hidden = false; setTimeout(() => (m.hidden = true), 3000);
       } catch (e) { alert("保存できませんでした：" + e.message); }
+    });
+
+    // --- 録音から商談を取り込む ---
+    const ib = $("kcImportRec");
+    if (ib) ib.addEventListener("click", async () => {
+      ib.disabled = true; say("kcImportSt", "取り込んでいます…（少し時間がかかります）", 120000);
+      try {
+        const d = await (await fetch("/api/meetings/import-from-recall", {
+          method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ hours: 48 }),
+        })).json();
+        if (d.error) throw new Error(d.error);
+        const ok = (d.結果 || []).filter((r) => /取り込みました/.test(r.状態)).length;
+        const ng = (d.結果 || []).filter((r) => !/取り込みました|取り込み済み/.test(r.状態));
+        say("kcImportSt", `${ok}件を取り込みました${ng.length ? `（できなかったもの ${ng.length}件）` : ""}`, 15000);
+      } catch (e) { say("kcImportSt", "できませんでした：" + e.message, 12000); }
+      finally { ib.disabled = false; }
     });
 
     // --- アポ獲得者の照合 ---
