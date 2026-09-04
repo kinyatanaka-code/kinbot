@@ -403,15 +403,21 @@ export async function transcribeAudio(audioUrl, { mimeType = "audio/mpeg", model
     if (!up.ok) throw new Error(`アップロードに失敗 ${up.status}（${Math.round(buf.length / 1024 / 1024)}MB）`);
     const ud = await up.json().catch(() => ({}));
     const fileUri = ud?.file?.uri;
-    if (!fileUri) throw new Error("アップロード先が分かりませんでした");
-    // 処理が終わるまで少し待つ
-    for (let i = 0; i < 20; i++) {
-      const st = await fetch(`https://generativelanguage.googleapis.com/v1beta/${(ud.file.name || "").replace(/^files\//, "files/")}?key=${key}`).catch(() => null);
-      const sd = st && st.ok ? await st.json().catch(() => ({})) : {};
-      if (sd?.state === "ACTIVE" || !sd?.state) break;
-      if (sd?.state === "FAILED") throw new Error("メディアの処理に失敗しました");
+    const fileName = ud?.file?.name;   // 例：files/abc123
+    if (!fileUri || !fileName) throw new Error("アップロード先が分かりませんでした");
+    // 使える状態（ACTIVE）になるまで待つ。動画は変換に時間がかかる。
+    let 状態 = ud?.file?.state || "";
+    for (let i = 0; i < 60 && 状態 !== "ACTIVE"; i++) {
       await new Promise((r) => setTimeout(r, 3000));
+      const st = await fetch(`https://generativelanguage.googleapis.com/v1beta/${fileName}?key=${key}`).catch(() => null);
+      if (!st || !st.ok) continue;
+      const sd = await st.json().catch(() => ({}));
+      状態 = sd?.state || 状態;
+      if (状態 === "FAILED") throw new Error("メディアの処理に失敗しました（Gemini側）");
+      if (i % 5 === 0) console.log(`[文字起こし] 準備中… ${状態 || "?"}（${(i + 1) * 3}秒）`);
     }
+    if (状態 !== "ACTIVE") throw new Error("メディアの準備が終わりませんでした（時間切れ）");
+    console.log(`[文字起こし] 準備できました（${fileName}）`);
     part = { file_data: { mime_type: mimeType, file_uri: fileUri } };
   }
   const 候補 = [...new Set([使うモデル, "gemini-2.5-flash", "gemini-flash-latest"])];
@@ -428,6 +434,21 @@ export async function transcribeAudio(audioUrl, { mimeType = "audio/mpeg", model
     });
     if (res.ok) break;
     最後 = (await res.text().catch(() => "")).slice(0, 200);
+    // まだ準備中だった場合は、少し待ってもう一度だけ試す
+    if (/not in an ACTIVE state|FAILED_PRECONDITION/i.test(最後)) {
+      console.warn("[文字起こし] メディアの準備待ちのため、10秒後にもう一度試します");
+      await new Promise((r) => setTimeout(r, 10000));
+      res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${m}:generateContent?key=${key}`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          contents: [{ parts: [{ text: prompt }, part] }],
+          generationConfig: { temperature: 0, maxOutputTokens: 8192 },
+        }),
+      });
+      if (res.ok) break;
+      最後 = (await res.text().catch(() => "")).slice(0, 200);
+    }
     // モデルが無い/使えない場合だけ、次の候補を試す
     if (!(res.status === 404 || /not\s*found|no longer available|not supported/i.test(最後))) break;
     console.warn(`[文字起こし] ${m} が使えないので次のモデルを試します`);

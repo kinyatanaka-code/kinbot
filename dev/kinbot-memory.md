@@ -41,6 +41,8 @@ kincall（架電リスト）という別ツールも同じ画面群の中にあ�
 
 ## 決定・指示のログ（新しいものを上に足す）
 
+- 2026-09-04 バグ（田中さん）：文字起こしが 400 FAILED_PRECONDITION『The File ... is not in an ACTIVE state and usage is not allowed.』。原因：transcribeAudio の Files API アップロード後の待機ループが甘く、(a)state取得URLの組み立てが不正確 (b)`!sd?.state` で break していたため未取得時に即抜け (c)最大20回でも待ち不足、の結果 PROCESSING のまま generateContent を呼んでいた。修正(en)：ud.file.name（例 files/abc）を使って `v1beta/{name}?key=` を3秒間隔で最大60回(=3分)ポーリングし、state==='ACTIVE' になるまで待つ。FAILEDは即エラー、時間切れも明示エラー。5回ごとに『準備中… STATE（N秒）』をログ。さらに generateContent が /not in an ACTIVE state|FAILED_PRECONDITION/ を返した場合は10秒待って同じモデルで1回だけ再試行。node--check/smoke OK。
+
 - 2026-09-04 要望（田中さん）：文字起こしを再実行したい。実装(em)：POST /api/meetings/:botId/transcribe に force（body.force===true or ?force=1）を追加＝既存の文字起こしがあっても作り直して saveMeeting で上書き（既定は従来どおりスキップ）。history.js：#transcribeBtn は文字起こしがある場合ラベルを『文字起こしを作り直す』にし、confirm『いまの文字起こしを消して作り直します』→force:true でPOST（hiddenをやめ常時表示）。#allGenBtn（文字起こし＋要約）も、文字起こしがある場合に confirm で『OK=文字起こしから作り直す／キャンセル=いまの文字起こしで要約だけ』を選べるようにし、選択に応じて force を送る。進捗表示は既存のまま。node--check/smoke OK。
 
 - 2026-09-04 要望（田中さん）：文字起こしと要約をさせるボタン＋進捗表示。実装(el)：history.js 商談ヘッダーに #allGenBtn『文字起こし＋要約』を追加（.dactions先頭）、ヘッダー直下に #genProgress を配置。クリックで (1)tr.length===0 なら POST /api/meetings/{botId}/transcribe（『文字起こしを作っています…（録画から作るので数分）』→『できました（N件）』）、既にあればスキップ表示 (2)POST /api/meetings/{botId}/analyze（『要約・フィードバックを作っています…』→完了）(3)『できあがりました。画面を更新します。』→reload。各ステップは 進捗(step,text,state) で行を追加/更新（✓ok・…doing・×ng）、失敗時はその行にエラー文言を出しボタンを戻す。style.css .gen-progress/.gp-row/.gp-mark 追加。既存の『文字起こしを作る』『要約・FB生成』も残置。node--check/smoke OK。
