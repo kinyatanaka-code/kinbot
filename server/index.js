@@ -8610,6 +8610,36 @@ async function importFromRecall(req, res) {
   } catch (e) { res.status(500).json({ error: e.message }); }
 }
 
+// 【点検用】Recallのbotの中身をそのまま見る（文字起こしがどこにあるか調べる）
+app.get("/api/meetings/_botdiag", async (req, res) => {
+  try {
+    const botId = String(req.query.botId || "").trim();
+    if (!botId) return res.status(400).json({ error: "botId を指定してください" });
+    const bot = await getBot(botId);
+    // どこに何があるか、URLらしきものを全部拾って見せる
+    const urls = [];
+    (function walk(o, path) {
+      if (o == null) return;
+      if (typeof o === "string") { if (/^https?:\/\//.test(o)) urls.push({ path, url: o.slice(0, 160) }); return; }
+      if (typeof o !== "object") return;
+      for (const k of Object.keys(o)) walk(o[k], path ? `${path}.${k}` : k);
+    })(bot, "");
+    const recs = Array.isArray(bot?.recordings) ? bot.recordings : [];
+    res.json({
+      ok: true, botId,
+      状態: (bot?.status_changes || []).map((c) => c.code),
+      recordings数: recs.length,
+      recordingsの中身: recs.map((r) => ({
+        id: r.id, started_at: r.started_at, completed_at: r.completed_at,
+        media_shortcutsのキー: Object.keys(r.media_shortcuts || {}),
+        transcript: r.media_shortcuts?.transcript || null,
+      })),
+      URLらしきもの: urls.slice(0, 40),
+      直下のキー: Object.keys(bot || {}),
+    });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 // 記録する（Salesforceの活動履歴と、リードの状態も更新する）
 // 「代わりに更新する人」がちゃんと使える状態か確かめる
 app.get("/api/sf-proxy/check", async (req, res) => {
@@ -17846,7 +17876,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-04dz 録音からの取り込みが『const已 is not defined』で失敗する不具合を修正（変数名の置換ミスでスペースが欠落し不正な識別子になっていた）。取り込み漏れの自動検出が正常に動くように。前回(dy)：取り込み結果の詳細表示とGET版。";
+const BUILD_TAG = "2026-09-04ea 録音の文字起こしが取れない件：取得方法を新旧のRecall APIに対応（recordings内のtranscript URL／パス名にtranscriptを含むURLの探索／/bot/{id}/transcript/／/transcript/?recording_id= の4経路）。あわせて GET /api/meetings/_botdiag?botId= でbotの中身（recordingsのmedia_shortcutsやURL一覧）を確認できるようにした。前回(dz)：取り込みの実行時エラー修正。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",

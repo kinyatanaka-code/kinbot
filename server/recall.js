@@ -314,23 +314,50 @@ export async function getBot(botId) {
 /** Botの文字起こしを取る（取り込み直し用）。[{speaker:{name}, text, start}] の形にそろえる */
 export async function getBotTranscript(botId) {
   const data = await getBot(botId).catch(() => null);
-  // v1.11：recordings[].media_shortcuts.transcript.data.download_url からJSONを取る
   const recs = Array.isArray(data?.recordings) ? data.recordings : [];
+  // 1) recordings[].media_shortcuts.transcript.data.download_url（v1.11）
   let url = "";
   for (const r of recs) {
     const t = (r?.media_shortcuts || {}).transcript;
-    const u = t?.data?.download_url;
+    const u = t?.data?.download_url || t?.download_url;
     if (typeof u === "string" && /^https?:\/\//.test(u)) { url = u; break; }
+  }
+  // 2) どこかに transcript のダウンロードURLがあれば拾う（スキーマ差異に強く）
+  if (!url) {
+    (function walk(o, path) {
+      if (url || o == null) return;
+      if (typeof o === "string") {
+        if (/^https?:\/\//.test(o) && /transcript/i.test(path)) url = o;
+        return;
+      }
+      if (typeof o !== "object") return;
+      for (const k of Object.keys(o)) walk(o[k], path ? `${path}.${k}` : k);
+    })(data, "");
   }
   let raw = null;
   if (url) {
     const res = await fetch(url).catch(() => null);
     if (res && res.ok) raw = await res.json().catch(() => null);
   }
+  // 3) 旧エンドポイント（/bot/{id}/transcript/）
   if (!raw) {
-    // 旧エンドポイントも試す
     const res = await fetch(`${BASE}/bot/${botId}/transcript/`, { headers: headers() }).catch(() => null);
     if (res && res.ok) raw = await res.json().catch(() => null);
+  }
+  // 4) 新エンドポイント（/transcript/?recording_id=）
+  if (!raw && recs.length) {
+    for (const r of recs) {
+      if (!r?.id) continue;
+      const res = await fetch(`${BASE}/transcript/?recording_id=${encodeURIComponent(r.id)}`, { headers: headers() }).catch(() => null);
+      if (!res || !res.ok) continue;
+      const d = await res.json().catch(() => null);
+      const first = Array.isArray(d) ? d[0] : (d?.results?.[0] || d);
+      const u2 = first?.data?.download_url;
+      if (typeof u2 === "string" && /^https?:\/\//.test(u2)) {
+        const r2 = await fetch(u2).catch(() => null);
+        if (r2 && r2.ok) { raw = await r2.json().catch(() => null); if (raw) break; }
+      }
+    }
   }
   if (!raw) return [];
   const out = [];
