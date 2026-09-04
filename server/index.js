@@ -13942,7 +13942,7 @@ setInterval(async () => {
     if (_lastInternMatch === key) return;                        // 同じ時間に二度やらない
     _lastInternMatch = key;
     const to = nowJ.toISOString().slice(0, 10);
-    const from = new Date(nowJ.getTime() - 45 * 86400000).toISOString().slice(0, 10);
+    const from = new Date(nowJ.getTime() - 120 * 86400000).toISOString().slice(0, 10);   // 前月以前に取ったアポの商談も拾えるよう広めに
     const r = await fetch(`http://127.0.0.1:${PORT}/api/interns/match`, {
       method: "POST",
       headers: { "content-type": "application/json", "x-internal": "1" },
@@ -17761,7 +17761,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-04ds 実施が増えない原因＝商談に『アポ獲得者』が付いていない（44件中29件が未設定）ため。対処：アポ獲得者の照合を自動化（毎日19時台・23時台に直近45日を自動照合、internMatchAuto=falseで停止、internMatchHoursで時刻変更）＋kincallの設定・管理に『いま照合する』ボタンを追加。サーバ内部からの定時実行は認証免除（127.0.0.1＋x-internalヘッダ）。前回(dr)：実施の点検API。";
+const BUILD_TAG = "2026-09-04dt 8月に取ったアポでも9月に実施していればカウントされる点を確実に（要望：田中さん）。実施の集計は元から『商談の実施日が9/1以降』基準なので取得月は問わないが、アポ獲得者の照合対象が直近45日で古いアポの商談を取りこぼす恐れがあったため120日に拡大（自動照合・手動ボタンとも）。カードの表記も『9月以降に実施 N件 × ¥1,000』に。前回(ds)：照合の自動化。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",

@@ -1718,7 +1718,7 @@ function dashCard(c, big) {
     ? `<div class="kc-inc${rankCls}">
          <div class="kc-inc-lb">獲得見込みインセンティブ${c.順位 ? `<span class="kc-inc-rank">${esc(順位表記)}</span>` : ""}</div>
          <div class="kc-inc-yen">${冠}<span class="kc-inc-num">¥${Number(c.インセンティブ || 0).toLocaleString()}</span>${冠右}</div>
-         <div class="kc-inc-sub">実施 ${c.実施 || 0}件 × ¥1,000</div>
+         <div class="kc-inc-sub">9月以降に実施 ${c.実施 || 0}件 × ¥1,000</div>
        </div>` : "";
   return `<div class="kc-dcard${big ? " kc-dcard-big" : ""}${rankCls}" data-subj="${esc(c.key)}" data-label="${esc(c.label)}">
     <div class="kc-dname">${esc(c.label)}</div>
@@ -2168,7 +2168,7 @@ async function loadAdmin() {
       try {
         const now = new Date(Date.now() + 9 * 3600000);
         const to = now.toISOString().slice(0, 10);
-        const from = new Date(now.getTime() - 45 * 86400000).toISOString().slice(0, 10);
+        const from = new Date(now.getTime() - 120 * 86400000).toISOString().slice(0, 10);
         const d = await (await fetch("/api/interns/match", {
           method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ from, to }),
         })).json();
