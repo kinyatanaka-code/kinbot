@@ -8583,7 +8583,7 @@ async function importFromRecall(req, res) {
       }
     }
     const 結果 = [];
-    for (const botId of ids.slice(0, Math.max(1, Math.min(30, parseInt(b.max, 10) || 5)))) {   // 音声からの文字起こしは時間がかかるので既定5件ずつ
+    for (const botId of ids.slice(0, Math.max(1, Math.min(30, parseInt(b.max, 10) || 2)))) {   // 音声からの文字起こしは時間がかかるので既定5件ずつ
       try {
         const already = await getMeeting(botId).catch(() => null);
         if (already && (already.title || already.transcript)) { 結果.push({ botId, 状態: "すでに取り込み済み" }); continue; }
@@ -17889,7 +17889,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-04ec 音声が見つからず0件になる件：音声が無ければ動画から文字起こしを作るようにした（recall.getMediaForTranscript＝audio_mixed→video_mixed→download_urlの総なめ）。大きいファイルはGeminiにアップロードしてから渡す（inline上限18MB超に対応）。点検APIでaudio_mixed/video_mixedの中身も確認できるように。前回(eb)：音声からの文字起こし復旧。";
+const BUILD_TAG = "2026-09-04ed 実データで確認：audio_mixedはnull、video_mixedにS3のdownload_urlがある形だったため、動画から文字起こしを作る経路で復旧できることを確認。動画は重いので1回2件ずつ（ボタンは自動で繰り返し）に調整、処理サイズをログに出すようにした。前回(ec)：動画フォールバックとGeminiアップロード対応。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",

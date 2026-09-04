@@ -2174,10 +2174,10 @@ async function loadAdmin() {
       ib.disabled = true;
       let 合計 = 0, 失敗 = [];
       try {
-        for (let round = 0; round < 8; round++) {   // 5件ずつ、最大40件まで
+        for (let round = 0; round < 15; round++) {   // 2件ずつ、最大30件まで
           say("kcImportSt", `取り込んでいます…（${合計}件おわり／音声から文字起こしを作るため時間がかかります）`, 600000);
           const d = await (await fetch("/api/meetings/import-from-recall", {
-            method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ hours: 48, max: 5 }),
+            method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ hours: 48, max: 2 }),
           })).json();
           if (d.error) throw new Error(d.error);
           const rs = d.結果 || [];

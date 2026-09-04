@@ -357,6 +357,8 @@ export async function transcribeAudio(audioUrl, { mimeType = "audio/mpeg", model
   const res0 = await fetch(audioUrl);
   if (!res0.ok) throw new Error(`メディアの取得に失敗 ${res0.status}`);
   const buf = Buffer.from(await res0.arrayBuffer());
+  // 動画は大きいので、長さの目安をログに出しておく（詰まったときの手がかり）
+  console.log(`[文字起こし] ${mimeType} ${Math.round(buf.length / 1024 / 1024)}MB を処理します`);
   const prompt =
     "この音声（または動画）は日本語の商談です。全部を文字起こししてください。\n" +
     "・話者が変わるごとに行を分け、行頭に「話者1：」「話者2：」のように付けてください。\n" +
