@@ -8668,7 +8668,10 @@ app.post("/api/meetings/:botId/transcribe", async (req, res) => {
     const botId = String(req.params.botId || "");
     const m = await getMeeting(botId).catch(() => null);
     if (!m) return res.status(404).json({ error: "この商談は見つかりません" });
-    if (Array.isArray(m.transcript) && m.transcript.length) return res.json({ ok: true, 状態: "すでに文字起こしがあります" });
+    const 作り直す = req.body?.force === true || String(req.query.force || "") === "1";
+    if (!作り直す && Array.isArray(m.transcript) && m.transcript.length) {
+      return res.json({ ok: true, 状態: "すでに文字起こしがあります" });
+    }
     const media = await getMediaForTranscript(botId).catch(() => null);
     if (!media || !media.url) return res.status(400).json({ error: "録画・音声が見つかりません" });
     const tr = await transcribeAudio(media.url, { mimeType: media.mimeType });
@@ -17914,7 +17917,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-04el 商談画面に『文字起こし＋要約』のまとめ実行ボタンを追加（要望：田中さん）。押すと文字起こし→要約・FBの順に実行し、いまどこまで進んだかを1行ずつ表示（✓/…/×）。文字起こしが既にある商談は要約から始める。前回(ek)：長い商談の要約を分割生成。";
+const BUILD_TAG = "2026-09-04em 文字起こしを作り直せるように（要望：田中さん）。文字起こしがある商談ではボタンが『文字起こしを作り直す』になり、確認のうえ録画から作り直して上書きする。『文字起こし＋要約』でも、作り直すか今のものを使うか選べる。前回(el)：まとめ実行ボタンと進捗表示。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",

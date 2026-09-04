@@ -2034,15 +2034,22 @@ async function loadDetail(botId, openTab, opts = {}) {
       row.innerHTML = `<span class="gp-mark">${state === "ok" ? "✓" : state === "ng" ? "×" : "…"}</span><span>${text}</span>`;
     };
     if (allBtn) allBtn.addEventListener("click", async () => {
+      // 文字起こしがある場合は、作り直すかどうかを選べる
+      let 作り直す = false;
+      if (tr.length > 0) {
+        作り直す = confirm("文字起こしも作り直しますか？\n\nOK：文字起こしから作り直す\nキャンセル：いまの文字起こしを使って要約だけ作る");
+      }
       allBtn.disabled = true;
       const orig = allBtn.textContent;
       allBtn.textContent = "作っています…";
       if (prog) { prog.hidden = false; prog.innerHTML = ""; }
       try {
-        // 1) 文字起こし（無いときだけ）
-        if (tr.length === 0) {
+        // 1) 文字起こし（無いとき、または作り直すとき）
+        if (tr.length === 0 || 作り直す) {
           進捗("tr", "文字起こしを作っています…（録画から作るので数分かかります）", "doing");
-          const r = await fetch(`/api/meetings/${encodeURIComponent(botId)}/transcribe`, { method: "POST" });
+          const r = await fetch(`/api/meetings/${encodeURIComponent(botId)}/transcribe`, {
+            method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ force: 作り直す }),
+          });
           const d = await r.json();
           if (!r.ok) throw new Error("文字起こし：" + (d.error || "できませんでした"));
           進捗("tr", `文字起こしができました（${d.件数 || 0}件）`, "ok");
@@ -2066,13 +2073,17 @@ async function loadDetail(botId, openTab, opts = {}) {
     // 文字起こしを後から作る（録画・音声から）
     const trBtn = hdetail.querySelector("#transcribeBtn");
     if (trBtn) {
-      if (tr.length > 0) trBtn.hidden = true;   // すでに文字起こしがあれば出さない
+      const ある = tr.length > 0;
+      if (ある) { trBtn.textContent = "文字起こしを作り直す"; trBtn.title = "いまの文字起こしを消して、録画・音声から作り直します"; }
       trBtn.addEventListener("click", async () => {
+        if (ある && !confirm("いまの文字起こしを消して、録画から作り直します。よろしいですか？")) return;
         trBtn.disabled = true;
         const orig = trBtn.textContent;
         trBtn.textContent = "作っています…（数分かかります）";
         try {
-          const r = await fetch(`/api/meetings/${encodeURIComponent(botId)}/transcribe`, { method: "POST" });
+          const r = await fetch(`/api/meetings/${encodeURIComponent(botId)}/transcribe`, {
+            method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ force: ある }),
+          });
           const d = await r.json();
           if (!r.ok) throw new Error(d.error || "作れませんでした");
           trBtn.textContent = d.件数 ? `できました（${d.件数}件）` : (d.状態 || "できました");

@@ -41,6 +41,8 @@ kincall（架電リスト）という別ツールも同じ画面群の中にあ�
 
 ## 決定・指示のログ（新しいものを上に足す）
 
+- 2026-09-04 要望（田中さん）：文字起こしを再実行したい。実装(em)：POST /api/meetings/:botId/transcribe に force（body.force===true or ?force=1）を追加＝既存の文字起こしがあっても作り直して saveMeeting で上書き（既定は従来どおりスキップ）。history.js：#transcribeBtn は文字起こしがある場合ラベルを『文字起こしを作り直す』にし、confirm『いまの文字起こしを消して作り直します』→force:true でPOST（hiddenをやめ常時表示）。#allGenBtn（文字起こし＋要約）も、文字起こしがある場合に confirm で『OK=文字起こしから作り直す／キャンセル=いまの文字起こしで要約だけ』を選べるようにし、選択に応じて force を送る。進捗表示は既存のまま。node--check/smoke OK。
+
 - 2026-09-04 要望（田中さん）：文字起こしと要約をさせるボタン＋進捗表示。実装(el)：history.js 商談ヘッダーに #allGenBtn『文字起こし＋要約』を追加（.dactions先頭）、ヘッダー直下に #genProgress を配置。クリックで (1)tr.length===0 なら POST /api/meetings/{botId}/transcribe（『文字起こしを作っています…（録画から作るので数分）』→『できました（N件）』）、既にあればスキップ表示 (2)POST /api/meetings/{botId}/analyze（『要約・フィードバックを作っています…』→完了）(3)『できあがりました。画面を更新します。』→reload。各ステップは 進捗(step,text,state) で行を追加/更新（✓ok・…doing・×ng）、失敗時はその行にエラー文言を出しボタンを戻す。style.css .gen-progress/.gp-row/.gp-mark 追加。既存の『文字起こしを作る』『要約・FB生成』も残置。node--check/smoke OK。
 
 - 2026-09-04 バグ（田中さん）：26分商談の要約で『gemini: 応答が出力上限で途中で切れました(MAX_TOKENS) / フォールバック(groq): Groq 400 whisper-large-v3-turbo does not support chat completions』→設定変更後は『json_validate_failed』。原因：(1)analyzeMeeting が長い文字起こしをそのまま渡し maxTokens 2400 で切れる (2)設定のgroqModelに文字起こし専用の whisper-large-v3-turbo が選ばれており、フォールバックのchat completionsで400、その後もJSON生成が不安定。修正(ek)：(1)analyzeMeeting＝全文が24000字超なら12000字ずつに分割し各塊を callLLM(json:false, 1200) で『話の要点』に要約（最大6塊）→その要点を素材に最終要約、最終の maxTokens を 2400→4000 に。knowledgeBlock も素材ベース。(2)resolveGroqModel で /whisper|orpheus|prompt-guard|tts/ のモデルが選ばれていたら警告ログを出して llama-3.3-70b-versatile（or 環境変数の妥当なモデル）にすり替え＝文章生成に使わない。判定を単体確認。node--check/smoke OK。※Groq設定は openai/gpt-oss-20b 等に変えるのが望ましい旨を田中さんに案内。
