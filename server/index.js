@@ -17914,7 +17914,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-04ei 商談画面に『文字起こしを作る』ボタンを追加（要望：田中さん）。文字起こしが無い商談で押すと、録画・音声からAIで作成して保存する（POST /api/meetings/:botId/transcribe）。作成後は画面を更新し、要約・分析もそのまま生成できる。前回(eh)：携帯で商談名を編集できるように。";
+const BUILD_TAG = "2026-09-04ej 文字起こしが404（gemini-2.0-flashが提供終了）で失敗する不具合を修正。他の機能と同じ gemini-2.5-flash を使うようにし（GEMINI_TRANSCRIBE_MODEL で変更可）、モデルが使えないときは自動で別のモデルに切り替えて再試行するようにした。前回(ei)：文字起こしを作るボタン。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",

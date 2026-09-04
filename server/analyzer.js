@@ -351,7 +351,8 @@ async function fetchSiteText(url, { max = 6000 } = {}) {
 
 // 音声（mp3/m4a等）から文字起こしを作る。Recallの文字起こしが失敗したときの作り直し用。
 // 返り値：[{ speaker:{name}, text }]（話者は「話者1/話者2」のように分ける）
-export async function transcribeAudio(audioUrl, { mimeType = "audio/mpeg", model = "gemini-2.0-flash" } = {}) {
+export async function transcribeAudio(audioUrl, { mimeType = "audio/mpeg", model } = {}) {
+  const 使うモデル = model || process.env.GEMINI_TRANSCRIBE_MODEL || process.env.GEMINI_READ_MODEL || "gemini-2.5-flash";
   const key = String(process.env.GEMINI_API_KEY || "").trim();
   if (!key) throw new Error("GEMINI_API_KEY が未設定です");
   const res0 = await fetch(audioUrl);
@@ -394,19 +395,25 @@ export async function transcribeAudio(audioUrl, { mimeType = "audio/mpeg", model
     }
     part = { file_data: { mime_type: mimeType, file_uri: fileUri } };
   }
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${key}`;
-  const res = await fetch(url, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({
-      contents: [{ parts: [{ text: prompt }, part] }],
-      generationConfig: { temperature: 0, maxOutputTokens: 8192 },
-    }),
-  });
-  if (!res.ok) {
-    const t = await res.text().catch(() => "");
-    throw new Error(`文字起こしに失敗 ${res.status}: ${t.slice(0, 200)}`);
+  const 候補 = [...new Set([使うモデル, "gemini-2.5-flash", "gemini-flash-latest"])];
+  let res = null, 最後 = "";
+  for (const m of 候補) {
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/${m}:generateContent?key=${key}`;
+    res = await fetch(url, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        contents: [{ parts: [{ text: prompt }, part] }],
+        generationConfig: { temperature: 0, maxOutputTokens: 8192 },
+      }),
+    });
+    if (res.ok) break;
+    最後 = (await res.text().catch(() => "")).slice(0, 200);
+    // モデルが無い/使えない場合だけ、次の候補を試す
+    if (!(res.status === 404 || /not\s*found|no longer available|not supported/i.test(最後))) break;
+    console.warn(`[文字起こし] ${m} が使えないので次のモデルを試します`);
   }
+  if (!res || !res.ok) throw new Error(`文字起こしに失敗 ${res ? res.status : ""}: ${最後}`);
   const d = await res.json().catch(() => ({}));
   const text = (d?.candidates?.[0]?.content?.parts || []).map((p) => p.text || "").join("");
   const out = [];

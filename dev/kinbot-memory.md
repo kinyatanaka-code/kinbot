@@ -41,6 +41,8 @@ kincall（架電リスト）という別ツールも同じ画面群の中にあ�
 
 ## 決定・指示のログ（新しいものを上に足す）
 
+- 2026-09-04 バグ（田中さん）：『文字起こしを作る』が 404 This model models/gemini-2.0-flash is no longer available（gemini-3.6-flashを使えとの案内）。原因：ebで transcribeAudio の既定モデルを gemini-2.0-flash にしていたが提供終了。他機能は gemini-2.5-flash 系を使用。修正(ej)：transcribeAudio の既定を model||GEMINI_TRANSCRIBE_MODEL||GEMINI_READ_MODEL||'gemini-2.5-flash' に。さらに候補配列[使うモデル, gemini-2.5-flash, gemini-flash-latest]で順に試し、404 or /not found|no longer available|not supported/ の場合のみ次を試すフォールバックを実装（それ以外のエラーは即中断）。重複していた旧エラー処理を削除。※将来モデルが変わっても自動で追随、必要なら env GEMINI_TRANSCRIBE_MODEL で明示指定可。node--check/smoke OK。
+
 - 2026-09-04 要望（田中さん）：後から文字起こしできるように。実装(ei)：history.js の商談ヘッダーに #transcribeBtn『文字起こしを作る』を追加（.dactions先頭、要約・FB生成の前）。文字起こしが既にある商談では hidden。クリックで POST /api/meetings/{botId}/transcribe（eg で追加済み：getMediaForTranscript→transcribeAudio→saveMeeting）を呼び、『作っています…（数分かかります）』→成功で『できました（N件）』表示後 reload、失敗は alert で理由表示。※録画のみで取り込んだ商談（imported_at）に対して使う想定。Deepgram復旧後の新規商談は自動で文字起こしされる。node--check/smoke OK。
 
 - 2026-09-04 要望（田中さん・iPhone）：携帯からも商談名を変えたい。原因：商談名は #mTitle(.dtitle-input) で編集できるが、.dhead が flex 横並び固定でモバイル用の指定が無く、狭い画面で入力欄が潰れて見えない/触れない。ボタンも幅不足で1文字ずつ折り返され縦書きのように見えていた。実装(eh)：style.css に @media (max-width:760px) を追加＝.dhead を flex-direction:column/align-items:stretch、.dtitle-wrap 幅100%、.dtitle-input を width100%・font-size16px(iOSの自動ズーム防止)・パディングと枠線を大きめに、.dactions は flex-wrap＋.btn を white-space:nowrap/flex:0 1 auto で折り返さない。Playwrightで390px幅の表示を確認。node--check/smoke OK。
