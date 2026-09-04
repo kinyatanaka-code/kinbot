@@ -936,11 +936,11 @@ function renderDock() {
     .kc-slot-free{font-size:12px;color:#2c3a35;margin-top:5px;}
     .kc-slot-wk{font-size:11px;font-weight:700;color:#0d5b47;background:#eef7f2;border-radius:6px;padding:3px 8px;margin:4px 0 8px;display:inline-block;}
     .kc-slot-ampm{font-size:11px;font-weight:700;color:#1d9e75;}
-    /* 獲得インセンティブ（表彰状ふうの金色） */
+    /* 獲得見込みインセンティブ（表彰状ふうの金色） */
     .kc-inc{margin:6px 0 8px;padding:8px 10px;border-radius:10px;text-align:center;
       background:linear-gradient(135deg,#fdf6e3 0%,#f7e7b6 45%,#fdf6e3 100%);
       border:1.5px solid #e0c469;box-shadow:inset 0 0 0 1px #fffdf6;}
-    .kc-inc-lb{font-size:10px;font-weight:700;color:#8a6d1f;letter-spacing:.04em;}
+    .kc-inc-lb{font-size:9.5px;font-weight:700;color:#8a6d1f;letter-spacing:.02em;line-height:1.3;}
     .kc-inc-rank{margin-left:5px;font-size:10px;color:#7a5c10;}
     .kc-inc-yen{font-size:20px;font-weight:800;color:#7a5c10;line-height:1.25;text-shadow:0 1px 0 #fffdf6;}
     .kc-inc-sub{font-size:10px;color:#8a7a4a;}
@@ -1613,12 +1613,12 @@ function dashCard(c, big) {
   const goalCell = editable
     ? `<input type="number" class="kc-goal kc-dgoal" data-subj="${esc(c.key)}" value="${c.goal}" min="0" />`
     : `<div class="kc-d-act">${c.goal}</div>`;
-  // インサイド（インターン生）：獲得インセンティブを表彰状ふうに上に出す
+  // インサイド（インターン生）：獲得見込みインセンティブを表彰状ふうに上に出す
   const rankCls = c.順位 === 1 ? " rank1" : c.順位 === 2 ? " rank2" : c.順位 === 3 ? " rank3" : "";
   const medal = c.順位 === 1 ? "🥇" : c.順位 === 2 ? "🥈" : c.順位 === 3 ? "🥉" : "";
   const inc = (c.インセンティブ !== undefined)
     ? `<div class="kc-inc${rankCls}">
-         <div class="kc-inc-lb">獲得インセンティブ${c.順位 ? `<span class="kc-inc-rank">${medal} ${c.順位}位</span>` : ""}</div>
+         <div class="kc-inc-lb">獲得見込みインセンティブ${c.順位 ? `<span class="kc-inc-rank">${medal} ${c.順位}位</span>` : ""}</div>
          <div class="kc-inc-yen">¥${Number(c.インセンティブ || 0).toLocaleString()}</div>
          <div class="kc-inc-sub">実施 ${c.実施 || 0}件 × ¥1,000</div>
        </div>` : "";
