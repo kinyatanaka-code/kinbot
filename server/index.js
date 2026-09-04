@@ -98,7 +98,7 @@ import { fixMojibake } from "./docs.js";
 import { openDocView, beatDocViewAndNotify, recordOpen, recordClick, recordDownload, sweepStaleViews,
          PIXEL, docUrl, pixelUrl, clickUrl, fmtSeconds, topPages } from "./docs.js";
 import { transcribeFile, transcriberAvailable } from "./transcribe.js";
-import { createBot, leaveBot, parseTranscriptEvent, parseChatEvent, outputAudio, getRecordingUrl, getBot, getBotTranscript, getAudioUrl, listRecentBots, recallConnectionInfo, getRecallUsage, getLastRecallCreate } from "./recall.js";
+import { createBot, leaveBot, parseTranscriptEvent, parseChatEvent, outputAudio, getRecordingUrl, getBot, getBotTranscript, getAudioUrl, getMediaForTranscript, listRecentBots, recallConnectionInfo, getRecallUsage, getLastRecallCreate } from "./recall.js";
 import { createSession, getSession, removeSession, listActiveSessions, setOnMeetingFinalized } from "./sessions.js";
 import { scoreTranscript } from "./temperature.js";
 import { buildChapters } from "./chapters.js";
@@ -8595,13 +8595,13 @@ async function importFromRecall(req, res) {
         let tr = tr0;
         let 方法 = "Recallの文字起こし";
         if (!tr.length) {
-          // Recall側の文字起こしが失敗している場合は、音声からAIで作り直す
-          const au = await getAudioUrl(botId).catch(() => "");
-          if (!au) { 結果.push({ botId, 状態: "文字起こしも音声も見つかりません", 商談名: title }); continue; }
+          // Recall側の文字起こしが失敗している場合は、音声（無ければ動画）からAIで作り直す
+          const media = await getMediaForTranscript(botId).catch(() => null);
+          if (!media || !media.url) { 結果.push({ botId, 状態: "文字起こしも音声・動画も見つかりません", 商談名: title }); continue; }
           try {
-            tr = await transcribeAudio(au);
-            方法 = "音声からAIで作成";
-          } catch (e) { 結果.push({ botId, 状態: "音声からの文字起こしに失敗：" + e.message, 商談名: title }); continue; }
+            tr = await transcribeAudio(media.url, { mimeType: media.mimeType });
+            方法 = `${media.kind}からAIで作成`;
+          } catch (e) { 結果.push({ botId, 状態: `${media.kind}からの文字起こしに失敗：${e.message}`, 商談名: title }); continue; }
         }
         if (!tr.length) { 結果.push({ botId, 状態: "文字起こしを作れませんでした", 商談名: title }); continue; }
         const owner = String(b.owner || req.user || "").toLowerCase();
@@ -8644,6 +8644,8 @@ app.get("/api/meetings/_botdiag", async (req, res) => {
         id: r.id, started_at: r.started_at, completed_at: r.completed_at,
         media_shortcutsのキー: Object.keys(r.media_shortcuts || {}),
         transcript: r.media_shortcuts?.transcript || null,
+        audio_mixed: r.media_shortcuts?.audio_mixed || null,
+        video_mixed: r.media_shortcuts?.video_mixed || null,
       })),
       URLらしきもの: urls.slice(0, 40),
       直下のキー: Object.keys(bot || {}),
@@ -17887,7 +17889,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-04eb 文字起こしがRecall側で失敗していた商談を、音声から作り直して復旧できるように（要望：田中さん）。取り込み時に文字起こしが無ければ音声(audio_mixed)をGeminiに渡して日本語の文字起こしを生成し商談として保存。録画はRecordingのURLをそのまま再生に使う。ボタンは5件ずつ繰り返して全件取り込む。前回(ea)：文字起こし取得の多経路対応と点検API。";
+const BUILD_TAG = "2026-09-04ec 音声が見つからず0件になる件：音声が無ければ動画から文字起こしを作るようにした（recall.getMediaForTranscript＝audio_mixed→video_mixed→download_urlの総なめ）。大きいファイルはGeminiにアップロードしてから渡す（inline上限18MB超に対応）。点検APIでaudio_mixed/video_mixedの中身も確認できるように。前回(eb)：音声からの文字起こし復旧。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",

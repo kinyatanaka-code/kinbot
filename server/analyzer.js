@@ -355,22 +355,49 @@ export async function transcribeAudio(audioUrl, { mimeType = "audio/mpeg", model
   const key = String(process.env.GEMINI_API_KEY || "").trim();
   if (!key) throw new Error("GEMINI_API_KEY が未設定です");
   const res0 = await fetch(audioUrl);
-  if (!res0.ok) throw new Error(`音声の取得に失敗 ${res0.status}`);
+  if (!res0.ok) throw new Error(`メディアの取得に失敗 ${res0.status}`);
   const buf = Buffer.from(await res0.arrayBuffer());
-  const 上限 = 18 * 1024 * 1024;   // 大きすぎるとAPIに載らないので上限を設ける
-  if (buf.length > 上限) throw new Error(`音声が大きすぎます（${Math.round(buf.length / 1024 / 1024)}MB）`);
-  const b64 = buf.toString("base64");
   const prompt =
-    "この音声は日本語の商談です。全部を文字起こししてください。\n" +
+    "この音声（または動画）は日本語の商談です。全部を文字起こししてください。\n" +
     "・話者が変わるごとに行を分け、行頭に「話者1：」「話者2：」のように付けてください。\n" +
     "・要約や省略はせず、話した内容をそのまま書いてください。\n" +
     "・聞き取れないところは（聞き取れず）と書いてください。";
+  let part;
+  if (buf.length <= 18 * 1024 * 1024) {
+    part = { inline_data: { mime_type: mimeType, data: buf.toString("base64") } };
+  } else {
+    // 大きいファイルは、いったんGeminiにアップロードしてから渡す
+    const up = await fetch(`https://generativelanguage.googleapis.com/upload/v1beta/files?key=${key}`, {
+      method: "POST",
+      headers: {
+        "X-Goog-Upload-Protocol": "raw",
+        "X-Goog-Upload-Command": "upload, finalize",
+        "X-Goog-Upload-Header-Content-Length": String(buf.length),
+        "X-Goog-Upload-Header-Content-Type": mimeType,
+        "content-type": mimeType,
+      },
+      body: buf,
+    });
+    if (!up.ok) throw new Error(`アップロードに失敗 ${up.status}（${Math.round(buf.length / 1024 / 1024)}MB）`);
+    const ud = await up.json().catch(() => ({}));
+    const fileUri = ud?.file?.uri;
+    if (!fileUri) throw new Error("アップロード先が分かりませんでした");
+    // 処理が終わるまで少し待つ
+    for (let i = 0; i < 20; i++) {
+      const st = await fetch(`https://generativelanguage.googleapis.com/v1beta/${(ud.file.name || "").replace(/^files\//, "files/")}?key=${key}`).catch(() => null);
+      const sd = st && st.ok ? await st.json().catch(() => ({})) : {};
+      if (sd?.state === "ACTIVE" || !sd?.state) break;
+      if (sd?.state === "FAILED") throw new Error("メディアの処理に失敗しました");
+      await new Promise((r) => setTimeout(r, 3000));
+    }
+    part = { file_data: { mime_type: mimeType, file_uri: fileUri } };
+  }
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${key}`;
   const res = await fetch(url, {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({
-      contents: [{ parts: [{ text: prompt }, { inline_data: { mime_type: mimeType, data: b64 } }] }],
+      contents: [{ parts: [{ text: prompt }, part] }],
       generationConfig: { temperature: 0, maxOutputTokens: 8192 },
     }),
   });

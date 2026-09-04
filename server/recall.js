@@ -396,6 +396,42 @@ export async function listRecentBots({ hours = 48, limit = 60 } = {}) {
   });
 }
 
+/** 文字起こしを作り直すための音声（無ければ動画）のURLを返す */
+export async function getMediaForTranscript(botId) {
+  const data = await getBot(botId).catch(() => null);
+  const recs = Array.isArray(data?.recordings) ? data.recordings : [];
+  const pick = (o) => {
+    const u = o?.data?.download_url || o?.download_url;
+    return (typeof u === "string" && /^https?:\/\//.test(u)) ? u : "";
+  };
+  // 1) 音声（軽いのでこちらを優先）
+  for (const r of recs) {
+    const ms = r?.media_shortcuts || {};
+    const u = pick(ms.audio_mixed) || pick(ms.audio_mixed_mp3) || pick(ms.audio);
+    if (u) return { url: u, kind: "音声", mimeType: "audio/mpeg" };
+  }
+  // 2) 動画（音声が無い場合はこちらから文字起こしする）
+  for (const r of recs) {
+    const ms = r?.media_shortcuts || {};
+    const u = pick(ms.video_mixed) || pick(ms.video_mixed_mp4) || pick(ms.video);
+    if (u) return { url: u, kind: "動画", mimeType: "video/mp4" };
+  }
+  // 3) それでも無ければ、download_url らしきものを総なめ
+  let found = null;
+  (function walk(o, path) {
+    if (found || o == null) return;
+    if (typeof o === "string") {
+      if (/^https?:\/\//.test(o) && /download_url/i.test(path) && /(audio|video)/i.test(path)) {
+        found = { url: o, kind: /audio/i.test(path) ? "音声" : "動画", mimeType: /audio/i.test(path) ? "audio/mpeg" : "video/mp4" };
+      }
+      return;
+    }
+    if (typeof o !== "object") return;
+    for (const k of Object.keys(o)) walk(o[k], path ? `${path}.${k}` : k);
+  })(data, "");
+  return found;
+}
+
 /** Botの音声(mixed audio)のダウンロードURLを探す（文字起こしを作り直すのに使う） */
 export async function getAudioUrl(botId) {
   const data = await getBot(botId).catch(() => null);
