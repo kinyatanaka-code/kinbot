@@ -41,6 +41,8 @@ kincall（架電リスト）という別ツールも同じ画面群の中にあ�
 
 ## 決定・指示のログ（新しいものを上に足す）
 
+- 2026-09-04 報告（田中さん）：今日の商談が全然記録されない（kinbotは最後まで参加していた）。状況：商談履歴には9/4の3件(ワシントンホテル/フジコー/小林組, 9:56-9:58取り込み)のみ＝午前は記録済み、それ以降が無い。仕組み：Recall webhookで文字起こし受信→セッション終了(startSessionMonitorが30秒ごとにgetBotし SESSION_ENDED_CODES を検知)→removeSessionで dispose→要約/分析→meetings確定。よって『セッションが閉じられない』と商談にならない。切り分け(dv)：GET /api/meetings/_todaydiag＝listActiveSessions()の進行中セッション（botId/開始/タイトル/参加者）、各botのRecall状態(status_changes直近6)、今日のmeetings一覧（取り込み時刻・apo_setter・担当・bot_id）を返す。要：田中さんに実行してもらい『進行中セッションが残っていないか』『Bot状態が call_ended/recording_done まで進んでいるか』『そもそもBotが作られたか(=Recallのbot作成失敗/入室失敗)』を確認→原因確定。※Recallの利用上限やRECALL_API_KEY、PUBLIC_URL(webhook到達)も候補。todaydiag 200/smoke OK。
+
 - 2026-09-04 バグ（田中さん）：実績→設定・管理タブが真っ白。原因：calls.html の #clStats は #clJissekiWrap(hidden) の内側にあり、タブ切替で jw.hidden = !showJisseki としていたため、設定・管理/プロセス（どちらも #clStats に描画）では枠ごと非表示になっていた。※ダッシュボードは別枠 #clDashWrap なので影響なし。修正(du)：jw.hidden = isDash（＝ダッシュボード以外は枠を表示）、実績専用の .ap-cfg-actions（読み込み直す/CSV/範囲表示）は showJisseki のときだけ display 表示、stScopeWrap/stPeriod も従来どおり実績のみ。→設定・管理（アポ獲得者の照合ボタン含む）とプロセスが表示される。node--check/smoke OK。
 
 - 2026-09-04 要望（田中さん）：8月に取ったアポでも9月に実施したものはカウントしてほしい。確認：apo-dashboardの実施集計は listMeetings({from:INCENTIVE_FROM(9/1), to:3か月末}) ＝商談(実施)の日付で絞っており、アポ取得月は条件に入っていない→仕様上すでに8月取得・9月実施はカウント対象。ただし apo_setter が付いていないと数えられず、照合(/api/interns/match)の対象期間が直近45日だったため、古い(8月以前に取った)アポに紐づく商談の照合が漏れる可能性。対応(dt)：自動照合(index.js)と『いま照合する』(calls.js)の from を 45日前→120日前に拡大。カードのサブ文言を『9月以降に実施 N件 × ¥1,000』に変更し基準を明示。node--check/smoke OK。※取得月ではなく実施月基準であることを田中さんに案内。

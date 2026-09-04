@@ -8525,6 +8525,39 @@ app.get("/api/calls/_jisshidiag", async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+// 【点検用】今日の商談が記録されない原因を見る。
+// 進行中セッション・今日つくったBot・今日の商談（meetings）を並べて返す。
+app.get("/api/meetings/_todaydiag", async (req, res) => {
+  try {
+    const nowJ = new Date(Date.now() + 9 * 3600000);
+    const p2 = (n) => String(n).padStart(2, "0");
+    const today = `${nowJ.getUTCFullYear()}-${p2(nowJ.getUTCMonth() + 1)}-${p2(nowJ.getUTCDate())}`;
+    const j = (v) => { if (!v) return ""; const d = new Date(v); if (isNaN(d.getTime())) return String(v); const x = new Date(d.getTime() + 9 * 3600000); return `${x.getUTCMonth() + 1}/${x.getUTCDate()} ${p2(x.getUTCHours())}:${p2(x.getUTCMinutes())}`; };
+    // 進行中（まだ閉じていない）セッション
+    const active = listActiveSessions().map((a) => ({ botId: a.botId, 開始: j(a.startedAt || a.created_at), タイトル: a.title || "", 参加者: a.repName || a.owner || "" }));
+    // 今日の商談（meetings）
+    const ms = await listMeetings({ isAdmin: true, from: today, to: today, limit: 200, light: true }).catch(() => []);
+    const 商談 = ms.map((m) => ({ 商談: m.title || "", 取り込み: j(m.created_at), 文字起こし: m.has_transcript ?? undefined, アポ獲得者: m.apo_setter || "(なし)", 担当: m.rep_name || m.owner || "", bot: m.bot_id }));
+    // 進行中セッションのRecall側の状態
+    const bots = [];
+    for (const a of active.slice(0, 10)) {
+      if (!a.botId || String(a.botId).startsWith("upload_")) continue;
+      try {
+        const b = await getBot(a.botId);
+        const ch = (b && b.status_changes) || [];
+        bots.push({ botId: a.botId, いまの状態: (ch.length ? ch[ch.length - 1].code : (b && b.status && b.status.code)) || "", 経過: ch.map((c) => c.code).slice(-6) });
+      } catch (e) { bots.push({ botId: a.botId, エラー: e.message }); }
+    }
+    res.json({
+      ok: true, 今日: today,
+      進行中セッション数: active.length, 進行中セッション: active,
+      進行中のBot状態: bots,
+      今日の商談数: 商談.length, 今日の商談: 商談,
+      メモ: "商談は『セッションが終了して閉じられた』ときに記録されます。進行中のまま残っていると、まだ商談になりません。",
+    });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 // 記録する（Salesforceの活動履歴と、リードの状態も更新する）
 // 「代わりに更新する人」がちゃんと使える状態か確かめる
 app.get("/api/sf-proxy/check", async (req, res) => {
@@ -17761,7 +17794,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-04du 設定・管理／プロセスのタブで画面が真っ白になる不具合を修正。描画先 #clStats が実績用の枠 #clJissekiWrap の中にあり、実績タブ以外では枠ごと隠れていたため。ダッシュボード以外は枠を表示し、実績専用の操作列（読み込み直す・CSV等）は実績タブのときだけ出すように。前回(dt)：8月取得アポの9月実施カウント。";
+const BUILD_TAG = "2026-09-04dv 今日の商談が記録されない件の切り分け用に点検API GET /api/meetings/_todaydiag を追加。進行中（未クローズ）セッション・そのRecall側のBot状態と経過・今日の商談一覧（取り込み時刻/獲得者/担当/bot）を返す。商談はセッション終了時に記録されるため、進行中のまま残っていると商談にならない。前回(du)：設定・管理タブの表示修正。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
