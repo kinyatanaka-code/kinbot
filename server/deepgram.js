@@ -42,15 +42,30 @@ export async function transcribeUrl(url, { language = "ja", model } = {}) {
       const sp = (w.speaker === undefined || w.speaker === null) ? "" : `話者${Number(w.speaker) + 1}`;
       const t = w.punctuated_word || w.word || "";
       if (!t) continue;
+      // 日本語は単語のあいだに空白を入れない。英数字が続くときだけ空白を入れる。
+      const つなぐ = (前, 次) => {
+        if (!前) return 次;
+        const a = 前.slice(-1), b = 次.slice(0, 1);
+        return (/[A-Za-z0-9]/.test(a) && /[A-Za-z0-9]/.test(b)) ? `${前} ${次}` : 前 + 次;
+      };
+      // 話者が変わっても、ごく短い（1〜2文字）ものは前の発言に付ける（切れすぎ防止）
+      if (現在 && 現在.speaker.name !== sp && 現在.text.length < 6) { 現在.text = つなぐ(現在.text, t); continue; }
       if (!現在 || 現在.speaker.name !== sp) {
         if (現在) out.push(現在);
         現在 = { speaker: { name: sp }, text: t, start: w.start ?? null };
       } else {
-        現在.text += t;
+        現在.text = つなぐ(現在.text, t);
       }
     }
     if (現在) out.push(現在);
-    return out;
+    // 1〜2文字だけの発言が残っていたら、前の発言にくっつける
+    const 整えた = [];
+    for (const u of out) {
+      const 前 = 整えた[整えた.length - 1];
+      if (前 && u.text.length <= 2) { 前.text += u.text; continue; }
+      整えた.push(u);
+    }
+    return 整えた;
   }
   // 単語ごとの情報が無い場合は、全文をそのまま1つにする
   const text = String(alt.transcript || "").trim();

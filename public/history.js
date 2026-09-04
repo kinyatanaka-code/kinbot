@@ -2157,7 +2157,19 @@ async function loadDetail(botId, openTab, opts = {}) {
         if (d && d.url) {
           setupRecordingPlayer(drec, d, m);
         } else {
-          drec.innerHTML = '<div class="rec-none">録画はまだありません（会議終了後・アップロード動画は変換完了後に表示されます）。</div>';
+          drec.innerHTML = '<div class="rec-none">録画を準備しています…（会議終了後、少し時間がかかります）<button type="button" class="btn ghost" id="recRetry" style="margin-left:8px;padding:4px 10px">いま確認する</button></div>';
+          const rr = drec.querySelector("#recRetry");
+          if (rr) rr.addEventListener("click", () => { drec.innerHTML = '<div class="rec-loading">録画を確認中…</div>'; setTimeout(() => location.reload(), 300); });
+          // 30秒ごとに、自分でもう一度確かめる（最大10分）
+          let 回 = 0;
+          const timer = setInterval(async () => {
+            if (++回 > 20 || !document.body.contains(drec)) { clearInterval(timer); return; }
+            try {
+              const r2 = await fetch(`/api/meetings/${encodeURIComponent(botId)}/recording`);
+              const d2 = await r2.json();
+              if (d2 && d2.url) { clearInterval(timer); setupRecordingPlayer(drec, d2, m); }
+            } catch {}
+          }, 30000);
         }
       })
       .catch(() => {

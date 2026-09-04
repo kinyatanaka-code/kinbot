@@ -8725,6 +8725,26 @@ app.post("/api/meetings/:botId/transcribe", async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+// 【点検用】録画が見られない理由を調べる（どこまで取れているか）
+app.get("/api/meetings/:id/_recdiag", async (req, res) => {
+  try {
+    const id = String(req.params.id || "");
+    const m = await getMeeting(id).catch(() => null);
+    let recallUrl = "", err = "";
+    try { recallUrl = await getRecordingUrl(id); } catch (e) { err = e.message; }
+    let media = null;
+    try { media = await getMediaForTranscript(id); } catch (e) { err = err || e.message; }
+    res.json({
+      ok: true, botId: id,
+      商談あり: !!m, ドライブ保存: m ? !!m.drive_file_id : false, mux: m ? !!m.mux_playback_id : false,
+      Recallの録画URL: recallUrl ? recallUrl.slice(0, 80) + "…" : "(取れません)",
+      文字起こしに使えるメディア: media ? { 種類: media.kind, url: String(media.url).slice(0, 80) + "…" } : "(ありません)",
+      エラー: err || "",
+      メモ: "『Recallの録画URL』が取れていれば画面で再生できます。取れない場合はRecall側の準備待ちか保存期限切れです。",
+    });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 // 記録する（Salesforceの活動履歴と、リードの状態も更新する）
 // 「代わりに更新する人」がちゃんと使える状態か確かめる
 app.get("/api/sf-proxy/check", async (req, res) => {
@@ -17961,7 +17981,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-04er 文字起こしをDeepgramで行えるようにした（要望：田中さん）。録画・音声のURLをそのままDeepgramに渡すので、大きい動画をアップロードし直す必要がなく、502も起きない。話者も分かれる。Deepgramが使えないときだけ従来のAI（Gemini）で作る。要 DEEPGRAM_API_KEY。前回(eq)：アップロード方式の改善。";
+const BUILD_TAG = "2026-09-04es 録画が表示されない件と、Deepgramの文字起こしの見た目を改善。録画は『準備しています…』と出して30秒ごとに自動で再確認（いま確認するボタンも）。文字起こしは日本語の単語間に空白が入らないよう連結し、話者が細切れになるのを抑えた。原因調査用に GET /api/meetings/:id/_recdiag を追加。前回(er)：Deepgram対応。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",

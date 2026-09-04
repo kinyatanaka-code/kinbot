@@ -41,6 +41,8 @@ kincall（架電リスト）という別ツールも同じ画面群の中にあ�
 
 ## 決定・指示のログ（新しいものを上に足す）
 
+- 2026-09-04 バグ/改善（田中さん）：Deepgram文字起こしは動いたが (a)録画が一生見れない (b)単語ごとに空白＋話者が細切れ。対応(es)：(a)history.js の録画未取得時を『録画を準備しています…＋いま確認する』に変え、30秒ごと最大20回（10分）自動で /recording を再取得しURLが出たら再生に切替。原因特定用に GET /api/meetings/:id/_recdiag（商談の有無・drive/mux・getRecordingUrlの結果・文字起こし用メディア・エラー）を追加。(b)deepgram.js の整形を改善＝単語連結時、両端が英数字のときだけ空白を入れる（日本語は詰める）、話者が変わっても直前の発言が6文字未満なら継続扱い、最後に2文字以下の発言を前にくっつける。単体で『お世話になって／AIエージェント』を確認。node--check/smoke OK。※録画が出ない根本原因はRecall側の準備待ち/保存期限の可能性→_recdiagで確認。
+
 - 2026-09-04 改善（田中さん）：Deepgramのキーを用意済みとのことで、文字起こしをDeepgram直叩きに。実装(er)：server/deepgram.js＝deepgramReady()、transcribeUrl(url,{language:'ja',model})＝POST https://api.deepgram.com/v1/listen?model=nova-2&language=ja&diarize=true&punctuate=true&smart_format=true&paragraphs=true に {url} をJSONで送る（＝RecallのS3 URLをそのまま渡せるのでダウンロード＋アップロード不要＝eqの502問題を回避）。結果は words[].speaker で話者ごとにまとめ [{speaker:{name:'話者N'},text,start}] に整形（words無しは全文1件）。index.js：transcribe ジョブと import-from-recall の両方で『Deepgram優先→失敗/未設定ならGemini(transcribeAudio)』に。方法欄に『Deepgram』or『動画からAIで作成』を表示。env DEEPGRAM_API_KEY（任意 DEEPGRAM_MODEL、既定 nova-2）。未設定でも起動・動作に影響なしを確認。node--check/smoke OK。要：Railwayに DEEPGRAM_API_KEY を設定→『録画読み取り』を実行。
 
 - 2026-09-04 バグ（田中さん）：文字起こしが『アップロードに失敗しました（502）』。原因：Gemini Files API へ X-Goog-Upload-Protocol: raw で数十MBの動画を一括POSTしており、大きいファイルで502になりやすい。修正(eq)：resumable方式に変更＝(1)POST upload/v1beta/files に Protocol:resumable/Command:start/Header-Content-Length/Type とJSONボディ(display_name)を送り、レスポンスヘッダ x-goog-upload-url を取得 (2)そのURLへ Command:'upload, finalize'、Upload-Offset:0、Content-Length付きで本体をPOST。(3)全体を最大3回リトライ（5秒間隔、失敗時はGoogleの応答本文120字を添えてエラー）。ACTIVE待ちポーリング(en)はそのまま。node--check/smoke OK。※それでも失敗する場合は、動画ではなく音声の抽出/分割アップロードを検討。
