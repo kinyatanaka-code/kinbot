@@ -389,19 +389,52 @@ export async function transcribeAudio(audioUrl, { mimeType = "audio/mpeg", model
     part = { inline_data: { mime_type: mimeType, data: buf.toString("base64") } };
   } else {
     // 大きいファイルは、いったんGeminiにアップロードしてから渡す
-    const up = await fetch(`https://generativelanguage.googleapis.com/upload/v1beta/files?key=${key}`, {
-      method: "POST",
-      headers: {
-        "X-Goog-Upload-Protocol": "raw",
-        "X-Goog-Upload-Command": "upload, finalize",
-        "X-Goog-Upload-Header-Content-Length": String(buf.length),
-        "X-Goog-Upload-Header-Content-Type": mimeType,
-        "content-type": mimeType,
-      },
-      body: buf,
-    });
-    if (!up.ok) throw new Error(`アップロードに失敗 ${up.status}（${Math.round(buf.length / 1024 / 1024)}MB）`);
-    const ud = await up.json().catch(() => ({}));
+    // 大きいファイルは、Googleのやり方（開始→本体送信）でアップロードする。
+    // 一度に送る方法（raw）は、動画のような大きいファイルだと途中で切られやすい。
+    const アップロード = async () => {
+      // 1) 受け口をもらう
+      const start = await fetch(`https://generativelanguage.googleapis.com/upload/v1beta/files?key=${key}`, {
+        method: "POST",
+        headers: {
+          "X-Goog-Upload-Protocol": "resumable",
+          "X-Goog-Upload-Command": "start",
+          "X-Goog-Upload-Header-Content-Length": String(buf.length),
+          "X-Goog-Upload-Header-Content-Type": mimeType,
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({ file: { display_name: "kinbot-meeting" } }),
+      });
+      if (!start.ok) {
+        const t = await start.text().catch(() => "");
+        throw new Error(`アップロードの準備に失敗 ${start.status}（${Math.round(buf.length / 1024 / 1024)}MB）${t.slice(0, 120)}`);
+      }
+      const putUrl = start.headers.get("x-goog-upload-url") || start.headers.get("X-Goog-Upload-URL");
+      if (!putUrl) throw new Error("アップロード先が分かりませんでした");
+      // 2) 本体を送る
+      const put = await fetch(putUrl, {
+        method: "POST",
+        headers: {
+          "Content-Length": String(buf.length),
+          "X-Goog-Upload-Offset": "0",
+          "X-Goog-Upload-Command": "upload, finalize",
+        },
+        body: buf,
+      });
+      if (!put.ok) {
+        const t = await put.text().catch(() => "");
+        throw new Error(`アップロードに失敗 ${put.status}（${Math.round(buf.length / 1024 / 1024)}MB）${t.slice(0, 120)}`);
+      }
+      return await put.json().catch(() => ({}));
+    };
+    let ud = null;
+    for (let 回 = 0; 回 < 3; 回++) {
+      try { ud = await アップロード(); break; }
+      catch (e) {
+        if (回 === 2) throw e;
+        console.warn(`[文字起こし] アップロード再試行（${回 + 1}回目）：${e.message}`);
+        await new Promise((r) => setTimeout(r, 5000));
+      }
+    }
     const fileUri = ud?.file?.uri;
     const fileName = ud?.file?.name;   // 例：files/abc123
     if (!fileUri || !fileName) throw new Error("アップロード先が分かりませんでした");
