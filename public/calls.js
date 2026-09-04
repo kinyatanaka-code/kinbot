@@ -2463,7 +2463,10 @@ if ($("stTop")) {
       const sw = $("stScopeWrap"), sp = $("stPeriod"), jw = $("clJissekiWrap"), dw = $("clDashWrap");
       if (sw) sw.style.display = showJisseki ? "" : "none";
       if (sp) sp.style.display = showJisseki ? "" : "none";
-      if (jw) jw.hidden = !showJisseki;
+      const acts = document.querySelector("#clJissekiWrap .ap-cfg-actions");
+      if (acts) acts.style.display = showJisseki ? "" : "none";   // 読み込み直す・CSVは実績のときだけ
+      // 実績・設定・管理・プロセスは、どれも #clStats に描くので枠は出しておく
+      if (jw) jw.hidden = isDash;
       if (dw) dw.hidden = !isDash;
       if (isDash) loadDash();
       else if (statsTop === "admin") loadAdmin();
