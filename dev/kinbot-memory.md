@@ -41,6 +41,8 @@ kincall（架電リスト）という別ツールも同じ画面群の中にあ�
 
 ## 決定・指示のログ（新しいものを上に足す）
 
+- 2026-09-04 要望（田中さん・iPhone）：携帯からも商談名を変えたい。原因：商談名は #mTitle(.dtitle-input) で編集できるが、.dhead が flex 横並び固定でモバイル用の指定が無く、狭い画面で入力欄が潰れて見えない/触れない。ボタンも幅不足で1文字ずつ折り返され縦書きのように見えていた。実装(eh)：style.css に @media (max-width:760px) を追加＝.dhead を flex-direction:column/align-items:stretch、.dtitle-wrap 幅100%、.dtitle-input を width100%・font-size16px(iOSの自動ズーム防止)・パディングと枠線を大きめに、.dactions は flex-wrap＋.btn を white-space:nowrap/flex:0 1 auto で折り返さない。Playwrightで390px幅の表示を確認。node--check/smoke OK。
+
 - 2026-09-04 要望（田中さん）：取り込みボタンはkincallでなくkinbot（商談履歴）に置く／取り急ぎ動画を履歴に入れて、文字起こしは後から。実装(eg)：(1)calls.js/calls.htmlの取り込みUI(#kcImportRec・配線)を撤去。(2)history.html のフィルタ操作列に『録音から取り込む』(#importRecBtn)＋#importRecLog を追加、history.js に配線（2件ずつ最大15ラウンド、✓/×/－の一覧＋『完了N件』ヘッダ、終了後 location.reload）。(3)サーバ import-from-recall に skipTranscribe オプション＝文字起こしが無くても transcribeAudio を呼ばず『録画のみ（文字起こしは後で）』として登録（imported_atで履歴に出る）。履歴側からは skipTranscribe:true で呼ぶので取り込みが速い。(4)あとから作る用 POST /api/meetings/:botId/transcribe＝getMediaForTranscript→transcribeAudio→saveMeeting。style.css .imp-* 追加。node--check/smoke OK。
 
 - 2026-09-04 要望（田中さん）：取り込んだものは商談名なしでも全部 商談履歴に出してほしい。原因：db.listMeetings の条件が hasTranscript＝transcriptが非空の商談のみ表示だったため、文字起こしを作れなかった取り込み分は履歴に出なかった（商談名の有無ではなく文字起こしの有無が原因）。実装(ef)：meetings に imported_at TIMESTAMPTZ を追加（録音から手で取り込んだ印）。listMeetings の条件を (transcript非空 OR imported_at IS NOT NULL) に。db.markMeetingImported(botId) 追加。import-from-recall：文字起こしが作れなくても createMeeting→(trがあれば)saveMeeting→markMeetingImported を必ず実行し、結果に 方法(『動画からAIで作成』/『文字起こしなし』)と 補足(失敗理由) を返す。取り込み済み判定も imported_at or transcript で行う。→録画は残っているので、文字起こしが無くても履歴に出て再生・後から要約生成が可能。node--check/smoke OK。
