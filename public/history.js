@@ -2049,23 +2049,36 @@ async function loadDetail(botId, openTab, opts = {}) {
           const r = await fetch(`/api/meetings/${encodeURIComponent(botId)}/transcribe`, {
             method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ force: 作り直す }),
           });
-          const d = await r.json();
+          const d = await r.json().catch(() => ({}));
           if (!r.ok) throw new Error("文字起こし：" + (d.error || "できませんでした"));
-          進捗("tr", `文字起こしができました（${d.件数 || 0}件）`, "ok");
+          // 裏で作っているので、できあがるまで様子を見る（最大15分）
+          let 件数 = d.件数 || 0;
+          if (d.state === "doing") {
+            for (let i = 0; i < 180; i++) {
+              await new Promise((s) => setTimeout(s, 5000));
+              const sr = await fetch(`/api/meetings/${encodeURIComponent(botId)}/transcribe-status`).catch(() => null);
+              const sd = sr && sr.ok ? await sr.json().catch(() => ({})) : {};
+              if (sd.state === "done") { 件数 = sd.件数 || 0; break; }
+              if (sd.state === "error") throw new Error("文字起こし：" + (sd.message || "できませんでした"));
+              進捗("tr", `文字起こしを作っています…（${Math.round((i + 1) * 5 / 60 * 10) / 10}分ほど経過）`, "doing");
+              if (i === 179) throw new Error("文字起こし：時間がかかりすぎました");
+            }
+          }
+          進捗("tr", `文字起こしができました（${件数}件）`, "ok");
         } else {
           進捗("tr", `文字起こしは作成済みです（${tr.length}件）`, "ok");
         }
         // 2) 要約・FB
         進捗("sum", "要約・フィードバックを作っています…", "doing");
         const r2 = await fetch(`/api/meetings/${encodeURIComponent(botId)}/analyze`, { method: "POST" });
-        const d2 = await r2.json();
+        const d2 = await r2.json().catch(() => ({ error: "サーバの応答が読み取れませんでした（時間がかかりすぎた可能性があります）" }));
         if (!r2.ok) throw new Error("要約：" + (d2.error || "できませんでした"));
         進捗("sum", "要約・フィードバックができました", "ok");
         // 3) 分析
         進捗("deep", "分析を作っています…", "doing");
         try {
           const r3 = await fetch(`/api/meetings/${encodeURIComponent(botId)}/deep-analyze`, { method: "POST" });
-          const d3 = await r3.json();
+          const d3 = await r3.json().catch(() => ({ error: "サーバの応答が読み取れませんでした" }));
           if (!r3.ok) throw new Error(d3.error || "できませんでした");
           進捗("deep", "分析ができました", "ok");
         } catch (e) { 進捗("deep", "分析はできませんでした（" + e.message + "）", "ng"); }

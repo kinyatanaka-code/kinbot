@@ -8663,6 +8663,19 @@ app.get("/api/meetings/_botdiag", async (req, res) => {
 });
 
 // 取り込み済みの商談に、あとから文字起こしを作る（録画・音声から）。
+// 文字起こしの進み具合（裏で動かしているので、画面はこれを見て待つ）
+const _trJobs = new Map();   // botId -> { state:"doing"|"done"|"error", message, 件数, at }
+app.get("/api/meetings/:botId/transcribe-status", async (req, res) => {
+  const botId = String(req.params.botId || "");
+  const j = _trJobs.get(botId);
+  if (!j) {
+    const m = await getMeeting(botId).catch(() => null);
+    const n = Array.isArray(m?.transcript) ? m.transcript.length : 0;
+    return res.json({ ok: true, state: n ? "done" : "none", 件数: n });
+  }
+  res.json({ ok: true, ...j });
+});
+
 app.post("/api/meetings/:botId/transcribe", async (req, res) => {
   try {
     const botId = String(req.params.botId || "");
@@ -8674,10 +8687,22 @@ app.post("/api/meetings/:botId/transcribe", async (req, res) => {
     }
     const media = await getMediaForTranscript(botId).catch(() => null);
     if (!media || !media.url) return res.status(400).json({ error: "録画・音声が見つかりません" });
-    const tr = await transcribeAudio(media.url, { mimeType: media.mimeType });
-    if (!tr.length) return res.status(502).json({ error: "文字起こしを作れませんでした" });
-    await saveMeeting(botId, { transcript: tr });
-    res.json({ ok: true, 状態: "作りました", 件数: tr.length, 方法: `${media.kind}からAIで作成` });
+    // 動画からの文字起こしは数分かかるので、裏で走らせてすぐ返す（画面は状況を見に来る）
+    if (_trJobs.get(botId)?.state === "doing") return res.json({ ok: true, 状態: "すでに作っています", state: "doing" });
+    _trJobs.set(botId, { state: "doing", message: `${media.kind}から文字起こしを作っています…`, at: Date.now() });
+    (async () => {
+      try {
+        const tr = await transcribeAudio(media.url, { mimeType: media.mimeType });
+        if (!tr.length) throw new Error("文字起こしを作れませんでした");
+        await saveMeeting(botId, { transcript: tr });
+        _trJobs.set(botId, { state: "done", message: `できました（${tr.length}件）`, 件数: tr.length, 方法: `${media.kind}からAIで作成`, at: Date.now() });
+        console.log(`[文字起こし] 完成：${botId}（${tr.length}件）`);
+      } catch (e) {
+        _trJobs.set(botId, { state: "error", message: e.message, at: Date.now() });
+        console.warn(`[文字起こし] 失敗：${botId}：${e.message}`);
+      }
+    })();
+    res.json({ ok: true, 状態: "作りはじめました", state: "doing" });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
@@ -17917,7 +17942,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-04eo 商談画面のボタンを整理（要望：田中さん）。文字起こし・要約・分析を『録画読み取り』の1つにまとめ、押すと順番に実行して進み具合を表示する。個別の『文字起こしを作る』『要約・FB生成』『分析を生成』は撤去。前回(en)：文字起こしのFile ACTIVE待ち修正。";
+const BUILD_TAG = "2026-09-04ep 文字起こしが upstream error になる件を修正。動画からの文字起こしは数分かかり接続が切れるため、裏で実行してすぐ応答を返し、画面は状況（作成中／完成／失敗）を見に行く方式に変更（GET /api/meetings/:botId/transcribe-status）。進捗に経過時間も表示。JSON以外の応答でも画面が落ちないようにした。前回(eo)：録画読み取りボタンに集約。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",

@@ -41,6 +41,8 @@ kincall（架電リスト）という別ツールも同じ画面群の中にあ�
 
 ## 決定・指示のログ（新しいものを上に足す）
 
+- 2026-09-04 バグ（田中さん）：録画読み取りで『Unexpected token u, upstream error is not valid JSON』。原因：動画の文字起こしが数分かかり、Railway/プロキシ側が応答前に接続を切って本文が『upstream error』（非JSON）になり、res.json() で例外。修正(ep)：POST /api/meetings/:botId/transcribe を非同期化＝メディアURL確認後に _trJobs(Map botId→{state,message,件数}) に doing を立てて即 {state:'doing'} を返し、実処理(transcribeAudio→saveMeeting)は裏で実行。完了/失敗を _trJobs に反映しログ出力。GET /api/meetings/:botId/transcribe-status＝ジョブが無ければ meetings の transcript 有無から done/none を返す。history.js：transcribe が doing を返したら5秒間隔で最大180回(15分)ポーリングし、経過分数を進捗行に表示、done で件数確定、error で中断。analyze/deep-analyze の res.json() も .catch で握って『サーバの応答が読み取れませんでした』にフォールバック。node--check/smoke OK。※要約も長引くなら同様の非同期化が要る。
+
 - 2026-09-04 要望（田中さん）：文字起こし・要約・分析は1つのボタン『録画読み取り』に。実装(eo)：.dactions を [録画読み取り(#allGenBtn) / Notionに送る / 削除] に整理し、#transcribeBtn・#genBtn・#deepBtn のHTMLを削除。allGenBtn の処理を (1)文字起こし（無い or 作り直し確認でOK時、force送信）(2)POST /analyze で要約・FB (3)POST /deep-analyze で分析（失敗しても続行し×表示）(4)完了→reload に拡張し、各段階を #genProgress に✓/…/×で表示。削除したボタンの既存リスナー（deepBtn/genBtn/trBtn）は if (btn) { … } で囲み、要素が無くても落ちないように（末尾の閉じ括弧も追加）。node--check/smoke OK。
 
 - 2026-09-04 バグ（田中さん）：文字起こしが 400 FAILED_PRECONDITION『The File ... is not in an ACTIVE state and usage is not allowed.』。原因：transcribeAudio の Files API アップロード後の待機ループが甘く、(a)state取得URLの組み立てが不正確 (b)`!sd?.state` で break していたため未取得時に即抜け (c)最大20回でも待ち不足、の結果 PROCESSING のまま generateContent を呼んでいた。修正(en)：ud.file.name（例 files/abc）を使って `v1beta/{name}?key=` を3秒間隔で最大60回(=3分)ポーリングし、state==='ACTIVE' になるまで待つ。FAILEDは即エラー、時間切れも明示エラー。5回ごとに『準備中… STATE（N秒）』をログ。さらに generateContent が /not in an ACTIVE state|FAILED_PRECONDITION/ を返した場合は10秒待って同じモデルで1回だけ再試行。node--check/smoke OK。
