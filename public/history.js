@@ -1088,6 +1088,7 @@ async function loadDetail(botId, openTab, opts = {}) {
           <div class="cal-panel" id="calPanelH" hidden></div>
         </div>
         <div class="dactions">
+          <button class="btn" id="allGenBtn" title="文字起こしを作って、そのまま要約・FBまで作ります">文字起こし＋要約</button>
           <button class="btn ghost" id="transcribeBtn" title="録画・音声から文字起こしを作ります（文字起こしが無いときに使います）">文字起こしを作る</button>
           <button class="btn" id="genBtn">要約・FB生成</button>
           <button class="btn" id="deepBtn">分析を生成</button>
@@ -1095,6 +1096,7 @@ async function loadDetail(botId, openTab, opts = {}) {
           <button class="btn danger" id="delBtn">削除</button>
         </div>
       </div>
+      <div class="gen-progress" id="genProgress" hidden></div>
       <div class="dmeta-edit">
         <label>営業担当 <select id="mOwner"><option value="">未設定</option></select></label>
         <label>日時 <input type="datetime-local" id="mDatetime" /></label>
@@ -2015,6 +2017,52 @@ async function loadDetail(botId, openTab, opts = {}) {
     renderAiLogInto(hdetail.querySelector("#dailog"), Array.isArray(m.ai_log) ? m.ai_log : []);
 
     // 文字起こしから 要約＋営業フィードバック を生成
+    // 文字起こし＋要約をまとめて実行（進捗を表示する）
+    const allBtn = hdetail.querySelector("#allGenBtn");
+    const prog = hdetail.querySelector("#genProgress");
+    const 進捗 = (step, text, state) => {
+      if (!prog) return;
+      prog.hidden = false;
+      let row = prog.querySelector(`[data-step="${step}"]`);
+      if (!row) {
+        row = document.createElement("div");
+        row.className = "gp-row";
+        row.dataset.step = step;
+        prog.appendChild(row);
+      }
+      row.className = "gp-row " + (state || "doing");
+      row.innerHTML = `<span class="gp-mark">${state === "ok" ? "✓" : state === "ng" ? "×" : "…"}</span><span>${text}</span>`;
+    };
+    if (allBtn) allBtn.addEventListener("click", async () => {
+      allBtn.disabled = true;
+      const orig = allBtn.textContent;
+      allBtn.textContent = "作っています…";
+      if (prog) { prog.hidden = false; prog.innerHTML = ""; }
+      try {
+        // 1) 文字起こし（無いときだけ）
+        if (tr.length === 0) {
+          進捗("tr", "文字起こしを作っています…（録画から作るので数分かかります）", "doing");
+          const r = await fetch(`/api/meetings/${encodeURIComponent(botId)}/transcribe`, { method: "POST" });
+          const d = await r.json();
+          if (!r.ok) throw new Error("文字起こし：" + (d.error || "できませんでした"));
+          進捗("tr", `文字起こしができました（${d.件数 || 0}件）`, "ok");
+        } else {
+          進捗("tr", `文字起こしは作成済みです（${tr.length}件）`, "ok");
+        }
+        // 2) 要約・FB
+        進捗("sum", "要約・フィードバックを作っています…", "doing");
+        const r2 = await fetch(`/api/meetings/${encodeURIComponent(botId)}/analyze`, { method: "POST" });
+        const d2 = await r2.json();
+        if (!r2.ok) throw new Error("要約：" + (d2.error || "できませんでした"));
+        進捗("sum", "要約・フィードバックができました", "ok");
+        進捗("done", "できあがりました。画面を更新します。", "ok");
+        setTimeout(() => location.reload(), 1200);
+      } catch (e) {
+        進捗("err", String(e.message || e), "ng");
+        allBtn.disabled = false; allBtn.textContent = orig;
+      }
+    });
+
     // 文字起こしを後から作る（録画・音声から）
     const trBtn = hdetail.querySelector("#transcribeBtn");
     if (trBtn) {

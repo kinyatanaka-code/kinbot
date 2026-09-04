@@ -5925,3 +5925,14 @@ input:focus, select:focus, textarea:focus, .sf-input:focus, .sf-select:focus, .s
   .dactions { display: flex; flex-wrap: wrap; gap: 8px; }
   .dactions .btn { flex: 0 1 auto; white-space: nowrap; padding: 9px 14px; font-size: 13px; }
 }
+
+
+/* 文字起こし＋要約の進み具合 */
+.gen-progress { margin: 0 0 12px; border: 1px solid #e6ece9; border-radius: 10px; background: #fff; overflow: hidden; }
+.gp-row { display: flex; gap: 8px; align-items: baseline; padding: 8px 12px; font-size: 13px; color: #2c3a35; border-top: 1px solid #f0f4f2; }
+.gp-row:first-child { border-top: none; }
+.gp-mark { width: 16px; font-weight: 800; color: #5b7a6d; }
+.gp-row.ok .gp-mark { color: #1d9e75; }
+.gp-row.ng { color: #a32d2d; }
+.gp-row.ng .gp-mark { color: #a32d2d; }
+.gp-row.doing .gp-mark { color: #1d9e75; }
