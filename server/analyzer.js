@@ -1103,6 +1103,22 @@ async function callLLM(system, user, maxTokens = 1400, opts = {}) {
 }
 
 // 503/UNAVAILABLE/overloaded など一時的な混雑は自動リトライ
+// 待ち時間を決める。429等でAPIが「約N秒後に再試行」を示していれば、その秒数だけ待つ（上限20秒）。
+// 指示が無ければ従来どおり 1.5秒×(回数+1) の漸増。1.5秒固定だと Groq 等の分単位レート制限を待ちきれず失敗するため。
+function retryDelayMs(msg, i) {
+  const base = 1500 * (i + 1);
+  const m = String(msg || "").match(/try again in\s+([\d.]+)\s*(ms|s)?|retry[-\s]?after[:\s]+([\d.]+)/i);
+  if (m) {
+    const num = parseFloat(m[1] || m[3] || "");
+    if (isFinite(num) && num > 0) {
+      const ms = /ms/i.test(m[2] || "") ? num : num * 1000;
+      // 指示どおり待つ（少し余裕を足す）。ただし待ちすぎないよう20秒でキャップ。
+      return Math.min(20000, Math.max(base, Math.ceil(ms) + 500));
+    }
+  }
+  return base;
+}
+
 async function withRetry(fn, tries = 4) {
   let last;
   for (let i = 0; i < tries; i++) {
@@ -1111,7 +1127,7 @@ async function withRetry(fn, tries = 4) {
     } catch (e) {
       last = e;
       if (i < tries - 1 && isTransient(e.message)) {
-        await new Promise((r) => setTimeout(r, 1500 * (i + 1)));
+        await new Promise((r) => setTimeout(r, retryDelayMs(e.message, i)));
         continue;
       }
       throw e;
@@ -2016,7 +2032,8 @@ export async function splitPhases({ transcript, repName }) {
   const user =
     `自社の営業担当: ${repName || "（未指定）"}\n全${arr.length}発言\n\n` +
     `"""\n${lines.join("\n").slice(-24000)}\n"""\n\n段階ごとに区切ってJSONで返してください。`;
-  const text = await callLLM(PHASE_PROMPT, user, 1200);
+  // 商談全体を段階配列(JSON)で返すため、1200では長い商談で途中切れ(MAX_TOKENS)しやすい。余裕を持たせる。
+  const text = await callLLM(PHASE_PROMPT, user, 4000);
   const o = parseJson(text) || {};
   const raw = Array.isArray(o.chapters) ? o.chapters : [];
   // 番号を整えて、範囲外や重なりを直す
