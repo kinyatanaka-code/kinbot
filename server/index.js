@@ -8561,7 +8561,13 @@ app.get("/api/meetings/_todaydiag", async (req, res) => {
 // Recallに残っている録音から、商談を取り込み直す。
 // webhookが届かず商談になっていない通話を、あとから記録に落とすために使う。
 // POST /api/meetings/import-from-recall { botIds:["..."], hours:24 }
-app.post("/api/meetings/import-from-recall", async (req, res) => {
+app.post("/api/meetings/import-from-recall", async (req, res) => importFromRecall(req, res));
+// ブラウザで結果を確かめたいとき用（GETでも同じことができる）
+app.get("/api/meetings/import-from-recall", async (req, res) => {
+  req.body = { hours: parseInt(req.query.hours, 10) || 48, botIds: String(req.query.botIds || "").split(",").map((x) => x.trim()).filter(Boolean) };
+  return importFromRecall(req, res);
+});
+async function importFromRecall(req, res) {
   try {
     const b = req.body || {};
     let ids = Array.isArray(b.botIds) ? b.botIds.map((x) => String(x).trim()).filter(Boolean) : [];
@@ -8582,19 +8588,27 @@ app.post("/api/meetings/import-from-recall", async (req, res) => {
         const already = await getMeeting(botId).catch(() => null);
         if (already && (already.title || already.transcript)) { 結果.push({ botId, 状態: "すでに取り込み済み" }); continue; }
         const bot = await getBot(botId);
-        const title = bot?.meeting_metadata?.title || bot?.meeting_url?.meeting_id || "";
+        // 商談名：Zoomの会議名 → カレンダー予定名 → 会議ID の順で拾う
+        const title = bot?.meeting_metadata?.title || bot?.meeting_metadata?.zoom?.topic || bot?.bot_name || String(bot?.meeting_url?.meeting_id || "") || `商談 ${String(botId).slice(0, 8)}`;
         const started = bot?.recordings?.[0]?.started_at || bot?.join_at || bot?.created_at || new Date().toISOString();
-        const tr = await getBotTranscript(botId).catch(() => []);
-        if (!tr.length) { 結果.push({ botId, 状態: "文字起こしがまだありません", 商談名: title }); continue; }
-        await createMeeting(botId, { meetingUrl: (bot?.meeting_url?.meeting_id ? String(bot.meeting_url.meeting_id) : ""), repName: "", title, owner: String(b.owner || req.user || "").toLowerCase(), muxPlaybackId: null });
+        const tr = await getBotTranscript(botId).catch((e) => { throw new Error("文字起こしの取得に失敗：" + e.message); });
+        if (!tr.length) { 結果.push({ botId, 状態: "文字起こしがまだありません（Recall側の準備待ちかもしれません）", 商談名: title }); continue; }
+        const owner = String(b.owner || req.user || "").toLowerCase();
+        await createMeeting(botId, {
+          meetingUrl: String(bot?.meeting_url?.meeting_id || ""),
+          repName: "", title, owner, muxPlaybackId: null,
+        });
         await saveMeeting(botId, { transcript: tr });
-        // 要約・分析はこのあと自動記録の見回りで作られる（要約が無ければ生成して記録する仕組み）
-        結果.push({ botId, 状態: "取り込みました", 商談名: title, 開始: started, 文字起こし: tr.length + "件" });
+        const 確認 = await getMeeting(botId).catch(() => null);
+        結果.push({
+          botId, 状態: 確認 ? "取り込みました" : "保存できませんでした",
+          商談名: title, 開始: started, 文字起こし: tr.length + "件", 担当: owner,
+        });
       } catch (e) { 結果.push({ botId, 状態: "できませんでした：" + e.message }); }
     }
     res.json({ ok: true, 件数: 結果.length, 結果 });
   } catch (e) { res.status(500).json({ error: e.message }); }
-});
+}
 
 // 記録する（Salesforceの活動履歴と、リードの状態も更新する）
 // 「代わりに更新する人」がちゃんと使える状態か確かめる
@@ -17832,7 +17846,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-04dx 録音から商談を取り込み直す導線を画面に追加（要望：田中さん・今日の商談が記録されない）。設定・管理の『取り込み漏れを取り込む』で、直近48時間のRecall録音のうち商談になっていないものを自動で見つけて取り込む（recall.listRecentBots追加。botIds指定も可）。前回(dw)：取り込みAPIの追加。";
+const BUILD_TAG = "2026-09-04dy 録音からの商談取り込みを改善：結果を1件ずつ詳しく返す（商談名・文字起こし件数・担当・失敗理由）、商談名が空にならないようZoom会議名→bot名→会議IDの順で採用、保存後に実際に入ったか確認。ブラウザで確かめられるよう GET /api/meetings/import-from-recall?hours=48&botIds= も用意。前回(dx)：取り込みボタンの追加。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
