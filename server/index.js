@@ -8577,8 +8577,8 @@ async function importFromRecall(req, res) {
       const bots = await listRecentBots({ hours, limit: 80 }).catch(() => []);
       for (const bt of bots) {
         if (!bt.id || !/done|recording_done|call_ended/i.test(String(bt.status))) continue;
-        const已 = await getMeeting(bt.id).catch(() => null);
-        if (已 && (已.title || 已.transcript)) continue;
+        const done = await getMeeting(bt.id).catch(() => null);
+        if (done && (done.title || done.transcript)) continue;
         ids.push(bt.id);
       }
     }
@@ -17846,7 +17846,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-04dy 録音からの商談取り込みを改善：結果を1件ずつ詳しく返す（商談名・文字起こし件数・担当・失敗理由）、商談名が空にならないようZoom会議名→bot名→会議IDの順で採用、保存後に実際に入ったか確認。ブラウザで確かめられるよう GET /api/meetings/import-from-recall?hours=48&botIds= も用意。前回(dx)：取り込みボタンの追加。";
+const BUILD_TAG = "2026-09-04dz 録音からの取り込みが『const已 is not defined』で失敗する不具合を修正（変数名の置換ミスでスペースが欠落し不正な識別子になっていた）。取り込み漏れの自動検出が正常に動くように。前回(dy)：取り込み結果の詳細表示とGET版。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",

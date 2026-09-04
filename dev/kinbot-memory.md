@@ -41,6 +41,8 @@ kincall（架電リスト）という別ツールも同じ画面群の中にあ�
 
 ## 決定・指示のログ（新しいものを上に足す）
 
+- 2026-09-04 バグ（自分のミス）：『取り込み漏れを取り込む』が できませんでした：const已 is not defined。原因：dwで変数名 已→既 に置換した際、`const 已` のスペースまで巻き込まれ `const已` という不正な識別子になっていた（node --check は通ってしまう＝実行時ReferenceError）。修正(dz)：該当2行を const done / done.title||done.transcript に書き換え。他に同種の崩れが無いか grep で確認済み。ローカルで GET /api/meetings/import-from-recall?hours=48 が {ok:true,件数:0} を返すことを確認（キーがダミーのため0件）。node--check/smoke OK。教訓：日本語変数名の一括置換はスペース欠落に注意、置換後は必ず実行確認（--checkだけでは検出できない）。
+
 - 2026-09-04 続き（田中さん）：取り込みボタンを押しても商談履歴に出ない。改善(dy)：import-from-recall をハンドラ関数 importFromRecall(req,res) に切り出し、POSTに加えて GET /api/meetings/import-from-recall?hours=48&botIds=a,b でも実行・結果確認できるように（ブラウザで中身を見て原因特定できる）。取り込み処理も強化：商談名を meeting_metadata.title→zoom.topic→bot_name→meeting_id→『商談 xxxxxxxx』の順でフォールバック（空タイトルで一覧に出ない事故を防止）、getBotTranscript失敗は理由を結果に出す、保存後 getMeeting で実際に入ったか確認して『取り込みました/保存できませんでした』を返す、owner を明示保存（商談履歴は owner で絞る場合があるため）。要：田中さんに GET版URLを開いてもらい、各botの『状態』（すでに取り込み済み/文字起こしがまだありません/できませんでした：理由）を確認→原因確定。node--check/smoke/GET200 OK。
 
 - 2026-09-04 復旧（田中さん）：Recallに今日11件・昨日9件のDone録音があるが、kinbotに商談として入っているのは904dbd08/bcc26544/841eeb63の3件のみ。実装(dx)：recall.listRecentBots({hours,limit})＝GET /bot/?created_at__gte=&limit で最近のBot(id/title/created_at/started_at/status)を取得。POST /api/meetings/import-from-recall は botIds 未指定なら listRecentBots(hours既定48)から status=done系かつ getMeeting未登録のものを自動抽出して取り込む。calls.js 設定・管理に『録音から商談を取り込む／取り込み漏れを取り込む』(#kcImportRec)＝hours48でPOSTし『N件を取り込みました』表示。取り込み後は既存sweepで要約生成→SF記録、interns/match で apo_setter 付与→実施カウントに反映。※Claudeサンドボックスからは本番に接続できないため実行は田中さん側。根本原因（Recall webhook不達：PUBLIC_URL変更/webhook設定/署名検証）は次に調査。node--check/smoke OK。
