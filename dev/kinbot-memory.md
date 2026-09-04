@@ -41,6 +41,8 @@ kincall（架電リスト）という別ツールも同じ画面群の中にあ�
 
 ## 決定・指示のログ（新しいものを上に足す）
 
+- 2026-09-04 要望（田中さん）：かける画面のヘッダーに今日の架電結果を出す。実装(dj)：GET /api/calls/my-today?member= ＝ callStatsByDay(today,today) を caller=自分(または代理member)で絞り、コール=件数計、接触=isContacted(result)、アポ=/アポ獲得/ を集計して返す。calls.html topbar に #kcToday（今日 コール/接触/アポ の丸ピル、.kc-today*）を追加(既定hidden)。calls.js loadToday()＝取得して数値をセットし表示、loadTable後・記録成功後(loadStats横)・リスト切替時に呼ぶ。代理操作(callAsMember)時はその人の当日分。疎通OK(コール0/接触0/アポ0)・smoke OK。※必要なら『目標との差』『時間帯別』も足せる。
+
 - 2026-09-04 要望（田中さん）：kincallコネクタで全リストの現状を分析したい。実装(di)：db.callListOverview({limit})＝closed=falseのcall_listsを新しい順に取り、各リストで件数/架電済み(call_logs存在)/未架電/アポ獲得(status ILIKE %アポ獲得%)/お断り/不在/アーカイブ・リサイクル(stage)/担当人数/進捗率、担当別(assigned_to別の件数・架電済み 上位12)、ステージ内訳(上位12)を集計。server/mcp.js CALL_TOOLS に list_call_lists_overview を追加＋callToolケース（作成者・担当別の担当名を resolveDisplayName で表示名化）。kincallコネクタ(/kincall/mcp)のツールは list_call_logs / list_call_stats / list_apo_appointments / list_call_lists_overview の4つに。tools/list・呼び出し200確認、smoke OK。※Claude.aiのkincallコネクタで『どのリストが進んでいない？』『アポ率の高いリストは？』等が聞ける。
 
 - 2026-09-04 要望（田中さん・月桂冠画像）：草の冠を画像イメージの月桂冠に。対応(dh)：dashCard の laurel(flip) で金色SVG(viewBox 0 0 40 64, 20x32, currentColor, 主枝＋葉8枚)を生成し、金額を左右から挟む（右は .flip で scaleX(-1)）。.kc-inc-yen を flex(center,gap2)に、.kc-laurel 色 #c9a34e、rank1 #d4af37 / rank2 #9aa2a8 / rank3 #c68642。Playwrightでレンダリング確認済み。node--check/smoke OK。※さらに本物の意匠に寄せる場合は葉の枚数/曲率を調整、または画像アセット化も可。

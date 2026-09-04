@@ -67,6 +67,7 @@ async function loadLists() {
       rememberListId(v);
       showProgress(items.find((x) => x.id === listId));
       loadTable();
+      loadToday();
     }
   } catch (e) { say("clStatus", "読み込めませんでした：" + e.message, 8000); }
 }
@@ -96,6 +97,7 @@ async function loadTable() {
     rows = d.items || [];
     _sfDisconnected = !!d["SF未接続"];
     render();
+    loadToday();
   } catch (e) {
     box.innerHTML = `<div class="empty-state">読み込めませんでした：${esc(e.message)}</div>`;
   }
@@ -1274,6 +1276,7 @@ async function openTarget(id, draft, opt) {
         : `記録しました${d.sf && d.sf.reason ? `（SFへは残せません：${d.sf.reason}）` : ""}`) + 次回 + 次回注意, 8000);
       // 実績の数だけ、そっと更新する（一覧は読み直さない）
       loadStats();
+      loadToday();   // ヘッダーの「今日の架電結果」も更新
     } catch (e) {
       say("kcSaveSt", "失敗：" + e.message, 8000);
       btn.disabled = false;
@@ -1364,6 +1367,22 @@ function openSlotPanel(m) {
     } catch (e) { body.innerHTML = `<div class="note">空きを取得できませんでした：${esc(e.message)}</div>`; }
   })();
 }
+// ヘッダーの「今日の架電結果」を読み込む（記録のあとにも呼ぶ）
+async function loadToday() {
+  const box = $("kcToday");
+  if (!box) return;
+  try {
+    const who = callAsMember ? `?member=${encodeURIComponent(callAsMember)}` : "";
+    const d = await (await fetch(`/api/calls/my-today${who}`)).json();
+    if (!d.ok) return;
+    const set = (id, v) => { const el = $(id); if (el) el.textContent = v; };
+    set("kcTodayCall", d.コール || 0);
+    set("kcTodayCt", d.接触 || 0);
+    set("kcTodayApo", d.アポ || 0);
+    box.hidden = false;
+  } catch {}
+}
+
 // 「次回いつかける？」のクイック入力（今日・明日・週明け・来月＋時間ボタン）を動かす
 function quickNextDate(kind) {
   const d = new Date(Date.now() + 9 * 3600 * 1000);   // 日本時間の「今」

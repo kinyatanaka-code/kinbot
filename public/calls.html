@@ -10,7 +10,7 @@
     <link rel="manifest" href="/site.webmanifest" />
     <meta name="theme-color" content="#0d5b47" />
     <meta name="apple-mobile-web-app-title" content="kinbot" />
-    <link rel="stylesheet" href="style.css?v=20260904dh" />
+    <link rel="stylesheet" href="style.css?v=20260904dj" />
   </head>
   <body class="kc-body">
     <div class="app">
@@ -37,6 +37,12 @@
       <div class="main">
         <header class="topbar">
           <div class="brand kc-brand"><img class="kc-logo" src="/kincall.svg" alt="" /><span class="kc-name">kincall</span><span class="kc-sub">架電リスト</span></div>
+          <div class="kc-today" id="kcToday" hidden>
+            <span class="kc-today-lb">今日</span>
+            <span class="kc-today-it"><b id="kcTodayCall">0</b><span>コール</span></span>
+            <span class="kc-today-it"><b id="kcTodayCt">0</b><span>接触</span></span>
+            <span class="kc-today-it apo"><b id="kcTodayApo">0</b><span>アポ</span></span>
+          </div>
         </header>
 
         <main class="report-page kc-page">
@@ -100,6 +106,11 @@
               .kc-biz-open{background:#e5f6ee;color:#0d5b47;}
               .kc-biz-closed{background:#fbe7e6;color:#a32d2d;}
               .kc-sfwarn{background:#fff4e5;border:1px solid #f2c98a;color:#8a5a00;border-radius:8px;padding:8px 12px;margin-bottom:8px;font-size:12px;}
+              .kc-today{display:inline-flex;align-items:center;gap:10px;margin-left:16px;padding:6px 12px;background:#eef7f2;border:1px solid #cfe6db;border-radius:999px;}
+              .kc-today-lb{font-size:11px;font-weight:700;color:#0d5b47;}
+              .kc-today-it{display:inline-flex;align-items:baseline;gap:3px;font-size:11px;color:#5b7a6d;}
+              .kc-today-it b{font-size:15px;font-weight:800;color:#12241d;}
+              .kc-today-it.apo b{color:#1d9e75;}
               .kc-biz-unknown{background:#f1f3f2;color:#a6afaa;}
               .kc-biz-ai{margin-left:4px;font-size:8px;font-weight:700;opacity:.7;vertical-align:super;}
               .kc-person .kc-pname{display:block;}
@@ -288,9 +299,9 @@
         </main>
       </div>
     </div>
-    <script src="sf-data.js?v=20260904dh"></script>
-    <script src="calls.js?v=20260904dh"></script>
-    <script src="nav.js?v=20260904dh"></script>
+    <script src="sf-data.js?v=20260904dj"></script>
+    <script src="calls.js?v=20260904dj"></script>
+    <script src="nav.js?v=20260904dj"></script>
     <script src="/cmdk.js?v=20260827a"></script>
 </body>
 </html>

@@ -8360,6 +8360,26 @@ app.get("/api/calls/slot-suggest", async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+// かける画面のヘッダー用：自分の今日の架電結果（コール・接触・アポ）。
+app.get("/api/calls/my-today", async (req, res) => {
+  try {
+    const nowJ = new Date(Date.now() + 9 * 3600000);
+    const p2 = (n) => String(n).padStart(2, "0");
+    const today = `${nowJ.getUTCFullYear()}-${p2(nowJ.getUTCMonth() + 1)}-${p2(nowJ.getUTCDate())}`;
+    const 対象 = String(req.query.member || req.user || "").toLowerCase();
+    const rows = await callStatsByDay(today, today).catch(() => []);
+    let コール = 0, 接触 = 0, アポ = 0;
+    for (const r of rows) {
+      if (対象 && String(r.caller || "").toLowerCase() !== 対象) continue;
+      const n = Number(r.n) || 0;
+      コール += n;
+      if (isContacted(r.result)) 接触 += n;
+      if (/アポ獲得/.test(String(r.result || ""))) アポ += n;
+    }
+    res.json({ ok: true, 日: today, コール, 接触, アポ });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 // 記録する（Salesforceの活動履歴と、リードの状態も更新する）
 // 「代わりに更新する人」がちゃんと使える状態か確かめる
 app.get("/api/sf-proxy/check", async (req, res) => {
@@ -17569,7 +17589,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-04di kincallコネクタで全リストの現状を分析できるように（要望：田中さん）。MCPツール list_call_lists_overview を追加＝リストごとに件数/架電済み/未架電/進捗率/アポ獲得/お断り/不在/アーカイブ/リサイクル/担当人数＋担当別(件数・架電済み)＋ステージ内訳を返す。db.callListOverview追加。前回(dh)：月桂冠SVG。";
+const BUILD_TAG = "2026-09-04dj かける画面のヘッダーに今日の架電結果（コール／接触／アポ）を表示（要望：田中さん）。GET /api/calls/my-today で自分（代理操作中はその人）の当日の件数を返し、一覧の読み込み時と記録のたびに更新。前回(di)：kincallコネクタにリスト現状分析ツール。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
