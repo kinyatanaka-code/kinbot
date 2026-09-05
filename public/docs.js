@@ -122,12 +122,14 @@ async function loadDocs() {
             発行 ${f.links}件／閲覧 ${f.views}件　${esc(fmtWhen(f.created_at))}</div>
         </div>
         <div class="dk-act">
-          ${f.mine ? `<button type="button" class="btn ghost df-standing-toggle">${f.standing ? "会社ごとにする" : "常時にする"}</button>` : ""}
-          ${f.mine ? `<button type="button" class="btn ghost df-share">${
-            f.shared === false ? "チームに共有する" : "自分だけにする"}</button>` : ""}
-          ${f.mine ? '<button type="button" class="btn ghost df-rename">名前を直す</button>' : ""}
-          ${f.mine ? `<button type="button" class="btn ghost df-toggle">${f.active ? "使わない" : "使う"}</button>` : ""}
-          ${f.mine ? '<button type="button" class="btn ghost df-del">削除</button>' : ""}
+          ${f.mine ? `<button type="button" class="dk-menu-btn" aria-label="操作メニュー"><i class="ti ti-dots-vertical" aria-hidden="true"></i></button>
+          <div class="dk-menu" hidden>
+            <button type="button" class="df-standing-toggle">${f.standing ? "会社ごとにする" : "初回（常時）にする"}</button>
+            <button type="button" class="df-share">${f.shared === false ? "チームに共有する" : "自分だけにする"}</button>
+            <button type="button" class="df-rename">名前を直す</button>
+            <button type="button" class="df-toggle">${f.active ? "使わない" : "使う"}</button>
+            <button type="button" class="df-del danger">削除</button>
+          </div>` : ""}
         </div>
       </div>`;
     const セクション = (title, hint, list) => list.length
@@ -582,6 +584,28 @@ if ($("deList")) {
 }
 if ($("deReload")) $("deReload").addEventListener("click", loadDeals);
 if ($("deSearch")) $("deSearch").addEventListener("keydown", (e) => { if (e.key === "Enter") loadDeals(); });
+
+// 資料タブの ⋮ メニューの開閉（#dfList は再描画されても要素自体は残るので、委譲を一度だけ張る）
+function dfCloseMenus() {
+  const l = $("dfList");
+  if (l) l.querySelectorAll(".dk-menu").forEach((m) => (m.hidden = true));
+}
+if ($("dfList")) {
+  $("dfList").addEventListener("click", (ev) => {
+    const kb = ev.target.closest(".dk-menu-btn");
+    if (!kb) return;
+    ev.stopPropagation();
+    const menu = kb.parentElement.querySelector(".dk-menu");
+    const willOpen = menu && menu.hidden;
+    dfCloseMenus();
+    if (menu) menu.hidden = !willOpen;
+  });
+}
+// メニューの外をクリックしたら閉じる
+document.addEventListener("click", (ev) => {
+  if (ev.target.closest && (ev.target.closest(".dk-menu") || ev.target.closest(".dk-menu-btn"))) return;
+  dfCloseMenus();
+});
 
 // 最初の読み込み
 (async () => {
