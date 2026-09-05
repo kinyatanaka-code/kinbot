@@ -10,7 +10,7 @@
     <link rel="manifest" href="/site.webmanifest" />
     <meta name="theme-color" content="#0d5b47" />
     <meta name="apple-mobile-web-app-title" content="kinbot" />
-    <link rel="stylesheet" href="style.css?v=20260904ex" />
+    <link rel="stylesheet" href="style.css?v=20260904ey" />
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/tabler-icons/2.44.0/iconfont/tabler-icons.min.css" />
     <style>
     /* URL発行の設定と、発行ボタン（右端） */
@@ -92,6 +92,13 @@
       <div class="main">
         <header class="topbar"><div class="brand"><img class="topbar-bot" src="kinbot.svg" alt="" /><span class="brand-name">資料トラッキング</span></div></header>
         <main class="report-page">
+          <div class="ap-tabs" role="tablist">
+            <button type="button" class="ap-tab active" data-dpane="deals">商談ごと</button>
+            <button type="button" class="ap-tab" data-dpane="send">URLを発行する</button>
+            <button type="button" class="ap-tab" data-dpane="track">閲覧状況</button>
+            <button type="button" class="ap-tab" data-dpane="files">資料</button>
+          </div>
+
           <!-- 商談ごと（このページの主役） -->
           <section class="ap-pane" data-dpane="deals">
             <div class="set-card">
@@ -104,11 +111,6 @@
                 <span class="rev-status" id="deStatus"></span>
               </div>
               <div id="deList"><div class="empty-state">読み込み中…</div></div>
-            </div>
-            <div class="dt-tools">
-              <button type="button" class="btn ghost" id="btnDocs">資料を登録・管理</button>
-              <button type="button" class="btn ghost" id="btnBulk">まとめて発行・メルマガ</button>
-              <button type="button" class="btn ghost" id="btnTrack">閲覧状況の一覧</button>
             </div>
           </section>
 
@@ -279,7 +281,7 @@
         </main>
       </div>
     </div>
-    <script src="nav.js?v=20260904ex"></script>
-    <script src="docs.js?v=20260904ex"></script>
+    <script src="nav.js?v=20260904ey"></script>
+    <script src="docs.js?v=20260904ey"></script>
   </body>
 </html>

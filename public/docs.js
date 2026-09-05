@@ -583,25 +583,6 @@ if ($("deList")) {
 if ($("deReload")) $("deReload").addEventListener("click", loadDeals);
 if ($("deSearch")) $("deSearch").addEventListener("keydown", (e) => { if (e.key === "Enter") loadDeals(); });
 
-// 副機能（資料の登録・管理／まとめて発行／閲覧状況）は、必要なときだけ開く
-function dtToggle(dpane, onOpen) {
-  const pane = document.querySelector(`.ap-pane[data-dpane="${dpane}"]`);
-  if (!pane) return;
-  const willShow = pane.hidden;
-  // ほかの副パネルは閉じる（商談ごとは常時表示なので対象外）
-  document.querySelectorAll('.ap-pane').forEach((p) => {
-    if (p.dataset.dpane !== "deals") p.hidden = true;
-  });
-  pane.hidden = !willShow;
-  if (willShow) {
-    if (onOpen) onOpen();
-    pane.scrollIntoView({ behavior: "smooth", block: "start" });
-  }
-}
-if ($("btnDocs")) $("btnDocs").addEventListener("click", () => dtToggle("files", loadDocs));
-if ($("btnBulk")) $("btnBulk").addEventListener("click", () => dtToggle("send"));
-if ($("btnTrack")) $("btnTrack").addEventListener("click", () => dtToggle("track", loadLinks));
-
 // 最初の読み込み
 (async () => {
   await loadDocs();
