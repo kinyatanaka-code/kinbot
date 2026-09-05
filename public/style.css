@@ -2805,6 +2805,10 @@ body {
   position: relative;
   z-index: 3;
 }
+/* デスクトップでは左メニューを固定し、本文だけスクロールさせる（サイドは一緒に流れない） */
+@media (min-width: 761px) {
+  .sidebar { position: sticky; top: 0; align-self: flex-start; height: 100vh; overflow-y: auto; }
+}
 .side-item { transition: background .15s ease, transform .1s ease; }
 .side-item.active { box-shadow: inset 0 0 0 1px rgba(255,255,255,.07), 0 8px 18px rgba(17,164,127,.28); }
 
