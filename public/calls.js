@@ -1742,7 +1742,7 @@ function dashCard(c, big) {
     ? `<input type="number" class="kc-goal kc-dgoal" data-subj="${esc(c.key)}" value="${c.goal}" min="0" />`
     : `<div class="kc-d-act">${c.goal}</div>`;
   // インサイド（インターン生）：獲得見込みインセンティブを表彰状ふうに上に出す
-  const rankCls = c.順位 === 1 ? " rank1" : c.順位 === 2 ? " rank2" : c.順位 === 3 ? " rank3" : "";
+  const rankCls = (dashPeriod === "week") ? "" : (c.順位 === 1 ? " rank1" : c.順位 === 2 ? " rank2" : c.順位 === 3 ? " rank3" : "");
   // 月桂冠（表彰状ふう）。左枝を描き、右は反転して使う。
   const laurel = (flip) => `<svg class="kc-laurel${flip ? " flip" : ""}" viewBox="0 0 40 64" width="20" height="32" aria-hidden="true">
       <g fill="currentColor">
@@ -1774,7 +1774,7 @@ function dashCard(c, big) {
        </div>` : "";
   return `<div class="kc-dcard${big ? " kc-dcard-big" : ""}${rankCls}" data-subj="${esc(c.key)}" data-label="${esc(c.label)}">
     <div class="kc-dname">${esc(c.label)}</div>
-    ${inc}
+    ${dashPeriod === "week" ? "" : inc}
     <div class="kc-drow">
       <div class="kc-dcol"><div class="kc-dlb">目標</div>${goalCell}</div>
       <div class="kc-dcol"><div class="kc-dlb">実績</div><div class="kc-d-act">${c.actual}</div></div>
