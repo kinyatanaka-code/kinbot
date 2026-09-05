@@ -9839,25 +9839,34 @@ app.get("/api/calls/apo-dashboard", async (req, res) => {
     let weeks = null;
     if (period === "week") {
       const buckets = g.区切り || [];
-      const weekKeys = buckets.map((b) => b.key);
-      const wg = await getApoGoalsByKeys("week", weekKeys).catch(() => ({}));
-      const wGoal = (subj, wk) => Number((((wg[subj] || {})[wk] || {})["アポ"]) || 0);
       const actAt = (mm2, j) => (mm2.値 && mm2.値[j]) ? (Number(mm2.値[j].アポ内 || 0) + Number(mm2.値[j].アポ外 || 0)) : 0;
       const memRoles = (g.members || [])
         .filter((mm2) => !nameHas(mm2.誰, excludeNames))
         .map((mm2) => ({ m: mm2, role: nameHas(mm2.誰, salesNames) ? "sales" : mm2.role }));
       const sumRole = (j, r) => memRoles.filter((x) => r === "all" || x.role === r).reduce((a, x) => a + actAt(x.m, j), 0);
-      weeks = buckets
-        .map((b, j) => ({ b, j }))
-        .filter(({ b }) => b.from <= mEnd && b.to >= mStart)   // 選んだ月に重なる週だけ
-        .map(({ b, j }) => {
-          const mk = (subj, label, r) => { const actual = sumRole(j, r); const goal = wGoal(subj, b.key); return { key: subj, label, role: "team", actual, goal, diff: actual - goal, periodKey: b.key }; };
-          return {
-            key: b.key, label: b.名前, from: b.from, to: b.to,
-            teams: [mk("group", "グループ（全体）", "all"), mk("sales", "セールス", "sales"), mk("inside", "インサイド", "inside")],
-          };
-        })
-        .reverse();   // 新しい週を上に
+      // 実績は週キーで引けるようにする（グリッドにある＝過去〜今週ぶん）
+      const gridIdxByKey = {}; buckets.forEach((b, j) => { gridIdxByKey[b.key] = j; });
+      // 選んだ月の週（月〜日）を、未来の週も含めて全部つくる
+      const [my, mm] = selMonth.split("-").map(Number);
+      const monthStart = new Date(Date.UTC(my, mm - 1, 1));
+      const monthEnd = new Date(Date.UTC(my, mm, 0));
+      const pad = (n) => String(n).padStart(2, "0");
+      const ymd = (dd) => `${dd.getUTCFullYear()}-${pad(dd.getUTCMonth() + 1)}-${pad(dd.getUTCDate())}`;
+      const off = (monthStart.getUTCDay() + 6) % 7;                 // 月初を含む週の月曜まで戻す
+      let wkStart = new Date(Date.UTC(my, mm - 1, 1 - off));
+      const monthWeeks = [];
+      while (wkStart.getTime() <= monthEnd.getTime()) {
+        const wkEnd = new Date(wkStart.getTime() + 6 * 86400000);
+        monthWeeks.push({ key: ymd(wkStart), label: `${wkStart.getUTCMonth() + 1}/${wkStart.getUTCDate()}週`, from: ymd(wkStart), to: ymd(wkEnd) });
+        wkStart = new Date(wkStart.getTime() + 7 * 86400000);
+      }
+      const wg = await getApoGoalsByKeys("week", monthWeeks.map((w) => w.key)).catch(() => ({}));
+      const wGoal = (subj, wk) => Number((((wg[subj] || {})[wk] || {})["アポ"]) || 0);
+      weeks = monthWeeks.map((w) => {
+        const j = gridIdxByKey[w.key];
+        const mk = (subj, label, r) => { const actual = (j !== undefined) ? sumRole(j, r) : 0; const goal = wGoal(subj, w.key); return { key: subj, label, role: "team", actual, goal, diff: actual - goal, periodKey: w.key }; };
+        return { key: w.key, label: w.label, from: w.from, to: w.to, teams: [mk("group", "グループ（全体）", "all"), mk("sales", "セールス", "sales"), mk("inside", "インサイド", "inside")] };
+      });   // 月内を古い順（1週目→）に並べる
     }
 
     res.json({
@@ -18339,7 +18348,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-06k 週次ダッシュボードで月（8月/9月/10月…）を選べるように。選んだ月に重なる週だけを、週ごとのグループ/セールス/インサイドカードで表示。既定は今月。apo-dashboard が month クエリを受け、月をカバーするspanで週グリッドを作り月内の週に絞る。前回(20260906j)：週ごとのカード。";
+const BUILD_TAG = "2026-09-06l 週次で選んだ月の週を全部表示（未来の週も含む）。今週まで＝1週しか出なかった不具合を修正し、月の全週(例9月＝8/31・9/7・9/14・9/21・9/28週)を古い順で表示。実績はある週だけ、未来週は0で目標だけ先に設定可。前回(20260906k)：週次の月選択。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
