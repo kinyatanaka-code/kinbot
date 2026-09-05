@@ -310,6 +310,7 @@ import {
   pendingAutolaunch,
   addDocFile,
   listDocFiles,
+  listDealDocTracking,
   setDocShared,
   setDocStanding,
   getOrCreateSharedLink,
@@ -4400,6 +4401,22 @@ app.get("/api/docs", async (req, res) => {
       mine: String(d.uploaded_by || "").toLowerCase() === String(req.user || "").toLowerCase(),
     }));
     res.json({ docs, base: PUBLIC_URL, me: req.user || "" });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// 商談ごと（会社ごと）に、初回/会社ごとの発行ずみ資料と閲覧状況を返す
+app.get("/api/doc-tracking/deals", async (req, res) => {
+  try {
+    const q = String(req.query.q || "").trim().slice(0, 100);
+    const limit = parseInt(req.query.limit, 10) || 60;
+    const companies = await listDealDocTracking({ owner: req.user, q, limit });
+    const withUrl = (l) => ({ ...l, url: docUrl(PUBLIC_URL, l.slug) });
+    const out = companies.map((c) => ({
+      ...c,
+      standing: (c.standing || []).map(withUrl),
+      per_company: (c.per_company || []).map(withUrl),
+    }));
+    res.json({ companies: out, base: PUBLIC_URL });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
@@ -18000,7 +18017,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-04ev 資料トラッキングを使いやすく：資料に『常時資料／会社ごと』の区分を追加（doc_files.standing、既定=会社ごとで挙動は不変）。資料タブを常時/会社ごと/使わない(非表示)のセクション表示にし、各カードで区分・表示/非表示・共有をまとめて操作可。送る資料の選択欄も常時を上にグループ表示。1URL=1資料は従来どおり。PATCH /api/docs/:id/standing 追加。前回(eu)：要約MAX_TOKENS対策。";
+const BUILD_TAG = "2026-09-04ew 資料トラッキングに『商談ごと』タブを新設（案B・既定の先頭タブ）。商談履歴の会社ごとにカード表示し、初回/会社ごとの発行ずみ資料と閲覧状況（緑=閲覧/灰=未読・滞在/最大ページ）を並べ、空きは『＋送付』でその場で1URL発行。会社の突き合わせは normCompanyKey。GET /api/doc-tracking/deals 追加。既存の発行/閲覧状況/資料タブは不変。前回(ev)：常時/会社ごと区分。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",

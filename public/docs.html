@@ -10,7 +10,7 @@
     <link rel="manifest" href="/site.webmanifest" />
     <meta name="theme-color" content="#0d5b47" />
     <meta name="apple-mobile-web-app-title" content="kinbot" />
-    <link rel="stylesheet" href="style.css?v=20260904ev" />
+    <link rel="stylesheet" href="style.css?v=20260904ew" />
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/tabler-icons/2.44.0/iconfont/tabler-icons.min.css" />
     <style>
     /* URL発行の設定と、発行ボタン（右端） */
@@ -47,6 +47,26 @@
     .df-sec-hint{font-size:11.5px;font-weight:500;color:#8a9a93;}
     .home-badge.df-standing{color:#0d5b47;background:#e3f3ec;}
     .home-badge.df-regular{color:#5a6b64;background:#eef3f1;}
+    .de-cards{display:flex;flex-direction:column;gap:10px;}
+    .de-card{background:#fff;border:1px solid #e6ece9;border-radius:12px;padding:12px 14px;}
+    .de-card-h{display:flex;justify-content:space-between;align-items:baseline;gap:10px;margin-bottom:8px;}
+    .de-co{font-size:14px;font-weight:600;color:#1f2a26;}
+    .de-meta{font-size:11.5px;color:#8a9a93;white-space:nowrap;}
+    .de-row{display:flex;align-items:flex-start;gap:8px;padding:7px 0;}
+    .de-row+.de-row{border-top:1px solid #f0f4f2;}
+    .de-badge{flex:0 0 auto;margin-top:3px;font-size:11px;padding:2px 8px;border-radius:6px;background:#e3f3ec;color:#0d5b47;}
+    .de-badge.k{background:#eef3f1;color:#5a6b64;}
+    .de-chips{display:flex;flex-wrap:wrap;gap:6px;align-items:center;flex:1 1 auto;}
+    .de-chip{display:inline-flex;align-items:center;gap:6px;background:#f4f7f5;border:1px solid #e6ece9;
+      border-radius:999px;padding:3px 10px;font-size:12px;color:#1f2a26;text-decoration:none;}
+    .de-chip:hover{border-color:#5DCAA5;}
+    .de-chip-s{font-size:10.5px;color:#8a9a93;}
+    .de-dot{width:7px;height:7px;border-radius:50%;flex:0 0 auto;}
+    .de-add{border:1px dashed #c3cec8;background:#fff;color:#0d5b47;border-radius:999px;padding:3px 10px;
+      font-size:12px;cursor:pointer;}
+    .de-add:hover{border-color:#1d9e75;}
+    .de-picker{display:inline-flex;gap:6px;align-items:center;flex-wrap:wrap;}
+    .de-picker .de-sel{max-width:200px;}
   </style>
 </head>
   <body>
@@ -69,10 +89,26 @@
         <header class="topbar"><div class="brand"><img class="topbar-bot" src="kinbot.svg" alt="" /><span class="brand-name">資料トラッキング</span></div></header>
         <main class="report-page">
           <div class="ap-tabs" role="tablist">
-            <button type="button" class="ap-tab active" data-dpane="send">URLを発行する</button>
+            <button type="button" class="ap-tab active" data-dpane="deals">商談ごと</button>
+            <button type="button" class="ap-tab" data-dpane="send">URLを発行する</button>
             <button type="button" class="ap-tab" data-dpane="track">閲覧状況</button>
             <button type="button" class="ap-tab" data-dpane="files">資料</button>
           </div>
+
+          <!-- 商談ごと -->
+          <section class="ap-pane" data-dpane="deals">
+            <div class="set-card">
+              <h3>商談ごとの資料</h3>
+              <p class="note">商談履歴の会社ごとに、送った資料を「初回」「会社ごと」に分けて表示します。<br>
+              点は閲覧の有無（<b>緑＝閲覧あり</b>／灰＝未読）。空いていれば「＋送付」でその場でURLを発行できます。</p>
+              <div class="ap-cfg-row">
+                <input type="text" id="deSearch" placeholder="会社名でしぼり込む" style="flex:1 1 220px" />
+                <button class="btn ghost" id="deReload">読み込む</button>
+                <span class="rev-status" id="deStatus"></span>
+              </div>
+              <div id="deList"><div class="empty-state">読み込み中…</div></div>
+            </div>
+          </section>
 
           <!-- 閲覧状況 -->
           <section class="ap-pane" data-dpane="track" hidden>
@@ -110,7 +146,7 @@
           </section>
 
           <!-- URLを発行する -->
-          <section class="ap-pane" data-dpane="send">
+          <section class="ap-pane" data-dpane="send" hidden>
             <div class="set-card">
               <h3>宛先ごとのURLを発行する</h3>
               <p class="note">宛先ごとに別のURLを作ります。<b>誰が見たかを区別するため、同じURLを使い回さないでください。</b><br>
@@ -241,7 +277,7 @@
         </main>
       </div>
     </div>
-    <script src="nav.js?v=20260904ev"></script>
-    <script src="docs.js?v=20260904ev"></script>
+    <script src="nav.js?v=20260904ew"></script>
+    <script src="docs.js?v=20260904ew"></script>
   </body>
 </html>

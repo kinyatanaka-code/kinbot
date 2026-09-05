@@ -5955,6 +5955,62 @@ export async function listDocLinks({ docId = 0, onlyViewed = false, limit = 500 
   } catch (e) { console.error("[db] listDocLinks", e.message); return []; }
 }
 
+// 商談履歴の会社ごとに、その会社へ発行ずみの資料リンクを「初回(常時)」「会社ごと」に分けて束ねる。
+// 会社の突き合わせは normCompanyKey（株式会社などを落として比較）で行う。
+export async function listDealDocTracking({ owner = "", q = "", limit = 60 } = {}) {
+  if (!pool) return [];
+  try {
+    const cp = [];
+    let cwhere = "account IS NOT NULL AND btrim(account) <> ''";
+    if (q) { cp.push("%" + q + "%"); cwhere += ` AND account ILIKE $${cp.length}`; }
+    cp.push(Math.min(Math.max(parseInt(limit, 10) || 60, 1), 300));
+    const { rows: comps } = await pool.query(
+      `SELECT account AS company, max(created_at) AS last_at, count(*)::int AS mtgs
+         FROM meetings
+        WHERE ${cwhere}
+        GROUP BY account
+        ORDER BY max(created_at) DESC NULLS LAST
+        LIMIT $${cp.length}`, cp);
+    if (!comps.length) return [];
+    const lp = [];
+    let lwhere = "NOT l.revoked AND f.active";
+    if (owner) {
+      lp.push(String(owner).toLowerCase());
+      lwhere += ` AND (lower(COALESCE(f.uploaded_by,'')) = $${lp.length} OR COALESCE(f.shared,true) = true)`;
+    }
+    const { rows: links } = await pool.query(
+      `SELECT l.slug, l.doc_id, l.company, l.contact, l.email, l.created_at,
+              f.name AS doc_name, COALESCE(f.standing,false) AS standing,
+              COALESCE(v.cnt,0) AS view_count, COALESCE(v.secs,0) AS total_seconds,
+              COALESCE(v.max_page,0) AS max_page, v.last_at AS viewed_at
+         FROM doc_links l
+         JOIN doc_files f ON f.id = l.doc_id
+         LEFT JOIN (SELECT link_id, count(*) cnt, sum(seconds) secs,
+                           max(max_page) max_page, max(last_at) last_at
+                      FROM doc_views GROUP BY link_id) v ON v.link_id = l.id
+        WHERE ${lwhere}
+        ORDER BY l.created_at DESC
+        LIMIT 5000`, lp);
+    const byKey = new Map();
+    for (const l of links) {
+      const k = normCompanyKey(l.company);
+      if (!k) continue;
+      if (!byKey.has(k)) byKey.set(k, []);
+      byKey.get(k).push(l);
+    }
+    return comps.map((c) => {
+      const ls = byKey.get(normCompanyKey(c.company)) || [];
+      return {
+        company: c.company,
+        last_at: c.last_at,
+        mtgs: c.mtgs,
+        standing: ls.filter((x) => x.standing),
+        per_company: ls.filter((x) => !x.standing),
+      };
+    });
+  } catch (e) { console.error("[db] listDealDocTracking", e.message); return []; }
+}
+
 export async function getDocLink(slug) {
   if (!pool || !slug) return null;
   try {

@@ -56,6 +56,7 @@ document.querySelectorAll(".ap-tab").forEach((t) =>
     document.querySelectorAll(".ap-pane").forEach((p) => (p.hidden = p.dataset.dpane !== name));
     if (name === "track") loadLinks();
     if (name === "files") loadDocs();
+    if (name === "deals") loadDeals();
   })
 );
 
@@ -466,10 +467,124 @@ $("dkReload").addEventListener("click", loadLinks);
 $("dkDoc").addEventListener("change", loadLinks);
 $("dkViewed").addEventListener("change", loadLinks);
 
+// ───────── 商談ごとの資料トラッキング（案B・商談カード） ─────────
+let dealsCache = [];
+
+function fmtSecShort(s) {
+  s = Math.max(0, Math.round(+s || 0));
+  if (s < 60) return `${s}秒`;
+  return `${Math.floor(s / 60)}分${s % 60}秒`;
+}
+function fmtDay(iso) {
+  if (!iso) return "—";
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return "—";
+  return `${d.getMonth() + 1}/${d.getDate()}`;
+}
+
+function deChip(l) {
+  const seen = +l.view_count > 0;
+  const detail = seen
+    ? `滞在${fmtSecShort(l.total_seconds)}・最大${l.max_page || 0}ページ`
+    : "まだ開かれていません";
+  return `<a class="de-chip" href="${esc(l.url)}" target="_blank" rel="noopener"
+      title="${esc(l.doc_name)}／${esc(detail)}">
+      <span class="de-dot" style="background:${seen ? "#1d9e75" : "#b4b2a9"}"></span>
+      <span class="de-chip-t">${esc(l.doc_name)}</span>
+      <span class="de-chip-s">${seen ? l.view_count + "回" : "未読"}</span></a>`;
+}
+function deRow(company, label, kind, links) {
+  return `<div class="de-row">
+    <span class="de-badge${kind === "standing" ? "" : " k"}">${label}</span>
+    <div class="de-chips">
+      ${(links || []).map(deChip).join("")}
+      <button type="button" class="de-add" data-company="${esc(company)}" data-kind="${kind}">＋送付</button>
+    </div>
+  </div>`;
+}
+
+async function loadDeals() {
+  const box = $("deList");
+  if (!box) return;
+  try {
+    const q = ($("deSearch") && $("deSearch").value.trim()) || "";
+    box.innerHTML = '<div class="empty-state">読み込み中…</div>';
+    const d = await (await fetch(`/api/doc-tracking/deals?q=${encodeURIComponent(q)}`)).json();
+    if (d.error) throw new Error(d.error);
+    dealsCache = d.companies || [];
+    if (!dealsCache.length) {
+      box.innerHTML = '<div class="empty-state">商談履歴に会社がありません。商談が記録されると、ここに会社ごとに並びます。</div>';
+      return;
+    }
+    box.innerHTML = `<div class="de-cards">` + dealsCache.map((c) => `
+      <div class="de-card">
+        <div class="de-card-h">
+          <div class="de-co">${esc(c.company)}</div>
+          <div class="de-meta">商談${c.mtgs}件　最終 ${esc(fmtDay(c.last_at))}</div>
+        </div>
+        ${deRow(c.company, "初回", "standing", c.standing)}
+        ${deRow(c.company, "会社ごと", "regular", c.per_company)}
+      </div>`).join("") + `</div>`;
+  } catch (e) {
+    box.innerHTML = `<div class="empty-state">読み込めませんでした：${esc(e.message)}</div>`;
+  }
+}
+
+// ＋送付：その場で資料を選んでURLを発行する
+function deOpenPicker(btn) {
+  const wantStanding = btn.dataset.kind === "standing";
+  const company = btn.dataset.company;
+  const opts = docsCache.filter((f) => f.active && f.mine && !!f.standing === wantStanding);
+  if (!opts.length) {
+    alert(wantStanding
+      ? "初回に使う資料がありません。資料タブで資料を『常時にする』にしてください。"
+      : "会社ごとに使う資料がありません。資料タブでPDFを登録してください。");
+    return;
+  }
+  const wrap = document.createElement("span");
+  wrap.className = "de-picker";
+  wrap.innerHTML =
+    `<select class="de-sel">${opts.map((f) => `<option value="${f.id}">${esc(f.name)}</option>`).join("")}</select>` +
+    `<button type="button" class="btn de-issue" data-company="${esc(company)}">発行</button>` +
+    `<button type="button" class="btn ghost de-cancel">やめる</button>`;
+  btn.replaceWith(wrap);
+}
+async function deIssue(btn) {
+  const wrap = btn.closest(".de-picker");
+  const sel = wrap && wrap.querySelector(".de-sel");
+  const docId = sel ? parseInt(sel.value, 10) : 0;
+  const company = btn.dataset.company;
+  if (!docId) return;
+  btn.disabled = true; btn.textContent = "発行中…";
+  try {
+    const r = await fetch("/api/doc-links", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ docId, rows: [{ company }], expiry: "0" }),
+    });
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.error || "発行できませんでした");
+    say("deStatus", `「${company}」にURLを発行しました`, 4000);
+    loadDeals();
+  } catch (e) { btn.disabled = false; btn.textContent = "発行"; alert(e.message); }
+}
+if ($("deList")) {
+  $("deList").addEventListener("click", (ev) => {
+    const add = ev.target.closest(".de-add");
+    const issue = ev.target.closest(".de-issue");
+    const cancel = ev.target.closest(".de-cancel");
+    if (add) { ev.preventDefault(); deOpenPicker(add); }
+    else if (issue) { ev.preventDefault(); deIssue(issue); }
+    else if (cancel) { ev.preventDefault(); loadDeals(); }
+  });
+}
+if ($("deReload")) $("deReload").addEventListener("click", loadDeals);
+if ($("deSearch")) $("deSearch").addEventListener("keydown", (e) => { if (e.key === "Enter") loadDeals(); });
+
 // 最初の読み込み
 (async () => {
   await loadDocs();
   loadLinks();
+  loadDeals();
 })();
 
 // ───────── スプレッドシートへの記録の設定 ─────────
