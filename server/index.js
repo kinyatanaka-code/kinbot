@@ -1079,7 +1079,11 @@ app.put("/api/meetings/:id/meta", async (req, res) => {
       dealKind: dealKind === undefined ? undefined : dealKind,
     });
     // アポ獲得者（インセンティブの実施に数える）。商談履歴の画面から選べる。
-    if (apoSetter !== undefined) await setMeetingApoSetter(req.params.id, String(apoSetter || "").trim() || null);
+    if (apoSetter !== undefined) {
+      const nm = String(apoSetter || "").trim();
+      await setMeetingApoSetter(req.params.id, nm || null);
+      if (nm) checkIncentiveMilestone(nm);
+    }
     res.json({ ok: true });
   } catch (e) {
     sfErrorResponse(res, e);
@@ -8624,6 +8628,7 @@ app.post("/api/calls/set-apo-setter", async (req, res) => {
     const name = String(req.body?.name || "").trim();
     await setMeetingApoSetter(botId, name || null);
     console.log(`[インセンティブ] ${botId} のアポ獲得者を「${name || "(なし)"}」にしました by ${req.user}`);
+    if (name) checkIncentiveMilestone(name);
     res.json({ ok: true, botId, name });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
@@ -14177,6 +14182,75 @@ function setterFromDescription(desc) {
   if (!s || s === "-" || s === "－" || s === "(なし)" || s === "なし") return "";
   return s;
 }
+
+// インセンティブの対象期間（INCENTIVE_FROM から3か月）
+function incentiveWindow() {
+  const from = String(process.env.INCENTIVE_FROM || "2026-09-01").slice(0, 10);
+  const f = new Date(`${from}T00:00:00Z`);
+  const to = new Date(Date.UTC(f.getUTCFullYear(), f.getUTCMonth() + 3, 0)).toISOString().slice(0, 10);
+  return { from, to };
+}
+// 到達の節目：0未満=0、1,000〜4,999=1,000（初実施）、5,000以上は5,000刻み。
+function incentiveMilestone(amount) {
+  const a = Math.max(0, Math.floor(Number(amount) || 0));
+  if (a < 1000) return 0;
+  if (a < 5000) return 1000;
+  return Math.floor(a / 5000) * 5000;
+}
+const _incNorm = (s) => String(s || "").replace(/[\s　]/g, "");
+
+// デプロイ直後に、いまの到達額を「通知済み」として一度だけ記録する（過去分を今さら通知しないため）。
+let _incSeeded = false;
+async function seedIncentiveNotified() {
+  if (_incSeeded) return;
+  try {
+    const s = await getSettings().catch(() => ({}));
+    if (s.incentiveNotifiedSeeded) { _incSeeded = true; return; }
+    const interns = await listInterns().catch(() => []);
+    const { from, to } = incentiveWindow();
+    const ms = await listMeetings({ isAdmin: true, from, to, limit: 5000, light: true }).catch(() => []);
+    const count = {};
+    for (const m of ms) { const k = _incNorm(m.apo_setter); if (k) count[k] = (count[k] || 0) + 1; }
+    const late = s.incentiveLate || {};
+    const notified = { ...(s.incentiveNotified || {}) };
+    for (const it of interns) {
+      const k = _incNorm(it.name);
+      const inc = Math.max(0, ((count[k] || 0) - Number(late[k] || 0)) * 1000);
+      notified[k] = incentiveMilestone(inc);
+    }
+    await saveSettings({ incentiveNotified: notified, incentiveNotifiedSeeded: true });
+    _incSeeded = true;
+    console.log("[インセンティブ通知] 現状額をシードしました");
+  } catch (e) { console.error("[インセンティブ通知] seed", e.message); _incSeeded = true; }
+}
+
+// 商談実施でインセンティブが節目（初実施＝¥1,000、以降5,000円ごと）を超えたら通知する。
+async function checkIncentiveMilestone(name) {
+  try {
+    if (!_incSeeded) return;                 // シード前は通知しない（過去分の誤通知防止）
+    const nm = String(name || "").trim();
+    if (!nm) return;
+    const key = _incNorm(nm);
+    const { from, to } = incentiveWindow();
+    const ms = await listMeetings({ isAdmin: true, from, to, limit: 5000, light: true }).catch(() => []);
+    let jisshi = 0; for (const m of ms) if (_incNorm(m.apo_setter) === key) jisshi++;
+    const s = await getSettings().catch(() => ({}));
+    const late = Number((s.incentiveLate || {})[key] || 0);
+    const incentive = Math.max(0, (jisshi - late) * 1000);
+    const m = incentiveMilestone(incentive);
+    const notified = { ...(s.incentiveNotified || {}) };
+    const last = Number(notified[key] || 0);
+    if (m > last) {
+      notified[key] = m;
+      await saveSettings({ incentiveNotified: notified });
+      const text = m === 1000
+        ? `🎉 *${nm}* さんが初実施しました！（獲得見込みインセンティブ ¥1,000）`
+        : `🎉 *${nm}* さんの獲得見込みインセンティブが *¥${m.toLocaleString()}* に到達しました！`;
+      await notifyAll(text, "incentive").catch(() => {});
+    }
+  } catch (e) { console.error("[インセンティブ通知]", e.message); }
+}
+setTimeout(() => { seedIncentiveNotified(); }, 8000);   // 起動後にシード
 function apoTitleMatch(mNorm, eNorm) {
   if (!mNorm || !eNorm) return false;
   if (mNorm === eNorm) return true;
@@ -14298,6 +14372,7 @@ app.post("/api/interns/match", async (req, res) => {
     const perIntern = {}; // email -> { name, email, matched:[], error }
     for (const ie of internEvents) perIntern[ie.intern.email] = { name: ie.intern.name, email: ie.intern.email, matched: [], error: ie.error, fetched: ie.fetched, hosted: ie.hosted, skipped_samples: ie.skipped_samples };
     let matchedCount = 0, multiCount = 0, matchedByDesc = 0;
+    const touchedSetters = new Set();
     const unmatched = [];
 
     for (const m of meetings) {
@@ -14317,6 +14392,7 @@ app.post("/api/interns/match", async (req, res) => {
         }
         if (hit) {
           await setMeetingApoSetter(m.bot_id, hit.setter);
+          touchedSetters.add(hit.setter);
           const norm = (s) => String(s || "").replace(/[\s　]/g, "");
           const it = interns.find((x) => norm(x.name) === norm(hit.setter));
           if (it && perIntern[it.email]) perIntern[it.email].matched.push({ bot_id: m.bot_id, title: m.title, date: mDate });
@@ -14342,9 +14418,13 @@ app.post("/api/interns/match", async (req, res) => {
       if (cands.length > 1) multiCount++;
       const winner = cands[0].intern;
       await setMeetingApoSetter(m.bot_id, winner.name);
+      touchedSetters.add(winner.name);
       perIntern[winner.email].matched.push({ bot_id: m.bot_id, title: m.title, date: mDate });
       matchedCount++;
     }
+
+    // 実施が増えて節目（初実施・5,000円ごと）を超えた人がいれば通知する
+    for (const nm of touchedSetters) { await checkIncentiveMilestone(nm); }
 
     res.json({
       ok: true,
@@ -18203,7 +18283,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-06a 遅刻カウントの入力を『設定・管理』タブに移設（クローザー・管理者が編集可、田中さんも編集可に）。カード側は遅刻を読み取り表示のみ。遅刻1回=−¥1,000は従来どおり効く。GET /api/calls/incentive-late 追加、PUTと獲得者割り当てをクローザー可に緩和。未照合割り当てボタンもクローザー表示に。前回(20260905s)：商談メモのHTML表示バグ修正。";
+const BUILD_TAG = "2026-09-06b 商談実施でインセンティブが節目を超えたら通知（初実施＝¥1,000で『初実施しました』、以降5,000円ごとに『¥Xに到達』）。人ごとに通知済み額を記録し、上がったときだけ・節目だけ通知（毎回は出さない）。デプロイ時に現状額をシードして過去分の誤通知を防止。通知種類 incentive を追加（通知の管理でオン/オフ可）。手動割り当て・商談履歴の設定・自動照合の各所でチェック。前回(20260906a)：遅刻カウントを設定・管理へ。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",

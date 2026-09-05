@@ -17,6 +17,7 @@ export const NOTIFY_KINDS = [
   { key: "assign",  label: "アポの割り振り" },
   { key: "apo",     label: "アポ獲得のお知らせ（メルマガ等）" },
   { key: "resched", label: "リスケ・キャンセル" },
+  { key: "incentive", label: "インセンティブの到達（初実施・5,000円ごと）" },
   { key: "mail",    label: "御礼メールの下書き" },
   { key: "doc",     label: "資料の閲覧・ダウンロード" },
   { key: "launch",  label: "SF商談の自動立ち上げ" },
