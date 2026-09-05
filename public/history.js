@@ -2004,7 +2004,7 @@ async function loadDetail(botId, openTab, opts = {}) {
     renderSummaryInto(hdetail.querySelector("#dsummary"), s);
     const noteWrap = hdetail.querySelector("#dnoteWrap");
     if (noteWrap && m.note && m.note.trim()) {
-      noteWrap.innerHTML = `<div class="dlabel">📝 商談メモ</div><div class="dnote">${escapeHtml(m.note)}</div>`;
+      noteWrap.innerHTML = `<div class="dlabel">📝 商談メモ</div><div class="dnote">${escapeHtml(htmlToText(m.note)).replace(/\n/g, "<br>")}</div>`;
     }
     renderFeedbackInto(hdetail.querySelector("#dfeedback"), m.feedback || {});
     renderMetricsInto(hdetail.querySelector("#dmetrics"), tr, m.rep_name);
@@ -2972,6 +2972,22 @@ function escapeHtml(s) {
   return String(s ?? "").replace(/[&<>"']/g, (c) =>
     ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c])
   );
+}
+
+// カレンダー本文などのHTML（<br> や <a href> 等）をプレーンテキストに直す。
+// タグが無ければそのまま返す。改行は残す（呼び出し側で<br>化する）。
+function htmlToText(s) {
+  let t = String(s ?? "");
+  if (!/[<&]/.test(t)) return t;
+  return t
+    .replace(/<\s*br\s*\/?\s*>/gi, "\n")
+    .replace(/<\s*\/(p|div|li|h[1-6]|tr)\s*>/gi, "\n")
+    .replace(/<[^>]+>/g, "")
+    .replace(/&nbsp;/gi, " ").replace(/&amp;/gi, "&")
+    .replace(/&lt;/gi, "<").replace(/&gt;/gi, ">")
+    .replace(/&quot;/gi, '"').replace(/&#0?39;/gi, "'").replace(/&apos;/gi, "'")
+    .replace(/[ \t]+\n/g, "\n").replace(/\n{3,}/g, "\n\n")
+    .trim();
 }
 
 loadList().then(() => {

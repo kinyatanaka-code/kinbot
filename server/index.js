@@ -18191,7 +18191,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-05r 予定本文からの獲得者読み取りを『所得：〇〇』にも対応（獲得の言い間違い・変換ミス／アポの有無も許容）。照合の抽出正規表現を (?:アポ)?(?:獲得|所得)[:：] に拡張。前回(20260905q)：商談履歴からアポ獲得者選択。";
+const BUILD_TAG = "2026-09-05s 商談メモに<br>や<a href>等のHTMLタグがそのまま表示されるバグを修正。原因はカレンダー予定本文のHTMLをそのまま取り込んでいたため。history.js に htmlToText を追加し商談メモ表示で変換（改行は<br>で保持）。サーバ cleanSourceNote でも取り込み時にHTML→テキスト化（今後の保存分をクリーンに）。前回(20260905r)：所得表記の読み取り対応。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
@@ -21240,6 +21240,17 @@ async function isKinbotInviteEvent(ev, inviteIds) {
 function cleanSourceNote(description) {
   let t = String(description || "");
   if (!t.trim()) return "";
+  // カレンダー本文はHTMLのことがある（<br> や <a href> 等）。プレーンテキストに直す。
+  if (/[<&]/.test(t)) {
+    t = t
+      .replace(/<\s*br\s*\/?\s*>/gi, "\n")
+      .replace(/<\s*\/(p|div|li|h[1-6]|tr)\s*>/gi, "\n")
+      .replace(/<[^>]+>/g, "")
+      .replace(/&nbsp;/gi, " ").replace(/&amp;/gi, "&")
+      .replace(/&lt;/gi, "<").replace(/&gt;/gi, ">")
+      .replace(/&quot;/gi, '"').replace(/&#0?39;/gi, "'").replace(/&apos;/gi, "'")
+      .replace(/[ \t]+\n/g, "\n").replace(/\n{3,}/g, "\n\n");
+  }
   // 「────」から下は、kinbotが引き継いだ前のメモ
   const cut = t.search(/[─―—-]{6,}/);
   if (cut >= 0) t = t.slice(0, cut);
