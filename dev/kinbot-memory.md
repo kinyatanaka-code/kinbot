@@ -41,6 +41,7 @@ kincall（架電リスト）という別ツールも同じ画面群の中にあ�
 
 ## 決定・指示のログ（新しいものを上に足す）
 
+- 2026-09-05 要望（田中さん）：資料チップのクリックでURLを表示して見られる＋コピーも。対応(20260905g)：docs.js deShowUrl＝チップクリックで同カード内に de-urlbox（資料名＋URL readonly入力[自動select]＋コピー[de-copy]＋開く[a target=_blank]＋閉じる[de-urlclose]）を該当行の直後に挿入（同カードの既存は閉じる）。#deList 委譲で通常クリック→deShowUrl、Ctrl/⌘＋クリック→新規タブ、de-urlclose で除去。チップtitleを『クリックでURLを表示』に。docs.htmlに .de-urlbox 余白。bump=20260905g。parse/smoke OK。
 - 2026-09-05 要望（田中さん）：追加(発行)時にその場でURLコピー、資料チップのクリックでもURLコピー。対応(20260905f)：docs.js deIssue 成功時に loadDeals せず、ピッカーを URL入力(readonly・自動select)＋コピーボタン(de-copy)＋『閉じて更新』(de-done) に差し替え。deCopyUrl で navigator.clipboard.writeText、deStatus に『URLをコピーしました』。de-chip に data-url を持たせ、#deList 委譲で通常クリックはコピー(preventDefault)、Ctrl/⌘＋クリックは従来の新規タブ表示。docs.html に dp-url/dp-done CSS。bump=20260905f。parse/smoke OK。
 - 2026-09-05 要望（田中さん）：初回／会社ごとの区分はやめる。対応(20260905e)：docs.js＝商談ごとカードを deDocs で1リスト化（standing+per_companyを結合、区分バッジ/2行/kind廃止、＋追加は company のみ）。資料タブを1リストに戻し、区分バッジ・『初回（常時）にする』メニュー・df-standing-toggleハンドラ・選択欄のstanding optgroupを削除。ピッカーの候補を全active資料に、新規登録時のstanding設定も撤去。docs.htmlの説明文から初回/会社ごと表記を削除。サーバ/DBの standing 列・setDocStanding・/standing ルート・listDealDocTracking の standing/per_company 分割は残置（未使用・無害）。bump=20260905e。parse/smoke/HTMLタグ均衡 OK。
 - 2026-09-05 要望（田中さん）：商談ごとの『＋送付』は『＋追加』に。資料タブのメニューアイコンは横棒3本に。対応(20260905d)：docs.js の de-add ボタンと説明文を『＋追加』へ、資料行の dk-menu-btn アイコンを ti-dots-vertical→ti-menu-2 に変更。動作は不変。bump=20260905d。parse/smoke OK。

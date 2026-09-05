@@ -452,7 +452,7 @@ function deChip(l) {
     ? `滞在${fmtSecShort(l.total_seconds)}・最大${l.max_page || 0}ページ`
     : "まだ開かれていません";
   return `<a class="de-chip" href="${esc(l.url)}" target="_blank" rel="noopener" data-url="${esc(l.url)}"
-      title="${esc(l.doc_name)}／${esc(detail)}（クリックでURLをコピー）">
+      title="${esc(l.doc_name)}／${esc(detail)}（クリックでURLを表示）">
       <span class="de-dot" style="background:${seen ? "#1d9e75" : "#b4b2a9"}"></span>
       <span class="de-chip-t">${esc(l.doc_name)}</span>
       <span class="de-chip-s">${seen ? l.view_count + "回" : "未読"}</span></a>`;
@@ -614,6 +614,29 @@ function deCopyUrl(url, btn) {
   }).catch(() => say("deStatus", "コピーできませんでした。表示のURLを手動でコピーしてください", 4000));
 }
 
+// 資料チップをクリックしたら、その下にURLを表示する（見る・コピー・開く）
+function deShowUrl(chip) {
+  const card = chip.closest(".de-card");
+  if (card) card.querySelectorAll(".de-urlbox").forEach((x) => x.remove());   // 同じカードの既存パネルは閉じる
+  const url = chip.dataset.url || "";
+  const nameEl = chip.querySelector(".de-chip-t");
+  const name = nameEl ? nameEl.textContent : "資料";
+  const box = document.createElement("div");
+  box.className = "de-picker de-urlbox";
+  box.innerHTML =
+    `<div class="dp-line"><span class="dp-done">${esc(name)} のURL</span></div>
+     <div class="dp-line">
+       <input type="text" class="dp-url" readonly value="${esc(url)}" />
+       <button type="button" class="btn de-copy" data-url="${esc(url)}">コピー</button>
+       <a class="btn ghost" href="${esc(url)}" target="_blank" rel="noopener">開く</a>
+       <button type="button" class="btn ghost de-urlclose">閉じる</button>
+     </div>`;
+  const row = chip.closest(".de-row");
+  if (row && row.parentNode) row.parentNode.insertBefore(box, row.nextSibling);
+  const uEl = box.querySelector(".dp-url");
+  if (uEl) { uEl.focus(); uEl.select(); }
+}
+
 if ($("deList")) {
   $("deList").addEventListener("click", (ev) => {
     const chip = ev.target.closest(".de-chip");
@@ -623,8 +646,10 @@ if ($("deList")) {
     const sf = ev.target.closest(".de-sf");
     const copy = ev.target.closest(".de-copy");
     const done = ev.target.closest(".de-done");
-    // 資料チップ：通常クリックでURLコピー（Ctrl/⌘＋クリックは従来どおり新規タブで開く）
-    if (chip && !ev.metaKey && !ev.ctrlKey) { ev.preventDefault(); deCopyUrl(chip.dataset.url); return; }
+    const urlclose = ev.target.closest(".de-urlclose");
+    // 資料チップ：通常クリックでURLを表示（Ctrl/⌘＋クリックは新規タブで開く）
+    if (chip && !ev.metaKey && !ev.ctrlKey) { ev.preventDefault(); deShowUrl(chip); return; }
+    if (urlclose) { ev.preventDefault(); const b = urlclose.closest(".de-urlbox"); if (b) b.remove(); return; }
     if (add) { ev.preventDefault(); deOpenPicker(add); }
     else if (sf) { ev.preventDefault(); deSfFill(sf); }
     else if (issue) { ev.preventDefault(); deIssue(issue); }
