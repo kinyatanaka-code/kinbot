@@ -41,6 +41,7 @@ kincall（架電リスト）という別ツールも同じ画面群の中にあ�
 
 ## 決定・指示のログ（新しいものを上に足す）
 
+- 2026-09-06 要望（田中さん）：週次では月（8月/9月/10月…）を選べるように。今は9月の週次を見たい。対応(20260906k)：apo-dashboard 週次で month(YYYY-MM、既定=今月)を受け、選択月をカバーする span(=月初〜今+6週、上限26)で computeStatsGrid('week')し、buckets を「月に重なる週(from<=月末 && to>=月初)」に絞って weeks[] に。periodLabel=『YYYY年M月』、month を返す。calls.html にトグル横の月セレクト #dashWeekMonth（週次のみ表示）。calls.js：dashWeekMonth 状態、fillDashMonths（直近6か月）、loadDash が週次で &month= を付与、月セレクト変更で再読込、月次では月セレクト非表示。bump=20260906k。node--check/parse/smoke/タグ均衡 OK。
 - 2026-09-06 要望（田中さん）：週次ダッシュボードは週ごとにグループ/セールス/インサイドのカードがあるように。対応(20260906j)：apo-dashboard の週次で weeks[]（直近各週。computeStatsGridの区切り＝週バケット）を返す＝各週について group/sales/inside の actual(=その週バケットのメンバー合計 m.値[j].アポ内+アポ外)・goal(週目標 getApoGoalsByKeys('week')) ・diff・periodKey を計算し、新しい週を上に(reverse)。calls.js renderDash：period==='week'&&weeks で週ごとセクション（見出し=週ラベル＋3チームカード）を描画。dashCard に data-periodkey を追加し、目標保存は card.dataset.periodkey 優先＝週ごとに保存。月次は従来（teams/sales/inside＋メンバー＋インセン）。週次はインセン非表示(20260906i)のまま・メンバー個別カードは出さずチーム3枚×週。CSS .kc-week-sec 追加。bump=20260906j。node--check/parse/smoke OK。
 - 2026-09-06 要望（田中さん）：週次では週目標を設定しやすくしたいので、インセンティブは表示させない。対応(20260906i)：dashCard で dashPeriod==='week' のとき inc（インセンティブ表示）と rankCls（上位3位の金枠）を出さない。週は目標/実績/差分のみ。インセンティブは月次のみ表示。bump=20260906i。parse/smoke OK。
 - 2026-09-06 修正（田中さん）：週次ダッシュボードの説明文が月次のまま（「その月の平日に配分」）だった。対応(20260906h)：renderDash の note を d.period で出し分け（週次＝『その週の目標として保存されます』、配分の表現を削除）。週次の実績は今週の週範囲（例8/31〜9/6）集計なので、月をまたぐ日を含み9月の月次より多く出ることがある（仕様）。bump=20260906h。parse/smoke OK。

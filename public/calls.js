@@ -1712,14 +1712,31 @@ function openEdit(id) {
 // ───────── ダッシュボード（アポの目標・実績・差分／月次・週次） ─────────
 let _dashData = null;
 let dashPeriod = "month";          // month（月次）/ week（週次）
+let dashWeekMonth = "";            // 週次で見る月（YYYY-MM、空＝今月）
+// 週次の月セレクタの選択肢（直近6か月）を用意する
+function fillDashMonths() {
+  const sel = $("dashWeekMonth");
+  if (!sel || sel.options.length) return;
+  const now = new Date();
+  for (let k = 0; k < 6; k++) {
+    const d = new Date(now.getFullYear(), now.getMonth() - k, 1);
+    const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+    sel.add(new Option(`${d.getFullYear()}年${d.getMonth() + 1}月`, key));
+  }
+  if (!dashWeekMonth) dashWeekMonth = sel.options[0].value;  // 既定は今月
+  sel.value = dashWeekMonth;
+}
 async function loadDash() {
   const box = $("clDash");
   if (!box) return;
-  // トグルの見た目を今の期間に合わせる
+  fillDashMonths();
+  // トグル・月セレクタの見た目を今の期間に合わせる
   document.querySelectorAll("#dashPeriodTabs .kc-ptab").forEach((b) => b.classList.toggle("active", b.dataset.p === dashPeriod));
+  const msel = $("dashWeekMonth"); if (msel) { msel.style.display = dashPeriod === "week" ? "" : "none"; msel.value = dashWeekMonth; }
   box.innerHTML = `<div class="note">読み込んでいます…</div>`;
   try {
-    const d = await (await fetch(`/api/calls/apo-dashboard?period=${encodeURIComponent(dashPeriod)}`)).json();
+    const q = dashPeriod === "week" ? `period=week&month=${encodeURIComponent(dashWeekMonth)}` : `period=month`;
+    const d = await (await fetch(`/api/calls/apo-dashboard?${q}`)).json();
     if (d.error) throw new Error(d.error);
     _dashData = d;
     const 期 = (d.period === "week") ? "週次" : "月次";
@@ -1734,6 +1751,8 @@ document.querySelectorAll("#dashPeriodTabs .kc-ptab").forEach((b) => b.addEventL
   dashPeriod = p;
   loadDash();
 }));
+// 週次の月選択
+if ($("dashWeekMonth")) $("dashWeekMonth").addEventListener("change", (e) => { dashWeekMonth = e.target.value; loadDash(); });
 function dashCard(c, big) {
   const diff = c.diff;
   const dcls = diff > 0 ? "kc-d-plus" : diff < 0 ? "kc-d-minus" : "kc-d-zero";

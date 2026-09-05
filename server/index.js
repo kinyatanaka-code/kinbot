@@ -9751,7 +9751,22 @@ app.get("/api/calls/stats-grid", async (req, res) => {
 app.get("/api/calls/apo-dashboard", async (req, res) => {
   try {
     const period = req.query.period === "week" ? "week" : "month";   // ダッシュボードは月次/週次
-    const g = await computeStatsGrid(period, req.query.span);
+    // 週次は「月」を選べる（既定は今月）。選んだ月をカバーできるだけの週数を取る。
+    let selMonth = "", monthLabelW = "", mStart = "", mEnd = "";
+    let span = req.query.span;
+    if (period === "week") {
+      const nowJw = new Date(Date.now() + 9 * 3600000);
+      const cur = `${nowJw.getUTCFullYear()}-${String(nowJw.getUTCMonth() + 1).padStart(2, "0")}`;
+      selMonth = /^\d{4}-\d{2}$/.test(String(req.query.month || "")) ? req.query.month : cur;
+      const [my, mm] = selMonth.split("-").map(Number);
+      mStart = `${selMonth}-01`;
+      mEnd = new Date(Date.UTC(my, mm, 0)).toISOString().slice(0, 10);
+      monthLabelW = `${my}年${mm}月`;
+      const monthStartD = new Date(Date.UTC(my, mm - 1, 1));
+      const weeksBack = Math.ceil((nowJw.getTime() - monthStartD.getTime()) / (7 * 86400000)) + 6;
+      span = Math.min(26, Math.max(6, weeksBack));
+    }
+    const g = await computeStatsGrid(period, span);
     const idx = (g.区切り || []).findIndex((c) => c.key === g.今);
     const i = idx >= 0 ? idx : (g.区切り || []).length - 1;
     const bucket = (g.区切り && g.区切り[i]) ? g.区切り[i] : null;
@@ -9827,23 +9842,28 @@ app.get("/api/calls/apo-dashboard", async (req, res) => {
       const weekKeys = buckets.map((b) => b.key);
       const wg = await getApoGoalsByKeys("week", weekKeys).catch(() => ({}));
       const wGoal = (subj, wk) => Number((((wg[subj] || {})[wk] || {})["アポ"]) || 0);
-      const actAt = (mm, j) => (mm.値 && mm.値[j]) ? (Number(mm.値[j].アポ内 || 0) + Number(mm.値[j].アポ外 || 0)) : 0;
+      const actAt = (mm2, j) => (mm2.値 && mm2.値[j]) ? (Number(mm2.値[j].アポ内 || 0) + Number(mm2.値[j].アポ外 || 0)) : 0;
       const memRoles = (g.members || [])
-        .filter((mm) => !nameHas(mm.誰, excludeNames))
-        .map((mm) => ({ m: mm, role: nameHas(mm.誰, salesNames) ? "sales" : mm.role }));
+        .filter((mm2) => !nameHas(mm2.誰, excludeNames))
+        .map((mm2) => ({ m: mm2, role: nameHas(mm2.誰, salesNames) ? "sales" : mm2.role }));
       const sumRole = (j, r) => memRoles.filter((x) => r === "all" || x.role === r).reduce((a, x) => a + actAt(x.m, j), 0);
-      weeks = buckets.map((b, j) => {
-        const mk = (subj, label, r) => { const actual = sumRole(j, r); const goal = wGoal(subj, b.key); return { key: subj, label, role: "team", actual, goal, diff: actual - goal, periodKey: b.key }; };
-        return {
-          key: b.key, label: b.名前, from: b.from, to: b.to,
-          teams: [mk("group", "グループ（全体）", "all"), mk("sales", "セールス", "sales"), mk("inside", "インサイド", "inside")],
-        };
-      }).reverse();   // 新しい週を上に
+      weeks = buckets
+        .map((b, j) => ({ b, j }))
+        .filter(({ b }) => b.from <= mEnd && b.to >= mStart)   // 選んだ月に重なる週だけ
+        .map(({ b, j }) => {
+          const mk = (subj, label, r) => { const actual = sumRole(j, r); const goal = wGoal(subj, b.key); return { key: subj, label, role: "team", actual, goal, diff: actual - goal, periodKey: b.key }; };
+          return {
+            key: b.key, label: b.名前, from: b.from, to: b.to,
+            teams: [mk("group", "グループ（全体）", "all"), mk("sales", "セールス", "sales"), mk("inside", "インサイド", "inside")],
+          };
+        })
+        .reverse();   // 新しい週を上に
     }
 
     res.json({
       ok: true, period, periodKey: g.今 || "",
-      periodLabel: bucket ? bucket.名前 : "",
+      periodLabel: period === "week" ? monthLabelW : (bucket ? bucket.名前 : ""),
+      month: selMonth || undefined,
       teams, sales: salesP, inside: insideP,
       weeks,
     });
@@ -18319,7 +18339,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-06j 週次ダッシュボードを『週ごとにグループ/セールス/インサイドのカード』に。直近の各週について、その週の目標(週目標・手入力)・実績・差分の3チームカードを新しい週から並べる。目標編集は各カードの週キーで保存。apo-dashboard が weeks[] を返す。月次は従来どおり。前回(20260906i)：週次でインセンティブ非表示。";
+const BUILD_TAG = "2026-09-06k 週次ダッシュボードで月（8月/9月/10月…）を選べるように。選んだ月に重なる週だけを、週ごとのグループ/セールス/インサイドカードで表示。既定は今月。apo-dashboard が month クエリを受け、月をカバーするspanで週グリッドを作り月内の週に絞る。前回(20260906j)：週ごとのカード。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
