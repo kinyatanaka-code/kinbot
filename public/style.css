@@ -2808,7 +2808,7 @@ body {
 /* デスクトップ：左メニューは画面固定、本文（.main）だけがスクロールする。 */
 @media (min-width: 761px) {
   .app { overflow: hidden; }                 /* 画面全体はスクロールさせない */
-  .sidebar { position: sticky; top: 0; align-self: flex-start; height: 100vh; overflow-y: auto; }
+  .sidebar { position: sticky; top: 0; align-self: flex-start; height: 100vh; overflow: visible; }
   .main { height: 100vh; overflow-y: auto; } /* スクロールは本文側だけ */
   .topbar { position: sticky; top: 0; }      /* 上部バーは本文の先頭に貼り付く */
 }
