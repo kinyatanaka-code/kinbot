@@ -76,7 +76,7 @@ async function loadDocs() {
       if (!sel) continue;
       const cur = sel.value;
       sel.innerHTML = withAll ? '<option value="">すべて</option>' : "";
-      for (const f of docsCache) if (f.active && (!mineOnly || f.mine)) sel.add(new Option(f.name, f.id));
+      for (const f of docsCache) if (f.active && (!mineOnly || (f.mine && f.is_template !== false))) sel.add(new Option(f.name, f.id));
       if (cur) sel.value = cur;
     }
 
@@ -85,8 +85,9 @@ async function loadDocs() {
       box.innerHTML = '<div class="empty-state">まだ資料がありません。上の欄からPDFを登録してください。</div>';
       return;
     }
-    // 資料は1つのリストで並べる。「使わない」は下にまとめる。
-    const 使わない数 = docsCache.filter((f) => !f.active).length;
+    // 資料タブはテンプレ資料だけを扱う（その商談だけの資料は商談ごとタブに出る）
+    const tmpl = docsCache.filter((f) => f.is_template !== false);
+    const 使わない数 = tmpl.filter((f) => !f.active).length;
     const トグル = 使わない数
       ? `<div class="df-unused-bar"><button type="button" class="btn ghost" id="dfToggleUnused">${
           showUnusedDocs ? `使わない資料を隠す（${使わない数}件）` : `使わない資料も見る（${使わない数}件）`}</button></div>`
@@ -117,11 +118,11 @@ async function loadDocs() {
         </div>
       </div>`;
 
-    const 表示分 = docsCache.filter((f) => f.active);
-    const 非表示 = docsCache.filter((f) => !f.active);
+    const 表示分 = tmpl.filter((f) => f.active);
+    const 非表示 = tmpl.filter((f) => !f.active);
     let html = 表示分.length
       ? `<div class="dk-list">${表示分.map(資料行).join("")}</div>`
-      : '<div class="empty-state">使っている資料がありません。「使わない資料も見る」から戻せます。</div>';
+      : '<div class="empty-state">テンプレ資料がありません。上の欄からPDFを登録してください。</div>';
     html += トグル;
     if (showUnusedDocs && 非表示.length) {
       html += `<div class="df-sec"><div class="df-sec-h">使わない資料（非表示）<span class="df-sec-hint">発行済みURLからは開けます</span></div><div class="dk-list">${非表示.map(資料行).join("")}</div></div>`;
@@ -498,16 +499,16 @@ async function loadDeals() {
 // ＋送付：その場で資料を選ぶ（新規登録も可）→ 担当者・メールを入れて発行する
 function deOpenPicker(btn) {
   const company = btn.dataset.company || "";
-  const opts = docsCache.filter((f) => f.active && f.mine);
+  const opts = docsCache.filter((f) => f.active && f.mine && f.is_template !== false);
   const wrap = document.createElement("div");
   wrap.className = "de-picker";
   wrap.dataset.company = company;
   wrap.innerHTML =
     `<div class="dp-line">
        <select class="de-sel">
-         <option value="">— 資料を選ぶ —</option>
+         <option value="">— テンプレ資料から選ぶ —</option>
          ${opts.map((f) => `<option value="${f.id}">${esc(f.name)}</option>`).join("")}
-         <option value="__new__">＋ 新しい資料を登録（PDF）</option>
+         <option value="__new__">＋ この商談だけの資料を登録（PDF）</option>
        </select>
      </div>
      <div class="dp-new" hidden>
@@ -572,6 +573,7 @@ async function deIssue(btn) {
       const fd = new FormData();
       fd.append("name", (nameEl.value || "").trim() || file.name.replace(/\.pdf$/i, ""));
       fd.append("file", file);
+      fd.append("template", "false");   // この商談だけの資料（テンプレ一覧・選択欄には出さない）
       setSt("資料を登録中…");
       const up = await fetch("/api/docs", { method: "POST", body: fd });
       const ud = await up.json();

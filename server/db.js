@@ -1102,6 +1102,10 @@ export async function initDb() {
   // 資料の区分：常時資料(true)＝毎回使う資料として上に固定、会社ごと(false)＝個別に送る資料。
   // 既定は false（会社ごと）。挙動は変えず並び順と分類だけに使う。既存資料はすべて会社ごと扱いになる。
   await sq(`ALTER TABLE doc_files ADD COLUMN IF NOT EXISTS standing BOOLEAN NOT NULL DEFAULT false;`);
+  // テンプレ資料（使い回す資料）か、その商談だけの資料か。
+  // 既定は true＝テンプレ（これまで資料タブに登録してきた既存資料はすべてテンプレ扱いにする）。
+  // 商談ごとの「＋追加」でその場アップロードしたものは false にして、テンプレの一覧・選択欄に出さない。
+  await sq(`ALTER TABLE doc_files ADD COLUMN IF NOT EXISTS is_template BOOLEAN NOT NULL DEFAULT true;`);
 
   // 宛先ごとに1本ずつURLを発行する。誰が見たかを特定するため。
   await sq(`
@@ -5655,14 +5659,14 @@ export async function autolaunchForSlugs(slugs) {
 }
 
 // ===== 資料の閲覧トラッキング =====
-export async function addDocFile({ name, filename, mime, buf, uploadedBy }) {
+export async function addDocFile({ name, filename, mime, buf, uploadedBy, isTemplate = true }) {
   if (!pool || !buf) return null;
   try {
     const { rows } = await pool.query(
-      `INSERT INTO doc_files (name, filename, mime, bytes, size, uploaded_by)
-       VALUES ($1,$2,$3,$4,$5,$6) RETURNING id, name, filename, mime, size, active, created_at`,
+      `INSERT INTO doc_files (name, filename, mime, bytes, size, uploaded_by, is_template)
+       VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING id, name, filename, mime, size, active, is_template, created_at`,
       [String(name || filename || "資料").slice(0, 200), filename || null,
-       mime || "application/pdf", buf, buf.length, uploadedBy || null]);
+       mime || "application/pdf", buf, buf.length, uploadedBy || null, !!isTemplate]);
     return rows[0];
   } catch (e) { console.error("[db] addDocFile", e.message); return null; }
 }
@@ -5681,7 +5685,7 @@ export async function listDocFiles({ owner = "", all = false } = {}) {
       where = `(lower(COALESCE(f.uploaded_by,'')) = $${p.length} OR COALESCE(f.shared,true) = true)`;
     }
     const { rows } = await pool.query(
-      `SELECT f.id, f.name, f.filename, f.mime, f.size, f.active, f.uploaded_by, f.shared, f.standing, f.created_at,
+      `SELECT f.id, f.name, f.filename, f.mime, f.size, f.active, f.uploaded_by, f.shared, f.standing, f.is_template, f.created_at,
               (SELECT count(*) FROM doc_links l WHERE l.doc_id = f.id) AS links,
               (SELECT count(*) FROM doc_views v JOIN doc_links l ON l.id = v.link_id
                 WHERE l.doc_id = f.id) AS views

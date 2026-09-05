@@ -4471,6 +4471,8 @@ app.post("/api/docs", docUpload.single("file"), async (req, res) => {
       // ファイル名はlatin1として届くので、UTF-8に直してから保存する
       name: fixMojibake(String(req.body?.name || "").trim()) || fixMojibake(req.file.originalname),
       filename: fixMojibake(req.file.originalname), mime, buf: req.file.buffer, uploadedBy: req.user,
+      // template=false のときだけ「その商談だけの資料」にする（既定はテンプレ）
+      isTemplate: String(req.body?.template ?? "true") !== "false",
     });
     if (!row) return res.status(500).json({ error: "保存できませんでした" });
     console.log(`[doc] 資料を追加「${row.name}」${Math.round(row.size / 1024)}KB by ${req.user}`);
@@ -18017,7 +18019,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-05g 商談ごと：資料チップをクリックすると、その下にURLを表示（読める）＋コピー・開く・閉じる。Ctrl/⌘＋クリックは新規タブ。前回(20260905f)：発行後URLコピー・チップでコピー。";
+const BUILD_TAG = "2026-09-05h テンプレ資料と『その商談だけの資料』を分離。doc_files.is_template（既定true＝既存はテンプレ）を追加。資料タブ＝テンプレ資料の置き場（テンプレのみ表示）、商談ごとの＋追加プルダウンもテンプレのみ＝商談が増えてもプルダウンが膨らまない。＋追加のその場アップロードは template=false でその商談だけの資料に（テンプレ一覧・選択欄に出さない）。前回(20260905g)：チップクリックでURL表示。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
