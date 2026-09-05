@@ -825,6 +825,8 @@ function renderDock() {
     .kc-ptab{border:none;background:transparent;color:#5b7a6d;font-size:13px;font-weight:600;padding:6px 16px;border-radius:8px;cursor:pointer;}
     .kc-ptab.active{background:#1d9e75;color:#fff;}
     .kc-ptab:not(.active):hover{background:#eaf5ef;color:#0d5b47;}
+    .kc-week-sec{margin-bottom:16px;}
+    .kc-week-h{margin-top:0;}
     .kc-g-sec{font-size:13px;font-weight:800;color:#0d5b47;margin:14px 2px 6px;border-left:3px solid #1d9e75;padding-left:8px;}
     .kc-g-sub td{color:#7d8c86;font-size:11.5px;}
     /* 個別：メンバーごとのカード（幅が広いと2枚並ぶ） */
@@ -1772,7 +1774,7 @@ function dashCard(c, big) {
          ${lateLine}
          <div class="kc-inc-more">押すと実施済みの商談を見る</div>
        </div>` : "";
-  return `<div class="kc-dcard${big ? " kc-dcard-big" : ""}${rankCls}" data-subj="${esc(c.key)}" data-label="${esc(c.label)}">
+  return `<div class="kc-dcard${big ? " kc-dcard-big" : ""}${rankCls}" data-subj="${esc(c.key)}" data-label="${esc(c.label)}" data-periodkey="${esc(c.periodKey || "")}">
     <div class="kc-dname">${esc(c.label)}</div>
     ${dashPeriod === "week" ? "" : inc}
     <div class="kc-drow">
@@ -1784,24 +1786,35 @@ function dashCard(c, big) {
 }
 function renderDash(d) {
   const box = $("clDash");
-  const teams = (d.teams || []).map((c) => dashCard(c, true)).join("");
-  const sales = (d.sales || []).map((c) => dashCard(c, false)).join("");
-  const inside = (d.inside || []).map((c) => dashCard(c, false)).join("");
-  box.innerHTML =
-    `<div class="kc-dgrid kc-dteams">${teams}</div>` +
-    (sales ? `<div class="kc-dsub">セールス</div><div class="kc-dgrid">${sales}</div>` : "") +
-    (inside ? `<div class="kc-dsub">インサイド</div><div class="kc-dgrid">${inside}</div>` : "") +
-    `<p class="note" style="margin-top:10px">${(d.period === "week")
-      ? "目標はここで直接（週次）変更できます（その週の目標として保存されます）。グループ・セールス・インサイドも手動で設定でき、実績はメンバーの合計です。差分は 実績−目標。カードをクリックすると内訳（日次）が出ます。"
-      : "目標はここで直接（月次）変更できます（その月の目標として保存されます）。グループ・セールス・インサイドも手動で設定でき、実績はメンバーの合計です。差分は 実績−目標。カードをクリックすると内訳（日次）が出ます。"}</p>` +
-    (iAmCloser ? `<div style="margin-top:8px"><button type="button" class="btn ghost" id="dashAssign">未照合の商談に獲得者を割り当てる</button></div>` : "");
-  // 目標の直接編集（月次→平日に配分）。入力欄クリックはカードの内訳を開かないように。
+  const note = `<p class="note" style="margin-top:10px">${(d.period === "week")
+      ? "目標はここで直接（週次）変更できます（その週の目標として保存されます）。グループ・セールス・インサイドも手動で設定でき、実績はメンバーの合計です。差分は 実績−目標。"
+      : "目標はここで直接（月次）変更できます（その月の目標として保存されます）。グループ・セールス・インサイドも手動で設定でき、実績はメンバーの合計です。差分は 実績−目標。カードをクリックすると内訳（日次）が出ます。"}</p>`;
+  const assign = iAmCloser ? `<div style="margin-top:8px"><button type="button" class="btn ghost" id="dashAssign">未照合の商談に獲得者を割り当てる</button></div>` : "";
+
+  if (d.period === "week" && Array.isArray(d.weeks)) {
+    // 週ごとに グループ/セールス/インサイド のカードを並べる
+    box.innerHTML = d.weeks.map((w) =>
+      `<div class="kc-week-sec"><div class="kc-dsub kc-week-h">${esc(w.label)}</div>` +
+      `<div class="kc-dgrid kc-dteams">${(w.teams || []).map((c) => dashCard(c, true)).join("")}</div></div>`
+    ).join("") + note + assign;
+  } else {
+    const teams = (d.teams || []).map((c) => dashCard(c, true)).join("");
+    const sales = (d.sales || []).map((c) => dashCard(c, false)).join("");
+    const inside = (d.inside || []).map((c) => dashCard(c, false)).join("");
+    box.innerHTML =
+      `<div class="kc-dgrid kc-dteams">${teams}</div>` +
+      (sales ? `<div class="kc-dsub">セールス</div><div class="kc-dgrid">${sales}</div>` : "") +
+      (inside ? `<div class="kc-dsub">インサイド</div><div class="kc-dgrid">${inside}</div>` : "") +
+      note + assign;
+  }
+  // 目標の直接編集。入力欄クリックはカードの内訳を開かないように。
   box.querySelectorAll(".kc-dgoal").forEach((inp) => {
     inp.addEventListener("click", (e) => e.stopPropagation());
     inp.addEventListener("change", async (e) => {
       e.stopPropagation();
       const subject = inp.dataset.subj;
       const card = inp.closest(".kc-dcard");
+      const pkey = (card && card.dataset.periodkey) || d.periodKey;
       const actual = Number((card.querySelector(".kc-dcol:nth-child(2) .kc-d-act") || {}).textContent || 0);
       const goal = Number(inp.value) || 0;
       // 差分をその場で更新
@@ -1810,7 +1823,7 @@ function renderDash(d) {
       try {
         await fetch("/api/calls/apo-goals", {
           method: "PUT", headers: { "content-type": "application/json" },
-          body: JSON.stringify({ subject, period: d.period || dashPeriod, periodKey: d.periodKey, metric: "アポ", value: goal }),
+          body: JSON.stringify({ subject, period: d.period || dashPeriod, periodKey: pkey, metric: "アポ", value: goal }),
         });
         if (typeof _statsGoals === "object") for (const k in _statsGoals) delete _statsGoals[k];
       } catch (err) { inp.style.borderColor = "#e24b4a"; }

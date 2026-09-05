@@ -9820,10 +9820,32 @@ app.get("/api/calls/apo-dashboard", async (req, res) => {
       }
     } catch (e) { console.warn("[apo-dashboard] インセンティブ計算", e.message); }
 
+    // 週次は「週ごとに グループ/セールス/インサイド のカード」を出す（直近の各週）。
+    let weeks = null;
+    if (period === "week") {
+      const buckets = g.区切り || [];
+      const weekKeys = buckets.map((b) => b.key);
+      const wg = await getApoGoalsByKeys("week", weekKeys).catch(() => ({}));
+      const wGoal = (subj, wk) => Number((((wg[subj] || {})[wk] || {})["アポ"]) || 0);
+      const actAt = (mm, j) => (mm.値 && mm.値[j]) ? (Number(mm.値[j].アポ内 || 0) + Number(mm.値[j].アポ外 || 0)) : 0;
+      const memRoles = (g.members || [])
+        .filter((mm) => !nameHas(mm.誰, excludeNames))
+        .map((mm) => ({ m: mm, role: nameHas(mm.誰, salesNames) ? "sales" : mm.role }));
+      const sumRole = (j, r) => memRoles.filter((x) => r === "all" || x.role === r).reduce((a, x) => a + actAt(x.m, j), 0);
+      weeks = buckets.map((b, j) => {
+        const mk = (subj, label, r) => { const actual = sumRole(j, r); const goal = wGoal(subj, b.key); return { key: subj, label, role: "team", actual, goal, diff: actual - goal, periodKey: b.key }; };
+        return {
+          key: b.key, label: b.名前, from: b.from, to: b.to,
+          teams: [mk("group", "グループ（全体）", "all"), mk("sales", "セールス", "sales"), mk("inside", "インサイド", "inside")],
+        };
+      }).reverse();   // 新しい週を上に
+    }
+
     res.json({
       ok: true, period, periodKey: g.今 || "",
       periodLabel: bucket ? bucket.名前 : "",
       teams, sales: salesP, inside: insideP,
+      weeks,
     });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
@@ -18297,7 +18319,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-06i 週次ダッシュボードではインセンティブ（と上位3位の金枠）を非表示に。週は目標・実績・差分だけを表示して週目標を設定しやすく。インセンティブは月次でのみ表示（9〜11月の累計のため）。前回(20260906h)：週次の説明文出し分け。";
+const BUILD_TAG = "2026-09-06j 週次ダッシュボードを『週ごとにグループ/セールス/インサイドのカード』に。直近の各週について、その週の目標(週目標・手入力)・実績・差分の3チームカードを新しい週から並べる。目標編集は各カードの週キーで保存。apo-dashboard が weeks[] を返す。月次は従来どおり。前回(20260906i)：週次でインセンティブ非表示。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
