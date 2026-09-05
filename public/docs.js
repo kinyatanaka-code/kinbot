@@ -535,51 +535,132 @@ async function loadDeals() {
   }
 }
 
-// ＋送付：その場で資料を選んでURLを発行する
+// ＋送付：その場で資料を選ぶ（新規登録も可）→ 担当者・メールを入れて発行する
 function deOpenPicker(btn) {
   const wantStanding = btn.dataset.kind === "standing";
-  const company = btn.dataset.company;
+  const company = btn.dataset.company || "";
   const opts = docsCache.filter((f) => f.active && f.mine && !!f.standing === wantStanding);
-  if (!opts.length) {
-    alert(wantStanding
-      ? "初回に使う資料がありません。資料タブで資料を『常時にする』にしてください。"
-      : "会社ごとに使う資料がありません。資料タブでPDFを登録してください。");
-    return;
-  }
-  const wrap = document.createElement("span");
+  const wrap = document.createElement("div");
   wrap.className = "de-picker";
+  wrap.dataset.company = company;
+  wrap.dataset.kind = btn.dataset.kind || "";
   wrap.innerHTML =
-    `<select class="de-sel">${opts.map((f) => `<option value="${f.id}">${esc(f.name)}</option>`).join("")}</select>` +
-    `<button type="button" class="btn de-issue" data-company="${esc(company)}">発行</button>` +
-    `<button type="button" class="btn ghost de-cancel">やめる</button>`;
+    `<div class="dp-line">
+       <select class="de-sel">
+         <option value="">— 資料を選ぶ —</option>
+         ${opts.map((f) => `<option value="${f.id}">${esc(f.name)}</option>`).join("")}
+         <option value="__new__">＋ 新しい資料を登録（PDF）</option>
+       </select>
+     </div>
+     <div class="dp-new" hidden>
+       <input type="text" class="dp-name" placeholder="資料の名前（例：DOCサービス紹介）" />
+       <input type="file" class="dp-file" accept="application/pdf" />
+     </div>
+     <div class="dp-line">
+       <input type="text" class="dp-contact" placeholder="担当者名（任意）" />
+       <input type="text" class="dp-email" placeholder="メール（任意）" />
+       <button type="button" class="btn ghost de-sf">SFで補完</button>
+     </div>
+     <div class="dp-line">
+       <button type="button" class="btn de-issue">発行する</button>
+       <button type="button" class="btn ghost de-cancel">やめる</button>
+       <span class="dp-st rev-status"></span>
+     </div>`;
   btn.replaceWith(wrap);
 }
+
+// SalesforceからＬ担当者・メールを補完
+async function deSfFill(btn) {
+  const wrap = btn.closest(".de-picker");
+  const company = wrap.dataset.company;
+  const st = wrap.querySelector(".dp-st");
+  if (!company) { if (st) st.textContent = "会社名がありません"; return; }
+  btn.disabled = true; if (st) st.textContent = "SFを照会中…";
+  try {
+    const r = await fetch("/api/doc-links/lookup", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ names: [company] }),
+    });
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.error || "照会できませんでした");
+    const it = (d.items || [])[0];
+    if (it && (it.contact || it.email)) {
+      if (it.contact) wrap.querySelector(".dp-contact").value = it.contact;
+      if (it.email) wrap.querySelector(".dp-email").value = it.email;
+      if (st) st.textContent = `${it["元"] || "SF"}から補完しました`;
+    } else if (st) st.textContent = "SFに該当が見つかりませんでした";
+  } catch (e) { if (st) st.textContent = "失敗：" + e.message; }
+  finally { btn.disabled = false; }
+}
+
 async function deIssue(btn) {
   const wrap = btn.closest(".de-picker");
-  const sel = wrap && wrap.querySelector(".de-sel");
-  const docId = sel ? parseInt(sel.value, 10) : 0;
-  const company = btn.dataset.company;
-  if (!docId) return;
-  btn.disabled = true; btn.textContent = "発行中…";
+  if (!wrap) return;
+  const company = wrap.dataset.company;
+  const wantStanding = wrap.dataset.kind === "standing";
+  const sel = wrap.querySelector(".de-sel");
+  const st = wrap.querySelector(".dp-st");
+  const contact = wrap.querySelector(".dp-contact").value.trim();
+  const email = wrap.querySelector(".dp-email").value.trim();
+  const setSt = (m) => { if (st) st.textContent = m || ""; };
+  btn.disabled = true; setSt("発行中…");
   try {
+    let docId = 0;
+    if (sel.value === "__new__") {
+      // 新しい資料をこの場で登録する
+      const nameEl = wrap.querySelector(".dp-name");
+      const fileEl = wrap.querySelector(".dp-file");
+      const file = fileEl && fileEl.files && fileEl.files[0];
+      if (!file) throw new Error("PDFファイルを選んでください");
+      const fd = new FormData();
+      fd.append("name", (nameEl.value || "").trim() || file.name.replace(/\.pdf$/i, ""));
+      fd.append("file", file);
+      setSt("資料を登録中…");
+      const up = await fetch("/api/docs", { method: "POST", body: fd });
+      const ud = await up.json();
+      if (!up.ok) throw new Error(ud.error || "資料を登録できませんでした");
+      docId = ud.doc && ud.doc.id;
+      // この行の区分（初回=常時／会社ごと）に合わせる
+      if (docId) {
+        await fetch(`/api/docs/${docId}/standing`, {
+          method: "PATCH", headers: { "content-type": "application/json" },
+          body: JSON.stringify({ standing: wantStanding }),
+        }).catch(() => {});
+      }
+      await loadDocs();   // docsCache を更新（次回のピッカーに反映）
+    } else {
+      docId = parseInt(sel.value, 10);
+      if (!docId) throw new Error("資料を選んでください");
+    }
+    setSt("URLを発行中…");
     const r = await fetch("/api/doc-links", {
       method: "POST", headers: { "content-type": "application/json" },
-      body: JSON.stringify({ docId, rows: [{ company }], expiry: "0" }),
+      body: JSON.stringify({ docId, rows: [{ company, contact, email }], expiry: "0" }),
     });
     const d = await r.json();
     if (!r.ok) throw new Error(d.error || "発行できませんでした");
     say("deStatus", `「${company}」にURLを発行しました`, 4000);
     loadDeals();
-  } catch (e) { btn.disabled = false; btn.textContent = "発行"; alert(e.message); }
+  } catch (e) { btn.disabled = false; setSt("失敗：" + e.message); }
 }
+
 if ($("deList")) {
   $("deList").addEventListener("click", (ev) => {
     const add = ev.target.closest(".de-add");
     const issue = ev.target.closest(".de-issue");
     const cancel = ev.target.closest(".de-cancel");
+    const sf = ev.target.closest(".de-sf");
     if (add) { ev.preventDefault(); deOpenPicker(add); }
+    else if (sf) { ev.preventDefault(); deSfFill(sf); }
     else if (issue) { ev.preventDefault(); deIssue(issue); }
     else if (cancel) { ev.preventDefault(); loadDeals(); }
+  });
+  // 「＋新しい資料を登録」を選んだらファイル欄を出す
+  $("deList").addEventListener("change", (ev) => {
+    const sel = ev.target.closest(".de-sel");
+    if (!sel) return;
+    const nb = sel.closest(".de-picker").querySelector(".dp-new");
+    if (nb) nb.hidden = sel.value !== "__new__";
   });
 }
 if ($("deReload")) $("deReload").addEventListener("click", loadDeals);
