@@ -14157,8 +14157,9 @@ function dayDiff(a, b) {
   return Math.abs(Math.round((da - db) / 86400000));
 }
 // 予定本文の「アポ獲得: 〇〇」から獲得者名を取り出す（kinbotが作った商談予定に入っている）。
+// 「所得」（獲得の言い間違い・変換ミス）や「アポ」の有無も許容する。
 function setterFromDescription(desc) {
-  const m = String(desc || "").match(/アポ獲得\s*[:：]\s*([^\n\r]+)/);
+  const m = String(desc || "").match(/(?:アポ)?\s*(?:獲得|所得)\s*[:：]\s*([^\n\r]+)/);
   if (!m) return "";
   const s = m[1].trim();
   if (!s || s === "-" || s === "－" || s === "(なし)" || s === "なし") return "";
@@ -18190,7 +18191,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-05q 商談履歴（商談詳細）に『アポ獲得者』セレクトを追加。営業担当の隣で、登録ユーザー＋インターン生から選んで保存＝インセンティブの実施に反映。/api/meetings/:id/meta が apoSetter を受け取り setMeetingApoSetter を呼ぶ。前回(20260905p)：予定本文でのアポ獲得者照合。";
+const BUILD_TAG = "2026-09-05r 予定本文からの獲得者読み取りを『所得：〇〇』にも対応（獲得の言い間違い・変換ミス／アポの有無も許容）。照合の抽出正規表現を (?:アポ)?(?:獲得|所得)[:：] に拡張。前回(20260905q)：商談履歴からアポ獲得者選択。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
