@@ -822,6 +822,7 @@ export async function initDb() {
   await sq(`ALTER TABLE chat_targets ADD COLUMN IF NOT EXISTS on_deploy BOOLEAN NOT NULL DEFAULT true;`);
   // 朝の「新しくなりました」も、送り先ごとに選べるようにする
   await sq(`ALTER TABLE chat_targets ADD COLUMN IF NOT EXISTS on_news BOOLEAN NOT NULL DEFAULT true;`);
+  await sq(`ALTER TABLE chat_targets ADD COLUMN IF NOT EXISTS on_incentive BOOLEAN NOT NULL DEFAULT true;`);
   await sq(`ALTER TABLE chat_targets ADD COLUMN IF NOT EXISTS on_dev BOOLEAN NOT NULL DEFAULT false;`);
   await sq(`CREATE INDEX IF NOT EXISTS ix_calendar_watch_cal ON calendar_watch(calendar_id);`);
 
@@ -5276,6 +5277,7 @@ export async function updateChatTarget(id, patch) {
     onAssign: "on_assign", onMail: "on_mail", onDoc: "on_doc", onLaunch: "on_launch",
     onNews: "on_news",
     onDev: "on_dev",
+    onIncentive: "on_incentive",
     onDeploy: "on_deploy", active: "active" };
   const sets = [], vals = [id];
   for (const [k, col] of Object.entries(cols)) {

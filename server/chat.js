@@ -116,6 +116,8 @@ export async function notifyAll(text, kind = "", { mentionName = "" } = {}) {
     news: "on_news",
     // 開発（夜間開発の朝の通知）。指定したチャットだけに送るため既定OFF。
     dev: "on_dev",
+    // インセンティブの到達（初実施・5,000円ごと）
+    incentive: "on_incentive",
   }[kind];
   const list = col ? targets.filter((x) => x[col]) : targets;
   if (!list.length) return { ok: false, skipped: true, reason: "この種類の通知はどこもONになっていません" };
