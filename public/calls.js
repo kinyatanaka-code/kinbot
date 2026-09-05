@@ -1791,7 +1791,9 @@ function renderDash(d) {
     `<div class="kc-dgrid kc-dteams">${teams}</div>` +
     (sales ? `<div class="kc-dsub">セールス</div><div class="kc-dgrid">${sales}</div>` : "") +
     (inside ? `<div class="kc-dsub">インサイド</div><div class="kc-dgrid">${inside}</div>` : "") +
-    `<p class="note" style="margin-top:10px">目標はここで直接（月次）変更できます（入力するとその月の平日に配分されます）。グループ・セールス・インサイドも手動で設定でき、実績はメンバーの合計です。差分は 実績−目標。カードをクリックすると内訳（日次）が出ます。</p>` +
+    `<p class="note" style="margin-top:10px">${(d.period === "week")
+      ? "目標はここで直接（週次）変更できます（その週の目標として保存されます）。グループ・セールス・インサイドも手動で設定でき、実績はメンバーの合計です。差分は 実績−目標。カードをクリックすると内訳（日次）が出ます。"
+      : "目標はここで直接（月次）変更できます（その月の目標として保存されます）。グループ・セールス・インサイドも手動で設定でき、実績はメンバーの合計です。差分は 実績−目標。カードをクリックすると内訳（日次）が出ます。"}</p>` +
     (iAmCloser ? `<div style="margin-top:8px"><button type="button" class="btn ghost" id="dashAssign">未照合の商談に獲得者を割り当てる</button></div>` : "");
   // 目標の直接編集（月次→平日に配分）。入力欄クリックはカードの内訳を開かないように。
   box.querySelectorAll(".kc-dgoal").forEach((inp) => {
