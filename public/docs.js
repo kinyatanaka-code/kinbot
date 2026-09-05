@@ -122,7 +122,7 @@ async function loadDocs() {
             発行 ${f.links}件／閲覧 ${f.views}件　${esc(fmtWhen(f.created_at))}</div>
         </div>
         <div class="dk-act">
-          ${f.mine ? `<button type="button" class="dk-menu-btn" aria-label="操作メニュー"><i class="ti ti-dots-vertical" aria-hidden="true"></i></button>
+          ${f.mine ? `<button type="button" class="dk-menu-btn" aria-label="操作メニュー"><i class="ti ti-menu-2" aria-hidden="true"></i></button>
           <div class="dk-menu" hidden>
             <button type="button" class="df-standing-toggle">${f.standing ? "会社ごとにする" : "初回（常時）にする"}</button>
             <button type="button" class="df-share">${f.shared === false ? "チームに共有する" : "自分だけにする"}</button>
@@ -500,7 +500,7 @@ function deRow(company, label, kind, links) {
     <span class="de-badge${kind === "standing" ? "" : " k"}">${label}</span>
     <div class="de-chips">
       ${(links || []).map(deChip).join("")}
-      <button type="button" class="de-add" data-company="${esc(company)}" data-kind="${kind}">＋送付</button>
+      <button type="button" class="de-add" data-company="${esc(company)}" data-kind="${kind}">＋追加</button>
     </div>
   </div>`;
 }
