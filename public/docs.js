@@ -451,8 +451,8 @@ function deChip(l) {
   const detail = seen
     ? `滞在${fmtSecShort(l.total_seconds)}・最大${l.max_page || 0}ページ`
     : "まだ開かれていません";
-  return `<a class="de-chip" href="${esc(l.url)}" target="_blank" rel="noopener"
-      title="${esc(l.doc_name)}／${esc(detail)}">
+  return `<a class="de-chip" href="${esc(l.url)}" target="_blank" rel="noopener" data-url="${esc(l.url)}"
+      title="${esc(l.doc_name)}／${esc(detail)}（クリックでURLをコピー）">
       <span class="de-dot" style="background:${seen ? "#1d9e75" : "#b4b2a9"}"></span>
       <span class="de-chip-t">${esc(l.doc_name)}</span>
       <span class="de-chip-s">${seen ? l.view_count + "回" : "未読"}</span></a>`;
@@ -589,20 +589,47 @@ async function deIssue(btn) {
     });
     const d = await r.json();
     if (!r.ok) throw new Error(d.error || "発行できませんでした");
+    const newUrl = (d.links && d.links[0] && d.links[0].url) || "";
     say("deStatus", `「${company}」にURLを発行しました`, 4000);
-    loadDeals();
+    // その場でURLをコピーできるように表示する
+    wrap.innerHTML =
+      `<div class="dp-line"><span class="dp-done">URLを発行しました</span></div>
+       <div class="dp-line">
+         <input type="text" class="dp-url" readonly value="${esc(newUrl)}" />
+         <button type="button" class="btn de-copy" data-url="${esc(newUrl)}">コピー</button>
+       </div>
+       <div class="dp-line"><button type="button" class="btn ghost de-done">閉じて更新</button></div>`;
+    // 開いたらすぐ選択状態にして、そのままコピーしやすく
+    const uEl = wrap.querySelector(".dp-url");
+    if (uEl) { uEl.focus(); uEl.select(); }
   } catch (e) { btn.disabled = false; setSt("失敗：" + e.message); }
+}
+
+// URLをクリップボードにコピーする
+function deCopyUrl(url, btn) {
+  if (!url) return;
+  navigator.clipboard.writeText(url).then(() => {
+    say("deStatus", "URLをコピーしました", 2000);
+    if (btn) { const t = btn.textContent; btn.textContent = "コピーしました"; setTimeout(() => { btn.textContent = t; }, 1500); }
+  }).catch(() => say("deStatus", "コピーできませんでした。表示のURLを手動でコピーしてください", 4000));
 }
 
 if ($("deList")) {
   $("deList").addEventListener("click", (ev) => {
+    const chip = ev.target.closest(".de-chip");
     const add = ev.target.closest(".de-add");
     const issue = ev.target.closest(".de-issue");
     const cancel = ev.target.closest(".de-cancel");
     const sf = ev.target.closest(".de-sf");
+    const copy = ev.target.closest(".de-copy");
+    const done = ev.target.closest(".de-done");
+    // 資料チップ：通常クリックでURLコピー（Ctrl/⌘＋クリックは従来どおり新規タブで開く）
+    if (chip && !ev.metaKey && !ev.ctrlKey) { ev.preventDefault(); deCopyUrl(chip.dataset.url); return; }
     if (add) { ev.preventDefault(); deOpenPicker(add); }
     else if (sf) { ev.preventDefault(); deSfFill(sf); }
     else if (issue) { ev.preventDefault(); deIssue(issue); }
+    else if (copy) { ev.preventDefault(); deCopyUrl(copy.dataset.url, copy); }
+    else if (done) { ev.preventDefault(); loadDeals(); }
     else if (cancel) { ev.preventDefault(); loadDeals(); }
   });
   // 「＋新しい資料を登録」を選んだらファイル欄を出す
