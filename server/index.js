@@ -14224,6 +14224,19 @@ async function seedIncentiveNotified() {
   } catch (e) { console.error("[インセンティブ通知] seed", e.message); _incSeeded = true; }
 }
 
+// 到達額に応じた応援の一言（固定文。大きくなるほど強めに）
+function incentiveCheer(m) {
+  if (m === 1000) return "最初の一歩、おめでとうございます！この調子でいきましょう。";
+  const tier = Math.floor(m / 5000); // 5,000→1, 10,000→2, ...
+  const lines = [
+    "いい流れです！このペースで次の実施へ。",
+    "絶好調ですね！勢いそのままいきましょう。",
+    "素晴らしいペースです。チームの牽引役ですね！",
+    "圧巻の実績です。ここからさらに伸ばしましょう！",
+  ];
+  return lines[Math.min(Math.max(tier - 1, 0), lines.length - 1)];
+}
+
 // 商談実施でインセンティブが節目（初実施＝¥1,000、以降5,000円ごと）を超えたら通知する。
 async function checkIncentiveMilestone(name) {
   try {
@@ -14243,9 +14256,10 @@ async function checkIncentiveMilestone(name) {
     if (m > last) {
       notified[key] = m;
       await saveSettings({ incentiveNotified: notified });
-      const text = m === 1000
+      const head = m === 1000
         ? `🎉 *${nm}* さんが初実施しました！（獲得見込みインセンティブ ¥1,000）`
         : `🎉 *${nm}* さんの獲得見込みインセンティブが *¥${m.toLocaleString()}* に到達しました！`;
+      const text = `${head}\n${incentiveCheer(m)}`;
       await notifyAll(text, "incentive").catch(() => {});
     }
   } catch (e) { console.error("[インセンティブ通知]", e.message); }
@@ -18283,7 +18297,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-06c 送り先（Google Chat）ごとにインセンティブ通知をオン/オフできるように。chat_targets に on_incentive（既定true）を追加、notifyAll の col に incentive を対応。設定→送り先ごとの種類に『インセンティブの到達』トグルを追加（PUTの更新キーに onIncentive・onDev を追加＝開発トグルの保存漏れも修正）。前回(20260906b)：インセンティブ到達通知。";
+const BUILD_TAG = "2026-09-06d インセンティブ到達通知に応援の一言を添えるように（到達額が大きいほど強めの固定文）。初実施＝『最初の一歩、おめでとうございます！』、5,000円ごとに段階的な応援。前回(20260906c)：送り先ごとのインセンティブ通知トグル。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
