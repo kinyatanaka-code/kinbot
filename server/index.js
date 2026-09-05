@@ -14154,6 +14154,14 @@ function dayDiff(a, b) {
   if (isNaN(da) || isNaN(db)) return 999;
   return Math.abs(Math.round((da - db) / 86400000));
 }
+// 予定本文の「アポ獲得: 〇〇」から獲得者名を取り出す（kinbotが作った商談予定に入っている）。
+function setterFromDescription(desc) {
+  const m = String(desc || "").match(/アポ獲得\s*[:：]\s*([^\n\r]+)/);
+  if (!m) return "";
+  const s = m[1].trim();
+  if (!s || s === "-" || s === "－" || s === "(なし)" || s === "なし") return "";
+  return s;
+}
 function apoTitleMatch(mNorm, eNorm) {
   if (!mNorm || !eNorm) return false;
   if (mNorm === eNorm) return true;
@@ -14249,16 +14257,58 @@ app.post("/api/interns/match", async (req, res) => {
     // 再照合なので、まず対象期間のアポ獲得者をクリア
     await clearApoSetters({ from, to });
 
+    // 予定本文の「アポ獲得: 〇〇」から獲得者を読む（kinbotが担当のカレンダーに作った商談予定）。
+    // 担当（商談owner）のカレンダーを読む：本人のGoogle連携→なければ代表(gcalOwner)経由。
+    const descEvents = []; // { coKey, title, date, setter }
+    let descOwnersRead = 0, descOwnersFail = 0;
+    const ownerEmails = [...new Set(meetings.map((m) => String(m.owner || "").toLowerCase()).filter(Boolean))];
+    for (const oe of ownerEmails) {
+      let evs = null;
+      try { evs = await listCalendarEvents(oe, oe, { timeMin, timeMax }); descOwnersRead++; }
+      catch {
+        try { evs = await listCalendarEvents(gcalOwner, oe, { timeMin, timeMax }); descOwnersRead++; }
+        catch { descOwnersFail++; }
+      }
+      for (const ev of (evs || [])) {
+        if (!String(ev.description || "").includes(KINBOT_INVITE_MARK)) continue;
+        const setter = setterFromDescription(ev.description);
+        if (!setter) continue;
+        const date = jstDateStr(ev.start);
+        if (!ev.title || !date) continue;
+        descEvents.push({ coKey: apoCompanyKey(apoNameParts(ev.title).company), title: ev.title, date, setter });
+      }
+    }
+
     // 照合：商談名 × 予定名（日付ウィンドウ内）
     const perIntern = {}; // email -> { name, email, matched:[], error }
     for (const ie of internEvents) perIntern[ie.intern.email] = { name: ie.intern.name, email: ie.intern.email, matched: [], error: ie.error, fetched: ie.fetched, hosted: ie.hosted, skipped_samples: ie.skipped_samples };
-    let matchedCount = 0, multiCount = 0;
+    let matchedCount = 0, multiCount = 0, matchedByDesc = 0;
     const unmatched = [];
 
     for (const m of meetings) {
       const mDate = jstDateStr(m.created_at);
       const mParts = apoNameParts(m.title);
       if (!apoCompanyKey(mParts.company)) { unmatched.push({ bot_id: m.bot_id, title: m.title, date: mDate }); continue; }
+      // まず、予定本文の「アポ獲得」で照合する（担当カレンダーのkinbot予定）。表記ゆれに強い。
+      {
+        const mCo = apoCompanyKey(mParts.company);
+        let hit = null;
+        for (const de of descEvents) {
+          if (dayDiff(de.date, mDate) > DATE_WINDOW) continue;
+          const ok = apoNameMatch(m.title, de.title) || (de.coKey && mCo && de.coKey === mCo);
+          if (!ok) continue;
+          const diff = dayDiff(de.date, mDate);
+          if (!hit || diff < hit.diff) hit = { diff, setter: de.setter };
+        }
+        if (hit) {
+          await setMeetingApoSetter(m.bot_id, hit.setter);
+          const norm = (s) => String(s || "").replace(/[\s　]/g, "");
+          const it = interns.find((x) => norm(x.name) === norm(hit.setter));
+          if (it && perIntern[it.email]) perIntern[it.email].matched.push({ bot_id: m.bot_id, title: m.title, date: mDate });
+          matchedCount++; matchedByDesc++;
+          continue;
+        }
+      }
       // このミーティングに一致する（インターン, 予定日ズレ）候補を集める
       const cands = [];
       for (const ie of internEvents) {
@@ -14286,6 +14336,10 @@ app.post("/api/interns/match", async (req, res) => {
       range: { from, to },
       meetings_total: meetings.length,
       matched: matchedCount,
+      matched_by_description: matchedByDesc,
+      owner_calendars_read: descOwnersRead,
+      owner_calendars_failed: descOwnersFail,
+      desc_events_found: descEvents.length,
       unmatched: meetings.length - matchedCount,
       multi_hit: multiCount,
       interns: Object.values(perIntern)
@@ -18134,7 +18188,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-05o 未照合の商談（アポ獲得者なし）に、管理者が手で獲得者を割り当てられる画面を追加。ダッシュボードの『未照合の商談に獲得者を割り当てる』からモーダルで一覧→selectで選ぶとその場で保存→インセンティブに反映。GET /api/calls/unmatched-meetings、POST /api/calls/set-apo-setter（管理者のみ）。前回(20260905n)：遅刻の減算。";
+const BUILD_TAG = "2026-09-05p アポ獲得者の照合を改善：担当（商談owner）のカレンダーにあるkinbot作成の商談予定の本文『アポ獲得: 〇〇』を読んで獲得者を割り当てる。従来はインターン本人のカレンダーを予定名で照合していたが、獲得者は予定の主催者でなく本文にしかいないため当たっていなかった。会社名＋日付で商談と予定を突き合わせ。診断(matched_by_description等)を返す。前回(20260905o)：未照合の手動割り当て。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
