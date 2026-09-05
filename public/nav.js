@@ -34,7 +34,7 @@ window.addEventListener("error", (e) => {
 (function () {
   if (!document.querySelector('script[src$="kbchat.js"]')) {
     const sc = document.createElement("script");
-    sc.src = "kbchat.js?v=20260904ez";
+    sc.src = "kbchat.js?v=20260905a";
     sc.defer = true;
     document.head.appendChild(sc);
   }
@@ -55,19 +55,14 @@ const KB_MENU = [
       { href: "history.html?tab=internal", label: "社内MTG", desc: "社内の打ち合わせ" },
     ],
   },
-  {
-    href: "report.html", label: "分析", ico: "ico-ana",
-    subs: [
-      { href: "report.html", label: "全体レポート", desc: "受注率・温度感・進め方" },
-      { href: "report.html?panel=interns", label: "インターンアポ", desc: "アポ獲得者ごとの実績" },
-      { href: "style-analysis.html", label: "営業スタイル分析", desc: "話速・沈黙・被せ" },
-    ],
-  },
+  { href: "docs.html", label: "資料トラッキング", ico: "ico-doc" },
   {
     href: "apo.html", label: "ツール", ico: "ico-tool",
     subs: [
       { href: "apo.html", label: "アポ振り分け", desc: "担当の自動割り振り・チーム実績" },
-      { href: "docs.html", label: "資料トラッキング", desc: "送った資料の閲覧状況" },
+      { href: "report.html", label: "分析", desc: "受注率・温度感・進め方（全体レポート）" },
+      { href: "report.html?panel=interns", label: "インターンアポ", desc: "アポ獲得者ごとの実績" },
+      { href: "style-analysis.html", label: "営業スタイル分析", desc: "話速・沈黙・被せ" },
       { href: "weekly.html", label: "天気予報", desc: "今週のテーマ・目標・施策と、金曜の振り返り" },
       { href: "dev.html", label: "開発メモ", desc: "直したいこと・自動で拾ったエラー" },
     ],
@@ -362,17 +357,14 @@ window.kbProgress = function (el, opts = {}) {
   function escapeH(s) { return String(s || "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c])); }
 })();
 
-// 分析ページ群のサイドバーactive処理
-// report.html?panel=interns（インターンアポ）は別メニュー扱いにする
+// 分析系ページ（分析・インターンアポ・営業スタイル分析・dashboard）では「ツール」を active にする。
+// ※分析はツール配下へ移動したため、トップ階層の「ツール」（apo.html）を点灯させる。
 (function() {
   const path = location.pathname;
   if (!/style-analysis|dashboard|report/.test(path)) return;
-  const isInterns = new URLSearchParams(location.search).get("panel") === "interns";
   document.querySelectorAll('.side-item').forEach(a => {
     const href = a.getAttribute("href") || "";
-    const forInterns = href.indexOf("panel=interns") >= 0;
-    const forReport = href.indexOf("report.html") >= 0 && !forInterns;
-    a.classList.toggle('active', isInterns ? forInterns : forReport);
+    if (href.indexOf("apo.html") >= 0) a.classList.add('active');
   });
 })();
 
