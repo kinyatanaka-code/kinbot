@@ -976,9 +976,17 @@ function renderDock() {
     .kc-slot-wk{font-size:11px;font-weight:700;color:#0d5b47;background:#eef7f2;border-radius:6px;padding:3px 8px;margin:4px 0 8px;display:inline-block;}
     .kc-slot-ampm{font-size:11px;font-weight:700;color:#1d9e75;}
     /* 獲得見込みインセンティブ（表彰状ふうの金色） */
-    .kc-inc{margin:6px 0 8px;padding:8px 10px;border-radius:10px;text-align:center;
+    .kc-inc{margin:6px 0 8px;padding:8px 10px;border-radius:10px;text-align:center;cursor:pointer;
       background:linear-gradient(135deg,#fdf6e3 0%,#f7e7b6 45%,#fdf6e3 100%);
       border:1.5px solid #e0c469;box-shadow:inset 0 0 0 1px #fffdf6;}
+    .kc-inc:hover{filter:brightness(1.03);box-shadow:inset 0 0 0 1px #fffdf6,0 4px 12px -6px rgba(122,92,16,.5);}
+    .kc-inc-more{font-size:9px;color:#8a6d1f;opacity:.8;margin-top:2px;}
+    .kc-inc-list{display:flex;flex-direction:column;gap:6px;margin-top:8px;max-height:60vh;overflow:auto;}
+    .kc-inc-row{display:grid;grid-template-columns:88px 1fr;gap:8px;align-items:baseline;
+      padding:8px 10px;border:1px solid #eef3f0;border-radius:10px;background:#fff;}
+    .kc-inc-row .kc-inc-d{font-size:12px;color:#6b7a73;white-space:nowrap;}
+    .kc-inc-row .kc-inc-co{font-size:13px;font-weight:700;color:#1f2a26;}
+    .kc-inc-row .kc-inc-t{grid-column:2;font-size:11.5px;color:#8a9a93;}
     .kc-inc-lb{font-size:9.5px;font-weight:700;color:#8a6d1f;letter-spacing:.02em;line-height:1.3;}
     .kc-inc-rank{margin-left:5px;font-size:10px;color:#7a5c10;}
     .kc-inc-yen{font-size:20px;font-weight:800;color:#7a5c10;line-height:1.25;text-shadow:0 1px 0 #fffdf6;display:flex;align-items:center;justify-content:center;gap:2px;}
@@ -1729,6 +1737,7 @@ function dashCard(c, big) {
          <div class="kc-inc-lb">獲得見込みインセンティブ${c.順位 ? `<span class="kc-inc-rank">${esc(順位表記)}</span>` : ""}</div>
          <div class="kc-inc-yen">${冠}<span class="kc-inc-num">¥${Number(c.インセンティブ || 0).toLocaleString()}</span>${冠右}</div>
          <div class="kc-inc-sub">9月以降に実施 ${c.実施 || 0}件 × ¥1,000</div>
+         <div class="kc-inc-more">押すと実施済みの商談を見る</div>
        </div>` : "";
   return `<div class="kc-dcard${big ? " kc-dcard-big" : ""}${rankCls}" data-subj="${esc(c.key)}" data-label="${esc(c.label)}">
     <div class="kc-dname">${esc(c.label)}</div>
@@ -1773,6 +1782,37 @@ function renderDash(d) {
   });
   box.querySelectorAll(".kc-dcard").forEach((card) => card.addEventListener("click", () =>
     openDashDetail(card.dataset.subj, card.dataset.label)));
+  // インセンティブ部分を押したら、その人の実施済み商談を一覧で出す（カードの内訳は開かない）
+  box.querySelectorAll(".kc-inc").forEach((el) => el.addEventListener("click", (e) => {
+    e.stopPropagation();
+    const card = el.closest(".kc-dcard");
+    openIncentiveMeetings(card.dataset.label);
+  }));
+}
+
+// インセンティブの実施済み商談を一覧で表示する
+async function openIncentiveMeetings(label) {
+  const m = openModal(`${label} ・ 実施済みの商談`, '<div id="incBody"><div class="note">読み込んでいます…</div></div>', { wide: true });
+  try {
+    const d = await (await fetch(`/api/calls/incentive-meetings?name=${encodeURIComponent(label)}`)).json();
+    const body = m.el.querySelector("#incBody");
+    if (!body) return;
+    if (d.error) throw new Error(d.error);
+    const list = d.meetings || [];
+    body.innerHTML =
+      `<div class="note">対象期間：${esc(d.from)} 〜 ${esc(d.to)}　実施 <b>${d.count}</b>件（× ¥1,000 ＝ ¥${(d.count * 1000).toLocaleString()}）</div>` +
+      (list.length
+        ? `<div class="kc-inc-list">${list.map((x) => `
+             <div class="kc-inc-row">
+               <span class="kc-inc-d">${esc(x.date)}</span>
+               <span class="kc-inc-co">${esc(x.company || x.title)}</span>
+               <span class="kc-inc-t">${esc(x.title)}${x.owner ? `　担当 ${esc(x.owner)}` : ""}</span>
+             </div>`).join("")}</div>`
+        : '<div class="note" style="margin-top:8px">まだ実施済みの商談がありません。</div>');
+  } catch (e) {
+    const body = m.el.querySelector("#incBody");
+    if (body) body.innerHTML = `<div class="note">読み込めませんでした：${esc(e.message)}</div>`;
+  }
 }
 async function openDashDetail(subject, label) {
   const isTeam = subject === "group" || subject === "sales" || subject === "inside";

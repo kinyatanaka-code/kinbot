@@ -8587,6 +8587,36 @@ app.get("/api/calls/_jisshidiag", async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+// インセンティブの「実施済み商談」を人ごとに一覧で返す（カードのインセンティブを押したとき用）
+app.get("/api/calls/incentive-meetings", async (req, res) => {
+  try {
+    const name = String(req.query.name || "").trim();
+    if (!name) return res.status(400).json({ error: "名前がありません" });
+    const incFrom = String(process.env.INCENTIVE_FROM || "2026-09-01").slice(0, 10);
+    const f = new Date(`${incFrom}T00:00:00Z`);
+    const incTo = new Date(Date.UTC(f.getUTCFullYear(), f.getUTCMonth() + 3, 0)).toISOString().slice(0, 10);
+    const ms = await listMeetings({ isAdmin: true, from: incFrom, to: incTo, limit: 5000, light: true }).catch(() => []);
+    const norm = (s) => String(s || "").replace(/[\s　]/g, "");
+    const key = norm(name);
+    const j = (v) => {
+      if (!v) return "";
+      const d = new Date(v); if (isNaN(d.getTime())) return String(v).slice(0, 10);
+      const x = new Date(d.getTime() + 9 * 3600000); const p = (n) => String(n).padStart(2, "0");
+      return `${x.getUTCFullYear()}-${p(x.getUTCMonth() + 1)}-${p(x.getUTCDate())}`;
+    };
+    const meetings = ms
+      .filter((m) => norm(m.apo_setter) === key)
+      .map((m) => ({
+        botId: m.bot_id,
+        title: m.title || "(無題)",
+        company: (m.account && m.account.trim()) || companyFromTitle(m.title) || "",
+        date: j(m.created_at),
+        owner: m.rep_name || m.owner_name || "",
+      }));
+    res.json({ name, from: incFrom, to: incTo, count: meetings.length, meetings });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 // 【点検用】今日の商談が記録されない原因を見る。
 // 進行中セッション・今日つくったBot・今日の商談（meetings）を並べて返す。
 app.get("/api/meetings/_todaydiag", async (req, res) => {
@@ -18041,7 +18071,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-05l 左メニューのサブメニュー（ホバーで右に開くフライアウト）が本文の後ろに隠れる不具合を修正。原因は固定化のときサイドバーに付けた overflow-y:auto（overflow-x も切り取りになり右へ出るサブメニューが切れていた）→ overflow:visible に。前回(20260905k)：AI社員画面に通知の管理。";
+const BUILD_TAG = "2026-09-05m インセンティブのカードを押すと、その人の9月以降の実施済み商談を一覧で表示（会社名・商談名・日付・担当）。GET /api/calls/incentive-meetings?name= 追加（apo_setterで人別に絞り、会社名はaccountかcompanyFromTitle）。カードのインセンティブ部分だけクリック＝内訳(目標/実績)とは別モーダル。前回(20260905l)：サブメニュー表示修正。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
