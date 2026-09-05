@@ -4404,19 +4404,19 @@ app.get("/api/docs", async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-// 商談ごと（会社ごと）に、初回/会社ごとの発行ずみ資料と閲覧状況を返す
+// 商談ごと（商談一覧）に、初回/会社ごとの発行ずみ資料と閲覧状況を返す
 app.get("/api/doc-tracking/deals", async (req, res) => {
   try {
     const q = String(req.query.q || "").trim().slice(0, 100);
-    const limit = parseInt(req.query.limit, 10) || 60;
-    const companies = await listDealDocTracking({ owner: req.user, q, limit });
+    const limit = parseInt(req.query.limit, 10) || 80;
+    const deals = await listDealDocTracking({ owner: req.user, isAdmin: req.isAdmin, q, limit });
     const withUrl = (l) => ({ ...l, url: docUrl(PUBLIC_URL, l.slug) });
-    const out = companies.map((c) => ({
+    const out = deals.map((c) => ({
       ...c,
       standing: (c.standing || []).map(withUrl),
       per_company: (c.per_company || []).map(withUrl),
     }));
-    res.json({ companies: out, base: PUBLIC_URL });
+    res.json({ deals: out, base: PUBLIC_URL });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
@@ -18017,7 +18017,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-04ew 資料トラッキングに『商談ごと』タブを新設（案B・既定の先頭タブ）。商談履歴の会社ごとにカード表示し、初回/会社ごとの発行ずみ資料と閲覧状況（緑=閲覧/灰=未読・滞在/最大ページ）を並べ、空きは『＋送付』でその場で1URL発行。会社の突き合わせは normCompanyKey。GET /api/doc-tracking/deals 追加。既存の発行/閲覧状況/資料タブは不変。前回(ev)：常時/会社ごと区分。";
+const BUILD_TAG = "2026-09-04ex 資料トラッキングを1画面に集約し、商談履歴と同じ商談一覧を主役に。会社が空だった不具合を修正＝一覧の元を meetings.account から『商談(title)＋companyFromTitleで会社抽出』に変更（商談履歴と同じ並び）。各商談カードに初回/会社ごとの資料と閲覧状況＋『＋送付』。タブは廃止し、資料の登録・管理／まとめて発行／閲覧状況は下部のボタンで開閉。前回(ew)：商談ごとタブ新設。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",

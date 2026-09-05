@@ -10,7 +10,7 @@
     <link rel="manifest" href="/site.webmanifest" />
     <meta name="theme-color" content="#0d5b47" />
     <meta name="apple-mobile-web-app-title" content="kinbot" />
-    <link rel="stylesheet" href="style.css?v=20260904ew" />
+    <link rel="stylesheet" href="style.css?v=20260904ex" />
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/tabler-icons/2.44.0/iconfont/tabler-icons.min.css" />
     <style>
     /* URL発行の設定と、発行ボタン（右端） */
@@ -67,6 +67,10 @@
     .de-add:hover{border-color:#1d9e75;}
     .de-picker{display:inline-flex;gap:6px;align-items:center;flex-wrap:wrap;}
     .de-picker .de-sel{max-width:200px;}
+    .de-titlewrap{min-width:0;}
+    .de-title{font-size:14px;font-weight:600;color:#1f2a26;line-height:1.35;}
+    .de-card .de-co{font-size:11.5px;font-weight:500;color:#0d5b47;margin-top:2px;}
+    .dt-tools{display:flex;flex-wrap:wrap;gap:8px;margin-top:12px;}
   </style>
 </head>
   <body>
@@ -88,25 +92,23 @@
       <div class="main">
         <header class="topbar"><div class="brand"><img class="topbar-bot" src="kinbot.svg" alt="" /><span class="brand-name">資料トラッキング</span></div></header>
         <main class="report-page">
-          <div class="ap-tabs" role="tablist">
-            <button type="button" class="ap-tab active" data-dpane="deals">商談ごと</button>
-            <button type="button" class="ap-tab" data-dpane="send">URLを発行する</button>
-            <button type="button" class="ap-tab" data-dpane="track">閲覧状況</button>
-            <button type="button" class="ap-tab" data-dpane="files">資料</button>
-          </div>
-
-          <!-- 商談ごと -->
+          <!-- 商談ごと（このページの主役） -->
           <section class="ap-pane" data-dpane="deals">
             <div class="set-card">
-              <h3>商談ごとの資料</h3>
-              <p class="note">商談履歴の会社ごとに、送った資料を「初回」「会社ごと」に分けて表示します。<br>
-              点は閲覧の有無（<b>緑＝閲覧あり</b>／灰＝未読）。空いていれば「＋送付」でその場でURLを発行できます。</p>
+              <h3>商談ごとの資料トラッキング</h3>
+              <p class="note">商談履歴の商談ごとに、送った資料を「初回」「会社ごと」に分けて表示します。<br>
+              点は閲覧の有無（<b>緑＝閲覧あり</b>／灰＝未読）。空いていれば「＋送付」でその場でトラッキングURLを発行できます。</p>
               <div class="ap-cfg-row">
-                <input type="text" id="deSearch" placeholder="会社名でしぼり込む" style="flex:1 1 220px" />
+                <input type="text" id="deSearch" placeholder="会社名・商談名でしぼり込む" style="flex:1 1 220px" />
                 <button class="btn ghost" id="deReload">読み込む</button>
                 <span class="rev-status" id="deStatus"></span>
               </div>
               <div id="deList"><div class="empty-state">読み込み中…</div></div>
+            </div>
+            <div class="dt-tools">
+              <button type="button" class="btn ghost" id="btnDocs">資料を登録・管理</button>
+              <button type="button" class="btn ghost" id="btnBulk">まとめて発行・メルマガ</button>
+              <button type="button" class="btn ghost" id="btnTrack">閲覧状況の一覧</button>
             </div>
           </section>
 
@@ -277,7 +279,7 @@
         </main>
       </div>
     </div>
-    <script src="nav.js?v=20260904ew"></script>
-    <script src="docs.js?v=20260904ew"></script>
+    <script src="nav.js?v=20260904ex"></script>
+    <script src="docs.js?v=20260904ex"></script>
   </body>
 </html>

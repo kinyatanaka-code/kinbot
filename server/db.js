@@ -5955,26 +5955,34 @@ export async function listDocLinks({ docId = 0, onlyViewed = false, limit = 500 
   } catch (e) { console.error("[db] listDocLinks", e.message); return []; }
 }
 
-// 商談履歴の会社ごとに、その会社へ発行ずみの資料リンクを「初回(常時)」「会社ごと」に分けて束ねる。
-// 会社の突き合わせは normCompanyKey（株式会社などを落として比較）で行う。
-export async function listDealDocTracking({ owner = "", q = "", limit = 60 } = {}) {
+// 商談履歴と同じ並べ方で商談を出し、各商談の会社に発行ずみの資料を「初回(常時)/会社ごと」に分けて添える。
+// 会社名は account が空なら商談名(title)から companyFromTitle() で推定。突き合わせは normCompanyKey。
+export async function listDealDocTracking({ owner = "", isAdmin = false, q = "", limit = 80 } = {}) {
   if (!pool) return [];
   try {
-    const cp = [];
-    let cwhere = "account IS NOT NULL AND btrim(account) <> ''";
-    if (q) { cp.push("%" + q + "%"); cwhere += ` AND account ILIKE $${cp.length}`; }
-    cp.push(Math.min(Math.max(parseInt(limit, 10) || 60, 1), 300));
-    const { rows: comps } = await pool.query(
-      `SELECT account AS company, max(created_at) AS last_at, count(*)::int AS mtgs
-         FROM meetings
-        WHERE ${cwhere}
-        GROUP BY account
-        ORDER BY max(created_at) DESC NULLS LAST
-        LIMIT $${cp.length}`, cp);
-    if (!comps.length) return [];
+    const hasTranscript = `((jsonb_typeof(m.transcript)='array' AND jsonb_array_length(m.transcript) > 0) OR m.imported_at IS NOT NULL)`;
+    const conds = [hasTranscript];
+    const vals = [];
+    if (!isAdmin && owner) {
+      vals.push(owner);
+      conds.push(`(m.owner=$${vals.length} OR m.owner IS NULL OR m.owner='')`);
+    }
+    if (q) {
+      vals.push("%" + q + "%");
+      conds.push(`(COALESCE(m.title,'') ILIKE $${vals.length} OR COALESCE(m.account,'') ILIKE $${vals.length})`);
+    }
+    const lim = Math.min(Math.max(parseInt(limit, 10) || 80, 1), 300);
+    const { rows: mtgs } = await pool.query(
+      `SELECT m.bot_id, m.title, m.owner, u.name AS owner_name, m.created_at,
+              COALESCE(m.account,'') AS account, m.round_no, m.phase
+         FROM meetings m LEFT JOIN users u ON u.email = m.owner
+        WHERE ${conds.join(" AND ")}
+        ORDER BY m.created_at DESC
+        LIMIT ${lim}`, vals);
+    if (!mtgs.length) return [];
     const lp = [];
     let lwhere = "NOT l.revoked AND f.active";
-    if (owner) {
+    if (owner && !isAdmin) {
       lp.push(String(owner).toLowerCase());
       lwhere += ` AND (lower(COALESCE(f.uploaded_by,'')) = $${lp.length} OR COALESCE(f.shared,true) = true)`;
     }
@@ -5998,12 +6006,16 @@ export async function listDealDocTracking({ owner = "", q = "", limit = 60 } = {
       if (!byKey.has(k)) byKey.set(k, []);
       byKey.get(k).push(l);
     }
-    return comps.map((c) => {
-      const ls = byKey.get(normCompanyKey(c.company)) || [];
+    return mtgs.map((m) => {
+      const company = (m.account && m.account.trim()) || companyFromTitle(m.title);
+      const ls = byKey.get(normCompanyKey(company)) || [];
       return {
-        company: c.company,
-        last_at: c.last_at,
-        mtgs: c.mtgs,
+        bot_id: m.bot_id,
+        title: m.title || "(無題)",
+        company,
+        owner_name: m.owner_name || "",
+        created_at: m.created_at,
+        round_no: m.round_no,
         standing: ls.filter((x) => x.standing),
         per_company: ls.filter((x) => !x.standing),
       };

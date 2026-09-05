@@ -511,16 +511,19 @@ async function loadDeals() {
     box.innerHTML = '<div class="empty-state">読み込み中…</div>';
     const d = await (await fetch(`/api/doc-tracking/deals?q=${encodeURIComponent(q)}`)).json();
     if (d.error) throw new Error(d.error);
-    dealsCache = d.companies || [];
+    dealsCache = d.deals || [];
     if (!dealsCache.length) {
-      box.innerHTML = '<div class="empty-state">商談履歴に会社がありません。商談が記録されると、ここに会社ごとに並びます。</div>';
+      box.innerHTML = '<div class="empty-state">商談がありません。商談履歴に商談が記録されると、ここに並びます。</div>';
       return;
     }
     box.innerHTML = `<div class="de-cards">` + dealsCache.map((c) => `
       <div class="de-card">
         <div class="de-card-h">
-          <div class="de-co">${esc(c.company)}</div>
-          <div class="de-meta">商談${c.mtgs}件　最終 ${esc(fmtDay(c.last_at))}</div>
+          <div class="de-titlewrap">
+            <div class="de-title">${esc(c.title)}</div>
+            <div class="de-co">${esc(c.company || "会社名不明")}${c.round_no ? `　${c.round_no}回目` : ""}</div>
+          </div>
+          <div class="de-meta">${esc(c.owner_name || "")}${c.owner_name ? "　" : ""}${esc(fmtDay(c.created_at))}</div>
         </div>
         ${deRow(c.company, "初回", "standing", c.standing)}
         ${deRow(c.company, "会社ごと", "regular", c.per_company)}
@@ -579,6 +582,25 @@ if ($("deList")) {
 }
 if ($("deReload")) $("deReload").addEventListener("click", loadDeals);
 if ($("deSearch")) $("deSearch").addEventListener("keydown", (e) => { if (e.key === "Enter") loadDeals(); });
+
+// 副機能（資料の登録・管理／まとめて発行／閲覧状況）は、必要なときだけ開く
+function dtToggle(dpane, onOpen) {
+  const pane = document.querySelector(`.ap-pane[data-dpane="${dpane}"]`);
+  if (!pane) return;
+  const willShow = pane.hidden;
+  // ほかの副パネルは閉じる（商談ごとは常時表示なので対象外）
+  document.querySelectorAll('.ap-pane').forEach((p) => {
+    if (p.dataset.dpane !== "deals") p.hidden = true;
+  });
+  pane.hidden = !willShow;
+  if (willShow) {
+    if (onOpen) onOpen();
+    pane.scrollIntoView({ behavior: "smooth", block: "start" });
+  }
+}
+if ($("btnDocs")) $("btnDocs").addEventListener("click", () => dtToggle("files", loadDocs));
+if ($("btnBulk")) $("btnBulk").addEventListener("click", () => dtToggle("send"));
+if ($("btnTrack")) $("btnTrack").addEventListener("click", () => dtToggle("track", loadLinks));
 
 // 最初の読み込み
 (async () => {
