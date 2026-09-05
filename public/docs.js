@@ -108,7 +108,7 @@ async function loadDocs() {
             発行 ${f.links}件／閲覧 ${f.views}件　${esc(fmtWhen(f.created_at))}</div>
         </div>
         <div class="dk-act">
-          ${f.mine ? `<button type="button" class="dk-menu-btn" aria-label="操作メニュー"><i class="ti ti-menu-2" aria-hidden="true"></i></button>
+          ${f.mine ? `<button type="button" class="dk-menu-btn" aria-label="操作メニュー"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><line x1="4" y1="7" x2="20" y2="7"/><line x1="4" y1="12" x2="20" y2="12"/><line x1="4" y1="17" x2="20" y2="17"/></svg></button>
           <div class="dk-menu" hidden>
             <button type="button" class="df-share">${f.shared === false ? "チームに共有する" : "自分だけにする"}</button>
             <button type="button" class="df-rename">名前を直す</button>
