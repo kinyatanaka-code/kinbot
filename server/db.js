@@ -1099,6 +1099,9 @@ export async function initDb() {
   // 資料は入れた人のものにする。チームに見せたいものだけ「共有」にする。
   // 既定は共有（これまでの資料が急に見えなくなると困るため）。
   await sq(`ALTER TABLE doc_files ADD COLUMN IF NOT EXISTS shared BOOLEAN NOT NULL DEFAULT true;`);
+  // 資料の区分：常時資料(true)＝毎回使う資料として上に固定、会社ごと(false)＝個別に送る資料。
+  // 既定は false（会社ごと）。挙動は変えず並び順と分類だけに使う。既存資料はすべて会社ごと扱いになる。
+  await sq(`ALTER TABLE doc_files ADD COLUMN IF NOT EXISTS standing BOOLEAN NOT NULL DEFAULT false;`);
 
   // 宛先ごとに1本ずつURLを発行する。誰が見たかを特定するため。
   await sq(`
@@ -5678,13 +5681,13 @@ export async function listDocFiles({ owner = "", all = false } = {}) {
       where = `(lower(COALESCE(f.uploaded_by,'')) = $${p.length} OR COALESCE(f.shared,true) = true)`;
     }
     const { rows } = await pool.query(
-      `SELECT f.id, f.name, f.filename, f.mime, f.size, f.active, f.uploaded_by, f.shared, f.created_at,
+      `SELECT f.id, f.name, f.filename, f.mime, f.size, f.active, f.uploaded_by, f.shared, f.standing, f.created_at,
               (SELECT count(*) FROM doc_links l WHERE l.doc_id = f.id) AS links,
               (SELECT count(*) FROM doc_views v JOIN doc_links l ON l.id = v.link_id
                 WHERE l.doc_id = f.id) AS views
          FROM doc_files f
         WHERE ${where}
-        ORDER BY f.active DESC, f.created_at DESC`, p);
+        ORDER BY f.active DESC, f.standing DESC, f.created_at DESC`, p);
     return rows;
   } catch { return []; }
 }
@@ -5906,6 +5909,17 @@ export async function setDocShared(id, shared) {
       [id, !!shared]);
     return rows[0] || null;
   } catch (e) { console.error("[db] setDocShared", e.message); return null; }
+}
+
+// 資料の区分（常時=true／会社ごと=false）を切り替える。並び順・分類にのみ使う。
+export async function setDocStanding(id, standing) {
+  if (!pool || !id) return null;
+  try {
+    const { rows } = await pool.query(
+      `UPDATE doc_files SET standing = $2 WHERE id = $1 RETURNING id, name, standing`,
+      [id, !!standing]);
+    return rows[0] || null;
+  } catch (e) { console.error("[db] setDocStanding", e.message); return null; }
 }
 
 export async function listDocLinks({ docId = 0, onlyViewed = false, limit = 500 } = {}) {

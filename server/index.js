@@ -311,6 +311,7 @@ import {
   addDocFile,
   listDocFiles,
   setDocShared,
+  setDocStanding,
   getOrCreateSharedLink,
   setViewerInfo,
   listSharedViewers,
@@ -4416,6 +4417,24 @@ app.patch("/api/docs/:id/shared", async (req, res) => {
     }
     const r = await setDocShared(id, req.body?.shared === true);
     console.log(`[資料] ${doc.name} を${r && r.shared ? "チームに共有" : "自分だけ"}にしました by ${req.user}`);
+    res.json({ ok: true, item: r });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// 資料を「常時資料」「会社ごと」で切り替える（並び順・分類のみ。送信の挙動は変えない）
+app.patch("/api/docs/:id/standing", async (req, res) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    const rows = await listDocFiles({ all: true });
+    const doc = rows.find((d) => d.id === id);
+    if (!doc) return res.status(404).json({ error: "見つかりません" });
+    // 入れた本人だけが切り替えられる
+    const mine = String(doc.uploaded_by || "").toLowerCase() === String(req.user || "").toLowerCase();
+    if (!mine && doc.uploaded_by) {
+      return res.status(403).json({ error: "この資料を入れた人だけが切り替えられます" });
+    }
+    const r = await setDocStanding(id, req.body?.standing === true);
+    console.log(`[資料] ${doc.name} を${r && r.standing ? "常時資料" : "会社ごと"}にしました by ${req.user}`);
     res.json({ ok: true, item: r });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
@@ -17981,7 +18000,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-04eu 要約が『gemini MAX_TOKENS ／ Groq 413（入力13187>TPM8000）』で失敗する件を修正。要約の出力枠を4000→8000に引き上げ。加えて構造化JSON抽出では gemini-2.5-flash 系の『思考』を止め（thinkingBudget:0）、思考が出力枠を食って途中切れするのを根絶（flash-liteは無変化・pro等は対象外）。これでGeminiが完了し小TPMのGroqに落とさない。前回(et)：段階分けの出力枠と429待機。";
+const BUILD_TAG = "2026-09-04ev 資料トラッキングを使いやすく：資料に『常時資料／会社ごと』の区分を追加（doc_files.standing、既定=会社ごとで挙動は不変）。資料タブを常時/会社ごと/使わない(非表示)のセクション表示にし、各カードで区分・表示/非表示・共有をまとめて操作可。送る資料の選択欄も常時を上にグループ表示。1URL=1資料は従来どおり。PATCH /api/docs/:id/standing 追加。前回(eu)：要約MAX_TOKENS対策。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",

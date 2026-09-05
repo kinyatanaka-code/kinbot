@@ -74,8 +74,19 @@ async function loadDocs() {
       const sel = $(id);
       if (!sel) continue;
       const cur = sel.value;
+      const eligible = docsCache.filter((f) => f.active && (!mineOnly || f.mine));
+      const std = eligible.filter((f) => f.standing);
+      const reg = eligible.filter((f) => !f.standing);
       sel.innerHTML = withAll ? '<option value="">すべて</option>' : "";
-      for (const f of docsCache) if (f.active && (!mineOnly || f.mine)) sel.add(new Option(f.name, f.id));
+      if (std.length && reg.length) {
+        // 常時資料と会社ごとの両方があるときは、見出し付きで分ける（常時を上に）
+        const g1 = document.createElement("optgroup"); g1.label = "常時資料";
+        std.forEach((f) => g1.appendChild(new Option(f.name, f.id))); sel.appendChild(g1);
+        const g2 = document.createElement("optgroup"); g2.label = "会社ごと";
+        reg.forEach((f) => g2.appendChild(new Option(f.name, f.id))); sel.appendChild(g2);
+      } else {
+        eligible.forEach((f) => sel.add(new Option(f.name, f.id)));
+      }
       if (cur) sel.value = cur;
     }
 
@@ -84,20 +95,17 @@ async function loadDocs() {
       box.innerHTML = '<div class="empty-state">まだ資料がありません。上の欄からPDFを登録してください。</div>';
       return;
     }
-    // 「使わない」にした資料は、この一覧では隠す（資料自体は残り、発行済みURLからは開けます）。
+    // 資料は「常時資料」「会社ごとの資料」に分けて並べる（常時は上）。「使わない」は下にまとめる。
     const 使わない数 = docsCache.filter((f) => !f.active).length;
-    const 表示分 = showUnusedDocs ? docsCache : docsCache.filter((f) => f.active);
     const トグル = 使わない数
       ? `<div class="df-unused-bar"><button type="button" class="btn ghost" id="dfToggleUnused">${
           showUnusedDocs ? `使わない資料を隠す（${使わない数}件）` : `使わない資料も見る（${使わない数}件）`}</button></div>`
       : "";
-    if (!表示分.length) {
-      box.innerHTML = トグル + '<div class="empty-state">使っている資料がありません。「使わない資料も見る」から戻せます。</div>';
-      const t0 = $("dfToggleUnused");
-      if (t0) t0.addEventListener("click", () => { showUnusedDocs = !showUnusedDocs; loadDocs(); });
-      return;
-    }
-    box.innerHTML = トグル + `<div class="dk-list">` + 表示分.map((f) => `
+
+    const 区分バッジ = (f) => f.mine
+      ? `<span class="home-badge dn-kind ${f.standing ? "df-standing" : "df-regular"}">${f.standing ? "常時" : "会社ごと"}</span>`
+      : "";
+    const 資料行 = (f) => `
       <div class="dk-row${f.active ? "" : " dk-off"}" data-id="${f.id}">
         <div class="dk-main">
           <div class="dk-t">
@@ -106,23 +114,58 @@ async function loadDocs() {
                   ? '<span class="home-badge dn-kind df-own">自分だけ</span>'
                   : '<span class="home-badge dn-kind df-share">チームに共有</span>')
               : `<span class="home-badge dn-kind df-other">${esc(f.uploaded_by || "ほかの人")}</span>`}
+            ${区分バッジ(f)}
             ${esc(f.name)}
           </div>
           <div class="dk-s">${esc(f.filename || "")}　${Math.round((f.size || 0) / 1024)}KB　
             発行 ${f.links}件／閲覧 ${f.views}件　${esc(fmtWhen(f.created_at))}</div>
         </div>
         <div class="dk-act">
+          ${f.mine ? `<button type="button" class="btn ghost df-standing-toggle">${f.standing ? "会社ごとにする" : "常時にする"}</button>` : ""}
           ${f.mine ? `<button type="button" class="btn ghost df-share">${
             f.shared === false ? "チームに共有する" : "自分だけにする"}</button>` : ""}
           ${f.mine ? '<button type="button" class="btn ghost df-rename">名前を直す</button>' : ""}
           ${f.mine ? `<button type="button" class="btn ghost df-toggle">${f.active ? "使わない" : "使う"}</button>` : ""}
           ${f.mine ? '<button type="button" class="btn ghost df-del">削除</button>' : ""}
         </div>
-      </div>`).join("") + `</div>`;
+      </div>`;
+    const セクション = (title, hint, list) => list.length
+      ? `<div class="df-sec"><div class="df-sec-h">${title}${hint ? `<span class="df-sec-hint">${hint}</span>` : ""}</div><div class="dk-list">${list.map(資料行).join("")}</div></div>`
+      : "";
+
+    const 常時 = docsCache.filter((f) => f.active && f.standing);
+    const 会社ごと = docsCache.filter((f) => f.active && !f.standing);
+    const 非表示 = docsCache.filter((f) => !f.active);
+
+    let html = セクション("常時資料", "毎回使う資料。一覧と選択欄の上に固定されます", 常時)
+             + セクション("会社ごとの資料", "宛先ごとに選んで送る資料", 会社ごと);
+    if (!常時.length && !会社ごと.length) {
+      html += '<div class="empty-state">使っている資料がありません。「使わない資料も見る」から戻せます。</div>';
+    }
+    html += トグル;
+    if (showUnusedDocs) html += セクション("使わない資料（非表示）", "発行済みURLからは開けます", 非表示);
+    box.innerHTML = html;
 
     // 「使わない資料も見る／隠す」
     const tg = $("dfToggleUnused");
     if (tg) tg.addEventListener("click", () => { showUnusedDocs = !showUnusedDocs; loadDocs(); });
+
+    // 常時資料 ↔ 会社ごと の切り替え
+    box.querySelectorAll(".df-standing-toggle").forEach((b) =>
+      b.addEventListener("click", async () => {
+        const row = b.closest(".dk-row");
+        const f = docsCache.find((x) => String(x.id) === row.dataset.id);
+        const next = !(f && f.standing);
+        b.disabled = true;
+        try {
+          const r = await fetch(`/api/docs/${row.dataset.id}/standing`, {
+            method: "PATCH", headers: { "content-type": "application/json" },
+            body: JSON.stringify({ standing: next }),
+          });
+          if (!r.ok) throw new Error(((await r.json()) || {}).error || "変えられませんでした");
+          loadDocs();
+        } catch (e) { b.disabled = false; alert(e.message); }
+      }));
 
     // 自分だけにする／チームに共有する
     box.querySelectorAll(".df-share").forEach((b) =>
