@@ -41,6 +41,7 @@ kincall（架電リスト）という別ツールも同じ画面群の中にあ�
 
 ## 決定・指示のログ（新しいものを上に足す）
 
+- 2026-09-06 要望（田中さん）：週次のダッシュボードも作りたい。対応(20260906g)：apo-dashboard の period を固定"month"から req.query.period(week/month)に。computeStatsGridは既にweek対応（区切り=週開始日・名前"M/D週"）、目標は getApoGoalsByKeys(period,[今週キー])＝週目標(setApoGoal period=week)を直接使用。返り値の period/periodKey/periodLabel は既存。calls.html の #clDashWrap に月次/週次トグル(.kc-period-tabs/#dashPeriodTabs)を追加。calls.js：dashPeriod 状態、loadDash が ?period= で取得しラベルを（月次/週次）に、トグル配線、目標保存の period を d.period に。週目標は月次と同様に手入力で直接保存（配分なし・月から割らない）。インセンティブは期間非依存で据え置き。bump=20260906g。node--check/parse/smoke/タグ均衡 OK。
 - 2026-09-06 要望（田中さん）：応援文で「どんどん獲得していきましょう」の転用が多い→重複解消。対応(20260906f)：incentiveCheer を各段階で別表現に（初=一気に伸ばす／5,000=数を積み上げ／10,000=攻めていこう／15,000=牽引役／20,000+=突き抜け）。サーバのみ、bump=20260906f。node--check/smoke OK。
 - 2026-09-06 要望（田中さん）：応援文は「次の実施へ」ではなく「どんどん獲得しよう！」のニュアンスに。対応(20260906e)：incentiveCheer の初実施・¥5,000・¥10,000 の文言を『どんどん獲得』寄りに変更（¥15,000・¥20,000+は据え置き）。サーバのみ、bump=20260906e。node--check/smoke OK。
 - 2026-09-06 要望（田中さん）：インセンティブ到達通知に応援の一言を添えたい。対応(20260906d)：index.js に incentiveCheer(m)（固定文・到達額が大きいほど強め。初実施＝『最初の一歩、おめでとうございます！この調子でいきましょう。』／5,000=いい流れ／10,000=絶好調／15,000=牽引役／20,000+=圧巻）を追加し、checkIncentiveMilestone の通知文を head + \n + 応援文 に。学習等はせず固定文。サーバのみ変更（bump無し扱いだがついでにbump=20260906d）。node--check/smoke＋文面プレビューOK。

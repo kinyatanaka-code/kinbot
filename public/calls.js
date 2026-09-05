@@ -1707,20 +1707,31 @@ function openEdit(id) {
   });
 }
 
-// ───────── ダッシュボード（アポの目標・実績・差分／月次のみ） ─────────
+// ───────── ダッシュボード（アポの目標・実績・差分／月次・週次） ─────────
 let _dashData = null;
+let dashPeriod = "month";          // month（月次）/ week（週次）
 async function loadDash() {
   const box = $("clDash");
   if (!box) return;
+  // トグルの見た目を今の期間に合わせる
+  document.querySelectorAll("#dashPeriodTabs .kc-ptab").forEach((b) => b.classList.toggle("active", b.dataset.p === dashPeriod));
   box.innerHTML = `<div class="note">読み込んでいます…</div>`;
   try {
-    const d = await (await fetch(`/api/calls/apo-dashboard`)).json();
+    const d = await (await fetch(`/api/calls/apo-dashboard?period=${encodeURIComponent(dashPeriod)}`)).json();
     if (d.error) throw new Error(d.error);
     _dashData = d;
-    const rg = $("dashRange"); if (rg) rg.textContent = d.periodLabel ? `対象：${d.periodLabel}（月次）` : "";
+    const 期 = (d.period === "week") ? "週次" : "月次";
+    const rg = $("dashRange"); if (rg) rg.textContent = d.periodLabel ? `対象：${d.periodLabel}（${期}）` : "";
     renderDash(d);
   } catch (e) { box.innerHTML = `<div class="note">読み込めませんでした：${esc(e.message)}</div>`; }
 }
+// 月次/週次の切替
+document.querySelectorAll("#dashPeriodTabs .kc-ptab").forEach((b) => b.addEventListener("click", () => {
+  const p = b.dataset.p === "week" ? "week" : "month";
+  if (p === dashPeriod) return;
+  dashPeriod = p;
+  loadDash();
+}));
 function dashCard(c, big) {
   const diff = c.diff;
   const dcls = diff > 0 ? "kc-d-plus" : diff < 0 ? "kc-d-minus" : "kc-d-zero";
@@ -1797,7 +1808,7 @@ function renderDash(d) {
       try {
         await fetch("/api/calls/apo-goals", {
           method: "PUT", headers: { "content-type": "application/json" },
-          body: JSON.stringify({ subject, period: "month", periodKey: d.periodKey, metric: "アポ", value: goal }),
+          body: JSON.stringify({ subject, period: d.period || dashPeriod, periodKey: d.periodKey, metric: "アポ", value: goal }),
         });
         if (typeof _statsGoals === "object") for (const k in _statsGoals) delete _statsGoals[k];
       } catch (err) { inp.style.borderColor = "#e24b4a"; }

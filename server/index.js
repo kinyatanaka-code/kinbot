@@ -9750,14 +9750,14 @@ app.get("/api/calls/stats-grid", async (req, res) => {
 // アポのダッシュボード（月次のみ）。目標は日次目標を月内で合計したもの。
 app.get("/api/calls/apo-dashboard", async (req, res) => {
   try {
-    const period = "month";   // ダッシュボードは月次だけ
+    const period = req.query.period === "week" ? "week" : "month";   // ダッシュボードは月次/週次
     const g = await computeStatsGrid(period, req.query.span);
     const idx = (g.区切り || []).findIndex((c) => c.key === g.今);
     const i = idx >= 0 ? idx : (g.区切り || []).length - 1;
     const bucket = (g.区切り && g.区切り[i]) ? g.区切り[i] : null;
-    // 月次目標は「その月の月次目標（手入力）」を直接使う（日次への配分はしない）。
+    // 目標は「その期間の目標（手入力）」を直接使う（配分はしない）。
     const monthKey = g.今 || "";
-    const mg = await getApoGoalsByKeys("month", [monthKey]);
+    const mg = await getApoGoalsByKeys(period, [monthKey]);
     const goalOf = (key) => Number((((mg[key] || {})[monthKey] || {})["アポ"]) || 0);
     const salesNames = String(process.env.DASH_SALES_NAMES || "田中欽也").split(",").map((s) => s.trim()).filter(Boolean);
     const excludeNames = [...new Set([...String(process.env.DASH_EXCLUDE_NAMES || "中澤,浦林,森田,笹原,迫間").split(",").map((s) => s.trim()).filter(Boolean), "田中綾"])];
@@ -18297,7 +18297,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-06f インセンティブ応援文の重複（どんどん獲得していきましょうの多用）を解消し、各段階で言い回しを変えた。前回(20260906e)：獲得ニュアンスに調整。";
+const BUILD_TAG = "2026-09-06g ダッシュボードに月次/週次の切替を追加。週次は computeStatsGrid('week') の今週バケットで、目標(週目標・手入力可)・実績・差分をグループ/セールス/インサイド別に表示。目標編集は表示中の期間(month/week)に保存。apo-dashboard が period クエリを受ける。インセンティブは期間非依存で従来どおり。前回(20260906f)：応援文の重複解消。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",

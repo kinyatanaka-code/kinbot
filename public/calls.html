@@ -10,7 +10,7 @@
     <link rel="manifest" href="/site.webmanifest" />
     <meta name="theme-color" content="#0d5b47" />
     <meta name="apple-mobile-web-app-title" content="kinbot" />
-    <link rel="stylesheet" href="style.css?v=20260906d" />
+    <link rel="stylesheet" href="style.css?v=20260906g" />
   </head>
   <body class="kc-body">
     <div class="app">
@@ -148,7 +148,13 @@
               <button type="button" class="kc-ptab" data-top="process">プロセス</button>
             </div>
             <div id="clDashWrap">
-              <div style="margin-bottom:10px"><span class="rev-status" id="dashRange"></span></div>
+              <div style="margin-bottom:10px;display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+                <div class="kc-period-tabs" id="dashPeriodTabs" style="margin-bottom:0">
+                  <button type="button" class="kc-ptab active" data-p="month">月次</button>
+                  <button type="button" class="kc-ptab" data-p="week">週次</button>
+                </div>
+                <span class="rev-status" id="dashRange"></span>
+              </div>
               <div id="clDash"></div>
             </div>
             <div id="clJissekiWrap" hidden>
@@ -299,9 +305,9 @@
         </main>
       </div>
     </div>
-    <script src="sf-data.js?v=20260906d"></script>
-    <script src="calls.js?v=20260906d"></script>
-    <script src="nav.js?v=20260906d"></script>
+    <script src="sf-data.js?v=20260906g"></script>
+    <script src="calls.js?v=20260906g"></script>
+    <script src="nav.js?v=20260906g"></script>
     <script src="/cmdk.js?v=20260827a"></script>
 </body>
 </html>
