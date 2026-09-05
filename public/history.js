@@ -1096,6 +1096,7 @@ async function loadDetail(botId, openTab, opts = {}) {
       <div class="gen-progress" id="genProgress" hidden></div>
       <div class="dmeta-edit">
         <label>営業担当 <select id="mOwner"><option value="">未設定</option></select></label>
+        <label>アポ獲得者<span class="hint">（インセンティブ）</span> <select id="mSetter"><option value="">未設定</option></select></label>
         <label>日時 <input type="datetime-local" id="mDatetime" /></label>
         <label>何回目<span class="hint">（商談回数）</span> <input type="number" id="mRound" min="1" max="99" placeholder="-" /></label>
         <label>種別 <select id="mDealKind">
@@ -1870,6 +1871,30 @@ async function loadDetail(botId, openTab, opts = {}) {
     }
     mOwner.value = m.owner || "";
 
+    // アポ獲得者（登録ユーザー＋インターン生の名前から選ぶ。値は名前）
+    const mSetter = hdetail.querySelector("#mSetter");
+    if (mSetter) {
+      let internNames = [];
+      try {
+        const iv = await (await fetch("/api/interns")).json();
+        internNames = (Array.isArray(iv) ? iv : (iv.interns || [])).map((x) => x.name).filter(Boolean);
+      } catch {}
+      const names = [...new Set([
+        ...users.map((u) => u.name || u.email).filter(Boolean),
+        ...internNames,
+      ])];
+      for (const n of names) {
+        const o = document.createElement("option");
+        o.value = n; o.textContent = n; mSetter.appendChild(o);
+      }
+      // 現在のアポ獲得者が候補に無ければ、選べるように足す
+      if (m.apo_setter && !names.includes(m.apo_setter)) {
+        const o = document.createElement("option");
+        o.value = m.apo_setter; o.textContent = m.apo_setter; mSetter.appendChild(o);
+      }
+      mSetter.value = m.apo_setter || "";
+    }
+
     const saveMeta = async () => {
       try {
         const createdAt = mDatetime.value ? localInputToIso(mDatetime.value) : "";
@@ -1883,6 +1908,7 @@ async function loadDetail(botId, openTab, opts = {}) {
             createdAt,
             category: mCategory ? mCategory.value : undefined,
             dealKind: mDealKind ? mDealKind.value : undefined,
+            apoSetter: mSetter ? mSetter.value : undefined,
           }),
         });
         mSaved.hidden = false;
@@ -1895,6 +1921,7 @@ async function loadDetail(botId, openTab, opts = {}) {
           row.owner = mOwner.value || "";
           if (mCategory) row.category = mCategory.value;
           if (mDealKind) row.deal_kind = mDealKind.value || null;
+          if (mSetter) row.apo_setter = mSetter.value || null;
           if (createdAt) row.created_at = createdAt;
           const u = (usersCache || []).find((x) => x.email === mOwner.value);
           row.owner_name = u ? u.name || u.email : mOwner.value ? mOwner.value : null;
@@ -1914,6 +1941,7 @@ async function loadDetail(botId, openTab, opts = {}) {
     if (mCategory) mCategory.addEventListener("change", saveMeta);
     if (mDealKind) mDealKind.addEventListener("change", saveMeta);
     mOwner.addEventListener("change", saveMeta);
+    if (mSetter) mSetter.addEventListener("change", saveMeta);
     mDatetime.addEventListener("change", saveMeta);
 
     // 商談名・日時をカレンダーから選ぶ

@@ -1066,7 +1066,7 @@ app.use((req, res, next) => {
 // 商談の「何回目」「フェーズ」を更新
 app.put("/api/meetings/:id/meta", async (req, res) => {
   try {
-    const { round, phase, title, owner, createdAt, account, category, dealKind } = req.body || {};
+    const { round, phase, title, owner, createdAt, account, category, dealKind, apoSetter } = req.body || {};
     const r = round === "" || round == null ? null : Number(round);
     await updateMeetingMeta(req.params.id, {
       round: Number.isFinite(r) ? r : null,
@@ -1078,6 +1078,8 @@ app.put("/api/meetings/:id/meta", async (req, res) => {
       category: category === undefined ? undefined : category,
       dealKind: dealKind === undefined ? undefined : dealKind,
     });
+    // アポ獲得者（インセンティブの実施に数える）。商談履歴の画面から選べる。
+    if (apoSetter !== undefined) await setMeetingApoSetter(req.params.id, String(apoSetter || "").trim() || null);
     res.json({ ok: true });
   } catch (e) {
     sfErrorResponse(res, e);
@@ -18188,7 +18190,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-05p アポ獲得者の照合を改善：担当（商談owner）のカレンダーにあるkinbot作成の商談予定の本文『アポ獲得: 〇〇』を読んで獲得者を割り当てる。従来はインターン本人のカレンダーを予定名で照合していたが、獲得者は予定の主催者でなく本文にしかいないため当たっていなかった。会社名＋日付で商談と予定を突き合わせ。診断(matched_by_description等)を返す。前回(20260905o)：未照合の手動割り当て。";
+const BUILD_TAG = "2026-09-05q 商談履歴（商談詳細）に『アポ獲得者』セレクトを追加。営業担当の隣で、登録ユーザー＋インターン生から選んで保存＝インセンティブの実施に反映。/api/meetings/:id/meta が apoSetter を受け取り setMeetingApoSetter を呼ぶ。前回(20260905p)：予定本文でのアポ獲得者照合。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
