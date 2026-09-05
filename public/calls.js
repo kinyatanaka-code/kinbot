@@ -993,6 +993,14 @@ function renderDock() {
     .asg-row .asg-sel{font-size:12.5px;padding:6px 8px;border:1px solid #d7e0db;border-radius:8px;background:#fff;}
     .asg-row .asg-st{font-size:11px;color:#6b7a73;}
     @media (max-width:700px){ .asg-row{grid-template-columns:1fr;} }
+    .late-list{display:flex;flex-direction:column;gap:6px;}
+    .late-row{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;
+      padding:8px 10px;border:1px solid #eef3f0;border-radius:10px;background:#fff;}
+    .late-name{font-size:13px;font-weight:700;color:#1f2a26;}
+    .late-ctrl{display:flex;align-items:center;gap:8px;font-size:12.5px;color:#5a6b64;}
+    .late-in{width:56px;padding:4px 6px;text-align:center;border:1px solid #d7e0db;border-radius:8px;}
+    .late-minus{color:#a3402d;font-weight:700;font-size:12px;min-width:56px;}
+    .late-st{font-size:11px;color:#6b7a73;}
     .kc-inc-lb{font-size:9.5px;font-weight:700;color:#8a6d1f;letter-spacing:.02em;line-height:1.3;}
     .kc-inc-rank{margin-left:5px;font-size:10px;color:#7a5c10;}
     .kc-inc-yen{font-size:20px;font-weight:800;color:#7a5c10;line-height:1.25;text-shadow:0 1px 0 #fffdf6;display:flex;align-items:center;justify-content:center;gap:2px;}
@@ -1742,10 +1750,8 @@ function dashCard(c, big) {
   const 冠右 = c.順位 ? laurel(true) : "";
   const 順位表記 = c.順位 ? `${c.順位}位${c.タイ ? "タイ" : ""}` : "";
   const late = Number(c.遅刻 || 0);
-  const lateLine = (c.インセンティブ !== undefined)
-    ? (iAmAdmin
-        ? `<div class="kc-inc-late">遅刻 <input type="number" class="kc-latein" data-name="${esc(c.label)}" value="${late}" min="0" />回${late ? ` <span class="kc-inc-minus">−¥${(late * 1000).toLocaleString()}</span>` : ""}</div>`
-        : (late ? `<div class="kc-inc-late">遅刻 ${late}回　<span class="kc-inc-minus">−¥${(late * 1000).toLocaleString()}</span></div>` : ""))
+  const lateLine = (c.インセンティブ !== undefined && late)
+    ? `<div class="kc-inc-late">遅刻 ${late}回　<span class="kc-inc-minus">−¥${(late * 1000).toLocaleString()}</span></div>`
     : "";
   const inc = (c.インセンティブ !== undefined)
     ? `<div class="kc-inc${rankCls}">
@@ -1775,7 +1781,7 @@ function renderDash(d) {
     (sales ? `<div class="kc-dsub">セールス</div><div class="kc-dgrid">${sales}</div>` : "") +
     (inside ? `<div class="kc-dsub">インサイド</div><div class="kc-dgrid">${inside}</div>` : "") +
     `<p class="note" style="margin-top:10px">目標はここで直接（月次）変更できます（入力するとその月の平日に配分されます）。グループ・セールス・インサイドも手動で設定でき、実績はメンバーの合計です。差分は 実績−目標。カードをクリックすると内訳（日次）が出ます。</p>` +
-    (iAmAdmin ? `<div style="margin-top:8px"><button type="button" class="btn ghost" id="dashAssign">未照合の商談に獲得者を割り当てる</button></div>` : "");
+    (iAmCloser ? `<div style="margin-top:8px"><button type="button" class="btn ghost" id="dashAssign">未照合の商談に獲得者を割り当てる</button></div>` : "");
   // 目標の直接編集（月次→平日に配分）。入力欄クリックはカードの内訳を開かないように。
   box.querySelectorAll(".kc-dgoal").forEach((inp) => {
     inp.addEventListener("click", (e) => e.stopPropagation());
@@ -1805,22 +1811,6 @@ function renderDash(d) {
     const card = el.closest(".kc-dcard");
     openIncentiveMeetings(card.dataset.label);
   }));
-  // 遅刻回数（管理者のみ）：入力欄クリック・変更はモーダルを開かない。保存したら再計算のため読み直す。
-  box.querySelectorAll(".kc-latein").forEach((inp) => {
-    inp.addEventListener("click", (e) => e.stopPropagation());
-    inp.addEventListener("change", async (e) => {
-      e.stopPropagation();
-      let count = parseInt(inp.value, 10); if (!(count >= 0)) count = 0;
-      try {
-        const r = await fetch("/api/calls/incentive-late", {
-          method: "PUT", headers: { "content-type": "application/json" },
-          body: JSON.stringify({ name: inp.dataset.name, count }),
-        });
-        if (!r.ok) throw new Error(((await r.json()) || {}).error || "変えられませんでした");
-        loadDash();   // 実施−遅刻の再計算・順位の付け直しのため読み直す
-      } catch (err) { inp.style.borderColor = "#e24b4a"; alert(err.message); }
-    });
-  });
   const asgBtn = $("dashAssign");
   if (asgBtn) asgBtn.addEventListener("click", openAssignSetter);
 }
@@ -2178,6 +2168,11 @@ async function loadAdmin() {
 
     box.innerHTML = `
       <div class="kc-admin">
+        ${iAmCloser ? `<div class="kc-adcard">
+          <h3>遅刻カウント（インセンティブ）</h3>
+          <p class="note">インサイドの遅刻回数を入れます。<b>1回につき ¥1,000</b> がインセンティブから引かれます（インセンティブ＝(実施−遅刻)×¥1,000、0未満は0）。</p>
+          <div id="lateBox"><div class="note">読み込んでいます…</div></div>
+        </div>` : ""}
         <div class="kc-adcard">
           <h3>アポの「期間内 / 期間外」の基準</h3>
           <p class="note">実績のアポ獲得を、商談日（アポ一覧＝カレンダーの商談予定日）で「期間内 / 期間外」に分けます。その境目をここで決めます。</p>
@@ -2418,7 +2413,46 @@ async function loadAdmin() {
     if ($("psForce")) $("psForce").addEventListener("click", () => {
       if (confirm("手入力したセルも含めて、実績で上書きします。よろしいですか？")) runPs(false, true);
     });
+    if ($("lateBox")) loadLateCounts();
   } catch (e) { box.innerHTML = `<div class="note">読み込めませんでした：${esc(e.message)}</div>`; }
+}
+
+// 遅刻カウント（設定・管理）：インサイド各人の遅刻回数を入れる。1回=−¥1,000。
+async function loadLateCounts() {
+  const box = $("lateBox");
+  if (!box) return;
+  try {
+    const d = await (await fetch("/api/calls/incentive-late")).json();
+    if (d.error) throw new Error(d.error);
+    const members = d.members || [];
+    if (!members.length) { box.innerHTML = '<div class="note">インサイド（インターン生）が登録されていません。設定→インターン登録で追加してください。</div>'; return; }
+    box.innerHTML = `<div class="late-list">${members.map((m) => `
+      <div class="late-row">
+        <span class="late-name">${esc(m.name)}</span>
+        <span class="late-ctrl">遅刻 <input type="number" class="late-in" data-name="${esc(m.name)}" value="${Number(m.late || 0)}" min="0" max="999" />回
+          <span class="late-minus">${m.late ? `−¥${(m.late * 1000).toLocaleString()}` : ""}</span>
+          <span class="late-st"></span></span>
+      </div>`).join("")}</div>`;
+    box.querySelectorAll(".late-in").forEach((inp) => inp.addEventListener("change", async () => {
+      let count = parseInt(inp.value, 10); if (!(count >= 0)) count = 0;
+      const row = inp.closest(".late-row");
+      const st = row.querySelector(".late-st");
+      const minus = row.querySelector(".late-minus");
+      st.textContent = "保存中…";
+      try {
+        const r = await fetch("/api/calls/incentive-late", {
+          method: "PUT", headers: { "content-type": "application/json" },
+          body: JSON.stringify({ name: inp.dataset.name, count }),
+        });
+        if (!r.ok) throw new Error(((await r.json()) || {}).error || "変えられませんでした");
+        st.textContent = "保存しました";
+        minus.textContent = count ? `−¥${(count * 1000).toLocaleString()}` : "";
+        setTimeout(() => { st.textContent = ""; }, 1500);
+      } catch (e) { st.textContent = "失敗：" + e.message; }
+    }));
+  } catch (e) {
+    box.innerHTML = `<div class="note">読み込めませんでした：${esc(e.message)}</div>`;
+  }
 }
 
 // ───────── リスト別の実績（kincall架電ログ基準） ─────────

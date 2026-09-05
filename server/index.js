@@ -8618,7 +8618,7 @@ app.get("/api/calls/unmatched-meetings", async (req, res) => {
 // 商談にアポ獲得者を手で割り当てる（管理者だけ）。空にすると未照合に戻す。
 app.post("/api/calls/set-apo-setter", async (req, res) => {
   try {
-    if (!req.isAdmin) return res.status(403).json({ error: "管理者だけが割り当てられます" });
+    if (!req.isAdmin && !(await isCloserUser(req.user))) return res.status(403).json({ error: "クローザー・管理者だけが割り当てられます" });
     const botId = String(req.body?.botId || "").trim();
     if (!botId) return res.status(400).json({ error: "商談が指定されていません" });
     const name = String(req.body?.name || "").trim();
@@ -8628,10 +8628,22 @@ app.post("/api/calls/set-apo-setter", async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-// インセンティブの遅刻回数を入力する（管理者だけ）。1回につき ¥1,000 減る。
+// インセンティブの遅刻回数の一覧（設定・管理の遅刻カウント画面用）
+app.get("/api/calls/incentive-late", async (req, res) => {
+  try {
+    const interns = await listInterns().catch(() => []);
+    const norm = (s) => String(s || "").replace(/[\s　]/g, "");
+    const s = await getSettings().catch(() => ({}));
+    const map = s.incentiveLate || {};
+    const members = interns.map((it) => ({ name: it.name, late: Number(map[norm(it.name)] || 0) }));
+    res.json({ members });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// インセンティブの遅刻回数を入力する（クローザー・管理者）。1回につき ¥1,000 減る。
 app.put("/api/calls/incentive-late", async (req, res) => {
   try {
-    if (!req.isAdmin) return res.status(403).json({ error: "管理者だけが変更できます" });
+    if (!req.isAdmin && !(await isCloserUser(req.user))) return res.status(403).json({ error: "クローザー・管理者だけが変更できます" });
     const name = String(req.body?.name || "").trim();
     if (!name) return res.status(400).json({ error: "名前がありません" });
     let count = parseInt(req.body?.count, 10);
@@ -18191,7 +18203,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-05s 商談メモに<br>や<a href>等のHTMLタグがそのまま表示されるバグを修正。原因はカレンダー予定本文のHTMLをそのまま取り込んでいたため。history.js に htmlToText を追加し商談メモ表示で変換（改行は<br>で保持）。サーバ cleanSourceNote でも取り込み時にHTML→テキスト化（今後の保存分をクリーンに）。前回(20260905r)：所得表記の読み取り対応。";
+const BUILD_TAG = "2026-09-06a 遅刻カウントの入力を『設定・管理』タブに移設（クローザー・管理者が編集可、田中さんも編集可に）。カード側は遅刻を読み取り表示のみ。遅刻1回=−¥1,000は従来どおり効く。GET /api/calls/incentive-late 追加、PUTと獲得者割り当てをクローザー可に緩和。未照合割り当てボタンもクローザー表示に。前回(20260905s)：商談メモのHTML表示バグ修正。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
