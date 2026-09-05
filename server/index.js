@@ -24,7 +24,7 @@ import { sendApoMail, sendTestApoMail, runReminderSweep, listTomorrowReminders, 
          DEFAULT_REMINDER_SUBJECT, DEFAULT_REMINDER_BODY, stripRetiredLines } from "./apomail.js";
 import { startKasasagi, getKasasagi, stopKasasagi, feedTranscript, kasasagiInfo,
          buildScript, buildReport, faceState, SLIDE_LABELS } from "./kasasagi.js";
-import { notifyAssigned, notifyAssignFailed, notifyMailDraft, notifyChat, notifyAll, notifyPerson, notifyTargets, chatWebhookUrl, chatInfo } from "./chat.js";
+import { notifyAssigned, notifyAssignFailed, notifyMailDraft, notifyChat, notifyAll, notifyPerson, notifyTargets, chatWebhookUrl, chatInfo, NOTIFY_KINDS, notifyDisabledSet } from "./chat.js";
 import { placesEnabled, fetchPlaceHours, openState } from "./places.js";
 import { deepgramReady, transcribeUrl } from "./deepgram.js";
 import { zoomPhoneConfigured, zoomPhonePing, zoomPhoneUsers, zoomPhoneCallHistory, zoomResultToKincall } from "./zoomphone.js";
@@ -4404,7 +4404,29 @@ app.get("/api/docs", async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-// 商談ごと（商談一覧）に、初回/会社ごとの発行ずみ資料と閲覧状況を返す
+// 通知の管理（AI社員画面）：種類ごとのオン/オフ
+app.get("/api/ai/notify-config", async (req, res) => {
+  try {
+    const off = await notifyDisabledSet();
+    const kinds = NOTIFY_KINDS.map((k) => ({ key: k.key, label: k.label, on: !off.has(k.key) }));
+    res.json({ kinds });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+app.put("/api/ai/notify-config", async (req, res) => {
+  try {
+    const key = String(req.body?.key || "").trim();
+    const on = req.body?.on === true;
+    if (!NOTIFY_KINDS.some((k) => k.key === key)) return res.status(400).json({ error: "不明な種類です" });
+    const s = await getSettings().catch(() => ({}));
+    const set = new Set(Array.isArray(s.notifyDisabled) ? s.notifyDisabled.map(String) : []);
+    if (on) set.delete(key); else set.add(key);
+    await saveSettings({ notifyDisabled: [...set] });
+    console.log(`[通知] ${key} を${on ? "オン" : "オフ"}にしました by ${req.user}`);
+    res.json({ ok: true, key, on });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// 商談ごと（商談一覧）に、資料と閲覧状況を返す
 app.get("/api/doc-tracking/deals", async (req, res) => {
   try {
     const q = String(req.query.q || "").trim().slice(0, 100);
@@ -18019,7 +18041,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-05j デスクトップのレイアウトを『本文だけスクロール』に。左メニューは画面固定（.app overflow:hidden＋.main を高さ100vhでスクロール）、上部バー(.topbar)は本文先頭に追従。商談カードなどの本文だけが縦スクロールし、メニューは一緒に動かない。モバイルは従来どおり。前回(20260905i)：資料メニューアイコンSVG化。";
+const BUILD_TAG = "2026-09-05k 社内支援AI（AI社員）画面に『通知の管理』を追加。Google Chat通知を種類ごとにオン/オフ（設定は settings.notifyDisabled、notifyAll が種類オフなら全通知先に送らない・既定は全オンで挙動不変）。メルマガアポ→apo、リスケ/キャンセル→resched に種類を分離し個別制御可能に。GET/PUT /api/ai/notify-config。前回(20260905j)：本文だけスクロール。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
@@ -20924,7 +20946,7 @@ async function handleMailmaga(list, { actor = "" } = {}) {
           `・${ev.title}`,
           `📅 ${when}　👤 ${x.setter || "-"}`,
           "（メルマガとして数えます。コールのアポには数えません）",
-        ].join("\n"), "assign").catch(() => {});
+        ].join("\n"), "apo").catch(() => {});
         console.log(`[apo-scan] メルマガのアポとして知らせました：${String(ev.title).slice(0, 40)}`);
       }
     }
@@ -20994,7 +21016,7 @@ async function handleHeadStates(list) {
       `・${ev.title}`,
       `📅 ${when}　👤 ${x.setter || "-"}`,
       "（アポの件数には数えていません）",
-    ].join("\n"), "assign").catch(() => {});
+    ].join("\n"), "resched").catch(() => {});
     console.log(`[apo-scan] ${x.head}として扱いました：${String(ev.title).slice(0, 40)}`);
   }
 }

@@ -444,10 +444,50 @@ function render(d) {
         </div>
         <button class="dept-btn" data-dept="dev">この部門を見る・操作する</button>
       </div>
+    </div>
+
+    <div class="set-card ai-notify-card">
+      <h3>通知の管理</h3>
+      <p class="note">Google Chatに送る通知を、種類ごとにオン/オフできます。<b>オフにすると、どのスペースにも送りません。</b>（送信先そのものの設定は、設定→通知先で行います）</p>
+      <div id="notifyList" class="ntf-list"><div class="ai-empty">読み込んでいます…</div></div>
     </div>`;
 
   wire();
   const chat = $("aiChat"); if (chat) { chat.innerHTML = chatHtml(); chat.scrollTop = chat.scrollHeight; }
+  loadNotifyConfig();
+}
+
+// 通知の管理（種類ごとのオン/オフ）
+async function loadNotifyConfig() {
+  const box = $("notifyList");
+  if (!box) return;
+  try {
+    const d = await (await fetch("/api/ai/notify-config")).json();
+    if (d.error) throw new Error(d.error);
+    const kinds = d.kinds || [];
+    box.innerHTML = kinds.map((k) =>
+      `<div class="ai-jrow"><span class="ai-jn">${esc(k.label)}</span>` +
+      `<button class="ai-sw ${k.on ? "on" : ""}" data-key="${esc(k.key)}" data-on="${k.on ? "1" : "0"}" aria-label="${esc(k.label)}"></button></div>`
+    ).join("") || '<div class="ai-empty">通知の種類がありません。</div>';
+    box.querySelectorAll(".ai-sw").forEach((b) =>
+      b.addEventListener("click", async () => {
+        const next = b.dataset.on !== "1";
+        b.disabled = true;
+        try {
+          const r = await fetch("/api/ai/notify-config", {
+            method: "PUT", headers: { "content-type": "application/json" },
+            body: JSON.stringify({ key: b.dataset.key, on: next }),
+          });
+          const rd = await r.json();
+          if (!r.ok) throw new Error(rd.error || "変えられませんでした");
+          b.dataset.on = next ? "1" : "0";
+          b.classList.toggle("on", next);
+        } catch (e) { alert(e.message); }
+        finally { b.disabled = false; }
+      }));
+  } catch (e) {
+    box.innerHTML = `<div class="ai-empty">読み込めませんでした：${esc(e.message)}</div>`;
+  }
 }
 
 async function putAuto(patch, msg) {

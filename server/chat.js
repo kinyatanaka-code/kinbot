@@ -12,6 +12,28 @@ import { chatAppConfigured, postToSpace, postToPerson, mentionFor, normalizeSpac
 let lastError = "";
 let sentCount = 0;
 
+// 通知の種類カタログ（AI社員画面の「通知の管理」で種類ごとにオン/オフする）
+export const NOTIFY_KINDS = [
+  { key: "assign",  label: "アポの割り振り" },
+  { key: "apo",     label: "アポ獲得のお知らせ（メルマガ等）" },
+  { key: "resched", label: "リスケ・キャンセル" },
+  { key: "mail",    label: "御礼メールの下書き" },
+  { key: "doc",     label: "資料の閲覧・ダウンロード" },
+  { key: "launch",  label: "SF商談の自動立ち上げ" },
+  { key: "deploy",  label: "kinbotの更新（デプロイ）" },
+  { key: "news",    label: "kinbotのお知らせ（新機能）" },
+  { key: "dev",     label: "開発メモ（夜間開発）" },
+];
+
+// 全体でオフにした種類の集合を、設定から読む（既定は空＝すべてオン）。
+export async function notifyDisabledSet() {
+  try {
+    const s = await getSettings();
+    const arr = Array.isArray(s && s.notifyDisabled) ? s.notifyDisabled : [];
+    return new Set(arr.map((x) => String(x)));
+  } catch { return new Set(); }
+}
+
 export function chatInfo() {
   return { lastError, sentCount, app: chatAppInfo() };
 }
@@ -75,6 +97,11 @@ async function fillMention(text, target, personName) {
 export async function notifyAll(text, kind = "", { mentionName = "" } = {}) {
   const t = String(text || "").trim();
   if (!t) return { ok: false, skipped: true, reason: "本文が空です" };
+
+  // AI社員画面で「この種類はオフ」にされていたら、どこにも送らない。
+  if (kind && (await notifyDisabledSet()).has(kind)) {
+    return { ok: false, skipped: true, reason: "この種類の通知はオフにされています" };
+  }
 
   const targets = await listChatTargets({ onlyActive: true }).catch(() => []);
   if (!targets.length) {
