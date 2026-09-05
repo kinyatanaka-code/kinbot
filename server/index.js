@@ -8587,6 +8587,25 @@ app.get("/api/calls/_jisshidiag", async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+// インセンティブの遅刻回数を入力する（管理者だけ）。1回につき ¥1,000 減る。
+app.put("/api/calls/incentive-late", async (req, res) => {
+  try {
+    if (!req.isAdmin) return res.status(403).json({ error: "管理者だけが変更できます" });
+    const name = String(req.body?.name || "").trim();
+    if (!name) return res.status(400).json({ error: "名前がありません" });
+    let count = parseInt(req.body?.count, 10);
+    if (!Number.isFinite(count) || count < 0) count = 0;
+    if (count > 999) count = 999;
+    const norm = (s) => String(s || "").replace(/[\s　]/g, "");
+    const s = await getSettings().catch(() => ({}));
+    const map = { ...(s.incentiveLate || {}) };
+    if (count === 0) delete map[norm(name)]; else map[norm(name)] = count;
+    await saveSettings({ incentiveLate: map });
+    console.log(`[インセンティブ] ${name} の遅刻を ${count}回にしました by ${req.user}`);
+    res.json({ ok: true, name, count });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 // インセンティブの「実施済み商談」を人ごとに一覧で返す（カードのインセンティブを押したとき用）
 app.get("/api/calls/incentive-meetings", async (req, res) => {
   try {
@@ -9716,6 +9735,9 @@ app.get("/api/calls/apo-dashboard", async (req, res) => {
       const ms = await listMeetings({ isAdmin: true, from: incFrom, to: incTo, limit: 5000, light: true }).catch(() => []);
       const 実施数 = new Map();   // 正規化名 -> 件数
       const norm = (s) => String(s || "").replace(/[\s　]/g, "");
+      // 遅刻回数（管理者が入力）。1回につき ¥1,000 減らす。
+      const stInc = await getSettings().catch(() => ({}));
+      const lateMap = (stInc && stInc.incentiveLate) || {};
       for (const m of ms) {
         const setter = norm(m.apo_setter || "");
         if (!setter) continue;
@@ -9723,8 +9745,10 @@ app.get("/api/calls/apo-dashboard", async (req, res) => {
       }
       for (const p of insideP) {
         const n = 実施数.get(norm(p.label)) || 0;
+        const late = Number(lateMap[norm(p.label)] || 0);
         p.実施 = n;
-        p.インセンティブ = n * 1000;
+        p.遅刻 = late;
+        p.インセンティブ = Math.max(0, (n - late) * 1000);   // 実施−遅刻（0未満は0）
       }
       // インセンティブの上位3位に順位を付ける。同じ金額なら同順位（1位タイ）にする。
       const 金額順 = [...new Set(insideP.map((p) => p.インセンティブ || 0).filter((v) => v > 0))]
@@ -18071,7 +18095,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-05m インセンティブのカードを押すと、その人の9月以降の実施済み商談を一覧で表示（会社名・商談名・日付・担当）。GET /api/calls/incentive-meetings?name= 追加（apo_setterで人別に絞り、会社名はaccountかcompanyFromTitle）。カードのインセンティブ部分だけクリック＝内訳(目標/実績)とは別モーダル。前回(20260905l)：サブメニュー表示修正。";
+const BUILD_TAG = "2026-09-05n インセンティブに遅刻の減算を追加。遅刻1回=−¥1,000（インセンティブ＝(実施−遅刻)×¥1,000、0未満は0）。遅刻回数はインサイドのカードで管理者だけが入力可（設定 incentiveLate に保存、norm名キー）。PUT /api/calls/incentive-late（req.isAdminのみ）。前回(20260905m)：実施済み商談の一覧。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",

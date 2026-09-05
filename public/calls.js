@@ -997,6 +997,9 @@ function renderDock() {
     .kc-inc.rank2 .kc-laurel{color:#9aa2a8;}
     .kc-inc.rank3 .kc-laurel{color:#c68642;}
     .kc-inc-sub{font-size:10px;color:#8a7a4a;}
+    .kc-inc-late{font-size:10.5px;color:#8a6d1f;margin-top:3px;display:flex;align-items:center;justify-content:center;gap:4px;}
+    .kc-inc-late .kc-latein{width:44px;padding:2px 4px;font-size:11px;text-align:center;border:1px solid #e0c469;border-radius:6px;background:#fffdf6;}
+    .kc-inc-minus{color:#a3402d;font-weight:700;}
     .kc-inc.rank1{background:linear-gradient(135deg,#fff8dc 0%,#f0cf6b 45%,#fff8dc 100%);border-color:#d4af37;}
     .kc-inc.rank2{background:linear-gradient(135deg,#fafafa 0%,#dfe3e6 45%,#fafafa 100%);border-color:#b9c0c6;}
     .kc-inc.rank2 .kc-inc-yen,.kc-inc.rank2 .kc-inc-lb{color:#5d666d;}
@@ -1732,11 +1735,18 @@ function dashCard(c, big) {
   const 冠 = c.順位 ? laurel(false) : "";
   const 冠右 = c.順位 ? laurel(true) : "";
   const 順位表記 = c.順位 ? `${c.順位}位${c.タイ ? "タイ" : ""}` : "";
+  const late = Number(c.遅刻 || 0);
+  const lateLine = (c.インセンティブ !== undefined)
+    ? (iAmAdmin
+        ? `<div class="kc-inc-late">遅刻 <input type="number" class="kc-latein" data-name="${esc(c.label)}" value="${late}" min="0" />回${late ? ` <span class="kc-inc-minus">−¥${(late * 1000).toLocaleString()}</span>` : ""}</div>`
+        : (late ? `<div class="kc-inc-late">遅刻 ${late}回　<span class="kc-inc-minus">−¥${(late * 1000).toLocaleString()}</span></div>` : ""))
+    : "";
   const inc = (c.インセンティブ !== undefined)
     ? `<div class="kc-inc${rankCls}">
          <div class="kc-inc-lb">獲得見込みインセンティブ${c.順位 ? `<span class="kc-inc-rank">${esc(順位表記)}</span>` : ""}</div>
          <div class="kc-inc-yen">${冠}<span class="kc-inc-num">¥${Number(c.インセンティブ || 0).toLocaleString()}</span>${冠右}</div>
          <div class="kc-inc-sub">9月以降に実施 ${c.実施 || 0}件 × ¥1,000</div>
+         ${lateLine}
          <div class="kc-inc-more">押すと実施済みの商談を見る</div>
        </div>` : "";
   return `<div class="kc-dcard${big ? " kc-dcard-big" : ""}${rankCls}" data-subj="${esc(c.key)}" data-label="${esc(c.label)}">
@@ -1788,6 +1798,22 @@ function renderDash(d) {
     const card = el.closest(".kc-dcard");
     openIncentiveMeetings(card.dataset.label);
   }));
+  // 遅刻回数（管理者のみ）：入力欄クリック・変更はモーダルを開かない。保存したら再計算のため読み直す。
+  box.querySelectorAll(".kc-latein").forEach((inp) => {
+    inp.addEventListener("click", (e) => e.stopPropagation());
+    inp.addEventListener("change", async (e) => {
+      e.stopPropagation();
+      let count = parseInt(inp.value, 10); if (!(count >= 0)) count = 0;
+      try {
+        const r = await fetch("/api/calls/incentive-late", {
+          method: "PUT", headers: { "content-type": "application/json" },
+          body: JSON.stringify({ name: inp.dataset.name, count }),
+        });
+        if (!r.ok) throw new Error(((await r.json()) || {}).error || "変えられませんでした");
+        loadDash();   // 実施−遅刻の再計算・順位の付け直しのため読み直す
+      } catch (err) { inp.style.borderColor = "#e24b4a"; alert(err.message); }
+    });
+  });
 }
 
 // インセンティブの実施済み商談を一覧で表示する
@@ -2593,6 +2619,7 @@ function showPane() {
 // 「kincallだけ」の人には、kinbotへ戻る道を見せない
 let iAmCloser = false;               // クローザー（管理者含む）＝リストを追加できる
 let iAmRedistributor = false;        // 他メンバーへ割り振れる（クローザー・管理者＋インサイド）
+let iAmAdmin = false;                // 管理者（遅刻回数の入力など、管理者だけの操作に使う）
 let appendTarget = null;             // {id, name}：既存リストに追加する先
 let csvAddMode = false;              // CSV：作成する(false)／追加する(true)
 let callAsMember = "";               // かける画面を、この担当の割り振りぶんだけで見る（空＝全部）
@@ -2602,6 +2629,7 @@ let selectedIds = new Set();          // 一覧で選択した架電先のid
     const me = await (await fetch("/api/me")).json();
     iAmCloser = !!(me && (me.closer || me.admin));
     iAmRedistributor = !!(me && (me.canRedistribute || me.closer || me.admin));
+    iAmAdmin = !!(me && me.admin);
     if (me && me.kincallOnly) {
       document.querySelectorAll(".kc-side .side-app, .kc-side .side-sep")
         .forEach((el) => el.remove());
