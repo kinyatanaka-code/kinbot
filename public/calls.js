@@ -987,6 +987,12 @@ function renderDock() {
     .kc-inc-row .kc-inc-d{font-size:12px;color:#6b7a73;white-space:nowrap;}
     .kc-inc-row .kc-inc-co{font-size:13px;font-weight:700;color:#1f2a26;}
     .kc-inc-row .kc-inc-t{grid-column:2;font-size:11.5px;color:#8a9a93;}
+    .asg-row{display:grid;grid-template-columns:1fr 180px 84px;gap:10px;align-items:center;
+      padding:8px 10px;border:1px solid #eef3f0;border-radius:10px;background:#fff;}
+    .asg-row .asg-info b{font-size:13px;color:#1f2a26;}
+    .asg-row .asg-sel{font-size:12.5px;padding:6px 8px;border:1px solid #d7e0db;border-radius:8px;background:#fff;}
+    .asg-row .asg-st{font-size:11px;color:#6b7a73;}
+    @media (max-width:700px){ .asg-row{grid-template-columns:1fr;} }
     .kc-inc-lb{font-size:9.5px;font-weight:700;color:#8a6d1f;letter-spacing:.02em;line-height:1.3;}
     .kc-inc-rank{margin-left:5px;font-size:10px;color:#7a5c10;}
     .kc-inc-yen{font-size:20px;font-weight:800;color:#7a5c10;line-height:1.25;text-shadow:0 1px 0 #fffdf6;display:flex;align-items:center;justify-content:center;gap:2px;}
@@ -1768,7 +1774,8 @@ function renderDash(d) {
     `<div class="kc-dgrid kc-dteams">${teams}</div>` +
     (sales ? `<div class="kc-dsub">セールス</div><div class="kc-dgrid">${sales}</div>` : "") +
     (inside ? `<div class="kc-dsub">インサイド</div><div class="kc-dgrid">${inside}</div>` : "") +
-    `<p class="note" style="margin-top:10px">目標はここで直接（月次）変更できます（入力するとその月の平日に配分されます）。グループ・セールス・インサイドも手動で設定でき、実績はメンバーの合計です。差分は 実績−目標。カードをクリックすると内訳（日次）が出ます。</p>`;
+    `<p class="note" style="margin-top:10px">目標はここで直接（月次）変更できます（入力するとその月の平日に配分されます）。グループ・セールス・インサイドも手動で設定でき、実績はメンバーの合計です。差分は 実績−目標。カードをクリックすると内訳（日次）が出ます。</p>` +
+    (iAmAdmin ? `<div style="margin-top:8px"><button type="button" class="btn ghost" id="dashAssign">未照合の商談に獲得者を割り当てる</button></div>` : "");
   // 目標の直接編集（月次→平日に配分）。入力欄クリックはカードの内訳を開かないように。
   box.querySelectorAll(".kc-dgoal").forEach((inp) => {
     inp.addEventListener("click", (e) => e.stopPropagation());
@@ -1814,6 +1821,54 @@ function renderDash(d) {
       } catch (err) { inp.style.borderColor = "#e24b4a"; alert(err.message); }
     });
   });
+  const asgBtn = $("dashAssign");
+  if (asgBtn) asgBtn.addEventListener("click", openAssignSetter);
+}
+
+// 未照合の商談に、獲得者を手で割り当てる（管理者のみ）
+async function openAssignSetter() {
+  const d = _dashData || {};
+  const names = [...new Set([...(d.inside || []), ...(d.sales || [])].map((p) => p.label).filter(Boolean))];
+  const m = openModal("未照合の商談に獲得者を割り当てる", '<div id="asgBody"><div class="note">読み込んでいます…</div></div>', { wide: true });
+  try {
+    const r = await (await fetch("/api/calls/unmatched-meetings")).json();
+    const body = m.el.querySelector("#asgBody");
+    if (!body) return;
+    if (r.error) throw new Error(r.error);
+    const list = r.meetings || [];
+    body.innerHTML =
+      `<div class="note">対象期間：${esc(r.from)}〜${esc(r.to)}　未照合 <b>${r.count}</b>件。獲得者を選ぶとその場で保存され、インセンティブに数えられます。</div>` +
+      (list.length
+        ? `<div class="kc-inc-list">${list.map((x) => `
+             <div class="asg-row" data-bot="${esc(x.botId)}">
+               <div class="asg-info"><span class="kc-inc-d">${esc(x.date)}</span> <b>${esc(x.company || x.title)}</b>
+                 <div class="kc-inc-t">${esc(x.title)}${x.owner ? `　担当 ${esc(x.owner)}` : ""}</div></div>
+               <select class="asg-sel"><option value="">— 獲得者を選ぶ —</option>${names.map((n) => `<option value="${esc(n)}">${esc(n)}</option>`).join("")}</select>
+               <span class="asg-st rev-status"></span>
+             </div>`).join("")}</div>
+           <div class="modal-actions" style="margin-top:10px"><button type="button" class="btn" id="asgClose">閉じて反映</button></div>`
+        : '<div class="note" style="margin-top:8px">未照合の商談はありません。</div>');
+    body.querySelectorAll(".asg-sel").forEach((sel) => sel.addEventListener("change", async () => {
+      const row = sel.closest(".asg-row");
+      const st = row.querySelector(".asg-st");
+      const name = sel.value;
+      st.textContent = "保存中…";
+      try {
+        const rr = await fetch("/api/calls/set-apo-setter", {
+          method: "POST", headers: { "content-type": "application/json" },
+          body: JSON.stringify({ botId: row.dataset.bot, name }),
+        });
+        const dd = await rr.json();
+        if (!rr.ok) throw new Error(dd.error || "保存できませんでした");
+        st.textContent = name ? "保存しました" : "未設定に戻しました";
+      } catch (e) { st.textContent = "失敗：" + e.message; }
+    }));
+    const cl = m.el.querySelector("#asgClose");
+    if (cl) cl.addEventListener("click", () => { m.close(); loadDash(); });
+  } catch (e) {
+    const body = m.el.querySelector("#asgBody");
+    if (body) body.innerHTML = `<div class="note">読み込めませんでした：${esc(e.message)}</div>`;
+  }
 }
 
 // インセンティブの実施済み商談を一覧で表示する

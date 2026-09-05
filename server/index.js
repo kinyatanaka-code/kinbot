@@ -8587,6 +8587,45 @@ app.get("/api/calls/_jisshidiag", async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+// インセンティブ期間の未照合（アポ獲得者が付いていない）商談を一覧で返す
+app.get("/api/calls/unmatched-meetings", async (req, res) => {
+  try {
+    const incFrom = String(process.env.INCENTIVE_FROM || "2026-09-01").slice(0, 10);
+    const f = new Date(`${incFrom}T00:00:00Z`);
+    const incTo = new Date(Date.UTC(f.getUTCFullYear(), f.getUTCMonth() + 3, 0)).toISOString().slice(0, 10);
+    const ms = await listMeetings({ isAdmin: true, from: incFrom, to: incTo, limit: 5000, light: true }).catch(() => []);
+    const j = (v) => {
+      if (!v) return "";
+      const d = new Date(v); if (isNaN(d.getTime())) return String(v).slice(0, 10);
+      const x = new Date(d.getTime() + 9 * 3600000); const p = (n) => String(n).padStart(2, "0");
+      return `${x.getUTCFullYear()}-${p(x.getUTCMonth() + 1)}-${p(x.getUTCDate())}`;
+    };
+    const meetings = ms
+      .filter((m) => !m.apo_setter)
+      .map((m) => ({
+        botId: m.bot_id,
+        title: m.title || "(無題)",
+        company: (m.account && m.account.trim()) || companyFromTitle(m.title) || "",
+        date: j(m.created_at),
+        owner: m.rep_name || m.owner_name || "",
+      }));
+    res.json({ from: incFrom, to: incTo, count: meetings.length, meetings });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// 商談にアポ獲得者を手で割り当てる（管理者だけ）。空にすると未照合に戻す。
+app.post("/api/calls/set-apo-setter", async (req, res) => {
+  try {
+    if (!req.isAdmin) return res.status(403).json({ error: "管理者だけが割り当てられます" });
+    const botId = String(req.body?.botId || "").trim();
+    if (!botId) return res.status(400).json({ error: "商談が指定されていません" });
+    const name = String(req.body?.name || "").trim();
+    await setMeetingApoSetter(botId, name || null);
+    console.log(`[インセンティブ] ${botId} のアポ獲得者を「${name || "(なし)"}」にしました by ${req.user}`);
+    res.json({ ok: true, botId, name });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 // インセンティブの遅刻回数を入力する（管理者だけ）。1回につき ¥1,000 減る。
 app.put("/api/calls/incentive-late", async (req, res) => {
   try {
@@ -18095,7 +18134,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-05n インセンティブに遅刻の減算を追加。遅刻1回=−¥1,000（インセンティブ＝(実施−遅刻)×¥1,000、0未満は0）。遅刻回数はインサイドのカードで管理者だけが入力可（設定 incentiveLate に保存、norm名キー）。PUT /api/calls/incentive-late（req.isAdminのみ）。前回(20260905m)：実施済み商談の一覧。";
+const BUILD_TAG = "2026-09-05o 未照合の商談（アポ獲得者なし）に、管理者が手で獲得者を割り当てられる画面を追加。ダッシュボードの『未照合の商談に獲得者を割り当てる』からモーダルで一覧→selectで選ぶとその場で保存→インセンティブに反映。GET /api/calls/unmatched-meetings、POST /api/calls/set-apo-setter（管理者のみ）。前回(20260905n)：遅刻の減算。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
