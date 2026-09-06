@@ -1834,12 +1834,26 @@ function renderDash(d) {
       const subject = inp.dataset.subj;
       const card = inp.closest(".kc-dcard");
       const pkey = (card && card.dataset.periodkey) || d.periodKey;
-      const actual = Number((card.querySelector(".kc-dcol:nth-child(2) .kc-d-act") || {}).textContent || 0);
       const goal = Number(inp.value) || 0;
-      // 差分をその場で更新（月次のみ。週次は積み上げなので保存後に読み直す）
-      if (dashPeriod !== "week") {
-        const de = card.querySelector(".kc-d-diff");
-        if (de) { const df = actual - goal; de.textContent = df > 0 ? `+${df}` : `${df}`; de.className = "kc-d-diff " + (df > 0 ? "kc-d-plus" : df < 0 ? "kc-d-minus" : "kc-d-zero"); }
+      const setDiff = (el, df) => { if (!el) return; el.textContent = df > 0 ? `+${df}` : `${df}`; el.className = "kc-d-diff " + (df > 0 ? "kc-d-plus" : df < 0 ? "kc-d-minus" : "kc-d-zero"); };
+      if (dashPeriod === "week" && d.weeks && Array.isArray(d.weeks)) {
+        // 積み上げ：変えた週の目標差(delta)だけ、その週以降の差分を下げる（リロードしない）
+        const weeks = d.weeks;
+        const k = weeks.findIndex((w) => w.key === pkey);
+        const teamOf = (w) => (w.teams || []).find((t) => t.key === subject);
+        const t0 = k >= 0 ? teamOf(weeks[k]) : null;
+        const delta = goal - (t0 ? Number(t0.goal || 0) : 0);
+        if (t0) t0.goal = goal;
+        for (let j = k; j >= 0 && j < weeks.length; j++) {
+          const t = teamOf(weeks[j]); if (!t) continue;
+          t.diff = Number(t.diff || 0) - delta;
+          const c2 = box.querySelector(`.kc-dcard[data-subj="${subject}"][data-periodkey="${weeks[j].key}"]`);
+          if (c2) setDiff(c2.querySelector(".kc-d-diff"), t.diff);
+        }
+      } else {
+        // 月次：その場で差分を更新
+        const actual = Number((card.querySelector(".kc-dcol:nth-child(2) .kc-d-act") || {}).textContent || 0);
+        setDiff(card.querySelector(".kc-d-diff"), actual - goal);
       }
       try {
         await fetch("/api/calls/apo-goals", {
@@ -1847,7 +1861,6 @@ function renderDash(d) {
           body: JSON.stringify({ subject, period: d.period || dashPeriod, periodKey: pkey, metric: "アポ", value: goal }),
         });
         if (typeof _statsGoals === "object") for (const k in _statsGoals) delete _statsGoals[k];
-        if (dashPeriod === "week") loadDash();   // 積み上げの差分を計算し直す
       } catch (err) { inp.style.borderColor = "#e24b4a"; }
     });
   });
