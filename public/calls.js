@@ -445,20 +445,6 @@ function render() {
       : "") +
     (allKeys.length ? `／<span class="kc-sum-user">列データ <b>${rcMatched}</b>件</span><button type="button" class="kc-sum-btn" id="kcRcCols">列を選ぶ</button>` : "") +
     `</div>` +
-    (allKeys.length ? `<div class="kc-jobflt">
-       <span class="kc-jobflt-lb">掲載</span>
-       <select id="kcPostFlt">
-         <option value=""${filt.post === "" ? " selected" : ""}>すべて</option>
-         <option value="active"${filt.post === "active" ? " selected" : ""}>掲載中</option>
-         <option value="ended"${filt.post === "ended" ? " selected" : ""}>掲載終了</option>
-         <option value="none"${filt.post === "none" ? " selected" : ""}>日付なし</option>
-       </select>
-       <span class="kc-jobflt-lb">採用人数</span>
-       <input type="number" id="kcHireMin" min="0" placeholder="最小" value="${esc(filt.hireMin)}" />
-       <span>〜</span>
-       <input type="number" id="kcHireMax" min="0" placeholder="最大" value="${esc(filt.hireMax)}" />
-       <button type="button" class="kc-sum-btn" id="kcJobClear">絞り込みを消す</button>
-     </div>` : "") +
     ((listId !== "all")
       ? `<div class="kc-selbar" id="kcSelBar" hidden style="display:flex;align-items:center;gap:10px;padding:8px 4px;">
        <span id="kcSelCount" style="font-size:13px;color:#0d5b47;font-weight:600;"></span>
@@ -602,14 +588,6 @@ function render() {
   updateSelBar();
   const hideBtn = $("kcHideApo");
   if (hideBtn) hideBtn.addEventListener("click", () => { hideApo = !hideApo; render(); });
-  // 掲載状態・採用人数の絞り込み
-  const postSel = $("kcPostFlt");
-  if (postSel) postSel.addEventListener("change", () => { filt.post = postSel.value; render(); });
-  const hMin = $("kcHireMin"), hMax = $("kcHireMax");
-  if (hMin) hMin.addEventListener("change", () => { filt.hireMin = hMin.value.trim(); render(); });
-  if (hMax) hMax.addEventListener("change", () => { filt.hireMax = hMax.value.trim(); render(); });
-  const jClr = $("kcJobClear");
-  if (jClr) jClr.addEventListener("click", () => { filt.post = ""; filt.hireMin = ""; filt.hireMax = ""; render(); });
 
   // 追加列の見出しを、ドラッグでエクセルのように並べ替える
   let dragKey = null;
