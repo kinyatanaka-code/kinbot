@@ -296,9 +296,25 @@ function saveFilt() {
 const RECRUIT_DATE_KEYS = new Set(["掲載終了日", "doda掲載終了日"]);   // 期限が近いと色を変える列
 // 「2026/8/2」「2026-08-02」「2026年8月2日」などを YYYY-MM-DD に揃える（読めなければ空）
 function normDateLoose(raw) {
-  const m = String(raw || "").trim().match(/(\d{4})[\/\-年.](\d{1,2})[\/\-月.](\d{1,2})/);
-  if (!m) return "";
-  return `${m[1]}-${String(m[2]).padStart(2, "0")}-${String(m[3]).padStart(2, "0")}`;
+  let s = String(raw || "").trim();
+  if (!s) return "";
+  // 全角数字・全角記号を半角へ
+  s = s.replace(/[０-９]/g, (c) => String.fromCharCode(c.charCodeAt(0) - 0xFEE0))
+       .replace(/[／－．]/g, (c) => ({ "／": "/", "－": "-", "．": "." }[c]));
+  const m = s.match(/(\d{4})\s*[\/\-年.]\s*(\d{1,2})\s*[\/\-月.]\s*(\d{1,2})/);
+  if (m) return `${m[1]}-${String(m[2]).padStart(2, "0")}-${String(m[3]).padStart(2, "0")}`;
+  // Excelのシリアル値（1900年基準の連番。40000〜60000あたり）
+  if (/^\d{5}$/.test(s)) {
+    const n = Number(s);
+    if (n > 20000 && n < 80000) {
+      const d = new Date(Date.UTC(1899, 11, 30) + n * 86400000);
+      return d.toISOString().slice(0, 10);
+    }
+  }
+  // 8桁（20260802）
+  const m8 = s.match(/^(\d{4})(\d{2})(\d{2})$/);
+  if (m8) return `${m8[1]}-${m8[2]}-${m8[3]}`;
+  return "";
 }
 // 求人データ（追加/求人）から、列名があいまい一致する最初の値を取る（列名の表記ゆれ・空白に強く）
 function recruitVal(x, re) {
@@ -306,12 +322,24 @@ function recruitVal(x, re) {
   if (!e) return "";
   for (const k in e) {
     if (re.test(String(k))) {
-      const v = e[k];
-      if (v != null && String(v).trim() !== "") return String(v);
+      const v = cleanRecruitVal(e[k]);
+      if (v) return v;
     }
   }
   return "";
 }
+// 掲載終了日がなぜ読めないかを確かめる（ブラウザのコンソールで kcDiagPost() と打つ）
+window.kcDiagPost = function () {
+  const x = rows.find((r) => rowExtra(r));
+  if (!x) { console.log("[診断] 求人データを持つ行がありません"); return; }
+  const e = rowExtra(x);
+  const keys = Object.keys(e);
+  const hit = keys.filter((k) => /掲載終了/.test(k));
+  console.log("[診断] 列名一覧:", keys);
+  console.log("[診断] 掲載終了に一致した列名:", hit);
+  console.log("[診断] その値:", hit.map((k) => [k, e[k], "→", normDateLoose(cleanRecruitVal(e[k]))]));
+  console.log("[診断] recruitVal結果:", recruitVal(x, /掲載終了/), "→", normDateLoose(recruitVal(x, /掲載終了/)));
+};
 function rowExtra(x) {
   const a = (x && x.追加 && typeof x.追加 === "object") ? x.追加 : null;
   const b = (x && x.求人 && typeof x.求人 === "object") ? x.求人 : null;

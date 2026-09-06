@@ -41,6 +41,7 @@ kincall（架電リスト）という別ツールも同じ画面群の中にあ�
 
 ## 決定・指示のログ（新しいものを上に足す）
 
+- 2026-09-07 バグ継続（田中さん・掲載中0のまま）：2000件すべて『日付なし』＝値を日付として読めていない。対応(20260907f)：normDateLoose を強化（全角数字/／－．→半角、区切り前後の空白許容、Excelシリアル(5桁,20000-80000→1899-12-30基点)、8桁YYYYMMDD）。recruitVal を表示と同じ cleanRecruitVal 経由に統一（####や#N/A等を空扱い）。単体検証：2026/8/2・２０２６／８／２・46236・20260802 いずれも 2026-08-02 に変換OK。切り分け用に window.kcDiagPost() を追加＝ブラウザのコンソールで実行すると rowExtra の列名一覧・『掲載終了』一致列・生値・変換結果・recruitVal結果を出力。田中さんに実行してもらい、まだ0ならその出力で原因確定する。precheck全OK。bump=20260907f。
 - 2026-09-07 バグ続報（田中さん・0のまま）：絞り込み0件になると追加列（rcols）が消え、掲載/採用人数の▾も出ず解除不能。原因：render の allKeys=extraKeysOf(fullList)＝絞り込み後の行から列を作っていた。対応(20260907e)：allKeys=extraKeysOf(rows)（全行）に変更＝0件でも▾付き列が残る。0件メッセージ行に #kcFiltReset『絞り込みをすべて解除』（stage/status/hist/post/hireMin/hireMax/extra を全リセット→saveFilt→render）。precheck全OK。bump=20260907e。
 - 2026-09-07 バグ続報（田中さん）：掲載フィルタがまだ全件日付なし＋絞り込み0件だと表ごと消えて解除できない。対応(20260907d)：(1)recruitVal(x,re)＝rowExtra の列名をあいまい一致（/掲載終了/・/採用人数|採用予定人数/）で探すヘルパを追加し、visibleRows の掲載/採用人数と openPostFilter を差し替え（キー名の完全一致依存をやめ表記ゆれ・空白に強く）。見出しボタン判定 isEnd も /掲載終了/ に緩和。(2)render の早期return を rows.length===0（リスト未選択）のみにし、絞り込み0件時は表（見出し付き）を出して colspan のメッセージ行『見出しの▾から絞り込みを変えられます』を表示。precheck全OK。bump=20260907d。
 - 2026-09-07 要望（田中さん）：ツールバーの絞り込み行（掲載セレクト・採用人数min/max・絞り込みを消す）は不要。対応(20260907c)：calls.js から .kc-jobflt の行と kcPostFlt/kcHireMin/kcHireMax/kcJobClear の配線を撤去。絞り込みは列見出しの▾（openPostFilter/openHireFilter）に一本化。filt.post/hireMin/hireMax の仕組みは維持。precheck全OK。bump=20260907c。
