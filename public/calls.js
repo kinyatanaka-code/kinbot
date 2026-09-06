@@ -132,8 +132,7 @@ function visibleRows() {
   if (filt.post) {
     const today = new Date(Date.now() + 9 * 3600000).toISOString().slice(0, 10);
     list = list.filter((x) => {
-      const e = rowExtra(x) || {};
-      const d = normDateLoose(e["掲載終了日"] || e["doda掲載終了日"] || "");
+      const d = normDateLoose(recruitVal(x, /掲載終了/));
       if (!d) return filt.post === "none";   // 日付なし
       return filt.post === "active" ? d >= today : filt.post === "ended" ? d < today : true;
     });
@@ -143,8 +142,7 @@ function visibleRows() {
     const lo = filt.hireMin === "" ? -Infinity : Number(filt.hireMin);
     const hi = filt.hireMax === "" ? Infinity : Number(filt.hireMax);
     list = list.filter((x) => {
-      const e = rowExtra(x) || {};
-      const m = String(e["採用人数"] || "").match(/\d+/);
+      const m = String(recruitVal(x, /採用人数|採用予定人数/)).match(/\d+/);
       if (!m) return false;
       const n = Number(m[0]);
       return n >= lo && n <= hi;
@@ -302,6 +300,18 @@ function normDateLoose(raw) {
   if (!m) return "";
   return `${m[1]}-${String(m[2]).padStart(2, "0")}-${String(m[3]).padStart(2, "0")}`;
 }
+// 求人データ（追加/求人）から、列名があいまい一致する最初の値を取る（列名の表記ゆれ・空白に強く）
+function recruitVal(x, re) {
+  const e = rowExtra(x);
+  if (!e) return "";
+  for (const k in e) {
+    if (re.test(String(k))) {
+      const v = e[k];
+      if (v != null && String(v).trim() !== "") return String(v);
+    }
+  }
+  return "";
+}
 function rowExtra(x) {
   const a = (x && x.追加 && typeof x.追加 === "object") ? x.追加 : null;
   const b = (x && x.求人 && typeof x.求人 === "object") ? x.求人 : null;
@@ -367,8 +377,7 @@ function cleanRecruitVal(v) {
 function openPostFilter() {
   const today = new Date(Date.now() + 9 * 3600000).toISOString().slice(0, 10);
   const stateOf = (x) => {
-    const e = rowExtra(x) || {};
-    const d = normDateLoose(e["掲載終了日"] || e["doda掲載終了日"] || "");
+    const d = normDateLoose(recruitVal(x, /掲載終了/));
     if (!d) return "none";
     return d >= today ? "active" : "ended";
   };
@@ -418,8 +427,8 @@ function render() {
   const list = hideApo ? fullList.filter((x) => !isDone(x)) : fullList;
   const arrow = (k) => sortBy === k ? (sortDesc ? " ▾" : " ▴") : "";
   const on = (k) => filt[k] && filt[k].size ? " on" : "";
-  if (!fullList.length) {
-    box.innerHTML = `<div class="empty-state">${rows.length ? "この条件に当てはまるものがありません。" : "リストを選んでください。"}</div>`;
+  if (!rows.length) {
+    box.innerHTML = `<div class="empty-state">リストを選んでください。</div>`;
     return;
   }
   const apoN = fullList.filter(isApoDone).length;
@@ -466,7 +475,7 @@ function render() {
         <th class="kc-th-e">編集</th>
         <th class="kc-th-d">資料送付</th>
         ${rcols.map((k) => {
-          const isEnd = /掲載終了日/.test(k), isHire = /採用人数/.test(k);
+          const isEnd = /掲載終了/.test(k), isHire = /採用人数|採用予定人数/.test(k);
           const onCls = (isEnd && filt.post) || (isHire && (filt.hireMin !== "" || filt.hireMax !== "")) ? " on" : "";
           const btn = (isEnd || isHire)
             ? `<button type="button" class="kc-th-b kc-th-rcb${onCls}" data-rcflt="${isEnd ? "post" : "hire"}">${esc(k)} ▾</button>`
@@ -511,7 +520,7 @@ function render() {
           return `<td class="kc-rc${cls ? " " + cls : ""}">${v ? esc(v) : '<span class="kc-none">—</span>'}</td>`;
         }).join("")}
       </tr>`;
-    }).join("") + `</table></div>`;
+    }).join("") + (list.length ? "" : `<tr><td colspan="99" style="text-align:center;padding:26px 10px;color:#7d8c86">この条件に当てはまるものがありません。見出しの「▾」から絞り込みを変えられます。</td></tr>`) + `</table></div>`;
 
   // 見出しの絞り込み・並べ替え
   box.querySelectorAll("[data-flt]").forEach((b) =>

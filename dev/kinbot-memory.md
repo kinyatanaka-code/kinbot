@@ -41,6 +41,7 @@ kincall（架電リスト）という別ツールも同じ画面群の中にあ�
 
 ## 決定・指示のログ（新しいものを上に足す）
 
+- 2026-09-07 バグ続報（田中さん）：掲載フィルタがまだ全件日付なし＋絞り込み0件だと表ごと消えて解除できない。対応(20260907d)：(1)recruitVal(x,re)＝rowExtra の列名をあいまい一致（/掲載終了/・/採用人数|採用予定人数/）で探すヘルパを追加し、visibleRows の掲載/採用人数と openPostFilter を差し替え（キー名の完全一致依存をやめ表記ゆれ・空白に強く）。見出しボタン判定 isEnd も /掲載終了/ に緩和。(2)render の早期return を rows.length===0（リスト未選択）のみにし、絞り込み0件時は表（見出し付き）を出して colspan のメッセージ行『見出しの▾から絞り込みを変えられます』を表示。precheck全OK。bump=20260907d。
 - 2026-09-07 要望（田中さん）：ツールバーの絞り込み行（掲載セレクト・採用人数min/max・絞り込みを消す）は不要。対応(20260907c)：calls.js から .kc-jobflt の行と kcPostFlt/kcHireMin/kcHireMax/kcJobClear の配線を撤去。絞り込みは列見出しの▾（openPostFilter/openHireFilter）に一本化。filt.post/hireMin/hireMax の仕組みは維持。precheck全OK。bump=20260907c。
 - 2026-09-07 バグ（田中さん）：掲載の絞り込みで掲載中0/掲載終了0/日付なし2000＝全件日付なし扱い。原因：日付判定が /^\\d{4}-\\d{2}-\\d{2}$/ 前提で『2026/8/2』の1桁月日を弾いていた。対応(20260907b)：normDateLoose（YYYY[/-年.]M[/-月.]D をゼロ埋めで YYYY-MM-DD 化）を追加し、visibleRows の filt.post と openPostFilter.stateOf を差し替え。定義は田中さん確認どおり掲載中＝終了日>=今日。単体で 2026/8/2→掲載終了・2026/10/7→掲載中 を確認。precheck全OK。bump=20260907b。
 - 2026-09-07 要望（田中さん）：掲載終了日・採用人数の列見出しにステージフィルタみたいな絞り込みボタン。対応(20260907a)：前回追加済みの見出しボタン(data-rcflt='post'/'hire'、掲載終了日/採用人数列に▾・絞り込み中は.on)に配線を追加＝openPostFilter（掲載中/掲載終了/日付なしを件数つきラジオで選択→filt.post）と openHireFilter（最小〜最大入力→filt.hireMin/Max、絞り込みを消すボタン付き）。render の [data-rcflt] クリックで開く（stopPropagationでドラッグ並べ替えと干渉しない）。ツールバーの絞り込みと同じ filt を共有し双方向に同期。precheck全OK。bump=20260907a。
