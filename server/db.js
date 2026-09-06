@@ -7871,7 +7871,7 @@ export async function listStageCountsByList() {
     const stageSet = new Set(), map = new Map();
     for (const r of rows) {
       stageSet.add(r.stage);
-      if (!map.has(r.id)) map.set(r.id, { id: r.id, name: r.name, owner_name: r.owner_name || "", total: 0, byStage: {} });
+      if (!map.has(r.id)) map.set(r.id, { id: r.id, name: r.name, owner: (r.owner || "").toLowerCase(), owner_name: r.owner_name || "", total: 0, byStage: {} });
       const o = map.get(r.id);
       o.byStage[r.stage] = (o.byStage[r.stage] || 0) + r.cnt;
       o.total += r.cnt;

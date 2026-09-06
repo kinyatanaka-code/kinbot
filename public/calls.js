@@ -840,6 +840,13 @@ function renderDock() {
     .lst-owner{margin-left:8px;font-size:11px;font-weight:500;color:#8a9a93;}
     .lst-zero{color:#c3cec8;}
     .lst-total td{border-top:2px solid #dbe6e0;font-weight:800;background:#f7faf8;}
+    .lst-mrow{cursor:pointer;}
+    .lst-mrow:hover td{background:#f4f7f5;}
+    .lst-caret{display:inline-block;width:14px;color:#1d9e75;font-size:11px;}
+    .lst-detail>td{background:#fbfdfc;padding:6px 10px 12px;}
+    .lst-sub{margin-left:14px;border-left:2px solid #e3f3ec;padding-left:10px;}
+    .lst-sub .lst-tbl{font-size:12px;}
+    .lst-sub .lst-tbl th{background:#eef5f1;}
     .kc-week-sec{margin-bottom:16px;}
     .kc-week-h{margin-top:0;}
     .kc-g-sec{font-size:13px;font-weight:800;color:#0d5b47;margin:14px 2px 6px;border-left:3px solid #1d9e75;padding-left:8px;}
@@ -2833,64 +2840,73 @@ function showPane() {
   });
 })();
 
-// リスト状況：各メンバーのリード数（リストの合計）を表で出す
+// リスト状況：各メンバーのリード数（リストの合計）を表で出す。名前タップでその人のリスト内訳を開く。
+let _stageData = null;   // { stages, lists } のキャッシュ
 async function loadListStatus() {
   const box = $("lsStatus");
   if (!box) return;
   box.innerHTML = '<div class="note">読み込んでいます…</div>';
   try {
-    const d = await (await fetch("/api/calls/members")).json();
-    const items = (d.items || []).slice().sort((a, b) => (b.全部 || 0) - (a.全部 || 0));
+    const [md, sd] = await Promise.all([
+      (await fetch("/api/calls/members")).json(),
+      (await fetch("/api/calls/list-stage-counts")).json(),
+    ]);
+    _stageData = sd || { stages: [], lists: [] };
+    const items = (md.items || []).slice().sort((a, b) => (b.全部 || 0) - (a.全部 || 0));
     if (!items.length) { box.innerHTML = '<div class="empty-state">メンバーがいません。</div>'; return; }
     const totalAll = items.reduce((s, m) => s + Number(m.全部 || 0), 0);
     const totalRest = items.reduce((s, m) => s + Number(m.残り || 0), 0);
     const totalLists = items.reduce((s, m) => s + Number(m.リスト数 || 0), 0);
     box.innerHTML =
       `<div class="lst-sum">合計：リード <b>${totalAll.toLocaleString()}</b> 件（残り ${totalRest.toLocaleString()}）／リスト ${totalLists} 個／メンバー ${items.length} 名</div>` +
+      `<p class="note">メンバー名を押すと、その人のリストごと（ステージ内訳つき）が開きます。</p>` +
       `<div class="lst-wrap"><table class="lst-tbl"><thead><tr>
          <th>メンバー</th><th class="lst-num">リスト数</th><th class="lst-num">全部（リード数）</th><th class="lst-num">残り</th>
        </tr></thead><tbody>` +
-      items.map((m) => `<tr>
-         <td class="lst-name">${esc(m.name)}${m.インサイド ? '<span class="lst-badge">インサイド</span>' : ""}${m.kincallだけ ? '<span class="lst-badge k">kincall</span>' : ""}</td>
+      items.map((m) => `<tr class="lst-mrow" data-email="${esc((m.email || "").toLowerCase())}">
+         <td class="lst-name"><span class="lst-caret">▸</span>${esc(m.name)}${m.インサイド ? '<span class="lst-badge">インサイド</span>' : ""}${m.kincallだけ ? '<span class="lst-badge k">kincall</span>' : ""}</td>
          <td class="lst-num">${Number(m.リスト数 || 0)}</td>
          <td class="lst-num lst-strong">${Number(m.全部 || 0).toLocaleString()}</td>
          <td class="lst-num">${Number(m.残り || 0).toLocaleString()}</td>
-       </tr>`).join("") + `</tbody></table></div>` +
-      `<h4 class="lst-h">リスト × ステージ 件数</h4><div id="lsStage"><div class="note">読み込んでいます…</div></div>`;
-    loadListStageCounts();
+       </tr>
+       <tr class="lst-detail" data-for="${esc((m.email || "").toLowerCase())}" hidden><td colspan="4"></td></tr>`).join("") +
+      `</tbody></table></div>`;
+    // 名前タップで開閉
+    box.querySelectorAll(".lst-mrow").forEach((row) => row.addEventListener("click", () => {
+      const email = row.dataset.email;
+      const det = box.querySelector(`.lst-detail[data-for="${email}"]`);
+      if (!det) return;
+      const open = det.hidden;
+      det.hidden = !open;
+      const caret = row.querySelector(".lst-caret");
+      if (caret) caret.textContent = open ? "▾" : "▸";
+      if (open && !det.dataset.filled) { det.dataset.filled = "1"; det.querySelector("td").innerHTML = memberListsHtml(email); }
+    }));
   } catch (e) {
     box.innerHTML = `<div class="note">読み込めませんでした：${esc(e.message)}</div>`;
   }
 }
 
-// リスト×ステージの件数（リスト状況タブの下段）
-async function loadListStageCounts() {
-  const box = $("lsStage");
-  if (!box) return;
-  try {
-    const d = await (await fetch("/api/calls/list-stage-counts")).json();
-    if (d.error) throw new Error(d.error);
-    const stages = d.stages || [], lists = d.lists || [];
-    if (!lists.length) { box.innerHTML = '<div class="note">リストがありません。</div>'; return; }
-    // ステージ合計（列の並びは件数の多い順）
-    const stageTotal = {};
-    for (const l of lists) for (const s of stages) stageTotal[s] = (stageTotal[s] || 0) + Number(l.byStage[s] || 0);
-    const cols = stages.slice().sort((a, b) => (stageTotal[b] || 0) - (stageTotal[a] || 0));
-    const grand = lists.reduce((s, l) => s + l.total, 0);
-    box.innerHTML =
-      `<div class="lst-wrap"><table class="lst-tbl"><thead><tr>
-         <th>リスト</th><th class="lst-num">合計</th>${cols.map((s) => `<th class="lst-num">${esc(s)}</th>`).join("")}
-       </tr></thead><tbody>` +
-      lists.map((l) => `<tr>
-         <td class="lst-name">${esc(l.name)}${l.owner_name ? `<span class="lst-owner">${esc(l.owner_name)}</span>` : ""}</td>
-         <td class="lst-num lst-strong">${l.total.toLocaleString()}</td>
-         ${cols.map((s) => { const c = Number(l.byStage[s] || 0); return `<td class="lst-num${c ? "" : " lst-zero"}">${c ? c.toLocaleString() : "-"}</td>`; }).join("")}
-       </tr>`).join("") +
-      `<tr class="lst-total"><td class="lst-name">合計</td><td class="lst-num lst-strong">${grand.toLocaleString()}</td>${cols.map((s) => `<td class="lst-num">${(stageTotal[s] || 0).toLocaleString()}</td>`).join("")}</tr>` +
-      `</tbody></table></div>`;
-  } catch (e) {
-    box.innerHTML = `<div class="note">読み込めませんでした：${esc(e.message)}</div>`;
-  }
+// あるメンバーの「リストごと×ステージ」内訳HTML（そのメンバーが持つステージ列だけ出す）
+function memberListsHtml(email) {
+  const d = _stageData || { stages: [], lists: [] };
+  const lists = (d.lists || []).filter((l) => (l.owner || "") === email).sort((a, b) => b.total - a.total);
+  if (!lists.length) return '<div class="note" style="padding:4px 2px">このメンバーのリストはありません（アーカイブ/リサイクルは除く）。</div>';
+  // このメンバーで実際に件数のあるステージだけを列に（多い順）
+  const stageTotal = {};
+  for (const l of lists) for (const s in l.byStage) stageTotal[s] = (stageTotal[s] || 0) + Number(l.byStage[s] || 0);
+  const cols = Object.keys(stageTotal).sort((a, b) => stageTotal[b] - stageTotal[a]);
+  const grand = lists.reduce((s, l) => s + l.total, 0);
+  return `<div class="lst-wrap lst-sub"><table class="lst-tbl"><thead><tr>
+      <th>リスト</th><th class="lst-num">合計</th>${cols.map((s) => `<th class="lst-num">${esc(s)}</th>`).join("")}
+    </tr></thead><tbody>` +
+    lists.map((l) => `<tr>
+      <td class="lst-name">${esc(l.name)}</td>
+      <td class="lst-num lst-strong">${l.total.toLocaleString()}</td>
+      ${cols.map((s) => { const c = Number(l.byStage[s] || 0); return `<td class="lst-num${c ? "" : " lst-zero"}">${c ? c.toLocaleString() : "-"}</td>`; }).join("")}
+    </tr>`).join("") +
+    `<tr class="lst-total"><td class="lst-name">合計</td><td class="lst-num lst-strong">${grand.toLocaleString()}</td>${cols.map((s) => `<td class="lst-num">${(stageTotal[s] || 0).toLocaleString()}</td>`).join("")}</tr>` +
+    `</tbody></table></div>`;
 }
 
 // 「kincallだけ」の人には、kinbotへ戻る道を見せない

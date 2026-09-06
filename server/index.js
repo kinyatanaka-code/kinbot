@@ -18409,7 +18409,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-06aa リスト状況：リード数の合計からアーカイブ/リサイクルを除外。さらに『リスト×ステージ 件数』の表を追加（各リストのステージ別件数＋合計行）。GET /api/calls/list-stage-counts 追加。前回(20260906z)：リスト状況タブ。";
+const BUILD_TAG = "2026-09-06ab リスト状況を見やすく：常時の大表(リスト×ステージ)をやめ、メンバー名タップでその人のリストごと×ステージ内訳を開閉表示に。list-stage-counts に owner を追加しメンバー別に束ねる。前回(20260906aa)：ステージ別件数の表。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
