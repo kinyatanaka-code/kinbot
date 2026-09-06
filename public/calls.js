@@ -105,7 +105,7 @@ async function loadTable() {
 }
 
 // 絞り込みと並べ替えの状態
-const filt = { stage: new Set(), status: new Set(), hist: "" };
+const filt = { stage: new Set(), status: new Set(), hist: "", post: "", hireMin: "", hireMax: "" };
 try { const _f = JSON.parse(localStorage.getItem("kcFilt") || "{}");
   if (Array.isArray(_f.stage)) filt.stage = new Set(_f.stage);
   if (Array.isArray(_f.status)) filt.status = new Set(_f.status);
@@ -123,6 +123,29 @@ function visibleRows() {
   if (filt.status.size) list = list.filter((x) => filt.status.has((x["最終ステータス"] || "").trim()));
   if (filt.hist === "none") list = list.filter((x) => !x["履歴数"]);
   if (filt.hist === "some") list = list.filter((x) => x["履歴数"] > 0);
+  // 掲載状態（掲載中／掲載終了）：求人データの「掲載終了日」を今日と比べる
+  if (filt.post) {
+    const today = new Date(Date.now() + 9 * 3600000).toISOString().slice(0, 10);
+    list = list.filter((x) => {
+      const e = rowExtra(x) || {};
+      const raw = e["掲載終了日"] || e["doda掲載終了日"] || "";
+      const d = String(raw).replace(/\//g, "-").slice(0, 10);
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(d)) return filt.post === "none";   // 日付なし
+      return filt.post === "active" ? d >= today : filt.post === "ended" ? d < today : true;
+    });
+  }
+  // 採用人数の範囲
+  if (filt.hireMin !== "" || filt.hireMax !== "") {
+    const lo = filt.hireMin === "" ? -Infinity : Number(filt.hireMin);
+    const hi = filt.hireMax === "" ? Infinity : Number(filt.hireMax);
+    list = list.filter((x) => {
+      const e = rowExtra(x) || {};
+      const m = String(e["採用人数"] || "").match(/\d+/);
+      if (!m) return false;
+      const n = Number(m[0]);
+      return n >= lo && n <= hi;
+    });
+  }
   const q = ($("clFind") && $("clFind").value || "").trim().toLowerCase();
   if (q) {
     const norm = (v) => String(v || "").replace(/[\s　-]/g, "").toLowerCase();
@@ -353,6 +376,20 @@ function render() {
       : "") +
     (allKeys.length ? `／<span class="kc-sum-user">列データ <b>${rcMatched}</b>件</span><button type="button" class="kc-sum-btn" id="kcRcCols">列を選ぶ</button>` : "") +
     `</div>` +
+    (allKeys.length ? `<div class="kc-jobflt">
+       <span class="kc-jobflt-lb">掲載</span>
+       <select id="kcPostFlt">
+         <option value=""${filt.post === "" ? " selected" : ""}>すべて</option>
+         <option value="active"${filt.post === "active" ? " selected" : ""}>掲載中</option>
+         <option value="ended"${filt.post === "ended" ? " selected" : ""}>掲載終了</option>
+         <option value="none"${filt.post === "none" ? " selected" : ""}>日付なし</option>
+       </select>
+       <span class="kc-jobflt-lb">採用人数</span>
+       <input type="number" id="kcHireMin" min="0" placeholder="最小" value="${esc(filt.hireMin)}" />
+       <span>〜</span>
+       <input type="number" id="kcHireMax" min="0" placeholder="最大" value="${esc(filt.hireMax)}" />
+       <button type="button" class="kc-sum-btn" id="kcJobClear">絞り込みを消す</button>
+     </div>` : "") +
     ((listId !== "all")
       ? `<div class="kc-selbar" id="kcSelBar" hidden style="display:flex;align-items:center;gap:10px;padding:8px 4px;">
        <span id="kcSelCount" style="font-size:13px;color:#0d5b47;font-weight:600;"></span>
@@ -484,6 +521,14 @@ function render() {
   updateSelBar();
   const hideBtn = $("kcHideApo");
   if (hideBtn) hideBtn.addEventListener("click", () => { hideApo = !hideApo; render(); });
+  // 掲載状態・採用人数の絞り込み
+  const postSel = $("kcPostFlt");
+  if (postSel) postSel.addEventListener("change", () => { filt.post = postSel.value; render(); });
+  const hMin = $("kcHireMin"), hMax = $("kcHireMax");
+  if (hMin) hMin.addEventListener("change", () => { filt.hireMin = hMin.value.trim(); render(); });
+  if (hMax) hMax.addEventListener("change", () => { filt.hireMax = hMax.value.trim(); render(); });
+  const jClr = $("kcJobClear");
+  if (jClr) jClr.addEventListener("click", () => { filt.post = ""; filt.hireMin = ""; filt.hireMax = ""; render(); });
 
   // 追加列の見出しを、ドラッグでエクセルのように並べ替える
   let dragKey = null;
@@ -973,6 +1018,10 @@ function renderDock() {
     .kc-user-badge{display:inline-block;margin-left:6px;padding:1px 7px;border-radius:10px;background:#0d5b47;color:#fff;font-size:11px;font-weight:700;vertical-align:middle;}
     .kc-lost-badge{display:inline-block;margin-left:6px;padding:1px 7px;border-radius:10px;background:#e9edeb;color:#6b7a74;font-size:11px;font-weight:700;vertical-align:middle;}
     .kc-dead-badge{display:inline-block;margin-left:6px;padding:1px 7px;border-radius:10px;background:#fbe7e6;color:#a32d2d;font-size:11px;font-weight:700;vertical-align:middle;}
+    .kc-jobflt{display:flex;align-items:center;gap:6px;flex-wrap:wrap;padding:6px 4px 2px;font-size:12.5px;color:#5a6b64;}
+    .kc-jobflt-lb{font-weight:700;color:#0d5b47;}
+    .kc-jobflt select,.kc-jobflt input{font-size:12.5px;padding:4px 8px;border:1px solid #d7e0db;border-radius:8px;background:#fff;}
+    .kc-jobflt input{width:70px;text-align:center;}
     .kc-temp-badge{display:inline-block;margin-left:6px;width:18px;height:18px;line-height:18px;text-align:center;border-radius:50%;font-size:11px;font-weight:800;vertical-align:middle;}
     .kc-temp-A{background:#dff3ea;color:#0d5b47;}
     .kc-temp-B{background:#fdf0d6;color:#a5751a;}
