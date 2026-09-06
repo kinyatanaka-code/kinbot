@@ -76,7 +76,7 @@ async function loadDocs() {
       if (!sel) continue;
       const cur = sel.value;
       sel.innerHTML = withAll ? '<option value="">すべて</option>' : "";
-      for (const f of docsCache) if (f.active && (!mineOnly || (f.mine && f.is_template !== false))) sel.add(new Option(f.name, f.id));
+      for (const f of docsCache) if (f.active && (!mineOnly || (f.is_template !== false && (f.mine || f.shared !== false)))) sel.add(new Option(f.name, f.id));
       if (cur) sel.value = cur;
     }
 
@@ -499,7 +499,7 @@ async function loadDeals() {
 // ＋送付：その場で資料を選ぶ（新規登録も可）→ 担当者・メールを入れて発行する
 function deOpenPicker(btn) {
   const company = btn.dataset.company || "";
-  const opts = docsCache.filter((f) => f.active && f.mine && f.is_template !== false);
+  const opts = docsCache.filter((f) => f.active && f.is_template !== false && (f.mine || f.shared !== false));
   const wrap = document.createElement("div");
   wrap.className = "de-picker";
   wrap.dataset.company = company;
