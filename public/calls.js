@@ -746,6 +746,8 @@ function renderDock() {
     .kc-mem-pick-b{border:1px solid #e6ece9;background:#fff;color:#1f2a26;border-radius:9px;padding:7px 12px;font-size:13px;cursor:pointer;}
     .kc-mem-pick-b:hover{border-color:#1d9e75;background:#f4faf7;}
     #asCards .kc-mem-head{display:flex;align-items:center;gap:12px;margin-bottom:14px;}
+    .kc-rev-add{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:-6px 0 14px;font-size:13px;}
+    .kc-rev-add select{font-size:13px;padding:6px 10px;border:1px solid #d7e0db;border-radius:8px;background:#fff;}
     #asCards .kc-mem-back{flex:0 0 auto;width:auto;min-height:0;height:auto;
       border:1px solid #e6ece9;background:#fff;color:#0d5b47;border-radius:9px;
       padding:6px 12px;font-size:12px;font-weight:600;line-height:1.2;cursor:pointer;margin:0;}
@@ -3597,7 +3599,14 @@ async function asLoadMember(email, name) {
       `<div class="kc-mem-head">` +
       `<button type="button" class="kc-mem-back" id="asBack">← 戻る</button>` +
       `<span class="kc-mem-title">${esc(name || email)} のリスト</span>` +
-      `</div>`;
+      `</div>` +
+      `<div class="kc-rev-add">
+         <span class="note">リサイクル復活リストを追加：</span>
+         <select id="asRevGrp"><option value="">グループを選ぶ…</option>${
+           GROUPS.map((g) => `<option value="${g.id}">${esc(g.name)}</option>`).join("")}</select>
+         <button type="button" class="btn ghost" id="asRevAdd">＋ 復活リストを作る</button>
+         <span class="rev-status" id="asRevSt"></span>
+       </div>`;
     if (!items.length) {
       box.innerHTML = head + '<div class="empty-state">このメンバーのリストはまだありません。</div>';
     } else {
@@ -3640,6 +3649,26 @@ async function asLoadMember(email, name) {
     }
     const bk = $("asBack");
     if (bk) bk.addEventListener("click", asLoad);
+    const revAdd = $("asRevAdd");
+    if (revAdd) revAdd.addEventListener("click", async () => {
+      const gsel = $("asRevGrp");
+      const gid = gsel ? Number(gsel.value) : 0;
+      const gname = gsel && gsel.selectedIndex > 0 ? gsel.options[gsel.selectedIndex].text : "";
+      if (!gid) { say("asRevSt", "グループを選んでください", 4000); return; }
+      const listName = `【復活】${gname} - ${name || email}`;
+      revAdd.disabled = true; say("asRevSt", "作っています…");
+      try {
+        const r = await fetch("/api/calls/recycle-revival-lists", {
+          method: "POST", headers: { "content-type": "application/json" },
+          body: JSON.stringify({ groupId: gid, member: email, name: listName }),
+        });
+        const d = await r.json();
+        if (!r.ok) throw new Error(d.error || "作れませんでした");
+        say("asRevSt", `「${d.name}」を用意しました`, 5000);
+        asLoadMember(email, name);   // 一覧を出し直す
+      } catch (e) { say("asRevSt", "失敗：" + e.message, 6000); }
+      finally { revAdd.disabled = false; }
+    });
   } catch (e) {
     box.innerHTML = `<div class="note">読み込めませんでした：${esc(e.message)}</div>`;
   }

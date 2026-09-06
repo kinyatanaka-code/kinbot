@@ -626,6 +626,8 @@ export async function initDb() {
     );
   `);
   await sq(`ALTER TABLE call_lists ADD COLUMN IF NOT EXISTS group_id INTEGER;`);
+  // リストの種別。'recycle_revival'＝グループ×担当のリサイクル復活リスト（通常リストと区別）
+  await sq(`ALTER TABLE call_lists ADD COLUMN IF NOT EXISTS kind TEXT;`);
 
   await sq(`
     CREATE TABLE IF NOT EXISTS call_targets (
@@ -7920,4 +7922,36 @@ export async function listStageCountsByList() {
     const stages = [...stageSet].sort();
     return { stages, lists };
   } catch (e) { console.error("[db] listStageCountsByList", e.message); return { stages: [], lists: [] }; }
+}
+
+// ===== リサイクル復活リスト（グループ×担当ごとの器） =====
+// 同じ (group_id, owner) で1つだけ作る。既にあればそれを返す（冪等）。
+export async function ensureRecycleRevivalList({ groupId, owner, createdBy, name }) {
+  if (!pool || !groupId || !owner) return null;
+  try {
+    const { rows } = await pool.query(
+      `SELECT * FROM call_lists WHERE kind='recycle_revival' AND group_id=$1 AND lower(owner)=lower($2) LIMIT 1`,
+      [groupId, owner]);
+    if (rows[0]) return rows[0];
+    const { rows: ins } = await pool.query(
+      `INSERT INTO call_lists (name, owner, created_by, group_id, kind)
+       VALUES ($1,$2,$3,$4,'recycle_revival') RETURNING *`,
+      [String(name || "リサイクル復活").slice(0, 120), String(owner).toLowerCase(), createdBy || null, groupId]);
+    return ins[0] || null;
+  } catch (e) { console.error("[db] ensureRecycleRevivalList", e.message); return null; }
+}
+// リサイクル復活リストの一覧（owner指定で絞れる）。件数つき。
+export async function listRecycleRevivalLists(owner) {
+  if (!pool) return [];
+  try {
+    const { rows } = await pool.query(
+      `SELECT l.id, l.name, l.owner, l.group_id,
+              (SELECT g.name FROM call_list_groups g WHERE g.id = l.group_id) AS group_name,
+              (SELECT count(*) FROM call_targets t WHERE t.list_id = l.id) AS 全部
+         FROM call_lists l
+        WHERE l.kind='recycle_revival' ${owner ? "AND lower(l.owner)=lower($1)" : ""}
+        ORDER BY l.id DESC`,
+      owner ? [String(owner).toLowerCase()] : []);
+    return rows;
+  } catch (e) { console.error("[db] listRecycleRevivalLists", e.message); return []; }
 }

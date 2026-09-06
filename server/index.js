@@ -204,6 +204,8 @@ import {
   deleteCallList,
   getCallListOwner,
   setCallListOwner,
+  ensureRecycleRevivalList,
+  listRecycleRevivalLists,
   setCallTargetAbsent,
   setCallTargetRecycleInfo,
   findListsByNameSince,
@@ -4422,6 +4424,27 @@ app.get("/api/docs", async (req, res) => {
 app.get("/api/calls/list-stage-counts", async (req, res) => {
   try { res.json(await listStageCountsByList()); }
   catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// リサイクル復活リスト（グループ×担当の器）。作成は冪等。リードはまだ動かさない。
+app.get("/api/calls/recycle-revival-lists", async (req, res) => {
+  try {
+    const member = String(req.query.member || "").trim().toLowerCase();
+    res.json({ items: await listRecycleRevivalLists(member || null) });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+app.post("/api/calls/recycle-revival-lists", async (req, res) => {
+  try {
+    if (!(await canRedistribute(req))) return res.status(403).json({ error: "クローザー・インサイド・管理者だけが使えます" });
+    const groupId = parseInt(req.body?.groupId, 10);
+    const member = String(req.body?.member || req.user || "").trim().toLowerCase();
+    const name = String(req.body?.name || "").slice(0, 120);
+    if (!groupId || !member) return res.status(400).json({ error: "グループと担当を指定してください" });
+    const list = await ensureRecycleRevivalList({ groupId, owner: member, createdBy: req.user, name });
+    if (!list) return res.status(500).json({ error: "作れませんでした" });
+    console.log(`[kincall] リサイクル復活リスト（グループ${groupId}×${member}）を用意しました by ${req.user}`);
+    res.json({ ok: true, id: list.id, name: list.name });
+  } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 // リサイクル復活ルール（設定マスタ）。まだ実際の再浮上ロジックは動かさず、設定を貯める・編集する箱。
@@ -18459,7 +18482,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-06ah リサイクル復活ステップ3a：記録時に断り理由タグ(recycle_rulesの11タグ)を選べ、リサイクル入り時にリードへ温度を保存（結果なし=A／タグあり=ルールの温度／タグ無しで結果あり=B）。setCallTargetRecycleInfo 追加。リードはまだ動かさない。前回(20260906ag)：現在使われていない=アーカイブ。";
+const BUILD_TAG = "2026-09-06ai リサイクル復活ステップ3b：グループ×担当の『リサイクル復活リスト』を作れる器を追加（call_lists.kind=recycle_revival＋group_id＋owner）。メンバー個別ビューにグループ選択＋作成ボタン。作成は冪等。リードはまだ動かさない。前回(20260906ah)：温度タグ付け。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
