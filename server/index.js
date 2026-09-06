@@ -241,6 +241,7 @@ import {
   leadDupInList,
   clearBadLeadsInList,
   recordCall,
+  updateCallLogRecall,
   updateCallLog,
   markCallSynced,
   pendingCallLogs,
@@ -9085,6 +9086,19 @@ app.post("/api/calls/targets/:id/record", async (req, res) => {
       予定 = `${naDate}T${t2}:00+09:00`;
     }
     try { await setCallTargetNextCall(id, 予定); sf.nextCallAt = 予定; } catch {}
+
+    // 再架電スケジューラ用に、この記録へ予定・理由・時間帯を残す（挙動は不変・データのみ）
+    try {
+      if (log && log.id) {
+        const nowJ = new Date(Date.now() + 9 * 3600000);
+        const bucket = `${nowJ.getUTCHours()}時台`;
+        await updateCallLogRecall(log.id, {
+          recallAt: 予定 || null,
+          recallReason: String(b.recallReason || "").trim() || null,
+          timeBucket: bucket,
+        });
+      }
+    } catch {}
 
     res.json({ ok: true, sf });
   } catch (e) { res.status(500).json({ error: e.message }); }
@@ -18386,7 +18400,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-06w リスト供給①・再架電スケジューラ②のステップ1：DBの列追加のみ（ロジック無し・挙動不変）。call_targets に posted_media/posted_active/emp_size/score/score_breakdown/excluded/excluded_reason/block_reception/consecutive_absent/reject_tag/temperature/recall_count/partner_route、call_logs に recall_at/recall_reason/reject_tag/time_bucket を ADD COLUMN IF NOT EXISTS。索引 ix_call_targets_score も。前回(20260906v)：復活ルールの折りたたみ。";
+const BUILD_TAG = "2026-09-06x 再架電スケジューラ②：記録モーダルに『再架電の理由』欄を追加し、記録時に call_logs へ recall_at(予定)・recall_reason・time_bucket(架電時間帯) を残すように（既存の次回日時=next_call_atでの再浮上は元から実装済み。今回はスケジューラ用データの蓄積）。挙動は不変。前回(20260906w)：リスト供給/再架電のDB列追加。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",

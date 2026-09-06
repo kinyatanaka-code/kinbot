@@ -4252,6 +4252,20 @@ export async function recordCall({ targetId, leadId, company, result, memo, call
   } catch (e) { console.error("[db] recordCall", e.message); return null; }
 }
 
+// 記録した架電ログに、再架電スケジューラ用の情報を後追記する（挙動は変えず、データを残すだけ）。
+export async function updateCallLogRecall(logId, { recallAt, recallReason, rejectTag, timeBucket } = {}) {
+  if (!pool || !logId) return;
+  const sets = [], vals = []; let i = 1;
+  if (recallAt !== undefined) { sets.push(`recall_at = $${i++}`); vals.push(recallAt || null); }
+  if (recallReason !== undefined) { sets.push(`recall_reason = $${i++}`); vals.push(recallReason ? String(recallReason).slice(0, 200) : null); }
+  if (rejectTag !== undefined) { sets.push(`reject_tag = $${i++}`); vals.push(rejectTag || null); }
+  if (timeBucket !== undefined) { sets.push(`time_bucket = $${i++}`); vals.push(timeBucket || null); }
+  if (!sets.length) return;
+  vals.push(logId);
+  try { await pool.query(`UPDATE call_logs SET ${sets.join(", ")} WHERE id = $${i}`, vals); }
+  catch (e) { console.error("[db] updateCallLogRecall", e.message); }
+}
+
 // リスト内で、1つの lead_id が「異なる会社名」の複数ターゲットに付いているものを探す。
 // これは誤った紐づけ（会社名検索が外れて最新リードが全件に付いた等）の目印。
 // 同じ会社の別担当が同じリードを共有するのは正常なので、会社名が2種類以上のものだけ返す。
