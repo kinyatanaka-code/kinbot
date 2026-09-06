@@ -205,6 +205,7 @@ import {
   getCallListOwner,
   setCallListOwner,
   setCallTargetAbsent,
+  setCallTargetRecycleInfo,
   findListsByNameSince,
   findRecentListByNameOwner,
   redistributeListTargets,
@@ -9017,6 +9018,21 @@ app.post("/api/calls/targets/:id/record", async (req, res) => {
     else if (/営業フォロー/.test(result)) 自動ステージ = JUDGE_STAGE;
     else if (/不在/.test(result) && 連続不在 >= 5) 自動ステージ = RECYCLE_STAGE;
     const finalStage = 自動ステージ || 次のステージ;
+    // 断り理由タグと温度をリードに残す（リサイクル復活の優先順に使う）。
+    // 温度：架電結果が入っていない＝A。タグがあれば recycle_rules の温度。タグ無しで結果ありなら既定B。
+    let 温度 = null, 選タグ = String(b.rejectTag || "").trim() || null;
+    if (自動ステージ === RECYCLE_STAGE) {
+      if (!result) 温度 = "A";
+      else if (選タグ) {
+        try {
+          const rules = await listRecycleRules().catch(() => []);
+          const hit = rules.find((r) => r.tag === 選タグ);
+          温度 = (hit && hit.temperature) ? hit.temperature : "B";
+        } catch { 温度 = "B"; }
+      } else 温度 = "B";
+    }
+    // 温度・断り理由タグをリードに残す（リサイクル復活の優先順・きめ細かい復活に使う）
+    if (温度 || 選タグ) await setCallTargetRecycleInfo(id, { ...(温度 ? { temperature: 温度 } : {}), ...(選タグ !== undefined ? { rejectTag: 選タグ } : {}) }).catch(() => {});
     await setCallTargetStatus(id, {
       ...(finalStage !== undefined && finalStage !== null ? { stage: finalStage } : {}),
       status: result,
@@ -18443,7 +18459,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-06ag 現在使われていない(現アナ・欠番・不通)はアーカイブ扱い。かける一覧から非表示（ステータスで除外）＋アーカイブのまとめに含める。記録の結果が現在使われていない系ならステージを『99アーカイブ』(ARCHIVE_STAGE)にしSF反映。前回(20260906af)：お断り/フォロー/5連続不在の自動ルーティング。";
+const BUILD_TAG = "2026-09-06ah リサイクル復活ステップ3a：記録時に断り理由タグ(recycle_rulesの11タグ)を選べ、リサイクル入り時にリードへ温度を保存（結果なし=A／タグあり=ルールの温度／タグ無しで結果あり=B）。setCallTargetRecycleInfo 追加。リードはまだ動かさない。前回(20260906ag)：現在使われていない=アーカイブ。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",

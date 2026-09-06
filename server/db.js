@@ -7569,6 +7569,18 @@ export async function setCallTargetAbsent(id, n) {
   catch (e) { console.error("[db] setCallTargetAbsent", e.message); }
 }
 
+// 断り理由タグと温度（A/B/C）を記録する。リサイクル復活の優先順に使う。
+export async function setCallTargetRecycleInfo(id, { rejectTag, temperature } = {}) {
+  if (!pool || !id) return;
+  const sets = [], vals = []; let i = 1;
+  if (rejectTag !== undefined) { sets.push(`reject_tag = $${i++}`); vals.push(rejectTag || null); }
+  if (temperature !== undefined) { sets.push(`temperature = $${i++}`); vals.push(temperature || null); }
+  if (!sets.length) return;
+  vals.push(id);
+  try { await pool.query(`UPDATE call_targets SET ${sets.join(", ")} WHERE id = $${i}`, vals); }
+  catch (e) { console.error("[db] setCallTargetRecycleInfo", e.message); }
+}
+
 
 // 日ごと・人ごとに数える（実績を並べて比べるため）
 export async function callStatsByDay(fromJst, toJst) {

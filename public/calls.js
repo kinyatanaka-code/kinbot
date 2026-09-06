@@ -1156,6 +1156,11 @@ async function openTarget(id, draft, opt) {
         </select>
         <div class="kc-reason" id="kcReason" hidden></div>
 
+        <div class="kc-lb">断り理由タグ<span class="note" style="font-weight:400">（リサイクル復活の温度に使う・任意）</span></div>
+        <select class="kc-input" id="kcRejectTag">
+          <option value="">選ばない（結果なしはA扱い）</option>
+        </select>
+
         <div class="kc-lb">説明（任意）</div>
         <textarea class="kc-input" id="kcMemo" rows="3" placeholder="担当者は佐藤様・14時以降が良いとのこと"></textarea>
 
@@ -1349,6 +1354,7 @@ async function openTarget(id, draft, opt) {
     if (kind === "番号") appendMemo("【使われていない番号】");
   };
   const resultSel = m.el.querySelector("#kcResult");
+  fillRejectTags(m.el.querySelector("#kcRejectTag"), x["断り理由タグ"] || "");
   if (resultSel) resultSel.addEventListener("change", drawReason);
   drawReason();
 
@@ -1374,6 +1380,8 @@ async function openTarget(id, draft, opt) {
           nextAction: (m.el.querySelector("#kcNext") || {}).value || "",
           // 次回の架電時間（HH:MM）。kincallで予定日時として持ち、時刻が来たら上に出す。
           nextTime: (m.el.querySelector("#kcNextTime") || {}).value || "",
+          // 断り理由タグ（リサイクル復活の温度に使う）
+          rejectTag: (m.el.querySelector("#kcRejectTag") || {}).value || "",
         }),
       });
       const d = await r.json();
@@ -3355,6 +3363,21 @@ async function runToSf(listId, listName, btn) {
   } finally {
     setTimeout(() => { btn.disabled = false; btn.textContent = orig; }, 4000);
   }
+}
+
+// 記録モーダルの「断り理由タグ」を recycle_rules で埋める（温度付き）。取れなくても記録は可能。
+let _recycleTags = null;
+async function fillRejectTags(sel, current) {
+  if (!sel) return;
+  try {
+    if (!_recycleTags) {
+      const d = await (await fetch("/api/calls/recycle-rules")).json();
+      _recycleTags = (d.rules || []).map((r) => ({ tag: r.tag, temperature: r.temperature }));
+    }
+    for (const r of _recycleTags) sel.appendChild(new Option(`${r.tag}（温度${r.temperature || "-"}）`, r.tag));
+    if (current && !_recycleTags.some((r) => r.tag === current)) sel.appendChild(new Option(current, current));
+    sel.value = current || "";
+  } catch { /* タグが取れなくても記録はできる */ }
 }
 
 // 選んだ架電先を、他の（既存の）リストへそのまま移す窓
