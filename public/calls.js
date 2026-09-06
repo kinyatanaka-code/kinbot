@@ -1806,7 +1806,7 @@ function dashCard(c, big) {
 function renderDash(d) {
   const box = $("clDash");
   const note = `<p class="note" style="margin-top:10px">${(d.period === "week")
-      ? "週ラップ（9/1起点の7日区切り）です。実績は月初からの積み上げ、差分は 積み上げ実績−積み上げ目標。目標は各週に直接入力でき、その週の目標として保存されます。"
+      ? "週ラップ（9/1起点の7日区切り）です。実績は月初からの積み上げ、差分は 積み上げ実績−その週の目標。目標は各週に直接入力でき、その週の目標として保存されます。"
       : "目標はここで直接（月次）変更できます（その月の目標として保存されます）。グループ・セールス・インサイドも手動で設定でき、実績はメンバーの合計です。差分は 実績−目標。カードをクリックすると内訳（日次）が出ます。"}</p>`;
   const assign = iAmCloser ? `<div style="margin-top:8px"><button type="button" class="btn ghost" id="dashAssign">未照合の商談に獲得者を割り当てる</button></div>` : "";
 
@@ -1835,26 +1835,10 @@ function renderDash(d) {
       const card = inp.closest(".kc-dcard");
       const pkey = (card && card.dataset.periodkey) || d.periodKey;
       const goal = Number(inp.value) || 0;
-      const setDiff = (el, df) => { if (!el) return; el.textContent = df > 0 ? `+${df}` : `${df}`; el.className = "kc-d-diff " + (df > 0 ? "kc-d-plus" : df < 0 ? "kc-d-minus" : "kc-d-zero"); };
-      if (dashPeriod === "week" && d.weeks && Array.isArray(d.weeks)) {
-        // 積み上げ：変えた週の目標差(delta)だけ、その週以降の差分を下げる（リロードしない）
-        const weeks = d.weeks;
-        const k = weeks.findIndex((w) => w.key === pkey);
-        const teamOf = (w) => (w.teams || []).find((t) => t.key === subject);
-        const t0 = k >= 0 ? teamOf(weeks[k]) : null;
-        const delta = goal - (t0 ? Number(t0.goal || 0) : 0);
-        if (t0) t0.goal = goal;
-        for (let j = k; j >= 0 && j < weeks.length; j++) {
-          const t = teamOf(weeks[j]); if (!t) continue;
-          t.diff = Number(t.diff || 0) - delta;
-          const c2 = box.querySelector(`.kc-dcard[data-subj="${subject}"][data-periodkey="${weeks[j].key}"]`);
-          if (c2) setDiff(c2.querySelector(".kc-d-diff"), t.diff);
-        }
-      } else {
-        // 月次：その場で差分を更新
-        const actual = Number((card.querySelector(".kc-dcol:nth-child(2) .kc-d-act") || {}).textContent || 0);
-        setDiff(card.querySelector(".kc-d-diff"), actual - goal);
-      }
+      // そのカードの差分をその場で更新（差分＝実績−目標）。積み上げの実績はカードの表示値を使う。
+      const actual = Number((card.querySelector(".kc-dcol:nth-child(2) .kc-d-act") || {}).textContent || 0);
+      const de = card.querySelector(".kc-d-diff");
+      if (de) { const df = actual - goal; de.textContent = df > 0 ? `+${df}` : `${df}`; de.className = "kc-d-diff " + (df > 0 ? "kc-d-plus" : df < 0 ? "kc-d-minus" : "kc-d-zero"); }
       try {
         await fetch("/api/calls/apo-goals", {
           method: "PUT", headers: { "content-type": "application/json" },

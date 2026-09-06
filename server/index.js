@@ -9865,19 +9865,18 @@ app.get("/api/calls/apo-dashboard", async (req, res) => {
       }
       const wg = await getApoGoalsByKeys("week", laps.map((l) => ymd(l.from))).catch(() => ({}));
       const wGoal = (subj, wk) => Number((((wg[subj] || {})[wk] || {})["アポ"]) || 0);
-      const cumAct = { group: 0, sales: 0, inside: 0 }, cumGoal = { group: 0, sales: 0, inside: 0 };
+      const cumAct = { group: 0, sales: 0, inside: 0 };
       weeks = laps.map((l) => {
         const key = ymd(l.from);
         const rangeSum = (r) => { let s = 0; for (let x = new Date(l.from); x.getTime() <= l.to.getTime(); x = new Date(x.getTime() + 86400000)) s += actDay(ymd(x), r); return s; };
         const wAct = { group: rangeSum("all"), sales: rangeSum("sales"), inside: rangeSum("inside") };
         cumAct.group += wAct.group; cumAct.sales += wAct.sales; cumAct.inside += wAct.inside;
-        const g0 = { group: wGoal("group", key), sales: wGoal("sales", key), inside: wGoal("inside", key) };
-        cumGoal.group += g0.group; cumGoal.sales += g0.sales; cumGoal.inside += g0.inside;
-        const mk = (subj, label, ca, lg, cg) => ({ key: subj, label, role: "team", actual: ca, goal: lg, diff: ca - cg, periodKey: key });
+        // 差分＝その週までの積み上げ実績−その週に入れた目標（カード表示の 実績−目標 と一致させる）
+        const mk = (subj, label, ca) => { const g = wGoal(subj, key); return { key: subj, label, role: "team", actual: ca, goal: g, diff: ca - g, periodKey: key }; };
         return {
           key, label: `${l.from.getUTCMonth() + 1}/${l.from.getUTCDate()}〜${l.to.getUTCMonth() + 1}/${l.to.getUTCDate()}`,
           from: ymd(l.from), to: ymd(l.to),
-          teams: [mk("group", "グループ（全体）", cumAct.group, g0.group, cumGoal.group), mk("sales", "セールス", cumAct.sales, g0.sales, cumGoal.sales), mk("inside", "インサイド", cumAct.inside, g0.inside, cumGoal.inside)],
+          teams: [mk("group", "グループ（全体）", cumAct.group), mk("sales", "セールス", cumAct.sales), mk("inside", "インサイド", cumAct.inside)],
         };
       });
     }
@@ -18361,7 +18360,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-06n 週次で目標を入力するたびに全体リロードしていたのをやめ、変えた週以降の積み上げ差分だけをその場で更新（保存は非同期・再読込なし）。月次は従来どおりその場更新。前回(20260906m)：週ラップ+実績積み上げ。";
+const BUILD_TAG = "2026-09-06o 週次(週ラップ)の差分を『積み上げ実績−その週の目標』に修正。従来は目標を週ごとに合計した『積み上げ目標』で引いていたため、カード表示の実績−目標と一致せず差分がおかしかった（例9/29週 実績34/目標310なのに-502）。目標編集も『そのカードの実績−目標』のその場更新に簡単化（連鎖更新なし）。前回(20260906n)：入力ごとのリロード停止。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
