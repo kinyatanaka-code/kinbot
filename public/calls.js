@@ -3398,7 +3398,11 @@ async function asLoadMember(email, name) {
   box.innerHTML = '<div class="note">読み込んでいます…</div>';
   try {
     const d = await (await fetch("/api/calls/lists?member=" + encodeURIComponent(email))).json();
-    const items = d.items || [];
+    // 個別ビューでは「アーカイブ」「リサイクル」のカードは出さない（まとめのカードだけにする）
+    const items = (d.items || []).filter((x) => {
+      const nm = String(x.name || "").trim();
+      return nm !== "アーカイブ" && nm !== "リサイクル";
+    });
     box.classList.remove("kc-lists-grid");
     const head =
       `<div class="kc-mem-head">` +

@@ -41,6 +41,7 @@ kincall（架電リスト）という別ツールも同じ画面群の中にあ�
 
 ## 決定・指示のログ（新しいものを上に足す）
 
+- 2026-09-06 要望（田中さん）：リスト管理の個別ビューにも個別のアーカイブ/リサイクルがあってごちゃつく。まとめのアーカイブ/リサイクルだけでよい→個別ビューから消す（表示のみ）。対応(20260906t)：calls.js のメンバー個別リスト描画で items を name!=='アーカイブ'&&name!=='リサイクル' でフィルタ。データ・SF・まとめのアーカイブ/リサイクルは不変。※リスト供給エンジン/再架電スケジューラは一旦ストップ（先にリスト管理の整理）。bump=20260906t。parse/smoke OK。
 - 2026-09-06 要望（田中さん）：ダッシュボードの『未照合の商談に獲得者を割り当てる』はもう不要なので消して。対応(20260906s)：calls.js renderDash の assign を空に（ボタン非表示）。openAssignSetter と GET /api/calls/unmatched-meetings・POST /api/calls/set-apo-setter は残置（商談履歴からの手入力が set-apo-setter系を使う）。#dashAssign 配線は if(asgBtn)ガードで無害。bump=20260906s。parse/smoke OK。
 - 2026-09-06 要望（田中さん）：『今照合する』を消して（自動で照合されるはずだから）。対応(20260906r)：calls.js 設定・管理のアポ獲得者の照合カードから『いま照合する』ボタン(+status)を撤去し、説明を『毎日自動で照合されます／手入力は上書き・削除されない』に。/api/interns/match と夜間cron(19/23時)は維持。#kcMatchNow ハンドラは if(mb)ガードで無害のため残置。bump=20260906r。parse/smoke OK。
 - 2026-09-06 重大バグ/謝罪（田中さん）：手入力したアポ獲得者が『いま照合する』で全部未設定に戻った。原因：/api/interns/match が先頭で clearApoSetters（対象期間のapo_setterを全NULL化）→再照合のため、手入力も消えて自動復元できないものは未設定に。Claudeが照合実行を勧めたのが引き金＝確認不足。対応(20260906q)：meetings.apo_setter_manual を追加。setMeetingApoSetter(botId,name,manual)＝manual時は印、自動時は apo_setter_manual IS NOT TRUE の商談だけ更新。clearApoSetters は手入力を消さない。/api/interns/match は手入力商談をスキップ。手動割り当て/metaのapoSetterは manual=true。listMeetingsに apo_setter_manual 追加。以後 照合しても手入力は残る。※既に消えた分は履歴なく自動復元不可（カレンダーに『アポ獲得: 〇〇』がある商談は再照合で戻る、それ以外は再入力）。bump=20260906q。node--check/smoke OK。
