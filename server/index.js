@@ -211,6 +211,7 @@ import {
   pickRecycleCandidateForGroup,
   recycleBreakdown,
   recycleReasonBreakdown,
+  tagRecycleTemperatures,
   setCallTargetAbsent,
   setCallTargetRecycleInfo,
   findListsByNameSince,
@@ -4457,6 +4458,21 @@ app.post("/api/calls/recycle-revival-lists", async (req, res) => {
 app.get("/api/calls/_recyclediag", async (req, res) => {
   try {
     res.json(await recycleBreakdown());
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// リサイクルのリードに温度を一括タグ付け。GET=試算（触らない）、POST=実行（クローザー・管理者）。
+app.get("/api/calls/recycle-temperatures", async (req, res) => {
+  try { res.json(await tagRecycleTemperatures({ dryRun: true, onlyMissing: req.query.all !== "1" })); }
+  catch (e) { res.status(500).json({ error: e.message }); }
+});
+app.post("/api/calls/recycle-temperatures", async (req, res) => {
+  try {
+    if (!req.isAdmin && !(await isCloserUser(req.user))) return res.status(403).json({ error: "クローザー・管理者だけが実行できます" });
+    const onlyMissing = req.body?.all !== true;   // 既定は温度が無いものだけ。all=true で全リサイクルに付け直す。
+    const r = await tagRecycleTemperatures({ dryRun: false, onlyMissing });
+    console.log(`[kincall] リサイクルの温度タグ付け：対象${r.対象} 更新${r.更新}（A:${r.内訳.A||0} B:${r.内訳.B||0} C:${r.内訳.C||0}）by ${req.user}`);
+    res.json({ ok: true, ...r });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
@@ -18523,7 +18539,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-06al 洗い出し診断：GET /api/calls/_recyclereasons でリサイクルのリードの直近架電結果(断り理由)の文言と件数を集計（履歴なし件数も）。温度対応表を憶測でなく実データから作るための材料。リードは触らない。前回(20260906ak)：リサイクル内訳診断。";
+const BUILD_TAG = "2026-09-06am 既存リサイクルのリードに、履歴の断り理由から温度A/B/Cを一括タグ付け（履歴なし=A・お断り系=B・明確拒否=C・前向きメモ=A）。設定・管理のリサイクル復活ルールに『試算/実行』ボタン。GET(試算)/POST(実行・クローザー可) /api/calls/recycle-temperatures。リードのステージ・所属は変えず temperature だけ付与。前回(20260906al)：断り理由の洗い出し。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",

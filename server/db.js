@@ -8047,3 +8047,43 @@ export async function recycleReasonBreakdown() {
     return { total, noHistory, reasons };
   } catch (e) { console.error("[db] recycleReasonBreakdown", e.message); return { total: 0, reasons: [], noHistory: 0, error: e.message }; }
 }
+
+// 既存リサイクルのリードに、断り理由（履歴の直近結果＋メモ）から温度を一括で付ける。
+// 粗い対応：履歴なし=A／明確拒否系=C／お断り系=B（メモに「押せば/優しい/あと一押し」等があればA）／その他=A。
+// dryRun=true なら件数の試算だけ（リードは触らない）。
+export async function tagRecycleTemperatures({ dryRun = true, onlyMissing = true } = {}) {
+  if (!pool) return {対象: 0, 内訳: {}, 更新: 0 };
+  try {
+    const cond = [`COALESCE(t.stage,'') ILIKE '%リサイクル%'`];
+    if (onlyMissing) cond.push(`COALESCE(NULLIF(btrim(t.temperature),''),'') = ''`);  // まだ温度が無いものだけ
+    const { rows } = await pool.query(
+      `SELECT t.id,
+              (SELECT l.result FROM call_logs l WHERE l.target_id=t.id ORDER BY l.at DESC LIMIT 1) AS last_result,
+              (SELECT l.memo   FROM call_logs l WHERE l.target_id=t.id ORDER BY l.at DESC LIMIT 1) AS last_memo
+         FROM call_targets t
+        WHERE ${cond.join(" AND ")}`);
+    const decide = (res, memo) => {
+      const r = String(res || ""), m = String(memo || "");
+      if (!r) return "A";                                   // 履歴なし＝A
+      if (/押せば|優しい|あと一押し|見込み|前向き/.test(m)) return "A";  // メモが前向き＝A
+      if (/明確|今後は結構|新規.*お断り|二度と|着信拒否/.test(r + m)) return "C";  // 明確拒否＝C
+      if (/お断り|断り|ニーズなし|興味な/.test(r)) return "B";
+      return "A";
+    };
+    const 内訳 = { A: 0, B: 0, C: 0 };
+    const plan = [];
+    for (const row of rows) {
+      const temp = decide(row.last_result, row.last_memo);
+      内訳[temp] = (内訳[temp] || 0) + 1;
+      plan.push({ id: row.id, temp });
+    }
+    let 更新 = 0;
+    if (!dryRun) {
+      for (const p of plan) {
+        try { await pool.query(`UPDATE call_targets SET temperature=$2 WHERE id=$1`, [p.id, p.temp]); 更新++; }
+        catch (e) { console.error("[db] tagRecycleTemperatures update", p.id, e.message); }
+      }
+    }
+    return { 対象: rows.length, 内訳, 更新, dryRun };
+  } catch (e) { console.error("[db] tagRecycleTemperatures", e.message); return { 対象: 0, 内訳: {}, 更新: 0, error: e.message }; }
+}

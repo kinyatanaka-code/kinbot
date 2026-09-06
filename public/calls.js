@@ -2265,6 +2265,15 @@ async function loadAdmin() {
             <summary class="rr-summary"><span>リサイクル復活ルール</span><span class="rr-summary-hint">開いて編集</span></summary>
             <p class="note">断り理由タグごとに、リサイクルから<b>いつ・誰が・何時に・どのトークで</b>当て直すかの設定です。今は設定を貯めるだけで、実際の再浮上はまだ動きません。<b>復活(週)</b>や各項目は運用しながら調整してください。温度＝A(押せば取れそう)/B(時期待ち)/C(要注意)。</p>
             <div id="recycleRules"><div class="note">開くと読み込みます…</div></div>
+            <div style="margin-top:12px;padding-top:10px;border-top:1px solid #eef3f0">
+              <div class="note">今リサイクルにあるリードに、履歴の断り理由から温度A/B/Cを一括で付けます（履歴なし＝A・お断り系＝B・明確拒否＝C・前向きメモ＝A）。まず試算で件数を確認してから実行してください。</div>
+              <div style="display:flex;gap:8px;align-items:center;margin-top:6px;flex-wrap:wrap">
+                <button type="button" class="btn ghost" id="rtDry">試算する</button>
+                <button type="button" class="btn" id="rtRun">温度を付ける（実行）</button>
+                <label style="font-size:12px;display:flex;align-items:center;gap:4px"><input type="checkbox" id="rtAll" /> 既に温度があるものも付け直す</label>
+                <span class="rev-status" id="rtSt"></span>
+              </div>
+            </div>
           </details>
         </div>` : ""}
         ${iAmCloser ? `<div class="kc-adcard">
@@ -2520,6 +2529,33 @@ async function loadAdmin() {
 async function loadRecycleRules() {
   const box = $("recycleRules");
   if (!box) return;
+  // 温度の一括タグ付け（試算・実行）
+  const rtDry = $("rtDry"), rtRun = $("rtRun");
+  if (rtDry && !rtDry.dataset.wired) {
+    rtDry.dataset.wired = "1";
+    const all = () => ($("rtAll") && $("rtAll").checked ? "?all=1" : "");
+    rtDry.addEventListener("click", async () => {
+      say("rtSt", "試算しています…");
+      try {
+        const d = await (await fetch("/api/calls/recycle-temperatures" + all())).json();
+        if (d.error) throw new Error(d.error);
+        say("rtSt", `試算：対象 ${d.対象}件（A:${d.内訳.A || 0} B:${d.内訳.B || 0} C:${d.内訳.C || 0}）`, 12000);
+      } catch (e) { say("rtSt", "失敗：" + e.message, 8000); }
+    });
+    rtRun.addEventListener("click", async () => {
+      if (!confirm("今リサイクルにあるリードに温度を付けます（リードのステージや所属は変えません）。よろしいですか？")) return;
+      rtRun.disabled = true; say("rtSt", "付けています…");
+      try {
+        const d = await (await fetch("/api/calls/recycle-temperatures", {
+          method: "POST", headers: { "content-type": "application/json" },
+          body: JSON.stringify({ all: !!($("rtAll") && $("rtAll").checked) }),
+        })).json();
+        if (d.error) throw new Error(d.error);
+        say("rtSt", `付けました：${d.更新}件（A:${d.内訳.A || 0} B:${d.内訳.B || 0} C:${d.内訳.C || 0}）`, 12000);
+      } catch (e) { say("rtSt", "失敗：" + e.message, 8000); }
+      finally { rtRun.disabled = false; }
+    });
+  }
   try {
     const d = await (await fetch("/api/calls/recycle-rules")).json();
     if (d.error) throw new Error(d.error);
