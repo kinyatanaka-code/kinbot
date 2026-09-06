@@ -14239,10 +14239,15 @@ function dayDiff(a, b) {
 // 予定本文の「アポ獲得: 〇〇」から獲得者名を取り出す（kinbotが作った商談予定に入っている）。
 // 「所得」（獲得の言い間違い・変換ミス）や「アポ」の有無も許容する。
 function setterFromDescription(desc) {
-  const m = String(desc || "").match(/(?:アポ)?\s*(?:獲得|所得)\s*[:：]\s*([^\n\r]+)/);
+  let t = String(desc || "");
+  // カレンダー本文はHTMLで改行が<br>のことがある。まず<br>を改行に、タグを除去してから探す。
+  t = t.replace(/<\s*br\s*\/?\s*>/gi, "\n").replace(/<[^>]+>/g, "");
+  const m = t.match(/(?:アポ)?\s*(?:獲得|所得)\s*[:：]\s*([^\n\r]+)/);
   if (!m) return "";
-  const s = m[1].trim();
-  if (!s || s === "-" || s === "－" || s === "(なし)" || s === "なし") return "";
+  // 名前だけを取り出す（後ろに「担当」「参加URL」やメール等が続く場合に備え、区切りで切る）
+  let s = m[1].split(/\s{2,}|[<\n\r]|担当\s*[:：]|参加URL|メール\s*[:：]|https?:\/\//)[0].trim();
+  if (!s || s.length > 20 || /[@<>/]|https?:/.test(s)) return "";   // 長すぎ・URL/HTML混入は無効
+  if (s === "-" || s === "－" || s === "(なし)" || s === "なし") return "";
   return s;
 }
 
@@ -14306,6 +14311,7 @@ async function checkIncentiveMilestone(name) {
     if (!_incSeeded) return;                 // シード前は通知しない（過去分の誤通知防止）
     const nm = String(name || "").trim();
     if (!nm) return;
+    if (nm.length > 20 || /[<>@/]|https?:/.test(nm)) return;   // 異常な名前（HTML混入等）は通知しない
     const key = _incNorm(nm);
     const { from, to } = incentiveWindow();
     const ms = await listMeetings({ isAdmin: true, from, to, limit: 5000, light: true }).catch(() => []);
@@ -18360,7 +18366,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-06o 週次(週ラップ)の差分を『積み上げ実績−その週の目標』に修正。従来は目標を週ごとに合計した『積み上げ目標』で引いていたため、カード表示の実績−目標と一致せず差分がおかしかった（例9/29週 実績34/目標310なのに-502）。目標編集も『そのカードの実績−目標』のその場更新に簡単化（連鎖更新なし）。前回(20260906n)：入力ごとのリロード停止。";
+const BUILD_TAG = "2026-09-06p 【緊急修正】アポ獲得者の抽出が暴走し、通知にカレンダー本文丸ごと(HTML)が名前として出た件を修正。原因：Googleカレンダー本文は改行が<br>で本物の改行が無いため、行末まで取る抽出が名前の後ろ全部を拾っていた。setterFromDescriptionを<br>→改行・タグ除去し名前だけ抽出＋長さ/URL/HTMLで無効化。通知側にも異常名ガードを追加。既存の誤設定は『いま照合する』(clear→再照合)で修正される。前回(20260906o)：週次差分の修正。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
