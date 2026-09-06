@@ -826,6 +826,16 @@ function renderDock() {
     .kc-ptab{border:none;background:transparent;color:#5b7a6d;font-size:13px;font-weight:600;padding:6px 16px;border-radius:8px;cursor:pointer;}
     .kc-ptab.active{background:#1d9e75;color:#fff;}
     .kc-ptab:not(.active):hover{background:#eaf5ef;color:#0d5b47;}
+    .lst-sum{font-size:13px;color:#0d5b47;font-weight:700;margin:2px 0 10px;}
+    .lst-wrap{overflow-x:auto;}
+    .lst-tbl{border-collapse:collapse;width:100%;font-size:13px;}
+    .lst-tbl th,.lst-tbl td{border-bottom:1px solid #eef3f0;padding:9px 12px;text-align:left;white-space:nowrap;}
+    .lst-tbl th{background:#f4f7f5;color:#0d5b47;font-weight:700;font-size:12px;}
+    .lst-tbl .lst-num{text-align:right;font-variant-numeric:tabular-nums;}
+    .lst-name{font-weight:700;color:#1f2a26;}
+    .lst-strong{font-weight:800;color:#0d5b47;}
+    .lst-badge{margin-left:6px;font-size:10px;font-weight:600;padding:1px 7px;border-radius:6px;background:#e3f3ec;color:#0d5b47;}
+    .lst-badge.k{background:#eef3f1;color:#5a6b64;}
     .kc-week-sec{margin-bottom:16px;}
     .kc-week-h{margin-top:0;}
     .kc-g-sec{font-size:13px;font-weight:800;color:#0d5b47;margin:14px 2px 6px;border-left:3px solid #1d9e75;padding-left:8px;}
@@ -2809,6 +2819,7 @@ function showPane() {
       el.hidden = el.dataset.lsPane !== name;
     });
     if (name === "manage") asLoad();
+    if (name === "status") loadListStatus();
     // リスト作成は、Salesforceのリード一覧をそのまま使う
     if (name === "make") {
       // 最初はSalesforceのレポートを出す
@@ -2817,6 +2828,34 @@ function showPane() {
     }
   });
 })();
+
+// リスト状況：各メンバーのリード数（リストの合計）を表で出す
+async function loadListStatus() {
+  const box = $("lsStatus");
+  if (!box) return;
+  box.innerHTML = '<div class="note">読み込んでいます…</div>';
+  try {
+    const d = await (await fetch("/api/calls/members")).json();
+    const items = (d.items || []).slice().sort((a, b) => (b.全部 || 0) - (a.全部 || 0));
+    if (!items.length) { box.innerHTML = '<div class="empty-state">メンバーがいません。</div>'; return; }
+    const totalAll = items.reduce((s, m) => s + Number(m.全部 || 0), 0);
+    const totalRest = items.reduce((s, m) => s + Number(m.残り || 0), 0);
+    const totalLists = items.reduce((s, m) => s + Number(m.リスト数 || 0), 0);
+    box.innerHTML =
+      `<div class="lst-sum">合計：リード <b>${totalAll.toLocaleString()}</b> 件（残り ${totalRest.toLocaleString()}）／リスト ${totalLists} 個／メンバー ${items.length} 名</div>` +
+      `<div class="lst-wrap"><table class="lst-tbl"><thead><tr>
+         <th>メンバー</th><th class="lst-num">リスト数</th><th class="lst-num">全部（リード数）</th><th class="lst-num">残り</th>
+       </tr></thead><tbody>` +
+      items.map((m) => `<tr>
+         <td class="lst-name">${esc(m.name)}${m.インサイド ? '<span class="lst-badge">インサイド</span>' : ""}${m.kincallだけ ? '<span class="lst-badge k">kincall</span>' : ""}</td>
+         <td class="lst-num">${Number(m.リスト数 || 0)}</td>
+         <td class="lst-num lst-strong">${Number(m.全部 || 0).toLocaleString()}</td>
+         <td class="lst-num">${Number(m.残り || 0).toLocaleString()}</td>
+       </tr>`).join("") + `</tbody></table></div>`;
+  } catch (e) {
+    box.innerHTML = `<div class="note">読み込めませんでした：${esc(e.message)}</div>`;
+  }
+}
 
 // 「kincallだけ」の人には、kinbotへ戻る道を見せない
 let iAmCloser = false;               // クローザー（管理者含む）＝リストを追加できる

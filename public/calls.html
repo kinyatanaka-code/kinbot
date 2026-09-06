@@ -10,7 +10,7 @@
     <link rel="manifest" href="/site.webmanifest" />
     <meta name="theme-color" content="#0d5b47" />
     <meta name="apple-mobile-web-app-title" content="kinbot" />
-    <link rel="stylesheet" href="style.css?v=20260906y" />
+    <link rel="stylesheet" href="style.css?v=20260906z" />
   </head>
   <body class="kc-body">
     <div class="app">
@@ -186,7 +186,12 @@
           <section class="card kc-pane" data-p="lists" hidden>
             <div class="kc-period-tabs" id="lsTabs">
               <button type="button" class="kc-ptab active" data-ls="manage">リスト管理</button>
+              <button type="button" class="kc-ptab" data-ls="status">リスト状況</button>
               <button type="button" class="kc-ptab" data-ls="make">リスト作成</button>
+            </div>
+            <div class="ls-block" data-ls-pane="status" hidden>
+              <p class="note">各メンバーのリード数（リストの合計）です。<b>全部</b>＝そのメンバーのリード総数、<b>残り</b>＝まだ架電していない数、<b>リスト数</b>＝持っているリストの数。</p>
+              <div id="lsStatus"><div class="note">読み込んでいます…</div></div>
             </div>
             <div class="ls-block" data-ls-pane="manage">
               <p class="note">メンバーを選ぶと、その人のリストを管理できます。リストのカードを押すと「かける」に移り、右上の × で削除します。<br>
@@ -306,9 +311,9 @@
         </main>
       </div>
     </div>
-    <script src="sf-data.js?v=20260906y"></script>
-    <script src="calls.js?v=20260906y"></script>
-    <script src="nav.js?v=20260906y"></script>
+    <script src="sf-data.js?v=20260906z"></script>
+    <script src="calls.js?v=20260906z"></script>
+    <script src="nav.js?v=20260906z"></script>
     <script src="/cmdk.js?v=20260827a"></script>
 </body>
 </html>
