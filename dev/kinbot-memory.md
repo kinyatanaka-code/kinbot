@@ -41,6 +41,7 @@ kincall（架電リスト）という別ツールも同じ画面群の中にあ�
 
 ## 決定・指示のログ（新しいものを上に足す）
 
+- 2026-09-06 要望（田中さん）：設定・管理のリサイクル復活ルールの大表が常時開いて見づらい→収納できるように。対応(20260906v)：calls.js で当該カードを details(rr-details)アコーディオン化。初期は閉じ、summaryに『開いて編集』ヒント。toggleで初回のみ loadRecycleRules（無駄読み込み防止）。CSS：summaryのマーカー(▸→回転)、rr-wrap を max-height:52vh で縦スクロール。bump=20260906v。parse/smoke OK。
 - 2026-09-06 要望（田中さん）：リサイクル復活ルール(xlsx)を設定マスタとしてkincallに載せる土台だけ作る（ロジックはまだ動かさない）。対応(20260906u)：db recycle_rules(id,tag(uniq),temperature,revive_weeks_min/max,revive_note,trigger_note,next_owner,time_slot,talk_axis,graduation,sort_order,updated_at)を作成し、アップロード表の11行で空のとき初期投入。listRecycleRules/updateRecycleRule 追加。GET /api/calls/recycle-rules、PUT /:id（!isAdmin&&!isCloserは403）。calls.js 設定・管理の先頭に『リサイクル復活ルール』カード＝編集テーブル（各セルはchangeでPUT、復活週はnumber）。温度A/B/C凡例つき。実際の再浮上（再架電スケジューラ本体）は未実装＝設定を貯めるだけ。※リスト供給/再架電本体は引き続きストップ。bump=20260906u。node--check/parse/smoke OK。
 - 2026-09-06 要望（田中さん）：リスト管理の個別ビューにも個別のアーカイブ/リサイクルがあってごちゃつく。まとめのアーカイブ/リサイクルだけでよい→個別ビューから消す（表示のみ）。対応(20260906t)：calls.js のメンバー個別リスト描画で items を name!=='アーカイブ'&&name!=='リサイクル' でフィルタ。データ・SF・まとめのアーカイブ/リサイクルは不変。※リスト供給エンジン/再架電スケジューラは一旦ストップ（先にリスト管理の整理）。bump=20260906t。parse/smoke OK。
 - 2026-09-06 要望（田中さん）：ダッシュボードの『未照合の商談に獲得者を割り当てる』はもう不要なので消して。対応(20260906s)：calls.js renderDash の assign を空に（ボタン非表示）。openAssignSetter と GET /api/calls/unmatched-meetings・POST /api/calls/set-apo-setter は残置（商談履歴からの手入力が set-apo-setter系を使う）。#dashAssign 配線は if(asgBtn)ガードで無害。bump=20260906s。parse/smoke OK。

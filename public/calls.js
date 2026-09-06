@@ -1010,6 +1010,14 @@ function renderDock() {
     .rr-tag{font-weight:700;color:#1f2a26;white-space:normal;min-width:150px;}
     .rr-weeks{white-space:nowrap;color:#6b7a73;}
     .rr-in{font-size:12px;padding:4px 6px;border:1px solid #d7e0db;border-radius:6px;background:#fff;}
+    .rr-details>summary{list-style:none;cursor:pointer;display:flex;align-items:center;gap:8px;
+      font-size:14px;font-weight:800;color:#0d5b47;padding:2px 0;}
+    .rr-details>summary::-webkit-details-marker{display:none;}
+    .rr-details>summary::before{content:"▸";color:#1d9e75;font-size:12px;transition:transform .15s;}
+    .rr-details[open]>summary::before{transform:rotate(90deg);}
+    .rr-summary-hint{font-size:11px;font-weight:500;color:#8a9a93;}
+    .rr-details[open] .rr-summary-hint{display:none;}
+    .rr-details .rr-wrap{max-height:52vh;overflow:auto;margin-top:6px;border:1px solid #eef3f0;border-radius:10px;}
     .kc-inc-lb{font-size:9.5px;font-weight:700;color:#8a6d1f;letter-spacing:.02em;line-height:1.3;}
     .kc-inc-rank{margin-left:5px;font-size:10px;color:#7a5c10;}
     .kc-inc-yen{font-size:20px;font-weight:800;color:#7a5c10;line-height:1.25;text-shadow:0 1px 0 #fffdf6;display:flex;align-items:center;justify-content:center;gap:2px;}
@@ -2221,9 +2229,11 @@ async function loadAdmin() {
     box.innerHTML = `
       <div class="kc-admin">
         ${iAmCloser ? `<div class="kc-adcard">
-          <h3>リサイクル復活ルール</h3>
-          <p class="note">断り理由タグごとに、リサイクルから<b>いつ・誰が・何時に・どのトークで</b>当て直すかの設定です。今は設定を貯めるだけで、実際の再浮上はまだ動きません。<b>復活(週)</b>や各項目は運用しながら調整してください。温度＝A(押せば取れそう)/B(時期待ち)/C(要注意)。</p>
-          <div id="recycleRules"><div class="note">読み込んでいます…</div></div>
+          <details class="rr-details">
+            <summary class="rr-summary"><span>リサイクル復活ルール</span><span class="rr-summary-hint">開いて編集</span></summary>
+            <p class="note">断り理由タグごとに、リサイクルから<b>いつ・誰が・何時に・どのトークで</b>当て直すかの設定です。今は設定を貯めるだけで、実際の再浮上はまだ動きません。<b>復活(週)</b>や各項目は運用しながら調整してください。温度＝A(押せば取れそう)/B(時期待ち)/C(要注意)。</p>
+            <div id="recycleRules"><div class="note">開くと読み込みます…</div></div>
+          </details>
         </div>` : ""}
         ${iAmCloser ? `<div class="kc-adcard">
           <h3>遅刻カウント（インセンティブ）</h3>
@@ -2467,7 +2477,10 @@ async function loadAdmin() {
       if (confirm("手入力したセルも含めて、実績で上書きします。よろしいですか？")) runPs(false, true);
     });
     if ($("lateBox")) loadLateCounts();
-    if ($("recycleRules")) loadRecycleRules();
+    const rrDet = box.querySelector(".rr-details");
+    if (rrDet) rrDet.addEventListener("toggle", () => {
+      if (rrDet.open && !rrDet.dataset.loaded) { rrDet.dataset.loaded = "1"; loadRecycleRules(); }
+    });
   } catch (e) { box.innerHTML = `<div class="note">読み込めませんでした：${esc(e.message)}</div>`; }
 }
 
