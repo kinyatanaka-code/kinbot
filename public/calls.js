@@ -1808,7 +1808,7 @@ function renderDash(d) {
   const note = `<p class="note" style="margin-top:10px">${(d.period === "week")
       ? "週ラップ（9/1起点の7日区切り）です。実績は月初からの積み上げ、差分は 積み上げ実績−その週の目標。目標は各週に直接入力でき、その週の目標として保存されます。"
       : "目標はここで直接（月次）変更できます（その月の目標として保存されます）。グループ・セールス・インサイドも手動で設定でき、実績はメンバーの合計です。差分は 実績−目標。カードをクリックすると内訳（日次）が出ます。"}</p>`;
-  const assign = iAmCloser ? `<div style="margin-top:8px"><button type="button" class="btn ghost" id="dashAssign">未照合の商談に獲得者を割り当てる</button></div>` : "";
+  const assign = "";   // 「未照合の商談に獲得者を割り当てる」は廃止（手入力は商談履歴・照合は自動）
 
   if (d.period === "week" && Array.isArray(d.weeks)) {
     // 週ごとに グループ/セールス/インサイド のカードを並べる
