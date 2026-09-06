@@ -7424,7 +7424,8 @@ app.post("/api/calls/lists/:id/redistribute", async (req, res) => {
       .filter((p) => p.email);
     if (!plan.length) return res.status(400).json({ error: "割り振るメンバーを選んでください" });
     const onlyPending = b.onlyPending !== false;   // 既定は未架電だけ
-    const r = await redistributeListTargets(id, plan, { onlyPending, dryRun: !!b.dryRun });
+    const includeJudge = b.includeJudge === true;  // 既定はジャッジを除く
+    const r = await redistributeListTargets(id, plan, { onlyPending, dryRun: !!b.dryRun, includeJudge });
     if (!b.dryRun) console.log(`[kincall] リスト${id}を${plan.length}人へ再割り振り（計${r.total}件）by ${req.user}`);
     res.json({ ok: true, ...r });
   } catch (e) { res.status(500).json({ error: e.message }); }
@@ -18419,7 +18420,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-06ad リスト削除を安全化：他の人に割り振っているリスト（自分がownerでも中身が他人担当）は、消してもその人のぶんを残す。自分のぶんだけ外し、自分がownerなら残った割り振り先にownerを渡して自分のビューから外す。従来は割り振り先が1人だと丸ごと消えていた。前回(20260906ac)：共有テンプレ資料が+追加に出ない修正。";
+const BUILD_TAG = "2026-09-06ae 他メンバーへの割り振りで『ジャッジも割り振る/除く』を選べるように。redistributeListTargets に includeJudge を追加（既定は除く＝従来どおり元担当のまま残す）。割り振りモーダルにチェック追加。前回(20260906ad)：リスト削除の安全化。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",

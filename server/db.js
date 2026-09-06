@@ -3542,18 +3542,22 @@ export async function setCallTargetNextCall(id, iso) {
 // リストの架電先を、メンバーごとの「別々の新しいリスト」に分けて移す。
 // これで、1人ずつ独立したリストになり、片方を消しても他の人のリストは消えない。
 // plan: [{email, count, listName}]（count 未指定は均等・余りは指定なしの人へ／listName はそのメンバーの新リスト名）
-export async function redistributeListTargets(listId, plan, { onlyPending = true, dryRun = false } = {}) {
+export async function redistributeListTargets(listId, plan, { onlyPending = true, dryRun = false, includeJudge = false } = {}) {
   if (!pool || !listId) return { total: 0, byMember: {}, lists: [] };
   const members = (plan || []).map((p) => String(p.email || "").trim().toLowerCase()).filter(Boolean);
   if (!members.length) return { total: 0, byMember: {}, lists: [] };
   const where = onlyPending ? "AND done = false" : "";
-  // Salesforceで「ジャッジ」（リード状況＝stageに「ジャッジ」を含む）のリードは、別担当に割り振らない。
-  // 対象から外し、元のリスト・今の担当のまま残す（要望：植野）。
+  // Salesforceで「ジャッジ」（リード状況＝stageに「ジャッジ」を含む）のリードは、既定では別担当に割り振らない。
+  // includeJudge=true のときは、ジャッジも含めて割り振る（画面で選べる）。
+  const judgeFilter = includeJudge ? "" : "AND COALESCE(stage,'') NOT ILIKE '%ジャッジ%'";
   const { rows } = await pool.query(
-    `SELECT id FROM call_targets WHERE list_id = $1 ${where} AND COALESCE(stage,'') NOT ILIKE '%ジャッジ%'`, [listId]);
-  const { rows: jr } = await pool.query(
-    `SELECT count(*)::int AS n FROM call_targets WHERE list_id = $1 ${where} AND COALESCE(stage,'') ILIKE '%ジャッジ%'`, [listId]);
-  const judgeKept = jr[0] ? jr[0].n : 0;
+    `SELECT id FROM call_targets WHERE list_id = $1 ${where} ${judgeFilter}`, [listId]);
+  let judgeKept = 0;
+  if (!includeJudge) {
+    const { rows: jr } = await pool.query(
+      `SELECT count(*)::int AS n FROM call_targets WHERE list_id = $1 ${where} AND COALESCE(stage,'') ILIKE '%ジャッジ%'`, [listId]);
+    judgeKept = jr[0] ? jr[0].n : 0;
+  }
   const ids = rows.map((r) => r.id);
   for (let i = ids.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [ids[i], ids[j]] = [ids[j], ids[i]]; }
 

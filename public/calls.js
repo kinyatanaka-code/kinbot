@@ -3410,6 +3410,9 @@ async function openRedistribute(listId, listName, backEmail, backName) {
       <label style="display:flex;align-items:center;gap:8px;font-size:13px;margin-top:8px">
         <input type="checkbox" id="kcRdAll" /> 架電済みも含めて割り振り直す
       </label>
+      <label style="display:flex;align-items:center;gap:8px;font-size:13px;margin-top:4px">
+        <input type="checkbox" id="kcRdJudge" /> ジャッジのリードも割り振る（既定は除く：元の担当のまま残す）
+      </label>
       <div class="kc-modal-foot">
         <button type="button" class="btn kc-outline" id="kcRdDry">まず試算する</button>
         <button type="button" class="btn" id="kcRdRun">この人たちに割り振る</button>
@@ -3458,7 +3461,7 @@ async function openRedistribute(listId, listName, backEmail, backName) {
     try {
       const r = await fetch(`/api/calls/lists/${encodeURIComponent(listId)}/redistribute`, {
         method: "POST", headers: { "content-type": "application/json" },
-        body: JSON.stringify({ members: rows2, onlyPending: !m.el.querySelector("#kcRdAll").checked, dryRun }),
+        body: JSON.stringify({ members: rows2, onlyPending: !m.el.querySelector("#kcRdAll").checked, includeJudge: !!m.el.querySelector("#kcRdJudge").checked, dryRun }),
       });
       const d = await r.json();
       if (!r.ok) throw new Error(d.error || "できませんでした");
