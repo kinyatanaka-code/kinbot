@@ -7855,3 +7855,29 @@ export async function updateRecycleRule(id, patch = {}) {
     return rows[0] || null;
   } catch (e) { console.error("[db] updateRecycleRule", e.message); return null; }
 }
+
+// リスト×ステージの件数（リスト状況タブ用）。アーカイブ/リサイクルは除く。
+export async function listStageCountsByList() {
+  if (!pool) return { stages: [], lists: [] };
+  try {
+    const { rows } = await pool.query(`
+      SELECT l.id, l.name, l.owner, u.name AS owner_name,
+             COALESCE(NULLIF(btrim(t.stage), ''), '(未設定)') AS stage, count(*)::int AS cnt
+        FROM call_lists l
+        JOIN call_targets t ON t.list_id = l.id
+        LEFT JOIN users u ON u.email = l.owner
+       WHERE l.name NOT IN ('アーカイブ', 'リサイクル')
+       GROUP BY l.id, l.name, l.owner, u.name, stage`);
+    const stageSet = new Set(), map = new Map();
+    for (const r of rows) {
+      stageSet.add(r.stage);
+      if (!map.has(r.id)) map.set(r.id, { id: r.id, name: r.name, owner_name: r.owner_name || "", total: 0, byStage: {} });
+      const o = map.get(r.id);
+      o.byStage[r.stage] = (o.byStage[r.stage] || 0) + r.cnt;
+      o.total += r.cnt;
+    }
+    const lists = [...map.values()].sort((a, b) => b.total - a.total);
+    const stages = [...stageSet].sort();
+    return { stages, lists };
+  } catch (e) { console.error("[db] listStageCountsByList", e.message); return { stages: [], lists: [] }; }
+}

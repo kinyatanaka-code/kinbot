@@ -313,6 +313,7 @@ import {
   listDocFiles,
   listDealDocTracking,
   listRecycleRules,
+  listStageCountsByList,
   updateRecycleRule,
   setDocShared,
   setDocStanding,
@@ -4413,6 +4414,12 @@ app.get("/api/docs", async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+// リスト×ステージの件数（リスト状況タブ）
+app.get("/api/calls/list-stage-counts", async (req, res) => {
+  try { res.json(await listStageCountsByList()); }
+  catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 // リサイクル復活ルール（設定マスタ）。まだ実際の再浮上ロジックは動かさず、設定を貯める・編集する箱。
 app.get("/api/calls/recycle-rules", async (req, res) => {
   try { res.json({ rules: await listRecycleRules() }); }
@@ -7521,7 +7528,9 @@ app.get("/api/calls/members", async (req, res) => {
     for (const m of base) {
       let リスト数 = 0, 全部 = 0, 残り = 0;
       if (m.email) {
-        const lists = await listCallLists({ owner: String(m.email).toLowerCase(), includeClosed: false, ownerOnly: true }).catch(() => []);
+        const lists0 = await listCallLists({ owner: String(m.email).toLowerCase(), includeClosed: false, ownerOnly: true }).catch(() => []);
+        // アーカイブ・リサイクルはリード数に数えない
+        const lists = lists0.filter((l) => { const n = String(l.name || "").trim(); return n !== "アーカイブ" && n !== "リサイクル"; });
         リスト数 = lists.length;
         全部 = lists.reduce((s, l) => s + Number(l["全部"] || 0), 0);
         const 済み = lists.reduce((s, l) => s + Number(l["済み"] || 0), 0);
@@ -18400,7 +18409,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-06z リスト管理に『リスト状況』タブを追加。各メンバーのリード数（全部/残り）とリスト数を表で表示（/api/calls/members の既存集計を使用・新規APIなし）。合計サマリ付き。前回(20260906y)：再架電理由欄の撤去・プルダウン整理。";
+const BUILD_TAG = "2026-09-06aa リスト状況：リード数の合計からアーカイブ/リサイクルを除外。さらに『リスト×ステージ 件数』の表を追加（各リストのステージ別件数＋合計行）。GET /api/calls/list-stage-counts 追加。前回(20260906z)：リスト状況タブ。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",

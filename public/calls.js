@@ -836,6 +836,10 @@ function renderDock() {
     .lst-strong{font-weight:800;color:#0d5b47;}
     .lst-badge{margin-left:6px;font-size:10px;font-weight:600;padding:1px 7px;border-radius:6px;background:#e3f3ec;color:#0d5b47;}
     .lst-badge.k{background:#eef3f1;color:#5a6b64;}
+    .lst-h{font-size:13px;font-weight:800;color:#0d5b47;margin:18px 0 8px;}
+    .lst-owner{margin-left:8px;font-size:11px;font-weight:500;color:#8a9a93;}
+    .lst-zero{color:#c3cec8;}
+    .lst-total td{border-top:2px solid #dbe6e0;font-weight:800;background:#f7faf8;}
     .kc-week-sec{margin-bottom:16px;}
     .kc-week-h{margin-top:0;}
     .kc-g-sec{font-size:13px;font-weight:800;color:#0d5b47;margin:14px 2px 6px;border-left:3px solid #1d9e75;padding-left:8px;}
@@ -2851,7 +2855,39 @@ async function loadListStatus() {
          <td class="lst-num">${Number(m.リスト数 || 0)}</td>
          <td class="lst-num lst-strong">${Number(m.全部 || 0).toLocaleString()}</td>
          <td class="lst-num">${Number(m.残り || 0).toLocaleString()}</td>
-       </tr>`).join("") + `</tbody></table></div>`;
+       </tr>`).join("") + `</tbody></table></div>` +
+      `<h4 class="lst-h">リスト × ステージ 件数</h4><div id="lsStage"><div class="note">読み込んでいます…</div></div>`;
+    loadListStageCounts();
+  } catch (e) {
+    box.innerHTML = `<div class="note">読み込めませんでした：${esc(e.message)}</div>`;
+  }
+}
+
+// リスト×ステージの件数（リスト状況タブの下段）
+async function loadListStageCounts() {
+  const box = $("lsStage");
+  if (!box) return;
+  try {
+    const d = await (await fetch("/api/calls/list-stage-counts")).json();
+    if (d.error) throw new Error(d.error);
+    const stages = d.stages || [], lists = d.lists || [];
+    if (!lists.length) { box.innerHTML = '<div class="note">リストがありません。</div>'; return; }
+    // ステージ合計（列の並びは件数の多い順）
+    const stageTotal = {};
+    for (const l of lists) for (const s of stages) stageTotal[s] = (stageTotal[s] || 0) + Number(l.byStage[s] || 0);
+    const cols = stages.slice().sort((a, b) => (stageTotal[b] || 0) - (stageTotal[a] || 0));
+    const grand = lists.reduce((s, l) => s + l.total, 0);
+    box.innerHTML =
+      `<div class="lst-wrap"><table class="lst-tbl"><thead><tr>
+         <th>リスト</th><th class="lst-num">合計</th>${cols.map((s) => `<th class="lst-num">${esc(s)}</th>`).join("")}
+       </tr></thead><tbody>` +
+      lists.map((l) => `<tr>
+         <td class="lst-name">${esc(l.name)}${l.owner_name ? `<span class="lst-owner">${esc(l.owner_name)}</span>` : ""}</td>
+         <td class="lst-num lst-strong">${l.total.toLocaleString()}</td>
+         ${cols.map((s) => { const c = Number(l.byStage[s] || 0); return `<td class="lst-num${c ? "" : " lst-zero"}">${c ? c.toLocaleString() : "-"}</td>`; }).join("")}
+       </tr>`).join("") +
+      `<tr class="lst-total"><td class="lst-name">合計</td><td class="lst-num lst-strong">${grand.toLocaleString()}</td>${cols.map((s) => `<td class="lst-num">${(stageTotal[s] || 0).toLocaleString()}</td>`).join("")}</tr>` +
+      `</tbody></table></div>`;
   } catch (e) {
     box.innerHTML = `<div class="note">読み込めませんでした：${esc(e.message)}</div>`;
   }
