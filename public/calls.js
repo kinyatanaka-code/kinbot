@@ -105,11 +105,12 @@ async function loadTable() {
 }
 
 // 絞り込みと並べ替えの状態
-const filt = { stage: new Set(), status: new Set(), hist: "", post: "", hireMin: "", hireMax: "" };
+const filt = { stage: new Set(), status: new Set(), hist: "", post: "", hireMin: "", hireMax: "", extra: {} };
 try { const _f = JSON.parse(localStorage.getItem("kcFilt") || "{}");
   if (Array.isArray(_f.stage)) filt.stage = new Set(_f.stage);
   if (Array.isArray(_f.status)) filt.status = new Set(_f.status);
   if (typeof _f.hist === "string") filt.hist = _f.hist;
+  if (_f.extra && typeof _f.extra === "object") { filt.extra = {}; for (const k in _f.extra) if (Array.isArray(_f.extra[k]) && _f.extra[k].length) filt.extra[k] = new Set(_f.extra[k]); }
 } catch {}
 let hideApo = false;   // アポ獲得済みを隠しているか
 let _sfDisconnected = false;   // SFに接続できず履歴件数が数えられなかった
@@ -121,6 +122,10 @@ function visibleRows() {
   let list = rows.slice();
   if (filt.stage.size) list = list.filter((x) => filt.stage.has((x["ステージ"] || "").trim()));
   if (filt.status.size) list = list.filter((x) => filt.status.has((x["最終ステータス"] || "").trim()));
+  for (const k in (filt.extra || {})) {
+    const set = filt.extra[k];
+    if (set && set.size) list = list.filter((x) => set.has(String((rowExtra(x) || {})[k] ?? "").trim()));
+  }
   if (filt.hist === "none") list = list.filter((x) => !x["履歴数"]);
   if (filt.hist === "some") list = list.filter((x) => x["履歴数"] > 0);
   // 掲載状態（掲載中／掲載終了）：求人データの「掲載終了日」を今日と比べる
@@ -236,18 +241,24 @@ function nextDueLabel(x) {
 
 // 絞り込みの窓を出す（チェックで選ぶ）
 function openFilter(which, btn) {
-  const key = which === "stage" ? "ステージ" : "最終ステータス";
-  const values = [...new Set(rows.map((x) => (x[key] || "").trim()).filter((v) => v !== ""))].sort();
-  const emptyN = rows.filter((x) => !(x[key] || "").trim()).length;
+  // which が "stage"/"status" 以外なら「追加列（求人データ等）」の絞り込み
+  const extraKey = (which !== "stage" && which !== "status") ? which : null;
+  const key = extraKey || (which === "stage" ? "ステージ" : "最終ステータス");
+  const valOf = extraKey
+    ? (x) => String((rowExtra(x) || {})[extraKey] ?? "").trim()
+    : (x) => String(x[key] || "").trim();
+  if (extraKey && !filt.extra) filt.extra = {};
+  const values = [...new Set(rows.map(valOf).filter((v) => v !== ""))].sort();
+  const emptyN = rows.filter((x) => !valOf(x)).length;
   // 空欄（-）も選べるように、末尾に「（空欄）」を足す。値は "" を使う。
   const options = emptyN ? [...values, ""] : values;
-  const cur = filt[which];
+  const cur = extraKey ? (filt.extra[extraKey] || new Set()) : filt[which];
   const inner =
     `<div class="kc-flt-list">` +
     options.map((v) => `<label class="kc-flt-row">
        <input type="checkbox" value="${esc(v)}"${cur.size === 0 || cur.has(v) ? " checked" : ""} />
        <span>${v === "" ? "（空欄・未入力）" : esc(v)}</span>
-       <span class="kc-flt-n">${v === "" ? emptyN : rows.filter((x) => (x[key] || "").trim() === v).length}</span>
+       <span class="kc-flt-n">${v === "" ? emptyN : rows.filter((x) => valOf(x) === v).length}</span>
      </label>`).join("") + `</div>
      <div class="kc-modal-foot">
        <button type="button" class="btn" id="fltOk">この条件で見る</button>
@@ -257,7 +268,9 @@ function openFilter(which, btn) {
   const m = openModal(`${key}でしぼる`, inner);
   m.el.querySelector("#fltOk").addEventListener("click", () => {
     const picked = [...m.el.querySelectorAll("input:checked")].map((c) => c.value);
-    filt[which] = picked.length === options.length ? new Set() : new Set(picked);
+    const next = picked.length === options.length ? new Set() : new Set(picked);
+    if (extraKey) { if (next.size) filt.extra[extraKey] = next; else delete filt.extra[extraKey]; }
+    else filt[which] = next;
     saveFilt(); m.close(); render();
   });
   // すべて外す：チェックを全部はずす（押しただけでは絞り込みは変えず、選び直せる）
@@ -265,7 +278,8 @@ function openFilter(which, btn) {
     m.el.querySelectorAll(".kc-flt-list input").forEach((c) => { c.checked = false; });
   });
   m.el.querySelector("#fltAll").addEventListener("click", () => {
-    filt[which] = new Set(); saveFilt(); m.close(); render();
+    if (extraKey) delete filt.extra[extraKey]; else filt[which] = new Set();
+    saveFilt(); m.close(); render();
   });
 }
 
@@ -274,6 +288,7 @@ function saveFilt() {
   try {
     localStorage.setItem("kcFilt", JSON.stringify({
       stage: [...filt.stage], status: [...filt.status], hist: filt.hist || "",
+      extra: Object.fromEntries(Object.entries(filt.extra || {}).map(([k, v]) => [k, [...v]])),
     }));
   } catch {}
 }
@@ -343,6 +358,56 @@ function cleanRecruitVal(v) {
   return s;
 }
 
+// 掲載（掲載中／掲載終了／日付なし）でしぼる窓（列見出しの▾から）
+function openPostFilter() {
+  const today = new Date(Date.now() + 9 * 3600000).toISOString().slice(0, 10);
+  const stateOf = (x) => {
+    const e = rowExtra(x) || {};
+    const raw = e["掲載終了日"] || e["doda掲載終了日"] || "";
+    const d = String(raw).replace(/\//g, "-").slice(0, 10);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(d)) return "none";
+    return d >= today ? "active" : "ended";
+  };
+  const n = { active: 0, ended: 0, none: 0 };
+  for (const x of rows) n[stateOf(x)]++;
+  const opts = [["", "すべて", rows.length], ["active", "掲載中", n.active], ["ended", "掲載終了", n.ended], ["none", "日付なし", n.none]];
+  const inner =
+    `<div class="kc-flt-list">` +
+    opts.map(([v, lb, c]) => `<label class="kc-flt-row">
+       <input type="radio" name="pf" value="${v}"${filt.post === v ? " checked" : ""} />
+       <span>${lb}</span><span class="kc-flt-n">${c}</span></label>`).join("") +
+    `</div><div class="kc-modal-foot"><button type="button" class="btn" id="pfOk">この条件で見る</button></div>`;
+  const m = openModal("掲載でしぼる", inner);
+  m.el.querySelector("#pfOk").addEventListener("click", () => {
+    const sel = m.el.querySelector('input[name="pf"]:checked');
+    filt.post = sel ? sel.value : "";
+    m.close(); render();
+  });
+}
+// 採用人数（最小〜最大）でしぼる窓（列見出しの▾から）
+function openHireFilter() {
+  const inner =
+    `<div style="display:flex;align-items:center;gap:8px;font-size:13px">
+      <input type="number" class="kc-input" id="hfMin" min="0" placeholder="最小" value="${esc(filt.hireMin)}" style="width:90px" />
+      <span>〜</span>
+      <input type="number" class="kc-input" id="hfMax" min="0" placeholder="最大" value="${esc(filt.hireMax)}" style="width:90px" />
+      <span>人</span>
+    </div>
+    <div class="kc-modal-foot">
+      <button type="button" class="btn" id="hfOk">この条件で見る</button>
+      <button type="button" class="btn ghost" id="hfClr">絞り込みを消す</button>
+    </div>`;
+  const m = openModal("採用人数でしぼる", inner);
+  m.el.querySelector("#hfOk").addEventListener("click", () => {
+    filt.hireMin = m.el.querySelector("#hfMin").value.trim();
+    filt.hireMax = m.el.querySelector("#hfMax").value.trim();
+    m.close(); render();
+  });
+  m.el.querySelector("#hfClr").addEventListener("click", () => {
+    filt.hireMin = ""; filt.hireMax = ""; m.close(); render();
+  });
+}
+
 function render() {
   const box = $("clTable");
   const fullList = visibleRows();
@@ -410,7 +475,14 @@ function render() {
         <th class="kc-th-r">記録</th>
         <th class="kc-th-e">編集</th>
         <th class="kc-th-d">資料送付</th>
-        ${rcols.map((k) => `<th class="kc-th-rc" draggable="true" data-rck="${esc(k)}" title="ドラッグで並べ替え">${esc(k)}</th>`).join("")}
+        ${rcols.map((k) => {
+          const isEnd = /掲載終了日/.test(k), isHire = /採用人数/.test(k);
+          const onCls = (isEnd && filt.post) || (isHire && (filt.hireMin !== "" || filt.hireMax !== "")) ? " on" : "";
+          const btn = (isEnd || isHire)
+            ? `<button type="button" class="kc-th-b kc-th-rcb${onCls}" data-rcflt="${isEnd ? "post" : "hire"}">${esc(k)} ▾</button>`
+            : esc(k);
+          return `<th class="kc-th-rc" draggable="true" data-rck="${esc(k)}" title="ドラッグで並べ替え">${btn}</th>`;
+        }).join("")}
       </tr>` +
     list.map((x, i) => {
       const 済 = isDone(x);
@@ -454,6 +526,11 @@ function render() {
   // 見出しの絞り込み・並べ替え
   box.querySelectorAll("[data-flt]").forEach((b) =>
     b.addEventListener("click", () => openFilter(b.dataset.flt, b)));
+  box.querySelectorAll("[data-rcflt]").forEach((b) =>
+    b.addEventListener("click", (e) => {
+      e.stopPropagation();
+      (b.dataset.rcflt === "post" ? openPostFilter : openHireFilter)();
+    }));
   box.querySelectorAll("[data-sort]").forEach((b) =>
     b.addEventListener("click", () => {
       if (sortBy === b.dataset.sort) sortDesc = !sortDesc;
