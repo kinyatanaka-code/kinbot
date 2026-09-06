@@ -18368,7 +18368,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-06q 【重要】手入力したアポ獲得者が照合(自動)で消える不具合を修正。meetings.apo_setter_manual を追加し、手入力(商談履歴/手動割り当て)は manual=true で保存。clearApoSetters は手入力を消さない、自動照合は手入力商談をスキップ、自動setは手入力を上書きしない。以後『いま照合する』を実行しても手入力は残る。前回(20260906p)：獲得者抽出の暴走修正。";
+const BUILD_TAG = "2026-09-06r 設定・管理の『いま照合する』ボタンを撤去（アポ獲得者の照合は毎日自動で走るため）。/api/interns/match のエンドポイントと夜間cronは維持。手入力は照合で上書き・削除されない旨を明記。前回(20260906q)：手入力アポ獲得者の保護。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",

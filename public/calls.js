@@ -2244,11 +2244,7 @@ async function loadAdmin() {
 
         <div class="kc-adcard">
           <h3>アポ獲得者の照合</h3>
-          <p class="note">商談に「アポ獲得者」を紐づけます。これが付くと、インセンティブの「実施」に数えられます。ふだんは毎日自動で走りますが、すぐ反映したいときはここから実行してください。</p>
-          <div style="display:flex;gap:8px;align-items:center;margin-bottom:16px">
-            <button type="button" class="btn" id="kcMatchNow">いま照合する</button>
-            <span class="rev-status" id="kcMatchSt"></span>
-          </div>
+          <p class="note">商談に「アポ獲得者」を紐づけます。これが付くと、インセンティブの「実施」に数えられます。<b>毎日自動で照合されます</b>（手で入力した獲得者は、照合で上書き・削除されません）。</p>
 
           <h3>プロセスシートの管理</h3>
           <p class="note">SFレポートを読み取って、架電結果を「反映先のプロセスシート」に書き込みます。反映先やレポートはここで設定できます。</p>
