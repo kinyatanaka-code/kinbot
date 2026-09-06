@@ -124,7 +124,7 @@ function visibleRows() {
   if (filt.status.size) list = list.filter((x) => filt.status.has((x["最終ステータス"] || "").trim()));
   for (const k in (filt.extra || {})) {
     const set = filt.extra[k];
-    if (set && set.size) list = list.filter((x) => set.has(String((rowExtra(x) || {})[k] ?? "").trim()));
+    if (set && set.size) list = list.filter((x) => set.has(cleanRecruitVal((rowExtra(x) || {})[k])));
   }
   if (filt.hist === "none") list = list.filter((x) => !x["履歴数"]);
   if (filt.hist === "some") list = list.filter((x) => x["履歴数"] > 0);
@@ -242,7 +242,7 @@ function openFilter(which, btn) {
   const extraKey = (which !== "stage" && which !== "status") ? which : null;
   const key = extraKey || (which === "stage" ? "ステージ" : "最終ステータス");
   const valOf = extraKey
-    ? (x) => String((rowExtra(x) || {})[extraKey] ?? "").trim()
+    ? (x) => cleanRecruitVal((rowExtra(x) || {})[extraKey])
     : (x) => String(x[key] || "").trim();
   if (extraKey && !filt.extra) filt.extra = {};
   const values = [...new Set(rows.map(valOf).filter((v) => v !== ""))].sort();
@@ -504,10 +504,11 @@ function render() {
         <th class="kc-th-d">資料送付</th>
         ${rcols.map((k) => {
           const isEnd = /掲載終了/.test(k), isHire = /採用人数|採用予定人数/.test(k);
-          const onCls = (isEnd && filt.post) || (isHire && (filt.hireMin !== "" || filt.hireMax !== "")) ? " on" : "";
+          const exOn = filt.extra && filt.extra[k] && filt.extra[k].size ? " on" : "";
+          const onCls = (isEnd && filt.post) || (isHire && (filt.hireMin !== "" || filt.hireMax !== "")) ? " on" : exOn;
           const btn = (isEnd || isHire)
             ? `<button type="button" class="kc-th-b kc-th-rcb${onCls}" data-rcflt="${isEnd ? "post" : "hire"}">${esc(k)} ▾</button>`
-            : esc(k);
+            : `<button type="button" class="kc-th-b kc-th-rcb${onCls}" data-exflt="${esc(k)}">${esc(k)} ▾</button>`;
           return `<th class="kc-th-rc" draggable="true" data-rck="${esc(k)}" title="ドラッグで並べ替え">${btn}</th>`;
         }).join("")}
       </tr>` +
@@ -558,6 +559,8 @@ function render() {
       e.stopPropagation();
       (b.dataset.rcflt === "post" ? openPostFilter : openHireFilter)();
     }));
+  box.querySelectorAll("[data-exflt]").forEach((b) =>
+    b.addEventListener("click", (e) => { e.stopPropagation(); openFilter(b.dataset.exflt, b); }));
   box.querySelectorAll("[data-sort]").forEach((b) =>
     b.addEventListener("click", () => {
       if (sortBy === b.dataset.sort) sortDesc = !sortDesc;
