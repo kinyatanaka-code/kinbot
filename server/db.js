@@ -8064,16 +8064,22 @@ export async function tagRecycleTemperatures({ dryRun = true, onlyMissing = true
         WHERE ${cond.join(" AND ")}`);
     const decide = (res, memo) => {
       const r = String(res || ""), m = String(memo || "");
+      // 対象外（温度を付けない）：現在使われていない＝本来アーカイブ、アポ獲得＝リサイクルにいるのが不自然
+      if (/現在使われて|現アナ|欠番|不通|使われていない番号/.test(r)) return null;
+      if (/アポ獲得/.test(r)) return null;
       if (!r) return "A";                                   // 履歴なし＝A
       if (/押せば|優しい|あと一押し|見込み|前向き/.test(m)) return "A";  // メモが前向き＝A
       if (/明確|今後は結構|新規.*お断り|二度と|着信拒否/.test(r + m)) return "C";  // 明確拒否＝C
-      if (/お断り|断り|ニーズなし|興味な/.test(r)) return "B";
-      return "A";
+      if (/受付ブロック/.test(r)) return "C";               // 受付ブロック＝C（塩対応寄り）
+      if (/お断り|断り|ニーズなし|興味な/.test(r)) return "B";   // お断り系＝B
+      if (/不在/.test(r)) return "A";                        // 不在＝折り返し前提でA
+      return "A";                                            // コールのみ・問い合わせ 等＝A
     };
-    const 内訳 = { A: 0, B: 0, C: 0 };
+    const 内訳 = { A: 0, B: 0, C: 0, 対象外: 0 };
     const plan = [];
     for (const row of rows) {
       const temp = decide(row.last_result, row.last_memo);
+      if (!temp) { 内訳.対象外 = (内訳.対象外 || 0) + 1; continue; }   // 温度を付けない
       内訳[temp] = (内訳[temp] || 0) + 1;
       plan.push({ id: row.id, temp });
     }

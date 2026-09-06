@@ -176,6 +176,11 @@ function isApoDone(x) { return /アポ獲得/.test(状況(x)) && !isUser(x); }
 function isDeadNumber(x) { return /使われて|使わない|現在使わ|現アナ|欠番|不通|【使われていない番号】/.test(状況(x)); }
 function isDone(x) { return isApoDone(x) || isUser(x) || isLost(x) || isDeadNumber(x); }
 // 行のバッジ（会社名の右）
+function tempBadge(x) {
+  const t = String((x && x["温度"]) || "").trim().toUpperCase();
+  if (!t || !["A", "B", "C"].includes(t)) return "";
+  return ` <span class="kc-temp-badge kc-temp-${t}" title="リサイクル復活の温度 ${t}">${t}</span>`;
+}
 function doneBadge(x) {
   if (isDeadNumber(x)) return ' <span class="kc-dead-badge">使われていない番号</span>';
   if (isUser(x)) return ' <span class="kc-user-badge">ユーザー</span>';
@@ -387,7 +392,7 @@ function render() {
       <tr data-id="${x.id}" class="${済 ? "kc-apo-done" : ""}">
         ${listId !== "all" ? `<td class="kc-fx-check"><input type="checkbox" class="kc-sel" data-id="${x.id}"${selectedIds.has(String(x.id)) ? " checked" : ""} /></td>` : ""}
         <td class="kc-stage kc-fx-stage">${esc(x["ステージ"] || "-")}</td>
-        <td class="kc-co kc-fx-co">${esc(x["会社名"] || "")}${doneBadge(x)}${bizBadge(x)}${
+        <td class="kc-co kc-fx-co">${esc(x["会社名"] || "")}${tempBadge(x)}${doneBadge(x)}${bizBadge(x)}${
           予定 ? ` <span class="kc-next-badge${予定.due ? " due" : ""}">${予定.due ? "架電予定 " : "予定 "}${esc(予定.md)} ${esc(予定.hhmm)}<button type="button" class="kc-next-x" data-id="${x.id}" title="この架電予定を消す">×</button></span>` : ""}</td>
         <td class="kc-person">${x["ふりがな"] ? `<span class="kc-kana">${esc(x["ふりがな"])}</span>` : ""}<span class="kc-pname">${esc(x["担当者"] || "")}</span></td>
         <td>${x["電話番号"]
@@ -968,6 +973,10 @@ function renderDock() {
     .kc-user-badge{display:inline-block;margin-left:6px;padding:1px 7px;border-radius:10px;background:#0d5b47;color:#fff;font-size:11px;font-weight:700;vertical-align:middle;}
     .kc-lost-badge{display:inline-block;margin-left:6px;padding:1px 7px;border-radius:10px;background:#e9edeb;color:#6b7a74;font-size:11px;font-weight:700;vertical-align:middle;}
     .kc-dead-badge{display:inline-block;margin-left:6px;padding:1px 7px;border-radius:10px;background:#fbe7e6;color:#a32d2d;font-size:11px;font-weight:700;vertical-align:middle;}
+    .kc-temp-badge{display:inline-block;margin-left:6px;width:18px;height:18px;line-height:18px;text-align:center;border-radius:50%;font-size:11px;font-weight:800;vertical-align:middle;}
+    .kc-temp-A{background:#dff3ea;color:#0d5b47;}
+    .kc-temp-B{background:#fdf0d6;color:#a5751a;}
+    .kc-temp-C{background:#fbe7e6;color:#a32d2d;}
     .kc-reason{margin:6px 0 2px;}
     .kc-reason-chips{display:flex;flex-wrap:wrap;gap:6px;}
     .kc-reason-chip{border:1px solid #cfe0d9;background:#fff;color:#1f2a26;border-radius:999px;padding:5px 12px;font-size:12px;cursor:pointer;transition:all .12s;}
@@ -2539,7 +2548,7 @@ async function loadRecycleRules() {
       try {
         const d = await (await fetch("/api/calls/recycle-temperatures" + all())).json();
         if (d.error) throw new Error(d.error);
-        say("rtSt", `試算：対象 ${d.対象}件（A:${d.内訳.A || 0} B:${d.内訳.B || 0} C:${d.内訳.C || 0}）`, 12000);
+        say("rtSt", `試算：対象 ${d.対象}件（A:${d.内訳.A || 0} B:${d.内訳.B || 0} C:${d.内訳.C || 0}／対象外 ${d.内訳.対象外 || 0}）`, 12000);
       } catch (e) { say("rtSt", "失敗：" + e.message, 8000); }
     });
     rtRun.addEventListener("click", async () => {
@@ -2551,7 +2560,7 @@ async function loadRecycleRules() {
           body: JSON.stringify({ all: !!($("rtAll") && $("rtAll").checked) }),
         })).json();
         if (d.error) throw new Error(d.error);
-        say("rtSt", `付けました：${d.更新}件（A:${d.内訳.A || 0} B:${d.内訳.B || 0} C:${d.内訳.C || 0}）`, 12000);
+        say("rtSt", `付けました：${d.更新}件（A:${d.内訳.A || 0} B:${d.内訳.B || 0} C:${d.内訳.C || 0}／対象外 ${d.内訳.対象外 || 0}）`, 12000);
       } catch (e) { say("rtSt", "失敗：" + e.message, 8000); }
       finally { rtRun.disabled = false; }
     });
