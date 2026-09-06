@@ -210,6 +210,7 @@ import {
   isRevivalList,
   pickRecycleCandidateForGroup,
   recycleBreakdown,
+  recycleReasonBreakdown,
   setCallTargetAbsent,
   setCallTargetRecycleInfo,
   findListsByNameSince,
@@ -4456,6 +4457,13 @@ app.post("/api/calls/recycle-revival-lists", async (req, res) => {
 app.get("/api/calls/_recyclediag", async (req, res) => {
   try {
     res.json(await recycleBreakdown());
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// リサイクルのリードの「直近の架電結果（断り理由）」の文言と件数を洗い出す（温度対応表づくりの材料）。
+app.get("/api/calls/_recyclereasons", async (req, res) => {
+  try {
+    res.json(await recycleReasonBreakdown());
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
@@ -18515,7 +18523,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-06ak 診断追加：GET /api/calls/_recyclediag でリサイクルの内訳（リスト別・グループ別・温度別の件数）を確認できる。リサイクル(まとめ)はステージ横断で集める作りのため表示上はリスト非区別だが、データ上は list_id/group_id で区別可能なことを可視化。前回(20260906aj)：3c補充。";
+const BUILD_TAG = "2026-09-06al 洗い出し診断：GET /api/calls/_recyclereasons でリサイクルのリードの直近架電結果(断り理由)の文言と件数を集計（履歴なし件数も）。温度対応表を憶測でなく実データから作るための材料。リードは触らない。前回(20260906ak)：リサイクル内訳診断。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",

@@ -8021,3 +8021,29 @@ export async function recycleBreakdown() {
     return { total, byGroup, byTemp, byList };
   } catch (e) { console.error("[db] recycleBreakdown", e.message); return { total: 0, byList: [], byGroup: [], byTemp: {}, error: e.message }; }
 }
+
+// リサイクルにあるリードの「直近の架電結果（call_logsのresult）」の文言と件数を洗い出す。
+// 温度の対応表を作るための診断。リードは触らない。
+export async function recycleReasonBreakdown() {
+  if (!pool) return { total: 0, reasons: [], noHistory: 0 };
+  try {
+    const { rows } = await pool.query(
+      `WITH rc AS (
+         SELECT t.id,
+                (SELECT l2.result FROM call_logs l2 WHERE l2.target_id = t.id ORDER BY l2.at DESC LIMIT 1) AS last_result
+           FROM call_targets t
+           JOIN call_lists cl ON cl.id = t.list_id
+          WHERE COALESCE(t.stage,'') ILIKE '%リサイクル%'
+       )
+       SELECT COALESCE(NULLIF(btrim(last_result),''),'(履歴なし)') AS reason, count(*)::int AS n
+         FROM rc GROUP BY reason ORDER BY n DESC`);
+    let total = 0, noHistory = 0;
+    const reasons = [];
+    for (const r of rows) {
+      total += r.n;
+      if (r.reason === "(履歴なし)") noHistory = r.n;
+      reasons.push({ reason: r.reason, 件数: r.n });
+    }
+    return { total, noHistory, reasons };
+  } catch (e) { console.error("[db] recycleReasonBreakdown", e.message); return { total: 0, reasons: [], noHistory: 0, error: e.message }; }
+}
