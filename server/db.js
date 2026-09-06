@@ -7990,3 +7990,34 @@ export async function listRecycleRevivalLists(owner) {
     return rows;
   } catch (e) { console.error("[db] listRecycleRevivalLists", e.message); return []; }
 }
+
+// リサイクル（ステージにリサイクルを含む）の内訳。リスト別・グループ別・温度別の件数を返す。
+// 復活リスト(kind=recycle_revival)に移したものは「復活済み」として別に数える。
+export async function recycleBreakdown() {
+  if (!pool) return { total: 0, byList: [], byGroup: [], byTemp: {} };
+  try {
+    const { rows } = await pool.query(
+      `SELECT l.id AS list_id, l.name AS list_name, l.kind AS list_kind,
+              l.group_id, (SELECT g.name FROM call_list_groups g WHERE g.id = l.group_id) AS group_name,
+              COALESCE(NULLIF(btrim(t.temperature),''),'A') AS temp,
+              count(*)::int AS n
+         FROM call_targets t
+         JOIN call_lists l ON l.id = t.list_id
+        WHERE COALESCE(t.stage,'') ILIKE '%リサイクル%'
+        GROUP BY l.id, l.name, l.kind, l.group_id, group_name, temp`);
+    let total = 0;
+    const listMap = new Map(), groupMap = new Map(), byTemp = { A: 0, B: 0, C: 0, その他: 0 };
+    for (const r of rows) {
+      total += r.n;
+      const lk = r.list_id;
+      if (!listMap.has(lk)) listMap.set(lk, { list_id: r.list_id, list_name: r.list_name, group_name: r.group_name || "(グループ未設定)", 復活リスト: r.list_kind === "recycle_revival", 件数: 0 });
+      listMap.get(lk).件数 += r.n;
+      const gk = r.group_name || "(グループ未設定)";
+      groupMap.set(gk, (groupMap.get(gk) || 0) + r.n);
+      byTemp[["A", "B", "C"].includes(r.temp) ? r.temp : "その他"] += r.n;
+    }
+    const byList = [...listMap.values()].sort((a, b) => b.件数 - a.件数);
+    const byGroup = [...groupMap.entries()].map(([group, 件数]) => ({ group, 件数 })).sort((a, b) => b.件数 - a.件数);
+    return { total, byGroup, byTemp, byList };
+  } catch (e) { console.error("[db] recycleBreakdown", e.message); return { total: 0, byList: [], byGroup: [], byTemp: {}, error: e.message }; }
+}

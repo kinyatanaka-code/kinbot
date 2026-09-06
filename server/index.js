@@ -209,6 +209,7 @@ import {
   getListGroupId,
   isRevivalList,
   pickRecycleCandidateForGroup,
+  recycleBreakdown,
   setCallTargetAbsent,
   setCallTargetRecycleInfo,
   findListsByNameSince,
@@ -4447,6 +4448,14 @@ app.post("/api/calls/recycle-revival-lists", async (req, res) => {
     if (!list) return res.status(500).json({ error: "作れませんでした" });
     console.log(`[kincall] リサイクル復活リスト（グループ${groupId}×${member}）を用意しました by ${req.user}`);
     res.json({ ok: true, id: list.id, name: list.name });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// リサイクルの内訳を確認する（リスト別・グループ別・温度別の件数）。
+// 「今リサイクルにあるリードがどのリスト/グループに属するか」を見るための診断。
+app.get("/api/calls/_recyclediag", async (req, res) => {
+  try {
+    res.json(await recycleBreakdown());
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
@@ -18506,7 +18515,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-06aj リサイクル復活ステップ3c：記録でアーカイブ/リサイクルに送った瞬間、そのリードと同じグループの共有リサイクルから優先順(A→B→C・同温度は古い順)で1件を、記録者の『グループ×担当』の復活リストへ即時1:1補充（復活リスト無ければ自動作成）。復活リストの中身はリサイクル非表示フィルタを外して表示。前回(20260906ai)：復活リストの器。";
+const BUILD_TAG = "2026-09-06ak 診断追加：GET /api/calls/_recyclediag でリサイクルの内訳（リスト別・グループ別・温度別の件数）を確認できる。リサイクル(まとめ)はステージ横断で集める作りのため表示上はリスト非区別だが、データ上は list_id/group_id で区別可能なことを可視化。前回(20260906aj)：3c補充。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
