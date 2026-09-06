@@ -311,6 +311,8 @@ import {
   addDocFile,
   listDocFiles,
   listDealDocTracking,
+  listRecycleRules,
+  updateRecycleRule,
   setDocShared,
   setDocStanding,
   getOrCreateSharedLink,
@@ -4407,6 +4409,22 @@ app.get("/api/docs", async (req, res) => {
       mine: String(d.uploaded_by || "").toLowerCase() === String(req.user || "").toLowerCase(),
     }));
     res.json({ docs, base: PUBLIC_URL, me: req.user || "" });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// リサイクル復活ルール（設定マスタ）。まだ実際の再浮上ロジックは動かさず、設定を貯める・編集する箱。
+app.get("/api/calls/recycle-rules", async (req, res) => {
+  try { res.json({ rules: await listRecycleRules() }); }
+  catch (e) { res.status(500).json({ error: e.message }); }
+});
+app.put("/api/calls/recycle-rules/:id", async (req, res) => {
+  try {
+    if (!req.isAdmin && !(await isCloserUser(req.user))) return res.status(403).json({ error: "クローザー・管理者だけが編集できます" });
+    const id = parseInt(req.params.id, 10);
+    if (!id) return res.status(400).json({ error: "idがありません" });
+    const r = await updateRecycleRule(id, req.body || {});
+    if (!r) return res.status(400).json({ error: "更新できませんでした" });
+    res.json({ ok: true, id });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
@@ -18368,7 +18386,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-06t リスト管理の個別ビュー（◯◯のリスト）から『アーカイブ』『リサイクル』のカードを非表示に（まとめのアーカイブ/リサイクルだけにする）。表示のみでデータ・SFは不変。前回(20260906s)：未照合割り当てボタン撤去。";
+const BUILD_TAG = "2026-09-06u リサイクル復活ルールの設定マスタ(土台)を追加。recycle_rules テーブル＋アップロード表で初期投入。設定・管理に編集テーブル(断り理由タグ×温度/復活週/補足/トリガー/担当/時間帯/トーク軸/卒業条件)。GET /api/calls/recycle-rules, PUT /:id(クローザー可)。実際の再浮上ロジックはまだ動かさない。前回(20260906t)：個別ビューのアーカイブ/リサイクル非表示。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",

@@ -1003,6 +1003,13 @@ function renderDock() {
     .late-in{width:56px;padding:4px 6px;text-align:center;border:1px solid #d7e0db;border-radius:8px;}
     .late-minus{color:#a3402d;font-weight:700;font-size:12px;min-width:56px;}
     .late-st{font-size:11px;color:#6b7a73;}
+    .rr-wrap{overflow-x:auto;}
+    .rr-tbl{border-collapse:collapse;width:100%;font-size:12px;}
+    .rr-tbl th,.rr-tbl td{border:1px solid #eef3f0;padding:6px 8px;text-align:left;vertical-align:middle;white-space:nowrap;}
+    .rr-tbl th{background:#f4f7f5;color:#0d5b47;font-weight:700;font-size:11.5px;position:sticky;top:0;}
+    .rr-tag{font-weight:700;color:#1f2a26;white-space:normal;min-width:150px;}
+    .rr-weeks{white-space:nowrap;color:#6b7a73;}
+    .rr-in{font-size:12px;padding:4px 6px;border:1px solid #d7e0db;border-radius:6px;background:#fff;}
     .kc-inc-lb{font-size:9.5px;font-weight:700;color:#8a6d1f;letter-spacing:.02em;line-height:1.3;}
     .kc-inc-rank{margin-left:5px;font-size:10px;color:#7a5c10;}
     .kc-inc-yen{font-size:20px;font-weight:800;color:#7a5c10;line-height:1.25;text-shadow:0 1px 0 #fffdf6;display:flex;align-items:center;justify-content:center;gap:2px;}
@@ -2214,6 +2221,11 @@ async function loadAdmin() {
     box.innerHTML = `
       <div class="kc-admin">
         ${iAmCloser ? `<div class="kc-adcard">
+          <h3>リサイクル復活ルール</h3>
+          <p class="note">断り理由タグごとに、リサイクルから<b>いつ・誰が・何時に・どのトークで</b>当て直すかの設定です。今は設定を貯めるだけで、実際の再浮上はまだ動きません。<b>復活(週)</b>や各項目は運用しながら調整してください。温度＝A(押せば取れそう)/B(時期待ち)/C(要注意)。</p>
+          <div id="recycleRules"><div class="note">読み込んでいます…</div></div>
+        </div>` : ""}
+        ${iAmCloser ? `<div class="kc-adcard">
           <h3>遅刻カウント（インセンティブ）</h3>
           <p class="note">インサイドの遅刻回数を入れます。<b>1回につき ¥1,000</b> がインセンティブから引かれます（インセンティブ＝(実施−遅刻)×¥1,000、0未満は0）。</p>
           <div id="lateBox"><div class="note">読み込んでいます…</div></div>
@@ -2455,7 +2467,53 @@ async function loadAdmin() {
       if (confirm("手入力したセルも含めて、実績で上書きします。よろしいですか？")) runPs(false, true);
     });
     if ($("lateBox")) loadLateCounts();
+    if ($("recycleRules")) loadRecycleRules();
   } catch (e) { box.innerHTML = `<div class="note">読み込めませんでした：${esc(e.message)}</div>`; }
+}
+
+// リサイクル復活ルール（設定マスタ）の編集テーブル
+async function loadRecycleRules() {
+  const box = $("recycleRules");
+  if (!box) return;
+  try {
+    const d = await (await fetch("/api/calls/recycle-rules")).json();
+    if (d.error) throw new Error(d.error);
+    const rules = d.rules || [];
+    if (!rules.length) { box.innerHTML = '<div class="note">ルールがありません。</div>'; return; }
+    const inp = (id, k, v, w) => `<input class="rr-in" data-id="${id}" data-k="${k}" value="${esc(v == null ? "" : v)}" style="width:${w || 120}px" />`;
+    const num = (id, k, v) => `<input type="number" min="0" class="rr-in" data-id="${id}" data-k="${k}" value="${v == null ? "" : v}" style="width:46px;text-align:center" />`;
+    box.innerHTML =
+      `<div class="rr-wrap"><table class="rr-tbl"><thead><tr>
+         <th>断り理由タグ</th><th>温度</th><th>復活(週)</th><th>復活の補足</th><th>復活トリガー</th>
+         <th>次回の担当</th><th>次回の時間帯</th><th>次回のトーク軸</th><th>卒業/アーカイブ条件</th>
+       </tr></thead><tbody>` +
+      rules.map((r) => `<tr>
+         <td class="rr-tag">${esc(r.tag)}</td>
+         <td>${inp(r.id, "temperature", r.temperature, 46)}</td>
+         <td class="rr-weeks">${num(r.id, "reviveWeeksMin", r.revive_weeks_min)}〜${num(r.id, "reviveWeeksMax", r.revive_weeks_max)}</td>
+         <td>${inp(r.id, "reviveNote", r.revive_note, 150)}</td>
+         <td>${inp(r.id, "triggerNote", r.trigger_note, 120)}</td>
+         <td>${inp(r.id, "nextOwner", r.next_owner, 110)}</td>
+         <td>${inp(r.id, "timeSlot", r.time_slot, 120)}</td>
+         <td>${inp(r.id, "talkAxis", r.talk_axis, 220)}</td>
+         <td>${inp(r.id, "graduation", r.graduation, 200)}</td>
+       </tr>`).join("") + `</tbody></table></div>`;
+    box.querySelectorAll(".rr-in").forEach((el) => el.addEventListener("change", async () => {
+      const id = el.dataset.id, k = el.dataset.k;
+      el.style.borderColor = "#d7e0db";
+      try {
+        const r = await fetch(`/api/calls/recycle-rules/${id}`, {
+          method: "PUT", headers: { "content-type": "application/json" },
+          body: JSON.stringify({ [k]: el.value }),
+        });
+        if (!r.ok) throw new Error(((await r.json()) || {}).error || "保存できませんでした");
+        el.style.borderColor = "#1d9e75";
+        setTimeout(() => { el.style.borderColor = "#d7e0db"; }, 1000);
+      } catch (e) { el.style.borderColor = "#e24b4a"; }
+    }));
+  } catch (e) {
+    box.innerHTML = `<div class="note">読み込めませんでした：${esc(e.message)}</div>`;
+  }
 }
 
 // 遅刻カウント（設定・管理）：インサイド各人の遅刻回数を入れる。1回=−¥1,000。

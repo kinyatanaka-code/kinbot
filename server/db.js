@@ -1110,6 +1110,52 @@ export async function initDb() {
   // 商談ごとの「＋追加」でその場アップロードしたものは false にして、テンプレの一覧・選択欄に出さない。
   await sq(`ALTER TABLE doc_files ADD COLUMN IF NOT EXISTS is_template BOOLEAN NOT NULL DEFAULT true;`);
 
+  // リサイクル復活ルール（断り理由タグごとの設定マスタ）。まだロジックは動かさず、設定を貯める箱。
+  await sq(`
+    CREATE TABLE IF NOT EXISTS recycle_rules (
+      id            SERIAL PRIMARY KEY,
+      tag           TEXT UNIQUE NOT NULL,   -- 断り理由タグ
+      temperature   TEXT,                   -- 温度 A/B/C/卒業/連携
+      revive_weeks_min INT,                 -- 復活までの目安(週) 下限（調整可）
+      revive_weeks_max INT,                 -- 上限
+      revive_note   TEXT,                    -- 復活までの目安 補足（指定時期・復活なし等）
+      trigger_note  TEXT,                    -- 復活トリガー
+      next_owner    TEXT,                    -- 次回の担当
+      time_slot     TEXT,                    -- 次回の時間帯
+      talk_axis     TEXT,                    -- 次回のトーク軸
+      graduation    TEXT,                    -- 卒業/アーカイブ条件
+      sort_order    INT NOT NULL DEFAULT 0,
+      updated_at    TIMESTAMPTZ DEFAULT now()
+    );
+  `);
+  // 初期投入（空のときだけ。アップロードのルール表そのまま）
+  try {
+    const { rows: cnt } = await pool.query(`SELECT count(*)::int AS n FROM recycle_rules`);
+    if (!cnt[0].n) {
+      const seed = [
+        ["採用が足りている（充足）", "B", 6, 8, "", "経過日数", "同一", "接触率が高い15〜16時", "もっと採る話でなく“工数削減・効率化”に振る", "3回連続で充足→アーカイブ"],
+        ["押せば取れそう（メモ付き）", "A", 1, 2, "", "最優先で自動復活", "同一（関係構築済）", "前回つながった時間", "あと一押し。工数削減で背中を押す", "獲得 or 2回目の明確断りで解除"],
+        ["予算・費用がネック", "B", 8, 10, "指定時期があればその時期／なければ8〜10週", "指定月 or 経過", "同一", "15〜16時", "次期の検討材料・低コスト訴求", "2期連続で予算なし→アーカイブ"],
+        ["タイミングが悪い（時期改め）", "B", null, null, "指定時期", "指定日で自動復活", "同一", "指定時間／午前", "前回の続きから", "2回先送り→温度Cへ降格"],
+        ["他媒体で足りる（HW等）", "B", 4, 6, "", "経過日数", "同一 or 別", "15〜16時", "無料枠に乗らない層を拾う“併用”提案", "2回拒否→アーカイブ"],
+        ["今は募集していない", "B", 8, 8, "", "経過日数", "同一", "15〜16時", "次の募集前の情報提供として", "3回連続で募集なし→アーカイブ"],
+        ["既存取引・他社利用中", "C", 10, 12, "または社内連携へ", "経過 or 連携フラグ", "ネオ既存担当へ連携", "—", "競合でなく“掲載効果を足す”オプション", "窓口一本化の明確拒否→アーカイブ"],
+        ["担当ルート指定（担当から案内希望）", "連携", null, null, "既存担当の接点時", "社内連携フラグ", "ネオ担当", "—", "既存担当経由でDOCを乗せる", "連携完了で卒業"],
+        ["興味・ニーズなし", "C", 10, 12, "またはアーカイブ", "経過日数", "別担当推奨", "午前を試す", "別角度で1回だけ当てる", "2回目の興味なし→アーカイブ"],
+        ["冒頭即断り（そっけない）", "C", 1, 2, "", "短期で再挑戦", "別担当推奨", "別時間（午前）", "冒頭を変える／受付突破を強化", "3回冒頭NG→アーカイブ"],
+        ["明確拒否（今後は結構／新規お断り）", "卒業", null, null, "復活なし", "—", "—", "—", "—", "即アーカイブ（リサイクル卒業）"],
+      ];
+      let i = 0;
+      for (const r of seed) {
+        await pool.query(
+          `INSERT INTO recycle_rules (tag,temperature,revive_weeks_min,revive_weeks_max,revive_note,trigger_note,next_owner,time_slot,talk_axis,graduation,sort_order)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) ON CONFLICT (tag) DO NOTHING`,
+          [...r, i++]);
+      }
+      console.log("[db] recycle_rules を初期投入しました");
+    }
+  } catch (e) { console.error("[db] recycle_rules seed", e.message); }
+
   // 宛先ごとに1本ずつURLを発行する。誰が見たかを特定するため。
   await sq(`
     CREATE TABLE IF NOT EXISTS doc_links (
@@ -7733,4 +7779,44 @@ export async function sfWrittenLogs(fromJst, toJst) {
       [fromJst, toJst]);
     return rows;
   } catch (e) { console.error("[db] sfWrittenLogs", e.message); return []; }
+}
+
+// ===== リサイクル復活ルール（設定マスタ） =====
+export async function listRecycleRules() {
+  if (!pool) return [];
+  try {
+    const { rows } = await pool.query(
+      `SELECT id, tag, temperature, revive_weeks_min, revive_weeks_max, revive_note,
+              trigger_note, next_owner, time_slot, talk_axis, graduation, sort_order
+         FROM recycle_rules ORDER BY sort_order ASC, id ASC`);
+    return rows;
+  } catch (e) { console.error("[db] listRecycleRules", e.message); return []; }
+}
+export async function updateRecycleRule(id, patch = {}) {
+  if (!pool || !id) return null;
+  const cols = {
+    temperature: "temperature", reviveWeeksMin: "revive_weeks_min", reviveWeeksMax: "revive_weeks_max",
+    reviveNote: "revive_note", triggerNote: "trigger_note", nextOwner: "next_owner",
+    timeSlot: "time_slot", talkAxis: "talk_axis", graduation: "graduation",
+  };
+  const sets = [], vals = []; let i = 1;
+  for (const k in cols) {
+    if (patch[k] === undefined) continue;
+    let v = patch[k];
+    if (k === "reviveWeeksMin" || k === "reviveWeeksMax") {
+      v = (v === "" || v === null) ? null : parseInt(v, 10);
+      if (v !== null && (!Number.isFinite(v) || v < 0)) v = null;
+    } else {
+      v = v === null ? null : String(v);
+    }
+    sets.push(`${cols[k]} = $${i++}`); vals.push(v);
+  }
+  if (!sets.length) return null;
+  sets.push(`updated_at = now()`);
+  vals.push(id);
+  try {
+    const { rows } = await pool.query(
+      `UPDATE recycle_rules SET ${sets.join(", ")} WHERE id = $${i} RETURNING id`, vals);
+    return rows[0] || null;
+  } catch (e) { console.error("[db] updateRecycleRule", e.message); return null; }
 }
