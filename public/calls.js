@@ -442,7 +442,7 @@ function render() {
   ].filter(Boolean).join("／");
   // 読み込んだCSVの列（追加カラム）。データがある行があるリストだけ出す。
   const rcMatched = fullList.filter((x) => rowExtra(x)).length;
-  const allKeys = extraKeysOf(fullList);
+  const allKeys = extraKeysOf(rows);   // 絞り込みに関係なく、リスト全行から列を作る（0件でも▾が残るように）
   const rcols = allKeys.length ? extraCols(allKeys) : [];
   const hasRecruit = rcols.length > 0;
   box.innerHTML =
@@ -520,7 +520,7 @@ function render() {
           return `<td class="kc-rc${cls ? " " + cls : ""}">${v ? esc(v) : '<span class="kc-none">—</span>'}</td>`;
         }).join("")}
       </tr>`;
-    }).join("") + (list.length ? "" : `<tr><td colspan="99" style="text-align:center;padding:26px 10px;color:#7d8c86">この条件に当てはまるものがありません。見出しの「▾」から絞り込みを変えられます。</td></tr>`) + `</table></div>`;
+    }).join("") + (list.length ? "" : `<tr><td colspan="99" style="text-align:center;padding:26px 10px;color:#7d8c86">この条件に当てはまるものがありません。見出しの「▾」から絞り込みを変えられます。<br><button type="button" class="btn ghost" id="kcFiltReset" style="margin-top:10px">絞り込みをすべて解除</button></td></tr>`) + `</table></div>`;
 
   // 見出しの絞り込み・並べ替え
   box.querySelectorAll("[data-flt]").forEach((b) =>
@@ -597,6 +597,14 @@ function render() {
   updateSelBar();
   const hideBtn = $("kcHideApo");
   if (hideBtn) hideBtn.addEventListener("click", () => { hideApo = !hideApo; render(); });
+  const fReset = $("kcFiltReset");
+  if (fReset) fReset.addEventListener("click", () => {
+    filt.stage = new Set(); filt.status = new Set(); filt.hist = "";
+    filt.post = ""; filt.hireMin = ""; filt.hireMax = "";
+    if (filt.extra) filt.extra = {};
+    if (typeof saveFilt === "function") saveFilt();
+    render();
+  });
 
   // 追加列の見出しを、ドラッグでエクセルのように並べ替える
   let dragKey = null;
