@@ -1081,7 +1081,7 @@ app.put("/api/meetings/:id/meta", async (req, res) => {
     // アポ獲得者（インセンティブの実施に数える）。商談履歴の画面から選べる。
     if (apoSetter !== undefined) {
       const nm = String(apoSetter || "").trim();
-      await setMeetingApoSetter(req.params.id, nm || null);
+      await setMeetingApoSetter(req.params.id, nm || null, true);
       if (nm) checkIncentiveMilestone(nm);
     }
     res.json({ ok: true });
@@ -8626,7 +8626,7 @@ app.post("/api/calls/set-apo-setter", async (req, res) => {
     const botId = String(req.body?.botId || "").trim();
     if (!botId) return res.status(400).json({ error: "商談が指定されていません" });
     const name = String(req.body?.name || "").trim();
-    await setMeetingApoSetter(botId, name || null);
+    await setMeetingApoSetter(botId, name || null, true);
     console.log(`[インセンティブ] ${botId} のアポ獲得者を「${name || "(なし)"}」にしました by ${req.user}`);
     if (name) checkIncentiveMilestone(name);
     res.json({ ok: true, botId, name });
@@ -14459,6 +14459,8 @@ app.post("/api/interns/match", async (req, res) => {
     const unmatched = [];
 
     for (const m of meetings) {
+      // 手で入力したアポ獲得者は尊重し、自動照合では触らない
+      if (m.apo_setter_manual) { matchedCount++; continue; }
       const mDate = jstDateStr(m.created_at);
       const mParts = apoNameParts(m.title);
       if (!apoCompanyKey(mParts.company)) { unmatched.push({ bot_id: m.bot_id, title: m.title, date: mDate }); continue; }
@@ -18366,7 +18368,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-06p 【緊急修正】アポ獲得者の抽出が暴走し、通知にカレンダー本文丸ごと(HTML)が名前として出た件を修正。原因：Googleカレンダー本文は改行が<br>で本物の改行が無いため、行末まで取る抽出が名前の後ろ全部を拾っていた。setterFromDescriptionを<br>→改行・タグ除去し名前だけ抽出＋長さ/URL/HTMLで無効化。通知側にも異常名ガードを追加。既存の誤設定は『いま照合する』(clear→再照合)で修正される。前回(20260906o)：週次差分の修正。";
+const BUILD_TAG = "2026-09-06q 【重要】手入力したアポ獲得者が照合(自動)で消える不具合を修正。meetings.apo_setter_manual を追加し、手入力(商談履歴/手動割り当て)は manual=true で保存。clearApoSetters は手入力を消さない、自動照合は手入力商談をスキップ、自動setは手入力を上書きしない。以後『いま照合する』を実行しても手入力は残る。前回(20260906p)：獲得者抽出の暴走修正。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",

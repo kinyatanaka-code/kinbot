@@ -109,6 +109,8 @@ export async function initDb() {
   await sq(`ALTER TABLE meetings ADD COLUMN IF NOT EXISTS account TEXT;`);
   await sq(`ALTER TABLE meetings ADD COLUMN IF NOT EXISTS note TEXT;`);
   await sq(`ALTER TABLE meetings ADD COLUMN IF NOT EXISTS apo_setter TEXT;`);
+  // 手で入力したアポ獲得者は、照合(自動)で消したり上書きしたりしない目印。
+  await sq(`ALTER TABLE meetings ADD COLUMN IF NOT EXISTS apo_setter_manual BOOLEAN NOT NULL DEFAULT false;`);
   // 録音から手で取り込んだ印（文字起こしが作れなくても履歴に出すため）
   await sq(`ALTER TABLE meetings ADD COLUMN IF NOT EXISTS imported_at TIMESTAMPTZ;`);
   await sq(`
@@ -1367,12 +1369,12 @@ export async function listMeetings({ owner, isAdmin, from, to, limit, light } = 
        jsonb_build_object('overview', m.summary->'overview') AS summary,
        m.sf_url, m.sf_recorded_at, m.drive_file_id, m.mux_playback_id,
        COALESCE(m.account,'') AS account, m.category, m.deal_kind,
-       m.apo_setter, u.name AS owner_name`
+       m.apo_setter, m.apo_setter_manual, u.name AS owner_name`
     : `m.bot_id, m.meeting_url, m.rep_name, m.title, m.owner,
        m.round_no, m.phase, m.status, m.created_at, m.updated_at, m.summary, m.analysis, m.note,
        m.metrics, m.sf_url, m.sf_recorded_at, m.drive_file_id, m.drive_link, m.mux_playback_id,
        COALESCE(m.account,'') AS account, m.category, m.deal_kind,
-       m.apo_setter, u.name AS owner_name`;
+       m.apo_setter, m.apo_setter_manual, u.name AS owner_name`;
   const base = `SELECT ${cols} FROM meetings m LEFT JOIN users u ON u.email = m.owner`;
   // 文字起こしが無い（空配列/NULL）の商談は履歴に残さない。
   // ただし、録音から手で取り込んだもの（imported_at あり）は、文字起こしが作れなくても履歴に出す。
@@ -1817,21 +1819,29 @@ export async function markMeetingImported(botId) {
   catch (e) { console.error("[db] markMeetingImported", e.message); }
 }
 
-// 商談にアポ獲得者（インターン名）を記録する
-export async function setMeetingApoSetter(botId, name) {
+// 商談にアポ獲得者（インターン名）を記録する。manual=true なら「手入力」の印を付け、照合で消えない。
+export async function setMeetingApoSetter(botId, name, manual = false) {
   if (!pool || !botId) return;
+  const val = name == null || name === "" ? null : String(name);
   try {
-    await pool.query(`UPDATE meetings SET apo_setter=$2, updated_at=now() WHERE bot_id=$1`,
-      [botId, name == null || name === "" ? null : String(name)]);
+    if (manual) {
+      // 手入力：印を立てる（未設定に戻す場合は印も外す）
+      await pool.query(`UPDATE meetings SET apo_setter=$2, apo_setter_manual=$3, updated_at=now() WHERE bot_id=$1`,
+        [botId, val, val != null]);
+    } else {
+      // 自動：手入力済みの商談は上書きしない
+      await pool.query(`UPDATE meetings SET apo_setter=$2, updated_at=now() WHERE bot_id=$1 AND apo_setter_manual IS NOT TRUE`,
+        [botId, val]);
+    }
   } catch (e) { console.error("[db] setMeetingApoSetter", e.message); }
 }
-// 照合し直す前に、対象期間のアポ獲得者を一度クリアする（再照合のたびに最新化）
+// 照合し直す前に、対象期間のアポ獲得者を一度クリアする（手入力は消さない）。
 export async function clearApoSetters({ from, to } = {}) {
   if (!pool) return;
-  const cond = [], vals = []; let i = 1;
+  const cond = ["apo_setter_manual IS NOT TRUE"], vals = []; let i = 1;
   if (from) { cond.push(`created_at >= $${i++}`); vals.push(from); }
   if (to) { cond.push(`created_at < ($${i++}::date + interval '1 day')`); vals.push(to); }
-  const where = cond.length ? "WHERE " + cond.join(" AND ") : "";
+  const where = "WHERE " + cond.join(" AND ");
   try { await pool.query(`UPDATE meetings SET apo_setter=NULL ${where}`, vals); } catch (e) { console.error("[db] clearApoSetters", e.message); }
 }
 // ダッシュボード用：期間内の実施済み商談（文字起こしあり・商談カテゴリ）と記録済みアポ獲得者を返す
