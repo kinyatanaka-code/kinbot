@@ -8282,12 +8282,30 @@ export async function revertArchivedFromRevival({ dryRun = true, archiveStage = 
         AND ( COALESCE(t.stage,'') ILIKE '%アーカイブ%'
               OR COALESCE(t.status,'') ~ '使われて|現在使わ|現アナ|欠番|不通' )`;
     const { rows } = await pool.query(
-      `SELECT t.id FROM call_targets t JOIN call_lists l ON l.id=t.list_id WHERE ${where}`);
-    const ids = rows.map((r) => r.id);
-    if (dryRun || !ids.length) return { 対象: ids.length, 戻した: 0, dryRun };
-    await pool.query(
-      `UPDATE call_targets SET stage=$2, assigned_to=NULL, temperature=NULL WHERE id = ANY($1::int[])`,
-      [ids, archiveStage]);
-    return { 対象: ids.length, 戻した: ids.length, dryRun: false };
+      `SELECT t.id, l.group_id FROM call_targets t JOIN call_lists l ON l.id=t.list_id WHERE ${where}`);
+    if (dryRun || !rows.length) return { 対象: rows.length, 戻した: 0, dryRun };
+    // 復活リストから出す：同じグループの通常リスト（復活リストでない）へ戻す。
+    // 戻し先が無ければ、そのままステージだけアーカイブにする（一覧には出ない）。
+    const 戻し先 = new Map();
+    for (const r of rows) {
+      if (戻し先.has(r.group_id)) continue;
+      const { rows: dst } = await pool.query(
+        `SELECT id FROM call_lists
+          WHERE group_id=$1 AND COALESCE(kind,'') <> 'recycle_revival'
+          ORDER BY id LIMIT 1`, [r.group_id]);
+      戻し先.set(r.group_id, dst[0] ? dst[0].id : null);
+    }
+    let 戻した = 0;
+    for (const r of rows) {
+      const to = 戻し先.get(r.group_id);
+      try {
+        if (to) await pool.query(`UPDATE call_targets SET list_id=$2 WHERE id=$1`, [r.id, to]);
+        await pool.query(
+          `UPDATE call_targets SET stage=$2, assigned_to=NULL, temperature=NULL WHERE id=$1`,
+          [r.id, archiveStage]);
+        戻した++;
+      } catch (e) { console.error("[db] revertArchived 1件", r.id, e.message); }
+    }
+    return { 対象: rows.length, 戻した, dryRun: false };
   } catch (e) { console.error("[db] revertArchivedFromRevival", e.message); return { 対象: 0, 戻した: 0, error: e.message }; }
 }
