@@ -41,6 +41,7 @@ kincall（架電リスト）という別ツールも同じ画面群の中にあ�
 
 ## 決定・指示のログ（新しいものを上に足す）
 
+- 2026-09-07 要望（田中さん）：週次を7日区切りでなく 1-4／7-11 のように＝平日(月〜金)で区切る（確認済み：土日は週に含めず実績も除外、月内で締める）。対応(20260907l)：apo-dashboard の laps 生成を平日ベースに変更（土日はスキップ、from の曜日から金曜まで、月末で締め、次は翌週月曜へ）。rangeSum も土日を除外して合算。フロントの説明文を『週は平日（月〜金）で区切ります（土日は含みません）』に更新。検証：2026/9→9/1〜9/4・9/7〜9/11・9/14〜9/18・9/21〜9/25・9/28〜9/30、10月・11月も想定どおり。precheck全OK。bump=20260907l。
 - 2026-09-07 要望（田中さん）：スマホからkincallのかける/実績/リスト管理/資料送付が見られない（kinbotしか見れない）。原因：style.css の @media(max-width:760px) で .sidebar を display:none にし右上ハンバーガー(.kb-menu)に集約する設計だが、nav.js のメニュー項目が KB_MENU（kinbot）＋kincall入口のみで、kincall内の画面が無かった。対応(20260907k)：nav.js のスマホメニュー生成で inKincall=/^\/kincall/ を判定し、kincall では『かける(/kincall)／実績(?p=stats)／リスト管理(?p=lists)／資料送付設定(#docset)／kinbotに戻る(home.html)／設定』を出す。#docset はページ遷移せずメニューを閉じて #kcSideDoc をクリック＝openDocSettings モーダルを開く。kinbot側の項目は従来どおり。precheck全OK。bump=20260907k。
 - 2026-09-07 要望（田中さん）：かける画面の『SFの所有者を優先』チェックは不要。対応(20260907j)：calls.html の label.cl-sfown（#clSfOwnerPref）を削除。wireSfOwnerPref は if(!cb) return; で無害なため残置、GET/PUT /api/calls/sf-owner-priority と SF監査側の挙動も従来どおり（設定値は変更されない＝現状のON/OFFを維持）。precheck全OK。bump=20260907j。
 - 2026-09-07 要望（田中さん）：記録モーダルが✕以外（背景クリック等）で閉じてしまう→✕だけで閉じたい。対応(20260907i)：openModal に opts.closeOnlyX を追加し、true のとき背景クリック(back===e.target)と Escape キーのリスナーを張らない。記録モーダル(openRecord系の openModal 呼び出し)に closeOnlyX:true を指定。他のモーダル（絞り込み・設定など）は従来どおり背景クリック/Escで閉じる。precheck全OK。bump=20260907i。

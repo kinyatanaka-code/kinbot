@@ -10089,18 +10089,44 @@ app.get("/api/calls/apo-dashboard", async (req, res) => {
         return memRolesD.filter((x) => r === "all" || x.role === r)
           .reduce((a, x) => a + ((x.m.値 && x.m.値[j]) ? (Number(x.m.値[j].アポ内 || 0) + Number(x.m.値[j].アポ外 || 0)) : 0), 0);
       };
-      // 9/1起点の7日ラップ（月末で締める）
-      const laps = []; let d = new Date(monthStart);
-      while (d.getTime() <= monthEnd.getTime()) {
-        let e = new Date(d.getTime() + 6 * 86400000); if (e.getTime() > monthEnd.getTime()) e = new Date(monthEnd);
-        laps.push({ from: new Date(d), to: e }); d = new Date(d.getTime() + 7 * 86400000);
+      // 平日（月〜金）だけで週を区切る。土日は週に含めない。月をまたぐ週は月内で締める。
+      // 例）9月：9/1〜9/4、9/7〜9/11、9/14〜9/18、9/21〜9/25、9/28〜9/30
+      const laps = [];
+      {
+        let d = new Date(monthStart);
+        while (d.getTime() <= monthEnd.getTime()) {
+          const dow = d.getUTCDay();                       // 0=日 6=土
+          if (dow === 0 || dow === 6) { d = new Date(d.getTime() + 86400000); continue; }
+          const from = new Date(d);
+          // その週の金曜まで（月末を超えない）
+          let to = new Date(d.getTime() + (5 - dow) * 86400000);
+          if (to.getTime() > monthEnd.getTime()) to = new Date(monthEnd);
+          // 金曜が土日にかからないよう、終わりが土日なら金曜まで戻す
+          while (to.getTime() > from.getTime() && (to.getUTCDay() === 0 || to.getUTCDay() === 6)) {
+            to = new Date(to.getTime() - 86400000);
+          }
+          laps.push({ from, to });
+          // 次の週の月曜へ
+          d = new Date(to.getTime() + 86400000);
+          while (d.getTime() <= monthEnd.getTime() && (d.getUTCDay() === 0 || d.getUTCDay() === 6)) {
+            d = new Date(d.getTime() + 86400000);
+          }
+        }
       }
       const wg = await getApoGoalsByKeys("week", laps.map((l) => ymd(l.from))).catch(() => ({}));
       const wGoal = (subj, wk) => Number((((wg[subj] || {})[wk] || {})["アポ"]) || 0);
       const cumAct = { group: 0, sales: 0, inside: 0 };
       weeks = laps.map((l) => {
         const key = ymd(l.from);
-        const rangeSum = (r) => { let s = 0; for (let x = new Date(l.from); x.getTime() <= l.to.getTime(); x = new Date(x.getTime() + 86400000)) s += actDay(ymd(x), r); return s; };
+        const rangeSum = (r) => {
+          let s = 0;
+          for (let x = new Date(l.from); x.getTime() <= l.to.getTime(); x = new Date(x.getTime() + 86400000)) {
+            const dw = x.getUTCDay();
+            if (dw === 0 || dw === 6) continue;   // 土日は数えない
+            s += actDay(ymd(x), r);
+          }
+          return s;
+        };
         const wAct = { group: rangeSum("all"), sales: rangeSum("sales"), inside: rangeSum("inside") };
         cumAct.group += wAct.group; cumAct.sales += wAct.sales; cumAct.inside += wAct.inside;
         // 差分＝その週までの積み上げ実績−その週に入れた目標（カード表示の 実績−目標 と一致させる）
@@ -18600,7 +18626,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-07k スマホでkincallの各画面に行けるように：スマホは共通CSSでサイドバーが隠れ右上メニューになるが、そのメニューが kinbot の項目だけだったため kincall内で移動できなかった。kincall では『かける／実績／リスト管理／資料送付設定／kinbotに戻る／設定』を出すよう修正。資料送付設定はモーダルを開く。前回(20260907j)：SF所有者チェック撤去。";
+const BUILD_TAG = "2026-09-07l 週次の区切りを平日（月〜金）に変更。例）9月＝9/1〜9/4、9/7〜9/11、9/14〜9/18、9/21〜9/25、9/28〜9/30。土日は週に含めず実績も数えない。月をまたぐ週は月内で締める。前回(20260907k)：スマホのkincallメニュー。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
