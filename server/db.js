@@ -8051,6 +8051,22 @@ export async function recycleReasonBreakdown() {
 // 既存リサイクルのリードに、断り理由（履歴の直近結果＋メモ）から温度を一括で付ける。
 // 粗い対応：履歴なし=A／明確拒否系=C／お断り系=B（メモに「押せば/優しい/あと一押し」等があればA）／その他=A。
 // dryRun=true なら件数の試算だけ（リードは触らない）。
+// 断り理由（直近の結果＋メモ）から温度を返す。対象外は null。
+// 対応表：現在使われていない/アポ獲得=対象外、履歴なし/不在/コールのみ/問い合わせ=A、
+// 前向きメモ=A、明確拒否/受付ブロック=C、お断り系=B。
+export function recycleTempOf(res, memo) {
+  const r = String(res || ""), m = String(memo || "");
+  if (/現在使われて|現アナ|欠番|不通|使われていない番号/.test(r)) return null;
+  if (/アポ獲得/.test(r)) return null;
+  if (!r) return "A";
+  if (/押せば|優しい|あと一押し|見込み|前向き/.test(m)) return "A";
+  if (/明確|今後は結構|新規.*お断り|二度と|着信拒否/.test(r + m)) return "C";
+  if (/受付ブロック/.test(r)) return "C";
+  if (/お断り|断り|ニーズなし|興味な/.test(r)) return "B";
+  if (/不在/.test(r)) return "A";
+  return "A";
+}
+
 export async function tagRecycleTemperatures({ dryRun = true, onlyMissing = true } = {}) {
   if (!pool) return {対象: 0, 内訳: {}, 更新: 0 };
   try {
@@ -8062,23 +8078,10 @@ export async function tagRecycleTemperatures({ dryRun = true, onlyMissing = true
               (SELECT l.memo   FROM call_logs l WHERE l.target_id=t.id ORDER BY l.at DESC LIMIT 1) AS last_memo
          FROM call_targets t
         WHERE ${cond.join(" AND ")}`);
-    const decide = (res, memo) => {
-      const r = String(res || ""), m = String(memo || "");
-      // 対象外（温度を付けない）：現在使われていない＝本来アーカイブ、アポ獲得＝リサイクルにいるのが不自然
-      if (/現在使われて|現アナ|欠番|不通|使われていない番号/.test(r)) return null;
-      if (/アポ獲得/.test(r)) return null;
-      if (!r) return "A";                                   // 履歴なし＝A
-      if (/押せば|優しい|あと一押し|見込み|前向き/.test(m)) return "A";  // メモが前向き＝A
-      if (/明確|今後は結構|新規.*お断り|二度と|着信拒否/.test(r + m)) return "C";  // 明確拒否＝C
-      if (/受付ブロック/.test(r)) return "C";               // 受付ブロック＝C（塩対応寄り）
-      if (/お断り|断り|ニーズなし|興味な/.test(r)) return "B";   // お断り系＝B
-      if (/不在/.test(r)) return "A";                        // 不在＝折り返し前提でA
-      return "A";                                            // コールのみ・問い合わせ 等＝A
-    };
     const 内訳 = { A: 0, B: 0, C: 0, 対象外: 0 };
     const plan = [];
     for (const row of rows) {
-      const temp = decide(row.last_result, row.last_memo);
+      const temp = recycleTempOf(row.last_result, row.last_memo);
       if (!temp) { 内訳.対象外 = (内訳.対象外 || 0) + 1; continue; }   // 温度を付けない
       内訳[temp] = (内訳[temp] || 0) + 1;
       plan.push({ id: row.id, temp });
@@ -8092,4 +8095,134 @@ export async function tagRecycleTemperatures({ dryRun = true, onlyMissing = true
     }
     return { 対象: rows.length, 内訳, 更新, dryRun };
   } catch (e) { console.error("[db] tagRecycleTemperatures", e.message); return { 対象: 0, 内訳: {}, 更新: 0, error: e.message }; }
+}
+
+// リサイクル（まとめ）のリードを、インサイド各メンバーに「元グループ×そのメンバーの復活リスト」へ
+// 温度A→B→C（同温度は古い順）で、1人あたり perMember 件ずつ配る。
+// dryRun=true なら試算（動かさない）。members は [{email,name}] のインサイド一覧。
+export async function distributeRecycleToRevival({ members = [], perMember = 50, dryRun = true, createdBy = null } = {}) {
+  if (!pool) return { ok: false, error: "no pool" };
+  const insiders = (members || []).map((m) => ({ email: String(m.email || "").toLowerCase(), name: m.name || m.email })).filter((m) => m.email);
+  if (!insiders.length) return { ok: false, error: "インサイドがいません" };
+  try {
+    // 対象リード（対象外＝現在使われていない/アポ獲得 は除外）。温度A→B→C→古い順。
+    const { rows } = await pool.query(
+      `SELECT t.id, l.group_id,
+              (SELECT g.name FROM call_list_groups g WHERE g.id = l.group_id) AS group_name,
+              COALESCE(NULLIF(btrim(t.temperature),''),'A') AS temp,
+              (SELECT l2.result FROM call_logs l2 WHERE l2.target_id=t.id ORDER BY l2.at DESC LIMIT 1) AS last_result
+         FROM call_targets t
+         JOIN call_lists l ON l.id = t.list_id
+        WHERE COALESCE(t.stage,'') ILIKE '%リサイクル%'
+          AND COALESCE(l.kind,'') <> 'recycle_revival'
+        ORDER BY (CASE COALESCE(NULLIF(btrim(t.temperature),''),'A')
+                    WHEN 'A' THEN 0 WHEN 'B' THEN 1 WHEN 'C' THEN 2 ELSE 9 END), t.id`);
+    const 対象外RE = /現在使われて|現アナ|欠番|不通|使われていない番号|アポ獲得/;
+    const pool2 = rows.filter((r) => !対象外RE.test(String(r.last_result || "")));
+
+    // ラウンドロビンで各メンバーへ perMember 件ずつ。グループ未設定(group_idなし)は配れないので別集計。
+    const assignByMember = new Map();     // email -> [{id, group_id, group_name, temp}]
+    for (const m of insiders) assignByMember.set(m.email, []);
+    let 配布不可_グループ未設定 = 0;
+    let idx = 0;
+    const emails = insiders.map((m) => m.email);
+    for (const r of pool2) {
+      if (!r.group_id) { 配布不可_グループ未設定++; continue; }
+      // 次に「まだ perMember に達していない」メンバーを探す
+      let placed = false;
+      for (let k = 0; k < emails.length; k++) {
+        const em = emails[(idx + k) % emails.length];
+        if (assignByMember.get(em).length < perMember) {
+          assignByMember.get(em).push({ id: r.id, group_id: r.group_id, group_name: r.group_name || "", temp: r.temp });
+          idx = (idx + k + 1) % emails.length;
+          placed = true; break;
+        }
+      }
+      if (!placed) break;   // 全員 perMember 達成
+    }
+
+    // 試算サマリ
+    const summary = insiders.map((m) => {
+      const arr = assignByMember.get(m.email) || [];
+      const byTemp = { A: 0, B: 0, C: 0 };
+      const byGroup = {};
+      for (const a of arr) { byTemp[["A", "B", "C"].includes(a.temp) ? a.temp : "A"]++; byGroup[a.group_name || "(未設定)"] = (byGroup[a.group_name || "(未設定)"] || 0) + 1; }
+      return { email: m.email, name: m.name, 件数: arr.length, byTemp, byGroup };
+    });
+    const 配布予定 = summary.reduce((s, x) => s + x.件数, 0);
+
+    if (dryRun) {
+      return { ok: true, dryRun: true, 対象プール: pool2.length, 配布予定, 配布不可_グループ未設定, perMember, members: summary };
+    }
+
+    // 実行：メンバー×グループごとに復活リストを用意し、moveでまとめて移す
+    let 移動 = 0;
+    for (const m of insiders) {
+      const arr = assignByMember.get(m.email) || [];
+      // グループごとにまとめる
+      const byG = new Map();
+      for (const a of arr) { if (!byG.has(a.group_id)) byG.set(a.group_id, []); byG.get(a.group_id).push(a.id); }
+      for (const [gid, ids] of byG) {
+        const rev = await ensureRecycleRevivalList({ groupId: gid, owner: m.email, createdBy });
+        if (!rev) continue;
+        const moved = await moveCallTargets(ids, rev.id).catch(() => 0);
+        移動 += (typeof moved === "number" ? moved : ids.length);
+      }
+    }
+    return { ok: true, dryRun: false, 対象プール: pool2.length, 移動, 配布不可_グループ未設定, perMember, members: summary };
+  } catch (e) { console.error("[db] distributeRecycleToRevival", e.message); return { ok: false, error: e.message }; }
+}
+
+// リサイクル(まとめ)のリードを、インサイド各メンバーへ「1人あたり perMember 件」割り振る。
+// ・並びは温度A→B→C（同温度は古い順）＝取れそうな順。
+// ・対象外（温度が付いていない＝現在使われていない/アポ獲得 等、または明示除外）は配らない。
+// ・各リードは「元のグループ × そのメンバー」の復活リスト(ensureRecycleRevivalList)へ入れる（グループ厳守）。
+// ・既に復活リスト(kind=recycle_revival)に入っているものは対象にしない。
+// dryRun=true なら誰に何件かの試算だけ（リードは動かさない）。
+export async function distributeRecycleToMembers({ members = [], perMember = 50, dryRun = true, createdBy = null } = {}) {
+  if (!pool) return { 対象候補: 0, 配布予定: 0, byMember: [], dryRun };
+  const mem = (members || []).map((m) => ({ email: String(m.email || "").toLowerCase(), name: m.name || m.email })).filter((m) => m.email);
+  if (!mem.length) return { 対象候補: 0, 配布予定: 0, byMember: [], dryRun, error: "メンバーがいません" };
+  try {
+    // 候補：リサイクルのリードで、まだ復活リストに入っていない・温度がついている（対象外は除外）・グループがある。
+    const { rows } = await pool.query(
+      `SELECT t.id, t.temperature AS temp, l.group_id
+         FROM call_targets t
+         JOIN call_lists l ON l.id = t.list_id
+        WHERE COALESCE(t.stage,'') ILIKE '%リサイクル%'
+          AND COALESCE(l.kind,'') <> 'recycle_revival'
+          AND l.group_id IS NOT NULL
+          AND COALESCE(NULLIF(btrim(t.temperature),''),'') <> ''
+        ORDER BY (CASE COALESCE(NULLIF(btrim(t.temperature),''),'A')
+                    WHEN 'A' THEN 0 WHEN 'B' THEN 1 WHEN 'C' THEN 2 ELSE 9 END), t.id`);
+    const 対象候補 = rows.length;
+    // メンバーへ順番に perMember 件ずつ（温度順の並びのまま先頭から詰める）
+    const perList = new Map();   // key: `${email}|${groupId}` -> [ids]
+    const byMemberCount = new Map();
+    let idx = 0;
+    for (const m of mem) {
+      let got = 0;
+      while (got < perMember && idx < rows.length) {
+        const r = rows[idx++];
+        const key = `${m.email}|${r.group_id}`;
+        if (!perList.has(key)) perList.set(key, []);
+        perList.get(key).push(r.id);
+        got++;
+      }
+      byMemberCount.set(m.email, got);
+      if (idx >= rows.length) break;
+    }
+    const 配布予定 = [...byMemberCount.values()].reduce((a, b) => a + b, 0);
+    const byMember = mem.map((m) => ({ email: m.email, name: m.name, 件数: byMemberCount.get(m.email) || 0 }));
+
+    if (!dryRun) {
+      for (const [key, ids] of perList.entries()) {
+        const [email, gidStr] = key.split("|");
+        const groupId = parseInt(gidStr, 10);
+        const rev = await ensureRecycleRevivalList({ groupId, owner: email, createdBy });
+        if (rev && ids.length) await moveCallTargets(ids, rev.id);
+      }
+    }
+    return { 対象候補, 配布予定, byMember, dryRun };
+  } catch (e) { console.error("[db] distributeRecycleToMembers", e.message); return { 対象候補: 0, 配布予定: 0, byMember: [], dryRun, error: e.message }; }
 }

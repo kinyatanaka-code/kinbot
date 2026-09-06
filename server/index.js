@@ -212,6 +212,8 @@ import {
   recycleBreakdown,
   recycleReasonBreakdown,
   tagRecycleTemperatures,
+  distributeRecycleToMembers,
+  distributeRecycleToRevival,
   setCallTargetAbsent,
   setCallTargetRecycleInfo,
   findListsByNameSince,
@@ -4453,11 +4455,35 @@ app.post("/api/calls/recycle-revival-lists", async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-// リサイクルの内訳を確認する（リスト別・グループ別・温度別の件数）。
-// 「今リサイクルにあるリードがどのリスト/グループに属するか」を見るための診断。
-app.get("/api/calls/_recyclediag", async (req, res) => {
+// リサイクル(まとめ)のリードをインサイド各メンバーへ 1人 perMember 件ずつ割り振る。
+// GET=試算（触らない）、POST=実行（クローザー・管理者）。対象外は配らない・グループ厳守・温度A→B→C順。
+async function insideMembersForDistribute() {
+  const list = await listMembers().catch(() => []);
+  const interns = await listInterns().catch(() => []);
+  const internSet = new Set((interns || []).map((x) => String(x.email || "").toLowerCase()).filter(Boolean));
+  const isInside = (m) => (Array.isArray(m.roles) && m.roles.includes("inside")) || internSet.has(String(m.email || "").toLowerCase());
+  const out = [];
+  for (const m of (list || [])) {
+    if (m.active === false) continue;
+    if (m.email && isInside(m)) out.push({ email: String(m.email).toLowerCase(), name: m.name || m.email });
+  }
+  return out;
+}
+app.get("/api/calls/recycle-distribute", async (req, res) => {
   try {
-    res.json(await recycleBreakdown());
+    const perMember = Math.max(1, Math.min(500, parseInt(req.query.per, 10) || 50));
+    const members = await insideMembersForDistribute();
+    res.json({ perMember, インサイド: members.length, ...(await distributeRecycleToMembers({ members, perMember, dryRun: true })) });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+app.post("/api/calls/recycle-distribute", async (req, res) => {
+  try {
+    if (!req.isAdmin && !(await isCloserUser(req.user))) return res.status(403).json({ error: "クローザー・管理者だけが実行できます" });
+    const perMember = Math.max(1, Math.min(500, parseInt(req.body?.per, 10) || 50));
+    const members = await insideMembersForDistribute();
+    const r = await distributeRecycleToMembers({ members, perMember, dryRun: false, createdBy: req.user });
+    console.log(`[kincall] リサイクル割り振り：1人${perMember}件×インサイド${members.length}人＝配布${r.配布予定}（候補${r.対象候補}）by ${req.user}`);
+    res.json({ ok: true, perMember, インサイド: members.length, ...r });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
@@ -18540,7 +18566,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-06an リサイクル温度の対応表を実データに合わせ確定：履歴なし/不在/コールのみ/問い合わせ=A、お断り=B、受付ブロック=C、明確拒否=C、現在使われていない・アポ獲得=対象外(温度付けない)、前向きメモ=A。試算/実行の内訳に『対象外』件数も表示。前回(20260906am)：温度の一括タグ付け(粗い版)。";
+const BUILD_TAG = "2026-09-06ao リサイクル割り振り：設定・管理から『1人◯件ずつ・インサイド全員』に配れるUIを追加（試算→実行）。取れそうな順(温度A→B→C)、各リードは元グループのその人の復活リストへ、対象外(現在使われていない・アポ獲得)は配らない。実装重複を整理し /api/calls/recycle-distribute に一本化。前回(20260906an)：温度の対応表確定。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",

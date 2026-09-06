@@ -2283,6 +2283,16 @@ async function loadAdmin() {
                 <span class="rev-status" id="rtSt"></span>
               </div>
             </div>
+            <div style="margin-top:12px;padding-top:10px;border-top:1px solid #eef3f0">
+              <div class="note">リサイクルのリードを<b>インサイド全員</b>に配ります。取れそうな順（温度A→B→C）で、各リードは<b>元のグループのその人の復活リスト</b>へ入ります（現在使われていない・アポ獲得は配りません）。まず試算で確認してください。</div>
+              <div style="display:flex;gap:8px;align-items:center;margin-top:6px;flex-wrap:wrap">
+                <label style="font-size:12px">1人あたり <input type="number" id="rdPer" value="50" min="1" max="500" style="width:64px;padding:4px 6px;border:1px solid #d7e0db;border-radius:8px;text-align:center" /> 件</label>
+                <button type="button" class="btn ghost" id="rdDry">試算する</button>
+                <button type="button" class="btn" id="rdRun">割り振る（実行）</button>
+                <span class="rev-status" id="rdSt"></span>
+              </div>
+              <div id="rdPrev" class="note" style="margin-top:6px"></div>
+            </div>
           </details>
         </div>` : ""}
         ${iAmCloser ? `<div class="kc-adcard">
@@ -2563,6 +2573,41 @@ async function loadRecycleRules() {
         say("rtSt", `付けました：${d.更新}件（A:${d.内訳.A || 0} B:${d.内訳.B || 0} C:${d.内訳.C || 0}／対象外 ${d.内訳.対象外 || 0}）`, 12000);
       } catch (e) { say("rtSt", "失敗：" + e.message, 8000); }
       finally { rtRun.disabled = false; }
+    });
+  }
+  // リサイクルの割り振り（試算・実行）
+  const rdDry = $("rdDry"), rdRun = $("rdRun");
+  if (rdDry && !rdDry.dataset.wired) {
+    rdDry.dataset.wired = "1";
+    const per = () => Math.max(1, parseInt(($("rdPer") || {}).value, 10) || 50);
+    const 表示 = (d) => {
+      const rows = (d.配布 || []).filter((x) => x.件数)
+        .map((x) => `${esc(String(x.member).split("@")[0])}：${x.件数}件（A${x.温度.A}/B${x.温度.B}/C${x.温度.C}）`);
+      const pv = $("rdPrev");
+      if (pv) pv.innerHTML = rows.length ? rows.join("<br>") : "配れる候補がありません。";
+    };
+    rdDry.addEventListener("click", async () => {
+      say("rdSt", "試算しています…");
+      try {
+        const d = await (await fetch(`/api/calls/recycle-distribute?per=${per()}`)).json();
+        if (d.error) throw new Error(d.error);
+        say("rdSt", `試算：候補 ${d.対象}件 → 配る合計 ${(d.配布 || []).reduce((s, x) => s + x.件数, 0)}件`, 15000);
+        表示(d);
+      } catch (e) { say("rdSt", "失敗：" + e.message, 8000); }
+    });
+    rdRun.addEventListener("click", async () => {
+      if (!confirm(`リサイクルのリードを、インサイド全員に1人 ${per()}件ずつ配ります。\n各リードは元のグループのその人の復活リストへ移り、担当もその人になります。\nよろしいですか？`)) return;
+      rdRun.disabled = true; say("rdSt", "配っています…");
+      try {
+        const d = await (await fetch("/api/calls/recycle-distribute", {
+          method: "POST", headers: { "content-type": "application/json" },
+          body: JSON.stringify({ per: per() }),
+        })).json();
+        if (d.error) throw new Error(d.error);
+        say("rdSt", `配りました：${d.動かした}件`, 15000);
+        表示(d);
+      } catch (e) { say("rdSt", "失敗：" + e.message, 8000); }
+      finally { rdRun.disabled = false; }
     });
   }
   try {
