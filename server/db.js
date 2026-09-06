@@ -8196,6 +8196,22 @@ export async function distributeRecycleToMembers({ members = [], perMember = 50,
         ORDER BY (CASE COALESCE(NULLIF(btrim(t.temperature),''),'A')
                     WHEN 'A' THEN 0 WHEN 'B' THEN 1 WHEN 'C' THEN 2 ELSE 9 END), t.id`);
     const 対象候補 = rows.length;
+    // 候補が0のとき、どの条件で落ちているかを返す（グループ未設定・温度なし・復活リスト内）
+    let 除外内訳 = null;
+    if (!対象候補) {
+      try {
+        const { rows: dg } = await pool.query(
+          `SELECT
+             count(*) FILTER (WHERE COALESCE(l.kind,'') = 'recycle_revival')::int AS 復活リスト内,
+             count(*) FILTER (WHERE COALESCE(l.kind,'') <> 'recycle_revival' AND l.group_id IS NULL)::int AS グループ未設定,
+             count(*) FILTER (WHERE COALESCE(l.kind,'') <> 'recycle_revival' AND l.group_id IS NOT NULL
+                                AND COALESCE(NULLIF(btrim(t.temperature),''),'') = '')::int AS 温度なし,
+             count(*)::int AS リサイクル合計
+             FROM call_targets t JOIN call_lists l ON l.id = t.list_id
+            WHERE COALESCE(t.stage,'') ILIKE '%リサイクル%'`);
+        除外内訳 = dg[0] || null;
+      } catch {}
+    }
     // メンバーへ順番に perMember 件ずつ（温度順の並びのまま先頭から詰める）
     const perList = new Map();   // key: `${email}|${groupId}` -> [ids]
     const byMemberCount = new Map();
@@ -8223,6 +8239,6 @@ export async function distributeRecycleToMembers({ members = [], perMember = 50,
         if (rev && ids.length) await moveCallTargets(ids, rev.id);
       }
     }
-    return { 対象候補, 配布予定, byMember, dryRun };
+    return { 対象候補, 配布予定, byMember, dryRun, ...(除外内訳 ? { 除外内訳 } : {}) };
   } catch (e) { console.error("[db] distributeRecycleToMembers", e.message); return { 対象候補: 0, 配布予定: 0, byMember: [], dryRun, error: e.message }; }
 }
