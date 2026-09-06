@@ -10077,17 +10077,22 @@ app.get("/api/calls/apo-dashboard", async (req, res) => {
       const monthEnd = new Date(Date.UTC(my, mm, 0));
       const nowJw = new Date(Date.now() + 9 * 3600000);
       const upto = nowJw.getTime() < monthEnd.getTime() ? nowJw : monthEnd;
-      const daysNeeded = Math.floor((upto.getTime() - monthStart.getTime()) / 86400000) + 2;
-      // 実績は日次で取り、週ラップに積み上げる
-      const gd = await computeStatsGrid("day", Math.max(2, daysNeeded));
-      const dayIdx = {}; (gd.区切り || []).forEach((b, j) => { dayIdx[b.key] = j; });
+      // 実績は「週グリッド（月曜起点・過去に遡れる）」から取り、各ラップの期間に重なるぶんを足す。
+      // 日次グリッドは今週の月〜金しか返さないため、過去の週が0になってしまう。
+      const weeksNeeded = Math.ceil((upto.getTime() - monthStart.getTime()) / (7 * 86400000)) + 2;
+      const gd = await computeStatsGrid("week", Math.max(2, Math.min(26, weeksNeeded)));
       const memRolesD = (gd.members || [])
         .filter((m2) => !nameHas(m2.誰, excludeNames))
         .map((m2) => ({ m: m2, role: nameHas(m2.誰, salesNames) ? "sales" : m2.role }));
-      const actDay = (dayKey, r) => {
-        const j = dayIdx[dayKey]; if (j === undefined) return 0;
-        return memRolesD.filter((x) => r === "all" || x.role === r)
-          .reduce((a, x) => a + ((x.m.値 && x.m.値[j]) ? (Number(x.m.値[j].アポ内 || 0) + Number(x.m.値[j].アポ外 || 0)) : 0), 0);
+      // 週グリッドの各区切り（週）のうち、ラップ期間に重なるものを合計する
+      const actRange = (fromYmd, toYmd, r) => {
+        let s = 0;
+        (gd.区切り || []).forEach((b, j) => {
+          if (b.to < fromYmd || b.from > toYmd) return;   // 期間が重ならない
+          s += memRolesD.filter((x) => r === "all" || x.role === r)
+            .reduce((a, x) => a + ((x.m.値 && x.m.値[j]) ? (Number(x.m.値[j].アポ内 || 0) + Number(x.m.値[j].アポ外 || 0)) : 0), 0);
+        });
+        return s;
       };
       // 平日（月〜金）だけで週を区切る。土日は週に含めない。月をまたぐ週は月内で締める。
       // 例）9月：9/1〜9/4、9/7〜9/11、9/14〜9/18、9/21〜9/25、9/28〜9/30
@@ -10118,15 +10123,7 @@ app.get("/api/calls/apo-dashboard", async (req, res) => {
       const cumAct = { group: 0, sales: 0, inside: 0 };
       weeks = laps.map((l) => {
         const key = ymd(l.from);
-        const rangeSum = (r) => {
-          let s = 0;
-          for (let x = new Date(l.from); x.getTime() <= l.to.getTime(); x = new Date(x.getTime() + 86400000)) {
-            const dw = x.getUTCDay();
-            if (dw === 0 || dw === 6) continue;   // 土日は数えない
-            s += actDay(ymd(x), r);
-          }
-          return s;
-        };
+        const rangeSum = (r) => actRange(ymd(l.from), ymd(l.to), r);
         const wAct = { group: rangeSum("all"), sales: rangeSum("sales"), inside: rangeSum("inside") };
         cumAct.group += wAct.group; cumAct.sales += wAct.sales; cumAct.inside += wAct.inside;
         // 差分＝その週までの積み上げ実績−その週に入れた目標（カード表示の 実績−目標 と一致させる）
@@ -18626,7 +18623,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-07l 週次の区切りを平日（月〜金）に変更。例）9月＝9/1〜9/4、9/7〜9/11、9/14〜9/18、9/21〜9/25、9/28〜9/30。土日は週に含めず実績も数えない。月をまたぐ週は月内で締める。前回(20260907k)：スマホのkincallメニュー。";
+const BUILD_TAG = "2026-09-07m 週次の実績が0になる不具合を修正。原因：日次グリッドは『今週の月〜金の5日』しか返さない作りで、過去の週の実績を引けていなかった。週グリッド（月曜起点・過去に遡れる）から各週ラップに重なるぶんを合計する方式に変更。前回(20260907l)：平日区切り。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
