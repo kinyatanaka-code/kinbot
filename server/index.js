@@ -206,6 +206,9 @@ import {
   setCallListOwner,
   ensureRecycleRevivalList,
   listRecycleRevivalLists,
+  getListGroupId,
+  isRevivalList,
+  pickRecycleCandidateForGroup,
   setCallTargetAbsent,
   setCallTargetRecycleInfo,
   findListsByNameSince,
@@ -7733,6 +7736,7 @@ app.get("/api/calls/targets", async (req, res) => {
   try {
     const listParam = String(req.query.list || "");
     let rows;
+    let 復活リストか = false;
     if (listParam === "archive" || listParam === "recycle") {
       // アーカイブ／リサイクルのカード：ステージで横断して集める（どのリストにあっても）
       const kw = listParam === "archive" ? "アーカイブ" : "リサイクル";
@@ -7754,6 +7758,7 @@ app.get("/api/calls/targets", async (req, res) => {
     } else {
       const listId = parseInt(listParam, 10);
       if (!listId) return res.status(400).json({ error: "リストを選んでください" });
+      復活リストか = await isRevivalList(listId).catch(() => false);
       rows = await listCallTargets(listId, {
         q: String(req.query.q || ""),
         limit: Math.min(2000, parseInt(req.query.limit, 10) || 2000),
@@ -7762,8 +7767,8 @@ app.get("/api/calls/targets", async (req, res) => {
     }
 
     // かける一覧では、ステージが「ユーザー／失注／アーカイブ／リサイクル」のものは出さない。
-    // ただしアーカイブ／リサイクルのカード（仮想ビュー）を開いているときは、その中身を出す。
-    if (listParam !== "archive" && listParam !== "recycle") {
+    // ただしアーカイブ／リサイクルのカード、および「リサイクル復活リスト」の中身は出す。
+    if (listParam !== "archive" && listParam !== "recycle" && !復活リストか) {
       const 隠すステージ = /ユーザー|失注|アーカイブ|リサイクル/;
       // 「現在使われていない（現アナ・欠番・不通）」はアーカイブ扱いで、かける一覧には出さない
       const 死番ステータス = /使われて|使わない|現在使わ|現アナ|欠番|不通|使われていない番号/;
@@ -9182,7 +9187,26 @@ app.post("/api/calls/targets/:id/record", async (req, res) => {
       }
     } catch {}
 
-    res.json({ ok: true, sf, 自動ステージ, 連続不在 });
+    // リサイクル復活の補充（3c）：アーカイブ/リサイクルに送ったら、
+    // そのリードと同じグループの共有リサイクルから、優先順(A→B→C)で1件を、
+    // 記録者(このメンバー)の「グループ×担当」の復活リストへ移す（即時・1:1）。
+    let 復活補充 = null;
+    try {
+      if (自動ステージ === RECYCLE_STAGE || 自動ステージ === ARCHIVE_STAGE) {
+        const gid = await getListGroupId(t.list_id);
+        if (gid) {
+          const rev = await ensureRecycleRevivalList({ groupId: gid, owner: req.user, createdBy: req.user });
+          const candId = await pickRecycleCandidateForGroup(gid, id);
+          if (rev && candId) {
+            await moveCallTargets([candId], rev.id);
+            復活補充 = { candidateId: candId, listId: rev.id, listName: rev.name };
+            console.log(`[kincall] リサイクル復活：グループ${gid}の候補${candId}を ${req.user} の復活リスト「${rev.name}」(${rev.id})へ補充`);
+          }
+        }
+      }
+    } catch (e) { console.warn("[kincall] リサイクル復活の補充に失敗:", e.message); }
+
+    res.json({ ok: true, sf, 自動ステージ, 連続不在, 復活補充 });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
@@ -18482,7 +18506,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-06ai リサイクル復活ステップ3b：グループ×担当の『リサイクル復活リスト』を作れる器を追加（call_lists.kind=recycle_revival＋group_id＋owner）。メンバー個別ビューにグループ選択＋作成ボタン。作成は冪等。リードはまだ動かさない。前回(20260906ah)：温度タグ付け。";
+const BUILD_TAG = "2026-09-06aj リサイクル復活ステップ3c：記録でアーカイブ/リサイクルに送った瞬間、そのリードと同じグループの共有リサイクルから優先順(A→B→C・同温度は古い順)で1件を、記録者の『グループ×担当』の復活リストへ即時1:1補充（復活リスト無ければ自動作成）。復活リストの中身はリサイクル非表示フィルタを外して表示。前回(20260906ai)：復活リストの器。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",

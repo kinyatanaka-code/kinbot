@@ -7933,12 +7933,47 @@ export async function ensureRecycleRevivalList({ groupId, owner, createdBy, name
       `SELECT * FROM call_lists WHERE kind='recycle_revival' AND group_id=$1 AND lower(owner)=lower($2) LIMIT 1`,
       [groupId, owner]);
     if (rows[0]) return rows[0];
+    let nm = String(name || "").trim();
+    if (!nm) {
+      let gname = "";
+      try { const g = await pool.query(`SELECT name FROM call_list_groups WHERE id=$1`, [groupId]); gname = g.rows[0] ? g.rows[0].name : ""; } catch {}
+      nm = `【復活】${gname || "グループ"} - ${owner}`;
+    }
     const { rows: ins } = await pool.query(
       `INSERT INTO call_lists (name, owner, created_by, group_id, kind)
        VALUES ($1,$2,$3,$4,'recycle_revival') RETURNING *`,
-      [String(name || "リサイクル復活").slice(0, 120), String(owner).toLowerCase(), createdBy || null, groupId]);
+      [nm.slice(0, 120), String(owner).toLowerCase(), createdBy || null, groupId]);
     return ins[0] || null;
   } catch (e) { console.error("[db] ensureRecycleRevivalList", e.message); return null; }
+}
+// あるリストのグループID／復活リストかどうか
+export async function getListGroupId(listId) {
+  if (!pool || !listId) return null;
+  try { const { rows } = await pool.query(`SELECT group_id FROM call_lists WHERE id=$1`, [listId]); return rows[0] ? rows[0].group_id : null; }
+  catch { return null; }
+}
+export async function isRevivalList(listId) {
+  if (!pool || !listId) return false;
+  try { const { rows } = await pool.query(`SELECT kind FROM call_lists WHERE id=$1`, [listId]); return !!rows[0] && rows[0].kind === "recycle_revival"; }
+  catch { return false; }
+}
+// 同じグループの共有リサイクルから、温度A→B→C（同温度は古い順）で1件だけ選ぶ。
+// 復活リストに既に入っているもの・除外ID（今記録したリード）は除く。
+export async function pickRecycleCandidateForGroup(groupId, excludeId = 0) {
+  if (!pool || !groupId) return null;
+  try {
+    const { rows } = await pool.query(
+      `SELECT t.id FROM call_targets t
+         JOIN call_lists l ON l.id = t.list_id
+        WHERE l.group_id = $1
+          AND COALESCE(l.kind,'') <> 'recycle_revival'
+          AND COALESCE(t.stage,'') ILIKE '%リサイクル%'
+          AND t.id <> $2
+        ORDER BY (CASE COALESCE(NULLIF(btrim(t.temperature),''),'A')
+                    WHEN 'A' THEN 0 WHEN 'B' THEN 1 WHEN 'C' THEN 2 ELSE 9 END), t.id
+        LIMIT 1`, [groupId, excludeId || 0]);
+    return rows[0] ? rows[0].id : null;
+  } catch (e) { console.error("[db] pickRecycleCandidateForGroup", e.message); return null; }
 }
 // リサイクル復活リストの一覧（owner指定で絞れる）。件数つき。
 export async function listRecycleRevivalLists(owner) {
