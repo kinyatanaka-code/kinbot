@@ -3753,11 +3753,14 @@ export async function sweepStageLists(listId = null) {
 // ステージ（リード状況）が…（上の sweepStageLists）
 
 // ステージ（リード状況）で横断して架電先を集める（アーカイブ/リサイクルのカード用）。
-export async function listStageTargets(keyword, { q = "", limit = 2000 } = {}) {
+export async function listStageTargets(keyword, { q = "", limit = 2000, statusMatch = [] } = {}) {
   if (!pool || !keyword) return [];
   try {
     const p = [`%${keyword}%`];
-    let where = `COALESCE(t.stage,'') ILIKE $1`;
+    let stageOr = `COALESCE(t.stage,'') ILIKE $1`;
+    // ステージだけでなく、指定したステータス（例：現在使われていない）も「その仮想ビュー」に含める
+    for (const k of statusMatch) { p.push(`%${k}%`); stageOr += ` OR COALESCE(t.status,'') ILIKE $${p.length}`; }
+    let where = `(${stageOr})`;
     if (q) {
       p.push(`%${String(q).replace(/[%_]/g, "")}%`);
       where += ` AND (t.company ILIKE $${p.length} OR t.person ILIKE $${p.length}

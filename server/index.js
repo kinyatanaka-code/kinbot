@@ -7712,9 +7712,12 @@ app.get("/api/calls/targets", async (req, res) => {
     if (listParam === "archive" || listParam === "recycle") {
       // アーカイブ／リサイクルのカード：ステージで横断して集める（どのリストにあっても）
       const kw = listParam === "archive" ? "アーカイブ" : "リサイクル";
+      // 「現在使われていない（現アナ・欠番・不通）」はアーカイブ扱い＝アーカイブのまとめに含める
+      const statusMatch = listParam === "archive" ? ["現在使われて", "現アナ", "欠番", "不通", "使われていない番号"] : [];
       rows = await listStageTargets(kw, {
         q: String(req.query.q || ""),
         limit: Math.min(3000, parseInt(req.query.limit, 10) || 3000),
+        statusMatch,
       });
     } else if (listParam === "all") {
       // 「全てのリード」：そのメンバーが持ち主の全リストをまとめた仮想リスト
@@ -7738,7 +7741,10 @@ app.get("/api/calls/targets", async (req, res) => {
     // ただしアーカイブ／リサイクルのカード（仮想ビュー）を開いているときは、その中身を出す。
     if (listParam !== "archive" && listParam !== "recycle") {
       const 隠すステージ = /ユーザー|失注|アーカイブ|リサイクル/;
-      rows = rows.filter((r) => !隠すステージ.test(String(r.stage || "")));
+      // 「現在使われていない（現アナ・欠番・不通）」はアーカイブ扱いで、かける一覧には出さない
+      const 死番ステータス = /使われて|使わない|現在使わ|現アナ|欠番|不通|使われていない番号/;
+      rows = rows.filter((r) => !隠すステージ.test(String(r.stage || "")) &&
+        !死番ステータス.test(String(r.status || "")) && !死番ステータス.test(String(r.stage || "")));
     }
 
     // Salesforceに残っている活動の件数も数える（kincallの記録だけだと0に見えるため）
@@ -9000,12 +9006,14 @@ app.post("/api/calls/targets/:id/record", async (req, res) => {
     // ステージの正式文字列は環境変数で上書き可（表記が違っても直せるように）。
     const RECYCLE_STAGE = process.env.RECYCLE_STAGE || "89リサイクル";
     const JUDGE_STAGE = process.env.JUDGE_STAGE || "04ジャッジ";
+    const ARCHIVE_STAGE = process.env.ARCHIVE_STAGE || "99アーカイブ";
     let 連続不在 = Number(t.consecutive_absent || 0);
     if (/不在/.test(result)) 連続不在 += 1;
     else if (/接触/.test(result)) 連続不在 = 0;   // 担当者接触（お断り/フォロー/アポ等）で連続不在はリセット
     await setCallTargetAbsent(id, 連続不在).catch(() => {});
     let 自動ステージ = null;
-    if (/お断り/.test(result)) 自動ステージ = RECYCLE_STAGE;
+    if (/現在使われて|現アナ|欠番|不通|使われていない番号/.test(result)) 自動ステージ = ARCHIVE_STAGE;  // 現在使われていない→アーカイブ
+    else if (/お断り/.test(result)) 自動ステージ = RECYCLE_STAGE;
     else if (/営業フォロー/.test(result)) 自動ステージ = JUDGE_STAGE;
     else if (/不在/.test(result) && 連続不在 >= 5) 自動ステージ = RECYCLE_STAGE;
     const finalStage = 自動ステージ || 次のステージ;
@@ -18435,7 +18443,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-06af 記録の結果で自動ルーティング：お断り→ステージ『89リサイクル』／営業フォロー→『04ジャッジ』／担当者不在が5連続→『89リサイクル』。kincallのステージとSFのリード状況(Status)を更新（SF書込あり）。接触系でconsecutive_absentを0に。ステージ文字列は環境変数 RECYCLE_STAGE/JUDGE_STAGE で上書き可。前回(20260906ae)：割り振りのジャッジ含む/除く。";
+const BUILD_TAG = "2026-09-06ag 現在使われていない(現アナ・欠番・不通)はアーカイブ扱い。かける一覧から非表示（ステータスで除外）＋アーカイブのまとめに含める。記録の結果が現在使われていない系ならステージを『99アーカイブ』(ARCHIVE_STAGE)にしSF反映。前回(20260906af)：お断り/フォロー/5連続不在の自動ルーティング。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
