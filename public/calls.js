@@ -1323,11 +1323,6 @@ async function openTarget(id, draft, opt) {
         </select>
         <div class="kc-reason" id="kcReason" hidden></div>
 
-        <div class="kc-lb">断り理由タグ<span class="note" style="font-weight:400">（リサイクル復活の温度に使う・任意）</span></div>
-        <select class="kc-input" id="kcRejectTag">
-          <option value="">選ばない（結果なしはA扱い）</option>
-        </select>
-
         <div class="kc-lb">説明（任意）</div>
         <textarea class="kc-input" id="kcMemo" rows="3" placeholder="担当者は佐藤様・14時以降が良いとのこと"></textarea>
 
@@ -1521,7 +1516,6 @@ async function openTarget(id, draft, opt) {
     if (kind === "番号") appendMemo("【使われていない番号】");
   };
   const resultSel = m.el.querySelector("#kcResult");
-  fillRejectTags(m.el.querySelector("#kcRejectTag"), x["断り理由タグ"] || "");
   if (resultSel) resultSel.addEventListener("change", drawReason);
   drawReason();
 
@@ -1548,7 +1542,6 @@ async function openTarget(id, draft, opt) {
           // 次回の架電時間（HH:MM）。kincallで予定日時として持ち、時刻が来たら上に出す。
           nextTime: (m.el.querySelector("#kcNextTime") || {}).value || "",
           // 断り理由タグ（リサイクル復活の温度に使う）
-          rejectTag: (m.el.querySelector("#kcRejectTag") || {}).value || "",
         }),
       });
       const d = await r.json();
