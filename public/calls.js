@@ -722,12 +722,17 @@ function openModal(title, inner, opts = {}) {
   document.body.appendChild(back);
   const close = () => back.remove();
   back.querySelector(".kc-modal-x").addEventListener("click", close);
-  back.addEventListener("click", (e) => { if (e.target === back) close(); });
+  // opts.closeOnlyX = true のときは、✕ボタンでしか閉じない（記録の途中で消えないように）
+  if (!opts.closeOnlyX) {
+    back.addEventListener("click", (e) => { if (e.target === back) close(); });
+  }
   const min = back.querySelector(".kc-modal-min");
   if (min && opts.onMinimize) min.addEventListener("click", () => opts.onMinimize());
-  document.addEventListener("keydown", function escKey(e) {
-    if (e.key === "Escape") { close(); document.removeEventListener("keydown", escKey); }
-  });
+  if (!opts.closeOnlyX) {
+    document.addEventListener("keydown", function escKey(e) {
+      if (e.key === "Escape") { close(); document.removeEventListener("keydown", escKey); }
+    });
+  }
   return { el: back, close };
 }
 
@@ -1354,6 +1359,7 @@ async function openTarget(id, draft, opt) {
       </div>
     </div>`, {
     wide: true,
+    closeOnlyX: true,   // 記録の途中で消えないよう、✕ボタンでだけ閉じる
     // 「小さくする」＝下書きをページ下部のドックへ入れて、窓を閉じる
     onMinimize: () => {
       dockUpsert({
