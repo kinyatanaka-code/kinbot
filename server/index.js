@@ -213,6 +213,7 @@ import {
   recycleReasonBreakdown,
   tagRecycleTemperatures,
   distributeRecycleToMembers,
+  revertArchivedFromRevival,
   distributeRecycleToRevival,
   setCallTargetAbsent,
   setCallTargetRecycleInfo,
@@ -4469,6 +4470,34 @@ async function insideMembersForDistribute() {
   }
   return out;
 }
+// 復活リストに入ってしまったアーカイブ相当のリードを、まとめてアーカイブへ戻す。
+app.get("/api/calls/pull-archived", async (req, res) => {
+  try { res.json(await pullArchivedFromRevival({ archiveStage: process.env.ARCHIVE_STAGE || "99アーカイブ", dryRun: true })); }
+  catch (e) { res.status(500).json({ error: e.message }); }
+});
+app.post("/api/calls/pull-archived", async (req, res) => {
+  try {
+    if (!req.isAdmin && !(await isCloserUser(req.user))) return res.status(403).json({ error: "クローザー・管理者だけが実行できます" });
+    const r = await pullArchivedFromRevival({ archiveStage: process.env.ARCHIVE_STAGE || "99アーカイブ", dryRun: false });
+    console.log(`[kincall] 復活リストのアーカイブを戻しました：${r.戻した}件 by ${req.user}`);
+    res.json({ ok: true, ...r });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// 復活リストに入ってしまったアーカイブ相当のリードを、アーカイブに戻す。GET=件数、POST=実行。
+app.get("/api/calls/revert-archived", async (req, res) => {
+  try { res.json(await revertArchivedFromRevival({ dryRun: true })); }
+  catch (e) { res.status(500).json({ error: e.message }); }
+});
+app.post("/api/calls/revert-archived", async (req, res) => {
+  try {
+    if (!req.isAdmin && !(await isCloserUser(req.user))) return res.status(403).json({ error: "クローザー・管理者だけが実行できます" });
+    const r = await revertArchivedFromRevival({ dryRun: false, archiveStage: process.env.ARCHIVE_STAGE || "99アーカイブ" });
+    console.log(`[kincall] 復活リストのアーカイブ ${r.戻した}件をアーカイブに戻しました by ${req.user}`);
+    res.json({ ok: true, ...r });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 app.get("/api/calls/recycle-distribute", async (req, res) => {
   try {
     const perMember = Math.max(1, Math.min(500, parseInt(req.query.per, 10) || 50));
@@ -18566,7 +18595,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-06ap 割り振り試算が『候補 undefined件』になる不具合を修正（表示がサーバの返却キー 対象候補/配布予定/byMember と食い違っていた）。候補0件のときは理由（グループ未設定／温度なし／すでに復活リスト内）を内訳で表示。前回(20260906ao)：割り振りUI追加。";
+const BUILD_TAG = "2026-09-06aq 割り振り候補からアーカイブ（ステージにアーカイブ／現在使われていない系）を除外。さらに、復活リストに入ってしまったアーカイブ相当を一括でアーカイブに戻すボタンを追加（件数確認→実行。担当と温度も外す）。前回(20260906ap)：試算キー修正。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",

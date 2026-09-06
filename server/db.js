@@ -8114,6 +8114,8 @@ export async function distributeRecycleToRevival({ members = [], perMember = 50,
          FROM call_targets t
          JOIN call_lists l ON l.id = t.list_id
         WHERE COALESCE(t.stage,'') ILIKE '%リサイクル%'
+          AND COALESCE(t.stage,'') NOT ILIKE '%アーカイブ%'
+          AND COALESCE(t.status,'') !~ '使われて|現在使わ|現アナ|欠番|不通'
           AND COALESCE(l.kind,'') <> 'recycle_revival'
         ORDER BY (CASE COALESCE(NULLIF(btrim(t.temperature),''),'A')
                     WHEN 'A' THEN 0 WHEN 'B' THEN 1 WHEN 'C' THEN 2 ELSE 9 END), t.id`);
@@ -8190,6 +8192,8 @@ export async function distributeRecycleToMembers({ members = [], perMember = 50,
          FROM call_targets t
          JOIN call_lists l ON l.id = t.list_id
         WHERE COALESCE(t.stage,'') ILIKE '%リサイクル%'
+          AND COALESCE(t.stage,'') NOT ILIKE '%アーカイブ%'
+          AND COALESCE(t.status,'') !~ '使われて|現在使わ|現アナ|欠番|不通'
           AND COALESCE(l.kind,'') <> 'recycle_revival'
           AND l.group_id IS NOT NULL
           AND COALESCE(NULLIF(btrim(t.temperature),''),'') <> ''
@@ -8241,4 +8245,49 @@ export async function distributeRecycleToMembers({ members = [], perMember = 50,
     }
     return { 対象候補, 配布予定, byMember, dryRun, ...(除外内訳 ? { 除外内訳 } : {}) };
   } catch (e) { console.error("[db] distributeRecycleToMembers", e.message); return { 対象候補: 0, 配布予定: 0, byMember: [], dryRun, error: e.message }; }
+}
+
+// 復活リストに入ってしまった「アーカイブ相当」のリードを、まとめてアーカイブへ戻す。
+// ステージを ARCHIVE（引数）にし、復活リストから外す（元リストが分からないため、担当はそのまま）。
+// dryRun=true なら件数の試算だけ。
+export async function pullArchivedFromRevival({ archiveStage = "99アーカイブ", dryRun = true } = {}) {
+  if (!pool) return { 対象: 0, 戻した: 0 };
+  try {
+    const { rows } = await pool.query(
+      `SELECT t.id, t.company, t.stage, t.status
+         FROM call_targets t
+         JOIN call_lists l ON l.id = t.list_id
+        WHERE COALESCE(l.kind,'') = 'recycle_revival'
+          AND ( COALESCE(t.stage,'') ILIKE '%アーカイブ%'
+             OR COALESCE(t.status,'') ~ '使われて|現在使わ|現アナ|欠番|不通' )`);
+    if (dryRun) return { 対象: rows.length, 戻した: 0, dryRun: true };
+    let 戻した = 0;
+    for (const r of rows) {
+      try {
+        await pool.query(`UPDATE call_targets SET stage=$2, temperature=NULL WHERE id=$1`, [r.id, archiveStage]);
+        戻した++;
+      } catch (e) { console.error("[db] pullArchivedFromRevival", r.id, e.message); }
+    }
+    return { 対象: rows.length, 戻した, dryRun: false };
+  } catch (e) { console.error("[db] pullArchivedFromRevival", e.message); return { 対象: 0, 戻した: 0, error: e.message }; }
+}
+
+// 復活リストに入ってしまった「アーカイブ相当」のリードを、アーカイブに戻す。
+// 対象：kind='recycle_revival' のリストにいて、ステージがアーカイブ／ステータスが現在使われていない系。
+// dryRun=true なら件数だけ数える。戻すときはステージをアーカイブにし、担当を外す。
+export async function revertArchivedFromRevival({ dryRun = true, archiveStage = "99アーカイブ" } = {}) {
+  if (!pool) return { 対象: 0, 戻した: 0 };
+  try {
+    const where = `l.kind='recycle_revival'
+        AND ( COALESCE(t.stage,'') ILIKE '%アーカイブ%'
+              OR COALESCE(t.status,'') ~ '使われて|現在使わ|現アナ|欠番|不通' )`;
+    const { rows } = await pool.query(
+      `SELECT t.id FROM call_targets t JOIN call_lists l ON l.id=t.list_id WHERE ${where}`);
+    const ids = rows.map((r) => r.id);
+    if (dryRun || !ids.length) return { 対象: ids.length, 戻した: 0, dryRun };
+    await pool.query(
+      `UPDATE call_targets SET stage=$2, assigned_to=NULL, temperature=NULL WHERE id = ANY($1::int[])`,
+      [ids, archiveStage]);
+    return { 対象: ids.length, 戻した: ids.length, dryRun: false };
+  } catch (e) { console.error("[db] revertArchivedFromRevival", e.message); return { 対象: 0, 戻した: 0, error: e.message }; }
 }

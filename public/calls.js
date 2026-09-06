@@ -2292,6 +2292,12 @@ async function loadAdmin() {
                 <span class="rev-status" id="rdSt"></span>
               </div>
               <div id="rdPrev" class="note" style="margin-top:6px"></div>
+              <div style="display:flex;gap:8px;align-items:center;margin-top:10px;flex-wrap:wrap">
+                <span class="note">配ってしまったアーカイブを戻す：</span>
+                <button type="button" class="btn ghost" id="raDry">件数を見る</button>
+                <button type="button" class="btn ghost" id="raRun">アーカイブに戻す</button>
+                <span class="rev-status" id="raSt"></span>
+              </div>
             </div>
           </details>
         </div>` : ""}
@@ -2615,6 +2621,29 @@ async function loadRecycleRules() {
         表示(d);
       } catch (e) { say("rdSt", "失敗：" + e.message, 8000); }
       finally { rdRun.disabled = false; }
+    });
+  }
+  // 復活リストに入ってしまったアーカイブを戻す
+  const raDry = $("raDry"), raRun = $("raRun");
+  if (raDry && !raDry.dataset.wired) {
+    raDry.dataset.wired = "1";
+    raDry.addEventListener("click", async () => {
+      say("raSt", "数えています…");
+      try {
+        const d = await (await fetch("/api/calls/revert-archived")).json();
+        if (d.error) throw new Error(d.error);
+        say("raSt", `復活リストの中にアーカイブ相当が ${d.対象 || 0}件あります`, 12000);
+      } catch (e) { say("raSt", "失敗：" + e.message, 8000); }
+    });
+    raRun.addEventListener("click", async () => {
+      if (!confirm("復活リストに入っているアーカイブ相当のリードを、アーカイブに戻します（担当と温度も外します）。よろしいですか？")) return;
+      raRun.disabled = true; say("raSt", "戻しています…");
+      try {
+        const d = await (await fetch("/api/calls/revert-archived", { method: "POST" })).json();
+        if (d.error) throw new Error(d.error);
+        say("raSt", `アーカイブに戻しました：${d.戻した || 0}件`, 12000);
+      } catch (e) { say("raSt", "失敗：" + e.message, 8000); }
+      finally { raRun.disabled = false; }
     });
   }
   try {
