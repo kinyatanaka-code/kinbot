@@ -1806,7 +1806,7 @@ function dashCard(c, big) {
 function renderDash(d) {
   const box = $("clDash");
   const note = `<p class="note" style="margin-top:10px">${(d.period === "week")
-      ? "目標はここで直接（週次）変更できます（その週の目標として保存されます）。グループ・セールス・インサイドも手動で設定でき、実績はメンバーの合計です。差分は 実績−目標。"
+      ? "週ラップ（9/1起点の7日区切り）です。実績は月初からの積み上げ、差分は 積み上げ実績−積み上げ目標。目標は各週に直接入力でき、その週の目標として保存されます。"
       : "目標はここで直接（月次）変更できます（その月の目標として保存されます）。グループ・セールス・インサイドも手動で設定でき、実績はメンバーの合計です。差分は 実績−目標。カードをクリックすると内訳（日次）が出ます。"}</p>`;
   const assign = iAmCloser ? `<div style="margin-top:8px"><button type="button" class="btn ghost" id="dashAssign">未照合の商談に獲得者を割り当てる</button></div>` : "";
 
@@ -1836,15 +1836,18 @@ function renderDash(d) {
       const pkey = (card && card.dataset.periodkey) || d.periodKey;
       const actual = Number((card.querySelector(".kc-dcol:nth-child(2) .kc-d-act") || {}).textContent || 0);
       const goal = Number(inp.value) || 0;
-      // 差分をその場で更新
-      const de = card.querySelector(".kc-d-diff");
-      if (de) { const df = actual - goal; de.textContent = df > 0 ? `+${df}` : `${df}`; de.className = "kc-d-diff " + (df > 0 ? "kc-d-plus" : df < 0 ? "kc-d-minus" : "kc-d-zero"); }
+      // 差分をその場で更新（月次のみ。週次は積み上げなので保存後に読み直す）
+      if (dashPeriod !== "week") {
+        const de = card.querySelector(".kc-d-diff");
+        if (de) { const df = actual - goal; de.textContent = df > 0 ? `+${df}` : `${df}`; de.className = "kc-d-diff " + (df > 0 ? "kc-d-plus" : df < 0 ? "kc-d-minus" : "kc-d-zero"); }
+      }
       try {
         await fetch("/api/calls/apo-goals", {
           method: "PUT", headers: { "content-type": "application/json" },
           body: JSON.stringify({ subject, period: d.period || dashPeriod, periodKey: pkey, metric: "アポ", value: goal }),
         });
         if (typeof _statsGoals === "object") for (const k in _statsGoals) delete _statsGoals[k];
+        if (dashPeriod === "week") loadDash();   // 積み上げの差分を計算し直す
       } catch (err) { inp.style.borderColor = "#e24b4a"; }
     });
   });
