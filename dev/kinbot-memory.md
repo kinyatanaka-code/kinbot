@@ -41,6 +41,7 @@ kincall（架電リスト）という別ツールも同じ画面群の中にあ�
 
 ## 決定・指示のログ（新しいものを上に足す）
 
+- 2026-09-07 要望（田中さん）：スマホからkincallのかける/実績/リスト管理/資料送付が見られない（kinbotしか見れない）。原因：style.css の @media(max-width:760px) で .sidebar を display:none にし右上ハンバーガー(.kb-menu)に集約する設計だが、nav.js のメニュー項目が KB_MENU（kinbot）＋kincall入口のみで、kincall内の画面が無かった。対応(20260907k)：nav.js のスマホメニュー生成で inKincall=/^\/kincall/ を判定し、kincall では『かける(/kincall)／実績(?p=stats)／リスト管理(?p=lists)／資料送付設定(#docset)／kinbotに戻る(home.html)／設定』を出す。#docset はページ遷移せずメニューを閉じて #kcSideDoc をクリック＝openDocSettings モーダルを開く。kinbot側の項目は従来どおり。precheck全OK。bump=20260907k。
 - 2026-09-07 要望（田中さん）：かける画面の『SFの所有者を優先』チェックは不要。対応(20260907j)：calls.html の label.cl-sfown（#clSfOwnerPref）を削除。wireSfOwnerPref は if(!cb) return; で無害なため残置、GET/PUT /api/calls/sf-owner-priority と SF監査側の挙動も従来どおり（設定値は変更されない＝現状のON/OFFを維持）。precheck全OK。bump=20260907j。
 - 2026-09-07 要望（田中さん）：記録モーダルが✕以外（背景クリック等）で閉じてしまう→✕だけで閉じたい。対応(20260907i)：openModal に opts.closeOnlyX を追加し、true のとき背景クリック(back===e.target)と Escape キーのリスナーを張らない。記録モーダル(openRecord系の openModal 呼び出し)に closeOnlyX:true を指定。他のモーダル（絞り込み・設定など）は従来どおり背景クリック/Escで閉じる。precheck全OK。bump=20260907i。
 - 2026-09-07 要望（田中さん）：記録モーダルの断り理由タグ選択は不要（コメント＝断り理由チップ/メモからタグ・温度を自動判定するため）。対応(20260907h)：#kcRejectTag のselectと fillRejectTags 呼び出し、record送信の rejectTag を撤去。サーバ側 record は b.rejectTag 未指定でも動き、温度は 結果なし=A／メモ前向き=A／明確拒否=C／受付ブロック=C／お断り=B／不在=A の自動判定で決まる（fillRejectTags関数と /api/calls/recycle-rules は設定画面で引き続き使用）。precheck全OK。bump=20260907h。

@@ -34,7 +34,7 @@ window.addEventListener("error", (e) => {
 (function () {
   if (!document.querySelector('script[src$="kbchat.js"]')) {
     const sc = document.createElement("script");
-    sc.src = "kbchat.js?v=20260907j";
+    sc.src = "kbchat.js?v=20260907k";
     sc.defer = true;
     document.head.appendChild(sc);
   }
@@ -408,18 +408,29 @@ window.kbSheet = function (html) {
   topbar.appendChild(btn);
 
   const here = (location.pathname.split("/").pop() || "home.html") + location.search;
+  const inKincall = /^\/kincall/.test(location.pathname);
   // パソコンのサイドバーと同じ内容を使う（下に平らに並べる）
   const items = [];
-  for (const m of KB_MENU) {
-    if (m.subs) for (const x of m.subs) items.push({ href: x.href, label: x.label, ico: m.ico });
-    else items.push({ href: m.href, label: m.label, ico: m.ico });
+  if (inKincall) {
+    // kincallの中では、kincallの画面を並べる（スマホはサイドバーが隠れるため、ここが唯一の入り口）
+    items.push({ href: "/kincall", label: "かける", ico: "ico-phone" });
+    items.push({ href: "/kincall?p=stats", label: "実績", ico: "ico-chart" });
+    items.push({ href: "/kincall?p=lists", label: "リスト管理", ico: "ico-people" });
+    items.push({ href: "#docset", label: "資料送付設定", ico: "ico-doc" });
+    items.push({ href: "home.html", label: "kinbotに戻る", ico: "ico-home" });
+    items.push({ href: "settings.html", label: "設定", ico: "ico-set" });
+  } else {
+    for (const m of KB_MENU) {
+      if (m.subs) for (const x of m.subs) items.push({ href: x.href, label: x.label, ico: m.ico });
+      else items.push({ href: m.href, label: m.label, ico: m.ico });
+    }
+    // kinbotの機能とは別に、kincall・Salesforce・AI社員を下に置く（サイドバーの並びに合わせる）
+    items.push({ href: "/kincall", label: "kincall", ico: "ico-phone" });
+    items.push({ href: "sf-launch.html", label: "Salesforce", ico: "ico-sf" });
+    items.push({ href: "ai.html", label: "AI社員", ico: "ico-ai" });
+    // 設定は一覧から外してアカウント名の横に移したが、スマホでは入口が要るのでここに足す
+    items.push({ href: "settings.html", label: "設定", ico: "ico-set" });
   }
-  // kinbotの機能とは別に、kincall・Salesforce・AI社員を下に置く（サイドバーの並びに合わせる）
-  items.push({ href: "/kincall", label: "kincall", ico: "ico-phone" });
-  items.push({ href: "sf-launch.html", label: "Salesforce", ico: "ico-sf" });
-  items.push({ href: "ai.html", label: "AI社員", ico: "ico-ai" });
-  // 設定は一覧から外してアカウント名の横に移したが、スマホでは入口が要るのでここに足す
-  items.push({ href: "settings.html", label: "設定", ico: "ico-set" });
 
   const open = () => {
     if (document.querySelector(".kb-menu")) return;
@@ -449,6 +460,13 @@ window.kbSheet = function (html) {
     wrap.querySelector(".kb-menu-back").addEventListener("click", close);
     wrap.querySelector(".kb-menu-x").addEventListener("click", close);
     const out = wrap.querySelector("#kbMenuLogout");
+    // 「#docset」など、ページ移動でなくその場で開くものはここで処理する
+    wrap.querySelectorAll('.kb-menu-item[href="#docset"]').forEach((a) =>
+      a.addEventListener("click", (e) => {
+        e.preventDefault(); close();
+        const real = document.getElementById("kcSideDoc");
+        if (real) real.click();
+      }));
     if (out) out.addEventListener("click", (e) => {
       e.preventDefault();
       const real = document.getElementById("logout");
