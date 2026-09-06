@@ -204,6 +204,7 @@ import {
   deleteCallList,
   getCallListOwner,
   setCallListOwner,
+  setCallTargetAbsent,
   findListsByNameSince,
   findRecentListByNameOwner,
   redistributeListTargets,
@@ -8995,8 +8996,21 @@ app.post("/api/calls/targets/:id/record", async (req, res) => {
     const 次のステージ = (b.stage !== undefined && String(b.stage).trim() !== "") ? String(b.stage).trim()
       : (b.leadStatus !== undefined && String(b.leadStatus).trim() !== "") ? String(b.leadStatus).trim()
       : undefined;
+    // 結果に応じた自動ルーティング：お断り→リサイクル／営業フォロー→ジャッジ／不在5連続→リサイクル。
+    // ステージの正式文字列は環境変数で上書き可（表記が違っても直せるように）。
+    const RECYCLE_STAGE = process.env.RECYCLE_STAGE || "89リサイクル";
+    const JUDGE_STAGE = process.env.JUDGE_STAGE || "04ジャッジ";
+    let 連続不在 = Number(t.consecutive_absent || 0);
+    if (/不在/.test(result)) 連続不在 += 1;
+    else if (/接触/.test(result)) 連続不在 = 0;   // 担当者接触（お断り/フォロー/アポ等）で連続不在はリセット
+    await setCallTargetAbsent(id, 連続不在).catch(() => {});
+    let 自動ステージ = null;
+    if (/お断り/.test(result)) 自動ステージ = RECYCLE_STAGE;
+    else if (/営業フォロー/.test(result)) 自動ステージ = JUDGE_STAGE;
+    else if (/不在/.test(result) && 連続不在 >= 5) 自動ステージ = RECYCLE_STAGE;
+    const finalStage = 自動ステージ || 次のステージ;
     await setCallTargetStatus(id, {
-      ...(次のステージ !== undefined ? { stage: 次のステージ } : {}),
+      ...(finalStage !== undefined && finalStage !== null ? { stage: finalStage } : {}),
       status: result,
     }).catch(() => {});
 
@@ -9050,8 +9064,9 @@ app.post("/api/calls/targets/:id/record", async (req, res) => {
           ].filter(Boolean).join("\n"),
         });
         // リードの状態も直す（項目名は組織ごとに違うので、指定があるときだけ）
-        if (b.leadStatus) {
-          await updateLead(sfUser, t.lead_id, { Status: String(b.leadStatus) }).catch(() => {});
+        const sfStatusVal = 自動ステージ || (b.leadStatus ? String(b.leadStatus) : "");
+        if (sfStatusVal) {
+          await updateLead(sfUser, t.lead_id, { Status: sfStatusVal }).catch(() => {});
         }
         // 作った活動のIDを残す（履歴で二重に出さないために使う）
         await markCallSynced(log && log.id, {
@@ -9120,7 +9135,7 @@ app.post("/api/calls/targets/:id/record", async (req, res) => {
       }
     } catch {}
 
-    res.json({ ok: true, sf });
+    res.json({ ok: true, sf, 自動ステージ, 連続不在 });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
@@ -18420,7 +18435,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-06ae 他メンバーへの割り振りで『ジャッジも割り振る/除く』を選べるように。redistributeListTargets に includeJudge を追加（既定は除く＝従来どおり元担当のまま残す）。割り振りモーダルにチェック追加。前回(20260906ad)：リスト削除の安全化。";
+const BUILD_TAG = "2026-09-06af 記録の結果で自動ルーティング：お断り→ステージ『89リサイクル』／営業フォロー→『04ジャッジ』／担当者不在が5連続→『89リサイクル』。kincallのステージとSFのリード状況(Status)を更新（SF書込あり）。接触系でconsecutive_absentを0に。ステージ文字列は環境変数 RECYCLE_STAGE/JUDGE_STAGE で上書き可。前回(20260906ae)：割り振りのジャッジ含む/除く。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",

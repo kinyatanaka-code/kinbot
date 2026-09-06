@@ -7559,6 +7559,13 @@ export async function setCallListOwner(listId, owner) {
   catch (e) { console.error("[db] setCallListOwner", e.message); }
 }
 
+// 連続不在の回数を記録する（5回で自動リサイクル送りの判定に使う）
+export async function setCallTargetAbsent(id, n) {
+  if (!pool || !id) return;
+  try { await pool.query(`UPDATE call_targets SET consecutive_absent=$2 WHERE id=$1`, [id, Math.max(0, parseInt(n, 10) || 0)]); }
+  catch (e) { console.error("[db] setCallTargetAbsent", e.message); }
+}
+
 
 // 日ごと・人ごとに数える（実績を並べて比べるため）
 export async function callStatsByDay(fromJst, toJst) {
