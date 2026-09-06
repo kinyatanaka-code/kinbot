@@ -41,6 +41,7 @@ kincall（架電リスト）という別ツールも同じ画面群の中にあ�
 
 ## 決定・指示のログ（新しいものを上に足す）
 
+- 2026-09-07 バグ（田中さん）：掲載の絞り込みで掲載中0/掲載終了0/日付なし2000＝全件日付なし扱い。原因：日付判定が /^\\d{4}-\\d{2}-\\d{2}$/ 前提で『2026/8/2』の1桁月日を弾いていた。対応(20260907b)：normDateLoose（YYYY[/-年.]M[/-月.]D をゼロ埋めで YYYY-MM-DD 化）を追加し、visibleRows の filt.post と openPostFilter.stateOf を差し替え。定義は田中さん確認どおり掲載中＝終了日>=今日。単体で 2026/8/2→掲載終了・2026/10/7→掲載中 を確認。precheck全OK。bump=20260907b。
 - 2026-09-07 要望（田中さん）：掲載終了日・採用人数の列見出しにステージフィルタみたいな絞り込みボタン。対応(20260907a)：前回追加済みの見出しボタン(data-rcflt='post'/'hire'、掲載終了日/採用人数列に▾・絞り込み中は.on)に配線を追加＝openPostFilter（掲載中/掲載終了/日付なしを件数つきラジオで選択→filt.post）と openHireFilter（最小〜最大入力→filt.hireMin/Max、絞り込みを消すボタン付き）。render の [data-rcflt] クリックで開く（stopPropagationでドラッグ並べ替えと干渉しない）。ツールバーの絞り込みと同じ filt を共有し双方向に同期。precheck全OK。bump=20260907a。
 - 2026-09-06 要望（田中さん）：掲載終了日で絞り込み（掲載中/掲載終了）と採用人数の絞り込み。対応(20260906as)：calls.js の filt に post/hireMin/hireMax を追加。visibleRows で、掲載＝rowExtra の『掲載終了日』or『doda掲載終了日』を YYYY-MM-DD 化して JST今日と比較（active=終了日>=今日、ended=<今日、none=日付なし/不正）、採用人数＝文字列から数値を抽出し min〜max で範囲判定（数値が無い行は除外）。ツールバー（列データがあるとき表示）に #kcPostFlt/#kcHireMin/#kcHireMax/#kcJobClear を追加し change で render。CSS .kc-jobflt。precheck全OK。bump=20260906as。
 - 2026-09-06 バグ（田中さん）：復活リストにアーカイブが272件残る／アーカイブは復活させたくない。原因：revertArchivedFromRevival がステージを99アーカイブに変えるだけで、リード自体は復活リストに残っていたため一覧に出続けた。対応(20260906ar)：戻す処理で、同じ group_id の通常リスト(kind<>'recycle_revival'の最小id)へ list_id を戻してから stage=ARCHIVE_STAGE・assigned_to/temperature を NULL に（戻し先が無ければステージのみ）。さらに GET /api/calls/targets で復活リストを開いたときも アーカイブ/死番ステータスを除外（今後の混入対策）。precheck全OK。bump=20260906ar。

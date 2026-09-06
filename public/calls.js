@@ -133,9 +133,8 @@ function visibleRows() {
     const today = new Date(Date.now() + 9 * 3600000).toISOString().slice(0, 10);
     list = list.filter((x) => {
       const e = rowExtra(x) || {};
-      const raw = e["掲載終了日"] || e["doda掲載終了日"] || "";
-      const d = String(raw).replace(/\//g, "-").slice(0, 10);
-      if (!/^\d{4}-\d{2}-\d{2}$/.test(d)) return filt.post === "none";   // 日付なし
+      const d = normDateLoose(e["掲載終了日"] || e["doda掲載終了日"] || "");
+      if (!d) return filt.post === "none";   // 日付なし
       return filt.post === "active" ? d >= today : filt.post === "ended" ? d < today : true;
     });
   }
@@ -297,6 +296,12 @@ function saveFilt() {
 // x.追加（CSV由来）や x.求人（会社名で紐づけた分）のキーを、そのまま列にする。
 // 列の表示・並び順は「列を選ぶ」から自由に変えられる（この端末に保存）。
 const RECRUIT_DATE_KEYS = new Set(["掲載終了日", "doda掲載終了日"]);   // 期限が近いと色を変える列
+// 「2026/8/2」「2026-08-02」「2026年8月2日」などを YYYY-MM-DD に揃える（読めなければ空）
+function normDateLoose(raw) {
+  const m = String(raw || "").trim().match(/(\d{4})[\/\-年.](\d{1,2})[\/\-月.](\d{1,2})/);
+  if (!m) return "";
+  return `${m[1]}-${String(m[2]).padStart(2, "0")}-${String(m[3]).padStart(2, "0")}`;
+}
 function rowExtra(x) {
   const a = (x && x.追加 && typeof x.追加 === "object") ? x.追加 : null;
   const b = (x && x.求人 && typeof x.求人 === "object") ? x.求人 : null;
@@ -363,9 +368,8 @@ function openPostFilter() {
   const today = new Date(Date.now() + 9 * 3600000).toISOString().slice(0, 10);
   const stateOf = (x) => {
     const e = rowExtra(x) || {};
-    const raw = e["掲載終了日"] || e["doda掲載終了日"] || "";
-    const d = String(raw).replace(/\//g, "-").slice(0, 10);
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(d)) return "none";
+    const d = normDateLoose(e["掲載終了日"] || e["doda掲載終了日"] || "");
+    if (!d) return "none";
     return d >= today ? "active" : "ended";
   };
   const n = { active: 0, ended: 0, none: 0 };
