@@ -58,7 +58,8 @@ async function loadLists() {
     const allOpt = `<option value="all">☆ 全てのリード（自分の全リストをまとめて）</option>`;
     const specialOpt = `<option value="archive">🗄 アーカイブ（まとめ）</option><option value="recycle">♻ リサイクル（まとめ）</option>`;
     sel.innerHTML = allOpt + (items.length
-      ? items.map((x) => `<option value="${x.id}">${esc(x.name)}</option>`).join("")
+      ? items.filter((x) => { const n = String(x.name || "").trim(); return n !== "アーカイブ" && n !== "リサイクル"; })
+          .map((x) => `<option value="${x.id}">${esc(x.name)}</option>`).join("")
       : "") + specialOpt;
     if (keep && (["all", "archive", "recycle"].includes(keep) || items.some((x) => String(x.id) === keep))) sel.value = keep;
     {
@@ -1157,8 +1158,6 @@ async function openTarget(id, draft, opt) {
           <label class="kc-fine-lb">時間 <input type="time" class="kc-input kc-fine-in" id="kcNextTime" step="900" /></label>
         </div>
         <div class="note" id="kcNextSummary" style="margin-top:4px"></div>
-        <div class="kc-lb" style="margin-top:6px">再架電の理由（任意）</div>
-        <input type="text" class="kc-input" id="kcRecallReason" placeholder="例：戻り時間指定・週明け・◯月に再検討 など" />
 
         <div class="kc-modal-foot">
           <button type="button" class="btn" id="kcSave">記録する</button>
@@ -1354,8 +1353,6 @@ async function openTarget(id, draft, opt) {
           nextAction: (m.el.querySelector("#kcNext") || {}).value || "",
           // 次回の架電時間（HH:MM）。kincallで予定日時として持ち、時刻が来たら上に出す。
           nextTime: (m.el.querySelector("#kcNextTime") || {}).value || "",
-          // 再架電の理由（戻り時間・週明け・◯月再検討 等）。ログに残す。
-          recallReason: (m.el.querySelector("#kcRecallReason") || {}).value || "",
         }),
       });
       const d = await r.json();
