@@ -661,6 +661,22 @@ export async function initDb() {
   // 次回の架電予定日時（記録時に残す）。この時刻が来たら、かける一覧で上に出す。
   await sq(`ALTER TABLE call_targets ADD COLUMN IF NOT EXISTS next_call_at TIMESTAMPTZ;`);
   await sq(`CREATE INDEX IF NOT EXISTS ix_call_targets_next ON call_targets(next_call_at) WHERE next_call_at IS NOT NULL;`);
+
+  // ── リスト供給①・再架電スケジューラ②用の列（まず箱だけ。ロジックは未実装） ──
+  await sq(`ALTER TABLE call_targets ADD COLUMN IF NOT EXISTS posted_media   TEXT;`);          // 掲載媒体（doda・エン等）
+  await sq(`ALTER TABLE call_targets ADD COLUMN IF NOT EXISTS posted_active  BOOLEAN NOT NULL DEFAULT false;`); // 掲載中
+  await sq(`ALTER TABLE call_targets ADD COLUMN IF NOT EXISTS emp_size       INT;`);           // 従業員数
+  await sq(`ALTER TABLE call_targets ADD COLUMN IF NOT EXISTS score          INT NOT NULL DEFAULT 0;`); // スコア
+  await sq(`ALTER TABLE call_targets ADD COLUMN IF NOT EXISTS score_breakdown JSONB;`);        // スコア内訳
+  await sq(`ALTER TABLE call_targets ADD COLUMN IF NOT EXISTS excluded       BOOLEAN NOT NULL DEFAULT false;`); // 恒久除外
+  await sq(`ALTER TABLE call_targets ADD COLUMN IF NOT EXISTS excluded_reason TEXT;`);         // 除外理由（死番/候補者専用番号等）
+  await sq(`ALTER TABLE call_targets ADD COLUMN IF NOT EXISTS block_reception BOOLEAN NOT NULL DEFAULT false;`); // 受付ブロック（死番とは別）
+  await sq(`ALTER TABLE call_targets ADD COLUMN IF NOT EXISTS consecutive_absent INT NOT NULL DEFAULT 0;`); // 連続不通回数
+  await sq(`ALTER TABLE call_targets ADD COLUMN IF NOT EXISTS reject_tag     TEXT;`);          // 直近の断り理由タグ（recycle_rules.tag）
+  await sq(`ALTER TABLE call_targets ADD COLUMN IF NOT EXISTS temperature    TEXT;`);          // 温度 A/B/C/卒業/連携
+  await sq(`ALTER TABLE call_targets ADD COLUMN IF NOT EXISTS recall_count   INT NOT NULL DEFAULT 0;`); // 再架電回数
+  await sq(`ALTER TABLE call_targets ADD COLUMN IF NOT EXISTS partner_route  BOOLEAN NOT NULL DEFAULT false;`); // 担当ルート/既存取引＝社内連携
+  await sq(`CREATE INDEX IF NOT EXISTS ix_call_targets_score ON call_targets(list_id, score DESC);`);
   // 求人情報（会社名で架電先に紐づける外部データ）
   await sq(`CREATE TABLE IF NOT EXISTS recruit_info (
     company_key TEXT PRIMARY KEY,
@@ -715,6 +731,11 @@ export async function initDb() {
   // Zoom Phoneの通話ID（履歴の重複取り込み防止）
   await sq(`ALTER TABLE call_logs ADD COLUMN IF NOT EXISTS zoom_call_id TEXT;`);
   await sq(`CREATE UNIQUE INDEX IF NOT EXISTS ux_call_logs_zoom ON call_logs(zoom_call_id) WHERE zoom_call_id IS NOT NULL;`);
+  // ── 再架電スケジューラ②用（まず箱だけ。ロジックは未実装） ──
+  await sq(`ALTER TABLE call_logs ADD COLUMN IF NOT EXISTS recall_at     TIMESTAMPTZ;`);   // この記録から決めた再架電予定
+  await sq(`ALTER TABLE call_logs ADD COLUMN IF NOT EXISTS recall_reason TEXT;`);          // 再架電理由（戻り時間/週明け/◯月再検討 等）
+  await sq(`ALTER TABLE call_logs ADD COLUMN IF NOT EXISTS reject_tag    TEXT;`);          // この架電の断り理由タグ
+  await sq(`ALTER TABLE call_logs ADD COLUMN IF NOT EXISTS time_bucket   TEXT;`);          // 架電した時間帯（時間帯サジェスト集計用）
 
   // ===== Salesforceの更新の記録 =====
   // どの商談を、いつ、どのステージにしたか。

@@ -18386,7 +18386,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-06v 設定・管理のリサイクル復活ルールが常時開いて見づらい件を改善。折りたたみ(details)にし初期は閉じる＝開いたときだけ読み込み、表は高さ52vhで縦スクロール。前回(20260906u)：復活ルール設定マスタ。";
+const BUILD_TAG = "2026-09-06w リスト供給①・再架電スケジューラ②のステップ1：DBの列追加のみ（ロジック無し・挙動不変）。call_targets に posted_media/posted_active/emp_size/score/score_breakdown/excluded/excluded_reason/block_reception/consecutive_absent/reject_tag/temperature/recall_count/partner_route、call_logs に recall_at/recall_reason/reject_tag/time_bucket を ADD COLUMN IF NOT EXISTS。索引 ix_call_targets_score も。前回(20260906v)：復活ルールの折りたたみ。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
