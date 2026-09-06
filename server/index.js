@@ -202,6 +202,8 @@ import {
   deleteCallTargets,
   countCallTargets,
   deleteCallList,
+  getCallListOwner,
+  setCallListOwner,
   findListsByNameSince,
   findRecentListByNameOwner,
   redistributeListTargets,
@@ -7094,20 +7096,28 @@ app.delete("/api/calls/lists/:id", async (req, res) => {
   try {
     const id = parseInt(req.params.id, 10);
     const me = String(req.user || "").toLowerCase();
-    // 何人かに分けているリストは、一人が消しても他の人のぶんは残す。
-    // 自分に配られたぶんだけを取り除き、誰も残っていなければリストごと消す。
+    // 何人かに分けているリスト／他の人に割り振っているリストは、消してもその人のぶんは残す。
+    // 自分に配られたぶんだけを取り除き、自分がownerなら残った人にownerを渡す（自分のビューから外れる）。
     const rows = await listCallTargets(id, { limit: 5000 }).catch(() => []);
     const 配り先 = new Set(rows.map((r) => String(r.assigned_to || "").toLowerCase()).filter(Boolean));
-    const 分けている = 配り先.size > 1;
+    const 他人あり = [...配り先].some((x) => x && x !== me);
 
-    if (分けている && 配り先.has(me)) {
-      const 消した = await removeMyCallTargets(id, me).catch(() => 0);
+    if (他人あり) {
+      let 外した = 0;
+      if (配り先.has(me)) 外した = await removeMyCallTargets(id, me).catch(() => 0);
       const 残り = await listCallTargets(id, { limit: 5000 }).catch(() => []);
       if (残り.length) {
-        console.log(`[kincall] リスト${id}から ${me} のぶん${消した}件を外しました（残り${残り.length}件）`);
-        return res.json({ ok: true, 自分のぶんだけ: true, 外した: 消した, 残り: 残り.length });
+        // 自分がownerのままだと自分のビューに残るので、残っている割り振り先の誰かにownerを渡す
+        const cur = String((await getCallListOwner(id)) || "").toLowerCase();
+        if (cur === me) {
+          const next = [...new Set(残り.map((r) => String(r.assigned_to || "").toLowerCase()).filter(Boolean))].find((x) => x !== me);
+          if (next) { await setCallListOwner(id, next).catch(() => {}); }
+        }
+        console.log(`[kincall] リスト${id}：${me}のぶん${外した}件を外し、他の人のぶん(残り${残り.length})は残しました by ${req.user}`);
+        return res.json({ ok: true, 他人のぶんは残した: true, 外した, 残り: 残り.length });
       }
     }
+    // 誰にも割り振っていない／自分だけ／誰も残らない → リストごと消す
     const ok = await deleteCallList(id);
     if (!ok) return res.status(500).json({ error: "消せませんでした" });
     console.log(`[kincall] リスト${id}を消しました by ${req.user}`);
@@ -18409,7 +18419,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-06ac 資料トラッキングの＋追加・発行の資料選択で、チーム共有された他人のテンプレ資料が候補に出ない不具合を修正（自分の資料に絞っていたのを、自分 or 共有 のテンプレに）。前回(20260906ab)：リスト状況の開閉表示。";
+const BUILD_TAG = "2026-09-06ad リスト削除を安全化：他の人に割り振っているリスト（自分がownerでも中身が他人担当）は、消してもその人のぶんを残す。自分のぶんだけ外し、自分がownerなら残った割り振り先にownerを渡して自分のビューから外す。従来は割り振り先が1人だと丸ごと消えていた。前回(20260906ac)：共有テンプレ資料が+追加に出ない修正。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",

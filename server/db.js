@@ -7541,6 +7541,20 @@ export async function removeMyCallTargets(listId, email) {
   } catch (e) { console.error("[db] removeMyCallTargets", e.message); return 0; }
 }
 
+// リストの持ち主（owner）を読む／付け替える。
+// 「割り振り先が残っているのに、自分が消すと丸ごと消える」のを防ぐため、
+// 自分のぶんだけ外して owner を残った人に渡すのに使う。
+export async function getCallListOwner(listId) {
+  if (!pool || !listId) return null;
+  try { const { rows } = await pool.query(`SELECT owner FROM call_lists WHERE id=$1`, [listId]); return rows[0] ? (rows[0].owner || null) : null; }
+  catch { return null; }
+}
+export async function setCallListOwner(listId, owner) {
+  if (!pool || !listId) return;
+  try { await pool.query(`UPDATE call_lists SET owner=$2 WHERE id=$1`, [listId, owner || null]); }
+  catch (e) { console.error("[db] setCallListOwner", e.message); }
+}
+
 
 // 日ごと・人ごとに数える（実績を並べて比べるため）
 export async function callStatsByDay(fromJst, toJst) {
