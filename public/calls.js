@@ -201,6 +201,12 @@ function isApoDone(x) { return /アポ獲得/.test(状況(x)) && !isUser(x); }
 function isDeadNumber(x) { return /使われて|使わない|現在使わ|現アナ|欠番|不通|【使われていない番号】/.test(状況(x)); }
 function isDone(x) { return isApoDone(x) || isUser(x) || isLost(x) || isDeadNumber(x); }
 // 行のバッジ（会社名の右）
+// ナーチャリングへ移したリードに「元：どのリストから来たか」を出す
+function fromBadge(x) {
+  const n = String((x && x["元のリスト"]) || "").trim();
+  if (!n) return "";
+  return `<div class="kc-from-badge">元：${esc(n)}</div>`;
+}
 function tempBadge(x) {
   const t = String((x && x["温度"]) || "").trim().toUpperCase();
   if (!t || !["A", "B", "C"].includes(t)) return "";
@@ -529,7 +535,7 @@ function render() {
       <tr data-id="${x.id}" class="${済 ? "kc-apo-done" : ""}">
         ${listId !== "all" ? `<td class="kc-fx-check"><input type="checkbox" class="kc-sel" data-id="${x.id}"${selectedIds.has(String(x.id)) ? " checked" : ""} /></td>` : ""}
         <td class="kc-stage kc-fx-stage">${esc(x["ステージ"] || "-")}</td>
-        <td class="kc-co kc-fx-co">${esc(x["会社名"] || "")}${tempBadge(x)}${doneBadge(x)}${bizBadge(x)}${
+        <td class="kc-co kc-fx-co">${esc(x["会社名"] || "")}${tempBadge(x)}${doneBadge(x)}${bizBadge(x)}${fromBadge(x)}${
           予定 ? ` <span class="kc-next-badge${予定.due ? " due" : ""}">${予定.due ? "架電予定 " : "予定 "}${esc(予定.md)} ${esc(予定.hhmm)}<button type="button" class="kc-next-x" data-id="${x.id}" title="この架電予定を消す">×</button></span>` : ""}</td>
         <td class="kc-person">${x["ふりがな"] ? `<span class="kc-kana">${esc(x["ふりがな"])}</span>` : ""}<span class="kc-pname">${esc(x["担当者"] || "")}</span></td>
         <td>${x["電話番号"]
@@ -1136,6 +1142,7 @@ function renderDock() {
     .kc-user-badge{display:inline-block;margin-left:6px;padding:1px 7px;border-radius:10px;background:#0d5b47;color:#fff;font-size:11px;font-weight:700;vertical-align:middle;}
     .kc-lost-badge{display:inline-block;margin-left:6px;padding:1px 7px;border-radius:10px;background:#e9edeb;color:#6b7a74;font-size:11px;font-weight:700;vertical-align:middle;}
     .kc-dead-badge{display:inline-block;margin-left:6px;padding:1px 7px;border-radius:10px;background:#fbe7e6;color:#a32d2d;font-size:11px;font-weight:700;vertical-align:middle;}
+    .kc-from-badge{display:inline-block;margin-top:5px;padding:2px 8px;border-radius:8px;background:#e3f3ec;color:#0d5b47;font-size:11px;font-weight:600;}
     .kc-jobflt{display:flex;align-items:center;gap:6px;flex-wrap:wrap;padding:6px 4px 2px;font-size:12.5px;color:#5a6b64;}
     .kc-jobflt-lb{font-weight:700;color:#0d5b47;}
     .kc-jobflt select,.kc-jobflt input{font-size:12.5px;padding:4px 8px;border:1px solid #d7e0db;border-radius:8px;background:#fff;}
@@ -2482,6 +2489,7 @@ async function loadAdmin() {
                 <span class="note">ナーチャリングへまとめる（ジャッジ・営業フォロー）：</span>
                 <button type="button" class="btn ghost" id="nmDry">件数を見る</button>
                 <button type="button" class="btn ghost" id="nmRun">まとめる（実行）</button>
+                <button type="button" class="btn ghost" id="nmBack">元のリストへ戻す</button>
                 <span class="rev-status" id="nmSt"></span>
               </div>
               <div style="display:flex;gap:8px;align-items:center;margin-top:10px;flex-wrap:wrap">
@@ -2837,6 +2845,25 @@ async function loadRecycleRules() {
         say("nmSt", `まとめました：${d.移動 || 0}件`, 15000);
       } catch (e) { say("nmSt", "失敗：" + e.message, 8000); }
       finally { nmRun.disabled = false; }
+    });
+  }
+  const nmBack = $("nmBack");
+  if (nmBack && !nmBack.dataset.wired) {
+    nmBack.dataset.wired = "1";
+    nmBack.addEventListener("click", async () => {
+      const who = prompt("元のリストへ戻す担当のメールを入れてください（空欄なら全員ぶん）", "");
+      if (who === null) return;
+      if (!confirm("ナーチャリングへ移したリードを、元のリストへ戻します。よろしいですか？")) return;
+      nmBack.disabled = true; say("nmSt", "戻しています…");
+      try {
+        const d = await (await fetch("/api/calls/nurture-revert", {
+          method: "POST", headers: { "content-type": "application/json" },
+          body: JSON.stringify(who.trim() ? { owner: who.trim() } : { owner: "", all: true, ids: null }),
+        })).json();
+        if (d.error) throw new Error(d.error);
+        say("nmSt", `戻しました：${d.戻した || 0}件`, 12000);
+      } catch (e) { say("nmSt", "失敗：" + e.message, 8000); }
+      finally { nmBack.disabled = false; }
     });
   }
   // 復活リストに入ってしまったアーカイブを戻す

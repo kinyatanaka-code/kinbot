@@ -677,7 +677,10 @@ export async function initDb() {
   await sq(`ALTER TABLE call_targets ADD COLUMN IF NOT EXISTS reject_tag     TEXT;`);          // 直近の断り理由タグ（recycle_rules.tag）
   await sq(`ALTER TABLE call_targets ADD COLUMN IF NOT EXISTS temperature    TEXT;`);          // 温度 A/B/C/卒業/連携
   await sq(`ALTER TABLE call_targets ADD COLUMN IF NOT EXISTS recall_count   INT NOT NULL DEFAULT 0;`); // 再架電回数
-  await sq(`ALTER TABLE call_targets ADD COLUMN IF NOT EXISTS partner_route  BOOLEAN NOT NULL DEFAULT false;`); // 担当ルート/既存取引＝社内連携
+  await sq(`ALTER TABLE call_targets ADD COLUMN IF NOT EXISTS partner_route  BOOLEAN NOT NULL DEFAULT false;`);
+  // ナーチャリングへ移したとき、元のリストを覚えておく（一覧にバッジ表示・元へ戻す用）
+  await sq(`ALTER TABLE call_targets ADD COLUMN IF NOT EXISTS nurture_from_id   INTEGER;`);
+  await sq(`ALTER TABLE call_targets ADD COLUMN IF NOT EXISTS nurture_from_name TEXT;`); // 担当ルート/既存取引＝社内連携
   await sq(`CREATE INDEX IF NOT EXISTS ix_call_targets_score ON call_targets(list_id, score DESC);`);
   // 求人情報（会社名で架電先に紐づける外部データ）
   await sq(`CREATE TABLE IF NOT EXISTS recruit_info (
@@ -8442,10 +8445,44 @@ export async function moveToNurtureLists({ dryRun = true, createdBy = null } = {
       const list = await ensureNurtureList({ owner: email, createdBy });
       if (!list) continue;
       try {
-        await pool.query(`UPDATE call_targets SET list_id=$2, assigned_to=$3 WHERE id = ANY($1::int[])`, [ids, list.id, email]);
+        // 元のリスト（id・名前）を覚えてから移す。あとで「元へ戻す」ができるように。
+        await pool.query(
+          `UPDATE call_targets t
+              SET nurture_from_id = t.list_id,
+                  nurture_from_name = (SELECT name FROM call_lists WHERE id = t.list_id),
+                  list_id = $2, assigned_to = $3
+            WHERE t.id = ANY($1::int[])`, [ids, list.id, email]);
         移動 += ids.length;
       } catch (e) { console.error("[db] moveToNurtureLists move", email, e.message); }
     }
     return { 対象: rows.length, 移動, byMember, dryRun: false };
   } catch (e) { console.error("[db] moveToNurtureLists", e.message); return { 対象: 0, 移動: 0, byMember: [], error: e.message }; }
+}
+
+// ナーチャリングリストのリードを、元のリストへ戻す。
+// ids を渡せばそれだけ、owner を渡せばその人のぶん全部。
+export async function revertFromNurture({ ids = null, owner = "", dryRun = false } = {}) {
+  if (!pool) return { 対象: 0, 戻した: 0 };
+  try {
+    const cond = [`l.kind = 'nurture'`, `t.nurture_from_id IS NOT NULL`], p = []; let i = 1;
+    if (Array.isArray(ids) && ids.length) { cond.push(`t.id = ANY($${i++}::int[])`); p.push(ids.map((x) => parseInt(x, 10)).filter(Boolean)); }
+    if (owner) { cond.push(`lower(l.owner) = lower($${i++})`); p.push(String(owner)); }
+    const { rows } = await pool.query(
+      `SELECT t.id, t.nurture_from_id FROM call_targets t JOIN call_lists l ON l.id = t.list_id
+        WHERE ${cond.join(" AND ")}`, p);
+    if (dryRun || !rows.length) return { 対象: rows.length, 戻した: 0, dryRun };
+    let 戻した = 0;
+    for (const r of rows) {
+      try {
+        // 元のリストがまだ残っているときだけ戻す
+        const { rows: ex } = await pool.query(`SELECT id FROM call_lists WHERE id=$1`, [r.nurture_from_id]);
+        if (!ex[0]) continue;
+        await pool.query(
+          `UPDATE call_targets SET list_id=$2, nurture_from_id=NULL, nurture_from_name=NULL WHERE id=$1`,
+          [r.id, r.nurture_from_id]);
+        戻した++;
+      } catch (e) { console.error("[db] revertFromNurture 1件", r.id, e.message); }
+    }
+    return { 対象: rows.length, 戻した };
+  } catch (e) { console.error("[db] revertFromNurture", e.message); return { 対象: 0, 戻した: 0, error: e.message }; }
 }

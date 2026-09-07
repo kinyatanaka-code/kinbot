@@ -333,6 +333,7 @@ import {
   apoSetterCoverage,
   nurtureCountsByMember,
   moveToNurtureLists,
+  revertFromNurture,
   updateRecycleRule,
   setDocShared,
   setDocStanding,
@@ -4481,6 +4482,20 @@ app.post("/api/calls/nurture-move", async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+// ナーチャリングのリードを元のリストへ戻す（ids指定 or その人のぶん全部）。
+app.post("/api/calls/nurture-revert", async (req, res) => {
+  try {
+    if (!req.isAdmin && !(await isCloserUser(req.user))) return res.status(403).json({ error: "クローザー・管理者だけが実行できます" });
+    const ids = Array.isArray(req.body?.ids) ? req.body.ids : null;
+    const owner = String(req.body?.owner || "").trim();
+    const all = req.body?.all === true;   // 担当を指定しない＝全員ぶん戻す
+    if (!ids && !owner && !all) return res.status(400).json({ error: "戻すリードか、担当を指定してください" });
+    const r = await revertFromNurture({ ids, owner });
+    console.log(`[kincall] ナーチャリングから元へ戻す：${r.戻した}件 by ${req.user}`);
+    res.json({ ok: true, ...r });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 // リスト×ステージの件数（リスト状況タブ）
 app.get("/api/calls/list-stage-counts", async (req, res) => {
   try { res.json(await listStageCountsByList()); }
@@ -7981,6 +7996,7 @@ app.get("/api/calls/targets", async (req, res) => {
         所有者: r.owner_name || "",
         最終ステータス: r.status || "",
         温度: r.temperature || "",
+        元のリスト: r.nurture_from_name || "",
         // 履歴はSFのものを出すので、件数もSFの数に合わせる。
         // SFへまだ送れていないkinbotの記録があれば、それも足す。
         // lead_id が15桁でも18桁でも合うよう、先頭15桁で引く。
@@ -18693,7 +18709,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-07x ナーチャリングの対象をジャッジ・営業フォローだけに変更（再架電予定ありは含めない）。件数表示・まとめる処理の両方に反映。前回(20260907w)：ナーチャリングの可視化。";
+const BUILD_TAG = "2026-09-07y ナーチャリングは移動しつつ元のリストを覚える方式に：移すとき nurture_from_id/name を記録し、かける一覧の会社名の下に『元：◯◯』バッジを表示。設定・管理に『元のリストへ戻す』（担当指定 or 全員ぶん）を追加。前回(20260907x)：対象をジャッジ・営業フォローに限定。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
