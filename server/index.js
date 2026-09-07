@@ -204,6 +204,7 @@ import {
   deleteCallList,
   getCallListOwner,
   setCallListOwner,
+  setCallListHidden,
   ensureRecycleRevivalList,
   listRecycleRevivalLists,
   getListGroupId,
@@ -993,6 +994,7 @@ app.get("/api/me", async (req, res) => {
     admin: !!req.isAdmin,
     // 「kincallだけ」の人（インターン生など）
     kincallOnly: !!req.kincallOnly,
+    canHideLists: canHideLists(req),   // リストの表示・非表示を変えられるか
     // クローザー（リスト追加ができる）
     closer: closer || !!req.isAdmin || isAlwaysCloser(req.user),
     // リストを他メンバーへ割り振れる人（クローザー・管理者＋インサイド担当）
@@ -6271,6 +6273,26 @@ const CALL_RESULTS = [
 ];
 
 // リストの一覧
+// リストの表示／非表示を切り替えられる人。管理者＋環境変数 LIST_HIDE_USERS（カンマ区切りのメール）。
+function canHideLists(req) {
+  if (req.isAdmin) return true;
+  const allow = String(process.env.LIST_HIDE_USERS || "")
+    .split(",").map((x) => x.trim().toLowerCase()).filter(Boolean);
+  return allow.includes(String(req.user || "").toLowerCase());
+}
+// リストの表示／非表示（データは消さない）。決められた人だけが操作できる。
+app.put("/api/calls/lists/:id/hidden", async (req, res) => {
+  try {
+    if (!canHideLists(req)) return res.status(403).json({ error: "このリストの表示・非表示を変えられるのは、決められた人だけです" });
+    const id = parseInt(req.params.id, 10);
+    if (!id) return res.status(400).json({ error: "リストがわかりません" });
+    const r = await setCallListHidden(id, req.body?.hidden === true);
+    if (!r) return res.status(500).json({ error: "変えられませんでした" });
+    console.log(`[kincall] リスト${id}（${r.name}）を${r.hidden ? "非表示" : "表示"}にしました by ${req.user}`);
+    res.json({ ok: true, ...r });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 app.get("/api/calls/lists", async (req, res) => {
   try {
     // メンバーを指定できる（管理者、または自分自身のときだけ有効）
@@ -6282,6 +6304,7 @@ app.get("/api/calls/lists", async (req, res) => {
       owner,
       includeClosed: String(req.query.all || "") === "1",
       ownerOnly: !!reqMember,   // メンバーを指定して見るときは、その人が作ったリストだけ
+      includeHidden: canHideLists(req),   // 表示・非表示を変えられる人には、非表示のリストも見せる
     });
     res.json({
       ok: true,
@@ -18709,7 +18732,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-07y ナーチャリングは移動しつつ元のリストを覚える方式に：移すとき nurture_from_id/name を記録し、かける一覧の会社名の下に『元：◯◯』バッジを表示。設定・管理に『元のリストへ戻す』（担当指定 or 全員ぶん）を追加。前回(20260907x)：対象をジャッジ・営業フォローに限定。";
+const BUILD_TAG = "2026-09-07z リストの表示・非表示を追加。非表示にすると全員の画面（かける・リスト管理）から消え、中のリードも対象外になる（データは消さない）。切り替えられるのは管理者＋環境変数 LIST_HIDE_USERS で指定したメンバーだけで、その人には『非表示中』として見える。前回(20260907y)：ナーチャリングの元リスト記録。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",

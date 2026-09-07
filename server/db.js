@@ -628,6 +628,8 @@ export async function initDb() {
   await sq(`ALTER TABLE call_lists ADD COLUMN IF NOT EXISTS group_id INTEGER;`);
   // リストの種別。'recycle_revival'＝グループ×担当のリサイクル復活リスト（通常リストと区別）
   await sq(`ALTER TABLE call_lists ADD COLUMN IF NOT EXISTS kind TEXT;`);
+  // リストの非表示。true にすると、決められた人以外の画面から見えなくなる（データは消さない）
+  await sq(`ALTER TABLE call_lists ADD COLUMN IF NOT EXISTS hidden BOOLEAN NOT NULL DEFAULT false;`);
 
   await sq(`
     CREATE TABLE IF NOT EXISTS call_targets (
@@ -3700,7 +3702,7 @@ export async function addCallTargets(listId, items = [], { dedupe = false } = {}
 }
 
 // リストの一覧（残り件数つき）
-export async function listCallLists({ owner = "", includeClosed = false, ownerOnly = false } = {}) {
+export async function listCallLists({ owner = "", includeClosed = false, ownerOnly = false, includeHidden = false } = {}) {
   if (!pool) return [];
   try {
     // ownerOnly=true のときは「そのリストを作った人」だけで絞る。
@@ -3718,8 +3720,9 @@ export async function listCallLists({ owner = "", includeClosed = false, ownerOn
          FROM call_lists l
         WHERE ${scope}
           AND ($2 OR NOT l.closed)
+          AND ($3 OR NOT COALESCE(l.hidden, false))
         ORDER BY l.created_at DESC LIMIT 200`,
-      [String(owner || "").toLowerCase(), !!includeClosed]);
+      [String(owner || "").toLowerCase(), !!includeClosed, !!includeHidden]);
     return rows;
   } catch (e) { console.error("[db] listCallLists", e.message); return []; }
 }
@@ -8485,4 +8488,15 @@ export async function revertFromNurture({ ids = null, owner = "", dryRun = false
     }
     return { 対象: rows.length, 戻した };
   } catch (e) { console.error("[db] revertFromNurture", e.message); return { 対象: 0, 戻した: 0, error: e.message }; }
+}
+
+// リストの表示／非表示を切り替える（データは消さない）
+export async function setCallListHidden(listId, hidden) {
+  if (!pool || !listId) return null;
+  try {
+    const { rows } = await pool.query(
+      `UPDATE call_lists SET hidden = $2 WHERE id = $1 RETURNING id, name, hidden`,
+      [listId, !!hidden]);
+    return rows[0] || null;
+  } catch (e) { console.error("[db] setCallListHidden", e.message); return null; }
 }

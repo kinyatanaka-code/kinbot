@@ -1143,6 +1143,10 @@ function renderDock() {
     .kc-lost-badge{display:inline-block;margin-left:6px;padding:1px 7px;border-radius:10px;background:#e9edeb;color:#6b7a74;font-size:11px;font-weight:700;vertical-align:middle;}
     .kc-dead-badge{display:inline-block;margin-left:6px;padding:1px 7px;border-radius:10px;background:#fbe7e6;color:#a32d2d;font-size:11px;font-weight:700;vertical-align:middle;}
     .kc-from-badge{display:inline-block;margin-top:5px;padding:2px 8px;border-radius:8px;background:#e3f3ec;color:#0d5b47;font-size:11px;font-weight:600;}
+    .kc-list-hidden{opacity:.62;}
+    .kc-list-chip.hid{margin-left:8px;background:#fdf0d6;color:#a5751a;}
+    .kc-list-hide{margin-left:8px;font-size:11.5px;padding:4px 8px;border:1px solid #d7e0db;border-radius:8px;background:#fff;color:#5a6b64;cursor:pointer;}
+    .kc-list-hide:hover{background:#f4f7f5;}
     .kc-jobflt{display:flex;align-items:center;gap:6px;flex-wrap:wrap;padding:6px 4px 2px;font-size:12.5px;color:#5a6b64;}
     .kc-jobflt-lb{font-weight:700;color:#0d5b47;}
     .kc-jobflt select,.kc-jobflt input{font-size:12.5px;padding:4px 8px;border:1px solid #d7e0db;border-radius:8px;background:#fff;}
@@ -3334,6 +3338,7 @@ function memberListsHtml(email) {
 let iAmCloser = false;               // クローザー（管理者含む）＝リストを追加できる
 let iAmRedistributor = false;        // 他メンバーへ割り振れる（クローザー・管理者＋インサイド）
 let iAmAdmin = false;                // 管理者（遅刻回数の入力など、管理者だけの操作に使う）
+let canHideList = false;             // リストの表示・非表示を変えられる人（管理者＋決められたメンバー）
 let appendTarget = null;             // {id, name}：既存リストに追加する先
 let csvAddMode = false;              // CSV：作成する(false)／追加する(true)
 let callAsMember = "";               // かける画面を、この担当の割り振りぶんだけで見る（空＝全部）
@@ -3344,6 +3349,7 @@ let selectedIds = new Set();          // 一覧で選択した架電先のid
     iAmCloser = !!(me && (me.closer || me.admin));
     iAmRedistributor = !!(me && (me.canRedistribute || me.closer || me.admin));
     iAmAdmin = !!(me && me.admin);
+    canHideList = !!(me && (me.admin || me.canHideLists));
     if (me && me.kincallOnly) {
       document.querySelectorAll(".kc-side .side-app, .kc-side .side-sep")
         .forEach((el) => el.remove());
@@ -4022,9 +4028,9 @@ async function asLoadMember(email, name) {
       box.innerHTML = head + '<div class="empty-state">このメンバーのリストはまだありません。</div>';
     } else {
       box.innerHTML = head + '<div class="kc-lists-grid kc-lists-grid-in">' + items.map((x) => `
-        <div class="kc-list-card" data-id="${x.id}">
+        <div class="kc-list-card${x.hidden ? " kc-list-hidden" : ""}" data-id="${x.id}">
           <button type="button" class="kc-list-del" data-del="${x.id}" aria-label="削除" title="削除">✕</button>
-          <div class="kc-list-name">${esc(x.name)}</div>
+          <div class="kc-list-name">${esc(x.name)}${x.hidden ? '<span class="kc-list-chip hid">非表示中</span>' : ""}</div>
           <div class="kc-list-meta"><span class="kc-list-chip">全 ${x["全部"]}件</span>${
             x["自分のぶん"] && x["自分のぶん"] !== x["全部"]
               ? `<span class="kc-list-chip done">この人 ${x["自分のぶん"]}件</span>` : ""}</div>
@@ -4034,8 +4040,24 @@ async function asLoadMember(email, name) {
           <div class="kc-list-grp" onclick="event.stopPropagation()">
             <select class="kc-grp-sel" data-list="${x.id}"><option value="">グループなし</option>${
               GROUPS.map((g) => `<option value="${g.id}"${String(x.group_id || "") === String(g.id) ? " selected" : ""}>${esc(g.name)}</option>`).join("")}</select>
+            ${canHideList ? `<button type="button" class="kc-list-hide" data-hide="${x.id}" data-now="${x.hidden ? 1 : 0}">${x.hidden ? "表示にする" : "非表示にする"}</button>` : ""}
           </div>
         </div>`).join("") + '</div>';
+      box.querySelectorAll(".kc-list-hide").forEach((b) => b.addEventListener("click", async (ev) => {
+        ev.stopPropagation();
+        const to = b.dataset.now === "1" ? false : true;
+        if (to && !confirm("このリストを非表示にします。かける画面やリスト管理から見えなくなります（中身は消えません）。よろしいですか？")) return;
+        b.disabled = true;
+        try {
+          const r = await fetch(`/api/calls/lists/${b.dataset.hide}/hidden`, {
+            method: "PUT", headers: { "content-type": "application/json" },
+            body: JSON.stringify({ hidden: to }),
+          });
+          const d = await r.json();
+          if (!r.ok) throw new Error(d.error || "変えられませんでした");
+          asLoadMember(email, name);
+        } catch (e) { alert("できませんでした：" + e.message); b.disabled = false; }
+      }));
       box.querySelectorAll(".kc-grp-sel").forEach((sel) => sel.addEventListener("change", async () => {
         try {
           const r = await fetch(`/api/calls/lists/${sel.dataset.list}/group`, {
