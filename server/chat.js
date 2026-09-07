@@ -118,6 +118,10 @@ export async function notifyAll(text, kind = "", { mentionName = "" } = {}) {
     dev: "on_dev",
     // インセンティブの到達（初実施・5,000円ごと）
     incentive: "on_incentive",
+    // リスケ・キャンセル。指定したチャットだけに送れるようにする。
+    resched: "on_resched",
+    // アポ獲得のお知らせ（メルマガ等）
+    apo: "on_apo",
   }[kind];
   const list = col ? targets.filter((x) => x[col]) : targets;
   if (!list.length) return { ok: false, skipped: true, reason: "この種類の通知はどこもONになっていません" };

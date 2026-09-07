@@ -13625,6 +13625,7 @@ app.get("/api/chat-targets", async (req, res) => {
         webhookUrl: r.webhook_url || "", spaceId: r.space_id || "",
         onAssign: r.on_assign, onMail: r.on_mail, onDoc: r.on_doc, onLaunch: r.on_launch,
         onDeploy: r.on_deploy, onNews: r.on_news, onDev: r.on_dev, onIncentive: r.on_incentive,
+        onResched: r.on_resched, onApo: r.on_apo,
         active: r.active, lastError: r.last_error || "", sentCount: r.sent_count,
         via: r.space_id ? "kinbot名義" : "Webhook",
       })),
@@ -13654,7 +13655,7 @@ app.put("/api/chat-targets/:id", async (req, res) => {
   try {
     const b = req.body || {};
     const patch = {};
-    for (const k of ["onAssign", "onMail", "onDoc", "onLaunch", "onDeploy", "onNews", "onDev", "onIncentive", "active"]) {
+    for (const k of ["onAssign", "onMail", "onDoc", "onLaunch", "onDeploy", "onNews", "onDev", "onIncentive", "onResched", "onApo", "active"]) {
       if (b[k] !== undefined) patch[k] = b[k] !== false;
     }
     if (b.name !== undefined) patch.name = String(b.name).trim().slice(0, 80);
@@ -18629,7 +18630,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-07n 週次を平日ラップそのもので集計するよう修正（前週の8/31〜9/6まで数えて実績が膨らむ問題を解消＝9/1から正しく数える）。あわせて週の区切り変更で消えた目標を、以前の7日区切りキーから同じ順番で引き継いで表示。前回(20260907m)：週グリッド集計。";
+const BUILD_TAG = "2026-09-07o リスケ・キャンセルの通知が全チャットに飛ぶ件を修正：送り先ごとにON/OFFできるよう chat_targets.on_resched（＋on_apo）を追加し、notifyAll のマッピングに resched/apo を追加（従来は列が無く全送信になっていた）。設定→通知先の種類に『リスケ・キャンセル』『アポ獲得のお知らせ』を追加。既定はONなので、要らないスペースだけ外す運用。前回(20260907n)：週次の集計修正。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
