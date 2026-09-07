@@ -18732,7 +18732,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-07ab リスト作成のSFレポート絞り込みに『条件を足す』行を追加。レポートに無い項目（主キャンペーンソース等）でも、項目を選んで値を入れれば絞り込める。項目候補はレポートの列から自動で出す。前回(20260907aa)：ナーチャリングをカード内表示。";
+const BUILD_TAG = "2026-09-08a 絞り込みに足す項目を、レポートの列だけでなくSalesforceの全項目から探せるように（「キャンペーン」等で検索→候補に反映）。主キャンペーンソースがレポートの列に無くても指定できる。GET /api/salesforce/fields?q= を追加。前回(20260907ab)：条件を足す。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
@@ -19657,6 +19657,20 @@ app.get("/api/salesforce/reports/:id", async (req, res) => {
 });
 
 // レポートに設定されている絞り込み条件を読む
+// Salesforceの項目を名前で探す（絞り込みに足す項目を選ぶため）。
+// 例：/api/salesforce/fields?q=キャンペーン&object=Opportunity
+app.get("/api/salesforce/fields", async (req, res) => {
+  try {
+    const q = String(req.query.q || "").trim().toLowerCase();
+    const d = await describeOpportunity(req.user);
+    const fields = (d && d.fields ? d.fields : []).map((f) => ({ value: f.name, label: f.label || f.name }));
+    const hit = q
+      ? fields.filter((f) => f.label.toLowerCase().includes(q) || f.value.toLowerCase().includes(q))
+      : fields;
+    res.json({ items: hit.slice(0, 200), 全部: fields.length });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 app.get("/api/salesforce/reports/:id/filters", async (req, res) => {
   try {
     res.set("Cache-Control", "no-store");

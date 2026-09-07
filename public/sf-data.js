@@ -154,12 +154,32 @@ async function loadReportFilters(id) {
        <datalist id="srColList">
          ${(d.columns || []).map((c) => `<option value="${srEsc(c.value)}">${srEsc(c.label)}</option>`).join("")}
        </datalist>
+       <div class="sr-f-note" id="srColFind" style="margin-top:4px">
+         項目が見つからないときは
+         <input type="text" id="srColQ" placeholder="項目名で探す（例：キャンペーン）" style="width:200px;padding:4px 8px;font-size:12px;border:1px solid #d7e0db;border-radius:6px" />
+         <button type="button" class="btn ghost" id="srColGo" style="font-size:12px;padding:4px 10px">探す</button>
+         <span id="srColHit"></span>
+       </div>
        <div class="sr-f-act">
          <button type="button" class="btn" id="srApply">この条件で実行</button>
          <button type="button" class="btn ghost" id="srReset">元に戻す</button>
          <span class="rev-status" id="srFStatus"></span>
        </div>`;
 
+    // 項目をSalesforceの全項目から探して、候補（datalist）に足す
+    const colGo = $("srColGo");
+    if (colGo) colGo.addEventListener("click", async () => {
+      const q = ($("srColQ") || {}).value || "";
+      const hit = $("srColHit");
+      if (hit) hit.textContent = "探しています…";
+      try {
+        const r = await (await fetch("/api/salesforce/fields?q=" + encodeURIComponent(q))).json();
+        if (r.error) throw new Error(r.error);
+        const dl = document.getElementById("srColList");
+        if (dl) dl.innerHTML = (r.items || []).map((c) => `<option value="${srEsc(c.value)}">${srEsc(c.label)}</option>`).join("");
+        if (hit) hit.textContent = `${(r.items || []).length}件みつかりました（上の欄で選べます）`;
+      } catch (e) { if (hit) hit.textContent = "探せませんでした：" + e.message; }
+    });
     $("srApply").addEventListener("click", () => applyReportFilters(id));
     $("srReset").addEventListener("click", () => { srRun(id); });
   } catch (e) {
