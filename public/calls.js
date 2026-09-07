@@ -500,7 +500,6 @@ function render() {
         <th class="kc-th-s kc-fx-stage"><button type="button" class="kc-th-b${on("stage")}" data-flt="stage">ステージ ▾</button></th>
         <th class="kc-co kc-fx-co"><button type="button" class="kc-th-b" data-sort="company">会社名${arrow("company")}</button></th>
         <th class="kc-th-p">担当者</th>
-        <th class="kc-th-t">電話番号</th>
         <th class="kc-th-m">メールアドレス</th>
         <th class="kc-th-s"><button type="button" class="kc-th-b${on("status")}" data-flt="status">最終ステータス ▾</button></th>
         <th class="kc-th-h"><button type="button" class="kc-th-b${filt.hist ? " on" : ""}" data-hist="1">履歴${arrow("hist")}</button></th>
@@ -538,9 +537,6 @@ function render() {
         <td class="kc-co kc-fx-co">${esc(x["会社名"] || "")}${tempBadge(x)}${doneBadge(x)}${bizBadge(x)}${fromBadge(x)}${
           予定 ? ` <span class="kc-next-badge${予定.due ? " due" : ""}">${予定.due ? "架電予定 " : "予定 "}${esc(予定.md)} ${esc(予定.hhmm)}<button type="button" class="kc-next-x" data-id="${x.id}" title="この架電予定を消す">×</button></span>` : ""}</td>
         <td class="kc-person">${x["ふりがな"] ? `<span class="kc-kana">${esc(x["ふりがな"])}</span>` : ""}<span class="kc-pname">${esc(x["担当者"] || "")}</span></td>
-        <td>${x["電話番号"]
-          ? `<a class="kc-tel" href="${callHref(x["電話番号"])}">${esc(x["電話番号"])}</a>`
-          : `<span class="kc-none">なし</span>`}</td>
         <td class="kc-mail">${esc(x["メール"] || "")}</td>
         <td class="kc-status">${x["最終ステータス"] ? esc(x["最終ステータス"]) : "-"}</td>
         <td><button type="button" class="kc-btn kc-hist" data-id="${x.id}">${x["履歴数"] ? `${x["履歴数"]}件` : "なし"}</button></td>
@@ -1144,6 +1140,9 @@ function renderDock() {
     .kc-lost-badge{display:inline-block;margin-left:6px;padding:1px 7px;border-radius:10px;background:#e9edeb;color:#6b7a74;font-size:11px;font-weight:700;vertical-align:middle;}
     .kc-dead-badge{display:inline-block;margin-left:6px;padding:1px 7px;border-radius:10px;background:#fbe7e6;color:#a32d2d;font-size:11px;font-weight:700;vertical-align:middle;}
     .kc-from-badge{display:inline-block;margin-top:5px;padding:2px 8px;border-radius:8px;background:#e3f3ec;color:#0d5b47;font-size:11px;font-weight:600;}
+    .kc-mail-big{margin-top:4px;font-size:13px;}
+    .kc-mail-big a{color:#1d9e75;text-decoration:none;}
+    .kc-mail-big a:hover{text-decoration:underline;}
     .kc-list-hidden{opacity:.62;}
     .kc-list-chip.hid{margin-left:8px;background:#fdf0d6;color:#a5751a;}
     .kc-list-hide{margin-left:8px;font-size:11.5px;padding:4px 8px;border:1px solid #d7e0db;border-radius:8px;background:#fff;color:#5a6b64;cursor:pointer;}
@@ -1321,7 +1320,8 @@ async function openTarget(id, draft, opt) {
       <div class="kc-two-r">
         <div class="kc-rec-top">
           <div>
-            ${x["電話番号"] ? `<a class="kc-tel kc-tel-big" href="${callHref(x["電話番号"])}">${esc(x["電話番号"])}</a>` : ""}
+            ${x["電話番号"] ? `<a class="kc-tel kc-tel-big" href="${callHref(x["電話番号"])}">${esc(x["電話番号"])}</a>` : `<span class="kc-none">電話番号なし</span>`}
+            ${x["メール"] ? `<div class="kc-mail-big"><a href="mailto:${esc(x["メール"])}">${esc(x["メール"])}</a></div>` : ""}
           </div>
           <!-- いまのステージと、変えるところ -->
           <div class="kc-rec-stage">
@@ -1640,10 +1640,7 @@ function updateRowContact(x) {
     else co.insertBefore(document.createTextNode(x["会社名"] || ""), co.firstChild);
     const person = co.nextElementSibling;              // 担当者
     if (person) person.innerHTML = (x["ふりがな"] ? `<span class="kc-kana">${esc(x["ふりがな"])}</span>` : "") + `<span class="kc-pname">${esc(x["担当者"] || "")}</span>`;
-    const tel = person && person.nextElementSibling;   // 電話番号
-    if (tel) tel.innerHTML = x["電話番号"]
-      ? `<a class="kc-tel" href="${callHref(x["電話番号"])}">${esc(x["電話番号"])}</a>`
-      : `<span class="kc-none">なし</span>`;
+    // 電話番号の列は一覧から外した（記録モーダルの中で見られる）
   }
   const mail = tr.querySelector(".kc-mail"); if (mail) mail.textContent = x["メール"] || "";
   tr.classList.add("kc-just");
