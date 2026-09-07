@@ -8373,12 +8373,12 @@ export async function apoSetterCoverage({ from, to } = {}) {
 }
 
 // ===== ナーチャリング（育っている見込み）=====
-// 中身：ジャッジ／営業フォロー／再架電の予定あり のリード。
+// 中身：ジャッジ／営業フォロー のリード。
 // ただし アポ獲得・ユーザー・失注・アーカイブ・リサイクル・死番 は入れない。
 const NURTURE_WHERE = `
   ( COALESCE(t.stage,'') ILIKE '%ジャッジ%'
     OR COALESCE(t.status,'') ILIKE '%営業フォロー%'
-    OR t.next_call_at IS NOT NULL )
+    OR COALESCE(t.stage,'') ILIKE '%営業フォロー%' )
   AND COALESCE(t.stage,'')  !~ 'アポ|ユーザー|失注|アーカイブ|リサイクル'
   AND COALESCE(t.status,'') !~ 'アポ獲得|使われて|現在使わ|現アナ|欠番|不通'
 `;

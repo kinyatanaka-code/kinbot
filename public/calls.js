@@ -2020,7 +2020,7 @@ function dashCard(c, big) {
     </div>
   </div>`;
 }
-// ナーチャリング（ジャッジ・営業フォロー・再架電予定あり）の、メンバーごとの件数
+// ナーチャリング（ジャッジ・営業フォロー）の、メンバーごとの件数
 async function loadNurture() {
   const box = $("kcNurture");
   if (!box) return;
@@ -2479,7 +2479,7 @@ async function loadAdmin() {
               </div>
               <div id="rdPrev" class="note" style="margin-top:6px"></div>
               <div style="display:flex;gap:8px;align-items:center;margin-top:10px;flex-wrap:wrap">
-                <span class="note">ナーチャリングへまとめる（ジャッジ・営業フォロー・再架電予定あり）：</span>
+                <span class="note">ナーチャリングへまとめる（ジャッジ・営業フォロー）：</span>
                 <button type="button" class="btn ghost" id="nmDry">件数を見る</button>
                 <button type="button" class="btn ghost" id="nmRun">まとめる（実行）</button>
                 <span class="rev-status" id="nmSt"></span>
@@ -2829,7 +2829,7 @@ async function loadRecycleRules() {
       } catch (e) { say("nmSt", "失敗：" + e.message, 8000); }
     });
     nmRun.addEventListener("click", async () => {
-      if (!confirm("ジャッジ・営業フォロー・再架電予定ありのリードを、担当ごとの『【ナーチャリング】◯◯』リストへ移します。よろしいですか？")) return;
+      if (!confirm("ジャッジ・営業フォローのリードを、担当ごとの『【ナーチャリング】◯◯』リストへ移します。よろしいですか？")) return;
       nmRun.disabled = true; say("nmSt", "まとめています…");
       try {
         const d = await (await fetch("/api/calls/nurture-move", { method: "POST" })).json();
