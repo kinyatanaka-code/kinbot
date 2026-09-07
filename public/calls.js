@@ -2038,10 +2038,22 @@ function dashCard(c, big) {
 // ナーチャリング（ジャッジ・営業フォロー）の件数を読み、メンバーカードに出す
 async function loadNurture(redraw) {
   try {
-    const d = await (await fetch("/api/calls/nurture")).json();
+    const [d, mem] = await Promise.all([
+      (await fetch("/api/calls/nurture")).json(),
+      (await fetch("/api/calls/members")).json(),
+    ]);
     if (d.error) throw new Error(d.error);
+    // 件数は担当のメールで来るので、メンバー名簿でメール→名前に直してから、カードの名前と結ぶ
+    const nameByEmail = {};
+    for (const m of ((mem && mem.items) || [])) {
+      if (m.email) nameByEmail[String(m.email).toLowerCase()] = String(m.name || "").trim();
+    }
     _nurtureByName = {};
-    for (const x of (d.items || [])) _nurtureByName[String(x.name || "").trim()] = Number(x.件数 || 0);
+    for (const x of (d.items || [])) {
+      const nm = nameByEmail[String(x.email || "").toLowerCase()] || String(x.name || "").trim();
+      if (!nm) continue;
+      _nurtureByName[nm] = (_nurtureByName[nm] || 0) + Number(x.件数 || 0);
+    }
     if (typeof redraw === "function") redraw();
   } catch { _nurtureByName = _nurtureByName || {}; }
 }

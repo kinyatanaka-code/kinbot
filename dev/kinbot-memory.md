@@ -41,6 +41,7 @@ kincall（架電リスト）という別ツールも同じ画面群の中にあ�
 
 ## 決定・指示のログ（新しいものを上に足す）
 
+- 2026-09-08 バグ（田中さん）：メンバーカードのナーチャリングが全員0件。原因：nurtureCountsByMember の name 解決が users テーブル頼みで、kincall メンバーの名前は users に無く name=email のまま→カード label（日本語名）と不一致で0扱い。対応(20260908e)：calls.js loadNurture で /api/calls/nurture と /api/calls/members を並行取得し、members の email→name マップで名前に変換してから _nurtureByName を作る（同名は合算）。サーバ側は変更なし。precheck全OK。bump=20260908e。
 - 2026-09-08 要望（田中さん）：かける一覧に電話番号を表示しない＋記録モーダルに電話番号とメールを入れたい。対応(20260908d)：一覧の電話番号列（th/td）を撤去し、行更新処理の nextElementSibling 参照も修正（列ズレ防止）。記録モーダルは電話番号（既存の大きい表示・電話なしのときは『電話番号なし』）の下にメールアドレスを mailto リンクで追加(.kc-mail-big)。一覧のメール列と検索（電話番号でも探せる）は従来どおり。precheck全OK。bump=20260908d。
 - 2026-09-08 要望（田中さん）：SFから補うの試算でプレビューが見たい。対応(20260908c)：fill-from-sf の試算返却 例 を最大500件（id/会社/電話/名前/メール/紐づけ）に拡張。calls.js の [data-sffill] を confirm 方式から openModal のプレビュー表（会社名/電話/入る名前/入るメール/紐づけ、max-height 52vhスクロール）＋『この内容で入れる』ボタンに変更。実行後は件数表示→モーダルを閉じて再読込。precheck全OK。bump=20260908c。
 - 2026-09-08 要望（田中さん）：会社名＋電話番号だけのリードに、SFのリードと紐づけて名前・メールを自動で入れたい。方針：①空欄のときだけ／リスト管理から実行／lead_idも付ける。対応(20260908b)：salesforce.js findLeadsByPhone（電話の数字下9桁でLIKE、IsConverted=false、会社名一致を優先）を追加。db fillCallTargetContact（person/email/lead_id を COALESCE(NULLIF(...),'') で空欄のときだけ埋める）。POST /api/calls/lists/:id/fill-from-sf（body.dryRun で試算／実行、対象=電話9桁以上かつ person/email/lead_id のいずれか空、候補が複数のものは自動で入れずカウントのみ）。calls.js のリストカードに『SFから補う』ボタン＝試算→確認ダイアログ（入れられる/候補が複数/見つからない）→実行→再読込。※precheck が updateCallTarget 未エクスポートを検知しpushを阻止（専用関数を追加して解消）。precheck全OK。bump=20260908b。
