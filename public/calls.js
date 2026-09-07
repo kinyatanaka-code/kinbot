@@ -991,6 +991,12 @@ function renderDock() {
     .kc-ptab.active{background:#1d9e75;color:#fff;}
     .kc-ptab:not(.active):hover{background:#eaf5ef;color:#0d5b47;}
     .lst-sum{font-size:13px;color:#0d5b47;font-weight:700;margin:2px 0 10px;}
+    .kc-nur-sum{font-size:13px;color:#0d5b47;font-weight:700;margin:2px 0 8px;}
+    .kc-nur-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(120px,1fr));gap:10px;}
+    .kc-nur-card{background:#fff;border:1px solid #eef3f0;border-radius:12px;padding:10px 12px;text-align:center;}
+    .kc-nur-name{font-size:12px;color:#5a6b64;font-weight:700;margin-bottom:2px;}
+    .kc-nur-n{font-size:24px;font-weight:800;color:#0d5b47;line-height:1.1;}
+    .kc-nur-lb{font-size:11px;color:#8a9a93;}
     .lst-wrap{overflow-x:auto;}
     .lst-tbl{border-collapse:collapse;width:100%;font-size:13px;}
     .lst-tbl th,.lst-tbl td{border-bottom:1px solid #eef3f0;padding:9px 12px;text-align:left;white-space:nowrap;}
@@ -2014,6 +2020,29 @@ function dashCard(c, big) {
     </div>
   </div>`;
 }
+// ナーチャリング（ジャッジ・営業フォロー・再架電予定あり）の、メンバーごとの件数
+async function loadNurture() {
+  const box = $("kcNurture");
+  if (!box) return;
+  try {
+    const d = await (await fetch("/api/calls/nurture")).json();
+    if (d.error) throw new Error(d.error);
+    const items = d.items || [];
+    if (!items.length) { box.innerHTML = '<div class="note">まだありません。</div>'; return; }
+    const total = items.reduce((s, x) => s + Number(x.件数 || 0), 0);
+    box.innerHTML =
+      `<div class="kc-nur-sum">みんなの合計 <b>${total.toLocaleString()}</b> 件</div>` +
+      `<div class="kc-nur-grid">` +
+      items.map((x) => `<div class="kc-nur-card">
+        <div class="kc-nur-name">${esc(x.name)}</div>
+        <div class="kc-nur-n">${Number(x.件数 || 0).toLocaleString()}</div>
+        <div class="kc-nur-lb">件</div>
+      </div>`).join("") + `</div>`;
+  } catch (e) {
+    box.innerHTML = `<div class="note">読み込めませんでした：${esc(e.message)}</div>`;
+  }
+}
+
 function renderDash(d) {
   const box = $("clDash");
   const note = `<p class="note" style="margin-top:10px">${(d.period === "week")
@@ -2035,7 +2064,9 @@ function renderDash(d) {
       `<div class="kc-dgrid kc-dteams">${teams}</div>` +
       (sales ? `<div class="kc-dsub">セールス</div><div class="kc-dgrid">${sales}</div>` : "") +
       (inside ? `<div class="kc-dsub">インサイド</div><div class="kc-dgrid">${inside}</div>` : "") +
-      note + assign;
+      note + assign +
+      `<div class="kc-dsub">ナーチャリング（育っている見込み）</div><div id="kcNurture"><div class="note">読み込んでいます…</div></div>`;
+    loadNurture();
   }
   // 目標の直接編集。入力欄クリックはカードの内訳を開かないように。
   box.querySelectorAll(".kc-dgoal").forEach((inp) => {
@@ -2448,6 +2479,12 @@ async function loadAdmin() {
               </div>
               <div id="rdPrev" class="note" style="margin-top:6px"></div>
               <div style="display:flex;gap:8px;align-items:center;margin-top:10px;flex-wrap:wrap">
+                <span class="note">ナーチャリングへまとめる（ジャッジ・営業フォロー・再架電予定あり）：</span>
+                <button type="button" class="btn ghost" id="nmDry">件数を見る</button>
+                <button type="button" class="btn ghost" id="nmRun">まとめる（実行）</button>
+                <span class="rev-status" id="nmSt"></span>
+              </div>
+              <div style="display:flex;gap:8px;align-items:center;margin-top:10px;flex-wrap:wrap">
                 <span class="note">配ってしまったアーカイブを戻す：</span>
                 <button type="button" class="btn ghost" id="raDry">件数を見る</button>
                 <button type="button" class="btn ghost" id="raRun">アーカイブに戻す</button>
@@ -2776,6 +2813,30 @@ async function loadRecycleRules() {
         表示(d);
       } catch (e) { say("rdSt", "失敗：" + e.message, 8000); }
       finally { rdRun.disabled = false; }
+    });
+  }
+  // ナーチャリングへまとめる
+  const nmDry = $("nmDry"), nmRun = $("nmRun");
+  if (nmDry && !nmDry.dataset.wired) {
+    nmDry.dataset.wired = "1";
+    nmDry.addEventListener("click", async () => {
+      say("nmSt", "数えています…");
+      try {
+        const d = await (await fetch("/api/calls/nurture-move")).json();
+        if (d.error) throw new Error(d.error);
+        const who = (d.byMember || []).map((x) => `${String(x.email).split("@")[0]}:${x.件数}`).join("、");
+        say("nmSt", `移せるのは ${d.対象 || 0}件${who ? "（" + who + "）" : ""}`, 15000);
+      } catch (e) { say("nmSt", "失敗：" + e.message, 8000); }
+    });
+    nmRun.addEventListener("click", async () => {
+      if (!confirm("ジャッジ・営業フォロー・再架電予定ありのリードを、担当ごとの『【ナーチャリング】◯◯』リストへ移します。よろしいですか？")) return;
+      nmRun.disabled = true; say("nmSt", "まとめています…");
+      try {
+        const d = await (await fetch("/api/calls/nurture-move", { method: "POST" })).json();
+        if (d.error) throw new Error(d.error);
+        say("nmSt", `まとめました：${d.移動 || 0}件`, 15000);
+      } catch (e) { say("nmSt", "失敗：" + e.message, 8000); }
+      finally { nmRun.disabled = false; }
     });
   }
   // 復活リストに入ってしまったアーカイブを戻す

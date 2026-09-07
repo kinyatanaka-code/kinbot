@@ -331,6 +331,8 @@ import {
   listStageCountsByList,
   searchAllLeads,
   apoSetterCoverage,
+  nurtureCountsByMember,
+  moveToNurtureLists,
   updateRecycleRule,
   setDocShared,
   setDocStanding,
@@ -4457,6 +4459,25 @@ app.get("/api/calls/search-all", async (req, res) => {
     if (q.length < 2) return res.json({ items: [], note: "2文字以上で探してください" });
     const items = await searchAllLeads(q, { limit: parseInt(req.query.limit, 10) || 300 });
     res.json({ items, count: items.length });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// ナーチャリング（育っている見込み）：メンバーごとの件数。
+app.get("/api/calls/nurture", async (req, res) => {
+  try { res.json({ items: await nurtureCountsByMember() }); }
+  catch (e) { res.status(500).json({ error: e.message }); }
+});
+// 対象リードを、担当ごとの「【ナーチャリング】◯◯」リストへ移す。GET=試算、POST=実行。
+app.get("/api/calls/nurture-move", async (req, res) => {
+  try { res.json(await moveToNurtureLists({ dryRun: true })); }
+  catch (e) { res.status(500).json({ error: e.message }); }
+});
+app.post("/api/calls/nurture-move", async (req, res) => {
+  try {
+    if (!req.isAdmin && !(await isCloserUser(req.user))) return res.status(403).json({ error: "クローザー・管理者だけが実行できます" });
+    const r = await moveToNurtureLists({ dryRun: false, createdBy: req.user });
+    console.log(`[kincall] ナーチャリングへ移動：${r.移動}件（対象${r.対象}）by ${req.user}`);
+    res.json({ ok: true, ...r });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
@@ -18672,7 +18693,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-07v 日程変更が一覧に反映されない件の切り分け用に GET /api/apo/_one?slug= を追加（保存されている start_time・手動変更時刻・event_id を確認できる）。前回(20260907u)：アポ獲得者の診断。";
+const BUILD_TAG = "2026-09-07w ナーチャリングの可視化：ダッシュボードにメンバーごとの件数を表示（ジャッジ・営業フォロー・再架電予定ありを対象、アポ獲得/ユーザー/失注/アーカイブ/リサイクル/死番は除く）。担当ごとの『【ナーチャリング】◯◯』リストへまとめる機能も追加（設定・管理から 件数を見る→実行）。前回(20260907v)：日程変更の診断。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
