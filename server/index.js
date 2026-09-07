@@ -334,6 +334,7 @@ import {
   fillCallTargetContact,
   apoSetterCoverage,
   nurtureCountsByMember,
+  nurtureDiag,
   moveToNurtureLists,
   revertFromNurture,
   updateRecycleRule,
@@ -4498,6 +4499,12 @@ app.post("/api/calls/lists/:id/fill-from-sf", async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+
+// ナーチャリングの条件がデータと合っているかを見る（ステージ・ステータスの実際の値と件数）。
+app.get("/api/calls/_nurturediag", async (req, res) => {
+  try { res.json(await nurtureDiag()); }
+  catch (e) { res.status(500).json({ error: e.message }); }
+});
 
 // ナーチャリング（育っている見込み）：メンバーごとの件数。
 app.get("/api/calls/nurture", async (req, res) => {
@@ -18766,7 +18773,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-08e メンバーカードのナーチャリングが全員0件になる件を修正：件数（担当メールごと）をメンバー名簿でメール→名前に変換してからカードと結ぶ（users テーブルに名前が無く、メールのままでは名前と一致しなかった）。前回(2026-09-08d)：一覧の電話番号列撤去。";
+const BUILD_TAG = "2026-09-08f ナーチャリングが0件のままなので、条件がデータと合っているか確認できる診断を追加：GET /api/calls/_nurturediag（条件に合う件数・ジャッジ/営業フォローの件数・ステージ/ステータスの実際の値の内訳）。前回(2026-09-08e)：メール→名前の突き合わせ。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",

@@ -8515,3 +8515,29 @@ export async function fillCallTargetContact(id, { person, email, leadId } = {}) 
     return rows[0] || null;
   } catch (e) { console.error("[db] fillCallTargetContact", e.message); return null; }
 }
+
+// ナーチャリングの条件がデータと合っているかを確認する（実際のステージ・ステータスの値と件数）。
+export async function nurtureDiag() {
+  if (!pool) return {};
+  try {
+    const { rows: stages } = await pool.query(
+      `SELECT COALESCE(NULLIF(btrim(stage),''),'(空)') AS ステージ, count(*)::int AS 件数
+         FROM call_targets GROUP BY 1 ORDER BY 2 DESC LIMIT 30`);
+    const { rows: statuses } = await pool.query(
+      `SELECT COALESCE(NULLIF(btrim(status),''),'(空)') AS ステータス, count(*)::int AS 件数
+         FROM call_targets GROUP BY 1 ORDER BY 2 DESC LIMIT 30`);
+    const { rows: hit } = await pool.query(
+      `SELECT count(*)::int AS 条件に合う FROM call_targets t JOIN call_lists l ON l.id=t.list_id WHERE ${NURTURE_WHERE}`);
+    const { rows: judge } = await pool.query(
+      `SELECT count(*)::int AS ジャッジっぽい FROM call_targets WHERE COALESCE(stage,'') ILIKE '%ジャッジ%'`);
+    const { rows: follow } = await pool.query(
+      `SELECT count(*)::int AS 営業フォローっぽい FROM call_targets
+        WHERE COALESCE(status,'') ILIKE '%営業フォロー%' OR COALESCE(stage,'') ILIKE '%営業フォロー%'`);
+    return {
+      条件に合う: (hit[0] || {}).条件に合う || 0,
+      ジャッジっぽい: (judge[0] || {}).ジャッジっぽい || 0,
+      営業フォローっぽい: (follow[0] || {}).営業フォローっぽい || 0,
+      ステージの内訳: stages, ステータスの内訳: statuses,
+    };
+  } catch (e) { return { error: e.message }; }
+}

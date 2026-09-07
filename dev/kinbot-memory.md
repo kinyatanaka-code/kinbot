@@ -41,6 +41,7 @@ kincall（架電リスト）という別ツールも同じ画面群の中にあ�
 
 ## 決定・指示のログ（新しいものを上に足す）
 
+- 2026-09-08 調査（田中さん）：/api/calls/nurture が {items:[]}＝集計0件。名前の突き合わせ以前に SQL 条件がヒットしていない。対応(20260908f)：db nurtureDiag() と GET /api/calls/_nurturediag を追加＝(1)NURTURE_WHERE に合う件数 (2)stage ILIKE %ジャッジ% の件数 (3)status/stage ILIKE %営業フォロー% の件数 (4)call_targets の stage / status の実際の値と件数（各上位30）。この出力で、実データのステージ表記（例：04ジャッジ・ジャッジ中 等）と除外条件（stage に『アポ|ユーザー|失注|アーカイブ|リサイクル』が含まれると除外＝『04ジャッジ』は通るが表記次第では落ちる可能性）を確認して条件を合わせる。precheck全OK。bump=20260908f。
 - 2026-09-08 バグ（田中さん）：メンバーカードのナーチャリングが全員0件。原因：nurtureCountsByMember の name 解決が users テーブル頼みで、kincall メンバーの名前は users に無く name=email のまま→カード label（日本語名）と不一致で0扱い。対応(20260908e)：calls.js loadNurture で /api/calls/nurture と /api/calls/members を並行取得し、members の email→name マップで名前に変換してから _nurtureByName を作る（同名は合算）。サーバ側は変更なし。precheck全OK。bump=20260908e。
 - 2026-09-08 要望（田中さん）：かける一覧に電話番号を表示しない＋記録モーダルに電話番号とメールを入れたい。対応(20260908d)：一覧の電話番号列（th/td）を撤去し、行更新処理の nextElementSibling 参照も修正（列ズレ防止）。記録モーダルは電話番号（既存の大きい表示・電話なしのときは『電話番号なし』）の下にメールアドレスを mailto リンクで追加(.kc-mail-big)。一覧のメール列と検索（電話番号でも探せる）は従来どおり。precheck全OK。bump=20260908d。
 - 2026-09-08 要望（田中さん）：SFから補うの試算でプレビューが見たい。対応(20260908c)：fill-from-sf の試算返却 例 を最大500件（id/会社/電話/名前/メール/紐づけ）に拡張。calls.js の [data-sffill] を confirm 方式から openModal のプレビュー表（会社名/電話/入る名前/入るメール/紐づけ、max-height 52vhスクロール）＋『この内容で入れる』ボタンに変更。実行後は件数表示→モーダルを閉じて再読込。precheck全OK。bump=20260908c。
