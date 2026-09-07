@@ -143,7 +143,18 @@ async function loadReportFilters(id) {
               <input type="text" class="sr-f-v" value="${srEsc(f.value || "")}" />
             </div>`).join("")
         : '<div class="sr-f-note">このレポートには変えられる条件がありません。</div>') +
-      `<div class="sr-f-act">
+      `<div class="sr-f-row sr-f-add" data-col="">
+         <span class="sr-f-k">条件を足す</span>
+         <input type="text" class="sr-f-newcol" list="srColList" placeholder="項目のAPI名（例：Campaign_Source__c）" />
+         <select class="sr-f-op">
+           ${SR_OPS.map(([v, l]) => `<option value="${v}"${v === "contains" ? " selected" : ""}>${l}</option>`).join("")}
+         </select>
+         <input type="text" class="sr-f-v" placeholder="値（例：3Dメタバース）" />
+       </div>
+       <datalist id="srColList">
+         ${(d.columns || []).map((c) => `<option value="${srEsc(c.value)}">${srEsc(c.label)}</option>`).join("")}
+       </datalist>
+       <div class="sr-f-act">
          <button type="button" class="btn" id="srApply">この条件で実行</button>
          <button type="button" class="btn ghost" id="srReset">元に戻す</button>
          <span class="rev-status" id="srFStatus"></span>
@@ -161,11 +172,17 @@ async function applyReportFilters(id) {
   const view = $("srView");
   if (st) st.textContent = "実行しています…";
   try {
-    const filters = [...document.querySelectorAll(".sr-f-row[data-col]")].map((row) => ({
-      column: row.dataset.col,
-      operator: row.querySelector(".sr-f-op").value,
-      value: row.querySelector(".sr-f-v").value,
-    }));
+    const filters = [...document.querySelectorAll(".sr-f-row[data-col]")].map((row) => {
+      // 「条件を足す」の行は、入れた項目名を使う（空なら送らない）
+      const newCol = row.querySelector(".sr-f-newcol");
+      const col = newCol ? String(newCol.value || "").trim() : row.dataset.col;
+      if (!col) return null;
+      return {
+        column: col,
+        operator: row.querySelector(".sr-f-op").value,
+        value: row.querySelector(".sr-f-v").value,
+      };
+    }).filter(Boolean);
     const body = { filters };
     const dr = $("srDateRange");
     if (dr && _sr.filters && _sr.filters.standardDateFilter) {

@@ -1326,6 +1326,10 @@ export async function reportFilters(owner, reportId) {
       operator: f.operator,
       value: f.value,
     })),
+    // レポートで使える項目（API名と表示名）。条件を足すときの候補に使う。
+    columns: Object.entries(ext.detailColumnInfo || {}).map(([api, info]) => ({
+      value: api, label: (info && info.label) || api,
+    })),
     booleanFilter: meta.reportBooleanFilter || "",
     standardDateFilter: meta.standardDateFilter || null,
     // 選べる期間（今月・先月など）
