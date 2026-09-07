@@ -18630,7 +18630,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-07q 担当変更時の商談予定づくりが Google Calendar 400（timeRangeEmpty＝時間の範囲が空）で失敗する件を修正。終わりの時刻が無い/おかしい/始まりと同じか前のときは、始まりの1時間後にそろえる（担当変更の処理と createCalendarEvent の両方でガード）。前回(20260907p)：リスケ判定の強化。";
+const BUILD_TAG = "2026-09-07r アポ割り振りで『カレンダーだけ』を選べるように：アポ一覧の各カードにチェックを追加し、担当変更・自動で決める のときに商談予定は作るが確定メールは送らない（noMail）。チェックしなければ従来どおり。前回(20260907q)：予定作成のtimeRangeEmpty修正。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
@@ -21749,7 +21749,7 @@ async function shouldNotifyAssignFail(slug) {
   } catch { return true; }   // 設定が読めなくても、黙って落とさず1回は出す
 }
 
-async function autoAssignOne(link, { inviteOwner, closers = null, cfg, teamCtx = null, actor = "auto" }) {
+async function autoAssignOne(link, { inviteOwner, closers = null, cfg, teamCtx = null, actor = "auto", noMail = false }) {
   // 事業ごとに候補が違うので、アポの事業に合わせて毎回引き直す
   const biz = String(link.business || "").trim();
 
@@ -21806,7 +21806,11 @@ async function autoAssignOne(link, { inviteOwner, closers = null, cfg, teamCtx =
   // アポ確定メール（担当セールス本人のGmailから）
   let mail = null;
   const mcfg = await getApoMailConfig().catch(() => null);
-  if (mcfg && mcfg.autoConfirm) {
+  if (noMail) {
+    // 「カレンダーだけ作る」で割り振ったときは、確定メールを作らない
+    mail = { ok: false, skipped: true, reason: "カレンダーだけ作る指定のため、メールは送りません" };
+    console.log(`[apo-assign] ${link.slug}：カレンダーだけ作る指定のため、確定メールは作りません`);
+  } else if (mcfg && mcfg.autoConfirm) {
     mail = await sendApoMail(updated, "confirm", {
       url: joinUrl(updated.slug),
       repName: await repDisplayName(pick.email),
@@ -22707,7 +22711,10 @@ app.post("/api/smart-links/:slug/auto-assign", async (req, res) => {
     const s = await getSettings().catch(() => ({}));
     const inviteOwner = String(s.apoScanOwner || s.apoInviteOwner || "").trim();
     if (!inviteOwner) return res.status(400).json({ error: "予定作成の運用者が未設定です" });
-    const r = await autoAssignOne(link, { inviteOwner, closers: null, cfg: null, actor: req.user || "manual" });
+    const r = await autoAssignOne(link, {
+      inviteOwner, closers: null, cfg: null, actor: req.user || "manual",
+      noMail: req.body?.noMail === true,   // 「カレンダーだけ作る」＝メールを送らない
+    });
     if (!r.ok) return res.status(409).json({ error: r.reason, ...r });
     res.json({ ok: true, ...r });
   } catch (e) { res.status(500).json({ error: e.message }); }
@@ -23562,7 +23569,11 @@ app.put("/api/smart-links/:slug/owner", async (req, res) => {
     let mail = null;
     if (owner) {
       const cfg = await getApoMailConfig().catch(() => null);
-      if (cfg && cfg.autoConfirm) {
+      if (req.body?.noMail === true) {
+        // 「カレンダーだけ作る」＝予定は作るが、確定メールは送らない
+        mail = { ok: false, skipped: true, reason: "カレンダーだけ作る指定のため、メールは送りません" };
+        console.log(`[apo-invite] ${req.params.slug}：カレンダーだけ作る指定のため、確定メールは送りません`);
+      } else if (cfg && cfg.autoConfirm) {
         mail = await sendApoMail(link, "confirm", {
           url: joinUrl(link.slug),
           repName: await repDisplayName(owner),

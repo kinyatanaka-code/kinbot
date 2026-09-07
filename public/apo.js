@@ -203,6 +203,9 @@ function apoCard(a, i) {
       </div>
       <div class="home-card-actions">
         <select class="ap-rep" data-i="${i}">${repOptions(a.current_owner)}</select>
+        <label class="ap-nomail" title="担当を決めたときに、カレンダーの商談予定だけ作ります（確定メールは送りません）">
+          <input type="checkbox" class="ap-nomail-cb" data-i="${i}" /> カレンダーだけ
+        </label>
         ${assigned ? "" : `<button class="btn ap-auto" data-i="${i}">自動で決める</button>`}
         ${canSend ? `<button class="btn ap-sendmail" data-i="${i}" data-kind="confirm">${draftMode ? "下書きを作る" : "メールを送信"}</button>` : ""}
         <div class="ap-card-links">
@@ -288,7 +291,7 @@ function bindCardEvents(card) {
     try {
       const r = await fetch(`/api/smart-links/${encodeURIComponent(a.slug)}/owner`, {
         method: "PUT", headers: { "content-type": "application/json" },
-        body: JSON.stringify({ owner }),
+        body: JSON.stringify({ owner, noMail: !!(q(".ap-nomail-cb") || {}).checked }),
       });
       const d = await r.json();
       if (!r.ok) throw new Error(d.error || "変更に失敗しました");
@@ -328,7 +331,10 @@ function bindCardEvents(card) {
     const bo = auto.textContent;
     auto.textContent = "判定中…";
     try {
-      const r = await fetch(`/api/smart-links/${encodeURIComponent(a.slug)}/auto-assign`, { method: "POST" });
+      const r = await fetch(`/api/smart-links/${encodeURIComponent(a.slug)}/auto-assign`, {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ noMail: !!(q(".ap-nomail-cb") || {}).checked }),
+      });
       const d = await r.json();
       if (!r.ok) throw new Error(d.error || "割り振れませんでした");
       loadApo();
