@@ -18630,7 +18630,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-07p リスケ・キャンセルの判定を強化：予定名の先頭だけでなく途中・末尾でも拾い、表記ゆれ（リスケ済み/日程変更/日程再調整/延期/振替/半角ｶﾅ/resche、キャンセル/中止/取消/取りやめ/見送り/ドタキャン/noshow/cancel）に対応。『リスケ不可』などの打ち消しは対象外。キャンセルを優先判定。前回(20260907o)：リスケ通知の送り先指定。";
+const BUILD_TAG = "2026-09-07q 担当変更時の商談予定づくりが Google Calendar 400（timeRangeEmpty＝時間の範囲が空）で失敗する件を修正。終わりの時刻が無い/おかしい/始まりと同じか前のときは、始まりの1時間後にそろえる（担当変更の処理と createCalendarEvent の両方でガード）。前回(20260907p)：リスケ判定の強化。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
@@ -23438,7 +23438,11 @@ async function createApoInvite(link, { actor } = {}) {
   if (!link.start_time) throw new Error("この商談の開始時刻が分かりません（カレンダー予定の時刻が取得できていません）。");
 
   const start = new Date(link.start_time);
-  const end = link.end_time ? new Date(link.end_time) : new Date(start.getTime() + 60 * 60 * 1000); // 既定1時間
+  let end = link.end_time ? new Date(link.end_time) : new Date(start.getTime() + 60 * 60 * 1000); // 既定1時間
+  // 終わりが始まりと同じ・前になっていると Google が「時間の範囲が空」で断る。1時間後にそろえる。
+  if (!(end instanceof Date) || isNaN(end.getTime()) || end.getTime() <= start.getTime()) {
+    end = new Date(start.getTime() + 60 * 60 * 1000);
+  }
   const summary = link.label || "商談";
   let description = `kinbotが自動作成した商談予定です。\n参加URL: ${joinUrl(link.slug)}\n` +
     `アポ獲得: ${link.setter || "-"}\n担当: ${link.current_owner}`;

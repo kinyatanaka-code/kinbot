@@ -278,11 +278,17 @@ export async function createCalendarEvent(owner, {
   const token = await accessToken(owner);
   if (!token) throw new Error("Google未連携です");
   const cal = encodeURIComponent(String(calendarId || "primary"));
+  // 始まり・終わりを整える。終わりが無い／おかしい／始まり以下なら1時間後にする。
+  // （同じ時刻だと Google が「時間の範囲が空（timeRangeEmpty）」で断るため）
+  const s0 = new Date(start);
+  if (isNaN(s0.getTime())) throw new Error("開始時刻が正しくありません");
+  let e0 = end ? new Date(end) : null;
+  if (!e0 || isNaN(e0.getTime()) || e0.getTime() <= s0.getTime()) e0 = new Date(s0.getTime() + 60 * 60 * 1000);
   const body = {
     summary: summary || "商談",
     description: description || "",
-    start: { dateTime: new Date(start).toISOString(), timeZone: "Asia/Tokyo" },
-    end: { dateTime: new Date(end).toISOString(), timeZone: "Asia/Tokyo" },
+    start: { dateTime: s0.toISOString(), timeZone: "Asia/Tokyo" },
+    end: { dateTime: e0.toISOString(), timeZone: "Asia/Tokyo" },
     attendees: guests.filter(Boolean).map((email) => ({ email })),
     guestsCanModify: !!guestsCanModify,
   };
