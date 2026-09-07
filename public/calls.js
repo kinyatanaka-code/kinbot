@@ -4050,14 +4050,42 @@ async function asLoadMember(email, name) {
         try {
           const d = await call(true);
           if (d.error) throw new Error(d.error);
-          const msg = `電話から探しました。\n\n入れられる：${d.入った}件\n候補が複数（自動では入れません）：${d.候補が複数}件\n見つからない：${d.見つからない}件\n\n入れてよろしいですか？`;
-          if (!d.入った) { alert(msg.replace("入れてよろしいですか？", "入れられるものはありませんでした。")); return; }
-          if (!confirm(msg)) return;
-          b.textContent = "入れています…";
-          const r = await call(false);
-          if (r.error) throw new Error(r.error);
-          alert(`${r.入った}件に、名前・メール・紐づけを入れました。`);
-          asLoadMember(email, name);
+          const rows = d.例 || [];
+          const inner =
+            `<p class="note" style="margin:0 0 8px">電話番号からSalesforceを探しました。
+               入れられる <b>${d.入った}</b>件／候補が複数（自動では入れません） <b>${d.候補が複数}</b>件／見つからない <b>${d.見つからない}</b>件。
+               空欄のところにだけ入ります。</p>` +
+            (rows.length
+              ? `<div class="lst-wrap" style="max-height:52vh;overflow:auto"><table class="lst-tbl"><thead><tr>
+                   <th>会社名</th><th>電話</th><th>入る名前</th><th>入るメール</th><th>紐づけ</th>
+                 </tr></thead><tbody>` +
+                rows.map((x) => `<tr>
+                   <td class="lst-name">${esc(x.会社 || "")}</td>
+                   <td>${esc(x.電話 || "")}</td>
+                   <td>${esc(x.名前 || "") || '<span class="kc-none">—</span>'}</td>
+                   <td>${esc(x.メール || "") || '<span class="kc-none">—</span>'}</td>
+                   <td>${x.紐づけ ? "つける" : '<span class="kc-none">—</span>'}</td>
+                 </tr>`).join("") + `</tbody></table></div>`
+              : '<div class="empty-state">入れられるものはありませんでした。</div>') +
+            `<div class="kc-modal-foot" style="margin-top:10px">
+               ${rows.length ? '<button type="button" class="btn" id="sfFillGo">この内容で入れる</button>' : ""}
+               <button type="button" class="btn ghost" id="sfFillNo">閉じる</button>
+               <span class="rev-status" id="sfFillSt"></span>
+             </div>`;
+          const m = openModal("SFから補う（プレビュー）", inner);
+          m.el.querySelector("#sfFillNo").addEventListener("click", () => m.close());
+          const go = m.el.querySelector("#sfFillGo");
+          if (go) go.addEventListener("click", async () => {
+            go.disabled = true;
+            const st = m.el.querySelector("#sfFillSt");
+            if (st) st.textContent = "入れています…";
+            try {
+              const r = await call(false);
+              if (r.error) throw new Error(r.error);
+              if (st) st.textContent = `${r.入った}件に入れました`;
+              setTimeout(() => { m.close(); asLoadMember(email, name); }, 900);
+            } catch (e) { if (st) st.textContent = "失敗：" + e.message; go.disabled = false; }
+          });
         } catch (e) { alert("できませんでした：" + e.message); }
         finally { b.disabled = false; b.textContent = bo; }
       }));

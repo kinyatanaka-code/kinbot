@@ -4491,7 +4491,7 @@ app.post("/api/calls/lists/:id/fill-from-sf", async (req, res) => {
       if (!t.lead_id && L.Id) patch.leadId = L.Id;
       if (!Object.keys(patch).length) continue;
       入った++;
-      if (例.length < 5) 例.push({ 会社: t.company, 電話: t.phone, 入れる: patch });
+      if (例.length < 500) 例.push({ id: t.id, 会社: t.company, 電話: t.phone, 名前: patch.person || "", メール: patch.email || "", 紐づけ: patch.leadId ? "つける" : "" });
       if (!dryRun) await fillCallTargetContact(t.id, patch).catch(() => {});
     }
     res.json({ ok: true, dryRun, 対象: 対象.length, 入った, 候補が複数, 見つからない, 例 });
@@ -18766,7 +18766,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-08b 会社名と電話番号しかないリードに、Salesforceから担当者名・メール・紐づけ(lead_id)を補う機能。リスト管理の各リストの『SFから補う』ボタンで、まず件数を出して確認してから実行。空欄のときだけ入れ、候補が複数のものは自動で入れない。前回(20260908a)：項目検索。";
+const BUILD_TAG = "2026-09-08c 『SFから補う』の試算をプレビュー表に：会社名・電話・入る名前・入るメール・紐づけを一覧（最大500件）で確認してから『この内容で入れる』で実行。前回(2026-09-08b)：SFから補う機能。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
