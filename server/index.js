@@ -330,6 +330,7 @@ import {
   listRecycleRules,
   listStageCountsByList,
   searchAllLeads,
+  apoSetterCoverage,
   updateRecycleRule,
   setDocShared,
   setDocStanding,
@@ -8389,6 +8390,17 @@ app.post("/api/calls/targets/:id/edit", async (req, res) => {
 
 // 【点検用・一時】アポが誰に計上されるかを見る。email を渡すと、その人に紐づくアポと、
 // 計上対象か（初回タイトルか）・獲得者/setter の解決結果・期内/期外 を返す。原因調査用。
+// アポ獲得者がどれだけ埋まっているかを見る（自動照合が効いているかの確認）。
+// 例：/api/calls/_setterdiag?from=2026-09-01&to=2026-09-07
+app.get("/api/calls/_setterdiag", async (req, res) => {
+  try {
+    res.json(await apoSetterCoverage({
+      from: String(req.query.from || "") || undefined,
+      to: String(req.query.to || "") || undefined,
+    }));
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 app.get("/api/calls/_apodiag", async (req, res) => {
   try {
     const target = String(req.query.email || "").trim().toLowerCase();
@@ -18643,7 +18655,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-07t アポ一覧の『カレンダーだけ』チェックを『カレンダーだけ作る』ボタンに変更。押すと担当のカレンダーに商談予定だけを作る（メールは送らない・確認あり）。担当未選択なら先に選ぶよう案内。サーバの noMail 対応はそのまま残置。前回(20260907s)：全体検索。";
+const BUILD_TAG = "2026-09-07u アポ獲得者が自動で入っているかを確認できる診断を追加：GET /api/calls/_setterdiag?from=&to= で 件数・設定あり/未設定・手入力/自動の内訳・獲得者ごとの件数・未設定の例10件を返す。前回(20260907t)：カレンダーだけ作るボタン。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",

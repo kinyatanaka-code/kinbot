@@ -8341,3 +8341,33 @@ export async function searchAllLeads(q, { limit = 300 } = {}) {
     return rows;
   } catch (e) { console.error("[db] searchAllLeads", e.message); return []; }
 }
+
+// アポ獲得者が、どれだけ埋まっているかを数える（自動照合が効いているかの確認用）。
+export async function apoSetterCoverage({ from, to } = {}) {
+  if (!pool) return { total: 0, 設定あり: 0, 未設定: 0, 手入力: 0, 自動: 0, 内訳: [], 未設定の例: [] };
+  try {
+    const cond = [], p = []; let i = 1;
+    if (from) { cond.push(`created_at >= $${i++}`); p.push(from); }
+    if (to) { cond.push(`created_at < ($${i++}::date + interval '1 day')`); p.push(to); }
+    const where = cond.length ? "WHERE " + cond.join(" AND ") : "";
+    const { rows: sum } = await pool.query(
+      `SELECT count(*)::int AS total,
+              count(*) FILTER (WHERE COALESCE(NULLIF(btrim(apo_setter),''),'') <> '')::int AS 設定あり,
+              count(*) FILTER (WHERE COALESCE(NULLIF(btrim(apo_setter),''),'') = '')::int AS 未設定,
+              count(*) FILTER (WHERE apo_setter_manual IS TRUE)::int AS 手入力
+         FROM meetings ${where}`, p);
+    const { rows: by } = await pool.query(
+      `SELECT COALESCE(NULLIF(btrim(apo_setter),''),'(未設定)') AS 獲得者, count(*)::int AS 件数
+         FROM meetings ${where} GROUP BY 獲得者 ORDER BY 件数 DESC`, p);
+    const { rows: ex } = await pool.query(
+      `SELECT bot_id, title, created_at FROM meetings
+        ${where ? where + " AND" : "WHERE"} COALESCE(NULLIF(btrim(apo_setter),''),'') = ''
+        ORDER BY created_at DESC LIMIT 10`, p);
+    const s = sum[0] || {};
+    return {
+      total: s.total || 0, 設定あり: s["設定あり"] || 0, 未設定: s["未設定"] || 0,
+      手入力: s["手入力"] || 0, 自動: (s["設定あり"] || 0) - (s["手入力"] || 0),
+      内訳: by, 未設定の例: ex,
+    };
+  } catch (e) { console.error("[db] apoSetterCoverage", e.message); return { error: e.message }; }
+}
