@@ -3230,6 +3230,23 @@ app.post("/api/apo/:slug/renotify", async (req, res) => {
 
 // アポ（商談）の日時を変える。カレンダーの予定も動かし、「日程変更しました」だけ知らせる。
 // リマインドは、変えたあとの日時をもとに送られる（前日リマインドの対象が自動で変わる）。
+// アポ1件の、いま保存されている日時などを見る（日程変更が効いているかの確認）。
+// 例：/api/apo/_one?slug=xxxx
+app.get("/api/apo/_one", async (req, res) => {
+  try {
+    const link = await getSmartLink(String(req.query.slug || ""));
+    if (!link) return res.status(404).json({ error: "見つかりません" });
+    const j = (v) => { const d = new Date(v); if (isNaN(d.getTime())) return ""; const x = new Date(d.getTime() + 9 * 3600000); const p2 = (n) => String(n).padStart(2, "0"); return `${x.getUTCFullYear()}/${p2(x.getUTCMonth() + 1)}/${p2(x.getUTCDate())} ${p2(x.getUTCHours())}:${p2(x.getUTCMinutes())}`; };
+    res.json({
+      slug: link.slug, 予定名: link.label,
+      いまの日時: j(link.start_time), start_time: link.start_time,
+      手動で変えた時刻: link.start_time_manual || null,
+      担当: link.current_owner || "", 除外: !!link.excluded,
+      event_id: link.event_id || "", invite_event_id: link.invite_event_id || "",
+    });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 app.post("/api/apo/:slug/reschedule", async (req, res) => {
   try {
     const slug = String(req.params.slug || "");
@@ -18655,7 +18672,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-07u アポ獲得者が自動で入っているかを確認できる診断を追加：GET /api/calls/_setterdiag?from=&to= で 件数・設定あり/未設定・手入力/自動の内訳・獲得者ごとの件数・未設定の例10件を返す。前回(20260907t)：カレンダーだけ作るボタン。";
+const BUILD_TAG = "2026-09-07v 日程変更が一覧に反映されない件の切り分け用に GET /api/apo/_one?slug= を追加（保存されている start_time・手動変更時刻・event_id を確認できる）。前回(20260907u)：アポ獲得者の診断。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
