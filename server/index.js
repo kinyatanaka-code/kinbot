@@ -329,6 +329,7 @@ import {
   listDealDocTracking,
   listRecycleRules,
   listStageCountsByList,
+  searchAllLeads,
   updateRecycleRule,
   setDocShared,
   setDocStanding,
@@ -4426,6 +4427,18 @@ app.get("/api/docs", async (req, res) => {
       mine: String(d.uploaded_by || "").toLowerCase() === String(req.user || "").toLowerCase(),
     }));
     res.json({ docs, base: PUBLIC_URL, me: req.user || "" });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// 全メンバーのリストを横断してリードを探す（管理者だけ）。
+// 「どのリストに・誰の担当で入っているか」を返す。
+app.get("/api/calls/search-all", async (req, res) => {
+  try {
+    if (!req.isAdmin) return res.status(403).json({ error: "この検索は管理者だけが使えます" });
+    const q = String(req.query.q || "").trim();
+    if (q.length < 2) return res.json({ items: [], note: "2文字以上で探してください" });
+    const items = await searchAllLeads(q, { limit: parseInt(req.query.limit, 10) || 300 });
+    res.json({ items, count: items.length });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
@@ -18630,7 +18643,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-07r アポ割り振りで『カレンダーだけ』を選べるように：アポ一覧の各カードにチェックを追加し、担当変更・自動で決める のときに商談予定は作るが確定メールは送らない（noMail）。チェックしなければ従来どおり。前回(20260907q)：予定作成のtimeRangeEmpty修正。";
+const BUILD_TAG = "2026-09-07s リスト管理に『全体検索』タブを追加（管理者だけ表示）。全メンバーのリストを横断して会社名・担当者・電話・メールでリードを探し、どのリストに・誰の担当で入っているかを表示。GET /api/calls/search-all（管理者以外は403）。前回(20260907r)：カレンダーだけ割り振り。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",

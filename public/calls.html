@@ -10,7 +10,7 @@
     <link rel="manifest" href="/site.webmanifest" />
     <meta name="theme-color" content="#0d5b47" />
     <meta name="apple-mobile-web-app-title" content="kinbot" />
-    <link rel="stylesheet" href="style.css?v=20260907r" />
+    <link rel="stylesheet" href="style.css?v=20260907s" />
   </head>
   <body class="kc-body">
     <div class="app">
@@ -184,7 +184,17 @@
             <div class="kc-period-tabs" id="lsTabs">
               <button type="button" class="kc-ptab active" data-ls="manage">リスト管理</button>
               <button type="button" class="kc-ptab" data-ls="status">リスト状況</button>
+              <button type="button" class="kc-ptab" data-ls="find" id="lsFindTab" hidden>全体検索</button>
               <button type="button" class="kc-ptab" data-ls="make">リスト作成</button>
+            </div>
+            <div class="ls-block" data-ls-pane="find" hidden>
+              <p class="note">すべてのメンバーのリストから、会社名・担当者名・電話・メールでリードを探します（管理者だけ）。誰のどのリストに入っているかが分かります。</p>
+              <div style="display:flex;gap:8px;align-items:center;margin-bottom:10px;flex-wrap:wrap">
+                <input type="text" id="lsFindQ" class="kc-input" placeholder="会社名・担当者・電話・メール" style="max-width:320px" />
+                <button type="button" class="btn" id="lsFindGo">探す</button>
+                <span class="rev-status" id="lsFindSt"></span>
+              </div>
+              <div id="lsFindBox"></div>
             </div>
             <div class="ls-block" data-ls-pane="status" hidden>
               <p class="note">各メンバーのリード数（リストの合計）です。<b>全部</b>＝そのメンバーのリード総数、<b>残り</b>＝まだ架電していない数、<b>リスト数</b>＝持っているリストの数。</p>
@@ -308,9 +318,9 @@
         </main>
       </div>
     </div>
-    <script src="sf-data.js?v=20260907r"></script>
-    <script src="calls.js?v=20260907r"></script>
-    <script src="nav.js?v=20260907r"></script>
+    <script src="sf-data.js?v=20260907s"></script>
+    <script src="calls.js?v=20260907s"></script>
+    <script src="nav.js?v=20260907s"></script>
     <script src="/cmdk.js?v=20260827a"></script>
 </body>
 </html>

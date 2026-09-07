@@ -3122,6 +3122,7 @@ function showPane() {
     });
     if (name === "manage") asLoad();
     if (name === "status") loadListStatus();
+    if (name === "find") { const q = $("lsFindQ"); if (q) q.focus(); }
     // リスト作成は、Salesforceのリード一覧をそのまま使う
     if (name === "make") {
       // 最初はSalesforceのレポートを出す
@@ -3129,6 +3130,47 @@ function showPane() {
       if (typeof srFillShare === "function") srFillShare();
     }
   });
+})();
+
+// 全メンバーのリストからリードを探す（管理者だけ）
+(function wireFindAll() {
+  const tab = document.getElementById("lsFindTab");
+  const go = document.getElementById("lsFindGo");
+  const inp = document.getElementById("lsFindQ");
+  if (!go || !inp) return;
+  // 管理者のときだけタブを出す
+  (async () => {
+    try { const me = await (await fetch("/api/me")).json(); if (me && me.admin && tab) tab.hidden = false; } catch {}
+  })();
+  const run = async () => {
+    const box = document.getElementById("lsFindBox");
+    const q = inp.value.trim();
+    if (q.length < 2) { say("lsFindSt", "2文字以上で探してください", 4000); return; }
+    say("lsFindSt", "探しています…");
+    try {
+      const d = await (await fetch("/api/calls/search-all?q=" + encodeURIComponent(q))).json();
+      if (d.error) throw new Error(d.error);
+      const items = d.items || [];
+      say("lsFindSt", `${items.length}件`, 6000);
+      if (!items.length) { box.innerHTML = '<div class="empty-state">見つかりませんでした。</div>'; return; }
+      box.innerHTML =
+        `<div class="lst-wrap"><table class="lst-tbl"><thead><tr>
+           <th>会社名</th><th>担当者</th><th>電話</th><th>ステージ</th><th>リスト</th><th>持ち主・担当</th><th class="lst-num">履歴</th><th>最終結果</th>
+         </tr></thead><tbody>` +
+        items.map((x) => `<tr>
+           <td class="lst-name">${esc(x.company || "")}</td>
+           <td>${esc(x.person || "")}</td>
+           <td>${esc(x.phone || "")}</td>
+           <td>${esc(x.stage || "")}</td>
+           <td>${esc(x.list_name || "")}${x.list_kind === "recycle_revival" ? '<span class="lst-badge">復活</span>' : ""}</td>
+           <td>${esc(x.owner_name || x.assigned_to || x.list_owner || "")}</td>
+           <td class="lst-num">${Number(x["履歴数"] || 0)}</td>
+           <td>${esc(x["最終結果"] || "-")}</td>
+         </tr>`).join("") + `</tbody></table></div>`;
+    } catch (e) { say("lsFindSt", "失敗：" + e.message, 8000); }
+  };
+  go.addEventListener("click", run);
+  inp.addEventListener("keydown", (e) => { if (e.key === "Enter") run(); });
 })();
 
 // リスト状況：各メンバーのリード数（リストの合計）を表で出す。名前タップでその人のリスト内訳を開く。

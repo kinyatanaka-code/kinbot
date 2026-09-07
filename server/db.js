@@ -8315,3 +8315,29 @@ export async function revertArchivedFromRevival({ dryRun = true, archiveStage = 
     return { 対象: rows.length, 戻した, dryRun: false };
   } catch (e) { console.error("[db] revertArchivedFromRevival", e.message); return { 対象: 0, 戻した: 0, error: e.message }; }
 }
+
+// 全メンバーのリストを横断して、会社名などでリードを探す（管理者だけが使う想定）。
+// 「どのリストの・誰の担当か」も返すので、誰が持っているかが分かる。
+export async function searchAllLeads(q, { limit = 300 } = {}) {
+  if (!pool) return [];
+  const kw = String(q || "").trim();
+  if (!kw) return [];
+  try {
+    const like = `%${kw.replace(/[%_]/g, "")}%`;
+    const { rows } = await pool.query(
+      `SELECT t.id, t.company, t.person, t.phone, t.email, t.stage, t.status,
+              t.assigned_to, t.done, t.next_call_at, t.lead_id, t.temperature,
+              l.id AS list_id, l.name AS list_name, l.owner AS list_owner, l.kind AS list_kind,
+              u.name AS owner_name,
+              (SELECT count(*) FROM call_logs cl WHERE cl.target_id = t.id) AS 履歴数,
+              (SELECT cl.result FROM call_logs cl WHERE cl.target_id = t.id ORDER BY cl.at DESC LIMIT 1) AS 最終結果,
+              (SELECT cl.at FROM call_logs cl WHERE cl.target_id = t.id ORDER BY cl.at DESC LIMIT 1) AS 最終日時
+         FROM call_targets t
+         JOIN call_lists l ON l.id = t.list_id
+         LEFT JOIN users u ON lower(u.email) = lower(coalesce(t.assigned_to, l.owner))
+        WHERE (t.company ILIKE $1 OR t.person ILIKE $1 OR t.phone ILIKE $1 OR t.email ILIKE $1)
+        ORDER BY t.company, t.id
+        LIMIT $2`, [like, Math.min(1000, Math.max(1, parseInt(limit, 10) || 300))]);
+    return rows;
+  } catch (e) { console.error("[db] searchAllLeads", e.message); return []; }
+}
