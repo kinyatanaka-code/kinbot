@@ -8500,3 +8500,18 @@ export async function setCallListHidden(listId, hidden) {
     return rows[0] || null;
   } catch (e) { console.error("[db] setCallListHidden", e.message); return null; }
 }
+
+// リードの「担当者名・メール・SFの紐づけ」を、空欄のときだけ埋める。
+export async function fillCallTargetContact(id, { person, email, leadId } = {}) {
+  if (!pool || !id) return null;
+  const sets = [], vals = []; let i = 1;
+  if (person) { sets.push(`person = COALESCE(NULLIF(btrim(person),''), $${i++})`); vals.push(String(person)); }
+  if (email) { sets.push(`email = COALESCE(NULLIF(btrim(email),''), $${i++})`); vals.push(String(email)); }
+  if (leadId) { sets.push(`lead_id = COALESCE(NULLIF(btrim(lead_id),''), $${i++})`); vals.push(String(leadId)); }
+  if (!sets.length) return null;
+  vals.push(id);
+  try {
+    const { rows } = await pool.query(`UPDATE call_targets SET ${sets.join(", ")} WHERE id = $${i} RETURNING id`, vals);
+    return rows[0] || null;
+  } catch (e) { console.error("[db] fillCallTargetContact", e.message); return null; }
+}

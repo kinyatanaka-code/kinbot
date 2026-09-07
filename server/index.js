@@ -331,6 +331,7 @@ import {
   listRecycleRules,
   listStageCountsByList,
   searchAllLeads,
+  fillCallTargetContact,
   apoSetterCoverage,
   nurtureCountsByMember,
   moveToNurtureLists,
@@ -551,6 +552,7 @@ import {
   listReports,
   runReport,
   reportFilters,
+  findLeadsByPhone,
   listDashboards,
   describeDashboard,
   exportLeads,
@@ -4464,6 +4466,38 @@ app.get("/api/calls/search-all", async (req, res) => {
     res.json({ items, count: items.length });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
+
+// 会社名・電話番号しかないリードに、Salesforceから 担当者名・メール・紐づけ(lead_id) を補う。
+// 空欄のときだけ入れる。GET=試算（触らない）、POST=実行。
+app.post("/api/calls/lists/:id/fill-from-sf", async (req, res) => {
+  try {
+    const listId = parseInt(req.params.id, 10);
+    if (!listId) return res.status(400).json({ error: "リストがわかりません" });
+    const dryRun = req.body?.dryRun === true;   // 試算のときはリードを触らない
+    const rows = await listCallTargets(listId, { limit: 3000 }).catch(() => []);
+    // 電話があって、名前かメールか紐づけのどれかが空のものだけ見る
+    const 対象 = rows.filter((r) => String(r.phone || "").replace(/[^\d]/g, "").length >= 9 &&
+      (!r.person || !r.email || !r.lead_id));
+    let 入った = 0, 候補が複数 = 0, 見つからない = 0;
+    const 例 = [];
+    for (const t of 対象) {
+      const hits = await findLeadsByPhone(req.user, { phone: t.phone, company: t.company }).catch(() => []);
+      if (!hits.length) { 見つからない++; continue; }
+      if (hits.length > 1) { 候補が複数++; continue; }   // 迷うものは自動で入れない
+      const L = hits[0];
+      const patch = {};
+      if (!t.person && (L.Name || L.LastName)) patch.person = L.Name || L.LastName;
+      if (!t.email && L.Email) patch.email = L.Email;
+      if (!t.lead_id && L.Id) patch.leadId = L.Id;
+      if (!Object.keys(patch).length) continue;
+      入った++;
+      if (例.length < 5) 例.push({ 会社: t.company, 電話: t.phone, 入れる: patch });
+      if (!dryRun) await fillCallTargetContact(t.id, patch).catch(() => {});
+    }
+    res.json({ ok: true, dryRun, 対象: 対象.length, 入った, 候補が複数, 見つからない, 例 });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 
 // ナーチャリング（育っている見込み）：メンバーごとの件数。
 app.get("/api/calls/nurture", async (req, res) => {
@@ -18732,7 +18766,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-08a 絞り込みに足す項目を、レポートの列だけでなくSalesforceの全項目から探せるように（「キャンペーン」等で検索→候補に反映）。主キャンペーンソースがレポートの列に無くても指定できる。GET /api/salesforce/fields?q= を追加。前回(20260907ab)：条件を足す。";
+const BUILD_TAG = "2026-09-08b 会社名と電話番号しかないリードに、Salesforceから担当者名・メール・紐づけ(lead_id)を補う機能。リスト管理の各リストの『SFから補う』ボタンで、まず件数を出して確認してから実行。空欄のときだけ入れ、候補が複数のものは自動で入れない。前回(20260908a)：項目検索。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",

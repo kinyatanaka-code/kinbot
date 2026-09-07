@@ -4036,9 +4036,32 @@ async function asLoadMember(email, name) {
             <select class="kc-grp-sel" data-list="${x.id}"><option value="">グループなし</option>${
               GROUPS.map((g) => `<option value="${g.id}"${String(x.group_id || "") === String(g.id) ? " selected" : ""}>${esc(g.name)}</option>`).join("")}</select>
             ${canHideList ? `<button type="button" class="kc-list-hide" data-hide="${x.id}" data-now="${x.hidden ? 1 : 0}">${x.hidden ? "表示にする" : "非表示にする"}</button>` : ""}
+            <button type="button" class="kc-list-hide" data-sffill="${x.id}" title="会社名と電話番号から、Salesforceの担当者名・メール・紐づけを補います（空欄のときだけ）">SFから補う</button>
           </div>
         </div>`).join("") + '</div>';
-      box.querySelectorAll(".kc-list-hide").forEach((b) => b.addEventListener("click", async (ev) => {
+      box.querySelectorAll("[data-sffill]").forEach((b) => b.addEventListener("click", async (ev) => {
+        ev.stopPropagation();
+        const id = b.dataset.sffill;
+        const call = async (dryRun) => (await (await fetch(`/api/calls/lists/${id}/fill-from-sf`, {
+          method: "POST", headers: { "content-type": "application/json" },
+          body: JSON.stringify({ dryRun }),
+        })).json());
+        b.disabled = true; const bo = b.textContent; b.textContent = "調べています…";
+        try {
+          const d = await call(true);
+          if (d.error) throw new Error(d.error);
+          const msg = `電話から探しました。\n\n入れられる：${d.入った}件\n候補が複数（自動では入れません）：${d.候補が複数}件\n見つからない：${d.見つからない}件\n\n入れてよろしいですか？`;
+          if (!d.入った) { alert(msg.replace("入れてよろしいですか？", "入れられるものはありませんでした。")); return; }
+          if (!confirm(msg)) return;
+          b.textContent = "入れています…";
+          const r = await call(false);
+          if (r.error) throw new Error(r.error);
+          alert(`${r.入った}件に、名前・メール・紐づけを入れました。`);
+          asLoadMember(email, name);
+        } catch (e) { alert("できませんでした：" + e.message); }
+        finally { b.disabled = false; b.textContent = bo; }
+      }));
+      box.querySelectorAll("[data-hide]").forEach((b) => b.addEventListener("click", async (ev) => {
         ev.stopPropagation();
         const to = b.dataset.now === "1" ? false : true;
         if (to && !confirm("このリストを非表示にします。かける画面やリスト管理から見えなくなります（中身は消えません）。よろしいですか？")) return;

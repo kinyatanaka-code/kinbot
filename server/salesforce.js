@@ -1603,3 +1603,31 @@ export async function isFreshlyCreated(owner, sobject, id, withinSec = 300) {
     return Date.now() - new Date(rec.CreatedDate).getTime() < withinSec * 1000;
   } catch { return false; }
 }
+
+// 電話番号でリードを探す（数字だけにして、末尾の並びで照合する）。
+// 会社名も渡せば、同じ番号が複数あるときの絞り込みに使う。
+export async function findLeadsByPhone(owner, { phone = "", company = "", limit = 5 } = {}) {
+  const digits = String(phone || "").replace(/[^\d]/g, "");
+  if (digits.length < 9) return [];
+  // ハイフンあり/なし どちらの入り方でも当たるよう、後ろ9桁で LIKE する
+  const tail = digits.slice(-9);
+  const like = `%${tail.split("").join("%")}%`;   // 数字の間に何が入っていても当たる形
+  const esc = (v) => String(v || "").replace(/'/g, "\\'");
+  const conds = [`(Phone LIKE '${esc(like)}' OR MobilePhone LIKE '${esc(like)}')`, `IsConverted = false`];
+  const soql =
+    `SELECT Id, Name, LastName, FirstName, Company, Title, Email, Phone, MobilePhone, Status, Owner.Name ` +
+    `FROM Lead WHERE ${conds.join(" AND ")} ORDER BY CreatedDate DESC LIMIT ${Math.min(20, Number(limit) || 5)}`;
+  try {
+    const d = await sfQuery(owner, soql);
+    let rows = d.records || [];
+    // 会社名も一致するものがあれば、それを優先する
+    if (company && rows.length > 1) {
+      const norm = (x) => String(x || "").replace(/[\s　]/g, "")
+        .replace(/(株式会社|（株）|\(株\)|㈱|有限会社|合同会社|一般社団法人|社会福祉法人|学校法人)/g, "").toLowerCase();
+      const c = norm(company);
+      const same = rows.filter((r) => norm(r.Company) === c);
+      if (same.length) rows = same;
+    }
+    return rows;
+  } catch (e) { console.warn("[SF] findLeadsByPhone", e.message); return []; }
+}
