@@ -997,7 +997,8 @@ function renderDock() {
     .kc-ptab.active{background:#1d9e75;color:#fff;}
     .kc-ptab:not(.active):hover{background:#eaf5ef;color:#0d5b47;}
     .lst-sum{font-size:13px;color:#0d5b47;font-weight:700;margin:2px 0 10px;}
-    .kc-nur-sum{font-size:13px;color:#0d5b47;font-weight:700;margin:2px 0 8px;}
+    .kc-nur-line{margin-top:8px;padding-top:8px;border-top:1px solid #eef3f0;font-size:12px;color:#5a6b64;text-align:center;}
+    .kc-nur-line b{font-size:15px;color:#0d5b47;font-weight:800;}
     .kc-nur-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(120px,1fr));gap:10px;}
     .kc-nur-card{background:#fff;border:1px solid #eef3f0;border-radius:12px;padding:10px 12px;text-align:center;}
     .kc-nur-name{font-size:12px;color:#5a6b64;font-weight:700;margin-bottom:2px;}
@@ -1981,6 +1982,7 @@ document.querySelectorAll("#dashPeriodTabs .kc-ptab").forEach((b) => b.addEventL
 }));
 // 週次の月選択
 if ($("dashWeekMonth")) $("dashWeekMonth").addEventListener("change", (e) => { dashWeekMonth = e.target.value; loadDash(); });
+let _nurtureByName = null;   // 名前 → ナーチャリング件数
 function dashCard(c, big) {
   const diff = c.diff;
   const dcls = diff > 0 ? "kc-d-plus" : diff < 0 ? "kc-d-minus" : "kc-d-zero";
@@ -2021,6 +2023,10 @@ function dashCard(c, big) {
          ${lateLine}
          <div class="kc-inc-more">押すと実施済みの商談を見る</div>
        </div>` : "";
+  // ナーチャリング（育っている見込み）の件数。個人カードにだけ出す。
+  const nurN = (!big && _nurtureByName) ? Number(_nurtureByName[String(c.label || "").trim()] || 0) : null;
+  const nurLine = (nurN !== null && dashPeriod !== "week")
+    ? `<div class="kc-nur-line" title="ジャッジ・営業フォローのリード数">ナーチャリング <b>${nurN.toLocaleString()}</b> 件</div>` : "";
   return `<div class="kc-dcard${big ? " kc-dcard-big" : ""}${rankCls}" data-subj="${esc(c.key)}" data-label="${esc(c.label)}" data-periodkey="${esc(c.periodKey || "")}">
     <div class="kc-dname">${esc(c.label)}</div>
     ${dashPeriod === "week" ? "" : inc}
@@ -2029,29 +2035,18 @@ function dashCard(c, big) {
       <div class="kc-dcol"><div class="kc-dlb">実績</div><div class="kc-d-act">${c.actual}</div></div>
       <div class="kc-dcol"><div class="kc-dlb">差分</div><div class="kc-d-diff ${dcls}">${dtxt}</div></div>
     </div>
+    ${nurLine}
   </div>`;
 }
-// ナーチャリング（ジャッジ・営業フォロー）の、メンバーごとの件数
-async function loadNurture() {
-  const box = $("kcNurture");
-  if (!box) return;
+// ナーチャリング（ジャッジ・営業フォロー）の件数を読み、メンバーカードに出す
+async function loadNurture(redraw) {
   try {
     const d = await (await fetch("/api/calls/nurture")).json();
     if (d.error) throw new Error(d.error);
-    const items = d.items || [];
-    if (!items.length) { box.innerHTML = '<div class="note">まだありません。</div>'; return; }
-    const total = items.reduce((s, x) => s + Number(x.件数 || 0), 0);
-    box.innerHTML =
-      `<div class="kc-nur-sum">みんなの合計 <b>${total.toLocaleString()}</b> 件</div>` +
-      `<div class="kc-nur-grid">` +
-      items.map((x) => `<div class="kc-nur-card">
-        <div class="kc-nur-name">${esc(x.name)}</div>
-        <div class="kc-nur-n">${Number(x.件数 || 0).toLocaleString()}</div>
-        <div class="kc-nur-lb">件</div>
-      </div>`).join("") + `</div>`;
-  } catch (e) {
-    box.innerHTML = `<div class="note">読み込めませんでした：${esc(e.message)}</div>`;
-  }
+    _nurtureByName = {};
+    for (const x of (d.items || [])) _nurtureByName[String(x.name || "").trim()] = Number(x.件数 || 0);
+    if (typeof redraw === "function") redraw();
+  } catch { _nurtureByName = _nurtureByName || {}; }
 }
 
 function renderDash(d) {
@@ -2075,9 +2070,9 @@ function renderDash(d) {
       `<div class="kc-dgrid kc-dteams">${teams}</div>` +
       (sales ? `<div class="kc-dsub">セールス</div><div class="kc-dgrid">${sales}</div>` : "") +
       (inside ? `<div class="kc-dsub">インサイド</div><div class="kc-dgrid">${inside}</div>` : "") +
-      note + assign +
-      `<div class="kc-dsub">ナーチャリング（育っている見込み）</div><div id="kcNurture"><div class="note">読み込んでいます…</div></div>`;
-    loadNurture();
+      note + assign;
+    // ナーチャリング件数は、読めたらカードに出す（まだ読んでいなければ読んでから描き直す）
+    if (!_nurtureByName) loadNurture(() => renderDash(d));
   }
   // 目標の直接編集。入力欄クリックはカードの内訳を開かないように。
   box.querySelectorAll(".kc-dgoal").forEach((inp) => {
