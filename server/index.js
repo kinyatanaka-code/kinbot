@@ -9682,7 +9682,7 @@ function isApoCountableTitle(title) {
   return /【[^】]*初回[^】]*】/.test(t) || /【\s*新\s*[\/／]\s*ヒ\s*】/.test(t);
 }
 
-async function computeStatsGrid(periodIn, spanIn) {
+async function computeStatsGrid(periodIn, spanIn, opts = {}) {
     const period = ["day", "week", "month"].includes(String(periodIn)) ? String(periodIn) : "day";
     const 本数 = Math.min(26, Math.max(2, parseInt(spanIn, 10) || (period === "day" ? 7 : period === "week" ? 8 : 6)));
     const pad = (n) => String(n).padStart(2, "0");
@@ -9690,8 +9690,11 @@ async function computeStatsGrid(periodIn, spanIn) {
     const nowJ = new Date(Date.now() + 9 * 3600 * 1000);
     const y = nowJ.getUTCFullYear(), m = nowJ.getUTCMonth(), d0 = nowJ.getUTCDate();
 
-    const 区切り = [];
-    if (period === "day") {
+    // 区切りを外から渡せる（週次ダッシュボードの平日ラップなど、独自の期間で集計したいとき）
+    const 区切り = Array.isArray(opts.区切り) && opts.区切り.length ? opts.区切り.slice() : [];
+    if (区切り.length) {
+      // 外から区切りをもらったときは、そのまま使う
+    } else if (period === "day") {
       // 今週の月〜金だけを出す（土日は集計から除外）。
       const off = (nowJ.getUTCDay() + 6) % 7;   // 月曜からの経過日数
       for (let k = 0; k < 5; k++) {
@@ -9700,7 +9703,7 @@ async function computeStatsGrid(periodIn, spanIn) {
         区切り.push({ key: ymd(d), 名前: `${d.getUTCMonth() + 1}/${d.getUTCDate()}`, 曜日: "日月火水木金土"[w], from: ymd(d), to: ymd(d) });
       }
     }
-    for (let i = 本数 - 1; i >= 0; i--) {
+    for (let i = 本数 - 1; i >= 0 && !opts.区切り; i--) {
       if (period === "day") continue;
       else if (period === "week") {
         const off = (nowJ.getUTCDay() + 6) % 7;
@@ -10079,21 +10082,6 @@ app.get("/api/calls/apo-dashboard", async (req, res) => {
       const upto = nowJw.getTime() < monthEnd.getTime() ? nowJw : monthEnd;
       // 実績は「週グリッド（月曜起点・過去に遡れる）」から取り、各ラップの期間に重なるぶんを足す。
       // 日次グリッドは今週の月〜金しか返さないため、過去の週が0になってしまう。
-      const weeksNeeded = Math.ceil((upto.getTime() - monthStart.getTime()) / (7 * 86400000)) + 2;
-      const gd = await computeStatsGrid("week", Math.max(2, Math.min(26, weeksNeeded)));
-      const memRolesD = (gd.members || [])
-        .filter((m2) => !nameHas(m2.誰, excludeNames))
-        .map((m2) => ({ m: m2, role: nameHas(m2.誰, salesNames) ? "sales" : m2.role }));
-      // 週グリッドの各区切り（週）のうち、ラップ期間に重なるものを合計する
-      const actRange = (fromYmd, toYmd, r) => {
-        let s = 0;
-        (gd.区切り || []).forEach((b, j) => {
-          if (b.to < fromYmd || b.from > toYmd) return;   // 期間が重ならない
-          s += memRolesD.filter((x) => r === "all" || x.role === r)
-            .reduce((a, x) => a + ((x.m.値 && x.m.値[j]) ? (Number(x.m.値[j].アポ内 || 0) + Number(x.m.値[j].アポ外 || 0)) : 0), 0);
-        });
-        return s;
-      };
       // 平日（月〜金）だけで週を区切る。土日は週に含めない。月をまたぐ週は月内で締める。
       // 例）9月：9/1〜9/4、9/7〜9/11、9/14〜9/18、9/21〜9/25、9/28〜9/30
       const laps = [];
@@ -10118,16 +10106,34 @@ app.get("/api/calls/apo-dashboard", async (req, res) => {
           }
         }
       }
+      // 実績は「平日ラップそのもの」を区切りにして集計する（月をまたがない・9/1から正しく数える）
+      const gd = await computeStatsGrid("day", 2, {
+        区切り: laps.map((l) => ({ key: ymd(l.from), 名前: `${l.from.getUTCMonth() + 1}/${l.from.getUTCDate()}`, from: ymd(l.from), to: ymd(l.to) })),
+      });
+      const memRolesD = (gd.members || [])
+        .filter((m2) => !nameHas(m2.誰, excludeNames))
+        .map((m2) => ({ m: m2, role: nameHas(m2.誰, salesNames) ? "sales" : m2.role }));
+      const actIdx = (j, r) => memRolesD.filter((x) => r === "all" || x.role === r)
+        .reduce((a, x) => a + ((x.m.値 && x.m.値[j]) ? (Number(x.m.値[j].アポ内 || 0) + Number(x.m.値[j].アポ外 || 0)) : 0), 0);
       const wg = await getApoGoalsByKeys("week", laps.map((l) => ymd(l.from))).catch(() => ({}));
-      const wGoal = (subj, wk) => Number((((wg[subj] || {})[wk] || {})["アポ"]) || 0);
+      // 週の区切りを変えたので、前の区切り（9/1起点の7日ごと）で保存した目標も拾えるようにする
+      const oldKeys = [];
+      { let d2 = new Date(monthStart); while (d2.getTime() <= monthEnd.getTime()) { oldKeys.push(ymd(d2)); d2 = new Date(d2.getTime() + 7 * 86400000); } }
+      const wgOld = await getApoGoalsByKeys("week", oldKeys).catch(() => ({}));
+      const wGoal = (subj, wk, li) => {
+        const v = Number((((wg[subj] || {})[wk] || {})["アポ"]) || 0);
+        if (v) return v;
+        const ok = oldKeys[li];   // 同じ順番の旧キーから引き継ぐ
+        return ok ? Number((((wgOld[subj] || {})[ok] || {})["アポ"]) || 0) : 0;
+      };
       const cumAct = { group: 0, sales: 0, inside: 0 };
-      weeks = laps.map((l) => {
+      weeks = laps.map((l, li) => {
         const key = ymd(l.from);
-        const rangeSum = (r) => actRange(ymd(l.from), ymd(l.to), r);
+        const rangeSum = (r) => actIdx(li, r);
         const wAct = { group: rangeSum("all"), sales: rangeSum("sales"), inside: rangeSum("inside") };
         cumAct.group += wAct.group; cumAct.sales += wAct.sales; cumAct.inside += wAct.inside;
         // 差分＝その週までの積み上げ実績−その週に入れた目標（カード表示の 実績−目標 と一致させる）
-        const mk = (subj, label, ca) => { const g = wGoal(subj, key); return { key: subj, label, role: "team", actual: ca, goal: g, diff: ca - g, periodKey: key }; };
+        const mk = (subj, label, ca) => { const g = wGoal(subj, key, li); return { key: subj, label, role: "team", actual: ca, goal: g, diff: ca - g, periodKey: key }; };
         return {
           key, label: `${l.from.getUTCMonth() + 1}/${l.from.getUTCDate()}〜${l.to.getUTCMonth() + 1}/${l.to.getUTCDate()}`,
           from: ymd(l.from), to: ymd(l.to),
@@ -18623,7 +18629,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-07m 週次の実績が0になる不具合を修正。原因：日次グリッドは『今週の月〜金の5日』しか返さない作りで、過去の週の実績を引けていなかった。週グリッド（月曜起点・過去に遡れる）から各週ラップに重なるぶんを合計する方式に変更。前回(20260907l)：平日区切り。";
+const BUILD_TAG = "2026-09-07n 週次を平日ラップそのもので集計するよう修正（前週の8/31〜9/6まで数えて実績が膨らむ問題を解消＝9/1から正しく数える）。あわせて週の区切り変更で消えた目標を、以前の7日区切りキーから同じ順番で引き継いで表示。前回(20260907m)：週グリッド集計。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
