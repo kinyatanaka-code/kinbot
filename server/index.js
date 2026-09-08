@@ -338,6 +338,7 @@ import {
   nurtureDiag,
   moveToNurtureLists,
   revertFromNurture,
+  revertWrongNurture,
   updateRecycleRule,
   setDocShared,
   setDocStanding,
@@ -4524,6 +4525,21 @@ app.post("/api/calls/nurture-move", async (req, res) => {
     if (!req.isAdmin && !(await isCloserUser(req.user))) return res.status(403).json({ error: "クローザー・管理者だけが実行できます" });
     const r = await moveToNurtureLists({ dryRun: false, createdBy: req.user });
     console.log(`[kincall] ナーチャリングへ移動：${r.移動}件（対象${r.対象}）by ${req.user}`);
+    res.json({ ok: true, ...r });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// ナーチャリングに入っているが、ジャッジ・営業フォローでないものを元のリストへ戻す。
+// GET=試算（何が戻るか）、POST=実行。
+app.get("/api/calls/nurture-fix", async (req, res) => {
+  try { res.json(await revertWrongNurture({ dryRun: true })); }
+  catch (e) { res.status(500).json({ error: e.message }); }
+});
+app.post("/api/calls/nurture-fix", async (req, res) => {
+  try {
+    if (!req.isAdmin && !(await isCloserUser(req.user))) return res.status(403).json({ error: "クローザー・管理者だけが実行できます" });
+    const r = await revertWrongNurture({ dryRun: false });
+    console.log(`[kincall] ナーチャリングの入れ違いを戻す：${r.戻した}件 by ${req.user}`);
     res.json({ ok: true, ...r });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
@@ -18776,7 +18792,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-08j ナーチャリング件数は【ナーチャリング】◯◯ のリストに入っている件数をそのまま数え、リスト名の◯◯でカードに載せる方式に単純化（メールでの名前解決をやめた）。前回(2026-09-08i)：名前解決の修正。";
+const BUILD_TAG = "2026-09-08k ナーチャリングに紛れ込んだリード（ジャッジでも営業フォローでもない＝架電予定があるだけで移ってしまったもの）を、元のリストへ戻す機能を追加。設定・管理の『まちがって入ったものを戻す』で、一覧を見てから実行。前回(2026-09-08j)：リスト名で件数表示。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",

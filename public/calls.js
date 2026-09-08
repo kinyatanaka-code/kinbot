@@ -2486,6 +2486,7 @@ async function loadAdmin() {
                 <button type="button" class="btn ghost" id="nmDry">件数を見る</button>
                 <button type="button" class="btn ghost" id="nmRun">まとめる（実行）</button>
                 <button type="button" class="btn ghost" id="nmBack">元のリストへ戻す</button>
+                <button type="button" class="btn ghost" id="nmFix">まちがって入ったものを戻す</button>
                 <span class="rev-status" id="nmSt"></span>
               </div>
               <div style="display:flex;gap:8px;align-items:center;margin-top:10px;flex-wrap:wrap">
@@ -2841,6 +2842,51 @@ async function loadRecycleRules() {
         say("nmSt", `まとめました：${d.移動 || 0}件`, 15000);
       } catch (e) { say("nmSt", "失敗：" + e.message, 8000); }
       finally { nmRun.disabled = false; }
+    });
+  }
+  const nmFix = $("nmFix");
+  if (nmFix && !nmFix.dataset.wired) {
+    nmFix.dataset.wired = "1";
+    nmFix.addEventListener("click", async () => {
+      say("nmSt", "調べています…");
+      try {
+        const d = await (await fetch("/api/calls/nurture-fix")).json();
+        if (d.error) throw new Error(d.error);
+        const rows = d.例 || [];
+        const inner =
+          `<p class="note" style="margin:0 0 8px">ナーチャリングに入っていますが、ジャッジでも営業フォローでもないものです。
+             <b>${d.対象}</b>件。元のリストへ戻します（元が分からないものはそのままです）。</p>` +
+          (rows.length
+            ? `<div class="lst-wrap" style="max-height:50vh;overflow:auto"><table class="lst-tbl"><thead><tr>
+                 <th>会社名</th><th>ステージ</th><th>最終ステータス</th><th>戻し先</th>
+               </tr></thead><tbody>` +
+              rows.map((x) => `<tr>
+                 <td class="lst-name">${esc(x.会社 || "")}</td>
+                 <td>${esc(x.ステージ || "")}</td>
+                 <td>${esc(x.ステータス || "")}</td>
+                 <td>${esc(x.戻し先 || "")}</td>
+               </tr>`).join("") + `</tbody></table></div>`
+            : '<div class="empty-state">戻すものはありません。</div>') +
+          `<div class="kc-modal-foot" style="margin-top:10px">
+             ${rows.length ? '<button type="button" class="btn" id="nfGo">元のリストへ戻す</button>' : ""}
+             <button type="button" class="btn ghost" id="nfNo">閉じる</button>
+             <span class="rev-status" id="nfSt"></span>
+           </div>`;
+        const m = openModal("ナーチャリングの入れ違いを直す", inner);
+        m.el.querySelector("#nfNo").addEventListener("click", () => m.close());
+        const go = m.el.querySelector("#nfGo");
+        if (go) go.addEventListener("click", async () => {
+          go.disabled = true;
+          const st = m.el.querySelector("#nfSt"); if (st) st.textContent = "戻しています…";
+          try {
+            const r = await (await fetch("/api/calls/nurture-fix", { method: "POST" })).json();
+            if (r.error) throw new Error(r.error);
+            if (st) st.textContent = `${r.戻した}件を戻しました`;
+            setTimeout(() => m.close(), 1200);
+          } catch (e) { if (st) st.textContent = "失敗：" + e.message; go.disabled = false; }
+        });
+        say("nmSt", "", 1);
+      } catch (e) { say("nmSt", "失敗：" + e.message, 8000); }
     });
   }
   const nmBack = $("nmBack");

@@ -8587,3 +8587,37 @@ export async function nurtureCountsByListName() {
     return out;
   } catch (e) { console.error("[db] nurtureCountsByListName", e.message); return {}; }
 }
+
+// ナーチャリングリストに入っているが、条件（ジャッジ・営業フォロー）に合わないものを元へ戻す。
+// 「架電予定があるだけ」で移ってしまったリードを片付けるためのもの。
+export async function revertWrongNurture({ dryRun = true } = {}) {
+  if (!pool) return { 対象: 0, 戻した: 0, 例: [] };
+  try {
+    const 合う = `( COALESCE(t.stage,'') ILIKE '%ジャッジ%'
+                   OR COALESCE(t.status,'') ILIKE '%営業フォロー%'
+                   OR COALESCE(t.stage,'')  ILIKE '%営業フォロー%' )`;
+    const { rows } = await pool.query(
+      `SELECT t.id, t.company, t.stage, t.status, t.nurture_from_id, t.nurture_from_name
+         FROM call_targets t JOIN call_lists l ON l.id = t.list_id
+        WHERE (COALESCE(l.kind,'') = 'nurture' OR l.name LIKE '【ナーチャリング】%')
+          AND NOT ${合う}
+        ORDER BY t.id`);
+    const 例 = rows.slice(0, 300).map((r) => ({
+      会社: r.company, ステージ: r.stage || "", ステータス: r.status || "", 戻し先: r.nurture_from_name || "(元のリスト不明)",
+    }));
+    if (dryRun || !rows.length) return { 対象: rows.length, 戻した: 0, 例, dryRun: true };
+    let 戻した = 0;
+    for (const r of rows) {
+      if (!r.nurture_from_id) continue;   // 元が分からないものは動かさない
+      try {
+        const { rows: ex } = await pool.query(`SELECT id FROM call_lists WHERE id=$1`, [r.nurture_from_id]);
+        if (!ex[0]) continue;
+        await pool.query(
+          `UPDATE call_targets SET list_id=$2, nurture_from_id=NULL, nurture_from_name=NULL WHERE id=$1`,
+          [r.id, r.nurture_from_id]);
+        戻した++;
+      } catch (e) { console.error("[db] revertWrongNurture 1件", r.id, e.message); }
+    }
+    return { 対象: rows.length, 戻した, 例, dryRun: false };
+  } catch (e) { console.error("[db] revertWrongNurture", e.message); return { 対象: 0, 戻した: 0, 例: [], error: e.message }; }
+}
