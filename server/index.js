@@ -334,6 +334,7 @@ import {
   fillCallTargetContact,
   apoSetterCoverage,
   nurtureCountsByMember,
+  nurtureCountsByListName,
   nurtureDiag,
   moveToNurtureLists,
   revertFromNurture,
@@ -4508,8 +4509,10 @@ app.get("/api/calls/_nurturediag", async (req, res) => {
 
 // ナーチャリング（育っている見込み）：メンバーごとの件数。
 app.get("/api/calls/nurture", async (req, res) => {
-  try { res.json({ items: await nurtureCountsByMember() }); }
-  catch (e) { res.status(500).json({ error: e.message }); }
+  try {
+    // 【ナーチャリング】◯◯ のリストに入っている件数を、名前ごとにそのまま返す
+    res.json({ 名前ごと: await nurtureCountsByListName(), items: await nurtureCountsByMember() });
+  } catch (e) { res.status(500).json({ error: e.message }); }
 });
 // 対象リードを、担当ごとの「【ナーチャリング】◯◯」リストへ移す。GET=試算、POST=実行。
 app.get("/api/calls/nurture-move", async (req, res) => {
@@ -18773,7 +18776,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-08i ナーチャリングがカードに出ない件を修正：担当者名が名簿から引けないとき、ナーチャリングリストの名前（【ナーチャリング】◯◯）から名前を取ってカードと結ぶ。診断で、リストも件数（例：加藤宋宙67件）も正しく作られていて、名前の結び付けだけが失敗していたことを確認。前回(2026-09-08h)：リスト名でも判定。";
+const BUILD_TAG = "2026-09-08j ナーチャリング件数は【ナーチャリング】◯◯ のリストに入っている件数をそのまま数え、リスト名の◯◯でカードに載せる方式に単純化（メールでの名前解決をやめた）。前回(2026-09-08i)：名前解決の修正。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",

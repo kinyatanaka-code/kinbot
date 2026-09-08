@@ -8568,3 +8568,22 @@ export async function nurtureDiag() {
     };
   } catch (e) { return { error: e.message }; }
 }
+
+// 【ナーチャリング】◯◯ のリストに入っている件数を、名前ごとに返すだけ。
+export async function nurtureCountsByListName() {
+  if (!pool) return [];
+  try {
+    const { rows } = await pool.query(
+      `SELECT l.name, count(t.id)::int AS 件数
+         FROM call_lists l LEFT JOIN call_targets t ON t.list_id = l.id
+        WHERE l.name LIKE '【ナーチャリング】%' OR COALESCE(l.kind,'') = 'nurture'
+        GROUP BY l.name`);
+    const out = {};
+    for (const r of rows) {
+      const nm = String(r.name || "").replace(/^【ナーチャリング】\s*/, "").trim();
+      if (!nm) continue;
+      out[nm] = (out[nm] || 0) + Number(r.件数 || 0);
+    }
+    return out;
+  } catch (e) { console.error("[db] nurtureCountsByListName", e.message); return {}; }
+}
