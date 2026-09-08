@@ -425,6 +425,21 @@ async function reloadMeetings() {
   } catch {}
 }
 
+// いま選んでいる営業担当・商談日で、文字起こしをCSVに落とす
+function downloadTranscriptCsv() {
+  const owner = (document.getElementById("fOwner") || {}).value || "";
+  const from = (document.getElementById("fDateFrom") || {}).value || "";
+  const to = (document.getElementById("fDateTo") || {}).value || "";
+  if (!from && !to && !owner) {
+    if (!confirm("期間も担当者も選ばれていません。全部の商談が対象になります（最大2000件）。続けますか？")) return;
+  }
+  const q = new URLSearchParams();
+  if (from) q.set("from", from);
+  if (to) q.set("to", to);
+  if (owner) q.set("owner", owner);
+  location.href = "/api/meetings/transcripts.csv?" + q.toString();
+}
+
 async function bulkSendNotion() {
   const btn = document.getElementById("bulkNotionBtn");
   const stat = document.getElementById("bulkNotionStatus");
@@ -1020,6 +1035,8 @@ async function loadList() {
       fOwner.appendChild(o);
     }
     fOwner.addEventListener("change", () => { selectedAccount = null; renderList(); });
+    const dlBtn = document.getElementById("dlTranscriptBtn");
+    if (dlBtn) dlBtn.addEventListener("click", downloadTranscriptCsv);
     const bulkBtn = document.getElementById("bulkNotionBtn");
     if (bulkBtn && !bulkBtn._wired) { bulkBtn._wired = true; bulkBtn.addEventListener("click", bulkSendNotion); }
     try {

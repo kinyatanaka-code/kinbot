@@ -8621,3 +8621,22 @@ export async function revertWrongNurture({ dryRun = true } = {}) {
     return { 対象: rows.length, 戻した, 例, dryRun: false };
   } catch (e) { console.error("[db] revertWrongNurture", e.message); return { 対象: 0, 戻した: 0, 例: [], error: e.message }; }
 }
+
+// 期間と担当者をしぼって、文字起こしの全文をまとめて取り出す（CSVで落とすため）。
+export async function listTranscriptsForCsv({ from, to, owner = "", limit = 500 } = {}) {
+  if (!pool) return [];
+  const conds = [`jsonb_typeof(m.transcript)='array' AND jsonb_array_length(m.transcript) > 0`];
+  const vals = [];
+  if (from) { vals.push(from); conds.push(`(m.created_at AT TIME ZONE 'Asia/Tokyo')::date >= $${vals.length}::date`); }
+  if (to) { vals.push(to); conds.push(`(m.created_at AT TIME ZONE 'Asia/Tokyo')::date <= $${vals.length}::date`); }
+  if (owner) { vals.push(String(owner).toLowerCase()); conds.push(`lower(m.owner) = $${vals.length}`); }
+  try {
+    const { rows } = await pool.query(
+      `SELECT m.bot_id, m.title, m.created_at, m.owner, u.name AS owner_name, m.apo_setter, m.transcript
+         FROM meetings m LEFT JOIN users u ON u.email = m.owner
+        WHERE ${conds.join(" AND ")}
+        ORDER BY m.created_at
+        LIMIT ${Math.max(1, Math.min(2000, Number(limit) || 500))}`, vals);
+    return rows;
+  } catch (e) { console.error("[db] listTranscriptsForCsv", e.message); return []; }
+}

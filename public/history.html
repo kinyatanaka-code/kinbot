@@ -10,7 +10,7 @@
     <link rel="manifest" href="/site.webmanifest" />
     <meta name="theme-color" content="#0d5b47" />
     <meta name="apple-mobile-web-app-title" content="kinbot" />
-    <link rel="stylesheet" href="style.css?v=20260908l" />
+    <link rel="stylesheet" href="style.css?v=20260908m" />
   </head>
   <body>
     <div class="app">
@@ -46,6 +46,7 @@
           <button class="btn ghost hsearch-clear" id="fClear" type="button">クリア</button>
           <div class="hfilter-actions">
             <button class="btn ghost" id="importRecBtn" title="録音はできているのに履歴に出ていない商談を、Recallの録音から取り込みます（直近2日ぶん）">録音から取り込む</button>
+            <button class="btn ghost" id="dlTranscriptBtn" title="いま選んでいる営業担当・商談日で、文字起こしをCSVに落とします（1行＝1発言）">文字起こしをCSVで落とす</button>
             <button class="btn" id="bulkNotionBtn">絞り込みをNotionに一括送信</button>
             <span class="bulk-status" id="bulkNotionStatus"></span>
           </div>
@@ -60,10 +61,10 @@
       </div>
     </div>
     <script src="https://cdn.jsdelivr.net/npm/hls.js@1"></script>
-    <script src="product.js?v=20260908l"></script>
-    <script src="temperature.js?v=20260908l"></script>
-    <script src="history.js?v=20260908l"></script>
-      <script src="nav.js?v=20260908l"></script>
+    <script src="product.js?v=20260908m"></script>
+    <script src="temperature.js?v=20260908m"></script>
+    <script src="history.js?v=20260908m"></script>
+      <script src="nav.js?v=20260908m"></script>
     <script src="/cmdk.js?v=20260827a"></script>
 </body>
 </html>

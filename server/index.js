@@ -333,6 +333,7 @@ import {
   searchAllLeads,
   fillCallTargetContact,
   apoSetterCoverage,
+  listTranscriptsForCsv,
   nurtureCountsByMember,
   nurtureCountsByListName,
   nurtureDiag,
@@ -8529,6 +8530,44 @@ app.post("/api/calls/targets/:id/edit", async (req, res) => {
 // 計上対象か（初回タイトルか）・獲得者/setter の解決結果・期内/期外 を返す。原因調査用。
 // アポ獲得者がどれだけ埋まっているかを見る（自動照合が効いているかの確認）。
 // 例：/api/calls/_setterdiag?from=2026-09-01&to=2026-09-07
+// 商談の文字起こしを、期間と担当者でしぼってCSVで落とす。
+// 例：/api/meetings/transcripts.csv?from=2026-09-01&to=2026-09-08&owner=xxx@neo-career.co.jp
+// 1行＝1発言（商談名・日時・担当・獲得者・話し手・発言）。
+app.get("/api/meetings/transcripts.csv", async (req, res) => {
+  try {
+    const from = String(req.query.from || "").trim();
+    const to = String(req.query.to || "").trim();
+    const owner = String(req.query.owner || "").trim();
+    // 自分のぶん以外は、管理者かクローザーだけ
+    if (owner && owner.toLowerCase() !== String(req.user || "").toLowerCase()) {
+      if (!req.isAdmin && !(await isCloserUser(req.user))) {
+        return res.status(403).json({ error: "他の人のぶんは、クローザー・管理者だけが落とせます" });
+      }
+    }
+    const rows = await listTranscriptsForCsv({ from, to, owner, limit: 2000 });
+    const q = (v) => `"${String(v == null ? "" : v).replace(/"/g, '""')}"`;
+    const jst = (d) => {
+      const x = new Date(new Date(d).getTime() + 9 * 3600000);
+      const p2 = (n) => String(n).padStart(2, "0");
+      return `${x.getUTCFullYear()}/${p2(x.getUTCMonth() + 1)}/${p2(x.getUTCDate())} ${p2(x.getUTCHours())}:${p2(x.getUTCMinutes())}`;
+    };
+    const out = ["商談名,商談日時,担当,アポ獲得者,話し手,発言"];
+    for (const m of rows) {
+      const tr = Array.isArray(m.transcript) ? m.transcript : [];
+      for (const t of tr) {
+        const who = t.speaker || t.who || "";
+        const text = t.text || t.transcript || "";
+        if (!String(text).trim()) continue;
+        out.push([m.title || "", jst(m.created_at), m.owner_name || m.owner || "", m.apo_setter || "", who, text].map(q).join(","));
+      }
+    }
+    const name = `文字起こし_${from || "はじめ"}_${to || "今日"}.csv`;
+    res.setHeader("content-type", "text/csv; charset=utf-8");
+    res.setHeader("content-disposition", `attachment; filename*=UTF-8''${encodeURIComponent(name)}`);
+    res.send("\uFEFF" + out.join("\n"));   // BOM付き（Excelで文字化けしないように）
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 app.get("/api/calls/_setterdiag", async (req, res) => {
   try {
     res.json(await apoSetterCoverage({
@@ -18792,7 +18831,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-08l ロボが「資料トラッキングの使い方」に答えられるよう、手順（テンプレ資料の登録→宛先ごとのURL発行→名簿からまとめて発行→閲覧状況の見方）を知識に追加。前回(2026-09-08k)：ナーチャリングの入れ違いを戻す。";
+const BUILD_TAG = "2026-09-08m 商談履歴に『文字起こしをCSVで落とす』ボタンを追加。いま選んでいる営業担当・商談日でしぼって、1行＝1発言（商談名・日時・担当・アポ獲得者・話し手・発言）のCSVを出す。他人のぶんはクローザー・管理者のみ。前回(2026-09-08l)：ロボの資料トラッキング手順。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
