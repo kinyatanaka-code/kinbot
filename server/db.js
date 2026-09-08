@@ -8398,10 +8398,10 @@ export async function nurtureCountsByMember() {
     const { rows } = await pool.query(
       `SELECT lower(COALESCE(NULLIF(btrim(t.assigned_to),''), l.owner)) AS email,
               count(*)::int AS 件数,
-              count(*) FILTER (WHERE COALESCE(l.kind,'') = 'nurture')::int AS リスト内
+              count(*) FILTER (WHERE COALESCE(l.kind,'') = 'nurture' OR l.name LIKE '【ナーチャリング】%')::int AS リスト内
          FROM call_targets t
          JOIN call_lists l ON l.id = t.list_id
-        WHERE COALESCE(l.kind,'') = 'nurture' OR (${NURTURE_WHERE})
+        WHERE COALESCE(l.kind,'') = 'nurture' OR l.name LIKE '【ナーチャリング】%' OR (${NURTURE_WHERE})
         GROUP BY email
         ORDER BY 件数 DESC`);
     const emails = rows.map((r) => r.email).filter(Boolean);
@@ -8539,10 +8539,18 @@ export async function nurtureDiag() {
     const { rows: nl } = await pool.query(
       `SELECT l.id, l.name, l.owner, count(t.id)::int AS 件数
          FROM call_lists l LEFT JOIN call_targets t ON t.list_id = l.id
-        WHERE COALESCE(l.kind,'') = 'nurture'
+        WHERE COALESCE(l.kind,'') = 'nurture' OR l.name LIKE '【ナーチャリング】%'
         GROUP BY l.id, l.name, l.owner ORDER BY 件数 DESC`);
+    const { rows: nk } = await pool.query(
+      `SELECT l.id, l.name, l.kind, l.owner,
+              count(t.id)::int AS 件数,
+              count(t.id) FILTER (WHERE COALESCE(NULLIF(btrim(t.assigned_to),''),'') = '')::int AS 担当が空
+         FROM call_lists l LEFT JOIN call_targets t ON t.list_id = l.id
+        WHERE l.name LIKE '%ナーチャリング%'
+        GROUP BY l.id, l.name, l.kind, l.owner ORDER BY 件数 DESC`);
     return {
       ナーチャリングリスト: nl,
+      名前にナーチャリングを含むリスト: nk,
       条件に合う: (hit[0] || {}).条件に合う || 0,
       ジャッジっぽい: (judge[0] || {}).ジャッジっぽい || 0,
       営業フォローっぽい: (follow[0] || {}).営業フォローっぽい || 0,
