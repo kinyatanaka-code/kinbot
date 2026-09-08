@@ -8410,6 +8410,16 @@ export async function nurtureCountsByMember() {
       const { rows: us } = await pool.query(
         `SELECT lower(email) AS email, name FROM users WHERE lower(email) = ANY($1::text[])`, [emails]);
       for (const u of us) names[u.email] = u.name;
+      // users に名前が無い人は、ナーチャリングリストの名前（【ナーチャリング】◯◯）から取る
+      const { rows: nl } = await pool.query(
+        `SELECT lower(owner) AS email, name FROM call_lists
+          WHERE (COALESCE(kind,'') = 'nurture' OR name LIKE '【ナーチャリング】%')
+            AND lower(owner) = ANY($1::text[])`, [emails]);
+      for (const l of nl) {
+        if (names[l.email]) continue;
+        const nm = String(l.name || "").replace(/^【ナーチャリング】\s*/, "").trim();
+        if (nm) names[l.email] = nm;
+      }
     }
     return rows.filter((r) => r.email).map((r) => ({ email: r.email, name: names[r.email] || r.email, 件数: r.件数, リスト内: r.リスト内 }));
   } catch (e) { console.error("[db] nurtureCountsByMember", e.message); return []; }

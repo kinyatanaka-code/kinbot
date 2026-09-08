@@ -2050,8 +2050,9 @@ async function loadNurture(redraw) {
     }
     _nurtureByName = {};
     for (const x of (d.items || [])) {
+      // メンバー名簿の名前を優先。無ければサーバが返した名前（リスト名から取ったもの）を使う。
       const nm = nameByEmail[String(x.email || "").toLowerCase()] || String(x.name || "").trim();
-      if (!nm) continue;
+      if (!nm || nm.includes("@")) continue;   // 名前が分からないもの（メールのまま）は出さない
       _nurtureByName[nm] = (_nurtureByName[nm] || 0) + Number(x.件数 || 0);
     }
     if (typeof redraw === "function") redraw();
