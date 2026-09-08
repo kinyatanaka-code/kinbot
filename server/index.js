@@ -9326,7 +9326,7 @@ app.post("/api/calls/targets/:id/record", async (req, res) => {
     const 次のステージ = (b.stage !== undefined && String(b.stage).trim() !== "") ? String(b.stage).trim()
       : (b.leadStatus !== undefined && String(b.leadStatus).trim() !== "") ? String(b.leadStatus).trim()
       : undefined;
-    // 結果に応じた自動ルーティング：お断り→リサイクル／営業フォロー→ジャッジ／不在5連続→リサイクル。
+    // 結果に応じた自動ルーティング：お断り→リサイクル／営業フォロー→ジャッジ／不在3連続→リサイクル。
     // ステージの正式文字列は環境変数で上書き可（表記が違っても直せるように）。
     const RECYCLE_STAGE = process.env.RECYCLE_STAGE || "89リサイクル";
     const JUDGE_STAGE = process.env.JUDGE_STAGE || "04ジャッジ";
@@ -9339,7 +9339,8 @@ app.post("/api/calls/targets/:id/record", async (req, res) => {
     if (/現在使われて|現アナ|欠番|不通|使われていない番号/.test(result)) 自動ステージ = ARCHIVE_STAGE;  // 現在使われていない→アーカイブ
     else if (/お断り/.test(result)) 自動ステージ = RECYCLE_STAGE;
     else if (/営業フォロー/.test(result)) 自動ステージ = JUDGE_STAGE;
-    else if (/不在/.test(result) && 連続不在 >= 5) 自動ステージ = RECYCLE_STAGE;
+    // 担当者不在が3回続いたらリサイクルへ（回数は env ABSENT_TO_RECYCLE で変えられる）
+    else if (/不在/.test(result) && 連続不在 >= Math.max(1, Number(process.env.ABSENT_TO_RECYCLE) || 3)) 自動ステージ = RECYCLE_STAGE;
     const finalStage = 自動ステージ || 次のステージ;
     // 断り理由タグと温度をリードに残す（リサイクル復活の優先順に使う）。
     // 温度：架電結果が入っていない＝A。タグがあれば recycle_rules の温度。タグ無しで結果ありなら既定B。
@@ -18831,7 +18832,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-08m 商談履歴に『文字起こしをCSVで落とす』ボタンを追加。いま選んでいる営業担当・商談日でしぼって、1行＝1発言（商談名・日時・担当・アポ獲得者・話し手・発言）のCSVを出す。他人のぶんはクローザー・管理者のみ。前回(2026-09-08l)：ロボの資料トラッキング手順。";
+const BUILD_TAG = "2026-09-08n 担当者不在でリサイクルへ回す回数を5回→3回に変更（env ABSENT_TO_RECYCLE で調整可）。現アナ等はこれまでどおり即アーカイブし、同じグループのリサイクルから1件を補充。ロボの説明にも自動の行き先を追記。前回(2026-09-08m)：文字起こしCSV。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
