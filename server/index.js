@@ -18879,7 +18879,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-08y 管理者の横断検索を強化：探す欄に入れたら、自分のリストの読み込みを待たずに全メンバー横断の結果を先に出す。結果は折りたたまず開いた状態で『全メンバーのリストから◯件みつかりました』と表示。前回(2026-09-08x)：0件時の修正。";
+const BUILD_TAG = "2026-09-08z カレンダーの予定がアポ一覧に出ない件の診断を追加：GET /api/apo/_scandiag?email=（メール）で、その人のカレンダーが読めるか、予定ごとに拾う/拾わない理由（主催者でない・予定名に【初回】等が無い・kinbot予定・終日）を確認できる。前回(2026-09-08y)：横断検索の強化。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
@@ -23641,6 +23641,43 @@ app.put("/api/apo/teams", async (req, res) => {
 app.get("/api/apo/assign-log", async (req, res) => {
   try { res.json(await listAssignLog(50)); }
   catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// 特定の人のカレンダーを読んで、予定ごとに「アポとして拾えるか／なぜ拾わないか」を出す診断。
+// 例：/api/apo/_scandiag?email=ryota.nakazawa@neo-career.co.jp&days=7
+app.get("/api/apo/_scandiag", async (req, res) => {
+  try {
+    const email = String(req.query.email || "").trim().toLowerCase();
+    if (!email) return res.status(400).json({ error: "email を指定してください" });
+    const days = Math.max(1, Math.min(30, parseInt(req.query.days, 10) || 7));
+    const st = await getSettings();
+    const gcalOwner = String(st.apoScanOwner || st.apoInviteOwner || req.user || "").trim();
+    const now = new Date();
+    const timeMin = new Date(now.getTime() - 1 * 86400000).toISOString();
+    const timeMax = new Date(now.getTime() + days * 86400000).toISOString();
+    let evs = [];
+    try { evs = await listCalendarEvents(gcalOwner, email, { timeMin, timeMax }); }
+    catch (e) {
+      return res.json({ 読めたか: false, 読むアカウント: gcalOwner, エラー: e.message,
+        直し方: "このメールのカレンダーが、読むアカウントに共有されているか確認してください" });
+    }
+    let inviteIds = new Set();
+    try { inviteIds = await activeInviteEventIds(); } catch {}
+    const out = [];
+    for (const ev of evs) {
+      let 判定 = "拾う";
+      const org = String(ev.organizer || "").toLowerCase();
+      const creator = String(ev.creator || "").toLowerCase();
+      const isHost = org ? org === email : (creator ? creator === email : true);
+      if (ev.allDay) 判定 = "終日予定なので拾わない";
+      else if (!ev.title) 判定 = "予定名が空なので拾わない";
+      else if (inviteIds.has(ev.id)) 判定 = "kinbotが作った商談予定なので拾わない";
+      else if (!isHost) 判定 = `本人が主催者でない（主催：${org || creator || "不明"}）ので拾わない`;
+      else if (!apoTitleTag(ev.title)) 判定 = "予定名に【初回】【新】【ヒ】が無いので拾わない";
+      out.push({ 予定名: ev.title || "(名前なし)", 日時: ev.start || "", 判定 });
+    }
+    res.json({ 読めたか: true, 読むアカウント: gcalOwner, 予定数: evs.length, 一覧: out });
+  } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 app.get("/api/apo/pickup", async (req, res) => {
