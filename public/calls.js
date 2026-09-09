@@ -455,6 +455,39 @@ function openHireFilter() {
   });
 }
 
+// 探す欄の言葉で、全メンバーのリストを横断して探す（管理者だけ）。
+// いまのリストの結果の下に「他のメンバーのリストにも◯件」と出し、押すと一覧が開く。
+let _allHitFor = "";
+async function findAcrossMembers() {
+  const box = $("kcAllHit");
+  const q = ($("clFind") && $("clFind").value || "").trim();
+  if (!box || q.length < 2) return;
+  if (_allHitFor === q && box.dataset.done === "1") return;   // 同じ言葉で二度引かない
+  _allHitFor = q;
+  try {
+    const d = await (await fetch("/api/calls/search-all?q=" + encodeURIComponent(q))).json();
+    if (d.error) throw new Error(d.error);
+    const items = (d.items || []).filter((x) => String(x.list_id) !== String(listId));
+    box.dataset.done = "1";
+    if (!items.length) { box.innerHTML = ""; return; }
+    box.innerHTML =
+      `<details class="kc-allhit-d"><summary>他のメンバーのリストにも <b>${items.length}</b> 件あります（押すと開く）</summary>` +
+      `<div class="lst-wrap"><table class="lst-tbl"><thead><tr>
+         <th>会社名</th><th>担当者</th><th>電話</th><th>ステージ</th><th>リスト</th><th>持ち主・担当</th>
+       </tr></thead><tbody>` +
+      items.map((x) => `<tr>
+         <td class="lst-name">${esc(x.company || "")}</td>
+         <td>${esc(x.person || "")}</td>
+         <td>${esc(x.phone || "")}</td>
+         <td>${esc(x.stage || "")}</td>
+         <td>${esc(x.list_name || "")}</td>
+         <td>${esc(x.owner_name || x.assigned_to || x.list_owner || "")}</td>
+       </tr>`).join("") + `</tbody></table></div></details>`;
+  } catch (e) {
+    box.innerHTML = `<div class="note">横断して探せませんでした：${esc(e.message)}</div>`;
+  }
+}
+
 function render() {
   const box = $("clTable");
   const fullList = visibleRows();
@@ -551,7 +584,9 @@ function render() {
           return `<td class="kc-rc${cls ? " " + cls : ""}">${v ? esc(v) : '<span class="kc-none">—</span>'}</td>`;
         }).join("")}
       </tr>`;
-    }).join("") + (list.length ? "" : `<tr><td colspan="99" style="text-align:center;padding:26px 10px;color:#7d8c86">この条件に当てはまるものがありません。見出しの「▾」から絞り込みを変えられます。<br><button type="button" class="btn ghost" id="kcFiltReset" style="margin-top:10px">絞り込みをすべて解除</button></td></tr>`) + `</table></div>`;
+    }).join("") + (list.length ? "" : `<tr><td colspan="99" style="text-align:center;padding:26px 10px;color:#7d8c86">この条件に当てはまるものがありません。見出しの「▾」から絞り込みを変えられます。<br><button type="button" class="btn ghost" id="kcFiltReset" style="margin-top:10px">絞り込みをすべて解除</button></td></tr>`) + `</table></div>` +
+    (canFindAll && ($("clFind") && $("clFind").value.trim().length >= 2)
+      ? `<div class="kc-allhit" id="kcAllHit"></div>` : "");
 
   // 見出しの絞り込み・並べ替え
   box.querySelectorAll("[data-flt]").forEach((b) =>
@@ -630,6 +665,8 @@ function render() {
   updateSelBar();
   const hideBtn = $("kcHideApo");
   if (hideBtn) hideBtn.addEventListener("click", () => { hideApo = !hideApo; render(); });
+  // 管理者だけ：いまのリストに無くても、他のメンバーのリストから探せる
+  if (canFindAll && $("kcAllHit")) findAcrossMembers();
   const fReset = $("kcFiltReset");
   if (fReset) fReset.addEventListener("click", () => {
     filt.stage = new Set(); filt.status = new Set(); filt.hist = "";
@@ -1140,6 +1177,9 @@ function renderDock() {
     .kc-lost-badge{display:inline-block;margin-left:6px;padding:1px 7px;border-radius:10px;background:#e9edeb;color:#6b7a74;font-size:11px;font-weight:700;vertical-align:middle;}
     .kc-dead-badge{display:inline-block;margin-left:6px;padding:1px 7px;border-radius:10px;background:#fbe7e6;color:#a32d2d;font-size:11px;font-weight:700;vertical-align:middle;}
     .kc-from-badge{display:inline-block;margin-top:5px;padding:2px 8px;border-radius:8px;background:#e3f3ec;color:#0d5b47;font-size:11px;font-weight:600;}
+    .kc-allhit{margin-top:12px;}
+    .kc-allhit-d summary{cursor:pointer;font-size:13px;color:#0d5b47;padding:8px 10px;background:#f4f9f6;border:1px solid #e3f0ea;border-radius:10px;}
+    .kc-allhit-d[open] summary{margin-bottom:8px;}
     .kc-mail-big{margin-top:4px;font-size:13px;}
     .kc-mail-big a{color:#1d9e75;text-decoration:none;}
     .kc-mail-big a:hover{text-decoration:underline;}
@@ -3377,6 +3417,7 @@ let iAmCloser = false;               // クローザー（管理者含む）＝�
 let iAmRedistributor = false;        // 他メンバーへ割り振れる（クローザー・管理者＋インサイド）
 let iAmAdmin = false;                // 管理者（遅刻回数の入力など、管理者だけの操作に使う）
 let canHideList = false;             // リストの表示・非表示を変えられる人（管理者＋決められたメンバー）
+let canFindAll = false;              // 全メンバーのリストを横断して探せる人（管理者）
 let appendTarget = null;             // {id, name}：既存リストに追加する先
 let csvAddMode = false;              // CSV：作成する(false)／追加する(true)
 let callAsMember = "";               // かける画面を、この担当の割り振りぶんだけで見る（空＝全部）
@@ -3388,6 +3429,7 @@ let selectedIds = new Set();          // 一覧で選択した架電先のid
     iAmRedistributor = !!(me && (me.canRedistribute || me.closer || me.admin));
     iAmAdmin = !!(me && me.admin);
     canHideList = !!(me && (me.admin || me.canHideLists));
+    canFindAll = !!(me && me.admin);
     if (me && me.kincallOnly) {
       document.querySelectorAll(".kc-side .side-app, .kc-side .side-sep")
         .forEach((el) => el.remove());
