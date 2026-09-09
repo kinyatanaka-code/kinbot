@@ -2136,7 +2136,9 @@ setInterval(() => { sweepMeetingSfRecords().catch((e) => console.error("[商談�
 // ナーチャリングの自動まとめ：ジャッジ・営業フォローのリードを、毎晩（JST 21時台）
 // 担当ごとの【ナーチャリング】リストへ移す。入れた日時が残るので、日次の件数が自動で貯まる。
 // 起動時に一度、昔のぶんの「入れた日時」も穴埋めする（最後の架電記録の日を入れた日と見なす）。
-backfillNurtureMovedAt().then((r) => { if (r.埋めた) console.log(`[ナーチャリング] 入れた日時の穴埋め：${r.埋めた}件`); }).catch(() => {});
+// 起動時に、ナーチャリングの日付を「営業フォロー・ジャッジにした日（最後の架電記録の日）」へ揃える
+backfillNurtureMovedAt({ 全部やり直す: true })
+  .then((r) => { if (r.埋めた) console.log(`[ナーチャリング] 日付をそろえました：${r.埋めた}件`); }).catch(() => {});
 let _nurtureRunning = false;
 async function runNurtureAuto(why = "定期") {
   if (_nurtureRunning || process.env.NURTURE_AUTO === "0") return null;
@@ -18919,7 +18921,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-09e ナーチャリングへの移動を自動化：ボタンを押さなくても、ジャッジ・営業フォローになったリードはその場で【ナーチャリング】リストへ移る（記録直後＋10分ごと＋起動時）。設定のボタンは手動で回したいとき用に残置。env NURTURE_AUTO=0 で停止。前回(2026-09-09d)：日次カウントの自動化。";
+const BUILD_TAG = "2026-09-09f ナーチャリングの日付を「営業フォロー・ジャッジにした日」に統一：リストへ移した時刻ではなく、そのリードの最後の架電記録の日で数える。移動時も起動時も同じ基準に揃える。前回(2026-09-09e)：自動移動。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",

@@ -8467,7 +8467,9 @@ export async function moveToNurtureLists({ dryRun = true, createdBy = null } = {
           `UPDATE call_targets t
               SET nurture_from_id = t.list_id,
                   nurture_from_name = (SELECT name FROM call_lists WHERE id = t.list_id),
-                  nurture_moved_at = now(),
+                  nurture_moved_at = COALESCE(
+                    (SELECT max(cl.at) FROM call_logs cl WHERE cl.target_id = t.id),
+                    now()),
                   list_id = $2, assigned_to = $3
             WHERE t.id = ANY($1::int[])`, [ids, list.id, email]);
         移動 += ids.length;
@@ -8673,7 +8675,7 @@ export async function nurtureMovedByDay(from, to) {
 
 // 【一度だけの穴埋め】すでにナーチャリングリストに入っているのに、入れた日時が無いリードへ、
 // 「最後の架電記録の日」を入れた日と見なして記録する（無ければリード作成日、それも無ければ今）。
-export async function backfillNurtureMovedAt() {
+export async function backfillNurtureMovedAt({ 全部やり直す = false } = {}) {
   if (!pool) return { 埋めた: 0 };
   try {
     const { rows } = await pool.query(
@@ -8684,8 +8686,8 @@ export async function backfillNurtureMovedAt() {
         FROM call_lists l
        WHERE l.id = t.list_id
          AND (COALESCE(l.kind,'') = 'nurture' OR l.name LIKE '【ナーチャリング】%')
-         AND t.nurture_moved_at IS NULL
-       RETURNING t.id`);
+         AND ($1::boolean OR t.nurture_moved_at IS NULL)
+       RETURNING t.id`, [!!全部やり直す]);
     return { 埋めた: rows.length };
   } catch (e) { console.error("[db] backfillNurtureMovedAt", e.message); return { 埋めた: 0, error: e.message }; }
 }
