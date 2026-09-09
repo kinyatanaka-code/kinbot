@@ -1729,7 +1729,18 @@ async function selectDeal(account) {
   const tl = $("dealTimeline");
   tl.innerHTML = "";
   for (const m of [...ms].reverse()) {
-    const ov = (m.summary && m.summary.overview) || "（要約なし）";
+    // 要約は overview（項目ごと）か formatted（テンプレで整形した文章）のどちらかで入る。
+    // カードでは長すぎないよう、先頭のあたりだけ出す。
+    const sm = m.summary || {};
+    let ov = String(sm.overview || "").trim();
+    if (!ov && sm.formatted) {
+      ov = String(sm.formatted)
+        .split("\n").map((x) => x.trim())
+        .filter((x) => x && !/^[■●○\-—]*\s*$/.test(x))   // 見出しだけの行は飛ばす
+        .slice(0, 3).join(" ");
+      if (ov.length > 160) ov = ov.slice(0, 160) + "…";
+    }
+    if (!ov) ov = "（要約なし）";
     const item = document.createElement("div");
     item.className = "tl-item";
     item.innerHTML =

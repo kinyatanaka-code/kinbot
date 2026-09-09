@@ -468,9 +468,7 @@ function meetingCardEl(r) {
       ? "⏳ 文字起こし・分析を処理中…（数分後に表示されます）"
       : r.status === "error"
       ? "⚠️ 処理に失敗しました（ファイル形式やキー設定をご確認ください）"
-      : r.summary && r.summary.overview
-      ? r.summary.overview
-      : "（要約なし）";
+      : summaryLine(r.summary) || "（要約なし）";
   const tags = [];
   if (r.round_no) tags.push(`${r.round_no}回目`);
   if (r.phase) tags.push(phaseLabel(r.phase));
@@ -2687,6 +2685,20 @@ function renderAiLogInto(el, log) {
       `<div class="ai-bubble ai-bubble-${kind}">${lbl}${ttl}<div class="ai-b-text">${escapeHtml(text)}</div>${sb}${tm}</div>`;
     feed.appendChild(wrap);
   }
+}
+
+// 一覧やカードに1行で出すための要約。overview が無ければ formatted の先頭を使う。
+function summaryLine(s) {
+  s = s || {};
+  const ov = String(s.overview || "").trim();
+  if (ov) return ov;
+  if (!s.formatted) return "";
+  let t = String(s.formatted)
+    .split("\n").map((x) => x.trim())
+    .filter((x) => x && !/^[■●○\-—]*\s*$/.test(x))
+    .slice(0, 3).join(" ");
+  if (t.length > 160) t = t.slice(0, 160) + "…";
+  return t;
 }
 
 function renderSummaryInto(el, s) {
