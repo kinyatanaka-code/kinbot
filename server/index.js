@@ -14929,8 +14929,17 @@ app.post("/api/interns/match", async (req, res) => {
     const unmatched = [];
 
     for (const m of meetings) {
-      // 手で入力したアポ獲得者は尊重し、自動照合では触らない
-      if (m.apo_setter_manual) { matchedCount++; continue; }
+      // 手で入力したアポ獲得者は尊重し、自動照合では触らない。
+      // ただし内訳には出したいので、その人の一覧には加える。
+      if (m.apo_setter_manual) {
+        matchedCount++;
+        const setter = String(m.apo_setter || "").trim();
+        if (setter) {
+          const hit = Object.values(perIntern).find((p) => String(p.name || "").trim() === setter);
+          if (hit) hit.matched.push({ bot_id: m.bot_id, title: m.title, date: jstDateStr(m.created_at), owner: 担当名(m), 手入力: true });
+        }
+        continue;
+      }
       const mDate = jstDateStr(m.created_at);
       const mParts = apoNameParts(m.title);
       if (!apoCompanyKey(mParts.company)) { unmatched.push({ bot_id: m.bot_id, title: m.title, date: mDate, owner: 担当名(m) }); continue; }
@@ -18838,7 +18847,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-08q かける画面の『探す』で、管理者のときだけ全メンバーのリストを横断して探せるように。いまのリストの結果の下に『他のメンバーのリストにも◯件あります』と出て、押すと会社名・担当者・電話・ステージ・どのリストの誰が持っているかが見られる。前回(2026-09-08p)：アポ内訳に担当。";
+const BUILD_TAG = "2026-09-08r アポ内訳で担当が出ない件を修正：アポ獲得者を手で入力した商談は自動照合を飛ばすため内訳に入らず担当も出ていなかった。獲得者の名前で本人の一覧に加え、セールス担当も表示するようにした。前回(2026-09-08q)：かける画面の横断検索。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
