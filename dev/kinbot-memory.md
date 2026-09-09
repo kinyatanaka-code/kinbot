@@ -41,6 +41,7 @@ kincall（架電リスト）という別ツールも同じ画面群の中にあ�
 
 ## 決定・指示のログ（新しいものを上に足す）
 
+- 2026-09-08 バグ（田中さん・スクショ）：探す欄に会社名を入れても横断検索が出ない＝画面は『リストを選んでください。』状態。原因：横断検索の枠は render()（表の描画）の中にしか無く、listId 未選択の早期 return 経路では枠が作られない。対応(20260908w)：loadTable の !listId 分岐で、canFindAll かつ 2文字以上なら #kcAllHit を出して findAcrossMembers() を実行。リスト選択済みの経路は従来どおり。precheck全OK。bump=20260908w。
 - 2026-09-08 重要バグ修正（田中さん）：kincallでリサイクル/ジャッジにしても数分〜30分で元に戻る。真因：auditCallList（30分ごとのSF監査）の `const stage = li.status || t.stage` がSFリードStatusを無条件でkincallのstageに書き戻していた。kincallで付けたステージがSFに反映されない/遅れると監査で巻き戻る。対応(20260908v)：kincall運用ステージ ＝ /リサイクル|アーカイブ|ジャッジ/ にマッチする t.stage は監査で上書きせず維持（それ以外は従来どおりSFの最新を反映）。ユーザー/失注系はSF由来なので従来どおり。precheck全OK。bump=20260908v。
 - 2026-09-08 バグ（田中さん）：かける画面で横断検索の案内（他のメンバーのリストにも◯件）が出ない。原因：canFindAll を 3420行目で let 宣言していたのに、render(588行)で参照していた＝TDZ（宣言前アクセス）で常に出ない/エラー。対応(20260908u)：宣言を先頭（filt の直前・108行）へ移動。あわせて findAcrossMembers 実行中に『他のメンバーのリストも見ています…』を表示。サーバ(search-all)は 20260907s のまま変更なし。教訓：前回と同じく、まず画面が使うAPIと変数の到達順を確認する。precheck全OK。bump=20260908u。
 - 2026-09-08 原因特定・修正（アポ内訳の担当）：_ownerdiag の実データで owner=ryota.nakazawa（中澤良太）・獲得者=加藤宋宙・手入力false と判明＝データは正常。真因は 20260908p/r で /api/interns/match 側にだけ owner を足していたが、画面（report.js renderInternDash）が使うのは /api/interns/stats だったこと。さらに stats が読む db listApoMeetings の SELECT に owner が無く常に空だった。対応(20260908t)：listApoMeetings の SELECT に owner を追加。interns/stats で owner→displayNameOf の辞書(ownerNames2)を作り、内訳 item に owner（表示名）を付与。表示側(report.js .ia-owner)は 20260908p のまま使える。教訓：画面がどのAPIを使っているかを先に確認する。precheck全OK。bump=20260908t。

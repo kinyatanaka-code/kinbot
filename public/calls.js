@@ -86,7 +86,14 @@ async function loadTable() {
   // ドロップダウンの現在値を優先（「全てのリード」= all を確実に扱う）
   const selV = ($("clList") && $("clList").value) || "";
   if (selV) listId = ["all", "archive", "recycle"].includes(selV) ? selV : (Number(selV) || 0);
-  if (!listId) { box.innerHTML = '<div class="empty-state">リストを選んでください。</div>'; return; }
+  if (!listId) {
+    // リストを選んでいなくても、管理者は探す欄から全メンバーのリストを横断して探せる
+    const q0 = ($("clFind") && $("clFind").value || "").trim();
+    box.innerHTML = '<div class="empty-state">リストを選んでください。</div>' +
+      (canFindAll && q0.length >= 2 ? '<div class="kc-allhit" id="kcAllHit"></div>' : "");
+    if (canFindAll && q0.length >= 2) findAcrossMembers();
+    return;
+  }
   if (listId === "all" || listId === "archive" || listId === "recycle") selectedIds.clear();
   box.innerHTML = '<div class="empty-state">読み込んでいます…</div>';
   try {
