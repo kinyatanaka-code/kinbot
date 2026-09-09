@@ -2148,6 +2148,9 @@ async function runNurtureAuto(why = "定期") {
   try {
     const r = await moveToNurtureLists({ dryRun: false, createdBy: "auto-nurture" });
     if (r.移動) console.log(`[ナーチャリング] 自動まとめ（${why}）：${r.移動}件`);
+    // 日付は「営業フォロー・ジャッジにした日」に揃える（記録が無いものはリードの作成日）。
+    // 入れそこねを毎回ならすので、あとから記録が付いたものも正しい日に直る。
+    await backfillNurtureMovedAt({ 全部やり直す: true }).catch(() => {});
     return r;
   } catch (e) { console.error("[ナーチャリング] 自動まとめ", e.message); return null; }
   finally { _nurtureRunning = false; }
@@ -18955,7 +18958,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-09g ナーチャリングの日次が合わない件の確認用に GET /api/calls/_nurturedays?from=&to= を追加（日ごと・担当ごとの件数と、日付が入っていない件数を返す）。前回(2026-09-09f)：日付の基準を記録日に統一。";
+const BUILD_TAG = "2026-09-09h ナーチャリングの日次が合わない件を修正：(1)架電記録が無いリードはリードの作成日を使う（これまで日付なしで日次に出ていなかった）(2)日付の揃え直しを自動まとめのたびに実行（記録直後・10分ごと）。深夜に移動した分も、記録した日でカウントされる。前回(2026-09-09g)：診断の追加。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",

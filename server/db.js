@@ -8682,7 +8682,7 @@ export async function backfillNurtureMovedAt({ 全部やり直す = false } = {}
       `UPDATE call_targets t
           SET nurture_moved_at = COALESCE(
             (SELECT max(cl.at) FROM call_logs cl WHERE cl.target_id = t.id),
-            t.created_at, now())
+            t.created_at)
         FROM call_lists l
        WHERE l.id = t.list_id
          AND (COALESCE(l.kind,'') = 'nurture' OR l.name LIKE '【ナーチャリング】%')
