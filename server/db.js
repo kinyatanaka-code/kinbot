@@ -8703,3 +8703,29 @@ export async function nurtureNoDateCount() {
     return (rows[0] || {}).n || 0;
   } catch { return 0; }
 }
+
+// ナーチャリングの日付が、どう入っているかを見る（日次カウントの確認用）。
+export async function nurtureDateDiag(email = "") {
+  if (!pool) return {};
+  try {
+    const cond = ["(COALESCE(l.kind,'') = 'nurture' OR l.name LIKE '【ナーチャリング】%')"];
+    const vals = []; let i = 1;
+    if (email) { cond.push(`lower(COALESCE(NULLIF(btrim(t.assigned_to),''), l.owner)) = $${i++}`); vals.push(String(email).toLowerCase()); }
+    const where = "WHERE " + cond.join(" AND ");
+    const { rows: byDay } = await pool.query(
+      `SELECT to_char(t.nurture_moved_at AT TIME ZONE 'Asia/Tokyo','YYYY-MM-DD') AS 日, count(*)::int AS 件数
+         FROM call_targets t JOIN call_lists l ON l.id = t.list_id ${where}
+        GROUP BY 1 ORDER BY 1 DESC NULLS LAST LIMIT 20`, vals);
+    const { rows: nul } = await pool.query(
+      `SELECT count(*)::int AS 日付なし FROM call_targets t JOIN call_lists l ON l.id = t.list_id
+        ${where} AND t.nurture_moved_at IS NULL`, vals);
+    const { rows: ex } = await pool.query(
+      `SELECT t.company,
+              to_char(t.nurture_moved_at AT TIME ZONE 'Asia/Tokyo','MM-DD HH24:MI') AS 記録の日付,
+              to_char((SELECT max(cl.at) FROM call_logs cl WHERE cl.target_id=t.id) AT TIME ZONE 'Asia/Tokyo','MM-DD HH24:MI') AS 最後の架電,
+              t.stage, t.status
+         FROM call_targets t JOIN call_lists l ON l.id = t.list_id ${where}
+        ORDER BY t.nurture_moved_at DESC NULLS LAST LIMIT 15`, vals);
+    return { 日ごと: byDay, 日付なし: (nul[0] || {}).日付なし || 0, 直近: ex };
+  } catch (e) { return { error: e.message }; }
+}

@@ -339,6 +339,7 @@ import {
   nurtureCountsByListName,
   nurtureMovedByDay,
   backfillNurtureMovedAt,
+  nurtureDateDiag,
   nurtureNoDateCount,
   nurtureDiag,
   moveToNurtureLists,
@@ -4543,6 +4544,21 @@ app.get("/api/calls/_nurturedays", async (req, res) => {
       日ごと[d].内訳[String(r.email || "").split("@")[0]] = Number(r["件数"] || 0);
     }
     res.json({ 期間: `${from}〜${to}`, 日ごと, 日付なし: await nurtureNoDateCount() });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// ナーチャリングの日付の入り方を見る（日次が合わないときの確認）。
+// 例：/api/calls/_nurturedate?email=sora.kato@neo-career.co.jp
+app.get("/api/calls/_nurturedate", async (req, res) => {
+  try { res.json(await nurtureDateDiag(String(req.query.email || ""))); }
+  catch (e) { res.status(500).json({ error: e.message }); }
+});
+// ナーチャリングの日付を「営業フォロー・ジャッジにした日」へ今すぐ揃え直す。
+app.post("/api/calls/nurture-redate", async (req, res) => {
+  try {
+    if (!req.isAdmin && !(await isCloserUser(req.user))) return res.status(403).json({ error: "クローザー・管理者だけが実行できます" });
+    const r = await backfillNurtureMovedAt({ 全部やり直す: true });
+    res.json({ ok: true, ...r });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
