@@ -2137,18 +2137,20 @@ setInterval(() => { sweepMeetingSfRecords().catch((e) => console.error("[商談�
 // 担当ごとの【ナーチャリング】リストへ移す。入れた日時が残るので、日次の件数が自動で貯まる。
 // 起動時に一度、昔のぶんの「入れた日時」も穴埋めする（最後の架電記録の日を入れた日と見なす）。
 backfillNurtureMovedAt().then((r) => { if (r.埋めた) console.log(`[ナーチャリング] 入れた日時の穴埋め：${r.埋めた}件`); }).catch(() => {});
-let _nurtureAutoDay = "";
-setInterval(async () => {
+let _nurtureRunning = false;
+async function runNurtureAuto(why = "定期") {
+  if (_nurtureRunning || process.env.NURTURE_AUTO === "0") return null;
+  _nurtureRunning = true;
   try {
-    if (process.env.NURTURE_AUTO === "0") return;   // 止めたいときは env で
-    const j = new Date(Date.now() + 9 * 3600000);
-    const day = j.toISOString().slice(0, 10);
-    if (j.getUTCHours() !== 21 || _nurtureAutoDay === day) return;   // JST21時台に1日1回
-    _nurtureAutoDay = day;
     const r = await moveToNurtureLists({ dryRun: false, createdBy: "auto-nurture" });
-    console.log(`[ナーチャリング] 自動まとめ：${r.移動}件（対象${r.対象}）`);
-  } catch (e) { console.error("[ナーチャリング] 自動まとめ", e.message); }
-}, 10 * 60 * 1000);
+    if (r.移動) console.log(`[ナーチャリング] 自動まとめ（${why}）：${r.移動}件`);
+    return r;
+  } catch (e) { console.error("[ナーチャリング] 自動まとめ", e.message); return null; }
+  finally { _nurtureRunning = false; }
+}
+// 10分ごとに、ジャッジ・営業フォローになったリードを自動でナーチャリングへ移す
+setInterval(() => { runNurtureAuto("定期"); }, 10 * 60 * 1000);
+setTimeout(() => { runNurtureAuto("起動時"); }, 60 * 1000);
 
 // SFに紐づいていない（記録できていない）商談を探す。
 // 実際に終わった商談だけを対象にする（社内MTG・ユーザーフォロー、要約も文字起こしも無いものは除く）。
@@ -9548,6 +9550,8 @@ app.post("/api/calls/targets/:id/record", async (req, res) => {
       }
     } catch (e) { console.warn("[kincall] リサイクル復活の補充に失敗:", e.message); }
 
+    // ジャッジ・営業フォローになったら、その場でナーチャリングへ移す（返事は待たせない）
+    setImmediate(() => { runNurtureAuto("記録直後").catch(() => {}); });
     res.json({ ok: true, sf, 自動ステージ, 連続不在, 復活補充 });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
@@ -18915,7 +18919,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-09d ナーチャリングの日次カウントを自動化：(1)これまでにナーチャリングへ入れた分は、最後の架電記録の日を「入れた日」と見なして穴埋め（起動時に一度だけ）。内訳のナーチャリング行に過去分も出る。(2)毎晩21時台に、ジャッジ・営業フォローを自動で【ナーチャリング】リストへまとめる（env NURTURE_AUTO=0 で停止可）。前回(2026-09-09c)：内訳のナーチャ行と矢印。";
+const BUILD_TAG = "2026-09-09e ナーチャリングへの移動を自動化：ボタンを押さなくても、ジャッジ・営業フォローになったリードはその場で【ナーチャリング】リストへ移る（記録直後＋10分ごと＋起動時）。設定のボタンは手動で回したいとき用に残置。env NURTURE_AUTO=0 で停止。前回(2026-09-09d)：日次カウントの自動化。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
