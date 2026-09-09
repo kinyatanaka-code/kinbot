@@ -682,7 +682,8 @@ export async function initDb() {
   await sq(`ALTER TABLE call_targets ADD COLUMN IF NOT EXISTS partner_route  BOOLEAN NOT NULL DEFAULT false;`);
   // ナーチャリングへ移したとき、元のリストを覚えておく（一覧にバッジ表示・元へ戻す用）
   await sq(`ALTER TABLE call_targets ADD COLUMN IF NOT EXISTS nurture_from_id   INTEGER;`);
-  await sq(`ALTER TABLE call_targets ADD COLUMN IF NOT EXISTS nurture_from_name TEXT;`); // 担当ルート/既存取引＝社内連携
+  await sq(`ALTER TABLE call_targets ADD COLUMN IF NOT EXISTS nurture_from_name TEXT;`);
+  await sq(`ALTER TABLE call_targets ADD COLUMN IF NOT EXISTS nurture_moved_at TIMESTAMPTZ;`); // ナーチャリングへ入れた日時（日次・週次の集計用） // 担当ルート/既存取引＝社内連携
   await sq(`CREATE INDEX IF NOT EXISTS ix_call_targets_score ON call_targets(list_id, score DESC);`);
   // 求人情報（会社名で架電先に紐づける外部データ）
   await sq(`CREATE TABLE IF NOT EXISTS recruit_info (
@@ -8466,6 +8467,7 @@ export async function moveToNurtureLists({ dryRun = true, createdBy = null } = {
           `UPDATE call_targets t
               SET nurture_from_id = t.list_id,
                   nurture_from_name = (SELECT name FROM call_lists WHERE id = t.list_id),
+                  nurture_moved_at = now(),
                   list_id = $2, assigned_to = $3
             WHERE t.id = ANY($1::int[])`, [ids, list.id, email]);
         移動 += ids.length;
@@ -8650,4 +8652,21 @@ export async function searchSmartLinksByLabel(q) {
          FROM smart_links WHERE label ILIKE $1 ORDER BY created_at DESC LIMIT 30`, [`%${q}%`]);
     return rows;
   } catch (e) { console.error("[db] searchSmartLinksByLabel", e.message); return []; }
+}
+
+// ナーチャリングへ入れた件数を、日（JST）×担当メールで数える（実績の内訳用）。
+export async function nurtureMovedByDay(from, to) {
+  if (!pool) return [];
+  try {
+    const { rows } = await pool.query(
+      `SELECT to_char(nurture_moved_at AT TIME ZONE 'Asia/Tokyo', 'YYYY-MM-DD') AS 日,
+              lower(COALESCE(NULLIF(btrim(t.assigned_to),''), l.owner)) AS email,
+              count(*)::int AS 件数
+         FROM call_targets t JOIN call_lists l ON l.id = t.list_id
+        WHERE t.nurture_moved_at IS NOT NULL
+          AND (nurture_moved_at AT TIME ZONE 'Asia/Tokyo')::date >= $1::date
+          AND (nurture_moved_at AT TIME ZONE 'Asia/Tokyo')::date <= $2::date
+        GROUP BY 1, 2`, [from, to]);
+    return rows;
+  } catch (e) { console.error("[db] nurtureMovedByDay", e.message); return []; }
 }

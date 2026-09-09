@@ -337,6 +337,7 @@ import {
   searchSmartLinksByLabel,
   nurtureCountsByMember,
   nurtureCountsByListName,
+  nurtureMovedByDay,
   nurtureDiag,
   moveToNurtureLists,
   revertFromNurture,
@@ -9916,7 +9917,11 @@ async function computeStatsGrid(periodIn, spanIn, opts = {}) {
     const 本数 = Math.min(26, Math.max(2, parseInt(spanIn, 10) || (period === "day" ? 7 : period === "week" ? 8 : 6)));
     const pad = (n) => String(n).padStart(2, "0");
     const ymd = (d) => `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}-${pad(d.getUTCDate())}`;
-    const nowJ = new Date(Date.now() + 9 * 3600 * 1000);
+    // 基準日（過去の実績を見るとき、矢印でここが動く）。指定が無ければ今日。
+    const anchorStr = String(opts.anchor || "").trim();
+    const nowJ = /^\d{4}-\d{2}-\d{2}$/.test(anchorStr)
+      ? new Date(anchorStr + "T00:00:00Z")
+      : new Date(Date.now() + 9 * 3600 * 1000);
     const y = nowJ.getUTCFullYear(), m = nowJ.getUTCMonth(), d0 = nowJ.getUTCDate();
 
     // 区切りを外から渡せる（週次ダッシュボードの平日ラップなど、独自の期間で集計したいとき）
@@ -9979,7 +9984,7 @@ async function computeStatsGrid(periodIn, spanIn, opts = {}) {
       if (period === "month") { const [f, t] = monthRange(colKey); return md >= f && md <= t; }
       return inSpan(md);
     };
-    const blank = () => 区切り.map(() => ({ コール: 0, 接触: 0, アポ内: 0, アポ外: 0 }));
+    const blank = () => 区切り.map(() => ({ コール: 0, 接触: 0, アポ内: 0, アポ外: 0, ナーチャ: 0 }));
     const toYmd = (v) => { const s = String(v || ""); const mm = s.match(/(\d{4})[-/年.](\d{1,2})[-/月.](\d{1,2})/); return mm ? `${mm[1]}-${pad(mm[2])}-${pad(mm[3])}` : ""; };
     const num = (v) => { const n = Number(String(v == null ? "" : v).replace(/[^\d.-]/g, "")); return isFinite(n) ? n : 0; };
     const truthyNum = (v) => { if (typeof v === "number") return v; const n = num(v); if (n) return n; return v === true || String(v) === "1" || /true|済|有|✓|◯|○/.test(String(v || "")) ? 1 : 0; };
@@ -10095,10 +10100,22 @@ async function computeStatsGrid(periodIn, spanIn, opts = {}) {
       } else if (!reportId) sfError = "SFレポート未設定（セールスの実績は空になります）";
     } catch (e) { sfError = "SFレポートを読めませんでした：" + e.message; console.warn("[実績]", sfError); }
 
+    // ナーチャリング（リストへ入れた件数）を区切りごとに足す
+    try {
+      const nv = await nurtureMovedByDay(spanFrom, spanTo);
+      const keyIdx = new Map(区切り.map((c, i) => [c.key, i]));
+      for (const r of nv) {
+        const k = 属する(r["日"]); if (!k) continue;
+        const p = byEmail.get(String(r.email || "").toLowerCase()); if (!p) continue;
+        const arr = ensure(p.email);
+        const i = keyIdx.get(k); if (i === undefined) continue;
+        arr[i].ナーチャ += Number(r["件数"] || 0);
+      }
+    } catch (e) { console.warn("[実績] ナーチャリング集計", e.message); }
     const membersOut = people.map((p) => ({ 誰: p.name, email: p.email, role: p.role, 値: grid.get(p.email) || blank() }));
     const sumArr = (arr) => 区切り.map((c, i) => arr.reduce((a, x) => ({
-      コール: a.コール + x.値[i].コール, 接触: a.接触 + x.値[i].接触, アポ内: a.アポ内 + x.値[i].アポ内, アポ外: a.アポ外 + x.値[i].アポ外,
-    }), { コール: 0, 接触: 0, アポ内: 0, アポ外: 0 }));
+      コール: a.コール + x.値[i].コール, 接触: a.接触 + x.値[i].接触, アポ内: a.アポ内 + x.値[i].アポ内, アポ外: a.アポ外 + x.値[i].アポ外, ナーチャ: a.ナーチャ + (x.値[i].ナーチャ || 0),
+    }), { コール: 0, 接触: 0, アポ内: 0, アポ外: 0, ナーチャ: 0 }));
     const salesM = membersOut.filter((x) => x.role === "sales");
     const insideM = membersOut.filter((x) => x.role === "inside");
     const totals = { sales: sumArr(salesM), inside: sumArr(insideM), group: sumArr(membersOut) };
@@ -10207,7 +10224,7 @@ app.post("/api/apo/excluded/restore", async (req, res) => {
 });
 
 app.get("/api/calls/stats-grid", async (req, res) => {
-  try { res.json({ ok: true, ...(await computeStatsGrid(req.query.period, req.query.span)) }); }
+  try { res.json({ ok: true, ...(await computeStatsGrid(req.query.period, req.query.span, { anchor: req.query.anchor })) }); }
   catch (e) { res.status(500).json({ error: e.message }); }
 });
 
@@ -18880,7 +18897,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-09b アポが一覧に出ない件の切り分け用に GET /api/apo/_find?q=（会社名）を追加：アポのレコードが作られているか、商談日時・取得日・除外・担当を確認できる。前回(2026-09-09a)：共有カレンダー対応。";
+const BUILD_TAG = "2026-09-09c 実績のメンバーカードの内訳に(1)ナーチャリング行を追加（その期間にナーチャリングへ入れた件数を日次・週次・月次で表示）、(2)左右矢印で過去の期間も見られるように（→で今に戻る。いま表示中は→は押せない）。ナーチャリングへ入れた日時を記録するようにした（記録開始前のぶんは0のまま）。前回(2026-09-09b)：アポ検索診断。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",

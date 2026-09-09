@@ -2235,20 +2235,40 @@ async function openIncentiveMeetings(label) {
 async function openDashDetail(subject, label) {
   const isTeam = subject === "group" || subject === "sales" || subject === "inside";
   const inner =
-    `<div class="kc-period-tabs" id="ddPeriod" style="margin-bottom:8px">
-       <button type="button" class="kc-ptab active" data-dp="day">日次</button>
-       <button type="button" class="kc-ptab" data-dp="week">週次</button>
-       <button type="button" class="kc-ptab" data-dp="month">月次</button>
+    `<div style="display:flex;align-items:center;gap:10px;margin-bottom:8px;flex-wrap:wrap">
+       <div class="kc-period-tabs" id="ddPeriod">
+         <button type="button" class="kc-ptab active" data-dp="day">日次</button>
+         <button type="button" class="kc-ptab" data-dp="week">週次</button>
+         <button type="button" class="kc-ptab" data-dp="month">月次</button>
+       </div>
+       <div style="display:flex;align-items:center;gap:6px;margin-left:auto">
+         <button type="button" class="btn ghost" id="ddPrev" title="前の期間を見る">←</button>
+         <span class="note" id="ddRange"></span>
+         <button type="button" class="btn ghost" id="ddNext" title="次の期間を見る">→</button>
+       </div>
      </div><div id="ddBody"><div class="note">読み込んでいます…</div></div>`;
   const m = openModal(`${label} ・ 内訳`, inner, { wide: true });
   let p = "day";   // 最初は日次
+  let anchor = ""; // 基準日（空＝今日）。矢印で過去へ動かす
+  const ymdOf = (d) => `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}-${String(d.getUTCDate()).padStart(2, "0")}`;
+  const shiftAnchor = (dir) => {
+    // 期間の見えている本数ぶん、まとめて前後に動かす
+    const base = anchor ? new Date(anchor + "T00:00:00Z") : new Date(Date.now() + 9 * 3600000);
+    const days = p === "day" ? 7 : p === "week" ? 8 * 7 : 0;
+    let d;
+    if (p === "month") d = new Date(Date.UTC(base.getUTCFullYear(), base.getUTCMonth() + dir * 6, base.getUTCDate()));
+    else d = new Date(base.getTime() + dir * days * 86400000);
+    const today = new Date(Date.now() + 9 * 3600000);
+    if (d.getTime() >= today.getTime()) { anchor = ""; }   // 今日以降には進めない（＝今に戻る）
+    else anchor = ymdOf(d);
+  };
   const SALES_NAMES = ["田中欽也"], EXCLUDE_NAMES = ["中澤", "浦林", "森田", "笹原", "迫間"];
   const nameHas = (n, ts) => ts.some((t) => String(n || "").includes(t));
   const load = async () => {
     const body = m.el.querySelector("#ddBody");
     body.innerHTML = `<div class="note">読み込んでいます…</div>`;
     try {
-      const d = await (await fetch(`/api/calls/stats-grid?period=${encodeURIComponent(p)}`)).json();
+      const d = await (await fetch(`/api/calls/stats-grid?period=${encodeURIComponent(p)}${anchor ? "&anchor=" + encodeURIComponent(anchor) : ""}`)).json();
       if (d.error) throw new Error(d.error);
       const cols = d.区切り || [];
       const members = d.members || [];
@@ -2266,6 +2286,10 @@ async function openDashDetail(subject, label) {
           subjGoals = (g.goals && g.goals[subject]) || {};
         } catch {}
       }
+      const rangeEl = m.el.querySelector("#ddRange");
+      if (rangeEl && cols.length) rangeEl.textContent = `${cols[0].from} 〜 ${cols[cols.length - 1].to}${anchor ? "" : "（いま）"}`;
+      const nextBtn = m.el.querySelector("#ddNext");
+      if (nextBtn) nextBtn.disabled = !anchor;   // いまを表示中は先に進めない
       body.innerHTML = vals
         ? ddTable(cols, vals, d.今, subject, isTeam, subjGoals, p)
         : `<div class="note">この対象のデータがありません。</div>`;
@@ -2273,12 +2297,16 @@ async function openDashDetail(subject, label) {
     } catch (e) { body.innerHTML = `<div class="note">読み込めませんでした：${esc(e.message)}</div>`; }
   };
   m.el.querySelectorAll("#ddPeriod .kc-ptab").forEach((b) => b.addEventListener("click", () => {
-    p = b.dataset.dp; m.el.querySelectorAll("#ddPeriod .kc-ptab").forEach((x) => x.classList.toggle("active", x === b)); load();
+    p = b.dataset.dp; anchor = "";   // 期間を変えたら「いま」に戻す
+    m.el.querySelectorAll("#ddPeriod .kc-ptab").forEach((x) => x.classList.toggle("active", x === b)); load();
   }));
+  const prevB = m.el.querySelector("#ddPrev"), nextB = m.el.querySelector("#ddNext");
+  if (prevB) prevB.addEventListener("click", () => { shiftAnchor(-1); load(); });
+  if (nextB) nextB.addEventListener("click", () => { shiftAnchor(+1); load(); });
   load();
 }
 function ddTable(cols, vals, now, subject, isTeam, subjGoals, period) {
-  const V = vals.map((v) => ({ コール: v.コール || 0, 接触: v.接触 || 0, アポ: (v.アポ内 || 0) + (v.アポ外 || 0) }));
+  const V = vals.map((v) => ({ コール: v.コール || 0, 接触: v.接触 || 0, アポ: (v.アポ内 || 0) + (v.アポ外 || 0), ナーチャ: v.ナーチャ || 0 }));
   const nowCls = (c) => (c.key === now ? " kc-g-now" : "");
   const pct = (a, b) => (b ? (a / b * 100).toFixed(1) + "%" : "—");
   const editable = !isTeam && iAmRedistributor;   // 個人は各期間で編集可。チームはダッシュボードで。
@@ -2293,13 +2321,16 @@ function ddTable(cols, vals, now, subject, isTeam, subjGoals, period) {
       : `<td class="kc-g-n${nowCls(c)}">${g}</td>`;
     return goalCell + `<td class="kc-g-n${nowCls(c)}">${V[i][k]}</td>`;
   }).join("")}</tr>`;
+  // ナーチャリングの行（目標は付けない）
+  const nurRow = () => `<tr><td class="kc-g-name">ナーチャリング</td>${cols.map((c, i) =>
+    `<td class="kc-g-n${nowCls(c)}">—</td><td class="kc-g-n${nowCls(c)}">${V[i].ナーチャ}</td>`).join("")}</tr>`;
   const rateRow = (lb, an, bn) => `<tr class="kc-g-rate"><td class="kc-g-name">${lb}</td>${cols.map((c, i) => {
     const gr = pct(G[i][an], G[i][bn]);
     const ar = pct(V[i][an], V[i][bn]);
     return `<td class="kc-g-n${nowCls(c)}">${gr}</td><td class="kc-g-n${nowCls(c)}">${ar}</td>`;
   }).join("")}</tr>`;
   const table = `<table class="sh-table kc-grid kc-grid-gr">${h1}${h2}
-    ${cntRow("コール", "コール")}${cntRow("接触", "接触")}${cntRow("アポ", "アポ")}
+    ${cntRow("コール", "コール")}${cntRow("接触", "接触")}${cntRow("アポ", "アポ")}${nurRow()}
     ${rateRow("コール→接触率", "接触", "コール")}${rateRow("接触→アポ率", "アポ", "接触")}${rateRow("コール→アポ率", "アポ", "コール")}</table>`;
   return `<div class="kc-tablewrap">${table}</div>` +
     (isTeam ? `<p class="note" style="margin-top:6px">実績はメンバーの合計です。目標はダッシュボードで設定します。</p>` : "");
