@@ -504,7 +504,10 @@ function render() {
   const arrow = (k) => sortBy === k ? (sortDesc ? " ▾" : " ▴") : "";
   const on = (k) => filt[k] && filt[k].size ? " on" : "";
   if (!rows.length) {
-    box.innerHTML = `<div class="empty-state">リストを選んでください。</div>`;
+    const q0 = ($("clFind") && $("clFind").value || "").trim();
+    box.innerHTML = `<div class="empty-state">${q0 ? "自分のリストには見つかりませんでした。" : "リストを選んでください。"}</div>` +
+      (canFindAll && q0.length >= 2 ? '<div class="kc-allhit" id="kcAllHit"></div>' : "");
+    if (canFindAll && q0.length >= 2) findAcrossMembers();
     return;
   }
   const apoN = fullList.filter(isApoDone).length;
