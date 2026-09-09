@@ -18879,7 +18879,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-08z カレンダーの予定がアポ一覧に出ない件の診断を追加：GET /api/apo/_scandiag?email=（メール）で、その人のカレンダーが読めるか、予定ごとに拾う/拾わない理由（主催者でない・予定名に【初回】等が無い・kinbot予定・終日）を確認できる。前回(2026-09-08y)：横断検索の強化。";
+const BUILD_TAG = "2026-09-09a 共有カレンダー（日程調整用グループカレンダー）で作った【初回】予定がアポ一覧に出なかった件を修正：主催者がカレンダーID（@group.calendar.google.com）になるため「本人が主催者でない」と弾かれていた。その場合は作成者で判定するようにした（取り込み・実績集計・診断の3か所）。前回(2026-09-08z)：スキャン診断。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
@@ -21630,7 +21630,12 @@ async function collectApoAppointments(scanOwner, opts = {}) {
         // 本人が主催者の予定だけ（招待されただけの予定は除外）。organizer優先、無ければcreatorで判定。
         const org = String(ev.organizer || "").toLowerCase();
         const creator = String(ev.creator || "").toLowerCase();
-        const isHost = (org && org === setterEmail) || (!org && creator && creator === setterEmail);
+        // 共有カレンダー（日程調整用など）で作った予定は、主催者がカレンダーID（…@group.calendar.google.com）になる。
+        // その場合は作成者で判定する（弾くと、共有カレンダー経由のアポが拾えない）。
+        const orgIsGroupCal = org.endsWith("@group.calendar.google.com");
+        const isHost = (org && !orgIsGroupCal)
+          ? org === setterEmail
+          : (creator ? creator === setterEmail : !!org);
         if (!isHost) continue;
         // kinbotが担当者のカレンダーに作った商談予定は、アポの元ではない。
         // これを拾うと、同じ商談から次々に新しいアポができてしまう。
@@ -23146,7 +23151,8 @@ app.get("/api/apo/calendar-check", async (req, res) => {
           if (ev.allDay || !ev.title) continue;
           const org = String(ev.organizer || "").toLowerCase();
           const cre = String(ev.creator || "").toLowerCase();
-          const isHost = (org && org === em) || (!org && cre && cre === em);
+          const orgIsGroupCal2 = org.endsWith("@group.calendar.google.com");
+          const isHost = (org && !orgIsGroupCal2) ? org === em : (cre ? cre === em : !!org);
           if (!isHost) continue;
           row.hosted++;
           if (apoTitleTag(ev.title)) {
@@ -23668,7 +23674,8 @@ app.get("/api/apo/_scandiag", async (req, res) => {
       let 判定 = "拾う";
       const org = String(ev.organizer || "").toLowerCase();
       const creator = String(ev.creator || "").toLowerCase();
-      const isHost = org ? org === email : (creator ? creator === email : true);
+      const orgIsGroupCal = org.endsWith("@group.calendar.google.com");
+      const isHost = (org && !orgIsGroupCal) ? org === email : (creator ? creator === email : true);
       if (ev.allDay) 判定 = "終日予定なので拾わない";
       else if (!ev.title) 判定 = "予定名が空なので拾わない";
       else if (inviteIds.has(ev.id)) 判定 = "kinbotが作った商談予定なので拾わない";
