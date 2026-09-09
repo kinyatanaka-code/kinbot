@@ -8568,6 +8568,29 @@ app.get("/api/meetings/transcripts.csv", async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+// アポ内訳に担当が出ない件の切り分け：期間内の商談の owner と獲得者を素で出す。
+app.get("/api/meetings/_ownerdiag", async (req, res) => {
+  try {
+    const from = String(req.query.from || "").trim();
+    const to = String(req.query.to || "").trim();
+    const rows = await listMeetings({ isAdmin: true, limit: 500 }).catch(() => []);
+    const inRange = rows.filter((m) => {
+      if (!from && !to) return true;
+      const d = new Date(new Date(m.created_at).getTime() + 9 * 3600000).toISOString().slice(0, 10);
+      return (!from || d >= from) && (!to || d <= to);
+    });
+    const out = [];
+    for (const m of inRange.slice(0, 100)) {
+      out.push({
+        商談名: m.title || "", 日付: new Date(new Date(m.created_at).getTime() + 9 * 3600000).toISOString().slice(0, 10),
+        owner: m.owner || "(空)", owner_name: m.owner_name || "(なし)",
+        獲得者: m.apo_setter || "(空)", 手入力: !!m.apo_setter_manual,
+      });
+    }
+    res.json({ 件数: inRange.length, 一覧: out });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 app.get("/api/calls/_setterdiag", async (req, res) => {
   try {
     res.json(await apoSetterCoverage({
@@ -18847,7 +18870,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-08r アポ内訳で担当が出ない件を修正：アポ獲得者を手で入力した商談は自動照合を飛ばすため内訳に入らず担当も出ていなかった。獲得者の名前で本人の一覧に加え、セールス担当も表示するようにした。前回(2026-09-08q)：かける画面の横断検索。";
+const BUILD_TAG = "2026-09-08s アポ内訳の担当が出ない件の切り分け用に GET /api/meetings/_ownerdiag?from=&to= を追加（商談ごとの owner・owner_name・獲得者・手入力かを素で確認できる）。前回(2026-09-08r)：手入力商談の担当表示。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
