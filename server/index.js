@@ -7490,7 +7490,10 @@ async function auditCallList(sfUser, listId, buckets, opts = {}) {
   let 反映 = 0, ユーザー化 = 0, クロス化 = 0, 失注化 = 0, 担当そろえ = 0;
   for (const t of withLead) {
     const li = info.get(id15(t.lead_id)) || {};
-    const stage = li.status || t.stage || "";
+    // kincall側で付けた運用ステージ（リサイクル・アーカイブ・ジャッジ）は、SFの状況で上書きしない。
+    // （SF側のリード状況が古いままだと、30分ごとの監査で元に戻ってしまうため）
+    const kincall運用ステージ = /リサイクル|アーカイブ|ジャッジ/;
+    const stage = kincall運用ステージ.test(String(t.stage || "")) ? t.stage : (li.status || t.stage || "");
     const key = normCompanyKey(t.company);
     let statusPatch = undefined;
     const 架電結果 = lastCall.get(id15(t.lead_id)) || "";
@@ -18876,7 +18879,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-08u かける画面の横断検索が出なかった不具合を修正：判定用の変数をファイル後方で宣言していたため、表を描くときにまだ使えず常に出ない状態だった。宣言を先頭へ移し、探している間は『他のメンバーのリストも見ています…』と出すようにした。前回(2026-09-08t)：アポ内訳の担当。";
+const BUILD_TAG = "2026-09-08v リサイクル・ジャッジにしても30分後に戻ってしまうバグを修正：30分ごとのSF監査が、SFのリード状況でkincallのステージを無条件上書きしていた。kincall側で付けた運用ステージ（リサイクル・アーカイブ・ジャッジ）は監査で上書きしないよう保護。前回(2026-09-08u)：横断検索の修正。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
