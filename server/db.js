@@ -8670,3 +8670,22 @@ export async function nurtureMovedByDay(from, to) {
     return rows;
   } catch (e) { console.error("[db] nurtureMovedByDay", e.message); return []; }
 }
+
+// 【一度だけの穴埋め】すでにナーチャリングリストに入っているのに、入れた日時が無いリードへ、
+// 「最後の架電記録の日」を入れた日と見なして記録する（無ければリード作成日、それも無ければ今）。
+export async function backfillNurtureMovedAt() {
+  if (!pool) return { 埋めた: 0 };
+  try {
+    const { rows } = await pool.query(
+      `UPDATE call_targets t
+          SET nurture_moved_at = COALESCE(
+            (SELECT max(cl.at) FROM call_logs cl WHERE cl.target_id = t.id),
+            t.created_at, now())
+        FROM call_lists l
+       WHERE l.id = t.list_id
+         AND (COALESCE(l.kind,'') = 'nurture' OR l.name LIKE '【ナーチャリング】%')
+         AND t.nurture_moved_at IS NULL
+       RETURNING t.id`);
+    return { 埋めた: rows.length };
+  } catch (e) { console.error("[db] backfillNurtureMovedAt", e.message); return { 埋めた: 0, error: e.message }; }
+}

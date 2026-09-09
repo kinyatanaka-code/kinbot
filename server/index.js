@@ -338,6 +338,7 @@ import {
   nurtureCountsByMember,
   nurtureCountsByListName,
   nurtureMovedByDay,
+  backfillNurtureMovedAt,
   nurtureDiag,
   moveToNurtureLists,
   revertFromNurture,
@@ -2131,6 +2132,23 @@ async function sweepMeetingSfRecords({ max = 8 } = {}) {
 }
 globalThis.__kinbotSweepSf = sweepMeetingSfRecords;   // Chatの「SF記録を仕上げて」から呼べるように
 setInterval(() => { sweepMeetingSfRecords().catch((e) => console.error("[商談自動記録]", e.message)); }, 10 * 60 * 1000);
+
+// ナーチャリングの自動まとめ：ジャッジ・営業フォローのリードを、毎晩（JST 21時台）
+// 担当ごとの【ナーチャリング】リストへ移す。入れた日時が残るので、日次の件数が自動で貯まる。
+// 起動時に一度、昔のぶんの「入れた日時」も穴埋めする（最後の架電記録の日を入れた日と見なす）。
+backfillNurtureMovedAt().then((r) => { if (r.埋めた) console.log(`[ナーチャリング] 入れた日時の穴埋め：${r.埋めた}件`); }).catch(() => {});
+let _nurtureAutoDay = "";
+setInterval(async () => {
+  try {
+    if (process.env.NURTURE_AUTO === "0") return;   // 止めたいときは env で
+    const j = new Date(Date.now() + 9 * 3600000);
+    const day = j.toISOString().slice(0, 10);
+    if (j.getUTCHours() !== 21 || _nurtureAutoDay === day) return;   // JST21時台に1日1回
+    _nurtureAutoDay = day;
+    const r = await moveToNurtureLists({ dryRun: false, createdBy: "auto-nurture" });
+    console.log(`[ナーチャリング] 自動まとめ：${r.移動}件（対象${r.対象}）`);
+  } catch (e) { console.error("[ナーチャリング] 自動まとめ", e.message); }
+}, 10 * 60 * 1000);
 
 // SFに紐づいていない（記録できていない）商談を探す。
 // 実際に終わった商談だけを対象にする（社内MTG・ユーザーフォロー、要約も文字起こしも無いものは除く）。
@@ -18897,7 +18915,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-09c 実績のメンバーカードの内訳に(1)ナーチャリング行を追加（その期間にナーチャリングへ入れた件数を日次・週次・月次で表示）、(2)左右矢印で過去の期間も見られるように（→で今に戻る。いま表示中は→は押せない）。ナーチャリングへ入れた日時を記録するようにした（記録開始前のぶんは0のまま）。前回(2026-09-09b)：アポ検索診断。";
+const BUILD_TAG = "2026-09-09d ナーチャリングの日次カウントを自動化：(1)これまでにナーチャリングへ入れた分は、最後の架電記録の日を「入れた日」と見なして穴埋め（起動時に一度だけ）。内訳のナーチャリング行に過去分も出る。(2)毎晩21時台に、ジャッジ・営業フォローを自動で【ナーチャリング】リストへまとめる（env NURTURE_AUTO=0 で停止可）。前回(2026-09-09c)：内訳のナーチャ行と矢印。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
