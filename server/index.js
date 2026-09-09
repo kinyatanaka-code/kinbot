@@ -334,6 +334,7 @@ import {
   fillCallTargetContact,
   apoSetterCoverage,
   listTranscriptsForCsv,
+  searchSmartLinksByLabel,
   nurtureCountsByMember,
   nurtureCountsByListName,
   nurtureDiag,
@@ -18879,7 +18880,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-09a 共有カレンダー（日程調整用グループカレンダー）で作った【初回】予定がアポ一覧に出なかった件を修正：主催者がカレンダーID（@group.calendar.google.com）になるため「本人が主催者でない」と弾かれていた。その場合は作成者で判定するようにした（取り込み・実績集計・診断の3か所）。前回(2026-09-08z)：スキャン診断。";
+const BUILD_TAG = "2026-09-09b アポが一覧に出ない件の切り分け用に GET /api/apo/_find?q=（会社名）を追加：アポのレコードが作られているか、商談日時・取得日・除外・担当を確認できる。前回(2026-09-09a)：共有カレンダー対応。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
@@ -23651,6 +23652,21 @@ app.get("/api/apo/assign-log", async (req, res) => {
 
 // 特定の人のカレンダーを読んで、予定ごとに「アポとして拾えるか／なぜ拾わないか」を出す診断。
 // 例：/api/apo/_scandiag?email=ryota.nakazawa@neo-career.co.jp&days=7
+// アポのレコードを名前で探す（取り込まれているか・除外/日時を確認する）。
+// 例：/api/apo/_find?q=西兵庫
+app.get("/api/apo/_find", async (req, res) => {
+  try {
+    const q = String(req.query.q || "").trim();
+    if (!q) return res.status(400).json({ error: "q を指定してください" });
+    const rows = await searchSmartLinksByLabel(q);
+    const j = (v) => { if (!v) return ""; const x = new Date(new Date(v).getTime() + 9 * 3600000); const p2 = (n) => String(n).padStart(2, "0"); return `${x.getUTCFullYear()}/${p2(x.getUTCMonth() + 1)}/${p2(x.getUTCDate())} ${p2(x.getUTCHours())}:${p2(x.getUTCMinutes())}`; };
+    res.json({ 件数: rows.length, 一覧: rows.map((r) => ({
+      slug: r.slug, 予定名: r.label, 商談日時: j(r.start_time), 取得日: j(r.created_at),
+      担当: r.current_owner || "(未定)", 獲得者: r.setter || "", 除外: !!r.excluded, 事業: r.business || "",
+    })) });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 app.get("/api/apo/_scandiag", async (req, res) => {
   try {
     const email = String(req.query.email || "").trim().toLowerCase();

@@ -8640,3 +8640,14 @@ export async function listTranscriptsForCsv({ from, to, owner = "", limit = 500 
     return rows;
   } catch (e) { console.error("[db] listTranscriptsForCsv", e.message); return []; }
 }
+
+// アポ（smart_links）を予定名で探す（診断用）
+export async function searchSmartLinksByLabel(q) {
+  if (!pool) return [];
+  try {
+    const { rows } = await pool.query(
+      `SELECT slug, label, start_time, created_at, current_owner, setter, excluded, business
+         FROM smart_links WHERE label ILIKE $1 ORDER BY created_at DESC LIMIT 30`, [`%${q}%`]);
+    return rows;
+  } catch (e) { console.error("[db] searchSmartLinksByLabel", e.message); return []; }
+}
