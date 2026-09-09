@@ -8691,3 +8691,15 @@ export async function backfillNurtureMovedAt({ 全部やり直す = false } = {}
     return { 埋めた: rows.length };
   } catch (e) { console.error("[db] backfillNurtureMovedAt", e.message); return { 埋めた: 0, error: e.message }; }
 }
+
+// ナーチャリングリストにいるのに、日付（いつ入れたか）が無い件数
+export async function nurtureNoDateCount() {
+  if (!pool) return 0;
+  try {
+    const { rows } = await pool.query(
+      `SELECT count(*)::int AS n FROM call_targets t JOIN call_lists l ON l.id = t.list_id
+        WHERE (COALESCE(l.kind,'') = 'nurture' OR l.name LIKE '【ナーチャリング】%')
+          AND t.nurture_moved_at IS NULL`);
+    return (rows[0] || {}).n || 0;
+  } catch { return 0; }
+}

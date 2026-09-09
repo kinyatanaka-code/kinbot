@@ -339,6 +339,7 @@ import {
   nurtureCountsByListName,
   nurtureMovedByDay,
   backfillNurtureMovedAt,
+  nurtureNoDateCount,
   nurtureDiag,
   moveToNurtureLists,
   revertFromNurture,
@@ -4528,6 +4529,23 @@ app.post("/api/calls/lists/:id/fill-from-sf", async (req, res) => {
 
 
 // ナーチャリングの条件がデータと合っているかを見る（ステージ・ステータスの実際の値と件数）。
+// ナーチャリングの日次カウントを確認する（日ごと・担当ごとの件数と、日付が入っていない件数）。
+app.get("/api/calls/_nurturedays", async (req, res) => {
+  try {
+    const to = String(req.query.to || "").trim() || new Date(Date.now() + 9 * 3600000).toISOString().slice(0, 10);
+    const from = String(req.query.from || "").trim() ||
+      new Date(new Date(to + "T00:00:00Z").getTime() - 13 * 86400000).toISOString().slice(0, 10);
+    const rows = await nurtureMovedByDay(from, to);
+    const 日ごと = {};
+    for (const r of rows) {
+      const d = r["日"]; 日ごと[d] = 日ごと[d] || { 合計: 0, 内訳: {} };
+      日ごと[d].合計 += Number(r["件数"] || 0);
+      日ごと[d].内訳[String(r.email || "").split("@")[0]] = Number(r["件数"] || 0);
+    }
+    res.json({ 期間: `${from}〜${to}`, 日ごと, 日付なし: await nurtureNoDateCount() });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 app.get("/api/calls/_nurturediag", async (req, res) => {
   try { res.json(await nurtureDiag()); }
   catch (e) { res.status(500).json({ error: e.message }); }
@@ -18921,7 +18939,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-09f ナーチャリングの日付を「営業フォロー・ジャッジにした日」に統一：リストへ移した時刻ではなく、そのリードの最後の架電記録の日で数える。移動時も起動時も同じ基準に揃える。前回(2026-09-09e)：自動移動。";
+const BUILD_TAG = "2026-09-09g ナーチャリングの日次が合わない件の確認用に GET /api/calls/_nurturedays?from=&to= を追加（日ごと・担当ごとの件数と、日付が入っていない件数を返す）。前回(2026-09-09f)：日付の基準を記録日に統一。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
