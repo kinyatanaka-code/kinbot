@@ -839,6 +839,14 @@ app.use(async (req, res, next) => {
     req.impersonatorFrom = getImpersonator(req);
     // 「kincallだけ」の人かどうか（インターン生など）
     req.kincallOnly = !u.admin && (await isKincallOnly(u.username).catch(() => false));
+    // 管理者が他メンバーの画面を操作しているときは、その人の制限に縛られない
+    // （SFの更新など、管理者としてできることはできるようにする）
+    if (req.impersonatorFrom) {
+      try {
+        const im = (await listUsers()).find((x) => String(x.email || "").toLowerCase() === String(req.impersonatorFrom).toLowerCase());
+        if (im && im.admin) { req.isAdmin = true; req.kincallOnly = false; }
+      } catch {}
+    }
     // 代理ログイン中は、元のアカウントに戻る道を必ず開けておく
     const 戻る道 = req.path === "/api/impersonate/stop" || req.path === "/api/me";
     if (req.kincallOnly && !isKincallPath(req.path) && !isKincallSelfSettingPath(req.path) && !戻る道) {
@@ -3437,7 +3445,7 @@ app.post("/api/meetings/sf-check", async (req, res) => {
   try {
     const company = String(req.body?.company || "").trim();
     if (!company) return res.status(400).json({ error: "会社名がありません" });
-    const sfUser = await pickSfUser(req.user);
+    const sfUser = await pickSfUser(req.user, req);
     if (!salesforceConfigured() || !(await sfConnected(sfUser).catch(() => false))) {
       return res.status(400).json({ error: "Salesforceに接続できません" });
     }
@@ -3466,7 +3474,7 @@ app.post("/api/apo/cross-status", async (req, res) => {
     const companies = (Array.isArray(req.body?.companies) ? req.body.companies : [])
       .map((c) => String(c || "").trim()).filter(Boolean).slice(0, 200);
     if (!companies.length) return res.json({ ok: true, byCompany: {} });
-    const sfUser = await pickSfUser(req.user);
+    const sfUser = await pickSfUser(req.user, req);
     if (!salesforceConfigured() || !(await sfConnected(sfUser).catch(() => false))) {
       return res.status(400).json({ error: "Salesforceに接続できません" });
     }
@@ -3520,7 +3528,7 @@ app.post("/api/apo/sf-status", async (req, res) => {
     const slugs = (Array.isArray(req.body?.slugs) ? req.body.slugs : [])
       .map((s) => String(s || "").trim()).filter(Boolean).slice(0, 200);
     if (!slugs.length) return res.json({ ok: true, bySlug: {} });
-    const sfUser = await pickSfUser(req.user);
+    const sfUser = await pickSfUser(req.user, req);
     if (!salesforceConfigured() || !(await sfConnected(sfUser).catch(() => false))) {
       return res.status(400).json({ error: "Salesforceに接続できません" });
     }
@@ -3594,7 +3602,7 @@ app.get("/api/apo/:slug/sf-candidates", async (req, res) => {
     const slug = String(req.params.slug || "");
     const link = await getSmartLink(slug).catch(() => null);
     const co = String(req.query.company || "").trim() || (link ? (companyFromTitle(link.label || "") || link.company || "") : "");
-    const sfUser = await pickSfUser(req.user);
+    const sfUser = await pickSfUser(req.user, req);
     if (!salesforceConfigured() || !(await sfConnected(sfUser).catch(() => false))) {
       return res.status(400).json({ error: "Salesforceに接続できません" });
     }
@@ -3621,7 +3629,7 @@ app.post("/api/apo/:slug/sf-link", async (req, res) => {
     const slug = String(req.params.slug || "");
     const oppId = req.body?.oppId ? String(req.body.oppId).trim() : "";
     if (!oppId) { await clearApoOppLink(slug); console.log(`[apo-link] ${slug} のひも付けを外しました by ${req.user}`); return res.json({ ok: true, linked: false }); }
-    const sfUser = await pickSfUser(req.user);
+    const sfUser = await pickSfUser(req.user, req);
     if (!salesforceConfigured() || !(await sfConnected(sfUser).catch(() => false))) {
       return res.status(400).json({ error: "Salesforceに接続できません" });
     }
@@ -6992,7 +7000,7 @@ app.post("/api/calls/lists", async (req, res) => {
         .filter((x) => x.leadId && insideSet.has(String(x.assignedTo || req.user).toLowerCase()))
         .map((x) => x.leadId);
       if (insideLeadIds.length) {
-        const r = await reassignCloserLeadsToProxy(await pickSfUser(req.user), insideLeadIds);
+        const r = await reassignCloserLeadsToProxy(await pickSfUser(req.user, req), insideLeadIds);
         所有者変更 = r.changed;
         if (r.judge) 所有者メモ = `ジャッジ ${r.judge}件は所有者を変えていません`;
         if (r.errors.length) 所有者メモ = (所有者メモ ? 所有者メモ + " ／ " : "") + r.errors.slice(0, 2).join(" ／ ");
@@ -7121,8 +7129,12 @@ app.post("/api/calls/from-leads", async (req, res) => {
 const NAKAZAWA_EMAIL = "ryota.nakazawa@neo-career.co.jp";
 
 // SF操作に使う連携アカウント（自分が未連携なら「代わりに更新する人」）
-async function pickSfUser(user) {
+async function pickSfUser(user, req = null) {
   if (await sfConnected(user).catch(() => false)) return user;
+  // 他メンバーの画面を操作しているとき（代理ログイン）は、操作している本人のSFで更新する。
+  // 相手がSFにつながっていなくても、記録がSFに残るようにするため。
+  const 操作者 = req && req.impersonatorFrom ? String(req.impersonatorFrom).toLowerCase() : "";
+  if (操作者 && (await sfConnected(操作者).catch(() => false))) return 操作者;
   const st = await getSettings().catch(() => ({}));
   const 代理 = String(st.sfProxyUser || "").trim().toLowerCase();
   if (代理 && (await sfConnected(代理).catch(() => false))) return 代理;
@@ -7315,7 +7327,7 @@ app.post("/api/calls/from-report", async (req, res) => {
         .filter((x) => x.leadId && insideSet.has(String(x.assignedTo || listOwner).toLowerCase()))
         .map((x) => x.leadId);
       if (insideLeadIds.length) {
-        const r = await reassignCloserLeadsToProxy(await pickSfUser(req.user), insideLeadIds);
+        const r = await reassignCloserLeadsToProxy(await pickSfUser(req.user, req), insideLeadIds);
         所有者変更 = r.changed;
         if (r.judge) 所有者メモ = `ジャッジ ${r.judge}件は所有者を変えていません`;
         if (r.errors.length) 所有者メモ = (所有者メモ ? 所有者メモ + " ／ " : "") + r.errors.slice(0, 2).join(" ／ ");
@@ -7583,7 +7595,7 @@ app.post("/api/calls/lists/:id/refresh-sf", async (req, res) => {
     // SFの状態更新は誰でもできる（SFアカウントの無い人は代理で読む）
     const id = parseInt(req.params.id, 10);
     if (!id) return res.status(400).json({ error: "リストが指定されていません" });
-    const sfUser = await pickSfUser(req.user);
+    const sfUser = await pickSfUser(req.user, req);
     if (!salesforceConfigured() || !(await sfConnected(sfUser).catch(() => false))) {
       return res.status(400).json({ error: "Salesforceに接続できません" });
     }
@@ -7604,7 +7616,7 @@ app.post("/api/calls/lists/:id/to-cross", async (req, res) => {
     if (!req.isAdmin && !(await isCloserUser(req.user))) return res.status(403).json({ error: "クローザー・管理者だけが使えます" });
     const id = parseInt(req.params.id, 10);
     if (!id) return res.status(400).json({ error: "リストが指定されていません" });
-    const sfUser = await pickSfUser(req.user);
+    const sfUser = await pickSfUser(req.user, req);
     if (!salesforceConfigured() || !(await sfConnected(sfUser).catch(() => false))) {
       return res.status(400).json({ error: "Salesforceに接続できません" });
     }
@@ -7656,7 +7668,7 @@ app.post("/api/calls/lists/:id/to-sf", async (req, res) => {
     // SFアカウントの無い人は代理＝中澤良太の連携で動く。
     const id = parseInt(req.params.id, 10);
     if (!id) return res.status(400).json({ error: "リストが指定されていません" });
-    const sfUser = await pickSfUser(req.user);
+    const sfUser = await pickSfUser(req.user, req);
     if (!salesforceConfigured() || !(await sfConnected(sfUser).catch(() => false))) {
       return res.status(400).json({ error: "Salesforceに接続できません" });
     }
@@ -8325,7 +8337,7 @@ app.post("/api/calls/targets/:id/history/edit", async (req, res) => {
 
     // SFの活動を直す
     if (b.taskId) {
-      const sfUser = await pickSfUser(req.user);
+      const sfUser = await pickSfUser(req.user, req);
       if (!salesforceConfigured() || !(await sfConnected(sfUser).catch(() => false))) {
         return res.status(400).json({ error: "Salesforceにつながっていません" });
       }
@@ -8478,7 +8490,7 @@ app.post("/api/calls/targets/:id/doc/send", async (req, res) => {
       result: "資料送付", memo: `資料URLを ${to} に送付（件名：${subject}）`, caller: req.user,
     }).catch(() => null);
     if (t.lead_id && salesforceConfigured()) {
-      const sfUser = await pickSfUser(req.user);
+      const sfUser = await pickSfUser(req.user, req);
       if (await sfConnected(sfUser).catch(() => false)) {
         const 記録者 = await displayNameOf(req.user).catch(() => req.user);
         try {
@@ -8511,7 +8523,7 @@ app.post("/api/calls/targets/:id/stage", async (req, res) => {
 
     let sf = { ok: false, reason: "" };
     if (t.lead_id && salesforceConfigured()) {
-      const sfUser = await pickSfUser(req.user);
+      const sfUser = await pickSfUser(req.user, req);
       if (await sfConnected(sfUser).catch(() => false)) {
         try { await updateLead(sfUser, t.lead_id, { Status: stage }); sf = { ok: true }; }
         catch (e) { sf = { ok: false, reason: String(e.message).slice(0, 120) }; }
@@ -9612,7 +9624,7 @@ app.post("/api/calls/lists/:id/dedupe-activities", async (req, res) => {
     if (!id) return res.status(400).json({ error: "リストを選んでください" });
     const dryRun = !(req.body && req.body.dryRun === false);
 
-    const sfUser = await pickSfUser(req.user);
+    const sfUser = await pickSfUser(req.user, req);
     if (!salesforceConfigured() || !(await sfConnected(sfUser).catch(() => false))) {
       return res.status(400).json({ error: "Salesforceにつながっていません" });
     }
@@ -18958,7 +18970,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-09h ナーチャリングの日次が合わない件を修正：(1)架電記録が無いリードはリードの作成日を使う（これまで日付なしで日次に出ていなかった）(2)日付の揃え直しを自動まとめのたびに実行（記録直後・10分ごと）。深夜に移動した分も、記録した日でカウントされる。前回(2026-09-09g)：診断の追加。";
+const BUILD_TAG = "2026-09-09i 管理者が他メンバーの画面を操作しているとき、Salesforceの更新ができるように：相手がSFにつながっていなくても、操作している本人（管理者）のSFで記録を反映する。あわせて代理操作中も管理者の権限を保つ。前回(2026-09-09h)：ナーチャリング日次の修正。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
