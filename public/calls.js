@@ -105,6 +105,7 @@ async function loadTable() {
 }
 
 // 絞り込みと並べ替えの状態
+let canFindAll = false;              // 全メンバーのリストを横断して探せる人（管理者）
 const filt = { stage: new Set(), status: new Set(), hist: "", post: "", hireMin: "", hireMax: "", extra: {} };
 try { const _f = JSON.parse(localStorage.getItem("kcFilt") || "{}");
   if (Array.isArray(_f.stage)) filt.stage = new Set(_f.stage);
@@ -463,6 +464,7 @@ async function findAcrossMembers() {
   const q = ($("clFind") && $("clFind").value || "").trim();
   if (!box || q.length < 2) return;
   if (_allHitFor === q && box.dataset.done === "1") return;   // 同じ言葉で二度引かない
+  box.innerHTML = '<div class="note">他のメンバーのリストも見ています…</div>';
   _allHitFor = q;
   try {
     const d = await (await fetch("/api/calls/search-all?q=" + encodeURIComponent(q))).json();
@@ -3417,7 +3419,6 @@ let iAmCloser = false;               // クローザー（管理者含む）＝�
 let iAmRedistributor = false;        // 他メンバーへ割り振れる（クローザー・管理者＋インサイド）
 let iAmAdmin = false;                // 管理者（遅刻回数の入力など、管理者だけの操作に使う）
 let canHideList = false;             // リストの表示・非表示を変えられる人（管理者＋決められたメンバー）
-let canFindAll = false;              // 全メンバーのリストを横断して探せる人（管理者）
 let appendTarget = null;             // {id, name}：既存リストに追加する先
 let csvAddMode = false;              // CSV：作成する(false)／追加する(true)
 let callAsMember = "";               // かける画面を、この担当の割り振りぶんだけで見る（空＝全部）
