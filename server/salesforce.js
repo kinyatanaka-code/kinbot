@@ -1631,3 +1631,23 @@ export async function findLeadsByPhone(owner, { phone = "", company = "", limit 
     return rows;
   } catch (e) { console.warn("[SF] findLeadsByPhone", e.message); return []; }
 }
+
+// lead_id をまとめて渡して、名前・メール・電話を取り出す（kincallの補完用）。
+export async function leadsByIds(owner, ids = []) {
+  const clean = [...new Set((ids || []).map((x) => String(x || "").replace(/[^a-zA-Z0-9]/g, "")).filter((x) => x.length >= 15))];
+  if (!clean.length) return {};
+  const out = {};
+  const CHUNK = 150;   // SOQLが長くなりすぎないよう小分けにする
+  for (let i = 0; i < clean.length; i += CHUNK) {
+    const inList = clean.slice(i, i + CHUNK).map((x) => `'${x}'`).join(",");
+    try {
+      const d = await sfQuery(owner,
+        `SELECT Id, Name, LastName, FirstName, Email, Phone, MobilePhone, Company FROM Lead WHERE Id IN (${inList})`);
+      for (const r of (d.records || [])) {
+        out[String(r.Id).slice(0, 15)] = r;
+        out[String(r.Id)] = r;
+      }
+    } catch (e) { console.warn("[SF] leadsByIds", e.message); }
+  }
+  return out;
+}

@@ -4184,7 +4184,7 @@ async function asLoadMember(email, name) {
           if (d.error) throw new Error(d.error);
           const rows = d.例 || [];
           const inner =
-            `<p class="note" style="margin:0 0 8px">電話番号からSalesforceを探しました。
+            `<p class="note" style="margin:0 0 8px">Salesforceから読み取りました（紐づいているリードはそのリードから、紐づいていないものは電話番号で探します）。
                入れられる <b>${d.入った}</b>件／候補が複数（自動では入れません） <b>${d.候補が複数}</b>件／見つからない <b>${d.見つからない}</b>件。
                空欄のところにだけ入ります。</p>` +
             (rows.length

@@ -562,6 +562,7 @@ import {
   runReport,
   reportFilters,
   findLeadsByPhone,
+  leadsByIds,
   listDashboards,
   describeDashboard,
   exportLeads,
@@ -4518,10 +4519,27 @@ app.post("/api/calls/lists/:id/fill-from-sf", async (req, res) => {
     const dryRun = req.body?.dryRun === true;   // 試算のときはリードを触らない
     const rows = await listCallTargets(listId, { limit: 3000 }).catch(() => []);
     // 電話があって、名前かメールか紐づけのどれかが空のものだけ見る
-    const 対象 = rows.filter((r) => String(r.phone || "").replace(/[^\d]/g, "").length >= 9 &&
-      (!r.person || !r.email || !r.lead_id));
+    // ① SFのリードに紐づいている（lead_id あり）→ そのリードから名前・メールを読む（確実）
+    const 紐づき = rows.filter((r) => r.lead_id && (!r.person || !r.email));
+    const sfUser2 = await pickSfUser(req.user, req);
+    const leadMap = 紐づき.length ? await leadsByIds(sfUser2, 紐づき.map((r) => r.lead_id)).catch(() => ({})) : {};
+    // ② 紐づいていない → 電話番号で探す
+    const 対象 = rows.filter((r) => !r.lead_id && String(r.phone || "").replace(/[^\d]/g, "").length >= 9 &&
+      (!r.person || !r.email));
     let 入った = 0, 候補が複数 = 0, 見つからない = 0;
     const 例 = [];
+    // ①のぶんを先に入れる
+    for (const t of 紐づき) {
+      const L = leadMap[String(t.lead_id).slice(0, 15)] || leadMap[String(t.lead_id)];
+      if (!L) { 見つからない++; continue; }
+      const patch = {};
+      if (!t.person && (L.Name || L.LastName)) patch.person = L.Name || L.LastName;
+      if (!t.email && L.Email) patch.email = L.Email;
+      if (!Object.keys(patch).length) continue;
+      入った++;
+      if (例.length < 500) 例.push({ id: t.id, 会社: t.company, 電話: t.phone, 名前: patch.person || "", メール: patch.email || "", 紐づけ: "済み" });
+      if (!dryRun) await fillCallTargetContact(t.id, patch).catch(() => {});
+    }
     for (const t of 対象) {
       const hits = await findLeadsByPhone(req.user, { phone: t.phone, company: t.company }).catch(() => []);
       if (!hits.length) { 見つからない++; continue; }
@@ -4536,7 +4554,9 @@ app.post("/api/calls/lists/:id/fill-from-sf", async (req, res) => {
       if (例.length < 500) 例.push({ id: t.id, 会社: t.company, 電話: t.phone, 名前: patch.person || "", メール: patch.email || "", 紐づけ: patch.leadId ? "つける" : "" });
       if (!dryRun) await fillCallTargetContact(t.id, patch).catch(() => {});
     }
-    res.json({ ok: true, dryRun, 対象: 対象.length, 入った, 候補が複数, 見つからない, 例 });
+    res.json({ ok: true, dryRun, 対象: 紐づき.length + 対象.length,
+      SFに紐づいている: 紐づき.length, 電話から探した: 対象.length,
+      入った, 候補が複数, 見つからない, 例 });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
@@ -18971,7 +18991,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-09j 代理操作中に「クローザー・管理者だけが実行できます」と出る不具合を修正：操作している人が管理者かどうかの判定が効いていなかった（名簿からは管理者かどうかが分からないため）。管理者の設定を直接見るようにし、クローザーが操作しているときもその権限で動けるようにした。前回(2026-09-09i)：代理時のSF更新。";
+const BUILD_TAG = "2026-09-09k 「SFから補う」を強化：SFのリードに紐づいているリードは、そのリードから直接 名前・メールを読み取るように（これまでは電話番号で探すだけだった）。紐づいていないものは従来どおり電話番号で照合。空欄のときだけ入れる点は同じ。前回(2026-09-09j)：代理操作の権限。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
