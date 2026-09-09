@@ -95,7 +95,12 @@ async function loadTable() {
     return;
   }
   if (listId === "all" || listId === "archive" || listId === "recycle") selectedIds.clear();
-  box.innerHTML = '<div class="empty-state">読み込んでいます…</div>';
+  {
+    const q0 = ($("clFind") && $("clFind").value || "").trim();
+    box.innerHTML = '<div class="empty-state">読み込んでいます…</div>' +
+      (canFindAll && q0.length >= 2 ? '<div class="kc-allhit" id="kcAllHit"></div>' : "");
+    if (canFindAll && q0.length >= 2) findAcrossMembers();   // 自分のリストの読み込みを待たずに、横断で先に探す
+  }
   try {
     const q = $("clFind") && $("clFind").value.trim();
     const who = (callAsMember && listId !== "all") ? "&assignedTo=" + encodeURIComponent(callAsMember) : "";
@@ -480,7 +485,7 @@ async function findAcrossMembers() {
     box.dataset.done = "1";
     if (!items.length) { box.innerHTML = ""; return; }
     box.innerHTML =
-      `<details class="kc-allhit-d"><summary>他のメンバーのリストにも <b>${items.length}</b> 件あります（押すと開く）</summary>` +
+      `<details class="kc-allhit-d" open><summary>全メンバーのリストから <b>${items.length}</b> 件みつかりました</summary>` +
       `<div class="lst-wrap"><table class="lst-tbl"><thead><tr>
          <th>会社名</th><th>担当者</th><th>電話</th><th>ステージ</th><th>リスト</th><th>持ち主・担当</th>
        </tr></thead><tbody>` +
@@ -678,7 +683,7 @@ function render() {
   const hideBtn = $("kcHideApo");
   if (hideBtn) hideBtn.addEventListener("click", () => { hideApo = !hideApo; render(); });
   // 管理者だけ：いまのリストに無くても、他のメンバーのリストから探せる
-  if (canFindAll && $("kcAllHit")) findAcrossMembers();
+  if (canFindAll && $("kcAllHit")) { _allHitFor = ""; findAcrossMembers(); }
   const fReset = $("kcFiltReset");
   if (fReset) fReset.addEventListener("click", () => {
     filt.stage = new Set(); filt.status = new Set(); filt.hist = "";
