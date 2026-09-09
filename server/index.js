@@ -842,10 +842,11 @@ app.use(async (req, res, next) => {
     // 管理者が他メンバーの画面を操作しているときは、その人の制限に縛られない
     // （SFの更新など、管理者としてできることはできるようにする）
     if (req.impersonatorFrom) {
-      try {
-        const im = (await listUsers()).find((x) => String(x.email || "").toLowerCase() === String(req.impersonatorFrom).toLowerCase());
-        if (im && im.admin) { req.isAdmin = true; req.kincallOnly = false; }
-      } catch {}
+      const 操作者 = String(req.impersonatorFrom).toLowerCase();
+      const 管理者一覧 = String(process.env.ADMIN_EMAILS || "").split(",").map((x) => x.trim().toLowerCase()).filter(Boolean);
+      if (操作者 === "admin" || 管理者一覧.includes(操作者)) { req.isAdmin = true; req.kincallOnly = false; }
+      // クローザーが操作しているときも、その人の権限で動けるようにする
+      else if (await isCloserUser(操作者).catch(() => false)) { req.actingCloser = true; req.kincallOnly = false; }
     }
     // 代理ログイン中は、元のアカウントに戻る道を必ず開けておく
     const 戻る道 = req.path === "/api/impersonate/stop" || req.path === "/api/me";
@@ -4567,7 +4568,7 @@ app.get("/api/calls/_nurturedate", async (req, res) => {
 // ナーチャリングの日付を「営業フォロー・ジャッジにした日」へ今すぐ揃え直す。
 app.post("/api/calls/nurture-redate", async (req, res) => {
   try {
-    if (!req.isAdmin && !(await isCloserUser(req.user))) return res.status(403).json({ error: "クローザー・管理者だけが実行できます" });
+    if (!req.isAdmin && !req.actingCloser && !(await isCloserUser(req.user))) return res.status(403).json({ error: "クローザー・管理者だけが実行できます" });
     const r = await backfillNurtureMovedAt({ 全部やり直す: true });
     res.json({ ok: true, ...r });
   } catch (e) { res.status(500).json({ error: e.message }); }
@@ -4592,7 +4593,7 @@ app.get("/api/calls/nurture-move", async (req, res) => {
 });
 app.post("/api/calls/nurture-move", async (req, res) => {
   try {
-    if (!req.isAdmin && !(await isCloserUser(req.user))) return res.status(403).json({ error: "クローザー・管理者だけが実行できます" });
+    if (!req.isAdmin && !req.actingCloser && !(await isCloserUser(req.user))) return res.status(403).json({ error: "クローザー・管理者だけが実行できます" });
     const r = await moveToNurtureLists({ dryRun: false, createdBy: req.user });
     console.log(`[kincall] ナーチャリングへ移動：${r.移動}件（対象${r.対象}）by ${req.user}`);
     res.json({ ok: true, ...r });
@@ -4607,7 +4608,7 @@ app.get("/api/calls/nurture-fix", async (req, res) => {
 });
 app.post("/api/calls/nurture-fix", async (req, res) => {
   try {
-    if (!req.isAdmin && !(await isCloserUser(req.user))) return res.status(403).json({ error: "クローザー・管理者だけが実行できます" });
+    if (!req.isAdmin && !req.actingCloser && !(await isCloserUser(req.user))) return res.status(403).json({ error: "クローザー・管理者だけが実行できます" });
     const r = await revertWrongNurture({ dryRun: false });
     console.log(`[kincall] ナーチャリングの入れ違いを戻す：${r.戻した}件 by ${req.user}`);
     res.json({ ok: true, ...r });
@@ -4617,7 +4618,7 @@ app.post("/api/calls/nurture-fix", async (req, res) => {
 // ナーチャリングのリードを元のリストへ戻す（ids指定 or その人のぶん全部）。
 app.post("/api/calls/nurture-revert", async (req, res) => {
   try {
-    if (!req.isAdmin && !(await isCloserUser(req.user))) return res.status(403).json({ error: "クローザー・管理者だけが実行できます" });
+    if (!req.isAdmin && !req.actingCloser && !(await isCloserUser(req.user))) return res.status(403).json({ error: "クローザー・管理者だけが実行できます" });
     const ids = Array.isArray(req.body?.ids) ? req.body.ids : null;
     const owner = String(req.body?.owner || "").trim();
     const all = req.body?.all === true;   // 担当を指定しない＝全員ぶん戻す
@@ -4676,7 +4677,7 @@ app.get("/api/calls/pull-archived", async (req, res) => {
 });
 app.post("/api/calls/pull-archived", async (req, res) => {
   try {
-    if (!req.isAdmin && !(await isCloserUser(req.user))) return res.status(403).json({ error: "クローザー・管理者だけが実行できます" });
+    if (!req.isAdmin && !req.actingCloser && !(await isCloserUser(req.user))) return res.status(403).json({ error: "クローザー・管理者だけが実行できます" });
     const r = await pullArchivedFromRevival({ archiveStage: process.env.ARCHIVE_STAGE || "99アーカイブ", dryRun: false });
     console.log(`[kincall] 復活リストのアーカイブを戻しました：${r.戻した}件 by ${req.user}`);
     res.json({ ok: true, ...r });
@@ -4690,7 +4691,7 @@ app.get("/api/calls/revert-archived", async (req, res) => {
 });
 app.post("/api/calls/revert-archived", async (req, res) => {
   try {
-    if (!req.isAdmin && !(await isCloserUser(req.user))) return res.status(403).json({ error: "クローザー・管理者だけが実行できます" });
+    if (!req.isAdmin && !req.actingCloser && !(await isCloserUser(req.user))) return res.status(403).json({ error: "クローザー・管理者だけが実行できます" });
     const r = await revertArchivedFromRevival({ dryRun: false, archiveStage: process.env.ARCHIVE_STAGE || "99アーカイブ" });
     console.log(`[kincall] 復活リストのアーカイブ ${r.戻した}件をアーカイブに戻しました by ${req.user}`);
     res.json({ ok: true, ...r });
@@ -4706,7 +4707,7 @@ app.get("/api/calls/recycle-distribute", async (req, res) => {
 });
 app.post("/api/calls/recycle-distribute", async (req, res) => {
   try {
-    if (!req.isAdmin && !(await isCloserUser(req.user))) return res.status(403).json({ error: "クローザー・管理者だけが実行できます" });
+    if (!req.isAdmin && !req.actingCloser && !(await isCloserUser(req.user))) return res.status(403).json({ error: "クローザー・管理者だけが実行できます" });
     const perMember = Math.max(1, Math.min(500, parseInt(req.body?.per, 10) || 50));
     const members = await insideMembersForDistribute();
     const r = await distributeRecycleToMembers({ members, perMember, dryRun: false, createdBy: req.user });
@@ -4722,7 +4723,7 @@ app.get("/api/calls/recycle-temperatures", async (req, res) => {
 });
 app.post("/api/calls/recycle-temperatures", async (req, res) => {
   try {
-    if (!req.isAdmin && !(await isCloserUser(req.user))) return res.status(403).json({ error: "クローザー・管理者だけが実行できます" });
+    if (!req.isAdmin && !req.actingCloser && !(await isCloserUser(req.user))) return res.status(403).json({ error: "クローザー・管理者だけが実行できます" });
     const onlyMissing = req.body?.all !== true;   // 既定は温度が無いものだけ。all=true で全リサイクルに付け直す。
     const r = await tagRecycleTemperatures({ dryRun: false, onlyMissing });
     console.log(`[kincall] リサイクルの温度タグ付け：対象${r.対象} 更新${r.更新}（A:${r.内訳.A||0} B:${r.内訳.B||0} C:${r.内訳.C||0}）by ${req.user}`);
@@ -4744,7 +4745,7 @@ app.get("/api/calls/recycle-rules", async (req, res) => {
 });
 app.put("/api/calls/recycle-rules/:id", async (req, res) => {
   try {
-    if (!req.isAdmin && !(await isCloserUser(req.user))) return res.status(403).json({ error: "クローザー・管理者だけが編集できます" });
+    if (!req.isAdmin && !req.actingCloser && !(await isCloserUser(req.user))) return res.status(403).json({ error: "クローザー・管理者だけが編集できます" });
     const id = parseInt(req.params.id, 10);
     if (!id) return res.status(400).json({ error: "idがありません" });
     const r = await updateRecycleRule(id, req.body || {});
@@ -7613,7 +7614,7 @@ app.post("/api/calls/lists/:id/refresh-sf", async (req, res) => {
 // 既にクロスのものは触らない。少しずつ（既定20件）処理して残数を返す。
 app.post("/api/calls/lists/:id/to-cross", async (req, res) => {
   try {
-    if (!req.isAdmin && !(await isCloserUser(req.user))) return res.status(403).json({ error: "クローザー・管理者だけが使えます" });
+    if (!req.isAdmin && !req.actingCloser && !(await isCloserUser(req.user))) return res.status(403).json({ error: "クローザー・管理者だけが使えます" });
     const id = parseInt(req.params.id, 10);
     if (!id) return res.status(400).json({ error: "リストが指定されていません" });
     const sfUser = await pickSfUser(req.user, req);
@@ -7741,7 +7742,7 @@ app.post("/api/calls/lists/:id/relink-reset", async (req, res) => {
 // 選んだ架電先を、別のリストへそのまま移す（既存リストへ移動・担当は移行先の持ち主に付け替え）。
 app.post("/api/calls/targets/move", async (req, res) => {
   try {
-    if (!req.isAdmin && !(await isCloserUser(req.user))) return res.status(403).json({ error: "クローザー・管理者だけが使えます" });
+    if (!req.isAdmin && !req.actingCloser && !(await isCloserUser(req.user))) return res.status(403).json({ error: "クローザー・管理者だけが使えます" });
     const b = req.body || {};
     const ids = (Array.isArray(b.ids) ? b.ids : []).map((x) => parseInt(x, 10)).filter(Boolean).slice(0, 5000);
     const toListId = parseInt(b.toListId, 10) || 0;
@@ -7778,7 +7779,7 @@ app.post("/api/calls/lists/:id/redistribute", async (req, res) => {
 // まず dryRun:true で件数を確認してから、dryRun:false で消す。
 app.post("/api/calls/lists/cleanup", async (req, res) => {
   try {
-    if (!req.isAdmin && !(await isCloserUser(req.user))) return res.status(403).json({ error: "クローザー・管理者だけが使えます" });
+    if (!req.isAdmin && !req.actingCloser && !(await isCloserUser(req.user))) return res.status(403).json({ error: "クローザー・管理者だけが使えます" });
     const b = req.body || {};
     const nameLike = String(b.nameLike || "").trim();
     if (!nameLike) return res.status(400).json({ error: "消す目印（名前の一部）を入れてください" });
@@ -7802,7 +7803,7 @@ app.post("/api/calls/lists/cleanup", async (req, res) => {
 // 「消えた」ように見えるリストが、実はDBに残っていないかを確認するために使う。
 app.get("/api/calls/lists/all", async (req, res) => {
   try {
-    if (!req.isAdmin && !(await isCloserUser(req.user))) return res.status(403).json({ error: "クローザー・管理者だけが使えます" });
+    if (!req.isAdmin && !req.actingCloser && !(await isCloserUser(req.user))) return res.status(403).json({ error: "クローザー・管理者だけが使えます" });
     const like = String(req.query.nameLike || "").trim();
     const all = await findListsByNameSince(like || "%", 60 * 24 * 3650).catch(() => []);
     // findListsByNameSince は「名前の一部」で絞るので、空なら全部見えるように "%" を渡している
@@ -8448,7 +8449,7 @@ app.get("/api/calls/doc-settings", async (req, res) => {
 // 資料送付の設定を保存（クローザー・管理者のみ）
 app.put("/api/calls/doc-settings", async (req, res) => {
   try {
-    if (!req.isAdmin && !(await isCloserUser(req.user))) return res.status(403).json({ error: "クローザー・管理者だけが変えられます" });
+    if (!req.isAdmin && !req.actingCloser && !(await isCloserUser(req.user))) return res.status(403).json({ error: "クローザー・管理者だけが変えられます" });
     const b = req.body || {};
     const patch = {};
     if (b.subject !== undefined) patch.docSendSubject = String(b.subject || "").slice(0, 300);
@@ -8616,7 +8617,7 @@ app.get("/api/meetings/transcripts.csv", async (req, res) => {
     const owner = String(req.query.owner || "").trim();
     // 自分のぶん以外は、管理者かクローザーだけ
     if (owner && owner.toLowerCase() !== String(req.user || "").toLowerCase()) {
-      if (!req.isAdmin && !(await isCloserUser(req.user))) {
+      if (!req.isAdmin && !req.actingCloser && !(await isCloserUser(req.user))) {
         return res.status(403).json({ error: "他の人のぶんは、クローザー・管理者だけが落とせます" });
       }
     }
@@ -9091,7 +9092,7 @@ app.get("/api/calls/unmatched-meetings", async (req, res) => {
 // 商談にアポ獲得者を手で割り当てる（管理者だけ）。空にすると未照合に戻す。
 app.post("/api/calls/set-apo-setter", async (req, res) => {
   try {
-    if (!req.isAdmin && !(await isCloserUser(req.user))) return res.status(403).json({ error: "クローザー・管理者だけが割り当てられます" });
+    if (!req.isAdmin && !req.actingCloser && !(await isCloserUser(req.user))) return res.status(403).json({ error: "クローザー・管理者だけが割り当てられます" });
     const botId = String(req.body?.botId || "").trim();
     if (!botId) return res.status(400).json({ error: "商談が指定されていません" });
     const name = String(req.body?.name || "").trim();
@@ -9117,7 +9118,7 @@ app.get("/api/calls/incentive-late", async (req, res) => {
 // インセンティブの遅刻回数を入力する（クローザー・管理者）。1回につき ¥1,000 減る。
 app.put("/api/calls/incentive-late", async (req, res) => {
   try {
-    if (!req.isAdmin && !(await isCloserUser(req.user))) return res.status(403).json({ error: "クローザー・管理者だけが変更できます" });
+    if (!req.isAdmin && !req.actingCloser && !(await isCloserUser(req.user))) return res.status(403).json({ error: "クローザー・管理者だけが変更できます" });
     const name = String(req.body?.name || "").trim();
     if (!name) return res.status(400).json({ error: "名前がありません" });
     let count = parseInt(req.body?.count, 10);
@@ -18970,7 +18971,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-09i 管理者が他メンバーの画面を操作しているとき、Salesforceの更新ができるように：相手がSFにつながっていなくても、操作している本人（管理者）のSFで記録を反映する。あわせて代理操作中も管理者の権限を保つ。前回(2026-09-09h)：ナーチャリング日次の修正。";
+const BUILD_TAG = "2026-09-09j 代理操作中に「クローザー・管理者だけが実行できます」と出る不具合を修正：操作している人が管理者かどうかの判定が効いていなかった（名簿からは管理者かどうかが分からないため）。管理者の設定を直接見るようにし、クローザーが操作しているときもその権限で動けるようにした。前回(2026-09-09i)：代理時のSF更新。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
