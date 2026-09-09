@@ -789,7 +789,8 @@ function renderInternDash(body, d) {
     for (const r of withMeetings) {
       html += `<details class="ia-details"><summary>${esc(r.name)}　<b>${r.count}件</b></summary>` +
         `<ul class="ia-list">` +
-        r.meetings.map((m) => `<li><span class="ia-date">${esc(m.date || "")}</span>${esc(m.title || "(商談名なし)")}</li>`).join("") +
+        r.meetings.map((m) => `<li><span class="ia-date">${esc(m.date || "")}</span>${esc(m.title || "(商談名なし)")}` +
+          (m.owner ? `<span class="ia-owner">担当：${esc(m.owner)}</span>` : "") + `</li>`).join("") +
         `</ul></details>`;
     }
     html += "</div>";
@@ -799,7 +800,8 @@ function renderInternDash(body, d) {
   if ((d.unmatched_list || []).length) {
     html += '<div class="fn4-card"><details class="ia-details"><summary>どのインターンとも一致しなかった商談　<b>' + d.unmatched_list.length + '件</b></summary>' +
       '<ul class="ia-list">' +
-      d.unmatched_list.map((m) => `<li><span class="ia-date">${esc(m.date || "")}</span>${esc(m.title || "(商談名なし)")}</li>`).join("") +
+      d.unmatched_list.map((m) => `<li><span class="ia-date">${esc(m.date || "")}</span>${esc(m.title || "(商談名なし)")}` +
+        (m.owner ? `<span class="ia-owner">担当：${esc(m.owner)}</span>` : "") + `</li>`).join("") +
       '</ul></details></div>';
   }
 

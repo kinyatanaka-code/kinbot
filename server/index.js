@@ -14898,6 +14898,12 @@ app.post("/api/interns/match", async (req, res) => {
     const descEvents = []; // { coKey, title, date, setter }
     let descOwnersRead = 0, descOwnersFail = 0;
     const ownerEmails = [...new Set(meetings.map((m) => String(m.owner || "").toLowerCase()).filter(Boolean))];
+    // セールス担当の表示名（内訳に出すため）
+    const ownerNames = {};
+    for (const oe of ownerEmails) {
+      try { ownerNames[oe] = await displayNameOf(oe); } catch { ownerNames[oe] = oe; }
+    }
+    const 担当名 = (m) => ownerNames[String(m.owner || "").toLowerCase()] || m.owner || "";
     for (const oe of ownerEmails) {
       let evs = null;
       try { evs = await listCalendarEvents(oe, oe, { timeMin, timeMax }); descOwnersRead++; }
@@ -14927,7 +14933,7 @@ app.post("/api/interns/match", async (req, res) => {
       if (m.apo_setter_manual) { matchedCount++; continue; }
       const mDate = jstDateStr(m.created_at);
       const mParts = apoNameParts(m.title);
-      if (!apoCompanyKey(mParts.company)) { unmatched.push({ bot_id: m.bot_id, title: m.title, date: mDate }); continue; }
+      if (!apoCompanyKey(mParts.company)) { unmatched.push({ bot_id: m.bot_id, title: m.title, date: mDate, owner: 担当名(m) }); continue; }
       // まず、予定本文の「アポ獲得」で照合する（担当カレンダーのkinbot予定）。表記ゆれに強い。
       {
         const mCo = apoCompanyKey(mParts.company);
@@ -14944,7 +14950,7 @@ app.post("/api/interns/match", async (req, res) => {
           touchedSetters.add(hit.setter);
           const norm = (s) => String(s || "").replace(/[\s　]/g, "");
           const it = interns.find((x) => norm(x.name) === norm(hit.setter));
-          if (it && perIntern[it.email]) perIntern[it.email].matched.push({ bot_id: m.bot_id, title: m.title, date: mDate });
+          if (it && perIntern[it.email]) perIntern[it.email].matched.push({ bot_id: m.bot_id, title: m.title, date: mDate, owner: 担当名(m) });
           matchedCount++; matchedByDesc++;
           continue;
         }
@@ -14961,14 +14967,14 @@ app.post("/api/interns/match", async (req, res) => {
         }
         if (best) cands.push({ intern: ie.intern, ...best });
       }
-      if (!cands.length) { unmatched.push({ bot_id: m.bot_id, title: m.title, date: mDate }); continue; }
+      if (!cands.length) { unmatched.push({ bot_id: m.bot_id, title: m.title, date: mDate, owner: 担当名(m) }); continue; }
       // 複数インターンが一致したら、予定日が最も近い→登録順で1人に決める
       cands.sort((a, b) => a.diff - b.diff);
       if (cands.length > 1) multiCount++;
       const winner = cands[0].intern;
       await setMeetingApoSetter(m.bot_id, winner.name);
       touchedSetters.add(winner.name);
-      perIntern[winner.email].matched.push({ bot_id: m.bot_id, title: m.title, date: mDate });
+      perIntern[winner.email].matched.push({ bot_id: m.bot_id, title: m.title, date: mDate, owner: 担当名(m) });
       matchedCount++;
     }
 
@@ -18832,7 +18838,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-08o 商談カード・商談履歴の一覧で『（要約なし）』になっていた件を修正：テンプレで整形した要約（formatted）しか無い商談でも、その先頭を1行で表示するようにした（詳細画面と同じ内容を見られる）。前回(2026-09-08n)：不在3回でリサイクル。";
+const BUILD_TAG = "2026-09-08p インターンアポの『アポ内訳』に、セールス担当を表示（日付・商談名の右に「担当：◯◯」）。どのインターンとも一致しなかった商談にも表示。前回(2026-09-08o)：要約カードの表示。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
