@@ -1935,7 +1935,7 @@ export async function listApoMeetings({ from, to } = {}) {
   const where = "WHERE " + cond.join(" AND ");
   try {
     const { rows } = await pool.query(
-      `SELECT bot_id, title, created_at, apo_setter FROM meetings ${where} ORDER BY created_at DESC`, vals);
+      `SELECT bot_id, title, created_at, apo_setter, owner FROM meetings ${where} ORDER BY created_at DESC`, vals);
     return rows;
   } catch (e) { console.error("[db] listApoMeetings", e.message); return []; }
 }

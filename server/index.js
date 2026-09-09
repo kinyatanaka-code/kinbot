@@ -15146,11 +15146,17 @@ app.get("/api/interns/stats", async (req, res) => {
 
     const interns = await listInterns();
     const meetings = await listApoMeetings({ from, to });
+    // セールス担当の表示名（内訳に「担当：◯◯」を出すため）
+    const ownerNames2 = {};
+    for (const e of [...new Set(meetings.map((m) => String(m.owner || "").toLowerCase()).filter(Boolean))]) {
+      try { ownerNames2[e] = await displayNameOf(e); } catch { ownerNames2[e] = e; }
+    }
 
     const byName = {}; // name -> [{bot_id,title,date}]
     const unmatched = [];
     for (const m of meetings) {
-      const item = { bot_id: m.bot_id, title: m.title || "", date: jstDateStr(m.created_at) };
+      const item = { bot_id: m.bot_id, title: m.title || "", date: jstDateStr(m.created_at),
+        owner: ownerNames2[String(m.owner || "").toLowerCase()] || m.owner || "" };
       if (m.apo_setter) (byName[m.apo_setter] = byName[m.apo_setter] || []).push(item);
       else unmatched.push(item);
     }
@@ -18870,7 +18876,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-08s アポ内訳の担当が出ない件の切り分け用に GET /api/meetings/_ownerdiag?from=&to= を追加（商談ごとの owner・owner_name・獲得者・手入力かを素で確認できる）。前回(2026-09-08r)：手入力商談の担当表示。";
+const BUILD_TAG = "2026-09-08t アポ内訳に担当が出なかった原因を修正：この画面は /api/interns/stats を使っているのに、そこで読む商談一覧が owner（営業担当）を取っていなかった。owner を取得して名前に直し、内訳に「担当：◯◯」を出すようにした。前回(2026-09-08s)：診断の追加。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
