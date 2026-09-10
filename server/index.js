@@ -4517,7 +4517,11 @@ app.post("/api/calls/lists/:id/fill-from-sf", async (req, res) => {
     const listId = parseInt(req.params.id, 10);
     if (!listId) return res.status(400).json({ error: "リストがわかりません" });
     const dryRun = req.body?.dryRun === true;   // 試算のときはリードを触らない
-    const rows = await listCallTargets(listId, { limit: 3000 }).catch(() => []);
+    // 小分けに処理する（何件まで終わったかを画面に出すため）
+    const offset = Math.max(0, parseInt(req.body?.offset, 10) || 0);
+    const 一度に = Math.max(1, Math.min(200, parseInt(req.body?.limit, 10) || 60));
+    const all = await listCallTargets(listId, { limit: 3000 }).catch(() => []);
+    const rows = all.slice(offset, offset + 一度に);
     // 電話があって、名前かメールか紐づけのどれかが空のものだけ見る
     // ① SFのリードに紐づいている（lead_id あり）→ そのリードから名前・メールを読む（確実）
     const 紐づき = rows.filter((r) => r.lead_id && (!r.person || !r.email));
@@ -4554,9 +4558,13 @@ app.post("/api/calls/lists/:id/fill-from-sf", async (req, res) => {
       if (例.length < 500) 例.push({ id: t.id, 会社: t.company, 電話: t.phone, 名前: patch.person || "", メール: patch.email || "", 紐づけ: patch.leadId ? "つける" : "" });
       if (!dryRun) await fillCallTargetContact(t.id, patch).catch(() => {});
     }
-    res.json({ ok: true, dryRun, 対象: 紐づき.length + 対象.length,
+    const 次 = offset + rows.length;
+    res.json({ ok: true, dryRun, 全部: all.length, 次: offset + rows.length,
+      終わり: offset + rows.length >= all.length,
+      対象: 紐づき.length + 対象.length,
       SFに紐づいている: 紐づき.length, 電話から探した: 対象.length,
-      入った, 候補が複数, 見つからない, 例 });
+      入った, 候補が複数, 見つからない, 例,
+      全体: all.length, ここまで: 次, 残り: Math.max(0, all.length - 次), 続きあり: 次 < all.length });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
@@ -18991,7 +18999,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-09k 「SFから補う」を強化：SFのリードに紐づいているリードは、そのリードから直接 名前・メールを読み取るように（これまでは電話番号で探すだけだった）。紐づいていないものは従来どおり電話番号で照合。空欄のときだけ入れる点は同じ。前回(2026-09-09j)：代理操作の権限。";
+const BUILD_TAG = "2026-09-09l かける画面の「操作」に『SFから名前・メールを補う』を追加。100件ずつ処理して「入れています… 300/1200件」のように進み具合が見えるようにした（リスト管理側のボタンもそのまま使える）。前回(2026-09-09k)：紐づきリードからの補完。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",

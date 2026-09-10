@@ -3659,6 +3659,43 @@ document.addEventListener("click", (ev) => {
       } catch (e) { say("clStatus", "できませんでした：" + e.message, 8000); }
     })();
   }
+  if (t.id === "clFillSf") {
+    ev.preventDefault();
+    (async () => {
+      if (!listId || listId === "all") { say("clStatus", "リストを選んでください", 4000); return; }
+      const call = (body) => fetch(`/api/calls/lists/${encodeURIComponent(listId)}/fill-from-sf`, {
+        method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body),
+      }).then((r) => r.json());
+      const STEP = 100;   // 100件ずつ見て、進み具合を出す
+      try {
+        // まず試算（何件入るか）。100件ずつ回して合計する。
+        let off = 0, 入る = 0, 複数 = 0, なし = 0, 全部 = 0, ex = [];
+        for (;;) {
+          say("clStatus", `調べています… ${off}件`);
+          const d = await call({ dryRun: true, offset: off, limit: STEP });
+          if (d.error) throw new Error(d.error);
+          全部 = d.全部 || 0; 入る += d.入った || 0; 複数 += d.候補が複数 || 0; なし += d.見つからない || 0;
+          if (ex.length < 300) ex = ex.concat(d.例 || []);
+          off = d.次 || (off + STEP);
+          if (d.終わり) break;
+        }
+        if (!入る) { say("clStatus", `入れられるものはありませんでした（${全部}件を確認）`, 8000); return; }
+        if (!confirm(`Salesforceから読み取ります。\n\n入れられる：${入る}件\n候補が複数（自動では入れません）：${複数}件\n見つからない：${なし}件\n\n空いているところにだけ入ります。よろしいですか？`)) { say("clStatus", "", 1); return; }
+        // 実行
+        let off2 = 0, 入った = 0;
+        for (;;) {
+          const d = await call({ dryRun: false, offset: off2, limit: STEP });
+          if (d.error) throw new Error(d.error);
+          入った += d.入った || 0;
+          off2 = d.次 || (off2 + STEP);
+          say("clStatus", `入れています… ${Math.min(off2, 全部)}/${全部}件（${入った}件に入れました）`);
+          if (d.終わり) break;
+        }
+        say("clStatus", `${入った}件に名前・メールを入れました`, 10000);
+        loadTable();
+      } catch (e) { say("clStatus", "できませんでした：" + e.message, 8000); }
+    })();
+  }
   if (t.id === "clFixLinks") {
     ev.preventDefault();
     (async () => {
