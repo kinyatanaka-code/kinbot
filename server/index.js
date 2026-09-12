@@ -3759,6 +3759,9 @@ app.post("/api/apo/:slug/sf-link", async (req, res) => {
       botId: link?.bot_id || null, title: link?.label || null,
       company: link ? (companyFromTitle(link.label || "") || link.company || "") : null,
     });
+    // アポ一覧で紐付けたら、商談履歴（会社ベース）にも同じ商談をひも付けて連動させる
+    const co = link ? (companyFromTitle(link.label || "") || link.company || "") : "";
+    if (co) await setCompanySfLink(normCompanyKey(co), { oppId, name, stage, company: co, by: req.user }).catch(() => {});
     console.log(`[apo-link] ${slug} を SF商談 ${oppId} にひも付け by ${req.user}`);
     res.json({ ok: true, linked: true, name, stage, oppId });
   } catch (e) { res.status(500).json({ error: e.message }); }
@@ -19384,7 +19387,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-12zc SF立ち上げの自動補完で、Webサイトが空のときも会社名で公式サイトを探してから本文を読み、電話・住所を拾うようにした。加えて空欄は「会社名＋項目名（電話番号／本社所在地／従業員数）」で項目ごとに検索する。フリーメールでサイトが取れない会社でも拾える率を上げた。";
+const BUILD_TAG = "2026-09-12zd アポ一覧でSF商談を紐付けたら、その会社の商談履歴のカードにも同じ紐付けが反映されるようにした（アポと商談履歴で紐付けが連動）。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
