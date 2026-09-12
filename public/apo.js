@@ -34,6 +34,23 @@ function fmtYmd(ymd) {
   const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(ymd || ""));
   return m ? `${Number(m[2])}/${Number(m[3])}` : esc(ymd);
 }
+// ISO → "HH:MM"（時刻だけ）
+function fmtHM(iso) {
+  if (!iso) return "";
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return "";
+  const p = (n) => String(n).padStart(2, "0");
+  return `${p(d.getHours())}:${p(d.getMinutes())}`;
+}
+// カード内で使う小さなアイコン（kinbotはインラインSVG。Tablerは読み込んでいない）
+const AP_ICO = {
+  cal: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4.5" width="18" height="16" rx="2.5"/><path d="M3 9h18M8 2.5v4M16 2.5v4"/></svg>',
+  send: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 3 10.5 13.5M21 3l-6.5 18-4-8.5L2 8.5 21 3z"/></svg>',
+  edit: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20h4l10-10-4-4L4 16v4z"/><path d="M13.5 6.5l4 4"/></svg>',
+  dots: '<svg viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="5" r="1.7"/><circle cx="12" cy="12" r="1.7"/><circle cx="12" cy="19" r="1.7"/></svg>',
+  check: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 6.5"/></svg>',
+  mail: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="2.5"/><path d="M3.5 7l8.5 6 8.5-6"/></svg>',
+};
 function repOptions(selected) {
   let o = `<option value="">担当未定</option>`;
   for (const r of apState.reps) {
@@ -146,78 +163,100 @@ function fmtTime(iso) {
   return `${p(d.getHours())}:${p(d.getMinutes())}`;
 }
 
-// アポ1件をカードにする（Salesforce商談立ち上げ画面と同じ作り）
+// アポ1件をカードにする（整理版：8項目を1枚で管理・稀な操作は「⋯」へ）
 function apoCard(a, i) {
   const assigned = !!a.current_owner;
   const rep = apState.reps.find((r) => r.email === a.current_owner);
   const repName = rep ? (rep.name || rep.email) : a.current_owner;
   const m = a.mail || {};
+  const sf = a.sf; // {stage,linked,launched,oppId} ／ null=SF未接続 ／ undefined=取得前
 
-  // 上段のバッジ
-  let badges = assigned
-    ? '<span class="home-badge home-badge-done">担当決定</span>'
-    : '<span class="home-badge home-badge-plan">担当未定</span>';
-  if (a.business) badges += `<span class="ap-biz-badge ap-biz-${esc(a.business)}">${esc(a.business)}</span>`;
-  if (a.excluded) badges += `<span class="ap-badge ap-excluded" title="${esc(a.excludedReason || a.excluded_reason || "理由の記録なし")}">集計から除外${(a.excludedReason || a.excluded_reason) ? "（" + esc(a.excludedReason || a.excluded_reason) + "）" : ""}</span>`;
+  // チップ部品
+  const chipOk = (t) => `<span class="ap-c2-chip ap-c2-ok">${AP_ICO.check}${esc(t)}</span>`;
+  const chipMuted = (t) => `<span class="ap-c2-chip ap-c2-muted">${esc(t)}</span>`;
+  const chipWarn = (t) => `<span class="ap-c2-chip ap-c2-warn">${esc(t)}</span>`;
 
-  // メールの状態
-  const mailChip = (label, st) => {
-    if (!st) return `<span class="ln-tag">${label}：未作成</span>`;
-    if (st.status === "draft") return `<span class="ln-tag ln-tag-draft" title="${esc(st.at || "")}">${label}：下書き済</span>`;
-    if (st.status === "sent") return `<span class="ln-tag ln-tag-rep" title="${esc(st.at || "")}">${label}：送信済</span>`;
-    return `<span class="ln-tag ln-tag-none" title="${esc(st.error || "")}">${label}：失敗</span>`;
+  // メール状態チップ
+  const mchip = (label, s) => {
+    if (!s) return chipMuted(label + "：未");
+    if (s.status === "sent") return chipOk(label);
+    if (s.status === "draft") return `<span class="ap-c2-chip ap-c2-draft">${esc(label)}：下書き</span>`;
+    return chipWarn(label + "：失敗");
   };
 
-  // 宛先
-  const src = a.client_email_source === "manual" ? "手入力"
-    : a.client_email_source === "description" ? "予定の説明欄から取得"
-    : a.client_email_source === "calendar" ? "カレンダーのゲストから取得" : "";
-  const client = a.client_email
-    ? `<span class="ap-mailaddr" title="${esc(src)}">${esc(a.client_email)}</span>` +
-      `${a.client_email_source === "description" ? '<span class="ap-src-chip">説明欄</span>' : ""}` +
-      `<button class="btn ghost ap-mailedit" data-i="${i}">変更</button>`
+  // 商談ステージ（Salesforceから）
+  let stage;
+  if (!assigned) stage = `<span class="ap-c2-stagepill ap-c2-stage-plan">担当未定</span>`;
+  else if (sf === undefined) stage = `<span class="ap-c2-stagepill ap-c2-stage-load">ステージ取得中…</span>`;
+  else if (sf && sf.stage) stage = `<span class="ap-c2-stagepill" title="Salesforceの商談ステージ">${esc(sf.stage)}</span>`;
+  else stage = `<span class="ap-c2-stagepill ap-c2-stage-load">ステージ未取得</span>`;
+
+  // SFチップ（紐付け・立ち上げ）
+  let sfChips;
+  if (sf === undefined) sfChips = `<span class="ap-c2-chip ap-c2-muted">SF：取得中…</span>`;
+  else if (sf === null) sfChips = chipMuted("SF：未接続");
+  else sfChips = (sf.linked ? chipOk("SF紐付け") : chipMuted("SF未紐付け")) +
+                 (sf.launched ? chipOk("商談立ち上げ") : chipMuted("立ち上げ前"));
+
+  // Zoom転送
+  let zoomChip = "";
+  if (assigned) {
+    zoomChip = (rep && rep.has_zoom_link)
+      ? `<span class="ap-c2-chip ap-c2-zoom"><span class="ap-c2-dot"></span>${esc(rep.name)}のZoomへ転送中</span>`
+      : chipWarn(`${esc(rep ? rep.name : a.current_owner)}：Zoom未設定`);
+  }
+  const exChip = a.excluded ? chipWarn("集計から除外") : "";
+
+  // 宛先（クラス・data属性は既存のまま：ap-mailedit）
+  const srcChip = a.client_email_source === "description" ? '<span class="ap-src-chip">説明欄</span>' : "";
+  const mailBody = a.client_email
+    ? `<span class="ap-c2-addr">${esc(a.client_email)}</span>${srcChip}` +
+      `<button class="btn-ico ap-mailedit" data-i="${i}" title="宛先を変更" aria-label="宛先を変更">${AP_ICO.edit}</button>`
     : `<button class="btn ghost ap-mailedit ap-warn-btn" data-i="${i}">宛先を入力</button>`;
 
   const canSend = assigned && !!a.client_email;
   const draftMode = (apState.mailConfig || {}).deliverMode !== "send";
+  const sendBtn = canSend
+    ? `<button class="btn ap-c2-send ap-sendmail" data-i="${i}" data-kind="confirm">${draftMode ? "下書きを作る" : "メールを送信"}</button>`
+    : "";
 
-  return `<div class="home-card home-card-v ap-card${assigned ? "" : " home-card-plan"}" data-i="${i}">
-    <div class="home-card-row">
-      <div class="home-card-main">
-        <div class="home-card-top">
-          <span class="home-time">${esc(fmtDT(a.start))}</span>${badges}
-          <span class="home-badge home-badge-st">取得 ${esc(fmtYmd(a.created_date))}</span>
+  const initial = (nm) => esc(String(nm || "？").trim().charAt(0) || "？");
+  const bizPill = a.business ? `<span class="ap-c2-biz ap-biz-${esc(a.business)}">${esc(a.business)}</span>` : "";
+
+  return `<div class="home-card home-card-v ap-card ap-card2${assigned ? "" : " home-card-plan"}" data-i="${i}">
+    <div class="ap-c2">
+      <div class="ap-c2-rail">
+        <div class="ap-c2-date">取得 ${esc(fmtYmd(a.created_date))}</div>
+        <div class="ap-c2-timerow">
+          <span class="ap-c2-time">${esc(fmtHM(a.start))}</span>
+          <button class="btn-ico ap-resched" data-slug="${esc(a.slug)}" data-start="${esc(a.start_time || "")}" data-label="${esc(a.label || "")}" title="時間を変更" aria-label="時間を変更">${AP_ICO.cal}</button>
         </div>
-        <div class="home-card-title">${esc(a.title)}</div>
-        <div class="home-card-meta ln-who">
-          <span class="ln-tag ln-tag-intern">アポ獲得：${esc(a.setter_name)}</span>
-          ${assigned
-            ? `<span class="ln-tag ln-tag-rep">担当営業：${esc(repName)}</span>`
-            : '<span class="ln-tag ln-tag-none">担当営業：未割り当て</span>'}
-          ${mailChip("確定", m.confirm)}${mailChip("前日", m.reminder)}
-        </div>
-        <div class="home-card-meta ap-addr-line">
-          <span class="ap-addr-k">お客様の宛先</span>${client}
-        </div>
-        <div class="home-card-meta ap-status" data-i="${i}">${statusCell(a)}</div>
+        ${stage}
       </div>
-      <div class="home-card-actions">
-        <select class="ap-rep" data-i="${i}">${repOptions(a.current_owner)}</select>
-        <button class="btn ghost ap-calonly" data-i="${i}" data-slug="${esc(a.slug)}"
-          title="担当のカレンダーに商談予定だけを作ります（メールは送りません）">カレンダーだけ作る</button>
-        ${assigned ? "" : `<button class="btn ap-auto" data-i="${i}">自動で決める</button>`}
-        ${canSend ? `<button class="btn ap-sendmail" data-i="${i}" data-kind="confirm">${draftMode ? "下書きを作る" : "メールを送信"}</button>` : ""}
-        <div class="ap-card-links">
-          <a class="btn ghost" href="${esc(a.smart_url)}" target="_blank" rel="noopener" title="${esc(a.smart_url)}">開く</a>
-          <button class="btn ghost ap-copy" data-url="${esc(a.smart_url)}">コピー</button>
-          <button class="btn ghost ap-exclude" data-slug="${esc(a.slug)}" data-on="${a.excluded ? "1" : "0"}"
-            title="実績・均等化・通知の件数から外し、カレンダーの商談予定も消します">${a.excluded ? "集計に戻す" : "テストとして外す"}</button>
-          <button class="btn ghost ap-renotify" data-slug="${esc(a.slug)}"
-            title="Chatの割り振り通知だけを送り直します（メール・SF立ち上げはやり直しません）">通知だけ再送</button>
-          <button class="btn ghost ap-resched" data-slug="${esc(a.slug)}" data-start="${esc(a.start_time || "")}" data-label="${esc(a.label || "")}"
-            title="商談の日時を変えます。日程変更のお知らせだけ送り、リマインドは変更後の日時で送ります">日程変更</button>
-          <button class="btn ghost ap-why" data-slug="${esc(a.slug)}"
-            title="メール・SF立ち上げ・通知がどこで止まっているかを調べます">調べる</button>
+      <div class="ap-c2-main">
+        <div class="ap-c2-head">
+          <div class="ap-c2-title">${esc(a.title)} ${bizPill}</div>
+          <div class="ap-c2-more">
+            <button class="btn-ico ap-more-btn" aria-label="そのほかの操作" title="そのほかの操作">${AP_ICO.dots}</button>
+            <div class="ap-more-menu">
+              <a class="ap-more-item" href="${esc(a.smart_url)}" target="_blank" rel="noopener">お客様ページを開く</a>
+              <button class="ap-more-item ap-copy" data-url="${esc(a.smart_url)}">リンクをコピー</button>
+              <button class="ap-more-item ap-calonly" data-i="${i}" data-slug="${esc(a.slug)}">カレンダーだけ作る</button>
+              <button class="ap-more-item ap-renotify" data-slug="${esc(a.slug)}">割り振り通知だけ再送</button>
+              <button class="ap-more-item ap-why" data-slug="${esc(a.slug)}">メール・SF・通知の状態を調べる</button>
+              <button class="ap-more-item ap-exclude" data-slug="${esc(a.slug)}" data-on="${a.excluded ? "1" : "0"}">${a.excluded ? "集計に戻す" : "テストとして外す"}</button>
+            </div>
+          </div>
+        </div>
+        <div class="ap-c2-chips">
+          ${mchip("確定メール", m.confirm)}${mchip("前日リマインド", m.reminder)}${sfChips}${zoomChip}${exChip}
+        </div>
+        <div class="ap-c2-people">
+          <div class="ap-c2-setter"><span class="ap-c2-av">${initial(a.setter_name)}</span><div><div class="ap-c2-k">獲得者</div><div class="ap-c2-v">${esc(a.setter_name)}</div></div></div>
+          <div class="ap-c2-owner"><span class="ap-c2-k">担当</span><select class="ap-rep" data-i="${i}">${repOptions(a.current_owner)}</select>${assigned ? "" : `<button class="btn ghost ap-auto" data-i="${i}">自動で決める</button>`}</div>
+        </div>
+        <div class="ap-c2-mail">
+          <span class="ap-c2-mailico">${AP_ICO.mail}</span>${mailBody}${sendBtn}
         </div>
       </div>
     </div>
@@ -497,10 +536,33 @@ function bindCardEvents(card) {
   if (copy) copy.addEventListener("click", async () => {
     try { await navigator.clipboard.writeText(copy.dataset.url); copy.textContent = "コピーしました"; }
     catch { copy.textContent = "失敗"; }
-    setTimeout(() => (copy.textContent = "コピー"), 1500);
+    setTimeout(() => (copy.textContent = "リンクをコピー"), 1500);
   });
 
+  // 「⋯」その他の操作メニューの開閉
+  const moreBtn = q(".ap-more-btn");
+  const moreWrap = q(".ap-c2-more");
+  if (moreBtn && moreWrap) {
+    moreBtn.addEventListener("click", (ev) => {
+      ev.stopPropagation();
+      const open = moreWrap.classList.contains("open");
+      document.querySelectorAll(".ap-c2-more.open").forEach((el) => el.classList.remove("open"));
+      if (!open) moreWrap.classList.add("open");
+    });
+    // メニュー内クリックで即閉じない（コピー等の結果表示のため）が、項目を押したら閉じる
+    moreWrap.querySelectorAll(".ap-more-item").forEach((it) =>
+      it.addEventListener("click", () => setTimeout(() => moreWrap.classList.remove("open"), 60)));
+  }
+
   bindMailButtons(card);
+}
+// メニューの外側クリックで閉じる（1回だけ登録）
+if (!window.__apMoreOutside) {
+  window.__apMoreOutside = true;
+  document.addEventListener("click", (ev) => {
+    if (ev.target.closest && ev.target.closest(".ap-c2-more")) return;
+    document.querySelectorAll(".ap-c2-more.open").forEach((el) => el.classList.remove("open"));
+  });
 }
 function todayStr() { return new Date().toISOString().slice(0, 10); }
 async function loadApo() {
@@ -530,8 +592,28 @@ async function loadApo() {
     renderApo();
     if (st) st.textContent = `${apState.appts.length}件`;
     setTimeout(() => { if (st) st.textContent = ""; }, 2500);
+    loadSfStatus();
   } catch (e) {
     body.innerHTML = `<div class="empty-state">${esc(e.message)}</div>`;
+  }
+}
+// Salesforceから各アポの「商談ステージ・紐付け・立ち上げ」をまとめて取り、カードに反映する。
+// 未接続・失敗時はチップを「未接続」表示のままにする（一覧自体は止めない）。
+async function loadSfStatus() {
+  const slugs = (apState.appts || []).map((a) => a.slug).filter(Boolean);
+  if (!slugs.length) return;
+  try {
+    const r = await fetch("/api/apo/sf-status", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ slugs }),
+    });
+    const d = await r.json();
+    const bySlug = (r.ok && d && d.bySlug) ? d.bySlug : null;
+    for (const a of apState.appts) a.sf = bySlug ? (bySlug[a.slug] || null) : null;
+    renderApo();
+  } catch {
+    for (const a of apState.appts) a.sf = null;
+    renderApo();
   }
 }
 // ===== 今動いているビルドの表示 =====

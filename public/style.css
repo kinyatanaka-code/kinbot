@@ -5948,3 +5948,63 @@ input:focus, select:focus, textarea:focus, .sf-input:focus, .sf-select:focus, .s
 .gp-row.ng { color: #a32d2d; }
 .gp-row.ng .gp-mark { color: #a32d2d; }
 .gp-row.doing .gp-mark { color: #1d9e75; }
+
+/* ===== アポ一覧カード（整理版 ap-card2） ===== */
+.ap-card2 { padding: 14px 16px; }
+.ap-c2 { display: flex; gap: 16px; align-items: flex-start; }
+.ap-c2-rail { flex: none; width: 116px; }
+.ap-c2-date { font-size: 12px; color: var(--muted); }
+.ap-c2-timerow { display: flex; align-items: center; gap: 6px; margin-top: 2px; }
+.ap-c2-time { font-size: 23px; font-weight: 700; color: #0f6e56; line-height: 1.1; }
+.ap-c2-stagepill { display: inline-flex; align-items: center; margin-top: 10px; padding: 3px 11px; border-radius: 999px; font-size: 11.5px; font-weight: 700; background: #0f6e56; color: #fff; max-width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ap-c2-stage-load { background: #eef1f0; color: #7a8a84; font-weight: 600; }
+.ap-c2-stage-plan { background: #fff3e0; color: #9a6a12; }
+
+.ap-c2-main { flex: 1; min-width: 0; }
+.ap-c2-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; }
+.ap-c2-title { font-size: 15px; font-weight: 700; color: #1c3d34; line-height: 1.45; }
+.ap-c2-biz { display: inline-flex; vertical-align: middle; margin-left: 4px; padding: 1px 9px; border-radius: 999px; font-size: 11px; font-weight: 700; }
+
+.ap-c2-chips { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 11px; }
+.ap-c2-chip { display: inline-flex; align-items: center; gap: 4px; padding: 3px 10px; border-radius: 999px; font-size: 12px; line-height: 1.5; }
+.ap-c2-chip svg { width: 13px; height: 13px; flex: none; }
+.ap-c2-ok { background: #e6f4ec; color: #1a7a4f; }
+.ap-c2-draft { background: #eef3ff; color: #2a5bbf; }
+.ap-c2-warn { background: #fdecec; color: #b3392f; }
+.ap-c2-muted { background: #eef1f0; color: #7a8a84; }
+.ap-c2-zoom { background: #e1f5ee; color: #0f6e56; }
+.ap-c2-dot { width: 6px; height: 6px; border-radius: 50%; background: #1d9e75; flex: none; }
+
+.ap-c2-people { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 18px; margin-top: 15px; }
+.ap-c2-setter { display: flex; align-items: center; gap: 8px; }
+.ap-c2-av { width: 26px; height: 26px; border-radius: 50%; background: #e1f5ee; color: #0f6e56; font-size: 12px; font-weight: 700; display: flex; align-items: center; justify-content: center; flex: none; }
+.ap-c2-k { font-size: 11px; color: var(--muted); }
+.ap-c2-v { font-size: 13.5px; color: #1c3d34; }
+.ap-c2-owner { display: flex; align-items: center; gap: 8px; }
+.ap-c2-owner .ap-rep { max-width: 190px; height: 34px; }
+
+.ap-c2-mail { display: flex; align-items: center; gap: 8px; margin-top: 13px; flex-wrap: wrap; font-size: 13px; color: #4a5a54; }
+.ap-c2-mailico { display: inline-flex; color: var(--muted); }
+.ap-c2-mailico svg { width: 15px; height: 15px; }
+.ap-c2-addr { color: #3a4a44; word-break: break-all; }
+.ap-c2-send { display: inline-flex; align-items: center; background: #0f6e56; color: #fff; border: none; margin-left: 2px; }
+.ap-c2-send:hover { background: #0c5a47; color: #fff; }
+
+/* アイコンだけの小ボタン */
+.btn-ico { display: inline-flex; align-items: center; justify-content: center; width: 30px; height: 30px; border-radius: 8px; border: 1px solid #d7e3dd; background: #fff; color: #5a6a63; cursor: pointer; padding: 0; flex: none; }
+.btn-ico svg { width: 16px; height: 16px; }
+.btn-ico:hover { background: #f2f8f5; color: #0f6e56; border-color: #bcd6ca; }
+
+/* 「⋯」その他の操作メニュー */
+.ap-c2-more { position: relative; flex: none; }
+.ap-more-menu { position: absolute; right: 0; top: 36px; z-index: 30; min-width: 210px; background: #fff; border: 1px solid #dbe6e0; border-radius: 12px; box-shadow: 0 12px 32px rgba(13,91,71,.16); padding: 6px; display: none; }
+.ap-c2-more.open .ap-more-menu { display: block; }
+.ap-more-item { display: block; width: 100%; text-align: left; padding: 9px 12px; border-radius: 8px; border: none; background: transparent; color: #25423a; font-size: 13px; cursor: pointer; text-decoration: none; }
+.ap-more-item:hover { background: #eef7f2; color: #0f6e56; }
+
+@media (max-width: 760px) {
+  .ap-c2 { flex-direction: column; gap: 10px; }
+  .ap-c2-rail { width: auto; display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+  .ap-c2-stagepill { margin-top: 0; }
+  .ap-more-menu { right: auto; left: 0; }
+}
