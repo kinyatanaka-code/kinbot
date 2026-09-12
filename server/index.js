@@ -19304,7 +19304,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-12v アポ実績の「実施」を積み上げ式に修正。実施＝kinbotに商談記録があるか、または有効商談以降のステージに到達したアポの数（後段まで進んだものは実施にも数える）。これで実施→有効商談→…が正しく減っていくファネルになる。SFステージ列は従来どおり積み上げ（そのステージ以降に到達した数）。";
+const BUILD_TAG = "2026-09-12w アポ実績の「実施」判定を、kincallの実績（プロセスの実施数）と同じ方式に統一。会社名×商談日で、初回タイトルの録音あり商談があれば実施とみなす（従来のカレンダーイベント結合はやめた）。実施は引き続き積み上げ式（実施判定＝実施 または 有効商談以降に到達）。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
@@ -24077,6 +24077,27 @@ app.get("/api/apo/perf", async (req, res) => {
     };
     const yukoIdx = funnel.findIndex((s) => String(s).includes("有効商談")); // 実施の積み上げ判定に使う
 
+    // 実施判定：kincallの実績（プロセス）と同じ。会社名|商談日 で、初回タイトルの録音あり商談があれば実施。
+    const pad2 = (n) => String(n).padStart(2, "0");
+    const ymdJst = (v) => { if (!v) return ""; const d = new Date(v); if (isNaN(d.getTime())) return String(v).slice(0, 10); const j = new Date(d.getTime() + 9 * 3600000); return `${j.getUTCFullYear()}-${pad2(j.getUTCMonth() + 1)}-${pad2(j.getUTCDate())}`; };
+    const isWeekend = (ymd) => { if (!/^\d{4}-\d{2}-\d{2}$/.test(String(ymd))) return false; const d = new Date(ymd + "T00:00:00Z"); const w = d.getUTCDay(); return w === 0 || w === 6; };
+    const 対象タイトル = (t) => { const s = String(t || ""); return /【\s*初回\s*】/.test(s) || /【\s*新\s*[\/／]\s*ヒ\s*】/.test(s) || /メルマガ/.test(s); };
+    const doneSet = new Set();
+    try {
+      const meetings = await listMeetings({ isAdmin: true, from: from ? ymdJst(from) : null, to: null, limit: 3000, light: true }).catch(() => []);
+      for (const mt of meetings) {
+        if (!対象タイトル(mt.title || "")) continue;
+        const co = normCompanyKey(companyFromTitle(mt.title || "") || mt.account || "");
+        const day = ymdJst(mt.created_at);
+        if (co && day && !isWeekend(day)) doneSet.add(`${co}|${day}`);
+      }
+    } catch (e) { console.warn("[アポ実績] 実施突合の商談取得失敗", e.message); }
+    const isConducted = (a) => {
+      const co = normCompanyKey(companyFromTitle(a.label || "") || "");
+      const day = ymdJst(a.start_time);
+      return !!(co && day && doneSet.has(`${co}|${day}`));
+    };
+
     const bySetter = {};
     for (const a of apps) {
       const setter = String(a.setter || "").trim() || "(不明)";
@@ -24093,8 +24114,8 @@ app.get("/api/apo/perf", async (req, res) => {
       const won = live ? live.IsWon === true : isWonStage(a.opp_stage);
       const lost = !!stage && isLost(stage);
       const ix = (stage && !lost) ? idxOfStage(stage, won) : -1;
-      // 実施（積み上げ）＝kinbotに商談記録あり、または「有効商談」以降のステージに到達している
-      if (a.conducted || (yukoIdx >= 0 && ix >= yukoIdx)) {
+      // 実施（積み上げ）＝kincallの実施判定（会社×商談日の記録あり商談）、または「有効商談」以降のステージに到達している
+      if (isConducted(a) || (yukoIdx >= 0 && ix >= yukoIdx)) {
         m.conducted++; if (m.conductedCompanies.length < 400) m.conductedCompanies.push(co);
       }
       if (!stage) continue; // 未立ち上げ＝アポ獲得のみ
