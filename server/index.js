@@ -3776,20 +3776,40 @@ async function sfOperator(prefer = "") {
 }
 
 // URLが空のときは gBizINFO で補う。見つからなければ空のまま。
-async function fillLeadWebsite(user, lead, company) {
+async function fillLeadWebsite(user, lead, company, email = "") {
   if (lead.Website) return { url: lead.Website, filled: false };
+  const setUrl = async (url) => {
+    if (url && /^https?:\/\//i.test(url)) {
+      try { await updateLead(user, lead.Id, { Website: url }); }
+      catch (e) { console.warn("[SF自動] Website更新に失敗", e.message); }
+      console.log(`[SF自動] URLを補いました ${lead.Company} → ${url}`);
+      return { url, filled: true };
+    }
+    return null;
+  };
+  // 1) メールのドメインから会社サイトを推定する（フリーメールは除く）
+  try {
+    const domain = String(email || lead.Email || "").split("@")[1] || "";
+    const 一般 = /^(gmail|yahoo|outlook|hotmail|icloud|docomo|ezweb|au|softbank|me|ymobile|nifty|so-net|biglobe|live|aol)\./i.test(domain);
+    if (domain && !一般 && /\./.test(domain)) {
+      const r = await setUrl("https://" + domain.replace(/\/+$/, ""));
+      if (r) return r;
+    }
+  } catch {}
+  // 2) gBizINFO
   try {
     const hits = await searchCompanies(company || lead.Company, 3);
     for (const h of hits) {
       const d = await getCompanyDetail(h.corporate_number).catch(() => null);
-      const url = d && d.company_url;
-      if (url && /^https?:\/\//i.test(url)) {
-        await updateLead(user, lead.Id, { Website: url });
-        console.log(`[SF自動] URLを補いました ${lead.Company} → ${url}`);
-        return { url, filled: true };
-      }
+      if (d && d.company_url) { const r = await setUrl(d.company_url); if (r) return r; }
     }
-  } catch (e) { console.warn("[SF自動] URLの補完に失敗", e.message); }
+  } catch (e) { console.warn("[SF自動] URLの補完に失敗（gBiz）", e.message); }
+  // 3) ネット検索（Gemini + Google検索連携）で公式サイトを探す
+  try {
+    const g = await enrichCompany({ name: company || lead.Company, url: "" }).catch(() => null);
+    const url = g && (g.website || g.company_url);
+    if (url) { const r = await setUrl(url); if (r) return r; }
+  } catch (e) { console.warn("[SF自動] URLの補完に失敗（ネット検索）", e.message); }
   return { url: "", filled: false };
 }
 
@@ -4004,7 +4024,8 @@ async function tryAutoLaunch(user, link, { dryRun = false, ownerEmail = "", noti
     if (dryRun && j.rescued === "will_create") {
       return { ...base, ok: true, company, person, rescued: "will_create", dryRun: true };
     }
-    const site = await fillLeadWebsite(user, j.lead, j.company);
+    const hintEmail = (leadOverride && leadOverride.email) || link.client_email || (j.lead && j.lead.Email) || "";
+    const site = await fillLeadWebsite(user, j.lead, j.company, hintEmail);
     if (!site.url) {
       const r = { ...base, ok: false, company: j.company, person: j.person,
                   reason: "missing_url", leadId: j.lead.Id };
@@ -19027,7 +19048,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-12g SF立ち上げの失敗対策。(1)リード作成で組織に無い項目（例：Description）を自動で省いて作り直すようにし、No such column エラーで止まらないようにした。(2)立ち上げ失敗時や⋯メニューから、会社名・担当者・メール・電話・Web・住所・従業員数を細かく入力して立ち上げられるモーダルを追加（/api/sf-autolaunch/run に lead 上書きを受け付け、ensureCrossLead に反映）。";
+const BUILD_TAG = "2026-09-12h SF立ち上げのURL補完を強化。gBizINFOに無くても、(1)お客様メールのドメイン（フリーメール除く）から会社サイトを推定、(2)それでも無ければネット検索（Gemini＋Google検索連携）で公式サイトを探す。細かい入力モーダルのメール/会社名も手がかりに使う。URLが空で立ち上がらない件を減らす。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
