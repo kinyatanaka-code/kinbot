@@ -4718,7 +4718,11 @@ export async function listApoPerf({ from = null, to = null } = {}) {
   try {
     const { rows } = await pool.query(
       `SELECT s.slug, s.label, s.setter, s.setter_email, s.business, s.start_time, s.apo_at,
-              a.opp_id, a.opp_name, a.opp_stage
+              a.opp_id, a.opp_name, a.opp_stage,
+              EXISTS(
+                SELECT 1 FROM calendar_bots cb JOIN meetings mt ON mt.bot_id = cb.bot_id
+                 WHERE cb.event_id = s.event_id OR cb.event_id = s.invite_event_id
+              ) AS conducted
          FROM smart_links s
          LEFT JOIN sf_autolaunch a ON a.slug = s.slug
          ${where}
@@ -4886,6 +4890,18 @@ export async function setSmartLinkSetterEmail(slug, email) {
       [slug, String(email).toLowerCase()]);
     return rows[0] || null;
   } catch (e) { console.error("[db] setSmartLinkSetterEmail", e.message); return null; }
+}
+
+// アポ獲得者（setter）を手で変える。名前とメールの両方を上書きする（空にもできる）。
+export async function setSmartLinkSetter(slug, name, email) {
+  if (!pool || !slug) return null;
+  try {
+    const { rows } = await pool.query(
+      `UPDATE smart_links SET setter = $2, setter_email = $3, updated_at = now()
+        WHERE slug = $1 RETURNING *`,
+      [slug, String(name || "").trim() || null, String(email || "").trim().toLowerCase() || null]);
+    return rows[0] || null;
+  } catch (e) { console.error("[db] setSmartLinkSetter", e.message); return null; }
 }
 
 // kinbotが作った商談予定が付いているアポの一覧。

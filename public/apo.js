@@ -60,6 +60,22 @@ function repOptions(selected) {
   }
   return o;
 }
+// アポ獲得者の選択肢（候補＝アポ獲得者マスタ。現在の獲得者が候補に無ければ先頭に足す）
+function setterOptions(curName, curEmail) {
+  const list = apState.setters || [];
+  const curE = String(curEmail || "").toLowerCase();
+  const cur = String(curName || "").trim();
+  const match = (s) => (curE && String(s.email || "").toLowerCase() === curE) || (!curE && cur && String(s.name || "").trim() === cur);
+  const inList = list.some(match);
+  let o = "";
+  if (cur && !inList) o += `<option value="__cur__" data-name="${esc(cur)}" selected>${esc(cur)}（現在）</option>`;
+  else if (!cur) o += `<option value="__cur__" data-name="" selected>（未設定）</option>`;
+  for (const s of list) {
+    const sel = match(s) ? " selected" : "";
+    o += `<option value="${esc(s.email || "")}" data-name="${esc(s.name || "")}"${sel}>${esc(s.name || s.email)}</option>`;
+  }
+  return o;
+}
 
 
 function statusCell(a) {
@@ -264,7 +280,7 @@ function apoCard(a, i) {
           ${mchip("確定メール", m.confirm)}${mchip("前日リマインド", m.reminder)}${sfChips}${zoomChip}${exChip}
         </div>
         <div class="ap-c2-people">
-          <div class="ap-c2-setter"><span class="ap-c2-av">${initial(a.setter_name)}</span><div><div class="ap-c2-k">獲得者</div><div class="ap-c2-v">${esc(a.setter_name)}</div></div></div>
+          <div class="ap-c2-setter"><span class="ap-c2-av">${initial(a.setter_name)}</span><div><div class="ap-c2-k">獲得者</div><select class="ap-setter" data-i="${i}">${setterOptions(a.setter_name, a.setter_email)}</select></div></div>
           <div class="ap-c2-owner"><span class="ap-c2-k">担当</span><select class="ap-rep" data-i="${i}">${repOptions(a.current_owner)}</select>${assigned ? "" : `<button class="btn ghost ap-auto" data-i="${i}">自動で決める</button>`}</div>
         </div>
         <div class="ap-c2-mail">
@@ -356,6 +372,31 @@ function bindCardEvents(card) {
     }
   });
 
+
+  const setterSel = q(".ap-setter");
+  if (setterSel) setterSel.addEventListener("change", async () => {
+    const i = +setterSel.dataset.i;
+    const a = apState.appts[i];
+    const val = setterSel.value;
+    if (val === "__cur__") return;
+    const opt = setterSel.options[setterSel.selectedIndex];
+    const name = (opt && opt.getAttribute("data-name")) || "";
+    setterSel.disabled = true;
+    try {
+      const r = await fetch(`/api/smart-links/${encodeURIComponent(a.slug)}/setter`, {
+        method: "PUT", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ name, email: val || "" }),
+      });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.error || "変更に失敗しました");
+      a.setter_name = d.setter || name; a.setter_email = d.setter_email || val || "";
+      if (window.kbToast) kbToast("アポ獲得者を変更しました");
+      refreshMailCell(i);
+    } catch (e) {
+      alert("アポ獲得者の変更に失敗しました: " + e.message);
+      setterSel.disabled = false;
+    }
+  });
 
   const calOnly = q(".ap-calonly");
   if (calOnly) calOnly.addEventListener("click", async () => {
@@ -805,6 +846,10 @@ async function loadApo() {
     const reps = await (await fetch("/api/smart-links/reps")).json();
     apState.reps = Array.isArray(reps) ? reps : [];
   } catch { apState.reps = []; }
+  try {
+    const s = await (await fetch("/api/smart-links/setters")).json();
+    apState.setters = (s && s.setters) || [];
+  } catch { apState.setters = []; }
   loadRotation();
   try {
     const q = new URLSearchParams();
@@ -919,17 +964,25 @@ function renderPerf(d) {
   const PF_KEEP = ["アポ獲得", "有効商談", "担当者合意", "企画決定者合意", "申込書回収"];
   let cols = [...new Set(PF_KEEP.map((kw) => funnel.findIndex((s) => String(s).includes(kw))).filter((i) => i >= 0))].sort((a, b) => a - b);
   if (!cols.length) cols = funnel.map((_, i) => i); // 一致しなければ全ステージ
+  // 表示列を作る。アポ獲得の直後に「実施（kinbotに商談記録あり）」を挿入する。
+  const columns = [];
+  cols.forEach((ci, j) => {
+    columns.push({ kind: "sf", idx: ci, label: shortStage(funnel[ci]) });
+    if (j === 0) columns.push({ kind: "conducted", label: "実施" });
+  });
+  const cellN = (m, c) => (c.kind === "conducted" ? (m.conducted || 0) : (m.reached[c.idx] || 0));
 
   let html = '<div class="pf-wrap"><table class="pf-table"><thead><tr><th class="pf-mem">アポ獲得者</th>';
-  for (const ci of cols) html += `<th>${esc(shortStage(funnel[ci]))}</th>`;
+  for (const c of columns) html += `<th>${esc(c.label)}</th>`;
   html += '<th class="pf-lost">失注</th></tr></thead><tbody>';
   d.members.forEach((m, mi) => {
     html += `<tr class="pf-row"><td class="pf-mem">${esc(m.setter)}</td>`;
-    cols.forEach((ci, j) => {
-      const n = m.reached[ci] || 0;
-      const prev = j === 0 ? null : m.reached[cols[j - 1]];
+    columns.forEach((c, j) => {
+      const n = cellN(m, c);
+      const prev = j === 0 ? null : cellN(m, columns[j - 1]);
       const rate = j === 0 ? null : (prev ? Math.round((n / prev) * 100) : null);
-      html += `<td class="pf-cell${n ? " pf-has" : ""}" data-mi="${mi}" data-k="${ci}">` +
+      const dk = c.kind === "conducted" ? "conducted" : c.idx;
+      html += `<td class="pf-cell${n ? " pf-has" : ""}" data-mi="${mi}" data-k="${dk}">` +
         `<span class="pf-n">${n}</span>` +
         (rate == null ? "" : `<span class="pf-rate">${rate}%</span>`) + `</td>`;
     });
@@ -947,6 +1000,7 @@ function renderPerf(d) {
       const k = cell.dataset.k;
       let list, label;
       if (k === "lost") { list = m.lostCompanies || []; label = `${m.setter}：失注`; }
+      else if (k === "conducted") { list = m.conductedCompanies || []; label = `${m.setter}：実施（${m.conducted || 0}）`; }
       else { const kk = +k; list = m.companies[kk] || []; label = `${m.setter}：${shortStage(funnel[kk])}（到達 ${m.reached[kk] || 0}）`; }
       const active = cell.classList.contains("pf-open");
       body.querySelectorAll(".pf-cell.pf-open").forEach((c) => c.classList.remove("pf-open"));

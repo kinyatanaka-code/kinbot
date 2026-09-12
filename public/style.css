@@ -6085,3 +6085,7 @@ input:focus, select:focus, textarea:focus, .sf-input:focus, .sf-select:focus, .s
 .pf-detail-box { border: 1px solid #dbe6e0; border-radius: 12px; padding: 12px 14px; background: #fbfdfc; }
 .pf-companies { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
 .pf-co { display: inline-flex; padding: 3px 10px; border-radius: 999px; font-size: 12px; background: #eef1f0; color: #3a4a44; }
+
+/* アポ一覧カード：獲得者の変更セレクト */
+.ap-c2-setter .ap-setter { max-width: 150px; height: 30px; margin-top: 2px; font-size: 13px; border: 1px solid #d7e3dd; border-radius: 8px; padding: 0 8px; font-family: inherit; background: #fff; color: #1c3d34; }
+.ap-c2-setter .ap-setter:focus { outline: none; border-color: #1d9e75; box-shadow: 0 0 0 3px rgba(29,158,117,.15); }

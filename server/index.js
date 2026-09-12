@@ -303,6 +303,7 @@ import {
   apoMissingStart,
   apoMissingApoAt,
   setSmartLinkSetterEmail,
+  setSmartLinkSetter,
   clearInviteEvent,
   linksWithInvite,
   setApoAt,
@@ -19190,7 +19191,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-12p アポ実績のファネルを、指定の5ステージ（アポ獲得／有効商談／担当者合意／企画決定者合意／申込書回収）だけ表示するように絞った。移行率は表示するステージ間で計算し直す（間の隠しステージを飛ばした割合）。企業名ドリルダウンは従来どおり。見出しをアポ獲得者別に修正。";
+const BUILD_TAG = "2026-09-12q (1)アポ一覧のカードで「獲得者（アポ獲得者）」を選択して変更できるようにした（候補＝アポ獲得者マスタ）。(2)アポ実績のファネルで、アポ獲得と有効商談の間に「実施」を追加。実施＝kinbotに商談記録（録音・文字起こし）があるアポの数。移行率も実施を挟んで計算。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
@@ -23966,12 +23967,13 @@ app.get("/api/apo/perf", async (req, res) => {
     for (const a of apps) {
       const setter = String(a.setter || "").trim() || "(不明)";
       const m = bySetter[setter] || (bySetter[setter] = {
-        setter, total: 0, won: 0, lost: 0,
+        setter, total: 0, won: 0, lost: 0, conducted: 0, conductedCompanies: [],
         reached: funnel.map(() => 0), companies: funnel.map(() => []), lostCompanies: [],
       });
       const co = companyFromTitle(a.label || "") || a.opp_name || a.label || "(名称なし)";
       m.total++;
       m.reached[0]++; if (m.companies[0].length < 400) m.companies[0].push(co); // アポ獲得＝全件
+      if (a.conducted) { m.conducted++; if (m.conductedCompanies.length < 400) m.conductedCompanies.push(co); } // 実施＝kinbotに商談記録あり
       // 現ステージ：SFの生データ優先、無ければスナップショット(opp_stage)
       const live = a.opp_id ? oppById[a.opp_id] : null;
       const stage = live ? String(live.StageName || "") : String(a.opp_stage || "");
@@ -24239,6 +24241,24 @@ async function repDisplayName(email) {
     return (u && (u.name || u.email)) || email;
   } catch { return email; }
 }
+
+// アポ獲得者（setter）の候補一覧（アポ獲得者マスタ＝interns）
+app.get("/api/smart-links/setters", async (req, res) => {
+  try { res.json({ ok: true, setters: await listInterns().catch(() => []) }); }
+  catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// アポ獲得者（setter）を手で変える。名前は必須、メールは任意（候補から選ぶと両方入る）。
+app.put("/api/smart-links/:slug/setter", async (req, res) => {
+  try {
+    const name = String(req.body?.name || "").trim();
+    const email = String(req.body?.email || "").trim();
+    const link = await setSmartLinkSetter(req.params.slug, name, email);
+    if (!link) return res.status(404).json({ error: "変更できませんでした" });
+    console.log(`[apo] ${req.params.slug} のアポ獲得者を「${name || "(空)"}」に変更 by ${req.user}`);
+    res.json({ ok: true, setter: link.setter || "", setter_email: link.setter_email || "" });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
 
 app.put("/api/smart-links/:slug/owner", async (req, res) => {
   try {
