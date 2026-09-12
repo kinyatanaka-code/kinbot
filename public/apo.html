@@ -10,7 +10,7 @@
     <link rel="manifest" href="/site.webmanifest" />
     <meta name="theme-color" content="#0d5b47" />
     <meta name="apple-mobile-web-app-title" content="kinbot" />
-    <link rel="stylesheet" href="style.css?v=20260912m" />
+    <link rel="stylesheet" href="style.css?v=20260912n" />
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/tabler-icons/2.44.0/iconfont/tabler-icons.min.css" />
   </head>
   <body>
@@ -49,6 +49,7 @@
             <button type="button" class="ap-tab active" data-pane="list">アポ一覧</button>
             <button type="button" class="ap-tab" data-pane="rot">割り振り設定</button>
             <button type="button" class="ap-tab" data-pane="team">チーム実績</button>
+            <button type="button" class="ap-tab" data-pane="perf">アポ実績</button>
             <button type="button" class="ap-tab" data-pane="mail">メール設定</button>
             <button type="button" class="ap-tab" data-pane="sys">システム</button>
             <a class="ap-tab" href="report.html?panel=interns">インターンアポ</a>
@@ -202,6 +203,24 @@
                 <button class="btn" id="caSave">この数字にする</button>
                 <span class="rev-status" id="caStatus"></span>
               </div>
+            </div>
+          </section>
+
+          <section class="ap-pane" data-pane="perf" hidden>
+            <div class="ap-card">
+              <h3 class="ap-card-h">アポ実績（メンバー別ファネル）</h3>
+              <div class="ap-cfg-row">
+                <label>期間
+                  <select id="pfWindow">
+                    <option value="month">当月</option>
+                    <option value="all">通算</option>
+                  </select>
+                </label>
+                <button class="btn ghost" id="pfReload">更新</button>
+                <span class="rev-status" id="pfStatus"></span>
+              </div>
+              <p class="note">Salesforceのクロス商談を、商談の所有者（担当）ごとにステージ順で集計します。件数は各ステージに「到達した数」、％は前のステージからの移行率です。数字を押すと、その企業名が出ます。ステージ名はSalesforceの設定に従います。</p>
+              <div id="pfBody"><div class="empty-state">「更新」を押すと読み込みます。</div></div>
             </div>
           </section>
 
@@ -474,9 +493,9 @@
         </main>
       </div>
     </div>
-    <script src="product.js?v=20260912m"></script>
-    <script src="apo.js?v=20260912m"></script>
-    <script src="nav.js?v=20260912m"></script>
+    <script src="product.js?v=20260912n"></script>
+    <script src="apo.js?v=20260912n"></script>
+    <script src="nav.js?v=20260912n"></script>
     <script src="/cmdk.js?v=20260827a"></script>
 </body>
 </html>

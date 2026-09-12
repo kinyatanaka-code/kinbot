@@ -19189,7 +19189,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-12m 会社情報の自動補完に、Salesforceの取引先（Account）を最優先ソースとして追加。電話・Webサイト・都道府県（BillingState）・住所・従業員数を取引先から補い、足りない分をメールのドメイン→gBizINFO→ネット検索で埋める。モーダルの「自動で補完」も同じ順で動く。";
+const BUILD_TAG = "2026-09-12n アポ履歴に「アポ実績」タブを追加。Salesforceのクロス商談を商談の所有者（担当）別に、ステージ順で集計し、各ステージの到達数・移行率・企業名（数字クリックで表示）と失注を表示。ステージ名はSFのピックリスト順に従う（受注はIsWon、失注は別枠）。期間は当月/通算。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
@@ -23914,6 +23914,65 @@ app.put("/api/apo/closer-order", async (req, res) => {
 
 // チーム別の実績。チーム間の偏りをこれで確認する。
 // window=month（当月・既定）／all（通算）
+// アポ実績：メンバー（商談の所有者）別に、SFのクロス商談をステージ順に集計する。
+// 各ステージの到達数・移行率・企業名、受注、失注を返す。ステージ名はSFの実データ（並び順）に従う。
+app.get("/api/apo/perf", async (req, res) => {
+  try {
+    const sfUser = await sfOperator(req.user).catch(() => "");
+    if (!salesforceConfigured() || !sfUser || !(await sfConnected(sfUser).catch(() => false))) {
+      return res.status(400).json({ error: "Salesforceに接続できません" });
+    }
+    const window = req.query.window === "all" ? "all" : "month";
+    let whereDate = "";
+    if (window === "month") {
+      const now = new Date(Date.now() + 9 * 3600 * 1000);
+      const from = `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, "0")}-01`;
+      whereDate = ` AND CreatedDate >= ${from}T00:00:00+09:00`;
+    }
+    // ステージの並び順（ピックリスト）
+    let stageOrder = [];
+    try {
+      const d = await describeOpportunity(sfUser);
+      const f = (d.fields || []).find((x) => x.name === "StageName");
+      stageOrder = ((f && f.picklistValues) || []).filter((o) => o.active !== false).map((o) => o.value);
+    } catch (e) { console.warn("[アポ実績] ステージ取得失敗", e.message); }
+    const isLost = (s) => /失注/.test(String(s || ""));
+    const isWonStage = (s) => /受注/.test(String(s || ""));
+    const openStages = stageOrder.filter((s) => !isLost(s) && !isWonStage(s));
+    const wonStages = stageOrder.filter((s) => isWonStage(s));
+    const funnel = [...openStages, ...(wonStages.length ? wonStages : ["受注"])];
+
+    const d = await sfQuery(sfUser,
+      `SELECT Id, Name, StageName, IsWon, IsClosed, Account.Name, Owner.Name, Owner.Email FROM Opportunity
+        WHERE RecordType.Name LIKE '%クロス%'${whereDate} ORDER BY CreatedDate DESC LIMIT 5000`);
+    const recs = d.records || [];
+    const idxOf = (o) => {
+      if (o.IsWon === true || isWonStage(o.StageName)) return funnel.length - 1;
+      return funnel.indexOf(String(o.StageName || ""));
+    };
+    const byOwner = {};
+    for (const o of recs) {
+      const owner = (o.Owner && o.Owner.Name) || "(不明)";
+      const m = byOwner[owner] || (byOwner[owner] = {
+        owner, email: (o.Owner && o.Owner.Email) || "", total: 0, won: 0, lost: 0,
+        reached: funnel.map(() => 0), companies: funnel.map(() => []), lostCompanies: [],
+      });
+      m.total++;
+      const acct = (o.Account && o.Account.Name) || o.Name || "(名称なし)";
+      if (isLost(o.StageName)) { m.lost++; if (m.lostCompanies.length < 300) m.lostCompanies.push(acct); continue; }
+      if (o.IsWon === true || isWonStage(o.StageName)) m.won++;
+      const ix = idxOf(o);
+      if (ix >= 0) for (let k = 0; k <= ix; k++) { m.reached[k]++; if (m.companies[k].length < 300) m.companies[k].push(acct); }
+    }
+    const members = Object.values(byOwner).map((m) => ({
+      ...m,
+      rates: m.reached.map((c, k) => (k === 0 ? null : (m.reached[k - 1] ? Math.round((c / m.reached[k - 1]) * 100) : null))),
+    })).sort((a, b) => (b.reached[0] || 0) - (a.reached[0] || 0));
+
+    res.json({ ok: true, window, funnel, members, count: recs.length, capped: recs.length >= 5000 });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 app.get("/api/apo/team-stats", async (req, res) => {
   try {
     await syncTeamsFromClosers();

@@ -6065,3 +6065,23 @@ input:focus, select:focus, textarea:focus, .sf-input:focus, .sf-select:focus, .s
 .ap-lc-fill { width: 100%; margin-bottom: 12px; background: #eaf6f0; color: #0f6e56; border: 1px solid #bfe3d4; font-weight: 700; }
 .ap-lc-fill:hover { background: #0f6e56; color: #fff; border-color: #0f6e56; }
 .ap-lc-fill:disabled { opacity: .7; cursor: default; }
+
+/* アポ実績（メンバー別ファネル）テーブル */
+.pf-wrap { overflow-x: auto; }
+.pf-table { border-collapse: collapse; width: 100%; font-size: 13px; }
+.pf-table th, .pf-table td { border: 1px solid #e2ece7; padding: 8px 10px; text-align: center; white-space: nowrap; }
+.pf-table thead th { background: #f2f8f5; color: #0f6e56; font-weight: 700; position: sticky; top: 0; }
+.pf-table th.pf-mem, .pf-table td.pf-mem { text-align: left; position: sticky; left: 0; background: #fff; font-weight: 700; color: #1c3d34; z-index: 1; }
+.pf-table thead th.pf-mem { background: #f2f8f5; z-index: 2; }
+.pf-table th.pf-lost, .pf-table td.pf-lost { color: #b3392f; }
+.pf-cell { cursor: default; }
+.pf-cell.pf-has { cursor: pointer; }
+.pf-cell.pf-has:hover { background: #eef7f2; }
+.pf-cell.pf-open { background: #0f6e56; }
+.pf-cell.pf-open .pf-n, .pf-cell.pf-open .pf-rate { color: #fff; }
+.pf-n { font-weight: 700; color: #1c3d34; }
+.pf-rate { display: block; font-size: 10.5px; color: #6b7770; margin-top: 1px; }
+.pf-detail { margin-top: 12px; }
+.pf-detail-box { border: 1px solid #dbe6e0; border-radius: 12px; padding: 12px 14px; background: #fbfdfc; }
+.pf-companies { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.pf-co { display: inline-flex; padding: 3px 10px; border-radius: 999px; font-size: 12px; background: #eef1f0; color: #3a4a44; }

@@ -859,6 +859,7 @@ function setupTabs() {
     // 設定タブを開いたときに最新値を読み直す
     if (name === "rot") loadRotation();
     if (name === "team") { loadTeamStats(); loadCountAdjust(); }
+    if (name === "perf") loadPerf();
     if (name === "sys") loadBuild();
   };
   tabs.forEach((t) => t.addEventListener("click", () => show(t.dataset.pane)));
@@ -884,8 +885,76 @@ async function loadBuild() {
   }
 }
 
+// ===== アポ実績タブ（メンバー別ファネル） =====
+let _pfWired = false;
+async function loadPerf() {
+  const body = $("pfBody");
+  if (!body) return;
+  if (!_pfWired) {
+    _pfWired = true;
+    const rl = $("pfReload"); if (rl) rl.addEventListener("click", loadPerf);
+    const w = $("pfWindow"); if (w) w.addEventListener("change", loadPerf);
+  }
+  const win = ($("pfWindow") && $("pfWindow").value) || "month";
+  const st = $("pfStatus"); if (st) st.textContent = "読み込み中…";
+  body.innerHTML = '<div class="empty-state">Salesforceから集計中…（件数によっては時間がかかります）</div>';
+  try {
+    const r = await fetch("/api/apo/perf?window=" + encodeURIComponent(win));
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.error || "取得に失敗しました");
+    renderPerf(d);
+    if (st) st.textContent = `${d.members.length}名 / 商談${d.count}件${d.capped ? "（上限5000件で打ち切り）" : ""}`;
+  } catch (e) {
+    body.innerHTML = `<div class="empty-state">${esc(e.message)}</div>`;
+    if (st) st.textContent = "";
+  }
+}
+function renderPerf(d) {
+  const body = $("pfBody");
+  const funnel = d.funnel || [];
+  if (!d.members || !d.members.length) { body.innerHTML = '<div class="empty-state">この期間のクロス商談がありませんでした。</div>'; return; }
+  // ステージ名を短くする（"01：アポ獲得" → "アポ獲得"）
+  const shortStage = (s) => String(s).replace(/^\s*\d+\s*[:：.、)]\s*/, "");
+  let html = '<div class="pf-wrap"><table class="pf-table"><thead><tr><th class="pf-mem">メンバー</th>';
+  for (const s of funnel) html += `<th>${esc(shortStage(s))}</th>`;
+  html += '<th class="pf-lost">失注</th></tr></thead><tbody>';
+  d.members.forEach((m, mi) => {
+    html += `<tr class="pf-row"><td class="pf-mem">${esc(m.owner)}</td>`;
+    funnel.forEach((s, k) => {
+      const n = m.reached[k] || 0;
+      const rate = m.rates[k];
+      const cid = `pf-${mi}-${k}`;
+      html += `<td class="pf-cell${n ? " pf-has" : ""}" data-cid="${cid}" data-mi="${mi}" data-k="${k}">` +
+        `<span class="pf-n">${n}</span>` +
+        (rate == null ? "" : `<span class="pf-rate">${rate}%</span>`) + `</td>`;
+    });
+    html += `<td class="pf-cell pf-lost" data-mi="${mi}" data-k="lost"><span class="pf-n">${m.lost || 0}</span></td>`;
+    html += `</tr>`;
+  });
+  html += '</tbody></table></div><div class="pf-detail" id="pfDetail"></div>';
+  body.innerHTML = html;
+
+  const detail = $("pfDetail");
+  body.querySelectorAll(".pf-cell").forEach((cell) => {
+    cell.addEventListener("click", () => {
+      const mi = +cell.dataset.mi;
+      const m = d.members[mi];
+      const k = cell.dataset.k;
+      let list, label;
+      if (k === "lost") { list = m.lostCompanies || []; label = `${m.owner}：失注`; }
+      else { const kk = +k; list = m.companies[kk] || []; label = `${m.owner}：${shortStage(funnel[kk])}（到達 ${m.reached[kk] || 0}）`; }
+      const active = cell.classList.contains("pf-open");
+      body.querySelectorAll(".pf-cell.pf-open").forEach((c) => c.classList.remove("pf-open"));
+      if (active || !list.length) { detail.innerHTML = list.length ? "" : `<div class="pf-detail-box"><b>${esc(label)}</b><div class="note">企業がありません。</div></div>`; if (active) return; }
+      cell.classList.add("pf-open");
+      detail.innerHTML = `<div class="pf-detail-box"><b>${esc(label)}</b><div class="pf-companies">` +
+        list.map((c) => `<span class="pf-co">${esc(c)}</span>`).join("") + `</div></div>`;
+      detail.scrollIntoView({ behavior: "smooth", block: "nearest" });
+    });
+  });
+}
+
 // ===== チーム実績タブ =====
-// チーム間の偏りと、チーム内の偏りの両方が見えるようにする。
 // アポ通知カウントの手修正パネル
 async function loadCountAdjust() {
   const biz = $("caBiz");
