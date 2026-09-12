@@ -6158,3 +6158,9 @@ input:focus, select:focus, textarea:focus, .sf-input:focus, .sf-select:focus, .s
 .thanks-warn { margin-top:12px; border:1px solid #e6b800; background:#fff9e6; border-radius:10px; padding:10px 12px; }
 .thanks-warn-h { font-size:12.5px; font-weight:700; color:#8a6d00; margin-bottom:6px; }
 .thanks-warn-body { margin:0; white-space:pre-wrap; word-break:break-word; font-size:13px; line-height:1.6; color:#5a4b00; font-family:inherit; }
+
+/* ホーム御礼メールモーダル：型/回数の操作行・確認事項の別枠 */
+.mail-newctrl { display:flex; flex-wrap:wrap; gap:12px; align-items:center; margin:6px 0 4px; }
+.mail-warn { margin:8px 0; border:1px solid #e6b800; background:#fff9e6; border-radius:10px; padding:10px 12px; }
+.mail-warn-h { font-size:12.5px; font-weight:700; color:#8a6d00; margin-bottom:6px; }
+.mail-warn-b { margin:0; white-space:pre-wrap; word-break:break-word; font-size:13px; line-height:1.6; color:#5a4b00; font-family:inherit; }

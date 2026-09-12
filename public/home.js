@@ -779,19 +779,36 @@ function wireMailTemplates(box, botId, tpls, side) {
     if (nm) nm.textContent = "作成中…";
     tell("文面を作っています…");
     try {
+      const typeSel = box.querySelector(".home-mail-type");
+      const countSel = box.querySelector(".home-mail-count");
+      const docsEl = box.querySelector(".home-mail-docs");
+      const payload = { docUrls: docsEl ? docsEl.value || "" : "" };
+      // 初回はAI判定に任せ、選び直したらその値で作る
+      if (!mailTypeAuto) { payload.meetingType = typeSel ? typeSel.value : ""; payload.meetingCount = countSel ? countSel.value : ""; }
       const r = await fetch(`/api/meetings/${encodeURIComponent(botId)}/thanks`, {
         method: "POST", headers: { "content-type": "application/json" },
-        body: JSON.stringify({ templateId: useTpl && sel ? sel.value : "" }),
+        body: JSON.stringify(payload),
       });
       const d = await r.json();
-      if (!r.ok || !(d.body || d.text)) throw new Error(d.error || "作れませんでした");
-      box.querySelector(".home-mail-subj").value = d.subject || box.querySelector(".home-mail-subj").value;
-      ta.value = d.body || d.text || "";
+      if (!r.ok || !(d.mail_body || d.body || d.text)) throw new Error(d.error || "作れませんでした");
+      ta.value = d.mail_body || d.body || d.text || "";
       ta.dispatchEvent(new Event("input"));
-      tell(d.templateName ? `「${d.templateName}」で作りました` : "商談内容から作りました", 6000);
+      if (typeSel && d.meeting_type) typeSel.value = d.meeting_type;
+      if (countSel && d.meeting_count) countSel.value = d.meeting_count;
+      mailTypeAuto = false;
+      const warnBox = box.querySelector(".mail-warn");
+      const warnB = box.querySelector(".mail-warn-b");
+      if (warnBox && warnB) { if (d.warnings && d.warnings.trim()) { warnB.textContent = d.warnings; warnBox.hidden = false; } else { warnBox.hidden = true; } }
+      tell("商談内容から作りました。送信前に確認事項を必ずチェックしてください", 8000);
     } catch (e) { tell("失敗: " + e.message, 8000); }
     finally { btn.disabled = false; if (nm) nm.textContent = before; }
   };
+  // 型/回数を選び直したら、その値で作る（初回はAI判定）
+  let mailTypeAuto = true;
+  const _mtSel = box.querySelector(".home-mail-type");
+  const _mcSel = box.querySelector(".home-mail-count");
+  if (_mtSel) _mtSel.addEventListener("change", () => { mailTypeAuto = false; });
+  if (_mcSel) _mcSel.addEventListener("change", () => { mailTypeAuto = false; });
 
   // 商談の内容から文面を作る（開いたときには作らない）
   const genBtn = box.querySelector("[data-mail-gen]");
@@ -1441,11 +1458,35 @@ async function openMail(botId, key) {
          <button type="button" class="mail-mode-b" data-mode="reply">返信</button>
          <span class="mail-mode-st"></span>
        </div>
+       <div class="mail-newctrl">
+         <label class="thanks-inline"><span>型</span>
+           <select class="home-mail-type">
+             <option value="A">A 初回・案件化</option>
+             <option value="B">B 初回・再商談未設定</option>
+             <option value="C">C 再商談・上申準備</option>
+             <option value="D">D 受注後</option>
+             <option value="E">E 見送り・タイミング未達</option>
+             <option value="F">F 資料送付</option>
+           </select>
+         </label>
+         <label class="thanks-inline"><span>商談回数</span>
+           <select class="home-mail-count">
+             <option value="初回">初回</option>
+             <option value="2回目">2回目</option>
+             <option value="3回目以降">3回目以降</option>
+           </select>
+         </label>
+       </div>
+       <label class="mail-lb">資料URL（任意）<textarea class="home-mail-docs" rows="2" placeholder="再商談などで送る資料URL。空欄可（この会社の発行済み資料があれば自動で入ります）"></textarea></label>
 
        <label class="mail-lb">宛先<input type="text" class="home-mail-to" value="${escH(d.to || "")}"
          placeholder="送り先のメールアドレス（空のままでもGmailで入れられます）" />
          <span class="mail-to-src">${d.to ? `${escH(d.toSource || "")}から入れました` : ""}</span></label>
        <label class="mail-lb">件名<input type="text" class="home-mail-subj" value="${escH(subject)}" /></label>
+       <div class="mail-warn" hidden>
+         <div class="mail-warn-h">確認事項（コピーされません・送信前に必ず確認）</div>
+         <pre class="mail-warn-b"></pre>
+       </div>
        <!-- 本文の右にアイコンを置く。下に置くと、長い文面のときに画面の外に出てしまうため。 -->
        <div class="mail-body-row">
          <label class="mail-lb mail-lb-body">本文<textarea class="home-mail-body" rows="16" placeholder="ここに文面を書きます。「文面を作る」を押すと、商談の内容からAIが下書きします。">${escH(body)}</textarea></label>
