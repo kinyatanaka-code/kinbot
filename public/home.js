@@ -48,6 +48,7 @@ const HOME_ICONS = {
   // チームへ共有（人が3人）
   // 担当を変える（人＋歯車っぽい人型）
   owner: "M12 4a3.2 3.2 0 1 0 0 6.4A3.2 3.2 0 0 0 12 4zm-7 15c0-3 3.1-4.6 7-4.6s7 1.6 7 4.6v1H5z",
+  aidemo: "M3 4h18v12H3zm2 2v8h14V6zm4 1.5 6 3.5-6 3.5zM8 19h8v2H8z",
 };
 
 // アイコンのボタンを1つ作る。
@@ -59,6 +60,7 @@ const HOME_ICON_NAMES = {
   gen: "文面を作る", draft: "下書き", copy: "コピー", gmail: "Gmail", tpl: "テンプレ", doc: "資料URL",
   tplin: "型を入れる", tpluse: "この型で作る", tplsave: "型を保存", tpledit: "型を直す", tpldel: "型を消す", tplshare: "みんなへ",
   owner: "担当",
+  aidemo: "AIデモ",
 };
 
 function hIcon(kind, label, attrs = "", state = "", tag = "button") {
@@ -261,6 +263,82 @@ function sameDeal(a, b) {
   return !!ca && ca.length >= 2 && ca === cb;
 }
 
+// ===== AIデモ（管理シートの発行済みリンク＋外部ツールで生成） =====
+let aidemoByKey = {};
+let aidemoTool = "https://aidemo-maker-393173897680.asia-northeast1.run.app/";
+function fnorm(s) { return String(s || "").replace(/[\s　]/g, "").replace(/(株式会社|（株）|\(株\)|㈱|有限会社|（有）|\(有\)|合同会社|合資会社|一般社団法人|一般財団法人|公益社団法人|公益財団法人|医療法人社団|医療法人|社会福祉法人|学校法人|協同組合|組合)/g, "").replace(/様$/, "").toLowerCase(); }
+async function loadAidemo(refresh) {
+  try {
+    const r = await fetch("/api/aidemo/links" + (refresh ? "?refresh=1" : ""));
+    const d = await r.json();
+    if (r.ok) { aidemoByKey = {}; for (const it of (d.items || [])) { if (it.company && it.url) aidemoByKey[fnorm(it.company)] = it.url; } if (d.tool) aidemoTool = d.tool; }
+  } catch {}
+}
+document.addEventListener("click", (ev) => {
+  const el = ev.target.closest && ev.target.closest("[data-aidemo]");
+  if (!el) return;
+  ev.preventDefault(); ev.stopPropagation();
+  openAiDemo(el.getAttribute("data-aidemo"));
+});
+// AIデモのモーダル。会社名・URL（SFから自動・編集可）を確認し、外部ツールで生成→シートから発行済みURLを拾う。
+function openAiDemo(key) {
+  const it = homeItems[key] || {};
+  const company = it.company || "";
+  if (document.querySelector(".aid-back")) return;
+  const existing = aidemoByKey[fnorm(company)] || "";
+  const back = document.createElement("div");
+  back.className = "aid-back";
+  back.innerHTML =
+    `<div class="aid">
+      <div class="aid-h"><span>AIデモを作る</span><button type="button" class="aid-x" aria-label="閉じる">×</button></div>
+      <div class="aid-note">会社名とWebサイトURLでAIデモを作ります（作成に数分）。URLは紐付くSalesforceから自動で入れます。必要なら書き換えてください。</div>
+      <label class="aid-f"><span>会社名</span><input id="aidCo" type="text" value="${escH(company)}" /></label>
+      <label class="aid-f"><span>WebサイトURL</span><input id="aidUrl" type="text" placeholder="読み込み中…" /></label>
+      <div class="aid-result" id="aidResult">${existing ? `<div class="aid-have"><b>作成済みのAIデモ</b><div class="aid-urlrow"><a href="${escH(existing)}" target="_blank" rel="noopener">${escH(existing)}</a><button type="button" class="btn aid-copy" data-u="${escH(existing)}">コピー</button></div></div>` : ""}</div>
+      <div class="aid-msg" id="aidMsg"></div>
+      <div class="aid-actions"><button type="button" class="btn btn-ghost aid-cancel">閉じる</button><button type="button" class="btn aid-go">デモを作る</button></div>
+    </div>`;
+  document.body.appendChild(back);
+  const close = () => { back.remove(); if (back._poll) clearInterval(back._poll); };
+  back.addEventListener("click", (ev) => { if (ev.target === back) close(); });
+  back.querySelector(".aid-x").addEventListener("click", close);
+  back.querySelector(".aid-cancel").addEventListener("click", close);
+  const urlIn = back.querySelector("#aidUrl");
+  const msg = back.querySelector("#aidMsg");
+  const result = back.querySelector("#aidResult");
+  const wireCopy = () => back.querySelectorAll(".aid-copy").forEach((b) => b.addEventListener("click", async () => { try { await navigator.clipboard.writeText(b.dataset.u); b.textContent = "コピーしました"; setTimeout(() => (b.textContent = "コピー"), 1500); } catch {} }));
+  wireCopy();
+  // SFからWebサイトURLを自動入力
+  (async () => {
+    try { const r = await fetch("/api/company/website?company=" + encodeURIComponent(company)); const d = await r.json(); if (r.ok && d.url && !urlIn.value) urlIn.value = d.url; } catch {}
+    urlIn.placeholder = "https://...";
+  })();
+  const showResult = (url) => {
+    result.innerHTML = `<div class="aid-have"><b>AIデモができました</b><div class="aid-urlrow"><a href="${escH(url)}" target="_blank" rel="noopener">${escH(url)}</a><button type="button" class="btn aid-copy" data-u="${escH(url)}">コピー</button></div></div>`;
+    wireCopy();
+  };
+  back.querySelector(".aid-go").addEventListener("click", async () => {
+    const co = (back.querySelector("#aidCo").value || "").trim();
+    const url = (urlIn.value || "").trim();
+    if (!co) { msg.textContent = "会社名を入れてください。"; return; }
+    // ツールを開き、会社名とURLをコピー（貼り付け用）。生成はツール側で行う。
+    try { await navigator.clipboard.writeText(`${co}\n${url}`); } catch {}
+    window.open(aidemoTool, "_blank", "noopener");
+    msg.className = "aid-msg"; msg.textContent = "ツールを開きました。会社名・URLはコピー済みです。貼り付けて生成してください。完成すると自動でここにURLが出ます（数分・確認中…）。";
+    let tries = 0;
+    if (back._poll) clearInterval(back._poll);
+    back._poll = setInterval(async () => {
+      tries++;
+      try {
+        const r = await fetch("/api/aidemo/links?refresh=1&company=" + encodeURIComponent(co));
+        const d = await r.json();
+        if (r.ok && d.url) { clearInterval(back._poll); back._poll = null; showResult(d.url); aidemoByKey[fnorm(co)] = d.url; msg.textContent = "AIデモができました。"; render(); }
+      } catch {}
+      if (tries >= 30) { clearInterval(back._poll); back._poll = null; msg.textContent = "まだ確認できません。生成が終わったら『デモを作る』をもう一度押すか、少し待ってから開き直してください。"; }
+    }, 12000);
+  });
+}
+
 function render() {
   const box = $h("homeList");
   const isToday = selDate === todayStr;
@@ -389,6 +467,7 @@ function render() {
             `data-mail="${escH(m.bot_id)}" data-key="${escH(key)}"`,
             mailSentMap[m.bot_id] ? "done" : "need")
         : hIcon("mail", "御礼メール（商談の記録がまだありません）", `data-mail-none="${escH(key)}"`, "done")) +
+      hIcon("aidemo", aidemoByKey[fnorm(company)] ? "AIデモ（作成済み・URLを見る）" : "AIデモを作る", `data-aidemo="${escH(key)}"`, aidemoByKey[fnorm(company)] ? "done" : "need") +
       // 「その他」にカーソルを合わせると、担当変更と開くが出てくる
       `<span class="hl-moregrp">${hIcon("more", "担当変更・開く", `data-more-toggle="${escH(key)}"`, "")}` +
         `<span class="hl-morex">${ownerToggle}${hIcon("open", openLabel, `href="${link}"`, "done", "a")}</span></span>`;
@@ -1970,6 +2049,7 @@ async function load() {
   updateHead();
   render();
   loadMyApos();
+  loadAidemo().then(() => render());
 }
 
 document.addEventListener("DOMContentLoaded", () => {

@@ -3630,7 +3630,79 @@ app.post("/api/company/sf-launch", async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-// クロス商談が「立ち上げ済み」かの判定（会社名検索・ID直参照で共通に使う）
+// ===== AIデモ（外部ツールで生成し、管理シートに記録された発行済みリンクを読む）=====
+const AIDEMO_SHEET_ID = process.env.AIDEMO_SHEET_ID || "1jMDDMsKC_nAFXqChWQOqTo_WdhHY_qqneYca2GzDYQo";
+const AIDEMO_TOOL_URL = process.env.AIDEMO_TOOL_URL || "https://aidemo-maker-393173897680.asia-northeast1.run.app/";
+let _aidemoCache = { at: 0, map: null };
+function looksUrl(v) { return /^https?:\/\//i.test(String(v || "").trim()); }
+async function aidemoOwner() {
+  const st = await getSettings().catch(() => ({}));
+  return String(process.env.AIDEMO_SHEET_OWNER || st.apoScanOwner || st.apoInviteOwner || "kinya.tanaka@neo-career.co.jp").toLowerCase();
+}
+function buildAiDemoMap(rows) {
+  const map = {};
+  if (!rows || !rows.length) return map;
+  const header = (rows[0] || []).map((h) => String(h || ""));
+  const findCol = (re) => header.findIndex((h) => re.test(h));
+  let coCol = findCol(/会社|企業|company|クライアント|顧客/i);
+  let urlCol = findCol(/URL|ｕｒｌ|リンク|link|デモ|demo/i);
+  let dataStart = 1;
+  if (urlCol < 0) { // URLっぽい列を推定
+    const cols = Math.max(...rows.map((r) => r.length || 0));
+    let best = -1, bestN = 0;
+    for (let c = 0; c < cols; c++) { const n = rows.reduce((a, r) => a + (looksUrl(r[c]) ? 1 : 0), 0); if (n > bestN) { bestN = n; best = c; } }
+    if (bestN > 0) { urlCol = best; dataStart = 0; }
+  }
+  if (coCol < 0) { // URL列以外で、URLでない文字が入っている最初の列を会社名とみなす
+    const cols = Math.max(...rows.map((r) => r.length || 0));
+    for (let c = 0; c < cols; c++) { if (c === urlCol) continue; if (rows.some((r) => String(r[c] || "").trim() && !looksUrl(r[c]))) { coCol = c; break; } }
+  }
+  if (coCol < 0 || urlCol < 0) return map;
+  for (let i = dataStart; i < rows.length; i++) {
+    const r = rows[i] || [];
+    const co = String(r[coCol] || "").trim();
+    const url = String(r[urlCol] || "").trim();
+    if (!co || looksUrl(co) || !looksUrl(url)) continue;
+    const k = normCompanyKey(co);
+    if (!map[k]) map[k] = { url, company: co };  // 先頭（最新想定）を優先
+  }
+  return map;
+}
+async function loadAiDemoLinks(force = false) {
+  if (!force && _aidemoCache.map && Date.now() - _aidemoCache.at < 60 * 1000) return _aidemoCache.map;
+  const owner = await aidemoOwner();
+  let rows = [];
+  try { rows = await readSheet(owner, AIDEMO_SHEET_ID, "A1:Z3000"); }
+  catch (e) { console.warn("[aidemo] 管理シート読込失敗", e.message); return _aidemoCache.map || {}; }
+  const map = buildAiDemoMap(rows);
+  _aidemoCache = { at: Date.now(), map };
+  return map;
+}
+// 会社→発行済みデモURL。company指定で1社、無指定で全件（map＋items）。
+app.get("/api/aidemo/links", async (req, res) => {
+  try {
+    const map = await loadAiDemoLinks(req.query.refresh === "1");
+    const co = String(req.query.company || "").trim();
+    if (co) { const hit = map[normCompanyKey(co)] || null; return res.json({ ok: true, url: hit ? hit.url : "", found: !!hit, tool: AIDEMO_TOOL_URL }); }
+    res.json({ ok: true, items: Object.values(map), tool: AIDEMO_TOOL_URL });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// 会社のWebサイトURL（AIデモ用のプリフィル）。SF取引先→メール/gBiz→ネットの順で探す。
+app.get("/api/company/website", async (req, res) => {
+  try {
+    const company = String(req.query.company || "").trim();
+    if (!company) return res.json({ ok: true, url: "" });
+    const email = String(req.query.email || "").trim();
+    const sfUser = await sfOperator(req.user).catch(() => "");
+    // まずSF取引先のWebsite
+    let url = "";
+    try { const sf = await ciFromSf(sfUser, company); if (sf && sf.website) url = sf.website; } catch {}
+    if (!url) { try { const w = await lookupCompanyWebsite(company, email); if (w && w.url) url = w.url; } catch {} }
+    res.json({ ok: true, url });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 function oppLaunched(o) {
   const stage = String((o && o.StageName) || "");
   return /アポ獲得/.test(stage) || (o && o.IsWon === true) || (o && !o.IsClosed && !!stage);
@@ -19387,7 +19459,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-12zd アポ一覧でSF商談を紐付けたら、その会社の商談履歴のカードにも同じ紐付けが反映されるようにした（アポと商談履歴で紐付けが連動）。";
+const BUILD_TAG = "2026-09-12ze ホーム画面の各予定カードに「AIデモ」ボタンを追加。押すと会社名とWebサイトURL（紐付くSalesforceから自動・編集可）を確認してAIデモ生成ツールを開き（会社名・URLはコピー済み）、完成した発行済みデモリンクを管理シートから拾ってカードに表示・コピーできる。既に作成済みの会社はボタンが点灯し、URLをすぐ見られる。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",

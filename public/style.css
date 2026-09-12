@@ -6130,3 +6130,23 @@ input:focus, select:focus, textarea:focus, .sf-input:focus, .sf-select:focus, .s
 .csf-f > span { flex: none; width: 96px; font-size: 13px; color: #4a5a54; }
 .csf-f input { flex: 1; min-width: 0; height: 36px; border: 1px solid #d7e3dd; border-radius: 9px; padding: 0 11px; font-size: 14px; }
 .csf-f input:focus { outline: none; border-color: #1d9e75; box-shadow: 0 0 0 3px rgba(29,158,117,.15); }
+
+/* AIデモ モーダル（ホーム） */
+.aid-back { position: fixed; inset: 0; z-index: 1000; background: rgba(13,42,34,.42); display: flex; align-items: center; justify-content: center; padding: 16px; }
+.aid { width: 100%; max-width: 480px; max-height: 86vh; overflow: auto; background: #fff; border-radius: 16px; box-shadow: 0 20px 60px rgba(13,91,71,.28); padding: 18px 20px; }
+.aid-h { display: flex; align-items: center; justify-content: space-between; font-size: 16px; font-weight: 700; color: #173a30; margin-bottom: 8px; }
+.aid-x { width: 30px; height: 30px; border: none; background: transparent; font-size: 20px; color: #7a8a84; cursor: pointer; border-radius: 8px; }
+.aid-x:hover { background: #f0f4f2; }
+.aid-note { font-size: 12.5px; color: #6b7770; margin-bottom: 12px; line-height: 1.5; }
+.aid-f { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
+.aid-f > span { flex: none; width: 110px; font-size: 13px; color: #4a5a54; }
+.aid-f input { flex: 1; min-width: 0; height: 36px; border: 1px solid #d7e3dd; border-radius: 9px; padding: 0 11px; font-size: 14px; }
+.aid-f input:focus { outline: none; border-color: #1d9e75; box-shadow: 0 0 0 3px rgba(29,158,117,.15); }
+.aid-result { margin: 6px 0; }
+.aid-have { background: #e6f4ec; border: 1px solid #bfe3d4; border-radius: 10px; padding: 10px 12px; font-size: 13px; color: #1a7a4f; }
+.aid-urlrow { display: flex; align-items: center; gap: 8px; margin-top: 6px; flex-wrap: wrap; }
+.aid-urlrow a { color: #0f6e56; word-break: break-all; }
+.aid-msg { font-size: 13px; color: #4a5a54; margin: 6px 0 2px; line-height: 1.5; }
+.aid-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 14px; }
+.aid-go { background: #0f6e56; color: #fff; border: none; }
+.aid-go:hover { background: #0c5a47; color: #fff; }
