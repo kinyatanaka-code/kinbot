@@ -4705,6 +4705,28 @@ export async function listSmartLinks(createdBy) {
     return rows;
   } catch { return []; }
 }
+
+// アポ実績用：期間内のアポ（smart_links）を、アポ獲得者(setter)・会社名・紐づくSF商談(opp_id/opp_stageスナップショット)つきで返す。
+// mailmaga（メルマガ）と集計除外(excluded)は外す。期間は取得日(apo_at)優先、無ければ商談日(start_time)。
+export async function listApoPerf({ from = null, to = null } = {}) {
+  if (!pool) return [];
+  const cond = ["s.setter IS NOT NULL", "s.setter <> ''", "NOT COALESCE(s.mailmaga,false)", "NOT COALESCE(s.excluded,false)"];
+  const vals = []; let i = 1;
+  if (from) { cond.push(`COALESCE(s.apo_at, s.start_time) >= $${i++}`); vals.push(from); }
+  if (to) { cond.push(`COALESCE(s.apo_at, s.start_time) < $${i++}`); vals.push(to); }
+  const where = "WHERE " + cond.join(" AND ");
+  try {
+    const { rows } = await pool.query(
+      `SELECT s.slug, s.label, s.setter, s.setter_email, s.business, s.start_time, s.apo_at,
+              a.opp_id, a.opp_name, a.opp_stage
+         FROM smart_links s
+         LEFT JOIN sf_autolaunch a ON a.slug = s.slug
+         ${where}
+         ORDER BY COALESCE(s.apo_at, s.start_time) DESC NULLS LAST
+         LIMIT 5000`, vals);
+    return rows;
+  } catch (e) { console.error("[db] listApoPerf", e.message); return []; }
+}
 export async function setSmartLinkOwner(slug, owner) {
   if (!pool) return null;
   const { rows } = await pool.query(

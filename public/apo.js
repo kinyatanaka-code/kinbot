@@ -903,7 +903,7 @@ async function loadPerf() {
     const d = await r.json();
     if (!r.ok) throw new Error(d.error || "取得に失敗しました");
     renderPerf(d);
-    if (st) st.textContent = `${d.members.length}名 / 商談${d.count}件${d.capped ? "（上限5000件で打ち切り）" : ""}`;
+    if (st) st.textContent = `${d.members.length}名 / アポ${d.count}件` + (d.sfConnected ? "" : "（SF未接続のため記録の値で表示）");
   } catch (e) {
     body.innerHTML = `<div class="empty-state">${esc(e.message)}</div>`;
     if (st) st.textContent = "";
@@ -915,11 +915,11 @@ function renderPerf(d) {
   if (!d.members || !d.members.length) { body.innerHTML = '<div class="empty-state">この期間のクロス商談がありませんでした。</div>'; return; }
   // ステージ名を短くする（"01：アポ獲得" → "アポ獲得"）
   const shortStage = (s) => String(s).replace(/^\s*\d+\s*[:：.、)]\s*/, "");
-  let html = '<div class="pf-wrap"><table class="pf-table"><thead><tr><th class="pf-mem">メンバー</th>';
+  let html = '<div class="pf-wrap"><table class="pf-table"><thead><tr><th class="pf-mem">アポ獲得者</th>';
   for (const s of funnel) html += `<th>${esc(shortStage(s))}</th>`;
   html += '<th class="pf-lost">失注</th></tr></thead><tbody>';
   d.members.forEach((m, mi) => {
-    html += `<tr class="pf-row"><td class="pf-mem">${esc(m.owner)}</td>`;
+    html += `<tr class="pf-row"><td class="pf-mem">${esc(m.setter)}</td>`;
     funnel.forEach((s, k) => {
       const n = m.reached[k] || 0;
       const rate = m.rates[k];
@@ -941,8 +941,8 @@ function renderPerf(d) {
       const m = d.members[mi];
       const k = cell.dataset.k;
       let list, label;
-      if (k === "lost") { list = m.lostCompanies || []; label = `${m.owner}：失注`; }
-      else { const kk = +k; list = m.companies[kk] || []; label = `${m.owner}：${shortStage(funnel[kk])}（到達 ${m.reached[kk] || 0}）`; }
+      if (k === "lost") { list = m.lostCompanies || []; label = `${m.setter}：失注`; }
+      else { const kk = +k; list = m.companies[kk] || []; label = `${m.setter}：${shortStage(funnel[kk])}（到達 ${m.reached[kk] || 0}）`; }
       const active = cell.classList.contains("pf-open");
       body.querySelectorAll(".pf-cell.pf-open").forEach((c) => c.classList.remove("pf-open"));
       if (active || !list.length) { detail.innerHTML = list.length ? "" : `<div class="pf-detail-box"><b>${esc(label)}</b><div class="note">企業がありません。</div></div>`; if (active) return; }

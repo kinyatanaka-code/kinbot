@@ -172,6 +172,7 @@ import {
   deleteCalendarWatch,
   getCalendarWatch,
   listSmartLinks,
+  listApoPerf,
   setSmartLinkOwner,
   setSmartLinkInviteEvent,
   deleteSmartLink,
@@ -19189,7 +19190,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-12n アポ履歴に「アポ実績」タブを追加。Salesforceのクロス商談を商談の所有者（担当）別に、ステージ順で集計し、各ステージの到達数・移行率・企業名（数字クリックで表示）と失注を表示。ステージ名はSFのピックリスト順に従う（受注はIsWon、失注は別枠）。期間は当月/通算。";
+const BUILD_TAG = "2026-09-12o アポ実績タブを改良。タブをアポ一覧の隣へ移動。集計をクローザー（商談所有者）別から「アポ獲得者」別に変更し、その人が取ったアポがSF商談でどのステージまで進んだかを表示。アポ獲得＝取得した全アポ、以降は紐づくSF商談の現ステージで到達数・移行率・企業名。受注・失注も集計。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
@@ -23914,62 +23915,79 @@ app.put("/api/apo/closer-order", async (req, res) => {
 
 // チーム別の実績。チーム間の偏りをこれで確認する。
 // window=month（当月・既定）／all（通算）
-// アポ実績：メンバー（商談の所有者）別に、SFのクロス商談をステージ順に集計する。
-// 各ステージの到達数・移行率・企業名、受注、失注を返す。ステージ名はSFの実データ（並び順）に従う。
+// アポ実績：アポ獲得者（setter）別に、その人が取ったアポがSFの商談でどのステージまで進んだかを集計する。
+// アポ獲得＝取得した全アポ。以降は紐づくSF商談の現ステージで到達数・移行率・企業名を出す。受注/失注は別に数える。
 app.get("/api/apo/perf", async (req, res) => {
   try {
-    const sfUser = await sfOperator(req.user).catch(() => "");
-    if (!salesforceConfigured() || !sfUser || !(await sfConnected(sfUser).catch(() => false))) {
-      return res.status(400).json({ error: "Salesforceに接続できません" });
-    }
     const window = req.query.window === "all" ? "all" : "month";
-    let whereDate = "";
+    let from = null;
     if (window === "month") {
       const now = new Date(Date.now() + 9 * 3600 * 1000);
-      const from = `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, "0")}-01`;
-      whereDate = ` AND CreatedDate >= ${from}T00:00:00+09:00`;
+      from = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1) - 9 * 3600 * 1000).toISOString();
     }
-    // ステージの並び順（ピックリスト）
+    const apps = await listApoPerf({ from });
+
+    const sfUser = await sfOperator(req.user).catch(() => "");
+    const sfOk = !!(salesforceConfigured() && sfUser && await sfConnected(sfUser).catch(() => false));
+
+    // ステージの並び（ピックリスト）。取れなければ最小構成。
     let stageOrder = [];
-    try {
-      const d = await describeOpportunity(sfUser);
-      const f = (d.fields || []).find((x) => x.name === "StageName");
-      stageOrder = ((f && f.picklistValues) || []).filter((o) => o.active !== false).map((o) => o.value);
-    } catch (e) { console.warn("[アポ実績] ステージ取得失敗", e.message); }
+    if (sfOk) {
+      try {
+        const d = await describeOpportunity(sfUser);
+        const f = (d.fields || []).find((x) => x.name === "StageName");
+        stageOrder = ((f && f.picklistValues) || []).filter((o) => o.active !== false).map((o) => o.value);
+      } catch (e) { console.warn("[アポ実績] ステージ取得失敗", e.message); }
+    }
     const isLost = (s) => /失注/.test(String(s || ""));
     const isWonStage = (s) => /受注/.test(String(s || ""));
     const openStages = stageOrder.filter((s) => !isLost(s) && !isWonStage(s));
     const wonStages = stageOrder.filter((s) => isWonStage(s));
-    const funnel = [...openStages, ...(wonStages.length ? wonStages : ["受注"])];
+    const funnel = [...(openStages.length ? openStages : ["アポ獲得"]), ...(wonStages.length ? wonStages : ["受注"])];
 
-    const d = await sfQuery(sfUser,
-      `SELECT Id, Name, StageName, IsWon, IsClosed, Account.Name, Owner.Name, Owner.Email FROM Opportunity
-        WHERE RecordType.Name LIKE '%クロス%'${whereDate} ORDER BY CreatedDate DESC LIMIT 5000`);
-    const recs = d.records || [];
-    const idxOf = (o) => {
-      if (o.IsWon === true || isWonStage(o.StageName)) return funnel.length - 1;
-      return funnel.indexOf(String(o.StageName || ""));
+    // 紐づく商談の現ステージをSFからまとめて引く
+    const oppIds = [...new Set(apps.map((a) => a.opp_id).filter(Boolean))];
+    const oppById = {};
+    if (sfOk && oppIds.length) {
+      for (let i = 0; i < oppIds.length; i += 200) {
+        const idList = oppIds.slice(i, i + 200).map((id) => `'${String(id).replace(/'/g, "\\'")}'`).join(",");
+        try {
+          const d = await sfQuery(sfUser, `SELECT Id, StageName, IsWon, IsClosed, Account.Name FROM Opportunity WHERE Id IN (${idList})`);
+          for (const o of d.records || []) oppById[o.Id] = o;
+        } catch (e) { console.warn("[アポ実績] 商談取得失敗", e.message); }
+      }
+    }
+    const idxOfStage = (stage, won) => {
+      if (won || isWonStage(stage)) return funnel.length - 1;
+      return funnel.indexOf(String(stage || ""));
     };
-    const byOwner = {};
-    for (const o of recs) {
-      const owner = (o.Owner && o.Owner.Name) || "(不明)";
-      const m = byOwner[owner] || (byOwner[owner] = {
-        owner, email: (o.Owner && o.Owner.Email) || "", total: 0, won: 0, lost: 0,
+
+    const bySetter = {};
+    for (const a of apps) {
+      const setter = String(a.setter || "").trim() || "(不明)";
+      const m = bySetter[setter] || (bySetter[setter] = {
+        setter, total: 0, won: 0, lost: 0,
         reached: funnel.map(() => 0), companies: funnel.map(() => []), lostCompanies: [],
       });
+      const co = companyFromTitle(a.label || "") || a.opp_name || a.label || "(名称なし)";
       m.total++;
-      const acct = (o.Account && o.Account.Name) || o.Name || "(名称なし)";
-      if (isLost(o.StageName)) { m.lost++; if (m.lostCompanies.length < 300) m.lostCompanies.push(acct); continue; }
-      if (o.IsWon === true || isWonStage(o.StageName)) m.won++;
-      const ix = idxOf(o);
-      if (ix >= 0) for (let k = 0; k <= ix; k++) { m.reached[k]++; if (m.companies[k].length < 300) m.companies[k].push(acct); }
+      m.reached[0]++; if (m.companies[0].length < 400) m.companies[0].push(co); // アポ獲得＝全件
+      // 現ステージ：SFの生データ優先、無ければスナップショット(opp_stage)
+      const live = a.opp_id ? oppById[a.opp_id] : null;
+      const stage = live ? String(live.StageName || "") : String(a.opp_stage || "");
+      const won = live ? live.IsWon === true : isWonStage(a.opp_stage);
+      if (!stage) continue; // 未立ち上げ＝アポ獲得のみ
+      if (isLost(stage)) { m.lost++; if (m.lostCompanies.length < 400) m.lostCompanies.push(co); continue; }
+      if (won || isWonStage(stage)) m.won++;
+      const ix = idxOfStage(stage, won);
+      for (let k = 1; k <= ix; k++) { m.reached[k]++; if (m.companies[k].length < 400) m.companies[k].push(co); }
     }
-    const members = Object.values(byOwner).map((m) => ({
+    const members = Object.values(bySetter).map((m) => ({
       ...m,
       rates: m.reached.map((c, k) => (k === 0 ? null : (m.reached[k - 1] ? Math.round((c / m.reached[k - 1]) * 100) : null))),
     })).sort((a, b) => (b.reached[0] || 0) - (a.reached[0] || 0));
 
-    res.json({ ok: true, window, funnel, members, count: recs.length, capped: recs.length >= 5000 });
+    res.json({ ok: true, window, funnel, members, count: apps.length, sfConnected: sfOk });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
