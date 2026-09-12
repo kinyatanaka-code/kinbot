@@ -6060,3 +6060,8 @@ input:focus, select:focus, textarea:focus, .sf-input:focus, .sf-select:focus, .s
 .ap-lk-pick { grid-column: 2; grid-row: 1 / 3; align-self: center; background: #0f6e56; color: #fff; border: none; white-space: nowrap; }
 .ap-lk-pick:hover { background: #0c5a47; color: #fff; }
 .ap-lk-item.cur .ap-lk-pick { background: #eef7f2; color: #0f6e56; border: 1px solid #bfe3d4; }
+
+/* SF立ち上げモーダル：会社情報を自動で補完ボタン */
+.ap-lc-fill { width: 100%; margin-bottom: 12px; background: #eaf6f0; color: #0f6e56; border: 1px solid #bfe3d4; font-weight: 700; }
+.ap-lc-fill:hover { background: #0f6e56; color: #fff; border-color: #0f6e56; }
+.ap-lc-fill:disabled { opacity: .7; cursor: default; }

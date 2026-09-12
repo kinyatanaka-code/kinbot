@@ -3776,6 +3776,54 @@ async function sfOperator(prefer = "") {
 }
 
 // URLが空のときは gBizINFO で補う。見つからなければ空のまま。
+// 住所文字列から都道府県を取り出す（無ければ空）
+function prefFromAddress(addr) {
+  const m = /([^\s0-9〒]{1,4}?[都道府県])/.exec(String(addr || ""));
+  return m ? m[1] : "";
+}
+
+// 会社名・メールから、会社情報（サイト・電話・住所・都道府県・従業員数）をまとめて拾う。
+// gBizINFO を先に使い、足りない空欄をネット検索（Gemini＋Google検索連携）で埋める。SFには書かない。
+async function lookupCompanyInfo(company, email) {
+  const out = { official_name: "", website: "", phone: "", street: "", state: "", employees: "" };
+  // メールのドメイン → 会社サイト（フリーメール除く）
+  const domain = String(email || "").split("@")[1] || "";
+  const 一般 = /^(gmail|yahoo|outlook|hotmail|icloud|docomo|ezweb|au|softbank|me|ymobile|nifty|so-net|biglobe|live|aol)\./i.test(domain);
+  if (domain && !一般 && /\./.test(domain)) out.website = "https://" + domain.replace(/\/+$/, "");
+  // gBizINFO（1社に確定できたときだけ採用）
+  try {
+    const hits = await searchCompanies(company, 5);
+    const exact = hits.find((h) => normCompanyKey(h.name) === normCompanyKey(company));
+    const pick = exact || (hits.length === 1 ? hits[0] : null);
+    if (pick && pick.corporate_number) {
+      const d = await getCompanyDetail(pick.corporate_number).catch(() => null);
+      if (d) {
+        out.official_name = d.official_name || "";
+        out.website = out.website || d.company_url || "";
+        out.phone = d.phone || "";
+        out.street = d.location || "";
+        out.employees = d.employees ? String(d.employees) : "";
+      }
+    }
+  } catch (e) { console.warn("[会社情報] gBiz失敗", e.message); }
+  out.state = prefFromAddress(out.street);
+  // 足りない空欄をネット検索で埋める
+  if (!out.website || !out.phone || !out.street || !out.employees) {
+    try {
+      const g = await enrichCompany({ name: company, url: out.website || "" }).catch(() => null);
+      if (g) {
+        out.official_name = out.official_name || g.official_name || "";
+        out.website = out.website || g.website || g.company_url || "";
+        out.phone = out.phone || g.phone || "";
+        out.street = out.street || g.location || "";
+        out.employees = out.employees || (g.employees ? String(g.employees) : "");
+        if (!out.state) out.state = prefFromAddress(out.street);
+      }
+    } catch (e) { console.warn("[会社情報] ネット検索失敗", e.message); }
+  }
+  return out;
+}
+
 // 会社名・メールから、会社サイトのURLを探す（SFに書かない・純粋な照会）。
 // 1) メールのドメイン（フリーメール除く） 2) gBizINFO 3) ネット検索（Gemini＋Google検索連携）
 async function lookupCompanyWebsite(company, email) {
@@ -3908,6 +3956,7 @@ async function ensureCrossLead(user, company, person, { dryRun = false, email = 
     if (override.phone) fields.Phone = String(override.phone).slice(0, 40);
     if (override.website) fields.Website = String(override.website).slice(0, 255);
     if (override.street) fields.Street = String(override.street).slice(0, 255);
+    if (override.state) fields.State = String(override.state).slice(0, 80);
     if (override.employees) {
       const n = parseInt(String(override.employees).replace(/[^\d]/g, ""), 10);
       if (n) fields.NumberOfEmployees = n;
@@ -4044,6 +4093,21 @@ async function tryAutoLaunch(user, link, { dryRun = false, ownerEmail = "", noti
     // URLの補完
     if (dryRun && j.rescued === "will_create") {
       return { ...base, ok: true, company, person, rescued: "will_create", dryRun: true };
+    }
+    // モーダルの細かい入力があれば、（新規・既存を問わず）リードに反映してから商談化する。
+    // 商談化の必須項目（電話・Web・都道府県など）を、ここで確実に埋めるため。
+    if (!dryRun && leadOverride && j.lead && j.lead.Id && j.lead.Id !== "__will_create__") {
+      const upd = {};
+      if (leadOverride.phone) upd.Phone = String(leadOverride.phone).slice(0, 40);
+      if (leadOverride.website) { upd.Website = String(leadOverride.website).slice(0, 255); j.lead.Website = upd.Website; }
+      if (leadOverride.street) upd.Street = String(leadOverride.street).slice(0, 255);
+      if (leadOverride.state) upd.State = String(leadOverride.state).slice(0, 80);
+      if (leadOverride.email) upd.Email = String(leadOverride.email).slice(0, 255);
+      if (leadOverride.employees) { const n = parseInt(String(leadOverride.employees).replace(/[^\d]/g, ""), 10); if (n) upd.NumberOfEmployees = n; }
+      if (Object.keys(upd).length) {
+        try { await updateLead(user, id15(j.lead.Id), upd); }
+        catch (e) { console.warn("[SF立ち上げ] リードへの反映に失敗", e.message); }
+      }
     }
     const hintEmail = (leadOverride && leadOverride.email) || link.client_email || (j.lead && j.lead.Email) || "";
     const site = await fillLeadWebsite(user, j.lead, j.company, hintEmail);
@@ -4324,6 +4388,18 @@ app.get("/api/apo/:slug/website", async (req, res) => {
     if (!company && !email) return res.json({ ok: false, url: "", source: "" });
     const r = await lookupCompanyWebsite(company, email);
     res.json({ ok: !!r.url, url: r.url, source: r.source, company });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// モーダルの「自動で補完」用：予定名から会社名・担当者、gBiz→ネットで会社情報（電話・Web・住所・都道府県・従業員数）を返す
+app.get("/api/apo/:slug/company-info", async (req, res) => {
+  try {
+    const link = await getSmartLink(String(req.params.slug || ""));
+    const parsed = link ? parseLaunchTitle(link.label) : { company: "", person: "" };
+    const company = String(req.query.company || "").trim() || parsed.company || "";
+    const email = String(req.query.email || "").trim() || (link && link.client_email) || "";
+    const info = (company || email) ? await lookupCompanyInfo(company, email) : {};
+    res.json({ ok: true, company, person: parsed.person || "", info });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
@@ -19082,7 +19158,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-12j アポ一覧からSF紐付けを変更できるようにした。カードの「SF紐付け/未紐付け」チップ、または⋯メニュー「SF商談の紐付けを変更」から、候補（会社名で検索）を選んで紐付け・解除できる。既存の /api/apo/:slug/sf-candidates と /sf-link を使用。";
+const BUILD_TAG = "2026-09-12k SF立ち上げモーダルを自動補完に変更。開いたとき予定名から会社名・担当者を入れ、gBizINFO→ネット検索で会社情報（電話・Web・都道府県・住所・従業員数）の空欄を自動で埋める。都道府県欄を追加し、商談化の必須項目に備える。細かい入力は（新規・既存どちらのリードでも）反映してから商談化する。従来のURLだけ拾うボタンは廃止。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
