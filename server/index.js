@@ -325,6 +325,7 @@ import {
   setCompanySfLink,
   clearCompanySfLink,
   getCompanySfLinks,
+  getApoOppsByCompanies,
   refreshApoOppMeta,
   autolaunchForSlugs,
   autolaunchByCompanies,
@@ -3541,6 +3542,33 @@ app.post("/api/apo/cross-status", async (req, res) => {
         }
       }
     } catch (e) { console.warn("[cross-status link]", e.message); }
+    // アポ一覧でひも付いた（自動立ち上げ・バックフィル含む）SF商談も反映する。
+    // 手動リンク(company_sf_link)が無い会社について、その会社のアポが持つ opp_id を使う。
+    try {
+      const apoOpps = await getApoOppsByCompanies(Object.keys(byCompany));
+      const ids = [...new Set(Object.entries(apoOpps)
+        .filter(([k]) => byCompany[k] && !byCompany[k].linked)
+        .map(([, a]) => a.opp_id).filter(Boolean))];
+      if (ids.length) {
+        const idList = ids.map((id) => `'${String(id).replace(/'/g, "\\'")}'`).join(",");
+        const dd = await sfQuery(sfUser, `SELECT Id, Name, StageName, IsWon, IsClosed FROM Opportunity WHERE Id IN (${idList})`).catch(() => ({ records: [] }));
+        const oppById = {};
+        for (const o of dd.records || []) oppById[o.Id] = o;
+        for (const [k, a] of Object.entries(apoOpps)) {
+          if (!(k in byCompany) || byCompany[k].linked) continue;
+          const o = oppById[a.opp_id];
+          if (o) {
+            const stage = String(o.StageName || "");
+            const launched = /アポ獲得/.test(stage) || o.IsWon === true || (!o.IsClosed && stage);
+            byCompany[k] = { launched: !!launched, name: o.Name || a.opp_name || "", stage, company: byCompany[k].company, linked: true, oppId: a.opp_id };
+          } else if (!byCompany[k].oppId) {
+            byCompany[k].oppId = a.opp_id; byCompany[k].linked = true;
+            if (a.opp_stage) byCompany[k].stage = a.opp_stage;
+            if (a.opp_name) byCompany[k].name = a.opp_name;
+          }
+        }
+      }
+    } catch (e) { console.warn("[cross-status apo]", e.message); }
     res.json({ ok: true, byCompany });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
@@ -19437,7 +19465,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-12zk 御礼メールモーダルを案B（2カラム）に変更。左＝操作（送り方／型／商談回数／資料URL／宛先／件名）、右＝結果（確認事項／資料トラッキング／本文＋操作アイコン）。モーダルを幅広にし、狭い画面では自動で1カラムに戻る。中身・機能は据え置き。";
+const BUILD_TAG = "2026-09-12zl アポ一覧で紐付いたSF商談が、商談履歴でも反映されるようにした。手動リンクだけでなく、自動立ち上げ・バックフィルで紐付いたアポのSF商談IDも商談履歴の会社カードに反映し、現在のステージを表示する（未紐付けと出なくなる）。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",

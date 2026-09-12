@@ -5693,6 +5693,26 @@ export async function autolaunchByBotId(botId) {
   } catch { return null; }
 }
 
+// 会社名（正規化キー）ごとに、アポ(sf_autolaunch)がひも付けているSF商談IDを返す。最新優先。
+// 自動立ち上げ・バックフィル・手動、どの経路で紐付いたアポでも拾える。
+export async function getApoOppsByCompanies(keys) {
+  if (!pool || !keys || !keys.length) return {};
+  try {
+    const { rows } = await pool.query(
+      `SELECT company, opp_id, opp_name, opp_stage FROM sf_autolaunch
+        WHERE opp_id IS NOT NULL AND COALESCE(company,'') <> ''
+        ORDER BY linked_at DESC NULLS LAST, tried_at DESC NULLS LAST`);
+    const want = new Set(keys);
+    const out = {};
+    for (const r of rows) {
+      const k = normCompanyKey(r.company);
+      if (!want.has(k) || out[k]) continue;
+      out[k] = { opp_id: r.opp_id, opp_name: r.opp_name || "", opp_stage: r.opp_stage || "" };
+    }
+    return out;
+  } catch { return {}; }
+}
+
 // 会社名から、ひも付いたSF商談(opp_id)を引く（bot_idで引けないときの橋渡し）。
 // coreは法人格・スペースを除いた核。ILIKEで拾い、呼び出し側で厳密一致を確認する。
 export async function autolaunchLinkedByCompany(core) {
