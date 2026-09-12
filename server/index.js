@@ -3784,14 +3784,38 @@ function prefFromAddress(addr) {
 }
 
 // 会社名・メールから、会社情報（サイト・電話・住所・都道府県・従業員数）をまとめて拾う。
-// gBizINFO を先に使い、足りない空欄をネット検索（Gemini＋Google検索連携）で埋める。SFには書かない。
-async function lookupCompanyInfo(company, email) {
+// SFの取引先（Account）→ メールのドメイン → gBizINFO → ネット検索 の順で、空欄だけ埋める。SFには書かない。
+async function lookupCompanyInfo(company, email, sfUser) {
   const out = { official_name: "", website: "", phone: "", street: "", state: "", employees: "" };
-  // メールのドメイン → 会社サイト（フリーメール除く）
+  const setIf = (k, v) => { if (!out[k] && v != null && String(v).trim()) out[k] = String(v).trim(); };
+  // 1) SFの取引先（Account）— 自社の正データを最優先
+  if (sfUser && company) {
+    try {
+      const esc = (v) => String(v).replace(/['\\%_]/g, "");
+      const noSpace = String(company).replace(/[\s　]/g, "");
+      const core = noSpace.replace(/(株式会社|有限会社|合同会社|合資会社|㈱|一般社団法人|一般財団法人|公益社団法人|公益財団法人|医療法人|社会福祉法人|学校法人|協同組合|組合)/g, "");
+      const vars = [...new Set([company, noSpace, core].map((s) => String(s || "").trim()).filter((s) => s.length >= 2))];
+      if (vars.length) {
+        const ors = vars.map((v) => `Name LIKE '%${esc(v)}%'`).join(" OR ");
+        const d = await sfQuery(sfUser, `SELECT Id, Name, Phone, Website, BillingState, BillingStreet, BillingCity, BillingPostalCode, NumberOfEmployees FROM Account WHERE ${ors} ORDER BY LastModifiedDate DESC LIMIT 5`);
+        const recs = d.records || [];
+        const pick = recs.find((a) => normCompanyKey(a.Name) === normCompanyKey(company)) || recs[0];
+        if (pick) {
+          out.official_name = out.official_name || pick.Name || "";
+          setIf("phone", pick.Phone);
+          setIf("website", pick.Website);
+          setIf("state", pick.BillingState);
+          setIf("street", [pick.BillingStreet, pick.BillingCity].filter(Boolean).join(" "));
+          setIf("employees", pick.NumberOfEmployees ? String(pick.NumberOfEmployees) : "");
+        }
+      }
+    } catch (e) { console.warn("[会社情報] SF取引先失敗", e.message); }
+  }
+  // 2) メールのドメイン → 会社サイト（フリーメール除く）
   const domain = String(email || "").split("@")[1] || "";
   const 一般 = /^(gmail|yahoo|outlook|hotmail|icloud|docomo|ezweb|au|softbank|me|ymobile|nifty|so-net|biglobe|live|aol)\./i.test(domain);
-  if (domain && !一般 && /\./.test(domain)) out.website = "https://" + domain.replace(/\/+$/, "");
-  // gBizINFO（1社に確定できたときだけ採用）
+  if (domain && !一般 && /\./.test(domain)) setIf("website", "https://" + domain.replace(/\/+$/, ""));
+  // 3) gBizINFO（1社に確定できたときだけ採用）
   try {
     const hits = await searchCompanies(company, 5);
     const exact = hits.find((h) => normCompanyKey(h.name) === normCompanyKey(company));
@@ -3799,25 +3823,25 @@ async function lookupCompanyInfo(company, email) {
     if (pick && pick.corporate_number) {
       const d = await getCompanyDetail(pick.corporate_number).catch(() => null);
       if (d) {
-        out.official_name = d.official_name || "";
-        out.website = out.website || d.company_url || "";
-        out.phone = d.phone || "";
-        out.street = d.location || "";
-        out.employees = d.employees ? String(d.employees) : "";
+        out.official_name = out.official_name || d.official_name || "";
+        setIf("website", d.company_url);
+        setIf("phone", d.phone);
+        setIf("street", d.location);
+        setIf("employees", d.employees ? String(d.employees) : "");
       }
     }
   } catch (e) { console.warn("[会社情報] gBiz失敗", e.message); }
-  out.state = prefFromAddress(out.street);
-  // 足りない空欄をネット検索で埋める
+  if (!out.state) out.state = prefFromAddress(out.street);
+  // 4) 足りない空欄をネット検索で埋める
   if (!out.website || !out.phone || !out.street || !out.employees) {
     try {
       const g = await enrichCompany({ name: company, url: out.website || "" }).catch(() => null);
       if (g) {
         out.official_name = out.official_name || g.official_name || "";
-        out.website = out.website || g.website || g.company_url || "";
-        out.phone = out.phone || g.phone || "";
-        out.street = out.street || g.location || "";
-        out.employees = out.employees || (g.employees ? String(g.employees) : "");
+        setIf("website", g.website || g.company_url);
+        setIf("phone", g.phone);
+        setIf("street", g.location);
+        setIf("employees", g.employees ? String(g.employees) : "");
         if (!out.state) out.state = prefFromAddress(out.street);
       }
     } catch (e) { console.warn("[会社情報] ネット検索失敗", e.message); }
@@ -4404,7 +4428,8 @@ app.get("/api/apo/:slug/company-info", async (req, res) => {
     const parsed = link ? parseLaunchTitle(link.label) : { company: "", person: "" };
     const company = String(req.query.company || "").trim() || parsed.company || "";
     const email = String(req.query.email || "").trim() || (link && link.client_email) || "";
-    const info = (company || email) ? await lookupCompanyInfo(company, email) : {};
+    const sfUser = await sfOperator(req.user).catch(() => "");
+    const info = (company || email) ? await lookupCompanyInfo(company, email, sfUser) : {};
     res.json({ ok: true, company, person: parsed.person || "", info });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
@@ -19164,7 +19189,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-12l 商談化の必須「初回訪問予定日・web商談日」を自動で埋めるように強化。ラベルで訪問/商談/面談日の日付項目をすべて拾い、アポの商談日で空欄を埋める。start_timeが無い場合はモーダルの商談日→アポ獲得日で補う。モーダルに商談日欄（初期値＝アポ日）を追加。";
+const BUILD_TAG = "2026-09-12m 会社情報の自動補完に、Salesforceの取引先（Account）を最優先ソースとして追加。電話・Webサイト・都道府県（BillingState）・住所・従業員数を取引先から補い、足りない分をメールのドメイン→gBizINFO→ネット検索で埋める。モーダルの「自動で補完」も同じ順で動く。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
