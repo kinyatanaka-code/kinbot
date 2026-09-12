@@ -555,6 +555,7 @@ import {
   ensureLeadCampaignSource,
   ensureLeadFsNote,
   ensureLeadVisitDate,
+  ensureLeadMeetingDate,
   createLead,
   convertedLeadStatus,
   convertedLeadStatuses,
@@ -4173,11 +4174,16 @@ async function tryAutoLaunch(user, link, { dryRun = false, ownerEmail = "", noti
       apoDate = jst(at);
       const rr = await ensureLeadApoDate(user, j.lead.Id, apoDate);
       if (rr && rr.filled) console.log(`[SF立ち上げ] アポ獲得日を入れました ${j.company} → ${apoDate}`);
-      // 初回訪問予定日＝この商談の日
-      if (link.start_time) {
-        const visit = jst(link.start_time);
+      // 初回訪問予定日・web商談日 ＝ この商談の日。start_time が無ければ、モーダル指定日→アポ獲得日で補う。
+      const visit = (leadOverride && leadOverride.meetingDate && /^\d{4}-\d{2}-\d{2}/.test(leadOverride.meetingDate))
+        ? String(leadOverride.meetingDate).slice(0, 10)
+        : (link.start_time ? jst(link.start_time) : apoDate);
+      if (visit) {
         const rv = await ensureLeadVisitDate(user, j.lead.Id, visit);
         if (rv && rv.filled) console.log(`[SF立ち上げ] 初回訪問予定日を入れました ${j.company} → ${visit}`);
+        // ラベルで拾える訪問/商談/面談日の項目は、まとめて同じ日付で埋める（web商談日など）
+        const rm = await ensureLeadMeetingDate(user, j.lead.Id, visit);
+        if (rm && rm.filled) console.log(`[SF立ち上げ] 商談日系の項目を入れました ${j.company} → ${(rm.fields || []).join(", ")}`);
       }
     } catch (e) {
       console.warn("[SF立ち上げ] アポ獲得日を入れられませんでした:", e.message);
@@ -19158,7 +19164,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-12k SF立ち上げモーダルを自動補完に変更。開いたとき予定名から会社名・担当者を入れ、gBizINFO→ネット検索で会社情報（電話・Web・都道府県・住所・従業員数）の空欄を自動で埋める。都道府県欄を追加し、商談化の必須項目に備える。細かい入力は（新規・既存どちらのリードでも）反映してから商談化する。従来のURLだけ拾うボタンは廃止。";
+const BUILD_TAG = "2026-09-12l 商談化の必須「初回訪問予定日・web商談日」を自動で埋めるように強化。ラベルで訪問/商談/面談日の日付項目をすべて拾い、アポの商談日で空欄を埋める。start_timeが無い場合はモーダルの商談日→アポ獲得日で補う。モーダルに商談日欄（初期値＝アポ日）を追加。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",

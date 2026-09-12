@@ -613,6 +613,7 @@ function openLaunchModal(i, reasonText) {
   const a = apState.appts[i];
   if (!a) return;
   if (document.querySelector(".ap-lc-back")) return; // 二重表示を防ぐ
+  const ymdLocal = (iso) => { const d = new Date(iso); if (isNaN(d.getTime())) return ""; const p = (n) => String(n).padStart(2, "0"); return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`; };
   const back = document.createElement("div");
   back.className = "ap-lc-back";
   back.innerHTML =
@@ -624,6 +625,7 @@ function openLaunchModal(i, reasonText) {
       <label class="ap-lc-f"><span>会社名</span><input id="lcCompany" type="text" placeholder="空なら予定名から自動" /></label>
       <label class="ap-lc-f"><span>担当者（姓）</span><input id="lcPerson" type="text" placeholder="空なら予定名から自動" /></label>
       <label class="ap-lc-f"><span>メール</span><input id="lcEmail" type="email" value="${esc(a.client_email || "")}" /></label>
+      <label class="ap-lc-f"><span>商談日</span><input id="lcMeeting" type="date" value="${esc(ymdLocal(a.start))}" /></label>
       <label class="ap-lc-f"><span>電話</span><input id="lcPhone" type="text" /></label>
       <label class="ap-lc-f"><span>Webサイト</span><input id="lcWeb" type="text" placeholder="https://..." /></label>
       <label class="ap-lc-f"><span>都道府県</span><input id="lcState" type="text" placeholder="例：東京都" /></label>
@@ -675,7 +677,7 @@ function openLaunchModal(i, reasonText) {
     const val = (id) => (back.querySelector("#" + id).value || "").trim();
     const lead = {};
     for (const [id, key] of [["lcCompany", "company"], ["lcPerson", "person"], ["lcEmail", "email"],
-      ["lcPhone", "phone"], ["lcWeb", "website"], ["lcState", "state"], ["lcStreet", "street"], ["lcEmp", "employees"]]) {
+      ["lcMeeting", "meetingDate"], ["lcPhone", "phone"], ["lcWeb", "website"], ["lcState", "state"], ["lcStreet", "street"], ["lcEmp", "employees"]]) {
       if (val(id)) lead[key] = val(id);
     }
     const msg = back.querySelector("#lcMsg");

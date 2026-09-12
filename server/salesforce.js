@@ -1003,6 +1003,35 @@ export async function ensureLeadVisitDate(owner, leadId, dateStr) {
   });
 }
 
+// 訪問予定日・商談日・面談日などの「日付」項目を、Leadから探せるだけ探して、空のものをまとめて埋める。
+// 組織によって項目名やラベルが違う（初回訪問予定日／web商談日 等）ため、ラベルで拾って全部入れる。
+export async function ensureLeadMeetingDate(owner, leadId, dateStr) {
+  const v = String(dateStr || "").trim();
+  if (!leadId || !/^\d{4}-\d{2}-\d{2}/.test(v)) return { ok: false, skipped: true };
+  let fields = [];
+  try {
+    const desc = await describeObject(owner, "Lead");
+    fields = (desc.fields || []).filter((f) =>
+      f.updateable && (f.type === "date" || f.type === "datetime") &&
+      /(訪問|商談|面談).*日|訪問予定|商談予定|面談予定|web商談|ｗｅｂ商談/i.test(String(f.label || "")));
+  } catch { return { ok: false, skipped: true, reason: "項目を読めません" }; }
+  if (!fields.length) return { ok: false, skipped: true, reason: "該当する日付項目なし" };
+  const id = String(leadId).replace(/[^a-zA-Z0-9]/g, "");
+  let cur = {};
+  try {
+    const d = await sfQuery(owner, `SELECT Id, ${fields.map((f) => f.name).join(", ")} FROM Lead WHERE Id='${id}' LIMIT 1`);
+    cur = (d.records || [])[0] || {};
+  } catch {}
+  const filled = [];
+  for (const f of fields) {
+    if (cur[f.name] != null && String(cur[f.name]).trim() !== "") continue; // 既に入っていれば触らない
+    const val = f.type === "datetime" ? `${v.slice(0, 10)}T00:00:00.000+0900` : v.slice(0, 10);
+    try { await updateLead(owner, id, { [f.name]: val }); filled.push(f.name); }
+    catch (e) { console.warn(`[SF自動] ${f.label}(${f.name})を入れられませんでした`, e.message); }
+  }
+  return { ok: true, filled: filled.length > 0, fields: filled };
+}
+
 // 「主キャンペーンソース」を入れておく。
 // 空だと「コンバート時には主キャンペーンソース入力が必要です」で弾かれる。
 // 項目がキャンペーンの参照（ルックアップ）なら、その名前のキャンペーンを探してIDを入れる。
