@@ -50,6 +50,7 @@ const AP_ICO = {
   dots: '<svg viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="5" r="1.7"/><circle cx="12" cy="12" r="1.7"/><circle cx="12" cy="19" r="1.7"/></svg>',
   check: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 6.5"/></svg>',
   mail: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="2.5"/><path d="M3.5 7l8.5 6 8.5-6"/></svg>',
+  bolt: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M13 3 4 14h7l-1 7 9-11h-7l1-7z"/></svg>',
 };
 function repOptions(selected) {
   let o = `<option value="">担当未定</option>`;
@@ -195,8 +196,15 @@ function apoCard(a, i) {
   let sfChips;
   if (sf === undefined) sfChips = `<span class="ap-c2-chip ap-c2-muted">SF：取得中…</span>`;
   else if (sf === null) sfChips = chipMuted("SF：未接続");
-  else sfChips = (sf.linked ? chipOk("SF紐付け") : chipMuted("SF未紐付け")) +
-                 (sf.launched ? chipOk("商談立ち上げ") : chipMuted("立ち上げ前"));
+  else {
+    const linkChip = sf.linked ? chipOk("SF紐付け") : chipMuted("SF未紐付け");
+    const launchChip = sf.launched
+      ? chipOk("商談立ち上げ")
+      : (assigned
+          ? `<button class="ap-c2-chip ap-c2-launch ap-sflaunch" data-slug="${esc(a.slug)}" data-i="${i}" title="Salesforceの商談を立ち上げます">${AP_ICO.bolt}SF立ち上げ</button>`
+          : chipMuted("立ち上げ前"));
+    sfChips = linkChip + launchChip;
+  }
 
   // Zoom転送
   let zoomChip = "";
@@ -538,7 +546,52 @@ function bindCardEvents(card) {
       it.addEventListener("click", () => setTimeout(() => moreWrap.classList.remove("open"), 60)));
   }
 
+  // SF商談を立ち上げる（このカードから）
+  const sflaunch = q(".ap-sflaunch");
+  if (sflaunch) sflaunch.addEventListener("click", async () => {
+    const i = +sflaunch.dataset.i;
+    const a = apState.appts[i];
+    if (!confirm("Salesforceの商談を立ち上げます。よろしいですか？")) return;
+    sflaunch.disabled = true;
+    const bo = sflaunch.innerHTML;
+    sflaunch.textContent = "立ち上げ中…";
+    try {
+      const r = await fetch("/api/sf-autolaunch/run", {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ slug: a.slug }),
+      });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.error || "立ち上げに失敗しました");
+      if (d.ok) {
+        a.sf = Object.assign({}, a.sf, { launched: true, linked: true });
+        if (window.kbToast) kbToast("SF商談を立ち上げました");
+        refreshMailCell(i);
+        refreshSfOne(a.slug, i); // 正確なステージ等を取り直す
+      } else {
+        alert("立ち上げできませんでした：\n" + (d.reasonText || d.reason || "条件を満たしていません"));
+        sflaunch.disabled = false; sflaunch.innerHTML = bo;
+      }
+    } catch (e) {
+      alert("立ち上げに失敗しました：\n" + e.message);
+      sflaunch.disabled = false; sflaunch.innerHTML = bo;
+    }
+  });
+
   bindMailButtons(card);
+}
+// 1件だけSF状態（ステージ・紐付け・立ち上げ）を取り直してカードに反映する。
+async function refreshSfOne(slug, i) {
+  try {
+    const r = await fetch("/api/apo/sf-status", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ slugs: [slug] }),
+    });
+    const d = await r.json();
+    if (r.ok && d && d.bySlug && d.bySlug[slug]) {
+      const a = apState.appts[i];
+      if (a && a.slug === slug) { a.sf = d.bySlug[slug]; refreshMailCell(i); }
+    }
+  } catch { /* 取り直せなくても、立ち上げ自体は済んでいる */ }
 }
 // メニューの外側クリックで閉じる（1回だけ登録）
 if (!window.__apMoreOutside) {

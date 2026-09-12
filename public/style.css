@@ -6008,3 +6008,9 @@ input:focus, select:focus, textarea:focus, .sf-input:focus, .sf-select:focus, .s
   .ap-c2-stagepill { margin-top: 0; }
   .ap-more-menu { right: auto; left: 0; }
 }
+
+/* SF商談を立ち上げる（チップ型ボタン） */
+.ap-c2-launch { background: #eaf6f0; color: #0f6e56; border: 1px solid #bfe3d4; cursor: pointer; font-family: inherit; font-weight: 700; }
+.ap-c2-launch:hover { background: #0f6e56; color: #fff; border-color: #0f6e56; }
+.ap-c2-launch svg { width: 13px; height: 13px; }
+.ap-c2-launch:disabled { opacity: .7; cursor: default; }
