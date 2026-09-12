@@ -7422,6 +7422,10 @@ async function pickSfUser(user, req = null) {
   const st = await getSettings().catch(() => ({}));
   const 代理 = String(st.sfProxyUser || "").trim().toLowerCase();
   if (代理 && (await sfConnected(代理).catch(() => false))) return 代理;
+  // 最後の砦：運用者アカウント（スキャン/招待の担当＝SF連携済み）で代替する。
+  // ログイン中ユーザーがSF未連携でも、立ち上げ等と同じく表示・照会できるようにするため。
+  const op = await sfOperator().catch(() => "");
+  if (op) return op;
   return user;
 }
 
@@ -19264,7 +19268,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-12r 商談履歴の会社カードに、SFの現在の商談ステージのタグを表示（会社名でSFのクロス商談を照合）。見つからない/未紐付けのカードは「SF未紐付け」を押すと、候補から選んで手動でひも付けできる（会社→SF商談リンクを保存し、以後はそのステージを優先表示）。";
+const BUILD_TAG = "2026-09-12s アポ一覧などで「SF：未接続」と出る問題を修正。SF照会のアカウント解決(pickSfUser)が、ログイン中ユーザーがSF未連携だと未連携のまま返して失敗していた。最後に運用者アカウント(sfOperator=スキャン/招待担当の連携済みアカウント)で代替するようにし、立ち上げ等と同じくステージ照会できるようにした。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
