@@ -6014,3 +6014,22 @@ input:focus, select:focus, textarea:focus, .sf-input:focus, .sf-select:focus, .s
 .ap-c2-launch:hover { background: #0f6e56; color: #fff; border-color: #0f6e56; }
 .ap-c2-launch svg { width: 13px; height: 13px; }
 .ap-c2-launch:disabled { opacity: .7; cursor: default; }
+
+/* SF立ち上げ「細かい入力」モーダル */
+.ap-lc-back { position: fixed; inset: 0; z-index: 1000; background: rgba(13,42,34,.42); display: flex; align-items: center; justify-content: center; padding: 16px; }
+.ap-lc { width: 100%; max-width: 460px; max-height: 88vh; overflow: auto; background: #fff; border-radius: 16px; box-shadow: 0 20px 60px rgba(13,91,71,.28); padding: 18px 20px; }
+.ap-lc-h { display: flex; align-items: center; justify-content: space-between; font-size: 16px; font-weight: 700; color: #173a30; margin-bottom: 10px; }
+.ap-lc-x { width: 30px; height: 30px; border: none; background: transparent; font-size: 20px; color: #7a8a84; cursor: pointer; border-radius: 8px; }
+.ap-lc-x:hover { background: #f0f4f2; }
+.ap-lc-reason { background: #fdecec; color: #b3392f; border-radius: 10px; padding: 10px 12px; font-size: 13px; margin-bottom: 10px; line-height: 1.5; }
+.ap-lc-note { font-size: 12.5px; color: #6b7770; margin-bottom: 12px; line-height: 1.5; }
+.ap-lc-f { display: flex; align-items: center; gap: 10px; margin-bottom: 9px; }
+.ap-lc-f > span { flex: none; width: 96px; font-size: 13px; color: #4a5a54; }
+.ap-lc-f input { flex: 1; height: 36px; border: 1px solid #d7e3dd; border-radius: 9px; padding: 0 11px; font-size: 14px; font-family: inherit; }
+.ap-lc-f input:focus { outline: none; border-color: #1d9e75; box-shadow: 0 0 0 3px rgba(29,158,117,.15); }
+.ap-lc-msg { font-size: 13px; margin: 6px 0 2px; min-height: 1px; }
+.ap-lc-msg.ng { color: #b3392f; }
+.ap-lc-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 14px; }
+.ap-lc-go { background: #0f6e56; color: #fff; border: none; }
+.ap-lc-go:hover { background: #0c5a47; color: #fff; }
+@media (max-width: 760px) { .ap-lc-f { flex-direction: column; align-items: stretch; gap: 4px; } .ap-lc-f > span { width: auto; } }

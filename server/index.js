@@ -3799,7 +3799,7 @@ async function fillLeadWebsite(user, lead, company) {
 // 立ち上げを「なんとしても」成功させるための救済：
 // 会社のクロスリードが無ければ、gBizの会社情報（所在地・従業員数・URL）で埋めて新規作成する。
 // dryRun のときは作らず「作る前提」で返す。
-async function ensureCrossLead(user, company, person, { dryRun = false, email = "" } = {}) {
+async function ensureCrossLead(user, company, person, { dryRun = false, email = "", override = null } = {}) {
   const rtId = await crossLeadRecordTypeId(user).catch(() => "");
   if (!rtId) return { ok: false, reason: "no_cross_recordtype" };
   const 姓 = surnameOf(person) || person || "担当者";
@@ -3861,6 +3861,18 @@ async function ensureCrossLead(user, company, person, { dryRun = false, email = 
     ...(info.employees ? { NumberOfEmployees: parseInt(String(info.employees).replace(/[^\d]/g, ""), 10) || undefined } : {}),
     Description: `kinbot：商談立ち上げのため自動作成（クロスリード）\n担当者：${person}${info.official_name ? `\n会社：${info.official_name}` : ""}`,
   };
+  // モーダルからの「細かい入力」があれば上書きする（無い項目は createLead 側で自動的に落とす）
+  if (override && typeof override === "object") {
+    if (override.email) fields.Email = String(override.email).slice(0, 255);
+    if (override.phone) fields.Phone = String(override.phone).slice(0, 40);
+    if (override.website) fields.Website = String(override.website).slice(0, 255);
+    if (override.street) fields.Street = String(override.street).slice(0, 255);
+    if (override.employees) {
+      const n = parseInt(String(override.employees).replace(/[^\d]/g, ""), 10);
+      if (n) fields.NumberOfEmployees = n;
+    }
+    if (override.leadSource) fields.LeadSource = String(override.leadSource);
+  }
   if (dryRun) return { ok: true, willCreate: true, company, person, filled: info, fields };
   try {
     const made = await createLead(user, fields);
@@ -3931,7 +3943,7 @@ async function convertLeadPreferExisting(user, convArgs, { company = "", person 
   }
 }
 
-async function tryAutoLaunch(user, link, { dryRun = false, ownerEmail = "", notify = true } = {}) {  const base = { slug: link.slug, botId: link.bot_id || null, title: link.label };
+async function tryAutoLaunch(user, link, { dryRun = false, ownerEmail = "", notify = true, leadOverride = null } = {}) {  const base = { slug: link.slug, botId: link.bot_id || null, title: link.label };
   try {
     // すでに立ち上げ済みなら触らない
     const prev = await getAutolaunch(link.slug);
@@ -3939,7 +3951,12 @@ async function tryAutoLaunch(user, link, { dryRun = false, ownerEmail = "", noti
       return { ...base, ok: true, reason: "already", oppId: prev.opp_id, skipped: true };
     }
 
-    const { company, person } = parseLaunchTitle(link.label);
+    const parsed = parseLaunchTitle(link.label);
+    let company = parsed.company, person = parsed.person;
+    if (leadOverride && typeof leadOverride === "object") {
+      if (leadOverride.company) company = String(leadOverride.company).trim();
+      if (leadOverride.person) person = String(leadOverride.person).trim();
+    }
     if (!company || !person) {
       const r = { ...base, ok: false, company, person, reason: company ? "no_person" : "no_company" };
       if (!dryRun) await saveAutolaunch(r);
@@ -3967,7 +3984,7 @@ async function tryAutoLaunch(user, link, { dryRun = false, ownerEmail = "", noti
         // クロスが無い → 作る。メールアドレスがあればドメインで会社情報の精度を上げる。
         const mail = String(link.client_email || "").trim()
           || String((Array.isArray(leads) ? leads.find((l) => l.Email) : null)?.Email || "").trim();
-        const made = await ensureCrossLead(user, company, person, { dryRun, email: mail });
+        const made = await ensureCrossLead(user, company, person, { dryRun, email: (leadOverride && leadOverride.email) || mail, override: leadOverride });
         if (made.ok) {
           j = dryRun
             ? { ok: true, lead: { Id: "__will_create__" }, company, person, rescued: "will_create" }
@@ -4242,14 +4259,15 @@ app.post("/api/sf-autolaunch/check", async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-// 1件を実行する
+// 1件を実行する（body.lead があれば、その細かい入力でリードを作って立ち上げる）
 app.post("/api/sf-autolaunch/run", async (req, res) => {
   try {
     const link = await getSmartLink(String(req.body?.slug || ""));
     if (!link) return res.status(404).json({ error: "商談が見つかりません" });
     const op = await sfOperator(req.user);
     if (!op) return res.status(400).json({ error: "Salesforceにつながっているアカウントがありません" });
-    const r = await tryAutoLaunch(op, link, { ownerEmail: link.current_owner });
+    const leadOverride = (req.body && typeof req.body.lead === "object") ? req.body.lead : null;
+    const r = await tryAutoLaunch(op, link, { ownerEmail: link.current_owner, leadOverride });
     res.json({ ...r, reasonText: r.ok ? "" : reasonText(r.reason, r.detail) });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
@@ -19009,7 +19027,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-12f アポ一覧カードの「立ち上げ前」を、その場でSF商談を立ち上げられるボタンにした（担当が付いていて未立ち上げのとき表示）。押すと確認→POST /api/sf-autolaunch/run で立ち上げ、成功で「商談立ち上げ」チップに。条件を満たさない場合は理由を表示。";
+const BUILD_TAG = "2026-09-12g SF立ち上げの失敗対策。(1)リード作成で組織に無い項目（例：Description）を自動で省いて作り直すようにし、No such column エラーで止まらないようにした。(2)立ち上げ失敗時や⋯メニューから、会社名・担当者・メール・電話・Web・住所・従業員数を細かく入力して立ち上げられるモーダルを追加（/api/sf-autolaunch/run に lead 上書きを受け付け、ensureCrossLead に反映）。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",

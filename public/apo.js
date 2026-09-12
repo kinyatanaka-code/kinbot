@@ -248,6 +248,7 @@ function apoCard(a, i) {
             <button class="btn-ico ap-more-btn" aria-label="そのほかの操作" title="そのほかの操作">${AP_ICO.dots}</button>
             <div class="ap-more-menu">
               <a class="ap-more-item" href="${esc(a.smart_url)}" target="_blank" rel="noopener">お客様ページを開く</a>
+              <button class="ap-more-item ap-launch-detail" data-i="${i}">SF立ち上げ（細かく入力）</button>
               <button class="ap-more-item ap-copy" data-url="${esc(a.smart_url)}">リンクをコピー</button>
               <button class="ap-more-item ap-calonly" data-i="${i}" data-slug="${esc(a.slug)}">カレンダーだけ作る</button>
               <button class="ap-more-item ap-renotify" data-slug="${esc(a.slug)}">割り振り通知だけ再送</button>
@@ -568,14 +569,18 @@ function bindCardEvents(card) {
         refreshMailCell(i);
         refreshSfOne(a.slug, i); // 正確なステージ等を取り直す
       } else {
-        alert("立ち上げできませんでした：\n" + (d.reasonText || d.reason || "条件を満たしていません"));
         sflaunch.disabled = false; sflaunch.innerHTML = bo;
+        openLaunchModal(i, d.reasonText || d.reason || "条件を満たしていません");
       }
     } catch (e) {
-      alert("立ち上げに失敗しました：\n" + e.message);
       sflaunch.disabled = false; sflaunch.innerHTML = bo;
+      openLaunchModal(i, e.message);
     }
   });
+
+  // ⋯メニュー「細かく入力して立ち上げる」
+  const launchDetail = q(".ap-launch-detail");
+  if (launchDetail) launchDetail.addEventListener("click", () => openLaunchModal(+launchDetail.dataset.i, ""));
 
   bindMailButtons(card);
 }
@@ -592,6 +597,68 @@ async function refreshSfOne(slug, i) {
       if (a && a.slug === slug) { a.sf = d.bySlug[slug]; refreshMailCell(i); }
     }
   } catch { /* 取り直せなくても、立ち上げ自体は済んでいる */ }
+}
+
+// SF立ち上げの「細かい入力」モーダル。失敗時や、手で内容を指定して立ち上げたいときに使う。
+function openLaunchModal(i, reasonText) {
+  const a = apState.appts[i];
+  if (!a) return;
+  if (document.querySelector(".ap-lc-back")) return; // 二重表示を防ぐ
+  const back = document.createElement("div");
+  back.className = "ap-lc-back";
+  back.innerHTML =
+    `<div class="ap-lc">
+      <div class="ap-lc-h"><span>SF商談を立ち上げる</span><button type="button" class="ap-lc-x" aria-label="閉じる">×</button></div>
+      ${reasonText ? `<div class="ap-lc-reason">立ち上げできませんでした：<br>${esc(reasonText)}</div>` : ""}
+      <div class="ap-lc-note">クロスリードを作って商談を立ち上げます。空欄は予定名や自動取得で補います。組織に無い項目は自動で省きます。</div>
+      <label class="ap-lc-f"><span>会社名</span><input id="lcCompany" type="text" placeholder="空なら予定名から自動" /></label>
+      <label class="ap-lc-f"><span>担当者（姓）</span><input id="lcPerson" type="text" placeholder="空なら予定名から自動" /></label>
+      <label class="ap-lc-f"><span>メール</span><input id="lcEmail" type="email" value="${esc(a.client_email || "")}" /></label>
+      <label class="ap-lc-f"><span>電話</span><input id="lcPhone" type="text" /></label>
+      <label class="ap-lc-f"><span>Webサイト</span><input id="lcWeb" type="text" placeholder="https://..." /></label>
+      <label class="ap-lc-f"><span>住所</span><input id="lcStreet" type="text" /></label>
+      <label class="ap-lc-f"><span>従業員数</span><input id="lcEmp" type="text" inputmode="numeric" /></label>
+      <div class="ap-lc-msg" id="lcMsg"></div>
+      <div class="ap-lc-actions"><button type="button" class="btn ghost ap-lc-cancel">閉じる</button><button type="button" class="btn ap-lc-go">この内容で立ち上げる</button></div>
+    </div>`;
+  document.body.appendChild(back);
+  const close = () => back.remove();
+  back.addEventListener("click", (ev) => { if (ev.target === back) close(); });
+  back.querySelector(".ap-lc-x").addEventListener("click", close);
+  back.querySelector(".ap-lc-cancel").addEventListener("click", close);
+  const go = back.querySelector(".ap-lc-go");
+  go.addEventListener("click", async () => {
+    const val = (id) => (back.querySelector("#" + id).value || "").trim();
+    const lead = {};
+    for (const [id, key] of [["lcCompany", "company"], ["lcPerson", "person"], ["lcEmail", "email"],
+      ["lcPhone", "phone"], ["lcWeb", "website"], ["lcStreet", "street"], ["lcEmp", "employees"]]) {
+      if (val(id)) lead[key] = val(id);
+    }
+    const msg = back.querySelector("#lcMsg");
+    go.disabled = true; const bo = go.textContent; go.textContent = "立ち上げ中…"; msg.className = "ap-lc-msg"; msg.textContent = "";
+    try {
+      const r = await fetch("/api/sf-autolaunch/run", {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ slug: a.slug, lead }),
+      });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.error || "立ち上げに失敗しました");
+      if (d.ok) {
+        a.sf = Object.assign({}, a.sf, { launched: true, linked: true });
+        if (window.kbToast) kbToast("SF商談を立ち上げました");
+        refreshMailCell(i); refreshSfOne(a.slug, i);
+        close();
+      } else {
+        msg.className = "ap-lc-msg ng";
+        msg.textContent = "立ち上げできませんでした：" + (d.reasonText || d.reason || "条件を満たしていません");
+        go.disabled = false; go.textContent = bo;
+      }
+    } catch (e) {
+      msg.className = "ap-lc-msg ng";
+      msg.textContent = "失敗：" + e.message;
+      go.disabled = false; go.textContent = bo;
+    }
+  });
 }
 // メニューの外側クリックで閉じる（1回だけ登録）
 if (!window.__apMoreOutside) {

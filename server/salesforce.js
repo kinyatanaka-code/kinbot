@@ -1255,20 +1255,39 @@ async function convertLeadSoap(acc, input) {
 export async function createLead(owner, fields) {
   const acc = await getAccess(owner);
   if (!acc) throw new Error("Salesforce未連携です");
-  const res = await fetch(
-    `${acc.instanceUrl}/services/data/${API_VERSION}/sobjects/Lead`,
-    {
-      method: "POST",
-      headers: { Authorization: `Bearer ${acc.token}`, "content-type": "application/json" },
-      body: JSON.stringify(fields),
+  const body = { ...fields };
+  const dropped = [];
+  for (let attempt = 0; attempt < 8; attempt++) {
+    const res = await fetch(
+      `${acc.instanceUrl}/services/data/${API_VERSION}/sobjects/Lead`,
+      {
+        method: "POST",
+        headers: { Authorization: `Bearer ${acc.token}`, "content-type": "application/json" },
+        body: JSON.stringify(body),
+      }
+    );
+    const d = await res.json().catch(() => null);
+    if (res.ok && d && d.success !== false) {
+      return { id: d.id, instanceUrl: acc.instanceUrl, dropped };
     }
-  );
-  const d = await res.json().catch(() => null);
-  if (!res.ok || !d || d.success === false) {
     const msg = Array.isArray(d) ? d.map((x) => x.message).join(" / ") : (d && d.message) || `SF lead create ${res.status}`;
+    // 組織に存在しない項目や、作成時に設定できない項目は、その項目だけ落として作成し直す。
+    // 例: No such column 'Description' on sobject of type Lead / Unable to create/update fields: X, Y
+    let handled = false;
+    const m1 = /No such column '?([A-Za-z0-9_]+)'?/.exec(msg);
+    if (m1 && Object.prototype.hasOwnProperty.call(body, m1[1])) {
+      dropped.push(m1[1]); delete body[m1[1]]; handled = true;
+    }
+    const m2 = /Unable to create\/update fields:\s*([^.]+)/.exec(msg);
+    if (m2) {
+      for (const f of m2[1].split(",").map((s) => s.trim())) {
+        if (Object.prototype.hasOwnProperty.call(body, f)) { dropped.push(f); delete body[f]; handled = true; }
+      }
+    }
+    if (handled) continue;
     throw new Error(`SF lead create: ${msg}`);
   }
-  return { id: d.id, instanceUrl: acc.instanceUrl };
+  throw new Error("SF lead create: 項目を調整しても作成できませんでした");
 }
 
 // ===== Salesforceのレポート =====
