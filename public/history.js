@@ -297,6 +297,95 @@ function acctProfile(key) {
 function companyStatus(key) {
   return dealStatusByDealKey[normDealKey(key)] || dealStatusByDealKey[normDealKey(acctName(key))] || "";
 }
+
+// ===== 商談履歴の会社カード：SFの現ステージ タグ＆手動ひも付け =====
+let histSfCards = [];
+function shortStageH(s) { return String(s).replace(/^\s*\d+\s*[:：.、)]\s*/, ""); }
+function setHistSfTag(card, info) {
+  const el = card.el && card.el.querySelector(".acard-sf");
+  if (!el) return;
+  el.classList.remove("acard-sf-load");
+  el.onclick = (ev) => { ev.stopPropagation(); ev.preventDefault(); openCompanySfLink(card.company); };
+  if (info && info.stage) {
+    el.className = "acard-sf acard-sf-on";
+    el.textContent = "SF: " + shortStageH(info.stage);
+  } else {
+    el.className = "acard-sf acard-sf-off";
+    el.textContent = "SF未紐付け";
+  }
+}
+async function loadHistSf(cards) {
+  if (!cards || !cards.length) return;
+  const companies = [...new Set(cards.map((c) => c.company).filter(Boolean))];
+  if (!companies.length) return;
+  const byName = {};
+  try {
+    const r = await fetch("/api/apo/cross-status", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ companies }),
+    });
+    const d = await r.json();
+    if (r.ok && d.byCompany) { for (const v of Object.values(d.byCompany)) if (v && v.company) byName[v.company] = v; }
+    else { cards.forEach((c) => { const el = c.el.querySelector(".acard-sf"); if (el) el.remove(); }); return; }
+  } catch { cards.forEach((c) => { const el = c.el.querySelector(".acard-sf"); if (el) el.remove(); }); return; }
+  cards.forEach((c) => setHistSfTag(c, byName[c.company] || null));
+}
+function openCompanySfLink(company) {
+  if (document.querySelector(".csf-back")) return;
+  const back = document.createElement("div");
+  back.className = "csf-back";
+  back.innerHTML =
+    `<div class="csf">
+      <div class="csf-h"><span>SF商談の紐付け</span><button type="button" class="csf-x" aria-label="閉じる">×</button></div>
+      <div class="csf-note">「${escapeHtml(company)}」に紐付けるSF商談（クロス）を選びます。会社名で候補を探します。</div>
+      <div class="csf-search"><input id="csfCo" type="text" value="${escapeHtml(company)}" /><button type="button" class="btn btn-ghost csf-find">探す</button></div>
+      <div class="csf-list" id="csfList"><div class="csf-empty">読み込み中…</div></div>
+      <div class="csf-msg" id="csfMsg"></div>
+      <div class="csf-actions"><button type="button" class="btn btn-ghost csf-unlink">紐付けを外す</button><button type="button" class="btn btn-ghost csf-cancel">閉じる</button></div>
+    </div>`;
+  document.body.appendChild(back);
+  const close = () => back.remove();
+  back.addEventListener("click", (ev) => { if (ev.target === back) close(); });
+  back.querySelector(".csf-x").addEventListener("click", close);
+  back.querySelector(".csf-cancel").addEventListener("click", close);
+  const listEl = back.querySelector("#csfList");
+  const msg = back.querySelector("#csfMsg");
+  const doLink = async (oppId) => {
+    msg.textContent = "";
+    try {
+      const r = await fetch("/api/company/sf-link", {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ company, oppId }),
+      });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.error || "紐付けに失敗しました");
+      kbNotify(d.linked ? "SF商談に紐付けました" : "紐付けを外しました");
+      close();
+      loadHistSf(histSfCards);
+    } catch (e) { msg.textContent = "失敗：" + e.message; }
+  };
+  const render = (items) => {
+    if (!items || !items.length) { listEl.innerHTML = `<div class="csf-empty">候補が見つかりませんでした。会社名を変えて探してください。</div>`; return; }
+    listEl.innerHTML = items.map((o) => {
+      const meta = [o.account, o.stage, o.closed ? "終了" : ""].filter(Boolean).join(" ・ ");
+      return `<div class="csf-item"><div><div class="csf-item-t">${escapeHtml(o.name || "(名称なし)")}</div><div class="csf-item-m">${escapeHtml(meta)}</div></div><button type="button" class="btn csf-pick" data-id="${escapeHtml(o.id)}">紐付ける</button></div>`;
+    }).join("");
+    listEl.querySelectorAll(".csf-pick").forEach((b) => b.addEventListener("click", () => doLink(b.dataset.id)));
+  };
+  const load = async () => {
+    listEl.innerHTML = `<div class="csf-empty">読み込み中…</div>`;
+    const co = (back.querySelector("#csfCo").value || "").trim();
+    try {
+      const r = await fetch("/api/company/sf-candidates?company=" + encodeURIComponent(co));
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.error || "候補を取得できませんでした");
+      render(d.items || []);
+    } catch (e) { listEl.innerHTML = `<div class="csf-empty">${escapeHtml(e.message)}</div>`; }
+  };
+  back.querySelector(".csf-find").addEventListener("click", load);
+  back.querySelector(".csf-unlink").addEventListener("click", () => { if (confirm("この会社の紐付けを外します。よろしいですか？")) doLink(""); });
+  load();
+}
 // owner(メール/ID) → 表示名 の対応表。owner_nameが空の商談でも、同じ担当の他商談から名前を引く。
 let ownerDisplayMap = {};
 function rebuildOwnerDisplayMap() {
@@ -749,12 +838,14 @@ function renderList() {
     wire("histSelClear", () => { histSelected.clear(); renderList(); });
     wire("histSelRun", () => runHistBulkJudge(groups));
 
+    const sfCards = [];
     for (const nk of keys) {
       const ms = groups[nk];
       const last = ms.reduce((a, b) => (new Date(a.created_at) > new Date(b.created_at) ? a : b));
       const repKey = acctKey(last); // 表示・選択に使う代表キー
       const card = document.createElement("button");
       card.className = "acard";
+      card.dataset.nk = nk;
       card.innerHTML =
         `<div class="acard-name"></div>` +
         `<div class="acard-meta"><span class="acard-count">${ms.length}件</span><span class="acard-rep"></span></div>` +
@@ -765,9 +856,10 @@ function renderList() {
       const stCls = /受注/.test(st) ? "ok" : /失注/.test(st) ? "ng" : st ? "run" : "none";
       const stLabel = st || phaseLabel(last.phase) || "未判定";
       const sub = card.querySelector(".acard-sub");
-      sub.innerHTML = `<span class="acard-phase ph-${stCls}"></span><span class="acard-last"></span>`;
+      sub.innerHTML = `<span class="acard-phase ph-${stCls}"></span><span class="acard-last"></span><span class="acard-sf acard-sf-load">SF確認中…</span>`;
       sub.querySelector(".acard-phase").textContent = stLabel;
       sub.querySelector(".acard-last").textContent = ` ・ 最終 ${fmtDate(last.created_at)}`;
+      sfCards.push({ nk, company: acctName(repKey), el: card });
       if (histSelectMode) {
         const checked = histSelected.has(nk);
         card.classList.add("selectable");
@@ -787,6 +879,8 @@ function renderList() {
       });
       hlist.appendChild(card);
     }
+    histSfCards = sfCards;
+    loadHistSf(sfCards);
     return;
   }
 

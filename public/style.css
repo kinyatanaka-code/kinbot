@@ -6089,3 +6089,30 @@ input:focus, select:focus, textarea:focus, .sf-input:focus, .sf-select:focus, .s
 /* アポ一覧カード：獲得者の変更セレクト */
 .ap-c2-setter .ap-setter { max-width: 150px; height: 30px; margin-top: 2px; font-size: 13px; border: 1px solid #d7e3dd; border-radius: 8px; padding: 0 8px; font-family: inherit; background: #fff; color: #1c3d34; }
 .ap-c2-setter .ap-setter:focus { outline: none; border-color: #1d9e75; box-shadow: 0 0 0 3px rgba(29,158,117,.15); }
+
+/* 商談履歴の会社カード：SFステージ タグ */
+.acard-sf { display: inline-flex; align-items: center; margin-left: 8px; padding: 2px 9px; border-radius: 999px; font-size: 11px; font-weight: 700; cursor: pointer; vertical-align: middle; }
+.acard-sf-load { background: #eef1f0; color: #8a978f; font-weight: 600; cursor: default; }
+.acard-sf-on { background: #e1f5ee; color: #0f6e56; }
+.acard-sf-on:hover { background: #d3efe4; }
+.acard-sf-off { background: #fbeee0; color: #a8611a; }
+.acard-sf-off:hover { background: #f6e3cd; }
+
+/* 会社→SF商談 紐付けモーダル */
+.csf-back { position: fixed; inset: 0; z-index: 1000; background: rgba(13,42,34,.42); display: flex; align-items: center; justify-content: center; padding: 16px; }
+.csf { width: 100%; max-width: 480px; max-height: 86vh; overflow: auto; background: #fff; border-radius: 16px; box-shadow: 0 20px 60px rgba(13,91,71,.28); padding: 18px 20px; }
+.csf-h { display: flex; align-items: center; justify-content: space-between; font-size: 16px; font-weight: 700; color: #173a30; margin-bottom: 8px; }
+.csf-x { width: 30px; height: 30px; border: none; background: transparent; font-size: 20px; color: #7a8a84; cursor: pointer; border-radius: 8px; }
+.csf-x:hover { background: #f0f4f2; }
+.csf-note { font-size: 12.5px; color: #6b7770; margin-bottom: 12px; line-height: 1.5; }
+.csf-search { display: flex; gap: 8px; margin-bottom: 10px; }
+.csf-search input { flex: 1; min-width: 0; height: 36px; border: 1px solid #d7e3dd; border-radius: 9px; padding: 0 11px; font-size: 14px; }
+.csf-list { max-height: 44vh; overflow: auto; display: flex; flex-direction: column; gap: 8px; }
+.csf-empty { color: #7a8a84; font-size: 13px; padding: 14px 4px; }
+.csf-item { display: flex; align-items: center; justify-content: space-between; gap: 10px; border: 1px solid #e2ece7; border-radius: 10px; padding: 10px 12px; }
+.csf-item-t { font-size: 13.5px; font-weight: 700; color: #1c3d34; }
+.csf-item-m { font-size: 12px; color: #6b7770; margin-top: 2px; }
+.csf-pick { flex: none; background: #0f6e56; color: #fff; border: none; white-space: nowrap; }
+.csf-pick:hover { background: #0c5a47; color: #fff; }
+.csf-msg { font-size: 13px; color: #b3392f; margin: 6px 0 2px; }
+.csf-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 14px; }

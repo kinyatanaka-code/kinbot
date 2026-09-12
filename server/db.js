@@ -1276,6 +1276,19 @@ export async function initDb() {
   await sq(`ALTER TABLE sf_autolaunch ADD COLUMN IF NOT EXISTS opp_stage TEXT;`);
   await sq(`ALTER TABLE sf_autolaunch ADD COLUMN IF NOT EXISTS linked_at TIMESTAMPTZ;`);
   await sq(`ALTER TABLE sf_autolaunch ADD COLUMN IF NOT EXISTS linked_by TEXT;`);
+  // 会社（商談履歴の会社カード）を、SFの商談に手でひも付ける保存先。
+  // cross-status（会社名検索）で見つからない/取り違えるときの上書きに使う。
+  await sq(`
+    CREATE TABLE IF NOT EXISTS company_sf_link (
+      norm_key   TEXT PRIMARY KEY,
+      company    TEXT,
+      opp_id     TEXT,
+      opp_name   TEXT,
+      opp_stage  TEXT,
+      linked_by  TEXT,
+      linked_at  TIMESTAMPTZ DEFAULT now()
+    );
+  `);
   await sq(`
     CREATE TABLE IF NOT EXISTS kasasagi_blocked (
       id         BIGSERIAL PRIMARY KEY,
@@ -5717,6 +5730,35 @@ export async function clearApoOppLink(slug) {
   try {
     await pool.query(`UPDATE sf_autolaunch SET opp_id=NULL, opp_name=NULL, opp_stage=NULL, linked_at=NULL WHERE slug=$1`, [slug]);
   } catch (e) { console.error("[db] clearApoOppLink", e.message); }
+}
+
+// ===== 会社（商談履歴のカード）→ SF商談 の手動ひも付け =====
+export async function setCompanySfLink(normKey, { oppId, name = "", stage = "", company = "", by = "" } = {}) {
+  if (!pool || !normKey || !oppId) return null;
+  try {
+    const { rows } = await pool.query(
+      `INSERT INTO company_sf_link (norm_key, company, opp_id, opp_name, opp_stage, linked_by, linked_at)
+       VALUES ($1,$2,$3,$4,$5,$6, now())
+       ON CONFLICT (norm_key) DO UPDATE SET company=$2, opp_id=$3, opp_name=$4, opp_stage=$5, linked_by=$6, linked_at=now()
+       RETURNING *`,
+      [normKey, company || null, oppId, name || null, stage || null, by || null]);
+    return rows[0] || null;
+  } catch (e) { console.error("[db] setCompanySfLink", e.message); return null; }
+}
+export async function clearCompanySfLink(normKey) {
+  if (!pool || !normKey) return;
+  try { await pool.query(`DELETE FROM company_sf_link WHERE norm_key=$1`, [normKey]); }
+  catch (e) { console.error("[db] clearCompanySfLink", e.message); }
+}
+export async function getCompanySfLinks(normKeys) {
+  if (!pool || !Array.isArray(normKeys) || !normKeys.length) return {};
+  try {
+    const { rows } = await pool.query(
+      `SELECT norm_key, company, opp_id, opp_name, opp_stage FROM company_sf_link WHERE norm_key = ANY($1::text[])`, [normKeys]);
+    const out = {};
+    for (const r of rows) out[r.norm_key] = r;
+    return out;
+  } catch (e) { console.error("[db] getCompanySfLinks", e.message); return {}; }
 }
 
 // 立ち上げたときに分かったステージ名などを、ひも付けに反映（表示を最新に保つ）
