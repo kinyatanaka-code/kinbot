@@ -689,12 +689,10 @@ function openLaunchModal(i, reasonText) {
     const val = (id) => (back.querySelector("#" + id).value || "").trim();
     const allFilled = () => ["lcPhone", "lcWeb", "lcState", "lcStreet", "lcEmp"].every((id) => val(id));
     btn.disabled = true; const bo0 = btn.textContent;
-    const stages = [["sf", "SFの取引先を確認中…"], ["gbiz", "gBizINFO・メールで検索中…"], ["web", "ネットで検索中…"], ["deep", "公式サイトを読み込み中…"]];
     let filledAny = false;
-    for (const [stage, label] of stages) {
-      if (allFilled()) break;
-      btn.textContent = label;
-      if (!silent) { msg.className = "ap-lc-msg"; msg.textContent = "検索中… " + label; }
+    const runStage = async (stage, label, roundNote) => {
+      btn.textContent = roundNote ? `${label}（${roundNote}）` : label;
+      if (!silent) { msg.className = "ap-lc-msg"; msg.textContent = "検索中… " + label + (roundNote ? `（${roundNote}）` : ""); }
       const params = new URLSearchParams({ stage });
       for (const [id, key] of [["lcCompany", "company"], ["lcEmail", "email"], ["lcStreet", "street"], ["lcState", "state"], ["lcWeb", "website"], ["lcPhone", "phone"], ["lcEmp", "employees"]]) {
         if (val(id)) params.set(key, val(id));
@@ -710,13 +708,22 @@ function openLaunchModal(i, reasonText) {
             if (setIfEmpty(id, info[key] || "")) filledAny = true;
           }
         }
-      } catch { /* この段は飛ばして次へ */ }
+      } catch { /* この段は飛ばす */ }
+    };
+    // 1周目：全ソース。以降は web→公式サイトの読み込みを、空欄が埋まるまで何度か繰り返す。
+    const firstPass = [["sf", "SFの取引先を確認中…"], ["gbiz", "gBizINFO・メールで検索中…"], ["web", "ネットで検索中…"], ["deep", "公式サイトを読み込み中…"]];
+    for (const [stage, label] of firstPass) { if (allFilled()) break; await runStage(stage, label); }
+    const MAX_RETRY = 3;
+    for (let round = 2; round <= 1 + MAX_RETRY && !allFilled(); round++) {
+      await runStage("web", "ネットで再検索中…", `${round}回目`);
+      if (allFilled()) break;
+      await runStage("deep", "サイト・詳細を探しています…", `${round}回目`);
     }
     btn.disabled = false; btn.textContent = bo0;
     if (!silent) {
       msg.className = "ap-lc-msg";
       msg.textContent = allFilled() ? "自動で補完しました。内容を確認してください。"
-        : (filledAny ? "空欄を埋めました。残りは手で入力してください。" : "見つかりませんでした。手で入力してください。");
+        : (filledAny ? "空欄を埋めました。残りは手で入力してください（もう一度押すと再検索します）。" : "見つかりませんでした。手で入力してください（もう一度押すと再検索します）。");
     }
   };
   back.querySelector(".ap-lc-fill").addEventListener("click", () => autofill(false));

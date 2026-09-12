@@ -38,7 +38,7 @@ function pickOfficial(results, company) {
 }
 
 // ページ本文をざっくり取得（HTMLタグを落として先頭を返す）
-async function fetchPageText(url) {
+export async function fetchPageText(url) {
   try {
     const r = await withTimeout(url, { headers: { "User-Agent": "Mozilla/5.0 kinbot" } }, 12000);
     if (!r.ok) return "";

@@ -495,7 +495,7 @@ import {
 import { resolveConfig, statusInfo } from "./config.js";
 import { callLLMPublic, analyzerInfo, resolveGroqModel, clearGroqModelCache, analyzeMeeting, analyzeDeep, freeAnalyze, chatWithData, enrichCompany, lookupEmployeeCount, lookupBusinessHours, transcribeAudio, lookupCompanyBasics, generateThanks, THANKS_PROMPT, getCheckItems, getSummaryPrompt, getCustomPrompt, runCustomAnalysis, analyzeWinPatterns, classifyMeetingKind, extractFirstMeeting, extractReMeeting, buildBrief, extractFeatureCTags, enrichCompanyAttributes, generateFeatureCInsights, extractQaPairs, splitPhases } from "./analyzer.js";
 import { searchCompanies, getCompanyDetail, gbizConfigured } from "./gbizinfo.js";
-import { enrichCompanyFromWeb, webSearchConfigured } from "./companyenrich.js";
+import { enrichCompanyFromWeb, webSearchConfigured, fetchPageText } from "./companyenrich.js";
 import { searchCompanyInfo, webLookupAvailable } from "./websearch.js";
 import { readLayout, readGoals, tally, buildUpdates, applyApoCounts, parseZeroDates, callHours, buildHoursUpdates, isoForMD, sameName as psSameName, METRICS } from "./processsheet.js";
 import {
@@ -3962,17 +3962,34 @@ async function ciFromWeb(company, hint, knownUrl) {
 }
 async function ciFromDeep(company, hint, have = {}) {
   const out = {};
+  // 0) 分かっているサイトがあれば、その本文を読んで電話・住所・従業員数を抽出する（電話はサイトのフッター等にあることが多い）
+  const knownUrl = String(have.website || "").trim();
+  if (knownUrl && (!have.phone || !have.street || !have.employees)) {
+    try {
+      const siteText = await fetchPageText(knownUrl).catch(() => "");
+      if (siteText && siteText.length > 80) {
+        const g = await enrichCompany({ name: company, url: knownUrl, siteText }).catch(() => null);
+        if (g) {
+          out.phone = g.phone || "";
+          out.street = g.location || "";
+          out.employees = g.employees ? String(g.employees) : "";
+          out.website = g.website || knownUrl;
+          if (out.street) out.state = prefFromAddress(out.street);
+        }
+      }
+    } catch (e) { console.warn("[会社情報] サイト本文抽出失敗", e.message); }
+  }
+  // 1) 公式サイトを Brave で探して読み込む（住所・従業員数）
   try {
     const w = await enrichCompanyFromWeb(company).catch(() => null);
     if (w) {
-      out.official_name = w.official_name || "";
-      out.website = w.website || "";
-      out.street = w.address || "";
-      out.employees = w.employees ? String(w.employees) : "";
-      if (out.street) out.state = prefFromAddress(out.street);
+      out.official_name = out.official_name || w.official_name || "";
+      if (!out.website) out.website = w.website || "";
+      if (!out.street) { out.street = w.address || ""; if (out.street) out.state = prefFromAddress(out.street); }
+      if (!out.employees) out.employees = w.employees ? String(w.employees) : "";
     }
   } catch (e) { console.warn("[会社情報] サイト読込失敗", e.message); }
-  // 項目ごとに狙い撃ち検索（会社名＋電話番号 / 会社名＋住所）。まだ無いものだけ。
+  // 2) 項目ごとに狙い撃ち検索（会社名＋電話番号 / 会社名＋住所）。まだ無いものだけ。
   const wantPhone = !have.phone && !out.phone;
   const wantLoc = !have.street && !out.street;
   if (wantPhone || wantLoc) {
@@ -3985,7 +4002,7 @@ async function ciFromDeep(company, hint, have = {}) {
       }
     } catch (e) { console.warn("[会社情報] 狙い撃ち検索失敗", e.message); }
   }
-  // 従業員数（会社名＋従業員数）。まだ無ければ専用リサーチ。
+  // 3) 従業員数（会社名＋従業員数）。まだ無ければ専用リサーチ。
   if (!have.employees && !out.employees) {
     try { const emp = await lookupEmployeeCount(company, hint || "").catch(() => null); if (emp && emp.found) out.employees = String(emp.employees); } catch {}
   }
@@ -19363,7 +19380,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-12za SF立ち上げの自動補完で、空欄を項目ごとに狙い撃ち検索するようにした。電話番号→「会社名 代表電話番号」、住所→「会社名 本社所在地」、従業員数→「会社名 従業員数」で個別に検索して埋める（公式サイト読み込みでも取れないとき）。既に埋まっている項目は検索しない。";
+const BUILD_TAG = "2026-09-12zb SF立ち上げの自動補完をさらに強化。(1)分かっている公式サイトの本文を実際に読み込んで電話・住所・従業員数を抽出（電話はサイトのフッター等にあることが多い）。(2)空欄が埋まるまで、ネット検索と詳細検索を最大3回まで繰り返す（進捗に「◯回目」を表示）。もう一度ボタンを押しても再検索できる。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
