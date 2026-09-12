@@ -19304,7 +19304,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-12w アポ実績の「実施」判定を、kincallの実績（プロセスの実施数）と同じ方式に統一。会社名×商談日で、初回タイトルの録音あり商談があれば実施とみなす（従来のカレンダーイベント結合はやめた）。実施は引き続き積み上げ式（実施判定＝実施 または 有効商談以降に到達）。";
+const BUILD_TAG = "2026-09-12x アポ実績の「実施」を、kincallの実績（インセンティブの実施件数）と同じ数え方に修正。録音あり商談を、アポ獲得者（商談の apo_setter）ごとに件数で数える（会社×商談日の突合ではなく商談そのものの件数）。これで kincall の実施数と一致する。移行率も新しい実施数を基準に再計算。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
@@ -24075,28 +24075,21 @@ app.get("/api/apo/perf", async (req, res) => {
       if (won || isWonStage(stage)) return funnel.length - 1;
       return funnel.indexOf(String(stage || ""));
     };
-    const yukoIdx = funnel.findIndex((s) => String(s).includes("有効商談")); // 実施の積み上げ判定に使う
-
-    // 実施判定：kincallの実績（プロセス）と同じ。会社名|商談日 で、初回タイトルの録音あり商談があれば実施。
-    const pad2 = (n) => String(n).padStart(2, "0");
-    const ymdJst = (v) => { if (!v) return ""; const d = new Date(v); if (isNaN(d.getTime())) return String(v).slice(0, 10); const j = new Date(d.getTime() + 9 * 3600000); return `${j.getUTCFullYear()}-${pad2(j.getUTCMonth() + 1)}-${pad2(j.getUTCDate())}`; };
-    const isWeekend = (ymd) => { if (!/^\d{4}-\d{2}-\d{2}$/.test(String(ymd))) return false; const d = new Date(ymd + "T00:00:00Z"); const w = d.getUTCDay(); return w === 0 || w === 6; };
-    const 対象タイトル = (t) => { const s = String(t || ""); return /【\s*初回\s*】/.test(s) || /【\s*新\s*[\/／]\s*ヒ\s*】/.test(s) || /メルマガ/.test(s); };
-    const doneSet = new Set();
+    // 実施：kincallの実績（インセンティブ）と同じ数え方。録音あり商談を apo_setter（獲得者）ごとに数える。
+    const normName = (s) => String(s || "").replace(/[\s　]/g, "");
+    const jisshiBySetter = new Map();     // 正規化名 -> 件数
+    const jisshiCoBySetter = new Map();   // 正規化名 -> 会社名の配列
     try {
-      const meetings = await listMeetings({ isAdmin: true, from: from ? ymdJst(from) : null, to: null, limit: 3000, light: true }).catch(() => []);
+      const meetings = await listMeetings({ isAdmin: true, from: from ? String(from).slice(0, 10) : null, to: null, limit: 5000, light: true }).catch(() => []);
       for (const mt of meetings) {
-        if (!対象タイトル(mt.title || "")) continue;
-        const co = normCompanyKey(companyFromTitle(mt.title || "") || mt.account || "");
-        const day = ymdJst(mt.created_at);
-        if (co && day && !isWeekend(day)) doneSet.add(`${co}|${day}`);
+        const key = normName(mt.apo_setter || "");
+        if (!key) continue;
+        jisshiBySetter.set(key, (jisshiBySetter.get(key) || 0) + 1);
+        if (!jisshiCoBySetter.has(key)) jisshiCoBySetter.set(key, []);
+        const arr = jisshiCoBySetter.get(key);
+        if (arr.length < 400) arr.push(companyFromTitle(mt.title || "") || mt.account || "(名称なし)");
       }
-    } catch (e) { console.warn("[アポ実績] 実施突合の商談取得失敗", e.message); }
-    const isConducted = (a) => {
-      const co = normCompanyKey(companyFromTitle(a.label || "") || "");
-      const day = ymdJst(a.start_time);
-      return !!(co && day && doneSet.has(`${co}|${day}`));
-    };
+    } catch (e) { console.warn("[アポ実績] 実施の商談取得失敗", e.message); }
 
     const bySetter = {};
     for (const a of apps) {
@@ -24114,19 +24107,20 @@ app.get("/api/apo/perf", async (req, res) => {
       const won = live ? live.IsWon === true : isWonStage(a.opp_stage);
       const lost = !!stage && isLost(stage);
       const ix = (stage && !lost) ? idxOfStage(stage, won) : -1;
-      // 実施（積み上げ）＝kincallの実施判定（会社×商談日の記録あり商談）、または「有効商談」以降のステージに到達している
-      if (isConducted(a) || (yukoIdx >= 0 && ix >= yukoIdx)) {
-        m.conducted++; if (m.conductedCompanies.length < 400) m.conductedCompanies.push(co);
-      }
       if (!stage) continue; // 未立ち上げ＝アポ獲得のみ
       if (lost) { m.lost++; if (m.lostCompanies.length < 400) m.lostCompanies.push(co); continue; }
       if (won || isWonStage(stage)) m.won++;
       for (let k = 1; k <= ix; k++) { m.reached[k]++; if (m.companies[k].length < 400) m.companies[k].push(co); }
     }
-    const members = Object.values(bySetter).map((m) => ({
-      ...m,
-      rates: m.reached.map((c, k) => (k === 0 ? null : (m.reached[k - 1] ? Math.round((c / m.reached[k - 1]) * 100) : null))),
-    })).sort((a, b) => (b.reached[0] || 0) - (a.reached[0] || 0));
+    const members = Object.values(bySetter).map((m) => {
+      const key = normName(m.setter);
+      return {
+        ...m,
+        conducted: jisshiBySetter.get(key) || 0,
+        conductedCompanies: jisshiCoBySetter.get(key) || [],
+        rates: m.reached.map((c, k) => (k === 0 ? null : (m.reached[k - 1] ? Math.round((c / m.reached[k - 1]) * 100) : null))),
+      };
+    }).sort((a, b) => (b.reached[0] || 0) - (a.reached[0] || 0));
 
     res.json({ ok: true, window, funnel, members, count: apps.length, sfConnected: sfOk });
   } catch (e) { res.status(500).json({ error: e.message }); }
