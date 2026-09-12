@@ -10,7 +10,7 @@
     <link rel="manifest" href="/site.webmanifest" />
     <meta name="theme-color" content="#0d5b47" />
     <meta name="apple-mobile-web-app-title" content="kinbot" />
-    <link rel="stylesheet" href="style.css?v=20260907z" />
+    <link rel="stylesheet" href="style.css?v=20260908a" />
     <style>
       .pp-page { padding: 20px; max-width: 900px; }
       .pp-search-bar {
@@ -58,7 +58,15 @@
         <a class="side-item" href="home.html"><span class="side-ico ico-home"></span><span class="side-label">ホーム</span></a>
         <a class="side-item" href="index.html"><span class="side-ico ico-rec"></span><span class="side-label">レコーディング</span></a>
         <a class="side-item" href="history.html"><span class="side-ico ico-hist"></span><span class="side-label">商談履歴</span></a>
-        <a class="side-item" href="apo.html"><span class="side-ico ico-apo"></span><span class="side-label">アポ履歴</span></a>
+        <div class="side-wrap"><a class="side-item" href="apo.html"><span class="side-ico ico-apo"></span><span class="side-label">アポ履歴</span><span class="side-arrow">›</span></a>
+          <div class="side-sub">
+            <div class="side-sub-head">アポ履歴</div>
+            <a class="side-sub-item" href="apo.html?tab=list">アポ一覧</a>
+            <a class="side-sub-item" href="report.html?panel=interns">インターンアポ</a>
+            <a class="side-sub-item" href="apo.html?tab=rot">割り振り設定</a>
+            <a class="side-sub-item" href="apo.html?tab=team">チーム実績</a>
+            <a class="side-sub-item" href="apo.html?tab=mail">メール設定</a>
+          </div></div>
         <a class="side-item" href="docs.html"><span class="side-ico ico-doc"></span><span class="side-label">資料トラッキング</span></a>
         <div class="side-sep"></div>
         <div class="side-wrap"><a class="side-item side-app" href="/kincall">
@@ -88,7 +96,7 @@
         </main>
       </div>
     </div>
-    <script src="nav.js?v=20260907z" defer></script>
+    <script src="nav.js?v=20260908a" defer></script>
     <script>
 const $ = id => document.getElementById(id);
 const esc = s => String(s==null?"":s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
