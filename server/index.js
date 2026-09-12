@@ -14922,6 +14922,16 @@ async function checkIncentiveMilestone(name) {
     const nm = String(name || "").trim();
     if (!nm) return;
     if (nm.length > 20 || /[<>@/]|https?:/.test(nm)) return;   // 異常な名前（HTML混入等）は通知しない
+    // 通知しない人（設定 incentiveNoNotify、または env INCENTIVE_NO_NOTIFY のカンマ区切り）。
+    // 既定で田中欽也は通知しない（インセンティブの対象ではないため）。
+    {
+      const s0 = await getSettings().catch(() => ({}));
+      const list = []
+        .concat(Array.isArray(s0.incentiveNoNotify) ? s0.incentiveNoNotify : [])
+        .concat(String(process.env.INCENTIVE_NO_NOTIFY || "田中欽也").split(","))
+        .map((x) => _incNorm(x)).filter(Boolean);
+      if (list.includes(_incNorm(nm))) return;
+    }
     const key = _incNorm(nm);
     const { from, to } = incentiveWindow();
     const ms = await listMeetings({ isAdmin: true, from, to, limit: 5000, light: true }).catch(() => []);
