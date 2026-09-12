@@ -321,10 +321,13 @@ function openAiDemo(key) {
     const co = (back.querySelector("#aidCo").value || "").trim();
     const url = (urlIn.value || "").trim();
     if (!co) { msg.textContent = "会社名を入れてください。"; return; }
-    // ツールを開き、会社名とURLをコピー（貼り付け用）。生成はツール側で行う。
+    // ツールを開く。URLパラメータで会社名・URL・自動開始を渡す（ツールが対応していれば自動入力＋自動生成）。
+    // 未対応に備え、会社名とURLはクリップボードにもコピー（貼り付け用）。
     try { await navigator.clipboard.writeText(`${co}\n${url}`); } catch {}
-    window.open(aidemoTool, "_blank", "noopener");
-    msg.className = "aid-msg"; msg.textContent = "ツールを開きました。会社名・URLはコピー済みです。貼り付けて生成してください。完成すると自動でここにURLが出ます（数分・確認中…）。";
+    let openUrl = aidemoTool;
+    try { const u = new URL(aidemoTool); u.searchParams.set("company", co); if (url) u.searchParams.set("urls", url); u.searchParams.set("autostart", "1"); openUrl = u.toString(); } catch {}
+    window.open(openUrl, "_blank", "noopener");
+    msg.className = "aid-msg"; msg.textContent = "ツールを開きました。対応していれば自動で入力・生成されます（未対応ならコピー済みの内容を貼り付けてください）。完成すると自動でここにURLが出ます（数分・確認中…）。";
     let tries = 0;
     if (back._poll) clearInterval(back._poll);
     back._poll = setInterval(async () => {
