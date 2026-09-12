@@ -6033,3 +6033,10 @@ input:focus, select:focus, textarea:focus, .sf-input:focus, .sf-select:focus, .s
 .ap-lc-go { background: #0f6e56; color: #fff; border: none; }
 .ap-lc-go:hover { background: #0c5a47; color: #fff; }
 @media (max-width: 760px) { .ap-lc-f { flex-direction: column; align-items: stretch; gap: 4px; } .ap-lc-f > span { width: auto; } }
+
+/* SF立ち上げモーダル：Webサイト欄＋「ネットから拾う」 */
+.ap-lc-web { flex: 1; display: flex; gap: 8px; }
+.ap-lc-web input { flex: 1; min-width: 0; height: 36px; border: 1px solid #d7e3dd; border-radius: 9px; padding: 0 11px; font-size: 14px; font-family: inherit; }
+.ap-lc-web input:focus { outline: none; border-color: #1d9e75; box-shadow: 0 0 0 3px rgba(29,158,117,.15); }
+.ap-lc-weburl { flex: none; white-space: nowrap; font-size: 12.5px; padding: 0 12px; height: 36px; }
+@media (max-width: 760px) { .ap-lc-web { flex-direction: column; } .ap-lc-weburl { height: 34px; } }

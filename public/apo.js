@@ -615,7 +615,7 @@ function openLaunchModal(i, reasonText) {
       <label class="ap-lc-f"><span>担当者（姓）</span><input id="lcPerson" type="text" placeholder="空なら予定名から自動" /></label>
       <label class="ap-lc-f"><span>メール</span><input id="lcEmail" type="email" value="${esc(a.client_email || "")}" /></label>
       <label class="ap-lc-f"><span>電話</span><input id="lcPhone" type="text" /></label>
-      <label class="ap-lc-f"><span>Webサイト</span><input id="lcWeb" type="text" placeholder="https://..." /></label>
+      <label class="ap-lc-f"><span>Webサイト</span><span class="ap-lc-web"><input id="lcWeb" type="text" placeholder="https://..." /><button type="button" class="btn ghost ap-lc-weburl">ネットから拾う</button></span></label>
       <label class="ap-lc-f"><span>住所</span><input id="lcStreet" type="text" /></label>
       <label class="ap-lc-f"><span>従業員数</span><input id="lcEmp" type="text" inputmode="numeric" /></label>
       <div class="ap-lc-msg" id="lcMsg"></div>
@@ -627,6 +627,30 @@ function openLaunchModal(i, reasonText) {
   back.querySelector(".ap-lc-x").addEventListener("click", close);
   back.querySelector(".ap-lc-cancel").addEventListener("click", close);
   const go = back.querySelector(".ap-lc-go");
+  // Webサイトをネットから拾う（会社名・メールを手がかりに）
+  const fetchWeb = async (silent) => {
+    const webBtn = back.querySelector(".ap-lc-weburl");
+    const webIn = back.querySelector("#lcWeb");
+    const msg = back.querySelector("#lcMsg");
+    const params = new URLSearchParams();
+    const co = (back.querySelector("#lcCompany").value || "").trim();
+    const em = (back.querySelector("#lcEmail").value || "").trim();
+    if (co) params.set("company", co);
+    if (em) params.set("email", em);
+    if (![...params].length) { if (!silent) { msg.className = "ap-lc-msg"; msg.textContent = "会社名かメールを入れると、ネットからURLを探せます。"; } return; }
+    webBtn.disabled = true; const wbo = webBtn.textContent; webBtn.textContent = "探しています…";
+    try {
+      const r = await fetch(`/api/apo/${encodeURIComponent(a.slug)}/website?` + params.toString());
+      const d = await r.json();
+      if (r.ok && d.url) { webIn.value = d.url; if (!silent) { msg.className = "ap-lc-msg"; msg.textContent = ""; } }
+      else if (!silent) { msg.className = "ap-lc-msg"; msg.textContent = "ネットからURLを見つけられませんでした。手で入力してください。"; }
+    } catch { if (!silent) { msg.className = "ap-lc-msg ng"; msg.textContent = "URLの取得に失敗しました。"; } }
+    finally { webBtn.disabled = false; webBtn.textContent = wbo; }
+  };
+  back.querySelector(".ap-lc-weburl").addEventListener("click", () => fetchWeb(false));
+  // 開いたとき、Webが空なら（メールなどを手がかりに）自動で1回だけ探す
+  if (!back.querySelector("#lcWeb").value) fetchWeb(true);
+
   go.addEventListener("click", async () => {
     const val = (id) => (back.querySelector("#" + id).value || "").trim();
     const lead = {};

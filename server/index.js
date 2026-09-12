@@ -3776,6 +3776,27 @@ async function sfOperator(prefer = "") {
 }
 
 // URLが空のときは gBizINFO で補う。見つからなければ空のまま。
+// 会社名・メールから、会社サイトのURLを探す（SFに書かない・純粋な照会）。
+// 1) メールのドメイン（フリーメール除く） 2) gBizINFO 3) ネット検索（Gemini＋Google検索連携）
+async function lookupCompanyWebsite(company, email) {
+  const domain = String(email || "").split("@")[1] || "";
+  const 一般 = /^(gmail|yahoo|outlook|hotmail|icloud|docomo|ezweb|au|softbank|me|ymobile|nifty|so-net|biglobe|live|aol)\./i.test(domain);
+  if (domain && !一般 && /\./.test(domain)) return { url: "https://" + domain.replace(/\/+$/, ""), source: "email" };
+  try {
+    const hits = await searchCompanies(company, 3);
+    for (const h of hits) {
+      const d = await getCompanyDetail(h.corporate_number).catch(() => null);
+      if (d && d.company_url && /^https?:\/\//i.test(d.company_url)) return { url: d.company_url, source: "gbiz" };
+    }
+  } catch (e) { console.warn("[URL照会] gBiz失敗", e.message); }
+  try {
+    const g = await enrichCompany({ name: company, url: "" }).catch(() => null);
+    const url = g && (g.website || g.company_url);
+    if (url && /^https?:\/\//i.test(url)) return { url, source: "web" };
+  } catch (e) { console.warn("[URL照会] ネット検索失敗", e.message); }
+  return { url: "", source: "" };
+}
+
 async function fillLeadWebsite(user, lead, company, email = "") {
   if (lead.Website) return { url: lead.Website, filled: false };
   const setUrl = async (url) => {
@@ -4290,6 +4311,19 @@ app.post("/api/sf-autolaunch/run", async (req, res) => {
     const leadOverride = (req.body && typeof req.body.lead === "object") ? req.body.lead : null;
     const r = await tryAutoLaunch(op, link, { ownerEmail: link.current_owner, leadOverride });
     res.json({ ...r, reasonText: r.ok ? "" : reasonText(r.reason, r.detail) });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// モーダルの「ネットから拾う」用：会社名・メールから会社サイトのURLを探して返す（SFには書かない）
+app.get("/api/apo/:slug/website", async (req, res) => {
+  try {
+    const link = await getSmartLink(String(req.params.slug || ""));
+    const parsed = link ? parseLaunchTitle(link.label) : { company: "" };
+    const company = String(req.query.company || "").trim() || parsed.company || "";
+    const email = String(req.query.email || "").trim() || (link && link.client_email) || "";
+    if (!company && !email) return res.json({ ok: false, url: "", source: "" });
+    const r = await lookupCompanyWebsite(company, email);
+    res.json({ ok: !!r.url, url: r.url, source: r.source, company });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
@@ -19048,7 +19082,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-12h SF立ち上げのURL補完を強化。gBizINFOに無くても、(1)お客様メールのドメイン（フリーメール除く）から会社サイトを推定、(2)それでも無ければネット検索（Gemini＋Google検索連携）で公式サイトを探す。細かい入力モーダルのメール/会社名も手がかりに使う。URLが空で立ち上がらない件を減らす。";
+const BUILD_TAG = "2026-09-12i SF立ち上げの細かい入力モーダルに「ネットから拾う」を追加。Webサイト欄の横のボタン、およびモーダルを開いたとき（Web空なら自動で1回）、会社名・メールを手がかりに会社サイトのURLを探して入れる（メールのドメイン→gBizINFO→ネット検索）。GET /api/apo/:slug/website を新設。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
