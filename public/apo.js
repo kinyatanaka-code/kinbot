@@ -197,7 +197,9 @@ function apoCard(a, i) {
   if (sf === undefined) sfChips = `<span class="ap-c2-chip ap-c2-muted">SF：取得中…</span>`;
   else if (sf === null) sfChips = chipMuted("SF：未接続");
   else {
-    const linkChip = sf.linked ? chipOk("SF紐付け") : chipMuted("SF未紐付け");
+    const linkChip = sf.linked
+      ? `<button class="ap-c2-chip ap-c2-ok ap-c2-btnchip ap-sflink" data-i="${i}" title="紐付けを変更">${AP_ICO.check}SF紐付け</button>`
+      : `<button class="ap-c2-chip ap-c2-muted ap-c2-btnchip ap-sflink" data-i="${i}" title="SF商談を紐付ける">SF未紐付け</button>`;
     const launchChip = sf.launched
       ? chipOk("商談立ち上げ")
       : (assigned
@@ -249,6 +251,7 @@ function apoCard(a, i) {
             <div class="ap-more-menu">
               <a class="ap-more-item" href="${esc(a.smart_url)}" target="_blank" rel="noopener">お客様ページを開く</a>
               <button class="ap-more-item ap-launch-detail" data-i="${i}">SF立ち上げ（細かく入力）</button>
+              <button class="ap-more-item ap-sflink-menu" data-i="${i}">SF商談の紐付けを変更</button>
               <button class="ap-more-item ap-copy" data-url="${esc(a.smart_url)}">リンクをコピー</button>
               <button class="ap-more-item ap-calonly" data-i="${i}" data-slug="${esc(a.slug)}">カレンダーだけ作る</button>
               <button class="ap-more-item ap-renotify" data-slug="${esc(a.slug)}">割り振り通知だけ再送</button>
@@ -582,6 +585,12 @@ function bindCardEvents(card) {
   const launchDetail = q(".ap-launch-detail");
   if (launchDetail) launchDetail.addEventListener("click", () => openLaunchModal(+launchDetail.dataset.i, ""));
 
+  // SF紐付けの変更（チップ／メニューから）
+  const sflink = q(".ap-sflink");
+  if (sflink) sflink.addEventListener("click", () => openSfLinkModal(+sflink.dataset.i));
+  const sflinkMenu = q(".ap-sflink-menu");
+  if (sflinkMenu) sflinkMenu.addEventListener("click", () => openSfLinkModal(+sflinkMenu.dataset.i));
+
   bindMailButtons(card);
 }
 // 1件だけSF状態（ステージ・紐付け・立ち上げ）を取り直してカードに反映する。
@@ -651,6 +660,7 @@ function openLaunchModal(i, reasonText) {
   // 開いたとき、Webが空なら（メールなどを手がかりに）自動で1回だけ探す
   if (!back.querySelector("#lcWeb").value) fetchWeb(true);
 
+
   go.addEventListener("click", async () => {
     const val = (id) => (back.querySelector("#" + id).value || "").trim();
     const lead = {};
@@ -683,6 +693,84 @@ function openLaunchModal(i, reasonText) {
       go.disabled = false; go.textContent = bo;
     }
   });
+}
+
+// SF商談の紐付けを変更するモーダル（候補から選ぶ／外す）
+function openSfLinkModal(i) {
+  const a = apState.appts[i];
+  if (!a) return;
+  if (document.querySelector(".ap-lc-back")) return;
+  const curOpp = (a.sf && a.sf.oppId) || "";
+  const back = document.createElement("div");
+  back.className = "ap-lc-back";
+  back.innerHTML =
+    `<div class="ap-lc ap-lk">
+      <div class="ap-lc-h"><span>SF商談の紐付け</span><button type="button" class="ap-lc-x" aria-label="閉じる">×</button></div>
+      <div class="ap-lc-note">この商談に紐付けるSF商談（クロス）を選びます。会社名で候補を探せます。</div>
+      <div class="ap-lk-search"><input id="lkCompany" type="text" placeholder="会社名で探す" /><button type="button" class="btn ghost ap-lk-find">候補を探す</button></div>
+      <div class="ap-lk-list" id="lkList"><div class="ap-lk-empty">読み込み中…</div></div>
+      <div class="ap-lc-msg" id="lkMsg"></div>
+      <div class="ap-lc-actions">
+        ${curOpp ? `<button type="button" class="btn ghost ap-lk-unlink">紐付けを外す</button>` : ""}
+        <button type="button" class="btn ghost ap-lk-cancel">閉じる</button>
+      </div>
+    </div>`;
+  document.body.appendChild(back);
+  const close = () => back.remove();
+  back.addEventListener("click", (ev) => { if (ev.target === back) close(); });
+  back.querySelector(".ap-lc-x").addEventListener("click", close);
+  back.querySelector(".ap-lk-cancel").addEventListener("click", close);
+  const listEl = back.querySelector("#lkList");
+  const msg = back.querySelector("#lkMsg");
+  const setMsg = (t, ng) => { msg.className = "ap-lc-msg" + (ng ? " ng" : ""); msg.textContent = t || ""; };
+
+  const doLink = async (oppId) => {
+    setMsg("");
+    try {
+      const r = await fetch(`/api/apo/${encodeURIComponent(a.slug)}/sf-link`, {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ oppId }),
+      });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.error || "紐付けに失敗しました");
+      a.sf = Object.assign({}, a.sf || {}, { linked: !!d.linked, oppId: d.oppId || "", stage: d.stage || (a.sf && a.sf.stage) || "" });
+      if (window.kbToast) kbToast(d.linked ? "SF商談に紐付けました" : "紐付けを外しました");
+      refreshMailCell(i); refreshSfOne(a.slug, i);
+      close();
+    } catch (e) { setMsg("失敗：" + e.message, true); }
+  };
+
+  const render = (items) => {
+    if (!items || !items.length) { listEl.innerHTML = `<div class="ap-lk-empty">候補が見つかりませんでした。会社名を変えて探してください。</div>`; return; }
+    listEl.innerHTML = items.map((o) => {
+      const cur = curOpp && o.id === curOpp;
+      const meta = [o.account, o.stage, o.closed ? "終了" : ""].filter(Boolean).join(" ・ ");
+      return `<div class="ap-lk-item${cur ? " cur" : ""}">
+        <div class="ap-lk-item-t">${esc(o.name || "(名称なし)")}</div>
+        <div class="ap-lk-item-m">${esc(meta)}</div>
+        <button type="button" class="btn ap-lk-pick" data-id="${esc(o.id)}">${cur ? "紐付け中" : "紐付ける"}</button>
+      </div>`;
+    }).join("");
+    listEl.querySelectorAll(".ap-lk-pick").forEach((b) => b.addEventListener("click", () => doLink(b.dataset.id)));
+  };
+
+  const load = async () => {
+    listEl.innerHTML = `<div class="ap-lk-empty">読み込み中…</div>`;
+    const coIn = back.querySelector("#lkCompany");
+    const params = new URLSearchParams();
+    if ((coIn.value || "").trim()) params.set("company", coIn.value.trim());
+    try {
+      const r = await fetch(`/api/apo/${encodeURIComponent(a.slug)}/sf-candidates?` + params.toString());
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.error || "候補を取得できませんでした");
+      if (d.company && !(coIn.value || "").trim()) coIn.value = d.company;
+      render(d.items || []);
+    } catch (e) { listEl.innerHTML = `<div class="ap-lk-empty ng">${esc(e.message)}</div>`; }
+  };
+  back.querySelector(".ap-lk-find").addEventListener("click", load);
+  const unlinkBtn = back.querySelector(".ap-lk-unlink");
+  if (unlinkBtn) unlinkBtn.addEventListener("click", () => { if (confirm("この商談の紐付けを外します。よろしいですか？")) doLink(""); });
+  load();
 }
 // メニューの外側クリックで閉じる（1回だけ登録）
 if (!window.__apMoreOutside) {

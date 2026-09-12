@@ -19082,7 +19082,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-12i SF立ち上げの細かい入力モーダルに「ネットから拾う」を追加。Webサイト欄の横のボタン、およびモーダルを開いたとき（Web空なら自動で1回）、会社名・メールを手がかりに会社サイトのURLを探して入れる（メールのドメイン→gBizINFO→ネット検索）。GET /api/apo/:slug/website を新設。";
+const BUILD_TAG = "2026-09-12j アポ一覧からSF紐付けを変更できるようにした。カードの「SF紐付け/未紐付け」チップ、または⋯メニュー「SF商談の紐付けを変更」から、候補（会社名で検索）を選んで紐付け・解除できる。既存の /api/apo/:slug/sf-candidates と /sf-link を使用。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
