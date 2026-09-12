@@ -609,6 +609,8 @@ table.bant td:first-child { color: var(--muted); width: 80px; }
 .side-foot-set-label { line-height: 1; }
 .side-logout { flex: 1 1 100%; font-size: 12px; color: #9aa39d; text-decoration: none; margin-top: 4px; }
 .side-logout:hover { color: #fff; text-decoration: underline; }
+.side-set { flex: 1 1 100%; font-size: 12px; color: #9aa39d; text-decoration: none; margin-top: 4px; }
+.side-set:hover { color: #fff; text-decoration: underline; }
 
 .login-alt { font-size: 12.5px; color: var(--muted); margin-top: 14px; }
 .login-alt a { color: var(--accent); font-weight: 700; text-decoration: none; }

@@ -10,7 +10,7 @@
     <link rel="manifest" href="/site.webmanifest" />
     <meta name="theme-color" content="#0d5b47" />
     <meta name="apple-mobile-web-app-title" content="kinbot" />
-    <link rel="stylesheet" href="style.css?v=20260907y" />
+    <link rel="stylesheet" href="style.css?v=20260907z" />
     <style>
       /* 1画面に収めるダッシュボード。ページ自体はスクロールせず、長いリストはカード内で送る。 */
       .ai-page{flex:1 1 auto;min-height:0;display:flex;flex-direction:column;gap:12px;
@@ -283,7 +283,21 @@
     <div class="app">
       <nav class="sidebar">
         <div class="side-brand"><span class="brand-mark"></span><span>kinbot</span></div>
-        <div class="side-foot"><span id="who" class="who"></span><a href="#" id="logout" class="side-logout">ログアウト</a></div>
+        <a class="side-item" href="home.html"><span class="side-ico ico-home"></span><span class="side-label">ホーム</span></a>
+        <a class="side-item" href="index.html"><span class="side-ico ico-rec"></span><span class="side-label">レコーディング</span></a>
+        <a class="side-item" href="history.html"><span class="side-ico ico-hist"></span><span class="side-label">商談履歴</span></a>
+        <a class="side-item" href="apo.html"><span class="side-ico ico-apo"></span><span class="side-label">アポ履歴</span></a>
+        <a class="side-item" href="docs.html"><span class="side-ico ico-doc"></span><span class="side-label">資料トラッキング</span></a>
+        <div class="side-sep"></div>
+        <div class="side-wrap"><a class="side-item side-app" href="/kincall">
+          <img class="side-app-ico" src="/kincall.svg" alt="" /><span class="side-label">kincall</span></a></div>
+        <div class="side-wrap"><a class="side-item side-app" href="sf-launch.html">
+          <span class="side-ico ico-deal"></span><span class="side-label">Salesforce</span></a></div>
+        <div class="side-wrap"><a class="side-item side-app active" href="ai.html">
+          <span class="side-ico ico-rec"></span><span class="side-label">AI社員</span></a></div>
+        <div class="side-wrap"><a class="side-item side-app" href="report.html">
+          <span class="side-ico ico-ana"></span><span class="side-label">その他ツール</span></a></div>
+        <div class="side-foot"><a href="settings.html" class="side-set" title="設定">設定</a><span id="who" class="who"></span><a href="#" id="logout" class="side-logout">ログアウト</a></div>
       </nav>
       <div class="main">
         <header class="topbar"></header>
@@ -292,9 +306,9 @@
         </main>
       </div>
     </div>
-    <script src="product.js?v=20260907y"></script>
-    <script src="ai.js?v=20260907y"></script>
-    <script src="nav.js?v=20260907y"></script>
+    <script src="product.js?v=20260907z"></script>
+    <script src="ai.js?v=20260907z"></script>
+    <script src="nav.js?v=20260907z"></script>
     <script src="/cmdk.js?v=20260827a"></script>
   </body>
 </html>
