@@ -632,6 +632,7 @@ export async function lookupCompanyBasics(companyName, which = ["industry", "fou
       if (w === "industry") return "業界・業種";
       if (w === "founded") return "設立日（○年○月○日）";
       if (w === "location") return "本社所在地（住所）";
+      if (w === "phone") return "代表電話番号（例: 03-1234-5678）";
       return "";
     }).filter(Boolean).join("、");
     research = await geminiGrounded(
@@ -649,24 +650,26 @@ export async function lookupCompanyBasics(companyName, which = ["industry", "fou
       industry: { type: "string", description: "業界・業種。見つからなければ空文字" },
       founded: { type: "string", description: "設立日または設立年（例: 1998年、1998年4月1日）。見つからなければ空" },
       location: { type: "string", description: "本社所在地。見つからなければ空" },
+      phone: { type: "string", description: "代表電話番号（例: 03-1234-5678）。見つからなければ空" },
       source_url: { type: "string", description: "最も信頼できたソースのURL" },
       source_name: { type: "string", description: "例: 公式サイト会社概要 / Wikipedia / 帝国データバンク" },
       confidence: { type: "string", enum: ["high", "medium", "low"] },
     },
-    required: ["industry", "founded", "location", "source_url", "confidence"],
+    required: ["confidence"],
   };
   const sys =
     "あなたは企業調査アシスタントです。与えられた検索リサーチ結果だけを根拠に判断します。" +
     "リサーチ結果に記載と出典が無い項目は空文字にします。決して推測で情報を作らないこと。出力は指定JSONのみ。";
-  const user = `会社名: ${name}\n\n検索リサーチ結果:\n"""\n${(research || "(なし)").slice(0, 6000)}\n"""\n\n上記だけを根拠に、業界・設立・本社所在地をJSONで出力してください。`;
+  const user = `会社名: ${name}\n\n検索リサーチ結果:\n"""\n${(research || "(なし)").slice(0, 6000)}\n"""\n\n上記だけを根拠に、分かった項目（業界・設立・本社所在地・代表電話番号）をJSONで出力してください。`;
   const o = parseJson(await callLLM(sys, user, 500, { schema, provider: "anthropic" })) || {};
   const industry = String(o.industry || "").trim();
   const founded = String(o.founded || "").trim();
   const location = String(o.location || "").trim();
-  if (!industry && !founded && !location) return { found: false };
+  const phone = String(o.phone || "").trim();
+  if (!industry && !founded && !location && !phone) return { found: false };
   return {
     found: true,
-    industry, founded, location,
+    industry, founded, location, phone,
     source_url: String(o.source_url || "").trim(),
     source_name: String(o.source_name || "").trim(),
     confidence: ["high", "medium", "low"].includes(o.confidence) ? o.confidence : "low",

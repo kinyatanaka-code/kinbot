@@ -3960,7 +3960,7 @@ async function ciFromWeb(company, hint, knownUrl) {
   } catch (e) { console.warn("[会社情報] ネット検索失敗", e.message); }
   return out;
 }
-async function ciFromDeep(company, hint) {
+async function ciFromDeep(company, hint, have = {}) {
   const out = {};
   try {
     const w = await enrichCompanyFromWeb(company).catch(() => null);
@@ -3972,9 +3972,23 @@ async function ciFromDeep(company, hint) {
       if (out.street) out.state = prefFromAddress(out.street);
     }
   } catch (e) { console.warn("[会社情報] サイト読込失敗", e.message); }
-  try {
-    if (!out.employees) { const emp = await lookupEmployeeCount(company, hint || "").catch(() => null); if (emp && emp.found) out.employees = String(emp.employees); }
-  } catch {}
+  // 項目ごとに狙い撃ち検索（会社名＋電話番号 / 会社名＋住所）。まだ無いものだけ。
+  const wantPhone = !have.phone && !out.phone;
+  const wantLoc = !have.street && !out.street;
+  if (wantPhone || wantLoc) {
+    try {
+      const which = [wantPhone ? "phone" : null, wantLoc ? "location" : null].filter(Boolean);
+      const b = await lookupCompanyBasics(company, which).catch(() => null);
+      if (b && b.found) {
+        if (wantPhone && b.phone) out.phone = b.phone;
+        if (wantLoc && b.location) { out.street = b.location; if (!out.state) out.state = prefFromAddress(out.street); }
+      }
+    } catch (e) { console.warn("[会社情報] 狙い撃ち検索失敗", e.message); }
+  }
+  // 従業員数（会社名＋従業員数）。まだ無ければ専用リサーチ。
+  if (!have.employees && !out.employees) {
+    try { const emp = await lookupEmployeeCount(company, hint || "").catch(() => null); if (emp && emp.found) out.employees = String(emp.employees); } catch {}
+  }
   return out;
 }
 // 全部まとめて（sf-launch 用）。空欄だけ順に埋める。SFには書かない。
@@ -3985,7 +3999,7 @@ async function lookupCompanyInfo(company, email, sfUser, hint = "") {
   merge(await ciFromGbiz(company, email));
   const need = () => !out.website || !out.phone || !out.street || !out.employees;
   if (need()) merge(await ciFromWeb(company, hint, out.website));
-  if (need()) merge(await ciFromDeep(company, hint));
+  if (need()) merge(await ciFromDeep(company, hint, out));
   if (!out.state && out.street) out.state = prefFromAddress(out.street);
   return out;
 }
@@ -4578,7 +4592,13 @@ app.get("/api/apo/:slug/company-info", async (req, res) => {
     else if (stage === "sf") info = await ciFromSf(sfUser, company);
     else if (stage === "gbiz") info = await ciFromGbiz(company, email);
     else if (stage === "web") info = await ciFromWeb(company, hint, knownUrl);
-    else if (stage === "deep") info = await ciFromDeep(company, hint);
+    else if (stage === "deep") info = await ciFromDeep(company, hint, {
+      phone: String(req.query.phone || "").trim(),
+      street: String(req.query.street || "").trim(),
+      state: String(req.query.state || "").trim(),
+      website: String(req.query.website || "").trim(),
+      employees: String(req.query.employees || "").trim(),
+    });
     else info = await lookupCompanyInfo(company, email, sfUser, hint);
     res.json({ ok: true, company, person: parsed.person || "", info, stage });
   } catch (e) { res.status(500).json({ error: e.message }); }
@@ -19343,7 +19363,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-12z SF立ち上げの自動補完を強化。(1)もっと埋める：SF取引先→gBiz/メール→ネット検索→公式サイト読み込み（住所・従業員数を「なんとしても」埋める）＋従業員数の専用リサーチを追加。(2)進捗表示：4段階を順に実行し、各段の内容（SFの取引先を確認中／gBizで検索中／ネットで検索中／公式サイトを読み込み中）をボタンとメッセージに表示。空欄が全部埋まれば途中で終了。";
+const BUILD_TAG = "2026-09-12za SF立ち上げの自動補完で、空欄を項目ごとに狙い撃ち検索するようにした。電話番号→「会社名 代表電話番号」、住所→「会社名 本社所在地」、従業員数→「会社名 従業員数」で個別に検索して埋める（公式サイト読み込みでも取れないとき）。既に埋まっている項目は検索しない。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",

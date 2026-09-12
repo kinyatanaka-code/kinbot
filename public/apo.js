@@ -696,7 +696,7 @@ function openLaunchModal(i, reasonText) {
       btn.textContent = label;
       if (!silent) { msg.className = "ap-lc-msg"; msg.textContent = "検索中… " + label; }
       const params = new URLSearchParams({ stage });
-      for (const [id, key] of [["lcCompany", "company"], ["lcEmail", "email"], ["lcStreet", "street"], ["lcState", "state"], ["lcWeb", "website"]]) {
+      for (const [id, key] of [["lcCompany", "company"], ["lcEmail", "email"], ["lcStreet", "street"], ["lcState", "state"], ["lcWeb", "website"], ["lcPhone", "phone"], ["lcEmp", "employees"]]) {
         if (val(id)) params.set(key, val(id));
       }
       try {
