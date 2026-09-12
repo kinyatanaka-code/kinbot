@@ -327,33 +327,17 @@ function bindCardEvents(card) {
     const owner = rep.value || null;
     rep.disabled = true;
     try {
+      // 担当変更だけ：メール・通知・SF立ち上げ・商談予定の招待は動かさない（quiet）。
+      // メールや通知は必要なときに、それぞれのボタン（メールを送信／⋯→通知だけ再送）で送る。
       const r = await fetch(`/api/smart-links/${encodeURIComponent(a.slug)}/owner`, {
         method: "PUT", headers: { "content-type": "application/json" },
-        body: JSON.stringify({ owner }),
+        body: JSON.stringify({ owner, quiet: true }),
       });
       const d = await r.json();
       if (!r.ok) throw new Error(d.error || "変更に失敗しました");
       a.current_owner = owner;
-      if (d.mail && d.mail.ok) {
-        a.mail = Object.assign({}, a.mail, { confirm: { status: d.mail.draft ? "draft" : "sent", at: new Date().toISOString() } });
-      } else if (d.mail && !d.mail.skipped && d.mail.reason) {
-        a.mail = Object.assign({}, a.mail, { confirm: { status: "failed", error: d.mail.reason } });
-      }
       refreshMailCell(i);
-      if (owner && d.invite_error) {
-        alert("担当は変更しましたが、商談予定の自動作成に失敗しました:\n" + d.invite_error);
-      }
-      if (owner && d.mail && d.mail.ok && d.mail.noRoom) {
-        alert(`${owner} が「設定 → 登録リンク」に会議室URLを登録していません。\n\n` +
-          `メールは用意できましたが、URLを開いてもお客様が入室できません。本人に登録してもらってください。`);
-      }
-      if (owner && d.mail && !d.mail.ok && !d.mail.skipped) {
-        alert("アポ確定メールを用意できませんでした。\n\n" + (d.mail.reason || "") +
-          (d.mail.needScope
-            ? "\n\n※ 担当は割り当てられています。メールだけ用意できていません。" +
-              "\n" + (d.mail.needScopeOwner || "本人") + " が Google連携をやり直すと解決します。"
-            : ""));
-      }
+      if (window.kbToast) kbToast(owner ? "担当を変更しました（メール・通知は送っていません）" : "担当を外しました");
     } catch (e) {
       alert("担当者の変更に失敗しました: " + e.message);
       rep.disabled = false;
