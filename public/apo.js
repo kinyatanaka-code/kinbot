@@ -211,7 +211,7 @@ function apoCard(a, i) {
   // SFチップ（紐付け・立ち上げ）
   let sfChips;
   if (sf === undefined) sfChips = `<span class="ap-c2-chip ap-c2-muted">SF：取得中…</span>`;
-  else if (sf === null) sfChips = chipMuted("SF：未接続");
+  else if (sf === null) sfChips = `<button class="ap-c2-chip ap-c2-muted ap-c2-btnchip ap-sflink" data-i="${i}" title="SF商談を選ぶ／立ち上げる">SF：未接続</button>`;
   else {
     const linkChip = sf.linked
       ? `<button class="ap-c2-chip ap-c2-ok ap-c2-btnchip ap-sflink" data-i="${i}" title="紐付けを変更">${AP_ICO.check}SF紐付け</button>`
@@ -759,13 +759,14 @@ function openSfLinkModal(i) {
   back.innerHTML =
     `<div class="ap-lc ap-lk">
       <div class="ap-lc-h"><span>SF商談の紐付け</span><button type="button" class="ap-lc-x" aria-label="閉じる">×</button></div>
-      <div class="ap-lc-note">この商談に紐付けるSF商談（クロス）を選びます。会社名で候補を探せます。</div>
+      <div class="ap-lc-note">この商談に紐付けるSF商談（クロス）を選びます。会社名で候補を探せます。無ければ「SF商談を立ち上げる」で新規に立ち上げられます。</div>
       <div class="ap-lk-search"><input id="lkCompany" type="text" placeholder="会社名で探す" /><button type="button" class="btn ghost ap-lk-find">候補を探す</button></div>
       <div class="ap-lk-list" id="lkList"><div class="ap-lk-empty">読み込み中…</div></div>
       <div class="ap-lc-msg" id="lkMsg"></div>
       <div class="ap-lc-actions">
         ${curOpp ? `<button type="button" class="btn ghost ap-lk-unlink">紐付けを外す</button>` : ""}
         <button type="button" class="btn ghost ap-lk-cancel">閉じる</button>
+        <button type="button" class="btn ap-lk-launch">SF商談を立ち上げる</button>
       </div>
     </div>`;
   document.body.appendChild(back);
@@ -794,7 +795,7 @@ function openSfLinkModal(i) {
   };
 
   const render = (items) => {
-    if (!items || !items.length) { listEl.innerHTML = `<div class="ap-lk-empty">候補が見つかりませんでした。会社名を変えて探してください。</div>`; return; }
+    if (!items || !items.length) { listEl.innerHTML = `<div class="ap-lk-empty">候補が見つかりませんでした。会社名を変えて探すか、右下の「SF商談を立ち上げる」で新規に立ち上げてください。</div>`; return; }
     listEl.innerHTML = items.map((o) => {
       const cur = curOpp && o.id === curOpp;
       const meta = [o.account, o.stage, o.closed ? "終了" : ""].filter(Boolean).join(" ・ ");
@@ -818,9 +819,10 @@ function openSfLinkModal(i) {
       if (!r.ok) throw new Error(d.error || "候補を取得できませんでした");
       if (d.company && !(coIn.value || "").trim()) coIn.value = d.company;
       render(d.items || []);
-    } catch (e) { listEl.innerHTML = `<div class="ap-lk-empty ng">${esc(e.message)}</div>`; }
+    } catch (e) { listEl.innerHTML = `<div class="ap-lk-empty ng">${esc(e.message)}<br>「SF商談を立ち上げる」で新規に立ち上げるか、Salesforceの再連携をご確認ください。</div>`; }
   };
   back.querySelector(".ap-lk-find").addEventListener("click", load);
+  back.querySelector(".ap-lk-launch").addEventListener("click", () => { close(); openLaunchModal(i, ""); });
   const unlinkBtn = back.querySelector(".ap-lk-unlink");
   if (unlinkBtn) unlinkBtn.addEventListener("click", () => { if (confirm("この商談の紐付けを外します。よろしいですか？")) doLink(""); });
   load();

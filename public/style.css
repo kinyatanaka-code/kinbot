@@ -6116,3 +6116,7 @@ input:focus, select:focus, textarea:focus, .sf-input:focus, .sf-select:focus, .s
 .csf-pick:hover { background: #0c5a47; color: #fff; }
 .csf-msg { font-size: 13px; color: #b3392f; margin: 6px 0 2px; }
 .csf-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 14px; }
+
+/* SF紐付けモーダルの「SF商談を立ち上げる」ボタン */
+.ap-lk-launch { background: #0f6e56; color: #fff; border: none; }
+.ap-lk-launch:hover { background: #0c5a47; color: #fff; }
