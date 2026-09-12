@@ -681,37 +681,43 @@ function openLaunchModal(i, reasonText) {
   back.querySelector(".ap-lc-x").addEventListener("click", close);
   back.querySelector(".ap-lc-cancel").addEventListener("click", close);
   const go = back.querySelector(".ap-lc-go");
-  // 予定名から会社名・担当者を、gBiz→ネットで会社情報を自動で補う。空欄だけ埋める（入力済みは尊重）。
-  const setIfEmpty = (id, v) => { const el = back.querySelector("#" + id); if (el && !(el.value || "").trim() && v) el.value = v; };
+  // 予定名から会社名・担当者を、SF取引先→gBiz→ネット→サイト読込 の順で補う。空欄だけ埋める（入力済みは尊重）。
+  const setIfEmpty = (id, v) => { const el = back.querySelector("#" + id); if (el && !(el.value || "").trim() && v) { el.value = v; return true; } return false; };
   const autofill = async (silent) => {
     const btn = back.querySelector(".ap-lc-fill");
     const msg = back.querySelector("#lcMsg");
-    const params = new URLSearchParams();
-    const co = (back.querySelector("#lcCompany").value || "").trim();
-    const em = (back.querySelector("#lcEmail").value || "").trim();
-    const stt = (back.querySelector("#lcStreet").value || "").trim();
-    const stateV = (back.querySelector("#lcState").value || "").trim();
-    if (co) params.set("company", co);
-    if (em) params.set("email", em);
-    if (stt) params.set("street", stt);
-    if (stateV) params.set("state", stateV);
-    btn.disabled = true; const bo = btn.textContent; btn.textContent = "補完しています…";
-    try {
-      const r = await fetch(`/api/apo/${encodeURIComponent(a.slug)}/company-info?` + params.toString());
-      const d = await r.json();
-      if (!r.ok) throw new Error(d.error || "補完に失敗しました");
-      setIfEmpty("lcCompany", d.company || "");
-      setIfEmpty("lcPerson", d.person || "");
-      const info = d.info || {};
-      setIfEmpty("lcPhone", info.phone || "");
-      setIfEmpty("lcWeb", info.website || "");
-      setIfEmpty("lcState", info.state || "");
-      setIfEmpty("lcStreet", info.street || "");
-      setIfEmpty("lcEmp", info.employees || "");
-      if (!silent) { msg.className = "ap-lc-msg"; msg.textContent = "自動で補完しました。内容を確認してください。"; }
-    } catch (e) {
-      if (!silent) { msg.className = "ap-lc-msg ng"; msg.textContent = "補完に失敗しました：" + e.message; }
-    } finally { btn.disabled = false; btn.textContent = bo; }
+    const val = (id) => (back.querySelector("#" + id).value || "").trim();
+    const allFilled = () => ["lcPhone", "lcWeb", "lcState", "lcStreet", "lcEmp"].every((id) => val(id));
+    btn.disabled = true; const bo0 = btn.textContent;
+    const stages = [["sf", "SFの取引先を確認中…"], ["gbiz", "gBizINFO・メールで検索中…"], ["web", "ネットで検索中…"], ["deep", "公式サイトを読み込み中…"]];
+    let filledAny = false;
+    for (const [stage, label] of stages) {
+      if (allFilled()) break;
+      btn.textContent = label;
+      if (!silent) { msg.className = "ap-lc-msg"; msg.textContent = "検索中… " + label; }
+      const params = new URLSearchParams({ stage });
+      for (const [id, key] of [["lcCompany", "company"], ["lcEmail", "email"], ["lcStreet", "street"], ["lcState", "state"], ["lcWeb", "website"]]) {
+        if (val(id)) params.set(key, val(id));
+      }
+      try {
+        const r = await fetch(`/api/apo/${encodeURIComponent(a.slug)}/company-info?` + params.toString());
+        const d = await r.json();
+        if (r.ok) {
+          setIfEmpty("lcCompany", d.company || "");
+          setIfEmpty("lcPerson", d.person || "");
+          const info = d.info || {};
+          for (const [id, key] of [["lcPhone", "phone"], ["lcWeb", "website"], ["lcState", "state"], ["lcStreet", "street"], ["lcEmp", "employees"]]) {
+            if (setIfEmpty(id, info[key] || "")) filledAny = true;
+          }
+        }
+      } catch { /* この段は飛ばして次へ */ }
+    }
+    btn.disabled = false; btn.textContent = bo0;
+    if (!silent) {
+      msg.className = "ap-lc-msg";
+      msg.textContent = allFilled() ? "自動で補完しました。内容を確認してください。"
+        : (filledAny ? "空欄を埋めました。残りは手で入力してください。" : "見つかりませんでした。手で入力してください。");
+    }
   };
   back.querySelector(".ap-lc-fill").addEventListener("click", () => autofill(false));
   // 開いたときに、予定名・メールを手がかりに自動で1回補完する
