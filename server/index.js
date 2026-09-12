@@ -3679,12 +3679,42 @@ async function loadAiDemoLinks(force = false) {
   return map;
 }
 // 会社→発行済みデモURL。company指定で1社、無指定で全件（map＋items）。
+// 会社名の緩い一致（正規化キーの部分一致）でデモURLを探す
+function findDemoLoose(map, co) {
+  const key = normCompanyKey(co || "");
+  if (!key) return null;
+  if (map[key]) return map[key];
+  for (const [k, v] of Object.entries(map)) {
+    if (k && (k.includes(key) || key.includes(k)) && Math.min(k.length, key.length) >= 2) return v;
+  }
+  return null;
+}
 app.get("/api/aidemo/links", async (req, res) => {
   try {
     const map = await loadAiDemoLinks(req.query.refresh === "1");
     const co = String(req.query.company || "").trim();
-    if (co) { const hit = map[normCompanyKey(co)] || null; return res.json({ ok: true, url: hit ? hit.url : "", found: !!hit, tool: AIDEMO_TOOL_URL }); }
+    if (co) { const hit = findDemoLoose(map, co); return res.json({ ok: true, url: hit ? hit.url : "", found: !!hit, tool: AIDEMO_TOOL_URL }); }
     res.json({ ok: true, items: Object.values(map), tool: AIDEMO_TOOL_URL });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// 診断：管理シートを実際にどう読めているか（列の検出・先頭行・マップ・突合）を返す。
+// 例: /api/aidemo/_diag?company=社会福祉法人藤花幸寿会
+app.get("/api/aidemo/_diag", async (req, res) => {
+  try {
+    const owner = await aidemoOwner();
+    let rows = [], readError = "";
+    try { rows = await readSheet(owner, AIDEMO_SHEET_ID, "A1:Z50"); } catch (e) { readError = e.message; }
+    const map = buildAiDemoMap(rows);
+    const co = String(req.query.company || "").trim();
+    const key = co ? normCompanyKey(co) : "";
+    const hit = co ? findDemoLoose(map, co) : null;
+    res.json({
+      ok: true, owner, sheetId: AIDEMO_SHEET_ID, readError,
+      rowCount: rows.length, header: rows[0] || [], firstRows: rows.slice(0, 6),
+      mapSize: Object.keys(map).length, sampleKeys: Object.keys(map).slice(0, 15),
+      company: co, normKey: key, matched: hit || null,
+    });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
@@ -19459,7 +19489,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-12zf AIデモ：kinbotから会社名・URL・自動開始をURLパラメータ付きでツールを開くようにした（?company=&urls=&autostart=1）。ツール側がこのパラメータを読んで自動入力・自動生成に対応すれば全自動になる。別ドメインの画面をkinbotから直接操作することはブラウザの仕様上できないため、ツール側の対応が必要。未対応時はコピー済み内容の貼り付けで従来どおり。";
+const BUILD_TAG = "2026-09-12zg AIデモの発行URLがホームで出ない件の調査＋改善。会社名の突合を緩い一致（正規化キーの部分一致）にした。加えて管理シートの読み取り状況を確認できる診断 /api/aidemo/_diag を追加（列の検出・先頭行・突合結果を返す）。スコープ切れ等で読めていない場合はここで分かる。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
