@@ -1487,6 +1487,10 @@ async function openMail(botId, key) {
          <div class="mail-warn-h">確認事項（コピーされません・送信前に必ず確認）</div>
          <pre class="mail-warn-b"></pre>
        </div>
+       <div class="mail-track">
+         <div class="mail-track-h">資料トラッキング<span class="mail-track-sub">この商談に送った資料と閲覧状況。「＋追加」でトラッキングURLを発行できます（チップを押すとURLをコピー）</span></div>
+         <div class="mail-track-body"><div class="mail-side-note">読み込み中…</div></div>
+       </div>
        <!-- 本文の右にアイコンを置く。下に置くと、長い文面のときに画面の外に出てしまうため。 -->
        <div class="mail-body-row">
          <label class="mail-lb mail-lb-body">本文<textarea class="home-mail-body" rows="16" placeholder="ここに文面を書きます。「文面を作る」を押すと、商談の内容からAIが下書きします。">${escH(body)}</textarea></label>
@@ -1675,6 +1679,67 @@ async function openMail(botId, key) {
         setTimeout(() => { nm.textContent = "コピー"; }, 1500);
       }).catch(() => {});
     });
+
+    // 資料トラッキング：この商談の資料と閲覧状況を表示し、＋追加でトラッキングURLを発行する
+    const trackBody = box.querySelector(".mail-track-body");
+    if (trackBody) {
+      const trackCompany = (it.company || it.title || "").replace(/【[^】]*】/g, "").split(/[／\/|]/)[0].trim();
+      const trackChip = (l) => {
+        const seen = +l.view_count > 0;
+        return `<a class="mtk-chip" href="${escH(l.url)}" target="_blank" rel="noopener" data-url="${escH(l.url)}" title="${escH(l.doc_name || "資料")}（クリックでURLをコピー）">
+          <span class="mtk-dot" style="background:${seen ? "#1d9e75" : "#b4b2a9"}"></span>
+          <span class="mtk-nm">${escH(l.doc_name || "資料")}</span>
+          <span class="mtk-s">${seen ? (+l.view_count) + "回" : "未読"}</span></a>`;
+      };
+      const openTrackPicker = async (addBtn) => {
+        let docs = [];
+        try { docs = ((await (await fetch("/api/docs")).json()).docs || []).filter((x) => x.active !== false); } catch {}
+        const wrap = document.createElement("div");
+        wrap.className = "mtk-picker";
+        wrap.innerHTML =
+          `<select class="mtk-sel"><option value="">— 資料を選ぶ —</option>${docs.map((f) => `<option value="${escH(f.id)}">${escH(f.name)}</option>`).join("")}</select>` +
+          `<button type="button" class="btn mtk-issue">発行する</button>` +
+          `<button type="button" class="btn ghost mtk-cancel">やめる</button>` +
+          `<span class="mtk-st"></span>`;
+        addBtn.replaceWith(wrap);
+        wrap.querySelector(".mtk-cancel").addEventListener("click", loadTrack);
+        wrap.querySelector(".mtk-issue").addEventListener("click", async () => {
+          const docId = wrap.querySelector(".mtk-sel").value;
+          const st = wrap.querySelector(".mtk-st");
+          if (!docId) { st.textContent = "資料を選んでください"; return; }
+          st.textContent = "発行中…";
+          try {
+            const r = await fetch(`/api/meetings/${encodeURIComponent(botId)}/doc-link`, {
+              method: "POST", headers: { "content-type": "application/json" },
+              body: JSON.stringify({ docId: +docId, company: trackCompany }),
+            });
+            const dd = await r.json();
+            if (!r.ok) throw new Error(dd.error || "発行できませんでした");
+            if (window.kbToast) kbToast("トラッキングURLを発行しました");
+            loadTrack();
+          } catch (e) { st.textContent = "失敗：" + e.message; }
+        });
+      };
+      const renderTrack = (links) => {
+        trackBody.innerHTML = `<div class="mtk-chips">${(links || []).map(trackChip).join("")}<button type="button" class="mtk-add">＋追加</button></div>`;
+        trackBody.querySelectorAll(".mtk-chip").forEach((a) => a.addEventListener("click", (e) => {
+          e.preventDefault();
+          navigator.clipboard.writeText(a.dataset.url).then(() => { if (window.kbToast) kbToast("トラッキングURLをコピーしました"); }).catch(() => {});
+        }));
+        const addBtn = trackBody.querySelector(".mtk-add");
+        if (addBtn) addBtn.addEventListener("click", () => openTrackPicker(addBtn));
+      };
+      async function loadTrack() {
+        try {
+          const d = await (await fetch(`/api/doc-tracking/deals?q=${encodeURIComponent(trackCompany)}`)).json();
+          const deals = d.deals || [];
+          const deal = deals.find((c) => c.bot_id === botId) || deals.find((c) => (c.company || "") === trackCompany) || null;
+          const links = deal ? [].concat(deal.standing || [], deal.per_company || []) : [];
+          renderTrack(links);
+        } catch { trackBody.innerHTML = `<div class="mail-side-note">読み込めませんでした</div>`; }
+      }
+      loadTrack();
+    }
   } catch (e) {
     box.innerHTML = `<div class="home-sf-err">${escH(e.message)}</div>`;
   }
