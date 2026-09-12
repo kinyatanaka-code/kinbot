@@ -6120,3 +6120,13 @@ input:focus, select:focus, textarea:focus, .sf-input:focus, .sf-select:focus, .s
 /* SF紐付けモーダルの「SF商談を立ち上げる」ボタン */
 .ap-lk-launch { background: #0f6e56; color: #fff; border: none; }
 .ap-lk-launch:hover { background: #0c5a47; color: #fff; }
+
+/* 会社→SF商談 立ち上げ（履歴モーダル） */
+.csf-launch, .csf-go { background: #0f6e56; color: #fff; border: none; }
+.csf-launch:hover, .csf-go:hover { background: #0c5a47; color: #fff; }
+.csf-x2 { width: 30px; height: 30px; border: none; background: transparent; font-size: 20px; color: #7a8a84; cursor: pointer; border-radius: 8px; }
+.csf-x2:hover { background: #f0f4f2; }
+.csf-f { display: flex; align-items: center; gap: 10px; margin-bottom: 9px; }
+.csf-f > span { flex: none; width: 96px; font-size: 13px; color: #4a5a54; }
+.csf-f input { flex: 1; min-width: 0; height: 36px; border: 1px solid #d7e3dd; border-radius: 9px; padding: 0 11px; font-size: 14px; }
+.csf-f input:focus { outline: none; border-color: #1d9e75; box-shadow: 0 0 0 3px rgba(29,158,117,.15); }

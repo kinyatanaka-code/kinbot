@@ -341,7 +341,7 @@ function openCompanySfLink(company) {
       <div class="csf-search"><input id="csfCo" type="text" value="${escapeHtml(company)}" /><button type="button" class="btn btn-ghost csf-find">探す</button></div>
       <div class="csf-list" id="csfList"><div class="csf-empty">読み込み中…</div></div>
       <div class="csf-msg" id="csfMsg"></div>
-      <div class="csf-actions"><button type="button" class="btn btn-ghost csf-unlink">紐付けを外す</button><button type="button" class="btn btn-ghost csf-cancel">閉じる</button></div>
+      <div class="csf-actions"><button type="button" class="btn btn-ghost csf-unlink">紐付けを外す</button><button type="button" class="btn btn-ghost csf-cancel">閉じる</button><button type="button" class="btn csf-launch">SF商談を立ち上げる</button></div>
     </div>`;
   document.body.appendChild(back);
   const close = () => back.remove();
@@ -384,6 +384,41 @@ function openCompanySfLink(company) {
   };
   back.querySelector(".csf-find").addEventListener("click", load);
   back.querySelector(".csf-unlink").addEventListener("click", () => { if (confirm("この会社の紐付けを外します。よろしいですか？")) doLink(""); });
+  back.querySelector(".csf-launch").addEventListener("click", () => {
+    const panel = back.querySelector(".csf");
+    const today = (() => { const d = new Date(); const p = (n) => String(n).padStart(2, "0"); return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`; })();
+    panel.innerHTML =
+      `<div class="csf-h"><span>SF商談を立ち上げる</span><button type="button" class="csf-x2" aria-label="閉じる">×</button></div>
+       <div class="csf-note">「${escapeHtml(company)}」でSF商談を新規に立ち上げます。電話・Webサイト・住所・都道府県などは自動で補います。</div>
+       <label class="csf-f"><span>会社名</span><input id="clCompany" type="text" value="${escapeHtml(company)}" /></label>
+       <label class="csf-f"><span>担当者（姓）</span><input id="clPerson" type="text" placeholder="例：山本" /></label>
+       <label class="csf-f"><span>メール</span><input id="clEmail" type="email" placeholder="任意" /></label>
+       <label class="csf-f"><span>商談日</span><input id="clDate" type="date" value="${today}" /></label>
+       <div class="csf-msg" id="clMsg"></div>
+       <div class="csf-actions"><button type="button" class="btn btn-ghost csf-back-btn">← 戻る</button><button type="button" class="btn csf-go">立ち上げる</button></div>`;
+    panel.querySelector(".csf-x2").addEventListener("click", close);
+    panel.querySelector(".csf-back-btn").addEventListener("click", () => { close(); openCompanySfLink(company); });
+    panel.querySelector(".csf-go").addEventListener("click", async () => {
+      const v = (id) => (panel.querySelector("#" + id).value || "").trim();
+      const co = v("clCompany") || company;
+      const lead = {};
+      if (v("clPerson")) lead.person = v("clPerson");
+      if (v("clEmail")) lead.email = v("clEmail");
+      if (v("clDate")) lead.meetingDate = v("clDate");
+      const msg = panel.querySelector("#clMsg"); msg.textContent = "";
+      const go = panel.querySelector(".csf-go"); go.disabled = true; const bo = go.textContent; go.textContent = "立ち上げ中…";
+      try {
+        const r = await fetch("/api/company/sf-launch", {
+          method: "POST", headers: { "content-type": "application/json" },
+          body: JSON.stringify({ company: co, lead }),
+        });
+        const d = await r.json();
+        if (!r.ok) throw new Error(d.error || "立ち上げに失敗しました");
+        if (d.ok) { kbNotify("SF商談を立ち上げました"); close(); loadHistSf(histSfCards); }
+        else { msg.textContent = "立ち上げできませんでした：" + (d.reasonText || d.reason || "条件を満たしていません"); go.disabled = false; go.textContent = bo; }
+      } catch (e) { msg.textContent = "失敗：" + e.message; go.disabled = false; go.textContent = bo; }
+    });
+  });
   load();
 }
 // owner(メール/ID) → 表示名 の対応表。owner_nameが空の商談でも、同じ担当の他商談から名前を引く。

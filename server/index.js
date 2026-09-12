@@ -3593,6 +3593,42 @@ app.post("/api/company/sf-link", async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+// 商談履歴の会社から、SF商談を新規に立ち上げる（アポのslugが無いので合成リンクで tryAutoLaunch を呼ぶ）。
+// 会社情報（電話・Web・都道府県・従業員数）はSF取引先→gBiz→ネットで自動補完してから立ち上げる。
+app.post("/api/company/sf-launch", async (req, res) => {
+  try {
+    const company = String(req.body?.company || "").trim();
+    if (!company) return res.status(400).json({ error: "会社名がありません" });
+    const op = await sfOperator(req.user);
+    if (!op) return res.status(400).json({ error: "Salesforceに接続できません（Salesforceメニューから再連携してください）" });
+    const lead = (req.body && typeof req.body.lead === "object") ? req.body.lead : {};
+    const person = String(lead.person || "").trim() || "担当者";
+    const email = String(lead.email || "").trim();
+    // 会社情報を自動補完（SF取引先→gBiz→ネット）
+    const info = await lookupCompanyInfo(company, email, op).catch(() => ({}));
+    const leadOverride = {
+      company, person, email,
+      phone: lead.phone || info.phone || "",
+      website: lead.website || info.website || "",
+      street: lead.street || info.street || "",
+      state: lead.state || info.state || "",
+      employees: lead.employees || info.employees || "",
+      meetingDate: lead.meetingDate || "",
+    };
+    const slug = "co:" + normCompanyKey(company);
+    const link = {
+      slug, label: `【初回】${company}　${person}様`,
+      current_owner: "", client_email: email, bot_id: null,
+      start_time: lead.meetingDate || null,
+    };
+    const r = await tryAutoLaunch(op, link, { ownerEmail: "", leadOverride });
+    if (r && r.ok && r.oppId) {
+      await setCompanySfLink(normCompanyKey(company), { oppId: r.oppId, name: r.oppName || "", stage: "", company, by: req.user }).catch(() => {});
+    }
+    res.json({ ...r, reasonText: r.ok ? "" : reasonText(r.reason, r.detail) });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 // クロス商談が「立ち上げ済み」かの判定（会社名検索・ID直参照で共通に使う）
 function oppLaunched(o) {
   const stage = String((o && o.StageName) || "");
@@ -19268,7 +19304,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-12t アポ一覧のSFチップを、未接続でも押せるようにした。押すと紐付けモーダルが開き、会社名でSF商談の候補を検索して選べる。候補が無ければモーダルの「SF商談を立ち上げる」から新規に立ち上げられる。SF未接続の場合はその旨と再連携の案内を出す。";
+const BUILD_TAG = "2026-09-12u 商談履歴の会社の紐付けモーダルからも、SF商談を新規に立ち上げられるようにした。候補が無いときに「SF商談を立ち上げる」→担当者・商談日を入れて立ち上げ（会社情報はSF取引先→gBiz→ネットで自動補完）。立ち上げ後は会社→商談を自動でひも付け、履歴のSFタグが更新される。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
