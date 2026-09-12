@@ -493,7 +493,7 @@ import {
   deleteProposalFile,
 } from "./db.js";
 import { resolveConfig, statusInfo } from "./config.js";
-import { callLLMPublic, analyzerInfo, resolveGroqModel, clearGroqModelCache, analyzeMeeting, analyzeDeep, freeAnalyze, chatWithData, enrichCompany, lookupEmployeeCount, lookupBusinessHours, transcribeAudio, lookupCompanyBasics, generateThanks, THANKS_PROMPT, getCheckItems, getSummaryPrompt, getCustomPrompt, runCustomAnalysis, analyzeWinPatterns, classifyMeetingKind, extractFirstMeeting, extractReMeeting, buildBrief, extractFeatureCTags, enrichCompanyAttributes, generateFeatureCInsights, extractQaPairs, splitPhases } from "./analyzer.js";
+import { callLLMPublic, analyzerInfo, resolveGroqModel, clearGroqModelCache, analyzeMeeting, analyzeDeep, freeAnalyze, chatWithData, enrichCompany, lookupEmployeeCount, lookupBusinessHours, transcribeAudio, lookupCompanyBasics, generateThanks, generateThanksMail, judgeThanksType, THANKS_PROMPT, THANKS_MAIL_PROMPT, getCheckItems, getSummaryPrompt, getCustomPrompt, runCustomAnalysis, analyzeWinPatterns, classifyMeetingKind, extractFirstMeeting, extractReMeeting, buildBrief, extractFeatureCTags, enrichCompanyAttributes, generateFeatureCInsights, extractQaPairs, splitPhases } from "./analyzer.js";
 import { searchCompanies, getCompanyDetail, gbizConfigured } from "./gbizinfo.js";
 import { enrichCompanyFromWeb, webSearchConfigured, fetchPageText } from "./companyenrich.js";
 import { searchCompanyInfo, webLookupAvailable } from "./websearch.js";
@@ -17580,9 +17580,9 @@ app.get("/api/thanks-prompt", async (req, res) => {
   try {
     const s = await getUserSettings(req.user);
     const custom = typeof s.thanksPrompt === "string" ? s.thanksPrompt : "";
-    res.json({ prompt: custom || THANKS_PROMPT, isDefault: !custom.trim(), defaultPrompt: THANKS_PROMPT });
+    res.json({ prompt: custom || THANKS_MAIL_PROMPT, isDefault: !custom.trim(), defaultPrompt: THANKS_MAIL_PROMPT });
   } catch (e) {
-    res.json({ prompt: THANKS_PROMPT, isDefault: true, defaultPrompt: THANKS_PROMPT });
+    res.json({ prompt: THANKS_MAIL_PROMPT, isDefault: true, defaultPrompt: THANKS_MAIL_PROMPT });
   }
 });
 app.put("/api/thanks-prompt", async (req, res) => {
@@ -17656,97 +17656,45 @@ app.get("/api/meetings/:id/thanks-context", async (req, res) => {
   }
 });
 
-// 御礼メールを生成（商談内容＋そのラウンドの例文を手本に）
+// 御礼メールを生成（新仕様：文字起こし→型/回数判定→<mail_body>/<warnings>。担当者マスタは既存ユーザー情報を流用）
 app.post("/api/meetings/:id/thanks", async (req, res) => {
   try {
     const m = await getMeeting(req.params.id);
     if (!m) return res.status(404).json({ error: "見つかりません" });
-    const round = m.round_no || (req.body && req.body.round) || "";
     const s = await getUserSettings(m.owner);
-    const all = s.thanksExamples || {};
-    let examples = Array.isArray(all[String(round)]) ? all[String(round)] : [];
-    // そのラウンドの例が無ければ、他ラウンドの例を手本として流用
-    if (examples.length === 0) {
-      for (const k of Object.keys(all)) {
-        if (Array.isArray(all[k]) && all[k].length) {
-          examples = all[k];
-          break;
-        }
-      }
-    }
-    // 要約テキスト（無ければ文字起こしの末尾）
-    let summaryText = "";
-    const sm = m.summary || {};
-    if (sm.overview) summaryText += sm.overview + "\n";
-    for (const [lab, key] of [["合意", "agreements"], ["次アクション", "action_items"], ["懸念", "customer_concerns"], ["要点", "key_points"]]) {
-      if (Array.isArray(sm[key]) && sm[key].length) summaryText += `\n[${lab}]\n` + sm[key].map((x) => "・" + x).join("\n");
-    }
-    if (!summaryText.trim()) {
-      const tr = Array.isArray(m.transcript) ? m.transcript : [];
-      summaryText = tr.map((u) => `${u.speaker?.name || ""}: ${u.text}`).join("\n").slice(-6000);
-    }
-    const speakers = Array.isArray(m.transcript) ? [...new Set(m.transcript.map((u) => u.speaker?.name).filter(Boolean))] : [];
-    const customer = speakers.find((n) => n && n !== m.rep_name) || "";
-    // この会社に発行ずみの資料URLを集める。
-    // テンプレートに {資料URL} と書いてあれば、あとで差し替える。
+    // 担当者マスタ（既存のユーザー情報を流用）：氏名＋登録リンク(myZoomLink)
+    const staffName = m.owner_name || m.rep_name || "";
+    const zoomUrl = String(s.myZoomLink || "").trim();
+    const zoomId = zoomUrl ? (zoomMeetingId(zoomUrl) || "") : "";
+    // 文字起こし全文
+    const tr = Array.isArray(m.transcript) ? m.transcript : [];
+    const transcript = tr.map((u) => `${(u.speaker && u.speaker.name) || ""}: ${u.text || ""}`).join("\n");
+    if (!transcript.trim()) return res.status(400).json({ error: "この商談には文字起こしがありません" });
+    // 型・商談回数：担当者がプルダウンで指定していればそれを、無ければAI判定（generateThanksMail側で判定）
+    const meetingType = String(req.body?.meetingType || "").trim();
+    let meetingCount = String(req.body?.meetingCount || "").trim();
+    if (!meetingCount && m.round_no) meetingCount = m.round_no === 1 ? "初回" : (m.round_no === 2 ? "2回目" : "3回目以降");
+    // 資料URL：入力欄（空欄可）。空なら、この会社に発行済みの資料URLを既定で入れる。
     const company = String(m.company || m.title || "").replace(/【[^】]*】/g, "").split(/[／\/|]/)[0].trim();
-    let docLinks = [];
-    try { docLinks = await docLinksForCompany(company, 5); } catch {}
-    const base = String(process.env.PUBLIC_URL || "").replace(/\/+$/, "");
-    const docLines = docLinks.map((d) => `${fixMojibake(d.doc_name)}：${base}/d/${d.slug}`).join("\n");
-
-    // テンプレートが選ばれていれば、それを最優先の手本にする。
-    // 商談の要約と組み合わせて、その型に沿った文面を作る。
-    const tplId = String(req.body?.templateId || "").trim();
-    const tpls = Array.isArray(s.mailTemplates) ? s.mailTemplates : [];
-    const tpl = tplId ? tpls.find((t) => t.id === tplId) : null;
-    let prompt = typeof s.thanksPrompt === "string" ? s.thanksPrompt : "";
-    if (tpl) {
-      // 型はそのまま使い、埋めるべき箇所だけを商談の内容で置き換える。
-      // 文章を作り直させると型が崩れるので、そこを強く止める。
-      prompt =
-        `次の「テンプレート」を使って、この商談の御礼メールを作ってください。\n\n` +
-        `【守ること】\n` +
-        `・テンプレートの文章は、一字一句そのまま残してください。言い回しを整えたり、言い換えたりしないでください。\n` +
-        `・改行の位置、空行の数、記号（──、■、・など）もそのままにしてください。\n` +
-        `・段落を足したり減らしたりしないでください。\n` +
-        `・変えてよいのは、次の箇所だけです。\n` +
-        `　　1. 【】で囲まれた箇所 … 商談の内容に置き換える（【】の記号ごと消す）\n` +
-        `　　2. 何も書かれていない空欄 … 商談の内容で埋める\n` +
-        `　　3. 宛名・会社名・担当者名 … 今回の相手に合わせる\n` +
-        `・{資料URL} {会社名} {担当者名} {自分の名前} は、その文字のまま残してください（あとで差し替えます）。\n` +
-        `・商談で話に出ていないことは書かないでください。埋められない箇所は、その部分ごと削ってください。\n` +
-        `・テンプレートの本文で、今回の相手に合わない言い回しがあれば、その文だけを今回の商談に合う内容に書き換えてください。\n` +
-        `　（例：テンプレートが「採用の課題」で今回が「定着の課題」なら、その一文だけ差し替える。前後の文や構成はそのまま。）\n\n` +
-        `【テンプレート】\n${tpl.body}\n\n` +
-        (prompt ? `【そのほかの指示】\n${prompt}` : "");
+    let docUrls = String(req.body?.docUrls || "").trim();
+    if (!docUrls) {
+      try {
+        const docLinks = await docLinksForCompany(company, 5);
+        const base = String(process.env.PUBLIC_URL || "").replace(/\/+$/, "");
+        docUrls = docLinks.map((d) => `${fixMojibake(d.doc_name)}：${base}/d/${d.slug}`).join("\n");
+      } catch {}
     }
-
-    const result = await generateThanks({
-      round,
-      // テンプレートを使うときは、そちらを手本にするので例文は渡さない
-      examples: tpl ? [] : examples,
-      summaryText,
-      repName: m.owner_name || m.rep_name,
-      customer,
-      prompt,
+    const prompt = typeof s.thanksPrompt === "string" ? s.thanksPrompt : "";
+    const result = await generateThanksMail({ transcript, meetingType, meetingCount, staffName, zoomUrl, zoomId, docUrls, prompt });
+    res.json({
+      ok: true,
+      mail_body: result.mail_body || "",
+      warnings: result.warnings || "",
+      meeting_type: result.meeting_type,
+      meeting_count: result.meeting_count,
+      staff_name: staffName, zoom_url: zoomUrl, zoom_id: zoomId,
+      company,
     });
-    // 件名は、テンプレートに書かれていればそちらを優先する
-    if (tpl && tpl.subject) result.subject = tpl.subject;
-
-    // 差し込み語を、実際の値に置き換える。
-    // 資料URLは、誰が何ページ見たかを追えるものになる。
-    const fill = (v) => String(v || "")
-      .replace(/\{資料URL\}/g, docLines || "（この会社向けの資料URLがまだありません）")
-      .replace(/\{会社名\}/g, company)
-      .replace(/\{担当者名\}/g, customer || "")
-      .replace(/\{自分の名前\}/g, m.owner_name || m.rep_name || "");
-    result.body = fill(result.body);
-    result.subject = fill(result.subject);
-
-    res.json({ ...result, round, exampleCount: examples.length,
-               templateName: tpl ? tpl.name : "",
-               docLinks: docLinks.map((d) => ({ name: fixMojibake(d.doc_name), url: `${base}/d/${d.slug}` })) });
   } catch (e) {
     console.error("[thanks]", e.message);
     res.status(502).json({ error: e.message });
@@ -19489,7 +19437,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-12zg AIデモの発行URLがホームで出ない件の調査＋改善。会社名の突合を緩い一致（正規化キーの部分一致）にした。加えて管理シートの読み取り状況を確認できる診断 /api/aidemo/_diag を追加（列の検出・先頭行・突合結果を返す）。スコープ切れ等で読めていない場合はここで分かる。";
+const BUILD_TAG = "2026-09-12zh 御礼メール機能を新仕様にアップグレード。文字起こしから、型(A〜F)と商談回数をAI判定→プルダウンに反映(選び直して再生成可)、資料URL入力欄つき。担当者名・Zoom URL/IDは既存のユーザー情報(登録リンク)を流用。出力は本文と確認事項を分離し、確認事項は別枠で常時表示・コピー対象は本文のみ(警告を顧客に送らない)。プロンプトは指定のものをそのまま使用。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",

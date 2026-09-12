@@ -1307,14 +1307,36 @@ async function loadDetail(botId, openTab, opts = {}) {
               <span class="thanks-note" id="gmSendNote"></span>
             </div>
           </div>
-          <div class="pane-bar">
+          <div class="pane-bar" style="flex-wrap:wrap; gap:8px; align-items:center">
+            <label class="thanks-inline"><span>型</span>
+              <select id="thanksType">
+                <option value="A">A 初回・案件化</option>
+                <option value="B">B 初回・再商談未設定</option>
+                <option value="C">C 再商談・上申準備</option>
+                <option value="D">D 受注後・キックオフ前</option>
+                <option value="E">E 見送り・タイミング未達</option>
+                <option value="F">F 資料送付・約束履行</option>
+              </select>
+            </label>
+            <label class="thanks-inline"><span>商談回数</span>
+              <select id="thanksCount">
+                <option value="初回">初回</option>
+                <option value="2回目">2回目</option>
+                <option value="3回目以降">3回目以降</option>
+              </select>
+            </label>
             <button class="btn" id="thanksGen">御礼メールを生成</button>
             <span class="thanks-note" id="thanksNote"></span>
-            <button class="btn ghost copy-mini" id="copyThanks">コピー</button>
           </div>
+          <label class="thanks-field"><span>資料URL（任意）</span><textarea id="thanksDocs" rows="2" placeholder="再商談などで送る資料URL。空欄可（この会社の発行済み資料があれば自動で入ります）"></textarea></label>
           <div class="thanks-wrap">
-            <label class="thanks-field"><span>件名</span><input id="thanksSubject" type="text" placeholder="生成すると入ります" /></label>
-            <label class="thanks-field"><span>本文</span><textarea id="thanksBody" rows="16" placeholder="「御礼メールを生成」を押すと、この商談（何回目か）に合わせて作成します。"></textarea></label>
+            <label class="thanks-field"><span>件名</span><input id="thanksSubject" type="text" placeholder="任意（コピー・下書き用）" /></label>
+            <div class="thanks-bodyhead"><span>本文</span><button class="btn ghost copy-mini" id="copyThanks">本文をコピー</button></div>
+            <textarea id="thanksBody" rows="16" placeholder="「御礼メールを生成」を押すと、型と商談回数に合わせて作成します。まずAIが型を判定し、下のプルダウンに反映します。違う場合は選び直して再生成してください。"></textarea>
+          </div>
+          <div class="thanks-warn" id="thanksWarn" hidden>
+            <div class="thanks-warn-h">確認事項（コピーされません・送信前に必ず確認）</div>
+            <pre class="thanks-warn-body" id="thanksWarnBody"></pre>
           </div>
         </div>
         <div class="tabpane" data-pane="sf" hidden>
@@ -1452,32 +1474,51 @@ async function loadDetail(botId, openTab, opts = {}) {
     hdetail.querySelector("#copyFb").addEventListener("click", (e) =>
       copyText(hdetail.querySelector("#dfbwrap").innerText, e.currentTarget)
     );
-    // 御礼メール生成
+    // 御礼メール生成（新仕様：型/商談回数プルダウン＋資料URL、本文と警告を分離）
     const thanksGen = hdetail.querySelector("#thanksGen");
     const thanksSubject = hdetail.querySelector("#thanksSubject");
     const thanksBody = hdetail.querySelector("#thanksBody");
     const thanksNote = hdetail.querySelector("#thanksNote");
+    const thanksType = hdetail.querySelector("#thanksType");
+    const thanksCount = hdetail.querySelector("#thanksCount");
+    const thanksDocs = hdetail.querySelector("#thanksDocs");
+    const thanksWarn = hdetail.querySelector("#thanksWarn");
+    const thanksWarnBody = hdetail.querySelector("#thanksWarnBody");
+    // 初回はAI判定に任せる（プルダウンに反映）。ユーザーが選び直したら、その値で生成する。
+    let thAuto = true;
+    thanksType.addEventListener("change", () => { thAuto = false; });
+    thanksCount.addEventListener("change", () => { thAuto = false; });
     thanksGen.addEventListener("click", async () => {
       thanksGen.disabled = true;
       const o = thanksGen.textContent;
       thanksGen.textContent = "生成中…";
+      thanksNote.textContent = "";
       try {
-        const r = await fetch(`/api/meetings/${encodeURIComponent(botId)}/thanks`, { method: "POST" });
+        const payload = { docUrls: thanksDocs.value || "" };
+        if (!thAuto) { payload.meetingType = thanksType.value; payload.meetingCount = thanksCount.value; }
+        const r = await fetch(`/api/meetings/${encodeURIComponent(botId)}/thanks`, {
+          method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(payload),
+        });
         const d = await r.json();
         if (!r.ok) throw new Error(d.error || "生成に失敗しました");
-        thanksSubject.value = d.subject || "";
-        thanksBody.value = d.body || "";
-        thanksNote.textContent = `${d.round || "?"}回目${d.exampleCount ? `・例文${d.exampleCount}件を参照` : "・例文なし"}`;
+        thanksBody.value = d.mail_body || "";
+        if (d.meeting_type) thanksType.value = d.meeting_type;
+        if (d.meeting_count) thanksCount.value = d.meeting_count;
+        thAuto = false;
+        if (d.warnings && d.warnings.trim()) { thanksWarnBody.textContent = d.warnings; thanksWarn.hidden = false; }
+        else { thanksWarn.hidden = true; }
+        thanksNote.textContent = "生成しました。送信前に下の確認事項を必ずチェックしてください。";
       } catch (e) {
         kbNotify("生成に失敗しました: " + e.message);
+        thanksNote.textContent = "エラー：" + e.message;
       } finally {
         thanksGen.disabled = false;
         thanksGen.textContent = o;
       }
     });
+    // コピーは本文だけ（確認事項は絶対に含めない）
     hdetail.querySelector("#copyThanks").addEventListener("click", (e) => {
-      const text = (thanksSubject.value ? "件名：" + thanksSubject.value + "\n\n" : "") + thanksBody.value;
-      copyText(text, e.currentTarget);
+      copyText(thanksBody.value, e.currentTarget);
     });
 
     // Gmail連携：過去のやり取り取得 → 返信作成 → 送信

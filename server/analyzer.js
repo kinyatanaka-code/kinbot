@@ -2,6 +2,7 @@
 // 要約・提案を生成。LLM_PROVIDER で gemini / anthropic / ollama を切替。
 import { retrieve } from "./retrieval.js";
 import { getSettings } from "./db.js";
+import { readFileSync } from "fs";
 const PROVIDER = (process.env.LLM_PROVIDER || "gemini").toLowerCase();
 
 // 抜け漏れチェックの既定項目（設定で上書き可能）
@@ -1486,6 +1487,74 @@ export async function generateThanks({ round, examples, summaryText, repName, cu
   const template = (typeof prompt === "string" && prompt.trim()) ? prompt : THANKS_PROMPT;
   const text = await callLLM(template.replace(/\{round\}/g, String(round || "")), user, 1400);
   return parseJson(text);
+}
+
+// ===== 新・お礼メール生成（文字起こし→型/回数判定→<mail_body>/<warnings>） =====
+// 仕様プロンプトは server/thanks_prompt.md にそのまま保存し、ここで読み込む。
+export const THANKS_MAIL_PROMPT = (() => {
+  try { return readFileSync(new URL("./thanks_prompt.md", import.meta.url), "utf8"); }
+  catch (e) { console.warn("[thanks] プロンプト読込失敗", e.message); return THANKS_PROMPT; }
+})();
+
+function pickTag(text, tag) {
+  const m = String(text || "").match(new RegExp(`<${tag}>([\\s\\S]*?)</${tag}>`, "i"));
+  return m ? m[1].trim() : "";
+}
+
+// 型（A〜F）と商談回数をAIで判定（プルダウンの初期値用）。担当者が修正して再生成できる。
+export async function judgeThanksType(transcript) {
+  const t = String(transcript || "");
+  if (!t.trim()) return { meeting_type: "A", meeting_count: "初回" };
+  const sys =
+    "あなたは商談の文字起こしから、お礼メールの『型』と『商談回数』を判定します。\n" +
+    "型の定義：\n" +
+    "A=初回商談・案件化（今月/来月に申込可否を判断でき、再商談が設定済み）\n" +
+    "B=初回商談・再商談未設定（時期は明確だが、その場で再商談が取れなかった）\n" +
+    "C=再商談・上申準備（合意が進み、社内の上申・稟議に向かう）\n" +
+    "D=受注後・キックオフ前\n" +
+    "E=見送り・タイミング未達（反応は良いが今回は見送り／失注）\n" +
+    "F=資料送付・約束履行（主目的が資料などの送付）\n" +
+    "商談回数は『初回』『2回目』『3回目以降』のいずれか。\n" +
+    "推測で決めず、文字起こしの根拠に基づいて判定してください。\n" +
+    '出力はJSONのみ：{"meeting_type":"A|B|C|D|E|F","meeting_count":"初回|2回目|3回目以降"}';
+  try {
+    const o = parseJson(await callLLM(sys, `文字起こし:\n"""\n${t.slice(0, 16000)}\n"""`, 200)) || {};
+    const mt = ["A", "B", "C", "D", "E", "F"].includes(o.meeting_type) ? o.meeting_type : "A";
+    const mc = ["初回", "2回目", "3回目以降"].includes(o.meeting_count) ? o.meeting_count : "初回";
+    return { meeting_type: mt, meeting_count: mc };
+  } catch { return { meeting_type: "A", meeting_count: "初回" }; }
+}
+
+// お礼メール本体を生成。型・回数が未指定なら先に判定する。<mail_body>と<warnings>を分けて返す。
+export async function generateThanksMail({ transcript, meetingType, meetingCount, staffName, zoomUrl, zoomId, docUrls, prompt }) {
+  const t = String(transcript || "");
+  let mtype = String(meetingType || "").trim();
+  let mcount = String(meetingCount || "").trim();
+  if (!mtype || !mcount) { const j = await judgeThanksType(t); mtype = mtype || j.meeting_type; mcount = mcount || j.meeting_count; }
+  const tmpl = (typeof prompt === "string" && prompt.trim()) ? prompt : THANKS_MAIL_PROMPT;
+  const sys = tmpl
+    .replace(/\{\{staff_name\}\}/g, staffName || "[担当者名]")
+    .replace(/\{\{zoom_url\}\}/g, zoomUrl || "")
+    .replace(/\{\{zoom_id\}\}/g, zoomId || "")
+    .replace(/\{\{doc_urls\}\}/g, docUrls || "")
+    .replace(/\{\{meeting_type\}\}/g, mtype)
+    .replace(/\{\{meeting_count\}\}/g, mcount);
+  const user =
+    `商談の文字起こし全文:\n"""\n${t.slice(0, 32000)}\n"""\n\n` +
+    `型：${mtype} ／ 商談回数：${mcount}\n` +
+    `上記のルールに厳密に従い、必ず <mail_body> と <warnings> の2ブロックで出力してください。議事録にない約束や固有名詞の書き換えは禁止です。`;
+  const text = await callLLM(sys, user, 2600);
+  let body = pickTag(text, "mail_body");
+  const warns = pickTag(text, "warnings");
+  // モデルがタグを付け忘れた場合：warningsブロックを除いた本文を採用（警告を本文に混ぜない）
+  if (!body) body = String(text || "").replace(/<warnings>[\s\S]*?<\/warnings>/i, "").replace(/<\/?mail_body>/gi, "").trim();
+  return {
+    mail_body: body,
+    warnings: warns,
+    meeting_type: mtype,
+    meeting_count: mcount,
+    raw: text,
+  };
 }
 
 // ===== Feature A: 新営業プロセスの抽出（種別判定＋初回/再商談 抽出） =====
