@@ -915,16 +915,21 @@ function renderPerf(d) {
   if (!d.members || !d.members.length) { body.innerHTML = '<div class="empty-state">この期間のクロス商談がありませんでした。</div>'; return; }
   // ステージ名を短くする（"01：アポ獲得" → "アポ獲得"）
   const shortStage = (s) => String(s).replace(/^\s*\d+\s*[:：.、)]\s*/, "");
+  // 表示するステージ（この語を含むステージだけ出す。順番はSFのステージ順に合わせる）
+  const PF_KEEP = ["アポ獲得", "有効商談", "担当者合意", "企画決定者合意", "申込書回収"];
+  let cols = [...new Set(PF_KEEP.map((kw) => funnel.findIndex((s) => String(s).includes(kw))).filter((i) => i >= 0))].sort((a, b) => a - b);
+  if (!cols.length) cols = funnel.map((_, i) => i); // 一致しなければ全ステージ
+
   let html = '<div class="pf-wrap"><table class="pf-table"><thead><tr><th class="pf-mem">アポ獲得者</th>';
-  for (const s of funnel) html += `<th>${esc(shortStage(s))}</th>`;
+  for (const ci of cols) html += `<th>${esc(shortStage(funnel[ci]))}</th>`;
   html += '<th class="pf-lost">失注</th></tr></thead><tbody>';
   d.members.forEach((m, mi) => {
     html += `<tr class="pf-row"><td class="pf-mem">${esc(m.setter)}</td>`;
-    funnel.forEach((s, k) => {
-      const n = m.reached[k] || 0;
-      const rate = m.rates[k];
-      const cid = `pf-${mi}-${k}`;
-      html += `<td class="pf-cell${n ? " pf-has" : ""}" data-cid="${cid}" data-mi="${mi}" data-k="${k}">` +
+    cols.forEach((ci, j) => {
+      const n = m.reached[ci] || 0;
+      const prev = j === 0 ? null : m.reached[cols[j - 1]];
+      const rate = j === 0 ? null : (prev ? Math.round((n / prev) * 100) : null);
+      html += `<td class="pf-cell${n ? " pf-has" : ""}" data-mi="${mi}" data-k="${ci}">` +
         `<span class="pf-n">${n}</span>` +
         (rate == null ? "" : `<span class="pf-rate">${rate}%</span>`) + `</td>`;
     });
