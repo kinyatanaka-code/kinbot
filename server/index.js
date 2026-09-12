@@ -19304,7 +19304,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-12u 商談履歴の会社の紐付けモーダルからも、SF商談を新規に立ち上げられるようにした。候補が無いときに「SF商談を立ち上げる」→担当者・商談日を入れて立ち上げ（会社情報はSF取引先→gBiz→ネットで自動補完）。立ち上げ後は会社→商談を自動でひも付け、履歴のSFタグが更新される。";
+const BUILD_TAG = "2026-09-12v アポ実績の「実施」を積み上げ式に修正。実施＝kinbotに商談記録があるか、または有効商談以降のステージに到達したアポの数（後段まで進んだものは実施にも数える）。これで実施→有効商談→…が正しく減っていくファネルになる。SFステージ列は従来どおり積み上げ（そのステージ以降に到達した数）。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
@@ -24075,6 +24075,7 @@ app.get("/api/apo/perf", async (req, res) => {
       if (won || isWonStage(stage)) return funnel.length - 1;
       return funnel.indexOf(String(stage || ""));
     };
+    const yukoIdx = funnel.findIndex((s) => String(s).includes("有効商談")); // 実施の積み上げ判定に使う
 
     const bySetter = {};
     for (const a of apps) {
@@ -24086,15 +24087,19 @@ app.get("/api/apo/perf", async (req, res) => {
       const co = companyFromTitle(a.label || "") || a.opp_name || a.label || "(名称なし)";
       m.total++;
       m.reached[0]++; if (m.companies[0].length < 400) m.companies[0].push(co); // アポ獲得＝全件
-      if (a.conducted) { m.conducted++; if (m.conductedCompanies.length < 400) m.conductedCompanies.push(co); } // 実施＝kinbotに商談記録あり
       // 現ステージ：SFの生データ優先、無ければスナップショット(opp_stage)
       const live = a.opp_id ? oppById[a.opp_id] : null;
       const stage = live ? String(live.StageName || "") : String(a.opp_stage || "");
       const won = live ? live.IsWon === true : isWonStage(a.opp_stage);
+      const lost = !!stage && isLost(stage);
+      const ix = (stage && !lost) ? idxOfStage(stage, won) : -1;
+      // 実施（積み上げ）＝kinbotに商談記録あり、または「有効商談」以降のステージに到達している
+      if (a.conducted || (yukoIdx >= 0 && ix >= yukoIdx)) {
+        m.conducted++; if (m.conductedCompanies.length < 400) m.conductedCompanies.push(co);
+      }
       if (!stage) continue; // 未立ち上げ＝アポ獲得のみ
-      if (isLost(stage)) { m.lost++; if (m.lostCompanies.length < 400) m.lostCompanies.push(co); continue; }
+      if (lost) { m.lost++; if (m.lostCompanies.length < 400) m.lostCompanies.push(co); continue; }
       if (won || isWonStage(stage)) m.won++;
-      const ix = idxOfStage(stage, won);
       for (let k = 1; k <= ix; k++) { m.reached[k]++; if (m.companies[k].length < 400) m.companies[k].push(co); }
     }
     const members = Object.values(bySetter).map((m) => ({
