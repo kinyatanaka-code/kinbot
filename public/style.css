@@ -2806,11 +2806,13 @@ body {
   background-image: linear-gradient(180deg, #0b453a 0%, #04342c 58%, #05292322 100%), linear-gradient(180deg, #0b453a, #052a24);
   box-shadow: 8px 0 28px rgba(4,28,22,.28);
   position: relative;
-  z-index: 3;
+  z-index: 60;
 }
 /* デスクトップ：左メニューは画面固定、本文（.main）だけがスクロールする。 */
 @media (min-width: 761px) {
-  .app { overflow: hidden; }                 /* 画面全体はスクロールさせない */
+  /* .app は overflow:hidden にしない。左メニューから右に開く子メニュー（.side-sub）が
+     切り取られて見えなくなるため。画面のスクロールは .main 側だけで抑える。 */
+  .app { overflow: visible; }
   .sidebar { position: sticky; top: 0; align-self: flex-start; height: 100vh; overflow: visible; }
   .main { height: 100vh; overflow-y: auto; } /* スクロールは本文側だけ */
   .topbar { position: sticky; top: 0; }      /* 上部バーは本文の先頭に貼り付く */
