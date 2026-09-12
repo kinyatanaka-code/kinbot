@@ -19009,7 +19009,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-12b メニューは各ページの静的HTMLではなく nav.js の KB_MENU が唯一の出どころだった（kbBuildSidebarがサイドバーを丸ごと組み直す）。ここを修正：上段=ホーム/レコーディング/商談履歴/アポイント/資料トラッキング、区切り線の下=kincall/Salesforce/AI社員、その下に『ツール』（分析・営業スタイル分析・天気予報・開発メモ）を新設。アポイント配下=アポ振り分け/割り振り設定/チーム実績/メール設定/インターンアポ。古い画面が出る場合は Cmd/Ctrl+Shift+R。";
+const BUILD_TAG = "2026-09-12c 下段の『ツール』を kincall/Salesforce/AI社員 と同じ強調ボタン表示（side-hi）に統一。サブメニュー（分析・営業スタイル分析・天気予報・開発メモ）は維持。古い画面が出る場合は Cmd/Ctrl+Shift+R。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",

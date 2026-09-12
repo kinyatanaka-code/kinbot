@@ -34,7 +34,7 @@ window.addEventListener("error", (e) => {
 (function () {
   if (!document.querySelector('script[src$="kbchat.js"]')) {
     const sc = document.createElement("script");
-    sc.src = "kbchat.js?v=20260912b";
+    sc.src = "kbchat.js?v=20260912c";
     sc.defer = true;
     document.head.appendChild(sc);
   }
@@ -70,7 +70,7 @@ const KB_MENU = [
 
 // AI社員の下（下段）に置く「ツール」。分析・開発系をまとめる。
 const KB_TOOL = {
-  href: "report.html", label: "ツール", ico: "ico-tool",
+  href: "report.html", label: "ツール", ico: "ico-tool", cls: "side-hi",
   subs: [
     { href: "report.html", label: "分析", desc: "受注率・温度感・進め方（全体レポート）" },
     { href: "style-analysis.html", label: "営業スタイル分析", desc: "話速・沈黙・被せ" },
@@ -101,8 +101,9 @@ function kbBuildSidebar() {
   const foot = nav.querySelector(".side-foot");
   const itemHtml = (m) => {
     const on = isHere(m) ? " active" : "";
+    const cls = m.cls ? " " + esc(m.cls) : "";
     const link =
-      `<a class="side-item${on}" href="${esc(m.href)}">` +
+      `<a class="side-item${on}${cls}" href="${esc(m.href)}">` +
       `<span class="side-ico ${esc(m.ico)}"></span>` +
       `<span class="side-label">${esc(m.label)}</span>` +
       (m.subs ? '<span class="side-arrow">›</span>' : "") + `</a>`;
