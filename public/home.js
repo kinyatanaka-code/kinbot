@@ -1438,7 +1438,7 @@ async function openMail(botId, key) {
     title: "御礼メール",
     sub: it.company || it.title || "",
     inner: '<div class="home-sf-msg">読み込んでいます…</div>',
-    wide: false,
+    wide: true,
   });
   const box = mo.body;
   if (!box) return;
@@ -1451,7 +1451,8 @@ async function openMail(botId, key) {
     const subject = d.subject || "【御礼】本日のお打ち合わせについて";
     const body = "";
     box.innerHTML =
-      `<div class="mail-main">
+      `<div class="mail-main mail-2col">
+       <div class="mail-col-left">
        <div class="mail-mode">
          <span class="mail-mode-lb">送り方</span>
          <button type="button" class="mail-mode-b on" data-mode="new">新規作成</button>
@@ -1483,6 +1484,8 @@ async function openMail(botId, key) {
          placeholder="送り先のメールアドレス（空のままでもGmailで入れられます）" />
          <span class="mail-to-src">${d.to ? `${escH(d.toSource || "")}から入れました` : ""}</span></label>
        <label class="mail-lb">件名<input type="text" class="home-mail-subj" value="${escH(subject)}" /></label>
+       </div>
+       <div class="mail-col-right">
        <div class="mail-warn" hidden>
          <div class="mail-warn-h">確認事項（コピーされません・送信前に必ず確認）</div>
          <pre class="mail-warn-b"></pre>
@@ -1571,6 +1574,7 @@ async function openMail(botId, key) {
          </div>
        </div>
        <div class="home-mail-note"></div>
+       </div>
        </div>`;
 
     const side = mailSide(box);
