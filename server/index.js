@@ -3604,8 +3604,9 @@ app.post("/api/company/sf-launch", async (req, res) => {
     const lead = (req.body && typeof req.body.lead === "object") ? req.body.lead : {};
     const person = String(lead.person || "").trim() || "担当者";
     const email = String(lead.email || "").trim();
-    // 会社情報を自動補完（SF取引先→gBiz→ネット）
-    const info = await lookupCompanyInfo(company, email, op).catch(() => ({}));
+    // 会社情報を自動補完（SF取引先→gBiz→ネット）。入力済みの住所は検索ヒントに使う。
+    const hint = [String(lead.state || "").trim(), String(lead.street || "").trim()].filter(Boolean).join(" ");
+    const info = await lookupCompanyInfo(company, email, op, hint).catch(() => ({}));
     const leadOverride = {
       company, person, email,
       phone: lead.phone || info.phone || "",
@@ -3896,7 +3897,7 @@ function prefFromAddress(addr) {
 
 // 会社名・メールから、会社情報（サイト・電話・住所・都道府県・従業員数）をまとめて拾う。
 // SFの取引先（Account）→ メールのドメイン → gBizINFO → ネット検索 の順で、空欄だけ埋める。SFには書かない。
-async function lookupCompanyInfo(company, email, sfUser) {
+async function lookupCompanyInfo(company, email, sfUser, hint = "") {
   const out = { official_name: "", website: "", phone: "", street: "", state: "", employees: "" };
   const setIf = (k, v) => { if (!out[k] && v != null && String(v).trim()) out[k] = String(v).trim(); };
   // 1) SFの取引先（Account）— 自社の正データを最優先
@@ -3943,10 +3944,11 @@ async function lookupCompanyInfo(company, email, sfUser) {
     }
   } catch (e) { console.warn("[会社情報] gBiz失敗", e.message); }
   if (!out.state) out.state = prefFromAddress(out.street);
-  // 4) 足りない空欄をネット検索で埋める
+  // 4) 足りない空欄をネット検索で埋める。入力済みの住所（都道府県・住所）があれば検索語に足して精度を上げる。
   if (!out.website || !out.phone || !out.street || !out.employees) {
     try {
-      const g = await enrichCompany({ name: company, url: out.website || "" }).catch(() => null);
+      const q = [company, String(hint || "").slice(0, 60)].filter(Boolean).join(" ").trim();
+      const g = await enrichCompany({ name: q || company, url: out.website || "" }).catch(() => null);
       if (g) {
         out.official_name = out.official_name || g.official_name || "";
         setIf("website", g.website || g.company_url);
@@ -4539,8 +4541,9 @@ app.get("/api/apo/:slug/company-info", async (req, res) => {
     const parsed = link ? parseLaunchTitle(link.label) : { company: "", person: "" };
     const company = String(req.query.company || "").trim() || parsed.company || "";
     const email = String(req.query.email || "").trim() || (link && link.client_email) || "";
+    const hint = [String(req.query.state || "").trim(), String(req.query.street || "").trim()].filter(Boolean).join(" ");
     const sfUser = await sfOperator(req.user).catch(() => "");
-    const info = (company || email) ? await lookupCompanyInfo(company, email, sfUser) : {};
+    const info = (company || email) ? await lookupCompanyInfo(company, email, sfUser, hint) : {};
     res.json({ ok: true, company, person: parsed.person || "", info });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
@@ -19304,7 +19307,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-12x アポ実績の「実施」を、kincallの実績（インセンティブの実施件数）と同じ数え方に修正。録音あり商談を、アポ獲得者（商談の apo_setter）ごとに件数で数える（会社×商談日の突合ではなく商談そのものの件数）。これで kincall の実施数と一致する。移行率も新しい実施数を基準に再計算。";
+const BUILD_TAG = "2026-09-12y SF立ち上げの自動補完を改善。「会社情報を自動で補完」をもう一度押すと、入力済みの内容（特に会社名・住所・都道府県）を手がかりに、空欄（電話・Webサイト・従業員数など）をネット検索し直す。フリーメール（yahoo等）でサイトが取れない会社でも、住所を足した検索で精度が上がる。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",

@@ -689,8 +689,12 @@ function openLaunchModal(i, reasonText) {
     const params = new URLSearchParams();
     const co = (back.querySelector("#lcCompany").value || "").trim();
     const em = (back.querySelector("#lcEmail").value || "").trim();
+    const stt = (back.querySelector("#lcStreet").value || "").trim();
+    const stateV = (back.querySelector("#lcState").value || "").trim();
     if (co) params.set("company", co);
     if (em) params.set("email", em);
+    if (stt) params.set("street", stt);
+    if (stateV) params.set("state", stateV);
     btn.disabled = true; const bo = btn.textContent; btn.textContent = "補完しています…";
     try {
       const r = await fetch(`/api/apo/${encodeURIComponent(a.slug)}/company-info?` + params.toString());
