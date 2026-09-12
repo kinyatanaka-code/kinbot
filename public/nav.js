@@ -34,7 +34,7 @@ window.addEventListener("error", (e) => {
 (function () {
   if (!document.querySelector('script[src$="kbchat.js"]')) {
     const sc = document.createElement("script");
-    sc.src = "kbchat.js?v=20260912a";
+    sc.src = "kbchat.js?v=20260912b";
     sc.defer = true;
     document.head.appendChild(sc);
   }
@@ -55,19 +55,29 @@ const KB_MENU = [
       { href: "history.html?tab=internal", label: "社内MTG", desc: "社内の打ち合わせ" },
     ],
   },
-  { href: "docs.html", label: "資料トラッキング", ico: "ico-doc" },
   {
-    href: "apo.html", label: "ツール", ico: "ico-tool",
+    href: "apo.html", label: "アポイント", ico: "ico-apo",
     subs: [
-      { href: "apo.html", label: "アポ振り分け", desc: "担当の自動割り振り・チーム実績" },
-      { href: "report.html", label: "分析", desc: "受注率・温度感・進め方（全体レポート）" },
+      { href: "apo.html", label: "アポ振り分け", desc: "担当の自動割り振り・アポ一覧" },
+      { href: "apo.html?tab=rot", label: "割り振り設定", desc: "予備・上限・グループの設定" },
+      { href: "apo.html?tab=team", label: "チーム実績", desc: "チーム別・メンバー別の実績" },
+      { href: "apo.html?tab=mail", label: "メール設定", desc: "自動送信メールの文面・宛先" },
       { href: "report.html?panel=interns", label: "インターンアポ", desc: "アポ獲得者ごとの実績" },
-      { href: "style-analysis.html", label: "営業スタイル分析", desc: "話速・沈黙・被せ" },
-      { href: "weekly.html", label: "天気予報", desc: "今週のテーマ・目標・施策と、金曜の振り返り" },
-      { href: "dev.html", label: "開発メモ", desc: "直したいこと・自動で拾ったエラー" },
     ],
   },
+  { href: "docs.html", label: "資料トラッキング", ico: "ico-doc" },
 ];
+
+// AI社員の下（下段）に置く「ツール」。分析・開発系をまとめる。
+const KB_TOOL = {
+  href: "report.html", label: "ツール", ico: "ico-tool",
+  subs: [
+    { href: "report.html", label: "分析", desc: "受注率・温度感・進め方（全体レポート）" },
+    { href: "style-analysis.html", label: "営業スタイル分析", desc: "話速・沈黙・被せ" },
+    { href: "weekly.html", label: "天気予報", desc: "今週のテーマ・目標・施策と、金曜の振り返り" },
+    { href: "dev.html", label: "開発メモ", desc: "直したいこと・自動で拾ったエラー" },
+  ],
+};
 
 // パソコンのサイドバーを組み立てる。
 // 各ページに直接書いていたものを、ここでまとめて作るようにした。
@@ -81,12 +91,15 @@ function kbBuildSidebar() {
     (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
   // いまいるページが、その項目（またはその中身）かどうか
   const isHere = (m) => {
+    const herePath = here.split("?")[0];
     const all = [m.href, ...(m.subs || []).map((x) => x.href)].filter(Boolean);
-    return all.some((h) => h === here || h.split("?")[0] === here.split("?")[0]);
+    // クエリ付き（?tab= など）は完全一致のときだけ点灯。パスだけのものはパス一致で点灯。
+    // （apo.html と report.html?panel=interns のように、別グループが同じパスを持つ場合の誤点灯を防ぐ）
+    return all.some((h) => h === here || (h.indexOf("?") < 0 && h === herePath));
   };
 
   const foot = nav.querySelector(".side-foot");
-  const html = KB_MENU.map((m) => {
+  const itemHtml = (m) => {
     const on = isHere(m) ? " active" : "";
     const link =
       `<a class="side-item${on}" href="${esc(m.href)}">` +
@@ -100,7 +113,8 @@ function kbBuildSidebar() {
       `<span class="side-sub-d">${esc(x.desc || "")}</span></a>`).join("");
     return `<div class="side-wrap has-sub">${link}` +
       `<div class="side-sub"><div class="side-sub-head">${esc(m.label)}</div>${subs}</div></div>`;
-  }).join("");
+  };
+  const html = KB_MENU.map(itemHtml).join("");
 
   // 設定の下に、kincall（架電ツール）の入り口を置く。
   // kinbotの機能とは別の道具なので、線で区切って分ける。
@@ -117,7 +131,8 @@ function kbBuildSidebar() {
     `<span class="side-label">Salesforce</span></a>` +
     `<a class="side-item side-hi${aiOn}" href="ai.html">` +
     `<span class="side-ico ico-ai"></span>` +
-    `<span class="side-label">AI社員</span></a>`;
+    `<span class="side-label">AI社員</span></a>` +
+    itemHtml(KB_TOOL);
 
   const brand = nav.querySelector(".side-brand");
   nav.innerHTML = (brand ? brand.outerHTML : "") + html + apps + (foot ? foot.outerHTML : "");
@@ -357,14 +372,13 @@ window.kbProgress = function (el, opts = {}) {
   function escapeH(s) { return String(s || "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c])); }
 })();
 
-// 分析系ページ（分析・インターンアポ・営業スタイル分析・dashboard）では「ツール」を active にする。
-// ※分析はツール配下へ移動したため、トップ階層の「ツール」（apo.html）を点灯させる。
+// 分析・営業スタイル分析・天気予報・開発メモは KB_TOOL の子なので isHere が「ツール」を点灯させる。
+// 月次ダッシュボードだけはメニュー項目に無いため、ここで「ツール」（report.html）を点灯させる。
 (function() {
-  const path = location.pathname;
-  if (!/style-analysis|dashboard|report/.test(path)) return;
+  if (!/dashboard/.test(location.pathname)) return;
   document.querySelectorAll('.side-item').forEach(a => {
     const href = a.getAttribute("href") || "";
-    if (href.indexOf("apo.html") >= 0) a.classList.add('active');
+    if (/report\.html/.test(href) && !/panel=/.test(href)) a.classList.add('active');
   });
 })();
 
@@ -428,6 +442,8 @@ window.kbSheet = function (html) {
     items.push({ href: "/kincall", label: "kincall", ico: "ico-phone" });
     items.push({ href: "sf-launch.html", label: "Salesforce", ico: "ico-sf" });
     items.push({ href: "ai.html", label: "AI社員", ico: "ico-ai" });
+    // AI社員の下に「ツール」（分析・営業スタイル分析・天気予報・開発メモ）
+    for (const x of KB_TOOL.subs) items.push({ href: x.href, label: x.label, ico: KB_TOOL.ico });
     // 設定は一覧から外してアカウント名の横に移したが、スマホでは入口が要るのでここに足す
     items.push({ href: "settings.html", label: "設定", ico: "ico-set" });
   }
