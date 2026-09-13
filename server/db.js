@@ -5683,6 +5683,30 @@ export async function getAutolaunch(slug) {
   } catch { return null; }
 }
 
+// 会社名から、その会社のアポ(smart_links)・商談(meetings)の候補（担当者名・予定名）を新しい順で返す。
+export async function contactCandidatesForCompany(company) {
+  if (!pool || !company) return [];
+  const noSpace = String(company).replace(/[\s　]/g, "");
+  const core = noSpace.replace(/(株式会社|有限会社|合同会社|合資会社|㈱|（株）|\(株\)|一般社団法人|一般財団法人|公益社団法人|公益財団法人|医療法人|社会福祉法人|学校法人|協同組合|組合)/g, "");
+  const like = `%${core || noSpace || company}%`;
+  const out = [];
+  try {
+    const a = await pool.query(
+      `SELECT client_name, label, company FROM smart_links
+        WHERE COALESCE(label,'') ILIKE $1 OR COALESCE(company,'') ILIKE $1
+        ORDER BY created_at DESC NULLS LAST LIMIT 8`, [like]);
+    for (const r of a.rows || []) out.push({ client_name: r.client_name || "", label: r.label || "", company: r.company || "" });
+  } catch {}
+  try {
+    const m = await pool.query(
+      `SELECT title, account FROM meetings
+        WHERE COALESCE(account,'') ILIKE $1 OR COALESCE(title,'') ILIKE $1
+        ORDER BY created_at DESC NULLS LAST LIMIT 8`, [like]);
+    for (const r of m.rows || []) out.push({ client_name: "", label: r.title || "", company: r.account || "" });
+  } catch {}
+  return out;
+}
+
 // 商談(bot_id)にひも付いたSF商談(opp_id)を引く。
 export async function autolaunchByBotId(botId) {
   if (!pool || !botId) return null;

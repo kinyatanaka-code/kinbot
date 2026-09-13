@@ -326,6 +326,7 @@ import {
   clearCompanySfLink,
   getCompanySfLinks,
   getApoOppsByCompanies,
+  contactCandidatesForCompany,
   refreshApoOppMeta,
   autolaunchForSlugs,
   autolaunchByCompanies,
@@ -4731,6 +4732,20 @@ app.get("/api/apo/:slug/website", async (req, res) => {
 });
 
 // モーダルの「自動で補完」用：予定名から会社名・担当者、gBiz→ネットで会社情報（電話・Web・住所・都道府県・従業員数）を返す
+// 会社名から、その会社のアポ/商談の予定名・担当者名をもとに担当者（姓）を補う。
+async function personForCompany(company) {
+  if (!company) return "";
+  const key = normCompanyKey(company);
+  let cands = [];
+  try { cands = await contactCandidatesForCompany(company); } catch {}
+  const clean = (s) => String(s || "").replace(/(様|さん)\s*$/, "").trim().split(/[\s　]+/)[0];
+  // 会社が一致する候補から、まず予定名の担当者、次にclient_name
+  for (const c of cands) { const p = parseLaunchTitle(c.label || ""); if (normCompanyKey(p.company || c.company) === key && p.person) return p.person; }
+  for (const c of cands) { if (normCompanyKey(c.company) === key && c.client_name) return clean(c.client_name); }
+  // 会社一致が取れなくても、候補があれば先頭から
+  for (const c of cands) { const p = parseLaunchTitle(c.label || "").person; if (p) return p; if (c.client_name) return clean(c.client_name); }
+  return "";
+}
 app.get("/api/apo/:slug/company-info", async (req, res) => {
   try {
     const link = await getSmartLink(String(req.params.slug || ""));
@@ -4754,7 +4769,9 @@ app.get("/api/apo/:slug/company-info", async (req, res) => {
       employees: String(req.query.employees || "").trim(),
     });
     else info = await lookupCompanyInfo(company, email, sfUser, hint);
-    res.json({ ok: true, company, person: parsed.person || "", info, stage });
+    let person = parsed.person || "";
+    if (!person && company && (stage === "sf" || stage === "all")) person = await personForCompany(company).catch(() => "");
+    res.json({ ok: true, company, person, info, stage });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
@@ -19465,7 +19482,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-12zm 商談履歴のSF立ち上げを、アポ一覧と同じ仕様に統一。会社名・担当者・メール・商談日に加えて電話・Webサイト・都道府県・住所・従業員数の全項目を表示し、「会社情報を自動で補完」で4段階（SF取引先→gBiz→ネット→公式サイト読込）＋空欄が埋まるまで最大3回リトライして埋める。その内容で立ち上げる。";
+const BUILD_TAG = "2026-09-12zn SF立ち上げの担当者(姓)を、その会社のアポ一覧・商談履歴の予定名/担当者名から自動で補うようにした。会社名だけで立ち上げる商談履歴からでも、担当者が空にならず自動で入る（見つからないときだけ手入力）。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
