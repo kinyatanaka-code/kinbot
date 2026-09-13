@@ -4068,8 +4068,12 @@ async function checkValidDeals() {
       if (!reached || isLost) continue;
       if (!firstRun) {
         const co = c.company || parseLaunchTitle(c.label || "").company || o.Name || "その会社";
-        const msg = `【有効商談になりました】あなたが獲得したアポ「${co}」が有効商談（02）に進みました。ナイスアポです。`;
-        await notifyPerson(c.setter_email, msg).catch(() => {});
+        const setterName = String(c.setter || "").trim();
+        // 選んだチャットへ（設定 → お知らせ の通知先で「有効商談」をONにした送り先）
+        const chMsg = `【有効商談】${setterName ? setterName + "さんが" : ""}獲得したアポ「${co}」が有効商談（02）に進みました。`;
+        await notifyAll(chMsg, "valid").catch(() => {});
+        // 獲得者本人へもDM
+        await notifyPerson(c.setter_email, `【有効商談になりました】あなたが獲得したアポ「${co}」が有効商談（02）に進みました。ナイスアポです。`).catch(() => {});
         notified++;
       }
       await markValidNotified(c.slug).catch(() => {});
@@ -14551,7 +14555,7 @@ app.get("/api/chat-targets", async (req, res) => {
       targets: rows.map((r) => ({
         id: r.id, name: r.name,
         webhookUrl: r.webhook_url || "", spaceId: r.space_id || "",
-        onAssign: r.on_assign, onMail: r.on_mail, onDoc: r.on_doc, onLaunch: r.on_launch,
+        onAssign: r.on_assign, onMail: r.on_mail, onDoc: r.on_doc, onLaunch: r.on_launch, onValid: r.on_valid,
         onDeploy: r.on_deploy, onNews: r.on_news, onDev: r.on_dev, onIncentive: r.on_incentive,
         onResched: r.on_resched, onApo: r.on_apo,
         active: r.active, lastError: r.last_error || "", sentCount: r.sent_count,
@@ -14583,7 +14587,7 @@ app.put("/api/chat-targets/:id", async (req, res) => {
   try {
     const b = req.body || {};
     const patch = {};
-    for (const k of ["onAssign", "onMail", "onDoc", "onLaunch", "onDeploy", "onNews", "onDev", "onIncentive", "onResched", "onApo", "active"]) {
+    for (const k of ["onAssign", "onMail", "onDoc", "onLaunch", "onDeploy", "onNews", "onDev", "onIncentive", "onResched", "onApo", "onValid", "active"]) {
       if (b[k] !== undefined) patch[k] = b[k] !== false;
     }
     if (b.name !== undefined) patch.name = String(b.name).trim().slice(0, 80);
@@ -19537,7 +19541,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-12zo インサイドが獲得したアポが「有効商談（02）」になったら、その獲得者にGoogle Chatで通知するようにした。5分ごとにSFのステージを確認し、有効商談以降に進んだアポの獲得者へ1回だけ通知（失注は通知しない）。初回は既存の有効商談を静かに既済化してから運用開始（過去分の一斉通知はしない）。";
+const BUILD_TAG = "2026-09-12zp 有効商談の通知先を選べるようにした。通知種別に「有効商談になったお知らせ」を追加し、設定→お知らせ の通知先ごとにON/OFFできる（選んだGoogle Chatへ送る）。あわせて獲得者本人にもDMする。どの送り先もOFFなら本人DMのみ。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",

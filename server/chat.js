@@ -21,6 +21,7 @@ export const NOTIFY_KINDS = [
   { key: "mail",    label: "御礼メールの下書き" },
   { key: "doc",     label: "資料の閲覧・ダウンロード" },
   { key: "launch",  label: "SF商談の自動立ち上げ" },
+  { key: "valid",   label: "有効商談になったお知らせ（インサイド獲得アポ）" },
   { key: "deploy",  label: "kinbotの更新（デプロイ）" },
   { key: "news",    label: "kinbotのお知らせ（新機能）" },
   { key: "dev",     label: "開発メモ（夜間開発）" },
@@ -122,6 +123,8 @@ export async function notifyAll(text, kind = "", { mentionName = "" } = {}) {
     resched: "on_resched",
     // アポ獲得のお知らせ（メルマガ等）
     apo: "on_apo",
+    // 有効商談になったお知らせ（インサイド獲得アポ）
+    valid: "on_valid",
   }[kind];
   const list = col ? targets.filter((x) => x[col]) : targets;
   if (!list.length) return { ok: false, skipped: true, reason: "この種類の通知はどこもONになっていません" };

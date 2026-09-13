@@ -2664,6 +2664,7 @@ const CT_KINDS = [
   ["onIncentive", "インセンティブの到達"],
   ["onResched", "リスケ・キャンセル"],
   ["onApo", "アポ獲得のお知らせ"],
+  ["onValid", "有効商談になったお知らせ"],
 ];
 
 function ctSay(id, t, ms) {

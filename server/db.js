@@ -859,6 +859,7 @@ export async function initDb() {
   // アポ獲得のお知らせ（メルマガ等）
   await sq(`ALTER TABLE chat_targets ADD COLUMN IF NOT EXISTS on_apo BOOLEAN NOT NULL DEFAULT true;`);
   await sq(`ALTER TABLE chat_targets ADD COLUMN IF NOT EXISTS on_dev BOOLEAN NOT NULL DEFAULT false;`);
+  await sq(`ALTER TABLE chat_targets ADD COLUMN IF NOT EXISTS on_valid BOOLEAN NOT NULL DEFAULT true;`);
   await sq(`CREATE INDEX IF NOT EXISTS ix_calendar_watch_cal ON calendar_watch(calendar_id);`);
 
   // ===== スマートリンク（担当者切り替えに追随する共有Zoom URL） =====
@@ -5443,6 +5444,7 @@ export async function updateChatTarget(id, patch) {
     onIncentive: "on_incentive",
     onResched: "on_resched",
     onApo: "on_apo",
+    onValid: "on_valid",
     onDeploy: "on_deploy", active: "active" };
   const sets = [], vals = [id];
   for (const [k, col] of Object.entries(cols)) {
@@ -5713,7 +5715,7 @@ export async function listApoValidCandidates() {
   if (!pool) return [];
   try {
     const { rows } = await pool.query(
-      `SELECT a.slug, a.opp_id, a.company, a.title, s.setter_email, s.label
+      `SELECT a.slug, a.opp_id, a.company, a.title, s.setter_email, s.setter, s.label
          FROM sf_autolaunch a
          LEFT JOIN smart_links s ON s.slug = a.slug
         WHERE a.opp_id IS NOT NULL
