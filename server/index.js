@@ -15613,10 +15613,10 @@ async function checkIncentiveMilestone(name) {
       notified[key] = m;
       await saveSettings({ incentiveNotified: notified });
       const head = m === 1000
-        ? `🎉 *${nm}* さんが初実施しました！（獲得見込みインセンティブ ¥1,000）`
-        : `🎉 *${nm}* さんの獲得見込みインセンティブが *¥${m.toLocaleString()}* に到達しました！`;
+        ? `🎉 {呼びかけ} が初実施しました！（獲得見込みインセンティブ ¥1,000）`
+        : `🎉 {呼びかけ} の獲得見込みインセンティブが *¥${m.toLocaleString()}* に到達しました！`;
       const text = `${head}\n${incentiveCheer(m)}`;
-      await notifyAll(text, "incentive").catch(() => {});
+      await notifyAll(text, "incentive", { mentionName: nm }).catch(() => {});
     }
   } catch (e) { console.error("[インセンティブ通知]", e.message); }
 }
@@ -19624,7 +19624,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-12zw アポ通知に今週目標と今月目標の両方を併記。「📊 本日 X ／ 今週 Y ／ 今月 Z／（今週の目標 Gw・あと max(0,Gw−Z)、今月目標 Gm・あと max(0,Gm−Z)）」。今週目標＝獲得した週のグループ全体目標、今月目標＝その月の週目標（積み上げ）の最大＝月合計。どちらも「あと」は今月（積み上げ実績）基準でダッシュボードの差分と一致。";
+const BUILD_TAG = "2026-09-12zx インターンのインセンティブ獲得通知で本人をメンションするようにした。Google Chatアプリ連携＋スペースが設定されていれば本物の@メンションで通知（連携が無い/スペース外なら「◯◯さん」表記にフォールバック）。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
