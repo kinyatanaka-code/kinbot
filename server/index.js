@@ -19914,7 +19914,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-13o kinbotがChatアプリ（kinbot名義・スペース）で送ったメッセージを、あとから削除できるようにした。送信時にメッセージIDを記録し、設定→お知らせ→「kinbotが送ったメッセージ」から一覧・削除できる。Webhookで送った分は仕様上削除できない。";
+const BUILD_TAG = "2026-09-13p 「AI社員」メニューを、指定ユーザー（kinya.tanaka@neo-career.co.jp）だけに表示するようにした。他のメンバーのサイドバー・スマホメニューからは出さない。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",

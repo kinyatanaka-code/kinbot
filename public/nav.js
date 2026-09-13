@@ -1,5 +1,9 @@
 // 画面のどこかでつまずいたら、隅に小さく出す。
 // 黙って止まると「押しても反応しない」に見えるため。
+// AI社員は指定のユーザーだけに見せる（メニューに出す）。
+const AI_STAFF_ALLOWED = "kinya.tanaka@neo-career.co.jp";
+window.KB_ME = window.KB_ME || null;
+function kbAiAllowed() { if (!window.KB_ME) return true; const u = String(window.KB_ME.username || window.KB_ME.email || "").toLowerCase(); return u === AI_STAFF_ALLOWED; }
 window.addEventListener("error", (e) => {
   try {
     let box = document.getElementById("kbErr");
@@ -34,7 +38,7 @@ window.addEventListener("error", (e) => {
 (function () {
   if (!document.querySelector('script[src$="kbchat.js"]')) {
     const sc = document.createElement("script");
-    sc.src = "kbchat.js?v=20260913o";
+    sc.src = "kbchat.js?v=20260913p";
     sc.defer = true;
     document.head.appendChild(sc);
   }
@@ -130,9 +134,11 @@ function kbBuildSidebar() {
     `<a class="side-item side-hi${sfOn}" href="sf-launch.html">` +
     `<span class="side-ico ico-sf"></span>` +
     `<span class="side-label">Salesforce</span></a>` +
-    `<a class="side-item side-hi${aiOn}" href="ai.html">` +
-    `<span class="side-ico ico-ai"></span>` +
-    `<span class="side-label">AI社員</span></a>` +
+    (kbAiAllowed()
+      ? `<a class="side-item side-hi${aiOn}" href="ai.html">` +
+        `<span class="side-ico ico-ai"></span>` +
+        `<span class="side-label">AI社員</span></a>`
+      : "") +
     itemHtml(KB_TOOL);
 
   const brand = nav.querySelector(".side-brand");
@@ -143,6 +149,12 @@ function kbBuildSidebar() {
 (async () => {
   try {
     const me = await (await fetch("/api/me")).json();
+    window.KB_ME = me;
+    // AI社員は指定ユーザーだけ。サイドバーを組み直し、モバイル等に残るリンクも隠す。
+    try { if (window.kbBuildSidebar) kbBuildSidebar(); } catch {}
+    if (!kbAiAllowed()) {
+      document.querySelectorAll('a[href="ai.html"], a[href="/ai.html"]').forEach((a) => { const w = a.closest(".kb-menu-item, .side-wrap") || a; if (w) w.style.display = "none"; });
+    }
     const who = document.getElementById("who");
     if (who) {
       const name = me.name || me.username || "";
@@ -442,7 +454,7 @@ window.kbSheet = function (html) {
     // kinbotの機能とは別に、kincall・Salesforce・AI社員を下に置く（サイドバーの並びに合わせる）
     items.push({ href: "/kincall", label: "kincall", ico: "ico-phone" });
     items.push({ href: "sf-launch.html", label: "Salesforce", ico: "ico-sf" });
-    items.push({ href: "ai.html", label: "AI社員", ico: "ico-ai" });
+    if (kbAiAllowed()) items.push({ href: "ai.html", label: "AI社員", ico: "ico-ai" });
     // AI社員の下に「ツール」（分析・営業スタイル分析・天気予報・開発メモ）
     for (const x of KB_TOOL.subs) items.push({ href: x.href, label: x.label, ico: KB_TOOL.ico });
     // 設定は一覧から外してアカウント名の横に移したが、スマホでは入口が要るのでここに足す
