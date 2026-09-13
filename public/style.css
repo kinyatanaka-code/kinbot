@@ -6260,3 +6260,16 @@ input:focus, select:focus, textarea:focus, .sf-input:focus, .sf-select:focus, .s
 .sc-dow.on { background: #1d9e75; color: #fff; border-color: #1d9e75; }
 .sc-preview { margin-top: 12px; font-size: 13px; color: #8a8f8c; }
 .sc-preview-on { color: #0f6e56; font-weight: 700; }
+
+/* 一括入力（案B：カレンダーでなぞって選ぶ） */
+.sc-bcal { border:1px solid #e6ece9; border-radius:10px; overflow:hidden; margin-top:6px; }
+.sc-bgrid { user-select:none; }
+.sc-brow { display:grid; grid-template-columns:repeat(7,1fr); }
+.sc-bhead .sc-bhcell { background:#f6faf8; text-align:center; font-size:11px; color:#4a5a54; padding:5px 0; border-bottom:1px solid #e6ece9; }
+.sc-bhcell.sc-sun { color:#c0392b; } .sc-bhcell.sc-sat { color:#2b6cb0; }
+.sc-bcell { position:relative; min-height:40px; border-right:1px solid #eef2f0; border-bottom:1px solid #eef2f0; text-align:center; padding:6px 2px; font-size:12px; color:#3a4a44; cursor:pointer; touch-action:none; }
+.sc-bcell.sc-bwk { background:#faf5f5; color:#a98f8a; }
+.sc-bcell.sc-bempty { background:#fafcfb; cursor:default; }
+.sc-bcell.sc-bsel { background:#0f6e56; color:#fff; }
+.sc-bhol { display:block; font-size:9px; color:#c0392b; }
+.sc-bcell.sc-bsel .sc-bhol { color:#d6f0e4; }

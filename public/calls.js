@@ -3436,18 +3436,21 @@ function openBulkShift() {
   if (document.querySelector(".sc-back")) return;
   const p = (n) => String(n).padStart(2, "0");
   const last = new Date(Date.UTC(_scY, _scM + 1, 0)).getUTCDate();
+  const startDow = new Date(Date.UTC(_scY, _scM, 1)).getUTCDay();
   const wd = ["日", "月", "火", "水", "木", "金", "土"];
   const memChips = _scInterns.map((it) => `<button type="button" class="sc-chip" data-em="${esc(it.email)}" data-name="${esc(it.name || "")}">${esc(it.name || it.email)}</button>`).join("");
-  const dowBtns = [1, 2, 3, 4, 5, 6, 0].map((d) => `<button type="button" class="sc-dow${d >= 1 && d <= 5 ? " on" : ""}" data-dow="${d}">${wd[d]}</button>`).join("");
   const back = document.createElement("div"); back.className = "sc-back";
   back.innerHTML = `<div class="sc-modal sc-modal-lg"><div class="sc-mh"><span>${_scM + 1}月にまとめて出勤を入れる</span><button type="button" class="sc-x">×</button></div>
     <div class="sc-mbody">
       <div class="sc-bl">メンバー（複数選べます）<button type="button" class="btn ghost sc-allmem" style="margin-left:8px">全員</button></div>
       <div class="sc-chips" id="scMemChips">${memChips || '<span class="note">インサイド未登録</span>'}</div>
-      <div class="sc-bl" style="margin-top:12px">曜日<span class="note" style="margin-left:8px">土日・祝日・休業日は自動で除外します</span></div>
-      <div class="sc-dows" id="scDows">${dowBtns}</div>
       <div class="sc-bl" style="margin-top:12px">時間</div>
       <div><input type="time" class="sc-bs" value="10:00" /> 〜 <input type="time" class="sc-be" value="18:00" /></div>
+      <div class="sc-bl" style="margin-top:12px">日を選ぶ<span class="note" style="margin-left:8px">ドラッグ／タップで選択（土日祝は薄め）</span>
+        <button type="button" class="btn ghost sc-selwk" style="margin-left:8px">平日を全選択</button>
+        <button type="button" class="btn ghost sc-selclr">クリア</button>
+      </div>
+      <div class="sc-bcal" id="scBCal"></div>
       <div class="sc-preview" id="scPrev2"></div>
     </div>
     <div class="sc-mact"><button type="button" class="btn ghost sc-cancel">閉じる</button><button type="button" class="btn sc-save">この内容で入れる</button></div></div>`;
@@ -3456,35 +3459,53 @@ function openBulkShift() {
   back.addEventListener("click", (e) => { if (e.target === back) close(); });
   back.querySelector(".sc-x").addEventListener("click", close);
   back.querySelector(".sc-cancel").addEventListener("click", close);
+
+  const selected = new Set();
+  const bcal = back.querySelector("#scBCal");
   const selMem = () => [...back.querySelectorAll(".sc-chip.on")].map((c) => ({ email: c.dataset.em, name: c.dataset.name }));
-  const selDows = () => new Set([...back.querySelectorAll(".sc-dow.on")].map((b) => +b.dataset.dow));
-  const targetDays = () => {
-    const dows = selDows(); const days = [];
-    for (let dd = 1; dd <= last; dd++) {
-      const ds = `${_scY}-${p(_scM + 1)}-${p(dd)}`; const dow = new Date(Date.UTC(_scY, _scM, dd)).getUTCDay();
-      if (!dows.has(dow)) continue;
-      if (dow === 0 || dow === 6 || _scHol[ds]) continue;   // 土日祝・休業日は除外
-      days.push(ds);
-    }
-    return days;
-  };
   const updatePrev = () => {
-    const m = selMem().length, d = targetDays().length;
+    const m = selMem().length, d = selected.size;
     const el = back.querySelector("#scPrev2");
-    el.textContent = (m && d) ? `対象：${d}日 × ${m}名 → ${d * m}件 入れます` : "メンバーと曜日を選んでください";
+    el.textContent = (m && d) ? `対象：${d}日 × ${m}名 → ${d * m}件 入れます` : "メンバーと日を選んでください";
     el.className = "sc-preview" + ((m && d) ? " sc-preview-on" : "");
   };
+  const buildCal = () => {
+    let html = '<div class="sc-bgrid"><div class="sc-brow sc-bhead">' + wd.map((w, i) => `<div class="sc-bhcell${i === 0 ? " sc-sun" : i === 6 ? " sc-sat" : ""}">${w}</div>`).join("") + "</div>";
+    let day = 1 - startDow;
+    while (day <= last) {
+      html += '<div class="sc-brow">';
+      for (let c = 0; c < 7; c++, day++) {
+        if (day < 1 || day > last) { html += '<div class="sc-bcell sc-bempty"></div>'; continue; }
+        const ds = `${_scY}-${p(_scM + 1)}-${p(day)}`; const hol = _scHol[ds]; const wk = c === 0 || c === 6 || hol;
+        html += `<div class="sc-bcell${wk ? " sc-bwk" : ""}${selected.has(ds) ? " sc-bsel" : ""}" data-day="${ds}">${day}${hol ? `<span class="sc-bhol">${esc(hol)}</span>` : ""}</div>`;
+      }
+      html += "</div>";
+    }
+    html += "</div>";
+    bcal.innerHTML = html;
+  };
+  buildCal();
+  // ドラッグ／タップで選択（Pointer Events で mouse・touch 両対応）
+  let dragging = false, dragMode = true;
+  const cellAt = (x, y) => { const el = document.elementFromPoint(x, y); return el && el.closest ? el.closest(".sc-bcell[data-day]") : null; };
+  const applyCell = (c) => { if (!c) return; const ds = c.dataset.day; if (dragMode) selected.add(ds); else selected.delete(ds); c.classList.toggle("sc-bsel", selected.has(ds)); };
+  bcal.addEventListener("pointerdown", (e) => { const c = cellAt(e.clientX, e.clientY); if (!c) return; dragging = true; dragMode = !selected.has(c.dataset.day); applyCell(c); updatePrev(); e.preventDefault(); });
+  bcal.addEventListener("pointermove", (e) => { if (!dragging) return; const c = cellAt(e.clientX, e.clientY); if (c) { applyCell(c); updatePrev(); } });
+  window.addEventListener("pointerup", () => { dragging = false; }, { once: false });
+  // メンバー・時間・クイック
   back.querySelectorAll(".sc-chip").forEach((c) => c.addEventListener("click", () => { c.classList.toggle("on"); updatePrev(); }));
-  back.querySelectorAll(".sc-dow").forEach((b) => b.addEventListener("click", () => { b.classList.toggle("on"); updatePrev(); }));
   back.querySelector(".sc-allmem").addEventListener("click", () => { const chips = back.querySelectorAll(".sc-chip"); const allOn = [...chips].every((c) => c.classList.contains("on")); chips.forEach((c) => c.classList.toggle("on", !allOn)); updatePrev(); });
-  back.querySelector(".sc-bs").addEventListener("change", updatePrev);
-  back.querySelector(".sc-be").addEventListener("change", updatePrev);
+  back.querySelector(".sc-selwk").addEventListener("click", () => {
+    for (let dd = 1; dd <= last; dd++) { const ds = `${_scY}-${p(_scM + 1)}-${p(dd)}`; const dow = new Date(Date.UTC(_scY, _scM, dd)).getUTCDay(); if (dow !== 0 && dow !== 6 && !_scHol[ds]) selected.add(ds); }
+    buildCal(); updatePrev();
+  });
+  back.querySelector(".sc-selclr").addEventListener("click", () => { selected.clear(); buildCal(); updatePrev(); });
   updatePrev();
   back.querySelector(".sc-save").addEventListener("click", async () => {
-    const members = selMem(); const days = targetDays();
+    const members = selMem(); const days = [...selected];
     const s = scHm2m(back.querySelector(".sc-bs").value), e = scHm2m(back.querySelector(".sc-be").value);
     if (!members.length) { alert("メンバーを選んでください"); return; }
-    if (!days.length) { alert("曜日を選んでください"); return; }
+    if (!days.length) { alert("日を選んでください"); return; }
     if (s == null || e == null || e <= s) { alert("時間を正しく入れてください"); return; }
     const shifts = [];
     for (const m of members) for (const day of days) shifts.push({ email: m.email, name: m.name, day, start_min: s, end_min: e });

@@ -734,3 +734,5 @@ kincall（架電リスト）という別ツールも同じ画面群の中にあ�
 - 2026-09-13 BUILD_TAG=2026-09-13j 出勤管理の調整。(1)田中欽也を除外：loadShiftCalで_scInterns から「田中欽也」を除去＋描画ループでも名前一致スキップ。(2)出退勤表記を30分丸めに：scRound30(m)=Math.round(m/30)*30、scActual は first/last を丸める（−15/+15をやめた）。10:10→10:00 / 10:15→10:30 / 17:45→18:00。(3)集計に稼働予定時間を追加：totals[em]={name,actualH,planH,days}。planH＝予定shiftのscWorkH合計、actualH＝実績。テーブル列＝メンバー/稼働予定時間/実働時間/出勤日数、planH降順。版20260913j。
 
 - 2026-09-13 BUILD_TAG=2026-09-13k 出勤の一括入力を刷新（直感的に）。openBulkShift：メンバーはチップの複数選択（全員トグルボタン）、曜日はトグルボタン(月〜金既定ON)、時間1つ。対象日＝その月で選択曜日かつ土日祝・休業日でない日。件数プレビュー「対象：◯日×◯名→◯件」をリアルタイム表示。保存＝members×days×time を一括POST。旧「日ごとチェックボックス羅列」を廃止。CSS .sc-modal-lg/.sc-chip/.sc-dow/.sc-preview。版20260913k。
+
+- 2026-09-13 BUILD_TAG=2026-09-13l 出勤の一括入力を案B（カレンダードラッグ選択）に刷新。openBulkShift：メンバー複数チップ＋時間＋ミニ月カレンダー。日はPointer Events(pointerdown/move/up＋elementFromPoint)でドラッグ／タップ選択（mouse・touch両対応、touch-action:none）、土日祝は sc-bwk で薄め＋祝日名、選択は sc-bsel。「平日を全選択」「クリア」ボタン。件数プレビュー。保存＝members×selectedDays×time。CSS .sc-bcal/.sc-bcell 他。案A(曜日パターン)は廃止。版20260913l。
