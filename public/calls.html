@@ -10,7 +10,7 @@
     <link rel="manifest" href="/site.webmanifest" />
     <meta name="theme-color" content="#0d5b47" />
     <meta name="apple-mobile-web-app-title" content="kinbot" />
-    <link rel="stylesheet" href="style.css?v=20260913g" />
+    <link rel="stylesheet" href="style.css?v=20260913h" />
   </head>
   <body class="kc-body">
     <div class="app">
@@ -185,7 +185,8 @@
               <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:10px">
                 <label style="font-size:13px;color:#4a5a54">日付 <input type="date" id="dgDate" class="kc-input" style="max-width:170px" /></label>
                 <button type="button" class="btn ghost" id="dgReload">更新</button>
-                <span class="note" style="margin:0">セールス＝10-18の「【】/ブロック」以外／インサイド＝出勤シフト。想定コール＝稼働×20、必要アポ率＝目標÷コール。</span>
+                <label style="font-size:13px;color:#4a5a54">平均アポ率 <input type="number" step="0.1" min="0" id="dgRate" class="kc-input" style="max-width:90px" />%</label>
+                <span class="note" style="margin:0">セールス＝10-18の「【】/ブロック」以外・昼休憩(12-13)/参加拒否は除外／インサイド＝出勤シフト。目標は平均アポ率で自動記入（手入力で上書き可）。</span>
               </div>
               <div id="dgTableWrap"><div class="note">読み込んでいます…</div></div>
               <div style="margin-top:12px">
@@ -350,9 +351,9 @@
         </main>
       </div>
     </div>
-    <script src="sf-data.js?v=20260913g"></script>
-    <script src="calls.js?v=20260913g"></script>
-    <script src="nav.js?v=20260913g"></script>
+    <script src="sf-data.js?v=20260913h"></script>
+    <script src="calls.js?v=20260913h"></script>
+    <script src="nav.js?v=20260913h"></script>
     <script src="/cmdk.js?v=20260827a"></script>
 </body>
 </html>

@@ -255,6 +255,8 @@ export async function listCalendarEvents(owner, calendarId, { timeMin, timeMax, 
       const start = ev.start?.dateTime || ev.start?.date || null;
       const end = ev.end?.dateTime || ev.end?.date || null;
       out.push({ id: ev.id, title: ev.summary || "", start, end, allDay: !ev.start?.dateTime, url: findMeetingUrl(ev) || "", guests: (ev.attendees || []).length, organizer: (ev.organizer && ev.organizer.email) || "", creator: (ev.creator && ev.creator.email) || "", created: ev.created || "",
+        // このカレンダー本人の出欠（accepted / declined / tentative / needsAction）。参加拒否の判定に使う。
+        selfResponse: ((ev.attendees || []).find((a) => a && a.self) || {}).responseStatus || "",
         // 予定の説明欄。アポ獲得者が書いたメモを商談担当の予定にも引き継ぐために使う。
         description: ev.description || "",
         // 招待されている人（アポメールの宛先をここから自動取得する）

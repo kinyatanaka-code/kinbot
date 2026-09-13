@@ -3859,6 +3859,7 @@ async function salesCallHours(gcalOwner, email, dayStr) {
   }
   for (const e of evs) {
     if (e.allDay) continue;
+    if (e.selfResponse === "declined") continue; // 参加拒否は空き扱い
     const t = String(e.title || "");
     if (!(t.includes("【") || t.includes("ブロック"))) continue;
     const s = Date.parse(e.start), en = Date.parse(e.end);
@@ -3878,10 +3879,9 @@ async function dailyWorkingMembers(dayStr) {
     const shifts = await listInsideShifts(dayStr, dayStr);
     for (const s of shifts) {
       if (s.start_min == null || s.end_min == null) continue;
-      // 稼働時間＝(終了−開始)から 12:00-13:00(720-780分)の昼休憩の重なりを引く
       const lunch = Math.max(0, Math.min(s.end_min, 780) - Math.max(s.start_min, 720));
-      const h = Math.max(0, (s.end_min - s.start_min) - lunch) / 60;
-      if (h <= 0) continue;
+      let h = Math.max(0, (s.end_min - s.start_min) - lunch) / 60;
+      if (h < 1) h = 0; // 0.5h など1時間未満は0hとして扱う
       out.push({ name: s.name || s.email, role: "inside", hours: Math.round(h * 100) / 100 });
     }
   } catch {}
@@ -3893,28 +3893,42 @@ async function dailyWorkingMembers(dayStr) {
       const sales = (members || []).filter((m) => (Array.isArray(m.roles) && m.roles.includes("closer")) || salesNames.some((n) => String(m.name || "").includes(n)));
       for (const m of sales) {
         const email = String(m.email || "").toLowerCase(); if (!email) continue;
-        const h = await salesCallHours(gcalOwner, email, dayStr);
-        if (h == null || h <= 0) continue;
+        let h = await salesCallHours(gcalOwner, email, dayStr);
+        if (h == null) continue;
+        if (h < 1) h = 0; // 1時間未満は0h
         out.push({ name: m.name || email, role: "sales", hours: Math.round(h * 100) / 100 });
       }
     }
   } catch {}
   return out;
 }
-function fmtHoursJa(h) { const r = Math.round(h * 100) / 100; return (Number.isInteger(r) ? String(r) : r.toFixed(1).replace(/\.0$/, "")) + "h"; }
-function genDailyTargetText(members, targets) {
-  const lines = [];
-  let totH = 0, totC = 0, totT = 0;
-  for (const m of members) {
-    const t = Math.max(0, parseInt(targets[m.name], 10) || 0);
+async function dailyAvgRate() {
+  const st = await getSettings().catch(() => ({}));
+  const r = Number(st.dailyAvgRate);
+  return isFinite(r) && r > 0 ? r : 3;
+}
+// 各メンバーの目標を決める：手入力（daily_apo_targets に行あり）があればそれ、無ければ 想定コール×平均アポ率 で自動。
+function resolveTargets(members, targets, rate) {
+  return members.map((m) => {
     const calls = Math.round(m.hours * 20);
-    const rate = calls > 0 ? (t / calls * 100) : 0;
-    lines.push(`${m.name}：${fmtHoursJa(m.hours)} / ${calls}コール / ${rate.toFixed(2)}% (目標${t}件)`);
-    totH += m.hours; totC += calls; totT += t;
+    const auto = Math.round(calls * (rate / 100));
+    const isManual = Object.prototype.hasOwnProperty.call(targets || {}, m.name);
+    const target = isManual ? Math.max(0, parseInt(targets[m.name], 10) || 0) : auto;
+    return { ...m, calls, auto, isManual, target };
+  });
+}
+function fmtHoursJa(h) { const r = Math.round(h * 100) / 100; return (Number.isInteger(r) ? String(r) : r.toFixed(1).replace(/\.0$/, "")) + "h"; }
+function genDailyTargetText(members, targets, rate) {
+  const rows = resolveTargets(members, targets, rate);
+  const lines = []; let tH = 0, tC = 0, tT = 0;
+  for (const m of rows) {
+    const r = m.calls > 0 ? (m.target / m.calls * 100) : 0;
+    lines.push(`${m.name}：${fmtHoursJa(m.hours)} / ${m.calls}コール / ${r.toFixed(2)}% (目標${m.target}件)`);
+    tH += m.hours; tC += m.calls; tT += m.target;
   }
-  const totRate = totC > 0 ? (totT / totC * 100) : 0;
+  const tr = tC > 0 ? (tT / tC * 100) : 0;
   lines.push("------------------------------------");
-  lines.push(`合計：${fmtHoursJa(totH)} / ${totC}コール / ${totRate.toFixed(2)}% (目標${totT}件)`);
+  lines.push(`合計：${fmtHoursJa(tH)} / ${tC}コール / ${tr.toFixed(2)}% (目標${tT}件)`);
   return lines.join("\n");
 }
 function jstTodayStr() { const j = new Date(Date.now() + 9 * 3600000); const p = (n) => String(n).padStart(2, "0"); return `${j.getUTCFullYear()}-${p(j.getUTCMonth() + 1)}-${p(j.getUTCDate())}`; }
@@ -3924,7 +3938,8 @@ app.get("/api/daily/working", async (req, res) => {
     const date = /^\d{4}-\d{2}-\d{2}$/.test(String(req.query.date || "")) ? String(req.query.date) : jstTodayStr();
     const members = await dailyWorkingMembers(date);
     const targets = await getDailyTargets(date).catch(() => ({}));
-    res.json({ ok: true, date, members: members.map((m) => ({ ...m, target: parseInt(targets[m.name], 10) || 0 })) });
+    const rate = await dailyAvgRate();
+    res.json({ ok: true, date, rate, members: resolveTargets(members, targets, rate) });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 app.post("/api/daily/target", async (req, res) => {
@@ -3936,12 +3951,22 @@ app.post("/api/daily/target", async (req, res) => {
     res.json({ ok: true });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
+// 平均アポ率（%）を保存（目標の自動記入に使う）
+app.post("/api/daily/avg-rate", async (req, res) => {
+  try {
+    const r = Number(req.body?.rate);
+    if (!isFinite(r) || r < 0) return res.status(400).json({ error: "率が不正です" });
+    await saveSettings({ dailyAvgRate: Math.round(r * 100) / 100 });
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
 app.get("/api/daily/report", async (req, res) => {
   try {
     const date = /^\d{4}-\d{2}-\d{2}$/.test(String(req.query.date || "")) ? String(req.query.date) : jstTodayStr();
     const members = await dailyWorkingMembers(date);
     const targets = await getDailyTargets(date).catch(() => ({}));
-    res.json({ ok: true, date, text: genDailyTargetText(members, targets), hasTarget: members.some((m) => (parseInt(targets[m.name], 10) || 0) > 0) });
+    const rate = await dailyAvgRate();
+    res.json({ ok: true, date, text: genDailyTargetText(members, targets, rate) });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 app.get("/api/inside-shifts", async (req, res) => {
@@ -3978,8 +4003,10 @@ async function dailyGoalTick() {
     _lastDailyGoalDay = day;
     const members = await dailyWorkingMembers(day);
     const targets = await getDailyTargets(day).catch(() => ({}));
-    if (!members.some((m) => (parseInt(targets[m.name], 10) || 0) > 0)) { console.log("[デイリー目標] 目標未入力のため通知なし", day); return; }
-    await notifyAll(`本日のデイリー目標\n${genDailyTargetText(members, targets)}`, "daily").catch(() => {});
+    const rate = await dailyAvgRate();
+    const resolved = resolveTargets(members, targets, rate);
+    if (!resolved.some((m) => m.target > 0)) { console.log("[デイリー目標] 目標未入力のため通知なし", day); return; }
+    await notifyAll(`本日のデイリー目標\n${genDailyTargetText(members, targets, rate)}`, "daily").catch(() => {});
     console.log("[デイリー目標] 通知しました", day);
   } catch (e) { console.warn("[デイリー目標]", e.message); }
 }
@@ -19842,7 +19869,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-13g デイリー目標の稼働時間から12:00-13:00の昼休憩を除外。セールス（10-18のブロック計算）とインサイド（出勤シフト）の両方で、12-13の重なりを稼働時間に入れないようにした。";
+const BUILD_TAG = "2026-09-13h デイリー目標を改善。(1)Googleカレンダーで参加拒否した予定は空き扱い（架電時間に戻す）。(2)稼働1時間未満（0.5h等）は0h・目標0件として扱う。(3)目標は「平均アポ率(%)」で自動記入（想定コール×率）し、管理者が各メンバーを手入力で上書きも可。平均アポ率は画面で変更・保存できる。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",

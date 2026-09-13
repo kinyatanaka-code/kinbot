@@ -3315,6 +3315,7 @@ async function loadDailyGoal() {
   const wrap = $("dgTableWrap"); if (wrap) wrap.innerHTML = '<div class="note">読み込んでいます…</div>';
   let d; try { d = await (await fetch("/api/daily/working?date=" + encodeURIComponent(date))).json(); } catch { if (wrap) wrap.innerHTML = '<div class="note">読み込めませんでした</div>'; return; }
   _dgMembers = (d.members || []).map((m) => ({ name: m.name, role: m.role, hours: m.hours, target: m.target || 0 }));
+  const rEl = $("dgRate"); if (rEl && d.rate != null && document.activeElement !== rEl) rEl.value = d.rate;
   if (!_dgMembers.length) { if (wrap) wrap.innerHTML = '<div class="note">この日の稼働メンバーがいません（インサイド＝出勤シフト、セールス＝カレンダーから算出）。</div>'; dgRenderText(); return; }
   const roleLbl = (r) => r === "sales" ? "セールス" : "インサイド";
   let html = '<table class="kc-table"><thead><tr><th>メンバー</th><th>区分</th><th>稼働</th><th>アポ目標</th><th>想定コール</th><th>必要アポ率</th></tr></thead><tbody>';
@@ -3343,6 +3344,11 @@ async function loadDailyGoal() {
 async function dgLoadShiftMembers() { /* 出勤管理は独立ページ(出勤カレンダー)へ移設 */ }
 if ($("dgReload")) $("dgReload").addEventListener("click", loadDailyGoal);
 if ($("dgDate")) $("dgDate").addEventListener("change", loadDailyGoal);
+if ($("dgRate")) $("dgRate").addEventListener("change", async () => {
+  const r = parseFloat($("dgRate").value); if (!isFinite(r) || r < 0) return;
+  try { await fetch("/api/daily/avg-rate", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ rate: r }) }); } catch {}
+  loadDailyGoal(); // 手入力していない人の目標を新しい率で自動再計算
+});
 if ($("dgCopy")) $("dgCopy").addEventListener("click", () => { navigator.clipboard.writeText(dgGenText()).then(() => { const s = $("dgCopySt"); if (s) { s.textContent = "コピーしました"; setTimeout(() => (s.textContent = ""), 1500); } }).catch(() => {}); });
 
 // ===== 出勤管理（インサイド稼働カレンダー・独立ページ p=shifts） =====
