@@ -738,3 +738,5 @@ kincall（架電リスト）という別ツールも同じ画面群の中にあ�
 - 2026-09-13 BUILD_TAG=2026-09-13l 出勤の一括入力を案B（カレンダードラッグ選択）に刷新。openBulkShift：メンバー複数チップ＋時間＋ミニ月カレンダー。日はPointer Events(pointerdown/move/up＋elementFromPoint)でドラッグ／タップ選択（mouse・touch両対応、touch-action:none）、土日祝は sc-bwk で薄め＋祝日名、選択は sc-bsel。「平日を全選択」「クリア」ボタン。件数プレビュー。保存＝members×selectedDays×time。CSS .sc-bcal/.sc-bcell 他。案A(曜日パターン)は廃止。版20260913l。
 
 - 2026-09-13 BUILD_TAG=2026-09-13m デイリー目標を独立ページ(kincall p=daily)へ移設。calls.html：clDailyWrap を stats ペイン内から出し、<section class="card kc-pane" data-p="daily"> に。stTop の「デイリー目標」タブ削除。サイドバーに「デイリー目標」リンク(出勤管理の上)追加。calls.js：stTop ハンドラから daily 分岐(isDaily/clDailyWrap)を撤去、showPane に daily(loadDailyGoal＋名前「デイリー目標」)追加。版20260913m。
+
+- 2026-09-13 BUILD_TAG=2026-09-13n デイリー目標のセールス架電時間、田中欽也だけ判定を変更。salesCallHours(gcalOwner,email,day,tanakaRule)：tanakaRule時は非稼働＝「ブロック含む」or「1on1(スペース無視・全半角)」のみ（【】は空き＝架電時間に含める）＋昼休憩12-13。それ以外のセールスは従来（【】含む/ブロック）＋昼休憩。dailyWorkingMembers で name に「田中欽也」を含むとき tanaka=true を渡す。版20260913n。

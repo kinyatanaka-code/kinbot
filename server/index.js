@@ -3844,7 +3844,7 @@ async function dailyCalendarReader() {
   return "";
 }
 // セールスの架電時間(h)＝当日10-18から「【】を含む／ブロックを含む」予定の重なりを引いた空き
-async function salesCallHours(gcalOwner, email, dayStr) {
+async function salesCallHours(gcalOwner, email, dayStr, tanakaRule) {
   const winS = Date.parse(dayStr + "T10:00:00+09:00");
   const winE = Date.parse(dayStr + "T18:00:00+09:00");
   if (isNaN(winS) || isNaN(winE)) return null;
@@ -3858,11 +3858,17 @@ async function salesCallHours(gcalOwner, email, dayStr) {
     const os = Math.max(lS, winS), oe = Math.min(lE, winE);
     if (oe > os) blocks.push([os, oe]);
   }
+  const isBlockTitle = (t) => {
+    const s = String(t || "");
+    // 田中欽也：ブロック・1on1 のみを予定（=非稼働）とし、【】商談などは空き（架電）とみなす
+    if (tanakaRule) return s.includes("ブロック") || /1\s*on\s*1/i.test(s.replace(/[　\s]/g, "")) || /1on1/i.test(s);
+    // それ以外のセールス：【】を含む予定・ブロック を非稼働とする
+    return s.includes("【") || s.includes("ブロック");
+  };
   for (const e of evs) {
     if (e.allDay) continue;
     if (e.selfResponse === "declined") continue; // 参加拒否は空き扱い
-    const t = String(e.title || "");
-    if (!(t.includes("【") || t.includes("ブロック"))) continue;
+    if (!isBlockTitle(e.title)) continue;
     const s = Date.parse(e.start), en = Date.parse(e.end);
     if (isNaN(s) || isNaN(en)) continue;
     const os = Math.max(s, winS), oe = Math.min(en, winE);
@@ -3894,7 +3900,8 @@ async function dailyWorkingMembers(dayStr) {
       const sales = (members || []).filter((m) => (Array.isArray(m.roles) && m.roles.includes("closer")) || salesNames.some((n) => String(m.name || "").includes(n)));
       for (const m of sales) {
         const email = String(m.email || "").toLowerCase(); if (!email) continue;
-        let h = await salesCallHours(gcalOwner, email, dayStr);
+        const tanaka = String(m.name || "").replace(/[\s　]/g, "").includes("田中欽也");
+        let h = await salesCallHours(gcalOwner, email, dayStr, tanaka);
         if (h == null) continue;
         if (h < 1) h = 0; // 1時間未満は0h
         out.push({ name: m.name || email, role: "sales", hours: Math.round(h * 100) / 100 });
@@ -19884,7 +19891,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-13m デイリー目標をkincallのメニューに独立ページとして移設（実績タブ内から出した）。左メニューに「デイリー目標」を追加し、日付・平均アポ率・稼働メンバー・生成テキストをそこで扱う。";
+const BUILD_TAG = "2026-09-13n デイリー目標のセールス架電時間の判定で、田中欽也だけは「12-13の昼休憩・ブロック・1on1」以外は空き（架電時間）としてカウント（【】商談などは架電時間に含める）。他のセールスは従来どおり【】/ブロックを除外。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
