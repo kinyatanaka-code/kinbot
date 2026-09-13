@@ -3851,6 +3851,12 @@ async function salesCallHours(gcalOwner, email, dayStr) {
   try { evs = await listCalendarEvents(gcalOwner, email, { timeMin: new Date(winS - 3600000).toISOString(), timeMax: new Date(winE + 3600000).toISOString() }); }
   catch { return null; }
   const blocks = [];
+  // 12:00-13:00 はお昼休憩。稼働時間に入れない（常にブロック扱い）。
+  {
+    const lS = Date.parse(dayStr + "T12:00:00+09:00"), lE = Date.parse(dayStr + "T13:00:00+09:00");
+    const os = Math.max(lS, winS), oe = Math.min(lE, winE);
+    if (oe > os) blocks.push([os, oe]);
+  }
   for (const e of evs) {
     if (e.allDay) continue;
     const t = String(e.title || "");
@@ -3872,7 +3878,9 @@ async function dailyWorkingMembers(dayStr) {
     const shifts = await listInsideShifts(dayStr, dayStr);
     for (const s of shifts) {
       if (s.start_min == null || s.end_min == null) continue;
-      const h = Math.max(0, (s.end_min - s.start_min)) / 60;
+      // 稼働時間＝(終了−開始)から 12:00-13:00(720-780分)の昼休憩の重なりを引く
+      const lunch = Math.max(0, Math.min(s.end_min, 780) - Math.max(s.start_min, 720));
+      const h = Math.max(0, (s.end_min - s.start_min) - lunch) / 60;
       if (h <= 0) continue;
       out.push({ name: s.name || s.email, role: "inside", hours: Math.round(h * 100) / 100 });
     }
@@ -19834,7 +19842,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-13f インサイド出勤管理を独立ページに移設。kincallのメニューに「出勤管理」を追加し、月カレンダーで日ごとにメンバーのタグ＋稼働時間(開始〜終了)を追加/編集できるようにした。デイリー目標タブからは出勤管理を外した。";
+const BUILD_TAG = "2026-09-13g デイリー目標の稼働時間から12:00-13:00の昼休憩を除外。セールス（10-18のブロック計算）とインサイド（出勤シフト）の両方で、12-13の重なりを稼働時間に入れないようにした。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
