@@ -6209,3 +6209,4 @@ input:focus, select:focus, textarea:focus, .sf-input:focus, .sf-select:focus, .s
 .ins-ibody { min-width: 0; flex: 1; }
 .ins-co { font-size: 13px; color: #173a30; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ins-owner { font-size: 11px; color: #8a8f8c; }
+.ins-empty { font-size: 12px; color: #8a8f8c; padding: 6px 2px; }

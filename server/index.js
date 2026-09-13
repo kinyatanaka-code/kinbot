@@ -3799,7 +3799,8 @@ app.get("/api/home/inside-today", async (req, res) => {
     const pad = (n) => String(n).padStart(2, "0");
     const j = new Date(Date.now() + 9 * 3600000);
     const today = `${j.getUTCFullYear()}-${pad(j.getUTCMonth() + 1)}-${pad(j.getUTCDate())}`;
-    const ms = await listMeetings({ isAdmin: true, from: today, to: today, limit: 2000, light: true }).catch(() => []);
+    const date = /^\d{4}-\d{2}-\d{2}$/.test(String(req.query.date || "")) ? String(req.query.date) : today;
+    const ms = await listMeetings({ isAdmin: true, from: date, to: date, limit: 2000, light: true }).catch(() => []);
     const interns = await listInterns().catch(() => []);
     const members = await listMembers().catch(() => []);
     const norm = (s) => String(s || "").replace(/[\s　]/g, "");
@@ -3826,7 +3827,7 @@ app.get("/api/home/inside-today", async (req, res) => {
       count: g.items.length,
       items: g.items.sort((a, b) => a._t - b._t).map(({ _t, ...x }) => x),
     })).sort((a, b) => b.count - a.count || String(a.setter).localeCompare(String(b.setter), "ja"));
-    res.json({ ok: true, total: rows.length, groups });
+    res.json({ ok: true, date, total: rows.length, groups });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
@@ -19687,7 +19688,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-13a ホームの明日のリマインドの下に「今日のインサイド実施」を追加。インサイドが獲得して今日実施した商談を、獲得者ごとにまとめて全員分表示（時刻・会社名・担当）。上限なし。";
+const BUILD_TAG = "2026-09-13b 「今日のインサイド実施」を選択している日付に追従させ、対象が無い日も『この日はまだありません』と表示（前は今日固定＋0件で非表示だったため見えなかった）。見出しも選択日に応じて変わる。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
