@@ -453,6 +453,9 @@ function render() {
         badges += e.hasUrl ? '<span class="home-badge">自動入室対象</span>' : '<span class="home-badge home-badge-st">URLなし</span>';
       }
     }
+    // アポ獲得者（録音商談＝apo_setter、予定＝ひも付くアポのsetter）
+    const setterNm = (m && m.apo_setter) || (e && e.apoSetter) || (e && planApoMap[e.id] && planApoMap[e.id].setter) || "";
+    if (setterNm) badges += `<span class="home-badge home-badge-setter">獲得 ${escH(setterNm)}</span>`;
     // 補足行
     let meta = "";
     let ownerSel = "";
@@ -2111,7 +2114,7 @@ async function loadDayApoMap(date) {
     const map = {};
     for (const a of aps) {
       const evid = a.eventId || a.inviteEventId || a.invite_event_id || "";
-      if (evid) map[evid] = { slug: a.slug, owner: a.owner || a.current_owner || "" };
+      if (evid) map[evid] = { slug: a.slug, owner: a.owner || a.current_owner || "", setter: a.setter || "" };
     }
     planApoMap = map;
   } catch { planApoMap = {}; }

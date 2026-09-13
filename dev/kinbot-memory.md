@@ -716,3 +716,5 @@ kincall（架電リスト）という別ツールも同じ画面群の中にあ�
 - 2026-09-13 BUILD_TAG=2026-09-13a ホームに「今日のインサイド実施」を追加（明日のリマインドの下・左カラム）。GET /api/home/inside-today：listMeetings(today, light) から、獲得者(apo_setter)がインサイド（listInterns名＋members role=inside名、正規化名一致）の商談を抽出し、獲得者ごとにまとめて返す（会社=account/companyFromTitle、時刻=created_at JST、担当=owner_name/rep_name）。件数多→count降順、上限なし。home.html insTodayBar、home.js loadInsideToday()（獲得者見出し＋件数、各行 時刻/会社/担当）を load時に呼ぶ。CSS .ins-*。実施＝meetingsに録音済みで入っている今日の商談。版20260913a。
 
 - 2026-09-13 BUILD_TAG=2026-09-13b 「今日のインサイド実施」が見えない件を修正。原因：エンドポイントが今日固定でホームの選択日(selDate)と不一致＋0件で非表示。対応：GET /api/home/inside-today?date= を追加（selDate分を返す・responseにdate）。home.js loadInsideToday は selDate で取得し、空でも「この日はまだありません」を表示（非表示にしない）、見出しは今日=「今日のインサイド実施」/他日=「◯/◯のインサイド実施」。changeDate でも loadInsideToday を呼ぶ。CSS .ins-empty。版20260913b。
+
+- 2026-09-13 BUILD_TAG=2026-09-13c ホームの今日の商談カードに獲得者表示。render()のバッジ列に「獲得 ◯◯」チップを追加：setterNm = m.apo_setter（録音商談）|| e.apoSetter || planApoMap[e.id].setter（予定＝ひも付くアポ）。loadDayApoMap の map に setter を追加（/api/apo/pickup の a.setter）。CSS .home-badge-setter（緑チップ）。版20260913c。
