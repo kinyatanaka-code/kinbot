@@ -3362,11 +3362,12 @@ function scHM(v) { return v == null ? "" : `${String(Math.floor(v / 60)).padStar
 function scHm2m(v) { if (!/^\d{1,2}:\d{2}$/.test(String(v || ""))) return null; const [h, mm] = String(v).split(":").map(Number); return h * 60 + mm; }
 function scTodayStr() { const j = new Date(Date.now() + 9 * 3600000); const p = (n) => String(n).padStart(2, "0"); return `${j.getUTCFullYear()}-${p(j.getUTCMonth() + 1)}-${p(j.getUTCDate())}`; }
 function scWorkH(s, e) { if (s == null || e == null || e <= s) return 0; const lunch = Math.max(0, Math.min(e, 780) - Math.max(s, 720)); const h = (e - s - lunch) / 60; return h < 1 ? 0 : Math.round(h * 100) / 100; }
-function scActual(email, ds) { const c = _scCalls[`${String(email).toLowerCase()}|${ds}`]; if (!c || !c.cnt || c.first_min == null || c.last_min == null) return null; return { start: Math.max(0, c.first_min - 15), end: Math.min(1440, c.last_min + 15), cnt: c.cnt }; }
+function scRound30(m) { return Math.round(m / 30) * 30; }   // 10:10→10:00 / 10:15→10:30 / 17:45→18:00
+function scActual(email, ds) { const c = _scCalls[`${String(email).toLowerCase()}|${ds}`]; if (!c || !c.cnt || c.first_min == null || c.last_min == null) return null; return { start: Math.max(0, scRound30(c.first_min)), end: Math.min(1440, scRound30(c.last_min)), cnt: c.cnt }; }
 async function loadShiftCal() {
   if (_scY == null) scInit();
   const cal = $("scCal"); if (cal) cal.innerHTML = '<div class="note">読み込んでいます…</div>';
-  if (!_scInterns.length) { try { const arr = await (await fetch("/api/interns")).json(); _scInterns = Array.isArray(arr) ? arr : []; } catch {} }
+  if (!_scInterns.length) { try { const arr = await (await fetch("/api/interns")).json(); _scInterns = (Array.isArray(arr) ? arr : []).filter((x) => String(x.name || "").replace(/[\s　]/g, "") !== "田中欽也"); } catch {} }
   const p = (n) => String(n).padStart(2, "0");
   const last = new Date(Date.UTC(_scY, _scM + 1, 0)).getUTCDate();
   const from = `${_scY}-${p(_scM + 1)}-01`, to = `${_scY}-${p(_scM + 1)}-${p(last)}`;
@@ -3403,9 +3404,12 @@ function renderShiftCal() {
       let tags = "";
       for (const em of emails) {
         const act = scActual(em, ds); const plan = plans[em]; const nm = (plan && plan.name) || nameOf(em);
+        if (String(nm).replace(/[\s　]/g, "") === "田中欽也") continue;   // セールスは出勤管理から除外
+        totals[em] = totals[em] || { name: nm, actualH: 0, planH: 0, days: 0 };
+        if (plan) totals[em].planH += scWorkH(plan.start_min, plan.end_min);
         if (act) {
           tags += `<span class="sc-tag sc-tag-act">${esc(nm)} ${scHM(act.start)}-${scHM(act.end)}</span>`;
-          totals[em] = totals[em] || { name: nm, h: 0, days: 0 }; totals[em].h += scWorkH(act.start, act.end); totals[em].days += 1;
+          totals[em].actualH += scWorkH(act.start, act.end); totals[em].days += 1;
         } else if (plan && ds < today) {
           tags += `<span class="sc-tag sc-tag-abs">${esc(nm)} 欠勤</span>`;
         } else if (plan) {
@@ -3422,10 +3426,10 @@ function renderShiftCal() {
   cal.querySelectorAll(".sc-cell[data-day]").forEach((c) => c.addEventListener("click", () => openShiftDay(c.dataset.day)));
   const tw = $("scTotals");
   if (tw) {
-    const rows = Object.values(totals).sort((a, b) => b.h - a.h);
+    const rows = Object.values(totals).sort((a, b) => (b.planH - a.planH) || (b.actualH - a.actualH));
     tw.innerHTML = rows.length
-      ? '<div class="sc-tot-h">今月の実働時間（架電記録から推定）</div><table class="kc-table"><thead><tr><th>メンバー</th><th>実働時間</th><th>出勤日数</th></tr></thead><tbody>' + rows.map((r) => `<tr><td>${esc(r.name)}</td><td>${Math.round(r.h * 10) / 10}h</td><td>${r.days}日</td></tr>`).join("") + "</tbody></table>"
-      : '<div class="note">この月の実働（架電記録から推定）はまだありません。</div>';
+      ? '<div class="sc-tot-h">今月の集計</div><table class="kc-table"><thead><tr><th>メンバー</th><th>稼働予定時間</th><th>実働時間（架電記録から推定）</th><th>出勤日数</th></tr></thead><tbody>' + rows.map((r) => `<tr><td>${esc(r.name)}</td><td>${Math.round(r.planH * 10) / 10}h</td><td>${Math.round(r.actualH * 10) / 10}h</td><td>${r.days}日</td></tr>`).join("") + "</tbody></table>"
+      : '<div class="note">この月の出勤（予定・実働）はまだありません。</div>';
   }
 }
 function openBulkShift() {
