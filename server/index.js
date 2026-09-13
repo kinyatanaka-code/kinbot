@@ -3298,6 +3298,17 @@ async function groupApoCountsRaw() {
   } catch (e) { console.warn("[groupApoCounts]", e.message); return { today: 0, week: 0, month: 0 }; }
 }
 
+// ダッシュボードの「グループ（全体）」の今月のアポ目標を返す（通知の「目標 ○・あと ○」に使う）。
+async function groupMonthlyApoGoal() {
+  try {
+    const pad = (n) => String(n).padStart(2, "0");
+    const j = new Date(Date.now() + 9 * 3600000);
+    const monthKey = `${j.getUTCFullYear()}-${pad(j.getUTCMonth() + 1)}`;
+    const mg = await getApoGoalsByKeys("month", [monthKey]).catch(() => ({}));
+    return Number((((mg["group"] || {})[monthKey] || {})["アポ"]) || 0);
+  } catch { return 0; }
+}
+
 // 通知だけを送り直す（メール・SF立ち上げはやり直さない）。
 // 能美のように、立ち上げ済み・メール済みで、Chatの割り振り通知だけ届かなかったとき用。
 app.post("/api/apo/:slug/renotify", async (req, res) => {
@@ -3308,7 +3319,7 @@ app.post("/api/apo/:slug/renotify", async (req, res) => {
     const biz = link.business || "";
     const counts = await groupApoCountsRaw().catch(() => null);
     const st = await getSettings().catch(() => ({}));
-    const goal = st?.apoShowGoal === true ? (parseInt(st?.apoMonthlyGoal, 10) || 0) : 0;
+    const goal = await groupMonthlyApoGoal().catch(() => 0);
     // SF立ち上げは「やり直さず」、今の状態だけ調べて通知に載せる（dryRun）。
     const op = await sfOperator(req.user).catch(() => "");
     const launch = await (op
@@ -19579,7 +19590,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-12zs 中澤さんを集計対象に含めた（除外リストから外した）。ダッシュボード・アポ通知の本日/今週/今月の集計に中澤さんのアポも数えるようにした。";
+const BUILD_TAG = "2026-09-12zt アポ通知に目標を表示。ダッシュボードの「グループ（全体）」の今月のアポ目標を参照し、目標が設定されていれば「📊 …今月 ○（目標 ○・あと ○）」と出す。目標未設定なら目標部分は出ない。カウントと同じダッシュボード基準で統一。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
@@ -22801,7 +22812,7 @@ async function autoAssignOne(link, { inviteOwner, closers = null, cfg, teamCtx =
     const st = await getSettings().catch(() => ({}));
     // アポの月間目標はまだ決まっていないので、通知には出さない。
     // 決まったら、設定で apoShowGoal を true にすれば出るようになる。
-    const goal = st?.apoShowGoal === true ? (parseInt(st?.apoMonthlyGoal, 10) || 0) : 0;
+    const goal = await groupMonthlyApoGoal().catch(() => 0);
     // Salesforceの立ち上げ。設定がONのときだけ実際に立ち上げ、
     // OFFのときは「立ち上げられるか」の判定だけ行う（コンバートは取り消せないため）。
     const runIt = st?.sfAutoLaunch === true;
@@ -24739,7 +24750,7 @@ app.put("/api/smart-links/:slug/owner", async (req, res) => {
           mail, clientEmail: link.client_email,
           // すでに担当が付いていたアポの「変更」なら、件数に数えず「担当を変更しました」で知らせる
           changed: !!(existing.current_owner && String(existing.current_owner).toLowerCase() !== String(owner).toLowerCase()),
-          counts, goal: st?.apoShowGoal === true ? (parseInt(st?.apoMonthlyGoal, 10) || 0) : 0, launch,
+          counts, goal: await groupMonthlyApoGoal().catch(() => 0), launch,
         });
         // テスト用のアポは、通知まで済ませたら数から外す
         await loadTestWords().catch(() => {});
