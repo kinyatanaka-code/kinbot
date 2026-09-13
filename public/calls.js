@@ -3268,18 +3268,15 @@ if ($("stTop")) {
       $("stTop").querySelectorAll(".kc-ptab").forEach((x) => x.classList.toggle("active", x === b));
       const showJisseki = statsTop === "jisseki";
       const isDash = statsTop === "dash";
-      const isDaily = statsTop === "daily";
-      const sw = $("stScopeWrap"), sp = $("stPeriod"), jw = $("clJissekiWrap"), dw = $("clDashWrap"), dg = $("clDailyWrap");
+      const sw = $("stScopeWrap"), sp = $("stPeriod"), jw = $("clJissekiWrap"), dw = $("clDashWrap");
       if (sw) sw.style.display = showJisseki ? "" : "none";
       if (sp) sp.style.display = showJisseki ? "" : "none";
       const acts = document.querySelector("#clJissekiWrap .ap-cfg-actions");
       if (acts) acts.style.display = showJisseki ? "" : "none";   // 読み込み直す・CSVは実績のときだけ
       // 実績・設定・管理・プロセスは、どれも #clStats に描くので枠は出しておく
-      if (jw) jw.hidden = isDash || isDaily;
+      if (jw) jw.hidden = isDash;
       if (dw) dw.hidden = !isDash;
-      if (dg) dg.hidden = !isDaily;
-      if (isDaily) loadDailyGoal();
-      else if (isDash) loadDash();
+      if (isDash) loadDash();
       else if (statsTop === "admin") loadAdmin();
       else if (statsTop === "process") loadProcess();
       else loadStats();
@@ -3566,12 +3563,13 @@ function showPane() {
     a.classList.toggle("active", mine);
   });
   // ヘッダーの表示を、いま開いているページに合わせる
-  const 名前 = { call: ["kincall", "架電リスト"], stats: ["実績", ""], lists: ["リスト管理", ""], shifts: ["出勤管理", "インサイドの稼働カレンダー"] }[p] || ["kincall", ""];
+  const 名前 = { call: ["kincall", "架電リスト"], stats: ["実績", ""], lists: ["リスト管理", ""], shifts: ["出勤管理", "インサイドの稼働カレンダー"], daily: ["デイリー目標", "その日の稼働・目標"] }[p] || ["kincall", ""];
   const nm = document.querySelector(".kc-name"); if (nm) nm.textContent = 名前[0];
   const sub = document.querySelector(".kc-sub"); if (sub) { sub.textContent = 名前[1]; sub.style.display = 名前[1] ? "" : "none"; }
   if (p === "stats") { if (statsTop === "dash") loadDash(); else loadStats(); }
   if (p === "lists") asLoad();
   if (p === "shifts") loadShiftCal();
+  if (p === "daily") loadDailyGoal();
 }
 
 // サイドメニューの「資料送付設定」→ モーダルを開く（ページ遷移はしない）
