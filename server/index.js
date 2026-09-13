@@ -3269,16 +3269,16 @@ async function groupApoCountsRaw() {
     const y = j.getUTCFullYear(), m = j.getUTCMonth(), d = j.getUTCDate();
     const ymd = (dt) => `${dt.getUTCFullYear()}-${pad(dt.getUTCMonth() + 1)}-${pad(dt.getUTCDate())}`;
     const today = ymd(new Date(Date.UTC(y, m, d)));
+    const monthStart = new Date(Date.UTC(y, m, 1));
     const off = (j.getUTCDay() + 6) % 7; // 月曜起点
-    const weekMon = new Date(Date.UTC(y, m, d - off));
+    // 今週＝週ラップに合わせ、月曜起点だが月初より前には遡らない（月をまたぐ週は月初で締める）
+    const weekMon = new Date(Math.max(Date.UTC(y, m, d - off), monthStart.getTime()));
     const weekFrom = ymd(weekMon);
-    // 集計範囲＝「今月1日」と「今週の月曜」の早い方 〜 今日（週が月をまたいでも今週を正しく数える）
-    const start = new Date(Math.min(Date.UTC(y, m, 1), weekMon.getTime()));
     const end = new Date(Date.UTC(y, m, d));
     const cuts = [];
-    for (let cur = new Date(start); cur.getTime() <= end.getTime(); cur = new Date(cur.getTime() + 86400000)) {
+    for (let cur = new Date(monthStart); cur.getTime() <= end.getTime(); cur = new Date(cur.getTime() + 86400000)) {
       const k = ymd(cur);
-      cuts.push({ key: k, 名前: `${cur.getUTCMonth() + 1}/${cur.getUTCDate()}`, from: k, to: k, _inMonth: cur.getUTCFullYear() === y && cur.getUTCMonth() === m });
+      cuts.push({ key: k, 名前: `${cur.getUTCMonth() + 1}/${cur.getUTCDate()}`, from: k, to: k });
     }
     const g = await computeStatsGrid("day", 2, { 区切り: cuts }).catch(() => null);
     if (!g || !Array.isArray(g.members)) return { today: 0, week: 0, month: 0 };
@@ -3289,7 +3289,7 @@ async function groupApoCountsRaw() {
       const vals = mm.値 || [];
       for (let i = 0; i < vals.length; i++) {
         const n = Number(vals[i].アポ内 || 0) + Number(vals[i].アポ外 || 0);
-        if (cuts[i] && cuts[i]._inMonth) tmn += n;
+        tmn += n;
         if (idxWeek >= 0 && i >= idxWeek) twk += n;
         if (i === idxToday) tday += n;
       }
@@ -3298,14 +3298,27 @@ async function groupApoCountsRaw() {
   } catch (e) { console.warn("[groupApoCounts]", e.message); return { today: 0, week: 0, month: 0 }; }
 }
 
-// ダッシュボードの「グループ（全体）」の今月のアポ目標を返す（通知の「目標 ○・あと ○」に使う）。
-async function groupMonthlyApoGoal() {
+// ダッシュボードの週ラップ「グループ（全体）」の“今週”のアポ目標を返す（通知の「目標 ○・あと ○」に使う）。
+// 目標キーの保存形式ゆれ（今週の月曜／月初からの7日ごと）どちらでも拾えるよう候補を試す。
+async function groupWeeklyApoGoal() {
   try {
     const pad = (n) => String(n).padStart(2, "0");
     const j = new Date(Date.now() + 9 * 3600000);
-    const monthKey = `${j.getUTCFullYear()}-${pad(j.getUTCMonth() + 1)}`;
-    const mg = await getApoGoalsByKeys("month", [monthKey]).catch(() => ({}));
-    return Number((((mg["group"] || {})[monthKey] || {})["アポ"]) || 0);
+    const y = j.getUTCFullYear(), m = j.getUTCMonth(), d = j.getUTCDate();
+    const ymd = (dt) => `${dt.getUTCFullYear()}-${pad(dt.getUTCMonth() + 1)}-${pad(dt.getUTCDate())}`;
+    const monthStart = new Date(Date.UTC(y, m, 1));
+    const off = (j.getUTCDay() + 6) % 7;
+    const weekMon = new Date(Math.max(Date.UTC(y, m, d - off), monthStart.getTime()));
+    const cands = [ymd(weekMon)];
+    // 月初から7日ごとの区切りで、今日が入るラップの開始日（旧キー形式）
+    for (let k = new Date(monthStart); k.getTime() <= Date.UTC(y, m, d); k = new Date(k.getTime() + 7 * 86400000)) {
+      const to = k.getTime() + 6 * 86400000;
+      if (Date.UTC(y, m, d) >= k.getTime() && Date.UTC(y, m, d) <= to) cands.push(ymd(k));
+    }
+    const uniq = [...new Set(cands)];
+    const wg = await getApoGoalsByKeys("week", uniq).catch(() => ({}));
+    for (const key of uniq) { const v = Number((((wg["group"] || {})[key] || {})["アポ"]) || 0); if (v) return v; }
+    return 0;
   } catch { return 0; }
 }
 
@@ -3319,7 +3332,7 @@ app.post("/api/apo/:slug/renotify", async (req, res) => {
     const biz = link.business || "";
     const counts = await groupApoCountsRaw().catch(() => null);
     const st = await getSettings().catch(() => ({}));
-    const goal = await groupMonthlyApoGoal().catch(() => 0);
+    const goal = await groupWeeklyApoGoal().catch(() => 0);
     // SF立ち上げは「やり直さず」、今の状態だけ調べて通知に載せる（dryRun）。
     const op = await sfOperator(req.user).catch(() => "");
     const launch = await (op
@@ -19590,7 +19603,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-12zt アポ通知に目標を表示。ダッシュボードの「グループ（全体）」の今月のアポ目標を参照し、目標が設定されていれば「📊 …今月 ○（目標 ○・あと ○）」と出す。目標未設定なら目標部分は出ない。カウントと同じダッシュボード基準で統一。";
+const BUILD_TAG = "2026-09-12zu アポ通知の目標を「今週」基準に変更。ダッシュボードの週ラップ（グループ全体）の“今週”のアポ目標を参照し、通知は「今週 ○（今週の目標 ○・あと ○）」と表示（あと＝週目標−今週）。今週の集計も週ラップの区切り（月曜起点・月初で締め）に合わせた。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
@@ -22812,7 +22825,7 @@ async function autoAssignOne(link, { inviteOwner, closers = null, cfg, teamCtx =
     const st = await getSettings().catch(() => ({}));
     // アポの月間目標はまだ決まっていないので、通知には出さない。
     // 決まったら、設定で apoShowGoal を true にすれば出るようになる。
-    const goal = await groupMonthlyApoGoal().catch(() => 0);
+    const goal = await groupWeeklyApoGoal().catch(() => 0);
     // Salesforceの立ち上げ。設定がONのときだけ実際に立ち上げ、
     // OFFのときは「立ち上げられるか」の判定だけ行う（コンバートは取り消せないため）。
     const runIt = st?.sfAutoLaunch === true;
@@ -24750,7 +24763,7 @@ app.put("/api/smart-links/:slug/owner", async (req, res) => {
           mail, clientEmail: link.client_email,
           // すでに担当が付いていたアポの「変更」なら、件数に数えず「担当を変更しました」で知らせる
           changed: !!(existing.current_owner && String(existing.current_owner).toLowerCase() !== String(owner).toLowerCase()),
-          counts, goal: await groupMonthlyApoGoal().catch(() => 0), launch,
+          counts, goal: await groupWeeklyApoGoal().catch(() => 0), launch,
         });
         // テスト用のアポは、通知まで済ませたら数から外す
         await loadTestWords().catch(() => {});
