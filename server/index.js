@@ -3260,6 +3260,44 @@ app.get("/api/apo/:slug/why", async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+// ダッシュボードの週ラップ（グループ全体）と同じ基準で、本日/今週/今月のアポ件数を数える。
+// computeStatsGrid（会社×取得日×獲得者で重複排除・メルマガ/除外者を除く）をそのまま使うので数字が一致する。
+async function groupApoCountsRaw() {
+  try {
+    const pad = (n) => String(n).padStart(2, "0");
+    const j = new Date(Date.now() + 9 * 3600000);
+    const y = j.getUTCFullYear(), m = j.getUTCMonth(), d = j.getUTCDate();
+    const ymd = (dt) => `${dt.getUTCFullYear()}-${pad(dt.getUTCMonth() + 1)}-${pad(dt.getUTCDate())}`;
+    const today = ymd(new Date(Date.UTC(y, m, d)));
+    const off = (j.getUTCDay() + 6) % 7; // 月曜起点
+    const weekMon = new Date(Date.UTC(y, m, d - off));
+    const weekFrom = ymd(weekMon);
+    // 集計範囲＝「今月1日」と「今週の月曜」の早い方 〜 今日（週が月をまたいでも今週を正しく数える）
+    const start = new Date(Math.min(Date.UTC(y, m, 1), weekMon.getTime()));
+    const end = new Date(Date.UTC(y, m, d));
+    const cuts = [];
+    for (let cur = new Date(start); cur.getTime() <= end.getTime(); cur = new Date(cur.getTime() + 86400000)) {
+      const k = ymd(cur);
+      cuts.push({ key: k, 名前: `${cur.getUTCMonth() + 1}/${cur.getUTCDate()}`, from: k, to: k, _inMonth: cur.getUTCFullYear() === y && cur.getUTCMonth() === m });
+    }
+    const g = await computeStatsGrid("day", 2, { 区切り: cuts }).catch(() => null);
+    if (!g || !Array.isArray(g.members)) return { today: 0, week: 0, month: 0 };
+    const idxWeek = cuts.findIndex((c) => c.key === weekFrom);
+    const idxToday = cuts.findIndex((c) => c.key === today);
+    let tday = 0, twk = 0, tmn = 0;
+    for (const mm of g.members) {
+      const vals = mm.値 || [];
+      for (let i = 0; i < vals.length; i++) {
+        const n = Number(vals[i].アポ内 || 0) + Number(vals[i].アポ外 || 0);
+        if (cuts[i] && cuts[i]._inMonth) tmn += n;
+        if (idxWeek >= 0 && i >= idxWeek) twk += n;
+        if (i === idxToday) tday += n;
+      }
+    }
+    return { today: tday, week: twk, month: tmn };
+  } catch (e) { console.warn("[groupApoCounts]", e.message); return { today: 0, week: 0, month: 0 }; }
+}
+
 // 通知だけを送り直す（メール・SF立ち上げはやり直さない）。
 // 能美のように、立ち上げ済み・メール済みで、Chatの割り振り通知だけ届かなかったとき用。
 app.post("/api/apo/:slug/renotify", async (req, res) => {
@@ -3268,7 +3306,7 @@ app.post("/api/apo/:slug/renotify", async (req, res) => {
     if (!link) return res.status(404).json({ error: "見つかりません" });
     const repName = await repDisplayName(link.current_owner).catch(() => link.current_owner || "");
     const biz = link.business || "";
-    const counts = await assignCounts(biz).catch(() => null);
+    const counts = await groupApoCountsRaw().catch(() => null);
     const st = await getSettings().catch(() => ({}));
     const goal = st?.apoShowGoal === true ? (parseInt(st?.apoMonthlyGoal, 10) || 0) : 0;
     // SF立ち上げは「やり直さず」、今の状態だけ調べて通知に載せる（dryRun）。
@@ -3960,7 +3998,7 @@ app.put("/api/smart-links/:slug/excluded", async (req, res) => {
       try {
         const st = await getSettings().catch(() => ({}));
         if (st.chatNotifyAssign !== false) {
-          const c = await assignCounts(link.business || "").catch(() => null);
+          const c = await groupApoCountsRaw().catch(() => null);
           const who = link.current_owner_name || link.current_owner || "";
           const what = [link.label, link.client_name].filter(Boolean).join("／");
           const body =
@@ -19541,7 +19579,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-12zq アポイントのサブメニューを変更。上から アポ一覧／インターンアポ／アポ実績／割り振り設定／メール設定 の並びにした（チーム実績はサブメニューから外し、アポ画面のタブからは引き続き利用可）。アポ画面はURLに?tab=を補って、開いているタブに合わせてサブメニューが正しく点灯するようにした。";
+const BUILD_TAG = "2026-09-12zr アポ通知の「本日/今週/今月」カウントを、ダッシュボードの週ラップ（グループ全体）と同じ基準に修正。これまで割り振りログを数えていて桁違いだったのを、アポ一覧（メルマガ・除外者を除き、会社×取得日×獲得者で重複排除）の集計に統一。今週は月曜起点（月をまたぐ週も正しく集計）。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
@@ -22759,7 +22797,7 @@ async function autoAssignOne(link, { inviteOwner, closers = null, cfg, teamCtx =
   // Google Chat へ通知する。下書きも自動でできるので、メールの状況を含めて1通にまとめる。
   // （通知が失敗しても割り振り自体は止めない）
   (async () => {
-    const counts = await assignCounts(biz).catch(() => null);
+    const counts = await groupApoCountsRaw().catch(() => null);
     const st = await getSettings().catch(() => ({}));
     // アポの月間目標はまだ決まっていないので、通知には出さない。
     // 決まったら、設定で apoShowGoal を true にすれば出るようになる。
@@ -24685,7 +24723,7 @@ app.put("/api/smart-links/:slug/owner", async (req, res) => {
     // Google Chat へ通知する（手で担当を選んだときも、メールの状況を含めて1通で知らせる）
     if (owner) {
       (async () => {
-        const counts = await assignCounts(link.business || "").catch(() => null);
+        const counts = await groupApoCountsRaw().catch(() => null);
         const st = await getSettings().catch(() => ({}));
         const runIt = st?.sfAutoLaunch === true;
         const op = await sfOperator(req.user).catch(() => "");
