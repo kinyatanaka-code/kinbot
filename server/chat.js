@@ -307,9 +307,8 @@ export async function notifyAssigned({
     launchLine(launch),
     // 担当変更のときは件数を出さない（新規アポではないため）
     (!changed && counts)
-      ? `📊 本日 ${counts.today} ／ 今週 ${counts.week}` +
-        (goal ? `（今週の目標 ${goal}・あと ${Math.max(0, goal - counts.week)}）` : "") +
-        ` ／ 今月 ${counts.month}`
+      ? `📊 本日 ${counts.today} ／ 今週 ${counts.week} ／ 今月 ${counts.month}` +
+        (goal ? `（今週の目標 ${goal}・あと ${Math.max(0, goal - counts.month)}）` : "")
       : "",
   ].filter(Boolean);
   return notifyAll(lines.join("\n"), "assign", { mentionName: repName || "" });

@@ -702,3 +702,5 @@ kincall（架電リスト）という別ツールも同じ画面群の中にあ�
 - 2026-09-12 BUILD_TAG=2026-09-12zt アポ通知の目標をダッシュボード基準に。groupMonthlyApoGoal()（getApoGoalsByKeys("month",[今月])["group"][月]["アポ"]＝ダッシュボードのグループ全体・今月目標）を追加。通知の goal 供給元3箇所（renotify 3311・主割り振り 22804・別経路 24742 インライン）を `st.apoShowGoal?apoMonthlyGoal:0` → `await groupMonthlyApoGoal()` に差し替え。目標が設定されていれば chat.js の既存書式「（目標 ○・あと ○）」（あと＝目標−今月）が出る。apoShowGoalトグル/apoMonthlyGoal設定には依存しなくなった（ダッシュボードで月目標を入れれば出る）。版20260912zt。
 
 - 2026-09-12 BUILD_TAG=2026-09-12zu アポ通知の目標を週次に修正（ダッシュボードは週ラップで目標表示のため）。groupMonthlyApoGoal→groupWeeklyApoGoal：getApoGoalsByKeys("week",[候補キー])["group"]。候補キー＝今週の月曜(月初で締め)＋月初からの7日ごとで今日が入るラップ開始日(旧キー形式)を試し最初の非0。groupApoCountsRawの今週も週ラップに合わせ、月曜起点だが月初より前に遡らない（weekMon=max(今週月曜, 月初)）。chat.js通知書式を「📊 本日 X ／ 今週 Y（今週の目標 G・あと max(0,G-Y)）／ 今月 M」に変更（あとは今週基準）。通知goal供給3箇所は groupWeeklyApoGoal に統一。版20260912zu。
+
+- 2026-09-12 BUILD_TAG=2026-09-12zv アポ通知の目標「あと」を積み上げ基準に修正。ダッシュボード週ラップの定義（実績＝月初からの積み上げ／週目標＝その週のグループ全体の目標／差分＝積み上げ実績−週目標）に合わせ、chat.js の通知書式を「📊 本日 X ／ 今週 Y ／ 今月 Z（今週の目標 G・あと max(0,G−Z)）」に。あと＝週目標−今月(積み上げ)。週目標は groupWeeklyApoGoal（獲得した週＝通知時の今週のグループ目標）。※月間目標はダッシュボードの最終週(4週目)の積み上げ目標＝月合計、というユーザー補足に基づく（通知は週目標を採用）。版20260912zv。
