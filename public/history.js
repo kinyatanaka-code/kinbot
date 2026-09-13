@@ -389,22 +389,76 @@ function openCompanySfLink(company) {
     const today = (() => { const d = new Date(); const p = (n) => String(n).padStart(2, "0"); return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`; })();
     panel.innerHTML =
       `<div class="csf-h"><span>SF商談を立ち上げる</span><button type="button" class="csf-x2" aria-label="閉じる">×</button></div>
-       <div class="csf-note">「${escapeHtml(company)}」でSF商談を新規に立ち上げます。電話・Webサイト・住所・都道府県などは自動で補います。</div>
+       <div class="csf-note">「${escapeHtml(company)}」でSF商談を新規に立ち上げます。会社名・担当者を、SF取引先→gBizINFO→ネット検索で自動で補います。内容を確認・修正してから立ち上げてください。組織に無い項目は自動で省きます。</div>
+       <button type="button" class="btn csf-fill">会社情報を自動で補完</button>
        <label class="csf-f"><span>会社名</span><input id="clCompany" type="text" value="${escapeHtml(company)}" /></label>
        <label class="csf-f"><span>担当者（姓）</span><input id="clPerson" type="text" placeholder="例：山本" /></label>
        <label class="csf-f"><span>メール</span><input id="clEmail" type="email" placeholder="任意" /></label>
        <label class="csf-f"><span>商談日</span><input id="clDate" type="date" value="${today}" /></label>
+       <label class="csf-f"><span>電話</span><input id="clPhone" type="text" /></label>
+       <label class="csf-f"><span>Webサイト</span><input id="clWeb" type="text" placeholder="https://..." /></label>
+       <label class="csf-f"><span>都道府県</span><input id="clState" type="text" placeholder="例：東京都" /></label>
+       <label class="csf-f"><span>住所</span><input id="clStreet" type="text" /></label>
+       <label class="csf-f"><span>従業員数</span><input id="clEmp" type="text" inputmode="numeric" /></label>
        <div class="csf-msg" id="clMsg"></div>
-       <div class="csf-actions"><button type="button" class="btn btn-ghost csf-back-btn">← 戻る</button><button type="button" class="btn csf-go">立ち上げる</button></div>`;
+       <div class="csf-actions"><button type="button" class="btn btn-ghost csf-back-btn">← 戻る</button><button type="button" class="btn csf-go">この内容で立ち上げる</button></div>`;
     panel.querySelector(".csf-x2").addEventListener("click", close);
     panel.querySelector(".csf-back-btn").addEventListener("click", () => { close(); openCompanySfLink(company); });
+    // 会社情報の自動補完（アポ一覧と同じ：SF取引先→gBiz→ネット→公式サイト読込 の4段階＋空欄が埋まるまで最大3回リトライ）
+    const setIfEmpty = (id, val) => { const el = panel.querySelector("#" + id); if (el && !(el.value || "").trim() && val) { el.value = val; return true; } return false; };
+    const autofill = async (silent) => {
+      const btn = panel.querySelector(".csf-fill");
+      const msg = panel.querySelector("#clMsg");
+      const val = (id) => (panel.querySelector("#" + id).value || "").trim();
+      const allFilled = () => ["clPhone", "clWeb", "clState", "clStreet", "clEmp"].every((id) => val(id));
+      btn.disabled = true; const bo0 = btn.textContent;
+      let filledAny = false;
+      const runStage = async (stage, label, roundNote) => {
+        btn.textContent = roundNote ? `${label}（${roundNote}）` : label;
+        if (!silent) { msg.className = "csf-msg"; msg.textContent = "検索中… " + label + (roundNote ? `（${roundNote}）` : ""); }
+        const params = new URLSearchParams({ stage });
+        const co = val("clCompany") || company;
+        if (co) params.set("company", co);
+        for (const [id, key] of [["clEmail", "email"], ["clStreet", "street"], ["clState", "state"], ["clWeb", "website"], ["clPhone", "phone"], ["clEmp", "employees"]]) {
+          if (val(id)) params.set(key, val(id));
+        }
+        try {
+          const r = await fetch(`/api/apo/co/company-info?` + params.toString());
+          const d = await r.json();
+          if (r.ok) {
+            setIfEmpty("clCompany", d.company || "");
+            setIfEmpty("clPerson", d.person || "");
+            const info = d.info || {};
+            for (const [id, key] of [["clPhone", "phone"], ["clWeb", "website"], ["clState", "state"], ["clStreet", "street"], ["clEmp", "employees"]]) {
+              if (setIfEmpty(id, info[key] || "")) filledAny = true;
+            }
+          }
+        } catch { /* この段は飛ばす */ }
+      };
+      const firstPass = [["sf", "SFの取引先を確認中…"], ["gbiz", "gBizINFO・メールで検索中…"], ["web", "ネットで検索中…"], ["deep", "公式サイトを読み込み中…"]];
+      for (const [stage, label] of firstPass) { if (allFilled()) break; await runStage(stage, label); }
+      const MAX_RETRY = 3;
+      for (let round = 2; round <= 1 + MAX_RETRY && !allFilled(); round++) {
+        await runStage("web", "ネットで再検索中…", `${round}回目`);
+        if (allFilled()) break;
+        await runStage("deep", "サイト・詳細を探しています…", `${round}回目`);
+      }
+      btn.disabled = false; btn.textContent = bo0;
+      if (!silent) {
+        msg.className = "csf-msg";
+        msg.textContent = allFilled() ? "自動で補完しました。内容を確認してください。"
+          : (filledAny ? "空欄を埋めました。残りは手で入力してください（もう一度押すと再検索します）。" : "見つかりませんでした。手で入力してください（もう一度押すと再検索します）。");
+      }
+    };
+    panel.querySelector(".csf-fill").addEventListener("click", () => autofill(false));
+    autofill(true);
     panel.querySelector(".csf-go").addEventListener("click", async () => {
       const v = (id) => (panel.querySelector("#" + id).value || "").trim();
       const co = v("clCompany") || company;
       const lead = {};
-      if (v("clPerson")) lead.person = v("clPerson");
-      if (v("clEmail")) lead.email = v("clEmail");
-      if (v("clDate")) lead.meetingDate = v("clDate");
+      for (const [id, key] of [["clPerson", "person"], ["clEmail", "email"], ["clDate", "meetingDate"], ["clPhone", "phone"], ["clWeb", "website"], ["clState", "state"], ["clStreet", "street"], ["clEmp", "employees"]]) {
+        if (v(id)) lead[key] = v(id);
+      }
       const msg = panel.querySelector("#clMsg"); msg.textContent = "";
       const go = panel.querySelector(".csf-go"); go.disabled = true; const bo = go.textContent; go.textContent = "立ち上げ中…";
       try {
