@@ -6248,3 +6248,15 @@ input:focus, select:focus, textarea:focus, .sf-input:focus, .sf-select:focus, .s
 .sc-dchk { font-size:12px; color:#4a5a54; display:flex; align-items:center; gap:4px; }
 .sc-dchk-wk { color:#b0968f; }
 .sc-bm { border:1px solid #d7e3dd; border-radius:8px; padding:4px 8px; font-size:13px; }
+
+/* 一括入力（直感版） */
+.sc-modal-lg { max-width: 560px; }
+.sc-bl { font-size: 13px; font-weight: 700; color: #173a30; margin-bottom: 6px; }
+.sc-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.sc-chip { border: 1px solid #d7e3dd; background: #fff; color: #4a5a54; border-radius: 20px; padding: 5px 12px; font-size: 13px; cursor: pointer; }
+.sc-chip.on { background: #0f6e56; color: #fff; border-color: #0f6e56; }
+.sc-dows { display: flex; gap: 6px; }
+.sc-dow { width: 38px; height: 34px; border: 1px solid #d7e3dd; background: #fff; color: #4a5a54; border-radius: 9px; font-size: 13px; cursor: pointer; }
+.sc-dow.on { background: #1d9e75; color: #fff; border-color: #1d9e75; }
+.sc-preview { margin-top: 12px; font-size: 13px; color: #8a8f8c; }
+.sc-preview-on { color: #0f6e56; font-weight: 700; }

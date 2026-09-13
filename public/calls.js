@@ -3437,24 +3437,57 @@ function openBulkShift() {
   const p = (n) => String(n).padStart(2, "0");
   const last = new Date(Date.UTC(_scY, _scM + 1, 0)).getUTCDate();
   const wd = ["日", "月", "火", "水", "木", "金", "土"];
-  const memOpts = _scInterns.map((it) => `<option value="${esc(it.email)}" data-name="${esc(it.name || "")}">${esc(it.name || it.email)}</option>`).join("");
-  let dayChecks = "";
-  for (let dd = 1; dd <= last; dd++) { const dow = new Date(Date.UTC(_scY, _scM, dd)).getUTCDay(); const ds = `${_scY}-${p(_scM + 1)}-${p(dd)}`; const wk = dow === 0 || dow === 6 || _scHol[ds]; dayChecks += `<label class="sc-dchk${wk ? " sc-dchk-wk" : ""}"><input type="checkbox" class="sc-dc" value="${ds}" ${wk ? "" : "checked"}/> ${_scM + 1}/${dd}(${wd[dow]})</label>`; }
+  const memChips = _scInterns.map((it) => `<button type="button" class="sc-chip" data-em="${esc(it.email)}" data-name="${esc(it.name || "")}">${esc(it.name || it.email)}</button>`).join("");
+  const dowBtns = [1, 2, 3, 4, 5, 6, 0].map((d) => `<button type="button" class="sc-dow${d >= 1 && d <= 5 ? " on" : ""}" data-dow="${d}">${wd[d]}</button>`).join("");
   const back = document.createElement("div"); back.className = "sc-back";
-  back.innerHTML = `<div class="sc-modal"><div class="sc-mh"><span>複数日に一括入力</span><button type="button" class="sc-x">×</button></div><div class="sc-mbody"><label class="sc-mrow">メンバー <select class="sc-bm">${memOpts}</select></label><label class="sc-mrow">時間 <input type="time" class="sc-bs" value="10:00"/> 〜 <input type="time" class="sc-be" value="18:00"/></label><div style="margin:8px 0 4px;font-size:12px;color:#4a5a54">対象の日（土日祝は既定オフ）<button type="button" class="btn ghost sc-ball" style="margin-left:8px">平日を全選択</button></div><div class="sc-days">${dayChecks}</div></div><div class="sc-mact"><button type="button" class="btn ghost sc-cancel">閉じる</button><button type="button" class="btn sc-save">保存</button></div></div>`;
+  back.innerHTML = `<div class="sc-modal sc-modal-lg"><div class="sc-mh"><span>${_scM + 1}月にまとめて出勤を入れる</span><button type="button" class="sc-x">×</button></div>
+    <div class="sc-mbody">
+      <div class="sc-bl">メンバー（複数選べます）<button type="button" class="btn ghost sc-allmem" style="margin-left:8px">全員</button></div>
+      <div class="sc-chips" id="scMemChips">${memChips || '<span class="note">インサイド未登録</span>'}</div>
+      <div class="sc-bl" style="margin-top:12px">曜日<span class="note" style="margin-left:8px">土日・祝日・休業日は自動で除外します</span></div>
+      <div class="sc-dows" id="scDows">${dowBtns}</div>
+      <div class="sc-bl" style="margin-top:12px">時間</div>
+      <div><input type="time" class="sc-bs" value="10:00" /> 〜 <input type="time" class="sc-be" value="18:00" /></div>
+      <div class="sc-preview" id="scPrev2"></div>
+    </div>
+    <div class="sc-mact"><button type="button" class="btn ghost sc-cancel">閉じる</button><button type="button" class="btn sc-save">この内容で入れる</button></div></div>`;
   document.body.appendChild(back);
   const close = () => back.remove();
   back.addEventListener("click", (e) => { if (e.target === back) close(); });
   back.querySelector(".sc-x").addEventListener("click", close);
   back.querySelector(".sc-cancel").addEventListener("click", close);
-  back.querySelector(".sc-ball").addEventListener("click", () => { back.querySelectorAll(".sc-dchk:not(.sc-dchk-wk) .sc-dc").forEach((c) => (c.checked = true)); });
+  const selMem = () => [...back.querySelectorAll(".sc-chip.on")].map((c) => ({ email: c.dataset.em, name: c.dataset.name }));
+  const selDows = () => new Set([...back.querySelectorAll(".sc-dow.on")].map((b) => +b.dataset.dow));
+  const targetDays = () => {
+    const dows = selDows(); const days = [];
+    for (let dd = 1; dd <= last; dd++) {
+      const ds = `${_scY}-${p(_scM + 1)}-${p(dd)}`; const dow = new Date(Date.UTC(_scY, _scM, dd)).getUTCDay();
+      if (!dows.has(dow)) continue;
+      if (dow === 0 || dow === 6 || _scHol[ds]) continue;   // 土日祝・休業日は除外
+      days.push(ds);
+    }
+    return days;
+  };
+  const updatePrev = () => {
+    const m = selMem().length, d = targetDays().length;
+    const el = back.querySelector("#scPrev2");
+    el.textContent = (m && d) ? `対象：${d}日 × ${m}名 → ${d * m}件 入れます` : "メンバーと曜日を選んでください";
+    el.className = "sc-preview" + ((m && d) ? " sc-preview-on" : "");
+  };
+  back.querySelectorAll(".sc-chip").forEach((c) => c.addEventListener("click", () => { c.classList.toggle("on"); updatePrev(); }));
+  back.querySelectorAll(".sc-dow").forEach((b) => b.addEventListener("click", () => { b.classList.toggle("on"); updatePrev(); }));
+  back.querySelector(".sc-allmem").addEventListener("click", () => { const chips = back.querySelectorAll(".sc-chip"); const allOn = [...chips].every((c) => c.classList.contains("on")); chips.forEach((c) => c.classList.toggle("on", !allOn)); updatePrev(); });
+  back.querySelector(".sc-bs").addEventListener("change", updatePrev);
+  back.querySelector(".sc-be").addEventListener("change", updatePrev);
+  updatePrev();
   back.querySelector(".sc-save").addEventListener("click", async () => {
-    const sel = back.querySelector(".sc-bm"); const email = sel.value; const name = (sel.options[sel.selectedIndex] && sel.options[sel.selectedIndex].dataset.name) || "";
+    const members = selMem(); const days = targetDays();
     const s = scHm2m(back.querySelector(".sc-bs").value), e = scHm2m(back.querySelector(".sc-be").value);
+    if (!members.length) { alert("メンバーを選んでください"); return; }
+    if (!days.length) { alert("曜日を選んでください"); return; }
     if (s == null || e == null || e <= s) { alert("時間を正しく入れてください"); return; }
-    const days = [...back.querySelectorAll(".sc-dc:checked")].map((c) => c.value);
-    if (!days.length) { close(); return; }
-    const shifts = days.map((day) => ({ email, name, day, start_min: s, end_min: e }));
+    const shifts = [];
+    for (const m of members) for (const day of days) shifts.push({ email: m.email, name: m.name, day, start_min: s, end_min: e });
     try { await fetch("/api/inside-shifts", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ shifts }) }); } catch {}
     close(); loadShiftCal();
   });
