@@ -327,6 +327,8 @@ import {
   getCompanySfLinks,
   getApoOppsByCompanies,
   contactCandidatesForCompany,
+  listApoValidCandidates,
+  markValidNotified,
   refreshApoOppMeta,
   autolaunchForSlugs,
   autolaunchByCompanies,
@@ -4022,8 +4024,61 @@ async function sfOperator(prefer = "") {
   return "";
 }
 
-// URLが空のときは gBizINFO で補う。見つからなければ空のまま。
-// 住所文字列から都道府県を取り出す（無ければ空）
+// ===== インサイド獲得アポが「有効商談」になったら獲得者へ通知 =====
+let _oppStageCache = { at: 0, idx: -1, names: [] };
+async function opportunityStageOrder(op) {
+  if (_oppStageCache.names.length && Date.now() - _oppStageCache.at < 60 * 60 * 1000) return _oppStageCache;
+  try {
+    const d = await describeOpportunity(op);
+    const sf = (d.fields || []).find((f) => f.name === "StageName");
+    const names = ((sf && sf.picklistValues) || []).filter((v) => v.active !== false).map((v) => v.value || v.label);
+    const idx = names.findIndex((n) => /有効商談/.test(n));
+    _oppStageCache = { at: Date.now(), idx, names };
+  } catch { /* keep old cache */ }
+  return _oppStageCache;
+}
+async function checkValidDeals() {
+  try {
+    const cands = await listApoValidCandidates();
+    if (!cands.length) return;
+    const op = await sfOperator("").catch(() => "");
+    if (!op) return;
+    const order = await opportunityStageOrder(op);
+    if (!order || order.idx < 0) return; // 「有効商談」ステージを特定できないときは何もしない
+    const validIdx = order.idx;
+    const st = await getSettings().catch(() => ({}));
+    const firstRun = !st.validDealNotifyInit; // 初回は既存の有効商談を静かに既済化（一斉通知しない）
+    // opp_id をまとめて照会
+    const ids = [...new Set(cands.map((c) => c.opp_id).filter(Boolean))];
+    const byId = {};
+    for (let i = 0; i < ids.length; i += 200) {
+      const chunk = ids.slice(i, i + 200);
+      const idList = chunk.map((id) => `'${String(id).replace(/'/g, "\\'")}'`).join(",");
+      const d = await sfQuery(op, `SELECT Id, Name, StageName, IsClosed, IsWon FROM Opportunity WHERE Id IN (${idList})`).catch(() => ({ records: [] }));
+      for (const o of d.records || []) byId[o.Id] = o;
+    }
+    let notified = 0, marked = 0;
+    for (const c of cands) {
+      const o = byId[c.opp_id];
+      if (!o) continue;
+      const stage = String(o.StageName || "");
+      const si = order.names.findIndex((n) => n === stage);
+      const reached = si >= 0 ? si >= validIdx : /有効商談/.test(stage);
+      const isLost = o.IsClosed && !o.IsWon; // 失注は通知しない
+      if (!reached || isLost) continue;
+      if (!firstRun) {
+        const co = c.company || parseLaunchTitle(c.label || "").company || o.Name || "その会社";
+        const msg = `【有効商談になりました】あなたが獲得したアポ「${co}」が有効商談（02）に進みました。ナイスアポです。`;
+        await notifyPerson(c.setter_email, msg).catch(() => {});
+        notified++;
+      }
+      await markValidNotified(c.slug).catch(() => {});
+      marked++;
+    }
+    if (firstRun) { await saveSettings({ validDealNotifyInit: true }).catch(() => {}); console.log(`[有効商談通知] 初回：既存 ${marked}件を既済化（通知なし）`); }
+    else if (notified) console.log(`[有効商談通知] ${notified}件を獲得者へ通知`);
+  } catch (e) { console.warn("[有効商談通知]", e.message); }
+}
 function prefFromAddress(addr) {
   const m = /([^\s0-9〒]{1,4}?[都道府県])/.exec(String(addr || ""));
   return m ? m[1] : "";
@@ -19482,7 +19537,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-12zn SF立ち上げの担当者(姓)を、その会社のアポ一覧・商談履歴の予定名/担当者名から自動で補うようにした。会社名だけで立ち上げる商談履歴からでも、担当者が空にならず自動で入る（見つからないときだけ手入力）。";
+const BUILD_TAG = "2026-09-12zo インサイドが獲得したアポが「有効商談（02）」になったら、その獲得者にGoogle Chatで通知するようにした。5分ごとにSFのステージを確認し、有効商談以降に進んだアポの獲得者へ1回だけ通知（失注は通知しない）。初回は既存の有効商談を静かに既済化してから運用開始（過去分の一斉通知はしない）。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
@@ -24982,6 +25037,9 @@ server.listen(PORT, async () => {
   } else {
     console.log("[自動入室] カレンダーからの自動入室はオフです（手動でのみ入室します）");
   }
+  // インサイドが獲得したアポが「有効商談」になったら獲得者へ通知（初回は既存分を静かに既済化してから運用開始）
+  setTimeout(() => { checkValidDeals().catch(() => {}); }, 30000);
+  setInterval(() => { checkValidDeals().catch(() => {}); }, 5 * 60 * 1000);
   startSessionMonitor();
   if (CALENDAR_AUTO_JOIN) startAutoJoinCalendarMonitor();
   // 起動から1分後、「無題」や担当なしのまま残っている最近の商談をカレンダーから補完する
