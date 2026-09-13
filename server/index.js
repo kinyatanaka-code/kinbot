@@ -15632,7 +15632,7 @@ function apoTitleMatch(mNorm, eNorm) {
 // インターンのカレンダーと商談名を照合して、アポ獲得者を各商談に記録する
 // （ログインユーザーなら可。読むのは各自のGoogle連携で見えるカレンダーのみ）
 // body: { from: "YYYY-MM-DD", to: "YYYY-MM-DD" }（省略時は直近90日）
-app.post("/api/interns/match", async (req, res) => {
+async function internMatchRun({ user = "", from: fromIn = "", to: toIn = "" } = {}) {
   try {
     // カレンダー照合は「代表者（設定で指定した人）のGoogle連携」を経由して実行する。
     // これにより、Google未連携のメンバーがボタンを押しても照合できる（＝全員がアポ状況を更新・閲覧できる）。
@@ -15641,24 +15641,25 @@ app.post("/api/interns/match", async (req, res) => {
     let gcalOwner = "";
     if (configured && (await gcalConnected(configured))) {
       gcalOwner = configured; // 代表者の連携を使う
-    } else if (req.user && (await gcalConnected(req.user))) {
-      gcalOwner = req.user; // 代表者が未設定/未連携なら、押した本人の連携で実行
+    } else if (user && (await gcalConnected(user))) {
+      gcalOwner = user; // 代表者が未設定/未連携なら、押した本人の連携で実行
     }
     if (!gcalOwner) {
-      return res.status(400).json({
+      return {
+        status: 400,
         error: configured
           ? `照合の代表者（${configured}）のGoogle連携が切れています。${configured} さんが 設定→連携→Google連携 を実行してください。`
           : "Googleが連携されていません。設定→インターン登録 で照合の代表者を選ぶか、設定→連携→Google連携 を先に済ませてください。",
-      });
+      };
     }
     const interns = await listInterns();
-    if (!interns.length) return res.status(400).json({ error: "インターン生が登録されていません。先に名前とメールアドレスを追加してください。" });
+    if (!interns.length) return { status: 400, error: "インターン生が登録されていません。先に名前とメールアドレスを追加してください。" };
 
     // 期間（既定：直近90日）
     const today = new Date();
     const defFrom = new Date(today.getTime() - 90 * 86400 * 1000);
-    const from = (req.body && req.body.from) || defFrom.toISOString().slice(0, 10);
-    const to = (req.body && req.body.to) || today.toISOString().slice(0, 10);
+    const from = fromIn || defFrom.toISOString().slice(0, 10);
+    const to = toIn || today.toISOString().slice(0, 10);
     const DATE_WINDOW = 2; // 商談日と予定日のズレをこの日数まで許容
     // カレンダー取得範囲は前後1日の余裕をもたせる（JST境界対策）
     // 商談日と予定日のズレ（DATE_WINDOW日）を許容するため、カレンダー取得は前後に余裕を持たせる
@@ -15813,7 +15814,7 @@ app.post("/api/interns/match", async (req, res) => {
     // 実施が増えて節目（初実施・5,000円ごと）を超えた人がいれば通知する
     for (const nm of touchedSetters) { await checkIncentiveMilestone(nm); }
 
-    res.json({
+    return { result: {
       ok: true,
       range: { from, to },
       meetings_total: meetings.length,
@@ -15828,12 +15829,37 @@ app.post("/api/interns/match", async (req, res) => {
         .map((p) => ({ name: p.name, email: p.email, count: p.matched.length, error: p.error, calendar_events: p.fetched, hosted_events: p.hosted, skipped_samples: p.skipped_samples, meetings: p.matched }))
         .sort((a, b) => b.count - a.count),
       unmatched_list: unmatched,
-    });
+    } };
   } catch (e) {
     console.error("[interns/match]", e);
-    res.status(500).json({ error: e.message });
+    return { status: 500, error: e.message };
   }
+}
+
+// カレンダー照合エンドポイント（薄いラッパー）
+app.post("/api/interns/match", async (req, res) => {
+  try {
+    const r = await internMatchRun({ user: req.user, from: req.body?.from, to: req.body?.to });
+    if (r && r.error) return res.status(r.status || 400).json({ error: r.error });
+    res.json((r && r.result) || r || {});
+  } catch (e) { res.status(500).json({ error: e.message }); }
 });
+
+// 12時・15時・18時（JST）に自動でカレンダーと照合する。
+let _lastInternMatchHour = -1;
+async function autoInternMatchTick() {
+  try {
+    const j = new Date(Date.now() + 9 * 3600000);
+    const hh = j.getUTCHours();
+    if (![12, 15, 18].includes(hh)) return;
+    if (_lastInternMatchHour === hh) return;   // その時間帯で1回だけ
+    _lastInternMatchHour = hh;
+    const r = await internMatchRun({});        // 代表者(apoCalendarOwner)の連携で実行・期間は既定(直近90日)
+    if (r && r.error) { console.warn("[interns/match auto]", r.error); return; }
+    console.log(`[interns/match auto] ${hh}時 照合：一致 ${r?.result?.matched ?? 0}／対象 ${r?.result?.meetings_total ?? 0}`);
+  } catch (e) { console.warn("[interns/match auto]", e.message); }
+}
+setInterval(() => { autoInternMatchTick(); }, 5 * 60 * 1000);
 
 // アポ獲得者（インターン）の照合を、定時に自動で走らせる。
 // これをしないと商談に「アポ獲得者」が付かず、実施の数（インセンティブ）が増えない。
@@ -19624,7 +19650,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-12zy 有効商談（案件化）の通知を、選んだチャットへの通知のみに変更し、その中でアポ獲得者をメンションするようにした（本人へのDMは廃止）。";
+const BUILD_TAG = "2026-09-12zz インターンアポのカレンダー照合を、毎日12時・15時・18時（JST）に自動実行するようにした。照合の代表者（設定→インターン登録のGoogle連携）を使って直近90日を照合する。手動の「カレンダーと照合」ボタンも従来どおり使える。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",

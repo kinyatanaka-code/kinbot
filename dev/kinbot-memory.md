@@ -710,3 +710,5 @@ kincall（架電リスト）という別ツールも同じ画面群の中にあ�
 - 2026-09-12 BUILD_TAG=2026-09-12zx インセンティブ獲得通知(checkIncentiveMilestone)で本人メンション。head を「🎉 {呼びかけ} が初実施…／の獲得見込みインセンティブが…」に変え、notifyAll(text,"incentive",{mentionName:nm})。fillMentionが{呼びかけ}を mentionFor(space_id, nm) で本物の@に変換（chatAppConfigured＋space_id時）。不可なら「nmさん」。※本人がChatスペースにいないとping化されない場合あり。版20260912zx。
 
 - 2026-09-12 BUILD_TAG=2026-09-12zy 有効商談(案件化)通知を「選んだチャットのみ＋獲得者メンション」に変更。checkValidDeals：notifyPerson(本人DM)を廃止。chMsgを「【有効商談】{呼びかけ} が獲得したアポ「会社」が有効商談（02）に進みました。」にし notifyAll(chMsg,"valid",{mentionName:setterName})。fillMentionが{呼びかけ}を獲得者の@に（不可なら「◯◯さん」）。送り先は設定→お知らせ→通知先で「有効商談」ONのチャット。版20260912zy。
+
+- 2026-09-12 BUILD_TAG=2026-09-12zz インターンアポのカレンダー照合を12/15/18時(JST)に自動実行。/api/interns/match のハンドラ本体を internMatchRun({user,from,to}) に切り出し（res.json→return {result}、res.status(x).json→return {status,error}、req.user→user、req.body.*→fromIn/toIn）。エンドポイントは薄いラッパーに。autoInternMatchTick()：JST時が12/15/18のとき、その時間帯1回だけ internMatchRun({})（代表者 apoCalendarOwner の連携・期間既定=直近90日）を実行。5分間隔ポーリング（_lastInternMatchHourで重複防止）。照合でtouchedSetters→checkIncentiveMilestoneも走るので、インセンティブ節目通知も自動で更新。代表者のGoogle連携が切れていると自動照合はスキップ(ログのみ)。版20260912zz。
