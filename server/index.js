@@ -10719,7 +10719,7 @@ async function computeStatsGrid(periodIn, spanIn, opts = {}) {
     const internSet = new Set((internsList || []).map((x) => String(x.email || "").toLowerCase()).filter(Boolean));
     // ダッシュボードと同じ扱い：田中欽也はセールス、中澤/浦林/森田/笹原/迫間は集計から外す。
     const _salesNames = String(process.env.DASH_SALES_NAMES || "田中欽也").split(",").map((x) => x.trim()).filter(Boolean);
-    const _excludeNames = [...new Set([...String(process.env.DASH_EXCLUDE_NAMES || "中澤,浦林,森田,笹原,迫間").split(",").map((x) => x.trim()).filter(Boolean), "田中綾"])];
+    const _excludeNames = [...new Set([...String(process.env.DASH_EXCLUDE_NAMES || "浦林,森田,笹原,迫間").split(",").map((x) => x.trim()).filter(Boolean), "田中綾"])];
     const _nameHas = (name, toks) => toks.some((t) => String(name || "").includes(t));
     const roleOf = (mm) => {
       const nm = mm.name || mm.email || "";
@@ -10980,7 +10980,7 @@ app.get("/api/calls/apo-dashboard", async (req, res) => {
     const mg = await getApoGoalsByKeys(period, [monthKey]);
     const goalOf = (key) => Number((((mg[key] || {})[monthKey] || {})["アポ"]) || 0);
     const salesNames = String(process.env.DASH_SALES_NAMES || "田中欽也").split(",").map((s) => s.trim()).filter(Boolean);
-    const excludeNames = [...new Set([...String(process.env.DASH_EXCLUDE_NAMES || "中澤,浦林,森田,笹原,迫間").split(",").map((s) => s.trim()).filter(Boolean), "田中綾"])];
+    const excludeNames = [...new Set([...String(process.env.DASH_EXCLUDE_NAMES || "浦林,森田,笹原,迫間").split(",").map((s) => s.trim()).filter(Boolean), "田中綾"])];
     const nameHas = (name, toks) => toks.some((t) => String(name || "").includes(t));
     const apoArr = (arr) => (arr && arr[i]) ? (Number(arr[i].アポ内 || 0) + Number(arr[i].アポ外 || 0)) : 0;
     // 個別（除外・田中付替え）
@@ -19579,7 +19579,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-12zr アポ通知の「本日/今週/今月」カウントを、ダッシュボードの週ラップ（グループ全体）と同じ基準に修正。これまで割り振りログを数えていて桁違いだったのを、アポ一覧（メルマガ・除外者を除き、会社×取得日×獲得者で重複排除）の集計に統一。今週は月曜起点（月をまたぐ週も正しく集計）。";
+const BUILD_TAG = "2026-09-12zs 中澤さんを集計対象に含めた（除外リストから外した）。ダッシュボード・アポ通知の本日/今週/今月の集計に中澤さんのアポも数えるようにした。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
