@@ -6273,3 +6273,10 @@ input:focus, select:focus, textarea:focus, .sf-input:focus, .sf-select:focus, .s
 .sc-bcell.sc-bsel { background:#0f6e56; color:#fff; }
 .sc-bhol { display:block; font-size:9px; color:#c0392b; }
 .sc-bcell.sc-bsel .sc-bhol { color:#d6f0e4; }
+
+/* kinbotが送ったメッセージの削除一覧 */
+.cs-row { display:flex; align-items:flex-start; gap:12px; padding:8px 0; border-bottom:1px solid #eef2f0; }
+.cs-info { flex:1; min-width:0; }
+.cs-meta { font-size:11.5px; color:#8a8f8c; }
+.cs-text { font-size:13px; color:#173a30; white-space:pre-wrap; word-break:break-word; }
+.cs-del { flex:none; }

@@ -93,7 +93,7 @@ function readMemory() {
   }
   return _memCache;
 }
-import { normalizeSpace } from "./chatapp.js";
+import { normalizeSpace, deleteChatMessage } from "./chatapp.js";
 import { judge as judgeAutolaunch, reasonText, parseTitle as parseLaunchTitle } from "./autolaunch.js";
 import { fixMojibake } from "./docs.js";
 import { openDocView, beatDocViewAndNotify, recordOpen, recordClick, recordDownload, sweepStaleViews,
@@ -309,6 +309,9 @@ import {
   setApoAt,
   setApoStartTime,
   listChatTargets,
+  listChatSent,
+  getChatSent,
+  markChatSentDeleted,
   addChatTarget,
   updateChatTarget,
   deleteChatTarget,
@@ -14871,6 +14874,26 @@ app.post("/api/doc-sheet/test", async (req, res) => {
   } catch (e) { res.status(400).json({ error: e.message }); }
 });
 
+// ===== kinbotが送ったChatメッセージ（Chatアプリ経由）を一覧・削除 =====
+app.get("/api/chat/sent", async (req, res) => {
+  try { res.json({ ok: true, items: await listChatSent(60) }); }
+  catch (e) { res.status(500).json({ error: e.message }); }
+});
+app.post("/api/chat/sent/delete", async (req, res) => {
+  try {
+    const id = parseInt(req.body?.id, 10);
+    if (!id) return res.status(400).json({ error: "IDがありません" });
+    const row = await getChatSent(id);
+    if (!row) return res.status(404).json({ error: "見つかりません" });
+    if (row.deleted_at) return res.json({ ok: true, already: true });
+    if (!row.name) return res.status(400).json({ error: "このメッセージはWebhook送信のため削除できません" });
+    try { await deleteChatMessage(row.name); }
+    catch (e) { return res.status(502).json({ error: e.message + (e.hint ? "（" + e.hint + "）" : "") }); }
+    await markChatSentDeleted(id);
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 // ===== Google Chatの通知先（複数登録） =====
 app.get("/api/chat-targets", async (req, res) => {
   try {
@@ -19891,7 +19914,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-13n デイリー目標のセールス架電時間の判定で、田中欽也だけは「12-13の昼休憩・ブロック・1on1」以外は空き（架電時間）としてカウント（【】商談などは架電時間に含める）。他のセールスは従来どおり【】/ブロックを除外。";
+const BUILD_TAG = "2026-09-13o kinbotがChatアプリ（kinbot名義・スペース）で送ったメッセージを、あとから削除できるようにした。送信時にメッセージIDを記録し、設定→お知らせ→「kinbotが送ったメッセージ」から一覧・削除できる。Webhookで送った分は仕様上削除できない。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",

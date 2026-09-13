@@ -194,3 +194,21 @@ export async function postToSpace(space, text) {
   }
   return res.json().catch(() => ({}));
 }
+
+// kinbotがChatアプリとして送ったメッセージを削除する（name = spaces/○○/messages/△△）。
+export async function deleteChatMessage(name) {
+  if (!name) throw new Error("メッセージIDがありません");
+  const token = await accessToken();
+  const res = await fetch(`https://chat.googleapis.com/v1/${name}`, {
+    method: "DELETE",
+    headers: { authorization: `Bearer ${token}` },
+  });
+  if (!res.ok) {
+    const t = await res.text();
+    const err = new Error(`Chatメッセージ削除 ${res.status}: ${t.slice(0, 200)}`);
+    if (res.status === 403) err.hint = "kinbot自身が送ったメッセージ以外は削除できません。";
+    if (res.status === 404) err.hint = "すでに削除されているか、見つかりません。";
+    throw err;
+  }
+  return true;
+}

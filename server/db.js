@@ -1070,7 +1070,19 @@ export async function initDb() {
       created_at   TIMESTAMPTZ DEFAULT now()
     );
   `);
-  // チーム単位のローテーション状態と通算件数。
+  // kinbotがChatアプリ経由で送ったメッセージのID（あとから削除するため）
+  await sq(`
+    CREATE TABLE IF NOT EXISTS chat_sent (
+      id         SERIAL PRIMARY KEY,
+      name       TEXT UNIQUE,
+      space      TEXT,
+      target     TEXT,
+      kind       TEXT,
+      text       TEXT,
+      sent_at    TIMESTAMPTZ DEFAULT now(),
+      deleted_at TIMESTAMPTZ
+    );
+  `);
   // 期間ごとの正確な件数は smart_links から集計するが、通算はここに持って画面表示を速くする。
   await sq(`
     CREATE TABLE IF NOT EXISTS team_rotation (
@@ -5506,6 +5518,33 @@ export async function listChatTargets({ onlyActive = false } = {}) {
       `SELECT * FROM chat_targets ${onlyActive ? "WHERE active" : ""} ORDER BY id`);
     return rows;
   } catch { return []; }
+}
+// kinbotが送ったChatメッセージのログ（削除用）
+export async function logChatSent({ name, space, target, kind, text }) {
+  if (!pool || !name) return;
+  try {
+    await pool.query(
+      `INSERT INTO chat_sent (name, space, target, kind, text) VALUES ($1,$2,$3,$4,$5)
+       ON CONFLICT (name) DO NOTHING`,
+      [name, space || "", target || "", kind || "", String(text || "").slice(0, 500)]);
+  } catch (e) { console.error("[db] logChatSent", e.message); }
+}
+export async function listChatSent(limit = 50) {
+  if (!pool) return [];
+  try {
+    const { rows } = await pool.query(
+      `SELECT id, name, space, target, kind, text, to_char(sent_at AT TIME ZONE 'Asia/Tokyo','MM/DD HH24:MI') AS sent_label, deleted_at
+         FROM chat_sent WHERE deleted_at IS NULL ORDER BY sent_at DESC LIMIT $1`, [Math.min(200, limit)]);
+    return rows;
+  } catch { return []; }
+}
+export async function getChatSent(id) {
+  if (!pool) return null;
+  try { const { rows } = await pool.query(`SELECT * FROM chat_sent WHERE id=$1`, [id]); return rows[0] || null; } catch { return null; }
+}
+export async function markChatSentDeleted(id) {
+  if (!pool) return;
+  try { await pool.query(`UPDATE chat_sent SET deleted_at=now() WHERE id=$1`, [id]); } catch {}
 }
 
 export async function addChatTarget({ name, webhookUrl, spaceId }) {

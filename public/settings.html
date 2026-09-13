@@ -10,7 +10,7 @@
     <link rel="manifest" href="/site.webmanifest" />
     <meta name="theme-color" content="#0d5b47" />
     <meta name="apple-mobile-web-app-title" content="kinbot" />
-    <link rel="stylesheet" href="style.css?v=20260913n" />
+    <link rel="stylesheet" href="style.css?v=20260913o" />
   </head>
   <body>
     <div class="app">
@@ -540,6 +540,10 @@ curl -H "Authorization: Bearer <span class="cc-tok">&lt;トークン&gt;</span>"
               </div>
               <p class="note">WebhookのURLか、スペースのURLのどちらかを入れてください。<b>スペースを入れるとkinbot名義で送れます</b>（下の設定が必要です）。</p>
 
+              <h4 class="ap-rot-h" style="margin-top:18px">kinbotが送ったメッセージ（削除できます）</h4>
+              <p class="note">kinbot名義（スペース）で送った分だけ削除できます。Webhookで送った分は削除できません。<button class="btn ghost" id="csReload" style="margin-left:8px">更新</button></p>
+              <div id="csList"><div class="empty-state">「更新」を押すと最近の送信が出ます。</div></div>
+
               <h4 class="ap-rot-h" style="margin-top:18px">Chatから kinbot を動かす</h4>
               <p class="note">Google Chatで <b>@kinbot アポ</b> のように話しかけると、その場で答えます。<br>
               使えることば：<code>ヘルプ</code> <code>アポ</code> <code>明日のアポ</code> <code>商談</code> <code>スキャン</code> <code>重複</code> <code>立ち上げ</code> <code>状態</code></p>
@@ -793,8 +797,8 @@ curl -H "Authorization: Bearer <span class="cc-tok">&lt;トークン&gt;</span>"
         </main>
       </div>
     </div>
-    <script src="settings.js?v=20260913n"></script>
-      <script src="nav.js?v=20260913n"></script>
+    <script src="settings.js?v=20260913o"></script>
+      <script src="nav.js?v=20260913o"></script>
     <script src="/cmdk.js?v=20260827a"></script>
 </body>
 </html>

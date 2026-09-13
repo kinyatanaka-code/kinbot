@@ -6,7 +6,7 @@
 //
 // 送信は投げっぱなしにする。通知が失敗しても、割り振りやメール作成は止めない。
 // ───────────────────────────────────────────────────────────
-import { getSettings, listChatTargets, markChatTarget, addChatTarget } from "./db.js";
+import { getSettings, listChatTargets, markChatTarget, addChatTarget, logChatSent } from "./db.js";
 import { chatAppConfigured, postToSpace, postToPerson, mentionFor, normalizeSpace, chatAppInfo } from "./chatapp.js";
 
 let lastError = "";
@@ -69,8 +69,8 @@ function looksLikeChatUrl(u) {
 // 1つの宛先へ送る。スペースが指定されていればChatアプリ、なければWebhook。
 async function sendTo({ webhook_url, space_id }, text) {
   if (space_id && chatAppConfigured()) {
-    await postToSpace(space_id, text);
-    return "app";
+    const msg = await postToSpace(space_id, text);
+    return { via: "app", name: (msg && msg.name) || "", space: space_id };
   }
   if (!webhook_url) throw new Error("通知先が設定されていません");
   if (!looksLikeChatUrl(webhook_url)) throw new Error("URLがGoogle ChatのWebhookの形式ではありません");
@@ -80,7 +80,7 @@ async function sendTo({ webhook_url, space_id }, text) {
     body: JSON.stringify({ text: String(text).slice(0, 3800) }),
   });
   if (!res.ok) throw new Error(`Chat通知 ${res.status}: ${(await res.text()).slice(0, 200)}`);
-  return "webhook";
+  return { via: "webhook" };
 }
 
 // 登録されている通知先すべてに送る。
@@ -135,9 +135,10 @@ export async function notifyAll(text, kind = "", { mentionName = "" } = {}) {
   let sent = 0;
   for (const tg of list) {
     try {
-      await sendTo(tg, await fillMention(t, tg, mentionName));
+      const r = await sendTo(tg, await fillMention(t, tg, mentionName));
       sent++;
       markChatTarget(tg.id, { ok: true }).catch(() => {});
+      if (r && r.name) logChatSent({ name: r.name, space: r.space, target: tg.name, kind, text: t }).catch(() => {});
     } catch (e) {
       lastError = `${tg.name}：${e.message}${e.hint ? "／" + e.hint : ""}`;
       console.warn("[chat] 送信に失敗", tg.name, e.message);
@@ -160,7 +161,7 @@ export async function notifyTargets(text, ids = []) {
   if (!targets.length) return { ok: false, skipped: true, reason: "送信先が見つかりません" };
   let sent = 0;
   for (const tg of targets) {
-    try { await sendTo(tg, await fillMention(t, tg, "")); sent++; markChatTarget(tg.id, { ok: true }).catch(() => {}); }
+    try { const r = await sendTo(tg, await fillMention(t, tg, "")); sent++; markChatTarget(tg.id, { ok: true }).catch(() => {}); if (r && r.name) logChatSent({ name: r.name, space: r.space, target: tg.name, kind: "direct", text: t }).catch(() => {}); }
     catch (e) { markChatTarget(tg.id, { ok: false, error: e.message }).catch(() => {}); }
   }
   return { ok: sent > 0, sent };

@@ -3128,3 +3128,26 @@ if (document.getElementById("sfProxy")) {
     finally { monthSave.disabled = false; }
   });
 })();
+
+// kinbotが送ったChatメッセージ（アプリ送信）の一覧・削除
+(function () {
+  const escCs = (v) => String(v == null ? "" : v).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+  async function loadChatSent() {
+    const box = document.getElementById("csList"); if (!box) return;
+    box.innerHTML = '<div class="empty-state">読み込み中…</div>';
+    try {
+      const d = await (await fetch("/api/chat/sent")).json();
+      const items = (d.items || []).filter((x) => x.name);
+      if (!items.length) { box.innerHTML = '<div class="empty-state">削除できる送信（kinbot名義）はまだありません。</div>'; return; }
+      box.innerHTML = items.map((it) => `<div class="cs-row" data-id="${it.id}"><div class="cs-info"><div class="cs-meta">${escCs(it.sent_label || "")}　${escCs(it.target || "")}${it.kind ? "　" + escCs(it.kind) : ""}</div><div class="cs-text">${escCs((it.text || "").slice(0, 140))}</div></div><button class="btn ghost cs-del" data-id="${it.id}">削除</button></div>`).join("");
+      box.querySelectorAll(".cs-del").forEach((b) => b.addEventListener("click", async () => {
+        if (!confirm("このメッセージをChatから削除します。よろしいですか。")) return;
+        b.disabled = true; b.textContent = "削除中…";
+        try { const r = await fetch("/api/chat/sent/delete", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ id: +b.dataset.id }) }); const dd = await r.json(); if (!r.ok) throw new Error(dd.error || "失敗"); loadChatSent(); }
+        catch (e) { b.disabled = false; b.textContent = "削除"; alert("削除に失敗: " + e.message); }
+      }));
+    } catch { box.innerHTML = '<div class="empty-state">読み込めませんでした</div>'; }
+  }
+  const rb = document.getElementById("csReload");
+  if (rb) rb.addEventListener("click", loadChatSent);
+})();
