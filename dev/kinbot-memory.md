@@ -718,3 +718,5 @@ kincall（架電リスト）という別ツールも同じ画面群の中にあ�
 - 2026-09-13 BUILD_TAG=2026-09-13b 「今日のインサイド実施」が見えない件を修正。原因：エンドポイントが今日固定でホームの選択日(selDate)と不一致＋0件で非表示。対応：GET /api/home/inside-today?date= を追加（selDate分を返す・responseにdate）。home.js loadInsideToday は selDate で取得し、空でも「この日はまだありません」を表示（非表示にしない）、見出しは今日=「今日のインサイド実施」/他日=「◯/◯のインサイド実施」。changeDate でも loadInsideToday を呼ぶ。CSS .ins-empty。版20260913b。
 
 - 2026-09-13 BUILD_TAG=2026-09-13c ホームの今日の商談カードに獲得者表示。render()のバッジ列に「獲得 ◯◯」チップを追加：setterNm = m.apo_setter（録音商談）|| e.apoSetter || planApoMap[e.id].setter（予定＝ひも付くアポ）。loadDayApoMap の map に setter を追加（/api/apo/pickup の a.setter）。CSS .home-badge-setter（緑チップ）。版20260913c。
+
+- 2026-09-13 BUILD_TAG=2026-09-13d 「今日のインサイド実施」が全部スクロールできない件を修正。左カラム(.hb3-left overflow:auto)は代理ログインバナー分で高さがずれ下が画面外に。対応：.ins-today に max-height:42vh + overflow-y:auto（セクション自体を内部スクロール可能に）、.ins-h を position:sticky で見出し固定。獲得者が多い日も全件たどれる。版20260913d。
