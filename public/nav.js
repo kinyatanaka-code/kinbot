@@ -34,7 +34,7 @@ window.addEventListener("error", (e) => {
 (function () {
   if (!document.querySelector('script[src$="kbchat.js"]')) {
     const sc = document.createElement("script");
-    sc.src = "kbchat.js?v=20260912zp";
+    sc.src = "kbchat.js?v=20260912zq";
     sc.defer = true;
     document.head.appendChild(sc);
   }
@@ -58,11 +58,11 @@ const KB_MENU = [
   {
     href: "apo.html", label: "アポイント", ico: "ico-apo",
     subs: [
-      { href: "apo.html", label: "アポ振り分け", desc: "担当の自動割り振り・アポ一覧" },
-      { href: "apo.html?tab=rot", label: "割り振り設定", desc: "予備・上限・グループの設定" },
-      { href: "apo.html?tab=team", label: "チーム実績", desc: "チーム別・メンバー別の実績" },
-      { href: "apo.html?tab=mail", label: "メール設定", desc: "自動送信メールの文面・宛先" },
+      { href: "apo.html?tab=list", label: "アポ一覧", desc: "獲得したアポの一覧・担当の割り振り" },
       { href: "report.html?panel=interns", label: "インターンアポ", desc: "アポ獲得者ごとの実績" },
+      { href: "apo.html?tab=perf", label: "アポ実績", desc: "獲得者別のファネル・実績" },
+      { href: "apo.html?tab=rot", label: "割り振り設定", desc: "予備・上限・グループの設定" },
+      { href: "apo.html?tab=mail", label: "メール設定", desc: "自動送信メールの文面・宛先" },
     ],
   },
   { href: "docs.html", label: "資料トラッキング", ico: "ico-doc" },

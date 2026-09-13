@@ -933,6 +933,15 @@ function setupTabs() {
   if (!init) { try { init = localStorage.getItem("apoTab") || "list"; } catch { init = "list"; } }
   if (!tabs.some((t) => t.dataset.pane === init)) init = "list";
   show(init);
+  // URLに ?tab= が無ければ現在のタブを付けて、サイドメニューの点灯を正しくする
+  try {
+    const sp = new URLSearchParams(location.search);
+    if (!sp.get("tab")) {
+      sp.set("tab", init);
+      history.replaceState(null, "", location.pathname + "?" + sp.toString());
+      if (window.kbBuildSidebar) kbBuildSidebar();
+    }
+  } catch {}
 }
 
 async function loadBuild() {
