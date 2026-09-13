@@ -6211,3 +6211,27 @@ input:focus, select:focus, textarea:focus, .sf-input:focus, .sf-select:focus, .s
 .ins-owner { font-size: 11px; color: #8a8f8c; }
 .ins-empty { font-size: 12px; color: #8a8f8c; padding: 6px 2px; }
 .home-badge-setter { background: #eef7f2; color: #0f6e56; border: 0.5px solid #cfe6da; }
+
+/* 出勤管理カレンダー（kincall） */
+.sc-grid { border:1px solid #e6ece9; border-radius:12px; overflow:hidden; }
+.sc-row { display:grid; grid-template-columns:repeat(7,1fr); }
+.sc-head .sc-hcell { background:#f6faf8; text-align:center; font-size:12px; color:#4a5a54; padding:6px 0; border-bottom:1px solid #e6ece9; }
+.sc-hcell.sc-sun { color:#c0392b; } .sc-hcell.sc-sat { color:#2b6cb0; }
+.sc-cell { min-height:92px; border-right:1px solid #eef2f0; border-bottom:1px solid #eef2f0; padding:6px; cursor:pointer; position:relative; background:#fff; }
+.sc-cell:hover { background:#f6faf8; }
+.sc-cell.sc-empty { background:#fafcfb; cursor:default; }
+.sc-cell.sc-sun .sc-dnum { color:#c0392b; } .sc-cell.sc-sat .sc-dnum { color:#2b6cb0; }
+.sc-dnum { font-size:12px; color:#4a5a54; margin-bottom:4px; }
+.sc-tags { display:flex; flex-direction:column; gap:3px; }
+.sc-tag { background:#e6f4ec; color:#0f6e56; border-radius:6px; padding:1px 6px; font-size:11px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.sc-add { position:absolute; right:6px; bottom:5px; font-size:10.5px; color:#9aa5a0; }
+.sc-cell:hover .sc-add { color:#0f6e56; }
+.sc-back { position:fixed; inset:0; z-index:1000; background:rgba(13,42,34,.42); display:flex; align-items:center; justify-content:center; padding:16px; }
+.sc-modal { width:100%; max-width:460px; max-height:86vh; overflow:auto; background:#fff; border-radius:16px; box-shadow:0 20px 60px rgba(13,91,71,.28); padding:16px 18px; }
+.sc-mh { display:flex; align-items:center; justify-content:space-between; font-size:15px; font-weight:700; color:#173a30; margin-bottom:12px; }
+.sc-x { border:none; background:transparent; font-size:20px; color:#7a8a84; cursor:pointer; }
+.sc-mrow { display:flex; align-items:center; gap:8px; padding:6px 0; font-size:13px; }
+.sc-mname { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; }
+.sc-times { display:inline-flex; align-items:center; gap:4px; }
+.sc-mrow input[type=time] { border:1px solid #d7e3dd; border-radius:8px; padding:3px 6px; font-size:12px; }
+.sc-mact { display:flex; justify-content:flex-end; gap:10px; margin-top:14px; }

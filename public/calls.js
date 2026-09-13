@@ -3313,7 +3313,6 @@ async function loadDailyGoal() {
   const dEl = $("dgDate"); if (dEl && !dEl.value) dEl.value = dgToday();
   const date = (dEl && dEl.value) || dgToday();
   const wrap = $("dgTableWrap"); if (wrap) wrap.innerHTML = '<div class="note">読み込んでいます…</div>';
-  if (!_dgShiftInit) { _dgShiftInit = true; dgLoadShiftMembers(); }
   let d; try { d = await (await fetch("/api/daily/working?date=" + encodeURIComponent(date))).json(); } catch { if (wrap) wrap.innerHTML = '<div class="note">読み込めませんでした</div>'; return; }
   _dgMembers = (d.members || []).map((m) => ({ name: m.name, role: m.role, hours: m.hours, target: m.target || 0 }));
   if (!_dgMembers.length) { if (wrap) wrap.innerHTML = '<div class="note">この日の稼働メンバーがいません（インサイド＝出勤シフト、セールス＝カレンダーから算出）。</div>'; dgRenderText(); return; }
@@ -3341,48 +3340,82 @@ async function loadDailyGoal() {
   });
   dgRenderText();
 }
-async function dgLoadShiftMembers() {
-  const sel = $("dgShiftMember"); if (!sel) return;
-  try { const arr = await (await fetch("/api/interns")).json(); sel.innerHTML = (Array.isArray(arr) ? arr : []).map((x) => `<option value="${esc(x.email)}" data-name="${esc(x.name || "")}">${esc(x.name || x.email)}</option>`).join(""); } catch {}
-  const mo = $("dgShiftMonth"); if (mo && !mo.value) { const j = new Date(Date.now() + 9 * 3600000); mo.value = `${j.getUTCFullYear()}-${String(j.getUTCMonth() + 1).padStart(2, "0")}`; }
-}
-async function dgLoadShifts() {
-  const sel = $("dgShiftMember"), mo = $("dgShiftMonth"), wrap = $("dgShiftWrap");
-  if (!sel || !mo || !wrap || !sel.value || !mo.value) return;
-  const email = sel.value; const [y, m] = mo.value.split("-").map(Number);
-  const last = new Date(Date.UTC(y, m, 0)).getUTCDate();
-  const from = `${mo.value}-01`, to = `${mo.value}-${String(last).padStart(2, "0")}`;
-  const existing = {};
-  try { const d = await (await fetch(`/api/inside-shifts?from=${from}&to=${to}`)).json(); for (const s of (d.shifts || [])) if (s.email === email) existing[s.day] = { s: s.start_min, e: s.end_min }; } catch {}
-  const m2hm = (v) => v == null ? "" : `${String(Math.floor(v / 60)).padStart(2, "0")}:${String(v % 60).padStart(2, "0")}`;
-  const wd = ["日", "月", "火", "水", "木", "金", "土"];
-  let html = '<table class="kc-table"><thead><tr><th>日付</th><th>曜日</th><th>開始</th><th>終了</th></tr></thead><tbody>';
-  for (let dd = 1; dd <= last; dd++) {
-    const ds = `${mo.value}-${String(dd).padStart(2, "0")}`; const dow = new Date(Date.UTC(y, m - 1, dd)).getUTCDay();
-    if (dow === 0 || dow === 6) continue;
-    const ex = existing[ds] || {};
-    html += `<tr data-day="${ds}"><td>${m}/${dd}</td><td>${wd[dow]}</td>` +
-      `<td><input type="time" class="kc-input dg-s" value="${m2hm(ex.s)}" style="width:120px" /></td>` +
-      `<td><input type="time" class="kc-input dg-e" value="${m2hm(ex.e)}" style="width:120px" /></td></tr>`;
-  }
-  html += "</tbody></table>";
-  wrap.innerHTML = html;
-}
-async function dgSaveShifts() {
-  const sel = $("dgShiftMember"), wrap = $("dgShiftWrap"), st = $("dgShiftSt");
-  if (!sel || !wrap || !sel.value) return;
-  const email = sel.value; const name = (sel.options[sel.selectedIndex] && sel.options[sel.selectedIndex].dataset.name) || "";
-  const hm2m = (v) => { if (!/^\d{2}:\d{2}$/.test(v)) return null; const [h, mm] = v.split(":").map(Number); return h * 60 + mm; };
-  const rows = [...wrap.querySelectorAll("tr[data-day]")].map((tr) => ({ email, name, day: tr.dataset.day, start_min: hm2m(tr.querySelector(".dg-s").value), end_min: hm2m(tr.querySelector(".dg-e").value) }));
-  if (st) st.textContent = "保存中…";
-  try { await fetch("/api/inside-shifts", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ shifts: rows }) }); if (st) { st.textContent = "保存しました"; setTimeout(() => (st.textContent = ""), 1500); } }
-  catch { if (st) st.textContent = "保存に失敗"; }
-}
+async function dgLoadShiftMembers() { /* 出勤管理は独立ページ(出勤カレンダー)へ移設 */ }
 if ($("dgReload")) $("dgReload").addEventListener("click", loadDailyGoal);
 if ($("dgDate")) $("dgDate").addEventListener("change", loadDailyGoal);
 if ($("dgCopy")) $("dgCopy").addEventListener("click", () => { navigator.clipboard.writeText(dgGenText()).then(() => { const s = $("dgCopySt"); if (s) { s.textContent = "コピーしました"; setTimeout(() => (s.textContent = ""), 1500); } }).catch(() => {}); });
-if ($("dgShiftLoad")) $("dgShiftLoad").addEventListener("click", dgLoadShifts);
-if ($("dgShiftSave")) $("dgShiftSave").addEventListener("click", dgSaveShifts);
+
+// ===== 出勤管理（インサイド稼働カレンダー・独立ページ p=shifts） =====
+let _scY = null, _scM = null;
+let _scInterns = [];
+let _scShifts = {};
+function scInit() { const j = new Date(Date.now() + 9 * 3600000); _scY = j.getUTCFullYear(); _scM = j.getUTCMonth(); }
+function scHM(v) { return v == null ? "" : `${String(Math.floor(v / 60)).padStart(2, "0")}:${String(v % 60).padStart(2, "0")}`; }
+async function loadShiftCal() {
+  if (_scY == null) scInit();
+  const cal = $("scCal"); if (cal) cal.innerHTML = '<div class="note">読み込んでいます…</div>';
+  if (!_scInterns.length) { try { const arr = await (await fetch("/api/interns")).json(); _scInterns = Array.isArray(arr) ? arr : []; } catch {} }
+  const p = (n) => String(n).padStart(2, "0");
+  const last = new Date(Date.UTC(_scY, _scM + 1, 0)).getUTCDate();
+  const from = `${_scY}-${p(_scM + 1)}-01`, to = `${_scY}-${p(_scM + 1)}-${p(last)}`;
+  _scShifts = {};
+  try { const d = await (await fetch(`/api/inside-shifts?from=${from}&to=${to}`)).json(); for (const s of (d.shifts || [])) { if (s.start_min == null) continue; (_scShifts[s.day] = _scShifts[s.day] || []).push(s); } } catch {}
+  renderShiftCal();
+}
+function renderShiftCal() {
+  const cal = $("scCal"); if (!cal) return;
+  const lbl = $("scLabel"); if (lbl) lbl.textContent = `${_scY}年${_scM + 1}月`;
+  const p = (n) => String(n).padStart(2, "0");
+  const startDow = new Date(Date.UTC(_scY, _scM, 1)).getUTCDay();
+  const last = new Date(Date.UTC(_scY, _scM + 1, 0)).getUTCDate();
+  const wd = ["日", "月", "火", "水", "木", "金", "土"];
+  let html = '<div class="sc-grid"><div class="sc-row sc-head">' + wd.map((w, i) => `<div class="sc-hcell${i === 0 ? " sc-sun" : i === 6 ? " sc-sat" : ""}">${w}</div>`).join("") + "</div>";
+  let day = 1 - startDow;
+  while (day <= last) {
+    html += '<div class="sc-row">';
+    for (let c = 0; c < 7; c++, day++) {
+      if (day < 1 || day > last) { html += '<div class="sc-cell sc-empty"></div>'; continue; }
+      const ds = `${_scY}-${p(_scM + 1)}-${p(day)}`;
+      const items = _scShifts[ds] || [];
+      const tags = items.map((s) => `<span class="sc-tag">${esc(s.name || s.email)} ${scHM(s.start_min)}-${scHM(s.end_min)}</span>`).join("");
+      html += `<div class="sc-cell${c === 0 ? " sc-sun" : c === 6 ? " sc-sat" : ""}" data-day="${ds}"><div class="sc-dnum">${day}</div><div class="sc-tags">${tags}</div><div class="sc-add">＋追加</div></div>`;
+    }
+    html += "</div>";
+  }
+  html += "</div>";
+  cal.innerHTML = html;
+  cal.querySelectorAll(".sc-cell[data-day]").forEach((c) => c.addEventListener("click", () => openShiftDay(c.dataset.day)));
+}
+function openShiftDay(ds) {
+  if (document.querySelector(".sc-back")) return;
+  const cur = {}; for (const s of (_scShifts[ds] || [])) cur[String(s.email).toLowerCase()] = { s: s.start_min, e: s.end_min };
+  const back = document.createElement("div"); back.className = "sc-back";
+  const rows = _scInterns.map((it) => {
+    const em = String(it.email).toLowerCase(); const on = cur[em] != null;
+    const st = on ? scHM(cur[em].s) : "10:00", en = on ? scHM(cur[em].e) : "18:00";
+    return `<label class="sc-mrow"><input type="checkbox" class="sc-on" data-em="${esc(em)}" data-name="${esc(it.name || "")}" ${on ? "checked" : ""}/> <span class="sc-mname">${esc(it.name || em)}</span><span class="sc-times"><input type="time" class="sc-s" value="${st}"/> 〜 <input type="time" class="sc-e" value="${en}"/></span></label>`;
+  }).join("");
+  back.innerHTML = `<div class="sc-modal"><div class="sc-mh"><span>${ds} の出勤</span><button type="button" class="sc-x" aria-label="閉じる">×</button></div><div class="sc-mbody">${rows || '<div class="note">インサイドが登録されていません（設定→メンバー管理で役割インサイドに）。</div>'}</div><div class="sc-mact"><button type="button" class="btn ghost sc-cancel">閉じる</button><button type="button" class="btn sc-save">保存</button></div></div>`;
+  document.body.appendChild(back);
+  const close = () => back.remove();
+  back.addEventListener("click", (e) => { if (e.target === back) close(); });
+  back.querySelector(".sc-x").addEventListener("click", close);
+  back.querySelector(".sc-cancel").addEventListener("click", close);
+  back.querySelector(".sc-save").addEventListener("click", async () => {
+    const hm2m = (v) => { if (!/^\d{2}:\d{2}$/.test(v)) return null; const [h, mm] = v.split(":").map(Number); return h * 60 + mm; };
+    const shifts = [...back.querySelectorAll(".sc-mrow")].map((r) => {
+      const on = r.querySelector(".sc-on").checked; const em = r.querySelector(".sc-on").dataset.em; const nm = r.querySelector(".sc-on").dataset.name;
+      const s = hm2m(r.querySelector(".sc-s").value), e = hm2m(r.querySelector(".sc-e").value);
+      return { email: em, name: nm, day: ds, start_min: on ? s : null, end_min: on ? e : null };
+    });
+    try { await fetch("/api/inside-shifts", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ shifts }) }); } catch {}
+    close(); loadShiftCal();
+  });
+}
+if ($("scPrev")) $("scPrev").addEventListener("click", () => { if (_scY == null) scInit(); _scM--; if (_scM < 0) { _scM = 11; _scY--; } loadShiftCal(); });
+if ($("scNext")) $("scNext").addEventListener("click", () => { if (_scY == null) scInit(); _scM++; if (_scM > 11) { _scM = 0; _scY++; } loadShiftCal(); });
+if ($("scToday")) $("scToday").addEventListener("click", () => { scInit(); loadShiftCal(); });
+
 
 
 if ($("clFind")) {
@@ -3404,11 +3437,12 @@ function showPane() {
     a.classList.toggle("active", mine);
   });
   // ヘッダーの表示を、いま開いているページに合わせる
-  const 名前 = { call: ["kincall", "架電リスト"], stats: ["実績", ""], lists: ["リスト管理", ""] }[p] || ["kincall", ""];
+  const 名前 = { call: ["kincall", "架電リスト"], stats: ["実績", ""], lists: ["リスト管理", ""], shifts: ["出勤管理", "インサイドの稼働カレンダー"] }[p] || ["kincall", ""];
   const nm = document.querySelector(".kc-name"); if (nm) nm.textContent = 名前[0];
   const sub = document.querySelector(".kc-sub"); if (sub) { sub.textContent = 名前[1]; sub.style.display = 名前[1] ? "" : "none"; }
   if (p === "stats") { if (statsTop === "dash") loadDash(); else loadStats(); }
   if (p === "lists") asLoad();
+  if (p === "shifts") loadShiftCal();
 }
 
 // サイドメニューの「資料送付設定」→ モーダルを開く（ページ遷移はしない）

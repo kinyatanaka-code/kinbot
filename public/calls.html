@@ -10,7 +10,7 @@
     <link rel="manifest" href="/site.webmanifest" />
     <meta name="theme-color" content="#0d5b47" />
     <meta name="apple-mobile-web-app-title" content="kinbot" />
-    <link rel="stylesheet" href="style.css?v=20260913e" />
+    <link rel="stylesheet" href="style.css?v=20260913f" />
   </head>
   <body class="kc-body">
     <div class="app">
@@ -25,6 +25,8 @@
           <span class="kc-side-ico"><svg viewBox="0 0 24 24" width="17" height="17"><path d="M4 20h4V10H4zm6 0h4V4h-4zm6 0h4v-7h-4z"/></svg></span><span class="side-label">実績</span></a></div>
         <div class="side-wrap"><a class="side-item" href="/kincall?p=lists">
           <span class="kc-side-ico"><svg viewBox="0 0 24 24" width="17" height="17"><path d="M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8zm0 2c-3.3 0-6 1.8-6 4v2h12v-2c0-2.2-2.7-4-6-4zm8-2 4 4-4 4v-3h-3v-2h3z"/></svg></span><span class="side-label">リスト管理</span></a></div>
+        <div class="side-wrap"><a class="side-item" href="/kincall?p=shifts">
+          <span class="kc-side-ico"><svg viewBox="0 0 24 24" width="17" height="17"><path d="M7 2v2H5a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2h-2V2h-2v2H9V2zm12 7v10H5V9zM7 11v2h2v-2zm4 0v2h2v-2zm4 0v2h2v-2z"/></svg></span><span class="side-label">出勤管理</span></a></div>
         <div class="side-wrap"><a class="side-item" id="kcSideDoc" href="#docset">
           <span class="kc-side-ico"><svg viewBox="0 0 24 24" width="17" height="17"><path d="M6 2h8l4 4v16H6zm8 1.5V7h3.5zM8 11h8v2H8zm0 4h8v2H8z"/></svg></span><span class="side-label">資料送付設定</span></a></div>
         <div class="side-sep"></div>
@@ -194,18 +196,19 @@
                 </div>
                 <pre id="dgText" style="white-space:pre-wrap;background:#f6faf8;border:1px solid #d7e3dd;border-radius:10px;padding:12px;font-size:13px;line-height:1.7;margin:0;font-family:inherit"></pre>
               </div>
-              <div style="margin-top:18px;border-top:1px solid #e6ece9;padding-top:14px">
-                <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:8px">
-                  <b style="font-size:13px;color:#173a30">インサイド出勤管理</b>
-                  <select id="dgShiftMember" class="kc-input" style="max-width:200px"></select>
-                  <input type="month" id="dgShiftMonth" class="kc-input" style="max-width:150px" />
-                  <button type="button" class="btn ghost" id="dgShiftLoad">表示</button>
-                  <button type="button" class="btn" id="dgShiftSave">保存</button>
-                  <span class="rev-status" id="dgShiftSt"></span>
-                </div>
-                <div id="dgShiftWrap"><div class="note">メンバーと月を選んで「表示」を押してください（平日のみ・開始/終了を入れて保存）。</div></div>
-              </div>
             </div>
+          </section>
+
+          <!-- 出勤管理（インサイドの稼働カレンダー） -->
+          <section class="card kc-pane" data-p="shifts" hidden>
+            <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:12px">
+              <button type="button" class="btn ghost" id="scPrev">‹</button>
+              <b id="scLabel" style="font-size:15px;min-width:120px;text-align:center"></b>
+              <button type="button" class="btn ghost" id="scNext">›</button>
+              <button type="button" class="btn ghost" id="scToday">今月</button>
+              <span class="note" style="margin:0">日付をクリックして、その日に稼働するインサイドのメンバーと時間を追加します。</span>
+            </div>
+            <div id="scCal"><div class="note">読み込んでいます…</div></div>
           </section>
 
           <!-- リストの割り振り -->
@@ -347,9 +350,9 @@
         </main>
       </div>
     </div>
-    <script src="sf-data.js?v=20260913e"></script>
-    <script src="calls.js?v=20260913e"></script>
-    <script src="nav.js?v=20260913e"></script>
+    <script src="sf-data.js?v=20260913f"></script>
+    <script src="calls.js?v=20260913f"></script>
+    <script src="nav.js?v=20260913f"></script>
     <script src="/cmdk.js?v=20260827a"></script>
 </body>
 </html>
