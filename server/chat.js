@@ -284,7 +284,7 @@ function shortReason(reason) {
 // アポを割り振ったときの通知。
 // 担当が決まると下書きも自動でできるため、メールの状況も同じ1通にまとめる。
 export async function notifyAssigned({
-  title, start, repName, setter, business, reason, url, auto, mail, clientEmail, counts, goal, launch, changed,
+  title, start, repName, setter, business, reason, url, auto, mail, clientEmail, counts, goal, goalMonth, launch, changed,
 }) {
   try { const st = await getSettings(); if (st && st.chatNotifyAssign === false) return { ok: false, skipped: true }; } catch {}
   // スマホで一目で分かることを優先し、4〜5行に収める。
@@ -308,7 +308,12 @@ export async function notifyAssigned({
     // 担当変更のときは件数を出さない（新規アポではないため）
     (!changed && counts)
       ? `📊 本日 ${counts.today} ／ 今週 ${counts.week} ／ 今月 ${counts.month}` +
-        (goal ? `（今週の目標 ${goal}・あと ${Math.max(0, goal - counts.month)}）` : "")
+        ((goal || goalMonth)
+          ? `\n　（${[
+              goal ? `今週の目標 ${goal}・あと ${Math.max(0, goal - counts.month)}` : "",
+              goalMonth ? `今月目標 ${goalMonth}・あと ${Math.max(0, goalMonth - counts.month)}` : "",
+            ].filter(Boolean).join("、")}）`
+          : "")
       : "",
   ].filter(Boolean);
   return notifyAll(lines.join("\n"), "assign", { mentionName: repName || "" });

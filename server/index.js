@@ -3322,7 +3322,27 @@ async function groupWeeklyApoGoal() {
   } catch { return 0; }
 }
 
-// 通知だけを送り直す（メール・SF立ち上げはやり直さない）。
+// ダッシュボードの「グループ（全体）」の今月のアポ目標（月合計）を返す。
+// 月次で直接入っていればそれを、無ければその月の週目標（積み上げ）の最大＝最終週の月合計を使う。
+async function groupMonthlyApoGoal() {
+  try {
+    const pad = (n) => String(n).padStart(2, "0");
+    const j = new Date(Date.now() + 9 * 3600000);
+    const y = j.getUTCFullYear(), m = j.getUTCMonth();
+    const ymd = (dt) => `${dt.getUTCFullYear()}-${pad(dt.getUTCMonth() + 1)}-${pad(dt.getUTCDate())}`;
+    const monthKey = `${y}-${pad(m + 1)}`;
+    const mg = await getApoGoalsByKeys("month", [monthKey]).catch(() => ({}));
+    const direct = Number((((mg["group"] || {})[monthKey] || {})["アポ"]) || 0);
+    if (direct) return direct;
+    const monthStart = new Date(Date.UTC(y, m, 1)), monthEnd = new Date(Date.UTC(y, m + 1, 0));
+    const keys = [];
+    for (let k = new Date(monthStart); k.getTime() <= monthEnd.getTime(); k = new Date(k.getTime() + 86400000)) keys.push(ymd(k));
+    const wg = await getApoGoalsByKeys("week", keys).catch(() => ({}));
+    let mx = 0;
+    for (const key of keys) { const v = Number((((wg["group"] || {})[key] || {})["アポ"]) || 0); if (v > mx) mx = v; }
+    return mx;
+  } catch { return 0; }
+}
 // 能美のように、立ち上げ済み・メール済みで、Chatの割り振り通知だけ届かなかったとき用。
 app.post("/api/apo/:slug/renotify", async (req, res) => {
   try {
@@ -3333,6 +3353,7 @@ app.post("/api/apo/:slug/renotify", async (req, res) => {
     const counts = await groupApoCountsRaw().catch(() => null);
     const st = await getSettings().catch(() => ({}));
     const goal = await groupWeeklyApoGoal().catch(() => 0);
+    const goalMonth = await groupMonthlyApoGoal().catch(() => 0);
     // SF立ち上げは「やり直さず」、今の状態だけ調べて通知に載せる（dryRun）。
     const op = await sfOperator(req.user).catch(() => "");
     const launch = await (op
@@ -3343,7 +3364,7 @@ app.post("/api/apo/:slug/renotify", async (req, res) => {
     const r = await notifyAssigned({
       title: link.label, start: link.start_time, repName,
       setter: link.setter, reason: "通知の再送", url: joinUrl(link.slug),
-      auto: false, mail: null, clientEmail: link.client_email, counts, goal, launch,
+      auto: false, mail: null, clientEmail: link.client_email, counts, goal, goalMonth, launch,
     });
     console.log(`[apo] ${link.slug} の割り振り通知だけ再送しました by ${req.user}`);
     res.json({ ok: true, ...(r || {}) });
@@ -19603,7 +19624,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-12zv アポ通知の「あと」を積み上げ基準に修正。ダッシュボード週ラップと同じく、あと＝今週の目標−今月（月初からの積み上げ実績）。週目標は獲得した週のグループ全体の目標を参照。表示は「本日 X ／ 今週 Y ／ 今月 Z（今週の目標 G・あと max(0,G-Z)）」。";
+const BUILD_TAG = "2026-09-12zw アポ通知に今週目標と今月目標の両方を併記。「📊 本日 X ／ 今週 Y ／ 今月 Z／（今週の目標 Gw・あと max(0,Gw−Z)、今月目標 Gm・あと max(0,Gm−Z)）」。今週目標＝獲得した週のグループ全体目標、今月目標＝その月の週目標（積み上げ）の最大＝月合計。どちらも「あと」は今月（積み上げ実績）基準でダッシュボードの差分と一致。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
@@ -22826,6 +22847,7 @@ async function autoAssignOne(link, { inviteOwner, closers = null, cfg, teamCtx =
     // アポの月間目標はまだ決まっていないので、通知には出さない。
     // 決まったら、設定で apoShowGoal を true にすれば出るようになる。
     const goal = await groupWeeklyApoGoal().catch(() => 0);
+    const goalMonth = await groupMonthlyApoGoal().catch(() => 0);
     // Salesforceの立ち上げ。設定がONのときだけ実際に立ち上げ、
     // OFFのときは「立ち上げられるか」の判定だけ行う（コンバートは取り消せないため）。
     const runIt = st?.sfAutoLaunch === true;
@@ -22839,7 +22861,7 @@ async function autoAssignOne(link, { inviteOwner, closers = null, cfg, teamCtx =
       title: updated.label, start: updated.start_time, repName: pick.name,
       setter: updated.setter, reason: pick.reason,
       url: joinUrl(updated.slug), auto: actor !== "manual" && !String(actor || "").includes("@"),
-      mail, clientEmail: updated.client_email, counts, goal, launch,
+      mail, clientEmail: updated.client_email, counts, goal, goalMonth, launch,
     });
 
     // 下書きができたときは、担当者本人にも直接知らせる。
@@ -24763,7 +24785,7 @@ app.put("/api/smart-links/:slug/owner", async (req, res) => {
           mail, clientEmail: link.client_email,
           // すでに担当が付いていたアポの「変更」なら、件数に数えず「担当を変更しました」で知らせる
           changed: !!(existing.current_owner && String(existing.current_owner).toLowerCase() !== String(owner).toLowerCase()),
-          counts, goal: await groupWeeklyApoGoal().catch(() => 0), launch,
+          counts, goal: await groupWeeklyApoGoal().catch(() => 0), goalMonth: await groupMonthlyApoGoal().catch(() => 0), launch,
         });
         // テスト用のアポは、通知まで済ませたら数から外す
         await loadTestWords().catch(() => {});
