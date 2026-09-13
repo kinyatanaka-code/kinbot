@@ -10,7 +10,7 @@
     <link rel="manifest" href="/site.webmanifest" />
     <meta name="theme-color" content="#0d5b47" />
     <meta name="apple-mobile-web-app-title" content="kinbot" />
-    <link rel="stylesheet" href="style.css?v=20260913d" />
+    <link rel="stylesheet" href="style.css?v=20260913e" />
   </head>
   <body class="kc-body">
     <div class="app">
@@ -144,6 +144,7 @@
               <button type="button" class="kc-ptab" data-top="jisseki">実績</button>
               <button type="button" class="kc-ptab" data-top="admin">設定・管理</button>
               <button type="button" class="kc-ptab" data-top="process">プロセス</button>
+              <button type="button" class="kc-ptab" data-top="daily">デイリー目標</button>
             </div>
             <div id="clDashWrap">
               <div style="margin-bottom:10px;display:flex;align-items:center;gap:12px;flex-wrap:wrap">
@@ -177,6 +178,33 @@
               <span class="rev-status" id="stRange"></span>
             </div>
             <div id="clStats"></div>
+            </div>
+            <div id="clDailyWrap" hidden>
+              <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:10px">
+                <label style="font-size:13px;color:#4a5a54">日付 <input type="date" id="dgDate" class="kc-input" style="max-width:170px" /></label>
+                <button type="button" class="btn ghost" id="dgReload">更新</button>
+                <span class="note" style="margin:0">セールス＝10-18の「【】/ブロック」以外／インサイド＝出勤シフト。想定コール＝稼働×20、必要アポ率＝目標÷コール。</span>
+              </div>
+              <div id="dgTableWrap"><div class="note">読み込んでいます…</div></div>
+              <div style="margin-top:12px">
+                <div style="display:flex;align-items:center;gap:10px;margin-bottom:6px">
+                  <b style="font-size:13px;color:#173a30">生成テキスト</b>
+                  <button type="button" class="btn ghost" id="dgCopy">コピー</button>
+                  <span class="rev-status" id="dgCopySt"></span>
+                </div>
+                <pre id="dgText" style="white-space:pre-wrap;background:#f6faf8;border:1px solid #d7e3dd;border-radius:10px;padding:12px;font-size:13px;line-height:1.7;margin:0;font-family:inherit"></pre>
+              </div>
+              <div style="margin-top:18px;border-top:1px solid #e6ece9;padding-top:14px">
+                <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:8px">
+                  <b style="font-size:13px;color:#173a30">インサイド出勤管理</b>
+                  <select id="dgShiftMember" class="kc-input" style="max-width:200px"></select>
+                  <input type="month" id="dgShiftMonth" class="kc-input" style="max-width:150px" />
+                  <button type="button" class="btn ghost" id="dgShiftLoad">表示</button>
+                  <button type="button" class="btn" id="dgShiftSave">保存</button>
+                  <span class="rev-status" id="dgShiftSt"></span>
+                </div>
+                <div id="dgShiftWrap"><div class="note">メンバーと月を選んで「表示」を押してください（平日のみ・開始/終了を入れて保存）。</div></div>
+              </div>
             </div>
           </section>
 
@@ -319,9 +347,9 @@
         </main>
       </div>
     </div>
-    <script src="sf-data.js?v=20260913d"></script>
-    <script src="calls.js?v=20260913d"></script>
-    <script src="nav.js?v=20260913d"></script>
+    <script src="sf-data.js?v=20260913e"></script>
+    <script src="calls.js?v=20260913e"></script>
+    <script src="nav.js?v=20260913e"></script>
     <script src="/cmdk.js?v=20260827a"></script>
 </body>
 </html>

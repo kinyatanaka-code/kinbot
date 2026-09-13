@@ -3268,15 +3268,18 @@ if ($("stTop")) {
       $("stTop").querySelectorAll(".kc-ptab").forEach((x) => x.classList.toggle("active", x === b));
       const showJisseki = statsTop === "jisseki";
       const isDash = statsTop === "dash";
-      const sw = $("stScopeWrap"), sp = $("stPeriod"), jw = $("clJissekiWrap"), dw = $("clDashWrap");
+      const isDaily = statsTop === "daily";
+      const sw = $("stScopeWrap"), sp = $("stPeriod"), jw = $("clJissekiWrap"), dw = $("clDashWrap"), dg = $("clDailyWrap");
       if (sw) sw.style.display = showJisseki ? "" : "none";
       if (sp) sp.style.display = showJisseki ? "" : "none";
       const acts = document.querySelector("#clJissekiWrap .ap-cfg-actions");
       if (acts) acts.style.display = showJisseki ? "" : "none";   // 読み込み直す・CSVは実績のときだけ
       // 実績・設定・管理・プロセスは、どれも #clStats に描くので枠は出しておく
-      if (jw) jw.hidden = isDash;
+      if (jw) jw.hidden = isDash || isDaily;
       if (dw) dw.hidden = !isDash;
-      if (isDash) loadDash();
+      if (dg) dg.hidden = !isDaily;
+      if (isDaily) loadDailyGoal();
+      else if (isDash) loadDash();
       else if (statsTop === "admin") loadAdmin();
       else if (statsTop === "process") loadProcess();
       else loadStats();
@@ -3291,6 +3294,96 @@ if ($("stScope")) {
       if (_statsCache[statsPeriod]) renderStats(_statsCache[statsPeriod]); else loadStats();
     }));
 }
+
+// ===== デイリー目標タブ =====
+let _dgMembers = [];
+let _dgShiftInit = false;
+function dgToday() { const j = new Date(Date.now() + 9 * 3600000); const p = (n) => String(n).padStart(2, "0"); return `${j.getUTCFullYear()}-${p(j.getUTCMonth() + 1)}-${p(j.getUTCDate())}`; }
+function dgFmtH(h) { const r = Math.round(h * 100) / 100; return (Number.isInteger(r) ? String(r) : r.toFixed(1).replace(/\.0$/, "")) + "h"; }
+function dgGenText() {
+  const lines = []; let tH = 0, tC = 0, tT = 0;
+  for (const m of _dgMembers) { const t = Math.max(0, parseInt(m.target, 10) || 0); const c = Math.round(m.hours * 20); const r = c > 0 ? (t / c * 100) : 0; lines.push(`${m.name}：${dgFmtH(m.hours)} / ${c}コール / ${r.toFixed(2)}% (目標${t}件)`); tH += m.hours; tC += c; tT += t; }
+  const tr = tC > 0 ? (tT / tC * 100) : 0;
+  lines.push("------------------------------------");
+  lines.push(`合計：${dgFmtH(tH)} / ${tC}コール / ${tr.toFixed(2)}% (目標${tT}件)`);
+  return lines.join("\n");
+}
+function dgRenderText() { const el = $("dgText"); if (el) el.textContent = dgGenText(); }
+async function loadDailyGoal() {
+  const dEl = $("dgDate"); if (dEl && !dEl.value) dEl.value = dgToday();
+  const date = (dEl && dEl.value) || dgToday();
+  const wrap = $("dgTableWrap"); if (wrap) wrap.innerHTML = '<div class="note">読み込んでいます…</div>';
+  if (!_dgShiftInit) { _dgShiftInit = true; dgLoadShiftMembers(); }
+  let d; try { d = await (await fetch("/api/daily/working?date=" + encodeURIComponent(date))).json(); } catch { if (wrap) wrap.innerHTML = '<div class="note">読み込めませんでした</div>'; return; }
+  _dgMembers = (d.members || []).map((m) => ({ name: m.name, role: m.role, hours: m.hours, target: m.target || 0 }));
+  if (!_dgMembers.length) { if (wrap) wrap.innerHTML = '<div class="note">この日の稼働メンバーがいません（インサイド＝出勤シフト、セールス＝カレンダーから算出）。</div>'; dgRenderText(); return; }
+  const roleLbl = (r) => r === "sales" ? "セールス" : "インサイド";
+  let html = '<table class="kc-table"><thead><tr><th>メンバー</th><th>区分</th><th>稼働</th><th>アポ目標</th><th>想定コール</th><th>必要アポ率</th></tr></thead><tbody>';
+  _dgMembers.forEach((m, i) => {
+    const c = Math.round(m.hours * 20); const r = c > 0 ? ((m.target || 0) / c * 100) : 0;
+    html += `<tr><td>${esc(m.name)}</td><td>${roleLbl(m.role)}</td><td>${dgFmtH(m.hours)}</td>` +
+      `<td><input type="number" min="0" class="kc-input dg-t" data-i="${i}" value="${m.target || 0}" style="width:72px" /></td>` +
+      `<td class="dg-calls">${c}</td><td class="dg-rate">${r.toFixed(2)}%</td></tr>`;
+  });
+  html += "</tbody></table>";
+  if (wrap) wrap.innerHTML = html;
+  wrap.querySelectorAll(".dg-t").forEach((inp) => {
+    inp.addEventListener("input", () => {
+      const i = +inp.dataset.i; const v = Math.max(0, parseInt(inp.value, 10) || 0); _dgMembers[i].target = v;
+      const tr = inp.closest("tr"); const c = Math.round(_dgMembers[i].hours * 20); const r = c > 0 ? (v / c * 100) : 0;
+      const rc = tr.querySelector(".dg-rate"); if (rc) rc.textContent = r.toFixed(2) + "%";
+      dgRenderText();
+    });
+    inp.addEventListener("change", () => {
+      const i = +inp.dataset.i;
+      fetch("/api/daily/target", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ who: _dgMembers[i].name, date, target: _dgMembers[i].target }) }).catch(() => {});
+    });
+  });
+  dgRenderText();
+}
+async function dgLoadShiftMembers() {
+  const sel = $("dgShiftMember"); if (!sel) return;
+  try { const arr = await (await fetch("/api/interns")).json(); sel.innerHTML = (Array.isArray(arr) ? arr : []).map((x) => `<option value="${esc(x.email)}" data-name="${esc(x.name || "")}">${esc(x.name || x.email)}</option>`).join(""); } catch {}
+  const mo = $("dgShiftMonth"); if (mo && !mo.value) { const j = new Date(Date.now() + 9 * 3600000); mo.value = `${j.getUTCFullYear()}-${String(j.getUTCMonth() + 1).padStart(2, "0")}`; }
+}
+async function dgLoadShifts() {
+  const sel = $("dgShiftMember"), mo = $("dgShiftMonth"), wrap = $("dgShiftWrap");
+  if (!sel || !mo || !wrap || !sel.value || !mo.value) return;
+  const email = sel.value; const [y, m] = mo.value.split("-").map(Number);
+  const last = new Date(Date.UTC(y, m, 0)).getUTCDate();
+  const from = `${mo.value}-01`, to = `${mo.value}-${String(last).padStart(2, "0")}`;
+  const existing = {};
+  try { const d = await (await fetch(`/api/inside-shifts?from=${from}&to=${to}`)).json(); for (const s of (d.shifts || [])) if (s.email === email) existing[s.day] = { s: s.start_min, e: s.end_min }; } catch {}
+  const m2hm = (v) => v == null ? "" : `${String(Math.floor(v / 60)).padStart(2, "0")}:${String(v % 60).padStart(2, "0")}`;
+  const wd = ["日", "月", "火", "水", "木", "金", "土"];
+  let html = '<table class="kc-table"><thead><tr><th>日付</th><th>曜日</th><th>開始</th><th>終了</th></tr></thead><tbody>';
+  for (let dd = 1; dd <= last; dd++) {
+    const ds = `${mo.value}-${String(dd).padStart(2, "0")}`; const dow = new Date(Date.UTC(y, m - 1, dd)).getUTCDay();
+    if (dow === 0 || dow === 6) continue;
+    const ex = existing[ds] || {};
+    html += `<tr data-day="${ds}"><td>${m}/${dd}</td><td>${wd[dow]}</td>` +
+      `<td><input type="time" class="kc-input dg-s" value="${m2hm(ex.s)}" style="width:120px" /></td>` +
+      `<td><input type="time" class="kc-input dg-e" value="${m2hm(ex.e)}" style="width:120px" /></td></tr>`;
+  }
+  html += "</tbody></table>";
+  wrap.innerHTML = html;
+}
+async function dgSaveShifts() {
+  const sel = $("dgShiftMember"), wrap = $("dgShiftWrap"), st = $("dgShiftSt");
+  if (!sel || !wrap || !sel.value) return;
+  const email = sel.value; const name = (sel.options[sel.selectedIndex] && sel.options[sel.selectedIndex].dataset.name) || "";
+  const hm2m = (v) => { if (!/^\d{2}:\d{2}$/.test(v)) return null; const [h, mm] = v.split(":").map(Number); return h * 60 + mm; };
+  const rows = [...wrap.querySelectorAll("tr[data-day]")].map((tr) => ({ email, name, day: tr.dataset.day, start_min: hm2m(tr.querySelector(".dg-s").value), end_min: hm2m(tr.querySelector(".dg-e").value) }));
+  if (st) st.textContent = "保存中…";
+  try { await fetch("/api/inside-shifts", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ shifts: rows }) }); if (st) { st.textContent = "保存しました"; setTimeout(() => (st.textContent = ""), 1500); } }
+  catch { if (st) st.textContent = "保存に失敗"; }
+}
+if ($("dgReload")) $("dgReload").addEventListener("click", loadDailyGoal);
+if ($("dgDate")) $("dgDate").addEventListener("change", loadDailyGoal);
+if ($("dgCopy")) $("dgCopy").addEventListener("click", () => { navigator.clipboard.writeText(dgGenText()).then(() => { const s = $("dgCopySt"); if (s) { s.textContent = "コピーしました"; setTimeout(() => (s.textContent = ""), 1500); } }).catch(() => {}); });
+if ($("dgShiftLoad")) $("dgShiftLoad").addEventListener("click", dgLoadShifts);
+if ($("dgShiftSave")) $("dgShiftSave").addEventListener("click", dgSaveShifts);
+
 
 if ($("clFind")) {
   let timer = null;

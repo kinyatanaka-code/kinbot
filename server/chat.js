@@ -22,6 +22,7 @@ export const NOTIFY_KINDS = [
   { key: "doc",     label: "資料の閲覧・ダウンロード" },
   { key: "launch",  label: "SF商談の自動立ち上げ" },
   { key: "valid",   label: "有効商談になったお知らせ（インサイド獲得アポ）" },
+  { key: "daily",   label: "デイリー目標（朝8時の通知）" },
   { key: "deploy",  label: "kinbotの更新（デプロイ）" },
   { key: "news",    label: "kinbotのお知らせ（新機能）" },
   { key: "dev",     label: "開発メモ（夜間開発）" },
@@ -125,6 +126,8 @@ export async function notifyAll(text, kind = "", { mentionName = "" } = {}) {
     apo: "on_apo",
     // 有効商談になったお知らせ（インサイド獲得アポ）
     valid: "on_valid",
+    // デイリー目標（朝8時）
+    daily: "on_daily",
   }[kind];
   const list = col ? targets.filter((x) => x[col]) : targets;
   if (!list.length) return { ok: false, skipped: true, reason: "この種類の通知はどこもONになっていません" };

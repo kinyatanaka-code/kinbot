@@ -2665,6 +2665,7 @@ const CT_KINDS = [
   ["onResched", "リスケ・キャンセル"],
   ["onApo", "アポ獲得のお知らせ"],
   ["onValid", "有効商談になったお知らせ"],
+  ["onDaily", "デイリー目標（朝8時）"],
 ];
 
 function ctSay(id, t, ms) {

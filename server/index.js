@@ -440,6 +440,10 @@ import {
   upsertRepTeam,
   deleteRepTeam,
   listInterns,
+  listInsideShifts,
+  upsertInsideShift,
+  getDailyTargets,
+  setDailyTarget,
   upsertIntern,
   deleteIntern,
   setMeetingApoSetter,
@@ -3830,6 +3834,148 @@ app.get("/api/home/inside-today", async (req, res) => {
     res.json({ ok: true, date, total: rows.length, groups });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
+
+// ===== デイリー目標（セールス架電時間＝10-18のブロック外／インサイド＝出勤シフト。想定コール・必要アポ率を自動計算） =====
+async function dailyCalendarReader() {
+  const st = await getSettings().catch(() => ({}));
+  const configured = st && typeof st.apoCalendarOwner === "string" ? st.apoCalendarOwner.trim() : "";
+  if (configured && (await gcalConnected(configured).catch(() => false))) return configured;
+  return "";
+}
+// セールスの架電時間(h)＝当日10-18から「【】を含む／ブロックを含む」予定の重なりを引いた空き
+async function salesCallHours(gcalOwner, email, dayStr) {
+  const winS = Date.parse(dayStr + "T10:00:00+09:00");
+  const winE = Date.parse(dayStr + "T18:00:00+09:00");
+  if (isNaN(winS) || isNaN(winE)) return null;
+  let evs = [];
+  try { evs = await listCalendarEvents(gcalOwner, email, { timeMin: new Date(winS - 3600000).toISOString(), timeMax: new Date(winE + 3600000).toISOString() }); }
+  catch { return null; }
+  const blocks = [];
+  for (const e of evs) {
+    if (e.allDay) continue;
+    const t = String(e.title || "");
+    if (!(t.includes("【") || t.includes("ブロック"))) continue;
+    const s = Date.parse(e.start), en = Date.parse(e.end);
+    if (isNaN(s) || isNaN(en)) continue;
+    const os = Math.max(s, winS), oe = Math.min(en, winE);
+    if (oe > os) blocks.push([os, oe]);
+  }
+  blocks.sort((a, b) => a[0] - b[0]);
+  let blocked = 0, cs = null, ce = null;
+  for (const [s, e] of blocks) { if (ce === null || s > ce) { if (ce !== null) blocked += ce - cs; cs = s; ce = e; } else ce = Math.max(ce, e); }
+  if (ce !== null) blocked += ce - cs;
+  return Math.max(0, (winE - winS) - blocked) / 3600000;
+}
+async function dailyWorkingMembers(dayStr) {
+  const out = [];
+  try {
+    const shifts = await listInsideShifts(dayStr, dayStr);
+    for (const s of shifts) {
+      if (s.start_min == null || s.end_min == null) continue;
+      const h = Math.max(0, (s.end_min - s.start_min)) / 60;
+      if (h <= 0) continue;
+      out.push({ name: s.name || s.email, role: "inside", hours: Math.round(h * 100) / 100 });
+    }
+  } catch {}
+  try {
+    const gcalOwner = await dailyCalendarReader();
+    if (gcalOwner) {
+      const members = await listMembers().catch(() => []);
+      const salesNames = String(process.env.DASH_SALES_NAMES || "田中欽也").split(",").map((x) => x.trim()).filter(Boolean);
+      const sales = (members || []).filter((m) => (Array.isArray(m.roles) && m.roles.includes("closer")) || salesNames.some((n) => String(m.name || "").includes(n)));
+      for (const m of sales) {
+        const email = String(m.email || "").toLowerCase(); if (!email) continue;
+        const h = await salesCallHours(gcalOwner, email, dayStr);
+        if (h == null || h <= 0) continue;
+        out.push({ name: m.name || email, role: "sales", hours: Math.round(h * 100) / 100 });
+      }
+    }
+  } catch {}
+  return out;
+}
+function fmtHoursJa(h) { const r = Math.round(h * 100) / 100; return (Number.isInteger(r) ? String(r) : r.toFixed(1).replace(/\.0$/, "")) + "h"; }
+function genDailyTargetText(members, targets) {
+  const lines = [];
+  let totH = 0, totC = 0, totT = 0;
+  for (const m of members) {
+    const t = Math.max(0, parseInt(targets[m.name], 10) || 0);
+    const calls = Math.round(m.hours * 20);
+    const rate = calls > 0 ? (t / calls * 100) : 0;
+    lines.push(`${m.name}：${fmtHoursJa(m.hours)} / ${calls}コール / ${rate.toFixed(2)}% (目標${t}件)`);
+    totH += m.hours; totC += calls; totT += t;
+  }
+  const totRate = totC > 0 ? (totT / totC * 100) : 0;
+  lines.push("------------------------------------");
+  lines.push(`合計：${fmtHoursJa(totH)} / ${totC}コール / ${totRate.toFixed(2)}% (目標${totT}件)`);
+  return lines.join("\n");
+}
+function jstTodayStr() { const j = new Date(Date.now() + 9 * 3600000); const p = (n) => String(n).padStart(2, "0"); return `${j.getUTCFullYear()}-${p(j.getUTCMonth() + 1)}-${p(j.getUTCDate())}`; }
+
+app.get("/api/daily/working", async (req, res) => {
+  try {
+    const date = /^\d{4}-\d{2}-\d{2}$/.test(String(req.query.date || "")) ? String(req.query.date) : jstTodayStr();
+    const members = await dailyWorkingMembers(date);
+    const targets = await getDailyTargets(date).catch(() => ({}));
+    res.json({ ok: true, date, members: members.map((m) => ({ ...m, target: parseInt(targets[m.name], 10) || 0 })) });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+app.post("/api/daily/target", async (req, res) => {
+  try {
+    const who = String(req.body?.who || "").trim();
+    const date = /^\d{4}-\d{2}-\d{2}$/.test(String(req.body?.date || "")) ? String(req.body.date) : jstTodayStr();
+    if (!who) return res.status(400).json({ error: "メンバーがありません" });
+    await setDailyTarget(who, date, req.body?.target);
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+app.get("/api/daily/report", async (req, res) => {
+  try {
+    const date = /^\d{4}-\d{2}-\d{2}$/.test(String(req.query.date || "")) ? String(req.query.date) : jstTodayStr();
+    const members = await dailyWorkingMembers(date);
+    const targets = await getDailyTargets(date).catch(() => ({}));
+    res.json({ ok: true, date, text: genDailyTargetText(members, targets), hasTarget: members.some((m) => (parseInt(targets[m.name], 10) || 0) > 0) });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+app.get("/api/inside-shifts", async (req, res) => {
+  try {
+    const from = /^\d{4}-\d{2}-\d{2}$/.test(String(req.query.from || "")) ? String(req.query.from) : jstTodayStr();
+    const to = /^\d{4}-\d{2}-\d{2}$/.test(String(req.query.to || "")) ? String(req.query.to) : from;
+    res.json({ ok: true, shifts: await listInsideShifts(from, to) });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+app.post("/api/inside-shifts", async (req, res) => {
+  try {
+    const rows = Array.isArray(req.body?.shifts) ? req.body.shifts : [];
+    for (const r of rows) {
+      const email = String(r.email || "").trim().toLowerCase();
+      const day = String(r.day || "").trim();
+      if (!email || !/^\d{4}-\d{2}-\d{2}$/.test(day)) continue;
+      const sm = (r.start_min === "" || r.start_min == null) ? null : parseInt(r.start_min, 10);
+      const em = (r.end_min === "" || r.end_min == null) ? null : parseInt(r.end_min, 10);
+      const ok = sm != null && em != null && !isNaN(sm) && !isNaN(em) && em > sm;
+      await upsertInsideShift(email, r.name || "", day, ok ? sm : null, ok ? em : null);
+    }
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// 朝8時：その日の目標が入っていれば、生成テキストを直販チャット（通知先で「デイリー目標」ON）へ流す。未入力なら通知しない。
+let _lastDailyGoalDay = "";
+async function dailyGoalTick() {
+  try {
+    const j = new Date(Date.now() + 9 * 3600000);
+    if (j.getUTCHours() !== 8) return;
+    const day = jstTodayStr();
+    if (_lastDailyGoalDay === day) return;
+    _lastDailyGoalDay = day;
+    const members = await dailyWorkingMembers(day);
+    const targets = await getDailyTargets(day).catch(() => ({}));
+    if (!members.some((m) => (parseInt(targets[m.name], 10) || 0) > 0)) { console.log("[デイリー目標] 目標未入力のため通知なし", day); return; }
+    await notifyAll(`本日のデイリー目標\n${genDailyTargetText(members, targets)}`, "daily").catch(() => {});
+    console.log("[デイリー目標] 通知しました", day);
+  } catch (e) { console.warn("[デイリー目標]", e.message); }
+}
+setInterval(() => { dailyGoalTick(); }, 5 * 60 * 1000);
 
 // 会社名の緩い一致（正規化キーの部分一致）でデモURLを探す
 function findDemoLoose(map, co) {
@@ -14676,7 +14822,7 @@ app.get("/api/chat-targets", async (req, res) => {
       targets: rows.map((r) => ({
         id: r.id, name: r.name,
         webhookUrl: r.webhook_url || "", spaceId: r.space_id || "",
-        onAssign: r.on_assign, onMail: r.on_mail, onDoc: r.on_doc, onLaunch: r.on_launch, onValid: r.on_valid,
+        onAssign: r.on_assign, onMail: r.on_mail, onDoc: r.on_doc, onLaunch: r.on_launch, onValid: r.on_valid, onDaily: r.on_daily,
         onDeploy: r.on_deploy, onNews: r.on_news, onDev: r.on_dev, onIncentive: r.on_incentive,
         onResched: r.on_resched, onApo: r.on_apo,
         active: r.active, lastError: r.last_error || "", sentCount: r.sent_count,
@@ -14708,7 +14854,7 @@ app.put("/api/chat-targets/:id", async (req, res) => {
   try {
     const b = req.body || {};
     const patch = {};
-    for (const k of ["onAssign", "onMail", "onDoc", "onLaunch", "onDeploy", "onNews", "onDev", "onIncentive", "onResched", "onApo", "onValid", "active"]) {
+    for (const k of ["onAssign", "onMail", "onDoc", "onLaunch", "onDeploy", "onNews", "onDev", "onIncentive", "onResched", "onApo", "onValid", "onDaily", "active"]) {
       if (b[k] !== undefined) patch[k] = b[k] !== false;
     }
     if (b.name !== undefined) patch.name = String(b.name).trim().slice(0, 80);
@@ -19688,7 +19834,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-13d ホームの「今日のインサイド実施」が長いと下まで見られなかったのを修正。セクション自体を高さ上限つきで内部スクロールできるようにし（見出しは固定）、獲得者が多い日も全部たどれるようにした。";
+const BUILD_TAG = "2026-09-13e デイリー目標を追加。kincall→実績→デイリー目標タブで、その日の稼働メンバー（インサイド＝出勤シフト／セールス＝10-18の「【】・ブロック」以外の空き時間）を表示。アポ目標を入れると想定コール（稼働×20）・必要アポ率（目標÷コール）を自動計算し、指定フォーマットの生成テキストをコピーできる。インサイド出勤管理（管理者が月まとめ・開始/終了）も同タブに。朝8時に目標が入っていれば生成テキストを直販チャット（通知先で「デイリー目標」ON）へ通知（未入力なら通知しない）。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",

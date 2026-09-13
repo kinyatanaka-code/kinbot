@@ -204,6 +204,28 @@ export async function initDb() {
       created_at TIMESTAMPTZ DEFAULT now()
     );
   `);
+  // インサイドの出勤シフト（管理者が1ヶ月分まとめて入力・開始/終了は分単位）
+  await sq(`
+    CREATE TABLE IF NOT EXISTS inside_shifts (
+      email      TEXT NOT NULL,
+      name       TEXT,
+      day        DATE NOT NULL,
+      start_min  INT,
+      end_min    INT,
+      updated_at TIMESTAMPTZ DEFAULT now(),
+      PRIMARY KEY (email, day)
+    );
+  `);
+  // その日のアポ目標（メンバー名ごと・日ごと）
+  await sq(`
+    CREATE TABLE IF NOT EXISTS daily_apo_targets (
+      who        TEXT NOT NULL,
+      day        DATE NOT NULL,
+      target     INT NOT NULL DEFAULT 0,
+      updated_at TIMESTAMPTZ DEFAULT now(),
+      PRIMARY KEY (who, day)
+    );
+  `);
   // 事前ブリーフのキャッシュ（会社ごと。再作成で上書き）
   await sq(`
     CREATE TABLE IF NOT EXISTS deal_briefs (
@@ -860,6 +882,7 @@ export async function initDb() {
   await sq(`ALTER TABLE chat_targets ADD COLUMN IF NOT EXISTS on_apo BOOLEAN NOT NULL DEFAULT true;`);
   await sq(`ALTER TABLE chat_targets ADD COLUMN IF NOT EXISTS on_dev BOOLEAN NOT NULL DEFAULT false;`);
   await sq(`ALTER TABLE chat_targets ADD COLUMN IF NOT EXISTS on_valid BOOLEAN NOT NULL DEFAULT true;`);
+  await sq(`ALTER TABLE chat_targets ADD COLUMN IF NOT EXISTS on_daily BOOLEAN NOT NULL DEFAULT true;`);
   await sq(`CREATE INDEX IF NOT EXISTS ix_calendar_watch_cal ON calendar_watch(calendar_id);`);
 
   // ===== スマートリンク（担当者切り替えに追随する共有Zoom URL） =====
@@ -1889,6 +1912,49 @@ export async function listInterns() {
     const { rows } = await pool.query(`SELECT email, name FROM interns ORDER BY name`);
     return rows;
   } catch { return []; }
+}
+// ===== インサイド出勤シフト =====
+export async function listInsideShifts(fromDay, toDay) {
+  if (!pool) return [];
+  try {
+    const { rows } = await pool.query(
+      `SELECT email, name, to_char(day,'YYYY-MM-DD') AS day, start_min, end_min
+         FROM inside_shifts WHERE day >= $1 AND day <= $2 ORDER BY day, name`,
+      [fromDay, toDay]);
+    return rows;
+  } catch (e) { console.error("[db] listInsideShifts", e.message); return []; }
+}
+export async function upsertInsideShift(email, name, day, startMin, endMin) {
+  if (!pool || !email || !day) return;
+  const em = String(email).trim().toLowerCase();
+  try {
+    if (startMin == null || endMin == null) {
+      await pool.query(`DELETE FROM inside_shifts WHERE email=$1 AND day=$2`, [em, day]);
+    } else {
+      await pool.query(
+        `INSERT INTO inside_shifts (email, name, day, start_min, end_min, updated_at)
+         VALUES ($1,$2,$3,$4,$5,now())
+         ON CONFLICT (email, day) DO UPDATE SET name=$2, start_min=$4, end_min=$5, updated_at=now()`,
+        [em, String(name || "").trim(), day, startMin, endMin]);
+    }
+  } catch (e) { console.error("[db] upsertInsideShift", e.message); }
+}
+// ===== デイリーのアポ目標 =====
+export async function getDailyTargets(day) {
+  if (!pool) return {};
+  try {
+    const { rows } = await pool.query(`SELECT who, target FROM daily_apo_targets WHERE day=$1`, [day]);
+    const out = {}; for (const r of rows) out[r.who] = r.target; return out;
+  } catch { return {}; }
+}
+export async function setDailyTarget(who, day, target) {
+  if (!pool || !who || !day) return;
+  try {
+    await pool.query(
+      `INSERT INTO daily_apo_targets (who, day, target, updated_at) VALUES ($1,$2,$3,now())
+       ON CONFLICT (who, day) DO UPDATE SET target=$3, updated_at=now()`,
+      [String(who), day, Math.max(0, parseInt(target, 10) || 0)]);
+  } catch (e) { console.error("[db] setDailyTarget", e.message); }
 }
 export async function upsertIntern(email, name) {
   if (!pool || !email) return;
@@ -5445,6 +5511,7 @@ export async function updateChatTarget(id, patch) {
     onResched: "on_resched",
     onApo: "on_apo",
     onValid: "on_valid",
+    onDaily: "on_daily",
     onDeploy: "on_deploy", active: "active" };
   const sets = [], vals = [id];
   for (const [k, col] of Object.entries(cols)) {
