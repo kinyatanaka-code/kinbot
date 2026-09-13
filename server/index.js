@@ -3793,6 +3793,43 @@ async function loadAiDemoLinks(force = false) {
   return map;
 }
 // 会社→発行済みデモURL。company指定で1社、無指定で全件（map＋items）。
+// ホーム用：今日インサイドが獲得して実施した商談（全員分）を、獲得者ごとにまとめて返す。
+app.get("/api/home/inside-today", async (req, res) => {
+  try {
+    const pad = (n) => String(n).padStart(2, "0");
+    const j = new Date(Date.now() + 9 * 3600000);
+    const today = `${j.getUTCFullYear()}-${pad(j.getUTCMonth() + 1)}-${pad(j.getUTCDate())}`;
+    const ms = await listMeetings({ isAdmin: true, from: today, to: today, limit: 2000, light: true }).catch(() => []);
+    const interns = await listInterns().catch(() => []);
+    const members = await listMembers().catch(() => []);
+    const norm = (s) => String(s || "").replace(/[\s　]/g, "");
+    const inside = new Set();
+    for (const it of interns) if (it.name) inside.add(norm(it.name));
+    for (const mm of members) if (Array.isArray(mm.roles) && mm.roles.includes("inside") && mm.name) inside.add(norm(mm.name));
+    const hhmm = (v) => { const d = new Date(v); if (isNaN(d.getTime())) return ""; const jj = new Date(d.getTime() + 9 * 3600000); return `${pad(jj.getUTCHours())}:${pad(jj.getUTCMinutes())}`; };
+    // 実施済み＝meetingsに入っている（録音済み）今日の商談。獲得者がインサイドのものだけ。
+    const rows = ms.filter((m) => m.apo_setter && inside.has(norm(m.apo_setter)));
+    const byS = new Map();
+    for (const m of rows) {
+      const k = norm(m.apo_setter);
+      if (!byS.has(k)) byS.set(k, { setter: m.apo_setter, items: [] });
+      byS.get(k).items.push({
+        company: (m.account && m.account.trim()) || companyFromTitle(m.title) || m.title || "",
+        time: hhmm(m.created_at),
+        owner: m.owner_name || m.rep_name || "",
+        botId: m.bot_id,
+        _t: new Date(m.created_at).getTime() || 0,
+      });
+    }
+    const groups = [...byS.values()].map((g) => ({
+      setter: g.setter,
+      count: g.items.length,
+      items: g.items.sort((a, b) => a._t - b._t).map(({ _t, ...x }) => x),
+    })).sort((a, b) => b.count - a.count || String(a.setter).localeCompare(String(b.setter), "ja"));
+    res.json({ ok: true, total: rows.length, groups });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 // 会社名の緩い一致（正規化キーの部分一致）でデモURLを探す
 function findDemoLoose(map, co) {
   const key = normCompanyKey(co || "");
@@ -19650,7 +19687,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-12zz インターンアポのカレンダー照合を、毎日12時・15時・18時（JST）に自動実行するようにした。照合の代表者（設定→インターン登録のGoogle連携）を使って直近90日を照合する。手動の「カレンダーと照合」ボタンも従来どおり使える。";
+const BUILD_TAG = "2026-09-13a ホームの明日のリマインドの下に「今日のインサイド実施」を追加。インサイドが獲得して今日実施した商談を、獲得者ごとにまとめて全員分表示（時刻・会社名・担当）。上限なし。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",

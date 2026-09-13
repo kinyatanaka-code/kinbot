@@ -6190,3 +6190,22 @@ input:focus, select:focus, textarea:focus, .sf-input:focus, .sf-select:focus, .s
 .mail-col-right { min-width:0; }
 .mail-col-left .mail-lb { display:flex; flex-direction:column; gap:4px; }
 @media (max-width: 760px) { .mail-2col { grid-template-columns: 1fr; } }
+
+/* ホーム：今日のインサイド実施（リマインドの下・獲得者ごと） */
+.ins-today { border: 0.5px solid #d7e3dd; border-radius: 12px; padding: 12px 14px; background: #fff; }
+.ins-h { display: flex; align-items: center; gap: 8px; }
+.ins-title { font-weight: 700; color: #0F6E56; font-size: 13px; }
+.ins-count { background: #e6f4ec; color: #1a7a4f; border-radius: 8px; padding: 1px 8px; font-size: 12px; font-weight: 700; }
+.ins-note { margin-left: auto; color: #8a8f8c; font-size: 11px; }
+.ins-sub { font-size: 11px; color: #8a8f8c; margin: 2px 0 10px; }
+.ins-grp { margin-bottom: 10px; }
+.ins-grp:last-child { margin-bottom: 0; }
+.ins-grp-h { display: flex; align-items: center; gap: 6px; margin-bottom: 5px; }
+.ins-setter { font-size: 12.5px; font-weight: 700; color: #173a30; }
+.ins-grp-n { font-size: 11px; color: #6b7770; background: #f0f4f2; border-radius: 7px; padding: 0 6px; }
+.ins-item { display: flex; align-items: center; gap: 10px; padding: 6px 8px; border-radius: 9px; background: #f6faf8; margin-bottom: 6px; }
+.ins-item:last-child { margin-bottom: 0; }
+.ins-time { font-size: 12px; color: #4a5a54; flex: none; width: 38px; }
+.ins-ibody { min-width: 0; flex: 1; }
+.ins-co { font-size: 13px; color: #173a30; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ins-owner { font-size: 11px; color: #8a8f8c; }

@@ -267,6 +267,33 @@ function sameDeal(a, b) {
 let aidemoByKey = {};
 let aidemoTool = "https://aidemo-maker-393173897680.asia-northeast1.run.app/";
 function fnorm(s) { return String(s || "").replace(/[\s　]/g, "").replace(/(株式会社|（株）|\(株\)|㈱|有限会社|（有）|\(有\)|合同会社|合資会社|一般社団法人|一般財団法人|公益社団法人|公益財団法人|医療法人社団|医療法人|社会福祉法人|学校法人|協同組合|組合)/g, "").replace(/様$/, "").toLowerCase(); }
+// 今日インサイドが獲得して実施した商談（全員分）を、獲得者ごとにまとめて表示する。
+async function loadInsideToday() {
+  const bar = $h("insTodayBar");
+  if (!bar) return;
+  let d;
+  try { d = await (await fetch("/api/home/inside-today")).json(); } catch { bar.hidden = true; return; }
+  const groups = (d && d.groups) || [];
+  if (!groups.length) { bar.hidden = true; return; }
+  const total = d.total || 0;
+  let html =
+    `<div class="ins-h"><span class="ins-title">今日のインサイド実施</span>` +
+    `<span class="ins-count">${total}件</span><span class="ins-note">全員分</span></div>` +
+    `<div class="ins-sub">インサイドが獲得して、今日実施した商談</div>`;
+  for (const g of groups) {
+    html += `<div class="ins-grp"><div class="ins-grp-h"><span class="ins-setter">${escH(g.setter || "")}</span><span class="ins-grp-n">${g.count}件</span></div>`;
+    for (const it of (g.items || [])) {
+      html +=
+        `<div class="ins-item"><span class="ins-time">${escH(it.time || "")}</span>` +
+        `<div class="ins-ibody"><div class="ins-co">${escH(it.company || "")}</div>` +
+        `<div class="ins-owner">担当 ${escH(it.owner || "-")}</div></div></div>`;
+    }
+    html += `</div>`;
+  }
+  bar.innerHTML = html;
+  bar.hidden = false;
+}
+
 async function loadAidemo(refresh) {
   try {
     const r = await fetch("/api/aidemo/links" + (refresh ? "?refresh=1" : ""));
@@ -2163,6 +2190,7 @@ async function load() {
   render();
   loadMyApos();
   loadAidemo().then(() => render());
+  loadInsideToday();
 }
 
 document.addEventListener("DOMContentLoaded", () => {
