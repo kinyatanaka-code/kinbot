@@ -1956,6 +1956,23 @@ export async function setDailyTarget(who, day, target) {
       [String(who), day, Math.max(0, parseInt(target, 10) || 0)]);
   } catch (e) { console.error("[db] setDailyTarget", e.message); }
 }
+// 架電ログから、かけた人×日ごとの最初/最後の架電時刻（JST・HH:MM）と件数を返す（出退勤の推定に使う）。
+export async function callSpansByDay(fromDay, toDay) {
+  if (!pool) return [];
+  try {
+    const { rows } = await pool.query(
+      `SELECT lower(caller) AS caller,
+              to_char(at AT TIME ZONE 'Asia/Tokyo','YYYY-MM-DD') AS day,
+              to_char(min(at) AT TIME ZONE 'Asia/Tokyo','HH24:MI') AS first_hm,
+              to_char(max(at) AT TIME ZONE 'Asia/Tokyo','HH24:MI') AS last_hm,
+              count(*)::int AS cnt
+         FROM call_logs
+        WHERE at >= ($1)::date AND at < (($2)::date + INTERVAL '1 day') AND COALESCE(caller,'') <> ''
+        GROUP BY 1,2`,
+      [fromDay, toDay]);
+    return rows;
+  } catch (e) { console.error("[db] callSpansByDay", e.message); return []; }
+}
 export async function upsertIntern(email, name) {
   if (!pool || !email) return;
   const em = String(email).trim().toLowerCase();

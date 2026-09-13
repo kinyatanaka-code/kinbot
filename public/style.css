@@ -6235,3 +6235,16 @@ input:focus, select:focus, textarea:focus, .sf-input:focus, .sf-select:focus, .s
 .sc-times { display:inline-flex; align-items:center; gap:4px; }
 .sc-mrow input[type=time] { border:1px solid #d7e3dd; border-radius:8px; padding:3px 6px; font-size:12px; }
 .sc-mact { display:flex; justify-content:flex-end; gap:10px; margin-top:14px; }
+
+/* 出勤カレンダー：実績/欠勤/予定タグ・祝日・合計・一括 */
+.sc-tag-act { background:#e6f4ec; color:#0f6e56; }
+.sc-tag-abs { background:#fdeceb; color:#c0392b; }
+.sc-tag-plan { background:#eef1f0; color:#5a6b64; }
+.sc-cell.sc-holiday { background:#faf3f3; }
+.sc-holname { font-size:10px; color:#c0392b; margin-left:5px; }
+.sc-act { font-size:11px; color:#0f6e56; margin-left:6px; }
+.sc-tot-h { font-size:13px; font-weight:700; color:#173a30; margin-bottom:6px; }
+.sc-days { display:grid; grid-template-columns:repeat(4,1fr); gap:4px 10px; max-height:40vh; overflow:auto; }
+.sc-dchk { font-size:12px; color:#4a5a54; display:flex; align-items:center; gap:4px; }
+.sc-dchk-wk { color:#b0968f; }
+.sc-bm { border:1px solid #d7e3dd; border-radius:8px; padding:4px 8px; font-size:13px; }

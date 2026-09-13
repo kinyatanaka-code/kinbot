@@ -444,6 +444,7 @@ import {
   upsertInsideShift,
   getDailyTargets,
   setDailyTarget,
+  callSpansByDay,
   upsertIntern,
   deleteIntern,
   setMeetingApoSetter,
@@ -3969,11 +3970,25 @@ app.get("/api/daily/report", async (req, res) => {
     res.json({ ok: true, date, text: genDailyTargetText(members, targets, rate) });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
+const JP_HOLIDAYS = {
+  "2026-01-01": "元日", "2026-01-12": "成人の日", "2026-02-11": "建国記念の日", "2026-02-23": "天皇誕生日",
+  "2026-03-20": "春分の日", "2026-04-29": "昭和の日", "2026-05-03": "憲法記念日", "2026-05-04": "みどりの日",
+  "2026-05-05": "こどもの日", "2026-05-06": "振替休日", "2026-07-20": "海の日", "2026-08-11": "山の日",
+  "2026-09-21": "敬老の日", "2026-09-22": "国民の休日", "2026-09-23": "秋分の日", "2026-10-12": "スポーツの日",
+  "2026-11-03": "文化の日", "2026-11-23": "勤労感謝の日",
+};
 app.get("/api/inside-shifts", async (req, res) => {
   try {
     const from = /^\d{4}-\d{2}-\d{2}$/.test(String(req.query.from || "")) ? String(req.query.from) : jstTodayStr();
     const to = /^\d{4}-\d{2}-\d{2}$/.test(String(req.query.to || "")) ? String(req.query.to) : from;
-    res.json({ ok: true, shifts: await listInsideShifts(from, to) });
+    const shifts = await listInsideShifts(from, to);
+    const spans = await callSpansByDay(from, to).catch(() => []);
+    const st = await getSettings().catch(() => ({}));
+    const closed = Array.isArray(st.closedDays) ? st.closedDays : [];
+    const holidays = {};
+    for (const [d, nm] of Object.entries(JP_HOLIDAYS)) if (d >= from && d <= to) holidays[d] = nm;
+    for (const d of closed) if (/^\d{4}-\d{2}-\d{2}$/.test(d)) holidays[d] = holidays[d] || "休業日";
+    res.json({ ok: true, shifts, calls: spans, holidays });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 app.post("/api/inside-shifts", async (req, res) => {
@@ -19869,7 +19884,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-13h デイリー目標を改善。(1)Googleカレンダーで参加拒否した予定は空き扱い（架電時間に戻す）。(2)稼働1時間未満（0.5h等）は0h・目標0件として扱う。(3)目標は「平均アポ率(%)」で自動記入（想定コール×率）し、管理者が各メンバーを手入力で上書きも可。平均アポ率は画面で変更・保存できる。";
+const BUILD_TAG = "2026-09-13i 出勤管理を強化。架電記録から出退勤を推定（最初の記録−15分＝出勤、最後＋15分＝退勤）してカレンダーに緑タグで表示。出勤予定があるのに架電が1件も無い過去日は「欠勤」（赤）。土日・祝日・休業日をカレンダーに反映。各メンバーの今月の実働時間合計を表示。日付/タグのクリックで編集、複数日への一括入力もできる。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",

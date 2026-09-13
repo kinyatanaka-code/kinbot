@@ -3354,9 +3354,15 @@ if ($("dgCopy")) $("dgCopy").addEventListener("click", () => { navigator.clipboa
 // ===== 出勤管理（インサイド稼働カレンダー・独立ページ p=shifts） =====
 let _scY = null, _scM = null;
 let _scInterns = [];
-let _scShifts = {};
+let _scShifts = {};   // day -> [{email,name,start_min,end_min}]（予定）
+let _scCalls = {};    // email|day -> {first_min,last_min,cnt}（架電記録）
+let _scHol = {};      // day -> 名称（祝日・土日・休業日）
 function scInit() { const j = new Date(Date.now() + 9 * 3600000); _scY = j.getUTCFullYear(); _scM = j.getUTCMonth(); }
 function scHM(v) { return v == null ? "" : `${String(Math.floor(v / 60)).padStart(2, "0")}:${String(v % 60).padStart(2, "0")}`; }
+function scHm2m(v) { if (!/^\d{1,2}:\d{2}$/.test(String(v || ""))) return null; const [h, mm] = String(v).split(":").map(Number); return h * 60 + mm; }
+function scTodayStr() { const j = new Date(Date.now() + 9 * 3600000); const p = (n) => String(n).padStart(2, "0"); return `${j.getUTCFullYear()}-${p(j.getUTCMonth() + 1)}-${p(j.getUTCDate())}`; }
+function scWorkH(s, e) { if (s == null || e == null || e <= s) return 0; const lunch = Math.max(0, Math.min(e, 780) - Math.max(s, 720)); const h = (e - s - lunch) / 60; return h < 1 ? 0 : Math.round(h * 100) / 100; }
+function scActual(email, ds) { const c = _scCalls[`${String(email).toLowerCase()}|${ds}`]; if (!c || !c.cnt || c.first_min == null || c.last_min == null) return null; return { start: Math.max(0, c.first_min - 15), end: Math.min(1440, c.last_min + 15), cnt: c.cnt }; }
 async function loadShiftCal() {
   if (_scY == null) scInit();
   const cal = $("scCal"); if (cal) cal.innerHTML = '<div class="note">読み込んでいます…</div>';
@@ -3364,8 +3370,13 @@ async function loadShiftCal() {
   const p = (n) => String(n).padStart(2, "0");
   const last = new Date(Date.UTC(_scY, _scM + 1, 0)).getUTCDate();
   const from = `${_scY}-${p(_scM + 1)}-01`, to = `${_scY}-${p(_scM + 1)}-${p(last)}`;
-  _scShifts = {};
-  try { const d = await (await fetch(`/api/inside-shifts?from=${from}&to=${to}`)).json(); for (const s of (d.shifts || [])) { if (s.start_min == null) continue; (_scShifts[s.day] = _scShifts[s.day] || []).push(s); } } catch {}
+  _scShifts = {}; _scCalls = {}; _scHol = {};
+  try {
+    const d = await (await fetch(`/api/inside-shifts?from=${from}&to=${to}`)).json();
+    for (const s of (d.shifts || [])) { if (s.start_min == null) continue; (_scShifts[s.day] = _scShifts[s.day] || []).push(s); }
+    for (const c of (d.calls || [])) { _scCalls[`${String(c.caller).toLowerCase()}|${c.day}`] = { first_min: scHm2m(c.first_hm), last_min: scHm2m(c.last_hm), cnt: c.cnt }; }
+    _scHol = d.holidays || {};
+  } catch {}
   renderShiftCal();
 }
 function renderShiftCal() {
@@ -3374,7 +3385,10 @@ function renderShiftCal() {
   const p = (n) => String(n).padStart(2, "0");
   const startDow = new Date(Date.UTC(_scY, _scM, 1)).getUTCDay();
   const last = new Date(Date.UTC(_scY, _scM + 1, 0)).getUTCDate();
+  const today = scTodayStr();
   const wd = ["日", "月", "火", "水", "木", "金", "土"];
+  const totals = {};
+  const nameOf = (em) => { const it = _scInterns.find((x) => String(x.email).toLowerCase() === em); return (it && it.name) || em; };
   let html = '<div class="sc-grid"><div class="sc-row sc-head">' + wd.map((w, i) => `<div class="sc-hcell${i === 0 ? " sc-sun" : i === 6 ? " sc-sat" : ""}">${w}</div>`).join("") + "</div>";
   let day = 1 - startDow;
   while (day <= last) {
@@ -3382,15 +3396,64 @@ function renderShiftCal() {
     for (let c = 0; c < 7; c++, day++) {
       if (day < 1 || day > last) { html += '<div class="sc-cell sc-empty"></div>'; continue; }
       const ds = `${_scY}-${p(_scM + 1)}-${p(day)}`;
-      const items = _scShifts[ds] || [];
-      const tags = items.map((s) => `<span class="sc-tag">${esc(s.name || s.email)} ${scHM(s.start_min)}-${scHM(s.end_min)}</span>`).join("");
-      html += `<div class="sc-cell${c === 0 ? " sc-sun" : c === 6 ? " sc-sat" : ""}" data-day="${ds}"><div class="sc-dnum">${day}</div><div class="sc-tags">${tags}</div><div class="sc-add">＋追加</div></div>`;
+      const hol = _scHol[ds]; const isWeekend = c === 0 || c === 6;
+      const plans = {}; for (const s of (_scShifts[ds] || [])) plans[String(s.email).toLowerCase()] = s;
+      const emails = new Set(Object.keys(plans));
+      for (const it of _scInterns) { const em = String(it.email).toLowerCase(); if (scActual(em, ds)) emails.add(em); }
+      let tags = "";
+      for (const em of emails) {
+        const act = scActual(em, ds); const plan = plans[em]; const nm = (plan && plan.name) || nameOf(em);
+        if (act) {
+          tags += `<span class="sc-tag sc-tag-act">${esc(nm)} ${scHM(act.start)}-${scHM(act.end)}</span>`;
+          totals[em] = totals[em] || { name: nm, h: 0, days: 0 }; totals[em].h += scWorkH(act.start, act.end); totals[em].days += 1;
+        } else if (plan && ds < today) {
+          tags += `<span class="sc-tag sc-tag-abs">${esc(nm)} 欠勤</span>`;
+        } else if (plan) {
+          tags += `<span class="sc-tag sc-tag-plan">${esc(nm)} ${scHM(plan.start_min)}-${scHM(plan.end_min)}</span>`;
+        }
+      }
+      const cellCls = ["sc-cell", c === 0 ? "sc-sun" : "", c === 6 ? "sc-sat" : "", (hol || isWeekend) ? "sc-holiday" : ""].filter(Boolean).join(" ");
+      html += `<div class="${cellCls}" data-day="${ds}"><div class="sc-dnum">${day}${hol ? `<span class="sc-holname">${esc(hol)}</span>` : ""}</div><div class="sc-tags">${tags}</div><div class="sc-add">＋追加</div></div>`;
     }
     html += "</div>";
   }
   html += "</div>";
   cal.innerHTML = html;
   cal.querySelectorAll(".sc-cell[data-day]").forEach((c) => c.addEventListener("click", () => openShiftDay(c.dataset.day)));
+  const tw = $("scTotals");
+  if (tw) {
+    const rows = Object.values(totals).sort((a, b) => b.h - a.h);
+    tw.innerHTML = rows.length
+      ? '<div class="sc-tot-h">今月の実働時間（架電記録から推定）</div><table class="kc-table"><thead><tr><th>メンバー</th><th>実働時間</th><th>出勤日数</th></tr></thead><tbody>' + rows.map((r) => `<tr><td>${esc(r.name)}</td><td>${Math.round(r.h * 10) / 10}h</td><td>${r.days}日</td></tr>`).join("") + "</tbody></table>"
+      : '<div class="note">この月の実働（架電記録から推定）はまだありません。</div>';
+  }
+}
+function openBulkShift() {
+  if (document.querySelector(".sc-back")) return;
+  const p = (n) => String(n).padStart(2, "0");
+  const last = new Date(Date.UTC(_scY, _scM + 1, 0)).getUTCDate();
+  const wd = ["日", "月", "火", "水", "木", "金", "土"];
+  const memOpts = _scInterns.map((it) => `<option value="${esc(it.email)}" data-name="${esc(it.name || "")}">${esc(it.name || it.email)}</option>`).join("");
+  let dayChecks = "";
+  for (let dd = 1; dd <= last; dd++) { const dow = new Date(Date.UTC(_scY, _scM, dd)).getUTCDay(); const ds = `${_scY}-${p(_scM + 1)}-${p(dd)}`; const wk = dow === 0 || dow === 6 || _scHol[ds]; dayChecks += `<label class="sc-dchk${wk ? " sc-dchk-wk" : ""}"><input type="checkbox" class="sc-dc" value="${ds}" ${wk ? "" : "checked"}/> ${_scM + 1}/${dd}(${wd[dow]})</label>`; }
+  const back = document.createElement("div"); back.className = "sc-back";
+  back.innerHTML = `<div class="sc-modal"><div class="sc-mh"><span>複数日に一括入力</span><button type="button" class="sc-x">×</button></div><div class="sc-mbody"><label class="sc-mrow">メンバー <select class="sc-bm">${memOpts}</select></label><label class="sc-mrow">時間 <input type="time" class="sc-bs" value="10:00"/> 〜 <input type="time" class="sc-be" value="18:00"/></label><div style="margin:8px 0 4px;font-size:12px;color:#4a5a54">対象の日（土日祝は既定オフ）<button type="button" class="btn ghost sc-ball" style="margin-left:8px">平日を全選択</button></div><div class="sc-days">${dayChecks}</div></div><div class="sc-mact"><button type="button" class="btn ghost sc-cancel">閉じる</button><button type="button" class="btn sc-save">保存</button></div></div>`;
+  document.body.appendChild(back);
+  const close = () => back.remove();
+  back.addEventListener("click", (e) => { if (e.target === back) close(); });
+  back.querySelector(".sc-x").addEventListener("click", close);
+  back.querySelector(".sc-cancel").addEventListener("click", close);
+  back.querySelector(".sc-ball").addEventListener("click", () => { back.querySelectorAll(".sc-dchk:not(.sc-dchk-wk) .sc-dc").forEach((c) => (c.checked = true)); });
+  back.querySelector(".sc-save").addEventListener("click", async () => {
+    const sel = back.querySelector(".sc-bm"); const email = sel.value; const name = (sel.options[sel.selectedIndex] && sel.options[sel.selectedIndex].dataset.name) || "";
+    const s = scHm2m(back.querySelector(".sc-bs").value), e = scHm2m(back.querySelector(".sc-be").value);
+    if (s == null || e == null || e <= s) { alert("時間を正しく入れてください"); return; }
+    const days = [...back.querySelectorAll(".sc-dc:checked")].map((c) => c.value);
+    if (!days.length) { close(); return; }
+    const shifts = days.map((day) => ({ email, name, day, start_min: s, end_min: e }));
+    try { await fetch("/api/inside-shifts", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ shifts }) }); } catch {}
+    close(); loadShiftCal();
+  });
 }
 function openShiftDay(ds) {
   if (document.querySelector(".sc-back")) return;
@@ -3399,19 +3462,20 @@ function openShiftDay(ds) {
   const rows = _scInterns.map((it) => {
     const em = String(it.email).toLowerCase(); const on = cur[em] != null;
     const st = on ? scHM(cur[em].s) : "10:00", en = on ? scHM(cur[em].e) : "18:00";
-    return `<label class="sc-mrow"><input type="checkbox" class="sc-on" data-em="${esc(em)}" data-name="${esc(it.name || "")}" ${on ? "checked" : ""}/> <span class="sc-mname">${esc(it.name || em)}</span><span class="sc-times"><input type="time" class="sc-s" value="${st}"/> 〜 <input type="time" class="sc-e" value="${en}"/></span></label>`;
+    const act = scActual(em, ds);
+    const actLbl = act ? `<span class="sc-act">実績 ${scHM(act.start)}-${scHM(act.end)}（${act.cnt}件）</span>` : "";
+    return `<label class="sc-mrow"><input type="checkbox" class="sc-on" data-em="${esc(em)}" data-name="${esc(it.name || "")}" ${on ? "checked" : ""}/> <span class="sc-mname">${esc(it.name || em)}</span><span class="sc-times"><input type="time" class="sc-s" value="${st}"/> 〜 <input type="time" class="sc-e" value="${en}"/></span>${actLbl}</label>`;
   }).join("");
-  back.innerHTML = `<div class="sc-modal"><div class="sc-mh"><span>${ds} の出勤</span><button type="button" class="sc-x" aria-label="閉じる">×</button></div><div class="sc-mbody">${rows || '<div class="note">インサイドが登録されていません（設定→メンバー管理で役割インサイドに）。</div>'}</div><div class="sc-mact"><button type="button" class="btn ghost sc-cancel">閉じる</button><button type="button" class="btn sc-save">保存</button></div></div>`;
+  back.innerHTML = `<div class="sc-modal"><div class="sc-mh"><span>${ds} の出勤（予定）</span><button type="button" class="sc-x" aria-label="閉じる">×</button></div><div class="sc-mbody">${rows || '<div class="note">インサイドが登録されていません（設定→メンバー管理で役割インサイドに）。</div>'}</div><div class="sc-mact"><button type="button" class="btn ghost sc-cancel">閉じる</button><button type="button" class="btn sc-save">保存</button></div></div>`;
   document.body.appendChild(back);
   const close = () => back.remove();
   back.addEventListener("click", (e) => { if (e.target === back) close(); });
   back.querySelector(".sc-x").addEventListener("click", close);
   back.querySelector(".sc-cancel").addEventListener("click", close);
   back.querySelector(".sc-save").addEventListener("click", async () => {
-    const hm2m = (v) => { if (!/^\d{2}:\d{2}$/.test(v)) return null; const [h, mm] = v.split(":").map(Number); return h * 60 + mm; };
     const shifts = [...back.querySelectorAll(".sc-mrow")].map((r) => {
       const on = r.querySelector(".sc-on").checked; const em = r.querySelector(".sc-on").dataset.em; const nm = r.querySelector(".sc-on").dataset.name;
-      const s = hm2m(r.querySelector(".sc-s").value), e = hm2m(r.querySelector(".sc-e").value);
+      const s = scHm2m(r.querySelector(".sc-s").value), e = scHm2m(r.querySelector(".sc-e").value);
       return { email: em, name: nm, day: ds, start_min: on ? s : null, end_min: on ? e : null };
     });
     try { await fetch("/api/inside-shifts", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ shifts }) }); } catch {}
@@ -3421,6 +3485,7 @@ function openShiftDay(ds) {
 if ($("scPrev")) $("scPrev").addEventListener("click", () => { if (_scY == null) scInit(); _scM--; if (_scM < 0) { _scM = 11; _scY--; } loadShiftCal(); });
 if ($("scNext")) $("scNext").addEventListener("click", () => { if (_scY == null) scInit(); _scM++; if (_scM > 11) { _scM = 0; _scY++; } loadShiftCal(); });
 if ($("scToday")) $("scToday").addEventListener("click", () => { scInit(); loadShiftCal(); });
+if ($("scBulk")) $("scBulk").addEventListener("click", openBulkShift);
 
 
 
