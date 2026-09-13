@@ -708,3 +708,5 @@ kincall（架電リスト）という別ツールも同じ画面群の中にあ�
 - 2026-09-12 BUILD_TAG=2026-09-12zw アポ通知に今週目標＋今月目標を併記。groupMonthlyApoGoal() 再追加＝月次直接目標があればそれ、無ければその月の週目標(積み上げ)の最大＝月合計。notifyAssigned に goalMonth 引数追加。通知3箇所（renotify/主/別経路インライン）で goalMonth: groupMonthlyApoGoal() を渡す。chat.js 書式：「📊 本日 X ／ 今週 Y ／ 今月 Z\n　（今週の目標 Gw・あと max(0,Gw−今月)、今月目標 Gm・あと max(0,Gm−今月)）」。あとは両方とも今月(積み上げ実績)基準＝ダッシュボード差分と一致。※今月目標は最大(=最終週の積み上げ=月合計)を採用。ユーザーの「4週目=月目標」に対し、9月は最終週(9/28-30)が290なので290になる想定。4週目(236)固定を希望なら調整要。版20260912zw。
 
 - 2026-09-12 BUILD_TAG=2026-09-12zx インセンティブ獲得通知(checkIncentiveMilestone)で本人メンション。head を「🎉 {呼びかけ} が初実施…／の獲得見込みインセンティブが…」に変え、notifyAll(text,"incentive",{mentionName:nm})。fillMentionが{呼びかけ}を mentionFor(space_id, nm) で本物の@に変換（chatAppConfigured＋space_id時）。不可なら「nmさん」。※本人がChatスペースにいないとping化されない場合あり。版20260912zx。
+
+- 2026-09-12 BUILD_TAG=2026-09-12zy 有効商談(案件化)通知を「選んだチャットのみ＋獲得者メンション」に変更。checkValidDeals：notifyPerson(本人DM)を廃止。chMsgを「【有効商談】{呼びかけ} が獲得したアポ「会社」が有効商談（02）に進みました。」にし notifyAll(chMsg,"valid",{mentionName:setterName})。fillMentionが{呼びかけ}を獲得者の@に（不可なら「◯◯さん」）。送り先は設定→お知らせ→通知先で「有効商談」ONのチャット。版20260912zy。

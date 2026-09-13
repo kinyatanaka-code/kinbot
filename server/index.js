@@ -4152,11 +4152,11 @@ async function checkValidDeals() {
       if (!firstRun) {
         const co = c.company || parseLaunchTitle(c.label || "").company || o.Name || "その会社";
         const setterName = String(c.setter || "").trim();
-        // 選んだチャットへ（設定 → お知らせ の通知先で「有効商談」をONにした送り先）
-        const chMsg = `【有効商談】${setterName ? setterName + "さんが" : ""}獲得したアポ「${co}」が有効商談（02）に進みました。`;
-        await notifyAll(chMsg, "valid").catch(() => {});
-        // 獲得者本人へもDM
-        await notifyPerson(c.setter_email, `【有効商談になりました】あなたが獲得したアポ「${co}」が有効商談（02）に進みました。ナイスアポです。`).catch(() => {});
+        // 選んだチャットへ（設定 → お知らせ の通知先で「有効商談」をONにした送り先）。獲得者をメンションする。
+        const chMsg = setterName
+          ? `【有効商談】{呼びかけ} が獲得したアポ「${co}」が有効商談（02）に進みました。`
+          : `【有効商談】獲得したアポ「${co}」が有効商談（02）に進みました。`;
+        await notifyAll(chMsg, "valid", { mentionName: setterName }).catch(() => {});
         notified++;
       }
       await markValidNotified(c.slug).catch(() => {});
@@ -19624,7 +19624,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-12zx インターンのインセンティブ獲得通知で本人をメンションするようにした。Google Chatアプリ連携＋スペースが設定されていれば本物の@メンションで通知（連携が無い/スペース外なら「◯◯さん」表記にフォールバック）。";
+const BUILD_TAG = "2026-09-12zy 有効商談（案件化）の通知を、選んだチャットへの通知のみに変更し、その中でアポ獲得者をメンションするようにした（本人へのDMは廃止）。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
