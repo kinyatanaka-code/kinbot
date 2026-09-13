@@ -4018,13 +4018,18 @@ app.post("/api/inside-shifts", async (req, res) => {
 });
 
 // 朝8時：その日の目標が入っていれば、生成テキストを直販チャット（通知先で「デイリー目標」ON）へ流す。未入力なら通知しない。
+// 「送信済みの日」は設定に保存し、再起動（デプロイ）をまたいでも 1日1回だけ にする。
 let _lastDailyGoalDay = "";
 async function dailyGoalTick() {
   try {
     const j = new Date(Date.now() + 9 * 3600000);
     if (j.getUTCHours() !== 8) return;
     const day = jstTodayStr();
-    if (_lastDailyGoalDay === day) return;
+    if (_lastDailyGoalDay === day) return;               // メモリ上の速い判定
+    const st = await getSettings().catch(() => ({}));
+    if (st.dailyGoalSentDay === day) { _lastDailyGoalDay = day; return; } // 再起動後もこれで二重送信を防ぐ
+    // 先に「送信済み」を記録してから送る（送信中の再起動でも二重に送らない）
+    await saveSettings({ dailyGoalSentDay: day }).catch(() => {});
     _lastDailyGoalDay = day;
     const members = await dailyWorkingMembers(day);
     const targets = await getDailyTargets(day).catch(() => ({}));
@@ -19914,7 +19919,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-13p 「AI社員」メニューを、指定ユーザー（kinya.tanaka@neo-career.co.jp）だけに表示するようにした。他のメンバーのサイドバー・スマホメニューからは出さない。";
+const BUILD_TAG = "2026-09-13q 朝のデイリー目標通知が何度も来ていた不具合を修正。送信済みの日付をDB（設定）に保存し、サーバー再起動（デプロイ）をまたいでも1日1回だけ送るようにした。送信の直前に『送信済み』を記録するので、送信中の再起動でも二重に送らない。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
