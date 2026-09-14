@@ -219,6 +219,9 @@ import {
   distributeRecycleToRevival,
   setCallTargetAbsent,
   setCallTargetAbsentRank,
+  groupPeersForTarget,
+  listRankRecycleDue,
+  recycleRotateLead,
   setCallTargetRecycleInfo,
   findListsByNameSince,
   findRecentListByNameOwner,
@@ -4055,6 +4058,38 @@ async function dailyGoalTick() {
   } catch (e) { console.warn("[デイリー目標]", e.message); }
 }
 setInterval(() => { dailyGoalTick(); }, 5 * 60 * 1000);
+
+// ローテーションの次の担当（メール昇順の並びで、今の担当の次。相手がいなければ null）
+function nextInRotation(peers, current) {
+  const arr = (peers || []).filter(Boolean);
+  if (arr.length <= 1) return null;
+  const cur = String(current || "").toLowerCase();
+  const i = arr.indexOf(cur);
+  return i < 0 ? arr[0] : arr[(i + 1) % arr.length];
+}
+// 担当者不在ランクB（2週間経過）・C（1ヶ月経過）のリードを、同じグループの次の担当へ回す（リサイクルA）。
+let _recycleTickBusy = false;
+async function recycleRankTick() {
+  if (_recycleTickBusy) return;
+  _recycleTickBusy = true;
+  try {
+    const due = await listRankRecycleDue();
+    if (due.length) {
+      const RECYCLE_STAGE = process.env.RECYCLE_STAGE || "89リサイクル";
+      let moved = 0;
+      for (const d of due) {
+        const peers = await groupPeersForTarget(d.id);
+        const next = nextInRotation(peers, d.assigned_to);
+        const r = await recycleRotateLead(d.id, next, RECYCLE_STAGE);
+        if (r) moved++;
+      }
+      if (moved) console.log(`[リサイクル(ランク)] ${moved}件を次の担当へ移動（B=2週間 / C=1ヶ月）`);
+    }
+  } catch (e) { console.warn("[リサイクル(ランク)]", e.message); }
+  finally { _recycleTickBusy = false; }
+}
+setInterval(() => { recycleRankTick(); }, 30 * 60 * 1000); // 30分ごと
+setTimeout(() => { recycleRankTick(); }, 60 * 1000);        // 起動1分後に一度
 
 // 会社名の緩い一致（正規化キーの部分一致）でデモURLを探す
 function findDemoLoose(map, co) {
@@ -10435,8 +10470,8 @@ app.post("/api/calls/targets/:id/record", async (req, res) => {
     if (/現在使われて|現アナ|欠番|不通|使われていない番号/.test(result)) 自動ステージ = ARCHIVE_STAGE;  // 現在使われていない→アーカイブ
     else if (/お断り/.test(result)) 自動ステージ = RECYCLE_STAGE;
     else if (/営業フォロー/.test(result)) 自動ステージ = JUDGE_STAGE;
-    // 担当者不在が3回続いたらリサイクルへ（回数は env ABSENT_TO_RECYCLE で変えられる）
-    else if (/不在/.test(result) && 連続不在 >= Math.max(1, Number(process.env.ABSENT_TO_RECYCLE) || 3)) 自動ステージ = RECYCLE_STAGE;
+    // 担当者不在ランクAは即リサイクル（B=2週間後・C=1ヶ月後はスケジューラで移す）
+    else if (/不在/.test(result) && String(b.absentRank || "").toUpperCase() === "A") 自動ステージ = RECYCLE_STAGE;
     const finalStage = 自動ステージ || 次のステージ;
     // 断り理由タグと温度をリードに残す（リサイクル復活の優先順に使う）。
     // 温度：架電結果が入っていない＝A。タグがあれば recycle_rules の温度。タグ無しで結果ありなら既定B。
@@ -10457,6 +10492,14 @@ app.post("/api/calls/targets/:id/record", async (req, res) => {
       ...(finalStage !== undefined && finalStage !== null ? { stage: finalStage } : {}),
       status: result,
     }).catch(() => {});
+    // 担当者不在ランクAは、記録した瞬間に同じグループの次の担当へ回す（リサイクルAとして）
+    if (/不在/.test(result) && String(b.absentRank || "").toUpperCase() === "A") {
+      try {
+        const peers = await groupPeersForTarget(id);
+        const next = nextInRotation(peers, t.assigned_to);
+        await recycleRotateLead(id, next, RECYCLE_STAGE);
+      } catch (e) { console.warn("[リサイクルA]", e.message); }
+    }
 
     // Salesforceへ（活動履歴＋リードの状態）
     //
@@ -19971,7 +20014,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-14c kincallの記録で結果に「担当者不在」を選んだとき、担当者不在ランク（A/B/C）を必須で選ばせるプルダウンを追加した（A=戻り/次の時間が明確、B=探す・確認してくれる、C=即不在）。選んだランクをリードに保存し、今後のリサイクル移動の判定に使えるようにした。";
+const BUILD_TAG = "2026-09-14d 担当者不在ランクによるリサイクル移動を実装。従来の「3回連続不在→リサイクル」を廃止し、A=即・B=2週間後・C=1ヶ月後に、同じグループの次の担当へローテーションで回す（移動先ではリサイクルA＝温度A・ランク解除）。ランクを付けた日時を起点にする。Aは記録した瞬間に移動、B/Cは30分ごとのスケジューラで期限が来たら移動。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",

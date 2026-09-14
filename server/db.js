@@ -7898,6 +7898,48 @@ export async function setCallTargetAbsentRank(id, rank) {
   try { await pool.query(`UPDATE call_targets SET absent_rank=$2, absent_rank_at=now() WHERE id=$1`, [id, r]); }
   catch (e) { console.error("[db] setCallTargetAbsentRank", e.message); }
 }
+// リードの所属グループで働いている人たち（assigned_to）を返す（ローテーションの候補・メール昇順）。
+export async function groupPeersForTarget(id) {
+  if (!pool || !id) return [];
+  try {
+    const { rows } = await pool.query(
+      `SELECT DISTINCT lower(ct.assigned_to) AS em
+         FROM call_targets ct
+         JOIN call_lists cl ON cl.id = ct.list_id
+        WHERE cl.group_id = (SELECT cl2.group_id FROM call_targets ct2 JOIN call_lists cl2 ON cl2.id = ct2.list_id WHERE ct2.id = $1)
+          AND COALESCE(ct.assigned_to,'') <> ''
+        ORDER BY 1`, [id]);
+    return rows.map((r) => r.em).filter(Boolean);
+  } catch (e) { console.error("[db] groupPeersForTarget", e.message); return []; }
+}
+// リサイクル移動の対象：担当者不在ランクB（2週間経過）・C（1ヶ月経過）で、まだ移していないもの。
+export async function listRankRecycleDue() {
+  if (!pool) return [];
+  try {
+    const { rows } = await pool.query(
+      `SELECT id, assigned_to, absent_rank
+         FROM call_targets
+        WHERE done = false AND absent_rank IN ('B','C') AND absent_rank_at IS NOT NULL
+          AND ( (absent_rank='B' AND absent_rank_at <= now() - INTERVAL '14 days')
+             OR (absent_rank='C' AND absent_rank_at <= now() - INTERVAL '1 month') )
+        LIMIT 500`);
+    return rows;
+  } catch (e) { console.error("[db] listRankRecycleDue", e.message); return []; }
+}
+// リサイクル・ローテーション移動：担当を次の人へ、ステージをリサイクルへ、温度A（リサイクルA）、ランク解除。
+export async function recycleRotateLead(id, nextAssignee, recycleStage) {
+  if (!pool || !id) return null;
+  try {
+    const { rows } = await pool.query(
+      `UPDATE call_targets
+          SET assigned_to = COALESCE($2, assigned_to),
+              stage = $3, temperature = 'A',
+              absent_rank = NULL, absent_rank_at = NULL, consecutive_absent = 0,
+              done = false
+        WHERE id = $1 RETURNING id, assigned_to`, [id, nextAssignee || null, recycleStage]);
+    return rows[0] || null;
+  } catch (e) { console.error("[db] recycleRotateLead", e.message); return null; }
+}
 
 // 断り理由タグと温度（A/B/C）を記録する。リサイクル復活の優先順に使う。
 export async function setCallTargetRecycleInfo(id, { rejectTag, temperature } = {}) {
