@@ -304,6 +304,7 @@ import {
   apoMissingApoAt,
   setSmartLinkSetterEmail,
   setSmartLinkSetter,
+  setSmartLinkApoAt,
   clearInviteEvent,
   linksWithInvite,
   setApoAt,
@@ -19956,7 +19957,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-13w カレンダーの予定名に「リスケ」「キャンセル」が入っている予定は、空きとして判定するようにした。アポ割り振りの空き枠、お客様向けの空き時間、デイリー目標のセールス架電時間のすべてで、リスケ・キャンセル（および参加拒否・終日）は予定なし＝空き扱い。";
+const BUILD_TAG = "2026-09-13x アポの取得日を直せるようにした。アポ一覧のカードの「⋯」→「取得日を直す」で、実際に取った日に修正できる（取得日でカウントされるため、日付がズレた分を正せる）。取得日はその予定のGoogleカレンダー作成日から決まるので、予定を作り直すと今日になる場合があり、その修正用。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
@@ -25036,6 +25037,19 @@ app.get("/api/smart-links/setters", async (req, res) => {
 });
 
 // アポ獲得者（setter）を手で変える。名前は必須、メールは任意（候補から選ぶと両方入る）。
+// アポの取得日を直す（取得日でカウントされるため、実際に取った日に合わせる）
+app.put("/api/apo/:slug/taken-at", async (req, res) => {
+  try {
+    const date = String(req.body?.date || "").trim();
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return res.status(400).json({ error: "日付が正しくありません" });
+    // その日の10:00(JST)を取得時刻として保存（日付が合っていればカウントは正しくなる）
+    const iso = new Date(date + "T10:00:00+09:00").toISOString();
+    const link = await setSmartLinkApoAt(req.params.slug, iso);
+    if (!link) return res.status(404).json({ error: "変更できませんでした" });
+    console.log(`[apo] ${req.params.slug} の取得日を ${date} に変更 by ${req.user}`);
+    res.json({ ok: true, taken_at: iso });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
 app.put("/api/smart-links/:slug/setter", async (req, res) => {
   try {
     const name = String(req.body?.name || "").trim();

@@ -5003,6 +5003,16 @@ export async function setSmartLinkSetterEmail(slug, email) {
 }
 
 // アポ獲得者（setter）を手で変える。名前とメールの両方を上書きする（空にもできる）。
+// アポの取得日時（apo_at）を直す。取得日でカウントされるので、実際に取った日に合わせられる。
+export async function setSmartLinkApoAt(slug, iso) {
+  if (!pool || !slug) return null;
+  try {
+    const { rows } = await pool.query(
+      `UPDATE smart_links SET apo_at = $2, updated_at = now() WHERE slug = $1 RETURNING *`,
+      [slug, iso || null]);
+    return rows[0] || null;
+  } catch (e) { console.error("[db] setSmartLinkApoAt", e.message); return null; }
+}
 export async function setSmartLinkSetter(slug, name, email) {
   if (!pool || !slug) return null;
   try {

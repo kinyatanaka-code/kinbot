@@ -269,6 +269,7 @@ function apoCard(a, i) {
               <button class="ap-more-item ap-launch-detail" data-i="${i}">SF立ち上げ（細かく入力）</button>
               <button class="ap-more-item ap-sflink-menu" data-i="${i}">SF商談の紐付けを変更</button>
               <button class="ap-more-item ap-copy" data-url="${esc(a.smart_url)}">リンクをコピー</button>
+              <button class="ap-more-item ap-takenat" data-slug="${esc(a.slug)}" data-i="${i}">取得日を直す</button>
               <button class="ap-more-item ap-calonly" data-i="${i}" data-slug="${esc(a.slug)}">カレンダーだけ作る</button>
               <button class="ap-more-item ap-renotify" data-slug="${esc(a.slug)}">割り振り通知だけ再送</button>
               <button class="ap-more-item ap-why" data-slug="${esc(a.slug)}">メール・SF・通知の状態を調べる</button>
@@ -579,6 +580,26 @@ function bindCardEvents(card) {
     try { await navigator.clipboard.writeText(copy.dataset.url); copy.textContent = "コピーしました"; }
     catch { copy.textContent = "失敗"; }
     setTimeout(() => (copy.textContent = "リンクをコピー"), 1500);
+  });
+
+  const takenat = q(".ap-takenat");
+  if (takenat) takenat.addEventListener("click", async () => {
+    const i = Number(takenat.dataset.i); const a = apState.appts[i];
+    const cur = String((a && a.created_date) || "").slice(0, 10);
+    const v = prompt("取得日（実際にアポを取った日）を入れてください（YYYY-MM-DD）", cur);
+    if (!v) return;
+    const dv = v.trim();
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(dv)) { alert("YYYY-MM-DD の形で入れてください"); return; }
+    try {
+      const r = await fetch(`/api/apo/${encodeURIComponent(takenat.dataset.slug)}/taken-at`, {
+        method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ date: dv }),
+      });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.error || "変更に失敗しました");
+      if (a) a.created_date = dv;
+      if (window.kbToast) kbToast("取得日を直しました（この日の獲得としてカウントされます）");
+      renderApo();
+    } catch (e) { alert("取得日の変更に失敗: " + e.message); }
   });
 
   // 「⋯」その他の操作メニューの開閉
