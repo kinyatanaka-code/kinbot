@@ -7445,7 +7445,7 @@ app.get("/api/calls/lists", async (req, res) => {
       owner,
       includeClosed: String(req.query.all || "") === "1",
       ownerOnly: !!reqMember,   // メンバーを指定して見るときは、その人が作ったリストだけ
-      includeHidden: canHideLists(req),   // 表示・非表示を変えられる人には、非表示のリストも見せる
+      includeHidden: canHideLists(req) || (await isCloserUser(req.user).catch(() => false)),   // 非表示を変えられる人・クローザーには、非表示のリストも「非表示中」で見せる
     });
     res.json({
       ok: true,
@@ -20015,7 +20015,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-14f リストの表示／非表示（非表示ボタン）を、管理者だけでなくクローザーも使えるようにした。リスト管理の各リストカードに「非表示にする／表示にする」が出る（中身は消えず、かける画面・一覧から見えなくなるだけ）。";
+const BUILD_TAG = "2026-09-14g 非表示にしたリストが、非表示にできる人（田中欽也などクローザー・管理者）の画面には「非表示中」として残って見えるように修正。前は権限判定がずれていて、自分で非表示にすると自分の画面からも消えてしまっていた。他の人の画面からは今まで通り消える。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",

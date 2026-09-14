@@ -776,3 +776,5 @@ kincall（架電リスト）という別ツールも同じ画面群の中にあ�
 - 2026-09-14 BUILD_TAG=2026-09-14e 実績カードのナーチャリング合計の下に「今週かける予定」を追加。db.js nurtureWeekPlanByListName()＝名前(【ナーチャリング】◯◯)ごとに next_call_at がJSTの今週(date_trunc('week')月曜〜+7日)かつ done=false の件数。/api/calls/nurture に 週予定名前ごと を追加。calls.js _nurtureWeekByName、loadNurture で格納、nurLine に .kc-nur-week「今週かける予定 ◯件」。月次カードのみ表示（週次は非表示のまま）。CSS .kc-nur-week。版20260914e。
 
 - 2026-09-14 BUILD_TAG=2026-09-14f リスト非表示を使えるように（UI/権限は元々あったが管理者限定で出ていなかった）。canHideLists を req.isAdmin/actingCloser/isAlwaysCloser＋LIST_HIDE_USERS に拡張、/api/me の canHideLists に closer もOR、PUT /api/calls/lists/:id/hidden の許可に isCloserUser も追加。→クローザーにもリストカードの「非表示にする／表示にする」ボタン(.kc-list-hide[data-hide])が出る。非表示は setCallListHidden で hidden=true、一覧は includeHidden(=権限者)に非表示も返し kc-list-hidden で薄く表示。中身は消えない。版20260914f。
+
+- 2026-09-14 BUILD_TAG=2026-09-14g 非表示リストが本人の画面からも消える不具合を修正。原因：リスト一覧取得(listCallLists includeHidden)が canHideLists(req)だけを見ていて、DBクローザーは me.canHideLists=true(closer OR)でボタンは出るのに includeHidden=false → 自分で非表示にすると自分の画面からも消えていた。対応：includeHidden = canHideLists(req) || isCloserUser(req.user) に。→非表示にできる人(クローザー・管理者・田中欽也等)の画面には kc-list-hidden「非表示中」で残る／他の人からは消える。版20260914g。
