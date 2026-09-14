@@ -4412,6 +4412,14 @@ async function checkValidDeals() {
       for (const o of d.records || []) byId[o.Id] = o;
     }
     let notified = 0, marked = 0;
+    // インサイドが獲得したアポだけ通知する（セールス等の獲得は通知しない）
+    const _norm = (s) => String(s || "").replace(/[\s　]/g, "").toLowerCase();
+    const insideNames = new Set(), insideEmails = new Set();
+    try {
+      for (const it of (await listInterns().catch(() => []))) { if (it.name) insideNames.add(_norm(it.name)); if (it.email) insideEmails.add(_norm(it.email)); }
+      for (const m of (await listMembers().catch(() => []))) { if (Array.isArray(m.roles) && m.roles.includes("inside")) { if (m.name) insideNames.add(_norm(m.name)); if (m.email) insideEmails.add(_norm(m.email)); } }
+    } catch {}
+    const isInside = (c) => insideEmails.has(_norm(c.setter_email)) || insideNames.has(_norm(c.setter));
     for (const c of cands) {
       const o = byId[c.opp_id];
       if (!o) continue;
@@ -4420,6 +4428,7 @@ async function checkValidDeals() {
       const reached = si >= 0 ? si >= validIdx : /有効商談/.test(stage);
       const isLost = o.IsClosed && !o.IsWon; // 失注は通知しない
       if (!reached || isLost) continue;
+      if (!isInside(c)) { await markValidNotified(c.slug).catch(() => {}); continue; } // インサイド以外の獲得は通知しない
       if (!firstRun) {
         const co = c.company || parseLaunchTitle(c.label || "").company || o.Name || "その会社";
         const setterName = String(c.setter || "").trim();
@@ -19959,7 +19968,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-14a 予定名に「リスケ」「キャンセル」が入っているアポには、前日リマインドを送らないようにした。ホームのリマインド一覧でも「送らない（リスケ・キャンセル）」と表示する。";
+const BUILD_TAG = "2026-09-14b 有効商談（案件化）の通知を、インサイドが獲得したアポだけに限定した。セールス等インサイド以外の獲得で有効商談になったものは通知しない（既済化のみ）。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",

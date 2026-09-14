@@ -766,3 +766,5 @@ kincall（架電リスト）という別ツールも同じ画面群の中にあ�
 - 2026-09-13 BUILD_TAG=2026-09-13z アポ一覧がカレンダー起点のため、予定が消えたアポが一覧に出ず編集不能だった件を解消。db.js listApoSmartLinks({from,to})＝mailmaga除外・start_time範囲のsmart_links。/api/apo/pickup で collectApoAppointments(カレンダー由来)に加え、DB上のアポ(start_time in [now-60d, now+120d]、未excluded、既存slugと重複しないもの)を item 形（setter_name=link.setter, created_date=taken_at, calendar_missing:true 等）で合流し start順ソート。これでカレンダー予定が削除されたアポ（例 ハマダレクテック）も検索・編集・⋯（取得日を直す/カレンダー予定を作り直す）できる。版20260913z。
 
 - 2026-09-14 BUILD_TAG=2026-09-14a リスケ・キャンセルのアポはリマインドを送らない。apomail.js runReminderSweep：link.label が /リスケ|キャンセル/ なら skip（results に skipped:true 記録）。listTomorrowReminders：該当は 状態="送らない（リスケ・キャンセル）"・送る=false 表示。※前日リマインド自動送信の対象から除外。版20260914a。
+
+- 2026-09-14 BUILD_TAG=2026-09-14b 有効商談通知をインサイド獲得のみに限定。checkValidDeals：insideNames/insideEmails（listInterns＋members role=inside、正規化）を作り、isInside(c)=setter_email/ setter が一致するときだけ通知。インサイド以外の獲得は markValidNotified で既済化して通知しない（再チェックも避ける）。版20260914b。
