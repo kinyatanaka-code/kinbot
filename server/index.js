@@ -306,6 +306,7 @@ import {
   setSmartLinkSetter,
   setSmartLinkApoAt,
   setSmartLinkEventId,
+  listApoSmartLinks,
   clearInviteEvent,
   linksWithInvite,
   setApoAt,
@@ -19958,7 +19959,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-13y 消えたカレンダー予定を作り直せるようにした。アポ一覧のカードの「⋯」→「カレンダー予定を作り直す」で、獲得者(連携があれば)のGoogleカレンダーに、そのアポの日時で予定を再作成する（田中の予定が消えた等の復旧用）。アポのデータ自体はkinbotに残っているので、それを元に作る。";
+const BUILD_TAG = "2026-09-13z アポ一覧に、Googleカレンダー予定が消えたアポ（DBには残っているアポ）も出すようにした。これで予定が削除されたアポも一覧から探せて、担当・獲得者・取得日の変更や『カレンダー予定を作り直す』ができる。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
@@ -24886,6 +24887,26 @@ app.get("/api/apo/pickup", async (req, res) => {
     let { items, errors } = await collectApoAppointments(req.user, {
       created: req.query.created, start: req.query.start,
     });
+    // カレンダー予定が消えたアポ（DBには残っている）も一覧に合流させる（編集・作り直しできるように）
+    try {
+      const now = Date.now();
+      const from = new Date(now - 60 * 86400000).toISOString();
+      const to = new Date(now + 120 * 86400000).toISOString();
+      const have = new Set(items.map((it) => it.slug));
+      const p2 = (n) => String(n).padStart(2, "0");
+      const ymd = (v) => { const d = new Date(v); if (isNaN(d.getTime())) return ""; const j = new Date(d.getTime() + 9 * 3600000); return `${j.getUTCFullYear()}-${p2(j.getUTCMonth() + 1)}-${p2(j.getUTCDate())}`; };
+      for (const l of await listApoSmartLinks({ from, to }).catch(() => [])) {
+        if (have.has(l.slug) || l.excluded) continue;
+        items.push({
+          event_id: l.event_id || "", setter_name: l.setter || "", setter_email: l.setter_email || "",
+          title: l.label || "", start: l.start_time, created: "", created_date: ymd(l.taken_at),
+          original_url: "", slug: l.slug, smart_url: joinUrl(l.slug), current_owner: l.current_owner || null,
+          client_email: l.client_email || "", client_name: l.client_name || "", client_email_source: "",
+          business: l.business || "", excluded: !!l.excluded, calendar_missing: true,
+        });
+      }
+      items.sort((a, b) => String(a.start || "").localeCompare(String(b.start || "")));
+    } catch (e) { console.warn("[apo/pickup] DB合流", e.message); }
     // 事業タブで絞る。事業が未判定のアポはどのタブでも残す（取りこぼさないため）。
     if (biz) items = items.filter((it) => !it.business || it.business === biz);
     // アポメールの送信状況をまとめて引く（1件ずつ引くとN+1になるため）

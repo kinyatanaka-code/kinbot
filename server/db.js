@@ -5003,7 +5003,22 @@ export async function setSmartLinkSetterEmail(slug, email) {
 }
 
 // アポ獲得者（setter）を手で変える。名前とメールの両方を上書きする（空にもできる）。
-// カレンダー予定を作り直したときに、その予定IDを覚える（以後のリスケで正しく動かせる）。
+// カレンダー予定が消えたアポも一覧に出すため、DB上のアポ（smart_links）を期間で引く。
+export async function listApoSmartLinks({ from, to } = {}) {
+  if (!pool) return [];
+  try {
+    const { rows } = await pool.query(
+      `SELECT slug, label, setter, setter_email, current_owner, event_id,
+              start_time, end_time, business, client_email, client_name, excluded,
+              COALESCE(apo_at, created_at) AS taken_at
+         FROM smart_links
+        WHERE COALESCE(mailmaga,false) = false
+          AND start_time IS NOT NULL
+          AND start_time >= $1 AND start_time <= $2
+        ORDER BY start_time`, [from, to]);
+    return rows;
+  } catch (e) { console.error("[db] listApoSmartLinks", e.message); return []; }
+}
 export async function setSmartLinkEventId(slug, eventId) {
   if (!pool || !slug) return null;
   try {
