@@ -8949,6 +8949,29 @@ export async function nurtureCountsByListName() {
   } catch (e) { console.error("[db] nurtureCountsByListName", e.message); return {}; }
 }
 
+// ナーチャリングのうち、今週（JSTの月〜日）に架電予定（next_call_at）が入っている件数を名前ごとに返す。
+export async function nurtureWeekPlanByListName() {
+  if (!pool) return {};
+  try {
+    const { rows } = await pool.query(
+      `WITH wk AS (SELECT date_trunc('week', (now() AT TIME ZONE 'Asia/Tokyo')) AS mon)
+       SELECT l.name, count(t.id)::int AS 件数
+         FROM call_lists l JOIN call_targets t ON t.list_id = l.id, wk
+        WHERE (l.name LIKE '【ナーチャリング】%' OR COALESCE(l.kind,'') = 'nurture')
+          AND t.done = false AND t.next_call_at IS NOT NULL
+          AND (t.next_call_at AT TIME ZONE 'Asia/Tokyo') >= wk.mon
+          AND (t.next_call_at AT TIME ZONE 'Asia/Tokyo') <  wk.mon + INTERVAL '7 days'
+        GROUP BY l.name`);
+    const out = {};
+    for (const r of rows) {
+      const nm = String(r.name || "").replace(/^【ナーチャリング】\s*/, "").trim();
+      if (!nm) continue;
+      out[nm] = (out[nm] || 0) + Number(r.件数 || 0);
+    }
+    return out;
+  } catch (e) { console.error("[db] nurtureWeekPlanByListName", e.message); return {}; }
+}
+
 // ナーチャリングリストに入っているが、条件（ジャッジ・営業フォロー）に合わないものを元へ戻す。
 // 「架電予定があるだけ」で移ってしまったリードを片付けるためのもの。
 export async function revertWrongNurture({ dryRun = true } = {}) {

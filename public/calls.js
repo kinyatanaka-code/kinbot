@@ -2051,6 +2051,7 @@ document.querySelectorAll("#dashPeriodTabs .kc-ptab").forEach((b) => b.addEventL
 // 週次の月選択
 if ($("dashWeekMonth")) $("dashWeekMonth").addEventListener("change", (e) => { dashWeekMonth = e.target.value; loadDash(); });
 let _nurtureByName = null;   // 名前 → ナーチャリング件数
+let _nurtureWeekByName = null;   // 名前 → 今週かける予定のナーチャリング件数
 function dashCard(c, big) {
   const diff = c.diff;
   const dcls = diff > 0 ? "kc-d-plus" : diff < 0 ? "kc-d-minus" : "kc-d-zero";
@@ -2093,8 +2094,10 @@ function dashCard(c, big) {
        </div>` : "";
   // ナーチャリング（育っている見込み）の件数。個人カードにだけ出す。
   const nurN = (!big && _nurtureByName) ? Number(_nurtureByName[String(c.label || "").trim()] || 0) : null;
+  const nurWeek = (!big && _nurtureWeekByName) ? Number(_nurtureWeekByName[String(c.label || "").trim()] || 0) : 0;
   const nurLine = (nurN !== null && dashPeriod !== "week")
-    ? `<div class="kc-nur-line" title="ジャッジ・営業フォローのリード数">ナーチャリング <b>${nurN.toLocaleString()}</b> 件</div>` : "";
+    ? `<div class="kc-nur-line" title="ジャッジ・営業フォローのリード数">ナーチャリング <b>${nurN.toLocaleString()}</b> 件</div>` +
+      `<div class="kc-nur-week" title="今週（月〜日）に架電予定が入っているナーチャリング">今週かける予定 <b>${nurWeek.toLocaleString()}</b> 件</div>` : "";
   return `<div class="kc-dcard${big ? " kc-dcard-big" : ""}${rankCls}" data-subj="${esc(c.key)}" data-label="${esc(c.label)}" data-periodkey="${esc(c.periodKey || "")}">
     <div class="kc-dname">${esc(c.label)}</div>
     ${dashPeriod === "week" ? "" : inc}
@@ -2113,6 +2116,7 @@ async function loadNurture(redraw) {
     if (d.error) throw new Error(d.error);
     // 【ナーチャリング】◯◯ のリストの件数を、そのまま名前ごとに持つ
     _nurtureByName = d.名前ごと || {};
+    _nurtureWeekByName = d.週予定名前ごと || {};
     if (typeof redraw === "function") redraw();
   } catch { _nurtureByName = _nurtureByName || {}; }
 }

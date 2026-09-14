@@ -356,6 +356,7 @@ import {
   searchSmartLinksByLabel,
   nurtureCountsByMember,
   nurtureCountsByListName,
+  nurtureWeekPlanByListName,
   nurtureMovedByDay,
   backfillNurtureMovedAt,
   nurtureDateDiag,
@@ -5590,7 +5591,7 @@ app.get("/api/calls/_nurturediag", async (req, res) => {
 app.get("/api/calls/nurture", async (req, res) => {
   try {
     // 【ナーチャリング】◯◯ のリストに入っている件数を、名前ごとにそのまま返す
-    res.json({ 名前ごと: await nurtureCountsByListName(), items: await nurtureCountsByMember() });
+    res.json({ 名前ごと: await nurtureCountsByListName(), 週予定名前ごと: await nurtureWeekPlanByListName(), items: await nurtureCountsByMember() });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 // 対象リードを、担当ごとの「【ナーチャリング】◯◯」リストへ移す。GET=試算、POST=実行。
@@ -20014,7 +20015,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-14d 担当者不在ランクによるリサイクル移動を実装。従来の「3回連続不在→リサイクル」を廃止し、A=即・B=2週間後・C=1ヶ月後に、同じグループの次の担当へローテーションで回す（移動先ではリサイクルA＝温度A・ランク解除）。ランクを付けた日時を起点にする。Aは記録した瞬間に移動、B/Cは30分ごとのスケジューラで期限が来たら移動。";
+const BUILD_TAG = "2026-09-14e 実績のメンバーカードで、ナーチャリング合計の下に「今週かける予定 ◯件」（今週＝月〜日に架電予定が入っているナーチャリングの件数）を表示するようにした。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
