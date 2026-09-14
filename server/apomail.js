@@ -532,6 +532,7 @@ export async function listTomorrowReminders(dateJst = "") {
     let 状態 = "送ります";
     if (r.reminded) 状態 = "送信済み";
     else if (r.no_reminder) 状態 = "送らない";
+    else if (/リスケ|キャンセル/.test(String(r.label || ""))) 状態 = "送らない（リスケ・キャンセル）";
     // 確定メールを送ったばかりなら、続けてリマインドを出さない
     else if (r.just_confirmed) 状態 = "案内したばかり";
     else if (!r.client_email) 状態 = "宛先がありません";
@@ -573,6 +574,11 @@ export async function runReminderSweep({ joinUrl, repNameOf } = {}) {
     if (sent >= cfg.maxPerRun) {
       console.warn(`[apo-mail] 1回あたりの上限 ${cfg.maxPerRun}件に達したため中断しました`);
       break;
+    }
+    // 予定名に「リスケ」「キャンセル」が入っているアポにはリマインドを送らない
+    if (/リスケ|キャンセル/.test(String(link.label || ""))) {
+      results.push({ slug: link.slug, ok: false, skipped: true, reason: "リスケ・キャンセルのため送信しません" });
+      continue;
     }
     const repName = repNameOf ? await repNameOf(link.current_owner) : link.current_owner;
     const r = await sendApoMail(link, "reminder", {
