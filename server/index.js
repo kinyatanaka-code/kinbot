@@ -99,7 +99,7 @@ import { fixMojibake } from "./docs.js";
 import { openDocView, beatDocViewAndNotify, recordOpen, recordClick, recordDownload, sweepStaleViews,
          PIXEL, docUrl, pixelUrl, clickUrl, fmtSeconds, topPages } from "./docs.js";
 import { transcribeFile, transcriberAvailable } from "./transcribe.js";
-import { createBot, leaveBot, parseTranscriptEvent, parseChatEvent, outputAudio, getRecordingUrl, getBot, getBotTranscript, getAudioUrl, getMediaForTranscript, listRecentBots, recallConnectionInfo, getRecallUsage, getLastRecallCreate } from "./recall.js";
+import { createBot, leaveBot, parseTranscriptEvent, parseChatEvent, outputAudio, getRecordingUrl, getBot, getBotTranscript, getAudioUrl, getMediaForTranscript, getBotLeaveReason, listRecentBots, recallConnectionInfo, getRecallUsage, getLastRecallCreate } from "./recall.js";
 import { createSession, getSession, removeSession, listActiveSessions, setOnMeetingFinalized } from "./sessions.js";
 import { scoreTranscript } from "./temperature.js";
 import { buildChapters } from "./chapters.js";
@@ -4355,6 +4355,15 @@ async function sfOperator(prefer = "") {
   }
   return "";
 }
+
+// 途中退出の原因調査：ボットの退出理由（Recallのstatus_changes）を返す
+app.get("/api/recall/leave-reason", async (req, res) => {
+  try {
+    const botId = String(req.query.botId || "").trim();
+    if (!botId) return res.status(400).json({ error: "botIdがありません" });
+    res.json({ ok: true, ...(await getBotLeaveReason(botId)) });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
 
 // ===== インサイド獲得アポが「有効商談」になったら獲得者へ通知 =====
 let _oppStageCache = { at: 0, idx: -1, names: [] };
@@ -19919,7 +19928,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-13r 週次ボード（天気予報）の「具体的な施策」を、1行入力から複数行の自動伸縮テキストに変更し、施策の全文が見えるようにした。";
+const BUILD_TAG = "2026-09-13s 録音ボットの途中退出対策。Recallの自動退出「全員退出したら退出」を30秒→5分に延長（画面共有切替・瞬断・ホスト交代などの一時的な参加者検知のブレで途中退出しにくくした）。録音できないままの退出も10分→15分に。加えて退出理由を調べる診断 /api/recall/leave-reason?botId= を追加。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",

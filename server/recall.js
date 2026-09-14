@@ -140,8 +140,8 @@ export async function createBot({
   const automaticLeave = {
     waiting_room_timeout: secs("RECALL_WAIT_ROOM_SEC", 420),               // 待機室で7分待って入れなければ退出
     noone_joined_timeout: secs("RECALL_NOONE_SEC", 420),                   // 誰も来なければ7分で退出
-    everyone_left_timeout: secs("RECALL_EVERYONE_LEFT_SEC", 30),           // 全員退出したら30秒で退出（一時的な回線切れで録音が切れないための余裕）
-    in_call_not_recording_timeout: secs("RECALL_NOT_RECORDING_SEC", 600),  // 録音できないまま10分たったら退出
+    everyone_left_timeout: secs("RECALL_EVERYONE_LEFT_SEC", 300),          // 全員退出したら5分で退出（画面共有切替・瞬断・ホスト交代などの一時的な参加者検知のブレで途中退出しないよう余裕を大きめに）
+    in_call_not_recording_timeout: secs("RECALL_NOT_RECORDING_SEC", 900),  // 録音できないまま15分たったら退出
     recording_permission_denied_timeout: secs("RECALL_PERM_DENIED_SEC", 120),
   };
 
@@ -394,6 +394,21 @@ export async function listRecentBots({ hours = 48, limit = 60 } = {}) {
       status: (ch.length ? ch[ch.length - 1].code : b?.status?.code) || "",
     };
   });
+}
+
+/** ボットがなぜ会議から出たか（退出理由）を返す。途中退出の原因調査に使う。 */
+export async function getBotLeaveReason(botId) {
+  if (!API_KEY) throw new Error("RECALL_API_KEY が未設定です");
+  const res = await fetch(`${BASE}/bot/${botId}`, { headers: headers() });
+  if (!res.ok) throw new Error(`Recall get bot ${res.status}`);
+  const b = await res.json().catch(() => ({}));
+  const ch = Array.isArray(b.status_changes) ? b.status_changes : [];
+  const last = ch[ch.length - 1] || {};
+  const leave = [...ch].reverse().find((c) => c && (c.sub_code || /call_ended|done|left|error|removed/i.test(String(c.code || "")))) || last;
+  return {
+    code: leave.code || "", sub_code: leave.sub_code || "", message: leave.message || "", at: leave.created_at || "",
+    changes: ch.map((c) => ({ code: c.code, sub_code: c.sub_code || "", at: c.created_at })),
+  };
 }
 
 /** 文字起こしを作り直すための音声（無ければ動画）のURLを返す */
