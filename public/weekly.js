@@ -84,7 +84,7 @@ function itemHtml(it) {
     <div class="wb-item-top">
       <label class="wb-chk"><input type="checkbox" class="wb-done"${it.done ? " checked" : ""} />
         <span>できた</span></label>
-      <input type="text" class="wb-text" value="${esc(it.text)}" />
+      <textarea class="wb-text" rows="1" placeholder="施策">${esc(it.text)}</textarea>
       <button type="button" class="wb-del" title="この施策を消す">✕</button>
     </div>
     <textarea class="wb-item-rv" rows="2" >${esc(it.review)}</textarea>
@@ -118,6 +118,12 @@ function wireCards(box) {
 function wireItem(el, card) {
   el.querySelectorAll(".wb-text, .wb-item-rv").forEach((x) =>
     x.addEventListener("change", () => saveCard(card)));
+  const txt = el.querySelector(".wb-text");
+  if (txt) {
+    const grow = () => { txt.style.height = "auto"; txt.style.height = Math.min(txt.scrollHeight, 260) + "px"; };
+    txt.addEventListener("input", grow);
+    requestAnimationFrame(grow);   // 表示時に内容の全文が見えるよう高さを合わせる
+  }
   const done = el.querySelector(".wb-done");
   if (done) done.addEventListener("change", () => {
     el.classList.toggle("done", done.checked);
