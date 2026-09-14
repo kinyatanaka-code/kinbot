@@ -3879,7 +3879,9 @@ async function salesCallHours(gcalOwner, email, dayStr, tanakaRule) {
   for (const e of evs) {
     if (e.allDay) continue;
     if (e.selfResponse === "declined") continue; // 参加拒否は空き扱い
-    if (!isBlockTitle(e.title)) continue;
+    const t = String(e.title || "");
+    if (/リスケ|キャンセル/.test(t)) continue;    // リスケ・キャンセルは空き扱い
+    if (!isBlockTitle(t)) continue;
     const s = Date.parse(e.start), en = Date.parse(e.end);
     if (isNaN(s) || isNaN(en)) continue;
     const os = Math.max(s, winS), oe = Math.min(en, winE);
@@ -7169,6 +7171,8 @@ async function busyOf(owner, days) {
     const evs = await listCalendarEvents(owner, "primary", { timeMin: from, timeMax: to });
     return (evs || [])
       .filter((e) => !e.allDay && e.start && e.end)
+      .filter((e) => e.selfResponse !== "declined")                     // 参加拒否は空き
+      .filter((e) => !/リスケ|キャンセル/.test(String(e.title || "")))   // リスケ・キャンセルは空き
       .map((e) => ({ start: e.start, end: e.end }));
   } catch (e) {
     console.warn(`[日程調整] カレンダーを読めません（${owner}）：${e.message}`);
@@ -9869,11 +9873,27 @@ app.get("/api/calls/slot-suggest", async (req, res) => {
     const now = new Date();
     const timeMin = now.toISOString();
     const timeMax = new Date(now.getTime() + 14 * 86400000).toISOString();
-    let fb = null, usedOwner = "";
+    let reader = "";
     for (const o of [...new Set(candOwners)]) {
-      try { fb = await freeBusy(o, emails, timeMin, timeMax); usedOwner = o; break; } catch (e) { /* 次の人で試す */ }
+      try { await listCalendarEvents(o, emails[0], { timeMin, timeMax }); reader = o; break; } catch (e) { /* 次の人で試す */ }
     }
-    if (!fb) return res.json({ ok: true, 候補: [], reason: "カレンダーの空きを取得できませんでした（Google連携をご確認ください）" });
+    if (!reader) return res.json({ ok: true, 候補: [], reason: "カレンダーの空きを取得できませんでした（Google連携をご確認ください）" });
+    // 各メンバーの「予定あり」区間を集める。リスケ・キャンセル・参加拒否・終日は空きとして扱う。
+    const busyByEmail = new Map();
+    for (const em of emails) {
+      try {
+        const evs = await listCalendarEvents(reader, em, { timeMin, timeMax });
+        const arr = [];
+        for (const e of evs || []) {
+          if (e.allDay || e.selfResponse === "declined") continue;
+          if (/リスケ|キャンセル/.test(String(e.title || ""))) continue;   // リスケ・キャンセルは空き
+          const s = Date.parse(e.start), en = Date.parse(e.end);
+          if (!isNaN(s) && !isNaN(en) && en > s) arr.push([s, en]);
+        }
+        busyByEmail.set(em, arr);
+      } catch { busyByEmail.set(em, []); }
+    }
+    const slotFree = (arr, sISO, eISO) => { const s = Date.parse(sISO), e = Date.parse(eISO); return !(arr || []).some(([bs, be]) => bs < e && be > s); };
 
     // 平日10-18時の1時間枠を作る（日本時間）。翌営業日以降だけ（今日は出さない）。
     // 1週目・2週目それぞれから、空きの良い日を3日ずつ選び、各日の「午前の代表枠」「午後の代表枠」を出す。
@@ -9894,7 +9914,7 @@ app.get("/api/calls/slot-suggest", async (req, res) => {
         const startISO = new Date(Date.UTC(y, mo, da, h - 9, 0, 0)).toISOString();
         const endISO = new Date(Date.UTC(y, mo, da, h - 9 + 1, 0, 0)).toISOString();
         const 空き = [];
-        for (const m of members) { const r = isSlotFree(fb, m.email, startISO, endISO, 0); if (r && r.free) 空き.push(m.name); }
+        for (const m of members) { if (slotFree(busyByEmail.get(m.email), startISO, endISO)) 空き.push(m.name); }
         daySlots.push({ startISO, hour: h, 空き人数: 空き.length, 空いている人: 空き });
       }
       byDay.set(dayKey, { week, ymd: [y, mo, da], daySlots });
@@ -19936,7 +19956,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-13v 時間変更で、営業担当の招待予定と獲得者の元予定の両方のGoogleカレンダーを動かすようにした（編集権限のある方だけ・best-effort）。表示は前回の修正で時間変更・獲得者変更とも即時反映＆保存される。";
+const BUILD_TAG = "2026-09-13w カレンダーの予定名に「リスケ」「キャンセル」が入っている予定は、空きとして判定するようにした。アポ割り振りの空き枠、お客様向けの空き時間、デイリー目標のセールス架電時間のすべてで、リスケ・キャンセル（および参加拒否・終日）は予定なし＝空き扱い。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
