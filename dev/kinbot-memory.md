@@ -768,3 +768,5 @@ kincall（架電リスト）という別ツールも同じ画面群の中にあ�
 - 2026-09-14 BUILD_TAG=2026-09-14a リスケ・キャンセルのアポはリマインドを送らない。apomail.js runReminderSweep：link.label が /リスケ|キャンセル/ なら skip（results に skipped:true 記録）。listTomorrowReminders：該当は 状態="送らない（リスケ・キャンセル）"・送る=false 表示。※前日リマインド自動送信の対象から除外。版20260914a。
 
 - 2026-09-14 BUILD_TAG=2026-09-14b 有効商談通知をインサイド獲得のみに限定。checkValidDeals：insideNames/insideEmails（listInterns＋members role=inside、正規化）を作り、isInside(c)=setter_email/ setter が一致するときだけ通知。インサイド以外の獲得は markValidNotified で既済化して通知しない（再チェックも避ける）。版20260914b。
+
+- 2026-09-14 BUILD_TAG=2026-09-14c 担当者不在ランク(A/B/C)を記録に追加。kincall記録フォーム(openTarget)：#kcReasonの下に #kcRankBox＋#kcAbsentRank(A/B/C＋説明)を追加、drawReasonで結果に「不在」を含むとき表示、#kcSaveで不在かつ未選択なら保存不可、payloadに absentRank。db.js call_targets に absent_rank/absent_rank_at 追加＋setCallTargetAbsentRank(id,rank)。index.js record：/不在/かつ b.absentRank で保存。ランク定義：A=戻り/次の時間が明確、B=探す・確認、C=即不在。※リサイクル移動(A即/B2週/C1ヶ月で他者の復活リストへ・リサイクルAとして)は未実装＝要design確認（既存の連続不在3回→89リサイクル/温度A/Bとの整合）。版20260914c。

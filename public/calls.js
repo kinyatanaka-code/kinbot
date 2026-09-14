@@ -1402,6 +1402,15 @@ async function openTarget(id, draft, opt) {
           ${結果の選択肢.map((k) => `<option value="${esc(k)}">${esc(k)}</option>`).join("")}
         </select>
         <div class="kc-reason" id="kcReason" hidden></div>
+        <div class="kc-rank" id="kcRankBox" hidden>
+          <div class="kc-lb">担当者不在ランク（必須）</div>
+          <select class="kc-input" id="kcAbsentRank">
+            <option value="">選んでください</option>
+            <option value="A">A：戻り時間や次にかけていい時間が明確</option>
+            <option value="B">B：探してくれる・確認してくれる</option>
+            <option value="C">C：即不在</option>
+          </select>
+        </div>
 
         <div class="kc-lb">説明（任意）</div>
         <textarea class="kc-input" id="kcMemo" rows="3" placeholder="担当者は佐藤様・14時以降が良いとのこと"></textarea>
@@ -1550,6 +1559,8 @@ async function openTarget(id, draft, opt) {
   const drawReason = async () => {
     if (!reasonBox) return;
     const v = picked();
+    const rankBox = m.el.querySelector("#kcRankBox");
+    if (rankBox) rankBox.hidden = !/不在/.test(v);   // 担当者不在のときだけABCランクを出す
     let title = "", kind = "";
     if (/お断り|断り/.test(v)) { title = "断り理由（押すとメモに追加）"; kind = "断り"; }
     else if (/不在/.test(v)) { title = "不在の状況（押すとメモに追加）"; kind = "不在"; }
@@ -1606,6 +1617,8 @@ async function openTarget(id, draft, opt) {
   m.el.querySelector("#kcSave").addEventListener("click", async () => {
     const 結果 = picked();
     if (!結果) { say("kcSaveSt", "結果を選んでください", 4000); return; }
+    const absentRank = (m.el.querySelector("#kcAbsentRank") || {}).value || "";
+    if (/不在/.test(結果) && !absentRank) { say("kcSaveSt", "担当者不在ランク（A・B・C）を選んでください", 4000); return; }
     const btn = m.el.querySelector("#kcSave");
     btn.disabled = true;
     say("kcSaveSt", "記録しています…");
@@ -1614,6 +1627,7 @@ async function openTarget(id, draft, opt) {
         method: "POST", headers: { "content-type": "application/json" },
         body: JSON.stringify({
           result: 結果,
+          absentRank,
           memo: m.el.querySelector("#kcMemo").value,
           status: m.el.querySelector("#kcStatus").value,
           // Salesforceのリードの状態も、この値で書き換える

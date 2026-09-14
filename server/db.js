@@ -698,6 +698,8 @@ export async function initDb() {
   await sq(`ALTER TABLE call_targets ADD COLUMN IF NOT EXISTS excluded_reason TEXT;`);         // 除外理由（死番/候補者専用番号等）
   await sq(`ALTER TABLE call_targets ADD COLUMN IF NOT EXISTS block_reception BOOLEAN NOT NULL DEFAULT false;`); // 受付ブロック（死番とは別）
   await sq(`ALTER TABLE call_targets ADD COLUMN IF NOT EXISTS consecutive_absent INT NOT NULL DEFAULT 0;`); // 連続不通回数
+  await sq(`ALTER TABLE call_targets ADD COLUMN IF NOT EXISTS absent_rank TEXT;`);        // 担当者不在ランク A/B/C
+  await sq(`ALTER TABLE call_targets ADD COLUMN IF NOT EXISTS absent_rank_at TIMESTAMPTZ;`); // そのランクを付けた日時（リサイクル移動の起点）
   await sq(`ALTER TABLE call_targets ADD COLUMN IF NOT EXISTS reject_tag     TEXT;`);          // 直近の断り理由タグ（recycle_rules.tag）
   await sq(`ALTER TABLE call_targets ADD COLUMN IF NOT EXISTS temperature    TEXT;`);          // 温度 A/B/C/卒業/連携
   await sq(`ALTER TABLE call_targets ADD COLUMN IF NOT EXISTS recall_count   INT NOT NULL DEFAULT 0;`); // 再架電回数
@@ -7888,6 +7890,13 @@ export async function setCallTargetAbsent(id, n) {
   if (!pool || !id) return;
   try { await pool.query(`UPDATE call_targets SET consecutive_absent=$2 WHERE id=$1`, [id, Math.max(0, parseInt(n, 10) || 0)]); }
   catch (e) { console.error("[db] setCallTargetAbsent", e.message); }
+}
+// 担当者不在ランク（A/B/C）を記録する。付けた日時も残す（リサイクル移動の起点にする）。
+export async function setCallTargetAbsentRank(id, rank) {
+  if (!pool || !id) return;
+  const r = ["A", "B", "C"].includes(String(rank || "").toUpperCase()) ? String(rank).toUpperCase() : null;
+  try { await pool.query(`UPDATE call_targets SET absent_rank=$2, absent_rank_at=now() WHERE id=$1`, [id, r]); }
+  catch (e) { console.error("[db] setCallTargetAbsentRank", e.message); }
 }
 
 // 断り理由タグと温度（A/B/C）を記録する。リサイクル復活の優先順に使う。

@@ -218,6 +218,7 @@ import {
   revertArchivedFromRevival,
   distributeRecycleToRevival,
   setCallTargetAbsent,
+  setCallTargetAbsentRank,
   setCallTargetRecycleInfo,
   findListsByNameSince,
   findRecentListByNameOwner,
@@ -10428,6 +10429,8 @@ app.post("/api/calls/targets/:id/record", async (req, res) => {
     if (/不在/.test(result)) 連続不在 += 1;
     else if (/接触/.test(result)) 連続不在 = 0;   // 担当者接触（お断り/フォロー/アポ等）で連続不在はリセット
     await setCallTargetAbsent(id, 連続不在).catch(() => {});
+    // 担当者不在ランク（A/B/C）を記録（リサイクル移動の判定に使う）
+    if (/不在/.test(result) && b.absentRank) await setCallTargetAbsentRank(id, b.absentRank).catch(() => {});
     let 自動ステージ = null;
     if (/現在使われて|現アナ|欠番|不通|使われていない番号/.test(result)) 自動ステージ = ARCHIVE_STAGE;  // 現在使われていない→アーカイブ
     else if (/お断り/.test(result)) 自動ステージ = RECYCLE_STAGE;
@@ -19968,7 +19971,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-14b 有効商談（案件化）の通知を、インサイドが獲得したアポだけに限定した。セールス等インサイド以外の獲得で有効商談になったものは通知しない（既済化のみ）。";
+const BUILD_TAG = "2026-09-14c kincallの記録で結果に「担当者不在」を選んだとき、担当者不在ランク（A/B/C）を必須で選ばせるプルダウンを追加した（A=戻り/次の時間が明確、B=探す・確認してくれる、C=即不在）。選んだランクをリードに保存し、今後のリサイクル移動の判定に使えるようにした。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
