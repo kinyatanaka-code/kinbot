@@ -270,6 +270,7 @@ function apoCard(a, i) {
               <button class="ap-more-item ap-sflink-menu" data-i="${i}">SF商談の紐付けを変更</button>
               <button class="ap-more-item ap-copy" data-url="${esc(a.smart_url)}">リンクをコピー</button>
               <button class="ap-more-item ap-takenat" data-slug="${esc(a.slug)}" data-i="${i}">取得日を直す</button>
+              <button class="ap-more-item ap-recreate" data-slug="${esc(a.slug)}">カレンダー予定を作り直す</button>
               <button class="ap-more-item ap-calonly" data-i="${i}" data-slug="${esc(a.slug)}">カレンダーだけ作る</button>
               <button class="ap-more-item ap-renotify" data-slug="${esc(a.slug)}">割り振り通知だけ再送</button>
               <button class="ap-more-item ap-why" data-slug="${esc(a.slug)}">メール・SF・通知の状態を調べる</button>
@@ -600,6 +601,17 @@ function bindCardEvents(card) {
       if (window.kbToast) kbToast("取得日を直しました（この日の獲得としてカウントされます）");
       renderApo();
     } catch (e) { alert("取得日の変更に失敗: " + e.message); }
+  });
+
+  const recreate = q(".ap-recreate");
+  if (recreate) recreate.addEventListener("click", async () => {
+    if (!confirm("消えたカレンダー予定を、獲得者のカレンダーに作り直します。よろしいですか。")) return;
+    try {
+      const r = await fetch(`/api/apo/${encodeURIComponent(recreate.dataset.slug)}/recreate-event`, { method: "POST" });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.error || "作れませんでした");
+      if (window.kbToast) kbToast(`カレンダーに予定を作り直しました（${d.owner || ""}）`);
+    } catch (e) { alert("作り直しに失敗: " + e.message); }
   });
 
   // 「⋯」その他の操作メニューの開閉

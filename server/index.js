@@ -305,6 +305,7 @@ import {
   setSmartLinkSetterEmail,
   setSmartLinkSetter,
   setSmartLinkApoAt,
+  setSmartLinkEventId,
   clearInviteEvent,
   linksWithInvite,
   setApoAt,
@@ -19957,7 +19958,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-13x アポの取得日を直せるようにした。アポ一覧のカードの「⋯」→「取得日を直す」で、実際に取った日に修正できる（取得日でカウントされるため、日付がズレた分を正せる）。取得日はその予定のGoogleカレンダー作成日から決まるので、予定を作り直すと今日になる場合があり、その修正用。";
+const BUILD_TAG = "2026-09-13y 消えたカレンダー予定を作り直せるようにした。アポ一覧のカードの「⋯」→「カレンダー予定を作り直す」で、獲得者(連携があれば)のGoogleカレンダーに、そのアポの日時で予定を再作成する（田中の予定が消えた等の復旧用）。アポのデータ自体はkinbotに残っているので、それを元に作る。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
@@ -25037,6 +25038,32 @@ app.get("/api/smart-links/setters", async (req, res) => {
 });
 
 // アポ獲得者（setter）を手で変える。名前は必須、メールは任意（候補から選ぶと両方入る）。
+// 消えたカレンダー予定を作り直す（獲得者のカレンダーに、アポの日時で予定を再作成する）
+app.post("/api/apo/:slug/recreate-event", async (req, res) => {
+  try {
+    const link = await getSmartLink(req.params.slug);
+    if (!link) return res.status(404).json({ error: "見つかりません" });
+    if (!link.start_time) return res.status(400).json({ error: "商談日時が無いため作れません（先に日程を設定してください）" });
+    // 作る先＝獲得者のカレンダー（連携済みなら）。無ければ担当→操作者。
+    const cands = [String(link.setter_email || "").toLowerCase(), String(link.current_owner || "").toLowerCase(), String(req.user || "").toLowerCase()].filter(Boolean);
+    let owner = "", lastErr = "";
+    for (const o of [...new Set(cands)]) { if (await gcalConnected(o).catch(() => false)) { owner = o; break; } }
+    if (!owner) return res.status(400).json({ error: "作成先のGoogle連携が見つかりません（獲得者・担当・操作者のいずれかを連携してください）" });
+    let ev;
+    try {
+      ev = await createCalendarEvent(owner, {
+        summary: link.label || "商談",
+        start: link.start_time,
+        end: link.end_time || null,
+        guests: [],
+        sendUpdates: "none",
+      });
+    } catch (e) { return res.status(502).json({ error: e.message }); }
+    if (ev && ev.id) await setSmartLinkEventId(req.params.slug, ev.id);
+    console.log(`[apo] ${req.params.slug} のカレンダー予定を作り直し（${owner}）by ${req.user}`);
+    res.json({ ok: true, owner, eventId: ev && ev.id });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
 // アポの取得日を直す（取得日でカウントされるため、実際に取った日に合わせる）
 app.put("/api/apo/:slug/taken-at", async (req, res) => {
   try {
