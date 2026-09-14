@@ -19928,7 +19928,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-13t アポ一覧で日程変更（リスケ）したら、ページを再読み込みせず、その場でカードの時刻表示と商談日グループを瞬時に更新するようにした。";
+const BUILD_TAG = "2026-09-13u アポ獲得者を変更しても再読み込みで元に戻る不具合を修正。一覧が獲得者をカレンダーの持ち主から毎回再計算していたのを、手動で変更・保存した獲得者(smart_links.setter)を優先して表示するようにした。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
@@ -22793,7 +22793,8 @@ async function collectApoAppointments(scanOwner, opts = {}) {
         }
         items.push({
           event_id: ev.id,
-          setter_name: st.name,
+          setter_name: link.setter || st.name,          // 手動で変えた獲得者(保存済み)を優先。無ければカレンダーの持ち主
+          setter_email: link.setter_email || st.email || "",
           title: ev.title,
           start: ev.start,
           created: ev.created || "",
