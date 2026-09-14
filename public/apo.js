@@ -564,7 +564,12 @@ function bindCardEvents(card) {
         const d = await r.json();
         if (!r.ok) throw new Error(d.error || "できませんでした");
         st.textContent = "変更しました";
-        setTimeout(() => location.reload(), 700);
+        // カードの日時を瞬時に反映（時刻表示・商談日グループを即更新。ページ再読み込みしない）
+        const card = resched.closest(".ap-card");
+        const idx = card ? Number(card.dataset.i) : -1;
+        if (idx >= 0 && apState.appts[idx]) { apState.appts[idx].start = iso; apState.appts[idx].start_time = iso; }
+        close();
+        renderApo();
       } catch (e) { st.textContent = "失敗：" + e.message; }
     });
   });
