@@ -1041,7 +1041,7 @@ app.get("/api/me", async (req, res) => {
     admin: !!req.isAdmin,
     // 「kincallだけ」の人（インターン生など）
     kincallOnly: !!req.kincallOnly,
-    canHideLists: canHideLists(req),   // リストの表示・非表示を変えられるか
+    canHideLists: canHideLists(req) || closer,   // リストの表示・非表示を変えられるか（クローザーも可）
     // クローザー（リスト追加ができる）
     closer: closer || !!req.isAdmin || isAlwaysCloser(req.user),
     // リストを他メンバーへ割り振れる人（クローザー・管理者＋インサイド担当）
@@ -7416,7 +7416,7 @@ const CALL_RESULTS = [
 // リストの一覧
 // リストの表示／非表示を切り替えられる人。管理者＋環境変数 LIST_HIDE_USERS（カンマ区切りのメール）。
 function canHideLists(req) {
-  if (req.isAdmin) return true;
+  if (req.isAdmin || req.actingCloser || isAlwaysCloser(req.user)) return true;
   const allow = String(process.env.LIST_HIDE_USERS || "")
     .split(",").map((x) => x.trim().toLowerCase()).filter(Boolean);
   return allow.includes(String(req.user || "").toLowerCase());
@@ -7424,7 +7424,7 @@ function canHideLists(req) {
 // リストの表示／非表示（データは消さない）。決められた人だけが操作できる。
 app.put("/api/calls/lists/:id/hidden", async (req, res) => {
   try {
-    if (!canHideLists(req)) return res.status(403).json({ error: "このリストの表示・非表示を変えられるのは、決められた人だけです" });
+    if (!canHideLists(req) && !(await isCloserUser(req.user).catch(() => false))) return res.status(403).json({ error: "このリストの表示・非表示を変えられるのは、決められた人だけです" });
     const id = parseInt(req.params.id, 10);
     if (!id) return res.status(400).json({ error: "リストがわかりません" });
     const r = await setCallListHidden(id, req.body?.hidden === true);
@@ -20015,7 +20015,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-14e 実績のメンバーカードで、ナーチャリング合計の下に「今週かける予定 ◯件」（今週＝月〜日に架電予定が入っているナーチャリングの件数）を表示するようにした。";
+const BUILD_TAG = "2026-09-14f リストの表示／非表示（非表示ボタン）を、管理者だけでなくクローザーも使えるようにした。リスト管理の各リストカードに「非表示にする／表示にする」が出る（中身は消えず、かける画面・一覧から見えなくなるだけ）。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
