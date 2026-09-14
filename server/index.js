@@ -3412,14 +3412,22 @@ app.post("/api/apo/:slug/reschedule", async (req, res) => {
     // カレンダーの予定も動かす（できたときだけ・失敗しても記録は変わったまま）
     let カレンダー = "";
     try {
-      const owner = link.invite_event_owner || link.current_owner || req.user;
-      const evId = link.invite_event_id || link.event_id;
-      if (owner && evId) {
-        const 分 = 60;
-        const endISO = new Date(new Date(startISO).getTime() + 分 * 60000).toISOString();
-        await patchCalendarEvent(owner, evId, { start: { dateTime: startISO, timeZone: "Asia/Tokyo" }, end: { dateTime: endISO, timeZone: "Asia/Tokyo" } });
-        カレンダー = "カレンダーの予定も動かしました";
+      const 分 = 60;
+      const endISO = new Date(new Date(startISO).getTime() + 分 * 60000).toISOString();
+      const patch = { start: { dateTime: startISO, timeZone: "Asia/Tokyo" }, end: { dateTime: endISO, timeZone: "Asia/Tokyo" } };
+      const patched = [];
+      // 営業担当の招待予定（kinbotが作ったもの＝動かせる）
+      if (link.invite_event_id) {
+        try { await patchCalendarEvent(link.invite_event_owner || link.current_owner || req.user, link.invite_event_id, patch); patched.push("担当"); }
+        catch (e) { console.warn("[reschedule] 招待予定", e.message); }
       }
+      // 獲得者の元の予定（読み取り代表者に編集権限があるときだけ）
+      if (link.event_id) {
+        const reader = (await dailyCalendarReader().catch(() => "")) || req.user;
+        try { await patchCalendarEvent(reader, link.event_id, patch); patched.push("獲得者"); }
+        catch (e) { console.warn("[reschedule] 元予定", e.message); }
+      }
+      カレンダー = patched.length ? `カレンダー（${patched.join("・")}）も動かしました` : "カレンダーは動かせませんでした（編集権限が無い可能性）";
     } catch (e) { カレンダー = `カレンダーは動かせませんでした（${e.message}）`; }
 
     const fmt = (v) => { const d = new Date(v); if (isNaN(d.getTime())) return ""; const j = new Date(d.getTime() + 9 * 3600000); const p2 = (n) => String(n).padStart(2, "0"); const w = ["日", "月", "火", "水", "木", "金", "土"][j.getUTCDay()]; return `${j.getUTCMonth() + 1}/${j.getUTCDate()}(${w}) ${p2(j.getUTCHours())}:${p2(j.getUTCMinutes())}`; };
@@ -19928,7 +19936,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-13u アポ獲得者を変更しても再読み込みで元に戻る不具合を修正。一覧が獲得者をカレンダーの持ち主から毎回再計算していたのを、手動で変更・保存した獲得者(smart_links.setter)を優先して表示するようにした。";
+const BUILD_TAG = "2026-09-13v 時間変更で、営業担当の招待予定と獲得者の元予定の両方のGoogleカレンダーを動かすようにした（編集権限のある方だけ・best-effort）。表示は前回の修正で時間変更・獲得者変更とも即時反映＆保存される。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",

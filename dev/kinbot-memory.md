@@ -754,3 +754,5 @@ kincall（架電リスト）という別ツールも同じ画面群の中にあ�
 - 2026-09-13 BUILD_TAG=2026-09-13t アポ一覧のリスケ後を即時反映に。apo.js リスケ成功時：location.reload()（700ms待ち）をやめ、resched.closest(".ap-card").dataset.i で対象を特定→apState.appts[idx].start/start_time=iso 更新→close()→renderApo()（一覧再描画＝時刻表示 .ap-c2-time と商談日グループ a.start.slice(0,10) が瞬時に更新、bindCardEvents で再バインド）。版20260913t。
 
 - 2026-09-13 BUILD_TAG=2026-09-13u アポ獲得者の手動変更が反映されない/戻る不具合を修正。原因：/api/apo/pickup(collectApoAppointments)が item.setter_name を常に st.name（カレンダー持ち主）で返し、手動変更で保存した smart_links.setter を無視していた。対応：setter_name = link.setter || st.name、setter_email = link.setter_email || st.email を返すように（保存済みの手動獲得者を優先）。これで .ap-setter 変更→PUT /api/smart-links/:slug/setter 保存が再読込後も維持される。版20260913u。
+
+- 2026-09-13 BUILD_TAG=2026-09-13v reschedule のカレンダー移動を両方に。invite_event_id(担当の招待＝kinbot作成で編集可)と event_id(獲得者の元予定＝dailyCalendarReader/代表者で編集権限があるときだけ)を両方 patchCalendarEvent。best-effort（権限無しは各々catch）。※獲得者の元予定はカレンダー共有が編集権限でないと動かせない（Google仕様）。表示側は 20260913t(reschedule即renderApo)+20260913u(pickupがlink.setter優先)で即時反映＆保存済み。ユーザー要望「獲得者変更→その人のカレンダーに入れ、営業担当のカレンダーも移動」はクロスユーザーのカレンダー移動で、新獲得者のGoogle連携か編集権限共有が必要＝要相談（未実装）。版20260913v。
